@@ -108,7 +108,10 @@ export function normalizeAngle(angle: number): number {
 
 /** angle が center を中心に ±halfWidth の範囲にあるか(360 跨ぎ対応) */
 export function angleInBand(angle: number, center: number, halfWidth: number): boolean {
-  const delta = ((angle - center + 180) % 360) - 180;
+  // (((x % 360) + 360) % 360) で必ず正の剰余にしてから -180 し、delta を (-180, 180] に
+  // 正規化する。素の `% 360` だけだと JS の剰余が被除数の符号を保持するため、
+  // angle < center - 180 の側で wrap を取り違える(片側wrap)。
+  const delta = ((((angle - center + 180) % 360) + 360) % 360) - 180;
   return Math.abs(delta) <= halfWidth;
 }
 
