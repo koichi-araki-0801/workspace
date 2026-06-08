@@ -1,0 +1,46 @@
+@page {
+  size: A4;
+  margin: 18mm 16mm;
+}
+body {
+  font-family: 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+  color: #1f2937;
+}
+.report-header {
+  border-bottom: 3px solid #1d4ed8;
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+}
+.report-title {
+  font-size: 20pt;
+  color: #1d4ed8;
+}
+.report-meta {
+  font-size: 9pt;
+  color: #6b7280;
+}
+.nav {
+  font-size: 24pt;
+  font-weight: bold;
+}
+.nav-change.up {
+  color: #b91c1c;
+}
+.nav-change.down {
+  color: #1d4ed8;
+}
+.holdings-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.holdings-table th,
+.holdings-table td {
+  border: 1px solid #d1d5db;
+  padding: 4px 8px;
+  font-size: 10pt;
+}
+.report-footer {
+  margin-top: 24px;
+  font-size: 8pt;
+  color: #9ca3af;
+}

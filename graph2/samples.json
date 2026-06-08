@@ -1,0 +1,959 @@
+{
+  "asset_domestic_equity_pdf": {
+    "description": "資産配分PDF実データ・3スライス・97.8/1.5/0.7 の極端 one-dominant + tiny tiny",
+    "items": [
+      { "name": "国内株式", "value": 97.8 },
+      { "name": "国内株式先物", "value": 1.5 },
+      { "name": "国内投資信託証券", "value": 0.7 }
+    ]
+  },
+  "asset_jreit_pdf": {
+    "description": "J-REIT PDF実データ・2スライス・96.5/3.5 の one-dominant 2分割",
+    "items": [
+      { "name": "国内投資信託証券", "value": 96.5 },
+      { "name": "J-REIT先物", "value": 3.5 }
+    ]
+  },
+  "asset_foreign_equity_pdf": {
+    "description": "外国株式PDF実データ・3スライス・96.4/3.4/0.2 の極端 one-dominant + 0.2% 極小",
+    "items": [
+      { "name": "外国株式", "value": 96.4 },
+      { "name": "外国株式先物", "value": 3.4 },
+      { "name": "その他", "value": 0.2 }
+    ]
+  },
+  "asset_foreign_bond_pdf": {
+    "description": "外国債券PDF実データ・2スライス・99.1/0.9 の極端 one-dominant",
+    "items": [
+      { "name": "外国債券", "value": 99.1 },
+      { "name": "その他", "value": 0.9 }
+    ]
+  },
+  "asset_gold_hedged_pdf_like": {
+    "description": "金ヘッジPDF風・2スライス・99.2/0.8 の極端 one-dominant",
+    "items": [
+      { "name": "外国投資信託証券", "value": 99.2 },
+      { "name": "その他", "value": 0.8 }
+    ]
+  },
+  "asset_gbca_pdf_like": {
+    "description": "GBCAファンドPDF風・6スライス・債券先物複数の現実的バランス",
+    "items": [
+      { "name": "債券現物(日本)", "value": 30.8 },
+      { "name": "債券先物(イギリス)", "value": 41.8 },
+      { "name": "債券先物(ドイツ)", "value": 11 },
+      { "name": "債券先物(アメリカ)", "value": 9.2 },
+      { "name": "債券先物(日本)", "value": 3.7 },
+      { "name": "短期金融資産等", "value": 3.5 }
+    ]
+  },
+  "asset_balanced_6": {
+    "description": "資産6種・balanced 28-10・大小スライスが滑らかに減少",
+    "items": [
+      { "name": "株式", "value": 28 },
+      { "name": "債券", "value": 22 },
+      { "name": "REIT", "value": 16 },
+      { "name": "コモディティ", "value": 14 },
+      { "name": "短期金融資産", "value": 10 },
+      { "name": "その他", "value": 10 }
+    ]
+  },
+  "asset_balanced_8": {
+    "description": "資産8種・balanced 24-5・dense 閾値手前(8slices)",
+    "items": [
+      { "name": "株式", "value": 24 },
+      { "name": "債券", "value": 19 },
+      { "name": "REIT", "value": 15 },
+      { "name": "コモディティ", "value": 12 },
+      { "name": "短期金融資産", "value": 10 },
+      { "name": "先物", "value": 8 },
+      { "name": "オプション", "value": 7 },
+      { "name": "その他", "value": 5 }
+    ]
+  },
+  "asset_mixed_9": {
+    "description": "国内外資産9種・balanced 18-5・dense_items(≥9)閾値ちょうど",
+    "items": [
+      { "name": "国内株式", "value": 18 },
+      { "name": "外国株式", "value": 17 },
+      { "name": "国内債券", "value": 16 },
+      { "name": "外国債券", "value": 14 },
+      { "name": "国内リート", "value": 9 },
+      { "name": "海外リート", "value": 8 },
+      { "name": "コモディティ", "value": 7 },
+      { "name": "ヘッジファンド", "value": 6 },
+      { "name": "その他", "value": 5 }
+    ]
+  },
+  "asset_mixed_10": {
+    "description": "国内外資産10種・mixed 15-7・many_items",
+    "items": [
+      { "name": "国内株式", "value": 15 },
+      { "name": "外国株式", "value": 14 },
+      { "name": "新興国株式", "value": 8 },
+      { "name": "国内債券", "value": 13 },
+      { "name": "外国債券", "value": 12 },
+      { "name": "国内リート", "value": 7 },
+      { "name": "海外リート", "value": 7 },
+      { "name": "コモディティ", "value": 6 },
+      { "name": "ヘッジファンド", "value": 8 },
+      { "name": "その他", "value": 10 }
+    ]
+  },
+  "asset_11_mixed": {
+    "description": "資産11種・mixed 20-3・ultra_dense_items(≥11)閾値ちょうど",
+    "items": [
+      { "name": "株式", "value": 20 },
+      { "name": "債券", "value": 18 },
+      { "name": "REIT", "value": 14 },
+      { "name": "コモディティ", "value": 10 },
+      { "name": "短期金融資産", "value": 8 },
+      { "name": "為替予約", "value": 6 },
+      { "name": "先物", "value": 5 },
+      { "name": "オプション", "value": 5 },
+      { "name": "現金", "value": 4 },
+      { "name": "未収収益", "value": 3 },
+      { "name": "その他", "value": 7 }
+    ]
+  },
+  "asset_12_long_and_tiny": {
+    "description": "資産12種・最大スケール・長ラベル(7-9字) + tiny tail (3-5%)",
+    "items": [
+      { "name": "先進国大型株式", "value": 17 },
+      { "name": "国内中長期債券", "value": 15 },
+      { "name": "海外不動産投資信託", "value": 12 },
+      { "name": "商品先物関連資産", "value": 10 },
+      { "name": "短期金融商品", "value": 8 },
+      { "name": "為替ヘッジ付資産", "value": 7 },
+      { "name": "未収収益関連", "value": 6 },
+      { "name": "店頭デリバティブ", "value": 5 },
+      { "name": "店頭オプション", "value": 4 },
+      { "name": "店頭先渡契約", "value": 4 },
+      { "name": "差入保証金", "value": 3 },
+      { "name": "その他資産", "value": 9 }
+    ]
+  },
+  "asset_top_heavy_7": {
+    "description": "資産7種・top-heavy 42-4・先頭スライスが優位",
+    "items": [
+      { "name": "株式", "value": 42 },
+      { "name": "債券", "value": 24 },
+      { "name": "REIT", "value": 11 },
+      { "name": "コモディティ", "value": 8 },
+      { "name": "短期金融資産", "value": 6 },
+      { "name": "先物", "value": 5 },
+      { "name": "その他", "value": 4 }
+    ]
+  },
+  "asset_lower_tight_10": {
+    "description": "資産10種・balanced 24-5・下部の percentile diff が小さい(lower_gap_tight 候補)",
+    "items": [
+      { "name": "株式", "value": 24 },
+      { "name": "債券", "value": 19 },
+      { "name": "REIT", "value": 12 },
+      { "name": "コモディティ", "value": 10 },
+      { "name": "短期金融資産", "value": 8 },
+      { "name": "先物", "value": 6 },
+      { "name": "オプション", "value": 5 },
+      { "name": "現金", "value": 5 },
+      { "name": "未収収益", "value": 5 },
+      { "name": "その他", "value": 6 }
+    ]
+  },
+  "asset_long_labels_9": {
+    "description": "資産9種・全ラベル 6-9字 long_label(≥7)・dense",
+    "items": [
+      { "name": "先進国大型株式", "value": 21 },
+      { "name": "国内中長期債券", "value": 18 },
+      { "name": "海外不動産投資信託", "value": 14 },
+      { "name": "商品先物関連資産", "value": 11 },
+      { "name": "短期金融商品", "value": 9 },
+      { "name": "為替ヘッジ付資産", "value": 8 },
+      { "name": "未収収益関連", "value": 7 },
+      { "name": "店頭デリバティブ", "value": 6 },
+      { "name": "その他資産", "value": 6 }
+    ]
+  },
+  "asset_many_small_12": {
+    "description": "資産12種・many small 18-4・ultra_dense + 多数 tiny",
+    "items": [
+      { "name": "株式", "value": 18 },
+      { "name": "債券", "value": 15 },
+      { "name": "REIT", "value": 11 },
+      { "name": "コモディティ", "value": 9 },
+      { "name": "短期金融資産", "value": 8 },
+      { "name": "先物", "value": 7 },
+      { "name": "オプション", "value": 6 },
+      { "name": "現金", "value": 5 },
+      { "name": "未収収益", "value": 5 },
+      { "name": "未払費用", "value": 4 },
+      { "name": "保証金", "value": 4 },
+      { "name": "その他", "value": 8 }
+    ]
+  },
+  "currency_gbca_pdf": {
+    "description": "GBCAファンドPDF実データ・通貨4種・91.5/3.6/2.5/2.4 one-dominant + tiny 3個",
+    "items": [
+      { "name": "円", "value": 91.5 },
+      { "name": "米ドル", "value": 3.6 },
+      { "name": "イギリスポンド", "value": 2.5 },
+      { "name": "ユーロ", "value": 2.4 }
+    ]
+  },
+  "currency_foreign_equity_pdf": {
+    "description": "外国株式PDF実データ・通貨6種・米ドル76.9% one-dominant",
+    "items": [
+      { "name": "米ドル", "value": 76.9 },
+      { "name": "ユーロ", "value": 8.6 },
+      { "name": "イギリスポンド", "value": 3.8 },
+      { "name": "カナダドル", "value": 3.6 },
+      { "name": "スイスフラン", "value": 2.4 },
+      { "name": "その他", "value": 4.6 }
+    ]
+  },
+  "currency_usd_hedged_pdf_like": {
+    "description": "米ドルヘッジPDF風・2スライス・99.1/0.9 one-dominant 2分割",
+    "items": [
+      { "name": "米ドル", "value": 99.1 },
+      { "name": "円", "value": 0.9 }
+    ]
+  },
+  "currency_balanced_5": {
+    "description": "通貨5種・top-heavy 62-4・円が優位",
+    "items": [
+      { "name": "円", "value": 62 },
+      { "name": "米ドル", "value": 20 },
+      { "name": "ユーロ", "value": 9 },
+      { "name": "イギリスポンド", "value": 5 },
+      { "name": "その他", "value": 4 }
+    ]
+  },
+  "currency_balanced_7": {
+    "description": "通貨7種・balanced 38-4・円が首位",
+    "items": [
+      { "name": "円", "value": 38 },
+      { "name": "米ドル", "value": 27 },
+      { "name": "ユーロ", "value": 14 },
+      { "name": "イギリスポンド", "value": 8 },
+      { "name": "豪ドル", "value": 5 },
+      { "name": "カナダドル", "value": 4 },
+      { "name": "その他", "value": 4 }
+    ]
+  },
+  "currency_many_small_10": {
+    "description": "通貨10種・many_items + tiny tail (≤4%)",
+    "items": [
+      { "name": "円", "value": 36 },
+      { "name": "米ドル", "value": 24 },
+      { "name": "ユーロ", "value": 13 },
+      { "name": "イギリスポンド", "value": 7 },
+      { "name": "豪ドル", "value": 5 },
+      { "name": "カナダドル", "value": 4 },
+      { "name": "スイスフラン", "value": 3 },
+      { "name": "スウェーデンクローナ", "value": 3 },
+      { "name": "ノルウェークローネ", "value": 2 },
+      { "name": "その他", "value": 3 }
+    ]
+  },
+  "currency_europe_heavy_8": {
+    "description": "通貨8種・euro 31% で先頭・balanced・欧州通貨密集",
+    "items": [
+      { "name": "ユーロ", "value": 31 },
+      { "name": "イギリスポンド", "value": 18 },
+      { "name": "スイスフラン", "value": 11 },
+      { "name": "スウェーデンクローナ", "value": 8 },
+      { "name": "ノルウェークローネ", "value": 7 },
+      { "name": "デンマーククローネ", "value": 6 },
+      { "name": "円", "value": 9 },
+      { "name": "その他", "value": 10 }
+    ]
+  },
+  "currency_usd_heavy_9": {
+    "description": "通貨9種・米ドル58% one-dominant + 多数 tiny",
+    "items": [
+      { "name": "米ドル", "value": 58 },
+      { "name": "円", "value": 14 },
+      { "name": "ユーロ", "value": 8 },
+      { "name": "イギリスポンド", "value": 6 },
+      { "name": "カナダドル", "value": 4 },
+      { "name": "豪ドル", "value": 3 },
+      { "name": "スイスフラン", "value": 2.5 },
+      { "name": "香港ドル", "value": 2 },
+      { "name": "その他", "value": 2.5 }
+    ]
+  },
+  "currency_long_labels_8": {
+    "description": "通貨8種・全ラベル 4-10字 long/very_long_label",
+    "items": [
+      { "name": "日本円", "value": 42 },
+      { "name": "米ドル", "value": 24 },
+      { "name": "ユーロ", "value": 11 },
+      { "name": "イギリスポンド", "value": 7 },
+      { "name": "カナダドル", "value": 5 },
+      { "name": "スイスフラン", "value": 4 },
+      { "name": "オーストラリアドル", "value": 4 },
+      { "name": "その他通貨", "value": 3 }
+    ]
+  },
+  "currency_low_diff_10": {
+    "description": "通貨10種・上位の diff が小さい balanced・tight-pack 候補",
+    "items": [
+      { "name": "円", "value": 32 },
+      { "name": "米ドル", "value": 20 },
+      { "name": "ユーロ", "value": 10 },
+      { "name": "イギリスポンド", "value": 8 },
+      { "name": "豪ドル", "value": 6 },
+      { "name": "カナダドル", "value": 5 },
+      { "name": "スイスフラン", "value": 5 },
+      { "name": "香港ドル", "value": 4 },
+      { "name": "シンガポールドル", "value": 4 },
+      { "name": "その他", "value": 6 }
+    ]
+  },
+  "country_ireland_only": {
+    "description": "国1種・100% アイルランド・single + 6字長ラベル",
+    "items": [
+      { "name": "アイルランド", "value": 100 }
+    ]
+  },
+  "country_foreign_equity_pdf": {
+    "description": "外国株式PDF実データ・国6種・アメリカ77% one-dominant",
+    "items": [
+      { "name": "アメリカ", "value": 77 },
+      { "name": "イギリス", "value": 3.8 },
+      { "name": "カナダ", "value": 3.6 },
+      { "name": "フランス", "value": 3.3 },
+      { "name": "スイス", "value": 2.4 },
+      { "name": "その他", "value": 10 }
+    ]
+  },
+  "country_balanced_6": {
+    "description": "国6種・balanced 34-9・アメリカ首位",
+    "items": [
+      { "name": "アメリカ", "value": 34 },
+      { "name": "日本", "value": 22 },
+      { "name": "英国", "value": 13 },
+      { "name": "ドイツ", "value": 11 },
+      { "name": "フランス", "value": 9 },
+      { "name": "その他", "value": 11 }
+    ]
+  },
+  "country_balanced_7": {
+    "description": "国7種・balanced 24-7・米国首位",
+    "items": [
+      { "name": "米国", "value": 24 },
+      { "name": "日本", "value": 20 },
+      { "name": "英国", "value": 16 },
+      { "name": "ドイツ", "value": 14 },
+      { "name": "フランス", "value": 11 },
+      { "name": "カナダ", "value": 8 },
+      { "name": "その他", "value": 7 }
+    ]
+  },
+  "country_europe_heavy_8": {
+    "description": "国8種・欧州8国・balanced 20-7・短ラベル中心",
+    "items": [
+      { "name": "ドイツ", "value": 20 },
+      { "name": "フランス", "value": 17 },
+      { "name": "英国", "value": 14 },
+      { "name": "イタリア", "value": 10 },
+      { "name": "スペイン", "value": 9 },
+      { "name": "オランダ", "value": 8 },
+      { "name": "スイス", "value": 7 },
+      { "name": "その他", "value": 15 }
+    ]
+  },
+  "country_many_small_10": {
+    "description": "国10種・many small 28-4・many_items + tiny tail",
+    "items": [
+      { "name": "アメリカ", "value": 28 },
+      { "name": "日本", "value": 19 },
+      { "name": "英国", "value": 11 },
+      { "name": "ドイツ", "value": 10 },
+      { "name": "フランス", "value": 8 },
+      { "name": "カナダ", "value": 6 },
+      { "name": "豪州", "value": 5 },
+      { "name": "スイス", "value": 4 },
+      { "name": "オランダ", "value": 4 },
+      { "name": "その他", "value": 5 }
+    ]
+  },
+  "country_12_europe_heavy": {
+    "description": "国12種・欧州12国・ultra_dense + 多数 tiny",
+    "items": [
+      { "name": "ドイツ", "value": 18 },
+      { "name": "フランス", "value": 16 },
+      { "name": "英国", "value": 13 },
+      { "name": "スペイン", "value": 10 },
+      { "name": "イタリア", "value": 9 },
+      { "name": "オランダ", "value": 8 },
+      { "name": "ベルギー", "value": 5 },
+      { "name": "スイス", "value": 5 },
+      { "name": "スウェーデン", "value": 3 },
+      { "name": "ノルウェー", "value": 3 },
+      { "name": "デンマーク", "value": 2 },
+      { "name": "その他", "value": 8 }
+    ]
+  },
+  "country_upper_left_dense_8": {
+    "description": "国8種・米国32% で upper-left に小スライス複数集中(upper_left_small_dense 候補)",
+    "items": [
+      { "name": "米国", "value": 32 },
+      { "name": "日本", "value": 16 },
+      { "name": "英国", "value": 11 },
+      { "name": "ドイツ", "value": 10 },
+      { "name": "フランス", "value": 9 },
+      { "name": "イタリア", "value": 8 },
+      { "name": "スペイン", "value": 7 },
+      { "name": "その他", "value": 7 }
+    ]
+  },
+  "country_right_dense_9": {
+    "description": "国9種・米国20% + 中サイズ多数で右側集中(one_side_dense 候補)",
+    "items": [
+      { "name": "米国", "value": 20 },
+      { "name": "日本", "value": 17 },
+      { "name": "英国", "value": 13 },
+      { "name": "ドイツ", "value": 12 },
+      { "name": "フランス", "value": 10 },
+      { "name": "カナダ", "value": 8 },
+      { "name": "豪州", "value": 7 },
+      { "name": "スイス", "value": 7 },
+      { "name": "その他", "value": 6 }
+    ]
+  },
+  "country_long_labels_9": {
+    "description": "国9種・正式国名 6-8字 long_label・dense",
+    "items": [
+      { "name": "アメリカ合衆国", "value": 27 },
+      { "name": "グレートブリテン", "value": 14 },
+      { "name": "ドイツ連邦共和国", "value": 12 },
+      { "name": "フランス共和国", "value": 10 },
+      { "name": "イタリア共和国", "value": 8 },
+      { "name": "スペイン王国", "value": 7 },
+      { "name": "オランダ王国", "value": 6 },
+      { "name": "スイス連邦", "value": 5 },
+      { "name": "その他地域", "value": 11 }
+    ]
+  },
+  "country_emerging_mix_10": {
+    "description": "国10種・新興国 + 先進国 mix・balanced 25-4",
+    "items": [
+      { "name": "アメリカ", "value": 25 },
+      { "name": "日本", "value": 14 },
+      { "name": "中国", "value": 11 },
+      { "name": "インド", "value": 10 },
+      { "name": "台湾", "value": 8 },
+      { "name": "韓国", "value": 7 },
+      { "name": "ブラジル", "value": 6 },
+      { "name": "南アフリカ", "value": 5 },
+      { "name": "メキシコ", "value": 4 },
+      { "name": "その他", "value": 10 }
+    ]
+  },
+  "ten_elements_balanced": {
+    "description": "汎用10種・balanced 21-6・many_items",
+    "items": [
+      { "name": "米国株", "value": 21 },
+      { "name": "日本株", "value": 17 },
+      { "name": "欧州株", "value": 13 },
+      { "name": "新興国株", "value": 9 },
+      { "name": "米国債", "value": 8 },
+      { "name": "欧州債", "value": 7 },
+      { "name": "REIT", "value": 7 },
+      { "name": "コモディティ", "value": 6 },
+      { "name": "短期金融資産", "value": 6 },
+      { "name": "その他", "value": 6 }
+    ]
+  },
+  "ten_elements_long_upper_left": {
+    "description": "汎用10種・long ラベル + 上位が多めで upper-left 集中",
+    "items": [
+      { "name": "先進国大型株式", "value": 18 },
+      { "name": "国内中長期債券", "value": 16 },
+      { "name": "海外不動産投資信託", "value": 13 },
+      { "name": "商品先物関連資産", "value": 10 },
+      { "name": "短期金融商品", "value": 9 },
+      { "name": "為替ヘッジ付資産", "value": 8 },
+      { "name": "未収収益関連", "value": 7 },
+      { "name": "店頭デリバティブ", "value": 7 },
+      { "name": "オプション取引", "value": 6 },
+      { "name": "その他資産", "value": 6 }
+    ]
+  },
+  "ten_elements_one_side_dense": {
+    "description": "汎用10種・top-heavy 23-4・one_side_dense 候補",
+    "items": [
+      { "name": "米国", "value": 23 },
+      { "name": "日本", "value": 18 },
+      { "name": "英国", "value": 12 },
+      { "name": "ドイツ", "value": 10 },
+      { "name": "フランス", "value": 9 },
+      { "name": "イタリア", "value": 8 },
+      { "name": "スペイン", "value": 6 },
+      { "name": "オランダ", "value": 5 },
+      { "name": "ベルギー", "value": 4 },
+      { "name": "その他", "value": 5 }
+    ]
+  },
+  "eleven_tiny_cluster": {
+    "description": "汎用11種・tiny tail (3-5%) 多数・ultra_dense",
+    "items": [
+      { "name": "A", "value": 24 },
+      { "name": "B", "value": 18 },
+      { "name": "C", "value": 13 },
+      { "name": "D", "value": 10 },
+      { "name": "E", "value": 8 },
+      { "name": "F", "value": 6 },
+      { "name": "G", "value": 5 },
+      { "name": "H", "value": 4 },
+      { "name": "I", "value": 4 },
+      { "name": "J", "value": 3 },
+      { "name": "K", "value": 5 }
+    ]
+  },
+  "twelve_evenish": {
+    "description": "汎用12種・nearly uniform 14-5・ultra_dense + low diff",
+    "items": [
+      { "name": "A", "value": 14 },
+      { "name": "B", "value": 13 },
+      { "name": "C", "value": 11 },
+      { "name": "D", "value": 10 },
+      { "name": "E", "value": 9 },
+      { "name": "F", "value": 8 },
+      { "name": "G", "value": 7 },
+      { "name": "H", "value": 7 },
+      { "name": "I", "value": 6 },
+      { "name": "J", "value": 5 },
+      { "name": "K", "value": 5 },
+      { "name": "L", "value": 5 }
+    ]
+  },
+  "asset_2slice_split": {
+    "description": "資産2種・balanced 67/33・two-slice 非対称",
+    "items": [
+      { "name": "国内株式", "value": 67 },
+      { "name": "国内債券", "value": 33 }
+    ]
+  },
+  "asset_4slice_simple": {
+    "description": "資産4種・balanced 45-10・standard pie",
+    "items": [
+      { "name": "株式", "value": 45 },
+      { "name": "債券", "value": 30 },
+      { "name": "REIT", "value": 15 },
+      { "name": "その他", "value": 10 }
+    ]
+  },
+  "currency_2currency_usd": {
+    "description": "通貨2種・balanced 72/28・two-slice 非対称",
+    "items": [
+      { "name": "米ドル", "value": 72 },
+      { "name": "その他", "value": 28 }
+    ]
+  },
+  "stress_uniform_4": {
+    "description": "ストレス・4スライス完全均等(各25%)・cardinal 角",
+    "items": [
+      { "name": "A", "value": 25 },
+      { "name": "B", "value": 25 },
+      { "name": "C", "value": 25 },
+      { "name": "D", "value": 25 }
+    ]
+  },
+  "stress_uniform_8": {
+    "description": "ストレス・8スライス完全均等(各12.5%)",
+    "items": [
+      { "name": "A", "value": 12.5 },
+      { "name": "B", "value": 12.5 },
+      { "name": "C", "value": 12.5 },
+      { "name": "D", "value": 12.5 },
+      { "name": "E", "value": 12.5 },
+      { "name": "F", "value": 12.5 },
+      { "name": "G", "value": 12.5 },
+      { "name": "H", "value": 12.5 }
+    ]
+  },
+  "stress_uniform_12": {
+    "description": "ストレス・12スライス完全均等(各8.33%)・ultra_dense",
+    "items": [
+      { "name": "A", "value": 8.333333333333334 },
+      { "name": "B", "value": 8.333333333333334 },
+      { "name": "C", "value": 8.333333333333334 },
+      { "name": "D", "value": 8.333333333333334 },
+      { "name": "E", "value": 8.333333333333334 },
+      { "name": "F", "value": 8.333333333333334 },
+      { "name": "G", "value": 8.333333333333334 },
+      { "name": "H", "value": 8.333333333333334 },
+      { "name": "I", "value": 8.333333333333334 },
+      { "name": "J", "value": 8.333333333333334 },
+      { "name": "K", "value": 8.333333333333334 },
+      { "name": "L", "value": 8.333333333333334 }
+    ]
+  },
+  "stress_one_dominant_9": {
+    "description": "ストレス・大型株58% one-dominant + 多数小型(5-6%)",
+    "items": [
+      { "name": "大型株", "value": 58 },
+      { "name": "国内債", "value": 6 },
+      { "name": "外国株", "value": 6 },
+      { "name": "外国債", "value": 5 },
+      { "name": "新興国株", "value": 5 },
+      { "name": "REIT", "value": 5 },
+      { "name": "コモディティ", "value": 5 },
+      { "name": "短期金融資産", "value": 5 },
+      { "name": "その他", "value": 5 }
+    ]
+  },
+  "stress_left_heavy_8": {
+    "description": "ストレス・米国52% one-dominant・残り左右に分散",
+    "items": [
+      { "name": "米国", "value": 52 },
+      { "name": "日本", "value": 7 },
+      { "name": "英国", "value": 6 },
+      { "name": "ドイツ", "value": 6 },
+      { "name": "フランス", "value": 6 },
+      { "name": "イタリア", "value": 7 },
+      { "name": "スペイン", "value": 8 },
+      { "name": "その他", "value": 8 }
+    ]
+  },
+  "stress_bottom_cluster_8": {
+    "description": "ストレス・A=47 + 下部 6時方向に tiny 2個 + 中型5個・bottom_small_dense",
+    "items": [
+      { "name": "A", "value": 47 },
+      { "name": "B", "value": 4 },
+      { "name": "C", "value": 4 },
+      { "name": "D", "value": 9 },
+      { "name": "E", "value": 9 },
+      { "name": "F", "value": 9 },
+      { "name": "G", "value": 9 },
+      { "name": "H", "value": 9 }
+    ]
+  },
+  "page16_asset_allocation": {
+    "description": "実PDF p.16 資産配分・3スライス・55.6/36.7/7.7・balanced 3",
+    "items": [
+      { "name": "投資信託証券", "value": 55.6 },
+      { "name": "親投資信託証券", "value": 36.7 },
+      { "name": "その他", "value": 7.7 }
+    ]
+  },
+  "page16_country_allocation": {
+    "description": "実PDF p.16 国別配分・5スライス・88.6/6.2/2.8/1.4/1.0 one-dominant + tiny tail",
+    "items": [
+      { "name": "日本", "value": 88.6 },
+      { "name": "ルクセンブルク", "value": 6.2 },
+      { "name": "ケイマン諸島", "value": 2.8 },
+      { "name": "アイルランド", "value": 1.4 },
+      { "name": "ジャージー", "value": 1 }
+    ]
+  },
+  "stress_uniform_2": {
+    "description": "ストレス・2スライス完全均等(50/50)・対称 two-slice",
+    "items": [
+      { "name": "A", "value": 50 },
+      { "name": "B", "value": 50 }
+    ]
+  },
+  "stress_uniform_3": {
+    "description": "ストレス・3スライス完全均等(各33.3%)・cardinal 角配置",
+    "items": [
+      { "name": "A", "value": 33.333333333333336 },
+      { "name": "B", "value": 33.333333333333336 },
+      { "name": "C", "value": 33.333333333333336 }
+    ]
+  },
+  "stress_balanced_3": {
+    "description": "ストレス・3スライス balanced 50/30/20・3-slice 非 one-dominant",
+    "items": [
+      { "name": "A", "value": 50 },
+      { "name": "B", "value": 30 },
+      { "name": "C", "value": 20 }
+    ]
+  },
+  "stress_balanced_5": {
+    "description": "ストレス・5スライス balanced 23-18・5-slice 非 top-heavy",
+    "items": [
+      { "name": "A", "value": 23 },
+      { "name": "B", "value": 21 },
+      { "name": "C", "value": 19 },
+      { "name": "D", "value": 19 },
+      { "name": "E", "value": 18 }
+    ]
+  },
+  "stress_uniform_6": {
+    "description": "ストレス・6スライス完全均等(各16.7%)",
+    "items": [
+      { "name": "A", "value": 16.666666666666668 },
+      { "name": "B", "value": 16.666666666666668 },
+      { "name": "C", "value": 16.666666666666668 },
+      { "name": "D", "value": 16.666666666666668 },
+      { "name": "E", "value": 16.666666666666668 },
+      { "name": "F", "value": 16.666666666666668 }
+    ]
+  },
+  "stress_top_cluster_8": {
+    "description": "ストレス・8スライス・大2(42/40)+small2(4)+tiny4(2.5%)・ソート後 tiny 4個が左上に密集",
+    "items": [
+      { "name": "A", "value": 2.5 },
+      { "name": "B", "value": 2.5 },
+      { "name": "C", "value": 4 },
+      { "name": "D", "value": 42 },
+      { "name": "E", "value": 40 },
+      { "name": "F", "value": 4 },
+      { "name": "G", "value": 2.5 },
+      { "name": "H", "value": 2.5 }
+    ]
+  },
+  "stress_right_cluster_8": {
+    "description": "ストレス・8スライス・最大1(50)+中2(15)+tiny5(4%)・one_side_very_dense (≥7 同一値)",
+    "items": [
+      { "name": "A", "value": 15 },
+      { "name": "B", "value": 4 },
+      { "name": "C", "value": 4 },
+      { "name": "D", "value": 4 },
+      { "name": "E", "value": 4 },
+      { "name": "F", "value": 4 },
+      { "name": "G", "value": 15 },
+      { "name": "H", "value": 50 }
+    ]
+  },
+  "stress_bottom_small_multi_8": {
+    "description": "ストレス・8スライス・大2(23)+中3(15/14/13)+tiny3(4%)・mid サイズ密集 + tail tiny",
+    "items": [
+      { "name": "A", "value": 23 },
+      { "name": "B", "value": 23 },
+      { "name": "C", "value": 4 },
+      { "name": "D", "value": 4 },
+      { "name": "E", "value": 4 },
+      { "name": "F", "value": 15 },
+      { "name": "G", "value": 14 },
+      { "name": "H", "value": 13 }
+    ]
+  },
+  "pdf_510037_01_fund_asset": {
+    "description": "PDF 510037 ファンド資産配分・3スライス・親投信証券38.8/その他1.3/投信証券59.9",
+    "items": [
+      { "name": "親投資信託証券", "value": 38.8 },
+      { "name": "その他", "value": 1.3 },
+      { "name": "投資信託証券", "value": 59.9 }
+    ]
+  },
+  "pdf_510037_01_fund_asset_20240710": {
+    "description": "PDF 510037 ファンド資産配分(20240710)・3スライス・投信証券54.3/親投信証券44.6/その他1.0",
+    "items": [
+      { "name": "投資信託証券", "value": 54.3 },
+      { "name": "親投資信託証券", "value": 44.6 },
+      { "name": "その他", "value": 1.0 }
+    ]
+  },
+  "pdf_510037_01_fund_country": {
+    "description": "PDF 510037 ファンド国別・5スライス・日本89.2 one-dominant + 海外 tiny 4種",
+    "items": [
+      { "name": "ルクセンブルク", "value": 5.1 },
+      { "name": "ケイマン諸島", "value": 3.6 },
+      { "name": "アイルランド", "value": 1 },
+      { "name": "ジャージー", "value": 1 },
+      { "name": "日本", "value": 89.2 }
+    ]
+  },
+  "pdf_510037_01_fund_country_20240710": {
+    "description": "PDF 510037 ファンド国別(20240710)・4スライス・日本93.6 one-dominant + 海外 tiny 3種",
+    "items": [
+      { "name": "日本", "value": 93.6 },
+      { "name": "ルクセンブルク", "value": 4.1 },
+      { "name": "ケイマン諸島", "value": 1.5 },
+      { "name": "ジャージー", "value": 0.9 }
+    ]
+  },
+  "pdf_510037_01_fund_currency": {
+    "description": "PDF 510037 ファンド通貨・1スライス・円100% (single slice 100%)",
+    "items": [
+      { "name": "円", "value": 100 }
+    ]
+  },
+  "pdf_510037_02_world_bond_idx_asset": {
+    "description": "PDF 510037 世界債券IDX資産・4スライス・外国債券87.1 one-dominant + tiny 3種",
+    "items": [
+      { "name": "外国投資信託証券", "value": 11.9 },
+      { "name": "外国債券先物", "value": 0.2 },
+      { "name": "その他", "value": 0.8 },
+      { "name": "外国債券", "value": 87.1 }
+    ]
+  },
+  "pdf_510037_02_world_bond_idx_asset_20240426": {
+    "description": "PDF 510037 世界債券IDX資産(20240426)・3スライス・外国債券86.5 one-dominant + 外国投信12.6/その他0.9",
+    "items": [
+      { "name": "外国債券", "value": 86.5 },
+      { "name": "外国投資信託証券", "value": 12.6 },
+      { "name": "その他", "value": 0.9 }
+    ]
+  },
+  "pdf_510037_02_world_bond_idx_country": {
+    "description": "PDF 510037 世界債券IDX国別・10スライス・米44/中10.6/欧州+その他16.1",
+    "items": [
+      { "name": "フランス", "value": 6 },
+      { "name": "ドイツ", "value": 4.9 },
+      { "name": "イギリス", "value": 4.5 },
+      { "name": "カナダ", "value": 4.5 },
+      { "name": "イタリア", "value": 3.6 },
+      { "name": "国際機関", "value": 3 },
+      { "name": "スペイン", "value": 2.7 },
+      { "name": "その他", "value": 16.1 },
+      { "name": "アメリカ", "value": 44 },
+      { "name": "中国", "value": 10.6 }
+    ]
+  },
+  "pdf_510037_02_world_bond_idx_country_20240426": {
+    "description": "PDF 510037 世界債券IDX国別(20240426)・8スライス・米43.9/中10.5/欧州+その他21.9",
+    "items": [
+      { "name": "アメリカ", "value": 43.9 },
+      { "name": "中国", "value": 10.5 },
+      { "name": "フランス", "value": 6.0 },
+      { "name": "ドイツ", "value": 5.0 },
+      { "name": "カナダ", "value": 4.7 },
+      { "name": "イギリス", "value": 4.4 },
+      { "name": "イタリア", "value": 3.5 },
+      { "name": "その他", "value": 21.9 }
+    ]
+  },
+  "pdf_510037_02_world_bond_idx_currency": {
+    "description": "PDF 510037 世界債券IDX通貨・6スライス・米ドル49.3/ユーロ25.6/その他バランス",
+    "items": [
+      { "name": "ユーロ", "value": 25.6 },
+      { "name": "オフショア人民元", "value": 10.5 },
+      { "name": "イギリスポンド", "value": 4.3 },
+      { "name": "カナダドル", "value": 3 },
+      { "name": "その他", "value": 7.3 },
+      { "name": "米ドル", "value": 49.3 }
+    ]
+  },
+  "pdf_510037_02_world_bond_idx_currency_20240426": {
+    "description": "PDF 510037 世界債券IDX通貨(20240426)・6スライス・米ドル50.0/ユーロ25.0/その他バランス",
+    "items": [
+      { "name": "米ドル", "value": 50.0 },
+      { "name": "ユーロ", "value": 25.0 },
+      { "name": "オフショア人民元", "value": 10.6 },
+      { "name": "イギリスポンド", "value": 4.3 },
+      { "name": "カナダドル", "value": 3.0 },
+      { "name": "その他", "value": 7.0 }
+    ]
+  },
+  "pdf_510037_03_jp_equity_idx_asset": {
+    "description": "PDF 510037 国内株IDX資産・3スライス・国内株式97.2 極端 one-dominant + tiny 2種",
+    "items": [
+      { "name": "国内株式先物", "value": 2.7 },
+      { "name": "その他", "value": 0 },
+      { "name": "国内株式", "value": 97.2 }
+    ]
+  },
+  "pdf_510037_03_jp_equity_idx_asset_20240529": {
+    "description": "PDF 510037 国内株IDX資産(20240529)・3スライス・国内株式98.2 極端 one-dominant + tiny 2種",
+    "items": [
+      { "name": "国内株式", "value": 98.2 },
+      { "name": "国内株式先物", "value": 1.7 },
+      { "name": "その他", "value": 0.1 }
+    ]
+  },
+  "pdf_510037_03_jp_equity_idx_country": {
+    "description": "PDF 510037 国内株IDX国別・1スライス・日本100% (single slice 100%)",
+    "items": [
+      { "name": "日本", "value": 100 }
+    ]
+  },
+  "pdf_510037_04_manulife_asset": {
+    "description": "PDF 510037 マニュライフ資産・2スライス・国内債券99.4/その他0.6 極端 one-dominant",
+    "items": [
+      { "name": "その他", "value": 0.6 },
+      { "name": "国内債券", "value": 99.4 }
+    ]
+  },
+  "pdf_510037_04_manulife_country": {
+    "description": "PDF 510037 マニュライフ国別・3スライス・日本99.3 極端 one-dominant + 仏0.6/米0.1 tiny",
+    "items": [
+      { "name": "フランス", "value": 0.6 },
+      { "name": "米国", "value": 0.1 },
+      { "name": "日本", "value": 99.3 }
+    ]
+  },
+  "pdf_510037_05_global_reit_idx_asset": {
+    "description": "PDF 510037 グローバルREIT IDX資産(20231110)・2スライス・外国投信99.7/その他0.3 極端 one-dominant",
+    "items": [
+      { "name": "外国投資信託証券", "value": 99.7 },
+      { "name": "その他", "value": 0.3 }
+    ]
+  },
+  "pdf_510037_05_global_reit_idx_country": {
+    "description": "PDF 510037 グローバルREIT IDX国別(20231110)・5スライス・米77.7 one-dominant + tiny 4種",
+    "items": [
+      { "name": "アメリカ", "value": 77.7 },
+      { "name": "オーストラリア", "value": 6.7 },
+      { "name": "イギリス", "value": 5.0 },
+      { "name": "シンガポール", "value": 3.5 },
+      { "name": "その他", "value": 7.1 }
+    ]
+  },
+  "pdf_510037_05_global_reit_idx_currency": {
+    "description": "PDF 510037 グローバルREIT IDX通貨(20231110)・6スライス・米ドル77.7 one-dominant + tiny 5種",
+    "items": [
+      { "name": "米ドル", "value": 77.7 },
+      { "name": "オーストラリアドル", "value": 6.7 },
+      { "name": "イギリスポンド", "value": 5.0 },
+      { "name": "ユーロ", "value": 3.7 },
+      { "name": "シンガポールドル", "value": 3.5 },
+      { "name": "その他", "value": 3.5 }
+    ]
+  },
+  "pdf_510037_06_gold_asset": {
+    "description": "PDF 510037 金資産・2スライス・外国投信100.8/その他-0.8 (negative slice)",
+    "items": [
+      { "name": "その他", "value": -0.8 },
+      { "name": "外国投資信託証券", "value": 100.8 }
+    ]
+  },
+  "pdf_510037_06_gold_country": {
+    "description": "PDF 510037 金国別・1スライス・アメリカ100% (single slice 100%)",
+    "items": [
+      { "name": "アメリカ", "value": 100 }
+    ]
+  },
+  "pdf_510037_06_gold_currency": {
+    "description": "PDF 510037 金通貨・2スライス・米ドル100.8/円-0.8 (negative slice)",
+    "items": [
+      { "name": "円", "value": -0.8 },
+      { "name": "米ドル", "value": 100.8 }
+    ]
+  },
+  "pdf_510037_07_fidelity_foreign_bond_asset": {
+    "description": "PDF 510037 フィデリティ外債資産(20240430)・2スライス・外国債券96.6/その他3.4 one-dominant",
+    "items": [
+      { "name": "外国債券", "value": 96.6 },
+      { "name": "その他", "value": 3.4 }
+    ]
+  },
+  "pdf_510037_07_fidelity_foreign_bond_country": {
+    "description": "PDF 510037 フィデリティ外債国別(20240430)・7スライス・米53.2 one-dominant + tiny tail",
+    "items": [
+      { "name": "アメリカ", "value": 53.2 },
+      { "name": "ドイツ", "value": 13.7 },
+      { "name": "イギリス", "value": 8.7 },
+      { "name": "中国", "value": 5.3 },
+      { "name": "オランダ", "value": 2.9 },
+      { "name": "アイルランド", "value": 2.3 },
+      { "name": "その他", "value": 14.0 }
+    ]
+  },
+  "pdf_510037_07_fidelity_foreign_bond_currency": {
+    "description": "PDF 510037 フィデリティ外債通貨(20240430)・7スライス・米ドル58.0/ユーロ21.1/その他バランス",
+    "items": [
+      { "name": "アメリカ・ドル", "value": 58.0 },
+      { "name": "ユーロ", "value": 21.1 },
+      { "name": "イギリス・ポンド", "value": 6.9 },
+      { "name": "オフショア・人民元", "value": 5.3 },
+      { "name": "韓国・ウォン", "value": 1.7 },
+      { "name": "ニュージーランド・ドル", "value": 1.4 },
+      { "name": "その他", "value": 5.6 }
+    ]
+  }
+}

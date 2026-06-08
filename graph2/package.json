@@ -1,0 +1,23 @@
+{
+  "name": "graph2",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "cli": "tsx cli.ts",
+    "batch": "tsx test_batch.ts",
+    "verify": "tsx verify_svg.ts",
+    "verify:consistency": "tsx verify_consistency.ts",
+    "gen:widths": "tsx scripts/gen_glyph_advance.ts"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "subset-font": "^2.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
+  }
+}

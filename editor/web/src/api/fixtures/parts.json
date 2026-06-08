@@ -1,0 +1,82 @@
+[
+  {
+    "id": "part-section-basic",
+    "classification": { "category": "レイアウト", "majorClass": "コンテナ", "middleClass": "セクション", "minorClass": "標準" },
+    "name": "基本セクション",
+    "description": "見出しと本文を含む標準的なセクションです。文章のまとまりごとに使います。",
+    "usageNotes": "ページ先頭の表紙には使用しないでください。見出しは1セクションに1つを目安にします。",
+    "updatedAt": "2026-05-01T09:00:00.000Z",
+    "updatedBy": "山田 太郎",
+    "content": "<section class=\"section\" style=\"padding:16px\"><h2>見出し</h2><p>本文</p></section>"
+  },
+  {
+    "id": "part-section-spacious",
+    "classification": { "category": "レイアウト", "majorClass": "コンテナ", "middleClass": "セクション", "minorClass": "余白広め" },
+    "name": "広めセクション",
+    "description": "上下の余白を広く取ったセクションです。区切りを強調したいときに使います。",
+    "usageNotes": "余白が大きいため、短い注記だけを入れる用途には向きません。",
+    "updatedAt": "2026-05-10T09:00:00.000Z",
+    "updatedBy": "山田 太郎",
+    "content": "<section class=\"section\" style=\"padding:40px 16px\"><h2>見出し</h2><p>本文</p></section>"
+  },
+  {
+    "id": "part-columns-2",
+    "classification": { "category": "レイアウト", "majorClass": "コンテナ", "middleClass": "カラム", "minorClass": "2カラム" },
+    "name": "2カラムレイアウト",
+    "description": "左右に内容を並べる2カラムの枠です。図と説明を横に並べるときに使います。",
+    "usageNotes": "印刷時に横幅が狭くなると読みにくくなるため、長文には使わないでください。",
+    "updatedAt": "2026-04-20T09:00:00.000Z",
+    "updatedBy": "佐藤 花子",
+    "content": "<div style=\"display:flex;gap:16px\"><div style=\"flex:1\"><p>左の内容</p></div><div style=\"flex:1\"><p>右の内容</p></div></div>"
+  },
+  {
+    "id": "part-divider-solid",
+    "classification": { "category": "レイアウト", "majorClass": "区切り", "middleClass": "線", "minorClass": "実線" },
+    "name": "区切り線",
+    "description": "内容のまとまりを区切る横線です。",
+    "usageNotes": "多用すると紙面が分断されすぎるため、大きな区切りにのみ使います。",
+    "updatedAt": "2026-03-15T09:00:00.000Z",
+    "updatedBy": "佐藤 花子",
+    "content": "<hr />"
+  },
+  {
+    "id": "part-table-basic",
+    "classification": { "category": "レイアウト", "majorClass": "表", "middleClass": "データ表", "minorClass": "2列" },
+    "name": "基本テーブル",
+    "description": "項目と値を並べる2列の表です。数値や項目の一覧に使います。",
+    "usageNotes": "1行目（ヘッダー）の項目名は短くしてください。列幅が崩れる原因になります。",
+    "updatedAt": "2026-05-05T09:00:00.000Z",
+    "updatedBy": "山田 太郎",
+    "content": "<table class=\"tbl\"><thead><tr><th>項目</th><th>値</th></tr></thead><tbody><tr><td>—</td><td>—</td></tr></tbody></table>"
+  },
+  {
+    "id": "part-heading-h2",
+    "classification": { "category": "テキスト", "majorClass": "見出し", "middleClass": "セクション見出し", "minorClass": "大見出し" },
+    "name": "見出し",
+    "description": "セクションの先頭に置く見出しです。",
+    "usageNotes": "本文より目立たせるための要素です。長い文章は入れないでください。",
+    "updatedAt": "2026-04-01T09:00:00.000Z",
+    "updatedBy": "佐藤 花子",
+    "content": "<h2>見出し</h2>"
+  },
+  {
+    "id": "part-paragraph-basic",
+    "classification": { "category": "テキスト", "majorClass": "本文", "middleClass": "段落", "minorClass": "標準" },
+    "name": "段落",
+    "description": "標準的な本文テキストの段落です。",
+    "usageNotes": "1段落が長くなりすぎないよう、適度に区切ってください。",
+    "updatedAt": "2026-04-01T09:00:00.000Z",
+    "updatedBy": "佐藤 花子",
+    "content": "<p>本文テキスト</p>"
+  },
+  {
+    "id": "part-image-basic",
+    "classification": { "category": "メディア", "majorClass": "画像", "middleClass": "単体画像", "minorClass": "標準" },
+    "name": "画像",
+    "description": "1枚の画像を配置します。挿入後にダブルクリックで画像を差し替えます。",
+    "usageNotes": "解像度の低い画像は印刷時に粗くなります。十分な大きさの画像を使ってください。",
+    "updatedAt": "2026-05-12T09:00:00.000Z",
+    "updatedBy": "山田 太郎",
+    "content": "<img/>"
+  }
+]

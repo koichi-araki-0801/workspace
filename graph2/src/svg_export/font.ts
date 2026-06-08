@@ -1,0 +1,91 @@
+// =============================================================================
+// svg_export/font.ts — フォントサブセット埋込 (TTF → WOFF2)
+// -----------------------------------------------------------------------------
+// buildFontFaceDefs: cfg.embedFont 時に TTF を subset-font で WOFF2 化 → base64 →
+// @font-face <defs> 文字列を返す。usedChars + REQUIRED_FONT_CHARS を合流。
+// 失敗時はフル TTF にフォールバック。プロセス内キャッシュで同条件を再利用。
+// =============================================================================
+
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
+
+import subsetFont from "subset-font";
+
+import type { PieLayoutConfig } from "../types.js";
+
+const FONT_FACE_CACHE = new Map<string, string>();
+const FONT_BUFFER_CACHE = new Map<string, Buffer>();
+// このファイルは src/svg_export/font.ts に配置されているので、プロジェクトルート
+// (graph2/) は ../.. に相当する。cfg.embedFontPath が相対パスの場合の解決基点に使う。
+const PROJECT_ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), "../..");
+
+/**
+ * サブセットに常時含める必須文字。数字 / 小数点 / カンマ / % / △ / 空白 / 改行 +
+ * 半角カナ全域 (U+FF61–U+FF9F)。
+ */
+const REQUIRED_FONT_CHARS: Set<string> = (() => {
+  const set = new Set("0123456789.,%△ \n");
+  for (let cp = 0xff61; cp <= 0xff9f; cp += 1) set.add(String.fromCodePoint(cp));
+  return set;
+})();
+
+/**
+ * cfg.embedFont が真なら、TTF をサブセット化 → WOFF2 化 → base64 で @font-face
+ * 定義を含む <defs><style>...</style></defs> 文字列を返す。
+ */
+export async function buildFontFaceDefs(
+  cfg: PieLayoutConfig,
+  usedChars: Iterable<string> | null,
+): Promise<string> {
+  if (!cfg.embedFont || !cfg.embedFontPath || !cfg.embedFontFamilyName) {
+    return "";
+  }
+  const absPath = isAbsolute(cfg.embedFontPath)
+    ? cfg.embedFontPath
+    : resolvePath(PROJECT_ROOT, cfg.embedFontPath);
+
+  const charSet = new Set(REQUIRED_FONT_CHARS);
+  if (usedChars) {
+    for (const ch of usedChars) charSet.add(ch);
+  }
+  const chars = [...charSet].sort().join("");
+  const cacheKey = `${absPath}::${cfg.embedFontFamilyName}::${cfg.fontWeight}::${chars}`;
+  if (FONT_FACE_CACHE.has(cacheKey)) {
+    return FONT_FACE_CACHE.get(cacheKey)!;
+  }
+
+  let buf = FONT_BUFFER_CACHE.get(absPath);
+  if (!buf) {
+    try {
+      buf = readFileSync(absPath);
+      FONT_BUFFER_CACHE.set(absPath, buf);
+    } catch (err: any) {
+      console.warn(
+        `[svg_export] embedFont enabled but TTF not found at ${absPath}: ${err.message}`,
+      );
+      FONT_FACE_CACHE.set(cacheKey, "");
+      return "";
+    }
+  }
+
+  let subsetBuf: Buffer;
+  let mime: string;
+  let format: string;
+  try {
+    subsetBuf = await subsetFont(buf, chars, { targetFormat: "woff2" });
+    mime = "font/woff2";
+    format = "woff2";
+  } catch (err: any) {
+    console.warn(`[svg_export] subsetFont failed (${err.message}); falling back to full TTF`);
+    subsetBuf = buf;
+    mime = "font/ttf";
+    format = "truetype";
+  }
+
+  const base64 = subsetBuf.toString("base64");
+  const css = `@font-face{font-family:"${cfg.embedFontFamilyName}";font-weight:${cfg.fontWeight};font-style:normal;font-display:block;src:url(data:${mime};base64,${base64}) format("${format}");}`;
+  const defs = `<defs><style type="text/css"><![CDATA[${css}]]></style></defs>`;
+  FONT_FACE_CACHE.set(cacheKey, defs);
+  return defs;
+}

@@ -1,0 +1,11 @@
+packages:
+  - editor/shared
+  - editor/server
+  - editor/web
+  - graph2
+
+# pnpm v9 はビルドスクリプトを既定でブロックする。初回 install の通知に合わせて調整
+onlyBuiltDependencies:
+  - esbuild
+  - "@vivliostyle/cli"
+  - "@biomejs/biome"

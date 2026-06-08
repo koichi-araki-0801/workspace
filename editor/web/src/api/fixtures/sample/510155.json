@@ -1,0 +1,14 @@
+{
+  "company": { "code": "AM01", "name": "アセットマネジメント株式会社" },
+  "fund": { "code": "510155", "name": "グローバル債券ファンド", "nav": "9,870", "navChange": -12 },
+  "report": { "baseDate": "2024-07-10", "editionType": "kr" },
+  "holdings": [
+    { "name": "米国債10年", "weight": "8.1" },
+    { "name": "独国債", "weight": "6.4" },
+    { "name": "豪州債", "weight": "5.0" }
+  ],
+  "performance": [
+    { "period": "1ヶ月", "return": "-0.3" },
+    { "period": "1年", "return": "3.2" }
+  ]
+}

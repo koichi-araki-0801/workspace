@@ -1,0 +1,39 @@
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @editor/shared run build && pnpm --parallel --filter server --filter web run dev",
+    "dev:web": "pnpm --filter web run dev",
+    "dev:server": "pnpm --filter server run dev",
+    "build": "pnpm --filter @editor/shared run build && pnpm --filter server run build && pnpm --filter web run build",
+    "test": "pnpm --filter @editor/shared --filter server --filter web run test",
+    "test:coverage": "pnpm --filter @editor/shared --filter server --filter web run test:coverage",
+    "test:e2e": "playwright test -c editor/playwright.config.ts",
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "typecheck": "pnpm --filter @editor/shared --filter server --filter web run typecheck",
+    "graph2:cli": "pnpm --filter graph2 run cli",
+    "graph2:check": "pnpm --filter graph2 run check",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "check": "biome check --write .",
+    "check:ci": "biome ci .",
+    "prepare": "husky || true"
+  },
+  "lint-staged": {
+    "editor/**/*.{ts,vue,css,json}": "biome check --write --no-errors-on-unmatched"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
+    "@playwright/test": "^1.50.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
+    "typescript": "^5.7.3"
+  }
+}

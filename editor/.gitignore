@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.local
+# Local runtime config (copy from appconfig.example.json); may hold machine-specific paths
+appconfig.json
+coverage/
+.vite/
+.tmp/
+tmp/
+*.tsbuildinfo
+# vivliostyle / playwright artifacts
+playwright-report/
+test-results/

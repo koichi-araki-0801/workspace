@@ -1,0 +1,22 @@
+{
+  "port": 3001,
+  "paths": {
+    "templatesDir": "data/templates",
+    "cssDir": "data/css",
+    "tmpDir": ".tmp",
+    "logDir": "logs",
+    "webDist": "web/dist"
+  },
+  "python": {
+    "bin": "python",
+    "script": "server/scripts/generate_template.py",
+    "timeoutMs": 30000
+  },
+  "pdf": {
+    "executableBrowser": ""
+  },
+  "logging": {
+    "level": "info",
+    "pretty": false
+  }
+}
