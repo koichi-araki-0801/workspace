@@ -164,35 +164,38 @@ const pct = (r: number) => `${(r * 100).toFixed(2)}%`;
 
     <!-- step 1: template -->
     <SearchFilters search-label="絞り込み" @update="refreshTemplates" @search="refreshTemplates" />
-    <div class="max-w-md space-y-1.5">
-      <Label>テンプレート</Label>
-      <Select
-        v-model="templateId"
-        :options="templateOptions"
-        placeholder="テンプレートを選択"
-        :disabled="busy"
-      />
-    </div>
 
-    <!-- step 2: versions -->
-    <div v-if="templateId" class="grid gap-3 sm:grid-cols-2 sm:max-w-2xl">
-      <div class="space-y-1.5">
-        <Label>比較元（前回）</Label>
+    <!-- step 1 & 2: 選択パネル（白カードに載せる） -->
+    <div class="space-y-4 rounded-lg border bg-card p-4">
+      <div class="max-w-md space-y-1.5">
+        <Label>テンプレート</Label>
         <Select
-          v-model="versionA"
-          :options="versionOptions"
-          placeholder="版を選択"
-          :disabled="busy || versions.length === 0"
+          v-model="templateId"
+          :options="templateOptions"
+          placeholder="テンプレートを選択"
+          :disabled="busy"
         />
       </div>
-      <div class="space-y-1.5">
-        <Label>比較先（今回）</Label>
-        <Select
-          v-model="versionB"
-          :options="versionOptions"
-          placeholder="版を選択"
-          :disabled="busy || versions.length === 0"
-        />
+
+      <div v-if="templateId" class="grid gap-3 sm:grid-cols-2 sm:max-w-2xl">
+        <div class="space-y-1.5">
+          <Label>比較元（前回）</Label>
+          <Select
+            v-model="versionA"
+            :options="versionOptions"
+            placeholder="版を選択"
+            :disabled="busy || versions.length === 0"
+          />
+        </div>
+        <div class="space-y-1.5">
+          <Label>比較先（今回）</Label>
+          <Select
+            v-model="versionB"
+            :options="versionOptions"
+            placeholder="版を選択"
+            :disabled="busy || versions.length === 0"
+          />
+        </div>
       </div>
     </div>
 
