@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@editor/shared": "workspace:*",
-    "@vivliostyle/cli": "^8.18.0",
+    "@vivliostyle/cli": "^11.0.0",
     "express": "^5.2.1",
     "helmet": "^8.0.0",
     "pino": "^10.3.1",
