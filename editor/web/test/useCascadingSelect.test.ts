@@ -1,5 +1,7 @@
 import { err, ok, unauthorized } from '@editor/shared';
+import { mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { defineComponent } from 'vue';
 import { useCascadingSelect } from '@/lib/useCascadingSelect';
 
 afterEach(() => vi.restoreAllMocks());
@@ -92,15 +94,23 @@ describe('useCascadingSelect', () => {
     expect(cs.options.value.items).toEqual(['initial']);
   });
 
-  it('registers a mount-time refresh when immediate is the default', () => {
-    // onMounted outside a component just warns; we only need the branch executed.
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const fetchOptions = vi.fn().mockResolvedValue(ok({ items: [] }));
-    const cs = useCascadingSelect<Query, Options>({
-      levels: ['region'],
-      emptyOptions: { items: [] },
-      fetchOptions,
+  it('refreshes on mount when immediate is the default', async () => {
+    const fetchOptions = vi.fn().mockResolvedValue(ok({ items: ['mounted'] }));
+    let cs!: ReturnType<typeof useCascadingSelect<Query, Options>>;
+    const Host = defineComponent({
+      setup() {
+        cs = useCascadingSelect<Query, Options>({
+          levels: ['region'],
+          emptyOptions: { items: [] },
+          fetchOptions,
+        });
+        return () => null;
+      },
     });
-    expect(cs.refresh).toBeTypeOf('function');
+
+    mount(Host);
+
+    await vi.waitFor(() => expect(fetchOptions).toHaveBeenCalledTimes(1));
+    expect(cs.options.value.items).toEqual(['mounted']);
   });
 });

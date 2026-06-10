@@ -13,6 +13,7 @@ verifyDepsBeforeRun: false
 # pnpm はビルドスクリプトを既定でブロックする。許可するパッケージを列挙（pnpm 11 の allowBuilds）
 allowBuilds:
   esbuild: true
+  # @vueuse 等の推移的依存。postinstall で Vue 2/3 モード切替を行うためビルド許可が必要
   vue-demi: true
   "@vivliostyle/cli": true
   "@biomejs/biome": true
