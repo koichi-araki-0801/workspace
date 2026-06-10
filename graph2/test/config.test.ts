@@ -53,7 +53,7 @@ describe("createPieLayoutConfig", () => {
     expect(cfg.pieRadius).toBe(1.0);
     expect(cfg.startangle).toBe(90);
     expect(cfg.counterclock).toBe(false);
-    expect(cfg.fontSize).toBe(35);
+    expect(cfg.fontSize).toBe(39);
   });
 
   it("overrides で個別パラメータを差し替えられる", () => {
@@ -79,10 +79,10 @@ describe("createPieLayoutConfig", () => {
 
   it("派生値の関係が整合する", () => {
     const cfg = createPieLayoutConfig();
-    expect(cfg.fontScale).toBeCloseTo(35 / 20);
-    expect(cfg.pieDiameterPx).toBeCloseTo(0.7 * 400);
+    expect(cfg.fontScale).toBeCloseTo(39 / 20);
+    expect(cfg.pieDiameterPx).toBeCloseTo(0.7 * 450);
     expect(cfg.pieRadiusPx).toBeCloseTo(cfg.pieDiameterPx / 2);
-    expect(cfg.marginCapPx).toBeCloseTo((400 - cfg.pieDiameterPx) / 2);
+    expect(cfg.marginCapPx).toBeCloseTo((450 - cfg.pieDiameterPx) / 2);
     expect(cfg.canvasYlim[0]).toBeCloseTo(-cfg.canvasYlim[1]);
   });
 
@@ -95,7 +95,7 @@ describe("createPieLayoutConfig", () => {
   });
 
   it("pieHeightRatio が範囲外なら pieDiameterPx で投げる", () => {
-    const bad = createPieLayoutConfig({ pieHeightRatio: 2.0 }); // 直径 800 > 幅 550
+    const bad = createPieLayoutConfig({ pieHeightRatio: 2.0 }); // 直径 900 > 幅 600
     expect(() => bad.pieDiameterPx).toThrow();
     const zero = createPieLayoutConfig({ pieHeightRatio: 0 });
     expect(() => zero.pieDiameterPx).toThrow();
