@@ -13,6 +13,18 @@ set COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 rem node_modules purge 等の対話確認を抑止
 set CI=true
 
+rem 同梱物の存在チェック（git clone 直下では生成物が無いため、配布 tar.gz から展開すること）
+if not exist "%~dp0pnpm.tgz" (
+  echo [ERROR] pnpm.tgz が見つかりません。バンドルが不完全です。
+  echo         git clone ではなく、配布された workspace-offline-bundle.tar.gz を展開して実行してください。
+  exit /b 1
+)
+if not exist "%~dp0.pnpm-store" (
+  echo [ERROR] .pnpm-store が見つかりません。バンドルが不完全です。
+  echo         git clone ではなく、配布された workspace-offline-bundle.tar.gz を展開して実行してください。
+  exit /b 1
+)
+
 echo [1/4] 同梱の pnpm 11 を corepack に登録（オフライン）...
 call corepack install -g "%~dp0pnpm.tgz"
 if errorlevel 1 (
@@ -40,7 +52,15 @@ echo [4/4] Playwright ブラウザ（chromium）を既定キャッシュへ配�
 if exist "%~dp0ms-playwright" (
   rem %LOCALAPPDATA% はユーザー毎に解決されるため、ユーザー名が違っても Playwright が発見できる
   xcopy /E /I /Y /Q "%~dp0ms-playwright" "%LOCALAPPDATA%\ms-playwright" >nul
-  echo       -^> %LOCALAPPDATA%\ms-playwright
+  if errorlevel 1 (
+    echo [WARN] ms-playwright のコピーに失敗しました。E2E テスト時は手動で
+    echo        "%~dp0ms-playwright" を "%LOCALAPPDATA%\ms-playwright" へコピーしてください。
+  ) else (
+    echo       -^> %LOCALAPPDATA%\ms-playwright
+  )
+) else (
+  echo [WARN] ms-playwright が同梱されていません。E2E テスト（pnpm test:e2e）は
+  echo        初回にネットワークでの Chromium ダウンロードが必要になります。
 )
 
 echo.
