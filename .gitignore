@@ -15,4 +15,12 @@ tmp/
 playwright-report/
 test-results/
 # pnpm
+
+# オフラインバンドル生成物（コミット対象外）
 .pnpm-store/
+pnpm.tgz
+ms-playwright/
+*.tar.gz
+*.tar.gz.part-*
+_bundle_stage/
+_bundle_verify/
