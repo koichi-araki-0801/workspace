@@ -27,16 +27,16 @@ graph2 の SVG 出力のサイズ・縦横比を変えたいときに「どこ�
 
 | 値 | 行 | 既定 | 意味 |
 | --- | --- | --- | --- |
-| `svgWidthPx`     | 24 | `550` | キャンバス幅 (px)。`1 viewBox unit = 1px` 固定。 |
-| `svgHeightPx`    | 25 | `400` | キャンバス高さ (px)。 |
+| `svgWidthPx`     | 24 | `600` | キャンバス幅 (px)。`1 viewBox unit = 1px` 固定。 |
+| `svgHeightPx`    | 25 | `450` | キャンバス高さ (px)。 |
 | `pieHeightRatio` | 28 | `0.7` | pie 直径が `svgHeightPx` に占める割合（= 半径は高さ半分の 70%）。縦横比・円の視覚的大きさを決める。 |
 
 参考: `pieRadius`（27 行, `1.0`）は論理座標系の正規化半径で、寸法の単位系の基準。通常いじらない。
 
 ```ts
 // src/config.ts (24-28行)
-svgWidthPx: 550,
-svgHeightPx: 400,
+svgWidthPx: 600,
+svgHeightPx: 450,
 
 pieRadius: 1.0,
 pieHeightRatio: 0.7,

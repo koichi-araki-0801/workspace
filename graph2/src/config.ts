@@ -21,8 +21,8 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
   const base = {
     baselineFontSize: 20,
 
-    svgWidthPx: 550,
-    svgHeightPx: 400,
+    svgWidthPx: 600,
+    svgHeightPx: 450,
 
     pieRadius: 1.0,
     pieHeightRatio: 0.7, // pie 直径が svgHeightPx に占める割合 (= 半径が高さ半分の 70%)
@@ -31,7 +31,7 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     counterclock: false,
     backgroundColor: "#ffffff",
 
-    fontSize: 35,
+    fontSize: 39,
     fontFamily: '"IPAexGothic", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif',
     fontWeight: "700",
     embedFont: true,
