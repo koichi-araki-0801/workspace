@@ -1,0 +1,27 @@
+[project]
+name = "pdftosvg"
+version = "0.1.0"
+description = "PDF を SVG 化し、表ヘッダの用語統一(辞書)と不要箇所のトリミングを非エンジニアでも行えるデスクトップツール"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.7",
+    "PyMuPDF>=1.24",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pyinstaller>=6.20"]
+
+[project.scripts]
+pdftosvg = "app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

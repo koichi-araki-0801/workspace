@@ -1,0 +1,121 @@
+"""中間モデル (Page) を SVG 文字列へ直接シリアライズする。
+
+scene は編集 UI、モデルが真実。書き出しはモデルから直接行うことで決定的になり、
+GUI なしでテスト可能・フォント名の崩れも起きない。
+
+クロップは viewBox を crop 矩形に設定し、外側の要素を落とすことで実現する。
+"""
+from __future__ import annotations
+
+import base64
+from typing import List
+from xml.sax.saxutils import escape, quoteattr
+
+from model.document import Page
+from model.elements import (
+    ImageElement,
+    LineElement,
+    PathElement,
+    Rect,
+    RectElement,
+    TextElement,
+)
+
+
+def _fmt(v: float) -> str:
+    return f"{v:.3f}".rstrip("0").rstrip(".")
+
+
+def _mime(ext: str) -> str:
+    ext = ext.lower()
+    if ext in ("jpg", "jpeg"):
+        return "image/jpeg"
+    return f"image/{ext}"
+
+
+def page_to_svg(page: Page) -> str:
+    rect = page.export_rect()
+    lines: List[str] = []
+    lines.append('<?xml version="1.0" encoding="UTF-8"?>')
+    lines.append(
+        f'<svg xmlns="http://www.w3.org/2000/svg" '
+        f'xmlns:xlink="http://www.w3.org/1999/xlink" '
+        f'width="{_fmt(rect.w)}" height="{_fmt(rect.h)}" '
+        f'viewBox="{_fmt(rect.x)} {_fmt(rect.y)} {_fmt(rect.w)} {_fmt(rect.h)}">'
+    )
+
+    # スキャン背景
+    if page.background is not None:
+        b = page.background
+        if _intersects_export(b.rect, rect):
+            lines.append(_image_tag(b.rect, b.png_bytes, "png"))
+
+    for el in page.live_elements():
+        if not _intersects_export(el.bbox, rect):
+            continue
+        svg = _element_to_svg(el)
+        if svg:
+            lines.append(svg)
+
+    lines.append("</svg>")
+    return "\n".join(lines)
+
+
+def _intersects_export(bbox: Rect, export: Rect) -> bool:
+    # 幅・高さが 0 の要素 (細い罫線等) も拾えるよう緩めに交差判定
+    if bbox.w == 0 and bbox.h == 0:
+        return export.x <= bbox.x <= export.x1 and export.y <= bbox.y <= export.y1
+    return bbox.intersects(export)
+
+
+def _element_to_svg(el) -> str:
+    if isinstance(el, TextElement):
+        return _text_to_svg(el)
+    if isinstance(el, LineElement):
+        return (
+            f'<line x1="{_fmt(el.x0)}" y1="{_fmt(el.y0)}" '
+            f'x2="{_fmt(el.x1)}" y2="{_fmt(el.y1)}" '
+            f'stroke="{el.color}" stroke-width="{_fmt(el.width)}"/>'
+        )
+    if isinstance(el, RectElement):
+        return (
+            f'<rect x="{_fmt(el.rect.x)}" y="{_fmt(el.rect.y)}" '
+            f'width="{_fmt(el.rect.w)}" height="{_fmt(el.rect.h)}" '
+            f'{_paint("fill", el.fill)} {_paint("stroke", el.stroke)} '
+            f'stroke-width="{_fmt(el.stroke_width)}"/>'
+        )
+    if isinstance(el, PathElement):
+        return (
+            f'<path d={quoteattr(el.d)} '
+            f'{_paint("fill", el.fill)} {_paint("stroke", el.stroke)} '
+            f'stroke-width="{_fmt(el.stroke_width)}"/>'
+        )
+    if isinstance(el, ImageElement):
+        return _image_tag(el.rect, el.img_bytes, el.ext)
+    return ""
+
+
+def _paint(attr: str, color) -> str:
+    return f'{attr}="{color}"' if color else f'{attr}="none"'
+
+
+def _text_to_svg(el: TextElement) -> str:
+    # 埋め込みフォント名がビューア未導入でも崩れないよう汎用フォールバックを付与
+    family = f'{el.font_family}, sans-serif'
+    weight = ' font-weight="bold"' if el.bold else ""
+    style = ' font-style="italic"' if el.italic else ""
+    return (
+        f'<text x="{_fmt(el.origin_x)}" y="{_fmt(el.origin_y)}" '
+        f'font-family={quoteattr(family)} font-size="{_fmt(el.font_size)}" '
+        f'fill="{el.color}"{weight}{style}>{escape(el.text)}</text>'
+    )
+
+
+def _image_tag(rect: Rect, data: bytes, ext: str) -> str:
+    b64 = base64.b64encode(data).decode("ascii")
+    href = f"data:{_mime(ext)};base64,{b64}"
+    return (
+        f'<image x="{_fmt(rect.x)}" y="{_fmt(rect.y)}" '
+        f'width="{_fmt(rect.w)}" height="{_fmt(rect.h)}" '
+        f'xlink:href={quoteattr(href)}/>'
+    )
