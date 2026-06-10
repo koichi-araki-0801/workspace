@@ -692,7 +692,7 @@ function cascadeWithSonohokaPick(
   // 右上(第一優先)は「見切れ/交差/円内貫通を左上より悪化させない」なら採用する。判定は実描画
   // (ALWAYS_DRAW) + 全後段で数える countVerifyIssuesDetailed を使い、後段 (角度順引き離し/9時
   // 逃がし) が解消する見かけ上の交差で右上を誤却下しない。幅モデルを実 glyph advance に統一した
-  // ことで placementBox の clips が実描画と一致 (旧 heuristic の偽 clip が解消) したため、clips も
+  // ことで placementBox の clips が実描画と一致するため、clips も
   // 比較に再導入する。右逃がしが本当に悪い構成 (例 currency_many_small_10: 極小その他が隣接 leader
   // と交差) は crossings/pie で弾ける。
   const rightNotWorse =

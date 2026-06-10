@@ -1,5 +1,5 @@
 /**
- * Application error model shared by the web (phase 1) and server (phase 2) layers.
+ * Application error model shared by the web and server layers.
  *
  * Errors cross layer boundaries as values, not thrown exceptions: a repository
  * converts every failure into an {@link AppError} and returns it inside an

@@ -2,7 +2,7 @@ import { fileURLToPath, URL } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * E2E config. Tests run against the web SPA (phase-1: localApi + localStorage),
+ * E2E config. Tests run against the web SPA (localApi + localStorage),
  * so no backend is required. Playwright boots the Vite dev server itself.
  */
 export default defineConfig({

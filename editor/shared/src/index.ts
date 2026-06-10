@@ -1,8 +1,8 @@
 /**
  * Shared domain & API contract types used by both `web` and `server`.
  *
- * The phase-1 `web/api/local` implementation and the phase-2 `server` REST
- * implementation MUST both satisfy the per-aggregate repository interfaces in
+ * The `web/api/local` implementation and the `server` REST implementation MUST
+ * both satisfy the per-aggregate repository interfaces in
  * `./repositories/*` so the data source can be swapped without touching
  * screens/services/stores.
  */
@@ -271,7 +271,7 @@ export interface PdfRequest {
 
 // ---------------------------------------------------------------------------
 // Data-access contracts: see ./repositories/* (per-aggregate, Result-returning).
-// Both the web `local` and phase-2 `rest` layers implement these interfaces.
+// Both the web `local` and `rest` layers implement these interfaces.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -279,11 +279,11 @@ export interface PdfRequest {
 // ---------------------------------------------------------------------------
 
 export * from './domain/history.js';
-// Template identity value object + filename helpers (moved to ./domain/template).
+// Template identity value object + filename helpers.
 export * from './domain/template.js';
 export * from './domain/user.js';
 export * from './errors.js';
-// Per-aggregate repository contracts (implemented by web local & phase-2 REST).
+// Per-aggregate repository contracts (implemented by web local & REST).
 export * from './repositories/AuthRepository.js';
 export * from './repositories/HistoryRepository.js';
 export * from './repositories/PartRepository.js';
