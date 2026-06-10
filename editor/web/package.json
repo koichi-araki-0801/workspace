@@ -21,12 +21,12 @@
     "grapesjs": "^0.23.2",
     "nunjucks": "^3.2.4",
     "pdfjs-dist": "^6.0.227",
-    "pinia": "^2.3.1",
+    "pinia": "^3.0.4",
     "pixelmatch": "^7.2.0",
     "reka-ui": "^2.9.9",
     "tailwind-merge": "^3.6.0",
     "vue": "^3.5.13",
-    "vue-router": "^4.5.0"
+    "vue-router": "^5.1.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
