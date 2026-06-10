@@ -336,6 +336,9 @@
       </div>
     </div>
   </main>
+  <!-- DOM 非依存の純粋関数 (引出線ジオメトリ/パース)。ui.html と vitest 単体テストで共有。
+       classic script として global `LeaderGeom` を生やすため、main スクリプトより前に読み込む。 -->
+  <script src="lib/leader_geom.cjs"></script>
   <script>
     // =============================================================================
     // SVG ラベル位置 ビジュアル編集 — クライアント (バニラ JS, 依存ゼロ)
@@ -352,6 +355,9 @@
     // =============================================================================
 
     const SVG_NS = "http://www.w3.org/2000/svg";
+
+    // 共有純粋関数を取り込む (lib/leader_geom.cjs)。呼び出し側はこれまでと同じ名前で使える。
+    const { parsePath, buildPath, parseTranslate, normColor, clampPointToBox } = LeaderGeom;
 
     // 文字色の正規値 (生成側: 通常=#111111 / inside=#ffffff)。比較・既定値に使う。
     const WHITE = "#ffffff";
@@ -446,27 +452,7 @@
     // 純粋ユーティリティ (状態を持たない)
     // ---------------------------------------------------------------------------
 
-    /** "M x,y L x,y ..." → [{x,y},...] */
-    function parsePath(d) {
-      const nums = d.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi);
-      if (!nums) return [];
-      const pts = [];
-      for (let i = 0; i + 1 < nums.length; i += 2) {
-        pts.push({ x: parseFloat(nums[i]), y: parseFloat(nums[i + 1]) });
-      }
-      return pts;
-    }
-
-    /** [{x,y},...] → "M x,y L x,y ..." */
-    function buildPath(pts) {
-      return pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
-    }
-
-    function parseTranslate(transform) {
-      if (!transform) return { x: 0, y: 0 };
-      const m = transform.match(/translate\(\s*(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)\s*\)/);
-      return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : { x: 0, y: 0 };
-    }
+    // parsePath / buildPath / parseTranslate は lib/leader_geom.cjs へ移設 (冒頭で分割代入)。
 
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -498,14 +484,7 @@
     /** インスペクタの移動量表示 (構築時と読出し更新で同一文字列を使う) */
     const formatCoords = (tx) => `移動量 dx ${tx.x.toFixed(1)} / dy ${tx.y.toFixed(1)} px`;
 
-    /** 色文字列を比較用に正規化 (trim + 小文字化 + 短縮形/英名を6桁へ) */
-    function normColor(c) {
-      if (c == null) return c;
-      const v = String(c).trim().toLowerCase();
-      if (v === "white" || v === "#fff") return WHITE;
-      if (v === "black" || v === "#000") return "#000000";
-      return v;
-    }
+    // normColor は lib/leader_geom.cjs へ移設 (冒頭で分割代入)。
 
     /** 未信頼 SVG を DOM 接続前に無害化する (多層防御)。
      *  innerHTML 経由では <script> は実行されないが、<image onerror> 等のインライン
@@ -897,6 +876,31 @@
         return [anchor, endpoint];
       }
 
+      /** leader 末尾(端点)を必ずラベル外枠上へ置く。アンカー/曲げ点は保持。
+       *  手前の点をラベル矩形へクランプ = 外枠上の最近点。bbox は素の getBBox 値。 */
+      snapEndpointToFrame(s, bbox) {
+        const n = s.leaderPts.length;
+        if (n < 2) return;
+        const left = bbox.x + s.textTx.x;
+        const top = bbox.y + s.textTx.y;
+        const box = { left, top, right: left + bbox.width, bottom: top + bbox.height };
+        s.leaderPts[n - 1] = clampPointToBox(s.leaderPts[n - 2], box);
+      }
+
+      /** ラベル移動後の leader 追従。既存 leader を持ち円外なら端点を外枠上へ
+       *  再スナップ(アンカー/曲げ点は保持)、それ以外は位置駆動ルール。
+       *  basePts 指定時はそれを基準に復元 (ドラッグ中の連続適用用)。 */
+      followLeaderAfterMove(s, bbox, basePts) {
+        const pts = basePts || s.leaderPts;
+        if (pts.length >= 2 && this.isOutsideRim(s, bbox)) {
+          s.leaderPts = pts.map((q) => ({ ...q })); // アンカー/曲げ点を保持
+          this.snapEndpointToFrame(s, bbox);
+          if (s.whiteType) s.fill = BLACK;
+        } else {
+          this.applyRimLeaderRule(s, bbox);
+        }
+      }
+
       /** ラベル(text bbox)の中心点 (textTx 反映)。bbox 省略時は getBBox。 */
       labelCenterPoint(s, bbox) {
         let b = bbox;
@@ -1107,23 +1111,13 @@
         const txStart = { ...s.textTx };
         // ドラッグ開始時の leader 状態 (円外で元から leader を持つ場合の追従/復元に使用)
         const startPts = s.leaderPts.map((p) => ({ ...p }));
-        const hadLeader = startPts.length >= 2;
-        const lastIdx = startPts.length - 1;
         // bbox は transform 非依存 (= ドラッグ中不変) なので開始時に1回だけ取得し reflow を避ける
         const bbox = safeGetBBox(s.text, null);
 
         this.onDrag(evt, (dx, dy) => {
           s.textTx = { x: txStart.x + dx, y: txStart.y + dy };
-          if (hadLeader && this.isOutsideRim(s, bbox)) {
-            // 元から leader 有り & 円外: アンカー/曲げ点は保持し端点だけ追従。
-            // 可視性はユーザー指定を尊重し強制しない。
-            s.leaderPts = startPts.map((q) => ({ ...q }));
-            s.leaderPts[lastIdx] = { x: startPts[lastIdx].x + dx, y: startPts[lastIdx].y + dy };
-            if (s.whiteType) s.fill = BLACK;
-          } else {
-            // それ以外: 位置駆動 (円外で自動生成&追従 / 円内で自動分のみ除去)
-            this.applyRimLeaderRule(s, bbox);
-          }
+          // startPts 基準でアンカー/曲げ点を保持しつつ端点を毎フレーム外枠へ再スナップ
+          this.followLeaderAfterMove(s, bbox, startPts);
           this.markDirty({ dom: true, overlay: true, inspector: true });
         });
       }
@@ -1289,12 +1283,8 @@
         if (!s) return;
         this.pushHistory();
         s.textTx = { x: s.textTx.x + dx, y: s.textTx.y + dy };
-        const last = s.leaderPts.length - 1;
-        if (last >= 0 && s.leaderVisible) {
-          s.leaderPts[last] = { x: s.leaderPts[last].x + dx, y: s.leaderPts[last].y + dy };
-        }
-        // 矢印移動で円周を跨いだ場合も自動生成/削除
-        this.applyRimLeaderRule(s);
+        // 端点を外枠へ再スナップ。円周を跨いだ場合の自動生成/削除も内包。
+        this.followLeaderAfterMove(s, safeGetBBox(s.text, null));
         this.markDirty({ dom: true, overlay: true, inspector: true });
       }
 
@@ -1666,6 +1656,8 @@
 
     const editor = new Editor(dom);
     editor.bindEvents();
+    // E2E テスト用フック (本番動作には無害)。Playwright から editor を操作するため公開。
+    window.__editor = editor;
 
     // ローカルサーバから配信され、即操作可能。Edge(Chromium) なら FS Access API でネイティブ I/O。
     if (hasFsAccess()) {

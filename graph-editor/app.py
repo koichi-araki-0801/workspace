@@ -50,6 +50,10 @@ def resource_path(rel: str) -> str:
 with open(resource_path("ui.html"), "rb") as _f:
     UI_HTML = _f.read()
 
+# ui.html が <script src> で読む共有純粋関数。起動時に一度だけ読み込んで配信する。
+with open(resource_path(os.path.join("lib", "leader_geom.cjs")), "rb") as _f:
+    LEADER_GEOM = _f.read()
+
 
 class Handler(http.server.BaseHTTPRequestHandler):
     """ui.html を配信し、ウィンドウ閉鎖時の /quit ビーコンでサーバを止めるだけの最小ハンドラ。"""
@@ -75,6 +79,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._touch()
         if self.path in ("/", "/index.html", "/ui.html"):
             self._send(200, UI_HTML, "text/html; charset=utf-8")
+        elif self.path == "/lib/leader_geom.cjs":
+            self._send(200, LEADER_GEOM, "text/javascript; charset=utf-8")
         elif self.path == "/favicon.ico":
             self._send(204)
         else:

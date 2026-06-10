@@ -34,10 +34,11 @@ graph2 が生成した円グラフ SVG を読み込み、**ラベル（文字）
 
 | ファイル | 役割 |
 |---|---|
-| `app.py` | 標準ライブラリの小さな HTTP サーバ（127.0.0.1）で `ui.html` を配信し、Edge をアプリモードで起動・常駐管理。実行時の外部依存なし |
+| `app.py` | 標準ライブラリの小さな HTTP サーバ（127.0.0.1）で `ui.html` と `lib/leader_geom.cjs` を配信し、Edge をアプリモードで起動・常駐管理。実行時の外部依存なし |
 | `ui.html` | UI 本体（HTML+CSS+JS）。SVG の WYSIWYG 編集ロジックすべて。ファイル I/O はブラウザの File System Access API。依存ライブラリなし |
+| `lib/leader_geom.cjs` | 引出線まわりの DOM 非依存な純粋関数（`clampPointToBox`/`parsePath`/`buildPath` 等）。`ui.html` と `graph2` 側の vitest 単体テストで同一実装を共有（UMD: ブラウザは global `LeaderGeom`、node は `module.exports`） |
 | `requirements.txt` | 実行は標準ライブラリのみ。`pyinstaller`（ビルド時のみ） |
-| `build.bat` | exe をワンクリックでビルド（`--onefile`） |
+| `build.bat` | exe をワンクリックでビルド（`--onefile`、`ui.html` と `lib/leader_geom.cjs` を同梱） |
 
 graph2 のレンダラ（`src/`）には一切依存しません。ブラウザエンジンも同梱せず、OS の Edge を使うため配布物は単一 exe（~10MB）です。
 
@@ -64,6 +65,7 @@ Python も WebView2 も無しに、Windows 10 / 11 で起動できます（描�
 ```bat
 python -m PyInstaller --noconfirm --onefile --windowed --name LabelEditor ^
   --add-data "ui.html;." ^
+  --add-data "lib/leader_geom.cjs;lib" ^
   app.py
 ```
 
