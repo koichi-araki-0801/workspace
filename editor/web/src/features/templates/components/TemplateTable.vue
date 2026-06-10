@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { TemplateMeta } from '@editor/shared';
-import { FilePlus2, Inbox, Pencil } from 'lucide-vue-next';
+import { FilePlus2, Inbox, Pencil } from '@lucide/vue';
 import { computed } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';

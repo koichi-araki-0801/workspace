@@ -14,7 +14,7 @@ import {
   Info,
   Layers,
   Loader2,
-} from 'lucide-vue-next';
+} from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import BackButton from '@/components/ui/BackButton.vue';
 import Button from '@/components/ui/Button.vue';

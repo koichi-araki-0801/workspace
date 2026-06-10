@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { isErr, isOk, type SampleData, type Template } from '@editor/shared';
-import { FileDown, Loader2, Save } from 'lucide-vue-next';
+import { FileDown, Loader2, Save } from '@lucide/vue';
 import { computed, onMounted, ref } from 'vue';
 import BackButton from '@/components/ui/BackButton.vue';
 import Button from '@/components/ui/Button.vue';

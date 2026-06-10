@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { isErr, isOk, type User, type UserRole, validateNewUser } from '@editor/shared';
-import { Ban, CircleCheck, KeyRound, UserPlus } from 'lucide-vue-next';
+import { Ban, CircleCheck, KeyRound, UserPlus } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import BackButton from '@/components/ui/BackButton.vue';
 import Badge from '@/components/ui/Badge.vue';

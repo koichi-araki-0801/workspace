@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertCircle, CheckCircle2, Eye, Loader2, Lock, RotateCcw, Save } from 'lucide-vue-next';
+import { AlertCircle, CheckCircle2, Eye, Loader2, Lock, RotateCcw, Save } from '@lucide/vue';
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import BackButton from '@/components/ui/BackButton.vue';

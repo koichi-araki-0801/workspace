@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { type DropdownQuery, type GenerateRequest, isErr, type TemplateMeta } from '@editor/shared';
-import { FilePlus2 } from 'lucide-vue-next';
+import { FilePlus2 } from '@lucide/vue';
 import { computed, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import BackButton from '@/components/ui/BackButton.vue';
