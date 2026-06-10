@@ -3,21 +3,21 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@9.15.4",
+  "packageManager": "pnpm@11.5.3+sha512.7ac1c919341c213a34dc0d02afb7143c5c26ac26ee8c4782deea821b8ac64d2134a081fd8941dae6e29bbb48f58dfc2b7fbceeccc07cb2f09d219d342a4969ed",
   "engines": {
     "node": ">=24",
-    "pnpm": ">=9"
+    "pnpm": ">=11"
   },
   "scripts": {
     "dev": "pnpm --filter @editor/shared run build && pnpm --parallel --filter server --filter web run dev",
     "dev:web": "pnpm --filter web run dev",
     "dev:server": "pnpm --filter server run dev",
     "build": "pnpm --filter @editor/shared run build && pnpm --filter server run build && pnpm --filter web run build",
-    "test": "pnpm --filter @editor/shared --filter server --filter web run test",
-    "test:coverage": "pnpm --filter @editor/shared --filter server --filter web run test:coverage",
+    "test": "pnpm --filter @editor/shared --filter server --filter web --filter graph2 --filter graph-editor run test",
+    "test:coverage": "pnpm --filter @editor/shared --filter server --filter web --filter graph2 --filter graph-editor run test:coverage",
     "test:e2e": "playwright test -c editor/playwright.config.ts",
     "test:e2e:install": "playwright install --with-deps chromium",
-    "typecheck": "pnpm --filter @editor/shared --filter server --filter web run typecheck",
+    "typecheck": "pnpm --filter @editor/shared --filter server --filter web --filter graph2 --filter graph-editor run typecheck",
     "graph2:cli": "pnpm --filter graph2 run cli",
     "graph2:check": "pnpm --filter graph2 run check",
     "lint": "biome lint .",
@@ -34,6 +34,6 @@
     "@playwright/test": "^1.50.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.7",
-    "typescript": "^5.7.3"
+    "typescript": "^6.0.3"
   }
 }

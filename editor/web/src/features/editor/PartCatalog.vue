@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PartCatalogItem, PartClassificationOptions, PartClassificationQuery } from '@editor/shared';
-import { Inbox, Loader2, Plus } from 'lucide-vue-next';
+import { Inbox, Loader2, Plus } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import Input from '@/components/ui/Input.vue';
 import Label from '@/components/ui/Label.vue';

@@ -4,9 +4,9 @@
   Build (online) or install (offline) a pip wheelhouse for the Python template generator.
 
 .DESCRIPTION
-  Phase 2 placeholder. The current generator stub (server/scripts/generate_template.py)
-  uses only the Python standard library, so no wheelhouse is needed yet. Once the real
-  generator adds pip dependencies, list them in server/scripts/requirements.txt and use:
+  The current generator stub (server/scripts/generate_template.py) uses only the Python
+  standard library, so no wheelhouse is needed yet. Once the generator adds pip
+  dependencies, list them in server/scripts/requirements.txt and use:
 
     Online  machine:  this script -Mode download   (collects .whl into ./wheelhouse)
     Offline machine:  this script -Mode install     (installs from ./wheelhouse, no index)

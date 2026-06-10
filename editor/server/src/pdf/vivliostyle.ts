@@ -17,13 +17,16 @@ export async function htmlToPdf(html: string, css: string): Promise<Buffer> {
 
   try {
     const { build } = await import('@vivliostyle/cli');
+    // puppeteer は Windows のバックスラッシュ区切りの executableBrowser を
+    // 解決できないため、フォワードスラッシュへ正規化する。
+    const executableBrowser = config.pdf.executableBrowser?.replace(/\\/g, '/');
     await build({
       input: htmlPath,
-      targets: [{ path: pdfPath, format: 'pdf' }],
+      output: [{ path: pdfPath, format: 'pdf' }],
       size: 'A4',
       // Pin the browser when configured (e.g. system Edge) so offline runs never
       // try to download Chromium; otherwise fall back to vivliostyle's default.
-      ...(config.pdf.executableBrowser ? { executableBrowser: config.pdf.executableBrowser } : {}),
+      ...(executableBrowser ? { executableBrowser } : {}),
       logLevel: 'silent',
     } as Parameters<typeof build>[0]);
 

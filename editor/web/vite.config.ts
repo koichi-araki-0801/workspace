@@ -41,6 +41,8 @@ export default defineConfig({
         'src/features/admin/viewmodels/userVm.ts',
         'src/lib/templateDoc.ts',
         'src/lib/usePagedList.ts',
+        'src/lib/nunjucksRender.ts',
+        'src/lib/useCascadingSelect.ts',
       ],
       thresholds: {
         statements: 80,

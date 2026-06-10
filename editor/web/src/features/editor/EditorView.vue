@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { AlertCircle, CheckCircle2, Eye, Loader2, Lock, RotateCcw, Save } from 'lucide-vue-next';
-import { computed } from 'vue';
+import { AlertCircle, CheckCircle2, Eye, Loader2, Lock, RotateCcw, Save } from '@lucide/vue';
+import { computed, useTemplateRef } from 'vue';
 import { useRouter } from 'vue-router';
 import BackButton from '@/components/ui/BackButton.vue';
 import Button from '@/components/ui/Button.vue';
@@ -13,17 +13,11 @@ import { useTemplateEditor } from './useTemplateEditor';
 const props = defineProps<{ id: string }>();
 const router = useRouter();
 
-const {
-  g,
-  template,
-  partHistory,
-  selectedPart,
-  autosave,
-  canvasEl,
-  layersEl,
-  onPartSelect,
-  onPartInsert,
-} = useTemplateEditor(props.id);
+const canvasEl = useTemplateRef<HTMLElement>('canvasEl');
+const layersEl = useTemplateRef<HTMLElement>('layersEl');
+
+const { g, template, partHistory, selectedPart, autosave, onPartSelect, onPartInsert } =
+  useTemplateEditor(props.id, { canvasEl, layersEl });
 
 async function goPreview() {
   await autosave.flush();

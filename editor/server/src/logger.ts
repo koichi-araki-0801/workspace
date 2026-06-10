@@ -44,7 +44,7 @@ export function audit(ev: AuditEvent): void {
 /** Minimal shape we read off the Express request for attribution. */
 interface AttributableRequest {
   ip?: string;
-  // Phase 2: auth middleware populates req.user; until then it is undefined.
+  // Populated by auth middleware; undefined until then.
   user?: { username?: string };
 }
 

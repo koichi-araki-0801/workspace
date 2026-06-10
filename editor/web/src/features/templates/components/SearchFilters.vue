@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DropdownOptions, DropdownQuery } from '@editor/shared';
-import { Loader2, RotateCcw, Search } from 'lucide-vue-next';
+import { Loader2, RotateCcw, Search } from '@lucide/vue';
 import { useTemplateRepo } from '@/api/repositories';
 import Button from '@/components/ui/Button.vue';
 import Label from '@/components/ui/Label.vue';

@@ -6,9 +6,10 @@
 ## 方針（前提）
 
 - **PDF 生成はサーバ側**（運用機 1 台に集約）。
-- **PDF 用ブラウザは社内 Windows の Microsoft Edge を使用**（Chromium を同梱しない）。
-- **依存は node_modules を tgz で持ち込み**。
-- **ビルドはオフライン機で実施**（持ち込んだ node_modules で `npm run build`）。
+- **PDF 用ブラウザは社内 Windows の Microsoft Edge を使用**（PDF 用に Chromium を同梱しない）。
+- **依存は pnpm オフラインストア（`.pnpm-store/`）を tar.gz で持ち込み**、運用機で
+  `pnpm install --offline` により復元する。
+- **ビルドはオフライン機で実施**（復元した依存で `pnpm build`）。
 - フォント・テンプレCSSは system フォントのみで外部依存なし。
 
 > ⚠️ **OS/arch 一致が必須**: ネイティブバイナリ（biome / esbuild / rollup / lightningcss /
@@ -23,9 +24,10 @@
    → 本アプリは `executableBrowser` に **Edge を明示指定**してこれを回避する
    （`server/src/config.ts` の `resolveDefaultBrowser()` が自動検出。
    `VIVLIOSTYLE_EXECUTABLE_BROWSER` で上書き可）。
-2. **npm 導入時のネイティブバイナリ取得**
-   `npm install` は OS 別バイナリをネットから取る。→ オフライン機では `npm install` せず、
-   調達機で `npm ci` 済みの node_modules を丸ごと持ち込む。
+2. **依存導入時のネイティブバイナリ取得**
+   通常の `pnpm install` は OS 別バイナリをネットから取る。→ オフライン機では
+   調達機で構築した `.pnpm-store/` を持ち込み、`pnpm install --offline` で復元する
+   （ストアにはネイティブバイナリも content-addressable で含まれる）。
 
 ## 事前に運用機へインストールしておくもの
 
@@ -35,33 +37,25 @@
 
 ## 手順
 
+構築手順はリポジトリルートの **`README-offline-bundle.txt`** と **`setup-offline.bat`** に
+集約している（pnpm 11 + オフラインストア方式。旧 npm ベースの pack.ps1/setup.ps1 は廃止）。
+
 ### 1. 調達（オンライン機・Windows x64・Node 24）
 
-```powershell
-pwsh -File scripts/offline/pack.ps1
-```
-
-- クリーン `npm ci`（dev 含む）→ 主要ネイティブバイナリの存在チェック →
-  リポジトリ一式（node_modules 含む）を `dist-offline\editor-offline-<日時>.tgz` に固め、
-  `.sha256` を生成する。
-- 生成物（tgz と .sha256）を LAN 経由で運用機へ持ち込む。
+ワークスペース一式（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/` を含む）を
+tar.gz に固めて運用機へ持ち込む。詳細は `README-offline-bundle.txt` を参照。
 
 ### 2. 展開・ビルド・起動（オフライン運用機）
 
-```powershell
-pwsh -File scripts/offline/setup.ps1 -Bundle .\editor-offline-<日時>.tgz -Start
-```
-
-- SHA256 検証 → 展開 → Node/Python/Edge の存在確認 →
-  `appconfig.json` 生成（`appconfig.example.json` から、検出 Edge パスを埋める。既存なら保持）→
-  `npm run build`（**ネット不要**）→ `-Start` 指定時はそのままサーバ起動。
-- 運用機は**単一 Node プロセス**で API と SPA（`web/dist`）を配信する。
+展開後に `setup-offline.bat` を実行する（pnpm の corepack 登録 →
+`pnpm install --offline` → `pnpm build` → Playwright ブラウザ配置）。
+運用機は**単一 Node プロセス**で API と SPA（`web/dist`）を配信する。
 
 手動起動する場合:
 
 ```powershell
-cd <展開先>\editor
-$env:NODE_ENV='production'; npm start -w server
+cd <展開先>
+$env:NODE_ENV='production'; corepack pnpm --filter server start
 ```
 
 ### 設定（`appconfig.json`）
@@ -116,8 +110,8 @@ pwsh -File scripts/offline/python-wheelhouse.ps1 -Mode install
 
 ## オフライン検証チェックリスト（飛行機モード / LAN 遮断で実施）
 
-1. **調達**: `pack.ps1` で tgz + `.sha256` が生成される。
-2. **遮断**: 運用機をネット遮断し、`setup.ps1` の展開〜`npm run build` がネット無しで完走する
+1. **調達**: バンドル tar.gz（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/` 同梱）が生成される。
+2. **遮断**: 運用機をネット遮断し、`setup-offline.bat` の展開〜`pnpm build` がネット無しで完走する
    （biome / esbuild / rollup / lightningcss / vue-tsc の取得が走らない）。
 3. **起動**: `GET /api/health` → `{ok:true}`、ブラウザで SPA が表示される。
 4. **PDF（最重要）**: `POST /api/pdf` で PDF 生成成功。ログに
@@ -125,4 +119,4 @@ pwsh -File scripts/offline/python-wheelhouse.ps1 -Mode install
    /失敗しないこと。
 5. **生成/保存**: `POST /api/generate`・`PUT /api/templates/:id` が成功。
 6. **エディタ UI**: GrapesJS のアイコン/スタイルに欠けが無いか目視。
-7. **回帰**: `npm run typecheck` と `npm run check:ci`（biome、ローカルバイナリ）が通る。
+7. **回帰**: `corepack pnpm typecheck` と `corepack pnpm check:ci`（biome、ローカルバイナリ）が通る。

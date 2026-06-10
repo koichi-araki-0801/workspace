@@ -1,8 +1,6 @@
 /**
- * Shared state for the phase-1 local repositories: bundled fixtures plus a
- * localStorage overlay, and the pure helpers that read/derive from them.
- *
- * Extracted verbatim from the former monolithic `localApi.ts` so every local
+ * Shared state for the local repositories: bundled fixtures plus a localStorage
+ * overlay, and the pure helpers that read/derive from them. Every local
  * repository implementation shares one fixture set and one identity ruleset.
  */
 import {

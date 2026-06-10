@@ -3,9 +3,17 @@ packages:
   - editor/server
   - editor/web
   - graph2
+  - graph-editor
 
-# pnpm v9 はビルドスクリプトを既定でブロックする。初回 install の通知に合わせて調整
-onlyBuiltDependencies:
-  - esbuild
-  - "@vivliostyle/cli"
-  - "@biomejs/biome"
+# pnpm run/exec 前の依存整合チェックで自動 install を走らせない。
+# オフライン環境では prune/再 install がネットに出て失敗するため無効化する。
+# （install 済みの node_modules はストアへのハードリンクで自己完結している）
+verifyDepsBeforeRun: false
+
+# pnpm はビルドスクリプトを既定でブロックする。許可するパッケージを列挙（pnpm 11 の allowBuilds）
+allowBuilds:
+  esbuild: true
+  # @vueuse 等の推移的依存。postinstall で Vue 2/3 モード切替を行うためビルド許可が必要
+  vue-demi: true
+  "@vivliostyle/cli": true
+  "@biomejs/biome": true

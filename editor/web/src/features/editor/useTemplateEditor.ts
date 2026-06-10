@@ -6,7 +6,7 @@ import {
   type PartHistoryEntry,
   type Template,
 } from '@editor/shared';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import { confirm } from '@/components/ui/confirm';
 import { toastError } from '@/components/ui/toast';
@@ -21,7 +21,14 @@ import { useGrapes } from './useGrapes';
  * guards navigation while a save is pending/failed. Keeps {@link EditorView}
  * presentational. GrapesJS/Jinja internals stay in {@link useGrapes}/jinjaMask.
  */
-export function useTemplateEditor(id: string) {
+export function useTemplateEditor(
+  id: string,
+  els: {
+    canvasEl: Readonly<ShallowRef<HTMLElement | null>>;
+    layersEl: Readonly<ShallowRef<HTMLElement | null>>;
+  },
+) {
+  const { canvasEl, layersEl } = els;
   const service = useTemplateEditorService();
   const g = useGrapes();
 
@@ -33,9 +40,6 @@ export function useTemplateEditor(id: string) {
   const canvasPart = ref<PartCatalogItem | null>(null);
   /** Catalog parts cached for resolving a canvas selection back to its docs. */
   const partsById = new Map<string, PartCatalogItem>();
-
-  const canvasEl = ref<HTMLElement>();
-  const layersEl = ref<HTMLElement>();
 
   // Properties pane: canvas selection when present, else the catalog preview.
   const selectedPart = computed(() => (g.selected.value ? canvasPart.value : previewPart.value));
@@ -120,8 +124,6 @@ export function useTemplateEditor(id: string) {
     partHistory,
     selectedPart,
     autosave,
-    canvasEl,
-    layersEl,
     onPartSelect,
     onPartInsert,
   };

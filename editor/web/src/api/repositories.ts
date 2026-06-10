@@ -22,9 +22,9 @@ export interface Repositories {
 }
 
 /**
- * Composition root for data access. Phase 1 wires the local (fixtures +
- * localStorage) repositories; phase 2 swaps this single object for REST
- * implementations of the same interfaces — screens/services never change.
+ * Composition root for data access. Wires the local (fixtures + localStorage)
+ * repositories; swapping this single object for REST implementations of the
+ * same interfaces leaves screens/services unchanged.
  */
 export const localRepositories: Repositories = {
   auth: localAuthRepo,

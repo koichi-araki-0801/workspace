@@ -11,9 +11,8 @@ import { config } from '../config.js';
 
 /**
  * Scan the templates directory and parse the filename convention
- * `委託会社_ファンド_基準日_版種.html` into template metadata. The fixed-schema
- * SQL Server registry (phase 2) can replace this with a DB query exposing the
- * same shape.
+ * `委託会社_ファンド_基準日_版種.html` into template metadata. A fixed-schema
+ * SQL Server registry can replace this with a DB query exposing the same shape.
  */
 export async function indexTemplates(dir: string = config.templatesDir): Promise<TemplateMeta[]> {
   let files: string[] = [];

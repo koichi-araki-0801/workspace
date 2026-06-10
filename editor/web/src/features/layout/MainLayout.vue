@@ -9,7 +9,7 @@ import {
   Pencil,
   Shield,
   Sun,
-} from 'lucide-vue-next';
+} from '@lucide/vue';
 import { computed } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';

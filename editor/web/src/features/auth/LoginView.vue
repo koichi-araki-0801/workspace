@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { isErr } from '@editor/shared';
-import { FileText } from 'lucide-vue-next';
+import { FileText } from '@lucide/vue';
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';

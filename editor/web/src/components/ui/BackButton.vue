@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft } from 'lucide-vue-next';
+import { ArrowLeft } from '@lucide/vue';
 import { type RouteLocationRaw, useRouter } from 'vue-router';
 import Button from './Button.vue';
 

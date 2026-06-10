@@ -32,7 +32,7 @@ export const localHistoryRepo: HistoryRepository = {
     attempt(() => {
       const snapshots = read<Record<string, TemplateSnapshot>>(K.snapshots, {});
       // editHist is already newest-first; keep only this template's entries that
-      // have a stored snapshot (older confirm-saves predating this feature have none).
+      // have a stored snapshot.
       const versions: TemplateVersionMeta[] = read<EditHistoryEntry[]>(K.editHist, [])
         .filter((e) => e.templateId === templateId && snapshots[e.id])
         .map((e) => ({

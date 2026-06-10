@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { HistoryFilter } from '@editor/shared';
-import { RotateCcw } from 'lucide-vue-next';
+import { RotateCcw } from '@lucide/vue';
 import Button from '@/components/ui/Button.vue';
 import Input from '@/components/ui/Input.vue';
 import Label from '@/components/ui/Label.vue';
