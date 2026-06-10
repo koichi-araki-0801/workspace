@@ -11,6 +11,8 @@ coverage/
 .tmp/
 tmp/
 *.tsbuildinfo
+# Claude Code: マシン固有のローカル設定（auto-push フック等）。共有しない
+.claude/settings.local.json
 # vivliostyle / playwright artifacts
 playwright-report/
 test-results/
