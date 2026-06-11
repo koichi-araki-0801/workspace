@@ -17,7 +17,7 @@ export const TableHeader = defineComponent({
   props: { class: { type: String, default: undefined } },
   setup(props, { slots }) {
     return () =>
-      h('thead', { class: cn('[&_tr]:border-b bg-accent/50', props.class) }, slots.default?.());
+      h('thead', { class: cn('[&_tr]:border-b bg-muted/50', props.class) }, slots.default?.());
   },
 });
 
@@ -39,7 +39,7 @@ export const TableRow = defineComponent({
         'tr',
         {
           class: cn(
-            'border-b transition-colors hover:bg-muted data-[state=selected]:bg-muted',
+            'border-b transition-colors duration-150 hover:bg-accent/50 data-[state=selected]:bg-muted',
             props.class,
           ),
         },

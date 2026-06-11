@@ -2,34 +2,25 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { type TemplateMeta, templateFileName, templateIdFromFileName } from '@editor/shared';
 import { Router } from 'express';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { config } from '../config.js';
 import { generateTemplate } from '../generate/pyTemplate.js';
 import { actorFromReq, audit } from '../logger.js';
+import { validate } from '../middleware/validate.js';
+import { GenerateRequest } from '../openapi/schemas.js';
 
 export const generateRouter = Router();
 
-const schema = z.object({
-  companyCode: z.string().min(1),
-  fundCode: z.string().min(1),
-  editionType: z.string().min(1),
-  basedOnTemplateId: z.string().optional(),
-});
-
-generateRouter.post('/generate', async (req, res) => {
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'invalid body' });
-    return;
-  }
+generateRouter.post('/generate', validate(GenerateRequest), async (req, res) => {
+  const body = req.body as z.infer<typeof GenerateRequest>;
   try {
-    const html = await generateTemplate(parsed.data);
+    const html = await generateTemplate(body);
     const baseDate = todayYmd();
     const attributes = {
-      companyCode: parsed.data.companyCode,
-      fundCode: parsed.data.fundCode,
+      companyCode: body.companyCode,
+      fundCode: body.fundCode,
       baseDate,
-      editionType: parsed.data.editionType,
+      editionType: body.editionType,
     };
     const fileName = templateFileName(attributes);
     const id = templateIdFromFileName(fileName);
@@ -59,13 +50,13 @@ generateRouter.post('/generate', async (req, res) => {
       outcome: 'failure',
       ...actorFromReq(req),
       resource: {
-        companyCode: parsed.data.companyCode,
-        fundCode: parsed.data.fundCode,
-        editionType: parsed.data.editionType,
+        companyCode: body.companyCode,
+        fundCode: body.fundCode,
+        editionType: body.editionType,
       },
       error: e instanceof Error ? e.message : 'generation failed',
     });
-    res.status(500).json({ error: e instanceof Error ? e.message : 'generation failed' });
+    throw e;
   }
 });
 

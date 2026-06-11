@@ -16,7 +16,7 @@ export default defineConfig({
       provider: 'v8',
       // Scope coverage (and its thresholds) to the modules under test. Widen this
       // list as new tests are added so the gate grows with the suite.
-      include: ['src/templates/fileIndex.ts', 'src/generate/pyTemplate.ts'],
+      include: ['src/templates/fileIndex.ts', 'src/generate/pyTemplate.ts', 'src/middleware/*.ts'],
       thresholds: {
         statements: 80,
         branches: 80,

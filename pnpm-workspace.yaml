@@ -17,3 +17,4 @@ allowBuilds:
   vue-demi: true
   "@vivliostyle/cli": true
   "@biomejs/biome": true
+  '@scarf/scarf': set this to true or false

@@ -1,24 +1,17 @@
 import { Router } from 'express';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { actorFromReq, audit } from '../logger.js';
+import { validate } from '../middleware/validate.js';
+import { PdfRequest } from '../openapi/schemas.js';
 import { htmlToPdf } from '../pdf/vivliostyle.js';
 
 export const pdfRouter = Router();
 
-const schema = z.object({
-  html: z.string().min(1),
-  css: z.string().default(''),
-});
-
-pdfRouter.post('/pdf', async (req, res) => {
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'html is required' });
-    return;
-  }
-  const detail = { htmlBytes: parsed.data.html.length, cssBytes: parsed.data.css.length };
+pdfRouter.post('/pdf', validate(PdfRequest), async (req, res) => {
+  const body = req.body as z.infer<typeof PdfRequest>;
+  const detail = { htmlBytes: body.html.length, cssBytes: body.css.length };
   try {
-    const pdf = await htmlToPdf(parsed.data.html, parsed.data.css);
+    const pdf = await htmlToPdf(body.html, body.css);
     audit({
       event: 'pdf.export',
       outcome: 'success',
@@ -36,6 +29,6 @@ pdfRouter.post('/pdf', async (req, res) => {
       detail,
       error: e instanceof Error ? e.message : 'PDF generation failed',
     });
-    res.status(500).json({ error: e instanceof Error ? e.message : 'PDF generation failed' });
+    throw e;
   }
 });

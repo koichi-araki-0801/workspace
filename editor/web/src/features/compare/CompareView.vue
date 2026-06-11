@@ -16,7 +16,6 @@ import {
   Loader2,
 } from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
-import BackButton from '@/components/ui/BackButton.vue';
 import Button from '@/components/ui/Button.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
@@ -106,8 +105,8 @@ const STATUS_LABEL: Record<PageStatus, string> = {
 const STATUS_CLASS: Record<PageStatus, string> = {
   same: 'bg-muted text-muted-foreground',
   changed: 'bg-destructive/10 text-destructive',
-  added: 'bg-green-500/10 text-green-600',
-  removed: 'bg-amber-500/10 text-amber-600',
+  added: 'bg-success/15 text-success',
+  removed: 'bg-warning/15 text-warning',
 };
 
 function resetDiff() {
@@ -152,10 +151,7 @@ const pct = (r: number) => `${(r * 100).toFixed(2)}%`;
 
 <template>
   <div class="space-y-4">
-    <div class="flex items-center gap-3">
-      <BackButton :fallback="{ name: 'edit' }" label="ホーム" />
-      <h2 class="text-lg font-semibold">版の比較</h2>
-    </div>
+    <h2 class="text-lg font-semibold">版の比較</h2>
 
     <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
       <Info class="h-3.5 w-3.5" />

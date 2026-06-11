@@ -53,12 +53,12 @@ describe("createPieLayoutConfig", () => {
     expect(cfg.pieRadius).toBe(1.0);
     expect(cfg.startangle).toBe(90);
     expect(cfg.counterclock).toBe(false);
-    expect(cfg.fontSize).toBe(39);
+    expect(cfg.fontSize).toBe(40);
   });
 
   it("overrides で個別パラメータを差し替えられる", () => {
-    const cfg = createPieLayoutConfig({ fontSize: 40, counterclock: true });
-    expect(cfg.fontSize).toBe(40);
+    const cfg = createPieLayoutConfig({ fontSize: 36, counterclock: true });
+    expect(cfg.fontSize).toBe(36);
     expect(cfg.counterclock).toBe(true);
     expect(cfg.pieRadius).toBe(1.0); // 触っていない値は既定のまま
   });
@@ -79,7 +79,7 @@ describe("createPieLayoutConfig", () => {
 
   it("派生値の関係が整合する", () => {
     const cfg = createPieLayoutConfig();
-    expect(cfg.fontScale).toBeCloseTo(39 / 20);
+    expect(cfg.fontScale).toBeCloseTo(40 / 20);
     expect(cfg.pieDiameterPx).toBeCloseTo(0.7 * 450);
     expect(cfg.pieRadiusPx).toBeCloseTo(cfg.pieDiameterPx / 2);
     expect(cfg.marginCapPx).toBeCloseTo((450 - cfg.pieDiameterPx) / 2);

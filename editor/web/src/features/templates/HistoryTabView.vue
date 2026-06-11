@@ -9,7 +9,6 @@ import {
   uniq,
 } from '@editor/shared';
 import { computed, onMounted, ref } from 'vue';
-import BackButton from '@/components/ui/BackButton.vue';
 import { formatDateTime } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { usePagedList } from '@/lib/usePagedList';
@@ -93,10 +92,7 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-4">
-    <div class="flex items-center gap-3">
-      <BackButton :fallback="{ name: 'edit' }" label="ホーム" />
-      <h2 class="text-lg font-semibold">履歴</h2>
-    </div>
+    <h2 class="text-lg font-semibold">履歴</h2>
 
     <HistoryFilters v-model="filter" :users="activeUsers" :keyword-label="activeKeywordLabel">
       <template #lead>
