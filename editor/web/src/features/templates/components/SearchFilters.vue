@@ -16,11 +16,14 @@ const props = withDefaults(
     searchLabel?: string;
     /** fields that should be marked with a required asterisk */
     requiredFields?: Field[];
+    /** hide the search button (e.g. on the create screen where it has no role) */
+    hideSearch?: boolean;
   }>(),
   {
     fields: () => ['companyCode', 'fundCode', 'baseDate', 'editionType'],
     searchLabel: '検索',
     requiredFields: () => [],
+    hideSearch: false,
   },
 );
 
@@ -61,28 +64,33 @@ const optionsByField: Record<Field, () => string[]> = {
 </script>
 
 <template>
-  <div class="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4">
-    <div v-for="f in props.fields" :key="f" class="min-w-[160px] flex-1 space-y-1.5">
-      <Label>
-        {{ labels[f] }}
-        <span v-if="props.requiredFields.includes(f)" class="text-destructive">*</span>
-      </Label>
-      <Select
-        v-model="query[f]"
-        :options="optionsByField[f]()"
-        :placeholder="`${labels[f]}を選択`"
-        :disabled="loading"
-        @update:model-value="onLevelChange(f)"
-      />
+  <div class="rounded-lg border bg-card p-4">
+    <div class="flex flex-wrap items-end gap-3">
+      <div v-for="f in props.fields" :key="f" class="min-w-[160px] flex-1 space-y-1.5">
+        <Label>
+          {{ labels[f] }}
+          <span v-if="props.requiredFields.includes(f)" class="text-destructive">*</span>
+        </Label>
+        <Select
+          v-model="query[f]"
+          :options="optionsByField[f]()"
+          :placeholder="`${labels[f]}を選択`"
+          :disabled="loading"
+          @update:model-value="onLevelChange(f)"
+        />
+      </div>
+      <div class="flex items-center gap-2">
+        <Loader2 v-if="loading" class="h-4 w-4 animate-spin text-muted-foreground" />
+        <Button v-if="!props.hideSearch" @click="emit('search', { ...query })">
+          <Search class="h-4 w-4" /> {{ props.searchLabel }}
+        </Button>
+        <Button variant="outline" @click="reset">
+          <RotateCcw class="h-4 w-4" /> クリア
+        </Button>
+      </div>
     </div>
-    <div class="flex items-center gap-2">
-      <Loader2 v-if="loading" class="h-4 w-4 animate-spin text-muted-foreground" />
-      <Button @click="emit('search', { ...query })">
-        <Search class="h-4 w-4" /> {{ props.searchLabel }}
-      </Button>
-      <Button variant="outline" @click="reset">
-        <RotateCcw class="h-4 w-4" /> クリア
-      </Button>
+    <div v-if="$slots.footer" class="mt-4 border-t pt-4">
+      <slot name="footer" />
     </div>
   </div>
 </template>

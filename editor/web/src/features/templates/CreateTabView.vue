@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { type DropdownQuery, type GenerateRequest, isErr, type TemplateMeta } from '@editor/shared';
 import { FilePlus2 } from '@lucide/vue';
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import BackButton from '@/components/ui/BackButton.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import Label from '@/components/ui/Label.vue';
@@ -31,17 +30,20 @@ function onUpdate(q: DropdownQuery) {
   Object.assign(liveQuery, q);
 }
 
-function onSearch(q: DropdownQuery) {
-  Object.assign(liveQuery, q);
-  if (seriesMode.value) loadSeries();
-}
+// In series mode the table loads automatically once all three fields are set;
+// changing a field (which cascades-resets downstream ones) re-loads or clears it.
+watch(
+  () => [liveQuery.companyCode, liveQuery.fundCode, liveQuery.editionType, seriesMode.value],
+  () => {
+    if (!seriesMode.value) return;
+    if (canCreate.value) loadSeries();
+    else seriesRows.value = [];
+  },
+);
 
 async function loadSeries() {
   const { companyCode, fundCode, editionType } = liveQuery;
-  if (!companyCode || !fundCode || !editionType) {
-    toastError(SELECT_ALL_MSG);
-    return;
-  }
+  if (!companyCode || !fundCode || !editionType) return;
   const res = await run(() =>
     templates.listSeriesFunds(companyCode, fundCode, editionType),
   );
@@ -79,46 +81,49 @@ function createFromSeries(m: TemplateMeta) {
 
 function toggleSeries(v: boolean) {
   seriesMode.value = v;
-  if (v) loadSeries();
-  else seriesRows.value = [];
+  if (!v) seriesRows.value = [];
+  // when turned on, the watcher loads the table if all fields are selected
 }
 </script>
 
 <template>
   <div class="space-y-4">
-    <div class="flex items-center gap-3">
-      <BackButton :fallback="{ name: 'edit' }" label="ホーム" />
-      <h2 class="text-lg font-semibold">テンプレート作成</h2>
-    </div>
+    <h2 class="text-lg font-semibold">テンプレート作成</h2>
     <SearchFilters
       :fields="['companyCode', 'fundCode', 'editionType']"
       :required-fields="['companyCode', 'fundCode', 'editionType']"
-      search-label="絞り込み"
-      @search="onSearch"
+      hide-search
       @update="onUpdate"
-    />
-
-    <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4">
-      <div class="flex items-center gap-2">
-        <Checkbox id="series" :model-value="seriesMode" @update:model-value="(v) => toggleSeries(!!v)" />
-        <Label for="series">既存のシリーズファンドを元に作成する</Label>
-      </div>
-      <div v-if="!seriesMode" class="flex flex-col items-end gap-1">
-        <Button :disabled="creating || !canCreate" @click="createNew">
-          <FilePlus2 class="h-4 w-4" /> {{ creating ? '作成中…' : '新規作成' }}
-        </Button>
-        <p v-if="!canCreate" class="text-xs text-muted-foreground">
-          委託会社・ファンド・版種をすべて選択してください
-        </p>
-      </div>
-    </div>
+    >
+      <template #footer>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <Checkbox id="series" :model-value="seriesMode" @update:model-value="(v) => toggleSeries(!!v)" />
+            <Label for="series">既存のシリーズファンドを元に作成する</Label>
+          </div>
+          <div class="flex flex-col items-end gap-1">
+            <Button :disabled="creating || !canCreate" @click="createNew">
+              <FilePlus2 class="h-4 w-4" /> {{ creating ? '作成中…' : '新規作成' }}
+            </Button>
+            <p v-if="!canCreate" class="text-xs text-muted-foreground">
+              委託会社・ファンド・版種をすべて選択してください
+            </p>
+          </div>
+        </div>
+      </template>
+    </SearchFilters>
 
     <template v-if="seriesMode">
       <h3 class="text-sm font-semibold">元にするシリーズファンドを選択</h3>
-      <p class="text-sm text-muted-foreground">
-        各行の「作成」を押すと、そのファンドを基にした編集画面に進みます
+      <p v-if="!canCreate" class="text-sm text-muted-foreground">
+        委託会社・ファンド・版種をすべて選択してください
       </p>
-      <TemplateTable :rows="seriesRows" action="create" @action="createFromSeries" />
+      <template v-else>
+        <p class="text-sm text-muted-foreground">
+          各行の「作成」を押すと、そのファンドを基にした編集画面に進みます
+        </p>
+        <TemplateTable :rows="seriesRows" action="create" @action="createFromSeries" />
+      </template>
     </template>
   </div>
 </template>
