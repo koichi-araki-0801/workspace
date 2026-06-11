@@ -38,9 +38,9 @@ export interface InsideFit {
 }
 
 /**
- * 文字単位で視覚 em 幅を返す。第一に埋め込みフォント (ipaexg.ttf) の実 glyph advance
- * テーブル GLYPH_ADVANCE_EM を引く (実描画幅そのもの)。テーブルは非 1.0 em の codepoint のみ
- * 収録 (CJK/かなは実測一律 1.0)。未収録 codepoint は従来のレンジ heuristic にフォールバック:
+ * 文字単位で視覚 em 幅を返す。第一に埋め込みフォント (BIZUDPGothic-Bold.woff2) の実 glyph
+ * advance テーブル GLYPH_ADVANCE_EM を引く (実描画幅そのもの)。テーブルは非 1.0 em の codepoint
+ * のみ収録 (漢字は実測一律 1.0)。未収録 codepoint は従来のレンジ heuristic にフォールバック:
  * 全角 (漢字/仮名/全角形) は full(1.0)・それ以外 (ASCII/半角カナ) は half(0.5)。
  * テーブルは scripts/gen_glyph_advance.ts が生成。emit の textLength・verify_svg も同テーブルに揃う。
  */

@@ -49,7 +49,7 @@ graph2/
 ├── package.json
 ├── tsconfig.json
 ├── samples.json                — サンプルデータ (87 件・object 形式)
-├── fonts/ipaexg.ttf            — 埋込フォント (IPAex ゴシック)
+├── fonts/BIZUDPGothic-Bold.woff2 — 埋込フォント (BIZ UDPゴシック Bold)
 ├── src/
 │   ├── types.ts                — 共通型 (Item / LayoutItem / Placement / Diagnostics / PieLayoutConfig)
 │   ├── config.ts               — createPieLayoutConfig + makeColors

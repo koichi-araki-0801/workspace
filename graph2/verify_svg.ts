@@ -127,10 +127,11 @@ function assertOracleSync(): void {
 
   // 実 glyph advance テーブル (src/glyph_advance.ts) が確かに読み込まれ本体 visualCharEm に
   // 効いているかを代表コードポイントで検査する。テーブル未生成/未適用なら旧 heuristic の
-  // 0.5/1.0 に落ちて以下の実測値と乖離し FAIL する。CJK/かなは既定 1.0。
+  // 0.5/1.0 に落ちて以下の実測値と乖離し FAIL する。漢字は既定 1.0、BIZ UDPGothic の
+  // プロポーショナルかな ('ア') と全角幅 ASCII ('%') はテーブル収録値。
   const widthProbes: [string, number][] = [
-    ["0", 0.6299], ["8", 0.6299], [".", 0.2642], ["%", 0.8501], [" ", 0.27],
-    ["株", 1.0], ["ア", 1.0],
+    ["0", 0.7598], ["8", 0.7598], [".", 0.3301], ["%", 1.0], [" ", 0.3335],
+    ["株", 1.0], ["ア", 0.9102],
   ];
   for (const [ch, expect] of widthProbes) {
     const body = bodyVisualCharEm(ch, cfg);
