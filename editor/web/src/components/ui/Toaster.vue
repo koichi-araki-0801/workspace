@@ -27,7 +27,7 @@ import { dismissToast, toasts } from './toast';
             'pointer-events-auto flex w-full items-start gap-3 rounded-md border border-l-4 bg-card px-4 py-3 text-sm text-card-foreground shadow-lg',
             t.variant === 'success' && 'border-l-success',
             t.variant === 'error' && 'border-l-destructive',
-            t.variant === 'default' && 'border-l-border',
+            t.variant === 'default' && 'border-l-primary',
           )
         "
       >

@@ -106,8 +106,8 @@ const STATUS_LABEL: Record<PageStatus, string> = {
 const STATUS_CLASS: Record<PageStatus, string> = {
   same: 'bg-muted text-muted-foreground',
   changed: 'bg-destructive/10 text-destructive',
-  added: 'bg-green-500/10 text-green-600',
-  removed: 'bg-amber-500/10 text-amber-600',
+  added: 'bg-success/15 text-success',
+  removed: 'bg-warning/15 text-warning',
 };
 
 function resetDiff() {
