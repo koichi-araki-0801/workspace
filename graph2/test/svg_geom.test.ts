@@ -563,6 +563,22 @@ describe("nudgeTextAwayFromPie", () => {
     const out = nudgeTextAwayFromPie(5, 5, "middle", "middle", m, cfg);
     expect(out).toEqual({ x: 5, y: 5 });
   });
+  it("押し出し後は bbox と円の距離が pieLabelClearance 以上", () => {
+    const cases: Array<[number, number, string, string]> = [
+      [-1.0, 0, "end", "middle"],
+      [1.0, 0, "start", "middle"],
+      [-0.7, 0.7, "end", "bottom"],
+      [0, -1.0, "middle", "top"],
+    ];
+    for (const [x, y, anchor, baseline] of cases) {
+      const out = nudgeTextAwayFromPie(x, y, anchor, baseline, m, cfg);
+      const b = textBoxBounds(out.x, out.y, m, anchor, baseline);
+      const closestX = Math.max(b.left, Math.min(0, b.right));
+      const closestY = Math.max(b.bottom, Math.min(0, b.top));
+      const dist = Math.hypot(closestX, closestY);
+      expect(dist).toBeGreaterThanOrEqual(cfg.pieRadius + cfg.pieLabelClearance - 1e-6);
+    }
+  });
 });
 
 describe("nudgeTextAwayFromSegment", () => {

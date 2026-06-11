@@ -293,6 +293,8 @@ export interface PieLayoutConfig {
   insideSliceEnabled: boolean;
   insideSliceClearance: number;
   insideSliceAngularClearanceDeg: number;
+  /** 外側ラベルの text bbox と円との最小ギャップ (論理単位 = pieRadius 比)。 */
+  pieLabelClearance: number;
   darkSliceTextColor: string;
   darkSliceFillIndexMin: number;
   grayScale4: string[];

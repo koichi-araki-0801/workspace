@@ -774,8 +774,7 @@ export function nudgeTextAwayFromPie(
   cfg: PieLayoutConfig,
 ): Point {
   const pieR = cfg.pieRadius;
-  const toleranceSvgPx = 4;
-  const clearance = toleranceSvgPx / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const clearance = cfg.pieLabelClearance;
   let nextX = textX;
   let nextY = textY;
 

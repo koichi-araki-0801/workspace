@@ -80,6 +80,7 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     insideSliceEnabled: true,
     insideSliceClearance: 0.04,
     insideSliceAngularClearanceDeg: 3,
+    pieLabelClearance: 0.05,
     darkSliceTextColor: "#ffffff",
     darkSliceFillIndexMin: 2,
 
