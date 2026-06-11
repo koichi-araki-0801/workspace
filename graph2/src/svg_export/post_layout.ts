@@ -479,7 +479,7 @@ export function applyVisualViewBoxNudge(textPlacements: Placement[], cfg: PieLay
     if (bboxBottom > cfg.pieRadius) closestPieY = bboxBottom;
     else if (bboxTop < -cfg.pieRadius) closestPieY = bboxTop;
     else closestPieY = Math.abs(bboxTop) < Math.abs(bboxBottom) ? bboxTop : bboxBottom;
-    const pieClearance = radialFraction(cfg, 0.01, 0.1);
+    const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
     const safety = cfg.canvasSafetyMargin;
     if (overflow.side === "left") {
       let shift = cfg.canvasXlim[0] + safety - bboxLeft;
@@ -579,7 +579,7 @@ export function relaxNameCondense(textPlacements: Placement[], cfg: PieLayoutCon
   const [xmin, xmax] = cfg.canvasXlim;
   const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9); // ≈ 1 SVG px (condense-to-fit と同じ)
   const STEP = 0.025; // applyFinalCondenseToFit と同じ格子
-  const pieClearance = radialFraction(cfg, 0.01, 0.1);
+  const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
   const distToPie = (b: { left: number; right: number; top: number; bottom: number }): number => {
     const nx = Math.max(b.left, Math.min(0, b.right));
     const ny = Math.max(b.bottom, Math.min(0, b.top));

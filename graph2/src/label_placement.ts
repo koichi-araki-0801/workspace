@@ -653,7 +653,10 @@ function clampAndBuildPlacement(input: {
     let closestY: number;
     if (bboxYMin <= 0 && bboxYMax >= 0) closestY = 0;
     else closestY = Math.abs(bboxYMin) < Math.abs(bboxYMax) ? bboxYMin : bboxYMax;
-    const pieClearanceLogical = radialFraction(cfg, 0.012, 0.12);
+    const pieClearanceLogical = Math.max(
+      cfg.pieLabelClearance,
+      radialFraction(cfg, 0.012, 0.12),
+    );
     const insidePieR = Math.sqrt(
       Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY),
     );

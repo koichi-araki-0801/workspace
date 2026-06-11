@@ -842,7 +842,7 @@ function applyTopBandClusterReorder(placements: Placement[], cfg: PieLayoutConfi
   const pushUpToClearPie = (p: Placement): void => {
     const measured =
       p.measured ?? { width: 0, height: cfg.fontSizeUnits * cfg.lineHeightFactor };
-    const clearance = 4 / (cfg.mmPerUnit * cfg.svgUnitsPerMm); // 4 SVG px
+    const clearance = cfg.pieLabelClearance;
     const pieR = cfg.pieRadius;
     for (let step = 0; step < 8; step += 1) {
       let left: number, right: number;
