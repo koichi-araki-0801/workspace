@@ -557,19 +557,73 @@ export function applyFinalCondenseToFit(textPlacements: Placement[], cfg: PieLay
 }
 
 /**
- * 図形内に 1 つでも長体 (nameScaleX < 1) のラベルがあれば、全ラベル
- * (内側スライスラベルを含む) を同じ圧縮率に揃える。圧縮は名前を狭めるだけ
- * なので、内側はスライス内に収まったまま・外側もアンカー固定で far edge が
- * 内側へ動くのみ → pie 侵入も新規重なりも生まない (幅は減るだけ)。よって
- * 伝播後の再 fit は不要。取りうる長体値は単一 (0.7) なので最小値＝採用する統一値。
+ * 長体 (nameScaleX < 1) になった外側ラベルを「キャンバスに収まる範囲で原寸へ向けて」緩和し、
+ * ラベルごとにギリギリ収まる最大サイズ (上限 sx=1 = デフォルトの大きさ) にする。旧来の
+ * 「1 つでも長体なら全ラベルを統一圧縮」方針の置き換えで、収まるラベルは原寸のまま・
+ * はみ出すラベルだけ必要最小限の長体に落ち着く。
+ *
+ * 候補へラウンドロビンで +0.025 ずつ与える (逐次貪欲だと配列先頭が共有空間を独占するため)。
+ * 1 ステップの採用条件 (満たさなければ revert):
+ *   (a) canvas fit — placementBox が canvasXlim 内 (±tol)。例外: box 幅が変わらないステップ
+ *       (% 行が幅を支配する短い名前) は常に許可 — 箱が不変なので clips/重なり/採点に一切影響
+ *       しない (構造的はみ出しの dominant rim ラベルでも名前だけ原寸へ戻せる)
+ *   (b) pie 非侵入 — box の原点最近接距離が pieRadius+clearance 以上、または広げる前より
+ *       近づいていない (anchor=start/end は pie 側辺固定で自明に通る。middle 用のガード)
+ *   (c) 重なり非悪化 — 縦に重なる他 box との横交差量が広げる前から増えない
+ * (a)(c) により countDefects (clips / overlap / crossings / pie) は構造的に非増加 = do-no-harm。
+ * 内側スライスラベルは wedge フィットが制約 (computeInsideOptions が sx=1 を先に試す
+ * per-label 最小長体) なので対象外。scorer (finalizeForScoring) と emit が同一スロットで
+ * 共有し、verify_consistency の scorer ↔ emit 一致を保つ。
  */
-export function applyUniformCondenseIfAny(textPlacements: Placement[]): void {
-  let minScale = 1;
-  for (const p of textPlacements) {
-    const sx = p.nameScaleX ?? 1;
-    if (sx < minScale) minScale = sx;
+export function relaxNameCondense(textPlacements: Placement[], cfg: PieLayoutConfig): void {
+  const [xmin, xmax] = cfg.canvasXlim;
+  const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9); // ≈ 1 SVG px (condense-to-fit と同じ)
+  const STEP = 0.025; // applyFinalCondenseToFit と同じ格子
+  const pieClearance = radialFraction(cfg, 0.01, 0.1);
+  const distToPie = (b: { left: number; right: number; top: number; bottom: number }): number => {
+    const nx = Math.max(b.left, Math.min(0, b.right));
+    const ny = Math.max(b.bottom, Math.min(0, b.top));
+    return Math.hypot(nx, ny);
+  };
+  const candidates = textPlacements.filter(
+    (p) => !p.insideSlice && (p.nameScaleX ?? 1) < 1 - 1e-9,
+  );
+  if (candidates.length === 0) return;
+
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const p of candidates) {
+      const cur = p.nameScaleX ?? 1;
+      if (cur >= 1 - 1e-9) continue;
+      const beforeBox = placementBox(p, cfg);
+      const beforePieDist = distToPie(beforeBox);
+      p.nameScaleX = Math.min(1, Math.round((cur + STEP) * 1000) / 1000);
+      const box = placementBox(p, cfg);
+      let ok =
+        (box.left >= xmin - tol && box.right <= xmax + tol) ||
+        box.right - box.left <= beforeBox.right - beforeBox.left + 1e-9;
+      if (ok) {
+        const d = distToPie(box);
+        ok = d >= cfg.pieRadius + pieClearance - 1e-9 || d >= beforePieDist - 1e-9;
+      }
+      if (ok) {
+        for (const q of textPlacements) {
+          if (q === p) continue;
+          const b = placementBox(q, cfg);
+          const oy = Math.min(box.top, b.top) - Math.max(box.bottom, b.bottom);
+          if (oy <= 0) continue;
+          const oxAfter = Math.min(box.right, b.right) - Math.max(box.left, b.left);
+          const oxBefore = Math.min(beforeBox.right, b.right) - Math.max(beforeBox.left, b.left);
+          if (oxAfter > Math.max(oxBefore, 0) + 1e-9) {
+            ok = false;
+            break;
+          }
+        }
+      }
+      if (ok) progressed = true;
+      else p.nameScaleX = cur;
+    }
   }
-  if (minScale >= 1) return;
-  for (const p of textPlacements) p.nameScaleX = minScale;
 }
 

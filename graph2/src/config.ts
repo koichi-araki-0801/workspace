@@ -31,7 +31,7 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     counterclock: false,
     backgroundColor: "#ffffff",
 
-    fontSize: 39,
+    fontSize: 40,
     fontFamily: '"IPAexGothic", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif',
     fontWeight: "700",
     embedFont: true,

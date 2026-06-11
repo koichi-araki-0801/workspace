@@ -147,12 +147,14 @@ RenderResult { svg, diagnostics, config }
 
 - `1 viewBox unit = 1px` 固定。キャンバスは **600×450px 固定**(`config.ts` の `svgWidthPx` / `svgHeightPx`）。
 - 円グラフ本体の直径は**高さの 70% 固定**(`pieHeightRatio` 0.7)で、**fontSize 非依存**。pie は常にキャンバス中央に置かれ、横余白は `(svgWidthPx − 直径) / 2` で自動決定される。
-- 文字サイズは `config.ts` の `fontSize` 既定 **39**(`baselineFontSize` 20 を基準に派生スケールが連動）。実描画は `fontSize × textRenderScale`(=39×0.68≈**26.5px**) で `<text font-size>` に出力される。
-- **fontSize=39 での tight-pack warning(現況: 2026-06-11 更新 / 配置ロジック最適化後に再計測)**: 現行設定 (600×450px / 直径 70% / fontSize=39) では `npm run verify` が **14/86 サンプル**で警告する(72 件クリーン・計23件)。キャンバス+フォント拡大 (550×400/35 → 600×450/39) で一時的に leader 交差 3・円内侵入 4 等が新規発生したが、描画 leader の弦安全化 (`computeDrawnLeader` の縮退スタブ除去 + 接線二等分リルート) と emit 最終段の残余修復 (`repairResidualLeaderDefects`: bend 格子再配置 / pie-clear シフト / rim 再ハグ / 左列再積み上げ、いずれも do-no-harm) で解消した。内訳:
-  - label viewBox はみ出し: 21 件（**大半は condense-to-fit で縮小済**。残るのは下記の構造的残件)
-  - leader 交差: **0 件** / leader 円内侵入: **0 件** / label order inversion: **0 件**（`test/leader_invariants.test.ts` が回帰 5 サンプル + 番兵 3 サンプルで不変条件をガード)
-  - leader through label: 1 件 / label inside pie (6px): 1 件（いずれも `stress_top_cluster_8`。左上に 2 行ラベル 4 枚が密集し、1 曲げ leader 制約下では回廊が物理的に確保できない構造的残件)
-- **構造的に残る viewBox はみ出し(対象外として既知)**: いずれも長名を最終 `applyFinalCondenseToFit`(下限 sx=0.6)で縮めても収まらないケース。
+- 文字サイズは `config.ts` の `fontSize` 既定 **40**(`baselineFontSize` 20 を基準に派生スケールが連動）。実描画は `fontSize × textRenderScale`(=40×0.68=**27.2px**) で `<text font-size>` に出力される。
+- 長体 (nameScaleX) は**ラベル単位**: はみ出すラベルだけ `applyFinalCondenseToFit` で縮め、`relaxNameCondense` がキャンバス・pie・隣接ラベルに当たらない範囲で原寸 (sx=1 上限) へ戻す。旧来の「1 つでも長体なら全ラベルを統一圧縮」は廃止 (収まるラベルは原寸のまま)。
+- **fontSize=40 での tight-pack warning(現況: 2026-06-11 更新 / fontSize 40 化 + 長体のラベル単位化後に再計測)**: 現行設定 (600×450px / 直径 70% / fontSize=40) では `npm run verify` が **18/86 サンプル**で警告する(68 件クリーン・計34件)。fontSize 39 時点の 14/86(23件)から増えた分は、フォント拡大で最密サンプルの幅圧が上がったことによる(警告は全て WARN 級。ERROR 級の leader 交差/円内貫通は 0 を維持)。内訳:
+  - label viewBox はみ出し: 25 件(**大半は condense-to-fit で縮小済**。残るのは下記の構造的残件)
+  - leader 交差: **0 件** / leader 円内侵入: **0 件**(`test/leader_invariants.test.ts` が回帰 5 サンプル + 番兵 3 サンプルで不変条件をガード。fontSize 40 で `currency_many_small_10` に出た交差は `repairResidualLeaderDefects` の交差対 footprint スワップが through/inversion へ振り替えて解消)
+  - label overlap: 2 件(`currency_long_labels_8` 48px / `currency_low_diff_10` 21px。長体の有無に依らず fontSize 40 の cascade 配置で発生する密集残件)
+  - leader through label: 4 件 / label order inversion: 2 件 / label inside pie (7px): 1 件(`stress_top_cluster_8` と、交差→through/inversion 振替後の `currency_many_small_10`・`page16_country_allocation`。いずれも 1 曲げ leader 制約下で回廊が物理的に確保できない構造的残件)
+- **構造的に残る viewBox はみ出し(対象外として既知)**: いずれも長名を最終 `applyFinalCondenseToFit`(下限 sx=0.7)で縮めても収まらないケース。
   - 長カタカナ単一語(`スウェーデンクローナ`/`ノルウェークローネ`/`オフショア人民元` 等): 1 行では収まらず、根本解は中間分割2行化(別タスク)。
   - 支配スライス右端(`債券先物(イギリス) 41.8%`): rim 右端に配置余地なし。中央下/スライス内誘導はカスケード新規追加(別タスク)。
   - これらの解消は**別タスク**で対応する。値が動いたら本節を更新すること。**新規回帰と区別すること**。

@@ -66,7 +66,7 @@ import {
   runCompactCascade,
   applyVisualViewBoxNudge,
   applyFinalCondenseToFit,
-  applyUniformCondenseIfAny,
+  relaxNameCondense,
 } from "./post_layout.js";
 import { buildFontFaceDefs } from "./font.js";
 
@@ -596,7 +596,7 @@ function runCascadeOnce(
  * verify と同基準 (ALWAYS_DRAW: leader を抑制せず実描画) で最終不具合数を数える。chartConflicts は
  * 交差 leader を skipLeader 抑制して数えないため、ALWAYS_DRAW 描画で実際に出る交差を取りこぼす
  * (= spread が直す交差を off 側で 0 と誤評価する)。spread 採否は実描画基準で比較する必要があるので
- * 専用に数える。コピーを実 render と同じ後段 (nudge/condense/uniform/交差引き離し/9時逃がし) で
+ * 専用に数える。コピーを実 render と同じ後段 (nudge/condense/relax/交差引き離し/9時逃がし) で
  * 最終化してから、交差・円内貫通・viewBox 見切れ・box 重なりを数える。off/on を同関数で比較する。
  */
 function countVerifyIssues(
@@ -617,7 +617,7 @@ export interface DefectCounts {
 
 /**
  * placements を **emit と同一の後段** で最終化したコピーを返す (採点を実描画基準へ揃える)。
- * 後段順は renderPdfStylePieToSvg と一致: nudge → condense-to-fit → uniform-condense →
+ * 後段順は renderPdfStylePieToSvg と一致: nudge → condense-to-fit → relax-condense →
  * 角度順引き離し → 9時逃がし →（leftStackMode のみ）reorderLeftStackWithCondense。
  * leftStackMode を渡さないと emit 限定の最終 re-stack を取りこぼし採点が emit とズレる。
  */
@@ -630,7 +630,7 @@ function finalizeForScoring(
   const copy = placements.map((p) => ({ ...p }));
   applyVisualViewBoxNudge(copy, cfg);
   applyFinalCondenseToFit(copy, cfg);
-  applyUniformCondenseIfAny(copy);
+  relaxNameCondense(copy, cfg);
   applyOutsideLeaderAngularOrder(copy, cfg, coord);
   escapeUpperLeftTinyLeaders(copy, cfg, coord);
   escapeTopBandSeamLeader(copy, cfg, coord);
@@ -769,14 +769,14 @@ function cascadeWithSonohokaPick(
 function overrideOverflowPreferOneLine(labels: LayoutItemReady[], cfg: PieLayoutConfig): void {
   const candidates = labels.filter((it) => it.preferOneLineCascade && it.side === "left");
   if (candidates.length === 0) return;
-  // プローブを **emit と同じ後段** (nudge/condense-to-fit/uniform-condense) で最終化したコピー上で
+  // プローブを **emit と同じ後段** (nudge/condense-to-fit/relax-condense) で最終化したコピー上で
   // overflow を判定する。生 cascade 直後の box は condense/nudge で実際は収まる左ラベルを誤って
   // overflow 扱いし、不要な 2 行化を招く。leftStackOverflowItems と対称の実描画基準判定。配列順は
   // 各パスとも不変なので index で labels と対応づけできる。
   const probe = runCascadeOnce(labels, cfg);
   applyVisualViewBoxNudge(probe, cfg);
   applyFinalCondenseToFit(probe, cfg);
-  applyUniformCondenseIfAny(probe);
+  relaxNameCondense(probe, cfg);
   const halfW = cfg.svgWidthPx / 2 / cfg.pxPerUnit;
   const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9); // ≈ 1 SVG px
   for (let i = 0; i < labels.length; i += 1) {
@@ -2594,6 +2594,66 @@ function repairResidualLeaderDefects(
       }
     }
 
+    // 複合手: 交差対の footprint スワップ。bend 替え・nudge で直らない交差は、角度順が正順でも
+    // 「上スライスのラベル枠が下スライスのアンカー上空を塞ぎ、その leader が相手アンカーの外側を
+    // 横断する」密集構造で起きる (例 currency_many_small_10: カナダドル×豪ドル)。当事者 2 枚の
+    // (x, y, baseline) を丸ごと交換すると両 leader が短い扇形へ組み替わり構造的に解ける。
+    // 交差は ERROR・角度順逆転は WARN なので、この手に限り inv の悪化を許容する (他指標は非悪化)。
+    if (!improved) {
+      const allPaths = realLeaderPaths(placements, cfg, coord);
+      const pairs: [number, number][] = [];
+      for (let i = 0; i < allPaths.length; i += 1) {
+        const pa = allPaths[i];
+        if (!pa) continue;
+        for (let j = i + 1; j < allPaths.length; j += 1) {
+          const pb = allPaths[j];
+          if (pb && pathsCross(pa, pb)) pairs.push([i, j]);
+        }
+      }
+      pairs.sort((m, n) =>
+        `${placements[m[0]].item.name} ${placements[m[1]].item.name}`.localeCompare(
+          `${placements[n[0]].item.name} ${placements[n[1]].item.name}`,
+          "ja",
+        ),
+      );
+      // 交差 (ERROR) の解消を最優先し、through (WARN) への振替は「線不具合の総数が増えない」
+      // 範囲で許す (交差 1 件 → through 1 件 への置換は純改善)。振替で生じた through は次 iter の
+      // bend 替え (better() の through 厳密減クォーラム) が掃除を試みる。
+      const swapBetter = (a: Vec, b: Vec): boolean =>
+        a.crossPie < b.crossPie &&
+        a.crossPie + a.through <= b.crossPie + b.through &&
+        a.clips <= b.clips &&
+        a.oob <= b.oob &&
+        a.ovl <= b.ovl + tol &&
+        a.view <= b.view + tolPx &&
+        a.boxPie <= b.boxPie + tol;
+      for (const [ia, ib] of pairs) {
+        const pa = placements[ia];
+        const pb = placements[ib];
+        if (pa.insideSlice || pb.insideSlice || pa.forceTopRight || pb.forceTopRight) continue;
+        const snapS = seamSnapshot(placements);
+        [pa.x, pb.x] = [pb.x, pa.x];
+        [pa.y, pb.y] = [pb.y, pa.y];
+        const tb = pa.baseline;
+        pa.baseline = pb.baseline;
+        pb.baseline = tb;
+        const v = vecOf();
+        const ok = swapBetter(v, cur);
+        if (process.env.GRAPH2_DEBUG_REPAIR) {
+          console.error(
+            `[crossswap] "${pa.item.name}"<->"${pb.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, ` +
+              `through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
+              `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? "ADOPT" : "REJECT"}`,
+          );
+        }
+        if (ok) {
+          improved = true;
+          break;
+        }
+        seamRestore(snapS);
+      }
+    }
+
     // 複合手: 左列の再積み上げ。bend 単独では直らない交差 (例 page16: escape で左上が空いたのに
     // 残った 2 枚が下のスロットに留まり、長い leader 同士がサブピクセル余裕で絡む) は、左列全体を
     // 角度順に上から詰め直すと leader が短い扇形になり構造的に解ける。canvas 上端起点と現在の
@@ -2658,7 +2718,7 @@ function repairResidualLeaderDefects(
 
 /**
  * leftStackMode で「1 行に降格して viewBox 左端を見切れている」幅広左ラベルの LayoutItem を返す。
- * 最終配置 (nudge/condense/uniform 適用済コピー) で判定するので、verify の見切れ判定と一致する。
+ * 最終配置 (nudge/condense/relax 適用済コピー) で判定するので、verify の見切れ判定と一致する。
  * 既に 2 行のラベル / 1 行で収まる短名 (preferOneLineCascade) / flip 済は対象外。
  */
 function leftStackOverflowItems(
@@ -2668,7 +2728,7 @@ function leftStackOverflowItems(
   const copy = result.map((p) => ({ ...p }));
   applyVisualViewBoxNudge(copy, cfg);
   applyFinalCondenseToFit(copy, cfg);
-  applyUniformCondenseIfAny(copy);
+  relaxNameCondense(copy, cfg);
   const viewBoxLeft = -cfg.svgWidthPx / 2 / cfg.pxPerUnit;
   const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9); // ≈ 1 SVG px
   const out: { item: LayoutItem; over: number }[] = [];
@@ -2874,8 +2934,9 @@ export async function renderPdfStylePieToSvg(
     applyVisualViewBoxNudge(textPlacements, cfg);
     // viewBox をはみ出す外側ラベルを「収まるまで長体」で縮める最終ガード (下限 0.7)。
     applyFinalCondenseToFit(textPlacements, cfg);
-    // 1 つでも長体が使われたら図形全体 (内側ラベル含む) を同じ圧縮率に統一する。
-    applyUniformCondenseIfAny(textPlacements);
+    // 長体ラベルをキャンバスに収まる範囲で原寸 (上限 1.0 = デフォルトの大きさ) へ向けて緩和し、
+    // ラベルごとにギリギリ収まる最大サイズへ戻す。
+    relaxNameCondense(textPlacements, cfg);
 
     // 最終段: 同一側で交差する外側 leader 対を縦に引き離して交差を解消する。viewBox nudge /
     // condense-to-fit の後 (= emit と同一の最終配置) に実行するので、ここで見た交差は verify が
