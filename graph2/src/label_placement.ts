@@ -82,6 +82,41 @@ interface PlacementDraft {
 export const TOP_BAND_HALF_WIDTH_DEG = 18;
 export const BOTTOM_BAND_HALF_WIDTH_DEG = 18;
 
+/**
+ * 上部「その他」専用の左側拡張帯の半幅。svg_export の TOP_SEAM_ESCAPE_HALF_WIDTH_DEG と
+ * 同値だが別概念 (シーム逃がし候補帯 vs その他真上配置帯) なので独立定数にする。
+ * 帯: normalizeAngle(midAngle) ∈ (90+18, 90+32] = (108°, 122°]。コア帯 (90±18) のすぐ左に
+ * 続く範囲で、ここのその他は右上逃がしを試さず常に真上垂直 center 配置にする
+ * (帯外扱いだと汎用 rim 配置になり、左上が混雑するチャートで nudge/overlap 解消に
+ * 左隅まで押し出される)。
+ */
+export const TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG = 32;
+
+/** 上部「その他」の帯ゾーン。core=12時バンド内 / leftExt=左拡張帯 / null=対象外。 */
+export type TopBandSonohokaZone = "core" | "leftExt" | null;
+
+/**
+ * name が「その他」前方一致のラベルについて、midAngle がどの上部帯に入るかを返す。
+ * svg_export 側 (cascadeWithSonohokaPick / angularStacks / untangleAngularOrderBySwap) と
+ * 本ファイルの topBandSonohokaRight が共有する唯一の判定実装。
+ */
+export function topBandSonohokaZone(item: {
+  name: string;
+  midAngle?: number;
+}): TopBandSonohokaZone {
+  if (!item.name.startsWith("その他")) return null;
+  const norm = normalizeAngle(item.midAngle ?? 0);
+  if (angleInBand(norm, 90, TOP_BAND_HALF_WIDTH_DEG)) return "core";
+  // 左拡張帯は wrap (0°/360°) を跨がないので素の比較で安全。
+  if (
+    norm > 90 + TOP_BAND_HALF_WIDTH_DEG &&
+    norm <= 90 + TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG
+  ) {
+    return "leftExt";
+  }
+  return null;
+}
+
 /** dominant slice の経路選択用 percent 閾値。≥ 80% → 真下中央 2 行 + leader なし */
 export const DOMINANT_BELOW_CENTER_MIN_PCT = 80;
 /**
@@ -251,8 +286,10 @@ export function buildInsideDraft(form: LabelForm, fit: InsideFit): PlacementDraf
  *   slice 中心軸上で真上に立てる垂直一直線 leader + viewBox 上端寄り center 配置を返す。
  *   水平区間を持つ leader だと、その水平線が左帯のラベルの垂直 leader と直交して交差し得る。
  *   水平区間そのものを消すこの形なら、x 軸位置が左帯と離れて構造的に交差不能になる。
+ * - 左拡張帯 (zone="leftExt", midAngle ∈ (108°,122°]): 右上逃がしは試さず常に左 fallback と
+ *   同じ真上垂直 center 配置。汎用 rim 扱いだと左上混雑チャートで左隅へ押し出されるため。
  *
- * 帯外 (midAngle が [72°,108°] 外) や名前不一致なら null を返す。
+ * 帯外 (topBandSonohokaZone が null) や名前不一致なら null を返す。
  */
 function topBandSonohokaRight(
   item: LayoutItemReady,
@@ -260,11 +297,11 @@ function topBandSonohokaRight(
   form: LabelForm,
   opts: { skipLeader: boolean; allowSegmentNudge: boolean },
 ): PlacementDraft | null {
-  if (!item.name.startsWith("その他")) return null;
-  if (!angleInBand(normalizeAngle(item.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG)) return null;
+  const zone = topBandSonohokaZone(item);
+  if (!zone) return null;
   const anchorX = item.anchorX;
   const anchorY = item.anchorY;
-  if (item.topRightRejected) {
+  if (zone === "leftExt" || item.topRightRejected) {
     // 左 fallback: 真上垂直 leader + viewBox 上端寄り center 配置
     const labelY = cfg.scaledYTop - radialFraction(cfg, 0.02, 0.2);
     return {

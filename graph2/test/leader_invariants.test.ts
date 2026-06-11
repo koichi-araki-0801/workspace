@@ -191,8 +191,10 @@ describe("leader 幾何の不変条件 (実レンダリング)", () => {
 
 // 回帰: その他(帯外 115°)×アイルランド(144°) の左スタック逆転で leader が 1.2px まで接近し
 // 視覚交差、かつアイルランドが viewBox 左へ 12px 見切れていた (untangle の その他 無条件除外が原因)。
+// 現在は その他 が左拡張帯の真上垂直 center 配置 (anchor=middle) になったため、rim スタックの
+// 単調性チェックからは本体 angularStacks と同様に除外する (中央固定配置は y 基準が異なる)。
 describe("fidelity_foreign_bond_country: その他を含む左スタックの角度順と見切れ", () => {
-  it("leader 間隔 ≥2px・左スタック anchorY 単調 (その他含む)・横見切れなし", async () => {
+  it("leader 間隔 ≥2px・左スタック anchorY 単調・横見切れなし", async () => {
     const name = "pdf_510037_07_fidelity_foreign_bond_country";
     const items = resolveInputData({ data: samples[name].items });
     const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
@@ -215,7 +217,7 @@ describe("fidelity_foreign_bond_country: その他を含む左スタックの角
       }),
     );
     const leftStack = texts
-      .filter((t) => !t.inside && t.x < pie.cx && anchorOf.has(t.name))
+      .filter((t) => !t.inside && t.x < pie.cx && t.anchor !== "middle" && anchorOf.has(t.name))
       .sort((a, b) => a.y - b.y);
     for (let i = 1; i < leftStack.length; i += 1) {
       const prev = anchorOf.get(leftStack[i - 1].name)!;
@@ -243,4 +245,42 @@ describe("fidelity_foreign_bond_country: その他を含む左スタックの角
       }
     }
   });
+});
+
+// 左拡張帯 (108°,122°] の上部「その他」はスライス中心軸の真上に center 配置し、垂直 leader
+// 1 本で結ぶ (topBandSonohokaZone="leftExt")。修正前は汎用 rim 扱いで左上隅 (右端 x≈118px) へ
+// 押し出され、約 108px の水平 leader が伸びていた。
+describe("左拡張帯の上部その他: スライス中心軸の真上に垂直 leader で center 配置", () => {
+  const EXT_SAMPLES = [
+    "pdf_510037_07_fidelity_foreign_bond_country", // その他 mid≈115.2°
+    "country_europe_heavy_8", // その他 mid≈117.0°
+  ] as const;
+  for (const name of EXT_SAMPLES) {
+    it(`${name}: その他が anchor=middle・中心軸上・垂直 leader`, async () => {
+      const items = resolveInputData({ data: samples[name].items });
+      const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
+      const pie = parsePie(svg);
+      const texts = parseTexts(svg);
+      const leaders = parseLeaders(svg);
+
+      const sonohoka = texts.find((t) => t.name.startsWith("その他"));
+      expect(sonohoka, "その他ラベルが存在する").toBeTruthy();
+      expect(sonohoka!.anchor, "その他は center 配置").toBe("middle");
+
+      // text x がスライス中心軸 (アンカー x) 付近: 垂直 leader の両端 x とほぼ一致する。
+      const leader = leaders.find((l) => l.name.startsWith("その他"));
+      expect(leader, "その他に leader が描かれる").toBeTruthy();
+      const xs = leader!.points.map((p) => p.x);
+      const drift = Math.max(...xs) - Math.min(...xs);
+      expect(drift, "leader の水平ドリフト(px)").toBeLessThanOrEqual(2);
+      expect(leader!.points.length - 2, "leader の曲がり回数").toBeLessThanOrEqual(0);
+      expect(
+        Math.abs(sonohoka!.x - xs[0]),
+        "text x とアンカー x の乖離(px)",
+      ).toBeLessThanOrEqual(2);
+      // 中心より左 (midAngle>90°) かつ左隅 (旧 118px) より大きく右にある。
+      expect(sonohoka!.x).toBeLessThan(pie.cx);
+      expect(sonohoka!.x).toBeGreaterThan(pie.cx - pie.r);
+    });
+  }
 });

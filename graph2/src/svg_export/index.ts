@@ -40,6 +40,7 @@ import {
   finalizePlacement,
   TOP_BAND_HALF_WIDTH_DEG,
   BOTTOM_BAND_HALF_WIDTH_DEG,
+  topBandSonohokaZone,
 } from "../label_placement.js";
 import type { InsideOption } from "../label_placement.js";
 import type {
@@ -453,14 +454,6 @@ type Coord = {
   height: number;
 };
 
-/** name が「その他」前方一致 かつ midAngle がトップバンド ([72°,108°]) のラベルか。 */
-function isTopBandSonohoka(item: { name: string; midAngle?: number }): boolean {
-  return (
-    item.name.startsWith("その他") &&
-    angleInBand(normalizeAngle(item.midAngle ?? 0), 90, TOP_BAND_HALF_WIDTH_DEG)
-  );
-}
-
 /**
  * 全ラベルを①〜⑨カスケードで 1 回配置する。① が wedge に収まれば内側で確定、否なら②外側 rim
  * から始め、overlap/pie nudge を反復しつつ失敗ラベルを 1 段ずつ降格させて収束させる。
@@ -712,7 +705,9 @@ function countVerifyIssuesDetailed(
 
 /**
  * 上部「その他」の右上(第一優先) vs 左上(代替)をチャート単位で選ぶ。右上が左上に無い不具合を
- * 増やさないなら右上、増やすなら左上。
+ * 増やさないなら右上、増やすなら左上。対象はコア帯 (90°±18°) のみ: 左拡張帯 (leftExt) の
+ * その他は topBandSonohokaRight が topRightRejected に依らず常に真上垂直 center 配置を返す
+ * ため、右/左の二重試行が同一結果になり比較が無意味 (スキップして cascade 1 回で済ませる)。
  */
 function cascadeWithSonohokaPick(
   labels: LayoutItemReady[],
@@ -721,7 +716,7 @@ function cascadeWithSonohokaPick(
   spreadLeftStack = false,
   leftStackMode = false,
 ): Placement[] {
-  const topOthers = labels.filter((it) => isTopBandSonohoka(it));
+  const topOthers = labels.filter((it) => topBandSonohokaZone(it) === "core");
   for (const it of topOthers) it.topRightRejected = false;
   const right = runCascadeOnce(labels, cfg, spreadLeftStack);
   if (topOthers.length === 0) return right;
@@ -1003,10 +998,16 @@ function angularStacks(
   const right: { labelY: number; anchorY: number }[] = [];
   placements.forEach((p, i) => {
     if (p.insideSlice) return;
-    // 意図的に角度順を破る その他 (top-band 内で右上へ逃がす仕様・forceTopRight) のみ除外する。
-    // 帯外で左右スタックに通常 rim 配置された その他 は順序チェックに参加させる (除外すると
-    // 例: fidelity_foreign_bond_country で その他(115°)×アイルランド(144°) の逆転が見逃される)。
-    if (p.item.name.startsWith("その他") && (isTopBandSonohoka(p.item) || p.forceTopRight)) return;
+    // 意図的に角度順を破る/固定する その他 のみ除外する: コア帯 (右上逃がし or 真上垂直) と
+    // 左拡張帯 (常に真上垂直 center 固定。アンカー最上・ラベル天井固定で構造的に concordant)、
+    // および forceTopRight。帯外 (>122°) で左右スタックに通常 rim 配置された その他 は順序
+    // チェックに参加させる (除外すると下位スタックでの逆転が見逃される)。
+    if (
+      p.item.name.startsWith("その他") &&
+      (topBandSonohokaZone(p.item) !== null || p.forceTopRight)
+    ) {
+      return;
+    }
     const pts = paths[i];
     if (!pts || pts.length < 2) return;
     const head = pts[0];
@@ -1191,9 +1192,10 @@ function untangleAngularOrderBySwap(
     (p) =>
       !p.item.clusterTopBand &&
       !p.insideSlice &&
-      // 意図的に角度順を破る その他 (top-band 内右上逃がし・forceTopRight) のみ除外 (angularStacks
-      // と同条件)。帯外で左右スタックに通常配置された その他 は逆転修復の対象に含める。
-      !(p.item.name.startsWith("その他") && (isTopBandSonohoka(p.item) || p.forceTopRight)) &&
+      // 意図的に角度順を破る/固定する その他 (コア帯右上逃がし・左拡張帯の真上垂直固定・
+      // forceTopRight) のみ除外 (angularStacks と同条件)。帯外 (>122°) で左右スタックに通常
+      // 配置された その他 は逆転修復の対象に含める。
+      !(p.item.name.startsWith("その他") && (topBandSonohokaZone(p.item) !== null || p.forceTopRight)) &&
       (side === "left" ? p.x < 0 : p.x > 0),
   );
   if (stack.length < 2) return;
