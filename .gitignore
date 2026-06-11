@@ -9,7 +9,6 @@ venv/
 # PyInstaller
 build/
 dist/
-dist_installer/
 *.spec.bak
 
 # 辞書・設定 (ポータブルデータ。開発実行時に生成)

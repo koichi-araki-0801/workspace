@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
+    QTransform,
 )
 from PySide6.QtWidgets import (
     QGraphicsItem,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
 )
 
+from model import fonts
 from model.elements import (
     Element,
     ImageElement,
@@ -32,6 +34,10 @@ from model.elements import (
     RectElement,
     TextElement,
 )
+
+# エディタ表示の幅調整パラメータ (SVG の textLength 相当)
+_STRETCH_TOLERANCE = 0.02  # この比率以内の差は誤差としてスケールしない
+_STRETCH_MIN, _STRETCH_MAX = 0.5, 2.0  # 異常なメトリクスからの保護
 
 ELEMENT_ID_KEY = 0
 
@@ -69,17 +75,43 @@ def make_item(el: Element) -> QGraphicsItem | None:
     return item
 
 
+def _qt_weight(css_weight: int) -> "QFont.Weight":
+    """CSS ウェイト (100-900) を最寄りの QFont.Weight へ対応付ける。"""
+    table = [
+        (100, QFont.Weight.Thin), (200, QFont.Weight.ExtraLight),
+        (300, QFont.Weight.Light), (400, QFont.Weight.Normal),
+        (500, QFont.Weight.Medium), (600, QFont.Weight.DemiBold),
+        (700, QFont.Weight.Bold), (800, QFont.Weight.ExtraBold),
+        (900, QFont.Weight.Black),
+    ]
+    return min(table, key=lambda t: abs(t[0] - css_weight))[1]
+
+
 def _text_item(el: TextElement) -> QGraphicsSimpleTextItem:
     item = QGraphicsSimpleTextItem(el.text)
-    font = QFont(el.font_family)
+    font = QFont()
+    # SVG 出力と同じフォールバックチェーンを Qt にも渡す (汎用名は Qt 非対応のため除外)
+    font.setFamilies(
+        [f for f in fonts.fallback_chain(el.font_family, el.text)
+         if f not in ("serif", "sans-serif", "monospace")]
+    )
     font.setPixelSize(max(1, round(el.font_size)))
-    font.setBold(el.bold)
+    font.setWeight(_qt_weight(el.weight))
     font.setItalic(el.italic)
     item.setFont(font)
     item.setBrush(QBrush(_color(el.color)))
     # SVG はベースライン原点。SimpleText は上端原点なので ascent 分だけ上へ。
-    ascent = QFontMetricsF(font).ascent()
-    item.setPos(el.origin_x, el.origin_y - ascent)
+    metrics = QFontMetricsF(font)
+    item.setPos(el.origin_x, el.origin_y - metrics.ascent())
+    # 未編集テキストは元 PDF 上の幅 (bbox.w) に合わせて横方向のみ伸縮し、
+    # 代替フォントの字幅差によるはみ出し・重なりを防ぐ (SVG の textLength と同じ見た目)。
+    if el.text == el.original_text and el.bbox.w > 0:
+        natural = metrics.horizontalAdvance(el.text)
+        if natural > 0:
+            sx = el.bbox.w / natural
+            if abs(sx - 1.0) >= _STRETCH_TOLERANCE:
+                sx = min(max(sx, _STRETCH_MIN), _STRETCH_MAX)
+                item.setTransform(QTransform.fromScale(sx, 1.0))
     return item
 
 

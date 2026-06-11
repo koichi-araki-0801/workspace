@@ -11,6 +11,8 @@ import base64
 from typing import List
 from xml.sax.saxutils import escape, quoteattr
 
+from export import font_embed
+from model import fonts
 from model.document import Page
 from model.elements import (
     ImageElement,
@@ -19,6 +21,7 @@ from model.elements import (
     Rect,
     RectElement,
     TextElement,
+    sanitize_text,
 )
 
 
@@ -50,12 +53,20 @@ def page_to_svg(page: Page) -> str:
         if _intersects_export(b.rect, rect):
             lines.append(_image_tag(b.rect, b.png_bytes, "png"))
 
+    text_els: List[TextElement] = []
     for el in page.live_elements():
         if not _intersects_export(el.bbox, rect):
             continue
         svg = _element_to_svg(el)
         if svg:
             lines.append(svg)
+            if isinstance(el, TextElement):
+                text_els.append(el)
+
+    # 同梱フォント (BIZ UD) を使う場合のみサブセット WOFF2 を埋め込む
+    css = font_embed.font_face_css(text_els)
+    if css:
+        lines.insert(2, f"<style>{css}</style>")
 
     lines.append("</svg>")
     return "\n".join(lines)
@@ -100,14 +111,19 @@ def _paint(attr: str, color) -> str:
 
 
 def _text_to_svg(el: TextElement) -> str:
-    # 埋め込みフォント名がビューア未導入でも崩れないよう汎用フォールバックを付与
-    family = f'{el.font_family}, sans-serif'
-    weight = ' font-weight="bold"' if el.bold else ""
+    # 代替フォントでも崩れないよう和文補完 + 汎用名のフォールバックチェーンを付与
+    family = fonts.fallback_css(el.font_family, el.text)
+    weight = f' font-weight="{el.weight}"' if el.weight != 400 else ""
     style = ' font-style="italic"' if el.italic else ""
+    # 未編集テキストは元 PDF 上の幅 (bbox.w) に合わせて伸縮し、代替フォントの
+    # 字幅差によるはみ出し・重なりを防ぐ。編集済みは本来の幅が不明なため自然幅。
+    stretch = ""
+    if el.text == el.original_text and el.bbox.w > 0:
+        stretch = f' textLength="{_fmt(el.bbox.w)}" lengthAdjust="spacingAndGlyphs"'
     return (
         f'<text x="{_fmt(el.origin_x)}" y="{_fmt(el.origin_y)}" '
         f'font-family={quoteattr(family)} font-size="{_fmt(el.font_size)}" '
-        f'fill="{el.color}"{weight}{style}>{escape(el.text)}</text>'
+        f'fill="{el.color}"{weight}{style}{stretch}>{escape(sanitize_text(el.text))}</text>'
     )
 
 

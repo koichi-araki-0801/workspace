@@ -33,13 +33,13 @@ def app_base_dir() -> Path:
 
 
 def resource_dir() -> Path:
-    """同梱リソース (icons 等) のルート。
+    """同梱リソース (icons / fonts 等) のルート。
 
-    - frozen 時: ``sys._MEIPASS``
+    - frozen 時: ``sys._MEIPASS/resources`` (spec の datas が ``resources`` 配下へ展開)
     - ソース実行時: リポジトリ直下の ``resources/``
     """
     if is_frozen():
-        return Path(getattr(sys, "_MEIPASS"))
+        return Path(getattr(sys, "_MEIPASS")) / "resources"
     return Path(__file__).resolve().parents[1] / "resources"
 
 

@@ -6,6 +6,7 @@ PyMuPDF から抽出したものをそのまま保持し、SVG 書き出し時�
 from __future__ import annotations
 
 import itertools
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -15,6 +16,15 @@ _id_counter = itertools.count(1)
 
 def new_id() -> int:
     return next(_id_counter)
+
+
+# XML 1.0 で許されない制御文字 (tab/LF/CR を除く C0 制御と DEL)
+_XML_INVALID = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def sanitize_text(text: str) -> str:
+    """XML 1.0 で不正な制御文字を除去する (壊れた ToUnicode CMap 対策)。"""
+    return _XML_INVALID.sub("", text)
 
 
 @dataclass
@@ -71,8 +81,10 @@ class TextElement(Element):
     text: str = ""
     original_text: str = ""  # 辞書置換前の値 (Undo / レビュー用)
     font_family: str = "sans-serif"
+    original_font: str = ""  # マッピング前の PDF フォント名 (デバッグ用)
     font_size: float = 12.0
-    bold: bool = False
+    weight: int = 400  # CSS フォントウェイト (100-900)。元 PDF のウェイトを保持
+    bold: bool = False  # weight >= 600 相当。辞書ヘッダ判定・エディタ表示の互換用
     italic: bool = False
     color: str = "#000000"
     origin_x: float = 0.0  # ベースライン原点 (SVG <text> の x)
@@ -83,6 +95,8 @@ class TextElement(Element):
     def __post_init__(self) -> None:
         if not self.original_text:
             self.original_text = self.text
+        if not self.original_font:
+            self.original_font = self.font_family
 
 
 @dataclass

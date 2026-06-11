@@ -11,7 +11,7 @@ echo ============================================
 echo  [1/2] 依存ライブラリをインストール
 echo ============================================
 %PY% -m pip install --upgrade pip
-%PY% -m pip install PySide6 PyMuPDF Pillow pyinstaller
+%PY% -m pip install PySide6 PyMuPDF Pillow fonttools brotli pyinstaller
 if errorlevel 1 (
     echo.
     echo [エラー] 依存のインストールに失敗しました。
@@ -35,5 +35,4 @@ echo.
 echo ============================================
 echo  完成: dist\PdfToSvg\PdfToSvg.exe
 echo ============================================
-echo  配布用インストーラを作る場合は make_installer.bat を実行してください。
 pause

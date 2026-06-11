@@ -26,6 +26,20 @@ def vector_pdf() -> Path:
 
 
 @pytest.fixture(scope="session")
+def banner_pdf() -> Path:
+    """グレー帯 (塗り矩形) を先に描き、その上へ白文字を載せた報告書風 PDF。"""
+    FIXTURES.mkdir(exist_ok=True)
+    path = FIXTURES / "banner_sample.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=200)
+    page.draw_rect(fitz.Rect(50, 40, 250, 70), color=None, fill=(0.6, 0.6, 0.6))
+    page.insert_text((90, 60), "WHITE TITLE", fontsize=14, color=(1, 1, 1))
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+@pytest.fixture(scope="session")
 def scanned_pdf() -> Path:
     """テキストを持たず、ページ全面を画像が覆う擬似スキャン PDF。"""
     FIXTURES.mkdir(exist_ok=True)

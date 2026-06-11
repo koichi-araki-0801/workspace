@@ -5,7 +5,7 @@
 出力:    dist/PdfToSvg/PdfToSvg.exe   (onedir)
 
 方針:
-- onedir (起動が速く AV 誤検知が少ない)。最終配布は Inno Setup で 1 つの Setup.exe に。
+- onedir (起動が速く AV 誤検知が少ない)。配布は dist/PdfToSvg/ フォルダごとコピー。
 - 未使用の重い Qt モジュールを除外してサイズを抑える。
 """
 import os

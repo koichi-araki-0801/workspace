@@ -26,7 +26,6 @@ PDF を編集可能な **SVG** に変換し、非エンジニアでも
 |---|---|
 | **`run.bat`** | アプリを起動（exe を作らずソースから手軽に動かす） |
 | **`build.bat`** | 依存導入 + `dist\PdfToSvg\PdfToSvg.exe` を生成 |
-| **`make_installer.bat`** | 配布用 `Setup.exe` を生成（要 [Inno Setup](https://jrsoftware.org/isdl.php)） |
 
 ## 動かし方（開発・コマンド）
 
@@ -87,12 +86,7 @@ pyinstaller packaging/pdftosvg.spec --noconfirm
 # 出力: dist/PdfToSvg/PdfToSvg.exe (onedir)
 ```
 
-インストーラ（任意・Inno Setup）:
-
-```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\installer.iss
-# 出力: dist_installer/PdfToSvg-Setup-0.1.0.exe
-```
+配布はこの onedir フォルダ (`dist\PdfToSvg\`) をそのままコピーするポータブル方式。
 
 ---
 
@@ -102,3 +96,19 @@ pyinstaller packaging/pdftosvg.spec --noconfirm
 外部・商用配布が必要になった場合は、抽出部 `engine/pdf_engine.py`（薄い境界）を
 BSD ライセンスの **pypdfium2** 等へ差し替えるか、Artifex の商用ライセンスを取得すること。
 PySide6 は LGPL（動的リンクのため .exe 配布可）。
+
+### 同梱フォント
+
+`resources/fonts/` に **BIZ UDゴシック**（ゴシック代替）と **Noto Serif JP**（明朝代替）を同梱する。
+いずれも **SIL OFL 1.1**（`OFL.txt` / `OFL-NotoSerifJP.txt`）で再配布可。SVG 出力時は使用グリフのみ
+WOFF2 サブセット埋め込みするため出力は数十 KB に収まる（`export/font_embed.py`）。
+
+元 PDF の **ウェイト（Light/Regular/Medium/Bold）を保持**するため、フォント名から CSS ウェイトを
+抽出し（`model/fonts.py`）、`<text>` に数値 `font-weight` を出力する。
+
+- **明朝（Noto Serif JP）**: 可変フォント `NotoSerifJP-VF.ttf` を **wght 軸を保持したまま**サブセット埋め込みし、
+  `@font-face` を `font-weight:100 900` で宣言。1 本で Light〜Bold を出し分ける。`C:\Windows\Fonts` の
+  Google Noto（OFL）をそのままコピーして同梱。
+- **ゴシック（BIZ UDGothic）**: Regular/Bold の 2 ウェイトのみ存在。`@font-face` を範囲指定
+  （Regular=`1 599` / Bold=`600 1000`）で宣言し、中間ウェイト要求を faux-bold 無しで最寄りへ解決させる
+  （Medium ゴシックは Regular になる）。

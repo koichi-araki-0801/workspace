@@ -5,10 +5,11 @@
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import fitz  # PyMuPDF
 
+from model import fonts
 from model.document import Document, Page, RasterBackground
 from model.elements import (
     Element,
@@ -18,6 +19,7 @@ from model.elements import (
     Rect,
     RectElement,
     TextElement,
+    sanitize_text,
 )
 from engine import classify
 from engine.colors import int_to_hex, rgbf_to_hex
@@ -61,28 +63,83 @@ def _extract_page(page: "fitz.Page", index: int) -> Page:
         p.background = _render_background(page)
         return p
 
-    z = 0
+    # z は PDF の実ペイント順 (コンテンツストリームの seqno) を復元して採番する。
+    # get_text は読み順・get_drawings はパス順で返すため、抽出順のままだと
+    # 「帯の塗り矩形が先・白文字が後」の前後関係が逆転し文字が矩形に隠れる。
+    # z = seqno * _Z_TIER + 連番 (連番は同一 seqno 内・全体の安定順序用)。
+    text_seqnos = [
+        (s["seqno"], Rect.from_xyxy(*s["bbox"])) for s in page.get_texttrace()
+    ]
+    image_seqnos = [
+        (i, Rect.from_xyxy(*r))
+        for i, (kind, r) in enumerate(page.get_bboxlog())
+        if kind in ("fill-image", "fill-shade")
+    ]
+
+    seq = 0
+    prev_seqno = 0
     text_dict = page.get_text("dict")
     for block in text_dict.get("blocks", []):
         if block.get("type") == 1:  # 画像ブロック
-            img = _image_element(block, z)
+            bbox = Rect.from_xyxy(*block["bbox"])
+            # 照合失敗時は -1 (背景扱い): 画像は下敷きであることが大半
+            seqno = _match_seqno(bbox, image_seqnos, -1)
+            img = _image_element(block, seqno * _Z_TIER + seq)
             if img is not None:
                 p.elements.append(img)
-                z += 1
+                seq += 1
         else:  # テキストブロック
             for line in block.get("lines", []):
                 for span in line.get("spans", []):
-                    el = _text_element(span, z)
+                    bbox = Rect.from_xyxy(*span["bbox"])
+                    seqno = _match_seqno(bbox, text_seqnos, prev_seqno)
+                    el = _text_element(span, seqno * _Z_TIER + seq)
                     if el is not None:
+                        prev_seqno = seqno
                         p.elements.append(el)
-                        z += 1
+                        seq += 1
 
     for drawing in page.get_drawings():
-        for el in _drawing_elements(drawing, z):
+        seqno = int(drawing.get("seqno") or 0)
+        for el in _drawing_elements(drawing, seqno * _Z_TIER + seq):
             p.elements.append(el)
-            z += 1
+            seq += 1
 
     return p
+
+
+# 1 ページ内の要素数を超える十分大きな tier 幅 (z = seqno * tier + 連番)
+_Z_TIER = 1_000_000
+
+
+def _overlap_area(a: Rect, b: Rect) -> float:
+    w = min(a.x1, b.x1) - max(a.x, b.x)
+    h = min(a.y1, b.y1) - max(a.y, b.y)
+    return w * h if (w > 0 and h > 0) else 0.0
+
+
+def _match_seqno(bbox: Rect, candidates: List[Tuple[int, Rect]], default: int) -> int:
+    """bbox に最もフィットする候補の seqno を返す (IoU 最大、無ければ default)。
+
+    重なり「面積」最大で照合すると、軸ラベル全体を 1 度の text-show で描いた
+    巨大 span が、その内側の小さな凡例ラベル span を吸い込み、誤って早い描画順
+    (seqno) を与えてしまう (→ 後から塗られる凡例ボックス背景に隠れて消える)。
+    IoU (重なり / 和集合) なら巨大候補は和集合が大きく自然に弾かれ、最もフィット
+    する狭い span が選ばれる。fill-shade のような無限大 bbox の候補も IoU≈0 で
+    排除されるため、画像照合側の「無限 bbox 吸い込み」対策も兼ねる。
+    """
+    best = default
+    best_iou = 0.0
+    qa = bbox.w * bbox.h
+    for seqno, r in candidates:
+        ov = _overlap_area(bbox, r)
+        if ov <= 0:
+            continue
+        iou = ov / (qa + r.w * r.h - ov)
+        if iou > best_iou:
+            best_iou = iou
+            best = seqno
+    return best
 
 
 def _render_background(page: "fitz.Page") -> RasterBackground:
@@ -94,20 +151,29 @@ def _render_background(page: "fitz.Page") -> RasterBackground:
 
 
 def _text_element(span: dict, z: int) -> Optional[TextElement]:
-    text = span.get("text", "")
+    text = sanitize_text(span.get("text", ""))
     if text == "" or text.isspace():
         return None
     bbox = span["bbox"]
     origin = span.get("origin", (bbox[0], bbox[3]))
     flags = span.get("flags", 0)
+    raw_font = _clean_font(span.get("font", "sans-serif"))
+    mapped = fonts.map_font(raw_font, text)
+    # ウェイトはフォント名由来 (Light/Regular/Medium/Bold) を尊重し、名前に重み指定が
+    # 無く PyMuPDF の bold フラグだけ立つ場合に限り太字へ持ち上げる。
+    weight = mapped.weight
+    if (flags & FLAG_BOLD) and weight < 600:
+        weight = 700
     return TextElement(
         bbox=Rect.from_xyxy(*bbox),
         z=z,
         text=text,
-        font_family=_clean_font(span.get("font", "sans-serif")),
+        font_family=mapped.family,
+        original_font=raw_font,
         font_size=float(span.get("size", 12.0)),
-        bold=bool(flags & FLAG_BOLD),
-        italic=bool(flags & FLAG_ITALIC),
+        weight=weight,
+        bold=weight >= 600,
+        italic=bool(flags & FLAG_ITALIC) or mapped.italic,
         color=int_to_hex(span.get("color", 0)),
         origin_x=origin[0],
         origin_y=origin[1],
