@@ -108,8 +108,67 @@ const REGRESSION_SAMPLES = [
   "page16_country_allocation",
   "currency_gbca_pdf",
   "currency_many_small_10",
+  "pdf_510037_07_fidelity_foreign_bond_country",
 ] as const;
 const SENTINEL_SAMPLES = ["stress_one_dominant_9", "ten_elements_balanced", "twelve_evenish"] as const;
+
+interface TextInfo {
+  name: string;
+  x: number;
+  y: number;
+  anchor: string;
+  fontSize: number;
+  nameScaleX: number;
+  lines: string[];
+  inside: boolean;
+}
+
+/** <g class="label"> 内の <text>/<tspan> を抽出 (leader 有無は問わない)。 */
+function parseTexts(svg: string): TextInfo[] {
+  const out: TextInfo[] = [];
+  const groupRe = /<g class="label"([^>]*)>([\s\S]*?)<\/g>/g;
+  let gm: RegExpExecArray | null;
+  while ((gm = groupRe.exec(svg)) !== null) {
+    const name = gm[1].match(/\bdata-name="([^"]*)"/)?.[1] ?? "";
+    const nameScaleX = parseFloat(gm[1].match(/\bdata-name-scale-x="([^"]*)"/)?.[1] ?? "1");
+    const textM = gm[2].match(/<text x="([\d.\-]+)" y="([\d.\-]+)" text-anchor="(\w+)"[^>]*font-size="([\d.]+)"/);
+    if (!textM) continue;
+    const lines = [...gm[2].matchAll(/<tspan[^>]*>([^<]+)<\/tspan>/g)].map((m) => m[1]);
+    out.push({
+      name,
+      x: parseFloat(textM[1]),
+      y: parseFloat(textM[2]),
+      anchor: textM[3],
+      fontSize: parseFloat(textM[4]),
+      nameScaleX,
+      lines,
+      inside: !gm[2].includes('fill="none"'),
+    });
+  }
+  return out;
+}
+
+/** 非交差前提の折れ線間最小距離 (端点 vs 相手セグメントの総当たり)。 */
+function minLeaderGap(leaders: { name: string; points: Pt[] }[]): number {
+  let min = Infinity;
+  for (let i = 0; i < leaders.length; i += 1) {
+    for (let j = i + 1; j < leaders.length; j += 1) {
+      const pa = leaders[i].points;
+      const pb = leaders[j].points;
+      for (const p of pa) {
+        for (let m = 0; m + 1 < pb.length; m += 1) {
+          min = Math.min(min, distPointToSegment(p.x, p.y, pb[m], pb[m + 1]));
+        }
+      }
+      for (const p of pb) {
+        for (let k = 0; k + 1 < pa.length; k += 1) {
+          min = Math.min(min, distPointToSegment(p.x, p.y, pa[k], pa[k + 1]));
+        }
+      }
+    }
+  }
+  return min;
+}
 
 describe("leader 幾何の不変条件 (実レンダリング)", () => {
   for (const name of [...REGRESSION_SAMPLES, ...SENTINEL_SAMPLES]) {
@@ -128,4 +187,60 @@ describe("leader 幾何の不変条件 (実レンダリング)", () => {
       }
     });
   }
+});
+
+// 回帰: その他(帯外 115°)×アイルランド(144°) の左スタック逆転で leader が 1.2px まで接近し
+// 視覚交差、かつアイルランドが viewBox 左へ 12px 見切れていた (untangle の その他 無条件除外が原因)。
+describe("fidelity_foreign_bond_country: その他を含む左スタックの角度順と見切れ", () => {
+  it("leader 間隔 ≥2px・左スタック anchorY 単調 (その他含む)・横見切れなし", async () => {
+    const name = "pdf_510037_07_fidelity_foreign_bond_country";
+    const items = resolveInputData({ data: samples[name].items });
+    const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
+    const leaders = parseLeaders(svg);
+    const pie = parsePie(svg);
+    const texts = parseTexts(svg);
+    const viewW = parseFloat(svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/)?.[1] ?? "0");
+
+    // 1. leader 同士の最小距離 (修正前 1.22px の視覚接触 → 余白を要求)
+    expect(minLeaderGap(leaders), "leader 間の最小距離(px)").toBeGreaterThanOrEqual(2);
+
+    // 2. 左スタック (その他含む) のラベル縦順 == アンカー縦順
+    const anchorOf = new Map(
+      leaders.map((l) => {
+        const head = l.points[0];
+        const tail = l.points[l.points.length - 1];
+        const dHead = Math.hypot(head.x - pie.cx, head.y - pie.cy);
+        const dTail = Math.hypot(tail.x - pie.cx, tail.y - pie.cy);
+        return [l.name, dHead <= dTail ? head : tail];
+      }),
+    );
+    const leftStack = texts
+      .filter((t) => !t.inside && t.x < pie.cx && anchorOf.has(t.name))
+      .sort((a, b) => a.y - b.y);
+    for (let i = 1; i < leftStack.length; i += 1) {
+      const prev = anchorOf.get(leftStack[i - 1].name)!;
+      const cur = anchorOf.get(leftStack[i].name)!;
+      expect(
+        cur.y,
+        `左スタック角度順: "${leftStack[i - 1].name}" の下の "${leftStack[i].name}" はアンカーも下`,
+      ).toBeGreaterThanOrEqual(prev.y - 2);
+    }
+
+    // 3. 横方向の viewBox 収まり (修正前: アイルランド左 12px 見切れ)。
+    //    幅は簡易 em (CJK=1.0 / その他=0.55) × fontSize。% 行に長体は掛からない。
+    const lineWidth = (t: TextInfo, line: string): number => {
+      const em = [...line].reduce((s, ch) => s + (ch.charCodeAt(0) > 0x2e7f ? 1.0 : 0.55), 0);
+      const sx = /%$/.test(line.trim()) ? 1 : t.nameScaleX;
+      return em * t.fontSize * sx;
+    };
+    for (const t of texts) {
+      for (const line of t.lines) {
+        const w = lineWidth(t, line);
+        const left = t.anchor === "end" ? t.x - w : t.anchor === "middle" ? t.x - w / 2 : t.x;
+        const right = left + w;
+        expect(left, `"${t.name}" 行 "${line}" の左端`).toBeGreaterThanOrEqual(-0.5);
+        expect(right, `"${t.name}" 行 "${line}" の右端`).toBeLessThanOrEqual(viewW + 0.5);
+      }
+    }
+  });
 });

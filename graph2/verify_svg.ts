@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 // drift ガード専用の import。検証ロジック(交差・bbox 等)は本体から取り込まず独立を保つが、
 // 手動同期に頼っていたメトリクス定数/文字幅分類だけは起動時に本体と突き合わせる(assertOracleSync)。
 import { createPieLayoutConfig } from "./src/config.js";
+import { TOP_BAND_HALF_WIDTH_DEG as bodyTopBandHalfWidthDeg } from "./src/label_placement.js";
 import { visualCharEm as bodyVisualCharEm } from "./src/svg_geom.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -78,6 +79,7 @@ const LINE_HEIGHT_FACTOR = 1.1; // = config.lineHeightFactor (= lineSpacing)
 const VISUAL_FULLWIDTH_EM = 1.0; // = config.visualFullwidthEm
 const VISUAL_HALFWIDTH_EM = 0.5; // = config.visualHalfwidthEm
 const NAME_CONDENSE_STEPS = [0.7]; // = config.nameCondenseSteps (名前長体の試行段)
+const TOP_BAND_HALF_WIDTH_DEG = 18; // = label_placement.TOP_BAND_HALF_WIDTH_DEG (その他逃がし帯)
 
 // 文字幅は本体 (svg_geom.visualCharEm) の実 glyph advance テーブルをそのまま使う。verify が
 // 独自に幅モデルを複製すると本体と乖離し得るため、幅分類はオラクル(本体)を直接引く。数値定数
@@ -104,6 +106,7 @@ function assertOracleSync(): void {
   checkConst("lineHeightFactor", cfg.lineHeightFactor, LINE_HEIGHT_FACTOR);
   checkConst("visualFullwidthEm", cfg.visualFullwidthEm, VISUAL_FULLWIDTH_EM);
   checkConst("visualHalfwidthEm", cfg.visualHalfwidthEm, VISUAL_HALFWIDTH_EM);
+  checkConst("topBandHalfWidthDeg", bodyTopBandHalfWidthDeg, TOP_BAND_HALF_WIDTH_DEG);
   const steps = cfg.nameCondenseSteps;
   if (
     steps.length !== NAME_CONDENSE_STEPS.length ||
@@ -608,8 +611,6 @@ for (const name of allNames) {
     for (let i = 0; i < jsTexts.length; i += 1) {
       const t = jsTexts[i];
       if (t.insideSlice) continue;
-      // "その他" は正規化で末尾固定 → wedge 角度に反して配置されるのは仕様。逆転判定から除外。
-      if (t.name.startsWith("その他")) continue;
       const pts = leaderPaths[i];
       if (!pts || pts.length < 2) continue;
       // アンカー = 中心に近い側の端点 (円周 rim ≈ r。ラベル側は r より外)。
@@ -618,6 +619,16 @@ for (const name of allNames) {
       const dHead = Math.hypot(head.x - pie.cx, head.y - pie.cy);
       const dTail = Math.hypot(tail.x - pie.cx, tail.y - pie.cy);
       const anchor = dHead <= dTail ? head : tail;
+      // "その他" は意図的に角度順を破る配置 (top-band 90°±18° から右上/左上へ逃がす仕様) のとき
+      // のみ除外する: アンカー角が帯内、またはラベルとアンカーが中心の左右反対側 (L 字逃がし)。
+      // 帯外で通常 rim 配置された その他 は逆転判定に参加させる (本体 angularStacks と同基準)。
+      if (t.name.startsWith("その他")) {
+        const angDeg = (Math.atan2(pie.cy - anchor.y, anchor.x - pie.cx) * 180) / Math.PI;
+        const norm = ((angDeg % 360) + 360) % 360;
+        const inTopBand = Math.abs(norm - 90) <= TOP_BAND_HALF_WIDTH_DEG;
+        const oppositeSide = (t.x < pie.cx) !== (anchor.x < pie.cx);
+        if (inTopBand || oppositeSide) continue;
+      }
       const entry: StackEntry = { labelY: t.y, anchorY: anchor.y, text: t.text };
       (t.x < pie.cx ? leftStack : rightStack).push(entry);
     }

@@ -454,10 +454,10 @@ type Coord = {
 };
 
 /** name が「その他」前方一致 かつ midAngle がトップバンド ([72°,108°]) のラベルか。 */
-function isTopBandSonohoka(item: LayoutItemReady): boolean {
+function isTopBandSonohoka(item: { name: string; midAngle?: number }): boolean {
   return (
     item.name.startsWith("その他") &&
-    angleInBand(normalizeAngle(item.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG)
+    angleInBand(normalizeAngle(item.midAngle ?? 0), 90, TOP_BAND_HALF_WIDTH_DEG)
   );
 }
 
@@ -1003,7 +1003,10 @@ function angularStacks(
   const right: { labelY: number; anchorY: number }[] = [];
   placements.forEach((p, i) => {
     if (p.insideSlice) return;
-    if (p.item.name.startsWith("その他")) return;
+    // 意図的に角度順を破る その他 (top-band 内で右上へ逃がす仕様・forceTopRight) のみ除外する。
+    // 帯外で左右スタックに通常 rim 配置された その他 は順序チェックに参加させる (除外すると
+    // 例: fidelity_foreign_bond_country で その他(115°)×アイルランド(144°) の逆転が見逃される)。
+    if (p.item.name.startsWith("その他") && (isTopBandSonohoka(p.item) || p.forceTopRight)) return;
     const pts = paths[i];
     if (!pts || pts.length < 2) return;
     const head = pts[0];
@@ -1188,9 +1191,9 @@ function untangleAngularOrderBySwap(
     (p) =>
       !p.item.clusterTopBand &&
       !p.insideSlice &&
-      // verifier は逆転判定から その他 を除外 (末尾固定で角度に反するのは仕様) するので、ここでも
-      // 除外する。含めると未検出の逆転を「直して」清浄チャートを退行させうる。
-      !p.item.name.startsWith("その他") &&
+      // 意図的に角度順を破る その他 (top-band 内右上逃がし・forceTopRight) のみ除外 (angularStacks
+      // と同条件)。帯外で左右スタックに通常配置された その他 は逆転修復の対象に含める。
+      !(p.item.name.startsWith("その他") && (isTopBandSonohoka(p.item) || p.forceTopRight)) &&
       (side === "left" ? p.x < 0 : p.x > 0),
   );
   if (stack.length < 2) return;
