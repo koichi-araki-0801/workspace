@@ -1,10 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { DropdownQuery } from '@editor/shared';
+import { type DropdownQuery, notFound } from '@editor/shared';
 import { Router } from 'express';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { config } from '../config.js';
 import { actorFromReq, audit } from '../logger.js';
+import { validate } from '../middleware/validate.js';
+import { ConfirmSaveBody } from '../openapi/schemas.js';
 import { dropdownOptions, filterTemplates, indexTemplates } from '../templates/fileIndex.js';
 
 export const templatesRouter = Router();
@@ -33,8 +35,7 @@ templatesRouter.get('/templates/:id', async (req, res) => {
   const metas = await indexTemplates();
   const meta = metas.find((m) => m.id === req.params.id);
   if (!meta) {
-    res.status(404).json({ error: 'not found' });
-    return;
+    throw notFound('テンプレートが見つかりません');
   }
   const html = await fs
     .readFile(path.join(config.templatesDir, meta.fileName), 'utf8')
@@ -45,27 +46,17 @@ templatesRouter.get('/templates/:id', async (req, res) => {
   res.json({ meta, html, css });
 });
 
-const saveSchema = z.object({ html: z.string(), css: z.string(), fundCode: z.string() });
-
-templatesRouter.put('/templates/:id', async (req, res) => {
-  const parsed = saveSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'invalid body' });
-    return;
-  }
+templatesRouter.put('/templates/:id', validate(ConfirmSaveBody), async (req, res) => {
+  const body = req.body as z.infer<typeof ConfirmSaveBody>;
   const metas = await indexTemplates();
   const meta = metas.find((m) => m.id === req.params.id);
   const fileName = meta?.fileName ?? `${req.params.id}.html`;
-  const resource = { id: req.params.id, fileName, fundCode: parsed.data.fundCode };
+  const resource = { id: req.params.id, fileName, fundCode: body.fundCode };
   try {
     await fs.mkdir(config.templatesDir, { recursive: true });
     await fs.mkdir(config.cssDir, { recursive: true });
-    await fs.writeFile(path.join(config.templatesDir, fileName), parsed.data.html, 'utf8');
-    await fs.writeFile(
-      path.join(config.cssDir, `${parsed.data.fundCode}.css`),
-      parsed.data.css,
-      'utf8',
-    );
+    await fs.writeFile(path.join(config.templatesDir, fileName), body.html, 'utf8');
+    await fs.writeFile(path.join(config.cssDir, `${body.fundCode}.css`), body.css, 'utf8');
     audit({ event: 'template.save', outcome: 'success', ...actorFromReq(req), resource });
     res.json({ ok: true, fileName });
   } catch (e) {
@@ -76,6 +67,6 @@ templatesRouter.put('/templates/:id', async (req, res) => {
       resource,
       error: e instanceof Error ? e.message : 'save failed',
     });
-    res.status(500).json({ error: 'save failed' });
+    throw e;
   }
 });

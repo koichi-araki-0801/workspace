@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import { pinoHttp } from 'pino-http';
 import { config } from './config.js';
 import { logger } from './logger.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { openapiRouter } from './openapi/index.js';
 import { generateRouter } from './routes/generate.routes.js';
 import { pdfRouter } from './routes/pdf.routes.js';
 import { templatesRouter } from './routes/templates.routes.js';
@@ -19,6 +21,7 @@ app.use(express.json({ limit: '8mb' }));
 app.use(pinoHttp({ logger }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.use('/api', openapiRouter);
 app.use('/api', pdfRouter);
 app.use('/api', templatesRouter);
 app.use('/api', generateRouter);
@@ -30,6 +33,9 @@ if (fs.existsSync(config.webDist)) {
     res.sendFile('index.html', { root: config.webDist });
   });
 }
+
+// Central error handler — must be registered last, after all routes.
+app.use(errorHandler);
 
 app.listen(config.port, () => {
   logger.info(`[server] listening on http://localhost:${config.port}`);
