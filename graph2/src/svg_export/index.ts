@@ -81,6 +81,12 @@ export { escapeXml } from "./rendering.js";
 // false に戻すと従来の「leader=最終手段 + 各種省略」挙動。
 const ALWAYS_DRAW_OUTSIDE_LEADERS = true;
 
+// twoLineLeftStackMode の左列ラベルを円縁 (rim) からどれだけ外側へ離すかの mid-angle 放射係数。
+// 1.0 で円ハグ (旧)。参考 PDF はラベルと円の間に ~0.3R の隙間を空け、リーダー線が長い斜め線として
+// 明確に見える。anchor は rim のまま (この係数は box 位置のみに効く) なので、リーダーは rim→box の
+// 長い斜め直線になる。円侵入は起きないため verify/スコアラへの影響はない。
+const TWO_LINE_LEFT_OUT_FACTOR = 1.28;
+
 // leader の折れ角が鋭く (なす角 > 135°、cos < -0.7) ヘアピン状になり視認性を損なう時に
 // その leader を省く cos 閾値。
 const UPPER_LEFT_HAIRPIN_VISIBILITY_COS_THRESHOLD = -0.7;
@@ -470,6 +476,93 @@ type Coord = {
 /** leftStackMode の左列とみなす placement (side=left・baseline=bottom・非 inside・x<0)。 */
 function isLeftStackMember(p: Placement): boolean {
   return p.item.side === "left" && p.baseline === "bottom" && !p.insideSlice && p.x < 0;
+}
+
+/** twoLineLeftStackMode の左列メンバ (上部「その他」・真下中央・flip・inside を除く左側外側ラベル)。 */
+function twoLineLeftColumnMembers(placements: Placement[]): Placement[] {
+  return placements.filter(
+    (p) =>
+      p.item.side === "left" &&
+      !p.insideSlice &&
+      !p.item.flipToRight &&
+      !p.item.flipToLeft &&
+      !p.item.bottomCenterBelow &&
+      topBandSonohokaZone(p.item) === null &&
+      !p.item.name.startsWith("その他"),
+  );
+}
+
+/**
+ * twoLineLeftStackMode 専用の左列パッカ。片側に外側ラベルが多数 (>=6) 寄る過密チャートで、
+ * 左列を全 2 行のまま「角度順 (上→下) に円縁へ寄せた縦 1 列」へ再配置する。参考 PDF が左 7 ラベルを
+ * 全 2 行・密ピッチで縦積みする見た目を再現する。
+ *
+ * 通常カスケードは縦クランプを scaledLabelRadius に縛り (X 公式 x=√(r²−y²) と連動)、7 件 2 行が
+ * 入りきらず 1 件を 1 行へ降格させて左端見切れを起こす。本パッカは:
+ *   - X: 各ラベルを自身の slice 中心角の rim (cos·pieRadius, anchor=end) へ置き円へハグ。実際の
+ *     円クリアランスは clampPlacement(pieClearance 動的) が現在 y で保証する。
+ *   - Y: canvas 全高 (canvasYlim) を使い角度順に密ピッチで均等配置 (scaledLabelRadius 制約を外す)。
+ * メンバが <6 のチャートには影響しない (gate と二重の安全)。
+ */
+function applyTwoLineLeftColumn(placements: Placement[], cfg: PieLayoutConfig): void {
+  const members = twoLineLeftColumnMembers(placements);
+  if (members.length < 6) return;
+  // 角度順 (上→下 = sin 降順)。
+  members.sort(
+    (a, b) =>
+      Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
+  );
+  // X: mid-angle 放射方向に rim から TWO_LINE_LEFT_OUT_FACTOR 倍だけ外へ離す。参考 PDF のように
+  // ラベルと円の間に隙間を空け、rim→box の斜めリーダーを見えるようにする。anchor=end のまま。
+  // 円から離す方向なので円侵入は起きない (clampPlacement の左端クランプは長名でのみ効く)。
+  for (const p of members) {
+    p.x = Math.cos(degToRad(p.item.midAngle ?? 0)) * cfg.pieRadius * TWO_LINE_LEFT_OUT_FACTOR;
+  }
+  const heights = members.map((p) => {
+    const b = placementBox(p, cfg);
+    return b.top - b.bottom;
+  });
+  const sumH = heights.reduce((s, h) => s + h, 0);
+  const safety = cfg.canvasSafetyMargin;
+  const yHi = cfg.canvasYlim[1] - safety;
+  const yLo = cfg.canvasYlim[0] + safety;
+  const range = yHi - yLo;
+  const n = members.length;
+  // 残り高さを等ギャップに割る (scaledMinGap を上限、収まらなければ詰める)。
+  const gap = n > 1 ? Math.max(0, Math.min(cfg.scaledMinGap, (range - sumH) / (n - 1))) : 0;
+  const colH = sumH + gap * (n - 1);
+  // 列の縦中心は「メンバの自然アンカー中心 (sin·pieRadius の平均)」へ寄せる。参考 PDF のように
+  // 列がスライス群の中心高さへ沿い、上下端ラベルのスタブが短くなる。canvas 上下限へはクランプ。
+  const anchorMidY =
+    members.reduce((s, p) => s + Math.sin(degToRad(p.item.midAngle ?? 0)) * cfg.pieRadius, 0) / n;
+  let topEdge = anchorMidY + colH / 2;
+  topEdge = Math.min(yHi, Math.max(yLo + colH, topEdge));
+  for (let i = 0; i < n; i += 1) {
+    const p = members[i];
+    const h = heights[i];
+    const b = placementBox(p, cfg);
+    const curCenter = (b.top + b.bottom) / 2;
+    // baseline (top/bottom) と y の関係を保つため、現在の y−中心オフセットを維持して中心を移す。
+    const offset = p.y - curCenter;
+    const targetCenter = topEdge - h / 2;
+    p.y = targetCenter + offset;
+    topEdge = targetCenter - h / 2 - gap;
+    // 円から離した左列ラベルは canvasXlim (端マージン 67.5px) ではなく viewBox 端まで使えるよう
+    // フラグを立てる (後段 applyVisualViewBoxNudge / condense が円側へ引き戻さないように)。
+    p.twoLineLeftColumn = true;
+    clampPlacement(p, cfg);
+    // leader を rim 縮退形へ正規化: bend==endpoint==(現在の x,y) かつ
+    // leaderBendFollows* を解除する。これで computeDrawnLeader は draft 由来の L 字 (anchorX へ
+    // 折り返す bendFollowsEndpointY) を作らず、イギリス/カナダと同じ「anchor→box 縁の直線斜め
+    // スタブ」経路 (rim 縮退 → bend 畳み → truncate → 縮退スタブ除去で 2 点) に乗る。円を貫く
+    // ケースは既存の円弦リルートが外へ曲げる。origText も現在位置へ更新し dx/dy=0 にする。
+    p.origTextX = p.x;
+    p.origTextY = p.y;
+    p.leaderEndpoint = { x: p.x, y: p.y };
+    p.leaderBend = { x: p.x, y: p.y };
+    p.leaderBendFollowsEndpointY = false;
+    p.leaderBendFollowsEndpointX = false;
+  }
 }
 
 /**
@@ -2934,6 +3027,23 @@ function runLabelCascade(
   // 現在の item フラグでの最良配置。leftStackMode は左列順序保存 spread を「不具合数が厳密に
   // 減る時だけ」採る (chart 単位 do-no-harm)。spread が悪化する他チャートは既存配置を維持 (退行0)。
   const lsm = diagnostics?.leftStackMode ?? false;
+  const twoLineLeftStack = diagnostics?.twoLineLeftStackMode ?? false;
+  // twoLineLeftStackMode: 左列メンバを全て 2 行起点へ固定 (1 行降格・左端見切れを防ぐ)。
+  // 縦の収まりは後段 applyTwoLineLeftColumn が canvas 全高の密ピッチ列で担保する。
+  if (twoLineLeftStack) {
+    for (const it of labels) {
+      if (
+        it.side === "left" &&
+        !it.flipToRight &&
+        !it.flipToLeft &&
+        !it.bottomCenterBelow &&
+        topBandSonohokaZone(it) === null &&
+        !it.name.startsWith("その他")
+      ) {
+        it.keepTwoLineLeftStack = true;
+      }
+    }
+  }
   const bestResult = (): Placement[] => {
     const off = cascadeWithSonohokaPick(labels, cfg, coord, false, lsm);
     if (!lsm) return off;
@@ -2991,6 +3101,9 @@ function runLabelCascade(
   }
   if (diagnostics?.leftStackMode) {
     applyLeftStackGapClose(result, cfg);
+  }
+  if (diagnostics?.twoLineLeftStackMode) {
+    applyTwoLineLeftColumn(result, cfg);
   }
   if (diagnostics) {
     diagnostics.dominantTwoLineRestored = result.some(

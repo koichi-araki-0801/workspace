@@ -413,3 +413,50 @@ describe("コア帯の上部その他: pie キャップ上へ持ち上げ短い 
     });
   }
 });
+
+describe("twoLineLeftStackMode: 左多数ラベルを全 2 行で密に縦積み (参考PDF配置)", () => {
+  // 左列 (その他除く) に >=6 ラベルが寄る過密チャートで、左列ラベルが全て 2 行を維持し、
+  // viewBox 左端を見切れないことを検査する。回帰元: world_bond_idx_country の イギリス が
+  // 1 行へ降格して左 19px 見切れ ("ギリス")。applyTwoLineLeftColumn が canvas 全高の密ピッチ列で
+  // 全 2 行を収める。短名カタカナ (スペイン/カナダ/イギリス 等) は rim ハグでも見切れない前提。
+  const LEFT_COLUMN_NAMES = [
+    "スペイン",
+    "国際機関",
+    "イタリア",
+    "カナダ",
+    "イギリス",
+    "ドイツ",
+    "フランス",
+  ];
+  it("world_bond_idx_country: 左列が全 2 行・左端見切れなし・円と隙間ありリーダー可視", async () => {
+    const items = resolveInputData({
+      data: samples["pdf_510037_02_world_bond_idx_country"].items,
+    });
+    const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
+    const pie = parsePieRobust(svg);
+    const texts = parseTexts(svg);
+    const oneLine: string[] = [];
+    const clipped: string[] = [];
+    const noGap: string[] = [];
+    // 左列ラベル右端と円縁の水平隙間がリーダー線として見える最小幅 (≈0.12R)。回帰元: ラベルが
+    // 円に密着 (隙間 ~5px) しスタブが読めなかった件。applyTwoLineLeftColumn の rim 外押し出しで確保。
+    const minGapPx = pie.r * 0.12;
+    for (const name of LEFT_COLUMN_NAMES) {
+      const t = texts.find((x) => x.name === name);
+      expect(t, `${name} ラベルが存在する`).toBeTruthy();
+      if (t!.lineCount < 2) oneLine.push(name);
+      const box = textBoxPx(t!);
+      // 短名カタカナの左列は 2 行で viewBox 左端 (x=0) を見切れない。1px 許容。
+      if (box.left < -1) clipped.push(`${name}@${box.left.toFixed(0)}`);
+      // ラベル右端 (anchor=end の box.right) と円縁との水平隙間。box の縦中心 y で円の左縁 x を取る。
+      const dy = Math.min(Math.abs((box.top + box.bottom) / 2 - pie.cy), pie.r);
+      const circleLeftX = pie.cx - Math.sqrt(pie.r * pie.r - dy * dy);
+      if (circleLeftX - box.right < minGapPx) {
+        noGap.push(`${name}@gap${(circleLeftX - box.right).toFixed(0)}`);
+      }
+    }
+    expect(oneLine, `1 行へ降格した左列ラベル: ${oneLine.join(",")}`).toEqual([]);
+    expect(clipped, `左端を見切れた左列ラベル: ${clipped.join(",")}`).toEqual([]);
+    expect(noGap, `円と隙間が不足する左列ラベル (リーダー不可視): ${noGap.join(",")}`).toEqual([]);
+  });
+});

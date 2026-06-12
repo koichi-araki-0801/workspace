@@ -726,6 +726,23 @@ export function placementBox(placement: Placement, cfg: PieLayoutConfig): BBox {
 }
 
 /**
+ * placement の水平可動域 (論理 X 下限/上限)。通常は canvasXlim (端マージン 67.5px)。
+ * twoLineLeftColumn (円から離して縦積みした左列ラベル) は円とラベルの隙間を確保するため、
+ * canvasXlim ではなく viewBox 端 (svgWidthPx) から ~6px 内側までを可動域にする。
+ */
+export function horizontalLabelLimits(
+  placement: Placement,
+  cfg: PieLayoutConfig,
+): [number, number] {
+  if (placement.twoLineLeftColumn) {
+    const half = cfg.svgWidthPx / 2 / cfg.pxPerUnit;
+    const edge = 6 / cfg.pxPerUnit; // viewBox 端から ~6px の安全代
+    return [-half + edge, half - edge];
+  }
+  return cfg.canvasXlim;
+}
+
+/**
  * 線分 ab と cd が交差するか。verify_svg.ts と同一実装 (tolerance は px 基準)。
  * 端点が辺に乗る (=|cross| <= tolerance) 場合は「交差せず」と扱う。
  */

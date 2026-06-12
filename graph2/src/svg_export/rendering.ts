@@ -12,6 +12,7 @@
 
 import {
   arcAngles,
+  horizontalLabelLimits,
   polarToCartesian,
   textBoxBounds,
   visualMaxEm,
@@ -232,7 +233,8 @@ export function detectVisualHorizontalOverflow(
     placement.baseline,
   );
   const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9);
-  if (bboxRight > cfg.canvasXlim[1] + tol) return { overflow: true, side: "right" };
-  if (bboxLeft < cfg.canvasXlim[0] - tol) return { overflow: true, side: "left" };
+  const [xmin, xmax] = horizontalLabelLimits(placement, cfg);
+  if (bboxRight > xmax + tol) return { overflow: true, side: "right" };
+  if (bboxLeft < xmin - tol) return { overflow: true, side: "left" };
   return { overflow: false, side: null };
 }

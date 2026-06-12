@@ -430,20 +430,24 @@ function bottomCenterBelow(
   if (!item.bottomCenterBelow) return null;
   const clearance = radialFraction(cfg, 0.012, 0.12);
   const textY = -(cfg.pieRadius + clearance); // baseline=top → 箱上端
+  // X は slice 中心角の anchorX に合わせる (真下 ±BOTTOM_CENTER_HALF_DEG ゲートで |anchorX| は
+  // ごく小さいが、参考 PDF は真下スライスのラベルを中心角の直下に置く)。anchor=middle のまま
+  // 箱中心を anchorX へ寄せ、leader も anchorX 起点の極短スタブにする。
+  const textX = item.anchorX;
   // pieClearance / dominantOutsideEdge は付けない: 箱は pie の **真下** に押し下げ済で X 方向の
   // 円クリアランスは不要 (pieClearance を立てると closestY が円外でも anchor=middle 箱を横へ
   // 叩き出す)。dominantOutsideEdge を立てると computeDrawnLeader がドリフト時に leader を復活
   // させてしまう。円との距離は runCascadeOnce の nudgeTextAwayFromPie (真下へ押下げ) が担保する。
   return {
     fragments: [],
-    textX: 0,
+    textX,
     textY,
     anchor: "middle",
     baseline: "top",
-    lineEndX: 0,
+    lineEndX: textX,
     lineEndY: textY,
-    lineStart: { x: 0, y: textY },
-    lineEnd: { x: 0, y: textY },
+    lineStart: { x: textX, y: textY },
+    lineEnd: { x: textX, y: textY },
     allowSegmentNudge: opts.allowSegmentNudge,
     skipLeader: opts.skipLeader,
     nameScaleX: form.nameScaleX,

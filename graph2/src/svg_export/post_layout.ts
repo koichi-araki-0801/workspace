@@ -31,6 +31,7 @@ import {
   placementExtent,
   pieClampXLimits,
   splitLongName,
+  horizontalLabelLimits,
 } from "../svg_geom.js";
 import { layoutLabels } from "../layout.js";
 import { TOP_BAND_HALF_WIDTH_DEG } from "../label_placement.js";
@@ -519,8 +520,9 @@ export function applyVisualViewBoxNudge(textPlacements: Placement[], cfg: PieLay
     else closestPieY = Math.abs(bboxTop) < Math.abs(bboxBottom) ? bboxTop : bboxBottom;
     const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
     const safety = cfg.canvasSafetyMargin;
+    const [xlimMin, xlimMax] = horizontalLabelLimits(placement, cfg);
     if (overflow.side === "left") {
-      let shift = cfg.canvasXlim[0] + safety - bboxLeft;
+      let shift = xlimMin + safety - bboxLeft;
       if (shift > 0) {
         if (Math.abs(closestPieY) < cfg.pieRadius) {
           const pieLeftX = -pieYAtX(closestPieY, cfg) - pieClearance;
@@ -532,7 +534,7 @@ export function applyVisualViewBoxNudge(textPlacements: Placement[], cfg: PieLay
         clampToAnchorSide(placement);
       }
     } else if (overflow.side === "right") {
-      let shift = bboxRight - (cfg.canvasXlim[1] - safety);
+      let shift = bboxRight - (xlimMax - safety);
       if (shift > 0) {
         if (Math.abs(closestPieY) < cfg.pieRadius) {
           const pieRightX = pieYAtX(closestPieY, cfg) + pieClearance;
@@ -560,9 +562,9 @@ export const FINAL_CONDENSE_MIN_SCALE = 0.7;
  * honor 済なので、値を下げるだけで描画・検証が一致する。
  */
 export function applyFinalCondenseToFit(textPlacements: Placement[], cfg: PieLayoutConfig): void {
-  const [xmin, xmax] = cfg.canvasXlim;
   const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9);
   const fits = (p: Placement): boolean => {
+    const [xmin, xmax] = horizontalLabelLimits(p, cfg);
     const b = placementBox(p, cfg);
     return b.left >= xmin - tol && b.right <= xmax + tol;
   };
@@ -584,6 +586,7 @@ export function applyFinalCondenseToFit(textPlacements: Placement[], cfg: PieLay
       // 下限を適用しつつ残件を記録する。
       placement.nameScaleX = FINAL_CONDENSE_MIN_SCALE;
       const box = placementBox(placement, cfg);
+      const [xmin, xmax] = horizontalLabelLimits(placement, cfg);
       const overUnits = Math.max(xmin - box.left, box.right - xmax);
       const overPx = Math.round(overUnits * cfg.pxPerUnit);
       console.warn(
@@ -659,7 +662,6 @@ export function restoreSplitNamePlacement(
  * 共有し、verify_consistency の scorer ↔ emit 一致を保つ。
  */
 export function relaxNameCondense(textPlacements: Placement[], cfg: PieLayoutConfig): void {
-  const [xmin, xmax] = cfg.canvasXlim;
   const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9); // ≈ 1 SVG px (condense-to-fit と同じ)
   const STEP = 0.025; // applyFinalCondenseToFit と同じ格子
   const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
@@ -683,6 +685,7 @@ export function relaxNameCondense(textPlacements: Placement[], cfg: PieLayoutCon
       const beforePieDist = distToPie(beforeBox);
       p.nameScaleX = Math.min(1, Math.round((cur + STEP) * 1000) / 1000);
       const box = placementBox(p, cfg);
+      const [xmin, xmax] = horizontalLabelLimits(p, cfg);
       let ok =
         (box.left >= xmin - tol && box.right <= xmax + tol) ||
         box.right - box.left <= beforeBox.right - beforeBox.left + 1e-9;
