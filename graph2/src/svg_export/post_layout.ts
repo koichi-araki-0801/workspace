@@ -30,6 +30,7 @@ import {
   visualTextWidthUnits,
   placementExtent,
   pieClampXLimits,
+  splitLongName,
 } from "../svg_geom.js";
 import { layoutLabels } from "../layout.js";
 import { TOP_BAND_HALF_WIDTH_DEG } from "../label_placement.js";
@@ -591,6 +592,51 @@ export function applyFinalCondenseToFit(textPlacements: Placement[], cfg: PieLay
       );
     }
   }
+}
+
+/**
+ * 名前 2 行分割を 1 ラベルへ適用し、収まるまで上行 (名前前半) を長体化する純粋ミューテータ。
+ * 採否判定 (do-no-harm) は呼び出し側 (svg_export/index.ts の applySplitNameFallback) が
+ * countDefects ベースのチャート全体ゲートで行う。snap を返すので不採用時はそれで revert する。
+ * split が不能 (短い/改善しない) なら false を返し placement は無変更。
+ */
+export function trySplitNamePlacement(
+  placement: Placement,
+  cfg: PieLayoutConfig,
+): { lines: string[]; nameSplit?: boolean; nameScaleX?: number } | null {
+  if (placement.insideSlice || placement.nameSplit) return null;
+  const split = splitLongName(placement.item.name, placement.item.percentText ?? "", cfg);
+  if (!split) return null;
+  const snap = {
+    lines: placement.lines,
+    nameSplit: placement.nameSplit,
+    nameScaleX: placement.nameScaleX,
+  };
+  const [xmin, xmax] = cfg.canvasXlim;
+  const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9);
+  placement.lines = [split.line1, split.line2];
+  placement.nameSplit = true;
+  placement.nameScaleX = 1;
+  const clipAmount = (): number => {
+    const b = placementBox(placement, cfg);
+    return Math.max(0, xmin - b.left, b.right - xmax);
+  };
+  let sx = 1;
+  while (clipAmount() > tol && sx - 0.025 >= FINAL_CONDENSE_MIN_SCALE - 1e-9) {
+    sx = Math.round((sx - 0.025) * 1000) / 1000;
+    placement.nameScaleX = sx;
+  }
+  return snap;
+}
+
+/** trySplitNamePlacement の snap で placement を分割前へ戻す。 */
+export function restoreSplitNamePlacement(
+  placement: Placement,
+  snap: { lines: string[]; nameSplit?: boolean; nameScaleX?: number },
+): void {
+  placement.lines = snap.lines;
+  placement.nameSplit = snap.nameSplit;
+  placement.nameScaleX = snap.nameScaleX;
 }
 
 /**

@@ -104,6 +104,8 @@ function pieIntrusions(
 }
 
 // 過去に leader 交差 / 円内貫通を出していた回帰サンプル + 健全な番兵サンプル。
+// 末尾 4 件は「その他」右上逃がしの短縮 (topRightLiftedRimDraft) と名前 2 行分割
+// (applySplitNameFallback) の対象。短い縦/斜め leader が円を貫かず交差しないことを固定する。
 const REGRESSION_SAMPLES = [
   "stress_top_cluster_8",
   "currency_usd_heavy_9",
@@ -111,6 +113,10 @@ const REGRESSION_SAMPLES = [
   "currency_gbca_pdf",
   "currency_many_small_10",
   "pdf_510037_07_fidelity_foreign_bond_country",
+  "pdf_510037_05_global_reit_idx_country",
+  "pdf_510037_05_global_reit_idx_currency",
+  "pdf_510037_07_fidelity_foreign_bond_currency",
+  "pdf_510037_02_world_bond_idx_currency",
 ] as const;
 const SENTINEL_SAMPLES = ["stress_one_dominant_9", "ten_elements_balanced", "twelve_evenish"] as const;
 
@@ -362,6 +368,48 @@ describe("左拡張帯の上部その他: スライス中心軸の真上に垂�
       // 中心より左 (midAngle>90°) かつ左隅 (旧 118px) より大きく右にある。
       expect(sonohoka!.x).toBeLessThan(pie.cx);
       expect(sonohoka!.x).toBeGreaterThan(pie.cx - pie.r);
+    });
+  }
+});
+
+// コア帯 (90°±18°) の上部「その他」を右上へ逃がす際、箱を pie キャップより完全に上へ持ち上げて
+// (topRightLiftedRimDraft) pie の横押し出しを無効化し、短い leader で結ぶ。修正前は箱下端が円の
+// y 域に入り pie クリアランスが textX を右へ大きく押し出して 100〜184px の水平 leader が
+// チャート上部を横断していた。box 下端が pie キャップ (cy - r) より上 (pixel y が小) であること、
+// leader の水平ドリフトが短いことを固定する。
+describe("コア帯の上部その他: pie キャップ上へ持ち上げ短い leader で右上配置", () => {
+  const LIFT_SAMPLES = [
+    "pdf_510037_05_global_reit_idx_country", // その他 7.1%
+    "pdf_510037_05_global_reit_idx_currency", // その他 3.5%
+    "pdf_510037_07_fidelity_foreign_bond_currency", // その他 5.6%
+  ] as const;
+  for (const name of LIFT_SAMPLES) {
+    it(`${name}: その他 box が pie キャップ上・leader 水平ドリフト短い`, async () => {
+      const items = resolveInputData({ data: samples[name].items });
+      const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
+      const pie = parsePieRobust(svg);
+      const texts = parseTexts(svg);
+      const leaders = parseLeaders(svg);
+
+      const sonohoka = texts.find((t) => t.name.startsWith("その他"));
+      expect(sonohoka, "その他ラベルが存在する").toBeTruthy();
+      // 右上逃がし (anchor=start・中心より右) のときだけ lift 不変条件を検査する。
+      if (sonohoka!.anchor === "start" && sonohoka!.x > pie.cx) {
+        const box = textBoxPx(sonohoka!);
+        // box 下端 (pixel y 最大) が pie キャップ (cy - r) より上 (= 小さい y)。クリアランス 2px 許容。
+        expect(
+          box.bottom,
+          "その他 box 下端が pie キャップより上 (pixel y)",
+        ).toBeLessThanOrEqual(pie.cy - pie.r + 2);
+
+        // box が pie キャップ上にあることが本質的不変条件 (上の assert)。leader 水平ドリフトは
+        // その帰結なので、チャート上部を横断する旧実装 (最大 ~180px) を捕える緩い上限のみ課す。
+        const leader = leaders.find((l) => l.name.startsWith("その他"));
+        expect(leader, "その他に leader が描かれる").toBeTruthy();
+        const xs = leader!.points.map((p) => p.x);
+        const drift = Math.max(...xs) - Math.min(...xs);
+        expect(drift, "その他 leader の水平ドリフト(px)").toBeLessThan(pie.r);
+      }
     });
   }
 });

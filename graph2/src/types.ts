@@ -228,6 +228,13 @@ export interface Placement {
   /** 1 行レイアウト ("名前 25%") で名前部分のみ圧縮するか。2 行時は常に上行のみで無関係。 */
   condenseNamePortionOnly?: boolean;
   /**
+   * 長カタカナ名を 2 行へ分割したラベル。lines = [名前前半, 名前後半+" "+%] で、通常の 2 行
+   * (lines=[名前, %]) と違い両行とも名前断片を含む。幅算定 (placementExtent) と emit の長体指定
+   * (condense.name) が lines[0] を名前として扱うべきことを示す。applySplitNameFallback が立てる。
+   * 長体 nameScaleX は lines[0] (名前断片) のみへ掛かる (% を含む lines[1] は原寸)。
+   */
+  nameSplit?: boolean;
+  /**
    * 上部「その他」を右上へ第一優先で配置したラベル。clampToAnchorSide の「中心跨ぎ引き戻し」を
    * 免除する (anchorX が僅かに負でも右側へ置けるように)。topBandSonohokaRight 由来。
    */

@@ -67,6 +67,8 @@ import {
   runCompactCascade,
   applyVisualViewBoxNudge,
   applyFinalCondenseToFit,
+  trySplitNamePlacement,
+  restoreSplitNamePlacement,
   relaxNameCondense,
 } from "./post_layout.js";
 import { buildFontFaceDefs } from "./font.js";
@@ -217,10 +219,16 @@ function computeDrawnLeader(
     const perLineHeight = labelHeightUnits(1, cfg);
     if (placement.forceTopRight) {
       // 上左帯の右上逃がし (その他 / topBandSmallRight / clusterTopBandBottomRight)。
-      // 水平区間が x=0 をパイ上で跨ぐため、box 縦中央ではなく box 上端(最大 pie-y)へ
-      // 接続し、区間を pie-y > pieRadius に保ってキャップ貫通を避ける。
       const capClearY = cfg.pieRadius + radialFraction(cfg, 0.012, 0.12);
-      endpoint.y = Math.max(finalBox.top, capClearY);
+      if (finalBox.bottom >= capClearY - 1e-9) {
+        // 箱が完全に pie キャップより上 (topRightLiftedRimDraft): 通常の rim ラベルと同じく
+        // 近い行中央へ短く接続する。水平区間が pie-y > pieRadius を保つためキャップは貫かない。
+        endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
+      } else {
+        // 箱下端が円の y 域に入る旧経路: 水平区間が x=0 をパイ上で跨ぐため box 上端
+        // (最大 pie-y) へ接続し、区間を pie-y > pieRadius に保ってキャップ貫通を避ける。
+        endpoint.y = Math.max(finalBox.top, capClearY);
+      }
     } else {
       endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
     }
@@ -623,6 +631,7 @@ function finalizeForScoring(
   const copy = placements.map((p) => ({ ...p }));
   applyVisualViewBoxNudge(copy, cfg);
   applyFinalCondenseToFit(copy, cfg);
+  // 名前 2 行分割 (applySplitNameFallback) は emit 最終段のみで適用する (候補選択を乱さない)。
   relaxNameCondense(copy, cfg);
   applyOutsideLeaderAngularOrder(copy, cfg, coord);
   escapeUpperLeftTinyLeaders(copy, cfg, coord);
@@ -701,6 +710,70 @@ function countVerifyIssuesDetailed(
   leftStackMode = false,
 ): DefectCounts {
   return countDefects(finalizeForScoring(placements, cfg, coord, leftStackMode), cfg, coord);
+}
+
+/**
+ * 名前 2 行分割フォールバック (emit 最終段, do-no-harm)。下限長体 (0.7) でも viewBox を見切れる
+ * 長カタカナ/長熟語ラベルを splitLongName で 2 行へ分割し、チャート全体の不具合 (countDefects) が
+ * 「clips 厳密減・crossings/pie/total 非悪化」を満たす時だけ採用する。全後段の後 (= 位置確定後) に
+ * 走るのでゲートは最終配置を正しく評価する。部分的にしか収まらない分割は clips が減らず revert される。
+ */
+function applySplitNameFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
+  const { xScale, yScale, width, height } = coord;
+  // verify と同基準の box→pie 侵入 (countDefects は leader 貫通のみ数え box 侵入は数えないため、
+  // 1 行→2 行で高さが倍増し box が円へ食い込むケースをここで個別に捕捉する)。
+  const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
+  const cxp = xScale(0);
+  const cyp = yScale(0);
+  const pixBox = (p: Placement) => {
+    const lb = placementBox(p, cfg);
+    return {
+      left: Math.min(xScale(lb.left), xScale(lb.right)),
+      right: Math.max(xScale(lb.left), xScale(lb.right)),
+      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
+      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
+    };
+  };
+  const clipsViewBox = (p: Placement): boolean => {
+    const b = pixBox(p);
+    return b.left < -1 || b.right > width + 1 || b.top < -1 || b.bottom > height + 1;
+  };
+  const countBoxPie = (): number => {
+    let n = 0;
+    for (const p of placements) {
+      if (p.insideSlice) continue;
+      const b = pixBox(p);
+      const closestX = Math.max(b.left, Math.min(cxp, b.right));
+      const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
+      if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
+    }
+    return n;
+  };
+  const overlapsOf = (d: DefectCounts): number => d.total - d.clips - d.crossings - d.pie;
+
+  let before = countDefects(placements, cfg, coord);
+  if (before.clips === 0) return;
+  let beforePieBox = countBoxPie();
+  for (const p of placements) {
+    if (p.insideSlice || p.nameSplit || !clipsViewBox(p)) continue;
+    const snap = trySplitNamePlacement(p, cfg);
+    if (!snap) continue;
+    const after = countDefects(placements, cfg, coord);
+    const afterPieBox = countBoxPie();
+    // do-no-harm: clips が厳密に減り、他の全カテゴリ (交差/leader円貫通/重なり/box円侵入) が非悪化。
+    const adopt =
+      after.clips < before.clips &&
+      after.crossings <= before.crossings &&
+      after.pie <= before.pie &&
+      overlapsOf(after) <= overlapsOf(before) &&
+      afterPieBox <= beforePieBox;
+    if (adopt) {
+      before = after;
+      beforePieBox = afterPieBox;
+    } else {
+      restoreSplitNamePlacement(p, snap);
+    }
+  }
 }
 
 /**
@@ -3069,6 +3142,14 @@ export async function renderPdfStylePieToSvg(
     // stress_top_cluster_8 "F") を解消する。侵入の無いチャートは早期 return で無変更。
     enforceFinalPieClearance(textPlacements, cfg, { xScale, yScale, width, height });
 
+    // 下限長体 (0.7) でも viewBox を見切れる長カタカナ/長熟語を、名前 2 行分割で収める最終手段。
+    // 全後段の **後** に実行するので位置は確定済 = ゲートが最終配置を正しく見る。採否は countDefects
+    // (チャート全体: clips/crossings/pie/total) で判定し、clips が厳密に減り他が非悪化の時だけ採用 (do-no-harm)。
+    // 部分的にしか収まらない分割 (例 債券先物(アメ/リカ)) は clips が減らず revert される。採点
+    // (finalizeForScoring) には入れない: 候補選択を乱さず、finalScore は emit 後の同 placements から数えるため
+    // scorer ↔ emit 整合は保たれる。
+    applySplitNameFallback(textPlacements, cfg, { xScale, yScale, width, height });
+
     // emit 実配置 (最終化済 textPlacements) を内部スコアラで数え diagnostics に残す。後段は再適用
     // しない (countDefects はカウントのみ)。verify_consistency が emit SVG と突き合わせ、配置判断の
     // 基準 (countDefects) が実描画と一致し続けることをアサートする。
@@ -3152,7 +3233,8 @@ export async function renderPdfStylePieToSvg(
         sx < 1
           ? {
               nameScaleX: sx,
-              name: placement.item.name,
+              // 名前分割ラベルは上行 (lines[0]=名前前半) を長体対象にする。通常ラベルは item.name。
+              name: placement.nameSplit ? placement.lines[0] : placement.item.name,
               rest:
                 placement.lines.length >= 2 ? "" : ` ${placement.item.percentText ?? ""}`,
             }
