@@ -7,10 +7,10 @@ describe("GLYPH_ADVANCE_EM", () => {
   });
 
   it("既知の ASCII グリフ幅を返す", () => {
-    // 数字 '0' (0x30) は等幅で 0.6299em
-    expect(GLYPH_ADVANCE_EM.get(0x30)).toBeCloseTo(0.6299);
+    // 数字 '0' (0x30) は等幅で 0.7598em (BIZ UDPGothic Bold)
+    expect(GLYPH_ADVANCE_EM.get(0x30)).toBeCloseTo(0.7598);
     // 半角スペース (0x20)
-    expect(GLYPH_ADVANCE_EM.get(0x20)).toBeCloseTo(0.27);
+    expect(GLYPH_ADVANCE_EM.get(0x20)).toBeCloseTo(0.3335);
   });
 
   it("全ての値は非負の有限 em (ゼロ幅グリフを含む)", () => {

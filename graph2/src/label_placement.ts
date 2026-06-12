@@ -763,6 +763,7 @@ function clampAndBuildPlacement(input: {
     skipLeader: Boolean(draft.skipLeader),
     insideSlice: Boolean(draft.insideSlice),
     dominantOutsideEdge: Boolean(draft.dominantOutsideEdge),
+    pieClearance: Boolean(draft.pieClearance),
   };
   if (formExtras) {
     placement.nameScaleX = formExtras.nameScaleX;

@@ -38,9 +38,9 @@ export interface InsideFit {
 }
 
 /**
- * 文字単位で視覚 em 幅を返す。第一に埋め込みフォント (ipaexg.ttf) の実 glyph advance
- * テーブル GLYPH_ADVANCE_EM を引く (実描画幅そのもの)。テーブルは非 1.0 em の codepoint のみ
- * 収録 (CJK/かなは実測一律 1.0)。未収録 codepoint は従来のレンジ heuristic にフォールバック:
+ * 文字単位で視覚 em 幅を返す。第一に埋め込みフォント (BIZUDPGothic-Bold.woff2) の実 glyph
+ * advance テーブル GLYPH_ADVANCE_EM を引く (実描画幅そのもの)。テーブルは非 1.0 em の codepoint
+ * のみ収録 (漢字は実測一律 1.0)。未収録 codepoint は従来のレンジ heuristic にフォールバック:
  * 全角 (漢字/仮名/全角形) は full(1.0)・それ以外 (ASCII/半角カナ) は half(0.5)。
  * テーブルは scripts/gen_glyph_advance.ts が生成。emit の textLength・verify_svg も同テーブルに揃う。
  */
@@ -760,6 +760,49 @@ export function boxOverlapAmount(a: BBox, b: BBox): { x: number; y: number } {
     x: Math.min(a.right, b.right) - Math.max(a.left, b.left),
     y: Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom),
   };
+}
+
+/**
+ * ラベル箱の Y 範囲 (boxTop/boxBottom)・幅・anchor から、pie クリアランスを満たす textX の
+ * 上下限 (pieMinTextX = 右側ラベルの下限 / pieMaxTextX = 左側ラベルの上限) を計算する。
+ *
+ * post_layout の clampPlacement が後段で y が動いた後に円クリアランス X 限界を動的再計算するための
+ * ヘルパ。label_placement の clampAndBuildPlacement にある draft 構築時の静的計算 (同式をインライン
+ * 展開) と対になる。静的計算は draft 時点の y で固定されるため、ラベルが大きい |y| へ動くと円が太く
+ * なり静的限界では円内へ食い込む。それを本関数の動的再計算が補正する。
+ * 箱の最近接 Y 縁が円の完全に外 (|closestY| >= pieRadius) のときは円との X 干渉が無いので null を
+ * 返す (静的計算は同ケースで insidePieR=0 の名残制約を作るが、動的側は X 制約不要として正しく外す)。
+ *
+ * closestY は箱の Y 範囲のうち円中心 (y=0) に最も近い値: 箱が y=0 を跨げば 0、そうでなければ
+ * 絶対値の小さい側の縁。その Y での円半幅 insidePieR = sqrt(r² − closestY²) にクリアランスと
+ * ラベル幅 (anchor 依存) を足して X 限界にする。
+ */
+export function pieClampXLimits(
+  boxTop: number,
+  boxBottom: number,
+  width: number,
+  anchor: string,
+  cfg: PieLayoutConfig,
+): { pieMinTextX: number; pieMaxTextX: number } | null {
+  let closestY: number;
+  if (boxBottom <= 0 && boxTop >= 0) closestY = 0;
+  else closestY = Math.abs(boxBottom) < Math.abs(boxTop) ? boxBottom : boxTop;
+  if (Math.abs(closestY) >= cfg.pieRadius) return null;
+  const pieClearanceLogical = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.012, 0.12));
+  const insidePieR = Math.sqrt(
+    Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY),
+  );
+  let pieMinTextX = insidePieR + pieClearanceLogical;
+  let pieMaxTextX = -(insidePieR + pieClearanceLogical);
+  if (anchor === "middle") {
+    pieMinTextX += width / 2;
+    pieMaxTextX -= width / 2;
+  } else if (anchor === "end") {
+    pieMinTextX += width;
+  } else {
+    pieMaxTextX -= width;
+  }
+  return { pieMinTextX, pieMaxTextX };
 }
 
 /**

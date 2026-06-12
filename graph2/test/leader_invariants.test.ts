@@ -13,6 +13,8 @@
 import { describe, expect, it } from "vitest";
 import { resolveInputData, samples } from "../src/data.js";
 import { renderPdfStylePieToSvg } from "../src/svg_export/index.js";
+import { createPieLayoutConfig } from "../src/config.js";
+import { visualCharEm } from "../src/svg_geom.js";
 
 interface Pt {
   x: number;
@@ -117,8 +119,10 @@ interface TextInfo {
   x: number;
   y: number;
   anchor: string;
+  baseline: string;
   fontSize: number;
   nameScaleX: number;
+  lineCount: number;
   lines: string[];
   inside: boolean;
 }
@@ -131,7 +135,10 @@ function parseTexts(svg: string): TextInfo[] {
   while ((gm = groupRe.exec(svg)) !== null) {
     const name = gm[1].match(/\bdata-name="([^"]*)"/)?.[1] ?? "";
     const nameScaleX = parseFloat(gm[1].match(/\bdata-name-scale-x="([^"]*)"/)?.[1] ?? "1");
-    const textM = gm[2].match(/<text x="([\d.\-]+)" y="([\d.\-]+)" text-anchor="(\w+)"[^>]*font-size="([\d.]+)"/);
+    const lineCount = parseInt(gm[1].match(/\bdata-line-count="(\d+)"/)?.[1] ?? "1", 10);
+    const textM = gm[2].match(
+      /<text x="([\d.\-]+)" y="([\d.\-]+)" text-anchor="(\w+)" dominant-baseline="([\w-]+)"[^>]*font-size="([\d.]+)"/,
+    );
     if (!textM) continue;
     const lines = [...gm[2].matchAll(/<tspan[^>]*>([^<]+)<\/tspan>/g)].map((m) => m[1]);
     out.push({
@@ -139,13 +146,49 @@ function parseTexts(svg: string): TextInfo[] {
       x: parseFloat(textM[1]),
       y: parseFloat(textM[2]),
       anchor: textM[3],
-      fontSize: parseFloat(textM[4]),
+      baseline: textM[4],
+      fontSize: parseFloat(textM[5]),
       nameScaleX,
+      lineCount,
       lines,
       inside: !gm[2].includes('fill="none"'),
     });
   }
   return out;
+}
+
+// verify_svg.ts の bbox 推定 (textBBox) を忠実に複製する。幅は本体 svg_geom.visualCharEm の実 glyph
+// advance テーブルを直接引き、行高は config.lineHeightFactor。これにより本テストの "label inside pie"
+// 判定が verify_svg と一致する (粗い em 近似だと 3/9 時付近のラベルで縦伸長を過大評価し誤検知する)。
+const PIE_TEST_CFG = createPieLayoutConfig();
+function visualLineUnits(text: string): number {
+  let sum = 0;
+  for (const ch of text) sum += visualCharEm(ch, PIE_TEST_CFG);
+  return sum;
+}
+
+/** verify_svg.ts textBBox と同式の pixel テキスト box (charWidth=fontSize, lineH=fontSize*lineHeightFactor)。 */
+function textBoxPx(t: TextInfo): { left: number; right: number; top: number; bottom: number } {
+  const charWidth = t.fontSize * PIE_TEST_CFG.charWidthFactor;
+  const totalH = t.fontSize * PIE_TEST_CFG.lineHeightFactor * t.lineCount;
+  const sx = t.nameScaleX;
+  let totalW: number;
+  if (sx >= 1) {
+    const lines = t.lineCount >= 2 ? t.lines : [t.lines.join("")];
+    totalW = Math.max(...lines.map((s) => visualLineUnits(s))) * charWidth;
+  } else {
+    // 名前長体: 名前 (tspan[0]) は ×sx、% 部分 (残り tspan) は原寸。
+    const name = t.lines[0] ?? "";
+    const rest = t.lines.slice(1).join("");
+    totalW =
+      t.lineCount >= 2
+        ? Math.max(visualLineUnits(name) * sx, visualLineUnits(rest)) * charWidth
+        : (visualLineUnits(name) * sx + visualLineUnits(rest)) * charWidth;
+  }
+  const left = t.anchor === "start" ? t.x : t.anchor === "end" ? t.x - totalW : t.x - totalW / 2;
+  // verify_svg と同じく text-after-edge のみ上端を totalH 引き上げ、他 (before-edge / middle) は top=y。
+  const top = t.baseline === "text-after-edge" ? t.y - totalH : t.y;
+  return { left, right: left + totalW, top, bottom: top + totalH };
 }
 
 /** 非交差前提の折れ線間最小距離 (端点 vs 相手セグメントの総当たり)。 */
@@ -169,6 +212,44 @@ function minLeaderGap(leaders: { name: string; points: Pt[] }[]): number {
   }
   return min;
 }
+
+// ラベル box の円内侵入 (verify_svg の "label inside pie") は全サンプルで 0 であること。
+// 回帰元: stress_top_cluster_8 の "F" が draft より大きい |y| へ動き、cascade の nudge を静的
+// minTextX が円内へ引き戻していた (24px 侵入)。enforceFinalPieClearance が現在 y で円外へ逃がす。
+// 左右ラベル (anchor=end/start) の円中心向き縁はちょうど text x で SVG から正確に取れるため、
+// em 幅近似 (textBoxPx) の誤差は縦方向のみに限定され、tol=8px で 24px 級の回帰を確実に捕捉する。
+// 円中心 (= viewBox 中心) と半径 (path の "A r,r") を取る堅牢版。1 スライス (全円弧パス、頂点 L なし) や
+// 2 スライス等、parsePie が想定する楔パス先頭 "M cx,cy L ... A" に合致しない描画でも壊れない。
+function parsePieRobust(svg: string): { cx: number; cy: number; r: number } {
+  const vb = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+  const r = svg.match(/[ML][\d.\-]+,[\d.\-]+ A([\d.]+),/);
+  if (!vb || !r) throw new Error("pie geometry not found");
+  return { cx: parseFloat(vb[1]) / 2, cy: parseFloat(vb[2]) / 2, r: parseFloat(r[1]) };
+}
+
+describe("ラベル box の円内侵入なし (label inside pie / 全サンプル)", () => {
+  const allNames = Object.keys(samples);
+  it(`全 ${allNames.length} サンプルで text box が pie 円を侵さない`, async () => {
+    const offenders: string[] = [];
+    for (const name of allNames) {
+      const items = resolveInputData({ data: samples[name].items });
+      const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
+      const pie = parsePieRobust(svg);
+      for (const t of parseTexts(svg)) {
+        if (t.inside) continue; // wedge 内ラベルは対象外 (円内に置くのが正)。
+        const b = textBoxPx(t);
+        const nx = Math.max(b.left, Math.min(b.right, pie.cx));
+        const ny = Math.max(b.top, Math.min(b.bottom, pie.cy));
+        // verify_svg.bboxIntrudesPie と同じ tolerance 2px。
+        const intrusion = pie.r - Math.hypot(nx - pie.cx, ny - pie.cy);
+        if (intrusion > 2) {
+          offenders.push(`${name}: "${t.name}" (${intrusion.toFixed(0)}px)`);
+        }
+      }
+    }
+    expect(offenders, `円内へ侵入したラベル:\n${offenders.join("\n")}`).toEqual([]);
+  });
+});
 
 describe("leader 幾何の不変条件 (実レンダリング)", () => {
   for (const name of [...REGRESSION_SAMPLES, ...SENTINEL_SAMPLES]) {

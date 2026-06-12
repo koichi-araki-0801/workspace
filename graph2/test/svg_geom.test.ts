@@ -331,16 +331,18 @@ describe("labelOutwardClearance", () => {
 // ---------------------------------------------------------------------------
 describe("visualCharEm / visualMaxEm / visualTextWidthUnits", () => {
   it("テーブル収録 ASCII は実 advance", () => {
-    expect(visualCharEm("0", cfg)).toBeCloseTo(0.6299);
+    expect(visualCharEm("0", cfg)).toBeCloseTo(0.7598);
   });
-  it("CJK / かな / カナ / △ は全角幅", () => {
+  it("漢字 / △ は全角幅、プロポーショナルかなは実 advance", () => {
     expect(visualCharEm("漢", cfg)).toBe(cfg.visualFullwidthEm);
     expect(visualCharEm("あ", cfg)).toBe(cfg.visualFullwidthEm);
-    expect(visualCharEm("ア", cfg)).toBe(cfg.visualFullwidthEm);
+    // BIZ UDPGothic はかながプロポーショナル: 「ア」は 1.0em 未満の実測値を引く
+    expect(visualCharEm("ア", cfg)).toBeCloseTo(0.9102);
     expect(visualCharEm("△", cfg)).toBe(cfg.visualFullwidthEm);
   });
   it("未収録・非全角は半角幅にフォールバック", () => {
-    expect(visualCharEm("Ж", cfg)).toBe(cfg.visualHalfwidthEm);
+    // ヘブライ文字 א はフォント cmap になくテーブル非収録 → 半角 heuristic に落ちる
+    expect(visualCharEm("א", cfg)).toBe(cfg.visualHalfwidthEm);
   });
   it("最大行幅とユニット幅は正", () => {
     expect(visualMaxEm(["AB", "ABCD"], cfg)).toBeGreaterThan(0);

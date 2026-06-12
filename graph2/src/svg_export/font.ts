@@ -1,9 +1,10 @@
 // =============================================================================
-// svg_export/font.ts — フォントサブセット埋込 (TTF → WOFF2)
+// svg_export/font.ts — フォントサブセット埋込 (TTF/WOFF/WOFF2 → WOFF2)
 // -----------------------------------------------------------------------------
-// buildFontFaceDefs: cfg.embedFont 時に TTF を subset-font で WOFF2 化 → base64 →
+// buildFontFaceDefs: cfg.embedFont 時にフォントを subset-font で WOFF2 化 → base64 →
 // @font-face <defs> 文字列を返す。usedChars + REQUIRED_FONT_CHARS を合流。
-// 失敗時はフル TTF にフォールバック。プロセス内キャッシュで同条件を再利用。
+// 失敗時はフルフォントにフォールバック (形式はマジックバイトで判定)。
+// プロセス内キャッシュで同条件を再利用。
 // =============================================================================
 
 import { readFileSync } from "node:fs";
@@ -30,8 +31,16 @@ const REQUIRED_FONT_CHARS: Set<string> = (() => {
   return set;
 })();
 
+/** バッファ先頭のマジックバイトから @font-face 用の mime/format を判定する。 */
+function sniffFontFormat(buf: Buffer): { mime: string; format: string } {
+  const magic = buf.toString("latin1", 0, 4);
+  if (magic === "wOF2") return { mime: "font/woff2", format: "woff2" };
+  if (magic === "wOFF") return { mime: "font/woff", format: "woff" };
+  return { mime: "font/ttf", format: "truetype" };
+}
+
 /**
- * cfg.embedFont が真なら、TTF をサブセット化 → WOFF2 化 → base64 で @font-face
+ * cfg.embedFont が真なら、フォントをサブセット化 → WOFF2 化 → base64 で @font-face
  * 定義を含む <defs><style>...</style></defs> 文字列を返す。
  */
 export async function buildFontFaceDefs(
@@ -62,7 +71,7 @@ export async function buildFontFaceDefs(
       FONT_BUFFER_CACHE.set(absPath, buf);
     } catch (err: any) {
       console.warn(
-        `[svg_export] embedFont enabled but TTF not found at ${absPath}: ${err.message}`,
+        `[svg_export] embedFont enabled but font not found at ${absPath}: ${err.message}`,
       );
       FONT_FACE_CACHE.set(cacheKey, "");
       return "";
@@ -77,10 +86,9 @@ export async function buildFontFaceDefs(
     mime = "font/woff2";
     format = "woff2";
   } catch (err: any) {
-    console.warn(`[svg_export] subsetFont failed (${err.message}); falling back to full TTF`);
+    console.warn(`[svg_export] subsetFont failed (${err.message}); falling back to full font`);
     subsetBuf = buf;
-    mime = "font/ttf";
-    format = "truetype";
+    ({ mime, format } = sniffFontFormat(buf));
   }
 
   const base64 = subsetBuf.toString("base64");

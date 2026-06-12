@@ -32,11 +32,11 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     backgroundColor: "#ffffff",
 
     fontSize: 40,
-    fontFamily: '"IPAexGothic", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif',
+    fontFamily: '"BIZ UDPGothic", "BIZ UDGothic", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif',
     fontWeight: "700",
     embedFont: true,
-    embedFontPath: "./fonts/ipaexg.ttf",
-    embedFontFamilyName: "IPAexGothic",
+    embedFontPath: "./fonts/BIZUDPGothic-Bold.woff2",
+    embedFontFamilyName: "BIZ UDPGothic",
     percentFormat: (value: number) =>
       value < 0 ? `△${(-value).toFixed(1)}%` : `${value.toFixed(1)}%`,
     lineSpacing: 1.1,

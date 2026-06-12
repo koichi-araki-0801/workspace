@@ -2251,6 +2251,103 @@ function escapeTopBandSeamLeader(
  * 採用する。発火は不具合が残るチャートだけなので清浄チャートは不変。決定的 (名前順・固定格子)
  * なので採点 (finalizeForScoring) と emit は一致する。
  */
+/**
+ * emit 最終段の安全網: 円外ラベル box が pie 円へ食い込む (verify の "label inside pie") のを、
+ * 半径方向 nudge + 動的 pie クランプ (clampPlacement に cfg を渡し、現在 y で円クリアランス X 限界を
+ * 再計算して viewBox 端制約より優先) で円外へ押し出す。
+ *
+ * 背景: cascade の各 pass は nudgeTextAwayFromPie で円外へ押し出すが、直後の clampPlacement が
+ * draft 時点の静的 minTextX (viewBox floor) へ引き戻すため、draft より大きい |y| (円が太い高さ) へ
+ * 動いたラベルは円内に残る (例 stress_top_cluster_8 の "F")。本段は確定 placement に対し**現在の y**で
+ * 押し出し、衝突する viewBox floor を外して円外へ逃がすことで、その取りこぼしを最終的に解消する。
+ *
+ * do-no-harm: pie 侵入が厳密に減り、かつ box 重なり / leader 交差 / leader 貫通 / viewBox はみ出し
+ * (1 行高 VIEW_OVERFLOW_CAP_PX 内) を悪化させない時だけ採用、悪化したら全 revert (退行0)。侵入が
+ * 無いチャートは早期 return で完全無変更 (= 既存 OK チャートを乱さない)。判定は placementBox /
+ * countLeaderCrossings / countLeaderThroughLabels (emit と同一)。採点 (finalizeForScoring) には
+ * 入れない: repairResidualLeaderDefects と同理由で、修復前提のスコアが候補選択を歪めるのを避ける。
+ * finalScore は本段適用後の同一 placements から数えるため scorer ↔ emit の一致は保たれる。
+ */
+function enforceFinalPieClearance(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): void {
+  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const pieR = cfg.pieRadius;
+  const maxPieIntrusion = (): number => {
+    let m = 0;
+    for (const p of placements) {
+      if (p.insideSlice) continue;
+      const bx = placementBox(p, cfg);
+      const nx = Math.max(bx.left, Math.min(bx.right, 0));
+      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
+      m = Math.max(m, pieR - Math.hypot(nx, ny));
+    }
+    return m;
+  };
+  const beforePie = maxPieIntrusion();
+  if (beforePie <= tol) return; // 円内侵入なし → 無変更 (OK チャートを乱さない)。
+
+  const maxOverlap = (): number => {
+    let m = 0;
+    for (let i = 0; i < placements.length; i += 1) {
+      const a = placementBox(placements[i], cfg);
+      for (let j = i + 1; j < placements.length; j += 1) {
+        const b = placementBox(placements[j], cfg);
+        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
+        if (ox > 0 && oy > 0) m = Math.max(m, oy);
+      }
+    }
+    return m;
+  };
+  const maxViewOverflow = (): number => {
+    let m = 0;
+    for (const p of placements) {
+      const lb = placementBox(p, cfg);
+      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
+      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
+      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
+      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
+      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
+    }
+    return Math.max(0, m);
+  };
+
+  const beforeOverlap = maxOverlap();
+  const beforeView = maxViewOverflow();
+  const beforeCross = countLeaderCrossings(placements, cfg, coord);
+  const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
+  const snapshot = placements.map((p) => ({ p, x: p.x, y: p.y }));
+
+  for (const p of placements) {
+    if (p.insideSlice) continue;
+    const bx = placementBox(p, cfg);
+    const nx = Math.max(bx.left, Math.min(bx.right, 0));
+    const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
+    if (pieR - Math.hypot(nx, ny) <= tol) continue; // このラベルは侵入していない。
+    const ext = placementExtent(p, cfg);
+    const nudged = nudgeTextAwayFromPie(p.x, p.y, p.anchor, p.baseline, ext, cfg);
+    p.x = nudged.x;
+    p.y = nudged.y;
+    clampPlacement(p, cfg); // cfg 渡し = 動的 pie クランプ (viewBox floor を外して円外を維持)。
+  }
+
+  const harm =
+    maxPieIntrusion() > beforePie - tol || // 侵入が厳密に減っていない
+    maxOverlap() > beforeOverlap + tol ||
+    countLeaderCrossings(placements, cfg, coord) > beforeCross ||
+    countLeaderThroughLabels(placements, cfg, coord) > beforeThrough ||
+    maxViewOverflow() > beforeView + VIEW_OVERFLOW_CAP_PX;
+  if (harm) {
+    for (const s of snapshot) {
+      s.p.x = s.x;
+      s.p.y = s.y;
+    }
+  }
+}
+
 function repairResidualLeaderDefects(
   placements: Placement[],
   cfg: PieLayoutConfig,
@@ -2966,6 +3063,11 @@ export async function renderPdfStylePieToSvg(
     // 残余の leader 交差/円内貫通/箱貫通を bend 再配置で解消する最終安全網 (do-no-harm)。
     // finalizeForScoring と同位置・同条件で呼び、採点と emit の一致を保つ。
     repairResidualLeaderDefects(textPlacements, cfg, { xScale, yScale, width, height });
+
+    // 円外ラベル box の円内侵入 (label inside pie) を、現在 y での動的 pie クランプで円外へ押し出す
+    // 最終安全網 (do-no-harm)。cascade の nudge を静的 minTextX が引き戻す取りこぼし (例
+    // stress_top_cluster_8 "F") を解消する。侵入の無いチャートは早期 return で無変更。
+    enforceFinalPieClearance(textPlacements, cfg, { xScale, yScale, width, height });
 
     // emit 実配置 (最終化済 textPlacements) を内部スコアラで数え diagnostics に残す。後段は再適用
     // しない (countDefects はカウントのみ)。verify_consistency が emit SVG と突き合わせ、配置判断の
