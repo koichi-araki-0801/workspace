@@ -232,6 +232,14 @@ export interface Placement {
    * 免除する (anchorX が僅かに負でも右側へ置けるように)。topBandSonohokaRight 由来。
    */
   forceTopRight?: boolean;
+  /**
+   * 円外 rim/leader 配置で pie クリアランスを保証すべきラベル (draft.pieClearance 由来)。
+   * clampPlacement が **現在の y** から pie クリアランス X 上下限を動的に再計算し、
+   * viewBox 端制約より優先させる (ラベルが draft より大きい |y| へ動いて円が太くなった位置でも
+   * 円内へ食い込まないようにする)。clampAndBuildPlacement の静的計算は draft 時点の y で固定
+   * されるため、後段で y が動いた時の保証はこのフラグ経由の動的クランプが担う。
+   */
+  pieClearance?: boolean;
 }
 
 /**
