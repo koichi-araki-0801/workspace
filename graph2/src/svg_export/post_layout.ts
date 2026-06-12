@@ -28,6 +28,8 @@ import {
   pieYAtX,
   textBoxBounds,
   visualTextWidthUnits,
+  placementExtent,
+  pieClampXLimits,
 } from "../svg_geom.js";
 import { layoutLabels } from "../layout.js";
 import { TOP_BAND_HALF_WIDTH_DEG } from "../label_placement.js";
@@ -51,13 +53,48 @@ export const OVERLAP_HORIZ_NEAR_GAP_PX = 24;
 /** resolveLabelOverlaps + nudgeTextAwayFromPie の交互反復回数。 */
 export const POST_LAYOUT_PASS_COUNT = 4;
 
-/** placement.x/y を min/maxTextX/min/maxTextY 上下限にクランプする (undefined はスルー)。 */
-export function clampPlacement(placement: Placement): void {
-  if (typeof placement.maxTextX === "number" && placement.x > placement.maxTextX) {
-    placement.x = placement.maxTextX;
+/**
+ * placement.x/y を min/maxTextX/min/maxTextY 上下限にクランプする (undefined はスルー)。
+ *
+ * cfg を渡し placement.pieClearance が立つ円外ラベルでは、**現在の y** から pie クリアランス
+ * X 限界を動的に再計算し、保存済みの静的 min/maxTextX より優先して適用する。clampAndBuildPlacement
+ * の静的計算は draft 時点の y に固定されるため、後段 (overlap 解消・spread・re-stack 等) で
+ * ラベルが大きい |y| へ動くと円が太くなり、静的限界では円内へ食い込む。動的再計算では、その
+ * 食い込みを防ぐ向きに pie 限界を効かせ、衝突する viewBox 端制約 (floor/ceiling) は外して円外へ
+ * 逃がす (pieClearanceStrictViewBox は未使用 = viewBox は常に pie に譲る、という静的計算と同方針)。
+ * 円外へ逃がした結果の viewBox はみ出しは後段 condense / cascade 降格 / 採点が扱う。
+ *
+ * cfg を省略した呼び出しは従来通り静的 min/max のみ適用する (動的 pie クランプはスキップ)。
+ */
+export function clampPlacement(placement: Placement, cfg?: PieLayoutConfig): void {
+  let minTextX = placement.minTextX;
+  let maxTextX = placement.maxTextX;
+  if (cfg && placement.pieClearance && !placement.insideSlice) {
+    const ext = placementExtent(placement, cfg);
+    const box = textBoxBounds(placement.x, placement.y, ext, placement.anchor, placement.baseline);
+    const pie = pieClampXLimits(box.top, box.bottom, ext.width, placement.anchor, cfg);
+    if (pie) {
+      // 円のどちら側のラベルかで効く限界が決まる: 左側 (x<0) は上限 (ceiling=pieMaxTextX)、
+      // 右側は下限 (floor=pieMinTextX)。pie 限界が viewBox 端制約と衝突する (両立不能) なら
+      // viewBox 側を外し、pie 限界を優先して円外へ逃がす。
+      if (placement.x < 0) {
+        maxTextX = typeof maxTextX === "number" ? Math.min(maxTextX, pie.pieMaxTextX) : pie.pieMaxTextX;
+        if (typeof minTextX === "number" && typeof maxTextX === "number" && minTextX > maxTextX) {
+          minTextX = undefined;
+        }
+      } else {
+        minTextX = typeof minTextX === "number" ? Math.max(minTextX, pie.pieMinTextX) : pie.pieMinTextX;
+        if (typeof maxTextX === "number" && typeof minTextX === "number" && maxTextX < minTextX) {
+          maxTextX = undefined;
+        }
+      }
+    }
   }
-  if (typeof placement.minTextX === "number" && placement.x < placement.minTextX) {
-    placement.x = placement.minTextX;
+  if (typeof maxTextX === "number" && placement.x > maxTextX) {
+    placement.x = maxTextX;
+  }
+  if (typeof minTextX === "number" && placement.x < minTextX) {
+    placement.x = minTextX;
   }
   if (typeof placement.maxTextY === "number" && placement.y > placement.maxTextY) {
     placement.y = placement.maxTextY;
