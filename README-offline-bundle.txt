@@ -5,6 +5,9 @@
 別端末で、最終的にはインターネット／npm レジストリに接続せずに本プロジェクトの
 開発環境を構築するための手順です。配布は 2 系統に分かれます。
 
+  ※ git も GitHub CLI (gh) も使えない端末は README-offline-manual.txt を参照
+    （リポジトリを一時 Public 化し HTTPS だけで取得する手動手順）。
+
   (A) コード          … git リポジトリ本体（変更の都度コミット・push で履歴管理）
   (B) 重量物          … GitHub Releases（約 1.2GB。容量が大きいため git に入れない）
                         .pnpm-store / pnpm.tgz / ms-playwright
