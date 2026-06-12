@@ -40,15 +40,25 @@
 構築手順はリポジトリルートの **`README-offline-bundle.txt`** と **`setup-offline.bat`** に
 集約している（pnpm 11 + オフラインストア方式。旧 npm ベースの pack.ps1/setup.ps1 は廃止）。
 
+配布は **2 系統**に分離している:
+
+- **コード** … git リポジトリ本体で履歴管理（変更の都度コミット・push）
+- **重量物**（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/`、約 1.2GB） … **GitHub Releases**
+  （タグ `offline-bundle-v1`、`offline-deps-bundle.tar.gz`）。容量が大きく毎回 git 履歴へ
+  積めないため git 管理外とし、内容（`pnpm-lock.yaml`／`packageManager`）変更時のみ更新する。
+
 ### 1. 調達（オンライン機・Windows x64・Node 24）
 
-ワークスペース一式（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/` を含む）を
-tar.gz に固めて運用機へ持ち込む。詳細は `README-offline-bundle.txt` を参照。
+依存や pnpm/Playwright のバージョンを更新したら、調達側で
+`scripts/offline/publish-offline-bundle.ps1` を実行する。重量物を再生成し、変更がある場合のみ
+GitHub Releases へアップロードする（不変ならスキップ）。詳細は `README-offline-bundle.txt` を参照。
 
-### 2. 展開・ビルド・起動（オフライン運用機）
+### 2. 取得・展開・ビルド・起動（運用機）
 
-展開後に `setup-offline.bat` を実行する（pnpm の corepack 登録 →
+運用機では `git clone`（コード）→ `scripts/offline/fetch-offline-bundle.ps1`（Release から重量物を
+取得・検証・展開）→ `setup-offline.bat` を実行する（pnpm の corepack 登録 →
 `pnpm install --offline` → `pnpm build` → Playwright ブラウザ配置）。
+重量物の取得には GitHub 到達と `gh` 認証が必要（取得後の install/build はオフラインで完走）。
 運用機は**単一 Node プロセス**で API と SPA（`web/dist`）を配信する。
 
 手動起動する場合:

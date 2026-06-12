@@ -18,11 +18,14 @@ playwright-report/
 test-results/
 # pnpm
 
-# オフラインバンドル生成物（コミット対象外）
+# オフラインバンドル生成物（コミット対象外。重量物は GitHub Releases へ）
 .pnpm-store/
 pnpm.tgz
 ms-playwright/
 *.tar.gz
 *.tar.gz.part-*
+# Release 公開時の付随生成物
+offline-deps-bundle.tar.gz.sha256
+bundle.key
 _bundle_stage/
 _bundle_verify/
