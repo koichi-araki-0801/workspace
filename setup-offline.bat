@@ -13,15 +13,16 @@ set COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 rem node_modules purge 等の対話確認を抑止
 set CI=true
 
-rem 同梱物の存在チェック（git clone 直下では生成物が無いため、配布 tar.gz から展開すること）
+rem 同梱物の存在チェック（重量物は git 管理外。GitHub Releases から取得して展開すること）
 if not exist "%~dp0pnpm.tgz" (
-  echo [ERROR] pnpm.tgz が見つかりません。バンドルが不完全です。
-  echo         git clone ではなく、配布された workspace-offline-bundle.tar.gz を展開して実行してください。
+  echo [ERROR] pnpm.tgz が見つかりません。重量物が未取得です。
+  echo         先に  pwsh -File scripts\offline\fetch-offline-bundle.ps1  を実行し、
+  echo         GitHub Releases から重量物（.pnpm-store / pnpm.tgz / ms-playwright）を取得してください。
   exit /b 1
 )
 if not exist "%~dp0.pnpm-store" (
-  echo [ERROR] .pnpm-store が見つかりません。バンドルが不完全です。
-  echo         git clone ではなく、配布された workspace-offline-bundle.tar.gz を展開して実行してください。
+  echo [ERROR] .pnpm-store が見つかりません。重量物が未取得です。
+  echo         先に  pwsh -File scripts\offline\fetch-offline-bundle.ps1  を実行してください。
   exit /b 1
 )
 

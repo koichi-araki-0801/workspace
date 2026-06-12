@@ -67,6 +67,8 @@ import {
   runCompactCascade,
   applyVisualViewBoxNudge,
   applyFinalCondenseToFit,
+  trySplitNamePlacement,
+  restoreSplitNamePlacement,
   relaxNameCondense,
 } from "./post_layout.js";
 import { buildFontFaceDefs } from "./font.js";
@@ -78,6 +80,12 @@ export { escapeXml } from "./rendering.js";
 // 円貫通 / hairpin / 冗長な短 leader / leader 同士の交差 による省略を全てバイパスする。
 // false に戻すと従来の「leader=最終手段 + 各種省略」挙動。
 const ALWAYS_DRAW_OUTSIDE_LEADERS = true;
+
+// twoLineLeftStackMode の左列ラベルを円縁 (rim) からどれだけ外側へ離すかの mid-angle 放射係数。
+// 1.0 で円ハグ (旧)。参考 PDF はラベルと円の間に ~0.3R の隙間を空け、リーダー線が長い斜め線として
+// 明確に見える。anchor は rim のまま (この係数は box 位置のみに効く) なので、リーダーは rim→box の
+// 長い斜め直線になる。円侵入は起きないため verify/スコアラへの影響はない。
+const TWO_LINE_LEFT_OUT_FACTOR = 1.28;
 
 // leader の折れ角が鋭く (なす角 > 135°、cos < -0.7) ヘアピン状になり視認性を損なう時に
 // その leader を省く cos 閾値。
@@ -217,10 +225,16 @@ function computeDrawnLeader(
     const perLineHeight = labelHeightUnits(1, cfg);
     if (placement.forceTopRight) {
       // 上左帯の右上逃がし (その他 / topBandSmallRight / clusterTopBandBottomRight)。
-      // 水平区間が x=0 をパイ上で跨ぐため、box 縦中央ではなく box 上端(最大 pie-y)へ
-      // 接続し、区間を pie-y > pieRadius に保ってキャップ貫通を避ける。
       const capClearY = cfg.pieRadius + radialFraction(cfg, 0.012, 0.12);
-      endpoint.y = Math.max(finalBox.top, capClearY);
+      if (finalBox.bottom >= capClearY - 1e-9) {
+        // 箱が完全に pie キャップより上 (topRightLiftedRimDraft): 通常の rim ラベルと同じく
+        // 近い行中央へ短く接続する。水平区間が pie-y > pieRadius を保つためキャップは貫かない。
+        endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
+      } else {
+        // 箱下端が円の y 域に入る旧経路: 水平区間が x=0 をパイ上で跨ぐため box 上端
+        // (最大 pie-y) へ接続し、区間を pie-y > pieRadius に保ってキャップ貫通を避ける。
+        endpoint.y = Math.max(finalBox.top, capClearY);
+      }
     } else {
       endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
     }
@@ -464,6 +478,93 @@ function isLeftStackMember(p: Placement): boolean {
   return p.item.side === "left" && p.baseline === "bottom" && !p.insideSlice && p.x < 0;
 }
 
+/** twoLineLeftStackMode の左列メンバ (上部「その他」・真下中央・flip・inside を除く左側外側ラベル)。 */
+function twoLineLeftColumnMembers(placements: Placement[]): Placement[] {
+  return placements.filter(
+    (p) =>
+      p.item.side === "left" &&
+      !p.insideSlice &&
+      !p.item.flipToRight &&
+      !p.item.flipToLeft &&
+      !p.item.bottomCenterBelow &&
+      topBandSonohokaZone(p.item) === null &&
+      !p.item.name.startsWith("その他"),
+  );
+}
+
+/**
+ * twoLineLeftStackMode 専用の左列パッカ。片側に外側ラベルが多数 (>=6) 寄る過密チャートで、
+ * 左列を全 2 行のまま「角度順 (上→下) に円縁へ寄せた縦 1 列」へ再配置する。参考 PDF が左 7 ラベルを
+ * 全 2 行・密ピッチで縦積みする見た目を再現する。
+ *
+ * 通常カスケードは縦クランプを scaledLabelRadius に縛り (X 公式 x=√(r²−y²) と連動)、7 件 2 行が
+ * 入りきらず 1 件を 1 行へ降格させて左端見切れを起こす。本パッカは:
+ *   - X: 各ラベルを自身の slice 中心角の rim (cos·pieRadius, anchor=end) へ置き円へハグ。実際の
+ *     円クリアランスは clampPlacement(pieClearance 動的) が現在 y で保証する。
+ *   - Y: canvas 全高 (canvasYlim) を使い角度順に密ピッチで均等配置 (scaledLabelRadius 制約を外す)。
+ * メンバが <6 のチャートには影響しない (gate と二重の安全)。
+ */
+function applyTwoLineLeftColumn(placements: Placement[], cfg: PieLayoutConfig): void {
+  const members = twoLineLeftColumnMembers(placements);
+  if (members.length < 6) return;
+  // 角度順 (上→下 = sin 降順)。
+  members.sort(
+    (a, b) =>
+      Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
+  );
+  // X: mid-angle 放射方向に rim から TWO_LINE_LEFT_OUT_FACTOR 倍だけ外へ離す。参考 PDF のように
+  // ラベルと円の間に隙間を空け、rim→box の斜めリーダーを見えるようにする。anchor=end のまま。
+  // 円から離す方向なので円侵入は起きない (clampPlacement の左端クランプは長名でのみ効く)。
+  for (const p of members) {
+    p.x = Math.cos(degToRad(p.item.midAngle ?? 0)) * cfg.pieRadius * TWO_LINE_LEFT_OUT_FACTOR;
+  }
+  const heights = members.map((p) => {
+    const b = placementBox(p, cfg);
+    return b.top - b.bottom;
+  });
+  const sumH = heights.reduce((s, h) => s + h, 0);
+  const safety = cfg.canvasSafetyMargin;
+  const yHi = cfg.canvasYlim[1] - safety;
+  const yLo = cfg.canvasYlim[0] + safety;
+  const range = yHi - yLo;
+  const n = members.length;
+  // 残り高さを等ギャップに割る (scaledMinGap を上限、収まらなければ詰める)。
+  const gap = n > 1 ? Math.max(0, Math.min(cfg.scaledMinGap, (range - sumH) / (n - 1))) : 0;
+  const colH = sumH + gap * (n - 1);
+  // 列の縦中心は「メンバの自然アンカー中心 (sin·pieRadius の平均)」へ寄せる。参考 PDF のように
+  // 列がスライス群の中心高さへ沿い、上下端ラベルのスタブが短くなる。canvas 上下限へはクランプ。
+  const anchorMidY =
+    members.reduce((s, p) => s + Math.sin(degToRad(p.item.midAngle ?? 0)) * cfg.pieRadius, 0) / n;
+  let topEdge = anchorMidY + colH / 2;
+  topEdge = Math.min(yHi, Math.max(yLo + colH, topEdge));
+  for (let i = 0; i < n; i += 1) {
+    const p = members[i];
+    const h = heights[i];
+    const b = placementBox(p, cfg);
+    const curCenter = (b.top + b.bottom) / 2;
+    // baseline (top/bottom) と y の関係を保つため、現在の y−中心オフセットを維持して中心を移す。
+    const offset = p.y - curCenter;
+    const targetCenter = topEdge - h / 2;
+    p.y = targetCenter + offset;
+    topEdge = targetCenter - h / 2 - gap;
+    // 円から離した左列ラベルは canvasXlim (端マージン 67.5px) ではなく viewBox 端まで使えるよう
+    // フラグを立てる (後段 applyVisualViewBoxNudge / condense が円側へ引き戻さないように)。
+    p.twoLineLeftColumn = true;
+    clampPlacement(p, cfg);
+    // leader を rim 縮退形へ正規化: bend==endpoint==(現在の x,y) かつ
+    // leaderBendFollows* を解除する。これで computeDrawnLeader は draft 由来の L 字 (anchorX へ
+    // 折り返す bendFollowsEndpointY) を作らず、イギリス/カナダと同じ「anchor→box 縁の直線斜め
+    // スタブ」経路 (rim 縮退 → bend 畳み → truncate → 縮退スタブ除去で 2 点) に乗る。円を貫く
+    // ケースは既存の円弦リルートが外へ曲げる。origText も現在位置へ更新し dx/dy=0 にする。
+    p.origTextX = p.x;
+    p.origTextY = p.y;
+    p.leaderEndpoint = { x: p.x, y: p.y };
+    p.leaderBend = { x: p.x, y: p.y };
+    p.leaderBendFollowsEndpointY = false;
+    p.leaderBendFollowsEndpointX = false;
+  }
+}
+
 /**
  * leftStackMode 専用の順序保存 de-collision。汎用 resolveLabelOverlaps は箱中心ベクトル押しで
  * 密な左列の角度順を反転させる (例: 細い "カナダドル" が上へ catapult) ため、その左列だけを
@@ -623,6 +724,7 @@ function finalizeForScoring(
   const copy = placements.map((p) => ({ ...p }));
   applyVisualViewBoxNudge(copy, cfg);
   applyFinalCondenseToFit(copy, cfg);
+  // 名前 2 行分割 (applySplitNameFallback) は emit 最終段のみで適用する (候補選択を乱さない)。
   relaxNameCondense(copy, cfg);
   applyOutsideLeaderAngularOrder(copy, cfg, coord);
   escapeUpperLeftTinyLeaders(copy, cfg, coord);
@@ -701,6 +803,70 @@ function countVerifyIssuesDetailed(
   leftStackMode = false,
 ): DefectCounts {
   return countDefects(finalizeForScoring(placements, cfg, coord, leftStackMode), cfg, coord);
+}
+
+/**
+ * 名前 2 行分割フォールバック (emit 最終段, do-no-harm)。下限長体 (0.7) でも viewBox を見切れる
+ * 長カタカナ/長熟語ラベルを splitLongName で 2 行へ分割し、チャート全体の不具合 (countDefects) が
+ * 「clips 厳密減・crossings/pie/total 非悪化」を満たす時だけ採用する。全後段の後 (= 位置確定後) に
+ * 走るのでゲートは最終配置を正しく評価する。部分的にしか収まらない分割は clips が減らず revert される。
+ */
+function applySplitNameFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
+  const { xScale, yScale, width, height } = coord;
+  // verify と同基準の box→pie 侵入 (countDefects は leader 貫通のみ数え box 侵入は数えないため、
+  // 1 行→2 行で高さが倍増し box が円へ食い込むケースをここで個別に捕捉する)。
+  const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
+  const cxp = xScale(0);
+  const cyp = yScale(0);
+  const pixBox = (p: Placement) => {
+    const lb = placementBox(p, cfg);
+    return {
+      left: Math.min(xScale(lb.left), xScale(lb.right)),
+      right: Math.max(xScale(lb.left), xScale(lb.right)),
+      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
+      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
+    };
+  };
+  const clipsViewBox = (p: Placement): boolean => {
+    const b = pixBox(p);
+    return b.left < -1 || b.right > width + 1 || b.top < -1 || b.bottom > height + 1;
+  };
+  const countBoxPie = (): number => {
+    let n = 0;
+    for (const p of placements) {
+      if (p.insideSlice) continue;
+      const b = pixBox(p);
+      const closestX = Math.max(b.left, Math.min(cxp, b.right));
+      const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
+      if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
+    }
+    return n;
+  };
+  const overlapsOf = (d: DefectCounts): number => d.total - d.clips - d.crossings - d.pie;
+
+  let before = countDefects(placements, cfg, coord);
+  if (before.clips === 0) return;
+  let beforePieBox = countBoxPie();
+  for (const p of placements) {
+    if (p.insideSlice || p.nameSplit || !clipsViewBox(p)) continue;
+    const snap = trySplitNamePlacement(p, cfg);
+    if (!snap) continue;
+    const after = countDefects(placements, cfg, coord);
+    const afterPieBox = countBoxPie();
+    // do-no-harm: clips が厳密に減り、他の全カテゴリ (交差/leader円貫通/重なり/box円侵入) が非悪化。
+    const adopt =
+      after.clips < before.clips &&
+      after.crossings <= before.crossings &&
+      after.pie <= before.pie &&
+      overlapsOf(after) <= overlapsOf(before) &&
+      afterPieBox <= beforePieBox;
+    if (adopt) {
+      before = after;
+      beforePieBox = afterPieBox;
+    } else {
+      restoreSplitNamePlacement(p, snap);
+    }
+  }
 }
 
 /**
@@ -2861,6 +3027,23 @@ function runLabelCascade(
   // 現在の item フラグでの最良配置。leftStackMode は左列順序保存 spread を「不具合数が厳密に
   // 減る時だけ」採る (chart 単位 do-no-harm)。spread が悪化する他チャートは既存配置を維持 (退行0)。
   const lsm = diagnostics?.leftStackMode ?? false;
+  const twoLineLeftStack = diagnostics?.twoLineLeftStackMode ?? false;
+  // twoLineLeftStackMode: 左列メンバを全て 2 行起点へ固定 (1 行降格・左端見切れを防ぐ)。
+  // 縦の収まりは後段 applyTwoLineLeftColumn が canvas 全高の密ピッチ列で担保する。
+  if (twoLineLeftStack) {
+    for (const it of labels) {
+      if (
+        it.side === "left" &&
+        !it.flipToRight &&
+        !it.flipToLeft &&
+        !it.bottomCenterBelow &&
+        topBandSonohokaZone(it) === null &&
+        !it.name.startsWith("その他")
+      ) {
+        it.keepTwoLineLeftStack = true;
+      }
+    }
+  }
   const bestResult = (): Placement[] => {
     const off = cascadeWithSonohokaPick(labels, cfg, coord, false, lsm);
     if (!lsm) return off;
@@ -2918,6 +3101,9 @@ function runLabelCascade(
   }
   if (diagnostics?.leftStackMode) {
     applyLeftStackGapClose(result, cfg);
+  }
+  if (diagnostics?.twoLineLeftStackMode) {
+    applyTwoLineLeftColumn(result, cfg);
   }
   if (diagnostics) {
     diagnostics.dominantTwoLineRestored = result.some(
@@ -3069,6 +3255,14 @@ export async function renderPdfStylePieToSvg(
     // stress_top_cluster_8 "F") を解消する。侵入の無いチャートは早期 return で無変更。
     enforceFinalPieClearance(textPlacements, cfg, { xScale, yScale, width, height });
 
+    // 下限長体 (0.7) でも viewBox を見切れる長カタカナ/長熟語を、名前 2 行分割で収める最終手段。
+    // 全後段の **後** に実行するので位置は確定済 = ゲートが最終配置を正しく見る。採否は countDefects
+    // (チャート全体: clips/crossings/pie/total) で判定し、clips が厳密に減り他が非悪化の時だけ採用 (do-no-harm)。
+    // 部分的にしか収まらない分割 (例 債券先物(アメ/リカ)) は clips が減らず revert される。採点
+    // (finalizeForScoring) には入れない: 候補選択を乱さず、finalScore は emit 後の同 placements から数えるため
+    // scorer ↔ emit 整合は保たれる。
+    applySplitNameFallback(textPlacements, cfg, { xScale, yScale, width, height });
+
     // emit 実配置 (最終化済 textPlacements) を内部スコアラで数え diagnostics に残す。後段は再適用
     // しない (countDefects はカウントのみ)。verify_consistency が emit SVG と突き合わせ、配置判断の
     // 基準 (countDefects) が実描画と一致し続けることをアサートする。
@@ -3152,7 +3346,8 @@ export async function renderPdfStylePieToSvg(
         sx < 1
           ? {
               nameScaleX: sx,
-              name: placement.item.name,
+              // 名前分割ラベルは上行 (lines[0]=名前前半) を長体対象にする。通常ラベルは item.name。
+              name: placement.nameSplit ? placement.lines[0] : placement.item.name,
               rest:
                 placement.lines.length >= 2 ? "" : ` ${placement.item.percentText ?? ""}`,
             }

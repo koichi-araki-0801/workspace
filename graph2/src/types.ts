@@ -140,6 +140,10 @@ export interface Diagnostics {
   upperLeftLongDense?: boolean;
   upperRightLongDense?: boolean;
   leftStackMode?: boolean;
+  /** 片側 (左) に外側ラベルが多数 (>=6) 寄る過密チャートで、左列を全 2 行のまま canvas 全高の
+   *  密ピッチ縦 1 列へ再配置するモード (applyTwoLineLeftColumn)。leftStackMode (1 行強制) とは
+   *  排他で、参考 PDF の「左多数ラベルを全 2 行で密に縦積み」を再現する。 */
+  twoLineLeftStackMode?: boolean;
   /** 12時近傍 (mid 90°±30°) に small slice が 4 件以上ある時の専用モード。
    *  applyTopBandClusterReorder で Y順序を midAngle 順に再割当し、12時 真近 (mid 90°±5°)
    *  ラベルはクラスタ最下段+gap に固定する。
@@ -150,6 +154,8 @@ export interface Diagnostics {
   allowTopBandThreeFlip?: boolean;
   upperLeftTriadEligible?: boolean;
   upperLeftSmallCount?: number;
+  /** 左列 (上部「その他」を除く左側ラベル) の件数。twoLineLeftStackMode の判定入力。 */
+  leftColumnCount?: number;
   upperRightSmallCount?: number;
   bottomSmallCount?: number;
   /** 12時近傍 (mid 90°±30°) かつ small の slice 件数 (topBandClusterMode の判定入力)。 */
@@ -228,6 +234,13 @@ export interface Placement {
   /** 1 行レイアウト ("名前 25%") で名前部分のみ圧縮するか。2 行時は常に上行のみで無関係。 */
   condenseNamePortionOnly?: boolean;
   /**
+   * 長カタカナ名を 2 行へ分割したラベル。lines = [名前前半, 名前後半+" "+%] で、通常の 2 行
+   * (lines=[名前, %]) と違い両行とも名前断片を含む。幅算定 (placementExtent) と emit の長体指定
+   * (condense.name) が lines[0] を名前として扱うべきことを示す。applySplitNameFallback が立てる。
+   * 長体 nameScaleX は lines[0] (名前断片) のみへ掛かる (% を含む lines[1] は原寸)。
+   */
+  nameSplit?: boolean;
+  /**
    * 上部「その他」を右上へ第一優先で配置したラベル。clampToAnchorSide の「中心跨ぎ引き戻し」を
    * 免除する (anchorX が僅かに負でも右側へ置けるように)。topBandSonohokaRight 由来。
    */
@@ -240,6 +253,13 @@ export interface Placement {
    * されるため、後段で y が動いた時の保証はこのフラグ経由の動的クランプが担う。
    */
   pieClearance?: boolean;
+  /**
+   * twoLineLeftStackMode で円から離して縦積みした左列ラベル。円とラベルの間に隙間を作り
+   * リーダー線を見えるようにするため、後段の水平クランプ (applyVisualViewBoxNudge /
+   * applyFinalCondenseToFit / detectVisualHorizontalOverflow) は canvasXlim の端マージンではなく
+   * viewBox 端 (svgWidthPx) まで可動域として許す。applyTwoLineLeftColumn が立てる。
+   */
+  twoLineLeftColumn?: boolean;
 }
 
 /**

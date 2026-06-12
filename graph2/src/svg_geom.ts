@@ -101,6 +101,82 @@ export function scaledLabelWidthUnits(
   return (nameEm + pctEm) * unit;
 }
 
+// 行頭に置くと不自然な文字 (小書きカナ・長音記号・繰り返し記号・閉じ括弧・句読点)。
+// 名前分割でこれらが後半行の先頭に来る位置は分割候補から除外する。
+const AWKWARD_LINE_START =
+  "ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶーゝゞヽヾ、。，．）)」』】〕》";
+
+/** 文字の大まかな script クラス (分割境界の自然さ判定用)。 */
+function scriptClass(ch: string): "kana" | "kanji" | "other" {
+  const c = ch.codePointAt(0)!;
+  // カタカナ (長音記号 ー=0x30FC 含む) / ひらがな
+  if ((c >= 0x30a0 && c <= 0x30ff) || (c >= 0x3040 && c <= 0x309f)) return "kana";
+  if (c >= 0x4e00 && c <= 0x9fff) return "kanji"; // CJK 統合漢字
+  return "other"; // ASCII / 数字 / 記号
+}
+
+/**
+ * 長い名前を 2 行へ分割した {line1, line2} を返す (line2 は名前後半 + " " + percent)。分割で
+ * `max(em(line1), em(line2))` が元の 1 行名前幅 em(name) より縮まなければ、または名前が短ければ null。
+ *
+ * 分割位置の候補は「・の後」「script 境界 (カタカナ↔漢字 等)」「全文字間 (バランス点)」。最も
+ * `max(em(line1), em(line2))` が小さい位置を選び、僅差 (0.6em 以内) なら自然境界 (・/script) を優先する。
+ * 見切れ解消の最終手段 (applySplitNameFallback) が使う。
+ */
+export function splitLongName(
+  name: string,
+  percent: string,
+  cfg: PieLayoutConfig,
+): { line1: string; line2: string } | null {
+  const chars = [...name];
+  if (chars.length < 7) return null; // 短い名前は分割しない (1 行のまま別手段で解消)
+  const pctSuffix = ` ${percent}`;
+  const emOf = (s: string): number => visualMaxEm([s], cfg);
+  const nameEm = emOf(name);
+
+  // 括弧 (…) の内側では分割しない (例 「債券先物(アメリカ)」を「債券先物(アメ/リカ)」に割らない)。
+  // 同時に「(」の直前・「)」の直後を自然境界として扱う。全角/半角の括弧を対象にする。
+  const isOpen = (c: string) => c === "(" || c === "（";
+  const isClose = (c: string) => c === ")" || c === "）";
+  const insideParen: boolean[] = []; // insideParen[k] = 位置 k (k 文字目の前) が括弧内か
+  let depth = 0;
+  for (let k = 0; k <= chars.length; k += 1) {
+    insideParen[k] = depth > 0;
+    if (k < chars.length && isOpen(chars[k])) depth += 1;
+    else if (k < chars.length && isClose(chars[k])) depth = Math.max(0, depth - 1);
+  }
+
+  const natural = new Set<number>();
+  for (let i = 0; i < chars.length - 1; i += 1) {
+    if (chars[i] === "・") natural.add(i + 1); // ・ の直後で分ける (・ は前半に残す)
+  }
+  for (let i = 1; i < chars.length; i += 1) {
+    if (isOpen(chars[i])) natural.add(i); // 「(」の前
+    if (isClose(chars[i - 1])) natural.add(i); // 「)」の後
+    if (scriptClass(chars[i - 1]) !== scriptClass(chars[i])) natural.add(i);
+  }
+
+  const scored: { k: number; maxEm: number; isNatural: boolean }[] = [];
+  for (let k = 1; k < chars.length; k += 1) {
+    if (insideParen[k]) continue; // 括弧内では割らない
+    if (AWKWARD_LINE_START.includes(chars[k])) continue; // 後半行が小書きカナ/長音等で始まる位置は不可
+    const maxEm = Math.max(emOf(chars.slice(0, k).join("")), emOf(chars.slice(k).join("") + pctSuffix));
+    scored.push({ k, maxEm, isNatural: natural.has(k) });
+  }
+  if (scored.length === 0) return null;
+  const globalMin = Math.min(...scored.map((s) => s.maxEm));
+  // 最小 maxEm から 0.6em 以内の候補のうち、自然境界があればそれを優先 (なければ最小幅)。
+  const near = scored.filter((s) => s.maxEm <= globalMin + 0.6);
+  const naturalNear = near.filter((s) => s.isNatural);
+  const pool = naturalNear.length > 0 ? naturalNear : near;
+  const best = pool.reduce((a, b) => (b.maxEm < a.maxEm - 1e-9 ? b : a));
+  if (best.maxEm >= nameEm - 1e-9) return null; // 改善しないなら分割しない
+  return {
+    line1: chars.slice(0, best.k).join(""),
+    line2: chars.slice(best.k).join("") + pctSuffix,
+  };
+}
+
 /** 角度を [0, 360) に正規化 */
 export function normalizeAngle(angle: number): number {
   return ((angle % 360) + 360) % 360;
@@ -628,6 +704,14 @@ export function textBoxBounds(
 export function placementExtent(placement: Placement, cfg: PieLayoutConfig): Extent {
   const lineCount = placement.lines.length >= 2 ? 2 : 1;
   const sx = placement.nameScaleX ?? 1;
+  if (placement.nameSplit && placement.lines.length >= 2) {
+    // 名前分割ラベル: lines = [名前前半, 名前後半+%]。長体は上行 (名前前半) のみ。
+    // scaledLabelWidthUnits(line1, line2, 2, sx) = max(em(line1)×sx, em(line2)) × unit。
+    return {
+      width: scaledLabelWidthUnits(placement.lines[0], placement.lines[1], 2, sx, cfg),
+      height: labelHeightUnits(2, cfg),
+    };
+  }
   const name = placement.item.name;
   const percent = placement.item.percentText ?? "";
   return {
@@ -639,6 +723,23 @@ export function placementExtent(placement: Placement, cfg: PieLayoutConfig): Ext
 export function placementBox(placement: Placement, cfg: PieLayoutConfig): BBox {
   const measured = placementExtent(placement, cfg);
   return textBoxBounds(placement.x, placement.y, measured, placement.anchor, placement.baseline);
+}
+
+/**
+ * placement の水平可動域 (論理 X 下限/上限)。通常は canvasXlim (端マージン 67.5px)。
+ * twoLineLeftColumn (円から離して縦積みした左列ラベル) は円とラベルの隙間を確保するため、
+ * canvasXlim ではなく viewBox 端 (svgWidthPx) から ~6px 内側までを可動域にする。
+ */
+export function horizontalLabelLimits(
+  placement: Placement,
+  cfg: PieLayoutConfig,
+): [number, number] {
+  if (placement.twoLineLeftColumn) {
+    const half = cfg.svgWidthPx / 2 / cfg.pxPerUnit;
+    const edge = 6 / cfg.pxPerUnit; // viewBox 端から ~6px の安全代
+    return [-half + edge, half - edge];
+  }
+  return cfg.canvasXlim;
 }
 
 /**

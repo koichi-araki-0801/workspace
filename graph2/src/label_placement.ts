@@ -322,10 +322,38 @@ function topBandSonohokaRight(
       condenseNamePortionOnly: form.condenseNamePortionOnly,
     };
   }
-  const labelX = Math.abs(anchorX) + radialFraction(cfg, 0.6, 6.0);
-  // 水平区間は anchor(僅かに左)から右へ x=0 を跨ぐため、pie 頂部より上に持ち上げないと
-  // 円を貫く。pieRadius + クリアランスへ揃え、縦に抜けてから右へ折れる L を pie 上で確保する。
-  const labelY = cfg.pieRadius + radialFraction(cfg, 0.04, 0.4);
+  return topRightLiftedRimDraft(item, cfg, form, opts);
+}
+
+/**
+ * 「12時直右へ逃がす」3 経路 (topBandSonohokaRight 右パス / topBandSmallRight /
+ * clusterTopBandBottomRight) で共有する、箱を **pie キャップより完全に上** へ持ち上げる
+ * draft ビルダ。
+ *
+ * 旧実装は箱上端 (baseline=bottom の textY) を pieRadius + 小クリアランスに置いたが、箱下端
+ * (= textY − 高さ) が円の y 域 (|y| < pieRadius) に入るため、後段 pie クリアランスクランプが
+ * 「右側ラベルの下限 textX」を insidePieR まで押し上げ、ラベルが右へ大きく飛んで水平 leader が
+ * チャート上部を横断していた (参考 PDF は短い縦/斜め leader)。
+ *
+ * 本ビルダは箱下端を pieRadius + クリアランスへ揃え (= 箱全体が円の上)、pieClampXLimits が null を
+ * 返すようにして横押し出しを無効化する。labelX オフセットも控えめ (radialFraction(0.12,1.5)) にし、
+ * 12時直右に短い leader で据える。箱上端が canvas 上端を越える場合だけ上端でクランプする。
+ */
+function topRightLiftedRimDraft(
+  item: LayoutItemReady,
+  cfg: PieLayoutConfig,
+  form: LabelForm,
+  opts: { skipLeader: boolean; allowSegmentNudge: boolean },
+): PlacementDraft {
+  const anchorX = item.anchorX;
+  const labelX = Math.abs(anchorX) + radialFraction(cfg, 0.12, 1.5);
+  // baseline=bottom では textY が箱上端。箱下端 (textY − form.height) を pieRadius + クリアランスへ
+  // 揃えるには textY = pieRadius + クリアランス + form.height。canvas 上端は越えないようクランプ。
+  const capClear = radialFraction(cfg, 0.012, 0.12);
+  const labelY = Math.min(
+    cfg.pieRadius + capClear + form.height,
+    cfg.scaledYTop - cfg.canvasSafetyMargin,
+  );
   return {
     fragments: [],
     textX: labelX,
@@ -362,31 +390,9 @@ function topBandSmallRight(
   opts: { skipLeader: boolean; allowSegmentNudge: boolean },
 ): PlacementDraft | null {
   if (!item.topBandSmallRight) return null;
-  const anchorX = item.anchorX;
-  const anchorY = item.anchorY;
-  // その他経路 (labelX offset = radialFraction(0.6, 6.0)) より右寄せを控えめにする。右へ寄せ過ぎると
-  // 原寸 2 行が canvasXlim を越えて後段の長体化処理に縮められるため、原寸が canvasXlim 内に
-  // 収まる位置 (12時直右) に置いて長体化を回避する。
-  const labelX = Math.abs(anchorX) + radialFraction(cfg, 0.12, 1.5);
-  const labelY = cfg.pieRadius + radialFraction(cfg, 0.04, 0.4);
-  return {
-    fragments: [],
-    textX: labelX,
-    textY: labelY,
-    anchor: "start",
-    baseline: "bottom",
-    lineEndX: labelX,
-    lineEndY: labelY,
-    lineStart: { x: anchorX, y: labelY },
-    lineEnd: { x: labelX, y: labelY },
-    allowSegmentNudge: opts.allowSegmentNudge,
-    skipLeader: opts.skipLeader,
-    pieClearance: true,
-    dominantOutsideEdge: true,
-    forceTopRight: true,
-    nameScaleX: form.nameScaleX,
-    condenseNamePortionOnly: form.condenseNamePortionOnly,
-  };
+  // 12時直右に短い leader で据える。箱を pie キャップより上へ持ち上げ pie 横押し出しを無効化する
+  // (topRightLiftedRimDraft 共通実装)。
+  return topRightLiftedRimDraft(item, cfg, form, opts);
 }
 
 /**
@@ -405,28 +411,8 @@ function clusterTopBandBottomRight(
   opts: { skipLeader: boolean; allowSegmentNudge: boolean },
 ): PlacementDraft | null {
   if (!item.clusterTopBandBottom) return null;
-  const anchorX = item.anchorX;
-  const labelX = Math.abs(anchorX) + radialFraction(cfg, 0.6, 6.0);
-  // pie 頂部より上に持ち上げないと水平 leader が円を貫く (topBandSonohokaRight と同条件)。
-  const labelY = cfg.pieRadius + radialFraction(cfg, 0.04, 0.4);
-  return {
-    fragments: [],
-    textX: labelX,
-    textY: labelY,
-    anchor: "start",
-    baseline: "bottom",
-    lineEndX: labelX,
-    lineEndY: labelY,
-    lineStart: { x: anchorX, y: labelY },
-    lineEnd: { x: labelX, y: labelY },
-    allowSegmentNudge: opts.allowSegmentNudge,
-    skipLeader: opts.skipLeader,
-    pieClearance: true,
-    dominantOutsideEdge: true,
-    forceTopRight: true,
-    nameScaleX: form.nameScaleX,
-    condenseNamePortionOnly: form.condenseNamePortionOnly,
-  };
+  // 12時直右へ逃がす。箱を pie キャップより上へ持ち上げ短い leader にする (topRightLiftedRimDraft 共通)。
+  return topRightLiftedRimDraft(item, cfg, form, opts);
 }
 
 /**
@@ -444,20 +430,24 @@ function bottomCenterBelow(
   if (!item.bottomCenterBelow) return null;
   const clearance = radialFraction(cfg, 0.012, 0.12);
   const textY = -(cfg.pieRadius + clearance); // baseline=top → 箱上端
+  // X は slice 中心角の anchorX に合わせる (真下 ±BOTTOM_CENTER_HALF_DEG ゲートで |anchorX| は
+  // ごく小さいが、参考 PDF は真下スライスのラベルを中心角の直下に置く)。anchor=middle のまま
+  // 箱中心を anchorX へ寄せ、leader も anchorX 起点の極短スタブにする。
+  const textX = item.anchorX;
   // pieClearance / dominantOutsideEdge は付けない: 箱は pie の **真下** に押し下げ済で X 方向の
   // 円クリアランスは不要 (pieClearance を立てると closestY が円外でも anchor=middle 箱を横へ
   // 叩き出す)。dominantOutsideEdge を立てると computeDrawnLeader がドリフト時に leader を復活
   // させてしまう。円との距離は runCascadeOnce の nudgeTextAwayFromPie (真下へ押下げ) が担保する。
   return {
     fragments: [],
-    textX: 0,
+    textX,
     textY,
     anchor: "middle",
     baseline: "top",
-    lineEndX: 0,
+    lineEndX: textX,
     lineEndY: textY,
-    lineStart: { x: 0, y: textY },
-    lineEnd: { x: 0, y: textY },
+    lineStart: { x: textX, y: textY },
+    lineEnd: { x: textX, y: textY },
     allowSegmentNudge: opts.allowSegmentNudge,
     skipLeader: opts.skipLeader,
     nameScaleX: form.nameScaleX,

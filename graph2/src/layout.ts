@@ -189,6 +189,8 @@ function collectSliceCounts(profiles: LayoutItem[]) {
     lowerDiffs,
     leftCount: countIf((p) => p.side === "left"),
     rightCount: countIf((p) => p.side === "right"),
+    // 左列 (上部「その他」を除く左側ラベル) の件数。twoLineLeftStackMode の入力。
+    leftColumnCount: countIf((p) => p.side === "left" && !p.name.startsWith("その他")),
     upperLongCount: countIf((p) => (p.isUpperLeft || p.isUpperRight) && p.isLong),
     upperLeftLongCount: countIf((p) => p.isUpperLeft && p.isLong),
     upperRightLongCount: countIf((p) => p.isUpperRight && p.isLong),
@@ -236,6 +238,14 @@ function deriveModeTags(diag: Diagnostics, cfg: PieLayoutConfig): void {
   diag.leftStackMode = leftStackMode;
   if (leftStackMode) diag.modeTags.push("left_stack");
 
+  // twoLineLeftStackMode: 左列 (その他除く) に外側ラベルが多数 (>=6) 寄る過密チャートで、全 2 行を
+  // 維持したまま canvas 全高の密ピッチ縦 1 列へ再配置する (applyTwoLineLeftColumn)。leftStackMode
+  // (1 行強制) とは排他。通常カスケードが縦に入りきらず 1 件を 1 行へ降格→左端見切れする症状を、
+  // 縦クランプ (scaledLabelRadius) を外して全高を使うことで解消し、参考 PDF の全 2 行縦積みを再現する。
+  const twoLineLeftStackMode = !leftStackMode && (diag.leftColumnCount ?? 0) >= 6;
+  diag.twoLineLeftStackMode = twoLineLeftStackMode;
+  if (twoLineLeftStackMode) diag.modeTags.push("two_line_left_stack");
+
   // topBandClusterMode: 12時近傍 (mid 90°±30°) に small slice が 4 件以上集まる密集ケース。
   // 12時 真近のスライスを含むと leftStackMode と並行発火する。applyTopBandClusterReorder で
   // Y順序を midAngle 順に並べ替え、12時 真近ラベルはクラスタ最下段+gap に固定する。
@@ -260,6 +270,7 @@ function runDiagnostics(profiles: LayoutItem[], cfg: PieLayoutConfig): Diagnosti
     lowerDiffs,
     leftCount,
     rightCount,
+    leftColumnCount,
     upperLongCount,
     upperLeftLongCount,
     upperRightLongCount,
@@ -277,6 +288,7 @@ function runDiagnostics(profiles: LayoutItem[], cfg: PieLayoutConfig): Diagnosti
     upperRightSmallCount,
     bottomSmallCount,
     topBandClusterCount,
+    leftColumnCount,
     manyItems: profiles.length >= cfg.denseCountThreshold,
     ultraDenseItems: profiles.length >= cfg.ultraDenseCountThreshold,
     oneSideDense: Math.max(leftCount, rightCount) >= cfg.oneSideDenseThreshold,
