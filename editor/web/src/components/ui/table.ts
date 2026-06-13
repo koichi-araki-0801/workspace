@@ -17,7 +17,7 @@ export const TableHeader = defineComponent({
   props: { class: { type: String, default: undefined } },
   setup(props, { slots }) {
     return () =>
-      h('thead', { class: cn('[&_tr]:border-b bg-muted/50', props.class) }, slots.default?.());
+      h('thead', { class: cn('[&_tr]:border-b bg-muted/60', props.class) }, slots.default?.());
   },
 });
 

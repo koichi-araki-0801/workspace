@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import type { DropdownOptions, DropdownQuery } from '@editor/shared';
 import { Loader2, RotateCcw, Search } from '@lucide/vue';
+import { computed, watch } from 'vue';
 import { useTemplateRepo } from '@/api/repositories';
 import Button from '@/components/ui/Button.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import { useCascadingSelect } from '@/lib/useCascadingSelect';
+import { useFundNames } from '@/lib/useFundNames';
 
 type Field = 'companyCode' | 'fundCode' | 'baseDate' | 'editionType';
 
@@ -58,9 +60,21 @@ const { query, options, loading, onLevelChange, reset } = useCascadingSelect<
   onChange: (q) => emit('update', q),
 });
 
-const optionsByField: Record<Field, () => string[]> = {
+const { resolve, nameOf } = useFundNames();
+watch(() => options.value.fundCodes, (codes) => resolve(codes), { immediate: true });
+
+// ファンドコードはコード＋名称をラベルに、value はコードのまま（クエリ/カスケード不変）。
+const fundOptions = computed(() =>
+  options.value.fundCodes.map((code) => ({
+    label: nameOf(code) ? `${code} ${nameOf(code)}` : code,
+    value: code,
+  })),
+);
+
+type Option = string | { label: string; value: string };
+const optionsByField: Record<Field, () => Option[]> = {
   companyCode: () => options.value.companyCodes,
-  fundCode: () => options.value.fundCodes,
+  fundCode: () => fundOptions.value,
   baseDate: () => options.value.baseDates,
   editionType: () => options.value.editionTypes,
 };

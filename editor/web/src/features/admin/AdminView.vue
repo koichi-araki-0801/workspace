@@ -130,20 +130,20 @@ async function resetPw(u: User) {
       <Table class="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead class="w-[160px]">ユーザーID</TableHead><TableHead>表示名</TableHead><TableHead class="w-[120px]">権限</TableHead>
-            <TableHead class="w-[160px]">状態</TableHead><TableHead class="w-[300px] text-right">操作</TableHead>
+            <TableHead class="w-[160px]">ユーザーID</TableHead><TableHead>表示名</TableHead><TableHead class="w-[120px] text-center">権限</TableHead>
+            <TableHead class="w-[160px] text-center">状態</TableHead><TableHead class="w-[300px] text-center">操作</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
+        <TableBody class="[&>tr:nth-child(even)]:bg-muted/40">
           <TableRow v-for="vm in vms" :key="vm.id">
             <TableCell class="mono truncate">{{ vm.username }}</TableCell>
             <TableCell class="truncate font-semibold">{{ vm.displayName }}</TableCell>
-            <TableCell><Badge variant="outline">{{ vm.roleLabel }}</Badge></TableCell>
-            <TableCell>
+            <TableCell class="text-center"><Badge variant="outline">{{ vm.roleLabel }}</Badge></TableCell>
+            <TableCell class="text-center">
               <Badge :variant="vm.statusVariant">{{ vm.statusLabel }}</Badge>
               <Badge v-if="vm.needsPasswordReset" variant="warning" class="ml-1">要再設定</Badge>
             </TableCell>
-            <TableCell class="space-x-2 text-right">
+            <TableCell class="space-x-2 text-center">
               <Button size="sm" variant="outline" @click="resetPw(vm.raw)"><KeyRound class="h-4 w-4" /> パスワード初期化</Button>
               <Button
                 size="sm"

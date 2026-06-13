@@ -27,14 +27,14 @@ const emit = defineEmits<{ loadMore: [] }>();
 </script>
 
 <template>
-  <div class="rounded-lg border bg-card">
+  <div class="overflow-hidden rounded-lg border bg-card">
     <Table class="table-fixed">
       <TableHeader>
         <TableRow>
           <TableHead v-for="col in columns" :key="col.header" :class="col.headerClass">{{ col.header }}</TableHead>
         </TableRow>
       </TableHeader>
-      <TableBody>
+      <TableBody class="[&>tr:nth-child(even)]:bg-muted/40">
         <TableRow v-if="loading">
           <TableCell :colspan="columns.length" class="py-8 text-center text-muted-foreground">読み込み中…</TableCell>
         </TableRow>

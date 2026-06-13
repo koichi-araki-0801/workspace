@@ -12,10 +12,10 @@ const meta = (status: TemplateMeta['status']): TemplateMeta => ({
 });
 
 describe('toTemplateMetaVm', () => {
-  it('maps published to the default badge', () => {
+  it('maps published to the success badge', () => {
     const vm = toTemplateMetaVm(meta('published'));
     expect(vm.statusLabel).toBe('公開');
-    expect(vm.statusVariant).toBe('default');
+    expect(vm.statusVariant).toBe('success');
   });
 
   it('maps draft to the secondary badge', () => {
