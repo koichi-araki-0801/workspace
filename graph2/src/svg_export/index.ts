@@ -2253,8 +2253,8 @@ function repairResidualLeaderDefects(
         }
       }
       pairs.sort((m, n) =>
-        `${placements[m[0]].item.name} ${placements[m[1]].item.name}`.localeCompare(
-          `${placements[n[0]].item.name} ${placements[n[1]].item.name}`,
+        `${placements[m[0]].item.name} ${placements[m[1]].item.name}`.localeCompare(
+          `${placements[n[0]].item.name} ${placements[n[1]].item.name}`,
           "ja",
         ),
       );
