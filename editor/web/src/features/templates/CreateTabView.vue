@@ -1,41 +1,58 @@
 <script setup lang="ts">
 import { type DropdownQuery, type GenerateRequest, isErr, type TemplateMeta } from '@editor/shared';
-import { FilePlus2 } from '@lucide/vue';
+import { FilePlus2, FileText } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';
-import Checkbox from '@/components/ui/Checkbox.vue';
-import Label from '@/components/ui/Label.vue';
+import Step from '@/components/ui/Step.vue';
 import { toastError, toastSuccess } from '@/components/ui/toast';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { cn } from '@/lib/utils';
 import SearchFilters from './components/SearchFilters.vue';
 import TemplateTable from './components/TemplateTable.vue';
-import {
-  SELECT_ALL_MSG,
-  useTemplateCreationService,
-} from './services/templateCreationService';
+import { SELECT_ALL_MSG, useTemplateCreationService } from './services/templateCreationService';
+
+type Method = 'blank' | 'series';
 
 const router = useRouter();
 const templates = useTemplateCreationService();
 const { loading: creating, run } = useAsyncResult();
 const liveQuery = reactive<DropdownQuery>({});
-const seriesMode = ref(false);
+const method = ref<Method | null>(null);
 const seriesRows = ref<TemplateMeta[]>([]);
 
 const canCreate = computed(
   () => !!liveQuery.companyCode && !!liveQuery.fundCode && !!liveQuery.editionType,
 );
 
+const methodCards: { key: Method; icon: typeof FilePlus2; title: string; desc: string }[] = [
+  { key: 'blank', icon: FilePlus2, title: '白紙から作成', desc: '標準のレイアウトで新規に作成します。' },
+  {
+    key: 'series',
+    icon: FileText,
+    title: '既存のシリーズを元に作成',
+    desc: '同じファンドの別の版を複製して作成します。',
+  },
+];
+
 function onUpdate(q: DropdownQuery) {
   Object.assign(liveQuery, q);
 }
 
-// In series mode the table loads automatically once all three fields are set;
-// changing a field (which cascades-resets downstream ones) re-loads or clears it.
+function selectMethod(m: Method) {
+  if (!canCreate.value) return;
+  method.value = m;
+}
+
+// In series mode the table loads once all three fields are set; cascade-resetting
+// a field re-loads or clears it. Switching away from series clears the table.
 watch(
-  () => [liveQuery.companyCode, liveQuery.fundCode, liveQuery.editionType, seriesMode.value],
+  () => [liveQuery.companyCode, liveQuery.fundCode, liveQuery.editionType, method.value],
   () => {
-    if (!seriesMode.value) return;
+    if (method.value !== 'series') {
+      seriesRows.value = [];
+      return;
+    }
     if (canCreate.value) loadSeries();
     else seriesRows.value = [];
   },
@@ -44,9 +61,7 @@ watch(
 async function loadSeries() {
   const { companyCode, fundCode, editionType } = liveQuery;
   if (!companyCode || !fundCode || !editionType) return;
-  const res = await run(() =>
-    templates.listSeriesFunds(companyCode, fundCode, editionType),
-  );
+  const res = await run(() => templates.listSeriesFunds(companyCode, fundCode, editionType));
   if (isErr(res)) return;
   seriesRows.value = res.value;
 }
@@ -78,52 +93,95 @@ function createFromSeries(m: TemplateMeta) {
     'シリーズファンドを基にテンプレートを作成しました',
   );
 }
-
-function toggleSeries(v: boolean) {
-  seriesMode.value = v;
-  if (!v) seriesRows.value = [];
-  // when turned on, the watcher loads the table if all fields are selected
-}
 </script>
 
 <template>
-  <div class="space-y-4">
-    <h2 class="text-lg font-semibold">テンプレート作成</h2>
-    <SearchFilters
-      :fields="['companyCode', 'fundCode', 'editionType']"
-      :required-fields="['companyCode', 'fundCode', 'editionType']"
-      hide-search
-      @update="onUpdate"
-    >
-      <template #footer>
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <Checkbox id="series" :model-value="seriesMode" @update:model-value="(v) => toggleSeries(!!v)" />
-            <Label for="series">既存のシリーズファンドを元に作成する</Label>
-          </div>
-          <div class="flex flex-col items-end gap-1">
-            <Button :disabled="creating || !canCreate" @click="createNew">
-              <FilePlus2 class="h-4 w-4" /> {{ creating ? '作成中…' : '新規作成' }}
-            </Button>
-            <p v-if="!canCreate" class="text-xs text-muted-foreground">
-              委託会社・ファンド・版種をすべて選択してください
-            </p>
-          </div>
-        </div>
-      </template>
-    </SearchFilters>
-
-    <template v-if="seriesMode">
-      <h3 class="text-sm font-semibold">元にするシリーズファンドを選択</h3>
-      <p v-if="!canCreate" class="text-sm text-muted-foreground">
-        委託会社・ファンド・版種をすべて選択してください
+  <div class="grid max-w-[820px] gap-4">
+    <div>
+      <h2 class="text-lg font-bold">テンプレート作成</h2>
+      <p class="mt-1 text-[13px] text-muted-foreground">
+        2つのステップで新しいテンプレートを作成します。
       </p>
-      <template v-else>
-        <p class="text-sm text-muted-foreground">
-          各行の「作成」を押すと、そのファンドを基にした編集画面に進みます
-        </p>
-        <TemplateTable :rows="seriesRows" action="create" @action="createFromSeries" />
-      </template>
-    </template>
+    </div>
+
+    <div class="rounded-[14px] border bg-card px-6 pb-1 pt-6 shadow-sm">
+      <!-- Step 1 — specify the fund -->
+      <Step
+        :n="1"
+        title="作成するファンドを指定"
+        hint="委託会社・ファンド・版種を選択してください。"
+        :active="!canCreate"
+        :done="canCreate"
+      >
+        <SearchFilters
+          :fields="['companyCode', 'fundCode', 'editionType']"
+          :required-fields="['companyCode', 'fundCode', 'editionType']"
+          hide-search
+          bare
+          @update="onUpdate"
+        />
+      </Step>
+
+      <!-- Step 2 — choose method, then act -->
+      <Step
+        :n="2"
+        title="作成方法を選ぶ"
+        :hint="canCreate ? 'どちらかを選ぶと、次の操作が表示されます。' : 'ステップ1を完了すると選択できます。'"
+        :active="canCreate"
+        :connector="false"
+      >
+        <div :class="cn('flex flex-wrap gap-3', !canCreate && 'pointer-events-none')">
+          <button
+            v-for="c in methodCards"
+            :key="c.key"
+            type="button"
+            class="ring-focus flex flex-[1_1_220px] items-start gap-3 rounded-[11px] border-[1.5px] px-[15px] py-3.5 text-left transition-all duration-150"
+            :class="
+              method === c.key
+                ? 'border-primary bg-primary-soft ring-[3px] ring-primary/15'
+                : 'border-border bg-card'
+            "
+            :disabled="!canCreate"
+            @click="selectMethod(c.key)"
+          >
+            <span
+              class="mt-px grid h-[17px] w-[17px] shrink-0 place-items-center rounded-full border-[1.5px]"
+              :class="method === c.key ? 'border-primary' : 'border-input'"
+            >
+              <span v-if="method === c.key" class="h-[9px] w-[9px] rounded-full bg-primary" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="flex items-center gap-1.5 text-[13.5px] font-bold text-foreground">
+                <component :is="c.icon" class="h-[15px] w-[15px] text-primary" /> {{ c.title }}
+              </span>
+              <span class="mt-1 block text-xs leading-relaxed text-muted-foreground">{{ c.desc }}</span>
+            </span>
+          </button>
+        </div>
+
+        <!-- contextual action -->
+        <div
+          v-if="method === 'blank'"
+          class="mt-4 flex flex-wrap items-center justify-between gap-3.5 rounded-[11px] border bg-muted/50 px-4 py-3.5"
+        >
+          <span class="text-[13px]">標準レイアウトの編集画面を開きます。</span>
+          <Button :disabled="creating || !canCreate" @click="createNew">
+            <FilePlus2 class="h-[15px] w-[15px]" /> {{ creating ? '作成中…' : '編集画面を開く' }}
+          </Button>
+        </div>
+        <div v-else-if="method === 'series'" class="mt-4 grid gap-2.5">
+          <p class="text-[12.5px] text-muted-foreground">
+            元にするファンドの「作成」を押すと、それを基にした編集画面に進みます。
+          </p>
+          <div
+            v-if="seriesRows.length === 0"
+            class="rounded-[11px] border border-dashed bg-muted/50 px-4 py-5 text-center text-[13px] text-muted-foreground"
+          >
+            該当するシリーズファンドが見つかりませんでした。
+          </div>
+          <TemplateTable v-else :rows="seriesRows" action="create" @action="createFromSeries" />
+        </div>
+      </Step>
+    </div>
   </div>
 </template>

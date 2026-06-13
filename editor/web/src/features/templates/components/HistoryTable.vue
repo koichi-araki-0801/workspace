@@ -40,7 +40,7 @@ const emit = defineEmits<{ loadMore: [] }>();
             <TableCell v-for="col in columns" :key="col.header" :class="col.cellClass">{{ col.value(row) }}</TableCell>
           </TableRow>
           <TableRow v-if="empty">
-            <TableCell :colspan="columns.length" class="py-8 text-center text-muted-foreground">履歴なし</TableCell>
+            <TableCell :colspan="columns.length" class="py-8 text-center text-muted-foreground">該当する履歴がありません。</TableCell>
           </TableRow>
           <TableRow v-if="hasMore">
             <TableCell :colspan="columns.length" class="py-3 text-center">

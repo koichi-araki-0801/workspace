@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { isErr } from '@editor/shared';
-import { FileText } from '@lucide/vue';
+import { AlertCircle, FileText } from '@lucide/vue';
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
 import Input from '@/components/ui/Input.vue';
 import Label from '@/components/ui/Label.vue';
+import ThemeToggle from '@/components/ui/ThemeToggle.vue';
 import { toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
 import { useAuthStore } from '@/stores/auth';
@@ -47,13 +48,15 @@ async function submit() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/5 to-primary/10 p-4">
-    <Card class="w-full max-w-sm p-6 sm:p-8">
-      <div class="mb-6 flex flex-col items-center gap-2">
-        <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+  <div class="relative grid min-h-screen place-items-center bg-gradient-to-br from-primary/[0.06] to-primary/[0.12] p-4">
+    <ThemeToggle class="absolute right-4 top-4" />
+    <Card class="w-full max-w-[380px] rounded-2xl p-8 shadow-[var(--shadow-lg)]">
+      <div class="mb-6 flex flex-col items-center gap-2.5">
+        <div class="grid h-12 w-12 place-items-center rounded-[14px] bg-primary text-primary-foreground">
           <FileText class="h-6 w-6" />
         </div>
-        <h1 class="text-xl font-semibold">テンプレート編集</h1>
+        <h1 class="text-[22px] font-bold tracking-[0.12em]">RET</h1>
+        <p class="text-[12.5px] tracking-[0.02em] text-muted-foreground">Report Edit Tool</p>
       </div>
       <form class="space-y-4" @submit.prevent="submit">
         <div class="space-y-1.5">
@@ -64,18 +67,20 @@ async function submit() {
           <Label for="p">パスワード <span class="text-destructive">*</span></Label>
           <Input id="p" v-model="password" type="password" autocomplete="current-password" :aria-invalid="!!error" @input="error = ''" />
         </div>
-        <p v-if="error" class="text-sm text-destructive" role="alert">{{ error }}</p>
+        <p v-if="error" class="flex items-center gap-1.5 text-sm text-destructive" role="alert">
+          <AlertCircle class="h-3.5 w-3.5 shrink-0" /> {{ error }}
+        </p>
         <Button type="submit" class="w-full" :disabled="loading">
           {{ loading ? 'ログイン中…' : 'ログイン' }}
         </Button>
       </form>
       <div class="mt-4 text-center">
         <RouterLink :to="{ name: 'password-init' }">
-          <Button variant="link" class="h-auto p-0 text-sm">PW をお忘れの方はこちら</Button>
+          <Button variant="link" class="h-auto whitespace-nowrap p-0 text-sm font-semibold">PW をお忘れの方はこちら</Button>
         </RouterLink>
       </div>
-      <p v-if="isDev" class="mt-4 text-center text-xs text-muted-foreground">
-        デモ: admin / admin　または　editor / editor
+      <p v-if="isDev" class="mt-4 text-center text-[11.5px] leading-relaxed text-muted-foreground">
+        デモ: <span class="mono">admin / admin</span>　または　<span class="mono">editor / editor</span>
       </p>
     </Card>
   </div>

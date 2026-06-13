@@ -37,9 +37,9 @@ const vms = computed(() => props.rows.map(toTemplateMetaVm));
       </TableHeader>
       <TableBody>
         <TableRow v-for="vm in vms" :key="vm.id">
-          <TableCell class="font-medium">{{ vm.attributes.companyCode }}</TableCell>
-          <TableCell>{{ vm.attributes.fundCode }}</TableCell>
-          <TableCell v-if="showBaseDate">{{ vm.attributes.baseDate }}</TableCell>
+          <TableCell class="mono font-medium">{{ vm.attributes.companyCode }}</TableCell>
+          <TableCell class="mono">{{ vm.attributes.fundCode }}</TableCell>
+          <TableCell v-if="showBaseDate" class="mono">{{ vm.attributes.baseDate }}</TableCell>
           <TableCell>{{ vm.attributes.editionType }}</TableCell>
           <TableCell>
             <Badge :variant="vm.statusVariant">{{ vm.statusLabel }}</Badge>

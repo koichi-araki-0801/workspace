@@ -19,6 +19,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
+import Step from '@/components/ui/Step.vue';
 import SearchFilters from '@/features/templates/components/SearchFilters.vue';
 import { logError } from '@/lib/appError';
 import { formatDateTime } from '@/lib/format';
@@ -151,48 +152,60 @@ const pct = (r: number) => `${(r * 100).toFixed(2)}%`;
 
 <template>
   <div class="space-y-4">
-    <h2 class="text-lg font-semibold">版の比較</h2>
+    <div>
+      <h2 class="text-lg font-bold">版の比較</h2>
+      <p class="mt-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+        <Info class="h-3.5 w-3.5 shrink-0" />
+        比較する版を選んでから、比較画面に進みます。確定保存が2回以上ある版が対象です。
+      </p>
+    </div>
 
-    <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
-      <Info class="h-3.5 w-3.5" />
-      確定保存した版の見た目を画像で比較します。比較できるのは本機能導入後に確定保存した版です。
-    </p>
-
-    <!-- step 1: template -->
-    <SearchFilters search-label="絞り込み" @update="refreshTemplates" @search="refreshTemplates" />
-
-    <!-- step 1 & 2: 選択パネル（白カードに載せる） -->
-    <div class="space-y-4 rounded-lg border bg-card p-4">
-      <div class="max-w-md space-y-1.5">
-        <Label>テンプレート</Label>
-        <Select
-          v-model="templateId"
-          :options="templateOptions"
-          placeholder="テンプレートを選択"
-          :disabled="busy"
+    <div class="rounded-[14px] border bg-card px-6 pb-1 pt-6 shadow-sm">
+      <!-- Step 1 — narrow down the template -->
+      <Step :n="1" title="テンプレートを絞り込む" :active="!templateId" :done="!!templateId">
+        <SearchFilters
+          search-label="絞り込み"
+          bare
+          @update="refreshTemplates"
+          @search="refreshTemplates"
         />
-      </div>
+        <div class="mt-3 max-w-md space-y-1.5">
+          <Label>テンプレート</Label>
+          <Select
+            v-model="templateId"
+            :options="templateOptions"
+            placeholder="テンプレートを選択"
+            :disabled="busy"
+          />
+        </div>
+      </Step>
 
-      <div v-if="templateId" class="grid gap-3 sm:grid-cols-2 sm:max-w-2xl">
-        <div class="space-y-1.5">
-          <Label>比較元（前回）</Label>
-          <Select
-            v-model="versionA"
-            :options="versionOptions"
-            placeholder="版を選択"
-            :disabled="busy || versions.length === 0"
-          />
+      <!-- Step 2 — pick the two versions -->
+      <Step :n="2" title="比較する2つの版を選ぶ" :active="!!templateId" :connector="false">
+        <div v-if="templateId" class="grid gap-3 sm:max-w-2xl sm:grid-cols-2">
+          <div class="space-y-1.5">
+            <Label>比較元（前回）</Label>
+            <Select
+              v-model="versionA"
+              :options="versionOptions"
+              placeholder="版を選択"
+              :disabled="busy || versions.length === 0"
+            />
+          </div>
+          <div class="space-y-1.5">
+            <Label>比較先（今回）</Label>
+            <Select
+              v-model="versionB"
+              :options="versionOptions"
+              placeholder="版を選択"
+              :disabled="busy || versions.length === 0"
+            />
+          </div>
         </div>
-        <div class="space-y-1.5">
-          <Label>比較先（今回）</Label>
-          <Select
-            v-model="versionB"
-            :options="versionOptions"
-            placeholder="版を選択"
-            :disabled="busy || versions.length === 0"
-          />
-        </div>
-      </div>
+        <p v-else class="text-[13px] text-muted-foreground">
+          ステップ1でテンプレートを選択してください。
+        </p>
+      </Step>
     </div>
 
     <p v-if="notEnoughVersions" class="text-sm text-muted-foreground">
@@ -217,7 +230,7 @@ const pct = (r: number) => `${(r * 100).toFixed(2)}%`;
             class="inline-flex items-center gap-1.5 rounded px-3 py-1 text-sm font-medium transition-colors"
             :class="
               mode === m.value
-                ? 'bg-primary/10 text-primary'
+                ? 'bg-primary-soft text-primary'
                 : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             "
             @click="mode = m.value"

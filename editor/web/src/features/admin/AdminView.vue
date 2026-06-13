@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { isErr, isOk, type User, type UserRole, validateNewUser } from '@editor/shared';
-import { Ban, CircleCheck, KeyRound, UserPlus } from '@lucide/vue';
+import { Ban, CircleCheck, KeyRound, Shield, UserPlus } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import BackButton from '@/components/ui/BackButton.vue';
 import Badge from '@/components/ui/Badge.vue';
@@ -35,7 +35,7 @@ async function load() {
 onMounted(load);
 
 function validate(): boolean {
-  const result = validateNewUser(form);
+  const result = validateNewUser(form, rows.value.map((u) => u.username));
   errors.username = result.username;
   errors.displayName = result.displayName;
   return !result.username && !result.displayName;
@@ -87,13 +87,16 @@ async function resetPw(u: User) {
   <div class="space-y-4">
     <div class="flex items-center gap-3">
       <BackButton :fallback="{ name: 'edit' }" label="ホーム" />
-      <h2 class="text-lg font-semibold">ユーザー管理</h2>
+      <div class="flex items-center gap-2 font-bold">
+        <Shield class="h-[18px] w-[18px] text-primary" />
+        <span class="text-[15px]">ユーザー管理</span>
+      </div>
     </div>
 
     <Card class="p-4">
       <h3 class="mb-3 text-sm font-semibold">ユーザー追加</h3>
       <div class="flex flex-wrap items-start gap-3">
-        <div class="space-y-1.5">
+        <div class="min-w-[180px] flex-1 space-y-1.5">
           <Label for="new-username">ユーザーID <span class="text-destructive">*</span></Label>
           <Input
             id="new-username"
@@ -104,7 +107,7 @@ async function resetPw(u: User) {
           />
           <p v-if="errors.username" class="text-xs text-destructive">{{ errors.username }}</p>
         </div>
-        <div class="space-y-1.5">
+        <div class="min-w-[180px] flex-1 space-y-1.5">
           <Label for="new-displayname">表示名 <span class="text-destructive">*</span></Label>
           <Input
             id="new-displayname"
@@ -133,8 +136,8 @@ async function resetPw(u: User) {
         </TableHeader>
         <TableBody>
           <TableRow v-for="vm in vms" :key="vm.id">
-            <TableCell class="font-medium">{{ vm.username }}</TableCell>
-            <TableCell>{{ vm.displayName }}</TableCell>
+            <TableCell class="mono">{{ vm.username }}</TableCell>
+            <TableCell class="font-semibold">{{ vm.displayName }}</TableCell>
             <TableCell><Badge variant="outline">{{ vm.roleLabel }}</Badge></TableCell>
             <TableCell>
               <Badge :variant="vm.statusVariant">{{ vm.statusLabel }}</Badge>

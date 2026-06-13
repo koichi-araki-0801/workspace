@@ -18,12 +18,15 @@ const props = withDefaults(
     requiredFields?: Field[];
     /** hide the search button (e.g. on the create screen where it has no role) */
     hideSearch?: boolean;
+    /** drop the bordered card chrome (e.g. when embedded inside a step card) */
+    bare?: boolean;
   }>(),
   {
     fields: () => ['companyCode', 'fundCode', 'baseDate', 'editionType'],
     searchLabel: '検索',
     requiredFields: () => [],
     hideSearch: false,
+    bare: false,
   },
 );
 
@@ -64,9 +67,9 @@ const optionsByField: Record<Field, () => string[]> = {
 </script>
 
 <template>
-  <div class="rounded-lg border bg-card p-4">
+  <div :class="props.bare ? '' : 'rounded-lg border bg-card p-4'">
     <div class="flex flex-wrap items-end gap-3">
-      <div v-for="f in props.fields" :key="f" class="min-w-[160px] flex-1 space-y-1.5">
+      <div v-for="f in props.fields" :key="f" class="min-w-[190px] flex-1 space-y-1.5">
         <Label>
           {{ labels[f] }}
           <span v-if="props.requiredFields.includes(f)" class="text-destructive">*</span>

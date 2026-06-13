@@ -54,23 +54,23 @@ const pagedEdits = usePagedList(filteredEdits);
 const pagedPdfs = usePagedList(filteredPdfs);
 const pagedCreates = usePagedList(filteredCreates);
 
-const FONT_MONO = 'font-mono text-xs';
+const MONO = 'mono text-xs';
 const editColumns: HistoryColumn<EditHistoryEntry>[] = [
-  { header: '日時', value: (e) => formatDateTime(e.timestamp) },
-  { header: 'テンプレート', cellClass: FONT_MONO, value: (e) => e.templateId },
+  { header: '日時', cellClass: MONO, value: (e) => formatDateTime(e.timestamp) },
+  { header: 'テンプレート', cellClass: MONO, value: (e) => e.templateId },
   { header: '実行者', value: (e) => e.user },
   { header: '内容', value: (e) => e.summary },
 ];
 const pdfColumns: HistoryColumn<PdfHistoryEntry>[] = [
-  { header: '日時', value: (e) => formatDateTime(e.timestamp) },
-  { header: 'テンプレート', cellClass: FONT_MONO, value: (e) => e.templateId },
+  { header: '日時', cellClass: MONO, value: (e) => formatDateTime(e.timestamp) },
+  { header: 'テンプレート', cellClass: MONO, value: (e) => e.templateId },
   { header: '実行者', value: (e) => e.user },
 ];
 const createColumns: HistoryColumn<CreateHistoryEntry>[] = [
-  { header: '日時', value: (e) => formatDateTime(e.timestamp) },
-  { header: '生成ファイル', cellClass: FONT_MONO, value: (e) => templateFileName(e.attributes) },
+  { header: '日時', cellClass: MONO, value: (e) => formatDateTime(e.timestamp) },
+  { header: '生成ファイル', cellClass: MONO, value: (e) => templateFileName(e.attributes) },
   { header: '実行者', value: (e) => e.user },
-  { header: '元テンプレート', cellClass: FONT_MONO, value: (e) => e.basedOnTemplateId ?? '—' },
+  { header: '元テンプレート', cellClass: MONO, value: (e) => e.basedOnTemplateId ?? '—' },
 ];
 
 // Values fed to the single filter bar, switched by the active history type.
@@ -92,7 +92,7 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-4">
-    <h2 class="text-lg font-semibold">履歴</h2>
+    <h2 class="text-lg font-bold">履歴</h2>
 
     <HistoryFilters v-model="filter" :users="activeUsers" :keyword-label="activeKeywordLabel">
       <template #lead>
@@ -106,7 +106,7 @@ onMounted(async () => {
               cn(
                 'rounded px-3 py-1 text-sm font-medium transition-colors',
                 type === t.value
-                  ? 'bg-primary/10 text-primary'
+                  ? 'bg-primary-soft text-primary'
                   : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
               )
             "
