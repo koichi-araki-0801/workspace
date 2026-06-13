@@ -472,7 +472,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConfirmSaveResult"
+                  "$ref": "#/components/schemas/TemplateMeta"
                 }
               }
             }
@@ -1647,7 +1647,15 @@
       },
       "AppErrorKind": {
         "type": "string",
-        "enum": ["not_found", "validation", "unauthorized", "conflict", "network", "unexpected"]
+        "enum": [
+          "not_found",
+          "validation",
+          "unauthorized",
+          "forbidden",
+          "conflict",
+          "network",
+          "unexpected"
+        ]
       },
       "DropdownOptions": {
         "type": "object",
@@ -1766,20 +1774,6 @@
           }
         },
         "required": ["meta", "html", "css"],
-        "additionalProperties": false
-      },
-      "ConfirmSaveResult": {
-        "type": "object",
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "const": true
-          },
-          "fileName": {
-            "type": "string"
-          }
-        },
-        "required": ["ok", "fileName"],
         "additionalProperties": false
       },
       "TemplateDraft": {

@@ -3,7 +3,7 @@ import { createPinia } from 'pinia';
 import { createApp } from 'vue';
 import App from './App.vue';
 import { seedCompareFixtures } from './api/local/seed';
-import { localRepositories, REPOS_KEY } from './api/repositories';
+import { localRepositories, REPOS_KEY, restRepositories } from './api/repositories';
 import { toastError } from './components/ui/toast';
 import { logError } from './lib/appError';
 import { initTheme } from './lib/theme';
@@ -27,14 +27,20 @@ function reportGlobalError(e: unknown): void {
   }
 }
 
+// Data source: REST (phase 2 SQL Server backend) when VITE_API_MODE=rest,
+// otherwise the local fixtures + localStorage set (phase 1, default).
+const useRest = import.meta.env.VITE_API_MODE === 'rest';
+const repositories = useRest ? restRepositories : localRepositories;
+
 initTheme();
-seedCompareFixtures();
+// Compare-screen demo fixtures only make sense for the local store.
+if (!useRest) seedCompareFixtures();
 
 const app = createApp(App);
 app.config.errorHandler = (err) => reportGlobalError(err);
 window.addEventListener('unhandledrejection', (ev) => reportGlobalError(ev.reason));
 window.addEventListener('error', (ev) => reportGlobalError(ev.error ?? ev.message));
-app.provide(REPOS_KEY, localRepositories);
+app.provide(REPOS_KEY, repositories);
 app.use(createPinia());
 app.use(router);
 app.mount('#app');

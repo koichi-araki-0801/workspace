@@ -3,21 +3,43 @@ rem ============================================================================
 rem  Jinja Template Editor - launcher
 rem
 rem  Usage:
-rem    start.bat          production : build, then server only (:3001)
-rem    start.bat dev      development: Express(:3001) + Vite(:5173)
+rem    start.bat               production, local data (build + server :3001)
+rem    start.bat dev           development : Express(:3001) + Vite(:5173)
+rem    start.bat rest          REST data mode (SQL Server backend; needs login)
+rem    start.bat dev rest      development + REST
+rem    start.bat prod rest     production  + REST
 rem
-rem  Double-click runs production mode. Stop with Ctrl+C.
+rem  Args are order-free. The data mode (local|rest) sets VITE_API_MODE, which
+rem  the web app reads to pick localStorage (local, default, no DB) or the REST
+rem  repositories (rest). 'db' is an alias of 'rest'.
+rem
+rem  Double-click runs production mode with local data. Stop with Ctrl+C.
 rem  ASCII only on purpose: non-ASCII here breaks cmd parsing on JP code pages.
 rem ============================================================================
 setlocal
 rem Drive the pnpm workspace from the repo root (one level up: editor/ -> root).
 cd /d "%~dp0\.."
 
-rem --- mode -------------------------------------------------------------------
+rem --- mode (build prod/dev) and data mode (local/rest), order-free -----------
 set "MODE=prod"
-if /I "%~1"=="dev"         set "MODE=dev"
-if /I "%~1"=="-dev"        set "MODE=dev"
-if /I "%~1"=="development" set "MODE=dev"
+set "APIMODE=local"
+for %%A in (%1 %2) do (
+  if /I "%%A"=="dev"         set "MODE=dev"
+  if /I "%%A"=="-dev"        set "MODE=dev"
+  if /I "%%A"=="development" set "MODE=dev"
+  if /I "%%A"=="prod"        set "MODE=prod"
+  if /I "%%A"=="local"       set "APIMODE=local"
+  if /I "%%A"=="rest"        set "APIMODE=rest"
+  if /I "%%A"=="db"          set "APIMODE=rest"
+)
+rem Vite exposes process-env vars prefixed VITE_ to the client at build/dev time.
+set "VITE_API_MODE=%APIMODE%"
+rem In REST mode, turn on server-side auth enforcement + DB audit mirroring.
+rem (DB_SERVER etc. come from the environment / appconfig; see server/db/README.)
+if /I "%APIMODE%"=="rest" (
+  set "AUTH_REQUIRED=true"
+  set "AUDIT_DB=true"
+)
 
 rem --- node prerequisite ------------------------------------------------------
 where node >nul 2>nul
@@ -37,6 +59,7 @@ if /I "%MODE%"=="prod" goto :prod
 
 rem --- development ------------------------------------------------------------
 echo [start] mode : development
+echo [start] data : %APIMODE%
 echo.
 echo   ==========================================
 echo    App   : http://localhost:5173
@@ -51,6 +74,7 @@ goto :end
 rem --- production -------------------------------------------------------------
 :prod
 echo [start] mode : production
+echo [start] data : %APIMODE%
 echo [start] building: shared, server, web ...
 call pnpm run build
 if errorlevel 1 goto :buildfail

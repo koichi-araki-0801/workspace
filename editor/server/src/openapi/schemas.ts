@@ -308,9 +308,8 @@ export const ConfirmSaveBody = z
   })
   .meta({ id: 'ConfirmSaveBody' });
 
-export const ConfirmSaveResult = z
-  .object({ ok: z.literal(true), fileName: z.string() })
-  .meta({ id: 'ConfirmSaveResult' });
+/** confirmSave returns the updated TemplateMeta (matches the repository contract). */
+export const ConfirmSaveResult = TemplateMeta;
 
 export const PdfRequest = z
   .object({
@@ -326,7 +325,15 @@ export const PdfRequest = z
 export const HealthResult = z.object({ ok: z.literal(true) }).meta({ id: 'HealthResult' });
 
 export const AppErrorKind = z
-  .enum(['not_found', 'validation', 'unauthorized', 'conflict', 'network', 'unexpected'])
+  .enum([
+    'not_found',
+    'validation',
+    'unauthorized',
+    'forbidden',
+    'conflict',
+    'network',
+    'unexpected',
+  ])
   .meta({ id: 'AppErrorKind' });
 
 /**

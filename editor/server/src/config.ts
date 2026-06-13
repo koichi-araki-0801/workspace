@@ -33,6 +33,8 @@ const appConfigSchema = z
       .object({
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
+        draftsDir: z.string().optional(),
+        snapshotsDir: z.string().optional(),
         tmpDir: z.string().optional(),
         logDir: z.string().optional(),
         webDist: z.string().optional(),
@@ -116,6 +118,10 @@ export const config = {
   templatesDir: resolvePath(process.env.TEMPLATES_DIR, file.paths?.templatesDir, 'data/templates'),
   /** Directory holding per-fund shared CSS files. */
   cssDir: resolvePath(process.env.CSS_DIR, file.paths?.cssDir, 'data/css'),
+  /** Autosave draft working copies (phase 2: html/css per template). */
+  draftsDir: resolvePath(process.env.DRAFTS_DIR, file.paths?.draftsDir, 'data/drafts'),
+  /** Frozen confirm-save snapshots (phase 2: html/css per history id). */
+  snapshotsDir: resolvePath(process.env.SNAPSHOTS_DIR, file.paths?.snapshotsDir, 'data/snapshots'),
 
   /** Built web SPA to serve in production. */
   webDist: resolvePath(process.env.WEB_DIR, file.paths?.webDist, 'web/dist'),
@@ -143,6 +149,49 @@ export const config = {
      */
     executableBrowser: executableBrowser || undefined,
   },
+
+  /**
+   * SQL Server connection (phase 2 REST mode). Windows Integrated auth — no
+   * credentials are stored. ODBC Driver 17 targets SQL Server 2012; after the
+   * planned upgrade, override DB_ODBC_DRIVER / DB_CONN_EXTRA (e.g. Encrypt).
+   * The connection string is consumed by `db/pool.ts` (msnodesqlv8).
+   */
+  db: {
+    server: process.env.DB_SERVER ?? 'localhost',
+    name: process.env.DB_NAME ?? 'usrap',
+    schema: process.env.DB_SCHEMA ?? 'ug01',
+    driver: process.env.DB_ODBC_DRIVER ?? 'ODBC Driver 17 for SQL Server',
+    poolMax: Number(process.env.DB_POOL_MAX ?? 4),
+    get connectionString(): string {
+      const extra = process.env.DB_CONN_EXTRA ?? '';
+      return (
+        `Driver={${this.driver}};Server=${this.server};Database=${this.name};` +
+        `Trusted_Connection=yes;${extra}`
+      );
+    },
+  },
+
+  /** Editor's own authentication (phase 2). Secrets stay out of appconfig.json. */
+  auth: {
+    pbkdf2Iterations: Number(process.env.AUTH_PBKDF2_ITER ?? 120_000),
+    sessionTtlHours: Number(process.env.AUTH_SESSION_TTL_HOURS ?? 12),
+    cookieName: 'editor.sid',
+    cookieSecure: process.env.NODE_ENV === 'production',
+  },
+
+  /**
+   * Mirror audit events into the SQL Server audit table (in addition to the
+   * durable file log). Off by default so `local` mode never touches the DB;
+   * set AUDIT_DB=true alongside the REST backend.
+   */
+  auditToDb: envBool(process.env.AUDIT_DB) ?? false,
+
+  /**
+   * Enforce session auth on the REST data routes. Off by default so `local`
+   * mode (no DB / no login) leaves them open and PDF/generate keep working; set
+   * AUTH_REQUIRED=true with the REST backend (start.bat rest sets it).
+   */
+  requireAuth: envBool(process.env.AUTH_REQUIRED) ?? false,
 
   /** Structured logging / audit trail. */
   logging: {

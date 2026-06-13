@@ -6,9 +6,13 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { openapiRouter } from './openapi/index.js';
+import { authRouter } from './routes/auth.routes.js';
 import { generateRouter } from './routes/generate.routes.js';
+import { historyRouter } from './routes/history.routes.js';
+import { partsRouter } from './routes/parts.routes.js';
 import { pdfRouter } from './routes/pdf.routes.js';
 import { templatesRouter } from './routes/templates.routes.js';
+import { usersRouter } from './routes/users.routes.js';
 
 const app = express();
 
@@ -22,9 +26,13 @@ app.use(pinoHttp({ logger }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.use('/api', openapiRouter);
+app.use('/api', authRouter);
 app.use('/api', pdfRouter);
 app.use('/api', templatesRouter);
 app.use('/api', generateRouter);
+app.use('/api', partsRouter);
+app.use('/api', historyRouter);
+app.use('/api', usersRouter);
 
 // Serve the built SPA in production (no-op in dev where Vite serves the app).
 if (fs.existsSync(config.webDist)) {

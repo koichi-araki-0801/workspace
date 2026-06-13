@@ -11,6 +11,7 @@ export type AppErrorKind =
   | 'not_found'
   | 'validation'
   | 'unauthorized'
+  | 'forbidden'
   | 'conflict'
   | 'network'
   | 'unexpected';
@@ -40,6 +41,8 @@ export const validation = (message: string, opts?: AppErrorOptions): AppError =>
   appError('validation', message, opts);
 export const unauthorized = (message: string, opts?: AppErrorOptions): AppError =>
   appError('unauthorized', message, opts);
+export const forbidden = (message: string, opts?: AppErrorOptions): AppError =>
+  appError('forbidden', message, opts);
 export const conflict = (message: string, opts?: AppErrorOptions): AppError =>
   appError('conflict', message, opts);
 export const network = (message: string, opts?: AppErrorOptions): AppError =>
