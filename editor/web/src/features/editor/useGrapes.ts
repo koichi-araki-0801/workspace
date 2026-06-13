@@ -8,6 +8,29 @@ export interface GrapesContainers {
   layers: HTMLElement;
 }
 
+/** A4 page width in CSS pixels (210mm at 96dpi). Drives auto-fit-to-pane zoom. */
+export const A4_WIDTH_PX = (210 * 96) / 25.4;
+
+/**
+ * Make the GrapesJS canvas body look like an A4 sheet of paper. The iframe
+ * itself is constrained to A4 width via `.gjs-frame*` rules in index.css, so the
+ * body here only needs the page padding/shadow (no auto-centering margin).
+ */
+const a4CanvasCss = `
+  html { background: transparent; }
+  body {
+    background: #fff;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0;
+    padding: 18mm 16mm;
+    box-sizing: border-box;
+    box-shadow: 0 1px 3px rgba(20,28,48,.10), 0 16px 44px -18px rgba(20,28,48,.32);
+    font-family: 'Hiragino Mincho ProN','Yu Mincho','Noto Serif JP',serif;
+    color: #1f2937;
+  }
+`;
+
 export interface SelectedInfo {
   id: string;
   name: string;
@@ -19,7 +42,57 @@ export interface SelectedInfo {
 export function useGrapes() {
   const editor = shallowRef<Editor>();
   const selected = ref<SelectedInfo | null>(null);
+  const zoom = ref(0.8);
+  /** When true, zoom tracks the pane width (see {@link fitToWidth}). */
+  const autoFit = ref(true);
+  /** Canvas read-only flag (mirrors !editMode). Blocks RTE/drag while selectable. */
+  let locked = false;
+  /** Bumped on every component/style change so callers can recompute geometry. */
+  const revision = ref(0);
+  /** Screen rect of the selected element (canvas-relative, zoom-aware) for overlays. */
+  const selectedRect = ref<{ left: number; top: number; width: number; height: number } | null>(
+    null,
+  );
+  const canMoveUp = ref(false);
+  const canMoveDown = ref(false);
   let changeCb: (() => void) | null = null;
+  let textStartCb: (() => void) | null = null;
+  let textEndCb: ((changed: boolean) => void) | null = null;
+  let reorderStartCb: (() => void) | null = null;
+  let reorderEndCb: ((moved: boolean) => void) | null = null;
+  let rteStartHtml = '';
+  /** Sibling index of the dragged component at drag start (for no-op detection). */
+  let dragStartIndex = -1;
+
+  function refreshMove(): void {
+    const comp = editor.value?.getSelected();
+    const parent = comp?.parent();
+    if (!comp || !parent) {
+      canMoveUp.value = false;
+      canMoveDown.value = false;
+      return;
+    }
+    const i = comp.index();
+    canMoveUp.value = i > 0;
+    canMoveDown.value = i < parent.components().length - 1;
+  }
+
+  /** Recompute the selected element's on-screen rect (for the floating toolbar/handles). */
+  function refreshRect(): void {
+    const ed = editor.value;
+    const comp = ed?.getSelected();
+    const el = comp?.getEl?.();
+    if (!ed || !el) {
+      selectedRect.value = null;
+      return;
+    }
+    try {
+      const p = ed.Canvas.getElementPos(el);
+      selectedRect.value = { left: p.left, top: p.top, width: p.width, height: p.height };
+    } catch {
+      selectedRect.value = null;
+    }
+  }
 
   function init(c: GrapesContainers): Editor {
     const ed = grapesjs.init({
@@ -42,27 +115,171 @@ export function useGrapes() {
       const docu = ed.Canvas.getDocument();
       if (docu) {
         const styleEl = docu.createElement('style');
-        styleEl.textContent = jinjaChipCanvasCss;
+        styleEl.textContent = `${jinjaChipCanvasCss}\n${a4CanvasCss}`;
         docu.head.appendChild(styleEl);
+      }
+      // open at the prototype's default 80% zoom
+      try {
+        ed.Canvas.setZoom(zoom.value * 100);
+      } catch {
+        /* zoom API unavailable — ignore */
       }
     });
 
     ed.on('component:selected', () => {
       const comp = ed.getSelected();
       selected.value = comp ? toInfo(comp) : null;
+      refreshRect();
+      refreshMove();
     });
     ed.on('component:deselected', () => {
       selected.value = null;
+      selectedRect.value = null;
+      refreshMove();
+    });
+    ed.on('canvas:scroll', refreshRect);
+    ed.on('canvas:update frame:scroll', refreshRect);
+
+    const fireChange = () => {
+      revision.value++;
+      refreshRect();
+      refreshMove();
+      changeCb?.();
+    };
+    // inline text editing (RTE): notify start (for an undo snapshot) and end
+    // (with whether the content actually changed). Blocked while locked.
+    ed.on('rte:enable', (view: { el?: HTMLElement }) => {
+      if (locked) {
+        // Belt-and-suspenders: components are set editable:false when locked, so
+        // RTE shouldn't enable, but bail out defensively if it ever does.
+        try {
+          ed.stopCommand('core:component-edit');
+        } catch {
+          /* command unavailable — ignore */
+        }
+        return;
+      }
+      rteStartHtml = view?.el?.innerHTML ?? '';
+      textStartCb?.();
+    });
+    ed.on('rte:disable', (view: { el?: HTMLElement }) => {
+      const changed = (view?.el?.innerHTML ?? '') !== rteStartHtml;
+      if (changed) {
+        revision.value++;
+        refreshRect();
+        changeCb?.();
+      }
+      textEndCb?.(changed);
     });
 
-    const fireChange = () => changeCb?.();
     ed.on('component:update', fireChange);
     ed.on('component:add', fireChange);
     ed.on('component:remove', fireChange);
     ed.on('style:update', fireChange);
 
+    // native drag-to-reorder: snapshot for undo on start, record history on end
+    // (only when the component actually changed siblings position). Read the
+    // selection directly rather than trusting the (version-specific) payload.
+    ed.on('component:drag:start', () => {
+      dragStartIndex = ed.getSelected()?.index?.() ?? -1;
+      reorderStartCb?.();
+    });
+    ed.on('component:drag:end', () => {
+      const moved = (ed.getSelected()?.index?.() ?? -1) !== dragStartIndex;
+      reorderEndCb?.(moved);
+    });
+
     editor.value = ed;
     return ed;
+  }
+
+  function setZoom(z: number): void {
+    const clamped = Math.min(1.4, Math.max(0.4, Math.round(z * 100) / 100));
+    zoom.value = clamped;
+    editor.value?.Canvas.setZoom(clamped * 100);
+    requestAnimationFrame(refreshRect);
+  }
+
+  /** Fit the A4 sheet width to the pane (no-op once the user zooms manually). */
+  function fitToWidth(paneWidthPx: number): void {
+    if (!autoFit.value || paneWidthPx <= 0) return;
+    const gutter = 48; // breathing room left+right of the sheet
+    setZoom((paneWidthPx - gutter) / A4_WIDTH_PX);
+  }
+
+  /**
+   * Toggle canvas editability. When `on` is false the canvas is read-only:
+   * components stay selectable (so the inspector works) but cannot be text-edited
+   * or dragged. Jinja components keep their own defaults.
+   */
+  function setEditable(on: boolean): void {
+    locked = !on;
+    const ed = editor.value;
+    if (!ed) return;
+    ed.getWrapper()?.onAll((c) => {
+      const type = String(c.get('type') ?? '');
+      if (type.startsWith('jinja-')) return; // preserve jinja locked behavior
+      c.set('editable', on);
+      c.set('draggable', on);
+      c.set('selectable', true);
+    });
+  }
+
+  /**
+   * Begin a native drag-to-reorder of the current selection. Invokes GrapesJS'
+   * built-in move command with the originating mousedown so the Sorter takes
+   * over; emits component:drag:start/end (wired in {@link init}).
+   */
+  function startMove(e: MouseEvent): void {
+    const ed = editor.value;
+    if (!ed || locked || !ed.getSelected()) return;
+    try {
+      ed.runCommand('tlb-move', { event: e });
+    } catch {
+      /* move command unavailable — ignore */
+    }
+  }
+
+  /** Move the selection up (-1) or down (+1) among its siblings. */
+  function moveSelected(dir: -1 | 1): void {
+    const ed = editor.value;
+    const comp = ed?.getSelected();
+    const parent = comp?.parent();
+    if (!ed || !comp || !parent) return;
+    const i = comp.index();
+    const total = parent.components().length;
+    const j = i + dir;
+    if (j < 0 || j >= total) return;
+    // move() inserts at the target index of the current list; moving down needs +1
+    comp.move(parent, { at: dir > 0 ? j + 1 : j });
+    ed.select(comp);
+  }
+
+  /** Remove the current selection. */
+  function deleteSelected(): void {
+    editor.value?.getSelected()?.remove();
+  }
+
+  /** Inline style map of the current selection (empty when nothing selected). */
+  function selectedStyle(): Record<string, string> {
+    return (editor.value?.getSelected()?.getStyle() ?? {}) as Record<string, string>;
+  }
+
+  /** Apply an inline-style patch to the selection ('' values remove the prop). */
+  function patchSelectedStyle(patch: Record<string, string>): void {
+    const comp = editor.value?.getSelected();
+    if (!comp) return;
+    const next: Record<string, string> = { ...(comp.getStyle() as Record<string, string>) };
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === '') delete next[k];
+      else next[k] = v;
+    }
+    comp.setStyle(next);
+    // Programmatic setStyle doesn't emit the StyleManager 'style:update' event,
+    // so notify listeners (autosave) and refresh derived state ourselves.
+    revision.value++;
+    refreshRect();
+    changeCb?.();
   }
 
   function toInfo(comp: Component): SelectedInfo {
@@ -89,6 +306,7 @@ export function useGrapes() {
     const root = Array.isArray(added) ? added[0] : added;
     // tag with the catalog id so a later canvas selection resolves back to docs
     root?.addAttributes?.({ 'data-part-id': partId });
+    if (root) ed.select(root); // select the inserted part, like the prototype
   }
 
   function load(bodyEditableHtml: string, css: string): void {
@@ -110,10 +328,57 @@ export function useGrapes() {
     changeCb = cb;
   }
 
+  /** Inline text edit started (RTE enabled) — good time to snapshot for undo. */
+  function onTextEditStart(cb: () => void): void {
+    textStartCb = cb;
+  }
+  /** Inline text edit ended; `changed` is true only if the content differs. */
+  function onTextEditEnd(cb: (changed: boolean) => void): void {
+    textEndCb = cb;
+  }
+
+  /** A canvas drag-reorder started — good time to snapshot for undo. */
+  function onReorderStart(cb: () => void): void {
+    reorderStartCb = cb;
+  }
+  /** A canvas drag-reorder ended; `moved` is true only if the order changed. */
+  function onReorderEnd(cb: (moved: boolean) => void): void {
+    reorderEndCb = cb;
+  }
+
   function destroy(): void {
     editor.value?.destroy();
     editor.value = undefined;
   }
 
-  return { editor, selected, init, load, insertPart, getBodyHtml, getCss, onChange, destroy };
+  return {
+    editor,
+    selected,
+    selectedRect,
+    canMoveUp,
+    canMoveDown,
+    zoom,
+    autoFit,
+    revision,
+    init,
+    load,
+    insertPart,
+    getBodyHtml,
+    getCss,
+    onChange,
+    onTextEditStart,
+    onTextEditEnd,
+    onReorderStart,
+    onReorderEnd,
+    setZoom,
+    fitToWidth,
+    setEditable,
+    refreshRect,
+    startMove,
+    moveSelected,
+    deleteSelected,
+    selectedStyle,
+    patchSelectedStyle,
+    destroy,
+  };
 }
