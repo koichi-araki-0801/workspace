@@ -871,6 +871,37 @@ function markUpperLeftStackRimY(
 }
 
 /**
+ * 上左 (mid>90) の top-band 帯 (90°±TOP_BAND_HALF_WIDTH_DEG)・非「その他」スライバを抽出する共通
+ * フィルタ。markForcedTopSliverLeader / markForcedTopSliverEscapeRight / markLoneTopSliverLeader が
+ * 共有する (以前は各関数に同一フィルタが重複していた)。size: "small"=isSmall / "tiny"=isTiny。
+ * long: "exclude"=!isLong (既定の leader 対象。isLong=undefined も含む) / "require"=isLong
+ * (長名スライバの存在判定用)。truthiness は元の && チェーンと完全一致させてある。
+ */
+function topBandLeftSlivers(
+  items: LayoutItemReady[],
+  size: "small" | "tiny",
+  long: "exclude" | "require",
+): LayoutItemReady[] {
+  return items.filter(
+    (it) =>
+      (size === "tiny" ? it.isTiny : it.isSmall) &&
+      it.midAngle > 90 &&
+      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
+      !it.name.startsWith("その他") &&
+      (long === "require" ? it.isLong : !it.isLong),
+  );
+}
+
+/** 12時 (90°) に最も近い (|midAngle-90| 最小) 要素を返す。同距離は先勝ち。呼び出し側は非空を保証する。 */
+function nearestToTwelveOClock(items: LayoutItemReady[]): LayoutItemReady {
+  let best = items[0];
+  for (const it of items) {
+    if (Math.abs(it.midAngle - 90) < Math.abs(best.midAngle - 90)) best = it;
+  }
+  return best;
+}
+
+/**
  * 12時直左の小 top-band スライスが上左で混雑する時、12時に最も近い 1 件に topBandSmallRight を
  * 立てて右上空白へ逃がす (label_placement.ts topBandSmallRight が参照)。これにより上左に小
  * top-band が 2 つ並んで片方が長体化する症状を解消し、両ラベルを原寸 2 行に収める。
@@ -893,11 +924,7 @@ function markTopBandSmallRight(left: LayoutItemReady[], diagnostics: Diagnostics
       it.flipToRight === true,
   );
   if (candidates.length === 0) return;
-  let best = candidates[0];
-  for (const it of candidates) {
-    if (Math.abs(it.midAngle - 90) < Math.abs(best.midAngle - 90)) best = it;
-  }
-  best.topBandSmallRight = true;
+  nearestToTwelveOClock(candidates).topBandSmallRight = true;
 }
 
 /**
@@ -975,14 +1002,7 @@ function markForcedTopSliverLeader(left: LayoutItemReady[], diagnostics: Diagnos
   if (diagnostics.totalCount !== 3) return;
   // !isLong: 本 leader 付与は各スライスを 1 行ラベルで左右に振り分ける。長名は 1 行化で過剰長体
   // (scaleX 下限 0.6) になり可読性が落ちるため対象外 (例 asset_domestic「国内投資信託証券」)。
-  const slivers = left.filter(
-    (it) =>
-      it.isSmall &&
-      it.midAngle > 90 &&
-      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
-      !it.name.startsWith("その他") &&
-      !it.isLong,
-  );
+  const slivers = topBandLeftSlivers(left, "small", "exclude");
   if (slivers.length !== 2) return;
   let near = slivers[0];
   let far = slivers[0];
@@ -1026,30 +1046,13 @@ function markForcedTopSliverEscapeRight(left: LayoutItemReady[], diagnostics: Di
   if (diagnostics.leftStackMode || diagnostics.topBandClusterMode) return;
   if ((diagnostics.rankValuesFull?.[0] ?? 0) < 90) return;
   if (diagnostics.totalCount !== 4) return;
-  const slivers = left.filter(
-    (it) =>
-      it.isSmall &&
-      it.midAngle > 90 &&
-      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
-      !it.name.startsWith("その他") &&
-      !it.isLong,
-  );
+  const slivers = topBandLeftSlivers(left, "small", "exclude");
   if (slivers.length !== 2) return;
-  const hasLongTopBandSliver = left.some(
-    (it) =>
-      it.isSmall &&
-      it.midAngle > 90 &&
-      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
-      !it.name.startsWith("その他") &&
-      it.isLong,
-  );
+  const hasLongTopBandSliver = topBandLeftSlivers(left, "small", "require").length > 0;
   if (!hasLongTopBandSliver) return;
   // 12時(90°)に最も近い 1 枚(=ジャージー)だけを rank9 (buildOutsideLeaderDraft) 起点へ送り、
   // topBandSmallRight で右上 L 字 leader を引かせる。左 2 枚は無印で左に据え置く。
-  let near = slivers[0];
-  for (const it of slivers) {
-    if (Math.abs(it.midAngle - 90) < Math.abs(near.midAngle - 90)) near = it;
-  }
+  const near = nearestToTwelveOClock(slivers);
   near.forceOutsideLeader = true;
   near.topBandSmallRight = true;
 }
@@ -1082,14 +1085,7 @@ function markLoneTopSliverLeader(
   const dominant = diagnostics.rankValuesFull?.[0] ?? 0;
   if (dominant < 80 || dominant >= 90) return;
   if (diagnostics.totalCount !== 4) return;
-  const slivers = left.filter(
-    (it) =>
-      it.isTiny &&
-      it.midAngle > 90 &&
-      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
-      !it.name.startsWith("その他") &&
-      !it.isLong,
-  );
+  const slivers = topBandLeftSlivers(left, "tiny", "exclude");
   if (slivers.length !== 1) return;
   const topBandSonohokaOccupied = candidates.some(
     (it) =>
