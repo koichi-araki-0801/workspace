@@ -458,6 +458,7 @@ function finalizeForScoring(
   escapeUpperLeftTinyLeaders(copy, cfg, coord);
   escapeTopBandSeamLeader(copy, cfg, coord);
   if (leftStackMode) reorderLeftStackWithCondense(copy, cfg, coord);
+  if (leftStackMode) separateLeftColumnByHeight(copy, cfg, coord);
   // repairResidualLeaderDefects は emit 最終段のみで適用する (ここには入れない)。採点へ入れると
   // 「修復で直る前提」のスコアでチャート単位の候補選択 (ソノホカ右/左・spread 等) が動き、修復
   // しきれない別候補を選ぶ退行を生む (例 currency_many_small_10)。finalScore は emit 後の同一
@@ -1289,6 +1290,131 @@ function reorderLeftStackWithCondense(
       s.p.x = s.x;
       s.p.y = s.y;
       s.p.baseline = s.baseline;
+      s.p.skipLeader = s.skipLeader;
+      s.p.nameScaleX = s.nameScaleX;
+    }
+  }
+}
+
+/**
+ * leftStackMode 専用の後処理: 左列全体 (上の baseline=bottom クラスタ + 下の baseline=top メンバ) を
+ * 角度順 (上→下) に通し、隣接 box が縦に重なる箇所だけを順序保存で下方向へ引き離す。
+ *
+ * 背景: 1強+多数小型 (stress_one_dominant_9) では左に 7 ラベルが寄り、上クラスタ
+ * (reorderLeftStackWithCondense / spreadLeftStackByAngle) と下メンバが別系統で配置されるため、両者の
+ * 境目 (9時直上の REIT↔新興国株, 新興国株↔外国債) で縦重なりが残る。上クラスタ4枚だけ広げると低角度の
+ * 新興国株が下メンバ (外国債) へ食い込み、do-no-harm ゲートが revert する。本パスは下メンバも含めた
+ * 左列を 1 本の縦列として、重なる対の下側 (とその下の全ラベル) を canvas 下スラックへ押し下げて解消する。
+ *
+ * 手順: 列を上→下 (box 中心 y 降順) に並べ、上から順に「上の box 底 − この box 天 の重なりが閾値
+ * (6px) 以上」の対だけを sepGap まで引き離す下方向シフト s[i] を求める (上が押されたら下も同量 carry)。
+ * 重なりの無い上クラスタは s=0 で不動。各シフト後ラベルは新 Y で左 rim にハグし直し
+ * (円脇は X=-√(r²−y²)、円上下は X 維持)、clampPlacement で pie クリアランス/境界を吸収する。
+ *
+ * do-no-harm: 閾値以上の隣接重なりが無ければ無操作 (重なりの無い既存チャートは完全不変)。分離後に
+ * 角度順逆転/leader 交差/box 重なり最大/pie 侵入/leader 貫通が悪化、または viewBox はみ出しが上限超で
+ * 増えたら全 revert (退行0)。finalizeForScoring (採点) と emit の両方で reorderLeftStackWithCondense の
+ * 直後に呼び、scorer ↔ emit の一致 (verify_consistency) を保つ。
+ */
+function separateLeftColumnByHeight(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): void {
+  const col = placements.filter(
+    (p) =>
+      p.item.side === "left" &&
+      !p.insideSlice &&
+      p.x < 0 &&
+      !p.item.flipToRight &&
+      !p.item.flipToLeft &&
+      !p.item.bottomCenterBelow &&
+      !p.item.clusterTopBand &&
+      topBandSonohokaZone(p.item) === null &&
+      !p.item.name.startsWith("その他"),
+  );
+  if (col.length < 4) return;
+  // 上 → 下 (box 中心 y 降順)。
+  const cy = (p: Placement) => {
+    const b = placementBox(p, cfg);
+    return (b.top + b.bottom) / 2;
+  };
+  col.sort((a, b) => cy(b) - cy(a));
+
+  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const overlapThresh = 6 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const sepGap = 6 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+
+  // 角度順 (上→下) に「上 box 底 − 下 box 天」の重なりを検出。閾値以上が無ければ触らない。
+  const boxes = col.map((p) => placementBox(p, cfg));
+  let maxAdjOverlap = 0;
+  for (let i = 0; i + 1 < col.length; i += 1) {
+    const ov = boxes[i + 1].top - boxes[i].bottom; // >0 = 重なり
+    if (ov > maxAdjOverlap) maxAdjOverlap = ov;
+  }
+  if (maxAdjOverlap < overlapThresh) return;
+
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
+  const beforeInv = countAngularDiscordantPairs(placements, cfg, coord);
+  const beforeCross = countLeaderCrossings(placements, cfg, coord);
+  const beforeOverlap = maxOverlap();
+  const beforePie = maxPieIntrusion();
+  const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
+  const beforeView = maxViewOverflow();
+  const snapshot = placements.map((p) => ({
+    p,
+    x: p.x,
+    y: p.y,
+    skipLeader: p.skipLeader,
+    nameScaleX: p.nameScaleX,
+  }));
+
+  // box の天 (top) 目標位置を順序保存で求める。上から見て最初に閾値以上の隣接重なりが現れた所で
+  // カスケードを発火し、以降は各 box を「上 box 底 − sepGap」以下へ押し下げて重なりを解消する。発火前
+  // (重なりの無い上クラスタ) は現状維持で不動。最後に列の下端が canvas を割っていれば、上スラックの
+  // 範囲で全体を上へ平行移動して吸収する。
+  const yHi = cfg.canvasYlim[1] - cfg.canvasSafetyMargin;
+  const yLo = cfg.canvasYlim[0] + cfg.canvasSafetyMargin;
+  const heights = boxes.map((b) => b.top - b.bottom);
+  const targetTop = boxes.map((b) => b.top);
+  let active = false;
+  for (let i = 1; i < col.length; i += 1) {
+    if (!active && boxes[i].top - boxes[i - 1].bottom >= overlapThresh) active = true;
+    if (!active) continue;
+    const limit = targetTop[i - 1] - heights[i - 1] - sepGap; // 上 box 底 − gap
+    if (targetTop[i] > limit) targetTop[i] = limit;
+  }
+  // 下端が canvas を割ったら、上端の余地ぶんだけ全体を上へ平行移動 (上スラックを使う)。収まり切らない
+  // 残余は押し戻さず do-no-harm ゲート (viewBox はみ出し) に委ねる。
+  const lastBottom = targetTop[col.length - 1] - heights[col.length - 1];
+  if (lastBottom < yLo) {
+    const lift = Math.min(yLo - lastBottom, Math.max(0, yHi - targetTop[0]));
+    for (let i = 0; i < col.length; i += 1) targetTop[i] += lift;
+  }
+
+  // box.top を targetTop へ。y と box.top の関係 (baseline により y=top か y=top−h) は不変なので、
+  // box.top の変位 = y の変位。X は維持し、pie クリアランス/境界は clampPlacement に委ねる。
+  for (let i = 0; i < col.length; i += 1) {
+    const dy = targetTop[i] - boxes[i].top;
+    if (Math.abs(dy) <= tol) continue;
+    col[i].y += dy;
+    clampPlacement(col[i]);
+  }
+
+  const afterInv = countAngularDiscordantPairs(placements, cfg, coord);
+  const harm =
+    afterInv > beforeInv ||
+    countLeaderCrossings(placements, cfg, coord) > beforeCross ||
+    maxOverlap() > beforeOverlap + tol ||
+    maxPieIntrusion() > beforePie + tol ||
+    countLeaderThroughLabels(placements, cfg, coord) > beforeThrough ||
+    maxViewOverflow() > beforeView + VIEW_OVERFLOW_CAP_PX;
+  if (harm) {
+    for (const s of snapshot) {
+      s.p.x = s.x;
+      s.p.y = s.y;
       s.p.skipLeader = s.skipLeader;
       s.p.nameScaleX = s.nameScaleX;
     }
@@ -2636,6 +2762,7 @@ export async function renderPdfStylePieToSvg(
     // 長体圧縮で解消する (do-no-harm・悪化したら全 revert)。emit でのみ・スコアリングには干渉しない。
     if (diagnostics?.leftStackMode) {
       reorderLeftStackWithCondense(textPlacements, cfg, { xScale, yScale, width, height });
+      separateLeftColumnByHeight(textPlacements, cfg, { xScale, yScale, width, height });
     }
 
     // 残余の leader 交差/円内貫通/箱貫通を bend 再配置で解消する最終安全網 (do-no-harm)。
