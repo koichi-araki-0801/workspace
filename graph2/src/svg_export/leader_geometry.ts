@@ -79,6 +79,22 @@ export function computeDrawnLeader(
         // (最大 pie-y) へ接続し、区間を pie-y > pieRadius に保ってキャップ貫通を避ける。
         endpoint.y = Math.max(finalBox.top, capClearY);
       }
+    } else if (
+      placement.item.lowerLeftDropLeader === true &&
+      placement.dominantOutsideEdge &&
+      placement.anchor === "end" &&
+      placement.baseline === "top" &&
+      (finalBox.top + finalBox.bottom) / 2 < placement.leaderAnchor.y
+    ) {
+      // オーストラリア型 (lowerLeftDropLeader): 円下のドロップ配置 2 行ラベル。従来は
+      // leaderAttachTargetY で上行中央 Y へ寄せ truncate が右縁で接触 (= 右上接続) していた。
+      // 接続点をラベル上縁の水平中央へ寄せる (斜めの円弦リルート経路は不変)。endpoint を
+      // 「上縁の中央・cornerGap だけ上 (box 外)」に置くと、後段の chord リルート (W bend) →
+      // truncate は線分を box 内へ延ばさず endpoint を返すため、中央上縁に cornerGap の
+      // 隙間を空けて接続する。接触点は元の右縁より円から遠い中央寄りへ動くだけなので
+      // 円貫通/交差は悪化しない。
+      endpoint.x = (finalBox.left + finalBox.right) / 2;
+      endpoint.y = finalBox.top + cfg.cornerGap; // 論理 y-up: top の少し上 (box 外)
     } else {
       endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
     }
