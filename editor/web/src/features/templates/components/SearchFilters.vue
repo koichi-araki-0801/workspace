@@ -64,6 +64,13 @@ const optionsByField: Record<Field, () => string[]> = {
   baseDate: () => options.value.baseDates,
   editionType: () => options.value.editionTypes,
 };
+
+// カスケード非活性: 左隣のフィールドが未選択なら、この段はまだ選べない。
+function fieldDisabled(f: Field): boolean {
+  const idx = props.fields.indexOf(f);
+  if (idx === 0) return false; // 先頭（委託会社）は常に活性
+  return !query[props.fields[idx - 1]];
+}
 </script>
 
 <template>
@@ -78,7 +85,7 @@ const optionsByField: Record<Field, () => string[]> = {
           v-model="query[f]"
           :options="optionsByField[f]()"
           :placeholder="`${labels[f]}を選択`"
-          :disabled="loading"
+          :disabled="loading || fieldDisabled(f)"
           @update:model-value="onLevelChange(f)"
         />
       </div>

@@ -3,7 +3,6 @@ import { type DropdownQuery, type GenerateRequest, isErr, type TemplateMeta } fr
 import { FilePlus2, FileText } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import Button from '@/components/ui/Button.vue';
 import Step from '@/components/ui/Step.vue';
 import { toastError, toastSuccess } from '@/components/ui/toast';
 import { useAsyncResult } from '@/lib/useAsyncResult';
@@ -40,7 +39,12 @@ function onUpdate(q: DropdownQuery) {
 }
 
 function selectMethod(m: Method) {
-  if (!canCreate.value) return;
+  if (!canCreate.value || creating.value) return;
+  // 白紙はカード押下で即作成→編集画面へ。シリーズは候補一覧を表示する。
+  if (m === 'blank') {
+    createNew();
+    return;
+  }
   method.value = m;
 }
 
@@ -126,7 +130,7 @@ function createFromSeries(m: TemplateMeta) {
       <Step
         :n="2"
         title="作成方法を選ぶ"
-        :hint="canCreate ? 'どちらかを選ぶと、次の操作が表示されます。' : 'ステップ1を完了すると選択できます。'"
+        :hint="canCreate ? '白紙を選ぶと編集画面が開きます。シリーズは候補から選びます。' : 'ステップ1を完了すると選択できます。'"
         :active="canCreate"
         :connector="false"
       >
@@ -159,17 +163,8 @@ function createFromSeries(m: TemplateMeta) {
           </button>
         </div>
 
-        <!-- contextual action -->
-        <div
-          v-if="method === 'blank'"
-          class="mt-4 flex flex-wrap items-center justify-between gap-3.5 rounded-[11px] border bg-muted/50 px-4 py-3.5"
-        >
-          <span class="text-[13px]">標準レイアウトの編集画面を開きます。</span>
-          <Button :disabled="creating || !canCreate" @click="createNew">
-            <FilePlus2 class="h-[15px] w-[15px]" /> {{ creating ? '作成中…' : '編集画面を開く' }}
-          </Button>
-        </div>
-        <div v-else-if="method === 'series'" class="mt-4 grid gap-2.5">
+        <!-- contextual action — series only; blank navigates immediately on card click -->
+        <div v-if="method === 'series'" class="mt-4 grid gap-2.5">
           <p class="text-[12.5px] text-muted-foreground">
             元にするファンドの「作成」を押すと、それを基にした編集画面に進みます。
           </p>

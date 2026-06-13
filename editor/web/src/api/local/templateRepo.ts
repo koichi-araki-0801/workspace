@@ -30,6 +30,7 @@ import {
   now,
   read,
   todayYmd,
+  tx,
   uid,
   uniq,
   write,
@@ -151,57 +152,63 @@ export const localTemplateRepo: TemplateRepository = {
     }),
 
   confirmSave: (req: ConfirmSaveRequest) =>
-    attempt(() => {
-      const user = currentUser();
-      const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
-      htmlOverride[req.templateId] = req.html;
-      write(K.htmlOverride, htmlOverride);
-      const cssOverride = read<Record<string, string>>(K.cssOverride, {});
-      cssOverride[req.fundCode] = req.css; // per-fund shared CSS
-      write(K.cssOverride, cssOverride);
+    attempt(() =>
+      // All six writes commit together: a mid-way failure (e.g. quota) rolls
+      // every touched key back to its pre-save state, so the store is never
+      // left half-published. The notFound guard is inside the tx too, so a
+      // missing meta also rolls back the writes above it.
+      tx([K.htmlOverride, K.cssOverride, META_KEY, K.editHist, K.snapshots, K.drafts], () => {
+        const user = currentUser();
+        const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
+        htmlOverride[req.templateId] = req.html;
+        write(K.htmlOverride, htmlOverride);
+        const cssOverride = read<Record<string, string>>(K.cssOverride, {});
+        cssOverride[req.fundCode] = req.css; // per-fund shared CSS
+        write(K.cssOverride, cssOverride);
 
-      const metaStore = read<Record<string, Partial<TemplateMeta>>>(META_KEY, {});
-      metaStore[req.templateId] = {
-        status: 'published',
-        updatedAt: now(),
-        updatedBy: user?.displayName ?? '不明',
-      };
-      write(META_KEY, metaStore);
+        const metaStore = read<Record<string, Partial<TemplateMeta>>>(META_KEY, {});
+        metaStore[req.templateId] = {
+          status: 'published',
+          updatedAt: now(),
+          updatedBy: user?.displayName ?? '不明',
+        };
+        write(META_KEY, metaStore);
 
-      const editHist = read<EditHistoryEntry[]>(K.editHist, []);
-      const historyId = uid('eh');
-      const timestamp = now();
-      editHist.unshift({
-        id: historyId,
-        templateId: req.templateId,
-        user: user?.displayName ?? '不明',
-        timestamp,
-        summary: '確定保存',
-      });
-      write(K.editHist, editHist);
+        const editHist = read<EditHistoryEntry[]>(K.editHist, []);
+        const historyId = uid('eh');
+        const timestamp = now();
+        editHist.unshift({
+          id: historyId,
+          templateId: req.templateId,
+          user: user?.displayName ?? '不明',
+          timestamp,
+          summary: '確定保存',
+        });
+        write(K.editHist, editHist);
 
-      // Freeze the confirmed content so the version can be re-rendered for the
-      // visual compare screen. Keyed by the edit-history entry id.
-      const snapshots = read<Record<string, TemplateSnapshot>>(K.snapshots, {});
-      snapshots[historyId] = {
-        historyId,
-        templateId: req.templateId,
-        html: req.html,
-        css: req.css,
-        fundCode: req.fundCode,
-        timestamp,
-      };
-      write(K.snapshots, snapshots);
+        // Freeze the confirmed content so the version can be re-rendered for the
+        // visual compare screen. Keyed by the edit-history entry id.
+        const snapshots = read<Record<string, TemplateSnapshot>>(K.snapshots, {});
+        snapshots[historyId] = {
+          historyId,
+          templateId: req.templateId,
+          html: req.html,
+          css: req.css,
+          fundCode: req.fundCode,
+          timestamp,
+        };
+        write(K.snapshots, snapshots);
 
-      // clear draft
-      const drafts = read<Record<string, TemplateDraft>>(K.drafts, {});
-      delete drafts[req.templateId];
-      write(K.drafts, drafts);
+        // clear draft
+        const drafts = read<Record<string, TemplateDraft>>(K.drafts, {});
+        delete drafts[req.templateId];
+        write(K.drafts, drafts);
 
-      const meta = allMetas().find((m) => m.id === req.templateId);
-      if (!meta) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
-      return delay(meta);
-    }),
+        const meta = allMetas().find((m) => m.id === req.templateId);
+        if (!meta) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
+        return delay(meta);
+      }),
+    ),
 
   getSampleData: (fundCode: string) => attempt(() => delay(fixtureSample[fundCode] ?? {})),
 };

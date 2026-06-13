@@ -24,23 +24,23 @@ const vms = computed(() => props.rows.map(toTemplateMetaVm));
 
 <template>
   <div class="rounded-lg border bg-card">
-    <Table>
+    <Table class="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead>委託会社コード</TableHead>
-          <TableHead>ファンドコード</TableHead>
-          <TableHead v-if="showBaseDate">基準日</TableHead>
+          <TableHead class="w-[150px]">委託会社コード</TableHead>
+          <TableHead class="w-[130px]">ファンドコード</TableHead>
+          <TableHead v-if="showBaseDate" class="w-[120px]">基準日</TableHead>
           <TableHead>版種</TableHead>
-          <TableHead>状態</TableHead>
-          <TableHead class="text-right">{{ action === 'edit' ? '編集' : '作成' }}</TableHead>
+          <TableHead class="w-[120px]">状態</TableHead>
+          <TableHead class="w-[120px] text-right">{{ action === 'edit' ? '編集' : '作成' }}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         <TableRow v-for="vm in vms" :key="vm.id">
-          <TableCell class="mono font-medium">{{ vm.attributes.companyCode }}</TableCell>
-          <TableCell class="mono">{{ vm.attributes.fundCode }}</TableCell>
-          <TableCell v-if="showBaseDate" class="mono">{{ vm.attributes.baseDate }}</TableCell>
-          <TableCell>{{ vm.attributes.editionType }}</TableCell>
+          <TableCell class="mono truncate font-medium">{{ vm.attributes.companyCode }}</TableCell>
+          <TableCell class="mono truncate">{{ vm.attributes.fundCode }}</TableCell>
+          <TableCell v-if="showBaseDate" class="mono truncate">{{ vm.attributes.baseDate }}</TableCell>
+          <TableCell class="truncate">{{ vm.attributes.editionType }}</TableCell>
           <TableCell>
             <Badge :variant="vm.statusVariant">{{ vm.statusLabel }}</Badge>
           </TableCell>

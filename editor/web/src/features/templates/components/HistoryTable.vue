@@ -5,7 +5,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 /** Column definition for a history table: a header plus a text accessor for each row. */
 export interface HistoryColumn<Row> {
   header: string;
+  /** Applied to the body cell (e.g. `mono`). */
   cellClass?: string;
+  /** Applied to the header cell — set a fixed width here so columns line up across tabs. */
+  headerClass?: string;
   value: (row: Row) => string;
 }
 
@@ -25,10 +28,10 @@ const emit = defineEmits<{ loadMore: [] }>();
 
 <template>
   <div class="rounded-lg border bg-card">
-    <Table>
+    <Table class="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead v-for="col in columns" :key="col.header">{{ col.header }}</TableHead>
+          <TableHead v-for="col in columns" :key="col.header" :class="col.headerClass">{{ col.header }}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -37,7 +40,12 @@ const emit = defineEmits<{ loadMore: [] }>();
         </TableRow>
         <template v-else>
           <TableRow v-for="row in rows" :key="row.id">
-            <TableCell v-for="col in columns" :key="col.header" :class="col.cellClass">{{ col.value(row) }}</TableCell>
+            <TableCell
+              v-for="col in columns"
+              :key="col.header"
+              :class="col.cellClass ? `truncate ${col.cellClass}` : 'truncate'"
+              :title="col.value(row)"
+            >{{ col.value(row) }}</TableCell>
           </TableRow>
           <TableRow v-if="empty">
             <TableCell :colspan="columns.length" class="py-8 text-center text-muted-foreground">該当する履歴がありません。</TableCell>

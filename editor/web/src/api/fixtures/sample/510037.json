@@ -1,6 +1,6 @@
 {
   "company": { "code": "AM01", "name": "アセットマネジメント株式会社" },
-  "fund": { "code": "510037", "name": "日本株式オープン", "nav": "12,345", "navChange": 56 },
+  "fund": { "code": "510037", "name": "日本株式オープン", "nav": "12,345", "navChange": 58 },
   "report": { "baseDate": "2024-07-10", "editionType": "kr" },
   "holdings": [
     { "name": "トヨタ自動車", "weight": "5.2" },

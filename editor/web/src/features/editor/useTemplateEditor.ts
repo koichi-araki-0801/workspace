@@ -48,8 +48,10 @@ export function useTemplateEditor(
   /** Catalog parts cached for resolving a canvas selection back to its docs. */
   const partsById = new Map<string, PartCatalogItem>();
 
-  /** Whether the left pane's "allow add/edit" mode is on. */
-  const editMode = ref(false);
+  /** Left-pane "パーツを追加" toggle: shows the catalog and allows inserts. */
+  const allowAdd = ref(false);
+  /** Left-pane "編集を許可" toggle: makes the canvas editable (text/reorder/layout). */
+  const allowEdit = ref(false);
 
   // Properties pane: canvas selection when present, else the catalog preview.
   const selectedPart = computed(() => (g.selected.value ? canvasPart.value : previewPart.value));
@@ -93,7 +95,7 @@ export function useTemplateEditor(
     restoring = true;
     g.load(s.html, s.css);
     // load() rebuilds components with default flags — reapply the lock state.
-    g.setEditable(editMode.value);
+    g.setEditable(allowEdit.value);
     restoring = false;
     autosave.trigger();
     updateUndoFlags();
@@ -169,7 +171,7 @@ export function useTemplateEditor(
     pushUndo();
     g.insertPart(p.content, p.id);
     // a freshly inserted part must honor the current lock state.
-    g.setEditable(editMode.value);
+    g.setEditable(allowEdit.value);
     previewPart.value = p;
     recordChange(`パーツ「${p.name}」を追加`);
   }
@@ -187,8 +189,8 @@ export function useTemplateEditor(
     g.deleteSelected();
   }
 
-  // Lock/unlock the canvas when the left-pane checkbox toggles.
-  watch(editMode, (on) => g.setEditable(on));
+  // Lock/unlock the canvas when the "編集を許可" checkbox toggles.
+  watch(allowEdit, (on) => g.setEditable(on));
 
   watch(
     () => g.selected.value,
@@ -219,8 +221,8 @@ export function useTemplateEditor(
     if (!canvas || !layers) return;
     g.init({ canvas, layers });
     g.load(res.value.editableBody, res.value.css);
-    // start locked (editMode defaults to false).
-    g.setEditable(editMode.value);
+    // start locked (allowEdit defaults to false).
+    g.setEditable(allowEdit.value);
     g.onChange(() => autosave.trigger());
     // inline text edit: snapshot on start; on end, keep it only if content changed
     g.onTextEditStart(() => pushUndo());
@@ -242,19 +244,7 @@ export function useTemplateEditor(
         updateUndoFlags();
       }
     });
-
-    // Keep the A4 sheet fitted to the pane width (until the user zooms manually).
-    let fitRaf = 0;
-    fitObserver = new ResizeObserver(() => {
-      cancelAnimationFrame(fitRaf);
-      fitRaf = requestAnimationFrame(() => g.fitToWidth(canvas.clientWidth));
-    });
-    fitObserver.observe(canvas);
-    g.fitToWidth(canvas.clientWidth);
   });
-
-  /** Observes the canvas pane so the A4 sheet re-fits on resize. */
-  let fitObserver: ResizeObserver | null = null;
 
   // Warn before leaving (tab close / reload) while a save is in flight or failed.
   function beforeUnload(e: BeforeUnloadEvent) {
@@ -267,7 +257,6 @@ export function useTemplateEditor(
 
   onBeforeUnmount(() => {
     window.removeEventListener('beforeunload', beforeUnload);
-    fitObserver?.disconnect();
     g.destroy();
   });
 
@@ -294,7 +283,8 @@ export function useTemplateEditor(
     displayHistory,
     selectedPart,
     selectedGeom,
-    editMode,
+    allowAdd,
+    allowEdit,
     autosave,
     canUndo,
     canRedo,

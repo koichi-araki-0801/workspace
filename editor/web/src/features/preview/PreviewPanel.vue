@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { toAppError } from '@editor/shared';
 import { Loader2 } from '@lucide/vue';
 import { onBeforeUnmount, ref, watch } from 'vue';
+import { logError } from '@/lib/appError';
 
 const props = defineProps<{ html: string }>();
 
@@ -41,7 +43,9 @@ async function render() {
     useFallback.value = false;
   } catch (e) {
     // Fallback: plain iframe preview if vivliostyle fails to load/paginate.
-    console.warn('vivliostyle preview unavailable, using iframe fallback', e);
+    // The fallback keeps the preview working, so log for observability only
+    // (no user toast).
+    logError(toAppError(e));
     useFallback.value = true;
     if (iframe.value) iframe.value.srcdoc = props.html;
   } finally {
@@ -55,8 +59,8 @@ onBeforeUnmount(() => {
   revoke();
   try {
     viewer?.cleanup?.();
-  } catch {
-    /* ignore */
+  } catch (e) {
+    logError(toAppError(e));
   }
 });
 </script>

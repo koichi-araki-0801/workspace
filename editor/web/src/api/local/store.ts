@@ -4,6 +4,8 @@
  * repository implementation shares one fixture set and one identity ruleset.
  */
 import {
+  conflict,
+  DEFAULT_ERROR_MESSAGE,
   type DropdownQuery,
   type PartCatalogItem,
   parseTemplateFileName,
@@ -11,6 +13,7 @@ import {
   type TemplateMeta,
   templateIdFromFileName,
   type User,
+  unexpected,
 } from '@editor/shared';
 
 // --- bundled fixtures -------------------------------------------------------
@@ -80,7 +83,42 @@ export function read<T>(key: string, fallback: T): T {
   return raw ? (JSON.parse(raw) as T) : fallback;
 }
 export function write<T>(key: string, value: T): void {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    if (isQuotaError(e)) {
+      throw conflict('保存領域が不足しています。不要なデータを削除してください', { cause: e });
+    }
+    throw unexpected(DEFAULT_ERROR_MESSAGE, { cause: e });
+  }
+}
+
+/** True when a localStorage write failed because the quota was exceeded. */
+function isQuotaError(e: unknown): boolean {
+  return (
+    e instanceof DOMException &&
+    (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+  );
+}
+
+/**
+ * Run `fn` as an all-or-nothing localStorage transaction over `keys`. The raw
+ * value of each key is snapshotted first; if `fn` throws, every key is restored
+ * to its pre-transaction state (removed if it had no value) before re-throwing.
+ * Use it to wrap a multi-`write()` sequence so a mid-way failure (e.g. quota)
+ * never leaves a partially-updated, inconsistent store.
+ */
+export function tx<T>(keys: readonly string[], fn: () => T): T {
+  const snapshot = keys.map((k) => [k, localStorage.getItem(k)] as const);
+  try {
+    return fn();
+  } catch (e) {
+    for (const [k, raw] of snapshot) {
+      if (raw === null) localStorage.removeItem(k);
+      else localStorage.setItem(k, raw);
+    }
+    throw e;
+  }
 }
 
 export const K = {

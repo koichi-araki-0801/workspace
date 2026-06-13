@@ -21,7 +21,8 @@ const {
   displayHistory,
   selectedPart,
   selectedGeom,
-  editMode,
+  allowAdd,
+  allowEdit,
   autosave,
   canUndo,
   canRedo,
@@ -110,11 +111,9 @@ async function goPreview() {
 }
 
 function zoomIn() {
-  g.autoFit.value = false; // user took manual control of zoom
   g.setZoom(g.zoom.value + 0.1);
 }
 function zoomOut() {
-  g.autoFit.value = false;
   g.setZoom(g.zoom.value - 0.1);
 }
 
@@ -157,7 +156,12 @@ const statusText = computed(() => {
 
     <div class="flex flex-1 overflow-hidden">
       <!-- left: part add (checkbox → cascading filter) -->
-      <PartTree v-model:edit-mode="editMode" @select="onPartSelect" @insert="onPartInsert" />
+      <PartTree
+        v-model:allow-add="allowAdd"
+        v-model:allow-edit="allowEdit"
+        @select="onPartSelect"
+        @insert="onPartInsert"
+      />
 
       <!-- center: GrapesJS canvas, styled as A4 paper -->
       <main class="relative flex-1 overflow-hidden bg-[hsl(220_16%_91%)] dark:bg-[hsl(222_18%_18%)]">
@@ -167,8 +171,8 @@ const statusText = computed(() => {
 
         <!-- floating layout toolbar + drag handles over the selected block -->
         <div class="pointer-events-none absolute inset-0 z-20 overflow-hidden">
-          <!-- edit affordances (handles + toolbar) only when unlocked -->
-          <template v-if="rect && selectedGeom && editMode">
+          <!-- edit affordances (handles + toolbar) only when editing is allowed -->
+          <template v-if="rect && selectedGeom && allowEdit">
             <!-- selection frame echo so the resize box reads clearly -->
             <div
               class="ret-frame"
@@ -236,7 +240,7 @@ const statusText = computed(() => {
             <div class="pointer-events-auto absolute" :style="toolbarStyle">
               <PartToolbar
                 :geom="selectedGeom"
-                :edit-mode="editMode"
+                :edit-mode="allowEdit"
                 :can-up="g.canMoveUp.value"
                 :can-down="g.canMoveDown.value"
                 @apply="applyGeom"

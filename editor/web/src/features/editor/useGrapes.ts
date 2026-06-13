@@ -1,5 +1,7 @@
+import { toAppError } from '@editor/shared';
 import grapesjs, { type Component, type Editor } from 'grapesjs';
 import { ref, shallowRef } from 'vue';
+import { logError } from '@/lib/appError';
 import 'grapesjs/dist/css/grapes.min.css';
 import { jinjaChipCanvasCss, registerJinjaComponents } from './jinjaComponents';
 
@@ -7,9 +9,6 @@ export interface GrapesContainers {
   canvas: HTMLElement;
   layers: HTMLElement;
 }
-
-/** A4 page width in CSS pixels (210mm at 96dpi). Drives auto-fit-to-pane zoom. */
-export const A4_WIDTH_PX = (210 * 96) / 25.4;
 
 /**
  * Make the GrapesJS canvas body look like an A4 sheet of paper. The iframe
@@ -42,10 +41,8 @@ export interface SelectedInfo {
 export function useGrapes() {
   const editor = shallowRef<Editor>();
   const selected = ref<SelectedInfo | null>(null);
-  const zoom = ref(0.8);
-  /** When true, zoom tracks the pane width (see {@link fitToWidth}). */
-  const autoFit = ref(true);
-  /** Canvas read-only flag (mirrors !editMode). Blocks RTE/drag while selectable. */
+  const zoom = ref(1);
+  /** Canvas read-only flag (mirrors !allowEdit). Blocks RTE/drag while selectable. */
   let locked = false;
   /** Bumped on every component/style change so callers can recompute geometry. */
   const revision = ref(0);
@@ -89,7 +86,10 @@ export function useGrapes() {
     try {
       const p = ed.Canvas.getElementPos(el);
       selectedRect.value = { left: p.left, top: p.top, width: p.width, height: p.height };
-    } catch {
+    } catch (e) {
+      // Geometry recompute failed (transient canvas state) — log for observability
+      // but keep the toolbar hidden rather than surfacing a toast to the user.
+      logError(toAppError(e));
       selectedRect.value = null;
     }
   }
@@ -118,7 +118,7 @@ export function useGrapes() {
         styleEl.textContent = `${jinjaChipCanvasCss}\n${a4CanvasCss}`;
         docu.head.appendChild(styleEl);
       }
-      // open at the prototype's default 80% zoom
+      // open at 100% (fixed; manual +/- adjusts from there)
       try {
         ed.Canvas.setZoom(zoom.value * 100);
       } catch {
@@ -198,13 +198,6 @@ export function useGrapes() {
     zoom.value = clamped;
     editor.value?.Canvas.setZoom(clamped * 100);
     requestAnimationFrame(refreshRect);
-  }
-
-  /** Fit the A4 sheet width to the pane (no-op once the user zooms manually). */
-  function fitToWidth(paneWidthPx: number): void {
-    if (!autoFit.value || paneWidthPx <= 0) return;
-    const gutter = 48; // breathing room left+right of the sheet
-    setZoom((paneWidthPx - gutter) / A4_WIDTH_PX);
   }
 
   /**
@@ -358,7 +351,6 @@ export function useGrapes() {
     canMoveUp,
     canMoveDown,
     zoom,
-    autoFit,
     revision,
     init,
     load,
@@ -371,7 +363,6 @@ export function useGrapes() {
     onReorderStart,
     onReorderEnd,
     setZoom,
-    fitToWidth,
     setEditable,
     refreshRect,
     startMove,

@@ -55,21 +55,25 @@ const pagedPdfs = usePagedList(filteredPdfs);
 const pagedCreates = usePagedList(filteredCreates);
 
 const MONO = 'mono text-xs';
+// Shared widths so columns line up when switching history tabs (table-fixed layout).
+const W_TIME = 'w-[180px]';
+const W_ID = 'w-[260px]';
+const W_USER = 'w-[140px]';
 const editColumns: HistoryColumn<EditHistoryEntry>[] = [
-  { header: '日時', cellClass: MONO, value: (e) => formatDateTime(e.timestamp) },
-  { header: 'テンプレート', cellClass: MONO, value: (e) => e.templateId },
-  { header: '実行者', value: (e) => e.user },
+  { header: '日時', headerClass: W_TIME, cellClass: MONO, value: (e) => formatDateTime(e.timestamp) },
+  { header: 'テンプレート', headerClass: W_ID, cellClass: MONO, value: (e) => e.templateId },
+  { header: '実行者', headerClass: W_USER, value: (e) => e.user },
   { header: '内容', value: (e) => e.summary },
 ];
 const pdfColumns: HistoryColumn<PdfHistoryEntry>[] = [
-  { header: '日時', cellClass: MONO, value: (e) => formatDateTime(e.timestamp) },
-  { header: 'テンプレート', cellClass: MONO, value: (e) => e.templateId },
+  { header: '日時', headerClass: W_TIME, cellClass: MONO, value: (e) => formatDateTime(e.timestamp) },
+  { header: 'テンプレート', headerClass: W_ID, cellClass: MONO, value: (e) => e.templateId },
   { header: '実行者', value: (e) => e.user },
 ];
 const createColumns: HistoryColumn<CreateHistoryEntry>[] = [
-  { header: '日時', cellClass: MONO, value: (e) => formatDateTime(e.timestamp) },
-  { header: '生成ファイル', cellClass: MONO, value: (e) => templateFileName(e.attributes) },
-  { header: '実行者', value: (e) => e.user },
+  { header: '日時', headerClass: W_TIME, cellClass: MONO, value: (e) => formatDateTime(e.timestamp) },
+  { header: '生成ファイル', headerClass: W_ID, cellClass: MONO, value: (e) => templateFileName(e.attributes) },
+  { header: '実行者', headerClass: W_USER, value: (e) => e.user },
   { header: '元テンプレート', cellClass: MONO, value: (e) => e.basedOnTemplateId ?? '—' },
 ];
 

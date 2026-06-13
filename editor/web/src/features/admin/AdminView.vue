@@ -127,17 +127,17 @@ async function resetPw(u: User) {
     </Card>
 
     <div class="overflow-hidden rounded-lg border bg-card">
-      <Table>
+      <Table class="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead>ユーザーID</TableHead><TableHead>表示名</TableHead><TableHead>権限</TableHead>
-            <TableHead>状態</TableHead><TableHead class="text-right">操作</TableHead>
+            <TableHead class="w-[160px]">ユーザーID</TableHead><TableHead>表示名</TableHead><TableHead class="w-[120px]">権限</TableHead>
+            <TableHead class="w-[160px]">状態</TableHead><TableHead class="w-[300px] text-right">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           <TableRow v-for="vm in vms" :key="vm.id">
-            <TableCell class="mono">{{ vm.username }}</TableCell>
-            <TableCell class="font-semibold">{{ vm.displayName }}</TableCell>
+            <TableCell class="mono truncate">{{ vm.username }}</TableCell>
+            <TableCell class="truncate font-semibold">{{ vm.displayName }}</TableCell>
             <TableCell><Badge variant="outline">{{ vm.roleLabel }}</Badge></TableCell>
             <TableCell>
               <Badge :variant="vm.statusVariant">{{ vm.statusLabel }}</Badge>
