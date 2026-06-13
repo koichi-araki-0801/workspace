@@ -1215,15 +1215,7 @@ function countLeaderThroughLabels(
   coord: Coord,
 ): number {
   const paths = realLeaderPaths(placements, cfg, coord);
-  const boxes = placements.map((p) => {
-    const lb = placementBox(p, cfg);
-    return {
-      left: Math.min(coord.xScale(lb.left), coord.xScale(lb.right)),
-      right: Math.max(coord.xScale(lb.left), coord.xScale(lb.right)),
-      top: Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-      bottom: Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-    };
-  });
+  const boxes = projectBoxesToPixels(placements, cfg, coord);
   let c = 0;
   for (let i = 0; i < paths.length; i += 1) {
     const pts = paths[i];
@@ -1285,6 +1277,39 @@ function boxViewOverflowMax(placements: Placement[], cfg: PieLayoutConfig, coord
   let m = 0;
   for (const p of placements) m = Math.max(m, boxViewOverflowOf(p, cfg, coord));
   return Math.max(0, m);
+}
+
+/** placement box を pixel 空間の {left,right,top,bottom} へ射影した配列 (leader×box 貫通判定の前処理)。 */
+function projectBoxesToPixels(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): { left: number; right: number; top: number; bottom: number }[] {
+  return placements.map((p) => {
+    const lb = placementBox(p, cfg);
+    return {
+      left: Math.min(coord.xScale(lb.left), coord.xScale(lb.right)),
+      right: Math.max(coord.xScale(lb.left), coord.xScale(lb.right)),
+      top: Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom)),
+      bottom: Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom)),
+    };
+  });
+}
+
+/** いずれかの点が viewBox を 1px 超はみ出す leader の本数 (do-no-harm の oob 指標)。 */
+function oobLeaderCount(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
+  const paths = realLeaderPaths(placements, cfg, coord);
+  let c = 0;
+  for (const pts of paths) {
+    if (!pts) continue;
+    for (const q of pts) {
+      if (q.x < -1 || q.x > coord.width + 1 || q.y < -1 || q.y > coord.height + 1) {
+        c += 1;
+        break;
+      }
+    }
+  }
+  return c;
 }
 
 /** verify と同基準で各円外ラベルの {labelY, anchorY} (pixel) を左右スタックに分けて返す。 */
@@ -2261,20 +2286,7 @@ function escapeTopBandSeamLeader(
     }
     const boxOut = (p: Placement): number => boxViewOverflowOf(p, cfg, coord);
     const countClips = (): number => placements.filter((p) => boxOut(p) > 1).length;
-    const countOobLeaders = (): number => {
-      const paths = realLeaderPaths(placements, cfg, coord);
-      let c = 0;
-      for (const pts of paths) {
-        if (!pts) continue;
-        for (const q of pts) {
-          if (q.x < -1 || q.x > coord.width + 1 || q.y < -1 || q.y > coord.height + 1) {
-            c += 1;
-            break;
-          }
-        }
-      }
-      return c;
-    };
+    const countOobLeaders = (): number => oobLeaderCount(placements, cfg, coord);
     const vecOf = (): SeamVec => ({
       cross: countLeaderCrossings(placements, cfg, coord),
       through: countLeaderThroughLabels(placements, cfg, coord),
@@ -2445,20 +2457,7 @@ function repairResidualLeaderDefects(
 
   const boxOutPx = (p: Placement): number => boxViewOverflowOf(p, cfg, coord);
   const countClips = (): number => placements.filter((p) => boxOutPx(p) > 1).length;
-  const countOobLeaders = (): number => {
-    const paths = realLeaderPaths(placements, cfg, coord);
-    let c = 0;
-    for (const pts of paths) {
-      if (!pts) continue;
-      for (const q of pts) {
-        if (q.x < -1 || q.x > coord.width + 1 || q.y < -1 || q.y > coord.height + 1) {
-          c += 1;
-          break;
-        }
-      }
-    }
-    return c;
-  };
+  const countOobLeaders = (): number => oobLeaderCount(placements, cfg, coord);
 
   interface Vec {
     crossPie: number;
@@ -2500,15 +2499,7 @@ function repairResidualLeaderDefects(
 
     // 不具合に関与する leader の index を決定的順序 (名前順) で列挙する。
     const paths = realLeaderPaths(placements, cfg, coord);
-    const boxes = placements.map((p) => {
-      const lb = placementBox(p, cfg);
-      return {
-        left: Math.min(coord.xScale(lb.left), coord.xScale(lb.right)),
-        right: Math.max(coord.xScale(lb.left), coord.xScale(lb.right)),
-        top: Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-        bottom: Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-      };
-    });
+    const boxes = projectBoxesToPixels(placements, cfg, coord);
     const cx = coord.xScale(0);
     const cy = coord.yScale(0);
     const pieRPx = Math.abs(coord.xScale(cfg.pieRadius) - coord.xScale(0));
