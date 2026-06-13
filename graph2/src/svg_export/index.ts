@@ -194,14 +194,9 @@ function isCascadeFailed(placement: Placement, others: Placement[], cfg: PieLayo
   return false;
 }
 
-// leader 折れ線の幾何プリミティブ (computeDrawnLeader / isRedundantUpperLeftSmallLeader /
-// resolveLeaderCrossings / distPointToSegment) と型 Pt / Coord は ./leader_geometry.js へ分離した。
-/**
- * 全ラベルを①〜⑨カスケードで 1 回配置する。① が wedge に収まれば内側で確定、否なら②外側 rim
- * から始め、overlap/pie nudge を反復しつつ失敗ラベルを 1 段ずつ降格させて収束させる。
- * 上部「その他」を右上へ置くかは item.topRightRejected (topBandSonohokaRight が参照) で決まる。
- */
-/** leftStackMode の左列とみなす placement (side=left・baseline=bottom・非 inside・x<0)。 */
+// leader 折れ線の幾何プリミティブ (`computeDrawnLeader` / `isRedundantUpperLeftSmallLeader` /
+// `resolveLeaderCrossings` / `distPointToSegment`) と型 `Pt` / `Coord` は `./leader_geometry.js` へ分離した。
+/** `leftStackMode` の左列とみなす placement (side=left・baseline=bottom・非 inside・x<0)。 */
 function isLeftStackMember(p: Placement): boolean {
   return p.item.side === "left" && p.baseline === "bottom" && !p.insideSlice && p.x < 0;
 }
@@ -340,6 +335,11 @@ function spreadLeftStackByAngle(
   }
 }
 
+/**
+ * 全ラベルを①〜⑨カスケードで 1 回配置する。① が wedge に収まれば内側で確定、否なら②外側 rim
+ * から始め、overlap/pie nudge を反復しつつ失敗ラベルを 1 段ずつ降格させて収束させる。
+ * 上部「その他」を右上へ置くかは `item.topRightRejected` (`topBandSonohokaRight` が参照) で決まる。
+ */
 function runCascadeOnce(
   labels: LayoutItemReady[],
   cfg: PieLayoutConfig,
@@ -599,13 +599,13 @@ function applySplitNameFallback(placements: Placement[], cfg: PieLayoutConfig, c
 }
 
 /**
- * 下left ドロップ + 斜めリーダー フォールバック (emit 最終段, do-no-harm)。layout.ts
- * markClippedUpperLeftLongDrop が識別した lowerLeftDropLeader ラベル (9時直近で長体下限でも
+ * 下left ドロップ + 斜めリーダー フォールバック (emit 最終段, do-no-harm)。`layout.ts` の
+ * `markClippedUpperLeftLongDrop` が識別した `lowerLeftDropLeader` ラベル (9時直近で長体下限でも
  * viewBox 左端を見切れる幅広長名) を、円が横へ逃げ帯が広い下left へ 2 行のまま置き直し
- * (buildLowerLeftDropLeaderDraft)、slice rim から斜めリーダーで接続する (参考PDF「オーストラリア」)。
- * チャート全体の不具合 (countDefects) が「clips 厳密減・crossings/pie/重なり/box円侵入 非悪化」を
- * 満たす時だけ採用する。密チャート (例 asset_long_labels_9) で交差/順序反転を生む場合は revert され、
- * 当該チャートは baseline (rim 2 行) のまま = 回帰なし。applySplitNameFallback と同じ do-no-harm 流儀。
+ * (`buildLowerLeftDropLeaderDraft`)、slice rim から斜めリーダーで接続する (参考PDF「オーストラリア」)。
+ * 採否は `applySplitNameFallback` と同じ do-no-harm ゲート (`countDefects` で clips 厳密減・他カテゴリ
+ * 非悪化)。密チャート (例 asset_long_labels_9) で交差/順序反転を生む場合は revert され、当該チャートは
+ * baseline (rim 2 行) のまま = 回帰なし。
  */
 function applyLowerLeftDropFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
   const { xScale, yScale, width, height } = coord;
@@ -706,7 +706,7 @@ function cascadeWithSonohokaPick(
   for (const it of topOthers) it.topRightRejected = false;
   const leftIssues = countVerifyIssuesDetailed(left, cfg, coord, leftStackMode);
 
-  // 孤立極小スライス leader 型 (layout.ts markLoneTopSliverLeader) では『その他』を右上へ確定
+  // 孤立極小スライス leader 型 (`layout.ts` の `markLoneTopSliverLeader`) では『その他』を右上へ確定
   // (右逃がし)。これをしないと極小の up-and-over leader が中央の『その他』box を貫いて Pass 2 で
   // 抑制され、せっかくの leader が消える。本印は同マーカーの厳ゲートでこの 1 構成のみに立つ。
   if (labels.some((it) => it.loneTopSliverLeader)) return right;
@@ -730,12 +730,12 @@ function cascadeWithSonohokaPick(
  *
  * 「左側密集は 1 行優先・入る分だけ」方針。位置 (左帯のどこにあるか) では判定せず、実 bbox が
  * viewBox を越える時だけ 2 行に戻す (= 物理的に 1 行で入らない長名のみ救済)。判定境界は
- * layout.ts leftStackMode ゲート / isCascadeFailed (dominantOutsideEdge) と同じ svgWidthPx
+ * `layout.ts` の `leftStackMode` ゲート / `isCascadeFailed` (`dominantOutsideEdge`) と同じ `svgWidthPx`
  * 基準に統一する (detectVisualHorizontalOverflow は可動域 canvasXlim 基準で狭すぎるため使わない)。
  * これにより viewBox に収まる中位ラベルは 1 行を維持し、見切れ判定 (= viewBox) とも整合する。
  *
  * 起点を戻すフラグは 3 点セット (preferOneLineCascade / compactLabel / textLines)
- * で layout.ts leftStackMode と対称に書き戻す。textLines を 2 (長名は 3) に復元する
+ * で `layout.ts` の `leftStackMode` と対称に書き戻す。`textLines` を 2 (長名は 3) に復元する
  * ことで後段 applyVisualViewBoxNudge (1 行除外ガード) も通過し、最終 shift 救済も
  * 効くようになる。2 行が物理的に入らなければ本番 cascade が 1行/長体/leader まで自然降格
  * するので safety net は既存挙動が担う。
@@ -1802,7 +1802,7 @@ function reorderTopBandLeftClusterByAngle(
 /**
  * 確定済 placement を「右上逃がし (topBandSmallRight と同一フォーム)」へ破壊的に変形する。
  * slice から縦に抜けて右へ折れる L 字 leader (forceTopRight) + anchor=start/baseline=bottom。
- * 座標は label_placement.ts topBandSmallRight と一致させ、computeDrawnLeader の forceTopRight
+ * 座標は `label_placement.ts` の `topBandSmallRight` と一致させ、`computeDrawnLeader` の `forceTopRight`
  * 分岐 (キャップ越え水平区間) に乗せる。labelY を yOffset 分だけ上へずらせば複数枚を縦に重ねられる。
  */
 function reshapeToTopRightEscape(p: Placement, cfg: PieLayoutConfig, yOffset = 0): void {
@@ -2780,10 +2780,10 @@ export async function renderPdfStylePieToSvg(
     applyLowerLeftDropFallback(textPlacements, cfg, { xScale, yScale, width, height });
 
     // 下限長体 (0.7) でも viewBox を見切れる長カタカナ/長熟語を、名前 2 行分割で収める最終手段。
-    // 全後段の **後** に実行するので位置は確定済 = ゲートが最終配置を正しく見る。採否は countDefects
+    // 全後段の **後** に実行するので位置は確定済 = ゲートが最終配置を正しく見る。採否は `countDefects`
     // (チャート全体: clips/crossings/pie/total) で判定し、clips が厳密に減り他が非悪化の時だけ採用 (do-no-harm)。
     // 部分的にしか収まらない分割 (例 債券先物(アメ/リカ)) は clips が減らず revert される。採点
-    // (finalizeForScoring) には入れない: 候補選択を乱さず、finalScore は emit 後の同 placements から数えるため
+    // (`finalizeForScoring`) には入れない: 候補選択を乱さず、finalScore は emit 後の同 placements から数えるため
     // scorer ↔ emit 整合は保たれる。
     applySplitNameFallback(textPlacements, cfg, { xScale, yScale, width, height });
 
@@ -2792,6 +2792,18 @@ export async function renderPdfStylePieToSvg(
     // 基準 (countDefects) が実描画と一致し続けることをアサートする。
     if (diagnostics) {
       diagnostics.finalScore = countDefects(textPlacements, cfg, { xScale, yScale, width, height });
+    }
+
+    // 確定配置 (全パス適用後) に対し、実 viewBox (`svgWidthPx`) を超える真の見切れだけを 1 回ずつ警告する。
+    // `applyFinalCondenseToFit` は scoring 候補ごとにも走るため、そこで warn すると最終でない候補の超過まで
+    // 大量に出て紛らわしい。ここは最終 placements かつ実 viewBox 基準 (coord) なので、件数・値が verify の
+    // "label out of viewBox" (tolerance 1px) と一致する。
+    for (const p of textPlacements) {
+      if (p.insideSlice) continue;
+      const overPx = boxViewOverflowOf(p, cfg, { xScale, yScale, width, height });
+      if (overPx > 1) {
+        console.warn(`[svg_export] viewBox見切れ: "${p.item.name}" 約${Math.round(overPx)}px`);
+      }
     }
 
     // ── Pass 1: 各 placement の最終 pathPoints・暫定 skipLeader・pixel bbox を確定 ──

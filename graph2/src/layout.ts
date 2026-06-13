@@ -900,7 +900,7 @@ function nearestToTwelveOClock(items: LayoutItemReady[]): LayoutItemReady {
 
 /**
  * 12時直左の小 top-band スライスが上左で混雑する時、12時に最も近い 1 件に topBandSmallRight を
- * 立てて右上空白へ逃がす (label_placement.ts topBandSmallRight が参照)。これにより上左に小
+ * 立てて右上空白へ逃がす (`label_placement.ts` の `topBandSmallRight` が参照)。これにより上左に小
  * top-band が 2 つ並んで片方が長体化する症状を解消し、両ラベルを原寸 2 行に収める。
  *
  * ゲート (混雑が実在する上左 triad のみに限定):

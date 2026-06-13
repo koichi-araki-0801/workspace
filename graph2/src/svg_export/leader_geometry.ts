@@ -1,9 +1,9 @@
 // =============================================================================
 // svg_export/leader_geometry.ts — leader 折れ線の幾何プリミティブ
 // -----------------------------------------------------------------------------
-// placement から「実際に描画される leader パス」を計算する純幾何層 (svg_export/index.ts から
+// placement から「実際に描画される leader パス」を計算する純幾何層 (`index.ts` から
 // 切り出し)。cascade / repair / scoring など上位の配置ロジックはこれらを一方向に呼ぶだけで、
-// 本モジュールは svg_geom / 型のみに依存する (上位への逆依存なし = 循環なし)。
+// 本モジュールは `svg_geom` / 型のみに依存する (上位への逆依存なし = 循環なし)。
 // =============================================================================
 
 import {
@@ -37,8 +37,8 @@ const UPPER_LEFT_SMALL_LEADER_HALF_WIDTH_DEG = 45;
 export type Pt = { x: number; y: number };
 
 /**
- * placement から「描画される leader 折れ線 (pathPoints)」「貫通判定用折れ線 (detectPathPoints)」
- * 「暫定 skipLeader」を計算する。Pass 1 と conflict scorer で共有し、両者の leader 形状を
+ * placement から「描画される leader 折れ線 (`pathPoints`)」「貫通判定用折れ線 (`detectPathPoints`)」
+ * 「暫定 `skipLeader`」を計算する。Pass 1 と conflict scorer で共有し、両者の leader 形状を
  * 厳密に一致させる (Pass 2 のクロス placement 判定は呼び出し側で行う)。
  */
 export function computeDrawnLeader(
@@ -46,8 +46,8 @@ export function computeDrawnLeader(
   cfg: PieLayoutConfig,
   forScoring = false,
 ): { pathPoints: Pt[]; detectPathPoints: Pt[]; skipLeader: boolean } {
-  // 常時描画 + 縦中央接続は **描画パスのみ** に適用する。conflict scorer (chartConflicts) から
-  // forScoring=true で呼ばれた時は従来挙動を維持し、レイアウト選択 (その他 右/左 等) を baseline と
+  // 常時描画 + 縦中央接続は **描画パスのみ** に適用する。conflict scorer (`chartConflicts`) から
+  // `forScoring`=true で呼ばれた時は従来挙動を維持し、レイアウト選択 (その他 右/左 等) を baseline と
   // 同一に保つ (常時描画によるスコア変動でラベル位置が動くのを防ぐ)。
   const alwaysDraw = ALWAYS_DRAW_OUTSIDE_LEADERS && !forScoring;
   const endpointMinDist = cfg.pieRadius + radialFraction(cfg, 0.01, 0.1);
@@ -237,10 +237,10 @@ export function computeDrawnLeader(
 /**
  * 上左 ([90°,135°]) の小スライスが引く「短い」leader か。短い = ラベルが自スライスのすぐ外側に
  * あり、線が無くても接続が自明 (ユーザー指摘: REIT 国別の シンガポール 3.5%)。本判定は emit 最終段
- * (Pass 2.6) だけで使い、computeDrawnLeader / 採点には載せない。これにより leader 線を消すだけで
+ * (Pass 2.6) だけで使い、`computeDrawnLeader` / 採点には載せない。これにより leader 線を消すだけで
  * レイアウト選択や他 leader の交差解決には一切影響しない (ラベル位置は不変)。閾値 (≈0.5·R) で
- * 「その他」級の右逃がし leader (≈1.2·R) や遠方へ逃がした leader は残す。述語 (isSmall / midAngle>90 /
- * 帯内 / 非「その他」) は layout.ts markTopBandSmallRight の候補条件と同系。
+ * 「その他」級の右逃がし leader (≈1.2·R) や遠方へ逃がした leader は残す。述語 (`isSmall` / `midAngle`>90 /
+ * 帯内 / 非「その他」) は `layout.ts` の `markTopBandSmallRight` の候補条件と同系。
  */
 export function isRedundantUpperLeftSmallLeader(
   placement: Placement,
@@ -266,7 +266,7 @@ export function isRedundantUpperLeftSmallLeader(
 /**
  * 描画される leader 同士が交差する場合、長い方を省略する (skip[i]=true)。leader を消すだけ
  * なので新たな重なり/はみ出し/交差は生じない (Pass 2 の leader×box 省略と同性質, 退行0)。
- * emit (Pass 2 直後) と chartConflicts の両方から呼び、採点と描画の leader 集合を一致させる。
+ * emit (Pass 2 直後) と `chartConflicts` の両方から呼び、採点と描画の leader 集合を一致させる。
  * 短い leader を残す = ラベルが自スライス近傍にあり接続が自明。同長は name で決定的に。
  * entries は pixel 座標の折れ線 (pixPaths) と name を持ち、skip[] を破壊的に更新する。
  */
@@ -345,7 +345,7 @@ export function pathsCross(pa: Pt[], pb: Pt[]): boolean {
 
 /**
  * 各 placement の実描画 leader パスを **pixel 座標** で返す (skip は null)。emit と同じ
- * computeDrawnLeader の logical パスを xScale/yScale で pixel へ変換する。交差判定 segmentsIntersect
+ * `computeDrawnLeader` の logical パスを `xScale`/`yScale` で pixel へ変換する。交差判定 `segmentsIntersect`
  * の許容差 (0.5) は pixel 想定なので、logical のまま渡すと常に非交差になる (要 pixel 変換)。
  */
 export function realLeaderPaths(

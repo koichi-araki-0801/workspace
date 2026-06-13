@@ -376,7 +376,7 @@ function topRightLiftedRimDraft(
 
 /**
  * 12時直左の小スライス (top-band) を右上空白へ逃がす draft を返す。`topBandSmallRight` フラグ
- * (layout.ts markTopBandSmallRight が立てる) を持つ item のみ対象。配置座標は `topBandSonohokaRight`
+ * (`layout.ts` の `markTopBandSmallRight` が立てる) を持つ item のみ対象。配置座標は `topBandSonohokaRight`
  * の右パスと同一 (slice から縦に抜けて右へ折れる L 字 + anchor=start)。anchorX が僅かに負でも
  * 右側を維持するため `forceTopRight` で `clampToAnchorSide` の中心跨ぎ引き戻しを免除する。
  *

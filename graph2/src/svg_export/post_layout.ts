@@ -553,12 +553,15 @@ export function applyVisualViewBoxNudge(textPlacements: Placement[], cfg: PieLay
 export const FINAL_CONDENSE_MIN_SCALE = 0.7;
 
 /**
- * 最終手段: viewBox (canvasXlim) をはみ出す外側ラベルを「収まるまで名前を長体化」して縮める。
+ * 最終手段: viewBox (`canvasXlim`) をはみ出す外側ラベルを「収まるまで名前を長体化」して縮める。
  * アンカー (pie 側の辺: 左=end / 右=start / middle) は固定なので、縮めると far edge のみが
  * 内側へ動き pie 側へは寄らない → pie 侵入・新規重なりを生まない (縮むだけなので overlap は
- * 減りこそすれ増えない)。可読性のため sx は FINAL_CONDENSE_MIN_SCALE で打ち止めとし、それでも
- * 収まらない残件は console.warn で記録する (無音切り詰め回避)。
- * placement.nameScaleX は render (index.ts の condense) と verify (data-name-scale-x) の双方が
+ * 減りこそすれ増えない)。可読性のため sx は `FINAL_CONDENSE_MIN_SCALE` で打ち止めとする。
+ * 本関数は scoring 候補ごと (`finalizeForScoring`) にも走るため、ここでは下限到達を warn せず、
+ * `GRAPH2_DEBUG_CONDENSE` 設定時のみ floor 到達を debug 記録する (既定は無音)。真の見切れ警告は
+ * `index.ts` の emit 末尾 (確定配置の viewBox 見切れ警告ループ) が全パス適用後の確定配置に 1 回だけ
+ * 出す (実 viewBox = verify 一致)。
+ * `placement.nameScaleX` は render (`index.ts` の condense) と verify (data-name-scale-x) の双方が
  * honor 済なので、値を下げるだけで描画・検証が一致する。
  */
 export function applyFinalCondenseToFit(textPlacements: Placement[], cfg: PieLayoutConfig): void {
@@ -582,17 +585,19 @@ export function applyFinalCondenseToFit(textPlacements: Placement[], cfg: PieLay
       }
     }
     if (!fitted) {
-      // 下限でも収まらない構造的ケース (極端な長カタカナ / 支配スライス右端)。
-      // 下限を適用しつつ残件を記録する。
+      // 下限でも収まらない構造的ケース (極端な長カタカナ / 支配スライス右端)。下限を適用する。
+      // 真の見切れ警告は `index.ts` の emit 末尾 (確定配置の見切れ警告ループ) が 1 回だけ出す。本関数は
+      // scoring 候補ごとにも走るため、ここでは `GRAPH2_DEBUG_CONDENSE` 時のみ floor 到達を記録 (既定は無音)。
       placement.nameScaleX = FINAL_CONDENSE_MIN_SCALE;
-      const box = placementBox(placement, cfg);
-      const [xmin, xmax] = horizontalLabelLimits(placement, cfg);
-      const overUnits = Math.max(xmin - box.left, box.right - xmax);
-      const overPx = Math.round(overUnits * cfg.pxPerUnit);
-      console.warn(
-        `[svg_export] condense-to-fit 下限(${FINAL_CONDENSE_MIN_SCALE})でも viewBox に収まらず: ` +
-          `"${placement.item.name}" 残り約 ${overPx}px`,
-      );
+      if (process.env.GRAPH2_DEBUG_CONDENSE) {
+        const box = placementBox(placement, cfg);
+        const [xmin, xmax] = horizontalLabelLimits(placement, cfg);
+        const overPx = Math.round(Math.max(xmin - box.left, box.right - xmax) * cfg.pxPerUnit);
+        console.warn(
+          `[svg_export] condense下限(${FINAL_CONDENSE_MIN_SCALE})到達 (可動域 約${overPx}px 超過): ` +
+            `"${placement.item.name}"`,
+        );
+      }
     }
   }
 }
