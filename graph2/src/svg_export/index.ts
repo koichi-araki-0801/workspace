@@ -2962,11 +2962,6 @@ function runLabelCascade(
   if (diagnostics?.twoLineLeftStackMode) {
     applyTwoLineLeftColumn(result, cfg);
   }
-  if (diagnostics) {
-    diagnostics.dominantTwoLineRestored = result.some(
-      (p) => p.dominantOutsideEdge && !p.insideSlice && p.lines.length >= 2,
-    );
-  }
   return result;
 }
 

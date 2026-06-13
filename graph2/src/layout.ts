@@ -160,9 +160,6 @@ function buildCandidates(
       percentText: cfg.percentFormat(profile.signedValue!),
       flipToRight: false,
       flipToLeft: false,
-      topBandCount: 0,
-      topBandRightCount: 0,
-      topBandRightRank: 0,
       upperLeftSmallDense: false,
       upperLeftLongDense: false,
     };
@@ -1363,7 +1360,6 @@ export function layoutLabels(items: LayoutItem[], cfg: PieLayoutConfig): LayoutR
   // 左上のスタック上端に縦の余裕を作る。1 行強制 (preferOneLineCascade=true) はそのまま維持する —
   // 2 行起点に戻すと小スライス同士で leader 交差が増え regression するため、シフトのみで対応。
   if (diagnostics.leftStackMode && hasDominantOutsideEdgeOverflow1Line(candidates, cfg)) {
-    diagnostics.dominantTwoLineRestoredHint = true;
     const extra = 0.1 * cfg.gapScale;
     for (const it of left) {
       if (it.isUpperLeft && !it.flipToRight) {

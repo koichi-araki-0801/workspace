@@ -56,11 +56,6 @@ export interface LayoutItem {
   flipToLeft?: boolean;
   forceFlipToRight?: boolean;
   forceHorizontalLowerLeftDrop?: boolean;
-  topBandCount?: number;
-  topBandRightCount?: number;
-  topBandRightRank?: number;
-  hasBottomBandSibling?: boolean;
-  bottomBandSiblings?: LayoutItem[];
 
   // 左上スタック メタ (assignUpperLeftMetadata / svg_geom)
   upperLeftRank?: number;
@@ -170,10 +165,6 @@ export interface Diagnostics {
   topBandClusterCount?: number;
   totalCount?: number;
   rankValuesFull?: number[];
-  /** svg_export 側 probe-then-override で dominant outside-edge を 2 行起点に戻したか。 */
-  dominantTwoLineRestored?: boolean;
-  /** layout 側のクローズドフォーム判定で dominant 1 行 overflow を予測したか。 */
-  dominantTwoLineRestoredHint?: boolean;
   /** emit 実配置 (最終後段適用後) を内部スコアラ countDefects で数えた不具合数。
    *  verify_consistency が「採点 (実描画基準) ↔ emit SVG」一致をアサートするのに使う。 */
   finalScore?: { clips: number; crossings: number; pie: number; total: number };
