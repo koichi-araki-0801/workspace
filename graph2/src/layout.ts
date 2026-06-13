@@ -834,7 +834,7 @@ function assignUpperLeftRenderY(
 }
 
 /**
- * 統一カスケード rim 配置向け: upperLeftTriadEligible かつ上左 3 件以上で、自然 rim
+ * 統一カスケード rim 配置向け: upperLeftTriadEligible かつ上左 2 件以上で、自然 rim
  * (sin(mid)*pieRadius) が縦に重なる時のみ各 item に useStackRimY を立てる。
  * buildOutsideRimDraft はこの印がある item の textY を upperLeftRenderY (事前分離済の
  * 縦スタック値) に置換する。これにより rank② (2行原寸) が overlap 失敗せず、長体/1行への
@@ -850,7 +850,7 @@ function markUpperLeftStackRimY(
   const eligible = upper.filter(
     (it) => it.isUpperLeft && !it.flipToRight && Number.isFinite(it.upperLeftRenderY),
   );
-  if (eligible.length < 3) return;
+  if (eligible.length < 2) return;
   const overlapTol = 8 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
   const minSep = labelHeightUnits(2, cfg) + overlapTol;
   const rimY = (it: LayoutItemReady) =>

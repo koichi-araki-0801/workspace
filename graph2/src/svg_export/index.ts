@@ -1583,7 +1583,13 @@ function reorderTopBandLeftClusterByAngle(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): void {
-  if (countLeaderCrossings(placements, cfg, coord) === 0) return;
+  // 交差だけでなく角度順逆転 (例 page16: ジャージー右逃がし後の ケイマン×アイルランド。交差は
+  // 無いが上左クラスタの上下が反転) も対象にする。どちらも無ければ何もしない。
+  if (
+    countLeaderCrossings(placements, cfg, coord) === 0 &&
+    countAngularDiscordantPairs(placements, cfg, coord) === 0
+  )
+    return;
   const cx = coord.xScale(0);
   const pieR = cfg.pieRadius;
   const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
@@ -1650,9 +1656,15 @@ function reorderTopBandLeftClusterByAngle(
   // viewBox はみ出しは soft cost (WARN 級)。reorderLeftStackWithCondense と同じく交差/逆転 (hard)
   // を消すためなら 1 行高 (VIEW_OVERFLOW_CAP_PX) までの増加を許容する。重なり/パイ侵入/leader貫通/
   // leader貫通(box)は非悪化必須。leader のパイ貫通も非悪化必須 (ルクセンブルクの1点曲げ化で減る)。
+  const afterCross = countLeaderCrossings(placements, cfg, coord);
+  const afterDisc = countAngularDiscordantPairs(placements, cfg, coord);
+  // 交差を厳密に減らす、または (交差を増やさずに) 角度順逆転を厳密に減らす時だけ採用する。
+  // 後者は page16 のような「交差は無いが上左クラスタが反転」を直すための経路。
+  const improved =
+    afterCross < beforeCross || (afterCross <= beforeCross && afterDisc < beforeDisc);
   const harm =
-    countLeaderCrossings(placements, cfg, coord) >= beforeCross ||
-    countAngularDiscordantPairs(placements, cfg, coord) > beforeDisc ||
+    !improved ||
+    afterDisc > beforeDisc ||
     maxOverlap() > beforeOverlap + tol ||
     maxPieIntrusion() > beforePie + tol ||
     maxViewOverflow() > beforeView + VIEW_OVERFLOW_CAP_PX ||
@@ -2605,6 +2617,11 @@ export async function renderPdfStylePieToSvg(
     // condense-to-fit の後 (= emit と同一の最終配置) に実行するので、ここで見た交差は verify が
     // 報告する交差と一致する。各手は do-no-harm (交差減・重なり非悪化・viewBox 内) で採用。
     applyOutsideLeaderAngularOrder(textPlacements, cfg, { xScale, yScale, width, height });
+
+    // applyOutsideLeaderAngularOrder の swap で直せない上左トップバンドクラスタの角度順逆転
+    // (例 page16: ジャージー右逃がし後 ケイマンが天頂へ来てアイルランドの上に逆転) を、角度順
+    // rim 再積み上げで解消する。交差/逆転のどちらかが在る時のみ発火し do-no-harm (悪化で全 revert)。
+    reorderTopBandLeftClusterByAngle(textPlacements, cfg, { xScale, yScale, width, height });
 
     // 9時線近傍で near-vertical に重なる左小スライス対 (例 イギリス/イタリア) を角度順に並べ直して
     // 左上の空きへわずかに逃がし、各 leader を分離した斜め線にする。do-no-harm (悪化したら revert)。
