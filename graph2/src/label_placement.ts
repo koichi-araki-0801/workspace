@@ -455,6 +455,25 @@ function bottomCenterBelow(
   };
 }
 
+/**
+ * slice 中心角の方向余弦 (cosA, sinA) から円外配置の anchor / baseline を決める共通導出。
+ * |cosA|>閾値 で左右 (start/end)、中央付近は middle。baseline は上半 (sinA>0) なら bottom。
+ * buildOutsideRimDraft / buildOutsideLeaderDraft が共有する。
+ */
+function radialAnchorBaseline(
+  cosA: number,
+  sinA: number,
+): { anchor: "start" | "middle" | "end"; baseline: "bottom" | "top" } {
+  const anchor: "start" | "middle" | "end" =
+    cosA > DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD
+      ? "start"
+      : cosA < -DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD
+        ? "end"
+        : "middle";
+  const baseline: "bottom" | "top" = sinA > 0 ? "bottom" : "top";
+  return { anchor, baseline };
+}
+
 /** 円外 rim 配置の draft (slice 中心角の外縁・leader なし)。dominant slice 外縁配置を全 rank へ一般化したもの。 */
 export function buildOutsideRimDraft(
   item: LayoutItemReady,
@@ -493,13 +512,7 @@ export function buildOutsideRimDraft(
     item.useStackRimY && Number.isFinite(item.upperLeftRenderY)
       ? item.upperLeftRenderY
       : Math.sin(rad) * r;
-  const cosA = Math.cos(rad);
-  const sinA = Math.sin(rad);
-  let anchor: "start" | "middle" | "end";
-  if (cosA > DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD) anchor = "start";
-  else if (cosA < -DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD) anchor = "end";
-  else anchor = "middle";
-  const baseline: "bottom" | "top" = sinA > 0 ? "bottom" : "top";
+  const { anchor, baseline } = radialAnchorBaseline(Math.cos(rad), Math.sin(rad));
   return {
     fragments: [],
     textX,
@@ -544,11 +557,7 @@ export function buildOutsideLeaderDraft(
   const rLabel = cfg.renderLabelRadius;
   const labelX = cosA * rLabel;
   const labelY = sinA * rLabel;
-  let anchor: "start" | "middle" | "end";
-  if (cosA > DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD) anchor = "start";
-  else if (cosA < -DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD) anchor = "end";
-  else anchor = "middle";
-  const baseline: "bottom" | "top" = sinA > 0 ? "bottom" : "top";
+  const { anchor, baseline } = radialAnchorBaseline(cosA, sinA);
   return {
     fragments: [],
     textX: labelX,
