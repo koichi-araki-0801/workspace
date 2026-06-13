@@ -14,9 +14,11 @@ import {
   truncateLeaderEndpointAtBox,
   radialFraction,
   segmentsIntersect,
+  leaderCrossesBox,
   angleInBand,
   normalizeAngle,
 } from "../svg_geom.js";
+import { topBandSonohokaZone } from "../label_placement.js";
 import type { Placement, PieLayoutConfig } from "../types.js";
 
 // 円外ラベルには常時 leader を描く方針フラグ (ユーザー要望: なるべく leader を使う)。
@@ -309,3 +311,212 @@ export type Coord = {
   width: number;
   height: number;
 };
+
+// -----------------------------------------------------------------------------
+// 実描画 leader パスを横断して数える「不具合量」メトリクス層。emit / scorer / 各後処理の
+// do-no-harm ゲートが共有する (verify と同じ実描画パス幾何で判定)。
+// -----------------------------------------------------------------------------
+
+/** 折れ線 2 本が交差するか (verify と同じ実描画パス幾何で判定)。 */
+export function pathsCross(pa: Pt[], pb: Pt[]): boolean {
+  for (let k = 0; k + 1 < pa.length; k += 1) {
+    for (let m = 0; m + 1 < pb.length; m += 1) {
+      if (segmentsIntersect(pa[k], pa[k + 1], pb[m], pb[m + 1])) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 各 placement の実描画 leader パスを **pixel 座標** で返す (skip は null)。emit と同じ
+ * computeDrawnLeader の logical パスを xScale/yScale で pixel へ変換する。交差判定 segmentsIntersect
+ * の許容差 (0.5) は pixel 想定なので、logical のまま渡すと常に非交差になる (要 pixel 変換)。
+ */
+export function realLeaderPaths(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): (Pt[] | null)[] {
+  return placements.map((p) => {
+    const r = computeDrawnLeader(p, cfg, false);
+    if (r.skipLeader) return null;
+    return r.pathPoints.map((pt) => ({ x: coord.xScale(pt.x), y: coord.yScale(pt.y) }));
+  });
+}
+
+/** 実描画 leader 同士が交差する対の数 (verify の "leader crossing" と同条件・pixel 空間)。 */
+export function countLeaderCrossings(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
+  const paths = realLeaderPaths(placements, cfg, coord);
+  let c = 0;
+  for (let i = 0; i < paths.length; i += 1) {
+    const pa = paths[i];
+    if (!pa) continue;
+    for (let j = i + 1; j < paths.length; j += 1) {
+      const pb = paths[j];
+      if (pb && pathsCross(pa, pb)) c += 1;
+    }
+  }
+  return c;
+}
+
+/** 実描画 leader が自分以外のラベル box を貫く件数 (verify の "leader through label" と同条件・pixel)。 */
+export function countLeaderThroughLabels(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): number {
+  const paths = realLeaderPaths(placements, cfg, coord);
+  const boxes = projectBoxesToPixels(placements, cfg, coord);
+  let c = 0;
+  for (let i = 0; i < paths.length; i += 1) {
+    const pts = paths[i];
+    if (!pts) continue;
+    for (let j = 0; j < placements.length; j += 1) {
+      if (j === i) continue;
+      if (leaderCrossesBox(pts, boxes[j])) c += 1;
+    }
+  }
+  return c;
+}
+
+// -----------------------------------------------------------------------------
+// 後処理 (角度順整列 / 各種 escape / 修復) の do-no-harm ゲートで共通に使う「不具合量」計測。
+// これらはどの後処理関数でも「全 placement を横断し最大侵入/重なり/はみ出しを測る」純関数。
+// -----------------------------------------------------------------------------
+
+/** 全 placement 対の最大縦重なり量 (logical, X が重なる対のみ)。do-no-harm の ovl 指標。 */
+export function boxOverlapMax(placements: Placement[], cfg: PieLayoutConfig): number {
+  let m = 0;
+  for (let i = 0; i < placements.length; i += 1) {
+    const a = placementBox(placements[i], cfg);
+    for (let j = i + 1; j < placements.length; j += 1) {
+      const b = placementBox(placements[j], cfg);
+      const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
+      if (ox > 0 && oy > 0) m = Math.max(m, oy);
+    }
+  }
+  return m;
+}
+
+/** 円外ラベル box の pie 円 (中心=logical 原点) への最大侵入深さ (logical)。verify "label inside pie" のゲート。 */
+export function boxPieIntrusionMax(placements: Placement[], cfg: PieLayoutConfig): number {
+  let m = 0;
+  for (const p of placements) {
+    if (p.insideSlice) continue;
+    const bx = placementBox(p, cfg);
+    const nx = Math.max(bx.left, Math.min(bx.right, 0));
+    const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
+    m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
+  }
+  return m;
+}
+
+/** 1 つの placement box の viewBox はみ出し量 (pixel, 4 辺の最大。負=内側はそのまま負値)。 */
+export function boxViewOverflowOf(p: Placement, cfg: PieLayoutConfig, coord: Coord): number {
+  const lb = placementBox(p, cfg);
+  const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
+  const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
+  const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
+  const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
+  return Math.max(-left, right - coord.width, -top, bottom - coord.height);
+}
+
+/** 全 placement box の viewBox はみ出し量の最大 (pixel, 0 下限)。 */
+export function boxViewOverflowMax(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
+  let m = 0;
+  for (const p of placements) m = Math.max(m, boxViewOverflowOf(p, cfg, coord));
+  return Math.max(0, m);
+}
+
+/** placement box を pixel 空間の {left,right,top,bottom} へ射影した配列 (leader×box 貫通判定の前処理)。 */
+export function projectBoxesToPixels(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): { left: number; right: number; top: number; bottom: number }[] {
+  return placements.map((p) => {
+    const lb = placementBox(p, cfg);
+    return {
+      left: Math.min(coord.xScale(lb.left), coord.xScale(lb.right)),
+      right: Math.max(coord.xScale(lb.left), coord.xScale(lb.right)),
+      top: Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom)),
+      bottom: Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom)),
+    };
+  });
+}
+
+/** いずれかの点が viewBox を 1px 超はみ出す leader の本数 (do-no-harm の oob 指標)。 */
+export function oobLeaderCount(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
+  const paths = realLeaderPaths(placements, cfg, coord);
+  let c = 0;
+  for (const pts of paths) {
+    if (!pts) continue;
+    for (const q of pts) {
+      if (q.x < -1 || q.x > coord.width + 1 || q.y < -1 || q.y > coord.height + 1) {
+        c += 1;
+        break;
+      }
+    }
+  }
+  return c;
+}
+
+/** verify と同基準で各円外ラベルの {labelY, anchorY} (pixel) を左右スタックに分けて返す。 */
+export function angularStacks(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): { left: { labelY: number; anchorY: number }[]; right: { labelY: number; anchorY: number }[] } {
+  const cx = coord.xScale(0);
+  const cy = coord.yScale(0);
+  const paths = realLeaderPaths(placements, cfg, coord);
+  const left: { labelY: number; anchorY: number }[] = [];
+  const right: { labelY: number; anchorY: number }[] = [];
+  placements.forEach((p, i) => {
+    if (p.insideSlice) return;
+    // 意図的に角度順を破る/固定する その他 のみ除外する: コア帯 (右上逃がし or 真上垂直) と
+    // 左拡張帯 (常に真上垂直 center 固定。アンカー最上・ラベル天井固定で構造的に concordant)、
+    // および forceTopRight。帯外 (>122°) で左右スタックに通常 rim 配置された その他 は順序
+    // チェックに参加させる (除外すると下位スタックでの逆転が見逃される)。
+    if (
+      p.item.name.startsWith("その他") &&
+      (topBandSonohokaZone(p.item) !== null || p.forceTopRight)
+    ) {
+      return;
+    }
+    const pts = paths[i];
+    if (!pts || pts.length < 2) return;
+    const head = pts[0];
+    const tail = pts[pts.length - 1];
+    const anchor =
+      Math.hypot(head.x - cx, head.y - cy) <= Math.hypot(tail.x - cx, tail.y - cy) ? head : tail;
+    const entry = { labelY: coord.yScale(p.y), anchorY: anchor.y };
+    (coord.xScale(p.x) < cx ? left : right).push(entry);
+  });
+  return { left, right };
+}
+
+/**
+ * 角度順の **discordant 対 (Kendall) の総数**: ラベル y 昇順で上に居るのにアンカーが下 (anchorY が
+ * 2px 超で大きい) という対を**全対**で数える。verify の隣接逆転 (adjacent descent) と違い、3 要素
+ * 以上の乱れでも 1 回の隣接スワップごとに厳密に減るため、untangle のバブル進行判定に使う (隣接指標
+ * だと逆転が別対へ移るだけで総数が減らず採用されない)。
+ */
+export function countAngularDiscordantPairs(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): number {
+  const { left, right } = angularStacks(placements, cfg, coord);
+  let dis = 0;
+  for (const arr of [left, right]) {
+    arr.sort((a, b) => a.labelY - b.labelY);
+    for (let i = 0; i < arr.length; i += 1) {
+      for (let j = i + 1; j < arr.length; j += 1) {
+        if (arr[j].anchorY < arr[i].anchorY - 2) dis += 1;
+      }
+    }
+  }
+  return dis;
+}
