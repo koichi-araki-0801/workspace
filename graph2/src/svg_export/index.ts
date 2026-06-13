@@ -66,6 +66,7 @@ import {
   trySplitNamePlacement,
   restoreSplitNamePlacement,
   relaxNameCondense,
+  FINAL_CONDENSE_MIN_SCALE,
 } from "./post_layout.js";
 import { buildFontFaceDefs } from "./font.js";
 import {
@@ -596,6 +597,296 @@ function applySplitNameFallback(placements: Placement[], cfg: PieLayoutConfig, c
       restoreSplitNamePlacement(p, snap);
     }
   }
+}
+
+/**
+ * 単行 (`lines.length===1`) の幅広ラベルを **標準2行** `[name, percent]` へ変換する (`trySplitNamePlacement`
+ * の `nameSplit` 形と違い、数値行に名前文字が乗らない = 他ラベルと同形)。`nameScaleX` を 1 から下限
+ * `FINAL_CONDENSE_MIN_SCALE`(0.7) まで 0.025 刻みで落として `canvasXlim` に収め、収まらなければ 0.7 で
+ * 打ち切る (見切れ許容)。revert 用に変換前 `{lines, nameSplit, nameScaleX}` を返す。
+ */
+function toTwoLineNamePlacement(
+  placement: Placement,
+  cfg: PieLayoutConfig,
+): { lines: string[]; nameSplit?: boolean; nameScaleX?: number } | null {
+  if (placement.insideSlice || placement.nameSplit || placement.lines.length !== 1) return null;
+  const snap = {
+    lines: placement.lines,
+    nameSplit: placement.nameSplit,
+    nameScaleX: placement.nameScaleX,
+  };
+  placement.lines = [placement.item.name, placement.item.percentText ?? ""];
+  placement.nameSplit = false;
+  const [xmin, xmax] = cfg.canvasXlim;
+  const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9);
+  let sx = 1;
+  placement.nameScaleX = 1;
+  while (sx - 0.025 >= FINAL_CONDENSE_MIN_SCALE - 1e-9) {
+    const b = placementBox(placement, cfg);
+    if (b.left >= xmin - tol && b.right <= xmax + tol) break;
+    sx = Math.round((sx - 0.025) * 1000) / 1000;
+    placement.nameScaleX = sx;
+  }
+  return snap;
+}
+
+/** `toTwoLineNamePlacement` の snap で placement を変換前へ戻す。 */
+function restoreTwoLineNamePlacement(
+  placement: Placement,
+  snap: { lines: string[]; nameSplit?: boolean; nameScaleX?: number },
+): void {
+  placement.lines = snap.lines;
+  placement.nameSplit = snap.nameSplit;
+  placement.nameScaleX = snap.nameScaleX;
+}
+
+/**
+ * 左側 near-equator 見切れラベルの縦 spread フォールバック (emit 最終段, do-no-harm)。
+ * `post_layout.ts` の `applyVisualViewBoxNudge` は水平シフトのみで、円の縦中心付近
+ * (`Math.abs(closestPieY) < cfg.pieRadius`) の左ラベルは左シフトが pie に頭打ちされ
+ * (同関数の `pieLeftX` クランプ) viewBox 左端を見切れたまま残る。本パスは該当ラベルを円の縦中心から
+ * 離す向き (中心より上は上・下は下) へ少しずつ動かし、その y で円が細る分だけ `applyVisualViewBoxNudge`
+ * が横可動域を取り戻して見切れを解消する (左 rim X が `finalX = -sqrt(r^2 - y^2)` 由来で |y| が増える
+ * ほど中心寄りになる幾何による)。同側の見切れラベルは equator 近接側から順に動かし、内側ラベルと
+ * 重ならないよう外側へ追い出して縦に広げる。広げた結果 leader が長い斜線になり交差しうるので
+ * `repairResidualLeaderDefects` (bend 再配置, do-no-harm) を掛けてから採否を判定する。採否は片側単位で
+ * チャート全体 `countDefects` の do-no-harm ゲート (clips 厳密減・crossings/pie/重なり/box 円侵入 非悪化)
+ * を満たす時だけ全件採用、満たさなければ全件 revert。`applyLowerLeftDropFallback` /
+ * `applySplitNameFallback` より先に走り、解消すれば後続は `before.clips === 0` で no-op。見切れの無い
+ * チャートは早期 return で完全無変更 (= baseline byte 不変)。
+ */
+function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
+  const { xScale, yScale } = coord;
+  const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
+  const cxp = xScale(0);
+  const cyp = yScale(0);
+  const pixBox = (p: Placement) => {
+    const lb = placementBox(p, cfg);
+    return {
+      left: Math.min(xScale(lb.left), xScale(lb.right)),
+      right: Math.max(xScale(lb.left), xScale(lb.right)),
+      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
+      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
+    };
+  };
+  const clipsLeftViewBox = (p: Placement): boolean => pixBox(p).left < -1;
+  const countBoxPie = (): number => {
+    let n = 0;
+    for (const p of placements) {
+      if (p.insideSlice) continue;
+      const b = pixBox(p);
+      const closestX = Math.max(b.left, Math.min(cxp, b.right));
+      const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
+      if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
+    }
+    return n;
+  };
+  const overlapsOf = (d: DefectCounts): number => d.total - d.clips - d.crossings - d.pie;
+  // `post_layout.ts` の同名 (非 export) と同等。符号付き Y 変位方向の可動限界張り付き判定。
+  const blockedInY = (p: Placement, dyDelta: number): boolean => {
+    if (dyDelta > 0 && typeof p.maxTextY === "number" && p.y >= p.maxTextY - 1e-9) return true;
+    if (dyDelta < 0 && typeof p.minTextY === "number" && p.y <= p.minTextY + 1e-9) return true;
+    return false;
+  };
+
+  let before = countDefects(placements, cfg, coord);
+  if (before.clips === 0) return;
+  let beforePieBox = countBoxPie();
+
+  // 隣接ラベル間の最小縦間隔 (`countDefects` の重なり閾値 6px に余裕)。
+  const marginLogical = 8 / (pieRpx / cfg.pieRadius);
+  // placement の論理 box (top > bot, +y = 上)。
+  const lbox = (p: Placement) => {
+    const b = placementBox(p, cfg);
+    return { top: Math.max(b.top, b.bottom), bot: Math.min(b.top, b.bottom) };
+  };
+
+  // 対象: 左側 (x<0) の外側ラベルで左端を見切れ、かつ水平 nudge が pie ブロックされる
+  // (|y| < pieRadius) もの。名前 2 行分割済 / 2 行左列は専用パス管轄なので除外。下left ドロップ
+  // 候補 (`lowerLeftDropLeader`) は本パスを `applyLowerLeftDropFallback` より先に試し、縦 spread で
+  // 解消できればドロップ不要にするため除外しない。
+  const targets = placements.filter(
+    (p) =>
+      !p.insideSlice &&
+      p.x < 0 &&
+      Math.abs(p.y) < cfg.pieRadius &&
+      !p.nameSplit &&
+      !p.twoLineLeftColumn &&
+      clipsLeftViewBox(p),
+  );
+  if (targets.length === 0) return;
+
+  const step = radialFraction(cfg, 0.01, 0.06);
+  const MAX_ITERS = 200;
+
+  // 円の縦中心から離す向き `dir` へ、見切れ解消 (または可動限界) まで少しずつ動かし、各ステップで
+  // x を pie 限界まで右へ寄せ直す (`applyVisualViewBoxNudge`)。ラベル幅は変えず x のみ寄せる。
+  const stepAway = (p: Placement, dir: number): void => {
+    for (let i = 0; i < MAX_ITERS; i += 1) {
+      if (blockedInY(p, dir)) break;
+      p.y += dir * step;
+      if (typeof p.maxTextY === "number" && p.y > p.maxTextY) p.y = p.maxTextY;
+      if (typeof p.minTextY === "number" && p.y < p.minTextY) p.y = p.minTextY;
+      applyVisualViewBoxNudge([p], cfg);
+      if (!clipsLeftViewBox(p)) break;
+    }
+  };
+
+  // 片側 (上 or 下) の見切れラベル群を equator 近接側から外側へ順に動かす。各ラベルを見切れ解消位置
+  // まで動かした後、内側 (equator 寄り) の直前ラベルと重ならないよう外側へ追い出す。これにより外側
+  // ラベルが内側ラベルのぶん余分に動いて縦に広がり、群全体が衝突せず収まる (単純な貪欲 1 件ずつでは
+  // 外側ラベルが「自身が解消した時点」で止まり内側ラベルの空きを作れない)。採否は片側単位の do-no-harm
+  // ゲートで全件採用/全件 revert する。
+  const processSide = (group: Placement[], dir: number): void => {
+    if (group.length === 0) return;
+    group.sort((a, b) => Math.abs(a.y) - Math.abs(b.y)); // equator 近接側 (|y| 小) から
+    // 全 placement の幾何 snapshot (revert 用)。後段 leader 修復が他ラベルの bend も触りうるため全件。
+    const snaps = placements.map((p) => ({
+      p,
+      x: p.x,
+      y: p.y,
+      lb: { ...p.leaderBend },
+      le: { ...p.leaderEndpoint },
+    }));
+    // 見切れる 1 行 (lines.length===1) の幅広ラベルは box が広すぎて equator 近傍では収まらない。先に
+    // **標準2行** [name, %] へ変換 (`toTwoLineNamePlacement`) して箱幅を狭める (数値行に名前文字を乗せない
+    // = 他ラベルと同形)。これにより縦移動で収まらない時の過剰な移動採用 (見た目改善のない他チャート
+    // 巻き込み) を避け、収まらなければ revert 時に変換も戻す。
+    const splitSnaps: {
+      p: Placement;
+      snap: ReturnType<typeof toTwoLineNamePlacement>;
+      origLeft: number; // 1 行時の左端 px (2 行化で見切れ量が減ったか判定する基準)
+    }[] = [];
+    for (const p of group) {
+      if (clipsLeftViewBox(p) && p.lines.length === 1) {
+        const origLeft = pixBox(p).left;
+        const s = toTwoLineNamePlacement(p, cfg);
+        if (s) splitSnaps.push({ p, snap: s, origLeft });
+      }
+    }
+    const groupOrigY = group.map((p) => p.y); // 移動採用後に「実際に動いたラベル」を識別する基準
+    let innerEdge: number | null = null; // 直前 (内側) ラベルの外側エッジ (上群=top / 下群=bot)
+    for (const p of group) {
+      stepAway(p, dir);
+      if (innerEdge !== null) {
+        const box = lbox(p);
+        if (dir > 0) {
+          const need = innerEdge + marginLogical - box.bot; // p(上) の下端を直前 top + margin 以上へ
+          if (need > 0) {
+            p.y += need;
+            if (typeof p.maxTextY === "number" && p.y > p.maxTextY) p.y = p.maxTextY;
+            applyVisualViewBoxNudge([p], cfg);
+          }
+        } else {
+          const need = box.top - (innerEdge - marginLogical); // p(下) の上端を直前 bot - margin 以下へ
+          if (need > 0) {
+            p.y -= need;
+            if (typeof p.minTextY === "number" && p.y < p.minTextY) p.y = p.minTextY;
+            applyVisualViewBoxNudge([p], cfg);
+          }
+        }
+      }
+      innerEdge = dir > 0 ? lbox(p).top : lbox(p).bot;
+    }
+    const revertGeometry = (): void => {
+      for (const s of snaps) {
+        s.p.x = s.x;
+        s.p.y = s.y;
+        s.p.leaderBend = s.lb;
+        s.p.leaderEndpoint = s.le;
+      }
+    };
+    // 採用した移動ラベルのリーダを箱「アンカー側の縁・水平中央」へ寄せて見やすくする (do-no-harm)。
+    // 移動採用が確定した後にフラグを立て直し再評価し、悪化したらフラグと bend のみ戻す (移動は維持)。
+    const refineMovedLeaders = (): void => {
+      const moved = group.filter((p, i) => Math.abs(p.y - groupOrigY[i]) > 1e-6);
+      if (moved.length === 0) return;
+      const leaderSnap = placements.map((p) => ({
+        p,
+        lb: { ...p.leaderBend },
+        le: { ...p.leaderEndpoint },
+      }));
+      for (const p of moved) p.declipBottomLeader = true;
+      repairResidualLeaderDefects(placements, cfg, coord);
+      const a = countDefects(placements, cfg, coord);
+      const aPieBox = countBoxPie();
+      const ok =
+        a.clips <= before.clips &&
+        a.crossings <= before.crossings &&
+        a.pie <= before.pie &&
+        overlapsOf(a) <= overlapsOf(before) &&
+        aPieBox <= beforePieBox;
+      if (ok) {
+        before = a;
+        beforePieBox = aPieBox;
+      } else {
+        for (const p of moved) p.declipBottomLeader = undefined;
+        for (const s of leaderSnap) {
+          s.p.leaderBend = s.lb;
+          s.p.leaderEndpoint = s.le;
+        }
+      }
+    };
+
+    // 手順1: 縦に広げた結果 leader が長い斜線になり交差しうるので既存 leader 修復 (do-no-harm) を掛けて
+    // から、移動+spread を do-no-harm ゲート (clips 厳密減) で判定する。
+    repairResidualLeaderDefects(placements, cfg, coord);
+    const moveAfter = countDefects(placements, cfg, coord);
+    const moveAfterPieBox = countBoxPie();
+    const moveAdopt =
+      moveAfter.clips < before.clips &&
+      moveAfter.crossings <= before.crossings &&
+      moveAfter.pie <= before.pie &&
+      overlapsOf(moveAfter) <= overlapsOf(before) &&
+      moveAfterPieBox <= beforePieBox;
+    if (moveAdopt) {
+      before = moveAfter;
+      beforePieBox = moveAfterPieBox;
+      refineMovedLeaders();
+      return;
+    }
+
+    // 手順2: 移動失敗。完全 revert の前に「分割維持」を試す (例 スウェーデンクローナ: 円脇に幅が入らず
+    // 移動では収まらないが、2 行分割で見切れ量は縮む — ユーザは 1 行見切れより 2 行見切れを好む)。幾何
+    // (x/y/leader) を元へ戻し分割 (lines/nameSplit/nameScaleX) は維持、元位置で x 再フィット → 各分割対象
+    // の左はみ出し量が減り、かつ他カテゴリ非悪化 (clips は同値可) なら分割維持。
+    revertGeometry();
+    if (splitSnaps.length > 0) {
+      for (const { p } of splitSnaps) applyVisualViewBoxNudge([p], cfg);
+      repairResidualLeaderDefects(placements, cfg, coord);
+      const splitAfter = countDefects(placements, cfg, coord);
+      const splitAfterPieBox = countBoxPie();
+      const magnitudeReduced = splitSnaps.every(({ p, origLeft }) => pixBox(p).left > origLeft + 1e-6);
+      const splitAdopt =
+        magnitudeReduced &&
+        splitAfter.clips <= before.clips &&
+        splitAfter.crossings <= before.crossings &&
+        splitAfter.pie <= before.pie &&
+        overlapsOf(splitAfter) <= overlapsOf(before) &&
+        splitAfterPieBox <= beforePieBox;
+      if (splitAdopt) {
+        before = splitAfter;
+        beforePieBox = splitAfterPieBox;
+        return;
+      }
+    }
+
+    // 手順1・2 とも不採用: 2 行変換も含め完全 revert (baseline byte 不変)。
+    for (const { p, snap } of splitSnaps) {
+      if (snap) restoreTwoLineNamePlacement(p, snap);
+    }
+    revertGeometry();
+  };
+
+  // 中心より上 (y>=0) の見切れラベルは上へ、下 (y<0) は下へ。各側を片側単位でゲートする。
+  processSide(
+    targets.filter((p) => p.y >= 0),
+    1,
+  );
+  processSide(
+    targets.filter((p) => p.y < 0),
+    -1,
+  );
 }
 
 /**
@@ -2773,6 +3064,12 @@ export async function renderPdfStylePieToSvg(
     // 最終安全網 (do-no-harm)。cascade の nudge を静的 minTextX が引き戻す取りこぼし (例
     // stress_top_cluster_8 "F") を解消する。侵入の無いチャートは早期 return で無変更。
     enforceFinalPieClearance(textPlacements, cfg, { xScale, yScale, width, height });
+
+    // 左側 near-equator の見切れラベルを、円の縦中心から離す向きへ縦 spread して左 rim を細らせ
+    // viewBox 左端の見切れを解消する最終手段 (do-no-harm)。水平 nudge が pie にブロックされる
+    // (|y| < pieRadius) ラベルが対象。`applyLowerLeftDropFallback` / `applySplitNameFallback` より
+    // 先に試し、解消すれば後続が no-op になる。採否は片側単位で `countDefects` の clips 厳密減・他カテゴリ非悪化。
+    applyVerticalDeclipFallback(textPlacements, cfg, { xScale, yScale, width, height });
 
     // 9時直近で長体下限でも見切れる幅広長名を、下left ドロップ + 斜めリーダーで収める最終手段
     // (do-no-harm)。名前 2 行分割より先に試し、収まれば split 不要。位置確定後に走るので最終配置を

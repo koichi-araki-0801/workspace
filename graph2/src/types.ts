@@ -259,6 +259,13 @@ export interface Placement {
    * viewBox 端 (`svgWidthPx`) まで可動域として許す。`applyTwoLineLeftColumn` が立てる。
    */
   twoLineLeftColumn?: boolean;
+  /**
+   * `applyVerticalDeclipFallback` が縦 spread で上/下へ動かして採用したラベル。リーダーを箱の縦中央
+   * (`leaderAttachTargetY`) ではなく **アンカー側の縁の水平中央** (上へ動かした=アンカーが下なら下縁中央)
+   * へ接続し、長い斜めリーダーを見やすくする。`computeDrawnLeader` の `alwaysDraw` 経路でのみ効く
+   * (描画パス限定・scorer 不変)。フラグを立てるラベルは見切れチャートの移動採用分のみ = 他チャート byte 不変。
+   */
+  declipBottomLeader?: boolean;
 }
 
 /**

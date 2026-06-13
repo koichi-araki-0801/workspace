@@ -95,12 +95,30 @@ export function computeDrawnLeader(
       // 円貫通/交差は悪化しない。
       endpoint.x = (finalBox.left + finalBox.right) / 2;
       endpoint.y = finalBox.top + cfg.cornerGap; // 論理 y-up: top の少し上 (box 外)
+    } else if (placement.declipBottomLeader) {
+      // 縦 spread で動かしたラベル (`applyVerticalDeclipFallback`)。長い斜めリーダーを見やすくするため
+      // 接続点を **アンカー側の縁の水平中央** へ寄せる (上記 lowerLeftDrop 分岐のミラー)。アンカーが箱
+      // より下 (上へ動かした) なら下縁中央、上なら上縁中央。endpoint を縁の cornerGap だけ box 外に置き
+      // truncate が中央縁で止める。接触点が右縁から中央へ動くだけで円から遠ざかるため円貫通/交差は悪化しない。
+      endpoint.x = (finalBox.left + finalBox.right) / 2;
+      const anchorBelow = placement.leaderAnchor.y < (finalBox.top + finalBox.bottom) / 2;
+      endpoint.y = anchorBelow ? finalBox.bottom - cfg.cornerGap : finalBox.top + cfg.cornerGap;
     } else {
       endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
     }
   }
   let bend = placement.leaderBend;
-  if (placement.leaderBendFollowsEndpointY) {
+  if (alwaysDraw && placement.declipBottomLeader) {
+    // L 字 (縦優先): アンカー x で垂直に上がり endpoint.y で水平に折れて下縁中央へ。アンカーは rim 上で
+    // 上へ動かした (anchorY と endpoint.y が同符号・|endpoint.y|>|anchorY|) ため垂直区間は anchor から
+    // 即円外へ抜ける = 円貫通なし。下記 W 弦リルートは両区間とも円外なので不発 (= 斜線化しない)。
+    const anchorY = placement.leaderAnchor.y;
+    const minOffset = radialFraction(cfg, 0.005, 0.05);
+    bend = {
+      x: placement.leaderAnchor.x,
+      y: anchorY >= 0 ? Math.max(endpoint.y, anchorY + minOffset) : Math.min(endpoint.y, anchorY - minOffset),
+    };
+  } else if (placement.leaderBendFollowsEndpointY) {
     const anchorY = placement.leaderAnchor.y;
     const minOffset = radialFraction(cfg, 0.005, 0.05);
     const rimDegenerate =
