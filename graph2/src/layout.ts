@@ -37,6 +37,7 @@ import {
   horizontalLowerLeftDropAmount,
   angleInBand,
   visualTextWidthUnits,
+  scaledLabelWidthUnits,
   degToRad,
 } from "./svg_geom.js";
 import {
@@ -900,6 +901,59 @@ function markTopBandSmallRight(left: LayoutItemReady[], diagnostics: Diagnostics
 }
 
 /**
+ * 9時直近の幅広・長名 上左ラベルが、長体下限 (nameCondenseSteps[0]) でも viewBox 左端を見切れる
+ * 構成 (例 world_bond_idx_currency「オフショア人民元」) で、当該 1 ラベルを下left (水平軸下・円が
+ * 横へ逃げ帯が広い領域) へ 2 行のまま配置し、slice rim から斜めリーダーで接続する印を立てる
+ * (参考PDF「オーストラリア」配置)。rim 端 (useStackRimY) で end-anchor 張り付けて左へ伸び見切れる
+ * 代わりに、lowerLeftDropLeader + forceHorizontalLowerLeftDrop (内側 X クランプ解放) で円外へ伸ばす。
+ *
+ * 本関数は「候補識別」のみを行う前フィルタで、実 clip 判定と採否は emit 側
+ * applyLowerLeftDropFallback の do-no-harm に委ねる (実際に見切れている placement のみドロップを
+ * 試し、clips 厳密減・他非悪化の時だけ採用)。よってゲートは緩くてよい。フィルネーム特例ではなく
+ * 幾何 + モード + 閉形式見切れ判定でゲートする:
+ *  - twoLineLeftStackMode / topBandClusterMode でない (独自の viewBox 基準配置 / 12時集約を持ち
+ *    下left ドロップと噛み合わないため除外)。leftStackMode / triad / 通常は許可。
+ *  - 候補は side==="left" && isUpperLeft && isLong && 非 flip、非「その他」、9時直近帯 (150–210°)
+ *  - 長体下限幅 (scaledLabelWidthUnits, nameScaleX=nameCondenseSteps[0], 2行) が、最も水平な
+ *    ラベルが水平軸付近へ来た時の最左 anchor = -(pieRadius + clearance) で viewBox 左端を越える
+ *    (最悪ケースの前フィルタ。実 clip でなければ fallback がスキップする)
+ * 該当が複数あれば最も 9時に近い (cos が最小) 1 件のみへ付与する。
+ */
+function markClippedUpperLeftLongDrop(
+  left: LayoutItemReady[],
+  diagnostics: Diagnostics,
+  cfg: PieLayoutConfig,
+): void {
+  if (diagnostics.twoLineLeftStackMode || diagnostics.topBandClusterMode) return;
+
+  const floorScale = cfg.nameCondenseSteps[0] ?? 0.7;
+  const viewBoxLeft = -cfg.svgWidthPx / 2 / cfg.pxPerUnit;
+  const tol = 0.02; // ≈ 3px 安全代 (前フィルタなので実際に見切れる場合のみ通す)
+  // 最も水平な (9時直近) 長名ラベルは overlap 解消等で水平軸付近へ来やすく、end-anchor 右端が
+  // 円の最大幅 (赤道) で pieClearance クランプされる。よって取り得る最左の anchor =
+  // -(pieRadius + clearance)。長体下限でもこの最悪ケースで viewBox 左端を越えるなら見切れ得る。
+  const worstAnchorX = -(cfg.pieRadius + cfg.pieLabelClearance);
+  const candidates = left.filter((it) => {
+    if (it.flipToRight || it.flipToLeft) return false;
+    if (!(it.isUpperLeft && it.isLong)) return false;
+    if (it.name.startsWith("その他")) return false;
+    if (!angleInBand(normalizeAngle(it.midAngle), 180, 30)) return false;
+    const width = scaledLabelWidthUnits(it.name, it.percentText ?? "", 2, floorScale, cfg);
+    return worstAnchorX - width < viewBoxLeft - tol;
+  });
+  if (candidates.length === 0) return;
+  let best = candidates[0];
+  for (const it of candidates) {
+    if (Math.cos(degToRad(it.midAngle)) < Math.cos(degToRad(best.midAngle))) best = it;
+  }
+  // 識別のみ。通常レイアウト/カスケードは無変更 (rim 2 行で見切れる baseline のまま) に保ち、
+  // svg_export 側 applyLowerLeftDropFallback が emit 最終段で下left ドロップを試し、チャート全体の
+  // 不具合 (countDefects) が clips 厳密減・他非悪化の時だけ採用する (do-no-harm)。密チャートで
+  // 交差/反転を生む場合は revert され、当該チャートは無変更 = 回帰ゼロ。
+  best.lowerLeftDropLeader = true;
+}
+
+/**
  * 「1強(≥90%)+極小トップ2枚」型 (例 manulife_country: 日本99.3/フランス0.6/米国0.1) で、上左に並ぶ
  * 極小スライス2枚の双方に forceOutsideLeader を立て、svg_export runCascadeOnce が rank 9 起点
  * (buildOutsideLeaderDraft) で leader を引けるようにする。これをしないと、2枚が上左で混み合い片方の
@@ -1324,6 +1378,7 @@ export function layoutLabels(items: LayoutItem[], cfg: PieLayoutConfig): LayoutR
 
   assignUpperLeftRenderY(left, diagnostics, cfg);
   markTopBandSmallRight(left, diagnostics);
+  markClippedUpperLeftLongDrop(left, diagnostics, cfg);
   markForcedTopSliverLeader(left, diagnostics);
   markForcedTopSliverEscapeRight(left, diagnostics);
   markLoneTopSliverLeader(candidates, left, diagnostics);

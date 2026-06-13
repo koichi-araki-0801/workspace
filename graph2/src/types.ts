@@ -109,6 +109,14 @@ export interface LayoutItem {
   // layout.ts markForcedTopSliverLeader が双方に立て、svg_export runCascadeOnce が参照する。
   forceOutsideLeader?: boolean;
 
+  // 9時直近の幅広・長名 上左ラベルが、長体下限でも viewBox 左端を見切れる構成 (例
+  // world_bond_idx_currency「オフショア人民元」) で立てる印。layout.ts markClippedUpperLeftLongDrop
+  // が当該 1 ラベルに付与し、svg_export runCascadeOnce が rank 9 起点 (buildLowerLeftDropLeaderDraft)
+  // へ送る。円が横へ逃げ帯が広い下left (水平軸下) へ 2 行のまま配置し、slice rim から斜めリーダーで
+  // 接続する (参考PDF「オーストラリア」配置)。forceHorizontalLowerLeftDrop (内側 X クランプ解放) と
+  // twoLineLeftColumn (condense/relax を viewBox 基準に) を併せて立てる。
+  lowerLeftDropLeader?: boolean;
+
   // 「1強(80–90%) + 上左に極小1枚 + 上中央を『その他』が占有」型 (例 world_bond_idx_asset) の
   // 孤立極小スライス印。forceOutsideLeader と併せて layout.ts markLoneTopSliverLeader が立てる。
   // この印が立つチャートでは svg_export cascadeWithSonohokaPick が『その他』を右上へ確定させ

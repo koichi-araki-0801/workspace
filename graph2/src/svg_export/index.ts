@@ -37,6 +37,7 @@ import {
   buildInsideDraft,
   buildOutsideRimDraft,
   buildOutsideLeaderDraft,
+  buildLowerLeftDropLeaderDraft,
   finalizePlacement,
   TOP_BAND_HALF_WIDTH_DEG,
   BOTTOM_BAND_HALF_WIDTH_DEG,
@@ -865,6 +866,90 @@ function applySplitNameFallback(placements: Placement[], cfg: PieLayoutConfig, c
       beforePieBox = afterPieBox;
     } else {
       restoreSplitNamePlacement(p, snap);
+    }
+  }
+}
+
+/**
+ * 下left ドロップ + 斜めリーダー フォールバック (emit 最終段, do-no-harm)。layout.ts
+ * markClippedUpperLeftLongDrop が識別した lowerLeftDropLeader ラベル (9時直近で長体下限でも
+ * viewBox 左端を見切れる幅広長名) を、円が横へ逃げ帯が広い下left へ 2 行のまま置き直し
+ * (buildLowerLeftDropLeaderDraft)、slice rim から斜めリーダーで接続する (参考PDF「オーストラリア」)。
+ * チャート全体の不具合 (countDefects) が「clips 厳密減・crossings/pie/重なり/box円侵入 非悪化」を
+ * 満たす時だけ採用する。密チャート (例 asset_long_labels_9) で交差/順序反転を生む場合は revert され、
+ * 当該チャートは baseline (rim 2 行) のまま = 回帰なし。applySplitNameFallback と同じ do-no-harm 流儀。
+ */
+function applyLowerLeftDropFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
+  const { xScale, yScale, width, height } = coord;
+  const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
+  const cxp = xScale(0);
+  const cyp = yScale(0);
+  const pixBox = (p: Placement) => {
+    const lb = placementBox(p, cfg);
+    return {
+      left: Math.min(xScale(lb.left), xScale(lb.right)),
+      right: Math.max(xScale(lb.left), xScale(lb.right)),
+      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
+      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
+    };
+  };
+  const clipsViewBox = (p: Placement): boolean => {
+    const b = pixBox(p);
+    return b.left < -1 || b.right > width + 1 || b.top < -1 || b.bottom > height + 1;
+  };
+  const countBoxPie = (): number => {
+    let n = 0;
+    for (const p of placements) {
+      if (p.insideSlice) continue;
+      const b = pixBox(p);
+      const closestX = Math.max(b.left, Math.min(cxp, b.right));
+      const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
+      if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
+    }
+    return n;
+  };
+  const overlapsOf = (d: DefectCounts): number => d.total - d.clips - d.crossings - d.pie;
+
+  let before = countDefects(placements, cfg, coord);
+  if (before.clips === 0) return;
+  let beforePieBox = countBoxPie();
+  for (let i = 0; i < placements.length; i += 1) {
+    const p = placements[i];
+    if (p.insideSlice || !p.item.lowerLeftDropLeader || !clipsViewBox(p)) continue;
+    const item = p.item as LayoutItemReady;
+    // 下left ドロップ placement を構築。forceHorizontalLowerLeftDrop を一時的に立てて
+    // clampAndBuildPlacement の内側 (canvasXlim) X クランプを解放し、viewBox 端まで伸ばせるようにする。
+    const prevDrop = item.forceHorizontalLowerLeftDrop;
+    item.forceHorizontalLowerLeftDrop = true;
+    const form = outsideFormForRank(item, cfg, 2); // 2 行原寸起点
+    const dropP = finalizePlacement(
+      item,
+      cfg,
+      buildLowerLeftDropLeaderDraft(item, cfg, form),
+      form,
+    ).textPlacement;
+    item.forceHorizontalLowerLeftDrop = prevDrop;
+    dropP.twoLineLeftColumn = true; // 可動域/condense を viewBox 基準にし、収まる最大サイズへ
+    placements[i] = dropP;
+    // emit パイプラインと同順で dropP を整える: viewBox はみ出しを pie 手前まで右シフト →
+    // 収まるまで長体 → 収まる範囲で原寸へ緩和。pie clearance は左ラベルの上限のみ与え右へ
+    // 引き戻さないため、nudge を入れないと draft 初期 x のまま左へ張り出して見切れる。
+    applyVisualViewBoxNudge([dropP], cfg);
+    applyFinalCondenseToFit([dropP], cfg);
+    relaxNameCondense([dropP], cfg);
+    const after = countDefects(placements, cfg, coord);
+    const afterPieBox = countBoxPie();
+    const adopt =
+      after.clips < before.clips &&
+      after.crossings <= before.crossings &&
+      after.pie <= before.pie &&
+      overlapsOf(after) <= overlapsOf(before) &&
+      afterPieBox <= beforePieBox;
+    if (adopt) {
+      before = after;
+      beforePieBox = afterPieBox;
+    } else {
+      placements[i] = p;
     }
   }
 }
@@ -3254,6 +3339,11 @@ export async function renderPdfStylePieToSvg(
     // 最終安全網 (do-no-harm)。cascade の nudge を静的 minTextX が引き戻す取りこぼし (例
     // stress_top_cluster_8 "F") を解消する。侵入の無いチャートは早期 return で無変更。
     enforceFinalPieClearance(textPlacements, cfg, { xScale, yScale, width, height });
+
+    // 9時直近で長体下限でも見切れる幅広長名を、下left ドロップ + 斜めリーダーで収める最終手段
+    // (do-no-harm)。名前 2 行分割より先に試し、収まれば split 不要。位置確定後に走るので最終配置を
+    // 正しく評価する。密チャートで交差/反転を生む場合は revert。
+    applyLowerLeftDropFallback(textPlacements, cfg, { xScale, yScale, width, height });
 
     // 下限長体 (0.7) でも viewBox を見切れる長カタカナ/長熟語を、名前 2 行分割で収める最終手段。
     // 全後段の **後** に実行するので位置は確定済 = ゲートが最終配置を正しく見る。採否は countDefects

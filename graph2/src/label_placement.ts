@@ -568,6 +568,46 @@ export function buildOutsideLeaderDraft(
   };
 }
 
+/** lowerLeftDropLeader ラベルの初期 drop Y (水平軸下、pieRadius 比)。baseline "top" なので
+ *  textY は box 下端、box は上へ h 伸びる。box 最近接端 (= textY + h) が円から離れて帯が広い
+ *  位置 (|y| ≳ 0.45) に来るよう十分深く取る。深いほど condense が緩み readable だが下側ラベルへ
+ *  近づくため、ユーロ等と重ならない範囲で設定。 */
+const LOWER_LEFT_DROP_Y_FACTOR = 0.9;
+
+/**
+ * lowerLeftDropLeader ラベル (例 オフショア人民元) の draft。9時直近の幅広長名が rim で見切れる
+ * のを避け、円が横へ逃げ帯が広い「下left (水平軸下)」へ 2 行のまま配置する。pieClearance が
+ * end-anchor 右端を円左縁へクランプし、forceHorizontalLowerLeftDrop が内側 (canvasXlim) クランプを
+ * 解放、twoLineLeftColumn (呼び出し側で付与) が condense/relax を viewBox 基準にする。leader は
+ * item.anchorX/anchorY (slice rim) から自動接続し、computeDrawnLeader の円弦リルートで円外を回る
+ * 斜めリーダーになる (参考PDF「オーストラリア」)。
+ */
+export function buildLowerLeftDropLeaderDraft(
+  item: LayoutItemReady,
+  cfg: PieLayoutConfig,
+  form: LabelForm,
+): PlacementDraft {
+  const textY = -cfg.pieRadius * LOWER_LEFT_DROP_Y_FACTOR;
+  const textX = -cfg.pieRadius; // pieClearance が現在 y の円左縁へクランプする初期値
+  return {
+    fragments: [],
+    textX,
+    textY,
+    anchor: "end",
+    baseline: "top",
+    lineEndX: textX,
+    lineEndY: textY,
+    lineStart: { x: textX, y: textY },
+    lineEnd: { x: textX, y: textY },
+    allowSegmentNudge: true,
+    skipLeader: false,
+    pieClearance: true,
+    dominantOutsideEdge: true,
+    nameScaleX: form.nameScaleX,
+    condenseNamePortionOnly: form.condenseNamePortionOnly,
+  };
+}
+
 /**
  * draft + 補足情報 (lines / measured / bbox 算定幅) から最終 Placement を組み立てる
  * **共通ヘルパ**。nudge 適用・bbox 上下限・pie クリアランス・viewBox 境界クランプを
