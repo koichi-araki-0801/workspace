@@ -1236,6 +1236,57 @@ function countLeaderThroughLabels(
   return c;
 }
 
+// -----------------------------------------------------------------------------
+// 後処理 (角度順整列 / 各種 escape / 修復) の do-no-harm ゲートで共通に使う「不具合量」計測。
+// これらはどの後処理関数でも「全 placement を横断し最大侵入/重なり/はみ出しを測る」純関数で、
+// 以前は各関数内にローカルクロージャとして重複していたものをここへ集約した (挙動は完全同一)。
+// -----------------------------------------------------------------------------
+
+/** 全 placement 対の最大縦重なり量 (logical, X が重なる対のみ)。do-no-harm の ovl 指標。 */
+function boxOverlapMax(placements: Placement[], cfg: PieLayoutConfig): number {
+  let m = 0;
+  for (let i = 0; i < placements.length; i += 1) {
+    const a = placementBox(placements[i], cfg);
+    for (let j = i + 1; j < placements.length; j += 1) {
+      const b = placementBox(placements[j], cfg);
+      const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
+      if (ox > 0 && oy > 0) m = Math.max(m, oy);
+    }
+  }
+  return m;
+}
+
+/** 円外ラベル box の pie 円 (中心=logical 原点) への最大侵入深さ (logical)。verify "label inside pie" のゲート。 */
+function boxPieIntrusionMax(placements: Placement[], cfg: PieLayoutConfig): number {
+  let m = 0;
+  for (const p of placements) {
+    if (p.insideSlice) continue;
+    const bx = placementBox(p, cfg);
+    const nx = Math.max(bx.left, Math.min(bx.right, 0));
+    const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
+    m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
+  }
+  return m;
+}
+
+/** 1 つの placement box の viewBox はみ出し量 (pixel, 4 辺の最大。負=内側はそのまま負値)。 */
+function boxViewOverflowOf(p: Placement, cfg: PieLayoutConfig, coord: Coord): number {
+  const lb = placementBox(p, cfg);
+  const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
+  const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
+  const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
+  const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
+  return Math.max(-left, right - coord.width, -top, bottom - coord.height);
+}
+
+/** 全 placement box の viewBox はみ出し量の最大 (pixel, 0 下限)。 */
+function boxViewOverflowMax(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
+  let m = 0;
+  for (const p of placements) m = Math.max(m, boxViewOverflowOf(p, cfg, coord));
+  return Math.max(0, m);
+}
+
 /** verify と同基準で各円外ラベルの {labelY, anchorY} (pixel) を左右スタックに分けて返す。 */
 function angularStacks(
   placements: Placement[],
@@ -1332,19 +1383,7 @@ function separateCrossingPairs(
   const yHi = cfg.canvasYlim[1];
   // 全 placement 対の最大縦重なり (X が重なる対のみ)。resolveLabelOverlaps が他ラベルも動かすため
   // stack 内に閉じず全体で測る。
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
   const anyOutOfView = (): boolean =>
     placements.some((p) => {
       const bx = placementBox(p, cfg);
@@ -1352,17 +1391,7 @@ function separateCrossingPairs(
     });
   // 円外ラベル box の pie 円 (中心=logical 原点) への最大侵入量。引き離しで縦に動いた box が
   // 円へ食い込むのを do-no-harm で弾くため (maxOverlap は box×box のみで pie 侵入を見ない)。
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
-    }
-    return m;
-  };
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
 
   const beforeCross = countLeaderCrossings(placements, cfg, coord);
   if (beforeCross === 0) return; // 交差が無ければ触らない (OK チャートを乱さない)
@@ -1463,42 +1492,9 @@ function untangleAngularOrderBySwap(
   };
 
   // do-no-harm 指標 (separateCrossingPairs / escapeUpperLeftTinyLeaders と同性質, 全 placement 横断)。
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, pieR - Math.hypot(nx, ny));
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
   const anyOutOfView = (): boolean =>
     placements.some((p) => {
       const bx = placementBox(p, cfg);
@@ -1665,42 +1661,9 @@ function reorderLeftStackWithCondense(
   const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
   const pieR = cfg.pieRadius;
 
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, pieR - Math.hypot(nx, ny));
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
   const beforeInv = countAngularDiscordantPairs(placements, cfg, coord);
   if (beforeInv === 0) return; // 逆転が無ければ触らない (OK チャートを乱さない)。
@@ -1838,19 +1801,7 @@ function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutConfig): 
   if (cum <= tol) return;
 
   // do-no-harm 採点: 全 placement 横断の最大縦重なり (X が重なる対のみ)。
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
   const before = maxOverlap();
   const origY = stack.map((p) => p.y);
   const origX = stack.map((p) => p.x);
@@ -1926,44 +1877,11 @@ function escapeUpperLeftTinyLeaders(
   // do-no-harm 指標 (全 placement 横断。separateCrossingPairs / applyLeftStackGapClose と同性質)。
   const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
   const tolPx = 2;
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const A = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const B = placementBox(placements[j], cfg);
-        const ox = Math.min(A.right, B.right) - Math.max(A.left, B.left);
-        const oy = Math.min(A.top, B.top) - Math.max(A.bottom, B.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
-    }
-    return m;
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
   // viewBox はみ出し量 (px, 4 辺)。横移動 (dxLeft) で左へ押し出すため縦だけでなく横も測り、
   // verify と同じ pixel 空間 [0,width]×[0,height] で判定する。
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
   const beforeOverlap = maxOverlap();
   const beforePie = maxPieIntrusion();
@@ -2129,42 +2047,9 @@ function reorderTopBandLeftClusterByAngle(
   );
   if (cluster.length < 2) return;
 
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const A = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const B = placementBox(placements[j], cfg);
-        const ox = Math.min(A.right, B.right) - Math.max(A.left, B.left);
-        const oy = Math.min(A.top, B.top) - Math.max(A.bottom, B.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, pieR - Math.hypot(nx, ny));
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
   // 実描画 leader のパイ貫通最大量 (logical, 中心=原点)。computeDrawnLeader の pieClear 判定と同基準。
   const maxLeaderPie = (): number => {
@@ -2280,42 +2165,9 @@ function escapeTopBandSeamLeader(
   const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
   const tolPx = 2;
   const cx = coord.xScale(0);
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const A = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const B = placementBox(placements[j], cfg);
-        const ox = Math.min(A.right, B.right) - Math.max(A.left, B.left);
-        const oy = Math.min(A.top, B.top) - Math.max(A.bottom, B.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
   // 逃がし候補: 円外・小・トップシーム帯・「その他」でなく・現在左帯に描画・未 forceTopRight。
   // シーム最寄り (|mid-90| 最小) から順に試す。各採用後に交差が残れば次候補へ (複数枚逃がしも可)。
@@ -2407,14 +2259,7 @@ function escapeTopBandSeamLeader(
       pie: number;
       view: number;
     }
-    const boxOut = (p: Placement): number => {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      return Math.max(-left, right - coord.width, -top, bottom - coord.height);
-    };
+    const boxOut = (p: Placement): number => boxViewOverflowOf(p, cfg, coord);
     const countClips = (): number => placements.filter((p) => boxOut(p) > 1).length;
     const countOobLeaders = (): number => {
       const paths = realLeaderPaths(placements, cfg, coord);
@@ -2526,45 +2371,12 @@ function enforceFinalPieClearance(
 ): void {
   const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
   const pieR = cfg.pieRadius;
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, pieR - Math.hypot(nx, ny));
-    }
-    return m;
-  };
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
   const beforePie = maxPieIntrusion();
   if (beforePie <= tol) return; // 円内侵入なし → 無変更 (OK チャートを乱さない)。
 
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
   const beforeOverlap = maxOverlap();
   const beforeView = maxViewOverflow();
@@ -2628,40 +2440,10 @@ function repairResidualLeaderDefects(
     }
     return c;
   };
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
-  const boxOutPx = (p: Placement): number => {
-    const lb = placementBox(p, cfg);
-    const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-    const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-    const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-    const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-    return Math.max(-left, right - coord.width, -top, bottom - coord.height);
-  };
+  const boxOutPx = (p: Placement): number => boxViewOverflowOf(p, cfg, coord);
   const countClips = (): number => placements.filter((p) => boxOutPx(p) > 1).length;
   const countOobLeaders = (): number => {
     const paths = realLeaderPaths(placements, cfg, coord);
@@ -2689,17 +2471,7 @@ function repairResidualLeaderDefects(
     boxPie: number;
   }
   // ラベル箱の円内侵入の最大深さ (logical)。verify の "label inside pie" に対応する非悪化ゲート。
-  const maxBoxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
-    }
-    return m;
-  };
+  const maxBoxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
 
   const vecOf = (): Vec => ({
     crossPie: countLeaderCrossings(placements, cfg, coord) + countLeaderPie(),
