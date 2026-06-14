@@ -103,6 +103,25 @@ export function computeDrawnLeader(
       endpoint.x = (finalBox.left + finalBox.right) / 2;
       const anchorBelow = placement.leaderAnchor.y < (finalBox.top + finalBox.bottom) / 2;
       endpoint.y = anchorBelow ? finalBox.bottom - cfg.cornerGap : finalBox.top + cfg.cornerGap;
+    } else if (
+      // 真下中央の (near-)垂直リーダ (例 中国 10.6%): 中央寄せ (anchor="middle") で box が
+      // アンカーより下 (pie の真下) にあり、アンカー x が box 水平範囲内・縦優位 (|ady|>|adx|)
+      // のケース。この時 leaderAttachTargetY は上行の縦中央 (box 内) を返し、bend も垂直に
+      // 畳まれて box 内に入るため truncate が病的形状 (t0<=0) として切り詰めず、リーダが
+      // 上行の文字に食い込む。接続点を pie 側 (top) 縁の水平中央 (cornerGap だけ box 外) へ
+      // 寄せると truncate は t0>=1 で endpoint をそのまま返し box 縁手前で止まる。
+      // anchor="middle" 限定で左右スタック (end/start) を除外、box が下限定で真上中央
+      // (その他 等、既に縁で正しく接続) を除外。inside/forceTopRight/lowerLeftDrop/declipBottom
+      // は先行分岐で捕捉済み。
+      placement.anchor === "middle" &&
+      (finalBox.top + finalBox.bottom) / 2 < placement.leaderAnchor.y &&
+      placement.leaderAnchor.x > finalBox.left &&
+      placement.leaderAnchor.x < finalBox.right &&
+      placement.leaderAnchor.y - (finalBox.top + finalBox.bottom) / 2 >
+        Math.abs((finalBox.left + finalBox.right) / 2 - placement.leaderAnchor.x)
+    ) {
+      endpoint.x = (finalBox.left + finalBox.right) / 2;
+      endpoint.y = finalBox.top + cfg.cornerGap; // box が下 → pie 側 = top 縁の水平中央
     } else {
       endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
     }
