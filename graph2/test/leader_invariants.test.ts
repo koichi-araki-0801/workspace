@@ -460,3 +460,58 @@ describe("twoLineLeftStackMode: 左多数ラベルを全 2 行で密に縦積み
     expect(noGap, `円と隙間が不足する左列ラベル (リーダー不可視): ${noGap.join(",")}`).toEqual([]);
   });
 });
+
+describe("左列ラベルの縦順序 == スライス角度順 (back-to-back 対の逆転検出)", () => {
+  // 回帰元: pdf_510037_02_world_bond_idx_country_20240426 で 9 時線近傍の小スライス対
+  // イギリス(下スライス)/イタリア(上スライス) が baseline 逆向きの back-to-back 配置となり、
+  // 下スライスの イギリス が上に来る逆転が起きていた。verify / 内部指標が縦位置を生の `t.y` で
+  // 測っていたため (back-to-back では両者の `t.y` がほぼ同値) 逆転を見逃していた。本テストは
+  // ラベル box の **縦中心** 順とアンカー(引出先 rim 点)y 順の一致を検査し、視覚的逆転を捕捉する。
+  it("world_bond_idx_country_20240426: 左列 box 中心順 == アンカー y 順・イタリアがイギリスの上", async () => {
+    const items = resolveInputData({
+      data: samples["pdf_510037_02_world_bond_idx_country_20240426"].items,
+    });
+    const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
+    const pie = parsePieRobust(svg);
+    const leaders = parseLeaders(svg);
+    // 各ラベルの引出アンカー = leader 折れ線で円中心に最も近い端点 (verify_svg と同基準)。
+    const anchorYOf = (name: string): number | null => {
+      const l = leaders.find((x) => x.name === name);
+      if (!l) return null;
+      let best: { y: number; d: number } | null = null;
+      for (const p of l.points) {
+        const d = Math.hypot(p.x - pie.cx, p.y - pie.cy);
+        if (!best || d < best.d) best = { y: p.y, d };
+      }
+      return best ? best.y : null;
+    };
+    // 左側 (box 中心 x < 円中心) の円外ラベルを box 縦中心の昇順 (上→下) に並べる。
+    const left = parseTexts(svg)
+      .filter((t) => !t.inside)
+      .map((t) => {
+        const b = textBoxPx(t);
+        return { name: t.name, cx: (b.left + b.right) / 2, cy: (b.top + b.bottom) / 2, anchorY: anchorYOf(t.name) };
+      })
+      .filter((e) => e.cx < pie.cx && e.anchorY !== null)
+      .sort((a, b) => a.cy - b.cy);
+
+    // box 中心で上にあるラベルのアンカーが下のラベルのアンカーより下 (anchorY が大) なら視覚的逆転。
+    const inversions: string[] = [];
+    for (let i = 1; i < left.length; i += 1) {
+      if ((left[i].anchorY as number) < (left[i - 1].anchorY as number) - 2) {
+        inversions.push(`"${left[i - 1].name}" が "${left[i].name}" の上 (アンカー逆転)`);
+      }
+    }
+    expect(inversions, `左列の角度順逆転:\n${inversions.join("\n")}`).toEqual([]);
+
+    // 当該対を明示検査: イタリア(上スライス) は イギリス(下スライス) より上 (box 中心が小)。
+    const it = left.find((e) => e.name === "イタリア");
+    const uk = left.find((e) => e.name === "イギリス");
+    expect(it, "イタリア ラベルが左列に存在する").toBeTruthy();
+    expect(uk, "イギリス ラベルが左列に存在する").toBeTruthy();
+    expect(
+      (it as { cy: number }).cy,
+      "イタリアの box 中心が イギリスより上 (cy が小さい)",
+    ).toBeLessThan((uk as { cy: number }).cy);
+  });
+});

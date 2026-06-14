@@ -109,15 +109,11 @@ export function computeDrawnLeader(
   }
   let bend = placement.leaderBend;
   if (alwaysDraw && placement.declipBottomLeader) {
-    // L 字 (縦優先): アンカー x で垂直に上がり endpoint.y で水平に折れて下縁中央へ。アンカーは rim 上で
-    // 上へ動かした (anchorY と endpoint.y が同符号・|endpoint.y|>|anchorY|) ため垂直区間は anchor から
-    // 即円外へ抜ける = 円貫通なし。下記 W 弦リルートは両区間とも円外なので不発 (= 斜線化しない)。
-    const anchorY = placement.leaderAnchor.y;
-    const minOffset = radialFraction(cfg, 0.005, 0.05);
-    bend = {
-      x: placement.leaderAnchor.x,
-      y: anchorY >= 0 ? Math.max(endpoint.y, anchorY + minOffset) : Math.min(endpoint.y, anchorY - minOffset),
-    };
+    // L 字 (横優先): アンカーから水平にラベル側 (外側) へ出て、ラベル水平中央 x (`endpoint.x`) で縦に
+    // 折れラベル縁へ。水平区間はアンカー (rim 上 dist≈`pieRadius`) から中心より遠い x へ進むので中心
+    // 距離は単調増 = 円外を保つ。縦区間はラベル中央 x (左外側で |x|>`pieRadius`) なので円外。ゆえに
+    // 下記 W 弦リルートは両区間とも円外で不発 (= 斜線化しない)、bend 1 回の素直な L 字になる。
+    bend = { x: endpoint.x, y: placement.leaderAnchor.y };
   } else if (placement.leaderBendFollowsEndpointY) {
     const anchorY = placement.leaderAnchor.y;
     const minOffset = radialFraction(cfg, 0.005, 0.05);
@@ -525,7 +521,11 @@ export function angularStacks(
     const tail = pts[pts.length - 1];
     const anchor =
       Math.hypot(head.x - cx, head.y - cy) <= Math.hypot(tail.x - cx, tail.y - cy) ? head : tail;
-    const entry = { labelY: coord.yScale(p.y), anchorY: anchor.y };
+    // 縦位置は生の `p.y` でなく box 縦中心で測る: baseline 逆向きの back-to-back 対 (例 イギリス/
+    // イタリア) は両者の `p.y` がほぼ同値でも box 中心は上下に大きく離れ、視覚的な縦順序は box 中心で
+    // しか判定できない。単一 baseline の通常スタックでは box 中心順 == `p.y` 順なので指標は不変。
+    const box = placementBox(p, cfg);
+    const entry = { labelY: coord.yScale((box.top + box.bottom) / 2), anchorY: anchor.y };
     (coord.xScale(p.x) < cx ? left : right).push(entry);
   });
   return { left, right };

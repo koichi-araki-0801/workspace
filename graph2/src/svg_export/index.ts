@@ -692,6 +692,9 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
   let before = countDefects(placements, cfg, coord);
   if (before.clips === 0) return;
   let beforePieBox = countBoxPie();
+  // `countDefects` は leader×label 貫通を数えない。横優先 L 字の縦 riser が隣ラベル box を貫く退行
+  // (例 `pdf_510037_07` オフショア riser が韓国 box を貫通) を防ぐため、別途 through 件数も非悪化で gate する。
+  let beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
 
   // 隣接ラベル間の最小縦間隔 (`countDefects` の重なり閾値 6px に余裕)。
   const marginLogical = 8 / (pieRpx / cfg.pieRadius);
@@ -810,15 +813,18 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
       repairResidualLeaderDefects(placements, cfg, coord);
       const a = countDefects(placements, cfg, coord);
       const aPieBox = countBoxPie();
+      const aThrough = countLeaderThroughLabels(placements, cfg, coord);
       const ok =
         a.clips <= before.clips &&
         a.crossings <= before.crossings &&
         a.pie <= before.pie &&
         overlapsOf(a) <= overlapsOf(before) &&
-        aPieBox <= beforePieBox;
+        aPieBox <= beforePieBox &&
+        aThrough <= beforeThrough;
       if (ok) {
         before = a;
         beforePieBox = aPieBox;
+        beforeThrough = aThrough;
       } else {
         for (const p of moved) p.declipBottomLeader = undefined;
         for (const s of leaderSnap) {
@@ -833,15 +839,18 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
     repairResidualLeaderDefects(placements, cfg, coord);
     const moveAfter = countDefects(placements, cfg, coord);
     const moveAfterPieBox = countBoxPie();
+    const moveAfterThrough = countLeaderThroughLabels(placements, cfg, coord);
     const moveAdopt =
       moveAfter.clips < before.clips &&
       moveAfter.crossings <= before.crossings &&
       moveAfter.pie <= before.pie &&
       overlapsOf(moveAfter) <= overlapsOf(before) &&
-      moveAfterPieBox <= beforePieBox;
+      moveAfterPieBox <= beforePieBox &&
+      moveAfterThrough <= beforeThrough;
     if (moveAdopt) {
       before = moveAfter;
       beforePieBox = moveAfterPieBox;
+      beforeThrough = moveAfterThrough;
       refineMovedLeaders();
       return;
     }
@@ -856,6 +865,7 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
       repairResidualLeaderDefects(placements, cfg, coord);
       const splitAfter = countDefects(placements, cfg, coord);
       const splitAfterPieBox = countBoxPie();
+      const splitAfterThrough = countLeaderThroughLabels(placements, cfg, coord);
       const magnitudeReduced = splitSnaps.every(({ p, origLeft }) => pixBox(p).left > origLeft + 1e-6);
       const splitAdopt =
         magnitudeReduced &&
@@ -863,10 +873,12 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
         splitAfter.crossings <= before.crossings &&
         splitAfter.pie <= before.pie &&
         overlapsOf(splitAfter) <= overlapsOf(before) &&
-        splitAfterPieBox <= beforePieBox;
+        splitAfterPieBox <= beforePieBox &&
+        splitAfterThrough <= beforeThrough;
       if (splitAdopt) {
         before = splitAfter;
         beforePieBox = splitAfterPieBox;
+        beforeThrough = splitAfterThrough;
         return;
       }
     }

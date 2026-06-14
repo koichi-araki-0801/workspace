@@ -609,8 +609,11 @@ for (const name of allNames) {
   }
 
   // ── 順序保証チェックB: 縦並び == 角度順 (スタック順序の反転検出) ───────────
-  // 円外ラベルを左右に分け、ラベル y の昇順でアンカー(引出先 rim 点)の y が
+  // 円外ラベルを左右に分け、ラベルの **box 縦中心** の昇順でアンカー(引出先 rim 点)の y が
   // 単調非減少かを検査。上にあるラベルのアンカーが下のラベルのアンカーより下なら反転。
+  // 縦位置は生の `t.y` ではなく box 中心で測る: baseline 逆向きの back-to-back 対 (例 イギリス/
+  // イタリア) は両者の `t.y` がほぼ同値でも box 中心は上下に大きく離れ、視覚的な縦順序は box 中心で
+  // しか判定できない。単一 baseline の通常スタックでは box 中心順 == `t.y` 順なので結果は不変。
   if (pie) {
     interface StackEntry {
       labelY: number;
@@ -645,7 +648,12 @@ for (const name of allNames) {
         const oppositeSide = (t.x < pie.cx) !== (anchor.x < pie.cx);
         if (inTopBand || inLeftExt || oppositeSide) continue;
       }
-      const entry: StackEntry = { labelY: t.y, anchorY: anchor.y, text: t.text };
+      const cbox = textBBox(t);
+      const entry: StackEntry = {
+        labelY: (cbox.top + cbox.bottom) / 2,
+        anchorY: anchor.y,
+        text: t.text,
+      };
       (t.x < pie.cx ? leftStack : rightStack).push(entry);
     }
     const ANCHOR_INV_TOL = 2; // px。微小逆転は誤検出回避で無視。
