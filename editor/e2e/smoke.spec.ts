@@ -8,7 +8,7 @@ test.beforeEach(async ({ context }) => {
 test('unauthenticated visit is redirected to the login screen', async ({ page }) => {
   await page.goto('/');
   await expect(page).toHaveURL(/\/login/);
-  await expect(page.getByRole('heading', { name: 'テンプレート編集' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'RET' })).toBeVisible();
 });
 
 test('demo login lands the user on the edit tab', async ({ page }) => {
@@ -31,6 +31,8 @@ test('wrong credentials show an error and stay on login', async ({ page }) => {
 
   // The form shows an inline error (a toast with role="alert" also appears, so
   // scope the assertion to the form to keep the locator unambiguous).
-  await expect(page.locator('form').getByText('パスワードが違います')).toBeVisible();
+  await expect(
+    page.locator('form').getByText('ユーザーIDまたはパスワードが違います'),
+  ).toBeVisible();
   await expect(page).toHaveURL(/\/login/);
 });

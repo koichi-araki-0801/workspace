@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { AlertCircle, CheckCircle2, Eye, Loader2, Lock, RotateCcw, Save } from '@lucide/vue';
-import { computed, useTemplateRef } from 'vue';
+import { computed, ref, useTemplateRef } from 'vue';
 import { useRouter } from 'vue-router';
-import BackButton from '@/components/ui/BackButton.vue';
-import Button from '@/components/ui/Button.vue';
-import { formatDateTime } from '@/lib/format';
-import AttributeBar from './AttributeBar.vue';
-import PartCatalog from './PartCatalog.vue';
-import PartProperties from './PartProperties.vue';
+import EditorTopBar from './EditorTopBar.vue';
+import { type LayoutGeom, PX_PER_MM } from './geom';
+import Inspector from './Inspector.vue';
+import PartToolbar from './PartToolbar.vue';
+import PartTree from './PartTree.vue';
 import { useTemplateEditor } from './useTemplateEditor';
 
 const props = defineProps<{ id: string }>();
@@ -16,18 +14,115 @@ const router = useRouter();
 const canvasEl = useTemplateRef<HTMLElement>('canvasEl');
 const layersEl = useTemplateRef<HTMLElement>('layersEl');
 
-const { g, template, partHistory, selectedPart, autosave, onPartSelect, onPartInsert } =
-  useTemplateEditor(props.id, { canvasEl, layersEl });
+const {
+  g,
+  template,
+  fundName,
+  displayHistory,
+  selectedPart,
+  selectedGeom,
+  allowAdd,
+  allowEdit,
+  autosave,
+  canUndo,
+  canRedo,
+  undo,
+  redo,
+  pushUndo,
+  applyGeom,
+  recordGeomDiff,
+  resetGeom,
+  moveSelected,
+  deletePart,
+  onPartSelect,
+  onPartInsert,
+} = useTemplateEditor(props.id, { canvasEl, layersEl });
+
+/** Position the floating toolbar just above the selected element's rect. */
+const toolbarStyle = computed(() => {
+  const r = g.selectedRect.value;
+  if (!r) return { display: 'none' };
+  return {
+    left: `${r.left}px`,
+    top: `${r.top}px`,
+    transform: 'translateY(-100%) translateY(-10px)',
+  };
+});
+
+// --- zoom-independent drag handles (width / top-margin / bottom-margin) -------
+// 'width'/'width-left' resize the block width (left side inverts the delta so the
+// handle follows the cursor); 'mt'/'mb' adjust the top/bottom margins.
+type HandleKind = 'width' | 'width-left' | 'mt' | 'mb';
+const activeHandle = ref<HandleKind | null>(null);
+let drag: { kind: HandleKind; x: number; y: number; geom: LayoutGeom; fullW: number } | null = null;
+
+function startHandle(kind: HandleKind, e: MouseEvent) {
+  const g0 = selectedGeom.value;
+  const r = g.selectedRect.value;
+  if (!g0 || !r) return;
+  e.preventDefault();
+  e.stopPropagation();
+  pushUndo(); // one undo step per drag
+  activeHandle.value = kind;
+  drag = { kind, x: e.clientX, y: e.clientY, geom: { ...g0 }, fullW: r.width / (Math.max(g0.widthPct, 1) / 100) };
+  window.addEventListener('mousemove', onHandleMove);
+  window.addEventListener('mouseup', onHandleUp);
+}
+function onHandleMove(e: MouseEvent) {
+  if (!drag) return;
+  const z = g.zoom.value;
+  if (drag.kind === 'width' || drag.kind === 'width-left') {
+    const sign = drag.kind === 'width-left' ? -1 : 1;
+    const dPct = ((e.clientX - drag.x) / drag.fullW) * 100 * sign;
+    const w = Math.round(Math.min(100, Math.max(20, drag.geom.widthPct + dPct)));
+    // live apply without recording (history is recorded once on mouseup)
+    applyGeom({ widthPct: w, align: w >= 100 ? 'stretch' : drag.geom.align === 'stretch' ? 'left' : drag.geom.align }, false);
+  } else {
+    const dmm = Math.round((e.clientY - drag.y) / z / PX_PER_MM);
+    const key = drag.kind === 'mt' ? 'marginTop' : 'marginBottom';
+    applyGeom({ [key]: Math.min(60, Math.max(0, drag.geom[key] + dmm)) } as Partial<LayoutGeom>, false);
+  }
+}
+function onHandleUp() {
+  if (drag) recordGeomDiff(drag.geom);
+  drag = null;
+  activeHandle.value = null;
+  window.removeEventListener('mousemove', onHandleMove);
+  window.removeEventListener('mouseup', onHandleUp);
+}
+
+const rect = computed(() => g.selectedRect.value);
+
+/** Live value bubble shown next to the handle being dragged. */
+const dragLabel = computed(() => {
+  const k = activeHandle.value;
+  const r = rect.value;
+  const gm = selectedGeom.value;
+  if (!k || !r || !gm) return null;
+  if (k === 'mt') return { left: r.left + r.width / 2, top: r.top, text: `上 ${gm.marginTop}mm` };
+  if (k === 'mb') return { left: r.left + r.width / 2, top: r.top + r.height, text: `下 ${gm.marginBottom}mm` };
+  const left = k === 'width-left' ? r.left : r.left + r.width;
+  return { left, top: r.top + r.height / 2, text: `${gm.widthPct}%` };
+});
 
 async function goPreview() {
   await autosave.flush();
   router.push({ name: 'preview', params: { id: props.id } });
 }
 
-/** Autosave status line shown in the top bar; includes the last saved time when known. */
+function zoomIn() {
+  g.setZoom(g.zoom.value + 0.1);
+}
+function zoomOut() {
+  g.setZoom(g.zoom.value - 0.1);
+}
+
+/** Autosave status line; includes the last-saved time when known. */
 const statusText = computed(() => {
   const at = autosave.lastSavedAt.value;
-  const savedAt = at ? `${at.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} に自動保存` : null;
+  const savedAt = at
+    ? `${at.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} に自動保存`
+    : null;
   switch (autosave.state.value) {
     case 'saving':
       return '保存中…';
@@ -42,90 +137,222 @@ const statusText = computed(() => {
 </script>
 
 <template>
-  <div class="flex h-screen flex-col bg-muted/30">
-    <!-- top bar -->
-    <div class="flex items-center gap-3 border-b bg-card px-4 py-2 print:hidden">
-      <BackButton :fallback="{ name: 'edit' }" aria-label="ホームに戻る" />
-      <AttributeBar v-if="template" :attributes="template.meta.attributes" class="flex-1" />
-      <div class="flex items-center gap-2 sm:gap-3">
-        <span
-          class="flex items-center gap-1.5 text-xs"
-          :class="autosave.state.value === 'error' ? 'text-destructive' : 'text-muted-foreground'"
-          role="status"
-          aria-live="polite"
-        >
-          <Loader2 v-if="autosave.state.value === 'saving'" class="h-3.5 w-3.5 animate-spin" />
-          <CheckCircle2 v-else-if="autosave.state.value === 'saved'" class="h-3.5 w-3.5 text-success" />
-          <AlertCircle v-else-if="autosave.state.value === 'error'" class="h-3.5 w-3.5" />
-          <Save v-else class="h-3.5 w-3.5" />
-          <span class="hidden sm:inline">{{ statusText }}</span>
-        </span>
-        <Button
-          v-if="autosave.state.value === 'error'"
-          size="sm"
-          variant="outline"
-          class="text-destructive hover:text-destructive"
-          @click="autosave.flush()"
-        >
-          <RotateCcw class="h-4 w-4" /> 再試行
-        </Button>
-        <Button
-          variant="outline"
-          :disabled="autosave.state.value === 'saving'"
-          title="今すぐ保存"
-          @click="autosave.flush()"
-        >
-          <Save class="h-4 w-4" /> 保存
-        </Button>
-        <Button @click="goPreview"><Eye class="h-4 w-4" /> プレビュー</Button>
-      </div>
-    </div>
+  <div class="flex h-screen flex-col bg-background">
+    <EditorTopBar
+      :fund-name="fundName"
+      :attributes="template?.meta.attributes"
+      :save-state="autosave.state.value"
+      :status-text="statusText"
+      :zoom="g.zoom.value"
+      :can-undo="canUndo"
+      :can-redo="canRedo"
+      @undo="undo"
+      @redo="redo"
+      @zoom-in="zoomIn"
+      @zoom-out="zoomOut"
+      @save="autosave.flush()"
+      @preview="goPreview"
+    />
 
-    <!-- 3-pane editor -->
     <div class="flex flex-1 overflow-hidden">
-      <!-- left: parts + layers -->
-      <aside class="hidden w-52 flex-col border-r bg-card md:flex lg:w-60">
-        <div class="border-b px-3 py-2 text-xs font-semibold text-muted-foreground">パーツ一覧</div>
-        <div class="flex-1 overflow-hidden">
-          <PartCatalog @select="onPartSelect" @insert="onPartInsert" />
-        </div>
-        <div class="border-t px-3 py-2 text-xs font-semibold text-muted-foreground">レイヤー</div>
-        <div ref="layersEl" class="max-h-48 overflow-auto"></div>
-      </aside>
+      <!-- left: part add (checkbox → cascading filter) -->
+      <PartTree
+        v-model:allow-add="allowAdd"
+        v-model:allow-edit="allowEdit"
+        @select="onPartSelect"
+        @insert="onPartInsert"
+      />
 
-      <!-- center: canvas -->
-      <main class="relative flex-1 overflow-hidden">
+      <!-- center: GrapesJS canvas, styled as A4 paper -->
+      <main class="relative flex-1 overflow-hidden bg-[hsl(220_16%_91%)] dark:bg-[hsl(222_18%_18%)]">
         <div ref="canvasEl" class="h-full"></div>
+        <!-- GrapesJS layer manager is mounted but visually hidden (prototype has no layers panel) -->
+        <div ref="layersEl" class="hidden"></div>
+
+        <!-- floating layout toolbar + drag handles over the selected block -->
+        <div class="pointer-events-none absolute inset-0 z-20 overflow-hidden">
+          <!-- edit affordances (handles + toolbar) only when editing is allowed -->
+          <template v-if="rect && selectedGeom && allowEdit">
+            <!-- selection frame echo so the resize box reads clearly -->
+            <div
+              class="ret-frame"
+              :style="{ left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` }"
+            />
+
+            <!-- edge handles: left/right = width, top/bottom = margins -->
+            <div
+              class="ret-handle ret-handle-x pointer-events-auto"
+              title="幅をドラッグ"
+              :style="{ left: `${rect.left + rect.width}px`, top: `${rect.top + rect.height / 2}px`, cursor: 'ew-resize' }"
+              @mousedown="startHandle('width', $event)"
+            />
+            <div
+              class="ret-handle ret-handle-x pointer-events-auto"
+              title="幅をドラッグ"
+              :style="{ left: `${rect.left}px`, top: `${rect.top + rect.height / 2}px`, cursor: 'ew-resize' }"
+              @mousedown="startHandle('width-left', $event)"
+            />
+            <div
+              class="ret-handle ret-handle-y pointer-events-auto"
+              title="上の余白をドラッグ"
+              :style="{ left: `${rect.left + rect.width / 2}px`, top: `${rect.top}px`, cursor: 'ns-resize' }"
+              @mousedown="startHandle('mt', $event)"
+            />
+            <div
+              class="ret-handle ret-handle-y pointer-events-auto"
+              title="下の余白をドラッグ"
+              :style="{ left: `${rect.left + rect.width / 2}px`, top: `${rect.top + rect.height}px`, cursor: 'ns-resize' }"
+              @mousedown="startHandle('mb', $event)"
+            />
+
+            <!-- corner handles (drive width via horizontal delta) -->
+            <div
+              class="ret-corner pointer-events-auto"
+              :style="{ left: `${rect.left}px`, top: `${rect.top}px`, cursor: 'nwse-resize' }"
+              @mousedown="startHandle('width-left', $event)"
+            />
+            <div
+              class="ret-corner pointer-events-auto"
+              :style="{ left: `${rect.left + rect.width}px`, top: `${rect.top}px`, cursor: 'nesw-resize' }"
+              @mousedown="startHandle('width', $event)"
+            />
+            <div
+              class="ret-corner pointer-events-auto"
+              :style="{ left: `${rect.left}px`, top: `${rect.top + rect.height}px`, cursor: 'nesw-resize' }"
+              @mousedown="startHandle('width-left', $event)"
+            />
+            <div
+              class="ret-corner pointer-events-auto"
+              :style="{ left: `${rect.left + rect.width}px`, top: `${rect.top + rect.height}px`, cursor: 'nwse-resize' }"
+              @mousedown="startHandle('width', $event)"
+            />
+
+            <!-- live value bubble while dragging a handle -->
+            <div
+              v-if="dragLabel"
+              class="ret-drag-label"
+              :style="{ left: `${dragLabel.left}px`, top: `${dragLabel.top}px` }"
+            >
+              {{ dragLabel.text }}
+            </div>
+
+            <!-- toolbar -->
+            <div class="pointer-events-auto absolute" :style="toolbarStyle">
+              <PartToolbar
+                :geom="selectedGeom"
+                :edit-mode="allowEdit"
+                :can-up="g.canMoveUp.value"
+                :can-down="g.canMoveDown.value"
+                @apply="applyGeom"
+                @move="moveSelected($event)"
+                @movestart="g.startMove($event)"
+                @reset="resetGeom"
+                @del="deletePart"
+              />
+            </div>
+          </template>
+        </div>
       </main>
 
-      <!-- right: properties + part history -->
-      <aside class="hidden w-64 flex-col border-l bg-card md:flex lg:w-72">
-        <div class="border-b px-3 py-2 text-xs font-semibold text-muted-foreground">プロパティ</div>
-        <div
-          v-if="g.selected.value?.isJinja"
-          class="flex items-start gap-2 border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
-        >
-          <Lock class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>自動で値が入る項目のため、内容は編集できません。</span>
-        </div>
-        <div class="flex-1 overflow-auto">
-          <PartProperties :part="selectedPart" />
-        </div>
-        <div class="border-t px-3 py-2 text-xs font-semibold text-muted-foreground">
-          パーツの修正履歴
-          <span v-if="g.selected.value" class="ml-1 font-mono font-normal text-foreground/60">#{{ g.selected.value.id }}</span>
-        </div>
-        <div class="max-h-56 overflow-auto px-3 py-2 text-xs">
-          <p v-if="!g.selected.value" class="text-muted-foreground">パーツを選択してください</p>
-          <p v-else-if="partHistory.length === 0" class="text-muted-foreground">履歴はありません</p>
-          <ul v-else class="space-y-2">
-            <li v-for="h in partHistory" :key="h.id" class="border-l-2 border-primary/40 pl-2">
-              <div class="text-foreground">{{ h.change }}</div>
-              <div class="text-muted-foreground">{{ formatDateTime(h.timestamp) }} · {{ h.user }}</div>
-            </li>
-          </ul>
-        </div>
-      </aside>
+      <!-- right: properties + history -->
+      <Inspector
+        :selected="g.selected.value"
+        :part="selectedPart"
+        :geom="selectedGeom"
+        :history="displayHistory"
+      />
     </div>
   </div>
 </template>
+
+<style scoped>
+/* faint frame echoing the selection so the resize box is obvious */
+.ret-frame {
+  position: absolute;
+  pointer-events: none;
+  border: 1.5px dashed hsl(var(--primary) / 0.55);
+  border-radius: 3px;
+  z-index: 22;
+}
+
+/* edge handles: elongated bars with a generous transparent hit area.
+   The visible knob is centered via the ::before pseudo-element. */
+.ret-handle {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 25;
+  user-select: none;
+}
+.ret-handle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 6px;
+  background: hsl(var(--primary));
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+}
+/* width handles: tall vertical bar */
+.ret-handle-x {
+  width: 28px;
+  height: 44px;
+}
+.ret-handle-x::before {
+  width: 8px;
+  height: 30px;
+}
+/* margin handles: wide horizontal bar */
+.ret-handle-y {
+  width: 44px;
+  height: 28px;
+}
+.ret-handle-y::before {
+  width: 30px;
+  height: 8px;
+}
+.ret-handle:hover::before {
+  background: hsl(var(--primary) / 0.85);
+}
+
+/* corner handles: square knob with a comfortable hit target */
+.ret-corner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  z-index: 25;
+  user-select: none;
+}
+.ret-corner::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  transform: translate(-50%, -50%);
+  border-radius: 3px;
+  background: #fff;
+  border: 2px solid hsl(var(--primary));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+}
+
+/* live value bubble shown while dragging a handle */
+.ret-drag-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  z-index: 30;
+}
+</style>
+

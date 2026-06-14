@@ -37,6 +37,7 @@ import {
   horizontalLowerLeftDropAmount,
   angleInBand,
   visualTextWidthUnits,
+  scaledLabelWidthUnits,
   degToRad,
 } from "./svg_geom.js";
 import {
@@ -159,9 +160,6 @@ function buildCandidates(
       percentText: cfg.percentFormat(profile.signedValue!),
       flipToRight: false,
       flipToLeft: false,
-      topBandCount: 0,
-      topBandRightCount: 0,
-      topBandRightRank: 0,
       upperLeftSmallDense: false,
       upperLeftLongDense: false,
     };
@@ -836,7 +834,7 @@ function assignUpperLeftRenderY(
 }
 
 /**
- * 統一カスケード rim 配置向け: upperLeftTriadEligible かつ上左 3 件以上で、自然 rim
+ * 統一カスケード rim 配置向け: upperLeftTriadEligible かつ上左 2 件以上で、自然 rim
  * (sin(mid)*pieRadius) が縦に重なる時のみ各 item に useStackRimY を立てる。
  * buildOutsideRimDraft はこの印がある item の textY を upperLeftRenderY (事前分離済の
  * 縦スタック値) に置換する。これにより rank② (2行原寸) が overlap 失敗せず、長体/1行への
@@ -852,7 +850,7 @@ function markUpperLeftStackRimY(
   const eligible = upper.filter(
     (it) => it.isUpperLeft && !it.flipToRight && Number.isFinite(it.upperLeftRenderY),
   );
-  if (eligible.length < 3) return;
+  if (eligible.length < 2) return;
   const overlapTol = 8 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
   const minSep = labelHeightUnits(2, cfg) + overlapTol;
   const rimY = (it: LayoutItemReady) =>
@@ -870,8 +868,39 @@ function markUpperLeftStackRimY(
 }
 
 /**
+ * 上左 (mid>90) の top-band 帯 (90°±TOP_BAND_HALF_WIDTH_DEG)・非「その他」スライバを抽出する共通
+ * フィルタ。markForcedTopSliverLeader / markForcedTopSliverEscapeRight / markLoneTopSliverLeader が
+ * 共有する (以前は各関数に同一フィルタが重複していた)。size: "small"=isSmall / "tiny"=isTiny。
+ * long: "exclude"=!isLong (既定の leader 対象。isLong=undefined も含む) / "require"=isLong
+ * (長名スライバの存在判定用)。truthiness は元の && チェーンと完全一致させてある。
+ */
+function topBandLeftSlivers(
+  items: LayoutItemReady[],
+  size: "small" | "tiny",
+  long: "exclude" | "require",
+): LayoutItemReady[] {
+  return items.filter(
+    (it) =>
+      (size === "tiny" ? it.isTiny : it.isSmall) &&
+      it.midAngle > 90 &&
+      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
+      !it.name.startsWith("その他") &&
+      (long === "require" ? it.isLong : !it.isLong),
+  );
+}
+
+/** 12時 (90°) に最も近い (|midAngle-90| 最小) 要素を返す。同距離は先勝ち。呼び出し側は非空を保証する。 */
+function nearestToTwelveOClock(items: LayoutItemReady[]): LayoutItemReady {
+  let best = items[0];
+  for (const it of items) {
+    if (Math.abs(it.midAngle - 90) < Math.abs(best.midAngle - 90)) best = it;
+  }
+  return best;
+}
+
+/**
  * 12時直左の小 top-band スライスが上左で混雑する時、12時に最も近い 1 件に topBandSmallRight を
- * 立てて右上空白へ逃がす (label_placement.ts topBandSmallRight が参照)。これにより上左に小
+ * 立てて右上空白へ逃がす (`label_placement.ts` の `topBandSmallRight` が参照)。これにより上左に小
  * top-band が 2 つ並んで片方が長体化する症状を解消し、両ラベルを原寸 2 行に収める。
  *
  * ゲート (混雑が実在する上左 triad のみに限定):
@@ -892,11 +921,60 @@ function markTopBandSmallRight(left: LayoutItemReady[], diagnostics: Diagnostics
       it.flipToRight === true,
   );
   if (candidates.length === 0) return;
+  nearestToTwelveOClock(candidates).topBandSmallRight = true;
+}
+
+/**
+ * 9時直近の幅広・長名 上左ラベルが、長体下限 (nameCondenseSteps[0]) でも viewBox 左端を見切れる
+ * 構成 (例 world_bond_idx_currency「オフショア人民元」) で、当該 1 ラベルを下left (水平軸下・円が
+ * 横へ逃げ帯が広い領域) へ 2 行のまま配置し、slice rim から斜めリーダーで接続する印を立てる
+ * (参考PDF「オーストラリア」配置)。rim 端 (useStackRimY) で end-anchor 張り付けて左へ伸び見切れる
+ * 代わりに、lowerLeftDropLeader + forceHorizontalLowerLeftDrop (内側 X クランプ解放) で円外へ伸ばす。
+ *
+ * 本関数は「候補識別」のみを行う前フィルタで、実 clip 判定と採否は emit 側
+ * applyLowerLeftDropFallback の do-no-harm に委ねる (実際に見切れている placement のみドロップを
+ * 試し、clips 厳密減・他非悪化の時だけ採用)。よってゲートは緩くてよい。フィルネーム特例ではなく
+ * 幾何 + モード + 閉形式見切れ判定でゲートする:
+ *  - twoLineLeftStackMode / topBandClusterMode でない (独自の viewBox 基準配置 / 12時集約を持ち
+ *    下left ドロップと噛み合わないため除外)。leftStackMode / triad / 通常は許可。
+ *  - 候補は side==="left" && isUpperLeft && isLong && 非 flip、非「その他」、9時直近帯 (150–210°)
+ *  - 長体下限幅 (scaledLabelWidthUnits, nameScaleX=nameCondenseSteps[0], 2行) が、最も水平な
+ *    ラベルが水平軸付近へ来た時の最左 anchor = -(pieRadius + clearance) で viewBox 左端を越える
+ *    (最悪ケースの前フィルタ。実 clip でなければ fallback がスキップする)
+ * 該当が複数あれば最も 9時に近い (cos が最小) 1 件のみへ付与する。
+ */
+function markClippedUpperLeftLongDrop(
+  left: LayoutItemReady[],
+  diagnostics: Diagnostics,
+  cfg: PieLayoutConfig,
+): void {
+  if (diagnostics.twoLineLeftStackMode || diagnostics.topBandClusterMode) return;
+
+  const floorScale = cfg.nameCondenseSteps[0] ?? 0.7;
+  const viewBoxLeft = -cfg.svgWidthPx / 2 / cfg.pxPerUnit;
+  const tol = 0.02; // ≈ 3px 安全代 (前フィルタなので実際に見切れる場合のみ通す)
+  // 最も水平な (9時直近) 長名ラベルは overlap 解消等で水平軸付近へ来やすく、end-anchor 右端が
+  // 円の最大幅 (赤道) で pieClearance クランプされる。よって取り得る最左の anchor =
+  // -(pieRadius + clearance)。長体下限でもこの最悪ケースで viewBox 左端を越えるなら見切れ得る。
+  const worstAnchorX = -(cfg.pieRadius + cfg.pieLabelClearance);
+  const candidates = left.filter((it) => {
+    if (it.flipToRight || it.flipToLeft) return false;
+    if (!(it.isUpperLeft && it.isLong)) return false;
+    if (it.name.startsWith("その他")) return false;
+    if (!angleInBand(normalizeAngle(it.midAngle), 180, 30)) return false;
+    const width = scaledLabelWidthUnits(it.name, it.percentText ?? "", 2, floorScale, cfg);
+    return worstAnchorX - width < viewBoxLeft - tol;
+  });
+  if (candidates.length === 0) return;
   let best = candidates[0];
   for (const it of candidates) {
-    if (Math.abs(it.midAngle - 90) < Math.abs(best.midAngle - 90)) best = it;
+    if (Math.cos(degToRad(it.midAngle)) < Math.cos(degToRad(best.midAngle))) best = it;
   }
-  best.topBandSmallRight = true;
+  // 識別のみ。通常レイアウト/カスケードは無変更 (rim 2 行で見切れる baseline のまま) に保ち、
+  // svg_export 側 applyLowerLeftDropFallback が emit 最終段で下left ドロップを試し、チャート全体の
+  // 不具合 (countDefects) が clips 厳密減・他非悪化の時だけ採用する (do-no-harm)。密チャートで
+  // 交差/反転を生む場合は revert され、当該チャートは無変更 = 回帰ゼロ。
+  best.lowerLeftDropLeader = true;
 }
 
 /**
@@ -921,14 +999,7 @@ function markForcedTopSliverLeader(left: LayoutItemReady[], diagnostics: Diagnos
   if (diagnostics.totalCount !== 3) return;
   // !isLong: 本 leader 付与は各スライスを 1 行ラベルで左右に振り分ける。長名は 1 行化で過剰長体
   // (scaleX 下限 0.6) になり可読性が落ちるため対象外 (例 asset_domestic「国内投資信託証券」)。
-  const slivers = left.filter(
-    (it) =>
-      it.isSmall &&
-      it.midAngle > 90 &&
-      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
-      !it.name.startsWith("その他") &&
-      !it.isLong,
-  );
+  const slivers = topBandLeftSlivers(left, "small", "exclude");
   if (slivers.length !== 2) return;
   let near = slivers[0];
   let far = slivers[0];
@@ -972,30 +1043,13 @@ function markForcedTopSliverEscapeRight(left: LayoutItemReady[], diagnostics: Di
   if (diagnostics.leftStackMode || diagnostics.topBandClusterMode) return;
   if ((diagnostics.rankValuesFull?.[0] ?? 0) < 90) return;
   if (diagnostics.totalCount !== 4) return;
-  const slivers = left.filter(
-    (it) =>
-      it.isSmall &&
-      it.midAngle > 90 &&
-      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
-      !it.name.startsWith("その他") &&
-      !it.isLong,
-  );
+  const slivers = topBandLeftSlivers(left, "small", "exclude");
   if (slivers.length !== 2) return;
-  const hasLongTopBandSliver = left.some(
-    (it) =>
-      it.isSmall &&
-      it.midAngle > 90 &&
-      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
-      !it.name.startsWith("その他") &&
-      it.isLong,
-  );
+  const hasLongTopBandSliver = topBandLeftSlivers(left, "small", "require").length > 0;
   if (!hasLongTopBandSliver) return;
   // 12時(90°)に最も近い 1 枚(=ジャージー)だけを rank9 (buildOutsideLeaderDraft) 起点へ送り、
   // topBandSmallRight で右上 L 字 leader を引かせる。左 2 枚は無印で左に据え置く。
-  let near = slivers[0];
-  for (const it of slivers) {
-    if (Math.abs(it.midAngle - 90) < Math.abs(near.midAngle - 90)) near = it;
-  }
+  const near = nearestToTwelveOClock(slivers);
   near.forceOutsideLeader = true;
   near.topBandSmallRight = true;
 }
@@ -1028,14 +1082,7 @@ function markLoneTopSliverLeader(
   const dominant = diagnostics.rankValuesFull?.[0] ?? 0;
   if (dominant < 80 || dominant >= 90) return;
   if (diagnostics.totalCount !== 4) return;
-  const slivers = left.filter(
-    (it) =>
-      it.isTiny &&
-      it.midAngle > 90 &&
-      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
-      !it.name.startsWith("その他") &&
-      !it.isLong,
-  );
+  const slivers = topBandLeftSlivers(left, "tiny", "exclude");
   if (slivers.length !== 1) return;
   const topBandSonohokaOccupied = candidates.some(
     (it) =>
@@ -1313,7 +1360,6 @@ export function layoutLabels(items: LayoutItem[], cfg: PieLayoutConfig): LayoutR
   // 左上のスタック上端に縦の余裕を作る。1 行強制 (preferOneLineCascade=true) はそのまま維持する —
   // 2 行起点に戻すと小スライス同士で leader 交差が増え regression するため、シフトのみで対応。
   if (diagnostics.leftStackMode && hasDominantOutsideEdgeOverflow1Line(candidates, cfg)) {
-    diagnostics.dominantTwoLineRestoredHint = true;
     const extra = 0.1 * cfg.gapScale;
     for (const it of left) {
       if (it.isUpperLeft && !it.flipToRight) {
@@ -1324,6 +1370,7 @@ export function layoutLabels(items: LayoutItem[], cfg: PieLayoutConfig): LayoutR
 
   assignUpperLeftRenderY(left, diagnostics, cfg);
   markTopBandSmallRight(left, diagnostics);
+  markClippedUpperLeftLongDrop(left, diagnostics, cfg);
   markForcedTopSliverLeader(left, diagnostics);
   markForcedTopSliverEscapeRight(left, diagnostics);
   markLoneTopSliverLeader(candidates, left, diagnostics);

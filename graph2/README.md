@@ -143,6 +143,17 @@ RenderResult { svg, diagnostics, config }
 - **`layout.ts` / `label_placement.ts` は 1 ファイル**: 公開 API は 1 関数 (`layoutLabels` / `drawLabelFragments`) で、サブモジュール化は内部詳細にすぎず grep 性が下がる。section header コメントで「profiles / diagnostics / ...」を識別できれば十分
 - **`svg_export/` は subdir 維持**: rendering (純粋関数) / post_layout (placement 修正) / font (async I/O + 独自依存) / orchestrator は性質が異なるため分けるメリットあり
 
+## コメント規約
+
+コメントは「なぜ」「非自明なロジック」を説明する。今後の改修・新規コードもこの規約を踏襲すること。
+
+- **言語**: 日本語の散文 + 英語ドメイン用語 (`pieRadius` / `anchor` / `leader` / `cascade` / `rim` / `viewBox` 等) を併用する。ドメイン用語を無理に和訳しない。
+- **識別子はバッククォート**: コメント内で関数名・型名・エクスポート定数・フィールド/変数名・ファイル名を指す時は `` `runCascadeOnce` `` のようにバッククォートで囲む。特に JSDoc とクロスファイル参照では必須。散文中の概念語 (leader, rim, cascade 等) や `「その他」` のような `「」` 内デバイス名、ランク記号 ①〜⑨ は囲まない。
+- **クロスファイル参照**: 「他ファイルの定義を見よ」は `` `<basename>.ts` の `<symbol>` `` 形に統一する (例 `` `layout.ts` の `markTopBandSmallRight` ``)。`svg_export/` 等のディレクトリ接頭辞は付けない (兄弟ファイルは basename で一意)。
+- **重複は集約**: 同じ仕組みの説明が複数箇所に散らないよう、正典 (実装/発火点) を 1 つ決め、他所はそこへの相互参照に短縮する。
+- **体裁**: ファイル先頭は `=` 罫線の装飾ボックスヘッダ、関数内の節区切りは `// ── N. ラベル ──` を使う (第3の区切りスタイルを増やさない)。コメント行はおおむね 100 桁以内、括弧は ASCII `()` を使う (`「」` 内を除く)。
+- **出力不変の検証**: コメントのみの変更は `out/_baseline` に対し SVG を byte-diff し、出力が完全に不変であることを確認する (`npm run batch` 後に SHA256 比較)。
+
 ## 注意
 
 - `1 viewBox unit = 1px` 固定。キャンバスは **600×450px 固定**(`config.ts` の `svgWidthPx` / `svgHeightPx`）。

@@ -1,64 +1,103 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is([data-theme="dark"] *));
 
-/* shadcn-vue design tokens — blue primary theme */
+/* RET design tokens — 藍 (indigo) primary, HSL system recreated from styles.css.
+   primary is theme-swappable via --accent-h/s/l (hover / soft derive from it). */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(0.985 0.005 255);
-  --foreground: oklch(0.145 0.02 257);
-  --card: oklch(0.998 0.002 255);
-  --card-foreground: oklch(0.145 0.02 257);
-  --popover: oklch(0.998 0.002 255);
-  --popover-foreground: oklch(0.145 0.02 257);
-  --primary: oklch(0.546 0.215 262.881);
-  --primary-hover: oklch(0.488 0.243 264.376);
-  --primary-foreground: oklch(0.97 0.014 254.604);
-  --secondary: oklch(0.93 0.02 255);
-  --secondary-foreground: oklch(0.25 0.03 260);
-  --muted: oklch(0.955 0.01 255);
-  --muted-foreground: oklch(0.5 0.03 260);
-  --accent: oklch(0.945 0.025 252);
-  --accent-foreground: oklch(0.3 0.09 262);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-hover: oklch(0.505 0.213 27.518);
-  --destructive-foreground: oklch(0.985 0 0);
-  --success: oklch(0.527 0.154 150);
-  --success-foreground: oklch(0.985 0 0);
-  --warning: oklch(0.555 0.163 49);
-  --warning-foreground: oklch(0.985 0 0);
-  --border: oklch(0.91 0.015 255);
-  --input: oklch(0.885 0.02 255);
-  --ring: oklch(0.546 0.215 262.881);
+  --radius: 0.6rem;
+  --background: hsl(220 24% 99%);
+  --foreground: hsl(222 24% 14%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(222 24% 14%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(222 24% 14%);
+
+  --accent-h: 233;
+  --accent-s: 52%;
+  --accent-l: 45%;
+  --primary: hsl(var(--accent-h) var(--accent-s) var(--accent-l));
+  --primary-hover: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) - 6%));
+  --primary-soft: hsl(var(--accent-h) calc(var(--accent-s) - 8%) 95%);
+  --primary-foreground: hsl(0 0% 100%);
+
+  --secondary: hsl(220 17% 96%);
+  --secondary-foreground: hsl(222 22% 18%);
+  --muted: hsl(220 17% 95.5%);
+  --muted-foreground: hsl(220 10% 44%);
+  --accent: hsl(220 18% 94.5%);
+  --accent-foreground: hsl(222 24% 14%);
+  --destructive: hsl(0 70% 47%);
+  --destructive-hover: hsl(0 70% 41%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --success: hsl(150 46% 37%);
+  --success-foreground: hsl(0 0% 100%);
+  --warning: hsl(35 92% 48%);
+  --warning-foreground: hsl(40 90% 14%);
+  --border: hsl(220 16% 89%);
+  --input: hsl(220 16% 86%);
+  --ring: hsl(var(--accent-h) var(--accent-s) var(--accent-l));
+
+  --shadow-sm: 0 1px 2px 0 hsl(222 24% 14% / 0.05);
+  --shadow-md: 0 4px 14px -3px hsl(222 24% 14% / 0.1), 0 2px 6px -3px hsl(222 24% 14% / 0.07);
+  --shadow-lg: 0 18px 40px -12px hsl(222 24% 14% / 0.22);
+
+  /* density-driven (toggle via [data-density]) */
+  --row-h: 38px;
+  --field-gap: 18px;
+  --section-pad: 22px;
 }
 
-.dark {
-  --background: oklch(0.145 0.02 257);
-  --foreground: oklch(0.985 0.005 255);
-  --card: oklch(0.205 0.025 257);
-  --card-foreground: oklch(0.985 0.005 255);
-  --popover: oklch(0.205 0.025 257);
-  --popover-foreground: oklch(0.985 0.005 255);
-  --primary: oklch(0.623 0.214 259.815);
-  --primary-hover: oklch(0.68 0.19 259);
-  --primary-foreground: oklch(0.13 0.02 257);
-  --secondary: oklch(0.27 0.02 257);
-  --secondary-foreground: oklch(0.985 0.005 255);
-  --muted: oklch(0.26 0.02 257);
-  --muted-foreground: oklch(0.72 0.025 257);
-  --accent: oklch(0.3 0.035 255);
-  --accent-foreground: oklch(0.985 0.005 255);
-  --destructive: oklch(0.637 0.237 25.331);
-  --destructive-hover: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.13 0.02 20);
-  --success: oklch(0.72 0.17 152);
-  --success-foreground: oklch(0.17 0.05 152);
-  --warning: oklch(0.8 0.15 80);
-  --warning-foreground: oklch(0.22 0.06 60);
-  --border: oklch(0.75 0.02 255 / 28%);
-  --input: oklch(0.75 0.03 255 / 40%);
-  --ring: oklch(0.623 0.214 259.815);
+[data-density="compact"] {
+  --row-h: 32px;
+  --field-gap: 12px;
+  --section-pad: 16px;
+}
+[data-density="comfy"] {
+  --row-h: 44px;
+  --field-gap: 24px;
+  --section-pad: 28px;
+}
+
+/* Dark mode — HSL token overrides (darkmode-tokens.css). Components read
+   hsl(var(--…)), so flipping these tokens flips the whole UI. primary (藍) is
+   computed from --accent-h/s/l, so brighten s/l and override --primary-soft. */
+[data-theme="dark"] {
+  --background: hsl(224 24% 8%);
+  --foreground: hsl(220 18% 91%);
+  --card: hsl(224 22% 11.5%);
+  --card-foreground: hsl(220 18% 91%);
+  --popover: hsl(224 22% 13%);
+  --popover-foreground: hsl(220 18% 91%);
+
+  --muted: hsl(223 16% 17%);
+  --muted-foreground: hsl(220 12% 62%);
+  --accent: hsl(223 16% 20%);
+  --accent-foreground: hsl(220 18% 91%);
+  --secondary: hsl(223 16% 16%);
+  --secondary-foreground: hsl(220 18% 90%);
+
+  --accent-s: 62%;
+  --accent-l: 62%;
+  --primary-soft: hsl(232 32% 25%);
+  /* --primary / --primary-hover / --ring derive from --accent-h/s/l;
+     --primary-foreground stays white (button text). */
+
+  --destructive: hsl(0 72% 62%);
+  --destructive-hover: hsl(0 72% 56%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --success: hsl(150 44% 50%);
+  --success-foreground: hsl(0 0% 100%);
+  --warning: hsl(36 90% 58%);
+  /* used as TEXT on a warning tint (要再設定 badge) → light amber */
+  --warning-foreground: hsl(40 92% 66%);
+  --border: hsl(223 14% 22%);
+  --input: hsl(223 14% 27%);
+
+  --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.4);
+  --shadow-md: 0 4px 14px -3px hsl(0 0% 0% / 0.5), 0 2px 6px -3px hsl(0 0% 0% / 0.4);
+  --shadow-lg: 0 18px 44px -12px hsl(0 0% 0% / 0.62);
 }
 
 @theme inline {
@@ -70,6 +109,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -100,13 +140,67 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
-    font-family: system-ui, "Segoe UI", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+    font-family:
+      "Noto Sans JP", system-ui, "Segoe UI", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+    font-feature-settings: "palt" 1;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  :root {
+  html {
     color-scheme: light;
   }
-  .dark {
+  html[data-theme="dark"] {
     color-scheme: dark;
+  }
+}
+
+/* 等幅（ID・日時・コード）。約物詰めは無効化して桁を揃える。 */
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  font-feature-settings: normal;
+}
+
+/* focus-visible リング（プロトタイプ .ring-focus 相当） */
+.ring-focus:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-background),
+    0 0 0 4px color-mix(in oklab, var(--color-ring) 55%, transparent);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-primary) 18%, transparent);
+}
+
+/* subtle entrances — prefers-reduced-motion で無効化 */
+@keyframes ret-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ret-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.enter {
+  animation: ret-fade-up 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.enter-fade {
+  animation: ret-fade-in 0.25s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .enter,
+  .enter-fade {
+    animation: none;
   }
 }
 
@@ -115,4 +209,31 @@
 .gjs-editor {
   --gjs-left-width: 0px;
   --gjs-canvas-top: 0px;
+}
+/* Hide GrapesJS' own badge + component toolbar; we render a custom floating
+   toolbar (PartToolbar) instead. Keep the selection outline, tinted to primary. */
+.gjs-badge,
+.gjs-toolbar {
+  display: none !important;
+}
+.gjs-comp-selected {
+  outline: 2px solid hsl(var(--primary)) !important;
+  outline-offset: 1px;
+}
+.gjs-cv-canvas {
+  background: transparent;
+}
+/* Constrain the canvas iframe to A4 width so only the page body shows as white
+   and the surrounding gray (<main>) reads as the page backdrop. Width is set
+   inline by GrapesJS, hence !important; height stays content-driven (body
+   min-height: 297mm). */
+.gjs-frame-wrapper {
+  width: 210mm !important;
+  left: 0;
+  right: 0;
+  margin: 24px auto !important;
+}
+.gjs-frame {
+  width: 100% !important;
+  background: transparent;
 }

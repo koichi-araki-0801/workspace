@@ -13,8 +13,11 @@ export const localAuthRepo: AuthRepository = {
   login: (req: LoginRequest) =>
     attempt(() => {
       const user = listUsersSync().find((u) => u.username === req.username);
-      if (!user || user.disabled) throw unauthorized('ユーザーが存在しないか無効です');
-      if (passwordFor(req.username) !== req.password) throw unauthorized('パスワードが違います');
+      // Don't reveal whether the id exists: same message for unknown user / wrong password.
+      if (!user) throw unauthorized('ユーザーIDまたはパスワードが違います');
+      if (user.disabled) throw unauthorized('このアカウントは無効化されています');
+      if (passwordFor(req.username) !== req.password)
+        throw unauthorized('ユーザーIDまたはパスワードが違います');
       write(K.session, user.id);
       return delay({ user, mustChangePassword: user.mustChangePassword });
     }),
@@ -30,7 +33,8 @@ export const localAuthRepo: AuthRepository = {
   initPassword: (req: PasswordInitRequest) =>
     attempt(() => {
       const user = listUsersSync().find((u) => u.username === req.username);
-      if (!user || user.disabled) throw unauthorized('ユーザーが存在しないか無効です');
+      if (!user) throw unauthorized('ユーザーIDが見つかりません');
+      if (user.disabled) throw unauthorized('このアカウントは無効化されています');
       if (req.newPassword.length < 4) throw validation('新しいパスワードが短すぎます');
       const pw = read<Record<string, string>>(K.passwords, {});
       pw[req.username] = req.newPassword;

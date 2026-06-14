@@ -21,9 +21,24 @@ export interface NewUserErrors {
   displayName?: string;
 }
 
-export function validateNewUser(form: NewUserForm): NewUserErrors {
+/** ユーザーIDの許容文字: 半角英数字とアンダースコア。 */
+const USERNAME_PATTERN = /^[a-z0-9_]+$/i;
+
+/**
+ * Validates the add-user form. Pass `existingUsernames` to reject duplicates
+ * (case-insensitive); omit it to skip the uniqueness check.
+ */
+export function validateNewUser(
+  form: NewUserForm,
+  existingUsernames: readonly string[] = [],
+): NewUserErrors {
   const errors: NewUserErrors = {};
-  if (!form.username.trim()) errors.username = 'ユーザーIDを入力してください';
+  const username = form.username.trim();
+  if (!username) errors.username = 'ユーザーIDを入力してください';
+  else if (!USERNAME_PATTERN.test(username))
+    errors.username = '半角英数字とアンダースコアのみ使用できます';
+  else if (existingUsernames.some((u) => u.toLowerCase() === username.toLowerCase()))
+    errors.username = 'このユーザーIDは既に使われています';
   if (!form.displayName.trim()) errors.displayName = '表示名を入力してください';
   return errors;
 }

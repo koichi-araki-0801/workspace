@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { isErr } from '@editor/shared';
-import { ref } from 'vue';
+import { AlertCircle, KeyRound } from '@lucide/vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
 import Input from '@/components/ui/Input.vue';
 import Label from '@/components/ui/Label.vue';
+import ThemeToggle from '@/components/ui/ThemeToggle.vue';
 import { toastError, toastSuccess } from '@/components/ui/toast';
 import { useAuthService } from '@/features/auth/services/authService';
 import { logError } from '@/lib/appError';
@@ -22,6 +24,10 @@ const loading = ref(false);
 const error = ref('');
 
 const MIN_LENGTH = 8;
+
+// first-login (mustChangePassword) already has an established session;
+// the "PW forgot" entry point has none. This drives the subtitle + return link.
+const firstLogin = computed(() => auth.isAuthenticated);
 
 async function submit() {
   if (!username.value.trim() || !next.value) {
@@ -59,10 +65,18 @@ async function submit() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/5 to-primary/10 p-4">
-    <Card class="w-full max-w-sm p-6 sm:p-8">
-      <h1 class="mb-1 text-xl font-semibold">パスワード再設定</h1>
-      <p class="mb-6 text-sm text-muted-foreground">新しいパスワードを設定してください</p>
+  <div class="relative grid min-h-screen place-items-center bg-gradient-to-br from-primary/[0.06] to-primary/[0.12] p-4">
+    <ThemeToggle class="absolute right-4 top-4" />
+    <Card class="w-full max-w-[380px] rounded-2xl p-8 shadow-[var(--shadow-lg)]">
+      <div class="mb-6 flex flex-col items-center gap-2.5 text-center">
+        <div class="grid h-12 w-12 place-items-center rounded-[14px] bg-primary text-primary-foreground">
+          <KeyRound class="h-[23px] w-[23px]" />
+        </div>
+        <h1 class="text-[19px] font-bold">パスワード再設定</h1>
+        <p class="text-sm text-muted-foreground">
+          {{ firstLogin ? '初回ログインです。新しいパスワードを設定してください' : '新しいパスワードを設定してください' }}
+        </p>
+      </div>
       <form class="space-y-4" @submit.prevent="submit">
         <div class="space-y-1.5">
           <Label for="u">ユーザーID <span class="text-destructive">*</span></Label>
@@ -71,15 +85,22 @@ async function submit() {
         <div class="space-y-1.5">
           <Label for="n">新しいパスワード <span class="text-destructive">*</span></Label>
           <Input id="n" v-model="next" type="password" autocomplete="new-password" :aria-invalid="!!error" @input="error = ''" />
-          <p class="text-xs text-muted-foreground">{{ MIN_LENGTH }}文字以上</p>
+          <p class="text-[11.5px] text-muted-foreground">{{ MIN_LENGTH }}文字以上</p>
         </div>
         <div class="space-y-1.5">
           <Label for="cf">新しいパスワード（確認） <span class="text-destructive">*</span></Label>
           <Input id="cf" v-model="confirm" type="password" autocomplete="new-password" :aria-invalid="!!error" @input="error = ''" />
         </div>
-        <p v-if="error" class="text-sm text-destructive" role="alert">{{ error }}</p>
+        <p v-if="error" class="flex items-center gap-1.5 text-sm text-destructive" role="alert">
+          <AlertCircle class="h-3.5 w-3.5 shrink-0" /> {{ error }}
+        </p>
         <Button type="submit" class="w-full" :disabled="loading">{{ loading ? '設定中…' : '設定する' }}</Button>
       </form>
+      <div class="mt-4 text-center">
+        <RouterLink :to="{ name: 'login' }">
+          <Button variant="link" class="h-auto p-0 text-sm font-semibold text-muted-foreground">ログイン画面に戻る</Button>
+        </RouterLink>
+      </div>
     </Card>
   </div>
 </template>

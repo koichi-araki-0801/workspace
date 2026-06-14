@@ -1,11 +1,11 @@
 // =============================================================================
 // config.ts — レイアウト/描画パラメータ集約 (graph/config.js の TS 移植)
 // -----------------------------------------------------------------------------
-// 1 viewBox unit = 1px 固定。pie 直径は pieHeightRatio × svgHeightPx(高さの 70% 固定)で、
-// 半径は fontSize 非依存。上下余白 marginCapPx は (svgHeightPx - 直径)/2 で逆算する。
+// 1 viewBox unit = 1px 固定。pie 直径は `pieHeightRatio` × `svgHeightPx`(高さの 70% 固定)で、
+// 半径は `fontSize` 非依存。上下余白 `marginCapPx` は (svgHeightPx - 直径)/2 で逆算する。
 // pie は常にキャンバス中央 (xScale(x)=svgWidthPx/2 + x·unitScale) なので、視覚的な横余白は
-// (svgWidthPx - 直径)/2 として半径とキャンバスから自動で決まる。marginCapHorizontal はラベルの
-// 端マージン(縦と一様=marginCapPx)で、ラベル可動域(canvasXlim)のみを決める。
+// (svgWidthPx - 直径)/2 として半径とキャンバスから自動で決まる。`marginCapHorizontal` はラベルの
+// 端マージン(縦と一様=`marginCapPx`)で、ラベル可動域(`canvasXlim`)のみを決める。
 // =============================================================================
 
 import type { PieLayoutConfig } from "./types.js";
@@ -25,7 +25,7 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     svgHeightPx: 450,
 
     pieRadius: 1.0,
-    pieHeightRatio: 0.7, // pie 直径が svgHeightPx に占める割合 (= 半径が高さ半分の 70%)
+    pieHeightRatio: 0.7, // pie 直径が `svgHeightPx` に占める割合 (= 半径が高さ半分の 70%)
     labelRadius: 1.19,
     startangle: 90.0,
     counterclock: false,
@@ -117,17 +117,17 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
       return this.fontSizeUnits * this.lineSpacing;
     },
     get marginCapPx(): number {
-      // 上下余白は固定半径から逆算する (pieDiameterPx は marginCapPx を参照しないので循環しない)。
+      // 上下余白は固定半径から逆算する (`pieDiameterPx` は `marginCapPx` を参照しないので循環しない)。
       return (this.svgHeightPx - this.pieDiameterPx) / 2;
     },
     get marginCapHorizontalPx(): number {
-      // ラベルがキャンバス端に触れないための端マージン(縦余白 marginCapPx と一様=60px)。
+      // ラベルがキャンバス端に触れないための端マージン(縦余白 `marginCapPx` と一様=60px)。
       // pie の視覚的な横余白((幅−直径)/2)は中央配置+半径から自動で決まり、この値に依存しない
-      // (xScale(x)=svgWidthPx/2 + x·unitScale)。この値はラベルの可動域(canvasXlim)のみを決める。
+      // (xScale(x)=svgWidthPx/2 + x·unitScale)。この値はラベルの可動域(`canvasXlim`)のみを決める。
       return this.marginCapPx;
     },
     get pieDiameterPx(): number {
-      // 半径を高さの 70% に固定 (直径 = pieHeightRatio × svgHeightPx)。fontSize 非依存。
+      // 半径を高さの 70% に固定 (直径 = `pieHeightRatio` × `svgHeightPx`)。`fontSize` 非依存。
       const diameter = this.pieHeightRatio * this.svgHeightPx;
       if (diameter <= 0 || diameter > this.svgWidthPx) {
         throw new Error(
@@ -253,7 +253,7 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
 
 /**
  * スライス数に応じた色配列を返す。1 スライス時は最も淡い色のみ。それ以外は
- * grayScale4 を循環し、先頭と末尾が同色になる場合だけ末尾を base[1] にずらす
+ * `grayScale4` を循環し、先頭と末尾が同色になる場合だけ末尾を `base[1]` にずらす
  * (隣接が同じグレーで境界が消えるのを避けるため)。
  */
 export function makeColors(count: number, cfg: PieLayoutConfig): string[] {

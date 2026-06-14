@@ -11,6 +11,11 @@ import { localHistoryRepo } from './local/historyRepo';
 import { localPartRepo } from './local/partRepo';
 import { localTemplateRepo } from './local/templateRepo';
 import { localUserRepo } from './local/userRepo';
+import { restAuthRepo } from './rest/authRepo';
+import { restHistoryRepo } from './rest/historyRepo';
+import { restPartRepo } from './rest/partRepo';
+import { restTemplateRepo } from './rest/templateRepo';
+import { restUserRepo } from './rest/userRepo';
 
 /** The per-aggregate data-access surface injected into screens/services/stores. */
 export interface Repositories {
@@ -32,6 +37,18 @@ export const localRepositories: Repositories = {
   parts: localPartRepo,
   history: localHistoryRepo,
   users: localUserRepo,
+};
+
+/**
+ * Phase 2 REST wiring — same interfaces, backed by the Express/SQL Server API.
+ * `main.ts` picks this when VITE_API_MODE=rest; otherwise the local set above.
+ */
+export const restRepositories: Repositories = {
+  auth: restAuthRepo,
+  templates: restTemplateRepo,
+  parts: restPartRepo,
+  history: restHistoryRepo,
+  users: restUserRepo,
 };
 
 /** DI key. Provided in main.ts, swappable in tests. */

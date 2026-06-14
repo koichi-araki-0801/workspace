@@ -6,7 +6,7 @@ export interface TemplateMetaVm {
   attributes: TemplateAttributes;
   fileName: string;
   statusLabel: string;
-  statusVariant: 'default' | 'secondary';
+  statusVariant: 'success' | 'secondary';
   /** The source entity, for action handlers that need the full meta. */
   raw: TemplateMeta;
 }
@@ -22,7 +22,7 @@ export function toTemplateMetaVm(m: TemplateMeta): TemplateMetaVm {
     attributes: m.attributes,
     fileName: m.fileName,
     statusLabel: STATUS_LABEL[m.status],
-    statusVariant: m.status === 'published' ? 'default' : 'secondary',
+    statusVariant: m.status === 'published' ? 'success' : 'secondary',
     raw: m,
   };
 }

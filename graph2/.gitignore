@@ -4,6 +4,7 @@ out/svg_js/*.svg
 out/compare.html
 out/*.svg
 out/*.txt
+out/_baseline/
 *.log
 .DS_Store
 .claude/settings.local.json

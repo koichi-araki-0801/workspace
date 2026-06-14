@@ -39,6 +39,23 @@ export function audit(ev: AuditEvent): void {
   const record = { type: 'audit', ...ev };
   auditFileLogger.info(record);
   logger.info(record, `audit ${ev.event} ${ev.outcome}`);
+  if (config.auditToDb) void mirrorToDb(ev);
+}
+
+/**
+ * Best-effort copy of the audit event into the SQL Server audit table. The DB
+ * module is imported lazily (only when AUDIT_DB is on) to avoid a logger↔pool
+ * import cycle and to keep `local` mode free of the native DB driver. Any
+ * failure is logged and swallowed — the file log above is the source of truth.
+ */
+let dbMirror: ((ev: AuditEvent) => Promise<void>) | undefined;
+async function mirrorToDb(ev: AuditEvent): Promise<void> {
+  try {
+    if (!dbMirror) dbMirror = (await import('./db/audit.js')).auditToDb;
+    await dbMirror(ev);
+  } catch (e) {
+    logger.warn({ err: e }, '[audit] DB ミラー失敗（ファイルログは記録済み）');
+  }
 }
 
 /** Minimal shape we read off the Express request for attribution. */

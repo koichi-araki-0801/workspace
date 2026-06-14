@@ -21,11 +21,6 @@ import {
   placementBox,
   placementExtent,
   leaderCrossesBox,
-  segmentsIntersect,
-  clampBendOutsideBox,
-  truncateLeaderEndpointAtBox,
-  leaderAttachTargetY,
-  labelHeightUnits,
   radialFraction,
   degToRad,
   upperLeftBendPoint,
@@ -37,6 +32,7 @@ import {
   buildInsideDraft,
   buildOutsideRimDraft,
   buildOutsideLeaderDraft,
+  buildLowerLeftDropLeaderDraft,
   finalizePlacement,
   TOP_BAND_HALF_WIDTH_DEG,
   BOTTOM_BAND_HALF_WIDTH_DEG,
@@ -70,16 +66,31 @@ import {
   trySplitNamePlacement,
   restoreSplitNamePlacement,
   relaxNameCondense,
+  FINAL_CONDENSE_MIN_SCALE,
 } from "./post_layout.js";
 import { buildFontFaceDefs } from "./font.js";
+import {
+  ALWAYS_DRAW_OUTSIDE_LEADERS,
+  computeDrawnLeader,
+  isRedundantUpperLeftSmallLeader,
+  resolveLeaderCrossings,
+  distPointToSegment,
+  pathsCross,
+  realLeaderPaths,
+  countLeaderCrossings,
+  countLeaderThroughLabels,
+  boxOverlapMax,
+  boxPieIntrusionMax,
+  boxViewOverflowOf,
+  boxViewOverflowMax,
+  projectBoxesToPixels,
+  oobLeaderCount,
+  countAngularDiscordantPairs,
+} from "./leader_geometry.js";
+import type { Pt, Coord } from "./leader_geometry.js";
 
 export { escapeXml } from "./rendering.js";
-
-// 円外ラベルには常時 leader を描く方針フラグ (ユーザー要望: なるべく leader を使う)。
-// ON のとき: inside(スライス内)ラベルのみ leaderless、円外ラベルは rim 配置でも leader を描き、
-// 円貫通 / hairpin / 冗長な短 leader / leader 同士の交差 による省略を全てバイパスする。
-// false に戻すと従来の「leader=最終手段 + 各種省略」挙動。
-const ALWAYS_DRAW_OUTSIDE_LEADERS = true;
+export { distPointToSegment, pathsCross } from "./leader_geometry.js";
 
 // twoLineLeftStackMode の左列ラベルを円縁 (rim) からどれだけ外側へ離すかの mid-angle 放射係数。
 // 1.0 で円ハグ (旧)。参考 PDF はラベルと円の間に ~0.3R の隙間を空け、リーダー線が長い斜め線として
@@ -87,12 +98,6 @@ const ALWAYS_DRAW_OUTSIDE_LEADERS = true;
 // 長い斜め直線になる。円侵入は起きないため verify/スコアラへの影響はない。
 const TWO_LINE_LEFT_OUT_FACTOR = 1.28;
 
-// leader の折れ角が鋭く (なす角 > 135°、cos < -0.7) ヘアピン状になり視認性を損なう時に
-// その leader を省く cos 閾値。
-const UPPER_LEFT_HAIRPIN_VISIBILITY_COS_THRESHOLD = -0.7;
-// 上左の小スライスが引く短い leader を省く角度範囲の半幅 (90°中心)。midAngle>90 と併用し
-// 12時〜10時半 ([90°,135°]) の小スライスを対象にする (シンガポール 3.5% ≈121.9° を含む)。
-const UPPER_LEFT_SMALL_LEADER_HALF_WIDTH_DEG = 45;
 // 9時線 (midAngle≈180) を挟んで縦に重なる左小スライスを「左上へ逃がす」対象とみなす帯の半幅。
 // イギリス(≈189.5°)/イタリア(≈175.2°) の様に 9時線近傍で near-vertical leader が重なる対を拾う。
 const NINE_OCLOCK_ESCAPE_HALF_WIDTH_DEG = 30;
@@ -190,290 +195,9 @@ function isCascadeFailed(placement: Placement, others: Placement[], cfg: PieLayo
   return false;
 }
 
-type Pt = { x: number; y: number };
-
-/**
- * placement から「描画される leader 折れ線 (pathPoints)」「貫通判定用折れ線 (detectPathPoints)」
- * 「暫定 skipLeader」を計算する。Pass 1 と conflict scorer で共有し、両者の leader 形状を
- * 厳密に一致させる (Pass 2 のクロス placement 判定は呼び出し側で行う)。
- */
-function computeDrawnLeader(
-  placement: Placement,
-  cfg: PieLayoutConfig,
-  forScoring = false,
-): { pathPoints: Pt[]; detectPathPoints: Pt[]; skipLeader: boolean } {
-  // 常時描画 + 縦中央接続は **描画パスのみ** に適用する。conflict scorer (chartConflicts) から
-  // forScoring=true で呼ばれた時は従来挙動を維持し、レイアウト選択 (その他 右/左 等) を baseline と
-  // 同一に保つ (常時描画によるスコア変動でラベル位置が動くのを防ぐ)。
-  const alwaysDraw = ALWAYS_DRAW_OUTSIDE_LEADERS && !forScoring;
-  const endpointMinDist = cfg.pieRadius + radialFraction(cfg, 0.01, 0.1);
-  const dominantOutsideLeaderGap = radialFraction(cfg, 0.3, 2.8);
-  const dx = placement.x - placement.origTextX;
-  const dy = placement.y - placement.origTextY;
-  const endpoint = { x: placement.leaderEndpoint.x + dx, y: placement.leaderEndpoint.y + dy };
-  const distFromCenter = Math.hypot(endpoint.x, endpoint.y);
-  if (distFromCenter > 1e-9 && distFromCenter < endpointMinDist) {
-    const factor = endpointMinDist / distFromCenter;
-    endpoint.x *= factor;
-    endpoint.y *= factor;
-  }
-  const finalBox = placementBox(placement, cfg);
-  if (alwaysDraw) {
-    // 接続点をラベル縦中央(1 行)/向きに応じた行位置(2 行)へ。終点 Y を target へ寄せると、
-    // bendFollowsEndpointY 経路は最終水平セグメントが target Y に揃い、近い縦縁の縦中央で接続する。
-    const lineCount = placement.lines.length >= 2 ? 2 : 1;
-    const perLineHeight = labelHeightUnits(1, cfg);
-    if (placement.forceTopRight) {
-      // 上左帯の右上逃がし (その他 / topBandSmallRight / clusterTopBandBottomRight)。
-      const capClearY = cfg.pieRadius + radialFraction(cfg, 0.012, 0.12);
-      if (finalBox.bottom >= capClearY - 1e-9) {
-        // 箱が完全に pie キャップより上 (topRightLiftedRimDraft): 通常の rim ラベルと同じく
-        // 近い行中央へ短く接続する。水平区間が pie-y > pieRadius を保つためキャップは貫かない。
-        endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
-      } else {
-        // 箱下端が円の y 域に入る旧経路: 水平区間が x=0 をパイ上で跨ぐため box 上端
-        // (最大 pie-y) へ接続し、区間を pie-y > pieRadius に保ってキャップ貫通を避ける。
-        endpoint.y = Math.max(finalBox.top, capClearY);
-      }
-    } else {
-      endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
-    }
-  }
-  let bend = placement.leaderBend;
-  if (placement.leaderBendFollowsEndpointY) {
-    const anchorY = placement.leaderAnchor.y;
-    const minOffset = radialFraction(cfg, 0.005, 0.05);
-    const rimDegenerate =
-      Math.hypot(
-        placement.leaderBend.x - placement.leaderEndpoint.x,
-        placement.leaderBend.y - placement.leaderEndpoint.y,
-      ) < 1e-9;
-    const endpointOppositeSide =
-      (anchorY < 0 && endpoint.y > anchorY) || (anchorY > 0 && endpoint.y < anchorY);
-    if (placement.dominantOutsideEdge && rimDegenerate && endpointOppositeSide) {
-      // 支配スライス rim ラベル (textX≈anchorX で bendFollowsEndpointY) のうち、接続点が anchor の
-      // 反対側 Y にあるケース。anchorY±minOffset へ bend を寄せると anchor の手前へ後退する小フック
-      // (逆向きスタブ) が出る (例 アメリカ・ドル58%)。bend を anchor に畳み anchor→接続点を素直な
-      // 直線にする (truncate が近縁で止める)。下記 rim 縮退分岐と同形で、drawn パスは元の部分集合。
-      bend = { x: placement.leaderAnchor.x, y: placement.leaderAnchor.y };
-    } else if (anchorY > 0) bend = { x: bend.x, y: Math.max(endpoint.y, anchorY + minOffset) };
-    else if (anchorY < 0) bend = { x: bend.x, y: Math.min(endpoint.y, anchorY - minOffset) };
-  } else if (placement.leaderBendFollowsEndpointX) {
-    const anchorX = placement.leaderAnchor.x;
-    const anchorY = placement.leaderAnchor.y;
-    const minOffset = radialFraction(cfg, 0.005, 0.05);
-    if (anchorX > 0) bend = { x: Math.max(endpoint.x, anchorX + minOffset), y: anchorY };
-    else if (anchorX < 0) bend = { x: Math.min(endpoint.x, anchorX - minOffset), y: anchorY };
-  } else if (
-    alwaysDraw &&
-    Math.hypot(
-      placement.leaderBend.x - placement.leaderEndpoint.x,
-      placement.leaderBend.y - placement.leaderEndpoint.y,
-    ) < 1e-9
-  ) {
-    // rim 縮退ケース (lineStart == lineEnd、bend≒box 角): anchor → 接続点 を直線で結ぶ。
-    // bend を anchor に畳んで 3 点構造のまま直線にし、truncate が近縁の target Y 点で止める。
-    bend = { x: placement.leaderAnchor.x, y: placement.leaderAnchor.y };
-  } else {
-    bend = clampBendOutsideBox(bend, placement.leaderAnchor.x, endpoint.x, finalBox);
-  }
-  // 常時描画では円貫通 leader を省略しない (下記 Pass の skip を通らない) ため、代わりに bend /
-  // 接続点が円内へ食い込む場合だけ半径方向に円縁の外へ押し出し、「描画 leader は円を貫かない」
-  // 不変条件を保つ。9/3 時付近で box 縁が僅かに円へ重なる near-rim ラベルの graze を解消する
-  // (実幅化で顕在化)。既に円外の点は不変なので他 leader 形状に影響しない。
-  const clampOutsidePie = (p: Pt): Pt => {
-    const d = Math.hypot(p.x, p.y);
-    if (d > 1e-9 && d < endpointMinDist) {
-      const f = endpointMinDist / d;
-      return { x: p.x * f, y: p.y * f };
-    }
-    return p;
-  };
-  if (alwaysDraw) bend = clampOutsidePie(bend);
-  let drawEndpoint = truncateLeaderEndpointAtBox(bend, endpoint, finalBox, cfg.cornerGap);
-  if (alwaysDraw) drawEndpoint = clampOutsidePie(drawEndpoint);
-  let pathPoints = [placement.leaderAnchor, bend, drawEndpoint];
-  let detectPathPoints = [placement.leaderAnchor, bend, endpoint];
-  // 常時描画方針: inside のみ leaderless、円外は全て leader を描く。円貫通/hairpin の省略も無効化。
-  if (alwaysDraw) {
-    if (!placement.insideSlice) {
-      // 円弦リルート: ラベルがアンカーの反対側へ移動した rim/leader 配置では bend の clamp が
-      // 「極小スタブ → 長い斜め弦」を作り、弦が円を貫く。点の clampOutsidePie では防げないため、
-      // 描画セグメントが円内 (countDefects と同じ pieRadius−1px 基準) を通る場合は bend を
-      // アンカー角・接続点角の二等分方向の接線交点 W に置き換える。W = (rc/cos(Δ/2), 二等分角)
-      // は両端への線分が中心から距離 ≥ pieRadius を保つことが幾何的に保証され、曲がりは 1 回の
-      // まま (verify の max-1-bend 充足)。発火は既に円貫通している leader のみなので健全な
-      // チャートの幾何は不変。forceTopRight は専用のキャップ回避経路を持つため対象外。
-      const pxUnit = 1 / cfg.pxPerUnit;
-      const intrudeR = cfg.pieRadius - pxUnit;
-      const intrudes = (a: Pt, b: Pt): boolean =>
-        distPointToSegment(0, 0, a.x, a.y, b.x, b.y) < intrudeR;
-      const anchor = placement.leaderAnchor;
-      if (
-        !placement.forceTopRight &&
-        (intrudes(anchor, bend) || intrudes(bend, drawEndpoint))
-      ) {
-        const thA = Math.atan2(anchor.y, anchor.x);
-        const thE = Math.atan2(endpoint.y, endpoint.x);
-        let dTh = thE - thA;
-        while (dTh > Math.PI) dTh -= 2 * Math.PI;
-        while (dTh < -Math.PI) dTh += 2 * Math.PI;
-        // 角度差が大きすぎると W が極端に遠くなる (rc/cos(Δ/2) 発散)。150° 以上は現状維持。
-        if (Math.abs(dTh) < (150 * Math.PI) / 180) {
-          const rc = cfg.pieRadius + 2.5 * pxUnit;
-          const midTh = thA + dTh / 2;
-          const rw = rc / Math.cos(Math.abs(dTh) / 2);
-          bend = { x: rw * Math.cos(midTh), y: rw * Math.sin(midTh) };
-          drawEndpoint = clampOutsidePie(
-            truncateLeaderEndpointAtBox(bend, endpoint, finalBox, cfg.cornerGap),
-          );
-          pathPoints = [anchor, bend, drawEndpoint];
-          detectPathPoints = [anchor, bend, endpoint];
-        }
-      }
-      // 縮退スタブ除去: bend がアンカーに畳まれた後の clamp で生じる 1〜2px の幻セグメントは
-      // 視認できない一方、他 leader との見かけ上の交差源になる。アンカー直結の 2 点パスにする。
-      const stubEps = radialFraction(cfg, 0.02, 0.2);
-      if (Math.hypot(bend.x - anchor.x, bend.y - anchor.y) < stubEps) {
-        pathPoints = [anchor, drawEndpoint];
-        detectPathPoints = [anchor, endpoint];
-      }
-    }
-    return { pathPoints, detectPathPoints, skipLeader: placement.insideSlice };
-  }
-  let skipLeader = Boolean(placement.skipLeader);
-  if (skipLeader && placement.dominantOutsideEdge) {
-    const a = placement.leaderAnchor;
-    if (Math.hypot(endpoint.x - a.x, endpoint.y - a.y) > dominantOutsideLeaderGap) skipLeader = false;
-  }
-  if (!skipLeader && placement.upperLeftHairpinCheck) {
-    const a = placement.leaderAnchor;
-    const b = placement.leaderBend;
-    const seg1x = b.x - a.x;
-    const seg2x = endpoint.x - b.x;
-    const seg2y = endpoint.y - b.y;
-    const len1 = Math.abs(seg1x);
-    const len2 = Math.hypot(seg2x, seg2y);
-    if (len1 > 1e-6 && len2 > 1e-6) {
-      const cosAngle = (seg1x * seg2x) / (len1 * len2);
-      skipLeader = cosAngle < UPPER_LEFT_HAIRPIN_VISIBILITY_COS_THRESHOLD;
-    }
-  }
-  // 円を貫通する leader は省略する。anchor は円縁上(dist≈pieRadius)なので外向きの
-  // 通常 leader は引っかからず、円内へ食い込むセグメントだけを落とす。
-  // 線を消すだけなので新規の重なり/交差/はみ出しは生じない。
-  if (!skipLeader) {
-    const pieClear = cfg.pieRadius - 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
-    for (let k = 0; k + 1 < pathPoints.length; k += 1) {
-      if (distPointToSegment(0, 0, pathPoints[k].x, pathPoints[k].y, pathPoints[k + 1].x, pathPoints[k + 1].y) < pieClear) {
-        skipLeader = true;
-        break;
-      }
-    }
-  }
-  return { pathPoints, detectPathPoints, skipLeader };
-}
-
-/**
- * 上左 ([90°,135°]) の小スライスが引く「短い」leader か。短い = ラベルが自スライスのすぐ外側に
- * あり、線が無くても接続が自明 (ユーザー指摘: REIT 国別の シンガポール 3.5%)。本判定は emit 最終段
- * (Pass 2.6) だけで使い、computeDrawnLeader / 採点には載せない。これにより leader 線を消すだけで
- * レイアウト選択や他 leader の交差解決には一切影響しない (ラベル位置は不変)。閾値 (≈0.5·R) で
- * 「その他」級の右逃がし leader (≈1.2·R) や遠方へ逃がした leader は残す。述語 (isSmall / midAngle>90 /
- * 帯内 / 非「その他」) は layout.ts markTopBandSmallRight の候補条件と同系。
- */
-function isRedundantUpperLeftSmallLeader(
-  placement: Placement,
-  pathPoints: Pt[],
-  cfg: PieLayoutConfig,
-): boolean {
-  const it = placement.item;
-  const mid = it.midAngle ?? 0;
-  // 意図的に rank 9 へ強制した leader (forceOutsideLeader) は「冗長な短 leader」ではないので
-  // 対象外。これを消すと強制した目的 (極小スライスへの leader 付与) が無に帰す。
-  if (it.forceOutsideLeader === true) return false;
-  if (it.isSmall !== true) return false;
-  if (mid <= 90) return false;
-  if (!angleInBand(normalizeAngle(mid), 90, UPPER_LEFT_SMALL_LEADER_HALF_WIDTH_DEG)) return false;
-  if (it.name.startsWith("その他")) return false;
-  let len = 0;
-  for (let k = 0; k + 1 < pathPoints.length; k += 1) {
-    len += Math.hypot(pathPoints[k + 1].x - pathPoints[k].x, pathPoints[k + 1].y - pathPoints[k].y);
-  }
-  return len < radialFraction(cfg, 0.5, 4.8);
-}
-
-/**
- * 描画される leader 同士が交差する場合、長い方を省略する (skip[i]=true)。leader を消すだけ
- * なので新たな重なり/はみ出し/交差は生じない (Pass 2 の leader×box 省略と同性質, 退行0)。
- * emit (Pass 2 直後) と chartConflicts の両方から呼び、採点と描画の leader 集合を一致させる。
- * 短い leader を残す = ラベルが自スライス近傍にあり接続が自明。同長は name で決定的に。
- * entries は pixel 座標の折れ線 (pixPaths) と name を持ち、skip[] を破壊的に更新する。
- */
-function resolveLeaderCrossings(pixPaths: (Pt[] | null)[], names: string[], skip: boolean[]): void {
-  const n = pixPaths.length;
-  const lenOf = (pts: Pt[]): number => {
-    let s = 0;
-    for (let k = 0; k + 1 < pts.length; k += 1) {
-      s += Math.hypot(pts[k + 1].x - pts[k].x, pts[k + 1].y - pts[k].y);
-    }
-    return s;
-  };
-  for (let i = 0; i < n; i += 1) {
-    const pa = pixPaths[i];
-    if (!pa || skip[i]) continue;
-    for (let j = i + 1; j < n; j += 1) {
-      const pb = pixPaths[j];
-      if (!pb || skip[j]) continue;
-      let cross = false;
-      for (let k = 0; k + 1 < pa.length && !cross; k += 1) {
-        for (let m = 0; m + 1 < pb.length && !cross; m += 1) {
-          if (segmentsIntersect(pa[k], pa[k + 1], pb[m], pb[m + 1])) cross = true;
-        }
-      }
-      if (!cross) continue;
-      const la = lenOf(pa);
-      const lb = lenOf(pb);
-      const dropI = la > lb || (la === lb && names[i] > names[j]);
-      if (dropI) {
-        skip[i] = true;
-        break; // i は消えたので次の i へ
-      }
-      skip[j] = true;
-    }
-  }
-}
-
-/** 点 (px,py) と線分 (ax,ay)-(bx,by) の最短距離。 */
-export function distPointToSegment(
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-): number {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const len2 = dx * dx + dy * dy;
-  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-}
-
-type Coord = {
-  xScale: (v: number) => number;
-  yScale: (v: number) => number;
-  width: number;
-  height: number;
-};
-
-/**
- * 全ラベルを①〜⑨カスケードで 1 回配置する。① が wedge に収まれば内側で確定、否なら②外側 rim
- * から始め、overlap/pie nudge を反復しつつ失敗ラベルを 1 段ずつ降格させて収束させる。
- * 上部「その他」を右上へ置くかは item.topRightRejected (topBandSonohokaRight が参照) で決まる。
- */
-/** leftStackMode の左列とみなす placement (side=left・baseline=bottom・非 inside・x<0)。 */
+// leader 折れ線の幾何プリミティブ (`computeDrawnLeader` / `isRedundantUpperLeftSmallLeader` /
+// `resolveLeaderCrossings` / `distPointToSegment`) と型 `Pt` / `Coord` は `./leader_geometry.js` へ分離した。
+/** `leftStackMode` の左列とみなす placement (side=left・baseline=bottom・非 inside・x<0)。 */
 function isLeftStackMember(p: Placement): boolean {
   return p.item.side === "left" && p.baseline === "bottom" && !p.insideSlice && p.x < 0;
 }
@@ -612,6 +336,11 @@ function spreadLeftStackByAngle(
   }
 }
 
+/**
+ * 全ラベルを①〜⑨カスケードで 1 回配置する。① が wedge に収まれば内側で確定、否なら②外側 rim
+ * から始め、overlap/pie nudge を反復しつつ失敗ラベルを 1 段ずつ降格させて収束させる。
+ * 上部「その他」を右上へ置くかは `item.topRightRejected` (`topBandSonohokaRight` が参照) で決まる。
+ */
 function runCascadeOnce(
   labels: LayoutItemReady[],
   cfg: PieLayoutConfig,
@@ -730,6 +459,7 @@ function finalizeForScoring(
   escapeUpperLeftTinyLeaders(copy, cfg, coord);
   escapeTopBandSeamLeader(copy, cfg, coord);
   if (leftStackMode) reorderLeftStackWithCondense(copy, cfg, coord);
+  if (leftStackMode) separateLeftColumnByHeight(copy, cfg, coord);
   // repairResidualLeaderDefects は emit 最終段のみで適用する (ここには入れない)。採点へ入れると
   // 「修復で直る前提」のスコアでチャート単位の候補選択 (ソノホカ右/左・spread 等) が動き、修復
   // しきれない別候補を選ぶ退行を生む (例 currency_many_small_10)。finalScore は emit 後の同一
@@ -870,6 +600,392 @@ function applySplitNameFallback(placements: Placement[], cfg: PieLayoutConfig, c
 }
 
 /**
+ * 単行 (`lines.length===1`) の幅広ラベルを **標準2行** `[name, percent]` へ変換する (`trySplitNamePlacement`
+ * の `nameSplit` 形と違い、数値行に名前文字が乗らない = 他ラベルと同形)。`nameScaleX` を 1 から下限
+ * `FINAL_CONDENSE_MIN_SCALE`(0.7) まで 0.025 刻みで落として `canvasXlim` に収め、収まらなければ 0.7 で
+ * 打ち切る (見切れ許容)。revert 用に変換前 `{lines, nameSplit, nameScaleX}` を返す。
+ */
+function toTwoLineNamePlacement(
+  placement: Placement,
+  cfg: PieLayoutConfig,
+): { lines: string[]; nameSplit?: boolean; nameScaleX?: number } | null {
+  if (placement.insideSlice || placement.nameSplit || placement.lines.length !== 1) return null;
+  const snap = {
+    lines: placement.lines,
+    nameSplit: placement.nameSplit,
+    nameScaleX: placement.nameScaleX,
+  };
+  placement.lines = [placement.item.name, placement.item.percentText ?? ""];
+  placement.nameSplit = false;
+  const [xmin, xmax] = cfg.canvasXlim;
+  const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9);
+  let sx = 1;
+  placement.nameScaleX = 1;
+  while (sx - 0.025 >= FINAL_CONDENSE_MIN_SCALE - 1e-9) {
+    const b = placementBox(placement, cfg);
+    if (b.left >= xmin - tol && b.right <= xmax + tol) break;
+    sx = Math.round((sx - 0.025) * 1000) / 1000;
+    placement.nameScaleX = sx;
+  }
+  return snap;
+}
+
+/** `toTwoLineNamePlacement` の snap で placement を変換前へ戻す。 */
+function restoreTwoLineNamePlacement(
+  placement: Placement,
+  snap: { lines: string[]; nameSplit?: boolean; nameScaleX?: number },
+): void {
+  placement.lines = snap.lines;
+  placement.nameSplit = snap.nameSplit;
+  placement.nameScaleX = snap.nameScaleX;
+}
+
+/**
+ * 左側 near-equator 見切れラベルの縦 spread フォールバック (emit 最終段, do-no-harm)。
+ * `post_layout.ts` の `applyVisualViewBoxNudge` は水平シフトのみで、円の縦中心付近
+ * (`Math.abs(closestPieY) < cfg.pieRadius`) の左ラベルは左シフトが pie に頭打ちされ
+ * (同関数の `pieLeftX` クランプ) viewBox 左端を見切れたまま残る。本パスは該当ラベルを円の縦中心から
+ * 離す向き (中心より上は上・下は下) へ少しずつ動かし、その y で円が細る分だけ `applyVisualViewBoxNudge`
+ * が横可動域を取り戻して見切れを解消する (左 rim X が `finalX = -sqrt(r^2 - y^2)` 由来で |y| が増える
+ * ほど中心寄りになる幾何による)。同側の見切れラベルは equator 近接側から順に動かし、内側ラベルと
+ * 重ならないよう外側へ追い出して縦に広げる。広げた結果 leader が長い斜線になり交差しうるので
+ * `repairResidualLeaderDefects` (bend 再配置, do-no-harm) を掛けてから採否を判定する。採否は片側単位で
+ * チャート全体 `countDefects` の do-no-harm ゲート (clips 厳密減・crossings/pie/重なり/box 円侵入 非悪化)
+ * を満たす時だけ全件採用、満たさなければ全件 revert。`applyLowerLeftDropFallback` /
+ * `applySplitNameFallback` より先に走り、解消すれば後続は `before.clips === 0` で no-op。見切れの無い
+ * チャートは早期 return で完全無変更 (= baseline byte 不変)。
+ */
+function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
+  const { xScale, yScale } = coord;
+  const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
+  const cxp = xScale(0);
+  const cyp = yScale(0);
+  const pixBox = (p: Placement) => {
+    const lb = placementBox(p, cfg);
+    return {
+      left: Math.min(xScale(lb.left), xScale(lb.right)),
+      right: Math.max(xScale(lb.left), xScale(lb.right)),
+      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
+      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
+    };
+  };
+  const clipsLeftViewBox = (p: Placement): boolean => pixBox(p).left < -1;
+  const countBoxPie = (): number => {
+    let n = 0;
+    for (const p of placements) {
+      if (p.insideSlice) continue;
+      const b = pixBox(p);
+      const closestX = Math.max(b.left, Math.min(cxp, b.right));
+      const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
+      if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
+    }
+    return n;
+  };
+  const overlapsOf = (d: DefectCounts): number => d.total - d.clips - d.crossings - d.pie;
+  // `post_layout.ts` の同名 (非 export) と同等。符号付き Y 変位方向の可動限界張り付き判定。
+  const blockedInY = (p: Placement, dyDelta: number): boolean => {
+    if (dyDelta > 0 && typeof p.maxTextY === "number" && p.y >= p.maxTextY - 1e-9) return true;
+    if (dyDelta < 0 && typeof p.minTextY === "number" && p.y <= p.minTextY + 1e-9) return true;
+    return false;
+  };
+
+  let before = countDefects(placements, cfg, coord);
+  if (before.clips === 0) return;
+  let beforePieBox = countBoxPie();
+  // `countDefects` は leader×label 貫通を数えない。横優先 L 字の縦 riser が隣ラベル box を貫く退行
+  // (例 `pdf_510037_07` オフショア riser が韓国 box を貫通) を防ぐため、別途 through 件数も非悪化で gate する。
+  let beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
+
+  // 隣接ラベル間の最小縦間隔 (`countDefects` の重なり閾値 6px に余裕)。
+  const marginLogical = 8 / (pieRpx / cfg.pieRadius);
+  // placement の論理 box (top > bot, +y = 上)。
+  const lbox = (p: Placement) => {
+    const b = placementBox(p, cfg);
+    return { top: Math.max(b.top, b.bottom), bot: Math.min(b.top, b.bottom) };
+  };
+
+  // 対象: 左側 (x<0) の外側ラベルで左端を見切れ、かつ水平 nudge が pie ブロックされる
+  // (|y| < pieRadius) もの。名前 2 行分割済 / 2 行左列は専用パス管轄なので除外。下left ドロップ
+  // 候補 (`lowerLeftDropLeader`) は本パスを `applyLowerLeftDropFallback` より先に試し、縦 spread で
+  // 解消できればドロップ不要にするため除外しない。
+  const targets = placements.filter(
+    (p) =>
+      !p.insideSlice &&
+      p.x < 0 &&
+      Math.abs(p.y) < cfg.pieRadius &&
+      !p.nameSplit &&
+      !p.twoLineLeftColumn &&
+      clipsLeftViewBox(p),
+  );
+  if (targets.length === 0) return;
+
+  const step = radialFraction(cfg, 0.01, 0.06);
+  const MAX_ITERS = 200;
+
+  // 円の縦中心から離す向き `dir` へ、見切れ解消 (または可動限界) まで少しずつ動かし、各ステップで
+  // x を pie 限界まで右へ寄せ直す (`applyVisualViewBoxNudge`)。ラベル幅は変えず x のみ寄せる。
+  const stepAway = (p: Placement, dir: number): void => {
+    for (let i = 0; i < MAX_ITERS; i += 1) {
+      if (blockedInY(p, dir)) break;
+      p.y += dir * step;
+      if (typeof p.maxTextY === "number" && p.y > p.maxTextY) p.y = p.maxTextY;
+      if (typeof p.minTextY === "number" && p.y < p.minTextY) p.y = p.minTextY;
+      applyVisualViewBoxNudge([p], cfg);
+      if (!clipsLeftViewBox(p)) break;
+    }
+  };
+
+  // 片側 (上 or 下) の見切れラベル群を equator 近接側から外側へ順に動かす。各ラベルを見切れ解消位置
+  // まで動かした後、内側 (equator 寄り) の直前ラベルと重ならないよう外側へ追い出す。これにより外側
+  // ラベルが内側ラベルのぶん余分に動いて縦に広がり、群全体が衝突せず収まる (単純な貪欲 1 件ずつでは
+  // 外側ラベルが「自身が解消した時点」で止まり内側ラベルの空きを作れない)。採否は片側単位の do-no-harm
+  // ゲートで全件採用/全件 revert する。
+  const processSide = (group: Placement[], dir: number): void => {
+    if (group.length === 0) return;
+    group.sort((a, b) => Math.abs(a.y) - Math.abs(b.y)); // equator 近接側 (|y| 小) から
+    // 全 placement の幾何 snapshot (revert 用)。後段 leader 修復が他ラベルの bend も触りうるため全件。
+    const snaps = placements.map((p) => ({
+      p,
+      x: p.x,
+      y: p.y,
+      lb: { ...p.leaderBend },
+      le: { ...p.leaderEndpoint },
+    }));
+    // 見切れる 1 行 (lines.length===1) の幅広ラベルは box が広すぎて equator 近傍では収まらない。先に
+    // **標準2行** [name, %] へ変換 (`toTwoLineNamePlacement`) して箱幅を狭める (数値行に名前文字を乗せない
+    // = 他ラベルと同形)。これにより縦移動で収まらない時の過剰な移動採用 (見た目改善のない他チャート
+    // 巻き込み) を避け、収まらなければ revert 時に変換も戻す。
+    const splitSnaps: {
+      p: Placement;
+      snap: ReturnType<typeof toTwoLineNamePlacement>;
+      origLeft: number; // 1 行時の左端 px (2 行化で見切れ量が減ったか判定する基準)
+    }[] = [];
+    for (const p of group) {
+      if (clipsLeftViewBox(p) && p.lines.length === 1) {
+        const origLeft = pixBox(p).left;
+        const s = toTwoLineNamePlacement(p, cfg);
+        if (s) splitSnaps.push({ p, snap: s, origLeft });
+      }
+    }
+    const groupOrigY = group.map((p) => p.y); // 移動採用後に「実際に動いたラベル」を識別する基準
+    let innerEdge: number | null = null; // 直前 (内側) ラベルの外側エッジ (上群=top / 下群=bot)
+    for (const p of group) {
+      stepAway(p, dir);
+      if (innerEdge !== null) {
+        const box = lbox(p);
+        if (dir > 0) {
+          const need = innerEdge + marginLogical - box.bot; // p(上) の下端を直前 top + margin 以上へ
+          if (need > 0) {
+            p.y += need;
+            if (typeof p.maxTextY === "number" && p.y > p.maxTextY) p.y = p.maxTextY;
+            applyVisualViewBoxNudge([p], cfg);
+          }
+        } else {
+          const need = box.top - (innerEdge - marginLogical); // p(下) の上端を直前 bot - margin 以下へ
+          if (need > 0) {
+            p.y -= need;
+            if (typeof p.minTextY === "number" && p.y < p.minTextY) p.y = p.minTextY;
+            applyVisualViewBoxNudge([p], cfg);
+          }
+        }
+      }
+      innerEdge = dir > 0 ? lbox(p).top : lbox(p).bot;
+    }
+    const revertGeometry = (): void => {
+      for (const s of snaps) {
+        s.p.x = s.x;
+        s.p.y = s.y;
+        s.p.leaderBend = s.lb;
+        s.p.leaderEndpoint = s.le;
+      }
+    };
+    // 採用した移動ラベルのリーダを箱「アンカー側の縁・水平中央」へ寄せて見やすくする (do-no-harm)。
+    // 移動採用が確定した後にフラグを立て直し再評価し、悪化したらフラグと bend のみ戻す (移動は維持)。
+    const refineMovedLeaders = (): void => {
+      const moved = group.filter((p, i) => Math.abs(p.y - groupOrigY[i]) > 1e-6);
+      if (moved.length === 0) return;
+      const leaderSnap = placements.map((p) => ({
+        p,
+        lb: { ...p.leaderBend },
+        le: { ...p.leaderEndpoint },
+      }));
+      for (const p of moved) p.declipBottomLeader = true;
+      repairResidualLeaderDefects(placements, cfg, coord);
+      const a = countDefects(placements, cfg, coord);
+      const aPieBox = countBoxPie();
+      const aThrough = countLeaderThroughLabels(placements, cfg, coord);
+      const ok =
+        a.clips <= before.clips &&
+        a.crossings <= before.crossings &&
+        a.pie <= before.pie &&
+        overlapsOf(a) <= overlapsOf(before) &&
+        aPieBox <= beforePieBox &&
+        aThrough <= beforeThrough;
+      if (ok) {
+        before = a;
+        beforePieBox = aPieBox;
+        beforeThrough = aThrough;
+      } else {
+        for (const p of moved) p.declipBottomLeader = undefined;
+        for (const s of leaderSnap) {
+          s.p.leaderBend = s.lb;
+          s.p.leaderEndpoint = s.le;
+        }
+      }
+    };
+
+    // 手順1: 縦に広げた結果 leader が長い斜線になり交差しうるので既存 leader 修復 (do-no-harm) を掛けて
+    // から、移動+spread を do-no-harm ゲート (clips 厳密減) で判定する。
+    repairResidualLeaderDefects(placements, cfg, coord);
+    const moveAfter = countDefects(placements, cfg, coord);
+    const moveAfterPieBox = countBoxPie();
+    const moveAfterThrough = countLeaderThroughLabels(placements, cfg, coord);
+    const moveAdopt =
+      moveAfter.clips < before.clips &&
+      moveAfter.crossings <= before.crossings &&
+      moveAfter.pie <= before.pie &&
+      overlapsOf(moveAfter) <= overlapsOf(before) &&
+      moveAfterPieBox <= beforePieBox &&
+      moveAfterThrough <= beforeThrough;
+    if (moveAdopt) {
+      before = moveAfter;
+      beforePieBox = moveAfterPieBox;
+      beforeThrough = moveAfterThrough;
+      refineMovedLeaders();
+      return;
+    }
+
+    // 手順2: 移動失敗。完全 revert の前に「分割維持」を試す (例 スウェーデンクローナ: 円脇に幅が入らず
+    // 移動では収まらないが、2 行分割で見切れ量は縮む — ユーザは 1 行見切れより 2 行見切れを好む)。幾何
+    // (x/y/leader) を元へ戻し分割 (lines/nameSplit/nameScaleX) は維持、元位置で x 再フィット → 各分割対象
+    // の左はみ出し量が減り、かつ他カテゴリ非悪化 (clips は同値可) なら分割維持。
+    revertGeometry();
+    if (splitSnaps.length > 0) {
+      for (const { p } of splitSnaps) applyVisualViewBoxNudge([p], cfg);
+      repairResidualLeaderDefects(placements, cfg, coord);
+      const splitAfter = countDefects(placements, cfg, coord);
+      const splitAfterPieBox = countBoxPie();
+      const splitAfterThrough = countLeaderThroughLabels(placements, cfg, coord);
+      const magnitudeReduced = splitSnaps.every(({ p, origLeft }) => pixBox(p).left > origLeft + 1e-6);
+      const splitAdopt =
+        magnitudeReduced &&
+        splitAfter.clips <= before.clips &&
+        splitAfter.crossings <= before.crossings &&
+        splitAfter.pie <= before.pie &&
+        overlapsOf(splitAfter) <= overlapsOf(before) &&
+        splitAfterPieBox <= beforePieBox &&
+        splitAfterThrough <= beforeThrough;
+      if (splitAdopt) {
+        before = splitAfter;
+        beforePieBox = splitAfterPieBox;
+        beforeThrough = splitAfterThrough;
+        return;
+      }
+    }
+
+    // 手順1・2 とも不採用: 2 行変換も含め完全 revert (baseline byte 不変)。
+    for (const { p, snap } of splitSnaps) {
+      if (snap) restoreTwoLineNamePlacement(p, snap);
+    }
+    revertGeometry();
+  };
+
+  // 中心より上 (y>=0) の見切れラベルは上へ、下 (y<0) は下へ。各側を片側単位でゲートする。
+  processSide(
+    targets.filter((p) => p.y >= 0),
+    1,
+  );
+  processSide(
+    targets.filter((p) => p.y < 0),
+    -1,
+  );
+}
+
+/**
+ * 下left ドロップ + 斜めリーダー フォールバック (emit 最終段, do-no-harm)。`layout.ts` の
+ * `markClippedUpperLeftLongDrop` が識別した `lowerLeftDropLeader` ラベル (9時直近で長体下限でも
+ * viewBox 左端を見切れる幅広長名) を、円が横へ逃げ帯が広い下left へ 2 行のまま置き直し
+ * (`buildLowerLeftDropLeaderDraft`)、slice rim から斜めリーダーで接続する (参考PDF「オーストラリア」)。
+ * 採否は `applySplitNameFallback` と同じ do-no-harm ゲート (`countDefects` で clips 厳密減・他カテゴリ
+ * 非悪化)。密チャート (例 asset_long_labels_9) で交差/順序反転を生む場合は revert され、当該チャートは
+ * baseline (rim 2 行) のまま = 回帰なし。
+ */
+function applyLowerLeftDropFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
+  const { xScale, yScale, width, height } = coord;
+  const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
+  const cxp = xScale(0);
+  const cyp = yScale(0);
+  const pixBox = (p: Placement) => {
+    const lb = placementBox(p, cfg);
+    return {
+      left: Math.min(xScale(lb.left), xScale(lb.right)),
+      right: Math.max(xScale(lb.left), xScale(lb.right)),
+      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
+      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
+    };
+  };
+  const clipsViewBox = (p: Placement): boolean => {
+    const b = pixBox(p);
+    return b.left < -1 || b.right > width + 1 || b.top < -1 || b.bottom > height + 1;
+  };
+  const countBoxPie = (): number => {
+    let n = 0;
+    for (const p of placements) {
+      if (p.insideSlice) continue;
+      const b = pixBox(p);
+      const closestX = Math.max(b.left, Math.min(cxp, b.right));
+      const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
+      if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
+    }
+    return n;
+  };
+  const overlapsOf = (d: DefectCounts): number => d.total - d.clips - d.crossings - d.pie;
+
+  let before = countDefects(placements, cfg, coord);
+  if (before.clips === 0) return;
+  let beforePieBox = countBoxPie();
+  for (let i = 0; i < placements.length; i += 1) {
+    const p = placements[i];
+    if (p.insideSlice || !p.item.lowerLeftDropLeader || !clipsViewBox(p)) continue;
+    const item = p.item as LayoutItemReady;
+    // 下left ドロップ placement を構築。forceHorizontalLowerLeftDrop を一時的に立てて
+    // clampAndBuildPlacement の内側 (canvasXlim) X クランプを解放し、viewBox 端まで伸ばせるようにする。
+    const prevDrop = item.forceHorizontalLowerLeftDrop;
+    item.forceHorizontalLowerLeftDrop = true;
+    const form = outsideFormForRank(item, cfg, 2); // 2 行原寸起点
+    const dropP = finalizePlacement(
+      item,
+      cfg,
+      buildLowerLeftDropLeaderDraft(item, cfg, form),
+      form,
+    ).textPlacement;
+    item.forceHorizontalLowerLeftDrop = prevDrop;
+    dropP.twoLineLeftColumn = true; // 可動域/condense を viewBox 基準にし、収まる最大サイズへ
+    placements[i] = dropP;
+    // emit パイプラインと同順で dropP を整える: viewBox はみ出しを pie 手前まで右シフト →
+    // 収まるまで長体 → 収まる範囲で原寸へ緩和。pie clearance は左ラベルの上限のみ与え右へ
+    // 引き戻さないため、nudge を入れないと draft 初期 x のまま左へ張り出して見切れる。
+    applyVisualViewBoxNudge([dropP], cfg);
+    applyFinalCondenseToFit([dropP], cfg);
+    relaxNameCondense([dropP], cfg);
+    const after = countDefects(placements, cfg, coord);
+    const afterPieBox = countBoxPie();
+    const adopt =
+      after.clips < before.clips &&
+      after.crossings <= before.crossings &&
+      after.pie <= before.pie &&
+      overlapsOf(after) <= overlapsOf(before) &&
+      afterPieBox <= beforePieBox;
+    if (adopt) {
+      before = after;
+      beforePieBox = afterPieBox;
+    } else {
+      placements[i] = p;
+    }
+  }
+}
+
+/**
  * 上部「その他」の右上(第一優先) vs 左上(代替)をチャート単位で選ぶ。右上が左上に無い不具合を
  * 増やさないなら右上、増やすなら左上。対象はコア帯 (90°±18°) のみ: 左拡張帯 (leftExt) の
  * その他は topBandSonohokaRight が topRightRejected に依らず常に真上垂直 center 配置を返す
@@ -893,7 +1009,7 @@ function cascadeWithSonohokaPick(
   for (const it of topOthers) it.topRightRejected = false;
   const leftIssues = countVerifyIssuesDetailed(left, cfg, coord, leftStackMode);
 
-  // 孤立極小スライス leader 型 (layout.ts markLoneTopSliverLeader) では『その他』を右上へ確定
+  // 孤立極小スライス leader 型 (`layout.ts` の `markLoneTopSliverLeader`) では『その他』を右上へ確定
   // (右逃がし)。これをしないと極小の up-and-over leader が中央の『その他』box を貫いて Pass 2 で
   // 抑制され、せっかくの leader が消える。本印は同マーカーの厳ゲートでこの 1 構成のみに立つ。
   if (labels.some((it) => it.loneTopSliverLeader)) return right;
@@ -917,12 +1033,12 @@ function cascadeWithSonohokaPick(
  *
  * 「左側密集は 1 行優先・入る分だけ」方針。位置 (左帯のどこにあるか) では判定せず、実 bbox が
  * viewBox を越える時だけ 2 行に戻す (= 物理的に 1 行で入らない長名のみ救済)。判定境界は
- * layout.ts leftStackMode ゲート / isCascadeFailed (dominantOutsideEdge) と同じ svgWidthPx
+ * `layout.ts` の `leftStackMode` ゲート / `isCascadeFailed` (`dominantOutsideEdge`) と同じ `svgWidthPx`
  * 基準に統一する (detectVisualHorizontalOverflow は可動域 canvasXlim 基準で狭すぎるため使わない)。
  * これにより viewBox に収まる中位ラベルは 1 行を維持し、見切れ判定 (= viewBox) とも整合する。
  *
  * 起点を戻すフラグは 3 点セット (preferOneLineCascade / compactLabel / textLines)
- * で layout.ts leftStackMode と対称に書き戻す。textLines を 2 (長名は 3) に復元する
+ * で `layout.ts` の `leftStackMode` と対称に書き戻す。`textLines` を 2 (長名は 3) に復元する
  * ことで後段 applyVisualViewBoxNudge (1 行除外ガード) も通過し、最終 shift 救済も
  * 効くようになる。2 行が物理的に入らなければ本番 cascade が 1行/長体/leader まで自然降格
  * するので safety net は既存挙動が担う。
@@ -1081,134 +1197,9 @@ function applyTopBandClusterReorder(placements: Placement[], cfg: PieLayoutConfi
   }
 }
 
-/** 折れ線 2 本が交差するか (verify と同じ実描画パス幾何で判定)。 */
-export function pathsCross(pa: Pt[], pb: Pt[]): boolean {
-  for (let k = 0; k + 1 < pa.length; k += 1) {
-    for (let m = 0; m + 1 < pb.length; m += 1) {
-      if (segmentsIntersect(pa[k], pa[k + 1], pb[m], pb[m + 1])) return true;
-    }
-  }
-  return false;
-}
-
-/**
- * 各 placement の実描画 leader パスを **pixel 座標** で返す (skip は null)。emit と同じ
- * computeDrawnLeader の logical パスを xScale/yScale で pixel へ変換する。交差判定 segmentsIntersect
- * の許容差 (0.5) は pixel 想定なので、logical のまま渡すと常に非交差になる (要 pixel 変換)。
- */
-function realLeaderPaths(
-  placements: Placement[],
-  cfg: PieLayoutConfig,
-  coord: Coord,
-): (Pt[] | null)[] {
-  return placements.map((p) => {
-    const r = computeDrawnLeader(p, cfg, false);
-    if (r.skipLeader) return null;
-    return r.pathPoints.map((pt) => ({ x: coord.xScale(pt.x), y: coord.yScale(pt.y) }));
-  });
-}
-
-/** 実描画 leader 同士が交差する対の数 (verify の "leader crossing" と同条件・pixel 空間)。 */
-function countLeaderCrossings(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
-  const paths = realLeaderPaths(placements, cfg, coord);
-  let c = 0;
-  for (let i = 0; i < paths.length; i += 1) {
-    const pa = paths[i];
-    if (!pa) continue;
-    for (let j = i + 1; j < paths.length; j += 1) {
-      const pb = paths[j];
-      if (pb && pathsCross(pa, pb)) c += 1;
-    }
-  }
-  return c;
-}
-
-/** 実描画 leader が自分以外のラベル box を貫く件数 (verify の "leader through label" と同条件・pixel)。 */
-function countLeaderThroughLabels(
-  placements: Placement[],
-  cfg: PieLayoutConfig,
-  coord: Coord,
-): number {
-  const paths = realLeaderPaths(placements, cfg, coord);
-  const boxes = placements.map((p) => {
-    const lb = placementBox(p, cfg);
-    return {
-      left: Math.min(coord.xScale(lb.left), coord.xScale(lb.right)),
-      right: Math.max(coord.xScale(lb.left), coord.xScale(lb.right)),
-      top: Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-      bottom: Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-    };
-  });
-  let c = 0;
-  for (let i = 0; i < paths.length; i += 1) {
-    const pts = paths[i];
-    if (!pts) continue;
-    for (let j = 0; j < placements.length; j += 1) {
-      if (j === i) continue;
-      if (leaderCrossesBox(pts, boxes[j])) c += 1;
-    }
-  }
-  return c;
-}
-
-/** verify と同基準で各円外ラベルの {labelY, anchorY} (pixel) を左右スタックに分けて返す。 */
-function angularStacks(
-  placements: Placement[],
-  cfg: PieLayoutConfig,
-  coord: Coord,
-): { left: { labelY: number; anchorY: number }[]; right: { labelY: number; anchorY: number }[] } {
-  const cx = coord.xScale(0);
-  const cy = coord.yScale(0);
-  const paths = realLeaderPaths(placements, cfg, coord);
-  const left: { labelY: number; anchorY: number }[] = [];
-  const right: { labelY: number; anchorY: number }[] = [];
-  placements.forEach((p, i) => {
-    if (p.insideSlice) return;
-    // 意図的に角度順を破る/固定する その他 のみ除外する: コア帯 (右上逃がし or 真上垂直) と
-    // 左拡張帯 (常に真上垂直 center 固定。アンカー最上・ラベル天井固定で構造的に concordant)、
-    // および forceTopRight。帯外 (>122°) で左右スタックに通常 rim 配置された その他 は順序
-    // チェックに参加させる (除外すると下位スタックでの逆転が見逃される)。
-    if (
-      p.item.name.startsWith("その他") &&
-      (topBandSonohokaZone(p.item) !== null || p.forceTopRight)
-    ) {
-      return;
-    }
-    const pts = paths[i];
-    if (!pts || pts.length < 2) return;
-    const head = pts[0];
-    const tail = pts[pts.length - 1];
-    const anchor =
-      Math.hypot(head.x - cx, head.y - cy) <= Math.hypot(tail.x - cx, tail.y - cy) ? head : tail;
-    const entry = { labelY: coord.yScale(p.y), anchorY: anchor.y };
-    (coord.xScale(p.x) < cx ? left : right).push(entry);
-  });
-  return { left, right };
-}
-
-/**
- * 角度順の **discordant 対 (Kendall) の総数**: ラベル y 昇順で上に居るのにアンカーが下 (anchorY が
- * 2px 超で大きい) という対を**全対**で数える。verify の隣接逆転 (adjacent descent) と違い、3 要素
- * 以上の乱れでも 1 回の隣接スワップごとに厳密に減るため、untangle のバブル進行判定に使う (隣接指標
- * だと逆転が別対へ移るだけで総数が減らず採用されない)。
- */
-function countAngularDiscordantPairs(
-  placements: Placement[],
-  cfg: PieLayoutConfig,
-  coord: Coord,
-): number {
-  const { left, right } = angularStacks(placements, cfg, coord);
-  let dis = 0;
-  for (const arr of [left, right]) {
-    arr.sort((a, b) => a.labelY - b.labelY);
-    for (let i = 0; i < arr.length; i += 1) {
-      for (let j = i + 1; j < arr.length; j += 1) {
-        if (arr[j].anchorY < arr[i].anchorY - 2) dis += 1;
-      }
-    }
-  }
-  return dis;
-}
+// leader メトリクス層 (pathsCross / realLeaderPaths / countLeaderCrossings /
+// countLeaderThroughLabels / box*Max / projectBoxesToPixels / oobLeaderCount / angularStacks /
+// countAngularDiscordantPairs) は ./leader_geometry.js へ分離した。
 
 /**
  * 同一側 (left/right) の外側 leader が交差するとき、交差ペアを縦に引き離してから既存の box ベース
@@ -1247,19 +1238,7 @@ function separateCrossingPairs(
   const yHi = cfg.canvasYlim[1];
   // 全 placement 対の最大縦重なり (X が重なる対のみ)。resolveLabelOverlaps が他ラベルも動かすため
   // stack 内に閉じず全体で測る。
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
   const anyOutOfView = (): boolean =>
     placements.some((p) => {
       const bx = placementBox(p, cfg);
@@ -1267,17 +1246,7 @@ function separateCrossingPairs(
     });
   // 円外ラベル box の pie 円 (中心=logical 原点) への最大侵入量。引き離しで縦に動いた box が
   // 円へ食い込むのを do-no-harm で弾くため (maxOverlap は box×box のみで pie 侵入を見ない)。
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
-    }
-    return m;
-  };
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
 
   const beforeCross = countLeaderCrossings(placements, cfg, coord);
   if (beforeCross === 0) return; // 交差が無ければ触らない (OK チャートを乱さない)
@@ -1378,42 +1347,9 @@ function untangleAngularOrderBySwap(
   };
 
   // do-no-harm 指標 (separateCrossingPairs / escapeUpperLeftTinyLeaders と同性質, 全 placement 横断)。
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, pieR - Math.hypot(nx, ny));
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
   const anyOutOfView = (): boolean =>
     placements.some((p) => {
       const bx = placementBox(p, cfg);
@@ -1580,42 +1516,9 @@ function reorderLeftStackWithCondense(
   const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
   const pieR = cfg.pieRadius;
 
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, pieR - Math.hypot(nx, ny));
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
   const beforeInv = countAngularDiscordantPairs(placements, cfg, coord);
   if (beforeInv === 0) return; // 逆転が無ければ触らない (OK チャートを乱さない)。
@@ -1696,6 +1599,131 @@ function reorderLeftStackWithCondense(
   }
 }
 
+/**
+ * leftStackMode 専用の後処理: 左列全体 (上の baseline=bottom クラスタ + 下の baseline=top メンバ) を
+ * 角度順 (上→下) に通し、隣接 box が縦に重なる箇所だけを順序保存で下方向へ引き離す。
+ *
+ * 背景: 1強+多数小型 (stress_one_dominant_9) では左に 7 ラベルが寄り、上クラスタ
+ * (reorderLeftStackWithCondense / spreadLeftStackByAngle) と下メンバが別系統で配置されるため、両者の
+ * 境目 (9時直上の REIT↔新興国株, 新興国株↔外国債) で縦重なりが残る。上クラスタ4枚だけ広げると低角度の
+ * 新興国株が下メンバ (外国債) へ食い込み、do-no-harm ゲートが revert する。本パスは下メンバも含めた
+ * 左列を 1 本の縦列として、重なる対の下側 (とその下の全ラベル) を canvas 下スラックへ押し下げて解消する。
+ *
+ * 手順: 列を上→下 (box 中心 y 降順) に並べ、上から順に「上の box 底 − この box 天 の重なりが閾値
+ * (6px) 以上」の対だけを sepGap まで引き離す下方向シフト s[i] を求める (上が押されたら下も同量 carry)。
+ * 重なりの無い上クラスタは s=0 で不動。各シフト後ラベルは新 Y で左 rim にハグし直し
+ * (円脇は X=-√(r²−y²)、円上下は X 維持)、clampPlacement で pie クリアランス/境界を吸収する。
+ *
+ * do-no-harm: 閾値以上の隣接重なりが無ければ無操作 (重なりの無い既存チャートは完全不変)。分離後に
+ * 角度順逆転/leader 交差/box 重なり最大/pie 侵入/leader 貫通が悪化、または viewBox はみ出しが上限超で
+ * 増えたら全 revert (退行0)。finalizeForScoring (採点) と emit の両方で reorderLeftStackWithCondense の
+ * 直後に呼び、scorer ↔ emit の一致 (verify_consistency) を保つ。
+ */
+function separateLeftColumnByHeight(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): void {
+  const col = placements.filter(
+    (p) =>
+      p.item.side === "left" &&
+      !p.insideSlice &&
+      p.x < 0 &&
+      !p.item.flipToRight &&
+      !p.item.flipToLeft &&
+      !p.item.bottomCenterBelow &&
+      !p.item.clusterTopBand &&
+      topBandSonohokaZone(p.item) === null &&
+      !p.item.name.startsWith("その他"),
+  );
+  if (col.length < 4) return;
+  // 上 → 下 (box 中心 y 降順)。
+  const cy = (p: Placement) => {
+    const b = placementBox(p, cfg);
+    return (b.top + b.bottom) / 2;
+  };
+  col.sort((a, b) => cy(b) - cy(a));
+
+  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const overlapThresh = 6 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const sepGap = 6 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+
+  // 角度順 (上→下) に「上 box 底 − 下 box 天」の重なりを検出。閾値以上が無ければ触らない。
+  const boxes = col.map((p) => placementBox(p, cfg));
+  let maxAdjOverlap = 0;
+  for (let i = 0; i + 1 < col.length; i += 1) {
+    const ov = boxes[i + 1].top - boxes[i].bottom; // >0 = 重なり
+    if (ov > maxAdjOverlap) maxAdjOverlap = ov;
+  }
+  if (maxAdjOverlap < overlapThresh) return;
+
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
+  const beforeInv = countAngularDiscordantPairs(placements, cfg, coord);
+  const beforeCross = countLeaderCrossings(placements, cfg, coord);
+  const beforeOverlap = maxOverlap();
+  const beforePie = maxPieIntrusion();
+  const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
+  const beforeView = maxViewOverflow();
+  const snapshot = placements.map((p) => ({
+    p,
+    x: p.x,
+    y: p.y,
+    skipLeader: p.skipLeader,
+    nameScaleX: p.nameScaleX,
+  }));
+
+  // box の天 (top) 目標位置を順序保存で求める。上から見て最初に閾値以上の隣接重なりが現れた所で
+  // カスケードを発火し、以降は各 box を「上 box 底 − sepGap」以下へ押し下げて重なりを解消する。発火前
+  // (重なりの無い上クラスタ) は現状維持で不動。最後に列の下端が canvas を割っていれば、上スラックの
+  // 範囲で全体を上へ平行移動して吸収する。
+  const yHi = cfg.canvasYlim[1] - cfg.canvasSafetyMargin;
+  const yLo = cfg.canvasYlim[0] + cfg.canvasSafetyMargin;
+  const heights = boxes.map((b) => b.top - b.bottom);
+  const targetTop = boxes.map((b) => b.top);
+  let active = false;
+  for (let i = 1; i < col.length; i += 1) {
+    if (!active && boxes[i].top - boxes[i - 1].bottom >= overlapThresh) active = true;
+    if (!active) continue;
+    const limit = targetTop[i - 1] - heights[i - 1] - sepGap; // 上 box 底 − gap
+    if (targetTop[i] > limit) targetTop[i] = limit;
+  }
+  // 下端が canvas を割ったら、上端の余地ぶんだけ全体を上へ平行移動 (上スラックを使う)。収まり切らない
+  // 残余は押し戻さず do-no-harm ゲート (viewBox はみ出し) に委ねる。
+  const lastBottom = targetTop[col.length - 1] - heights[col.length - 1];
+  if (lastBottom < yLo) {
+    const lift = Math.min(yLo - lastBottom, Math.max(0, yHi - targetTop[0]));
+    for (let i = 0; i < col.length; i += 1) targetTop[i] += lift;
+  }
+
+  // box.top を targetTop へ。y と box.top の関係 (baseline により y=top か y=top−h) は不変なので、
+  // box.top の変位 = y の変位。X は維持し、pie クリアランス/境界は clampPlacement に委ねる。
+  for (let i = 0; i < col.length; i += 1) {
+    const dy = targetTop[i] - boxes[i].top;
+    if (Math.abs(dy) <= tol) continue;
+    col[i].y += dy;
+    clampPlacement(col[i]);
+  }
+
+  const afterInv = countAngularDiscordantPairs(placements, cfg, coord);
+  const harm =
+    afterInv > beforeInv ||
+    countLeaderCrossings(placements, cfg, coord) > beforeCross ||
+    maxOverlap() > beforeOverlap + tol ||
+    maxPieIntrusion() > beforePie + tol ||
+    countLeaderThroughLabels(placements, cfg, coord) > beforeThrough ||
+    maxViewOverflow() > beforeView + VIEW_OVERFLOW_CAP_PX;
+  if (harm) {
+    for (const s of snapshot) {
+      s.p.x = s.x;
+      s.p.y = s.y;
+      s.p.skipLeader = s.skipLeader;
+      s.p.nameScaleX = s.nameScaleX;
+    }
+  }
+}
+
 /** 過大ギャップ判定の倍率。隣接ギャップ中央値の本倍率を超えるギャップのみ詰める。 */
 const LEFT_STACK_GAP_EXCESS_FACTOR = 1.6;
 
@@ -1753,19 +1781,7 @@ function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutConfig): 
   if (cum <= tol) return;
 
   // do-no-harm 採点: 全 placement 横断の最大縦重なり (X が重なる対のみ)。
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
   const before = maxOverlap();
   const origY = stack.map((p) => p.y);
   const origX = stack.map((p) => p.x);
@@ -1841,44 +1857,11 @@ function escapeUpperLeftTinyLeaders(
   // do-no-harm 指標 (全 placement 横断。separateCrossingPairs / applyLeftStackGapClose と同性質)。
   const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
   const tolPx = 2;
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const A = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const B = placementBox(placements[j], cfg);
-        const ox = Math.min(A.right, B.right) - Math.max(A.left, B.left);
-        const oy = Math.min(A.top, B.top) - Math.max(A.bottom, B.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
-    }
-    return m;
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
   // viewBox はみ出し量 (px, 4 辺)。横移動 (dxLeft) で左へ押し出すため縦だけでなく横も測り、
   // verify と同じ pixel 空間 [0,width]×[0,height] で判定する。
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
   const beforeOverlap = maxOverlap();
   const beforePie = maxPieIntrusion();
@@ -2029,7 +2012,13 @@ function reorderTopBandLeftClusterByAngle(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): void {
-  if (countLeaderCrossings(placements, cfg, coord) === 0) return;
+  // 交差だけでなく角度順逆転 (例 page16: ジャージー右逃がし後の ケイマン×アイルランド。交差は
+  // 無いが上左クラスタの上下が反転) も対象にする。どちらも無ければ何もしない。
+  if (
+    countLeaderCrossings(placements, cfg, coord) === 0 &&
+    countAngularDiscordantPairs(placements, cfg, coord) === 0
+  )
+    return;
   const cx = coord.xScale(0);
   const pieR = cfg.pieRadius;
   const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
@@ -2044,42 +2033,9 @@ function reorderTopBandLeftClusterByAngle(
   );
   if (cluster.length < 2) return;
 
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const A = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const B = placementBox(placements[j], cfg);
-        const ox = Math.min(A.right, B.right) - Math.max(A.left, B.left);
-        const oy = Math.min(A.top, B.top) - Math.max(A.bottom, B.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, pieR - Math.hypot(nx, ny));
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
   // 実描画 leader のパイ貫通最大量 (logical, 中心=原点)。computeDrawnLeader の pieClear 判定と同基準。
   const maxLeaderPie = (): number => {
@@ -2129,9 +2085,15 @@ function reorderTopBandLeftClusterByAngle(
   // viewBox はみ出しは soft cost (WARN 級)。reorderLeftStackWithCondense と同じく交差/逆転 (hard)
   // を消すためなら 1 行高 (VIEW_OVERFLOW_CAP_PX) までの増加を許容する。重なり/パイ侵入/leader貫通/
   // leader貫通(box)は非悪化必須。leader のパイ貫通も非悪化必須 (ルクセンブルクの1点曲げ化で減る)。
+  const afterCross = countLeaderCrossings(placements, cfg, coord);
+  const afterDisc = countAngularDiscordantPairs(placements, cfg, coord);
+  // 交差を厳密に減らす、または (交差を増やさずに) 角度順逆転を厳密に減らす時だけ採用する。
+  // 後者は page16 のような「交差は無いが上左クラスタが反転」を直すための経路。
+  const improved =
+    afterCross < beforeCross || (afterCross <= beforeCross && afterDisc < beforeDisc);
   const harm =
-    countLeaderCrossings(placements, cfg, coord) >= beforeCross ||
-    countAngularDiscordantPairs(placements, cfg, coord) > beforeDisc ||
+    !improved ||
+    afterDisc > beforeDisc ||
     maxOverlap() > beforeOverlap + tol ||
     maxPieIntrusion() > beforePie + tol ||
     maxViewOverflow() > beforeView + VIEW_OVERFLOW_CAP_PX ||
@@ -2143,7 +2105,7 @@ function reorderTopBandLeftClusterByAngle(
 /**
  * 確定済 placement を「右上逃がし (topBandSmallRight と同一フォーム)」へ破壊的に変形する。
  * slice から縦に抜けて右へ折れる L 字 leader (forceTopRight) + anchor=start/baseline=bottom。
- * 座標は label_placement.ts topBandSmallRight と一致させ、computeDrawnLeader の forceTopRight
+ * 座標は `label_placement.ts` の `topBandSmallRight` と一致させ、`computeDrawnLeader` の `forceTopRight`
  * 分岐 (キャップ越え水平区間) に乗せる。labelY を yOffset 分だけ上へずらせば複数枚を縦に重ねられる。
  */
 function reshapeToTopRightEscape(p: Placement, cfg: PieLayoutConfig, yOffset = 0): void {
@@ -2195,42 +2157,9 @@ function escapeTopBandSeamLeader(
   const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
   const tolPx = 2;
   const cx = coord.xScale(0);
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const A = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const B = placementBox(placements[j], cfg);
-        const ox = Math.min(A.right, B.right) - Math.max(A.left, B.left);
-        const oy = Math.min(A.top, B.top) - Math.max(A.bottom, B.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
   // 逃がし候補: 円外・小・トップシーム帯・「その他」でなく・現在左帯に描画・未 forceTopRight。
   // シーム最寄り (|mid-90| 最小) から順に試す。各採用後に交差が残れば次候補へ (複数枚逃がしも可)。
@@ -2322,29 +2251,9 @@ function escapeTopBandSeamLeader(
       pie: number;
       view: number;
     }
-    const boxOut = (p: Placement): number => {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      return Math.max(-left, right - coord.width, -top, bottom - coord.height);
-    };
+    const boxOut = (p: Placement): number => boxViewOverflowOf(p, cfg, coord);
     const countClips = (): number => placements.filter((p) => boxOut(p) > 1).length;
-    const countOobLeaders = (): number => {
-      const paths = realLeaderPaths(placements, cfg, coord);
-      let c = 0;
-      for (const pts of paths) {
-        if (!pts) continue;
-        for (const q of pts) {
-          if (q.x < -1 || q.x > coord.width + 1 || q.y < -1 || q.y > coord.height + 1) {
-            c += 1;
-            break;
-          }
-        }
-      }
-      return c;
-    };
+    const countOobLeaders = (): number => oobLeaderCount(placements, cfg, coord);
     const vecOf = (): SeamVec => ({
       cross: countLeaderCrossings(placements, cfg, coord),
       through: countLeaderThroughLabels(placements, cfg, coord),
@@ -2441,45 +2350,12 @@ function enforceFinalPieClearance(
 ): void {
   const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
   const pieR = cfg.pieRadius;
-  const maxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, pieR - Math.hypot(nx, ny));
-    }
-    return m;
-  };
+  const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
   const beforePie = maxPieIntrusion();
   if (beforePie <= tol) return; // 円内侵入なし → 無変更 (OK チャートを乱さない)。
 
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
   const beforeOverlap = maxOverlap();
   const beforeView = maxViewOverflow();
@@ -2543,55 +2419,12 @@ function repairResidualLeaderDefects(
     }
     return c;
   };
-  const maxOverlap = (): number => {
-    let m = 0;
-    for (let i = 0; i < placements.length; i += 1) {
-      const a = placementBox(placements[i], cfg);
-      for (let j = i + 1; j < placements.length; j += 1) {
-        const b = placementBox(placements[j], cfg);
-        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-        const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-        if (ox > 0 && oy > 0) m = Math.max(m, oy);
-      }
-    }
-    return m;
-  };
-  const maxViewOverflow = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      const lb = placementBox(p, cfg);
-      const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-      const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-      const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-      m = Math.max(m, -left, right - coord.width, -top, bottom - coord.height);
-    }
-    return Math.max(0, m);
-  };
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
-  const boxOutPx = (p: Placement): number => {
-    const lb = placementBox(p, cfg);
-    const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-    const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-    const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-    const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
-    return Math.max(-left, right - coord.width, -top, bottom - coord.height);
-  };
+  const boxOutPx = (p: Placement): number => boxViewOverflowOf(p, cfg, coord);
   const countClips = (): number => placements.filter((p) => boxOutPx(p) > 1).length;
-  const countOobLeaders = (): number => {
-    const paths = realLeaderPaths(placements, cfg, coord);
-    let c = 0;
-    for (const pts of paths) {
-      if (!pts) continue;
-      for (const q of pts) {
-        if (q.x < -1 || q.x > coord.width + 1 || q.y < -1 || q.y > coord.height + 1) {
-          c += 1;
-          break;
-        }
-      }
-    }
-    return c;
-  };
+  const countOobLeaders = (): number => oobLeaderCount(placements, cfg, coord);
 
   interface Vec {
     crossPie: number;
@@ -2604,17 +2437,7 @@ function repairResidualLeaderDefects(
     boxPie: number;
   }
   // ラベル箱の円内侵入の最大深さ (logical)。verify の "label inside pie" に対応する非悪化ゲート。
-  const maxBoxPieIntrusion = (): number => {
-    let m = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
-    }
-    return m;
-  };
+  const maxBoxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
 
   const vecOf = (): Vec => ({
     crossPie: countLeaderCrossings(placements, cfg, coord) + countLeaderPie(),
@@ -2637,21 +2460,11 @@ function repairResidualLeaderDefects(
     a.ovl <= b.ovl + tol &&
     a.view <= b.view + tolPx;
 
-  for (let iter = 0; iter < 6; iter += 1) {
-    const cur = vecOf();
-    if (cur.crossPie + cur.through === 0 && cur.boxPie <= tol) return;
-
-    // 不具合に関与する leader の index を決定的順序 (名前順) で列挙する。
+  // 不具合 (leader 交差 / 円貫通 / box 貫通 / box の円内侵入) に関与する placement の index を
+  // 決定的順序 (名前順) で列挙する。{order, involved} を返す。
+  const collectInvolved = (): { order: number[]; involved: Set<number> } => {
     const paths = realLeaderPaths(placements, cfg, coord);
-    const boxes = placements.map((p) => {
-      const lb = placementBox(p, cfg);
-      return {
-        left: Math.min(coord.xScale(lb.left), coord.xScale(lb.right)),
-        right: Math.max(coord.xScale(lb.left), coord.xScale(lb.right)),
-        top: Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-        bottom: Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-      };
-    });
+    const boxes = projectBoxesToPixels(placements, cfg, coord);
     const cx = coord.xScale(0);
     const cy = coord.yScale(0);
     const pieRPx = Math.abs(coord.xScale(cfg.pieRadius) - coord.xScale(0));
@@ -2691,48 +2504,47 @@ function repairResidualLeaderDefects(
     const order = [...involved].sort((a, b) =>
       placements[a].item.name.localeCompare(placements[b].item.name, "ja"),
     );
-    if (process.env.GRAPH2_DEBUG_REPAIR) {
-      console.error(
-        `[rebend:iter${iter}] cur={crossPie:${cur.crossPie}, through:${cur.through}, inv:${cur.inv}} involved=[${order.map((i) => placements[i].item.name).join(",")}]`,
-      );
-    }
+    return { order, involved };
+  };
 
-    // p の bend を格子から選び直し、cur より良くなる候補があれば適用したまま true を返す。
-    // 無ければ元の bend/フラグへ戻して false。 (単独手・複合手の両方から使う)
-    const tryBendGridOn = (p: Placement): boolean => {
-      const drawn2 = computeDrawnLeader(p, cfg, false);
-      if (drawn2.skipLeader || drawn2.pathPoints.length < 2) return false;
-      const a2 = drawn2.pathPoints[0];
-      const e2 = drawn2.detectPathPoints[drawn2.detectPathPoints.length - 1];
-      const tA = Math.atan2(a2.y, a2.x);
-      const tE = Math.atan2(e2.y, e2.x);
-      let dT = tE - tA;
-      while (dT > Math.PI) dT -= 2 * Math.PI;
-      while (dT < -Math.PI) dT += 2 * Math.PI;
-      if (Math.abs(dT) < 0.05 || Math.abs(dT) > (150 * Math.PI) / 180) return false;
-      const sv = {
-        bend: { ...p.leaderBend },
-        fy: p.leaderBendFollowsEndpointY,
-        fx: p.leaderBendFollowsEndpointX,
-      };
-      const cur2 = vecOf();
-      for (const f of [0.5, 0.35, 0.65, 0.2, 0.8]) {
-        for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
-          const th = tA + dT * f;
-          const rr = cfg.pieRadius + rPx * pxUnit;
-          p.leaderBend = { x: rr * Math.cos(th), y: rr * Math.sin(th) };
-          p.leaderBendFollowsEndpointY = false;
-          p.leaderBendFollowsEndpointX = false;
-          if (better(vecOf(), cur2)) return true;
-        }
-      }
-      p.leaderBend = sv.bend;
-      p.leaderBendFollowsEndpointY = sv.fy;
-      p.leaderBendFollowsEndpointX = sv.fx;
-      return false;
+  // p の bend を格子から選び直し、cur より良くなる候補があれば適用したまま true を返す。
+  // 無ければ元の bend/フラグへ戻して false。 (単独手・複合手の両方から使う)
+  const tryBendGridOn = (p: Placement): boolean => {
+    const drawn2 = computeDrawnLeader(p, cfg, false);
+    if (drawn2.skipLeader || drawn2.pathPoints.length < 2) return false;
+    const a2 = drawn2.pathPoints[0];
+    const e2 = drawn2.detectPathPoints[drawn2.detectPathPoints.length - 1];
+    const tA = Math.atan2(a2.y, a2.x);
+    const tE = Math.atan2(e2.y, e2.x);
+    let dT = tE - tA;
+    while (dT > Math.PI) dT -= 2 * Math.PI;
+    while (dT < -Math.PI) dT += 2 * Math.PI;
+    if (Math.abs(dT) < 0.05 || Math.abs(dT) > (150 * Math.PI) / 180) return false;
+    const sv = {
+      bend: { ...p.leaderBend },
+      fy: p.leaderBendFollowsEndpointY,
+      fx: p.leaderBendFollowsEndpointX,
     };
+    const cur2 = vecOf();
+    for (const f of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+      for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
+        const th = tA + dT * f;
+        const rr = cfg.pieRadius + rPx * pxUnit;
+        p.leaderBend = { x: rr * Math.cos(th), y: rr * Math.sin(th) };
+        p.leaderBendFollowsEndpointY = false;
+        p.leaderBendFollowsEndpointX = false;
+        if (better(vecOf(), cur2)) return true;
+      }
+    }
+    p.leaderBend = sv.bend;
+    p.leaderBendFollowsEndpointY = sv.fy;
+    p.leaderBendFollowsEndpointX = sv.fx;
+    return false;
+  };
 
-    let improved = false;
+  // 単独手: 関与 leader を名前順に、bend 格子 → 水平 pie-clear シフト → 左 rim 再ハグ の順で試し、
+  // cur を辞書式に改善する最初の 1 手を採用して true を返す (採用ゼロなら false)。
+  const tryRebendInvolved = (order: number[], cur: Vec): boolean => {
     for (const i of order) {
       const p = placements[i];
       if (p.insideSlice || p.forceTopRight) continue;
@@ -2856,130 +2668,139 @@ function repairResidualLeaderDefects(
           }
         }
       }
-      if (adopted) {
-        improved = true;
-        break; // 不具合集合が変わったので外側 iter で再列挙する
+      if (adopted) return true; // 不具合集合が変わったので外側 iter で再列挙する
+    }
+    return false;
+  };
+
+  // 複合手: 交差対の footprint スワップ。bend 替え・nudge で直らない交差は、角度順が正順でも
+  // 「上スライスのラベル枠が下スライスのアンカー上空を塞ぎ、その leader が相手アンカーの外側を
+  // 横断する」密集構造で起きる (例 currency_many_small_10: カナダドル×豪ドル)。当事者 2 枚の
+  // (x, y, baseline) を丸ごと交換すると両 leader が短い扇形へ組み替わり構造的に解ける。
+  // 交差は ERROR・角度順逆転は WARN なので、この手に限り inv の悪化を許容する (他指標は非悪化)。
+  const trySwapCrossingPairs = (cur: Vec): boolean => {
+    const allPaths = realLeaderPaths(placements, cfg, coord);
+    const pairs: [number, number][] = [];
+    for (let i = 0; i < allPaths.length; i += 1) {
+      const pa = allPaths[i];
+      if (!pa) continue;
+      for (let j = i + 1; j < allPaths.length; j += 1) {
+        const pb = allPaths[j];
+        if (pb && pathsCross(pa, pb)) pairs.push([i, j]);
       }
     }
-
-    // 複合手: 交差対の footprint スワップ。bend 替え・nudge で直らない交差は、角度順が正順でも
-    // 「上スライスのラベル枠が下スライスのアンカー上空を塞ぎ、その leader が相手アンカーの外側を
-    // 横断する」密集構造で起きる (例 currency_many_small_10: カナダドル×豪ドル)。当事者 2 枚の
-    // (x, y, baseline) を丸ごと交換すると両 leader が短い扇形へ組み替わり構造的に解ける。
-    // 交差は ERROR・角度順逆転は WARN なので、この手に限り inv の悪化を許容する (他指標は非悪化)。
-    if (!improved) {
-      const allPaths = realLeaderPaths(placements, cfg, coord);
-      const pairs: [number, number][] = [];
-      for (let i = 0; i < allPaths.length; i += 1) {
-        const pa = allPaths[i];
-        if (!pa) continue;
-        for (let j = i + 1; j < allPaths.length; j += 1) {
-          const pb = allPaths[j];
-          if (pb && pathsCross(pa, pb)) pairs.push([i, j]);
-        }
-      }
-      pairs.sort((m, n) =>
-        `${placements[m[0]].item.name} ${placements[m[1]].item.name}`.localeCompare(
-          `${placements[n[0]].item.name} ${placements[n[1]].item.name}`,
-          "ja",
-        ),
-      );
-      // 交差 (ERROR) の解消を最優先し、through (WARN) への振替は「線不具合の総数が増えない」
-      // 範囲で許す (交差 1 件 → through 1 件 への置換は純改善)。振替で生じた through は次 iter の
-      // bend 替え (better() の through 厳密減クォーラム) が掃除を試みる。
-      const swapBetter = (a: Vec, b: Vec): boolean =>
-        a.crossPie < b.crossPie &&
-        a.crossPie + a.through <= b.crossPie + b.through &&
-        a.clips <= b.clips &&
-        a.oob <= b.oob &&
-        a.ovl <= b.ovl + tol &&
-        a.view <= b.view + tolPx &&
-        a.boxPie <= b.boxPie + tol;
-      for (const [ia, ib] of pairs) {
-        const pa = placements[ia];
-        const pb = placements[ib];
-        if (pa.insideSlice || pb.insideSlice || pa.forceTopRight || pb.forceTopRight) continue;
-        const snapS = seamSnapshot(placements);
-        [pa.x, pb.x] = [pb.x, pa.x];
-        [pa.y, pb.y] = [pb.y, pa.y];
-        const tb = pa.baseline;
-        pa.baseline = pb.baseline;
-        pb.baseline = tb;
-        const v = vecOf();
-        const ok = swapBetter(v, cur);
-        if (process.env.GRAPH2_DEBUG_REPAIR) {
-          console.error(
-            `[crossswap] "${pa.item.name}"<->"${pb.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, ` +
-              `through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
-              `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? "ADOPT" : "REJECT"}`,
-          );
-        }
-        if (ok) {
-          improved = true;
-          break;
-        }
-        seamRestore(snapS);
-      }
-    }
-
-    // 複合手: 左列の再積み上げ。bend 単独では直らない交差 (例 page16: escape で左上が空いたのに
-    // 残った 2 枚が下のスロットに留まり、長い leader 同士がサブピクセル余裕で絡む) は、左列全体を
-    // 角度順に上から詰め直すと leader が短い扇形になり構造的に解ける。canvas 上端起点と現在の
-    // 列上端起点の 2 候補を試し、辞書式で厳密に改善する方だけ採用 (do-no-harm・全 revert)。
-    if (!improved) {
-      // 左列「全体」を対象にする (不具合の当事者だけ動かすと残りの箱と重なって却下される)。
-      // 発火条件は「列の誰かが不具合に関与している」こと。
-      const stack = placements.filter(
-        (p) =>
-          !p.insideSlice &&
-          !p.forceTopRight &&
-          p.x < 0 &&
-          !p.item.name.startsWith("その他"),
-      );
-      const anyInvolved = stack.some((p) => [...involved].some((i) => placements[i] === p));
-      if (stack.length >= 2 && anyInvolved) {
-        const byAngle = [...stack].sort(
-          (m, n) =>
-            Math.sin(degToRad(n.item.midAngle ?? 0)) - Math.sin(degToRad(m.item.midAngle ?? 0)),
+    pairs.sort((m, n) =>
+      `${placements[m[0]].item.name} ${placements[m[1]].item.name}`.localeCompare(
+        `${placements[n[0]].item.name} ${placements[n[1]].item.name}`,
+        "ja",
+      ),
+    );
+    // 交差 (ERROR) の解消を最優先し、through (WARN) への振替は「線不具合の総数が増えない」
+    // 範囲で許す (交差 1 件 → through 1 件 への置換は純改善)。振替で生じた through は次 iter の
+    // bend 替え (better() の through 厳密減クォーラム) が掃除を試みる。
+    const swapBetter = (a: Vec, b: Vec): boolean =>
+      a.crossPie < b.crossPie &&
+      a.crossPie + a.through <= b.crossPie + b.through &&
+      a.clips <= b.clips &&
+      a.oob <= b.oob &&
+      a.ovl <= b.ovl + tol &&
+      a.view <= b.view + tolPx &&
+      a.boxPie <= b.boxPie + tol;
+    for (const [ia, ib] of pairs) {
+      const pa = placements[ia];
+      const pb = placements[ib];
+      if (pa.insideSlice || pb.insideSlice || pa.forceTopRight || pb.forceTopRight) continue;
+      const snapS = seamSnapshot(placements);
+      [pa.x, pb.x] = [pb.x, pa.x];
+      [pa.y, pb.y] = [pb.y, pa.y];
+      const tb = pa.baseline;
+      pa.baseline = pb.baseline;
+      pb.baseline = tb;
+      const v = vecOf();
+      const ok = swapBetter(v, cur);
+      if (process.env.GRAPH2_DEBUG_REPAIR) {
+        console.error(
+          `[crossswap] "${pa.item.name}"<->"${pb.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, ` +
+            `through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
+            `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? "ADOPT" : "REJECT"}`,
         );
-        const curTop = Math.max(...stack.map((p) => placementBox(p, cfg).top));
-        // 円より上のスロットは rim ハグ X が 0 (中央) になり、右上エスケープの riser/斜線の
-        // 直下まで箱が広がって貫通する。エスケープ riser (anchor x) の左へ右端をキャップする。
-        const escapeAnchors = placements
-          .filter((q) => q.forceTopRight && !q.insideSlice)
-          .map((q) => q.leaderAnchor.x);
-        const rightCap =
-          escapeAnchors.length > 0
-            ? Math.min(...escapeAnchors) - radialFraction(cfg, 0.03, 0.3)
-            : Number.POSITIVE_INFINITY;
-        for (const top of [cfg.canvasYlim[1], curTop]) {
-          const snap = seamSnapshot(placements);
-          let y = top;
-          for (const p of byAngle) {
-            reshapeToLeftRimHug(p, cfg, y);
-            if (p.x > rightCap) {
-              p.x = rightCap;
-              p.origTextX = p.x;
-            }
-            y -= placementExtent(p, cfg).height + cfg.scaledMinGap;
-          }
-          const v = vecOf();
-          const ok = better(v, cur);
-          if (process.env.GRAPH2_DEBUG_REPAIR) {
-            console.error(
-              `[restack-left] top=${top.toFixed(3)} stack=[${byAngle.map((p) => p.item.name).join(",")}]: ` +
-                `crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, ` +
-                `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? "ADOPT" : "REJECT"}`,
-            );
-          }
-          if (ok) {
-            improved = true;
-            break;
-          }
-          seamRestore(snap);
-        }
       }
+      if (ok) return true;
+      seamRestore(snapS);
     }
+    return false;
+  };
+
+  // 複合手: 左列の再積み上げ。bend 単独では直らない交差 (例 page16: escape で左上が空いたのに
+  // 残った 2 枚が下のスロットに留まり、長い leader 同士がサブピクセル余裕で絡む) は、左列全体を
+  // 角度順に上から詰め直すと leader が短い扇形になり構造的に解ける。canvas 上端起点と現在の
+  // 列上端起点の 2 候補を試し、辞書式で厳密に改善する方だけ採用 (do-no-harm・全 revert)。
+  const tryRestackLeftColumn = (involved: Set<number>, cur: Vec): boolean => {
+    // 左列「全体」を対象にする (不具合の当事者だけ動かすと残りの箱と重なって却下される)。
+    // 発火条件は「列の誰かが不具合に関与している」こと。
+    const stack = placements.filter(
+      (p) =>
+        !p.insideSlice &&
+        !p.forceTopRight &&
+        p.x < 0 &&
+        !p.item.name.startsWith("その他"),
+    );
+    const anyInvolved = stack.some((p) => [...involved].some((i) => placements[i] === p));
+    if (stack.length < 2 || !anyInvolved) return false;
+    const byAngle = [...stack].sort(
+      (m, n) =>
+        Math.sin(degToRad(n.item.midAngle ?? 0)) - Math.sin(degToRad(m.item.midAngle ?? 0)),
+    );
+    const curTop = Math.max(...stack.map((p) => placementBox(p, cfg).top));
+    // 円より上のスロットは rim ハグ X が 0 (中央) になり、右上エスケープの riser/斜線の
+    // 直下まで箱が広がって貫通する。エスケープ riser (anchor x) の左へ右端をキャップする。
+    const escapeAnchors = placements
+      .filter((q) => q.forceTopRight && !q.insideSlice)
+      .map((q) => q.leaderAnchor.x);
+    const rightCap =
+      escapeAnchors.length > 0
+        ? Math.min(...escapeAnchors) - radialFraction(cfg, 0.03, 0.3)
+        : Number.POSITIVE_INFINITY;
+    for (const top of [cfg.canvasYlim[1], curTop]) {
+      const snap = seamSnapshot(placements);
+      let y = top;
+      for (const p of byAngle) {
+        reshapeToLeftRimHug(p, cfg, y);
+        if (p.x > rightCap) {
+          p.x = rightCap;
+          p.origTextX = p.x;
+        }
+        y -= placementExtent(p, cfg).height + cfg.scaledMinGap;
+      }
+      const v = vecOf();
+      const ok = better(v, cur);
+      if (process.env.GRAPH2_DEBUG_REPAIR) {
+        console.error(
+          `[restack-left] top=${top.toFixed(3)} stack=[${byAngle.map((p) => p.item.name).join(",")}]: ` +
+            `crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, ` +
+            `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? "ADOPT" : "REJECT"}`,
+        );
+      }
+      if (ok) return true;
+      seamRestore(snap);
+    }
+    return false;
+  };
+
+  // do-no-harm の反復本体: 毎 iter で不具合関与集合を再列挙し、単独手 → 交差スワップ → 左列再積み
+  // の順に「最初に改善した 1 手」を採る。どの手も改善しなければ収束として終了 (最大 6 周)。
+  for (let iter = 0; iter < 6; iter += 1) {
+    const cur = vecOf();
+    if (cur.crossPie + cur.through === 0 && cur.boxPie <= tol) return;
+    const { order, involved } = collectInvolved();
+    if (process.env.GRAPH2_DEBUG_REPAIR) {
+      console.error(
+        `[rebend:iter${iter}] cur={crossPie:${cur.crossPie}, through:${cur.through}, inv:${cur.inv}} involved=[${order.map((i) => placements[i].item.name).join(",")}]`,
+      );
+    }
+    let improved = tryRebendInvolved(order, cur);
+    if (!improved) improved = trySwapCrossingPairs(cur);
+    if (!improved) improved = tryRestackLeftColumn(involved, cur);
     if (!improved) return;
   }
 }
@@ -3105,11 +2926,6 @@ function runLabelCascade(
   if (diagnostics?.twoLineLeftStackMode) {
     applyTwoLineLeftColumn(result, cfg);
   }
-  if (diagnostics) {
-    diagnostics.dominantTwoLineRestored = result.some(
-      (p) => p.dominantOutsideEdge && !p.insideSlice && p.lines.length >= 2,
-    );
-  }
   return result;
 }
 
@@ -3231,6 +3047,11 @@ export async function renderPdfStylePieToSvg(
     // 報告する交差と一致する。各手は do-no-harm (交差減・重なり非悪化・viewBox 内) で採用。
     applyOutsideLeaderAngularOrder(textPlacements, cfg, { xScale, yScale, width, height });
 
+    // applyOutsideLeaderAngularOrder の swap で直せない上左トップバンドクラスタの角度順逆転
+    // (例 page16: ジャージー右逃がし後 ケイマンが天頂へ来てアイルランドの上に逆転) を、角度順
+    // rim 再積み上げで解消する。交差/逆転のどちらかが在る時のみ発火し do-no-harm (悪化で全 revert)。
+    reorderTopBandLeftClusterByAngle(textPlacements, cfg, { xScale, yScale, width, height });
+
     // 9時線近傍で near-vertical に重なる左小スライス対 (例 イギリス/イタリア) を角度順に並べ直して
     // 左上の空きへわずかに逃がし、各 leader を分離した斜め線にする。do-no-harm (悪化したら revert)。
     escapeUpperLeftTinyLeaders(textPlacements, cfg, { xScale, yScale, width, height });
@@ -3244,6 +3065,7 @@ export async function renderPdfStylePieToSvg(
     // 長体圧縮で解消する (do-no-harm・悪化したら全 revert)。emit でのみ・スコアリングには干渉しない。
     if (diagnostics?.leftStackMode) {
       reorderLeftStackWithCondense(textPlacements, cfg, { xScale, yScale, width, height });
+      separateLeftColumnByHeight(textPlacements, cfg, { xScale, yScale, width, height });
     }
 
     // 残余の leader 交差/円内貫通/箱貫通を bend 再配置で解消する最終安全網 (do-no-harm)。
@@ -3255,11 +3077,22 @@ export async function renderPdfStylePieToSvg(
     // stress_top_cluster_8 "F") を解消する。侵入の無いチャートは早期 return で無変更。
     enforceFinalPieClearance(textPlacements, cfg, { xScale, yScale, width, height });
 
+    // 左側 near-equator の見切れラベルを、円の縦中心から離す向きへ縦 spread して左 rim を細らせ
+    // viewBox 左端の見切れを解消する最終手段 (do-no-harm)。水平 nudge が pie にブロックされる
+    // (|y| < pieRadius) ラベルが対象。`applyLowerLeftDropFallback` / `applySplitNameFallback` より
+    // 先に試し、解消すれば後続が no-op になる。採否は片側単位で `countDefects` の clips 厳密減・他カテゴリ非悪化。
+    applyVerticalDeclipFallback(textPlacements, cfg, { xScale, yScale, width, height });
+
+    // 9時直近で長体下限でも見切れる幅広長名を、下left ドロップ + 斜めリーダーで収める最終手段
+    // (do-no-harm)。名前 2 行分割より先に試し、収まれば split 不要。位置確定後に走るので最終配置を
+    // 正しく評価する。密チャートで交差/反転を生む場合は revert。
+    applyLowerLeftDropFallback(textPlacements, cfg, { xScale, yScale, width, height });
+
     // 下限長体 (0.7) でも viewBox を見切れる長カタカナ/長熟語を、名前 2 行分割で収める最終手段。
-    // 全後段の **後** に実行するので位置は確定済 = ゲートが最終配置を正しく見る。採否は countDefects
+    // 全後段の **後** に実行するので位置は確定済 = ゲートが最終配置を正しく見る。採否は `countDefects`
     // (チャート全体: clips/crossings/pie/total) で判定し、clips が厳密に減り他が非悪化の時だけ採用 (do-no-harm)。
     // 部分的にしか収まらない分割 (例 債券先物(アメ/リカ)) は clips が減らず revert される。採点
-    // (finalizeForScoring) には入れない: 候補選択を乱さず、finalScore は emit 後の同 placements から数えるため
+    // (`finalizeForScoring`) には入れない: 候補選択を乱さず、finalScore は emit 後の同 placements から数えるため
     // scorer ↔ emit 整合は保たれる。
     applySplitNameFallback(textPlacements, cfg, { xScale, yScale, width, height });
 
@@ -3268,6 +3101,18 @@ export async function renderPdfStylePieToSvg(
     // 基準 (countDefects) が実描画と一致し続けることをアサートする。
     if (diagnostics) {
       diagnostics.finalScore = countDefects(textPlacements, cfg, { xScale, yScale, width, height });
+    }
+
+    // 確定配置 (全パス適用後) に対し、実 viewBox (`svgWidthPx`) を超える真の見切れだけを 1 回ずつ警告する。
+    // `applyFinalCondenseToFit` は scoring 候補ごとにも走るため、そこで warn すると最終でない候補の超過まで
+    // 大量に出て紛らわしい。ここは最終 placements かつ実 viewBox 基準 (coord) なので、件数・値が verify の
+    // "label out of viewBox" (tolerance 1px) と一致する。
+    for (const p of textPlacements) {
+      if (p.insideSlice) continue;
+      const overPx = boxViewOverflowOf(p, cfg, { xScale, yScale, width, height });
+      if (overPx > 1) {
+        console.warn(`[svg_export] viewBox見切れ: "${p.item.name}" 約${Math.round(overPx)}px`);
+      }
     }
 
     // ── Pass 1: 各 placement の最終 pathPoints・暫定 skipLeader・pixel bbox を確定 ──

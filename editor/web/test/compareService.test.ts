@@ -5,12 +5,14 @@ import {
   isOk,
   notFound,
   ok,
+  type TemplateMeta,
   type TemplateRepository,
   type TemplateSnapshot,
+  type TemplateVersionMeta,
 } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  COMPARE_PDF_ERROR,
+  COMPARE_RENDER_ERROR,
   createCompareService,
 } from '@/features/compare/services/compareService';
 
@@ -23,7 +25,7 @@ const snapshot: TemplateSnapshot = {
   timestamp: '2026-06-01T00:00:00.000Z',
 };
 
-describe('CompareService.renderVersion', () => {
+describe('CompareService.renderVersionHtml', () => {
   it('propagates not_found when the snapshot is missing', async () => {
     const history = {
       getSnapshot: vi.fn(async () => err(notFound('no snapshot'))),
@@ -31,12 +33,12 @@ describe('CompareService.renderVersion', () => {
     const templates = {} as TemplateRepository;
     const svc = createCompareService(templates, history);
 
-    const res = await svc.renderVersion('eh-missing');
+    const res = await svc.renderVersionHtml('eh-missing');
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.kind).toBe('not_found');
   });
 
-  it('renders the snapshot and POSTs it to /api/pdf, returning the blob', async () => {
+  it('renders the snapshot to HTML and returns the html and snapshot css', async () => {
     const history = {
       getSnapshot: vi.fn(async () => ok(snapshot)),
     } as unknown as HistoryRepository;
@@ -44,40 +46,89 @@ describe('CompareService.renderVersion', () => {
       getSampleData: vi.fn(async () => ok({ fund: { name: 'テストファンド' } })),
     } as unknown as TemplateRepository;
 
-    const fetchMock = vi.fn(async () => new Response(new Blob(['%PDF-1.7']), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-
     const svc = createCompareService(templates, history);
-    const res = await svc.renderVersion('eh-1');
-    vi.unstubAllGlobals();
+    const res = await svc.renderVersionHtml('eh-1');
 
     expect(isOk(res)).toBe(true);
-    // the rendered (nunjucks-applied) HTML and the snapshot CSS are sent
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(body.html).toContain('テストファンド');
-    expect(body.css).toBe('.x{}');
+    if (isOk(res)) {
+      // the nunjucks-applied HTML and the snapshot CSS come back unchanged
+      expect(res.value.html).toContain('テストファンド');
+      expect(res.value.css).toBe('.x{}');
+    }
   });
 
-  it('returns the safe PDF error when the server responds non-ok', async () => {
+  it('returns the safe render error when the template fails to render', async () => {
     const history = {
-      getSnapshot: vi.fn(async () => ok(snapshot)),
+      getSnapshot: vi.fn(async () => ok({ ...snapshot, html: '{% if %}' })),
     } as unknown as HistoryRepository;
     const templates = {
       getSampleData: vi.fn(async () => ok({})),
     } as unknown as TemplateRepository;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('boom', { status: 500 })),
-    );
 
     const svc = createCompareService(templates, history);
-    const res = await svc.renderVersion('eh-1');
-    vi.unstubAllGlobals();
+    const res = await svc.renderVersionHtml('eh-1');
 
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) {
-      expect(res.error.message).toBe(COMPARE_PDF_ERROR);
-      expect(res.error.cause).toBe('HTTP 500');
+    if (isErr(res)) expect(res.error.message).toBe(COMPARE_RENDER_ERROR);
+  });
+});
+
+describe('CompareService.listCandidates', () => {
+  const meta = (id: string): TemplateMeta => ({
+    id,
+    attributes: {
+      companyCode: 'AM01',
+      fundCode: '510037',
+      baseDate: '20240710',
+      editionType: '確報',
+    },
+    fileName: `${id}.html`,
+    status: 'published',
+    updatedAt: null,
+    updatedBy: null,
+  });
+  const version = (historyId: string, templateId: string): TemplateVersionMeta => ({
+    historyId,
+    templateId,
+    timestamp: '2024-07-10T00:00:00.000Z',
+    user: '山田太郎',
+    summary: '確定保存',
+  });
+
+  it('returns every matched template with its confirmed-version count', async () => {
+    const versionsById: Record<string, TemplateVersionMeta[]> = {
+      a: [version('a2', 'a'), version('a1', 'a')],
+      b: [version('b1', 'b')],
+      c: [],
+    };
+    const templates = {
+      listTemplates: vi.fn(async () => ok([meta('a'), meta('b'), meta('c')])),
+    } as unknown as TemplateRepository;
+    const history = {
+      listVersions: vi.fn(async (id: string) => ok(versionsById[id] ?? [])),
+    } as unknown as HistoryRepository;
+
+    const svc = createCompareService(templates, history);
+    const res = await svc.listCandidates({});
+
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.map((c) => [c.meta.id, c.versionCount])).toEqual([
+        ['a', 2],
+        ['b', 1],
+        ['c', 0],
+      ]);
     }
+  });
+
+  it('propagates a listTemplates error', async () => {
+    const templates = {
+      listTemplates: vi.fn(async () => err(notFound('boom'))),
+    } as unknown as TemplateRepository;
+    const history = {} as HistoryRepository;
+
+    const svc = createCompareService(templates, history);
+    const res = await svc.listCandidates({});
+    expect(isErr(res)).toBe(true);
   });
 });

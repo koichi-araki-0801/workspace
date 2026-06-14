@@ -29,3 +29,5 @@ offline-deps-bundle.tar.gz.sha256
 bundle.key
 _bundle_stage/
 _bundle_verify/
+# Claude Code: 計画文書（内部作業用。共有しない）
+.claude/plans/

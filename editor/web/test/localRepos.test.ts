@@ -19,7 +19,7 @@ describe('localAuthRepo.login', () => {
     expect(isErr(r)).toBe(true);
     if (isErr(r)) {
       expect(r.error.kind).toBe('unauthorized');
-      expect(r.error.message).toBe('パスワードが違います');
+      expect(r.error.message).toBe('ユーザーIDまたはパスワードが違います');
     }
   });
 

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import type { DropdownOptions, DropdownQuery } from '@editor/shared';
 import { Loader2, RotateCcw, Search } from '@lucide/vue';
+import { computed, watch } from 'vue';
 import { useTemplateRepo } from '@/api/repositories';
 import Button from '@/components/ui/Button.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import { useCascadingSelect } from '@/lib/useCascadingSelect';
+import { useFundNames } from '@/lib/useFundNames';
 
 type Field = 'companyCode' | 'fundCode' | 'baseDate' | 'editionType';
 
@@ -18,12 +20,15 @@ const props = withDefaults(
     requiredFields?: Field[];
     /** hide the search button (e.g. on the create screen where it has no role) */
     hideSearch?: boolean;
+    /** drop the bordered card chrome (e.g. when embedded inside a step card) */
+    bare?: boolean;
   }>(),
   {
     fields: () => ['companyCode', 'fundCode', 'baseDate', 'editionType'],
     searchLabel: '検索',
     requiredFields: () => [],
     hideSearch: false,
+    bare: false,
   },
 );
 
@@ -55,18 +60,37 @@ const { query, options, loading, onLevelChange, reset } = useCascadingSelect<
   onChange: (q) => emit('update', q),
 });
 
-const optionsByField: Record<Field, () => string[]> = {
+const { resolve, nameOf } = useFundNames();
+watch(() => options.value.fundCodes, (codes) => resolve(codes), { immediate: true });
+
+// ファンドコードはコード＋名称をラベルに、value はコードのまま（クエリ/カスケード不変）。
+const fundOptions = computed(() =>
+  options.value.fundCodes.map((code) => ({
+    label: nameOf(code) ? `${code} ${nameOf(code)}` : code,
+    value: code,
+  })),
+);
+
+type Option = string | { label: string; value: string };
+const optionsByField: Record<Field, () => Option[]> = {
   companyCode: () => options.value.companyCodes,
-  fundCode: () => options.value.fundCodes,
+  fundCode: () => fundOptions.value,
   baseDate: () => options.value.baseDates,
   editionType: () => options.value.editionTypes,
 };
+
+// カスケード非活性: 左隣のフィールドが未選択なら、この段はまだ選べない。
+function fieldDisabled(f: Field): boolean {
+  const idx = props.fields.indexOf(f);
+  if (idx === 0) return false; // 先頭（委託会社）は常に活性
+  return !query[props.fields[idx - 1]];
+}
 </script>
 
 <template>
-  <div class="rounded-lg border bg-card p-4">
+  <div :class="props.bare ? '' : 'rounded-lg border bg-card p-4'">
     <div class="flex flex-wrap items-end gap-3">
-      <div v-for="f in props.fields" :key="f" class="min-w-[160px] flex-1 space-y-1.5">
+      <div v-for="f in props.fields" :key="f" class="min-w-[190px] flex-1 space-y-1.5">
         <Label>
           {{ labels[f] }}
           <span v-if="props.requiredFields.includes(f)" class="text-destructive">*</span>
@@ -75,7 +99,7 @@ const optionsByField: Record<Field, () => string[]> = {
           v-model="query[f]"
           :options="optionsByField[f]()"
           :placeholder="`${labels[f]}を選択`"
-          :disabled="loading"
+          :disabled="loading || fieldDisabled(f)"
           @update:model-value="onLevelChange(f)"
         />
       </div>

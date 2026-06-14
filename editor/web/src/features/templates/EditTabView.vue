@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { type DropdownQuery, isErr, type TemplateMeta } from '@editor/shared';
+import { Search } from '@lucide/vue';
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useTemplateRepo } from '@/api/repositories';
+import EmptyState from '@/components/ui/EmptyState.vue';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import SearchFilters from './components/SearchFilters.vue';
 import TemplateTable from './components/TemplateTable.vue';
@@ -27,9 +29,14 @@ function openEditor(m: TemplateMeta) {
 
 <template>
   <div class="space-y-4">
-    <h2 class="text-lg font-semibold">テンプレートを検索</h2>
+    <h2 class="text-lg font-bold">テンプレートを検索</h2>
     <SearchFilters @search="search" />
     <TemplateTable v-if="searched" :rows="rows" action="edit" @action="openEditor" />
-    <p v-else class="text-sm text-muted-foreground">条件を選んで検索してください</p>
+    <EmptyState
+      v-else
+      :icon="Search"
+      title="テンプレートを検索"
+      hint="委託会社・ファンド・基準日などの条件を選んで検索してください。"
+    />
   </div>
 </template>
