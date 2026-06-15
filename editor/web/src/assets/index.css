@@ -214,9 +214,11 @@
    toolbar (PartToolbar) instead. Keep the selection outline, tinted to primary. */
 .gjs-badge,
 .gjs-toolbar {
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS の標準 UI を隠すため上書きが必要 */
   display: none !important;
 }
 .gjs-comp-selected {
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS の選択枠を上書きするため必要 */
   outline: 2px solid hsl(var(--primary)) !important;
   outline-offset: 1px;
 }
@@ -228,12 +230,15 @@
    inline by GrapesJS, hence !important; height stays content-driven (body
    min-height: 297mm). */
 .gjs-frame-wrapper {
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS がインライン幅を設定するため上書きが必要 */
   width: 210mm !important;
   left: 0;
   right: 0;
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン余白を上書きするため必要 */
   margin: 24px auto !important;
 }
 .gjs-frame {
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS がインライン幅を設定するため上書きが必要 */
   width: 100% !important;
   background: transparent;
 }
