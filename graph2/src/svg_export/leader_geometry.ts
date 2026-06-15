@@ -33,6 +33,10 @@ const UPPER_LEFT_HAIRPIN_VISIBILITY_COS_THRESHOLD = -0.7;
 // 上左の小スライスが引く短い leader を省く角度範囲の半幅 (90°中心)。midAngle>90 と併用し
 // 12時〜10時半 ([90°,135°]) の小スライスを対象にする (シンガポール 3.5% ≈121.9° を含む)。
 const UPPER_LEFT_SMALL_LEADER_HALF_WIDTH_DEG = 45;
+// 「冗長な短い leader」を省く対象を 1 強スライスに限る下限 (%)。`label_placement.ts` の
+// `DOMINANT_OUTSIDE_EDGE_MIN_PCT` (rim 外縁配置の dominant 判定) と同値。バランス型チャートの中サイズ
+// スライス (>smallSliceThreshold だが非 dominant) の rim leader は「なるべく leader を使う」方針どおり残す。
+const REDUNDANT_RIM_LEADER_DOMINANT_MIN_PCT = 50;
 
 export type Pt = { x: number; y: number };
 
@@ -62,6 +66,9 @@ export function computeDrawnLeader(
     endpoint.y *= factor;
   }
   const finalBox = placementBox(placement, cfg);
+  // declip ラベルでアンカーが box の真上/真下でなく横にあるケース (例 オフショア・人民元)。
+  // 下の bend ロジックで折れ点なしの直線 (rim → 近端) にするため、endpoint 決定時に立てる。
+  let declipSideAnchor = false;
   if (alwaysDraw) {
     // 接続点をラベル縦中央(1 行)/向きに応じた行位置(2 行)へ。終点 Y を target へ寄せると、
     // bendFollowsEndpointY 経路は最終水平セグメントが target Y に揃い、近い縦縁の縦中央で接続する。
@@ -96,13 +103,25 @@ export function computeDrawnLeader(
       endpoint.x = (finalBox.left + finalBox.right) / 2;
       endpoint.y = finalBox.top + cfg.cornerGap; // 論理 y-up: top の少し上 (box 外)
     } else if (placement.declipBottomLeader) {
-      // 縦 spread で動かしたラベル (`applyVerticalDeclipFallback`)。長い斜めリーダーを見やすくするため
-      // 接続点を **アンカー側の縁の水平中央** へ寄せる (上記 lowerLeftDrop 分岐のミラー)。アンカーが箱
-      // より下 (上へ動かした) なら下縁中央、上なら上縁中央。endpoint を縁の cornerGap だけ box 外に置き
-      // truncate が中央縁で止める。接触点が右縁から中央へ動くだけで円から遠ざかるため円貫通/交差は悪化しない。
-      endpoint.x = (finalBox.left + finalBox.right) / 2;
-      const anchorBelow = placement.leaderAnchor.y < (finalBox.top + finalBox.bottom) / 2;
-      endpoint.y = anchorBelow ? finalBox.bottom - cfg.cornerGap : finalBox.top + cfg.cornerGap;
+      // 縦 spread で動かしたラベル (`applyVerticalDeclipFallback`)。
+      if (
+        placement.leaderAnchor.x > finalBox.right ||
+        placement.leaderAnchor.x < finalBox.left
+      ) {
+        // アンカーが box の真上/真下でなく **横** にあるケース (例 オフショア・人民元: 上左 rim で box の
+        // 右辺=アンカー=pie 側)。水平中央へ寄せると L 字の水平区間が box 内へ食い込みラベル文字を貫く。
+        // pie 側の縦縁 (近端) の行中央へ rim から **折れ点なしの直線** で接続する (下の bend ロジックで畳む)。
+        declipSideAnchor = true;
+        endpoint.x = placement.leaderAnchor.x > (finalBox.left + finalBox.right) / 2 ? finalBox.right : finalBox.left;
+        endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
+      } else {
+        // アンカーが box の真上/真下: 長い斜めリーダーを見やすくするため接続点を **アンカー側の縁の
+        // 水平中央** へ寄せる (上記 lowerLeftDrop 分岐のミラー)。アンカーが箱より下 (上へ動かした) なら
+        // 下縁中央、上なら上縁中央。endpoint を縁の cornerGap だけ box 外に置き truncate が中央縁で止める。
+        endpoint.x = (finalBox.left + finalBox.right) / 2;
+        const anchorBelow = placement.leaderAnchor.y < (finalBox.top + finalBox.bottom) / 2;
+        endpoint.y = anchorBelow ? finalBox.bottom - cfg.cornerGap : finalBox.top + cfg.cornerGap;
+      }
     } else if (
       // 真下/真上中央の中央寄せラベルで、アンカー x が box 水平範囲内に入るケース
       // (例 中国 10.6% = 真下、ケイマン諸島 1.5% = 真上)。アンカー x が box 内だと L 字 leader の
@@ -126,7 +145,12 @@ export function computeDrawnLeader(
     }
   }
   let bend = placement.leaderBend;
-  if (alwaysDraw && placement.declipBottomLeader) {
+  if (alwaysDraw && declipSideAnchor) {
+    // 横アンカー (例 オフショア・人民元): bend をアンカーへ畳む。下の stub 除去で 2 点パス
+    // [anchor, drawEndpoint] になり、rim から近端 (pie 側縦縁) の行中央へ折れ点なしの直線で繋ぐ。
+    // 直線はアンカー (rim) から外側へ進むため円外を保ち、近端より外側で止まるので box も貫かない。
+    bend = { x: placement.leaderAnchor.x, y: placement.leaderAnchor.y };
+  } else if (alwaysDraw && placement.declipBottomLeader) {
     // L 字 (横優先): アンカーから水平にラベル側 (外側) へ出て、ラベル水平中央 x (`endpoint.x`) で縦に
     // 折れラベル縁へ。水平区間はアンカー (rim 上 dist≈`pieRadius`) から中心より遠い x へ進むので中心
     // 距離は単調増 = 円外を保つ。縦区間はラベル中央 x (左外側で |x|>`pieRadius`) なので円外。ゆえに
@@ -293,6 +317,34 @@ export function isRedundantUpperLeftSmallLeader(
     len += Math.hypot(pathPoints[k + 1].x - pathPoints[k].x, pathPoints[k + 1].y - pathPoints[k].y);
   }
   return len < radialFraction(cfg, 0.5, 4.8);
+}
+
+/**
+ * 1 強 (≥`REDUNDANT_RIM_LEADER_DOMINANT_MIN_PCT`%) スライスの `dominantOutsideEdge` rim ラベル
+ * (`buildOutsideRimDraft` 由来、draft では `skipLeader=true` を意図) が引く「冗長な短い」leader か。
+ * 短い = ラベルが自スライス外縁に隣接し線が無くても接続が自明 (ユーザー指摘: アメリカ・ドル58%)。
+ * `ALWAYS_DRAW_OUTSIDE_LEADERS` 下では `computeDrawnLeader` が rim ラベルにも一律 leader を描くため、
+ * emit 最終段でこの述語により線のみ削る。閾値は `computeDrawnLeader` の `dominantOutsideLeaderGap`
+ * (= `radialFraction(cfg, 0.3, 2.8)`、行 54・行 239) と同基準。これより遠くへ逃げた rim ラベルは leader を
+ * 残す (接続が自明でない)。**対象を 1 強スライスに限る**のが要点: バランス型チャートの中サイズ各スライス
+ * (>`smallSliceThreshold` だが非 dominant) の短い rim leader は「なるべく leader を使う」(`ALWAYS_DRAW`) 方針
+ * どおり残し、唯一無二で識別が自明な 1 強スライス (例 58%) の冗長スタブだけを省く。`forceOutsideLeader`
+ * (far-sliver の意図的 leader) と `forceTopRight` (その他の右上逃がし、専用キャップ回避経路) も除外。
+ * 本判定は emit (Pass 1.5) だけで使い、`computeDrawnLeader` / 採点には載せない (ラベル位置不変)。
+ */
+export function isRedundantDominantRimLeader(
+  placement: Placement,
+  pathPoints: Pt[],
+  cfg: PieLayoutConfig,
+): boolean {
+  if (!placement.dominantOutsideEdge || placement.insideSlice) return false;
+  if ((placement.item.percent ?? 0) < REDUNDANT_RIM_LEADER_DOMINANT_MIN_PCT) return false;
+  if (placement.item.forceOutsideLeader === true) return false;
+  if (placement.forceTopRight === true) return false;
+  if (pathPoints.length < 2) return false;
+  const a = pathPoints[0];
+  const e = pathPoints[pathPoints.length - 1];
+  return Math.hypot(e.x - a.x, e.y - a.y) <= radialFraction(cfg, 0.3, 2.8);
 }
 
 /**
