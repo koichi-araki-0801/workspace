@@ -223,11 +223,13 @@ export function computeInsideOptions(
   if (cfg.insideSliceEnabled === false) return empty;
   const midRad = degToRad(item.midAngle);
   const spanRad = ((item.percent ?? 0) / 100) * 2 * Math.PI;
+  // dominant (≥80%) の内側ラベルは水平中央へ揃える (重心方向のずれを止める。コメント「真下中央」意図)。
+  const isDominant = (item.percent ?? 0) >= DOMINANT_BELOW_CENTER_MIN_PCT;
   const steps = cfg.nameCondenseSteps;
   const tryForms = (rank: number, lineCount: 1 | 2, scales: number[]): InsideOption | null => {
     for (const sx of scales) {
       const form = buildForm(item, cfg, rank, lineCount, sx, true);
-      const fit = fitsInsideSliceExtent(midRad, spanRad, form.width, form.height, cfg);
+      const fit = fitsInsideSliceExtent(midRad, spanRad, form.width, form.height, cfg, isDominant);
       if (fit.fits) return { form, fit };
     }
     return null;
@@ -557,7 +559,15 @@ export function buildOutsideLeaderDraft(
   const rLabel = cfg.renderLabelRadius;
   const labelX = cosA * rLabel;
   const labelY = sinA * rLabel;
-  const { anchor, baseline } = radialAnchorBaseline(cosA, sinA);
+  const { anchor: rawAnchor, baseline } = radialAnchorBaseline(cosA, sinA);
+  // 上左 (sinA>0, cosA<0) の 12時シーム最寄り far-sliver (`forceOutsideLeader`) は、`radialAnchorBaseline`
+  // が |cosA|<閾値 で `anchor="middle"` を返すため box が左右対称に広がる。すると中心 (x=0=pie 中心) 付近の
+  // この種ラベルは pie 側 (右辺) を pin できず、原寸へ戻すと右辺が pie へ寄って `relaxNameCondense` の
+  // pie ガードに阻まれ長体 (0.7) のまま残る (例 国内株式先物1.7%・フランス0.6%)。`anchor="end"` にして
+  // pie 側 (右辺) を固定し原寸テキストを左へ伸ばすと、widening が pie から離れる向きになり原寸で収まる。
+  // `forceOutsideLeader` (= 上部 far-sliver の up-and-over leader 経路) かつ near-12 middle のときだけ適用。
+  const anchor =
+    item.forceOutsideLeader && cosA < 0 && sinA > 0 && rawAnchor === "middle" ? "end" : rawAnchor;
   return {
     fragments: [],
     textX: labelX,

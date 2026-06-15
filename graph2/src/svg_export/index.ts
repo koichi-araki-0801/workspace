@@ -63,8 +63,6 @@ import {
   runCompactCascade,
   applyVisualViewBoxNudge,
   applyFinalCondenseToFit,
-  trySplitNamePlacement,
-  restoreSplitNamePlacement,
   relaxNameCondense,
   FINAL_CONDENSE_MIN_SCALE,
 } from "./post_layout.js";
@@ -453,11 +451,11 @@ function finalizeForScoring(
   const copy = placements.map((p) => ({ ...p }));
   applyVisualViewBoxNudge(copy, cfg);
   applyFinalCondenseToFit(copy, cfg);
-  // 名前 2 行分割 (applySplitNameFallback) は emit 最終段のみで適用する (候補選択を乱さない)。
   relaxNameCondense(copy, cfg);
   applyOutsideLeaderAngularOrder(copy, cfg, coord);
   escapeUpperLeftTinyLeaders(copy, cfg, coord);
   escapeTopBandSeamLeader(copy, cfg, coord);
+  if (leftStackMode) stackTopRightLiftedLabels(copy, cfg);
   if (leftStackMode) reorderLeftStackWithCondense(copy, cfg, coord);
   if (leftStackMode) separateLeftColumnByHeight(copy, cfg, coord);
   // repairResidualLeaderDefects は emit 最終段のみで適用する (ここには入れない)。採点へ入れると
@@ -536,72 +534,8 @@ function countVerifyIssuesDetailed(
 }
 
 /**
- * 名前 2 行分割フォールバック (emit 最終段, do-no-harm)。下限長体 (0.7) でも viewBox を見切れる
- * 長カタカナ/長熟語ラベルを splitLongName で 2 行へ分割し、チャート全体の不具合 (countDefects) が
- * 「clips 厳密減・crossings/pie/total 非悪化」を満たす時だけ採用する。全後段の後 (= 位置確定後) に
- * 走るのでゲートは最終配置を正しく評価する。部分的にしか収まらない分割は clips が減らず revert される。
- */
-function applySplitNameFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
-  const { xScale, yScale, width, height } = coord;
-  // verify と同基準の box→pie 侵入 (countDefects は leader 貫通のみ数え box 侵入は数えないため、
-  // 1 行→2 行で高さが倍増し box が円へ食い込むケースをここで個別に捕捉する)。
-  const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
-  const cxp = xScale(0);
-  const cyp = yScale(0);
-  const pixBox = (p: Placement) => {
-    const lb = placementBox(p, cfg);
-    return {
-      left: Math.min(xScale(lb.left), xScale(lb.right)),
-      right: Math.max(xScale(lb.left), xScale(lb.right)),
-      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
-      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
-    };
-  };
-  const clipsViewBox = (p: Placement): boolean => {
-    const b = pixBox(p);
-    return b.left < -1 || b.right > width + 1 || b.top < -1 || b.bottom > height + 1;
-  };
-  const countBoxPie = (): number => {
-    let n = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const b = pixBox(p);
-      const closestX = Math.max(b.left, Math.min(cxp, b.right));
-      const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
-      if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
-    }
-    return n;
-  };
-  const overlapsOf = (d: DefectCounts): number => d.total - d.clips - d.crossings - d.pie;
-
-  let before = countDefects(placements, cfg, coord);
-  if (before.clips === 0) return;
-  let beforePieBox = countBoxPie();
-  for (const p of placements) {
-    if (p.insideSlice || p.nameSplit || !clipsViewBox(p)) continue;
-    const snap = trySplitNamePlacement(p, cfg);
-    if (!snap) continue;
-    const after = countDefects(placements, cfg, coord);
-    const afterPieBox = countBoxPie();
-    // do-no-harm: clips が厳密に減り、他の全カテゴリ (交差/leader円貫通/重なり/box円侵入) が非悪化。
-    const adopt =
-      after.clips < before.clips &&
-      after.crossings <= before.crossings &&
-      after.pie <= before.pie &&
-      overlapsOf(after) <= overlapsOf(before) &&
-      afterPieBox <= beforePieBox;
-    if (adopt) {
-      before = after;
-      beforePieBox = afterPieBox;
-    } else {
-      restoreSplitNamePlacement(p, snap);
-    }
-  }
-}
-
-/**
- * 単行 (`lines.length===1`) の幅広ラベルを **標準2行** `[name, percent]` へ変換する (`trySplitNamePlacement`
- * の `nameSplit` 形と違い、数値行に名前文字が乗らない = 他ラベルと同形)。`nameScaleX` を 1 から下限
+ * 単行 (`lines.length===1`) の幅広ラベルを **標準2行** `[name, percent]` へ変換する (名前を語中で割らず
+ * 数値行に名前文字が乗らない = 他ラベルと同形)。`nameScaleX` を 1 から下限
  * `FINAL_CONDENSE_MIN_SCALE`(0.7) まで 0.025 刻みで落として `canvasXlim` に収め、収まらなければ 0.7 で
  * 打ち切る (見切れ許容)。revert 用に変換前 `{lines, nameSplit, nameScaleX}` を返す。
  */
@@ -641,6 +575,77 @@ function restoreTwoLineNamePlacement(
 }
 
 /**
+ * 標準 2 行フォールバック (emit 最終段, do-no-harm)。下限長体 (0.7) でも viewBox を見切れる 1 行ラベルを、
+ * 名前を語中で割らない **標準 2 行** `[name, %]` (`toTwoLineNamePlacement`) へ変換する。名前行だけになって
+ * 箱幅が縮むため、1 行 (名前+%) より見切れ px が減る。語割れ (旧 `splitLongName`) は graph2 全体で廃止した
+ * ため、見切れる長名はこの 2 行化か、収まらなければ僅かな見切れで対応する (参考PDF「ニュージーランド・ドル」)。
+ *
+ * 全後段の後 (= 位置確定後) に走るのでゲートは最終配置を正しく評価する。採否は対象ラベル自身の見切れ px が
+ * 厳密に減り、かつチャート全体の他不具合 (交差/leader円貫通/重なり/box円侵入) と clips 件数が非悪化の時だけ。
+ * 見切れの無いチャートは `before.clips === 0` で即 return = baseline byte 不変。
+ */
+function applyTwoLineNameFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
+  const { xScale, yScale, width, height } = coord;
+  const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
+  const cxp = xScale(0);
+  const cyp = yScale(0);
+  const pixBox = (p: Placement) => {
+    const lb = placementBox(p, cfg);
+    return {
+      left: Math.min(xScale(lb.left), xScale(lb.right)),
+      right: Math.max(xScale(lb.left), xScale(lb.right)),
+      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
+      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
+    };
+  };
+  // 対象ラベルの viewBox 見切れ量 (px)。4 辺の超過の最大値。
+  const clipPx = (p: Placement): number => {
+    const b = pixBox(p);
+    return Math.max(0, -1 - b.left, b.right - (width + 1), -1 - b.top, b.bottom - (height + 1));
+  };
+  const countBoxPie = (): number => {
+    let n = 0;
+    for (const p of placements) {
+      if (p.insideSlice) continue;
+      const b = pixBox(p);
+      const closestX = Math.max(b.left, Math.min(cxp, b.right));
+      const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
+      if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
+    }
+    return n;
+  };
+  const overlapsOf = (d: DefectCounts): number => d.total - d.clips - d.crossings - d.pie;
+
+  let before = countDefects(placements, cfg, coord);
+  if (before.clips === 0) return;
+  let beforePieBox = countBoxPie();
+  for (const p of placements) {
+    if (p.insideSlice || p.nameSplit || p.lines.length !== 1) continue;
+    const myClipBefore = clipPx(p);
+    if (myClipBefore <= 0) continue; // 見切れていない 1 行はそのまま
+    const snap = toTwoLineNamePlacement(p, cfg);
+    if (!snap) continue;
+    const after = countDefects(placements, cfg, coord);
+    const afterPieBox = countBoxPie();
+    // do-no-harm: 対象自身の見切れ px が厳密に減り、全体の他カテゴリ (clips件数/交差/円貫通/重なり/box円侵入)
+    // が非悪化。2 行化は名前行のみで箱幅が縮むため自分の左右見切れは減るが、高さ増で別不具合を生むなら revert。
+    const adopt =
+      clipPx(p) < myClipBefore - 1e-9 &&
+      after.clips <= before.clips &&
+      after.crossings <= before.crossings &&
+      after.pie <= before.pie &&
+      overlapsOf(after) <= overlapsOf(before) &&
+      afterPieBox <= beforePieBox;
+    if (adopt) {
+      before = after;
+      beforePieBox = afterPieBox;
+    } else {
+      restoreTwoLineNamePlacement(p, snap);
+    }
+  }
+}
+
+/**
  * 左側 near-equator 見切れラベルの縦 spread フォールバック (emit 最終段, do-no-harm)。
  * `post_layout.ts` の `applyVisualViewBoxNudge` は水平シフトのみで、円の縦中心付近
  * (`Math.abs(closestPieY) < cfg.pieRadius`) の左ラベルは左シフトが pie に頭打ちされ
@@ -651,8 +656,8 @@ function restoreTwoLineNamePlacement(
  * 重ならないよう外側へ追い出して縦に広げる。広げた結果 leader が長い斜線になり交差しうるので
  * `repairResidualLeaderDefects` (bend 再配置, do-no-harm) を掛けてから採否を判定する。採否は片側単位で
  * チャート全体 `countDefects` の do-no-harm ゲート (clips 厳密減・crossings/pie/重なり/box 円侵入 非悪化)
- * を満たす時だけ全件採用、満たさなければ全件 revert。`applyLowerLeftDropFallback` /
- * `applySplitNameFallback` より先に走り、解消すれば後続は `before.clips === 0` で no-op。見切れの無い
+ * を満たす時だけ全件採用、満たさなければ全件 revert。`applyLowerLeftDropFallback` より先に走り、
+ * 解消すれば後続は `before.clips === 0` で no-op。見切れの無い
  * チャートは早期 return で完全無変更 (= baseline byte 不変)。
  */
 function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
@@ -705,7 +710,7 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
   };
 
   // 対象: 左側 (x<0) の外側ラベルで左端を見切れ、かつ水平 nudge が pie ブロックされる
-  // (|y| < pieRadius) もの。名前 2 行分割済 / 2 行左列は専用パス管轄なので除外。下left ドロップ
+  // (|y| < pieRadius) もの。2 行左列は専用パス管轄なので除外。下left ドロップ
   // 候補 (`lowerLeftDropLeader`) は本パスを `applyLowerLeftDropFallback` より先に試し、縦 spread で
   // 解消できればドロップ不要にするため除外しない。
   const targets = placements.filter(
@@ -906,7 +911,7 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
  * `markClippedUpperLeftLongDrop` が識別した `lowerLeftDropLeader` ラベル (9時直近で長体下限でも
  * viewBox 左端を見切れる幅広長名) を、円が横へ逃げ帯が広い下left へ 2 行のまま置き直し
  * (`buildLowerLeftDropLeaderDraft`)、slice rim から斜めリーダーで接続する (参考PDF「オーストラリア」)。
- * 採否は `applySplitNameFallback` と同じ do-no-harm ゲート (`countDefects` で clips 厳密減・他カテゴリ
+ * 採否は do-no-harm ゲート (`countDefects` で clips 厳密減・他カテゴリ
  * 非悪化)。密チャート (例 asset_long_labels_9) で交差/順序反転を生む場合は revert され、当該チャートは
  * baseline (rim 2 行) のまま = 回帰なし。
  */
@@ -1195,6 +1200,31 @@ function applyTopBandClusterReorder(placements: Placement[], cfg: PieLayoutConfi
       clampPlacement(p);
     }
   }
+}
+
+/**
+ * 右上へ逃がした複数の lifted ラベル (forceTopRight) の縦順を、引出線が交差しないよう整える。
+ * `topRightLiftedRimDraft` は escapee ごとに `anchorX` 由来の異なる X へ置くため、cascade の重なり解消が
+ * Y を分離するが、その順序が slice 角度順と逆だと riser と horizontal が交差する (12時最寄り slice は
+ * 右寄り・遠い slice は左寄りなので、**遠い slice を上段・最寄りを下段** にすると交差しない)。
+ *
+ * 既存の縦スロット (cascade が確定した Y 群) を保ったまま、12時から遠い順に上 (logical y 大) から
+ * 割り当て直す。これで横方向の見た目 (各 anchorX 由来の X) は維持しつつ縦順だけ是正する。
+ * `markLeftStackTopBandEscapeRight` が 2 枚立てた leftStackMode 形状で発火。1 枚以下なら無処理。
+ */
+function stackTopRightLiftedLabels(placements: Placement[], _cfg: PieLayoutConfig): void {
+  const esc = placements.filter((p) => p.forceTopRight && !p.insideSlice);
+  if (esc.length < 2) return;
+  // 望ましい縦順: 12時から遠い (|midAngle-90| 大) ほど上段。
+  const byFarthest = [...esc].sort(
+    (a, b) => Math.abs((b.item.midAngle ?? 0) - 90) - Math.abs((a.item.midAngle ?? 0) - 90),
+  );
+  // 現在の Y スロット (logical y) を上段 (大) から順に取り、遠い順に割り当て直す。
+  const slots = esc.map((p) => p.y).sort((a, b) => b - a);
+  byFarthest.forEach((p, i) => {
+    p.y = slots[i];
+    clampPlacement(p);
+  });
 }
 
 // leader メトリクス層 (pathsCross / realLeaderPaths / countLeaderCrossings /
@@ -2921,6 +2951,7 @@ function runLabelCascade(
     applyTopBandClusterReorder(result, cfg);
   }
   if (diagnostics?.leftStackMode) {
+    stackTopRightLiftedLabels(result, cfg);
     applyLeftStackGapClose(result, cfg);
   }
   if (diagnostics?.twoLineLeftStackMode) {
@@ -3084,17 +3115,14 @@ export async function renderPdfStylePieToSvg(
     applyVerticalDeclipFallback(textPlacements, cfg, { xScale, yScale, width, height });
 
     // 9時直近で長体下限でも見切れる幅広長名を、下left ドロップ + 斜めリーダーで収める最終手段
-    // (do-no-harm)。名前 2 行分割より先に試し、収まれば split 不要。位置確定後に走るので最終配置を
-    // 正しく評価する。密チャートで交差/反転を生む場合は revert。
+    // (do-no-harm)。位置確定後に走るので最終配置を正しく評価する。密チャートで交差/反転を生む場合は revert。
     applyLowerLeftDropFallback(textPlacements, cfg, { xScale, yScale, width, height });
 
-    // 下限長体 (0.7) でも viewBox を見切れる長カタカナ/長熟語を、名前 2 行分割で収める最終手段。
-    // 全後段の **後** に実行するので位置は確定済 = ゲートが最終配置を正しく見る。採否は `countDefects`
-    // (チャート全体: clips/crossings/pie/total) で判定し、clips が厳密に減り他が非悪化の時だけ採用 (do-no-harm)。
-    // 部分的にしか収まらない分割 (例 債券先物(アメ/リカ)) は clips が減らず revert される。採点
-    // (`finalizeForScoring`) には入れない: 候補選択を乱さず、finalScore は emit 後の同 placements から数えるため
-    // scorer ↔ emit 整合は保たれる。
-    applySplitNameFallback(textPlacements, cfg, { xScale, yScale, width, height });
+    // 下限長体 (0.7) でも viewBox を見切れる 1 行ラベルを、名前を語中で割らない標準 2 行 [名前, %] へ
+    // 変換する最終手段 (do-no-harm)。語割れ (旧 splitLongName) は graph2 全体で廃止。位置確定後に走るので
+    // ゲートは最終配置を正しく評価する。採点 (`finalizeForScoring`) には入れない: 候補選択を乱さず、
+    // finalScore は emit 後の同 placements から数えるため scorer ↔ emit 整合は保たれる。
+    applyTwoLineNameFallback(textPlacements, cfg, { xScale, yScale, width, height });
 
     // emit 実配置 (最終化済 textPlacements) を内部スコアラで数え diagnostics に残す。後段は再適用
     // しない (countDefects はカウントのみ)。verify_consistency が emit SVG と突き合わせ、配置判断の

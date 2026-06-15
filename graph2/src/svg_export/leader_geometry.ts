@@ -104,24 +104,23 @@ export function computeDrawnLeader(
       const anchorBelow = placement.leaderAnchor.y < (finalBox.top + finalBox.bottom) / 2;
       endpoint.y = anchorBelow ? finalBox.bottom - cfg.cornerGap : finalBox.top + cfg.cornerGap;
     } else if (
-      // 真下中央の (near-)垂直リーダ (例 中国 10.6%): 中央寄せ (anchor="middle") で box が
-      // アンカーより下 (pie の真下) にあり、アンカー x が box 水平範囲内・縦優位 (|ady|>|adx|)
-      // のケース。この時 leaderAttachTargetY は上行の縦中央 (box 内) を返し、bend も垂直に
-      // 畳まれて box 内に入るため truncate が病的形状 (t0<=0) として切り詰めず、リーダが
-      // 上行の文字に食い込む。接続点を pie 側 (top) 縁の水平中央 (cornerGap だけ box 外) へ
-      // 寄せると truncate は t0>=1 で endpoint をそのまま返し box 縁手前で止まる。
-      // anchor="middle" 限定で左右スタック (end/start) を除外、box が下限定で真上中央
-      // (その他 等、既に縁で正しく接続) を除外。inside/forceTopRight/lowerLeftDrop/declipBottom
-      // は先行分岐で捕捉済み。
+      // 真下/真上中央の中央寄せラベルで、アンカー x が box 水平範囲内に入るケース
+      // (例 中国 10.6% = 真下、ケイマン諸島 1.5% = 真上)。アンカー x が box 内だと L 字 leader の
+      // bend (アンカー x 上に畳まれる) が box 内へ落ち、truncate が病的形状 (t0<=0) として切り詰めず
+      // リーダが行内の文字に食い込む (`svg_geom.ts` の `truncateLeaderEndpointAtBox` 参照)。
+      // 接続点を pie 側の上下縁の水平中央 (cornerGap だけ box 外) へ寄せると truncate は endpoint を
+      // そのまま返し box 縁手前で止まる。box が下なら top 縁、上なら bottom 縁 (上記 declipBottom 分岐
+      // と同じ向き判定)。アンカー x が box 外 (左右ラベル) は近い縦縁で正しく接続するため対象外。
+      // anchor="middle" 限定で左右スタック (end/start) を除外。inside/forceTopRight/lowerLeftDrop/
+      // declipBottom は先行分岐で捕捉済み。
       placement.anchor === "middle" &&
-      (finalBox.top + finalBox.bottom) / 2 < placement.leaderAnchor.y &&
       placement.leaderAnchor.x > finalBox.left &&
-      placement.leaderAnchor.x < finalBox.right &&
-      placement.leaderAnchor.y - (finalBox.top + finalBox.bottom) / 2 >
-        Math.abs((finalBox.left + finalBox.right) / 2 - placement.leaderAnchor.x)
+      placement.leaderAnchor.x < finalBox.right
     ) {
       endpoint.x = (finalBox.left + finalBox.right) / 2;
-      endpoint.y = finalBox.top + cfg.cornerGap; // box が下 → pie 側 = top 縁の水平中央
+      const boxBelowAnchor = (finalBox.top + finalBox.bottom) / 2 < placement.leaderAnchor.y;
+      // box が下 → pie 側 = top 縁、box が上 → pie 側 = bottom 縁 の水平中央。
+      endpoint.y = boxBelowAnchor ? finalBox.top + cfg.cornerGap : finalBox.bottom - cfg.cornerGap;
     } else {
       endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
     }

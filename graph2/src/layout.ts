@@ -783,9 +783,11 @@ function assignUpperLeftRenderY(
   diagnostics: Diagnostics,
   cfg: PieLayoutConfig,
 ): void {
-  const upper = [...sideItems.filter((item) => item.isUpperLeft && !item.flipToRight)].sort(
-    (a, b) => a.finalY - b.finalY,
-  );
+  const upper = [
+    ...sideItems.filter(
+      (item) => item.isUpperLeft && !item.flipToRight && !item.topBandSmallRight,
+    ),
+  ].sort((a, b) => a.finalY - b.finalY);
   if (upper.length === 0) return;
 
   assignUpperLeftMetadata(upper, diagnostics);
@@ -848,7 +850,11 @@ function markUpperLeftStackRimY(
 ): void {
   if (diagnostics.upperLeftTriadEligible !== true) return;
   const eligible = upper.filter(
-    (it) => it.isUpperLeft && !it.flipToRight && Number.isFinite(it.upperLeftRenderY),
+    (it) =>
+      it.isUpperLeft &&
+      !it.flipToRight &&
+      !it.topBandSmallRight &&
+      Number.isFinite(it.upperLeftRenderY),
   );
   if (eligible.length < 2) return;
   const overlapTol = 8 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
@@ -1055,6 +1061,59 @@ function markForcedTopSliverEscapeRight(left: LayoutItemReady[], diagnostics: Di
 }
 
 /**
+ * leftStackMode (上左に small >=5 密集) かつ右リムが空く非 dominant チャート (例 stress_top_cluster_8:
+ * D42/E40 が内側 + 小6個が上左に縦積み) で、12時シーム最寄りの小スライス最大2枚 (top-band 72-108°) を
+ * 右上空白へ逃がす。`topBandSmallRight` を立て既存 `topRightLiftedRimDraft` 経路 (slice から縦に抜けて
+ * 右へ折れる短い L 字 leader) に乗せ、残る上左ラベルは escapee を除いた `assignUpperLeftRenderY` で
+ * 上方向へ自然に広がる。複数枚の右上縦積みは svg_export の `stackTopRightLiftedLabels` が担う。
+ *
+ * `markTopBandSmallRight` (triad 専用・1枚) とは別系統: leftStackMode は upperLeftTriadEligible=false で
+ * そちらが発火しないため、leftStackMode 向けの独立マーカーを設ける。`flipUpperLeftStackToRight` が
+ * 12時最寄りを既に flip 済の場合があるので `flipToRight` をクリアして経路を一本化する。
+ *
+ * ゲート (この形状に限定し他 leftStackMode チャートへ波及させない):
+ *  - leftStackMode かつ !topBandClusterMode
+ *  - 最大スライス < 80% (dominant 形状を除外)
+ *  - non-small スライスがちょうど 2 枚 (= 大2枚 + 残り全 small。stress_top_cluster_8 の 42/40 型)。
+ *    これにより「1 dominant + 中位複数」(currency_usd_heavy_9 等) や「大1+中2」(stress_right_cluster_8)
+ *    を除外する。中位スライスが上右/右に外側ラベルを持つ形状へ波及させないための主ゲート。
+ *  - 右側に small 外側スライスが無い (右リムが空。dominant は side=right でも大・内側なので small-outside で判定)
+ *  - 上左 small >= 5 (汎用 leftStackMode の >=4 より厳しく)
+ *  - top-band (72-108°) の small スライバ (非長名・非「その他」) が 1 枚以上 → 12時最寄り最大2枚を逃がす
+ */
+function markLeftStackTopBandEscapeRight(
+  left: LayoutItemReady[],
+  candidates: LayoutItemReady[],
+  diagnostics: Diagnostics,
+): void {
+  if (diagnostics.leftStackMode !== true) return;
+  if (diagnostics.topBandClusterMode === true) return;
+  if ((diagnostics.rankValuesFull?.[0] ?? 0) >= 80) return;
+  if (candidates.filter((it) => !it.isSmall).length > 2) return;
+  if (
+    candidates.some(
+      (it) => it.side === "right" && it.isSmall && !it.name.startsWith("その他"),
+    )
+  ) {
+    return;
+  }
+  if ((diagnostics.upperLeftSmallCount ?? 0) < 5) return;
+  const slivers = topBandLeftSlivers(left, "small", "exclude");
+  if (slivers.length === 0) return;
+  const sorted = [...slivers].sort(
+    (a, b) => Math.abs(a.midAngle - 90) - Math.abs(b.midAngle - 90),
+  );
+  // forceOutsideLeader で rank 9 起点 (buildOutsideLeaderDraft) = 1 行フォーム。右上の縦余白は
+  // 冠〜viewBox 上端で約 2 箱分しかなく、2 行だと 2 枚積むと下段が円に食い込むため 1 行で逃がす
+  // (markForcedTopSliverEscapeRight と同じ)。
+  for (const it of sorted.slice(0, 2)) {
+    it.topBandSmallRight = true;
+    it.forceOutsideLeader = true;
+    it.flipToRight = false;
+  }
+}
+
+/**
  * 「1強(80–90%) + 上左に極小1枚 + 上中央を『その他』が占有」型 (例 world_bond_idx_asset:
  * 外国債券87.1/外国投資信託11.9/外国債券先物0.2/その他0.8) で、上左に孤立する極小1枚に
  * forceOutsideLeader を立て rank 9 (buildOutsideLeaderDraft) 起点へ送り、自スライス真上付近の
@@ -1096,6 +1155,47 @@ function markLoneTopSliverLeader(
   // ことを伝える印 (極小の up-and-over leader が生き残る条件)。
   slivers[0].forceOutsideLeader = true;
   slivers[0].loneTopSliverLeader = true;
+}
+
+/**
+ * 「1強(≥90%) + 3 スライス + 極小2枚 (うち1枚が『その他』)」型 (例 pdf_510037_03_jp_equity_idx_asset
+ * _20240529: 国内株式98.2/国内株式先物1.7/その他0.1) で、唯一の非「その他」極小スライバ (国内株式先物) に
+ * `forceOutsideLeader` を立て rank 9 (`buildOutsideLeaderDraft`) 起点へ送り、放射 leader 付きで左上へ
+ * クリーン配置する。これをしないと当該スライバは汎用上左 rim 配置 (2 行・`anchor="middle"`・12時シーム
+ * 付近) へ落ち、シームでは rim の x が ≒0 のため箱が名前幅ぶん左へ伸びて `applyFinalCondenseToFit` が
+ * 下限 (0.7) まで長体化＋クランプが左端へ寄せる (= 長体・左寄りすぎの症状)。`その他` は無印で既存の
+ * 右上経路を維持する (near=右 / far=左 の manulife_country 慣例と同じ左右配置になる)。
+ *
+ * `markForcedTopSliverLeader` (≥90%・3枚・**極小2枚**型) と別マーカーにする理由: 本構成は極小2枚の片方が
+ * `その他` であり、`topBandLeftSlivers` の `その他` 除外で抽出が 1 枚になり `slivers.length !== 2` で
+ * 弾かれる。`markLoneTopSliverLeader` (80–90%・4枚・`その他`≥0.5 が上中央占有) とも dominant 帯・総数・
+ * `その他` の役割が異なる。ゲートを緩めて統合すると manulife_country / world_bond を回帰させるため独立させる。
+ *
+ * ゲート (この構成だけに限定):
+ *  - leftStackMode / topBandClusterMode でない
+ *  - 最大スライス ≥ 90% (1強)
+ *  - 総スライス数 == 3 (1強 + 周辺2枚)
+ *  - 上左 (mid>90) の small・top-band(72–108°)・非「その他」・非長名 スライバがちょうど 1 枚
+ *  - 周辺の残り 1 枚が top-band の『その他』(= 極小2枚の片方が『その他』である証人)
+ */
+function markDominantTopSliverWithOther(
+  candidates: LayoutItemReady[],
+  left: LayoutItemReady[],
+  diagnostics: Diagnostics,
+): void {
+  if (diagnostics.leftStackMode || diagnostics.topBandClusterMode) return;
+  if ((diagnostics.rankValuesFull?.[0] ?? 0) < 90) return;
+  if (diagnostics.totalCount !== 3) return;
+  const slivers = topBandLeftSlivers(left, "small", "exclude");
+  if (slivers.length !== 1) return;
+  const topBandSonohoka = candidates.some(
+    (it) =>
+      it.name.startsWith("その他") &&
+      it.isSmall &&
+      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG),
+  );
+  if (!topBandSonohoka) return;
+  slivers[0].forceOutsideLeader = true;
 }
 
 // 6時 (270°) 中心の「真下中央」帯の半幅 (度)。BOTTOM_BAND_HALF_WIDTH_DEG(18) より狭く、
@@ -1304,6 +1404,10 @@ export function layoutLabels(items: LayoutItem[], cfg: PieLayoutConfig): LayoutR
   applyBottomSpecial(right, cfg);
 
   flipUpperLeftStackToRight(left, diagnostics, cfg);
+  // leftStackMode で右リムが空く非 dominant 形状は、12時最寄りの小スライス最大2枚を右上へ逃がす
+  // (topBandSmallRight)。assignUpperLeftRenderY / 1 行強制 / flip 前に立て、escapee を上左スタックから
+  // 除外して残りを上方向へ再分配する。
+  markLeftStackTopBandEscapeRight(left, candidates, diagnostics);
 
   // 左側密集 (Diagnostics.leftStackMode) 時、左側の非 flip item は cascade を 1 行起点
   // ("名前 25%") で走らせる。`compactLabel`/`textLines=1` は cascade 到達前の幅計測が
@@ -1323,7 +1427,7 @@ export function layoutLabels(items: LayoutItem[], cfg: PieLayoutConfig): LayoutR
     const viewBoxLeft = -cfg.svgWidthPx / 2 / cfg.pxPerUnit;
     const deepOverflowTol = 0.04; // ≈ 6 SVG px の安全代
     for (const it of left) {
-      if (it.flipToRight || it.flipToLeft) continue;
+      if (it.flipToRight || it.flipToLeft || it.topBandSmallRight) continue;
       const text1 = `${it.name} ${it.percentText ?? ""}`;
       const width1 = visualTextWidthUnits([text1], cfg);
       const cosA = Math.cos(degToRad(it.midAngle));
@@ -1374,6 +1478,7 @@ export function layoutLabels(items: LayoutItem[], cfg: PieLayoutConfig): LayoutR
   markForcedTopSliverLeader(left, diagnostics);
   markForcedTopSliverEscapeRight(left, diagnostics);
   markLoneTopSliverLeader(candidates, left, diagnostics);
+  markDominantTopSliverWithOther(candidates, left, diagnostics);
   markBottomCenterBelow(candidates, diagnostics, cfg);
   markDenseSideOutsidePush(left, diagnostics);
   placeX(left, "left", diagnostics, cfg);
