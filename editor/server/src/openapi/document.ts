@@ -9,7 +9,7 @@
  * Endpoints currently backed by a live Express handler:
  *   GET /api/health, GET /api/templates/options, GET /api/templates,
  *   GET /api/templates/:id, PUT /api/templates/:id, POST /api/generate,
- *   POST /api/pdf.
+ *   POST /api/build, POST /api/build/project, /api/preview*.
  * All other paths below are design-first (documented contract, no handler yet).
  */
 
@@ -59,7 +59,7 @@ export function buildOpenApiDocument() {
       { name: 'templates', description: 'テンプレートの探索・生成・下書き・確定保存' },
       { name: 'parts', description: 'パーツカタログ(エディタ左ペイン)' },
       { name: 'history', description: '編集 / PDF / 作成 履歴とバージョン比較' },
-      { name: 'pdf', description: 'PDF 出力' },
+      { name: 'vivliostyle', description: 'vivliostyle build (PDF) / preview (ライブ)' },
       { name: 'users', description: 'ユーザ管理(admin 限定)' },
     ],
     components: {
@@ -328,13 +328,13 @@ export function buildOpenApiDocument() {
         },
       },
 
-      // ------------------------------------------------------------------- pdf
-      '/pdf': {
+      // ----------------------------------------------------------- vivliostyle
+      '/build': {
         post: {
-          tags: ['pdf'],
-          summary: 'HTML+CSS から PDF を生成',
-          operationId: 'exportPdf',
-          requestBody: { content: { 'application/json': { schema: s.PdfRequest } } },
+          tags: ['vivliostyle'],
+          summary: 'インライン HTML+CSS から PDF を生成',
+          operationId: 'buildInline',
+          requestBody: { content: { 'application/json': { schema: s.BuildInlineRequest } } },
           responses: {
             '200': {
               description: 'PDF バイナリ',
@@ -344,6 +344,68 @@ export function buildOpenApiDocument() {
             ...ERR_401,
             ...ERR_500,
           },
+        },
+      },
+      '/build/project': {
+        post: {
+          tags: ['vivliostyle'],
+          summary: 'vivliostyle プロジェクト(zip)から PDF を生成',
+          operationId: 'buildProject',
+          description:
+            'リクエストボディに project zip を `application/zip` で送信。' +
+            'zip 内に `vivliostyle.config.*` があればそれを、無ければ単一エントリを使う。' +
+            '任意クエリ: `entry`, `size`, `singleDoc`。',
+          requestBody: {
+            content: { 'application/zip': { schema: PdfBinary } },
+          },
+          responses: {
+            '200': {
+              description: 'PDF バイナリ',
+              content: { 'application/pdf': { schema: PdfBinary } },
+            },
+            ...ERR_400,
+            ...ERR_401,
+            '413': err('プロジェクトが大きすぎる (kind=validation)'),
+            ...ERR_500,
+          },
+        },
+      },
+      '/preview': {
+        get: {
+          tags: ['vivliostyle'],
+          summary: '稼働中のプレビューセッション一覧',
+          operationId: 'listPreviews',
+          responses: { '200': json('セッション一覧', s.PreviewSessionList), ...ERR_401 },
+        },
+        post: {
+          tags: ['vivliostyle'],
+          summary: 'ライブプレビューを起動 (inline JSON または project zip)',
+          operationId: 'startPreview',
+          description:
+            'inline は `application/json` (BuildInlineRequest)、project は `application/zip`。' +
+            '返却 `url` (`/api/preview/{id}/`) を同一オリジンで開くと vivliostyle ビューアが表示される。',
+          responses: {
+            '201': json('起動したセッション', s.PreviewSession),
+            ...ERR_400,
+            ...ERR_401,
+            ...ERR_500,
+          },
+        },
+      },
+      '/preview/{id}': {
+        get: {
+          tags: ['vivliostyle'],
+          summary: 'プレビューセッションのメタを取得',
+          operationId: 'getPreview',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: { '200': json('セッション', s.PreviewSession), ...ERR_401, ...ERR_404 },
+        },
+        delete: {
+          tags: ['vivliostyle'],
+          summary: 'プレビューセッションを停止',
+          operationId: 'stopPreview',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: { '204': noContent('停止完了'), ...ERR_401, ...ERR_404 },
         },
       },
 

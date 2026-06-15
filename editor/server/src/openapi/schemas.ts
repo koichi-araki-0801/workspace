@@ -311,12 +311,30 @@ export const ConfirmSaveBody = z
 /** confirmSave returns the updated TemplateMeta (matches the repository contract). */
 export const ConfirmSaveResult = TemplateMeta;
 
-export const PdfRequest = z
+/** Inline build request body (rendered HTML + optional CSS → PDF). */
+export const BuildInlineRequest = z
   .object({
     html: z.string().min(1).meta({ description: 'レンダリング済み(nunjucks)HTML' }),
     css: z.string().default(''),
+    size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
+    singleDoc: z.boolean().optional().meta({ description: '単一ドキュメント扱い' }),
   })
-  .meta({ id: 'PdfRequest' });
+  .meta({ id: 'BuildInlineRequest' });
+
+/** A live-preview session's public metadata (no server internals exposed). */
+export const PreviewSession = z
+  .object({
+    id: z.string().meta({ description: 'プレビューセッション ID' }),
+    mode: z.enum(['inline', 'project']),
+    createdAt: z.string().meta({ description: '作成時刻 (ISO)' }),
+    expiresAt: z.string().meta({ description: 'アイドル失効予定時刻 (ISO)' }),
+    url: z
+      .string()
+      .meta({ description: '同一オリジンのプレビュー URL', example: '/api/preview/{id}/' }),
+  })
+  .meta({ id: 'PreviewSession' });
+
+export const PreviewSessionList = z.array(PreviewSession).meta({ id: 'PreviewSessionList' });
 
 // ---------------------------------------------------------------------------
 // Cross-cutting

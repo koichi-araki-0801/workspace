@@ -124,7 +124,7 @@ pwsh -File scripts/offline/python-wheelhouse.ps1 -Mode install
 2. **遮断**: 運用機をネット遮断し、`setup-offline.bat` の展開〜`pnpm build` がネット無しで完走する
    （biome / esbuild / rollup / lightningcss / vue-tsc の取得が走らない）。
 3. **起動**: `GET /api/health` → `{ok:true}`、ブラウザで SPA が表示される。
-4. **PDF（最重要）**: `POST /api/pdf` で PDF 生成成功。ログに
+4. **PDF（最重要）**: `POST /api/build` で PDF 生成成功。ログに
    `Downloading now...`（`downloadBrowser`）が**出ない**こと、MathJax 失敗で生成がストール
    /失敗しないこと。
 5. **生成/保存**: `POST /api/generate`・`PUT /api/templates/:id` が成功。

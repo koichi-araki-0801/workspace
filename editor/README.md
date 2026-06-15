@@ -53,7 +53,7 @@ npm run typecheck   # 全 workspace の型チェック
 | Nunjucks プレビュー描画 | `web/src/lib/nunjucksRender.ts` |
 | GrapesJS 連携 | `web/src/features/editor/useGrapes.ts`, `jinjaComponents.ts` |
 | データ抽象化（差し替え点） | `web/src/api/repositories.ts`, `web/src/api/local/*Repo.ts` |
-| PDF（vivliostyle CLI） | `server/src/pdf/vivliostyle.ts` |
+| PDF / preview（vivliostyle CLI） | `server/src/vivliostyle/*`（`build.ts` / `previewManager.ts`） |
 | Python 生成器アダプタ | `server/src/generate/pyTemplate.ts`（`server/scripts/generate_template.py` を呼ぶ） |
 
 ## 環境変数（server）

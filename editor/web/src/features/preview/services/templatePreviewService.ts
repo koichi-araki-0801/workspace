@@ -86,7 +86,7 @@ export function createTemplatePreviewService(
       try {
         const rendered = renderJinja(html, sample);
         if (rendered.error) return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
-        const res = await fetch('/api/pdf', {
+        const res = await fetch('/api/build', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ html: rendered.html, css }),

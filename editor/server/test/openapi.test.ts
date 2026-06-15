@@ -23,7 +23,8 @@ describe('openapi document', () => {
       '/templates/{templateId}/parts/{partId}/history',
       '/history/edit',
       '/snapshots/{historyId}',
-      '/pdf',
+      '/build',
+      '/preview',
       '/users',
       '/users/{id}',
     ];

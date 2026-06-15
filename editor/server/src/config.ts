@@ -151,6 +151,27 @@ export const config = {
   },
 
   /**
+   * vivliostyle build / preview API settings. Defaults are tuned for the
+   * single-machine offline deployment; override via env when needed.
+   */
+  vivliostyle: {
+    /** Live-preview server lifecycle (see `vivliostyle/previewManager.ts`). */
+    preview: {
+      /** Loopback bind for the Vite preview server; Express proxies to it. */
+      host: process.env.VIVLIO_PREVIEW_HOST ?? '127.0.0.1',
+      /** Auto-close a preview session after this many ms of no proxy traffic. */
+      idleTtlMs: Number(process.env.VIVLIO_PREVIEW_IDLE_MS ?? 30 * 60_000),
+      /** Cap concurrent preview servers (each holds a Vite server in memory). */
+      maxSessions: Number(process.env.VIVLIO_PREVIEW_MAX ?? 3),
+    },
+    /** project build upload limits (see `vivliostyle/projectInput.ts`). */
+    build: {
+      /** Max accepted project zip size in bytes (413 above this). */
+      maxProjectBytes: Number(process.env.VIVLIO_MAX_PROJECT_BYTES ?? 64 * 1024 * 1024),
+    },
+  },
+
+  /**
    * SQL Server connection (phase 2 REST mode). Windows Integrated auth — no
    * credentials are stored. ODBC Driver 17 targets SQL Server 2012; after the
    * planned upgrade, override DB_ODBC_DRIVER / DB_CONN_EXTRA (e.g. Encrypt).
