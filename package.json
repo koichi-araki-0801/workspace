@@ -17,7 +17,7 @@
     "test:coverage": "pnpm --filter @editor/shared --filter server --filter web --filter graph2 --filter graph-editor run test:coverage",
     "test:e2e": "playwright test -c editor/playwright.config.ts",
     "test:e2e:install": "playwright install --with-deps chromium",
-    "typecheck": "pnpm --filter @editor/shared --filter server --filter web --filter graph2 --filter graph-editor run typecheck",
+    "typecheck": "pnpm --filter @editor/shared run build && pnpm --filter @editor/shared --filter server --filter web --filter graph2 --filter graph-editor run typecheck",
     "graph2:cli": "pnpm --filter graph2 run cli",
     "graph2:check": "pnpm --filter graph2 run check",
     "lint": "biome lint .",
