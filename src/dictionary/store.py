@@ -152,11 +152,16 @@ class DictionaryStore:
         )
 
     def import_json(self, path: Path) -> int:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            raise ValueError(f"辞書ファイルを読み込めません: {exc}") from exc
         count = 0
-        for item in data:
-            src = item.get("source", "")
-            tgt = item.get("target", "")
+        for item in data if isinstance(data, list) else []:
+            if not isinstance(item, dict):
+                continue
+            src = item.get("source", "").strip()
+            tgt = item.get("target", "").strip()
             if src:
                 self.upsert(src, tgt)
                 count += 1

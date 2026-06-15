@@ -36,7 +36,13 @@ def _mime(ext: str) -> str:
     return f"image/{ext}"
 
 
-def page_to_svg(page: Page) -> str:
+def page_to_svg(page: Page, *, annotate: bool = False) -> str:
+    """Page を SVG 文字列へ。
+
+    annotate=True のとき各要素タグに ``data-el="<id>"`` を付与する (Web UI が
+    要素をクリック選択・ハイライトするため)。デフォルト False で従来出力と完全一致
+    (テスト・書き出しは不変)。
+    """
     rect = page.export_rect()
     lines: List[str] = []
     lines.append('<?xml version="1.0" encoding="UTF-8"?>')
@@ -59,6 +65,8 @@ def page_to_svg(page: Page) -> str:
             continue
         svg = _element_to_svg(el)
         if svg:
+            if annotate:
+                svg = _with_data_el(svg, el.id)
             lines.append(svg)
             if isinstance(el, TextElement):
                 text_els.append(el)
@@ -70,6 +78,15 @@ def page_to_svg(page: Page) -> str:
 
     lines.append("</svg>")
     return "\n".join(lines)
+
+
+def _with_data_el(svg: str, el_id: int) -> str:
+    """単一要素タグの開きタグ直後に data-el 属性を差し込む。"""
+    # 先頭は必ず "<tagname" なので、最初の空白の位置に属性を挿入する。
+    sp = svg.find(" ")
+    if sp < 0:
+        return svg
+    return f'{svg[:sp]} data-el="{el_id}"{svg[sp:]}'
 
 
 def _intersects_export(bbox: Rect, export: Rect) -> bool:

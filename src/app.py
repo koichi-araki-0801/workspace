@@ -3,27 +3,19 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication
 
-import config
-from model import fonts
-from ui.main_window import MainWindow
-
-
-def _register_bundled_fonts() -> None:
-    """同梱フォント (BIZ UD / Noto Serif JP) を Qt へ登録し、エディタ表示でも使えるようにする。"""
-    filenames = set(fonts.BUNDLED_FONTS.values()) | set(fonts.BUNDLED_VARIABLE.values())
-    for filename in sorted(filenames):
-        path = config.resource_path("fonts", filename)
-        if path.exists():
-            QFontDatabase.addApplicationFont(str(path))
+from web.scheme import register_scheme
 
 
 def main() -> int:
+    # カスタムスキームは QApplication 構築前に登録する必要がある
+    register_scheme()
     app = QApplication(sys.argv)
     app.setApplicationName("PdfToSvg")
-    _register_bundled_fonts()
+    # MainWindow (= QtWebEngine) は QApplication 構築後に import する
+    from ui.main_window import MainWindow
+
     win = MainWindow()
     win.show()
     return app.exec()

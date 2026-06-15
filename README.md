@@ -36,18 +36,20 @@ python -m pip install -e .            # もしくは pip install PySide6 PyMuPDF
 python run.py
 ```
 
-## 基本操作
+## 基本操作（4 ステップ・ウィザード）
 
-| 操作 | 手順 |
+UI は QWebEngineView で描画する Web UI（`resources/web/`）。複数 PDF を一括で扱い、
+上部のステップバーに沿って 1→4 を進める。各ページは「要確認 / 確認済み / スキップ /
+変更なし」の状態を持ち、未確認が残ると「次へ」で確認ガードバーが出る。
+
+| ステップ | 内容 |
 |---|---|
-| PDF を開く | ツールバー「開く…」 |
-| ヘッダ自動置換 | 開くと辞書が自動適用（右パネルで「ヘッダのみ/全テキスト」切替・再適用） |
-| 辞書に追加 | テキストを選択 →「選択を辞書に追加」→ 右パネルで置換後を入力して「追加」 |
-| 要素を削除 | 選択ツールでドラッグ選択 → Delete |
-| 矩形クロップ | 「クロップ」→ 残す範囲をドラッグ（外側は書き出し時に破棄） |
-| クロップ解除 | 「クロップ解除」 |
-| 元に戻す/やり直し | Ctrl+Z / Ctrl+Y |
-| SVG 書き出し | 「このページを SVG 書出」/「全ページを SVG 書出」 |
+| **1. PDFを選ぶ** | ドロップゾーンをクリック→ファイル選択（複数可）。選んだ順に処理。 |
+| **2. 用語を置換** | 開くと辞書を自動適用。左レールでページ移動、中央に実ページ、右「確認」タブで置換一覧（クリックで該当箇所をハイライト）。「辞書」タブで用語の追加・削除・「ヘッダのみ」切替・全ファイル再適用。 |
+| **3. 不要範囲を削除** | 「選択」で要素をクリック選択→「削除」。「クロップ」で残す範囲をドラッグ（外側は書き出し時に破棄）。「クロップ解除」で取消。 |
+| **4. SVGに書き出す** | 表示中ページのみ / 全ページ を選び書き出し（`元ファイル名_pN.svg`）。 |
+
+元に戻す / やり直しは上部アイコンまたは Ctrl+Z / Ctrl+Y。
 
 ---
 
@@ -55,15 +57,22 @@ python run.py
 
 ```
 PDF → engine(PyMuPDF抽出 + vector/scan判定) → model(Document/Page/Element)
-   → dictionary(NFKC正規化 + ヘッダ検出 + 自動適用) 
-   → editor(QGraphicsScene: 1要素=1Item, 選択/削除/クロップ) ……編集UI
-   → export(model→SVG直接シリアライズ) ……出力
+   → dictionary(NFKC正規化 + ヘッダ検出 + 自動適用)
+   → export(model→SVG直接シリアライズ) ……出力 & 画面プレビュー
+   ↑↓ web.bridge(QWebChannel) ←→ resources/web(QWebEngineViewのUI) ……編集UI
 ```
 
-- **モデルが真実**。編集は scene からモデルへ書き戻し、SVG はモデルから直接書き出す
-  （決定的・GUI 非依存でテスト可能・フォント名が崩れない）。
-- 主要モジュール: `engine/pdf_engine.py`, `model/elements.py`, `editor/scene.py`,
-  `export/svg_exporter.py`, `dictionary/apply.py`。
+- **モデルが真実**。編集は Web UI から Bridge 経由で `QUndoCommand` を push してモデルを更新し、
+  SVG はモデルから直接書き出す（決定的・GUI 非依存でテスト可能・フォント名が崩れない）。
+- 画面のページ表示も `export/svg_exporter.py` の SVG を Web DOM に流し込む（書き出しと同一経路）。
+- UI（HTML/CSS/JS）は `resources/web/`、Python との橋渡しは `src/web/`（`bridge.py` /
+  `rpc_methods.py` / `scheme.py` / `commands.py`）。`app://` カスタムスキームで完全オフライン動作。
+- 主要モジュール: `engine/pdf_engine.py`, `model/elements.py`, `export/svg_exporter.py`,
+  `dictionary/apply.py`, `web/bridge.py`, `web/rpc_methods.py`。
+
+> UI を `resources/web/` から取り込み直す場合は `python tools/extract_mockup.py <モックHTML>` で
+> `styles.css` を再生成する（フォントは UI 用に Windows 標準へ差し替え済み）。
+> `index.html` / `app.js` / `rpc.js` / `qwebchannel.js` は手書き管理。
 
 ---
 
@@ -87,6 +96,11 @@ pyinstaller packaging/pdftosvg.spec --noconfirm
 ```
 
 配布はこの onedir フォルダ (`dist\PdfToSvg\`) をそのままコピーするポータブル方式。
+
+> UI に **QtWebEngine（Chromium）** を使うため配布サイズは従来より +120〜150MB 程度大きい。
+> ビルド後は `dist\PdfToSvg\` に `QtWebEngineProcess.exe` / `*.pak` / `locales\` / ICU が
+> 揃っていること（無いと UI が白画面になる）、およびネットワーク遮断下でも起動・書き出しが
+> できることを確認する。`packaging/pdftosvg.spec` は QtWebEngine 系を除外していない。
 
 ---
 

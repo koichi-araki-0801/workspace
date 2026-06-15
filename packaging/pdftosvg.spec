@@ -27,17 +27,16 @@ if os.path.isdir(RESOURCES):
 binaries = collect_dynamic_libs("fitz")
 
 # 不要な重量級 Qt モジュール (使っていない)
+# 注意: QtWebEngine* / QtWebChannel / QtNetwork / QtQuick / QtQml は UI を
+# QWebEngineView で描画するために実行時必須なので除外しない (除外すると白画面)。
+# PyInstaller の PySide6 フックが QtWebEngineProcess.exe / *.pak / locales / ICU を
+# 取り込む。dist にこれらが揃うことをビルド後に必ず確認すること。
 excludes = [
-    "PySide6.QtWebEngineCore",
-    "PySide6.QtWebEngineWidgets",
     "PySide6.QtMultimedia",
     "PySide6.QtMultimediaWidgets",
     "PySide6.Qt3DCore",
     "PySide6.QtCharts",
     "PySide6.QtDataVisualization",
-    "PySide6.QtQuick",
-    "PySide6.QtQml",
-    "PySide6.QtNetwork",
     "tkinter",
 ]
 
