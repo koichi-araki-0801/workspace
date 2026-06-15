@@ -41,3 +41,15 @@ describe('TemplateCreationService.create', () => {
     expect(repo.generate).toHaveBeenCalledOnce();
   });
 });
+
+describe('TemplateCreationService.listSeriesFunds', () => {
+  it('delegates to the repository with the given attributes', async () => {
+    const listSeriesFunds = vi.fn(async () => ok([meta]));
+    const repo = { listSeriesFunds } as unknown as TemplateRepository;
+    const svc = createTemplateCreationService(repo);
+    const res = await svc.listSeriesFunds('AM01', '510037', 'kr');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value).toHaveLength(1);
+    expect(listSeriesFunds).toHaveBeenCalledWith('AM01', '510037', 'kr');
+  });
+});

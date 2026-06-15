@@ -76,4 +76,54 @@ describe('TemplateEditorService.loadForEdit', () => {
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.kind).toBe('not_found');
   });
+
+  it('uses the sample fund name for the title when available', async () => {
+    const templates = {
+      getTemplate: vi.fn(async () => ok(tpl)),
+      getDraft: vi.fn(async () => ok(null)),
+      getSampleData: vi.fn(async () => ok({ fund: { name: 'グローバル株式ファンド' } })),
+    } as unknown as TemplateRepository;
+    const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
+    const svc = createTemplateEditorService(templates, parts);
+    const res = await svc.loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.fundName).toBe('グローバル株式ファンド');
+  });
+
+  it('falls back to the file name when the sample fetch fails', async () => {
+    const templates = {
+      getTemplate: vi.fn(async () => ok(tpl)),
+      getDraft: vi.fn(async () => ok(null)),
+      getSampleData: vi.fn(async () => {
+        throw new Error('network');
+      }),
+    } as unknown as TemplateRepository;
+    const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
+    const svc = createTemplateEditorService(templates, parts);
+    const res = await svc.loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.fundName).toBe('t1');
+  });
+});
+
+describe('TemplateEditorService.saveDraft / getPartHistory', () => {
+  it('delegates saveDraft to the template repository', async () => {
+    const saveDraft = vi.fn(async () => ok(undefined));
+    const templates = { saveDraft } as unknown as TemplateRepository;
+    const parts = {} as unknown as PartRepository;
+    const svc = createTemplateEditorService(templates, parts);
+    const res = await svc.saveDraft('t1', '<p>x</p>', '.c{}');
+    expect(isOk(res)).toBe(true);
+    expect(saveDraft).toHaveBeenCalledWith({ templateId: 't1', html: '<p>x</p>', css: '.c{}' });
+  });
+
+  it('delegates getPartHistory to the part repository', async () => {
+    const getPartHistory = vi.fn(async () => ok([]));
+    const templates = {} as unknown as TemplateRepository;
+    const parts = { getPartHistory } as unknown as PartRepository;
+    const svc = createTemplateEditorService(templates, parts);
+    const res = await svc.getPartHistory('t1', 'p1');
+    expect(isOk(res)).toBe(true);
+    expect(getPartHistory).toHaveBeenCalledWith('t1', 'p1');
+  });
 });
