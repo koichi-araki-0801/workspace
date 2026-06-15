@@ -41,10 +41,21 @@ EDGE_APP_PATHS_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedg
 EDGE_INSTALL_ENV_DIRS = ("ProgramFiles(x86)", "ProgramFiles", "LocalAppData")
 
 
+# 同梱ファイルの基準ディレクトリ (PyInstaller 実行時は展開先 _MEIPASS、開発実行時は本ファイルの場所)。
+RESOURCE_BASE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+
+
 def resource_path(rel: str) -> str:
     """開発実行でも PyInstaller 実行でも同梱ファイルへ解決する。"""
-    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base, rel)
+    return os.path.join(RESOURCE_BASE, rel)
+
+
+# 追加の静的アセット (styles.css / js/*.js) の配信を許す拡張子と MIME。
+# ここに無い拡張子は 404。`/` と `/lib/leader_geom.cjs` は do_GET 側で個別配信する。
+STATIC_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+}
 
 
 with open(resource_path("ui.html"), "rb") as _f:
@@ -84,7 +95,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif self.path == "/favicon.ico":
             self._send(204)
         else:
+            self._serve_static(self.path)
+
+    def _serve_static(self, path):
+        """同梱の追加静的アセット (styles.css / js/*.js) を配信する。
+        防御: 拡張子ホワイトリスト (STATIC_TYPES) に一致し、かつ解決後パスが
+        RESOURCE_BASE 配下に収まるものだけを返す (パストラバーサル防止)。それ以外は 404。"""
+        rel = path.split("?", 1)[0].split("#", 1)[0].lstrip("/")
+        ctype = STATIC_TYPES.get(os.path.splitext(rel)[1].lower())
+        if not rel or ctype is None:
             self._send(404, b"not found")
+            return
+        full = os.path.normpath(os.path.join(RESOURCE_BASE, rel))
+        if full != RESOURCE_BASE and not full.startswith(RESOURCE_BASE + os.sep):
+            self._send(404, b"not found")
+            return
+        try:
+            with open(full, "rb") as f:
+                body = f.read()
+        except OSError:
+            self._send(404, b"not found")
+            return
+        self._send(200, body, ctype)
 
     def do_POST(self):
         self._touch()

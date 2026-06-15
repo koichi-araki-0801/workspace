@@ -36,6 +36,8 @@ if errorlevel 1 (
 echo [2/2] Building with PyInstaller ^(single file, no runtime to bundle^)...
 %PY% -m PyInstaller --noconfirm --onefile --windowed --name LabelEditor ^
   --add-data "ui.html;." ^
+  --add-data "styles.css;." ^
+  --add-data "js;js" ^
   --add-data "lib/leader_geom.cjs;lib" ^
   app.py
 if errorlevel 1 (

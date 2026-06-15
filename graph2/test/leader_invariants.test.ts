@@ -104,8 +104,8 @@ function pieIntrusions(
 }
 
 // 過去に leader 交差 / 円内貫通を出していた回帰サンプル + 健全な番兵サンプル。
-// 末尾 4 件は「その他」右上逃がしの短縮 (topRightLiftedRimDraft) と名前 2 行分割
-// (applySplitNameFallback) の対象。短い縦/斜め leader が円を貫かず交差しないことを固定する。
+// 末尾 4 件は「その他」右上逃がしの短縮 (topRightLiftedRimDraft) の対象。
+// 短い縦/斜め leader が円を貫かず交差しないことを固定する。
 const REGRESSION_SAMPLES = [
   "stress_top_cluster_8",
   "currency_usd_heavy_9",
@@ -514,4 +514,61 @@ describe("左列ラベルの縦順序 == スライス角度順 (back-to-back 対
       "イタリアの box 中心が イギリスより上 (cy が小さい)",
     ).toBeLessThan((uk as { cy: number }).cy);
   });
+});
+
+// 引出線が **自分自身のラベル** の bbox を貫通しないこと。`verify_svg.ts` の "leader through label"
+// は j===i (自ラベル) をスキップするため自貫通を検出できず、中央寄せラベル (アンカー x が box 水平
+// 範囲内) で起きる「真下中央 (中国 10.6%) / 真上中央 (ケイマン諸島 1.5%)」の文字食い込みを取りこぼす。
+// `leader_geometry.ts` の computeDrawnLeader が接続点を pie 側の上下縁中央へ寄せて防ぐのを固定する。
+describe("引出線が自ラベル box を貫通しない (self-penetration)", () => {
+  // verify_svg.ts segIntersectsBox と同条件 (両端 box 内=接続点が縁の通常形 → 非貫通)。
+  const segIntersectsBox = (
+    p1: Pt,
+    p2: Pt,
+    box: { left: number; right: number; top: number; bottom: number },
+  ): boolean => {
+    const inA = p1.x >= box.left && p1.x <= box.right && p1.y >= box.top && p1.y <= box.bottom;
+    const inB = p2.x >= box.left && p2.x <= box.right && p2.y >= box.top && p2.y <= box.bottom;
+    if (inA && inB) return false;
+    if (inA || inB) return true;
+    const c = [
+      { x: box.left, y: box.top },
+      { x: box.right, y: box.top },
+      { x: box.right, y: box.bottom },
+      { x: box.left, y: box.bottom },
+    ];
+    for (let k = 0; k < 4; k += 1) {
+      if (segmentsIntersect(p1, p2, c[k], c[(k + 1) % 4])) return true;
+    }
+    return false;
+  };
+
+  // 回帰元: pdf_510037_01 の ケイマン諸島 1.5% (真上中央) が L 字 leader で box 中央まで伸び文字貫通。
+  // world_bond_idx_country_20240426 の 中国 (真下中央) は先行 fix の対象。両者とも自貫通 0 を固定する。
+  const SELF_PEN_SAMPLES = [
+    "pdf_510037_01_fund_country_20240710",
+    "pdf_510037_02_world_bond_idx_country_20240426",
+  ] as const;
+  for (const name of SELF_PEN_SAMPLES) {
+    it(`${name}: どの leader も自分の label box を貫通しない`, async () => {
+      expect(samples[name], `sample "${name}" が samples.json に存在する`).toBeTruthy();
+      const items = resolveInputData({ data: samples[name].items });
+      const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
+      const leaders = parseLeaders(svg);
+      const texts = parseTexts(svg);
+      const offenders: string[] = [];
+      for (const l of leaders) {
+        const t = texts.find((x) => x.name === l.name);
+        if (!t || t.inside) continue;
+        const box = textBoxPx(t);
+        for (let k = 0; k + 1 < l.points.length; k += 1) {
+          if (segIntersectsBox(l.points[k], l.points[k + 1], box)) {
+            offenders.push(l.name);
+            break;
+          }
+        }
+      }
+      expect(offenders, `自ラベルを貫通した leader: ${offenders.join(",")}`).toEqual([]);
+    });
+  }
 });

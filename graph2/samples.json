@@ -39,8 +39,8 @@
   "asset_gbca_pdf_like": {
     "description": "GBCAファンドPDF風・6スライス・債券先物複数の現実的バランス",
     "items": [
-      { "name": "債券現物(日本)", "value": 30.8 },
       { "name": "債券先物(イギリス)", "value": 41.8 },
+      { "name": "債券現物(日本)", "value": 30.8 },
       { "name": "債券先物(ドイツ)", "value": 11 },
       { "name": "債券先物(アメリカ)", "value": 9.2 },
       { "name": "債券先物(日本)", "value": 3.7 },
@@ -90,13 +90,13 @@
     "items": [
       { "name": "国内株式", "value": 15 },
       { "name": "外国株式", "value": 14 },
-      { "name": "新興国株式", "value": 8 },
       { "name": "国内債券", "value": 13 },
       { "name": "外国債券", "value": 12 },
+      { "name": "新興国株式", "value": 8 },
+      { "name": "ヘッジファンド", "value": 8 },
       { "name": "国内リート", "value": 7 },
       { "name": "海外リート", "value": 7 },
       { "name": "コモディティ", "value": 6 },
-      { "name": "ヘッジファンド", "value": 8 },
       { "name": "その他", "value": 10 }
     ]
   },
@@ -261,10 +261,10 @@
       { "name": "ユーロ", "value": 31 },
       { "name": "イギリスポンド", "value": 18 },
       { "name": "スイスフラン", "value": 11 },
+      { "name": "円", "value": 9 },
       { "name": "スウェーデンクローナ", "value": 8 },
       { "name": "ノルウェークローネ", "value": 7 },
       { "name": "デンマーククローネ", "value": 6 },
-      { "name": "円", "value": 9 },
       { "name": "その他", "value": 10 }
     ]
   },
@@ -310,12 +310,7 @@
       { "name": "その他", "value": 6 }
     ]
   },
-  "country_ireland_only": {
-    "description": "国1種・100% アイルランド・single + 6字長ラベル",
-    "items": [
-      { "name": "アイルランド", "value": 100 }
-    ]
-  },
+
   "country_foreign_equity_pdf": {
     "description": "外国株式PDF実データ・国6種・アメリカ77% one-dominant",
     "items": [
@@ -506,10 +501,10 @@
       { "name": "E", "value": 8 },
       { "name": "F", "value": 6 },
       { "name": "G", "value": 5 },
-      { "name": "H", "value": 4 },
+      { "name": "H", "value": 5 },
       { "name": "I", "value": 4 },
-      { "name": "J", "value": 3 },
-      { "name": "K", "value": 5 }
+      { "name": "J", "value": 4 },
+      { "name": "K", "value": 3 }
     ]
   },
   "twelve_evenish": {
@@ -609,12 +604,12 @@
     "description": "ストレス・米国52% one-dominant・残り左右に分散",
     "items": [
       { "name": "米国", "value": 52 },
+      { "name": "スペイン", "value": 8 },
       { "name": "日本", "value": 7 },
+      { "name": "イタリア", "value": 7 },
       { "name": "英国", "value": 6 },
       { "name": "ドイツ", "value": 6 },
       { "name": "フランス", "value": 6 },
-      { "name": "イタリア", "value": 7 },
-      { "name": "スペイン", "value": 8 },
       { "name": "その他", "value": 8 }
     ]
   },
@@ -622,13 +617,13 @@
     "description": "ストレス・A=47 + 下部 6時方向に tiny 2個 + 中型5個・bottom_small_dense",
     "items": [
       { "name": "A", "value": 47 },
-      { "name": "B", "value": 4 },
-      { "name": "C", "value": 4 },
+      { "name": "B", "value": 9 },
+      { "name": "C", "value": 9 },
       { "name": "D", "value": 9 },
       { "name": "E", "value": 9 },
       { "name": "F", "value": 9 },
-      { "name": "G", "value": 9 },
-      { "name": "H", "value": 9 }
+      { "name": "G", "value": 4 },
+      { "name": "H", "value": 4 }
     ]
   },
   "page16_asset_allocation": {
@@ -696,12 +691,12 @@
   "stress_top_cluster_8": {
     "description": "ストレス・8スライス・大2(42/40)+small2(4)+tiny4(2.5%)・ソート後 tiny 4個が左上に密集",
     "items": [
-      { "name": "A", "value": 2.5 },
-      { "name": "B", "value": 2.5 },
+      { "name": "A", "value": 42 },
+      { "name": "B", "value": 40 },
       { "name": "C", "value": 4 },
-      { "name": "D", "value": 42 },
-      { "name": "E", "value": 40 },
-      { "name": "F", "value": 4 },
+      { "name": "D", "value": 4 },
+      { "name": "E", "value": 2.5 },
+      { "name": "F", "value": 2.5 },
       { "name": "G", "value": 2.5 },
       { "name": "H", "value": 2.5 }
     ]
@@ -709,14 +704,14 @@
   "stress_right_cluster_8": {
     "description": "ストレス・8スライス・最大1(50)+中2(15)+tiny5(4%)・one_side_very_dense (≥7 同一値)",
     "items": [
-      { "name": "A", "value": 15 },
-      { "name": "B", "value": 4 },
-      { "name": "C", "value": 4 },
+      { "name": "A", "value": 50 },
+      { "name": "B", "value": 15 },
+      { "name": "C", "value": 15 },
       { "name": "D", "value": 4 },
       { "name": "E", "value": 4 },
       { "name": "F", "value": 4 },
-      { "name": "G", "value": 15 },
-      { "name": "H", "value": 50 }
+      { "name": "G", "value": 4 },
+      { "name": "H", "value": 4 }
     ]
   },
   "stress_bottom_small_multi_8": {
@@ -724,20 +719,20 @@
     "items": [
       { "name": "A", "value": 23 },
       { "name": "B", "value": 23 },
-      { "name": "C", "value": 4 },
-      { "name": "D", "value": 4 },
-      { "name": "E", "value": 4 },
-      { "name": "F", "value": 15 },
-      { "name": "G", "value": 14 },
-      { "name": "H", "value": 13 }
+      { "name": "C", "value": 15 },
+      { "name": "D", "value": 14 },
+      { "name": "E", "value": 13 },
+      { "name": "F", "value": 4 },
+      { "name": "G", "value": 4 },
+      { "name": "H", "value": 4 }
     ]
   },
   "pdf_510037_01_fund_asset": {
     "description": "PDF 510037 ファンド資産配分・3スライス・親投信証券38.8/その他1.3/投信証券59.9",
     "items": [
+      { "name": "投資信託証券", "value": 59.9 },
       { "name": "親投資信託証券", "value": 38.8 },
-      { "name": "その他", "value": 1.3 },
-      { "name": "投資信託証券", "value": 59.9 }
+      { "name": "その他", "value": 1.3 }
     ]
   },
   "pdf_510037_01_fund_asset_20240710": {
@@ -751,11 +746,11 @@
   "pdf_510037_01_fund_country": {
     "description": "PDF 510037 ファンド国別・5スライス・日本89.2 one-dominant + 海外 tiny 4種",
     "items": [
+      { "name": "日本", "value": 89.2 },
       { "name": "ルクセンブルク", "value": 5.1 },
       { "name": "ケイマン諸島", "value": 3.6 },
       { "name": "アイルランド", "value": 1 },
-      { "name": "ジャージー", "value": 1 },
-      { "name": "日本", "value": 89.2 }
+      { "name": "ジャージー", "value": 1 }
     ]
   },
   "pdf_510037_01_fund_country_20240710": {
@@ -776,10 +771,10 @@
   "pdf_510037_02_world_bond_idx_asset": {
     "description": "PDF 510037 世界債券IDX資産・4スライス・外国債券87.1 one-dominant + tiny 3種",
     "items": [
+      { "name": "外国債券", "value": 87.1 },
       { "name": "外国投資信託証券", "value": 11.9 },
       { "name": "外国債券先物", "value": 0.2 },
-      { "name": "その他", "value": 0.8 },
-      { "name": "外国債券", "value": 87.1 }
+      { "name": "その他", "value": 0.8 }
     ]
   },
   "pdf_510037_02_world_bond_idx_asset_20240426": {
@@ -793,6 +788,8 @@
   "pdf_510037_02_world_bond_idx_country": {
     "description": "PDF 510037 世界債券IDX国別・10スライス・米44/中10.6/欧州+その他16.1",
     "items": [
+      { "name": "アメリカ", "value": 44 },
+      { "name": "中国", "value": 10.6 },
       { "name": "フランス", "value": 6 },
       { "name": "ドイツ", "value": 4.9 },
       { "name": "イギリス", "value": 4.5 },
@@ -800,9 +797,7 @@
       { "name": "イタリア", "value": 3.6 },
       { "name": "国際機関", "value": 3 },
       { "name": "スペイン", "value": 2.7 },
-      { "name": "その他", "value": 16.1 },
-      { "name": "アメリカ", "value": 44 },
-      { "name": "中国", "value": 10.6 }
+      { "name": "その他", "value": 16.1 }
     ]
   },
   "pdf_510037_02_world_bond_idx_country_20240426": {
@@ -821,12 +816,12 @@
   "pdf_510037_02_world_bond_idx_currency": {
     "description": "PDF 510037 世界債券IDX通貨・6スライス・米ドル49.3/ユーロ25.6/その他バランス",
     "items": [
+      { "name": "米ドル", "value": 49.3 },
       { "name": "ユーロ", "value": 25.6 },
       { "name": "オフショア人民元", "value": 10.5 },
       { "name": "イギリスポンド", "value": 4.3 },
       { "name": "カナダドル", "value": 3 },
-      { "name": "その他", "value": 7.3 },
-      { "name": "米ドル", "value": 49.3 }
+      { "name": "その他", "value": 7.3 }
     ]
   },
   "pdf_510037_02_world_bond_idx_currency_20240426": {
@@ -843,9 +838,9 @@
   "pdf_510037_03_jp_equity_idx_asset": {
     "description": "PDF 510037 国内株IDX資産・3スライス・国内株式97.2 極端 one-dominant + tiny 2種",
     "items": [
+      { "name": "国内株式", "value": 97.2 },
       { "name": "国内株式先物", "value": 2.7 },
-      { "name": "その他", "value": 0 },
-      { "name": "国内株式", "value": 97.2 }
+      { "name": "その他", "value": 0 }
     ]
   },
   "pdf_510037_03_jp_equity_idx_asset_20240529": {
@@ -865,16 +860,16 @@
   "pdf_510037_04_manulife_asset": {
     "description": "PDF 510037 マニュライフ資産・2スライス・国内債券99.4/その他0.6 極端 one-dominant",
     "items": [
-      { "name": "その他", "value": 0.6 },
-      { "name": "国内債券", "value": 99.4 }
+      { "name": "国内債券", "value": 99.4 },
+      { "name": "その他", "value": 0.6 }
     ]
   },
   "pdf_510037_04_manulife_country": {
     "description": "PDF 510037 マニュライフ国別・3スライス・日本99.3 極端 one-dominant + 仏0.6/米0.1 tiny",
     "items": [
+      { "name": "日本", "value": 99.3 },
       { "name": "フランス", "value": 0.6 },
-      { "name": "米国", "value": 0.1 },
-      { "name": "日本", "value": 99.3 }
+      { "name": "米国", "value": 0.1 }
     ]
   },
   "pdf_510037_05_global_reit_idx_asset": {
@@ -908,8 +903,8 @@
   "pdf_510037_06_gold_asset": {
     "description": "PDF 510037 金資産・2スライス・外国投信100.8/その他-0.8 (negative slice)",
     "items": [
-      { "name": "その他", "value": -0.8 },
-      { "name": "外国投資信託証券", "value": 100.8 }
+      { "name": "外国投資信託証券", "value": 100.8 },
+      { "name": "その他", "value": -0.8 }
     ]
   },
   "pdf_510037_06_gold_country": {
@@ -921,8 +916,8 @@
   "pdf_510037_06_gold_currency": {
     "description": "PDF 510037 金通貨・2スライス・米ドル100.8/円-0.8 (negative slice)",
     "items": [
-      { "name": "円", "value": -0.8 },
-      { "name": "米ドル", "value": 100.8 }
+      { "name": "米ドル", "value": 100.8 },
+      { "name": "円", "value": -0.8 }
     ]
   },
   "pdf_510037_07_fidelity_foreign_bond_asset": {

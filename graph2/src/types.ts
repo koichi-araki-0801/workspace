@@ -233,10 +233,10 @@ export interface Placement {
   /** 1 行レイアウト ("名前 25%") で名前部分のみ圧縮するか。2 行時は常に上行のみで無関係。 */
   condenseNamePortionOnly?: boolean;
   /**
-   * 長カタカナ名を 2 行へ分割したラベル。lines = [名前前半, 名前後半+" "+%] で、通常の 2 行
-   * (lines=[名前, %]) と違い両行とも名前断片を含む。幅算定 (`placementExtent`) と emit の長体指定
-   * (`condense.name`) が `lines[0]` を名前として扱うべきことを示す。`applySplitNameFallback` が立てる。
-   * 長体 `nameScaleX` は `lines[0]` (名前断片) のみへ掛かる (% を含む `lines[1]` は原寸)。
+   * 名前を語中で 2 行へ割ったラベルを表すフラグ (lines = [名前前半, 名前後半+" "+%])。語割れ 2 行は
+   * graph2 全体で廃止したため **現在はどこからも立てない** (常に false/未設定)。2 行救済は名前を割らない
+   * 標準 `[名前, %]` 形 (`toTwoLineNamePlacement` / `overrideOverflowPreferOneLine`) のみ。フラグ自体は
+   * 幅算定 (`placementExtent`) / emit (`condense.name`) の後方互換のため型に残置する。
    */
   nameSplit?: boolean;
   /**

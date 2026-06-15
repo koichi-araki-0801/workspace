@@ -633,19 +633,21 @@ for (const name of allNames) {
       const dHead = Math.hypot(head.x - pie.cx, head.y - pie.cy);
       const dTail = Math.hypot(tail.x - pie.cx, tail.y - pie.cy);
       const anchor = dHead <= dTail ? head : tail;
-      // "その他" は意図的に角度順を破る/固定する配置のときのみ除外する: アンカー角が
-      // コア帯 (90°±18°, 右上/左上へ逃がす仕様) か左拡張帯 ((108°,122°], 真上垂直 center 固定)、
-      // またはラベルとアンカーが中心の左右反対側 (L 字逃がし)。真上垂直配置は視覚的には常に
-      // concordant だが、center 配置 (baseline=bottom) と rim 配置 (baseline=top) の生 y 属性は
-      // 基準辺が異なり比較できないため、本体 angularStacks と同様に除外する。
-      // 帯外 (>122°) で通常 rim 配置された その他 は逆転判定に参加させる (同基準)。
+      const angDeg = (Math.atan2(pie.cy - anchor.y, anchor.x - pie.cx) * 180) / Math.PI;
+      const norm = ((angDeg % 360) + 360) % 360;
+      const inTopBand = Math.abs(norm - 90) <= TOP_BAND_HALF_WIDTH_DEG;
+      const oppositeSide = (t.x < pie.cx) !== (anchor.x < pie.cx);
+      // 上部帯から右上へ L 字で逃がしたラベル (anchor が上帯 90°±18° かつ label が中心の反対側) は
+      // 名前不問で逆転判定から除外する。交差回避のため遠い slice を上段に積む仕様で意図的に角度順を
+      // 破るため (本体 angularStacks も forceTopRight を除外)。「その他」逃がし (topBandSonohokaRight)・
+      // top-band 小スライス逃がし (topBandSmallRight / markLeftStackTopBandEscapeRight) 共通。
+      if (inTopBand && oppositeSide) continue;
+      // "その他" は加えて左拡張帯 ((108°,122°], 真上垂直 center 固定) も除外する: center 配置
+      // (baseline=bottom) と rim 配置 (baseline=top) の生 y 属性は基準辺が異なり比較できないため、
+      // 本体 angularStacks と同様に除外する。帯外 (>122°) の通常 rim その他 は逆転判定に参加させる。
       if (t.name.startsWith("その他")) {
-        const angDeg = (Math.atan2(pie.cy - anchor.y, anchor.x - pie.cx) * 180) / Math.PI;
-        const norm = ((angDeg % 360) + 360) % 360;
-        const inTopBand = Math.abs(norm - 90) <= TOP_BAND_HALF_WIDTH_DEG;
         const inLeftExt =
           norm > 90 + TOP_BAND_HALF_WIDTH_DEG && norm <= 90 + SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG;
-        const oppositeSide = (t.x < pie.cx) !== (anchor.x < pie.cx);
         if (inTopBand || inLeftExt || oppositeSide) continue;
       }
       const cbox = textBBox(t);
