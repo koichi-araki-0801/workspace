@@ -287,6 +287,8 @@ export interface PieLayoutConfig {
   fontSize: number;
   fontFamily: string;
   fontWeight: string;
+  /** faux-bold: text に塗りと同色の stroke を載せる量 (font-size 比, 0=無効)。advance 不変。 */
+  textWeightStrokeRatio: number;
   embedFont: boolean;
   embedFontPath: string;
   embedFontFamilyName: string;

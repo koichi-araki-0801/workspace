@@ -263,10 +263,14 @@ export interface ConfirmSaveRequest {
   fundCode: string;
 }
 
-export interface PdfRequest {
+export interface BuildInlineRequest {
   /** Already-rendered (nunjucks) HTML. */
   html: string;
   css: string;
+  /** Page size handed to vivliostyle (default 'A4'). */
+  size?: string;
+  /** Treat the input as a single document. */
+  singleDoc?: boolean;
 }
 
 // ---------------------------------------------------------------------------

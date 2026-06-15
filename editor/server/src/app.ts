@@ -10,9 +10,10 @@ import { authRouter } from './routes/auth.routes.js';
 import { generateRouter } from './routes/generate.routes.js';
 import { historyRouter } from './routes/history.routes.js';
 import { partsRouter } from './routes/parts.routes.js';
-import { pdfRouter } from './routes/pdf.routes.js';
 import { templatesRouter } from './routes/templates.routes.js';
 import { usersRouter } from './routes/users.routes.js';
+import { vivliostyleRouter } from './routes/vivliostyle.routes.js';
+import { previewManager } from './vivliostyle/previewServer.js';
 
 const app = express();
 
@@ -27,7 +28,7 @@ app.use(pinoHttp({ logger }));
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.use('/api', openapiRouter);
 app.use('/api', authRouter);
-app.use('/api', pdfRouter);
+app.use('/api', vivliostyleRouter);
 app.use('/api', templatesRouter);
 app.use('/api', generateRouter);
 app.use('/api', partsRouter);
@@ -45,6 +46,20 @@ if (fs.existsSync(config.webDist)) {
 // Central error handler — must be registered last, after all routes.
 app.use(errorHandler);
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   logger.info(`[server] listening on http://localhost:${config.port}`);
 });
+
+// Graceful shutdown: stop every live preview server (each holds a Vite server
+// + temp dir) before the process exits, so nothing is leaked.
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info(`[server] ${signal} received — closing preview sessions`);
+  await previewManager.disposeAll();
+  server.close(() => process.exit(0));
+}
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => void shutdown(signal));
+}

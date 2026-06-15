@@ -33,8 +33,8 @@
       "description": "編集 / PDF / 作成 履歴とバージョン比較"
     },
     {
-      "name": "pdf",
-      "description": "PDF 出力"
+      "name": "vivliostyle",
+      "description": "vivliostyle build (PDF) / preview (ライブ)"
     },
     {
       "name": "users",
@@ -1129,16 +1129,16 @@
         }
       }
     },
-    "/pdf": {
+    "/build": {
       "post": {
-        "tags": ["pdf"],
-        "summary": "HTML+CSS から PDF を生成",
-        "operationId": "exportPdf",
+        "tags": ["vivliostyle"],
+        "summary": "インライン HTML+CSS から PDF を生成",
+        "operationId": "buildInline",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PdfRequest"
+                "$ref": "#/components/schemas/BuildInlineRequest"
               }
             }
           }
@@ -1178,6 +1178,245 @@
           },
           "500": {
             "description": "サーバ内部エラー (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/build/project": {
+      "post": {
+        "tags": ["vivliostyle"],
+        "summary": "vivliostyle プロジェクト(zip)から PDF を生成",
+        "operationId": "buildProject",
+        "description": "リクエストボディに project zip を `application/zip` で送信。zip 内に `vivliostyle.config.*` があればそれを、無ければ単一エントリを使う。任意クエリ: `entry`, `size`, `singleDoc`。",
+        "requestBody": {
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "string",
+                "format": "binary",
+                "description": "PDF バイナリ"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PDF バイナリ",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "PDF バイナリ"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "プロジェクトが大きすぎる (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "サーバ内部エラー (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preview": {
+      "get": {
+        "tags": ["vivliostyle"],
+        "summary": "稼働中のプレビューセッション一覧",
+        "operationId": "listPreviews",
+        "responses": {
+          "200": {
+            "description": "セッション一覧",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewSessionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["vivliostyle"],
+        "summary": "ライブプレビューを起動 (inline JSON または project zip)",
+        "operationId": "startPreview",
+        "description": "inline は `application/json` (BuildInlineRequest)、project は `application/zip`。返却 `url` (`/api/preview/{id}/`) を同一オリジンで開くと vivliostyle ビューアが表示される。",
+        "responses": {
+          "201": {
+            "description": "起動したセッション",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "サーバ内部エラー (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preview/{id}": {
+      "get": {
+        "tags": ["vivliostyle"],
+        "summary": "プレビューセッションのメタを取得",
+        "operationId": "getPreview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "セッション",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["vivliostyle"],
+        "summary": "プレビューセッションを停止",
+        "operationId": "stopPreview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "停止完了"
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1516,7 +1755,7 @@
         },
         "required": ["templateId"]
       },
-      "PdfRequest": {
+      "BuildInlineRequest": {
         "type": "object",
         "properties": {
           "html": {
@@ -1527,6 +1766,15 @@
           "css": {
             "default": "",
             "type": "string"
+          },
+          "size": {
+            "description": "ページサイズ (既定 A4)",
+            "example": "A4",
+            "type": "string"
+          },
+          "singleDoc": {
+            "description": "単一ドキュメント扱い",
+            "type": "boolean"
           }
         },
         "required": ["html"]
@@ -2063,6 +2311,40 @@
           }
         },
         "required": ["historyId", "templateId", "html", "css", "fundCode", "timestamp"],
+        "additionalProperties": false
+      },
+      "PreviewSessionList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/PreviewSession"
+        }
+      },
+      "PreviewSession": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "プレビューセッション ID"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["inline", "project"]
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "作成時刻 (ISO)"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "アイドル失効予定時刻 (ISO)"
+          },
+          "url": {
+            "type": "string",
+            "description": "同一オリジンのプレビュー URL",
+            "example": "/api/preview/{id}/"
+          }
+        },
+        "required": ["id", "mode", "createdAt", "expiresAt", "url"],
         "additionalProperties": false
       }
     },
