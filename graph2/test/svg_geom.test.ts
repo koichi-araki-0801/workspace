@@ -334,11 +334,13 @@ describe("visualCharEm / visualMaxEm / visualTextWidthUnits", () => {
     expect(visualCharEm("0", cfg)).toBeCloseTo(0.7598);
   });
   it("漢字 / △ は全角幅、プロポーショナルかなは実 advance", () => {
+    // 漢字・△ はテーブル非収録 → 全角 heuristic (1.0)
     expect(visualCharEm("漢", cfg)).toBe(cfg.visualFullwidthEm);
-    expect(visualCharEm("あ", cfg)).toBe(cfg.visualFullwidthEm);
-    // BIZ UDPGothic はかながプロポーショナル: 「ア」は 1.0em 未満の実測値を引く
-    expect(visualCharEm("ア", cfg)).toBeCloseTo(0.9102);
     expect(visualCharEm("△", cfg)).toBe(cfg.visualFullwidthEm);
+    // BIZ UDPGothic はかながプロポーショナル: 既定 400(Regular) の実測値を引く
+    // (ひらがな「あ」0.98 / カタカナ「ア」0.8901。いずれも 1.0em 未満)
+    expect(visualCharEm("あ", cfg)).toBeCloseTo(0.98);
+    expect(visualCharEm("ア", cfg)).toBeCloseTo(0.8901);
   });
   it("未収録・非全角は半角幅にフォールバック", () => {
     // ヘブライ文字 א はフォント cmap になくテーブル非収録 → 半角 heuristic に落ちる

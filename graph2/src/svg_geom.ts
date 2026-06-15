@@ -6,7 +6,7 @@
 // =============================================================================
 
 import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from "./types.js";
-import { GLYPH_ADVANCE_EM } from "./glyph_advance.js";
+import { GLYPH_ADVANCE_BY_WEIGHT } from "./glyph_advance.js";
 
 export interface Point {
   x: number;
@@ -38,15 +38,17 @@ export interface InsideFit {
 }
 
 /**
- * 文字単位で視覚 em 幅を返す。第一に埋め込みフォント (BIZUDPGothic-Bold.woff2) の実 glyph
- * advance テーブル GLYPH_ADVANCE_EM を引く (実描画幅そのもの)。テーブルは非 1.0 em の codepoint
- * のみ収録 (漢字は実測一律 1.0)。未収録 codepoint は従来のレンジ heuristic にフォールバック:
- * 全角 (漢字/仮名/全角形) は full(1.0)・それ以外 (ASCII/半角カナ) は half(0.5)。
- * テーブルは scripts/gen_glyph_advance.ts が生成。emit の textLength・verify_svg も同テーブルに揃う。
+ * 文字単位で視覚 em 幅を返す。第一に埋め込みフォントの実 glyph advance テーブル
+ * GLYPH_ADVANCE_BY_WEIGHT を `cfg.fontWeight` (400/700) で引き分ける (実描画幅そのもの)。
+ * テーブルは非 1.0 em の codepoint のみ収録 (漢字は実測一律 1.0)。未収録 codepoint は従来の
+ * レンジ heuristic にフォールバック: 全角 (漢字/仮名/全角形) は full(1.0)・それ以外
+ * (ASCII/半角カナ) は half(0.5)。テーブルは scripts/gen_glyph_advance.ts が生成。
+ * emit の textLength・verify_svg も同テーブルに揃う。
  */
 export function visualCharEm(ch: string, cfg: PieLayoutConfig): number {
   const c = ch.codePointAt(0)!;
-  const real = GLYPH_ADVANCE_EM.get(c);
+  const table = GLYPH_ADVANCE_BY_WEIGHT[cfg.fontWeight] ?? GLYPH_ADVANCE_BY_WEIGHT["400"];
+  const real = table.get(c);
   if (real !== undefined) return real;
   if (c >= 0x4e00 && c <= 0x9fff) return cfg.visualFullwidthEm;
   if (c >= 0x3040 && c <= 0x309f) return cfg.visualFullwidthEm;

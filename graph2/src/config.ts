@@ -12,6 +12,15 @@ import type { PieLayoutConfig } from "./types.js";
 
 const PT_PER_MM = 1 / 0.352778; // ≈ 2.83465 pt/mm
 
+// ウェイト → 埋め込みフォント。BIZ UDPGothic は実在する 400/700 の 2 ウェイトのみ。
+// `fontWeight` だけ override すれば `embedFontPath` 既定がこの表から自動で切り替わる
+// (override で `embedFontPath` を明示した場合はそちらを優先)。gen_glyph_advance.ts の
+// WEIGHT_FONT と一致させること。
+const WEIGHT_FONT: Record<string, string> = {
+  "400": "./fonts/BIZUDPGothic-Regular.woff2",
+  "700": "./fonts/BIZUDPGothic-Bold.woff2",
+};
+
 /**
  * 円グラフ用設定オブジェクトを生成する。
  * `overrides` で base 値を差し替えれば、外部から個別パラメータだけ調整可能。
@@ -33,9 +42,12 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
 
     fontSize: 40,
     fontFamily: '"BIZ UDPGothic", "BIZ UDGothic", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif',
-    fontWeight: "700",
+    fontWeight: "400",
+    // 字画を太らせる faux-bold。塗りと同色の stroke を text に載せ、font-size に対する比率で
+    // 太さを足す (0=無効/純フォント, 0.015 前後で擬似500相当)。advance は不変。
+    textWeightStrokeRatio: 0,
     embedFont: true,
-    embedFontPath: "./fonts/BIZUDPGothic-Bold.woff2",
+    embedFontPath: "./fonts/BIZUDPGothic-Regular.woff2",
     embedFontFamilyName: "BIZ UDPGothic",
     percentFormat: (value: number) =>
       value < 0 ? `△${(-value).toFixed(1)}%` : `${value.toFixed(1)}%`,
@@ -94,6 +106,12 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
 
     ...overrides,
   };
+
+  // `embedFontPath` を override で明示していなければ、`fontWeight` に対応するフォントを既定にする。
+  // これで `fontWeight` だけ切り替えれば対応フォント (400=Regular / 700=Bold) が自動で選ばれる。
+  if (overrides.embedFontPath === undefined && WEIGHT_FONT[base.fontWeight]) {
+    base.embedFontPath = WEIGHT_FONT[base.fontWeight];
+  }
 
   return {
     ...base,

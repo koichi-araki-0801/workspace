@@ -127,16 +127,25 @@ function assertOracleSync(): void {
 
   // 実 glyph advance テーブル (src/glyph_advance.ts) が確かに読み込まれ本体 visualCharEm に
   // 効いているかを代表コードポイントで検査する。テーブル未生成/未適用なら旧 heuristic の
-  // 0.5/1.0 に落ちて以下の実測値と乖離し FAIL する。漢字は既定 1.0、BIZ UDPGothic の
-  // プロポーショナルかな ('ア') と全角幅 ASCII ('%') はテーブル収録値。
+  // 0.5/1.0 に落ちて以下の実測値と乖離し FAIL する。値は既定ウェイト (400=Regular) の実測。
+  // 漢字は既定 1.0、BIZ UDPGothic のプロポーショナルかな ('ア') と全角幅 ASCII ('%') はテーブル収録値。
+  // '.' と 'ア' は 400/700 で異なるので、ウェイト別テーブルが正しく引かれているかも兼ねて検査する。
   const widthProbes: [string, number][] = [
-    ["0", 0.7598], ["8", 0.7598], [".", 0.3301], ["%", 1.0], [" ", 0.3335],
-    ["株", 1.0], ["ア", 0.9102],
+    ["0", 0.7598], ["8", 0.7598], [".", 0.3101], ["%", 1.0], [" ", 0.3335],
+    ["株", 1.0], ["ア", 0.8901],
   ];
   for (const [ch, expect] of widthProbes) {
     const body = bodyVisualCharEm(ch, cfg);
     if (Math.abs(body - expect) > 1e-4) {
       mismatches.push(`visualCharEm("${ch}"): body=${body} expected≈${expect} (glyph_advance テーブル未適用?)`);
+    }
+  }
+  // 700 (Bold) 側も代表値を検査し、ウェイト切替でテーブルが切り替わることを担保する。
+  const cfg700 = createPieLayoutConfig({ fontWeight: "700" });
+  for (const [ch, expect] of [[".", 0.3301], ["ア", 0.9102]] as [string, number][]) {
+    const body = bodyVisualCharEm(ch, cfg700);
+    if (Math.abs(body - expect) > 1e-4) {
+      mismatches.push(`visualCharEm("${ch}" @700): body=${body} expected≈${expect} (ウェイト別テーブル未適用?)`);
     }
   }
 

@@ -19,6 +19,7 @@ import {
   type ResolveAsyncOpts,
 } from "./src/data.js";
 import { renderPdfStylePieToSvg } from "./src/svg_export/index.js";
+import type { PieLayoutConfig } from "./src/types.js";
 
 interface ParsedArgs {
   command: string | undefined;
@@ -41,6 +42,28 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
   }
   return { command, options };
+}
+
+/**
+ * 描画オーバーライドを CLI フラグから組み立てる。
+ *   --font-weight <400|700>  … ウェイト切替 (config が対応フォントを自動選択)
+ *   --stroke-ratio <num>     … faux-bold の stroke 量 (font-size 比, 0=無効)
+ */
+function buildRenderOverrides(
+  options: Record<string, string | boolean>,
+): Partial<PieLayoutConfig> {
+  const overrides: Partial<PieLayoutConfig> = {};
+  const fw = options["font-weight"];
+  if (typeof fw === "string") overrides.fontWeight = fw;
+  const sr = options["stroke-ratio"];
+  if (typeof sr === "string") {
+    const ratio = Number(sr);
+    if (!Number.isFinite(ratio) || ratio < 0) {
+      throw new Error(`--stroke-ratio must be a non-negative number (got "${sr}").`);
+    }
+    overrides.textWeightStrokeRatio = ratio;
+  }
+  return overrides;
 }
 
 function readJsonFile(filePath: string): unknown {
@@ -99,7 +122,7 @@ async function renderOne(options: Record<string, string | boolean>): Promise<voi
   fs.mkdirSync(path.dirname(path.resolve(outputFile)), { recursive: true });
 
   const items = await resolveInputDataAsync(buildResolveOpts(options));
-  const result = await renderPdfStylePieToSvg(items, {});
+  const result = await renderPdfStylePieToSvg(items, buildRenderOverrides(options));
   fs.writeFileSync(outputFile, result.svg, "utf-8");
   console.log(path.resolve(outputFile));
 }
@@ -110,6 +133,8 @@ async function renderBatch(options: Record<string, string | boolean>): Promise<v
     throw new Error("--output-dir is required.");
   }
   fs.mkdirSync(path.resolve(outputDir), { recursive: true });
+
+  const overrides = buildRenderOverrides(options);
 
   if (options["input-dir"]) {
     const inputDir = path.resolve(options["input-dir"] as string);
@@ -124,7 +149,7 @@ async function renderBatch(options: Record<string, string | boolean>): Promise<v
         path.resolve(outputDir),
         `${path.parse(fileName).name}.svg`,
       );
-      const result = await renderPdfStylePieToSvg(items, {});
+      const result = await renderPdfStylePieToSvg(items, overrides);
       fs.writeFileSync(outputFile, result.svg, "utf-8");
       console.log(outputFile);
     }
@@ -140,7 +165,7 @@ async function renderBatch(options: Record<string, string | boolean>): Promise<v
   for (const sampleName of sampleNames) {
     const outputFile = path.join(path.resolve(outputDir), `${sampleName}.svg`);
     const items = resolveInputData({ sample: sampleName });
-    const result = await renderPdfStylePieToSvg(items, {});
+    const result = await renderPdfStylePieToSvg(items, overrides);
     fs.writeFileSync(outputFile, result.svg, "utf-8");
     console.log(outputFile);
   }
@@ -162,6 +187,10 @@ async function main(): Promise<void> {
         "  npm run cli -- one --xlsx data.xlsx --sheet Sheet1 --range A2:B11 --output-file out/test.svg",
         "  npm run cli -- batch --output-dir out/svg",
         "  npm run cli -- batch --input-dir data --output-dir out/svg",
+        "",
+        "Font options (one / batch):",
+        "  --font-weight <400|700>  ウェイト切替 (既定 400。対応フォントを自動選択)",
+        "  --stroke-ratio <num>     faux-bold の stroke 量 (font-size 比, 既定 0=無効。0.015≈擬似500)",
       ].join("\n"),
     );
     return;

@@ -175,7 +175,14 @@ export function textFragment(
     }
   }
   const sx = condense?.nameScaleX ?? 1;
-  const open = `<text x="${xScale(x)}" y="${yScale(y)}" text-anchor="${options.anchor}" dominant-baseline="${baseline}" font-size="${cfg.fontSizeUnits}" font-family="${escapeXml(cfg.fontFamily)}" font-weight="${cfg.fontWeight}" fill="${cfg.textColor}" text-rendering="geometricPrecision">`;
+  // faux-bold: 塗りと同色の stroke を載せ字画を太らせる (`textWeightStrokeRatio` > 0 のときのみ)。
+  // stroke 色は fill (= cfg.textColor; 暗スライスは白が渡る) と同色なので両ケースで自動一致する。
+  // 0 (既定) のときは属性を一切足さず純フォント出力 (= 従来と同一)。advance は不変。
+  const strokeAttr =
+    cfg.textWeightStrokeRatio > 0
+      ? ` stroke="${cfg.textColor}" stroke-width="${(cfg.fontSizeUnits * cfg.textWeightStrokeRatio).toFixed(4)}" paint-order="stroke" stroke-linejoin="round"`
+      : "";
+  const open = `<text x="${xScale(x)}" y="${yScale(y)}" text-anchor="${options.anchor}" dominant-baseline="${baseline}" font-size="${cfg.fontSizeUnits}" font-family="${escapeXml(cfg.fontFamily)}" font-weight="${cfg.fontWeight}" fill="${cfg.textColor}"${strokeAttr} text-rendering="geometricPrecision">`;
   if (!condense || sx >= 1) {
     const tspans = lines
       .map(
