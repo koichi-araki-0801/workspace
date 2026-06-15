@@ -71,6 +71,7 @@ import {
   ALWAYS_DRAW_OUTSIDE_LEADERS,
   computeDrawnLeader,
   isRedundantUpperLeftSmallLeader,
+  isRedundantDominantRimLeader,
   resolveLeaderCrossings,
   distPointToSegment,
   pathsCross,
@@ -3158,6 +3159,19 @@ export async function renderPdfStylePieToSvg(
       };
       return { placement, pathPoints, detectPathPoints, skipLeader, pixelBox };
     });
+
+    // ── Pass 1.5: 1 強スライスの冗長な rim leader を省く (ALWAYS_DRAW でも常時実行) ──
+    // `buildOutsideRimDraft` 由来の rim ラベルは draft では `skipLeader=true` を意図しているが、
+    // `ALWAYS_DRAW_OUTSIDE_LEADERS` 下では `computeDrawnLeader` が一律 leader を描く。そのうち 1 強
+    // (≥50%) スライスの自スライス外縁に隣接する冗長な短い leader (例 アメリカ・ドル58%) は線のみ削る。
+    // 採点より後段なのでレイアウト選択にも他 leader の交差解決にも影響しない (ラベル位置は不変)。
+    // ラベルを貫く leader は削除せず `computeDrawnLeader` の declip 分岐が近端 (pie 側縦縁) へ接続して回避する。
+    for (const entry of prepared) {
+      if (entry.skipLeader) continue;
+      if (isRedundantDominantRimLeader(entry.placement, entry.pathPoints, cfg)) {
+        entry.skipLeader = true;
+      }
+    }
 
     // 常時描画方針 (ALWAYS_DRAW_OUTSIDE_LEADERS) のとき、以下の leader 省略 (Pass 2/2.5/2.6) は
     // 全てバイパスする。inside のみ leaderless、円外は描いた leader をそのまま残す。
