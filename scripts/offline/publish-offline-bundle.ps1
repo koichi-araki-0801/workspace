@@ -55,6 +55,7 @@ function Require-Cmd([string]$name) {
 }
 Require-Cmd 'gh'
 Require-Cmd 'tar'
+Require-Cmd 'git'
 
 # ---- packageManager とキー ----
 $pkg = Get-Content $PkgJson -Raw | ConvertFrom-Json
@@ -167,6 +168,8 @@ $currentKey | Set-Content -Path $KeyFile -Encoding ascii -NoNewline
 $notes = @"
 別端末（Windows x64）でネット不要に環境構築するための **重量物（node_modules 相当）** バンドル。
 ソースコードは含みません（コードは git リポジトリ本体から取得してください）。
+本 Release のタグは公開のたびにこのバンドル生成コミットへ移動するため、
+GitHub が自動添付する ``Source code (zip/tar.gz)`` は**このバンドルに対応するコード**と一致します。
 
 ## 同梱（重量物のみ）
 - .pnpm-store … 依存オフラインストア（content-addressable）
@@ -184,6 +187,24 @@ content key (sha256 of pnpm-lock.yaml + packageManager): ``$currentKey``
 "@
 $notesFile = Join-Path $tmp 'notes.md'
 $notes | Set-Content -Path $notesFile -Encoding utf8
+
+# ---- ローリングタグを公開コミットへ移動 ----
+# GitHub は公開リリースのタグに Source code (zip/tar.gz) を必ず自動添付し、これは削除できない。
+# そこでタグを「このバンドルを生成したコミット」へ動かし、自動 Source code をバンドル対応コードに揃える。
+$targetCommit = (& git rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($targetCommit)) {
+  Write-Error '[error] git HEAD を取得できません。git リポジトリ内で実行してください。'; exit 1
+}
+# 作業ツリーの lockfile/packageManager が HEAD と食い違うと、自動 Source code がバンドルとズレる。
+& git diff --quiet HEAD -- pnpm-lock.yaml package.json
+if ($LASTEXITCODE -ne 0) {
+  Write-Warning '[warn] pnpm-lock.yaml / package.json に未コミット変更があります。先にコミット & push してから公開してください（自動 Source code がバンドルと一致しません）。'
+}
+Write-Host "[info] タグ $Tag を $targetCommit へ移動します（自動 Source code をバンドル対応コードへ）..."
+# `+` で強制更新。既存リリースはタグ名で紐づくため、タグが動いてもリリースは維持され
+# 自動 Source code だけが新コミットのツリーから再生成される。新規時はこの push でリモートタグを作る。
+& git push origin "+${targetCommit}:refs/tags/$Tag"
+if ($LASTEXITCODE -ne 0) { Write-Error '[error] タグの移動 (git push) に失敗しました。'; exit 1 }
 
 if (-not $releaseExists) {
   Write-Host "[info] Release $Tag を新規作成します。"
