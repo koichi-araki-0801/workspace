@@ -1844,6 +1844,102 @@ function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutConfig): 
 }
 
 /**
+ * `relieveLeftStackSpacing` の整え係数。
+ *   EQUATOR_EXTRA_CLEARANCE: 円縁を最も左へ張り出す「リムにハグした」密集側行に与える追加
+ *     クリアランス (論理単位)。`豪ドル`/`カナダドル` 等を円から少し離す。
+ *   RIM_HUG_MAX_GAP: ラベル右辺 (pie 側) と円縁の隙間がこの値 (論理単位) 以下のものだけ
+ *     「リムにハグ」とみなして (2) の押し出し対象にする (= 既に十分離れた行は無変更)。
+ */
+const LEFT_STACK_EQUATOR_EXTRA_CLEARANCE = 0.12;
+const LEFT_STACK_RIM_HUG_MAX_GAP = 0.2;
+
+/**
+ * leftStackMode 専用の最終整え (emit 最終段・全パス後)。確定済み placement への純後処理として、
+ * 2 つの独立した do-no-harm 変換を順に試す (各ラベル単位で `countDefects` 採否、悪化は個別 revert)。
+ *
+ *   (1) 水平デクリップ: 左端で viewBox を見切れる左上ラベル (例 `currency_many_small_10` の長名
+ *       `スウェーデンクローナ`) を、box 左辺が枠内に収まるまで pie 寄り (右) へ寄せる。pie への食い込みは
+ *       `nudgeTextAwayFromPie` で防ぐ (収まらない分は残す = 部分緩和)。横方向のみで縦は不変。
+ *   (2) リムハグ行の押し出し: 円縁を左へ最も張り出す密集側 (`denseSideOutsidePush`) のうち、ラベル
+ *       右辺が円縁に近接 (隙間 ≤ RIM_HUG_MAX_GAP) する行を追加クリアランス分だけ円から離す
+ *       (例 `豪ドル`/`カナダドル`)。既に離れている行や非密集側は対象外。
+ *
+ * いずれも左上スタック (4 件以上 = leftStackMode 相当) にのみ作用し、新たな見切れ/重なり/交差/
+ * 貫通を生む移動は採らないため、収まっている図は無変更 (退行0)。`relieveLeaderNeighborContact`
+ * の後 (全 hard-defect パス後) に呼び、ここでの位置が最終配置となる (leader は emit Pass 1 で追従)。
+ */
+function relieveLeftStackSpacing(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): void {
+  const stack = placements.filter(
+    (p) =>
+      p.item.side === "left" &&
+      p.item.isUpperLeft === true &&
+      !p.item.flipToRight &&
+      !p.insideSlice &&
+      p.baseline === "bottom" &&
+      p.x < 0,
+  );
+  if (stack.length < 4) return;
+  stack.sort((a, b) => b.y - a.y); // 上 → 下 (logical y 降順)
+  // 論理→px の横スケール (右ほど大。線形なので 2 点差で求まる)。見切れ量から右シフト量を逆算する。
+  const pxPerUnitX = coord.xScale(1) - coord.xScale(0);
+
+  // 採否: clips/crossings/pie/total のどれも増やさなければ採用 (= 退行0、等値は許容)。
+  const notWorse = (before: DefectCounts): boolean => {
+    const after = countDefects(placements, cfg, coord);
+    return (
+      after.clips <= before.clips &&
+      after.crossings <= before.crossings &&
+      after.pie <= before.pie &&
+      after.total <= before.total
+    );
+  };
+
+  // (1) 水平デクリップ: 左端で見切れるラベルを「pie に食い込まない右端 (= pie ハグ天井)」まで右へ
+  // 寄せて見切れ量を減らす (縦移動はしない — 上には隣ラベルが詰まり overlap になるため)。確定済みの
+  // 古い `maxTextX` は右寄せを引き戻すので一時的に外し、`clampPlacement` には pie 天井だけを効かせる
+  // (text の pie 侵入はここで防ぐ。`countDefects` は leader の pie 貫通しか見ないため)。退行 (新たな
+  // overlap/clip 等) があれば revert。完全には収まらなくても見切れが減れば採用 (clips は等値で許容)。
+  for (const m of stack) {
+    const box = placementBox(m, cfg);
+    const leftPx = Math.min(coord.xScale(box.left), coord.xScale(box.right));
+    if (leftPx >= 1 || pxPerUnitX <= 0) continue; // 見切れていない
+    const before = countDefects(placements, cfg, coord);
+    const origX = m.x;
+    const origMaxTextX = m.maxTextX;
+    const target = origX + (2 - leftPx) / pxPerUnitX; // box 左辺が +2px に来る理想 x (full-fit)
+    m.maxTextX = undefined; // 古い右寄せ上限を外し pie 天井のみ効かせる
+    m.x = target;
+    clampPlacement(m, cfg); // 左ラベルは pie 天井 (pieMaxTextX) まで右寄せに引き戻される
+    m.maxTextX = origMaxTextX;
+    const movedBox = placementBox(m, cfg);
+    const movedLeftPx = Math.min(coord.xScale(movedBox.left), coord.xScale(movedBox.right));
+    if (!(m.x > origX + 1e-4 && movedLeftPx > leftPx + 0.5 && notWorse(before))) {
+      m.x = origX; // 改善せず or 退行 → revert
+    }
+  }
+
+  // (2) リムハグ行の押し出し (赤道寄りで円縁に近接した密集側行を円から離す)。キャンバス端で
+  // 見切れない範囲で、追加クリアランスを大きい順に試して入る分だけ離す (部分押し出し)。
+  for (const m of stack) {
+    if (!m.item.denseSideOutsidePush) continue;
+    const rimGap = -m.x - cfg.pieRadius; // anchor=end・x<0 ゆえ右辺=-m.x。円縁との隙間。
+    if (rimGap < 0 || rimGap > LEFT_STACK_RIM_HUG_MAX_GAP) continue;
+    const before = countDefects(placements, cfg, coord);
+    const origX = m.x;
+    for (let push = LEFT_STACK_EQUATOR_EXTRA_CLEARANCE; push >= 0.04 - 1e-9; push -= 0.04) {
+      m.x = origX - push;
+      clampPlacement(m);
+      if (notWorse(before)) break; // この押し出し量で収まった
+      m.x = origX; // 戻して次のより小さい量を試す
+    }
+  }
+}
+
+/**
  * 汎用: 外側ラベルの 1 列 (片側) で隣接 box が縦に **重なる** (中心間距離 < 両 box 高の平均 = 接する最小)
  * 箇所を、上下対称に拡げて解消する。`applyLeftStackGapClose` の逆操作 — あちらは過大ギャップを **縮める**
  * が、密スタックで L1 ラベルが box 高未満に詰まる (例 currency_many_small_10 の スイスフラン↔
@@ -3636,6 +3732,12 @@ export async function renderPdfStylePieToSvg(
     // (例 page16 ケイマン諸島)。全 hard-defect パスの後に置くので、ここでの移動が最終配置となり leader
     // (下 Pass 1) も移動後 box から再計算され追従する。do-no-harm: 近接の無い図は deficit≈0 で無変更。
     relieveLeaderNeighborContact(textPlacements, cfg, { xScale, yScale, width, height });
+
+    // leftStackMode の左上スタック最終整え (全 hard-defect パス後)。左 envelope からの突出を pie 寄りへ
+    // 引き戻し (見切れ解消)、赤道寄りの密集側行を円から少し離す。各移動は do-no-harm で個別採否。
+    if (diagnostics?.leftStackMode) {
+      relieveLeftStackSpacing(textPlacements, cfg, { xScale, yScale, width, height });
+    }
 
     // emit 実配置 (最終化済 textPlacements) を内部スコアラで数え diagnostics に残す。後段は再適用
     // しない (countDefects はカウントのみ)。verify_consistency が emit SVG と突き合わせ、配置判断の
