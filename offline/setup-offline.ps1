@@ -236,16 +236,24 @@ function Move-ToBk([string]$src) {
   }
   Write-Host "       -> bk\$(Split-Path $src -Leaf)"
 }
-$toMove = @($SrcZip, $Bundle, $Sha, $KeyFile)   # ソースZIP(temp) + 直下のバンドル一式
-foreach ($f in $toMove) { Move-ToBk $f }
-# ダウンロード物が直下に残っていないことを保証（残れば 1 度だけ再退避を試みる）。
-$leftover = $toMove | Where-Object { Test-Path -LiteralPath $_ }
-if ($leftover) {
-  Start-Sleep -Milliseconds 500
-  foreach ($f in $leftover) { Move-ToBk $f }
-  $leftover = $toMove | Where-Object { Test-Path -LiteralPath $_ }
-  if ($leftover) { Write-Warning "[warn] bk へ退避できなかったファイルがあります: $($leftover -join ', ')" }
+
+# ソース ZIP（temp ディレクトリ側）を退避。
+Move-ToBk $SrcZip
+
+# 直下のダウンロード物は「実ディスクの列挙」で拾って退避する。
+# 記憶した変数パスへの Test-Path はビルド直後の一時的なロック等で false を返すことがあり、
+# 取りこぼしの原因になるため、Get-ChildItem の列挙結果（実体）を正として複数パスで掃き出す。
+$names = @('offline-deps-bundle.tar.gz', 'offline-deps-bundle.tar.gz.sha256', 'bundle.key')
+for ($pass = 1; $pass -le 3; $pass++) {
+  $hits = Get-ChildItem -LiteralPath $RepoRoot -File -Force -ErrorAction SilentlyContinue |
+    Where-Object { $names -contains $_.Name }
+  if (-not $hits) { break }
+  foreach ($fi in $hits) { Move-ToBk $fi.FullName }
+  Start-Sleep -Milliseconds 300
 }
+$remain = Get-ChildItem -LiteralPath $RepoRoot -File -Force -ErrorAction SilentlyContinue |
+  Where-Object { $names -contains $_.Name }
+if ($remain) { Write-Warning "[warn] bk へ退避できなかったファイルがあります: $(($remain.Name) -join ', ')" }
 
 Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
 
