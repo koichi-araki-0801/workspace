@@ -154,6 +154,68 @@ export function degToRad(deg: number): number {
   return (deg * Math.PI) / 180;
 }
 
+/** 角度(度)を (-180, 180] に正規化する。 */
+function signedDeg(deg: number): number {
+  let value = deg % 360;
+  if (value > 180) value -= 360;
+  if (value <= -180) value += 360;
+  return value;
+}
+
+/** ラベル回転オフセットの上限(度)。これを超えると引出線が斜めに伸びすぎ円を貫通しやすい。 */
+const MAX_LABEL_ROTATE_DEG = 25;
+
+/**
+ * 「左下にラベルが密集する」状態を検知し、それを解消するためにラベルを反時計回りへ回す角度(度)を返す。
+ * 扇形スライスは動かさず、**ラベルの配置角だけ**をこの角度ぶん回す用途(引出線は真のスライスへ斜めに繋ぐ)。
+ *
+ * レンダラは値降順 + `その他` 末尾で並べる([[graph2-renderer-sorts-slices]])ため、1 つの大スライス
+ * (例: アメリカ 43.9%)が右〜上を占めると、残りの小スライス群が円の片側に圧縮されて連続する。その
+ * 圧縮ラン(連続する `value < smallSliceThreshold`、`その他` 除外)の中心が左下セクタ(真下〜真左 =
+ * -180°〜-90°)に来るとラベルが同じ角度帯に詰まる。そこをラベルだけ反時計回りに回して底側へ散らす。
+ *
+ * 判定(データ駆動・パラメータ手指定なし):
+ *   1. 描画順で `value < smallSliceThreshold` の連続ラン最長を取る(長さ 3 未満は対象外)。
+ *   2. そのランの占有弧の中心角を出す。左下セクタに無ければ密集の兆候なしとして 0。
+ *   3. ラン中心が真下(-90°)へ来る最小回転量を、引出線が伸びすぎない `MAX_LABEL_ROTATE_DEG` で上限。
+ */
+export function labelCongestionOffsetDeg(
+  values: number[],
+  names: string[],
+  cfg: PieLayoutConfig,
+): number {
+  if (values.length < 4) return 0;
+
+  // `smallSliceThreshold` は % しきい値。入力値の絶対スケール(合計が 100 でない場合)に依存させない
+  // ため、生値ではなく割合(%)で小スライス判定する(buildProfiles の percent 判定と統一)。
+  const total = values.reduce((sum, v) => sum + Number(v), 0) || 1;
+  const isSmall = (i: number) =>
+    (values[i] / total) * 100 < cfg.smallSliceThreshold && !names[i].startsWith("その他");
+  let run: [number, number] | null = null;
+  for (let i = 0; i < values.length; ) {
+    if (!isSmall(i)) {
+      i += 1;
+      continue;
+    }
+    let j = i;
+    while (j + 1 < values.length && isSmall(j + 1)) j += 1;
+    if (!run || j - i > run[1] - run[0]) run = [i, j];
+    i = j + 1;
+  }
+  if (!run || run[1] - run[0] < 2) return 0; // ラン長 >= 3 のみ
+
+  const arcs = arcAngles(values, cfg);
+  const runStartDeg = (arcs[run[0]].startAngle * 180) / Math.PI;
+  const runEndDeg = (arcs[run[1]].endAngle * 180) / Math.PI;
+  const runCenter = signedDeg((runStartDeg + runEndDeg) / 2);
+
+  const inLowerLeft = runCenter < -90 && runCenter > -180;
+  if (!inLowerLeft) return 0;
+
+  const toBottom = signedDeg(-90 - runCenter); // ラン中心を真下へ寄せる反時計回り量
+  return Math.max(0, Math.min(MAX_LABEL_ROTATE_DEG, toBottom));
+}
+
 /** 半径と角度(rad)から (x, y) を返す */
 export function polarToCartesian(radius: number, angleRad: number): Point {
   return {

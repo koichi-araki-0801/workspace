@@ -39,6 +39,7 @@ import {
   visualTextWidthUnits,
   scaledLabelWidthUnits,
   degToRad,
+  labelCongestionOffsetDeg,
 } from "./svg_geom.js";
 import {
   TOP_BAND_HALF_WIDTH_DEG,
@@ -127,22 +128,32 @@ function buildCandidates(
   mids: number[],
   cfg: PieLayoutConfig,
   compactFlags?: boolean[],
+  anchorMids?: number[],
 ): { items: LayoutItemReady[]; diagnostics: Diagnostics } {
   const profiles = buildProfiles(names, values, signedValues, mids, cfg, compactFlags);
   const diagnostics = runDiagnostics(profiles, cfg);
 
   // buildProfiles は midAngle/signedValue/estLines を必ず埋めるため、ここでの `!` は
   // ロジック保証だけが付いている (型上は LayoutItem の optional)。
-  const items: LayoutItemReady[] = profiles.map((profile) => {
+  // `mids` はラベル配置に使う角(密集回避でオフセット済みのことがある)。`anchorMids` は引出線起点に使う
+  // **真のスライス角**(未指定時は同一=従来挙動)。これでラベルだけ回し引出線は実スライスへ斜めに繋ぐ。
+  const items: LayoutItemReady[] = profiles.map((profile, index) => {
     const radian = degToRad(profile.midAngle!);
-    const anchorX = Math.cos(radian) * cfg.pieRadius;
-    const anchorY = Math.sin(radian) * cfg.pieRadius;
+    // anchor 角も buildProfiles と同じく normalizeAngle を通す。これで offset=0 のとき profile.midAngle と
+    // ビット単位一致し、回転非対象サンプルの出力が従来と完全同一になる(FP 差で leader 分岐が変わらない)。
+    const anchorRadian = degToRad(
+      normalizeAngle(anchorMids ? anchorMids[index] : profile.midAngle!),
+    );
+    const anchorX = Math.cos(anchorRadian) * cfg.pieRadius;
+    const anchorY = Math.sin(anchorRadian) * cfg.pieRadius;
+    // naturalY は「ラベルが座りたい高さ」なので回転後の角(radian)基準で測る(anchorY ではない)。
+    const labelRimY = Math.sin(radian) * cfg.pieRadius;
     let naturalY: number;
 
     if (profile.side === "right") {
-      naturalY = anchorY - cfg.rightNaturalYOffset;
-    } else if (profile.side === "left" && anchorY < 0) {
-      naturalY = anchorY + cfg.lowerLeftNaturalYNudge;
+      naturalY = labelRimY - cfg.rightNaturalYOffset;
+    } else if (profile.side === "left" && labelRimY < 0) {
+      naturalY = labelRimY + cfg.lowerLeftNaturalYNudge;
     } else {
       naturalY = Math.sin(radian) * cfg.scaledLabelRadius;
     }
@@ -1367,7 +1378,11 @@ function hasDominantOutsideEdgeOverflow1Line(
  *   5) 残った左上群の描画用 Y を決定
  *   6) X を確定し、必要に応じて X 反転 (flipToRight / flipToLeft) を適用
  */
-export function layoutLabels(items: LayoutItem[], cfg: PieLayoutConfig): LayoutResult {
+export function layoutLabels(
+  items: LayoutItem[],
+  cfg: PieLayoutConfig,
+  labelRotateOverrideDeg?: number,
+): LayoutResult {
   const filtered = items.filter((item) => Number.isFinite(Number(item.value)));
   if (filtered.length === 0) {
     throw new Error("At least one item is required.");
@@ -1382,13 +1397,28 @@ export function layoutLabels(items: LayoutItem[], cfg: PieLayoutConfig): LayoutR
     Boolean(item.forceHorizontalLowerLeftDrop),
   );
   const mids = calcMidAngles(values, cfg);
+  // 左下密集を検知したら、扇形は固定のままラベルの配置角だけを反時計回りへ少しずつ回す
+  // (中国を右下・フランスを旧・中国位置へ…の挙動)。引出線は真のスライス角 `mids` に繋ぎ続ける。
+  // `labelRotateOverrideDeg` 明示時はそれを使う(呼び出し側の do-no-harm 比較で 0=非回転を試すため)。
+  const labelOffset =
+    labelRotateOverrideDeg !== undefined
+      ? labelRotateOverrideDeg
+      : cfg.counterclock
+        ? 0
+        : labelCongestionOffsetDeg(values, names, cfg);
+  // `その他` は円内(inside-slice)に留めたいので回転対象から外す(配置角=真のスライス角のまま)。
+  const labelMids =
+    labelOffset === 0
+      ? mids
+      : mids.map((m, i) => (names[i].startsWith("その他") ? m : normalizeAngle(m + labelOffset)));
   const { items: candidates, diagnostics } = buildCandidates(
     names,
     values,
     signedValues,
-    mids,
+    labelMids,
     cfg,
     compactFlags,
+    mids,
   );
   for (let i = 0; i < candidates.length; i += 1) {
     if (forceFlipFlags[i]) candidates[i].flipToRight = true;
