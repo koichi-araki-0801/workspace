@@ -24,6 +24,7 @@ import {
   radialFraction,
   degToRad,
   upperLeftBendPoint,
+  labelCongestionOffsetDeg,
 } from "../svg_geom.js";
 import {
   leaderPath,
@@ -3263,12 +3264,67 @@ export async function renderPdfStylePieToSvg(
 
   // 最終 layoutLabels (multi-slice 分岐で再利用)。pie 中心は常にキャンバス中央
   // (オフセットしない — createCoordinateSystem の対称ドメインで中央が保証される)。
+  const coord = createCoordinateSystem(cfg);
+  const { width, height, xScale, yScale } = coord;
+
   let finalLayout: LayoutResult | null = null;
   if (items.length > 1) {
     finalLayout = layoutLabels(items, cfg);
+    // 左下密集回避でラベルを回したときは do-no-harm: 回転版と非回転版を **最終配置の不具合数** で比較し、
+    // 回転が悪化させる(交差/円貫通/見切れ/重なりが増える)なら非回転へ自動フォールバックする。これで
+    // 「あるサンプルに効く回転量が別サンプルを壊す」退行を判定ロジック側で吸収する(同 family の 10
+    // スライス版など)。スコアリングは labels を破壊する runLabelCascade を clone 上で走らせ、採用側の
+    // labels は無傷のまま emit へ渡す。
+    const labelOffset = cfg.counterclock
+      ? 0
+      : labelCongestionOffsetDeg(
+          items.map((it) => Math.abs(Number(it.value))),
+          items.map((it) => it.name),
+          cfg,
+        );
+    if (labelOffset > 0) {
+      // emit と同じ最終配置で不具合を数える。`finalizeForScoring` は候補選択用に修復を除外するため、
+      // ここでは emit 最終段の修復(`repairResidualLeaderDefects`/`enforceFinalPieClearance`)も足して、
+      // 「修復で消える一時不具合」を回転版の過小評価にしない。
+      const scoreLayout = (layout: LayoutResult): number => {
+        const labelsCopy = structuredClone(layout.labels) as typeof layout.labels;
+        const placements = runLabelCascade(labelsCopy, cfg, coord, layout.diagnostics);
+        const finalized = finalizeForScoring(
+          placements,
+          cfg,
+          coord,
+          layout.diagnostics.leftStackMode,
+        );
+        repairResidualLeaderDefects(finalized, cfg, coord);
+        enforceFinalPieClearance(finalized, cfg, coord);
+        // countDefects(交差/円貫通/見切れ/重なり)に加え角度順逆転も数える(verify の隣接逆転に対応)。
+        // これを入れないと「幾何交差0 だが順序だけ逆転」を回転版が見逃され採用される(10スライス版)。
+        return (
+          countDefects(finalized, cfg, coord).total +
+          countAngularDiscordantPairs(finalized, cfg, coord)
+        );
+      };
+      const baseLayout = layoutLabels(items, cfg, 0);
+      if (scoreLayout(finalLayout) > scoreLayout(baseLayout)) {
+        finalLayout = baseLayout; // 回転が不具合を増やすなら非回転を採用
+      } else {
+        // 回転を採用したチャートに限り、回したラベルを円から少し離す。距離は `pieLabelClearance`
+        // (円とラベルの最小クリアランス、`nudgeTextAwayFromPie` が使用)で決まるのでこれを広げる。
+        // do-no-harm: 押し出しで不具合(見切れ等)が増えるなら一段弱い量→最後は元のクリアランスへ戻す。
+        const rotScore = scoreLayout(finalLayout);
+        const origClearance = cfg.pieLabelClearance;
+        for (const push of [0.16, 0.12, 0.09, 0.06]) {
+          cfg.pieLabelClearance = origClearance + push;
+          const pushed = layoutLabels(items, cfg);
+          if (scoreLayout(pushed) <= rotScore) {
+            finalLayout = pushed;
+            break;
+          }
+          cfg.pieLabelClearance = origClearance; // 悪化 → 次の弱い量を試す(全滅なら元クリアランス)
+        }
+      }
+    }
   }
-  const coord = createCoordinateSystem(cfg);
-  const { width, height, xScale, yScale } = coord;
   const colors = makeColors(items.length, cfg);
   const arcs = computeArcs(items, cfg);
   const totalValue = items.reduce((sum, item) => sum + Math.abs(Number(item.value)), 0);

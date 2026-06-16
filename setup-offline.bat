@@ -26,14 +26,38 @@ if not exist "%~dp0.pnpm-store" (
   exit /b 1
 )
 
-echo [1/4] 同梱の pnpm 11 を corepack に登録（オフライン）...
+echo [1/5] 同梱の pnpm 11 を corepack に登録（オフライン）...
 call corepack install -g "%~dp0pnpm.tgz"
 if errorlevel 1 (
   echo [ERROR] corepack install に失敗しました。Node.js 24+ がインストールされているか確認してください。
   exit /b 1
 )
 
-echo [2/4] 依存を同梱ストアからオフライン復元...
+echo [2/5] クリーン（node_modules とビルド成果物を全削除。重量物は温存）...
+rem node_modules を全削除（ルート + 全ワークスペースパッケージ）。
+rem  → 前回の壊れた symlink farm / 古いパッケージ / web の .vite キャッシュを一掃し、
+rem    毎回ストアからクリーンインストールさせる。.pnpm-store / pnpm.tgz / ms-playwright は触れない。
+for %%D in (
+  "%~dp0node_modules"
+  "%~dp0editor\shared\node_modules"
+  "%~dp0editor\server\node_modules"
+  "%~dp0editor\web\node_modules"
+  "%~dp0graph2\node_modules"
+  "%~dp0graph-editor\node_modules"
+) do (
+  if exist "%%~D" rmdir /s /q "%%~D"
+)
+rem ビルド成果物（pnpm build が生成する dist）を削除し、古い dist 由来の不整合を排除。
+for %%D in (
+  "%~dp0editor\shared\dist"
+  "%~dp0editor\server\dist"
+  "%~dp0editor\web\dist"
+) do (
+  if exist "%%~D" rmdir /s /q "%%~D"
+)
+if exist "%~dp0editor\web\tsconfig.tsbuildinfo" del /q "%~dp0editor\web\tsconfig.tsbuildinfo"
+
+echo [3/5] 依存を同梱ストアからオフラインクリーンインストール...
 call corepack pnpm install --offline --frozen-lockfile --store-dir "%~dp0.pnpm-store"
 if errorlevel 1 (
   echo.
@@ -41,7 +65,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [3/4] ワークスペースをビルド（@editor/shared の dist 生成を含む）...
+echo [4/5] ワークスペースをビルド（@editor/shared の dist 生成を含む）...
 call corepack pnpm build
 if errorlevel 1 (
   echo.
@@ -49,7 +73,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [4/4] Playwright ブラウザ（chromium）を既定キャッシュへ配置...
+echo [5/5] Playwright ブラウザ（chromium）を既定キャッシュへ配置...
 if exist "%~dp0ms-playwright" (
   rem %LOCALAPPDATA% はユーザー毎に解決されるため、ユーザー名が違っても Playwright が発見できる
   xcopy /E /I /Y /Q "%~dp0ms-playwright" "%LOCALAPPDATA%\ms-playwright" >nul
