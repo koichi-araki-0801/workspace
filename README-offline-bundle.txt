@@ -50,6 +50,8 @@
        pwsh -File scripts\offline\publish-offline-bundle.ps1
 
 ■ 補足
+  - Release の自動 Source code (zip/tar.gz) は、公開のたびにバンドル対応コミットへ更新される
+    （タグ offline-bundle-v1 を移動）ため、バンドルと一致する。通常は git clone を使うため無関係。
   - 重量物の取得後は、依存・pnpm・ブラウザすべて同梱されるため、install/build は
     ネットワーク不要で完走します（完全オフライン運用）。
   - corepack enable を一度実行しておくと、以後は corepack を付けずに

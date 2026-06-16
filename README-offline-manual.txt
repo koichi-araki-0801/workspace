@@ -10,7 +10,7 @@ git も GitHub CLI (gh) も無い／GitHub 認証を通せない端末向けの�
   ※ git/gh が使える通常端末は README-offline-bundle.txt の手順を使ってください。
 
 配布は 2 系統に分かれます（通常手順と同じ）。
-  (A) コード   … GitHub のブランチ ZIP（codeload）を HTTPS で取得
+  (A) コード   … GitHub のタグ ZIP（codeload）を HTTPS で取得
   (B) 重量物   … GitHub Releases のアセットを HTTPS で直取得（約 1.2GB）
                  .pnpm-store / pnpm.tgz / ms-playwright
 
@@ -34,20 +34,20 @@ git も GitHub CLI (gh) も無い／GitHub 認証を通せない端末向けの�
 
 1) 【取得端末】コードを取得（無git）
    ブラウザで以下を開いて ZIP をダウンロード（または下の curl を実行）:
-     https://github.com/koichi-araki-0801/workspace/archive/refs/heads/chore/deps-latest-offline-bundle.zip
+     https://github.com/koichi-araki-0801/workspace/archive/refs/tags/offline-bundle-v1.zip
 
    PowerShell から取得する場合:
-     curl.exe -L -o workspace.zip "https://github.com/koichi-araki-0801/workspace/archive/refs/heads/chore/deps-latest-offline-bundle.zip"
+     curl.exe -L -o workspace.zip "https://github.com/koichi-araki-0801/workspace/archive/refs/tags/offline-bundle-v1.zip"
      Expand-Archive .\workspace.zip -DestinationPath .
 
-   展開すると、ブランチ名の "/" が "-" に変換されたフォルダが作られます:
-     workspace-chore-deps-latest-offline-bundle
+   展開すると、タグ名を含むフォルダが作られます:
+     workspace-offline-bundle-v1
    以降の作業はこのフォルダ内で行います:
-     cd .\workspace-chore-deps-latest-offline-bundle
+     cd .\workspace-offline-bundle-v1
 
-   ※ コードは必ず「バンドルに対応するブランチ」の ZIP を取得すること。
-     別ブランチの ZIP だと pnpm-lock.yaml が食い違い、手順 3) で
-     --frozen-lockfile が失敗します（手順 2 が不整合を警告します）。
+   ※ タグ offline-bundle-v1 の ZIP は、公開のたびに重量物バンドルと同じコミットへ
+     更新されるため、ZIP のコードと Release のバンドル（pnpm-lock.yaml）は常に一致します。
+     ブランチを選ぶ必要はありません。
 
 2) 【取得端末】重量物を取得・展開（推奨＝スクリプト / gh 不要）
    展開フォルダ内で:
@@ -100,8 +100,8 @@ git も GitHub CLI (gh) も無い／GitHub 認証を通せない端末向けの�
 ------------------------------------------------------------------------------
   - 手順 2) で「lockfile 不整合の可能性」と警告 / 手順 3) の install が
     --frozen-lockfile で失敗する
-      → コードの ZIP がバンドルと別ブランチです。手順 1) で
-        chore/deps-latest-offline-bundle の ZIP を取得し直してください。
+      → コードの ZIP がバンドルと別コミットです。手順 1) のタグ ZIP
+        （offline-bundle-v1）を取得し直してください（タグは常にバンドルと一致）。
   - ダウンロードが 404 / 認証を要求される
       → リポジトリが Public になっていません。手順 0) を確認してください。
   - corepack が見つからない / pnpm 登録に失敗する

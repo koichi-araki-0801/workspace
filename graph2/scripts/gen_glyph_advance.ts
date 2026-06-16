@@ -25,8 +25,8 @@ const OUT_PATH = path.join(ROOT, "src", "glyph_advance.ts");
 
 // ウェイト → フォントファイル (config.ts の WEIGHT_FONT と一致させる)。
 const WEIGHT_FONT: Record<string, string> = {
-  "400": path.join(ROOT, "..", "fonts", "BIZUDPGothic-Regular.woff2"),
-  "700": path.join(ROOT, "..", "fonts", "BIZUDPGothic-Bold.woff2"),
+  "400": path.join(ROOT, "fonts", "BIZUDPGothic-Regular.woff2"),
+  "700": path.join(ROOT, "fonts", "BIZUDPGothic-Bold.woff2"),
 };
 
 // svg_geom.ts visualCharEm のフォールバック heuristic と同じ予測値 (全角1.0/半角0.5)。

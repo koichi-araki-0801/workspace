@@ -23,9 +23,9 @@ datas = []
 if os.path.isdir(RESOURCES):
     datas.append((RESOURCES, "resources"))
 
-# ワークスペース共有フォント (root の fonts/)。BIZ UDPGothic / Noto Serif JP を
+# 同梱フォント (本プロジェクトの fonts/)。BIZ UDPGothic (TTF) / Noto Serif JP を
 # config.font_dir() が frozen 時に _MEIPASS/fonts として解決するため fonts 配下へ展開。
-FONTS = os.path.join(ROOT, "..", "fonts")
+FONTS = os.path.join(ROOT, "fonts")
 if os.path.isdir(FONTS):
     datas.append((FONTS, "fonts"))
 

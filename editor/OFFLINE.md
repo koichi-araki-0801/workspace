@@ -46,6 +46,8 @@
 - **重量物**（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/`、約 1.2GB） … **GitHub Releases**
   （タグ `offline-bundle-v1`、`offline-deps-bundle.tar.gz`）。容量が大きく毎回 git 履歴へ
   積めないため git 管理外とし、内容（`pnpm-lock.yaml`／`packageManager`）変更時のみ更新する。
+  タグ `offline-bundle-v1` は公開のたびにバンドル生成コミットへ移動するため、GitHub が自動添付する
+  `Source code (zip/tar.gz)` はそのバンドルに対応するコードと一致する（削除はできないため整合させる方針）。
 
 ### 1. 調達（オンライン機・Windows x64・Node 24）
 
