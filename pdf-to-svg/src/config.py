@@ -47,6 +47,22 @@ def resource_path(*parts: str) -> Path:
     return resource_dir().joinpath(*parts)
 
 
+def font_dir() -> Path:
+    """同梱フォントのルート (ワークスペース共有の ``fonts/``)。
+
+    BIZ UDPGothic / Noto Serif JP を graph2 と共有する単一の置き場。
+    - frozen 時: ``_MEIPASS/fonts`` (spec の datas が ``fonts`` 配下へ展開)
+    - ソース実行時: ワークスペース root (リポジトリの親) の ``fonts/``
+    """
+    if is_frozen():
+        return Path(getattr(sys, "_MEIPASS")) / "fonts"
+    return Path(__file__).resolve().parents[2] / "fonts"
+
+
+def font_path(*parts: str) -> Path:
+    return font_dir().joinpath(*parts)
+
+
 def data_dir() -> Path:
     """辞書・設定を置くフォルダ (exe と同じ場所の ``data/``、ポータブル)。"""
     d = app_base_dir() / "data"

@@ -30,7 +30,7 @@ REF = ROOT / "tools" / "_mockup"           # 開発参照 (markup / mock js)。�
 
 # UI クローム用フォント (Windows 標準で近いもの)。本文 SVG の埋め込みフォントとは無関係。
 FONT_UI = '"Yu Gothic UI", "Meiryo", system-ui, sans-serif'
-FONT_ROUND = '"BIZ UDGothic", "Yu Gothic UI", "Meiryo", system-ui, sans-serif'
+FONT_ROUND = '"BIZ UDPGothic", "BIZ UDGothic", "Yu Gothic UI", "Meiryo", system-ui, sans-serif'
 
 
 def _decode_template(html_path: Path) -> str:

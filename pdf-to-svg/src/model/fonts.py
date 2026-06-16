@@ -8,8 +8,9 @@ Windows のフォントファミリ名と一致しないことが多い。本モ
    ごとの代替フォントへフォールバック
 3. 有料フォント (ヒラギノ・小塚等) は同梱の BIZ UD フォントへ置き換え
 
-を行う。BIZ UDゴシック/明朝 (モリサワ製・SIL OFL) は resources/fonts/ に同梱し、
-SVG 出力時は使用フォントのみ WOFF2 化して埋め込む (font_embed 参照)。
+を行う。BIZ UDPゴシック (モリサワ製・SIL OFL) と Noto Serif JP は graph2 と共有する
+ワークスペース root の ``fonts/`` に集約し、SVG 出力時は使用フォントのみ WOFF2 化して
+埋め込む (config.font_path / font_embed 参照)。
 
 純 Python (Qt / fitz 非依存) — model 層に置き engine / export / editor で共有する。
 """
@@ -33,13 +34,13 @@ class MappedFont:
         return self.weight >= 600
 
 
-# 同梱・静的フォント (resources/fonts/)。(family, weight bucket) → TTF ファイル名。
-# BIZ UDGothic は Regular/Bold の 2 ウェイトしか存在しないため bucket は 400/700 のみ。
-# @font-face は STATIC_WEIGHT_RANGE で範囲宣言し、中間ウェイト要求を faux-bold 無しで
-# 最寄りの静的フォントへ解決させる。
+# 同梱・静的フォント (ワークスペース共有 fonts/)。(family, weight bucket) → フォントファイル名。
+# graph2 と同一の BIZ UDPGothic WOFF2 を共用する (字形・形式を統一)。Regular/Bold の
+# 2 ウェイトのみ存在するため bucket は 400/700。@font-face は STATIC_WEIGHT_RANGE で範囲
+# 宣言し、中間ウェイト要求を faux-bold 無しで最寄りの静的フォントへ解決させる。
 BUNDLED_FONTS: Dict[Tuple[str, int], str] = {
-    ("BIZ UDGothic", 400): "BIZUDGothic-Regular.ttf",
-    ("BIZ UDGothic", 700): "BIZUDGothic-Bold.ttf",
+    ("BIZ UDPGothic", 400): "BIZUDPGothic-Regular.woff2",
+    ("BIZ UDPGothic", 700): "BIZUDPGothic-Bold.woff2",
 }
 
 # 静的フォントの @font-face font-weight 範囲。bucket → "min max"。
@@ -104,7 +105,7 @@ _FAMILY_META: Dict[str, Tuple[str, bool]] = {
     "MS UI Gothic": ("sans-serif", True),
     "Yu Gothic": ("sans-serif", True),
     "Meiryo": ("sans-serif", True),
-    "BIZ UDGothic": ("sans-serif", True),
+    "BIZ UDPGothic": ("sans-serif", True),
 }
 
 # 種別ごとのデフォルト代替フォント。欧文は Windows 標準 (埋め込み不要)、
@@ -114,8 +115,8 @@ _DEFAULTS: Dict[Tuple[str, str], str] = {
     ("latin", "sans-serif"): "Arial",
     ("latin", "monospace"): "Courier New",
     ("ja", "serif"): "Noto Serif JP",
-    ("ja", "sans-serif"): "BIZ UDGothic",
-    ("ja", "monospace"): "BIZ UDGothic",
+    ("ja", "sans-serif"): "BIZ UDPGothic",
+    ("ja", "monospace"): "BIZ UDPGothic",
 }
 
 
@@ -161,24 +162,24 @@ _reg(["Meiryo", "MeiryoUI", "Meiryo UI", "メイリオ"], "Meiryo")
 _reg(["HiraMinProN", "HiraMinPro", "HiraMinStdN", "ヒラギノ明朝 ProN", "ヒラギノ明朝 Pro"],
      "Noto Serif JP")
 _reg(["HiraKakuProN", "HiraKakuPro", "HiraKakuStdN", "HiraginoSans", "Hiragino Sans",
-      "ヒラギノ角ゴ ProN", "ヒラギノ角ゴ Pro"], "BIZ UDGothic")
-_reg(["HiraMaruProN", "HiraMaruPro", "ヒラギノ丸ゴ ProN"], "BIZ UDGothic")
+      "ヒラギノ角ゴ ProN", "ヒラギノ角ゴ Pro"], "BIZ UDPGothic")
+_reg(["HiraMaruProN", "HiraMaruPro", "ヒラギノ丸ゴ ProN"], "BIZ UDPGothic")
 # 小塚 (Adobe 製品同梱)
 _reg(["KozMinPr6N", "KozMinProVI", "KozMinPro", "KozMinStd", "小塚明朝"], "Noto Serif JP")
-_reg(["KozGoPr6N", "KozGoProVI", "KozGoPro", "KozGoStd", "小塚ゴシック"], "BIZ UDGothic")
+_reg(["KozGoPr6N", "KozGoProVI", "KozGoPro", "KozGoStd", "小塚ゴシック"], "BIZ UDPGothic")
 # Noto / 源ノ (無料だが Windows 非搭載 → 同梱フォントで代替)
 _reg(["NotoSerifJP", "NotoSerifCJKjp", "NotoSerifCJKJP", "SourceHanSerif", "SourceHanSerifJP",
       "源ノ明朝"], "Noto Serif JP")
 _reg(["NotoSansJP", "NotoSansCJKjp", "NotoSansCJKJP", "SourceHanSans", "SourceHanSansJP",
-      "源ノ角ゴシック"], "BIZ UDGothic")
+      "源ノ角ゴシック"], "BIZ UDPGothic")
 # IPA フォント
 _reg(["IPAMincho", "IPAexMincho", "IPAPMincho", "IPA明朝", "IPAex明朝", "IPAP明朝"],
      "Noto Serif JP")
 _reg(["IPAGothic", "IPAexGothic", "IPAPGothic", "IPAゴシック", "IPAexゴシック", "IPAPゴシック"],
-     "BIZ UDGothic")
-# BIZ UD 自身 (P 付きプロポーショナル版も同梱版へ寄せる)。
-# 明朝は同梱を Noto Serif JP に一本化したため BIZ UD明朝 由来も Noto へ寄せる。
-_reg(["BIZUDGothic", "BIZ UDGothic", "BIZUDPGothic", "BIZ UDPGothic"], "BIZ UDGothic")
+     "BIZ UDPGothic")
+# BIZ UD 自身。同梱は graph2 と共有の BIZ UDPGothic (プロポーショナル) に一本化したため、
+# 等幅 UDGothic 由来も UDPGothic へ寄せる。明朝は Noto Serif JP へ一本化。
+_reg(["BIZUDGothic", "BIZ UDGothic", "BIZUDPGothic", "BIZ UDPGothic"], "BIZ UDPGothic")
 _reg(["BIZUDMincho", "BIZ UDMincho", "BIZUDPMincho", "BIZ UDPMincho"], "Noto Serif JP")
 
 # 末尾スタイルトークン: (トークン, weight, italic)。weight=None はウェイトに影響しない
@@ -320,7 +321,7 @@ def fallback_chain(family: str, text: str) -> List[str]:
     generic, is_ja = family_meta(family)
     chain = [family]
     if contains_japanese(text) and not is_ja:
-        chain.append("Noto Serif JP" if generic == "serif" else "BIZ UDGothic")
+        chain.append("Noto Serif JP" if generic == "serif" else "BIZ UDPGothic")
     chain.append(generic)
     return chain
 

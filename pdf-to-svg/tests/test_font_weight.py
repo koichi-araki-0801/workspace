@@ -16,14 +16,14 @@ def _text(text, family, weight, x=10.0, y=20.0):
 
 def test_weight_helpers():
     assert fonts.is_variable_family("Noto Serif JP")
-    assert not fonts.is_variable_family("BIZ UDGothic")
-    assert fonts.needs_embedding("BIZ UDGothic")
+    assert not fonts.is_variable_family("BIZ UDPGothic")
+    assert fonts.needs_embedding("BIZ UDPGothic")
     assert fonts.needs_embedding("Noto Serif JP")
     # 静的ゴシックは 2 バケットへ丸め (1-599→400 / 600-1000→700)
-    assert fonts.static_weight_bucket("BIZ UDGothic", 300) == 400
-    assert fonts.static_weight_bucket("BIZ UDGothic", 500) == 400
-    assert fonts.static_weight_bucket("BIZ UDGothic", 600) == 700
-    assert fonts.static_weight_bucket("BIZ UDGothic", 700) == 700
+    assert fonts.static_weight_bucket("BIZ UDPGothic", 300) == 400
+    assert fonts.static_weight_bucket("BIZ UDPGothic", 500) == 400
+    assert fonts.static_weight_bucket("BIZ UDPGothic", 600) == 700
+    assert fonts.static_weight_bucket("BIZ UDPGothic", 700) == 700
 
 
 def test_variable_mincho_embedded_once_for_all_weights():
@@ -39,8 +39,8 @@ def test_variable_mincho_embedded_once_for_all_weights():
 
 def test_static_gothic_embedded_per_bucket_with_ranges():
     """ゴシック (静的) は使用バケットごとに範囲指定 @font-face を出す。"""
-    els = [_text("並", "BIZ UDGothic", 400), _text("中", "BIZ UDGothic", 500),
-           _text("太", "BIZ UDGothic", 700)]
+    els = [_text("並", "BIZ UDPGothic", 400), _text("中", "BIZ UDPGothic", 500),
+           _text("太", "BIZ UDPGothic", 700)]
     css = font_embed.font_face_css(els)
     # 400/500 は Regular バケットへ集約、700 は Bold → 計 2 face
     assert css.count("@font-face") == 2
@@ -53,7 +53,7 @@ def test_svg_emits_numeric_font_weight():
     page.elements = [
         _text("ライト", "Noto Serif JP", 300, y=20),
         _text("レギュラー", "Noto Serif JP", 400, y=40),
-        _text("ボールド", "BIZ UDGothic", 700, y=60),
+        _text("ボールド", "BIZ UDPGothic", 700, y=60),
     ]
     svg = page_to_svg(page)
     assert 'font-weight="300"' in svg

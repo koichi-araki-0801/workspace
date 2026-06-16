@@ -111,7 +111,7 @@ def test_svg_embeds_bundled_font_for_japanese(vector_pdf, tmp_path):
     store.close()
     svg = page_to_svg(pg)
     assert "@font-face" in svg
-    assert "BIZ UDGothic" in svg
+    assert "BIZ UDPGothic" in svg
     assert "data:font/woff2;base64," in svg
     # 置換済みテキストは本来の幅が不明なため textLength を付けない
     line = next(ln for ln in svg.splitlines() if "見出し A" in ln)

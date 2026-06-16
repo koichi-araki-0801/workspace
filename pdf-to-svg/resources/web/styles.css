@@ -70,7 +70,7 @@
   --warn-ink:   oklch(0.52 0.09 75);
 
   --font-ui:    "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
-  --font-round: "BIZ UDGothic", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  --font-round: "BIZ UDPGothic", "BIZ UDGothic", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
 
   --r-sm: 8px;
   --r-md: 12px;

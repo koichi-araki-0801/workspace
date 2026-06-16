@@ -115,20 +115,20 @@ pyinstaller packaging/pdftosvg.spec --noconfirm
 本ツールは **PyMuPDF (AGPL)** に依存する。**社内/身内限定の配布**を前提に採用している。
 外部・商用配布が必要になった場合は、抽出部 `engine/pdf_engine.py`（薄い境界）を
 BSD ライセンスの **pypdfium2** 等へ差し替えるか、Artifex の商用ライセンスを取得すること。
-PySide6 は LGPL（動的リンクのため .exe 配布可）。
+UI は OS 標準の Edge をアプリモードで開く方式のため Qt 依存は無い。
 
 ### 同梱フォント
 
-`resources/fonts/` に **BIZ UDゴシック**（ゴシック代替）と **Noto Serif JP**（明朝代替）を同梱する。
-いずれも **SIL OFL 1.1**（`OFL.txt` / `OFL-NotoSerifJP.txt`）で再配布可。SVG 出力時は使用グリフのみ
-WOFF2 サブセット埋め込みするため出力は数十 KB に収まる（`export/font_embed.py`）。
+フォントはワークスペース root の **共有 `fonts/`**（graph2 と共用）に集約している。**BIZ UDPゴシック**
+（ゴシック代替・graph2 と同一の WOFF2）と **Noto Serif JP**（明朝代替）を使い、いずれも **SIL OFL 1.1**
+（`fonts/OFL-BIZUDPGothic.txt` / `fonts/OFL-NotoSerifJP.txt`）で再配布可。解決は `config.font_path()`、
+SVG 出力時は使用グリフのみ WOFF2 サブセット埋め込みするため出力は数十 KB に収まる（`export/font_embed.py`）。
 
 元 PDF の **ウェイト（Light/Regular/Medium/Bold）を保持**するため、フォント名から CSS ウェイトを
 抽出し（`model/fonts.py`）、`<text>` に数値 `font-weight` を出力する。
 
 - **明朝（Noto Serif JP）**: 可変フォント `NotoSerifJP-VF.ttf` を **wght 軸を保持したまま**サブセット埋め込みし、
-  `@font-face` を `font-weight:100 900` で宣言。1 本で Light〜Bold を出し分ける。`C:\Windows\Fonts` の
-  Google Noto（OFL）をそのままコピーして同梱。
-- **ゴシック（BIZ UDGothic）**: Regular/Bold の 2 ウェイトのみ存在。`@font-face` を範囲指定
+  `@font-face` を `font-weight:100 900` で宣言。1 本で Light〜Bold を出し分ける。
+- **ゴシック（BIZ UDPGothic）**: Regular/Bold の 2 ウェイトのみ存在。`@font-face` を範囲指定
   （Regular=`1 599` / Bold=`600 1000`）で宣言し、中間ウェイト要求を faux-bold 無しで最寄りへ解決させる
-  （Medium ゴシックは Regular になる）。
+  （Medium ゴシックは Regular になる）。graph2 のグラフと同じ字形・形式で統一。

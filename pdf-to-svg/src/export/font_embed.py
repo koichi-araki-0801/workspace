@@ -85,7 +85,7 @@ def _subset_woff2(filename: str, chars: Set[str]) -> bytes | None:
     可変フォントは subset がデフォルトで fvar/gvar 等を保持するため、軸を維持したまま
     1 本に収まる (実行時インスタンス化は行わない)。
     """
-    path = config.resource_path("fonts", filename)
+    path = config.font_path(filename)
     if not path.exists():
         return None
 
