@@ -37,30 +37,32 @@
 
 ## 手順
 
-構築手順はリポジトリルートの **`README-offline-bundle.txt`** と **`setup-offline.bat`** に
-集約している（pnpm 11 + オフラインストア方式。旧 npm ベースの pack.ps1/setup.ps1 は廃止）。
+構築手順はリポジトリ直下の **`offline/`** フォルダに集約している
+（`offline/README-offline.txt` と `offline/setup-offline.bat`。pnpm 11 + オフラインストア方式。
+旧 npm ベースの pack.ps1/setup.ps1 や 2 段運用の fetch スクリプトは廃止）。
 
-配布は **2 系統**に分離している:
+配布は **2 系統**に分離し、いずれも GitHub から HTTPS だけで取得する（`gh` 不要）:
 
-- **コード** … git リポジトリ本体で履歴管理（変更の都度コミット・push）
+- **コード** … タグ ZIP（codeload）。Release のタグ `offline-bundle-v1` は公開のたびに最新コミットへ
+  移動するため、GitHub が自動添付する `Source code (zip/tar.gz)` は最新ソースと一致する。
 - **重量物**（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/`、約 1.2GB） … **GitHub Releases**
-  （タグ `offline-bundle-v1`、`offline-deps-bundle.tar.gz`）。容量が大きく毎回 git 履歴へ
-  積めないため git 管理外とし、内容（`pnpm-lock.yaml`／`packageManager`）変更時のみ更新する。
-  タグ `offline-bundle-v1` は公開のたびにバンドル生成コミットへ移動するため、GitHub が自動添付する
-  `Source code (zip/tar.gz)` はそのバンドルに対応するコードと一致する（削除はできないため整合させる方針）。
+  （同タグ、`offline-deps-bundle.tar.gz`）。容量が大きく毎回 git 履歴へ積めないため git 管理外とし、
+  内容（`pnpm-lock.yaml`／`packageManager`）変更時のみ更新する。
 
 ### 1. 調達（オンライン機・Windows x64・Node 24）
 
-依存や pnpm/Playwright のバージョンを更新したら、調達側で
-`scripts/offline/publish-offline-bundle.ps1` を実行する。重量物を再生成し、変更がある場合のみ
-GitHub Releases へアップロードする（不変ならスキップ）。詳細は `README-offline-bundle.txt` を参照。
+通常はコミット毎フック（`.husky/post-commit`）が `offline/publish-offline-bundle.ps1` を自動実行する。
+ローリングタグを最新コミットへ移動して自動 Source code を更新し、重量物は content key
+（`pnpm-lock.yaml` + `packageManager`）に差分がある時だけ再生成・再アップロードする（不変ならスキップ）。
+手動実行は `pwsh -File offline/publish-offline-bundle.ps1`。無効化は `OFFLINE_PUBLISH_SKIP=1`。
+詳細は `offline/README-offline.txt` を参照。
 
 ### 2. 取得・展開・ビルド・起動（運用機）
 
-運用機では `git clone`（コード）→ `scripts/offline/fetch-offline-bundle.ps1`（Release から重量物を
-取得・検証・展開）→ `setup-offline.bat` を実行する（pnpm の corepack 登録 →
-`pnpm install --offline` → `pnpm build` → Playwright ブラウザ配置）。
-重量物の取得には GitHub 到達と `gh` 認証が必要（取得後の install/build はオフラインで完走）。
+運用機では **`offline/` フォルダ一式だけを配置**し、`offline/setup-offline.bat` を実行する。
+取得中だけリポジトリを Public にしておけば、ソース ZIP と重量物を HTTPS で自動取得・検証・展開し、
+そのまま pnpm の corepack 登録 → `pnpm install --offline` → `pnpm build` → Playwright ブラウザ配置まで
+一括で完走する（`gh`・`git` 不要。取得後の install/build はオフライン）。ダウンロード物は `bk/` へ退避する。
 運用機は**単一 Node プロセス**で API と SPA（`web/dist`）を配信する。
 
 手動起動する場合:
@@ -123,7 +125,7 @@ pwsh -File scripts/offline/python-wheelhouse.ps1 -Mode install
 ## オフライン検証チェックリスト（飛行機モード / LAN 遮断で実施）
 
 1. **調達**: バンドル tar.gz（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/` 同梱）が生成される。
-2. **遮断**: 運用機をネット遮断し、`setup-offline.bat` の展開〜`pnpm build` がネット無しで完走する
+2. **遮断**: 運用機をネット遮断し、`offline/setup-offline.bat` の展開〜`pnpm build` がネット無しで完走する
    （biome / esbuild / rollup / lightningcss / vue-tsc の取得が走らない）。
 3. **起動**: `GET /api/health` → `{ok:true}`、ブラウザで SPA が表示される。
 4. **PDF（最重要）**: `POST /api/build` で PDF 生成成功。ログに
