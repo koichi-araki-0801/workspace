@@ -49,7 +49,7 @@ graph2/
 ├── package.json
 ├── tsconfig.json
 ├── samples.json                — サンプルデータ (87 件・object 形式)
-├── (埋込フォントは ../fonts/ に集約 — BIZ UDPGothic WOFF2、pdf-to-svg と共用)
+├── fonts/                     — 埋込フォント (BIZ UDPGothic WOFF2 400/700 + OFL ライセンス)
 ├── src/
 │   ├── types.ts                — 共通型 (Item / LayoutItem / Placement / Diagnostics / PieLayoutConfig)
 │   ├── config.ts               — createPieLayoutConfig + makeColors

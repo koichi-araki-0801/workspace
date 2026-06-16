@@ -48,15 +48,16 @@ def resource_path(*parts: str) -> Path:
 
 
 def font_dir() -> Path:
-    """同梱フォントのルート (ワークスペース共有の ``fonts/``)。
+    """同梱フォントのルート (本プロジェクト配下の ``fonts/``)。
 
-    BIZ UDPGothic / Noto Serif JP を graph2 と共有する単一の置き場。
+    BIZ UDPGothic (TTF) / Noto Serif JP を pdf-to-svg 専用に同梱する置き場
+    (graph2 は同ファミリの WOFF2 を自プロジェクト配下に別途持つ)。
     - frozen 時: ``_MEIPASS/fonts`` (spec の datas が ``fonts`` 配下へ展開)
-    - ソース実行時: ワークスペース root (リポジトリの親) の ``fonts/``
+    - ソース実行時: リポジトリ root (pdf-to-svg/) の ``fonts/``
     """
     if is_frozen():
         return Path(getattr(sys, "_MEIPASS")) / "fonts"
-    return Path(__file__).resolve().parents[2] / "fonts"
+    return Path(__file__).resolve().parents[1] / "fonts"
 
 
 def font_path(*parts: str) -> Path:

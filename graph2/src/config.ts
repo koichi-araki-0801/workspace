@@ -17,8 +17,8 @@ const PT_PER_MM = 1 / 0.352778; // ≈ 2.83465 pt/mm
 // (override で `embedFontPath` を明示した場合はそちらを優先)。gen_glyph_advance.ts の
 // WEIGHT_FONT と一致させること。
 const WEIGHT_FONT: Record<string, string> = {
-  "400": "../fonts/BIZUDPGothic-Regular.woff2",
-  "700": "../fonts/BIZUDPGothic-Bold.woff2",
+  "400": "fonts/BIZUDPGothic-Regular.woff2",
+  "700": "fonts/BIZUDPGothic-Bold.woff2",
 };
 
 /**
@@ -47,7 +47,7 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     // 太さを足す (0=無効/純フォント, 0.015 前後で擬似500相当)。advance は不変。
     textWeightStrokeRatio: 0,
     embedFont: true,
-    embedFontPath: "../fonts/BIZUDPGothic-Regular.woff2",
+    embedFontPath: "fonts/BIZUDPGothic-Regular.woff2",
     embedFontFamilyName: "BIZ UDPGothic",
     percentFormat: (value: number) =>
       value < 0 ? `△${(-value).toFixed(1)}%` : `${value.toFixed(1)}%`,

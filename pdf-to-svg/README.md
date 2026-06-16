@@ -119,8 +119,8 @@ UI は OS 標準の Edge をアプリモードで開く方式のため Qt 依存
 
 ### 同梱フォント
 
-フォントはワークスペース root の **共有 `fonts/`**（graph2 と共用）に集約している。**BIZ UDPゴシック**
-（ゴシック代替・graph2 と同一の WOFF2）と **Noto Serif JP**（明朝代替）を使い、いずれも **SIL OFL 1.1**
+フォントは本プロジェクト配下の **`fonts/`** に同梱している。**BIZ UDPゴシック**
+（ゴシック代替・サブセット元は TTF 原本）と **Noto Serif JP**（明朝代替）を使い、いずれも **SIL OFL 1.1**
 （`fonts/OFL-BIZUDPGothic.txt` / `fonts/OFL-NotoSerifJP.txt`）で再配布可。解決は `config.font_path()`、
 SVG 出力時は使用グリフのみ WOFF2 サブセット埋め込みするため出力は数十 KB に収まる（`export/font_embed.py`）。
 
@@ -131,4 +131,4 @@ SVG 出力時は使用グリフのみ WOFF2 サブセット埋め込みするた
   `@font-face` を `font-weight:100 900` で宣言。1 本で Light〜Bold を出し分ける。
 - **ゴシック（BIZ UDPGothic）**: Regular/Bold の 2 ウェイトのみ存在。`@font-face` を範囲指定
   （Regular=`1 599` / Bold=`600 1000`）で宣言し、中間ウェイト要求を faux-bold 無しで最寄りへ解決させる
-  （Medium ゴシックは Regular になる）。graph2 のグラフと同じ字形・形式で統一。
+  （Medium ゴシックは Regular になる）。graph2 のグラフと同一字形の BIZ UDPGothic で統一。
