@@ -47,6 +47,8 @@ import {
   DOMINANT_OUTSIDE_EDGE_MIN_PCT,
   DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD,
   DOMINANT_BELOW_CENTER_MIN_PCT,
+  BISECT_SECOND_MIN_PCT,
+  BISECT_PAIR_MIN_PCT,
 } from "./label_placement.js";
 import type {
   PieLayoutConfig,
@@ -1272,6 +1274,46 @@ function markDenseSideOutsidePush(
   }
 }
 
+/**
+ * 「二分割」型 (上位2スライスが円のほぼ全体を占める) を検知し、2 つの印を立てる。
+ *   - 優勢 (最大・≥`DOMINANT_OUTSIDE_EDGE_MIN_PCT`%・右): `bisectedDominantCenter` → 内側ラベルを
+ *     右半径中点・縦中央へ
+ *   - 第2 (2番目・≥`BISECT_SECOND_MIN_PCT`%・左): `bisectedSecondSliceNoLeader` → rim leader を消す
+ * 成立条件は最大 ≥50%・第2 ≥25%・両者合算 ≥`BISECT_PAIR_MIN_PCT`(90%)。残りスライスの個別条件は
+ * 不要 (合算 ≥90% で残り合計は ≤10%、`s1≥25` は `s0≤75<80` を保証し 1強型を自動除外)。例 54.3/44.6・
+ * 55.6/36.7/7.7・67/33・72/28。`startangle=90`+時計回りで最大は右・第2は左に来るが、念のため side でも検証。
+ */
+function markBisectedPie(candidates: LayoutItemReady[]): void {
+  if (candidates.length < 2) return;
+  const byPct = [...candidates].sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0));
+  const s0 = byPct[0];
+  const s1 = byPct[1];
+  if ((s0.percent ?? 0) < DOMINANT_OUTSIDE_EDGE_MIN_PCT) return;
+  if ((s1.percent ?? 0) < BISECT_SECOND_MIN_PCT) return;
+  if ((s0.percent ?? 0) + (s1.percent ?? 0) < BISECT_PAIR_MIN_PCT) return;
+  if (s0.side !== "right" || s1.side !== "left") return;
+  s0.bisectedDominantCenter = true;
+  s1.bisectedSecondSliceNoLeader = true;
+}
+
+/**
+ * 「1強+小複数」型 (二分割に非該当の単独優勢) を検知し `singleDominantInside` を立てる。
+ * 最大スライスが右・50–80% で、`markBisectedPie` が立てる二分割中央配置の対象外のとき、
+ * 内側フィットのアンカーを外へ押し出して bisector 方向の自然位置のまま内側へ収める
+ * (中央固定はしない)。≥80% は既存の真下中央パスへ、<50% は外側のまま。
+ * `markBisectedPie` の後に呼び、二分割で確定済の s0 は再マークしない。
+ */
+function markSingleDominantInside(candidates: LayoutItemReady[]): void {
+  if (candidates.length < 2) return;
+  const s0 = [...candidates].sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0))[0];
+  if (s0.bisectedDominantCenter) return;
+  if (s0.side !== "right") return;
+  const pct = s0.percent ?? 0;
+  if (pct < DOMINANT_OUTSIDE_EDGE_MIN_PCT) return;
+  if (pct >= DOMINANT_BELOW_CENTER_MIN_PCT) return;
+  s0.singleDominantInside = true;
+}
+
 /** 各 item の finalX を確定する。 */
 function placeX(
   sideItems: LayoutItemReady[],
@@ -1511,6 +1553,8 @@ export function layoutLabels(
   markDominantTopSliverWithOther(candidates, left, diagnostics);
   markBottomCenterBelow(candidates, diagnostics, cfg);
   markDenseSideOutsidePush(left, diagnostics);
+  markBisectedPie(candidates);
+  markSingleDominantInside(candidates);
   placeX(left, "left", diagnostics, cfg);
   placeX(right, "right", diagnostics, cfg);
 

@@ -125,6 +125,22 @@ export const DOMINANT_BELOW_CENTER_MIN_PCT = 80;
  */
 export const DOMINANT_OUTSIDE_EDGE_MIN_PCT = 50;
 /**
+ * 「二分割」型 (上位2スライスが円のほぼ全体を占める) の検知閾値。最大スライス ≥ 50%・第2スライス ≥
+ * `BISECT_SECOND_MIN_PCT`・両者合算 ≥ `BISECT_PAIR_MIN_PCT` のとき成立 (例 54.3/44.6, 55.6/36.7/7.7,
+ * 67/33, 72/28)。markBisectedPie (layout.ts) が判定に使う。
+ *
+ * 第2下限を 25 に取るのは、35 だと 2 スライス系 (67/33・72/28) を弾くため。`s1 ≥ 25` は算術的に
+ * `s0 ≤ 75 (< 80)` を保証するので、1強(≥80%)型は第2が小さく自動除外され、既存の真下中央パスへ流れる。
+ */
+export const BISECT_SECOND_MIN_PCT = 25;
+export const BISECT_PAIR_MIN_PCT = 90;
+/**
+ * 二分割型の優勢スライス内側ラベル (`bisectedDominantCenter`) の名前長体率。原寸 (1.0) だと
+ * 6 文字名 (例「投資信託証券」) がスライス境界と右リムに迫るため、横圧縮して左右クリアランスを
+ * 均等に確保する。`computeInsideOptions` が `buildForm` の `nameScaleX` へ渡す。
+ */
+export const BISECT_DOMINANT_NAME_SCALE_X = 0.85;
+/**
  * 円外 rim 配置 (buildOutsideRimDraft) の label 配置半径 (scaledLabelRadius 係数)。
  * スライス外縁に寄せるため小さめ。実際の円クリアランスは pieClearance クランプが
  * 角度・行数に応じて保証するので、ここは下限ではなく「狙いの半径」。
@@ -221,16 +237,44 @@ export function computeInsideOptions(
 ): Record<number, InsideOption | null> {
   const empty = { 1: null, 3: null, 5: null, 7: null } as Record<number, InsideOption | null>;
   if (cfg.insideSliceEnabled === false) return empty;
+  // 「二分割」型の優勢スライス (右半分) は、自然 fit の成否に依らず rank① 内側配置を強制し、右半径中点・
+  // 縦中央 (cfg.pieRadius/2, 0) へ置く。優勢ほど重心が中心寄りで角隅 fit が落ち外側へ出る (例 59.9%) のを
+  // 防ぎ、同名ラベルの配置型を内側中央へ揃える。優勢は ≥50% (>180°) で当該点は確実にスライス深部。
+  if (item.bisectedDominantCenter) {
+    const form = buildForm(item, cfg, 1, 2, BISECT_DOMINANT_NAME_SCALE_X, true);
+    return {
+      1: { form, fit: { fits: true, centerX: cfg.pieRadius / 2, centerY: 0 } },
+      3: null,
+      5: null,
+      7: null,
+    };
+  }
   const midRad = degToRad(item.midAngle);
   const spanRad = ((item.percent ?? 0) / 100) * 2 * Math.PI;
   // dominant (≥80%) の内側ラベルは水平中央へ揃える (重心方向のずれを止める。コメント「真下中央」意図)。
   const isDominant = (item.percent ?? 0) >= DOMINANT_BELOW_CENTER_MIN_PCT;
+  // 単独優勢 (`singleDominantInside`) は重心が中心至近でボックス角がスライス縁を突き抜けるため、
+  // アンカーを bisector 方向のまま外へ押し出して探索し、収まる半径を採る (中央固定はしない)。
+  // 通常スライスは [undefined] で重心クランプの既存挙動のまま。
+  const anchorRadii: (number | undefined)[] = item.singleDominantInside
+    ? [0.4, 0.45, 0.5, 0.55, 0.6, 0.65].map((f) => f * cfg.pieRadius)
+    : [undefined];
   const steps = cfg.nameCondenseSteps;
   const tryForms = (rank: number, lineCount: 1 | 2, scales: number[]): InsideOption | null => {
     for (const sx of scales) {
       const form = buildForm(item, cfg, rank, lineCount, sx, true);
-      const fit = fitsInsideSliceExtent(midRad, spanRad, form.width, form.height, cfg, isDominant);
-      if (fit.fits) return { form, fit };
+      for (const anchor of anchorRadii) {
+        const fit = fitsInsideSliceExtent(
+          midRad,
+          spanRad,
+          form.width,
+          form.height,
+          cfg,
+          isDominant,
+          anchor,
+        );
+        if (fit.fits) return { form, fit };
+      }
     }
     return null;
   };
@@ -252,6 +296,9 @@ export function outsideFormForRank(
   if (rank === 2) return buildForm(item, cfg, 2, 2, 1, false);
   if (rank === 4) return buildForm(item, cfg, 4, 2, sx0, false);
   if (rank === 6) return buildForm(item, cfg, 6, 1, 1, false);
+  // `loneTopSliverLeader` (12時直左の極小・左 L 字逃がし) は 2 行原寸で細くし、上左の空白へ収める。
+  // 1 行だと幅が viewBox 左端に達して左へ動かせず、leader が「その他」と分離できない。
+  if (rank >= 9 && item.loneTopSliverLeader) return buildForm(item, cfg, 9, 2, 1, false);
   return buildForm(item, cfg, rank, 1, sx0, false); // 8 / 9
 }
 
@@ -553,6 +600,10 @@ export function buildOutsideLeaderDraft(
     allowSegmentNudge: true,
   });
   if (smallRight) return smallRight;
+  // `loneTopSliverLeader` (例 world_bond_idx_asset「外国債券先物」0.2%) は 12時直上 (≈92°) の極小で、
+  // 放射 leader だと中心至近で真上へ伸び、隣接する「その他」の右逃がし riser と平行に重なる。スライスの
+  // 自側 (左) へ短い L 字 leader (縦に抜けて左へ折れる) で逃がし、「その他」(右) と扇形に分離させる。
+  if (item.loneTopSliverLeader) return topLiftedRimLeft(item, cfg, form);
   const rad = degToRad(item.midAngle);
   const cosA = Math.cos(rad);
   const sinA = Math.sin(rad);
@@ -577,6 +628,47 @@ export function buildOutsideLeaderDraft(
     lineEndX: labelX,
     lineEndY: labelY,
     lineStart: { x: labelX, y: labelY },
+    lineEnd: { x: labelX, y: labelY },
+    allowSegmentNudge: true,
+    skipLeader: false,
+    pieClearance: true,
+    dominantOutsideEdge: true,
+    nameScaleX: form.nameScaleX,
+    condenseNamePortionOnly: form.condenseNamePortionOnly,
+  };
+}
+
+/**
+ * `topRightLiftedRimDraft` の左版。12時直左の極小 (`loneTopSliverLeader`) を、スライスの自側 (左) の
+ * 上方空白へ短い L 字 leader (slice から縦に抜けて左へ折れる) で逃がす。箱下端を pie キャップ上
+ * (pieRadius + クリアランス) へ揃えて横押し出しを無効化し、`anchor="end"` で原寸テキストを左へ伸ばす。
+ * これにより右逃がしの「その他」と扇形に分離し、riser 同士の平行重なりを解消する。
+ */
+function topLiftedRimLeft(
+  item: LayoutItemReady,
+  cfg: PieLayoutConfig,
+  form: LabelForm,
+): PlacementDraft {
+  const anchorX = item.anchorX;
+  // anchorX は 12時直左で僅かに負。riser (anchorX) から左へ明確にオフセットし、「その他」(右) と扇形に
+  // 分離させる横走りを確保する。
+  const labelX = -(Math.abs(anchorX) + radialFraction(cfg, 0.3, 3.0));
+  // baseline=bottom では textY が箱上端。箱下端 (textY − form.height) を pieRadius + クリアランスへ
+  // 揃えて箱全体を円の上に置き、canvas 上端は越えないようクランプ (`topRightLiftedRimDraft` と同方針)。
+  const capClear = radialFraction(cfg, 0.012, 0.12);
+  const labelY = Math.min(
+    cfg.pieRadius + capClear + form.height,
+    cfg.scaledYTop - cfg.canvasSafetyMargin,
+  );
+  return {
+    fragments: [],
+    textX: labelX,
+    textY: labelY,
+    anchor: "end",
+    baseline: "bottom",
+    lineEndX: labelX,
+    lineEndY: labelY,
+    lineStart: { x: anchorX, y: labelY },
     lineEnd: { x: labelX, y: labelY },
     allowSegmentNudge: true,
     skipLeader: false,
@@ -813,6 +905,7 @@ function clampAndBuildPlacement(input: {
     insideSlice: Boolean(draft.insideSlice),
     dominantOutsideEdge: Boolean(draft.dominantOutsideEdge),
     pieClearance: Boolean(draft.pieClearance),
+    bisectedSecondSliceNoLeader: Boolean(item.bisectedSecondSliceNoLeader),
   };
   if (formExtras) {
     placement.nameScaleX = formExtras.nameScaleX;

@@ -255,7 +255,13 @@ export function computeDrawnLeader(
         detectPathPoints = [anchor, endpoint];
       }
     }
-    return { pathPoints, detectPathPoints, skipLeader: placement.insideSlice };
+    // 「二分割」型の第2スライス (左) は rim 配置のまま leader を消す (スライス直近で冗長)。描画パス
+    // のみで判定し scorer (forScoring) は不変に保つため、ラベル位置選択は baseline と同一 (線だけ消える)。
+    return {
+      pathPoints,
+      detectPathPoints,
+      skipLeader: placement.insideSlice || Boolean(placement.bisectedSecondSliceNoLeader),
+    };
   }
   let skipLeader = Boolean(placement.skipLeader);
   if (skipLeader && placement.dominantOutsideEdge) {
