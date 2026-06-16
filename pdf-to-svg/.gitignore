@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# 辞書・設定 (ポータブルデータ。開発実行時に生成)
+data/
+
+# テスト用サンプル PDF (conftest が自動生成)
+tests/fixtures/*.pdf
+
+# 作業スクラッチ (Web UI モック取り込み等の中間生成物)
+/ref_*.html
+/ref_*.txt
+
+# OS
+Thumbs.db
+desktop.ini

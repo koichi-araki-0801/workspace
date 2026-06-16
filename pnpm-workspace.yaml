@@ -4,6 +4,7 @@ packages:
   - editor/web
   - graph2
   - graph-editor
+  - pdf-to-svg
 
 # pnpm run/exec 前の依存整合チェックで自動 install を走らせない。
 # オフライン環境では prune/再 install がネットに出て失敗するため無効化する。
