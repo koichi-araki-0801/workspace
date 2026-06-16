@@ -202,11 +202,21 @@
   }
 
   // host に現在ページの SVG を載せる。token で古い await を破棄。
+  // SVG 取得は失敗・遅延し得るため、無言でプレースホルダのまま固まらせず
+  // エラーを画面に出す (この描画が唯一ページを表示する経路のため)。
   async function mountPage(host, editorEl, withSelect) {
     var pg = PAGES[page];
     var token = pg.fileIndex + ":" + pg.pageInFile + ":" + Date.now();
     host.dataset.token = token;
-    var data = await ensureSvg(pg.fileIndex, pg.pageInFile);
+    var data;
+    try {
+      data = await ensureSvg(pg.fileIndex, pg.pageInFile);
+    } catch (e) {
+      if (host.dataset.token !== token) return; // ページが変わった
+      host.classList.remove("empty");
+      host.innerHTML = '<div class="page-loading" style="padding:24px">ページの表示に失敗しました<br>' + esc(e && e.message || e) + "</div>";
+      return;
+    }
     if (host.dataset.token !== token) return; // ページが変わった
     host.classList.remove("empty");
     host.innerHTML = data.svg;
