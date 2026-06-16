@@ -228,6 +228,8 @@ def rpc_reapplyDict(s: WebSession, _args: dict) -> dict:
                 rep.element, rep.target, DictMatch(source=rep.source, target=rep.target)
             )
         )
+        if rep.extras:  # 折返しヘッダの 2 行目以降を描画から除外
+            s.undo.push(DeleteCommand(rep.extras))
     s.undo.endMacro()
     return {"count": len(plans_all)}
 

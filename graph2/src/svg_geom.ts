@@ -608,14 +608,18 @@ export function fitsInsideSliceExtent(
   bboxH: number,
   cfg: PieLayoutConfig,
   horizontalCenter = false,
+  anchorRadiusOverride?: number,
 ): InsideFit {
   if (spanRad <= 1e-6) return { fits: false };
   const halfSpan = spanRad / 2;
   if (bboxW <= 0 || bboxH <= 0) return { fits: false };
 
   const R = cfg.pieRadius;
+  // `anchorRadiusOverride` 指定時は重心クランプを使わず、その半径を bisector 方向のアンカーにする。
+  // 単独優勢スライス (重心が中心至近で縁を突き抜ける) を外へ押し出して内側に収めるための経路。
   const centroidR = ((2 * R) / 3) * (Math.sin(halfSpan) / halfSpan);
-  const anchorRadius = Math.max(0.3 * R, Math.min(0.7 * R, centroidR));
+  const anchorRadius =
+    anchorRadiusOverride ?? Math.max(0.3 * R, Math.min(0.7 * R, centroidR));
   const cx = horizontalCenter ? 0 : anchorRadius * Math.cos(midAngleRad);
   const cy = anchorRadius * Math.sin(midAngleRad);
 

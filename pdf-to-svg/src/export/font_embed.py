@@ -13,6 +13,7 @@ Windows 標準フォントは閲覧環境にあるため名前参照のみで埋
 from __future__ import annotations
 
 import base64
+from functools import lru_cache
 from io import BytesIO
 from typing import Dict, Iterable, Set, Tuple
 
@@ -79,17 +80,32 @@ def _collect_usage(
     return var_usage, static_usage
 
 
+@lru_cache(maxsize=None)
+def _source_font_bytes(filename: str) -> bytes | None:
+    """同梱ソースフォントのバイト列 (存在しなければ None)。複数ページ書き出しでの
+    ディスク再読込を避けるためプロセス内でキャッシュする。"""
+    path = config.font_path(filename)
+    if not path.exists():
+        return None
+    return path.read_bytes()
+
+
 def _subset_woff2(filename: str, chars: Set[str]) -> bytes | None:
-    """同梱 TTF を使用文字でサブセット化し WOFF2 バイト列を返す。
+    """同梱フォントを使用文字でサブセット化し WOFF2 バイト列を返す。
+
+    ソース ``filename`` は TTF/WOFF1 等の無変換形式であること (model.fonts 参照)。
+    WOFF2 をソースにすると fontTools が変換済み glyf を全グリフ再構築するため極端に
+    遅くなる。出力は ``flavor='woff2'`` で常に WOFF2。
 
     可変フォントは subset がデフォルトで fvar/gvar 等を保持するため、軸を維持したまま
     1 本に収まる (実行時インスタンス化は行わない)。
     """
-    path = config.font_path(filename)
-    if not path.exists():
+    data = _source_font_bytes(filename)
+    if data is None:
         return None
 
-    font = TTFont(str(path))
+    # subset は font を破壊的に変更するため、毎回キャッシュ済みバイト列から再構築する。
+    font = TTFont(BytesIO(data))
     options = subset.Options()
     options.flavor = "woff2"
     subsetter = subset.Subsetter(options)

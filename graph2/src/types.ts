@@ -122,6 +122,23 @@ export interface LayoutItem {
   // rim 半径に `cfg.denseSideOutsideRadiusFactor` を掛けて円から少し離す。
   // `layout.ts` の `markDenseSideOutsidePush` が立てる。
   denseSideOutsidePush?: boolean;
+
+  // 「二分割」型 (例 pdf_510037_01_fund_asset: 投信証券54.3/親投信証券44.6/その他1.0) で、
+  // 右半分を占める優勢スライス (最大・≥50%・右) の内側ラベル印。`label_placement.ts` の
+  // `computeInsideOptions` が wedge 重心の代わりに右半径中点・縦中央 (cfg.pieRadius/2, 0) へ
+  // center を上書きする。`layout.ts` の `markBisectedPie` が立てる。
+  bisectedDominantCenter?: boolean;
+
+  // 「1強+小複数」型 (例 currency_balanced_5: 円62/米ドル20/ユーロ9/英5/その他4) の単独優勢スライス
+  // (最大・≥50%・<80%・右) の印。`computeInsideOptions` が内側フィットのアンカーを重心 (中心至近で
+  // 縁を突き抜ける) から外へ押し出して探索し、bisector 方向の自然位置のまま内側へ収める。中央固定
+  // (`bisectedDominantCenter`) はしない。`layout.ts` の `markSingleDominantInside` が立てる。
+  singleDominantInside?: boolean;
+
+  // 同「二分割」型の左半分を占める第2スライス (2番目・≥35%・左) の印。外側 rim 配置のまま
+  // (テキスト位置不変)、`leader_geometry.ts` の `computeDrawnLeader` が `ALWAYS_DRAW_OUTSIDE_LEADERS`
+  // を上書きして leader を消す (スライス直近で冗長なため)。`layout.ts` の `markBisectedPie` が立てる。
+  bisectedSecondSliceNoLeader?: boolean;
 }
 
 /**
@@ -266,6 +283,12 @@ export interface Placement {
    * (描画パス限定・scorer 不変)。フラグを立てるラベルは見切れチャートの移動採用分のみ = 他チャート byte 不変。
    */
   declipBottomLeader?: boolean;
+  /**
+   * 「二分割」型の第2スライス (左) ラベル印 (`item.bisectedSecondSliceNoLeader` 由来)。
+   * `computeDrawnLeader` が `ALWAYS_DRAW_OUTSIDE_LEADERS` を上書きして leader を確定スキップする
+   * (スライス直近で線が冗長なため。テキスト位置は不変)。`clampAndBuildPlacement` が item から複写。
+   */
+  bisectedSecondSliceNoLeader?: boolean;
 }
 
 /**

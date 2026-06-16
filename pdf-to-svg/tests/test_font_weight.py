@@ -1,4 +1,5 @@
 """フォントのウェイト粒度: マッピング・埋め込み・SVG 出力の検証。"""
+import config
 from export.svg_exporter import page_to_svg
 from export import font_embed
 from model import fonts
@@ -24,6 +25,19 @@ def test_weight_helpers():
     assert fonts.static_weight_bucket("BIZ UDPGothic", 500) == 400
     assert fonts.static_weight_bucket("BIZ UDPGothic", 600) == 700
     assert fonts.static_weight_bucket("BIZ UDPGothic", 700) == 700
+
+
+def test_bundled_subset_sources_are_not_woff2():
+    """サブセット元は無変換形式 (TTF/WOFF1/OTF) であること。WOFF2 をソースにすると
+    fontTools が glyf を全グリフ再構築し数十秒かかる (プレビューが空白に見える退行)。
+    出力は WOFF2 のままで良いが、入力ファイルが .woff2 に戻っていないかを検知する。"""
+    sources = list(fonts.BUNDLED_FONTS.values()) + list(fonts.BUNDLED_VARIABLE.values())
+    assert sources, "同梱フォントが空"
+    for filename in sources:
+        assert not filename.lower().endswith(".woff2"), (
+            f"{filename}: サブセット元に WOFF2 を使うと描画が極端に遅くなる"
+        )
+        assert config.font_path(filename).exists(), f"{filename} が fonts/ に無い"
 
 
 def test_variable_mincho_embedded_once_for_all_weights():

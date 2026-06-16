@@ -6,8 +6,8 @@ PDF には意味的な「表ヘッダ」が無いため、ヒューリスティ�
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
 
 from model.document import Page
 from model.elements import DictMatch, TextElement
@@ -16,16 +16,67 @@ from dictionary.store import DictionaryStore
 TOP_BAND_RATIO = 0.25  # ページ上端からこの割合内の最初の行をヘッダ候補とする
 ROW_TOLERANCE = 3.0    # 同一行とみなす baseline の許容差(pt)
 
+# 折返しヘッダ (複数行に分割されたセル) を 1 語として連結照合するためのしきい値。
+# PyMuPDF は折返し各行を別 span = 別 TextElement に分けるため、縦に隣接する
+# 同一列・同一サイズの要素を 1 グループに束ねて辞書を引く (照合・置換時のみ連結。
+# 描画は従来どおり行ごとの <text> のまま)。
+COLUMN_OVERLAP_RATIO = 0.5  # 同一列とみなす bbox 横方向オーバーラップ率 (狭い方基準)
+LINE_GAP_RATIO = 1.8        # 縦隣接とみなす baseline 差 (フォントサイズ比)
+FONT_SIZE_TOL = 0.5         # 同一スタイルとみなす font_size 許容差(pt)
+
 
 @dataclass
 class Replacement:
     element: TextElement
     source: str
     target: str
+    # 折返しヘッダの 2 行目以降。置換時は描画から除外 (deleted) する。
+    extras: List[TextElement] = field(default_factory=list)
 
 
 def _text_elements(page: Page) -> List[TextElement]:
     return [e for e in page.elements if isinstance(e, TextElement) and not e.deleted]
+
+
+def _x_overlap_ratio(a: TextElement, b: TextElement) -> float:
+    ov = min(a.bbox.x1, b.bbox.x1) - max(a.bbox.x, b.bbox.x)
+    narrow = min(a.bbox.w, b.bbox.w)
+    return ov / narrow if (ov > 0 and narrow > 0) else 0.0
+
+
+def _is_wrap_follower(top: TextElement, below: TextElement) -> bool:
+    """below が top の直下に折り返された同一セルの続き行とみなせるか。"""
+    gap = below.origin_y - top.origin_y
+    return (
+        0 < gap <= max(top.font_size, below.font_size) * LINE_GAP_RATIO
+        and _x_overlap_ratio(top, below) >= COLUMN_OVERLAP_RATIO
+        and abs(top.font_size - below.font_size) <= FONT_SIZE_TOL
+    )
+
+
+def _wrap_groups(texts: List[TextElement]) -> List[List[TextElement]]:
+    """縦に折り返された同一列・同一スタイルの要素を上→下のグループに束ねる。
+
+    単独行は要素 1 個のグループになる (= 連結対象外)。
+    """
+    ordered = sorted(texts, key=lambda t: (round(t.origin_y, 1), t.origin_x))
+    used: set = set()
+    groups: List[List[TextElement]] = []
+    for i, t in enumerate(ordered):
+        if id(t) in used:
+            continue
+        group = [t]
+        used.add(id(t))
+        cur = t
+        for u in ordered[i + 1:]:
+            if id(u) in used:
+                continue
+            if _is_wrap_follower(cur, u):
+                group.append(u)
+                used.add(id(u))
+                cur = u
+        groups.append(group)
+    return groups
 
 
 def detect_headers(page: Page) -> None:
@@ -48,13 +99,56 @@ def detect_headers(page: Page) -> None:
         in_top_row = any(abs(t.origin_y - y) <= ROW_TOLERANCE for y in top_row_ys)
         t.is_header = bool(t.bold or in_top_row)
 
+    # 折返しヘッダ: 先頭行がヘッダのグループは後続行も is_header にする
+    # (top band 判定だと 2 行目以降は baseline がずれて取りこぼすため)。
+    for group in _wrap_groups(texts):
+        if group[0].is_header:
+            for t in group:
+                t.is_header = True
+
+
+def _lookup_joined(
+    store: DictionaryStore, group: List[TextElement]
+) -> Optional[Tuple[str, str]]:
+    """折返しグループを連結して辞書を引く (区切り無し→空白の順で最初の一致)。
+
+    一致した連結元文字列 (source) と置換先 (target) の組を返す。
+    """
+    parts = [t.text.strip() for t in group]
+    for sep in ("", " "):  # 和文(区切り無し)・欧文(空白)の双方を拾う
+        joined = sep.join(parts)
+        target = store.lookup(joined)
+        if target is not None:
+            return joined, target
+    return None
+
 
 def plan_replacements(
     page: Page, store: DictionaryStore, only_headers: bool = True
 ) -> List[Replacement]:
     """辞書に一致する置換案を列挙する (実際の書き換えはしない)。"""
     plans: List[Replacement] = []
-    for el in _text_elements(page):
+    texts = _text_elements(page)
+    consumed: set = set()
+
+    # 折返しヘッダの連結照合 (要素単位より優先)。連結で一致しなければグループは
+    # 解放され、各行が従来どおり単独照合される (後方互換)。
+    for group in _wrap_groups(texts):
+        if len(group) < 2 or not group[0].is_header:
+            continue
+        hit = _lookup_joined(store, group)
+        if hit is None:
+            continue
+        source, target = hit
+        top = group[0]
+        if target != top.text:
+            plans.append(Replacement(top, source, target, extras=group[1:]))
+        for t in group:
+            consumed.add(id(t))
+
+    for el in texts:
+        if id(el) in consumed:
+            continue
         if only_headers and not el.is_header:
             continue
         target = store.lookup(el.text)
@@ -67,6 +161,8 @@ def apply_replacement(rep: Replacement) -> None:
     """置換案をモデルへ反映 (初期自動適用用。Undo が要る場面では Command を使う)。"""
     rep.element.text = rep.target
     rep.element.dict_match = DictMatch(source=rep.source, target=rep.target)
+    for ex in rep.extras:  # 折返し 2 行目以降は描画から除外
+        ex.deleted = True
 
 
 def auto_apply(page: Page, store: DictionaryStore, only_headers: bool = True) -> int:

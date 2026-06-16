@@ -202,11 +202,21 @@
   }
 
   // host に現在ページの SVG を載せる。token で古い await を破棄。
+  // SVG 取得は失敗・遅延し得るため、無言でプレースホルダのまま固まらせず
+  // エラーを画面に出す (この描画が唯一ページを表示する経路のため)。
   async function mountPage(host, editorEl, withSelect) {
     var pg = PAGES[page];
     var token = pg.fileIndex + ":" + pg.pageInFile + ":" + Date.now();
     host.dataset.token = token;
-    var data = await ensureSvg(pg.fileIndex, pg.pageInFile);
+    var data;
+    try {
+      data = await ensureSvg(pg.fileIndex, pg.pageInFile);
+    } catch (e) {
+      if (host.dataset.token !== token) return; // ページが変わった
+      host.classList.remove("empty");
+      host.innerHTML = '<div class="page-loading" style="padding:24px">ページの表示に失敗しました<br>' + esc(e && e.message || e) + "</div>";
+      return;
+    }
     if (host.dataset.token !== token) return; // ページが変わった
     host.classList.remove("empty");
     host.innerHTML = data.svg;
@@ -816,9 +826,27 @@
     setHint('<b style="color:var(--good-ink)">' + n + "個のSVGを書き出しました。</b>");
   }
 
+  // ---- ライフサイクル (サーバ常駐管理) ----
+  // app.py は「窓を閉じた時の /quit ビーコン」＋「/ping ハートビート途絶を見張る
+  // watchdog」でサーバを終了する設計。クライアントがこれらを送らないと、Edge の
+  // コールド再起動で起動プロセスが早期終了した際にサーバが落ちて初回起動が空白になる。
+  function startLifecycle() {
+    // 生存ハートビート: last_seen を定期更新し、開いている間は watchdog に殺させない。
+    setInterval(function () {
+      fetch("/ping", { method: "POST", keepalive: true }).catch(function () {});
+    }, 10000);
+    // 窓を閉じる時の終了ビーコン。beforeunload ではなく pagehide + sendBeacon が確実。
+    // 最小化でも hidden になる visibilitychange は使わない (最小化でサーバを殺さないため)。
+    // ビーコン不達でもハートビート途絶 watchdog がバックストップになる。
+    window.addEventListener("pagehide", function () {
+      try { navigator.sendBeacon("/quit"); } catch (e) {}
+    });
+  }
+
   // ---- 起動 ----
   window.__rpcReady.then(function () {
     wireStatic();
     render();
+    startLifecycle();
   });
 })();

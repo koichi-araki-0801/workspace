@@ -254,7 +254,9 @@ describe("ラベル box の円内侵入なし (label inside pie / 全サンプ�
       }
     }
     expect(offenders, `円内へ侵入したラベル:\n${offenders.join("\n")}`).toEqual([]);
-  });
+    // 83 サンプルをフルレンダリングする重い集約テスト。CI のカバレッジ計測 (vitest --coverage)
+    // 下では既定 5s を超えるため timeout を広げる (検査ロジック・閾値は不変)。
+  }, 30_000);
 });
 
 describe("leader 幾何の不変条件 (実レンダリング)", () => {

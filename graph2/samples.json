@@ -851,12 +851,6 @@
       { "name": "その他", "value": 0.1 }
     ]
   },
-  "pdf_510037_03_jp_equity_idx_country": {
-    "description": "PDF 510037 国内株IDX国別・1スライス・日本100% (single slice 100%)",
-    "items": [
-      { "name": "日本", "value": 100 }
-    ]
-  },
   "pdf_510037_04_manulife_asset": {
     "description": "PDF 510037 マニュライフ資産・2スライス・国内債券99.4/その他0.6 極端 one-dominant",
     "items": [
@@ -905,12 +899,6 @@
     "items": [
       { "name": "外国投資信託証券", "value": 100.8 },
       { "name": "その他", "value": -0.8 }
-    ]
-  },
-  "pdf_510037_06_gold_country": {
-    "description": "PDF 510037 金国別・1スライス・アメリカ100% (single slice 100%)",
-    "items": [
-      { "name": "アメリカ", "value": 100 }
     ]
   },
   "pdf_510037_06_gold_currency": {
