@@ -16,13 +16,13 @@ set CI=true
 rem 同梱物の存在チェック（重量物は git 管理外。GitHub Releases から取得して展開すること）
 if not exist "%~dp0pnpm.tgz" (
   echo [ERROR] pnpm.tgz が見つかりません。重量物が未取得です。
-  echo         先に  pwsh -File scripts\offline\fetch-offline-bundle.ps1  を実行し、
+  echo         先に  scripts\offline\fetch-offline-bundle.bat  を実行し、
   echo         GitHub Releases から重量物（.pnpm-store / pnpm.tgz / ms-playwright）を取得してください。
   exit /b 1
 )
 if not exist "%~dp0.pnpm-store" (
   echo [ERROR] .pnpm-store が見つかりません。重量物が未取得です。
-  echo         先に  pwsh -File scripts\offline\fetch-offline-bundle.ps1  を実行してください。
+  echo         先に  scripts\offline\fetch-offline-bundle.bat  を実行してください。
   exit /b 1
 )
 
