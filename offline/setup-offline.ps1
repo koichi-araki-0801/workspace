@@ -47,9 +47,19 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Write-Host "[info] repo root: $RepoRoot"
 
-if (-not (Get-Command 'tar' -ErrorAction SilentlyContinue)) {
+# tar は Windows 標準（System32\tar.exe = BSD tar）を明示優先する。
+# Git Bash 等の MSYS tar が PATH 先頭にあると、`-C C:\...` を rsh の host:path と誤認し
+# 「Cannot connect to C:」で失敗するため（フックは sh 経由で起動され PATH が混ざりうる）。
+function Resolve-Tar {
+  $sys = Join-Path $env:SystemRoot 'System32\tar.exe'
+  if (Test-Path $sys) { return $sys }
+  $c = Get-Command 'tar.exe' -ErrorAction SilentlyContinue
+  if ($c) { return $c.Source }
+  $c = Get-Command 'tar' -ErrorAction SilentlyContinue
+  if ($c) { return $c.Source }
   Write-Error '[error] tar が見つかりません（Windows 10/11 標準の tar.exe が必要）。'; exit 1
 }
+$TarExe = Resolve-Tar
 
 $BundleName = 'offline-deps-bundle.tar.gz'
 $Bundle     = Join-Path $RepoRoot $BundleName
@@ -127,10 +137,15 @@ if (Test-Path $Sha) {
 $LockFile = Join-Path $RepoRoot 'pnpm-lock.yaml'
 $PkgJson  = Join-Path $RepoRoot 'package.json'
 if ((Test-Path $KeyFile) -and (Test-Path $LockFile) -and (Test-Path $PkgJson)) {
-  # publish-offline-bundle.ps1 の Get-ContentKey と同一ロジック
+  # publish-offline-bundle.ps1 の Get-ContentKey と同一ロジック。
+  # 行末非依存にするため CR(0x0D) を除去して LF 正規化してから測る
+  # （Windows working tree=CRLF と GitHub アーカイブ=LF の差を吸収）。
   $pkg = Get-Content $PkgJson -Raw | ConvertFrom-Json
   $packageManager = [string]$pkg.packageManager
-  $lockBytes = [System.IO.File]::ReadAllBytes($LockFile)
+  $rawLock = [System.IO.File]::ReadAllBytes($LockFile)
+  $lb = New-Object System.Collections.Generic.List[byte] ($rawLock.Length)
+  foreach ($x in $rawLock) { if ($x -ne 13) { $lb.Add($x) } }
+  $lockBytes = $lb.ToArray()
   $pmBytes   = [System.Text.Encoding]::UTF8.GetBytes($packageManager)
   $all = New-Object byte[] ($lockBytes.Length + $pmBytes.Length)
   [System.Array]::Copy($lockBytes, 0, $all, 0, $lockBytes.Length)
@@ -150,7 +165,7 @@ if ((Test-Path $KeyFile) -and (Test-Path $LockFile) -and (Test-Path $PkgJson)) {
 
 # ---- [4/6] 重量物を ROOT へ展開 ----
 Write-Host '[4/6] 重量物を直下へ展開（.pnpm-store / pnpm.tgz / ms-playwright）...'
-& tar -xzf $Bundle -C $RepoRoot
+& $TarExe -xzf $Bundle -C $RepoRoot
 if ($LASTEXITCODE -ne 0) { Write-Error '[error] 展開に失敗しました。'; exit 1 }
 foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright')) {
   if (-not (Test-Path (Join-Path $RepoRoot $p))) { Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1 }
@@ -211,16 +226,26 @@ Write-Host '[6/6] ダウンロード物を bk/ へ退避（同名があれば削
 $Bk = Join-Path $RepoRoot 'bk'
 New-Item -ItemType Directory -Path $Bk -Force | Out-Null
 function Move-ToBk([string]$src) {
-  if (-not (Test-Path $src)) { return }
+  if (-not (Test-Path -LiteralPath $src)) { return }
   $dst = Join-Path $Bk (Split-Path $src -Leaf)
-  if (Test-Path $dst) { Remove-Item -LiteralPath $dst -Recurse -Force -ErrorAction SilentlyContinue }
-  Move-Item -LiteralPath $src -Destination $dst -Force
+  if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force -ErrorAction SilentlyContinue }
+  # 一時的なファイルロック（AV スキャン等）に備え、軽くリトライしてから移す。
+  for ($i = 1; $i -le 3; $i++) {
+    try { Move-Item -LiteralPath $src -Destination $dst -Force; break }
+    catch { if ($i -eq 3) { throw }; Start-Sleep -Milliseconds 400 }
+  }
   Write-Host "       -> bk\$(Split-Path $src -Leaf)"
 }
-Move-ToBk $SrcZip      # ソース ZIP（temp）
-Move-ToBk $Bundle      # offline-deps-bundle.tar.gz
-Move-ToBk $Sha         # .sha256
-Move-ToBk $KeyFile     # bundle.key
+$toMove = @($SrcZip, $Bundle, $Sha, $KeyFile)   # ソースZIP(temp) + 直下のバンドル一式
+foreach ($f in $toMove) { Move-ToBk $f }
+# ダウンロード物が直下に残っていないことを保証（残れば 1 度だけ再退避を試みる）。
+$leftover = $toMove | Where-Object { Test-Path -LiteralPath $_ }
+if ($leftover) {
+  Start-Sleep -Milliseconds 500
+  foreach ($f in $leftover) { Move-ToBk $f }
+  $leftover = $toMove | Where-Object { Test-Path -LiteralPath $_ }
+  if ($leftover) { Write-Warning "[warn] bk へ退避できなかったファイルがあります: $($leftover -join ', ')" }
+}
 
 Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
 

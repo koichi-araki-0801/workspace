@@ -63,6 +63,20 @@ function Require-Cmd([string]$name) {
 Require-Cmd 'gh'
 Require-Cmd 'git'
 
+# tar は Windows 標準（System32\tar.exe = BSD tar）を明示優先で解決する。
+# 本スクリプトは .husky/post-commit から sh 経由（→ powershell）で起動されることがあり、
+# その場合 PATH に Git Bash の MSYS tar が混ざる。MSYS tar は `-C C:\...` を rsh の
+# host:path と誤認して「Cannot connect to C:」で失敗するため、System32 を優先する。
+function Resolve-Tar {
+  $sys = Join-Path $env:SystemRoot 'System32\tar.exe'
+  if (Test-Path $sys) { return $sys }
+  $c = Get-Command 'tar.exe' -ErrorAction SilentlyContinue
+  if ($c) { return $c.Source }
+  $c = Get-Command 'tar' -ErrorAction SilentlyContinue
+  if ($c) { return $c.Source }
+  Write-Error "[error] 'tar' が見つかりません（Windows 10/11 標準の tar.exe が必要）。"; exit 1
+}
+
 # ---- packageManager とキー ----
 $pkg = Get-Content $PkgJson -Raw | ConvertFrom-Json
 $packageManager = [string]$pkg.packageManager           # 例: pnpm@11.5.3+sha512...
@@ -75,8 +89,17 @@ if ($packageManager -notmatch '^pnpm@([0-9]+\.[0-9]+\.[0-9]+)') {
 $pnpmVersion = $Matches[1]
 Write-Host "[info] pnpm version: $pnpmVersion"
 
+# pnpm-lock.yaml の行末は環境差（Windows working tree の CRLF / GitHub アーカイブの LF）で
+# バイト列が変わる。キーを行末非依存にするため CR(0x0D) を除去して LF 正規化してから測る。
+# （setup 側の整合チェックと同一ロジックにすること。）
+function ConvertTo-LfBytes([byte[]]$bytes) {
+  $out = New-Object System.Collections.Generic.List[byte] ($bytes.Length)
+  foreach ($x in $bytes) { if ($x -ne 13) { $out.Add($x) } }
+  $out.ToArray()
+}
+
 function Get-ContentKey {
-  $lockBytes = [System.IO.File]::ReadAllBytes($LockFile)
+  $lockBytes = ConvertTo-LfBytes ([System.IO.File]::ReadAllBytes($LockFile))
   $pmBytes   = [System.Text.Encoding]::UTF8.GetBytes($packageManager)
   $all = New-Object byte[] ($lockBytes.Length + $pmBytes.Length)
   [System.Array]::Copy($lockBytes, 0, $all, 0, $lockBytes.Length)
@@ -124,9 +147,9 @@ $KeyFile    = Join-Path $RepoRoot 'bundle.key'
 $sizeMB     = $null
 
 if ($bundleChanged) {
+  $TarExe = Resolve-Tar
   if (-not $SkipRegen) {
     Require-Cmd 'corepack'
-    Require-Cmd 'tar'
 
     Write-Host '[1/3] 依存を同梱ストアへ充填（corepack pnpm install --frozen-lockfile）...'
     $env:COREPACK_ENABLE_DOWNLOAD_PROMPT = '0'
@@ -150,7 +173,6 @@ if ($bundleChanged) {
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] playwright install に失敗しました。'; exit 1 }
   } else {
     Write-Host '[info] -SkipRegen: 既存のディスク上の重量物をそのまま固めます。'
-    Require-Cmd 'tar'
   }
 
   foreach ($p in @($Store, $PnpmTgz, $MsPw)) {
@@ -160,7 +182,7 @@ if ($bundleChanged) {
   # ---- パッケージング（重量物のみ。ソースは含めない） ----
   Write-Host "[info] tar -czf $BundleName .pnpm-store pnpm.tgz ms-playwright ..."
   Remove-Item $Bundle -Force -ErrorAction SilentlyContinue
-  & tar -czf $Bundle -C $RepoRoot '.pnpm-store' 'pnpm.tgz' 'ms-playwright'
+  & $TarExe -czf $Bundle -C $RepoRoot '.pnpm-store' 'pnpm.tgz' 'ms-playwright'
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] tar に失敗しました。'; exit 1 }
 
   $sizeMB = [math]::Round((Get-Item $Bundle).Length / 1MB, 1)
