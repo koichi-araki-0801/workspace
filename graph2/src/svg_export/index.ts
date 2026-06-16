@@ -1843,6 +1843,276 @@ function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutConfig): 
 }
 
 /**
+ * 汎用: 外側ラベルの 1 列 (片側) で隣接 box が縦に **重なる** (中心間距離 < 両 box 高の平均 = 接する最小)
+ * 箇所を、上下対称に拡げて解消する。`applyLeftStackGapClose` の逆操作 — あちらは過大ギャップを **縮める**
+ * が、密スタックで L1 ラベルが box 高未満に詰まる (例 currency_many_small_10 の スイスフラン↔
+ * スウェーデンクローナ ≈ 20px < 30px) ケースは拡げる処理が無く重なったまま残る。本処理がその過小ギャップ
+ * 拡大を担う。`relieveOutsideColumnOverlap` が左右両列に対して呼ぶ (leftStackMode 非依存)。
+ *
+ * 縦のみ移動 (X は保持。leader は p.y 変更に追従して再描画される)。`clampPlacement` で viewBox 内へ収める
+ * (天井/床で頭打ちなら不足分は残す = 部分緩和)。do-no-harm: この列内の最大縦重なりが厳密減少し、かつ
+ * 全 placement 横断の重なり / pie 侵入 / leader 交差 / leader 貫通 / viewBox はみ出しのいずれも増やさない
+ * 時だけ採用、でなければ列ごと revert (退行0)。emit でのみ呼ぶ。
+ */
+function relieveColumnOverlap(
+  stack: Placement[],
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): void {
+  if (stack.length < 2) return;
+  stack.sort((a, b) => b.y - a.y); // logical y 降順 = 視覚 上 → 下
+
+  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const boxes = stack.map((p) => placementBox(p, cfg));
+  const centers = boxes.map((b) => (b.top + b.bottom) / 2);
+  const heights = boxes.map((b) => Math.abs(b.top - b.bottom));
+
+  // 過小ギャップを **対称** に拡げる (上側を上・下側を下へ d/2 ずつ。reorderLeftStackWithCondense と同手)。
+  // 片側押し上げだと最上段が天井 clamp に当たり実効改善が出ない (例 currency_many_small_10) ため、
+  // 下段の余裕 (L2 間の広いギャップ) へも逃がせる対称分配にする。working `ys` (= 中心) を反復緩和し
+  // 収束後の差分を shift とする。中心移動量 == p.y (anchor) 移動量なので shift をそのまま p.y に足せる。
+  const ys = centers.slice();
+  for (let iter = 0; iter < 16; iter += 1) {
+    let moved = false;
+    for (let i = 0; i + 1 < stack.length; i += 1) {
+      const minCenterGap = (heights[i] + heights[i + 1]) / 2;
+      const cur = ys[i] - ys[i + 1];
+      if (cur < minCenterGap - tol) {
+        const d = (minCenterGap - cur) / 2;
+        ys[i] += d;
+        ys[i + 1] -= d;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  const shift = ys.map((y, i) => y - centers[i]);
+  const needAny = shift.some((s) => Math.abs(s) > tol);
+  if (!needAny) return;
+
+  // 局所 (スタック内) の重なりが改善したかを主指標にする。全 placement 横断の maxOverlap は他所の
+  // tight 対が支配して局所改善を覆い隠す (例 currency_many_small_10 は別所に同等の tight があり全体
+  // 最大が下がらない) ため、採否は「スタック内重なりが厳密減 かつ 全体を悪化させない」で判定する。
+  const localOverlap = (): number => boxOverlapMax(stack, cfg);
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPie = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxView = (): number => boxViewOverflowMax(placements, cfg, coord);
+  const beforeLocal = localOverlap();
+  const beforeOverlap = maxOverlap();
+  const beforePie = maxPie();
+  const beforeView = maxView();
+  const beforeCross = countLeaderCrossings(placements, cfg, coord);
+  const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
+  const snapshot = stack.map((p) => ({ p, x: p.x, y: p.y }));
+
+  // 縦のみ移動 (X は保持)。これらのラベルは declip 配置で rim ハグ位置に居ないため、X を rim へ
+  // 再ハグすると横位置が乱れて新規重なりを生む (applyLeftStackGapClose は skipLeader=true で rim
+  // ハグするが、本パスは leader を残すので X を動かさない)。leader は p.y 変更に追従して再描画される。
+  for (let i = 0; i < stack.length; i += 1) {
+    if (Math.abs(shift[i]) <= tol) continue;
+    const p = stack[i];
+    p.y += shift[i];
+    clampPlacement(p);
+  }
+
+  const improved = localOverlap() < beforeLocal - tol;
+  const harm =
+    !improved ||
+    maxOverlap() > beforeOverlap + tol ||
+    maxPie() > beforePie + tol ||
+    maxView() > beforeView + tol ||
+    countLeaderCrossings(placements, cfg, coord) > beforeCross ||
+    countLeaderThroughLabels(placements, cfg, coord) > beforeThrough;
+  if (harm) {
+    for (const s of snapshot) {
+      s.p.x = s.x;
+      s.p.y = s.y;
+    }
+  }
+}
+
+/**
+ * 汎用: 左右両方の外側ラベル列について `relieveColumnOverlap` で過小ギャップ (縦重なり) を解消する。
+ * 列の所属は実描画サイド (anchor=end かつ x<0 → 左列 / anchor=start かつ x>0 → 右列) で判定し flip 済も
+ * 正しく拾う。各列は独立に do-no-harm 評価される。leftStackMode など特定モードに依存しない。
+ */
+function relieveOutsideColumnOverlap(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): void {
+  const left = placements.filter((p) => !p.insideSlice && p.anchor === "end" && p.x < 0);
+  const right = placements.filter((p) => !p.insideSlice && p.anchor === "start" && p.x > 0);
+  relieveColumnOverlap(left, placements, cfg, coord);
+  relieveColumnOverlap(right, placements, cfg, coord);
+}
+
+/**
+ * 汎用: viewBox 左右端を見切れる **外側ラベル** を、pie へ向けて寄せて見切れを減らす (左ラベルは右へ・
+ * 右ラベルは左へ)。declip / cascade 配置で本来の rim ハグ位置より外へ押し出されたラベル (例
+ * currency_many_small_10 の スウェーデンクローナ: 右端が隣の ノルウェークローネ より約 100px 左) を、pie
+ * クリアランス限界 (= `nudgeTextAwayFromPie` が返す rim ハグ X = pie 側辺が pieRadius+clearance に接する
+ * 最も pie 寄りの anchor 位置) まで戻す。これ以上 pie 側へは食い込むため寄せられない (= 横方向の上限)。
+ *
+ * 見切れの大きい順に 1 枚ずつ貪欲適用し、各手は do-no-harm: viewBox はみ出し最大が厳密減少し、かつ
+ * pie 侵入 / 重なり / leader 交差 / leader 貫通 のいずれも増やさない時だけ採用、でなければその 1 枚を
+ * revert (退行0)。縦位置は変えず X のみ動かす (leader は追従再描画)。emit でのみ呼ぶ。leftStackMode
+ * など特定モードに依存せず、全チャートの外側ラベルへ働く (do-no-harm なので収まっている図は無変更)。
+ */
+function pullOutsideOverflowTowardPie(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): void {
+  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const halfW = cfg.svgWidthPx / 2 / cfg.pxPerUnit;
+  const pieR = cfg.pieRadius;
+  // anchor=end → 左ラベル (pie 側辺=右端、右へ寄せる)。anchor=start → 右ラベル (pie 側辺=左端、左へ寄せる)。
+  // middle (内側等) は対象外。flip 済みは実描画サイドが anchor と一致するのでそのまま扱える。
+  const candidates = placements
+    .map((p) => {
+      if (p.insideSlice) return null;
+      if (p.anchor !== "end" && p.anchor !== "start") return null;
+      const b = placementBox(p, cfg);
+      const over = p.anchor === "end" ? -halfW - b.left : b.right - halfW;
+      return over > tol ? { p, over } : null;
+    })
+    .filter((e): e is { p: Placement; over: number } => e !== null)
+    .sort((a, b) => b.over - a.over); // 見切れ量の大きい順 (最も目立つ見切れから戻す)。
+  if (candidates.length === 0) return;
+
+  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
+  const maxPie = (): number => boxPieIntrusionMax(placements, cfg);
+  const maxView = (): number => boxViewOverflowMax(placements, cfg, coord);
+
+  for (const { p } of candidates) {
+    // rim ハグ X (pie 側辺が pieRadius+clearance に接する最も pie 寄りの anchor 位置)。左ラベルは
+    // pie 中心の左 (-rimXmag) 側、右ラベルは右 (+rimXmag) 側でハグする。
+    const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - p.y * p.y));
+    const seedX = p.anchor === "end" ? -rimXmag : rimXmag;
+    const measured = placementExtent(p, cfg);
+    const hugX = nudgeTextAwayFromPie(seedX, p.y, p.anchor, p.baseline, measured, cfg).x;
+    // pie へ向かう向き (左ラベル=右/+、右ラベル=左/-) にのみ動かす。逆向き (外へ) は見切れを増やすので不可。
+    const movesTowardPie = p.anchor === "end" ? hugX > p.x + tol : hugX < p.x - tol;
+    if (!movesTowardPie) continue;
+
+    const beforeOverlap = maxOverlap();
+    const beforePie = maxPie();
+    const beforeView = maxView();
+    const beforeCross = countLeaderCrossings(placements, cfg, coord);
+    const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
+    const origX = p.x;
+
+    p.x = hugX;
+    clampPlacement(p);
+
+    const harm =
+      maxView() >= beforeView - tol ||
+      maxOverlap() > beforeOverlap + tol ||
+      maxPie() > beforePie + tol ||
+      countLeaderCrossings(placements, cfg, coord) > beforeCross ||
+      countLeaderThroughLabels(placements, cfg, coord) > beforeThrough;
+    if (harm) p.x = origX;
+  }
+}
+
+/**
+ * emit 専用: ソフトマージン (`canvasXlim` = viewBox 端から `marginCapHorizontalPx`) には長体下限
+ * (`FINAL_CONDENSE_MIN_SCALE`) でも収まらない「構造的オーバーフロー」ラベル — percent 行だけで残り幅を
+ * 食い切る短名 (例 currency の "ユーロ")、極端な長カタカナ、支配スライス右端 — を、**実 viewBox を
+ * 見切らない範囲で**原寸 (sx=1) へ向けて緩和する。
+ *
+ * 背景: `applyFinalCondenseToFit` はソフトマージンに収めるため長体化し、収まらない構造ラベルは下限まで
+ * 潰す。`relaxNameCondense` は「ソフトに収まる」分しか戻さないため、構造ラベルはソフト超過のまま下限で
+ * 過圧縮されて残る。名前が短いラベルほど「どのみちマージンは超えるのに見た目だけ潰れる」損が大きい
+ * (ユーロ)。本パスはソフト侵入を許容し、実 viewBox 見切れだけを上限に長体を緩める。
+ *
+ * anchor (pie 側の辺) 固定で far edge のみ外側へ動くので原理的に pie 侵入・新規重なりは増えないが、box が
+ * 広がると他 leader が貫く/交差が増え得るため、`pullOutsideOverflowTowardPie` と同じ do-no-harm ゲート
+ * (重なり / pie 侵入 / leader 交差 / leader 貫通 が開始時から非増加、かつ実 viewBox 見切れが増えない) で
+ * 1 ステップずつ採否し、崩れる手は revert する。ソフト見切れ (`boxViewOverflowMax`) はゲートに入れない
+ * (それを許すのが本パスの目的)。`relaxNameCondense` の後・finalScore の前に 1 回だけ呼ぶ。scoring
+ * (`finalizeForScoring`) には入れない: 候補選択を乱さず、finalScore は本パス後の placements から数える
+ * ため scorer ↔ emit 整合は保たれる (`applyTwoLineNameFallback` と同方針)。
+ */
+function relaxStructuralCondense(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
+  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const STEP = 0.025; // applyFinalCondenseToFit / relaxNameCondense と同じ格子
+  const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
+  // 実 viewBox 端 (ハードリミット)。ソフトと違い `marginCapHorizontalPx` を引かない = 見切れる直前まで
+  // 許す。端ぴったりはグリフが切れて見えるため数 px の安全代を残す。
+  const hardHalf = cfg.svgWidthPx / 2 / cfg.pxPerUnit - 4 / cfg.pxPerUnit;
+  const candidates = placements.filter(
+    (p) => !p.insideSlice && (p.nameScaleX ?? 1) < 1 - 1e-9,
+  );
+  if (candidates.length === 0) return;
+
+  // box が `hardHalf` (= 実 viewBox 端の数 px 内側) を越える量。ラベル単位で評価する (グローバル最大で
+  // 測ると、既に見切れる別ラベルがある図で全ラベルをそこまで広げてしまう)。`hardHalf` で測るので、開始時
+  // から増やさない限り実 viewBox (`realHalf`) は必ず数 px 余して割らない = verify の見切れ判定と整合する。
+  const hardClip = (b: { left: number; right: number }): number =>
+    Math.max(0, -hardHalf - b.left, b.right - hardHalf);
+  const distToPie = (b: { left: number; right: number; top: number; bottom: number }): number => {
+    const nx = Math.max(b.left, Math.min(0, b.right));
+    const ny = Math.max(b.bottom, Math.min(0, b.top));
+    return Math.hypot(nx, ny);
+  };
+  // 各候補の開始時 (relax 前) の見切れ量。見切れガードはこの絶対基準で測る (ステップごとの相対基準だと
+  // 許容が毎ステップ累積し、収まっていたラベルが徐々に viewBox を割る)。
+  const initialClip = new Map<Placement, number>(
+    candidates.map((p) => [p, hardClip(placementBox(p, cfg))]),
+  );
+  // leader 交差 / 貫通は対の整数カウントなのでグローバルで「開始時から増えない」を見る。
+  const beforeCross = countLeaderCrossings(placements, cfg, coord);
+  const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
+
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const p of candidates) {
+      const cur = p.nameScaleX ?? 1;
+      if (cur >= 1 - 1e-9) continue;
+      const beforeBox = placementBox(p, cfg);
+      const beforePieDist = distToPie(beforeBox);
+      p.nameScaleX = Math.min(1, Math.round((cur + STEP) * 1000) / 1000);
+      const box = placementBox(p, cfg);
+      // (a) このラベルの見切れを開始時から増やさない。収まっていれば収まったまま、既に見切れる真の
+      //     クリップ floor ラベルは広げると悪化するので revert = floor 据え置き。
+      let ok = hardClip(box) <= (initialClip.get(p) ?? 0) + 1e-9;
+      // (b) pie 非侵入 (anchor=start/end は pie 側辺固定で自明・middle 用ガード)。
+      if (ok) {
+        const d = distToPie(box);
+        ok = d >= cfg.pieRadius + pieClearance - 1e-9 || d >= beforePieDist - 1e-9;
+      }
+      // (c) 他 box との横重なりを増やさない (ラベル単位)。
+      if (ok) {
+        for (const q of placements) {
+          if (q === p) continue;
+          const b = placementBox(q, cfg);
+          const oy = Math.min(box.top, b.top) - Math.max(box.bottom, b.bottom);
+          if (oy <= 0) continue;
+          const oxAfter = Math.min(box.right, b.right) - Math.max(box.left, b.left);
+          const oxBefore = Math.min(beforeBox.right, b.right) - Math.max(beforeBox.left, b.left);
+          if (oxAfter > Math.max(oxBefore, 0) + 1e-9) {
+            ok = false;
+            break;
+          }
+        }
+      }
+      // (d) leader 交差 / 貫通を増やさない (box 拡大で他 leader が貫く/交差し得るためグローバル確認)。
+      if (ok) {
+        ok =
+          countLeaderCrossings(placements, cfg, coord) <= beforeCross &&
+          countLeaderThroughLabels(placements, cfg, coord) <= beforeThrough;
+      }
+      if (ok) progressed = true;
+      else p.nameScaleX = cur;
+    }
+  }
+}
+
+/**
  * 9時線 (midAngle≈180) を挟んで縦に重なる左側 small スライスの「ほぼ縦・平行」leader を、
  * スライス角度順に並べ直して左上の空きへわずかに逃がし、各 leader を明確な斜め線にする。
  *
@@ -3124,6 +3394,19 @@ export async function renderPdfStylePieToSvg(
     // ゲートは最終配置を正しく評価する。採点 (`finalizeForScoring`) には入れない: 候補選択を乱さず、
     // finalScore は emit 後の同 placements から数えるため scorer ↔ emit 整合は保たれる。
     applyTwoLineNameFallback(textPlacements, cfg, { xScale, yScale, width, height });
+
+    // 外側ラベル列の最終整え (overflow fallback の後 = 真に未解消のものだけ対象)。左右両列の過小ギャップ
+    // (隣接 box が box 高未満に詰まる縦重なり) を上下対称に拡げ、なお viewBox を見切れるラベルを pie
+    // クリアランス限界まで pie 側へ寄せる。fallback 後に置くことで、drop/2 行化で解消済みのラベル (例
+    // fidelity オフショア・人民元) は対象外となり干渉しない。両手とも全チャート共通で do-no-harm
+    // (列内重なり厳密減 / 見切れ厳密減 + 他カテゴリ非悪化) なので、収まっている図は無変更。
+    relieveOutsideColumnOverlap(textPlacements, cfg, { xScale, yScale, width, height });
+    pullOutsideOverflowTowardPie(textPlacements, cfg, { xScale, yScale, width, height });
+
+    // ソフトマージンには長体下限でも収まらない構造的オーバーフロー (例 currency の "ユーロ": percent 行だけで
+    // 残り幅を食う短名) が下限で過圧縮されたまま残るのを、実 viewBox を見切らない範囲で原寸へ緩和する。
+    // 位置確定後・finalScore 前に 1 回。emit 専用 (scoring 非干渉) で applyTwoLineNameFallback と同方針。
+    relaxStructuralCondense(textPlacements, cfg, { xScale, yScale, width, height });
 
     // emit 実配置 (最終化済 textPlacements) を内部スコアラで数え diagnostics に残す。後段は再適用
     // しない (countDefects はカウントのみ)。verify_consistency が emit SVG と突き合わせ、配置判断の
