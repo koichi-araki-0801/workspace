@@ -2221,6 +2221,174 @@ function escapeUpperLeftTinyLeaders(
   }
 }
 
+// ── near-contact (近接) 緩和 ──────────────────────────────────────────────────
+// 既存の最終段パスは hard defect (leader 交差 / 箱貫通 / 箱重なり / 円侵入 / viewBox 見切れ /
+// 角度順逆転) のみを検出・解消し、「交差・重なりには至らないが寄りすぎ」というサブ閾値の近接
+// (自 leader が隣の box/leader に触れそう) を見ない。`relieveLeaderNeighborContact` はその近接量を
+// 実描画と同じ pixel 空間で測り (`realLeaderPaths` / `placementBox`→px)、対象ラベルを微小ステップで
+// 上へ逃がして deficit を減らす。他パスと同じ do-no-harm: hard defect 群を非増加に保ちつつ対象 deficit を
+// 厳密減にしたときだけ採用し、悪化すれば元位置へ revert する。汎用に効く (特定サンプル決め打ちでない)
+// が、近接の無い図は deficit≈0 で早期 continue するため無変更。以下は計測用の共有ヘルパと本体。
+
+/** px 空間の矩形。`countDefects` の pbox と同じ作り (yScale 反転を min/max で吸収)。 */
+interface PixRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** placement の box を pixel 矩形へ変換する。 */
+function placementPixelRect(p: Placement, cfg: PieLayoutConfig, coord: Coord): PixRect {
+  const lb = placementBox(p, cfg);
+  return {
+    left: Math.min(coord.xScale(lb.left), coord.xScale(lb.right)),
+    right: Math.max(coord.xScale(lb.left), coord.xScale(lb.right)),
+    top: Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom)),
+    bottom: Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom)),
+  };
+}
+
+/** px 点と矩形の最短距離 (矩形内は 0)。 */
+function pointToRectPx(px: number, py: number, r: PixRect): number {
+  const dx = Math.max(r.left - px, 0, px - r.right);
+  const dy = Math.max(r.top - py, 0, py - r.bottom);
+  return Math.hypot(dx, dy);
+}
+
+/** px 線分と矩形の最短距離の近似 (矩形4隅→線分 と 線分2端→矩形 の最小)。交差時はほぼ 0。 */
+function segToRectPx(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  r: PixRect,
+): number {
+  let d = Math.min(pointToRectPx(ax, ay, r), pointToRectPx(bx, by, r));
+  const corners: [number, number][] = [
+    [r.left, r.top],
+    [r.right, r.top],
+    [r.left, r.bottom],
+    [r.right, r.bottom],
+  ];
+  for (const [cx, cy] of corners) {
+    d = Math.min(d, distPointToSegment(cx, cy, ax, ay, bx, by));
+  }
+  return d;
+}
+
+/** placement の描画 leader を pixel 折れ線へ。描かれない (inside / skip) は null。 */
+function selfLeaderPathPx(
+  p: Placement,
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): { x: number; y: number }[] | null {
+  if (p.insideSlice) return null;
+  const { pathPoints } = computeDrawnLeader(p, cfg);
+  return pathPoints.map((pt) => ({ x: coord.xScale(pt.x), y: coord.yScale(pt.y) }));
+}
+
+// do-no-harm ゲートは **件数ベース** (`countDefects` = verify と同じ閾値で clip/重なり/交差/円侵入を計数)
+// ＋角度順逆転 ＋ leader 箱貫通 を使う。max 量ベース (`box*Max`) だと「既に大きく見切れたラベルが1枚あると
+// 別ラベルを新たに少し見切れさせても最大値が変わらず素通り」する穴があり、広く回す本パス群では退行を見逃す
+// (実測 verify 11→27)。件数なら新規の見切れ/重なりは即 +1 で検出され verify と一致する。
+/** do-no-harm ゲート用の defect 件数スナップショット。 */
+interface HardDefects {
+  total: number;
+  through: number;
+  inv: number;
+}
+function measureHardDefects(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): HardDefects {
+  return {
+    total: countDefects(placements, cfg, coord).total,
+    through: countLeaderThroughLabels(placements, cfg, coord),
+    inv: countAngularDiscordantPairs(placements, cfg, coord),
+  };
+}
+/** before から件数がどれか 1 つでも増えたか (整数なので厳密比較)。 */
+function hardDefectsWorsened(
+  before: HardDefects,
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): boolean {
+  const a = measureHardDefects(placements, cfg, coord);
+  return a.total > before.total || a.through > before.through || a.inv > before.inv;
+}
+
+/**
+ * 自分の描画 leader が「隣の box / 隣の leader」に target_px 未満で接近するラベルを、上方向 (画面上)
+ * へ微小ステップで逃がして接触を軽減する。上左帯は上に空きがある前提の素直なヒューリスティック。
+ * 例: page16 ケイマン諸島の leader が隣に触れそう → 上へ逃がす。do-no-harm (悪化したら revert)。
+ */
+function relieveLeaderNeighborContact(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): void {
+  const pxPerUnit = Math.abs(coord.xScale(1) - coord.xScale(0));
+  const targetPx = radialFraction(cfg, 0.03, 0.22) * pxPerUnit;
+  const stepLogical = radialFraction(cfg, 0.01, 0.06);
+  const tolPx = 1;
+  const maxIter = 24;
+  for (const p of placements) {
+    if (p.insideSlice) continue;
+    const measure = (): number => {
+      const self = selfLeaderPathPx(p, cfg, coord);
+      if (!self) return 0;
+      const paths = realLeaderPaths(placements, cfg, coord);
+      let minDist = Number.POSITIVE_INFINITY;
+      for (let j = 0; j < placements.length; j += 1) {
+        if (placements[j] === p) continue;
+        const nb = placementPixelRect(placements[j], cfg, coord);
+        for (let k = 0; k + 1 < self.length; k += 1) {
+          minDist = Math.min(
+            minDist,
+            segToRectPx(self[k].x, self[k].y, self[k + 1].x, self[k + 1].y, nb),
+          );
+        }
+        const np = paths[j];
+        if (np) {
+          // leader 対 leader は端点→相手線分の最小で近似 (両方向)。
+          for (let k = 0; k + 1 < self.length; k += 1) {
+            for (let m = 0; m + 1 < np.length; m += 1) {
+              minDist = Math.min(
+                minDist,
+                distPointToSegment(self[k].x, self[k].y, np[m].x, np[m].y, np[m + 1].x, np[m + 1].y),
+                distPointToSegment(np[m].x, np[m].y, self[k].x, self[k].y, self[k + 1].x, self[k + 1].y),
+              );
+            }
+          }
+        }
+      }
+      // minDist≈0 は交差/貫通 (hard defect) なので near-contact 対象外。
+      if (!Number.isFinite(minDist) || minDist < 0.5) return 0;
+      return Math.max(0, targetPx - minDist);
+    };
+    const startDef = measure();
+    if (startDef <= tolPx) continue;
+    const before = measureHardDefects(placements, cfg, coord);
+    const snapX = p.x;
+    const snapY = p.y;
+    let iter = 0;
+    let cur = startDef;
+    while (cur > tolPx && iter < maxIter) {
+      p.y += stepLogical; // 画面上方向 (logical y-up)
+      clampPlacement(p, cfg);
+      iter += 1;
+      cur = measure();
+    }
+    if (cur >= startDef - tolPx || hardDefectsWorsened(before, placements, cfg, coord)) {
+      p.x = snapX;
+      p.y = snapY;
+    }
+  }
+}
+
 /** placement の全可変フィールドのスナップショット (seam 系パスの全 revert 用・退行0 を担保)。 */
 interface SeamSnap {
   p: Placement;
@@ -3463,6 +3631,11 @@ export async function renderPdfStylePieToSvg(
     // 残り幅を食う短名) が下限で過圧縮されたまま残るのを、実 viewBox を見切らない範囲で原寸へ緩和する。
     // 位置確定後・finalScore 前に 1 回。emit 専用 (scoring 非干渉) で applyTwoLineNameFallback と同方針。
     relaxStructuralCondense(textPlacements, cfg, { xScale, yScale, width, height });
+
+    // near-contact (近接) 緩和: 自 leader が隣の box/leader に寄りすぎるラベルを上へ逃がして接触を軽減する
+    // (例 page16 ケイマン諸島)。全 hard-defect パスの後に置くので、ここでの移動が最終配置となり leader
+    // (下 Pass 1) も移動後 box から再計算され追従する。do-no-harm: 近接の無い図は deficit≈0 で無変更。
+    relieveLeaderNeighborContact(textPlacements, cfg, { xScale, yScale, width, height });
 
     // emit 実配置 (最終化済 textPlacements) を内部スコアラで数え diagnostics に残す。後段は再適用
     // しない (countDefects はカウントのみ)。verify_consistency が emit SVG と突き合わせ、配置判断の

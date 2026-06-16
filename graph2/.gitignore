@@ -1,10 +1,7 @@
 node_modules/
 dist/
-out/svg_js/*.svg
-out/compare.html
-out/*.svg
-out/*.txt
-out/_baseline/
+# 生成物 (SVG/PNG/HTML/フォント等) は一括で無視。重量物はコミット対象外。
+out/
 *.log
 .DS_Store
 .claude/settings.local.json
