@@ -10,7 +10,7 @@
   - tools/_mockup/markup.html : <body> 内マークアップ (index.html 編集時の参照・非配布)。
   - tools/_mockup/app.mock.js : モック元の状態機械 (app.js 編集時の参照・非配布)。
 
-index.html / app.js / rpc.js / qwebchannel.js はリポジトリ側で管理する (手書き)。
+index.html / app.js / rpc.js はリポジトリ側で管理する (手書き)。
 本スクリプトは「モックを取り込み直す」とき以外は実行不要。
 
 使い方:

@@ -11,7 +11,7 @@ echo ============================================
 echo  [1/2] 依存ライブラリをインストール
 echo ============================================
 %PY% -m pip install --upgrade pip
-%PY% -m pip install PySide6 PyMuPDF Pillow fonttools brotli pyinstaller
+%PY% -m pip install PyMuPDF Pillow fonttools brotli pyinstaller
 if errorlevel 1 (
     echo.
     echo [エラー] 依存のインストールに失敗しました。

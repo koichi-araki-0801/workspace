@@ -6,7 +6,7 @@
 
 方針:
 - onedir (起動が速く AV 誤検知が少ない)。配布は dist/PdfToSvg/ フォルダごとコピー。
-- 未使用の重い Qt モジュールを除外してサイズを抑える。
+- UI は OS 標準の Edge をアプリモードで開くため Qt ランタイムは同梱しない (軽量)。
 """
 import os
 from PyInstaller.utils.hooks import collect_dynamic_libs
@@ -26,17 +26,13 @@ if os.path.isdir(RESOURCES):
 # PyMuPDF のネイティブライブラリを確実に同梱
 binaries = collect_dynamic_libs("fitz")
 
-# 不要な重量級 Qt モジュール (使っていない)
-# 注意: QtWebEngine* / QtWebChannel / QtNetwork / QtQuick / QtQml は UI を
-# QWebEngineView で描画するために実行時必須なので除外しない (除外すると白画面)。
-# PyInstaller の PySide6 フックが QtWebEngineProcess.exe / *.pak / locales / ICU を
-# 取り込む。dist にこれらが揃うことをビルド後に必ず確認すること。
+# UI は OS 標準の Edge を「アプリモード」で開いて描画する (web.server + resources/web)。
+# PySide6 / QtWebEngine は実行時に一切使わないため明示的に除外し、Qt ランタイム
+# (QtWebEngineProcess.exe / *.pak / locales / ICU / 各 Qt DLL) の同梱を防ぐ。
+# これで配布サイズが従来比 ~120〜150MB 縮む。tkinter も未使用。
 excludes = [
-    "PySide6.QtMultimedia",
-    "PySide6.QtMultimediaWidgets",
-    "PySide6.Qt3DCore",
-    "PySide6.QtCharts",
-    "PySide6.QtDataVisualization",
+    "PySide6",
+    "shiboken6",
     "tkinter",
 ]
 

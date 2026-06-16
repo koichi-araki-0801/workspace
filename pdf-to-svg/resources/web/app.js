@@ -58,6 +58,93 @@
   function clearSel() { var s = selSet(); Object.keys(s).forEach(function (k) { delete s[k]; }); }
   function initStatus(ch) { return ch.map(function (c) { return c ? "pending" : "none"; }); }
 
+  // ---- ファイル入出力 (File System Access API) ----
+  // http://127.0.0.1 は secure context のため showOpenFilePicker 等が使える。
+  // 非対応ブラウザでは <input type=file> / <a download> へフォールバックする。
+  function hasFsOpen() { return typeof window.showOpenFilePicker === "function"; }
+  function hasFsSave() { return typeof window.showSaveFilePicker === "function"; }
+
+  async function pickPdfFiles() {
+    if (hasFsOpen()) {
+      try {
+        var handles = await window.showOpenFilePicker({
+          multiple: true,
+          types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
+        });
+        return await Promise.all(handles.map(function (h) { return h.getFile(); }));
+      } catch (e) { if (e && e.name === "AbortError") return []; throw e; }
+    }
+    return new Promise(function (resolve) {
+      var inp = document.createElement("input");
+      inp.type = "file"; inp.accept = ".pdf,application/pdf"; inp.multiple = true;
+      inp.addEventListener("change", function () { resolve([].slice.call(inp.files)); });
+      inp.click();
+    });
+  }
+
+  async function uploadPdf(name, buf) {
+    var res = await fetch("/upload?name=" + encodeURIComponent(name), {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: buf,
+    });
+    var j = await res.json();
+    if (!j.ok) throw new Error(j.error || "アップロードに失敗しました");
+    return j.data;
+  }
+
+  function downloadBlob(name, text, mime) {
+    var url = URL.createObjectURL(new Blob([text], { type: mime || "application/octet-stream" }));
+    var a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 1000);
+  }
+
+  // 1 ファイルを保存。成功で true、ユーザーがキャンセルしたら false。FSA 非対応は download。
+  async function saveTextFile(suggestedName, text, descr, mime, ext) {
+    if (hasFsSave()) {
+      try {
+        var accept = {}; accept[mime] = [ext];
+        var h = await window.showSaveFilePicker({ suggestedName: suggestedName, types: [{ description: descr, accept: accept }] });
+        var w = await h.createWritable(); await w.write(text); await w.close();
+        return true;
+      } catch (e) { if (e && e.name === "AbortError") return false; throw e; }
+    }
+    downloadBlob(suggestedName, text, mime); return true;
+  }
+
+  // 1 ファイルを開いて File を返す。キャンセルで null。
+  async function pickOneFile(descr, mime, ext) {
+    if (hasFsOpen()) {
+      try {
+        var accept = {}; accept[mime] = [ext];
+        var hs = await window.showOpenFilePicker({ multiple: false, types: [{ description: descr, accept: accept }] });
+        return await hs[0].getFile();
+      } catch (e) { if (e && e.name === "AbortError") return null; throw e; }
+    }
+    return new Promise(function (resolve) {
+      var inp = document.createElement("input");
+      inp.type = "file"; inp.accept = ext + "," + mime;
+      inp.addEventListener("change", function () { resolve(inp.files[0] || null); });
+      inp.click();
+    });
+  }
+
+  // 保存先フォルダを選ぶ。FSA: ディレクトリハンドル / 非対応: "download" / キャンセル: null。
+  async function pickSaveDir() {
+    if (typeof window.showDirectoryPicker === "function") {
+      try { return await window.showDirectoryPicker({ mode: "readwrite" }); }
+      catch (e) { if (e && e.name === "AbortError") return null; throw e; }
+    }
+    return "download";
+  }
+
+  async function writeIntoDir(dir, name, text) {
+    if (dir === "download") { downloadBlob(name, text, "image/svg+xml"); return; }
+    var h = await dir.getFileHandle(name, { create: true });
+    var w = await h.createWritable(); await w.write(text); await w.close();
+  }
+
   // ---- 読み込み ----
   function applyState(st) {
     FILES = st.files; PAGES = st.pages; TOTAL = st.total;
@@ -72,10 +159,14 @@
   async function reloadState() { applyState(await rpc("state")); }
 
   async function doLoad() {
-    setHint("PDFを読み込んでいます…");
-    var res = await rpc("load");
-    if (res && res.cancelled) { render(); return; }
-    applyState(res);
+    var files = await pickPdfFiles();
+    if (!files || !files.length) { render(); return; }
+    for (var i = 0; i < files.length; i++) {
+      setHint("読み込み中 " + (i + 1) + "/" + files.length + ": " + esc(files[i].name));
+      var buf = await files[i].arrayBuffer();
+      await uploadPdf(files[i].name, buf);
+    }
+    await reloadState();
     renderFileCards();
     render();
   }
@@ -626,13 +717,16 @@
       render();
     });
     document.getElementById("btn-dict-export").addEventListener("click", async function () {
-      var r = await rpc("dictExport");
-      if (r && r.cancelled) return;
+      var r = await rpc("dictJson");
+      var ok = await saveTextFile("dictionary.json", r.json, "JSON", "application/json", ".json");
+      if (!ok) return;
       setHint("辞書を書き出しました（" + (r.count || 0) + " 件）");
     });
     document.getElementById("btn-dict-import").addEventListener("click", async function () {
-      var r = await rpc("dictImport");
-      if (r && r.cancelled) return;
+      var f = await pickOneFile("JSON", "application/json", ".json");
+      if (!f) return;
+      var text = await f.text();
+      var r = await rpc("dictImportJson", { json: text });
       dictState = r; renderDict();
       setHint("辞書を読み込みました（" + (r.imported || 0) + " 件）");
     });
@@ -700,17 +794,26 @@
   }
 
   async function doExport() {
-    var res;
     if (expMode === "page") {
       var pg = PAGES[page] || { fileIndex: 0, pageInFile: 0 };
-      res = await rpc("exportPage", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
-    } else {
-      var list = exportPageList();
-      if (!list.length) { setHint("書き出す対象のページがありません。"); return; }
-      res = await rpc("exportPages", { pages: list });
+      var one = await rpc("exportSvg", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
+      var ok = await saveTextFile(one.name, one.svg, "SVG", "image/svg+xml", ".svg");
+      if (!ok) return;
+      setHint('<b style="color:var(--good-ink)">1個のSVGを書き出しました。</b>');
+      return;
     }
-    if (res && res.cancelled) return;
-    setHint('<b style="color:var(--good-ink)">' + (res.count || 0) + "個のSVGを書き出しました。</b>");
+    var list = exportPageList();
+    if (!list.length) { setHint("書き出す対象のページがありません。"); return; }
+    var dir = await pickSaveDir();
+    if (dir === null) return; // キャンセル
+    var n = 0;
+    for (var i = 0; i < list.length; i++) {
+      setHint("書き出し中 " + (i + 1) + "/" + list.length);
+      var item = await rpc("exportSvg", list[i]);
+      await writeIntoDir(dir, item.name, item.svg);
+      n++;
+    }
+    setHint('<b style="color:var(--good-ink)">' + n + "個のSVGを書き出しました。</b>");
   }
 
   // ---- 起動 ----

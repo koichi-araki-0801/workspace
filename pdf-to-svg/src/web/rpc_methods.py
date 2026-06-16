@@ -8,7 +8,9 @@
 """
 from __future__ import annotations
 
+import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -52,16 +54,24 @@ def _page_has_replacements(page: Page) -> bool:
     )
 
 
-def _file_size_str(path: str) -> str:
-    try:
-        n = os.path.getsize(path)
-    except OSError:
-        return ""
+def _human_size(n: int) -> str:
     if n >= 1024 * 1024:
         return f"{n / 1024 / 1024:.1f} MB"
     if n >= 1024:
         return f"{n / 1024:.0f} KB"
     return f"{n} B"
+
+
+def _file_size_str(doc: Document) -> str:
+    # アップロード経由では実パスが無いので loader が付与した byte_size を使う。
+    # 旧来の実パス読み込みでも getsize でフォールバックする。
+    n = getattr(doc, "byte_size", None)
+    if n is None:
+        try:
+            n = os.path.getsize(doc.source_path)
+        except OSError:
+            return ""
+    return _human_size(n)
 
 
 def rpc_state(s: WebSession, _args: dict) -> dict:
@@ -76,7 +86,7 @@ def rpc_state(s: WebSession, _args: dict) -> dict:
                 "id": fi,
                 "name": Path(d.source_path).name,
                 "pages": len(d.pages),
-                "size": _file_size_str(d.source_path),
+                "size": _file_size_str(d),
             }
         )
         for pi, pg in enumerate(d.pages):
@@ -278,7 +288,47 @@ def rpc_redo(s: WebSession, _args: dict) -> dict:
     return {"canUndo": s.undo.canUndo(), "canRedo": s.undo.canRedo()}
 
 
-# メソッド名 → 関数。Bridge が load/export を別途処理した後、ここへディスパッチする。
+# ---- 書き出し (SVG 文字列を返す。ファイル保存はブラウザの FSA が行う) ----
+
+def rpc_exportSvg(s: WebSession, args: dict) -> dict:
+    """指定ページの SVG 文字列と推奨ファイル名を返す (annotate なし=書き出し用・従来出力と一致)。"""
+    fi = int(args["fileIndex"])
+    pi = int(args["pageInFile"])
+    d = s.doc(fi)
+    stem = Path(d.source_path).stem
+    return {"svg": page_to_svg(d.pages[pi]), "name": f"{stem}_p{pi + 1}.svg"}
+
+
+# ---- 辞書 JSON (文字列ベース。ファイル保存/読込はブラウザの FSA が行う) ----
+
+def rpc_dictJson(s: WebSession, _args: dict) -> dict:
+    """現在の辞書を共有用 JSON 文字列 (実体ファイルと同形式) で返す。"""
+    data = [
+        {"source": m.source_raw, "target": m.target, "enabled": m.enabled}
+        for m in s.store.all()
+    ]
+    return {"json": json.dumps(data, ensure_ascii=False, indent=2), "count": len(data)}
+
+
+def rpc_dictImportJson(s: WebSession, args: dict) -> dict:
+    """JSON 文字列から辞書を取り込む (upsert)。取り込み件数と一覧を返す。"""
+    text = args.get("json") or ""
+    fd, tmp = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        n = s.store.import_json(Path(tmp))
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+    payload = _dict_payload(s)
+    payload["imported"] = n
+    return payload
+
+
+# メソッド名 → 関数。load (アップロード) は server.py が、ファイル保存はブラウザが扱う。
 HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "state": rpc_state,
     "pageSvg": rpc_pageSvg,
@@ -290,6 +340,9 @@ HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "dictDelete": rpc_dictDelete,
     "dictExport": rpc_dictExport,
     "dictImport": rpc_dictImport,
+    "dictJson": rpc_dictJson,
+    "dictImportJson": rpc_dictImportJson,
+    "exportSvg": rpc_exportSvg,
     "setOnlyHeaders": rpc_setOnlyHeaders,
     "reapplyDict": rpc_reapplyDict,
     "applyDelete": rpc_applyDelete,

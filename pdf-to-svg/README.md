@@ -31,14 +31,14 @@ PDF を編集可能な **SVG** に変換し、非エンジニアでも
 
 ```powershell
 # 依存インストール
-python -m pip install -e .            # もしくは pip install PySide6 PyMuPDF Pillow
+python -m pip install -e .            # もしくは pip install PyMuPDF Pillow fonttools brotli
 # 起動
 python run.py
 ```
 
 ## 基本操作（4 ステップ・ウィザード）
 
-UI は QWebEngineView で描画する Web UI（`resources/web/`）。複数 PDF を一括で扱い、
+UI は OS 標準の **Edge をアプリモード**で開いて表示する Web UI（`resources/web/`）。複数 PDF を一括で扱い、
 上部のステップバーに沿って 1→4 を進める。各ページは「要確認 / 確認済み / スキップ /
 変更なし」の状態を持ち、未確認が残ると「次へ」で確認ガードバーが出る。
 
@@ -59,20 +59,24 @@ UI は QWebEngineView で描画する Web UI（`resources/web/`）。複数 PDF 
 PDF → engine(PyMuPDF抽出 + vector/scan判定) → model(Document/Page/Element)
    → dictionary(NFKC正規化 + ヘッダ検出 + 自動適用)
    → export(model→SVG直接シリアライズ) ……出力 & 画面プレビュー
-   ↑↓ web.bridge(QWebChannel) ←→ resources/web(QWebEngineViewのUI) ……編集UI
+   ↑↓ web.server(127.0.0.1 HTTP /rpc・/upload) ←→ resources/web(Edge アプリ窓のUI) ……編集UI
 ```
 
-- **モデルが真実**。編集は Web UI から Bridge 経由で `QUndoCommand` を push してモデルを更新し、
-  SVG はモデルから直接書き出す（決定的・GUI 非依存でテスト可能・フォント名が崩れない）。
+- **モデルが真実**。編集は Web UI から `/rpc` 経由で `web.commands` を `web.undo_stack` へ
+  push してモデルを更新し、SVG はモデルから直接書き出す（決定的・GUI 非依存でテスト可能・
+  フォント名が崩れない）。
 - 画面のページ表示も `export/svg_exporter.py` の SVG を Web DOM に流し込む（書き出しと同一経路）。
-- UI（HTML/CSS/JS）は `resources/web/`、Python との橋渡しは `src/web/`（`bridge.py` /
-  `rpc_methods.py` / `scheme.py` / `commands.py`）。`app://` カスタムスキームで完全オフライン動作。
+- UI（HTML/CSS/JS）は `resources/web/`、Python との橋渡しは `src/web/`（`server.py` /
+  `rpc_methods.py` / `loader.py` / `commands.py` / `undo_stack.py`）。`app.py` が
+  小さなローカル HTTP サーバを立て、Edge を `--app=` で起動・常駐管理する。ネットワークには
+  出ない（`127.0.0.1` のみ）。PDF の読み込みは UI がバイトを `/upload` し、SVG/辞書の保存は
+  UI の File System Access API が担う。
 - 主要モジュール: `engine/pdf_engine.py`, `model/elements.py`, `export/svg_exporter.py`,
-  `dictionary/apply.py`, `web/bridge.py`, `web/rpc_methods.py`。
+  `dictionary/apply.py`, `web/server.py`, `web/rpc_methods.py`。
 
 > UI を `resources/web/` から取り込み直す場合は `python tools/extract_mockup.py <モックHTML>` で
 > `styles.css` を再生成する（フォントは UI 用に Windows 標準へ差し替え済み）。
-> `index.html` / `app.js` / `rpc.js` / `qwebchannel.js` は手書き管理。
+> `index.html` / `app.js` / `rpc.js` は手書き管理。
 
 ---
 
@@ -80,10 +84,11 @@ PDF → engine(PyMuPDF抽出 + vector/scan判定) → model(Document/Page/Elemen
 
 ```powershell
 python -m pip install pytest
-$env:QT_QPA_PLATFORM="offscreen"; python -m pytest
+python -m pytest
 ```
 
-抽出→辞書適用→クロップ→SVG 書き出し、正規化、ストア照合、スキャン画像埋め込みを網羅。
+抽出→辞書適用→クロップ→SVG 書き出し、正規化、ストア照合、スキャン画像埋め込み、RPC
+ディスパッチ・Undo スタック・SVG 書き出しを網羅。コアは UI/Qt 非依存のため Qt 無しで走る。
 
 ---
 
@@ -97,10 +102,11 @@ pyinstaller packaging/pdftosvg.spec --noconfirm
 
 配布はこの onedir フォルダ (`dist\PdfToSvg\`) をそのままコピーするポータブル方式。
 
-> UI に **QtWebEngine（Chromium）** を使うため配布サイズは従来より +120〜150MB 程度大きい。
-> ビルド後は `dist\PdfToSvg\` に `QtWebEngineProcess.exe` / `*.pak` / `locales\` / ICU が
-> 揃っていること（無いと UI が白画面になる）、およびネットワーク遮断下でも起動・書き出しが
-> できることを確認する。`packaging/pdftosvg.spec` は QtWebEngine 系を除外していない。
+> UI は OS 標準の **Edge をアプリモード**で開くため、QtWebEngine（Chromium）を同梱しない。
+> `packaging/pdftosvg.spec` は `PySide6` / `shiboken6` を除外しており、`dist\PdfToSvg\` に
+> `QtWebEngineProcess.exe` / `*.pak` / `locales\` / ICU / Qt DLL が **無い**こと（従来比
+> ~120〜150MB 縮小）、`fitz`（PyMuPDF）のネイティブが揃っていること、ネットワーク遮断下でも
+> 起動・書き出しができることをビルド後に確認する。Edge は Windows 10/11 に標準搭載。
 
 ---
 

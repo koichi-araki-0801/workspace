@@ -1,21 +1,21 @@
-"""編集操作の QUndoCommand 群。モデル (Page/Element) を直接更新する。
+"""編集操作のコマンド群。モデル (Page/Element) を直接更新する。
 
-旧 ``editor/commands.py`` を QGraphicsScene 非依存へ作り替えたもの。Web UI では
-編集後に Bridge が ``pageInvalidated`` を発火し、JS がページ SVG を取り直す。
+旧実装は ``QUndoCommand`` 派生だったが、QtWebEngine 撤廃に伴い素の Python クラスへ。
+:class:`web.undo_stack.UndoStack` が push 時に ``redo()`` を実行し、``undo()`` /
+``redo()`` で巻き戻す。``redo()`` / ``undo()`` の本体とコンストラクタ・シグネチャは
+従来と不変 (rpc_methods 側は無改変)。``label`` は履歴表示用 (現状は未使用)。
 """
 from __future__ import annotations
 
 from typing import List, Optional
 
-from PySide6.QtGui import QUndoCommand
-
 from model.document import Page
 from model.elements import DictMatch, Element, Rect, TextElement
 
 
-class DeleteCommand(QUndoCommand):
+class DeleteCommand:
     def __init__(self, elements: List[Element]):
-        super().__init__(f"{len(elements)} 要素を削除")
+        self.label = f"{len(elements)} 要素を削除"
         self.elements = list(elements)
 
     def redo(self) -> None:
@@ -27,9 +27,9 @@ class DeleteCommand(QUndoCommand):
             el.deleted = False
 
 
-class CropCommand(QUndoCommand):
+class CropCommand:
     def __init__(self, page: Page, new_rect: Optional[Rect]):
-        super().__init__("クロップ" if new_rect else "クロップ解除")
+        self.label = "クロップ" if new_rect else "クロップ解除"
         self.page = page
         self.new_rect = new_rect
         self.old_rect = page.crop_rect
@@ -41,14 +41,14 @@ class CropCommand(QUndoCommand):
         self.page.crop_rect = self.old_rect
 
 
-class ReplaceTextCommand(QUndoCommand):
+class ReplaceTextCommand:
     def __init__(
         self,
         el: TextElement,
         new_text: str,
         dict_match: Optional[DictMatch] = None,
     ):
-        super().__init__("テキスト置換")
+        self.label = "テキスト置換"
         self.el = el
         self.new_text = new_text
         self.dict_match = dict_match
