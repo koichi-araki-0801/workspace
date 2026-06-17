@@ -8,6 +8,9 @@ __pycache__/
 # Bundled WebView2 Fixed Version runtime (~180MB, fetched per build host)
 webview2_runtime/
 
+# runtime startup diagnostics log (data/startup.log)
+data/
+
 # Playwright (E2E) artifacts
 test-results/
 playwright-report/

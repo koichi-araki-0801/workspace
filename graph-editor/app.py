@@ -15,6 +15,7 @@ exe ビルド:  build.bat   (PyInstaller --onefile, 同梱の ui.html を --add-
 """
 
 import http.server
+import logging
 import os
 import shutil
 import subprocess
@@ -151,28 +152,78 @@ def _find_edge():
 
 def _idle_watchdog(server):
     """ハートビート途絶を見張り、最終アクセスから IDLE_TIMEOUT 秒で self-shutdown する。
-    quit_event が立つまで IDLE_TIMEOUT/4 ごとに起きて経過を確認する (フォールバック経路用)。"""
+    Edge 経路・フォールバック経路の共通の終了バックストップ。窓を閉じた時の /quit ビーコンが
+    本来の終了契機で、これはビーコン不達/タブクラッシュ時の保険。
+    quit_event が立つまで IDLE_TIMEOUT/4 ごとに起きて経過を確認する。"""
     while not server.quit_event.wait(IDLE_TIMEOUT / 4):
         if time.monotonic() - server.last_seen > IDLE_TIMEOUT:
             server.quit_event.set()
             return
 
 
+def _data_dir():
+    """起動診断ログを置くフォルダ (exe と同じ場所の ``data/``、ポータブル)。
+    frozen 時は実行ファイルのある永続フォルダ、ソース実行時は本ファイルの場所を基準にする。"""
+    base = (os.path.dirname(os.path.abspath(sys.executable))
+            if getattr(sys, "frozen", False)
+            else os.path.dirname(os.path.abspath(__file__)))
+    d = os.path.join(base, "data")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _setup_logging():
+    """起動診断ログを ``data/startup.log`` へ出す。
+
+    exe は ``console=False`` (LabelEditor.spec / build.bat の --windowed) で stderr が無く、
+    起動失敗が一切見えないため、ポータブルな ``data/`` にファイル出力して可観測性を確保する。
+    ログの用意に失敗しても起動は止めない (NullHandler へフォールバック)。"""
+    log = logging.getLogger("labeleditor")
+    log.setLevel(logging.INFO)
+    log.propagate = False
+    if log.handlers:  # 二重起動防止 (テスト等で複数回呼ばれても重複させない)
+        return log
+    try:
+        handler = logging.FileHandler(os.path.join(_data_dir(), "startup.log"), encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        log.addHandler(handler)
+    except OSError:
+        log.addHandler(logging.NullHandler())
+    return log
+
+
+def _watch_proc(proc, log):
+    """起動した msedge.exe の終了を観測してログするだけ (サーバ終了の引き金にはしない)。
+
+    Edge はコールド時、新規 user-data-dir のプロファイル生成過程で自身を別プロセスへ
+    再起動し、最初に起動したプロセスだけが早期終了することがある。これに proc.wait() で
+    引きずられてサーバを畳むと、生き残った Edge 窓が読みに来た時にはポートが死んでいて
+    初回起動が空白になる。終了は /quit ビーコン + ハートビート watchdog に任せ、ここでは
+    早期終了を記録するだけにすることで初回から成功させる。"""
+    started = time.monotonic()
+    code = proc.wait()
+    log.info("spawned edge proc exited code=%s after %.1fs (server kept alive)",
+             code, time.monotonic() - started)
+
+
 def main():
+    log = _setup_logging()
     # 127.0.0.1 の空きポートで待受 (外部公開しない)。
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    server.quit_event = threading.Event()  # /quit ビーコン or プロセス終了で立てる
-    server.last_seen = time.monotonic()    # 最終リクエスト時刻 (フォールバック watchdog 用)
+    server.quit_event = threading.Event()  # /quit ビーコン or watchdog で立てる
+    server.last_seen = time.monotonic()    # 最終リクエスト時刻 (watchdog 用)
     port = server.server_address[1]
     url = f"http://127.0.0.1:{port}/"
+    log.info("server listening on %s (frozen=%s)", url, getattr(sys, "frozen", False))
 
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     edge = _find_edge()
+    log.info("edge: %s", edge or "(not found, falling back to default browser)")
     profile_dir = None
     proc = None
     if edge:
-        # 専用 user-data-dir で「アプリ窓」を独立プロセスとして起動 (閉じたら wait が返る)。
+        # 専用 user-data-dir で「アプリ窓」を独立プロセスとして起動する。
         profile_dir = tempfile.mkdtemp(prefix="labeleditor-edge-")
         try:
             proc = subprocess.Popen([
@@ -182,21 +233,27 @@ def main():
                 "--no-first-run",
                 "--no-default-browser-check",
             ])
-        except OSError:
+            log.info("edge launched pid=%s profile=%s", proc.pid, profile_dir)
+        except OSError as exc:
+            log.warning("edge launch failed: %s", exc)
             proc = None
 
+    # サーバの寿命は起動した msedge.exe プロセスの終了に縛らない。終了契機は窓を閉じた時の
+    # /quit ビーコンと、ハートビート途絶を見張る watchdog に一本化する (Edge・既定ブラウザ
+    # 共通)。これにより Edge のコールド再起動で起動プロセスが早期終了してもサーバが落ちず、
+    # 初回起動から成功する。proc は終了時に Edge を片付けるためのハンドルとしてのみ保持する。
     try:
-        if proc is not None:
-            # アプリ窓を閉じるか、pagehide ビーコンが来たら終了。
-            watcher = threading.Thread(target=lambda: (proc.wait(), server.quit_event.set()), daemon=True)
-            watcher.start()
-            server.quit_event.wait()
-        else:
-            # Edge 不在: 既定ブラウザで開く。プロセスハンドルが無いので、/quit ビーコン (窓閉鎖)
-            # に加え、ハートビート途絶を見張る watchdog で確実に終了させる (ゾンビ化を防ぐ)。
+        if proc is None:
             webbrowser.open(url)
-            threading.Thread(target=_idle_watchdog, args=(server,), daemon=True).start()
-            server.quit_event.wait()
+        else:
+            # 早期終了を観測ログに残すだけ (終了の引き金にはしない)。
+            threading.Thread(target=_watch_proc, args=(proc, log), daemon=True).start()
+        threading.Thread(target=_idle_watchdog, args=(server,), daemon=True).start()
+        server.quit_event.wait()
+        # /quit ビーコン (窓閉鎖) か watchdog (ハートビート途絶) かを last_seen から推定。
+        idle = time.monotonic() - server.last_seen
+        log.info("shutting down (reason=%s, idle=%.1fs)",
+                 "idle-timeout" if idle > IDLE_TIMEOUT else "quit-beacon", idle)
     finally:
         server.shutdown()
         server.server_close()
