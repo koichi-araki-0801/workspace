@@ -25,6 +25,8 @@ import {
   degToRad,
   upperLeftBendPoint,
   labelCongestionOffsetDeg,
+  isOtherCategory,
+  boxOverlapAmount,
 } from "../svg_geom.js";
 import {
   leaderPath,
@@ -86,6 +88,7 @@ import {
   projectBoxesToPixels,
   oobLeaderCount,
   countAngularDiscordantPairs,
+  LEADER_MAX_ANGULAR_DIFF_RAD,
 } from "./leader_geometry.js";
 import type { Pt, Coord } from "./leader_geometry.js";
 
@@ -188,8 +191,7 @@ function isCascadeFailed(placement: Placement, others: Placement[], cfg: PieLayo
   for (const q of others) {
     if (q === placement) continue;
     const b = placementBox(q, cfg);
-    const ox = Math.min(box.right, b.right) - Math.max(box.left, b.left);
-    const oy = Math.min(box.top, b.top) - Math.max(box.bottom, b.bottom);
+    const { x: ox, y: oy } = boxOverlapAmount(box, b);
     if (ox > overlapTol && oy > overlapTol) return true;
   }
   return false;
@@ -212,7 +214,7 @@ function twoLineLeftColumnMembers(placements: Placement[]): Placement[] {
       !p.item.flipToLeft &&
       !p.item.bottomCenterBelow &&
       topBandSonohokaZone(p.item) === null &&
-      !p.item.name.startsWith("その他"),
+      !isOtherCategory(p.item.name),
   );
 }
 
@@ -1368,7 +1370,7 @@ function untangleAngularOrderBySwap(
       // 意図的に角度順を破る/固定する その他 (コア帯右上逃がし・左拡張帯の真上垂直固定・
       // forceTopRight) のみ除外 (angularStacks と同条件)。帯外 (>122°) で左右スタックに通常
       // 配置された その他 は逆転修復の対象に含める。
-      !(p.item.name.startsWith("その他") && (topBandSonohokaZone(p.item) !== null || p.forceTopRight)) &&
+      !(isOtherCategory(p.item.name) && (topBandSonohokaZone(p.item) !== null || p.forceTopRight)) &&
       (side === "left" ? p.x < 0 : p.x > 0),
   );
   if (stack.length < 2) return;
@@ -1546,7 +1548,7 @@ function reorderLeftStackWithCondense(
       !p.item.clusterTopBand &&
       !p.insideSlice &&
       p.baseline === "bottom" &&
-      !p.item.name.startsWith("その他") &&
+      !isOtherCategory(p.item.name) &&
       p.x < 0,
   );
   if (stack.length < 4) return;
@@ -1672,7 +1674,7 @@ function separateLeftColumnByHeight(
       !p.item.bottomCenterBelow &&
       !p.item.clusterTopBand &&
       topBandSonohokaZone(p.item) === null &&
-      !p.item.name.startsWith("その他"),
+      !isOtherCategory(p.item.name),
   );
   if (col.length < 4) return;
   // 上 → 下 (box 中心 y 降順)。
@@ -2598,7 +2600,7 @@ function reorderTopBandLeftClusterByAngle(
     (p) =>
       !p.insideSlice &&
       !p.forceTopRight &&
-      !p.item.name.startsWith("その他") &&
+      !isOtherCategory(p.item.name) &&
       coord.xScale(p.x) < cx &&
       (p.item.midAngle ?? 0) > 90 &&
       angleInBand(normalizeAngle(p.item.midAngle ?? 0), 90, TOP_SEAM_ESCAPE_HALF_WIDTH_DEG),
@@ -2738,7 +2740,7 @@ function escapeTopBandSeamLeader(
   const isCandidate = (p: Placement): boolean =>
     !p.insideSlice &&
     p.item.isSmall === true &&
-    !p.item.name.startsWith("その他") &&
+    !isOtherCategory(p.item.name) &&
     !p.forceTopRight &&
     coord.xScale(p.x) < cx &&
     angleInBand(normalizeAngle(p.item.midAngle ?? 0), 90, TOP_SEAM_ESCAPE_HALF_WIDTH_DEG);
@@ -3091,7 +3093,7 @@ function repairResidualLeaderDefects(
     let dT = tE - tA;
     while (dT > Math.PI) dT -= 2 * Math.PI;
     while (dT < -Math.PI) dT += 2 * Math.PI;
-    if (Math.abs(dT) < 0.05 || Math.abs(dT) > (150 * Math.PI) / 180) return false;
+    if (Math.abs(dT) < 0.05 || Math.abs(dT) > LEADER_MAX_ANGULAR_DIFF_RAD) return false;
     const sv = {
       bend: { ...p.leaderBend },
       fy: p.leaderBendFollowsEndpointY,
@@ -3134,7 +3136,7 @@ function repairResidualLeaderDefects(
         !drawn.skipLeader &&
         drawn.pathPoints.length >= 2 &&
         Math.abs(dTh) >= 0.05 &&
-        Math.abs(dTh) <= (150 * Math.PI) / 180;
+        Math.abs(dTh) <= LEADER_MAX_ANGULAR_DIFF_RAD;
       const save = {
         bend: { ...p.leaderBend },
         fy: p.leaderBendFollowsEndpointY,
@@ -3315,7 +3317,7 @@ function repairResidualLeaderDefects(
         !p.insideSlice &&
         !p.forceTopRight &&
         p.x < 0 &&
-        !p.item.name.startsWith("その他"),
+        !isOtherCategory(p.item.name),
     );
     const anyInvolved = stack.some((p) => [...involved].some((i) => placements[i] === p));
     if (stack.length < 2 || !anyInvolved) return false;
@@ -3431,7 +3433,7 @@ function runLabelCascade(
         !it.flipToLeft &&
         !it.bottomCenterBelow &&
         topBandSonohokaZone(it) === null &&
-        !it.name.startsWith("その他")
+        !isOtherCategory(it.name)
       ) {
         it.keepTwoLineLeftStack = true;
       }
@@ -3505,12 +3507,12 @@ function runLabelCascade(
 /**
  * メインエントリ: 入力 items から最終 SVG 文字列を組み立てて返す。
  */
-export async function renderPdfStylePieToSvg(
-  rawItems: unknown,
-  options: Partial<PieLayoutConfig> & { compactLabel?: boolean } = {},
-): Promise<RenderResult> {
-  const cfg = createPieLayoutConfig(options);
-  const items: LayoutItem[] = normalizeInputItems(rawItems)
+/**
+ * 入力を正規化し、有限かつ |value|>0 のスライスのみ残して「その他」末尾・値降順に整列する。
+ * レンダラの描画順 ([[graph2-renderer-sorts-slices]]) を決める前処理。
+ */
+function normalizeAndSortItems(rawItems: unknown): LayoutItem[] {
+  return normalizeInputItems(rawItems)
     .filter((item) => Number.isFinite(Number(item.value)) && Math.abs(Number(item.value)) > 0)
     .map((item) => ({
       name: item.name,
@@ -3518,11 +3520,181 @@ export async function renderPdfStylePieToSvg(
       signedValue: Number(item.value),
     }))
     .sort((a, b) => {
-      const aOther = a.name.startsWith("その他");
-      const bOther = b.name.startsWith("その他");
+      const aOther = isOtherCategory(a.name);
+      const bOther = isOtherCategory(b.name);
       if (aOther !== bOther) return aOther ? 1 : -1;
       return b.value - a.value;
     });
+}
+
+/**
+ * multi-slice の最終 layout を選ぶ。single-slice では null。
+ * 左下密集回避でラベルを回したときは do-no-harm: 回転版と非回転版を **最終配置の不具合数** で比較し、
+ * 回転が悪化させる(交差/円貫通/見切れ/重なりが増える)なら非回転へ自動フォールバックする。これで
+ * 「あるサンプルに効く回転量が別サンプルを壊す」退行を判定ロジック側で吸収する(同 family の 10
+ * スライス版など)。スコアリングは labels を破壊する runLabelCascade を clone 上で走らせ、採用側の
+ * labels は無傷のまま emit へ渡す。
+ */
+function selectFinalLayout(
+  items: LayoutItem[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): LayoutResult | null {
+  if (items.length <= 1) return null;
+  let finalLayout = layoutLabels(items, cfg);
+  const labelOffset = cfg.counterclock
+    ? 0
+    : labelCongestionOffsetDeg(
+        items.map((it) => Math.abs(Number(it.value))),
+        items.map((it) => it.name),
+        cfg,
+      );
+  if (labelOffset > 0) {
+    // emit と同じ最終配置で不具合を数える。`finalizeForScoring` は候補選択用に修復を除外するため、
+    // ここでは emit 最終段の修復(`repairResidualLeaderDefects`/`enforceFinalPieClearance`)も足して、
+    // 「修復で消える一時不具合」を回転版の過小評価にしない。
+    const scoreLayout = (layout: LayoutResult): number => {
+      const labelsCopy = structuredClone(layout.labels) as typeof layout.labels;
+      const placements = runLabelCascade(labelsCopy, cfg, coord, layout.diagnostics);
+      const finalized = finalizeForScoring(
+        placements,
+        cfg,
+        coord,
+        layout.diagnostics.leftStackMode,
+      );
+      repairResidualLeaderDefects(finalized, cfg, coord);
+      enforceFinalPieClearance(finalized, cfg, coord);
+      // countDefects(交差/円貫通/見切れ/重なり)に加え角度順逆転も数える(verify の隣接逆転に対応)。
+      // これを入れないと「幾何交差0 だが順序だけ逆転」を回転版が見逃され採用される(10スライス版)。
+      return (
+        countDefects(finalized, cfg, coord).total +
+        countAngularDiscordantPairs(finalized, cfg, coord)
+      );
+    };
+    const baseLayout = layoutLabels(items, cfg, 0);
+    if (scoreLayout(finalLayout) > scoreLayout(baseLayout)) {
+      finalLayout = baseLayout; // 回転が不具合を増やすなら非回転を採用
+    } else {
+      // 回転を採用したチャートに限り、回したラベルを円から少し離す。距離は `pieLabelClearance`
+      // (円とラベルの最小クリアランス、`nudgeTextAwayFromPie` が使用)で決まるのでこれを広げる。
+      // do-no-harm: 押し出しで不具合(見切れ等)が増えるなら一段弱い量→最後は元のクリアランスへ戻す。
+      const rotScore = scoreLayout(finalLayout);
+      const origClearance = cfg.pieLabelClearance;
+      for (const push of [0.16, 0.12, 0.09, 0.06]) {
+        cfg.pieLabelClearance = origClearance + push;
+        const pushed = layoutLabels(items, cfg);
+        if (scoreLayout(pushed) <= rotScore) {
+          finalLayout = pushed;
+          break;
+        }
+        cfg.pieLabelClearance = origClearance; // 悪化 → 次の弱い量を試す(全滅なら元クリアランス)
+      }
+    }
+  }
+  return finalLayout;
+}
+
+/**
+ * emit 採用配置 (textPlacements) に対する最終修復パス列。位置確定後に 1 回ずつ適用する do-no-harm
+ * の群で、各手の意図はパスごとのコメント参照。**順序依存** (前段の解消が後段を no-op にする / 後段が
+ * 前段の前提に乗る) があるため呼び出し順を変えないこと。view は emit と同一座標系 (実 viewBox 基準)。
+ */
+function applyEmitRepairPasses(
+  textPlacements: Placement[],
+  cfg: PieLayoutConfig,
+  view: Coord,
+  diagnostics: Diagnostics | null,
+): void {
+  // 視覚 viewBox はみ出し最終 nudge (採用配置に 1 回だけ適用)。
+  applyVisualViewBoxNudge(textPlacements, cfg);
+  // viewBox をはみ出す外側ラベルを「収まるまで長体」で縮める最終ガード (下限 0.7)。
+  applyFinalCondenseToFit(textPlacements, cfg);
+  // 長体ラベルをキャンバスに収まる範囲で原寸 (上限 1.0 = デフォルトの大きさ) へ向けて緩和し、
+  // ラベルごとにギリギリ収まる最大サイズへ戻す。
+  relaxNameCondense(textPlacements, cfg);
+
+  // 最終段: 同一側で交差する外側 leader 対を縦に引き離して交差を解消する。viewBox nudge /
+  // condense-to-fit の後 (= emit と同一の最終配置) に実行するので、ここで見た交差は verify が
+  // 報告する交差と一致する。各手は do-no-harm (交差減・重なり非悪化・viewBox 内) で採用。
+  applyOutsideLeaderAngularOrder(textPlacements, cfg, view);
+
+  // applyOutsideLeaderAngularOrder の swap で直せない上左トップバンドクラスタの角度順逆転
+  // (例 page16: ジャージー右逃がし後 ケイマンが天頂へ来てアイルランドの上に逆転) を、角度順
+  // rim 再積み上げで解消する。交差/逆転のどちらかが在る時のみ発火し do-no-harm (悪化で全 revert)。
+  reorderTopBandLeftClusterByAngle(textPlacements, cfg, view);
+
+  // 9時線近傍で near-vertical に重なる左小スライス対 (例 イギリス/イタリア) を角度順に並べ直して
+  // 左上の空きへわずかに逃がし、各 leader を分離した斜め線にする。do-no-harm (悪化したら revert)。
+  escapeUpperLeftTinyLeaders(textPlacements, cfg, view);
+
+  // 12時シーム近傍の小スライスが左帯へ押し出されて near-horizontal leader が交差する場合、
+  // 当該スライスを右上空白へ "up-and-over" で逃がして交差を解消する (do-no-harm)。
+  // emit では thorough=true (累積プレフィックス探索 + 1 行化フォールバック) を使う。
+  escapeTopBandSeamLeader(textPlacements, cfg, view, true);
+
+  // leftStackMode 限定の最終手段: untangle で直せない幅広/混在行の左上逆転を、角度順 re-stack +
+  // 長体圧縮で解消する (do-no-harm・悪化したら全 revert)。emit でのみ・スコアリングには干渉しない。
+  if (diagnostics?.leftStackMode) {
+    reorderLeftStackWithCondense(textPlacements, cfg, view);
+    separateLeftColumnByHeight(textPlacements, cfg, view);
+  }
+
+  // 残余の leader 交差/円内貫通/箱貫通を bend 再配置で解消する最終安全網 (do-no-harm)。
+  // finalizeForScoring と同位置・同条件で呼び、採点と emit の一致を保つ。
+  repairResidualLeaderDefects(textPlacements, cfg, view);
+
+  // 円外ラベル box の円内侵入 (label inside pie) を、現在 y での動的 pie クランプで円外へ押し出す
+  // 最終安全網 (do-no-harm)。cascade の nudge を静的 minTextX が引き戻す取りこぼし (例
+  // stress_top_cluster_8 "F") を解消する。侵入の無いチャートは早期 return で無変更。
+  enforceFinalPieClearance(textPlacements, cfg, view);
+
+  // 左側 near-equator の見切れラベルを、円の縦中心から離す向きへ縦 spread して左 rim を細らせ
+  // viewBox 左端の見切れを解消する最終手段 (do-no-harm)。水平 nudge が pie にブロックされる
+  // (|y| < pieRadius) ラベルが対象。`applyLowerLeftDropFallback` / `applySplitNameFallback` より
+  // 先に試し、解消すれば後続が no-op になる。採否は片側単位で `countDefects` の clips 厳密減・他カテゴリ非悪化。
+  applyVerticalDeclipFallback(textPlacements, cfg, view);
+
+  // 9時直近で長体下限でも見切れる幅広長名を、下left ドロップ + 斜めリーダーで収める最終手段
+  // (do-no-harm)。位置確定後に走るので最終配置を正しく評価する。密チャートで交差/反転を生む場合は revert。
+  applyLowerLeftDropFallback(textPlacements, cfg, view);
+
+  // 下限長体 (0.7) でも viewBox を見切れる 1 行ラベルを、名前を語中で割らない標準 2 行 [名前, %] へ
+  // 変換する最終手段 (do-no-harm)。語割れ (旧 splitLongName) は graph2 全体で廃止。位置確定後に走るので
+  // ゲートは最終配置を正しく評価する。採点 (`finalizeForScoring`) には入れない: 候補選択を乱さず、
+  // finalScore は emit 後の同 placements から数えるため scorer ↔ emit 整合は保たれる。
+  applyTwoLineNameFallback(textPlacements, cfg, view);
+
+  // 外側ラベル列の最終整え (overflow fallback の後 = 真に未解消のものだけ対象)。左右両列の過小ギャップ
+  // (隣接 box が box 高未満に詰まる縦重なり) を上下対称に拡げ、なお viewBox を見切れるラベルを pie
+  // クリアランス限界まで pie 側へ寄せる。fallback 後に置くことで、drop/2 行化で解消済みのラベル (例
+  // fidelity オフショア・人民元) は対象外となり干渉しない。両手とも全チャート共通で do-no-harm
+  // (列内重なり厳密減 / 見切れ厳密減 + 他カテゴリ非悪化) なので、収まっている図は無変更。
+  relieveOutsideColumnOverlap(textPlacements, cfg, view);
+  pullOutsideOverflowTowardPie(textPlacements, cfg, view);
+
+  // ソフトマージンには長体下限でも収まらない構造的オーバーフロー (例 currency の "ユーロ": percent 行だけで
+  // 残り幅を食う短名) が下限で過圧縮されたまま残るのを、実 viewBox を見切らない範囲で原寸へ緩和する。
+  // 位置確定後・finalScore 前に 1 回。emit 専用 (scoring 非干渉) で applyTwoLineNameFallback と同方針。
+  relaxStructuralCondense(textPlacements, cfg, view);
+
+  // near-contact (近接) 緩和: 自 leader が隣の box/leader に寄りすぎるラベルを上へ逃がして接触を軽減する
+  // (例 page16 ケイマン諸島)。全 hard-defect パスの後に置くので、ここでの移動が最終配置となり leader
+  // (下 Pass 1) も移動後 box から再計算され追従する。do-no-harm: 近接の無い図は deficit≈0 で無変更。
+  relieveLeaderNeighborContact(textPlacements, cfg, view);
+
+  // leftStackMode の左上スタック最終整え (全 hard-defect パス後)。左 envelope からの突出を pie 寄りへ
+  // 引き戻し (見切れ解消)、赤道寄りの密集側行を円から少し離す。各移動は do-no-harm で個別採否。
+  if (diagnostics?.leftStackMode) {
+    relieveLeftStackSpacing(textPlacements, cfg, view);
+  }
+}
+
+export async function renderPdfStylePieToSvg(
+  rawItems: unknown,
+  options: Partial<PieLayoutConfig> & { compactLabel?: boolean } = {},
+): Promise<RenderResult> {
+  const cfg = createPieLayoutConfig(options);
+  const items: LayoutItem[] = normalizeAndSortItems(rawItems);
   if (items.length === 0) {
     // 上の filter で |value| > 0 のみ残るため、件数が残れば総和は必ず正。
     throw new Error("At least one item with a non-zero value is required.");
@@ -3537,64 +3709,7 @@ export async function renderPdfStylePieToSvg(
   const coord = createCoordinateSystem(cfg);
   const { width, height, xScale, yScale } = coord;
 
-  let finalLayout: LayoutResult | null = null;
-  if (items.length > 1) {
-    finalLayout = layoutLabels(items, cfg);
-    // 左下密集回避でラベルを回したときは do-no-harm: 回転版と非回転版を **最終配置の不具合数** で比較し、
-    // 回転が悪化させる(交差/円貫通/見切れ/重なりが増える)なら非回転へ自動フォールバックする。これで
-    // 「あるサンプルに効く回転量が別サンプルを壊す」退行を判定ロジック側で吸収する(同 family の 10
-    // スライス版など)。スコアリングは labels を破壊する runLabelCascade を clone 上で走らせ、採用側の
-    // labels は無傷のまま emit へ渡す。
-    const labelOffset = cfg.counterclock
-      ? 0
-      : labelCongestionOffsetDeg(
-          items.map((it) => Math.abs(Number(it.value))),
-          items.map((it) => it.name),
-          cfg,
-        );
-    if (labelOffset > 0) {
-      // emit と同じ最終配置で不具合を数える。`finalizeForScoring` は候補選択用に修復を除外するため、
-      // ここでは emit 最終段の修復(`repairResidualLeaderDefects`/`enforceFinalPieClearance`)も足して、
-      // 「修復で消える一時不具合」を回転版の過小評価にしない。
-      const scoreLayout = (layout: LayoutResult): number => {
-        const labelsCopy = structuredClone(layout.labels) as typeof layout.labels;
-        const placements = runLabelCascade(labelsCopy, cfg, coord, layout.diagnostics);
-        const finalized = finalizeForScoring(
-          placements,
-          cfg,
-          coord,
-          layout.diagnostics.leftStackMode,
-        );
-        repairResidualLeaderDefects(finalized, cfg, coord);
-        enforceFinalPieClearance(finalized, cfg, coord);
-        // countDefects(交差/円貫通/見切れ/重なり)に加え角度順逆転も数える(verify の隣接逆転に対応)。
-        // これを入れないと「幾何交差0 だが順序だけ逆転」を回転版が見逃され採用される(10スライス版)。
-        return (
-          countDefects(finalized, cfg, coord).total +
-          countAngularDiscordantPairs(finalized, cfg, coord)
-        );
-      };
-      const baseLayout = layoutLabels(items, cfg, 0);
-      if (scoreLayout(finalLayout) > scoreLayout(baseLayout)) {
-        finalLayout = baseLayout; // 回転が不具合を増やすなら非回転を採用
-      } else {
-        // 回転を採用したチャートに限り、回したラベルを円から少し離す。距離は `pieLabelClearance`
-        // (円とラベルの最小クリアランス、`nudgeTextAwayFromPie` が使用)で決まるのでこれを広げる。
-        // do-no-harm: 押し出しで不具合(見切れ等)が増えるなら一段弱い量→最後は元のクリアランスへ戻す。
-        const rotScore = scoreLayout(finalLayout);
-        const origClearance = cfg.pieLabelClearance;
-        for (const push of [0.16, 0.12, 0.09, 0.06]) {
-          cfg.pieLabelClearance = origClearance + push;
-          const pushed = layoutLabels(items, cfg);
-          if (scoreLayout(pushed) <= rotScore) {
-            finalLayout = pushed;
-            break;
-          }
-          cfg.pieLabelClearance = origClearance; // 悪化 → 次の弱い量を試す(全滅なら元クリアランス)
-        }
-      }
-    }
-  }
+  const finalLayout: LayoutResult | null = selectFinalLayout(items, cfg, coord);
   const colors = makeColors(items.length, cfg);
   const arcs = computeArcs(items, cfg);
   const totalValue = items.reduce((sum, item) => sum + Math.abs(Number(item.value)), 0);
@@ -3662,88 +3777,8 @@ export async function renderPdfStylePieToSvg(
       if (!colorByName.has(it.name)) colorByName.set(it.name, colors[idx]);
     });
 
-    // 視覚 viewBox はみ出し最終 nudge (採用配置に 1 回だけ適用)。
-    applyVisualViewBoxNudge(textPlacements, cfg);
-    // viewBox をはみ出す外側ラベルを「収まるまで長体」で縮める最終ガード (下限 0.7)。
-    applyFinalCondenseToFit(textPlacements, cfg);
-    // 長体ラベルをキャンバスに収まる範囲で原寸 (上限 1.0 = デフォルトの大きさ) へ向けて緩和し、
-    // ラベルごとにギリギリ収まる最大サイズへ戻す。
-    relaxNameCondense(textPlacements, cfg);
-
-    // 最終段: 同一側で交差する外側 leader 対を縦に引き離して交差を解消する。viewBox nudge /
-    // condense-to-fit の後 (= emit と同一の最終配置) に実行するので、ここで見た交差は verify が
-    // 報告する交差と一致する。各手は do-no-harm (交差減・重なり非悪化・viewBox 内) で採用。
-    applyOutsideLeaderAngularOrder(textPlacements, cfg, { xScale, yScale, width, height });
-
-    // applyOutsideLeaderAngularOrder の swap で直せない上左トップバンドクラスタの角度順逆転
-    // (例 page16: ジャージー右逃がし後 ケイマンが天頂へ来てアイルランドの上に逆転) を、角度順
-    // rim 再積み上げで解消する。交差/逆転のどちらかが在る時のみ発火し do-no-harm (悪化で全 revert)。
-    reorderTopBandLeftClusterByAngle(textPlacements, cfg, { xScale, yScale, width, height });
-
-    // 9時線近傍で near-vertical に重なる左小スライス対 (例 イギリス/イタリア) を角度順に並べ直して
-    // 左上の空きへわずかに逃がし、各 leader を分離した斜め線にする。do-no-harm (悪化したら revert)。
-    escapeUpperLeftTinyLeaders(textPlacements, cfg, { xScale, yScale, width, height });
-
-    // 12時シーム近傍の小スライスが左帯へ押し出されて near-horizontal leader が交差する場合、
-    // 当該スライスを右上空白へ "up-and-over" で逃がして交差を解消する (do-no-harm)。
-    // emit では thorough=true (累積プレフィックス探索 + 1 行化フォールバック) を使う。
-    escapeTopBandSeamLeader(textPlacements, cfg, { xScale, yScale, width, height }, true);
-
-    // leftStackMode 限定の最終手段: untangle で直せない幅広/混在行の左上逆転を、角度順 re-stack +
-    // 長体圧縮で解消する (do-no-harm・悪化したら全 revert)。emit でのみ・スコアリングには干渉しない。
-    if (diagnostics?.leftStackMode) {
-      reorderLeftStackWithCondense(textPlacements, cfg, { xScale, yScale, width, height });
-      separateLeftColumnByHeight(textPlacements, cfg, { xScale, yScale, width, height });
-    }
-
-    // 残余の leader 交差/円内貫通/箱貫通を bend 再配置で解消する最終安全網 (do-no-harm)。
-    // finalizeForScoring と同位置・同条件で呼び、採点と emit の一致を保つ。
-    repairResidualLeaderDefects(textPlacements, cfg, { xScale, yScale, width, height });
-
-    // 円外ラベル box の円内侵入 (label inside pie) を、現在 y での動的 pie クランプで円外へ押し出す
-    // 最終安全網 (do-no-harm)。cascade の nudge を静的 minTextX が引き戻す取りこぼし (例
-    // stress_top_cluster_8 "F") を解消する。侵入の無いチャートは早期 return で無変更。
-    enforceFinalPieClearance(textPlacements, cfg, { xScale, yScale, width, height });
-
-    // 左側 near-equator の見切れラベルを、円の縦中心から離す向きへ縦 spread して左 rim を細らせ
-    // viewBox 左端の見切れを解消する最終手段 (do-no-harm)。水平 nudge が pie にブロックされる
-    // (|y| < pieRadius) ラベルが対象。`applyLowerLeftDropFallback` / `applySplitNameFallback` より
-    // 先に試し、解消すれば後続が no-op になる。採否は片側単位で `countDefects` の clips 厳密減・他カテゴリ非悪化。
-    applyVerticalDeclipFallback(textPlacements, cfg, { xScale, yScale, width, height });
-
-    // 9時直近で長体下限でも見切れる幅広長名を、下left ドロップ + 斜めリーダーで収める最終手段
-    // (do-no-harm)。位置確定後に走るので最終配置を正しく評価する。密チャートで交差/反転を生む場合は revert。
-    applyLowerLeftDropFallback(textPlacements, cfg, { xScale, yScale, width, height });
-
-    // 下限長体 (0.7) でも viewBox を見切れる 1 行ラベルを、名前を語中で割らない標準 2 行 [名前, %] へ
-    // 変換する最終手段 (do-no-harm)。語割れ (旧 splitLongName) は graph2 全体で廃止。位置確定後に走るので
-    // ゲートは最終配置を正しく評価する。採点 (`finalizeForScoring`) には入れない: 候補選択を乱さず、
-    // finalScore は emit 後の同 placements から数えるため scorer ↔ emit 整合は保たれる。
-    applyTwoLineNameFallback(textPlacements, cfg, { xScale, yScale, width, height });
-
-    // 外側ラベル列の最終整え (overflow fallback の後 = 真に未解消のものだけ対象)。左右両列の過小ギャップ
-    // (隣接 box が box 高未満に詰まる縦重なり) を上下対称に拡げ、なお viewBox を見切れるラベルを pie
-    // クリアランス限界まで pie 側へ寄せる。fallback 後に置くことで、drop/2 行化で解消済みのラベル (例
-    // fidelity オフショア・人民元) は対象外となり干渉しない。両手とも全チャート共通で do-no-harm
-    // (列内重なり厳密減 / 見切れ厳密減 + 他カテゴリ非悪化) なので、収まっている図は無変更。
-    relieveOutsideColumnOverlap(textPlacements, cfg, { xScale, yScale, width, height });
-    pullOutsideOverflowTowardPie(textPlacements, cfg, { xScale, yScale, width, height });
-
-    // ソフトマージンには長体下限でも収まらない構造的オーバーフロー (例 currency の "ユーロ": percent 行だけで
-    // 残り幅を食う短名) が下限で過圧縮されたまま残るのを、実 viewBox を見切らない範囲で原寸へ緩和する。
-    // 位置確定後・finalScore 前に 1 回。emit 専用 (scoring 非干渉) で applyTwoLineNameFallback と同方針。
-    relaxStructuralCondense(textPlacements, cfg, { xScale, yScale, width, height });
-
-    // near-contact (近接) 緩和: 自 leader が隣の box/leader に寄りすぎるラベルを上へ逃がして接触を軽減する
-    // (例 page16 ケイマン諸島)。全 hard-defect パスの後に置くので、ここでの移動が最終配置となり leader
-    // (下 Pass 1) も移動後 box から再計算され追従する。do-no-harm: 近接の無い図は deficit≈0 で無変更。
-    relieveLeaderNeighborContact(textPlacements, cfg, { xScale, yScale, width, height });
-
-    // leftStackMode の左上スタック最終整え (全 hard-defect パス後)。左 envelope からの突出を pie 寄りへ
-    // 引き戻し (見切れ解消)、赤道寄りの密集側行を円から少し離す。各移動は do-no-harm で個別採否。
-    if (diagnostics?.leftStackMode) {
-      relieveLeftStackSpacing(textPlacements, cfg, { xScale, yScale, width, height });
-    }
+    // emit 採用配置に対する最終修復パス列 (do-no-harm・順序依存)。詳細は applyEmitRepairPasses 内。
+    applyEmitRepairPasses(textPlacements, cfg, { xScale, yScale, width, height }, diagnostics);
 
     // emit 実配置 (最終化済 textPlacements) を内部スコアラで数え diagnostics に残す。後段は再適用
     // しない (countDefects はカウントのみ)。verify_consistency が emit SVG と突き合わせ、配置判断の

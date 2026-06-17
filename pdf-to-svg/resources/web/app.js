@@ -26,10 +26,13 @@
   var filterFor = { 2: "all", 3: "pending" };
   var selFor = { 2: {}, 3: {} };       // ページレール選択 (global idx -> true)
   var collapsed = {};                  // step:fi -> true
-  var tool = "select";                 // 手順3 ツール
-  var cropDrag = null;                 // クロップ範囲ドラッグ中の状態 {origin,rubber}
+  var tool = "select";                 // 手順3 ツール (select/crop/border)
+  var cropDrag = null;                 // 範囲ドラッグ中の状態 {origin,rubber,mode}
   var elSel = {};                      // 'fi:pi' -> {elId:true}  (要素選択)
   var svgCache = {};                   // 'fi:pi' -> {svg,width,height,cropped}
+  var zoomFor = { 2: 1, 3: 1 };        // 手順2/3 のキャンバス内ズーム倍率
+  var borderColor = "#000000";         // 枠線ツールの色
+  var borderWidth = 1;                 // 枠線ツールの太さ (pt)
 
   var FILTERS = [
     { v: "pending", t: "要確認" }, { v: "all", t: "すべて" },
@@ -158,8 +161,8 @@
 
   async function reloadState() { applyState(await rpc("state")); }
 
-  async function doLoad() {
-    var files = await pickPdfFiles();
+  // File 配列を順にアップロードして状態を更新する (クリック選択・D&D 共用)。
+  async function addFiles(files) {
     if (!files || !files.length) { render(); return; }
     for (var i = 0; i < files.length; i++) {
       setHint("読み込み中 " + (i + 1) + "/" + files.length + ": " + esc(files[i].name));
@@ -171,15 +174,26 @@
     render();
   }
 
+  async function doLoad() { await addFiles(await pickPdfFiles()); }
+
   // ---- (1) ファイルカード ----
   function renderFileCards() {
     document.getElementById("filelist-count").textContent =
       FILES.length + " ファイル・" + TOTAL + " ページ";
-    document.getElementById("file-cards").innerHTML = FILES.map(function (f) {
+    document.getElementById("file-cards").innerHTML = FILES.map(function (f, i) {
       return '<div class="file-card"><div class="fic">' + svg(fileIcon, 20) +
         '</div><div class="fmeta"><div class="fname">' + esc(f.name) + '</div><div class="fsub">' +
-        f.pages + " ページ" + (f.size ? " ・ " + f.size : "") + "</div></div></div>";
+        f.pages + " ページ" + (f.size ? " ・ " + f.size : "") + "</div></div>" +
+        '<button class="iconbtn" data-removefile="' + i + '" title="一覧から削除">' + svg(xIcon, 16) + "</button></div>";
     }).join("");
+    document.getElementById("file-cards").querySelectorAll("[data-removefile]").forEach(function (b) {
+      b.addEventListener("click", async function () {
+        await rpc("removeFile", { fileIndex: +b.dataset.removefile });
+        await reloadState();
+        renderFileCards();
+        render();
+      });
+    });
   }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -192,13 +206,39 @@
   }
   function invalidate(fi, pi) { delete svgCache[fi + ":" + pi]; }
 
+  // フィット率 (現行どおりクランプ 0.05〜3) にズーム倍率を掛けた最終スケールを当てる。
+  // zoom=1 なら従来表示と一致。
   function scalePage(svgEl, w, h, editorEl) {
     var avW = Math.max(120, editorEl.clientWidth - 90);
     var avH = Math.max(120, editorEl.clientHeight - 96);
-    var sc = Math.min(avW / w, avH / h);
-    sc = Math.max(0.05, Math.min(sc, 3));
+    var fit = Math.min(avW / w, avH / h);
+    fit = Math.max(0.05, Math.min(fit, 3));
+    var sc = fit * curZoom();
     svgEl.style.width = (w * sc) + "px";
     svgEl.style.height = (h * sc) + "px";
+  }
+
+  // ---- キャンバス内ズーム (手順2・3、キャンバスのみ拡大縮小) ----
+  function curZoom() { return zoomFor[phase] || 1; }
+  function updateZoomLabel() {
+    var el = app.querySelector('[data-screen="' + phase + '"] .zoom-ctrl .zpct');
+    if (el) el.textContent = Math.round(curZoom() * 100) + "%";
+  }
+  function setZoom(z) {
+    zoomFor[phase] = Math.max(0.25, Math.min(6, z));
+    rescaleCurrent();
+  }
+  // 再フェッチせず現在表示中の SVG にスケールだけ当て直す。
+  function rescaleCurrent() {
+    var host = document.getElementById(phase === 2 ? "doc-master" : "trim-stage");
+    if (!host) return;
+    var svgEl = host.querySelector("svg");
+    var data = svgCache[pkey()];
+    if (svgEl && data) {
+      scalePage(svgEl, data.width, data.height, app.querySelector('[data-screen="' + phase + '"] .editor'));
+      if (phase === 3) drawSelBoxes(host); // sel-box は host 相対なので再計算
+    }
+    updateZoomLabel();
   }
 
   // host に現在ページの SVG を載せる。token で古い await を破棄。
@@ -467,15 +507,17 @@
     });
   }
 
-  // crop ツール: ドラッグした矩形に重なる要素を範囲削除。リスナーは起動時に一度だけ設置し、
-  // イベント時に phase/tool を判定する (render の度に張り直さない)。
+  // crop/border ツール: ドラッグした矩形で範囲削除 (crop) または枠線追加 (border)。
+  // リスナーは起動時に一度だけ設置し、イベント時に phase/tool を判定する。
   function installCropDrag() {
     var host = document.getElementById("trim-stage");
     host.addEventListener("mousedown", function (e) {
-      if (phase !== 3 || tool !== "crop") return;
+      if (phase !== 3 || (tool !== "crop" && tool !== "border")) return;
       if (!host.querySelector("svg")) return;
-      var rubber = document.createElement("div"); rubber.className = "crop-rubber"; host.appendChild(rubber);
-      cropDrag = { origin: { x: e.clientX, y: e.clientY }, rubber: rubber };
+      var rubber = document.createElement("div");
+      rubber.className = tool === "border" ? "border-rubber" : "crop-rubber";
+      host.appendChild(rubber);
+      cropDrag = { origin: { x: e.clientX, y: e.clientY }, rubber: rubber, mode: tool };
       e.preventDefault();
     });
     window.addEventListener("mousemove", function (e) {
@@ -495,8 +537,12 @@
       var x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
       var w = Math.abs(a.x - b.x), h = Math.abs(a.y - b.y);
       if (w < 4 || h < 4) return;
-      var pg = PAGES[page];
-      await rpc("deleteRegion", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, rect: { x: x, y: y, w: w, h: h } });
+      var pg = PAGES[page]; var rect = { x: x, y: y, w: w, h: h };
+      if (d.mode === "border") {
+        await rpc("addBorder", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, rect: rect, color: borderColor, width: borderWidth });
+      } else {
+        await rpc("deleteRegion", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, rect: rect });
+      }
       await afterEdit();
     });
   }
@@ -630,7 +676,7 @@
         FILES.length + "ファイル・全" + TOTAL + "ページ<br/>用語：確認 " + s2.done + " / スキップ " + s2.skip +
         "　削除：確認 " + s3.done + " / スキップ " + s3.skip;
     } else {
-      var task = phase === 2 ? "用語の置換" : "不要範囲の削除";
+      var task = phase === 2 ? "用語の置換" : "削除・枠線の編集";
       var c = counts(statusArr());
       setHint(task + " — 要確認 <b>" + c.pend + "</b> / 確認済み <b>" + c.done + "</b> / スキップ <b>" + c.skip + "</b>");
       var pg = PAGES[page];
@@ -642,6 +688,7 @@
       document.getElementById("pgnav-2").innerHTML = pageLabel();
       mountPage(document.getElementById("doc-master"), app.querySelector('[data-screen="2"] .editor'), false).then(wireConfirmPick);
       renderConfirm();
+      updateZoomLabel();
     }
     if (phase === 3 && TOTAL) {
       buildRail("pagenav-3"); renderSummary("sum-3", status3); renderPageAct();
@@ -649,8 +696,12 @@
       var ed3 = app.querySelector('[data-screen="3"] .editor');
       ed3.classList.toggle("tool-crop", tool === "crop");
       ed3.classList.toggle("tool-select", tool === "select");
+      ed3.classList.toggle("tool-border", tool === "border");
+      var bo = document.getElementById("border-opts");
+      if (bo) bo.hidden = tool !== "border";
       mountPage(document.getElementById("trim-stage"), ed3, true).then(wireTrimStage);
       renderTrim();
+      updateZoomLabel();
     }
   }
 
@@ -675,8 +726,40 @@
   function wireStatic() {
     installCropDrag();
     document.getElementById("btn-pick").addEventListener("click", doLoad);
-    document.getElementById("dropzone").addEventListener("click", function (e) {
+    var dz = document.getElementById("dropzone");
+    dz.addEventListener("click", function (e) {
       if (e.target.closest("#btn-pick")) return; doLoad();
+    });
+    // ドラッグ&ドロップで PDF 追加
+    ["dragenter", "dragover"].forEach(function (ev) {
+      dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add("dragover"); });
+    });
+    ["dragleave", "drop"].forEach(function (ev) {
+      dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove("dragover"); });
+    });
+    dz.addEventListener("drop", function (e) {
+      var fl = (e.dataTransfer && e.dataTransfer.files) ? [].slice.call(e.dataTransfer.files) : [];
+      var pdfs = fl.filter(function (f) { return f.type === "application/pdf" || /\.pdf$/i.test(f.name); });
+      if (pdfs.length) addFiles(pdfs);
+    });
+    // ゾーン外に落としてもブラウザが PDF を開いて遷移しないようにする (バックストップ)
+    ["dragover", "drop"].forEach(function (ev) {
+      document.addEventListener(ev, function (e) { e.preventDefault(); });
+    });
+    // キャンバス内ズーム: 操作子 (＋/−/リセット) と Ctrl+ホイール
+    app.querySelectorAll(".zoom-ctrl [data-zoomact]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var act = b.dataset.zoomact;
+        if (act === "reset") setZoom(1);
+        else setZoom(curZoom() * (act === "in" ? 1.25 : 0.8));
+      });
+    });
+    app.querySelectorAll('[data-screen="2"] .editor, [data-screen="3"] .editor').forEach(function (ed) {
+      ed.addEventListener("wheel", function (e) {
+        if (!e.ctrlKey || (phase !== 2 && phase !== 3)) return;
+        e.preventDefault();
+        setZoom(curZoom() * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+      }, { passive: false });
     });
     document.getElementById("btn-back").addEventListener("click", back);
     document.getElementById("btn-next").addEventListener("click", tryNext);
@@ -703,6 +786,11 @@
         app.querySelectorAll(".float-tools [data-tool]").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
         render();
       });
+    });
+    // 枠線ツールの色・太さ
+    document.getElementById("border-color").addEventListener("input", function () { borderColor = this.value; });
+    document.getElementById("border-width").addEventListener("input", function () {
+      var v = parseFloat(this.value); if (!isNaN(v) && v > 0) borderWidth = v;
     });
     document.getElementById("btn-deletesel").addEventListener("click", async function () {
       var pg = PAGES[page]; if (!pg) return;

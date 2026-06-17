@@ -3,45 +3,46 @@
 
 @custom-variant dark (&:is([data-theme="dark"] *));
 
-/* RET design tokens — 藍 (indigo) primary, HSL system recreated from styles.css.
-   primary is theme-swappable via --accent-h/s/l (hover / soft derive from it). */
+/* RET design tokens — pdf-to-svg / graph-editor 共通テーマに統一。
+   暖色ニュートラルの生成り地 + やわらかな青。OKLCH 完成色（裸チャンネルではない）。
+   tokens are full colors → 参照は var(--x)、半透明は color-mix(in oklab, …)。 */
 :root {
-  --radius: 0.6rem;
-  --background: hsl(220 24% 99%);
-  --foreground: hsl(222 24% 14%);
-  --card: hsl(0 0% 100%);
-  --card-foreground: hsl(222 24% 14%);
-  --popover: hsl(0 0% 100%);
-  --popover-foreground: hsl(222 24% 14%);
+  --radius: 0.75rem;
+  --background: oklch(0.985 0.004 85);
+  --foreground: oklch(0.34 0.012 262);
+  --card: oklch(0.998 0.003 85);
+  --card-foreground: oklch(0.34 0.012 262);
+  --popover: oklch(0.998 0.003 85);
+  --popover-foreground: oklch(0.34 0.012 262);
 
-  --accent-h: 233;
-  --accent-s: 52%;
-  --accent-l: 45%;
-  --primary: hsl(var(--accent-h) var(--accent-s) var(--accent-l));
-  --primary-hover: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) - 6%));
-  --primary-soft: hsl(var(--accent-h) calc(var(--accent-s) - 8%) 95%);
-  --primary-foreground: hsl(0 0% 100%);
+  --primary: oklch(0.585 0.105 240);
+  --primary-hover: oklch(0.46 0.11 244);
+  --primary-soft: oklch(0.945 0.03 240);
+  --primary-foreground: oklch(0.99 0.003 85);
 
-  --secondary: hsl(220 17% 96%);
-  --secondary-foreground: hsl(222 22% 18%);
-  --muted: hsl(220 17% 95.5%);
-  --muted-foreground: hsl(220 10% 44%);
-  --accent: hsl(220 18% 94.5%);
-  --accent-foreground: hsl(222 24% 14%);
-  --destructive: hsl(0 70% 47%);
-  --destructive-hover: hsl(0 70% 41%);
-  --destructive-foreground: hsl(0 0% 100%);
-  --success: hsl(150 46% 37%);
-  --success-foreground: hsl(0 0% 100%);
-  --warning: hsl(35 92% 48%);
-  --warning-foreground: hsl(40 90% 14%);
-  --border: hsl(220 16% 89%);
-  --input: hsl(220 16% 86%);
-  --ring: hsl(var(--accent-h) var(--accent-s) var(--accent-l));
+  --secondary: oklch(0.965 0.005 85);
+  --secondary-foreground: oklch(0.34 0.012 262);
+  --muted: oklch(0.965 0.005 85);
+  --muted-foreground: oklch(0.54 0.012 262);
+  --accent: oklch(0.948 0.006 85);
+  --accent-foreground: oklch(0.34 0.012 262);
+  --destructive: oklch(0.55 0.18 27);
+  --destructive-hover: oklch(0.48 0.18 27);
+  --destructive-foreground: oklch(0.99 0.003 85);
+  --success: oklch(0.585 0.085 158);
+  --success-foreground: oklch(0.99 0.003 85);
+  --warning: oklch(0.72 0.12 80);
+  --warning-foreground: oklch(0.33 0.06 70);
+  --border: oklch(0.915 0.006 85);
+  --input: oklch(0.86 0.008 85);
+  --ring: oklch(0.585 0.105 240);
 
-  --shadow-sm: 0 1px 2px 0 hsl(222 24% 14% / 0.05);
-  --shadow-md: 0 4px 14px -3px hsl(222 24% 14% / 0.1), 0 2px 6px -3px hsl(222 24% 14% / 0.07);
-  --shadow-lg: 0 18px 40px -12px hsl(222 24% 14% / 0.22);
+  --shadow-sm: 0 1px 2px oklch(0.5 0.02 262 / 0.06);
+  --shadow-md: 0 1px 2px oklch(0.5 0.02 262 / 0.06), 0 8px 24px oklch(0.5 0.02 262 / 0.07);
+  --shadow-lg: 0 12px 36px oklch(0.4 0.03 262 / 0.16);
+
+  /* 共通テーマと同じ丸ゴシック系（見出し等で利用可） */
+  --font-round: "BIZ UDPGothic", "BIZ UDGothic", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
 
   /* density-driven (toggle via [data-density]) */
   --row-h: 38px;
@@ -60,44 +61,42 @@
   --section-pad: 28px;
 }
 
-/* Dark mode — HSL token overrides (darkmode-tokens.css). Components read
-   hsl(var(--…)), so flipping these tokens flips the whole UI. primary (藍) is
-   computed from --accent-h/s/l, so brighten s/l and override --primary-soft. */
+/* Dark mode — 共通テーマ（ライト専用）に基準が無いため、同じ青灰 (hue 262) 言語で
+   設計したダーク版。やわらかな青アクセントは明度を上げて維持。tokens are full colors. */
 [data-theme="dark"] {
-  --background: hsl(224 24% 8%);
-  --foreground: hsl(220 18% 91%);
-  --card: hsl(224 22% 11.5%);
-  --card-foreground: hsl(220 18% 91%);
-  --popover: hsl(224 22% 13%);
-  --popover-foreground: hsl(220 18% 91%);
+  --background: oklch(0.2 0.008 262);
+  --foreground: oklch(0.92 0.006 85);
+  --card: oklch(0.235 0.008 262);
+  --card-foreground: oklch(0.92 0.006 85);
+  --popover: oklch(0.255 0.009 262);
+  --popover-foreground: oklch(0.92 0.006 85);
 
-  --muted: hsl(223 16% 17%);
-  --muted-foreground: hsl(220 12% 62%);
-  --accent: hsl(223 16% 20%);
-  --accent-foreground: hsl(220 18% 91%);
-  --secondary: hsl(223 16% 16%);
-  --secondary-foreground: hsl(220 18% 90%);
+  --primary: oklch(0.66 0.11 240);
+  --primary-hover: oklch(0.72 0.11 240);
+  --primary-soft: oklch(0.34 0.05 245);
+  --primary-foreground: oklch(0.98 0.003 85);
 
-  --accent-s: 62%;
-  --accent-l: 62%;
-  --primary-soft: hsl(232 32% 25%);
-  /* --primary / --primary-hover / --ring derive from --accent-h/s/l;
-     --primary-foreground stays white (button text). */
+  --secondary: oklch(0.27 0.008 262);
+  --secondary-foreground: oklch(0.9 0.006 85);
+  --muted: oklch(0.27 0.008 262);
+  --muted-foreground: oklch(0.66 0.01 262);
+  --accent: oklch(0.3 0.009 262);
+  --accent-foreground: oklch(0.92 0.006 85);
 
-  --destructive: hsl(0 72% 62%);
-  --destructive-hover: hsl(0 72% 56%);
-  --destructive-foreground: hsl(0 0% 100%);
-  --success: hsl(150 44% 50%);
-  --success-foreground: hsl(0 0% 100%);
-  --warning: hsl(36 90% 58%);
-  /* used as TEXT on a warning tint (要再設定 badge) → light amber */
-  --warning-foreground: hsl(40 92% 66%);
-  --border: hsl(223 14% 22%);
-  --input: hsl(223 14% 27%);
+  --destructive: oklch(0.62 0.17 25);
+  --destructive-hover: oklch(0.56 0.17 25);
+  --destructive-foreground: oklch(0.98 0.003 85);
+  --success: oklch(0.66 0.09 158);
+  --success-foreground: oklch(0.16 0.01 262);
+  --warning: oklch(0.78 0.11 82);
+  --warning-foreground: oklch(0.84 0.1 85);
+  --border: oklch(0.32 0.01 262);
+  --input: oklch(0.38 0.011 262);
+  --ring: oklch(0.66 0.11 240);
 
-  --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.4);
-  --shadow-md: 0 4px 14px -3px hsl(0 0% 0% / 0.5), 0 2px 6px -3px hsl(0 0% 0% / 0.4);
-  --shadow-lg: 0 18px 44px -12px hsl(0 0% 0% / 0.62);
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.4);
+  --shadow-md: 0 4px 14px -3px oklch(0 0 0 / 0.5), 0 2px 6px -3px oklch(0 0 0 / 0.4);
+  --shadow-lg: 0 18px 44px -12px oklch(0 0 0 / 0.62);
 }
 
 @theme inline {
@@ -219,7 +218,7 @@
 }
 .gjs-comp-selected {
   /* biome-ignore lint/complexity/noImportantStyles: GrapesJS の選択枠を上書きするため必要 */
-  outline: 2px solid hsl(var(--primary)) !important;
+  outline: 2px solid var(--primary) !important;
   outline-offset: 1px;
 }
 .gjs-cv-canvas {

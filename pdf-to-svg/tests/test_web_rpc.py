@@ -21,6 +21,10 @@ class FakeUndo:
         self._stack = []
         self._pos = 0
 
+    def clear(self):
+        self._stack = []
+        self._pos = 0
+
     def beginMacro(self, _label):  # noqa: N802
         pass
 
@@ -121,6 +125,39 @@ def test_delete_region(session):
                                 {"fileIndex": 0, "pageInFile": 0,
                                  "rect": {"x": 150, "y": 150, "w": 10, "h": 10}})
     assert res2["deleted"] == 0
+
+
+def test_remove_file(session):
+    session.docs.append(_make_doc("図面.pdf"))
+    assert len(session.docs) == 2
+    res = rpc_methods.dispatch(session, "removeFile", {"fileIndex": 0})
+    assert res["total"] == 1
+    # 先頭を消したので残るのは 2 番目に追加したファイル
+    assert session.docs[0].source_path == "図面.pdf"
+    # 範囲外の index は無視 (例外を投げない)
+    res2 = rpc_methods.dispatch(session, "removeFile", {"fileIndex": 9})
+    assert res2["total"] == 1
+
+
+def test_add_border(session):
+    page = session.page(0, 0)
+    before = len(page.live_elements())
+    res = rpc_methods.dispatch(session, "addBorder",
+                               {"fileIndex": 0, "pageInFile": 0,
+                                "rect": {"x": 5, "y": 5, "w": 100, "h": 80},
+                                "color": "#ff0000", "width": 2})
+    el = next(e for e in page.elements if e.id == res["elId"])
+    assert el.stroke == "#ff0000" and el.fill is None and el.stroke_width == 2.0
+    assert el.kind == "rect" and el.deleted is False
+    assert len(page.live_elements()) == before + 1
+    # 書き出し SVG に枠線が出る (塗りなし stroke 指定)
+    data = rpc_methods.dispatch(session, "pageSvg", {"fileIndex": 0, "pageInFile": 0})
+    assert 'stroke="#ff0000"' in data["svg"] and 'fill="none"' in data["svg"]
+    # undo で消え、redo で戻る (既存の選択→削除でも消せる前提の通常要素)
+    rpc_methods.dispatch(session, "undo", {})
+    assert el.deleted is True and len(page.live_elements()) == before
+    rpc_methods.dispatch(session, "redo", {})
+    assert el.deleted is False and len(page.live_elements()) == before + 1
 
 
 def test_apply_crop_changes_svg_viewbox(session):

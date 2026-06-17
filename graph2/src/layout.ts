@@ -39,7 +39,9 @@ import {
   visualTextWidthUnits,
   scaledLabelWidthUnits,
   degToRad,
+  radToDeg,
   labelCongestionOffsetDeg,
+  isOtherCategory,
 } from "./svg_geom.js";
 import {
   TOP_BAND_HALF_WIDTH_DEG,
@@ -116,7 +118,7 @@ function buildProfiles(
 
 /** 各スライスの中心角 (度) を計算する。startangle / counterclock を反映。 */
 function calcMidAngles(values: number[], cfg: PieLayoutConfig): number[] {
-  return arcAngles(values, cfg).map(({ midAngle }) => normalizeAngle((midAngle * 180) / Math.PI));
+  return arcAngles(values, cfg).map(({ midAngle }) => normalizeAngle(radToDeg(midAngle)));
 }
 
 /**
@@ -201,7 +203,7 @@ function collectSliceCounts(profiles: LayoutItem[]) {
     leftCount: countIf((p) => p.side === "left"),
     rightCount: countIf((p) => p.side === "right"),
     // 左列 (上部「その他」を除く左側ラベル) の件数。twoLineLeftStackMode の入力。
-    leftColumnCount: countIf((p) => p.side === "left" && !p.name.startsWith("その他")),
+    leftColumnCount: countIf((p) => p.side === "left" && !isOtherCategory(p.name)),
     upperLongCount: countIf((p) => (p.isUpperLeft || p.isUpperRight) && p.isLong),
     upperLeftLongCount: countIf((p) => p.isUpperLeft && p.isLong),
     upperRightLongCount: countIf((p) => p.isUpperRight && p.isLong),
@@ -659,7 +661,7 @@ function applyFlipToRight(left: LayoutItemReady[], cfg: PieLayoutConfig): void {
 function computePass2MaxAngle(cfg: PieLayoutConfig): number {
   const sinThreshold = cfg.pieRadius - cfg.scaledRadialExitLen + FLIP_PASS2_SAFETY_MARGIN;
   if (sinThreshold >= 1) return FLIP_PRIMARY_MAX_DEG;
-  const refAngleDeg = (Math.asin(sinThreshold) * 180) / Math.PI;
+  const refAngleDeg = radToDeg(Math.asin(sinThreshold));
   return 180 - refAngleDeg;
 }
 
@@ -903,7 +905,7 @@ function topBandLeftSlivers(
       (size === "tiny" ? it.isTiny : it.isSmall) &&
       it.midAngle > 90 &&
       angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
-      !it.name.startsWith("その他") &&
+      !isOtherCategory(it.name) &&
       (long === "require" ? it.isLong : !it.isLong),
   );
 }
@@ -936,7 +938,7 @@ function markTopBandSmallRight(left: LayoutItemReady[], diagnostics: Diagnostics
       it.isSmall &&
       it.midAngle > 90 &&
       angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
-      !it.name.startsWith("その他") &&
+      !isOtherCategory(it.name) &&
       it.flipToRight === true,
   );
   if (candidates.length === 0) return;
@@ -979,7 +981,7 @@ function markClippedUpperLeftLongDrop(
   const candidates = left.filter((it) => {
     if (it.flipToRight || it.flipToLeft) return false;
     if (!(it.isUpperLeft && it.isLong)) return false;
-    if (it.name.startsWith("その他")) return false;
+    if (isOtherCategory(it.name)) return false;
     if (!angleInBand(normalizeAngle(it.midAngle), 180, 30)) return false;
     const width = scaledLabelWidthUnits(it.name, it.percentText ?? "", 2, floorScale, cfg);
     return worstAnchorX - width < viewBoxLeft - tol;
@@ -1105,7 +1107,7 @@ function markLeftStackTopBandEscapeRight(
   if (candidates.filter((it) => !it.isSmall).length > 2) return;
   if (
     candidates.some(
-      (it) => it.side === "right" && it.isSmall && !it.name.startsWith("その他"),
+      (it) => it.side === "right" && it.isSmall && !isOtherCategory(it.name),
     )
   ) {
     return;
@@ -1158,7 +1160,7 @@ function markLoneTopSliverLeader(
   if (slivers.length !== 1) return;
   const topBandSonohokaOccupied = candidates.some(
     (it) =>
-      it.name.startsWith("その他") &&
+      isOtherCategory(it.name) &&
       angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
       (it.percent ?? 0) >= 0.5,
   );
@@ -1203,7 +1205,7 @@ function markDominantTopSliverWithOther(
   if (slivers.length !== 1) return;
   const topBandSonohoka = candidates.some(
     (it) =>
-      it.name.startsWith("その他") &&
+      isOtherCategory(it.name) &&
       it.isSmall &&
       angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG),
   );
@@ -1264,7 +1266,7 @@ function markDenseSideOutsidePush(
 ): void {
   if (!diagnostics.leftStackMode) return;
   for (const it of left) {
-    if (it.name.startsWith("その他")) continue;
+    if (isOtherCategory(it.name)) continue;
     if (it.topBandSmallRight || it.forceOutsideLeader || it.loneTopSliverLeader) continue;
     if (it.clusterTopBand || it.bottomCenterBelow) continue;
     // 上帯 (12時近傍) の小スライスは『その他』の水平 leader と交差しやすく、B (交差修復) の
@@ -1452,7 +1454,7 @@ export function layoutLabels(
   const labelMids =
     labelOffset === 0
       ? mids
-      : mids.map((m, i) => (names[i].startsWith("その他") ? m : normalizeAngle(m + labelOffset)));
+      : mids.map((m, i) => (isOtherCategory(names[i]) ? m : normalizeAngle(m + labelOffset)));
   const { items: candidates, diagnostics } = buildCandidates(
     names,
     values,

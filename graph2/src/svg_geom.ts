@@ -154,6 +154,22 @@ export function degToRad(deg: number): number {
   return (deg * Math.PI) / 180;
 }
 
+/** ラジアンを度へ変換する (`degToRad` の逆)。 */
+export function radToDeg(rad: number): number {
+  return (rad * 180) / Math.PI;
+}
+
+/** スライス名のうち「その他」カテゴリを表す前方一致プレフィックス。 */
+export const OTHER_CATEGORY_PREFIX = "その他";
+
+/**
+ * スライス名が「その他」カテゴリか (前方一致) を返す。配置(右上逃がし等)・ソート末尾固定・
+ * 各種除外判定が同じ基準を使うための単一ソース。名前ベース判定はこの 1 箇所に集約する。
+ */
+export function isOtherCategory(name: string): boolean {
+  return name.startsWith(OTHER_CATEGORY_PREFIX);
+}
+
 /** 角度(度)を (-180, 180] に正規化する。 */
 function signedDeg(deg: number): number {
   let value = deg % 360;
@@ -190,7 +206,7 @@ export function labelCongestionOffsetDeg(
   // ため、生値ではなく割合(%)で小スライス判定する(buildProfiles の percent 判定と統一)。
   const total = values.reduce((sum, v) => sum + Number(v), 0) || 1;
   const isSmall = (i: number) =>
-    (values[i] / total) * 100 < cfg.smallSliceThreshold && !names[i].startsWith("その他");
+    (values[i] / total) * 100 < cfg.smallSliceThreshold && !isOtherCategory(names[i]);
   let run: [number, number] | null = null;
   for (let i = 0; i < values.length; ) {
     if (!isSmall(i)) {
@@ -205,8 +221,8 @@ export function labelCongestionOffsetDeg(
   if (!run || run[1] - run[0] < 2) return 0; // ラン長 >= 3 のみ
 
   const arcs = arcAngles(values, cfg);
-  const runStartDeg = (arcs[run[0]].startAngle * 180) / Math.PI;
-  const runEndDeg = (arcs[run[1]].endAngle * 180) / Math.PI;
+  const runStartDeg = radToDeg(arcs[run[0]].startAngle);
+  const runEndDeg = radToDeg(arcs[run[1]].endAngle);
   const runCenter = signedDeg((runStartDeg + runEndDeg) / 2);
 
   const inLowerLeft = runCenter < -90 && runCenter > -180;
@@ -796,6 +812,17 @@ export function leaderCrossesBox(points: Point[], box: BBox, pad = 2): boolean {
 }
 
 /**
+ * `nudgeTextAwayFromEndpoint` / `nudgeTextAwayFromSegment` 共通の押し出しパディング(論理単位)。
+ * 半径連動 (`radialFraction`) で X/Y を別係数に。両関数で同一値を使うため 1 箇所に集約する。
+ */
+function nudgeTextPads(cfg: PieLayoutConfig): { padX: number; padY: number } {
+  return {
+    padX: radialFraction(cfg, 0.03, 0.34),
+    padY: radialFraction(cfg, 0.02, 0.24),
+  };
+}
+
+/**
  * テキスト bbox が引出線端点に被っていたら、押し出して離す(最大 3 回試行)。
  */
 export function nudgeTextAwayFromEndpoint(
@@ -808,8 +835,7 @@ export function nudgeTextAwayFromEndpoint(
   measured: Extent,
   cfg: PieLayoutConfig,
 ): Point {
-  const padX = radialFraction(cfg, 0.03, 0.34);
-  const padY = radialFraction(cfg, 0.02, 0.24);
+  const { padX, padY } = nudgeTextPads(cfg);
   let nextX = textX;
   let nextY = textY;
 
@@ -961,8 +987,7 @@ export function nudgeTextAwayFromSegment(
   measured: Extent,
   cfg: PieLayoutConfig,
 ): Point {
-  const padX = radialFraction(cfg, 0.03, 0.34);
-  const padY = radialFraction(cfg, 0.02, 0.24);
+  const { padX, padY } = nudgeTextPads(cfg);
   let nextX = textX;
   let nextY = textY;
 

@@ -270,7 +270,7 @@ const statusText = computed(() => {
 .ret-frame {
   position: absolute;
   pointer-events: none;
-  border: 1.5px dashed hsl(var(--primary) / 0.55);
+  border: 1.5px dashed color-mix(in oklab, var(--primary) 55%, transparent);
   border-radius: 3px;
   z-index: 22;
 }
@@ -290,7 +290,7 @@ const statusText = computed(() => {
   left: 50%;
   transform: translate(-50%, -50%);
   border-radius: 6px;
-  background: hsl(var(--primary));
+  background: var(--primary);
   border: 2px solid #fff;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
 }
@@ -313,7 +313,7 @@ const statusText = computed(() => {
   height: 8px;
 }
 .ret-handle:hover::before {
-  background: hsl(var(--primary) / 0.85);
+  background: color-mix(in oklab, var(--primary) 85%, transparent);
 }
 
 /* corner handles: square knob with a comfortable hit target */
@@ -335,7 +335,7 @@ const statusText = computed(() => {
   transform: translate(-50%, -50%);
   border-radius: 3px;
   background: #fff;
-  border: 2px solid hsl(var(--primary));
+  border: 2px solid var(--primary);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
 }
 
@@ -345,8 +345,8 @@ const statusText = computed(() => {
   transform: translate(-50%, -50%);
   padding: 3px 8px;
   border-radius: 6px;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;

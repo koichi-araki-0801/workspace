@@ -17,6 +17,7 @@ import {
   leaderCrossesBox,
   angleInBand,
   normalizeAngle,
+  isOtherCategory,
 } from "../svg_geom.js";
 import { topBandSonohokaZone } from "../label_placement.js";
 import type { Placement, PieLayoutConfig } from "../types.js";
@@ -37,6 +38,10 @@ const UPPER_LEFT_SMALL_LEADER_HALF_WIDTH_DEG = 45;
 // `DOMINANT_OUTSIDE_EDGE_MIN_PCT` (rim 外縁配置の dominant 判定) と同値。バランス型チャートの中サイズ
 // スライス (>smallSliceThreshold だが非 dominant) の rim leader は「なるべく leader を使う」方針どおり残す。
 const REDUNDANT_RIM_LEADER_DOMINANT_MIN_PCT = 50;
+
+// leader の anchor→endpoint 角度差の上限 (rad)。これを超えると 1 曲げ bend が極端に遠くなり
+// (rc/cos(Δ/2) 発散) 円を回り込めないため、bend 挿入/再配置の対象から外す境界。
+export const LEADER_MAX_ANGULAR_DIFF_RAD = (150 * Math.PI) / 180;
 
 export type Pt = { x: number; y: number };
 
@@ -235,7 +240,7 @@ export function computeDrawnLeader(
         while (dTh > Math.PI) dTh -= 2 * Math.PI;
         while (dTh < -Math.PI) dTh += 2 * Math.PI;
         // 角度差が大きすぎると W が極端に遠くなる (rc/cos(Δ/2) 発散)。150° 以上は現状維持。
-        if (Math.abs(dTh) < (150 * Math.PI) / 180) {
+        if (Math.abs(dTh) < LEADER_MAX_ANGULAR_DIFF_RAD) {
           const rc = cfg.pieRadius + 2.5 * pxUnit;
           const midTh = thA + dTh / 2;
           const rw = rc / Math.cos(Math.abs(dTh) / 2);
@@ -317,7 +322,7 @@ export function isRedundantUpperLeftSmallLeader(
   if (it.isSmall !== true) return false;
   if (mid <= 90) return false;
   if (!angleInBand(normalizeAngle(mid), 90, UPPER_LEFT_SMALL_LEADER_HALF_WIDTH_DEG)) return false;
-  if (it.name.startsWith("その他")) return false;
+  if (isOtherCategory(it.name)) return false;
   let len = 0;
   for (let k = 0; k + 1 < pathPoints.length; k += 1) {
     len += Math.hypot(pathPoints[k + 1].x - pathPoints[k].x, pathPoints[k + 1].y - pathPoints[k].y);
@@ -586,7 +591,7 @@ export function angularStacks(
     // および forceTopRight。帯外 (>122°) で左右スタックに通常 rim 配置された その他 は順序
     // チェックに参加させる (除外すると下位スタックでの逆転が見逃される)。
     if (
-      p.item.name.startsWith("その他") &&
+      isOtherCategory(p.item.name) &&
       (topBandSonohokaZone(p.item) !== null || p.forceTopRight)
     ) {
       return;

@@ -27,6 +27,24 @@ class DeleteCommand:
             el.deleted = False
 
 
+class AddElementCommand:
+    """要素を 1 つページに追加する (枠線など)。``DeleteCommand`` と対称で、
+    redo で可視化・undo で非表示にする (要素はリストに残し ``deleted`` で制御)。"""
+
+    def __init__(self, page: Page, element: Element):
+        self.label = "枠線を追加"
+        self.page = page
+        self.element = element
+
+    def redo(self) -> None:
+        if self.element not in self.page.elements:
+            self.page.elements.append(self.element)
+        self.element.deleted = False
+
+    def undo(self) -> None:
+        self.element.deleted = True
+
+
 class CropCommand:
     def __init__(self, page: Page, new_rect: Optional[Rect]):
         self.label = "クロップ" if new_rect else "クロップ解除"

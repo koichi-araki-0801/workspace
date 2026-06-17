@@ -18,8 +18,13 @@ from dictionary import apply as dict_apply
 from dictionary.store import DictionaryStore
 from export.svg_exporter import page_to_svg
 from model.document import Document, Page
-from model.elements import DictMatch, Element, Rect, TextElement
-from web.commands import CropCommand, DeleteCommand, ReplaceTextCommand
+from model.elements import DictMatch, Element, Rect, RectElement, TextElement
+from web.commands import (
+    AddElementCommand,
+    CropCommand,
+    DeleteCommand,
+    ReplaceTextCommand,
+)
 
 
 class WebSession:
@@ -263,6 +268,31 @@ def rpc_deleteRegion(s: WebSession, args: dict) -> dict:
     return {"deleted": len(els)}
 
 
+def rpc_removeFile(s: WebSession, args: dict) -> dict:
+    """追加済み PDF を 1 つ一覧から取り除く。Undo 履歴は旧 doc の要素を参照する
+    ため無効化する (アップロードと同方針)。残ったファイル数を返す。"""
+    fi = int(args["fileIndex"])
+    if 0 <= fi < len(s.docs):
+        s.undo.clear()
+        s.docs.pop(fi)
+    return {"total": len(s.docs)}
+
+
+def rpc_addBorder(s: WebSession, args: dict) -> dict:
+    """ドラッグした矩形に塗りなしの枠線 (RectElement) を 1 つ追加する (Undo 可)。"""
+    pg = s.page(args["fileIndex"], args["pageInFile"])
+    r = args["rect"]
+    rect = Rect(float(r["x"]), float(r["y"]), float(r["w"]), float(r["h"]))
+    color = args.get("color") or "#000000"
+    width = float(args.get("width") or 1.0)
+    z = max((e.z for e in pg.elements), default=0) + 1
+    el = RectElement(
+        bbox=rect, z=z, rect=rect, stroke=color, fill=None, stroke_width=width
+    )
+    s.undo.push(AddElementCommand(pg, el))
+    return {"elId": el.id}
+
+
 def rpc_applyCrop(s: WebSession, args: dict) -> dict:
     pg = s.page(args["fileIndex"], args["pageInFile"])
     r = args["rect"]
@@ -349,6 +379,8 @@ HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "reapplyDict": rpc_reapplyDict,
     "applyDelete": rpc_applyDelete,
     "deleteRegion": rpc_deleteRegion,
+    "removeFile": rpc_removeFile,
+    "addBorder": rpc_addBorder,
     "applyCrop": rpc_applyCrop,
     "clearCrop": rpc_clearCrop,
     "undo": rpc_undo,

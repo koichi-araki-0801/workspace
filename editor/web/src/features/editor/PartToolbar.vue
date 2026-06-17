@@ -149,22 +149,22 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
   justify-content: center;
   border-radius: 7px;
   padding: 0 6px;
-  color: hsl(var(--foreground) / 0.8);
+  color: color-mix(in oklab, var(--foreground) 80%, transparent);
   transition: background-color 0.12s;
 }
 .ret-tb:hover:not(:disabled) {
-  background: hsl(var(--accent));
+  background: var(--accent);
 }
 .ret-tb:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
 .ret-tb-on {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 .ret-tb-on:hover {
-  background: hsl(var(--primary));
+  background: var(--primary);
 }
 .ret-grip {
   cursor: grab;
@@ -173,10 +173,10 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
   cursor: grabbing;
 }
 .ret-tb-danger {
-  color: hsl(var(--destructive));
+  color: var(--destructive);
 }
 .ret-tb-danger:hover {
-  background: hsl(var(--destructive) / 0.12);
+  background: color-mix(in oklab, var(--destructive) 12%, transparent);
 }
 .ret-num {
   display: inline-flex;
@@ -184,11 +184,11 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
   align-items: center;
   gap: 3px;
   border-radius: 7px;
-  background: hsl(var(--muted));
+  background: var(--muted);
   padding: 0 6px;
   font-size: 11px;
   font-weight: 700;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 .ret-num input {
   width: 26px;
@@ -197,12 +197,12 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
   text-align: center;
   font-size: 12.5px;
   font-weight: 600;
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   outline: none;
   padding: 0;
 }
 .ret-unit {
   font-size: 10px;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 </style>

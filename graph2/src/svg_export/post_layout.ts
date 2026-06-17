@@ -34,6 +34,7 @@ import {
 } from "../svg_geom.js";
 import { layoutLabels } from "../layout.js";
 import { TOP_BAND_HALF_WIDTH_DEG } from "../label_placement.js";
+import type { BBox } from "../svg_geom.js";
 import type { PieLayoutConfig, LayoutItem, Placement } from "../types.js";
 import { detectVisualHorizontalOverflow } from "./rendering.js";
 
@@ -193,105 +194,117 @@ function settlePinnedClustersDownward(textPlacements: Placement[], cfg: PieLayou
  * 動けない場合、対称半分割だと固定側の移動が clampPlacement で無効化され分離量が
  * 半減する。この場合は可動側へ分離量を全振りし、純縦方向に動かして確実に離す。
  */
+/**
+ * 重なり解消の共通反復骨格。各反復で全ペア (i<j) を走査し、`resolvePair` が「押し離した」
+ * (true) を返したペアにだけ clamp 一式を適用する。1 反復で誰も動かなければ収束として打ち切る
+ * (最大 OVERLAP_MAX_ITER 反復)。巡回順・収束条件・clamp 呼び出しは主/Secondary パス共通。
+ * `resolvePair` は gate 不成立なら placement を変えず false を返し、押し離した時のみ破壊的に
+ * 更新して true を返す (gate→move→clamp×4→anyMoved の評価順は両パスで不変)。
+ */
+function iterateOverlapPairs(
+  textPlacements: Placement[],
+  cfg: PieLayoutConfig,
+  resolvePair: (
+    a: Placement,
+    b: Placement,
+    ba: BBox,
+    bb: BBox,
+    overlapX: number,
+    overlapY: number,
+  ) => boolean,
+): void {
+  for (let iter = 0; iter < OVERLAP_MAX_ITER; iter += 1) {
+    let anyMoved = false;
+    for (let i = 0; i < textPlacements.length; i += 1) {
+      for (let j = i + 1; j < textPlacements.length; j += 1) {
+        const a = textPlacements[i];
+        const b = textPlacements[j];
+        const ba = placementBox(a, cfg);
+        const bb = placementBox(b, cfg);
+        const { x: overlapX, y: overlapY } = boxOverlapAmount(ba, bb);
+        if (!resolvePair(a, b, ba, bb, overlapX, overlapY)) continue;
+        clampPlacement(a);
+        clampPlacement(b);
+        clampToAnchorSide(a);
+        clampToAnchorSide(b);
+        anyMoved = true;
+      }
+    }
+    if (!anyMoved) break;
+  }
+}
+
 export function resolveLabelOverlaps(textPlacements: Placement[], cfg: PieLayoutConfig): void {
   const thresholdLogical = OVERLAP_THRESHOLD_PX / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
 
-  for (let iter = 0; iter < OVERLAP_MAX_ITER; iter += 1) {
-    let anyMoved = false;
-    for (let i = 0; i < textPlacements.length; i += 1) {
-      for (let j = i + 1; j < textPlacements.length; j += 1) {
-        const a = textPlacements[i];
-        const b = textPlacements[j];
-        const ba = placementBox(a, cfg);
-        const bb = placementBox(b, cfg);
-        const { x: overlapX, y: overlapY } = boxOverlapAmount(ba, bb);
-        if (overlapX <= 0 || overlapY <= 0) continue;
-        if (overlapY < thresholdLogical) continue;
+  // 主パス: bbox が strictly に重なるペアを bbox 中心ベクトル方向へ対角分離。
+  iterateOverlapPairs(textPlacements, cfg, (a, b, ba, bb, overlapX, overlapY) => {
+    if (overlapX <= 0 || overlapY <= 0) return false;
+    if (overlapY < thresholdLogical) return false;
 
-        const cax = (ba.left + ba.right) / 2;
-        const cay = (ba.top + ba.bottom) / 2;
-        const cbx = (bb.left + bb.right) / 2;
-        const cby = (bb.top + bb.bottom) / 2;
-        let dx = cbx - cax;
-        let dy = cby - cay;
-        const d = Math.hypot(dx, dy);
-        if (d < 1e-9) {
-          dx = 0;
-          dy = 1;
-        } else {
-          dx /= d;
-          dy /= d;
-        }
-        if (Math.abs(dy) < OVERLAP_DIAG_MIN_DY_NORM) {
-          dx = 0;
-          dy = dy >= 0 ? 1 : -1;
-        }
-
-        const needTotal = overlapY + 2e-4;
-        // a の Y 変位は -dy*scale、b は +dy*scale 方向。
-        const aBlocked = blockedInY(a, -dy);
-        const bBlocked = blockedInY(b, dy);
-        if (aBlocked && !bBlocked) {
-          // a は固定 → b へ全振り (純縦)。
-          b.y += (dy >= 0 ? 1 : -1) * needTotal;
-        } else if (bBlocked && !aBlocked) {
-          a.y += (dy >= 0 ? -1 : 1) * needTotal;
-        } else {
-          const pushScale = needTotal / 2 / Math.max(Math.abs(dy), 1e-6);
-          a.x -= dx * pushScale;
-          a.y -= dy * pushScale;
-          b.x += dx * pushScale;
-          b.y += dy * pushScale;
-        }
-        clampPlacement(a);
-        clampPlacement(b);
-        clampToAnchorSide(a);
-        clampToAnchorSide(b);
-        anyMoved = true;
-      }
+    const cax = (ba.left + ba.right) / 2;
+    const cay = (ba.top + ba.bottom) / 2;
+    const cbx = (bb.left + bb.right) / 2;
+    const cby = (bb.top + bb.bottom) / 2;
+    let dx = cbx - cax;
+    let dy = cby - cay;
+    const d = Math.hypot(dx, dy);
+    if (d < 1e-9) {
+      dx = 0;
+      dy = 1;
+    } else {
+      dx /= d;
+      dy /= d;
     }
-    if (!anyMoved) break;
-  }
+    if (Math.abs(dy) < OVERLAP_DIAG_MIN_DY_NORM) {
+      dx = 0;
+      dy = dy >= 0 ? 1 : -1;
+    }
+
+    const needTotal = overlapY + 2e-4;
+    // a の Y 変位は -dy*scale、b は +dy*scale 方向。
+    const aBlocked = blockedInY(a, -dy);
+    const bBlocked = blockedInY(b, dy);
+    if (aBlocked && !bBlocked) {
+      // a は固定 → b へ全振り (純縦)。
+      b.y += (dy >= 0 ? 1 : -1) * needTotal;
+    } else if (bBlocked && !aBlocked) {
+      a.y += (dy >= 0 ? -1 : 1) * needTotal;
+    } else {
+      const pushScale = needTotal / 2 / Math.max(Math.abs(dy), 1e-6);
+      a.x -= dx * pushScale;
+      a.y -= dy * pushScale;
+      b.x += dx * pushScale;
+      b.y += dy * pushScale;
+    }
+    return true;
+  });
 
   const visualHorizGap = OVERLAP_HORIZ_NEAR_GAP_PX / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
-  for (let iter = 0; iter < OVERLAP_MAX_ITER; iter += 1) {
-    let anyMoved = false;
-    for (let i = 0; i < textPlacements.length; i += 1) {
-      for (let j = i + 1; j < textPlacements.length; j += 1) {
-        const a = textPlacements[i];
-        const b = textPlacements[j];
-        const ba = placementBox(a, cfg);
-        const bb = placementBox(b, cfg);
-        const { x: overlapX, y: overlapY } = boxOverlapAmount(ba, bb);
-        if (overlapX > 0) continue;
-        if (overlapX + visualHorizGap <= 0) continue;
-        if (overlapY < thresholdLogical) continue;
+  // Secondary パス: 横が非重なり (隙間 < OVERLAP_HORIZ_NEAR_GAP_PX) かつ縦に重なるペアを純縦分離。
+  iterateOverlapPairs(textPlacements, cfg, (a, b, ba, bb, overlapX, overlapY) => {
+    if (overlapX > 0) return false;
+    if (overlapX + visualHorizGap <= 0) return false;
+    if (overlapY < thresholdLogical) return false;
 
-        const cay = (ba.top + ba.bottom) / 2;
-        const cby = (bb.top + bb.bottom) / 2;
-        const dy = cay >= cby ? 1 : -1;
-        const needTotal = overlapY + 2e-4;
-        // a の Y 変位は +dy*push、b は -dy*push 方向。
-        const aBlocked = blockedInY(a, dy);
-        const bBlocked = blockedInY(b, -dy);
-        if (aBlocked && !bBlocked) {
-          b.y -= dy * needTotal;
-        } else if (bBlocked && !aBlocked) {
-          a.y += dy * needTotal;
-        } else {
-          const push = needTotal / 2;
-          a.y += dy * push;
-          b.y -= dy * push;
-        }
-        clampPlacement(a);
-        clampPlacement(b);
-        clampToAnchorSide(a);
-        clampToAnchorSide(b);
-        anyMoved = true;
-      }
+    const cay = (ba.top + ba.bottom) / 2;
+    const cby = (bb.top + bb.bottom) / 2;
+    const dy = cay >= cby ? 1 : -1;
+    const needTotal = overlapY + 2e-4;
+    // a の Y 変位は +dy*push、b は -dy*push 方向。
+    const aBlocked = blockedInY(a, dy);
+    const bBlocked = blockedInY(b, -dy);
+    if (aBlocked && !bBlocked) {
+      b.y -= dy * needTotal;
+    } else if (bBlocked && !aBlocked) {
+      a.y += dy * needTotal;
+    } else {
+      const push = needTotal / 2;
+      a.y += dy * push;
+      b.y -= dy * push;
     }
-    if (!anyMoved) break;
-  }
+    return true;
+  });
 
   // 3rd: 天井固定クラスタを下方向へ連鎖分離 (主/Secondary パスの取りこぼし救済)。
   settlePinnedClustersDownward(textPlacements, cfg);
@@ -321,57 +334,55 @@ function denseUpperLeftPrecompactThreshold(cfg: PieLayoutConfig): number {
 const LEFT_HORIZON_LONG_COMPACT_REVERT_MIN_ANGLE_DEG = 180 - TOP_BAND_HALF_WIDTH_DEG;
 
 /**
- * compactLabel 自動選択カスケード本体。items を破壊的に更新する。
- * options.compactLabel が明示されていない場合のみ呼び出し側で実行する。
+ * ── 1) 2 個 flipped pre-compact ──
+ * flip 済みが 2 枚で内側に 2 行ぶんの余地が無いとき、両方を 1 行化して上端の重なりを避ける。
  */
-export function runCompactCascade(items: LayoutItem[], cfg: PieLayoutConfig): void {
-  if (items.length <= 1) return;
-  const maxAllowedY = cfg.canvasYlim[1] - cfg.canvasSafetyMargin;
-
-  // ── 1) 2 個 flipped pre-compact ──
-  {
-    const probe = layoutLabels(items.map((it) => ({ ...it })), cfg);
-    const flipped = probe.labels.filter((l: LayoutItem) => l.flipToRight);
-    if (flipped.length === 2) {
-      const sorted = [...flipped].sort((a: LayoutItem, b: LayoutItem) => a.anchorX! - b.anchorX!);
-      const outer = sorted[0];
-      const inner = sorted[1];
-      const heights = sorted.map((item: LayoutItem) => estimateTextExtent(item, cfg).height);
-      const rankStep = Math.max(0.14, cfg.scaledMinGap, Math.max(...heights) * 1.15);
-      const textGapYApprox = radialFraction(cfg, radialFraction(cfg, 0.02, 0.35), 0.6);
-      const maxTopY = cfg.canvasYlim[1] - textGapYApprox - cfg.canvasSafetyMargin;
-      const innerRoom = maxTopY - inner.anchorY!;
-      if (rankStep > innerRoom) {
-        for (const lb of [outer, inner]) {
-          const target = items.find((it) => it.name === lb.name);
-          if (target && !target.compactLabel) target.compactLabel = true;
-        }
-      }
-    }
-  }
-
-  // ── 1.5) 2 upper-left in narrow top band pre-compact ──
-  // dominant が大半を占め、2 つの極小スライスが共に 12 時直近 (angle within ±8° of 90°) に
-  // 並ぶ場合、両方とも 12 時直左の upper-left 経路にルーティングされ、内側 (angle≈90°) が
-  // canvas 上端で maxTextY clamp、外側が pie clearance に押し上げられて 2 行 bbox が重なる。
-  // 両方を 1 行 (compactLabel=true) にして bbox 高さを半減させ clean separation を確保。
-  // narrow gate (cluster 中心 ±8° + total UL===2) で他ケースへの副作用を防ぐ。
-  {
-    const probe = layoutLabels(items.map((it) => ({ ...it })), cfg);
-    const NARROW_TOP_BAND_DEG = 8;
-    const topBandUL = probe.labels.filter((l: LayoutItem) => {
-      const a = normalizeAngle(l.midAngle!);
-      return l.isUpperLeft && !l.flipToRight && angleInBand(a, 90, NARROW_TOP_BAND_DEG);
-    });
-    if (topBandUL.length === 2 && topBandUL.every((l: LayoutItem) => (l.textLines ?? 2) >= 2)) {
-      for (const lb of topBandUL) {
+function compactPassTwoFlippedPreCompact(items: LayoutItem[], cfg: PieLayoutConfig): void {
+  const probe = layoutLabels(items.map((it) => ({ ...it })), cfg);
+  const flipped = probe.labels.filter((l: LayoutItem) => l.flipToRight);
+  if (flipped.length === 2) {
+    const sorted = [...flipped].sort((a: LayoutItem, b: LayoutItem) => a.anchorX! - b.anchorX!);
+    const outer = sorted[0];
+    const inner = sorted[1];
+    const heights = sorted.map((item: LayoutItem) => estimateTextExtent(item, cfg).height);
+    const rankStep = Math.max(0.14, cfg.scaledMinGap, Math.max(...heights) * 1.15);
+    const textGapYApprox = radialFraction(cfg, radialFraction(cfg, 0.02, 0.35), 0.6);
+    const maxTopY = cfg.canvasYlim[1] - textGapYApprox - cfg.canvasSafetyMargin;
+    const innerRoom = maxTopY - inner.anchorY!;
+    if (rankStep > innerRoom) {
+      for (const lb of [outer, inner]) {
         const target = items.find((it) => it.name === lb.name);
         if (target && !target.compactLabel) target.compactLabel = true;
       }
     }
   }
+}
 
-  // ── 2) forceLowerLeftCompactBand ──
+/**
+ * ── 1.5) 2 upper-left in narrow top band pre-compact ──
+ * dominant が大半を占め、2 つの極小スライスが共に 12 時直近 (angle within ±8° of 90°) に
+ * 並ぶ場合、両方とも 12 時直左の upper-left 経路にルーティングされ、内側 (angle≈90°) が
+ * canvas 上端で maxTextY clamp、外側が pie clearance に押し上げられて 2 行 bbox が重なる。
+ * 両方を 1 行 (compactLabel=true) にして bbox 高さを半減させ clean separation を確保。
+ * narrow gate (cluster 中心 ±8° + total UL===2) で他ケースへの副作用を防ぐ。
+ */
+function compactPassTwoUpperLeftNarrowTopBand(items: LayoutItem[], cfg: PieLayoutConfig): void {
+  const probe = layoutLabels(items.map((it) => ({ ...it })), cfg);
+  const NARROW_TOP_BAND_DEG = 8;
+  const topBandUL = probe.labels.filter((l: LayoutItem) => {
+    const a = normalizeAngle(l.midAngle!);
+    return l.isUpperLeft && !l.flipToRight && angleInBand(a, 90, NARROW_TOP_BAND_DEG);
+  });
+  if (topBandUL.length === 2 && topBandUL.every((l: LayoutItem) => (l.textLines ?? 2) >= 2)) {
+    for (const lb of topBandUL) {
+      const target = items.find((it) => it.name === lb.name);
+      if (target && !target.compactLabel) target.compactLabel = true;
+    }
+  }
+}
+
+/** ── 2) forceLowerLeftCompactBand ── 左下水平帯の兄弟を 1 行化、深部は horizontalLowerLeftDrop。 */
+function compactPassForceLowerLeftBand(items: LayoutItem[], cfg: PieLayoutConfig): void {
   const denseDominantProbe = layoutLabels(items, cfg);
   if (denseDominantProbe.diagnostics?.forceLowerLeftCompactBand) {
     const horizontalAnchorYBound = pieHorizontalLowerLeftAnchorYBound(cfg);
@@ -392,8 +403,10 @@ export function runCompactCascade(items: LayoutItem[], cfg: PieLayoutConfig): vo
       }
     }
   }
+}
 
-  // ── 3) dense + 第3パス flip pre-compact ──
+/** ── 3) dense + 第3パス flip pre-compact ── 上左密集で flip 済み全ラベルを 1 行化。 */
+function compactPassDenseFlipPreCompact(items: LayoutItem[], cfg: PieLayoutConfig): void {
   const denseFlipProbe = layoutLabels(items, cfg);
   const denseUpperLeftCount = denseFlipProbe.labels.filter((l: LayoutItem) => l.isUpperLeft).length;
   if (
@@ -407,8 +420,11 @@ export function runCompactCascade(items: LayoutItem[], cfg: PieLayoutConfig): vo
       if (target && !target.compactLabel) target.compactLabel = true;
     }
   }
+}
 
-  // ── 4) compactify ループ ──
+/** ── 4) compactify ループ ── 上端 overflow / 2 枚以上 flip が解消するまで最上段から 1 行化。 */
+function compactPassCompactifyLoop(items: LayoutItem[], cfg: PieLayoutConfig): void {
+  const maxAllowedY = cfg.canvasYlim[1] - cfg.canvasSafetyMargin;
   for (let attempt = 0; attempt < COMPACT_CASCADE_MAX_ATTEMPTS; attempt += 1) {
     const probe = layoutLabels(items, cfg);
     const upperLeft = probe.labels.filter(
@@ -442,46 +458,62 @@ export function runCompactCascade(items: LayoutItem[], cfg: PieLayoutConfig): vo
     if (!target || target.compactLabel) break;
     target.compactLabel = true;
   }
+}
 
-  // ── 5) 2 個 flipped post-check (forceFlipToRight + 両方 compact 化) ──
-  {
-    const probe = layoutLabels(items, cfg);
-    const flipped = probe.labels.filter((l: LayoutItem) => l.flipToRight);
+/** ── 5) 2 個 flipped post-check ── flip 2 枚を forceFlipToRight 固定し両方 1 行化。 */
+function compactPassTwoFlippedPostCheck(items: LayoutItem[], cfg: PieLayoutConfig): void {
+  const probe = layoutLabels(items, cfg);
+  const flipped = probe.labels.filter((l: LayoutItem) => l.flipToRight);
+  if (
+    flipped.length === 2 &&
+    flipped.some((l: LayoutItem) => !l.compactLabel) &&
+    !probe.diagnostics?.keepUpperLeft2Lines
+  ) {
+    for (const lb of flipped) {
+      const target = items.find((it) => it.name === lb.name);
+      if (target) {
+        if (!target.compactLabel) target.compactLabel = true;
+        target.forceFlipToRight = true;
+      }
+    }
+  }
+}
+
+/** ── 6) 180° 寄り long の revert ── 水平 LEFT 寄りの long upper-left を 2 行へ戻す。 */
+function compactPassRevertHorizonLong(items: LayoutItem[], cfg: PieLayoutConfig): void {
+  const probe = layoutLabels(items, cfg);
+  for (const l of probe.labels) {
+    const ang = normalizeAngle(l.midAngle!);
     if (
-      flipped.length === 2 &&
-      flipped.some((l: LayoutItem) => !l.compactLabel) &&
-      !probe.diagnostics?.keepUpperLeft2Lines
+      l.isUpperLeft &&
+      !l.flipToRight &&
+      l.compactLabel &&
+      l.isLong &&
+      ang >= LEFT_HORIZON_LONG_COMPACT_REVERT_MIN_ANGLE_DEG
     ) {
-      for (const lb of flipped) {
-        const target = items.find((it) => it.name === lb.name);
-        if (target) {
-          if (!target.compactLabel) target.compactLabel = true;
-          target.forceFlipToRight = true;
-        }
+      const target = items.find((it) => it.name === l.name);
+      if (target && target.compactLabel) {
+        target.compactLabel = false;
       }
     }
   }
+}
 
-  // ── 6) 180° 寄り long の revert ──
-  {
-    const probe = layoutLabels(items, cfg);
-    for (const l of probe.labels) {
-      const ang = normalizeAngle(l.midAngle!);
-      if (
-        l.isUpperLeft &&
-        !l.flipToRight &&
-        l.compactLabel &&
-        l.isLong &&
-        ang >= LEFT_HORIZON_LONG_COMPACT_REVERT_MIN_ANGLE_DEG
-      ) {
-        const target = items.find((it) => it.name === l.name);
-        if (target && target.compactLabel) {
-          target.compactLabel = false;
-        }
-      }
-    }
-  }
-
+/**
+ * compactLabel 自動選択カスケード本体。items を破壊的に更新する。
+ * options.compactLabel が明示されていない場合のみ呼び出し側で実行する。
+ * 各 pass は順序依存 (前段の compactLabel 付与を次段の probe が観測する) のため、
+ * この呼び出し順を変えてはならない。
+ */
+export function runCompactCascade(items: LayoutItem[], cfg: PieLayoutConfig): void {
+  if (items.length <= 1) return;
+  compactPassTwoFlippedPreCompact(items, cfg);
+  compactPassTwoUpperLeftNarrowTopBand(items, cfg);
+  compactPassForceLowerLeftBand(items, cfg);
+  compactPassDenseFlipPreCompact(items, cfg);
+  compactPassCompactifyLoop(items, cfg);
+  compactPassTwoFlippedPostCheck(items, cfg);
+  compactPassRevertHorizonLong(items, cfg);
 }
 
 // =============================================================================
