@@ -5,11 +5,12 @@ import {
   type PartHistoryEntry,
   type PartRepository,
   type Result,
+  type SampleData,
   type Template,
   type TemplateRepository,
 } from '@editor/shared';
 import { usePartRepo, useTemplateRepo } from '@/api/repositories';
-import { toEditable } from '@/lib/jinjaMask';
+import { toFilled } from '@/lib/fillJinja';
 import { getBodyInner } from '@/lib/templateDoc';
 
 /** Everything the editor needs to open a template for editing. */
@@ -46,20 +47,27 @@ export function createTemplateEditorService(
 
       const tpl = tplRes.value;
       const draft = draftRes.value;
-      const editableBody = draft ? draft.html : toEditable(getBodyInner(tpl.html));
-      const css = draft ? draft.css : tpl.css;
 
-      // Best-effort fund name for the title; never let it fail the load.
-      let fundName = tpl.meta.fileName.replace(/\.html$/, '');
+      // Sample data drives both the value-fill and the editor title; a failure
+      // here must never block the load (the fill just yields empty values).
+      let sample: SampleData = {};
       try {
         const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
-        if (!isErr(sampleRes)) {
-          const fund = sampleRes.value.fund as { name?: string } | undefined;
-          if (fund?.name) fundName = fund.name;
-        }
+        if (!isErr(sampleRes)) sample = sampleRes.value;
       } catch {
-        /* keep the filename fallback */
+        /* keep empty sample */
       }
+
+      // The editor canvas edits the "filled" form (values substituted, Jinja
+      // source preserved). Prefer a static fill; otherwise render one on load.
+      // A draft is already in editable/filled form, so it wins.
+      const filledBody = tpl.filled || toFilled(tpl.html, sample);
+      const editableBody = draft ? draft.html : getBodyInner(filledBody);
+      const css = draft ? draft.css : tpl.css;
+
+      let fundName = tpl.meta.fileName.replace(/\.html$/, '');
+      const fund = sample.fund as { name?: string } | undefined;
+      if (fund?.name) fundName = fund.name;
 
       return ok({ template: tpl, editableBody, css, parts: partsRes.value, fundName });
     },

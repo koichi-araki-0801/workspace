@@ -20,6 +20,7 @@ import {
   isOtherCategory,
 } from "../svg_geom.js";
 import { topBandSonohokaZone } from "../label_placement.js";
+import type { BBox } from "../svg_geom.js";
 import type { Placement, PieLayoutConfig } from "../types.js";
 
 // 円外ラベルには常時 leader を描く方針フラグ (ユーザー要望: なるべく leader を使う)。
@@ -43,7 +44,52 @@ const REDUNDANT_RIM_LEADER_DOMINANT_MIN_PCT = 50;
 // (rc/cos(Δ/2) 発散) 円を回り込めないため、bend 挿入/再配置の対象から外す境界。
 export const LEADER_MAX_ANGULAR_DIFF_RAD = (150 * Math.PI) / 180;
 
+// 側辺 rim ラベルの leader 接続を「側辺中央 → box 上辺・水平中央」へ切替える自動判定の余裕係数。
+// アンカー Y が box 上辺より (box 高 × この係数) だけ更に上にあるとき発火する (`shouldAttachTopCenter`)。
+// アンカーが box 上辺を「かすめる」程度 (gap≈0) の grazing は side-center のままにし、box 高の 1/5 以上
+// 明確に上にある真の「降りてくる」leader だけを top-center 化する。実測比較で確定:
+// fidelity「イギリス・ポンド」gap/boxH=0.33 (top-center 維持) と REIT「イギリスポンド」0.003
+// (側辺中央へ戻す) を分離。値を上げるほど side-center 寄り (保守的)、0.33 を割ると fidelity も落ちる。
+const TOP_CENTER_ANCHOR_MARGIN = 0.2;
+
+// アンカー X が box の近縁 (pie 側の縦縁) を越えて pie 側へずれてよい上限 (logical, pieRadius=1 基準)。
+// これを超える = アンカーが box の真上でなく横に大きくずれており、top-center だと長い斜め leader に
+// なるため side-center を維持する。実測 (emit): fidelity「イギリス・ポンド」overhang=0.16 (真上寄り=
+// top-center 維持) / stress「スペイン」0.50・REIT「イギリスポンド」0.27 (横ずれ=側辺中央へ)。
+const TOP_CENTER_OVERHANG_MAX = 0.2;
+
 export type Pt = { x: number; y: number };
+
+/**
+ * 側辺 rim ラベル (anchor=start/end) のうち、slice アンカー (rim 接点) が **box 上辺より上** にあり
+ * leader がパイから「降りてくる」幾何のとき、接続を側辺中央 (右/左中央のふち) でなく box 上辺・水平
+ * 中央へ寄せるべきか。アンカーが box 縦範囲の外 (上) = ラベルが自スライスより下へ押し下げられた密集
+ * 配置 (例 イギリス・ポンド: 上左の縦スタックに押され box がアンカーより下) を狙い撃つ。アンカーが
+ * box の縦範囲内に収まる通常の側辺ラベルは側辺中央接続のまま (非発火)。
+ * `computeDrawnLeader` の末尾 else (側辺中央接続) に落ちる左右 rim ラベルだけが対象
+ * (inside/forceTopRight/lowerLeft/declipBottom/middle-center は先行分岐で捕捉済み)。純幾何・slice 名
+ * 非依存。**最終描画 (`allowTopCenter`=true) でのみ評価**され、scorer/metric/layout の leader 計算には
+ * 載らないため、ラベル位置・採点・各 do-no-harm 判定は baseline と完全一致 (位置は不変)。
+ */
+function shouldAttachTopCenter(p: Placement, box: BBox): boolean {
+  if (p.insideSlice) return false;
+  if (p.anchor === "middle") return false; // 真上/真下の中央寄せは対象外
+  // 縦: アンカーが box 上辺より明確に上 (leader がパイから降りてくる)。
+  const tau = (box.top - box.bottom) * TOP_CENTER_ANCHOR_MARGIN; // box 高 (y-up で top>bottom) × 係数
+  if (p.leaderAnchor.y <= box.top + tau) return false;
+  // 水平: アンカーが box の近縁 (pie 側の縦縁) を pie 側へ大きく越えていない = box のほぼ真上。
+  // 越えていれば横ずれした側辺ラベルなので top-center は斜めになり不適 → side-center を維持。
+  const overhang = Math.max(box.left - p.leaderAnchor.x, p.leaderAnchor.x - box.right, 0);
+  return overhang <= TOP_CENTER_OVERHANG_MAX;
+}
+
+/**
+ * placement が top-center attach の候補か (box を内部計算する emit 側用ラッパ)。emit の do-no-harm
+ * (他ラベル box を貫かない時だけ採用) で「どの placement を試すか」の判定に使う。
+ */
+export function qualifiesTopCenterAttach(placement: Placement, cfg: PieLayoutConfig): boolean {
+  return shouldAttachTopCenter(placement, placementBox(placement, cfg));
+}
 
 /**
  * placement から「描画される leader 折れ線 (`pathPoints`)」「貫通判定用折れ線 (`detectPathPoints`)」
@@ -54,10 +100,14 @@ export function computeDrawnLeader(
   placement: Placement,
   cfg: PieLayoutConfig,
   forScoring = false,
+  allowTopCenter = false,
 ): { pathPoints: Pt[]; detectPathPoints: Pt[]; skipLeader: boolean } {
   // 常時描画 + 縦中央接続は **描画パスのみ** に適用する。conflict scorer (`chartConflicts`) から
   // `forScoring`=true で呼ばれた時は従来挙動を維持し、レイアウト選択 (その他 右/左 等) を baseline と
   // 同一に保つ (常時描画によるスコア変動でラベル位置が動くのを防ぐ)。
+  // `allowTopCenter` は最終描画でのみ true。side-attach の top-center 化 (`shouldAttachTopCenter`) を
+  // 許可するが、それ以外の経路 (scorer / realLeaderPaths 経由の metric / layout do-no-harm) は既定 false の
+  // ため side-center 幾何のまま = baseline と一致し、ラベル位置に影響しない。
   const alwaysDraw = ALWAYS_DRAW_OUTSIDE_LEADERS && !forScoring;
   const endpointMinDist = cfg.pieRadius + radialFraction(cfg, 0.01, 0.1);
   const dominantOutsideLeaderGap = radialFraction(cfg, 0.3, 2.8);
@@ -145,6 +195,13 @@ export function computeDrawnLeader(
       const boxBelowAnchor = (finalBox.top + finalBox.bottom) / 2 < placement.leaderAnchor.y;
       // box が下 → pie 側 = top 縁、box が上 → pie 側 = bottom 縁 の水平中央。
       endpoint.y = boxBelowAnchor ? finalBox.top + cfg.cornerGap : finalBox.bottom - cfg.cornerGap;
+    } else if (allowTopCenter && shouldAttachTopCenter(placement, finalBox)) {
+      // 汎用・自動判定 (例 イギリス・ポンド): 側辺中央 (右中央のふち) でなく box 上辺・水平中央へ
+      // 接続する (lowerLeftDrop 分岐のミラー)。endpoint を上縁中央・cornerGap だけ box 外に置くと
+      // 後段の W 弦リルート→truncate が線分を box 内へ延ばさず endpoint を返し、上縁中央へ隙間で
+      // 接続する。ラベル位置・円貫通/交差判定は不変 (描画パス限定)。
+      endpoint.x = (finalBox.left + finalBox.right) / 2;
+      endpoint.y = finalBox.top + cfg.cornerGap; // 論理 y-up: top の少し上 (box 外)
     } else {
       endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
     }

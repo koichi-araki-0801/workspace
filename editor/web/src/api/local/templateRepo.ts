@@ -9,6 +9,7 @@ import {
   type SaveDraftRequest,
   type TemplateAttributes,
   type TemplateDraft,
+  type TemplateInstance,
   type TemplateMeta,
   type TemplateRepository,
   type TemplateSnapshot,
@@ -22,6 +23,7 @@ import {
   defaultSkeleton,
   delay,
   fixtureCss,
+  fixtureFilled,
   fixtureSample,
   fixtureTemplates,
   K,
@@ -68,7 +70,10 @@ export const localTemplateRepo: TemplateRepository = {
       const html = htmlOverride[id] ?? fixtureTemplates[meta.fileName] ?? '';
       const css =
         cssOverride[meta.attributes.fundCode] ?? fixtureCss[meta.attributes.fundCode] ?? '';
-      return delay({ meta, html, css });
+      // Static filled copy is only meaningful for an unedited fixture; once the
+      // template HTML has been overridden, the editor re-fills it at load time.
+      const filled = htmlOverride[id] ? '' : (fixtureFilled[meta.fileName] ?? '');
+      return delay({ meta, html, css, filled });
     }),
 
   generate: (req: GenerateRequest) =>
@@ -118,7 +123,8 @@ export const localTemplateRepo: TemplateRepository = {
       });
       write(K.createHist, createHist);
       const css = fixtureCss[req.fundCode] ?? '';
-      return delay({ template: { meta, html: baseHtml, css } });
+      // A freshly generated skeleton has no static fill; the editor renders one.
+      return delay({ template: { meta, html: baseHtml, css, filled: '' } });
     }),
 
   listSeriesFunds: (companyCode: string, _fundCode: string, editionType: string) =>
@@ -153,61 +159,79 @@ export const localTemplateRepo: TemplateRepository = {
 
   confirmSave: (req: ConfirmSaveRequest) =>
     attempt(() =>
-      // All six writes commit together: a mid-way failure (e.g. quota) rolls
-      // every touched key back to its pre-save state, so the store is never
-      // left half-published. The notFound guard is inside the tx too, so a
-      // missing meta also rolls back the writes above it.
-      tx([K.htmlOverride, K.cssOverride, META_KEY, K.editHist, K.snapshots, K.drafts], () => {
-        const user = currentUser();
-        const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
-        htmlOverride[req.templateId] = req.html;
-        write(K.htmlOverride, htmlOverride);
-        const cssOverride = read<Record<string, string>>(K.cssOverride, {});
-        cssOverride[req.fundCode] = req.css; // per-fund shared CSS
-        write(K.cssOverride, cssOverride);
+      // All writes commit together: a mid-way failure (e.g. quota) rolls every
+      // touched key back to its pre-save state, so the store is never left
+      // half-published. The notFound guard is inside the tx too, so a missing
+      // meta also rolls back the writes above it.
+      tx(
+        [K.htmlOverride, K.cssOverride, META_KEY, K.editHist, K.snapshots, K.instances, K.drafts],
+        () => {
+          const user = currentUser();
+          const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
+          htmlOverride[req.templateId] = req.html;
+          write(K.htmlOverride, htmlOverride);
+          const cssOverride = read<Record<string, string>>(K.cssOverride, {});
+          cssOverride[req.fundCode] = req.css; // per-fund shared CSS
+          write(K.cssOverride, cssOverride);
 
-        const metaStore = read<Record<string, Partial<TemplateMeta>>>(META_KEY, {});
-        metaStore[req.templateId] = {
-          status: 'published',
-          updatedAt: now(),
-          updatedBy: user?.displayName ?? '不明',
-        };
-        write(META_KEY, metaStore);
+          const metaStore = read<Record<string, Partial<TemplateMeta>>>(META_KEY, {});
+          metaStore[req.templateId] = {
+            status: 'published',
+            updatedAt: now(),
+            updatedBy: user?.displayName ?? '不明',
+          };
+          write(META_KEY, metaStore);
 
-        const editHist = read<EditHistoryEntry[]>(K.editHist, []);
-        const historyId = uid('eh');
-        const timestamp = now();
-        editHist.unshift({
-          id: historyId,
-          templateId: req.templateId,
-          user: user?.displayName ?? '不明',
-          timestamp,
-          summary: '確定保存',
-        });
-        write(K.editHist, editHist);
+          const editHist = read<EditHistoryEntry[]>(K.editHist, []);
+          const historyId = uid('eh');
+          const timestamp = now();
+          editHist.unshift({
+            id: historyId,
+            templateId: req.templateId,
+            user: user?.displayName ?? '不明',
+            timestamp,
+            summary: '確定保存',
+          });
+          write(K.editHist, editHist);
 
-        // Freeze the confirmed content so the version can be re-rendered for the
-        // visual compare screen. Keyed by the edit-history entry id.
-        const snapshots = read<Record<string, TemplateSnapshot>>(K.snapshots, {});
-        snapshots[historyId] = {
-          historyId,
-          templateId: req.templateId,
-          html: req.html,
-          css: req.css,
-          fundCode: req.fundCode,
-          timestamp,
-        };
-        write(K.snapshots, snapshots);
+          // Freeze the confirmed content so the version can be re-rendered for the
+          // visual compare screen. Keyed by the edit-history entry id.
+          const snapshots = read<Record<string, TemplateSnapshot>>(K.snapshots, {});
+          snapshots[historyId] = {
+            historyId,
+            templateId: req.templateId,
+            html: req.html,
+            css: req.css,
+            fundCode: req.fundCode,
+            timestamp,
+          };
+          write(K.snapshots, snapshots);
 
-        // clear draft
-        const drafts = read<Record<string, TemplateDraft>>(K.drafts, {});
-        delete drafts[req.templateId];
-        write(K.drafts, drafts);
+          // Keep the rendered report instance (values filled, no Jinja) alongside
+          // the template. The template (req.html) carries the reflected diff; this
+          // is the concrete document the editor produced.
+          if (req.filledHtml !== undefined) {
+            const instances = read<Record<string, TemplateInstance>>(K.instances, {});
+            instances[req.templateId] = {
+              templateId: req.templateId,
+              html: req.filledHtml,
+              css: req.css,
+              savedAt: now(),
+              savedBy: user?.displayName ?? '不明',
+            };
+            write(K.instances, instances);
+          }
 
-        const meta = allMetas().find((m) => m.id === req.templateId);
-        if (!meta) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
-        return delay(meta);
-      }),
+          // clear draft
+          const drafts = read<Record<string, TemplateDraft>>(K.drafts, {});
+          delete drafts[req.templateId];
+          write(K.drafts, drafts);
+
+          const meta = allMetas().find((m) => m.id === req.templateId);
+          if (!meta) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
+          return delay(meta);
+        },
+      ),
     ),
 
   getSampleData: (fundCode: string) => attempt(() => delay(fixtureSample[fundCode] ?? {})),

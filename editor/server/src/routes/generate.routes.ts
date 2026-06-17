@@ -59,7 +59,8 @@ generateRouter.post('/generate', requireAuth, validate(GenerateRequest), async (
       ...actorFromReq(req),
       resource: { id, ...attributes },
     });
-    res.json({ template: { meta, html, css } });
+    // A freshly generated skeleton has no static fill; the editor renders one.
+    res.json({ template: { meta, html, css, filled: '' } });
   } catch (e) {
     audit({
       event: 'template.generate',

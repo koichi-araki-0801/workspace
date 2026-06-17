@@ -98,7 +98,8 @@ export async function getTemplate(id: string): Promise<Template> {
   const meta = rowToMeta(row);
   const html = await readTemplateHtml(meta.fileName);
   const css = await readFundCss(meta.attributes.fundCode);
-  return { meta, html, css };
+  // No static filled copy is persisted server-side; the editor re-fills at load time.
+  return { meta, html, css, filled: '' };
 }
 
 /** Attribute params derived from a template id (filename convention). */

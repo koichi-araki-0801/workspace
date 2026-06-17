@@ -18,6 +18,7 @@ import {
   estimateTextExtent,
   estimateVerifyTextExtent,
   nudgeTextAwayFromPie,
+  pieYAtX,
   placementBox,
   placementExtent,
   leaderCrossesBox,
@@ -73,6 +74,7 @@ import { buildFontFaceDefs } from "./font.js";
 import {
   ALWAYS_DRAW_OUTSIDE_LEADERS,
   computeDrawnLeader,
+  qualifiesTopCenterAttach,
   isRedundantUpperLeftSmallLeader,
   isRedundantDominantRimLeader,
   resolveLeaderCrossings,
@@ -2218,6 +2220,108 @@ function relaxStructuralCondense(placements: Placement[], cfg: PieLayoutConfig, 
 }
 
 /**
+ * emit 専用・最終手段: 長体 (nameScaleX<1) だが pie 側にまだ余白がある円外ラベルを、**pie 側へ
+ * 必要最小限だけシフトしてから**原寸へ戻す。`relaxStructuralCondense` は anchor (pie 側辺) を固定
+ * するため、左/右の viewBox 端にハグして縮んだラベル (例 `stress_right_cluster_8` の "C"/"D"、
+ * `eleven_tiny_cluster` の "F") は「その場では戻せない」= 戻せるのに長体のまま残る。本パスは anchor
+ * ごと pie 側へ寄せて far edge の viewBox 余白を稼ぎ、稼げた分だけ長体を解く。
+ *
+ * シフト量は full 化に必要な最小限のみ (余計に pie へ寄せて leader を詰めない)。pie 側辺は
+ * `applyVisualViewBoxNudge` と同じく pie 円周 (`pieYAtX`) + クリアランスでキャップする
+ * (countDefects は leader の pie 貫通しか見ず text box の pie 侵入を見ないため、ここで明示的に防ぐ)。
+ * 採否は `relieveLeftStackSpacing` と同じ do-no-harm ゲート (clips/crossings/pie/total が開始時から
+ * 非増加) かつ改善 (sx 増) があるときのみ。さもなくば全 revert。anchor=middle は pie 側辺が定まらない
+ * ので対象外。位置確定後 (全 hard-defect パス後) に 1 回。emit 専用で finalScore は本パス後の
+ * placements から数えるため scorer↔emit 整合は保たれる (`relaxStructuralCondense` と同方針)。
+ */
+function unsqueezeCondensedByShiftTowardPie(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): void {
+  const STEP = 0.025; // applyFinalCondenseToFit / relaxStructuralCondense と同じ格子
+  const hardHalf = cfg.svgWidthPx / 2 / cfg.pxPerUnit - 4 / cfg.pxPerUnit; // 実 viewBox 端の数 px 内側
+  const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
+  const fitsView = (p: Placement): boolean => {
+    const b = placementBox(p, cfg);
+    return b.left >= -hardHalf - 1e-9 && b.right <= hardHalf + 1e-9;
+  };
+  const candidates = placements.filter(
+    (p) => !p.insideSlice && (p.nameScaleX ?? 1) < 1 - 1e-9 && (p.anchor === "end" || p.anchor === "start"),
+  );
+  if (candidates.length === 0) return;
+  // do-no-harm ゲート: countDefects (clips/crossings/pie/total=見切れ+重なり) に加え、countDefects が
+  // 数えない「leader が他ラベル box を貫通」(`countLeaderThroughLabels`) も非増加を要求する
+  // (`relaxStructuralCondense` のガード(d)と同じ — シフトで leader 形状が変わり box 貫通し得るため)。
+  const notWorse = (before: DefectCounts, beforeThrough: number): boolean => {
+    const after = countDefects(placements, cfg, coord);
+    return (
+      after.clips <= before.clips &&
+      after.crossings <= before.crossings &&
+      after.pie <= before.pie &&
+      after.total <= before.total &&
+      countLeaderThroughLabels(placements, cfg, coord) <= beforeThrough
+    );
+  };
+
+  for (const p of candidates) {
+    const before = { x: p.x, sx: p.nameScaleX ?? 1, maxTextX: p.maxTextX, minTextX: p.minTextX };
+    const beforeDefects = countDefects(placements, cfg, coord);
+    const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
+
+    // (1) full 幅にしたときの far edge の viewBox 超過分を測り、その分だけ pie 側へ寄せる。
+    p.nameScaleX = 1;
+    const fullBox = placementBox(p, cfg);
+    // box が最接近する pie 上の y (applyVisualViewBoxNudge と同じ導出)。
+    let closestPieY = 0;
+    if (fullBox.bottom > cfg.pieRadius) closestPieY = fullBox.bottom;
+    else if (fullBox.top < -cfg.pieRadius) closestPieY = fullBox.top;
+    else closestPieY = Math.abs(fullBox.top) < Math.abs(fullBox.bottom) ? fullBox.top : fullBox.bottom;
+    const pieSideCapped = Math.abs(closestPieY) < cfg.pieRadius;
+    if (p.anchor === "end") {
+      // 左側ラベル: far edge=box.left。左超過分だけ右 (pie 側) へ。pie 側辺=box.right を pie 左縁でキャップ。
+      let shift = Math.max(0, -hardHalf - fullBox.left);
+      if (pieSideCapped) {
+        const maxBboxRight = -pieYAtX(closestPieY, cfg) - pieClearance;
+        shift = Math.min(shift, Math.max(0, maxBboxRight - fullBox.right));
+      }
+      if (shift > 0) {
+        p.maxTextX = undefined; // 旧右寄せ上限を外す (pie キャップは上の shift 計算で担保済み)
+        p.x += shift;
+        p.maxTextX = before.maxTextX;
+      }
+    } else {
+      // 右側ラベル: far edge=box.right。右超過分だけ左 (pie 側) へ。pie 側辺=box.left を pie 右縁でキャップ。
+      let shift = Math.max(0, fullBox.right - hardHalf);
+      if (pieSideCapped) {
+        const minBboxLeft = pieYAtX(closestPieY, cfg) + pieClearance;
+        shift = Math.min(shift, Math.max(0, fullBox.left - minBboxLeft));
+      }
+      if (shift > 0) {
+        p.minTextX = undefined;
+        p.x -= shift;
+        p.minTextX = before.minTextX;
+      }
+    }
+
+    // (2) シフト後の位置で full が収まらなければ、収まる最大 sx まで段階的に長体へ戻す。
+    let sx = 1;
+    while (!fitsView(p) && sx - STEP >= FINAL_CONDENSE_MIN_SCALE - 1e-9) {
+      sx = Math.round((sx - STEP) * 1000) / 1000;
+      p.nameScaleX = sx;
+    }
+
+    // (3) 改善 (sx 増) かつ do-no-harm のときだけ採用、さもなくば全 revert。
+    if (!((p.nameScaleX ?? 1) > before.sx + 1e-9 && notWorse(beforeDefects, beforeThrough))) {
+      p.x = before.x;
+      p.nameScaleX = before.sx;
+      p.maxTextX = before.maxTextX;
+      p.minTextX = before.minTextX;
+    }
+  }
+}
+
+/**
  * 9時線 (midAngle≈180) を挟んで縦に重なる左側 small スライスの「ほぼ縦・平行」leader を、
  * スライス角度順に並べ直して左上の空きへわずかに逃がし、各 leader を明確な斜め線にする。
  *
@@ -3686,7 +3790,19 @@ function applyEmitRepairPasses(
   // 引き戻し (見切れ解消)、赤道寄りの密集側行を円から少し離す。各移動は do-no-harm で個別採否。
   if (diagnostics?.leftStackMode) {
     relieveLeftStackSpacing(textPlacements, cfg, view);
+    // `relieveLeftStackSpacing` が左列を pie 寄りへ右シフトして x を確定させた後は、上の
+    // `relaxStructuralCondense` 評価時より実 viewBox 余白が増えている。x 確定後にもう一度緩和し、
+    // 右シフトで不要になった長体 (例 `stress_top_cluster_8` の "C") を原寸へ戻す。緩めるだけ・
+    // ガードは不変なので退行しない (ガードが拒否すれば現状維持 = no-op)。`relaxStructuralCondense`
+    // (3679) 後に x を動かすパスは leftStackMode の本パスだけ (`relieveLeaderNeighborContact` は
+    // 縦移動のみで横余白を増やさない) なので、再緩和はここに限定で全消し忘れを拾える。
+    relaxStructuralCondense(textPlacements, cfg, view);
   }
+
+  // 最終: anchor 固定の `relaxStructuralCondense` でも戻せない (= viewBox 端ハグの) 長体ラベルを、
+  // pie 側へ必要最小限シフトしてから原寸へ戻す。「戻せるのに長体のまま」を残さないための仕上げ。
+  // pie 側辺は pie 円周でキャップ・採否は do-no-harm ゲートなので退行しない (戻せなければ no-op)。
+  unsqueezeCondensedByShiftTowardPie(textPlacements, cfg, view);
 }
 
 export async function renderPdfStylePieToSvg(
@@ -3814,6 +3930,29 @@ export async function renderPdfStylePieToSvg(
       };
       return { placement, pathPoints, detectPathPoints, skipLeader, pixelBox };
     });
+
+    // ── Pass 1b: 側辺中央 leader を「上辺中央」へ寄せる (do-no-harm; ラベル位置は不変) ──
+    // computeDrawnLeader は既定 (allowTopCenter=false) で side-center を返すので、上の Pass 1・採点・
+    // realLeaderPaths 経由の各 metric/layout do-no-harm は全て baseline と同一幾何 = ラベル位置不変。
+    // ここ (最終描画のみ) で top-center 候補 (`qualifiesTopCenterAttach`: アンカーが box 上辺より上) を
+    // allowTopCenter=true で再計算し、その実描画 leader が **他ラベル box を一つも貫かない** 場合に限り
+    // 採用する。貫く密集ケースは side-center を維持するため、leader×box の新規貫通は生じない (退行0)。
+    for (const entry of prepared) {
+      if (entry.skipLeader) continue;
+      if (!qualifiesTopCenterAttach(entry.placement, cfg)) continue;
+      const tc = computeDrawnLeader(entry.placement, cfg, false, true);
+      if (tc.skipLeader) continue;
+      const tcPix = tc.pathPoints.map((p) => ({ x: xScale(p.x), y: yScale(p.y) }));
+      let crossesBox = false;
+      for (let j = 0; j < prepared.length && !crossesBox; j += 1) {
+        if (prepared[j] === entry) continue;
+        if (leaderCrossesBox(tcPix, prepared[j].pixelBox)) crossesBox = true;
+      }
+      if (!crossesBox) {
+        entry.pathPoints = tc.pathPoints;
+        entry.detectPathPoints = tc.detectPathPoints;
+      }
+    }
 
     // ── Pass 1.5: 1 強スライスの冗長な rim leader を省く (ALWAYS_DRAW でも常時実行) ──
     // `buildOutsideRimDraft` 由来の rim ラベルは draft では `skipLeader=true` を意図しているが、
