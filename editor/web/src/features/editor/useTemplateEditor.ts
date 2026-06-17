@@ -6,7 +6,7 @@ import {
   type PartHistoryEntry,
   type Template,
 } from '@editor/shared';
-import { computed, onBeforeUnmount, onMounted, reactive, ref, type ShallowRef, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import { confirm } from '@/components/ui/confirm';
 import { toastError } from '@/components/ui/toast';
@@ -16,6 +16,8 @@ import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutG
 import { useTemplateEditorService } from './services/templateEditorService';
 import { useAutosave } from './useAutosave';
 import { useGrapes } from './useGrapes';
+import { usePartEditHistory } from './usePartEditHistory';
+import { useSnapshotHistory } from './useSnapshotHistory';
 
 /**
  * Editor screen orchestration: loads the template, drives the GrapesJS +
@@ -38,9 +40,6 @@ export function useTemplateEditor(
   const template = ref<Template | null>(null);
   const fundName = ref('');
   const partHistory = ref<PartHistoryEntry[]>([]);
-  /** In-session edit-history entries per canvas component id (newest first). */
-  const sessionHistory = reactive<Record<string, PartHistoryEntry[]>>({});
-  let histSeq = 0;
   /** Last part clicked in the catalog (insert-time preview). */
   const previewPart = ref<PartCatalogItem | null>(null);
   /** Part resolved from the current canvas selection (null when not a catalog part). */
@@ -71,68 +70,22 @@ export function useTemplateEditor(
   // --- undo / redo (snapshot-based) ------------------------------------------
   // GrapesJS' UndoManager doesn't reliably track our programmatic style writes,
   // so we keep our own stacks of { html, css } snapshots and restore via load().
-  type Snap = { html: string; css: string };
-  const past: Snap[] = [];
-  const future: Snap[] = [];
-  const canUndo = ref(false);
-  const canRedo = ref(false);
-  let restoring = false;
+  const { canUndo, canRedo, pushUndo, undo, redo, discardLast } = useSnapshotHistory(
+    () => ({ html: g.getBodyHtml(), css: g.getCss() }),
+    (s) => {
+      g.load(s.html, s.css);
+      // load() rebuilds components with default flags — reapply the lock state.
+      g.setEditable(allowEdit.value);
+      autosave.trigger();
+    },
+  );
 
-  const snapshot = (): Snap => ({ html: g.getBodyHtml(), css: g.getCss() });
-  const updateUndoFlags = () => {
-    canUndo.value = past.length > 0;
-    canRedo.value = future.length > 0;
-  };
-  /** Capture the pre-mutation state. Call right before a recordable change. */
-  function pushUndo() {
-    if (restoring) return;
-    past.push(snapshot());
-    if (past.length > 100) past.shift();
-    future.length = 0;
-    updateUndoFlags();
-  }
-  function restore(s: Snap) {
-    restoring = true;
-    g.load(s.html, s.css);
-    // load() rebuilds components with default flags — reapply the lock state.
-    g.setEditable(allowEdit.value);
-    restoring = false;
-    autosave.trigger();
-    updateUndoFlags();
-  }
-  function undo() {
-    if (!past.length) return;
-    future.push(snapshot());
-    restore(past.pop() as Snap);
-  }
-  function redo() {
-    if (!future.length) return;
-    past.push(snapshot());
-    restore(future.shift() as Snap);
-  }
-
-  /** Record an edit-history entry against the current selection (in-session). */
-  function recordChange(change: string) {
-    const cid = g.selected.value?.id;
-    if (!cid) return;
-    const arr = sessionHistory[cid] ?? [];
-    sessionHistory[cid] = arr;
-    arr.unshift({
-      id: `s${++histSeq}`,
-      templateId: id,
-      partId: cid,
-      change,
-      timestamp: new Date().toISOString(),
-      user: auth.user?.displayName ?? '編集者',
-    });
-  }
-
-  // Selected part's history = in-session edits first, then any persisted history.
-  const displayHistory = computed<PartHistoryEntry[]>(() => {
-    const cid = g.selected.value?.id;
-    const sess = cid ? (sessionHistory[cid] ?? []) : [];
-    return [...sess, ...partHistory.value];
-  });
+  const { record: recordChange, displayHistory } = usePartEditHistory(
+    id,
+    () => g.selected.value?.id,
+    () => auth.user?.displayName ?? '編集者',
+    () => partHistory.value,
+  );
 
   /** Apply a geometry change to the selected block (written as inline style). */
   function applyGeom(patch: Partial<LayoutGeom>, record = true) {
@@ -192,16 +145,24 @@ export function useTemplateEditor(
   // Lock/unlock the canvas when the "編集を許可" checkbox toggles.
   watch(allowEdit, (on) => g.setEditable(on));
 
+  // Bumped on every selection change; the async history fetch below discards its
+  // result if a newer selection superseded it (prevents a slow response from
+  // overwriting a different part's history).
+  let historySeq = 0;
   watch(
     () => g.selected.value,
     async (sel) => {
+      const seq = ++historySeq;
+      // Resolve the catalog part synchronously so the properties pane updates
+      // immediately, without waiting on the history fetch.
+      canvasPart.value = sel?.partId ? (partsById.get(sel.partId) ?? null) : null;
       if (sel && !sel.isJinja) {
         const res = await service.getPartHistory(id, sel.id);
+        if (seq !== historySeq) return; // a newer selection won the race
         partHistory.value = isOk(res) ? res.value : [];
       } else {
         partHistory.value = [];
       }
-      canvasPart.value = sel?.partId ? (partsById.get(sel.partId) ?? null) : null;
     },
   );
 
@@ -230,8 +191,7 @@ export function useTemplateEditor(
       if (changed) {
         recordChange('テキストを編集');
       } else {
-        past.pop();
-        updateUndoFlags();
+        discardLast();
       }
     });
     // canvas drag-to-reorder: snapshot on start; record only when order changed
@@ -240,8 +200,7 @@ export function useTemplateEditor(
       if (moved) {
         recordChange('順序を変更');
       } else {
-        past.pop();
-        updateUndoFlags();
+        discardLast();
       }
     });
   });

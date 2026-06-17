@@ -33,4 +33,23 @@ describe('useAsyncResult', () => {
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.kind).toBe('unexpected');
   });
+
+  it('keeps loading true until all concurrent runs settle (ref-counted)', async () => {
+    const { loading, run } = useAsyncResult();
+    let resolveA: (v: ReturnType<typeof ok<number>>) => void = () => {};
+    let resolveB: (v: ReturnType<typeof ok<number>>) => void = () => {};
+    const pA = run(() => new Promise((r) => (resolveA = r)));
+    const pB = run(() => new Promise((r) => (resolveB = r)));
+    expect(loading.value).toBe(true);
+
+    // First settles, but the second is still in flight → still loading.
+    resolveA(ok(1));
+    await pA;
+    expect(loading.value).toBe(true);
+
+    // Both settled → idle.
+    resolveB(ok(2));
+    await pB;
+    expect(loading.value).toBe(false);
+  });
 });

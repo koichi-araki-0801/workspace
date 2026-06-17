@@ -132,3 +132,18 @@ describe('CompareService.listCandidates', () => {
     expect(isErr(res)).toBe(true);
   });
 });
+
+describe('CompareService delegation', () => {
+  it('listTemplates and listVersions delegate to the repos', async () => {
+    const listTemplates = vi.fn(async () => ok([]));
+    const listVersions = vi.fn(async () => ok([]));
+    const svc = createCompareService(
+      { listTemplates } as unknown as TemplateRepository,
+      { listVersions } as unknown as HistoryRepository,
+    );
+    await svc.listTemplates({ companyCode: 'AM01' });
+    await svc.listVersions('tpl-1');
+    expect(listTemplates).toHaveBeenCalledWith({ companyCode: 'AM01' });
+    expect(listVersions).toHaveBeenCalledWith('tpl-1');
+  });
+});

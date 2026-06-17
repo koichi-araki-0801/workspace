@@ -1,7 +1,9 @@
-import { isErr, isOk } from '@editor/shared';
+import { isErr, isOk, type PartHistoryEntry } from '@editor/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
 import { localHistoryRepo } from '@/api/local/historyRepo';
+import { localPartRepo } from '@/api/local/partRepo';
+import { K, partCatalog } from '@/api/local/store';
 import { localTemplateRepo } from '@/api/local/templateRepo';
 import { localUserRepo } from '@/api/local/userRepo';
 
@@ -109,5 +111,60 @@ describe('confirmSave version snapshots', () => {
     const r = await localHistoryRepo.getSnapshot('eh-ghost');
     expect(isErr(r)).toBe(true);
     if (isErr(r)) expect(r.error.kind).toBe('not_found');
+  });
+});
+
+describe('localPartRepo', () => {
+  it('lists every catalog part when unfiltered', async () => {
+    const r = await localPartRepo.listParts({});
+    expect(isOk(r)).toBe(true);
+    if (isOk(r)) expect(r.value).toHaveLength(partCatalog.length);
+  });
+
+  it('filters listParts by category', async () => {
+    const category = partCatalog[0].classification.category;
+    const expected = partCatalog.filter((i) => i.classification.category === category);
+    const r = await localPartRepo.listParts({ category });
+    expect(isOk(r)).toBe(true);
+    if (isOk(r)) {
+      expect(r.value).toHaveLength(expected.length);
+      expect(r.value.every((i) => i.classification.category === category)).toBe(true);
+    }
+  });
+
+  it('cascades classification options (major classes scoped to the chosen category)', async () => {
+    const category = partCatalog[0].classification.category;
+    const r = await localPartRepo.getPartClassificationOptions({ category });
+    expect(isOk(r)).toBe(true);
+    if (isOk(r)) {
+      // categories list is always the full set; majors narrow to the category
+      expect(r.value.categories.length).toBeGreaterThan(0);
+      const expectedMajors = [
+        ...new Set(
+          partCatalog
+            .filter((i) => i.classification.category === category)
+            .map((i) => i.classification.majorClass),
+        ),
+      ].sort();
+      expect(r.value.majorClasses).toEqual(expectedMajors);
+    }
+  });
+
+  it('getPartHistory returns only entries matching templateId and partId', async () => {
+    const entries: PartHistoryEntry[] = [
+      { id: 'p1', templateId: 'T1', partId: 'A', change: 'x', timestamp: 't', user: 'u' },
+      { id: 'p2', templateId: 'T1', partId: 'B', change: 'y', timestamp: 't', user: 'u' },
+      { id: 'p3', templateId: 'T2', partId: 'A', change: 'z', timestamp: 't', user: 'u' },
+    ];
+    localStorage.setItem(K.partHist, JSON.stringify(entries));
+    const r = await localPartRepo.getPartHistory('T1', 'A');
+    expect(isOk(r)).toBe(true);
+    if (isOk(r)) expect(r.value.map((e) => e.id)).toEqual(['p1']);
+  });
+
+  it('getPartHistory returns [] when nothing is stored', async () => {
+    const r = await localPartRepo.getPartHistory('none', 'none');
+    expect(isOk(r)).toBe(true);
+    if (isOk(r)) expect(r.value).toEqual([]);
   });
 });

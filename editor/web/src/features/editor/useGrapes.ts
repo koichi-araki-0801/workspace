@@ -3,12 +3,19 @@ import grapesjs, { type Component, type Editor } from 'grapesjs';
 import { ref, shallowRef } from 'vue';
 import { logError } from '@/lib/appError';
 import 'grapesjs/dist/css/grapes.min.css';
+import { type GrapesCallbacks, type SelectedRect, wireGrapesEvents } from './grapesEvents';
 import { jinjaChipCanvasCss, registerJinjaComponents } from './jinjaComponents';
 
 export interface GrapesContainers {
   canvas: HTMLElement;
   layers: HTMLElement;
 }
+
+// Canvas zoom bounds and the per-click step. Shared with {@link EditorView}'s
+// zoom in/out buttons so they clamp to the same range as {@link setZoom}.
+export const ZOOM_MIN = 0.4;
+export const ZOOM_MAX = 1.4;
+export const ZOOM_STEP = 0.1;
 
 /**
  * Make the GrapesJS canvas body look like an A4 sheet of paper. The iframe
@@ -47,19 +54,11 @@ export function useGrapes() {
   /** Bumped on every component/style change so callers can recompute geometry. */
   const revision = ref(0);
   /** Screen rect of the selected element (canvas-relative, zoom-aware) for overlays. */
-  const selectedRect = ref<{ left: number; top: number; width: number; height: number } | null>(
-    null,
-  );
+  const selectedRect = ref<SelectedRect | null>(null);
   const canMoveUp = ref(false);
   const canMoveDown = ref(false);
-  let changeCb: (() => void) | null = null;
-  let textStartCb: (() => void) | null = null;
-  let textEndCb: ((changed: boolean) => void) | null = null;
-  let reorderStartCb: (() => void) | null = null;
-  let reorderEndCb: ((moved: boolean) => void) | null = null;
-  let rteStartHtml = '';
-  /** Sibling index of the dragged component at drag start (for no-op detection). */
-  let dragStartIndex = -1;
+  /** Editor → caller notifications, installed via the `onX` setters below. */
+  const callbacks: GrapesCallbacks = {};
 
   function refreshMove(): void {
     const comp = editor.value?.getSelected();
@@ -111,82 +110,17 @@ export function useGrapes() {
 
     registerJinjaComponents(ed);
 
-    ed.on('load', () => {
-      const docu = ed.Canvas.getDocument();
-      if (docu) {
-        const styleEl = docu.createElement('style');
-        styleEl.textContent = `${jinjaChipCanvasCss}\n${a4CanvasCss}`;
-        docu.head.appendChild(styleEl);
-      }
-      // open at 100% (fixed; manual +/- adjusts from there)
-      try {
-        ed.Canvas.setZoom(zoom.value * 100);
-      } catch {
-        /* zoom API unavailable — ignore */
-      }
-    });
-
-    ed.on('component:selected', () => {
-      const comp = ed.getSelected();
-      selected.value = comp ? toInfo(comp) : null;
-      refreshRect();
-      refreshMove();
-    });
-    ed.on('component:deselected', () => {
-      selected.value = null;
-      selectedRect.value = null;
-      refreshMove();
-    });
-    ed.on('canvas:scroll', refreshRect);
-    ed.on('canvas:update frame:scroll', refreshRect);
-
-    const fireChange = () => {
-      revision.value++;
-      refreshRect();
-      refreshMove();
-      changeCb?.();
-    };
-    // inline text editing (RTE): notify start (for an undo snapshot) and end
-    // (with whether the content actually changed). Blocked while locked.
-    ed.on('rte:enable', (view: { el?: HTMLElement }) => {
-      if (locked) {
-        // Belt-and-suspenders: components are set editable:false when locked, so
-        // RTE shouldn't enable, but bail out defensively if it ever does.
-        try {
-          ed.stopCommand('core:component-edit');
-        } catch {
-          /* command unavailable — ignore */
-        }
-        return;
-      }
-      rteStartHtml = view?.el?.innerHTML ?? '';
-      textStartCb?.();
-    });
-    ed.on('rte:disable', (view: { el?: HTMLElement }) => {
-      const changed = (view?.el?.innerHTML ?? '') !== rteStartHtml;
-      if (changed) {
-        revision.value++;
-        refreshRect();
-        changeCb?.();
-      }
-      textEndCb?.(changed);
-    });
-
-    ed.on('component:update', fireChange);
-    ed.on('component:add', fireChange);
-    ed.on('component:remove', fireChange);
-    ed.on('style:update', fireChange);
-
-    // native drag-to-reorder: snapshot for undo on start, record history on end
-    // (only when the component actually changed siblings position). Read the
-    // selection directly rather than trusting the (version-specific) payload.
-    ed.on('component:drag:start', () => {
-      dragStartIndex = ed.getSelected()?.index?.() ?? -1;
-      reorderStartCb?.();
-    });
-    ed.on('component:drag:end', () => {
-      const moved = (ed.getSelected()?.index?.() ?? -1) !== dragStartIndex;
-      reorderEndCb?.(moved);
+    wireGrapesEvents(ed, {
+      selected,
+      selectedRect,
+      revision,
+      zoom,
+      refreshRect,
+      refreshMove,
+      toInfo,
+      isLocked: () => locked,
+      canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}`,
+      callbacks,
     });
 
     editor.value = ed;
@@ -194,7 +128,7 @@ export function useGrapes() {
   }
 
   function setZoom(z: number): void {
-    const clamped = Math.min(1.4, Math.max(0.4, Math.round(z * 100) / 100));
+    const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
     zoom.value = clamped;
     editor.value?.Canvas.setZoom(clamped * 100);
     requestAnimationFrame(refreshRect);
@@ -272,7 +206,7 @@ export function useGrapes() {
     // so notify listeners (autosave) and refresh derived state ourselves.
     revision.value++;
     refreshRect();
-    changeCb?.();
+    callbacks.change?.();
   }
 
   function toInfo(comp: Component): SelectedInfo {
@@ -318,25 +252,25 @@ export function useGrapes() {
   }
 
   function onChange(cb: () => void): void {
-    changeCb = cb;
+    callbacks.change = cb;
   }
 
   /** Inline text edit started (RTE enabled) — good time to snapshot for undo. */
   function onTextEditStart(cb: () => void): void {
-    textStartCb = cb;
+    callbacks.textStart = cb;
   }
   /** Inline text edit ended; `changed` is true only if the content differs. */
   function onTextEditEnd(cb: (changed: boolean) => void): void {
-    textEndCb = cb;
+    callbacks.textEnd = cb;
   }
 
   /** A canvas drag-reorder started — good time to snapshot for undo. */
   function onReorderStart(cb: () => void): void {
-    reorderStartCb = cb;
+    callbacks.reorderStart = cb;
   }
   /** A canvas drag-reorder ended; `moved` is true only if the order changed. */
   function onReorderEnd(cb: (moved: boolean) => void): void {
-    reorderEndCb = cb;
+    callbacks.reorderEnd = cb;
   }
 
   function destroy(): void {

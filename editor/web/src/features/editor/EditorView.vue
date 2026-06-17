@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, useTemplateRef } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
 import { useRouter } from 'vue-router';
 import EditorTopBar from './EditorTopBar.vue';
-import { type LayoutGeom, PX_PER_MM } from './geom';
+import { clampMarginMm, clampWidthPct, type LayoutGeom, PX_PER_MM, WIDTH_PCT_MAX } from './geom';
 import Inspector from './Inspector.vue';
 import PartToolbar from './PartToolbar.vue';
 import PartTree from './PartTree.vue';
+import { ZOOM_STEP } from './useGrapes';
 import { useTemplateEditor } from './useTemplateEditor';
 
 const props = defineProps<{ id: string }>();
@@ -74,13 +75,13 @@ function onHandleMove(e: MouseEvent) {
   if (drag.kind === 'width' || drag.kind === 'width-left') {
     const sign = drag.kind === 'width-left' ? -1 : 1;
     const dPct = ((e.clientX - drag.x) / drag.fullW) * 100 * sign;
-    const w = Math.round(Math.min(100, Math.max(20, drag.geom.widthPct + dPct)));
+    const w = Math.round(clampWidthPct(drag.geom.widthPct + dPct));
     // live apply without recording (history is recorded once on mouseup)
-    applyGeom({ widthPct: w, align: w >= 100 ? 'stretch' : drag.geom.align === 'stretch' ? 'left' : drag.geom.align }, false);
+    applyGeom({ widthPct: w, align: w >= WIDTH_PCT_MAX ? 'stretch' : drag.geom.align === 'stretch' ? 'left' : drag.geom.align }, false);
   } else {
     const dmm = Math.round((e.clientY - drag.y) / z / PX_PER_MM);
     const key = drag.kind === 'mt' ? 'marginTop' : 'marginBottom';
-    applyGeom({ [key]: Math.min(60, Math.max(0, drag.geom[key] + dmm)) } as Partial<LayoutGeom>, false);
+    applyGeom({ [key]: clampMarginMm(drag.geom[key] + dmm) } as Partial<LayoutGeom>, false);
   }
 }
 function onHandleUp() {
@@ -110,11 +111,30 @@ async function goPreview() {
   router.push({ name: 'preview', params: { id: props.id } });
 }
 
+// Keep the selection overlay (frame/handles/toolbar) aligned when the canvas
+// container changes size. `g.selectedRect` is otherwise only recomputed on
+// canvas scroll/content events, so a window (or pane) resize would shift the
+// centered A4 iframe while the overlay stays put. The `requestAnimationFrame`
+// defers the measure until after GrapesJS re-lays out (mirrors `setZoom`).
+let canvasResizeObserver: ResizeObserver | null = null;
+onMounted(() => {
+  const el = canvasEl.value;
+  if (!el) return;
+  canvasResizeObserver = new ResizeObserver(() => {
+    requestAnimationFrame(() => g.refreshRect());
+  });
+  canvasResizeObserver.observe(el);
+});
+onBeforeUnmount(() => {
+  canvasResizeObserver?.disconnect();
+  canvasResizeObserver = null;
+});
+
 function zoomIn() {
-  g.setZoom(g.zoom.value + 0.1);
+  g.setZoom(g.zoom.value + ZOOM_STEP);
 }
 function zoomOut() {
-  g.setZoom(g.zoom.value - 0.1);
+  g.setZoom(g.zoom.value - ZOOM_STEP);
 }
 
 /** Autosave status line; includes the last-saved time when known. */
