@@ -52,6 +52,15 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
    ※ オーナー/リポジトリ/タグを変えたい場合は引数で上書き:
        offline\setup-offline.bat -Owner <owner> -Repo <repo> -Tag <tag>
 
+   ※【取得なし・完全オフライン】重量物を既に入手済みで、ネット接続を一切させずに
+     展開＋構築だけ行いたい場合は専用 bat を使う（DL を行わない）:
+       offline\setup-offline-local.bat
+     前提: offline-deps-bundle.tar.gz（未展開）、もしくは展開済みの
+           .pnpm-store / pnpm.tgz / ms-playwright がリポジトリ直下（または bk\）にあること。
+     引数:
+       offline\setup-offline-local.bat -SkipBuild   展開のみ（install/build 省略）
+       offline\setup-offline-local.bat -NoVerify    sha256 / lockfile 整合チェックを省略
+
 2) （任意）動作確認
        corepack pnpm typecheck
        corepack pnpm test
