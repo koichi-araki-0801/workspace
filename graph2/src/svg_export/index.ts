@@ -1020,16 +1020,22 @@ function cascadeWithSonohokaPick(
   // (右逃がし)。これをしないと極小の up-and-over leader が中央の『その他』box を貫いて Pass 2 で
   // 抑制され、せっかくの leader が消える。本印は同マーカーの厳ゲートでこの 1 構成のみに立つ。
   if (labels.some((it) => it.loneTopSliverLeader)) return right;
-  // 右上(第一優先)は「見切れ/交差/円内貫通を左上より悪化させない」なら採用する。判定は実描画
-  // (ALWAYS_DRAW) + 全後段で数える countVerifyIssuesDetailed を使い、後段 (角度順引き離し/9時
-  // 逃がし) が解消する見かけ上の交差で右上を誤却下しない。幅モデルを実 glyph advance に統一した
-  // ことで placementBox の clips が実描画と一致するため、clips も
-  // 比較に再導入する。右逃がしが本当に悪い構成 (例 currency_many_small_10: 極小その他が隣接 leader
-  // と交差) は crossings/pie で弾ける。
+  // 右上(第一優先)は hard 不具合 (交差 / 円内貫通) を左上より悪化させないことが前提で採用する。判定は
+  // 実描画 (ALWAYS_DRAW) + 全後段で数える countVerifyIssuesDetailed を使い、後段 (角度順引き離し/9時
+  // 逃がし) が解消する見かけ上の交差で右上を誤却下しない。右逃がしが本当に悪い構成
+  // (例 currency_many_small_10: 極小その他が隣接 leader と交差) は crossings/pie で弾ける。
+  //
+  // clips (viewBox 見切れ=soft WARN) は hard と同格には扱わない: 幅モデルを実 glyph advance に統一して
+  // placementBox の clips が実描画と一致するので比較材料には使うが、「右上が hard (交差/円内) を厳密に
+  // 減らす」なら clips が増えても右上を採る (hard > soft)。clips<= を必須にする旧条件は、左上が交差を
+  // 抱える構成 (例 currency_usd_heavy_9: その他を左へ置くと スイスフラン leader の根本に接触=交差) で、
+  // 右上が 1px 見切れるだけで右上を却下し交差側を選んでいた。soft 見切れ増を受け入れ確実に分離する。
   const rightNotWorse =
-    rightIssues.clips <= leftIssues.clips &&
     rightIssues.crossings <= leftIssues.crossings &&
-    rightIssues.pie <= leftIssues.pie;
+    rightIssues.pie <= leftIssues.pie &&
+    (rightIssues.clips <= leftIssues.clips ||
+      rightIssues.crossings < leftIssues.crossings ||
+      rightIssues.pie < leftIssues.pie);
   return rightNotWorse ? right : left;
 }
 
