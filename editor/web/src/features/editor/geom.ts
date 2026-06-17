@@ -21,6 +21,24 @@ export type StyleMap = Record<string, string | undefined>;
 
 export const PX_PER_MM = 96 / 25.4;
 
+// Editable bounds for the layout geometry, shared by the toolbar inputs
+// ({@link PartToolbar}) and the drag handles ({@link EditorView}) so both clamp
+// to the same range. Width is a percentage of the page text column; margins mm.
+export const WIDTH_PCT_MIN = 20;
+export const WIDTH_PCT_MAX = 100;
+export const MARGIN_MM_MIN = 0;
+export const MARGIN_MM_MAX = 60;
+
+/** Clamp a width percentage into the editable `[WIDTH_PCT_MIN, WIDTH_PCT_MAX]` range. */
+export function clampWidthPct(n: number): number {
+  return Math.max(WIDTH_PCT_MIN, Math.min(WIDTH_PCT_MAX, n));
+}
+
+/** Clamp a margin (mm) into the editable `[MARGIN_MM_MIN, MARGIN_MM_MAX]` range. */
+export function clampMarginMm(n: number): number {
+  return Math.max(MARGIN_MM_MIN, Math.min(MARGIN_MM_MAX, n));
+}
+
 /** Parse a CSS length to millimetres (mm/px supported; others → 0). */
 function lenToMm(v: string | undefined): number {
   if (!v) return 0;

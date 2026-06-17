@@ -3,18 +3,13 @@
  * `/api`, sends the session cookie (`credentials: 'include'`), and maps HTTP
  * failures to the shared {@link AppError} — preferring the server's structured
  * `{ kind, message, code }` body, falling back to the status code. `attemptRest`
- * is the throw→Result seam (mirrors the local repos' `attempt`).
+ * (the throw→Result seam) is re-exported from the local repos' `attempt`.
  */
-import {
-  type AppError,
-  type AppErrorKind,
-  appError,
-  err,
-  network,
-  ok,
-  type Result,
-  toAppError,
-} from '@editor/shared';
+import { type AppError, type AppErrorKind, appError, network } from '@editor/shared';
+
+// The throw→Result seam is identical for local and REST repos, so REST reuses
+// the local `attempt` (re-exported as `attemptRest` to keep existing imports).
+export { attempt as attemptRest } from '../local/attempt';
 
 const BASE = '/api';
 
@@ -86,13 +81,4 @@ export async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promis
   if (!res.ok) throw await toError(res);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
-}
-
-/** Run an apiFetch call and wrap the outcome as a Result (throw → err). */
-export async function attemptRest<T>(fn: () => Promise<T>): Promise<Result<T>> {
-  try {
-    return ok(await fn());
-  } catch (e) {
-    return err(toAppError(e));
-  }
 }

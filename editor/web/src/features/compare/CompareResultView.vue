@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { TemplateMeta, TemplateVersionMeta } from '@editor/shared';
 import { ChevronLeft, ChevronRight } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import { formatDateTimeShort } from '@/lib/format';
 import { HL_ADDED, HL_CHANGED, HL_REMOVED, type HtmlDiff } from './htmlBlockDiff';
@@ -42,8 +42,8 @@ const beforeDoc = computed(() => buildDoc(page.value?.beforeHtml ?? '', props.cs
 const afterDoc = computed(() => buildDoc(page.value?.afterHtml ?? '', props.cssAfter));
 
 // iframe を中身の高さに合わせる（srcdoc は同一オリジン）。
-function fitFrame(e: Event) {
-  const f = e.target as HTMLIFrameElement;
+function fitTo(f: HTMLIFrameElement | null | undefined) {
+  if (!f) return;
   try {
     const h = f.contentDocument?.body?.scrollHeight;
     if (h) f.style.height = `${h + 4}px`;
@@ -51,6 +51,27 @@ function fitFrame(e: Event) {
     /* ignore */
   }
 }
+// `@load` 時の初回フィット。同時に、幅が変わると中身が再フローして高さも変わるため、
+// `<iframe>` 自身を `ResizeObserver` で監視して以降の幅変化（ウィンドウ/ペインのリサイズ、
+// `md:grid-cols-2` の折返し）にも追随させる。
+const frameObservers = new WeakMap<HTMLIFrameElement, ResizeObserver>();
+function fitFrame(e: Event) {
+  const f = e.target as HTMLIFrameElement;
+  fitTo(f);
+  if (!frameObservers.has(f)) {
+    const ro = new ResizeObserver(() => fitTo(f));
+    ro.observe(f);
+    frameObservers.set(f, ro);
+    observed.push(f);
+  }
+}
+
+// クリーンアップ用に監視中の iframe を保持（WeakMap は列挙できないため）。
+const observed: HTMLIFrameElement[] = [];
+onBeforeUnmount(() => {
+  for (const f of observed) frameObservers.get(f)?.disconnect();
+  observed.length = 0;
+});
 </script>
 
 <template>

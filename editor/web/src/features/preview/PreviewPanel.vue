@@ -77,7 +77,7 @@ onBeforeUnmount(() => {
     <iframe
       v-show="useFallback"
       ref="iframe"
-      class="h-full min-h-[600px] w-full border-0 bg-white"
+      class="h-full w-full border-0 bg-white"
       title="プレビュー"
     ></iframe>
   </div>

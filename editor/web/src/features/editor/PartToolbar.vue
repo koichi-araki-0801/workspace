@@ -14,7 +14,7 @@ import {
 } from '@lucide/vue';
 import { reactive, watch } from 'vue';
 import { cn } from '@/lib/utils';
-import type { Align, LayoutGeom } from './geom';
+import { type Align, clampMarginMm, clampWidthPct, type LayoutGeom, WIDTH_PCT_MAX } from './geom';
 
 const props = defineProps<{
   geom: LayoutGeom;
@@ -56,11 +56,10 @@ function onEnter(e: KeyboardEvent) {
 function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) {
   let n = Math.round(Number(raw));
   if (Number.isNaN(n)) n = props.geom[key];
-  const [min, max] = key === 'widthPct' ? [20, 100] : [0, 60];
-  n = Math.max(min, Math.min(max, n));
+  n = key === 'widthPct' ? clampWidthPct(n) : clampMarginMm(n);
   num[key] = String(n);
   if (key === 'widthPct') {
-    emit('apply', { widthPct: n, align: n >= 100 ? 'stretch' : props.geom.align === 'stretch' ? 'left' : props.geom.align });
+    emit('apply', { widthPct: n, align: n >= WIDTH_PCT_MAX ? 'stretch' : props.geom.align === 'stretch' ? 'left' : props.geom.align });
   } else {
     emit('apply', { [key]: n } as Partial<LayoutGeom>);
   }
