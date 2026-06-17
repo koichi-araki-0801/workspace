@@ -34,6 +34,7 @@ import {
 } from "../svg_geom.js";
 import { layoutLabels } from "../layout.js";
 import { TOP_BAND_HALF_WIDTH_DEG } from "../label_placement.js";
+import type { BBox } from "../svg_geom.js";
 import type { PieLayoutConfig, LayoutItem, Placement } from "../types.js";
 import { detectVisualHorizontalOverflow } from "./rendering.js";
 
@@ -193,105 +194,117 @@ function settlePinnedClustersDownward(textPlacements: Placement[], cfg: PieLayou
  * 動けない場合、対称半分割だと固定側の移動が clampPlacement で無効化され分離量が
  * 半減する。この場合は可動側へ分離量を全振りし、純縦方向に動かして確実に離す。
  */
+/**
+ * 重なり解消の共通反復骨格。各反復で全ペア (i<j) を走査し、`resolvePair` が「押し離した」
+ * (true) を返したペアにだけ clamp 一式を適用する。1 反復で誰も動かなければ収束として打ち切る
+ * (最大 OVERLAP_MAX_ITER 反復)。巡回順・収束条件・clamp 呼び出しは主/Secondary パス共通。
+ * `resolvePair` は gate 不成立なら placement を変えず false を返し、押し離した時のみ破壊的に
+ * 更新して true を返す (gate→move→clamp×4→anyMoved の評価順は両パスで不変)。
+ */
+function iterateOverlapPairs(
+  textPlacements: Placement[],
+  cfg: PieLayoutConfig,
+  resolvePair: (
+    a: Placement,
+    b: Placement,
+    ba: BBox,
+    bb: BBox,
+    overlapX: number,
+    overlapY: number,
+  ) => boolean,
+): void {
+  for (let iter = 0; iter < OVERLAP_MAX_ITER; iter += 1) {
+    let anyMoved = false;
+    for (let i = 0; i < textPlacements.length; i += 1) {
+      for (let j = i + 1; j < textPlacements.length; j += 1) {
+        const a = textPlacements[i];
+        const b = textPlacements[j];
+        const ba = placementBox(a, cfg);
+        const bb = placementBox(b, cfg);
+        const { x: overlapX, y: overlapY } = boxOverlapAmount(ba, bb);
+        if (!resolvePair(a, b, ba, bb, overlapX, overlapY)) continue;
+        clampPlacement(a);
+        clampPlacement(b);
+        clampToAnchorSide(a);
+        clampToAnchorSide(b);
+        anyMoved = true;
+      }
+    }
+    if (!anyMoved) break;
+  }
+}
+
 export function resolveLabelOverlaps(textPlacements: Placement[], cfg: PieLayoutConfig): void {
   const thresholdLogical = OVERLAP_THRESHOLD_PX / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
 
-  for (let iter = 0; iter < OVERLAP_MAX_ITER; iter += 1) {
-    let anyMoved = false;
-    for (let i = 0; i < textPlacements.length; i += 1) {
-      for (let j = i + 1; j < textPlacements.length; j += 1) {
-        const a = textPlacements[i];
-        const b = textPlacements[j];
-        const ba = placementBox(a, cfg);
-        const bb = placementBox(b, cfg);
-        const { x: overlapX, y: overlapY } = boxOverlapAmount(ba, bb);
-        if (overlapX <= 0 || overlapY <= 0) continue;
-        if (overlapY < thresholdLogical) continue;
+  // 主パス: bbox が strictly に重なるペアを bbox 中心ベクトル方向へ対角分離。
+  iterateOverlapPairs(textPlacements, cfg, (a, b, ba, bb, overlapX, overlapY) => {
+    if (overlapX <= 0 || overlapY <= 0) return false;
+    if (overlapY < thresholdLogical) return false;
 
-        const cax = (ba.left + ba.right) / 2;
-        const cay = (ba.top + ba.bottom) / 2;
-        const cbx = (bb.left + bb.right) / 2;
-        const cby = (bb.top + bb.bottom) / 2;
-        let dx = cbx - cax;
-        let dy = cby - cay;
-        const d = Math.hypot(dx, dy);
-        if (d < 1e-9) {
-          dx = 0;
-          dy = 1;
-        } else {
-          dx /= d;
-          dy /= d;
-        }
-        if (Math.abs(dy) < OVERLAP_DIAG_MIN_DY_NORM) {
-          dx = 0;
-          dy = dy >= 0 ? 1 : -1;
-        }
-
-        const needTotal = overlapY + 2e-4;
-        // a の Y 変位は -dy*scale、b は +dy*scale 方向。
-        const aBlocked = blockedInY(a, -dy);
-        const bBlocked = blockedInY(b, dy);
-        if (aBlocked && !bBlocked) {
-          // a は固定 → b へ全振り (純縦)。
-          b.y += (dy >= 0 ? 1 : -1) * needTotal;
-        } else if (bBlocked && !aBlocked) {
-          a.y += (dy >= 0 ? -1 : 1) * needTotal;
-        } else {
-          const pushScale = needTotal / 2 / Math.max(Math.abs(dy), 1e-6);
-          a.x -= dx * pushScale;
-          a.y -= dy * pushScale;
-          b.x += dx * pushScale;
-          b.y += dy * pushScale;
-        }
-        clampPlacement(a);
-        clampPlacement(b);
-        clampToAnchorSide(a);
-        clampToAnchorSide(b);
-        anyMoved = true;
-      }
+    const cax = (ba.left + ba.right) / 2;
+    const cay = (ba.top + ba.bottom) / 2;
+    const cbx = (bb.left + bb.right) / 2;
+    const cby = (bb.top + bb.bottom) / 2;
+    let dx = cbx - cax;
+    let dy = cby - cay;
+    const d = Math.hypot(dx, dy);
+    if (d < 1e-9) {
+      dx = 0;
+      dy = 1;
+    } else {
+      dx /= d;
+      dy /= d;
     }
-    if (!anyMoved) break;
-  }
+    if (Math.abs(dy) < OVERLAP_DIAG_MIN_DY_NORM) {
+      dx = 0;
+      dy = dy >= 0 ? 1 : -1;
+    }
+
+    const needTotal = overlapY + 2e-4;
+    // a の Y 変位は -dy*scale、b は +dy*scale 方向。
+    const aBlocked = blockedInY(a, -dy);
+    const bBlocked = blockedInY(b, dy);
+    if (aBlocked && !bBlocked) {
+      // a は固定 → b へ全振り (純縦)。
+      b.y += (dy >= 0 ? 1 : -1) * needTotal;
+    } else if (bBlocked && !aBlocked) {
+      a.y += (dy >= 0 ? -1 : 1) * needTotal;
+    } else {
+      const pushScale = needTotal / 2 / Math.max(Math.abs(dy), 1e-6);
+      a.x -= dx * pushScale;
+      a.y -= dy * pushScale;
+      b.x += dx * pushScale;
+      b.y += dy * pushScale;
+    }
+    return true;
+  });
 
   const visualHorizGap = OVERLAP_HORIZ_NEAR_GAP_PX / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
-  for (let iter = 0; iter < OVERLAP_MAX_ITER; iter += 1) {
-    let anyMoved = false;
-    for (let i = 0; i < textPlacements.length; i += 1) {
-      for (let j = i + 1; j < textPlacements.length; j += 1) {
-        const a = textPlacements[i];
-        const b = textPlacements[j];
-        const ba = placementBox(a, cfg);
-        const bb = placementBox(b, cfg);
-        const { x: overlapX, y: overlapY } = boxOverlapAmount(ba, bb);
-        if (overlapX > 0) continue;
-        if (overlapX + visualHorizGap <= 0) continue;
-        if (overlapY < thresholdLogical) continue;
+  // Secondary パス: 横が非重なり (隙間 < OVERLAP_HORIZ_NEAR_GAP_PX) かつ縦に重なるペアを純縦分離。
+  iterateOverlapPairs(textPlacements, cfg, (a, b, ba, bb, overlapX, overlapY) => {
+    if (overlapX > 0) return false;
+    if (overlapX + visualHorizGap <= 0) return false;
+    if (overlapY < thresholdLogical) return false;
 
-        const cay = (ba.top + ba.bottom) / 2;
-        const cby = (bb.top + bb.bottom) / 2;
-        const dy = cay >= cby ? 1 : -1;
-        const needTotal = overlapY + 2e-4;
-        // a の Y 変位は +dy*push、b は -dy*push 方向。
-        const aBlocked = blockedInY(a, dy);
-        const bBlocked = blockedInY(b, -dy);
-        if (aBlocked && !bBlocked) {
-          b.y -= dy * needTotal;
-        } else if (bBlocked && !aBlocked) {
-          a.y += dy * needTotal;
-        } else {
-          const push = needTotal / 2;
-          a.y += dy * push;
-          b.y -= dy * push;
-        }
-        clampPlacement(a);
-        clampPlacement(b);
-        clampToAnchorSide(a);
-        clampToAnchorSide(b);
-        anyMoved = true;
-      }
+    const cay = (ba.top + ba.bottom) / 2;
+    const cby = (bb.top + bb.bottom) / 2;
+    const dy = cay >= cby ? 1 : -1;
+    const needTotal = overlapY + 2e-4;
+    // a の Y 変位は +dy*push、b は -dy*push 方向。
+    const aBlocked = blockedInY(a, dy);
+    const bBlocked = blockedInY(b, -dy);
+    if (aBlocked && !bBlocked) {
+      b.y -= dy * needTotal;
+    } else if (bBlocked && !aBlocked) {
+      a.y += dy * needTotal;
+    } else {
+      const push = needTotal / 2;
+      a.y += dy * push;
+      b.y -= dy * push;
     }
-    if (!anyMoved) break;
-  }
+    return true;
+  });
 
   // 3rd: 天井固定クラスタを下方向へ連鎖分離 (主/Secondary パスの取りこぼし救済)。
   settlePinnedClustersDownward(textPlacements, cfg);
