@@ -26,7 +26,8 @@
     background: oklch(0.58 0.105 240/0.14); pointer-events: none; border-radius: 2px; }
   .crop-rubber { position: absolute; border: 2px solid var(--accent);
     background: oklch(0.58 0.105 240/0.12); pointer-events: none; border-radius: 2px; }
-  .editor.tool-crop .page-host { cursor: crosshair; }
+  .editor.tool-crop .page-host, .editor.tool-crop .doc-stage,
+  .editor.tool-border .page-host, .editor.tool-border .doc-stage { cursor: crosshair; }
   .editor.tool-select .page-host [data-el] { cursor: pointer; }
   /* 手順2: 文字クリックで「元の語」に取り込めることを示す */
   .screen[data-screen="2"] .page-host text[data-el] { cursor: pointer; }
@@ -55,7 +56,7 @@
     <svg class="step-sep" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="m10 6 6 6-6 6"></path></svg>
     <div class="step" data-step="2"><span class="n">2</span>用語を置換</div>
     <svg class="step-sep" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="m10 6 6 6-6 6"></path></svg>
-    <div class="step" data-step="3"><span class="n">3</span>不要範囲を削除</div>
+    <div class="step" data-step="3"><span class="n">3</span>削除・枠線の編集</div>
     <svg class="step-sep" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="m10 6 6 6-6 6"></path></svg>
     <div class="step" data-step="4"><span class="n">4</span>SVGに書き出す</div>
   </div>
@@ -86,8 +87,13 @@
     <section class="screen" data-screen="2">
       <nav class="pagenav-rail" id="pagenav"></nav>
       <div class="editor">
-        <div class="page-host empty" id="doc-master"><span class="page-loading">PDFを選ぶと<br>ここにページが表示されます</span></div>
+        <div class="canvas-scroll"><div class="page-host empty" id="doc-master"><span class="page-loading">PDFを選ぶと<br>ここにページが表示されます</span></div></div>
         <div class="page-nav"><span class="pg" id="pgnav-2"></span></div>
+        <div class="zoom-ctrl">
+          <button class="zb" data-zoomact="out" title="縮小"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path></svg></button>
+          <button class="zb zlabel" data-zoomact="reset" title="フィットに戻す"><span class="zpct">100%</span></button>
+          <button class="zb" data-zoomact="in" title="拡大"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+        </div>
       </div>
       <aside class="panel">
         <div class="panel-head">
@@ -147,17 +153,27 @@
           <div class="segment">
             <button data-tool="select" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 3.5 19 12l-6.2 1.4L9.5 20 5.5 3.5Z"></path></svg>選択</button>
             <button data-tool="crop" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v13.5A1.5 1.5 0 0 0 8.5 18H21"></path><path d="M3 7h13.5A1.5 1.5 0 0 1 18 8.5V21"></path></svg>クロップ</button>
+            <button data-tool="border" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="1.5"></rect></svg>枠線</button>
           </div>
           <div class="ft-div"></div>
+          <div class="border-opts" id="border-opts" hidden="">
+            <input type="color" id="border-color" value="#000000" title="枠線の色">
+            <label class="bo-w"><input type="number" id="border-width" value="1" min="0.5" max="20" step="0.5" title="線の太さ（pt）">pt</label>
+          </div>
           <button class="btn ghost" id="btn-deletesel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"></path><path d="M6 7v12.5A1.5 1.5 0 0 0 7.5 21h9a1.5 1.5 0 0 0 1.5-1.5V7"></path><path d="M10 11v6M14 11v6"></path></svg>削除</button>
         </div>
-        <div class="doc-stage" id="trim-stage"></div>
+        <div class="canvas-scroll"><div class="doc-stage" id="trim-stage"></div></div>
         <div class="page-nav"><span class="pg" id="pgnav-3"></span></div>
+        <div class="zoom-ctrl">
+          <button class="zb" data-zoomact="out" title="縮小"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path></svg></button>
+          <button class="zb zlabel" data-zoomact="reset" title="フィットに戻す"><span class="zpct">100%</span></button>
+          <button class="zb" data-zoomact="in" title="拡大"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+        </div>
       </div>
       <aside class="panel">
         <div class="panel-head">
-          <h2><svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:19px;height:19px"><path d="M7 3v13.5A1.5 1.5 0 0 0 8.5 18H21"></path><path d="M3 7h13.5A1.5 1.5 0 0 1 18 8.5V21"></path></svg>不要範囲を削除</h2>
-          <p class="desc">残す範囲をドラッグ、要らない要素は選んで削除します。</p>
+          <h2><svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:19px;height:19px"><path d="M7 3v13.5A1.5 1.5 0 0 0 8.5 18H21"></path><path d="M3 7h13.5A1.5 1.5 0 0 1 18 8.5V21"></path></svg>削除・枠線の編集</h2>
+          <p class="desc">要らない要素は選んで削除、クロップで残す範囲を指定、枠線で罫線枠を追加できます。</p>
         </div>
         <div class="panel-body">
           <div class="statusbar" id="sum-3"></div>

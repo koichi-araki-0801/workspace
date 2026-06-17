@@ -563,7 +563,8 @@
 .sheet { width: 100%; max-width: 700px; }
 .sheet h1 { font-family: var(--font-round); font-size: 23px; font-weight: 700; margin: 0; }
 .sheet .lead { color: var(--muted); margin: 7px 0 24px; font-size: 14px; }
-.dropzone { border: 2px dashed var(--accent-line); background: var(--accent-soft); border-radius: var(--r-lg); padding: 36px; text-align: center; }
+.dropzone { border: 2px dashed var(--accent-line); background: var(--accent-soft); border-radius: var(--r-lg); padding: 36px; text-align: center; transition: border-color .12s, background .12s; }
+.dropzone.dragover { border-color: var(--accent); background: oklch(0.58 0.105 240 / 0.12); }
 .dropzone .dz-ic { width: 56px; height: 56px; border-radius: 16px; background: var(--surface); display: grid; place-items: center; margin: 0 auto 14px; color: var(--accent); box-shadow: var(--shadow-card); }
 .dropzone .dz-ic svg { width: 28px; height: 28px; }
 .dropzone .dz-t { font-family: var(--font-round); font-weight: 700; font-size: 16px; }
@@ -576,6 +577,8 @@
 .file-card .fmeta { flex: 1; min-width: 0; }
 .file-card .fname { font-weight: 700; font-size: 14px; }
 .file-card .fsub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.file-card .iconbtn { flex: none; margin-left: auto; color: var(--faint); }
+.file-card .iconbtn:hover { color: var(--warn-ink); background: var(--warn-soft); }
 
 /* ---- ページナビ（②） ---- */
 .pagenav-rail { width: 162px; flex: none; background: var(--surface); border-right: 1px solid var(--border); overflow: auto; padding: 12px 10px; }
@@ -630,9 +633,28 @@
 .pa-link { background: none; border: none; color: var(--accent-ink); font-size: 12px; font-weight: 700; cursor: pointer; font-family: var(--font-ui); align-self: center; margin-top: 4px; }
 
 /* 浮かぶツールバー（③） */
-.float-tools { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 13px; padding: 6px; box-shadow: var(--shadow-card); z-index: 6; }
+.float-tools { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 13px; padding: 6px; box-shadow: var(--shadow-card); z-index: 6; }
+.float-tools .segment button { white-space: nowrap; }
 .float-tools .ft-div { width: 1px; align-self: stretch; background: var(--border); margin: 3px 2px; }
 .float-tools .btn { height: 34px; }
+/* 枠線ツールの色・太さ */
+.border-opts { display: flex; align-items: center; gap: 8px; }
+.border-opts[hidden] { display: none; }
+.border-opts input[type="color"] { width: 30px; height: 30px; padding: 0; border: 1px solid var(--border-strong); border-radius: 7px; background: none; cursor: pointer; }
+.border-opts .bo-w { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.border-opts .bo-w input { width: 52px; height: 30px; border: 1px solid var(--border-strong); border-radius: 7px; text-align: center; font-family: var(--font-ui); font-size: 12px; color: var(--ink); background: var(--paper); }
+
+/* キャンバス内ズーム: スクロール枠・操作子 */
+.canvas-scroll { max-width: 100%; max-height: 100%; overflow: auto; display: flex; }
+.zoom-ctrl { position: absolute; right: 14px; bottom: 14px; display: flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 11px; padding: 3px; box-shadow: var(--shadow-card); z-index: 6; }
+.zoom-ctrl .zb { display: inline-flex; align-items: center; justify-content: center; height: 28px; min-width: 28px; padding: 0 4px; border: none; background: transparent; border-radius: 7px; color: var(--muted); cursor: pointer; font-family: var(--font-ui); font-size: 12px; font-weight: 600; }
+.zoom-ctrl .zb:hover { background: var(--sunk); color: var(--ink); }
+.zoom-ctrl .zb svg { width: 16px; height: 16px; }
+.zoom-ctrl .zlabel { min-width: 46px; }
+.zoom-ctrl .zpct { font-variant-numeric: tabular-nums; }
+
+/* 枠線ドラッグ中のラバー（点線で「追加」を示す） */
+.border-rubber { position: absolute; border: 1.5px dashed var(--accent); background: oklch(0.58 0.105 240 / 0.06); pointer-events: none; border-radius: 2px; }
 
 /* 確認バー（未確認のまま進もうとしたとき） */
 .guard { flex: none; display: flex; align-items: center; gap: 12px; padding: 13px 18px; background: var(--warn-soft); border-top: 1px solid var(--warn-line); }
