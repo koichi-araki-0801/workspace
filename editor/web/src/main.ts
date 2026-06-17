@@ -8,6 +8,15 @@ import { toastError } from './components/ui/toast';
 import { logError } from './lib/appError';
 import { initTheme } from './lib/theme';
 import { router } from './router';
+// Self-hosted webfonts (no Google Fonts CDN). @fontsource ships the @font-face
+// + woff2 so Vite bundles them for same-origin, offline-capable delivery.
+import '@fontsource-variable/noto-sans-jp/index.css';
+import '@fontsource-variable/noto-serif-jp/index.css';
+import '@fontsource-variable/jetbrains-mono/index.css';
+// Font Awesome glyphs for GrapesJS' layer/toolbar icons. Bundled locally so the
+// editor no longer pulls FA from cdnjs (GrapesJS' `cssIcons` is blanked in
+// useGrapes.ts to stop the remote <link> injection). See editor/OFFLINE.md.
+import 'font-awesome/css/font-awesome.css';
 import './assets/index.css';
 
 /**

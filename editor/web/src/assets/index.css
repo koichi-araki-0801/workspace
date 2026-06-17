@@ -140,7 +140,8 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family:
-      "Noto Sans JP", system-ui, "Segoe UI", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+      "Noto Sans JP Variable", "Noto Sans JP", system-ui, "Segoe UI", "Hiragino Kaku Gothic ProN",
+      "Meiryo", sans-serif;
     font-feature-settings: "palt" 1;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -155,7 +156,8 @@
 
 /* 等幅（ID・日時・コード）。約物詰めは無効化して桁を揃える。 */
 .mono {
-  font-family: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  font-family:
+    "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
   font-feature-settings: normal;
 }
 

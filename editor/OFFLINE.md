@@ -10,7 +10,8 @@
 - **依存は pnpm オフラインストア（`.pnpm-store/`）を tar.gz で持ち込み**、運用機で
   `pnpm install --offline` により復元する。
 - **ビルドはオフライン機で実施**（復元した依存で `pnpm build`）。
-- フォント・テンプレCSSは system フォントのみで外部依存なし。
+- フォント（Noto Sans JP / Noto Serif JP / JetBrains Mono）は **@fontsource でローカル同梱**し、
+  Vite が same-origin で配信する（Google Fonts CDN 非依存）。テンプレ CSS は system フォントへフォールバック。
 
 > ⚠️ **OS/arch 一致が必須**: ネイティブバイナリ（biome / esbuild / rollup / lightningcss /
 > playwright-core）はプラットフォーム別。**調達機（pack）と運用機を Windows x64・Node 24 で一致**させること。
@@ -103,13 +104,14 @@ $env:NODE_ENV='production'; corepack pnpm --filter server start
 
 ## 注意点（Medium・要検証）
 
-- **MathJax CDN**: 同梱 vivliostyle ビューア（`node_modules/@vivliostyle/viewer/lib/index.html`）が
-  cdnjs の MathJax を参照する。数式を含まない帳票なら描画は成立するが、オフラインで失敗
-  リクエストが出る。**検証 4** で PDF 生成がストール/失敗しないことを確認。問題が出たら
-  同梱 node_modules 内の当該 `<script>` をローカル MathJax に差し替える。
-- **GrapesJS の Font Awesome**: 既定値に cdnjs の FA URL があるが、本コードは
-  `assetManager: { custom: true }` かつ UI アイコンはバンドル CSS を使用するため実害は低い。
-  **検証 6** でエディタ UI を目視し、欠けがあれば FA をローカル同梱。
+- **MathJax CDN**: 同梱 vivliostyle ビューア（`node_modules/@vivliostyle/viewer@2.43.0/.../lib/index.html`）に
+  cdnjs MathJax の `<script>` が**コメントアウト済（opt-in、現状はロードされない）**。現バージョンでは
+  外部通信は発生しない。将来 viewer 更新で有効化された場合は、当該 `<script>` をローカル MathJax へ
+  差し替える（`pnpm patch @vivliostyle/viewer` で永続化）。**検証 4** で PDF 生成がストール/失敗しないことを確認。
+- **GrapesJS の Font Awesome**: 既定 `cssIcons` が cdnjs の FA URL を document へ注入していたが、
+  `web/src/features/editor/useGrapes.ts` で `cssIcons: ''` として無効化し、FA グリフは
+  `web/src/main.ts` の `import 'font-awesome/css/font-awesome.css'` で**ローカル同梱**（Vite が
+  woff2 等を `dist/assets` に出力）。これでエディタ UI アイコンも CDN 非依存。**検証 6** で目視確認。
 
 ## Phase 2: Python 依存（pip）
 
@@ -128,6 +130,8 @@ pwsh -File scripts/offline/python-wheelhouse.ps1 -Mode install
 2. **遮断**: 運用機をネット遮断し、`offline/setup-offline.bat` の展開〜`pnpm build` がネット無しで完走する
    （biome / esbuild / rollup / lightningcss / vue-tsc の取得が走らない）。
 3. **起動**: `GET /api/health` → `{ok:true}`、ブラウザで SPA が表示される。
+   DevTools の Network で `fonts.googleapis.com`・`fonts.gstatic.com`・`cdnjs.cloudflare.com` への
+   リクエストが**一切出ない**こと（フォント／GrapesJS アイコンは same-origin 配信）。
 4. **PDF（最重要）**: `POST /api/build` で PDF 生成成功。ログに
    `Downloading now...`（`downloadBrowser`）が**出ない**こと、MathJax 失敗で生成がストール
    /失敗しないこと。

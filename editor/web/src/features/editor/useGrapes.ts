@@ -32,7 +32,7 @@ const a4CanvasCss = `
     padding: 18mm 16mm;
     box-sizing: border-box;
     box-shadow: 0 1px 3px rgba(20,28,48,.10), 0 16px 44px -18px rgba(20,28,48,.32);
-    font-family: 'Hiragino Mincho ProN','Yu Mincho','Noto Serif JP',serif;
+    font-family: 'Hiragino Mincho ProN','Yu Mincho','Noto Serif JP Variable','Noto Serif JP',serif;
     color: #1f2937;
   }
 `;
@@ -106,6 +106,10 @@ export function useGrapes() {
       selectorManager: { componentFirst: true },
       layerManager: { appendTo: c.layers },
       assetManager: { custom: true },
+      // Blank GrapesJS' default cssIcons (a cdnjs Font Awesome <link>) so nothing
+      // is fetched from a CDN. The FA glyphs its layer/toolbar icons use are
+      // instead bundled locally via `import 'font-awesome/...'` in main.ts.
+      cssIcons: '',
     });
 
     registerJinjaComponents(ed);
