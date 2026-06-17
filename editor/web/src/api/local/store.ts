@@ -24,6 +24,14 @@ const templateFiles = import.meta.glob('../fixtures/templates/*.html', {
   import: 'default',
 }) as Record<string, string>;
 
+// Pre-filled (value-substituted) copies shown in the editor canvas. Keyed by the
+// same file name as the raw template; missing entries fall back to a runtime fill.
+const filledFiles = import.meta.glob('../fixtures/filled/*.html', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+}) as Record<string, string>;
+
 const cssFiles = import.meta.glob('../fixtures/css/*.css', {
   eager: true,
   query: '?raw',
@@ -59,6 +67,11 @@ function baseName(path: string): string {
 export const fixtureTemplates: Record<string, string> = {};
 for (const [path, content] of Object.entries(templateFiles)) {
   fixtureTemplates[baseName(path)] = content;
+}
+
+export const fixtureFilled: Record<string, string> = {};
+for (const [path, content] of Object.entries(filledFiles)) {
+  fixtureFilled[baseName(path)] = content;
 }
 
 export const fixtureCss: Record<string, string> = {};
@@ -130,6 +143,7 @@ export const K = {
   createHist: 'editor:hist:create',
   partHist: 'editor:hist:part',
   snapshots: 'editor:snapshots',
+  instances: 'editor:instances',
   session: 'editor:session',
   userOverride: 'editor:users',
   passwords: 'editor:pw',

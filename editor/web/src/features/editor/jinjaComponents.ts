@@ -51,6 +51,24 @@ export function registerJinjaComponents(editor: Editor): void {
       },
     },
   });
+
+  // Masked opaque content (produced by fillJinja.maskOpaque). Locked like other
+  // jinja chips so GrapesJS preserves it verbatim; the source lives in
+  // data-opaque and is restored by jinjaMask.toTemplate on save.
+  // jinja-script: <script>; jinja-math: MathJax (TeX) and MathML <math>.
+  for (const type of ['jinja-script', 'jinja-math'] as const) {
+    dc.addType(type, {
+      model: {
+        defaults: {
+          ...common,
+          name: type === 'jinja-math' ? '数式' : 'スクリプト',
+          draggable: true,
+          removable: true,
+          copyable: false,
+        },
+      },
+    });
+  }
 }
 
 /** CSS injected into the GrapesJS canvas to visualise locked Jinja chips. */
@@ -68,5 +86,7 @@ export const jinjaChipCanvasCss = `
 .jinja-chip.jinja-var { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
 .jinja-chip.jinja-stmt { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
 .jinja-chip.jinja-comment { background: #e5e7eb; color: #6b7280; border: 1px dashed #9ca3af; }
+.jinja-chip.jinja-script { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
+.jinja-chip.jinja-math { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
 [data-jinja-open] { outline: 1px dashed #f59e0b; outline-offset: 2px; }
 `;

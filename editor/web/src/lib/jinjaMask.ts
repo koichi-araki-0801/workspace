@@ -21,34 +21,34 @@
  * by the serializer.
  */
 
-const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
+export const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
 // Private-use delimiters: survive HTML serialization without being escaped.
-const PH_START = String.fromCharCode(0xe000);
-const PH_END = String.fromCharCode(0xe001);
+export const PH_START = String.fromCharCode(0xe000);
+export const PH_END = String.fromCharCode(0xe001);
 const PH_RE = new RegExp(`${PH_START}([A-Za-z0-9+/=]*)${PH_END}`, 'g');
 
 export function extractJinjaTokens(s: string): string[] {
   return s.match(TOKEN_RE) ?? [];
 }
 
-function b64encode(s: string): string {
+export function b64encode(s: string): string {
   const bytes = new TextEncoder().encode(s);
   let bin = '';
   for (const b of bytes) bin += String.fromCharCode(b);
   return btoa(bin);
 }
 
-function b64decode(b: string): string {
+export function b64decode(b: string): string {
   const bin = atob(b);
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   return new TextDecoder().decode(bytes);
 }
 
-function htmlEscape(s: string): string {
+export function htmlEscape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function tokenKind(token: string): 'var' | 'stmt' | 'comment' {
+export function tokenKind(token: string): 'var' | 'stmt' | 'comment' {
   if (token.startsWith('{{')) return 'var';
   if (token.startsWith('{#')) return 'comment';
   return 'stmt';
@@ -106,9 +106,33 @@ export function toTemplate(editable: string, opts: ToTemplateOptions = {}): stri
   const doc = new DOMParser().parseFromString(editable, 'text/html');
   const ph = (enc: string) => doc.createTextNode(`${PH_START}${enc}${PH_END}`);
 
+  // 0. drop loop clones produced by toFilled: only the first (template) row of an
+  //    expanded `{% for %}` carries data-jinja-open/close; the filled clones are
+  //    display-only and must not survive into the restored template.
+  doc.querySelectorAll('[data-jinja-loop-clone]').forEach((el) => {
+    el.remove();
+  });
+
   // 1. restore chip spans -> placeholder text
   doc.querySelectorAll('[data-jinja]').forEach((el) => {
     const enc = el.getAttribute('data-jinja');
+    if (enc === null) return;
+    el.replaceWith(ph(enc));
+  });
+
+  // 1b. restore opaque-masked content — <script>, MathML <math>, and TeX math
+  //     (toFilled hides these from GrapesJS as inert chips; the verbatim source
+  //     lives in data-opaque).
+  doc.querySelectorAll('[data-opaque]').forEach((el) => {
+    const enc = el.getAttribute('data-opaque');
+    if (enc === null) return;
+    el.replaceWith(ph(enc));
+  });
+
+  // 1c. restore a collapsed `{% if %}…{% endif %}` (toFilled keeps only the taken
+  //     branch for display; the whole block is preserved in data-jinja-block).
+  doc.querySelectorAll('[data-jinja-block]').forEach((el) => {
+    const enc = el.getAttribute('data-jinja-block');
     if (enc === null) return;
     el.replaceWith(ph(enc));
   });

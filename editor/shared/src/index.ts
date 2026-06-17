@@ -43,6 +43,12 @@ export interface Template {
   html: string;
   /** Per-fund shared CSS (keyed by fundCode). */
   css: string;
+  /**
+   * Pre-rendered "filled" HTML for the editor canvas: Jinja values substituted
+   * with the original `{{ }}`/`{% %}` source preserved (see `fillJinja.toFilled`).
+   * Empty when no static fill exists; the editor falls back to rendering one.
+   */
+  filled: string;
 }
 
 /** A draft kept by the always-on autosave, separate from the confirmed file. */
@@ -256,11 +262,25 @@ export interface SaveDraftRequest {
 
 export interface ConfirmSaveRequest {
   templateId: string;
-  /** Restored raw Jinja2 HTML to write to the template file. */
+  /** Restored raw Jinja2 HTML to write to the template file (the per-fund template). */
   html: string;
   /** CSS to merge into the per-fund shared stylesheet. */
   css: string;
   fundCode: string;
+  /**
+   * Rendered "filled" document (values substituted, no Jinja) kept as the report
+   * instance for this confirm. Optional; omitted when there is nothing to render.
+   */
+  filledHtml?: string;
+}
+
+/** A confirmed report instance: the filled document saved alongside the template. */
+export interface TemplateInstance {
+  templateId: string;
+  html: string;
+  css: string;
+  savedAt: string;
+  savedBy: string;
 }
 
 export interface BuildInlineRequest {

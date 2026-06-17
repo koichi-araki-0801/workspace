@@ -52,6 +52,8 @@ async function confirmSave() {
       html: restoredHtml.value,
       css: css.value,
       fundCode: fundCode.value,
+      // Keep the rendered document as this confirm's report instance.
+      filledHtml: previewDoc.value,
     }),
   );
   if (isOk(saved)) toastSuccess('確定保存しました');
