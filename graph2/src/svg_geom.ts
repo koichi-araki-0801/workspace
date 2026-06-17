@@ -812,6 +812,17 @@ export function leaderCrossesBox(points: Point[], box: BBox, pad = 2): boolean {
 }
 
 /**
+ * `nudgeTextAwayFromEndpoint` / `nudgeTextAwayFromSegment` 共通の押し出しパディング(論理単位)。
+ * 半径連動 (`radialFraction`) で X/Y を別係数に。両関数で同一値を使うため 1 箇所に集約する。
+ */
+function nudgeTextPads(cfg: PieLayoutConfig): { padX: number; padY: number } {
+  return {
+    padX: radialFraction(cfg, 0.03, 0.34),
+    padY: radialFraction(cfg, 0.02, 0.24),
+  };
+}
+
+/**
  * テキスト bbox が引出線端点に被っていたら、押し出して離す(最大 3 回試行)。
  */
 export function nudgeTextAwayFromEndpoint(
@@ -824,8 +835,7 @@ export function nudgeTextAwayFromEndpoint(
   measured: Extent,
   cfg: PieLayoutConfig,
 ): Point {
-  const padX = radialFraction(cfg, 0.03, 0.34);
-  const padY = radialFraction(cfg, 0.02, 0.24);
+  const { padX, padY } = nudgeTextPads(cfg);
   let nextX = textX;
   let nextY = textY;
 
@@ -977,8 +987,7 @@ export function nudgeTextAwayFromSegment(
   measured: Extent,
   cfg: PieLayoutConfig,
 ): Point {
-  const padX = radialFraction(cfg, 0.03, 0.34);
-  const padY = radialFraction(cfg, 0.02, 0.24);
+  const { padX, padY } = nudgeTextPads(cfg);
   let nextX = textX;
   let nextY = textY;
 

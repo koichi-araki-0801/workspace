@@ -26,6 +26,7 @@ import {
   upperLeftBendPoint,
   labelCongestionOffsetDeg,
   isOtherCategory,
+  boxOverlapAmount,
 } from "../svg_geom.js";
 import {
   leaderPath,
@@ -190,8 +191,7 @@ function isCascadeFailed(placement: Placement, others: Placement[], cfg: PieLayo
   for (const q of others) {
     if (q === placement) continue;
     const b = placementBox(q, cfg);
-    const ox = Math.min(box.right, b.right) - Math.max(box.left, b.left);
-    const oy = Math.min(box.top, b.top) - Math.max(box.bottom, b.bottom);
+    const { x: ox, y: oy } = boxOverlapAmount(box, b);
     if (ox > overlapTol && oy > overlapTol) return true;
   }
   return false;
