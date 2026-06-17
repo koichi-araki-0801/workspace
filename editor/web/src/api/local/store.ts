@@ -151,6 +151,42 @@ export const K = {
 
 export const META_KEY = 'editor:meta';
 
+/**
+ * Local-store schema version. Bump when bundled fixtures change in a way that
+ * stale persisted working-state would mask (e.g. the 版種 rename + report
+ * re-theme). `migrateStore()` clears working-state once per bump.
+ */
+const SCHEMA_VERSION = '2';
+const SCHEMA_KEY = 'editor:schemaVersion';
+
+/** Working-state keys derived from fixtures; cleared on a schema-version bump. */
+const WORKING_KEYS = [
+  K.drafts,
+  K.htmlOverride,
+  K.cssOverride,
+  META_KEY,
+  K.snapshots,
+  K.instances,
+  K.editHist,
+  K.pdfHist,
+  K.createHist,
+  K.partHist,
+  'editor:seed:compare', // compare-seed guard, so it re-seeds with current ids
+] as const;
+
+/**
+ * One-time migration: when the stored schema version differs from the bundled
+ * one, drop all fixture-derived working-state (drafts, html/css overrides,
+ * meta, snapshots, history, compare-seed guard) so the app reflects the current
+ * fixtures. Auth (session/users/passwords) is preserved, keeping the user
+ * logged in. Runs once per version bump (the version stamp guards re-runs).
+ */
+export function migrateStore(): void {
+  if (localStorage.getItem(SCHEMA_KEY) === SCHEMA_VERSION) return;
+  for (const key of WORKING_KEYS) localStorage.removeItem(key);
+  localStorage.setItem(SCHEMA_KEY, SCHEMA_VERSION);
+}
+
 export const now = () => new Date().toISOString();
 export const uid = (p: string) =>
   `${p}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4)}`;

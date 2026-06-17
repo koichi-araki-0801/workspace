@@ -248,6 +248,17 @@ export interface GenerateRequest {
   editionType: string;
   /** When generating from a series-fund template, base on this template. */
   basedOnTemplateId?: string;
+  /**
+   * 償還ファンドとして作成する。true のとき作成済みテンプレの特定パーツを
+   * 償還用パーツへ置換する（現状はモック実装）。
+   */
+  isRedemption?: boolean;
+}
+
+/** Result of resolving a fund's attributes (e.g. whether it is a series fund). */
+export interface FundResolution {
+  /** 属性解決の結果、シリーズファンド（コアラップ系）と判定できたか。 */
+  isSeriesFund: boolean;
 }
 
 export interface GenerateResult {

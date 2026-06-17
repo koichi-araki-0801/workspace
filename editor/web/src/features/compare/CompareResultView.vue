@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { TemplateMeta, TemplateVersionMeta } from '@editor/shared';
+import type { TemplateVersionMeta } from '@editor/shared';
 import { ChevronLeft, ChevronRight } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import Button from '@/components/ui/Button.vue';
@@ -7,9 +7,10 @@ import { formatDateTimeShort } from '@/lib/format';
 import { HL_ADDED, HL_CHANGED, HL_REMOVED, type HtmlDiff } from './htmlBlockDiff';
 
 const props = defineProps<{
-  meta: TemplateMeta;
-  before: TemplateVersionMeta; // 前回（古い方）
-  after: TemplateVersionMeta; // 今回（新しい方）
+  before: TemplateVersionMeta; // ファイルA（左）
+  after: TemplateVersionMeta; // ファイルB（右）
+  beforeFile: string; // ファイルA のファイル名
+  afterFile: string; // ファイルB のファイル名
   diff: HtmlDiff;
   cssBefore: string;
   cssAfter: string;
@@ -81,8 +82,8 @@ onBeforeUnmount(() => {
       <Button variant="outline" size="sm" @click="emit('back')">
         <ChevronLeft class="h-4 w-4" /> 選択に戻る
       </Button>
-      <span class="text-lg font-bold">版の比較</span>
-      <span class="mono text-sm text-muted-foreground">{{ meta.fileName }}</span>
+      <span class="text-lg font-bold">ファイルの比較</span>
+      <span class="mono text-xs text-muted-foreground">比較元: {{ beforeFile }}　↔　比較先: {{ afterFile }}</span>
       <div class="ml-auto flex items-center gap-3">
         <span
           class="rounded-full px-2 py-0.5 text-xs font-medium"
@@ -143,12 +144,12 @@ onBeforeUnmount(() => {
       <div class="grid gap-3 md:grid-cols-2">
         <figure class="space-y-1.5">
           <figcaption class="text-xs text-muted-foreground">
-            前回・{{ formatDateTimeShort(before.timestamp) }}・{{ before.user }}
+            比較元・{{ beforeFile }}・{{ formatDateTimeShort(before.timestamp) }}・{{ before.user }}
           </figcaption>
           <div class="overflow-hidden rounded border bg-white">
             <iframe
               :srcdoc="beforeDoc"
-              title="前回"
+              title="比較元"
               class="block w-full"
               style="height: 600px; border: 0"
               @load="fitFrame"
@@ -157,12 +158,12 @@ onBeforeUnmount(() => {
         </figure>
         <figure class="space-y-1.5">
           <figcaption class="text-xs text-muted-foreground">
-            今回・{{ formatDateTimeShort(after.timestamp) }}・{{ after.user }}
+            比較先・{{ afterFile }}・{{ formatDateTimeShort(after.timestamp) }}・{{ after.user }}
           </figcaption>
           <div class="overflow-hidden rounded border bg-white">
             <iframe
               :srcdoc="afterDoc"
-              title="今回"
+              title="比較先"
               class="block w-full"
               style="height: 600px; border: 0"
               @load="fitFrame"

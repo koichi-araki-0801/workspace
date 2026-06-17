@@ -19,9 +19,14 @@ const editor = resolve(web, '..');
 
 /** [template file name, fundCode for its sample data]. */
 const TEMPLATES: ReadonlyArray<readonly [string, string]> = [
-  ['AM01_510037_20240710_kr.html', '510037'],
-  ['AM01_510037_20240710_zr.html', '510037'],
-  ['AM01_510155_20240710_kr.html', '510155'],
+  ['AM01_510037_20240710_交付版.html', '510037'],
+  ['AM01_510037_20240710_全体版.html', '510037'],
+  ['AM01_510155_20240710_交付版.html', '510155'],
+  ['AM01_510003_20250710_全体版.html', '510003'],
+  ['AM01_110024_20251117_交付版.html', '110024'],
+  ['AM01_110024_20251117_全体版.html', '110024'],
+  ['AM01_510124_20251020_交付版.html', '510124'],
+  ['AM01_510124_20251020_全体版.html', '510124'],
 ];
 
 const outDirs = [resolve(editor, 'data/templates-filled'), resolve(web, 'src/api/fixtures/filled')];

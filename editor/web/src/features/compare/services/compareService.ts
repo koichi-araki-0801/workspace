@@ -56,6 +56,7 @@ export function createCompareService(
       if (isErr(metasRes)) return metasRes;
       const candidates: CompareCandidate[] = [];
       for (const meta of metasRes.value) {
+        if (meta.status !== 'published') continue; // 確定版のみを比較候補にする
         const versRes = await history.listVersions(meta.id);
         if (isErr(versRes)) return versRes;
         candidates.push({ meta, versionCount: versRes.value.length });

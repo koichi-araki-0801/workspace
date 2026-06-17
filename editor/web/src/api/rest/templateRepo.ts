@@ -1,19 +1,29 @@
-import type {
-  ConfirmSaveRequest,
-  DropdownOptions,
-  DropdownQuery,
-  GenerateRequest,
-  GenerateResult,
-  SampleData,
-  SaveDraftRequest,
-  Template,
-  TemplateDraft,
-  TemplateMeta,
-  TemplateRepository,
+import {
+  type ConfirmSaveRequest,
+  type DropdownOptions,
+  type DropdownQuery,
+  type FundResolution,
+  type GenerateRequest,
+  type GenerateResult,
+  map,
+  type SampleData,
+  type SaveDraftRequest,
+  type Template,
+  type TemplateDraft,
+  type TemplateMeta,
+  type TemplateRepository,
 } from '@editor/shared';
 import { apiFetch, attemptRest } from './http';
 
 const enc = encodeURIComponent;
+
+/** シリーズ（sproc `系列`）の問い合わせ。resolveFund と listSeriesFunds で共用。 */
+const seriesFetch = (companyCode: string, fundCode: string, editionType: string) =>
+  attemptRest(() =>
+    apiFetch<TemplateMeta[]>('/templates/series', {
+      query: { companyCode, fundCode, editionType },
+    }),
+  );
 
 export const restTemplateRepo: TemplateRepository = {
   getDropdownOptions: (query: DropdownQuery) =>
@@ -35,12 +45,17 @@ export const restTemplateRepo: TemplateRepository = {
   generate: (req: GenerateRequest) =>
     attemptRest(() => apiFetch<GenerateResult>('/generate', { method: 'POST', body: req })),
 
-  listSeriesFunds: (companyCode: string, fundCode: string, editionType: string) =>
-    attemptRest(() =>
-      apiFetch<TemplateMeta[]>('/templates/series', {
-        query: { companyCode, fundCode, editionType },
+  // 属性解決: シリーズの sproc 結果に自分以外のメンバーが居ればシリーズファンド。
+  resolveFund: async (companyCode: string, fundCode: string, editionType: string) =>
+    map(
+      await seriesFetch(companyCode, fundCode, editionType),
+      (rows): FundResolution => ({
+        isSeriesFund: rows.some((m) => m.attributes.fundCode !== fundCode),
       }),
     ),
+
+  listSeriesFunds: (companyCode: string, fundCode: string, editionType: string) =>
+    seriesFetch(companyCode, fundCode, editionType),
 
   saveDraft: (req: SaveDraftRequest) =>
     attemptRest(() =>

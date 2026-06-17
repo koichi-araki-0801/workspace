@@ -3928,7 +3928,7 @@ export async function renderPdfStylePieToSvg(
         top: Math.min(yScale(lb.top), yScale(lb.bottom)),
         bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
       };
-      return { placement, pathPoints, detectPathPoints, skipLeader, pixelBox };
+      return { placement, pathPoints, detectPathPoints, skipLeader, pixelBox, topCenterApplied: false };
     });
 
     // ── Pass 1b: 側辺中央 leader を「上辺中央」へ寄せる (do-no-harm; ラベル位置は不変) ──
@@ -3951,6 +3951,45 @@ export async function renderPdfStylePieToSvg(
       if (!crossesBox) {
         entry.pathPoints = tc.pathPoints;
         entry.detectPathPoints = tc.detectPathPoints;
+        entry.topCenterApplied = true;
+      }
+    }
+
+    // ── Pass 1c: 円周に接する 3 点 rim leader を W リルートで持ち上げる (描画のみ; ラベル位置不変) ──
+    // computeDrawnLeader は既定 (allowGrazeLift=false) で rim/side-center 形状を返すため、Pass 1・採点・
+    // realLeaderPaths 経由の各 metric/layout do-no-harm は全て baseline と同一幾何 = ラベル位置不変。ここ
+    // (最終描画のみ) で allowGrazeLift=true で再計算し、先頭セグメントが円周をなぞる leader を二等分接線
+    // 交点 W へ持ち上げる。持ち上げ後に **他 leader との交差関係が一切変わらず・他ラベル box を貫かない**
+    // 場合に限り採用する (verify:consistency の crossings/pie 数を baseline 内部スコアと一致させるため)。
+    // top-center 化済み (Pass 1b) は構造上 rim に接しないため対象外。
+    // allowTopCenter は Pass 1b で採用した値を踏襲し (top-center 化済みなら再現した上で持ち上げる)、
+    // allowGrazeLift=true で先頭セグメントの円周グレイズを W へ持ち上げる。top-center leader も先頭
+    // セグメントが rim をなぞり得る (例 イギリスポンド) ため topCenterApplied も対象に含める。
+    const toPix = (pts: Pt[]): Pt[] => pts.map((p) => ({ x: xScale(p.x), y: yScale(p.y) }));
+    for (const entry of prepared) {
+      if (entry.skipLeader) continue;
+      const gl = computeDrawnLeader(entry.placement, cfg, false, entry.topCenterApplied, true);
+      if (gl.skipLeader) continue;
+      const before = toPix(entry.pathPoints);
+      const after = toPix(gl.pathPoints);
+      const unchanged =
+        before.length === after.length &&
+        before.every((p, i) => p.x === after[i].x && p.y === after[i].y);
+      if (unchanged) continue; // グレイズ条件に当たらず持ち上げ無し
+      // do-no-harm: どの他 leader とも交差の有無が変化せず、どの他 box も貫かないことを確認する
+      // (verify:consistency の crossings/pie 数を baseline 内部スコアと一致させ、ラベルへの新規貫通も防ぐ)。
+      let harmful = false;
+      for (let j = 0; j < prepared.length && !harmful; j += 1) {
+        if (prepared[j] === entry) continue;
+        if (!prepared[j].skipLeader) {
+          const other = toPix(prepared[j].pathPoints);
+          if (pathsCross(before, other) !== pathsCross(after, other)) harmful = true;
+        }
+        if (!harmful && leaderCrossesBox(after, prepared[j].pixelBox)) harmful = true;
+      }
+      if (!harmful) {
+        entry.pathPoints = gl.pathPoints;
+        entry.detectPathPoints = gl.detectPathPoints;
       }
     }
 

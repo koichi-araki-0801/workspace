@@ -3,6 +3,7 @@ import { type DropdownQuery, type GenerateRequest, isErr, type TemplateMeta } fr
 import { FilePlus2, FileText } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import Checkbox from '@/components/ui/Checkbox.vue';
 import Step from '@/components/ui/Step.vue';
 import { toastError, toastSuccess } from '@/components/ui/toast';
 import { useAsyncResult } from '@/lib/useAsyncResult';
@@ -19,6 +20,10 @@ const { loading: creating, run } = useAsyncResult();
 const liveQuery = reactive<DropdownQuery>({});
 const method = ref<Method | null>(null);
 const seriesRows = ref<TemplateMeta[]>([]);
+// 属性解決でシリーズファンドと判定できたときだけ「シリーズから作成」を出す（⑥）。
+const isSeriesFund = ref(false);
+// 償還ファンドとして作成するか（⑦・モック）。
+const isRedemption = ref(false);
 
 const canCreate = computed(
   () => !!liveQuery.companyCode && !!liveQuery.fundCode && !!liveQuery.editionType,
@@ -30,13 +35,31 @@ const methodCards: { key: Method; icon: typeof FilePlus2; title: string; desc: s
     key: 'series',
     icon: FileText,
     title: '既存のシリーズを元に作成',
-    desc: '同じファンドの別の版を複製して作成します。',
+    desc: '同じシリーズの別ファンド・版を複製して作成します。',
   },
 ];
+
+// シリーズファンドでなければ「シリーズから作成」カード自体を出さない。
+const visibleMethodCards = computed(() =>
+  methodCards.filter((c) => c.key !== 'series' || isSeriesFund.value),
+);
 
 function onUpdate(q: DropdownQuery) {
   Object.assign(liveQuery, q);
 }
+
+// 属性が揃ったらシリーズファンドか属性解決する。属性変更で選択方法もリセット。
+watch(
+  () => [liveQuery.companyCode, liveQuery.fundCode, liveQuery.editionType],
+  async () => {
+    method.value = null;
+    isSeriesFund.value = false;
+    const { companyCode, fundCode, editionType } = liveQuery;
+    if (!companyCode || !fundCode || !editionType) return;
+    const res = await templates.resolveFund(companyCode, fundCode, editionType);
+    if (!isErr(res)) isSeriesFund.value = res.value.isSeriesFund;
+  },
+);
 
 function selectMethod(m: Method) {
   if (!canCreate.value || creating.value) return;
@@ -83,24 +106,28 @@ function createNew() {
     toastError(SELECT_ALL_MSG);
     return;
   }
-  create({ companyCode, fundCode, editionType }, 'テンプレートを作成しました');
+  create(
+    { companyCode, fundCode, editionType, isRedemption: isRedemption.value },
+    'テンプレートを作成しました',
+  );
 }
 
 function createFromSeries(m: TemplateMeta) {
+  // 「基にする」だけが候補テンプレ。作成されるのは Step1 で選んだファンド。
+  const { companyCode, fundCode, editionType } = liveQuery;
+  if (!companyCode || !fundCode || !editionType) {
+    toastError(SELECT_ALL_MSG);
+    return;
+  }
   create(
-    {
-      companyCode: m.attributes.companyCode,
-      fundCode: m.attributes.fundCode,
-      editionType: m.attributes.editionType,
-      basedOnTemplateId: m.id,
-    },
-    'シリーズファンドを基にテンプレートを作成しました',
+    { companyCode, fundCode, editionType, basedOnTemplateId: m.id, isRedemption: isRedemption.value },
+    'シリーズを基にテンプレートを作成しました',
   );
 }
 </script>
 
 <template>
-  <div class="grid max-w-[820px] gap-4">
+  <div class="grid gap-4">
     <div>
       <h2 class="text-lg font-bold">テンプレート作成</h2>
       <p class="mt-1 text-[13px] text-muted-foreground">
@@ -134,9 +161,17 @@ function createFromSeries(m: TemplateMeta) {
         :active="canCreate"
         :connector="false"
       >
+        <label
+          v-if="canCreate"
+          class="mb-3 flex w-fit cursor-pointer items-center gap-2 text-[13px] text-foreground"
+        >
+          <Checkbox v-model="isRedemption" />
+          償還ファンドとして作成する（特定パーツを償還用に置換）
+        </label>
+
         <div :class="cn('flex flex-wrap gap-3', !canCreate && 'pointer-events-none')">
           <button
-            v-for="c in methodCards"
+            v-for="c in visibleMethodCards"
             :key="c.key"
             type="button"
             class="ring-focus flex flex-[1_1_220px] items-start gap-3 rounded-[11px] border-[1.5px] px-[15px] py-3.5 text-left transition-all duration-150"

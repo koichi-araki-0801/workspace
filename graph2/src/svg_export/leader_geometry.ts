@@ -58,6 +58,11 @@ const TOP_CENTER_ANCHOR_MARGIN = 0.2;
 // top-center 維持) / stress「スペイン」0.50・REIT「イギリスポンド」0.27 (横ずれ=側辺中央へ)。
 const TOP_CENTER_OVERHANG_MAX = 0.2;
 
+// 側辺 rim ラベルの 2 点直線 leader が円周にほぼ接する (tangent-hugging) のを W リルートで
+// 持ち上げる発火閾値。描画セグメント方向と anchor 半径方向の |内積| がこの値未満 = ほぼ接線
+// (実測 D=0.142 / E=0.107 / F=0.095 が < 0.25)。健全な放射 leader (内積≈1) は非発火。
+const NEAR_TANGENT_DOT_RADIAL_MAX = 0.25;
+
 export type Pt = { x: number; y: number };
 
 /**
@@ -101,6 +106,7 @@ export function computeDrawnLeader(
   cfg: PieLayoutConfig,
   forScoring = false,
   allowTopCenter = false,
+  allowGrazeLift = false,
 ): { pathPoints: Pt[]; detectPathPoints: Pt[]; skipLeader: boolean } {
   // 常時描画 + 縦中央接続は **描画パスのみ** に適用する。conflict scorer (`chartConflicts`) から
   // `forScoring`=true で呼ばれた時は従来挙動を維持し、レイアウト選択 (その他 右/左 等) を baseline と
@@ -108,6 +114,9 @@ export function computeDrawnLeader(
   // `allowTopCenter` は最終描画でのみ true。side-attach の top-center 化 (`shouldAttachTopCenter`) を
   // 許可するが、それ以外の経路 (scorer / realLeaderPaths 経由の metric / layout do-no-harm) は既定 false の
   // ため side-center 幾何のまま = baseline と一致し、ラベル位置に影響しない。
+  // `allowGrazeLift` も同様に最終描画 (`index.ts` の Pass 1c) でのみ true。3 点 leader の先頭セグメントが
+  // 円周に接するのを W リルートで持ち上げる (下記参照)。realLeaderPaths/scorer/layout は既定 false の
+  // ため `pathPoints` が baseline と一致し、`countLeaderCrossings` 経由のラベル位置選択に影響しない。
   const alwaysDraw = ALWAYS_DRAW_OUTSIDE_LEADERS && !forScoring;
   const endpointMinDist = cfg.pieRadius + radialFraction(cfg, 0.01, 0.1);
   const dominantOutsideLeaderGap = radialFraction(cfg, 0.3, 2.8);
@@ -315,6 +324,144 @@ export function computeDrawnLeader(
       if (Math.hypot(bend.x - anchor.x, bend.y - anchor.y) < stubEps) {
         pathPoints = [anchor, drawEndpoint];
         detectPathPoints = [anchor, endpoint];
+      }
+      // 近接線グレイズ (3 点 leader 版): 先頭セグメント anchor→bend が円周のすぐ外 (intrudeR 以上=
+      // 非貫通) をほぼ接線方向になぞり「rim に溶ける」ケースを、上の `intrudes` リルートと同じ W
+      // (二等分接線交点) へ bend を差し替えて小さく持ち上げる (例 currency_many_small_10「イギリス
+      // ポンド」: 左 rim の縦スタックに押された box が side-center 接続でアンカーの真下へ降り、先頭
+      // セグメントが x≈-pieRadius で円左端を縦になぞる)。anchor が rim 上だと W テント先頭セグメント
+      // a→W も二等分接線ゆえ minR≈pieRadius に固定され持ち上がらないため、その場合は 2 点版と同形の
+      // 放射スタブ (anchor をスライス角内でラベル側へクランプ) へフォールバックする (下記)。上の `intrudes` ゲートは `pieRadius`−`pxUnit`
+      // 未満の貫通のみ捕えるため半径 ≈ `pieRadius` のグレイズはすり抜ける。発火は (1) `allowGrazeLift`
+      // (最終描画 Pass 1c のみ), (2) 3 点 leader, (3) rim 上 anchor, (4) 先頭セグメントが
+      // [`intrudeR`, `pieRadius`+薄帯) の接線グレイズ の論理積。`pathPoints.length===3` 限定で下の
+      // 2 点 tangent 分岐とは排他。スタブ除去後に置き、生成した 3 点が再度畳まれないようにする。
+      // `allowGrazeLift` 既定 false のため realLeaderPaths/scorer/layout からは不可視 = ラベル位置不変。
+      // forceTopRight は専用キャップ回避経路を持つため除外。描画限定・scorer/位置不変。
+      if (allowGrazeLift && !placement.forceTopRight && pathPoints.length === 3) {
+        const a = pathPoints[0];
+        const b = pathPoints[1];
+        const da = Math.hypot(a.x, a.y);
+        const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+        const segMinR = distPointToSegment(0, 0, a.x, a.y, b.x, b.y);
+        const onRim = Math.abs(da - cfg.pieRadius) < radialFraction(cfg, 0.02, 0.2);
+        const grazing = segMinR >= intrudeR && segMinR < cfg.pieRadius + radialFraction(cfg, 0.02, 0.2);
+        if (da > 1e-9 && segLen > 1e-9 && onRim && grazing) {
+          const dotRadial = Math.abs(((b.x - a.x) * a.x + (b.y - a.y) * a.y) / (segLen * da));
+          if (dotRadial < NEAR_TANGENT_DOT_RADIAL_MAX) {
+            const thA = Math.atan2(a.y, a.x);
+            const thE = Math.atan2(endpoint.y, endpoint.x);
+            let dTh = thE - thA;
+            while (dTh > Math.PI) dTh -= 2 * Math.PI;
+            while (dTh < -Math.PI) dTh += 2 * Math.PI;
+            if (Math.abs(dTh) < LEADER_MAX_ANGULAR_DIFF_RAD) {
+              const rc = cfg.pieRadius + 2.5 * pxUnit; // 上の `intrudes` リルートと同値
+              const midTh = thA + dTh / 2;
+              const rw = rc / Math.cos(Math.abs(dTh) / 2);
+              const w = { x: rw * Math.cos(midTh), y: rw * Math.sin(midTh) };
+              // W テント先頭セグメント a→W が依然 rim をなぞる (anchor が rim 上だと a→W は二等分接線
+              // ゆえ `rc` 不問で minR≈pieRadius に固定され、テントでは grazing が解消しない: 例
+              // currency_many_small_10「イギリスポンド」) 場合は、2 点版 (line376) と同形の放射スタブへ
+              // フォールバックする。anchor をスライス角範囲内でラベル端点角側へクランプした rim 点 `na`
+              // から放射状に降ろし、円周なぞりを解消する。`tentLifts` (テントが実際に円縁から内側へ持ち
+              // 上がった) ときのみ従来どおり W テントを採用する。
+              const tentLifts =
+                distPointToSegment(0, 0, a.x, a.y, w.x, w.y) <
+                cfg.pieRadius - radialFraction(cfg, 0.02, 0.2);
+              if (tentLifts) {
+                const de = clampOutsidePie(
+                  truncateLeaderEndpointAtBox(w, endpoint, finalBox, cfg.cornerGap),
+                );
+                pathPoints = [a, w, de];
+                detectPathPoints = [a, w, endpoint]; // 持ち上げ後の到達域 (上の `intrudes` と同形)
+              } else {
+                // 放射スタブ (line409-429 と同形)。`detectPathPoints` は元 anchor 据え置きのまま
+                // (交差判定・採点を baseline 維持)。`na` は放射的 (dotRadial>閾値) なので下の 2 点
+                // tangent ハンドラ (line376) では非発火 = 二重クランプは起きない。
+                const anchorAng = thA;
+                const spanRad = ((placement.item.percent ?? 0) / 100) * 2 * Math.PI;
+                const half = Math.max(
+                  0,
+                  spanRad / 2 - Math.min(spanRad * 0.15, (6 * Math.PI) / 180),
+                );
+                let rel = thE - anchorAng;
+                while (rel > Math.PI) rel -= 2 * Math.PI;
+                while (rel < -Math.PI) rel += 2 * Math.PI;
+                const ang = anchorAng + Math.max(-half, Math.min(half, rel));
+                const na = { x: cfg.pieRadius * Math.cos(ang), y: cfg.pieRadius * Math.sin(ang) };
+                const de = clampOutsidePie(
+                  truncateLeaderEndpointAtBox(na, endpoint, finalBox, cfg.cornerGap),
+                );
+                pathPoints = [na, de];
+              }
+            }
+          }
+        }
+      }
+      // 近接線 rim leader の持ち上げ: rim 縮退で 2 点直線になった leader が円周にほぼ接して
+      // 視認しにくい (パイ縁に溶ける) ケースを、既存 W (二等分接線) リルートで小さなテントへ持ち
+      // 上げる。上の `intrudes` ゲートは円を貫く leader だけを捕えるため dist≈pieRadius の非貫通
+      // 近接線はすり抜ける。ここで anchor 半径方向と描画セグメント方向の内積で接線性を検出する。
+      // 発火は (1) 2 点直線 (上記スタブ除去後の rim 縮退), (2) rim 上 anchor, (3) 近接線 の論理積に
+      // 限る。forceTopRight は 3 点 L で length>2 のため除外、inside は外側 if で除外、放射 leader は
+      // 内積で除外。スタブ除去の後に置き、生成した 3 点が再度 2 点へ畳まれないようにする。描画限定・scorer 不変。
+      if (!placement.forceTopRight && pathPoints.length === 2) {
+        const a = pathPoints[0];
+        const e = pathPoints[1];
+        const da = Math.hypot(a.x, a.y);
+        const segLen = Math.hypot(e.x - a.x, e.y - a.y);
+        const onRim = Math.abs(da - cfg.pieRadius) < radialFraction(cfg, 0.02, 0.2);
+        if (da > 1e-9 && segLen > 1e-9 && onRim) {
+          const dotRadial = Math.abs(((e.x - a.x) * a.x + (e.y - a.y) * a.y) / (segLen * da));
+          if (dotRadial < NEAR_TANGENT_DOT_RADIAL_MAX) {
+            const thA = Math.atan2(a.y, a.x);
+            const thE = Math.atan2(endpoint.y, endpoint.x);
+            let dTh = thE - thA;
+            while (dTh > Math.PI) dTh -= 2 * Math.PI;
+            while (dTh < -Math.PI) dTh += 2 * Math.PI;
+            const rc = cfg.pieRadius + radialFraction(cfg, 0.04, 0.4); // 明確に見える持ち上げ
+            const rw = rc / Math.cos(Math.abs(dTh) / 2);
+            // テント頂点 W が描画上のラベル接続点 (`e` = box 縁で truncate 済) の半径を越えて飛び出すと、ラベルが rim 際にある
+            // 短い leader では W が接続点を飛び越す「外向きの切り欠き」になり不自然 (例 stress_balanced_5 D)。
+            // 飛び出しを小さく目立たない量 (≈4px) 以内に抑えられる = ラベルが rim から十分外にある時だけ持ち上げ、
+            // それ以外 (rim 際) は下の else で放射化する。clamp で rw を下げると接線条件が崩れ
+            // 円侵入し得るため、テント自体は下げずに非発火にする。
+            const overshootTol = radialFraction(cfg, 0.02, 0.2);
+            if (
+              Math.abs(dTh) < LEADER_MAX_ANGULAR_DIFF_RAD &&
+              Math.hypot(e.x, e.y) >= rw - overshootTol
+            ) {
+              const midTh = thA + dTh / 2;
+              const w = { x: rw * Math.cos(midTh), y: rw * Math.sin(midTh) };
+              const de = clampOutsidePie(
+                truncateLeaderEndpointAtBox(w, endpoint, finalBox, cfg.cornerGap),
+              );
+              pathPoints = [a, w, de];
+              detectPathPoints = [a, w, endpoint];
+            } else {
+              // 近 rim (テント不可) の接線 leader: 直線の接線弦を残すと弧をなぞって見にくい
+              // (例 stress_balanced_5 D は dotRadial≈0.007 = ほぼ完全な接線)。anchor がスライス
+              // 中心角に固定され、ラベル接続点が別角度で両方 rim 際にあるのが原因。描画 anchor を
+              // ラベル角度 (スライス角度範囲 = `a` の角度 ±spanRad/2 内にクランプ) へ寄せ、放射状の
+              // 短い leader にして弧なぞりを解消する。角度は実 anchor `a` の atan2 基準で算出し
+              // midAngle の符号規約に依存しない (clamp 角=anchor 角のとき na≈a)。detectPathPoints は
+              // 元 anchor 据え置きで交差判定・採点を baseline 維持。放射スタブは外向きで円侵入せず
+              // 短く、元の接線弦の角度ウェッジ内なので新規交差を生まない。描画限定・scorer 不変。
+              const anchorAng = Math.atan2(a.y, a.x);
+              const spanRad = ((placement.item.percent ?? 0) / 100) * 2 * Math.PI;
+              const half = Math.max(0, spanRad / 2 - Math.min(spanRad * 0.15, (6 * Math.PI) / 180));
+              let rel = thE - anchorAng;
+              while (rel > Math.PI) rel -= 2 * Math.PI;
+              while (rel < -Math.PI) rel += 2 * Math.PI;
+              const ang = anchorAng + Math.max(-half, Math.min(half, rel));
+              const na = { x: cfg.pieRadius * Math.cos(ang), y: cfg.pieRadius * Math.sin(ang) };
+              const de = clampOutsidePie(
+                truncateLeaderEndpointAtBox(na, endpoint, finalBox, cfg.cornerGap),
+              );
+              pathPoints = [na, de];
+            }
+          }
+        }
       }
     }
     // 「二分割」型の第2スライス (左) は rim 配置のまま leader を消す (スライス直近で冗長)。描画パス

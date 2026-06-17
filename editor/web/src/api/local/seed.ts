@@ -10,7 +10,7 @@
 import type { EditHistoryEntry, TemplateMeta, TemplateSnapshot } from '@editor/shared';
 import { fixtureCss, fixtureTemplates, K, META_KEY, read, write } from './store';
 
-const SEED_KEY = 'editor:seed:compare';
+export const SEED_KEY = 'editor:seed:compare';
 const SEED_USER = '佐藤花子';
 
 interface SeedVersion {
@@ -36,7 +36,7 @@ interface SeedTemplate {
 // テンプレート文字列を置換して実際の数値差分（=変更ブロック）を作る。
 const SEED: SeedTemplate[] = [
   {
-    templateId: 'AM01_510037_20240710_kr',
+    templateId: 'AM01_510037_20240710_交付版',
     fundCode: '510037',
     versions: [
       {
@@ -65,7 +65,7 @@ const SEED: SeedTemplate[] = [
     ],
   },
   {
-    templateId: 'AM01_510155_20240710_kr',
+    templateId: 'AM01_510155_20240710_交付版',
     fundCode: '510155',
     versions: [
       { historyId: 'seed-510155kr-2', timestamp: '2024-07-09T16:20:00', mark: '第2版' },
@@ -73,7 +73,7 @@ const SEED: SeedTemplate[] = [
     ],
   },
   {
-    templateId: 'AM01_510037_20240710_zr',
+    templateId: 'AM01_510037_20240710_全体版',
     fundCode: '510037',
     versions: [{ historyId: 'seed-510037zr-1', timestamp: '2024-07-08T09:00:00' }],
   },

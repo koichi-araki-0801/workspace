@@ -83,7 +83,20 @@ export const jinjaChipCanvasCss = `
   cursor: default;
   user-select: none;
 }
-.jinja-chip.jinja-var { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+/* 差し込み（値）は自動入力された値そのもの。地の本文と同じ見た目で表示し、
+   チップの青箱（背景/枠/monospace/縮小フォント）を打ち消す。data-jinja は維持
+   されるので選択も toTemplate 復元も不変。 */
+.jinja-chip.jinja-var {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  white-space: normal;
+}
 .jinja-chip.jinja-stmt { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
 .jinja-chip.jinja-comment { background: #e5e7eb; color: #6b7280; border: 1px dashed #9ca3af; }
 .jinja-chip.jinja-script { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
