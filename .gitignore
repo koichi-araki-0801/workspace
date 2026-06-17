@@ -29,5 +29,7 @@ offline-deps-bundle.tar.gz.sha256
 bundle.key
 _bundle_stage/
 _bundle_verify/
+# オフライン環境構築後、ダウンロード物（ソースZIP/バンドル/sha256/key）の退避先
+bk/
 # Claude Code: 計画文書（内部作業用。共有しない）
 .claude/plans/

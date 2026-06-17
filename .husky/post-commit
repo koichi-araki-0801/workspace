@@ -1,0 +1,10 @@
+# 要望6: コミット毎に Releases の「ソースコード（自動 Source code）」を最新へ更新する。
+# publish-offline-bundle.ps1 がローリングタグを HEAD へ移動（=ソース更新）し、
+# 重量物（バンドル）は content key に差分がある時だけ再生成・再アップロードする。
+#
+# ベストエフォート（コミットはブロックしない）: gh 未認証・オフライン・タグ push 失敗でも
+# コミット自体は成立させる。無効化したい場合は OFFLINE_PUBLISH_SKIP=1 を設定する。
+if [ "${OFFLINE_PUBLISH_SKIP:-}" = "1" ]; then
+  exit 0
+fi
+powershell -NoProfile -ExecutionPolicy Bypass -File "offline/publish-offline-bundle.ps1" || true
