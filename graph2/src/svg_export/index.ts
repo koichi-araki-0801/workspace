@@ -25,6 +25,7 @@ import {
   degToRad,
   upperLeftBendPoint,
   labelCongestionOffsetDeg,
+  isOtherCategory,
 } from "../svg_geom.js";
 import {
   leaderPath,
@@ -86,6 +87,7 @@ import {
   projectBoxesToPixels,
   oobLeaderCount,
   countAngularDiscordantPairs,
+  LEADER_MAX_ANGULAR_DIFF_RAD,
 } from "./leader_geometry.js";
 import type { Pt, Coord } from "./leader_geometry.js";
 
@@ -212,7 +214,7 @@ function twoLineLeftColumnMembers(placements: Placement[]): Placement[] {
       !p.item.flipToLeft &&
       !p.item.bottomCenterBelow &&
       topBandSonohokaZone(p.item) === null &&
-      !p.item.name.startsWith("その他"),
+      !isOtherCategory(p.item.name),
   );
 }
 
@@ -1368,7 +1370,7 @@ function untangleAngularOrderBySwap(
       // 意図的に角度順を破る/固定する その他 (コア帯右上逃がし・左拡張帯の真上垂直固定・
       // forceTopRight) のみ除外 (angularStacks と同条件)。帯外 (>122°) で左右スタックに通常
       // 配置された その他 は逆転修復の対象に含める。
-      !(p.item.name.startsWith("その他") && (topBandSonohokaZone(p.item) !== null || p.forceTopRight)) &&
+      !(isOtherCategory(p.item.name) && (topBandSonohokaZone(p.item) !== null || p.forceTopRight)) &&
       (side === "left" ? p.x < 0 : p.x > 0),
   );
   if (stack.length < 2) return;
@@ -1546,7 +1548,7 @@ function reorderLeftStackWithCondense(
       !p.item.clusterTopBand &&
       !p.insideSlice &&
       p.baseline === "bottom" &&
-      !p.item.name.startsWith("その他") &&
+      !isOtherCategory(p.item.name) &&
       p.x < 0,
   );
   if (stack.length < 4) return;
@@ -1672,7 +1674,7 @@ function separateLeftColumnByHeight(
       !p.item.bottomCenterBelow &&
       !p.item.clusterTopBand &&
       topBandSonohokaZone(p.item) === null &&
-      !p.item.name.startsWith("その他"),
+      !isOtherCategory(p.item.name),
   );
   if (col.length < 4) return;
   // 上 → 下 (box 中心 y 降順)。
@@ -2598,7 +2600,7 @@ function reorderTopBandLeftClusterByAngle(
     (p) =>
       !p.insideSlice &&
       !p.forceTopRight &&
-      !p.item.name.startsWith("その他") &&
+      !isOtherCategory(p.item.name) &&
       coord.xScale(p.x) < cx &&
       (p.item.midAngle ?? 0) > 90 &&
       angleInBand(normalizeAngle(p.item.midAngle ?? 0), 90, TOP_SEAM_ESCAPE_HALF_WIDTH_DEG),
@@ -2738,7 +2740,7 @@ function escapeTopBandSeamLeader(
   const isCandidate = (p: Placement): boolean =>
     !p.insideSlice &&
     p.item.isSmall === true &&
-    !p.item.name.startsWith("その他") &&
+    !isOtherCategory(p.item.name) &&
     !p.forceTopRight &&
     coord.xScale(p.x) < cx &&
     angleInBand(normalizeAngle(p.item.midAngle ?? 0), 90, TOP_SEAM_ESCAPE_HALF_WIDTH_DEG);
@@ -3091,7 +3093,7 @@ function repairResidualLeaderDefects(
     let dT = tE - tA;
     while (dT > Math.PI) dT -= 2 * Math.PI;
     while (dT < -Math.PI) dT += 2 * Math.PI;
-    if (Math.abs(dT) < 0.05 || Math.abs(dT) > (150 * Math.PI) / 180) return false;
+    if (Math.abs(dT) < 0.05 || Math.abs(dT) > LEADER_MAX_ANGULAR_DIFF_RAD) return false;
     const sv = {
       bend: { ...p.leaderBend },
       fy: p.leaderBendFollowsEndpointY,
@@ -3134,7 +3136,7 @@ function repairResidualLeaderDefects(
         !drawn.skipLeader &&
         drawn.pathPoints.length >= 2 &&
         Math.abs(dTh) >= 0.05 &&
-        Math.abs(dTh) <= (150 * Math.PI) / 180;
+        Math.abs(dTh) <= LEADER_MAX_ANGULAR_DIFF_RAD;
       const save = {
         bend: { ...p.leaderBend },
         fy: p.leaderBendFollowsEndpointY,
@@ -3315,7 +3317,7 @@ function repairResidualLeaderDefects(
         !p.insideSlice &&
         !p.forceTopRight &&
         p.x < 0 &&
-        !p.item.name.startsWith("その他"),
+        !isOtherCategory(p.item.name),
     );
     const anyInvolved = stack.some((p) => [...involved].some((i) => placements[i] === p));
     if (stack.length < 2 || !anyInvolved) return false;
@@ -3431,7 +3433,7 @@ function runLabelCascade(
         !it.flipToLeft &&
         !it.bottomCenterBelow &&
         topBandSonohokaZone(it) === null &&
-        !it.name.startsWith("その他")
+        !isOtherCategory(it.name)
       ) {
         it.keepTwoLineLeftStack = true;
       }
@@ -3518,8 +3520,8 @@ export async function renderPdfStylePieToSvg(
       signedValue: Number(item.value),
     }))
     .sort((a, b) => {
-      const aOther = a.name.startsWith("その他");
-      const bOther = b.name.startsWith("その他");
+      const aOther = isOtherCategory(a.name);
+      const bOther = isOtherCategory(b.name);
       if (aOther !== bOther) return aOther ? 1 : -1;
       return b.value - a.value;
     });

@@ -34,6 +34,7 @@ import {
   scaledLabelWidthUnits,
   labelHeightUnits,
   textBoxBounds,
+  isOtherCategory,
 } from "./svg_geom.js";
 import type { PieLayoutConfig, Scale, LayoutItemReady, Placement } from "./types.js";
 import type { Point, InsideFit, Extent } from "./svg_geom.js";
@@ -104,7 +105,7 @@ export function topBandSonohokaZone(item: {
   name: string;
   midAngle?: number;
 }): TopBandSonohokaZone {
-  if (!item.name.startsWith("その他")) return null;
+  if (!isOtherCategory(item.name)) return null;
   const norm = normalizeAngle(item.midAngle ?? 0);
   if (angleInBand(norm, 90, TOP_BAND_HALF_WIDTH_DEG)) return "core";
   // 左拡張帯は wrap (0°/360°) を跨がないので素の比較で安全。
