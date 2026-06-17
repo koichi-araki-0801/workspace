@@ -17,6 +17,7 @@ import {
   templateIdFromFileName,
 } from '@editor/shared';
 import { attempt } from './attempt';
+import { applyRedemptionMock, SERIES_FUND_CODES } from './fundRules';
 import {
   allMetas,
   currentUser,
@@ -92,6 +93,8 @@ export const localTemplateRepo: TemplateRepository = {
             ) ?? ''
           ] ?? defaultSkeleton();
       }
+      // 償還ファンド指定時は特定パーツを償還用パーツへ置換（モック）。
+      if (req.isRedemption) baseHtml = applyRedemptionMock(baseHtml);
       const baseDate = todayYmd();
       const attrs: TemplateAttributes = {
         companyCode: req.companyCode,
@@ -127,12 +130,18 @@ export const localTemplateRepo: TemplateRepository = {
       return delay({ template: { meta, html: baseHtml, css, filled: '' } });
     }),
 
+  resolveFund: (_companyCode: string, fundCode: string, _editionType: string) =>
+    attempt(() => delay({ isSeriesFund: SERIES_FUND_CODES.has(fundCode) })),
+
+  // シリーズ候補はコアラップ系（SERIES_FUND_CODES）のメンバーのみ。非シリーズは出さない。
   listSeriesFunds: (companyCode: string, _fundCode: string, editionType: string) =>
     attempt(() =>
       delay(
         allMetas().filter(
           (m) =>
-            m.attributes.companyCode === companyCode && m.attributes.editionType === editionType,
+            m.attributes.companyCode === companyCode &&
+            m.attributes.editionType === editionType &&
+            SERIES_FUND_CODES.has(m.attributes.fundCode),
         ),
       ),
     ),

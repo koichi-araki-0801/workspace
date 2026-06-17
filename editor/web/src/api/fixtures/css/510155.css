@@ -1,25 +1,272 @@
+/* ===== 三井住友トラスト ハウススタイル（PDF由来テーマ） =====
+   濃紺帯＋白文字の見出し、明朝、2カラム表紙、モノクロ2軸グラフ。
+   全ファンド共通の正テーマ（他ファンドCSSはこれを基準に複製）。
+   ※GrapesJSキャンバスでも確実に効くよう CSS変数(:root/var)は使わず色は直書き。
+   濃紺=#1b3f57 / 淡紺=#e7eef3 / 罫線=#c9d2d8 / 本文=#1f2933 / 補助=#5b6b76 */
 @page {
   size: A4;
-  margin: 20mm;
+  margin: 14mm 13mm;
 }
 body {
-  font-family: 'Yu Gothic', sans-serif;
-  color: #111827;
+  font-family: 'Hiragino Mincho ProN', 'Yu Mincho', 'MS Mincho', serif;
+  color: #1f2933;
+  font-size: 10.5pt;
+  line-height: 1.55;
+  margin: 0;
 }
-.report-header {
-  border-bottom: 2px solid #2563eb;
+
+/* ページ（複数ページ構成・比較画面のページ分割マーカー） */
+.page {
+  page-break-after: always;
   padding-bottom: 6px;
-  margin-bottom: 12px;
 }
-.report-title {
-  font-size: 18pt;
-  color: #2563eb;
+.page:last-child {
+  page-break-after: auto;
 }
-.holdings-table {
+
+/* 見出し */
+.band {
+  background: #1b3f57;
+  color: #fff;
+  font-size: 12pt;
+  font-weight: bold;
+  padding: 5px 12px;
+  margin: 0 0 10px;
+  letter-spacing: 0.04em;
+}
+.sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1.5px solid #1b3f57;
+  padding-bottom: 3px;
+  margin: 14px 0 8px;
+}
+.sub .no {
+  background: #1b3f57;
+  color: #fff;
+  font-size: 10pt;
+  font-weight: bold;
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+}
+.sub h3 {
+  font-size: 11.5pt;
+  font-weight: bold;
+  margin: 0;
+}
+
+/* 表紙 */
+.cover-title {
+  text-align: center;
+  font-size: 17pt;
+  font-weight: bold;
+  color: #1b3f57;
+  margin: 2px 0;
+  line-height: 1.3;
+}
+.cover-alias {
+  text-align: center;
+  font-size: 12pt;
+  color: #1b3f57;
+  margin-bottom: 4px;
+}
+.cover-category {
+  text-align: center;
+  font-size: 10pt;
+  color: #5b6b76;
+  margin-bottom: 8px;
+}
+.cover-report-band {
+  background: #1b3f57;
+  color: #fff;
+  text-align: center;
+  font-weight: bold;
+  padding: 6px;
+  margin-bottom: 4px;
+}
+.cover-report-sub {
+  text-align: center;
+  font-size: 9.5pt;
+  color: #5b6b76;
+  margin-bottom: 14px;
+}
+.cover-cols {
+  display: flex;
+  gap: 18px;
+}
+.cover-cols .left {
+  width: 46%;
+  flex-shrink: 0;
+}
+.cover-cols .right {
+  flex: 1;
+  font-size: 10pt;
+  line-height: 1.7;
+}
+.cover-cols .right .sign {
+  margin-top: 12px;
+  font-weight: bold;
+}
+
+/* サマリー表 */
+.summary-table {
   width: 100%;
   border-collapse: collapse;
 }
-.holdings-table td {
-  border-bottom: 1px solid #e5e7eb;
-  padding: 3px 6px;
+.summary-table th {
+  background: #1b3f57;
+  color: #fff;
+  text-align: left;
+  padding: 6px 10px;
+  width: 46%;
+  font-weight: normal;
+  border: 1px solid #1b3f57;
+}
+.summary-table td {
+  border: 1px solid #c9d2d8;
+  padding: 6px 10px;
+  text-align: right;
+  font-weight: bold;
+  font-size: 12pt;
+}
+
+/* 汎用テーブル */
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+}
+table.data th {
+  background: #1b3f57;
+  color: #fff;
+  font-weight: normal;
+  padding: 4px 8px;
+  border: 1px solid #1b3f57;
+  font-size: 9.5pt;
+}
+table.data td {
+  border: 1px solid #c9d2d8;
+  padding: 4px 8px;
+  font-size: 9.5pt;
+}
+table.data tbody tr:nth-child(even) {
+  background: #e7eef3;
+}
+.num {
+  text-align: right;
+}
+.total td {
+  font-weight: bold;
+  background: #eef2f4;
+}
+
+/* 製品概要（全体版・ファンドの仕組み） */
+.product-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.product-table th {
+  background: #1b3f57;
+  color: #fff;
+  font-weight: normal;
+  text-align: left;
+  white-space: nowrap;
+  width: 20%;
+  padding: 5px 8px;
+  border: 1px solid #1b3f57;
+  vertical-align: top;
+}
+.product-table td {
+  border: 1px solid #c9d2d8;
+  padding: 5px 8px;
+  font-size: 9.5pt;
+  vertical-align: top;
+}
+.main-assets {
+  columns: 2;
+  column-gap: 18px;
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.main-assets li {
+  font-size: 9pt;
+  line-height: 1.5;
+  break-inside: avoid;
+}
+
+/* モノクロ2軸グラフ */
+.nav-chart {
+  width: 100%;
+  height: auto;
+}
+.nav-chart .axis {
+  stroke: #6b7680;
+  stroke-width: 1;
+}
+.nav-chart .grid {
+  stroke: #e1e6e9;
+  stroke-width: 1;
+}
+.nav-chart .area {
+  fill: #cdd4d9;
+}
+.nav-chart .line {
+  fill: none;
+  stroke: #1f2933;
+  stroke-width: 1.6;
+}
+.nav-chart .line-dash {
+  fill: none;
+  stroke: #1f2933;
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+}
+.nav-chart .lbl {
+  font-size: 8px;
+  fill: #5b6b76;
+}
+.nav-chart .lbl-r {
+  font-size: 8px;
+  fill: #5b6b76;
+  text-anchor: end;
+}
+.nav-chart .lbl-x {
+  font-size: 8px;
+  fill: #5b6b76;
+  text-anchor: middle;
+}
+.chart-note {
+  font-size: 9pt;
+  color: #5b6b76;
+  margin: 4px 0;
+}
+.chart-annot {
+  font-size: 9.5pt;
+  font-weight: bold;
+  margin: 2px 0;
+}
+.notes {
+  font-size: 8pt;
+  color: #5b6b76;
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
+/* 配分（モノクロ帯バーは静的、値はテーブル併記） */
+.alloc-table {
+  width: 70%;
+}
+.commentary p {
+  font-size: 10pt;
+  line-height: 1.75;
+  margin: 4px 0;
+}
+.report-footer {
+  margin-top: 14px;
+  font-size: 8pt;
+  color: #93a0a8;
+  border-top: 1px solid #c9d2d8;
+  padding-top: 6px;
 }

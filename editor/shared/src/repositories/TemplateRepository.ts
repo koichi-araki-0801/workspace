@@ -2,6 +2,7 @@ import type {
   ConfirmSaveRequest,
   DropdownOptions,
   DropdownQuery,
+  FundResolution,
   GenerateRequest,
   GenerateResult,
   SampleData,
@@ -22,6 +23,15 @@ export interface TemplateRepository {
   listTemplates(query: DropdownQuery): Promise<Result<TemplateMeta[]>>;
   getTemplate(id: string): Promise<Result<Template>>;
   generate(req: GenerateRequest): Promise<Result<GenerateResult>>;
+  /**
+   * 属性解決: 選択中の属性からファンドの性質（シリーズファンドか等）を判定する。
+   * 作成画面で「シリーズから作成」を出すかの判断に使う。
+   */
+  resolveFund(
+    companyCode: string,
+    fundCode: string,
+    editionType: string,
+  ): Promise<Result<FundResolution>>;
   listSeriesFunds(
     companyCode: string,
     fundCode: string,

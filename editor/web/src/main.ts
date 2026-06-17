@@ -3,6 +3,7 @@ import { createPinia } from 'pinia';
 import { createApp } from 'vue';
 import App from './App.vue';
 import { seedCompareFixtures } from './api/local/seed';
+import { migrateStore } from './api/local/store';
 import { localRepositories, REPOS_KEY, restRepositories } from './api/repositories';
 import { toastError } from './components/ui/toast';
 import { logError } from './lib/appError';
@@ -42,8 +43,12 @@ const useRest = import.meta.env.VITE_API_MODE === 'rest';
 const repositories = useRest ? restRepositories : localRepositories;
 
 initTheme();
-// Compare-screen demo fixtures only make sense for the local store.
-if (!useRest) seedCompareFixtures();
+// Local store only: clear stale fixture-derived working-state on a schema bump,
+// then seed the compare-screen demo data with the current template ids.
+if (!useRest) {
+  migrateStore();
+  seedCompareFixtures();
+}
 
 const app = createApp(App);
 app.config.errorHandler = (err) => reportGlobalError(err);
