@@ -85,6 +85,13 @@ export function useTemplateEditor(
     () => g.selected.value?.id,
     () => auth.user?.displayName ?? '編集者',
     () => partHistory.value,
+    // Durably persist each edit (fire-and-forget); a failure is logged, not surfaced,
+    // since the in-session entry already shows and the autosaved draft holds the content.
+    (partId, change) => {
+      service.recordPartChange(id, partId, change).then((res) => {
+        if (isErr(res)) logError(res.error);
+      });
+    },
   );
 
   /** Apply a geometry change to the selected block (written as inline style). */

@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import type { TemplateMeta } from '@editor/shared';
 import { Check, Inbox } from '@lucide/vue';
-import { watch } from 'vue';
+import FundCodeName from '@/components/FundCodeName.vue';
 import Button from '@/components/ui/Button.vue';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useFundNames } from '@/lib/useFundNames';
 import type { CompareCandidate } from './services/compareService';
 
 const props = withDefaults(
@@ -21,13 +20,6 @@ const props = withDefaults(
 const emit = defineEmits<{ select: [TemplateMeta] }>();
 
 const comparable = (c: CompareCandidate) => c.versionCount >= props.minVersions;
-
-const { resolve, nameOf } = useFundNames();
-watch(
-  () => props.rows,
-  (rows) => resolve(rows.map((c) => c.meta.attributes.fundCode)),
-  { immediate: true },
-);
 </script>
 
 <template>
@@ -51,10 +43,7 @@ watch(
         >
           <TableCell class="mono truncate font-medium">{{ c.meta.attributes.companyCode }}</TableCell>
           <TableCell class="truncate">
-            <span class="mono font-medium">{{ c.meta.attributes.fundCode }}</span>
-            <span v-if="nameOf(c.meta.attributes.fundCode)" class="ml-2 text-sm text-muted-foreground">
-              {{ nameOf(c.meta.attributes.fundCode) }}
-            </span>
+            <FundCodeName :code="c.meta.attributes.fundCode" />
           </TableCell>
           <TableCell class="mono truncate">{{ c.meta.attributes.baseDate }}</TableCell>
           <TableCell class="truncate">{{ c.meta.attributes.editionType }}</TableCell>

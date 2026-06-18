@@ -1,6 +1,22 @@
 import { defineComponent, h } from 'vue';
 import { cn } from '@/lib/utils';
 
+/**
+ * Define a single-element styled wrapper: renders `<tag>` with `base` classes
+ * merged with an optional `class` prop, passing slot children through. The five
+ * simple table parts share this exact shape, so they are built from this factory
+ * (Table itself is bespoke — it nests `<table>` inside a scroll container).
+ */
+function styledTag(name: string, tag: string, base: string) {
+  return defineComponent({
+    name,
+    props: { class: { type: String, default: undefined } },
+    setup(props, { slots }) {
+      return () => h(tag, { class: cn(base, props.class) }, slots.default?.());
+    },
+  });
+}
+
 export const Table = defineComponent({
   name: 'Table',
   props: { class: { type: String, default: undefined } },
@@ -12,69 +28,24 @@ export const Table = defineComponent({
   },
 });
 
-export const TableHeader = defineComponent({
-  name: 'TableHeader',
-  props: { class: { type: String, default: undefined } },
-  setup(props, { slots }) {
-    return () =>
-      h('thead', { class: cn('[&_tr]:border-b bg-muted/60', props.class) }, slots.default?.());
-  },
-});
+export const TableHeader = styledTag('TableHeader', 'thead', '[&_tr]:border-b bg-muted/60');
 
-export const TableBody = defineComponent({
-  name: 'TableBody',
-  props: { class: { type: String, default: undefined } },
-  setup(props, { slots }) {
-    return () =>
-      h('tbody', { class: cn('[&_tr:last-child]:border-0', props.class) }, slots.default?.());
-  },
-});
+export const TableBody = styledTag('TableBody', 'tbody', '[&_tr:last-child]:border-0');
 
-export const TableRow = defineComponent({
-  name: 'TableRow',
-  props: { class: { type: String, default: undefined } },
-  setup(props, { slots }) {
-    return () =>
-      h(
-        'tr',
-        {
-          class: cn(
-            'border-b transition-colors duration-150 hover:bg-accent/50 data-[state=selected]:bg-muted',
-            props.class,
-          ),
-        },
-        slots.default?.(),
-      );
-  },
-});
+export const TableRow = styledTag(
+  'TableRow',
+  'tr',
+  'border-b transition-colors duration-150 hover:bg-accent/50 data-[state=selected]:bg-muted',
+);
 
-export const TableHead = defineComponent({
-  name: 'TableHead',
-  props: { class: { type: String, default: undefined } },
-  setup(props, { slots }) {
-    return () =>
-      h(
-        'th',
-        {
-          class: cn(
-            'h-10 px-3 text-left align-middle text-xs font-semibold text-muted-foreground [&:has([role=checkbox])]:pr-0',
-            props.class,
-          ),
-        },
-        slots.default?.(),
-      );
-  },
-});
+export const TableHead = styledTag(
+  'TableHead',
+  'th',
+  'h-10 px-3 text-left align-middle text-xs font-semibold text-muted-foreground [&:has([role=checkbox])]:pr-0',
+);
 
-export const TableCell = defineComponent({
-  name: 'TableCell',
-  props: { class: { type: String, default: undefined } },
-  setup(props, { slots }) {
-    return () =>
-      h(
-        'td',
-        { class: cn('p-3 align-middle [&:has([role=checkbox])]:pr-0', props.class) },
-        slots.default?.(),
-      );
-  },
-});
+export const TableCell = styledTag(
+  'TableCell',
+  'td',
+  'p-3 align-middle [&:has([role=checkbox])]:pr-0',
+);

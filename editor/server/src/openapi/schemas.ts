@@ -202,6 +202,10 @@ export const RecordPdfExportRequest = z
   .object({ templateId: z.string() })
   .meta({ id: 'RecordPdfExportRequest' });
 
+export const RecordPartChangeRequest = z
+  .object({ change: z.string() })
+  .meta({ id: 'RecordPartChangeRequest' });
+
 // ---------------------------------------------------------------------------
 // Dropdown (cascading) query/options
 // ---------------------------------------------------------------------------

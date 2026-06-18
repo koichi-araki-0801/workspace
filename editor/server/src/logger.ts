@@ -24,7 +24,8 @@ export interface AuditEvent {
   /** Dotted event name, e.g. 'template.save'. */
   event: string;
   outcome: 'success' | 'failure';
-  /** Who performed the action (currently 'anonymous' until auth lands). */
+  /** Who performed the action: the authenticated username, or 'anonymous' when
+   *  the request is unauthenticated (e.g. local mode). See `actorFromReq`. */
   actor: string;
   ip?: string;
   /** Identifiers / attributes of the affected resource — never raw content. */
@@ -68,4 +69,37 @@ interface AttributableRequest {
 /** Derive the actor + ip for an audit event from the request. */
 export function actorFromReq(req: AttributableRequest): { actor: string; ip?: string } {
   return { actor: req.user?.username ?? 'anonymous', ip: req.ip };
+}
+
+/**
+ * Run `fn`, emit a success/failure {@link audit} event for `event`, and rethrow
+ * on error. `success`/`failure` supply only the event-specific fields (resource
+ * / detail); actor/ip/outcome and the error message are filled in here. Captures
+ * the try/audit-success/catch/audit-failure/throw skeleton shared by the PDF,
+ * save and generate routes.
+ */
+export async function auditedRethrow<T>(
+  req: AttributableRequest,
+  event: string,
+  fn: () => Promise<T>,
+  hooks: {
+    success: (result: T) => Pick<AuditEvent, 'resource' | 'detail'>;
+    failure: () => Pick<AuditEvent, 'resource' | 'detail'>;
+    failureMessage?: string;
+  },
+): Promise<T> {
+  try {
+    const result = await fn();
+    audit({ event, outcome: 'success', ...actorFromReq(req), ...hooks.success(result) });
+    return result;
+  } catch (e) {
+    audit({
+      event,
+      outcome: 'failure',
+      ...actorFromReq(req),
+      ...hooks.failure(),
+      error: e instanceof Error ? e.message : (hooks.failureMessage ?? '処理に失敗しました'),
+    });
+    throw e;
+  }
 }

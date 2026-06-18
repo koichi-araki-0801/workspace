@@ -15,11 +15,12 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
-DOCS = pathlib.Path(r"C:\Users\caads\workspace\docs\pdf-to-svg")
+# リポジトリルートからの相対解決 (このファイルは <repo>/docs/pdf-to-svg/_build/ にある)。
+DOCS = pathlib.Path(__file__).resolve().parents[1]
 IMG = DOCS / "images"
 
-JP = "游ゴシック"          # 本文用 日本語フォント（Word 標準同梱）
-MONO = "ＭＳ ゴシック"      # 等幅（ASCII図 + 日本語）
+JP = "Meiryo UI"          # 本文用フォント（CLAUDE.md「Word ドキュメント」規約: 本文は Meiryo UI 統一）
+MONO = "ＭＳ ゴシック"      # 等幅（ASCII図 + 日本語）。Meiryo UI は非等幅のため図のけた揃え用に等幅を維持
 ACCENT = RGBColor(0x1F, 0x5C, 0x99)
 INK = RGBColor(0x20, 0x24, 0x2C)
 MUTED = RGBColor(0x60, 0x68, 0x74)
@@ -151,7 +152,6 @@ def image(doc, name, width_cm=16.0, caption=None):
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.add_run().add_picture(str(path), width=Cm(width_cm))
-    # 枠線
     if caption:
         c = doc.add_paragraph()
         c.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -182,7 +182,7 @@ def build_design():
     doc = new_doc()
     title(doc, "PdfToSvg 詳細設計書",
           "PDF → 編集可能 SVG 変換ツール ／ エンジニア向け（保守・改修用）")
-    para(doc, "版: 1.0　　対象リビジョン: chore/deps-latest-offline-bundle　　"
+    para(doc, "版: 1.0　　対象リビジョン: 最新版　　"
               "本書は実装の構造・依存・ライフサイクルを記述し、引き継ぎと改修を可能にすることを目的とする。",
          size=9.5)
 

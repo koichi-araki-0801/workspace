@@ -37,24 +37,16 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# 共通ライブラリ（content-key 算出 / tar 解決）。
+. (Join-Path $PSScriptRoot 'lib\content-key.ps1')
+
 # offline/ の親をリポジトリ直下（ROOT）とみなす。
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Bk       = Join-Path $RepoRoot 'bk'
 Write-Host "[info] repo root: $RepoRoot"
 Write-Host "[info] mode     : 完全オフライン（取得なし・ローカル資材のみ）"
 
-# tar は Windows 標準（System32\tar.exe = BSD tar）を明示優先する。
-# Git Bash 等の MSYS tar が PATH 先頭にあると `-C C:\...` を rsh の host:path と誤認し
-# 「Cannot connect to C:」で失敗するため。
-function Resolve-Tar {
-  $sys = Join-Path $env:SystemRoot 'System32\tar.exe'
-  if (Test-Path $sys) { return $sys }
-  $c = Get-Command 'tar.exe' -ErrorAction SilentlyContinue
-  if ($c) { return $c.Source }
-  $c = Get-Command 'tar' -ErrorAction SilentlyContinue
-  if ($c) { return $c.Source }
-  Write-Error '[error] tar が見つかりません（Windows 10/11 標準の tar.exe が必要）。'; exit 1
-}
+# tar 解決（System32\tar.exe 優先）は共通ライブラリの Resolve-Tar を使う。
 
 $BundleName = 'offline-deps-bundle.tar.gz'
 
@@ -116,21 +108,9 @@ if (-not $NoVerify) {
   $LockFile = Join-Path $RepoRoot 'pnpm-lock.yaml'
   $PkgJson  = Join-Path $RepoRoot 'package.json'
   if ($KeyFile -and (Test-Path $LockFile) -and (Test-Path $PkgJson)) {
-    # publish-offline-bundle.ps1 / setup-offline.ps1 と同一ロジック。
-    # 行末非依存にするため CR(0x0D) を除去して LF 正規化してから測る。
-    $pkg = Get-Content $PkgJson -Raw | ConvertFrom-Json
-    $packageManager = [string]$pkg.packageManager
-    $rawLock = [System.IO.File]::ReadAllBytes($LockFile)
-    $lb = New-Object System.Collections.Generic.List[byte] ($rawLock.Length)
-    foreach ($x in $rawLock) { if ($x -ne 13) { $lb.Add($x) } }
-    $lockBytes = $lb.ToArray()
-    $pmBytes   = [System.Text.Encoding]::UTF8.GetBytes($packageManager)
-    $all = New-Object byte[] ($lockBytes.Length + $pmBytes.Length)
-    [System.Array]::Copy($lockBytes, 0, $all, 0, $lockBytes.Length)
-    [System.Array]::Copy($pmBytes, 0, $all, $lockBytes.Length, $pmBytes.Length)
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    try { $localKey = (($sha.ComputeHash($all) | ForEach-Object { $_.ToString('x2') }) -join '') }
-    finally { $sha.Dispose() }
+    # content-key は publish / setup と同一ロジック（共通ライブラリ Get-LockContentKey）。
+    $packageManager = Get-PackageManagerString $PkgJson
+    $localKey = Get-LockContentKey -LockFile $LockFile -PackageManager $packageManager
     $publishedKey = (Get-Content $KeyFile -Raw).Trim().ToLower()
     if ($localKey -eq $publishedKey) {
       Write-Host "[info] lockfile key 一致: $localKey"

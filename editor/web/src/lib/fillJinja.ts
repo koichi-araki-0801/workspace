@@ -57,9 +57,10 @@ function insertAttrs(element: string, attrs: string): string {
 
 /**
  * Wrap every Jinja token sitting in *text* (not inside a tag) as a locked chip,
- * mirroring jinjaMask's wrapInlineTokens — but a `{{ var }}` chip's visible
- * label is the value evaluated against `ctx`. The exact source token always
- * lives in data-jinja, so toTemplate restores it regardless of the label.
+ * mirroring jinjaMask's wrapInlineTokens. Only a `{{ var }}` chip's visible label
+ * is the value evaluated against `ctx`; `{% %}` / `{# #}` tokens keep their literal
+ * source as the label. The exact source token always lives in data-jinja, so
+ * toTemplate restores it regardless of the label.
  */
 function fillInline(html: string, ctx: Ctx): string {
   return html

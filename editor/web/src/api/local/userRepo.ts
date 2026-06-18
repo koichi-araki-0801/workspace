@@ -11,6 +11,10 @@ export const localUserRepo: UserRepository = {
       const id = uid('u');
       overrides[id] = { ...user };
       write(K.userOverride, overrides);
+      // 初期パスワードは ユーザID(ログインID) と同一にする。
+      const pw = read<Record<string, string>>(K.passwords, {});
+      pw[user.username] = user.username;
+      write(K.passwords, pw);
       return delay({ id, ...user });
     }),
 
@@ -29,7 +33,7 @@ export const localUserRepo: UserRepository = {
       const user = listUsersSync().find((u) => u.id === id);
       if (!user) throw notFound(`ユーザーが見つかりません: ${id}`);
       const pw = read<Record<string, string>>(K.passwords, {});
-      pw[user.username] = 'init1234';
+      pw[user.username] = user.username; // リセット先も ユーザID と同一
       write(K.passwords, pw);
       const updated = await localUserRepo.updateUser(id, { mustChangePassword: true });
       if (isErr(updated)) throw updated.error;

@@ -18,10 +18,9 @@ from dictionary import apply as dict_apply
 from dictionary.store import DictionaryStore
 from export.svg_exporter import page_to_svg
 from model.document import Document, Page
-from model.elements import DictMatch, Element, Rect, RectElement, TextElement
+from model.elements import DictMatch, Rect, RectElement, TextElement
 from web.commands import (
     AddElementCommand,
-    CropCommand,
     DeleteCommand,
     ReplaceTextCommand,
 )
@@ -117,7 +116,6 @@ def rpc_pageSvg(s: WebSession, args: dict) -> dict:
         "svg": page_to_svg(pg, annotate=True),
         "width": pg.width_pt,
         "height": pg.height_pt,
-        "cropped": pg.crop_rect is not None,
     }
 
 
@@ -157,7 +155,7 @@ def rpc_removedList(s: WebSession, args: dict) -> dict:
             snippet = el.text.strip()[:16]
             label = f"文字「{snippet}」" if snippet else "文字"
         removed.append({"elId": el.id, "kind": el.kind, "label": label})
-    return {"removed": removed, "cropped": pg.crop_rect is not None}
+    return {"removed": removed}
 
 
 # ---- 辞書 ----
@@ -181,13 +179,6 @@ def rpc_dictAdd(s: WebSession, args: dict) -> dict:
     tgt = (args.get("target") or "").strip()
     if src:
         s.store.upsert(src, tgt)
-    return _dict_payload(s)
-
-
-def rpc_dictUpdate(s: WebSession, args: dict) -> dict:
-    s.store.update(
-        int(args["id"]), args["source"], args["target"], bool(args["enabled"])
-    )
     return _dict_payload(s)
 
 
@@ -293,21 +284,6 @@ def rpc_addBorder(s: WebSession, args: dict) -> dict:
     return {"elId": el.id}
 
 
-def rpc_applyCrop(s: WebSession, args: dict) -> dict:
-    pg = s.page(args["fileIndex"], args["pageInFile"])
-    r = args["rect"]
-    rect = Rect(float(r["x"]), float(r["y"]), float(r["w"]), float(r["h"]))
-    s.undo.push(CropCommand(pg, rect))
-    return {"ok": True}
-
-
-def rpc_clearCrop(s: WebSession, args: dict) -> dict:
-    pg = s.page(args["fileIndex"], args["pageInFile"])
-    if pg.crop_rect is not None:
-        s.undo.push(CropCommand(pg, None))
-    return {"ok": True}
-
-
 def rpc_undo(s: WebSession, _args: dict) -> dict:
     if s.undo.canUndo():
         s.undo.undo()
@@ -368,7 +344,6 @@ HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "removedList": rpc_removedList,
     "dictList": rpc_dictList,
     "dictAdd": rpc_dictAdd,
-    "dictUpdate": rpc_dictUpdate,
     "dictDelete": rpc_dictDelete,
     "dictExport": rpc_dictExport,
     "dictImport": rpc_dictImport,
@@ -381,8 +356,6 @@ HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "deleteRegion": rpc_deleteRegion,
     "removeFile": rpc_removeFile,
     "addBorder": rpc_addBorder,
-    "applyCrop": rpc_applyCrop,
-    "clearCrop": rpc_clearCrop,
     "undo": rpc_undo,
     "redo": rpc_redo,
 }

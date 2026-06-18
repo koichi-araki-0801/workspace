@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { TemplateMeta } from '@editor/shared';
 import { FilePlus2, Inbox, Pencil } from '@lucide/vue';
-import { computed, watch } from 'vue';
+import { computed } from 'vue';
+import FundCodeName from '@/components/FundCodeName.vue';
 import Button from '@/components/ui/Button.vue';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useFundNames } from '@/lib/useFundNames';
 import { toTemplateMetaVm } from '../viewmodels/templateVm';
 
 const props = withDefaults(
@@ -28,9 +28,6 @@ const showVersion = computed(() => props.action === 'edit');
 const emptyColspan = computed(
   () => 4 + (props.showBaseDate ? 1 : 0) + (showVersion.value ? 1 : 0),
 );
-
-const { resolve, nameOf } = useFundNames();
-watch(vms, (v) => resolve(v.map((x) => x.attributes.fundCode)), { immediate: true });
 </script>
 
 <template>
@@ -50,10 +47,7 @@ watch(vms, (v) => resolve(v.map((x) => x.attributes.fundCode)), { immediate: tru
         <TableRow v-for="vm in vms" :key="vm.id">
           <TableCell class="mono truncate font-medium">{{ vm.attributes.companyCode }}</TableCell>
           <TableCell class="truncate">
-            <span class="mono font-medium">{{ vm.attributes.fundCode }}</span>
-            <span v-if="nameOf(vm.attributes.fundCode)" class="ml-2 text-sm text-muted-foreground">
-              {{ nameOf(vm.attributes.fundCode) }}
-            </span>
+            <FundCodeName :code="vm.attributes.fundCode" />
           </TableCell>
           <TableCell v-if="showBaseDate" class="mono truncate">{{ vm.attributes.baseDate }}</TableCell>
           <TableCell class="truncate">{{ vm.attributes.editionType }}</TableCell>

@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from model.document import Page
-from model.elements import DictMatch, Element, Rect, TextElement
+from model.elements import DictMatch, Element, TextElement
 
 
 class DeleteCommand:
@@ -43,20 +43,6 @@ class AddElementCommand:
 
     def undo(self) -> None:
         self.element.deleted = True
-
-
-class CropCommand:
-    def __init__(self, page: Page, new_rect: Optional[Rect]):
-        self.label = "クロップ" if new_rect else "クロップ解除"
-        self.page = page
-        self.new_rect = new_rect
-        self.old_rect = page.crop_rect
-
-    def redo(self) -> None:
-        self.page.crop_rect = self.new_rect
-
-    def undo(self) -> None:
-        self.page.crop_rect = self.old_rect
 
 
 class ReplaceTextCommand:

@@ -267,6 +267,16 @@ export function buildOpenApiDocument() {
             ...ERR_404,
           },
         },
+        post: {
+          tags: ['parts'],
+          summary: 'パーツ単位の編集を記録',
+          operationId: 'recordPartChange',
+          requestParams: {
+            path: z.object({ templateId: z.string(), partId: z.string() }),
+          },
+          requestBody: { content: { 'application/json': { schema: s.RecordPartChangeRequest } } },
+          responses: { '204': noContent('記録完了'), ...ERR_400, ...ERR_401 },
+        },
       },
 
       // --------------------------------------------------------------- history

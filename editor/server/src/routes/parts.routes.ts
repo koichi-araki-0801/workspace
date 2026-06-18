@@ -1,11 +1,16 @@
 /** Parts-catalog routes (editor left pane) + per-part history. */
 import type { PartClassificationQuery } from '@editor/shared';
 import { Router } from 'express';
+import type { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import { RecordPartChangeRequest } from '../openapi/schemas.js';
 import * as history from '../repositories/historyRepo.js';
 import * as parts from '../repositories/partRepo.js';
 
 export const partsRouter = Router();
+
+const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
 
 function toClassQuery(q: Record<string, unknown>): PartClassificationQuery {
   const pick = (k: string) => (typeof q[k] === 'string' && q[k] ? (q[k] as string) : undefined);
@@ -30,3 +35,19 @@ partsRouter.get('/parts', requireAuth, async (req, res) => {
 partsRouter.get('/templates/:templateId/parts/:partId/history', requireAuth, async (req, res) => {
   res.json(await history.getPartHistory(String(req.params.templateId), String(req.params.partId)));
 });
+
+partsRouter.post(
+  '/templates/:templateId/parts/:partId/history',
+  requireAuth,
+  validate(RecordPartChangeRequest),
+  async (req, res) => {
+    const body = req.body as z.infer<typeof RecordPartChangeRequest>;
+    await history.recordPartChange(
+      String(req.params.templateId),
+      String(req.params.partId),
+      body.change,
+      actor(req),
+    );
+    res.status(204).end();
+  },
+);

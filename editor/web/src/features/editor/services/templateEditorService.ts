@@ -29,6 +29,7 @@ export interface TemplateEditorService {
   loadForEdit(id: string): Promise<Result<EditorLoad>>;
   saveDraft(id: string, html: string, css: string): Promise<Result<void>>;
   getPartHistory(templateId: string, partId: string): Promise<Result<PartHistoryEntry[]>>;
+  recordPartChange(templateId: string, partId: string, change: string): Promise<Result<void>>;
 }
 
 export function createTemplateEditorService(
@@ -75,6 +76,9 @@ export function createTemplateEditorService(
     saveDraft: (id, html, css) => templates.saveDraft({ templateId: id, html, css }),
 
     getPartHistory: (templateId, partId) => parts.getPartHistory(templateId, partId),
+
+    recordPartChange: (templateId, partId, change) =>
+      parts.recordPartChange(templateId, partId, change),
   };
 }
 

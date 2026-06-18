@@ -67,6 +67,22 @@ export async function recordPdfExport(templateId: string, loginId: string): Prom
   ]);
 }
 
+export async function recordPartChange(
+  templateId: string,
+  partId: string,
+  change: string,
+  loginId: string,
+): Promise<void> {
+  await callSproc(SP.history, '登録', [
+    p('種別', 'part'),
+    p('公開ID', `ph-${randomUUID()}`),
+    p('テンプレートID', templateId),
+    p('ログインID', loginId),
+    p('パーツID', partId),
+    p('変更内容', change),
+  ]);
+}
+
 export async function recordCreate(
   attributes: TemplateAttributes,
   basedOnTemplateId: string | undefined,

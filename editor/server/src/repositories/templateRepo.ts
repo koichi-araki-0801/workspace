@@ -177,15 +177,7 @@ export async function confirmSave(req: {
         p('概要', '確定保存'),
         p('スナップHTMLファイル', `${historyId}.html`),
         p('スナップCSSファイル', `${historyId}.css`),
-        ...(attrs
-          ? [
-              p('委託会社コード', attrs.companyCode),
-              p('ファンドコード', attrs.fundCode),
-              p('基準日', attrs.baseDate),
-              p('版種', attrs.editionType),
-              p('ファイル名', fileName),
-            ]
-          : [p('ファイル名', fileName)]),
+        ...attrParams(req.templateId),
       ]),
     );
     if (!row) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);

@@ -70,7 +70,6 @@ class Element:
     kind: str = "element"
     bbox: Rect = field(default_factory=lambda: Rect(0, 0, 0, 0))
     z: int = 0
-    visible: bool = True
     deleted: bool = False
     id: int = field(default_factory=new_id)
 
@@ -84,7 +83,6 @@ class TextElement(Element):
     original_font: str = ""  # マッピング前の PDF フォント名 (デバッグ用)
     font_size: float = 12.0
     weight: int = 400  # CSS フォントウェイト (100-900)。元 PDF のウェイトを保持
-    bold: bool = False  # weight >= 600 相当。辞書ヘッダ判定・エディタ表示の互換用
     italic: bool = False
     color: str = "#000000"
     origin_x: float = 0.0  # ベースライン原点 (SVG <text> の x)
@@ -97,6 +95,11 @@ class TextElement(Element):
             self.original_text = self.text
         if not self.original_font:
             self.original_font = self.font_family
+
+    @property
+    def bold(self) -> bool:
+        """太字相当か (weight>=600)。weight を単一ソースとする (辞書ヘッダ判定・エディタ表示の互換用)。"""
+        return self.weight >= 600
 
 
 @dataclass

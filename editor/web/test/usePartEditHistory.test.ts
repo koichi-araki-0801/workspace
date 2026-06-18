@@ -76,4 +76,20 @@ describe('usePartEditHistory', () => {
     record('セッション編集');
     expect(displayHistory.value.map((e) => e.change)).toEqual(['セッション編集', 'persisted']);
   });
+
+  it('forwards recorded edits to the persist sink (partId + change)', () => {
+    const cid = ref<string | undefined>('p1');
+    const calls: Array<[string, string]> = [];
+    const { record } = usePartEditHistory(
+      't1',
+      () => cid.value,
+      () => '編集者',
+      () => [],
+      (partId, change) => calls.push([partId, change]),
+    );
+    record('幅を変更');
+    cid.value = undefined;
+    record('無視される'); // no selection → no persist
+    expect(calls).toEqual([['p1', '幅を変更']]);
+  });
 });

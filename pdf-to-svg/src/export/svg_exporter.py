@@ -2,8 +2,6 @@
 
 scene は編集 UI、モデルが真実。書き出しはモデルから直接行うことで決定的になり、
 GUI なしでテスト可能・フォント名の崩れも起きない。
-
-クロップは viewBox を crop 矩形に設定し、外側の要素を落とすことで実現する。
 """
 from __future__ import annotations
 

@@ -55,7 +55,6 @@ def _extract_page(page: "fitz.Page", index: int) -> Page:
         index=index,
         width_pt=rect.width,
         height_pt=rect.height,
-        rotation=page.rotation,
         is_scanned=scanned,
     )
 
@@ -172,7 +171,6 @@ def _text_element(span: dict, z: int) -> Optional[TextElement]:
         original_font=raw_font,
         font_size=float(span.get("size", 12.0)),
         weight=weight,
-        bold=weight >= 600,
         italic=bool(flags & FLAG_ITALIC) or mapped.italic,
         color=int_to_hex(span.get("color", 0)),
         origin_x=origin[0],

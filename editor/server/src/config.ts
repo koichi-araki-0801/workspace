@@ -180,7 +180,6 @@ export const config = {
   db: {
     server: process.env.DB_SERVER ?? 'localhost',
     name: process.env.DB_NAME ?? 'usrap',
-    schema: process.env.DB_SCHEMA ?? 'ug01',
     driver: process.env.DB_ODBC_DRIVER ?? 'ODBC Driver 17 for SQL Server',
     poolMax: Number(process.env.DB_POOL_MAX ?? 4),
     get connectionString(): string {
@@ -194,7 +193,7 @@ export const config = {
 
   /** Editor's own authentication (phase 2). Secrets stay out of appconfig.json. */
   auth: {
-    pbkdf2Iterations: Number(process.env.AUTH_PBKDF2_ITER ?? 120_000),
+    // 初期パスワードは ログインID(ユーザID) と同一(`userRepo.ts` 参照)。固定値の設定は持たない。
     sessionTtlHours: Number(process.env.AUTH_SESSION_TTL_HOURS ?? 12),
     cookieName: 'editor.sid',
     cookieSecure: process.env.NODE_ENV === 'production',

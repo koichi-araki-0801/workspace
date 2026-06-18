@@ -5,7 +5,7 @@ from dictionary import apply as dict_apply
 from dictionary.store import DictionaryStore
 from engine.pdf_engine import load_document
 from export.svg_exporter import page_to_svg
-from model.elements import Rect, TextElement
+from model.elements import TextElement
 
 
 def test_extract_kinds(vector_pdf):
@@ -33,16 +33,6 @@ def test_paint_order_text_above_banner(banner_pdf):
     assert text.z > rect.z
     svg = page_to_svg(pg)
     assert svg.index("<rect") < svg.index("WHITE TITLE")
-
-
-def test_crop_drops_outside(vector_pdf):
-    doc = load_document(str(vector_pdf))
-    pg = doc.pages[0]
-    pg.crop_rect = Rect(0, 0, 300, 60)  # 上端のみ残す
-    svg = page_to_svg(pg)
-    assert "Header A" in svg          # y=50 は残る
-    assert "Value 123" not in svg     # y=80 は外れる
-    assert 'viewBox="0 0 300 60"' in svg
 
 
 def test_deleted_element_excluded(vector_pdf):
