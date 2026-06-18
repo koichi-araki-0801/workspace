@@ -211,8 +211,8 @@
   --gjs-left-width: 0px;
   --gjs-canvas-top: 0px;
 }
-/* Hide GrapesJS' own badge + component toolbar; we render a custom floating
-   toolbar (PartToolbar) instead. Keep the selection outline, tinted to primary. */
+/* Hide GrapesJS' own badge + component toolbar; layout edits live in the
+   right-pane `Inspector.vue`. Keep the selection outline, tinted to primary. */
 .gjs-badge,
 .gjs-toolbar {
   /* biome-ignore lint/complexity/noImportantStyles: GrapesJS の標準 UI を隠すため上書きが必要 */

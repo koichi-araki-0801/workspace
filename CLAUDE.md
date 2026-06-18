@@ -90,7 +90,9 @@
     `run._element.rPr.rFonts.set(qn("w:eastAsia"), "Meiryo UI")` を必ず併設する
     （`eastAsia` を設定しないと日本語グリフが既定フォントに落ちる）。
   - 等幅が必要な箇所のみ別途等幅フォントを使ってよいが、本文系は Meiryo UI を既定とする。
-- 生成スクリプト（例: `docs/pdf-to-svg/_build/gen_docs.py`）の既定フォント定数もこの規約に合わせる。
+- 生成スクリプト（共通エンジン `docs/_build/md2docx.py`）の既定フォント定数もこの規約に合わせる。
+  各文書は `docs/<project>/src/*.md`（Markdown 正典）で持ち、`docs/_build/build_all.py`（または `.bat`）で
+  一括 `.docx` 生成する。原稿のフロントマター `out` が出力 docx 名、画像基準は `docs/<project>/images/`。
 
 ## graph2
 

@@ -21,9 +21,9 @@ export type StyleMap = Record<string, string | undefined>;
 
 export const PX_PER_MM = 96 / 25.4;
 
-// Editable bounds for the layout geometry, shared by the toolbar inputs
-// ({@link PartToolbar}) and the drag handles ({@link EditorView}) so both clamp
-// to the same range. Width is a percentage of the page text column; margins mm.
+// Editable bounds for the layout geometry, shared by the `Inspector.vue` inputs
+// and the drag handles ({@link EditorView}) so both clamp to the same range.
+// Width is a percentage of the page text column; margins mm.
 export const WIDTH_PCT_MIN = 20;
 export const WIDTH_PCT_MAX = 100;
 export const MARGIN_MM_MIN = 0;

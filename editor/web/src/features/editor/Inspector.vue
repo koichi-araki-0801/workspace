@@ -1,10 +1,41 @@
 <script setup lang="ts">
+/**
+ * 右ペイン: 選択パーツのプロパティを「編集可能」に提示し、修正履歴を併載するパネル。
+ *
+ * 以前は read-only インスペクタ + 中央キャンバスの浮動ツールバー(`PartToolbar.vue`)に
+ * 編集 UI が分散していた。本コンポーネントへ集約し、サイズ・配置 / 余白 / 改ページ /
+ * 修正履歴を「折りたたみ式セクション」(タブにしない)として縦積み表示する。
+ * 幾何の編集ロジック(数値クランプ・配置・改ページ)は撤去した `PartToolbar` から移植。
+ *
+ * 折りたたみの初期状態は「編集許可」(`editMode` = `useTemplateEditor.ts` の `allowEdit`)に連動:
+ * 許可 ON で編集セクションのみ展開し履歴は畳む、OFF で逆(閲覧時は履歴を主役)。連動は許可の
+ * 切替時のみ発火するため、その後ユーザーが手動でトグルした状態は次の切替まで保持される。
+ */
 import type { PartCatalogItem, PartHistoryEntry } from '@editor/shared';
-import { Eye, FileText, History, PanelRight, Table, TrendingUp, Wand2 } from '@lucide/vue';
-import { computed } from 'vue';
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  ArrowDownToLine,
+  ArrowUpToLine,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Eye,
+  FileText,
+  History,
+  PanelRight,
+  RotateCcw,
+  SplitSquareVertical,
+  Table,
+  Trash2,
+  TrendingUp,
+} from '@lucide/vue';
+import { computed, reactive, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import { formatDateTime } from '@/lib/format';
-import { ALIGN_JP, type LayoutGeom } from './geom';
+import { cn } from '@/lib/utils';
+import { type Align, clampMarginMm, clampWidthPct, type LayoutGeom, WIDTH_PCT_MAX } from './geom';
 import type { SelectedInfo } from './useGrapes';
 
 const props = defineProps<{
@@ -12,10 +43,81 @@ const props = defineProps<{
   part: PartCatalogItem | null;
   geom: LayoutGeom | null;
   history: PartHistoryEntry[];
+  editMode: boolean;
+  canUp: boolean;
+  canDown: boolean;
+}>();
+
+// 編集操作は `useTemplateEditor.ts` のハンドラ(`applyGeom`/`moveSelected`/`resetGeom`/
+// `deletePart`)へそのまま委譲する。`PartToolbar` と同形の emit に揃える。
+const emit = defineEmits<{
+  apply: [Partial<LayoutGeom>];
+  move: [-1 | 1];
+  reset: [];
+  del: [];
 }>();
 
 const label = computed(() => props.part?.name ?? props.selected?.name ?? '');
 const group = computed(() => props.part?.classification.minorClass ?? props.selected?.name ?? '');
+
+// ── 1. 折りたたみ状態 ──
+// 既定は「閲覧」相当(編集セクションを畳み履歴を開く)。`editMode` 連動で切り替える。
+const open = reactive({ size: false, margin: false, pagebreak: false, history: true });
+watch(
+  () => props.editMode,
+  (on) => {
+    open.size = on;
+    open.margin = on;
+    open.pagebreak = on;
+    open.history = !on;
+  },
+  { immediate: true },
+);
+
+// ── 2. 数値ミラー(幅 / 上下余白) ──
+// ライブな幾何と同期しつつ、入力中の文字列を保持する(移植元: `PartToolbar.vue`)。
+const num = reactive({ widthPct: '100', marginTop: '0', marginBottom: '0' });
+watch(
+  () => props.geom,
+  (g) => {
+    if (!g) return;
+    num.widthPct = String(g.widthPct);
+    num.marginTop = String(g.marginTop);
+    num.marginBottom = String(g.marginBottom);
+  },
+  { immediate: true, deep: true },
+);
+
+// ── 3. 編集ハンドラ ──
+const canAlign = () => !!props.geom && props.geom.widthPct < 100;
+
+function setAlign(align: Align) {
+  if (props.editMode && canAlign()) emit('apply', { align });
+}
+
+function togglePB(key: 'pageBreakBefore' | 'pageBreakAfter' | 'keepTogether') {
+  if (props.editMode && props.geom) emit('apply', { [key]: !props.geom[key] } as Partial<LayoutGeom>);
+}
+
+function onEnter(e: KeyboardEvent) {
+  (e.target as HTMLInputElement).blur();
+}
+
+function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) {
+  if (!props.geom) return;
+  let n = Math.round(Number(raw));
+  if (Number.isNaN(n)) n = props.geom[key];
+  n = key === 'widthPct' ? clampWidthPct(n) : clampMarginMm(n);
+  num[key] = String(n);
+  if (key === 'widthPct') {
+    emit('apply', {
+      widthPct: n,
+      align: n >= WIDTH_PCT_MAX ? 'stretch' : props.geom.align === 'stretch' ? 'left' : props.geom.align,
+    });
+  } else {
+    emit('apply', { [key]: n } as Partial<LayoutGeom>);
+  }
+}
 </script>
 
 <template>
@@ -23,7 +125,7 @@ const group = computed(() => props.part?.classification.minorClass ?? props.sele
     <div class="flex h-[46px] shrink-0 items-center border-b px-4 text-[12.5px] font-bold">
       <span>プロパティ</span>
       <span class="flex-1" />
-      <Badge v-if="selected" variant="secondary" class="h-[19px] gap-1 py-0">
+      <Badge v-if="selected && !editMode" variant="secondary" class="h-[19px] gap-1 py-0">
         <Eye class="h-[11px] w-[11px]" /> 表示のみ
       </Badge>
     </div>
@@ -42,7 +144,7 @@ const group = computed(() => props.part?.classification.minorClass ?? props.sele
     </div>
 
     <template v-else>
-      <!-- selected part identity -->
+      <!-- selected part identity (always visible, not collapsible) -->
       <div class="border-b bg-primary-soft/50 px-4 py-3">
         <div class="text-sm font-bold text-foreground">{{ label }}</div>
         <div class="mt-0.5 text-[11.5px] text-muted-foreground">
@@ -51,98 +153,303 @@ const group = computed(() => props.part?.classification.minorClass ?? props.sele
         </div>
       </div>
 
-      <!-- adjust-on-canvas note -->
-      <div class="flex items-start gap-2 border-b bg-muted/50 px-4 py-2.5">
-        <Wand2 class="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-        <span class="text-[11.5px] leading-relaxed text-muted-foreground">
-          調整は<b class="text-foreground">キャンバス上</b>で行います。ハンドルをドラッグ、または選択パーツのツールバーで操作してください。
-        </span>
-      </div>
-
       <div class="flex-1 overflow-y-auto">
-        <!-- size / placement -->
-        <section class="border-b px-4 py-3">
-          <div class="mb-1 flex items-center gap-1.5 text-[11.5px] font-bold tracking-wide text-muted-foreground">
+        <!-- ── サイズ・配置 ── -->
+        <section class="border-b">
+          <button type="button" class="sec-head" @click="open.size = !open.size">
+            <component :is="open.size ? ChevronDown : ChevronRight" class="h-3.5 w-3.5 opacity-70" />
             <Table class="h-3.5 w-3.5" /> サイズ・配置
-          </div>
-          <div class="flex items-center justify-between py-1.5 text-[12.5px]">
-            <span class="text-muted-foreground">幅</span>
-            <span class="mono font-semibold tabular-nums">{{ geom.widthPct }}%</span>
-          </div>
-          <div class="flex items-center justify-between py-1.5 text-[12.5px]">
-            <span class="text-muted-foreground">横の配置</span>
-            <span class="mono font-semibold" :class="geom.widthPct >= 100 ? 'text-muted-foreground' : ''">
-              {{ geom.widthPct >= 100 ? '全幅' : ALIGN_JP[geom.align] }}
-            </span>
-          </div>
-          <div class="flex items-center justify-between py-1.5 text-[12.5px]">
-            <span class="text-muted-foreground">左インデント</span>
-            <span class="mono font-semibold tabular-nums" :class="geom.indent === 0 ? 'text-muted-foreground' : ''">
-              {{ geom.indent }} mm
-            </span>
+          </button>
+          <div v-show="open.size" class="px-4 pb-3">
+            <div class="ins-row">
+              <span class="text-muted-foreground">幅</span>
+              <label class="ins-num">
+                <input
+                  v-model="num.widthPct"
+                  inputmode="numeric"
+                  class="mono"
+                  :disabled="!editMode"
+                  @blur="commitNum('widthPct', num.widthPct)"
+                  @keydown.enter="onEnter"
+                />
+                <span class="ins-unit">%</span>
+              </label>
+            </div>
+            <div class="ins-row">
+              <span class="text-muted-foreground">横の配置</span>
+              <div class="flex gap-0.5">
+                <button type="button" class="seg" title="左寄せ" :disabled="!editMode || !canAlign()" :class="cn(canAlign() && geom.align === 'left' && 'seg-on')" @click="setAlign('left')">
+                  <AlignLeft class="h-[15px] w-[15px]" />
+                </button>
+                <button type="button" class="seg" title="中央" :disabled="!editMode || !canAlign()" :class="cn(canAlign() && geom.align === 'center' && 'seg-on')" @click="setAlign('center')">
+                  <AlignCenter class="h-[15px] w-[15px]" />
+                </button>
+                <button type="button" class="seg" title="右寄せ" :disabled="!editMode || !canAlign()" :class="cn(canAlign() && geom.align === 'right' && 'seg-on')" @click="setAlign('right')">
+                  <AlignRight class="h-[15px] w-[15px]" />
+                </button>
+              </div>
+            </div>
+            <div class="ins-row">
+              <span class="text-muted-foreground">左インデント</span>
+              <span class="mono font-semibold tabular-nums" :class="geom.indent === 0 ? 'text-muted-foreground' : ''">
+                {{ geom.indent }} mm
+              </span>
+            </div>
           </div>
         </section>
 
-        <!-- margins -->
-        <section class="border-b px-4 py-3">
-          <div class="mb-1 flex items-center gap-1.5 text-[11.5px] font-bold tracking-wide text-muted-foreground">
+        <!-- ── 余白 ── -->
+        <section class="border-b">
+          <button type="button" class="sec-head" @click="open.margin = !open.margin">
+            <component :is="open.margin ? ChevronDown : ChevronRight" class="h-3.5 w-3.5 opacity-70" />
             <TrendingUp class="h-3.5 w-3.5" /> 余白（前後の間隔）
-          </div>
-          <div class="flex items-center justify-between py-1.5 text-[12.5px]">
-            <span class="text-muted-foreground">上の余白</span>
-            <span class="mono font-semibold tabular-nums">{{ geom.marginTop }} mm</span>
-          </div>
-          <div class="flex items-center justify-between py-1.5 text-[12.5px]">
-            <span class="text-muted-foreground">下の余白</span>
-            <span class="mono font-semibold tabular-nums">{{ geom.marginBottom }} mm</span>
+          </button>
+          <div v-show="open.margin" class="px-4 pb-3">
+            <div class="ins-row">
+              <span class="text-muted-foreground">上の余白</span>
+              <label class="ins-num">
+                <input
+                  v-model="num.marginTop"
+                  inputmode="numeric"
+                  class="mono"
+                  :disabled="!editMode"
+                  @blur="commitNum('marginTop', num.marginTop)"
+                  @keydown.enter="onEnter"
+                />
+                <span class="ins-unit">mm</span>
+              </label>
+            </div>
+            <div class="ins-row">
+              <span class="text-muted-foreground">下の余白</span>
+              <label class="ins-num">
+                <input
+                  v-model="num.marginBottom"
+                  inputmode="numeric"
+                  class="mono"
+                  :disabled="!editMode"
+                  @blur="commitNum('marginBottom', num.marginBottom)"
+                  @keydown.enter="onEnter"
+                />
+                <span class="ins-unit">mm</span>
+              </label>
+            </div>
           </div>
         </section>
 
-        <!-- page breaks -->
-        <section class="border-b px-4 py-3">
-          <div class="mb-1 flex items-center gap-1.5 text-[11.5px] font-bold tracking-wide text-muted-foreground">
+        <!-- ── 改ページ ── -->
+        <section class="border-b">
+          <button type="button" class="sec-head" @click="open.pagebreak = !open.pagebreak">
+            <component :is="open.pagebreak ? ChevronDown : ChevronRight" class="h-3.5 w-3.5 opacity-70" />
             <FileText class="h-3.5 w-3.5" /> 改ページ
-          </div>
-          <div v-for="flag in [
-            { label: '前で改ページ', on: geom.pageBreakBefore },
-            { label: '後で改ページ', on: geom.pageBreakAfter },
-            { label: 'ページ内で分割しない', on: geom.keepTogether },
-          ]" :key="flag.label" class="flex items-center justify-between py-1.5 text-[12.5px]">
-            <span class="text-muted-foreground">{{ flag.label }}</span>
-            <span class="flex items-center gap-1.5 text-xs font-semibold" :class="flag.on ? 'text-success' : 'text-muted-foreground'">
-              <span class="h-[7px] w-[7px] rounded-full" :class="flag.on ? 'bg-success' : 'bg-border'" />
-              {{ flag.on ? 'ON' : 'OFF' }}
-            </span>
+          </button>
+          <div v-show="open.pagebreak" class="px-4 pb-3">
+            <button type="button" class="pb-toggle" :disabled="!editMode" :class="cn(geom.pageBreakBefore && 'pb-on')" @click="togglePB('pageBreakBefore')">
+              <ArrowUpToLine class="h-[15px] w-[15px]" />
+              <span class="flex-1 text-left">前で改ページ</span>
+              <span class="pb-state">{{ geom.pageBreakBefore ? 'ON' : 'OFF' }}</span>
+            </button>
+            <button type="button" class="pb-toggle" :disabled="!editMode" :class="cn(geom.pageBreakAfter && 'pb-on')" @click="togglePB('pageBreakAfter')">
+              <ArrowDownToLine class="h-[15px] w-[15px]" />
+              <span class="flex-1 text-left">後で改ページ</span>
+              <span class="pb-state">{{ geom.pageBreakAfter ? 'ON' : 'OFF' }}</span>
+            </button>
+            <button type="button" class="pb-toggle" :disabled="!editMode" :class="cn(geom.keepTogether && 'pb-on')" @click="togglePB('keepTogether')">
+              <SplitSquareVertical class="h-[15px] w-[15px]" />
+              <span class="flex-1 text-left">ページ内で分割しない</span>
+              <span class="pb-state">{{ geom.keepTogether ? 'ON' : 'OFF' }}</span>
+            </button>
           </div>
         </section>
 
-        <!-- edit history -->
-        <section class="px-4 py-3.5">
-          <div class="mb-3 flex items-center gap-1.5 text-[11.5px] font-bold tracking-wide text-muted-foreground">
+        <!-- ── 修正履歴 ── -->
+        <section :class="editMode ? 'border-b' : ''">
+          <button type="button" class="sec-head" @click="open.history = !open.history">
+            <component :is="open.history ? ChevronDown : ChevronRight" class="h-3.5 w-3.5 opacity-70" />
             <History class="h-3.5 w-3.5" /> 修正履歴
             <span class="flex-1" />
             <Badge variant="secondary" class="h-[18px] py-0 text-[10.5px]">{{ history.length }} 件</Badge>
-          </div>
-          <p v-if="history.length === 0" class="text-[12.5px] text-muted-foreground">変更履歴はまだありません。</p>
-          <div v-else>
-            <div
-              v-for="(h, i) in history"
-              :key="h.id"
-              class="flex gap-2.5"
-              :class="i < history.length - 1 ? 'pb-4' : ''"
-            >
-              <div class="flex flex-col items-center">
-                <span class="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full" :class="i === 0 ? 'bg-primary' : 'bg-border'" />
-                <span v-if="i < history.length - 1" class="mt-0.5 w-0.5 flex-1 bg-border" />
-              </div>
-              <div class="flex-1">
-                <div class="text-[12.5px] leading-snug text-foreground">{{ h.change }}</div>
-                <div class="mt-0.5 text-[11px] text-muted-foreground">{{ formatDateTime(h.timestamp) }} ・ {{ h.user }}</div>
+          </button>
+          <div v-show="open.history" class="px-4 pb-3.5">
+            <p v-if="history.length === 0" class="text-[12.5px] text-muted-foreground">変更履歴はまだありません。</p>
+            <div v-else>
+              <div
+                v-for="(h, i) in history"
+                :key="h.id"
+                class="flex gap-2.5"
+                :class="i < history.length - 1 ? 'pb-4' : ''"
+              >
+                <div class="flex flex-col items-center">
+                  <span class="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full" :class="i === 0 ? 'bg-primary' : 'bg-border'" />
+                  <span v-if="i < history.length - 1" class="mt-0.5 w-0.5 flex-1 bg-border" />
+                </div>
+                <div class="flex-1">
+                  <div class="text-[12.5px] leading-snug text-foreground">{{ h.change }}</div>
+                  <div class="mt-0.5 text-[11px] text-muted-foreground">{{ formatDateTime(h.timestamp) }} ・ {{ h.user }}</div>
+                </div>
               </div>
             </div>
           </div>
         </section>
       </div>
+
+      <!-- ── アクションバー(並べ替え / 初期化 / 削除): 編集許可時のみ ── -->
+      <div v-if="editMode" class="flex shrink-0 items-center gap-1 border-t px-3 py-2">
+        <button type="button" class="act" title="上へ移動" :disabled="!canUp" @click="emit('move', -1)">
+          <ChevronUp class="h-[15px] w-[15px]" />
+        </button>
+        <button type="button" class="act" title="下へ移動" :disabled="!canDown" @click="emit('move', 1)">
+          <ChevronDown class="h-[15px] w-[15px]" />
+        </button>
+        <span class="flex-1" />
+        <button type="button" class="act" title="配置を初期化" @click="emit('reset')">
+          <RotateCcw class="h-[14px] w-[14px]" />
+        </button>
+        <button type="button" class="act act-danger" title="このパーツを削除" @click="emit('del')">
+          <Trash2 class="h-[14px] w-[14px]" />
+        </button>
+      </div>
     </template>
   </aside>
 </template>
+
+<style scoped>
+/* 折りたたみセクションの見出し(クリックで開閉) */
+.sec-head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted-foreground);
+  transition: background-color 0.12s;
+}
+.sec-head:hover {
+  background: var(--accent);
+}
+
+/* ラベル + コントロールの 1 行 */
+.ins-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 0;
+  font-size: 12.5px;
+}
+
+/* 数値入力(幅 / 余白) */
+.ins-num {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 3px;
+  border-radius: 7px;
+  background: var(--muted);
+  padding: 0 8px;
+}
+.ins-num input {
+  width: 36px;
+  border: 0;
+  background: transparent;
+  text-align: right;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--foreground);
+  outline: none;
+  padding: 0;
+}
+.ins-num input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ins-unit {
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+
+/* 配置のセグメントボタン */
+.seg {
+  display: inline-flex;
+  height: 28px;
+  min-width: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: color-mix(in oklab, var(--foreground) 80%, transparent);
+  transition: background-color 0.12s;
+}
+.seg:hover:not(:disabled) {
+  background: var(--accent);
+}
+.seg:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.seg-on {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.seg-on:hover {
+  background: var(--primary);
+}
+
+/* 改ページのトグル(行全体) */
+.pb-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border-radius: 7px;
+  padding: 7px 8px;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: color-mix(in oklab, var(--foreground) 85%, transparent);
+  transition: background-color 0.12s;
+}
+.pb-toggle:hover:not(:disabled) {
+  background: var(--accent);
+}
+.pb-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pb-toggle.pb-on {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.pb-toggle.pb-on:hover {
+  background: var(--primary);
+}
+.pb-state {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* アクションバーのボタン */
+.act {
+  display: inline-flex;
+  height: 30px;
+  min-width: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: color-mix(in oklab, var(--foreground) 80%, transparent);
+  transition: background-color 0.12s;
+}
+.act:hover:not(:disabled) {
+  background: var(--accent);
+}
+.act:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.act-danger {
+  color: var(--destructive);
+}
+.act-danger:hover {
+  background: color-mix(in oklab, var(--destructive) 12%, transparent);
+}
+</style>
