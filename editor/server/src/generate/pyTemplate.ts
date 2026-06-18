@@ -11,8 +11,9 @@ export interface GenerateAttributes {
 /**
  * Invoke the existing Python template generator via child_process. Attributes
  * are passed as a JSON argument; the generated template HTML is read from
- * stdout. Adjust the contract in scripts/generate_template.py to match the real
- * tool.
+ * stdout. NOTE: scripts/generate_template.py is currently a placeholder
+ * implementing this JSON-in / HTML-out contract; swap in the real generator
+ * there (keeping the same I/O contract) when it is integrated.
  */
 export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
   return new Promise((resolve, reject) => {

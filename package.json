@@ -24,6 +24,7 @@
     "format": "biome format --write .",
     "check": "biome check --write .",
     "check:ci": "biome ci .",
+    "ci": "pnpm run check:ci && pnpm run typecheck && pnpm run test:coverage && pnpm run build && pnpm run test:e2e",
     "prepare": "husky || true"
   },
   "lint-staged": {

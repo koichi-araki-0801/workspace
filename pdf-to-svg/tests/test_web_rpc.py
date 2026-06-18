@@ -87,7 +87,6 @@ def test_page_svg_has_data_el(session):
     data = rpc_methods.dispatch(session, "pageSvg", {"fileIndex": 0, "pageInFile": 0})
     assert "data-el=" in data["svg"]
     assert data["width"] == 200.0 and data["height"] == 300.0
-    assert data["cropped"] is False
 
 
 def test_plan_page(session):
@@ -158,15 +157,6 @@ def test_add_border(session):
     assert el.deleted is True and len(page.live_elements()) == before
     rpc_methods.dispatch(session, "redo", {})
     assert el.deleted is False and len(page.live_elements()) == before + 1
-
-
-def test_apply_crop_changes_svg_viewbox(session):
-    rpc_methods.dispatch(session, "applyCrop",
-                         {"fileIndex": 0, "pageInFile": 0,
-                          "rect": {"x": 5, "y": 5, "w": 100, "h": 100}})
-    data = rpc_methods.dispatch(session, "pageSvg", {"fileIndex": 0, "pageInFile": 0})
-    assert data["cropped"] is True
-    assert 'viewBox="5 5 100 100"' in data["svg"]
 
 
 def test_dict_add_and_list(session):

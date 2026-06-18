@@ -11,17 +11,20 @@ import { computed, reactive } from 'vue';
  * @param currentPartId  getter for the selected canvas component id
  * @param userName  getter for the acting user's display name
  * @param persisted  getter for the persisted history of the current selection
+ * @param persist  optional sink that durably stores the change (fire-and-forget);
+ *                 the in-session entry shows immediately regardless of its outcome
  */
 export function usePartEditHistory(
   templateId: string,
   currentPartId: () => string | undefined,
   userName: () => string,
   persisted: () => PartHistoryEntry[],
+  persist?: (partId: string, change: string) => void,
 ) {
   const sessionHistory = reactive<Record<string, PartHistoryEntry[]>>({});
   let seq = 0;
 
-  /** Record an edit-history entry against the current selection (in-session). */
+  /** Record an edit-history entry against the current selection (in-session + persisted). */
   function record(change: string): void {
     const cid = currentPartId();
     if (!cid) return;
@@ -35,6 +38,7 @@ export function usePartEditHistory(
       timestamp: new Date().toISOString(),
       user: userName(),
     });
+    persist?.(cid, change);
   }
 
   // Selected part's history = in-session edits first, then any persisted history.

@@ -2,7 +2,7 @@ import { notFound, validation } from '@editor/shared';
 import { type Request, type Response, Router } from 'express';
 import type { z } from 'zod';
 import { config } from '../config.js';
-import { actorFromReq, audit } from '../logger.js';
+import { actorFromReq, audit, auditedRethrow } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { BuildInlineRequest } from '../openapi/schemas.js';
@@ -72,25 +72,12 @@ function projectOptions(req: Request): { entry?: string; size?: string; singleDo
 vivliostyleRouter.post('/build', requireAuth, validate(BuildInlineRequest), async (req, res) => {
   const body = req.body as z.infer<typeof BuildInlineRequest>;
   const detail = { mode: 'inline', htmlBytes: body.html.length, cssBytes: body.css.length };
-  try {
-    const pdf = await buildInlinePdf(body);
-    audit({
-      event: 'pdf.export',
-      outcome: 'success',
-      ...actorFromReq(req),
-      detail: { ...detail, pdfBytes: pdf.length },
-    });
-    sendPdf(res, pdf);
-  } catch (e) {
-    audit({
-      event: 'pdf.export',
-      outcome: 'failure',
-      ...actorFromReq(req),
-      detail,
-      error: e instanceof Error ? e.message : 'PDF generation failed',
-    });
-    throw e;
-  }
+  const pdf = await auditedRethrow(req, 'pdf.export', () => buildInlinePdf(body), {
+    success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
+    failure: () => ({ detail }),
+    failureMessage: 'PDF generation failed',
+  });
+  sendPdf(res, pdf);
 });
 
 // POST /api/build/project — vivliostyle project zip → PDF.
@@ -100,29 +87,24 @@ vivliostyleRouter.post('/build/project', requireAuth, async (req, res) => {
   const opts = projectOptions(req);
   const detail = { mode: 'project', files: project.fileCount, bytes: zip.length };
   try {
-    const pdf = await buildProjectPdf({
-      dir: project.dir,
-      configPath: project.configPath,
-      entry: opts.entry,
-      size: opts.size,
-      singleDoc: opts.singleDoc,
-    });
-    audit({
-      event: 'pdf.export',
-      outcome: 'success',
-      ...actorFromReq(req),
-      detail: { ...detail, pdfBytes: pdf.length },
-    });
+    const pdf = await auditedRethrow(
+      req,
+      'pdf.export',
+      () =>
+        buildProjectPdf({
+          dir: project.dir,
+          configPath: project.configPath,
+          entry: opts.entry,
+          size: opts.size,
+          singleDoc: opts.singleDoc,
+        }),
+      {
+        success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
+        failure: () => ({ detail }),
+        failureMessage: 'PDF generation failed',
+      },
+    );
     sendPdf(res, pdf);
-  } catch (e) {
-    audit({
-      event: 'pdf.export',
-      outcome: 'failure',
-      ...actorFromReq(req),
-      detail,
-      error: e instanceof Error ? e.message : 'PDF generation failed',
-    });
-    throw e;
   } finally {
     await cleanupProject(project.dir);
   }

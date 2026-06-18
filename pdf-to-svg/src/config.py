@@ -8,7 +8,6 @@ C ドライブや `%APPDATA%` に依存しないため、フォルダごと別�
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -73,23 +72,3 @@ def data_dir() -> Path:
 
 def dictionary_json_path() -> Path:
     return data_dir() / "dictionary.json"
-
-
-def settings_path() -> Path:
-    return data_dir() / "settings.json"
-
-
-def load_settings() -> dict:
-    p = settings_path()
-    if p.exists():
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return {}
-    return {}
-
-
-def save_settings(settings: dict) -> None:
-    settings_path().write_text(
-        json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8"
-    )

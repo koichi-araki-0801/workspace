@@ -29,7 +29,7 @@
   var tool = "select";                 // 手順3 ツール (select/crop/border)
   var cropDrag = null;                 // 範囲ドラッグ中の状態 {origin,rubber,mode}
   var elSel = {};                      // 'fi:pi' -> {elId:true}  (要素選択)
-  var svgCache = {};                   // 'fi:pi' -> {svg,width,height,cropped}
+  var svgCache = {};                   // 'fi:pi' -> {svg,width,height}
   var zoomFor = { 2: 1, 3: 1 };        // 手順2/3 のキャンバス内ズーム倍率
   var borderColor = "#000000";         // 枠線ツールの色
   var borderWidth = 1;                 // 枠線ツールの太さ (pt)
@@ -451,9 +451,9 @@
     var data = await rpc("removedList", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
     if (token !== PAGES[page].fileIndex + ":" + PAGES[page].pageInFile) return; // ページが変わった
     var n = data.removed.length;
-    var head = '<div class="field-label">このページで削除した要素（' + n + "）" + (data.cropped ? " ・ クロップあり" : "") + "</div>";
-    if (n === 0 && !data.cropped) {
-      el.innerHTML = head + '<div class="empty-note" style="flex:1"><div class="et" style="color:var(--faint)">要素を選んで「削除」、または「クロップ」で残す範囲を指定します。</div></div>';
+    var head = '<div class="field-label">このページで削除した要素（' + n + "）</div>";
+    if (n === 0) {
+      el.innerHTML = head + '<div class="empty-note" style="flex:1"><div class="et" style="color:var(--faint)">要素を選んで「削除」、または「範囲削除」でドラッグした領域内の要素をまとめて削除します。</div></div>';
       return;
     }
     var rows = data.removed.map(function (r) {

@@ -77,7 +77,7 @@ describe('localUserRepo', () => {
     if (isOk(list)) expect(list.value.some((u) => u.username === 'newbie')).toBe(true);
   });
 
-  it('resetUserPassword resets to the init password and forces a change', async () => {
+  it('resetUserPassword resets to the ユーザID and forces a change', async () => {
     const users = await localUserRepo.listUsers();
     if (!isOk(users)) return;
     const admin = users.value.find((u) => u.username === 'admin');
@@ -86,7 +86,8 @@ describe('localUserRepo', () => {
     const reset = await localUserRepo.resetUserPassword(admin.id);
     expect(isOk(reset)).toBe(true);
 
-    const login = await localAuthRepo.login({ username: 'admin', password: 'init1234' });
+    // 初期パスワード = ユーザID(ここでは 'admin')
+    const login = await localAuthRepo.login({ username: 'admin', password: 'admin' });
     expect(isOk(login)).toBe(true);
     if (isOk(login)) expect(login.value.mustChangePassword).toBe(true);
   });

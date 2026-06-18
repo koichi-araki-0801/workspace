@@ -69,6 +69,7 @@ import {
   applyFinalCondenseToFit,
   relaxNameCondense,
   FINAL_CONDENSE_MIN_SCALE,
+  blockedInY,
 } from "./post_layout.js";
 import { buildFontFaceDefs } from "./font.js";
 import {
@@ -461,7 +462,7 @@ function finalizeForScoring(
   applyOutsideLeaderAngularOrder(copy, cfg, coord);
   escapeUpperLeftTinyLeaders(copy, cfg, coord);
   escapeTopBandSeamLeader(copy, cfg, coord);
-  if (leftStackMode) stackTopRightLiftedLabels(copy, cfg);
+  if (leftStackMode) stackTopRightLiftedLabels(copy);
   if (leftStackMode) reorderLeftStackWithCondense(copy, cfg, coord);
   if (leftStackMode) separateLeftColumnByHeight(copy, cfg, coord);
   // repairResidualLeaderDefects は emit 最終段のみで適用する (ここには入れない)。採点へ入れると
@@ -591,40 +592,16 @@ function restoreTwoLineNamePlacement(
  * 見切れの無いチャートは `before.clips === 0` で即 return = baseline byte 不変。
  */
 function applyTwoLineNameFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
-  const { xScale, yScale, width, height } = coord;
-  const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
-  const cxp = xScale(0);
-  const cyp = yScale(0);
-  const pixBox = (p: Placement) => {
-    const lb = placementBox(p, cfg);
-    return {
-      left: Math.min(xScale(lb.left), xScale(lb.right)),
-      right: Math.max(xScale(lb.left), xScale(lb.right)),
-      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
-      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
-    };
-  };
+  const { width, height } = coord;
   // 対象ラベルの viewBox 見切れ量 (px)。4 辺の超過の最大値。
   const clipPx = (p: Placement): number => {
-    const b = pixBox(p);
+    const b = placementPixelRect(p, cfg, coord);
     return Math.max(0, -1 - b.left, b.right - (width + 1), -1 - b.top, b.bottom - (height + 1));
   };
-  const countBoxPie = (): number => {
-    let n = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const b = pixBox(p);
-      const closestX = Math.max(b.left, Math.min(cxp, b.right));
-      const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
-      if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
-    }
-    return n;
-  };
-  const overlapsOf = (d: DefectCounts): number => d.total - d.clips - d.crossings - d.pie;
 
   let before = countDefects(placements, cfg, coord);
   if (before.clips === 0) return;
-  let beforePieBox = countBoxPie();
+  let beforePieBox = countBoxPieIntrusions(placements, cfg, coord);
   for (const p of placements) {
     if (p.insideSlice || p.nameSplit || p.lines.length !== 1) continue;
     const myClipBefore = clipPx(p);
@@ -632,7 +609,7 @@ function applyTwoLineNameFallback(placements: Placement[], cfg: PieLayoutConfig,
     const snap = toTwoLineNamePlacement(p, cfg);
     if (!snap) continue;
     const after = countDefects(placements, cfg, coord);
-    const afterPieBox = countBoxPie();
+    const afterPieBox = countBoxPieIntrusions(placements, cfg, coord);
     // do-no-harm: 対象自身の見切れ px が厳密に減り、全体の他カテゴリ (clips件数/交差/円貫通/重なり/box円侵入)
     // が非悪化。2 行化は名前行のみで箱幅が縮むため自分の左右見切れは減るが、高さ増で別不具合を生むなら revert。
     const adopt =
@@ -667,42 +644,13 @@ function applyTwoLineNameFallback(placements: Placement[], cfg: PieLayoutConfig,
  * チャートは早期 return で完全無変更 (= baseline byte 不変)。
  */
 function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
-  const { xScale, yScale } = coord;
+  const { xScale } = coord;
   const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
-  const cxp = xScale(0);
-  const cyp = yScale(0);
-  const pixBox = (p: Placement) => {
-    const lb = placementBox(p, cfg);
-    return {
-      left: Math.min(xScale(lb.left), xScale(lb.right)),
-      right: Math.max(xScale(lb.left), xScale(lb.right)),
-      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
-      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
-    };
-  };
-  const clipsLeftViewBox = (p: Placement): boolean => pixBox(p).left < -1;
-  const countBoxPie = (): number => {
-    let n = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const b = pixBox(p);
-      const closestX = Math.max(b.left, Math.min(cxp, b.right));
-      const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
-      if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
-    }
-    return n;
-  };
-  const overlapsOf = (d: DefectCounts): number => d.total - d.clips - d.crossings - d.pie;
-  // `post_layout.ts` の同名 (非 export) と同等。符号付き Y 変位方向の可動限界張り付き判定。
-  const blockedInY = (p: Placement, dyDelta: number): boolean => {
-    if (dyDelta > 0 && typeof p.maxTextY === "number" && p.y >= p.maxTextY - 1e-9) return true;
-    if (dyDelta < 0 && typeof p.minTextY === "number" && p.y <= p.minTextY + 1e-9) return true;
-    return false;
-  };
+  const clipsLeftViewBox = (p: Placement): boolean => placementPixelRect(p, cfg, coord).left < -1;
 
   let before = countDefects(placements, cfg, coord);
   if (before.clips === 0) return;
-  let beforePieBox = countBoxPie();
+  let beforePieBox = countBoxPieIntrusions(placements, cfg, coord);
   // `countDefects` は leader×label 貫通を数えない。横優先 L 字の縦 riser が隣ラベル box を貫く退行
   // (例 `pdf_510037_07` オフショア riser が韓国 box を貫通) を防ぐため、別途 through 件数も非悪化で gate する。
   let beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
@@ -773,7 +721,7 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
     }[] = [];
     for (const p of group) {
       if (clipsLeftViewBox(p) && p.lines.length === 1) {
-        const origLeft = pixBox(p).left;
+        const origLeft = placementPixelRect(p, cfg, coord).left;
         const s = toTwoLineNamePlacement(p, cfg);
         if (s) splitSnaps.push({ p, snap: s, origLeft });
       }
@@ -823,7 +771,7 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
       for (const p of moved) p.declipBottomLeader = true;
       repairResidualLeaderDefects(placements, cfg, coord);
       const a = countDefects(placements, cfg, coord);
-      const aPieBox = countBoxPie();
+      const aPieBox = countBoxPieIntrusions(placements, cfg, coord);
       const aThrough = countLeaderThroughLabels(placements, cfg, coord);
       const ok =
         a.clips <= before.clips &&
@@ -849,7 +797,7 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
     // から、移動+spread を do-no-harm ゲート (clips 厳密減) で判定する。
     repairResidualLeaderDefects(placements, cfg, coord);
     const moveAfter = countDefects(placements, cfg, coord);
-    const moveAfterPieBox = countBoxPie();
+    const moveAfterPieBox = countBoxPieIntrusions(placements, cfg, coord);
     const moveAfterThrough = countLeaderThroughLabels(placements, cfg, coord);
     const moveAdopt =
       moveAfter.clips < before.clips &&
@@ -875,9 +823,9 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
       for (const { p } of splitSnaps) applyVisualViewBoxNudge([p], cfg);
       repairResidualLeaderDefects(placements, cfg, coord);
       const splitAfter = countDefects(placements, cfg, coord);
-      const splitAfterPieBox = countBoxPie();
+      const splitAfterPieBox = countBoxPieIntrusions(placements, cfg, coord);
       const splitAfterThrough = countLeaderThroughLabels(placements, cfg, coord);
-      const magnitudeReduced = splitSnaps.every(({ p, origLeft }) => pixBox(p).left > origLeft + 1e-6);
+      const magnitudeReduced = splitSnaps.every(({ p, origLeft }) => placementPixelRect(p, cfg, coord).left > origLeft + 1e-6);
       const splitAdopt =
         magnitudeReduced &&
         splitAfter.clips <= before.clips &&
@@ -922,39 +870,15 @@ function applyVerticalDeclipFallback(placements: Placement[], cfg: PieLayoutConf
  * baseline (rim 2 行) のまま = 回帰なし。
  */
 function applyLowerLeftDropFallback(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): void {
-  const { xScale, yScale, width, height } = coord;
-  const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
-  const cxp = xScale(0);
-  const cyp = yScale(0);
-  const pixBox = (p: Placement) => {
-    const lb = placementBox(p, cfg);
-    return {
-      left: Math.min(xScale(lb.left), xScale(lb.right)),
-      right: Math.max(xScale(lb.left), xScale(lb.right)),
-      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
-      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
-    };
-  };
+  const { width, height } = coord;
   const clipsViewBox = (p: Placement): boolean => {
-    const b = pixBox(p);
+    const b = placementPixelRect(p, cfg, coord);
     return b.left < -1 || b.right > width + 1 || b.top < -1 || b.bottom > height + 1;
   };
-  const countBoxPie = (): number => {
-    let n = 0;
-    for (const p of placements) {
-      if (p.insideSlice) continue;
-      const b = pixBox(p);
-      const closestX = Math.max(b.left, Math.min(cxp, b.right));
-      const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
-      if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
-    }
-    return n;
-  };
-  const overlapsOf = (d: DefectCounts): number => d.total - d.clips - d.crossings - d.pie;
 
   let before = countDefects(placements, cfg, coord);
   if (before.clips === 0) return;
-  let beforePieBox = countBoxPie();
+  let beforePieBox = countBoxPieIntrusions(placements, cfg, coord);
   for (let i = 0; i < placements.length; i += 1) {
     const p = placements[i];
     if (p.insideSlice || !p.item.lowerLeftDropLeader || !clipsViewBox(p)) continue;
@@ -980,7 +904,7 @@ function applyLowerLeftDropFallback(placements: Placement[], cfg: PieLayoutConfi
     applyFinalCondenseToFit([dropP], cfg);
     relaxNameCondense([dropP], cfg);
     const after = countDefects(placements, cfg, coord);
-    const afterPieBox = countBoxPie();
+    const afterPieBox = countBoxPieIntrusions(placements, cfg, coord);
     const adopt =
       after.clips < before.clips &&
       after.crossings <= before.crossings &&
@@ -1224,7 +1148,7 @@ function applyTopBandClusterReorder(placements: Placement[], cfg: PieLayoutConfi
  * 割り当て直す。これで横方向の見た目 (各 anchorX 由来の X) は維持しつつ縦順だけ是正する。
  * `markLeftStackTopBandEscapeRight` が 2 枚立てた leftStackMode 形状で発火。1 枚以下なら無処理。
  */
-function stackTopRightLiftedLabels(placements: Placement[], _cfg: PieLayoutConfig): void {
+function stackTopRightLiftedLabels(placements: Placement[]): void {
   const esc = placements.filter((p) => p.forceTopRight && !p.insideSlice);
   if (esc.length < 2) return;
   // 望ましい縦順: 12時から遠い (|midAngle-90| 大) ほど上段。
@@ -2457,6 +2381,30 @@ function placementPixelRect(p: Placement, cfg: PieLayoutConfig, coord: Coord): P
   };
 }
 
+/** non-clip/crossing/pie の純粋な box 重なり件数 (`countDefects` の分解)。 */
+function overlapsOf(d: DefectCounts): number {
+  return d.total - d.clips - d.crossings - d.pie;
+}
+
+/**
+ * pie 円に侵入している外側ラベル box の件数 (pixel 判定、`pieRpx-2` 余裕)。
+ * 各 fallback の局所 `countBoxPie` を 1 か所へ集約したもの。
+ */
+function countBoxPieIntrusions(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
+  const pieRpx = Math.abs(coord.xScale(cfg.pieRadius) - coord.xScale(0));
+  const cxp = coord.xScale(0);
+  const cyp = coord.yScale(0);
+  let n = 0;
+  for (const p of placements) {
+    if (p.insideSlice) continue;
+    const b = placementPixelRect(p, cfg, coord);
+    const closestX = Math.max(b.left, Math.min(cxp, b.right));
+    const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
+    if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
+  }
+  return n;
+}
+
 /** px 点と矩形の最短距離 (矩形内は 0)。 */
 function pointToRectPx(px: number, py: number, r: PixRect): number {
   const dx = Math.max(r.left - px, 0, px - r.right);
@@ -3599,7 +3547,7 @@ function runLabelCascade(
     applyTopBandClusterReorder(result, cfg);
   }
   if (diagnostics?.leftStackMode) {
-    stackTopRightLiftedLabels(result, cfg);
+    stackTopRightLiftedLabels(result);
     applyLeftStackGapClose(result, cfg);
   }
   if (diagnostics?.twoLineLeftStackMode) {

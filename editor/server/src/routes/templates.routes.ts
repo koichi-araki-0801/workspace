@@ -6,7 +6,7 @@
 import { type DropdownQuery, validation } from '@editor/shared';
 import { Router } from 'express';
 import type { z } from 'zod';
-import { actorFromReq, audit } from '../logger.js';
+import { auditedRethrow } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ConfirmSaveBody, SaveDraftRequest } from '../openapi/schemas.js';
@@ -64,26 +64,20 @@ templatesRouter.get('/templates/:id', requireAuth, async (req, res) => {
 templatesRouter.put('/templates/:id', requireAuth, validate(ConfirmSaveBody), async (req, res) => {
   const body = req.body as z.infer<typeof ConfirmSaveBody>;
   const resource = { id: String(req.params.id), fundCode: body.fundCode };
-  try {
-    const meta = await templates.confirmSave({
-      templateId: String(req.params.id),
-      html: body.html,
-      css: body.css,
-      fundCode: body.fundCode,
-      loginId: actor(req),
-    });
-    audit({ event: 'template.save', outcome: 'success', ...actorFromReq(req), resource });
-    res.json(meta);
-  } catch (e) {
-    audit({
-      event: 'template.save',
-      outcome: 'failure',
-      ...actorFromReq(req),
-      resource,
-      error: e instanceof Error ? e.message : 'save failed',
-    });
-    throw e;
-  }
+  const meta = await auditedRethrow(
+    req,
+    'template.save',
+    () =>
+      templates.confirmSave({
+        templateId: String(req.params.id),
+        html: body.html,
+        css: body.css,
+        fundCode: body.fundCode,
+        loginId: actor(req),
+      }),
+    { success: () => ({ resource }), failure: () => ({ resource }), failureMessage: 'save failed' },
+  );
+  res.json(meta);
 });
 
 templatesRouter.get('/funds/:fundCode/sample-data', requireAuth, async (req, res) => {

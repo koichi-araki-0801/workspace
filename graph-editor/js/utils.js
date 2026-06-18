@@ -30,9 +30,6 @@ function safeGetBBox(el, fallback = { x: 0, y: 0, width: 0, height: 0 }) {
   }
 }
 
-/** トグルボタンの active クラス文字列 ("on" or "") */
-const onClass = (cond) => (cond ? "on" : "");
-
 /** インスペクタの移動量表示 (構築時と読出し更新で同一文字列を使う) */
 const formatCoords = (tx) => `移動量 dx ${tx.x.toFixed(1)} / dy ${tx.y.toFixed(1)} px`;
 
@@ -81,4 +78,4 @@ const STATE_FIELDS = {
   nameScaleX: (v) => v,   // 名前の横圧縮率 (長体)。1=圧縮なし
 };
 
-export { escapeHtml, round, createSvgEl, safeGetBBox, onClass, formatCoords, sanitizeSvg, hasFsAccess, SVG_PICKER_TYPES, STATE_FIELDS };
+export { escapeHtml, round, createSvgEl, safeGetBBox, formatCoords, sanitizeSvg, hasFsAccess, SVG_PICKER_TYPES, STATE_FIELDS };

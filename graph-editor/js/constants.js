@@ -57,8 +57,6 @@ const INSPECTOR_ACTIONS = {
                   run: (e, s) => { s.leaderVisible = false; s._auto = false; } },
   leaderAdd:    { guard: (s) => s.leaderPts.length === 0,
                   run: (e, s) => { s.leaderPts = e.defaultLeaderPts(s); s.leaderVisible = true; s._auto = false; } },
-  leaderDelete: { guard: (s) => s.leaderPts.length,
-                  run: (e, s) => { s.leaderPts = []; s.leaderVisible = false; } },
   bendAdd:      { guard: (s) => s.leaderPts.length === 2,
                   run: (e, s) => {
                     const [a, b] = s.leaderPts;

@@ -62,11 +62,18 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
        offline\setup-offline-local.bat -NoVerify    sha256 / lockfile 整合チェックを省略
 
 2) （任意）動作確認
+       corepack pnpm run ci      ← CI 相当の一括検査（Biome / typecheck /
+                                    coverage / build / E2E をまとめて実行）
+   個別に回す場合:
        corepack pnpm typecheck
        corepack pnpm test
        corepack pnpm test:e2e
        corepack pnpm build
    開発サーバ:  corepack pnpm dev
+
+   ※ pnpm run ci は依存導入済み（本手順 1 完了後）を前提に検査だけを実行します。
+     pnpm install / playwright install は行いません（オフライン構築側で済ませる）。
+     git push 時は .husky/pre-push が自動で pnpm run ci を実行します。
 
 3) 【オンライン側・公開元】リポジトリを Private へ戻す
    手順 0) と同じ Danger Zone から Private に戻してください。

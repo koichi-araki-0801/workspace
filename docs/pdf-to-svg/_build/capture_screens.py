@@ -17,7 +17,9 @@ import tempfile
 import threading
 import time
 
-ROOT = pathlib.Path(r"C:\Users\caads\workspace\pdf-to-svg")
+# リポジトリルートからの相対解決 (このファイルは <repo>/docs/pdf-to-svg/_build/ にある)。
+REPO = pathlib.Path(__file__).resolve().parents[3]
+ROOT = REPO / "pdf-to-svg"
 sys.path.insert(0, str(ROOT / "src"))
 
 from dictionary.store import DictionaryStore  # noqa: E402
@@ -25,7 +27,7 @@ from web.rpc_methods import WebSession  # noqa: E402
 from web.server import create_server  # noqa: E402
 from web.undo_stack import UndoStack  # noqa: E402
 
-OUT = pathlib.Path(r"C:\Users\caads\workspace\docs\pdf-to-svg\images")
+OUT = REPO / "docs" / "pdf-to-svg" / "images"
 OUT.mkdir(parents=True, exist_ok=True)
 SAMPLE = ROOT / "tests" / "fixtures" / "vector_sample.pdf"
 

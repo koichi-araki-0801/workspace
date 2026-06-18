@@ -13,4 +13,6 @@ export interface PartRepository {
   ): Promise<Result<PartClassificationOptions>>;
   listParts(query: PartClassificationQuery): Promise<Result<PartCatalogItem[]>>;
   getPartHistory(templateId: string, partId: string): Promise<Result<PartHistoryEntry[]>>;
+  /** Append one per-part edit-history entry (id/user/timestamp stamped by the impl). */
+  recordPartChange(templateId: string, partId: string, change: string): Promise<Result<void>>;
 }

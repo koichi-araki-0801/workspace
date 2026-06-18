@@ -28,4 +28,12 @@ export const restPartRepo: PartRepository = {
     attemptRest(() =>
       apiFetch<PartHistoryEntry[]>(`/templates/${enc(templateId)}/parts/${enc(partId)}/history`),
     ),
+
+  recordPartChange: (templateId: string, partId: string, change: string) =>
+    attemptRest(() =>
+      apiFetch<void>(`/templates/${enc(templateId)}/parts/${enc(partId)}/history`, {
+        method: 'POST',
+        body: { change },
+      }),
+    ),
 };

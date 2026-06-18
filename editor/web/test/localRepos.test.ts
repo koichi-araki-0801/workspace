@@ -167,4 +167,18 @@ describe('localPartRepo', () => {
     expect(isOk(r)).toBe(true);
     if (isOk(r)) expect(r.value).toEqual([]);
   });
+
+  it('recordPartChange persists an entry that getPartHistory reads back', async () => {
+    const w = await localPartRepo.recordPartChange('T1', 'A', '幅を変更');
+    expect(isOk(w)).toBe(true);
+    const r = await localPartRepo.getPartHistory('T1', 'A');
+    expect(isOk(r)).toBe(true);
+    if (isOk(r)) {
+      expect(r.value).toHaveLength(1);
+      expect(r.value[0]).toMatchObject({ templateId: 'T1', partId: 'A', change: '幅を変更' });
+    }
+    // a different part is unaffected
+    const other = await localPartRepo.getPartHistory('T1', 'B');
+    if (isOk(other)) expect(other.value).toEqual([]);
+  });
 });

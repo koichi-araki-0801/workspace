@@ -128,7 +128,7 @@ export function clampToAnchorSide(p: Placement): void {
  * 動かせない場合 true。maxTextY/minTextY 未設定ならブロックなし。
  * (dyDelta > 0 = 上方向 / canvasYlim 上限 maxTextY 側、dyDelta < 0 = 下方向 minTextY 側)
  */
-function blockedInY(p: Placement, dyDelta: number): boolean {
+export function blockedInY(p: Placement, dyDelta: number): boolean {
   if (dyDelta > 0 && typeof p.maxTextY === "number" && p.y >= p.maxTextY - 1e-9) return true;
   if (dyDelta < 0 && typeof p.minTextY === "number" && p.y <= p.minTextY + 1e-9) return true;
   return false;

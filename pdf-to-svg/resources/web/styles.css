@@ -194,7 +194,7 @@
 .iconbtn svg { width: 18px; height: 18px; }
 .iconbtn:hover { background: var(--sunk); color: var(--ink); }
 
-/* セグメント（選択/クロップ） */
+/* セグメント（選択/範囲削除/枠線） */
 .segment {
   display: inline-flex;
   padding: 3px;

@@ -1,17 +1,14 @@
 /**
  * User aggregate — server (REST) implementation (admin screen). Hash columns
  * are never selected by the 一覧/作成/更新 ops, so they never reach the client.
- * New users / resets get a default initial password and must change it on first
- * login (the sproc sets 要パスワード変更=1).
+ * New users / resets get an initial password equal to the ログインID(ユーザID)
+ * and must change it on first login (the sproc sets 要パスワード変更=1).
  */
 import { randomUUID } from 'node:crypto';
 import { notFound, type User, type UserRole } from '@editor/shared';
 import { hashPassword } from '../auth/password.js';
 import { asBool, asString, callSproc, firstRow, p } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
-
-/** Initial password for freshly created / reset accounts (must be changed). */
-export const INITIAL_PASSWORD = 'init1234';
 
 export function rowToUser(r: Record<string, unknown>): User {
   return {
@@ -31,7 +28,8 @@ export async function listUsers(): Promise<User[]> {
 
 export async function createUser(input: Omit<User, 'id'>): Promise<User> {
   const id = randomUUID();
-  const { hash, salt, iterations } = hashPassword(INITIAL_PASSWORD);
+  // 初期パスワードは ログインID(ユーザID) と同一。初回ログインで変更を強制する。
+  const { hash, salt, iterations } = hashPassword(input.username);
   const row = firstRow(
     await callSproc(SP.user, '作成', [
       p('公開ID', id),
@@ -65,7 +63,10 @@ export async function updateUser(id: string, patch: Partial<Omit<User, 'id'>>): 
 }
 
 export async function resetUserPassword(id: string): Promise<void> {
-  const { hash, salt, iterations } = hashPassword(INITIAL_PASSWORD);
+  // リセット先も初期パスワード = ログインID。公開IDしか持たないので一覧から引く。
+  const user = (await listUsers()).find((u) => u.id === id);
+  if (!user) throw notFound(`ユーザーが見つかりません: ${id}`);
+  const { hash, salt, iterations } = hashPassword(user.username);
   await callSproc(SP.user, 'PWリセット', [
     p('公開ID', id),
     p('PWハッシュ', hash),

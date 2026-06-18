@@ -17,7 +17,6 @@ export default defineConfig({
       // Scope coverage (and its thresholds) to the modules under test. Widen this
       // list as new tests are added so the gate grows with the suite.
       include: [
-        'src/templates/fileIndex.ts',
         'src/generate/pyTemplate.ts',
         'src/middleware/*.ts',
         // vivliostyle pure layers (the cli-backed build.ts / previewServer.ts /
