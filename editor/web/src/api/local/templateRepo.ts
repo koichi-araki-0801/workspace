@@ -39,6 +39,81 @@ import {
   write,
 } from './store';
 
+// --- confirmSave steps (each a single localStorage read+write; the caller runs
+//     them inside one tx() so a mid-way failure rolls every key back) -----------
+
+/** Publish the edited body + per-fund shared CSS overrides. */
+function putContentOverrides(req: ConfirmSaveRequest): void {
+  const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
+  htmlOverride[req.templateId] = req.html;
+  write(K.htmlOverride, htmlOverride);
+  const cssOverride = read<Record<string, string>>(K.cssOverride, {});
+  cssOverride[req.fundCode] = req.css; // per-fund shared CSS
+  write(K.cssOverride, cssOverride);
+}
+
+/** Mark the template published with the current editor + time. */
+function publishMeta(templateId: string, who: string): void {
+  const metaStore = read<Record<string, Partial<TemplateMeta>>>(META_KEY, {});
+  metaStore[templateId] = { status: 'published', updatedAt: now(), updatedBy: who };
+  write(META_KEY, metaStore);
+}
+
+/** Prepend a 確定保存 entry to the edit-history feed (keyed by historyId). */
+function appendEditHistory(
+  req: ConfirmSaveRequest,
+  who: string,
+  historyId: string,
+  timestamp: string,
+): void {
+  const editHist = read<EditHistoryEntry[]>(K.editHist, []);
+  editHist.unshift({
+    id: historyId,
+    templateId: req.templateId,
+    user: who,
+    timestamp,
+    summary: '確定保存',
+  });
+  write(K.editHist, editHist);
+}
+
+/** Freeze the confirmed content so the version can be re-rendered for the visual
+ *  compare screen. Keyed by the edit-history entry id. */
+function freezeSnapshot(req: ConfirmSaveRequest, historyId: string, timestamp: string): void {
+  const snapshots = read<Record<string, TemplateSnapshot>>(K.snapshots, {});
+  snapshots[historyId] = {
+    historyId,
+    templateId: req.templateId,
+    html: req.html,
+    css: req.css,
+    fundCode: req.fundCode,
+    timestamp,
+  };
+  write(K.snapshots, snapshots);
+}
+
+/** Keep the rendered report instance (values filled, no Jinja) alongside the
+ *  template — the concrete document the editor produced. No-op without filledHtml. */
+function putInstance(req: ConfirmSaveRequest, who: string): void {
+  if (req.filledHtml === undefined) return;
+  const instances = read<Record<string, TemplateInstance>>(K.instances, {});
+  instances[req.templateId] = {
+    templateId: req.templateId,
+    html: req.filledHtml,
+    css: req.css,
+    savedAt: now(),
+    savedBy: who,
+  };
+  write(K.instances, instances);
+}
+
+/** Drop the autosaved draft now that it has been confirmed. */
+function clearDraft(templateId: string): void {
+  const drafts = read<Record<string, TemplateDraft>>(K.drafts, {});
+  delete drafts[templateId];
+  write(K.drafts, drafts);
+}
+
 export const localTemplateRepo: TemplateRepository = {
   getDropdownOptions: (query: DropdownQuery) =>
     attempt(() => {
@@ -175,66 +250,16 @@ export const localTemplateRepo: TemplateRepository = {
       tx(
         [K.htmlOverride, K.cssOverride, META_KEY, K.editHist, K.snapshots, K.instances, K.drafts],
         () => {
-          const user = currentUser();
-          const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
-          htmlOverride[req.templateId] = req.html;
-          write(K.htmlOverride, htmlOverride);
-          const cssOverride = read<Record<string, string>>(K.cssOverride, {});
-          cssOverride[req.fundCode] = req.css; // per-fund shared CSS
-          write(K.cssOverride, cssOverride);
-
-          const metaStore = read<Record<string, Partial<TemplateMeta>>>(META_KEY, {});
-          metaStore[req.templateId] = {
-            status: 'published',
-            updatedAt: now(),
-            updatedBy: user?.displayName ?? '不明',
-          };
-          write(META_KEY, metaStore);
-
-          const editHist = read<EditHistoryEntry[]>(K.editHist, []);
+          const who = currentUser()?.displayName ?? '不明';
           const historyId = uid('eh');
-          const timestamp = now();
-          editHist.unshift({
-            id: historyId,
-            templateId: req.templateId,
-            user: user?.displayName ?? '不明',
-            timestamp,
-            summary: '確定保存',
-          });
-          write(K.editHist, editHist);
+          const timestamp = now(); // shared by the edit-history entry and its snapshot
 
-          // Freeze the confirmed content so the version can be re-rendered for the
-          // visual compare screen. Keyed by the edit-history entry id.
-          const snapshots = read<Record<string, TemplateSnapshot>>(K.snapshots, {});
-          snapshots[historyId] = {
-            historyId,
-            templateId: req.templateId,
-            html: req.html,
-            css: req.css,
-            fundCode: req.fundCode,
-            timestamp,
-          };
-          write(K.snapshots, snapshots);
-
-          // Keep the rendered report instance (values filled, no Jinja) alongside
-          // the template. The template (req.html) carries the reflected diff; this
-          // is the concrete document the editor produced.
-          if (req.filledHtml !== undefined) {
-            const instances = read<Record<string, TemplateInstance>>(K.instances, {});
-            instances[req.templateId] = {
-              templateId: req.templateId,
-              html: req.filledHtml,
-              css: req.css,
-              savedAt: now(),
-              savedBy: user?.displayName ?? '不明',
-            };
-            write(K.instances, instances);
-          }
-
-          // clear draft
-          const drafts = read<Record<string, TemplateDraft>>(K.drafts, {});
-          delete drafts[req.templateId];
-          write(K.drafts, drafts);
+          putContentOverrides(req);
+          publishMeta(req.templateId, who);
+          appendEditHistory(req, who, historyId, timestamp);
+          freezeSnapshot(req, historyId, timestamp);
+          putInstance(req, who);
+          clearDraft(req.templateId);
 
           const meta = allMetas().find((m) => m.id === req.templateId);
           if (!meta) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);

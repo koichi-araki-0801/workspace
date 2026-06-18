@@ -114,18 +114,28 @@ function renderSide(
     .join('\n');
 }
 
-function diffPage(index: number, beforePage: HTMLElement[], afterPage: HTMLElement[]): DiffPage {
-  const before = keyedBlocks(beforePage);
-  const after = keyedBlocks(afterPage);
-  const beforeMap = new Map(before.map((b) => [b.key, b.el]));
-  const afterMap = new Map(after.map((b) => [b.key, b.el]));
-
-  // Union of keys: after's order first, then before-only blocks.
-  const keys = [
+/** Union of block keys for a page: after's order first, then before-only blocks. */
+function unionKeys(
+  after: { key: string }[],
+  before: { key: string }[],
+  afterMap: Map<string, HTMLElement>,
+): string[] {
+  return [
     ...after.map((b) => b.key),
     ...before.filter((b) => !afterMap.has(b.key)).map((b) => b.key),
   ];
+}
 
+/**
+ * Classify each aligned key by comparing normalized markup: present on both
+ * (same/changed), after-only (added), or before-only (removed). Returns the
+ * per-key status map (for highlighting) alongside the ordered block list.
+ */
+function classifyBlocks(
+  keys: string[],
+  beforeMap: Map<string, HTMLElement>,
+  afterMap: Map<string, HTMLElement>,
+): { statusOf: Map<string, BlockStatus>; blocks: DiffBlock[] } {
   const statusOf = new Map<string, BlockStatus>();
   const blocks: DiffBlock[] = [];
   for (const key of keys) {
@@ -138,6 +148,20 @@ function diffPage(index: number, beforePage: HTMLElement[], afterPage: HTMLEleme
     statusOf.set(key, status);
     blocks.push({ key, status });
   }
+  return { statusOf, blocks };
+}
+
+function diffPage(index: number, beforePage: HTMLElement[], afterPage: HTMLElement[]): DiffPage {
+  const before = keyedBlocks(beforePage);
+  const after = keyedBlocks(afterPage);
+  const beforeMap = new Map(before.map((b) => [b.key, b.el]));
+  const afterMap = new Map(after.map((b) => [b.key, b.el]));
+
+  const { statusOf, blocks } = classifyBlocks(
+    unionKeys(after, before, afterMap),
+    beforeMap,
+    afterMap,
+  );
 
   const changedBlockCount = blocks.filter((b) => b.status !== 'same').length;
   return {
