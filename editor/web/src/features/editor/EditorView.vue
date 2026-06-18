@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
+import { computed, onBeforeUnmount, onMounted, useTemplateRef } from 'vue';
 import { useRouter } from 'vue-router';
 import EditorTopBar from './EditorTopBar.vue';
-import { clampMarginMm, clampWidthPct, type LayoutGeom, PX_PER_MM, WIDTH_PCT_MAX } from './geom';
 import Inspector from './Inspector.vue';
 import PartToolbar from './PartToolbar.vue';
 import PartTree from './PartTree.vue';
+import { useGeomHandles } from './useGeomHandles';
 import { ZOOM_STEP } from './useGrapes';
 import { useTemplateEditor } from './useTemplateEditor';
 
@@ -50,61 +50,17 @@ const toolbarStyle = computed(() => {
   };
 });
 
-// --- zoom-independent drag handles (width / top-margin / bottom-margin) -------
-// 'width'/'width-left' resize the block width (left side inverts the delta so the
-// handle follows the cursor); 'mt'/'mb' adjust the top/bottom margins.
-type HandleKind = 'width' | 'width-left' | 'mt' | 'mb';
-const activeHandle = ref<HandleKind | null>(null);
-let drag: { kind: HandleKind; x: number; y: number; geom: LayoutGeom; fullW: number } | null = null;
-
-function startHandle(kind: HandleKind, e: MouseEvent) {
-  const g0 = selectedGeom.value;
-  const r = g.selectedRect.value;
-  if (!g0 || !r) return;
-  e.preventDefault();
-  e.stopPropagation();
-  pushUndo(); // one undo step per drag
-  activeHandle.value = kind;
-  drag = { kind, x: e.clientX, y: e.clientY, geom: { ...g0 }, fullW: r.width / (Math.max(g0.widthPct, 1) / 100) };
-  window.addEventListener('mousemove', onHandleMove);
-  window.addEventListener('mouseup', onHandleUp);
-}
-function onHandleMove(e: MouseEvent) {
-  if (!drag) return;
-  const z = g.zoom.value;
-  if (drag.kind === 'width' || drag.kind === 'width-left') {
-    const sign = drag.kind === 'width-left' ? -1 : 1;
-    const dPct = ((e.clientX - drag.x) / drag.fullW) * 100 * sign;
-    const w = Math.round(clampWidthPct(drag.geom.widthPct + dPct));
-    // live apply without recording (history is recorded once on mouseup)
-    applyGeom({ widthPct: w, align: w >= WIDTH_PCT_MAX ? 'stretch' : drag.geom.align === 'stretch' ? 'left' : drag.geom.align }, false);
-  } else {
-    const dmm = Math.round((e.clientY - drag.y) / z / PX_PER_MM);
-    const key = drag.kind === 'mt' ? 'marginTop' : 'marginBottom';
-    applyGeom({ [key]: clampMarginMm(drag.geom[key] + dmm) } as Partial<LayoutGeom>, false);
-  }
-}
-function onHandleUp() {
-  if (drag) recordGeomDiff(drag.geom);
-  drag = null;
-  activeHandle.value = null;
-  window.removeEventListener('mousemove', onHandleMove);
-  window.removeEventListener('mouseup', onHandleUp);
-}
+// Zoom-independent block resize / margin drag handles (see useGeomHandles).
+const { startHandle, dragLabel } = useGeomHandles({
+  selectedGeom,
+  selectedRect: g.selectedRect,
+  zoom: g.zoom,
+  pushUndo,
+  applyGeom,
+  recordGeomDiff,
+});
 
 const rect = computed(() => g.selectedRect.value);
-
-/** Live value bubble shown next to the handle being dragged. */
-const dragLabel = computed(() => {
-  const k = activeHandle.value;
-  const r = rect.value;
-  const gm = selectedGeom.value;
-  if (!k || !r || !gm) return null;
-  if (k === 'mt') return { left: r.left + r.width / 2, top: r.top, text: `上 ${gm.marginTop}mm` };
-  if (k === 'mb') return { left: r.left + r.width / 2, top: r.top + r.height, text: `下 ${gm.marginBottom}mm` };
-  const left = k === 'width-left' ? r.left : r.left + r.width;
-  return { left, top: r.top + r.height / 2, text: `${gm.widthPct}%` };
-});
 
 async function goPreview() {
   await autosave.flush();

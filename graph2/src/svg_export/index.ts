@@ -3016,6 +3016,82 @@ function enforceFinalPieClearance(
   }
 }
 
+/** leader path が pie 円に侵入している本数 (pieRPx-1 余裕)。 */
+function leaderPieCrossCount(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
+  const paths = realLeaderPaths(placements, cfg, coord);
+  const cx = coord.xScale(0);
+  const cy = coord.yScale(0);
+  const pieRPx = Math.abs(coord.xScale(cfg.pieRadius) - coord.xScale(0));
+  let c = 0;
+  for (const path of paths) {
+    if (!path) continue;
+    for (let k = 0; k + 1 < path.length; k += 1) {
+      if (
+        distPointToSegment(cx, cy, path[k].x, path[k].y, path[k + 1].x, path[k + 1].y) <
+        pieRPx - 1
+      ) {
+        c += 1;
+        break;
+      }
+    }
+  }
+  return c;
+}
+
+/**
+ * 不具合 (leader 交差 / 円貫通 / box 貫通 / box の円内侵入) に関与する placement の index を
+ * 決定的順序 (名前順) で列挙する。{order, involved} を返す。
+ */
+function collectDefectInvolved(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+  tol: number,
+): { order: number[]; involved: Set<number> } {
+  const paths = realLeaderPaths(placements, cfg, coord);
+  const boxes = projectBoxesToPixels(placements, cfg, coord);
+  const cx = coord.xScale(0);
+  const cy = coord.yScale(0);
+  const pieRPx = Math.abs(coord.xScale(cfg.pieRadius) - coord.xScale(0));
+  const involved = new Set<number>();
+  for (let i = 0; i < paths.length; i += 1) {
+    const pa = paths[i];
+    if (!pa) continue;
+    for (let j = i + 1; j < paths.length; j += 1) {
+      const pb = paths[j];
+      if (pb && pathsCross(pa, pb)) {
+        involved.add(i);
+        involved.add(j);
+      }
+    }
+    for (let k = 0; k + 1 < pa.length; k += 1) {
+      if (distPointToSegment(cx, cy, pa[k].x, pa[k].y, pa[k + 1].x, pa[k + 1].y) < pieRPx - 1) {
+        involved.add(i);
+        break;
+      }
+    }
+    for (let j = 0; j < placements.length; j += 1) {
+      if (j !== i && leaderCrossesBox(pa, boxes[j])) {
+        involved.add(i);
+        involved.add(j); // 貫通の被害者 (箱側) も対象: 箱の再配置 (rim 再ハグ) で回廊を開けられる
+      }
+    }
+  }
+  // 箱が円に食い込むラベルも対象 (verify "label inside pie")。rim 再ハグ候補で外へ出す。
+  for (let i = 0; i < placements.length; i += 1) {
+    const p = placements[i];
+    if (p.insideSlice) continue;
+    const bx = placementBox(p, cfg);
+    const nx = Math.max(bx.left, Math.min(bx.right, 0));
+    const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
+    if (cfg.pieRadius - Math.hypot(nx, ny) > tol) involved.add(i);
+  }
+  const order = [...involved].sort((a, b) =>
+    placements[a].item.name.localeCompare(placements[b].item.name, "ja"),
+  );
+  return { order, involved };
+}
+
 function repairResidualLeaderDefects(
   placements: Placement[],
   cfg: PieLayoutConfig,
@@ -3025,26 +3101,6 @@ function repairResidualLeaderDefects(
   const tolPx = 2;
   const pxUnit = 1 / cfg.pxPerUnit;
 
-  const countLeaderPie = (): number => {
-    const paths = realLeaderPaths(placements, cfg, coord);
-    const cx = coord.xScale(0);
-    const cy = coord.yScale(0);
-    const pieRPx = Math.abs(coord.xScale(cfg.pieRadius) - coord.xScale(0));
-    let c = 0;
-    for (const path of paths) {
-      if (!path) continue;
-      for (let k = 0; k + 1 < path.length; k += 1) {
-        if (
-          distPointToSegment(cx, cy, path[k].x, path[k].y, path[k + 1].x, path[k + 1].y) <
-          pieRPx - 1
-        ) {
-          c += 1;
-          break;
-        }
-      }
-    }
-    return c;
-  };
   const maxOverlap = (): number => boxOverlapMax(placements, cfg);
   const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
@@ -3066,7 +3122,7 @@ function repairResidualLeaderDefects(
   const maxBoxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
 
   const vecOf = (): Vec => ({
-    crossPie: countLeaderCrossings(placements, cfg, coord) + countLeaderPie(),
+    crossPie: countLeaderCrossings(placements, cfg, coord) + leaderPieCrossCount(placements, cfg, coord),
     through: countLeaderThroughLabels(placements, cfg, coord),
     inv: countAngularDiscordantPairs(placements, cfg, coord),
     clips: countClips(),
@@ -3085,53 +3141,6 @@ function repairResidualLeaderDefects(
     a.oob <= b.oob &&
     a.ovl <= b.ovl + tol &&
     a.view <= b.view + tolPx;
-
-  // 不具合 (leader 交差 / 円貫通 / box 貫通 / box の円内侵入) に関与する placement の index を
-  // 決定的順序 (名前順) で列挙する。{order, involved} を返す。
-  const collectInvolved = (): { order: number[]; involved: Set<number> } => {
-    const paths = realLeaderPaths(placements, cfg, coord);
-    const boxes = projectBoxesToPixels(placements, cfg, coord);
-    const cx = coord.xScale(0);
-    const cy = coord.yScale(0);
-    const pieRPx = Math.abs(coord.xScale(cfg.pieRadius) - coord.xScale(0));
-    const involved = new Set<number>();
-    for (let i = 0; i < paths.length; i += 1) {
-      const pa = paths[i];
-      if (!pa) continue;
-      for (let j = i + 1; j < paths.length; j += 1) {
-        const pb = paths[j];
-        if (pb && pathsCross(pa, pb)) {
-          involved.add(i);
-          involved.add(j);
-        }
-      }
-      for (let k = 0; k + 1 < pa.length; k += 1) {
-        if (distPointToSegment(cx, cy, pa[k].x, pa[k].y, pa[k + 1].x, pa[k + 1].y) < pieRPx - 1) {
-          involved.add(i);
-          break;
-        }
-      }
-      for (let j = 0; j < placements.length; j += 1) {
-        if (j !== i && leaderCrossesBox(pa, boxes[j])) {
-          involved.add(i);
-          involved.add(j); // 貫通の被害者 (箱側) も対象: 箱の再配置 (rim 再ハグ) で回廊を開けられる
-        }
-      }
-    }
-    // 箱が円に食い込むラベルも対象 (verify "label inside pie")。rim 再ハグ候補で外へ出す。
-    for (let i = 0; i < placements.length; i += 1) {
-      const p = placements[i];
-      if (p.insideSlice) continue;
-      const bx = placementBox(p, cfg);
-      const nx = Math.max(bx.left, Math.min(bx.right, 0));
-      const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-      if (cfg.pieRadius - Math.hypot(nx, ny) > tol) involved.add(i);
-    }
-    const order = [...involved].sort((a, b) =>
-      placements[a].item.name.localeCompare(placements[b].item.name, "ja"),
-    );
-    return { order, involved };
-  };
 
   // p の bend を格子から選び直し、cur より良くなる候補があれば適用したまま true を返す。
   // 無ければ元の bend/フラグへ戻して false。 (単独手・複合手の両方から使う)
@@ -3418,7 +3427,7 @@ function repairResidualLeaderDefects(
   for (let iter = 0; iter < 6; iter += 1) {
     const cur = vecOf();
     if (cur.crossPie + cur.through === 0 && cur.boxPie <= tol) return;
-    const { order, involved } = collectInvolved();
+    const { order, involved } = collectDefectInvolved(placements, cfg, coord, tol);
     if (process.env.GRAPH2_DEBUG_REPAIR) {
       console.error(
         `[rebend:iter${iter}] cur={crossPie:${cur.crossPie}, through:${cur.through}, inv:${cur.inv}} involved=[${order.map((i) => placements[i].item.name).join(",")}]`,
