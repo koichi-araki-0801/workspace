@@ -1,16 +1,15 @@
 // PdfToSvg フロントエンド。モックの 4 ステップ状態機械を踏襲しつつ、データ・
 // ページ描画・編集・書き出しを Python バックエンド (window.rpc) に接続する。
+// 状態に依存しない純粋ヘルパは dom.js / geometry.js へ分離（type="module" で読込）。
+import { esc, svg } from "./dom.js";
+import { clientToPage, parseSpec } from "./geometry.js";
+
 (function () {
   "use strict";
 
   var app = document.getElementById("app");
 
   // ---- アイコン ----
-  function svg(p, w, sw) {
-    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' +
-      (sw || 1.7) + '" stroke-linecap="round" stroke-linejoin="round"' +
-      (w ? ' style="width:' + w + 'px;height:' + w + 'px"' : "") + ">" + p + "</svg>";
-  }
   var fileIcon = '<path d="M6 3.5A1.5 1.5 0 0 1 7.5 2h6L19 7.5v13A1.5 1.5 0 0 1 17.5 22h-10A1.5 1.5 0 0 1 6 20.5V3.5Z"/><path d="M13 2v6h6"/>';
   var xIcon = '<path d="m6 6 12 12M18 6 6 18"/>';
   var chevD = '<path d="m10 6 6 6-6 6"/>';
@@ -195,9 +194,6 @@
       });
     });
   }
-  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
-
   // ---- ページ SVG ----
   async function ensureSvg(fi, pi) {
     var k = fi + ":" + pi;
@@ -482,15 +478,6 @@
       box.style.width = (tb.width + 4) + "px"; box.style.height = (tb.height + 4) + "px";
       host.appendChild(box);
     });
-  }
-
-  function clientToPage(svgEl, clientX, clientY) {
-    var r = svgEl.getBoundingClientRect();
-    var vb = svgEl.viewBox.baseVal;
-    return {
-      x: vb.x + (clientX - r.left) / r.width * vb.width,
-      y: vb.y + (clientY - r.top) / r.height * vb.height,
-    };
   }
 
   // 選択モードのクリック結線のみ。SVG は mountPage で毎回差し替わるため漏れない。
@@ -842,20 +829,6 @@
     });
     // 進捗
     window.onProgress(function (msg) { setHint(esc(msg)); });
-  }
-  // "1-5, 8" → [1,2,3,4,5,8]（1始まり・昇順ユニーク・1..max にクランプ）
-  function parseSpec(text, maxPages) {
-    var got = {};
-    String(text || "").split(",").forEach(function (tok) {
-      tok = tok.trim(); if (!tok) return;
-      var m = tok.match(/^(\d+)\s*-\s*(\d+)$/);
-      var a, b;
-      if (m) { a = +m[1]; b = +m[2]; } else if (/^\d+$/.test(tok)) { a = b = +tok; } else return;
-      if (a > b) { var t = a; a = b; b = t; }
-      a = Math.max(1, a); b = Math.min(maxPages, b);
-      for (var n = a; n <= b; n++) got[n] = true;
-    });
-    return Object.keys(got).map(Number).sort(function (x, y) { return x - y; });
   }
 
   // 現在のモードで書き出す [{fileIndex, pageInFile}] を返す
