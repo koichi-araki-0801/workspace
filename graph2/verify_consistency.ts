@@ -13,12 +13,8 @@
 //   実行: npm run verify:consistency
 // =============================================================================
 
-import { resolveInputData, samples as jsSamples } from "./src/data.js";
-import {
-  renderPdfStylePieToSvg,
-  pathsCross,
-  distPointToSegment,
-} from "./src/svg_export/index.js";
+import { resolveInputData, samples as jsSamples } from './src/data.js';
+import { renderPdfStylePieToSvg, pathsCross, distPointToSegment } from './src/svg_export/index.js';
 
 type Pt = { x: number; y: number };
 
@@ -58,7 +54,10 @@ function countParsedPie(leaders: Pt[][], pie: { cx: number; cy: number; r: numbe
   let pieCount = 0;
   for (const pts of leaders) {
     for (let k = 0; k + 1 < pts.length; k += 1) {
-      if (distPointToSegment(pie.cx, pie.cy, pts[k].x, pts[k].y, pts[k + 1].x, pts[k + 1].y) < pie.r - 1) {
+      if (
+        distPointToSegment(pie.cx, pie.cy, pts[k].x, pts[k].y, pts[k + 1].x, pts[k + 1].y) <
+        pie.r - 1
+      ) {
         pieCount += 1;
         break;
       }
@@ -80,9 +79,9 @@ async function main(): Promise<void> {
   let checked = 0;
   let clipsTotal = 0;
 
-  console.log(`\n${"─".repeat(72)}`);
+  console.log(`\n${'─'.repeat(72)}`);
   console.log(`  scorer ↔ emit SVG consistency  (${entries.length} samples)`);
-  console.log(`${"─".repeat(72)}`);
+  console.log(`${'─'.repeat(72)}`);
 
   for (const [name, entry] of entries) {
     const items = resolveInputData({ data: (entry as { items: unknown }).items });
@@ -99,24 +98,24 @@ async function main(): Promise<void> {
     const emittedPie = countParsedPie(leaders, pie);
 
     if (fs.crossings !== emittedCross) {
-      diverges.push({ name, metric: "crossings", internal: fs.crossings, emitted: emittedCross });
+      diverges.push({ name, metric: 'crossings', internal: fs.crossings, emitted: emittedCross });
     }
     if (fs.pie !== emittedPie) {
-      diverges.push({ name, metric: "pie", internal: fs.pie, emitted: emittedPie });
+      diverges.push({ name, metric: 'pie', internal: fs.pie, emitted: emittedPie });
     }
   }
 
   console.log(`  checked: ${checked} samples  (clips 合計 internal=${clipsTotal} は情報のみ)`);
   if (diverges.length === 0) {
     console.log(`  ✓ 採点 (countDefects) と emit SVG の leader 幾何が全サンプルで一致`);
-    console.log(`${"─".repeat(72)}\n`);
+    console.log(`${'─'.repeat(72)}\n`);
     return;
   }
   console.log(`  ✖ DIVERGE ${diverges.length} 件 (採点が実描画と乖離):`);
   for (const d of diverges) {
     console.log(`    [DIVERGE] ${d.name}: ${d.metric} internal=${d.internal} emitted=${d.emitted}`);
   }
-  console.log(`${"─".repeat(72)}\n`);
+  console.log(`${'─'.repeat(72)}\n`);
   process.exit(1);
 }
 

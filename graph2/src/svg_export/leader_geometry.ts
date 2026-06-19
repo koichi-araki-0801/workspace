@@ -18,10 +18,10 @@ import {
   angleInBand,
   normalizeAngle,
   isOtherCategory,
-} from "../svg_geom.js";
-import { topBandSonohokaZone } from "../label_placement.js";
-import type { BBox } from "../svg_geom.js";
-import type { Placement, PieLayoutConfig } from "../types.js";
+} from '../svg_geom.js';
+import { topBandSonohokaZone } from '../label_placement.js';
+import type { BBox } from '../svg_geom.js';
+import type { Placement, PieLayoutConfig } from '../types.js';
 
 // 円外ラベルには常時 leader を描く方針フラグ (ユーザー要望: なるべく leader を使う)。
 // ON のとき: inside(スライス内)ラベルのみ leaderless、円外ラベルは rim 配置でも leader を描き、
@@ -78,7 +78,7 @@ export type Pt = { x: number; y: number };
  */
 function shouldAttachTopCenter(p: Placement, box: BBox): boolean {
   if (p.insideSlice) return false;
-  if (p.anchor === "middle") return false; // 真上/真下の中央寄せは対象外
+  if (p.anchor === 'middle') return false; // 真上/真下の中央寄せは対象外
   // 縦: アンカーが box 上辺より明確に上 (leader がパイから降りてくる)。
   const tau = (box.top - box.bottom) * TOP_CENTER_ANCHOR_MARGIN; // box 高 (y-up で top>bottom) × 係数
   if (p.leaderAnchor.y <= box.top + tau) return false;
@@ -144,7 +144,12 @@ export function computeDrawnLeader(
       if (finalBox.bottom >= capClearY - 1e-9) {
         // 箱が完全に pie キャップより上 (topRightLiftedRimDraft): 通常の rim ラベルと同じく
         // 近い行中央へ短く接続する。水平区間が pie-y > pieRadius を保つためキャップは貫かない。
-        endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
+        endpoint.y = leaderAttachTargetY(
+          finalBox,
+          placement.leaderAnchor,
+          lineCount,
+          perLineHeight,
+        );
       } else {
         // 箱下端が円の y 域に入る旧経路: 水平区間が x=0 をパイ上で跨ぐため box 上端
         // (最大 pie-y) へ接続し、区間を pie-y > pieRadius に保ってキャップ貫通を避ける。
@@ -153,8 +158,8 @@ export function computeDrawnLeader(
     } else if (
       placement.item.lowerLeftDropLeader === true &&
       placement.dominantOutsideEdge &&
-      placement.anchor === "end" &&
-      placement.baseline === "top" &&
+      placement.anchor === 'end' &&
+      placement.baseline === 'top' &&
       (finalBox.top + finalBox.bottom) / 2 < placement.leaderAnchor.y
     ) {
       // オーストラリア型 (lowerLeftDropLeader): 円下のドロップ配置 2 行ラベル。従来は
@@ -168,16 +173,21 @@ export function computeDrawnLeader(
       endpoint.y = finalBox.top + cfg.cornerGap; // 論理 y-up: top の少し上 (box 外)
     } else if (placement.declipBottomLeader) {
       // 縦 spread で動かしたラベル (`applyVerticalDeclipFallback`)。
-      if (
-        placement.leaderAnchor.x > finalBox.right ||
-        placement.leaderAnchor.x < finalBox.left
-      ) {
+      if (placement.leaderAnchor.x > finalBox.right || placement.leaderAnchor.x < finalBox.left) {
         // アンカーが box の真上/真下でなく **横** にあるケース (例 オフショア・人民元: 上左 rim で box の
         // 右辺=アンカー=pie 側)。水平中央へ寄せると L 字の水平区間が box 内へ食い込みラベル文字を貫く。
         // pie 側の縦縁 (近端) の行中央へ rim から **折れ点なしの直線** で接続する (下の bend ロジックで畳む)。
         declipSideAnchor = true;
-        endpoint.x = placement.leaderAnchor.x > (finalBox.left + finalBox.right) / 2 ? finalBox.right : finalBox.left;
-        endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
+        endpoint.x =
+          placement.leaderAnchor.x > (finalBox.left + finalBox.right) / 2
+            ? finalBox.right
+            : finalBox.left;
+        endpoint.y = leaderAttachTargetY(
+          finalBox,
+          placement.leaderAnchor,
+          lineCount,
+          perLineHeight,
+        );
       } else {
         // アンカーが box の真上/真下: 長い斜めリーダーを見やすくするため接続点を **アンカー側の縁の
         // 水平中央** へ寄せる (上記 lowerLeftDrop 分岐のミラー)。アンカーが箱より下 (上へ動かした) なら
@@ -196,7 +206,7 @@ export function computeDrawnLeader(
       // と同じ向き判定)。アンカー x が box 外 (左右ラベル) は近い縦縁で正しく接続するため対象外。
       // anchor="middle" 限定で左右スタック (end/start) を除外。inside/forceTopRight/lowerLeftDrop/
       // declipBottom は先行分岐で捕捉済み。
-      placement.anchor === "middle" &&
+      placement.anchor === 'middle' &&
       placement.leaderAnchor.x > finalBox.left &&
       placement.leaderAnchor.x < finalBox.right
     ) {
@@ -296,10 +306,7 @@ export function computeDrawnLeader(
       const intrudes = (a: Pt, b: Pt): boolean =>
         distPointToSegment(0, 0, a.x, a.y, b.x, b.y) < intrudeR;
       const anchor = placement.leaderAnchor;
-      if (
-        !placement.forceTopRight &&
-        (intrudes(anchor, bend) || intrudes(bend, drawEndpoint))
-      ) {
+      if (!placement.forceTopRight && (intrudes(anchor, bend) || intrudes(bend, drawEndpoint))) {
         const thA = Math.atan2(anchor.y, anchor.x);
         const thE = Math.atan2(endpoint.y, endpoint.x);
         let dTh = thE - thA;
@@ -345,7 +352,8 @@ export function computeDrawnLeader(
         const segLen = Math.hypot(b.x - a.x, b.y - a.y);
         const segMinR = distPointToSegment(0, 0, a.x, a.y, b.x, b.y);
         const onRim = Math.abs(da - cfg.pieRadius) < radialFraction(cfg, 0.02, 0.2);
-        const grazing = segMinR >= intrudeR && segMinR < cfg.pieRadius + radialFraction(cfg, 0.02, 0.2);
+        const grazing =
+          segMinR >= intrudeR && segMinR < cfg.pieRadius + radialFraction(cfg, 0.02, 0.2);
         if (da > 1e-9 && segLen > 1e-9 && onRim && grazing) {
           const dotRadial = Math.abs(((b.x - a.x) * a.x + (b.y - a.y) * a.y) / (segLen * da));
           if (dotRadial < NEAR_TANGENT_DOT_RADIAL_MAX) {
@@ -475,7 +483,8 @@ export function computeDrawnLeader(
   let skipLeader = Boolean(placement.skipLeader);
   if (skipLeader && placement.dominantOutsideEdge) {
     const a = placement.leaderAnchor;
-    if (Math.hypot(endpoint.x - a.x, endpoint.y - a.y) > dominantOutsideLeaderGap) skipLeader = false;
+    if (Math.hypot(endpoint.x - a.x, endpoint.y - a.y) > dominantOutsideLeaderGap)
+      skipLeader = false;
   }
   if (!skipLeader && placement.upperLeftHairpinCheck) {
     const a = placement.leaderAnchor;
@@ -496,7 +505,16 @@ export function computeDrawnLeader(
   if (!skipLeader) {
     const pieClear = cfg.pieRadius - 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
     for (let k = 0; k + 1 < pathPoints.length; k += 1) {
-      if (distPointToSegment(0, 0, pathPoints[k].x, pathPoints[k].y, pathPoints[k + 1].x, pathPoints[k + 1].y) < pieClear) {
+      if (
+        distPointToSegment(
+          0,
+          0,
+          pathPoints[k].x,
+          pathPoints[k].y,
+          pathPoints[k + 1].x,
+          pathPoints[k + 1].y,
+        ) < pieClear
+      ) {
         skipLeader = true;
         break;
       }
@@ -569,7 +587,11 @@ export function isRedundantDominantRimLeader(
  * 短い leader を残す = ラベルが自スライス近傍にあり接続が自明。同長は name で決定的に。
  * entries は pixel 座標の折れ線 (pixPaths) と name を持ち、skip[] を破壊的に更新する。
  */
-export function resolveLeaderCrossings(pixPaths: (Pt[] | null)[], names: string[], skip: boolean[]): void {
+export function resolveLeaderCrossings(
+  pixPaths: (Pt[] | null)[],
+  names: string[],
+  skip: boolean[],
+): void {
   const n = pixPaths.length;
   const lenOf = (pts: Pt[]): number => {
     let s = 0;
@@ -660,7 +682,11 @@ export function realLeaderPaths(
 }
 
 /** 実描画 leader 同士が交差する対の数 (verify の "leader crossing" と同条件・pixel 空間)。 */
-export function countLeaderCrossings(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
+export function countLeaderCrossings(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): number {
   const paths = realLeaderPaths(placements, cfg, coord);
   let c = 0;
   for (let i = 0; i < paths.length; i += 1) {
@@ -738,7 +764,11 @@ export function boxViewOverflowOf(p: Placement, cfg: PieLayoutConfig, coord: Coo
 }
 
 /** 全 placement box の viewBox はみ出し量の最大 (pixel, 0 下限)。 */
-export function boxViewOverflowMax(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
+export function boxViewOverflowMax(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): number {
   let m = 0;
   for (const p of placements) m = Math.max(m, boxViewOverflowOf(p, cfg, coord));
   return Math.max(0, m);
@@ -762,7 +792,11 @@ export function projectBoxesToPixels(
 }
 
 /** いずれかの点が viewBox を 1px 超はみ出す leader の本数 (do-no-harm の oob 指標)。 */
-export function oobLeaderCount(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
+export function oobLeaderCount(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): number {
   const paths = realLeaderPaths(placements, cfg, coord);
   let c = 0;
   for (const pts of paths) {
@@ -794,10 +828,7 @@ export function angularStacks(
     // 左拡張帯 (常に真上垂直 center 固定。アンカー最上・ラベル天井固定で構造的に concordant)、
     // および forceTopRight。帯外 (>122°) で左右スタックに通常 rim 配置された その他 は順序
     // チェックに参加させる (除外すると下位スタックでの逆転が見逃される)。
-    if (
-      isOtherCategory(p.item.name) &&
-      (topBandSonohokaZone(p.item) !== null || p.forceTopRight)
-    ) {
+    if (isOtherCategory(p.item.name) && (topBandSonohokaZone(p.item) !== null || p.forceTopRight)) {
       return;
     }
     const pts = paths[i];

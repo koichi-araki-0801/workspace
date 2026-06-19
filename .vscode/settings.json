@@ -1,0 +1,73 @@
+{
+	// ── 全体既定 ──────────────────────────────────────────────
+	// 保存時整形を有効化。言語ごとの defaultFormatter は下のブロックで上書きする。
+	// Biome を既定フォーマッタに据えるが、Biome が扱えない言語(Python/PowerShell)は
+	// 各言語ブロックで専用フォーマッタへ差し替える。
+	"editor.formatOnSave": true,
+	"editor.defaultFormatter": "biomejs.biome",
+	"editor.codeActionsOnSave": {
+		"source.fixAll.biome": "explicit",
+		"source.organizeImports.biome": "explicit"
+	},
+	"files.eol": "\n",
+	"files.insertFinalNewline": true,
+	"files.trimTrailingWhitespace": true,
+	// 競合する整形系拡張は明示的に無効化(Biome に一本化)。
+	"prettier.enable": false,
+	"eslint.enable": false,
+	// ワークスペース同梱の TypeScript 6.0 を使用する。
+	"typescript.tsdk": "node_modules/typescript/lib",
+	"typescript.enablePromptUseWorkspaceTsdk": true,
+
+	// ── Biome 対象言語 (TS / Vue / JSON / CSS) ────────────────
+	"[typescript]": { "editor.defaultFormatter": "biomejs.biome" },
+	"[typescriptreact]": { "editor.defaultFormatter": "biomejs.biome" },
+	"[javascript]": { "editor.defaultFormatter": "biomejs.biome" },
+	"[vue]": { "editor.defaultFormatter": "biomejs.biome" },
+	"[json]": { "editor.defaultFormatter": "biomejs.biome" },
+	"[jsonc]": { "editor.defaultFormatter": "biomejs.biome" },
+	"[css]": { "editor.defaultFormatter": "biomejs.biome" },
+
+	// ── Python (pdf-to-svg / graph-editor) ────────────────────
+	// Ruff 拡張同梱のフォーマッタを使用(pip 追加不要)。保存時に整形＋import 整理＋fixAll。
+	"[python]": {
+		"editor.defaultFormatter": "charliermarsh.ruff",
+		"editor.codeActionsOnSave": {
+			"source.fixAll.ruff": "explicit",
+			"source.organizeImports.ruff": "explicit"
+		}
+	},
+
+	// ── PowerShell (offline/*.ps1 等) ─────────────────────────
+	// 日本語を含む .ps1 は UTF-8 BOM 必須(cp932 文字化け回避)。EOL は CRLF。
+	"[powershell]": {
+		"editor.defaultFormatter": "ms-vscode.powershell",
+		"files.eol": "\r\n",
+		"files.encoding": "utf8bom"
+	},
+
+	// ── 除外 (ツリー表示 / 検索) ──────────────────────────────
+	"files.exclude": {
+		"**/node_modules": true,
+		"**/.git": true
+	},
+	"search.exclude": {
+		"**/node_modules": true,
+		"**/dist": true,
+		"**/build": true,
+		"**/coverage": true,
+		"**/test-results": true,
+		"**/*.tsbuildinfo": true,
+		"**/out": true,
+		"ms-playwright": true,
+		"**/__pycache__": true,
+		"pnpm-lock.yaml": true
+	},
+	"files.watcherExclude": {
+		"**/node_modules/**": true,
+		"**/dist/**": true,
+		"**/coverage/**": true,
+		"**/out/**": true,
+		"**/test-results/**": true
+	}
+}

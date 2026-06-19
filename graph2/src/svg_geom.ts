@@ -5,8 +5,8 @@
 // 側の責務)。引出線の屈曲点・ラベルの押し出し点・bbox 計算など数学的な操作のみ。
 // =============================================================================
 
-import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from "./types.js";
-import { GLYPH_ADVANCE_BY_WEIGHT } from "./glyph_advance.js";
+import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from './types.js';
+import { GLYPH_ADVANCE_BY_WEIGHT } from './glyph_advance.js';
 
 export interface Point {
   x: number;
@@ -47,7 +47,7 @@ export interface InsideFit {
  */
 export function visualCharEm(ch: string, cfg: PieLayoutConfig): number {
   const c = ch.codePointAt(0)!;
-  const table = GLYPH_ADVANCE_BY_WEIGHT[cfg.fontWeight] ?? GLYPH_ADVANCE_BY_WEIGHT["400"];
+  const table = GLYPH_ADVANCE_BY_WEIGHT[cfg.fontWeight] ?? GLYPH_ADVANCE_BY_WEIGHT['400'];
   const real = table.get(c);
   if (real !== undefined) return real;
   if (c >= 0x4e00 && c <= 0x9fff) return cfg.visualFullwidthEm;
@@ -135,7 +135,7 @@ export function radialFraction(cfg: PieLayoutConfig, min: number, factor: number
 export function arcAngles(values: number[], cfg: PieLayoutConfig): ArcSpan[] {
   const total = values.reduce((sum, value) => sum + Number(value), 0);
   if (total <= 0) {
-    throw new Error("sum(values) must be > 0");
+    throw new Error('sum(values) must be > 0');
   }
   const sign = cfg.counterclock ? 1 : -1;
   let current = degToRad(cfg.startangle);
@@ -160,7 +160,7 @@ export function radToDeg(rad: number): number {
 }
 
 /** スライス名のうち「その他」カテゴリを表す前方一致プレフィックス。 */
-export const OTHER_CATEGORY_PREFIX = "その他";
+export const OTHER_CATEGORY_PREFIX = 'その他';
 
 /**
  * スライス名が「その他」カテゴリか (前方一致) を返す。配置(右上逃がし等)・ソート末尾固定・
@@ -322,10 +322,7 @@ export function projectLeftRingPoint(
   minX: number | null = null,
 ): Point {
   let targetRadius = labelRingRadius(cfg, ringOffset);
-  const clampedY = Math.max(
-    -targetRadius + 1e-4,
-    Math.min(targetRadius - 1e-4, targetY),
-  );
+  const clampedY = Math.max(-targetRadius + 1e-4, Math.min(targetRadius - 1e-4, targetY));
   if (minX !== null) {
     const minRequiredRadius = Math.hypot(Math.min(0, minX), clampedY);
     if (minRequiredRadius > targetRadius) {
@@ -432,11 +429,7 @@ export function leaderBendPoint(
   const verticalSpan = Math.abs(finalY - anchorY);
   const angleRad = degToRad(normalizeAngle(midAngle));
   let tangentLikeAngle =
-    (Math.atan2(
-      Math.abs(Math.cos(angleRad)),
-      Math.max(Math.abs(Math.sin(angleRad)), 1e-6),
-    ) *
-      180) /
+    (Math.atan2(Math.abs(Math.cos(angleRad)), Math.max(Math.abs(Math.sin(angleRad)), 1e-6)) * 180) /
     Math.PI;
   if (bendDir > 0) tangentLikeAngle *= 0.82;
   const targetAngle = Math.max(28, Math.min(68, tangentLikeAngle));
@@ -562,8 +555,8 @@ export interface LabelLines {
 export function getLabelLines(item: LayoutItem, cfg: PieLayoutConfig): LabelLines {
   const isCompact = Boolean(item.compactLabel || cfg.compactLabel);
   const lines = isCompact
-    ? [`${item.name} ${item.percentText ?? ""}`]
-    : [item.name, item.percentText ?? ""];
+    ? [`${item.name} ${item.percentText ?? ''}`]
+    : [item.name, item.percentText ?? ''];
   // 幅は実描画 em(全角1.0/半角・ASCII0.5)で数える(visualMaxEm)。配置・見切れ検出の
   // 唯一の幅源 visualTextWidthUnits と同じ em 基準に揃える。
   const longestUnits = Math.max(visualMaxEm(lines, cfg), 1);
@@ -591,7 +584,7 @@ export function estimateVerifyTextExtent(
  */
 export function estimateTextExtent(item: LayoutItem, cfg: PieLayoutConfig): Extent {
   const { isCompact } = getLabelLines(item, cfg);
-  const lineCount = isCompact ? 1 : item.textLines ?? 2;
+  const lineCount = isCompact ? 1 : (item.textLines ?? 2);
   return estimateVerifyTextExtent(item, cfg, lineCount);
 }
 
@@ -634,8 +627,7 @@ export function fitsInsideSliceExtent(
   // `anchorRadiusOverride` 指定時は重心クランプを使わず、その半径を bisector 方向のアンカーにする。
   // 単独優勢スライス (重心が中心至近で縁を突き抜ける) を外へ押し出して内側に収めるための経路。
   const centroidR = ((2 * R) / 3) * (Math.sin(halfSpan) / halfSpan);
-  const anchorRadius =
-    anchorRadiusOverride ?? Math.max(0.3 * R, Math.min(0.7 * R, centroidR));
+  const anchorRadius = anchorRadiusOverride ?? Math.max(0.3 * R, Math.min(0.7 * R, centroidR));
   const cx = horizontalCenter ? 0 : anchorRadius * Math.cos(midAngleRad);
   const cy = anchorRadius * Math.sin(midAngleRad);
 
@@ -679,10 +671,10 @@ export function textBoxBounds(
 ): BBox {
   let left: number;
   let right: number;
-  if (anchor === "start") {
+  if (anchor === 'start') {
     left = textX;
     right = textX + measured.width;
-  } else if (anchor === "end") {
+  } else if (anchor === 'end') {
     left = textX - measured.width;
     right = textX;
   } else {
@@ -692,10 +684,10 @@ export function textBoxBounds(
 
   let bottom: number;
   let top: number;
-  if (baseline === "bottom") {
+  if (baseline === 'bottom') {
     top = textY;
     bottom = textY - measured.height;
-  } else if (baseline === "top") {
+  } else if (baseline === 'top') {
     bottom = textY;
     top = textY + measured.height;
   } else {
@@ -726,7 +718,7 @@ export function placementExtent(placement: Placement, cfg: PieLayoutConfig): Ext
     };
   }
   const name = placement.item.name;
-  const percent = placement.item.percentText ?? "";
+  const percent = placement.item.percentText ?? '';
   return {
     width: scaledLabelWidthUnits(name, percent, lineCount, sx, cfg),
     height: labelHeightUnits(lineCount, cfg),
@@ -776,7 +768,7 @@ export function segmentsIntersect(
   if (Math.abs(d2) <= tolerance) return false;
   if (Math.abs(d3) <= tolerance) return false;
   if (Math.abs(d4) <= tolerance) return false;
-  return (d1 > 0) !== (d2 > 0) && (d3 > 0) !== (d4 > 0);
+  return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0;
 }
 
 /**
@@ -845,15 +837,15 @@ export function nudgeTextAwayFromEndpoint(
     const insideY = bounds.bottom - padY <= endpointY && endpointY <= bounds.top + padY;
     if (!insideX || !insideY) break;
 
-    if (anchor === "start") {
+    if (anchor === 'start') {
       nextX = Math.max(nextX, endpointX + padX);
-    } else if (anchor === "end") {
+    } else if (anchor === 'end') {
       nextX = Math.min(nextX, endpointX - padX);
     }
 
-    if (baseline === "bottom") {
+    if (baseline === 'bottom') {
       nextY = Math.max(nextY, endpointY + padY);
-    } else if (baseline === "top") {
+    } else if (baseline === 'top') {
       nextY = Math.min(nextY, endpointY - padY);
     } else if (endpointY >= nextY) {
       nextY -= padY;
@@ -913,15 +905,13 @@ export function pieClampXLimits(
   else closestY = Math.abs(boxBottom) < Math.abs(boxTop) ? boxBottom : boxTop;
   if (Math.abs(closestY) >= cfg.pieRadius) return null;
   const pieClearanceLogical = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.012, 0.12));
-  const insidePieR = Math.sqrt(
-    Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY),
-  );
+  const insidePieR = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY));
   let pieMinTextX = insidePieR + pieClearanceLogical;
   let pieMaxTextX = -(insidePieR + pieClearanceLogical);
-  if (anchor === "middle") {
+  if (anchor === 'middle') {
     pieMinTextX += width / 2;
     pieMaxTextX -= width / 2;
-  } else if (anchor === "end") {
+  } else if (anchor === 'end') {
     pieMinTextX += width;
   } else {
     pieMaxTextX -= width;
@@ -998,18 +988,18 @@ export function nudgeTextAwayFromSegment(
 
     const horizontal = Math.abs(end.x - start.x) >= Math.abs(end.y - start.y);
     if (horizontal) {
-      if (baseline === "bottom") {
+      if (baseline === 'bottom') {
         nextY = Math.min(Math.max(nextY, lineBounds.top + padY), textY + padY * 1.4);
-      } else if (baseline === "top") {
+      } else if (baseline === 'top') {
         nextY = Math.max(Math.min(nextY, lineBounds.bottom - padY), textY - padY * 1.4);
       } else if (nextY >= (start.y + end.y) / 2) {
         nextY = Math.min(nextY + padY, textY + padY * 1.4);
       } else {
         nextY = Math.max(nextY - padY, textY - padY * 1.4);
       }
-    } else if (anchor === "start") {
+    } else if (anchor === 'start') {
       nextX = Math.min(Math.max(nextX, lineBounds.right + padX), textX + padX * 1.6);
-    } else if (anchor === "end") {
+    } else if (anchor === 'end') {
       nextX = Math.max(Math.min(nextX, lineBounds.left - padX), textX - padX * 1.6);
     } else if (nextX >= (start.x + end.x) / 2) {
       nextX = Math.min(nextX + padX, textX + padX * 1.6);
@@ -1106,4 +1096,3 @@ export function upperLeftTarget(
   }
   return projectLeftRingPoint(endpointY, cfg, ringOffset);
 }
-

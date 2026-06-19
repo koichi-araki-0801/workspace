@@ -4,7 +4,7 @@
 // フォント差し替え時は `npm run gen:widths` で再生成する。
 export const GLYPH_ADVANCE_BY_WEIGHT: Record<string, ReadonlyMap<number, number>> = {
   // fonts/BIZUDPGothic-Regular.woff2 (unitsPerEm=2048) / 収録数: 1922
-  "400": new Map<number, number>([
+  '400': new Map<number, number>([
     [0x20, 0.3335],
     [0x21, 0.3301],
     [0x22, 0.4702],
@@ -1929,7 +1929,7 @@ export const GLYPH_ADVANCE_BY_WEIGHT: Record<string, ReadonlyMap<number, number>
     [0x2f920, 1],
   ]),
   // fonts/BIZUDPGothic-Bold.woff2 (unitsPerEm=2048) / 収録数: 1890
-  "700": new Map<number, number>([
+  '700': new Map<number, number>([
     [0x20, 0.3335],
     [0x21, 0.3701],
     [0x22, 0.52],

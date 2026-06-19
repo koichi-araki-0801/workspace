@@ -9,8 +9,10 @@
     "ignoreUnknown": true,
     "includes": [
       "editor/**",
+      "graph2/**",
       "!**/dist",
       "!**/coverage",
+      "!**/out",
       "!editor/data",
       "!editor/web/src/api/fixtures",
       "!**/*.tsbuildinfo"
@@ -24,6 +26,7 @@
   },
   "linter": {
     "enabled": true,
+    "includes": ["editor/**"],
     "rules": {
       "recommended": true
     }
@@ -48,6 +51,7 @@
   },
   "assist": {
     "enabled": true,
+    "includes": ["editor/**"],
     "actions": {
       "source": {
         "organizeImports": "on"

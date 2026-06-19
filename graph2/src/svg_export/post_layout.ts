@@ -31,12 +31,12 @@ import {
   placementExtent,
   pieClampXLimits,
   horizontalLabelLimits,
-} from "../svg_geom.js";
-import { layoutLabels } from "../layout.js";
-import { TOP_BAND_HALF_WIDTH_DEG } from "../label_placement.js";
-import type { BBox } from "../svg_geom.js";
-import type { PieLayoutConfig, LayoutItem, Placement } from "../types.js";
-import { detectVisualHorizontalOverflow } from "./rendering.js";
+} from '../svg_geom.js';
+import { layoutLabels } from '../layout.js';
+import { TOP_BAND_HALF_WIDTH_DEG } from '../label_placement.js';
+import type { BBox } from '../svg_geom.js';
+import type { PieLayoutConfig, LayoutItem, Placement } from '../types.js';
+import { detectVisualHorizontalOverflow } from './rendering.js';
 
 // =============================================================================
 // 1. overlap resolution + clamp
@@ -80,28 +80,30 @@ export function clampPlacement(placement: Placement, cfg?: PieLayoutConfig): voi
       // 右側は下限 (floor=pieMinTextX)。pie 限界が viewBox 端制約と衝突する (両立不能) なら
       // viewBox 側を外し、pie 限界を優先して円外へ逃がす。
       if (placement.x < 0) {
-        maxTextX = typeof maxTextX === "number" ? Math.min(maxTextX, pie.pieMaxTextX) : pie.pieMaxTextX;
-        if (typeof minTextX === "number" && typeof maxTextX === "number" && minTextX > maxTextX) {
+        maxTextX =
+          typeof maxTextX === 'number' ? Math.min(maxTextX, pie.pieMaxTextX) : pie.pieMaxTextX;
+        if (typeof minTextX === 'number' && typeof maxTextX === 'number' && minTextX > maxTextX) {
           minTextX = undefined;
         }
       } else {
-        minTextX = typeof minTextX === "number" ? Math.max(minTextX, pie.pieMinTextX) : pie.pieMinTextX;
-        if (typeof maxTextX === "number" && typeof minTextX === "number" && maxTextX < minTextX) {
+        minTextX =
+          typeof minTextX === 'number' ? Math.max(minTextX, pie.pieMinTextX) : pie.pieMinTextX;
+        if (typeof maxTextX === 'number' && typeof minTextX === 'number' && maxTextX < minTextX) {
           maxTextX = undefined;
         }
       }
     }
   }
-  if (typeof maxTextX === "number" && placement.x > maxTextX) {
+  if (typeof maxTextX === 'number' && placement.x > maxTextX) {
     placement.x = maxTextX;
   }
-  if (typeof minTextX === "number" && placement.x < minTextX) {
+  if (typeof minTextX === 'number' && placement.x < minTextX) {
     placement.x = minTextX;
   }
-  if (typeof placement.maxTextY === "number" && placement.y > placement.maxTextY) {
+  if (typeof placement.maxTextY === 'number' && placement.y > placement.maxTextY) {
     placement.y = placement.maxTextY;
   }
-  if (typeof placement.minTextY === "number" && placement.y < placement.minTextY) {
+  if (typeof placement.minTextY === 'number' && placement.y < placement.minTextY) {
     placement.y = placement.minTextY;
   }
 }
@@ -117,7 +119,7 @@ export function clampToAnchorSide(p: Placement): void {
   const ax = p.leaderAnchor?.x;
   const ex = p.leaderEndpoint?.x;
   const ox = p.origTextX;
-  if (typeof ax !== "number" || typeof ex !== "number" || typeof ox !== "number") return;
+  if (typeof ax !== 'number' || typeof ex !== 'number' || typeof ox !== 'number') return;
   const newEx = ex + (p.x - ox);
   if (ax > 0 && newEx < 0) p.x = ox - ex;
   else if (ax < 0 && newEx > 0) p.x = ox - ex;
@@ -129,8 +131,8 @@ export function clampToAnchorSide(p: Placement): void {
  * (dyDelta > 0 = 上方向 / canvasYlim 上限 maxTextY 側、dyDelta < 0 = 下方向 minTextY 側)
  */
 export function blockedInY(p: Placement, dyDelta: number): boolean {
-  if (dyDelta > 0 && typeof p.maxTextY === "number" && p.y >= p.maxTextY - 1e-9) return true;
-  if (dyDelta < 0 && typeof p.minTextY === "number" && p.y <= p.minTextY + 1e-9) return true;
+  if (dyDelta > 0 && typeof p.maxTextY === 'number' && p.y >= p.maxTextY - 1e-9) return true;
+  if (dyDelta < 0 && typeof p.minTextY === 'number' && p.y <= p.minTextY + 1e-9) return true;
   return false;
 }
 
@@ -146,7 +148,7 @@ function settlePinnedClustersDownward(textPlacements: Placement[], cfg: PieLayou
   const margin = 0.5 / (cfg.mmPerUnit * cfg.svgUnitsPerMm); // ≈0.5px の余白
   const anchored = new Set<number>();
   textPlacements.forEach((p, i) => {
-    if (typeof p.maxTextY === "number" && p.y >= p.maxTextY - 1e-9) anchored.add(i);
+    if (typeof p.maxTextY === 'number' && p.y >= p.maxTextY - 1e-9) anchored.add(i);
   });
   if (anchored.size === 0) return;
 
@@ -155,7 +157,10 @@ function settlePinnedClustersDownward(textPlacements: Placement[], cfg: PieLayou
     // box top 降順 (上 → 下) で壁を上から確定させる。
     const order = textPlacements
       .map((_, i) => i)
-      .sort((i, j) => placementBox(textPlacements[j], cfg).top - placementBox(textPlacements[i], cfg).top);
+      .sort(
+        (i, j) =>
+          placementBox(textPlacements[j], cfg).top - placementBox(textPlacements[i], cfg).top,
+      );
     for (const ai of order) {
       if (!anchored.has(ai)) continue; // 固定 or 確定済みの上側ラベルのみ壁にする
       const boxA = placementBox(textPlacements[ai], cfg);
@@ -338,7 +343,10 @@ const LEFT_HORIZON_LONG_COMPACT_REVERT_MIN_ANGLE_DEG = 180 - TOP_BAND_HALF_WIDTH
  * flip 済みが 2 枚で内側に 2 行ぶんの余地が無いとき、両方を 1 行化して上端の重なりを避ける。
  */
 function compactPassTwoFlippedPreCompact(items: LayoutItem[], cfg: PieLayoutConfig): void {
-  const probe = layoutLabels(items.map((it) => ({ ...it })), cfg);
+  const probe = layoutLabels(
+    items.map((it) => ({ ...it })),
+    cfg,
+  );
   const flipped = probe.labels.filter((l: LayoutItem) => l.flipToRight);
   if (flipped.length === 2) {
     const sorted = [...flipped].sort((a: LayoutItem, b: LayoutItem) => a.anchorX! - b.anchorX!);
@@ -367,7 +375,10 @@ function compactPassTwoFlippedPreCompact(items: LayoutItem[], cfg: PieLayoutConf
  * narrow gate (cluster 中心 ±8° + total UL===2) で他ケースへの副作用を防ぐ。
  */
 function compactPassTwoUpperLeftNarrowTopBand(items: LayoutItem[], cfg: PieLayoutConfig): void {
-  const probe = layoutLabels(items.map((it) => ({ ...it })), cfg);
+  const probe = layoutLabels(
+    items.map((it) => ({ ...it })),
+    cfg,
+  );
   const NARROW_TOP_BAND_DEG = 8;
   const topBandUL = probe.labels.filter((l: LayoutItem) => {
     const a = normalizeAngle(l.midAngle!);
@@ -389,7 +400,7 @@ function compactPassForceLowerLeftBand(items: LayoutItem[], cfg: PieLayoutConfig
     const deepLLBoundary = lowerLeftDeepBoundaryY(cfg);
     const lowerLeftSiblings = denseDominantProbe.labels.filter(
       (l: LayoutItem) =>
-        l.side === "left" &&
+        l.side === 'left' &&
         !l.isUpperLeft &&
         !l.flipToRight &&
         l.anchorY! < horizontalAnchorYBound &&
@@ -410,7 +421,7 @@ function compactPassDenseFlipPreCompact(items: LayoutItem[], cfg: PieLayoutConfi
   const denseFlipProbe = layoutLabels(items, cfg);
   const denseUpperLeftCount = denseFlipProbe.labels.filter((l: LayoutItem) => l.isUpperLeft).length;
   if (
-    denseFlipProbe.diagnostics?.modeTags?.includes("upper_left_small_dense") &&
+    denseFlipProbe.diagnostics?.modeTags?.includes('upper_left_small_dense') &&
     !denseFlipProbe.diagnostics.keepUpperLeft2Lines &&
     denseUpperLeftCount >= denseUpperLeftPrecompactThreshold(cfg)
   ) {
@@ -442,18 +453,16 @@ function compactPassCompactifyLoop(items: LayoutItem[], cfg: PieLayoutConfig): v
       if (l.compactLabel) return false;
       if (probe.diagnostics?.keepUpperLeft2Lines) return false;
       if (overflowing && overflowing.name === l.name) return true;
-      const compactLine = `${l.name} ${l.percentText ?? ""}`;
+      const compactLine = `${l.name} ${l.percentText ?? ''}`;
       const compactWidthLogical = visualTextWidthUnits([compactLine], cfg);
       const distanceLogical =
-        l.side === "left"
+        l.side === 'left'
           ? l.anchorX! - cfg.canvasXlim[0] - cfg.scaledRadialExitLen - cfg.cornerGap
           : cfg.canvasXlim[1] - l.anchorX! - cfg.scaledRadialExitLen - cfg.cornerGap;
       return compactWidthLogical <= distanceLogical;
     });
     if (candidates.length === 0) break;
-    const topmost = candidates.reduce((best, cur) =>
-      cur.anchorY > best.anchorY ? cur : best,
-    );
+    const topmost = candidates.reduce((best, cur) => (cur.anchorY > best.anchorY ? cur : best));
     const target = items.find((it) => it.name === topmost.name);
     if (!target || target.compactLabel) break;
     target.compactLabel = true;
@@ -552,7 +561,7 @@ export function applyVisualViewBoxNudge(textPlacements: Placement[], cfg: PieLay
     const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
     const safety = cfg.canvasSafetyMargin;
     const [xlimMin, xlimMax] = horizontalLabelLimits(placement, cfg);
-    if (overflow.side === "left") {
+    if (overflow.side === 'left') {
       let shift = xlimMin + safety - bboxLeft;
       if (shift > 0) {
         if (Math.abs(closestPieY) < cfg.pieRadius) {
@@ -564,7 +573,7 @@ export function applyVisualViewBoxNudge(textPlacements: Placement[], cfg: PieLay
         placement.x += shift;
         clampToAnchorSide(placement);
       }
-    } else if (overflow.side === "right") {
+    } else if (overflow.side === 'right') {
       let shift = bboxRight - (xlimMax - safety);
       if (shift > 0) {
         if (Math.abs(closestPieY) < cfg.pieRadius) {
@@ -661,9 +670,7 @@ export function relaxNameCondense(textPlacements: Placement[], cfg: PieLayoutCon
     const ny = Math.max(b.bottom, Math.min(0, b.top));
     return Math.hypot(nx, ny);
   };
-  const candidates = textPlacements.filter(
-    (p) => !p.insideSlice && (p.nameScaleX ?? 1) < 1 - 1e-9,
-  );
+  const candidates = textPlacements.filter((p) => !p.insideSlice && (p.nameScaleX ?? 1) < 1 - 1e-9);
   if (candidates.length === 0) return;
 
   let progressed = true;
@@ -703,4 +710,3 @@ export function relaxNameCondense(textPlacements: Placement[], cfg: PieLayoutCon
     }
   }
 }
-

@@ -1,0 +1,51 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			// editor/server を tsx で起動(watch 無し→主プロセスに直接アタッチしてブレーク可)。
+			"type": "node",
+			"request": "launch",
+			"name": "server (tsx)",
+			"cwd": "${workspaceFolder}/editor/server",
+			"runtimeExecutable": "pnpm",
+			"runtimeArgs": ["exec", "tsx", "src/app.ts"],
+			"console": "integratedTerminal",
+			"autoAttachChildProcesses": true,
+			"skipFiles": ["<node_internals>/**"]
+		},
+		{
+			// Vite dev サーバ(:5173)へ Edge で接続。事前に `dev` タスクで server+web 起動が必要。
+			"type": "msedge",
+			"request": "launch",
+			"name": "web (Edge :5173)",
+			"url": "http://localhost:5173",
+			"webRoot": "${workspaceFolder}/editor/web/src",
+			"preLaunchTask": "dev (server + web)"
+		},
+		{
+			"type": "node",
+			"request": "launch",
+			"name": "graph2: CLI (tsx)",
+			"cwd": "${workspaceFolder}/graph2",
+			"runtimeExecutable": "pnpm",
+			"runtimeArgs": ["exec", "tsx", "cli.ts"],
+			"console": "integratedTerminal",
+			"skipFiles": ["<node_internals>/**"]
+		},
+		{
+			"type": "debugpy",
+			"request": "launch",
+			"name": "Python: current file",
+			"program": "${file}",
+			"console": "integratedTerminal"
+		},
+		{
+			"type": "debugpy",
+			"request": "launch",
+			"name": "pdf-to-svg: run.py",
+			"program": "${workspaceFolder}/pdf-to-svg/run.py",
+			"cwd": "${workspaceFolder}/pdf-to-svg",
+			"console": "integratedTerminal"
+		}
+	]
+}
