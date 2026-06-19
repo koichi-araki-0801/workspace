@@ -36,6 +36,9 @@ def test_wrapped_header_joined_no_separator(tmp_path):
     assert top.text == "Product"
     assert top.dict_match is not None and top.dict_match.source == "商品名称"
     assert bottom.deleted is True  # 2 行目は描画から除外
+    # 畳み込み後、先頭要素はグループ全体の合成領域へ据え直される (縦の上詰まり防止)。
+    # top bbox=(50,28,20,12) / bottom bbox=(50,40,20,12) → 合成 (50,28,20,24)。
+    assert (top.bbox.x, top.bbox.y, top.bbox.w, top.bbox.h) == (50.0, 28.0, 20.0, 24.0)
     store.close()
 
 
@@ -53,6 +56,9 @@ def test_wrapped_header_joined_with_space(tmp_path):
     rep = plans[0]
     assert rep.element is top and rep.target == "製品名"
     assert rep.extras == [bottom]
+    # 折返しは合成領域 new_bbox を持つ (SVG 出力で縦横中央へ据え直す)。
+    assert rep.new_bbox is not None
+    assert (rep.new_bbox.x, rep.new_bbox.y, rep.new_bbox.w, rep.new_bbox.h) == (50.0, 28.0, 20.0, 24.0)
     store.close()
 
 

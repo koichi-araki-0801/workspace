@@ -94,6 +94,16 @@ def test_plan_page(session):
     assert len(data["changes"]) == 1
     ch = data["changes"][0]
     assert ch["source"] == "Item No." and ch["target"] == "品番" and ch["loc"] == "ヘッダ"
+    # "品番" (推定 24pt) は箱幅 40pt に収まるので幅超過なし
+    assert ch["warning"] is False
+
+
+def test_plan_page_width_warning(session):
+    """置換語が箱幅を超える場合、change に幅超過警告が乗る。"""
+    hdr = session.page(0, 0).elements[0]  # bbox.w=40, font_size=12
+    hdr.text = "品番品番品番"  # 全角 6 字 ≒ 72pt > 40*1.05
+    data = rpc_methods.dispatch(session, "planPage", {"fileIndex": 0, "pageInFile": 0})
+    assert data["changes"][0]["warning"] is True
 
 
 def test_apply_delete_and_removed_list(session):
@@ -189,4 +199,21 @@ def test_reapply_dict(session):
     rpc_methods.dispatch(session, "setOnlyHeaders", {"value": False})
     r = rpc_methods.dispatch(session, "reapplyDict", {})
     assert r["count"] >= 1
+    assert r["warnings"] == 0  # "ボルト" は箱幅に収まる
     assert session.page(0, 0).elements[1].text == "ボルト"
+
+
+def test_reapply_dict_page_scopes_to_one_page(session):
+    """reapplyDictPage は指定ページだけに効き、他ファイル/ページは変えない。"""
+    session.docs.append(_make_doc("図面.pdf"))  # file 1 を追加 (計 2 ファイル)
+    rpc_methods.dispatch(session, "dictAdd", {"source": "A-1042", "target": "ボルト"})
+    rpc_methods.dispatch(session, "setOnlyHeaders", {"value": False})
+
+    r = rpc_methods.dispatch(session, "reapplyDictPage", {"fileIndex": 1, "pageInFile": 0})
+
+    assert r["count"] == 1 and r["warnings"] == 0
+    assert session.page(1, 0).elements[1].text == "ボルト"   # 対象ページは置換
+    assert session.page(0, 0).elements[1].text == "A-1042"  # 他ファイルは不変
+    # undo で対象ページのみ戻る
+    rpc_methods.dispatch(session, "undo", {})
+    assert session.page(1, 0).elements[1].text == "A-1042"

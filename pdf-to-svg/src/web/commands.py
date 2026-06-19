@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from model.document import Page
-from model.elements import DictMatch, Element, TextElement
+from model.elements import DictMatch, Element, Rect, TextElement
 
 
 class DeleteCommand:
@@ -51,19 +51,27 @@ class ReplaceTextCommand:
         el: TextElement,
         new_text: str,
         dict_match: Optional[DictMatch] = None,
+        new_bbox: Optional[Rect] = None,
     ):
         self.label = "テキスト置換"
         self.el = el
         self.new_text = new_text
         self.dict_match = dict_match
+        # 折返し畳み込み時に結合テキストを据え直す合成領域 (`dictionary/apply.py` の
+        # `Replacement.new_bbox`)。None なら bbox は変更しない。
+        self.new_bbox = new_bbox
         self.old_text = el.text
         self.old_match = el.dict_match
+        self.old_bbox = el.bbox
 
     def redo(self) -> None:
         self.el.text = self.new_text
         if self.dict_match is not None:
             self.el.dict_match = self.dict_match
+        if self.new_bbox is not None:
+            self.el.bbox = self.new_bbox
 
     def undo(self) -> None:
         self.el.text = self.old_text
         self.el.dict_match = self.old_match
+        self.el.bbox = self.old_bbox

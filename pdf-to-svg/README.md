@@ -74,9 +74,8 @@ PDF → engine(PyMuPDF抽出 + vector/scan判定) → model(Document/Page/Elemen
 - 主要モジュール: `engine/pdf_engine.py`, `model/elements.py`, `export/svg_exporter.py`,
   `dictionary/apply.py`, `web/server.py`, `web/rpc_methods.py`。
 
-> UI を `resources/web/` から取り込み直す場合は `python tools/extract_mockup.py <モックHTML>` で
-> `styles.css` を再生成する（フォントは UI 用に Windows 標準へ差し替え済み）。
-> `index.html` / `app.js` / `rpc.js` は手書き管理。
+> `resources/web/` の `index.html` / `app.js` / `rpc.js` / `styles.css` は手書き管理
+> （`styles.css` のフォントは UI 用に Windows 標準へ差し替え済み）。
 
 ---
 

@@ -18,10 +18,6 @@ data/
 # テスト用サンプル PDF (conftest が自動生成)
 tests/fixtures/*.pdf
 
-# 作業スクラッチ (Web UI モック取り込み等の中間生成物)
-/ref_*.html
-/ref_*.txt
-
 # OS
 Thumbs.db
 desktop.ini

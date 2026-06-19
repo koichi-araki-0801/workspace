@@ -1,6 +1,20 @@
 """フォント名マッピング (model.fonts) のユニットテスト。Qt 不要。"""
 from model import fonts
-from model.fonts import MappedFont, map_font
+from model.fonts import MappedFont, estimate_text_width, is_width_overflow, map_font
+
+
+def test_estimate_text_width_wide_and_narrow():
+    # 全角は font_size、半角は font_size*0.5 で合算
+    assert estimate_text_width("品番", 12.0) == 24.0
+    assert estimate_text_width("AB", 12.0) == 12.0
+    assert estimate_text_width("A品", 10.0) == 15.0  # 5 + 10
+
+
+def test_is_width_overflow_boundary():
+    # 推定 24pt。許容 1.05 倍まで OK
+    assert is_width_overflow("品番", 12.0, 20.0) is True    # 24 > 21
+    assert is_width_overflow("品番", 12.0, 40.0) is False   # 24 <= 42
+    assert is_width_overflow("品番", 12.0, 0.0) is False     # 箱幅不明は警告しない
 
 
 def test_standard14_mapping():
