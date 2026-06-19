@@ -10,11 +10,11 @@
 // 性質が退行した場合に CI で検知する。
 // =============================================================================
 
-import { describe, expect, it } from "vitest";
-import { resolveInputData, samples } from "../src/data.js";
-import { renderPdfStylePieToSvg } from "../src/svg_export/index.js";
-import { createPieLayoutConfig } from "../src/config.js";
-import { visualCharEm } from "../src/svg_geom.js";
+import { describe, expect, it } from 'vitest';
+import { resolveInputData, samples } from '../src/data.js';
+import { renderPdfStylePieToSvg } from '../src/svg_export/index.js';
+import { createPieLayoutConfig } from '../src/config.js';
+import { visualCharEm } from '../src/svg_geom.js';
 
 interface Pt {
   x: number;
@@ -27,7 +27,7 @@ function parseLeaders(svg: string): { name: string; points: Pt[] }[] {
   const groupRe = /<g class="label"([^>]*)>([\s\S]*?)<\/g>/g;
   let gm: RegExpExecArray | null;
   while ((gm = groupRe.exec(svg)) !== null) {
-    const name = gm[1].match(/\bdata-name="([^"]*)"/)?.[1] ?? "";
+    const name = gm[1].match(/\bdata-name="([^"]*)"/)?.[1] ?? '';
     const leaderM = gm[2].match(/<path d="([^"]+)" fill="none"[^>]*>/);
     if (!leaderM) continue;
     const points: Pt[] = [];
@@ -41,7 +41,7 @@ function parseLeaders(svg: string): { name: string; points: Pt[] }[] {
 
 function parsePie(svg: string): { cx: number; cy: number; r: number } {
   const m = svg.match(/<path d="M([\d.\-]+),([\d.\-]+) L[\d.\-]+,[\d.\-]+ A([\d.\-]+),/);
-  if (!m) throw new Error("pie geometry not found");
+  if (!m) throw new Error('pie geometry not found');
   return { cx: parseFloat(m[1]), cy: parseFloat(m[2]), r: parseFloat(m[3]) };
 }
 
@@ -107,18 +107,22 @@ function pieIntrusions(
 // 末尾 4 件は「その他」右上逃がしの短縮 (topRightLiftedRimDraft) の対象。
 // 短い縦/斜め leader が円を貫かず交差しないことを固定する。
 const REGRESSION_SAMPLES = [
-  "stress_top_cluster_8",
-  "currency_usd_heavy_9",
-  "page16_country_allocation",
-  "currency_gbca_pdf",
-  "currency_many_small_10",
-  "pdf_510037_07_fidelity_foreign_bond_country",
-  "pdf_510037_05_global_reit_idx_country",
-  "pdf_510037_05_global_reit_idx_currency",
-  "pdf_510037_07_fidelity_foreign_bond_currency",
-  "pdf_510037_02_world_bond_idx_currency",
+  'stress_top_cluster_8',
+  'currency_usd_heavy_9',
+  'page16_country_allocation',
+  'currency_gbca_pdf',
+  'currency_many_small_10',
+  'pdf_510037_07_fidelity_foreign_bond_country',
+  'pdf_510037_05_global_reit_idx_country',
+  'pdf_510037_05_global_reit_idx_currency',
+  'pdf_510037_07_fidelity_foreign_bond_currency',
+  'pdf_510037_02_world_bond_idx_currency',
 ] as const;
-const SENTINEL_SAMPLES = ["stress_one_dominant_9", "ten_elements_balanced", "twelve_evenish"] as const;
+const SENTINEL_SAMPLES = [
+  'stress_one_dominant_9',
+  'ten_elements_balanced',
+  'twelve_evenish',
+] as const;
 
 interface TextInfo {
   name: string;
@@ -139,9 +143,9 @@ function parseTexts(svg: string): TextInfo[] {
   const groupRe = /<g class="label"([^>]*)>([\s\S]*?)<\/g>/g;
   let gm: RegExpExecArray | null;
   while ((gm = groupRe.exec(svg)) !== null) {
-    const name = gm[1].match(/\bdata-name="([^"]*)"/)?.[1] ?? "";
-    const nameScaleX = parseFloat(gm[1].match(/\bdata-name-scale-x="([^"]*)"/)?.[1] ?? "1");
-    const lineCount = parseInt(gm[1].match(/\bdata-line-count="(\d+)"/)?.[1] ?? "1", 10);
+    const name = gm[1].match(/\bdata-name="([^"]*)"/)?.[1] ?? '';
+    const nameScaleX = parseFloat(gm[1].match(/\bdata-name-scale-x="([^"]*)"/)?.[1] ?? '1');
+    const lineCount = parseInt(gm[1].match(/\bdata-line-count="(\d+)"/)?.[1] ?? '1', 10);
     const textM = gm[2].match(
       /<text x="([\d.\-]+)" y="([\d.\-]+)" text-anchor="(\w+)" dominant-baseline="([\w-]+)"[^>]*font-size="([\d.]+)"/,
     );
@@ -180,20 +184,20 @@ function textBoxPx(t: TextInfo): { left: number; right: number; top: number; bot
   const sx = t.nameScaleX;
   let totalW: number;
   if (sx >= 1) {
-    const lines = t.lineCount >= 2 ? t.lines : [t.lines.join("")];
+    const lines = t.lineCount >= 2 ? t.lines : [t.lines.join('')];
     totalW = Math.max(...lines.map((s) => visualLineUnits(s))) * charWidth;
   } else {
     // 名前長体: 名前 (tspan[0]) は ×sx、% 部分 (残り tspan) は原寸。
-    const name = t.lines[0] ?? "";
-    const rest = t.lines.slice(1).join("");
+    const name = t.lines[0] ?? '';
+    const rest = t.lines.slice(1).join('');
     totalW =
       t.lineCount >= 2
         ? Math.max(visualLineUnits(name) * sx, visualLineUnits(rest)) * charWidth
         : (visualLineUnits(name) * sx + visualLineUnits(rest)) * charWidth;
   }
-  const left = t.anchor === "start" ? t.x : t.anchor === "end" ? t.x - totalW : t.x - totalW / 2;
+  const left = t.anchor === 'start' ? t.x : t.anchor === 'end' ? t.x - totalW : t.x - totalW / 2;
   // verify_svg と同じく text-after-edge のみ上端を totalH 引き上げ、他 (before-edge / middle) は top=y。
-  const top = t.baseline === "text-after-edge" ? t.y - totalH : t.y;
+  const top = t.baseline === 'text-after-edge' ? t.y - totalH : t.y;
   return { left, right: left + totalW, top, bottom: top + totalH };
 }
 
@@ -229,11 +233,11 @@ function minLeaderGap(leaders: { name: string; points: Pt[] }[]): number {
 function parsePieRobust(svg: string): { cx: number; cy: number; r: number } {
   const vb = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
   const r = svg.match(/[ML][\d.\-]+,[\d.\-]+ A([\d.]+),/);
-  if (!vb || !r) throw new Error("pie geometry not found");
+  if (!vb || !r) throw new Error('pie geometry not found');
   return { cx: parseFloat(vb[1]) / 2, cy: parseFloat(vb[2]) / 2, r: parseFloat(r[1]) };
 }
 
-describe("ラベル box の円内侵入なし (label inside pie / 全サンプル)", () => {
+describe('ラベル box の円内侵入なし (label inside pie / 全サンプル)', () => {
   const allNames = Object.keys(samples);
   it(`全 ${allNames.length} サンプルで text box が pie 円を侵さない`, async () => {
     const offenders: string[] = [];
@@ -253,13 +257,13 @@ describe("ラベル box の円内侵入なし (label inside pie / 全サンプ�
         }
       }
     }
-    expect(offenders, `円内へ侵入したラベル:\n${offenders.join("\n")}`).toEqual([]);
+    expect(offenders, `円内へ侵入したラベル:\n${offenders.join('\n')}`).toEqual([]);
     // 83 サンプルをフルレンダリングする重い集約テスト。CI のカバレッジ計測 (vitest --coverage)
     // 下では既定 5s を超えるため timeout を広げる (検査ロジック・閾値は不変)。
   }, 30_000);
 });
 
-describe("leader 幾何の不変条件 (実レンダリング)", () => {
+describe('leader 幾何の不変条件 (実レンダリング)', () => {
   for (const name of [...REGRESSION_SAMPLES, ...SENTINEL_SAMPLES]) {
     it(`${name}: leader 交差なし・円内貫通なし・曲がり ≤1`, async () => {
       expect(samples[name], `sample "${name}" が samples.json に存在する`).toBeTruthy();
@@ -269,8 +273,8 @@ describe("leader 幾何の不変条件 (実レンダリング)", () => {
       const leaders = parseLeaders(svg);
       const pie = parsePie(svg);
 
-      expect(leaderCrossings(leaders), "leader 同士の交差").toEqual([]);
-      expect(pieIntrusions(leaders, pie), "leader の円内貫通").toEqual([]);
+      expect(leaderCrossings(leaders), 'leader 同士の交差').toEqual([]);
+      expect(pieIntrusions(leaders, pie), 'leader の円内貫通').toEqual([]);
       for (const l of leaders) {
         expect(l.points.length - 2, `"${l.name}" の曲がり回数`).toBeLessThanOrEqual(1);
       }
@@ -282,18 +286,18 @@ describe("leader 幾何の不変条件 (実レンダリング)", () => {
 // 視覚交差、かつアイルランドが viewBox 左へ 12px 見切れていた (untangle の その他 無条件除外が原因)。
 // 現在は その他 が左拡張帯の真上垂直 center 配置 (anchor=middle) になったため、rim スタックの
 // 単調性チェックからは本体 angularStacks と同様に除外する (中央固定配置は y 基準が異なる)。
-describe("fidelity_foreign_bond_country: その他を含む左スタックの角度順と見切れ", () => {
-  it("leader 間隔 ≥2px・左スタック anchorY 単調・横見切れなし", async () => {
-    const name = "pdf_510037_07_fidelity_foreign_bond_country";
+describe('fidelity_foreign_bond_country: その他を含む左スタックの角度順と見切れ', () => {
+  it('leader 間隔 ≥2px・左スタック anchorY 単調・横見切れなし', async () => {
+    const name = 'pdf_510037_07_fidelity_foreign_bond_country';
     const items = resolveInputData({ data: samples[name].items });
     const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
     const leaders = parseLeaders(svg);
     const pie = parsePie(svg);
     const texts = parseTexts(svg);
-    const viewW = parseFloat(svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/)?.[1] ?? "0");
+    const viewW = parseFloat(svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/)?.[1] ?? '0');
 
     // 1. leader 同士の最小距離 (修正前 1.22px の視覚接触 → 余白を要求)
-    expect(minLeaderGap(leaders), "leader 間の最小距離(px)").toBeGreaterThanOrEqual(2);
+    expect(minLeaderGap(leaders), 'leader 間の最小距離(px)').toBeGreaterThanOrEqual(2);
 
     // 2. 左スタック (その他含む) のラベル縦順 == アンカー縦順
     const anchorOf = new Map(
@@ -306,7 +310,7 @@ describe("fidelity_foreign_bond_country: その他を含む左スタックの角
       }),
     );
     const leftStack = texts
-      .filter((t) => !t.inside && t.x < pie.cx && t.anchor !== "middle" && anchorOf.has(t.name))
+      .filter((t) => !t.inside && t.x < pie.cx && t.anchor !== 'middle' && anchorOf.has(t.name))
       .sort((a, b) => a.y - b.y);
     for (let i = 1; i < leftStack.length; i += 1) {
       const prev = anchorOf.get(leftStack[i - 1].name)!;
@@ -327,7 +331,7 @@ describe("fidelity_foreign_bond_country: その他を含む左スタックの角
     for (const t of texts) {
       for (const line of t.lines) {
         const w = lineWidth(t, line);
-        const left = t.anchor === "end" ? t.x - w : t.anchor === "middle" ? t.x - w / 2 : t.x;
+        const left = t.anchor === 'end' ? t.x - w : t.anchor === 'middle' ? t.x - w / 2 : t.x;
         const right = left + w;
         expect(left, `"${t.name}" 行 "${line}" の左端`).toBeGreaterThanOrEqual(-0.5);
         expect(right, `"${t.name}" 行 "${line}" の右端`).toBeLessThanOrEqual(viewW + 0.5);
@@ -339,10 +343,10 @@ describe("fidelity_foreign_bond_country: その他を含む左スタックの角
 // 左拡張帯 (108°,122°] の上部「その他」はスライス中心軸の真上に center 配置し、垂直 leader
 // 1 本で結ぶ (topBandSonohokaZone="leftExt")。修正前は汎用 rim 扱いで左上隅 (右端 x≈118px) へ
 // 押し出され、約 108px の水平 leader が伸びていた。
-describe("左拡張帯の上部その他: スライス中心軸の真上に垂直 leader で center 配置", () => {
+describe('左拡張帯の上部その他: スライス中心軸の真上に垂直 leader で center 配置', () => {
   const EXT_SAMPLES = [
-    "pdf_510037_07_fidelity_foreign_bond_country", // その他 mid≈115.2°
-    "country_europe_heavy_8", // その他 mid≈117.0°
+    'pdf_510037_07_fidelity_foreign_bond_country', // その他 mid≈115.2°
+    'country_europe_heavy_8', // その他 mid≈117.0°
   ] as const;
   for (const name of EXT_SAMPLES) {
     it(`${name}: その他が anchor=middle・中心軸上・垂直 leader`, async () => {
@@ -352,21 +356,20 @@ describe("左拡張帯の上部その他: スライス中心軸の真上に垂�
       const texts = parseTexts(svg);
       const leaders = parseLeaders(svg);
 
-      const sonohoka = texts.find((t) => t.name.startsWith("その他"));
-      expect(sonohoka, "その他ラベルが存在する").toBeTruthy();
-      expect(sonohoka!.anchor, "その他は center 配置").toBe("middle");
+      const sonohoka = texts.find((t) => t.name.startsWith('その他'));
+      expect(sonohoka, 'その他ラベルが存在する').toBeTruthy();
+      expect(sonohoka!.anchor, 'その他は center 配置').toBe('middle');
 
       // text x がスライス中心軸 (アンカー x) 付近: 垂直 leader の両端 x とほぼ一致する。
-      const leader = leaders.find((l) => l.name.startsWith("その他"));
-      expect(leader, "その他に leader が描かれる").toBeTruthy();
+      const leader = leaders.find((l) => l.name.startsWith('その他'));
+      expect(leader, 'その他に leader が描かれる').toBeTruthy();
       const xs = leader!.points.map((p) => p.x);
       const drift = Math.max(...xs) - Math.min(...xs);
-      expect(drift, "leader の水平ドリフト(px)").toBeLessThanOrEqual(2);
-      expect(leader!.points.length - 2, "leader の曲がり回数").toBeLessThanOrEqual(0);
-      expect(
-        Math.abs(sonohoka!.x - xs[0]),
-        "text x とアンカー x の乖離(px)",
-      ).toBeLessThanOrEqual(2);
+      expect(drift, 'leader の水平ドリフト(px)').toBeLessThanOrEqual(2);
+      expect(leader!.points.length - 2, 'leader の曲がり回数').toBeLessThanOrEqual(0);
+      expect(Math.abs(sonohoka!.x - xs[0]), 'text x とアンカー x の乖離(px)').toBeLessThanOrEqual(
+        2,
+      );
       // 中心より左 (midAngle>90°) かつ左隅 (旧 118px) より大きく右にある。
       expect(sonohoka!.x).toBeLessThan(pie.cx);
       expect(sonohoka!.x).toBeGreaterThan(pie.cx - pie.r);
@@ -379,11 +382,11 @@ describe("左拡張帯の上部その他: スライス中心軸の真上に垂�
 // y 域に入り pie クリアランスが textX を右へ大きく押し出して 100〜184px の水平 leader が
 // チャート上部を横断していた。box 下端が pie キャップ (cy - r) より上 (pixel y が小) であること、
 // leader の水平ドリフトが短いことを固定する。
-describe("コア帯の上部その他: pie キャップ上へ持ち上げ短い leader で右上配置", () => {
+describe('コア帯の上部その他: pie キャップ上へ持ち上げ短い leader で右上配置', () => {
   const LIFT_SAMPLES = [
-    "pdf_510037_05_global_reit_idx_country", // その他 7.1%
-    "pdf_510037_05_global_reit_idx_currency", // その他 3.5%
-    "pdf_510037_07_fidelity_foreign_bond_currency", // その他 5.6%
+    'pdf_510037_05_global_reit_idx_country', // その他 7.1%
+    'pdf_510037_05_global_reit_idx_currency', // その他 3.5%
+    'pdf_510037_07_fidelity_foreign_bond_currency', // その他 5.6%
   ] as const;
   for (const name of LIFT_SAMPLES) {
     it(`${name}: その他 box が pie キャップ上・leader 水平ドリフト短い`, async () => {
@@ -393,46 +396,45 @@ describe("コア帯の上部その他: pie キャップ上へ持ち上げ短い 
       const texts = parseTexts(svg);
       const leaders = parseLeaders(svg);
 
-      const sonohoka = texts.find((t) => t.name.startsWith("その他"));
-      expect(sonohoka, "その他ラベルが存在する").toBeTruthy();
+      const sonohoka = texts.find((t) => t.name.startsWith('その他'));
+      expect(sonohoka, 'その他ラベルが存在する').toBeTruthy();
       // 右上逃がし (anchor=start・中心より右) のときだけ lift 不変条件を検査する。
-      if (sonohoka!.anchor === "start" && sonohoka!.x > pie.cx) {
+      if (sonohoka!.anchor === 'start' && sonohoka!.x > pie.cx) {
         const box = textBoxPx(sonohoka!);
         // box 下端 (pixel y 最大) が pie キャップ (cy - r) より上 (= 小さい y)。クリアランス 2px 許容。
-        expect(
-          box.bottom,
-          "その他 box 下端が pie キャップより上 (pixel y)",
-        ).toBeLessThanOrEqual(pie.cy - pie.r + 2);
+        expect(box.bottom, 'その他 box 下端が pie キャップより上 (pixel y)').toBeLessThanOrEqual(
+          pie.cy - pie.r + 2,
+        );
 
         // box が pie キャップ上にあることが本質的不変条件 (上の assert)。leader 水平ドリフトは
         // その帰結なので、チャート上部を横断する旧実装 (最大 ~180px) を捕える緩い上限のみ課す。
-        const leader = leaders.find((l) => l.name.startsWith("その他"));
-        expect(leader, "その他に leader が描かれる").toBeTruthy();
+        const leader = leaders.find((l) => l.name.startsWith('その他'));
+        expect(leader, 'その他に leader が描かれる').toBeTruthy();
         const xs = leader!.points.map((p) => p.x);
         const drift = Math.max(...xs) - Math.min(...xs);
-        expect(drift, "その他 leader の水平ドリフト(px)").toBeLessThan(pie.r);
+        expect(drift, 'その他 leader の水平ドリフト(px)').toBeLessThan(pie.r);
       }
     });
   }
 });
 
-describe("twoLineLeftStackMode: 左多数ラベルを全 2 行で密に縦積み (参考PDF配置)", () => {
+describe('twoLineLeftStackMode: 左多数ラベルを全 2 行で密に縦積み (参考PDF配置)', () => {
   // 左列 (その他除く) に >=6 ラベルが寄る過密チャートで、左列ラベルが全て 2 行を維持し、
   // viewBox 左端を見切れないことを検査する。回帰元: world_bond_idx_country の イギリス が
   // 1 行へ降格して左 19px 見切れ ("ギリス")。applyTwoLineLeftColumn が canvas 全高の密ピッチ列で
   // 全 2 行を収める。短名カタカナ (スペイン/カナダ/イギリス 等) は rim ハグでも見切れない前提。
   const LEFT_COLUMN_NAMES = [
-    "スペイン",
-    "国際機関",
-    "イタリア",
-    "カナダ",
-    "イギリス",
-    "ドイツ",
-    "フランス",
+    'スペイン',
+    '国際機関',
+    'イタリア',
+    'カナダ',
+    'イギリス',
+    'ドイツ',
+    'フランス',
   ];
-  it("world_bond_idx_country: 左列が全 2 行・左端見切れなし・円と隙間ありリーダー可視", async () => {
+  it('world_bond_idx_country: 左列が全 2 行・左端見切れなし・円と隙間ありリーダー可視', async () => {
     const items = resolveInputData({
-      data: samples["pdf_510037_02_world_bond_idx_country"].items,
+      data: samples['pdf_510037_02_world_bond_idx_country'].items,
     });
     const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
     const pie = parsePieRobust(svg);
@@ -457,21 +459,21 @@ describe("twoLineLeftStackMode: 左多数ラベルを全 2 行で密に縦積み
         noGap.push(`${name}@gap${(circleLeftX - box.right).toFixed(0)}`);
       }
     }
-    expect(oneLine, `1 行へ降格した左列ラベル: ${oneLine.join(",")}`).toEqual([]);
-    expect(clipped, `左端を見切れた左列ラベル: ${clipped.join(",")}`).toEqual([]);
-    expect(noGap, `円と隙間が不足する左列ラベル (リーダー不可視): ${noGap.join(",")}`).toEqual([]);
+    expect(oneLine, `1 行へ降格した左列ラベル: ${oneLine.join(',')}`).toEqual([]);
+    expect(clipped, `左端を見切れた左列ラベル: ${clipped.join(',')}`).toEqual([]);
+    expect(noGap, `円と隙間が不足する左列ラベル (リーダー不可視): ${noGap.join(',')}`).toEqual([]);
   });
 });
 
-describe("左列ラベルの縦順序 == スライス角度順 (back-to-back 対の逆転検出)", () => {
+describe('左列ラベルの縦順序 == スライス角度順 (back-to-back 対の逆転検出)', () => {
   // 回帰元: pdf_510037_02_world_bond_idx_country_20240426 で 9 時線近傍の小スライス対
   // イギリス(下スライス)/イタリア(上スライス) が baseline 逆向きの back-to-back 配置となり、
   // 下スライスの イギリス が上に来る逆転が起きていた。verify / 内部指標が縦位置を生の `t.y` で
   // 測っていたため (back-to-back では両者の `t.y` がほぼ同値) 逆転を見逃していた。本テストは
   // ラベル box の **縦中心** 順とアンカー(引出先 rim 点)y 順の一致を検査し、視覚的逆転を捕捉する。
-  it("world_bond_idx_country_20240426: 左列 box 中心順 == アンカー y 順・イタリアがイギリスの上", async () => {
+  it('world_bond_idx_country_20240426: 左列 box 中心順 == アンカー y 順・イタリアがイギリスの上', async () => {
     const items = resolveInputData({
-      data: samples["pdf_510037_02_world_bond_idx_country_20240426"].items,
+      data: samples['pdf_510037_02_world_bond_idx_country_20240426'].items,
     });
     const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
     const pie = parsePieRobust(svg);
@@ -492,7 +494,12 @@ describe("左列ラベルの縦順序 == スライス角度順 (back-to-back 対
       .filter((t) => !t.inside)
       .map((t) => {
         const b = textBoxPx(t);
-        return { name: t.name, cx: (b.left + b.right) / 2, cy: (b.top + b.bottom) / 2, anchorY: anchorYOf(t.name) };
+        return {
+          name: t.name,
+          cx: (b.left + b.right) / 2,
+          cy: (b.top + b.bottom) / 2,
+          anchorY: anchorYOf(t.name),
+        };
       })
       .filter((e) => e.cx < pie.cx && e.anchorY !== null)
       .sort((a, b) => a.cy - b.cy);
@@ -504,16 +511,16 @@ describe("左列ラベルの縦順序 == スライス角度順 (back-to-back 対
         inversions.push(`"${left[i - 1].name}" が "${left[i].name}" の上 (アンカー逆転)`);
       }
     }
-    expect(inversions, `左列の角度順逆転:\n${inversions.join("\n")}`).toEqual([]);
+    expect(inversions, `左列の角度順逆転:\n${inversions.join('\n')}`).toEqual([]);
 
     // 当該対を明示検査: イタリア(上スライス) は イギリス(下スライス) より上 (box 中心が小)。
-    const it = left.find((e) => e.name === "イタリア");
-    const uk = left.find((e) => e.name === "イギリス");
-    expect(it, "イタリア ラベルが左列に存在する").toBeTruthy();
-    expect(uk, "イギリス ラベルが左列に存在する").toBeTruthy();
+    const it = left.find((e) => e.name === 'イタリア');
+    const uk = left.find((e) => e.name === 'イギリス');
+    expect(it, 'イタリア ラベルが左列に存在する').toBeTruthy();
+    expect(uk, 'イギリス ラベルが左列に存在する').toBeTruthy();
     expect(
       (it as { cy: number }).cy,
-      "イタリアの box 中心が イギリスより上 (cy が小さい)",
+      'イタリアの box 中心が イギリスより上 (cy が小さい)',
     ).toBeLessThan((uk as { cy: number }).cy);
   });
 });
@@ -522,7 +529,7 @@ describe("左列ラベルの縦順序 == スライス角度順 (back-to-back 対
 // は j===i (自ラベル) をスキップするため自貫通を検出できず、中央寄せラベル (アンカー x が box 水平
 // 範囲内) で起きる「真下中央 (中国 10.6%) / 真上中央 (ケイマン諸島 1.5%)」の文字食い込みを取りこぼす。
 // `leader_geometry.ts` の computeDrawnLeader が接続点を pie 側の上下縁中央へ寄せて防ぐのを固定する。
-describe("引出線が自ラベル box を貫通しない (self-penetration)", () => {
+describe('引出線が自ラベル box を貫通しない (self-penetration)', () => {
   // verify_svg.ts segIntersectsBox と同条件 (両端 box 内=接続点が縁の通常形 → 非貫通)。
   const segIntersectsBox = (
     p1: Pt,
@@ -548,8 +555,8 @@ describe("引出線が自ラベル box を貫通しない (self-penetration)", (
   // 回帰元: pdf_510037_01 の ケイマン諸島 1.5% (真上中央) が L 字 leader で box 中央まで伸び文字貫通。
   // world_bond_idx_country_20240426 の 中国 (真下中央) は先行 fix の対象。両者とも自貫通 0 を固定する。
   const SELF_PEN_SAMPLES = [
-    "pdf_510037_01_fund_country_20240710",
-    "pdf_510037_02_world_bond_idx_country_20240426",
+    'pdf_510037_01_fund_country_20240710',
+    'pdf_510037_02_world_bond_idx_country_20240426',
   ] as const;
   for (const name of SELF_PEN_SAMPLES) {
     it(`${name}: どの leader も自分の label box を貫通しない`, async () => {
@@ -570,7 +577,7 @@ describe("引出線が自ラベル box を貫通しない (self-penetration)", (
           }
         }
       }
-      expect(offenders, `自ラベルを貫通した leader: ${offenders.join(",")}`).toEqual([]);
+      expect(offenders, `自ラベルを貫通した leader: ${offenders.join(',')}`).toEqual([]);
     });
   }
 });

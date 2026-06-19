@@ -1,1 +1,19 @@
-*.bat text eol=crlf
+# ── 改行コード方針 ──────────────────────────────────────────────
+# Biome は LF を強制する。core.autocrlf=true 環境でも fresh checkout で CRLF 化させないため、
+# Biome が整形/検査するソース拡張子(editor/** ＋ graph2/** ＋ root の biome.json 等)を eol=lf に固定する。
+# これを欠くと autocrlf により作業ツリーが CRLF になり、`biome ci .`(pre-push)が format 違反で落ちる。
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.cjs   text eol=lf
+*.mjs   text eol=lf
+*.jsx   text eol=lf
+*.vue   text eol=lf
+*.json  text eol=lf
+*.jsonc text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+
+# Windows 用スクリプトは CRLF を維持(cmd 互換)。.ps1 は UTF-8 BOM 運用(CLAUDE.md 参照)。
+*.bat   text eol=crlf
+*.ps1   text eol=crlf

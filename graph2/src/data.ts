@@ -10,9 +10,9 @@
 // 場合は resolveInputDataAsync を使う。
 // =============================================================================
 
-import samplesData from "../samples.json" with { type: "json" };
-import { loadXlsxItems } from "./xlsx_loader.js";
-import type { Item, Samples } from "./types.js";
+import samplesData from '../samples.json' with { type: 'json' };
+import { loadXlsxItems } from './xlsx_loader.js';
+import type { Item, Samples } from './types.js';
 
 const samples = samplesData as unknown as Samples;
 export { samples };
@@ -29,10 +29,10 @@ export interface ResolveSyncOpts {
  * 確定する。
  */
 export type ResolveAsyncOpts =
-  | { kind: "sample"; sample: string }
-  | { kind: "data"; data: unknown[] }
-  | { kind: "dataJson"; dataJson: string }
-  | { kind: "xlsx"; xlsx: string; sheet: string; range: string };
+  | { kind: 'sample'; sample: string }
+  | { kind: 'data'; data: unknown[] }
+  | { kind: 'dataJson'; dataJson: string }
+  | { kind: 'xlsx'; xlsx: string; sheet: string; range: string };
 
 /**
  * 任意形式の項目リストを {name, value} 配列に正規化する。
@@ -40,17 +40,17 @@ export type ResolveAsyncOpts =
  */
 export function normalizeInputItems(rawItems: unknown): Item[] {
   if (!Array.isArray(rawItems)) {
-    throw new Error("Input data must be an array.");
+    throw new Error('Input data must be an array.');
   }
   return rawItems.map((item: unknown): Item => {
     if (Array.isArray(item) && item.length >= 2) {
       return { name: String(item[0]), value: Number(item[1]) };
     }
-    if (typeof item === "object" && item !== null && "name" in item && "value" in item) {
+    if (typeof item === 'object' && item !== null && 'name' in item && 'value' in item) {
       const obj = item as { name: unknown; value: unknown };
       return { name: String(obj.name), value: Number(obj.value) };
     }
-    throw new Error("Each item must be {name, value} or [name, value].");
+    throw new Error('Each item must be {name, value} or [name, value].');
   });
 }
 
@@ -71,7 +71,7 @@ export function resolveInputData({ sample, data, dataJson }: ResolveSyncOpts): I
   if (dataJson) {
     return normalizeInputItems(JSON.parse(dataJson));
   }
-  throw new Error("Provide one of: sample, data, dataJson.");
+  throw new Error('Provide one of: sample, data, dataJson.');
 }
 
 /**
@@ -80,7 +80,7 @@ export function resolveInputData({ sample, data, dataJson }: ResolveSyncOpts): I
  */
 export async function resolveInputDataAsync(opts: ResolveAsyncOpts): Promise<Item[]> {
   switch (opts.kind) {
-    case "xlsx": {
+    case 'xlsx': {
       const raw = await loadXlsxItems({
         path: opts.xlsx,
         sheet: opts.sheet,
@@ -88,11 +88,11 @@ export async function resolveInputDataAsync(opts: ResolveAsyncOpts): Promise<Ite
       });
       return normalizeInputItems(raw);
     }
-    case "sample":
+    case 'sample':
       return resolveInputData({ sample: opts.sample });
-    case "data":
+    case 'data':
       return resolveInputData({ data: opts.data });
-    case "dataJson":
+    case 'dataJson':
       return resolveInputData({ dataJson: opts.dataJson });
   }
 }

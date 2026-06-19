@@ -17,8 +17,8 @@ import {
   textBoxBounds,
   visualMaxEm,
   visualTextWidthUnits,
-} from "../svg_geom.js";
-import type { PieLayoutConfig, Scale, Placement, LayoutItem } from "../types.js";
+} from '../svg_geom.js';
+import type { PieLayoutConfig, Scale, Placement, LayoutItem } from '../types.js';
 
 // =============================================================================
 // 1. coordinate system
@@ -88,8 +88,8 @@ export function buildSlicePath(
       `M${xScale(start.x)},${yScale(start.y)}`,
       `A${r},${r} 0 1 ${sweepFlag} ${xScale(mid.x)},${yScale(mid.y)}`,
       `A${r},${r} 0 1 ${sweepFlag} ${xScale(start.x)},${yScale(start.y)}`,
-      "Z",
-    ].join(" ");
+      'Z',
+    ].join(' ');
   }
   const largeArcFlag = Math.abs(endAngle - startAngle) > Math.PI ? 1 : 0;
   const end = polarToCartesian(radius, endAngle);
@@ -97,8 +97,8 @@ export function buildSlicePath(
     `M${xScale(0)},${yScale(0)}`,
     `L${xScale(start.x)},${yScale(start.y)}`,
     `A${r},${r} 0 ${largeArcFlag} ${sweepFlag} ${xScale(end.x)},${yScale(end.y)}`,
-    "Z",
-  ].join(" ");
+    'Z',
+  ].join(' ');
 }
 
 /** computeArcs の戻り値: LayoutItem に弧の開始/終了角 (rad) を付与したもの。 */
@@ -124,11 +124,11 @@ export function computeArcs(items: LayoutItem[], cfg: PieLayoutConfig): Arc[] {
 /** SVG 属性に安全に埋め込めるよう XML 特殊文字をエスケープ。 */
 export function escapeXml(value: unknown): string {
   return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
 }
 
 /**
@@ -160,17 +160,17 @@ export function textFragment(
   condense?: CondenseSpec,
 ): string {
   const baseline =
-    options.baseline === "bottom"
-      ? "text-before-edge"
-      : options.baseline === "top"
-        ? "text-after-edge"
-        : "middle";
+    options.baseline === 'bottom'
+      ? 'text-before-edge'
+      : options.baseline === 'top'
+        ? 'text-after-edge'
+        : 'middle';
   const n = lines.length;
-  let firstDy = "0em";
+  let firstDy = '0em';
   if (n > 1) {
-    if (options.baseline === "top") {
+    if (options.baseline === 'top') {
       firstDy = `${-(n - 1) * cfg.lineSpacing}em`;
-    } else if (options.baseline !== "bottom") {
+    } else if (options.baseline !== 'bottom') {
       firstDy = `${(-(n - 1) * cfg.lineSpacing) / 2}em`;
     }
   }
@@ -181,7 +181,7 @@ export function textFragment(
   const strokeAttr =
     cfg.textWeightStrokeRatio > 0
       ? ` stroke="${cfg.textColor}" stroke-width="${(cfg.fontSizeUnits * cfg.textWeightStrokeRatio).toFixed(4)}" paint-order="stroke" stroke-linejoin="round"`
-      : "";
+      : '';
   const open = `<text x="${xScale(x)}" y="${yScale(y)}" text-anchor="${options.anchor}" dominant-baseline="${baseline}" font-size="${cfg.fontSizeUnits}" font-family="${escapeXml(cfg.fontFamily)}" font-weight="${cfg.fontWeight}" fill="${cfg.textColor}"${strokeAttr} text-rendering="geometricPrecision">`;
   if (!condense || sx >= 1) {
     const tspans = lines
@@ -189,7 +189,7 @@ export function textFragment(
         (line, index) =>
           `<tspan x="${xScale(x)}" dy="${index === 0 ? firstDy : `${cfg.lineSpacing}em`}">${escapeXml(line)}</tspan>`,
       )
-      .join("");
+      .join('');
     return `${open}${tspans}</text>`;
   }
   // 名前のみ横圧縮: 名前の原寸送り幅(px) = visualMaxEm([name]) × fontSizeUnits。目標 = ×sx。
@@ -207,7 +207,7 @@ export function textFragment(
     const rest = lines
       .slice(1)
       .map((line) => `<tspan x="${px}" dy="${cfg.lineSpacing}em">${escapeXml(line)}</tspan>`)
-      .join("");
+      .join('');
     tspans = nameTspanTwo + rest;
   } else {
     // 1 行: 名前(圧縮) + 残り(x/dy 無しで同一行に流す)
@@ -229,7 +229,7 @@ export function textFragment(
 export function detectVisualHorizontalOverflow(
   placement: Placement,
   cfg: PieLayoutConfig,
-): { overflow: boolean; side: "left" | "right" | null } {
+): { overflow: boolean; side: 'left' | 'right' | null } {
   const lines = placement.lines;
   const widthLogical = visualTextWidthUnits(lines, cfg);
   const { left: bboxLeft, right: bboxRight } = textBoxBounds(
@@ -241,7 +241,7 @@ export function detectVisualHorizontalOverflow(
   );
   const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9);
   const [xmin, xmax] = horizontalLabelLimits(placement, cfg);
-  if (bboxRight > xmax + tol) return { overflow: true, side: "right" };
-  if (bboxLeft < xmin - tol) return { overflow: true, side: "left" };
+  if (bboxRight > xmax + tol) return { overflow: true, side: 'right' };
+  if (bboxLeft < xmin - tol) return { overflow: true, side: 'left' };
   return { overflow: false, side: null };
 }

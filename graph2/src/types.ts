@@ -30,7 +30,7 @@ export interface LayoutItem {
 
   // 角度・分類 (buildProfiles)
   midAngle?: number;
-  side?: "left" | "right";
+  side?: 'left' | 'right';
   isSmall?: boolean;
   isTiny?: boolean;
   isTop?: boolean;
@@ -221,8 +221,8 @@ export interface LayoutResult {
 export interface Placement {
   x: number;
   y: number;
-  anchor: "start" | "middle" | "end";
-  baseline: "top" | "bottom" | "middle";
+  anchor: 'start' | 'middle' | 'end';
+  baseline: 'top' | 'bottom' | 'middle';
   lines: string[];
   item: LayoutItem;
   measured?: { width: number; height: number };

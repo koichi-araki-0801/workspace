@@ -35,9 +35,9 @@ import {
   labelHeightUnits,
   textBoxBounds,
   isOtherCategory,
-} from "./svg_geom.js";
-import type { PieLayoutConfig, Scale, LayoutItemReady, Placement } from "./types.js";
-import type { Point, InsideFit, Extent } from "./svg_geom.js";
+} from './svg_geom.js';
+import type { PieLayoutConfig, Scale, LayoutItemReady, Placement } from './types.js';
+import type { Point, InsideFit, Extent } from './svg_geom.js';
 
 // =============================================================================
 // 0. 内部型 — draft (配置中間表現)
@@ -52,8 +52,8 @@ interface PlacementDraft {
   fragments: string[];
   textX: number;
   textY: number;
-  anchor: "start" | "middle" | "end";
-  baseline: "top" | "bottom" | "middle";
+  anchor: 'start' | 'middle' | 'end';
+  baseline: 'top' | 'bottom' | 'middle';
   lineEndX: number;
   lineEndY: number;
   lineStart: Point;
@@ -94,7 +94,7 @@ export const BOTTOM_BAND_HALF_WIDTH_DEG = 18;
 export const TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG = 32;
 
 /** 上部「その他」の帯ゾーン。core=12時バンド内 / leftExt=左拡張帯 / null=対象外。 */
-export type TopBandSonohokaZone = "core" | "leftExt" | null;
+export type TopBandSonohokaZone = 'core' | 'leftExt' | null;
 
 /**
  * name が「その他」前方一致のラベルについて、midAngle がどの上部帯に入るかを返す。
@@ -107,13 +107,13 @@ export function topBandSonohokaZone(item: {
 }): TopBandSonohokaZone {
   if (!isOtherCategory(item.name)) return null;
   const norm = normalizeAngle(item.midAngle ?? 0);
-  if (angleInBand(norm, 90, TOP_BAND_HALF_WIDTH_DEG)) return "core";
+  if (angleInBand(norm, 90, TOP_BAND_HALF_WIDTH_DEG)) return 'core';
   // 左拡張帯は wrap (0°/360°) を跨がないので素の比較で安全。
   if (
     norm > 90 + TOP_BAND_HALF_WIDTH_DEG &&
     norm <= 90 + TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG
   ) {
-    return "leftExt";
+    return 'leftExt';
   }
   return null;
 }
@@ -160,8 +160,8 @@ export const DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD = 0.15;
 /** 論理座標の点列を SVG path の M/L 命令列に変換 */
 function pointPath(xScale: Scale, yScale: Scale, points: Point[]): string {
   return points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${xScale(point.x)},${yScale(point.y)}`)
-    .join(" ");
+    .map((point, index) => `${index === 0 ? 'M' : 'L'}${xScale(point.x)},${yScale(point.y)}`)
+    .join(' ');
 }
 
 /** 引出線 (細い線) 1 本ぶんの SVG 断片を返す */
@@ -173,7 +173,6 @@ export function leaderPath(
 ): string {
   return `<path d="${pointPath(xScale, yScale, points)}" fill="none" stroke="${cfg.lineColor}" stroke-width="${cfg.leaderStrokeUnits}" stroke-linecap="round" stroke-linejoin="round" />`;
 }
-
 
 // =============================================================================
 // 3. 統一カスケード — form / draft ビルダ / finalizePlacement
@@ -211,7 +210,7 @@ function buildForm(
   inside: boolean,
 ): LabelForm {
   const name = item.name;
-  const percent = item.percentText ?? "";
+  const percent = item.percentText ?? '';
   const lines = lineCount === 2 ? [name, percent] : [`${name} ${percent}`];
   return {
     rank,
@@ -311,8 +310,8 @@ export function buildInsideDraft(form: LabelForm, fit: InsideFit): PlacementDraf
     fragments: [],
     textX: cx,
     textY: cy,
-    anchor: "middle",
-    baseline: "middle",
+    anchor: 'middle',
+    baseline: 'middle',
     lineEndX: cx,
     lineEndY: cy,
     lineStart: { x: cx, y: cy },
@@ -351,15 +350,15 @@ function topBandSonohokaRight(
   if (!zone) return null;
   const anchorX = item.anchorX;
   const anchorY = item.anchorY;
-  if (zone === "leftExt" || item.topRightRejected) {
+  if (zone === 'leftExt' || item.topRightRejected) {
     // 左 fallback: 真上垂直 leader + viewBox 上端寄り center 配置
     const labelY = cfg.scaledYTop - radialFraction(cfg, 0.02, 0.2);
     return {
       fragments: [],
       textX: anchorX,
       textY: labelY,
-      anchor: "middle",
-      baseline: "top",
+      anchor: 'middle',
+      baseline: 'top',
       lineEndX: anchorX,
       lineEndY: labelY,
       lineStart: { x: anchorX, y: anchorY },
@@ -408,8 +407,8 @@ function topRightLiftedRimDraft(
     fragments: [],
     textX: labelX,
     textY: labelY,
-    anchor: "start",
-    baseline: "bottom",
+    anchor: 'start',
+    baseline: 'bottom',
     lineEndX: labelX,
     lineEndY: labelY,
     lineStart: { x: anchorX, y: labelY },
@@ -492,8 +491,8 @@ function bottomCenterBelow(
     fragments: [],
     textX,
     textY,
-    anchor: "middle",
-    baseline: "top",
+    anchor: 'middle',
+    baseline: 'top',
     lineEndX: textX,
     lineEndY: textY,
     lineStart: { x: textX, y: textY },
@@ -513,14 +512,14 @@ function bottomCenterBelow(
 function radialAnchorBaseline(
   cosA: number,
   sinA: number,
-): { anchor: "start" | "middle" | "end"; baseline: "bottom" | "top" } {
-  const anchor: "start" | "middle" | "end" =
+): { anchor: 'start' | 'middle' | 'end'; baseline: 'bottom' | 'top' } {
+  const anchor: 'start' | 'middle' | 'end' =
     cosA > DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD
-      ? "start"
+      ? 'start'
       : cosA < -DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD
-        ? "end"
-        : "middle";
-  const baseline: "bottom" | "top" = sinA > 0 ? "bottom" : "top";
+        ? 'end'
+        : 'middle';
+  const baseline: 'bottom' | 'top' = sinA > 0 ? 'bottom' : 'top';
   return { anchor, baseline };
 }
 
@@ -619,7 +618,7 @@ export function buildOutsideLeaderDraft(
   // pie 側 (右辺) を固定し原寸テキストを左へ伸ばすと、widening が pie から離れる向きになり原寸で収まる。
   // `forceOutsideLeader` (= 上部 far-sliver の up-and-over leader 経路) かつ near-12 middle のときだけ適用。
   const anchor =
-    item.forceOutsideLeader && cosA < 0 && sinA > 0 && rawAnchor === "middle" ? "end" : rawAnchor;
+    item.forceOutsideLeader && cosA < 0 && sinA > 0 && rawAnchor === 'middle' ? 'end' : rawAnchor;
   return {
     fragments: [],
     textX: labelX,
@@ -665,8 +664,8 @@ function topLiftedRimLeft(
     fragments: [],
     textX: labelX,
     textY: labelY,
-    anchor: "end",
-    baseline: "bottom",
+    anchor: 'end',
+    baseline: 'bottom',
     lineEndX: labelX,
     lineEndY: labelY,
     lineStart: { x: anchorX, y: labelY },
@@ -705,8 +704,8 @@ export function buildLowerLeftDropLeaderDraft(
     fragments: [],
     textX,
     textY,
-    anchor: "end",
-    baseline: "top",
+    anchor: 'end',
+    baseline: 'top',
     lineEndX: textX,
     lineEndY: textY,
     lineStart: { x: textX, y: textY },
@@ -784,7 +783,7 @@ function clampAndBuildPlacement(input: {
   const bendFollowsEndpointX =
     Math.abs(lineStart.y - anchorY) < 1e-9 && Math.abs(lineStart.x - lineEnd.x) < 1e-9;
   const leaderMaxTextX =
-    bendFollowsEndpointY && anchor === "end"
+    bendFollowsEndpointY && anchor === 'end'
       ? anchorX + cornerGap - (lineEnd.x - textX)
       : undefined;
   const heightVerify = bboxMeasured.height;
@@ -792,25 +791,25 @@ function clampAndBuildPlacement(input: {
   const safety = cfg.canvasSafetyMargin;
   let maxTextY: number;
   let minTextY: number;
-  if (baseline === "bottom") {
+  if (baseline === 'bottom') {
     maxTextY = cfg.canvasYlim[1] - safety;
     minTextY = cfg.canvasYlim[0] + heightVerify + safety;
-  } else if (baseline === "top") {
+  } else if (baseline === 'top') {
     maxTextY = cfg.canvasYlim[1] - heightVerify - safety;
     minTextY = cfg.canvasYlim[0] + safety;
   } else {
     maxTextY = cfg.canvasYlim[1] - heightVerify / 2 - safety;
     minTextY = cfg.canvasYlim[0] + heightVerify / 2 + safety;
   }
-  if (typeof draft.triadBottomCapY === "number") {
+  if (typeof draft.triadBottomCapY === 'number') {
     maxTextY = Math.min(maxTextY, draft.triadBottomCapY);
   }
   let viewBoxMaxTextX: number;
   let viewBoxMinTextX: number;
-  if (anchor === "start") {
+  if (anchor === 'start') {
     viewBoxMaxTextX = cfg.canvasXlim[1] - widthVerify - safety;
     viewBoxMinTextX = cfg.canvasXlim[0] + safety;
-  } else if (anchor === "end") {
+  } else if (anchor === 'end') {
     viewBoxMaxTextX = cfg.canvasXlim[1] - safety;
     viewBoxMinTextX = cfg.canvasXlim[0] + widthVerify + safety;
   } else {
@@ -832,30 +831,25 @@ function clampAndBuildPlacement(input: {
     let closestY: number;
     if (bboxYMin <= 0 && bboxYMax >= 0) closestY = 0;
     else closestY = Math.abs(bboxYMin) < Math.abs(bboxYMax) ? bboxYMin : bboxYMax;
-    const pieClearanceLogical = Math.max(
-      cfg.pieLabelClearance,
-      radialFraction(cfg, 0.012, 0.12),
-    );
-    const insidePieR = Math.sqrt(
-      Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY),
-    );
+    const pieClearanceLogical = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.012, 0.12));
+    const insidePieR = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY));
     pieMinTextX = insidePieR + pieClearanceLogical;
     pieMaxTextX = -(insidePieR + pieClearanceLogical);
-    if (anchor === "middle") {
+    if (anchor === 'middle') {
       pieMinTextX += widthVerify / 2;
       pieMaxTextX -= widthVerify / 2;
-    } else if (anchor === "end") {
+    } else if (anchor === 'end') {
       pieMinTextX += widthVerify;
     } else {
       pieMaxTextX -= widthVerify;
     }
   }
   let effectiveMaxTextX: number | undefined =
-    typeof leaderMaxTextX === "number"
+    typeof leaderMaxTextX === 'number'
       ? Math.min(leaderMaxTextX, viewBoxMaxTextX)
       : viewBoxMaxTextX;
   let effectiveMinTextX: number | undefined = viewBoxMinTextX;
-  if (item.forceHorizontalLowerLeftDrop && anchor === "end") {
+  if (item.forceHorizontalLowerLeftDrop && anchor === 'end') {
     effectiveMinTextX = undefined;
   }
   if (draft.pieClearance) {
@@ -870,16 +864,16 @@ function clampAndBuildPlacement(input: {
         effectiveMinTextX = undefined;
       }
       effectiveMaxTextX =
-        typeof effectiveMaxTextX === "number"
+        typeof effectiveMaxTextX === 'number'
           ? Math.min(effectiveMaxTextX, pieMaxTextX!)
           : pieMaxTextX;
     }
   }
   const maxTextX = effectiveMaxTextX;
   const minTextX =
-    typeof effectiveMinTextX !== "number"
+    typeof effectiveMinTextX !== 'number'
       ? undefined
-      : typeof maxTextX !== "number" || effectiveMinTextX <= maxTextX
+      : typeof maxTextX !== 'number' || effectiveMinTextX <= maxTextX
         ? effectiveMinTextX
         : undefined;
   const placement: Placement = {

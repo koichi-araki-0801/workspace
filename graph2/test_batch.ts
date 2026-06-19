@@ -6,20 +6,20 @@
 //   out/compare.html      ... ブラウザで一覧確認できるビューア
 // =============================================================================
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { resolveInputData, samples as jsSamples } from "./src/data.js";
-import { renderPdfStylePieToSvg } from "./src/svg_export/index.js";
-import { escapeXml } from "./src/svg_export/rendering.js";
+import { resolveInputData, samples as jsSamples } from './src/data.js';
+import { renderPdfStylePieToSvg } from './src/svg_export/index.js';
+import { escapeXml } from './src/svg_export/rendering.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.chdir(__dirname);
-const outRoot = path.resolve(__dirname, "out");
+const outRoot = path.resolve(__dirname, 'out');
 
 interface RenderResultStatus {
-  status: "ok" | "error";
+  status: 'ok' | 'error';
   error?: string;
 }
 
@@ -29,7 +29,7 @@ function generateHtml(
   timestamp: string,
   aspectRatio: number,
 ): string {
-  const jsOk = Object.values(jsResults).filter((r) => r.status === "ok").length;
+  const jsOk = Object.values(jsResults).filter((r) => r.status === 'ok').length;
   const jsTotal = Object.keys(jsResults).length;
 
   const samplesPerPage = 12;
@@ -44,9 +44,9 @@ function generateHtml(
       return `<div class="sample"><div class="name">${escapeXml(name)}</div>
         <div class="error-msg">生成されていません</div></div>`;
     }
-    if (jr.status === "error") {
+    if (jr.status === 'error') {
       return `<div class="sample error"><div class="name">${escapeXml(name)}</div>
-        <div class="error-msg">ERROR<br><small>${escapeXml(jr.error ?? "")}</small></div></div>`;
+        <div class="error-msg">ERROR<br><small>${escapeXml(jr.error ?? '')}</small></div></div>`;
     }
     return `<div class="sample"><div class="name">○${escapeXml(name)}</div>
       <div class="svg-wrap"><object type="image/svg+xml" data="svg_js/${encodeURIComponent(name)}.svg" aria-label="${escapeXml(name)}"></object></div></div>`;
@@ -58,11 +58,11 @@ function generateHtml(
   <div class="page">
     <div class="page-header">A4 プレビュー — Page ${idx + 1} / ${pages.length}</div>
     <div class="grid">
-      ${pageNames.map(renderCell).join("\n      ")}
+      ${pageNames.map(renderCell).join('\n      ')}
     </div>
   </div>`,
     )
-    .join("");
+    .join('');
 
   return `<!doctype html>
 <html lang="ja">
@@ -110,9 +110,9 @@ function generateHtml(
 }
 
 async function main(): Promise<void> {
-  const timestamp = new Date().toLocaleString("ja-JP");
+  const timestamp = new Date().toLocaleString('ja-JP');
 
-  const jsDir = path.join(outRoot, "svg_js");
+  const jsDir = path.join(outRoot, 'svg_js');
   fs.mkdirSync(jsDir, { recursive: true });
 
   const jsResults: Record<string, RenderResultStatus> = {};
@@ -124,28 +124,28 @@ async function main(): Promise<void> {
     try {
       const items = resolveInputData({ data: entry.items });
       const { svg, config: cfg } = await renderPdfStylePieToSvg(items, {});
-      fs.writeFileSync(outFile, svg, "utf-8");
-      jsResults[name] = { status: "ok" };
+      fs.writeFileSync(outFile, svg, 'utf-8');
+      jsResults[name] = { status: 'ok' };
       if (svgAspectRatio === null) {
         svgAspectRatio = cfg.fixedSvgWidthMm / cfg.fixedSvgHeightMm;
       }
       console.log(`  [JS OK] ${name}`);
     } catch (e: any) {
-      jsResults[name] = { status: "error", error: e.message };
+      jsResults[name] = { status: 'error', error: e.message };
       console.error(`  [JS ERR] ${name}: ${e.message}`);
     }
   }
 
   const allNames = Object.keys(jsSamples);
   const html = generateHtml(allNames, jsResults, timestamp, svgAspectRatio ?? 1);
-  const htmlPath = path.join(outRoot, "compare.html");
-  fs.writeFileSync(htmlPath, html, "utf-8");
+  const htmlPath = path.join(outRoot, 'compare.html');
+  fs.writeFileSync(htmlPath, html, 'utf-8');
 
-  const jsOk = Object.values(jsResults).filter((r) => r.status === "ok").length;
+  const jsOk = Object.values(jsResults).filter((r) => r.status === 'ok').length;
   const jsErr = jsSampleEntries.length - jsOk;
 
-  console.log("\n=== Summary ===");
-  console.log(`SVG: ${jsOk}/${jsSampleEntries.length} OK${jsErr ? `  (${jsErr} errors)` : ""}`);
+  console.log('\n=== Summary ===');
+  console.log(`SVG: ${jsOk}/${jsSampleEntries.length} OK${jsErr ? `  (${jsErr} errors)` : ''}`);
   console.log(`Viewer: ${htmlPath}`);
 }
 

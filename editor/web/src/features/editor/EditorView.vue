@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, useTemplateRef } from 'vue';
 import { useRouter } from 'vue-router';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
-import PartToolbar from './PartToolbar.vue';
 import PartTree from './PartTree.vue';
 import { useGeomHandles } from './useGeomHandles';
 import { ZOOM_STEP } from './useGrapes';
@@ -38,17 +37,6 @@ const {
   onPartSelect,
   onPartInsert,
 } = useTemplateEditor(props.id, { canvasEl, layersEl });
-
-/** Position the floating toolbar just above the selected element's rect. */
-const toolbarStyle = computed(() => {
-  const r = g.selectedRect.value;
-  if (!r) return { display: 'none' };
-  return {
-    left: `${r.left}px`,
-    top: `${r.top}px`,
-    transform: 'translateY(-100%) translateY(-10px)',
-  };
-});
 
 // Zoom-independent block resize / margin drag handles (see useGeomHandles).
 const { startHandle, dragLabel } = useGeomHandles({
@@ -145,9 +133,10 @@ const statusText = computed(() => {
         <!-- GrapesJS layer manager is mounted but visually hidden (prototype has no layers panel) -->
         <div ref="layersEl" class="hidden"></div>
 
-        <!-- floating layout toolbar + drag handles over the selected block -->
+        <!-- width/margin drag handles over the selected block (layout edits also
+             live in the right-pane `Inspector.vue`; no floating toolbar here) -->
         <div class="pointer-events-none absolute inset-0 z-20 overflow-hidden">
-          <!-- edit affordances (handles + toolbar) only when editing is allowed -->
+          <!-- edit affordances (drag handles) only when editing is allowed -->
           <template v-if="rect && selectedGeom && allowEdit">
             <!-- selection frame echo so the resize box reads clearly -->
             <div
@@ -212,30 +201,23 @@ const statusText = computed(() => {
               {{ dragLabel.text }}
             </div>
 
-            <!-- toolbar -->
-            <div class="pointer-events-auto absolute" :style="toolbarStyle">
-              <PartToolbar
-                :geom="selectedGeom"
-                :edit-mode="allowEdit"
-                :can-up="g.canMoveUp.value"
-                :can-down="g.canMoveDown.value"
-                @apply="applyGeom"
-                @move="moveSelected($event)"
-                @movestart="g.startMove($event)"
-                @reset="resetGeom"
-                @del="deletePart"
-              />
-            </div>
           </template>
         </div>
       </main>
 
-      <!-- right: properties + history -->
+      <!-- right: editable properties (collapsible) + history -->
       <Inspector
         :selected="g.selected.value"
         :part="selectedPart"
         :geom="selectedGeom"
         :history="displayHistory"
+        :edit-mode="allowEdit"
+        :can-up="g.canMoveUp.value"
+        :can-down="g.canMoveDown.value"
+        @apply="applyGeom"
+        @move="moveSelected($event)"
+        @reset="resetGeom"
+        @del="deletePart"
       />
     </div>
   </div>

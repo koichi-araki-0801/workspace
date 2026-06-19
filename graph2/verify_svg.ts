@@ -11,24 +11,22 @@
 //   5. 引出線の曲がり回数 (1 本につき最大 1 回)
 // =============================================================================
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // drift ガード専用の import。検証ロジック(交差・bbox 等)は本体から取り込まず独立を保つが、
 // 手動同期に頼っていたメトリクス定数/文字幅分類だけは起動時に本体と突き合わせる(assertOracleSync)。
-import { createPieLayoutConfig } from "./src/config.js";
+import { createPieLayoutConfig } from './src/config.js';
 import {
   TOP_BAND_HALF_WIDTH_DEG as bodyTopBandHalfWidthDeg,
   TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG as bodySonohokaLeftExtHalfWidthDeg,
-} from "./src/label_placement.js";
-import { visualCharEm as bodyVisualCharEm } from "./src/svg_geom.js";
+} from './src/label_placement.js';
+import { visualCharEm as bodyVisualCharEm } from './src/svg_geom.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const outRoot = path.resolve(__dirname, "out");
-const jsDir = process.argv[2]
-  ? path.resolve(process.argv[2])
-  : path.join(outRoot, "svg_js");
+const outRoot = path.resolve(__dirname, 'out');
+const jsDir = process.argv[2] ? path.resolve(process.argv[2]) : path.join(outRoot, 'svg_js');
 
 interface BBox {
   left: number;
@@ -107,13 +105,13 @@ function assertOracleSync(): void {
   const checkConst = (name: string, body: number, oracle: number) => {
     if (body !== oracle) mismatches.push(`${name}: body=${body} oracle=${oracle}`);
   };
-  checkConst("charWidthFactor", cfg.charWidthFactor, CHAR_WIDTH_FACTOR);
-  checkConst("lineHeightFactor", cfg.lineHeightFactor, LINE_HEIGHT_FACTOR);
-  checkConst("visualFullwidthEm", cfg.visualFullwidthEm, VISUAL_FULLWIDTH_EM);
-  checkConst("visualHalfwidthEm", cfg.visualHalfwidthEm, VISUAL_HALFWIDTH_EM);
-  checkConst("topBandHalfWidthDeg", bodyTopBandHalfWidthDeg, TOP_BAND_HALF_WIDTH_DEG);
+  checkConst('charWidthFactor', cfg.charWidthFactor, CHAR_WIDTH_FACTOR);
+  checkConst('lineHeightFactor', cfg.lineHeightFactor, LINE_HEIGHT_FACTOR);
+  checkConst('visualFullwidthEm', cfg.visualFullwidthEm, VISUAL_FULLWIDTH_EM);
+  checkConst('visualHalfwidthEm', cfg.visualHalfwidthEm, VISUAL_HALFWIDTH_EM);
+  checkConst('topBandHalfWidthDeg', bodyTopBandHalfWidthDeg, TOP_BAND_HALF_WIDTH_DEG);
   checkConst(
-    "sonohokaLeftExtHalfWidthDeg",
+    'sonohokaLeftExtHalfWidthDeg',
     bodySonohokaLeftExtHalfWidthDeg,
     SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG,
   );
@@ -131,30 +129,42 @@ function assertOracleSync(): void {
   // 漢字は既定 1.0、BIZ UDPGothic のプロポーショナルかな ('ア') と全角幅 ASCII ('%') はテーブル収録値。
   // '.' と 'ア' は 400/700 で異なるので、ウェイト別テーブルが正しく引かれているかも兼ねて検査する。
   const widthProbes: [string, number][] = [
-    ["0", 0.7598], ["8", 0.7598], [".", 0.3101], ["%", 1.0], [" ", 0.3335],
-    ["株", 1.0], ["ア", 0.8901],
+    ['0', 0.7598],
+    ['8', 0.7598],
+    ['.', 0.3101],
+    ['%', 1.0],
+    [' ', 0.3335],
+    ['株', 1.0],
+    ['ア', 0.8901],
   ];
   for (const [ch, expect] of widthProbes) {
     const body = bodyVisualCharEm(ch, cfg);
     if (Math.abs(body - expect) > 1e-4) {
-      mismatches.push(`visualCharEm("${ch}"): body=${body} expected≈${expect} (glyph_advance テーブル未適用?)`);
+      mismatches.push(
+        `visualCharEm("${ch}"): body=${body} expected≈${expect} (glyph_advance テーブル未適用?)`,
+      );
     }
   }
   // 700 (Bold) 側も代表値を検査し、ウェイト切替でテーブルが切り替わることを担保する。
-  const cfg700 = createPieLayoutConfig({ fontWeight: "700" });
-  for (const [ch, expect] of [[".", 0.3301], ["ア", 0.9102]] as [string, number][]) {
+  const cfg700 = createPieLayoutConfig({ fontWeight: '700' });
+  for (const [ch, expect] of [
+    ['.', 0.3301],
+    ['ア', 0.9102],
+  ] as [string, number][]) {
     const body = bodyVisualCharEm(ch, cfg700);
     if (Math.abs(body - expect) > 1e-4) {
-      mismatches.push(`visualCharEm("${ch}" @700): body=${body} expected≈${expect} (ウェイト別テーブル未適用?)`);
+      mismatches.push(
+        `visualCharEm("${ch}" @700): body=${body} expected≈${expect} (ウェイト別テーブル未適用?)`,
+      );
     }
   }
 
   if (mismatches.length > 0) {
-    console.error("✖ verify_svg のメトリクス定数/文字幅が本体と乖離しています:");
+    console.error('✖ verify_svg のメトリクス定数/文字幅が本体と乖離しています:');
     for (const m of mismatches) console.error(`    - ${m}`);
     console.error(
-      "  → 定数は verify_svg.ts を config.ts に合わせ、幅は `npm run gen:widths` で" +
-        " src/glyph_advance.ts を再生成してください。",
+      '  → 定数は verify_svg.ts を config.ts に合わせ、幅は `npm run gen:widths` で' +
+        ' src/glyph_advance.ts を再生成してください。',
     );
     process.exit(1);
   }
@@ -167,13 +177,13 @@ function textBBox(t: TextInfo): BBox {
   const sx = t.nameScaleX;
   let totalW: number;
   if (sx >= 1) {
-    const lines = t.lineCount >= 2 ? t.tspans : [t.tspans.join("")];
+    const lines = t.lineCount >= 2 ? t.tspans : [t.tspans.join('')];
     const maxUnits = Math.max(...lines.map((s) => visualLineUnits(s)));
     totalW = maxUnits * charWidth;
   } else {
     // 名前長体: 名前(tspan[0])は ×sx、% 部分(残り tspan)は原寸。
-    const name = t.tspans[0] ?? "";
-    const rest = t.tspans.slice(1).join("");
+    const name = t.tspans[0] ?? '';
+    const rest = t.tspans.slice(1).join('');
     totalW =
       t.lineCount >= 2
         ? Math.max(visualLineUnits(name) * sx, visualLineUnits(rest)) * charWidth
@@ -181,12 +191,12 @@ function textBBox(t: TextInfo): BBox {
   }
 
   let left: number;
-  if (t.anchor === "start") left = t.x;
-  else if (t.anchor === "end") left = t.x - totalW;
+  if (t.anchor === 'start') left = t.x;
+  else if (t.anchor === 'end') left = t.x - totalW;
   else left = t.x - totalW / 2;
 
   let top: number;
-  if (t.baseline === "text-after-edge") {
+  if (t.baseline === 'text-after-edge') {
     top = t.y - totalH;
   } else {
     top = t.y;
@@ -214,8 +224,8 @@ function parseJsSlices(content: string): number {
   let count = 0;
   for (const m of content.matchAll(/<path[^>]+>/g)) {
     const tag = m[0];
-    const fill = tag.match(/\bfill="([^"]+)"/)?.[1] ?? "";
-    if (fill && fill !== "#ffffff" && fill !== "none") count++;
+    const fill = tag.match(/\bfill="([^"]+)"/)?.[1] ?? '';
+    if (fill && fill !== '#ffffff' && fill !== 'none') count++;
   }
   return count;
 }
@@ -227,8 +237,8 @@ function parseJsSliceOrder(content: string): { name: string; percent: number }[]
   let m: RegExpExecArray | null;
   while ((m = re.exec(content)) !== null) {
     const attrs = m[1];
-    const name = attrs.match(/\bdata-name="([^"]*)"/)?.[1] ?? "";
-    const percent = parseFloat(attrs.match(/\bdata-percent="([^"]+)"/)?.[1] ?? "NaN");
+    const name = attrs.match(/\bdata-name="([^"]*)"/)?.[1] ?? '';
+    const percent = parseFloat(attrs.match(/\bdata-percent="([^"]+)"/)?.[1] ?? 'NaN');
     out.push({ name, percent });
   }
   return out;
@@ -249,24 +259,24 @@ function parseJsLabels(content: string): { texts: TextInfo[]; leaders: (Point[] 
     const groupAttrs = gm[1];
     const inner = gm[2];
     const insideSlice = /\bdata-inside-slice="true"/.test(groupAttrs);
-    const name = groupAttrs.match(/\bdata-name="([^"]*)"/)?.[1] ?? "";
-    const percent = parseFloat(groupAttrs.match(/\bdata-percent="([^"]+)"/)?.[1] ?? "NaN");
-    const sxRaw = parseFloat(groupAttrs.match(/data-name-scale-x="([^"]+)"/)?.[1] ?? "1");
+    const name = groupAttrs.match(/\bdata-name="([^"]*)"/)?.[1] ?? '';
+    const percent = parseFloat(groupAttrs.match(/\bdata-percent="([^"]+)"/)?.[1] ?? 'NaN');
+    const sxRaw = parseFloat(groupAttrs.match(/data-name-scale-x="([^"]+)"/)?.[1] ?? '1');
     const nameScaleX = Number.isFinite(sxRaw) ? sxRaw : 1;
     const lineCountAttr = groupAttrs.match(/data-line-count="([^"]+)"/)?.[1];
     const textM = inner.match(/<text([^>]+)>([\s\S]*?)<\/text>/);
     if (!textM) continue;
     const attrs = textM[1];
     const textInner = textM[2];
-    const x = parseFloat(attrs.match(/\bx="([^"]+)"/)?.[1] ?? "NaN");
-    const y = parseFloat(attrs.match(/\by="([^"]+)"/)?.[1] ?? "NaN");
-    const fontSize = parseFloat(attrs.match(/font-size="([^"]+)"/)?.[1] ?? "NaN");
-    const anchor = attrs.match(/text-anchor="([^"]+)"/)?.[1] ?? "start";
-    const baseline = attrs.match(/dominant-baseline="([^"]+)"/)?.[1] ?? "";
+    const x = parseFloat(attrs.match(/\bx="([^"]+)"/)?.[1] ?? 'NaN');
+    const y = parseFloat(attrs.match(/\by="([^"]+)"/)?.[1] ?? 'NaN');
+    const fontSize = parseFloat(attrs.match(/font-size="([^"]+)"/)?.[1] ?? 'NaN');
+    const anchor = attrs.match(/text-anchor="([^"]+)"/)?.[1] ?? 'start';
+    const baseline = attrs.match(/dominant-baseline="([^"]+)"/)?.[1] ?? '';
     const tspanTexts = [...textInner.matchAll(/<tspan[^>]*>([^<]*)<\/tspan>/g)].map((t) => t[1]);
     const lineCount = lineCountAttr ? parseInt(lineCountAttr, 10) : tspanTexts.length || 1;
     // 表示・メッセージ用テキスト: 2 行は " / " 連結、1 行はそのまま連結。
-    const text = lineCount >= 2 ? tspanTexts.join(" / ") : tspanTexts.join("");
+    const text = lineCount >= 2 ? tspanTexts.join(' / ') : tspanTexts.join('');
     if (Number.isNaN(x) || Number.isNaN(y) || !text.trim()) continue;
     texts.push({
       x,
@@ -343,7 +353,7 @@ function bboxOutOfViewBox(
   if (top > tolerance) sides.push(`top ${Math.round(top)}px`);
   if (right > tolerance) sides.push(`right ${Math.round(right)}px`);
   if (bottom > tolerance) sides.push(`bottom ${Math.round(bottom)}px`);
-  return { depth: Math.round(maxOut), sides: sides.join(", ") };
+  return { depth: Math.round(maxOut), sides: sides.join(', ') };
 }
 
 function pointOutOfViewBox(p: Point, vb: ViewBox, tolerance = 1): number {
@@ -392,7 +402,10 @@ function findLeaderCrossing(
 assertOracleSync();
 
 const jsSamples = new Set(
-  fs.readdirSync(jsDir).filter((f) => f.endsWith(".svg")).map((f) => f.slice(0, -4)),
+  fs
+    .readdirSync(jsDir)
+    .filter((f) => f.endsWith('.svg'))
+    .map((f) => f.slice(0, -4)),
 );
 
 const allNames = [...jsSamples].sort();
@@ -403,7 +416,7 @@ interface IssueEntry {
 }
 
 interface OverlapIssue {
-  tag: "overlap" | "tight";
+  tag: 'overlap' | 'tight';
   depth: number;
   msg: string;
 }
@@ -411,14 +424,14 @@ interface OverlapIssue {
 const issues: IssueEntry[] = [];
 const stats = { ok: 0, warn: 0, error: 0 };
 
-console.log(`\n${"─".repeat(72)}`);
+console.log(`\n${'─'.repeat(72)}`);
 console.log(`  SVG rendering verification  (${allNames.length} samples)`);
-console.log(`${"─".repeat(72)}`);
+console.log(`${'─'.repeat(72)}`);
 
 for (const name of allNames) {
   const rowIssues: (string | OverlapIssue)[] = [];
 
-  const jsSvg = fs.readFileSync(path.join(jsDir, `${name}.svg`), "utf-8");
+  const jsSvg = fs.readFileSync(path.join(jsDir, `${name}.svg`), 'utf-8');
   const { texts: jsTexts, leaders: leaderPaths } = parseJsLabels(jsSvg);
   const jsSlices = parseJsSlices(jsSvg);
   const jsSliceOrder = parseJsSliceOrder(jsSvg);
@@ -438,7 +451,7 @@ for (const name of allNames) {
           const depth = Math.round(verticalOverlapDepth(bboxes[i], bboxes[j]));
           const ti = jsTexts[i].text;
           const tj = jsTexts[j].text;
-          const tag: "overlap" | "tight" = depth >= OVERLAP_WARN_PX ? "overlap" : "tight";
+          const tag: 'overlap' | 'tight' = depth >= OVERLAP_WARN_PX ? 'overlap' : 'tight';
           rowIssues.push({ tag, depth, msg: `${tag}(${depth}px): "${ti}" ↔ "${tj}"` });
         }
       }
@@ -464,11 +477,7 @@ for (const name of allNames) {
       if (!points) continue;
       for (let i = 0; i + 1 < points.length; i++) {
         if (segmentIntrudesPie(points[i], points[i + 1], pie)) {
-          const dist = distancePointToSegment(
-            { x: pie.cx, y: pie.cy },
-            points[i],
-            points[i + 1],
-          );
+          const dist = distancePointToSegment({ x: pie.cx, y: pie.cy }, points[i], points[i + 1]);
           const depth = Math.round(pie.r - dist);
           rowIssues.push(
             `leader inside pie (${depth}px): segment (${Math.round(points[i].x)},${Math.round(points[i].y)})→(${Math.round(points[i + 1].x)},${Math.round(points[i + 1].y)})`,
@@ -545,7 +554,7 @@ for (const name of allNames) {
     const bends = Math.max(0, points.length - 2);
     if (bends > 1) {
       const ti = jsTexts[i]?.text ?? `path #${i}`;
-      const seg = points.map((p) => `(${Math.round(p.x)},${Math.round(p.y)})`).join("→");
+      const seg = points.map((p) => `(${Math.round(p.x)},${Math.round(p.y)})`).join('→');
       rowIssues.push(`leader has ${bends} bends (>1): "${ti}" ${seg}`);
     }
   }
@@ -645,7 +654,7 @@ for (const name of allNames) {
       const angDeg = (Math.atan2(pie.cy - anchor.y, anchor.x - pie.cx) * 180) / Math.PI;
       const norm = ((angDeg % 360) + 360) % 360;
       const inTopBand = Math.abs(norm - 90) <= TOP_BAND_HALF_WIDTH_DEG;
-      const oppositeSide = (t.x < pie.cx) !== (anchor.x < pie.cx);
+      const oppositeSide = t.x < pie.cx !== anchor.x < pie.cx;
       // 上部帯から右上へ L 字で逃がしたラベル (anchor が上帯 90°±18° かつ label が中心の反対側) は
       // 名前不問で逆転判定から除外する。交差回避のため遠い slice を上段に積む仕様で意図的に角度順を
       // 破るため (本体 angularStacks も forceTopRight を除外)。「その他」逃がし (topBandSonohokaRight)・
@@ -654,7 +663,7 @@ for (const name of allNames) {
       // "その他" は加えて左拡張帯 ((108°,122°], 真上垂直 center 固定) も除外する: center 配置
       // (baseline=bottom) と rim 配置 (baseline=top) の生 y 属性は基準辺が異なり比較できないため、
       // 本体 angularStacks と同様に除外する。帯外 (>122°) の通常 rim その他 は逆転判定に参加させる。
-      if (t.name.startsWith("その他")) {
+      if (t.name.startsWith('その他')) {
         const inLeftExt =
           norm > 90 + TOP_BAND_HALF_WIDTH_DEG && norm <= 90 + SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG;
         if (inTopBand || inLeftExt || oppositeSide) continue;
@@ -669,8 +678,8 @@ for (const name of allNames) {
     }
     const ANCHOR_INV_TOL = 2; // px。微小逆転は誤検出回避で無視。
     for (const [sideName, arr] of [
-      ["left", leftStack],
-      ["right", rightStack],
+      ['left', leftStack],
+      ['right', rightStack],
     ] as const) {
       arr.sort((a, b) => a.labelY - b.labelY);
       for (let i = 1; i < arr.length; i += 1) {
@@ -685,12 +694,12 @@ for (const name of allNames) {
     }
   }
 
-  const strIssues = rowIssues.filter((i): i is string => typeof i === "string");
+  const strIssues = rowIssues.filter((i): i is string => typeof i === 'string');
   const overlapIssues = rowIssues.filter(
-    (i): i is OverlapIssue => typeof i === "object" && i.tag === "overlap",
+    (i): i is OverlapIssue => typeof i === 'object' && i.tag === 'overlap',
   );
   const tightIssues = rowIssues.filter(
-    (i): i is OverlapIssue => typeof i === "object" && i.tag === "tight",
+    (i): i is OverlapIssue => typeof i === 'object' && i.tag === 'tight',
   );
 
   const hasRealIssue = strIssues.length > 0 || overlapIssues.length > 0;
@@ -711,7 +720,7 @@ for (const name of allNames) {
     }
   } else if (hasTightOnly) {
     stats.ok++;
-    const depths = tightIssues.map((i) => i.depth).join(",");
+    const depths = tightIssues.map((i) => i.depth).join(',');
     console.log(`  [OK]   ${name.padEnd(45)} ${jsLabel}  (tight:${depths}px)`);
   } else {
     stats.ok++;
@@ -719,7 +728,7 @@ for (const name of allNames) {
   }
 }
 
-console.log(`\n${"─".repeat(72)}`);
+console.log(`\n${'─'.repeat(72)}`);
 console.log(`  Result: ${stats.ok} OK (tight-pack accepted), ${stats.warn} warnings`);
 if (issues.length > 0) {
   console.log(`\n  Issues summary (${issues.length} total):`);
@@ -729,4 +738,4 @@ if (issues.length > 0) {
 } else {
   console.log(`  All samples passed.`);
 }
-console.log(`${"─".repeat(72)}\n`);
+console.log(`${'─'.repeat(72)}\n`);

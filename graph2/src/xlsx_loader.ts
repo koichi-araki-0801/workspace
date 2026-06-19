@@ -9,7 +9,7 @@
 // レンダリング層は外部依存ゼロ方針だが、入力層のみ例外で exceljs に依存。
 // =============================================================================
 
-import ExcelJS from "exceljs";
+import ExcelJS from 'exceljs';
 
 interface ParsedRange {
   startRow: number;
@@ -59,17 +59,17 @@ export function parseRange(rangeText: string): ParsedRange {
  */
 function unwrapCellValue(value: any): any {
   if (value == null) return null;
-  if (typeof value === "object") {
-    if ("result" in value) return unwrapCellValue(value.result);
-    if ("richText" in value) return value.richText.map((p: any) => p.text).join("");
-    if ("text" in value) return value.text;
+  if (typeof value === 'object') {
+    if ('result' in value) return unwrapCellValue(value.result);
+    if ('richText' in value) return value.richText.map((p: any) => p.text).join('');
+    if ('text' in value) return value.text;
   }
   return value;
 }
 
 function cellAsText(cell: any): string {
   const v = unwrapCellValue(cell.value);
-  if (v == null) return "";
+  if (v == null) return '';
   if (v instanceof Date) return v.toISOString();
   return String(v).trim();
 }
@@ -77,9 +77,9 @@ function cellAsText(cell: any): string {
 /** 数値として読めなければ null を返す(カンマ区切りは許容)。 */
 function cellAsNumber(cell: any): number | null {
   const v = unwrapCellValue(cell.value);
-  if (v == null || v === "") return null;
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  const n = Number(String(v).replace(/,/g, ""));
+  if (v == null || v === '') return null;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const n = Number(String(v).replace(/,/g, ''));
   return Number.isFinite(n) ? n : null;
 }
 
@@ -98,15 +98,15 @@ export async function loadXlsxItems({
   sheet,
   range,
 }: LoadXlsxOpts): Promise<Array<[string, number]>> {
-  if (!xlsxPath) throw new Error("xlsx path is required.");
-  if (!sheet) throw new Error("sheet name is required.");
+  if (!xlsxPath) throw new Error('xlsx path is required.');
+  if (!sheet) throw new Error('sheet name is required.');
   if (!range) throw new Error('range is required (e.g. "A2:B11").');
 
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(xlsxPath);
   const ws = wb.getWorksheet(sheet);
   if (!ws) {
-    const available = wb.worksheets.map((w) => w.name).join(", ");
+    const available = wb.worksheets.map((w) => w.name).join(', ');
     throw new Error(`Sheet not found: "${sheet}" (available: ${available})`);
   }
 
@@ -118,7 +118,7 @@ export async function loadXlsxItems({
     const valueCell = row.getCell(valueCol);
     const value = cellAsNumber(valueCell);
     const valueRaw = unwrapCellValue(valueCell.value);
-    const valueIsBlank = valueRaw == null || valueRaw === "";
+    const valueIsBlank = valueRaw == null || valueRaw === '';
 
     if (!name && valueIsBlank) continue;
     if (!name) throw new Error(`Empty name at row ${r}.`);

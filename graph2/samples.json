@@ -9,10 +9,7 @@
   },
   "asset_jreit_pdf": {
     "description": "J-REIT PDF実データ・2スライス・96.5/3.5 の one-dominant 2分割",
-    "items": [
-      { "name": "国内投資信託証券", "value": 96.5 },
-      { "name": "J-REIT先物", "value": 3.5 }
-    ]
+    "items": [{ "name": "国内投資信託証券", "value": 96.5 }, { "name": "J-REIT先物", "value": 3.5 }]
   },
   "asset_foreign_equity_pdf": {
     "description": "外国株式PDF実データ・3スライス・96.4/3.4/0.2 の極端 one-dominant + 0.2% 極小",
@@ -24,17 +21,11 @@
   },
   "asset_foreign_bond_pdf": {
     "description": "外国債券PDF実データ・2スライス・99.1/0.9 の極端 one-dominant",
-    "items": [
-      { "name": "外国債券", "value": 99.1 },
-      { "name": "その他", "value": 0.9 }
-    ]
+    "items": [{ "name": "外国債券", "value": 99.1 }, { "name": "その他", "value": 0.9 }]
   },
   "asset_gold_hedged_pdf_like": {
     "description": "金ヘッジPDF風・2スライス・99.2/0.8 の極端 one-dominant",
-    "items": [
-      { "name": "外国投資信託証券", "value": 99.2 },
-      { "name": "その他", "value": 0.8 }
-    ]
+    "items": [{ "name": "外国投資信託証券", "value": 99.2 }, { "name": "その他", "value": 0.8 }]
   },
   "asset_gbca_pdf_like": {
     "description": "GBCAファンドPDF風・6スライス・債券先物複数の現実的バランス",
@@ -213,10 +204,7 @@
   },
   "currency_usd_hedged_pdf_like": {
     "description": "米ドルヘッジPDF風・2スライス・99.1/0.9 one-dominant 2分割",
-    "items": [
-      { "name": "米ドル", "value": 99.1 },
-      { "name": "円", "value": 0.9 }
-    ]
+    "items": [{ "name": "米ドル", "value": 99.1 }, { "name": "円", "value": 0.9 }]
   },
   "currency_balanced_5": {
     "description": "通貨5種・top-heavy 62-4・円が優位",
@@ -526,10 +514,7 @@
   },
   "asset_2slice_split": {
     "description": "資産2種・balanced 67/33・two-slice 非対称",
-    "items": [
-      { "name": "国内株式", "value": 67 },
-      { "name": "国内債券", "value": 33 }
-    ]
+    "items": [{ "name": "国内株式", "value": 67 }, { "name": "国内債券", "value": 33 }]
   },
   "asset_4slice_simple": {
     "description": "資産4種・balanced 45-10・standard pie",
@@ -542,10 +527,7 @@
   },
   "currency_2currency_usd": {
     "description": "通貨2種・balanced 72/28・two-slice 非対称",
-    "items": [
-      { "name": "米ドル", "value": 72 },
-      { "name": "その他", "value": 28 }
-    ]
+    "items": [{ "name": "米ドル", "value": 72 }, { "name": "その他", "value": 28 }]
   },
   "stress_uniform_4": {
     "description": "ストレス・4スライス完全均等(各25%)・cardinal 角",
@@ -646,10 +628,7 @@
   },
   "stress_uniform_2": {
     "description": "ストレス・2スライス完全均等(50/50)・対称 two-slice",
-    "items": [
-      { "name": "A", "value": 50 },
-      { "name": "B", "value": 50 }
-    ]
+    "items": [{ "name": "A", "value": 50 }, { "name": "B", "value": 50 }]
   },
   "stress_uniform_3": {
     "description": "ストレス・3スライス完全均等(各33.3%)・cardinal 角配置",
@@ -764,9 +743,7 @@
   },
   "pdf_510037_01_fund_currency": {
     "description": "PDF 510037 ファンド通貨・1スライス・円100% (single slice 100%)",
-    "items": [
-      { "name": "円", "value": 100 }
-    ]
+    "items": [{ "name": "円", "value": 100 }]
   },
   "pdf_510037_02_world_bond_idx_asset": {
     "description": "PDF 510037 世界債券IDX資産・4スライス・外国債券87.1 one-dominant + tiny 3種",
@@ -853,10 +830,7 @@
   },
   "pdf_510037_04_manulife_asset": {
     "description": "PDF 510037 マニュライフ資産・2スライス・国内債券99.4/その他0.6 極端 one-dominant",
-    "items": [
-      { "name": "国内債券", "value": 99.4 },
-      { "name": "その他", "value": 0.6 }
-    ]
+    "items": [{ "name": "国内債券", "value": 99.4 }, { "name": "その他", "value": 0.6 }]
   },
   "pdf_510037_04_manulife_country": {
     "description": "PDF 510037 マニュライフ国別・3スライス・日本99.3 極端 one-dominant + 仏0.6/米0.1 tiny",
@@ -868,10 +842,7 @@
   },
   "pdf_510037_05_global_reit_idx_asset": {
     "description": "PDF 510037 グローバルREIT IDX資産(20231110)・2スライス・外国投信99.7/その他0.3 極端 one-dominant",
-    "items": [
-      { "name": "外国投資信託証券", "value": 99.7 },
-      { "name": "その他", "value": 0.3 }
-    ]
+    "items": [{ "name": "外国投資信託証券", "value": 99.7 }, { "name": "その他", "value": 0.3 }]
   },
   "pdf_510037_05_global_reit_idx_country": {
     "description": "PDF 510037 グローバルREIT IDX国別(20231110)・5スライス・米77.7 one-dominant + tiny 4種",
@@ -896,24 +867,15 @@
   },
   "pdf_510037_06_gold_asset": {
     "description": "PDF 510037 金資産・2スライス・外国投信100.8/その他-0.8 (negative slice)",
-    "items": [
-      { "name": "外国投資信託証券", "value": 100.8 },
-      { "name": "その他", "value": -0.8 }
-    ]
+    "items": [{ "name": "外国投資信託証券", "value": 100.8 }, { "name": "その他", "value": -0.8 }]
   },
   "pdf_510037_06_gold_currency": {
     "description": "PDF 510037 金通貨・2スライス・米ドル100.8/円-0.8 (negative slice)",
-    "items": [
-      { "name": "米ドル", "value": 100.8 },
-      { "name": "円", "value": -0.8 }
-    ]
+    "items": [{ "name": "米ドル", "value": 100.8 }, { "name": "円", "value": -0.8 }]
   },
   "pdf_510037_07_fidelity_foreign_bond_asset": {
     "description": "PDF 510037 フィデリティ外債資産(20240430)・2スライス・外国債券96.6/その他3.4 one-dominant",
-    "items": [
-      { "name": "外国債券", "value": 96.6 },
-      { "name": "その他", "value": 3.4 }
-    ]
+    "items": [{ "name": "外国債券", "value": 96.6 }, { "name": "その他", "value": 3.4 }]
   },
   "pdf_510037_07_fidelity_foreign_bond_country": {
     "description": "PDF 510037 フィデリティ外債国別(20240430)・7スライス・米53.2 one-dominant + tiny tail",

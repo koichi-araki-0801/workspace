@@ -5,16 +5,16 @@
 // 前提: `npm run batch` 済み(out/svg_js/<name>.svg が存在)
 // =============================================================================
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { samples as jsSamples } from "../src/data.js";
-import { escapeXml } from "../src/svg_export/rendering.js";
+import { samples as jsSamples } from '../src/data.js';
+import { escapeXml } from '../src/svg_export/rendering.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const outRoot = path.resolve(__dirname, "..", "out");
-const jsDir = path.join(outRoot, "svg_js");
+const outRoot = path.resolve(__dirname, '..', 'out');
+const jsDir = path.join(outRoot, 'svg_js');
 
 const names = Object.keys(jsSamples);
 const samplesPerPage = 12;
@@ -34,8 +34,8 @@ const renderCell = (name: string): string => {
   // 天井に密着させた最上部ラベル (box top ≈ 0.8px) のグリフ上端が削れて見える。overflow:visible で
   // viewBox 外の僅かなはみ出しも描き、ビューア表示の見切れを防ぐ (実 SVG / PDF 出力には影響しない)。
   const svg = fs
-    .readFileSync(svgPath, "utf-8")
-    .replace(/<\?xml[^>]*\?>/, "")
+    .readFileSync(svgPath, 'utf-8')
+    .replace(/<\?xml[^>]*\?>/, '')
     .replace(/<svg /, '<svg style="width:100%;height:auto;display:block;overflow:visible" ');
   return `<div class="sample"><div class="name">○${escapeXml(name)}</div>
     <div class="svg-wrap">${svg}</div></div>`;
@@ -47,11 +47,11 @@ const pagesHtml = pages
   <div class="page">
     <div class="page-header">A4 プレビュー — Page ${idx + 1} / ${pages.length}</div>
     <div class="grid">
-      ${pageNames.map(renderCell).join("\n      ")}
+      ${pageNames.map(renderCell).join('\n      ')}
     </div>
   </div>`,
   )
-  .join("");
+  .join('');
 
 const html = `<!doctype html>
 <html lang="ja">
@@ -92,7 +92,7 @@ const html = `<!doctype html>
 </body>
 </html>`;
 
-const outPath = path.join(outRoot, "compare_standalone.html");
-fs.writeFileSync(outPath, html, "utf-8");
-const kb = (Buffer.byteLength(html, "utf-8") / 1024).toFixed(0);
+const outPath = path.join(outRoot, 'compare_standalone.html');
+fs.writeFileSync(outPath, html, 'utf-8');
+const kb = (Buffer.byteLength(html, 'utf-8') / 1024).toFixed(0);
 console.log(`Wrote ${outPath} (${kb} KB, ${names.length} samples)`);

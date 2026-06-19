@@ -8,7 +8,7 @@
 // 端マージン(縦と一様=`marginCapPx`)で、ラベル可動域(`canvasXlim`)のみを決める。
 // =============================================================================
 
-import type { PieLayoutConfig } from "./types.js";
+import type { PieLayoutConfig } from './types.js';
 
 const PT_PER_MM = 1 / 0.352778; // ≈ 2.83465 pt/mm
 
@@ -17,8 +17,8 @@ const PT_PER_MM = 1 / 0.352778; // ≈ 2.83465 pt/mm
 // (override で `embedFontPath` を明示した場合はそちらを優先)。gen_glyph_advance.ts の
 // WEIGHT_FONT と一致させること。
 const WEIGHT_FONT: Record<string, string> = {
-  "400": "fonts/BIZUDPGothic-Regular.woff2",
-  "700": "fonts/BIZUDPGothic-Bold.woff2",
+  '400': 'fonts/BIZUDPGothic-Regular.woff2',
+  '700': 'fonts/BIZUDPGothic-Bold.woff2',
 };
 
 /**
@@ -38,22 +38,23 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     labelRadius: 1.19,
     startangle: 90.0,
     counterclock: false,
-    backgroundColor: "#ffffff",
+    backgroundColor: '#ffffff',
 
     fontSize: 40,
-    fontFamily: '"BIZ UDPGothic", "BIZ UDGothic", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif',
-    fontWeight: "400",
+    fontFamily:
+      '"BIZ UDPGothic", "BIZ UDGothic", "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif',
+    fontWeight: '400',
     // 字画を太らせる faux-bold。塗りと同色の stroke を text に載せ、font-size に対する比率で
     // 太さを足す (0=無効/純フォント, 0.015 前後で擬似500相当)。advance は不変。
     textWeightStrokeRatio: 0,
     embedFont: true,
-    embedFontPath: "fonts/BIZUDPGothic-Regular.woff2",
-    embedFontFamilyName: "BIZ UDPGothic",
+    embedFontPath: 'fonts/BIZUDPGothic-Regular.woff2',
+    embedFontFamilyName: 'BIZ UDPGothic',
     percentFormat: (value: number) =>
       value < 0 ? `△${(-value).toFixed(1)}%` : `${value.toFixed(1)}%`,
     lineSpacing: 1.1,
-    textColor: "#111111",
-    lineColor: "#000000",
+    textColor: '#111111',
+    lineColor: '#000000',
     lineWidth: 2,
 
     textRenderScale: 0.68,
@@ -93,10 +94,10 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     insideSliceClearance: 0.04,
     insideSliceAngularClearanceDeg: 3,
     pieLabelClearance: 0.05,
-    darkSliceTextColor: "#ffffff",
+    darkSliceTextColor: '#ffffff',
     darkSliceFillIndexMin: 2,
 
-    grayScale4: ["#d1d2d4", "#a7a9ab", "#808284", "#57585a"],
+    grayScale4: ['#d1d2d4', '#a7a9ab', '#808284', '#57585a'],
 
     charWidthFactor: 1.0,
     lineHeightFactor: 1.1,
