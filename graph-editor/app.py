@@ -41,6 +41,11 @@ EDGE_EXE = "msedge.exe"
 EDGE_APP_PATHS_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe"
 EDGE_INSTALL_ENV_DIRS = ("ProgramFiles(x86)", "ProgramFiles", "LocalAppData")
 
+# VDI/リモートデスクトップ対策フラグ。これらの環境は実 GPU が無く、Chromium(Edge) の GPU/
+# コンポジタプロセスがクラッシュしてアプリ窓が「一瞬出て消える」。ソフトウェア描画へ固定して
+# 回避する。本ツールは静的 SVG 表示が主で、通常デスクトップでも `--disable-gpu` は無害。
+EDGE_VDI_FLAGS = ("--disable-gpu", "--disable-gpu-compositing")
+
 
 # 同梱ファイルの基準ディレクトリ (PyInstaller 実行時は展開先 _MEIPASS、開発実行時は本ファイルの場所)。
 RESOURCE_BASE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -162,7 +167,7 @@ def _idle_watchdog(server):
 
 
 def _data_dir():
-    """起動診断ログを置くフォルダ (exe と同じ場所の ``data/``、ポータブル)。
+    """データ・診断ログを置く基準フォルダ (exe と同じ場所の ``data/``、ポータブル)。
     frozen 時は実行ファイルのある永続フォルダ、ソース実行時は本ファイルの場所を基準にする。"""
     base = (os.path.dirname(os.path.abspath(sys.executable))
             if getattr(sys, "frozen", False)
@@ -172,11 +177,30 @@ def _data_dir():
     return d
 
 
+def _log_dir():
+    """診断ログ (``startup.log`` / ``edge.log``) を置くフォルダ (``data/logs/``、ポータブル)。
+    終了時に削除する作業領域 (``data/tmp/<pid>``、`main` 参照) とは別階層にし、ログは
+    アプリ終了後も残してポストモーテムに使える状態を保つ。"""
+    d = os.path.join(_data_dir(), "logs")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _run_tmp_dir():
+    """実行時の一時データ (Edge プロファイル等) を集約するフォルダ ``data/tmp/<pid>`` (作成込み)。
+    VDI で C:/``%TEMP%`` がアクセス不可でも動くよう、実行時に書く temp を exe 隣の ``data/``
+    配下へ寄せる置き場。``<pid>`` 分離で並行起動が互いの後始末で消し合わない。`main` が終了時に
+    丸ごと削除する。"""
+    d = os.path.join(_data_dir(), "tmp", str(os.getpid()))
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def _setup_logging():
-    """起動診断ログを ``data/startup.log`` へ出す。
+    """起動診断ログを ``data/logs/startup.log`` へ出す。
 
     exe は ``console=False`` (LabelEditor.spec / build.bat の --windowed) で stderr が無く、
-    起動失敗が一切見えないため、ポータブルな ``data/`` にファイル出力して可観測性を確保する。
+    起動失敗が一切見えないため、ポータブルな ``data/logs/`` にファイル出力して可観測性を確保する。
     ログの用意に失敗しても起動は止めない (NullHandler へフォールバック)。"""
     log = logging.getLogger("labeleditor")
     log.setLevel(logging.INFO)
@@ -184,7 +208,7 @@ def _setup_logging():
     if log.handlers:  # 二重起動防止 (テスト等で複数回呼ばれても重複させない)
         return log
     try:
-        handler = logging.FileHandler(os.path.join(_data_dir(), "startup.log"), encoding="utf-8")
+        handler = logging.FileHandler(os.path.join(_log_dir(), "startup.log"), encoding="utf-8")
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         log.addHandler(handler)
     except OSError:
@@ -208,6 +232,12 @@ def _watch_proc(proc, log):
 
 def main():
     log = _setup_logging()
+    # 実行時に書く一時データ (Edge プロファイル等) を exe 隣の ``data/tmp/<pid>`` に集約する。
+    # VDI で C:/``%TEMP%`` がアクセス不可でも動かすためで、`tempfile` の既定先をここへ付け替える。
+    # 終了時に finally で丸ごと削除する。
+    run_tmp = _run_tmp_dir()
+    tempfile.tempdir = run_tmp
+    log.info("run tmp dir: %s", run_tmp)
     # 127.0.0.1 の空きポートで待受 (外部公開しない)。
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.quit_event = threading.Event()  # /quit ビーコン or watchdog で立てる
@@ -220,19 +250,29 @@ def main():
 
     edge = _find_edge()
     log.info("edge: %s", edge or "(not found, falling back to default browser)")
-    profile_dir = None
     proc = None
     if edge:
-        # 専用 user-data-dir で「アプリ窓」を独立プロセスとして起動する。
-        profile_dir = tempfile.mkdtemp(prefix="labeleditor-edge-")
+        # 専用 user-data-dir で「アプリ窓」を独立プロセスとして起動する。プロファイルと Edge の
+        # 付随 temp は run_tmp 配下に置き、子プロセスの TEMP/TMP も run_tmp へ向けて C:/%TEMP%
+        # を避ける。VDI 対策フラグ (EDGE_VDI_FLAGS) と Edge 自身のログ (data/logs/edge.log) も付ける。
+        profile_dir = os.path.join(run_tmp, "edge-profile")
+        child_env = dict(os.environ)
+        child_env["TEMP"] = child_env["TMP"] = run_tmp
         try:
-            proc = subprocess.Popen([
-                edge,
-                f"--app={url}",
-                f"--user-data-dir={profile_dir}",
-                "--no-first-run",
-                "--no-default-browser-check",
-            ])
+            proc = subprocess.Popen(
+                [
+                    edge,
+                    f"--app={url}",
+                    f"--user-data-dir={profile_dir}",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    *EDGE_VDI_FLAGS,
+                    "--enable-logging",
+                    f"--log-file={os.path.join(_log_dir(), 'edge.log')}",
+                    "--v=1",
+                ],
+                env=child_env,
+            )
             log.info("edge launched pid=%s profile=%s", proc.pid, profile_dir)
         except OSError as exc:
             log.warning("edge launch failed: %s", exc)
@@ -259,8 +299,9 @@ def main():
         server.server_close()
         if proc is not None and proc.poll() is None:
             proc.terminate()
-        if profile_dir:
-            shutil.rmtree(profile_dir, ignore_errors=True)
+        # Edge プロファイル・Edge 付随 temp をまとめて削除 (run_tmp ごと)。Edge がまだファイルを
+        # 掴んでいる可能性があるため ignore_errors で握りつぶす。
+        shutil.rmtree(run_tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

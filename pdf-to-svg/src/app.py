@@ -38,6 +38,11 @@ EDGE_EXE = "msedge.exe"
 EDGE_APP_PATHS_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe"
 EDGE_INSTALL_ENV_DIRS = ("ProgramFiles(x86)", "ProgramFiles", "LocalAppData")
 
+# VDI/リモートデスクトップ対策フラグ。これらの環境は実 GPU が無く、Chromium(Edge) の GPU/
+# コンポジタプロセスがクラッシュしてアプリ窓が「一瞬出て消える」。ソフトウェア描画へ固定して
+# 回避する。本ツールは静的 SVG/PDF 表示が主で、通常デスクトップでも `--disable-gpu` は無害。
+EDGE_VDI_FLAGS = ("--disable-gpu", "--disable-gpu-compositing")
+
 
 def _find_edge():
     """msedge.exe のパスを探す (App Paths レジストリ → 既知のインストール先)。無ければ None。"""
@@ -71,10 +76,10 @@ def _idle_watchdog(server):
 
 
 def _setup_logging():
-    """起動診断ログを ``data/startup.log`` へ出す。
+    """起動診断ログを ``data/logs/startup.log`` へ出す。
 
     exe は ``console=False`` (packaging/pdftosvg.spec) で stderr が無く、起動失敗が一切
-    見えないため、ポータブルな ``data/`` にファイル出力して可観測性を確保する。ログの
+    見えないため、ポータブルな ``data/logs/`` にファイル出力して可観測性を確保する。ログの
     用意に失敗しても起動は止めない (NullHandler へフォールバック)。"""
     log = logging.getLogger("pdftosvg")
     log.setLevel(logging.INFO)
@@ -82,7 +87,7 @@ def _setup_logging():
     if log.handlers:  # 二重起動防止 (テスト等で複数回呼ばれても重複させない)
         return log
     try:
-        handler = logging.FileHandler(config.data_dir() / "startup.log", encoding="utf-8")
+        handler = logging.FileHandler(config.log_dir() / "startup.log", encoding="utf-8")
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         log.addHandler(handler)
     except OSError:
@@ -106,6 +111,14 @@ def _watch_proc(proc, log):
 
 def main() -> int:
     log = _setup_logging()
+    # 実行時に書く一時データ (Edge プロファイル / PDF・JSON 一時) を exe 隣の ``data/tmp/<pid>``
+    # に集約する。VDI で C:/``%TEMP%`` がアクセス不可でも動かすためで、`tempfile` の既定先を
+    # ここへ付け替えることで `loader.py` / `rpc_methods.py` の `tempfile.*` も一括で C: を避ける
+    # (各呼び出し側は無改修)。終了時に finally で丸ごと削除する。
+    run_tmp = config.run_tmp_dir()
+    tempfile.tempdir = str(run_tmp)
+    log.info("run tmp dir: %s", run_tmp)
+
     store = DictionaryStore(config.dictionary_json_path())
     session = WebSession(store, UndoStack())
     server = create_server(str(config.resource_path("web")), session)
@@ -117,19 +130,29 @@ def main() -> int:
 
     edge = _find_edge()
     log.info("edge: %s", edge or "(not found, falling back to default browser)")
-    profile_dir = None
     proc = None
     if edge:
-        # 専用 user-data-dir で「アプリ窓」を独立プロセスとして起動する。
-        profile_dir = tempfile.mkdtemp(prefix="pdftosvg-edge-")
+        # 専用 user-data-dir で「アプリ窓」を独立プロセスとして起動する。プロファイルと Edge の
+        # 付随 temp は run_tmp 配下に置き、子プロセスの TEMP/TMP も run_tmp へ向けて C:/%TEMP%
+        # を避ける。VDI 対策フラグ (EDGE_VDI_FLAGS) と Edge 自身のログ (data/logs/edge.log) も付ける。
+        profile_dir = run_tmp / "edge-profile"
+        child_env = dict(os.environ)
+        child_env["TEMP"] = child_env["TMP"] = str(run_tmp)
         try:
-            proc = subprocess.Popen([
-                edge,
-                f"--app={url}",
-                f"--user-data-dir={profile_dir}",
-                "--no-first-run",
-                "--no-default-browser-check",
-            ])
+            proc = subprocess.Popen(
+                [
+                    edge,
+                    f"--app={url}",
+                    f"--user-data-dir={profile_dir}",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    *EDGE_VDI_FLAGS,
+                    "--enable-logging",
+                    f"--log-file={config.log_dir() / 'edge.log'}",
+                    "--v=1",
+                ],
+                env=child_env,
+            )
             log.info("edge launched pid=%s profile=%s", proc.pid, profile_dir)
         except OSError as exc:
             log.warning("edge launch failed: %s", exc)
@@ -156,8 +179,9 @@ def main() -> int:
         server.server_close()
         if proc is not None and proc.poll() is None:
             proc.terminate()
-        if profile_dir:
-            shutil.rmtree(profile_dir, ignore_errors=True)
+        # Edge プロファイル・PDF/JSON 一時・Edge 付随 temp をまとめて削除 (run_tmp ごと)。
+        # Edge がまだファイルを掴んでいる可能性があるため ignore_errors で握りつぶす。
+        shutil.rmtree(run_tmp, ignore_errors=True)
         store.close()
     return 0
 

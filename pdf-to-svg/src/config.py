@@ -70,5 +70,28 @@ def data_dir() -> Path:
     return d
 
 
+def log_dir() -> Path:
+    """診断ログ (``startup.log`` / ``edge.log``) を置くフォルダ (``data/logs/``、ポータブル)。
+
+    終了時に削除する作業領域 (``data/tmp/<pid>``、`app.py` の `main` 参照) とは別階層にし、
+    ログはアプリ終了後も残してポストモーテムに使える状態を保つ。"""
+    d = data_dir() / "logs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def run_tmp_dir() -> Path:
+    """実行時の一時データ (Edge プロファイル / PDF・JSON 一時) を集約するフォルダ。
+
+    ``data/tmp/<pid>`` を返す (作成込み)。VDI で C:/``%TEMP%`` がアクセス不可でも動くよう、
+    実行時に書く temp を exe 隣の ``data/`` 配下へ寄せるための置き場。``<pid>`` 分離で
+    並行起動が互いの後始末で消し合わない。`main` が終了時に丸ごと削除する。"""
+    import os
+
+    d = data_dir() / "tmp" / str(os.getpid())
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def dictionary_json_path() -> Path:
     return data_dir() / "dictionary.json"
