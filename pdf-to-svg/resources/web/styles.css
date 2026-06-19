@@ -495,6 +495,7 @@
 .change-row .from { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); font-size: 12.5px; white-space: nowrap; }
 .change-row .to { color: var(--good-ink); font-weight: 700; font-size: 12.5px; white-space: nowrap; }
 .change-row .arr { color: var(--faint); }
+.change-row .warn { font-size: 10px; font-weight: 700; color: var(--warn-ink); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; padding: 1px 7px; white-space: nowrap; flex: none; }
 .change-list { display: flex; flex-direction: column; gap: 8px; overflow: hidden; flex: 1; }
 
 .tally { display: flex; gap: 10px; }

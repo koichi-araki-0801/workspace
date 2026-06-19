@@ -9,8 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
+from model import fonts
 from model.document import Page
-from model.elements import DictMatch, TextElement
+from model.elements import DictMatch, Rect, TextElement
 from dictionary.store import DictionaryStore
 
 TOP_BAND_RATIO = 0.25  # ページ上端からこの割合内の最初の行をヘッダ候補とする
@@ -32,6 +33,26 @@ class Replacement:
     target: str
     # 折返しヘッダの 2 行目以降。置換時は描画から除外 (deleted) する。
     extras: List[TextElement] = field(default_factory=list)
+    # 折返し畳み込み時、結合テキストを据え直す合成領域 (グループ全体の bbox)。
+    # SVG 書き出しは置換後テキストをこの箱の縦横中央へ収める (`svg_exporter.py` の
+    # `_text_to_svg`)。単独行は None で元 bbox のまま。
+    new_bbox: Optional[Rect] = None
+    # 置換語の推定幅が収め先の箱幅を超える恐れ ("width_overflow")。レビュー UI / ログ用。
+    warning: Optional[str] = None
+
+
+def _merged_bbox(group: List[TextElement]) -> Rect:
+    """折返しグループ全体を包む合成 bbox (置換後テキストの据え直し領域)。"""
+    x0 = min(t.bbox.x for t in group)
+    y0 = min(t.bbox.y for t in group)
+    x1 = max(t.bbox.x1 for t in group)
+    y1 = max(t.bbox.y1 for t in group)
+    return Rect(x0, y0, x1 - x0, y1 - y0)
+
+
+def _overflow_warning(target: str, font_size: float, box_w: float) -> Optional[str]:
+    """置換語が箱幅を超える恐れなら警告種別を返す (簡易幅推定)。"""
+    return "width_overflow" if fonts.is_width_overflow(target, font_size, box_w) else None
 
 
 def _text_elements(page: Page) -> List[TextElement]:
@@ -142,7 +163,15 @@ def plan_replacements(
         source, target = hit
         top = group[0]
         if target != top.text:
-            plans.append(Replacement(top, source, target, extras=group[1:]))
+            # 折返しは結合テキストをグループ全体の合成領域へ据え直す (縦の畳み込みで
+            # 上詰まりするのを防ぎ、水平も合成全幅に収めて圧縮を緩める)。
+            box = _merged_bbox(group)
+            plans.append(
+                Replacement(
+                    top, source, target, extras=group[1:], new_bbox=box,
+                    warning=_overflow_warning(target, top.font_size, box.w),
+                )
+            )
         for t in group:
             consumed.add(id(t))
 
@@ -153,7 +182,12 @@ def plan_replacements(
             continue
         target = store.lookup(el.text)
         if target is not None and target != el.text:
-            plans.append(Replacement(el, el.text, target))
+            plans.append(
+                Replacement(
+                    el, el.text, target,
+                    warning=_overflow_warning(target, el.font_size, el.bbox.w),
+                )
+            )
     return plans
 
 
@@ -161,6 +195,8 @@ def apply_replacement(rep: Replacement) -> None:
     """置換案をモデルへ反映 (初期自動適用用。Undo が要る場面では Command を使う)。"""
     rep.element.text = rep.target
     rep.element.dict_match = DictMatch(source=rep.source, target=rep.target)
+    if rep.new_bbox is not None:  # 折返し畳み込み: 合成領域へ据え直す
+        rep.element.bbox = rep.new_bbox
     for ex in rep.extras:  # 折返し 2 行目以降は描画から除外
         ex.deleted = True
 

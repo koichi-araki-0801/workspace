@@ -16,6 +16,7 @@ Windows のフォントファミリ名と一致しないことが多い。本モ
 """
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -338,3 +339,26 @@ def fallback_css(family: str, text: str) -> str:
         else:
             parts.append(f'"{name}"')
     return ", ".join(parts)
+
+
+# 辞書置換語が元グリフ箱の幅を超えると `textLength` で圧縮表示され見栄えが崩れる。
+# 実グリフの advance を測らず、東アジア全角(W/F)を 1em・他を 0.5em とみなす簡易推定で
+# 「超過の恐れ」を検出して警告するための係数 (プロポーショナル欧文は誤差あり=注意喚起用途)。
+WIDTH_OVERFLOW_TOL = 1.05  # 箱幅をこの倍率超えたら警告
+
+
+def estimate_text_width(text: str, font_size: float) -> float:
+    """テキストの描画幅を簡易推定する (警告用途の概算)。
+
+    東アジア全角 (east_asian_width が W/F) は `font_size`、それ以外は `font_size*0.5`
+    として合算する。実フォントの advance ではないため厳密ではない。
+    """
+    return sum(
+        font_size * (1.0 if unicodedata.east_asian_width(ch) in ("W", "F") else 0.5)
+        for ch in text
+    )
+
+
+def is_width_overflow(text: str, font_size: float, box_w: float) -> bool:
+    """`text` の推定幅が収め先の箱幅 `box_w` を許容倍率超えるか (置換の幅超過警告)。"""
+    return box_w > 0 and estimate_text_width(text, font_size) > box_w * WIDTH_OVERFLOW_TOL

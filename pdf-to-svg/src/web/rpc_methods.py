@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -17,8 +18,11 @@ from typing import Callable, Dict, List, Optional
 from dictionary import apply as dict_apply
 from dictionary.store import DictionaryStore
 from export.svg_exporter import page_to_svg
+from model import fonts
 from model.document import Document, Page
 from model.elements import DictMatch, Rect, RectElement, TextElement
+
+_log = logging.getLogger("pdftosvg")
 from web.commands import (
     AddElementCommand,
     DeleteCommand,
@@ -130,6 +134,8 @@ def rpc_planPage(s: WebSession, args: dict) -> dict:
                     "source": el.dict_match.source,
                     "target": el.dict_match.target,
                     "loc": "ヘッダ" if el.is_header else "本文",
+                    # 置換語が収め先の箱幅を超え圧縮表示される恐れ (簡易推定)。
+                    "warning": fonts.is_width_overflow(el.text, el.font_size, el.bbox.w),
                 }
             )
     return {"changes": changes}
@@ -206,28 +212,44 @@ def rpc_dictImport(s: WebSession, args: dict) -> dict:
     return payload
 
 
-def rpc_reapplyDict(s: WebSession, _args: dict) -> dict:
-    """全ファイル・全ページに辞書を再適用 (Undo 可・1 マクロ)。置換件数を返す。"""
-    plans_all = []
-    for _fi, _pi, pg in s.all_pages():
-        dict_apply.detect_headers(pg)
-        plans_all.extend(
-            (pg, rep)
-            for rep in dict_apply.plan_replacements(pg, s.store, s.only_headers)
-        )
-    if not plans_all:
-        return {"count": 0}
-    s.undo.beginMacro("辞書適用")
-    for _pg, rep in plans_all:
+def _apply_plans(s: WebSession, plans, label: str) -> dict:
+    """plans を 1 Undo マクロで適用し {count, warnings} を返す (全ファイル/1ページ共有)。"""
+    if not plans:
+        return {"count": 0, "warnings": 0}
+    warnings = 0
+    s.undo.beginMacro(label)
+    for rep in plans:
         s.undo.push(
             ReplaceTextCommand(
-                rep.element, rep.target, DictMatch(source=rep.source, target=rep.target)
+                rep.element, rep.target,
+                DictMatch(source=rep.source, target=rep.target),
+                new_bbox=rep.new_bbox,
             )
         )
         if rep.extras:  # 折返しヘッダの 2 行目以降を描画から除外
             s.undo.push(DeleteCommand(rep.extras))
+        if rep.warning:  # 置換語が元幅を超え圧縮表示される恐れ
+            warnings += 1
+            _log.warning("辞書置換 幅超過: %r → %r (%s)", rep.source, rep.target, rep.warning)
     s.undo.endMacro()
-    return {"count": len(plans_all)}
+    return {"count": len(plans), "warnings": warnings}
+
+
+def rpc_reapplyDict(s: WebSession, _args: dict) -> dict:
+    """全ファイル・全ページに辞書を再適用 (Undo 可・1 マクロ)。置換件数を返す。"""
+    plans = []
+    for _fi, _pi, pg in s.all_pages():
+        dict_apply.detect_headers(pg)
+        plans.extend(dict_apply.plan_replacements(pg, s.store, s.only_headers))
+    return _apply_plans(s, plans, "辞書適用")
+
+
+def rpc_reapplyDictPage(s: WebSession, args: dict) -> dict:
+    """指定ページにのみ辞書を再適用 (Undo 可・1 マクロ)。置換件数を返す。"""
+    pg = s.page(int(args["fileIndex"]), int(args["pageInFile"]))
+    dict_apply.detect_headers(pg)
+    plans = dict_apply.plan_replacements(pg, s.store, s.only_headers)
+    return _apply_plans(s, plans, "辞書適用 (ページ)")
 
 
 # ---- 編集 ----
@@ -352,6 +374,7 @@ HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "exportSvg": rpc_exportSvg,
     "setOnlyHeaders": rpc_setOnlyHeaders,
     "reapplyDict": rpc_reapplyDict,
+    "reapplyDictPage": rpc_reapplyDictPage,
     "applyDelete": rpc_applyDelete,
     "deleteRegion": rpc_deleteRegion,
     "removeFile": rpc_removeFile,

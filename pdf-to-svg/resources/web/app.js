@@ -390,8 +390,9 @@ import { clientToPage, parseSpec } from "./geometry.js";
     var data = await rpc("planPage", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
     if (token !== PAGES[page].fileIndex + ":" + PAGES[page].pageInFile) return; // ページが変わった
     var rows = data.changes.map(function (ch) {
+      var warn = ch.warning ? '<span class="warn" title="置換語が元の幅より長く、圧縮表示される可能性があります">幅超過</span>' : "";
       return '<div class="change-row" data-el="' + ch.elId + '"><span class="loc">' + esc(ch.loc) + '</span><span class="pair"><span class="from">' +
-        esc(ch.source) + "</span>" + svg('<path d="M4 12h15M13 6l6 6-6 6"/>', 15) + '<span class="to">' + esc(ch.target) + "</span></span>" +
+        esc(ch.source) + "</span>" + svg('<path d="M4 12h15M13 6l6 6-6 6"/>', 15) + '<span class="to">' + esc(ch.target) + "</span></span>" + warn +
         svg(chevD, 16).replace("currentColor", "var(--faint)") + "</div>";
     }).join("");
     el.innerHTML =
@@ -783,7 +784,20 @@ import { clientToPage, parseSpec } from "./geometry.js";
     document.getElementById("btn-reapply").addEventListener("click", async function () {
       var r = await rpc("reapplyDict");
       await reloadState();
-      setHint("辞書を再適用しました（" + r.count + " 件置換）");
+      var msg = "辞書を再適用しました（" + r.count + " 件置換";
+      if (r.warnings) msg += ", うち " + r.warnings + " 件 幅超過";
+      setHint(msg + "）");
+      render();
+    });
+    document.getElementById("btn-reapply-page").addEventListener("click", async function () {
+      if (page >= TOTAL) return;
+      var pg = PAGES[page];
+      var r = await rpc("reapplyDictPage", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
+      invalidate(pg.fileIndex, pg.pageInFile);  // 置換で SVG が変わるため当該ページを再生成
+      await reloadState();
+      var msg = "このページに再適用しました（" + r.count + " 件置換";
+      if (r.warnings) msg += ", うち " + r.warnings + " 件 幅超過";
+      setHint(msg + "）");
       render();
     });
     document.getElementById("btn-dict-export").addEventListener("click", async function () {

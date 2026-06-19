@@ -130,13 +130,24 @@ def _text_to_svg(el: TextElement) -> str:
     family = fonts.fallback_css(el.font_family, el.text)
     weight = f' font-weight="{el.weight}"' if el.weight != 400 else ""
     style = ' font-style="italic"' if el.italic else ""
-    # 未編集テキストは元 PDF 上の幅 (bbox.w) に合わせて伸縮し、代替フォントの
-    # 字幅差によるはみ出し・重なりを防ぐ。編集済みは本来の幅が不明なため自然幅。
+    # 元 PDF 上のグリフ箱の幅 (bbox.w) に収め、代替フォントの字幅差や辞書置換後の
+    # 文字数差があっても元の水平位置 (中央/左/右の揃え) を維持する。文字数が大きく
+    # 変わる場合は lengthAdjust="spacingAndGlyphs" が字間を伸縮して吸収する。
     stretch = ""
-    if el.text == el.original_text and el.bbox.w > 0:
+    if el.bbox.w > 0:
         stretch = f' textLength="{_fmt(el.bbox.w)}" lengthAdjust="spacingAndGlyphs"'
+    if el.text == el.original_text:
+        # 未編集: 元 PDF のベースライン原点に置く (従来出力と完全一致)。
+        x, y, base = el.origin_x, el.origin_y, ""
+    else:
+        # 置換後: 元グリフ箱に収め、水平は左端 + 元幅 (揃え維持)、垂直は箱の縦中央へ
+        # `dominant-baseline="central"` で据える。フォント置換でアセントが変わっても
+        # 縦中央が保たれ、ベースライン据えで起きる「上詰まり」を防ぐ。
+        x = el.bbox.x
+        y = el.bbox.y + el.bbox.h / 2
+        base = ' dominant-baseline="central"'
     return (
-        f'<text x="{_fmt(el.origin_x)}" y="{_fmt(el.origin_y)}" '
+        f'<text x="{_fmt(x)}" y="{_fmt(y)}"{base} '
         f'font-family={quoteattr(family)} font-size="{_fmt(el.font_size)}" '
         f'fill="{el.color}"{weight}{style}{stretch}>{escape(sanitize_text(el.text))}</text>'
     )
