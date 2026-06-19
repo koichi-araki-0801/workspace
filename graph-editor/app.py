@@ -17,10 +17,8 @@ exe ビルド:  build.bat   (PyInstaller --onefile, 同梱の ui.html を --add-
 import http.server
 import logging
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import webbrowser
@@ -40,11 +38,6 @@ except ImportError:  # pragma: no cover - 非 Windows 開発時
 EDGE_EXE = "msedge.exe"
 EDGE_APP_PATHS_KEY = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe"
 EDGE_INSTALL_ENV_DIRS = ("ProgramFiles(x86)", "ProgramFiles", "LocalAppData")
-
-# VDI/リモートデスクトップ対策フラグ。これらの環境は実 GPU が無く、Chromium(Edge) の GPU/
-# コンポジタプロセスがクラッシュしてアプリ窓が「一瞬出て消える」。ソフトウェア描画へ固定して
-# 回避する。本ツールは静的 SVG 表示が主で、通常デスクトップでも `--disable-gpu` は無害。
-EDGE_VDI_FLAGS = ("--disable-gpu", "--disable-gpu-compositing")
 
 
 # 同梱ファイルの基準ディレクトリ (PyInstaller 実行時は展開先 _MEIPASS、開発実行時は本ファイルの場所)。
@@ -179,19 +172,8 @@ def _data_dir():
 
 def _log_dir():
     """診断ログ (``startup.log`` / ``edge.log``) を置くフォルダ (``data/logs/``、ポータブル)。
-    終了時に削除する作業領域 (``data/tmp/<pid>``、`main` 参照) とは別階層にし、ログは
-    アプリ終了後も残してポストモーテムに使える状態を保つ。"""
+    ``data/`` 直下に散らさず階層化し、アプリ終了後も残してポストモーテムに使える状態を保つ。"""
     d = os.path.join(_data_dir(), "logs")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def _run_tmp_dir():
-    """実行時の一時データ (Edge プロファイル等) を集約するフォルダ ``data/tmp/<pid>`` (作成込み)。
-    VDI で C:/``%TEMP%`` がアクセス不可でも動くよう、実行時に書く temp を exe 隣の ``data/``
-    配下へ寄せる置き場。``<pid>`` 分離で並行起動が互いの後始末で消し合わない。`main` が終了時に
-    丸ごと削除する。"""
-    d = os.path.join(_data_dir(), "tmp", str(os.getpid()))
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -232,12 +214,6 @@ def _watch_proc(proc, log):
 
 def main():
     log = _setup_logging()
-    # 実行時に書く一時データ (Edge プロファイル等) を exe 隣の ``data/tmp/<pid>`` に集約する。
-    # VDI で C:/``%TEMP%`` がアクセス不可でも動かすためで、`tempfile` の既定先をここへ付け替える。
-    # 終了時に finally で丸ごと削除する。
-    run_tmp = _run_tmp_dir()
-    tempfile.tempdir = run_tmp
-    log.info("run tmp dir: %s", run_tmp)
     # 127.0.0.1 の空きポートで待受 (外部公開しない)。
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.quit_event = threading.Event()  # /quit ビーコン or watchdog で立てる
@@ -252,28 +228,24 @@ def main():
     log.info("edge: %s", edge or "(not found, falling back to default browser)")
     proc = None
     if edge:
-        # 専用 user-data-dir で「アプリ窓」を独立プロセスとして起動する。プロファイルと Edge の
-        # 付随 temp は run_tmp 配下に置き、子プロセスの TEMP/TMP も run_tmp へ向けて C:/%TEMP%
-        # を避ける。VDI 対策フラグ (EDGE_VDI_FLAGS) と Edge 自身のログ (data/logs/edge.log) も付ける。
-        profile_dir = os.path.join(run_tmp, "edge-profile")
-        child_env = dict(os.environ)
-        child_env["TEMP"] = child_env["TMP"] = run_tmp
+        # 端末標準の「管理された」既定プロファイルでアプリ窓を開く。以前は隔離 user-data-dir +
+        # `--disable-gpu` (ソフトウェア描画固定) で起動していたが、VDI ではこの非標準構成だと
+        # レンダラが不安定で窓ごとクラッシュした (edge.log: "GetGpuDriverOverlayInfo failed to
+        # retrieve video device"。通常の Edge ブラウジングは安定)。そこで余計なフラグを付けず、
+        # 安定動作している既定 Edge と同じ構成で開く。`--enable-logging` で edge.log に診断を残す。
         try:
             proc = subprocess.Popen(
                 [
                     edge,
                     f"--app={url}",
-                    f"--user-data-dir={profile_dir}",
                     "--no-first-run",
                     "--no-default-browser-check",
-                    *EDGE_VDI_FLAGS,
                     "--enable-logging",
                     f"--log-file={os.path.join(_log_dir(), 'edge.log')}",
                     "--v=1",
                 ],
-                env=child_env,
             )
-            log.info("edge launched pid=%s profile=%s", proc.pid, profile_dir)
+            log.info("edge launched pid=%s", proc.pid)
         except OSError as exc:
             log.warning("edge launch failed: %s", exc)
             proc = None
@@ -299,9 +271,6 @@ def main():
         server.server_close()
         if proc is not None and proc.poll() is None:
             proc.terminate()
-        # Edge プロファイル・Edge 付随 temp をまとめて削除 (run_tmp ごと)。Edge がまだファイルを
-        # 掴んでいる可能性があるため ignore_errors で握りつぶす。
-        shutil.rmtree(run_tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -60,28 +60,26 @@ import { clientToPage, parseSpec } from "./geometry.js";
   function clearSel() { var s = selSet(); Object.keys(s).forEach(function (k) { delete s[k]; }); }
   function initStatus(ch) { return ch.map(function (c) { return c ? "pending" : "none"; }); }
 
-  // ---- ファイル入出力 (File System Access API) ----
-  // http://127.0.0.1 は secure context のため showOpenFilePicker 等が使える。
-  // 非対応ブラウザでは <input type=file> / <a download> へフォールバックする。
-  function hasFsOpen() { return typeof window.showOpenFilePicker === "function"; }
-  function hasFsSave() { return typeof window.showSaveFilePicker === "function"; }
+  // ---- ファイル入出力 ----
+  // File System Access API のネイティブピッカー (`showOpenFilePicker` / `showSaveFilePicker` /
+  // `showDirectoryPicker`) は VDI/リモートデスクトップの管理された Edge でレンダラごとクラッシュ
+  // するため一切使わない。開く = 従来型 `<input type=file>`、保存 = `<a download>` に統一する。
+  // 本 UI は開いて得たハンドルを使わず内容だけ扱うので、機能差は「保存先がダウンロード
+  // フォルダ固定」になる点のみ。安定性を優先する判断。`hasFsSave` は常に false を返す。
+  function hasFsSave() { return false; }
 
-  async function pickPdfFiles() {
-    if (hasFsOpen()) {
-      try {
-        var handles = await window.showOpenFilePicker({
-          multiple: true,
-          types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
-        });
-        return await Promise.all(handles.map(function (h) { return h.getFile(); }));
-      } catch (e) { if (e && e.name === "AbortError") return []; throw e; }
-    }
+  // `<input type=file>` でファイルを開く小ヘルパ (multiple/accept を指定可)。
+  function pickViaInput(accept, multiple) {
     return new Promise(function (resolve) {
       var inp = document.createElement("input");
-      inp.type = "file"; inp.accept = ".pdf,application/pdf"; inp.multiple = true;
+      inp.type = "file"; inp.accept = accept; inp.multiple = !!multiple;
       inp.addEventListener("change", function () { resolve([].slice.call(inp.files)); });
       inp.click();
     });
+  }
+
+  async function pickPdfFiles() {
+    return await pickViaInput(".pdf,application/pdf", true);
   }
 
   async function uploadPdf(name, buf) {
@@ -115,29 +113,16 @@ import { clientToPage, parseSpec } from "./geometry.js";
     downloadBlob(suggestedName, text, mime); return true;
   }
 
-  // 1 ファイルを開いて File を返す。キャンセルで null。
+  // 1 ファイルを開いて File を返す。キャンセルで null。FSA は使わず `<input type=file>`。
+  // (`descr` は呼出側の互換のため受けるが未使用)
   async function pickOneFile(descr, mime, ext) {
-    if (hasFsOpen()) {
-      try {
-        var accept = {}; accept[mime] = [ext];
-        var hs = await window.showOpenFilePicker({ multiple: false, types: [{ description: descr, accept: accept }] });
-        return await hs[0].getFile();
-      } catch (e) { if (e && e.name === "AbortError") return null; throw e; }
-    }
-    return new Promise(function (resolve) {
-      var inp = document.createElement("input");
-      inp.type = "file"; inp.accept = ext + "," + mime;
-      inp.addEventListener("change", function () { resolve(inp.files[0] || null); });
-      inp.click();
-    });
+    var files = await pickViaInput(ext + "," + mime, false);
+    return files[0] || null;
   }
 
-  // 保存先フォルダを選ぶ。FSA: ディレクトリハンドル / 非対応: "download" / キャンセル: null。
+  // 保存先フォルダ選択。FSA の `showDirectoryPicker` は VDI でクラッシュするため使わず、
+  // 常に "download" を返してブラウザのダウンロード経路 (`writeIntoDir`) へ流す。
   async function pickSaveDir() {
-    if (typeof window.showDirectoryPicker === "function") {
-      try { return await window.showDirectoryPicker({ mode: "readwrite" }); }
-      catch (e) { if (e && e.name === "AbortError") return null; throw e; }
-    }
     return "download";
   }
 

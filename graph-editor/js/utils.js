@@ -59,9 +59,13 @@ function sanitizeSvg(svgText) {
   return root;
 }
 
-// File System Access API が使えるか (Chromium 系 + secure context=localhost)。
+// File System Access API のネイティブピッカー (`showOpenFilePicker` / `showSaveFilePicker`) を
+// 使うか。VDI/リモートデスクトップの管理された Edge ではこのピッカーがレンダラごとクラッシュ
+// するため、常に false にして従来型 `<input type=file>` / `<a download>` のフォールバック経路へ
+// 流す (`editor.js` の `openFiles` / `save` 参照)。本ツールは開いたハンドルを使わず内容だけ扱う
+// ので機能差は実質「保存先がダウンロードフォルダ固定」になる点のみ。安定性を優先する判断。
 function hasFsAccess() {
-  return typeof window.showOpenFilePicker === "function" && typeof window.showSaveFilePicker === "function";
+  return false;
 }
 
 // 開く/保存ダイアログのファイル種別フィルタ。
