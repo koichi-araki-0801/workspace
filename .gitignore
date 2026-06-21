@@ -25,6 +25,8 @@ test-results/
 .pnpm-store/
 pnpm.tgz
 ms-playwright/
+# Python ビルド依存の wheel（pip download で生成し重量物バンドルへ同梱）
+python-wheelhouse/
 *.tar.gz
 *.tar.gz.part-*
 # Release 公開時の付随生成物

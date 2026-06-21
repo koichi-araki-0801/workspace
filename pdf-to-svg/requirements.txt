@@ -1,0 +1,7 @@
+# PdfToSvg exe ビルド/実行に必要な依存
+# build.bat が隔離 venv 内へ install する（オフライン時は同梱 python-wheelhouse から）。
+PyMuPDF
+Pillow
+fonttools
+brotli
+pyinstaller
