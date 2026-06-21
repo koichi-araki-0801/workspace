@@ -12,10 +12,12 @@
        ``Source code (zip/tar.gz)`` を最新コミットのツリーへ更新する（常に実行）。
     B) 重量物更新: 変更検知キーに差分がある時だけ重量物を再生成・再アップロードする（冪等）。
 
-  変更検知キー = sha256( pnpm-lock.yaml の内容 ‖ package.json の packageManager 文字列 )。
+  変更検知キー = sha256( pnpm-lock.yaml ‖ packageManager ‖ 各 requirements.txt )。算出は
+  共通ライブラリ Get-LockContentKey に集約（content-key.ps1）。
   .pnpm-store は pnpm-lock.yaml が、pnpm.tgz は packageManager が、ms-playwright は
-  lockfile 内に解決された @playwright/test 版（=chromium revision）が、それぞれ規定する。
-  よってこの1キーで3点すべての変化を覆える。Release 側に bundle.key（このハッシュ）を保存し、
+  lockfile 内に解決された @playwright/test 版（=chromium revision）が、python-wheelhouse は
+  pdf-to-svg / graph-editor の requirements.txt が、それぞれ規定する。
+  よってこの1キーで4点すべての変化を覆える。Release 側に bundle.key（このハッシュ）を保存し、
   現在キーと一致したら重量物は据え置く（タグ移動と説明更新のみ）。
 
   → コミット毎フック（.husky/post-commit）から呼ぶことで「ソースは毎コミット更新、
@@ -113,6 +115,7 @@ if ($bundleChanged) {
 $Store      = Join-Path $RepoRoot '.pnpm-store'
 $PnpmTgz    = Join-Path $RepoRoot 'pnpm.tgz'
 $MsPw       = Join-Path $RepoRoot 'ms-playwright'
+$Wheelhouse = Join-Path $RepoRoot 'python-wheelhouse'
 $BundleName = 'offline-deps-bundle.tar.gz'
 $Bundle     = Join-Path $RepoRoot $BundleName
 $Sha        = "$Bundle.sha256"
@@ -124,12 +127,12 @@ if ($bundleChanged) {
   if (-not $SkipRegen) {
     Require-Cmd 'corepack'
 
-    Write-Host '[1/3] 依存を同梱ストアへ充填（corepack pnpm install --frozen-lockfile）...'
+    Write-Host '[1/4] 依存を同梱ストアへ充填（corepack pnpm install --frozen-lockfile）...'
     $env:COREPACK_ENABLE_DOWNLOAD_PROMPT = '0'
     & corepack pnpm install --frozen-lockfile --store-dir $Store
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] pnpm install に失敗しました。'; exit 1 }
 
-    Write-Host "[2/3] pnpm 本体 tarball を取得（corepack pack pnpm@$pnpmVersion）..."
+    Write-Host "[2/4] pnpm 本体 tarball を取得（corepack pack pnpm@$pnpmVersion）..."
     # setup-offline.ps1 は `corepack install -g pnpm.tgz` で pnpm を復元するため、
     # corepack pack 形式（pnpm/<ver>/... ＋ .corepack マーカー）で固める必要がある。
     # npm pack 形式（package/... 始まり）は corepack install が拒否する
@@ -140,22 +143,40 @@ if ($bundleChanged) {
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] corepack pack pnpm に失敗しました。'; exit 1 }
     if (-not (Test-Path $PnpmTgz)) { Write-Error '[error] pnpm.tgz が生成されませんでした。'; exit 1 }
 
-    Write-Host '[3/3] Playwright Chromium を ms-playwright へ配置...'
+    Write-Host '[3/4] Playwright Chromium を ms-playwright へ配置...'
     $env:PLAYWRIGHT_BROWSERS_PATH = $MsPw
     & corepack pnpm exec playwright install chromium
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] playwright install に失敗しました。'; exit 1 }
+
+    Write-Host '[4/4] Python ビルド依存の wheel を python-wheelhouse へ収集（pip download）...'
+    # pdf-to-svg / graph-editor の build.bat は、この python-wheelhouse から --no-index で
+    # オフライン install する。両 requirements.txt の和を 1 ディレクトリへ収集する。
+    $pyExe = $null
+    foreach ($cand in @('py', 'python')) {
+      if (Get-Command $cand -ErrorAction SilentlyContinue) { $pyExe = $cand; break }
+    }
+    if (-not $pyExe) { Write-Error '[error] Python が見つかりません（wheel 収集に必要）。'; exit 1 }
+    $pyReqs = @('pdf-to-svg\requirements.txt', 'graph-editor\requirements.txt') |
+      ForEach-Object { Join-Path $RepoRoot $_ } | Where-Object { Test-Path -LiteralPath $_ }
+    if (-not $pyReqs) { Write-Error '[error] requirements.txt が見つかりません（pdf-to-svg / graph-editor）。'; exit 1 }
+    Remove-Item $Wheelhouse -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $Wheelhouse | Out-Null
+    $dlArgs = @('-m', 'pip', 'download', '-d', $Wheelhouse)
+    foreach ($r in $pyReqs) { $dlArgs += @('-r', $r) }
+    & $pyExe @dlArgs
+    if ($LASTEXITCODE -ne 0) { Write-Error '[error] pip download に失敗しました。'; exit 1 }
   } else {
     Write-Host '[info] -SkipRegen: 既存のディスク上の重量物をそのまま固めます。'
   }
 
-  foreach ($p in @($Store, $PnpmTgz, $MsPw)) {
+  foreach ($p in @($Store, $PnpmTgz, $MsPw, $Wheelhouse)) {
     if (-not (Test-Path $p)) { Write-Error "[error] 重量物が見つかりません: $p（-SkipRegen 指定時は事前生成が必要）"; exit 1 }
   }
 
   # ---- パッケージング（重量物のみ。ソースは含めない） ----
-  Write-Host "[info] tar -czf $BundleName .pnpm-store pnpm.tgz ms-playwright ..."
+  Write-Host "[info] tar -czf $BundleName .pnpm-store pnpm.tgz ms-playwright python-wheelhouse ..."
   Remove-Item $Bundle -Force -ErrorAction SilentlyContinue
-  & $TarExe -czf $Bundle -C $RepoRoot '.pnpm-store' 'pnpm.tgz' 'ms-playwright'
+  & $TarExe -czf $Bundle -C $RepoRoot '.pnpm-store' 'pnpm.tgz' 'ms-playwright' 'python-wheelhouse'
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] tar に失敗しました。'; exit 1 }
 
   $sizeMB = [math]::Round((Get-Item $Bundle).Length / 1MB, 1)
@@ -180,6 +201,7 @@ $notes = @"
 - .pnpm-store … 依存オフラインストア（content-addressable）
 - pnpm.tgz … pnpm $pnpmVersion 本体（corepack 用）
 - ms-playwright … Chromium（E2E 用）
+- python-wheelhouse … Python ビルド依存の wheel（pdf-to-svg / graph-editor の exe ビルド用）
 
 ## 取得手順（別端末・gh 不要）
 1. 取得中のみリポジトリを Public にする

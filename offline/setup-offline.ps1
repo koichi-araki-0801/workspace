@@ -143,10 +143,10 @@ if ((Test-Path $KeyFile) -and (Test-Path $LockFile) -and (Test-Path $PkgJson)) {
 }
 
 # ---- [4/6] 重量物を ROOT へ展開 ----
-Write-Host '[4/6] 重量物を直下へ展開（.pnpm-store / pnpm.tgz / ms-playwright）...'
+Write-Host '[4/6] 重量物を直下へ展開（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse）...'
 & $TarExe -xzf $Bundle -C $RepoRoot
 if ($LASTEXITCODE -ne 0) { Write-Error '[error] 展開に失敗しました。'; exit 1 }
-foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright')) {
+foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse')) {
   if (-not (Test-Path (Join-Path $RepoRoot $p))) { Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1 }
 }
 

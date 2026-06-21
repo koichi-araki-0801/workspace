@@ -9,6 +9,7 @@ import {
   Plus,
   Redo2,
   RotateCcw,
+  Rows3,
   Save,
   Undo2,
 } from '@lucide/vue';
@@ -25,6 +26,7 @@ const props = defineProps<{
   zoom: number;
   canUndo: boolean;
   canRedo: boolean;
+  showPageGuides: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -32,6 +34,7 @@ const emit = defineEmits<{
   redo: [];
   zoomIn: [];
   zoomOut: [];
+  togglePageGuides: [];
   save: [];
   preview: [];
 }>();
@@ -88,6 +91,18 @@ const attrItems = (a: TemplateAttributes) => [
         <Plus class="h-4 w-4" />
       </Button>
     </div>
+    <div class="h-[26px] w-px bg-border" />
+
+    <!-- page boundary guides toggle -->
+    <Button
+      variant="ghost"
+      size="icon"
+      :title="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
+      :class="showPageGuides ? 'text-primary' : ''"
+      @click="emit('togglePageGuides')"
+    >
+      <Rows3 class="h-[17px] w-[17px]" />
+    </Button>
     <div class="h-[26px] w-px bg-border" />
 
     <!-- autosave status -->

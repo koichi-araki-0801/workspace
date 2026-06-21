@@ -6,6 +6,7 @@
     <link rel="stylesheet" href="css/{{ fund.code }}.css" />
   </head>
   <body>
+    <div class="page">
     <header class="report-header">
       <h1 class="report-title">{{ fund.name }} 運用報告書（全体版）</h1>
       <p class="report-meta">基準日: {{ report.baseDate }}</p>
@@ -23,5 +24,6 @@
     <footer class="report-footer">
       <p>委託会社: {{ company.name }}（{{ company.code }}）</p>
     </footer>
+    </div>
   </body>
 </html>

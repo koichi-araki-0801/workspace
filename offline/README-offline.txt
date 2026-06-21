@@ -10,14 +10,21 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
 配布は 2 系統に分かれ、いずれも GitHub から HTTPS だけで取得します。
   (A) ソースコード … タグ ZIP（codeload）。Release のたびに最新コミットへ更新。
   (B) 重量物       … GitHub Releases のアセット（約 1.2GB。git に入れない）。
-                     .pnpm-store / pnpm.tgz / ms-playwright
+                     .pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse
 
 ■ 重量物の内訳（GitHub Releases: タグ offline-bundle-v1）
-  - .pnpm-store/      … 依存パッケージのオフラインストア（content-addressable）
-  - pnpm.tgz          … pnpm 11 本体（corepack 用オフライン tarball）
-  - ms-playwright/    … Playwright 用 Chromium（E2E テスト用）
+  - .pnpm-store/        … 依存パッケージのオフラインストア（content-addressable）
+  - pnpm.tgz            … pnpm 11 本体（corepack 用オフライン tarball）
+  - ms-playwright/      … Playwright 用 Chromium（E2E テスト用）
+  - python-wheelhouse/  … Python ビルド依存の wheel（pdf-to-svg / graph-editor の exe ビルド用）
   これらは offline-deps-bundle.tar.gz 1 ファイルに固めて Release に置かれます。
-  内容（pnpm-lock.yaml / packageManager）に変更が無い限り再アップロードされません。
+  内容（pnpm-lock.yaml / packageManager / 各 requirements.txt）に変更が無い限り再アップロードされません。
+
+  ※ python-wheelhouse の wheel は publish 機の Python マイナー版・プラットフォーム
+     （win_amd64 / cpXY）に紐づくバイナリを含む（PyMuPDF / Pillow / brotli）。
+     オフラインビルド機は同一マイナー版の Python を使うこと。各 build.bat は
+     python-wheelhouse があれば --no-index でそこから install し、無ければ通常の
+     pip install（要ネット）へフォールバックする。
 
 ------------------------------------------------------------------------------
 ■ 前提
@@ -56,7 +63,7 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
      展開＋構築だけ行いたい場合は専用 bat を使う（DL を行わない）:
        offline\setup-offline-local.bat
      前提: offline-deps-bundle.tar.gz（未展開）、もしくは展開済みの
-           .pnpm-store / pnpm.tgz / ms-playwright がリポジトリ直下（または bk\）にあること。
+           .pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse がリポジトリ直下（または bk\）にあること。
      引数:
        offline\setup-offline-local.bat -SkipBuild   展開のみ（install/build 省略）
        offline\setup-offline-local.bat -NoVerify    sha256 / lockfile 整合チェックを省略
@@ -84,8 +91,8 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
   通常はコミット毎フック（.husky/post-commit）が自動で実行します:
     - ローリングタグ offline-bundle-v1 を最新コミットへ移動（= Release の自動
       Source code が最新ソースに更新される）
-    - 重量物は content key（pnpm-lock.yaml + packageManager）に差分がある時だけ
-      再生成・再アップロード（差分が無ければ据え置き）
+    - 重量物は content key（pnpm-lock.yaml + packageManager + 各 requirements.txt）に
+      差分がある時だけ再生成・再アップロード（差分が無ければ据え置き）
   手動で実行する場合:
        pwsh -File offline\publish-offline-bundle.ps1
   フックを一時的に無効化したい場合は環境変数 OFFLINE_PUBLISH_SKIP=1 を設定。

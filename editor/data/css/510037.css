@@ -6,6 +6,14 @@ body {
   font-family: 'Hiragino Mincho ProN', 'Yu Mincho', serif;
   color: #1f2937;
 }
+/* ページ（1ページ=1ブロック。複数ページ時の改頁マーカー） */
+.page {
+  page-break-after: always;
+  padding-bottom: 6px;
+}
+.page:last-child {
+  page-break-after: auto;
+}
 .report-header {
   border-bottom: 3px solid #1d4ed8;
   padding-bottom: 8px;

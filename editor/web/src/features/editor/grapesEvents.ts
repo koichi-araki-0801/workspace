@@ -31,6 +31,10 @@ export interface GrapesEventDeps {
   zoom: Ref<number>;
   refreshRect: () => void;
   refreshMove: () => void;
+  /** Rescan the canvas for page-break elements (content/style changes only). */
+  recomputeBreakEls: () => void;
+  /** Re-read page-boundary guide positions (scroll/zoom/content changes). */
+  refreshPageGuides: () => void;
   toInfo: (comp: Component) => SelectedInfo;
   /** Canvas read-only flag getter (blocks RTE while selectable). */
   isLocked: () => boolean;
@@ -45,8 +49,18 @@ export interface GrapesEventDeps {
  * order are unchanged from the inline version.
  */
 export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
-  const { selected, selectedRect, revision, zoom, refreshRect, refreshMove, toInfo, callbacks } =
-    deps;
+  const {
+    selected,
+    selectedRect,
+    revision,
+    zoom,
+    refreshRect,
+    refreshMove,
+    recomputeBreakEls,
+    refreshPageGuides,
+    toInfo,
+    callbacks,
+  } = deps;
   // Local to the listeners: RTE start snapshot and the drag-start sibling index.
   let rteStartHtml = '';
   let dragStartIndex = -1;
@@ -64,6 +78,9 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     } catch {
       /* zoom API unavailable — ignore */
     }
+    // page-boundary guides: scan once now that styles/components are in place
+    recomputeBreakEls();
+    refreshPageGuides();
   });
 
   ed.on('component:selected', () => {
@@ -77,13 +94,21 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     selectedRect.value = null;
     refreshMove();
   });
-  ed.on('canvas:scroll', refreshRect);
-  ed.on('canvas:update frame:scroll', refreshRect);
+  // scroll: positions only (reuse the cached break-element set — cheap)
+  const onScroll = () => {
+    refreshRect();
+    refreshPageGuides();
+  };
+  ed.on('canvas:scroll', onScroll);
+  ed.on('canvas:update frame:scroll', onScroll);
 
   const fireChange = () => {
     revision.value++;
     refreshRect();
     refreshMove();
+    // content/style may have added/removed page breaks — rescan, then reposition
+    recomputeBreakEls();
+    refreshPageGuides();
     callbacks.change?.();
   };
   // inline text editing (RTE): notify start (for an undo snapshot) and end
@@ -107,6 +132,7 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     if (changed) {
       revision.value++;
       refreshRect();
+      refreshPageGuides(); // edited text can change the sheet height / boundaries
       callbacks.change?.();
     }
     callbacks.textEnd?.(changed);

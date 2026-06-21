@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, useTemplateRef } from 'vue';
+import { GripVertical } from '@lucide/vue';
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
 import { useRouter } from 'vue-router';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
@@ -50,6 +51,9 @@ const { startHandle, dragLabel } = useGeomHandles({
 
 const rect = computed(() => g.selectedRect.value);
 
+// Page-boundary overlay guides: on by default, toggled from the top bar.
+const showPageGuides = ref(true);
+
 async function goPreview() {
   await autosave.flush();
   router.push({ name: 'preview', params: { id: props.id } });
@@ -65,7 +69,10 @@ onMounted(() => {
   const el = canvasEl.value;
   if (!el) return;
   canvasResizeObserver = new ResizeObserver(() => {
-    requestAnimationFrame(() => g.refreshRect());
+    requestAnimationFrame(() => {
+      g.refreshRect();
+      g.refreshPageGuides();
+    });
   });
   canvasResizeObserver.observe(el);
 });
@@ -110,10 +117,12 @@ const statusText = computed(() => {
       :zoom="g.zoom.value"
       :can-undo="canUndo"
       :can-redo="canRedo"
+      :show-page-guides="showPageGuides"
       @undo="undo"
       @redo="redo"
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
+      @toggle-page-guides="showPageGuides = !showPageGuides"
       @save="autosave.flush()"
       @preview="goPreview"
     />
@@ -136,8 +145,32 @@ const statusText = computed(() => {
         <!-- width/margin drag handles over the selected block (layout edits also
              live in the right-pane `Inspector.vue`; no floating toolbar here) -->
         <div class="pointer-events-none absolute inset-0 z-20 overflow-hidden">
+          <!-- page-boundary guides: real page breaks (solid) + 297mm estimate (dashed) -->
+          <template v-if="showPageGuides">
+            <div
+              v-for="gd in g.pageGuides.value"
+              :key="`${gd.kind}-${gd.page}`"
+              class="pg-line"
+              :class="`pg-${gd.kind}`"
+              :style="{ left: `${gd.left}px`, top: `${gd.top}px`, width: `${gd.width}px` }"
+            >
+              <span class="pg-label">ここまで {{ gd.page }}ページ目<template v-if="gd.kind === 'estimate'">（目安）</template></span>
+            </div>
+          </template>
+
           <!-- edit affordances (drag handles) only when editing is allowed -->
           <template v-if="rect && selectedGeom && allowEdit">
+            <!-- drag grip: reorder the selected block among its siblings -->
+            <div
+              v-if="g.canDragSelected.value"
+              class="pg-move pointer-events-auto"
+              title="ドラッグで順序を移動"
+              :style="{ left: `${rect.left}px`, top: `${rect.top}px` }"
+              @mousedown="g.startMove($event)"
+            >
+              <GripVertical class="h-4 w-4" />
+            </div>
+
             <!-- selection frame echo so the resize box reads clearly -->
             <div
               class="ret-frame"
@@ -224,6 +257,60 @@ const statusText = computed(() => {
 </template>
 
 <style scoped>
+/* page-boundary guides drawn over the A4 sheet (sit below the selection frame) */
+.pg-line {
+  position: absolute;
+  height: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+/* real page break (from .page / break-* / page-break-*): confident solid line */
+.pg-break {
+  border-top: 1px solid color-mix(in oklab, var(--primary) 60%, transparent);
+}
+/* 297mm estimate fallback (no explicit breaks): faint dashed line */
+.pg-estimate {
+  border-top: 1px dashed color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+}
+.pg-label {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  padding: 1px 6px;
+  border-radius: 6px 6px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--primary-foreground);
+  background: color-mix(in oklab, var(--primary) 78%, transparent);
+}
+.pg-estimate .pg-label {
+  color: var(--muted-foreground);
+  background: color-mix(in oklab, var(--muted) 92%, transparent);
+}
+
+/* drag grip on the selected block — large, obvious grab target for reorder */
+.pg-move {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -110%);
+  border-radius: 6px;
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  cursor: grab;
+  z-index: 26;
+  user-select: none;
+}
+.pg-move:active {
+  cursor: grabbing;
+}
+
 /* faint frame echoing the selection so the resize box is obvious */
 .ret-frame {
   position: absolute;

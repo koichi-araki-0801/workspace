@@ -3,8 +3,26 @@ import grapesjs, { type Component, type Editor } from 'grapesjs';
 import { ref, shallowRef } from 'vue';
 import { logError } from '@/lib/appError';
 import 'grapesjs/dist/css/grapes.min.css';
+import { pageContentPx } from './geom';
 import { type GrapesCallbacks, type SelectedRect, wireGrapesEvents } from './grapesEvents';
 import { jinjaChipCanvasCss, registerJinjaComponents } from './jinjaComponents';
+
+/**
+ * A single page-boundary guide drawn over the A4 sheet (canvas-relative,
+ * zoom-aware coords, like {@link SelectedRect}). `kind: 'break'` marks a real
+ * page break (`break-*`/`page-break-*`, incl. class-driven `.page`) — the end of
+ * a logical page block; `'estimate'` marks where a single block overruns one
+ * printable page and print will split it further (dashed 297mm-ish sub-guide).
+ * Both are numbered by cumulative physical page (see {@link refreshPageGuides}).
+ */
+export interface PageGuide {
+  top: number;
+  left: number;
+  width: number;
+  /** Cumulative physical page number that *ends* at this boundary (「ここまで N ページ目」). */
+  page: number;
+  kind: 'break' | 'estimate';
+}
 
 export interface GrapesContainers {
   canvas: HTMLElement;
@@ -57,11 +75,21 @@ export function useGrapes() {
   const selectedRect = ref<SelectedRect | null>(null);
   const canMoveUp = ref(false);
   const canMoveDown = ref(false);
+  /** Whether the current selection can be drag-reordered (drives the move grip). */
+  const canDragSelected = ref(false);
+  /** Page-boundary overlay guides (see {@link refreshPageGuides}). */
+  const pageGuides = ref<PageGuide[]>([]);
+  /**
+   * Page-break elements cached by {@link recomputeBreakEls}; their on-screen
+   * positions are re-read each scroll/zoom by {@link refreshPageGuides}.
+   */
+  let breakEls: { el: HTMLElement; edge: 'before' | 'after' }[] = [];
   /** Editor → caller notifications, installed via the `onX` setters below. */
   const callbacks: GrapesCallbacks = {};
 
   function refreshMove(): void {
     const comp = editor.value?.getSelected();
+    canDragSelected.value = !locked && !!comp?.get('draggable');
     const parent = comp?.parent();
     if (!comp || !parent) {
       canMoveUp.value = false;
@@ -71,6 +99,124 @@ export function useGrapes() {
     const i = comp.index();
     canMoveUp.value = i > 0;
     canMoveDown.value = i < parent.components().length - 1;
+  }
+
+  /** True for the page-break keywords used by `break-*` / `page-break-*`. */
+  function isBreakValue(v: string | undefined): boolean {
+    return (
+      v === 'always' ||
+      v === 'page' ||
+      v === 'left' ||
+      v === 'right' ||
+      v === 'recto' ||
+      v === 'verso'
+    );
+  }
+
+  /**
+   * Scan the canvas document for elements that start/end a printed page, via
+   * `break-before/after` or the legacy `page-break-*` — including class-driven
+   * rules like `.page { page-break-after: always }`, which only show up in
+   * computed style (the inline-only `geomFromStyle` would miss them). Heavy (reads
+   * computed style for every node) so it runs on content/style changes only;
+   * {@link refreshPageGuides} reuses the cached set on scroll/zoom.
+   */
+  function recomputeBreakEls(): void {
+    const ed = editor.value;
+    const doc = ed?.Canvas.getDocument();
+    const win = doc?.defaultView;
+    const body = ed?.Canvas.getBody();
+    if (!doc || !win || !body) {
+      breakEls = [];
+      return;
+    }
+    const out: { el: HTMLElement; edge: 'before' | 'after' }[] = [];
+    for (const el of Array.from(body.querySelectorAll<HTMLElement>('*'))) {
+      const cs = win.getComputedStyle(el);
+      if (isBreakValue(cs.breakBefore || cs.pageBreakBefore)) out.push({ el, edge: 'before' });
+      if (isBreakValue(cs.breakAfter || cs.pageBreakAfter)) out.push({ el, edge: 'after' });
+    }
+    breakEls = out;
+  }
+
+  /**
+   * Recompute the page-boundary guide lines as a *physical page* model over the
+   * continuous canvas (where `page-break-*` has no on-screen layout effect):
+   *
+   * - Each cached break (`.page` end, `break-*`/`page-break-*`) is a hard break =
+   *   the end of a logical page → solid `break` guide.
+   * - Within the span between two hard breaks (and before the first), content
+   *   that overruns one printable page height `H` is split into more physical
+   *   pages → dashed `estimate` sub-guides every `H`.
+   * - Every guide is numbered by the *cumulative* physical page, so the labels
+   *   stay correct even when a block paginates into several sheets.
+   *
+   * `H` comes from {@link pageContentPx} (`@page` margins), zoom-scaled to match
+   * `getElementPos` coords. The exact pagination remains the Vivliostyle
+   * preview's job; this is the in-editor approximation.
+   */
+  function refreshPageGuides(): void {
+    const ed = editor.value;
+    const body = ed?.Canvas.getBody();
+    if (!ed || !body) {
+      pageGuides.value = [];
+      return;
+    }
+    try {
+      const bodyPos = ed.Canvas.getElementPos(body);
+      const top0 = bodyPos.top;
+      const bottom = bodyPos.top + bodyPos.height;
+      const H = pageContentPx(getCss()) * zoom.value; // one printable page (screen px)
+
+      // Hard breaks (logical page ends), sorted, dropping ones hugging the edges.
+      const hard = breakEls
+        .map(({ el, edge }) => {
+          const p = ed.Canvas.getElementPos(el);
+          return edge === 'before' ? p.top : p.top + p.height;
+        })
+        .filter((t) => t > top0 + 1 && t < bottom - 1)
+        .sort((a, b) => a - b);
+
+      // Walk top→bottom: each span [regionStart, stop] gets H-sized estimate
+      // sub-guides for overflow, then a solid guide at the hard break (stops at
+      // the sheet bottom carry no line — the last page end is the edge itself).
+      const guides: PageGuide[] = [];
+      const stops = [...hard, bottom];
+      let pageNo = 0;
+      let regionStart = top0;
+      for (let i = 0; i < stops.length; i++) {
+        const stop = stops[i];
+        const isHard = i < hard.length;
+        for (let y = regionStart + H; y < stop - 1; y += H) {
+          // collapse near-duplicates (a sub-guide landing on the next hard break)
+          if (stop - y < 1) break;
+          pageNo++;
+          guides.push({
+            top: y,
+            left: bodyPos.left,
+            width: bodyPos.width,
+            page: pageNo,
+            kind: 'estimate',
+          });
+        }
+        pageNo++;
+        if (isHard) {
+          guides.push({
+            top: stop,
+            left: bodyPos.left,
+            width: bodyPos.width,
+            page: pageNo,
+            kind: 'break',
+          });
+        }
+        regionStart = stop;
+      }
+      pageGuides.value = guides;
+    } catch (e) {
+      // Geometry recompute failed (transient canvas state) — hide guides quietly.
+      logError(toAppError(e));
+      pageGuides.value = [];
+    }
   }
 
   /** Recompute the selected element's on-screen rect (for the floating toolbar/handles). */
@@ -121,6 +267,8 @@ export function useGrapes() {
       zoom,
       refreshRect,
       refreshMove,
+      recomputeBreakEls,
+      refreshPageGuides,
       toInfo,
       isLocked: () => locked,
       canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}`,
@@ -135,7 +283,10 @@ export function useGrapes() {
     const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
     zoom.value = clamped;
     editor.value?.Canvas.setZoom(clamped * 100);
-    requestAnimationFrame(refreshRect);
+    requestAnimationFrame(() => {
+      refreshRect();
+      refreshPageGuides();
+    });
   }
 
   /**
@@ -288,6 +439,8 @@ export function useGrapes() {
     selectedRect,
     canMoveUp,
     canMoveDown,
+    canDragSelected,
+    pageGuides,
     zoom,
     revision,
     init,
@@ -303,6 +456,7 @@ export function useGrapes() {
     setZoom,
     setEditable,
     refreshRect,
+    refreshPageGuides,
     startMove,
     moveSelected,
     deleteSelected,

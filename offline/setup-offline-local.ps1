@@ -59,9 +59,9 @@ function Find-Local([string]$name) {
   return $null
 }
 
-# 展開済み資材（直下）が3点とも揃っているか。
+# 展開済み資材（直下）が揃っているか。
 $ExtractedOk = $true
-foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright')) {
+foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse')) {
   if (-not (Test-Path (Join-Path $RepoRoot $p))) { $ExtractedOk = $false }
 }
 
@@ -128,11 +128,11 @@ if (-not $NoVerify) {
 if ($ExtractedOk) {
   Write-Host '[3/4] 展開済みのため展開をスキップ。'
 } else {
-  Write-Host '[3/4] バンドルを直下へ展開（.pnpm-store / pnpm.tgz / ms-playwright）...'
+  Write-Host '[3/4] バンドルを直下へ展開（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse）...'
   $TarExe = Resolve-Tar
   & $TarExe -xzf $Bundle -C $RepoRoot
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] 展開に失敗しました。'; exit 1 }
-  foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright')) {
+  foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse')) {
     if (-not (Test-Path (Join-Path $RepoRoot $p))) {
       Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1
     }
