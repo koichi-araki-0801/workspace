@@ -1,0 +1,84 @@
+out: PdfToSvg_仕様一覧.xlsx
+title: PdfToSvg 仕様一覧（画面項目 / 入出力 / RPC・HTTP / テスト）
+meta: "対象: PDF→SVG 変換ツール PdfToSvg（Edge シェル）・ 版 1.0 ・ 出典: pdf-to-svg/ 実装コード・テスト（DB なし）"
+sheets:
+  - name: 画面項目定義
+    columns:
+      - { key: no,    label: "No",     width: 5,  align: center }
+      - { key: step,  label: "ステップ", width: 18 }
+      - { key: name,  label: "項目",    width: 18 }
+      - { key: ctrl,  label: "コントロール", width: 18, mono: true }
+      - { key: note,  label: "説明",    width: 42, wrap: true }
+    rows:
+      - [1, "1. PDF選択", "ドロップゾーン", "D&D / ピッカー", "複数PDF選択可"]
+      - [2, "1. PDF選択", "ファイルリスト", "list（削除可）", "選択PDF一覧"]
+      - [3, "1. PDF選択", "次へ", "button", "1件以上で有効化"]
+      - [4, "2. 用語置換", "ページプレビュー", "SVG表示（ズーム）", "中央キャンバス"]
+      - [5, "2. 用語置換", "確認タブ", "置換一覧", "クリックでハイライト・幅超過警告"]
+      - [6, "2. 用語置換", "元の語", "#dict-src", "辞書追加フォーム"]
+      - [7, "2. 用語置換", "置換後", "#dict-tgt", "辞書追加フォーム"]
+      - [8, "2. 用語置換", "ヘッダのみに適用", "#chk-headers", "only_headers フラグ"]
+      - [9, "2. 用語置換", "全ファイル再適用", "#btn-reapply", "辞書変更を全PDFへ"]
+      - [10, "2. 用語置換", "辞書 入出力", "#btn-dict-export / import", "JSON 入出力"]
+      - [11, "3. 削除・枠線", "ツール", "選択 / 範囲削除 / 枠線", "編集モード切替"]
+      - [12, "3. 削除・枠線", "枠線色", "#border-color", "カラーピッカー"]
+      - [13, "3. 削除・枠線", "枠線幅", "#border-width", "0.5〜20 pt"]
+      - [14, "3. 削除・枠線", "削除", "#btn-deletesel", "選択要素削除"]
+      - [15, "4. 書き出し", "書き出し範囲", "radio", "全/現在/スキップ除く/ページ指定"]
+      - [16, "4. 書き出し", "SVGに書き出す", "button", "ファイル名は <元名>_pN.svg"]
+      - [17, "トップバー", "Undo/Redo", "Ctrl+Z / Ctrl+Y", "操作の取消/やり直し"]
+  - name: 入出力定義
+    columns:
+      - { key: no,   label: "No",    width: 5,  align: center }
+      - { key: io,   label: "区分",   width: 8,  align: center }
+      - { key: name, label: "項目",   width: 18 }
+      - { key: type, label: "型/形式", width: 24, mono: true }
+      - { key: note, label: "説明",   width: 42, wrap: true }
+    rows:
+      - [1, "入力", "PDFファイル", "バイト列", "POST /upload?name= で受領"]
+      - [2, "入力", "辞書JSON", "[{source, target, enabled}]", "data/dictionary.json。NFKC正規化"]
+      - [3, "入力", "フォント", "同梱フォント自動解決", "BIZ UDPゴシック / Noto Serif JP"]
+      - [4, "入力", "only_headers", "bool", "ヘッダのみ置換 vs 全文"]
+      - [5, "入力", "枠線色/幅", "hex / 0.5〜20pt", "枠線追加"]
+      - [6, "入力", "書き出し範囲", "全/現在/指定", "ページ選別"]
+      - [7, "出力", "SVGファイル", "決定的SVG", "実<text>保持・使用グリフのみWOFF2埋込"]
+      - [8, "出力", "PNG背景", "ラスタ（SCAN_RENDER_SCALE=2.0）", "スキャンページ背景"]
+      - [9, "設定", "config.py", "frozen exe / ソース共通", "exe 隣の data/ に辞書・ログ・作業領域"]
+  - name: RPC・HTTP
+    columns:
+      - { key: no,   label: "No",     width: 5,  align: center }
+      - { key: kind, label: "種別",    width: 8,  align: center }
+      - { key: name, label: "名称",    width: 16, mono: true }
+      - { key: desc, label: "説明",    width: 48, wrap: true }
+    rows:
+      - [1, "HTTP", "GET /", "静的配信（resources/web）"]
+      - [2, "HTTP", "POST /rpc", "JSON-RPC ディスパッチ"]
+      - [3, "HTTP", "POST /upload", "PDF 読み込み（バイト列）"]
+      - [4, "HTTP", "POST /quit", "終了ビーコン"]
+      - [5, "HTTP", "POST /ping", "ハートビート"]
+      - [6, "RPC", "state", "ファイル/ページ/置換当たり等の状態取得"]
+      - [7, "RPC", "pageSvg", "ページSVG取得（annotate 付き）"]
+      - [8, "RPC", "planPage", "置換予定の算出"]
+      - [9, "RPC", "removedList", "削除要素一覧"]
+      - [10, "RPC", "dictList / dictAdd", "辞書参照 / 追加"]
+      - [11, "RPC", "setOnlyHeaders", "ヘッダのみ適用フラグ更新"]
+      - [12, "RPC", "exportSvg", "範囲指定で SVG 書き出し"]
+  - name: テスト仕様
+    columns:
+      - { key: no,     label: "No",       width: 5,  align: center }
+      - { key: file,   label: "テスト",    width: 22, mono: true }
+      - { key: view,   label: "テスト観点", width: 42, wrap: true }
+      - { key: expect, label: "期待結果",   width: 28, wrap: true }
+      - { key: result, label: "結果",      width: 8,  align: center, kind: result }
+    rows:
+      - [1, "test_pipeline.py", "抽出→辞書→クロップ→SVG・ペイント順序・textLength", "E2E が一致", "未"]
+      - [2, "test_web_rpc.py", "RPC の状態変更（削除/編集/Undo・FakeUndo）", "状態遷移が正しい", "未"]
+      - [3, "test_fonts.py", "フォント名マッピング・ウェイト・幅オーバーフロー", "フォント解決が正しい", "未"]
+      - [4, "test_undo_stack.py", "マクロ化Undo（複数コマンド1ステップ）", "Undo が一括で戻る", "未"]
+      - [5, "test_wrap_header.py", "折返しヘッダの畳み込み（複数行→1行）", "ヘッダが1行化", "未"]
+      - [6, "test_normalize.py", "NFKC 正規化（全角/半角差吸収）", "正規化が一致", "未"]
+      - [7, "test_store_matcher.py", "辞書ストア照合ロジック", "マッチングが正しい", "未"]
+      - [8, "test_seqno_match.py", "ペイント順序と抽出要素の対応付け", "順序対応が正しい", "未"]
+      - [9, "test_font_weight.py", "ウェイト保持とCSS出力", "Light/Regular/Bold保持", "未"]
+      - [10, "test_scan_ocr.py", "スキャン判定・ラスタ化", "スキャン処理が正しい", "未"]
+      - [11, "test_shell_rpc.py", "RPC ディスパッチのJSON化可能性", "JSON化できる", "未"]

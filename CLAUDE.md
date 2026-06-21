@@ -82,17 +82,27 @@
 - graph2 配下は上記に加えて、コメントのみの変更でも `out/_baseline` との **byte-diff 不変**が鉄則
   （詳細は下記 graph2 節）。
 
-## Word ドキュメント（.docx）
+## ドキュメント（.docx / .xlsx）
 
-- Word(.docx) を生成・編集する際のフォントは **Meiryo UI** に統一する。本文・見出し・表など
-  すべてのランで、ASCII(`w:ascii`/`w:hAnsi`)・東アジア(`w:eastAsia`)の双方に `Meiryo UI` を設定する。
-  - python-docx の場合: `run.font.name = "Meiryo UI"` に加え、
-    `run._element.rPr.rFonts.set(qn("w:eastAsia"), "Meiryo UI")` を必ず併設する
-    （`eastAsia` を設定しないと日本語グリフが既定フォントに落ちる）。
-  - 等幅が必要な箇所のみ別途等幅フォントを使ってよいが、本文系は Meiryo UI を既定とする。
-- 生成スクリプト（共通エンジン `docs/_build/md2docx.py`）の既定フォント定数もこの規約に合わせる。
-  各文書は `docs/<project>/src/*.md`（Markdown 正典）で持ち、`docs/_build/build_all.py`（または `.bat`）で
-  一括 `.docx` 生成する。原稿のフロントマター `out` が出力 docx 名、画像基準は `docs/<project>/images/`。
+- 配布ドキュメントのフォントは **BIZ UD ファミリ**に統一する: 本文 `BIZ UDPGothic`（プロポーショナル）、
+  等幅 `BIZ UDGothic`（コード・識別子・けた揃え）。両者は同一 BIZ UD ファミリなので混在して見えない。
+  MS Gothic / Meiryo UI の混在は廃止。Windows 10+ 同梱（無ければ Microsoft Store の BIZ UD フォント）。
+  - すべてのランで ASCII(`w:ascii`/`w:hAnsi`)・東アジア(`w:eastAsia`)の双方に同じフォント名を設定する。
+  - python-docx の場合: `run.font.name = "BIZ UDPGothic"` に加え、
+    `run._element.rPr.rFonts.set(qn("w:eastAsia"), "BIZ UDPGothic")` を必ず併設する
+    （`eastAsia` を設定しないと日本語グリフが既定フォントに落ちる）。等幅は `BIZ UDGothic`。
+  - 配色は既存トークン（ACCENT `#1F5C99` / INK `#20242C` / MUTED `#606874` 等）を使い、新色を増やさない。
+- 文書種別で生成系を出し分ける。原稿は `docs/<project>/src/` に置き、`docs/_build/build_all.py`
+  （または `.bat`）で一括生成する:
+  - **流れる文書**（操作手順書・設計書・配布運用手順書）→ `*.md`（Markdown 正典）→ 共通エンジン
+    `docs/_build/md2docx.py` で **Word(.docx)**。front-matter `style` で案3 カード型(`guide`)／
+    案2 テクニカル型(`spec`) を出し分け（無指定はファイル名・title から推定）。`out` が出力 docx 名、
+    画像基準は `docs/<project>/images/`。
+  - **表が主役の文書**（画面項目定義・入出力定義・DB 定義・テスト仕様）→ `*.xlsx.yaml` →
+    `docs/_build/md2xlsx.py`（openpyxl）で **Excel(.xlsx)**。Word 版と共通トークンで、ヘッダ塗り・
+    ゼブラ・細罫線・ウィンドウ枠固定・オートフィルタ・A4 横の印刷設定を組む。`md2xlsx.py` は
+    PyYAML を使わず必要な YAML サブセットを自前パースする（オフライン依存追加を避けるため）。
+  - 両エンジンの既定フォント定数（`JP` / `MONO`）も上記 BIZ UD 規約に一致させる。
 
 ## graph2
 
