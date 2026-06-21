@@ -1,13 +1,16 @@
+// =============================================================================
+// templateVm.ts — テンプレ一覧行の view-model (status をラベル+badge variant へ変換)
+// =============================================================================
 import type { TemplateAttributes, TemplateMeta, TemplateStatus } from '@editor/shared';
 
-/** Display shape for a template row: status rendered as label + badge variant. */
+/** テンプレ一覧行の表示形。`status` をラベルと badge variant に展開して持つ。 */
 export interface TemplateMetaVm {
   id: string;
   attributes: TemplateAttributes;
   fileName: string;
   statusLabel: string;
   statusVariant: 'success' | 'secondary';
-  /** The source entity, for action handlers that need the full meta. */
+  /** 元エンティティ。full meta を必要とする action ハンドラ向け。 */
   raw: TemplateMeta;
 }
 

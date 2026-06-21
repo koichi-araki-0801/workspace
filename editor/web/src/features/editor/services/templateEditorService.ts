@@ -1,3 +1,6 @@
+// =============================================================================
+// templateEditorService.ts — editor の template 読込・draft 保存・履歴 service
+// =============================================================================
 import {
   isErr,
   ok,
@@ -13,15 +16,15 @@ import { usePartRepo, useTemplateRepo } from '@/api/repositories';
 import { toFilled } from '@/lib/fillJinja';
 import { getBodyInner } from '@/lib/templateDoc';
 
-/** Everything the editor needs to open a template for editing. */
+/** editor が template を編集用に開くために必要な一式。 */
 export interface EditorLoad {
   template: Template;
-  /** Body HTML in editable (Jinja-masked) form — from the draft, or freshly masked. */
+  /** 編集可能(Jinja-mask 済み)形式の body HTML — draft 由来、または新規に mask したもの。 */
   editableBody: string;
   css: string;
-  /** Catalog parts, for resolving a canvas selection back to its docs. */
+  /** canvas 選択を docs へ解決するための catalog parts。 */
   parts: PartCatalogItem[];
-  /** Human fund name for the editor title (from sample data; falls back to the file name). */
+  /** editor タイトル用の表示 fund 名(sample data 由来。無ければファイル名にフォールバック)。 */
   fundName: string;
 }
 
@@ -42,26 +45,26 @@ export function createTemplateEditorService(
       if (isErr(tplRes)) return tplRes;
       const partsRes = await parts.listParts({});
       if (isErr(partsRes)) return partsRes;
-      // Prefer an autosaved draft (already editable) over masking the source file.
+      // source ファイルを mask するより、autosave 済み draft(既に編集可能)を優先する。
       const draftRes = await templates.getDraft(id);
       if (isErr(draftRes)) return draftRes;
 
       const tpl = tplRes.value;
       const draft = draftRes.value;
 
-      // Sample data drives both the value-fill and the editor title; a failure
-      // here must never block the load (the fill just yields empty values).
+      // sample data は値の差込と editor タイトルの両方を駆動する。ここでの失敗が
+      // load をブロックしてはならない(差込は空値になるだけ)。
       let sample: SampleData = {};
       try {
         const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
         if (!isErr(sampleRes)) sample = sampleRes.value;
       } catch {
-        /* keep empty sample */
+        /* sample は空のままにする */
       }
 
-      // The editor canvas edits the "filled" form (values substituted, Jinja
-      // source preserved). Prefer a static fill; otherwise render one on load.
-      // A draft is already in editable/filled form, so it wins.
+      // editor canvas は "filled" 形式(値を差込み、Jinja source は保持)を編集する。
+      // 静的な fill を優先し、無ければ load 時に生成する。draft は既に編集可能/filled
+      // 形式なので最優先となる。
       const filledBody = tpl.filled || toFilled(tpl.html, sample);
       const editableBody = draft ? draft.html : getBodyInner(filledBody);
       const css = draft ? draft.css : tpl.css;

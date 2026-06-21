@@ -1,8 +1,9 @@
-/**
- * Helpers to edit only the <body> inner HTML in GrapesJS while preserving the
- * doctype/<head> (which may itself contain Jinja in <title>, <link href>, etc.)
- * verbatim.
- */
+// =============================================================================
+// templateDoc.ts — GrapesJS で `<body>` 内 HTML だけを編集するヘルパ
+// =============================================================================
+// 役割:
+//   GrapesJS では `<body>` の inner HTML だけを編集し, doctype/`<head>`(これ自体が
+//   `<title>` や `<link href>` 等に Jinja を含みうる)は verbatim に保持する。
 
 const BODY_RE = /^([\s\S]*?<body[^>]*>)([\s\S]*?)(<\/body>[\s\S]*)$/i;
 

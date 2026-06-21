@@ -1,32 +1,38 @@
+// =============================================================================
+// useGeomHandles.ts — 選択ブロックのリサイズ / 余白ドラッグハンドル
+// =============================================================================
+// 役割: `EditorView.vue` のドラッグハンドルを駆動し、選択ブロックの幅 / 上下余白を
+// zoom 非依存で編集する composable。
+
 import { type ComputedRef, computed, type Ref, ref } from 'vue';
 import { clampMarginMm, clampWidthPct, type LayoutGeom, PX_PER_MM, WIDTH_PCT_MAX } from './geom';
 import type { SelectedRect } from './grapesEvents';
 
-/** Which edge/corner handle is being dragged. */
+/** どの edge/corner ハンドルをドラッグ中か。 */
 export type HandleKind = 'width' | 'width-left' | 'mt' | 'mb';
 
 interface GeomHandleDeps {
-  /** Geometry of the current selection (null when nothing is selected). */
+  /** 現在の選択の幾何(未選択時は null)。 */
   selectedGeom: ComputedRef<LayoutGeom | null>;
-  /** Pixel rect of the current selection on the canvas overlay. */
+  /** canvas overlay 上での現在の選択のピクセル rect。 */
   selectedRect: Ref<SelectedRect | null>;
-  /** Current canvas zoom (margins are measured in zoom-independent mm). */
+  /** 現在の canvas zoom(余白は zoom 非依存の mm で測る)。 */
   zoom: Ref<number>;
-  /** Push one undo step (called once at drag start). */
+  /** undo を 1 ステップ積む(drag 開始時に 1 度だけ呼ぶ)。 */
   pushUndo: () => void;
-  /** Apply a geometry patch; `record=false` for live drag, true to log history. */
+  /** 幾何パッチを適用する。`record=false` でライブ drag、true で history を記録。 */
   applyGeom: (patch: Partial<LayoutGeom>, record?: boolean) => void;
-  /** Record a single history entry for the geometry diff after a drag. */
+  /** drag 後の幾何 diff を history へ 1 件記録する。 */
   recordGeomDiff: (before: LayoutGeom) => void;
 }
 
 /**
- * Zoom-independent block resize/margin drag handles for {@link EditorView}.
+ * `EditorView.vue` 用の zoom 非依存なブロック resize/余白ドラッグハンドル。
  *
- * 'width'/'width-left' resize the block width (the left side inverts the delta so
- * the handle follows the cursor); 'mt'/'mb' adjust the top/bottom margins. The
- * drag applies live (without recording) and logs one undo + one history entry per
- * gesture. Window listeners are attached for the duration of a drag only.
+ * 'width'/'width-left' はブロック幅を resize する(左側は delta を反転させ、ハンドルが
+ * カーソルに追従するようにする)。'mt'/'mb' は上/下の余白を調整する。drag は
+ * ライブに(記録なしで)適用し、1 ジェスチャにつき undo 1 件 + history 1 件を記録する。
+ * window listener は drag 中だけ attach する。
  */
 export function useGeomHandles(deps: GeomHandleDeps) {
   const { selectedGeom, selectedRect, zoom, pushUndo, applyGeom, recordGeomDiff } = deps;
@@ -41,7 +47,7 @@ export function useGeomHandles(deps: GeomHandleDeps) {
     if (!g0 || !r) return;
     e.preventDefault();
     e.stopPropagation();
-    pushUndo(); // one undo step per drag
+    pushUndo(); // drag 1 回につき undo 1 ステップ
     activeHandle.value = kind;
     drag = {
       kind,
@@ -61,7 +67,7 @@ export function useGeomHandles(deps: GeomHandleDeps) {
       const sign = drag.kind === 'width-left' ? -1 : 1;
       const dPct = ((e.clientX - drag.x) / drag.fullW) * 100 * sign;
       const w = Math.round(clampWidthPct(drag.geom.widthPct + dPct));
-      // live apply without recording (history is recorded once on mouseup)
+      // 記録なしでライブ適用(history は mouseup で 1 度だけ記録する)
       applyGeom(
         {
           widthPct: w,
@@ -89,7 +95,7 @@ export function useGeomHandles(deps: GeomHandleDeps) {
     window.removeEventListener('mouseup', onHandleUp);
   }
 
-  /** Live value bubble shown next to the handle being dragged. */
+  /** ドラッグ中のハンドル横に表示するライブ値の bubble。 */
   const dragLabel = computed(() => {
     const k = activeHandle.value;
     const r = selectedRect.value;

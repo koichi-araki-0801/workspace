@@ -1,9 +1,12 @@
+// =============================================================================
+// usePagedList.ts — 長いリストを段階表示する("load more")
+// =============================================================================
 import { computed, type Ref, reactive, ref, watch } from 'vue';
 
 /**
- * Incrementally reveal a long list ("load more") instead of rendering it all at
- * once. The visible window resets whenever the source changes (e.g. a filter is
- * applied), so the user always starts from the top of the new result set.
+ * 長いリストを一度に全描画せず段階的に表示する("load more")。`source` が変わる
+ * (例: フィルタ適用)たびに可視 window を reset するため, ユーザーは常に新しい
+ * 結果セットの先頭から始められる。
  */
 export function usePagedList<T>(source: Ref<readonly T[]>, pageSize = 50) {
   const limit = ref(pageSize);

@@ -1,6 +1,9 @@
+// =============================================================================
+// smoke.spec.ts — 認証フローの E2E スモークテスト (Playwright)
+// =============================================================================
 import { expect, test } from '@playwright/test';
 
-// Each test gets a clean localStorage so a stale session never leaks across runs.
+// 各テストは localStorage をクリーンにし、古い session が実行間で漏れないようにする。
 test.beforeEach(async ({ context }) => {
   await context.clearCookies();
 });
@@ -18,7 +21,7 @@ test('demo login lands the user on the edit tab', async ({ page }) => {
   await page.locator('#p').fill('admin');
   await page.getByRole('button', { name: 'ログイン' }).click();
 
-  // After a successful login the router resolves the redirect to the edit tab.
+  // ログイン成功後、router がリダイレクトを解決して編集タブへ遷移する。
   await expect(page).toHaveURL(/\/edit/);
 });
 
@@ -29,8 +32,8 @@ test('wrong credentials show an error and stay on login', async ({ page }) => {
   await page.locator('#p').fill('wrong-password');
   await page.getByRole('button', { name: 'ログイン' }).click();
 
-  // The form shows an inline error (a toast with role="alert" also appears, so
-  // scope the assertion to the form to keep the locator unambiguous).
+  // フォームにインラインエラーが出る (role="alert" の toast も出るため、locator を
+  // 一意に保つようアサーションを form 内へ絞る)。
   await expect(
     page.locator('form').getByText('ユーザーIDまたはパスワードが違います'),
   ).toBeVisible();

@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// =============================================================================
+// EditorView.vue — editor 画面のレイアウト(上部バー / 左ペイン / canvas / 右ペイン)
+// =============================================================================
+// 役割: `useTemplateEditor.ts` / `useGeomHandles.ts` を束ね、canvas 上に選択 overlay
+// (ページ境界 guide / ドラッグハンドル / move grip)を描く presentational なルート。
 import { GripVertical } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
 import { useRouter } from 'vue-router';
@@ -39,7 +44,7 @@ const {
   onPartInsert,
 } = useTemplateEditor(props.id, { canvasEl, layersEl });
 
-// Zoom-independent block resize / margin drag handles (see useGeomHandles).
+// zoom 非依存のブロック resize / 余白ドラッグハンドル(`useGeomHandles.ts` を見よ)。
 const { startHandle, dragLabel } = useGeomHandles({
   selectedGeom,
   selectedRect: g.selectedRect,
@@ -51,7 +56,7 @@ const { startHandle, dragLabel } = useGeomHandles({
 
 const rect = computed(() => g.selectedRect.value);
 
-// Page-boundary overlay guides: on by default, toggled from the top bar.
+// ページ境界の overlay guide: 既定 ON、上部バーから切替える。
 const showPageGuides = ref(true);
 
 async function goPreview() {
@@ -59,11 +64,11 @@ async function goPreview() {
   router.push({ name: 'preview', params: { id: props.id } });
 }
 
-// Keep the selection overlay (frame/handles/toolbar) aligned when the canvas
-// container changes size. `g.selectedRect` is otherwise only recomputed on
-// canvas scroll/content events, so a window (or pane) resize would shift the
-// centered A4 iframe while the overlay stays put. The `requestAnimationFrame`
-// defers the measure until after GrapesJS re-lays out (mirrors `setZoom`).
+// canvas コンテナのサイズ変化時も選択 overlay(frame/handle/toolbar)の位置を保つ。
+// `g.selectedRect` は本来 canvas の scroll/content イベントでしか再計算されないため、
+// window(やペイン)の resize ではセンタリングされた A4 iframe が動く一方 overlay が
+// 取り残される。`requestAnimationFrame` で GrapesJS の再レイアウト後まで計測を遅らせる
+// (`setZoom` と同じ手法)。
 let canvasResizeObserver: ResizeObserver | null = null;
 onMounted(() => {
   const el = canvasEl.value;
@@ -88,7 +93,7 @@ function zoomOut() {
   g.setZoom(g.zoom.value - ZOOM_STEP);
 }
 
-/** Autosave status line; includes the last-saved time when known. */
+/** autosave のステータス行。判明していれば最終保存時刻も含める。 */
 const statusText = computed(() => {
   const at = autosave.lastSavedAt.value;
   const savedAt = at
@@ -128,7 +133,7 @@ const statusText = computed(() => {
     />
 
     <div class="flex flex-1 overflow-hidden">
-      <!-- left: part add (checkbox → cascading filter) -->
+      <!-- 左: パーツ追加(チェックボックス → cascading な絞り込み) -->
       <PartTree
         v-model:allow-add="allowAdd"
         v-model:allow-edit="allowEdit"
@@ -136,16 +141,16 @@ const statusText = computed(() => {
         @insert="onPartInsert"
       />
 
-      <!-- center: GrapesJS canvas, styled as A4 paper -->
+      <!-- 中央: A4 用紙の見た目にした GrapesJS canvas -->
       <main class="relative flex-1 overflow-hidden bg-[hsl(220_16%_91%)] dark:bg-[hsl(222_18%_18%)]">
         <div ref="canvasEl" class="h-full"></div>
-        <!-- GrapesJS layer manager is mounted but visually hidden (prototype has no layers panel) -->
+        <!-- GrapesJS の layer manager はマウントするが視覚的に隠す(prototype に layers パネルは無い) -->
         <div ref="layersEl" class="hidden"></div>
 
-        <!-- width/margin drag handles over the selected block (layout edits also
-             live in the right-pane `Inspector.vue`; no floating toolbar here) -->
+        <!-- 選択ブロック上の幅/余白ドラッグハンドル(layout 編集は右ペインの
+             `Inspector.vue` にもある。ここに浮動ツールバーは置かない) -->
         <div class="pointer-events-none absolute inset-0 z-20 overflow-hidden">
-          <!-- page-boundary guides: real page breaks (solid) + 297mm estimate (dashed) -->
+          <!-- ページ境界 guide: 実際の page break(実線)+ 297mm の estimate(破線) -->
           <template v-if="showPageGuides">
             <div
               v-for="gd in g.pageGuides.value"
@@ -158,9 +163,9 @@ const statusText = computed(() => {
             </div>
           </template>
 
-          <!-- edit affordances (drag handles) only when editing is allowed -->
+          <!-- 編集の affordance(ドラッグハンドル)は編集許可時のみ -->
           <template v-if="rect && selectedGeom && allowEdit">
-            <!-- drag grip: reorder the selected block among its siblings -->
+            <!-- drag grip: 選択ブロックを兄弟内で並べ替える -->
             <div
               v-if="g.canDragSelected.value"
               class="pg-move pointer-events-auto"
@@ -171,13 +176,13 @@ const statusText = computed(() => {
               <GripVertical class="h-4 w-4" />
             </div>
 
-            <!-- selection frame echo so the resize box reads clearly -->
+            <!-- resize box を分かりやすくするための選択フレームの写し -->
             <div
               class="ret-frame"
               :style="{ left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` }"
             />
 
-            <!-- edge handles: left/right = width, top/bottom = margins -->
+            <!-- edge ハンドル: 左右 = 幅、上下 = 余白 -->
             <div
               class="ret-handle ret-handle-x pointer-events-auto"
               title="幅をドラッグ"
@@ -203,7 +208,7 @@ const statusText = computed(() => {
               @mousedown="startHandle('mb', $event)"
             />
 
-            <!-- corner handles (drive width via horizontal delta) -->
+            <!-- corner ハンドル(水平方向の delta で幅を駆動する) -->
             <div
               class="ret-corner pointer-events-auto"
               :style="{ left: `${rect.left}px`, top: `${rect.top}px`, cursor: 'nwse-resize' }"
@@ -225,7 +230,7 @@ const statusText = computed(() => {
               @mousedown="startHandle('width', $event)"
             />
 
-            <!-- live value bubble while dragging a handle -->
+            <!-- ハンドルのドラッグ中に出すライブ値の bubble -->
             <div
               v-if="dragLabel"
               class="ret-drag-label"
@@ -238,7 +243,7 @@ const statusText = computed(() => {
         </div>
       </main>
 
-      <!-- right: editable properties (collapsible) + history -->
+      <!-- 右: 編集可能なプロパティ(折りたたみ式)+ 履歴 -->
       <Inspector
         :selected="g.selected.value"
         :part="selectedPart"

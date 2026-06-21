@@ -1,3 +1,8 @@
+// =============================================================================
+// toast.ts — トースト通知の reactive ストアと発火ヘルパ
+// =============================================================================
+// `Toaster.vue` が購読する `toasts` 配列を保持し、`toast()` で push、`durationMs`
+// 経過後に自動 dismiss する。`toastSuccess`/`toastError` は variant 固定の薄い糖衣。
 import { reactive } from 'vue';
 
 export type ToastVariant = 'default' | 'success' | 'error';

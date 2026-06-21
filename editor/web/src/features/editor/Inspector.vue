@@ -1,15 +1,18 @@
 <script setup lang="ts">
+// =============================================================================
+// Inspector.vue — 右ペイン(選択パーツの編集可能プロパティ + 修正履歴)
+// =============================================================================
 /**
  * 右ペイン: 選択パーツのプロパティを「編集可能」に提示し、修正履歴を併載するパネル。
  *
- * 以前は read-only インスペクタ + 中央キャンバスの浮動ツールバー(`PartToolbar.vue`)に
+ * 以前は read-only インスペクタ + 中央 canvas の浮動ツールバー(`PartToolbar.vue`)に
  * 編集 UI が分散していた。本コンポーネントへ集約し、サイズ・配置 / 余白 / 改ページ /
  * 修正履歴を「折りたたみ式セクション」(タブにしない)として縦積み表示する。
- * 幾何の編集ロジック(数値クランプ・配置・改ページ)は撤去した `PartToolbar` から移植。
+ * 幾何の編集ロジック(数値 clamp・配置・改ページ)は撤去した `PartToolbar` から移植。
  *
- * 折りたたみの初期状態は「編集許可」(`editMode` = `useTemplateEditor.ts` の `allowEdit`)に連動:
- * 許可 ON で編集セクションのみ展開し履歴は畳む、OFF で逆(閲覧時は履歴を主役)。連動は許可の
- * 切替時のみ発火するため、その後ユーザーが手動でトグルした状態は次の切替まで保持される。
+ * 折りたたみの初期状態は「編集許可」(`editMode` = `useTemplateEditor.ts` の `allowEdit`)に
+ * 連動: 許可 ON で編集セクションのみ展開し履歴は畳む、OFF で逆(閲覧時は履歴を主役)。連動は
+ * 許可の切替時のみ発火するため、その後ユーザーが手動でトグルした状態は次の切替まで保持される。
  */
 import type { PartCatalogItem, PartHistoryEntry } from '@editor/shared';
 import {
@@ -48,8 +51,8 @@ const props = defineProps<{
   canDown: boolean;
 }>();
 
-// 編集操作は `useTemplateEditor.ts` のハンドラ(`applyGeom`/`moveSelected`/`resetGeom`/
-// `deletePart`)へそのまま委譲する。`PartToolbar` と同形の emit に揃える。
+// 編集操作は `useTemplateEditor.ts` のハンドラ(`applyGeom` / `moveSelected` /
+// `resetGeom` / `deletePart`)へそのまま委譲する。`PartToolbar` と同形の emit に揃える。
 const emit = defineEmits<{
   apply: [Partial<LayoutGeom>];
   move: [-1 | 1];
@@ -130,7 +133,7 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
       </Badge>
     </div>
 
-    <!-- empty -->
+    <!-- 未選択 -->
     <div
       v-if="!selected || !geom"
       class="grid flex-1 place-items-center px-6 text-center text-muted-foreground"
@@ -144,7 +147,7 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
     </div>
 
     <template v-else>
-      <!-- selected part identity (always visible, not collapsible) -->
+      <!-- 選択パーツの識別情報(常に表示、折りたたみ不可) -->
       <div class="border-b bg-primary-soft/50 px-4 py-3">
         <div class="text-sm font-bold text-foreground">{{ label }}</div>
         <div class="mt-0.5 text-[11.5px] text-muted-foreground">

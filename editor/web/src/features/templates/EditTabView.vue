@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// EditTabView.vue — テンプレ検索タブ (検索 → 一覧 → 編集画面へ遷移)
+// =============================================================================
 import { type DropdownQuery, isErr, type TemplateMeta } from '@editor/shared';
 import { Search } from '@lucide/vue';
 import { ref } from 'vue';
@@ -22,7 +25,7 @@ async function search(q: DropdownQuery) {
   if (isErr(result)) return;
   rows.value = result.value;
   searched.value = true;
-  // 版数（確定保存回数）を各テンプレについて集計する（比較画面と同じ計数）。
+  // 版数 (確定保存回数) を各テンプレについて集計する (比較画面と同じ計数)。
   const counts: Record<string, number> = {};
   await Promise.all(
     result.value.map(async (m) => {

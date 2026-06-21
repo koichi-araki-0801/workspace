@@ -1,14 +1,20 @@
+// =============================================================================
+// useSnapshotHistory.ts — snapshot 方式の undo/redo composable
+// =============================================================================
+// 役割: 不透明な state `T` の snapshot を積んで undo/redo を提供する。GrapesJS の
+// 詳細を history ロジックから切り離し、`useTemplateEditor.ts` から利用される。
+
 import { ref } from 'vue';
 
 /**
- * Snapshot-based undo/redo over an opaque state `T`. The caller supplies how to
- * `capture` the current state and how to `apply` a restored snapshot; this keeps
- * the editor's GrapesJS specifics out of the history logic (and makes it unit
- * testable). Used by {@link useTemplateEditor} because GrapesJS' own UndoManager
- * doesn't reliably track our programmatic style writes.
+ * 不透明な state `T` に対する snapshot 方式の undo/redo。呼び出し側が現在 state の
+ * `capture` 方法と、復元した snapshot の `apply` 方法を渡す。これにより editor の
+ * GrapesJS 固有部分を history ロジックから切り離す(かつ単体テスト可能にする)。
+ * GrapesJS 自前の UndoManager はプログラム経由の style 書き込みを確実には追えないため、
+ * `useTemplateEditor.ts` がこれを使う。
  *
- * `pushUndo` is a no-op while a snapshot is being applied, so `apply` can rebuild
- * state without spuriously recording a new undo step.
+ * snapshot 適用中は `pushUndo` を no-op にするので、`apply` が新たな undo ステップを
+ * 誤って記録せずに state を再構築できる。
  */
 export function useSnapshotHistory<T>(capture: () => T, apply: (snap: T) => void, max = 100) {
   const past: T[] = [];
@@ -22,7 +28,7 @@ export function useSnapshotHistory<T>(capture: () => T, apply: (snap: T) => void
     canRedo.value = future.length > 0;
   }
 
-  /** Capture the pre-mutation state. Call right before a recordable change. */
+  /** 変更前の state を capture する。記録対象の変更の直前に呼ぶ。 */
   function pushUndo(): void {
     if (applying) return;
     past.push(capture());
@@ -54,9 +60,9 @@ export function useSnapshotHistory<T>(capture: () => T, apply: (snap: T) => void
   }
 
   /**
-   * Drop the most recent {@link pushUndo} snapshot. Used when a change was
-   * speculatively snapshotted (e.g. text edit / drag start) but turned out to be
-   * a no-op, so the empty step shouldn't linger on the undo stack.
+   * 直近の `pushUndo` snapshot を捨てる。変更を見込んで snapshot を取った(例: text
+   * 編集 / drag 開始)が結果的に no-op だった場合に使い、空のステップを undo stack に
+   * 残さないようにする。
    */
   function discardLast(): void {
     past.pop();

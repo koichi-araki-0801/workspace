@@ -1,7 +1,10 @@
 <script setup lang="ts">
+// =============================================================================
+// EmptyState.vue — 中央寄せの空状態表示(アイコン＋見出し＋ガイド文)
+// =============================================================================
 import type { FunctionalComponent } from 'vue';
 
-/** Centered empty state: rounded icon tile + heading + guide text. */
+/** 中央寄せの空状態: 角丸アイコンタイル＋見出し＋ガイド文。 */
 defineProps<{
   icon: FunctionalComponent;
   title: string;

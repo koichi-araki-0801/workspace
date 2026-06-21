@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// VersionPicker.vue — 保存履歴から2版を選び前回/今回(a/b)を確定するピッカー
+// =============================================================================
 import type { TemplateVersionMeta } from '@editor/shared';
 import { ArrowLeftRight, GitCompare } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
@@ -8,12 +11,12 @@ import Checkbox from '@/components/ui/Checkbox.vue';
 import { formatDateTimeShort } from '@/lib/format';
 
 const props = defineProps<{ versions: TemplateVersionMeta[] }>();
-// a = 前回（古い方）, b = 今回（新しい方）
+// `a` = 前回(古い方), `b` = 今回(新しい方)
 const emit = defineEmits<{ compare: [{ a: string; b: string }] }>();
 
 const selected = ref<string[]>([]);
 
-// 版が変わったら新しい2件を既定選択（参考デザインどおり）。
+// 版が変わったら新しい2件を既定選択(参考デザインどおり)。
 watch(
   () => props.versions,
   (vs) => {
@@ -31,12 +34,12 @@ function toggle(id: string) {
     return;
   }
   if (atMax.value) return; // 2件まで。外してから選び直す。
-  // 版の並び（新しい順）を保ったまま追加する。
+  // 版の並び(新しい順)を保ったまま追加する。
   const next = new Set([...selected.value, id]);
   selected.value = props.versions.filter((v) => next.has(v.historyId)).map((v) => v.historyId);
 }
 
-// 選択2件のうち新しい方=今回(b)、古い方=前回(a)。versions は新しい順。
+// 選択2件のうち新しい方=今回(`b`)、古い方=前回(`a`)。`versions` は新しい順。
 const pair = computed(() => {
   if (selected.value.length !== 2) return null;
   const chosen = props.versions.filter((v) => selected.value.includes(v.historyId));
@@ -88,7 +91,7 @@ const roleBadge = (v: TemplateVersionMeta): '今回' | '前回' | null => {
       </label>
     </div>
 
-    <!-- summary bar -->
+    <!-- 選択結果のサマリバー -->
     <div
       v-if="pair"
       class="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-[13px]"

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// Checkbox.vue — `reka-ui` の `CheckboxRoot` にスタイルを被せたチェックボックス
+// =============================================================================
 import { Check } from '@lucide/vue';
 import { CheckboxIndicator, CheckboxRoot } from 'reka-ui';
 import { cn } from '@/lib/utils';

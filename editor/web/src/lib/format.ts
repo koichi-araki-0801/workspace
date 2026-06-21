@@ -1,12 +1,14 @@
-/** Presentation formatters shared across feature view-models. */
+// =============================================================================
+// format.ts — 各 feature の view-model で共有する表示用フォーマッタ
+// =============================================================================
 
-/** Localized date-time, or an em dash for empty values. */
+/** ローカライズした日時。空値は em dash を返す。 */
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('ja-JP');
 }
 
-/** Compact, zero-padded date-time like "2024/07/10 11:42" (no seconds). */
+/** "2024/07/10 11:42" 形式のコンパクトなゼロ埋め日時(秒なし)。 */
 export function formatDateTimeShort(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);

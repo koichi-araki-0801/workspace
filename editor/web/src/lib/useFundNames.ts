@@ -1,3 +1,6 @@
+// =============================================================================
+// useFundNames.ts — fundCode → ファンド名の共有リゾルバ
+// =============================================================================
 import { isErr } from '@editor/shared';
 import { reactive } from 'vue';
 import { useTemplateRepo } from '@/api/repositories';

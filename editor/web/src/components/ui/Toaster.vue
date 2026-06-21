@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// Toaster.vue — `toast.ts` の `toasts` を右下に積み重ねて描画する表示部品
+// =============================================================================
 import { CircleAlert, CircleCheck, X } from '@lucide/vue';
 import { cn } from '@/lib/utils';
 import { dismissToast, toasts } from './toast';

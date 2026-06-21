@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// PartCatalog.vue — 分類で絞り込む parts catalog(編集 canvas への挿入元)
+// =============================================================================
 import type { PartCatalogItem, PartClassificationOptions, PartClassificationQuery } from '@editor/shared';
 import { Inbox, Loader2, Plus } from '@lucide/vue';
 import { computed, ref } from 'vue';
@@ -67,7 +70,7 @@ function onInsert(p: PartCatalogItem) {
 
 <template>
   <div class="flex h-full flex-col">
-    <!-- cascading dropdowns (vertically stacked) -->
+    <!-- cascading なドロップダウン(縦積み) -->
     <div class="space-y-2 border-b px-3 py-3">
       <div v-for="lvl in levels" :key="lvl.key" class="space-y-1">
         <Label class="text-xs text-muted-foreground">{{ lvl.label }}</Label>
@@ -82,7 +85,7 @@ function onInsert(p: PartCatalogItem) {
       <Input v-model="search" placeholder="名称で検索" class="mt-1" />
     </div>
 
-    <!-- filtered parts list -->
+    <!-- 絞り込み済みの parts 一覧 -->
     <div class="flex-1 overflow-auto px-2 py-2">
       <div v-if="loading" class="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
         <Loader2 class="h-4 w-4 animate-spin" /> 読み込み中…

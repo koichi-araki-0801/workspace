@@ -1,3 +1,6 @@
+// =============================================================================
+// templateRepo.ts — テンプレートの一覧/取得/生成/保存の local 実装
+// =============================================================================
 import {
   type ConfirmSaveRequest,
   type CreateHistoryEntry,
@@ -39,27 +42,28 @@ import {
   write,
 } from './store';
 
-// --- confirmSave steps (each a single localStorage read+write; the caller runs
-//     them inside one tx() so a mid-way failure rolls every key back) -----------
+// ── confirmSave steps ──
+// 各ステップは単一の localStorage read+write。呼び出し元が 1 つの `tx()` 内で実行し、
+// 途中失敗時に全キーをロールバックする。
 
-/** Publish the edited body + per-fund shared CSS overrides. */
+/** 編集後の本文 + fund 単位の共有 CSS override を公開する。 */
 function putContentOverrides(req: ConfirmSaveRequest): void {
   const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
   htmlOverride[req.templateId] = req.html;
   write(K.htmlOverride, htmlOverride);
   const cssOverride = read<Record<string, string>>(K.cssOverride, {});
-  cssOverride[req.fundCode] = req.css; // per-fund shared CSS
+  cssOverride[req.fundCode] = req.css; // fund 単位の共有 CSS
   write(K.cssOverride, cssOverride);
 }
 
-/** Mark the template published with the current editor + time. */
+/** テンプレートを現在の編集者 + 時刻で published にする。 */
 function publishMeta(templateId: string, who: string): void {
   const metaStore = read<Record<string, Partial<TemplateMeta>>>(META_KEY, {});
   metaStore[templateId] = { status: 'published', updatedAt: now(), updatedBy: who };
   write(META_KEY, metaStore);
 }
 
-/** Prepend a 確定保存 entry to the edit-history feed (keyed by historyId). */
+/** edit-history フィードへ確定保存 entry を先頭追加する(キーは `historyId`)。 */
 function appendEditHistory(
   req: ConfirmSaveRequest,
   who: string,
@@ -77,8 +81,8 @@ function appendEditHistory(
   write(K.editHist, editHist);
 }
 
-/** Freeze the confirmed content so the version can be re-rendered for the visual
- *  compare screen. Keyed by the edit-history entry id. */
+/** 確定コンテンツを凍結し、visual compare 画面で版を再描画できるようにする。
+ *  キーは edit-history entry の id。 */
 function freezeSnapshot(req: ConfirmSaveRequest, historyId: string, timestamp: string): void {
   const snapshots = read<Record<string, TemplateSnapshot>>(K.snapshots, {});
   snapshots[historyId] = {
@@ -92,8 +96,8 @@ function freezeSnapshot(req: ConfirmSaveRequest, historyId: string, timestamp: s
   write(K.snapshots, snapshots);
 }
 
-/** Keep the rendered report instance (values filled, no Jinja) alongside the
- *  template — the concrete document the editor produced. No-op without filledHtml. */
+/** 描画済み report instance(値差込済み・Jinja なし)をテンプレートと併せて保存する。
+ *  editor が生成した具体ドキュメントそのもの。`filledHtml` が無ければ no-op。 */
 function putInstance(req: ConfirmSaveRequest, who: string): void {
   if (req.filledHtml === undefined) return;
   const instances = read<Record<string, TemplateInstance>>(K.instances, {});
@@ -107,7 +111,7 @@ function putInstance(req: ConfirmSaveRequest, who: string): void {
   write(K.instances, instances);
 }
 
-/** Drop the autosaved draft now that it has been confirmed. */
+/** 確定済みになった自動保存 draft を破棄する。 */
 function clearDraft(templateId: string): void {
   const drafts = read<Record<string, TemplateDraft>>(K.drafts, {});
   delete drafts[templateId];
@@ -146,8 +150,8 @@ export const localTemplateRepo: TemplateRepository = {
       const html = htmlOverride[id] ?? fixtureTemplates[meta.fileName] ?? '';
       const css =
         cssOverride[meta.attributes.fundCode] ?? fixtureCss[meta.attributes.fundCode] ?? '';
-      // Static filled copy is only meaningful for an unedited fixture; once the
-      // template HTML has been overridden, the editor re-fills it at load time.
+      // 静的な filled コピーは未編集 fixture でのみ意味を持つ。テンプレート HTML が
+      // override 済みなら、editor がロード時に再度 fill する。
       const filled = htmlOverride[id] ? '' : (fixtureFilled[meta.fileName] ?? '');
       return delay({ meta, html, css, filled });
     }),
@@ -168,7 +172,7 @@ export const localTemplateRepo: TemplateRepository = {
             ) ?? ''
           ] ?? defaultSkeleton();
       }
-      // 償還ファンド指定時は特定パーツを償還用パーツへ置換（モック）。
+      // 償還ファンド指定時は特定パーツを償還用パーツへ置換(モック)。
       if (req.isRedemption) baseHtml = applyRedemptionMock(baseHtml);
       const baseDate = todayYmd();
       const attrs: TemplateAttributes = {
@@ -187,7 +191,7 @@ export const localTemplateRepo: TemplateRepository = {
         updatedAt: null,
         updatedBy: null,
       };
-      // persist as draft override so it can be opened in the editor
+      // editor で開けるよう draft override として永続化する。
       const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
       htmlOverride[id] = baseHtml;
       write(K.htmlOverride, htmlOverride);
@@ -201,14 +205,14 @@ export const localTemplateRepo: TemplateRepository = {
       });
       write(K.createHist, createHist);
       const css = fixtureCss[req.fundCode] ?? '';
-      // A freshly generated skeleton has no static fill; the editor renders one.
+      // 新規生成 skeleton には静的 fill が無い。editor が 1 つ描画する。
       return delay({ template: { meta, html: baseHtml, css, filled: '' } });
     }),
 
   resolveFund: (_companyCode: string, fundCode: string, _editionType: string) =>
     attempt(() => delay({ isSeriesFund: SERIES_FUND_CODES.has(fundCode) })),
 
-  // シリーズ候補はコアラップ系（SERIES_FUND_CODES）のメンバーのみ。非シリーズは出さない。
+  // シリーズ候補はコアラップ系(`SERIES_FUND_CODES`)のメンバーのみ。非シリーズは出さない。
   listSeriesFunds: (companyCode: string, _fundCode: string, editionType: string) =>
     attempt(() =>
       delay(
@@ -243,16 +247,15 @@ export const localTemplateRepo: TemplateRepository = {
 
   confirmSave: (req: ConfirmSaveRequest) =>
     attempt(() =>
-      // All writes commit together: a mid-way failure (e.g. quota) rolls every
-      // touched key back to its pre-save state, so the store is never left
-      // half-published. The notFound guard is inside the tx too, so a missing
-      // meta also rolls back the writes above it.
+      // 全 write を一括コミットする: 途中失敗(例: quota)は触れた全キーを保存前状態へ
+      // ロールバックし、ストアが half-published で残らないようにする。`notFound` ガードも
+      // tx 内にあるため、meta 欠落時はその上の write も巻き戻る。
       tx(
         [K.htmlOverride, K.cssOverride, META_KEY, K.editHist, K.snapshots, K.instances, K.drafts],
         () => {
           const who = currentUser()?.displayName ?? '不明';
           const historyId = uid('eh');
-          const timestamp = now(); // shared by the edit-history entry and its snapshot
+          const timestamp = now(); // edit-history entry とその snapshot で共有する
 
           putContentOverrides(req);
           publishMeta(req.templateId, who);

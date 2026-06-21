@@ -1,3 +1,8 @@
+// =============================================================================
+// tabs.ts — `reka-ui` の Tabs プリミティブにスタイルを被せた薄いラッパ群
+// =============================================================================
+// `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent` を Tailwind クラス込みで再エクスポート
+// する。`modelValue` は `TabsRoot` へ素通しし、`update:modelValue` を再 emit する。
 import {
   TabsContent as RekaTabsContent,
   TabsList as RekaTabsList,

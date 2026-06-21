@@ -1,3 +1,6 @@
+// =============================================================================
+// historyService.ts — 編集/PDF/作成の 3 履歴フィードをまとめて取得する service
+// =============================================================================
 import {
   type CreateHistoryEntry,
   type EditHistoryEntry,
@@ -16,7 +19,7 @@ export interface AllHistory {
 }
 
 export interface HistoryService {
-  /** Load the three history feeds together; fails fast on the first error. */
+  /** 3 つの履歴フィードを並行取得する。最初の error で即座に fail-fast する。 */
   loadAll(): Promise<Result<AllHistory>>;
 }
 

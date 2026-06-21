@@ -1,3 +1,6 @@
+// =============================================================================
+// userRepo.ts — ユーザー管理の local 実装(一覧/作成/更新/PW リセット)
+// =============================================================================
 import { isErr, notFound, type User, type UserRepository } from '@editor/shared';
 import { attempt } from './attempt';
 import { delay, K, listUsersSync, read, uid, write } from './store';

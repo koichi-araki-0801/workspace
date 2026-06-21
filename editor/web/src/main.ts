@@ -1,3 +1,6 @@
+// =============================================================================
+// main.ts — Vue アプリのエントリポイント(初期化・global error handler・mount)
+// =============================================================================
 import { toAppError } from '@editor/shared';
 import { createPinia } from 'pinia';
 import { createApp } from 'vue';
@@ -9,23 +12,23 @@ import { toastError } from './components/ui/toast';
 import { logError } from './lib/appError';
 import { initTheme } from './lib/theme';
 import { router } from './router';
-// Self-hosted webfonts (no Google Fonts CDN). @fontsource ships the @font-face
-// + woff2 so Vite bundles them for same-origin, offline-capable delivery.
+// Self-hosted な webfont(Google Fonts CDN を使わない)。@fontsource は @font-face
+// + woff2 を同梱するため, Vite が same-origin かつオフライン可能な配信用に bundle する。
 import '@fontsource-variable/noto-sans-jp/index.css';
 import '@fontsource-variable/noto-serif-jp/index.css';
 import '@fontsource-variable/jetbrains-mono/index.css';
-// Font Awesome glyphs for GrapesJS' layer/toolbar icons. Bundled locally so the
-// editor no longer pulls FA from cdnjs (GrapesJS' `cssIcons` is blanked in
-// useGrapes.ts to stop the remote <link> injection). See editor/OFFLINE.md.
+// GrapesJS の layer/toolbar アイコン用 Font Awesome glyph。ローカル bundle により
+// エディタが cdnjs から FA を取得しなくなる(GrapesJS の `cssIcons` は `useGrapes.ts`
+// で空にし, リモート `<link>` 注入を止めている)。`editor/OFFLINE.md` を参照。
 import 'font-awesome/css/font-awesome.css';
 import './assets/index.css';
 
 /**
- * Last-resort handler for failures that never reach `useAsyncResult().run()`:
- * Vue render/lifecycle errors, unhandled promise rejections, and raw global
- * `error` events (e.g. GrapesJS callbacks, dynamic imports). Without this such
- * failures would only hit the console and leave the user with no feedback.
- * A short dedupe avoids spamming identical toasts when an error fires in a loop.
+ * `useAsyncResult().run()` に届かない失敗の最終 handler: Vue の render/lifecycle
+ * エラー, unhandled promise rejection, 生の global `error` イベント(例 GrapesJS
+ * コールバック, dynamic import)。これが無いとそうした失敗は console に出るだけで,
+ * ユーザーには何のフィードバックも残らない。短い dedupe で, ループ内でエラーが
+ * 連発しても同一 toast の連投を避ける。
  */
 let lastMessage = '';
 function reportGlobalError(e: unknown): void {
@@ -37,14 +40,14 @@ function reportGlobalError(e: unknown): void {
   }
 }
 
-// Data source: REST (phase 2 SQL Server backend) when VITE_API_MODE=rest,
-// otherwise the local fixtures + localStorage set (phase 1, default).
+// データソース: `VITE_API_MODE=rest` なら REST(フェーズ2 SQL Server backend),
+// それ以外は local fixtures + localStorage 一式(フェーズ1, 既定)。
 const useRest = import.meta.env.VITE_API_MODE === 'rest';
 const repositories = useRest ? restRepositories : localRepositories;
 
 initTheme();
-// Local store only: clear stale fixture-derived working-state on a schema bump,
-// then seed the compare-screen demo data with the current template ids.
+// local store のみ: schema bump 時に古い fixture 由来の working-state を clear し,
+// 次に現行 template id で compare 画面のデモデータを seed する。
 if (!useRest) {
   migrateStore();
   seedCompareFixtures();

@@ -1,3 +1,6 @@
+// =============================================================================
+// repositories.ts — リポジトリの DI 合成ルート(local/REST 実装の切替点)
+// =============================================================================
 import type {
   AuthRepository,
   HistoryRepository,
@@ -17,7 +20,7 @@ import { restPartRepo } from './rest/partRepo';
 import { restTemplateRepo } from './rest/templateRepo';
 import { restUserRepo } from './rest/userRepo';
 
-/** The per-aggregate data-access surface injected into screens/services/stores. */
+/** 画面/サービス/ストアへ inject する集約単位のデータアクセス面。 */
 export interface Repositories {
   auth: AuthRepository;
   templates: TemplateRepository;
@@ -27,9 +30,9 @@ export interface Repositories {
 }
 
 /**
- * Composition root for data access. Wires the local (fixtures + localStorage)
- * repositories; swapping this single object for REST implementations of the
- * same interfaces leaves screens/services unchanged.
+ * データアクセスの合成ルート。local(fixtures + localStorage)実装を束ねる。
+ * 同一インタフェースの REST 実装へこの 1 オブジェクトを差し替えるだけで、
+ * 画面/サービス側は無改修で済む。
  */
 export const localRepositories: Repositories = {
   auth: localAuthRepo,
@@ -40,8 +43,8 @@ export const localRepositories: Repositories = {
 };
 
 /**
- * Phase 2 REST wiring — same interfaces, backed by the Express/SQL Server API.
- * `main.ts` picks this when VITE_API_MODE=rest; otherwise the local set above.
+ * フェーズ 2 の REST 配線。インタフェースは同一で、実体は Express/SQL Server API。
+ * `main.ts` が VITE_API_MODE=rest のとき本セットを採用する(既定は上の local セット)。
  */
 export const restRepositories: Repositories = {
   auth: restAuthRepo,
@@ -51,10 +54,10 @@ export const restRepositories: Repositories = {
   users: restUserRepo,
 };
 
-/** DI key. Provided in main.ts, swappable in tests. */
+/** DI キー。`main.ts` で provide し、テストでは差し替え可能。 */
 export const REPOS_KEY: InjectionKey<Repositories> = Symbol('Repositories');
 
-/** Inject all repositories. Use in component/store/service setup. */
+/** 全リポジトリを inject する。コンポーネント/ストア/サービスの setup で使う。 */
 export function useRepos(): Repositories {
   const repos = inject(REPOS_KEY);
   if (!repos)

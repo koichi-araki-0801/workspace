@@ -1,12 +1,10 @@
-/**
- * One-time sample data for the 版の比較 (compare) screen.
- *
- * Confirmed-version history (`K.editHist`), frozen snapshots (`K.snapshots`)
- * and the published status (`META_KEY`) are normally produced only at runtime
- * by `confirmSave`. With an empty store there is nothing to compare, so we seed
- * a few templates with multiple confirmed versions. Runs once (guarded) and
- * never clobbers existing user data.
- */
+// =============================================================================
+// seed.ts — 版の比較(compare)画面向けの一度きりサンプルデータ投入
+// =============================================================================
+// 役割: 確定版履歴(`K.editHist`)・凍結 snapshot(`K.snapshots`)・公開ステータス
+// (`META_KEY`)は通常 `confirmSave` が実行時にのみ生成する。空ストアでは比較対象が
+// 無いため、複数の確定版を持つテンプレートを数件 seed する。ガード付きで一度だけ
+// 実行し、既存のユーザーデータは決して上書きしない。
 import type { EditHistoryEntry, TemplateMeta, TemplateSnapshot } from '@editor/shared';
 import { fixtureCss, fixtureTemplates, K, META_KEY, read, write } from './store';
 
@@ -15,25 +13,25 @@ const SEED_USER = '佐藤花子';
 
 interface SeedVersion {
   historyId: string;
-  /** local wall-clock (no Z) so the screen shows it as authored, e.g. 11:42 */
+  /** local 壁時計(Z なし)。画面に作成時刻として 11:42 のように表示させるため。 */
   timestamp: string;
-  /** confirm-save author; defaults to SEED_USER */
+  /** 確定保存の作成者。既定は `SEED_USER`。 */
   user?: string;
-  /** small visible change vs. the previous version, for a meaningful diff */
+  /** 直前版との小さな可視変更。意味のある diff を作るため。 */
   mark?: string;
-  /** raw-template find/replace pairs that give older versions real content diffs */
+  /** raw テンプレートの find/replace 対。過去版に実コンテンツ差分を持たせる。 */
   edits?: [from: string, to: string][];
 }
 
 interface SeedTemplate {
   templateId: string;
   fundCode: string;
-  versions: SeedVersion[]; // newest first
+  versions: SeedVersion[]; // 新しい順
 }
 
-// メイン: 3版（スクショの「3版」に一致）。サブ: 2版。デモ: 1版（選択不可確認用）。
-// 最新版は現行サンプルデータ（基準価額 12,345 / 前日比 +58）で描画し、過去版は
-// テンプレート文字列を置換して実際の数値差分（=変更ブロック）を作る。
+// メイン: 3版(スクショの「3版」に一致)。サブ: 2版。デモ: 1版(選択不可確認用)。
+// 最新版は現行サンプルデータ(基準価額 12,345 / 前日比 +58)で描画し、過去版は
+// テンプレート文字列を置換して実際の数値差分(=変更ブロック)を作る。
 const SEED: SeedTemplate[] = [
   {
     templateId: 'AM01_510037_20240710_交付版',
@@ -79,7 +77,7 @@ const SEED: SeedTemplate[] = [
   },
 ];
 
-/** Apply per-version content edits then inject a small visible version footer. */
+/** 版ごとのコンテンツ編集を適用し、小さな可視の版フッタを差し込む。 */
 function buildVersionHtml(base: string, v: SeedVersion): string {
   let html = base;
   for (const [from, to] of v.edits ?? []) html = html.split(from).join(to);
@@ -105,7 +103,7 @@ export function seedCompareFixtures(): void {
     const baseHtml = fixtureTemplates[`${t.templateId}.html`] ?? '';
     const css = fixtureCss[t.fundCode] ?? '';
     for (const v of t.versions) {
-      // newest first → keep editHist newest-first via push (SEED is already ordered)
+      // 新しい順 → push で `editHist` を新しい順に保つ(`SEED` は既に整列済み)。
       editHist.push({
         id: v.historyId,
         templateId: t.templateId,

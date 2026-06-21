@@ -1,3 +1,6 @@
+// =============================================================================
+// templateCreationService.ts — 属性検証つきテンプレ生成とシリーズ関連の問い合わせ
+// =============================================================================
 import {
   err,
   type FundResolution,
@@ -10,11 +13,11 @@ import {
 } from '@editor/shared';
 import { useTemplateRepo } from '@/api/repositories';
 
-/** Shown when the attributes needed to create a template are incomplete. */
+/** テンプレ作成に必要な属性が不足しているときに表示するメッセージ。 */
 export const SELECT_ALL_MSG = '委託会社・ファンド・版種を選択してください';
 
 export interface TemplateCreationService {
-  /** Validate the attributes, then generate; resolves to the new template's meta. */
+  /** 属性を検証してから生成する。成功時は新規テンプレの meta を返す。 */
   create(req: GenerateRequest): Promise<Result<TemplateMeta>>;
   /** 属性解決: シリーズファンド判定など。 */
   resolveFund(

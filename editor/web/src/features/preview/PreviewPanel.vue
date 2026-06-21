@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// PreviewPanel.vue — @vivliostyle/core によるページ分割プレビュー(iframe フォールバック付き)
+// =============================================================================
 import { toAppError } from '@editor/shared';
 import { Loader2 } from '@lucide/vue';
 import { onBeforeUnmount, ref, watch } from 'vue';
@@ -42,9 +45,9 @@ async function render() {
     viewer.loadDocument({ url: blobUrl });
     useFallback.value = false;
   } catch (e) {
-    // Fallback: plain iframe preview if vivliostyle fails to load/paginate.
-    // The fallback keeps the preview working, so log for observability only
-    // (no user toast).
+    // Fallback: `@vivliostyle/core` の読み込み/ページ分割が失敗したら素の iframe で表示する。
+    // フォールバックでプレビュー自体は機能し続けるため, observability 目的のログのみに留める
+    // (ユーザー向け toast は出さない)。
     logError(toAppError(e));
     useFallback.value = true;
     if (iframe.value) iframe.value.srcdoc = props.html;

@@ -1,3 +1,6 @@
+// =============================================================================
+// templatePreviewService.ts — プレビュー画面のロード/確定保存/PDF 出力サービス
+// =============================================================================
 import {
   type ConfirmSaveRequest,
   conflict,
@@ -18,26 +21,26 @@ import { toTemplate } from '@/lib/jinjaMask';
 import { buildPreviewDocument, renderJinja } from '@/lib/nunjucksRender';
 import { replaceBodyInner } from '@/lib/templateDoc';
 
-/** Shown for any PDF generation failure (the cause is logged separately). */
+/** PDF 生成失敗時に表示する文言(原因 cause は別途ログへ記録する)。 */
 export const PDF_ERROR_MSG = 'PDFの作成に失敗しました。時間をおいて再度お試しください。';
 const RENDER_ERROR_MSG = 'プレビューを表示できませんでした。テンプレートの内容をご確認ください。';
 
 export interface PreviewLoad {
   template: Template;
   sample: SampleData;
-  /** Jinja-restored HTML (draft applied if present), used for save & PDF. */
+  /** Jinja を復元した HTML(draft があれば適用済み)。save と PDF で使う。 */
   restoredHtml: string;
   css: string;
-  /** Self-contained HTML document for the preview iframe. */
+  /** プレビュー iframe 用の自己完結 HTML ドキュメント。 */
   previewDoc: string;
-  /** User-facing render error, or null when the preview rendered cleanly. */
+  /** ユーザー向けレンダリングエラー。正常にレンダリングできた場合は null。 */
   renderError: string | null;
 }
 
 export interface TemplatePreviewService {
   loadForPreview(id: string): Promise<Result<PreviewLoad>>;
   confirmSave(req: ConfirmSaveRequest): Promise<Result<TemplateMeta>>;
-  /** Render the template to a PDF blob via the server. */
+  /** テンプレートをサーバー経由で PDF blob にレンダリングする。 */
   renderPdf(html: string, css: string, sample: SampleData): Promise<Result<Blob>>;
   recordPdfExport(id: string): Promise<Result<void>>;
 }

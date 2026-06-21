@@ -1,3 +1,6 @@
+// =============================================================================
+// templateRepo.ts — テンプレートの一覧/取得/生成/保存の REST 実装
+// =============================================================================
 import {
   type ConfirmSaveRequest,
   type DropdownOptions,
@@ -17,7 +20,7 @@ import { apiFetch, attemptRest } from './http';
 
 const enc = encodeURIComponent;
 
-/** シリーズ（sproc `系列`）の問い合わせ。resolveFund と listSeriesFunds で共用。 */
+/** シリーズ(sproc `系列`)の問い合わせ。`resolveFund` と `listSeriesFunds` で共用。 */
 const seriesFetch = (companyCode: string, fundCode: string, editionType: string) =>
   attemptRest(() =>
     apiFetch<TemplateMeta[]>('/templates/series', {

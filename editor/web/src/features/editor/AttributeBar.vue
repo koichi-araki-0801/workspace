@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// AttributeBar.vue — template 属性(委託会社コード等)の横並びサマリ表示
+// =============================================================================
 import type { TemplateAttributes } from '@editor/shared';
 import { watch } from 'vue';
 import { useFundNames } from '@/lib/useFundNames';

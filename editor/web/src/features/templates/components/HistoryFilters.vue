@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// HistoryFilters.vue — 履歴タブ共通のフィルタバー (実行者/キーワード/期間)
+// =============================================================================
 import type { HistoryFilter } from '@editor/shared';
 import { RotateCcw } from '@lucide/vue';
 import Button from '@/components/ui/Button.vue';
@@ -6,14 +9,14 @@ import Input from '@/components/ui/Input.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 
-// Per-tab history filter values (matching done by the domain). Re-exported for
-// components that import the type alongside this component.
+// タブごとの履歴フィルタ値 (突き合わせは domain 側が担う)。本コンポーネントと併せて
+// 型を import する側のために `HistoryFilter` を re-export する。
 export type { HistoryFilter };
 
 defineProps<{
-  /** Distinct operator names for the dropdown (extracted from the displayed data). */
+  /** dropdown 用の実行者名 (表示中データから抽出した distinct な値)。 */
   users: string[];
-  /** Label for the tab-specific free-text field (e.g. テンプレ / ファイル名). */
+  /** タブ固有の自由入力欄のラベル (例 テンプレ / ファイル名)。 */
   keywordLabel: string;
 }>();
 

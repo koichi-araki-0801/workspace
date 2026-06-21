@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// UserMenu.vue — ログインユーザーのドロップダウンメニュー(管理画面/ログアウト)
+// =============================================================================
 import type { User } from '@editor/shared';
 import { ChevronDown, LogOut, Shield } from '@lucide/vue';
 import {

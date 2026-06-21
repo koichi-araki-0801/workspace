@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// PasswordInitView.vue — パスワード再設定画面(初回ログイン / PW 忘れの両フロー)
+// =============================================================================
 import { isErr } from '@editor/shared';
 import { AlertCircle, KeyRound } from '@lucide/vue';
 import { computed, ref } from 'vue';
@@ -25,8 +28,8 @@ const error = ref('');
 
 const MIN_LENGTH = 8;
 
-// first-login (mustChangePassword) already has an established session;
-// the "PW forgot" entry point has none. This drives the subtitle + return link.
+// 初回ログイン(`mustChangePassword`)は既にセッションが確立済み。「PW 忘れ」の入口は
+// セッションを持たない。この差がサブタイトルと戻り先リンクの出し分けを駆動する。
 const firstLogin = computed(() => auth.isAuthenticated);
 
 async function submit() {
@@ -54,11 +57,11 @@ async function submit() {
   }
   toastSuccess('パスワードを設定しました');
   if (auth.isAuthenticated) {
-    // First-login flow: session is already established → go straight into the app.
+    // 初回ログインフロー: セッションは確立済み → そのままアプリへ進む。
     const redirect = (route.query.redirect as string) || '';
     router.push(redirect || { name: 'edit' });
   } else {
-    // Forgot-password flow: sign in again with the new password.
+    // PW 忘れフロー: 新しいパスワードで再度サインインする。
     router.push({ name: 'login' });
   }
 }

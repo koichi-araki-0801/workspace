@@ -1,3 +1,9 @@
+// =============================================================================
+// useTemplateEditor.ts — editor 画面のオーケストレーション composable
+// =============================================================================
+// 役割: template 読込・GrapesJS + autosave のライフサイクル・canvas 選択から
+// catalog docs への解決・保存中/失敗中の navigation guard をまとめ、
+// `EditorView.vue` を presentational に保つ。
 import {
   isErr,
   isOk,
@@ -20,10 +26,10 @@ import { usePartEditHistory } from './usePartEditHistory';
 import { useSnapshotHistory } from './useSnapshotHistory';
 
 /**
- * Editor screen orchestration: loads the template, drives the GrapesJS +
- * autosave lifecycle, resolves the canvas selection back to catalog docs, and
- * guards navigation while a save is pending/failed. Keeps {@link EditorView}
- * presentational. GrapesJS/Jinja internals stay in {@link useGrapes}/jinjaMask.
+ * editor 画面のオーケストレーション: template を読み込み、GrapesJS + autosave の
+ * ライフサイクルを駆動し、canvas 選択を catalog docs へ解決し、保存が pending/失敗中の
+ * 間は navigation を guard する。`EditorView.vue` を presentational に保つ。
+ * GrapesJS/Jinja の内部は `useGrapes.ts` / jinjaMask に留める。
  */
 export function useTemplateEditor(
   id: string,
@@ -40,23 +46,23 @@ export function useTemplateEditor(
   const template = ref<Template | null>(null);
   const fundName = ref('');
   const partHistory = ref<PartHistoryEntry[]>([]);
-  /** Last part clicked in the catalog (insert-time preview). */
+  /** catalog で最後にクリックされた part(挿入時のプレビュー)。 */
   const previewPart = ref<PartCatalogItem | null>(null);
-  /** Part resolved from the current canvas selection (null when not a catalog part). */
+  /** 現在の canvas 選択から解決した part(catalog part でなければ null)。 */
   const canvasPart = ref<PartCatalogItem | null>(null);
-  /** Catalog parts cached for resolving a canvas selection back to its docs. */
+  /** canvas 選択を docs へ解決するため cache した catalog parts。 */
   const partsById = new Map<string, PartCatalogItem>();
 
-  /** Left-pane "パーツを追加" toggle: shows the catalog and allows inserts. */
+  /** 左ペイン「パーツを追加」トグル: catalog を表示し挿入を許可する。 */
   const allowAdd = ref(false);
-  /** Left-pane "編集を許可" toggle: makes the canvas editable (text/reorder/layout). */
+  /** 左ペイン「編集を許可」トグル: canvas を編集可(text/並べ替え/layout)にする。 */
   const allowEdit = ref(false);
 
-  // Properties pane: canvas selection when present, else the catalog preview.
+  // プロパティペイン: canvas 選択があればそれ、無ければ catalog プレビュー。
   const selectedPart = computed(() => (g.selected.value ? canvasPart.value : previewPart.value));
 
-  // Geometry of the current canvas selection (read from its inline style).
-  // `g.revision` re-triggers this on every style/component change.
+  // 現在の canvas 選択の幾何(inline style から読む)。`g.revision` が style/component
+  // 変更ごとにこれを再トリガする。
   const selectedGeom = computed(() => {
     void g.revision.value;
     return g.selected.value ? geomFromStyle(g.selectedStyle()) : null;
@@ -67,14 +73,14 @@ export function useTemplateEditor(
     return service.saveDraft(id, g.getBodyHtml(), g.getCss());
   });
 
-  // --- undo / redo (snapshot-based) ------------------------------------------
-  // GrapesJS' UndoManager doesn't reliably track our programmatic style writes,
-  // so we keep our own stacks of { html, css } snapshots and restore via load().
+  // ── 1. undo / redo (snapshot 方式) ──
+  // GrapesJS の UndoManager はプログラム経由の style 書き込みを確実には追えないため、
+  // 自前で { html, css } snapshot の stack を持ち、load() で復元する。
   const { canUndo, canRedo, pushUndo, undo, redo, discardLast } = useSnapshotHistory(
     () => ({ html: g.getBodyHtml(), css: g.getCss() }),
     (s) => {
       g.load(s.html, s.css);
-      // load() rebuilds components with default flags — reapply the lock state.
+      // load() は既定フラグで component を再構築する — lock state を再適用する。
       g.setEditable(allowEdit.value);
       autosave.trigger();
     },
@@ -85,8 +91,8 @@ export function useTemplateEditor(
     () => g.selected.value?.id,
     () => auth.user?.displayName ?? '編集者',
     () => partHistory.value,
-    // Durably persist each edit (fire-and-forget); a failure is logged, not surfaced,
-    // since the in-session entry already shows and the autosaved draft holds the content.
+    // 各編集を永続化する(fire-and-forget)。失敗は log するが表に出さない。
+    // セッション内エントリは既に表示済みで、autosave 済み draft が内容を保持するため。
     (partId, change) => {
       service.recordPartChange(id, partId, change).then((res) => {
         if (isErr(res)) logError(res.error);
@@ -94,7 +100,7 @@ export function useTemplateEditor(
     },
   );
 
-  /** Apply a geometry change to the selected block (written as inline style). */
+  /** 選択ブロックへ幾何変更を適用する(inline style として書き込む)。 */
   function applyGeom(patch: Partial<LayoutGeom>, record = true) {
     const cur = selectedGeom.value;
     if (!cur) return;
@@ -107,7 +113,7 @@ export function useTemplateEditor(
     }
   }
 
-  /** Record a single history entry for a geometry diff (used after a handle drag). */
+  /** 幾何 diff の history エントリを 1 件記録する(ハンドル drag 後に使う)。 */
   function recordGeomDiff(before: LayoutGeom) {
     const after = selectedGeom.value;
     if (!after) return;
@@ -115,7 +121,7 @@ export function useTemplateEditor(
     if (label) recordChange(label);
   }
 
-  /** Clear all layout styles on the selection (revert to default placement). */
+  /** 選択の layout style を全消去する(既定配置へ戻す)。 */
   function resetGeom() {
     if (!g.selected.value) return;
     pushUndo();
@@ -130,7 +136,7 @@ export function useTemplateEditor(
   function onPartInsert(p: PartCatalogItem) {
     pushUndo();
     g.insertPart(p.content, p.id);
-    // a freshly inserted part must honor the current lock state.
+    // 挿入直後の part も現在の lock state に従わせる。
     g.setEditable(allowEdit.value);
     previewPart.value = p;
     recordChange(`パーツ「${p.name}」を追加`);
@@ -142,30 +148,29 @@ export function useTemplateEditor(
     recordChange(dir < 0 ? '順序を前へ移動' : '順序を後ろへ移動');
   }
 
-  /** Delete the current selection (history-aware). */
+  /** 現在の選択を削除する(history を考慮)。 */
   function deletePart() {
     if (!g.selected.value) return;
     pushUndo();
     g.deleteSelected();
   }
 
-  // Lock/unlock the canvas when the "編集を許可" checkbox toggles.
+  // 「編集を許可」チェックボックスの切替で canvas を lock/unlock する。
   watch(allowEdit, (on) => g.setEditable(on));
 
-  // Bumped on every selection change; the async history fetch below discards its
-  // result if a newer selection superseded it (prevents a slow response from
-  // overwriting a different part's history).
+  // 選択変更ごとに加算する。下の非同期 history fetch は、より新しい選択に追い越されたら
+  // 結果を捨てる(遅い応答が別 part の history を上書きするのを防ぐ)。
   let historySeq = 0;
   watch(
     () => g.selected.value,
     async (sel) => {
       const seq = ++historySeq;
-      // Resolve the catalog part synchronously so the properties pane updates
-      // immediately, without waiting on the history fetch.
+      // catalog part は同期的に解決し、history fetch を待たずプロパティペインを
+      // 即座に更新する。
       canvasPart.value = sel?.partId ? (partsById.get(sel.partId) ?? null) : null;
       if (sel && !sel.isJinja) {
         const res = await service.getPartHistory(id, sel.id);
-        if (seq !== historySeq) return; // a newer selection won the race
+        if (seq !== historySeq) return; // より新しい選択が race に勝った
         partHistory.value = isOk(res) ? res.value : [];
       } else {
         partHistory.value = [];
@@ -189,10 +194,10 @@ export function useTemplateEditor(
     if (!canvas || !layers) return;
     g.init({ canvas, layers });
     g.load(res.value.editableBody, res.value.css);
-    // start locked (allowEdit defaults to false).
+    // locked 状態で開始する(allowEdit の既定は false)。
     g.setEditable(allowEdit.value);
     g.onChange(() => autosave.trigger());
-    // inline text edit: snapshot on start; on end, keep it only if content changed
+    // inline text 編集: 開始で snapshot、終了時は内容が変わった場合だけ残す
     g.onTextEditStart(() => pushUndo());
     g.onTextEditEnd((changed) => {
       if (changed) {
@@ -201,7 +206,7 @@ export function useTemplateEditor(
         discardLast();
       }
     });
-    // canvas drag-to-reorder: snapshot on start; record only when order changed
+    // canvas の drag-to-reorder: 開始で snapshot、順序が変わった時だけ記録する
     g.onReorderStart(() => pushUndo());
     g.onReorderEnd((moved) => {
       if (moved) {
@@ -212,7 +217,7 @@ export function useTemplateEditor(
     });
   });
 
-  // Warn before leaving (tab close / reload) while a save is in flight or failed.
+  // 保存が進行中/失敗中の間は、離脱(tab を閉じる / reload)前に警告する。
   function beforeUnload(e: BeforeUnloadEvent) {
     if (autosave.state.value === 'saving' || autosave.state.value === 'error') {
       e.preventDefault();
@@ -226,7 +231,7 @@ export function useTemplateEditor(
     g.destroy();
   });
 
-  // In-app navigation guard: finish a pending save, and confirm if it failed.
+  // アプリ内 navigation guard: pending な save を完了し、失敗していれば確認する。
   onBeforeRouteLeave(async () => {
     if (autosave.state.value === 'saving') await autosave.flush();
     if (autosave.state.value === 'error') {

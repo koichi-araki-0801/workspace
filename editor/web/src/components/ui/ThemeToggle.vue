@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// ThemeToggle.vue — light/dark テーマを切り替えるトグルボタン
+// =============================================================================
 import { Moon, Sun } from '@lucide/vue';
 import { theme, toggleTheme } from '@/lib/theme';
 </script>

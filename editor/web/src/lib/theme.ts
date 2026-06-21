@@ -1,3 +1,6 @@
+// =============================================================================
+// theme.ts — light/dark テーマの解決・適用・永続化
+// =============================================================================
 import { ref } from 'vue';
 
 export type ThemeMode = 'light' | 'dark';
@@ -13,16 +16,16 @@ function stored(): ThemeMode | null {
   return v === 'light' || v === 'dark' ? v : null;
 }
 
-/** The theme the no-flash inline script already applied to <html>, if any. */
+/** no-flash inline script が既に `<html>` へ適用済みのテーマ(あれば)。 */
 function attribute(): ThemeMode | null {
   const v = document.documentElement.getAttribute('data-theme');
   return v === 'light' || v === 'dark' ? v : null;
 }
 
 /**
- * Current theme. The no-flash script in index.html resolves and applies the
- * theme before this module loads, so we adopt that attribute first; fall back
- * to stored preference, then the OS setting.
+ * 現在のテーマ。`index.html` の no-flash script が本モジュール読み込み前にテーマを
+ * 解決・適用するため, まずその attribute を採用する。次に stored 設定, 最後に OS
+ * 設定へフォールバックする。
  */
 export const theme = ref<ThemeMode>(
   attribute() ?? stored() ?? (systemPrefersDark() ? 'dark' : 'light'),
@@ -32,7 +35,7 @@ function apply(mode: ThemeMode): void {
   document.documentElement.setAttribute('data-theme', mode);
 }
 
-/** Ensure <html data-theme> matches the resolved theme. Call once at app start. */
+/** `<html data-theme>` を解決済みテーマに合わせる。アプリ起動時に一度呼ぶこと。 */
 export function initTheme(): void {
   apply(theme.value);
 }

@@ -1,9 +1,12 @@
+// =============================================================================
+// nunjucksRender.ts — ブラウザでの Jinja2 テンプレートのプレビュー描画
+// =============================================================================
 import type { SampleData } from '@editor/shared';
 import nunjucks from 'nunjucks';
 
 /**
- * Render a raw Jinja2 template with sample data in the browser using Nunjucks
- * (Jinja2-compatible). Preview only — not production rendering.
+ * 生 Jinja2 テンプレートを sample data でブラウザ上に Nunjucks (Jinja2 互換)で
+ * 描画する。プレビュー専用 — 本番レンダリングではない。
  */
 const env = new nunjucks.Environment(undefined, {
   autoescape: true,
@@ -24,8 +27,8 @@ export function renderJinja(template: string, data: SampleData): RenderResult {
 }
 
 /**
- * Build a self-contained preview document: render the template with sample data
- * and inline the per-fund CSS (the external <link> would 404 in the viewer).
+ * 自己完結なプレビュー文書を組み立てる: テンプレートを sample data で描画し,
+ * ファンドごとの CSS を inline 化する(外部 `<link>` は viewer では 404 になるため)。
  */
 export function buildPreviewDocument(rawHtml: string, css: string, data: SampleData): RenderResult {
   const rendered = renderJinja(rawHtml, data);

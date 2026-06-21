@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// PartTree.vue — 左ペイン(編集を許可 / パーツを追加トグル + catalog)
+// =============================================================================
 import type { PartCatalogItem } from '@editor/shared';
 import { Check, Lock, Wand2 } from '@lucide/vue';
 import PartCatalog from './PartCatalog.vue';
@@ -15,7 +18,7 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] 
       <span class="text-[12.5px] font-bold text-foreground">編集オプション</span>
     </div>
 
-    <!-- toggle: 編集を許可 -->
+    <!-- トグル: 編集を許可 -->
     <button
       type="button"
       class="flex items-start gap-2.5 border-b px-3.5 py-3 text-left transition-colors"
@@ -37,7 +40,7 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] 
       </span>
     </button>
 
-    <!-- toggle: パーツを追加 -->
+    <!-- トグル: パーツを追加 -->
     <button
       type="button"
       class="flex items-start gap-2.5 border-b px-3.5 py-3 text-left transition-colors"
@@ -59,7 +62,7 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] 
       </span>
     </button>
 
-    <!-- add OFF: locked hint -->
+    <!-- 追加 OFF: ロック中のヒント -->
     <div
       v-if="!allowAdd"
       class="grid flex-1 place-items-center px-6 text-center text-muted-foreground"
@@ -72,7 +75,7 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] 
       </div>
     </div>
 
-    <!-- add ON: existing cascading catalog -->
+    <!-- 追加 ON: 既存の cascading catalog -->
     <div v-else class="flex-1 overflow-hidden">
       <PartCatalog @select="emit('select', $event)" @insert="emit('insert', $event)" />
     </div>

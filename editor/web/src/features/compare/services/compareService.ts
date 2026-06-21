@@ -1,3 +1,6 @@
+// =============================================================================
+// compareService.ts — 版比較のデータ取得とクライアント側 HTML レンダリング
+// =============================================================================
 import {
   conflict,
   type DropdownQuery,
@@ -13,33 +16,33 @@ import {
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { renderJinja } from '@/lib/nunjucksRender';
 
-/** Shown for any version-render failure (the cause is logged separately). */
+/** 版レンダリング失敗時に表示する文言(原因は別途ログに記録する)。 */
 export const COMPARE_RENDER_ERROR =
   'バージョンの表示に失敗しました。時間をおいて再度お試しください。';
 
-/** A matched template plus its confirmed-version count, for the picker table. */
+/** 候補テーブル用に、ヒットしたテンプレートと確定版数をまとめた型。 */
 export interface CompareCandidate {
   meta: TemplateMeta;
-  /** Number of confirmed versions (snapshots). 2+ are needed to compare. */
+  /** 確定版(snapshot)の数。比較には 2 版以上が必要。 */
   versionCount: number;
 }
 
-/** One version rendered to HTML for the side-by-side block diff. */
+/** 左右並列の block diff 用に、1 版を HTML へレンダリングした結果。 */
 export interface RenderedVersion {
-  /** full HTML document (nunjucks-applied snapshot) */
+  /** 完全な HTML ドキュメント(nunjucks 適用済みの snapshot)。 */
   html: string;
-  /** the version's per-fund CSS, for the preview iframe */
+  /** プレビュー `iframe` 用の、版ごとのファンド別 CSS。 */
   css: string;
 }
 
 export interface CompareService {
-  /** Templates matching the cascading-dropdown query (to pick the target). */
+  /** cascading-dropdown クエリにヒットするテンプレート一覧(比較対象の選択用)。 */
   listTemplates(query: DropdownQuery): Promise<Result<TemplateMeta[]>>;
-  /** Matched templates enriched with their confirmed-version count. */
+  /** ヒットしたテンプレートに確定版数を付与した候補一覧。 */
   listCandidates(query: DropdownQuery): Promise<Result<CompareCandidate[]>>;
-  /** Confirmed versions (with snapshots) of a template, newest first. */
+  /** テンプレートの確定版(snapshot 付き)を新しい順で返す。 */
   listVersions(templateId: string): Promise<Result<TemplateVersionMeta[]>>;
-  /** Render one version's snapshot to HTML (client-side, no server round-trip). */
+  /** 1 版の snapshot を HTML へレンダリングする(クライアント側、サーバ往復なし)。 */
   renderVersionHtml(historyId: string): Promise<Result<RenderedVersion>>;
 }
 
@@ -72,8 +75,8 @@ export function createCompareService(
       const sampleRes = await templates.getSampleData(snap.fundCode);
       if (isErr(sampleRes)) return sampleRes;
 
-      // Same render path as the preview screen, but kept in the browser: the
-      // block diff parses this HTML directly, so no PDF/server step is needed.
+      // プレビュー画面と同じレンダリング経路だが、処理はブラウザ内で完結させる。
+      // block diff がこの HTML を直接パースするため、PDF 化やサーバ往復は不要。
       const rendered = renderJinja(snap.html, sampleRes.value);
       if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
       return ok({ html: rendered.html, css: snap.css });

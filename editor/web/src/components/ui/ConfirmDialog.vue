@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// ConfirmDialog.vue — `confirm.ts` の `confirmState` を描画する単一の確認ダイアログ
+// =============================================================================
 import {
   AlertDialogAction,
   AlertDialogCancel,
@@ -15,7 +18,7 @@ import { confirmState, resolveConfirm } from './confirm';
 
 const open = computed({
   get: () => confirmState.value.open,
-  // reka emits update when dismissed via Esc / overlay → treat as cancel
+  // `reka-ui` は Esc / overlay クリックでの dismiss 時に update を emit する → キャンセル扱い。
   set: (v: boolean) => {
     if (!v) resolveConfirm(false);
   },

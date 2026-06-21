@@ -1,3 +1,6 @@
+// =============================================================================
+// index.ts — vue-router のルート定義と認証 navigation guard
+// =============================================================================
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 

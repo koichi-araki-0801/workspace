@@ -21,6 +21,10 @@ export type BadgeVariants = VariantProps<typeof badgeVariants>;
 </script>
 
 <script setup lang="ts">
+// =============================================================================
+// Badge.vue — `cva` variant(default/secondary/destructive/success/warning/outline)
+//             でスタイル分けする小型バッジ
+// =============================================================================
 import { cn } from '@/lib/utils';
 
 defineProps<{ variant?: BadgeVariants['variant']; class?: string }>();

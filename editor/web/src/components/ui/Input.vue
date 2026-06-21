@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// Input.vue — `v-model` 対応のテキスト入力(aria-invalid でエラー表示)
+// =============================================================================
 import { cn } from '@/lib/utils';
 
 defineProps<{ class?: string; placeholder?: string; type?: string; disabled?: boolean }>();

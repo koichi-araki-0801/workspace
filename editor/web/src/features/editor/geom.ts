@@ -1,9 +1,10 @@
-/**
- * Layout geometry of a selected canvas block, derived from / written to the
- * GrapesJS component's inline style. The custom 3-pane editor exposes these as
- * the prototype's part properties (size / placement / margins / page-breaks).
- * Margins are kept in millimetres (mm) so they print predictably; width is a %.
- */
+// =============================================================================
+// geom.ts — 選択ブロックのレイアウト幾何(GrapesJS inline style との相互変換)
+// =============================================================================
+// 役割: canvas で選択した `Component` の inline style から幾何(サイズ / 配置 /
+// 余白 / page-break)を読み取り、3-pane editor の part property として提示・書き戻す。
+// 余白は印刷で安定するよう mm 単位、幅は % で保持する。
+
 export type Align = 'left' | 'center' | 'right' | 'stretch';
 
 export interface LayoutGeom {
@@ -27,9 +28,9 @@ const A4_HEIGHT_MM = 297;
 /**
  * 1 物理ページの印刷可能コンテンツ高さ(px, 未ズーム)。`@page { margin: ... }` を解釈し、
  * `A4 高さ - 上余白 - 下余白` を返す。fund 別 CSS でも CSS 文字列から拾えるため、ページ境界
- * オーバーレイ（`useGrapes.ts` の `refreshPageGuides`）の超過ページ補助線間隔に使う。
- * `@page` margin が無い CSS では editor キャンバスの padding(18mm) を既定として補う。
- * margin の値は mm 前提（本データに px/cm 指定は無い）。
+ * オーバーレイ(`useGrapes.ts` の `refreshPageGuides`)の超過ページ補助線間隔に使う。
+ * `@page` margin が無い CSS では editor canvas の padding(18mm) を既定として補う。
+ * margin の値は mm 前提(本データに px/cm 指定は無い)。
  */
 export function pageContentPx(css: string): number {
   const m = /@page[^{]*\{[^}]*?margin:\s*([^;}]+)/i.exec(css);
@@ -44,31 +45,30 @@ export function pageContentPx(css: string): number {
       top = bottom = v[0];
     } else if (v.length >= 2) {
       top = v[0];
-      bottom = v[2] ?? v[0]; // 1〜2 値は上下=1値目/3値目欠落時は top と同値
+      bottom = v[2] ?? v[0]; // 1〜2 値は上下=1値目 / 3値目欠落時は top と同値
     }
   }
   return (A4_HEIGHT_MM - top - bottom) * PX_PER_MM;
 }
 
-// Editable bounds for the layout geometry, shared by the `Inspector.vue` inputs
-// and the drag handles ({@link EditorView}) so both clamp to the same range.
-// Width is a percentage of the page text column; margins mm.
+// レイアウト幾何の編集可能レンジ。`Inspector.vue` の入力欄と `EditorView.vue` の
+// ドラッグハンドルが共有し、両者が同じ範囲へ clamp する。幅は本文段の % 値、余白は mm。
 export const WIDTH_PCT_MIN = 20;
 export const WIDTH_PCT_MAX = 100;
 export const MARGIN_MM_MIN = 0;
 export const MARGIN_MM_MAX = 60;
 
-/** Clamp a width percentage into the editable `[WIDTH_PCT_MIN, WIDTH_PCT_MAX]` range. */
+/** 幅(%)を編集可能レンジ `[WIDTH_PCT_MIN, WIDTH_PCT_MAX]` に clamp する。 */
 export function clampWidthPct(n: number): number {
   return Math.max(WIDTH_PCT_MIN, Math.min(WIDTH_PCT_MAX, n));
 }
 
-/** Clamp a margin (mm) into the editable `[MARGIN_MM_MIN, MARGIN_MM_MAX]` range. */
+/** 余白(mm)を編集可能レンジ `[MARGIN_MM_MIN, MARGIN_MM_MAX]` に clamp する。 */
 export function clampMarginMm(n: number): number {
   return Math.max(MARGIN_MM_MIN, Math.min(MARGIN_MM_MAX, n));
 }
 
-/** Parse a CSS length to millimetres (mm/px supported; others → 0). */
+/** CSS の length を mm へ変換する(mm/px に対応、それ以外は → 0)。 */
 function lenToMm(v: string | undefined): number {
   if (!v) return 0;
   const s = v.trim();
@@ -122,8 +122,8 @@ export function geomFromStyle(style: StyleMap): LayoutGeom {
 }
 
 /**
- * Produce the inline-style patch that realises a geometry. Properties that
- * should be cleared are set to '' so callers can remove them from the component.
+ * 幾何を実現する inline-style パッチを生成する。クリアすべき property は `''` に
+ * 設定し、呼び出し側が `Component` から該当プロパティを除去できるようにする。
  */
 export function geomToStyle(g: LayoutGeom): Record<string, string> {
   const stretch = g.widthPct >= 100;
@@ -131,7 +131,7 @@ export function geomToStyle(g: LayoutGeom): Record<string, string> {
     width: stretch ? '' : `${g.widthPct}%`,
     'margin-top': g.marginTop ? `${g.marginTop}mm` : '',
     'margin-bottom': g.marginBottom ? `${g.marginBottom}mm` : '',
-    // block alignment via auto margins (only meaningful when width < 100%)
+    // ブロック配置は auto margin で表現する(width < 100% のときだけ意味を持つ)
     'margin-left': stretch
       ? g.indent
         ? `${g.indent}mm`
@@ -156,7 +156,7 @@ export const ALIGN_JP: Record<Align, string> = {
   stretch: '全幅',
 };
 
-/** Japanese label describing the first geometry field that changed (or null). */
+/** 最初に変化した幾何フィールドを説明する日本語ラベル(変化が無ければ null)。 */
 export function geomChangeLabel(before: LayoutGeom, after: LayoutGeom): string | null {
   if (before.widthPct !== after.widthPct)
     return `幅を ${before.widthPct}% → ${after.widthPct}% に変更`;

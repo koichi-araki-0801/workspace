@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// EditorTopBar.vue — editor 上部バー(undo/redo / zoom / 保存状態 / プレビュー)
+// =============================================================================
 import type { TemplateAttributes } from '@editor/shared';
 import {
   AlertCircle,
@@ -93,7 +96,7 @@ const attrItems = (a: TemplateAttributes) => [
     </div>
     <div class="h-[26px] w-px bg-border" />
 
-    <!-- page boundary guides toggle -->
+    <!-- ページ境界 guide のトグル -->
     <Button
       variant="ghost"
       size="icon"
@@ -105,7 +108,7 @@ const attrItems = (a: TemplateAttributes) => [
     </Button>
     <div class="h-[26px] w-px bg-border" />
 
-    <!-- autosave status -->
+    <!-- autosave の状態表示 -->
     <span
       class="flex items-center gap-1.5 text-[12.5px]"
       :class="saveState === 'error' ? 'text-destructive' : 'text-muted-foreground'"

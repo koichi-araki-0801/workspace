@@ -1,3 +1,8 @@
+// =============================================================================
+// confirm.ts — グローバル確認ダイアログの状態とプロミス API
+// =============================================================================
+// `ConfirmDialog.vue` が購読する単一の `confirmState` を介して `confirm()` を
+// Promise<boolean> として提供する。表示部品と呼び出し側を疎結合に保つ。
 import { ref } from 'vue';
 
 export interface ConfirmOptions {
@@ -5,7 +10,7 @@ export interface ConfirmOptions {
   description?: string;
   confirmLabel?: string;
   cancelLabel?: string;
-  /** 'destructive' renders the confirm button in the danger style. */
+  /** `'destructive'` は確認ボタンを danger スタイルで描画する。 */
   variant?: 'default' | 'destructive';
 }
 
@@ -25,7 +30,7 @@ export const confirmState = ref<ConfirmState>({
   resolve: null,
 });
 
-/** Open a global confirmation dialog. Resolves true on confirm, false on cancel/dismiss. */
+/** グローバル確認ダイアログを開く。確認で `true`、キャンセル/dismiss で `false` を resolve する。 */
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
   return new Promise((resolve) => {
     confirmState.value = {
