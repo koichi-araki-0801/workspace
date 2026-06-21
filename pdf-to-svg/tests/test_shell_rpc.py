@@ -1,9 +1,9 @@
 """新シェル (HTTP + 文字列ベース I/O) の RPC を検証する。
 
-- exportSvg: 書き出し用 SVG 文字列 (annotate なし) と推奨ファイル名を返す
-- dictJson / dictImportJson: 文字列ベースの辞書入出力 (ブラウザ FSA が保存/読込)
-- reapplyDict + UndoStack: マクロが 1 回の undo で戻る (実 UndoStack で end-to-end)
-- HTTP smoke: ローカルサーバを立て /、/rpc、/upload を urllib で叩く (旧 smoke_web.py 置換)
+- `exportSvg`: 書き出し用 SVG 文字列 (annotate なし) と推奨ファイル名を返す
+- `dictJson` / `dictImportJson`: 文字列ベースの辞書入出力 (ブラウザ FSA が保存/読込)
+- `reapplyDict` + `UndoStack`: マクロが 1 回の undo で戻る (実 `UndoStack` で end-to-end)
+- HTTP smoke: ローカルサーバを立て /、/rpc、/upload を `urllib` で叩く (旧 `smoke_web.py` 置換)
 """
 from __future__ import annotations
 

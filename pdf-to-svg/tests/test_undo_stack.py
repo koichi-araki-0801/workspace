@@ -1,7 +1,7 @@
-"""web.undo_stack.UndoStack の単体テスト (Qt 非依存・コマンドはダミー)。
+"""`web.undo_stack.UndoStack` の単体テスト (Qt 非依存・コマンドはダミー)。
 
-要点は「マクロを 1 ステップに畳む」こと (QUndoStack 互換)。これにより辞書の全再適用
-(N 件置換) が 1 回の undo で戻る。
+要点は「マクロを 1 ステップに畳む」こと (`QUndoStack` 互換)。これにより辞書の全再適用
+(N 件置換) が 1 回の undo で戻る。push 時の redo 実行・redo 分岐の破棄も検証する。
 """
 from __future__ import annotations
 

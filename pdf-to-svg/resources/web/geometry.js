@@ -1,6 +1,8 @@
-// PdfToSvg のページ座標・ページ範囲指定の純粋ヘルパ（アプリ状態に依存しない）。
+// =============================================================================
+// geometry.js — PdfToSvg のページ座標・範囲指定の純粋ヘルパ (状態非依存)
+// =============================================================================
 
-// クライアント座標 → SVG viewBox 座標（ページ pt）。
+// クライアント座標 → SVG `viewBox` 座標 (ページ pt)。
 export function clientToPage(svgEl, clientX, clientY) {
   var r = svgEl.getBoundingClientRect();
   var vb = svgEl.viewBox.baseVal;
@@ -10,7 +12,7 @@ export function clientToPage(svgEl, clientX, clientY) {
   };
 }
 
-// "1-5, 8" → [1,2,3,4,5,8]（1始まり・昇順ユニーク・1..max にクランプ）
+// "1-5, 8" → [1,2,3,4,5,8] (1始まり・昇順ユニーク・1..max にクランプ)。
 export function parseSpec(text, maxPages) {
   var got = {};
   String(text || "")

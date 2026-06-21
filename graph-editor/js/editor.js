@@ -1,12 +1,14 @@
+// =============================================================================
+// editor.js — エディタ本体 (セッション状態 + ライフサイクル + 描画統括)
+// =============================================================================
+
 import { CONFIG, WHITE, BLACK, DEFAULT_LEADER_STYLE, EMPTY_LIST_HTML, INSPECTOR_EMPTY_HTML, LEGEND_HTML, INSPECTOR_ACTIONS } from "./constants.js";
 import { clampPointToBox, parseTranslate } from "./geom.js";
 import { escapeHtml, round, createSvgEl, safeGetBBox, formatCoords, sanitizeSvg, hasFsAccess, SVG_PICKER_TYPES } from "./utils.js";
 import { drawIcons, showToast } from "./icons.js";
 import { LabelState } from "./label-state.js";
 
-// ---------------------------------------------------------------------------
-// エディタ本体 (セッション状態 + ライフサイクル + 描画オーケストレーション)
-// ---------------------------------------------------------------------------
+// ── 1. エディタ本体 (セッション状態 + ライフサイクル + 描画オーケストレーション) ──
 
 class Editor {
   constructor(dom) {
@@ -44,9 +46,7 @@ class Editor {
     this._overlaySig = null;
   }
 
-  // -------------------------------------------------------------------------
-  // 共通
-  // -------------------------------------------------------------------------
+  // ── 2. 共通 ──
 
   setStatus(msg, kind = "") {
     if (this.dom.status) {
@@ -57,11 +57,9 @@ class Editor {
     if (kind === "ok" || kind === "err") showToast(msg);
   }
 
-  // -------------------------------------------------------------------------
-  // ウィザード（手順の切替）
-  // -------------------------------------------------------------------------
+  // ── 3. ウィザード (手順の切替) ──
 
-  /** 手順 n (1=開く / 2=調整 / 3=保存) へ切替え、ステップバー/画面/フッターを更新 */
+  /** 手順 `n` (1=開く / 2=調整 / 3=保存) へ切替え、ステップバー/画面/フッターを更新 */
   goPhase(n) {
     n = Math.max(1, Math.min(3, n));
     // ファイル未読込なら 2・3 へは進めない
@@ -89,7 +87,7 @@ class Editor {
   }
 
   /** マウスイベント client 座標 → SVG ユーザー単位。
-   *  inv (逆 CTM) を渡すと getScreenCTM 呼び出しを省ける (ドラッグ中の reflow 回避)。 */
+   *  `inv` (逆 CTM) を渡すと `getScreenCTM` 呼び出しを省ける (ドラッグ中の reflow 回避)。 */
   toSvgPoint(evt, inv) {
     const pt = this.svg.createSVGPoint();
     pt.x = evt.clientX;
@@ -97,9 +95,7 @@ class Editor {
     return pt.matrixTransform(inv || this.svg.getScreenCTM().inverse());
   }
 
-  // -------------------------------------------------------------------------
-  // 円幾何 / leader スタイル (セッション状態に依存)
-  // -------------------------------------------------------------------------
+  // ── 4. 円幾何 / leader スタイル (セッション状態に依存) ──
 
   /** 円(パイ)の中心・半径を slice パスから推定 (リーダー後付けの既定座標に使用) */
   getPieGeometry() {
@@ -121,7 +117,7 @@ class Editor {
     return geom;
   }
 
-  /** data-name → スライス<path> の Map を一度だけ構築 (属性エスケープ回避のため走査) */
+  /** `data-name` → スライス `<path>` の `Map` を一度だけ構築 (属性エスケープ回避のため走査) */
   _sliceMap() {
     if (this._sliceByName) return this._sliceByName;
     const map = new Map();
@@ -137,8 +133,8 @@ class Editor {
 
   /** 指定ラベル名のスライスの「中心角リム点」を返す。leader 円側アンカーの固定先。
    *  楔形パス (M中心 L始点 A終点 Z) は両直線脚が半径 r で等長のため、円弧中点 =
-   *  パス全長の中央 = 中心角リム点になる (getPointAtLength(total/2))。
-   *  スライス未発見/楔形でない (例: 100% 単一スライスは L 無し+2連 A) 場合は null。 */
+   *  パス全長の中央 = 中心角リム点になる (`getPointAtLength(total/2)`)。
+   *  スライス未発見/楔形でない (例: 100% 単一スライスは L 無し+2連 A) 場合は `null`。 */
   sliceMidAnchor(name) {
     if (!this._sliceAnchor) this._sliceAnchor = new Map();
     if (this._sliceAnchor.has(name)) return this._sliceAnchor.get(name);
@@ -175,7 +171,7 @@ class Editor {
   }
 
   /** リーダー後付け時の既定 2 点 [リム上アンカー, ラベル端点] を算出。
-   *  bbox 省略時は getBBox。ドラッグ中は開始時 bbox を渡し reflow を避ける。 */
+   *  `bbox` 省略時は `getBBox`。ドラッグ中は開始時 `bbox` を渡し reflow を避ける。 */
   defaultLeaderPts(s, bbox) {
     const { cx, cy, r } = this.getPieGeometry();
     if (!bbox) bbox = safeGetBBox(s.text, { x: cx, y: cy, width: 0, height: 0 });
@@ -203,7 +199,7 @@ class Editor {
   }
 
   /** leader 末尾(端点)を必ずラベル外枠上へ置く。アンカー/曲げ点は保持。
-   *  手前の点をラベル矩形へクランプ = 外枠上の最近点。bbox は素の getBBox 値。 */
+   *  手前の点をラベル矩形へクランプ = 外枠上の最近点。`bbox` は素の `getBBox` 値。 */
   snapEndpointToFrame(s, bbox) {
     const n = s.leaderPts.length;
     if (n < 2) return;
@@ -215,7 +211,7 @@ class Editor {
 
   /** ラベル移動後の leader 追従。既存 leader を持ち円外なら端点を外枠上へ
    *  再スナップ(アンカー/曲げ点は保持)、それ以外は位置駆動ルール。
-   *  basePts 指定時はそれを基準に復元 (ドラッグ中の連続適用用)。 */
+   *  `basePts` 指定時はそれを基準に復元 (ドラッグ中の連続適用用)。 */
   followLeaderAfterMove(s, bbox, basePts) {
     const pts = basePts || s.leaderPts;
     if (pts.length >= 2 && this.isOutsideRim(s, bbox)) {
@@ -227,7 +223,7 @@ class Editor {
     }
   }
 
-  /** ラベル(text bbox)の中心点 (textTx 反映)。bbox 省略時は getBBox。 */
+  /** ラベル(`text` bbox)の中心点 (`textTx` 反映)。`bbox` 省略時は `getBBox`。 */
   labelCenterPoint(s, bbox) {
     let b = bbox;
     if (!b) {
@@ -237,7 +233,7 @@ class Editor {
     return { x: b.x + b.width / 2 + s.textTx.x, y: b.y + b.height / 2 + s.textTx.y };
   }
 
-  /** ラベル中心が円周の外にあるか。bbox 省略時は getBBox。 */
+  /** ラベル中心が円周の外にあるか。`bbox` 省略時は `getBBox`。 */
   isOutsideRim(s, bbox) {
     const { cx, cy, r } = this.getPieGeometry();
     const c = this.labelCenterPoint(s, bbox);
@@ -246,11 +242,11 @@ class Editor {
   }
 
   // leader 状態モデル:
-  //   _auto=true  … 位置駆動で生成された leader。円外で生成/端点追従し、円内で除去する。
-  //   _auto=false … ユーザー管理の leader (ファイル由来 / 手動追加 / 頂点や曲げ点を手動編集)。
-  //                 位置ルールは削除も可視性の強制もしない (ユーザーの意思を保持)。
+  //   `_auto=true`  … 位置駆動で生成された leader。円外で生成/端点追従し、円内で除去する。
+  //   `_auto=false` … ユーザー管理の leader (ファイル由来 / 手動追加 / 頂点や曲げ点を手動編集)。
+  //                   位置ルールは削除も可視性の強制もしない (ユーザーの意思を保持)。
   /** 位置駆動の leader ルール: 円外なら自動 leader を確保・円内なら自動分のみ除去。
-   *  白文字タイプは円外で黒・円内で白に切替 (視認性)。bbox 省略時は getBBox。 */
+   *  白文字タイプは円外で黒・円内で白に切替 (視認性)。`bbox` 省略時は `getBBox`。 */
   applyRimLeaderRule(s, bbox) {
     if (this.isOutsideRim(s, bbox)) {
       if (s.leaderPts.length === 0 || s._auto) {
@@ -272,9 +268,7 @@ class Editor {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // 描画スケジューラ
-  // -------------------------------------------------------------------------
+  // ── 5. 描画スケジューラ ──
 
   /** 描画要求を dirty フラグへ立て、1 フレーム最大 1 回の flush を予約する */
   markDirty(flags) {
@@ -302,9 +296,7 @@ class Editor {
     for (const s of this.labels) s.renderToDom();
   }
 
-  // -------------------------------------------------------------------------
-  // Undo 履歴 (全ラベルのスナップショット)
-  // -------------------------------------------------------------------------
+  // ── 6. Undo 履歴 (全ラベルのスナップショット) ──
 
   pushHistory() {
     this.history.push(this.labels.map((s) => s.snapshot()));
@@ -346,9 +338,7 @@ class Editor {
     this.dom.btnSave.disabled = !this.svg;
   }
 
-  // -------------------------------------------------------------------------
-  // オーバーレイ (ハンドル) 描画 — 構造変化時のみ再構築、通常は座標更新
-  // -------------------------------------------------------------------------
+  // ── 7. オーバーレイ (ハンドル) 描画 — 構造変化時のみ再構築、通常は座標更新 ──
 
   handleSize() {
     // ズームに依らず一定の見かけサイズになるよう SVG 単位を補正
@@ -420,14 +410,12 @@ class Editor {
     });
   }
 
-  // -------------------------------------------------------------------------
-  // ドラッグ操作
-  // -------------------------------------------------------------------------
+  // ── 8. ドラッグ操作 ──
 
-  /** ドラッグの定型処理: pointermove/up を配線し、初回の実移動時に一度だけ
-   *  pushHistory する。onMove(dx, dy) には開始点からの累積移動量を渡す。 */
+  /** ドラッグの定型処理: `pointermove`/`up` を配線し、初回の実移動時に一度だけ
+   *  `pushHistory` する。`onMove(dx, dy)` には開始点からの累積移動量を渡す。 */
   onDrag(evt, onMove) {
-    // 逆 CTM はドラッグ中ほぼ不変 (ズーム/スクロールしない) なので開始時に1回だけ取得
+    // 逆 CTM はドラッグ中ほぼ不変 (ズーム/スクロールしない) なので開始時に 1 回だけ取得
     const inv = this.svg.getScreenCTM().inverse();
     const start = this.toSvgPoint(evt, inv);
     let pushed = false;
@@ -455,12 +443,12 @@ class Editor {
     const txStart = { ...s.textTx };
     // ドラッグ開始時の leader 状態 (円外で元から leader を持つ場合の追従/復元に使用)
     const startPts = s.leaderPts.map((p) => ({ ...p }));
-    // bbox は transform 非依存 (= ドラッグ中不変) なので開始時に1回だけ取得し reflow を避ける
+    // bbox は transform 非依存 (= ドラッグ中不変) なので開始時に 1 回だけ取得し reflow を避ける
     const bbox = safeGetBBox(s.text, null);
 
     this.onDrag(evt, (dx, dy) => {
       s.textTx = { x: txStart.x + dx, y: txStart.y + dy };
-      // startPts 基準でアンカー/曲げ点を保持しつつ端点を毎フレーム外枠へ再スナップ
+      // `startPts` 基準でアンカー/曲げ点を保持しつつ端点を毎フレーム外枠へ再スナップ
       this.followLeaderAfterMove(s, bbox, startPts);
       this.markDirty({ dom: true, overlay: true, inspector: true });
     });
@@ -479,9 +467,7 @@ class Editor {
     });
   }
 
-  // -------------------------------------------------------------------------
-  // 選択 & インスペクタ
-  // -------------------------------------------------------------------------
+  // ── 9. 選択 & インスペクタ ──
 
   selectLabel(s) {
     if (this.selected === s) return;
@@ -492,20 +478,20 @@ class Editor {
     this.flushNow();
   }
 
-  /** スライス(扇形)の塗り色を data-name から引く。見つからなければ既定。 */
+  /** スライス(扇形)の塗り色を `data-name` から引く。見つからなければ既定。 */
   sliceColor(name) {
     const path = this._sliceMap().get(name);
     const c = path && (path.getAttribute("fill") || (path.style && path.style.fill));
     return c && c !== "none" ? c : "var(--sunk)";
   }
 
-  /** 選択中ラベルの右パネル本体 HTML（モック「案A」準拠のセグメント UI）。
-   *  各セグメントボタンは data-act を持ち、_buildInspector が INSPECTOR_ACTIONS へ配線する。 */
+  /** 選択中ラベルの右パネル本体 HTML (モック「案A」準拠のセグメント UI)。
+   *  各セグメントボタンは `data-act` を持ち、`_buildInspector` が `INSPECTOR_ACTIONS` へ配線する。 */
   _inspectorBodyHtml(s) {
     const hasLeader = s.leaderPts.length >= 2;
     const hasBend = s.leaderPts.length >= 3;
     const pct = s.percentText ? ` ${escapeHtml(s.percentText)}` : "";
-    // 引出線: 「表示」は leader が無ければ追加(leaderAdd)、有れば表示(leaderOn)。
+    // 引出線: 「表示」は leader が無ければ追加(`leaderAdd`)、有れば表示(`leaderOn`)。
     const showAct = hasLeader ? "leaderOn" : "leaderAdd";
     return `
 <div class="selname"><span class="sw" style="background:${this.sliceColor(s.name)}"></span><span class="nm">${escapeHtml(s.name)}${pct}</span></div>
@@ -557,7 +543,7 @@ ${LEGEND_HTML}
 </div>`;
   }
 
-  /** インスペクタの構造を表すシグネチャ (座標 dx/dy は含めない = 構造再構築の対象外) */
+  /** インスペクタの構造を表すシグネチャ (座標 `dx`/`dy` は含めない = 構造再構築の対象外) */
   _inspectorSignature() {
     const s = this.selected;
     if (!s) return "none";
@@ -589,7 +575,7 @@ ${LEGEND_HTML}
       btn.addEventListener("click", () => this.inspectorAction(btn.getAttribute("data-act")));
     });
     // 長体スライダ: ドラッグ中はライブ反映し、操作開始時に 1 度だけ履歴へ積む。
-    // インスペクタは再構築しない (markDirty inspector しない) のでドラッグが途切れない。
+    // インスペクタは再構築しない (`markDirty` の inspector を立てない) のでドラッグが途切れない。
     const range = box.querySelector("#scaleRange");
     if (range) {
       const valEl = box.querySelector("#scaleVal");
@@ -611,7 +597,7 @@ ${LEGEND_HTML}
     this._inspCoordEl = box.querySelector(".coords");
   }
 
-  /** ドラッグ中に毎フレーム変わる dx/dy 表示だけを軽量に更新 */
+  /** ドラッグ中に毎フレーム変わる `dx`/`dy` 表示だけを軽量に更新 */
   _updateInspectorReadout() {
     const s = this.selected;
     if (!s || !this._inspCoordEl) return;
@@ -637,9 +623,7 @@ ${LEGEND_HTML}
     this.markDirty({ dom: true, overlay: true, inspector: true });
   }
 
-  // -------------------------------------------------------------------------
-  // SVG 読込 & セットアップ (メモリ上の content を直接インライン挿入)
-  // -------------------------------------------------------------------------
+  // ── 10. SVG 読込 & セットアップ (メモリ上の `content` を直接インライン挿入) ──
 
   async load(item) {
     if (!item || typeof item.content !== "string") return;
@@ -654,13 +638,13 @@ ${LEGEND_HTML}
     this._leaderStyle = null;
     this._sliceByName = null;
     this._sliceAnchor = null;
-    // 別ファイルへ切替えるので構造シグネチャ/参照キャッシュをリセット
+    // 別ファイルへ切替えるので構造シグネチャ / 参照キャッシュをリセット
     this._inspSig = null;
     this._inspCoordEl = null;
     this._overlaySig = null;
     this._handles = [];
 
-    // 接続前にサニタイズした <svg> を取り込んでインライン挿入 (フォント込みで描画)
+    // 接続前にサニタイズした `<svg>` を取り込んでインライン挿入 (フォント込みで描画)
     const clean = sanitizeSvg(item.content);
     if (!clean) {
       this.dom.canvas.replaceChildren();
@@ -673,17 +657,17 @@ ${LEGEND_HTML}
     const svg = this.dom.canvas.querySelector("svg");
     this.svg = svg;
 
-    // ベースサイズを viewBox から取得
+    // ベースサイズを `viewBox` から取得
     const vb = (svg.getAttribute("viewBox") || `0 0 ${CONFIG.defaultViewBox.w} ${CONFIG.defaultViewBox.h}`).split(/\s+/).map(Number);
     this.baseW = vb[2] || CONFIG.defaultViewBox.w;
     this.baseH = vb[3] || CONFIG.defaultViewBox.h;
     this.applyZoom();
 
-    // 編集画面(手順2)を表示してから getBBox を測る。非表示(display:none)のままだと
-    // getBBox が 0 を返し、ヒット領域や引出線の既定座標が崩れるため必ず先に表示する。
+    // 編集画面(手順2)を表示してから `getBBox` を測る。非表示(`display:none`)のままだと
+    // `getBBox` が 0 を返し、ヒット領域や引出線の既定座標が崩れるため必ず先に表示する。
     this.goPhase(2);
 
-    // 埋め込みフォントの読込を待ってから getBBox (正確なヒット領域のため)
+    // 埋め込みフォントの読込を待ってから `getBBox` (正確なヒット領域のため)
     try {
       await document.fonts.ready;
     } catch {
@@ -701,7 +685,7 @@ ${LEGEND_HTML}
       this.attachHitArea(s);
     });
 
-    // ハンドル用オーバーレイ (最前面)
+    // ハンドル用オーバーレイ `<g>` (最前面)
     const overlay = createSvgEl("g", { id: "editor-overlay", "data-editor": "1" });
     svg.appendChild(overlay);
     this.overlay = overlay;
@@ -718,7 +702,7 @@ ${LEGEND_HTML}
     this.setStatus(`${item.name}  (ラベル ${this.labels.length} 個)`);
   }
 
-  /** ラベルにドラッグ用の透明ヒット矩形を追加 */
+  /** ラベルにドラッグ用の透明ヒット矩形 (`<rect>`) を追加 */
   attachHitArea(s) {
     const bbox = safeGetBBox(s.text);
     const pad = CONFIG.hitPadding;
@@ -728,16 +712,14 @@ ${LEGEND_HTML}
       width: bbox.width + pad * 2, height: bbox.height + pad * 2,
     });
     s._hitRect = rect;
-    // text と同じ transform を適用して追従させる
+    // `text` と同じ transform を適用して追従させる
     s.syncHit();
     rect.addEventListener("pointerdown", (e) => this.startTextDrag(e, s));
-    // 最前面 (glyph の隙間も含めて bbox 全体を掴めるよう text の上に重ねる)
+    // 最前面 (glyph の隙間も含めて bbox 全体を掴めるよう `text` の上に重ねる)
     s.g.appendChild(rect);
   }
 
-  // -------------------------------------------------------------------------
-  // ズーム
-  // -------------------------------------------------------------------------
+  // ── 11. ズーム ──
 
   applyZoom() {
     if (!this.svg) return;
@@ -750,7 +732,7 @@ ${LEGEND_HTML}
     z = Math.max(CONFIG.zoomMin, Math.min(CONFIG.zoomMax, z));
     if (z === prev) return;
     // 表示中心を保ったまま拡縮 (左上基準だと中心がずれて見づらいため)
-    const pane = this.dom.canvas.parentElement; // #canvasPane (スクロール容器)
+    const pane = this.dom.canvas.parentElement; // `#canvasPane` (スクロール容器)
     const r = z / prev;
     const cx = pane.scrollLeft + pane.clientWidth / 2;
     const cy = pane.scrollTop + pane.clientHeight / 2;
@@ -763,9 +745,7 @@ ${LEGEND_HTML}
     this.flushNow();
   }
 
-  // -------------------------------------------------------------------------
-  // 保存 (baking → ネイティブ保存ダイアログ)
-  // -------------------------------------------------------------------------
+  // ── 12. 保存 (baking → ネイティブ保存ダイアログ) ──
 
   async save() {
     if (!this.svg) return;
@@ -795,14 +775,14 @@ ${LEGEND_HTML}
         else this.setStatus(`保存に失敗しました: ${e}`, "err");
       }
     } else {
-      // 非対応ブラウザ: Blob をダウンロード (ブラウザの保存先へ)
+      // 非対応ブラウザ: `Blob` をダウンロード (ブラウザの保存先へ)
       this.downloadSvg(out, this.name || "edited.svg");
       this.setStatus("ダウンロードフォルダに保存しました", "ok");
       markSaved();
     }
   }
 
-  /** FS Access API 非対応時のフォールバック保存 (Blob ダウンロード) */
+  /** FS Access API 非対応時のフォールバック保存 (`Blob` ダウンロード) */
   downloadSvg(text, name) {
     const blob = new Blob([text], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
@@ -828,7 +808,7 @@ ${LEGEND_HTML}
     clone.setAttribute("width", `${this.baseW}px`);
     clone.setAttribute("height", `${this.baseH}px`);
 
-    // 各ラベル: text transform を x/y へ焼き込み、非表示 leader を除去
+    // 各ラベル: `text` の transform を `x`/`y` へ焼き込み、非表示 leader を除去
     clone.querySelectorAll("#labels > g.label").forEach((g) => {
       const text = g.querySelector("text");
       if (text) {
@@ -840,7 +820,7 @@ ${LEGEND_HTML}
           text.setAttribute("y", round(y));
           text.querySelectorAll("tspan").forEach((ts) => {
             if (ts.hasAttribute("x")) ts.setAttribute("x", round(parseFloat(ts.getAttribute("x")) + t.x));
-            // dy は相対値なので不変
+            // `dy` は相対値なので不変
           });
           text.removeAttribute("transform");
         }
@@ -850,7 +830,7 @@ ${LEGEND_HTML}
         if (path.style.display === "none") {
           path.remove();
         } else {
-          // 表示用に付けた display だけ消す。入力 SVG 由来の他の inline style は保持。
+          // 表示用に付けた `display` だけ消す。入力 SVG 由来の他の inline style は保持。
           path.style.removeProperty("display");
           if (!path.getAttribute("style")) path.removeAttribute("style");
         }
@@ -861,9 +841,7 @@ ${LEGEND_HTML}
     return `<?xml version="1.0" encoding="UTF-8"?>\n${xml}`;
   }
 
-  // -------------------------------------------------------------------------
-  // ファイル一覧 (メモリ保持) & 開く
-  // -------------------------------------------------------------------------
+  // ── 13. ファイル一覧 (メモリ保持) & 開く ──
 
   async openFiles() {
     this.setStatus("ファイルを選択してください…");
@@ -892,7 +870,7 @@ ${LEGEND_HTML}
       this.setStatus("ファイルが選択されませんでした");
       return;
     }
-    // 同名でも別ファイルとして区別したいので name で重複排除せず、各々へ一意 id を振る。
+    // 同名でも別ファイルとして区別したいので `name` で重複排除せず、各々へ一意 `id` を振る。
     const added = files.map((f) => {
       const it = { ...f, id: ++this._itemSeq, edited: false };
       this.items.push(it);
@@ -904,7 +882,7 @@ ${LEGEND_HTML}
     this.goPhase(2);
   }
 
-  /** ドラッグ＆ドロップされた .svg ファイルを取り込む（手順1 のドロップゾーン） */
+  /** ドラッグ＆ドロップされた .svg ファイルを取り込む (手順1 のドロップゾーン) */
   async handleDrop(dt) {
     if (!dt) return;
     const dropped = [...(dt.files || [])].filter((f) => /\.svg$/i.test(f.name) || f.type === "image/svg+xml");
@@ -924,7 +902,7 @@ ${LEGEND_HTML}
     this.goPhase(2);
   }
 
-  /** FS Access API 非対応時のフォールバック: <input type=file> で複数選択 */
+  /** FS Access API 非対応時のフォールバック: `<input type=file>` で複数選択 */
   pickFilesFallback() {
     return new Promise((resolve) => {
       const input = document.createElement("input");
@@ -944,7 +922,7 @@ ${LEGEND_HTML}
         resolve(out);
       };
       input.addEventListener("change", finish);
-      // キャンセル検知 (focus が戻り files が空なら空配列で解決)
+      // キャンセル検知 (`focus` が戻り `files` が空なら空配列で解決)
       window.addEventListener("focus", () => setTimeout(() => {
         if (!done && (!input.files || !input.files.length)) { done = true; input.remove(); resolve([]); }
       }, 500), { once: true });
@@ -983,7 +961,7 @@ ${LEGEND_HTML}
         if (it.id !== this.currentId) this.load(it);
       });
       list.appendChild(item);
-      // 選択中ファイルの直下にラベル一覧
+      // 選択中ファイルの直下にラベル一覧 (`.lblsub`)
       if (isCur && this.labels.length) {
         const sub = document.createElement("div");
         sub.className = "lblsub";
@@ -1003,7 +981,7 @@ ${LEGEND_HTML}
     drawIcons(list);
   }
 
-  /** 手順1の「開いたファイル」一覧 */
+  /** 手順1 の「開いたファイル」一覧 */
   renderOpenList() {
     const el = this.dom.openList;
     if (!el) return;
@@ -1022,7 +1000,7 @@ ${LEGEND_HTML}
     drawIcons(el);
   }
 
-  /** トップバー/ページナビ/ズーム%/保存画面 の文言を最新化 */
+  /** トップバー / ページナビ / ズーム% / 保存画面 の文言を最新化 */
   updateChrome() {
     if (this.dom.fileChip) this.dom.fileChip.textContent = this.name || "ファイル未選択";
     if (this.dom.pgInfo) {
@@ -1035,7 +1013,7 @@ ${LEGEND_HTML}
     if (this.dom.saveSub) this.dom.saveSub.textContent = this.svg ? `ラベル ${this.labels.length} 個` : "—";
   }
 
-  /** レールのラベル行の選択/編集済み表示だけを軽量更新（毎フレーム可） */
+  /** レールのラベル行の選択/編集済み表示だけを軽量更新 (毎フレーム可) */
   _syncRail() {
     const list = this.dom.list;
     if (!list) return;
@@ -1048,16 +1026,14 @@ ${LEGEND_HTML}
     this.updateChrome();
   }
 
-  /** 互換: 旧 renderList()/highlightActiveInList() の呼び出し元をそのまま活かす */
+  /** 互換: 旧 `renderList` / `highlightActiveInList` の呼び出し元をそのまま活かす */
   renderList() { this.buildRail(); this.renderOpenList(); this.updateChrome(); }
   highlightActiveInList() { this.buildRail(); this.updateChrome(); }
 
-  // -------------------------------------------------------------------------
-  // イベント配線
-  // -------------------------------------------------------------------------
+  // ── 14. イベント配線 ──
 
   bindEvents() {
-    // 開く（手順1 ドロップゾーン / レールのボタン）
+    // 開く (手順1 ドロップゾーン / レールのボタン)
     if (this.dom.dropzone) {
       this.dom.dropzone.addEventListener("click", () => this.openFiles());
       this.dom.dropzone.addEventListener("dragover", (e) => { e.preventDefault(); this.dom.dropzone.classList.add("dragover"); });
@@ -1081,7 +1057,7 @@ ${LEGEND_HTML}
     this.dom.btnZoomIn.addEventListener("click", () => this.setZoom(this.zoom * CONFIG.zoomStep));
     this.dom.btnZoomOut.addEventListener("click", () => this.setZoom(this.zoom / CONFIG.zoomStep));
 
-    // ウィザード遷移（フッター / ステップバー）
+    // ウィザード遷移 (フッター / ステップバー)
     if (this.dom.btnBack) this.dom.btnBack.addEventListener("click", () => this.goPhase(this.phase - 1));
     if (this.dom.btnNext) this.dom.btnNext.addEventListener("click", () => this.goPhase(this.phase + 1));
     if (this.dom.stepbar) {

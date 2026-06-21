@@ -70,7 +70,7 @@ CALLOUT_DEFAULT = "INFO"   # タグ無し `>` 引用は INFO 扱い
 _STYLE = "guide"
 
 
-# ─────────────────────────────────────────────── docx ヘルパ（gen_docs.py から移植）
+# ── docx ヘルパ（`gen_docs.py` から移植）──
 def _set_run_font(run, name=JP, size=None, bold=False, italic=False, color=None):
     run.font.name = name
     run._element.rPr.rFonts.set(qn("w:eastAsia"), name)
@@ -467,7 +467,7 @@ def page_break(doc):
     doc.add_page_break()
 
 
-# ─────────────────────────────────────────────── フロントマター + Markdown パーサ
+# ── front-matter + Markdown パーサ ──
 def _parse_frontmatter(text: str):
     """先頭 `---` ブロックを `key: value` の辞書として取り出し、本文を返す。"""
     meta = {}

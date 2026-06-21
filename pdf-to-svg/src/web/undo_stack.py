@@ -1,13 +1,13 @@
 """素の Python による Undo/Redo スタック (Qt 非依存)。
 
-旧実装は ``QUndoStack`` を使っていたが、QtWebEngine 撤廃に伴い標準ライブラリだけで
-同等の API (``push`` / ``undo`` / ``redo`` / ``canUndo`` / ``canRedo`` /
-``beginMacro`` / ``endMacro`` / ``clear``) を提供する。コマンドは ``redo()`` /
-``undo()`` を持つ任意オブジェクト (web.commands 参照)。``push`` は QUndoStack と同様に
-追加時へ ``redo()`` を即実行する。
+旧実装は `QUndoStack` を使っていたが、QtWebEngine 撤廃に伴い標準ライブラリだけで
+同等の API (`push` / `undo` / `redo` / `canUndo` / `canRedo` /
+`beginMacro` / `endMacro` / `clear`) を提供する。コマンドは `redo()` /
+`undo()` を持つ任意オブジェクト (`commands.py` 参照)。`push` は `QUndoStack` と同様に
+追加時へ `redo()` を即実行する。
 
-マクロ: ``beginMacro``〜``endMacro`` の間の push を 1 つの複合コマンドへまとめ、
-undo/redo の 1 ステップとして扱う (QUndoStack の挙動)。これにより「辞書の全再適用」
+マクロ: `beginMacro`〜`endMacro` の間の push を 1 つの複合コマンドへまとめ、
+undo/redo の 1 ステップとして扱う (`QUndoStack` の挙動)。これにより「辞書の全再適用」
 (N 件置換) が 1 回の undo で戻る。
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import List, Optional
 
 
 class _Macro:
-    """beginMacro〜endMacro でまとめた複合コマンド。"""
+    """`beginMacro`〜`endMacro` でまとめた複合コマンド。"""
 
     def __init__(self, label: str):
         self.label = label
@@ -32,6 +32,8 @@ class _Macro:
 
 
 class UndoStack:
+    """`QUndoStack` 互換の Undo/Redo スタック。`_pos` 以降は redo 分岐として保持する。"""
+
     def __init__(self):
         self._stack: List[object] = []
         self._pos = 0

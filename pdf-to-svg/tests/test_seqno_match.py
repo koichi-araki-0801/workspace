@@ -2,6 +2,7 @@
 
 凡例ラベルが消える不具合の回帰防止。軸ラベル全体を 1 度に描いた巨大 span が
 内側の小さな凡例ラベルを吸い込み、誤って早い seqno を与える問題を検証する。
+`query` に最もフィットする狭い候補を選び、無限大 bbox は IoU で弾く。
 """
 from engine.pdf_engine import _match_seqno
 from model.elements import Rect

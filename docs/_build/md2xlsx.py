@@ -63,7 +63,7 @@ META_ROW = 2
 HEADER_ROW = 4   # この行で freeze & filter。データは 5 行目から。
 
 
-# ─────────────────────────────────────────────── YAML サブセット・パーサ
+# ── YAML サブセット・パーサ ──
 # 対応する範囲（本生成器の原稿が使う構文のみ）:
 #   - ブロックマッピング `key: value` / `key:`（直下にネスト）
 #   - ブロックシーケンス `- ...`（スカラ / フローコレクション / `- key: ...` のマップ項目）
@@ -241,7 +241,7 @@ def _parse_scalar(token: str):
     return t
 
 
-# ─────────────────────────────────────────────── ワークブック組み立て
+# ── ワークブック組み立て ──
 def build_workbook(spec: dict, out_path):
     """パース済み `spec` から .xlsx を生成して `out_path` へ保存する。"""
     out_path = pathlib.Path(out_path)

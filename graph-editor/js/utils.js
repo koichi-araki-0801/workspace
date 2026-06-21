@@ -1,10 +1,12 @@
+// =============================================================================
+// utils.js — 状態を持たない純粋ユーティリティ群 (DOM/SVG/文字列ヘルパ)
+// =============================================================================
+
 import { SVG_NS, CONFIG } from "./constants.js";
 
-// ---------------------------------------------------------------------------
-// 純粋ユーティリティ (状態を持たない)
-// ---------------------------------------------------------------------------
+// ── 1. 純粋ユーティリティ (状態を持たない) ──
 
-// parsePath / buildPath / parseTranslate は lib/leader_geom.cjs へ移設 (冒頭で分割代入)。
+// `parsePath` / `buildPath` / `parseTranslate` は `leader_geom.cjs` へ移設 (冒頭で分割代入)。
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -14,14 +16,14 @@ function round(n) {
   return Math.round(n * CONFIG.roundPrecision) / CONFIG.roundPrecision;
 }
 
-/** SVG 要素を生成し属性をまとめて設定する (値は setAttribute へ渡り文字列化される)。 */
+/** SVG 要素を生成し属性をまとめて設定する (値は `setAttribute` へ渡り文字列化される)。 */
 function createSvgEl(tag, attrs = {}) {
   const el = document.createElementNS(SVG_NS, tag);
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
   return el;
 }
 
-/** getBBox は detached/未レイアウト時に例外を投げる。失敗時は fallback を返す。 */
+/** `getBBox` は detached/未レイアウト時に例外を投げる。失敗時は `fallback` を返す。 */
 function safeGetBBox(el, fallback = { x: 0, y: 0, width: 0, height: 0 }) {
   try {
     return el.getBBox();
@@ -33,12 +35,12 @@ function safeGetBBox(el, fallback = { x: 0, y: 0, width: 0, height: 0 }) {
 /** インスペクタの移動量表示 (構築時と読出し更新で同一文字列を使う) */
 const formatCoords = (tx) => `移動量 dx ${tx.x.toFixed(1)} / dy ${tx.y.toFixed(1)} px`;
 
-// normColor は lib/leader_geom.cjs へ移設 (冒頭で分割代入)。
+// `normColor` は `leader_geom.cjs` へ移設 (冒頭で分割代入)。
 
 /** 未信頼 SVG を DOM 接続前に無害化する (多層防御)。
- *  innerHTML 経由では <script> は実行されないが、<image onerror> 等のインライン
- *  イベント属性は発火しうる。接続前に DOMParser で組み立て、<script> 要素・on* 属性・
- *  javascript: な href を除去した <svg> 要素を返す。解釈不能なら null。 */
+ *  `innerHTML` 経由では `<script>` は実行されないが、`<image onerror>` 等のインライン
+ *  イベント属性は発火しうる。接続前に `DOMParser` で組み立て、`<script>` 要素・`on*` 属性・
+ *  `javascript:` な `href` を除去した `<svg>` 要素を返す。解釈不能なら `null`。 */
 function sanitizeSvg(svgText) {
   const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
   const root = doc.documentElement;
@@ -61,9 +63,9 @@ function sanitizeSvg(svgText) {
 
 // File System Access API のネイティブピッカー (`showOpenFilePicker` / `showSaveFilePicker`) を
 // 使うか。VDI/リモートデスクトップの管理された Edge ではこのピッカーがレンダラごとクラッシュ
-// するため、常に false にして従来型 `<input type=file>` / `<a download>` のフォールバック経路へ
-// 流す (`editor.js` の `openFiles` / `save` 参照)。本ツールは開いたハンドルを使わず内容だけ扱う
-// ので機能差は実質「保存先がダウンロードフォルダ固定」になる点のみ。安定性を優先する判断。
+// するため、常に `false` にして従来型 `<input type=file>` / `<a download>` のフォールバック経路
+// へ流す (`editor.js` の `openFiles` / `save` 参照)。本ツールは開いたハンドルを使わず内容だけ
+// 扱うので機能差は実質「保存先がダウンロードフォルダ固定」になる点のみ。安定性を優先する判断。
 function hasFsAccess() {
   return false;
 }
@@ -72,7 +74,8 @@ function hasFsAccess() {
 const SVG_PICKER_TYPES = [{ description: "SVG ファイル", accept: { "image/svg+xml": [".svg"] } }];
 
 // 編集で変化し Undo/リセット対象となるフィールドと、その複製方法を一元定義。
-// LabelState.snapshot / apply の双方がこれを参照するため、項目追加はここ 1 箇所で済む。
+// `label-state.js` の `LabelState` の `snapshot` / `apply` 双方がこれを参照するため、
+// 項目追加はここ 1 箇所で済む。
 const STATE_FIELDS = {
   textTx: (v) => ({ ...v }),
   leaderPts: (v) => v.map((p) => ({ ...p })),

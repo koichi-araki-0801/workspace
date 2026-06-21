@@ -1,3 +1,7 @@
+"""`dictionary.store.DictionaryStore` の単体テスト。
+
+追加・引き当て (正規化込みの `lookup`)・`upsert`・無効化・JSON 入出力の往復を確認する。
+"""
 from dictionary.store import DictionaryStore
 
 

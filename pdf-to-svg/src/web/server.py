@@ -3,14 +3,14 @@
 QtWebEngine / QWebChannel を廃し、graph-editor と同じ「小さなローカルサーバ +
 ブラウザ (Edge アプリモード)」方式へ。本ハンドラは以下を担う:
 
-- ``GET /`` ほか: ``resources/web/`` の静的配信 (拡張子ホワイトリスト + パストラバーサル防止)
-- ``POST /rpc``: ``{method, args}`` を受け :func:`web.rpc_methods.dispatch` へ流し ``{ok, data}`` を返す
-- ``POST /upload?name=...``: PDF バイト列を受け :func:`web.loader.load_document_bytes` で読み込む
-- ``POST /quit`` / ``POST /ping``: ウィンドウ閉鎖ビーコン / 生存ハートビート (app.py のライフサイクル管理用)
+- `GET /` ほか: `resources/web/` の静的配信 (拡張子ホワイトリスト + パストラバーサル防止)
+- `POST /rpc`: `{method, args}` を受け `rpc_methods.py` の `dispatch` へ流し `{ok, data}` を返す
+- `POST /upload?name=...`: PDF バイト列を受け `loader.py` の `load_document_bytes` で読み込む
+- `POST /quit` / `POST /ping`: ウィンドウ閉鎖ビーコン / 生存ハートビート (`app.py` のライフサイクル管理用)
 
 ファイル入出力 (PDF を開く / SVG を保存) はブラウザ側の File System Access API が担い、
 本サーバはバイト列の受け渡しと純粋な状態操作だけを行う (graph-editor と同じ思想)。
-``ThreadingHTTPServer`` のため、セッション状態の変更は ``server.lock`` で直列化する。
+`ThreadingHTTPServer` のため、セッション状態の変更は `server.lock` で直列化する。
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from dictionary import apply as dict_apply
 from web import loader, rpc_methods
 from web.rpc_methods import WebSession
 
-# 静的配信を許す拡張子と MIME (旧 scheme.py の _MIME を踏襲)。
+# 静的配信を許す拡張子と MIME (旧 `scheme.py` の `_MIME` を踏襲)。
 _MIME = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -50,7 +50,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    # ---- 送信ヘルパ ----
+    # ── 送信ヘルパ ──
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8"):
         if isinstance(body, str):
             body = body.encode("utf-8")
@@ -69,7 +69,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _touch(self):
         self.server.last_seen = time.monotonic()
 
-    # ---- GET (静的配信) ----
+    # ── GET (静的配信) ──
     def do_GET(self):
         self._touch()
         path = urlsplit(self.path).path
@@ -81,7 +81,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._serve_file(path.lstrip("/"))
 
     def _serve_file(self, rel: str):
-        """resources/web 配下のファイルを配信する。拡張子ホワイトリスト一致かつ
+        """`resources/web` 配下のファイルを配信する。拡張子ホワイトリスト一致かつ
         解決後パスがルート配下のものだけを返す (パストラバーサル防止)。それ以外は 404。"""
         root = self.server.web_root
         ctype = _MIME.get(os.path.splitext(rel)[1].lower())
@@ -100,7 +100,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         self._send(200, body, ctype)
 
-    # ---- POST ----
+    # ── POST ──
     def do_POST(self):
         self._touch()
         path = urlsplit(self.path).path
