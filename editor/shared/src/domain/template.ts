@@ -1,9 +1,8 @@
-/**
- * Template identity — the value object behind a template and the pure functions
- * over its filename convention (`company_fund_date_edition.html`).
- *
- * Pure and dependency-free so both `web` and `server` can reuse them.
- */
+// =============================================================================
+// template.ts — テンプレート identity の値オブジェクトとファイル名規約の純関数
+// =============================================================================
+// ファイル名規約は `company_fund_date_edition.html`。純粋・依存なしなので `web` と
+// `server` の双方で再利用できる。
 
 import type { TemplateAttributes } from '../index.js';
 

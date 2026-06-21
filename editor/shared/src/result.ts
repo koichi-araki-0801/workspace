@@ -1,10 +1,9 @@
-/**
- * A tiny Result<T, E> type so failures travel as values instead of exceptions.
- *
- * Repositories and services return `Result`; callers branch on {@link isOk} /
- * {@link isErr} (the compiler forces them to). `throw` is reserved for true
- * programmer errors (missing DI, exhaustiveness guards), never control flow.
- */
+// =============================================================================
+// result.ts — 失敗を例外でなく値として運ぶ小さな Result<T, E> 型
+// =============================================================================
+// リポジトリ・サービスは `Result` を返し、呼び出し側は `isOk` / `isErr` で分岐する
+// (コンパイラが分岐を強制する)。`throw` は真のプログラマエラー (DI 欠落・網羅性
+// ガード) 専用で、制御フローには使わない。
 
 import type { AppError } from './errors.js';
 
@@ -18,10 +17,10 @@ export const err = <E>(error: E): Err<E> => ({ ok: false, error });
 export const isOk = <T, E>(r: Result<T, E>): r is Ok<T> => r.ok;
 export const isErr = <T, E>(r: Result<T, E>): r is Err<E> => !r.ok;
 
-/** Transform the success value; pass an error through unchanged. */
+/** 成功値を変換する。エラーはそのまま素通しする。 */
 export const map = <T, U, E>(r: Result<T, E>, f: (value: T) => U): Result<U, E> =>
   r.ok ? ok(f(r.value)) : r;
 
-/** Chain a Result-returning step; short-circuits on the first error. */
+/** `Result` を返すステップを連結する。最初のエラーで短絡する。 */
 export const andThen = <T, U, E>(r: Result<T, E>, f: (value: T) => Result<U, E>): Result<U, E> =>
   r.ok ? f(r.value) : r;

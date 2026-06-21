@@ -1,9 +1,9 @@
-/**
- * History filtering — pure domain rules shared by the history screen (and
- * reusable on the server). No Vue, no I/O.
- */
+// =============================================================================
+// history.ts — 履歴フィルタリング (履歴画面が使う純粋なドメインルール)
+// =============================================================================
+// サーバ側でも再利用できるよう Vue にも I/O にも依存しない。
 
-/** Per-tab history filter values. */
+/** タブ別の履歴フィルタ値。 */
 export interface HistoryFilter {
   user?: string;
   keyword?: string;
@@ -16,8 +16,8 @@ export function uniq(values: string[]): string[] {
 }
 
 /**
- * True if `entry` passes `filter`. `haystacks` are the entry's searchable text
- * (matched case-insensitively against the keyword).
+ * `entry` が `filter` を通過するとき true。`haystacks` はエントリの検索対象テキスト
+ * (キーワードと大文字小文字を無視して照合する)。
  */
 export function matchFilter(
   entry: { user: string; timestamp: string },
