@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// AdminView.vue — ユーザー管理画面(追加・無効化/有効化・パスワード初期化)
+// =============================================================================
 import { isErr, isOk, type User, type UserRole, validateNewUser } from '@editor/shared';
 import { Ban, CircleCheck, KeyRound, Shield, UserPlus } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';

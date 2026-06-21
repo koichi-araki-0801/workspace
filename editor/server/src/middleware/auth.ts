@@ -1,11 +1,10 @@
-/**
- * Authentication / authorization middleware (phase 2).
- *
- * `requireAuth` resolves the session cookie → DB session → `req.user` (or 401).
- * `requireAdmin` additionally enforces the admin role (403 = forbidden).
- * Public routes (login / health / init-password) skip these — matching the
- * OpenAPI `security: []` markers.
- */
+// =============================================================================
+// auth.ts — 認証 / 認可ミドルウェア(phase 2)
+// =============================================================================
+// `requireAuth` はセッション cookie → DB セッション → `req.user` を解決する(無ければ 401)。
+// `requireAdmin` はさらに admin ロールを強制する(403 = forbidden)。
+// 公開ルート(login / health / init-password)はこれらをスキップする。OpenAPI の
+// `security: []` 指定(`document.ts`)と対応する。
 import { forbidden, type User, unauthorized } from '@editor/shared';
 import type { NextFunction, Request, Response } from 'express';
 import { getSessionUser, sessionIdFrom } from '../auth/session.js';
@@ -14,13 +13,13 @@ import { config } from '../config.js';
 declare global {
   namespace Express {
     interface Request {
-      /** Populated by requireAuth from the session cookie. */
+      /** `requireAuth` がセッション cookie から解決して埋める。 */
       user?: User;
     }
   }
 }
 
-/** Resolve the logged-in user from the session cookie (null when none/expired). */
+/** ログイン中ユーザをセッション cookie から解決する(未ログイン/失効時は null)。 */
 export async function loadUser(req: Request): Promise<User | null> {
   const sid = sessionIdFrom(req.headers.cookie);
   if (!sid) return null;
@@ -28,8 +27,8 @@ export async function loadUser(req: Request): Promise<User | null> {
 }
 
 export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
-  // Local mode (no DB/sessions): leave data routes open — the web uses
-  // localStorage and never calls them; PDF/generate keep working.
+  // ローカルモード(DB/セッション無し)ではデータ系ルートを開放する。web は
+  // localStorage を使い呼び出さないため。PDF/generate はそのまま動く。
   if (!config.requireAuth) {
     next();
     return;
@@ -45,7 +44,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
   }
 }
 
-/** Must run after requireAuth. Enforces the admin role. */
+/** `requireAuth` の後に実行する前提。admin ロールを強制する。 */
 export function requireAdmin(req: Request, _res: Response, next: NextFunction): void {
   if (!config.requireAuth) {
     next();

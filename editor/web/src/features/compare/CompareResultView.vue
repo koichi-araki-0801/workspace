@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// CompareResultView.vue — 版比較の結果画面(ページ単位の差分を左右並列で表示)
+// =============================================================================
 import type { TemplateVersionMeta } from '@editor/shared';
 import { ChevronLeft, ChevronRight } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref } from 'vue';
@@ -7,8 +10,8 @@ import { formatDateTimeShort } from '@/lib/format';
 import { HL_ADDED, HL_CHANGED, HL_REMOVED, type HtmlDiff } from './htmlBlockDiff';
 
 const props = defineProps<{
-  before: TemplateVersionMeta; // ファイルA（左）
-  after: TemplateVersionMeta; // ファイルB（右）
+  before: TemplateVersionMeta; // ファイルA(左)
+  after: TemplateVersionMeta; // ファイルB(右)
   beforeFile: string; // ファイルA のファイル名
   afterFile: string; // ファイルB のファイル名
   diff: HtmlDiff;
@@ -18,7 +21,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ back: [] }>();
 
-// 最初の変更ありページを開く（無ければ先頭）。
+// 最初の変更ありページを開く(無ければ先頭)。
 const firstChanged = props.diff.pages.findIndex((p) => p.changed);
 const currentPage = ref(firstChanged >= 0 ? firstChanged : 0);
 const pageCount = computed(() => props.diff.pages.length);
@@ -28,7 +31,7 @@ function goPage(i: number) {
   currentPage.value = Math.min(Math.max(i, 0), Math.max(pageCount.value - 1, 0));
 }
 
-// テンプレートCSS と差分ハイライトを内包した iframe ドキュメントを組み立てる。
+// テンプレート CSS と差分ハイライトを内包した `iframe` ドキュメントを組み立てる。
 const HIGHLIGHT_CSS = `
   body{margin:0;padding:18px;background:#fff;}
   .${HL_CHANGED}{background:rgba(220,38,38,.06)!important;box-shadow:inset 3px 0 0 #dc2626;}
@@ -42,7 +45,7 @@ function buildDoc(fragment: string, css: string): string {
 const beforeDoc = computed(() => buildDoc(page.value?.beforeHtml ?? '', props.cssBefore));
 const afterDoc = computed(() => buildDoc(page.value?.afterHtml ?? '', props.cssAfter));
 
-// iframe を中身の高さに合わせる（srcdoc は同一オリジン）。
+// `iframe` を中身の高さに合わせる(srcdoc は同一オリジンなので `contentDocument` 可)。
 function fitTo(f: HTMLIFrameElement | null | undefined) {
   if (!f) return;
   try {
@@ -53,8 +56,8 @@ function fitTo(f: HTMLIFrameElement | null | undefined) {
   }
 }
 // `@load` 時の初回フィット。同時に、幅が変わると中身が再フローして高さも変わるため、
-// `<iframe>` 自身を `ResizeObserver` で監視して以降の幅変化（ウィンドウ/ペインのリサイズ、
-// `md:grid-cols-2` の折返し）にも追随させる。
+// `<iframe>` 自身を `ResizeObserver` で監視して以降の幅変化(ウィンドウ/ペインのリサイズ、
+// `md:grid-cols-2` の折返し)にも追随させる。
 const frameObservers = new WeakMap<HTMLIFrameElement, ResizeObserver>();
 function fitFrame(e: Event) {
   const f = e.target as HTMLIFrameElement;
@@ -67,7 +70,7 @@ function fitFrame(e: Event) {
   }
 }
 
-// クリーンアップ用に監視中の iframe を保持（WeakMap は列挙できないため）。
+// クリーンアップ用に監視中の `iframe` を保持(`WeakMap` は列挙できないため)。
 const observed: HTMLIFrameElement[] = [];
 onBeforeUnmount(() => {
   for (const f of observed) frameObservers.get(f)?.disconnect();
@@ -77,7 +80,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="space-y-4">
-    <!-- top bar -->
+    <!-- 上部バー -->
     <div class="flex flex-wrap items-center gap-3 border-b pb-3">
       <Button variant="outline" size="sm" @click="emit('back')">
         <ChevronLeft class="h-4 w-4" /> 選択に戻る
@@ -97,7 +100,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- page navigator -->
+    <!-- ページナビゲータ -->
     <div class="flex items-center justify-center gap-2">
       <Button variant="outline" size="icon" :disabled="currentPage <= 0" @click="goPage(currentPage - 1)">
         <ChevronLeft class="h-4 w-4" />
@@ -126,7 +129,7 @@ onBeforeUnmount(() => {
       </Button>
     </div>
 
-    <!-- current page -->
+    <!-- 現在のページ -->
     <div v-if="page" class="space-y-3">
       <div class="flex flex-wrap items-center gap-2">
         <h3 class="text-[15px] font-bold">ページ {{ currentPage + 1 }}・概要</h3>

@@ -1,4 +1,6 @@
-/** History feeds, PDF-export recording, version list, and snapshots. */
+// =============================================================================
+// history.routes.ts — 履歴フィード / PDF 出力記録 / バージョン一覧 / スナップショット
+// =============================================================================
 import { Router } from 'express';
 import type { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';

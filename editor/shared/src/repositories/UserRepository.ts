@@ -1,7 +1,10 @@
+// =============================================================================
+// UserRepository.ts — ユーザー管理集約 (管理画面)
+// =============================================================================
 import type { User } from '../index.js';
 import type { Result } from '../result.js';
 
-/** User-management aggregate (admin screen). */
+/** ユーザー管理集約 (管理画面)。 */
 export interface UserRepository {
   listUsers(): Promise<Result<User[]>>;
   createUser(user: Omit<User, 'id'>): Promise<Result<User>>;

@@ -1,13 +1,16 @@
+// =============================================================================
+// previewProxy.ts — Express リクエストをループバック Vite プレビューサーバへ中継する
+// =============================================================================
 import http from 'node:http';
 import type { Request, Response } from 'express';
 
 /**
- * Reverse-proxy an Express request to the loopback Vite preview server.
+ * Express リクエストをループバックの Vite プレビューサーバへリバースプロキシする。
  *
- * The preview server runs with HMR disabled, so traffic is plain HTTP and no
- * WebSocket `upgrade` handling is needed. Only safe (bodyless) methods are
- * forwarded — preview is GET-driven — which also sidesteps the global
- * `express.json` body parser having already consumed the request stream.
+ * プレビューサーバは HMR 無効で動くため通信は素の HTTP で、WebSocket の `upgrade`
+ * 処理は不要。安全な(ボディなし)メソッドのみ転送する。プレビューは GET 駆動であり、
+ * これにより共通の `express.json` ボディパーサが既にリクエストストリームを消費済みである
+ * 問題も回避できる。
  */
 export function proxyToPreview(
   host: string,

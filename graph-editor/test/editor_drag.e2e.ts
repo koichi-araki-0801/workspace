@@ -1,7 +1,11 @@
+// =============================================================================
+// editor_drag.e2e.ts — ラベル移動時の leader 端点不変条件を検証する E2E (Playwright)
+// =============================================================================
+
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-// editor/ui.html を実ブラウザ(Chromium)へロードし、実 getBBox を使ってラベルを移動したとき
+// `ui.html` を実ブラウザ(Chromium)へロードし、実 `getBBox` を使ってラベルを移動したとき
 // 引出線(leader)の端点が「必ずラベル外枠上」に来る不変条件を検証する E2E。
 const SVG = readFileSync(new URL("./fixtures/editor_pie.svg", import.meta.url), "utf8");
 
@@ -9,7 +13,7 @@ type Pt = { x: number; y: number };
 type Box = { left: number; top: number; right: number; bottom: number };
 type Sample = { box: Box; pts: Pt[]; leaderVisible: boolean; dAttr: string | null };
 
-const EPS = 0.5; // 実 getBBox とパス文字列の丸めを吸収する許容誤差(px)
+const EPS = 0.5; // 実 `getBBox` とパス文字列の丸めを吸収する許容誤差(px)
 
 declare global {
   interface Window {
@@ -17,7 +21,7 @@ declare global {
   }
 }
 
-/** 点 p が外枠 box の辺/角上(=境界距離≈0 かつ矩形範囲内)にあるか。 */
+/** 点 `p` が外枠 `box` の辺/角上(=境界距離≈0 かつ矩形範囲内)にあるか。 */
 function onFrame(p: Pt, box: Box) {
   const within = p.x >= box.left - EPS && p.x <= box.right + EPS && p.y >= box.top - EPS && p.y <= box.bottom + EPS;
   const onEdge =
@@ -28,7 +32,7 @@ function onFrame(p: Pt, box: Box) {
   return within && onEdge;
 }
 
-/** clampPointToBox の node 側参照実装 (端点の期待値算出用)。 */
+/** `clampPointToBox` の node 側参照実装 (端点の期待値算出用)。 */
 function clamp(p: Pt, box: Box): Pt {
   return { x: Math.max(box.left, Math.min(p.x, box.right)), y: Math.max(box.top, Math.min(p.y, box.bottom)) };
 }
@@ -39,7 +43,7 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(async (svg) => {
     await window.__editor.load({ name: "fixture", id: 1, content: svg });
   }, SVG);
-  // ラベルが構築されるまで待つ
+  // ラベル (`labels`) が構築されるまで待つ
   await page.waitForFunction(() => window.__editor.labels && window.__editor.labels.length >= 2);
 });
 

@@ -1,12 +1,18 @@
+// =============================================================================
+// logger.ts — アプリ/HTTP ロガーと監査証跡(audit trail)
+// =============================================================================
+// pino による構造化ロガー。stdout 向けロガーと、永続ファイルへの監査ログを公開する。
+// 監査イベントは `audit()` で記録し、任意で SQL Server へミラーする。
+
 import fs from 'node:fs';
 import path from 'node:path';
 import pino from 'pino';
 import { config } from './config.js';
 
-// Ensure the audit log directory exists before opening the destination.
+// 書き込み先を開く前に監査ログのディレクトリが存在することを保証する。
 fs.mkdirSync(config.logging.dir, { recursive: true });
 
-/** App / HTTP access logger -> stdout (pretty outside production). */
+/** アプリ / HTTP アクセスロガー -> stdout(本番以外は pretty 出力)。 */
 export const logger = pino({
   level: config.logging.level,
   ...(config.logging.pretty
@@ -14,28 +20,28 @@ export const logger = pino({
     : {}),
 });
 
-/** Durable audit trail -> logs/audit.log (one JSON record per line). */
+/** 永続的な監査証跡 -> logs/audit.log(1 行 1 JSON レコード)。 */
 const auditFileLogger = pino(
   { level: 'info', base: undefined },
   pino.destination({ dest: path.join(config.logging.dir, 'audit.log'), mkdir: true, sync: false }),
 );
 
 export interface AuditEvent {
-  /** Dotted event name, e.g. 'template.save'. */
+  /** ドット区切りのイベント名。例 'template.save'。 */
   event: string;
   outcome: 'success' | 'failure';
-  /** Who performed the action: the authenticated username, or 'anonymous' when
-   *  the request is unauthenticated (e.g. local mode). See `actorFromReq`. */
+  /** 操作を行った主体(actor): 認証済みユーザ名。リクエストが未認証(例 local
+   *  モード)の時は 'anonymous'。`actorFromReq` を参照。 */
   actor: string;
   ip?: string;
-  /** Identifiers / attributes of the affected resource — never raw content. */
+  /** 影響を受けたリソースの識別子 / 属性。生の本文(raw content)は決して含めない。 */
   resource?: Record<string, unknown>;
-  /** Extra non-sensitive metadata (sizes, counts). */
+  /** 非機微(non-sensitive)な追加メタデータ(サイズ・件数)。 */
   detail?: Record<string, unknown>;
   error?: string;
 }
 
-/** Record an audit event to the durable file and mirror it to stdout. */
+/** 監査イベントを永続ファイルに記録し、stdout にもミラーする。 */
 export function audit(ev: AuditEvent): void {
   const record = { type: 'audit', ...ev };
   auditFileLogger.info(record);
@@ -44,10 +50,10 @@ export function audit(ev: AuditEvent): void {
 }
 
 /**
- * Best-effort copy of the audit event into the SQL Server audit table. The DB
- * module is imported lazily (only when AUDIT_DB is on) to avoid a logger↔pool
- * import cycle and to keep `local` mode free of the native DB driver. Any
- * failure is logged and swallowed — the file log above is the source of truth.
+ * 監査イベントを SQL Server の監査テーブルへベストエフォートでコピーする。
+ * DB モジュールは遅延 import する(`AUDIT_DB` が on の時のみ)。これは logger↔pool の
+ * import 循環を避け、`local` モードがネイティブ DB ドライバを必要としないようにするため。
+ * 失敗はログに出して握り潰す(swallow) — 上のファイルログが source of truth。
  */
 let dbMirror: ((ev: AuditEvent) => Promise<void>) | undefined;
 async function mirrorToDb(ev: AuditEvent): Promise<void> {
@@ -59,24 +65,24 @@ async function mirrorToDb(ev: AuditEvent): Promise<void> {
   }
 }
 
-/** Minimal shape we read off the Express request for attribution. */
+/** attribution(主体特定)のために Express リクエストから読む最小限の形。 */
 interface AttributableRequest {
   ip?: string;
-  // Populated by auth middleware; undefined until then.
+  // auth ミドルウェアが設定する。それまでは `undefined`。
   user?: { username?: string };
 }
 
-/** Derive the actor + ip for an audit event from the request. */
+/** リクエストから監査イベントの actor + ip を導出する。 */
 export function actorFromReq(req: AttributableRequest): { actor: string; ip?: string } {
   return { actor: req.user?.username ?? 'anonymous', ip: req.ip };
 }
 
 /**
- * Run `fn`, emit a success/failure {@link audit} event for `event`, and rethrow
- * on error. `success`/`failure` supply only the event-specific fields (resource
- * / detail); actor/ip/outcome and the error message are filled in here. Captures
- * the try/audit-success/catch/audit-failure/throw skeleton shared by the PDF,
- * save and generate routes.
+ * `fn` を実行し、`event` について成功/失敗の {@link audit} イベントを発行し、
+ * エラー時は rethrow する。`success`/`failure` はイベント固有のフィールド
+ * (`resource` / `detail`)だけを供給する。actor/ip/outcome とエラーメッセージは
+ * ここで補完する。PDF・保存・generate の各ルートで共有される
+ * try/audit-success/catch/audit-failure/throw の骨格(skeleton)を集約する。
  */
 export async function auditedRethrow<T>(
   req: AttributableRequest,

@@ -1,10 +1,13 @@
+// =============================================================================
+// attempt.ts — local リポジトリの throw→Result 変換シーム
+// =============================================================================
 import { err, ok, type Result, toAppError } from '@editor/shared';
 
 /**
- * The throw→Result seam for local repositories. Runs `fn` and returns
- * `ok(value)`; any throw becomes `err(AppError)`. Thrown `AppError`s (e.g.
- * `throw notFound(...)`) pass through unchanged, so a method can signal a known
- * failure with a plain `throw` and still return a typed error.
+ * local リポジトリの throw→Result 変換シーム。`fn` を実行し `ok(value)` を返す。
+ * 例外はすべて `err(AppError)` へ変換する。投げられた `AppError`(例:
+ * `throw notFound(...)`)はそのまま透過するので、メソッドは素の `throw` で既知の
+ * 失敗を表明しつつ型付きエラーを返せる。
  */
 export async function attempt<T>(fn: () => Promise<T> | T): Promise<Result<T>> {
   try {

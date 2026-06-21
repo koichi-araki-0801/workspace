@@ -1,17 +1,13 @@
-/**
- * Shared domain & API contract types used by both `web` and `server`.
- *
- * The `web/api/local` implementation and the `server` REST implementation MUST
- * both satisfy the per-aggregate repository interfaces in
- * `./repositories/*` so the data source can be swapped without touching
- * screens/services/stores.
- */
+// =============================================================================
+// index.ts — web/server 共通のドメイン型と API 契約型 (barrel)
+// =============================================================================
+// `web/api/local` 実装と `server` の REST 実装は、いずれも `./repositories/*` の
+// 集約別リポジトリ interface を満たさねばならない。これによりデータソースを
+// 画面/サービス/ストアに触れず差し替えできる。
 
-// ---------------------------------------------------------------------------
-// Domain: template identity
-// ---------------------------------------------------------------------------
+// ── 1. Domain: template identity ──
 
-/** The four attributes that identify a template (filename: company_fund_date_edition.html). */
+/** テンプレートを識別する4属性 (ファイル名: company_fund_date_edition.html)。 */
 export interface TemplateAttributes {
   /** 委託会社コード */
   companyCode: string;
@@ -26,32 +22,32 @@ export interface TemplateAttributes {
 export type TemplateStatus = 'draft' | 'published';
 
 export interface TemplateMeta {
-  /** Stable id; derived from filename without extension. */
+  /** 安定 id。拡張子を除いたファイル名から導出する。 */
   id: string;
   attributes: TemplateAttributes;
-  /** e.g. "AM01_510037_20240710_kr.html" */
+  /** 例 "AM01_510037_20240710_kr.html" */
   fileName: string;
   status: TemplateStatus;
-  /** ISO timestamp of last confirm-save. */
+  /** 最後の確定保存の ISO タイムスタンプ。 */
   updatedAt: string | null;
   updatedBy: string | null;
 }
 
 export interface Template {
   meta: TemplateMeta;
-  /** Raw Jinja2 HTML source (tags preserved). */
+  /** 生の Jinja2 HTML ソース (タグは保持)。 */
   html: string;
-  /** Per-fund shared CSS (keyed by fundCode). */
+  /** ファンド別の共有 CSS (fundCode をキーにする)。 */
   css: string;
   /**
-   * Pre-rendered "filled" HTML for the editor canvas: Jinja values substituted
-   * with the original `{{ }}`/`{% %}` source preserved (see `fillJinja.toFilled`).
-   * Empty when no static fill exists; the editor falls back to rendering one.
+   * エディタキャンバス用に事前描画した "filled" HTML: Jinja 値を差し込みつつ、元の
+   * `{{ }}`/`{% %}` ソースを保持したもの (`fillJinja.toFilled` 参照)。静的な fill が
+   * 無ければ空で、エディタは都度描画にフォールバックする。
    */
   filled: string;
 }
 
-/** A draft kept by the always-on autosave, separate from the confirmed file. */
+/** 常時オンの自動保存が保持する下書き。確定ファイルとは別物。 */
 export interface TemplateDraft {
   templateId: string;
   html: string;
@@ -60,15 +56,11 @@ export interface TemplateDraft {
   savedBy: string;
 }
 
-// ---------------------------------------------------------------------------
-// Domain: sample data (nunjucks preview context), keyed by fundCode
-// ---------------------------------------------------------------------------
+// ── 2. Domain: sample data (nunjucks プレビュー文脈)。fundCode をキーにする ──
 
 export type SampleData = Record<string, unknown>;
 
-// ---------------------------------------------------------------------------
-// Domain: users / auth
-// ---------------------------------------------------------------------------
+// ── 3. Domain: users / auth ──
 
 export type UserRole = 'admin' | 'editor' | 'viewer';
 
@@ -78,7 +70,7 @@ export interface User {
   displayName: string;
   role: UserRole;
   disabled: boolean;
-  /** Force password initialization on next login. */
+  /** 次回ログイン時にパスワード初期化を強制する。 */
   mustChangePassword: boolean;
 }
 
@@ -89,7 +81,7 @@ export interface LoginRequest {
 
 export interface LoginResult {
   user: User;
-  /** When true, client must route to the password-initialization screen. */
+  /** true のとき、クライアントはパスワード初期化画面へ遷移しなければならない。 */
   mustChangePassword: boolean;
 }
 
@@ -98,16 +90,14 @@ export interface PasswordInitRequest {
   newPassword: string;
 }
 
-// ---------------------------------------------------------------------------
-// Domain: history (3 kinds shown in the history tab)
-// ---------------------------------------------------------------------------
+// ── 4. Domain: history (履歴タブに表示する3種) ──
 
 export interface EditHistoryEntry {
   id: string;
   templateId: string;
   user: string;
   timestamp: string;
-  /** Human summary of what changed. */
+  /** 変更内容の人間向け要約。 */
   summary: string;
 }
 
@@ -123,47 +113,45 @@ export interface CreateHistoryEntry {
   attributes: TemplateAttributes;
   user: string;
   timestamp: string;
-  /** Template id this was generated from (series funds), if any. */
+  /** これを生成した元テンプレ id (シリーズファンド由来)。あれば。 */
   basedOnTemplateId?: string;
 }
 
-/** Per-part (GrapesJS component) modification history, shown in the right pane. */
+/** パーツ (GrapesJS コンポーネント) 別の変更履歴。右ペインに表示する。 */
 export interface PartHistoryEntry {
   id: string;
   templateId: string;
-  /** Stable GrapesJS component id. */
+  /** 安定した GrapesJS コンポーネント id。 */
   partId: string;
   user: string;
   timestamp: string;
   change: string;
 }
 
-// ---------------------------------------------------------------------------
-// Domain: version snapshots (frozen HTML/CSS captured at each confirm-save,
-// re-rendered on demand for the visual compare screen)
-// ---------------------------------------------------------------------------
+// ── 5. Domain: version snapshots ──
+// 各確定保存で凍結した HTML/CSS を捕捉し、比較画面では都度再描画する。
 
 /**
- * A frozen copy of a template's content at one confirm-save, keyed by the
- * edit-history entry it belongs to. Only the source text is stored; the PDF /
- * page images are re-rendered on demand so snapshots stay small.
+ * テンプレート内容を 1 回の確定保存時点で凍結したコピー。属する編集履歴エントリを
+ * キーにする。保存するのはソーステキストのみで、PDF / ページ画像は都度再描画する
+ * (snapshot を小さく保つため)。
  */
 export interface TemplateSnapshot {
-  /** Matches the EditHistoryEntry.id this snapshot was captured for. */
+  /** この snapshot を捕捉した対象の `EditHistoryEntry.id` に一致する。 */
   historyId: string;
   templateId: string;
-  /** Raw Jinja2 HTML source at confirm time (tags preserved). */
+  /** 確定時点の生 Jinja2 HTML ソース (タグは保持)。 */
   html: string;
-  /** CSS at confirm time. */
+  /** 確定時点の CSS。 */
   css: string;
-  /** fundCode, used to fetch the sample data for re-rendering. */
+  /** fundCode。再描画用のサンプルデータ取得に使う。 */
   fundCode: string;
   timestamp: string;
 }
 
-/** Lightweight version-list row for the compare screen's version pickers. */
+/** 比較画面のバージョン選択用の、軽量なバージョン一覧行。 */
 export interface TemplateVersionMeta {
-  /** EditHistoryEntry.id; identifies the snapshot to load. */
+  /** `EditHistoryEntry.id`。読み込む snapshot を識別する。 */
   historyId: string;
   templateId: string;
   timestamp: string;
@@ -171,11 +159,9 @@ export interface TemplateVersionMeta {
   summary: string;
 }
 
-// ---------------------------------------------------------------------------
-// API DTOs
-// ---------------------------------------------------------------------------
+// ── 6. API DTOs ──
 
-/** Cascading-dropdown query: known attrs in, candidate options for the rest out. */
+/** カスケード型ドロップダウンの問い合わせ: 既知の属性を入力、残りの候補を出力。 */
 export interface DropdownQuery {
   companyCode?: string;
   fundCode?: string;
@@ -190,9 +176,7 @@ export interface DropdownOptions {
   editionTypes: string[];
 }
 
-// ---------------------------------------------------------------------------
-// Domain: parts catalog (エディタ左ペインのパーツ一覧 / 4段階の分類)
-// ---------------------------------------------------------------------------
+// ── 7. Domain: parts catalog (エディタ左ペインのパーツ一覧 / 4段階の分類) ──
 
 /** パーツの4段階分類。上位を選ぶと下位の候補が絞り込まれる。 */
 export interface PartClassification {
@@ -241,12 +225,12 @@ export interface PartClassificationOptions {
   minorClasses: string[];
 }
 
-/** Create tab: resolve attributes server-side and generate via the Python tool. */
+/** 作成タブ: 属性をサーバ側で解決し、Python ツール経由で生成する。 */
 export interface GenerateRequest {
   companyCode: string;
   fundCode: string;
   editionType: string;
-  /** When generating from a series-fund template, base on this template. */
+  /** シリーズファンドのテンプレから生成する場合、このテンプレを基にする。 */
   basedOnTemplateId?: string;
   /**
    * 償還ファンドとして作成する。true のとき作成済みテンプレの特定パーツを
@@ -255,7 +239,7 @@ export interface GenerateRequest {
   isRedemption?: boolean;
 }
 
-/** Result of resolving a fund's attributes (e.g. whether it is a series fund). */
+/** ファンドの属性解決の結果 (例: シリーズファンドか否か)。 */
 export interface FundResolution {
   /** 属性解決の結果、シリーズファンド（コアラップ系）と判定できたか。 */
   isSeriesFund: boolean;
@@ -273,19 +257,19 @@ export interface SaveDraftRequest {
 
 export interface ConfirmSaveRequest {
   templateId: string;
-  /** Restored raw Jinja2 HTML to write to the template file (the per-fund template). */
+  /** テンプレファイル (ファンド別テンプレ) に書き戻す、復元済みの生 Jinja2 HTML。 */
   html: string;
-  /** CSS to merge into the per-fund shared stylesheet. */
+  /** ファンド別の共有スタイルシートへマージする CSS。 */
   css: string;
   fundCode: string;
   /**
-   * Rendered "filled" document (values substituted, no Jinja) kept as the report
-   * instance for this confirm. Optional; omitted when there is nothing to render.
+   * 描画済みの "filled" ドキュメント (値差込済み・Jinja なし)。この確定の帳票
+   * インスタンスとして保持する。任意。描画対象が無ければ省略する。
    */
   filledHtml?: string;
 }
 
-/** A confirmed report instance: the filled document saved alongside the template. */
+/** 確定済みの帳票インスタンス: テンプレと並べて保存する filled ドキュメント。 */
 export interface TemplateInstance {
   templateId: string;
   html: string;
@@ -295,30 +279,27 @@ export interface TemplateInstance {
 }
 
 export interface BuildInlineRequest {
-  /** Already-rendered (nunjucks) HTML. */
+  /** 既に描画済み (nunjucks) の HTML。 */
   html: string;
   css: string;
-  /** Page size handed to vivliostyle (default 'A4'). */
+  /** vivliostyle へ渡すページサイズ (既定 'A4')。 */
   size?: string;
-  /** Treat the input as a single document. */
+  /** 入力を単一ドキュメントとして扱う。 */
   singleDoc?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Data-access contracts: see ./repositories/* (per-aggregate, Result-returning).
-// Both the web `local` and `rest` layers implement these interfaces.
-// ---------------------------------------------------------------------------
+// ── 8. Data-access contracts ──
+// 集約別・Result を返す契約は `./repositories/*` を参照。web の `local` 層と `rest`
+// 層がいずれもこれらの interface を実装する。
 
-// ---------------------------------------------------------------------------
-// Cross-cutting: Result/error model and domain helpers (barrel re-exports)
-// ---------------------------------------------------------------------------
+// ── 9. Cross-cutting: Result/エラーモデルとドメインヘルパ (barrel 再エクスポート) ──
 
 export * from './domain/history.js';
-// Template identity value object + filename helpers.
+// テンプレート identity の値オブジェクト + ファイル名ヘルパ。
 export * from './domain/template.js';
 export * from './domain/user.js';
 export * from './errors.js';
-// Per-aggregate repository contracts (implemented by web local & REST).
+// 集約別のリポジトリ契約 (web local と REST が実装)。
 export * from './repositories/AuthRepository.js';
 export * from './repositories/HistoryRepository.js';
 export * from './repositories/PartRepository.js';

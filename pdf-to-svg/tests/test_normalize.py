@@ -1,8 +1,12 @@
+"""`dictionary.normalize` の `normalize` / `NormOptions` の単体テスト。
+
+NFKC 正規化 (全角→半角)・空白整形・`casefold` / `kana_fold` の各オプション挙動を確認する。
+"""
 from dictionary.normalize import NormOptions, normalize
 
 
 def test_nfkc_fullwidth_halfwidth():
-    # 全角英数字 → 半角
+    # 全角英数字 → 半角 (NFKC)
     assert normalize("ＡＢＣ１２３") == "ABC123"
 
 

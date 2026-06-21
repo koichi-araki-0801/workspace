@@ -1,24 +1,27 @@
+// =============================================================================
+// previewManager.ts — vivliostyle プレビューセッションの管理(cli 非依存・DI)
+// =============================================================================
 import crypto from 'node:crypto';
 import { cleanupProject } from './projectInput.js';
 
-/** A running preview server, abstracted so the manager is cli-agnostic (DI). */
+/** 起動中のプレビューサーバ。manager を cli 非依存(DI)に保つため抽象化する。 */
 export interface PreviewServerHandle {
-  /** Actual port the preview (Vite) server listens on. */
+  /** プレビュー(Vite)サーバが実際に listen するポート。 */
   port: number;
   /**
-   * Absolute viewer URL the cli generated (origin + `/__vivliostyle-viewer/...`
-   * `#src=<absolute source URL>`). The manager rewrites its origin to the proxy
-   * prefix so the browser reaches both the viewer and its source via :3001.
+   * cli が生成した絶対 viewer URL(origin + `/__vivliostyle-viewer/...`
+   * `#src=<絶対ソース URL>`)。manager はその origin をプロキシ接頭辞へ書き換え、
+   * ブラウザが viewer とそのソースの双方へ :3001 経由で到達できるようにする。
    */
   viewerUrl?: string;
-  /** Stop the server and release the port. */
+  /** サーバを停止しポートを解放する。 */
   close: () => Promise<void>;
 }
 
 /**
- * Rewrite the cli's absolute viewer URL so every same-origin reference (the
- * viewer page and the `#src=` document) points at the reverse-proxy prefix.
- * Falls back to the proxy root when no viewer URL was captured.
+ * cli の絶対 viewer URL を書き換え、同一 origin の参照(viewer ページと `#src=`
+ * ドキュメント)がすべてリバースプロキシ接頭辞を指すようにする。viewer URL を
+ * 捕捉できなかった場合はプロキシのルートにフォールバックする。
  */
 export function proxyViewerUrl(id: string, viewerUrl: string | undefined): string {
   const prefix = `/api/preview/${id}`;
@@ -31,25 +34,25 @@ export function proxyViewerUrl(id: string, viewerUrl: string | undefined): strin
   }
 }
 
-/** What to preview, plus the temp dir the manager must remove on stop. */
+/** 何をプレビューするか、加えて停止時に manager が削除すべき temp ディレクトリ。 */
 export interface PreviewSpec {
   mode: 'inline' | 'project';
-  /** Entry file (inline html, or project entry when there is no config). */
+  /** エントリファイル(inline html、または config 不在時のプロジェクトエントリ)。 */
   input?: string;
-  /** `vivliostyle.config.*` path (project, preferred). */
+  /** `vivliostyle.config.*` のパス(project・優先)。 */
   configPath?: string;
-  /** Project root (cwd) when building from an entry file. */
+  /** エントリファイルからビルドする際のプロジェクトルート(cwd)。 */
   cwd?: string;
   size?: string;
   singleDoc?: boolean;
-  /** Temp dir removed when the session stops. */
+  /** セッション停止時に削除する temp ディレクトリ。 */
   workDir: string;
 }
 
-/** Starts a preview server for a spec. Injected so tests avoid a real browser. */
+/** spec に対しプレビューサーバを起動する。テストが実ブラウザを避けられるよう注入する。 */
 export type PreviewStarter = (spec: PreviewSpec, host: string) => Promise<PreviewServerHandle>;
 
-/** Public, serializable view of a preview session (no server internals). */
+/** プレビューセッションの公開・直列化可能なビュー(サーバ内部を含まない)。 */
 export interface PreviewSessionMeta {
   id: string;
   mode: 'inline' | 'project';
@@ -74,10 +77,9 @@ export interface PreviewManagerOptions {
 }
 
 /**
- * Tracks live vivliostyle preview servers: bounded count, idle auto-expiry, and
- * deterministic cleanup of both the server and its temp dir. In-memory only —
- * sessions do not survive a process restart, which is fine for a single-box
- * deployment.
+ * 起動中の vivliostyle プレビューサーバを追跡する: 件数の上限、アイドル自動失効、
+ * サーバと temp ディレクトリ双方の決定的なクリーンアップ。インメモリのみで、セッションは
+ * プロセス再起動を跨いで残らない(単一筐体デプロイなら問題ない)。
  */
 export class PreviewManager {
   private readonly sessions = new Map<string, Session>();
@@ -87,7 +89,7 @@ export class PreviewManager {
     this.opts = opts;
   }
 
-  /** Start a preview; evicts the least-recently-used session when at capacity. */
+  /** プレビューを開始する。容量到達時は least-recently-used セッションを退避する。 */
   async start(spec: PreviewSpec): Promise<PreviewSessionMeta> {
     if (this.sessions.size >= this.opts.maxSessions) await this.evictOldest();
 
@@ -95,7 +97,7 @@ export class PreviewManager {
     try {
       handle = await this.opts.starter(spec, this.opts.host);
     } catch (e) {
-      // The server never came up — drop the temp dir we were handed.
+      // サーバが起動しなかった。受け取った temp ディレクトリを破棄する。
       await cleanupProject(spec.workDir);
       throw e;
     }
@@ -119,7 +121,7 @@ export class PreviewManager {
     return meta;
   }
 
-  /** Listen port for the proxy; undefined if the session is unknown. */
+  /** プロキシ用の listen ポート。セッションが不明なら undefined。 */
   portOf(id: string): number | undefined {
     return this.sessions.get(id)?.handle.port;
   }
@@ -132,7 +134,7 @@ export class PreviewManager {
     return [...this.sessions.values()].map((s) => s.meta);
   }
 
-  /** Refresh idle TTL on access (called by the proxy). False if unknown. */
+  /** アクセス時にアイドル TTL を更新する(プロキシが呼ぶ)。不明なら false。 */
   touch(id: string): boolean {
     const s = this.sessions.get(id);
     if (!s) return false;
@@ -144,7 +146,7 @@ export class PreviewManager {
     return true;
   }
 
-  /** Stop a session: clear timer, close server, remove temp dir. */
+  /** セッションを停止する: タイマー解除、サーバ終了、temp ディレクトリ削除。 */
   async stop(id: string): Promise<boolean> {
     const s = this.sessions.get(id);
     if (!s) return false;
@@ -154,7 +156,7 @@ export class PreviewManager {
     return true;
   }
 
-  /** Stop every session (process shutdown). */
+  /** すべてのセッションを停止する(プロセス終了時)。 */
   async disposeAll(): Promise<void> {
     const ids = [...this.sessions.keys()];
     await Promise.allSettled(ids.map((id) => this.stop(id)));
@@ -162,7 +164,7 @@ export class PreviewManager {
 
   private arm(id: string): NodeJS.Timeout {
     const t = setTimeout(() => void this.stop(id), this.opts.idleTtlMs);
-    // An idle preview must not keep the process alive on its own.
+    // アイドルなプレビューが単独でプロセスを生かし続けてはならない。
     t.unref?.();
     return t;
   }

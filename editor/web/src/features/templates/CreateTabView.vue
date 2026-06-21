@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// CreateTabView.vue — テンプレ作成タブ (Step1 ファンド指定 → Step2 作成方法選択)
+// =============================================================================
 import { type DropdownQuery, type GenerateRequest, isErr, type TemplateMeta } from '@editor/shared';
 import { FilePlus2, FileText } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
@@ -20,9 +23,9 @@ const { loading: creating, run } = useAsyncResult();
 const liveQuery = reactive<DropdownQuery>({});
 const method = ref<Method | null>(null);
 const seriesRows = ref<TemplateMeta[]>([]);
-// 属性解決でシリーズファンドと判定できたときだけ「シリーズから作成」を出す（⑥）。
+// 属性解決でシリーズファンドと判定できたときだけ「シリーズから作成」を出す (⑥)。
 const isSeriesFund = ref(false);
-// 償還ファンドとして作成するか（⑦・モック）。
+// 償還ファンドとして作成するか (⑦・モック)。
 const isRedemption = ref(false);
 
 const canCreate = computed(
@@ -71,8 +74,8 @@ function selectMethod(m: Method) {
   method.value = m;
 }
 
-// In series mode the table loads once all three fields are set; cascade-resetting
-// a field re-loads or clears it. Switching away from series clears the table.
+// series モードでは 3 フィールドが揃うと一覧をロードする。カスケードでフィールドを
+// リセットすると再ロード/クリアされる。series 以外へ切り替えると一覧をクリアする。
 watch(
   () => [liveQuery.companyCode, liveQuery.fundCode, liveQuery.editionType, method.value],
   () => {
@@ -136,7 +139,7 @@ function createFromSeries(m: TemplateMeta) {
     </div>
 
     <div class="rounded-[14px] border bg-card px-6 pb-1 pt-6 shadow-sm">
-      <!-- Step 1 — specify the fund -->
+      <!-- Step 1 — 作成するファンドを指定 -->
       <Step
         :n="1"
         title="作成するファンドを指定"
@@ -153,7 +156,7 @@ function createFromSeries(m: TemplateMeta) {
         />
       </Step>
 
-      <!-- Step 2 — choose method, then act -->
+      <!-- Step 2 — 作成方法を選び、実行する -->
       <Step
         :n="2"
         title="作成方法を選ぶ"
@@ -198,7 +201,7 @@ function createFromSeries(m: TemplateMeta) {
           </button>
         </div>
 
-        <!-- contextual action — series only; blank navigates immediately on card click -->
+        <!-- 文脈依存の action — series のみ。blank はカード押下で即遷移する -->
         <div v-if="method === 'series'" class="mt-4 grid gap-2.5">
           <p class="text-[12.5px] text-muted-foreground">
             元にするファンドの「作成」を押すと、それを基にした編集画面に進みます。

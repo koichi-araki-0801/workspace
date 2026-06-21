@@ -1,28 +1,30 @@
-/**
- * fillJinja — render a raw Jinja2 template into the "filled" editable form the
- * editor canvas shows: Jinja values are substituted (so the editor reads as a
- * populated document) while the original `{{ }}` / `{% %}` source is preserved
- * verbatim, so {@link toTemplate} restores the exact Jinja template on save.
- *
- * It is the value-bearing sibling of {@link toEditable}; both feed GrapesJS and
- * both round-trip losslessly through {@link toTemplate}. Differences:
- *   - inline `{{ expr }}` chips show the *evaluated value* (not the token text);
- *   - `{% for %}` loops are expanded to one filled row per sample item — the
- *     first row keeps the `{% for %}`/`{% endfor %}` markers (data-jinja-open/
- *     close), the rest are tagged data-jinja-loop-clone and dropped on restore;
- *   - single-element `{% if %}…{% endif %}` keeps only the taken branch for
- *     display, with the whole block preserved in data-jinja-block;
- *   - `<script>` blocks are masked to inert markers (GrapesJS strips real
- *     scripts on load) and restored verbatim on save.
- */
+// =============================================================================
+// fillJinja.ts — 生 Jinja2 テンプレートを編集キャンバス用の "filled" HTML へ変換
+// =============================================================================
+// 役割:
+//   生 Jinja2 テンプレートを, エディタキャンバスが表示する "filled"(値入り)編集
+//   形態へレンダリングする。Jinja の値を差し込む(編集画面が値の入った文書として
+//   読める)一方で, 元の `{{ }}` / `{% %}` ソースを verbatim に保持するため,
+//   保存時に `jinjaMask.ts` の `toTemplate` が厳密な Jinja テンプレートを復元できる。
+//
+//   `jinjaMask.ts` の `toEditable` の「値を持つ」兄弟であり, どちらも GrapesJS へ
+//   渡され, どちらも `toTemplate` で無損失に round-trip する。差異:
+//     - inline `{{ expr }}` chip は *評価値* を表示する(token テキストではない)。
+//     - `{% for %}` ループは sample 要素ごとに 1 行の filled 行へ展開する。先頭行は
+//       `{% for %}`/`{% endfor %}` マーカ(data-jinja-open/close)を保持し, 残りは
+//       data-jinja-loop-clone を付けて復元時に破棄する。
+//     - 単一要素の `{% if %}…{% endif %}` は表示用に taken branch のみを残し,
+//       ブロック全体を data-jinja-block に保持する。
+//     - `<script>` ブロックは inert なマーカへ mask し(GrapesJS は読み込み時に実
+//       script を除去する), 保存時に verbatim 復元する。
 import type { SampleData } from '@editor/shared';
 import nunjucks from 'nunjucks';
 import { b64encode, htmlEscape, TOKEN_RE, tokenKind } from './jinjaMask';
 
 type Ctx = Record<string, unknown>;
 
-// Value resolution reuses Nunjucks (Jinja2-compatible) but without autoescape:
-// the resolved text becomes a chip's visible label and is HTML-escaped by us.
+// 値解決には Nunjucks (Jinja2 互換)を再利用するが autoescape は無効: 解決結果の
+// テキストは chip の可視ラベルになり, HTML エスケープは自前で行うため。
 const evalEnv = new nunjucks.Environment(undefined, { autoescape: false, throwOnUndefined: false });
 
 function evalExpr(expr: string, ctx: Ctx): string {
@@ -50,23 +52,23 @@ function evalArray(expr: string, ctx: Ctx): unknown[] {
   }
 }
 
-/** Insert extra attributes right after the element's opening `<tag`. */
+/** 要素の開始 `<tag` 直後に追加属性を挿入する。 */
 function insertAttrs(element: string, attrs: string): string {
   return element.replace(/^(<[a-zA-Z][\w-]*)/, `$1 ${attrs}`);
 }
 
 /**
- * Wrap every Jinja token sitting in *text* (not inside a tag) as a locked chip,
- * mirroring jinjaMask's wrapInlineTokens. Only a `{{ var }}` chip's visible label
- * is the value evaluated against `ctx`; `{% %}` / `{# #}` tokens keep their literal
- * source as the label. The exact source token always lives in data-jinja, so
- * toTemplate restores it regardless of the label.
+ * *テキスト中*(タグ内ではない)の各 Jinja token を locked chip として包む。
+ * `jinjaMask.ts` の `wrapInlineTokens` を写したもの。`{{ var }}` chip の可視ラベル
+ * だけが `ctx` に対して評価した値で, `{% %}` / `{# #}` token はリテラルソースを
+ * ラベルとして保持する。厳密なソース token は常に data-jinja に入るため, ラベルに
+ * 関わらず `toTemplate` が復元する。
  */
 function fillInline(html: string, ctx: Ctx): string {
   return html
     .split(/(<[^>]*>)/)
     .map((part) => {
-      if (part.startsWith('<')) return part; // a tag — attribute Jinja round-trips verbatim
+      if (part.startsWith('<')) return part; // タグ — 属性内 Jinja は verbatim に round-trip
       return part.replace(TOKEN_RE, (token) => {
         const kind = tokenKind(token);
         const visible = kind === 'var' ? evalExpr(token.slice(2, -2).trim(), ctx) : token;
@@ -77,24 +79,24 @@ function fillInline(html: string, ctx: Ctx): string {
 }
 
 /**
- * A locked, opaque chip carrying verbatim source (base64). `kind` selects the
- * component type/styling and lets the canvas live-render layer dispatch:
- * `script` → execute, `math` → typeset with MathJax (TeX) or render MathML.
+ * verbatim ソース(base64)を運ぶ locked かつ opaque な chip。`kind` は component の
+ * 種別/スタイルを選び, キャンバスの live-render 層が dispatch できるようにする:
+ * `script` → 実行, `math` → MathJax (TeX)で組版 または MathML を描画。
  */
 function opaqueChip(source: string, kind: 'script' | 'math', label: string): string {
   return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" data-opaque="${b64encode(source)}" data-opaque-kind="${kind}">${label}</span>`;
 }
 
-// TeX delimiters MathJax accepts: $$…$$ / \(…\) / \[…\]. (Single `$` is not
-// matched — it collides with currency in the report text.)
+// MathJax が受理する TeX 区切り: $$…$$ / \(…\) / \[…\]。(単独の `$` はマッチさせ
+// ない — レポート本文の通貨表記と衝突するため。)
 const MATH_TEX_RE = /\$\$[\s\S]*?\$\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g;
 
 /**
- * Mask GrapesJS-hostile / math content into opaque chips before the structural
- * passes, so GrapesJS cannot strip a `<script>` or restructure MathML, and so
- * a text edit cannot split a formula. Both MathJax (TeX) and MathML are masked.
- * Order matters: elements (script, then `<math>`) before TeX so a script/MathML
- * body is never re-scanned as TeX.
+ * 構造パスの前に, GrapesJS と相性の悪い / math コンテンツを opaque chip へ mask
+ * する。GrapesJS が `<script>` を除去したり MathML を再構成したりできず, テキスト
+ * 編集が数式を分断できないようにするため。MathJax (TeX)も MathML も mask する。
+ * 順序が重要: 要素(script, 次に `<math>`)を TeX より先に処理し, script/MathML の
+ * body が TeX として再走査されないようにする。
  */
 function maskOpaque(html: string): string {
   let s = html;
@@ -104,8 +106,8 @@ function maskOpaque(html: string): string {
   return s;
 }
 
-// `{% for v in iter %}<el>…</el>{% endfor %}` — body is a single element with no
-// nested statement (same shape jinjaMask.absorbBlocks accepts).
+// `{% for v in iter %}<el>…</el>{% endfor %}` — body は nested statement を持たない
+// 単一要素(`jinjaMask.ts` の `absorbBlocks` が受理するのと同じ形)。
 const FOR_RE = new RegExp(
   '(\\{%\\s*for\\s+(\\w+)\\s+in\\s+([\\s\\S]*?)%\\})' + // 1 open, 2 var, 3 iterable
     '\\s*(<([a-zA-Z][\\w-]*)\\b(?:[^>]*>)(?:(?!\\{%)[\\s\\S])*?<\\/\\5>)\\s*' + // 4 element, 5 tag
@@ -122,7 +124,7 @@ function expandLoops(html: string, ctx: Ctx): string {
         element,
         `data-jinja-open="${b64encode(open)}" data-jinja-close="${b64encode(close)}"`,
       );
-      // Empty iterable: keep the (unfilled) template row so the loop survives.
+      // iterable が空: ループが生き残るよう(未 fill の)テンプレート行を残す。
       if (items.length === 0) return fillInline(tplRow, ctx);
       return items
         .map((item, i) => {
@@ -137,7 +139,7 @@ function expandLoops(html: string, ctx: Ctx): string {
               length: items.length,
             },
           };
-          // First row carries the for/endfor markers; clones are display-only.
+          // 先頭行が for/endfor マーカを運ぶ。clone は表示専用。
           const row = i === 0 ? tplRow : insertAttrs(element, 'data-jinja-loop-clone');
           return fillInline(row, loopCtx);
         })
@@ -146,22 +148,22 @@ function expandLoops(html: string, ctx: Ctx): string {
   );
 }
 
-// `{% if c %}A{% else %}B{% endif %}` (else optional). Non-greedy: assumes no
-// nesting, which matches the report templates' single-element branches.
+// `{% if c %}A{% else %}B{% endif %}` (else は任意)。Non-greedy: nesting なしを
+// 前提とし, レポートテンプレートの単一要素 branch に合致する。
 const IF_RE = /\{%\s*if\s+([\s\S]*?)%\}([\s\S]*?)(?:\{%\s*else\s*%\}([\s\S]*?))?\{%\s*endif\s*%\}/g;
 
 function collapseIfs(html: string, ctx: Ctx): string {
   return html.replace(IF_RE, (whole, cond: string, trueB: string, elseB: string | undefined) => {
     const taken = (evalCond(cond.trim(), ctx) ? trueB : (elseB ?? '')).trim();
     const el = taken.match(/^<([a-zA-Z][\w-]*)\b[^>]*>[\s\S]*<\/\1>$/);
-    // Only single-element branches can carry the marker; otherwise leave the raw
-    // block for jinjaMask's inline chips to handle (still round-trips).
+    // marker を運べるのは単一要素 branch のみ。それ以外は生ブロックを残し,
+    // `jinjaMask.ts` の inline chip に処理させる(なお round-trip する)。
     if (!el) return whole;
     return fillInline(insertAttrs(taken, `data-jinja-block="${b64encode(whole)}"`), ctx);
   });
 }
 
-/** Raw Jinja2 (full doc or fragment) -> filled, GrapesJS-safe, round-trippable HTML. */
+/** 生 Jinja2(全文または fragment) -> filled で GrapesJS-safe かつ round-trip 可能な HTML。 */
 export function toFilled(raw: string, sample: SampleData): string {
   let s = raw;
   s = maskOpaque(s);

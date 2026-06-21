@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// TemplateTable.vue — テンプレ一覧テーブル (編集/作成の action 列つき)
+// =============================================================================
 import type { TemplateMeta } from '@editor/shared';
 import { FilePlus2, Inbox, Pencil } from '@lucide/vue';
 import { computed } from 'vue';
@@ -10,10 +13,10 @@ import { toTemplateMetaVm } from '../viewmodels/templateVm';
 const props = withDefaults(
   defineProps<{
     rows: TemplateMeta[];
-    /** label of the action column: 編集 (edit) or 作成 (create) */
+    /** action 列のラベル: 編集 (edit) または 作成 (create)。 */
     action?: 'edit' | 'create';
     showBaseDate?: boolean;
-    /** 版数（確定保存回数）。編集タブでは「状態」列の代わりに版数を表示する。 */
+    /** 版数 (確定保存回数)。編集タブでは「状態」列の代わりに版数を表示する。 */
     versionCounts?: Record<string, number>;
   }>(),
   { action: 'edit', showBaseDate: true },
@@ -23,7 +26,7 @@ const emit = defineEmits<{ action: [TemplateMeta] }>();
 
 const vms = computed(() => props.rows.map(toTemplateMetaVm));
 
-// 版数列は編集タブのみ。シリーズ候補（create）は状態も版数も出さない。
+// 版数列は編集タブのみ。シリーズ候補 (create) は状態も版数も出さない。
 const showVersion = computed(() => props.action === 'edit');
 const emptyColspan = computed(
   () => 4 + (props.showBaseDate ? 1 : 0) + (showVersion.value ? 1 : 0),

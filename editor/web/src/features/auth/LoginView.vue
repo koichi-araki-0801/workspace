@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// LoginView.vue — ログイン画面(認証 + 初回ログイン時のパスワード再設定への誘導)
+// =============================================================================
 import { isErr } from '@editor/shared';
 import { AlertCircle, FileText } from '@lucide/vue';
 import { ref } from 'vue';
@@ -39,7 +42,7 @@ async function submit() {
   }
   const redirect = (route.query.redirect as string) || '/';
   if (res.value) {
-    // mustChangePassword: force the init screen, carrying the redirect so init lands in the app.
+    // `mustChangePassword`: 初期化画面へ強制遷移。redirect を引き継ぎ、初期化後にアプリへ着地させる。
     router.push({ name: 'password-init', query: { username: username.value, redirect } });
     return;
   }

@@ -1,11 +1,9 @@
-/**
- * OpenAPI docs router: serves the generated spec and the Swagger UI.
- *
- * Mounted under `/api`, so it exposes:
- *   GET /api/openapi.json  — the OpenAPI 3.1 document (JSON)
- *   GET /api/docs          — Swagger UI
- */
-
+// =============================================================================
+// index.ts — OpenAPI ドキュメントルータ(生成済み spec と Swagger UI を配信)
+// =============================================================================
+// `/api` 配下にマウントされ、以下を公開する:
+//   GET /api/openapi.json  — OpenAPI 3.1 ドキュメント(JSON)
+//   GET /api/docs          — Swagger UI
 import { Router } from 'express';
 import swaggerUi from 'swagger-ui-express';
 import { getOpenApiDocument } from './document.js';

@@ -1,3 +1,6 @@
+// =============================================================================
+// TemplateRepository.ts — テンプレート集約ルート (探索/生成/下書き/確定/サンプル)
+// =============================================================================
 import type {
   ConfirmSaveRequest,
   DropdownOptions,
@@ -14,9 +17,8 @@ import type {
 import type { Result } from '../result.js';
 
 /**
- * Template aggregate root: discovery, generation, the always-on draft, the
- * confirmed file, and the preview sample data — all keyed by the same template
- * identity and override store.
+ * テンプレート集約ルート: 探索・生成・常時オンの下書き・確定ファイル・プレビュー用
+ * サンプルデータを、同一のテンプレート identity と override ストアで束ねる。
  */
 export interface TemplateRepository {
   getDropdownOptions(query: DropdownQuery): Promise<Result<DropdownOptions>>;

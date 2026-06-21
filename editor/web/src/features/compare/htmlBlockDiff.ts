@@ -1,20 +1,20 @@
-/**
- * Deterministic, client-side block-level diff of two rendered template HTML
- * documents. Used by the 版の比較 (compare) result screen.
- *
- * The two versions are rendered to full HTML (via `renderJinja`) and parsed in
- * the browser. We split each document into A4 *pages* (separated by explicit
- * `page-break-before/after: always` markers — the same ones the editor writes
- * through `geom.ts`) and, within a page, into top-level *blocks* (the direct
- * children of `<body>`). Blocks are aligned by a stable key and compared by
- * normalized markup, so we can highlight exactly which blocks changed and count
- * them ("変更ブロック N 箇所").
- */
+// =============================================================================
+// htmlBlockDiff.ts — レンダリング済みテンプレ HTML のクライアント側 block 差分
+// =============================================================================
+// 役割: 2 つのレンダリング済みテンプレート HTML を決定的に block 単位で diff する。
+// 版の比較(compare)の結果画面で使う。
+//
+// 2 版は `renderJinja` で完全な HTML へレンダリングし、ブラウザ内でパースする。
+// 各ドキュメントを明示的な `page-break-before/after: always` マーカー
+// (editor が `geom.ts` 経由で書き出すものと同一)で A4 の `page` に分割し、page 内では
+// `<body>` 直下の子要素である top-level の `block` に分割する。block は安定キーで
+// 整列し、正規化したマークアップで比較するため、どの block が変わったかを正確に
+// ハイライトし、その数("変更ブロック N 箇所")を数えられる。
 
 export type BlockStatus = 'same' | 'changed' | 'added' | 'removed';
 
 export interface DiffBlock {
-  /** stable key used to align the same block across the two versions */
+  /** 2 版で同じ block を整列させるための安定キー。 */
   key: string;
   status: BlockStatus;
 }
@@ -24,9 +24,9 @@ export interface DiffPage {
   changed: boolean;
   changedBlockCount: number;
   blocks: DiffBlock[];
-  /** page markup for the 前回 pane, changed/removed blocks already highlighted */
+  /** 前回ペイン用の page マークアップ。changed/removed block は既にハイライト済み。 */
   beforeHtml: string;
-  /** page markup for the 今回 pane, changed/added blocks already highlighted */
+  /** 今回ペイン用の page マークアップ。changed/added block は既にハイライト済み。 */
   afterHtml: string;
 }
 
@@ -35,7 +35,7 @@ export interface HtmlDiff {
   changedPageCount: number;
 }
 
-/** Highlight classes injected onto changed blocks (styled inside the iframe). */
+/** 変更 block に付与するハイライト用クラス(スタイルは `iframe` 内で定義)。 */
 export const HL_CHANGED = 'cmp-changed';
 export const HL_ADDED = 'cmp-added';
 export const HL_REMOVED = 'cmp-removed';
@@ -56,7 +56,7 @@ function hasBreak(el: HTMLElement, which: 'before' | 'after'): boolean {
   );
 }
 
-/** Group top-level blocks into pages at explicit page-break markers. */
+/** top-level の block を、明示的な page-break マーカーで page にグループ化する。 */
 function paginate(blocks: HTMLElement[]): HTMLElement[][] {
   const pages: HTMLElement[][] = [[]];
   for (const el of blocks) {
@@ -72,7 +72,7 @@ function paginate(blocks: HTMLElement[]): HTMLElement[][] {
   return pages;
 }
 
-/** A block's anchor: catalog part id → element id → first class → tag name. */
+/** block のアンカー: catalog part id → element id → 先頭 class → tag 名 の順で決める。 */
 function rawKey(el: HTMLElement): string {
   return (
     el.getAttribute('data-part-id') ||
@@ -82,7 +82,7 @@ function rawKey(el: HTMLElement): string {
   );
 }
 
-/** Disambiguate repeated anchors within a page by occurrence (".x#1", ".x#2"). */
+/** page 内で重複するアンカーを出現順で一意化する(".x#1", ".x#2")。 */
 function keyedBlocks(page: HTMLElement[]): { key: string; el: HTMLElement }[] {
   const seen = new Map<string, number>();
   return page.map((el) => {
@@ -114,7 +114,7 @@ function renderSide(
     .join('\n');
 }
 
-/** Union of block keys for a page: after's order first, then before-only blocks. */
+/** page の block キーの和集合: after の順を先に、続けて before のみの block を並べる。 */
 function unionKeys(
   after: { key: string }[],
   before: { key: string }[],
@@ -127,9 +127,9 @@ function unionKeys(
 }
 
 /**
- * Classify each aligned key by comparing normalized markup: present on both
- * (same/changed), after-only (added), or before-only (removed). Returns the
- * per-key status map (for highlighting) alongside the ordered block list.
+ * 整列済みの各キーを、正規化マークアップの比較で分類する: 両方に存在
+ * (same/changed)、after のみ(added)、before のみ(removed)。ハイライト用の
+ * キー別ステータス map と、順序付き block 一覧を返す。
  */
 function classifyBlocks(
   keys: string[],
@@ -174,7 +174,7 @@ function diffPage(index: number, beforePage: HTMLElement[], afterPage: HTMLEleme
   };
 }
 
-/** Build the page/block diff between two rendered HTML documents. */
+/** 2 つのレンダリング済み HTML ドキュメント間の page/block 差分を構築する。 */
 export function buildHtmlDiff(beforeHtml: string, afterHtml: string): HtmlDiff {
   const beforePages = paginate(topLevelBlocks(parseBody(beforeHtml)));
   const afterPages = paginate(topLevelBlocks(parseBody(afterHtml)));

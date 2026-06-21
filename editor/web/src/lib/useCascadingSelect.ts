@@ -1,27 +1,30 @@
+// =============================================================================
+// useCascadingSelect.ts — 連動ドロップダウンの共通ふるまい
+// =============================================================================
 import { isErr, ok, type Result } from '@editor/shared';
 import { onMounted, type Ref, reactive, ref } from 'vue';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 
 interface CascadingConfig<Q extends object, O, L> {
-  /** Level keys in dependency order (upper → lower). */
+  /** 依存順(upper → lower)の level キー。 */
   levels: Array<keyof Q & string>;
-  /** Initial/empty options object. */
+  /** 初期/空の options オブジェクト。 */
   emptyOptions: O;
-  /** Fetch the candidate options for the current query. */
+  /** 現在の query に対する候補 options を fetch する。 */
   fetchOptions: (query: Q) => Promise<Result<O>>;
-  /** Optional secondary fetch (e.g. the filtered list) run alongside options. */
+  /** options と並行して走らせる任意の二次 fetch(例: 絞り込み済みリスト)。 */
   fetchList?: (query: Q) => Promise<Result<L[]>>;
-  /** Called after every selection change / reset, with a snapshot of the query. */
+  /** 選択変更 / reset のたびに, query のスナップショットとともに呼ばれる。 */
   onChange?: (query: Q) => void;
-  /** Refresh on mount (default true). */
+  /** mount 時に refresh する(既定 true)。 */
   immediate?: boolean;
 }
 
 /**
- * Shared cascading-dropdown behavior: holds the query/options/list, clears
- * lower levels when an upper one changes (index-driven), and refetches — with
- * unified loading + error handling. Used by template search and the parts
- * catalog, which previously hand-rolled this twice.
+ * 連動ドロップダウンの共通ふるまい: query/options/list を保持し, upper level が
+ * 変わると(index 駆動で)下位 level を clear し, 再 fetch する — 統一された
+ * loading + error 処理付き。テンプレート検索と parts catalog が利用する(以前は
+ * 各々で二度 hand-roll していた)。
  */
 export function useCascadingSelect<Q extends object, O, L = unknown>(
   config: CascadingConfig<Q, O, L>,
@@ -45,7 +48,7 @@ export function useCascadingSelect<Q extends object, O, L = unknown>(
     });
   }
 
-  /** Selecting a level clears every lower level, then refetches. */
+  /** ある level を選ぶと, それより下位の全 level を clear して再 fetch する。 */
   function onLevelChange(key: keyof Q & string): void {
     const idx = config.levels.indexOf(key);
     for (const lower of config.levels.slice(idx + 1)) {

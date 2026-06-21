@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// CompareView.vue — ファイル比較画面のオーケストレータ(A/B選択 → 差分生成)
+// =============================================================================
 import { isErr, type TemplateMeta, type TemplateVersionMeta, toAppError } from '@editor/shared';
 import { Info, Loader2 } from '@lucide/vue';
 import { computed, ref } from 'vue';
@@ -17,7 +20,7 @@ const { run } = useAsyncResult();
 type Phase = 'select' | 'result';
 const phase = ref<Phase>('select');
 
-// 任意のテンプレ×版を A/B 独立に選択（別ファンド同士も可）。
+// 任意のテンプレ×版を A/B 独立に選択(別ファンド同士も可)。
 type Side = { meta: TemplateMeta; version: TemplateVersionMeta } | null;
 const sideA = ref<Side>(null);
 const sideB = ref<Side>(null);
@@ -37,7 +40,7 @@ const rendering = ref(false);
 const compareError = ref<string | null>(null);
 const result = ref<CompareResult | null>(null);
 
-// A=ファイルA（左）, B=ファイルB（右）。
+// A=ファイルA(左), B=ファイルB(右)。
 async function onCompare() {
   const a = sideA.value;
   const b = sideB.value;
@@ -49,7 +52,7 @@ async function onCompare() {
       run(() => compare.renderVersionHtml(a.version.historyId)),
       run(() => compare.renderVersionHtml(b.version.historyId)),
     ]);
-    if (isErr(ra) || isErr(rb)) return; // a toast was already shown
+    if (isErr(ra) || isErr(rb)) return; // toast は既に表示済みなので黙って返す
     result.value = {
       before: a.version,
       after: b.version,

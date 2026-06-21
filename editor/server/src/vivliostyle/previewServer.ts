@@ -1,18 +1,21 @@
+// =============================================================================
+// previewServer.ts — `@vivliostyle/cli` の `preview()` を裏付けとする実プレビュー起動
+// =============================================================================
 import type { AddressInfo } from 'node:net';
 import { config } from '../config.js';
 import { sharedInlineConfig } from './options.js';
 import { PreviewManager, type PreviewServerHandle, type PreviewSpec } from './previewManager.js';
 
-/** The cli colors its output; strip ANSI escapes before matching the URL. */
+/** cli は出力に色を付ける。URL を照合する前に ANSI エスケープを除去する。 */
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
-/** Match the cli's "Preview URL" in the (ANSI-stripped) captured output. */
+/** (ANSI 除去済みの)捕捉出力から cli の "Preview URL" を照合する。 */
 const VIEWER_URL_RE = /https?:\/\/[^\s]*__vivliostyle-viewer[^\s]*/;
 
 /**
- * Run `fn` while capturing everything written to stdout/stderr, returning the
- * captured text alongside the result. The cli prints its "Preview URL" box via
- * clack (bypassing the `logger` option), so this is the only reliable way to
- * read it. The wrap is global, hence callers serialize (see `startChain`).
+ * stdout/stderr へ書かれた全内容を捕捉しながら `fn` を実行し、捕捉テキストを結果と
+ * 併せて返す。cli は "Preview URL" のボックスを clack 経由で出力する(`logger` オプションを
+ * バイパスする)ため、これがそれを読む唯一の確実な手段。ラップはグローバルなので、
+ * 呼び出し側は直列化する(`startChain` を見よ)。
  */
 async function captureStdio<T>(fn: () => Promise<T>): Promise<{ result: T; output: string }> {
   let output = '';
@@ -33,21 +36,19 @@ async function captureStdio<T>(fn: () => Promise<T>): Promise<{ result: T; outpu
   }
 }
 
-// Serializes preview starts so the global stdout/stderr wrap in captureStdio
-// can't be clobbered by a concurrent start.
+// プレビュー起動を直列化し、`captureStdio` のグローバルな stdout/stderr ラップが
+// 同時起動で破壊されないようにする。
 let startChain: Promise<unknown> = Promise.resolve();
 
 /**
- * Real preview starter backed by `@vivliostyle/cli`'s `preview()`. This is the
- * only place (besides build.ts) that imports the cli, keeping vivliostyle usage
- * consolidated under `vivliostyle/`.
+ * `@vivliostyle/cli` の `preview()` を裏付けとする実プレビュー起動関数。cli を import するのは
+ * (`build.ts` を除き)ここだけで、vivliostyle の利用を `vivliostyle/` 配下に集約する。
  *
- * The Vite preview server binds loopback (`host`); Express reverse-proxies to it
- * so only :3001 is exposed and auth applies. HMR is disabled (`vite.server.hmr`)
- * because the uploaded input is a snapshot — nothing to live-reload — which keeps
- * the proxy pure HTTP (no WebSocket tunnel). The port is left to Vite so
- * concurrent previews auto-increment; the actual port and the viewer URL are read
- * back after startup.
+ * Vite プレビューサーバはループバック(`host`)に bind し、Express がそこへリバースプロキシ
+ * するため :3001 のみが公開され認証も効く。アップロード入力はスナップショットで
+ * ライブリロードする対象が無いため HMR を無効化し(`vite.server.hmr`)、プロキシを素の
+ * HTTP に保つ(WebSocket トンネル不要)。ポートは Vite に委ね、同時プレビューが自動
+ * インクリメントするようにする。実際のポートと viewer URL は起動後に読み戻す。
  */
 const vivliostylePreviewStarter = (
   spec: PreviewSpec,
@@ -55,7 +56,7 @@ const vivliostylePreviewStarter = (
 ): Promise<PreviewServerHandle> => {
   const run = async (): Promise<PreviewServerHandle> => {
     const { preview } = await import('@vivliostyle/cli');
-    // `cwd` is set in both cases so entries resolve relative to the project dir.
+    // どちらの場合も `cwd` を設定し、エントリをプロジェクトディレクトリ基準で解決する。
     const entry = spec.configPath
       ? { config: spec.configPath, cwd: spec.cwd }
       : { cwd: spec.cwd, input: spec.input };
@@ -69,7 +70,7 @@ const vivliostylePreviewStarter = (
         host,
         vite: { server: { hmr: false } },
         ...sharedInlineConfig(),
-        logLevel: 'info', // so the cli emits the "Preview URL" we capture
+        logLevel: 'info', // 捕捉対象の "Preview URL" を cli に出力させるため
       } as Parameters<typeof preview>[0]),
     );
 
@@ -89,7 +90,7 @@ const vivliostylePreviewStarter = (
   return result;
 };
 
-/** Process-wide preview session manager (wired with the real cli starter). */
+/** プロセス全体のプレビューセッション管理(実 cli starter を配線済み)。 */
 export const previewManager = new PreviewManager({
   idleTtlMs: config.vivliostyle.preview.idleTtlMs,
   maxSessions: config.vivliostyle.preview.maxSessions,

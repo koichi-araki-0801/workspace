@@ -1,8 +1,15 @@
+// =============================================================================
+// grapesEvents.ts — GrapesJS editor のイベント配線(3-pane editor 用)
+// =============================================================================
+// 役割: `useGrapes.ts` の `init` から委譲され、selection / RTE / drag-reorder /
+// page-break 等の listener をまとめて登録する。`init` を小さく保つための分離で、
+// イベントの意味・名前・登録順は inline 版と不変。
+
 import type { Component, Editor } from 'grapesjs';
 import type { Ref } from 'vue';
 import type { SelectedInfo } from './useGrapes';
 
-/** Screen rect of the selected element (canvas-relative, zoom-aware) for overlays. */
+/** overlay 用に保持する選択要素の画面 rect(canvas 相対, zoom 考慮)。 */
 export interface SelectedRect {
   left: number;
   top: number;
@@ -11,9 +18,9 @@ export interface SelectedRect {
 }
 
 /**
- * Editor → caller notifications. Mutable so {@link useGrapes}'s `onChange` etc.
- * can install handlers after the editor is wired; the listeners read the current
- * value at fire time.
+ * editor → caller への通知。mutable にしてあるのは、editor 配線後に `useGrapes.ts` の
+ * `onChange` 等が後付けで handler を差し込めるようにするため。listener は発火時点の
+ * 現在値を読む。
  */
 export interface GrapesCallbacks {
   change?: () => void;
@@ -26,27 +33,27 @@ export interface GrapesCallbacks {
 export interface GrapesEventDeps {
   selected: Ref<SelectedInfo | null>;
   selectedRect: Ref<SelectedRect | null>;
-  /** Bumped on every component/style change so callers can recompute geometry. */
+  /** component/style 変更ごとに加算され、呼び出し側が幾何を再計算できるようにする。 */
   revision: Ref<number>;
   zoom: Ref<number>;
   refreshRect: () => void;
   refreshMove: () => void;
-  /** Rescan the canvas for page-break elements (content/style changes only). */
+  /** canvas を再走査して page-break 要素を拾い直す(content/style 変更時のみ)。 */
   recomputeBreakEls: () => void;
-  /** Re-read page-boundary guide positions (scroll/zoom/content changes). */
+  /** ページ境界 guide の位置を読み直す(scroll/zoom/content 変更時)。 */
   refreshPageGuides: () => void;
   toInfo: (comp: Component) => SelectedInfo;
-  /** Canvas read-only flag getter (blocks RTE while selectable). */
+  /** canvas の read-only フラグ getter(選択は可だが RTE をブロック)。 */
   isLocked: () => boolean;
-  /** Combined jinja + A4 styles injected into the canvas document on load. */
+  /** load 時に canvas document へ注入する jinja + A4 の合成スタイル。 */
   canvasCss: string;
   callbacks: GrapesCallbacks;
 }
 
 /**
- * Register all GrapesJS editor listeners for the custom 3-pane editor. Extracted
- * from {@link useGrapes} so `init()` stays small; the event semantics, names, and
- * order are unchanged from the inline version.
+ * 3-pane editor 用に GrapesJS editor の listener を一括登録する。`init()` を小さく
+ * 保つため `useGrapes.ts` から切り出したもので、イベントの意味・名前・登録順は
+ * inline 版から不変。
  */
 export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   const {
@@ -61,7 +68,7 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     toInfo,
     callbacks,
   } = deps;
-  // Local to the listeners: RTE start snapshot and the drag-start sibling index.
+  // listener 内ローカル: RTE 開始時の snapshot と、drag 開始時の兄弟 index。
   let rteStartHtml = '';
   let dragStartIndex = -1;
 
@@ -72,13 +79,13 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
       styleEl.textContent = deps.canvasCss;
       docu.head.appendChild(styleEl);
     }
-    // open at 100% (fixed; manual +/- adjusts from there)
+    // 100% で開く(固定。以後は手動の +/- でそこから調整する)
     try {
       ed.Canvas.setZoom(zoom.value * 100);
     } catch {
-      /* zoom API unavailable — ignore */
+      /* zoom API が無い環境 — 無視する */
     }
-    // page-boundary guides: scan once now that styles/components are in place
+    // ページ境界 guide: styles/components が出揃ったこの時点で一度走査する
     recomputeBreakEls();
     refreshPageGuides();
   });
@@ -94,7 +101,7 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     selectedRect.value = null;
     refreshMove();
   });
-  // scroll: positions only (reuse the cached break-element set — cheap)
+  // scroll: 位置のみ再計算(cache 済みの break 要素集合を再利用 — 軽い)
   const onScroll = () => {
     refreshRect();
     refreshPageGuides();
@@ -106,21 +113,21 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     revision.value++;
     refreshRect();
     refreshMove();
-    // content/style may have added/removed page breaks — rescan, then reposition
+    // content/style が page break を増減した可能性 — 再走査してから再配置する
     recomputeBreakEls();
     refreshPageGuides();
     callbacks.change?.();
   };
-  // inline text editing (RTE): notify start (for an undo snapshot) and end
-  // (with whether the content actually changed). Blocked while locked.
+  // inline text 編集(RTE): 開始(undo snapshot 用)と終了(実際に内容が変わったか)を
+  // 通知する。locked の間はブロックする。
   ed.on('rte:enable', (view: { el?: HTMLElement }) => {
     if (deps.isLocked()) {
-      // Belt-and-suspenders: components are set editable:false when locked, so
-      // RTE shouldn't enable, but bail out defensively if it ever does.
+      // 二重の安全策: locked 時は `Component` を editable:false にしてあるので RTE は
+      // 有効化されないはずだが、万一発火した場合は防御的に抜ける。
       try {
         ed.stopCommand('core:component-edit');
       } catch {
-        /* command unavailable — ignore */
+        /* command が無い環境 — 無視する */
       }
       return;
     }
@@ -132,7 +139,7 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     if (changed) {
       revision.value++;
       refreshRect();
-      refreshPageGuides(); // edited text can change the sheet height / boundaries
+      refreshPageGuides(); // テキスト編集で sheet 高さ / 境界が変わりうる
       callbacks.change?.();
     }
     callbacks.textEnd?.(changed);
@@ -143,9 +150,9 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   ed.on('component:remove', fireChange);
   ed.on('style:update', fireChange);
 
-  // native drag-to-reorder: snapshot for undo on start, record history on end
-  // (only when the component actually changed siblings position). Read the
-  // selection directly rather than trusting the (version-specific) payload.
+  // native な drag-to-reorder: 開始時に undo 用 snapshot、終了時に history を記録する
+  // (`Component` の兄弟内位置が実際に変わったときだけ)。version 依存の payload を
+  // 信用せず、selection を直接読む。
   ed.on('component:drag:start', () => {
     dragStartIndex = ed.getSelected()?.index?.() ?? -1;
     callbacks.reorderStart?.();

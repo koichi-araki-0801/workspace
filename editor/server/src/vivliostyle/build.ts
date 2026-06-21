@@ -1,24 +1,27 @@
+// =============================================================================
+// build.ts — `@vivliostyle/cli` で PDF をビルドする(inline / project)
+// =============================================================================
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 import { sharedInlineConfig } from './options.js';
 
-/** Inline (rendered HTML + optional CSS) build input. */
+/** inline(レンダリング済み HTML + 任意の CSS)ビルド入力。 */
 export interface BuildInlineInput {
   html: string;
   css?: string;
-  /** Page size handed to vivliostyle (default 'A4'). */
+  /** vivliostyle へ渡すページサイズ(既定 'A4')。 */
   size?: string;
-  /** Treat the input as a single document (no per-file pagination). */
+  /** 入力を単一ドキュメントとして扱う(ファイル単位のページ分割をしない)。 */
   singleDoc?: boolean;
 }
 
 /**
- * Generate a PDF from rendered HTML (+ optional CSS) using `@vivliostyle/cli`.
- * The CSS is inlined into the HTML before handing it to vivliostyle.
+ * レンダリング済み HTML(+ 任意の CSS)から `@vivliostyle/cli` で PDF を生成する。
+ * CSS は vivliostyle へ渡す前に HTML へインライン展開する。
  *
- * With `{html, css}` only (size defaulting to 'A4'), this reproduces the old
- * `htmlToPdf` call byte-for-byte — the inline route is a drop-in replacement.
+ * `{html, css}` のみ(size は 'A4' 既定)の場合、旧 `htmlToPdf` 呼び出しをバイト単位で
+ * 再現する。inline 経路はそのドロップイン置換である。
  */
 export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
   await fs.mkdir(config.tmpDir, { recursive: true });
@@ -45,29 +48,29 @@ export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
   }
 }
 
-/** Project (extracted dir) build input. See `projectInput.ts`. */
+/** project(展開済みディレクトリ)ビルド入力。`projectInput.ts` を見よ。 */
 export interface BuildProjectInput {
-  /** Directory holding the extracted vivliostyle project. */
+  /** 展開済み vivliostyle プロジェクトを格納するディレクトリ。 */
   dir: string;
-  /** `vivliostyle.config.*` path when present (preferred entry). */
+  /** `vivliostyle.config.*` のパス(存在すれば優先エントリ)。 */
   configPath?: string;
-  /** Relative entry file used when there is no config. */
+  /** config が無い場合に使う相対エントリファイル。 */
   entry?: string;
   size?: string;
   singleDoc?: boolean;
 }
 
 /**
- * Build a PDF from an extracted vivliostyle project directory. Uses the
- * project's `vivliostyle.config.*` when present, otherwise a single entry file.
+ * 展開済み vivliostyle プロジェクトディレクトリから PDF をビルドする。プロジェクトの
+ * `vivliostyle.config.*` があればそれを、無ければ単一エントリファイルを使う。
  */
 export async function buildProjectPdf(input: BuildProjectInput): Promise<Buffer> {
   const pdfPath = path.join(input.dir, `__out-${Date.now()}.pdf`);
 
   try {
     const { build } = await import('@vivliostyle/cli');
-    // `cwd` is set in both cases so vivliostyle resolves entries relative to the
-    // extracted project dir, not the server's working directory.
+    // どちらの場合も `cwd` を設定し、vivliostyle がエントリをサーバの作業ディレクトリ
+    // ではなく展開済みプロジェクトディレクトリ基準で解決するようにする。
     const entry = input.configPath
       ? { config: input.configPath, cwd: input.dir }
       : { cwd: input.dir, input: input.entry };
@@ -86,9 +89,9 @@ export async function buildProjectPdf(input: BuildProjectInput): Promise<Buffer>
 }
 
 /**
- * Write an inline (HTML + CSS) document into a fresh temp directory for live
- * preview. Unlike {@link buildInlinePdf} the file must persist (the preview
- * server serves it live), so the caller owns cleanup of the returned dir.
+ * inline(HTML + CSS)ドキュメントをライブプレビュー用に新規 temp ディレクトリへ書き出す。
+ * `buildInlinePdf` と異なりファイルは残し続ける必要がある(プレビューサーバがライブ配信する)
+ * ため、返したディレクトリのクリーンアップは呼び出し側の責務とする。
  */
 export async function prepareInlineDoc(
   input: BuildInlineInput,
@@ -102,7 +105,7 @@ export async function prepareInlineDoc(
   return { dir, entry };
 }
 
-/** Inline a CSS string into an HTML document (head, body, or full wrapper). */
+/** CSS 文字列を HTML ドキュメントへインライン展開する(head / body / 完全ラッパ)。 */
 function inlineCss(html: string, css: string): string {
   if (!css) return html;
   const styleTag = `<style>\n${css}\n</style>`;

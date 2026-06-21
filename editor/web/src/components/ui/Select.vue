@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// =============================================================================
+// Select.vue — `reka-ui` の Select プリミティブを束ねたセレクトボックス
+// =============================================================================
+// `options` は文字列か `{ label, value }` を受け、`normalized` で後者へ揃える。
 import { Check, ChevronDown } from '@lucide/vue';
 import {
   SelectContent,

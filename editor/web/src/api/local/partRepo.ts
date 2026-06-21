@@ -1,3 +1,6 @@
+// =============================================================================
+// partRepo.ts — パーツ分類カスケードとパーツ履歴の local 実装
+// =============================================================================
 import type {
   PartCatalogItem,
   PartClassificationQuery,
@@ -7,7 +10,7 @@ import type {
 import { attempt } from './attempt';
 import { currentUser, delay, K, now, partCatalog, read, uid, uniq, write } from './store';
 
-// 分類フィルタは「上位が一致して初めて下位を見る」カスケード。各段の述語を 1 か所に
+// 分類フィルタは「上位が一致して初めて下位を見る」cascade。各段の述語を 1 か所に
 // 定義し、候補生成(段階別)と一覧(最下位まで)の両方で共有する。
 const cls = (i: PartCatalogItem) => i.classification;
 const matchCat = (i: PartCatalogItem, q: PartClassificationQuery) =>

@@ -1,5 +1,9 @@
+// =============================================================================
+// editor_leader_geom.test.ts — `leader_geom.cjs` の純粋関数の単体テスト (vitest)
+// =============================================================================
+
 import { describe, expect, it } from "vitest";
-// ui.html と共有する純粋関数 (UMD/CJS)。default import で module.exports を取り出す。
+// `ui.html` と共有する純粋関数 (UMD/CJS)。default import で `module.exports` を取り出す。
 import geom from "../lib/leader_geom.cjs";
 
 const { clampPointToBox, parsePath, buildPath, parseTranslate, normColor } = geom as {

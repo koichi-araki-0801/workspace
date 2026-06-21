@@ -1,6 +1,9 @@
+// =============================================================================
+// labels.ts — `UserRole` の表示ラベル
+// =============================================================================
 import type { UserRole } from '@editor/shared';
 
-/** Display labels for user roles — keeps the all-Japanese UI consistent. */
+/** `UserRole` の表示ラベル — 全日本語 UI の一貫性を保つ。 */
 export const ROLE_LABELS: Record<UserRole, string> = {
   admin: '管理者',
   editor: '編集者',

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// CompareSideSelector.vue — 比較の片側(A/B)でテンプレートと版を選ぶセレクタ
+// =============================================================================
 import { type DropdownQuery, isErr, type TemplateMeta, type TemplateVersionMeta } from '@editor/shared';
 import { computed, onMounted, ref, watch } from 'vue';
 import Label from '@/components/ui/Label.vue';
@@ -39,7 +42,7 @@ async function refreshCandidates(query: DropdownQuery) {
   const res = await run(() => compare.listCandidates(query));
   if (isErr(res)) return;
   candidates.value = res.value;
-  // 絞り込み後に現在の選択が一覧から消えたらクリアする。
+  // 絞り込み後に現在の選択が候補一覧から消えたらクリアする。
   if (!res.value.some((c) => c.meta.id === templateId.value)) pick(null);
 }
 
@@ -58,8 +61,8 @@ watch(templateId, async (id) => {
   if (!id) return;
   const res = await run(() => compare.listVersions(id));
   if (isErr(res)) return;
-  versions.value = res.value; // newest first
-  historyId.value = res.value[0]?.historyId; // 既定で最新版
+  versions.value = res.value; // 新しい順(newest first)
+  historyId.value = res.value[0]?.historyId; // 既定で最新版を選ぶ
   emitChange();
 });
 

@@ -28,6 +28,11 @@ export type ButtonVariants = VariantProps<typeof buttonVariants>;
 </script>
 
 <script setup lang="ts">
+// =============================================================================
+// Button.vue — `cva` で variant/size を切り替える共通ボタン
+// =============================================================================
+// `buttonVariants` は同 module の `<script lang="ts">` で公開し、`ConfirmDialog.vue`
+// などボタン以外の要素にも同じスタイルを適用できるようにしている。
 import { cn } from '@/lib/utils';
 
 withDefaults(

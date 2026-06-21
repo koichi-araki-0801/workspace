@@ -1,3 +1,8 @@
+// =============================================================================
+// useAutosave.ts — 常時 autosave の composable(debounce + save state)
+// =============================================================================
+// 役割: `Result` を返す save 関数を debounce し、その進行状態を ref で公開する。
+
 import { isErr, type Result, toAppError } from '@editor/shared';
 import { onUnmounted, ref } from 'vue';
 import { logError } from '@/lib/appError';
@@ -5,12 +10,11 @@ import { logError } from '@/lib/appError';
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 /**
- * Always-on autosave: debounce a `Result`-returning save and expose its state.
+ * 常時 autosave: `Result` を返す save を debounce し、その state を公開する。
  *
- * On failure the cause is always logged (never swallowed) and the state goes to
- * `error` — which the editor surfaces prominently (status line, retry button,
- * navigation guard), so we deliberately don't also toast on every debounced
- * failure.
+ * 失敗時は原因を必ず log する(握り潰さない)。state は `error` へ移り、editor が
+ * 目立つ形(status line / 再試行ボタン / navigation guard)で見せるため、debounce
+ * された失敗ごとに toast を重ねて出すことは敢えてしない。
  */
 export function useAutosave(save: () => Promise<Result<void>>, debounceMs = 800) {
   const state = ref<SaveState>('idle');

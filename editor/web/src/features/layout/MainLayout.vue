@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// MainLayout.vue — アプリ共通シェル(ヘッダ/タブナビ/`RouterView`)
+// =============================================================================
 import { FilePlus2, FileText, GitCompare, History, Pencil, Shield } from '@lucide/vue';
 import { computed } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';

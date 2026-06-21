@@ -1,26 +1,22 @@
-/**
- * Zod schemas that mirror the shared domain & API-contract types
- * (`@editor/shared`), annotated with OpenAPI metadata via Zod 4's native
- * `.meta()`.
- *
- * These are the SINGLE SOURCE OF TRUTH for both:
- *   - runtime request validation in the route handlers, and
- *   - the generated OpenAPI document (`./document.ts`).
- *
- * Each schema carries `.meta({ id })` so it is emitted as a reusable
- * `#/components/schemas/<id>` entry and referenced by `$ref` everywhere it is
- * used. Keep these in lockstep with the TypeScript types in
- * `editor/shared/src/index.ts`.
- */
+// =============================================================================
+// schemas.ts — 共有ドメイン / API 契約型(`@editor/shared`)を写した Zod スキーマ群
+// =============================================================================
+// Zod 4 ネイティブの `.meta()` で OpenAPI メタデータを付与する。
+//
+// これらは次の両方の唯一の正典(single source of truth):
+//   - ルートハンドラでの実行時リクエスト検証
+//   - 生成される OpenAPI ドキュメント(`document.ts`)
+//
+// 各スキーマは `.meta({ id })` を持ち、再利用可能な `#/components/schemas/<id>` として
+// 出力され、使用箇所すべてで `$ref` 参照される。`editor/shared/src/index.ts` の
+// TypeScript 型と常に同期させること。
 
-// Importing zod-openapi augments Zod's `.meta()` typings with OpenAPI-specific
-// fields (`id`, `param`, ...). No runtime effect.
+// zod-openapi を import すると Zod の `.meta()` 型が OpenAPI 固有フィールド
+// (`id`, `param` ...)で拡張される。実行時の影響は無い。
 import 'zod-openapi';
 import { z } from 'zod';
 
-// ---------------------------------------------------------------------------
-// Template identity
-// ---------------------------------------------------------------------------
+// ── 1. Template identity — テンプレート同定 ──
 
 export const TemplateStatus = z.enum(['draft', 'published']).meta({ id: 'TemplateStatus' });
 
@@ -62,17 +58,13 @@ export const TemplateDraft = z
   })
   .meta({ id: 'TemplateDraft' });
 
-// ---------------------------------------------------------------------------
-// Sample data (nunjucks preview context, keyed by fundCode)
-// ---------------------------------------------------------------------------
+// ── 2. Sample data — プレビュー用サンプル(nunjucks コンテキスト, fundCode をキー) ──
 
 export const SampleData = z
   .record(z.string(), z.unknown())
   .meta({ id: 'SampleData', description: 'プレビュー用サンプルデータ(任意の JSON)' });
 
-// ---------------------------------------------------------------------------
-// Users / auth
-// ---------------------------------------------------------------------------
+// ── 3. Users / auth — ユーザと認証 ──
 
 export const UserRole = z.enum(['admin', 'editor', 'viewer']).meta({ id: 'UserRole' });
 
@@ -133,9 +125,7 @@ export const UpdateUserRequest = z
   .partial()
   .meta({ id: 'UpdateUserRequest' });
 
-// ---------------------------------------------------------------------------
-// History (3 global feeds + per-part history + snapshots)
-// ---------------------------------------------------------------------------
+// ── 4. History — グローバル 3 フィード + パーツ単位履歴 + スナップショット ──
 
 export const EditHistoryEntry = z
   .object({
@@ -206,11 +196,9 @@ export const RecordPartChangeRequest = z
   .object({ change: z.string() })
   .meta({ id: 'RecordPartChangeRequest' });
 
-// ---------------------------------------------------------------------------
-// Dropdown (cascading) query/options
-// ---------------------------------------------------------------------------
+// ── 5. Dropdown — カスケードドロップダウンの query / options ──
 
-/** Query params for the cascading dropdowns (all optional). */
+/** カスケードドロップダウンのクエリパラメータ(すべて任意)。 */
 export const DropdownQuery = z.object({
   companyCode: z.string().optional(),
   fundCode: z.string().optional(),
@@ -227,16 +215,14 @@ export const DropdownOptions = z
   })
   .meta({ id: 'DropdownOptions' });
 
-/** Query params for `GET /templates/series`. */
+/** `GET /templates/series` のクエリパラメータ。 */
 export const SeriesFundsQuery = z.object({
   companyCode: z.string(),
   fundCode: z.string(),
   editionType: z.string(),
 });
 
-// ---------------------------------------------------------------------------
-// Parts catalog
-// ---------------------------------------------------------------------------
+// ── 6. Parts catalog — パーツカタログ ──
 
 export const PartClassification = z
   .object({
@@ -269,7 +255,7 @@ export const PartCatalogItem = z
   })
   .meta({ id: 'PartCatalogItem' });
 
-/** Query params for the cascading parts classification (all optional). */
+/** カスケードするパーツ分類のクエリパラメータ(すべて任意)。 */
 export const PartClassificationQuery = z.object({
   category: z.string().optional(),
   majorClass: z.string().optional(),
@@ -277,9 +263,7 @@ export const PartClassificationQuery = z.object({
   minorClass: z.string().optional(),
 });
 
-// ---------------------------------------------------------------------------
-// Generate / draft / confirm-save / pdf request bodies
-// ---------------------------------------------------------------------------
+// ── 7. Generate / draft / confirm-save / pdf — リクエストボディ群 ──
 
 export const GenerateRequest = z
   .object({
@@ -301,8 +285,8 @@ export const SaveDraftRequest = z
   .meta({ id: 'SaveDraftRequest' });
 
 /**
- * Confirm-save body. `templateId` is taken from the path, so the body carries
- * only the content. Matches the existing `PUT /templates/:id` handler.
+ * 確定保存のボディ。`templateId` はパスから取るため、ボディは内容のみを運ぶ。
+ * 既存の `PUT /templates/:id` ハンドラに対応する。
  */
 export const ConfirmSaveBody = z
   .object({
@@ -312,10 +296,10 @@ export const ConfirmSaveBody = z
   })
   .meta({ id: 'ConfirmSaveBody' });
 
-/** confirmSave returns the updated TemplateMeta (matches the repository contract). */
+/** `confirmSave` は更新後の `TemplateMeta` を返す(Repository 契約に対応)。 */
 export const ConfirmSaveResult = TemplateMeta;
 
-/** Inline build request body (rendered HTML + optional CSS → PDF). */
+/** インライン build のリクエストボディ(レンダリング済み HTML + 任意 CSS → PDF)。 */
 export const BuildInlineRequest = z
   .object({
     html: z.string().min(1).meta({ description: 'レンダリング済み(nunjucks)HTML' }),
@@ -325,7 +309,7 @@ export const BuildInlineRequest = z
   })
   .meta({ id: 'BuildInlineRequest' });
 
-/** A live-preview session's public metadata (no server internals exposed). */
+/** ライブプレビューセッションの公開メタデータ(サーバ内部情報は露出しない)。 */
 export const PreviewSession = z
   .object({
     id: z.string().meta({ description: 'プレビューセッション ID' }),
@@ -340,9 +324,7 @@ export const PreviewSession = z
 
 export const PreviewSessionList = z.array(PreviewSession).meta({ id: 'PreviewSessionList' });
 
-// ---------------------------------------------------------------------------
-// Cross-cutting
-// ---------------------------------------------------------------------------
+// ── 8. Cross-cutting — 横断的スキーマ ──
 
 export const HealthResult = z.object({ ok: z.literal(true) }).meta({ id: 'HealthResult' });
 
@@ -359,8 +341,8 @@ export const AppErrorKind = z
   .meta({ id: 'AppErrorKind' });
 
 /**
- * Standard error response body. Mirrors `@editor/shared`'s `AppError` minus
- * `cause` (which is log-only and never sent to clients).
+ * 標準のエラーレスポンスボディ。`@editor/shared` の `AppError` から `cause` を除いた形
+ * (`cause` はログ専用で、クライアントには決して送らない)。
  */
 export const AppError = z
   .object({

@@ -1,9 +1,9 @@
-/**
- * Template aggregate — server (REST) implementation backed by the gateway sproc
- * + on-disk bodies. Functions throw {@link AppError} on failure; route handlers
- * let the central errorHandler translate to HTTP. (The Result-returning
- * Repository contract is satisfied by the web `rest` layer; here we throw.)
- */
+// =============================================================================
+// templateRepo.ts — テンプレート集約のサーバ(REST)実装
+// =============================================================================
+// ゲートウェイ sproc とディスク上の本体を裏付けとする。各関数は失敗時に `AppError` を
+// throw し、ルートハンドラは中央の `errorHandler` に HTTP への変換を委ねる
+// (Result を返す Repository 契約は web の `rest` 層が満たす。ここでは throw する)。
 import { randomUUID } from 'node:crypto';
 import {
   type DropdownOptions,
@@ -54,7 +54,7 @@ function rowToMeta(r: Record<string, unknown>): TemplateMeta {
   };
 }
 
-/** Attribute params shared by 候補 / 一覧 (null when unset). */
+/** `候補` / `一覧` で共有する属性パラメータ(未設定時は null)。 */
 function queryParams(q: DropdownQuery): Param[] {
   return [
     p('委託会社コード', q.companyCode),
@@ -98,11 +98,11 @@ export async function getTemplate(id: string): Promise<Template> {
   const meta = rowToMeta(row);
   const html = await readTemplateHtml(meta.fileName);
   const css = await readFundCss(meta.attributes.fundCode);
-  // No static filled copy is persisted server-side; the editor re-fills at load time.
+  // 記入済みの静的コピーはサーバ側に保持しない。エディタが読み込み時に再差込する。
   return { meta, html, css, filled: '' };
 }
 
-/** Attribute params derived from a template id (filename convention). */
+/** テンプレート id(ファイル名規約)から導出する属性パラメータ。 */
 function attrParams(id: string): Param[] {
   const attrs = parseTemplateFileName(`${id}.html`);
   if (!attrs) return [p('ファイル名', `${id}.html`)];
@@ -160,13 +160,13 @@ export async function confirmSave(req: {
   const fileName = attrs ? templateFileName(attrs) : `${req.templateId}.html`;
   const historyId = `eh-${randomUUID()}`;
 
-  // 1) freeze snapshot bytes, then write the confirmed files (after backing up
-  //    the current bytes so a DB failure can be rolled back).
+  // 1) スナップショットのバイト列を凍結し、確定ファイルを書き込む(DB 失敗時に
+  //    ロールバックできるよう現在のバイト列をバックアップしてから書く)。
   await writeSnapshot(historyId, req.html, req.css);
   const prev = await snapshotCurrent(fileName, req.fundCode);
   await writeTemplateAndCss(fileName, req.html, req.fundCode, req.css);
 
-  // 2) commit the DB transaction; on failure restore the previous file bytes.
+  // 2) DB トランザクションをコミットする。失敗時は直前のファイルバイト列を復元する。
   try {
     const row = firstRow(
       await callSproc(SP.template, '確定保存', [
@@ -199,7 +199,7 @@ export async function getSampleData(fundCode: string): Promise<SampleData> {
   }
 }
 
-/** Register a freshly generated template into the 台帳 (status=draft). */
+/** 新規生成したテンプレートを `台帳` に登録する(status=draft)。 */
 export async function registerGenerated(attributes: TemplateAttributes, id: string): Promise<void> {
   await callSproc(SP.template, '生成登録', [
     p('テンプレートID', id),

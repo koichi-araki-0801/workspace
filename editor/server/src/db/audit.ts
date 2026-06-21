@@ -1,10 +1,10 @@
-/**
- * Mirror an audit event into the SQL Server audit table (best-effort副本).
- *
- * The durable source of truth stays the file log (`logs/audit.log`); this is a
- * queryable copy. Called only when `config.auditToDb` is on (REST deploys).
- * Failures are swallowed by the caller (`logger.audit`) so the app never stops.
- */
+// =============================================================================
+// audit.ts — 監査イベントを SQL Server の監査テーブルへ複写(ベストエフォート副本)
+// =============================================================================
+// 永続的な source of truth はファイルログ (`logs/audit.log`) のまま。これは
+// クエリ可能な複本にすぎない。`config.auditToDb` が有効なとき(REST デプロイ)
+// だけ呼ばれる。失敗は呼び出し元 (`logger.ts` の `logger.audit`) が握り潰すので
+// アプリが止まることはない。
 import type { AuditEvent } from '../logger.js';
 import { callSproc, p } from './sproc.js';
 import { SP } from './sprocNames.js';

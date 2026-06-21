@@ -1,3 +1,6 @@
+// =============================================================================
+// authRepo.ts — 認証の local 実装(fixtures + localStorage によるログイン/PW)
+// =============================================================================
 import {
   type AuthRepository,
   type LoginRequest,
@@ -13,7 +16,7 @@ export const localAuthRepo: AuthRepository = {
   login: (req: LoginRequest) =>
     attempt(() => {
       const user = listUsersSync().find((u) => u.username === req.username);
-      // Don't reveal whether the id exists: same message for unknown user / wrong password.
+      // ID の存在有無を漏らさない: 未知ユーザーとパスワード誤りで同一メッセージにする。
       if (!user) throw unauthorized('ユーザーIDまたはパスワードが違います');
       if (user.disabled) throw unauthorized('このアカウントは無効化されています');
       if (passwordFor(req.username) !== req.password)

@@ -1,3 +1,11 @@
+// =============================================================================
+// vivliostyle.routes.ts — vivliostyle build / preview の HTTP API ルータ
+// =============================================================================
+// このルータ(と `vivliostyle/*`)だけが `@vivliostyle/cli` を駆動する唯一の場所。
+//
+// preview では `strict` ルーティングが重要: `GET /preview/:id`(メタデータ)が末尾
+// スラッシュ付きビューア URL `/preview/:id/` にもマッチするのを防ぐ。後者(およびアセット
+// サブパス)は下の reverse-proxy 用 `.use` へフォールスルーさせたい。
 import { notFound, validation } from '@editor/shared';
 import { type Request, type Response, Router } from 'express';
 import type { z } from 'zod';
@@ -11,14 +19,7 @@ import { proxyToPreview } from '../vivliostyle/previewProxy.js';
 import { previewManager } from '../vivliostyle/previewServer.js';
 import { cleanupProject, extractProjectZip } from '../vivliostyle/projectInput.js';
 
-/**
- * vivliostyle build / preview HTTP API. This router (plus `vivliostyle/*`) is
- * the only place that drives `@vivliostyle/cli`.
- *
- * `strict` routing matters for preview: it keeps `GET /preview/:id` (metadata)
- * from also matching the trailing-slash viewer URL `/preview/:id/`, so the
- * latter (and asset sub-paths) fall through to the reverse-proxy `.use` below.
- */
+// `strict: true` の理由はファイル先頭ヘッダを参照。
 export const vivliostyleRouter = Router({ strict: true });
 
 const PREVIEW_HOST = config.vivliostyle.preview.host;
@@ -29,15 +30,15 @@ function sendPdf(res: Response, pdf: Buffer): void {
   res.send(pdf);
 }
 
-/** True when the request body is an uploaded zip (project mode). */
+/** リクエストボディがアップロードされた zip(project モード)なら true。 */
 function isZip(req: Request): boolean {
   return req.is(['application/zip', 'application/octet-stream']) !== false;
 }
 
 /**
- * Collect the raw request body (project zip) with a hard byte cap. zip uploads
- * use `application/zip`, which the global `express.json` ignores, so the stream
- * is still intact here. Overflow → validation (400).
+ * 生のリクエストボディ(project zip)をバイト数の上限付きで収集する。zip アップロードは
+ * `application/zip` を使い、グローバルの `express.json` はこれを無視するため、ストリームは
+ * ここで未消費のまま残る。上限超過は `validation`(400)。
  */
 function readZipBody(req: Request): Promise<Buffer> {
   const limit = config.vivliostyle.build.maxProjectBytes;
@@ -58,7 +59,7 @@ function readZipBody(req: Request): Promise<Buffer> {
   });
 }
 
-/** Optional query overrides shared by project build / preview. */
+/** project build / preview で共有する任意のクエリ上書き。 */
 function projectOptions(req: Request): { entry?: string; size?: string; singleDoc?: boolean } {
   const q = req.query;
   return {
@@ -68,7 +69,7 @@ function projectOptions(req: Request): { entry?: string; size?: string; singleDo
   };
 }
 
-// POST /api/build — inline (rendered HTML + CSS) → PDF. Replaces the old /pdf.
+// POST /api/build — inline(レンダリング済み HTML + CSS)→ PDF。旧 /pdf を置き換える。
 vivliostyleRouter.post('/build', requireAuth, validate(BuildInlineRequest), async (req, res) => {
   const body = req.body as z.infer<typeof BuildInlineRequest>;
   const detail = { mode: 'inline', htmlBytes: body.html.length, cssBytes: body.css.length };
@@ -80,7 +81,7 @@ vivliostyleRouter.post('/build', requireAuth, validate(BuildInlineRequest), asyn
   sendPdf(res, pdf);
 });
 
-// POST /api/build/project — vivliostyle project zip → PDF.
+// POST /api/build/project — vivliostyle の project zip → PDF。
 vivliostyleRouter.post('/build/project', requireAuth, async (req, res) => {
   const zip = await readZipBody(req);
   const project = await extractProjectZip(zip);
@@ -110,12 +111,12 @@ vivliostyleRouter.post('/build/project', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/preview — list active preview sessions (metadata only).
+// GET /api/preview — 稼働中のプレビューセッション一覧(メタデータのみ)。
 vivliostyleRouter.get('/preview', requireAuth, (_req, res) => {
   res.json(previewManager.list());
 });
 
-// POST /api/preview — start a live preview (inline JSON or project zip).
+// POST /api/preview — ライブプレビューを起動(inline JSON または project zip)。
 vivliostyleRouter.post('/preview', requireAuth, async (req, res) => {
   let meta: Awaited<ReturnType<typeof previewManager.start>>;
   if (isZip(req)) {
@@ -154,14 +155,14 @@ vivliostyleRouter.post('/preview', requireAuth, async (req, res) => {
   res.status(201).json(meta);
 });
 
-// GET /api/preview/:id — session metadata.
+// GET /api/preview/:id — セッションのメタデータ。
 vivliostyleRouter.get('/preview/:id', requireAuth, (req, res) => {
   const meta = previewManager.get(req.params.id as string);
   if (!meta) throw notFound('プレビューセッションが見つかりません');
   res.json(meta);
 });
 
-// DELETE /api/preview/:id — stop a session.
+// DELETE /api/preview/:id — セッションを停止する。
 vivliostyleRouter.delete('/preview/:id', requireAuth, async (req, res) => {
   const id = req.params.id as string;
   const stopped = await previewManager.stop(id);
@@ -175,8 +176,8 @@ vivliostyleRouter.delete('/preview/:id', requireAuth, async (req, res) => {
   res.status(204).end();
 });
 
-// ALL /api/preview/:id/* — reverse-proxy to the loopback Vite preview server.
-// Registered after the exact :id routes so they win for the bare path.
+// ALL /api/preview/:id/* — ループバックの Vite プレビューサーバへ reverse-proxy する。
+// 完全一致の :id ルートより後に登録し、素のパスはそちらが優先されるようにする。
 vivliostyleRouter.use('/preview/:id', requireAuth, (req, res, next) => {
   const id = req.params.id as string;
   const port = previewManager.portOf(id);

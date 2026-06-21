@@ -1,8 +1,12 @@
+// =============================================================================
+// constants.js — 調整用定数・既定スタイル・UI 文言・操作表の一元管理
+// =============================================================================
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-// 純粋関数 (parsePath 等) は js/geom.js へ分離し、各モジュールが import する。
+// 純粋関数 (`parsePath` 等) は `geom.js` へ分離し、各モジュールが import する。
 
-// 文字色の正規値 (生成側: 通常=#111111 / inside=#ffffff)。比較・既定値に使う。
+// 文字色の正規値 (生成側: 通常=`#111111` / inside=`#ffffff`)。比較・既定値に使う。
 const WHITE = "#ffffff";
 const BLACK = "#111111";
 
@@ -25,7 +29,7 @@ const CONFIG = {
   defaultLineSpacing: 1.1, // 行間 (em)。SVG から検出できない時の既定
 };
 
-// 新規 leader の既定 stroke 系属性 (既存 leader が無い場合に使用)
+// 新規 leader の既定 `stroke` 系属性 (既存 leader が無い場合に使用)
 const DEFAULT_LEADER_STYLE = {
   stroke: "#6a6a6a", "stroke-width": "1.008",
   "stroke-linecap": "round", "stroke-linejoin": "round",
@@ -47,9 +51,9 @@ const LEGEND_HTML = `
   <div class="lr"><i class="o"></i>アンカー<small>起点・固定</small></div>
 </div>`;
 
-// インスペクタのボタン操作表。{ guard(s):状態が操作可能か, run(editor, s):状態変更 }。
-// 共通の pushHistory / markDirty は inspectorAction() 側で 1 度だけ行う。
-// _auto=false は「明示操作したら以後のドラッグで位置駆動の自動上書きをしない」印。
+// インスペクタのボタン操作表。`{ guard(s):状態が操作可能か, run(editor, s):状態変更 }`。
+// 共通の `pushHistory` / `markDirty` は `editor.js` の `inspectorAction` 側で 1 度だけ行う。
+// `_auto=false` は「明示操作したら以後のドラッグで位置駆動の自動上書きをしない」印。
 const INSPECTOR_ACTIONS = {
   leaderOn:     { guard: (s) => s.leaderPts.length && !s.leaderVisible,
                   run: (e, s) => { s.leaderVisible = true; s._auto = false; } },

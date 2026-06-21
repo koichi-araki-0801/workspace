@@ -1,10 +1,13 @@
 <script setup lang="ts">
+// =============================================================================
+// Step.vue — ガイドカード内の番号付きステップ 1 行
+// =============================================================================
 import { Check } from '@lucide/vue';
 import { computed } from 'vue';
 
 /**
- * One numbered step row inside a guided card: number badge + vertical connector
- * on the left, title/hint/content on the right. `active`/`done` drive the tone.
+ * ガイドカード内の番号付きステップ 1 行。左に番号バッジ＋縦の connector、右に
+ * title/hint/content を並べる。`active`/`done` が配色トーンを決める。
  */
 const props = withDefaults(
   defineProps<{
@@ -13,7 +16,7 @@ const props = withDefaults(
     hint?: string;
     active?: boolean;
     done?: boolean;
-    /** draw the connector line below the badge (false on the last step) */
+    /** バッジ下に connector 線を描く(最終ステップでは `false`)。 */
     connector?: boolean;
   }>(),
   { connector: true },

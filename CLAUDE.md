@@ -70,29 +70,38 @@
 
 ## コメント規約（全体）
 
-- すべてのコードのコメントは **graph2 の「コメント規約」**(`graph2/README.md` の
-  「コメント規約」節）に準拠する。要点:
-  - **言語**: 日本語の散文 + 英語ドメイン用語を併用（ドメイン用語を無理に和訳しない）。
-  - **識別子はバッククォート**: 関数名・型名・定数・変数名・ファイル名は `` `name` `` で囲む。
-  - **クロスファイル参照**: 「他ファイルの定義を見よ」は `` `<basename>.ts` の `<symbol>` `` 形に統一。
-  - **重複は集約**: 正典を 1 つ決め、他所はそこへの相互参照に短縮する。
-  - **体裁**: ファイル先頭は装飾ボックスヘッダ、節区切りは `// ── N. ラベル ──`。コメント行は
-    おおむね 100 桁以内、括弧は ASCII `()`。
-  - 「なぜ」「非自明なロジック」を説明する（自明な what は書かない）。
+- コメント規約の正典は **`docs/コメント規約.md`**（全プロジェクト共通）。共通原則（なぜを書く /
+  日本語散文 + 英語ドメイン用語 / 識別子バッククォート / クロスファイル参照形式 / 重複は集約 /
+  100 桁・ASCII 括弧）と言語別付録（`.ts/.js` 装飾ボックス・`// ── N. ──`、`.py` docstring・
+  `# ── ラベル ──`、`.ps1` comment-based help）はそちらを参照。
+- **コード修正時は既存・新規いずれのコードも必ず本規約に従う**こと。
+- 強制の仕組み: `Edit`/`Write` 時に規約をリマインドする PreToolUse フック
+  (`.claude/hooks/comment-convention-reminder.cjs`) と、機械判定可能な項目を検査する CI チェック
+  (`pnpm run check:comments`、`ci` に組込み) を併設する。
 - graph2 配下は上記に加えて、コメントのみの変更でも `out/_baseline` との **byte-diff 不変**が鉄則
   （詳細は下記 graph2 節）。
 
-## Word ドキュメント（.docx）
+## ドキュメント（.docx / .xlsx）
 
-- Word(.docx) を生成・編集する際のフォントは **Meiryo UI** に統一する。本文・見出し・表など
-  すべてのランで、ASCII(`w:ascii`/`w:hAnsi`)・東アジア(`w:eastAsia`)の双方に `Meiryo UI` を設定する。
-  - python-docx の場合: `run.font.name = "Meiryo UI"` に加え、
-    `run._element.rPr.rFonts.set(qn("w:eastAsia"), "Meiryo UI")` を必ず併設する
-    （`eastAsia` を設定しないと日本語グリフが既定フォントに落ちる）。
-  - 等幅が必要な箇所のみ別途等幅フォントを使ってよいが、本文系は Meiryo UI を既定とする。
-- 生成スクリプト（共通エンジン `docs/_build/md2docx.py`）の既定フォント定数もこの規約に合わせる。
-  各文書は `docs/<project>/src/*.md`（Markdown 正典）で持ち、`docs/_build/build_all.py`（または `.bat`）で
-  一括 `.docx` 生成する。原稿のフロントマター `out` が出力 docx 名、画像基準は `docs/<project>/images/`。
+- 配布ドキュメントのフォントは **BIZ UD ファミリ**に統一する: 本文 `BIZ UDPGothic`（プロポーショナル）、
+  等幅 `BIZ UDGothic`（コード・識別子・けた揃え）。両者は同一 BIZ UD ファミリなので混在して見えない。
+  MS Gothic / Meiryo UI の混在は廃止。Windows 10+ 同梱（無ければ Microsoft Store の BIZ UD フォント）。
+  - すべてのランで ASCII(`w:ascii`/`w:hAnsi`)・東アジア(`w:eastAsia`)の双方に同じフォント名を設定する。
+  - python-docx の場合: `run.font.name = "BIZ UDPGothic"` に加え、
+    `run._element.rPr.rFonts.set(qn("w:eastAsia"), "BIZ UDPGothic")` を必ず併設する
+    （`eastAsia` を設定しないと日本語グリフが既定フォントに落ちる）。等幅は `BIZ UDGothic`。
+  - 配色は既存トークン（ACCENT `#1F5C99` / INK `#20242C` / MUTED `#606874` 等）を使い、新色を増やさない。
+- 文書種別で生成系を出し分ける。原稿は `docs/<project>/src/` に置き、`docs/_build/build_all.py`
+  （または `.bat`）で一括生成する:
+  - **流れる文書**（操作手順書・設計書・配布運用手順書）→ `*.md`（Markdown 正典）→ 共通エンジン
+    `docs/_build/md2docx.py` で **Word(.docx)**。front-matter `style` で案3 カード型(`guide`)／
+    案2 テクニカル型(`spec`) を出し分け（無指定はファイル名・title から推定）。`out` が出力 docx 名、
+    画像基準は `docs/<project>/images/`。
+  - **表が主役の文書**（画面項目定義・入出力定義・DB 定義・テスト仕様）→ `*.xlsx.yaml` →
+    `docs/_build/md2xlsx.py`（openpyxl）で **Excel(.xlsx)**。Word 版と共通トークンで、ヘッダ塗り・
+    ゼブラ・細罫線・ウィンドウ枠固定・オートフィルタ・A4 横の印刷設定を組む。`md2xlsx.py` は
+    PyYAML を使わず必要な YAML サブセットを自前パースする（オフライン依存追加を避けるため）。
+  - 両エンジンの既定フォント定数（`JP` / `MONO`）も上記 BIZ UD 規約に一致させる。
 
 ## graph2
 

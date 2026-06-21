@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// CompareCandidateTable.vue — 比較候補テンプレートの一覧テーブル(選択UI)
+// =============================================================================
 import type { TemplateMeta } from '@editor/shared';
 import { Check, Inbox } from '@lucide/vue';
 import FundCodeName from '@/components/FundCodeName.vue';
@@ -9,9 +12,9 @@ import type { CompareCandidate } from './services/compareService';
 const props = withDefaults(
   defineProps<{
     rows: CompareCandidate[];
-    /** id of the currently picked template (row highlight). */
+    /** 現在選択中テンプレートの `id`(行ハイライト用)。 */
     selectedId?: string;
-    /** 選択可能な最小版数。独立2選択（任意の2ファイル比較）では各側1版以上で可。 */
+    /** 選択可能な最小版数。独立2選択(任意の2ファイル比較)では各側1版以上で可。 */
     minVersions?: number;
   }>(),
   { minVersions: 2 },

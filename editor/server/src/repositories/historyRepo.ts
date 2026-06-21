@@ -1,8 +1,9 @@
-/**
- * History aggregate — server (REST) implementation. The 4 feeds + versions +
- * snapshot all read the unified 履歴 table (種別 discriminator); the server maps
- * each 種別's row shape to its DTO. Snapshot bodies are read from disk.
- */
+// =============================================================================
+// historyRepo.ts — 履歴集約のサーバ(REST)実装
+// =============================================================================
+// 4 つのフィード + バージョン + スナップショットはいずれも統合 `履歴` テーブル
+// (`種別` 判別子)を読み、サーバが各 `種別` の行形状を DTO へ写像する。
+// スナップショット本体はディスクから読む。
 import { randomUUID } from 'node:crypto';
 import {
   type CreateHistoryEntry,

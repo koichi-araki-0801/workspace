@@ -1,3 +1,6 @@
+// =============================================================================
+// pyTemplate.ts — Python テンプレート生成器を child_process で呼び出す
+// =============================================================================
 import { execFile } from 'node:child_process';
 import { config } from '../config.js';
 
@@ -9,11 +12,10 @@ export interface GenerateAttributes {
 }
 
 /**
- * Invoke the existing Python template generator via child_process. Attributes
- * are passed as a JSON argument; the generated template HTML is read from
- * stdout. NOTE: scripts/generate_template.py is currently a placeholder
- * implementing this JSON-in / HTML-out contract; swap in the real generator
- * there (keeping the same I/O contract) when it is integrated.
+ * 既存の Python テンプレート生成器を `child_process` 経由で呼び出す。属性は JSON 引数で
+ * 渡し、生成されたテンプレート HTML は stdout から読む。
+ * NOTE: `scripts/generate_template.py` は現状この JSON-in / HTML-out 契約を実装した
+ * プレースホルダ。統合時は同じ I/O 契約を保ったまま本物の生成器に差し替える。
  */
 export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -24,7 +26,7 @@ export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
         timeout: config.python.timeoutMs,
         maxBuffer: 16 * 1024 * 1024,
         encoding: 'utf8',
-        // Force the Python tool to emit UTF-8 (Windows defaults to cp932).
+        // Python ツールに UTF-8 出力を強制する(Windows の既定は cp932)。
         env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
       },
       (err, stdout, stderr) => {

@@ -1,3 +1,6 @@
+// =============================================================================
+// historyRepo.ts — 編集/PDF/作成履歴と版スナップショットの local 実装
+// =============================================================================
 import {
   type CreateHistoryEntry,
   type EditHistoryEntry,
@@ -31,8 +34,7 @@ export const localHistoryRepo: HistoryRepository = {
   listVersions: (templateId: string) =>
     attempt(() => {
       const snapshots = read<Record<string, TemplateSnapshot>>(K.snapshots, {});
-      // editHist is already newest-first; keep only this template's entries that
-      // have a stored snapshot.
+      // `editHist` は既に新しい順。当該テンプレートかつ snapshot を持つ entry だけ残す。
       const versions: TemplateVersionMeta[] = read<EditHistoryEntry[]>(K.editHist, [])
         .filter((e) => e.templateId === templateId && snapshots[e.id])
         .map((e) => ({

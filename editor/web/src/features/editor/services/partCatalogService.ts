@@ -1,3 +1,6 @@
+// =============================================================================
+// partCatalogService.ts — editor 左ペイン用 parts catalog の読み取り service
+// =============================================================================
 import type {
   PartCatalogItem,
   PartClassificationOptions,
@@ -7,7 +10,7 @@ import type {
 } from '@editor/shared';
 import { usePartRepo } from '@/api/repositories';
 
-/** Parts-catalog reads for the editor left pane. */
+/** editor 左ペイン用の parts catalog 読み取り。 */
 export interface PartCatalogService {
   getOptions(query: PartClassificationQuery): Promise<Result<PartClassificationOptions>>;
   list(query: PartClassificationQuery): Promise<Result<PartCatalogItem[]>>;

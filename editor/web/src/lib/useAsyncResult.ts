@@ -1,18 +1,21 @@
+// =============================================================================
+// useAsyncResult.ts — `Result` 返却の非同期処理を共通 loading + error 処理で実行
+// =============================================================================
 import { err, isErr, type Result, toAppError } from '@editor/shared';
 import { computed, ref } from 'vue';
 import { toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
 
 /**
- * Run a `Result`-returning async action with shared loading + error handling.
+ * `Result` を返す非同期アクションを, 共通の loading + error 処理付きで実行する。
  *
- * On `Err` it logs the cause and shows the (safe) message as a toast, then
- * returns the Result so the caller still branches with `isOk`. An unexpected
- * throw is converted to an `Err(AppError)` — never swallowed.
+ * `Err` 時は cause をログ出力し, (安全な)`message` を toast 表示してから Result を
+ * 返すため, 呼び出し側は引き続き `isOk` で分岐できる。想定外の throw は
+ * `Err(AppError)` へ変換する — 決して握り潰さない。
  *
- * `loading` is reference-counted so concurrent `run` calls on the same instance
- * (e.g. `Promise.all([run(...), run(...)])`) only report idle once *all* of them
- * settle — a single `finally` can't flip it off while a sibling is still pending.
+ * `loading` は参照カウント方式。同一インスタンスへの並行 `run` 呼び出し
+ * (例 `Promise.all([run(...), run(...)])`)は *全て* settle して初めて idle を報告
+ * する — 単一の `finally` では兄弟が pending 中に off へ倒せないため。
  */
 export function useAsyncResult() {
   const pending = ref(0);

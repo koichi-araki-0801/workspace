@@ -22,6 +22,8 @@ from .normalize import DEFAULT_OPTIONS, NormOptions, normalize
 
 @dataclass
 class Mapping:
+    """辞書 1 エントリ。`source_raw` は入力原文、`target` は置換後、`enabled` で適用可否。"""
+
     id: int
     source_raw: str
     target: str
@@ -29,6 +31,8 @@ class Mapping:
 
 
 class DictionaryStore:
+    """JSON ファイルを正典とするインメモリ辞書ストア (CRUD + 正規化 lookup)。"""
+
     def __init__(self, json_path: Path, options: NormOptions = DEFAULT_OPTIONS):
         self.path = Path(json_path)
         self.options = options
@@ -40,8 +44,9 @@ class DictionaryStore:
     def close(self) -> None:
         """API 互換のため残す。変更のたびに保存済みなので no-op。"""
 
-    # ---- 読み込み / 保存 ----
+    # ── 読み込み / 保存 ──
     def _load(self) -> None:
+        """JSON ファイルを読み込み `_mappings` を復元する (壊れていても起動は止めない)。"""
         self._mappings = []
         self._next_id = 1
         if self.path.exists():
@@ -65,6 +70,7 @@ class DictionaryStore:
         self._rebuild_index()
 
     def _rebuild_index(self) -> None:
+        """`source_norm` → `target` の lookup インデックスを enabled 分のみで再構築する。"""
         self._index = {}
         for m in self._mappings:
             if m.enabled:
@@ -72,6 +78,7 @@ class DictionaryStore:
                 self._index[normalize(m.source_raw, self.options)] = m.target
 
     def _save(self) -> None:
+        """全 `_mappings` を JSON へアトミック保存する (temp → `os.replace`)。"""
         data = [
             {"source": m.source_raw, "target": m.target, "enabled": m.enabled}
             for m in self._mappings
@@ -90,14 +97,16 @@ class DictionaryStore:
             raise
 
     def _find_by_norm(self, source_raw: str) -> Optional[Mapping]:
+        """`source_raw` の正規化キーに一致する最初の `Mapping` を返す (無ければ None)。"""
         norm = normalize(source_raw, self.options)
         for m in self._mappings:
             if normalize(m.source_raw, self.options) == norm:
                 return m
         return None
 
-    # ---- CRUD ----
+    # ── CRUD ──
     def add(self, source_raw: str, target: str, enabled: bool = True) -> int:
+        """新規エントリを追加し採番した `id` を返す。"""
         m = Mapping(id=self._next_id, source_raw=source_raw, target=target, enabled=enabled)
         self._next_id += 1
         self._mappings.append(m)
@@ -117,6 +126,7 @@ class DictionaryStore:
         return self.add(source_raw, target)
 
     def update(self, mid: int, source_raw: str, target: str, enabled: bool) -> None:
+        """`id` が `mid` のエントリを全フィールド更新する。"""
         for m in self._mappings:
             if m.id == mid:
                 m.source_raw = source_raw
@@ -127,11 +137,13 @@ class DictionaryStore:
         self._save()
 
     def delete(self, mid: int) -> None:
+        """`id` が `mid` のエントリを削除する。"""
         self._mappings = [m for m in self._mappings if m.id != mid]
         self._rebuild_index()
         self._save()
 
     def all(self) -> List[Mapping]:
+        """全エントリを `source_raw` 昇順のコピーで返す (内部状態は不変)。"""
         return sorted(
             (Mapping(m.id, m.source_raw, m.target, m.enabled) for m in self._mappings),
             key=lambda m: m.source_raw,
@@ -141,8 +153,9 @@ class DictionaryStore:
         """正規化キー一致で target を返す (enabled のみ)。"""
         return self._index.get(normalize(text, self.options))
 
-    # ---- JSON 入出力 (共有用。実体ファイルと同形式) ----
+    # ── JSON 入出力 (共有用。実体ファイルと同形式) ──
     def export_json(self, path: Path) -> None:
+        """全エントリを `path` へ JSON 書き出しする (実体ファイルと同形式)。"""
         data = [
             {"source": m.source_raw, "target": m.target, "enabled": m.enabled}
             for m in self.all()
@@ -152,6 +165,7 @@ class DictionaryStore:
         )
 
     def import_json(self, path: Path) -> int:
+        """`path` の JSON を `upsert` で取り込み、取り込んだ件数を返す。"""
         try:
             data = json.loads(Path(path).read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:

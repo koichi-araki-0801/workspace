@@ -1,10 +1,16 @@
+// =============================================================================
+// jinjaComponents.ts — locked な Jinja chip の GrapesJS component type 登録
+// =============================================================================
+// 役割: Jinja 構文を canvas 上でロックされた chip として扱うため、専用の
+// `Component` type を GrapesJS に登録し、chip 表示用の canvas CSS も提供する。
+
 import type { Editor } from 'grapesjs';
 
 /**
- * Register the locked Jinja chip component types. The chips are produced by
- * `toEditable` as `<span data-gjs-type="jinja-var|stmt|comment" data-jinja="…">`.
- * GrapesJS auto-assigns the type from `data-gjs-type`; here we make them
- * non-editable, keep their `data-jinja` source attribute, and label them.
+ * locked な Jinja chip の `Component` type 群を登録する。chip は `toEditable` が
+ * `<span data-gjs-type="jinja-var|stmt|comment" data-jinja="…">` として生成する。
+ * GrapesJS は `data-gjs-type` から type を自動割当する。ここでは非編集にし、
+ * `data-jinja` source 属性を保持させ、ラベルを付ける。
  */
 export function registerJinjaComponents(editor: Editor): void {
   const dc = editor.DomComponents;
@@ -14,7 +20,7 @@ export function registerJinjaComponents(editor: Editor): void {
     droppable: false,
     badgable: true,
     highlightable: true,
-    // keep the data-jinja source attribute through edits/export
+    // data-jinja source 属性を編集/export を通して保持する
     attributes: {},
   };
 
@@ -52,10 +58,10 @@ export function registerJinjaComponents(editor: Editor): void {
     },
   });
 
-  // Masked opaque content (produced by fillJinja.maskOpaque). Locked like other
-  // jinja chips so GrapesJS preserves it verbatim; the source lives in
-  // data-opaque and is restored by jinjaMask.toTemplate on save.
-  // jinja-script: <script>; jinja-math: MathJax (TeX) and MathML <math>.
+  // mask した opaque content(`fillJinja` の `maskOpaque` が生成)。他の jinja chip と
+  // 同様 locked にして GrapesJS に逐語保存させる。source は data-opaque にあり、保存時に
+  // `jinjaMask` の `toTemplate` が復元する。
+  // jinja-script: <script>。jinja-math: MathJax(TeX)と MathML の <math>。
   for (const type of ['jinja-script', 'jinja-math'] as const) {
     dc.addType(type, {
       model: {
@@ -71,7 +77,7 @@ export function registerJinjaComponents(editor: Editor): void {
   }
 }
 
-/** CSS injected into the GrapesJS canvas to visualise locked Jinja chips. */
+/** locked な Jinja chip を可視化するため GrapesJS canvas へ注入する CSS。 */
 export const jinjaChipCanvasCss = `
 .jinja-chip {
   display: inline-block;

@@ -1,7 +1,10 @@
+// =============================================================================
+// userVm.ts — ユーザー行の表示用 view-model(role/status をラベル + badge variant へ)
+// =============================================================================
 import type { User } from '@editor/shared';
 import { roleLabel } from '@/lib/labels';
 
-/** Display shape for a user row: role/status rendered as labels + badge variants. */
+/** ユーザー行の表示形状: role/status をラベルと badge variant で表す。 */
 export interface UserVm {
   id: string;
   username: string;
@@ -10,7 +13,7 @@ export interface UserVm {
   statusLabel: string;
   statusVariant: 'success' | 'secondary';
   needsPasswordReset: boolean;
-  /** The source entity, for action handlers. */
+  /** 操作ハンドラ用の元エンティティ。 */
   raw: User;
 }
 

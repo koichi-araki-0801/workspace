@@ -1,10 +1,15 @@
+"""pytest 共有フィクスチャ。テスト用 PDF を `fitz` で動的生成して `fixtures/` に置く。
+
+ベクタ/バナー/擬似スキャンの 3 種を session スコープで提供し、`engine` や
+`export` 層のテストへ渡す。
+"""
 import os
 from pathlib import Path
 
 import fitz
 import pytest
 
-# GUI を伴うテストはオフスクリーンで実行
+# GUI を伴うテストはオフスクリーンで実行 (`QT_QPA_PLATFORM=offscreen`)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -12,6 +17,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 @pytest.fixture(scope="session")
 def vector_pdf() -> Path:
+    """テキスト・線・塗り矩形を含むベクタ PDF。`load_document` の基本経路を覆う。"""
     FIXTURES.mkdir(exist_ok=True)
     path = FIXTURES / "vector_sample.pdf"
     doc = fitz.open()
@@ -45,7 +51,7 @@ def scanned_pdf() -> Path:
     FIXTURES.mkdir(exist_ok=True)
     path = FIXTURES / "scanned_sample.pdf"
 
-    # 画像を生成 (別ドキュメントをラスタ化)
+    # 背景画像を生成 (別ドキュメントを `get_pixmap` でラスタ化)
     tmp = fitz.open()
     tp = tmp.new_page(width=200, height=200)
     tp.insert_text((30, 60), "SCANNED", fontsize=20)

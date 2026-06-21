@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// HistoryTabView.vue — 履歴タブ (編集/PDF/作成を 1 つのフィルタバーで切替表示)
+// =============================================================================
 import {
   type CreateHistoryEntry,
   type EditHistoryEntry,
@@ -33,7 +36,7 @@ const edits = ref<EditHistoryEntry[]>([]);
 const pdfs = ref<PdfHistoryEntry[]>([]);
 const creates = ref<CreateHistoryEntry[]>([]);
 
-// One filter shared across types, so 実行者/期間/キーワード carry over when switching.
+// フィルタは全タイプで共有する。切替時も 実行者/期間/キーワード を引き継ぐため。
 const filter = ref<HistoryFilter>({});
 
 const editUsers = computed(() => uniq(edits.value.map((e) => e.user)));
@@ -55,7 +58,7 @@ const pagedPdfs = usePagedList(filteredPdfs);
 const pagedCreates = usePagedList(filteredCreates);
 
 const MONO = 'mono text-xs';
-// Shared widths so columns line up when switching history tabs (table-fixed layout).
+// 共通幅。履歴タブ切替時に列が揃うようにする (table-fixed レイアウト)。
 const W_TIME = 'w-[180px]';
 const W_ID = 'w-[260px]';
 const W_USER = 'w-[140px]';
@@ -77,7 +80,7 @@ const createColumns: HistoryColumn<CreateHistoryEntry>[] = [
   { header: '元テンプレート', cellClass: MONO, value: (e) => e.basedOnTemplateId ?? '—' },
 ];
 
-// Values fed to the single filter bar, switched by the active history type.
+// 単一のフィルタバーへ渡す値。アクティブな履歴タイプに応じて切り替える。
 const activeUsers = computed(() =>
   type.value === 'pdf' ? pdfUsers.value : type.value === 'create' ? createUsers.value : editUsers.value,
 );

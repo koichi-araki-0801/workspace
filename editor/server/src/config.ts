@@ -1,3 +1,9 @@
+// =============================================================================
+// config.ts — サーバ設定の解決(default < appconfig.json < env)
+// =============================================================================
+// 設定値の優先順位は default < `appconfig.json` < 環境変数(env)。
+// `appConfigSchema` でファイルを検証し、`config` として一元的に公開する。
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,11 +13,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
 
 /**
- * Resolve a usable browser executable for offline PDF generation.
- * Prefer the system Microsoft Edge (present on Windows) so vivliostyle never
- * tries to download Chromium from the internet (air-gapped operation).
- * Returns undefined when none is found, so online dev falls back to the
- * playwright-bundled browser.
+ * オフライン PDF 生成に使えるブラウザ実行ファイルを解決する。
+ * vivliostyle がインターネットから Chromium をダウンロードしないよう
+ * (air-gapped 運用)、Windows に存在するシステムの Microsoft Edge を優先する。
+ * 見つからない時は `undefined` を返し、オンライン開発では playwright 同梱の
+ * ブラウザにフォールバックさせる。
  */
 function resolveDefaultBrowser(): string | undefined {
   const candidates = [
@@ -22,9 +28,9 @@ function resolveDefaultBrowser(): string | undefined {
 }
 
 /**
- * appconfig.json schema. Every field is optional so a partial file (or no file
- * at all) is valid; missing keys fall back to built-in defaults. `.strict()`
- * rejects unknown keys to catch typos early.
+ * `appconfig.json` のスキーマ。全フィールドを optional とし、部分的なファイル
+ * (やファイルが無い場合)も妥当とする。欠けたキーは組み込みの既定値に
+ * フォールバックする。`.strict()` は未知キーを弾き、typo を早期に検出する。
  */
 const appConfigSchema = z
   .object({
@@ -67,7 +73,7 @@ const appConfigSchema = z
 
 type AppConfigFile = z.infer<typeof appConfigSchema>;
 
-/** Load and validate appconfig.json. Returns {} when the file is absent. */
+/** `appconfig.json` を読み込み検証する。ファイルが無ければ `{}` を返す。 */
 function loadFileConfig(): AppConfigFile {
   const file = process.env.APP_CONFIG ?? path.join(repoRoot, 'appconfig.json');
   if (!fs.existsSync(file)) return {};
@@ -92,15 +98,15 @@ function loadFileConfig(): AppConfigFile {
 
 const file = loadFileConfig();
 
-// --- Resolution helpers: precedence is default < appconfig.json < env ---------
+// ── 1. 解決ヘルパ — 優先順位は default < appconfig.json < env ──
 const toPath = (p: string) => path.resolve(repoRoot, p);
 
-/** Resolve a path setting (env wins, then file, then default), repoRoot-relative. */
+/** パス設定を解決する(env 優先、次に file、最後に default)。`repoRoot` 相対。 */
 function resolvePath(envVal: string | undefined, fileVal: string | undefined, def: string): string {
   return toPath(envVal ?? fileVal ?? def);
 }
 
-/** Parse a boolean env var ('true'/'false'); undefined when unset. */
+/** boolean の env 変数('true'/'false')を parse する。未設定なら `undefined`。 */
 function envBool(envVal: string | undefined): boolean | undefined {
   if (envVal === undefined) return undefined;
   return envVal.toLowerCase() === 'true';
@@ -114,19 +120,19 @@ const executableBrowser =
 export const config = {
   port: Number(process.env.PORT ?? file.port ?? 3001),
 
-  /** Directory holding the Jinja2 template files (filename convention). */
+  /** Jinja2 template ファイルを置くディレクトリ(ファイル名規約)。 */
   templatesDir: resolvePath(process.env.TEMPLATES_DIR, file.paths?.templatesDir, 'data/templates'),
-  /** Directory holding per-fund shared CSS files. */
+  /** ファンド別(per-fund)共有 CSS ファイルを置くディレクトリ。 */
   cssDir: resolvePath(process.env.CSS_DIR, file.paths?.cssDir, 'data/css'),
-  /** Autosave draft working copies (phase 2: html/css per template). */
+  /** 自動保存(autosave)ドラフトの作業コピー(phase 2: template ごとに html/css)。 */
   draftsDir: resolvePath(process.env.DRAFTS_DIR, file.paths?.draftsDir, 'data/drafts'),
-  /** Frozen confirm-save snapshots (phase 2: html/css per history id). */
+  /** 凍結された確定保存スナップショット(phase 2: history id ごとに html/css)。 */
   snapshotsDir: resolvePath(process.env.SNAPSHOTS_DIR, file.paths?.snapshotsDir, 'data/snapshots'),
 
-  /** Built web SPA to serve in production. */
+  /** 本番で配信するビルド済み web SPA。 */
   webDist: resolvePath(process.env.WEB_DIR, file.paths?.webDist, 'web/dist'),
 
-  /** Existing Python template generator. */
+  /** 既存の Python template ジェネレータ。 */
   python: {
     bin: process.env.PYTHON_BIN ?? file.python?.bin ?? 'python',
     script: resolvePath(
@@ -137,45 +143,45 @@ export const config = {
     timeoutMs: Number(process.env.PY_TIMEOUT_MS ?? file.python?.timeoutMs ?? 30000),
   },
 
-  /** Temp dir for vivliostyle PDF generation. */
+  /** vivliostyle の PDF 生成に使う一時ディレクトリ。 */
   tmpDir: resolvePath(process.env.TMP_DIR, file.paths?.tmpDir, '.tmp'),
 
-  /** PDF generation (vivliostyle) settings. */
+  /** PDF 生成(vivliostyle)の設定。 */
   pdf: {
     /**
-     * Browser executable handed to vivliostyle's build().
-     * env wins; then appconfig.json; then auto-detected system Edge; otherwise
-     * undefined (= playwright default, used in online development).
+     * vivliostyle の `build()` に渡すブラウザ実行ファイル。
+     * env 優先、次に `appconfig.json`、次に自動検出したシステムの Edge、
+     * いずれも無ければ `undefined`(= playwright 既定。オンライン開発で使う)。
      */
     executableBrowser: executableBrowser || undefined,
   },
 
   /**
-   * vivliostyle build / preview API settings. Defaults are tuned for the
-   * single-machine offline deployment; override via env when needed.
+   * vivliostyle の build / preview API 設定。既定値は単一マシンのオフライン
+   * デプロイ向けに調整済み。必要に応じて env で上書きする。
    */
   vivliostyle: {
-    /** Live-preview server lifecycle (see `vivliostyle/previewManager.ts`). */
+    /** ライブプレビューサーバのライフサイクル(`previewManager.ts` 参照)。 */
     preview: {
-      /** Loopback bind for the Vite preview server; Express proxies to it. */
+      /** Vite preview サーバの loopback bind。Express がここへ proxy する。 */
       host: process.env.VIVLIO_PREVIEW_HOST ?? '127.0.0.1',
-      /** Auto-close a preview session after this many ms of no proxy traffic. */
+      /** proxy トラフィックがこのミリ秒数だけ無いと preview セッションを自動 close する。 */
       idleTtlMs: Number(process.env.VIVLIO_PREVIEW_IDLE_MS ?? 30 * 60_000),
-      /** Cap concurrent preview servers (each holds a Vite server in memory). */
+      /** 同時 preview サーバ数の上限(各々が Vite サーバをメモリに保持する)。 */
       maxSessions: Number(process.env.VIVLIO_PREVIEW_MAX ?? 3),
     },
-    /** project build upload limits (see `vivliostyle/projectInput.ts`). */
+    /** project build のアップロード上限(`projectInput.ts` 参照)。 */
     build: {
-      /** Max accepted project zip size in bytes (413 above this). */
+      /** 受け付ける project zip の最大バイト数(超過時は 413)。 */
       maxProjectBytes: Number(process.env.VIVLIO_MAX_PROJECT_BYTES ?? 64 * 1024 * 1024),
     },
   },
 
   /**
-   * SQL Server connection (phase 2 REST mode). Windows Integrated auth — no
-   * credentials are stored. ODBC Driver 17 targets SQL Server 2012; after the
-   * planned upgrade, override DB_ODBC_DRIVER / DB_CONN_EXTRA (e.g. Encrypt).
-   * The connection string is consumed by `db/pool.ts` (msnodesqlv8).
+   * SQL Server 接続(phase 2 の REST モード)。Windows 統合認証(Integrated auth)で
+   * 資格情報(credentials)は保存しない。ODBC Driver 17 は SQL Server 2012 を対象とする。
+   * 予定しているアップグレード後は `DB_ODBC_DRIVER` / `DB_CONN_EXTRA`(例 Encrypt)で
+   * 上書きする。接続文字列は `pool.ts`(msnodesqlv8)が消費する。
    */
   db: {
     server: process.env.DB_SERVER ?? 'localhost',
@@ -191,7 +197,7 @@ export const config = {
     },
   },
 
-  /** Editor's own authentication (phase 2). Secrets stay out of appconfig.json. */
+  /** editor 自身の認証(phase 2)。秘密情報(secrets)は `appconfig.json` の外に置く。 */
   auth: {
     // 初期パスワードは ログインID(ユーザID) と同一(`userRepo.ts` 参照)。固定値の設定は持たない。
     sessionTtlHours: Number(process.env.AUTH_SESSION_TTL_HOURS ?? 12),
@@ -200,25 +206,25 @@ export const config = {
   },
 
   /**
-   * Mirror audit events into the SQL Server audit table (in addition to the
-   * durable file log). Off by default so `local` mode never touches the DB;
-   * set AUDIT_DB=true alongside the REST backend.
+   * 監査イベント(audit events)を SQL Server の監査テーブルにもミラーする
+   * (永続ファイルログに加えて)。既定 off なので `local` モードは DB に一切触れない。
+   * REST バックエンドと併せて `AUDIT_DB=true` を設定する。
    */
   auditToDb: envBool(process.env.AUDIT_DB) ?? false,
 
   /**
-   * Enforce session auth on the REST data routes. Off by default so `local`
-   * mode (no DB / no login) leaves them open and PDF/generate keep working; set
-   * AUTH_REQUIRED=true with the REST backend (start.bat rest sets it).
+   * REST データルートにセッション認証を強制する。既定 off なので `local`
+   * モード(DB なし / ログインなし)では開放したまま PDF/generate が動き続ける。
+   * REST バックエンドでは `AUTH_REQUIRED=true` を設定する(start.bat rest が設定する)。
    */
   requireAuth: envBool(process.env.AUTH_REQUIRED) ?? false,
 
-  /** Structured logging / audit trail. */
+  /** 構造化ロギング / 監査証跡(audit trail)。 */
   logging: {
     level: process.env.LOG_LEVEL ?? file.logging?.level ?? 'info',
-    /** Directory holding the persisted audit log (logs/audit.log). */
+    /** 永続化した監査ログ(logs/audit.log)を置くディレクトリ。 */
     dir: resolvePath(process.env.LOG_DIR, file.paths?.logDir, 'logs'),
-    /** Pretty-print stdout; defaults to "outside production" when unspecified. */
+    /** stdout を pretty 出力する。未指定時は「本番以外(outside production)」を既定とする。 */
     pretty:
       envBool(process.env.LOG_PRETTY) ??
       file.logging?.pretty ??

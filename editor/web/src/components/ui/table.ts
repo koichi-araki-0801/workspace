@@ -1,11 +1,16 @@
+// =============================================================================
+// table.ts — テーブル部品群(`<thead>`/`<tbody>`/`<tr>`/`<th>`/`<td>`)の定義
+// =============================================================================
+// 単純な 5 部品は `styledTag` ファクトリで生成し、`Table` のみ scroll コンテナ
+// 入れ子のため個別定義する。
 import { defineComponent, h } from 'vue';
 import { cn } from '@/lib/utils';
 
 /**
- * Define a single-element styled wrapper: renders `<tag>` with `base` classes
- * merged with an optional `class` prop, passing slot children through. The five
- * simple table parts share this exact shape, so they are built from this factory
- * (Table itself is bespoke — it nests `<table>` inside a scroll container).
+ * 単一要素のスタイル付きラッパを定義する。`base` クラスと任意の `class` prop を
+ * `cn` でマージして `<tag>` を描画し、slot の子要素をそのまま通す。単純な 5 つの
+ * テーブル部品は同じ形なのでこのファクトリから生成する(`Table` 自身は scroll
+ * コンテナの中に `<table>` を入れ子にする bespoke な構造)。
  */
 function styledTag(name: string, tag: string, base: string) {
   return defineComponent({

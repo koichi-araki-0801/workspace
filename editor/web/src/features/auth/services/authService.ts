@@ -1,11 +1,13 @@
+// =============================================================================
+// authService.ts — 認証ユースケース(AuthRepository への薄いサービス)
+// =============================================================================
 import type { AuthRepository, LoginResult, Result, User } from '@editor/shared';
 import { useAuthRepo } from '@/api/repositories';
 
 /**
- * Authentication use-cases. A thin service over {@link AuthRepository} (it adds
- * no business rules today, but is the seam where they'd live and keeps the store
- * off the repository per the Pinia rules). Pure factory — inject the repo so it
- * tests without Vue.
+ * 認証ユースケース。`AuthRepository` への薄いサービス(現状は business rule を
+ * 持たないが、追加するならここが境界。Pinia ルールに従い store を repository から
+ * 切り離す)。純粋な factory — repo を注入することで Vue なしでテストできる。
  */
 export interface AuthService {
   login(username: string, password: string): Promise<Result<LoginResult>>;
@@ -23,5 +25,5 @@ export function createAuthService(repo: AuthRepository): AuthService {
   };
 }
 
-/** Wire the service with the injected repository (call in setup). */
+/** 注入された repository とサービスを結線する(setup 内で呼ぶ)。 */
 export const useAuthService = (): AuthService => createAuthService(useAuthRepo());

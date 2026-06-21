@@ -1,24 +1,26 @@
+// =============================================================================
+// options.ts — `@vivliostyle/cli` 呼び出し共通の inline-config を組み立てる
+// =============================================================================
 import { config } from '../config.js';
 
 /**
- * Inline-config fields shared by every `@vivliostyle/cli` invocation
- * (build inline / build project / preview). This is the single place that
- * pins the browser and silences logging, so the three code paths stay in
- * lockstep (vivliostyle usage is consolidated under `vivliostyle/`).
+ * すべての `@vivliostyle/cli` 呼び出し(build inline / build project / preview)で共有する
+ * inline-config フィールド。ブラウザの固定とログ抑制を一元化する唯一の場所で、3 つの
+ * コード経路を歩調を揃えて保つ(vivliostyle の利用は `vivliostyle/` 配下に集約)。
  */
 export interface SharedInlineConfig {
-  /** System browser pinned for offline runs; omitted to use the default. */
+  /** オフライン実行用に固定するシステムブラウザ。省略時は既定を使う。 */
   executableBrowser?: string;
   logLevel: 'silent';
 }
 
 /**
- * Build the options common to build() and preview().
+ * `build()` と `preview()` に共通のオプションを組み立てる。
  *
- * Pins the configured browser (auto-detected system Edge offline) so runs
- * never try to download Chromium. puppeteer cannot resolve Windows
- * backslash-separated `executableBrowser` paths, so the path is normalized to
- * forward slashes (moved here from the former `pdf/vivliostyle.ts`).
+ * 設定済みブラウザ(自動検出したシステム Edge / オフライン)を固定し、実行時に Chromium を
+ * ダウンロードしようとしないようにする。puppeteer は Windows のバックスラッシュ区切りの
+ * `executableBrowser` パスを解決できないため、スラッシュへ正規化する
+ * (旧 `pdf/vivliostyle.ts` からここへ移設)。
  */
 export function sharedInlineConfig(): SharedInlineConfig {
   const executableBrowser = config.pdf.executableBrowser?.replace(/\\/g, '/');

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// PreviewView.vue — テンプレートのプレビュー画面(確定保存と PDF 出力を内包)
+// =============================================================================
 import { isErr, isOk, type SampleData, type Template } from '@editor/shared';
 import { FileDown, Loader2, Save } from '@lucide/vue';
 import { computed, onMounted, ref } from 'vue';
@@ -52,7 +55,7 @@ async function confirmSave() {
       html: restoredHtml.value,
       css: css.value,
       fundCode: fundCode.value,
-      // Keep the rendered document as this confirm's report instance.
+      // レンダリング済みドキュメントを, この確定保存の記入済みレポートインスタンスとして保持する。
       filledHtml: previewDoc.value,
     }),
   );

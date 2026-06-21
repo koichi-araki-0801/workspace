@@ -1,14 +1,14 @@
-/**
- * REST transport for the phase-2 repositories. `apiFetch` calls the same-origin
- * `/api`, sends the session cookie (`credentials: 'include'`), and maps HTTP
- * failures to the shared {@link AppError} — preferring the server's structured
- * `{ kind, message, code }` body, falling back to the status code. `attemptRest`
- * (the throw→Result seam) is re-exported from the local repos' `attempt`.
- */
+// =============================================================================
+// http.ts — フェーズ 2 リポジトリの REST トランスポート(`apiFetch` と `attemptRest`)
+// =============================================================================
+// 役割: `apiFetch` は same-origin の `/api` を叩き、session cookie を送り
+// (`credentials: 'include'`)、HTTP 失敗を共有 {@link AppError} へ写す。サーバの構造化
+// ボディ `{ kind, message, code }` を優先し、無ければステータスコードへフォールバック
+// する。`attemptRest`(throw→Result シーム)は local repos の `attempt` を再 export する。
 import { type AppError, type AppErrorKind, appError, network } from '@editor/shared';
 
-// The throw→Result seam is identical for local and REST repos, so REST reuses
-// the local `attempt` (re-exported as `attemptRest` to keep existing imports).
+// throw→Result シームは local と REST で同一なので、REST は local の `attempt` を再利用
+// する(既存 import を保つため `attemptRest` として再 export)。
 export { attempt as attemptRest } from '../local/attempt';
 
 const BASE = '/api';

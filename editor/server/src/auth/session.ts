@@ -1,8 +1,9 @@
-/**
- * Session lifecycle (phase 2). Sessions live in the DB (cookie `editor.sid`
- * holds a random id) so a server restart doesn't log everyone out. Cookie is
- * HttpOnly so client JS never touches it.
- */
+// =============================================================================
+// session.ts — セッションのライフサイクル(フェーズ2)
+// =============================================================================
+// セッションは DB に置く(クッキー `editor.sid` はランダム id だけを保持)ので、
+// サーバ再起動でも全員がログアウトしない。クッキーは HttpOnly でクライアント JS
+// からは触れない。
 import { randomBytes } from 'node:crypto';
 import type { User } from '@editor/shared';
 import type { CookieOptions } from 'express';
@@ -13,7 +14,7 @@ import { rowToUser } from '../repositories/userRepo.js';
 
 const TTL_MS = config.auth.sessionTtlHours * 3_600_000;
 
-/** Options for the session cookie (Set-Cookie via res.cookie). */
+/** セッションクッキーのオプション(`res.cookie` 経由の Set-Cookie)。 */
 export const cookieOptions: CookieOptions = {
   httpOnly: true,
   sameSite: 'lax',
@@ -32,7 +33,7 @@ export async function createSession(loginId: string): Promise<string> {
   return id;
 }
 
-/** The user behind a valid (non-expired, non-revoked) session, else null. */
+/** 有効(未期限切れ・未失効)なセッションに紐づくユーザー、無ければ null。 */
 export async function getSessionUser(sessionId: string): Promise<User | null> {
   const row = firstRow(await callSproc(SP.session, '取得', [p('セッションID', sessionId)]));
   return row ? rowToUser(row) : null;
@@ -42,7 +43,7 @@ export async function destroySession(sessionId: string): Promise<void> {
   await callSproc(SP.session, '失効', [p('セッションID', sessionId)]);
 }
 
-/** Parse the request Cookie header into a name→value map (no cookie-parser dep). */
+/** リクエストの Cookie ヘッダを name→value マップへ解析する(cookie-parser 依存なし)。 */
 export function parseCookies(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!header) return out;
@@ -55,7 +56,7 @@ export function parseCookies(header: string | undefined): Record<string, string>
   return out;
 }
 
-/** Read the session id from the request's cookie header. */
+/** リクエストのクッキーヘッダからセッション id を読み取る。 */
 export function sessionIdFrom(cookieHeader: string | undefined): string | undefined {
   return parseCookies(cookieHeader)[config.auth.cookieName];
 }

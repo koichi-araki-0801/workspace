@@ -1,11 +1,10 @@
-/**
- * SQL Server connection pool (phase 2 REST mode) via msnodesqlv8 + Windows
- * Integrated auth.
- *
- * msnodesqlv8 is a NATIVE, optional dependency. It is loaded lazily with
- * `createRequire` so that `local` mode and `tsc` work without the native
- * binding present; it is only required the first time a query runs (REST mode).
- */
+// =============================================================================
+// pool.ts — SQL Server コネクションプール(フェーズ2 REST モード)
+// =============================================================================
+// `msnodesqlv8` + Windows 統合認証(Integrated auth)で接続する。
+// `msnodesqlv8` はネイティブな optional 依存。`createRequire` で遅延ロードする
+// ことで、ネイティブバインディングが無い環境でも `local` モードと `tsc` が動く。
+// 実際に require されるのは最初のクエリ実行時(REST モード)だけ。
 import { createRequire } from 'node:module';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
@@ -25,7 +24,7 @@ let pool: Pool | undefined;
 
 function getPool(): Pool {
   if (pool) return pool;
-  const driver = requireCjs('msnodesqlv8') as Driver; // native; REST mode only
+  const driver = requireCjs('msnodesqlv8') as Driver; // ネイティブ; REST モードのみ
   const p = new driver.Pool({
     connectionString: config.db.connectionString,
     ceiling: config.db.poolMax,
@@ -37,7 +36,7 @@ function getPool(): Pool {
   return p;
 }
 
-/** Run a parameterized statement; resolve the first result set's rows. */
+/** パラメータ化ステートメントを実行し、最初の結果セットの行を resolve する。 */
 export function query(sql: string, params: unknown[]): Promise<Record<string, unknown>[]> {
   const p = getPool();
   return new Promise((resolve, reject) => {

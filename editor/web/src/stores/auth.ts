@@ -1,3 +1,6 @@
+// =============================================================================
+// auth.ts — 認証セッションの Pinia ストア
+// =============================================================================
 import { isAdmin as isAdminUser, isOk, map, type Result, type User } from '@editor/shared';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
@@ -5,9 +8,9 @@ import { useAuthService } from '@/features/auth/services/authService';
 import { logError } from '@/lib/appError';
 
 /**
- * Session state. Holds the current user + readiness; all auth use-cases go
- * through {@link useAuthService} (never the repository directly). Business rules
- * (e.g. admin check) live in the shared domain.
+ * セッション状態。現在の `user` + 準備状態(`ready`)を保持する。全認証ユースケースは
+ * `authService.ts` の `useAuthService` を経由する(repository を直接叩かない)。業務
+ * ルール(例 admin 判定)は共有ドメインに置く。
  */
 export const useAuthStore = defineStore('auth', () => {
   const auth = useAuthService();
@@ -21,7 +24,7 @@ export const useAuthStore = defineStore('auth', () => {
     ready.value = true;
   }
 
-  /** Resolves to ok(mustChangePassword) on success, or err(AppError) on failure. */
+  /** 成功時は ok(mustChangePassword), 失敗時は err(AppError) へ解決する。 */
   async function login(username: string, password: string): Promise<Result<boolean>> {
     const res = await auth.login(username, password);
     if (isOk(res)) user.value = res.value.user;

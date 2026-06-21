@@ -1,31 +1,29 @@
-/**
- * OpenAPI 3.1 document for the editor API.
- *
- * Built from the Zod schemas in `./schemas.ts` via `zod-openapi`'s
- * `createDocument`. Covers the FULL data-access contract defined by the
- * `@editor/shared` repository interfaces (Template / Auth / User / History /
- * Part) — i.e. both the endpoints implemented today and the Phase 2 design.
- *
- * Endpoints currently backed by a live Express handler:
- *   GET /api/health, GET /api/templates/options, GET /api/templates,
- *   GET /api/templates/:id, PUT /api/templates/:id, POST /api/generate,
- *   POST /api/build, POST /api/build/project, /api/preview*.
- * All other paths below are design-first (documented contract, no handler yet).
- */
-
+// =============================================================================
+// document.ts — editor API の OpenAPI 3.1 ドキュメント
+// =============================================================================
+// `schemas.ts` の Zod スキーマから `zod-openapi` の `createDocument` で生成する。
+// `@editor/shared` の Repository インタフェース(Template / Auth / User / History /
+// Part)が定める全データアクセス契約を網羅する。現状実装済みのエンドポイントと
+// Phase 2 設計分の両方を含む。
+//
+// 現時点で稼働中の Express ハンドラに紐づくエンドポイント:
+//   GET /api/health, GET /api/templates/options, GET /api/templates,
+//   GET /api/templates/:id, PUT /api/templates/:id, POST /api/generate,
+//   POST /api/build, POST /api/build/project, /api/preview*.
+// 以下のその他のパスは design-first(契約のみ文書化、ハンドラ未実装)。
 import { z } from 'zod';
 import { createDocument } from 'zod-openapi';
 import * as s from './schemas.js';
 
-// --- response helpers -------------------------------------------------------
+// ── 1. response helpers — レスポンス定義のヘルパ ──
 
-/** `application/json` response with the given Zod schema. */
+/** 与えた Zod スキーマを持つ `application/json` レスポンス。 */
 const json = (description: string, schema: z.ZodType) => ({
   description,
   content: { 'application/json': { schema } },
 });
 
-/** `application/json` error response referencing the shared AppError component. */
+/** 共有 `AppError` コンポーネントを参照する `application/json` エラーレスポンス。 */
 const err = (description: string) => json(description, s.AppError);
 
 const ERR_400 = { '400': err('リクエスト検証エラー (kind=validation)') };
@@ -35,10 +33,10 @@ const ERR_404 = { '404': err('対象が存在しない (kind=not_found)') };
 const ERR_409 = { '409': err('競合 (kind=conflict)') };
 const ERR_500 = { '500': err('サーバ内部エラー (kind=unexpected)') };
 
-/** A 204 No Content response. */
+/** 204 No Content レスポンス。 */
 const noContent = (description: string) => ({ description });
 
-// Binary PDF payload (OpenAPI 3.1: string/binary).
+// PDF のバイナリペイロード(OpenAPI 3.1: string/binary)。
 const PdfBinary = z.string().meta({ format: 'binary', description: 'PDF バイナリ' });
 
 export function buildOpenApiDocument() {
@@ -72,10 +70,10 @@ export function buildOpenApiDocument() {
         },
       },
     },
-    // Default: every operation requires a session unless it sets `security: []`.
+    // 既定: 各オペレーションは `security: []` を指定しない限りセッションを要求する。
     security: [{ sessionCookie: [] }],
     paths: {
-      // ---------------------------------------------------------------- system
+      // ── 1. system ──
       '/health': {
         get: {
           tags: ['system'],
@@ -86,7 +84,7 @@ export function buildOpenApiDocument() {
         },
       },
 
-      // ------------------------------------------------------------------ auth
+      // ── 2. auth ──
       '/auth/login': {
         post: {
           tags: ['auth'],
@@ -130,7 +128,7 @@ export function buildOpenApiDocument() {
         },
       },
 
-      // ------------------------------------------------------------- templates
+      // ── 3. templates ──
       '/templates/options': {
         get: {
           tags: ['templates'],
@@ -231,7 +229,7 @@ export function buildOpenApiDocument() {
         },
       },
 
-      // ----------------------------------------------------------------- parts
+      // ── 4. parts ──
       '/parts/classification-options': {
         get: {
           tags: ['parts'],
@@ -279,7 +277,7 @@ export function buildOpenApiDocument() {
         },
       },
 
-      // --------------------------------------------------------------- history
+      // ── 5. history ──
       '/history/edit': {
         get: {
           tags: ['history'],
@@ -338,7 +336,7 @@ export function buildOpenApiDocument() {
         },
       },
 
-      // ----------------------------------------------------------- vivliostyle
+      // ── 6. vivliostyle ──
       '/build': {
         post: {
           tags: ['vivliostyle'],
@@ -419,7 +417,7 @@ export function buildOpenApiDocument() {
         },
       },
 
-      // ----------------------------------------------------------------- users
+      // ── 7. users ──
       '/users': {
         get: {
           tags: ['users'],
@@ -475,7 +473,7 @@ export function buildOpenApiDocument() {
   });
 }
 
-/** Cached document (built once on first access). */
+/** キャッシュ済みドキュメント(初回アクセス時に一度だけ生成する)。 */
 let cached: ReturnType<typeof buildOpenApiDocument> | undefined;
 
 export function getOpenApiDocument(): ReturnType<typeof buildOpenApiDocument> {

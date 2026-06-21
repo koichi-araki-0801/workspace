@@ -1,6 +1,9 @@
-// PdfToSvg フロントエンド。モックの 4 ステップ状態機械を踏襲しつつ、データ・
-// ページ描画・編集・書き出しを Python バックエンド (window.rpc) に接続する。
-// 状態に依存しない純粋ヘルパは dom.js / geometry.js へ分離（type="module" で読込）。
+// =============================================================================
+// app.js — PdfToSvg フロントエンド (4 ステップ状態機械の本体)
+// =============================================================================
+// 役割: モックの 4 ステップ状態機械を踏襲しつつ、データ・ページ描画・編集・書き出しを
+// Python バックエンド (`window.rpc`) に接続する。状態に依存しない純粋ヘルパは
+// `dom.js` / `geometry.js` へ分離 (type="module" で読込)。
 import { esc, svg } from "./dom.js";
 import { clientToPage, parseSpec } from "./geometry.js";
 
@@ -9,7 +12,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
 
   var app = document.getElementById("app");
 
-  // ---- アイコン ----
+  // ── 1. アイコン ──
   var fileIcon = '<path d="M6 3.5A1.5 1.5 0 0 1 7.5 2h6L19 7.5v13A1.5 1.5 0 0 1 17.5 22h-10A1.5 1.5 0 0 1 6 20.5V3.5Z"/><path d="M13 2v6h6"/>';
   var xIcon = '<path d="m6 6 12 12M18 6 6 18"/>';
   var chevD = '<path d="m10 6 6 6-6 6"/>';
@@ -18,7 +21,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
   var checkDot = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="' + checkD + '"/></svg>';
   var skipDot = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 8l4 4-4 4M15 8v8"/></svg>';
 
-  // ---- 状態 ----
+  // ── 2. 状態 ──
   var FILES = [], PAGES = [], FILE_START = [], TOTAL = 0;
   var changed2 = [], changed3 = [], status2 = [], status3 = [];
   var phase = 1, page = 0, guarding = false;
@@ -60,7 +63,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
   function clearSel() { var s = selSet(); Object.keys(s).forEach(function (k) { delete s[k]; }); }
   function initStatus(ch) { return ch.map(function (c) { return c ? "pending" : "none"; }); }
 
-  // ---- ファイル入出力 ----
+  // ── 3. ファイル入出力 ──
   // File System Access API のネイティブピッカー (`showOpenFilePicker` / `showSaveFilePicker` /
   // `showDirectoryPicker`) は VDI/リモートデスクトップの管理された Edge でレンダラごとクラッシュ
   // するため一切使わない。開く = 従来型 `<input type=file>`、保存 = `<a download>` に統一する。
@@ -132,7 +135,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
     var w = await h.createWritable(); await w.write(text); await w.close();
   }
 
-  // ---- 読み込み ----
+  // ── 4. 読み込み ──
   function applyState(st) {
     FILES = st.files; PAGES = st.pages; TOTAL = st.total;
     changed2 = st.changed2; changed3 = st.changed3;
@@ -160,7 +163,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
 
   async function doLoad() { await addFiles(await pickPdfFiles()); }
 
-  // ---- (1) ファイルカード ----
+  // ── 5. (1) ファイルカード ──
   function renderFileCards() {
     document.getElementById("filelist-count").textContent =
       FILES.length + " ファイル・" + TOTAL + " ページ";
@@ -179,7 +182,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
       });
     });
   }
-  // ---- ページ SVG ----
+  // ── 6. ページ SVG ──
   async function ensureSvg(fi, pi) {
     var k = fi + ":" + pi;
     if (!svgCache[k]) svgCache[k] = await rpc("pageSvg", { fileIndex: fi, pageInFile: pi });
@@ -199,7 +202,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
     svgEl.style.height = (h * sc) + "px";
   }
 
-  // ---- キャンバス内ズーム (手順2・3、キャンバスのみ拡大縮小) ----
+  // ── 7. キャンバス内ズーム (手順2・3、キャンバスのみ拡大縮小) ──
   function curZoom() { return zoomFor[phase] || 1; }
   function updateZoomLabel() {
     var el = app.querySelector('[data-screen="' + phase + '"] .zoom-ctrl .zpct');
@@ -246,7 +249,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
     if (withSelect) { drawSelBoxes(host); }
   }
 
-  // ---- 左：ページ一覧 (モック踏襲) ----
+  // ── 8. 左: ページ一覧 (モック踏襲) ──
   function buildRail(navId) {
     var arr = statusArr(); var filt = filterFor[phase]; var sel = selSet(); var c = counts(arr);
     var html = "";
@@ -375,7 +378,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
       '<span class="si"><span class="d pend" style="background:var(--border-strong)"></span>変更なし <b>' + c.none + "</b></span>";
   }
 
-  // ---- 確認ペイン (手順2) ----
+  // ── 9. 確認ペイン (手順2) ──
   async function renderConfirm() {
     var el = document.getElementById("confirm-dyn");
     var ed2 = app.querySelector('[data-screen="2"] .editor');
@@ -423,7 +426,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
     setTimeout(function () { box.remove(); }, 1300);
   }
 
-  // ---- 削除ペイン (手順3) ----
+  // ── 10. 削除ペイン (手順3) ──
   async function renderTrim() {
     var el = document.getElementById("trim-dyn");
     var ed3 = app.querySelector('[data-screen="3"] .editor');
@@ -451,7 +454,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
     });
   }
 
-  // ---- 手順3 エディタ操作 ----
+  // ── 11. 手順3 エディタ操作 ──
   function drawSelBoxes(host) {
     host.querySelectorAll(".sel-box").forEach(function (b) { b.remove(); });
     var svgEl = host.querySelector("svg"); if (!svgEl) return;
@@ -527,7 +530,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
     render();
   }
 
-  // ---- ページ単位アクション ----
+  // ── 12. ページ単位アクション ──
   function pageActHTML() {
     var st = statusOfCur();
     if (st === "none") return '<div class="pa-prompt" style="margin:0">このページは変更がないため操作は不要です</div>';
@@ -555,7 +558,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
   }
   function pageLabel() { var pg = PAGES[page]; return "<b>" + esc(FILES[pg.fileIndex].name) + "</b> ・ " + (pg.pageInFile + 1) + " ページ"; }
 
-  // ---- 辞書ペイン ----
+  // ── 13. 辞書ペイン ──
   var dictState = { entries: [], onlyHeaders: true };
   async function loadDict() {
     dictState = await rpc("dictList");
@@ -605,7 +608,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
     });
   }
 
-  // ---- 描画 ----
+  // ── 14. 描画 ──
   function setHint(html) { document.getElementById("nav-hint").innerHTML = html; }
 
   function render() {
@@ -678,7 +681,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
     }
   }
 
-  // ---- ナビゲーション ----
+  // ── 15. ナビゲーション ──
   var expMode = "all", expFile = 0;   // 書き出しモード: page/all/noskip/spec, 指定ファイル
   function firstPending(arr) { for (var i = 0; i < TOTAL; i++) if (arr[i] === "pending") return i; return 0; }
   function advancePhase() { guarding = false; if (phase === 2) { phase = 3; page = 0; } else if (phase === 3) phase = 4; clearSel(); render(); }
@@ -886,8 +889,8 @@ import { clientToPage, parseSpec } from "./geometry.js";
     setHint('<b style="color:var(--good-ink)">' + n + "個のSVGを書き出しました。</b>");
   }
 
-  // ---- ライフサイクル (サーバ常駐管理) ----
-  // app.py は「窓を閉じた時の /quit ビーコン」＋「/ping ハートビート途絶を見張る
+  // ── 16. ライフサイクル (サーバ常駐管理) ──
+  // `app.py` は「窓を閉じた時の /quit ビーコン」＋「/ping ハートビート途絶を見張る
   // watchdog」でサーバを終了する設計。クライアントがこれらを送らないと、Edge の
   // コールド再起動で起動プロセスが早期終了した際にサーバが落ちて初回起動が空白になる。
   function startLifecycle() {
@@ -903,7 +906,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
     });
   }
 
-  // ---- 起動 ----
+  // ── 17. 起動 ──
   window.__rpcReady.then(function () {
     wireStatic();
     render();

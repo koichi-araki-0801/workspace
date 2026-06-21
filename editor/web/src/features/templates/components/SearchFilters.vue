@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// =============================================================================
+// SearchFilters.vue — 委託会社→ファンド→基準日→版種のカスケード絞り込みバー
+// =============================================================================
 import type { DropdownOptions, DropdownQuery } from '@editor/shared';
 import { Loader2, RotateCcw, Search } from '@lucide/vue';
 import { computed, watch } from 'vue';
@@ -13,14 +16,14 @@ type Field = 'companyCode' | 'fundCode' | 'baseDate' | 'editionType';
 
 const props = withDefaults(
   defineProps<{
-    /** which attribute fields to show as cascading dropdowns */
+    /** どの属性フィールドをカスケード dropdown として出すか。 */
     fields?: Field[];
     searchLabel?: string;
-    /** fields that should be marked with a required asterisk */
+    /** 必須を示すアスタリスクを付けるフィールド。 */
     requiredFields?: Field[];
-    /** hide the search button (e.g. on the create screen where it has no role) */
+    /** 検索ボタンを隠す (例 役割を持たない作成画面)。 */
     hideSearch?: boolean;
-    /** drop the bordered card chrome (e.g. when embedded inside a step card) */
+    /** 枠線つき card の装飾を外す (例 step card 内に埋め込むとき)。 */
     bare?: boolean;
   }>(),
   {
@@ -63,7 +66,7 @@ const { query, options, loading, onLevelChange, reset } = useCascadingSelect<
 const { resolve, nameOf } = useFundNames();
 watch(() => options.value.fundCodes, (codes) => resolve(codes), { immediate: true });
 
-// ファンドコードはコード＋名称をラベルに、value はコードのまま（クエリ/カスケード不変）。
+// ファンドコードはコード+名称をラベルに、value はコードのまま (query/cascade 不変)。
 const fundOptions = computed(() =>
   options.value.fundCodes.map((code) => ({
     label: nameOf(code) ? `${code} ${nameOf(code)}` : code,
@@ -82,7 +85,7 @@ const optionsByField: Record<Field, () => Option[]> = {
 // カスケード非活性: 左隣のフィールドが未選択なら、この段はまだ選べない。
 function fieldDisabled(f: Field): boolean {
   const idx = props.fields.indexOf(f);
-  if (idx === 0) return false; // 先頭（委託会社）は常に活性
+  if (idx === 0) return false; // 先頭 (委託会社) は常に活性
   return !query[props.fields[idx - 1]];
 }
 </script>

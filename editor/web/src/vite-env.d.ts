@@ -1,4 +1,7 @@
 /// <reference types="vite/client" />
+// =============================================================================
+// vite-env.d.ts — Vite クライアント環境の型宣言(`*.vue` import と env 変数)
+// =============================================================================
 
 declare module '*.vue' {
   import type { DefineComponent } from 'vue';
@@ -8,7 +11,7 @@ declare module '*.vue' {
 }
 
 interface ImportMetaEnv {
-  /** Data source: 'rest' uses the SQL Server backend, else local (default). */
+  /** データソース: 'rest' は SQL Server backend, それ以外は local(既定)。 */
   readonly VITE_API_MODE?: 'local' | 'rest';
 }
 
