@@ -39,7 +39,11 @@ test('capture editor screens', async ({ page }) => {
   await page.screenshot({ path: IMG('editor.png') });
 
   // ④ プレビュー画面
+  // `@vivliostyle/core` は loadDocument 後も非同期にページを組版するため, 固定待ちでは
+  // 本文が空(灰色)のまま撮れることがある。viewer が `viewport` に出力するページ要素
+  // (`data-vivliostyle-page-container`)の出現を待ってから撮る。
   await page.goto(`/preview/${encodeURIComponent(SEED_ID)}`);
-  await page.waitForTimeout(2500);
+  await page.locator('[data-vivliostyle-page-container]').first().waitFor({ state: 'visible' });
+  await page.waitForTimeout(500); // 組版確定後の微小な再レイアウトを吸収する
   await page.screenshot({ path: IMG('preview.png') });
 });
