@@ -1,3 +1,6 @@
+// =============================================================================
+// projectInput.ts — アップロード zip から vivliostyle プロジェクトを安全に展開する
+// =============================================================================
 import crypto from 'node:crypto';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -6,13 +9,13 @@ import { isAppError, validation } from '@editor/shared';
 import StreamZip from 'node-stream-zip';
 import { config } from '../config.js';
 
-/** A vivliostyle project extracted from an uploaded zip. */
+/** アップロード zip から展開した vivliostyle プロジェクト。 */
 export interface ExtractedProject {
-  /** Root dir holding the extracted files. Remove via `cleanupProject`. */
+  /** 展開ファイルを格納するルートディレクトリ。`cleanupProject` で削除する。 */
   dir: string;
-  /** Absolute path of `vivliostyle.config.*` when present (preferred entry). */
+  /** `vivliostyle.config.*` の絶対パス(存在すれば優先エントリ)。 */
   configPath?: string;
-  /** Number of files written. */
+  /** 書き出したファイル数。 */
   fileCount: number;
 }
 
@@ -23,9 +26,9 @@ const CONFIG_NAMES = new Set([
 ]);
 
 /**
- * Resolve a zip entry name to a safe absolute path under `root`.
- * Rejects absolute paths, Windows drive letters, and `..` traversal so a
- * malicious archive cannot write outside the extraction dir (zip-slip).
+ * zip エントリ名を `root` 配下の安全な絶対パスへ解決する。
+ * 絶対パス・Windows ドライブレター・`..` トラバーサルを拒否し、悪意あるアーカイブが
+ * 展開ディレクトリの外へ書き込めないようにする(zip-slip)。
  */
 export function safeEntryPath(root: string, name: string): string {
   const normalized = name.replace(/\\/g, '/');
@@ -41,12 +44,12 @@ export function safeEntryPath(root: string, name: string): string {
 }
 
 /**
- * Extract an uploaded vivliostyle project zip into a fresh temp directory.
- * The caller owns the lifecycle and must call `cleanupProject(dir)` when done
- * (after the PDF is read, or when a preview session is stopped).
+ * アップロードされた vivliostyle プロジェクト zip を新規 temp ディレクトリへ展開する。
+ * ライフサイクルは呼び出し側が持ち、完了時(PDF を読んだ後、またはプレビューセッション
+ * 停止時)に `cleanupProject(dir)` を呼ばねばならない。
  *
- * The size ceiling is normally enforced upstream by `express.raw({ limit })`
- * (→ 413); the empty-archive guards here keep the contract explicit.
+ * サイズ上限は通常 `express.raw({ limit })`(→ 413)が上流で強制する。ここの空アーカイブ
+ * ガードは契約を明示的に保つためのもの。
  */
 export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> {
   if (zip.length === 0) throw validation('プロジェクト zip が空です');
@@ -76,34 +79,34 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
 
     if (fileCount === 0) throw validation('プロジェクト zip にファイルがありません');
 
-    // The temp dir lives under this repo, whose package.json sets "type":"module".
-    // A `vivliostyle.config.js` using CommonJS `module.exports` (the default
-    // scaffold) would then fail to load as ESM. When the project ships no
-    // package.json of its own, drop a CommonJS-default one at the root so Node's
-    // nearest-package.json resolution pins `.js` to CommonJS.
+    // temp ディレクトリはこのリポジトリ配下にあり、その package.json は "type":"module"。
+    // よって CommonJS の `module.exports` を使う `vivliostyle.config.js`(既定スキャフォルド)は
+    // ESM として読み込みに失敗する。プロジェクト自身が package.json を同梱しない場合は、
+    // ルートに CommonJS 既定の package.json を置き、Node の最近傍 package.json 解決が
+    // `.js` を CommonJS に固定するようにする。
     const pkg = path.join(dir, 'package.json');
     if (!existsSync(pkg)) await fs.writeFile(pkg, '{}\n', 'utf8');
 
     const configPath = await findConfig(dir);
     return { dir, configPath, fileCount };
   } catch (e) {
-    // Never leak a half-extracted dir (e.g. on a rejected zip-slip entry).
+    // 中途展開のディレクトリを決して漏らさない(例: zip-slip エントリ拒否時)。
     await cleanupProject(dir);
-    // A corrupt or malicious archive is bad input → 400, not 500. node-stream-zip
-    // raises its own "Malicious entry" guard; surface all such failures as validation.
+    // 破損または悪意あるアーカイブは不正入力 → 500 ではなく 400。node-stream-zip は独自の
+    // "Malicious entry" ガードを上げるため、その種の失敗はすべて validation として表面化する。
     if (isAppError(e)) throw e;
     throw validation('プロジェクト zip の展開に失敗しました', { cause: e });
   }
 }
 
-/** Remove an extracted project directory (best-effort). */
+/** 展開済みプロジェクトディレクトリを削除する(ベストエフォート)。 */
 export async function cleanupProject(dir: string): Promise<void> {
   await fs.rm(dir, { recursive: true, force: true });
 }
 
 /**
- * Find the first `vivliostyle.config.*` in the extracted tree (shallow-first),
- * so projects zipped either flat or under a single top-level folder both work.
+ * 展開ツリー内で最初の `vivliostyle.config.*` を浅い順に探す。フラットに zip された
+ * プロジェクトも、単一トップレベルフォルダ配下のものも、どちらも動くようにする。
  */
 async function findConfig(root: string): Promise<string | undefined> {
   const queue: string[] = [root];

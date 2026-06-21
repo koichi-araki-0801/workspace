@@ -1,9 +1,9 @@
-/**
- * User aggregate — server (REST) implementation (admin screen). Hash columns
- * are never selected by the 一覧/作成/更新 ops, so they never reach the client.
- * New users / resets get an initial password equal to the ログインID(ユーザID)
- * and must change it on first login (the sproc sets 要パスワード変更=1).
- */
+// =============================================================================
+// userRepo.ts — ユーザ集約のサーバ(REST)実装(管理画面)
+// =============================================================================
+// ハッシュ列は `一覧` / `作成` / `更新` の各操作で一切 select しないため、クライアントへ
+// 届くことはない。新規ユーザ / リセットの初期パスワードは `ログインID`(ユーザID)と同一で、
+// 初回ログイン時に変更を強制する(sproc が `要パスワード変更`=1 を立てる)。
 import { randomUUID } from 'node:crypto';
 import { notFound, type User, type UserRole } from '@editor/shared';
 import { hashPassword } from '../auth/password.js';

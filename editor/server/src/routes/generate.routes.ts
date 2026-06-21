@@ -1,8 +1,8 @@
-/**
- * Generate a new template via the existing Python tool. In REST mode the result
- * is persisted to the template file, registered in the 台帳 (status=draft), and
- * recorded in the create-history feed. The Python step is unchanged.
- */
+// =============================================================================
+// generate.routes.ts — 既存 Python ツールで新規テンプレートを生成
+// =============================================================================
+// REST モードでは生成結果をテンプレートファイルへ永続化し、台帳へ登録(status=draft)、
+// 作成履歴フィードへ記録する。Python ステップ自体は変更しない。
 import {
   type TemplateAttributes,
   type TemplateMeta,
@@ -49,7 +49,7 @@ generateRouter.post('/generate', requireAuth, validate(GenerateRequest), async (
         updatedBy: null,
       };
 
-      // REST mode: persist the body + register the template + record creation.
+      // REST モード: ボディの永続化 + テンプレート登録 + 作成記録を行う。
       if (config.requireAuth) {
         await writeTemplateAndCss(fileName, html, attributes.fundCode, css);
         await registerGenerated(attributes, id);
@@ -70,7 +70,7 @@ generateRouter.post('/generate', requireAuth, validate(GenerateRequest), async (
       failureMessage: 'generation failed',
     },
   );
-  // A freshly generated skeleton has no static fill; the editor renders one.
+  // 生成直後のスケルトンは静的な記入済み(filled)を持たない。エディタ側で描画する。
   res.json({ template: { meta, html, css, filled: '' } });
 });
 

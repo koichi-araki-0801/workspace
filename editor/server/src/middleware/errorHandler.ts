@@ -1,15 +1,13 @@
-/**
- * Central error-handling middleware.
- *
- * Route handlers stay lean: they `throw` (Express 5 forwards async throws here
- * automatically) and this one place normalizes the failure into the shared
- * {@link AppError} shape and picks the HTTP status. The user-facing `message`
- * is always safe to show; the technical `cause` is logged only, never sent.
- */
+// =============================================================================
+// errorHandler.ts — 集中エラーハンドリングミドルウェア
+// =============================================================================
+// ルートハンドラは `throw` するだけでよい(Express 5 は async の throw を自動でここへ
+// 転送する)。この 1 箇所で失敗を共有の `AppError` 形へ正規化し、HTTP ステータスを決める。
+// ユーザ向け `message` は常に表示して安全。技術的な `cause` はログのみで、送出しない。
 import { type AppError, type AppErrorKind, toAppError } from '@editor/shared';
 import type { ErrorRequestHandler } from 'express';
 
-/** Map a domain error kind to its HTTP status code. */
+/** ドメインエラーの `kind` を HTTP ステータスコードへ対応づける。 */
 export function statusForKind(kind: AppErrorKind): number {
   switch (kind) {
     case 'validation':
@@ -29,12 +27,12 @@ export function statusForKind(kind: AppErrorKind): number {
   }
 }
 
-/** Client-safe error body: the shared AppError minus the log-only `cause`. */
+/** クライアント安全なエラーボディ。共有 `AppError` からログ専用の `cause` を除いたもの。 */
 type ErrorBody = Pick<AppError, 'kind' | 'message' | 'code'>;
 
 export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
-  // Headers already flushed (e.g. a streamed PDF failed mid-send): defer to
-  // Express's default handler, which aborts the connection.
+  // ヘッダ送出済み(例: ストリーム配信中の PDF が途中で失敗)の場合は Express 既定の
+  // ハンドラへ委譲する。既定ハンドラは接続を中断する。
   if (res.headersSent) {
     next(err);
     return;
@@ -43,7 +41,7 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
   const appError = toAppError(err);
   const status = statusForKind(appError.kind);
 
-  // Log the full error (cause included) but never leak it to the client.
+  // 完全なエラー(`cause` 含む)をログに出すが、クライアントには決して漏らさない。
   req.log?.error({ err, kind: appError.kind, status }, appError.message);
 
   const body: ErrorBody = { kind: appError.kind, message: appError.message };

@@ -1,10 +1,9 @@
-/**
- * Request-body validation middleware.
- *
- * Replaces the per-route `safeParse` + 400 boilerplate: pass a Zod schema and
- * the parsed (and narrowed) value is written back to `req.body`. On failure it
- * forwards a `validation` {@link AppError} to the central error handler.
- */
+// =============================================================================
+// validate.ts — リクエストボディ検証ミドルウェア
+// =============================================================================
+// ルートごとの `safeParse` + 400 ボイラープレートを置き換える。Zod スキーマを渡すと、
+// パース済み(かつ絞り込み済み)の値を `req.body` へ書き戻す。失敗時は `validation` の
+// `AppError` を集中エラーハンドラ(`errorHandler.ts`)へ転送する。
 import { validation } from '@editor/shared';
 import type { RequestHandler } from 'express';
 import type { ZodType } from 'zod';

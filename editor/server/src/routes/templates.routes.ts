@@ -1,8 +1,9 @@
-/**
- * Template routes (phase 2): metadata via the 台帳 sproc, bodies via files.
- * Order matters — `/templates/options` and `/templates/series` are registered
- * before `/templates/:id` so they aren't captured as an id.
- */
+// =============================================================================
+// templates.routes.ts — テンプレートのルート(phase 2)
+// =============================================================================
+// メタデータは台帳 sproc 経由、本体(html/css)はファイル経由で扱う。
+// 登録順が重要: `/templates/options` と `/templates/series` を `/templates/:id` より
+// 先に登録し、id として捕捉されないようにする。
 import { type DropdownQuery, validation } from '@editor/shared';
 import { Router } from 'express';
 import type { z } from 'zod';

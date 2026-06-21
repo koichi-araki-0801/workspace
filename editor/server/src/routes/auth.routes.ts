@@ -1,7 +1,8 @@
-/**
- * Auth routes: login / logout / me / init-password. login & init-password are
- * public (OpenAPI security: []); logout & me run after the cookie is read.
- */
+// =============================================================================
+// auth.routes.ts — 認証ルート(login / logout / me / init-password)
+// =============================================================================
+// login と init-password は公開(OpenAPI の `security: []`)。logout と me は cookie の
+// 読み取り後に動く。
 import { Router } from 'express';
 import type { z } from 'zod';
 import { cookieOptions, sessionIdFrom } from '../auth/session.js';

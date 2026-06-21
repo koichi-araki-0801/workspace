@@ -1,8 +1,10 @@
-/**
- * Confirmed template body (HTML) and per-fund shared CSS, on disk. The DB
- * registry (台帳) holds only metadata; the bytes live here, keyed by the
- * filename convention / fundCode (unchanged from phase 1's file layout).
- */
+// =============================================================================
+// templateFiles.ts — 確定 template 本体(HTML)とファンド別共有 CSS(ディスク I/O)
+// =============================================================================
+// 確定済み template 本体(HTML)とファンド別(per-fund)共有 CSS をディスク上に持つ。
+// DB レジストリ(台帳)はメタデータのみを保持し、バイト列(本体)はここに置く。
+// キーはファイル名規約 / `fundCode`(phase 1 のファイルレイアウトから不変)。
+
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
@@ -18,7 +20,7 @@ export function readFundCss(fundCode: string): Promise<string> {
   return fs.readFile(cssPath(fundCode), 'utf8').catch(() => '');
 }
 
-/** Read current bytes so a failed confirm-save can be rolled back. */
+/** 確定保存(confirm-save)失敗時にロールバックできるよう、現在のバイト列を読む。 */
 export async function snapshotCurrent(
   fileName: string,
   fundCode: string,
@@ -43,7 +45,7 @@ export async function writeTemplateAndCss(
   await atomicWrite(cssPath(fundCode), css);
 }
 
-/** Restore previously-read bytes (compensation when the DB commit fails). */
+/** 先に読んだバイト列を復元する(DB コミット失敗時の補償 = compensation)。 */
 export async function restoreTemplateAndCss(
   fileName: string,
   fundCode: string,

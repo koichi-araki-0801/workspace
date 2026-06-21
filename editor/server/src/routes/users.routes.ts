@@ -1,4 +1,6 @@
-/** User-management routes (admin only). */
+// =============================================================================
+// users.routes.ts — ユーザ管理のルート(admin 限定)
+// =============================================================================
 import { Router } from 'express';
 import type { z } from 'zod';
 import { actorFromReq, audit } from '../logger.js';

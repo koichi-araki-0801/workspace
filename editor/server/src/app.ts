@@ -1,3 +1,9 @@
+// =============================================================================
+// app.ts — Express アプリの組み立てと起動(ミドルウェア/ルート/graceful shutdown)
+// =============================================================================
+// ミドルウェアと API ルートを配線し、本番ではビルド済み SPA を配信する。
+// listen 後はシグナル受信で live preview を片付けてから graceful に終了する。
+
 import fs from 'node:fs';
 import express from 'express';
 import helmet from 'helmet';
@@ -19,7 +25,7 @@ const app = express();
 
 app.use(
   helmet({
-    contentSecurityPolicy: false, // SPA + blob preview; tighten in production
+    contentSecurityPolicy: false, // SPA + blob preview のため。本番では締める(tighten)
   }),
 );
 app.use(express.json({ limit: '8mb' }));
@@ -35,7 +41,7 @@ app.use('/api', partsRouter);
 app.use('/api', historyRouter);
 app.use('/api', usersRouter);
 
-// Serve the built SPA in production (no-op in dev where Vite serves the app).
+// 本番ではビルド済み SPA を配信する(Vite がアプリを配信する dev では no-op)。
 if (fs.existsSync(config.webDist)) {
   app.use(express.static(config.webDist));
   app.get(/^(?!\/api).*/, (_req, res) => {
@@ -43,15 +49,15 @@ if (fs.existsSync(config.webDist)) {
   });
 }
 
-// Central error handler — must be registered last, after all routes.
+// 中央エラーハンドラ — 全ルートの後、必ず最後に登録する。
 app.use(errorHandler);
 
 const server = app.listen(config.port, () => {
   logger.info(`[server] listening on http://localhost:${config.port}`);
 });
 
-// Graceful shutdown: stop every live preview server (each holds a Vite server
-// + temp dir) before the process exits, so nothing is leaked.
+// Graceful shutdown: プロセス終了前に全 live preview サーバ(各々が Vite サーバ
+// + 一時ディレクトリを保持)を停止し、リーク(leak)を残さない。
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;

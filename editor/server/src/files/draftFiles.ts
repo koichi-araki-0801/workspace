@@ -1,8 +1,11 @@
-/**
- * Autosave draft working copies on disk (`data/drafts/<id>.{html,css}`). The
- * 台帳 row stores only the saver/timestamp + these relative filenames; the
- * body lives here. Draft is 1-per-template, overwritten on each autosave.
- */
+// =============================================================================
+// draftFiles.ts — 自動保存ドラフトの作業コピー(ディスク I/O)
+// =============================================================================
+// 自動保存(autosave)のドラフト作業コピーをディスク上に持つ
+// (`data/drafts/<id>.{html,css}`)。台帳(ledger)の行は保存者/タイムスタンプと
+// これら相対ファイル名だけを保持し、本体(body)はここに置く。ドラフトは
+// template ごとに 1 件で、autosave のたびに上書きする。
+
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';

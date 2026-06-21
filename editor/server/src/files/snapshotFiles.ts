@@ -1,8 +1,11 @@
-/**
- * Frozen confirm-save snapshots on disk (`data/snapshots/<historyId>.{html,css}`).
- * The 履歴(種別=edit) row indexes these (fundCode + relative filenames); the
- * frozen body lives here and is re-rendered on demand by the compare screen.
- */
+// =============================================================================
+// snapshotFiles.ts — 確定保存スナップショット(凍結本体のディスク I/O)
+// =============================================================================
+// 確定保存(confirm-save)時に凍結(frozen)したスナップショットをディスク上に持つ
+// (`data/snapshots/<historyId>.{html,css}`)。履歴(種別=edit)の行がこれらを
+// 索引する(fundCode + 相対ファイル名)。凍結された本体(body)はここに置き、
+// 比較画面(compare screen)が要求時に再レンダリングする。
+
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';

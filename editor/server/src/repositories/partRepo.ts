@@ -1,8 +1,8 @@
-/**
- * Parts-catalog aggregate — server (REST) implementation (editor left pane).
- * Part HTML snippets are small reference master data, kept in the DB. Part
- * edit history lives in the unified 履歴 table (see historyRepo.getPartHistory).
- */
+// =============================================================================
+// partRepo.ts — パーツカタログ集約のサーバ(REST)実装(エディタ左ペイン)
+// =============================================================================
+// パーツの HTML スニペットは小さな参照系マスタデータで DB に保持する。パーツの
+// 編集履歴は統合 `履歴` テーブルにある(`historyRepo.ts` の `getPartHistory` を見よ)。
 import type {
   PartCatalogItem,
   PartClassificationOptions,

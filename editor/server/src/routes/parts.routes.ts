@@ -1,4 +1,6 @@
-/** Parts-catalog routes (editor left pane) + per-part history. */
+// =============================================================================
+// parts.routes.ts — パーツカタログのルート(エディタ左ペイン)+ パーツ単位履歴
+// =============================================================================
 import type { PartClassificationQuery } from '@editor/shared';
 import { Router } from 'express';
 import type { z } from 'zod';

@@ -1,8 +1,8 @@
-/**
- * Auth aggregate — server (REST) implementation. login/initPassword verify
- * against the user table via PBKDF2 (constant-time). login also opens a DB
- * session; the route sets the cookie from the returned id.
- */
+// =============================================================================
+// authRepo.ts — 認証集約のサーバ(REST)実装
+// =============================================================================
+// `login` / `initPassword` はユーザテーブルに対し PBKDF2(定数時間比較)で資格情報を
+// 検証する。`login` は併せて DB セッションを開き、ルート側が返却 id から cookie を張る。
 import {
   type LoginRequest,
   type LoginResult,
@@ -16,12 +16,12 @@ import { asBool, asBuffer, asNumberOrNull, callSproc, firstRow, p } from '../db/
 import { SP } from '../db/sprocNames.js';
 import { rowToUser } from './userRepo.js';
 
-/** Verify credentials, open a session. Returns the result + new session id. */
+/** 資格情報を検証しセッションを開く。結果と新しい session id を返す。 */
 export async function login(
   req: LoginRequest,
 ): Promise<{ result: LoginResult; sessionId: string }> {
   const row = firstRow(await callSproc(SP.user, '認証情報取得', [p('ログインID', req.username)]));
-  // Same message for unknown id / wrong password (don't reveal which).
+  // 不明な id とパスワード誤りは同一メッセージにする(どちらかを漏らさない)。
   if (!row) throw unauthorized('ユーザーIDまたはパスワードが違います');
   if (asBool(row.無効)) throw unauthorized('このアカウントは無効化されています');
   const ok = verifyPassword(
