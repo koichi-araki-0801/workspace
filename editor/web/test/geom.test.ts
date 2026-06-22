@@ -58,6 +58,12 @@ describe('geomFromStyle', () => {
     expect(geomFromStyle({ 'margin-top': 'oops' }).marginTop).toBe(0);
   });
 
+  it('rounds a unitless or non-mm/px length as-is (does not zero it)', () => {
+    // mm/px 以外の単位・単位なしは換算せず、数値部分を丸めてそのまま採用する。
+    expect(geomFromStyle({ 'margin-top': '12pt' }).marginTop).toBe(12);
+    expect(geomFromStyle({ 'margin-bottom': '7' }).marginBottom).toBe(7);
+  });
+
   it('reads page breaks under both legacy and modern property names', () => {
     expect(geomFromStyle({ 'page-break-before': 'always' }).pageBreakBefore).toBe(true);
     expect(geomFromStyle({ 'break-before': 'page' }).pageBreakBefore).toBe(true);

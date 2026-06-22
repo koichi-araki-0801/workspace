@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildHtmlDiff,
   HL_ADDED,
+  HL_CHANGED,
   HL_DEL,
   HL_INS,
   HL_REMOVED,
@@ -136,6 +137,53 @@ describe('buildHtmlDiff', () => {
     expect(page.blocks.map((b) => b.key)).toEqual(['.row#1', '.row#2']);
     expect(page.blocks[0].status).toBe('same');
     expect(page.blocks[1].status).toBe('changed');
+  });
+
+  it('marks a same-key top-level block whose tag changed as wholly changed (both panes)', () => {
+    // 同じアンカー(id)でも tag が違えば、語句 diff に降りず要素ごと変更扱いにする。
+    const before = doc('<p id="x">a</p>');
+    const after = doc('<div id="x">a</div>');
+    const page = buildHtmlDiff(before, after).pages[0];
+    expect(page.blocks[0].status).toBe('changed');
+    expect(page.beforeHtml).toContain(HL_CHANGED);
+    expect(page.afterHtml).toContain(HL_CHANGED);
+  });
+
+  it('marks an attribute-only block change wholly (no inner text to diff)', () => {
+    // 子は同一で親の属性だけ違う → 降りても着色対象が無く、要素ごと変更扱い。
+    const before = doc('<div id="c" data-x="1"><p id="k">same</p></div>');
+    const after = doc('<div id="c" data-x="2"><p id="k">same</p></div>');
+    const page = buildHtmlDiff(before, after).pages[0];
+    expect(page.blocks[0].status).toBe('changed');
+    expect(page.afterHtml).toContain(HL_CHANGED);
+  });
+
+  it('descends into children: highlights an added and a removed child within a changed block', () => {
+    const before = doc('<div id="c"><p id="keep">x</p><p id="gone">g</p></div>');
+    const after = doc('<div id="c"><p id="keep">x</p><p id="new">n</p></div>');
+    const page = buildHtmlDiff(before, after).pages[0];
+    expect(page.blocks[0].status).toBe('changed');
+    // 追加された子は after ペインに HL_ADDED、削除された子は before ペインに HL_REMOVED。
+    expect(page.afterHtml).toContain(HL_ADDED);
+    expect(page.beforeHtml).toContain(HL_REMOVED);
+  });
+
+  it('descends into children: a same-key child whose tag changed becomes removed+added', () => {
+    const before = doc('<div id="c"><p id="k">x</p></div>');
+    const after = doc('<div id="c"><span id="k">x</span></div>');
+    const page = buildHtmlDiff(before, after).pages[0];
+    expect(page.blocks[0].status).toBe('changed');
+    // 同キーだが種別/tag違いの子 → before に HL_REMOVED, after に HL_ADDED。
+    expect(page.beforeHtml).toContain(HL_REMOVED);
+    expect(page.afterHtml).toContain(HL_ADDED);
+  });
+
+  it('descends two levels: a nested attribute-only change marks the inner element wholly', () => {
+    const before = doc('<div id="c"><section id="s" data-x="1"><p id="k">same</p></section></div>');
+    const after = doc('<div id="c"><section id="s" data-x="2"><p id="k">same</p></section></div>');
+    const page = buildHtmlDiff(before, after).pages[0];
+    expect(page.blocks[0].status).toBe('changed');
+    expect(page.afterHtml).toContain(HL_CHANGED);
   });
 
   it('handles a page-count mismatch (extra before page → all removed)', () => {

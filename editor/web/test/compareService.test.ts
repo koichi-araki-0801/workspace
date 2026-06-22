@@ -63,6 +63,41 @@ describe('CompareService.renderVersionHtml', () => {
     }
   });
 
+  it('propagates a getTemplate error on the 現行版 baseline path', async () => {
+    const templates = {
+      getTemplate: vi.fn(async () => err(notFound('no template'))),
+    } as unknown as TemplateRepository;
+    const svc = createCompareService(templates, {} as HistoryRepository);
+    const res = await svc.renderVersionHtml('baseline:t');
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) expect(res.error.kind).toBe('not_found');
+  });
+
+  it('propagates a getSampleData error on the 現行版 baseline path', async () => {
+    const templates = {
+      getTemplate: vi.fn(async () =>
+        ok({ meta: { attributes: { fundCode: '510037' } }, html: '<p/>', css: '', filled: '' }),
+      ),
+      getSampleData: vi.fn(async () => err(notFound('no sample'))),
+    } as unknown as TemplateRepository;
+    const svc = createCompareService(templates, {} as HistoryRepository);
+    const res = await svc.renderVersionHtml('baseline:t');
+    expect(isErr(res)).toBe(true);
+  });
+
+  it('returns the safe render error when the 現行版 baseline fails to render', async () => {
+    const templates = {
+      getTemplate: vi.fn(async () =>
+        ok({ meta: { attributes: { fundCode: '510037' } }, html: '{% if %}', css: '', filled: '' }),
+      ),
+      getSampleData: vi.fn(async () => ok({})),
+    } as unknown as TemplateRepository;
+    const svc = createCompareService(templates, {} as HistoryRepository);
+    const res = await svc.renderVersionHtml('baseline:t');
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) expect(res.error.message).toBe(COMPARE_RENDER_ERROR);
+  });
+
   it('renders the snapshot to HTML and returns the html and snapshot css', async () => {
     const history = {
       getSnapshot: vi.fn(async () => ok(snapshot)),
@@ -177,6 +212,19 @@ describe('CompareService.listCandidates', () => {
     const res = await svc.listCandidates({});
     expect(isErr(res)).toBe(true);
   });
+
+  it('propagates a listVersions error while counting candidates', async () => {
+    const templates = {
+      listTemplates: vi.fn(async () => ok([meta('a')])),
+    } as unknown as TemplateRepository;
+    const history = {
+      listVersions: vi.fn(async () => err(notFound('boom'))),
+    } as unknown as HistoryRepository;
+
+    const svc = createCompareService(templates, history);
+    const res = await svc.listCandidates({});
+    expect(isErr(res)).toBe(true);
+  });
 });
 
 describe('CompareService delegation', () => {
@@ -197,5 +245,15 @@ describe('CompareService delegation', () => {
       expect(vers.value).toHaveLength(1);
       expect(vers.value[0].historyId).toBe('baseline:tpl-1');
     }
+  });
+
+  it('propagates a listVersions error without appending the baseline', async () => {
+    const listVersions = vi.fn(async () => err(notFound('boom')));
+    const svc = createCompareService(
+      {} as TemplateRepository,
+      { listVersions } as unknown as HistoryRepository,
+    );
+    const res = await svc.listVersions('tpl-1');
+    expect(isErr(res)).toBe(true);
   });
 });
