@@ -216,34 +216,50 @@ content key (sha256 of pnpm-lock.yaml + packageManager): ``$currentKey``
 $notesFile = Join-Path $tmp 'notes.md'
 $notes | Set-Content -Path $notesFile -Encoding utf8
 
-# ---- ローリングタグを公開コミットへ移動（常に＝ソース更新） ----
+# ---- 公開コミットの解決とローリングタグ移動ヘルパ ----
 # GitHub は公開リリースのタグに Source code (zip/tar.gz) を必ず自動添付し、これは削除できない。
-# そこでタグを最新コミットへ動かし、自動 Source code を最新ソースに揃える。
+# そこでタグを最新コミットへ動かし、自動 Source code を最新ソースに揃える。ただし「タグ移動」は
+# 利用者 (setup-offline) が取得するソースZIP を切り替える操作であり、重量物アセットを差し替える
+# 前にタグだけ進むと「新ソース (新 lockfile) × 旧 bundle.key / 旧ストア」の不整合 (lockfile 不整合)
+# を生む。よって既存 Release では「アセット upload -> タグ移動」の順に行い、アセットが出揃うまで
+# タグを進めない。upload 失敗時はタグが旧コミットのまま残り、ソースと重量物は旧版どうしで整合する。
 $targetCommit = (& git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($targetCommit)) {
   Write-Error '[error] git HEAD を取得できません。git リポジトリ内で実行してください。'; exit 1
 }
-Write-Host "[info] タグ $Tag を $targetCommit へ移動します（自動 Source code を最新ソースへ）..."
-# `+` で強制更新。既存リリースはタグ名で紐づくため、タグが動いてもリリースは維持され
-# 自動 Source code だけが新コミットのツリーから再生成される。新規時はこの push でリモートタグを作る。
-& git push origin "+${targetCommit}:refs/tags/$Tag"
-if ($LASTEXITCODE -ne 0) { Write-Error '[error] タグの移動 (git push) に失敗しました。'; exit 1 }
-
-# ---- Release 作成/更新 ----
-if (-not $releaseExists) {
-  Write-Host "[info] Release $Tag を新規作成します。"
-  & gh release create $Tag --title "Offline deps bundle ($Tag)" --notes-file $notesFile
-  if ($LASTEXITCODE -ne 0) { Write-Error '[error] gh release create に失敗しました。'; exit 1 }
-} else {
-  Write-Host "[info] Release $Tag の説明を更新します。"
-  & gh release edit $Tag --notes-file $notesFile | Out-Null
+# タグを HEAD へ強制更新する（`+` で force）。既存リリースはタグ名で紐づくため、タグが動いても
+# リリースは維持され、自動 Source code だけが新コミットのツリーから再生成される。
+# 新規時はこの push でリモートタグを作る。呼ぶ順序は下の分岐で制御する。
+function Move-RollingTag {
+  Write-Host "[info] タグ $Tag を $targetCommit へ移動します（自動 Source code を最新ソースへ）..."
+  & git push origin "+${targetCommit}:refs/tags/$Tag"
+  if ($LASTEXITCODE -ne 0) { Write-Error '[error] タグの移動 (git push) に失敗しました。'; exit 1 }
 }
 
-# ---- アセットのアップロード（重量物更新時のみ） ----
-if ($bundleChanged) {
+# 重量物アセット（更新時のみ）を Release へ差し替える。L243 から関数化し両分岐で共有する。
+function Publish-Assets {
+  if (-not $bundleChanged) { return }
   Write-Host '[info] アセットをアップロード（--clobber で差し替え）...'
   & gh release upload $Tag $Bundle $Sha $KeyFile --clobber
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] gh release upload に失敗しました。'; exit 1 }
+}
+
+# ---- Release 作成/更新（アセットを出してからタグを進める） ----
+if (-not $releaseExists) {
+  # 初回: タグ作成 -> Release 作成 -> アセット upload。まだ利用者が居ないため順序は無害。
+  # （gh release create はタグ名で紐づくため、先にリモートタグを作っておく必要がある。）
+  Move-RollingTag
+  Write-Host "[info] Release $Tag を新規作成します。"
+  & gh release create $Tag --title "Offline deps bundle ($Tag)" --notes-file $notesFile
+  if ($LASTEXITCODE -ne 0) { Write-Error '[error] gh release create に失敗しました。'; exit 1 }
+  Publish-Assets
+} else {
+  # 既存: 説明とアセットを先に差し替え、最後にだけタグを HEAD へ進める。これにより利用者が取得する
+  # ソース (タグ) と重量物 (アセット) は常に整合ペアになり、upload 途中失敗でも不整合を作らない。
+  Write-Host "[info] Release $Tag の説明を更新します。"
+  & gh release edit $Tag --notes-file $notesFile | Out-Null
+  Publish-Assets
+  Move-RollingTag
 }
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

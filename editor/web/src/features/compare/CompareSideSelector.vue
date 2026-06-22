@@ -28,7 +28,8 @@ const historyId = ref<string | undefined>(undefined);
 
 const versionOptions = computed(() =>
   versions.value.map((v) => ({
-    label: `${formatDateTimeShort(v.timestamp)}・${v.user}`,
+    // 現行版(原本)は `timestamp` を持たない。日時を出さず「現行版」だけを見せる。
+    label: v.timestamp ? `${formatDateTimeShort(v.timestamp)}・${v.user}` : v.user,
     value: v.historyId,
   })),
 );

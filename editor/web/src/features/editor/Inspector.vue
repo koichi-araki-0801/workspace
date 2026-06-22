@@ -94,6 +94,22 @@ watch(
 // ── 3. 編集ハンドラ ──
 const canAlign = () => !!props.geom && props.geom.widthPct < 100;
 
+// 「表示のみ」モードで配置を値表示するための日本語ラベル(`canAlign()` 内のみ呼ぶ想定)。
+const ALIGN_LABEL: Record<Align, string> = {
+  left: '左寄せ',
+  center: '中央',
+  right: '右寄せ',
+  stretch: '全幅',
+};
+const alignLabel = computed(() => (props.geom ? ALIGN_LABEL[props.geom.align] : ''));
+
+// 改ページの 3 項目(編集 toggle / 表示のみの読み取り行で共有)。
+const PB_ITEMS = [
+  { key: 'pageBreakBefore', icon: ArrowUpToLine, label: '前で改ページ' },
+  { key: 'pageBreakAfter', icon: ArrowDownToLine, label: '後で改ページ' },
+  { key: 'keepTogether', icon: SplitSquareVertical, label: 'ページ内で分割しない' },
+] as const;
+
 function setAlign(align: Align) {
   if (props.editMode && canAlign()) emit('apply', { align });
 }
@@ -166,37 +182,38 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
           <div v-show="open.size" class="px-4 pb-3">
             <div class="ins-row">
               <span class="text-muted-foreground">幅</span>
-              <label class="ins-num">
+              <label v-if="editMode" class="ins-num">
                 <input
                   v-model="num.widthPct"
                   inputmode="numeric"
                   class="mono"
-                  :disabled="!editMode"
                   @blur="commitNum('widthPct', num.widthPct)"
                   @keydown.enter="onEnter"
                 />
                 <span class="ins-unit">%</span>
               </label>
+              <span v-else class="mono font-semibold tabular-nums">{{ geom.widthPct }} %</span>
             </div>
-            <div class="ins-row">
+            <!-- 横の配置: 幅 100% では効かないため、幅 < 100% のときだけ出す -->
+            <div v-if="canAlign()" class="ins-row">
               <span class="text-muted-foreground">横の配置</span>
-              <div class="flex gap-0.5">
-                <button type="button" class="seg" title="左寄せ" :disabled="!editMode || !canAlign()" :class="cn(canAlign() && geom.align === 'left' && 'seg-on')" @click="setAlign('left')">
+              <div v-if="editMode" class="flex gap-0.5">
+                <button type="button" class="seg" title="左寄せ" :class="cn(geom.align === 'left' && 'seg-on')" @click="setAlign('left')">
                   <AlignLeft class="h-[15px] w-[15px]" />
                 </button>
-                <button type="button" class="seg" title="中央" :disabled="!editMode || !canAlign()" :class="cn(canAlign() && geom.align === 'center' && 'seg-on')" @click="setAlign('center')">
+                <button type="button" class="seg" title="中央" :class="cn(geom.align === 'center' && 'seg-on')" @click="setAlign('center')">
                   <AlignCenter class="h-[15px] w-[15px]" />
                 </button>
-                <button type="button" class="seg" title="右寄せ" :disabled="!editMode || !canAlign()" :class="cn(canAlign() && geom.align === 'right' && 'seg-on')" @click="setAlign('right')">
+                <button type="button" class="seg" title="右寄せ" :class="cn(geom.align === 'right' && 'seg-on')" @click="setAlign('right')">
                   <AlignRight class="h-[15px] w-[15px]" />
                 </button>
               </div>
+              <span v-else class="font-semibold">{{ alignLabel }}</span>
             </div>
-            <div class="ins-row">
+            <!-- 左インデントは read-only(編集経路なし)。0mm は情報量ゼロなので隠す -->
+            <div v-if="geom.indent > 0" class="ins-row">
               <span class="text-muted-foreground">左インデント</span>
-              <span class="mono font-semibold tabular-nums" :class="geom.indent === 0 ? 'text-muted-foreground' : ''">
-                {{ geom.indent }} mm
-              </span>
+              <span class="mono font-semibold tabular-nums">{{ geom.indent }} mm</span>
             </div>
           </div>
         </section>
@@ -210,31 +227,31 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
           <div v-show="open.margin" class="px-4 pb-3">
             <div class="ins-row">
               <span class="text-muted-foreground">上の余白</span>
-              <label class="ins-num">
+              <label v-if="editMode" class="ins-num">
                 <input
                   v-model="num.marginTop"
                   inputmode="numeric"
                   class="mono"
-                  :disabled="!editMode"
                   @blur="commitNum('marginTop', num.marginTop)"
                   @keydown.enter="onEnter"
                 />
                 <span class="ins-unit">mm</span>
               </label>
+              <span v-else class="mono font-semibold tabular-nums">{{ geom.marginTop }} mm</span>
             </div>
             <div class="ins-row">
               <span class="text-muted-foreground">下の余白</span>
-              <label class="ins-num">
+              <label v-if="editMode" class="ins-num">
                 <input
                   v-model="num.marginBottom"
                   inputmode="numeric"
                   class="mono"
-                  :disabled="!editMode"
                   @blur="commitNum('marginBottom', num.marginBottom)"
                   @keydown.enter="onEnter"
                 />
                 <span class="ins-unit">mm</span>
               </label>
+              <span v-else class="mono font-semibold tabular-nums">{{ geom.marginBottom }} mm</span>
             </div>
           </div>
         </section>
@@ -246,21 +263,30 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
             <FileText class="h-3.5 w-3.5" /> 改ページ
           </button>
           <div v-show="open.pagebreak" class="px-4 pb-3">
-            <button type="button" class="pb-toggle" :disabled="!editMode" :class="cn(geom.pageBreakBefore && 'pb-on')" @click="togglePB('pageBreakBefore')">
-              <ArrowUpToLine class="h-[15px] w-[15px]" />
-              <span class="flex-1 text-left">前で改ページ</span>
-              <span class="pb-state">{{ geom.pageBreakBefore ? 'ON' : 'OFF' }}</span>
-            </button>
-            <button type="button" class="pb-toggle" :disabled="!editMode" :class="cn(geom.pageBreakAfter && 'pb-on')" @click="togglePB('pageBreakAfter')">
-              <ArrowDownToLine class="h-[15px] w-[15px]" />
-              <span class="flex-1 text-left">後で改ページ</span>
-              <span class="pb-state">{{ geom.pageBreakAfter ? 'ON' : 'OFF' }}</span>
-            </button>
-            <button type="button" class="pb-toggle" :disabled="!editMode" :class="cn(geom.keepTogether && 'pb-on')" @click="togglePB('keepTogether')">
-              <SplitSquareVertical class="h-[15px] w-[15px]" />
-              <span class="flex-1 text-left">ページ内で分割しない</span>
-              <span class="pb-state">{{ geom.keepTogether ? 'ON' : 'OFF' }}</span>
-            </button>
+            <!-- 編集モード: トグル / 表示のみ: 読み取り専用の状態行 -->
+            <template v-if="editMode">
+              <button
+                v-for="it in PB_ITEMS"
+                :key="it.key"
+                type="button"
+                class="pb-toggle"
+                :class="cn(geom[it.key] && 'pb-on')"
+                @click="togglePB(it.key)"
+              >
+                <component :is="it.icon" class="h-[15px] w-[15px]" />
+                <span class="flex-1 text-left">{{ it.label }}</span>
+                <span class="pb-state">{{ geom[it.key] ? 'ON' : 'OFF' }}</span>
+              </button>
+            </template>
+            <template v-else>
+              <div v-for="it in PB_ITEMS" :key="it.key" class="pb-readonly">
+                <component :is="it.icon" class="h-[15px] w-[15px]" />
+                <span class="flex-1 text-left">{{ it.label }}</span>
+                <span class="pb-state" :class="geom[it.key] ? 'text-primary' : 'text-muted-foreground'">
+                  {{ geom[it.key] ? 'ON' : 'OFF' }}
+                </span>
+              </div>
+            </template>
           </div>
         </section>
 
@@ -424,6 +450,17 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
 }
 .pb-toggle.pb-on:hover {
   background: var(--primary);
+}
+/* 表示のみモードの改ページ状態(読み取り専用・トグル不可) */
+.pb-readonly {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: color-mix(in oklab, var(--foreground) 85%, transparent);
 }
 .pb-state {
   font-size: 11px;

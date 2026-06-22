@@ -10,7 +10,6 @@ import {
   MARGIN_MM_MAX,
   MARGIN_MM_MIN,
   PX_PER_MM,
-  pageContentPx,
   WIDTH_PCT_MAX,
   WIDTH_PCT_MIN,
 } from '@/features/editor/geom';
@@ -59,6 +58,12 @@ describe('geomFromStyle', () => {
     expect(geomFromStyle({ 'margin-top': 'oops' }).marginTop).toBe(0);
   });
 
+  it('rounds a unitless or non-mm/px length as-is (does not zero it)', () => {
+    // mm/px 以外の単位・単位なしは換算せず、数値部分を丸めてそのまま採用する。
+    expect(geomFromStyle({ 'margin-top': '12pt' }).marginTop).toBe(12);
+    expect(geomFromStyle({ 'margin-bottom': '7' }).marginBottom).toBe(7);
+  });
+
   it('reads page breaks under both legacy and modern property names', () => {
     expect(geomFromStyle({ 'page-break-before': 'always' }).pageBreakBefore).toBe(true);
     expect(geomFromStyle({ 'break-before': 'page' }).pageBreakBefore).toBe(true);
@@ -101,30 +106,6 @@ describe('geomToStyle', () => {
       keepTogether: true,
     };
     expect(geomFromStyle(geomToStyle(start))).toEqual(start);
-  });
-});
-
-describe('pageContentPx', () => {
-  const mm = (n: number) => n * PX_PER_MM;
-
-  it('falls back to the 18mm canvas padding when no @page margin is present', () => {
-    // 297 - 18 - 18 = 261mm
-    expect(pageContentPx('body { color: red; }')).toBeCloseTo(mm(261), 5);
-  });
-
-  it('reads symmetric @page margin (top/bottom = single value)', () => {
-    // @page { margin: 20mm } → 297 - 20 - 20 = 257mm
-    expect(pageContentPx('@page { size: A4; margin: 20mm; }')).toBeCloseTo(mm(257), 5);
-  });
-
-  it('reads vertical/horizontal @page margin (2 values use top for both)', () => {
-    // @page { margin: 14mm 13mm } → top = bottom = 14mm → 297 - 28 = 269mm
-    expect(pageContentPx('@page { margin: 14mm 13mm; }')).toBeCloseTo(mm(269), 5);
-  });
-
-  it('reads distinct top/bottom from a 4-value @page margin', () => {
-    // margin: top right bottom left = 10 16 24 16 → 297 - 10 - 24 = 263mm
-    expect(pageContentPx('@page { margin: 10mm 16mm 24mm 16mm; }')).toBeCloseTo(mm(263), 5);
   });
 });
 

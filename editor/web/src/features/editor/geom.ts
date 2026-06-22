@@ -22,35 +22,6 @@ export type StyleMap = Record<string, string | undefined>;
 
 export const PX_PER_MM = 96 / 25.4;
 
-/** A4 用紙の高さ(mm)。`pageContentPx` の基準。 */
-const A4_HEIGHT_MM = 297;
-
-/**
- * 1 物理ページの印刷可能コンテンツ高さ(px, 未ズーム)。`@page { margin: ... }` を解釈し、
- * `A4 高さ - 上余白 - 下余白` を返す。fund 別 CSS でも CSS 文字列から拾えるため、ページ境界
- * オーバーレイ(`useGrapes.ts` の `refreshPageGuides`)の超過ページ補助線間隔に使う。
- * `@page` margin が無い CSS では editor canvas の padding(18mm) を既定として補う。
- * margin の値は mm 前提(本データに px/cm 指定は無い)。
- */
-export function pageContentPx(css: string): number {
-  const m = /@page[^{]*\{[^}]*?margin:\s*([^;}]+)/i.exec(css);
-  let top = 18;
-  let bottom = 18; // 既定は `a4CanvasCss` の padding と揃える
-  if (m) {
-    const v = m[1]
-      .trim()
-      .split(/\s+/)
-      .map((s) => Number.parseFloat(s));
-    if (v.length === 1) {
-      top = bottom = v[0];
-    } else if (v.length >= 2) {
-      top = v[0];
-      bottom = v[2] ?? v[0]; // 1〜2 値は上下=1値目 / 3値目欠落時は top と同値
-    }
-  }
-  return (A4_HEIGHT_MM - top - bottom) * PX_PER_MM;
-}
-
 // レイアウト幾何の編集可能レンジ。`Inspector.vue` の入力欄と `EditorView.vue` の
 // ドラッグハンドルが共有し、両者が同じ範囲へ clamp する。幅は本文段の % 値、余白は mm。
 export const WIDTH_PCT_MIN = 20;
