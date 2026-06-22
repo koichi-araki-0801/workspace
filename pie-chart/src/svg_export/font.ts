@@ -5,22 +5,31 @@
 // @font-face <defs> 文字列を返す。usedChars + REQUIRED_FONT_CHARS を合流。
 // 失敗時はフルフォントにフォールバック (形式はマジックバイトで判定)。
 // プロセス内キャッシュで同条件を再利用。
+// SEA(単一 exe)ではフォント woff2 と subset-font(harfbuzz wash 依存)を exe にバンドルせず
+// **exe 隣の fonts/ ・ node_modules/ から外部参照**する(subset を効かせ SVG を小さく保つため。
+// harfbuzz wasm の require.resolve を実行時 Node 解決に委ねる)。
 // =============================================================================
 
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { basename, dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { basename, dirname, isAbsolute, resolve as resolvePath } from 'node:path';
-
-import subsetFont from 'subset-font';
 
 import type { PieLayoutConfig } from '../types.js';
+
+/** subset-font の関数シグネチャ(外部参照で遅延ロードするため型だけ持つ)。 */
+type SubsetFontFn = (
+  buf: Buffer,
+  chars: string,
+  options: { targetFormat: string },
+) => Promise<Buffer>;
 
 const FONT_FACE_CACHE = new Map<string, string>();
 const FONT_BUFFER_CACHE = new Map<string, Buffer>();
 // このファイルは src/svg_export/font.ts に配置されているので、プロジェクトルート
-// (pie-chart/) は ../.. に相当する。cfg.embedFontPath が相対パスの場合の解決基点に使う。
+// (pie-chart/) は ../.. に相当する。cfg.embedFontPath が相対パスの場合の解決基点に使う(dev のみ)。
 // SEA(単一 exe)では esbuild の cjs 出力で `import.meta.url` が空になり fileURLToPath が
-// 投げるため try で握りつぶす(SEA はフォントを basename でアセット解決するので未使用)。
+// 投げるため try で握りつぶす(SEA はフォント/subset-font を exe ディレクトリ基準で解決するので未使用)。
 const PROJECT_ROOT = ((): string => {
   try {
     return resolvePath(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -28,6 +37,41 @@ const PROJECT_ROOT = ((): string => {
     return process.cwd();
   }
 })();
+
+/**
+ * SEA(単一 exe)実行時は exe と同じディレクトリを返す。それ以外(通常の Node/tsx)は null。
+ * `require('node:sea')` は SEA(cjs バンドル)でのみ解決できるので、非 SEA では握りつぶす。
+ */
+function seaExeDir(): string | null {
+  const req = typeof require === 'function' ? require : undefined;
+  if (req) {
+    try {
+      const sea = req('node:sea');
+      if (typeof sea.isSea === 'function' && sea.isSea()) {
+        return dirname(process.execPath);
+      }
+    } catch {
+      // node:sea 不在 = 非 SEA。
+    }
+  }
+  return null;
+}
+
+/**
+ * subset-font(+ harfbuzz wasm)を遅延ロードする。**exe にはバンドルせず外部参照**する:
+ * バンドルに取り込むと内部の `require.resolve('harfbuzzjs/hb-subset.wasm')` が解決できず
+ * subset が効かない(フルフォント embed になり SVG が肥大)ため。SEA では exe 隣の
+ * `node_modules` を、dev(tsx)では本ファイル基準で解決し、いずれも同じ subset 結果になる。
+ */
+let cachedSubsetFont: SubsetFontFn | null = null;
+function getSubsetFont(): SubsetFontFn {
+  if (cachedSubsetFont) return cachedSubsetFont;
+  const exeDir = seaExeDir();
+  const anchor = exeDir ? join(exeDir, 'noop.cjs') : fileURLToPath(import.meta.url);
+  const mod = createRequire(anchor)('subset-font');
+  cachedSubsetFont = (mod.default ?? mod) as SubsetFontFn;
+  return cachedSubsetFont;
+}
 
 /**
  * サブセットに常時含める必須文字。数字 / 小数点 / カンマ / % / △ / 空白 / 改行 +
@@ -40,22 +84,14 @@ const REQUIRED_FONT_CHARS: Set<string> = (() => {
 })();
 
 /**
- * フォントのバイト列を読み込む。Node SEA(単一 exe)実行時は同梱の埋込アセットから、
- * それ以外(通常の Node/tsx)はディスクから読む。SEA では `embedFontPath` のディレクトリは
- * 存在しないため、アセットキーはファイル名(basename)で引く(build-exe.mjs と対応)。
- * `require('node:sea')` は SEA cjs バンドルでのみ解決できるので、非 SEA では握りつぶす。
+ * フォントのバイト列を読み込む。Node SEA(単一 exe)実行時は **exe 隣の `fonts/`** から
+ * basename で読む(exe には埋め込まず外部参照する)。それ以外(通常の Node/tsx)は
+ * `embedFontPath` から解決した絶対パスでディスクから読む。
  */
 function loadFontBuffer(absPath: string): Buffer {
-  const req = typeof require === 'function' ? require : undefined;
-  if (req) {
-    try {
-      const sea = req('node:sea');
-      if (typeof sea.isSea === 'function' && sea.isSea()) {
-        return Buffer.from(sea.getAsset(basename(absPath)));
-      }
-    } catch {
-      // node:sea 不在 = 非 SEA。ディスク読みへフォールバック。
-    }
+  const exeDir = seaExeDir();
+  if (exeDir) {
+    return readFileSync(join(exeDir, 'fonts', basename(absPath)));
   }
   return readFileSync(absPath);
 }
@@ -111,7 +147,7 @@ export async function buildFontFaceDefs(
   let mime: string;
   let format: string;
   try {
-    subsetBuf = await subsetFont(buf, chars, { targetFormat: 'woff2' });
+    subsetBuf = await getSubsetFont()(buf, chars, { targetFormat: 'woff2' });
     mime = 'font/woff2';
     format = 'woff2';
   } catch (err: any) {

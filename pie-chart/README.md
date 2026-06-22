@@ -51,20 +51,30 @@ CLI は `npm run cli -- <command>`(または直接 `tsx cli.ts <command>`)で実
 - 接続・SQL 依存は `src/db_loader.ts` に隔離(`buildConnectionString` / `assertSelectOnly` /
   `rowsToItems` / `loadDbItems`)。editor フェーズ2(`editor/server/src/db/pool.ts`)と同パターン。
 
-### 単一 exe 配布(Node SEA)
+### exe 配布(Node SEA + 外部参照)
 
-非開発者へ配るための単一実行ファイルを `npm run build:exe`(`scripts/build-exe.mjs`、または
-`build-exe.bat` をダブルクリック)で生成する。出力は `dist-exe/pie-chart.exe`。
+非開発者へ配る実行ファイルを `npm run build:exe`(`scripts/build-exe.mjs`、または
+`build-exe.bat` をダブルクリック)で生成する。**配布物は `dist-exe/` フォルダ一式**:
 
-- パイプライン: esbuild で `cli.ts` を単一 CJS にバンドル → SEA blob 生成 → `node` 実行体へ
-  `postject` で inject。フォント woff2 は **SEA アセットとして埋込**(`require('node:sea')` で取得)。
-- 依存: `esbuild` / `postject`(devDependencies)。**オフライン配布時は両者をバンドルへ含める**こと。
+```
+dist-exe/
+├── pie-chart.exe          — Node SEA 実行体(cli を esbuild で単一 CJS 化して inject)
+├── fonts/                 — 埋込元の woff2(BIZ UDPGothic 400/700)
+└── node_modules/          — subset-font + 依存(harfbuzzjs wasm 等)
+```
+
+- **フォントと subset-font は exe に埋め込まず外部参照する**。これにより subset-font 内の
+  `require.resolve('harfbuzzjs/hb-subset.wasm')` が実行時の Node 解決で効き、**フォントが
+  サブセットされて出力 SVG が小さくなる**(CLI/tsx 版と **byte-identical**)。フォント自体は
+  従来どおり SVG 内へ base64 で subset 埋込されるため WYSIWYG・単体表示は不変。
+- `font.ts` の `seaExeDir` / `getSubsetFont` が SEA 実行時に exe ディレクトリ基準で
+  `fonts/` と `node_modules/subset-font` を解決する(cwd 非依存)。
 - 使い方は CLI と同じ: `pie-chart.exe one --sample asset_gbca_pdf_like --output-file t.svg` など。
-- 制約:
-  - DB 入力(`--sql`)はネイティブ `msnodesqlv8` を要するため、exe 本体には含めない。利用時は
-    `msnodesqlv8` を exe の隣へ配置する(描画機能のみなら単一 exe で自己完結)。
-  - exe 内では `subset-font` の wasm 解決ができず**フォントはサブセットせず全体を埋め込む**ため、
-    出力 SVG が CLI/tsx 版より大きくなる(描画結果は同一)。サイズ最適化が要るときは CLI 版を使う。
+- ビルド依存: `esbuild` / `postject`(devDependencies)。`subset-font` 依存ツリーは build 時に
+  npm で `dist-exe/node_modules` へ隔離 install する(版は dev と一致させる)。**オフライン配布時は
+  これらをバンドルへ含める**([[offline-bundle-distribution]])。
+- DB 入力(`--sql`)はネイティブ `msnodesqlv8` を要するため exe には含めない。利用時は
+  `dist-exe/node_modules` へ `msnodesqlv8` を追加する(描画・Excel 入力は追加不要で動く)。
 
 ### 全件生成 + ビューア
 

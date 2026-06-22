@@ -4,19 +4,21 @@
 // 手順:
 //   1. esbuild で cli.ts を単一 CJS(build/cli.cjs)へバンドル
 //      - samples.json は静的 import なので inline される
-//      - msnodesqlv8 はネイティブ optional のため external(DB 入力使用時のみ実行時 require)
-//   2. sea-config.json を生成(フォント woff2 を SEA アセットとして埋込)
-//   3. node --experimental-sea-config で SEA blob を生成
-//   4. node 実行体を dist-exe/pie-chart.exe へコピー
-//   5. postject で blob を inject(NODE_SEA_BLOB)
-// 出力: pie-chart/dist-exe/pie-chart.exe(描画機能で自己完結。DB 入力のみ別途
-// msnodesqlv8 を exe 隣へ配置する必要がある)。
-// 依存: esbuild / postject(devDependencies)。オフライン配布時は両者を
-// バンドルへ含める必要がある([[offline-bundle-distribution]])。
+//      - msnodesqlv8(ネイティブ optional)と subset-font は external
+//   2. sea-config.json を生成 → node --experimental-sea-config で SEA blob を生成
+//   3. node 実行体を dist-exe/pie-chart.exe へコピーし postject で blob を inject
+//   4. 外部参照物を dist-exe へ同梱: fonts/(woff2)・node_modules/(subset-font 依存ツリー)
+// 配布物は **dist-exe/ フォルダ一式**(pie-chart.exe + fonts/ + node_modules/)。
+//   - フォントと subset-font を exe に埋め込まず外部参照することで、`require.resolve`
+//     ('harfbuzzjs/hb-subset.wasm')が実行時 Node 解決で効き、**subset が機能して SVG が
+//     小さくなる**(CLI 版と同等)。font.ts の seaExeDir/getSubsetFont と対応。
+//   - DB 入力(--sql)を使う場合のみ、別途 msnodesqlv8 を node_modules へ追加する。
+// 依存: esbuild / postject(devDependencies)。subset-font 同梱は build 時に npm install
+// で取得する(オフライン配布時は [[offline-bundle-distribution]] で含める)。
 // =============================================================================
 
-import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, execSync } from 'node:child_process';
+import { copyFileSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,17 +56,13 @@ await build({
   platform: 'node',
   format: 'cjs',
   target: 'node22',
-  // ネイティブ optional 依存。バンドルせず実行時 require に委ねる(未導入なら明確なエラー)。
-  external: ['msnodesqlv8'],
+  // external: ネイティブ optional の msnodesqlv8 と、外部参照する subset-font
+  // (バンドルすると harfbuzz wasm の require.resolve が解決できず subset が効かない)。
+  external: ['msnodesqlv8', 'subset-font'],
   logLevel: 'info',
 });
 
-// 2. sea-config.json(フォントをアセット埋込) ---------------------------------
-const fontsDir = join(root, 'fonts');
-const assets = {
-  'BIZUDPGothic-Regular.woff2': join(fontsDir, 'BIZUDPGothic-Regular.woff2'),
-  'BIZUDPGothic-Bold.woff2': join(fontsDir, 'BIZUDPGothic-Bold.woff2'),
-};
+// 2. sea-config.json(アセット埋込なし。フォントは外部参照) ----------------------
 writeFileSync(
   seaConfigPath,
   JSON.stringify(
@@ -72,16 +70,14 @@ writeFileSync(
       main: bundlePath,
       output: blobPath,
       disableExperimentalSEAWarning: true,
-      // codeCache は cjs バンドル + アセットと相性問題が出ることがあるため無効化する。
       useCodeCache: false,
       useSnapshot: false,
-      assets,
     },
     null,
     2,
   ),
 );
-log('sea-config.json written (fonts embedded as assets)');
+log('sea-config.json written (assets externalized)');
 
 // 3. SEA blob 生成 ------------------------------------------------------------
 log('generating SEA blob');
@@ -101,4 +97,22 @@ if (process.platform === 'darwin') {
 log('injecting blob with postject');
 execFileSync(process.execPath, postjectArgs, { stdio: 'inherit' });
 
-log(`done: ${exePath}`);
+// 6. 外部参照物を dist-exe へ同梱 --------------------------------------------
+// (a) フォント woff2 を dist-exe/fonts/ へ。font.ts は SEA 時ここから basename で読む。
+log('copying fonts -> dist-exe/fonts');
+cpSync(join(root, 'fonts'), join(distDir, 'fonts'), { recursive: true });
+
+// (b) subset-font + 依存ツリーを dist-exe/node_modules/ へ。getSubsetFont が exe 基準で
+//     解決し、内部の require.resolve('harfbuzzjs/hb-subset.wasm')が実 Node 解決で効く。
+//     pnpm のシンボリックリンク構造を避けるため npm で隔離 install する。版は dev と完全一致
+//     させて exe の subset 結果(=SVG バイト)を CLI 版と揃える。
+const subsetVersion = createRequire(import.meta.url)('subset-font/package.json').version;
+log(`npm install subset-font@${subsetVersion} -> dist-exe/node_modules`);
+// execSync(シェル経由)で起動する。Node 24 は execFileSync での .cmd 直接起動を拒否するため。
+execSync(
+  `npm install "subset-font@${subsetVersion}" --prefix "${distDir}" ` +
+    '--omit=dev --no-audit --no-fund --no-package-lock --loglevel=error',
+  { stdio: 'inherit' },
+);
+
+log(`done: dist-exe/ (${exeName} + fonts/ + node_modules/)`);
