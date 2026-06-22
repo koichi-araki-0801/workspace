@@ -102,9 +102,9 @@ rmSync(buildDir, { recursive: true, force: true });
 mkdirSync(buildDir, { recursive: true });
 mkdirSync(distDir, { recursive: true });
 
-log('esbuild: bundling cli.ts -> build/cli.cjs');
+log('esbuild: bundling src/cli.ts -> build/cli.cjs');
 await build({
-  entryPoints: [join(root, 'cli.ts')],
+  entryPoints: [join(root, 'src', 'cli.ts')],
   outfile: bundlePath,
   bundle: true,
   platform: 'node',

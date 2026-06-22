@@ -13,8 +13,8 @@
 //   実行: npm run verify:consistency
 // =============================================================================
 
-import { resolveInputData, samples as jsSamples } from './src/data.js';
-import { renderPdfStylePieToSvg, pathsCross, distPointToSegment } from './src/svg_export/index.js';
+import { resolveInputData, samples as jsSamples } from './data.js';
+import { renderPdfStylePieToSvg, pathsCross, distPointToSegment } from './svg_export/index.js';
 
 type Pt = { x: number; y: number };
 
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
   console.log(`${'─'.repeat(72)}`);
 
   for (const [name, entry] of entries) {
-    const items = resolveInputData({ data: (entry as { items: unknown }).items });
+    const items = resolveInputData({ data: (entry as { items: unknown[] }).items });
     const { svg, diagnostics } = await renderPdfStylePieToSvg(items, {});
     const fs = diagnostics?.finalScore;
     if (!fs) continue; // 単一スライス等 finalScore 無しはスキップ

@@ -17,15 +17,16 @@ import { fileURLToPath } from 'node:url';
 
 // drift ガード専用の import。検証ロジック(交差・bbox 等)は本体から取り込まず独立を保つが、
 // 手動同期に頼っていたメトリクス定数/文字幅分類だけは起動時に本体と突き合わせる(assertOracleSync)。
-import { createPieLayoutConfig } from './src/config.js';
+import { createPieLayoutConfig } from './config.js';
 import {
   TOP_BAND_HALF_WIDTH_DEG as bodyTopBandHalfWidthDeg,
   TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG as bodySonohokaLeftExtHalfWidthDeg,
-} from './src/label_placement.js';
-import { visualCharEm as bodyVisualCharEm } from './src/svg_geom.js';
+} from './label_placement.js';
+import { visualCharEm as bodyVisualCharEm } from './svg_geom.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const outRoot = path.resolve(__dirname, 'out');
+// 本ファイルは src/ にあるため、1 つ上(pie-chart ルート)を基準に out/ を解決する。
+const outRoot = path.resolve(__dirname, '..', 'out');
 const jsDir = process.argv[2] ? path.resolve(process.argv[2]) : path.join(outRoot, 'svg_js');
 
 interface BBox {

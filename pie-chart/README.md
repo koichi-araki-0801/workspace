@@ -54,7 +54,7 @@ CLI は `npm run cli -- <command>`(または直接 `tsx cli.ts <command>`)で実
 ### exe 配布(Node SEA + 外部参照)
 
 非開発者へ配る実行ファイルを `npm run build:exe`(`scripts/build-exe.mjs`、または
-`build-exe.bat` をダブルクリック)で生成する。**配布物は `dist-exe/` フォルダ一式**:
+`scripts/build-exe.bat` をダブルクリック)で生成する。**配布物は `dist-exe/` フォルダ一式**:
 
 ```
 dist-exe/

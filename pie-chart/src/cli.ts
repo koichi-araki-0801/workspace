@@ -12,14 +12,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import {
-  resolveInputData,
-  resolveInputDataAsync,
-  samples,
-  type ResolveAsyncOpts,
-} from './src/data.js';
-import { renderPdfStylePieToSvg } from './src/svg_export/index.js';
-import type { PieLayoutConfig } from './src/types.js';
+import { resolveInputData, resolveInputDataAsync, samples, type ResolveAsyncOpts } from './data.js';
+import { renderPdfStylePieToSvg } from './svg_export/index.js';
+import type { PieLayoutConfig } from './types.js';
 
 interface ParsedArgs {
   command: string | undefined;

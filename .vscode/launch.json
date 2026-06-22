@@ -28,7 +28,7 @@
 			"name": "pie-chart: CLI (tsx)",
 			"cwd": "${workspaceFolder}/pie-chart",
 			"runtimeExecutable": "pnpm",
-			"runtimeArgs": ["exec", "tsx", "cli.ts"],
+			"runtimeArgs": ["exec", "tsx", "src/cli.ts"],
 			"console": "integratedTerminal",
 			"skipFiles": ["<node_internals>/**"]
 		},
