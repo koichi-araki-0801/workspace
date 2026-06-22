@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# exe ビルドの中間物(esbuild bundle / SEA blob)と成果物(単一 exe)。重量物のため対象外。
+build/
+dist-exe/
 # 生成物 (SVG/PNG/HTML/フォント等) は一括で無視。重量物はコミット対象外。
 out/
 *.log

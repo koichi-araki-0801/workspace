@@ -24,10 +24,11 @@ CLI は `npm run cli -- <command>`(または直接 `tsx cli.ts <command>`)で実
 - `npm run cli -- one --data-file data/example.json --output-file out/test.svg`
 - `npm run cli -- one --data-json '[{"name":"A","value":60},{"name":"B","value":40}]' --output-file out/test.svg`
 - `npm run cli -- one --xlsx data.xlsx --sheet Sheet1 --range A2:B11 --output-file out/test.svg`
+- `npm run cli -- one --sql "SELECT 区分, 比率 FROM dbo.資産配分" --db-name usrap --output-file out/test.svg`
 - `npm run cli -- batch --output-dir out/svg`
 - `npm run cli -- batch --input-dir data --output-dir out/svg`
 
-`one` の入力は `--sample` / `--data-file` / `--data-json` / `--xlsx + --sheet + --range` のいずれか(`--output-file` 必須)。`batch` は既定で全サンプル、`--samples a,b,c` で対象を絞れる。`--input-dir` 指定時はそのディレクトリ内の `*.json` を一括処理する。
+`one` の入力は `--sample` / `--data-file` / `--data-json` / `--xlsx + --sheet + --range` / `--sql` のいずれか(`--output-file` 必須)。`batch` は既定で全サンプル、`--samples a,b,c` で対象を絞れる。`--input-dir` 指定時はそのディレクトリ内の `*.json` を一括処理する。
 
 #### Excel 入力の決まり
 
@@ -36,6 +37,34 @@ CLI は `npm run cli -- <command>`(または直接 `tsx cli.ts <command>`)で実
 - 空行はスキップ、name 空欄や value 数値変換不可は明示エラー。
 - 数式セルは結果値、リッチテキスト/ハイパーリンクも展開して取り込む。
 - exceljs 依存は `src/xlsx_loader.ts` に隔離(`parseRange` / `loadXlsxItems`)。
+
+#### DB(SQL Server)入力の決まり
+
+- 入力は単一の SELECT 文。複文(文中 `;`)・非 SELECT(UPDATE/DELETE 等)は拒否する。
+- 列解決は Excel と同思想: `--name-col` / `--value-col` を**両方**指定すれば列名で、無指定なら
+  結果セットの**先頭 2 列**を name/value とする(3 列以上で未指定はあいまいエラー)。
+- 接続先は `--db-server`(既定 env `DB_SERVER` / `localhost`)・`--db-name`(既定 env `DB_NAME`)。
+  認証は **Windows 統合認証**固定(`Trusted_Connection=yes`)で資格情報は持たない。
+  ODBC ドライバは既定 `ODBC Driver 17 for SQL Server`(env `DB_ODBC_DRIVER` で変更可)。
+- ネイティブドライバ `msnodesqlv8` は `optionalDependencies`。**遅延 require** のため、未導入でも
+  他入力(sample/json/xlsx)と `tsc` は動く。DB 入力使用時のみ導入が必要。
+- 接続・SQL 依存は `src/db_loader.ts` に隔離(`buildConnectionString` / `assertSelectOnly` /
+  `rowsToItems` / `loadDbItems`)。editor フェーズ2(`editor/server/src/db/pool.ts`)と同パターン。
+
+### 単一 exe 配布(Node SEA)
+
+非開発者へ配るための単一実行ファイルを `npm run build:exe`(`scripts/build-exe.mjs`、または
+`build-exe.bat` をダブルクリック)で生成する。出力は `dist-exe/pie-chart.exe`。
+
+- パイプライン: esbuild で `cli.ts` を単一 CJS にバンドル → SEA blob 生成 → `node` 実行体へ
+  `postject` で inject。フォント woff2 は **SEA アセットとして埋込**(`require('node:sea')` で取得)。
+- 依存: `esbuild` / `postject`(devDependencies)。**オフライン配布時は両者をバンドルへ含める**こと。
+- 使い方は CLI と同じ: `pie-chart.exe one --sample asset_gbca_pdf_like --output-file t.svg` など。
+- 制約:
+  - DB 入力(`--sql`)はネイティブ `msnodesqlv8` を要するため、exe 本体には含めない。利用時は
+    `msnodesqlv8` を exe の隣へ配置する(描画機能のみなら単一 exe で自己完結)。
+  - exe 内では `subset-font` の wasm 解決ができず**フォントはサブセットせず全体を埋め込む**ため、
+    出力 SVG が CLI/tsx 版より大きくなる(描画結果は同一)。サイズ最適化が要るときは CLI 版を使う。
 
 ### 全件生成 + ビューア
 
@@ -55,6 +84,7 @@ pie-chart/
 │   ├── config.ts               — createPieLayoutConfig + makeColors
 │   ├── data.ts                 — samples / normalizeInputItems / resolveInputData*
 │   ├── xlsx_loader.ts          — Excel 入力 (exceljs 依存隔離)
+│   ├── db_loader.ts            — DB(SQL Server)SELECT 入力 (msnodesqlv8 依存隔離)
 │   ├── svg_geom.ts             — 幾何/測定/ナッジ (副作用なし)
 │   ├── layout.ts               — layoutLabels orchestrator
 │   │                             (profiles / diagnostics / resolve / flip /

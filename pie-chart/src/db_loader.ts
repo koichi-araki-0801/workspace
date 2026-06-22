@@ -15,7 +15,11 @@
 
 import { createRequire } from 'node:module';
 
-const requireCjs = createRequire(import.meta.url);
+// 通常の ESM(tsx)では `require` が無いので createRequire で作る。SEA(esbuild の cjs
+// バンドル)では `require` が既にあり、かつ `import.meta.url` が空で createRequire が
+// 投げるため、グローバル `require` を優先する。
+const requireCjs: NodeRequire =
+  typeof require === 'function' ? require : createRequire(import.meta.url);
 
 /** msnodesqlv8 のトップレベル one-shot API のうち本ローダが使う部分だけを型付け。 */
 interface MsSql {

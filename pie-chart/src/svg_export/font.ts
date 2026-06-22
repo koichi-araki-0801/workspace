@@ -9,7 +9,7 @@
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, isAbsolute, resolve as resolvePath } from 'node:path';
+import { basename, dirname, isAbsolute, resolve as resolvePath } from 'node:path';
 
 import subsetFont from 'subset-font';
 
@@ -19,7 +19,15 @@ const FONT_FACE_CACHE = new Map<string, string>();
 const FONT_BUFFER_CACHE = new Map<string, Buffer>();
 // このファイルは src/svg_export/font.ts に配置されているので、プロジェクトルート
 // (pie-chart/) は ../.. に相当する。cfg.embedFontPath が相対パスの場合の解決基点に使う。
-const PROJECT_ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), '../..');
+// SEA(単一 exe)では esbuild の cjs 出力で `import.meta.url` が空になり fileURLToPath が
+// 投げるため try で握りつぶす(SEA はフォントを basename でアセット解決するので未使用)。
+const PROJECT_ROOT = ((): string => {
+  try {
+    return resolvePath(dirname(fileURLToPath(import.meta.url)), '../..');
+  } catch {
+    return process.cwd();
+  }
+})();
 
 /**
  * サブセットに常時含める必須文字。数字 / 小数点 / カンマ / % / △ / 空白 / 改行 +
@@ -30,6 +38,27 @@ const REQUIRED_FONT_CHARS: Set<string> = (() => {
   for (let cp = 0xff61; cp <= 0xff9f; cp += 1) set.add(String.fromCodePoint(cp));
   return set;
 })();
+
+/**
+ * フォントのバイト列を読み込む。Node SEA(単一 exe)実行時は同梱の埋込アセットから、
+ * それ以外(通常の Node/tsx)はディスクから読む。SEA では `embedFontPath` のディレクトリは
+ * 存在しないため、アセットキーはファイル名(basename)で引く(build-exe.mjs と対応)。
+ * `require('node:sea')` は SEA cjs バンドルでのみ解決できるので、非 SEA では握りつぶす。
+ */
+function loadFontBuffer(absPath: string): Buffer {
+  const req = typeof require === 'function' ? require : undefined;
+  if (req) {
+    try {
+      const sea = req('node:sea');
+      if (typeof sea.isSea === 'function' && sea.isSea()) {
+        return Buffer.from(sea.getAsset(basename(absPath)));
+      }
+    } catch {
+      // node:sea 不在 = 非 SEA。ディスク読みへフォールバック。
+    }
+  }
+  return readFileSync(absPath);
+}
 
 /** バッファ先頭のマジックバイトから @font-face 用の mime/format を判定する。 */
 function sniffFontFormat(buf: Buffer): { mime: string; format: string } {
@@ -67,7 +96,7 @@ export async function buildFontFaceDefs(
   let buf = FONT_BUFFER_CACHE.get(absPath);
   if (!buf) {
     try {
-      buf = readFileSync(absPath);
+      buf = loadFontBuffer(absPath);
       FONT_BUFFER_CACHE.set(absPath, buf);
     } catch (err: any) {
       console.warn(

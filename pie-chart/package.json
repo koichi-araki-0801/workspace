@@ -12,7 +12,8 @@
     "batch": "tsx test_batch.ts",
     "verify": "tsx verify_svg.ts",
     "verify:consistency": "tsx verify_consistency.ts",
-    "gen:widths": "tsx scripts/gen_glyph_advance.ts"
+    "gen:widths": "tsx scripts/gen_glyph_advance.ts",
+    "build:exe": "node scripts/build-exe.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
@@ -23,8 +24,10 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.1",
+    "esbuild": "^0.28.0",
     "fontverter": "^2.0.0",
     "@vitest/coverage-v8": "^4.1.8",
+    "postject": "^1.0.0-alpha.6",
     "tsx": "^4.19.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
