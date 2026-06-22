@@ -59,25 +59,80 @@ function topLevelBlocks(body: HTMLElement): HTMLElement[] {
   return Array.from(body.children) as HTMLElement[];
 }
 
-function hasBreak(el: HTMLElement, which: 'before' | 'after'): boolean {
+/**
+ * クラス由来の改ページを拾うための、CSS から抽出した page-break セレクタ。実テンプレは
+ * `.page { page-break-after: always }` のように改ページを **CSS クラス**で表すため、
+ * インライン `style` だけ見ると分割を取りこぼす(editor 側 `recomputeBreakEls` は
+ * `getComputedStyle` で拾えている)。
+ */
+interface BreakSelectors {
+  before: string[];
+  after: string[];
+}
+const NO_BREAK_SELECTORS: BreakSelectors = { before: [], after: [] };
+
+// 宣言ブロック内で `which` 方向の改ページを `always`/`page` に設定しているか。`auto`
+// (例: `.page:last-child { page-break-after: auto }`)は改ページではないので拾わない。
+function declHasBreak(decls: string, which: 'before' | 'after'): boolean {
+  return (
+    new RegExp(`page-break-${which}\\s*:\\s*(always|page)`).test(decls) ||
+    new RegExp(`(^|[^-])break-${which}\\s*:\\s*(always|page)`).test(decls)
+  );
+}
+
+/**
+ * CSS テキストを走査し、改ページを設定しているルールの **セレクタ列**を方向別に集める。
+ * `el.matches(selector)` で top-level block 側を判定するために使う。`@media` 等の
+ * ネストブロックは扱わない簡易スキャンだが、テンプレの素朴な flat ルールには十分。
+ */
+function extractBreakSelectors(css: string | undefined): BreakSelectors {
+  if (!css) return NO_BREAK_SELECTORS;
+  const out: BreakSelectors = { before: [], after: [] };
+  const lower = css.toLowerCase();
+  for (const m of lower.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selector = m[1].trim();
+    if (!selector || selector.startsWith('@')) continue;
+    const decls = m[2];
+    if (declHasBreak(decls, 'before')) out.before.push(selector);
+    if (declHasBreak(decls, 'after')) out.after.push(selector);
+  }
+  return out;
+}
+
+// 不正セレクタ(`:last-child` 等は有効だが、CSS には matches が解さない記法も混じり得る)で
+// `el.matches` が throw しても分割判定を止めないようガードする。
+function matchesAny(el: HTMLElement, selectors: string[]): boolean {
+  for (const sel of selectors) {
+    try {
+      if (el.matches(sel)) return true;
+    } catch {
+      /* ignore invalid selector */
+    }
+  }
+  return false;
+}
+
+// インライン `style` 属性の改ページ、または CSS クラス由来の改ページセレクタへの一致。
+function hasBreak(el: HTMLElement, which: 'before' | 'after', sels: BreakSelectors): boolean {
   const style = (el.getAttribute('style') ?? '').toLowerCase();
   return (
     new RegExp(`page-break-${which}\\s*:\\s*always`).test(style) ||
-    new RegExp(`(^|[^-])break-${which}\\s*:\\s*(always|page)`).test(style)
+    new RegExp(`(^|[^-])break-${which}\\s*:\\s*(always|page)`).test(style) ||
+    matchesAny(el, sels[which])
   );
 }
 
 /** top-level の block を、明示的な page-break マーカーで page にグループ化する。 */
-function paginate(blocks: HTMLElement[]): HTMLElement[][] {
+function paginate(blocks: HTMLElement[], sels: BreakSelectors): HTMLElement[][] {
   const pages: HTMLElement[][] = [[]];
   for (const el of blocks) {
     let cur = pages[pages.length - 1];
-    if (hasBreak(el, 'before') && cur.length > 0) {
+    if (hasBreak(el, 'before', sels) && cur.length > 0) {
       pages.push([]);
       cur = pages[pages.length - 1];
     }
     cur.push(el);
-    if (hasBreak(el, 'after')) pages.push([]);
+    if (hasBreak(el, 'after', sels)) pages.push([]);
   }
   if (pages.length > 1 && pages[pages.length - 1].length === 0) pages.pop();
   return pages;
@@ -370,10 +425,25 @@ function diffPage(index: number, beforePage: HTMLElement[], afterPage: HTMLEleme
   };
 }
 
-/** 2 つのレンダリング済み HTML ドキュメント間の page/細粒度差分を構築する。 */
-export function buildHtmlDiff(beforeHtml: string, afterHtml: string): HtmlDiff {
-  const beforePages = paginate(topLevelBlocks(parseBody(beforeHtml)));
-  const afterPages = paginate(topLevelBlocks(parseBody(afterHtml)));
+/**
+ * 2 つのレンダリング済み HTML ドキュメント間の page/細粒度差分を構築する。
+ * `cssBefore`/`cssAfter` を渡すと、`.page { page-break-after: always }` のような
+ * CSS クラス由来の改ページも分割に反映する(省略時はインライン `style` のみで分割)。
+ */
+export function buildHtmlDiff(
+  beforeHtml: string,
+  afterHtml: string,
+  cssBefore?: string,
+  cssAfter?: string,
+): HtmlDiff {
+  const beforePages = paginate(
+    topLevelBlocks(parseBody(beforeHtml)),
+    extractBreakSelectors(cssBefore),
+  );
+  const afterPages = paginate(
+    topLevelBlocks(parseBody(afterHtml)),
+    extractBreakSelectors(cssAfter),
+  );
   const pageCount = Math.max(beforePages.length, afterPages.length);
 
   const pages: DiffPage[] = [];
