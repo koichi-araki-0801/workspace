@@ -1,0 +1,13 @@
+{
+  "//": "全 TS プロジェクト共通の compilerOptions。3 プロジェクト(editor / pie-chart / graph-editor)で完全に同値だったキーのみをここへ集約する。差異のあるオプション(lib / types / noEmit / noImplicitAny 等)や module 種別の上書き(例: editor/server は NodeNext)は各 tsconfig 側に残す。",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  }
+}

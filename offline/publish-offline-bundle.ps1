@@ -150,7 +150,7 @@ if ($bundleChanged) {
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] playwright install に失敗しました。'; exit 1 }
 
     Write-Host '[4/4] Python ビルド依存の wheel を python-wheelhouse へ収集（pip download）...'
-    # pdf-to-svg / graph-editor の build.bat は、この python-wheelhouse から --no-index で
+    # pdf-to-svg / graph-editor の scripts\build.bat は、この python-wheelhouse から --no-index で
     # オフライン install する。両 requirements.txt の和を 1 ディレクトリへ収集する。
     $pyExe = $null
     foreach ($cand in @('py', 'python')) {

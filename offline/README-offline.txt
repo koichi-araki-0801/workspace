@@ -27,12 +27,12 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
      git-tools\portablegit\ へ自己展開し、ユーザー PATH と環境変数 GIT_BIN を設定する
      （editor サーバはテンプレ確定保存のたびに git でコミットする）。TortoiseGit は
      履歴/diff 閲覧の GUI として msiexec で導入を試みる（管理者権限が要る場合あり・失敗時は手動）。
-     editor のテンプレ実体は editor\init-data-repo.bat で初期化する data リポジトリ
+     editor のテンプレ実体は editor\scripts\init-data-repo.bat で初期化する data リポジトリ
      （ワークスペース外。既定 ..\editor-data）に置かれ、TortoiseGit でそのフォルダを開ける。
 
   ※ python-wheelhouse の wheel は publish 機の Python マイナー版・プラットフォーム
      （win_amd64 / cpXY）に紐づくバイナリを含む（PyMuPDF / Pillow / brotli）。
-     オフラインビルド機は同一マイナー版の Python を使うこと。各 build.bat は
+     オフラインビルド機は同一マイナー版の Python を使うこと。各 scripts\build.bat は
      python-wheelhouse があれば --no-index でそこから install し、無ければ通常の
      pip install（要ネット）へフォールバックする。
 
