@@ -150,16 +150,15 @@ const statusText = computed(() => {
         <!-- 選択ブロック上の幅/余白ドラッグハンドル(layout 編集は右ペインの
              `Inspector.vue` にもある。ここに浮動ツールバーは置かない) -->
         <div class="pointer-events-none absolute inset-0 z-20 overflow-hidden">
-          <!-- ページ境界 guide: 実際の page break(実線)+ 297mm の estimate(破線) -->
+          <!-- ページ境界 guide: 実際の page break(`.page` / `page-break-*`)の位置のみ -->
           <template v-if="showPageGuides">
             <div
               v-for="gd in g.pageGuides.value"
-              :key="`${gd.kind}-${gd.page}`"
+              :key="gd.page"
               class="pg-line"
-              :class="`pg-${gd.kind}`"
               :style="{ left: `${gd.left}px`, top: `${gd.top}px`, width: `${gd.width}px` }"
             >
-              <span class="pg-label">ここまで {{ gd.page }}ページ目<template v-if="gd.kind === 'estimate'">（目安）</template></span>
+              <span class="pg-label">ここまで {{ gd.page }}ページ目</span>
             </div>
           </template>
 
@@ -262,20 +261,14 @@ const statusText = computed(() => {
 </template>
 
 <style scoped>
-/* page-boundary guides drawn over the A4 sheet (sit below the selection frame) */
+/* page-boundary guides drawn over the A4 sheet (sit below the selection frame).
+   real page break (from .page / break-* / page-break-*): confident solid line */
 .pg-line {
   position: absolute;
   height: 0;
   pointer-events: none;
   z-index: 10;
-}
-/* real page break (from .page / break-* / page-break-*): confident solid line */
-.pg-break {
   border-top: 1px solid color-mix(in oklab, var(--primary) 60%, transparent);
-}
-/* 297mm estimate fallback (no explicit breaks): faint dashed line */
-.pg-estimate {
-  border-top: 1px dashed color-mix(in oklab, var(--muted-foreground) 60%, transparent);
 }
 .pg-label {
   position: absolute;
@@ -289,10 +282,6 @@ const statusText = computed(() => {
   white-space: nowrap;
   color: var(--primary-foreground);
   background: color-mix(in oklab, var(--primary) 78%, transparent);
-}
-.pg-estimate .pg-label {
-  color: var(--muted-foreground);
-  background: color-mix(in oklab, var(--muted) 92%, transparent);
 }
 
 /* drag grip on the selected block — large, obvious grab target for reorder */

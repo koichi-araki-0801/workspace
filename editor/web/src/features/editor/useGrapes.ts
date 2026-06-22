@@ -10,25 +10,21 @@ import grapesjs, { type Component, type Editor } from 'grapesjs';
 import { ref, shallowRef } from 'vue';
 import { logError } from '@/lib/appError';
 import 'grapesjs/dist/css/grapes.min.css';
-import { pageContentPx } from './geom';
 import { type GrapesCallbacks, type SelectedRect, wireGrapesEvents } from './grapesEvents';
 import { jinjaChipCanvasCss, registerJinjaComponents } from './jinjaComponents';
 
 /**
  * A4 sheet 上に描く 1 本のページ境界 guide(canvas 相対 / zoom 考慮の座標、
- * `SelectedRect` と同様)。`kind: 'break'` は実際の page break(`break-*` /
- * `page-break-*`、class 由来の `.page` を含む)= 論理ページブロックの末尾を表す。
- * `'estimate'` は 1 ブロックが印刷可能ページを超過し印刷でさらに分割される箇所を表す
- * (破線の 297mm 相当の sub-guide)。どちらも累積物理ページ番号を付ける
- * (`refreshPageGuides` を見よ)。
+ * `SelectedRect` と同様)。実際の page break(`break-*` / `page-break-*`、class 由来の
+ * `.page` を含む)= 論理ページブロックの末尾だけを表す。改ページ判定は page break のみで
+ * 行い、297mm の高さ推定(estimate)は描かない(`refreshPageGuides` を見よ)。
  */
 export interface PageGuide {
   top: number;
   left: number;
   width: number;
-  /** この境界で*終わる*累積物理ページ番号(「ここまで N ページ目」)。 */
+  /** この境界で*終わる*累積ページ番号(「ここまで N ページ目」)。 */
   page: number;
-  kind: 'break' | 'estimate';
 }
 
 export interface GrapesContainers {
@@ -148,19 +144,14 @@ export function useGrapes() {
 
   /**
    * 連続スクロールの canvas(`page-break-*` は画面レイアウトに効かない)の上に、
-   * *物理ページ*モデルとしてページ境界 guide 線を再計算する:
+   * ページ境界 guide 線を再計算する。改ページ判定は実際の page break のみで行う:
    *
-   * - cache 済みの各 break(`.page` 末尾、`break-*` / `page-break-*`)は hard break =
-   *   論理ページの末尾 → 実線の `break` guide。
-   * - 2 つの hard break 間(および最初の break より前)の区間で、印刷可能ページ高さ `H`
-   *   を超過するコンテンツは更に複数の物理ページへ分割 → `H` ごとに破線の `estimate`
-   *   sub-guide。
-   * - 各 guide は*累積*物理ページで番号付けするので、1 ブロックが複数 sheet に
-   *   またがってもラベルが正しいまま保たれる。
+   * - cache 済みの各 break(`.page` 末尾、`break-*` / `page-break-*`)を hard break =
+   *   論理ページの末尾とみなし、その位置に guide を 1 本引く。
+   * - guide は出現順に累積ページ番号を付ける(「ここまで N ページ目」)。
    *
-   * `H` は `geom.ts` の `pageContentPx`(`@page` margin)由来で、`getElementPos` の
-   * 座標に合わせて zoom 倍する。厳密な改ページは Vivliostyle preview の役目であり、
-   * これは editor 内の近似に過ぎない。
+   * 高さ 297mm 由来の estimate(推定改ページ)は描かない。厳密な改ページは
+   * Vivliostyle preview の役目であり、ここは page break 位置の可視化に徹する。
    */
   function refreshPageGuides(): void {
     const ed = editor.value;
@@ -173,7 +164,6 @@ export function useGrapes() {
       const bodyPos = ed.Canvas.getElementPos(body);
       const top0 = bodyPos.top;
       const bottom = bodyPos.top + bodyPos.height;
-      const H = pageContentPx(getCss()) * zoom.value; // 印刷 1 ページ分(画面 px)
 
       // hard break(論理ページ末尾)を昇順に並べ、端ぎりぎりのものは捨てる。
       const hard = breakEls
@@ -184,41 +174,13 @@ export function useGrapes() {
         .filter((t) => t > top0 + 1 && t < bottom - 1)
         .sort((a, b) => a - b);
 
-      // top→bottom に走査: 各区間 [regionStart, stop] には超過分の H サイズの
-      // estimate sub-guide を置き、hard break には実線 guide を置く(sheet 末尾の stop は
-      // 線を持たない — 最終ページ末尾は sheet の端そのもの)。
-      const guides: PageGuide[] = [];
-      const stops = [...hard, bottom];
-      let pageNo = 0;
-      let regionStart = top0;
-      for (let i = 0; i < stops.length; i++) {
-        const stop = stops[i];
-        const isHard = i < hard.length;
-        for (let y = regionStart + H; y < stop - 1; y += H) {
-          // ほぼ重複(次の hard break に乗る sub-guide)は畳む
-          if (stop - y < 1) break;
-          pageNo++;
-          guides.push({
-            top: y,
-            left: bodyPos.left,
-            width: bodyPos.width,
-            page: pageNo,
-            kind: 'estimate',
-          });
-        }
-        pageNo++;
-        if (isHard) {
-          guides.push({
-            top: stop,
-            left: bodyPos.left,
-            width: bodyPos.width,
-            page: pageNo,
-            kind: 'break',
-          });
-        }
-        regionStart = stop;
-      }
-      pageGuides.value = guides;
+      // 各 hard break に guide を 1 本ずつ。番号は出現順の累積ページ。
+      pageGuides.value = hard.map((top, i) => ({
+        top,
+        left: bodyPos.left,
+        width: bodyPos.width,
+        page: i + 1,
+      }));
     } catch (e) {
       // 幾何の再計算に失敗(canvas の一時的な状態) — guide を静かに隠す。
       logError(toAppError(e));

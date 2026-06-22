@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildHtmlDiff, HL_ADDED, HL_CHANGED, HL_REMOVED } from '@/features/compare/htmlBlockDiff';
+import {
+  buildHtmlDiff,
+  HL_ADDED,
+  HL_DEL,
+  HL_INS,
+  HL_REMOVED,
+} from '@/features/compare/htmlBlockDiff';
 
 /** Wrap body fragments in a minimal HTML document (what renderJinja produces). */
 function doc(...body: string[]): string {
@@ -13,10 +19,11 @@ describe('buildHtmlDiff', () => {
     expect(diff.changedPageCount).toBe(0);
     expect(diff.pages).toHaveLength(1);
     expect(diff.pages[0].blocks.every((b) => b.status === 'same')).toBe(true);
-    expect(diff.pages[0].afterHtml).not.toContain(HL_CHANGED);
+    expect(diff.pages[0].afterHtml).not.toContain(HL_INS);
+    expect(diff.pages[0].beforeHtml).not.toContain(HL_DEL);
   });
 
-  it('flags a changed block and highlights it in both panes', () => {
+  it('flags a changed block and highlights the changed words per pane', () => {
     const before = doc('<p id="a">old</p>');
     const after = doc('<p id="a">new</p>');
     const diff = buildHtmlDiff(before, after);
@@ -24,8 +31,45 @@ describe('buildHtmlDiff', () => {
     const page = diff.pages[0];
     expect(page.changedBlockCount).toBe(1);
     expect(page.blocks[0].status).toBe('changed');
-    expect(page.beforeHtml).toContain(HL_CHANGED);
-    expect(page.afterHtml).toContain(HL_CHANGED);
+    // 削除語句は before ペインのみ、挿入語句は after ペインのみに着色される。
+    expect(page.beforeHtml).toContain(`<span class="${HL_DEL}">old</span>`);
+    expect(page.beforeHtml).not.toContain(HL_INS);
+    expect(page.afterHtml).toContain(`<span class="${HL_INS}">new</span>`);
+    expect(page.afterHtml).not.toContain(HL_DEL);
+  });
+
+  it('highlights only the changed words within a sentence, leaving the rest plain', () => {
+    const before = doc('<p>sales grew by 105 percent this year</p>');
+    const after = doc('<p>sales grew by 112 percent this year</p>');
+    const page = buildHtmlDiff(before, after).pages[0];
+    expect(page.beforeHtml).toContain(`<span class="${HL_DEL}">105</span>`);
+    expect(page.afterHtml).toContain(`<span class="${HL_INS}">112</span>`);
+    // 変わっていない語は素のテキストのまま(span に包まれない)。
+    expect(page.afterHtml).toContain('sales grew by ');
+    expect(page.afterHtml).toContain(' percent this year');
+    expect(page.afterHtml).not.toContain('>sales<');
+  });
+
+  it('descends into nested elements and highlights only the changed child', () => {
+    const before = doc('<div id="card"><p class="a">keep</p><p class="b">old</p></div>');
+    const after = doc('<div id="card"><p class="a">keep</p><p class="b">new</p></div>');
+    const page = buildHtmlDiff(before, after).pages[0];
+    expect(page.blocks[0].status).toBe('changed');
+    // 変わった子 (.b) だけが着色され、変わらない子 (.a) は素のまま。
+    expect(page.afterHtml).toContain(`<span class="${HL_INS}">new</span>`);
+    expect(page.afterHtml).toContain('<p class="a">keep</p>');
+  });
+
+  it('does character-level diffing for CJK text', () => {
+    const before = doc('<p>前年比は横ばいでした</p>');
+    const after = doc('<p>前年比は増加でした</p>');
+    const page = buildHtmlDiff(before, after).pages[0];
+    // 変わった文字 (横ばい→増加) だけが着色され、前後の共通文字は素のまま。
+    expect(page.beforeHtml).toContain(HL_DEL);
+    expect(page.afterHtml).toContain(HL_INS);
+    expect(page.afterHtml).toContain('前年比は');
+    expect(page.afterHtml).toContain('でした');
+    expect(page.afterHtml).not.toContain(`<span class="${HL_INS}">前年比は`);
   });
 
   it('marks an added block (after only) with HL_ADDED in the after pane only', () => {

@@ -38,6 +38,31 @@ describe('CompareService.renderVersionHtml', () => {
     if (isErr(res)) expect(res.error.kind).toBe('not_found');
   });
 
+  it('renders the current template (baseline=現行版) to value-filled HTML', async () => {
+    // baseline historyId は snapshot を経ず、現在のテンプレート HTML をサンプル値で描画する。
+    const templates = {
+      getTemplate: vi.fn(async () =>
+        ok({
+          meta: { attributes: { fundCode: '510037' } },
+          html: '<p>{{ fund.name }}</p>',
+          css: '.base{}',
+          filled: '',
+        }),
+      ),
+      getSampleData: vi.fn(async () => ok({ fund: { name: '原本ファンド' } })),
+    } as unknown as TemplateRepository;
+    const history = {} as HistoryRepository;
+
+    const svc = createCompareService(templates, history);
+    const res = await svc.renderVersionHtml('baseline:AM01_510037_20240710_kr');
+
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.html).toContain('原本ファンド');
+      expect(res.value.css).toBe('.base{}');
+    }
+  });
+
   it('renders the snapshot to HTML and returns the html and snapshot css', async () => {
     const history = {
       getSnapshot: vi.fn(async () => ok(snapshot)),
@@ -95,7 +120,7 @@ describe('CompareService.listCandidates', () => {
     summary: '確定保存',
   });
 
-  it('returns every matched template with its confirmed-version count', async () => {
+  it('counts confirmed versions plus the always-present 現行版 baseline (+1)', async () => {
     const versionsById: Record<string, TemplateVersionMeta[]> = {
       a: [version('a2', 'a'), version('a1', 'a')],
       b: [version('b1', 'b')],
@@ -113,11 +138,32 @@ describe('CompareService.listCandidates', () => {
 
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
+      // 確定版数 + 現行版 1。確定版ゼロの c も 1 版になり比較対象に出る。
       expect(res.value.map((c) => [c.meta.id, c.versionCount])).toEqual([
-        ['a', 2],
-        ['b', 1],
-        ['c', 0],
+        ['a', 3],
+        ['b', 2],
+        ['c', 1],
       ]);
+    }
+  });
+
+  it('includes un-edited (draft, zero-snapshot) templates via the baseline', async () => {
+    const templates = {
+      listTemplates: vi.fn(async () => ok([{ ...meta('d'), status: 'draft' as const }])),
+    } as unknown as TemplateRepository;
+    const history = {
+      listVersions: vi.fn(async () => ok([])),
+    } as unknown as HistoryRepository;
+
+    const svc = createCompareService(templates, history);
+    const res = await svc.listCandidates({});
+
+    expect(isOk(res)).toBe(true);
+    // status='draft' でも除外されず、現行版 1 版を持つ候補として出る。
+    if (isOk(res)) {
+      expect(res.value).toHaveLength(1);
+      expect(res.value[0].meta.id).toBe('d');
+      expect(res.value[0].versionCount).toBe(1);
     }
   });
 
@@ -134,7 +180,7 @@ describe('CompareService.listCandidates', () => {
 });
 
 describe('CompareService delegation', () => {
-  it('listTemplates and listVersions delegate to the repos', async () => {
+  it('listTemplates delegates; listVersions delegates then appends the 現行版 baseline', async () => {
     const listTemplates = vi.fn(async () => ok([]));
     const listVersions = vi.fn(async () => ok([]));
     const svc = createCompareService(
@@ -142,8 +188,14 @@ describe('CompareService delegation', () => {
       { listVersions } as unknown as HistoryRepository,
     );
     await svc.listTemplates({ companyCode: 'AM01' });
-    await svc.listVersions('tpl-1');
+    const vers = await svc.listVersions('tpl-1');
     expect(listTemplates).toHaveBeenCalledWith({ companyCode: 'AM01' });
     expect(listVersions).toHaveBeenCalledWith('tpl-1');
+    // snapshot ゼロでも末尾に現行版(baseline)が 1 件足される。
+    expect(isOk(vers)).toBe(true);
+    if (isOk(vers)) {
+      expect(vers.value).toHaveLength(1);
+      expect(vers.value[0].historyId).toBe('baseline:tpl-1');
+    }
   });
 });
