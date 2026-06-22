@@ -59,6 +59,7 @@ CLI は `npm run cli -- <command>`(または直接 `tsx cli.ts <command>`)で実
 ```
 dist-exe/
 ├── pie-chart.exe          — Node SEA 実行体(cli を esbuild で単一 CJS 化して inject)
+├── pie-chart-codesign.cer — 自己署名の公開証明書(配布先で信頼登録すると署名が Valid に)
 ├── fonts/                 — 埋込元の woff2(BIZ UDPGothic 400/700)
 └── node_modules/          — subset-font + 依存(harfbuzzjs wasm 等)
 ```
@@ -75,6 +76,28 @@ dist-exe/
   これらをバンドルへ含める**([[offline-bundle-distribution]])。
 - DB 入力(`--sql`)はネイティブ `msnodesqlv8` を要するため exe には含めない。利用時は
   `dist-exe/node_modules` へ `msnodesqlv8` を追加する(描画・Excel 入力は追加不要で動く)。
+
+#### コード署名(自己署名)
+
+ビルド時(Windows)に `scripts/sign-exe.ps1` が exe を **自己署名(self-signed)** で SHA256 署名する。
+
+- 専用の自己署名コード署名証明書を `CurrentUser\My` に作成(無ければ)し、`Set-AuthenticodeSignature`
+  で署名する。Windows SDK(signtool)不要・管理者権限不要。署名前に node.exe 由来の既存
+  Authenticode 署名を `build-exe.mjs` の `stripPeSignature` で除去する(postject が壊した署名が
+  残ると署名 API が「有効な Win32 アプリではない」で失敗するため)。
+- これにより exe の「デジタル署名」タブに発行元が表示され、改ざん検知が効く。ただし**自己署名の
+  ルートは未信頼**なので、配布先で公開証明書を信頼登録するまで署名状態は「未信頼」、SmartScreen も
+  警告し得る。署名そのものは付与済み。
+- 配布先で信頼させる(SmartScreen を抑止する)には、同梱の `pie-chart-codesign.cer` を
+  **信頼されたルート証明機関**と**信頼された発行元**へ取り込む(**管理者権限が必要**):
+
+  ```bat
+  certutil -addstore Root pie-chart-codesign.cer
+  certutil -addstore TrustedPublisher pie-chart-codesign.cer
+  ```
+
+  GPO で配布すれば社内一括展開も可能。正式な配布で警告を完全に無くすには公的 CA のコード署名
+  証明書(EV/OV)が必要だが、社内配布では本自己署名 + 証明書配布で十分なことが多い。
 
 ### 全件生成 + ビューア
 

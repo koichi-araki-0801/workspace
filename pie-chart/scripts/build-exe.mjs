@@ -6,9 +6,12 @@
 //      - samples.json は静的 import なので inline される
 //      - msnodesqlv8(ネイティブ optional)と subset-font は external
 //   2. sea-config.json を生成 → node --experimental-sea-config で SEA blob を生成
-//   3. node 実行体を dist-exe/pie-chart.exe へコピーし postject で blob を inject
-//   4. 外部参照物を dist-exe へ同梱: fonts/(woff2)・node_modules/(subset-font 依存ツリー)
-// 配布物は **dist-exe/ フォルダ一式**(pie-chart.exe + fonts/ + node_modules/)。
+//   3. node 実行体を dist-exe/pie-chart.exe へコピー、既存 Authenticode 署名を剥がし
+//      postject で blob を inject
+//   4. (Windows)自己署名: sign-exe.ps1 で SHA256 署名し公開証明書(.cer)を書き出す
+//   5. 外部参照物を dist-exe へ同梱: fonts/(woff2)・node_modules/(subset-font 依存ツリー)
+// 配布物は **dist-exe/ フォルダ一式**(pie-chart.exe + pie-chart-codesign.cer + fonts/ +
+// node_modules/)。
 //   - フォントと subset-font を exe に埋め込まず外部参照することで、`require.resolve`
 //     ('harfbuzzjs/hb-subset.wasm')が実行時 Node 解決で効き、**subset が機能して SVG が
 //     小さくなる**(CLI 版と同等)。font.ts の seaExeDir/getSubsetFont と対応。
@@ -18,7 +21,18 @@
 // =============================================================================
 
 import { execFileSync, execSync } from 'node:child_process';
-import { copyFileSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  copyFileSync,
+  cpSync,
+  ftruncateSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  rmSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +55,46 @@ const FUSE = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
 
 function log(msg) {
   console.log(`[build-exe] ${msg}`);
+}
+
+/**
+ * PE(exe)から既存の Authenticode 署名(証明書テーブル)を除去する。node.exe は Node 配布元の
+ * 署名付きで、postject の blob 注入でそれが壊れ、後段の Set-AuthenticodeSignature が
+ * 「有効な Win32 アプリではない」で失敗する。Windows SDK(signtool)無しで除去するため、
+ * PE ヘッダの IMAGE_DIRECTORY_ENTRY_SECURITY(index 4)をゼロ化し、末尾の証明書データを切り詰め、
+ * オプションヘッダの CheckSum もゼロ化する(ユーザモード exe は CheckSum 検証されない)。
+ * 署名が無ければ何もしない。
+ */
+function stripPeSignature(file) {
+  const fd = openSync(file, 'r+');
+  try {
+    const u32 = (off) => {
+      const b = Buffer.alloc(4);
+      readSync(fd, b, 0, 4, off);
+      return b.readUInt32LE(0);
+    };
+    const peOff = u32(0x3c); // e_lfanew
+    const sig = Buffer.alloc(4);
+    readSync(fd, sig, 0, 4, peOff);
+    if (sig.toString('latin1') !== 'PE\0\0') throw new Error('not a PE file');
+    const magic = (() => {
+      const b = Buffer.alloc(2);
+      readSync(fd, b, 0, 2, peOff + 24);
+      return b.readUInt16LE(0);
+    })();
+    // データディレクトリの開始: PE32+ は 112, PE32 は 96(オプションヘッダ先頭からの相対)。
+    const ddStart = magic === 0x20b ? 112 : 96;
+    const secDirOff = peOff + 24 + ddStart + 4 * 8; // index 4 (SECURITY)
+    const certOffset = u32(secDirOff); // 証明書テーブルの **ファイルオフセット**
+    const certSize = u32(secDirOff + 4);
+    if (certOffset === 0 || certSize === 0) return false; // 署名なし
+    writeSync(fd, Buffer.alloc(8), 0, 8, secDirOff); // SECURITY ディレクトリをゼロ化
+    writeSync(fd, Buffer.alloc(4), 0, 4, peOff + 24 + 64); // CheckSum をゼロ化
+    ftruncateSync(fd, certOffset); // 末尾の証明書データを切り詰め
+    return true;
+  } finally {
+    closeSync(fd);
+  }
 }
 
 // 1. esbuild バンドル ---------------------------------------------------------
@@ -83,9 +137,14 @@ log('sea-config.json written (assets externalized)');
 log('generating SEA blob');
 execFileSync(process.execPath, ['--experimental-sea-config', seaConfigPath], { stdio: 'inherit' });
 
-// 4. node 実行体をコピー ------------------------------------------------------
+// 4. node 実行体をコピー + 既存署名を除去 ------------------------------------
 log(`copying node runtime -> ${exePath}`);
 copyFileSync(process.execPath, exePath);
+// Node 配布元の Authenticode 署名を先に剥がす(postject で壊れた署名が残ると後段の
+// 自己署名が「有効な Win32 アプリではない」で失敗するため)。
+if (stripPeSignature(exePath)) {
+  log('stripped existing Authenticode signature from node runtime');
+}
 
 // 5. postject で blob を inject ----------------------------------------------
 const postjectCli = require.resolve('postject/dist/cli.js');
@@ -97,7 +156,34 @@ if (process.platform === 'darwin') {
 log('injecting blob with postject');
 execFileSync(process.execPath, postjectArgs, { stdio: 'inherit' });
 
-// 6. 外部参照物を dist-exe へ同梱 --------------------------------------------
+// 6. 自己署名(Windows のみ・ベストエフォート) -------------------------------
+// postject 注入後が exe への最終変更なので、署名はこの直後に行う(以降 exe は不変)。
+// 失敗してもビルドは止めない(未署名でも exe は動作する)。
+if (process.platform === 'win32') {
+  const certOut = join(distDir, 'pie-chart-codesign.cer');
+  try {
+    log('self-signing exe (PowerShell Set-AuthenticodeSignature)');
+    execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        join(here, 'sign-exe.ps1'),
+        '-ExePath',
+        exePath,
+        '-CertOut',
+        certOut,
+      ],
+      { stdio: 'inherit' },
+    );
+  } catch (e) {
+    log(`self-sign skipped (exe is still usable, just unsigned): ${e.message}`);
+  }
+}
+
+// 7. 外部参照物を dist-exe へ同梱 --------------------------------------------
 // (a) フォント woff2 を dist-exe/fonts/ へ。font.ts は SEA 時ここから basename で読む。
 log('copying fonts -> dist-exe/fonts');
 cpSync(join(root, 'fonts'), join(distDir, 'fonts'), { recursive: true });
