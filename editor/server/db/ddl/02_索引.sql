@@ -41,8 +41,6 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     ON [ug01].[Rep1_運報自動化_Editor_ユーザー] ([ログインID]);
 GO
 
-/* --- 履歴: 廃止(テーブルごと撤去のため索引も無し) ----------------------- */
-
 /* --- パーツカタログ ------------------------------------------------------ */
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
   WHERE name = N'UQ_パーツ_パーツID'

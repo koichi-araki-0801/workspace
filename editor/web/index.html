@@ -3,6 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- サーバ/dev 起動ごとに置換される epoch。クライアントが前回値と突き合わせ、
+         再起動後の再ログインを強制する(local モード)。配信側で `%APP_EPOCH%` を注入。 -->
+    <meta name="x-app-epoch" content="%APP_EPOCH%" />
     <title>RET — Report Edit Tool</title>
     <script>
       // Apply the saved/OS theme before first paint to avoid a flash.

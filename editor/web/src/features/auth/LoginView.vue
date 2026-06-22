@@ -61,6 +61,14 @@ async function submit() {
         <h1 class="text-[22px] font-bold tracking-[0.12em]">RET</h1>
         <p class="text-[12.5px] tracking-[0.02em] text-muted-foreground">Report Edit Tool</p>
       </div>
+      <p
+        v-if="auth.sessionEndedReason === 'restart'"
+        class="mb-4 flex items-start gap-1.5 rounded-md bg-primary/[0.08] px-3 py-2 text-[12.5px] leading-relaxed text-foreground"
+        role="status"
+      >
+        <AlertCircle class="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+        <span>サーバの再起動によりセッションが切れました。<br />再度ログインしてください。</span>
+      </p>
       <form class="space-y-4" @submit.prevent="submit">
         <div class="space-y-1.5">
           <Label for="u">ユーザーID <span class="text-destructive">*</span></Label>

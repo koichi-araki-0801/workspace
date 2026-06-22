@@ -44,21 +44,25 @@ const normalized = computed(() =>
         )
       "
     >
-      <SelectValue :placeholder="placeholder ?? '選択'" />
-      <SelectIcon as-child><ChevronDown class="h-4 w-4 opacity-50" /></SelectIcon>
+      <!-- 長い選択値(ファンド名等)は折り返さず 1 行のまま横スクロールで末尾まで見せる。
+           `overflow-x-auto` ははみ出す時だけ細バーを出すので、短い値の見た目は不変。 -->
+      <span class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-left [scrollbar-width:thin]">
+        <SelectValue :placeholder="placeholder ?? '選択'" />
+      </span>
+      <SelectIcon as-child><ChevronDown class="h-4 w-4 shrink-0 opacity-50" /></SelectIcon>
     </SelectTrigger>
     <SelectPortal>
       <SelectContent
         position="popper"
         :side-offset="4"
-        class="z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2"
+        class="z-50 max-h-72 min-w-[8rem] max-w-[calc(100vw-2rem)] overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2"
       >
         <SelectViewport class="p-1">
           <SelectItem
             v-for="opt in normalized"
             :key="opt.value"
             :value="opt.value"
-            class="relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+            class="relative flex w-full cursor-pointer select-none items-center whitespace-nowrap rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
           >
             <span class="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
               <SelectItemIndicator><Check class="h-4 w-4" /></SelectItemIndicator>

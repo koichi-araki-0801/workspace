@@ -123,18 +123,24 @@ export const localTemplateRepo: TemplateRepository = {
   getDropdownOptions: (query: DropdownQuery) =>
     attempt(() => {
       const metas = allMetas();
+      // 各候補は「自分より上位の選択」だけで絞る(自分自身・下位は含めない)。そうしないと
+      // 最下位の版種を選んだ後にその版種だけへ候補が潰れ、別の版種(例: 全体版)へ戻せない。
+      const matchesUpper = (m: TemplateMeta, fields: (keyof TemplateAttributes)[]): boolean =>
+        fields.every((f) => !query[f] || m.attributes[f] === query[f]);
       return delay({
         companyCodes: uniq(metas.map((m) => m.attributes.companyCode)),
         fundCodes: uniq(
-          metas
-            .filter((m) => !query.companyCode || m.attributes.companyCode === query.companyCode)
-            .map((m) => m.attributes.fundCode),
+          metas.filter((m) => matchesUpper(m, ['companyCode'])).map((m) => m.attributes.fundCode),
         ),
         baseDates: uniq(
-          metas.filter((m) => metaMatches(m, query)).map((m) => m.attributes.baseDate),
+          metas
+            .filter((m) => matchesUpper(m, ['companyCode', 'fundCode']))
+            .map((m) => m.attributes.baseDate),
         ),
         editionTypes: uniq(
-          metas.filter((m) => metaMatches(m, query)).map((m) => m.attributes.editionType),
+          metas
+            .filter((m) => matchesUpper(m, ['companyCode', 'fundCode', 'baseDate']))
+            .map((m) => m.attributes.editionType),
         ),
       });
     }),

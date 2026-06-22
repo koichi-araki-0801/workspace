@@ -228,15 +228,27 @@
 }
 /* Constrain the canvas iframe to A4 width so only the page body shows as white
    and the surrounding gray (<main>) reads as the page backdrop. Width is set
-   inline by GrapesJS, hence !important; height stays content-driven (body
-   min-height: 297mm). */
+   inline by GrapesJS, hence !important. Height is driven by the device
+   `height:'auto'` set in `useGrapes.ts` init: GrapesJS sizes the iframe to the
+   body's real height (A4 `min-height:297mm`, longer for multi-page) via a
+   ResizeObserver, so the iframe never scrolls internally — do not pin a fixed
+   height here. */
+/* A4 ページ(1123px)は canvas viewport より背が高く、zoom は frames を canvas 中央原点で
+   scale する。上揃え(margin:24px auto)だとスケール後にページ中心が canvas 中心より下へずれ、
+   上に過大余白・下にはみ出し(クリップ)になる。top/bottom:0 + margin:auto で over-tall 要素を
+   上下対称(負マージン)に中央寄せし、上下の余白を揃える(GrapesJS のインライン top/bottom を
+   !important で上書き)。 */
 .gjs-frame-wrapper {
   /* biome-ignore lint/complexity/noImportantStyles: GrapesJS がインライン幅を設定するため上書きが必要 */
   width: 210mm !important;
   left: 0;
   right: 0;
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン top を上書きし垂直中央寄せするため必要 */
+  top: 0 !important;
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン bottom を上書きし垂直中央寄せするため必要 */
+  bottom: 0 !important;
   /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン余白を上書きするため必要 */
-  margin: 24px auto !important;
+  margin: auto !important;
 }
 .gjs-frame {
   /* biome-ignore lint/complexity/noImportantStyles: GrapesJS がインライン幅を設定するため上書きが必要 */

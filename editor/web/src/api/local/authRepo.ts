@@ -9,6 +9,7 @@ import {
   unauthorized,
   validation,
 } from '@editor/shared';
+import { currentAppEpoch } from '@/lib/appEpoch';
 import { attempt } from './attempt';
 import { currentUser, delay, K, listUsersSync, passwordFor, read, write } from './store';
 
@@ -21,13 +22,17 @@ export const localAuthRepo: AuthRepository = {
       if (user.disabled) throw unauthorized('このアカウントは無効化されています');
       if (passwordFor(req.username) !== req.password)
         throw unauthorized('ユーザーIDまたはパスワードが違います');
+      // session と現在の起動 epoch を対で保存する(`currentUser` が epoch 不一致=再起動を
+      // 検知して再ログインを促すため)。
       write(K.session, user.id);
+      write(K.sessionEpoch, currentAppEpoch());
       return delay({ user, mustChangePassword: user.mustChangePassword });
     }),
 
   logout: () =>
     attempt(() => {
       localStorage.removeItem(K.session);
+      localStorage.removeItem(K.sessionEpoch);
       return delay(undefined);
     }),
 

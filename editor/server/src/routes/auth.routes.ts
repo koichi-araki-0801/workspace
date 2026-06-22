@@ -41,6 +41,8 @@ authRouter.post('/auth/logout', async (req, res) => {
 });
 
 authRouter.get('/auth/me', async (req, res) => {
+  // 認証状態はキャッシュさせない(再起動/失効後に旧 200 が返るのを防ぐ)。
+  res.set('Cache-Control', 'no-store');
   res.json(await loadUser(req));
 });
 

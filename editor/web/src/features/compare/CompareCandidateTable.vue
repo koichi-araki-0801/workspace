@@ -2,27 +2,42 @@
 // =============================================================================
 // CompareCandidateTable.vue — 比較候補テンプレートの一覧テーブル(選択UI)
 // =============================================================================
-import type { TemplateMeta } from '@editor/shared';
-import { Check, Inbox } from '@lucide/vue';
+import { Check, ChevronLeft, ChevronRight, Inbox } from '@lucide/vue';
+import { computed, ref, watch } from 'vue';
 import FundCodeName from '@/components/FundCodeName.vue';
 import Button from '@/components/ui/Button.vue';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { CompareCandidate } from './services/compareService';
+import { versionLabel } from '@/lib/format';
+import type { CompareVersionRow } from './services/compareService';
 
 const props = withDefaults(
   defineProps<{
-    rows: CompareCandidate[];
-    /** 現在選択中テンプレートの `id`(行ハイライト用)。 */
+    /** テンプレート × 版に平坦化済みの行。テンプレートが複数版を持てば複数行になる。 */
+    rows: CompareVersionRow[];
+    /** 現在選択中の版の `historyId`(行ハイライト用)。 */
     selectedId?: string;
-    /** 選択可能な最小版数。独立2選択(任意の2ファイル比較)では各側1版以上で可。 */
-    minVersions?: number;
+    /** 1 ページの最大行数。これを超えたら前へ/次へでページ送りする。 */
+    pageSize?: number;
   }>(),
-  { minVersions: 2 },
+  { pageSize: 5 },
 );
 
-const emit = defineEmits<{ select: [TemplateMeta] }>();
+const emit = defineEmits<{ select: [CompareVersionRow] }>();
 
-const comparable = (c: CompareCandidate) => c.versionCount >= props.minVersions;
+// ── ページ送り(オフセット式) ──
+// 累積式の `usePagedList` は「ページ送り」要件に合わないため、当該ページ分だけを
+// 切り出す軽量実装をここに閉じる。`rows` が差し替わる(再絞り込み)たびに先頭へ戻す。
+const currentPage = ref(1);
+const totalPages = computed(() => Math.max(1, Math.ceil(props.rows.length / props.pageSize)));
+const pagedRows = computed(() =>
+  props.rows.slice((currentPage.value - 1) * props.pageSize, currentPage.value * props.pageSize),
+);
+watch(
+  () => props.rows,
+  () => {
+    currentPage.value = 1;
+  },
+);
 </script>
 
 <template>
@@ -31,18 +46,23 @@ const comparable = (c: CompareCandidate) => c.versionCount >= props.minVersions;
       <TableHeader>
         <TableRow>
           <TableHead class="w-[104px]">委託会社コード</TableHead>
-          <TableHead class="w-[300px]">ファンド</TableHead>
+          <TableHead class="w-[260px]">ファンド</TableHead>
           <TableHead class="w-[110px]">基準日</TableHead>
           <TableHead class="w-[84px]">版種</TableHead>
-          <TableHead class="w-[72px] text-center">版数</TableHead>
+          <TableHead class="w-[180px]">版</TableHead>
           <TableHead class="w-[96px] text-center">選択</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
+        <!-- 選択中の行は明確にハイライトする。`bg-primary-soft` 単独はライトモード(白い
+             カード)上でほぼ不可視のため、不透明度修飾の淡青 + 左端アクセント罫で視認可能に
+             する(`VersionPicker.vue` の選択表現に合わせる)。 -->
         <TableRow
-          v-for="c in props.rows"
-          :key="c.meta.id"
-          :class="c.meta.id === props.selectedId ? 'bg-primary-soft' : ''"
+          v-for="c in pagedRows"
+          :key="c.version.historyId"
+          :class="c.version.historyId === props.selectedId
+            ? 'bg-primary/10 [&>td:first-child]:border-l-2 [&>td:first-child]:border-primary'
+            : ''"
         >
           <TableCell class="mono truncate font-medium">{{ c.meta.attributes.companyCode }}</TableCell>
           <TableCell class="truncate">
@@ -50,18 +70,17 @@ const comparable = (c: CompareCandidate) => c.versionCount >= props.minVersions;
           </TableCell>
           <TableCell class="mono truncate">{{ c.meta.attributes.baseDate }}</TableCell>
           <TableCell class="truncate">{{ c.meta.attributes.editionType }}</TableCell>
+          <TableCell class="truncate">{{ versionLabel(c.version) }}</TableCell>
           <TableCell class="text-center">
-            <span class="font-medium">{{ c.versionCount }}版</span>
-          </TableCell>
-          <TableCell class="text-center">
+            <!-- 押下のフィードバックを明示する。選択中の行は塗りつぶし(default)+「選択中」で
+                 既選択が一目で分かる。再クリック/別行選択は妨げないため click は両状態で維持。 -->
             <Button
               size="sm"
-              variant="outline"
-              :disabled="!comparable(c)"
-              :title="comparable(c) ? '' : `比較には確定保存が${props.minVersions}回以上（${props.minVersions}版以上）必要です`"
-              @click="emit('select', c.meta)"
+              :variant="c.version.historyId === props.selectedId ? 'default' : 'outline'"
+              @click="emit('select', c)"
             >
-              <Check class="h-4 w-4" /> 選択
+              <Check class="h-4 w-4" />
+              {{ c.version.historyId === props.selectedId ? '選択中' : '選択' }}
             </Button>
           </TableCell>
         </TableRow>
@@ -70,6 +89,30 @@ const comparable = (c: CompareCandidate) => c.versionCount >= props.minVersions;
             <div class="flex flex-col items-center gap-2">
               <Inbox class="h-8 w-8 opacity-40" />
               <span>該当するテンプレートがありません</span>
+            </div>
+          </TableCell>
+        </TableRow>
+        <!-- 1 ページに収まらない時だけページ送りフッタを出す。 -->
+        <TableRow v-if="props.rows.length > props.pageSize">
+          <TableCell :colspan="6" class="py-2">
+            <div class="flex items-center justify-center gap-3 text-[13px]">
+              <Button
+                size="sm"
+                variant="outline"
+                :disabled="currentPage <= 1"
+                @click="currentPage--"
+              >
+                <ChevronLeft class="h-4 w-4" /> 前へ
+              </Button>
+              <span class="text-muted-foreground">{{ currentPage }} / {{ totalPages }} ページ</span>
+              <Button
+                size="sm"
+                variant="outline"
+                :disabled="currentPage >= totalPages"
+                @click="currentPage++"
+              >
+                次へ <ChevronRight class="h-4 w-4" />
+              </Button>
             </div>
           </TableCell>
         </TableRow>

@@ -5,9 +5,11 @@
 // listen 後はシグナル受信で live preview を片付けてから graceful に終了する。
 
 import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import helmet from 'helmet';
 import { pinoHttp } from 'pino-http';
+import { invalidateAllSessions } from './auth/session.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -41,16 +43,53 @@ app.use('/api', partsRouter);
 app.use('/api', historyRouter);
 app.use('/api', usersRouter);
 
+// サーバ起動ごとに変わる epoch。配信する index.html に注入し、クライアントは前回値と
+// 突き合わせて「同一サーバ起動中のみログイン有効」を判定する(local モードの再起動検知。
+// REST は DB セッション失効が権威的だが、両モードでシェルを確実に作り直すために共有する)。
+const APP_EPOCH = String(Date.now());
+
 // 本番ではビルド済み SPA を配信する(Vite がアプリを配信する dev では no-op)。
 if (fs.existsSync(config.webDist)) {
-  app.use(express.static(config.webDist));
+  // ハッシュ付きアセット(`assets/`)は内容ハッシュ済みなので長期 immutable で配る。
+  // index.html はキャッシュさせず(下の catch-all)、再起動後に確実に作り直させる。
+  app.use(
+    express.static(config.webDist, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      },
+    }),
+  );
+  // SPA シェル: 起動時に epoch を埋め込んだ index.html をメモリ保持し、認証状態の更新が
+  // 確実に反映されるよう `no-store` で返す(ブラウザが旧 epoch のシェルを返すのを防ぐ)。
+  const indexHtml = fs
+    .readFileSync(path.join(config.webDist, 'index.html'), 'utf8')
+    .replaceAll('%APP_EPOCH%', APP_EPOCH);
   app.get(/^(?!\/api).*/, (_req, res) => {
-    res.sendFile('index.html', { root: config.webDist });
+    res.set('Cache-Control', 'no-store');
+    res.type('html').send(indexHtml);
   });
 }
 
 // 中央エラーハンドラ — 全ルートの後、必ず最後に登録する。
 app.use(errorHandler);
+
+// 起動時に全セッションを失効させ、再起動をまたいだ旧セッションでの再ログイン不要化を断つ。
+// 認証なし(local)では DB 未接続なので呼ばない。失敗してもプロセスは継続するが、失効漏れ
+// は旧バグ(再起動後もログイン状態)の再発なので error で目立たせる。
+if (config.requireAuth) {
+  try {
+    await invalidateAllSessions();
+    logger.info('[server] 全セッションを失効しました(起動時) — 再ログインを強制します');
+  } catch (e) {
+    logger.error(
+      { err: e },
+      '[server] 起動時の全セッション失効に失敗 — 旧セッションが残存する恐れ',
+    );
+  }
+}
 
 const server = app.listen(config.port, () => {
   logger.info(`[server] listening on http://localhost:${config.port}`);

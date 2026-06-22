@@ -18,11 +18,11 @@
   (例: C:\Users\<user>\editor-data)。サーバ既定(config.ts の dataRoot)と一致。
 
 .EXAMPLE
-  init-data-repo.bat
-  既定の場所(..\..\editor-data)に初期化する。
+  editor\scripts\init-data-repo.bat
+  既定の場所(ワークスペースの 1 つ上の editor-data)に初期化する。
 
 .EXAMPLE
-  init-data-repo.bat -DataRoot D:\editor-data
+  editor\scripts\init-data-repo.bat -DataRoot D:\editor-data
   指定した場所に初期化する。サーバ側は DATA_ROOT=D:\editor-data を設定する。
 #>
 param(
@@ -31,8 +31,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# このスクリプト(editor/)とワークスペースの場所を解決する。
-$editorDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+# このスクリプトは editor/scripts/ にあるため、2 つ上が editor/、3 つ上が
+# ワークスペースの場所になる。data リポジトリの既定値はこれらを基準に解決する。
+$editorDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $workspace = Split-Path -Parent $editorDir
 if (-not $DataRoot) {
   $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data'
