@@ -168,7 +168,7 @@ if (-not $SkipBuild) {
     $purge = @(
       'node_modules',
       'editor\shared\node_modules', 'editor\server\node_modules', 'editor\web\node_modules',
-      'graph2\node_modules', 'graph-editor\node_modules',
+      'pie-chart\node_modules', 'graph-editor\node_modules',
       'editor\shared\dist', 'editor\server\dist', 'editor\web\dist'
     )
     foreach ($d in $purge) {

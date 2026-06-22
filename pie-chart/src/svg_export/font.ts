@@ -18,7 +18,7 @@ import type { PieLayoutConfig } from '../types.js';
 const FONT_FACE_CACHE = new Map<string, string>();
 const FONT_BUFFER_CACHE = new Map<string, Buffer>();
 // このファイルは src/svg_export/font.ts に配置されているので、プロジェクトルート
-// (graph2/) は ../.. に相当する。cfg.embedFontPath が相対パスの場合の解決基点に使う。
+// (pie-chart/) は ../.. に相当する。cfg.embedFontPath が相対パスの場合の解決基点に使う。
 const PROJECT_ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**

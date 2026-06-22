@@ -25,8 +25,8 @@
 		{
 			"type": "node",
 			"request": "launch",
-			"name": "graph2: CLI (tsx)",
-			"cwd": "${workspaceFolder}/graph2",
+			"name": "pie-chart: CLI (tsx)",
+			"cwd": "${workspaceFolder}/pie-chart",
 			"runtimeExecutable": "pnpm",
 			"runtimeArgs": ["exec", "tsx", "cli.ts"],
 			"console": "integratedTerminal",

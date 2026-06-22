@@ -38,7 +38,7 @@ class MappedFont:
 # 同梱・静的フォント (本プロジェクトの fonts/)。(family, weight bucket) → フォントファイル名。
 # サブセット元は正規 TTF 原本 (Morisawa/Google Fonts・SIL OFL) を使う。WOFF2 をサブセット
 # 元にすると fontTools が変換済み glyf を全グリフ再構築するため数十秒かかり実用に耐えない
-# (TTF/WOFF1 は無変換で高速。SVG 埋め込み出力は font_embed が WOFF2 で書き出す)。graph2 は
+# (TTF/WOFF1 は無変換で高速。SVG 埋め込み出力は font_embed が WOFF2 で書き出す)。pie-chart は
 # 同ファミリの BIZ UDPGothic WOFF2 を自プロジェクト配下に別途持つ。Regular/Bold の
 # 2 ウェイトのみ存在するため bucket は 400/700。@font-face は STATIC_WEIGHT_RANGE で範囲
 # 宣言し、中間ウェイト要求を faux-bold 無しで最寄りの静的フォントへ解決させる。
@@ -181,7 +181,7 @@ _reg(["IPAMincho", "IPAexMincho", "IPAPMincho", "IPA明朝", "IPAex明朝", "IPA
      "Noto Serif JP")
 _reg(["IPAGothic", "IPAexGothic", "IPAPGothic", "IPAゴシック", "IPAexゴシック", "IPAPゴシック"],
      "BIZ UDPGothic")
-# BIZ UD 自身。同梱は graph2 と共有の BIZ UDPGothic (プロポーショナル) に一本化したため、
+# BIZ UD 自身。同梱は pie-chart と共有の BIZ UDPGothic (プロポーショナル) に一本化したため、
 # 等幅 UDGothic 由来も UDPGothic へ寄せる。明朝は Noto Serif JP へ一本化。
 _reg(["BIZUDGothic", "BIZ UDGothic", "BIZUDPGothic", "BIZ UDPGothic"], "BIZ UDPGothic")
 _reg(["BIZUDMincho", "BIZ UDMincho", "BIZUDPMincho", "BIZ UDPMincho"], "Noto Serif JP")

@@ -29,7 +29,7 @@ class LabelState {
     this.originalFill = text.getAttribute("fill");
     this.fill = this.originalFill;
     // 行数 / 長体 / 名前・パーセント文字列を SVG から復元 (1行化・2行化・長体の編集に使う)。
-    // 文字内容は `data-*` 属性を優先し、無ければ実 `tspan` から拾う (graph2 以外の SVG への保険)。
+    // 文字内容は `data-*` 属性を優先し、無ければ実 `tspan` から拾う (pie-chart 以外の SVG への保険)。
     const tspans = [...text.querySelectorAll("tspan")];
     const pctAttr = g.getAttribute("data-percent");
     this.percentText = pctAttr != null && pctAttr !== ""

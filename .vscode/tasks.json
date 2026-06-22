@@ -44,15 +44,15 @@
 			"problemMatcher": []
 		},
 		{
-			"label": "graph2: batch",
+			"label": "pie-chart: batch",
 			"type": "shell",
-			"command": "pnpm --filter graph2 run batch",
+			"command": "pnpm --filter pie-chart run batch",
 			"problemMatcher": []
 		},
 		{
-			"label": "graph2: verify",
+			"label": "pie-chart: verify",
 			"type": "shell",
-			"command": "pnpm --filter graph2 run verify",
+			"command": "pnpm --filter pie-chart run verify",
 			"problemMatcher": []
 		}
 	]

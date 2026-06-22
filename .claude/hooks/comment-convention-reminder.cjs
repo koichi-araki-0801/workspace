@@ -10,7 +10,7 @@
 //   - 対象拡張子 (.ts/.tsx/.js/.cjs/.mjs/.vue/.py/.ps1) のときだけリマインドを出す。
 //     それ以外は沈黙 (何も出さず exit 0)。
 //   - スパム防止: セッション内で言語グループごとに 1 回だけ (os.tmpdir() のマーカー)。
-//   - 常に exit 0。編集をブロックしない (graph2-baseline.cjs と同方針)。
+//   - 常に exit 0。編集をブロックしない (pie-chart-baseline.cjs と同方針)。
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");

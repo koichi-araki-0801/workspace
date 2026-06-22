@@ -11,7 +11,7 @@ sheets:
       - { key: val,   label: "値/範囲",  width: 16, mono: true }
       - { key: note,  label: "説明",    width: 36, wrap: true }
     rows:
-      - [1, "1. ファイルを開く", "SVG選択", "D&D / ファイルピッカー", "複数可", "graph2 出力 SVG を読み込む"]
+      - [1, "1. ファイルを開く", "SVG選択", "D&D / ファイルピッカー", "複数可", "pie-chart 出力 SVG を読み込む"]
       - [2, "1. ファイルを開く", "ファイル一覧", "list", "", "開いたファイルの表示"]
       - [3, "2. 位置を調整", "ラベル一覧", "左レール", "", "ファイル+ラベルの一覧"]
       - [4, "2. 位置を調整", "キャンバス", "SVG表示", "", "ドラッグ編集・ズーム"]
@@ -33,11 +33,11 @@ sheets:
       - { key: type, label: "型/形式", width: 26, mono: true }
       - { key: note, label: "説明",   width: 40, wrap: true }
     rows:
-      - [1, "入力", "SVGファイル", "graph2 出力 SVG", "ユーザ指定も可"]
+      - [1, "入力", "SVGファイル", "pie-chart 出力 SVG", "ユーザ指定も可"]
       - [2, "入力", "ラベル構造", "g.label > path? + text", "data-name 付き。path=引出線(任意)"]
       - [3, "入力", "transform", "translate(x,y)", "テキスト位置"]
       - [4, "出力", "修正済みSVG", "SVG", "編集補助要素を除去して保存"]
-      - [5, "共有", "leader_geom.cjs", "UMD（graph2 と共有）", "parsePath / buildPath / clampPointToBox / parseTranslate / normColor"]
+      - [5, "共有", "leader_geom.cjs", "UMD（pie-chart と共有）", "parsePath / buildPath / clampPointToBox / parseTranslate / normColor"]
   - name: テスト仕様
     columns:
       - { key: no,     label: "No",       width: 5,  align: center }

@@ -1,4 +1,4 @@
-# graph2
+# pie-chart
 
 TypeScript 製の円グラフ SVG レンダラ。`{name, value}` の配列(JSON / Excel / サンプル)を入力に、ラベルと引出線を自動配置した円グラフ SVG を生成する。2〜3 人チームでメンテしやすい粒度にモジュール分割している。
 `out/svg_js/` の SVG 出力は 87 サンプルの回帰テスト (`verify_svg.ts`) で検証する。
@@ -45,7 +45,7 @@ CLI は `npm run cli -- <command>`(または直接 `tsx cli.ts <command>`)で実
 ## ディレクトリ構成 (11 files)
 
 ```
-graph2/
+pie-chart/
 ├── package.json
 ├── tsconfig.json
 ├── samples.json                — サンプルデータ (87 件・object 形式)
@@ -147,11 +147,11 @@ RenderResult { svg, diagnostics, config }
 
 コメント規約の正典は **`docs/コメント規約.md`**（全プロジェクト共通）。言語・識別子バッククォート・
 クロスファイル参照・体裁（`=` 罫線の装飾ボックスヘッダ、`// ── N. ラベル ──` 節区切り）など
-共通事項はそちらを参照すること。graph2 もこの規約に準拠する。
+共通事項はそちらを参照すること。pie-chart もこの規約に準拠する。
 
-- **出力不変の検証（graph2 固有）**: コメントのみの変更でも `out/_baseline` に対し SVG を
+- **出力不変の検証（pie-chart 固有）**: コメントのみの変更でも `out/_baseline` に対し SVG を
   byte-diff し、出力が完全に不変であることを確認する (`npm run batch` 後に SHA256 比較)。
-  これは SVG 出力の決定性に密な graph2 限定の鉄則。
+  これは SVG 出力の決定性に密な pie-chart 限定の鉄則。
 
 ## 注意
 
