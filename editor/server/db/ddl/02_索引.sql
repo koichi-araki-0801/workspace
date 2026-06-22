@@ -41,26 +41,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     ON [ug01].[Rep1_運報自動化_Editor_ユーザー] ([ログインID]);
 GO
 
-/* --- 履歴 ---------------------------------------------------------------- */
-IF NOT EXISTS (SELECT 1 FROM sys.indexes
-  WHERE name = N'UQ_履歴_公開ID'
-    AND object_id = OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_履歴]'))
-  CREATE UNIQUE INDEX [UQ_履歴_公開ID]
-    ON [ug01].[Rep1_運報自動化_Editor_履歴] ([公開ID]);
-GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes
-  WHERE name = N'IX_履歴_種別_日時'
-    AND object_id = OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_履歴]'))
-  CREATE INDEX [IX_履歴_種別_日時]
-    ON [ug01].[Rep1_運報自動化_Editor_履歴] ([種別], [発生日時] DESC);
-GO
-/* テンプレート単位の版一覧 / パーツ履歴 用 */
-IF NOT EXISTS (SELECT 1 FROM sys.indexes
-  WHERE name = N'IX_履歴_テンプレート_種別_日時'
-    AND object_id = OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_履歴]'))
-  CREATE INDEX [IX_履歴_テンプレート_種別_日時]
-    ON [ug01].[Rep1_運報自動化_Editor_履歴] ([テンプレートID], [種別], [発生日時] DESC);
-GO
+/* --- 履歴: 廃止(テーブルごと撤去のため索引も無し) ----------------------- */
 
 /* --- パーツカタログ ------------------------------------------------------ */
 IF NOT EXISTS (SELECT 1 FROM sys.indexes

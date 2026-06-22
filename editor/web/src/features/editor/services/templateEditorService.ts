@@ -2,6 +2,7 @@
 // templateEditorService.ts — editor の template 読込・draft 保存・履歴 service
 // =============================================================================
 import {
+  applyEdition,
   isErr,
   ok,
   type PartCatalogItem,
@@ -57,7 +58,9 @@ export function createTemplateEditorService(
       let sample: SampleData = {};
       try {
         const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
-        if (!isErr(sampleRes)) sample = sampleRes.value;
+        // 版種(ファイル名由来)を被せる。getSampleData はファンド単位で版種を持たない。
+        if (!isErr(sampleRes))
+          sample = applyEdition(sampleRes.value, tpl.meta.attributes.editionType);
       } catch {
         /* sample は空のままにする */
       }

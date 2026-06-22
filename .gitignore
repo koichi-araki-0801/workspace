@@ -38,3 +38,7 @@ _bundle_verify/
 bk/
 # Claude Code: 計画文書（内部作業用。共有しない）
 .claude/plans/
+# editor のテンプレ実体(templates/css/drafts)はワークスペース外の dataRoot で git 版管理する
+editor/data/
+# git/TortoiseGit の同梱バイナリ（重量物。content key 差分で再配布）
+git-tools/

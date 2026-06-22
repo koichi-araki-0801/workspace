@@ -53,15 +53,25 @@ GO
 `;
 fs.writeFileSync(path.join(seedDir, 'パーツカタログ.sql'), partSql, 'utf8');
 
-// --- sample data (one row per fund JSON) ------------------------------------
+// --- sample data (ファンド固有マスタ = 名称/会社のみ) -----------------------
+// サンプル本体はパーツ別共通ダミー(`sampleCommon`)に集約済み。DB が持つのは
+// REST の getSampleData が名称解決に使う fund(name/nickname) と company だけ。
 const T_SAMPLE = '[ug01].[Rep1_運報自動化_Editor_サンプルデータ]';
-const sampleDir = path.join(fixtures, 'sample');
-const sampleRows = fs
-  .readdirSync(sampleDir)
-  .filter((f) => f.endsWith('.json'))
-  .map((f) => {
-    const fundCode = f.replace(/\.json$/, '');
-    const json = fs.readFileSync(path.join(sampleDir, f), 'utf8');
+interface FundMasterEntry {
+  name: string;
+  nickname?: string;
+  company: { code: string; name: string };
+}
+const funds = JSON.parse(fs.readFileSync(path.join(fixtures, 'funds.json'), 'utf8')) as Record<
+  string,
+  FundMasterEntry
+>;
+const sampleRows = Object.entries(funds)
+  .map(([fundCode, m]) => {
+    const json = JSON.stringify({
+      fund: { name: m.name, nickname: m.nickname ?? '' },
+      company: m.company,
+    });
     return `IF NOT EXISTS (SELECT 1 FROM ${T_SAMPLE} WHERE [ファンドコード] = ${q(fundCode)})
   INSERT INTO ${T_SAMPLE} ([ファンドコード],[データJSON],[更新日時])
   VALUES (${q(fundCode)}, ${q(json)}, SYSUTCDATETIME());`;

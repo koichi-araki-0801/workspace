@@ -4,7 +4,8 @@
  *  配置: usrap.ug01 (既存 DB / 既存スキーマ。CREATE SCHEMA はしない)
  *  接頭辞: Rep1_運報自動化_Editor_  (Jinja2 側 Rep1_運報自動化_ と区別する Editor)
  *  方針:
- *    - 本文(html/css)はファイル保存。本テーブル群は台帳・履歴・索引のみ。
+ *    - 本文(html/css)はファイル保存。本テーブル群は台帳・カタログ・認証等のメタのみ
+ *      (版/履歴は git・ファイル監査ログへ移行し、履歴テーブルは廃止)。
  *    - 全テキストは NVARCHAR。比較に使う列(ID/コード/種別)に COLLATE Japanese_CI_AS
  *      を明示し、DB 既定照合順序に依存しない。内容/表示/パス/JSON 列は既定照合。
  *    - 時刻は DATETIME2(3) を UTC(SYSUTCDATETIME)で保管。アプリは ISO 文字列。
@@ -16,7 +17,8 @@ SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
 /* --- 1. テンプレート台帳 -------------------------------------------------- */
-/* fileIndex.ts の置換。1 テンプレート=1 行。draft(1:1)を下書き列に吸収。       */
+/* 「作成可能カタログ」(候補/系列の源)と生成登録のみを担う。既存テンプレの本体・     */
+/* 一覧/取得・下書き・版/スナップはファイル + git 側へ移行済み(下書き列は廃止)。     */
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_テンプレート台帳]', N'U') IS NULL
 BEGIN
   CREATE TABLE [ug01].[Rep1_運報自動化_Editor_テンプレート台帳] (
@@ -35,11 +37,6 @@ BEGIN
                           CONSTRAINT [DF_台帳_作成日時] DEFAULT (SYSUTCDATETIME()),
     [論理削除]          BIT           NOT NULL
                           CONSTRAINT [DF_台帳_論理削除] DEFAULT (0),
-    /* 下書き(オートセーブ)索引。本文は data/drafts/<id>.{html,css}。NULL=下書き無 */
-    [下書きHTMLファイル] NVARCHAR(260) NULL,
-    [下書きCSSファイル]  NVARCHAR(260) NULL,
-    [下書き保存者]       NVARCHAR(64)  NULL,
-    [下書き保存日時]     DATETIME2(3)  NULL,
     CONSTRAINT [PK_テンプレート台帳] PRIMARY KEY CLUSTERED ([台帳ID])
   );
 END
@@ -70,36 +67,9 @@ BEGIN
 END
 GO
 
-/* --- 3. 履歴 (編集/PDF/作成/パーツ を統合、種別で判別) -------------------- */
-/* 種別=edit 行はスナップショット列(ファンドコード/ファイル)も保持(1:1 吸収)。    */
-IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_履歴]', N'U') IS NULL
-BEGIN
-  CREATE TABLE [ug01].[Rep1_運報自動化_Editor_履歴] (
-    [履歴ID]            BIGINT IDENTITY(1,1) NOT NULL,
-    [公開ID]            NVARCHAR(64)  COLLATE Japanese_CI_AS NOT NULL,
-    [種別]              NVARCHAR(16)  COLLATE Japanese_CI_AS NOT NULL, /* edit/pdf/create/part */
-    [テンプレートID]    NVARCHAR(128) COLLATE Japanese_CI_AS NULL,
-    [ログインID]        NVARCHAR(64)  COLLATE Japanese_CI_AS NOT NULL,
-    [発生日時]          DATETIME2(3)  NOT NULL
-                          CONSTRAINT [DF_履歴_発生日時] DEFAULT (SYSUTCDATETIME()),
-    /* edit 用 */
-    [概要]              NVARCHAR(400) NULL,
-    [ファンドコード]    NVARCHAR(32)  COLLATE Japanese_CI_AS NULL,
-    [スナップHTMLファイル] NVARCHAR(260) NULL,
-    [スナップCSSファイル]  NVARCHAR(260) NULL,
-    /* part 用 */
-    [パーツID]          NVARCHAR(64)  COLLATE Japanese_CI_AS NULL,
-    [変更内容]          NVARCHAR(512) NULL,
-    /* create 用 (属性4 + 派生元) */
-    [委託会社コード]    NVARCHAR(32)  COLLATE Japanese_CI_AS NULL,
-    [作成ファンドコード] NVARCHAR(32) COLLATE Japanese_CI_AS NULL,
-    [基準日]            NVARCHAR(8)   COLLATE Japanese_CI_AS NULL,
-    [版種]              NVARCHAR(16)  COLLATE Japanese_CI_AS NULL,
-    [元テンプレートID]  NVARCHAR(128) COLLATE Japanese_CI_AS NULL,
-    CONSTRAINT [PK_履歴] PRIMARY KEY CLUSTERED ([履歴ID])
-  );
-END
-GO
+/* --- 3. (廃止) 履歴テーブル ---------------------------------------------- */
+/* 版/スナップ/編集履歴は git(コミット履歴)、PDF出力/作成/パーツ変更はファイル監査ログ */
+/* (logs/history/*.jsonl)へ移行したため、履歴テーブルは廃止した。                   */
 
 /* --- 4. パーツカタログ --------------------------------------------------- */
 /* 内容HTML は短いカタログ素材なので DB 保持(テンプレ本文ファイル方針の例外)。   */

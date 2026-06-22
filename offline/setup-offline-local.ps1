@@ -61,7 +61,7 @@ function Find-Local([string]$name) {
 
 # 展開済み資材（直下）が揃っているか。
 $ExtractedOk = $true
-foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse')) {
+foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse', 'git-tools')) {
   if (-not (Test-Path (Join-Path $RepoRoot $p))) { $ExtractedOk = $false }
 }
 
@@ -132,7 +132,7 @@ if ($ExtractedOk) {
   $TarExe = Resolve-Tar
   & $TarExe -xzf $Bundle -C $RepoRoot
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] 展開に失敗しました。'; exit 1 }
-  foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse')) {
+  foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse', 'git-tools')) {
     if (-not (Test-Path (Join-Path $RepoRoot $p))) {
       Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1
     }
@@ -187,6 +187,57 @@ if ($SkipBuild) {
       }
     }
   } finally { Pop-Location }
+}
+
+# ---- git ツール（PortableGit / TortoiseGit）の展開・導入（任意・ベストエフォート） ----
+# editor のテンプレ版管理は git CLI を使う。air-gapped 環境向けに同梱した PortableGit を
+# 展開して PATH へ通し、TortoiseGit（履歴/diff の GUI）を導入する。失敗しても全体は止めない。
+$GitTools = Join-Path $RepoRoot 'git-tools'
+if (Test-Path $GitTools) {
+  Write-Host '[git] PortableGit / TortoiseGit を確認...'
+  $pgDir = Join-Path $GitTools 'portablegit'
+  $pgExe = Get-ChildItem $GitTools -Filter 'PortableGit-*-64-bit.7z.exe' -File -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  if ($pgExe -and -not (Test-Path (Join-Path $pgDir 'cmd\git.exe'))) {
+    Write-Host "[git] PortableGit を展開: $($pgExe.Name) -> portablegit\"
+    & $pgExe.FullName "-o$pgDir" -y | Out-Null
+  }
+  $gitExe = Join-Path $pgDir 'cmd\git.exe'
+  if (Test-Path $gitExe) {
+    $cmdDir = Join-Path $pgDir 'cmd'
+    if ($env:Path -notlike "*$cmdDir*") { $env:Path = "$cmdDir;$env:Path" }
+    try {
+      $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+      if ($userPath -notlike "*$cmdDir*") {
+        [Environment]::SetEnvironmentVariable('Path', "$cmdDir;$userPath", 'User')
+        Write-Host "[git] ユーザー PATH へ追加: $cmdDir（新しい端末から有効）"
+      }
+      # editor サーバは GIT_BIN を最優先で使う（PATH 反映の遅延に依存しない）。
+      [Environment]::SetEnvironmentVariable('GIT_BIN', $gitExe, 'User')
+      Write-Host "[git] GIT_BIN を設定: $gitExe"
+    } catch {
+      Write-Warning "[git] ユーザー環境変数の設定に失敗。手動で $cmdDir を PATH へ加えてください。"
+    }
+    Write-Host "[git] git 利用可能: $(& $gitExe --version)"
+  } else {
+    Write-Warning '[git] PortableGit の git.exe が見つかりません（展開に失敗した可能性）。'
+  }
+  $tgMsi = Get-ChildItem $GitTools -Filter 'TortoiseGit-*-64bit.msi' -File -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  if ($tgMsi) {
+    Write-Host "[git] TortoiseGit を導入（任意・失敗しても続行）: $($tgMsi.Name)"
+    try {
+      $proc = Start-Process msiexec.exe `
+        -ArgumentList @('/i', "`"$($tgMsi.FullName)`"", '/qn', '/norestart') -Wait -PassThru
+      if ($proc.ExitCode -ne 0) {
+        Write-Warning "[git] TortoiseGit の導入が未完了（ExitCode=$($proc.ExitCode)）。管理者権限で msi を実行してください。"
+      } else {
+        Write-Host '[git] TortoiseGit を導入しました。'
+      }
+    } catch {
+      Write-Warning "[git] TortoiseGit の導入に失敗。手動で $($tgMsi.Name) を実行してください。"
+    }
+  }
 }
 
 Write-Host ''

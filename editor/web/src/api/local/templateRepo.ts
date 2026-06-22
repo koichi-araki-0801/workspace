@@ -2,6 +2,7 @@
 // templateRepo.ts — テンプレートの一覧/取得/生成/保存の local 実装
 // =============================================================================
 import {
+  buildSampleData,
   type ConfirmSaveRequest,
   type CreateHistoryEntry,
   type DropdownQuery,
@@ -28,8 +29,8 @@ import {
   delay,
   fixtureCss,
   fixtureFilled,
-  fixtureSample,
   fixtureTemplates,
+  fundMaster,
   K,
   META_KEY,
   metaMatches,
@@ -271,5 +272,8 @@ export const localTemplateRepo: TemplateRepository = {
       ),
     ),
 
-  getSampleData: (fundCode: string) => attempt(() => delay(fixtureSample[fundCode] ?? {})),
+  // パーツ別共通ダミー(`sampleCommon`)に funds.json のファンド固有値だけ被せて返す。
+  // 版種(ファイル名由来)はテンプレを開く文脈で `applyEdition` が上書きする。
+  getSampleData: (fundCode: string) =>
+    attempt(() => delay(buildSampleData(fundMaster[fundCode], fundCode))),
 };

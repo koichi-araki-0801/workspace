@@ -4,10 +4,11 @@
 // ゲートウェイ sproc とディスク上の本体を裏付けとする。各関数は失敗時に `AppError` を
 // throw し、ルートハンドラは中央の `errorHandler` に HTTP への変換を委ねる
 // (Result を返す Repository 契約は web の `rest` 層が満たす。ここでは throw する)。
-import { randomUUID } from 'node:crypto';
 import {
+  buildSampleData,
   type DropdownOptions,
   type DropdownQuery,
+  type FundMaster,
   notFound,
   parseTemplateFileName,
   type SampleData,
@@ -17,6 +18,7 @@ import {
   type TemplateMeta,
   type TemplateStatus,
   templateFileName,
+  templateIdFromFileName,
 } from '@editor/shared';
 import {
   asIso,
@@ -28,15 +30,18 @@ import {
   p,
 } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
-import { readDraft, writeDraft } from '../files/draftFiles.js';
-import { writeSnapshot } from '../files/snapshotFiles.js';
+import { draftExists, draftMtime, readDraft, writeDraft } from '../files/draftFiles.js';
 import {
+  listTemplateFiles,
   readFundCss,
   readTemplateHtml,
   restoreTemplateAndCss,
   snapshotCurrent,
+  templateExists,
+  templateMtime,
   writeTemplateAndCss,
 } from '../files/templateFiles.js';
+import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
 
 function rowToMeta(r: Record<string, unknown>): TemplateMeta {
   return {
@@ -76,9 +81,40 @@ export async function getDropdownOptions(q: DropdownQuery): Promise<DropdownOpti
   };
 }
 
+/** ファイル名 + 更新時刻から `TemplateMeta` を組む(台帳は引かない)。 */
+async function fileToMeta(fileName: string): Promise<TemplateMeta | null> {
+  const attrs = parseTemplateFileName(fileName);
+  if (!attrs) return null;
+  return {
+    id: templateIdFromFileName(fileName),
+    attributes: attrs,
+    fileName,
+    // 確定状態は今後 git コミット有無で表す(phase 3)。本体ファイルが在る分は published 扱い。
+    status: 'published',
+    updatedAt: await templateMtime(fileName),
+    updatedBy: null,
+  };
+}
+
+/** dropdown query の設定済み全フィールドにメタが一致するか。 */
+function metaMatches(m: TemplateMeta, q: DropdownQuery): boolean {
+  return (
+    (!q.companyCode || m.attributes.companyCode === q.companyCode) &&
+    (!q.fundCode || m.attributes.fundCode === q.fundCode) &&
+    (!q.baseDate || m.attributes.baseDate === q.baseDate) &&
+    (!q.editionType || m.attributes.editionType === q.editionType)
+  );
+}
+
+/** 既存テンプレの一覧は台帳でなく `data/templates` のファイル走査から導く。 */
 export async function listTemplates(q: DropdownQuery): Promise<TemplateMeta[]> {
-  const rows = await callSproc(SP.template, '一覧', queryParams(q));
-  return rows.map(rowToMeta);
+  const files = await listTemplateFiles();
+  const metas = (await Promise.all(files.map(fileToMeta))).filter(
+    (m): m is TemplateMeta => m !== null,
+  );
+  return metas
+    .filter((m) => metaMatches(m, q))
+    .sort((a, b) => a.fileName.localeCompare(b.fileName));
 }
 
 export async function listSeriesFunds(
@@ -92,63 +128,41 @@ export async function listSeriesFunds(
   return rows.map(rowToMeta);
 }
 
+/** 1 件取得。メタはファイル名規約、本体はファイル(台帳は引かない)。 */
 export async function getTemplate(id: string): Promise<Template> {
-  const row = firstRow(await callSproc(SP.template, '取得', [p('テンプレートID', id)]));
-  if (!row) throw notFound(`テンプレートが見つかりません: ${id}`);
-  const meta = rowToMeta(row);
-  const html = await readTemplateHtml(meta.fileName);
+  const fileName = `${id}.html`;
+  const meta = await fileToMeta(fileName);
+  if (!meta || !(await templateExists(fileName)))
+    throw notFound(`テンプレートが見つかりません: ${id}`);
+  const html = await readTemplateHtml(fileName);
   const css = await readFundCss(meta.attributes.fundCode);
   // 記入済みの静的コピーはサーバ側に保持しない。エディタが読み込み時に再差込する。
   return { meta, html, css, filled: '' };
 }
 
-/** テンプレート id(ファイル名規約)から導出する属性パラメータ。 */
-function attrParams(id: string): Param[] {
-  const attrs = parseTemplateFileName(`${id}.html`);
-  if (!attrs) return [p('ファイル名', `${id}.html`)];
-  return [
-    p('委託会社コード', attrs.companyCode),
-    p('ファンドコード', attrs.fundCode),
-    p('基準日', attrs.baseDate),
-    p('版種', attrs.editionType),
-    p('ファイル名', templateFileName(attrs)),
-  ];
-}
-
+/** 自動保存ドラフトはファイルのみ(`data/drafts`、git 管理外)。台帳は引かない。 */
 export async function saveDraft(
   templateId: string,
   html: string,
   css: string,
-  loginId: string,
+  _loginId: string,
 ): Promise<void> {
-  const refs = await writeDraft(templateId, html, css);
-  await callSproc(SP.template, '下書き保存', [
-    p('テンプレートID', templateId),
-    p('ログインID', loginId),
-    p('下書きHTMLファイル', refs.htmlFile),
-    p('下書きCSSファイル', refs.cssFile),
-    ...attrParams(templateId),
-  ]);
+  await writeDraft(templateId, html, css);
 }
 
 export async function getDraft(templateId: string): Promise<TemplateDraft | null> {
-  const row = firstRow(
-    await callSproc(SP.template, '下書き取得', [p('テンプレートID', templateId)]),
-  );
-  if (!row) return null;
-  const { html, css } = await readDraft(
-    asStringOrNull(row.下書きHTMLファイル),
-    asStringOrNull(row.下書きCSSファイル),
-  );
-  return {
-    templateId,
-    html,
-    css,
-    savedAt: asIso(row.下書き保存日時) ?? '',
-    savedBy: asString(row.下書き保存者),
-  };
+  if (!(await draftExists(templateId))) return null;
+  const { html, css } = await readDraft(`${templateId}.html`, `${templateId}.css`);
+  // 保存者はファイルからは判らない(下書きは作業コピー)。保存日時は mtime で代用。
+  return { templateId, html, css, savedAt: (await draftMtime(templateId)) ?? '', savedBy: '' };
 }
 
+/**
+ * 確定保存。テンプレ本体 + ファンド CSS をファイルへ書き、git に 1 コミット積む
+ * (版管理の正典)。台帳の状態更新・スナップショット・DB の編集履歴は廃止。
+ * ファイル書込失敗時は直前バイト列へ復元。git コミット失敗はベストエフォート
+ * (確定ファイルは残し、次回保存か手動コミットで取り込む)。
+ */
 export async function confirmSave(req: {
   templateId: string;
   html: string;
@@ -158,45 +172,62 @@ export async function confirmSave(req: {
 }): Promise<TemplateMeta> {
   const attrs = parseTemplateFileName(`${req.templateId}.html`);
   const fileName = attrs ? templateFileName(attrs) : `${req.templateId}.html`;
-  const historyId = `eh-${randomUUID()}`;
 
-  // 1) スナップショットのバイト列を凍結し、確定ファイルを書き込む(DB 失敗時に
-  //    ロールバックできるよう現在のバイト列をバックアップしてから書く)。
-  await writeSnapshot(historyId, req.html, req.css);
+  await ensureRepo();
+  // ロールバック用に現在のバイト列を控えてから上書きする。
   const prev = await snapshotCurrent(fileName, req.fundCode);
-  await writeTemplateAndCss(fileName, req.html, req.fundCode, req.css);
-
-  // 2) DB トランザクションをコミットする。失敗時は直前のファイルバイト列を復元する。
   try {
-    const row = firstRow(
-      await callSproc(SP.template, '確定保存', [
-        p('テンプレートID', req.templateId),
-        p('ファンドコード', req.fundCode),
-        p('ログインID', req.loginId),
-        p('公開ID', historyId),
-        p('概要', '確定保存'),
-        p('スナップHTMLファイル', `${historyId}.html`),
-        p('スナップCSSファイル', `${historyId}.css`),
-        ...attrParams(req.templateId),
-      ]),
-    );
-    if (!row) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
-    return rowToMeta(row);
+    await writeTemplateAndCss(fileName, req.html, req.fundCode, req.css);
   } catch (e) {
     await restoreTemplateAndCss(fileName, req.fundCode, prev).catch(() => {});
     throw e;
   }
+
+  try {
+    await withGitLock(() =>
+      commitAll(`確定保存: ${req.templateId} by ${req.loginId}`, { name: req.loginId }),
+    );
+  } catch (e) {
+    // コミット失敗(稀: ロック/ディスク)はベストエフォート。確定ファイルは作業ツリー
+    // に残し、台帳に「未コミット版」が残る形にする(次回保存/手動コミットで回収)。
+    console.warn(`git コミットに失敗しました(確定ファイルは保存済み): ${String(e)}`);
+  }
+
+  const meta = await fileToMeta(fileName);
+  if (!meta) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
+  return meta;
 }
 
+/** サンプルデータ台帳 JSON からファンド固有マスタ(名称/会社)を取り出す。 */
+function parseFundMaster(json: string | null): FundMaster | undefined {
+  if (!json) return undefined;
+  try {
+    const o = JSON.parse(json) as {
+      fund?: { name?: string; nickname?: string };
+      company?: { code?: string; name?: string };
+    };
+    if (o.fund?.name && o.company?.code && o.company?.name) {
+      return {
+        name: o.fund.name,
+        nickname: o.fund.nickname ?? '',
+        company: { code: o.company.code, name: o.company.name },
+      };
+    }
+  } catch {
+    /* 壊れた JSON は master 無し扱い */
+  }
+  return undefined;
+}
+
+/**
+ * プレビュー文脈のサンプルデータ。本体はパーツ別共通ダミー(`sampleCommon`)で、
+ * DB の台帳からはファンド固有の名称/会社だけを解決して被せる。版種(ファイル名由来)は
+ * テンプレを開く web 側(`applyEdition`)で上書きする。
+ */
 export async function getSampleData(fundCode: string): Promise<SampleData> {
   const row = firstRow(await callSproc(SP.sample, '取得', [p('ファンドコード', fundCode)]));
-  const json = row ? asStringOrNull(row.データJSON) : null;
-  if (!json) return {};
-  try {
-    return JSON.parse(json) as SampleData;
-  } catch {
-    return {};
-  }
+  const master = parseFundMaster(row ? asStringOrNull(row.データJSON) : null);
+  return buildSampleData(master, fundCode);
 }
 
 /** 新規生成したテンプレートを `台帳` に登録する(status=draft)。 */

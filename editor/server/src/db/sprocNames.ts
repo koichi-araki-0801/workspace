@@ -13,7 +13,6 @@ const gw = (target: string): string => `[${SCHEMA}].[${PREFIX}_usp_${target}]`;
 /** 完全修飾のゲートウェイ sproc 名。 */
 export const SP = {
   template: gw('テンプレート'),
-  history: gw('履歴'),
   user: gw('ユーザー'),
   session: gw('セッション'),
   part: gw('パーツ'),

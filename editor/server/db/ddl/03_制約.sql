@@ -19,12 +19,7 @@ IF OBJECT_ID(N'[ug01].[CK_ユーザー_ロール]', N'C') IS NULL
       CHECK ([ロール] IN (N'admin', N'editor', N'viewer'));
 GO
 
-/* 履歴.種別 ∈ {edit, pdf, create, part} */
-IF OBJECT_ID(N'[ug01].[CK_履歴_種別]', N'C') IS NULL
-  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_履歴]
-    ADD CONSTRAINT [CK_履歴_種別]
-      CHECK ([種別] IN (N'edit', N'pdf', N'create', N'part'));
-GO
+/* 履歴.種別: 履歴テーブル廃止に伴い制約も撤去。 */
 
 /* 監査ログ.結果 ∈ {success, failure} */
 IF OBJECT_ID(N'[ug01].[CK_監査_結果]', N'C') IS NULL

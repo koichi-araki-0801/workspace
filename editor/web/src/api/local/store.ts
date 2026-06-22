@@ -8,14 +8,15 @@ import {
   conflict,
   DEFAULT_ERROR_MESSAGE,
   type DropdownQuery,
+  type FundMaster,
   type PartCatalogItem,
   parseTemplateFileName,
-  type SampleData,
   type TemplateMeta,
   templateIdFromFileName,
   type User,
   unexpected,
 } from '@editor/shared';
+import fundMasterJson from '../fixtures/funds.json';
 
 // ── 1. bundled fixtures — 同梱フィクスチャの読込 ──
 
@@ -38,11 +39,6 @@ const cssFiles = import.meta.glob('../fixtures/css/*.css', {
   query: '?raw',
   import: 'default',
 }) as Record<string, string>;
-
-const sampleFiles = import.meta.glob('../fixtures/sample/*.json', { eager: true }) as Record<
-  string,
-  { default: SampleData }
->;
 
 export const partCatalog = (
   import.meta.glob('../fixtures/parts.json', { eager: true, import: 'default' }) as Record<
@@ -80,10 +76,9 @@ for (const [path, content] of Object.entries(cssFiles)) {
   fixtureCss[baseName(path).replace(/\.css$/, '')] = content;
 }
 
-export const fixtureSample: Record<string, SampleData> = {};
-for (const [path, mod] of Object.entries(sampleFiles)) {
-  fixtureSample[baseName(path).replace(/\.json$/, '')] = mod.default;
-}
+// ファンド固有マスタ(コード → 名称/会社)。サンプル本体はパーツ別共通ダミー
+// (`sampleCommon`)を使い、ここからは fund.name/nickname・company だけを上書きする。
+export const fundMaster: Record<string, FundMaster> = fundMasterJson;
 
 // ── 2. localStorage overlay — 読み書きとトランザクション ──
 
@@ -155,7 +150,7 @@ export const META_KEY = 'editor:meta';
  * 変更(例: 版種リネーム + report 再テーマ)を入れたら bump する。`migrateStore()` が
  * bump ごとに一度 working-state をクリアする。
  */
-const SCHEMA_VERSION = '2';
+const SCHEMA_VERSION = '3';
 const SCHEMA_KEY = 'editor:schemaVersion';
 
 /** fixtures 由来の working-state キー群。スキーマ版 bump 時にクリアする。 */

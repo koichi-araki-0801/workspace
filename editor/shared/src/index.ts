@@ -295,6 +295,9 @@ export interface BuildInlineRequest {
 // ── 9. Cross-cutting: Result/エラーモデルとドメインヘルパ (barrel 再エクスポート) ──
 
 export * from './domain/history.js';
+// パーツ別共通ダミー + ファンド固有マスタ合成(プレビュー文脈の組立)。
+export * from './domain/sampleCommon.js';
+export * from './domain/sampleData.js';
 // テンプレート identity の値オブジェクト + ファイル名ヘルパ。
 export * from './domain/template.js';
 export * from './domain/user.js';
