@@ -18,6 +18,9 @@
     "exceljs": "^4.4.0",
     "subset-font": "^2.5.0"
   },
+  "optionalDependencies": {
+    "msnodesqlv8": "^4.2.1"
+  },
   "devDependencies": {
     "@types/node": "^24.13.1",
     "fontverter": "^2.0.0",

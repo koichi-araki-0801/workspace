@@ -1,15 +1,17 @@
 // =============================================================================
 // data.ts — 入力データの正規化と解決 (graph/data.js の TS 移植)
 // -----------------------------------------------------------------------------
-// 入力ソースは 4 系統:
+// 入力ソースは 5 系統:
 //   - sample        : samples.json 内の名前指定
 //   - data          : [name, value][] / {name, value}[] の配列直渡し
 //   - dataJson      : 同形式の JSON 文字列
 //   - xlsx          : Excel ファイル(xlsx_loader 経由・非同期のみ)
-// resolveInputData (同期) は xlsx を扱えない。Excel を含めて統一的に扱いたい
+//   - sql           : SQL Server に SELECT を投げて取得(db_loader 経由・非同期のみ)
+// resolveInputData (同期) は xlsx / sql を扱えない。これらを含めて統一的に扱いたい
 // 場合は resolveInputDataAsync を使う。
 // =============================================================================
 
+import { loadDbItems } from './db_loader.js';
 import samplesData from '../samples.json' with { type: 'json' };
 import { loadXlsxItems } from './xlsx_loader.js';
 import type { Item, Samples } from './types.js';
@@ -32,7 +34,15 @@ export type ResolveAsyncOpts =
   | { kind: 'sample'; sample: string }
   | { kind: 'data'; data: unknown[] }
   | { kind: 'dataJson'; dataJson: string }
-  | { kind: 'xlsx'; xlsx: string; sheet: string; range: string };
+  | { kind: 'xlsx'; xlsx: string; sheet: string; range: string }
+  | {
+      kind: 'sql';
+      query: string;
+      server?: string;
+      database?: string;
+      nameColumn?: string;
+      valueColumn?: string;
+    };
 
 /**
  * 任意形式の項目リストを {name, value} 配列に正規化する。
@@ -75,8 +85,8 @@ export function resolveInputData({ sample, data, dataJson }: ResolveSyncOpts): I
 }
 
 /**
- * 非同期版: kind ごとに分岐する。xlsx 以外は resolveInputData に同等のオプションで委譲。
- * CLI 等の入口で「Excel もそれ以外も同じ呼び方にしたい」用途向け。
+ * 非同期版: kind ごとに分岐する。xlsx / sql 以外は resolveInputData に同等のオプションで委譲。
+ * CLI 等の入口で「Excel・DB もそれ以外も同じ呼び方にしたい」用途向け。
  */
 export async function resolveInputDataAsync(opts: ResolveAsyncOpts): Promise<Item[]> {
   switch (opts.kind) {
@@ -85,6 +95,16 @@ export async function resolveInputDataAsync(opts: ResolveAsyncOpts): Promise<Ite
         path: opts.xlsx,
         sheet: opts.sheet,
         range: opts.range,
+      });
+      return normalizeInputItems(raw);
+    }
+    case 'sql': {
+      const raw = await loadDbItems({
+        query: opts.query,
+        server: opts.server,
+        database: opts.database,
+        nameColumn: opts.nameColumn,
+        valueColumn: opts.valueColumn,
       });
       return normalizeInputItems(raw);
     }
