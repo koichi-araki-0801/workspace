@@ -58,7 +58,7 @@ async function onCompare() {
       after: b.version,
       beforeFile: a.meta.fileName,
       afterFile: b.meta.fileName,
-      diff: buildHtmlDiff(ra.value.html, rb.value.html),
+      diff: buildHtmlDiff(ra.value.html, rb.value.html, ra.value.css, rb.value.css),
       cssBefore: ra.value.css,
       cssAfter: rb.value.css,
     };

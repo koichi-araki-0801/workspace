@@ -38,3 +38,19 @@ export async function readDraft(
     f ? fs.readFile(path.join(config.draftsDir, f), 'utf8').catch(() => '') : Promise.resolve('');
   return { html: await read(htmlFile), css: await read(cssFile) };
 }
+
+/** template の下書き(HTML)が存在するか。台帳を引かずファイル有無で判定する。 */
+export function draftExists(templateId: string): Promise<boolean> {
+  return fs
+    .stat(path.join(config.draftsDir, htmlName(templateId)))
+    .then(() => true)
+    .catch(() => false);
+}
+
+/** 下書き(HTML)の最終更新時刻(ISO)。無ければ null。 */
+export function draftMtime(templateId: string): Promise<string | null> {
+  return fs
+    .stat(path.join(config.draftsDir, htmlName(templateId)))
+    .then((s) => s.mtime.toISOString())
+    .catch(() => null);
+}

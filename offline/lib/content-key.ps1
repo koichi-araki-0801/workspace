@@ -26,9 +26,11 @@ function Get-LockContentKey {
   }
   $acc = & $readNoCr $LockFile
   $acc.AddRange([System.Text.Encoding]::UTF8.GetBytes($PackageManager))
-  # requirements.txt は lockfile の親（= リポジトリ直下）からの相対で探し、存在するものだけ折り込む。
+  # requirements.txt と git-tools の manifest は lockfile の親（= リポジトリ直下）からの
+  # 相対で探し、存在するものだけ折り込む。git-tools\manifest.txt は同梱する git /
+  # TortoiseGit のバイナリ版を規定するため、変われば重量物バンドルの再配布が要る。
   $repoRoot = Split-Path -Parent $LockFile
-  foreach ($rel in @('pdf-to-svg\requirements.txt', 'graph-editor\requirements.txt')) {
+  foreach ($rel in @('pdf-to-svg\requirements.txt', 'graph-editor\requirements.txt', 'git-tools\manifest.txt')) {
     $rp = Join-Path $repoRoot $rel
     if (Test-Path -LiteralPath $rp) { $acc.AddRange((& $readNoCr $rp)) }
   }

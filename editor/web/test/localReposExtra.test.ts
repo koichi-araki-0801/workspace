@@ -229,9 +229,15 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     if (isOk(none)) expect(none.value).toBeNull();
   });
 
-  it('getSampleData returns {} for an unknown fund', async () => {
+  it('getSampleData returns the common dummy for an unknown fund (code overridden, placeholder name)', async () => {
     const r = await localTemplateRepo.getSampleData('zzz-unknown');
     expect(isOk(r)).toBe(true);
-    if (isOk(r)) expect(r.value).toEqual({});
+    if (isOk(r)) {
+      const fund = r.value.fund as { code: string; name: string };
+      expect(fund.code).toBe('zzz-unknown');
+      // master 未収録なので名称は placeholder のまま、本体はパーツ別共通ダミー。
+      expect(fund.name).toBe('サンプルファンド');
+      expect(Array.isArray(r.value.holdings)).toBe(true);
+    }
   });
 });

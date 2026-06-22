@@ -37,10 +37,10 @@ const appConfigSchema = z
     port: z.number().int().positive().optional(),
     paths: z
       .object({
+        dataRoot: z.string().optional(),
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
         draftsDir: z.string().optional(),
-        snapshotsDir: z.string().optional(),
         tmpDir: z.string().optional(),
         logDir: z.string().optional(),
         webDist: z.string().optional(),
@@ -120,14 +120,26 @@ const executableBrowser =
 export const config = {
   port: Number(process.env.PORT ?? file.port ?? 3001),
 
-  /** Jinja2 template ファイルを置くディレクトリ(ファイル名規約)。 */
-  templatesDir: resolvePath(process.env.TEMPLATES_DIR, file.paths?.templatesDir, 'data/templates'),
+  /**
+   * テンプレ実体(templates/css/drafts)を置く data ルート。git 版管理の対象でもある
+   * (`gitRepoDir`)。ネスト git を避けるため既定は **ワークスペースリポジトリ外**
+   * (repoRoot=editor の 2 つ上、例 `C:\Users\<user>\editor-data`)。env `DATA_ROOT`
+   * または `appconfig.json` の `paths.dataRoot` で上書きする。移設は init-data-repo
+   * スクリプトが行う(既存 editor/data からの移動)。
+   */
+  dataRoot: resolvePath(process.env.DATA_ROOT, file.paths?.dataRoot, '../../editor-data'),
+  /** Jinja2 template ファイルを置くディレクトリ(ファイル名規約)。既定は dataRoot 配下。 */
+  templatesDir: resolvePath(
+    process.env.TEMPLATES_DIR,
+    file.paths?.templatesDir,
+    '../../editor-data/templates',
+  ),
   /** ファンド別(per-fund)共有 CSS ファイルを置くディレクトリ。 */
-  cssDir: resolvePath(process.env.CSS_DIR, file.paths?.cssDir, 'data/css'),
-  /** 自動保存(autosave)ドラフトの作業コピー(phase 2: template ごとに html/css)。 */
-  draftsDir: resolvePath(process.env.DRAFTS_DIR, file.paths?.draftsDir, 'data/drafts'),
-  /** 凍結された確定保存スナップショット(phase 2: history id ごとに html/css)。 */
-  snapshotsDir: resolvePath(process.env.SNAPSHOTS_DIR, file.paths?.snapshotsDir, 'data/snapshots'),
+  cssDir: resolvePath(process.env.CSS_DIR, file.paths?.cssDir, '../../editor-data/css'),
+  /** 自動保存(autosave)ドラフトの作業コピー(template ごとに html/css。git 管理外)。 */
+  draftsDir: resolvePath(process.env.DRAFTS_DIR, file.paths?.draftsDir, '../../editor-data/drafts'),
+  /** テンプレ版管理の git リポジトリ(= dataRoot)。確定保存ごとに 1 コミット。 */
+  gitRepoDir: resolvePath(process.env.GIT_REPO_DIR, file.paths?.dataRoot, '../../editor-data'),
 
   /** 本番で配信するビルド済み web SPA。 */
   webDist: resolvePath(process.env.WEB_DIR, file.paths?.webDist, 'web/dist'),

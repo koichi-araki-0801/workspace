@@ -17,8 +17,18 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
   - pnpm.tgz            … pnpm 11 本体（corepack 用オフライン tarball）
   - ms-playwright/      … Playwright 用 Chromium（E2E テスト用）
   - python-wheelhouse/  … Python ビルド依存の wheel（pdf-to-svg / graph-editor の exe ビルド用）
+  - git-tools/          … PortableGit / TortoiseGit（editor のテンプレ版管理に使う git。
+                          air-gapped 機に git が無くても動くよう同梱。setup が展開・導入する）
   これらは offline-deps-bundle.tar.gz 1 ファイルに固めて Release に置かれます。
-  内容（pnpm-lock.yaml / packageManager / 各 requirements.txt）に変更が無い限り再アップロードされません。
+  内容（pnpm-lock.yaml / packageManager / 各 requirements.txt / git-tools/manifest.txt）に
+  変更が無い限り再アップロードされません。
+
+  ※ setup（オンライン/完全オフラインとも）は git-tools の PortableGit を
+     git-tools\portablegit\ へ自己展開し、ユーザー PATH と環境変数 GIT_BIN を設定する
+     （editor サーバはテンプレ確定保存のたびに git でコミットする）。TortoiseGit は
+     履歴/diff 閲覧の GUI として msiexec で導入を試みる（管理者権限が要る場合あり・失敗時は手動）。
+     editor のテンプレ実体は editor\init-data-repo.bat で初期化する data リポジトリ
+     （ワークスペース外。既定 ..\editor-data）に置かれ、TortoiseGit でそのフォルダを開ける。
 
   ※ python-wheelhouse の wheel は publish 機の Python マイナー版・プラットフォーム
      （win_amd64 / cpXY）に紐づくバイナリを含む（PyMuPDF / Pillow / brotli）。

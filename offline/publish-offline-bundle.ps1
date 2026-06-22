@@ -116,6 +116,7 @@ $Store      = Join-Path $RepoRoot '.pnpm-store'
 $PnpmTgz    = Join-Path $RepoRoot 'pnpm.tgz'
 $MsPw       = Join-Path $RepoRoot 'ms-playwright'
 $Wheelhouse = Join-Path $RepoRoot 'python-wheelhouse'
+$GitTools   = Join-Path $RepoRoot 'git-tools'
 $BundleName = 'offline-deps-bundle.tar.gz'
 $Bundle     = Join-Path $RepoRoot $BundleName
 $Sha        = "$Bundle.sha256"
@@ -169,14 +170,15 @@ if ($bundleChanged) {
     Write-Host '[info] -SkipRegen: 既存のディスク上の重量物をそのまま固めます。'
   }
 
-  foreach ($p in @($Store, $PnpmTgz, $MsPw, $Wheelhouse)) {
+  # git-tools（PortableGit / TortoiseGit）は air-gapped 環境で git を供給するため同梱する。
+  foreach ($p in @($Store, $PnpmTgz, $MsPw, $Wheelhouse, $GitTools)) {
     if (-not (Test-Path $p)) { Write-Error "[error] 重量物が見つかりません: $p（-SkipRegen 指定時は事前生成が必要）"; exit 1 }
   }
 
   # ---- パッケージング（重量物のみ。ソースは含めない） ----
-  Write-Host "[info] tar -czf $BundleName .pnpm-store pnpm.tgz ms-playwright python-wheelhouse ..."
+  Write-Host "[info] tar -czf $BundleName .pnpm-store pnpm.tgz ms-playwright python-wheelhouse git-tools ..."
   Remove-Item $Bundle -Force -ErrorAction SilentlyContinue
-  & $TarExe -czf $Bundle -C $RepoRoot '.pnpm-store' 'pnpm.tgz' 'ms-playwright' 'python-wheelhouse'
+  & $TarExe -czf $Bundle -C $RepoRoot '.pnpm-store' 'pnpm.tgz' 'ms-playwright' 'python-wheelhouse' 'git-tools'
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] tar に失敗しました。'; exit 1 }
 
   $sizeMB = [math]::Round((Get-Item $Bundle).Length / 1MB, 1)
@@ -202,6 +204,7 @@ $notes = @"
 - pnpm.tgz … pnpm $pnpmVersion 本体（corepack 用）
 - ms-playwright … Chromium（E2E 用）
 - python-wheelhouse … Python ビルド依存の wheel（pdf-to-svg / graph-editor の exe ビルド用）
+- git-tools … PortableGit / TortoiseGit（editor のテンプレ版管理に使う git。air-gapped 用）
 
 ## 取得手順（別端末・gh 不要）
 1. 取得中のみリポジトリを Public にする

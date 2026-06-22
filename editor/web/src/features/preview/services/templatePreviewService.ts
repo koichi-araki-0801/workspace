@@ -2,6 +2,7 @@
 // templatePreviewService.ts — プレビュー画面のロード/確定保存/PDF 出力サービス
 // =============================================================================
 import {
+  applyEdition,
   type ConfirmSaveRequest,
   conflict,
   err,
@@ -57,7 +58,8 @@ export function createTemplatePreviewService(
 
       const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
       if (isErr(sampleRes)) return sampleRes;
-      const sample = sampleRes.value;
+      // 版種(ファイル名由来)を被せる。getSampleData はファンド単位で版種を持たない。
+      const sample = applyEdition(sampleRes.value, tpl.meta.attributes.editionType);
 
       const draftRes = await templates.getDraft(id);
       if (isErr(draftRes)) return draftRes;

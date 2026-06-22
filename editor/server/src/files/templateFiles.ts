@@ -13,6 +13,28 @@ import { atomicWrite } from './atomic.js';
 export const templatePath = (fileName: string): string => path.join(config.templatesDir, fileName);
 export const cssPath = (fundCode: string): string => path.join(config.cssDir, `${fundCode}.css`);
 
+/** 確定済みテンプレートの `*.html` 一覧(台帳ではなくディレクトリ走査が一覧の源)。 */
+export async function listTemplateFiles(): Promise<string[]> {
+  const entries = await fs.readdir(config.templatesDir).catch(() => [] as string[]);
+  return entries.filter((f) => f.endsWith('.html'));
+}
+
+/** テンプレート本体ファイルの最終更新時刻(ISO)。無ければ null。 */
+export function templateMtime(fileName: string): Promise<string | null> {
+  return fs
+    .stat(templatePath(fileName))
+    .then((s) => s.mtime.toISOString())
+    .catch(() => null);
+}
+
+/** テンプレート本体ファイルが存在するか。 */
+export function templateExists(fileName: string): Promise<boolean> {
+  return fs
+    .stat(templatePath(fileName))
+    .then(() => true)
+    .catch(() => false);
+}
+
 export function readTemplateHtml(fileName: string): Promise<string> {
   return fs.readFile(templatePath(fileName), 'utf8').catch(() => '');
 }

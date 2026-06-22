@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { buildSampleData, type FundMaster } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
+import fundMaster from '../src/api/fixtures/funds.json';
 import { toFilled } from '../src/lib/fillJinja';
 import { extractJinjaTokens, toTemplate } from '../src/lib/jinjaMask';
 import { getBodyInner } from '../src/lib/templateDoc';
@@ -84,10 +86,11 @@ describe('real report templates round-trip token-for-token', () => {
     ['AM01_510124_20251020_交付版.html', '510124'],
     ['AM01_510124_20251020_全体版.html', '510124'],
   ];
+  const funds = fundMaster as Record<string, FundMaster>;
   for (const [file, fund] of templates) {
     it(file, () => {
       const raw = readFileSync(resolve(fixtures, 'templates', file), 'utf8');
-      const data = JSON.parse(readFileSync(resolve(fixtures, 'sample', `${fund}.json`), 'utf8'));
+      const data = buildSampleData(funds[fund], fund);
       // Mirror the editor's real path: only the <body> inner is filled, edited,
       // and restored; the <head> is taken verbatim from the source on save.
       const filledBody = getBodyInner(toFilled(raw, data));

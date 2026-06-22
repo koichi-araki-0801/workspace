@@ -111,6 +111,34 @@ describe('buildHtmlDiff', () => {
     expect(diff.pages).toHaveLength(2);
   });
 
+  // 実テンプレは改ページを `.page { page-break-after: always }` という CSS クラスで
+  // 表す。CSS を渡せば各 `.page` が 1 ページに分割されること。
+  it('splits on class-based page breaks when CSS is supplied', () => {
+    const html = doc(
+      '<div class="page">p1</div>',
+      '<div class="page">p2</div>',
+      '<div class="page">p3</div>',
+    );
+    const css = '.page { page-break-after: always; }';
+    const diff = buildHtmlDiff(html, html, css, css);
+    expect(diff.pages).toHaveLength(3);
+  });
+
+  // CSS を渡さなければクラス由来の改ページは見えず、従来どおり 1 ページに潰れる(回帰防止)。
+  it('does not split on class-based breaks without CSS (legacy behavior)', () => {
+    const html = doc('<div class="page">p1</div>', '<div class="page">p2</div>');
+    expect(buildHtmlDiff(html, html).pages).toHaveLength(1);
+  });
+
+  // `.page:last-child { page-break-after: auto }` の override で末尾に余分な空ページが
+  // 出ないこと(最後の break-after はトレーリング空グループとして pop される)。
+  it('does not emit a trailing empty page for a last-child auto override', () => {
+    const html = doc('<div class="page">p1</div>', '<div class="page">p2</div>');
+    const css = '.page { page-break-after: always; } .page:last-child { page-break-after: auto; }';
+    const diff = buildHtmlDiff(html, html, css, css);
+    expect(diff.pages).toHaveLength(2);
+  });
+
   it('keys blocks by data-part-id over id/class/tag', () => {
     // same id but different part-id → treated as distinct (one removed, one added)
     const before = doc('<div data-part-id="P1" id="x">a</div>');
