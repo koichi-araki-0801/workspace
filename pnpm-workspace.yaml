@@ -2,7 +2,7 @@ packages:
   - editor/shared
   - editor/server
   - editor/web
-  - graph2
+  - pie-chart
   - graph-editor
   - pdf-to-svg
 

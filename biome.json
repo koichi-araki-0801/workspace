@@ -9,7 +9,7 @@
     "ignoreUnknown": true,
     "includes": [
       "editor/**",
-      "graph2/**",
+      "pie-chart/**",
       "!**/dist",
       "!**/coverage",
       "!**/out",

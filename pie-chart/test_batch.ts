@@ -69,7 +69,7 @@ function generateHtml(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=210mm, initial-scale=1.0">
-  <title>SVG ビューア — A4 プレビュー (graph2)</title>
+  <title>SVG ビューア — A4 プレビュー (pie-chart)</title>
   <style>
     @page { size: A4; margin: 0; }
     * { box-sizing: border-box; }
@@ -101,7 +101,7 @@ function generateHtml(
 </head>
 <body>
   <div class="toolbar">
-    <strong>SVG ビューア (graph2) — A4 プレビュー</strong>
+    <strong>SVG ビューア (pie-chart) — A4 プレビュー</strong>
     <span style="margin-left:auto">SVG: ${jsOk}/${jsTotal} OK ／ ${samplesPerPage} 件/ページ × ${pages.length} ページ ／ ${timestamp}</span>
   </div>
   <div class="pages-area">${pagesHtml}</div>

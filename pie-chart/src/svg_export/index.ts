@@ -594,7 +594,7 @@ function restoreTwoLineNamePlacement(
 /**
  * 標準 2 行フォールバック (emit 最終段, do-no-harm)。下限長体 (0.7) でも viewBox を見切れる 1 行ラベルを、
  * 名前を語中で割らない **標準 2 行** `[name, %]` (`toTwoLineNamePlacement`) へ変換する。名前行だけになって
- * 箱幅が縮むため、1 行 (名前+%) より見切れ px が減る。語割れ (旧 `splitLongName`) は graph2 全体で廃止した
+ * 箱幅が縮むため、1 行 (名前+%) より見切れ px が減る。語割れ (旧 `splitLongName`) は pie-chart 全体で廃止した
  * ため、見切れる長名はこの 2 行化か、収まらなければ僅かな見切れで対応する (参考PDF「ニュージーランド・ドル」)。
  *
  * 全後段の後 (= 位置確定後) に走るのでゲートは最終配置を正しく評価する。採否は対象ラベル自身の見切れ px が
@@ -1443,7 +1443,7 @@ function untangleAngularOrderBySwap(
       for (const swapX of [true, false]) {
         trySwap(swapX);
         const harm = evalHarm();
-        if (process.env.GRAPH2_DEBUG_REPAIR) {
+        if (process.env.PIE_CHART_DEBUG_REPAIR) {
           console.error(
             `[untangle ${side}] swap${swapX ? '(footprint)' : '(rehug)'} "${up.item.name}"<->"${lo.item.name}": ` +
               `inv ${beforeInv}->${countAngularDiscordantPairs(placements, cfg, coord)}, ` +
@@ -2966,7 +2966,7 @@ function escapeTopBandSeamLeader(
         if (cur.cross + cur.through === 0) break;
         escapeOne(c, oneLineEscapes);
         const after = vecOf();
-        if (process.env.GRAPH2_DEBUG_REPAIR) {
+        if (process.env.PIE_CHART_DEBUG_REPAIR) {
           console.error(
             `[seamEscape${oneLineEscapes ? '/1line' : ''}] +"${c.item.name}": cross ${cur.cross}->${after.cross}, through ${cur.through}->${after.through}, ` +
               `inv ${cur.inv}->${after.inv}, clips ${cur.clips}->${after.clips}, oob ${cur.oob}->${after.oob}, ` +
@@ -3266,7 +3266,7 @@ function repairResidualLeaderDefects(
           p.leaderBendFollowsEndpointX = false;
           const v = vecOf();
           if (better(v, cur)) {
-            if (process.env.GRAPH2_DEBUG_REPAIR) {
+            if (process.env.PIE_CHART_DEBUG_REPAIR) {
               console.error(
                 `[rebend] "${p.item.name}" f=${f} r=+${rPx}px: ` +
                   `crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through} => ADOPT`,
@@ -3326,7 +3326,7 @@ function repairResidualLeaderDefects(
               v = vecOf();
               ok = better(v, cur);
             }
-            if (process.env.GRAPH2_DEBUG_REPAIR) {
+            if (process.env.PIE_CHART_DEBUG_REPAIR) {
               console.error(
                 `[pienudge] "${p.item.name}" dx=${((targetRight - lb.right) * cfg.pxPerUnit).toFixed(1)}px: crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, boxPie ${cur.boxPie.toFixed(3)}->${v.boxPie.toFixed(3)} => ${ok ? 'ADOPT' : 'REJECT'}`,
               );
@@ -3348,7 +3348,7 @@ function repairResidualLeaderDefects(
           reshapeToLeftRimHug(p, cfg, placementBox(p, cfg).top);
           const v = vecOf();
           const ok = better(v, cur);
-          if (process.env.GRAPH2_DEBUG_REPAIR) {
+          if (process.env.PIE_CHART_DEBUG_REPAIR) {
             console.error(
               `[rehug] "${p.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, ` +
                 `boxPie ${cur.boxPie.toFixed(3)}->${v.boxPie.toFixed(3)}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
@@ -3412,7 +3412,7 @@ function repairResidualLeaderDefects(
       pb.baseline = tb;
       const v = vecOf();
       const ok = swapBetter(v, cur);
-      if (process.env.GRAPH2_DEBUG_REPAIR) {
+      if (process.env.PIE_CHART_DEBUG_REPAIR) {
         console.error(
           `[crossswap] "${pa.item.name}"<->"${pb.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, ` +
             `through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
@@ -3463,7 +3463,7 @@ function repairResidualLeaderDefects(
       }
       const v = vecOf();
       const ok = better(v, cur);
-      if (process.env.GRAPH2_DEBUG_REPAIR) {
+      if (process.env.PIE_CHART_DEBUG_REPAIR) {
         console.error(
           `[restack-left] top=${top.toFixed(3)} stack=[${byAngle.map((p) => p.item.name).join(',')}]: ` +
             `crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, ` +
@@ -3482,7 +3482,7 @@ function repairResidualLeaderDefects(
     const cur = vecOf();
     if (cur.crossPie + cur.through === 0 && cur.boxPie <= tol) return;
     const { order, involved } = collectDefectInvolved(placements, cfg, coord, tol);
-    if (process.env.GRAPH2_DEBUG_REPAIR) {
+    if (process.env.PIE_CHART_DEBUG_REPAIR) {
       console.error(
         `[rebend:iter${iter}] cur={crossPie:${cur.crossPie}, through:${cur.through}, inv:${cur.inv}} involved=[${order.map((i) => placements[i].item.name).join(',')}]`,
       );
@@ -3770,7 +3770,7 @@ function applyEmitRepairPasses(
   applyLowerLeftDropFallback(textPlacements, cfg, view);
 
   // 下限長体 (0.7) でも viewBox を見切れる 1 行ラベルを、名前を語中で割らない標準 2 行 [名前, %] へ
-  // 変換する最終手段 (do-no-harm)。語割れ (旧 splitLongName) は graph2 全体で廃止。位置確定後に走るので
+  // 変換する最終手段 (do-no-harm)。語割れ (旧 splitLongName) は pie-chart 全体で廃止。位置確定後に走るので
   // ゲートは最終配置を正しく評価する。採点 (`finalizeForScoring`) には入れない: 候補選択を乱さず、
   // finalScore は emit 後の同 placements から数えるため scorer ↔ emit 整合は保たれる。
   applyTwoLineNameFallback(textPlacements, cfg, view);

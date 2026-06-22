@@ -130,4 +130,4 @@ SVG 出力時は使用グリフのみ WOFF2 サブセット埋め込みするた
   `@font-face` を `font-weight:100 900` で宣言。1 本で Light〜Bold を出し分ける。
 - **ゴシック（BIZ UDPGothic）**: Regular/Bold の 2 ウェイトのみ存在。`@font-face` を範囲指定
   （Regular=`1 599` / Bold=`600 1000`）で宣言し、中間ウェイト要求を faux-bold 無しで最寄りへ解決させる
-  （Medium ゴシックは Regular になる）。graph2 のグラフと同一字形の BIZ UDPGothic で統一。
+  （Medium ゴシックは Regular になる）。pie-chart のグラフと同一字形の BIZ UDPGothic で統一。

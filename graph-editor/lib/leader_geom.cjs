@@ -17,7 +17,7 @@
   const BLACK = "#000000";
 
   /** 点 p を矩形 box={left,top,right,bottom} へクランプ = 外枠上(矩形内なら点自身)の最近点。
-   *  leader 端点を必ずラベル外枠上へ載せるための核となる演算。box は graph2 src/svg_geom.ts の
+   *  leader 端点を必ずラベル外枠上へ載せるための核となる演算。box は pie-chart src/svg_geom.ts の
    *  BBox 規約 (left/right/top/bottom) に合わせる。 */
   function clampPointToBox(p, box) {
     return {

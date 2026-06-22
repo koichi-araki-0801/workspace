@@ -1,6 +1,6 @@
-out: Graph2_仕様一覧.xlsx
-title: Graph2 仕様一覧（入出力 / CLI・設定 / テスト）
-meta: "対象: 円グラフ SVG レンダラ Graph2 ・ 版 1.0 ・ 出典: graph2/ 実装コード・テスト（DB なし）"
+out: PieChart_仕様一覧.xlsx
+title: PieChart 仕様一覧（入出力 / CLI・設定 / テスト）
+meta: "対象: 円グラフ SVG レンダラ PieChart ・ 版 1.0 ・ 出典: pie-chart/ 実装コード・テスト（DB なし）"
 sheets:
   - name: 入出力定義
     columns:

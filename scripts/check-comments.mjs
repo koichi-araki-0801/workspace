@@ -42,7 +42,7 @@ const BOX_HEADER_ROOTS = [
   'editor/server/src',
   'editor/web/src',
   'editor/e2e',
-  'graph2/src',
+  'pie-chart/src',
   'graph-editor/js',
   'pdf-to-svg/resources/web',
   'scripts',

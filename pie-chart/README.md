@@ -1,4 +1,4 @@
-# graph2
+# pie-chart
 
 TypeScript 製の円グラフ SVG レンダラ。`{name, value}` の配列(JSON / Excel / サンプル)を入力に、ラベルと引出線を自動配置した円グラフ SVG を生成する。2〜3 人チームでメンテしやすい粒度にモジュール分割している。
 `out/svg_js/` の SVG 出力は 87 サンプルの回帰テスト (`verify_svg.ts`) で検証する。
@@ -24,10 +24,11 @@ CLI は `npm run cli -- <command>`(または直接 `tsx cli.ts <command>`)で実
 - `npm run cli -- one --data-file data/example.json --output-file out/test.svg`
 - `npm run cli -- one --data-json '[{"name":"A","value":60},{"name":"B","value":40}]' --output-file out/test.svg`
 - `npm run cli -- one --xlsx data.xlsx --sheet Sheet1 --range A2:B11 --output-file out/test.svg`
+- `npm run cli -- one --sql "SELECT 区分, 比率 FROM dbo.資産配分" --db-name usrap --output-file out/test.svg`
 - `npm run cli -- batch --output-dir out/svg`
 - `npm run cli -- batch --input-dir data --output-dir out/svg`
 
-`one` の入力は `--sample` / `--data-file` / `--data-json` / `--xlsx + --sheet + --range` のいずれか(`--output-file` 必須)。`batch` は既定で全サンプル、`--samples a,b,c` で対象を絞れる。`--input-dir` 指定時はそのディレクトリ内の `*.json` を一括処理する。
+`one` の入力は `--sample` / `--data-file` / `--data-json` / `--xlsx + --sheet + --range` / `--sql` のいずれか(`--output-file` 必須)。`batch` は既定で全サンプル、`--samples a,b,c` で対象を絞れる。`--input-dir` 指定時はそのディレクトリ内の `*.json` を一括処理する。
 
 #### Excel 入力の決まり
 
@@ -37,6 +38,67 @@ CLI は `npm run cli -- <command>`(または直接 `tsx cli.ts <command>`)で実
 - 数式セルは結果値、リッチテキスト/ハイパーリンクも展開して取り込む。
 - exceljs 依存は `src/xlsx_loader.ts` に隔離(`parseRange` / `loadXlsxItems`)。
 
+#### DB(SQL Server)入力の決まり
+
+- 入力は単一の SELECT 文。複文(文中 `;`)・非 SELECT(UPDATE/DELETE 等)は拒否する。
+- 列解決は Excel と同思想: `--name-col` / `--value-col` を**両方**指定すれば列名で、無指定なら
+  結果セットの**先頭 2 列**を name/value とする(3 列以上で未指定はあいまいエラー)。
+- 接続先は `--db-server`(既定 env `DB_SERVER` / `localhost`)・`--db-name`(既定 env `DB_NAME`)。
+  認証は **Windows 統合認証**固定(`Trusted_Connection=yes`)で資格情報は持たない。
+  ODBC ドライバは既定 `ODBC Driver 17 for SQL Server`(env `DB_ODBC_DRIVER` で変更可)。
+- ネイティブドライバ `msnodesqlv8` は `optionalDependencies`。**遅延 require** のため、未導入でも
+  他入力(sample/json/xlsx)と `tsc` は動く。DB 入力使用時のみ導入が必要。
+- 接続・SQL 依存は `src/db_loader.ts` に隔離(`buildConnectionString` / `assertSelectOnly` /
+  `rowsToItems` / `loadDbItems`)。editor フェーズ2(`editor/server/src/db/pool.ts`)と同パターン。
+
+### exe 配布(Node SEA + 外部参照)
+
+非開発者へ配る実行ファイルを `npm run build:exe`(`scripts/build-exe.mjs`、または
+`build-exe.bat` をダブルクリック)で生成する。**配布物は `dist-exe/` フォルダ一式**:
+
+```
+dist-exe/
+├── pie-chart.exe          — Node SEA 実行体(cli を esbuild で単一 CJS 化して inject)
+├── pie-chart-codesign.cer — 自己署名の公開証明書(配布先で信頼登録すると署名が Valid に)
+├── fonts/                 — 埋込元の woff2(BIZ UDPGothic 400/700)
+└── node_modules/          — subset-font + 依存(harfbuzzjs wasm 等)
+```
+
+- **フォントと subset-font は exe に埋め込まず外部参照する**。これにより subset-font 内の
+  `require.resolve('harfbuzzjs/hb-subset.wasm')` が実行時の Node 解決で効き、**フォントが
+  サブセットされて出力 SVG が小さくなる**(CLI/tsx 版と **byte-identical**)。フォント自体は
+  従来どおり SVG 内へ base64 で subset 埋込されるため WYSIWYG・単体表示は不変。
+- `font.ts` の `seaExeDir` / `getSubsetFont` が SEA 実行時に exe ディレクトリ基準で
+  `fonts/` と `node_modules/subset-font` を解決する(cwd 非依存)。
+- 使い方は CLI と同じ: `pie-chart.exe one --sample asset_gbca_pdf_like --output-file t.svg` など。
+- ビルド依存: `esbuild` / `postject`(devDependencies)。`subset-font` 依存ツリーは build 時に
+  npm で `dist-exe/node_modules` へ隔離 install する(版は dev と一致させる)。**オフライン配布時は
+  これらをバンドルへ含める**([[offline-bundle-distribution]])。
+- DB 入力(`--sql`)はネイティブ `msnodesqlv8` を要するため exe には含めない。利用時は
+  `dist-exe/node_modules` へ `msnodesqlv8` を追加する(描画・Excel 入力は追加不要で動く)。
+
+#### コード署名(自己署名)
+
+ビルド時(Windows)に `scripts/sign-exe.ps1` が exe を **自己署名(self-signed)** で SHA256 署名する。
+
+- 専用の自己署名コード署名証明書を `CurrentUser\My` に作成(無ければ)し、`Set-AuthenticodeSignature`
+  で署名する。Windows SDK(signtool)不要・管理者権限不要。署名前に node.exe 由来の既存
+  Authenticode 署名を `build-exe.mjs` の `stripPeSignature` で除去する(postject が壊した署名が
+  残ると署名 API が「有効な Win32 アプリではない」で失敗するため)。
+- これにより exe の「デジタル署名」タブに発行元が表示され、改ざん検知が効く。ただし**自己署名の
+  ルートは未信頼**なので、配布先で公開証明書を信頼登録するまで署名状態は「未信頼」、SmartScreen も
+  警告し得る。署名そのものは付与済み。
+- 配布先で信頼させる(SmartScreen を抑止する)には、同梱の `pie-chart-codesign.cer` を
+  **信頼されたルート証明機関**と**信頼された発行元**へ取り込む(**管理者権限が必要**):
+
+  ```bat
+  certutil -addstore Root pie-chart-codesign.cer
+  certutil -addstore TrustedPublisher pie-chart-codesign.cer
+  ```
+
+  GPO で配布すれば社内一括展開も可能。正式な配布で警告を完全に無くすには公的 CA のコード署名
+  証明書(EV/OV)が必要だが、社内配布では本自己署名 + 証明書配布で十分なことが多い。
+
 ### 全件生成 + ビューア
 
 - `npm run batch` — 全 87 サンプルを `out/svg_js/` に出力し、`out/compare.html`(A4 想定・1 ページ 12 件のページ送り)を更新
@@ -45,7 +107,7 @@ CLI は `npm run cli -- <command>`(または直接 `tsx cli.ts <command>`)で実
 ## ディレクトリ構成 (11 files)
 
 ```
-graph2/
+pie-chart/
 ├── package.json
 ├── tsconfig.json
 ├── samples.json                — サンプルデータ (87 件・object 形式)
@@ -55,6 +117,7 @@ graph2/
 │   ├── config.ts               — createPieLayoutConfig + makeColors
 │   ├── data.ts                 — samples / normalizeInputItems / resolveInputData*
 │   ├── xlsx_loader.ts          — Excel 入力 (exceljs 依存隔離)
+│   ├── db_loader.ts            — DB(SQL Server)SELECT 入力 (msnodesqlv8 依存隔離)
 │   ├── svg_geom.ts             — 幾何/測定/ナッジ (副作用なし)
 │   ├── layout.ts               — layoutLabels orchestrator
 │   │                             (profiles / diagnostics / resolve / flip /
@@ -147,11 +210,11 @@ RenderResult { svg, diagnostics, config }
 
 コメント規約の正典は **`docs/コメント規約.md`**（全プロジェクト共通）。言語・識別子バッククォート・
 クロスファイル参照・体裁（`=` 罫線の装飾ボックスヘッダ、`// ── N. ラベル ──` 節区切り）など
-共通事項はそちらを参照すること。graph2 もこの規約に準拠する。
+共通事項はそちらを参照すること。pie-chart もこの規約に準拠する。
 
-- **出力不変の検証（graph2 固有）**: コメントのみの変更でも `out/_baseline` に対し SVG を
+- **出力不変の検証（pie-chart 固有）**: コメントのみの変更でも `out/_baseline` に対し SVG を
   byte-diff し、出力が完全に不変であることを確認する (`npm run batch` 後に SHA256 比較)。
-  これは SVG 出力の決定性に密な graph2 限定の鉄則。
+  これは SVG 出力の決定性に密な pie-chart 限定の鉄則。
 
 ## 注意
 

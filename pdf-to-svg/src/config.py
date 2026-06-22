@@ -50,7 +50,7 @@ def font_dir() -> Path:
     """同梱フォントのルート (本プロジェクト配下の ``fonts/``)。
 
     BIZ UDPGothic (TTF) / Noto Serif JP を pdf-to-svg 専用に同梱する置き場
-    (graph2 は同ファミリの WOFF2 を自プロジェクト配下に別途持つ)。
+    (pie-chart は同ファミリの WOFF2 を自プロジェクト配下に別途持つ)。
     - frozen 時: ``_MEIPASS/fonts`` (spec の datas が ``fonts`` 配下へ展開)
     - ソース実行時: リポジトリ root (pdf-to-svg/) の ``fonts/``
     """

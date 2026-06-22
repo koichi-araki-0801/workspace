@@ -78,8 +78,8 @@
 - 強制の仕組み: `Edit`/`Write` 時に規約をリマインドする PreToolUse フック
   (`.claude/hooks/comment-convention-reminder.cjs`) と、機械判定可能な項目を検査する CI チェック
   (`pnpm run check:comments`、`ci` に組込み) を併設する。
-- graph2 配下は上記に加えて、コメントのみの変更でも `out/_baseline` との **byte-diff 不変**が鉄則
-  （詳細は下記 graph2 節）。
+- pie-chart 配下は上記に加えて、コメントのみの変更でも `out/_baseline` との **byte-diff 不変**が鉄則
+  （詳細は下記 pie-chart 節）。
 
 ## ドキュメント（.docx / .xlsx）
 
@@ -103,9 +103,10 @@
     PyYAML を使わず必要な YAML サブセットを自前パースする（オフライン依存追加を避けるため）。
   - 両エンジンの既定フォント定数（`JP` / `MONO`）も上記 BIZ UD 規約に一致させる。
 
-## graph2
+## pie-chart
 
+- 旧称 `graph2`（円グラフ SVG レンダラ）。2026-06 に `pie-chart` へ改称。
 - SVG 出力は決定的。挙動保証は `npm run batch` + `out/_baseline` との **byte-diff**。
   コメント/リファクタ等は出力バイト不変が鉄則。
-- `.claude/hooks/graph2-baseline.cjs`（PreToolUse: Write|Edit）が編集前に
+- `.claude/hooks/pie-chart-baseline.cjs`（PreToolUse: Write|Edit）が編集前に
   `out/_baseline` を自動生成する。
