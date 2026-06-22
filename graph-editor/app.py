@@ -12,7 +12,7 @@ pie-chart が生成した SVG を読み込み、ラベル (テキスト + leader
 これにより WebView2 ランタイムや pywebview を同梱せずに済み、配布物は ~10MB の単一 exe で済む。
 
 開発実行:  python app.py
-exe ビルド:  build.bat   (PyInstaller --onefile, 同梱の `ui.html` を --add-data)
+exe ビルド:  scripts\build.bat   (PyInstaller --onefile, 同梱の `ui.html` を --add-data)
 """
 
 import http.server
@@ -45,8 +45,12 @@ EDGE_INSTALL_ENV_DIRS = ("ProgramFiles(x86)", "ProgramFiles", "LocalAppData")
 
 # ── 同梱リソースの解決 ──
 
-# 同梱ファイルの基準ディレクトリ (PyInstaller 実行時は展開先 `_MEIPASS`、開発実行時は本ファイルの場所)。
-RESOURCE_BASE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+# 同梱ファイルの基準ディレクトリ。PyInstaller 実行時は展開先 `_MEIPASS`(ui.html 等を
+# ルート直下へ収録: `scripts/build.ps1` の --add-data 配置先を参照)、開発実行時は Web 資産を
+# 集約した `resources/web/`(`pdf-to-svg` と同じ構成)。
+RESOURCE_BASE = getattr(
+    sys, "_MEIPASS", os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources", "web")
+)
 
 
 def resource_path(rel: str) -> str:
@@ -195,7 +199,7 @@ def _log_dir():
 def _setup_logging():
     """起動診断ログを `data/logs/startup.log` へ出す。
 
-    exe は `console=False` (`LabelEditor.spec` / `build.bat` の --windowed) で stderr が無く、
+    exe は `console=False` (`LabelEditor.spec` / `scripts\build.bat` の --windowed) で stderr が無く、
     起動失敗が一切見えないため、ポータブルな `data/logs/` にファイル出力して可観測性を確保する。
     ログの用意に失敗しても起動は止めない (`NullHandler` へフォールバック)。"""
     log = logging.getLogger("labeleditor")

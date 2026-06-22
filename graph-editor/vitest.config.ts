@@ -10,7 +10,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       // ui.html と共有する純粋関数のみを対象に 80% を担保する。
-      include: ["lib/leader_geom.cjs"],
+      include: ["resources/web/lib/leader_geom.cjs"],
       thresholds: {
         statements: 80,
         branches: 80,

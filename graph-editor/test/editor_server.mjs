@@ -1,15 +1,15 @@
 // =============================================================================
 // editor_server.mjs — E2E 用の依存ゼロ静的サーバ (Playwright webServer)
 // =============================================================================
-// graph-editor ルート配下を配信する依存ゼロの静的サーバ。Playwright の webServer から起動し、
-// `ui.html` と `lib/leader_geom.cjs` を同一オリジン (http://127.0.0.1:5179) で取得できるように
-// する。
+// graph-editor/resources/web 配下 (Web 資産集約先) を配信する依存ゼロの静的サーバ。Playwright の
+// webServer から起動し、`ui.html` と `lib/leader_geom.cjs` を同一オリジン
+// (http://127.0.0.1:5179) で取得できるようにする。
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { extname, join, normalize } from "node:path";
 
-const ROOT = fileURLToPath(new URL("../", import.meta.url));
+const ROOT = fileURLToPath(new URL("../resources/web/", import.meta.url));
 const PORT = 5179;
 
 const MIME = {

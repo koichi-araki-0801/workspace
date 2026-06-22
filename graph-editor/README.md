@@ -34,11 +34,11 @@ pie-chart が生成した円グラフ SVG を読み込み、**ラベル（文字
 
 | ファイル | 役割 |
 |---|---|
-| `app.py` | 標準ライブラリの小さな HTTP サーバ（127.0.0.1）で `ui.html` と `lib/leader_geom.cjs` を配信し、Edge をアプリモードで起動・常駐管理。実行時の外部依存なし |
-| `ui.html` | UI 本体（HTML+CSS+JS）。SVG の WYSIWYG 編集ロジックすべて。ファイル I/O はブラウザの File System Access API。依存ライブラリなし |
-| `lib/leader_geom.cjs` | 引出線まわりの DOM 非依存な純粋関数（`clampPointToBox`/`parsePath`/`buildPath` 等）。`ui.html` と `pie-chart` 側の vitest 単体テストで同一実装を共有（UMD: ブラウザは global `LeaderGeom`、node は `module.exports`） |
+| `app.py` | 標準ライブラリの小さな HTTP サーバ（127.0.0.1）で `resources/web/` の `ui.html` と `lib/leader_geom.cjs` を配信し、Edge をアプリモードで起動・常駐管理。実行時の外部依存なし |
+| `resources/web/` | Web 資産集約先（`pdf-to-svg` と同構成）。`ui.html`（UI 本体・WYSIWYG 編集ロジック全部）/ `styles.css` / `js/`（ES モジュール群）/ `lib/leader_geom.cjs` |
+| `resources/web/lib/leader_geom.cjs` | 引出線まわりの DOM 非依存な純粋関数（`clampPointToBox`/`parsePath`/`buildPath` 等）。`ui.html` と `pie-chart` 側の vitest 単体テストで同一実装を共有（UMD: ブラウザは global `LeaderGeom`、node は `module.exports`） |
 | `requirements.txt` | 実行は標準ライブラリのみ。`pyinstaller`（ビルド時のみ） |
-| `build.bat` | exe をワンクリックでビルド（`--onefile`、`ui.html` と `lib/leader_geom.cjs` を同梱） |
+| `scripts\build.bat` | exe をワンクリックでビルド（`--onefile`、`resources/web/` 一式を同梱） |
 
 pie-chart のレンダラ（`src/`）には一切依存しません。ブラウザエンジンも同梱せず、OS の Edge を使うため配布物は単一 exe（~10MB）です。
 
@@ -54,7 +54,7 @@ python app.py
 ブラウザエンジンを同梱しないため、**前提作業は不要**です（OS の Edge を使います）。
 
 ```bat
-build.bat
+scripts\build.bat
 ```
 
 `dist\LabelEditor.exe`（**単一ファイル・~10MB**）が生成されます。**この exe を配布**すれば、受け取った人は
@@ -64,8 +64,10 @@ Python も WebView2 も無しに、Windows 10 / 11 で起動できます（描�
 
 ```bat
 python -m PyInstaller --noconfirm --onefile --windowed --name LabelEditor ^
-  --add-data "ui.html;." ^
-  --add-data "lib/leader_geom.cjs;lib" ^
+  --add-data "resources/web/ui.html;." ^
+  --add-data "resources/web/styles.css;." ^
+  --add-data "resources/web/js;js" ^
+  --add-data "resources/web/lib/leader_geom.cjs;lib" ^
   app.py
 ```
 
