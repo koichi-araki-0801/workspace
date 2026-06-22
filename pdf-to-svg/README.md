@@ -25,7 +25,7 @@ PDF を編集可能な **SVG** に変換し、非エンジニアでも
 | バッチ | 役割 |
 |---|---|
 | **`run.bat`** | アプリを起動（exe を作らずソースから手軽に動かす） |
-| **`build.bat`** | 依存導入 + `dist\PdfToSvg\PdfToSvg.exe` を生成 |
+| **`scripts\build.bat`** | 依存導入 + `dist\PdfToSvg\PdfToSvg.exe` を生成 |
 
 ## 動かし方（開発・コマンド）
 
