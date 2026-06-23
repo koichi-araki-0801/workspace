@@ -5,11 +5,18 @@
 # pnpm-lock.yaml の行末は環境差（Windows working tree=CRLF / GitHub アーカイブ=LF）で
 # バイト列が変わる。キーを行末非依存にするため CR(0x0D) を除去して LF 正規化し、
 # packageManager 文字列を連結してから SHA256 を測る。publish / setup 双方で同一値になる。
+# pnpm-lock.yaml は機械生成でコメントを持たないため、この CR 除去バイト列をそのまま使う。
 #
 # さらに、Python ビルド依存（`pdf-to-svg\requirements.txt` / `graph-editor\requirements.txt`）
-# も同様に CR 除去して連結する。これらは重量物バンドルに同梱する `python-wheelhouse` の
-# 内容を規定するため、変われば wheelhouse の再生成が要る。1 キーで pnpm 依存・pnpm 本体・
-# Playwright・Python wheel すべての変化を覆える。
+# と git-tools の manifest（`git-tools\manifest.txt`）も折り込む。前者は重量物バンドルに同梱する
+# `python-wheelhouse` の内容を、後者は同梱する git / TortoiseGit のバイナリ版を規定するため、
+# 変われば重量物バンドルの再生成・再配布が要る。1 キーで pnpm 依存・pnpm 本体・Playwright・
+# Python wheel・git ツールすべての変化を覆える。
+#
+# ただしこれら 3 つは人間が編集する「コメント付きテキスト manifest」であり、コメント規約
+# （コメントのみの変更は成果物に影響させない。cf. pie-chart の byte-diff 不変）と整合させるため、
+# 行コメント（先頭が `#`）と空行を除いた**有意行のみ**を折り込む。これにより requirements.txt の
+# コメント一行を直しただけで content key が反転し、wheelhouse 再生成が空振りする誤検知を防ぐ。
 function Get-LockContentKey {
   param(
     [Parameter(Mandatory = $true)][string]$LockFile,
@@ -24,15 +31,34 @@ function Get-LockContentKey {
     foreach ($x in $raw) { if ($x -ne 13) { $lb.Add($x) } }
     , $lb
   }
+  # コメント付き manifest（requirements.txt / git-tools\manifest.txt）用の有意行リーダ。
+  # UTF-8 として読み、各行を rstrip（CR・末尾空白を除去）したうえで、空行と行コメント
+  # （trim 後の先頭が `#`）を捨て、残った行を LF 連結した UTF-8 バイト列(List)を返す。
+  # 行内コメント（`pkg  # 注` 形式）は URL の `#egg=` 等を壊しうるため意図的に残す。
+  $readSignificant = {
+    param([string]$path)
+    $text = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($path))
+    $kept = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($text -split "`n")) {
+      $rstripped = $line.TrimEnd("`r", ' ', "`t")
+      $trimmed = $rstripped.TrimStart(' ', "`t")
+      if ($trimmed.Length -eq 0) { continue }       # 空行（空白のみを含む）
+      if ($trimmed.StartsWith('#')) { continue }    # 行コメント
+      $kept.Add($rstripped)
+    }
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]::Join("`n", $kept))
+    $lb = New-Object System.Collections.Generic.List[byte] ($bytes.Length)
+    $lb.AddRange($bytes)
+    , $lb
+  }
   $acc = & $readNoCr $LockFile
   $acc.AddRange([System.Text.Encoding]::UTF8.GetBytes($PackageManager))
   # requirements.txt と git-tools の manifest は lockfile の親（= リポジトリ直下）からの
-  # 相対で探し、存在するものだけ折り込む。git-tools\manifest.txt は同梱する git /
-  # TortoiseGit のバイナリ版を規定するため、変われば重量物バンドルの再配布が要る。
+  # 相対で探し、存在するものだけ有意行で折り込む。
   $repoRoot = Split-Path -Parent $LockFile
   foreach ($rel in @('pdf-to-svg\requirements.txt', 'graph-editor\requirements.txt', 'git-tools\manifest.txt')) {
     $rp = Join-Path $repoRoot $rel
-    if (Test-Path -LiteralPath $rp) { $acc.AddRange((& $readNoCr $rp)) }
+    if (Test-Path -LiteralPath $rp) { $acc.AddRange((& $readSignificant $rp)) }
   }
   $sha = [System.Security.Cryptography.SHA256]::Create()
   try { (($sha.ComputeHash($acc.ToArray()) | ForEach-Object { $_.ToString('x2') }) -join '') }
