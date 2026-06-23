@@ -9,15 +9,15 @@ TypeScript 製の円グラフ SVG レンダラ。`{name, value}` の配列(JSON 
 ```bash
 npm install
 npm run check   # tsc --noEmit で型チェック
-npm run batch   # tsx test_batch.ts — 87 サンプル一括生成
-npm run verify  # tsx verify_svg.ts — 自動検証
+npm run batch   # tsx src/test_batch.ts — 87 サンプル一括生成
+npm run verify  # tsx src/verify_svg.ts — 自動検証
 ```
 
 ## 使い方
 
 ### CLI
 
-CLI は `npm run cli -- <command>`(または直接 `tsx cli.ts <command>`)で実行する。
+CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)で実行する。
 
 - `npm run cli -- list`
 - `npm run cli -- one --sample asset_gbca_pdf_like --output-file out/test.svg`
@@ -104,7 +104,7 @@ dist-exe/
 - `npm run batch` — 全 87 サンプルを `out/svg_js/` に出力し、`out/compare.html`(A4 想定・1 ページ 12 件のページ送り)を更新
 - `npm run verify` — 生成済み SVG のラベル数・bbox オーバーラップ・円内侵入・引出線交差・viewBox はみ出し・引出線屈曲数を自動検証(引数で対象ディレクトリを指定可。既定は `out/svg_js`)
 
-## ディレクトリ構成 (11 files)
+## ディレクトリ構成
 
 ```
 pie-chart/
@@ -124,15 +124,17 @@ pie-chart/
 │   │                              upper-left render Y / left-stack / placeX を section 構成)
 │   ├── label_placement.ts      — drawLabelFragments + 10 種 placeXxxLabel
 │   │                             (constants / leader / place_*×10 / orchestrator を section 構成)
-│   └── svg_export/             — SVG 出力層 (関心事ごとに分離)
-│       ├── index.ts            — renderPdfStylePieToSvg orchestrator
-│       ├── rendering.ts        — 座標変換 + slice path + text + 視覚 em 推定
-│       ├── post_layout.ts      — overlap 解消 / compactify cascade /
-│       │                         半角カナ fallback / 視覚 viewBox nudge
-│       └── font.ts             — TTF → WOFF2 サブセット埋込 (async I/O + キャッシュ)
-├── cli.ts                      — CLI (list / one / batch)
-├── test_batch.ts               — 87 件一括生成 + compare.html
-└── verify_svg.ts               — 自動検証
+│   ├── svg_export/             — SVG 出力層 (関心事ごとに分離)
+│   │   ├── index.ts            — renderPdfStylePieToSvg orchestrator
+│   │   ├── rendering.ts        — 座標変換 + slice path + text + 視覚 em 推定
+│   │   ├── post_layout.ts      — overlap 解消 / compactify cascade /
+│   │   │                         半角カナ fallback / 視覚 viewBox nudge
+│   │   └── font.ts             — TTF → WOFF2 サブセット埋込 (async I/O + キャッシュ)
+│   ├── cli.ts                  — CLI (list / one / batch)
+│   ├── test_batch.ts           — 87 件一括生成 + compare.html
+│   ├── verify_svg.ts           — 自動検証
+│   └── verify_consistency.ts   — 採点判断 ↔ emit SVG の一致検証
+└── scripts/                    — build-exe.mjs / sign-exe.ps1 / gen_glyph_advance.ts
 ```
 
 ## アーキテクチャ
@@ -163,7 +165,7 @@ RenderResult { svg, diagnostics, config }
 | レイヤ | ファイル | 責務 |
 |---|---|---|
 | 型 | `src/types.ts` | 全体共通の TS interface(`Item` / `LayoutItem` / `Placement` / `Diagnostics` / `PieLayoutConfig` 等) |
-| データ | `src/data.ts` + `samples.json` + `src/xlsx_loader.ts` | サンプル読込、JSON / Excel 入力、`{name, value}` 正規化 |
+| データ | `src/data.ts` + `samples.json` + `src/xlsx_loader.ts` + `src/db_loader.ts` | サンプル読込、JSON / Excel / DB(SQL Server) 入力、`{name, value}` 正規化 |
 | 設定 | `src/config.ts` | pt 基準寸法・フォント・派生スケール getter 群(`createPieLayoutConfig`)+ 配色(`makeColors`) |
 | レイアウト | `src/layout.ts` | 論理座標系でのラベル位置決定(左右割当・Y 解決・上左カスケード・X 配置・flip 判定)。`layoutLabels` を section 構成 |
 | 幾何 | `src/svg_geom.ts` | 純粋幾何/測定/ナッジ系ヘルパー(座標変換なし、SVG 文字列生成なし、副作用なし) |
@@ -172,7 +174,7 @@ RenderResult { svg, diagnostics, config }
 | 後処理 | `src/svg_export/post_layout.ts` | overlap 解消(対角押し + 縦分離の 2 パス）・compact cascade・半角カナ fallback・視覚 viewBox nudge |
 | フォント | `src/svg_export/font.ts` | WOFF2 サブセット埋込(async I/O + キャッシュ。`subset-font` 依存、失敗時は full TTF に fallback) |
 | 統合 | `src/svg_export/index.ts` | `renderPdfStylePieToSvg` の最終アセンブリ、ヘアピン leader 省略(なす角 > 135°）、leader 交差検査 |
-| エントリ | `cli.ts` / `test_batch.ts` / `verify_svg.ts` | CLI / 一括生成 + ビューア / 自動検証 |
+| エントリ | `src/cli.ts` / `src/test_batch.ts` / `src/verify_svg.ts` / `src/verify_consistency.ts` | CLI / 一括生成 + ビューア / 自動検証 / 採点↔emit 一致検証 |
 
 ### ラベル配置の流れ(`layout.ts` 核心部）
 

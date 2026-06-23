@@ -69,13 +69,15 @@ PDF → engine(PyMuPDF抽出 + vector/scan判定) → model(Document/Page/Elemen
 - UI（HTML/CSS/JS）は `resources/web/`、Python との橋渡しは `src/web/`（`server.py` /
   `rpc_methods.py` / `loader.py` / `commands.py` / `undo_stack.py`）。`app.py` が
   小さなローカル HTTP サーバを立て、Edge を `--app=` で起動・常駐管理する。ネットワークには
-  出ない（`127.0.0.1` のみ）。PDF の読み込みは UI がバイトを `/upload` し、SVG/辞書の保存は
-  UI の File System Access API が担う。
+  出ない（`127.0.0.1` のみ）。PDF の読み込みは UI がバイトを `/upload` し、開く = 従来型
+  `<input type=file>`、SVG/辞書の保存 = `<a download>`（ダウンロード）で行う。File System Access API
+  のネイティブピッカーは VDI/リモートデスクトップの管理された Edge でレンダラごとクラッシュするため
+  使わない（`app.js` の `hasFsSave()` は常に `false`。保存先はダウンロードフォルダ固定）。
 - 主要モジュール: `engine/pdf_engine.py`, `model/elements.py`, `export/svg_exporter.py`,
   `dictionary/apply.py`, `web/server.py`, `web/rpc_methods.py`。
 
-> `resources/web/` の `index.html` / `app.js` / `rpc.js` / `styles.css` は手書き管理
-> （`styles.css` のフォントは UI 用に Windows 標準へ差し替え済み）。
+> `resources/web/` の `index.html` / `app.js` / `dom.js` / `geometry.js` / `rpc.js` / `styles.css` は
+> 手書き管理（`styles.css` のフォントは UI 用に Windows 標準へ差し替え済み）。
 
 ---
 
@@ -93,9 +95,11 @@ python -m pytest
 
 ## .exe ビルド
 
+通常は `scripts\build.bat`（隔離 venv で依存導入 + ビルド）をダブルクリックすればよい。手動の場合:
+
 ```powershell
 python -m pip install pyinstaller
-pyinstaller packaging/pdftosvg.spec --noconfirm
+pyinstaller packaging/pdftosvg.spec --clean --noconfirm --distpath dist --workpath build
 # 出力: dist/PdfToSvg/PdfToSvg.exe (onedir)
 ```
 

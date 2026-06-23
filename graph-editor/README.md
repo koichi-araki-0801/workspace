@@ -74,11 +74,14 @@ python -m PyInstaller --noconfirm --onefile --windowed --name LabelEditor ^
 ### 仕組み（なぜ動くか）
 
 - `app.py` は標準ライブラリの HTTP サーバで `ui.html` を `http://127.0.0.1:<空きポート>` に配信し、
-  `msedge.exe --app=<URL> --user-data-dir=<一時>` でアプリ窓として開きます。窓を閉じると（プロセス終了／
-  `pagehide` の `/quit` ビーコン）サーバも終了します。Edge が見つからない場合は既定ブラウザで開きます。
-- ファイルの開く/保存は、ブラウザの **File System Access API**（`showOpenFilePicker` / `showSaveFilePicker`）で
-  ネイティブのダイアログを使います。`http://127.0.0.1` は secure context のため API が利用できます。
-  非対応ブラウザでは `<input type=file>`（開く）／ダウンロード（保存）へ自動フォールバックします。
+  `msedge.exe --app=<URL>` でアプリ窓として開きます（端末標準の「管理された」既定プロファイル）。窓を閉じると
+  （プロセス終了／`pagehide` の `/quit` ビーコン）サーバも終了します。Edge が見つからない場合は既定ブラウザで開きます。
+  以前は隔離 `--user-data-dir` ＋ `--disable-gpu` で起動していましたが、VDI ではこの非標準構成で
+  アプリ窓がクラッシュしたため廃止し、余計なフラグを付けない構成に変更しています。
+- ファイルの開く/保存は、従来型 `<input type=file>`（開く）／ダウンロード（保存）を使います。
+  File System Access API のネイティブピッカー（`showOpenFilePicker` / `showSaveFilePicker`）は VDI/リモート
+  デスクトップの管理された Edge ではレンダラごとクラッシュするため使いません（`utils.js` の `hasFsAccess()` は
+  常に `false`）。機能差は実質「保存先がダウンロードフォルダ固定」になる点のみです。ドラッグ＆ドロップでも開けます。
 - pie-chart の生成 SVG はフォントを base64 で自己内包しているため、DOM に挿入するだけで実フォントのまま正確に表示されます（WYSIWYG）。
 - 各ラベルは `<g class="label" data-name="…">{引出線 <path>?}{<text>}</g>` 構造。
   文字は `<text>` の `transform=translate` で動かし、保存時に座標へ焼き込みます。
