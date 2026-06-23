@@ -176,6 +176,29 @@ def test_dict_add_and_list(session):
     assert "Q'ty" in sources
 
 
+def test_dict_suggest_joins_wrapped_lines(tmp_path):
+    """折返しセルのどの行をクリックしても、連結した 1 文を「元の語」候補に返す。"""
+    page = Page(index=0, width_pt=200.0, height_pt=300.0)
+    top = TextElement(bbox=Rect(50, 28, 20, 12), text="商品",
+                      font_size=12, origin_x=50, origin_y=40)
+    bottom = TextElement(bbox=Rect(50, 40, 20, 12), text="名称",
+                         font_size=12, origin_x=50, origin_y=52)
+    page.elements = [top, bottom]
+    s = WebSession(DictionaryStore(tmp_path / "d.json"), FakeUndo())
+    s.docs = [Document(source_path="表.pdf", pages=[page])]
+
+    r = rpc_methods.dispatch(
+        s, "dictSuggest", {"fileIndex": 0, "pageInFile": 0, "elId": bottom.id}
+    )
+    assert r["source"] == "商品名称"  # クリックは 2 行目でも文全体を返す
+
+    # 範囲外/不明な elId は空文字 (クライアントはクリック行へフォールバック)
+    r2 = rpc_methods.dispatch(
+        s, "dictSuggest", {"fileIndex": 0, "pageInFile": 0, "elId": 999999}
+    )
+    assert r2["source"] == ""
+
+
 def test_dict_export_import(tmp_path):
     out = tmp_path / "shared_dict.json"
     # 書き出し元セッション

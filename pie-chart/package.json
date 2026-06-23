@@ -22,6 +22,10 @@
   "optionalDependencies": {
     "msnodesqlv8": "^4.2.1"
   },
+  "//overrides": "npm 経路(pnpm の無い旧 Node20 系の単独環境)専用の vite 固定。vite@8/rolldown は Node>=20.19 要求で 20.16 が EBADENGINE になるため ^6(rollup ベース)へ。pnpm はルート overrides のみ見るので開発機(pnpm/Node24)は vite@8 維持。理由詳細は README「セットアップ」。",
+  "overrides": {
+    "vite": "^6.0.0"
+  },
   "devDependencies": {
     "@types/node": "^24.13.1",
     "esbuild": "^0.28.0",

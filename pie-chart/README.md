@@ -13,6 +13,20 @@ npm run batch   # tsx src/test_batch.ts — 87 サンプル一括生成
 npm run verify  # tsx src/verify_svg.ts — 自動検証
 ```
 
+実行系は環境で使い分ける(従来の `run.bat`/`run.ps1` が Node メジャー版で自動判定していたものを、
+ラッパ廃止に伴い手動運用へ移行):
+
+- **開発機(pnpm / Node 24 系)**: リポジトリ直下で `pnpm install`、各コマンドは
+  `pnpm --filter pie-chart run <script>`(または `pie-chart/` 内で `pnpm run <script>`)。
+- **pnpm の無い旧 Node 20 系の単独環境**: この `pie-chart/` フォルダ内で `npm` を直接叩く。
+
+後者向けに `package.json` の `overrides` で **vite を `^6` に固定**している。vite@8 とその bundler
+rolldown は Node `^20.19.0 || >=22.12.0` を要求し Node 20.16 で EBADENGINE になるため、rollup ベースで
+engines が `^20.0.0` を許容する vite@6 を引く。pnpm はワークスペース *ルート* の `overrides` しか見ず
+member(pie-chart)側の指定を無視するため、開発機は最新 vite@8 のまま。= npm 経路だけが vite@6 へ
+切り替わる。vite/vitest はテスト専用で、`cli`/`batch`/`verify`/`build:exe` は tsx・esbuild 経由のため
+SVG 出力(`out/_baseline` の byte-diff)には影響しない。
+
 ## 使い方
 
 ### CLI
@@ -53,8 +67,15 @@ CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)�
 
 ### exe 配布(Node SEA + 外部参照)
 
-非開発者へ配る実行ファイルを `npm run build:exe`(`scripts/build-exe.mjs`、または
-`scripts/build-exe.bat` をダブルクリック)で生成する。**配布物は `dist-exe/` フォルダ一式**:
+非開発者へ配る実行ファイルを生成する。入口は 2 つで、依存の入れ方が異なる:
+
+- **`scripts/build-exe.bat`(ダブルクリック / 旧 Node20 系の単独環境向け)**: ビルド前に
+  `node_modules`/`package-lock.json` を消して **`npm install` をクリーン実行**してから exe を作る。
+  事前の手動 install は不要で「このフォルダだけ」で完結する(npm 経路は overrides で vite@6 固定)。
+- **`npm run build:exe` / `pnpm run build:exe`(= `node scripts/build-exe.mjs`、開発機向け)**:
+  install はせず、既存の `node_modules` でビルドのみ行う。pnpm ワークスペースの依存解決を保つ。
+
+**配布物は `dist-exe/` フォルダ一式**:
 
 ```
 dist-exe/

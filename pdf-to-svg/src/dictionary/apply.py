@@ -6,6 +6,7 @@ PDF には意味的な「表ヘッダ」が無いため、ヒューリスティ�
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
@@ -144,6 +145,37 @@ def _lookup_joined(
     return None
 
 
+# CJK (漢字・かな等) を含むかの判定。連結候補の区切り (無し/空白) を選ぶのに使う。
+_CJK = re.compile(
+    r"[぀-ヿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ]"
+)
+
+
+def _join_for_candidate(parts: List[str]) -> str:
+    """折返し各行を辞書 source 候補へ連結する (和文=区切り無し / 欧文=空白)。
+
+    `_lookup_joined` は区切り無し・空白の双方を試すため、ここでどちらか一方の
+    自然な連結を返せば再適用時に一致する。CJK を含めば区切り無し、無ければ空白。
+    """
+    return "".join(parts) if _CJK.search("".join(parts)) else " ".join(parts)
+
+
+def joined_candidate(page: Page, element: TextElement) -> str:
+    """`element` の折返しグループを連結した辞書 source 候補を返す (UI の取り込み用)。
+
+    マッチャ (`_wrap_groups` / `_lookup_joined`) と同じ束ね方で連結するため、返り値を
+    そのまま辞書へ登録すれば、複数行にまたがる 1 文 (折返しセル) に再適用で一致する。
+    単独行 (グループ要素 1) はその行のテキストをそのまま返す (従来挙動)。
+    """
+    texts = _text_elements(page)
+    for group in _wrap_groups(texts):
+        if any(t is element for t in group):
+            if len(group) < 2:
+                return element.text.strip()
+            return _join_for_candidate([t.text.strip() for t in group])
+    return element.text.strip()
+
+
 def plan_replacements(
     page: Page, store: DictionaryStore, only_headers: bool = True
 ) -> List[Replacement]:
@@ -152,10 +184,14 @@ def plan_replacements(
     texts = _text_elements(page)
     consumed: set = set()
 
-    # 折返しヘッダの連結照合 (要素単位より優先)。連結で一致しなければグループは
-    # 解放され、各行が従来どおり単独照合される (後方互換)。
+    # 折返し連結照合 (要素単位より優先)。連結で一致しなければグループは解放され、
+    # 各行が従来どおり単独照合される (後方互換)。`only_headers` のゲートは単独ループと
+    # 揃える: 既定はヘッダ折返しのみ、OFF 時は本文セルの折返し (複数行にまたがる 1 文)
+    # も連結対象にする。
     for group in _wrap_groups(texts):
-        if len(group) < 2 or not group[0].is_header:
+        if len(group) < 2:
+            continue
+        if only_headers and not group[0].is_header:
             continue
         hit = _lookup_joined(store, group)
         if hit is None:

@@ -193,6 +193,28 @@ def rpc_dictDelete(s: WebSession, args: dict) -> dict:
     return _dict_payload(s)
 
 
+def rpc_dictSuggest(s: WebSession, args: dict) -> dict:
+    """クリックした文字要素から辞書「元の語」候補を返す。
+
+    折返しで複数行に分かれた 1 文 (セル) の場合、マッチャと同じ束ね方で連結した
+    文字列を返すため、クリック 1 回で文全体を取り込める。単独行は当該行の文字列。
+    対象が無ければ空文字 (クライアントはクリック行の textContent にフォールバック)。
+    """
+    pg = s.page(int(args["fileIndex"]), int(args["pageInFile"]))
+    el_id = int(args["elId"])
+    el = next(
+        (
+            e
+            for e in pg.elements
+            if e.id == el_id and isinstance(e, TextElement) and not e.deleted
+        ),
+        None,
+    )
+    if el is None:
+        return {"source": ""}
+    return {"source": dict_apply.joined_candidate(pg, el)}
+
+
 def rpc_setOnlyHeaders(s: WebSession, args: dict) -> dict:
     s.only_headers = bool(args.get("value", True))
     return {"onlyHeaders": s.only_headers}
@@ -367,6 +389,7 @@ HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "dictList": rpc_dictList,
     "dictAdd": rpc_dictAdd,
     "dictDelete": rpc_dictDelete,
+    "dictSuggest": rpc_dictSuggest,
     "dictExport": rpc_dictExport,
     "dictImport": rpc_dictImport,
     "dictJson": rpc_dictJson,

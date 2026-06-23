@@ -103,23 +103,9 @@ if (-not $NoVerify) {
     }
   }
 
-  # lockfile 整合（bundle.key と pnpm-lock.yaml/package.json の content key を比較）
-  $KeyFile  = Find-Local 'bundle.key'
-  $LockFile = Join-Path $RepoRoot 'pnpm-lock.yaml'
-  $PkgJson  = Join-Path $RepoRoot 'package.json'
-  if ($KeyFile -and (Test-Path $LockFile) -and (Test-Path $PkgJson)) {
-    # content-key は publish / setup と同一ロジック（共通ライブラリ Get-LockContentKey）。
-    $packageManager = Get-PackageManagerString $PkgJson
-    $localKey = Get-LockContentKey -LockFile $LockFile -PackageManager $packageManager
-    $publishedKey = (Get-Content $KeyFile -Raw).Trim().ToLower()
-    if ($localKey -eq $publishedKey) {
-      Write-Host "[info] lockfile key 一致: $localKey"
-    } else {
-      Write-Warning "[warn] lockfile 不整合の可能性。資材とソースが対応していません。`n  code (local) : $localKey`n  bundle.key   : $publishedKey`n  → --frozen-lockfile が失敗する場合は同一タグの資材で揃え直してください。"
-    }
-  } else {
-    Write-Warning '[warn] bundle.key / pnpm-lock.yaml / package.json のいずれかが無く、lockfile 整合チェックをスキップ。'
-  }
+  # lockfile 整合（bundle.key 比較）は展開後に行う。content key の入力に
+  # git-tools\manifest.txt（バンドル同梱・gitignore 対象でソースに無い）が含まれるため、
+  # 展開前に測ると manifest を欠いて publish 側と必ずズレる。下の [3.5/4] へ遅延させる。
 } else {
   Write-Host '[2/4] -NoVerify: 検証をスキップ。'
 }
@@ -136,6 +122,27 @@ if ($ExtractedOk) {
     if (-not (Test-Path (Join-Path $RepoRoot $p))) {
       Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1
     }
+  }
+}
+
+# ---- [3.5/4] lockfile 整合チェック（展開後＝git-tools\manifest.txt が在る状態で測る） ----
+# content-key は publish / setup と同一ロジック（共通ライブラリ Get-LockContentKey）。manifest が
+# content key 入力に含まれるため、展開後に比較しないと publish 側とズレる（上の [2/4] 参照）。
+if (-not $NoVerify) {
+  $KeyFile  = Find-Local 'bundle.key'
+  $LockFile = Join-Path $RepoRoot 'pnpm-lock.yaml'
+  $PkgJson  = Join-Path $RepoRoot 'package.json'
+  if ($KeyFile -and (Test-Path $LockFile) -and (Test-Path $PkgJson)) {
+    $packageManager = Get-PackageManagerString $PkgJson
+    $localKey = Get-LockContentKey -LockFile $LockFile -PackageManager $packageManager
+    $publishedKey = (Get-Content $KeyFile -Raw).Trim().ToLower()
+    if ($localKey -eq $publishedKey) {
+      Write-Host "[info] lockfile key 一致: $localKey"
+    } else {
+      Write-Warning "[warn] lockfile 不整合の可能性。資材とソースが対応していません。`n  code (local) : $localKey`n  bundle.key   : $publishedKey`n  → --frozen-lockfile が失敗する場合は同一タグの資材で揃え直してください。"
+    }
+  } else {
+    Write-Warning '[warn] bundle.key / pnpm-lock.yaml / package.json のいずれかが無く、lockfile 整合チェックをスキップ。'
   }
 }
 

@@ -125,7 +125,19 @@ if (Test-Path $Sha) {
   Write-Warning '[warn] .sha256 が見つかりません。整合性検証をスキップします。'
 }
 
-# lockfile 整合チェック（ソースのブランチとバンドルが対応するか）
+# lockfile 整合チェックは展開後（[4/6] の後）に行う。content key の入力に
+# git-tools\manifest.txt（バンドル同梱・gitignore 対象でソース ZIP に無い）が含まれるため、
+# 展開前に測ると manifest を欠いて publish 側と必ずズレる。
+
+# ---- [4/6] 重量物を ROOT へ展開 ----
+Write-Host '[4/6] 重量物を直下へ展開（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse / git-tools）...'
+& $TarExe -xzf $Bundle -C $RepoRoot
+if ($LASTEXITCODE -ne 0) { Write-Error '[error] 展開に失敗しました。'; exit 1 }
+foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse', 'git-tools')) {
+  if (-not (Test-Path (Join-Path $RepoRoot $p))) { Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1 }
+}
+
+# lockfile 整合チェック（展開後＝git-tools\manifest.txt が在る状態でソースとバンドルの対応を測る）
 $LockFile = Join-Path $RepoRoot 'pnpm-lock.yaml'
 $PkgJson  = Join-Path $RepoRoot 'package.json'
 if ((Test-Path $KeyFile) -and (Test-Path $LockFile) -and (Test-Path $PkgJson)) {
@@ -140,14 +152,6 @@ if ((Test-Path $KeyFile) -and (Test-Path $LockFile) -and (Test-Path $PkgJson)) {
   }
 } else {
   Write-Warning '[warn] bundle.key / pnpm-lock.yaml / package.json のいずれかが無く、lockfile 整合チェックをスキップします。'
-}
-
-# ---- [4/6] 重量物を ROOT へ展開 ----
-Write-Host '[4/6] 重量物を直下へ展開（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse / git-tools）...'
-& $TarExe -xzf $Bundle -C $RepoRoot
-if ($LASTEXITCODE -ne 0) { Write-Error '[error] 展開に失敗しました。'; exit 1 }
-foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse', 'git-tools')) {
-  if (-not (Test-Path (Join-Path $RepoRoot $p))) { Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1 }
 }
 
 # ---- [5/6] オフライン環境構築 ----

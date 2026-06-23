@@ -591,17 +591,29 @@ import { clientToPage, parseSpec } from "./geometry.js";
     if (name === "dict") loadDict();
   }
 
-  // 機能1: 手順2 のページ上の文字クリック → 「元の語」に取り込む
+  // 機能1: 手順2 のページ上の文字クリック → 「元の語」に取り込む。
+  // 折返しで複数行に分かれた 1 文 (セル) は、サーバの dictSuggest がマッチャと同じ
+  // 束ね方で連結した文字列を返すため、クリック 1 回で文全体を取り込める。取得に失敗した
+  // ときはクリック行の textContent をそのまま使う。
   function wireConfirmPick() {
     var host = document.getElementById("doc-master");
     var svgEl = host.querySelector("svg");
     if (!svgEl) return;
-    svgEl.addEventListener("click", function (e) {
+    svgEl.addEventListener("click", async function (e) {
       var t = e.target.closest("[data-el]");
       if (!t || t.tagName.toLowerCase() !== "text") return;
       var txt = (t.textContent || "").trim();
       if (!txt) return;
       activateTab("dict");
+      var pg = PAGES[page];
+      if (pg) {
+        try {
+          var r = await rpc("dictSuggest", {
+            fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, elId: t.getAttribute("data-el"),
+          });
+          if (r && r.source) txt = r.source;
+        } catch (_) { /* 折返し連結の取得失敗時はクリック行の文字列を使う */ }
+      }
       document.getElementById("dict-src").value = txt;
       document.getElementById("dict-tgt").focus();
       flashElement("doc-master", t.getAttribute("data-el"));
