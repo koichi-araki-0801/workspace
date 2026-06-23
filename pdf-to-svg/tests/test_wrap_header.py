@@ -77,7 +77,7 @@ def test_single_line_header_still_matches(tmp_path):
 
 
 def test_non_header_stack_not_joined(tmp_path):
-    """ヘッダでない本文の縦並びは連結照合しない。"""
+    """ヘッダでない本文の縦並びは (既定の only_headers=True では) 連結照合しない。"""
     # top band (200*0.25=50) より下に置き、太字でもないのでヘッダにならない
     a = _text("商品", x=50, oy=120)
     b = _text("名称", x=50, oy=132)
@@ -90,6 +90,51 @@ def test_non_header_stack_not_joined(tmp_path):
     assert n == 0
     assert a.text == "商品" and not b.deleted
     store.close()
+
+
+def test_non_header_stack_joined_when_not_only_headers(tmp_path):
+    """only_headers=False では本文セルの複数行 (1 文の折返し) も連結照合する。"""
+    # 同じく top band より下・非太字 → ヘッダにはならないが、トグル OFF で連結対象。
+    a = _text("商品", x=50, oy=120)
+    b = _text("名称", x=50, oy=132)
+    pg = _page([a, b])
+    store = DictionaryStore(tmp_path / "d.json")
+    store.add("商品名称", "Product")
+
+    n = dict_apply.auto_apply(pg, store, only_headers=False)
+
+    assert n == 1
+    assert a.text == "Product"
+    assert a.dict_match is not None and a.dict_match.source == "商品名称"
+    assert b.deleted is True  # 2 行目は描画から除外
+    store.close()
+
+
+def test_joined_candidate_wrapped_no_separator():
+    """折返し和文セルは、どの行をクリックしても連結 "商品名称" を候補に返す。"""
+    top = _text("商品", x=50, oy=40)
+    bottom = _text("名称", x=50, oy=52)
+    pg = _page([top, bottom])
+
+    assert dict_apply.joined_candidate(pg, top) == "商品名称"
+    assert dict_apply.joined_candidate(pg, bottom) == "商品名称"
+
+
+def test_joined_candidate_wrapped_with_space():
+    """折返し欧文セルは空白連結 "Product Name" を候補に返す。"""
+    top = _text("Product", x=50, oy=40)
+    bottom = _text("Name", x=50, oy=52)
+    pg = _page([top, bottom])
+
+    assert dict_apply.joined_candidate(pg, top) == "Product Name"
+
+
+def test_joined_candidate_single_line():
+    """単独行はその行の文字列をそのまま候補に返す (連結しない)。"""
+    head = _text("Qty", x=50, oy=40)
+    pg = _page([head])
+
+    assert dict_apply.joined_candidate(pg, head) == "Qty"
 
 
 def _detect(pg):
