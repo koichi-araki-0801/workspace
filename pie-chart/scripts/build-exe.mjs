@@ -111,7 +111,7 @@ await build({
   format: 'cjs',
   // target は **このビルドを走らせている Node のメジャー版**に追従させる。SEA exe の実体は
   // `process.execPath`(= 実行中の node)をコピーしたものなので、bundle の syntax をその node に
-  // 必ず一致させる。24 系開発機なら node24、20 系の古い環境(run.bat 経由)なら node20 が選ばれ、
+  // 必ず一致させる。24 系開発機なら node24、20 系の古い環境(npm 直叩き)なら node20 が選ばれ、
   // exe 本体とバンドルの想定が常に揃う(従来の node22 ハードコードは node20 ビルドでズレた)。
   target: `node${process.versions.node.split('.')[0]}`,
   // external: ネイティブ optional の msnodesqlv8 と、外部参照する subset-font

@@ -22,7 +22,6 @@ editor / pie-chart / pdf-to-svg / graph-editor などを束ねる pnpm モノレ
 | スクリプト | 役割 | 使い方 |
 |---|---|---|
 | `editor/start.bat` | editor アプリ起動（dev / prod / rest モード） | `editor\start.bat` または引数でモード指定 |
-| `pie-chart/run.bat` | 円グラフ SVG レンダラ CLI（install / batch / verify 等） | `pie-chart\run.bat <サブコマンド>` |
 | `pdf-to-svg/run.bat` | PdfToSvg をソースから起動 | `pdf-to-svg\run.bat` |
 | `offline/setup-offline.bat` | オンライン機でソース+重量物を取得し構築 | `offline\setup-offline.bat` |
 | `offline/setup-offline-local.bat` | 完全オフライン環境で構築（取得済み前提） | `offline\setup-offline-local.bat` |
