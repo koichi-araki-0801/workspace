@@ -1,10 +1,16 @@
 // =============================================================================
 // index.ts — vue-router のルート定義と認証 navigation guard
 // =============================================================================
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
+import {
+  createRouter,
+  createWebHistory,
+  type RouteLocationNormalized,
+  type RouteLocationRaw,
+  type RouteRecordRaw,
+} from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
-const routes: RouteRecordRaw[] = [
+export const routes: RouteRecordRaw[] = [
   {
     path: '/login',
     name: 'login',
@@ -70,12 +76,29 @@ export const router = createRouter({
   routes,
 });
 
-router.beforeEach(async (to) => {
-  const auth = useAuthStore();
+/** guard が参照する auth ストアの最小形(Pinia ストアが構造的に満たす。テストで差し替え可)。 */
+export interface AuthGuardState {
+  ready: boolean;
+  isAuthenticated: boolean;
+  isAdmin: boolean;
+  bootstrap: () => Promise<void>;
+}
+
+/**
+ * 認証 navigation guard(`beforeEach` 本体)。テスト容易化のため auth ストアを引数で受け
+ * (既定 `useAuthStore()`)、純粋に遷移可否/リダイレクト先を返す。public 以外は未認証なら
+ * 必ず login へ送る(直 URL/ブックマーク/キャッシュ入場でもログイン画面を経由させる)。
+ */
+export async function authGuard(
+  to: RouteLocationNormalized,
+  auth: AuthGuardState = useAuthStore(),
+): Promise<boolean | RouteLocationRaw> {
   if (!auth.ready) await auth.bootstrap();
 
   if (to.meta.public) return true;
   if (!auth.isAuthenticated) return { name: 'login', query: { redirect: to.fullPath } };
   if (to.meta.admin && !auth.isAdmin) return { name: 'edit' };
   return true;
-});
+}
+
+router.beforeEach((to) => authGuard(to));

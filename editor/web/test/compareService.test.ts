@@ -179,6 +179,13 @@ describe('CompareService.listCandidates', () => {
         ['b', 2],
         ['c', 1],
       ]);
+      // 各候補は版リスト(現行版込み)を持ち、末尾が現行版 baseline、長さは versionCount に一致。
+      for (const c of res.value) {
+        expect(c.versions).toHaveLength(c.versionCount);
+        expect(c.versions[c.versions.length - 1].historyId).toBe(`baseline:${c.meta.id}`);
+      }
+      // a は確定版(新しい順) a2,a1 の後に現行版が続く。
+      expect(res.value[0].versions.map((v) => v.historyId)).toEqual(['a2', 'a1', 'baseline:a']);
     }
   });
 

@@ -6,7 +6,10 @@ import type { TemplateAttributes } from '@editor/shared';
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Eye,
+  FileText,
   Loader2,
   Minus,
   Plus,
@@ -30,6 +33,10 @@ const props = defineProps<{
   canUndo: boolean;
   canRedo: boolean;
   showPageGuides: boolean;
+  /** 1 始まりで表示する現在ページ番号。 */
+  currentPage: number;
+  pageCount: number;
+  singlePageMode: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -38,6 +45,9 @@ const emit = defineEmits<{
   zoomIn: [];
   zoomOut: [];
   togglePageGuides: [];
+  prevPage: [];
+  nextPage: [];
+  toggleSinglePage: [];
   save: [];
   preview: [];
 }>();
@@ -94,6 +104,46 @@ const attrItems = (a: TemplateAttributes) => [
         <Plus class="h-4 w-4" />
       </Button>
     </div>
+    <div class="h-[26px] w-px bg-border" />
+
+    <!-- ページ送り(1 ページ表示時、複数ページのときだけ出す) -->
+    <div v-if="singlePageMode && pageCount > 1" class="flex items-center gap-1.5">
+      <Button
+        variant="outline"
+        size="icon"
+        class="h-7 w-7"
+        title="前のページ"
+        :disabled="currentPage <= 1"
+        @click="emit('prevPage')"
+      >
+        <ChevronLeft class="h-4 w-4" />
+      </Button>
+      <span class="min-w-[46px] text-center text-[12.5px] tabular-nums text-muted-foreground">
+        {{ currentPage }} / {{ pageCount }}
+      </span>
+      <Button
+        variant="outline"
+        size="icon"
+        class="h-7 w-7"
+        title="次のページ"
+        :disabled="currentPage >= pageCount"
+        @click="emit('nextPage')"
+      >
+        <ChevronRight class="h-4 w-4" />
+      </Button>
+      <div class="h-[26px] w-px bg-border" />
+    </div>
+
+    <!-- 1 ページ表示 / 全ページ連続表示の切替 -->
+    <Button
+      variant="ghost"
+      size="icon"
+      :title="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
+      :class="singlePageMode ? 'text-primary' : ''"
+      @click="emit('toggleSinglePage')"
+    >
+      <FileText class="h-[17px] w-[17px]" />
+    </Button>
     <div class="h-[26px] w-px bg-border" />
 
     <!-- ページ境界 guide のトグル -->

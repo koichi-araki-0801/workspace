@@ -36,17 +36,16 @@ BEGIN
       SELECT N'ファンド', [ファンドコード] FROM t
         WHERE (@委託会社コード IS NULL OR [委託会社コード] = @委託会社コード)
       UNION
+      -- 各候補は「自分より上位の選択」だけで絞る(自分自身・下位は含めない)。そうしないと
+      -- 版種を選んだ後にその版種だけへ候補が潰れ、別の版種(例: 全体版)へ戻せない。
       SELECT N'基準日', [基準日] FROM t
         WHERE (@委託会社コード IS NULL OR [委託会社コード] = @委託会社コード)
           AND (@ファンドコード IS NULL OR [ファンドコード] = @ファンドコード)
-          AND (@基準日 IS NULL OR [基準日] = @基準日)
-          AND (@版種   IS NULL OR [版種]   = @版種)
       UNION
       SELECT N'版種', [版種] FROM t
         WHERE (@委託会社コード IS NULL OR [委託会社コード] = @委託会社コード)
           AND (@ファンドコード IS NULL OR [ファンドコード] = @ファンドコード)
           AND (@基準日 IS NULL OR [基準日] = @基準日)
-          AND (@版種   IS NULL OR [版種]   = @版種)
     ) x
     ORDER BY [区分], [値];
     RETURN;

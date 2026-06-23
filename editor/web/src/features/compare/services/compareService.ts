@@ -37,12 +37,20 @@ const baselineVersion = (templateId: string): TemplateVersionMeta => ({
   summary: '現行版（配信時点・編集前）',
 });
 
-/** 候補テーブル用に、ヒットしたテンプレートと確定版数をまとめた型。 */
+/** 候補テーブル用に、ヒットしたテンプレートとその選択可能な版をまとめた型。 */
 export interface CompareCandidate {
   meta: TemplateMeta;
-  /** 選択可能な版数 = 確定版(snapshot)数 + 原本「現行版」1。現行版が常に 1 つあるため、
-   *  何も編集していないテンプレートでも 1 版以上になり比較対象として選べる。 */
+  /** 選択可能な版 = 確定版(snapshot, 新しい順) + 末尾に原本「現行版」1。現行版が常に
+   *  1 つあるため、何も編集していないテンプレートでも 1 版以上になり比較対象に選べる。 */
+  versions: TemplateVersionMeta[];
+  /** `versions.length`。版数列の表示と既存利用の互換のために保持する。 */
   versionCount: number;
+}
+
+/** テーブルを「版ごとの行」に平坦化したときの 1 行(テンプレート × 版)。 */
+export interface CompareVersionRow {
+  meta: TemplateMeta;
+  version: TemplateVersionMeta;
 }
 
 /** 左右並列の block diff 用に、1 版を HTML へレンダリングした結果。 */
@@ -68,28 +76,30 @@ export function createCompareService(
   templates: TemplateRepository,
   history: HistoryRepository,
 ): CompareService {
+  // snapshot 群(新しい順)の末尾に原本「現行版」を必ず 1 件足す。確定版が無い
+  // テンプレートでは、これが唯一の選択肢として現れる。listVersions/listCandidates 共用。
+  async function versionsWithBaseline(templateId: string): Promise<Result<TemplateVersionMeta[]>> {
+    const res = await history.listVersions(templateId);
+    if (isErr(res)) return res;
+    return ok([...res.value, baselineVersion(templateId)]);
+  }
+
   return {
     listTemplates: (query) => templates.listTemplates(query),
 
-    async listVersions(templateId) {
-      const res = await history.listVersions(templateId);
-      if (isErr(res)) return res;
-      // snapshot 群(新しい順)の末尾に原本「現行版」を必ず 1 件足す。確定版が無い
-      // テンプレートでは、これが唯一の選択肢として現れる。
-      return ok([...res.value, baselineVersion(templateId)]);
-    },
+    listVersions: (templateId) => versionsWithBaseline(templateId),
 
     async listCandidates(query) {
       const metasRes = await templates.listTemplates(query);
       if (isErr(metasRes)) return metasRes;
       const candidates: CompareCandidate[] = [];
       for (const meta of metasRes.value) {
-        const versRes = await history.listVersions(meta.id);
+        // 各候補に版リスト(現行版込み)を持たせ、テーブル側で版ごとの行へ平坦化できるようにする。
+        // 確定版が無くても原本「現行版」が 1 件あるので、未編集の配信テンプレート
+        // (例: 高金利ソブリン)も比較対象に出せる。status 絞り込みは廃止。
+        const versRes = await versionsWithBaseline(meta.id);
         if (isErr(versRes)) return versRes;
-        // 確定版が無くても原本を「現行版」として +1 する。これにより未編集の配信
-        // テンプレート(例: 高金利ソブリン)も比較対象に出せる。status 絞り込みは廃止
-        // (「配信済み = 確定版あり」前提を外し、原本そのものを比較対象にする)。
-        candidates.push({ meta, versionCount: versRes.value.length + 1 });
+        candidates.push({ meta, versions: versRes.value, versionCount: versRes.value.length });
       }
       return ok(candidates);
     },

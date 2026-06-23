@@ -43,6 +43,14 @@ export async function destroySession(sessionId: string): Promise<void> {
   await callSproc(SP.session, '失効', [p('セッションID', sessionId)]);
 }
 
+/**
+ * 生存中の全セッションを失効させる。サーバ起動フックで呼び、再起動をまたいだ旧
+ * セッション(DB は再起動耐性なので残る)を無効化して全員に再ログインを強制する。
+ */
+export async function invalidateAllSessions(): Promise<void> {
+  await callSproc(SP.session, '全失効', []);
+}
+
 /** リクエストの Cookie ヘッダを name→value マップへ解析する(cookie-parser 依存なし)。 */
 export function parseCookies(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};

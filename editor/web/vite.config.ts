@@ -4,8 +4,21 @@ import tailwindcss from '@tailwindcss/vite';
 import vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vitest/config';
 
+// dev 起動ごとに変わる epoch。`vite dev` の再起動で再評価され新値になる。`transformIndexHtml`
+// で index.html の `%APP_EPOCH%` を置換し、クライアントが再起動を検知して再ログインを強制する。
+// build 時は置換しない(`apply: 'serve'`)ので、本番は Express が配信時に注入する(app.ts)。
+const APP_EPOCH = String(Date.now());
+
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [
+    vue(),
+    tailwindcss(),
+    {
+      name: 'app-epoch',
+      apply: 'serve',
+      transformIndexHtml: (html: string) => html.replaceAll('%APP_EPOCH%', APP_EPOCH),
+    },
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -44,6 +57,7 @@ export default defineConfig({
         'src/lib/nunjucksRender.ts',
         'src/lib/useCascadingSelect.ts',
         'src/features/editor/geom.ts',
+        'src/features/editor/pageView.ts',
         'src/features/editor/useSnapshotHistory.ts',
         'src/features/editor/usePartEditHistory.ts',
         'src/features/editor/useAutosave.ts',

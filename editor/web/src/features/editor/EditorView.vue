@@ -64,19 +64,29 @@ async function goPreview() {
   router.push({ name: 'preview', params: { id: props.id } });
 }
 
-// canvas コンテナのサイズ変化時も選択 overlay(frame/handle/toolbar)の位置を保つ。
-// `g.selectedRect` は本来 canvas の scroll/content イベントでしか再計算されないため、
-// window(やペイン)の resize ではセンタリングされた A4 iframe が動く一方 overlay が
-// 取り残される。`requestAnimationFrame` で GrapesJS の再レイアウト後まで計測を遅らせる
-// (`setZoom` と同じ手法)。
+// ユーザーが zoom +/- で明示的に倍率を決めたか。立っている間は resize で勝手に再フィット
+// しない(下の observer を見よ)。初期 `load` 時の自動フィットでは立てない。
+const userZoomed = ref(false);
+
+// canvas コンテナのサイズ変化時、A4 を現ビューポートへ再フィットし直し、選択 overlay
+// (frame/handle/toolbar)の位置も保つ。fitToView は `load` 時の 1 回きりのため、これが無いと
+// window/ペイン resize やブラウザズームで canvasEl の px が変わっても倍率が据え置きになり、
+// `.gjs-frame-wrapper{margin:24px auto}` の上揃えと相まってページが上部に小さく残り崩れる。
+// 手動ズーム中(`userZoomed`)は倍率を尊重し overlay 追従のみ行う。`requestAnimationFrame` で
+// GrapesJS の再レイアウト後まで計測を遅らせる(`setZoom` と同じ手法)。fitToView は内部で
+// setZoom→rAF で refreshRect/refreshPageGuides も走らせる。
 let canvasResizeObserver: ResizeObserver | null = null;
 onMounted(() => {
   const el = canvasEl.value;
   if (!el) return;
   canvasResizeObserver = new ResizeObserver(() => {
     requestAnimationFrame(() => {
-      g.refreshRect();
-      g.refreshPageGuides();
+      if (userZoomed.value) {
+        g.refreshRect();
+        g.refreshPageGuides();
+      } else {
+        g.fitToView();
+      }
     });
   });
   canvasResizeObserver.observe(el);
@@ -87,9 +97,11 @@ onBeforeUnmount(() => {
 });
 
 function zoomIn() {
+  userZoomed.value = true;
   g.setZoom(g.zoom.value + ZOOM_STEP);
 }
 function zoomOut() {
+  userZoomed.value = true;
   g.setZoom(g.zoom.value - ZOOM_STEP);
 }
 
@@ -123,11 +135,17 @@ const statusText = computed(() => {
       :can-undo="canUndo"
       :can-redo="canRedo"
       :show-page-guides="showPageGuides"
+      :current-page="g.currentPageIndex.value + 1"
+      :page-count="g.pageCount.value"
+      :single-page-mode="g.singlePageMode.value"
       @undo="undo"
       @redo="redo"
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
       @toggle-page-guides="showPageGuides = !showPageGuides"
+      @prev-page="g.prevPage()"
+      @next-page="g.nextPage()"
+      @toggle-single-page="g.setSinglePageMode(!g.singlePageMode.value)"
       @save="autosave.flush()"
       @preview="goPreview"
     />
@@ -150,8 +168,10 @@ const statusText = computed(() => {
         <!-- 選択ブロック上の幅/余白ドラッグハンドル(layout 編集は右ペインの
              `Inspector.vue` にもある。ここに浮動ツールバーは置かない) -->
         <div class="pointer-events-none absolute inset-0 z-20 overflow-hidden">
-          <!-- ページ境界 guide: 実際の page break(`.page` / `page-break-*`)の位置のみ -->
-          <template v-if="showPageGuides">
+          <!-- ページ境界 guide: 実際の page break(`.page` / `page-break-*`)の位置のみ。
+               1 ページ表示中は現在ページの末尾しか視野に無く、ページ番号は上部バーの
+               ページャに集約されるため guide 線は出さない(全ページ表示時のみ)。 -->
+          <template v-if="showPageGuides && !g.singlePageMode.value">
             <div
               v-for="gd in g.pageGuides.value"
               :key="gd.page"

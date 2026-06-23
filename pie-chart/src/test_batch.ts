@@ -10,13 +10,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveInputData, samples as jsSamples } from './src/data.js';
-import { renderPdfStylePieToSvg } from './src/svg_export/index.js';
-import { escapeXml } from './src/svg_export/rendering.js';
+import { resolveInputData, samples as jsSamples } from './data.js';
+import { renderPdfStylePieToSvg } from './svg_export/index.js';
+import { escapeXml } from './svg_export/rendering.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-process.chdir(__dirname);
-const outRoot = path.resolve(__dirname, 'out');
+// 本ファイルは src/ にあるため、1 つ上(pie-chart ルート)を基準に out/ を解決する。
+const projectRoot = path.resolve(__dirname, '..');
+process.chdir(projectRoot);
+const outRoot = path.resolve(projectRoot, 'out');
 
 interface RenderResultStatus {
   status: 'ok' | 'error';

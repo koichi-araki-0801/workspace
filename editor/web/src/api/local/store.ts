@@ -16,6 +16,7 @@ import {
   type User,
   unexpected,
 } from '@editor/shared';
+import { currentAppEpoch } from '@/lib/appEpoch';
 import fundMasterJson from '../fixtures/funds.json';
 
 // ── 1. bundled fixtures — 同梱フィクスチャの読込 ──
@@ -139,6 +140,7 @@ export const K = {
   snapshots: 'editor:snapshots',
   instances: 'editor:instances',
   session: 'editor:session',
+  sessionEpoch: 'editor:session:epoch',
   userOverride: 'editor:users',
   passwords: 'editor:pw',
 } as const;
@@ -247,6 +249,13 @@ export function listUsersSync(): User[] {
 export function currentUser(): User | null {
   const id = read<string | null>(K.session, null);
   if (!id) return null;
+  // 配信側の起動 epoch とログイン時の epoch が食い違う = サーバ/dev 再起動。旧セッション
+  // を破棄して未ログイン扱いにし、再ログインを強制する(REST の起動時失効と等価の挙動)。
+  if (read<string | null>(K.sessionEpoch, null) !== currentAppEpoch()) {
+    localStorage.removeItem(K.session);
+    localStorage.removeItem(K.sessionEpoch);
+    return null;
+  }
   return listUsersSync().find((u) => u.id === id) ?? null;
 }
 

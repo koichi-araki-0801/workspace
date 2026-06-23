@@ -34,7 +34,10 @@ const SKIP_DIRS = new Set([
 
 // `.ps1`↔`.bat` 併設の例外: dot-source 専用ライブラリは単体起動しないため `.bat` 不要。
 // 正典は `offline/lib/content-key.ts` 相当の運用 (`CLAUDE.md` の PowerShell 節を参照)。
-const BAT_PAIRING_EXCEPTIONS = new Set(['offline/lib/content-key.ps1']);
+const BAT_PAIRING_EXCEPTIONS = new Set([
+  'offline/lib/content-key.ps1',
+  'scripts/lib/build-python-venv.ps1',
+]);
 
 // 装飾ボックスヘッダを検査する `.ts/.js` のソート対象ルート (生成物は含めない)。
 const BOX_HEADER_ROOTS = [
@@ -43,7 +46,7 @@ const BOX_HEADER_ROOTS = [
   'editor/web/src',
   'editor/e2e',
   'pie-chart/src',
-  'graph-editor/js',
+  'graph-editor/resources/web/js',
   'pdf-to-svg/resources/web',
   'scripts',
 ];

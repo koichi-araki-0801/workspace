@@ -25,6 +25,9 @@ const props = withDefaults(
     hideSearch?: boolean;
     /** 枠線つき card の装飾を外す (例 step card 内に埋め込むとき)。 */
     bare?: boolean;
+    /** 検索/クリアボタンをフィールド行の下 (2 行目) へ折り返す。`field-trailing`
+     *  スロットを版種の右に置く比較画面で、横幅を空けるために使う。 */
+    stackActions?: boolean;
   }>(),
   {
     fields: () => ['companyCode', 'fundCode', 'baseDate', 'editionType'],
@@ -32,6 +35,7 @@ const props = withDefaults(
     requiredFields: () => [],
     hideSearch: false,
     bare: false,
+    stackActions: false,
   },
 );
 
@@ -106,7 +110,10 @@ function fieldDisabled(f: Field): boolean {
           @update:model-value="onLevelChange(f)"
         />
       </div>
-      <div class="flex items-center gap-2">
+      <!-- 版種の右に追加要素を差し込むスロット (比較画面の「現在の比較する版」表示)。 -->
+      <slot name="field-trailing" />
+      <!-- `stackActions` 時は `basis-full` でボタン群だけ次行へ折り返す。 -->
+      <div class="flex items-center gap-2" :class="props.stackActions ? 'basis-full' : ''">
         <Loader2 v-if="loading" class="h-4 w-4 animate-spin text-muted-foreground" />
         <Button v-if="!props.hideSearch" @click="emit('search', { ...query })">
           <Search class="h-4 w-4" /> {{ props.searchLabel }}

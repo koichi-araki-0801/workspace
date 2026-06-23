@@ -13,6 +13,6 @@ echo PdfToSvg を起動します...
 if errorlevel 1 (
     echo.
     echo [エラー] 起動に失敗しました。
-    echo 依存が未導入の場合は build.bat を一度実行してください。
+    echo 依存が未導入の場合は scripts\build.bat を一度実行してください。
     pause
 )

@@ -12,6 +12,7 @@ import { logError } from '@/lib/appError';
 import 'grapesjs/dist/css/grapes.min.css';
 import { type GrapesCallbacks, type SelectedRect, wireGrapesEvents } from './grapesEvents';
 import { jinjaChipCanvasCss, registerJinjaComponents } from './jinjaComponents';
+import { clampPageIndex, enumeratePageEls, PV_ATTR, pageViewCss } from './pageView';
 
 /**
  * A4 sheet 上に描く 1 本のページ境界 guide(canvas 相対 / zoom 考慮の座標、
@@ -38,13 +39,28 @@ export const ZOOM_MIN = 0.4;
 export const ZOOM_MAX = 1.4;
 export const ZOOM_STEP = 0.1;
 
+// `fitToView` で利用可能サイズから差し引く余白(px)。これを引いた領域へ A4 ページ全体が
+// 収まる倍率を求める。`index.css` の `.gjs-frame-wrapper{ margin:auto; top/bottom:0 }` で
+// ページは canvas 中央へ上下対称に寄せるため、この余白が上下に半分(28px)ずつ分かれて見える。
+const FIT_MARGIN = 56;
+
 /**
- * GrapesJS canvas の body を A4 用紙の見た目にする。iframe 自体は index.css の
- * `.gjs-frame*` ルールで A4 幅へ制約しているため、ここ body 側はページの
- * padding/shadow だけで足りる(自動センタリングの margin は不要)。
+ * GrapesJS canvas の body を A4 用紙の見た目にする。iframe の幅は index.css の
+ * `.gjs-frame*` ルールで A4 幅へ制約し、高さは `init` の device `height:'auto'` により
+ * iframe がこの body 実寸(`min-height:297mm`、複数ページなら全長)へ追従する(iframe の
+ * 内部スクロールは起きない)。よってここ body 側はページの padding/shadow だけで足りる
+ * (自動センタリングの margin は不要)。
+ *
+ * `[data-gjs-type="wrapper"]` の `min-height:0` は必須: GrapesJS は frame 描画時点で
+ * `hasAutoHeight=false` と判断し wrapper へ `min-height:100vh` を注入するが、device
+ * `height:'auto'` はその描画後に効く。すると「iframe を body 実寸へ同期する auto-height」と
+ * 「100vh = iframe viewport 高」が噛み合い、iframe↔100vh が互いを押し上げる膨張ループになって
+ * body が viewport の数十倍(数万 px)に育つ(`fitToView` がそれを測り過剰縮小する)。常に A4 実
+ * コンテンツがある本エディタでは 100vh は不要なので 0 で打ち消し、wrapper を実コンテンツ高に保つ。
  */
 const a4CanvasCss = `
   html { background: transparent; }
+  [data-gjs-type="wrapper"] { min-height: 0 !important; }
   body {
     background: #fff;
     width: 210mm;
@@ -87,8 +103,25 @@ export function useGrapes() {
    * ごとに `refreshPageGuides` が読み直す。
    */
   let breakEls: { el: HTMLElement; edge: 'before' | 'after' }[] = [];
+
+  // ── ページ送り(1 ページだけ表示)の状態。判定は `pageView.ts` の純粋関数に委譲する ──
+  /** 現在 canvas に在るページ要素(`body > .page`、無ければ `[body]`)の cache。 */
+  const pageEls = shallowRef<HTMLElement[]>([]);
+  /** ページ総数(= `pageEls.length`)。 */
+  const pageCount = ref(0);
+  /** 表示中ページの 0 起点 index。 */
+  const currentPageIndex = ref(0);
+  /** 1 ページだけ表示するか(既定 ON)。OFF で従来の全ページ連続スクロールへ戻る。 */
+  const singlePageMode = ref(true);
+  /**
+   * 他ページを隠すために canvas head へ注入する 2 枚目の `<style>`(load 時の A4/jinja
+   * スタイルとは別)。ページ送りのたびに textContent だけ書き換える。getCss には出ない。
+   */
+  let pageViewStyleEl: HTMLStyleElement | null = null;
   /** editor → caller の通知。下の `onX` setter 群で差し込む。 */
   const callbacks: GrapesCallbacks = {};
+  /** zoom フィット計測の基準になる canvas コンテナ(= `init` の `c.canvas`)。 */
+  let containerEl: HTMLElement | undefined;
 
   function refreshMove(): void {
     const comp = editor.value?.getSelected();
@@ -161,14 +194,19 @@ export function useGrapes() {
       return;
     }
     try {
-      const bodyPos = ed.Canvas.getElementPos(body);
+      // `noScroll: true`: 既定の `getElementPos` は内部 `offset()` で iframe document の
+      // scroll 量を足し戻し、戻り値が content 基準(scroll 非依存)になる。overlay guide は
+      // 非スクロールの `<main>` 上に置くため、iframe スクロール時に追従させるには viewport
+      // 相対が要る。GrapesJS 自身も tool 配置で同じ opts を使う(grapesjs canvas の
+      // `CommandSelectComponent.getElementPos`)。`refreshRect` も同様。
+      const bodyPos = ed.Canvas.getElementPos(body, { noScroll: true });
       const top0 = bodyPos.top;
       const bottom = bodyPos.top + bodyPos.height;
 
       // hard break(論理ページ末尾)を昇順に並べ、端ぎりぎりのものは捨てる。
       const hard = breakEls
         .map(({ el, edge }) => {
-          const p = ed.Canvas.getElementPos(el);
+          const p = ed.Canvas.getElementPos(el, { noScroll: true });
           return edge === 'before' ? p.top : p.top + p.height;
         })
         .filter((t) => t > top0 + 1 && t < bottom - 1)
@@ -188,6 +226,92 @@ export function useGrapes() {
     }
   }
 
+  /** page-view style に現在の可視制御 CSS を流し込む(他ページを `display:none` に)。 */
+  function applyPageVisibility(): void {
+    if (!pageViewStyleEl) return;
+    pageViewStyleEl.textContent = pageViewCss(
+      currentPageIndex.value,
+      pageCount.value,
+      singlePageMode.value,
+    );
+  }
+
+  /**
+   * canvas のページ要素を列挙し直し、`PV_ATTR` マーカーを生 DOM へ付け直す。content 変更で
+   * `.page` が増減しても追従できるよう、`recomputeBreakEls` と同じく content/load/変更時に呼ぶ。
+   * マーカーは `el.setAttribute`(生 DOM 直書き)で付け、Component モデルには載せない —
+   * `editor.getHtml()` はモデルから再生成するため保存内容(getHtml/getCss)を汚さない。
+   *
+   * 列挙の起点は `Canvas.getBody()`(= iframe `<body>`)ではなく GrapesJS の wrapper 要素。
+   * GrapesJS は body 直下に `[data-gjs-type=wrapper]` を 1 段挟み、ページ要素(`.page`)は
+   * その配下に来る。body.children では wrapper しか拾えず `enumeratePageEls` が `.page` を
+   * 0 件と判定してしまうため、content root を wrapper にする(未描画の早期タイミングだけ
+   * body へフォールバック。`load` の `requestAnimationFrame` / `load` イベントで確定する)。
+   */
+  function recomputePages(): void {
+    const root = editor.value?.getWrapper()?.getEl() ?? editor.value?.Canvas.getBody();
+    if (!root) {
+      pageEls.value = [];
+      pageCount.value = 0;
+      return;
+    }
+    // 旧マーカーを一掃してから、新しい列挙結果へ index を振り直す。
+    for (const el of Array.from(root.querySelectorAll<HTMLElement>(`[${PV_ATTR}]`))) {
+      el.removeAttribute(PV_ATTR);
+    }
+    const els = enumeratePageEls(root);
+    els.forEach((el, i) => {
+      el.setAttribute(PV_ATTR, String(i));
+    });
+    pageEls.value = els;
+    pageCount.value = els.length;
+    currentPageIndex.value = clampPageIndex(currentPageIndex.value, pageCount.value);
+    applyPageVisibility();
+  }
+
+  /** 選択要素が現在ページ外(隠れたページ配下)なら選択を解除する。 */
+  function deselectIfHidden(): void {
+    const el = editor.value?.getSelected()?.getEl?.();
+    if (!el) return;
+    const owner = el.closest?.(`[${PV_ATTR}]`) as HTMLElement | null;
+    if (owner && owner.getAttribute(PV_ATTR) !== String(currentPageIndex.value)) {
+      editor.value?.select(undefined);
+    }
+  }
+
+  /** 指定ページへ送る(clamp 込み)。可視制御 → 選択整理 → 先頭へ → 幾何再計算。 */
+  function goToPage(i: number): void {
+    currentPageIndex.value = clampPageIndex(i, pageCount.value);
+    applyPageVisibility();
+    deselectIfHidden();
+    // 1 ページ表示なので scrollTop=0 で現在ページ先頭に揃う。
+    editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
+    // 再レイアウト後に overlay/guide を測り直す(`setZoom` と同手法)。
+    requestAnimationFrame(() => {
+      refreshRect();
+      refreshPageGuides();
+    });
+  }
+
+  function nextPage(): void {
+    goToPage(currentPageIndex.value + 1);
+  }
+  function prevPage(): void {
+    goToPage(currentPageIndex.value - 1);
+  }
+
+  /** 1 ページ表示の ON/OFF を切り替える(OFF で全ページ連続スクロールへ戻る)。 */
+  function setSinglePageMode(on: boolean): void {
+    singlePageMode.value = on;
+    applyPageVisibility();
+  }
+
+  /** canvas load 時に呼ばれ、可視制御用の 2 枚目 style を生成・保持する。 */
+  function onCanvasLoad(doc: Document): void {
+    pageViewStyleEl = doc.createElement('style');
+    doc.head.appendChild(pageViewStyleEl);
+  }
+
   /** 選択要素の画面上 rect を再計算する(浮動ツールバー / ハンドル用)。 */
   function refreshRect(): void {
     const ed = editor.value;
@@ -198,7 +322,8 @@ export function useGrapes() {
       return;
     }
     try {
-      const p = ed.Canvas.getElementPos(el);
+      // `noScroll: true`: overlay 相対の viewport 座標へ揃える(`refreshPageGuides` 参照)。
+      const p = ed.Canvas.getElementPos(el, { noScroll: true });
       selectedRect.value = { left: p.left, top: p.top, width: p.width, height: p.height };
     } catch (e) {
       // 幾何の再計算に失敗(canvas の一時的な状態) — 観測のため log は残すが、
@@ -209,6 +334,7 @@ export function useGrapes() {
   }
 
   function init(c: GrapesContainers): Editor {
+    containerEl = c.canvas;
     const ed = grapesjs.init({
       container: c.canvas,
       height: '100%',
@@ -216,6 +342,18 @@ export function useGrapes() {
       fromElement: false,
       storageManager: false,
       panels: { defaults: [] },
+      // desktop device に `height:'auto'` を与え GrapesJS の auto-height 経路を起こす。
+      // これが無いと frame.height は null のまま base CSS `.gjs-frame{height:100%}` で
+      // iframe 高が canvas 高(実機 ~800px)に張り付き、A4 body(`min-height:297mm` ~1123px)が
+      // それを超えて iframe が内部スクロールしてしまう(zoom は外側 transform なので解消しない)。
+      // `auto` 指定時は `Frame.hasAutoHeight()` 経由で iframe body を ResizeObserver 監視し
+      // `iframe.style.height = body.scrollHeight` へ同期 + iframe 内へ `body{overflow:hidden}` を
+      // 注入するため、iframe がページ実寸(複数ページなら全長)を内包し内部スクロールが消える。
+      // `width:''` は desktop 既定どおり(iframe 幅は index.css `.gjs-frame-wrapper` で A4 幅に制約)。
+      deviceManager: {
+        default: 'desktop',
+        devices: [{ id: 'desktop', name: 'Desktop', width: '', height: 'auto' }],
+      },
       // Style/Trait/Selector manager は意図的に未マウント(appendTo を渡さない)。
       // 右ペインが代わりに read-only な part property を表示する。
       selectorManager: { componentFirst: true },
@@ -238,6 +376,9 @@ export function useGrapes() {
       refreshMove,
       recomputeBreakEls,
       refreshPageGuides,
+      recomputePages,
+      fitToView,
+      onCanvasLoad,
       toInfo,
       isLocked: () => locked,
       canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}`,
@@ -256,6 +397,24 @@ export function useGrapes() {
       refreshRect();
       refreshPageGuides();
     });
+  }
+
+  /**
+   * canvas を A4 ページ全体が縦横とも収まる倍率へ合わせる(起動時の初期ズーム用)。
+   * ページ実寸は body の `offsetHeight/offsetWidth`(CSS px、transform 非依存なので
+   * `setZoom` の scale に影響されない)で測り、利用可能サイズは canvas コンテナの
+   * client サイズから `FIT_MARGIN` を引いた値とする。両軸の min を取り `setZoom` に委譲
+   * (clamp `[ZOOM_MIN, ZOOM_MAX]` / 丸め / overlay 再計算はそちら任せ)。以後は手動 +/- で調整。
+   */
+  function fitToView(): void {
+    const body = editor.value?.Canvas.getBody();
+    if (!body || !containerEl) return;
+    const availH = containerEl.clientHeight - FIT_MARGIN;
+    const availW = containerEl.clientWidth - FIT_MARGIN;
+    const pageH = body.offsetHeight;
+    const pageW = body.offsetWidth;
+    if (pageH <= 0 || pageW <= 0 || availH <= 0 || availW <= 0) return;
+    setZoom(Math.min(availH / pageH, availW / pageW));
   }
 
   /**
@@ -365,6 +524,15 @@ export function useGrapes() {
     if (!ed) return;
     ed.setComponents(bodyEditableHtml);
     ed.setStyle(css);
+    // setComponents/setStyle 直後は iframe DOM が未描画で、`component:add` の `fireChange`
+    // から走る `recomputePages` が `.page` を拾えず `[body]` フォールバック(`pageCount=1`)に
+    // 落ちる。その結果ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に
+    // 測り直してページ数 / 境界 guide を確定させる(`goToPage` と同じ `requestAnimationFrame`)。
+    requestAnimationFrame(() => {
+      recomputeBreakEls();
+      refreshPageGuides();
+      recomputePages();
+    });
   }
 
   function getBodyHtml(): string {
@@ -410,6 +578,9 @@ export function useGrapes() {
     canMoveDown,
     canDragSelected,
     pageGuides,
+    pageCount,
+    currentPageIndex,
+    singlePageMode,
     zoom,
     revision,
     init,
@@ -423,7 +594,12 @@ export function useGrapes() {
     onReorderStart,
     onReorderEnd,
     setZoom,
+    fitToView,
     setEditable,
+    goToPage,
+    nextPage,
+    prevPage,
+    setSinglePageMode,
     refreshRect,
     refreshPageGuides,
     startMove,

@@ -3,7 +3,7 @@ node_modules/
 # desktop app (PyInstaller) build artifacts
 build/
 dist/
-# isolated build venv (created by build.bat to keep global packages out of the exe)
+# isolated build venv (created by scripts/build.bat to keep global packages out of the exe)
 .venv-build/
 __pycache__/
 *.spec

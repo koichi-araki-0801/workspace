@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 // `ui.html` と共有する純粋関数 (UMD/CJS)。default import で `module.exports` を取り出す。
-import geom from "../lib/leader_geom.cjs";
+import geom from "../resources/web/lib/leader_geom.cjs";
 
 const { clampPointToBox, parsePath, buildPath, parseTranslate, normColor } = geom as {
   clampPointToBox: (p: { x: number; y: number }, box: { left: number; top: number; right: number; bottom: number }) => { x: number; y: number };

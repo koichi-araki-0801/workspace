@@ -49,7 +49,7 @@
 - **重量物**（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/`・`python-wheelhouse/`、約 1.2GB） …
   **GitHub Releases**（同タグ、`offline-deps-bundle.tar.gz`）。容量が大きく毎回 git 履歴へ積めないため
   git 管理外とし、内容（`pnpm-lock.yaml`／`packageManager`／各 `requirements.txt`）変更時のみ更新する。
-  `python-wheelhouse/` は pdf-to-svg / graph-editor の exe ビルド依存 wheel で、各 `build.bat` が
+  `python-wheelhouse/` は pdf-to-svg / graph-editor の exe ビルド依存 wheel で、各 `scripts\build.bat` が
   `--no-index` でオフライン install する（無ければ通常の pip install へフォールバック）。
 
 ### 1. 調達（オンライン機・Windows x64・Node 24）

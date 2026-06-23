@@ -42,6 +42,12 @@ export interface GrapesEventDeps {
   recomputeBreakEls: () => void;
   /** ページ境界 guide の位置を読み直す(scroll/zoom/content 変更時)。 */
   refreshPageGuides: () => void;
+  /** ページ要素(`body > .page`)を列挙し直し、1 ページ表示の可視制御を更新する。 */
+  recomputePages: () => void;
+  /** canvas を A4 ページ全体が収まる倍率へ合わせる(起動時の初期ズーム)。 */
+  fitToView: () => void;
+  /** canvas load 時に呼ぶ(useGrapes が可視制御用 style を canvas head へ注入する)。 */
+  onCanvasLoad: (doc: Document) => void;
   toInfo: (comp: Component) => SelectedInfo;
   /** canvas の read-only フラグ getter(選択は可だが RTE をブロック)。 */
   isLocked: () => boolean;
@@ -60,11 +66,11 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     selected,
     selectedRect,
     revision,
-    zoom,
     refreshRect,
     refreshMove,
     recomputeBreakEls,
     refreshPageGuides,
+    recomputePages,
     toInfo,
     callbacks,
   } = deps;
@@ -78,16 +84,17 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
       const styleEl = docu.createElement('style');
       styleEl.textContent = deps.canvasCss;
       docu.head.appendChild(styleEl);
+      // 1 ページ表示の可視制御用に 2 枚目の style を useGrapes 側で確保する。
+      deps.onCanvasLoad(docu);
     }
-    // 100% で開く(固定。以後は手動の +/- でそこから調整する)
-    try {
-      ed.Canvas.setZoom(zoom.value * 100);
-    } catch {
-      /* zoom API が無い環境 — 無視する */
-    }
-    // ページ境界 guide: styles/components が出揃ったこの時点で一度走査する
+    // 起動時はページ全体がキャンバスに収まる倍率へ自動フィットする(以後は手動 +/- で調整)。
+    // 直上で canvasCss(A4 `min-height:297mm`)を head へ注入済みのため、次フレームまで遅らせて
+    // body 実寸が確定してから測る。
+    requestAnimationFrame(() => deps.fitToView());
+    // ページ境界 guide / ページ列挙: styles/components が出揃ったこの時点で一度走査する
     recomputeBreakEls();
     refreshPageGuides();
+    recomputePages();
   });
 
   ed.on('component:selected', () => {
@@ -101,12 +108,13 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     selectedRect.value = null;
     refreshMove();
   });
-  // scroll: 位置のみ再計算(cache 済みの break 要素集合を再利用 — 軽い)
+  // scroll: 位置のみ再計算(cache 済みの break 要素集合を再利用 — 軽い)。canvas の scroll は
+  // iframe 内 document で起き、GrapesJS は `frame:scroll` を emit する(`canvas:scroll` という
+  // event は存在しない)。`canvas:update` は zoom/サイズ変更時の再配置用に併せて拾う。
   const onScroll = () => {
     refreshRect();
     refreshPageGuides();
   };
-  ed.on('canvas:scroll', onScroll);
   ed.on('canvas:update frame:scroll', onScroll);
 
   const fireChange = () => {
@@ -116,6 +124,8 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     // content/style が page break を増減した可能性 — 再走査してから再配置する
     recomputeBreakEls();
     refreshPageGuides();
+    // ページの増減(.page 追加/削除)にも追従して可視制御を取り直す
+    recomputePages();
     callbacks.change?.();
   };
   // inline text 編集(RTE): 開始(undo snapshot 用)と終了(実際に内容が変わったか)を
@@ -123,11 +133,16 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   ed.on('rte:enable', (view: { el?: HTMLElement }) => {
     if (deps.isLocked()) {
       // 二重の安全策: locked 時は `Component` を editable:false にしてあるので RTE は
-      // 有効化されないはずだが、万一発火した場合は防御的に抜ける。
+      // 有効化されないはずだが、万一発火した場合は編集中 `Component` の view の
+      // `disableEditing()` で確実に止める(`core:component-edit` という command は GrapesJS に
+      // 無く、旧 `stopCommand` は no-op だった)。
       try {
-        ed.stopCommand('core:component-edit');
+        const editingView = ed.getEditing()?.getView() as
+          | { disableEditing?: () => void }
+          | undefined;
+        editingView?.disableEditing?.();
       } catch {
-        /* command が無い環境 — 無視する */
+        /* editing API が無い環境 — 無視する */
       }
       return;
     }
@@ -148,7 +163,9 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   ed.on('component:update', fireChange);
   ed.on('component:add', fireChange);
   ed.on('component:remove', fireChange);
-  ed.on('style:update', fireChange);
+  // inline style 変更(`Component` 由来)。GrapesJS の正規 event は `component:styleUpdate`
+  // (旧 `style:update` は存在せず dead listener だった)。
+  ed.on('component:styleUpdate', fireChange);
 
   // native な drag-to-reorder: 開始時に undo 用 snapshot、終了時に history を記録する
   // (`Component` の兄弟内位置が実際に変わったときだけ)。version 依存の payload を

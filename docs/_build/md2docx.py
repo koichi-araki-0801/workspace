@@ -25,7 +25,12 @@
 
 フロントマター（先頭 `---` ブロック・`key: value` のみの簡易 YAML）でメタを持つ:
   title / subtitle / out（出力 .docx 名）/ version / style（guide|spec）/ kicker（アイブロウ語）/
-  images（画像基準ディレクトリの相対パス）
+  images（画像基準ディレクトリの相対パス）/
+  chapter_break（true で h1 章頭を強制改ページ。長文の設計書向けの任意オプション。先頭 h1 は除外）
+
+ページ送り制御（章のページまたぎ対策）は Word の段落プロパティで行う:
+  見出し=`keepNext`+`keepLines`（孤立見出し防止）/ 全段落=`widowControl`（寡婦・孤児行抑制）/
+  短いコード・callout=`keepLines`（ページ割れ防止。長大なら逆効果なので行数しきい値で打ち切り）。
 """
 from __future__ import annotations
 
@@ -68,6 +73,14 @@ CALLOUT_DEFAULT = "INFO"   # タグ無し `>` 引用は INFO 扱い
 # レンダリング中の文書スタイル。`render()` が原稿ごとに設定し、各ヘルパが分岐参照する。
 #   "guide" = 案3 カード型（操作手順書・配布運用手順書）/ "spec" = 案2 テクニカル型（設計書）
 _STYLE = "guide"
+
+# 章のページまたぎ制御の状態（`render()` が原稿ごとにリセットし、`h()` が参照）。
+_CHAPTER_BREAK = False   # front-matter `chapter_break` で h1 章頭の強制改ページを有効化
+_H1_SEEN = False         # 先頭 h1 はタイトル直後なので改ページ対象から除外するためのフラグ
+
+# コード/callout のページ割れ防止（`keepLines`）を適用する行数の上限。これを超える長大ブロックは
+# 1 ページに収まらず `keepLines` が逆効果（手前を丸ごと次ページへ送る）になるため割れを許容する。
+_KEEP_TOGETHER_MAXLINES = 25
 
 
 # ── docx ヘルパ（`gen_docs.py` から移植）──
@@ -166,6 +179,9 @@ def new_doc() -> Document:
     normal.font.name = JP
     normal.font.size = Pt(10.5)
     normal.element.rPr.rFonts.set(qn("w:eastAsia"), JP)
+    # 案2: 段落の寡婦・孤児行制御。最終 1 行だけが次ページ頭／先頭 1 行だけが前ページ末に残る
+    # のを抑える。Normal に一括設定し全段落へ波及させる。
+    normal.paragraph_format.widow_control = True
     for sec in doc.sections:
         sec.top_margin = Cm(2.0)
         sec.bottom_margin = Cm(2.0)
@@ -229,9 +245,19 @@ _HNUM = re.compile(r"^(\d+(?:\.\d+)*\.?)\s+(.*)$")
 
 def h(doc, text, level=1):
     """見出し。案3=h1 に左アクセント縦バー、案2=等幅アクセント番号＋h1 下罫線。番号は原文ママ温存。"""
+    global _H1_SEEN
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(10 if level == 1 else 7)
     p.paragraph_format.space_after = Pt(3)
+    # 案1: 見出しは直後の本文と同ページに保ち（孤立見出し防止）、見出し自身も行分割しない。
+    p.paragraph_format.keep_with_next = True
+    p.paragraph_format.keep_together = True
+    # 案4: 章(h1)頭の強制改ページ（front-matter `chapter_break` 有効時のみ）。先頭 h1 は
+    # タイトル直後なので除外し、2 つ目以降の h1 だけを次ページ送りにする。
+    if level == 1 and _CHAPTER_BREAK:
+        if _H1_SEEN:
+            p.paragraph_format.page_break_before = True
+        _H1_SEEN = True
     if _STYLE == "spec":
         size = {1: 15, 2: 13, 3: 12}.get(level, 11)
         m = _HNUM.match(text)
@@ -351,6 +377,9 @@ def code(doc, text, size=8.8, lang=None):
         size = 9.0
     else:
         _shade(p._p, "F4F6F8")
+    # 案3: 短いコードはページ割れ防止。長大なら 1 ページに収まらず逆効果なので割れを許容する。
+    if text.count("\n") + 1 <= _KEEP_TOGETHER_MAXLINES:
+        p.paragraph_format.keep_together = True
     r = p.add_run(text)
     _set_run_font(r, name=MONO, size=size)
 
@@ -442,6 +471,8 @@ def callout(doc, text, tag=None):
         p.paragraph_format.space_before = Pt(4)
         p.paragraph_format.space_after = Pt(6)
         p.paragraph_format.left_indent = Cm(0.2)
+        # 案3: 補足ボックスは短いのが通例なのでページ割れを防ぐ（左アクセント罫線が分断されない）。
+        p.paragraph_format.keep_together = True
         _para_left_border(p, sz=16, color=FILL_ACCENT, space=8)
         lr = p.add_run(f"{label} — ")
         _set_run_font(lr, name=MONO, size=9.5, bold=True, color=ACCENT)
@@ -512,12 +543,16 @@ def render(md_path, out_path, img_dir, warnings=None):
         img_dir = (md_path.parent / images_override).resolve()
 
     # 文書スタイル決定（front-matter `style` 優先 / 未指定はファイル名・title から推定）。
-    global _STYLE
+    global _STYLE, _CHAPTER_BREAK, _H1_SEEN
     style = (meta.get("style") or "").strip().lower()
     if style not in ("guide", "spec"):
         hay = (meta.get("out", "") + meta.get("title", "") + md_path.stem)
         style = "spec" if "設計" in hay else "guide"
     _STYLE = style
+
+    # 案4: 章頭改ページの可否を front-matter から取得し、先頭 h1 判定フラグを原稿ごとにリセット。
+    _CHAPTER_BREAK = str(meta.get("chapter_break", "")).strip().lower() in ("true", "1", "yes", "on")
+    _H1_SEEN = False
 
     doc = new_doc()
     if meta.get("title"):

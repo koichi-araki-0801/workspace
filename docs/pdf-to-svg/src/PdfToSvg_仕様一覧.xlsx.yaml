@@ -60,9 +60,15 @@ sheets:
       - [7, "RPC", "pageSvg", "ページSVG取得（annotate 付き）"]
       - [8, "RPC", "planPage", "置換予定の算出"]
       - [9, "RPC", "removedList", "削除要素一覧"]
-      - [10, "RPC", "dictList / dictAdd", "辞書参照 / 追加"]
-      - [11, "RPC", "setOnlyHeaders", "ヘッダのみ適用フラグ更新"]
-      - [12, "RPC", "exportSvg", "範囲指定で SVG 書き出し"]
+      - [10, "RPC", "dictList / dictAdd / dictDelete", "辞書 参照 / 追加 / 削除"]
+      - [11, "RPC", "reapplyDict / reapplyDictPage", "辞書の全ファイル / 単一ページ再適用"]
+      - [12, "RPC", "dictExport / dictImport", "辞書JSONのファイル書き出し / 読み込み"]
+      - [13, "RPC", "dictJson / dictImportJson", "辞書JSONの文字列受け渡し"]
+      - [14, "RPC", "setOnlyHeaders", "ヘッダのみ適用フラグ更新"]
+      - [15, "RPC", "applyDelete / deleteRegion / addBorder", "削除 / 範囲削除 / 枠線（Undoへpush）"]
+      - [16, "RPC", "undo / redo", "操作の取消 / やり直し"]
+      - [17, "RPC", "exportSvg", "範囲指定で SVG 書き出し"]
+      - [18, "RPC", "removeFile", "選択ファイルを一覧から除去"]
   - name: テスト仕様
     columns:
       - { key: no,     label: "No",       width: 5,  align: center }

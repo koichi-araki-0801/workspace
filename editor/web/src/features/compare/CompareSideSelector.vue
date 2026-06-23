@@ -3,14 +3,14 @@
 // CompareSideSelector.vue — 比較の片側(A/B)でテンプレートと版を選ぶセレクタ
 // =============================================================================
 import { type DropdownQuery, isErr, type TemplateMeta, type TemplateVersionMeta } from '@editor/shared';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import SearchFilters from '@/features/templates/components/SearchFilters.vue';
-import { formatDateTimeShort } from '@/lib/format';
+import { versionLabel } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import CompareCandidateTable from './CompareCandidateTable.vue';
-import { type CompareCandidate, useCompareService } from './services/compareService';
+import { type CompareCandidate, type CompareVersionRow, useCompareService } from './services/compareService';
 
 defineProps<{ heading?: string }>();
 const emit = defineEmits<{
@@ -25,13 +25,17 @@ const templateId = ref<string | undefined>(undefined);
 const selectedMeta = ref<TemplateMeta | null>(null);
 const versions = ref<TemplateVersionMeta[]>([]);
 const historyId = ref<string | undefined>(undefined);
+// 一度でも絞り込み/検索したか。未検索のうちは候補を出さず検索を促す
+// (初期マウントで全件を出していた挙動を廃止)。
+const searched = ref(false);
+
+// 候補テンプレートを「テンプレート × 版」に平坦化し、版ごとの行としてテーブルへ渡す。
+const rows = computed<CompareVersionRow[]>(() =>
+  candidates.value.flatMap((c) => c.versions.map((version) => ({ meta: c.meta, version }))),
+);
 
 const versionOptions = computed(() =>
-  versions.value.map((v) => ({
-    // 現行版(原本)は `timestamp` を持たない。日時を出さず「現行版」だけを見せる。
-    label: v.timestamp ? `${formatDateTimeShort(v.timestamp)}・${v.user}` : v.user,
-    value: v.historyId,
-  })),
+  versions.value.map((v) => ({ label: versionLabel(v), value: v.historyId })),
 );
 
 function emitChange() {
@@ -40,49 +44,69 @@ function emitChange() {
 }
 
 async function refreshCandidates(query: DropdownQuery) {
+  searched.value = true; // @update/@search のどちらでもユーザー操作時に立つ。
   const res = await run(() => compare.listCandidates(query));
   if (isErr(res)) return;
   candidates.value = res.value;
-  // 絞り込み後に現在の選択が候補一覧から消えたらクリアする。
-  if (!res.value.some((c) => c.meta.id === templateId.value)) pick(null);
+  // 既存選択がまだ候補内にあれば版の選択状態を保持する。消えていた場合は、候補が
+  // 1 件に確定したら連動で自動選択し「比較する版」を有効化、複数なら選択をクリアする。
+  if (!res.value.some((c) => c.meta.id === templateId.value)) {
+    pick(res.value.length === 1 ? res.value[0] : null);
+  }
 }
 
-function pick(meta: TemplateMeta | null) {
-  templateId.value = meta?.id;
-  selectedMeta.value = meta;
-  historyId.value = undefined;
-  versions.value = [];
+// 候補が 1 件に確定したときの自動選択。版は候補が持つリストから取り、既定で最新版を選ぶ。
+function pick(candidate: CompareCandidate | null) {
+  templateId.value = candidate?.meta.id;
+  selectedMeta.value = candidate?.meta ?? null;
+  versions.value = candidate?.versions ?? [];
+  historyId.value = candidate?.versions[0]?.historyId; // 新しい順の先頭 = 最新版
   emitChange();
 }
 
-onMounted(() => refreshCandidates({}));
-
-watch(templateId, async (id) => {
-  versions.value = [];
-  if (!id) return;
-  const res = await run(() => compare.listVersions(id));
-  if (isErr(res)) return;
-  versions.value = res.value; // 新しい順(newest first)
-  historyId.value = res.value[0]?.historyId; // 既定で最新版を選ぶ
+// テーブルの版行を直接クリックしたとき。テンプレートと版を同時に確定し、ドロップダウン
+// (versionOptions/historyId)もその版へ連動する。
+function selectVersion(row: CompareVersionRow) {
+  templateId.value = row.meta.id;
+  selectedMeta.value = row.meta;
+  versions.value = candidates.value.find((c) => c.meta.id === row.meta.id)?.versions ?? [row.version];
+  historyId.value = row.version.historyId;
   emitChange();
-});
+}
 
+// ドロップダウンで版を切り替えたときも変更を伝える(同一テンプレ内の版移動)。
 watch(historyId, emitChange);
 </script>
 
 <template>
   <div class="space-y-3">
     <h3 v-if="heading" class="text-[15px] font-bold">{{ heading }}</h3>
-    <SearchFilters bare search-label="絞り込み" @update="refreshCandidates" @search="refreshCandidates" />
+    <SearchFilters
+      bare
+      stack-actions
+      search-label="絞り込み"
+      @update="refreshCandidates"
+      @search="refreshCandidates"
+    >
+      <!-- 版種の右で「比較する版」を直接選ばせる。操作(選択)と表示を同じ位置にまとめる
+           ため、旧・読み取り専用インジケータを廃しドロップダウン本体をここへ移設した。 -->
+      <template #field-trailing>
+        <div class="min-w-[220px] flex-1 space-y-1.5">
+          <Label>比較する版</Label>
+          <!-- テンプレート未選択時は版が無いので非活性。placeholder が旧「未選択」を兼ねる。 -->
+          <Select v-model="historyId" :options="versionOptions" :disabled="!templateId" placeholder="版を選択" />
+        </div>
+      </template>
+    </SearchFilters>
     <CompareCandidateTable
-      :rows="candidates"
-      :selected-id="templateId"
-      :min-versions="1"
-      @select="pick"
+      v-if="searched"
+      :rows="rows"
+      :selected-id="historyId"
+      @select="selectVersion"
     />
-    <div v-if="templateId" class="space-y-1.5">
-      <Label>比較する版</Label>
-      <Select v-model="historyId" :options="versionOptions" placeholder="版を選択" class="max-w-[360px]" />
-    </div>
+    <!-- 未検索のうちは候補を出さず、絞り込みを促す (初期全量表示の廃止)。 -->
+    <p v-else class="rounded-lg border border-dashed bg-card px-4 py-8 text-center text-[13px] text-muted-foreground">
+      委託会社・ファンド・基準日・版種で絞り込み、検索してください。
+    </p>
   </div>
 </template>
