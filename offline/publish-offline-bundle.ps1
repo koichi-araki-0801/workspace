@@ -210,6 +210,15 @@ if ($bundleChanged) {
     if (-not (Test-Path $p)) { Write-Error "[error] 重量物が見つかりません: $p（-SkipRegen 指定時は事前生成が必要）"; exit 1 }
   }
 
+  # store の `v*/projects/<hash>` は fetch/install が作る「利用元プロジェクトへの絶対パス
+  # symlink」(usage tracker)。バンドルには不要で、(a) 一時 dir 由来だと dangling になり tar が
+  # stat 失敗する、(b) 配布先と無関係な絶対パスが混入する。配布先では `pnpm install` が作り直す
+  # ため、固める前に除去する。content-addressable な files/ と index.db は残すので store は完全。
+  Get-ChildItem -Path $Store -Directory -Filter 'v*' -ErrorAction SilentlyContinue | ForEach-Object {
+    $proj = Join-Path $_.FullName 'projects'
+    if (Test-Path -LiteralPath $proj) { Remove-Item -Recurse -Force -LiteralPath $proj -ErrorAction SilentlyContinue }
+  }
+
   # ---- パッケージング（重量物のみ。ソースは含めない） ----
   Write-Host "[info] tar -czf $BundleName .pnpm-store pnpm.tgz ms-playwright python-wheelhouse git-tools ..."
   Remove-Item $Bundle -Force -ErrorAction SilentlyContinue
