@@ -103,15 +103,15 @@ async function exportPdf() {
 <template>
   <div class="flex h-screen flex-col bg-background">
     <header
-      class="z-30 flex h-[58px] shrink-0 items-center gap-3.5 border-b bg-card px-4 shadow-sm print:hidden"
+      class="z-30 flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-3.5 gap-y-2 border-b bg-card px-4 py-1.5 shadow-sm print:hidden"
     >
       <BackButton :fallback="{ name: 'editor', params: { id } }" aria-label="エディターに戻る" />
-      <div class="h-[26px] w-px bg-border" />
+      <div class="h-[26px] w-px shrink-0 bg-border" />
       <AttributeBar v-if="template" :attributes="template.meta.attributes" class="flex-1" />
       <span v-else class="flex-1" />
 
       <!-- zoom -->
-      <div class="flex items-center gap-1.5">
+      <div class="flex shrink-0 items-center gap-1.5">
         <Button
           variant="outline"
           size="icon"
@@ -142,11 +142,11 @@ async function exportPdf() {
           <Plus class="h-4 w-4" />
         </Button>
       </div>
-      <div class="h-[26px] w-px bg-border" />
+      <div class="h-[26px] w-px shrink-0 bg-border" />
 
       <!-- ページ送り(複数ページかつ vivliostyle 描画時のみ) -->
       <template v-if="nav.vivlioReady && nav.pageCount > 1">
-        <div class="flex items-center gap-1.5">
+        <div class="flex shrink-0 items-center gap-1.5">
           <Button
             variant="outline"
             size="icon"
@@ -171,7 +171,7 @@ async function exportPdf() {
             <ChevronRight class="h-4 w-4" />
           </Button>
         </div>
-        <div class="h-[26px] w-px bg-border" />
+        <div class="h-[26px] w-px shrink-0 bg-border" />
       </template>
 
       <Button variant="outline" size="sm" :disabled="exporting" @click="exportPdf">

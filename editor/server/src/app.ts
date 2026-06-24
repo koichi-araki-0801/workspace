@@ -95,6 +95,22 @@ const server = app.listen(config.port, () => {
   logger.info(`[server] listening on http://localhost:${config.port}`);
 });
 
+// listen の失敗(`EADDRINUSE` 等)は server の `error` イベントで届く。ハンドラが無いと
+// Node が未捕捉例外として即死し、バナー直後に無言で落ちたように見える(旧不具合)。
+// ここで原因を明示してから `exit(1)` し、stale な旧サーバが port を掴んでいる場合は
+// `start.bat` の事前チェックで自動停止する旨を案内する。
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    logger.error(
+      `[server] ポート ${config.port} は既に使用中です — 旧サーバが残っている可能性があります。` +
+        ' 既存プロセスを停止してから再実行してください(start.bat は自動停止を試みます)。',
+    );
+  } else {
+    logger.error({ err }, '[server] listen に失敗しました');
+  }
+  process.exit(1);
+});
+
 // Graceful shutdown: プロセス終了前に全 live preview サーバ(各々が Vite サーバ
 // + 一時ディレクトリを保持)を停止し、リーク(leak)を残さない。
 let shuttingDown = false;
@@ -108,3 +124,14 @@ async function shutdown(signal: string): Promise<void> {
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => void shutdown(signal));
 }
+
+// 最後の砦(last resort): 想定外の例外/未処理 Promise は、ログを残さず無言で死ぬと
+// 原因究明ができない。error で記録してから `exit(1)` し、必ず痕跡を残す。
+process.on('uncaughtException', (err) => {
+  logger.error({ err }, '[server] 未捕捉の例外で異常終了します');
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  logger.error({ err: reason }, '[server] 未処理の Promise 拒否で異常終了します');
+  process.exit(1);
+});

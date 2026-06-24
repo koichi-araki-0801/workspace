@@ -23,6 +23,8 @@ cd /d "%~dp0\.."
 rem --- mode (build prod/dev) and data mode (local/rest), order-free -----------
 set "MODE=prod"
 set "APIMODE=local"
+rem Server listen port. Kept in env so the port pre-check and node agree (see config.ts).
+set "PORT=3001"
 for %%A in (%1 %2) do (
   if /I "%%A"=="dev"         set "MODE=dev"
   if /I "%%A"=="-dev"        set "MODE=dev"
@@ -55,6 +57,14 @@ call pnpm install
 if errorlevel 1 goto :installfail
 :haveDeps
 
+rem --- free the listen port before launch -------------------------------------
+rem A prior server not stopped with Ctrl+C (e.g. window closed with the X button)
+rem stays alive holding the port, so the next launch dies on EADDRINUSE and looks
+rem like it exits silently. Pre-check the port: auto-stop a stale server of ours,
+rem but refuse to kill any unrelated process on that port.
+call :portcheck
+if errorlevel 1 goto :portbusy
+
 if /I "%MODE%"=="prod" goto :prod
 
 rem --- development ------------------------------------------------------------
@@ -69,6 +79,7 @@ echo    Stop  : Ctrl+C
 echo   ==========================================
 echo.
 call pnpm run dev
+if errorlevel 1 goto :serverfail
 goto :end
 
 rem --- production -------------------------------------------------------------
@@ -86,6 +97,7 @@ echo    Stop   : Ctrl+C
 echo   ==========================================
 echo.
 call pnpm --filter server run start
+if errorlevel 1 goto :serverfail
 goto :end
 
 rem --- error exits ------------------------------------------------------------
@@ -101,5 +113,29 @@ exit /b 1
 echo [start] ERROR: build failed.
 exit /b 1
 
+:portbusy
+rem Port held by a process that is not our server; :portcheck already printed who.
+rem Pause so the reason stays readable when launched by double-click.
+echo [start] Aborting: free port %PORT% and retry.
+pause
+exit /b 1
+
+:serverfail
+rem Server exited non-zero. Keep the window open so the error above is readable
+rem (double-click closes it otherwise), which is what made crashes look silent.
+echo [start] server exited with code %ERRORLEVEL%
+pause
+exit /b %ERRORLEVEL%
+
 :end
 endlocal
+exit /b 0
+
+rem --- subroutine: free the listen port (called before launch) ----------------
+rem Returns 0 when the port is free (or a stale server of ours was stopped),
+rem 1 when an unrelated process holds it. Detection is delegated to PowerShell
+rem (Get-NetTCPConnection / Win32_Process), available on Windows 10+; the only
+rem process auto-stopped is one whose command line runs our `dist/app.js`.
+:portcheck
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $c=Get-NetTCPConnection -LocalPort %PORT% -State Listen; if(-not $c){exit 0}; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); $cl=''; if($p){$cl=$p.CommandLine}; if($cl -match 'dist[\\/]app\.js'){ Write-Host ('[start] stopping stale server (PID '+$procId+') ...'); Stop-Process -Id $procId -Force } else { $n='unknown'; if($p){$n=$p.Name}; Write-Host ('[start] ERROR: port %PORT% is in use by PID '+$procId+' ('+$n+').'); exit 1 } }; for($i=0;$i -lt 20;$i++){ if(-not (Get-NetTCPConnection -LocalPort %PORT% -State Listen)){ exit 0 }; Start-Sleep -Milliseconds 150 }; exit 0"
+exit /b %ERRORLEVEL%
