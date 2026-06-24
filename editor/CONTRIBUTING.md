@@ -4,7 +4,7 @@
 
 > **前提**: editor はリポジトリ直下の **pnpm モノレポ**の一部（`editor/shared` `editor/server` `editor/web`）。
 > コマンドは**リポジトリルート**から `pnpm` で実行します（editor 単体の `package.json` はありません）。
-> パッケージマネージャは `pnpm@11.5.3+`、Node は 24 系（`editor/.nvmrc` = 24）。
+> パッケージマネージャは `pnpm@11.8.0+`、Node は 24 系（`editor/.nvmrc` = 24）。
 
 ## 1. セットアップ
 
@@ -26,6 +26,8 @@ Windows は `editor/start.bat`（ダブルクリック=本番ローカル / `dev
 | 開発サーバ起動 | `pnpm dev` |
 | 型チェック（全 workspace） | `pnpm typecheck` |
 | テスト | `pnpm test` |
+| テスト＋カバレッジ（85% 閾値） | `pnpm test:coverage` |
+| 未使用 export / 依存の検出 | `pnpm knip` |
 | **整形＋Lint＋import整理を一括自動修正** | `pnpm check` |
 | 整形だけ | `pnpm format` |
 | Lint だけ（修正なし） | `pnpm lint` |
@@ -80,10 +82,10 @@ data/                  ← テンプレ(.html)・CSS（サーバが参照。整�
 - **言語**: TypeScript（strict 有効）。`any` は原則禁止。やむを得ず使う場合は理由コメントを必ず添える。
 - **Vue**: 単一ファイルコンポーネント + `<script setup lang="ts">` に統一（Options API は使わない）。
 - **命名**: ファイルは原則 `kebab-case`（Vue コンポーネントは `PascalCase.vue`）、関数・変数は `camelCase`、型・コンポーネントは `PascalCase`。
-- **整形**: 2スペース / シングルクォート / セミコロンあり / 末尾カンマ。**手で整えなくてOK** — 保存または `npm run check` が直します。
+- **整形**: 2スペース / シングルクォート / セミコロンあり / 末尾カンマ。**手で整えなくてOK** — 保存または `pnpm check` が直します。
 - **import 整理**: 自動。並べ替えに逆らわないでください。
-- **未使用の変数・import**: 自動削除されます（保存時 / `npm run check`）。
-- **テスト**: ロジック（`lib/` など）を変えたら `web/test/` にテストを足す/直す。`npm test` が緑であること。
+- **未使用の変数・import**: 自動削除されます（保存時 / `pnpm check`）。
+- **テスト**: ロジック（`lib/` など）を変えたら `web/test/` にテストを足す/直す。`pnpm test` が緑であること。
 
 ## 6. コミット規約（Conventional Commits・最小セット）
 

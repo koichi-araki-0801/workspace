@@ -191,6 +191,10 @@ export const delay = <T>(value: T) => new Promise<T>((r) => setTimeout(() => r(v
 /** 文字列リストを重複排除してソートする(dropdown 候補の構築に使う)。 */
 export const uniq = (xs: string[]) => [...new Set(xs)].sort();
 
+// 重複排除のみで出現順を保つ。分類候補を fixtures(`parts.json`)の記載＝使用順
+// (表紙から)で出すために使い、五十音ソートの `uniq` とは別物として置く。
+export const uniqStable = (xs: string[]) => [...new Set(xs)];
+
 /** テンプレートが dropdown query の設定済み全フィールドに一致すれば真。 */
 export const metaMatches = (m: TemplateMeta, q: DropdownQuery): boolean =>
   (!q.companyCode || m.attributes.companyCode === q.companyCode) &&

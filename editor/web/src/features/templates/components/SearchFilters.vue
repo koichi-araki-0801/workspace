@@ -4,13 +4,14 @@
 // =============================================================================
 import type { DropdownOptions, DropdownQuery } from '@editor/shared';
 import { Loader2, RotateCcw, Search } from '@lucide/vue';
-import { computed, watch } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useTemplateRepo } from '@/api/repositories';
 import Button from '@/components/ui/Button.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import { useCascadingSelect } from '@/lib/useCascadingSelect';
 import { useFundNames } from '@/lib/useFundNames';
+import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
 
 type Field = 'companyCode' | 'fundCode' | 'baseDate' | 'editionType';
 
@@ -28,6 +29,9 @@ const props = withDefaults(
     /** 検索/クリアボタンをフィールド行の下 (2 行目) へ折り返す。`field-trailing`
      *  スロットを版種の右に置く比較画面で、横幅を空けるために使う。 */
     stackActions?: boolean;
+    /** URL クエリ同期の名前空間。同一ルートに複数置く比較 A/B で衝突回避に渡す
+     *  (例 'a'/'b')。未指定なら無接頭辞 (単一インスタンスの編集/作成タブ)。 */
+    queryKey?: string;
   }>(),
   {
     fields: () => ['companyCode', 'fundCode', 'baseDate', 'editionType'],
@@ -36,10 +40,11 @@ const props = withDefaults(
     hideSearch: false,
     bare: false,
     stackActions: false,
+    queryKey: undefined,
   },
 );
 
-const emit = defineEmits<{ search: [DropdownQuery]; update: [DropdownQuery] }>();
+const emit = defineEmits<{ search: [DropdownQuery]; update: [DropdownQuery]; restore: [DropdownQuery] }>();
 
 const repo = useTemplateRepo();
 
@@ -65,6 +70,13 @@ const { query, options, loading, onLevelChange, reset } = useCascadingSelect<
   emptyOptions: EMPTY,
   fetchOptions: (q) => repo.getDropdownOptions(q),
   onChange: (q) => emit('update', q),
+});
+
+// URL クエリ同期。hydrate は setup 同期で効くので, 上の onMounted(refresh) は復元済み
+// query で options を取る。復元できたときだけ親へ `restore` を通知し一覧を再取得させる。
+const { hydrated } = useUrlQuerySync(query, { keys: props.fields, prefix: props.queryKey });
+onMounted(() => {
+  if (hydrated) emit('restore', { ...query });
 });
 
 const { resolve, nameOf } = useFundNames();

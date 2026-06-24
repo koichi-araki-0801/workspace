@@ -179,13 +179,13 @@ describe('CompareService.listCandidates', () => {
         ['b', 2],
         ['c', 1],
       ]);
-      // 各候補は版リスト(現行版込み)を持ち、末尾が現行版 baseline、長さは versionCount に一致。
+      // 各候補は版リスト(現行版込み)を持ち、先頭が現行版 baseline、長さは versionCount に一致。
       for (const c of res.value) {
         expect(c.versions).toHaveLength(c.versionCount);
-        expect(c.versions[c.versions.length - 1].historyId).toBe(`baseline:${c.meta.id}`);
+        expect(c.versions[0].historyId).toBe(`baseline:${c.meta.id}`);
       }
-      // a は確定版(新しい順) a2,a1 の後に現行版が続く。
-      expect(res.value[0].versions.map((v) => v.historyId)).toEqual(['a2', 'a1', 'baseline:a']);
+      // a は現行版(最新)の後に確定版(新しい順) a2,a1 が続く。
+      expect(res.value[0].versions.map((v) => v.historyId)).toEqual(['baseline:a', 'a2', 'a1']);
     }
   });
 
@@ -235,7 +235,7 @@ describe('CompareService.listCandidates', () => {
 });
 
 describe('CompareService delegation', () => {
-  it('listTemplates delegates; listVersions delegates then appends the 現行版 baseline', async () => {
+  it('listTemplates delegates; listVersions delegates then prepends the 現行版 baseline', async () => {
     const listTemplates = vi.fn(async () => ok([]));
     const listVersions = vi.fn(async () => ok([]));
     const svc = createCompareService(
@@ -246,7 +246,7 @@ describe('CompareService delegation', () => {
     const vers = await svc.listVersions('tpl-1');
     expect(listTemplates).toHaveBeenCalledWith({ companyCode: 'AM01' });
     expect(listVersions).toHaveBeenCalledWith('tpl-1');
-    // snapshot ゼロでも末尾に現行版(baseline)が 1 件足される。
+    // snapshot ゼロでも先頭に現行版(baseline)が 1 件足される。
     expect(isOk(vers)).toBe(true);
     if (isOk(vers)) {
       expect(vers.value).toHaveLength(1);

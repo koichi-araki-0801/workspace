@@ -12,7 +12,9 @@ import { useAsyncResult } from '@/lib/useAsyncResult';
 import CompareCandidateTable from './CompareCandidateTable.vue';
 import { type CompareCandidate, type CompareVersionRow, useCompareService } from './services/compareService';
 
-defineProps<{ heading?: string }>();
+// `side` は URL クエリ同期の名前空間 ('a'/'b')。同一ルート(/compare)に A/B 2 つ置くため,
+// 互いの絞り込みキーが衝突しないよう接頭辞として SearchFilters へ渡す。
+defineProps<{ heading?: string; side?: string }>();
 const emit = defineEmits<{
   change: [{ meta: TemplateMeta; version: TemplateVersionMeta } | null];
 }>();
@@ -85,8 +87,10 @@ watch(historyId, emitChange);
       bare
       stack-actions
       search-label="絞り込み"
+      :query-key="side"
       @update="refreshCandidates"
       @search="refreshCandidates"
+      @restore="refreshCandidates"
     >
       <!-- 版種の右で「比較する版」を直接選ばせる。操作(選択)と表示を同じ位置にまとめる
            ため、旧・読み取り専用インジケータを廃しドロップダウン本体をここへ移設した。 -->

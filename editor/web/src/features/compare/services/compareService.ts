@@ -20,28 +20,29 @@ import { renderJinja } from '@/lib/nunjucksRender';
 export const COMPARE_RENDER_ERROR =
   'バージョンの表示に失敗しました。時間をおいて再度お試しください。';
 
-// 「現行版」(配信時点・編集前の原本)を表す合成版。確定版(snapshot)が 1 件も無い
-// テンプレートでも、原本を 1 版として比較できるようにする。`historyId` は接頭辞で識別し、
-// `renderVersionHtml` で snapshot 経路と分岐する。
+// 「現行版」(現在のテンプレート = 最新のライブ本文)を表す合成版。確定版(snapshot)が
+// 1 件も無いテンプレートでも、現行版を 1 版として比較できるようにする。`historyId` は
+// 接頭辞で識別し、`renderVersionHtml` で snapshot 経路と分岐する。
 const BASELINE_PREFIX = 'baseline:';
 const baselineHistoryId = (templateId: string) => `${BASELINE_PREFIX}${templateId}`;
 const baselineTemplateId = (historyId: string) => historyId.slice(BASELINE_PREFIX.length);
 const isBaselineId = (historyId: string) => historyId.startsWith(BASELINE_PREFIX);
 
-/** 原本を表す合成版メタ。`timestamp` を持たないので UI 側は `user`(=現行版)を表示する。 */
+/** 現在のテンプレート(最新のライブ本文)を表す合成版メタ。`timestamp` を持たないので
+ *  UI 側は `user`(=現行版)を表示する。 */
 const baselineVersion = (templateId: string): TemplateVersionMeta => ({
   historyId: baselineHistoryId(templateId),
   templateId,
   timestamp: '',
   user: '現行版',
-  summary: '現行版（配信時点・編集前）',
+  summary: '現行版（現在のテンプレート）',
 });
 
 /** 候補テーブル用に、ヒットしたテンプレートとその選択可能な版をまとめた型。 */
 export interface CompareCandidate {
   meta: TemplateMeta;
-  /** 選択可能な版 = 確定版(snapshot, 新しい順) + 末尾に原本「現行版」1。現行版が常に
-   *  1 つあるため、何も編集していないテンプレートでも 1 版以上になり比較対象に選べる。 */
+  /** 選択可能な版 = 先頭に現行版(最新のライブ本文) 1 + 確定版(snapshot, 新しい順)。現行版が
+   *  常に 1 つあるため、何も編集していないテンプレートでも 1 版以上になり比較対象に選べる。 */
   versions: TemplateVersionMeta[];
   /** `versions.length`。版数列の表示と既存利用の互換のために保持する。 */
   versionCount: number;
@@ -76,12 +77,13 @@ export function createCompareService(
   templates: TemplateRepository,
   history: HistoryRepository,
 ): CompareService {
-  // snapshot 群(新しい順)の末尾に原本「現行版」を必ず 1 件足す。確定版が無い
-  // テンプレートでは、これが唯一の選択肢として現れる。listVersions/listCandidates 共用。
+  // snapshot 群(新しい順)の先頭に「現行版」(最新のライブ本文)を必ず 1 件足す。現行版が
+  // 最新なので一覧の先頭に来る。確定版が無いテンプレートでは、これが唯一の選択肢として
+  // 現れる。listVersions/listCandidates 共用。
   async function versionsWithBaseline(templateId: string): Promise<Result<TemplateVersionMeta[]>> {
     const res = await history.listVersions(templateId);
     if (isErr(res)) return res;
-    return ok([...res.value, baselineVersion(templateId)]);
+    return ok([baselineVersion(templateId), ...res.value]);
   }
 
   return {

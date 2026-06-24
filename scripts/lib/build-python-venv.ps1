@@ -78,13 +78,15 @@ function Initialize-BuildVenv {
   Write-Host '============================================'
   Write-Host ' [1/2] 依存ライブラリをインストール (隔離 venv 内)'
   Write-Host '============================================'
+  # pip の標準出力は `Out-Host` で画面へ逃がす。素のままだと success ストリームに乗り、
+  # 関数戻り値($vpy)へ連結されて呼び出し側の `& $vpy ...` が壊れる(pip 行をコマンド名と誤認)。
   if ($WheelhouseDir -and (Test-Path -LiteralPath $WheelhouseDir)) {
     Write-Host "[setup] オフライン wheelhouse から install: $WheelhouseDir"
-    & $vpy -m pip install --no-index --find-links $WheelhouseDir -r $RequirementsPath
+    & $vpy -m pip install --no-index --find-links $WheelhouseDir -r $RequirementsPath | Out-Host
   }
   else {
     Write-Host '[setup] wheelhouse 無し。オンラインで install します...'
-    & $vpy -m pip install -r $RequirementsPath
+    & $vpy -m pip install -r $RequirementsPath | Out-Host
   }
   if ($LASTEXITCODE -ne 0) { throw '依存のインストールに失敗しました。' }
 

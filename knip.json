@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    "editor/server": {
+      "entry": ["scripts/hash-password.ts", "scripts/gen-seed.ts"]
+    },
+    "graph-editor": {
+      "entry": ["test/editor_server.mjs"]
+    }
+  },
+  "ignore": [".claude/**", "**/resources/web/**"],
+  "ignoreDependencies": ["subset-font", "pino-pretty"]
+}

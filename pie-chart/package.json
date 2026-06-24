@@ -7,7 +7,6 @@
     "check": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
     "cli": "tsx src/cli.ts",
     "batch": "tsx src/test_batch.ts",
     "verify": "tsx src/verify_svg.ts",
