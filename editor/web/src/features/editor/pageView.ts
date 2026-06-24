@@ -46,3 +46,20 @@ export function pageViewCss(index: number, count: number, singleMode: boolean): 
 export function clampPageIndex(index: number, count: number): number {
   return Math.min(Math.max(index, 0), Math.max(count - 1, 0));
 }
+
+/**
+ * `root`(= wrapper)直下の「`.page` でない素の要素」を列挙する(防御的措置の対象)。
+ * 正常時はテンプレの wrapper 直下が `.page` のみで戻り値は空。だが万一どの `.page` にも
+ * 属さない孤立要素(挿入経路の取りこぼし等)が wrapper 直下に出来ると、`PV_ATTR` が付かず
+ * `pageViewCss` の hide 対象から外れて全ページに出続ける。`recomputePages` はここで拾った
+ * 孤立要素へ現在ページと同じ `PV_ATTR` を付け、現在ページ表示時のみ見えるようにする。
+ *
+ * NOTE: 正常時 wrapper 直下は `.page` のみ。将来 `.page` 外の意図的なグローバル要素
+ * (全ページ共通ヘッダ等)を置く設計にした場合、それらも「現在ページのみ表示」になるため
+ * 本措置の再検討が必要。
+ */
+export function strayDirectChildren(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.children).filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && !el.classList.contains('page'),
+  );
+}

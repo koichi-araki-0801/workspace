@@ -12,7 +12,13 @@ import { logError } from '@/lib/appError';
 import 'grapesjs/dist/css/grapes.min.css';
 import { type GrapesCallbacks, type SelectedRect, wireGrapesEvents } from './grapesEvents';
 import { jinjaChipCanvasCss, registerJinjaComponents } from './jinjaComponents';
-import { clampPageIndex, enumeratePageEls, PV_ATTR, pageViewCss } from './pageView';
+import {
+  clampPageIndex,
+  enumeratePageEls,
+  PV_ATTR,
+  pageViewCss,
+  strayDirectChildren,
+} from './pageView';
 
 /**
  * A4 sheet 上に描く 1 本のページ境界 guide(canvas 相対 / zoom 考慮の座標、
@@ -266,6 +272,14 @@ export function useGrapes() {
     pageEls.value = els;
     pageCount.value = els.length;
     currentPageIndex.value = clampPageIndex(currentPageIndex.value, pageCount.value);
+    // 防御的措置: wrapper 直下に `.page` でない孤立要素が生じても全ページ重複しないよう、
+    // 現在ページと同じ `PV_ATTR` を付けて「現在ページの一部」として扱う(`strayDirectChildren`)。
+    // root が body フォールバック(`.page` 0 件 / `els===[root]`)のときは付けない(全体が 1 ページ)。
+    if (pageCount.value > 0 && els[0] !== root) {
+      for (const el of strayDirectChildren(root)) {
+        el.setAttribute(PV_ATTR, String(currentPageIndex.value));
+      }
+    }
     applyPageVisibility();
   }
 
@@ -504,15 +518,25 @@ export function useGrapes() {
   }
 
   /**
-   * 現在表示中ページ(`.page`)の Component を返す(無ければ undefined)。
-   * `pageEls`(生 DOM)に対応する Component を wrapper 直下子から `getEl()` 一致で引く。
-   * `.page` は `recomputePages` の列挙起点(wrapper)直下に来るため `components()` に含まれる。
+   * 現在表示中ページ(`.page`)の Component を返す(`.page` が 1 件も無ければ undefined)。
+   * `wrapper.components()` から `.page` Component を毎回ライブに filter し、
+   * `currentPageIndex` 番目(範囲外は末尾フォールバック、`clampPageIndex` と整合)を返す。
+   *
+   * 以前は `pageEls`(生 DOM キャッシュ)との `getEl() === pageEl` 同一性照合だったが、
+   * GrapesJS の `getEl()` は描画済みでないと有効でなく、`load`/再レイアウト/`fireChange` の
+   * 再描画で `pageEls` が detach すると照合が外れて undefined を返し、`insertPart` が
+   * wrapper 直下 append にフォールバック → 孤立要素が全ページ重複する不具合があった。
+   * Component を class で直接引くことで stale な生 DOM 参照に依存しない。
+   * (`components()` のイテレーション順は DOM 子順と一致するため index 参照してよい。)
    */
   function currentPageComponent(): Component | undefined {
-    const pageEl = pageEls.value[currentPageIndex.value];
     const wrapper = editor.value?.getWrapper();
-    if (!pageEl || !wrapper) return undefined;
-    return wrapper.components().find((c: Component) => c.getEl?.() === pageEl);
+    if (!wrapper) return undefined;
+    const pages = wrapper
+      .components()
+      .filter((c: Component) => c.getEl?.()?.classList?.contains('page'));
+    if (pages.length === 0) return undefined;
+    return pages[currentPageIndex.value] ?? pages[pages.length - 1];
   }
 
   /**
@@ -528,8 +552,13 @@ export function useGrapes() {
     const wrapper = ed.getWrapper();
     const sel = ed.getSelected();
     const parent = sel?.parent();
+    // 選択要素が「現在ページの `.page` 子孫」のときだけ、その直後へ挿入する。選択が現在ページ外
+    // (再描画で選択が別ページ要素へずれた等)を指す場合は別ページ/孤立要素直下へ落ちうるため、
+    // 現在ページ判定(`deselectIfHidden` と同型)で弾き、`currentPageComponent` 経由へ回す。
+    const owner = sel?.getEl?.()?.closest?.(`[${PV_ATTR}]`) as HTMLElement | null;
+    const selInCurrentPage = owner?.getAttribute(PV_ATTR) === String(currentPageIndex.value);
     const added =
-      sel && parent && parent !== wrapper
+      sel && parent && parent !== wrapper && selInCurrentPage
         ? parent.append(content, { at: sel.index() + 1 })
         : (currentPageComponent() ?? wrapper)?.append(content);
     const root = Array.isArray(added) ? added[0] : added;

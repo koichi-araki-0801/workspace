@@ -150,7 +150,9 @@ const statusText = computed(() => {
       @preview="goPreview"
     />
 
-    <div class="flex flex-1 overflow-hidden">
+    <!-- 高ズームで両袖(固定幅)+ 中央が実効ビューポート幅を超える極端な場合は、クリップ
+         ではなく横スクロールで全ペインへ到達できるようにする(通常倍率では overflow 無し)。 -->
+    <div class="flex flex-1 overflow-x-auto overflow-y-hidden">
       <!-- 左: パーツ追加(チェックボックス → cascading な絞り込み) -->
       <PartTree
         v-model:allow-add="allowAdd"
@@ -160,7 +162,7 @@ const statusText = computed(() => {
       />
 
       <!-- 中央: A4 用紙の見た目にした GrapesJS canvas -->
-      <main class="relative flex-1 overflow-hidden bg-[hsl(220_16%_91%)] dark:bg-[hsl(222_18%_18%)]">
+      <main class="relative min-w-[360px] flex-1 overflow-hidden bg-[hsl(220_16%_91%)] dark:bg-[hsl(222_18%_18%)]">
         <div ref="canvasEl" class="h-full"></div>
         <!-- GrapesJS の layer manager はマウントするが視覚的に隠す(prototype に layers パネルは無い) -->
         <div ref="layersEl" class="hidden"></div>

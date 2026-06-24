@@ -62,15 +62,15 @@ const attrItems = (a: TemplateAttributes) => [
 
 <template>
   <header
-    class="z-30 flex h-[58px] shrink-0 items-center gap-3.5 border-b bg-card px-4 shadow-sm print:hidden"
+    class="z-30 flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-3.5 gap-y-2 border-b bg-card px-4 py-1.5 shadow-sm print:hidden"
   >
     <BackButton :fallback="{ name: 'edit' }" aria-label="一覧へ戻る" />
-    <div class="h-[26px] w-px bg-border" />
+    <div class="h-[26px] w-px shrink-0 bg-border" />
 
     <div class="flex min-w-0 flex-col">
-      <div class="flex items-center gap-2">
+      <div class="flex min-w-0 items-center gap-2">
         <span class="truncate text-[15px] font-bold">{{ fundName }}</span>
-        <Badge variant="warning">レイアウト調整</Badge>
+        <Badge variant="warning" class="shrink-0 whitespace-nowrap">レイアウト調整</Badge>
       </div>
       <div v-if="attributes" class="mt-px flex gap-3.5">
         <span v-for="it in attrItems(attributes)" :key="it.k" class="whitespace-nowrap text-[11.5px] text-muted-foreground">
@@ -82,7 +82,7 @@ const attrItems = (a: TemplateAttributes) => [
     <span class="flex-1" />
 
     <!-- undo / redo -->
-    <div class="flex items-center gap-1">
+    <div class="flex shrink-0 items-center gap-1">
       <Button variant="ghost" size="icon" title="元に戻す (⌘Z)" :disabled="!canUndo" @click="emit('undo')">
         <Undo2 class="h-[17px] w-[17px]" />
       </Button>
@@ -90,10 +90,10 @@ const attrItems = (a: TemplateAttributes) => [
         <Redo2 class="h-[17px] w-[17px]" />
       </Button>
     </div>
-    <div class="h-[26px] w-px bg-border" />
+    <div class="h-[26px] w-px shrink-0 bg-border" />
 
     <!-- zoom -->
-    <div class="flex items-center gap-1.5">
+    <div class="flex shrink-0 items-center gap-1.5">
       <Button variant="outline" size="icon" class="h-7 w-7" title="縮小" @click="emit('zoomOut')">
         <Minus class="h-4 w-4" />
       </Button>
@@ -104,10 +104,10 @@ const attrItems = (a: TemplateAttributes) => [
         <Plus class="h-4 w-4" />
       </Button>
     </div>
-    <div class="h-[26px] w-px bg-border" />
+    <div class="h-[26px] w-px shrink-0 bg-border" />
 
     <!-- ページ送り(1 ページ表示時、複数ページのときだけ出す) -->
-    <div v-if="singlePageMode && pageCount > 1" class="flex items-center gap-1.5">
+    <div v-if="singlePageMode && pageCount > 1" class="flex shrink-0 items-center gap-1.5">
       <Button
         variant="outline"
         size="icon"
@@ -131,7 +131,7 @@ const attrItems = (a: TemplateAttributes) => [
       >
         <ChevronRight class="h-4 w-4" />
       </Button>
-      <div class="h-[26px] w-px bg-border" />
+      <div class="h-[26px] w-px shrink-0 bg-border" />
     </div>
 
     <!-- 1 ページ表示 / 全ページ連続表示の切替 -->
@@ -144,7 +144,7 @@ const attrItems = (a: TemplateAttributes) => [
     >
       <FileText class="h-[17px] w-[17px]" />
     </Button>
-    <div class="h-[26px] w-px bg-border" />
+    <div class="h-[26px] w-px shrink-0 bg-border" />
 
     <!-- ページ境界 guide のトグル -->
     <Button
@@ -156,11 +156,11 @@ const attrItems = (a: TemplateAttributes) => [
     >
       <Rows3 class="h-[17px] w-[17px]" />
     </Button>
-    <div class="h-[26px] w-px bg-border" />
+    <div class="h-[26px] w-px shrink-0 bg-border" />
 
     <!-- autosave の状態表示 -->
     <span
-      class="flex items-center gap-1.5 text-[12.5px]"
+      class="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12.5px]"
       :class="saveState === 'error' ? 'text-destructive' : 'text-muted-foreground'"
       role="status"
       aria-live="polite"

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { clampPageIndex, enumeratePageEls, PV_ATTR, pageViewCss } from '@/features/editor/pageView';
+import {
+  clampPageIndex,
+  enumeratePageEls,
+  PV_ATTR,
+  pageViewCss,
+  strayDirectChildren,
+} from '@/features/editor/pageView';
 
 // pageView の純粋関数(ページ列挙 / 可視制御 CSS / index クランプ)を DOM 構築のみで検証する。
 // 実レイアウト(getComputedStyle/getBoundingClientRect)に依存しないため jsdom で全分岐を直接叩ける。
@@ -50,6 +56,27 @@ describe('pageViewCss', () => {
 
   it('全ページ表示(singleMode=false)は枚数に関わらず空文字', () => {
     expect(pageViewCss(2, 5, false)).toBe('');
+  });
+});
+
+describe('strayDirectChildren', () => {
+  it('root 直下の .page 以外の素要素だけを返す(.page は除外)', () => {
+    const root = makeBody([{ cls: 'page' }, { cls: 'note' }, {}, { cls: 'page' }]);
+    const strays = strayDirectChildren(root);
+    expect(strays).toHaveLength(2);
+    expect(strays.every((el) => !el.classList.contains('page'))).toBe(true);
+  });
+
+  it('wrapper 直下が .page のみ(正常時)なら空配列', () => {
+    const root = makeBody([{ cls: 'page' }, { cls: 'page' }]);
+    expect(strayDirectChildren(root)).toEqual([]);
+  });
+
+  it('孤立要素はページ総数(enumeratePageEls)に影響しない', () => {
+    const root = makeBody([{ cls: 'page' }, {}, { cls: 'page' }]);
+    // 孤立要素 1 件があっても `.page` は 2 件のまま(ページャ総数は `.page` 数を維持)。
+    expect(enumeratePageEls(root)).toHaveLength(2);
+    expect(strayDirectChildren(root)).toHaveLength(1);
   });
 });
 
