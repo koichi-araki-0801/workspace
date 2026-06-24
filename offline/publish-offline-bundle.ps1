@@ -128,8 +128,43 @@ if ($bundleChanged) {
   if (-not $SkipRegen) {
     Require-Cmd 'corepack'
 
-    Write-Host '[1/4] 依存を同梱ストアへ充填（corepack pnpm install --frozen-lockfile）...'
+    Write-Host '[1/4] 依存を同梱ストアへ充填（pnpm fetch でロックファイル基準の完全充填）...'
     $env:COREPACK_ENABLE_DOWNLOAD_PROMPT = '0'
+    # `pnpm install --store-dir` は node_modules が既に揃っていると no-op になり、後から
+    # 追加された依存(特に dev)を store へ入れ損ねる(パッケージはグローバルストア経由で
+    # node_modules に hardlink 済みのため再取得されない)。結果、key は一致するのに store の
+    # 中身が不完全なバンドルが出来、オフライン機の `--offline` install が `knip 等が無い`で
+    # 失敗する。`pnpm fetch` はロックファイル基準で全依存を store へ落とす(node_modules 非
+    # 依存)ため store の完全性を担保できる。fetch は cwd の node_modules を消そうとするので、
+    # ロックファイルと各 manifest だけを置いた一時 dir で実行し、本体の node_modules は触らない。
+    $fetchTmp = Join-Path $env:TEMP ('offline-fetch-' + [System.Guid]::NewGuid().ToString('N').Substring(0, 8))
+    New-Item -ItemType Directory -Path $fetchTmp | Out-Null
+    try {
+      Copy-Item (Join-Path $RepoRoot 'pnpm-lock.yaml') $fetchTmp
+      foreach ($f in @('pnpm-workspace.yaml', 'package.json')) {
+        $src = Join-Path $RepoRoot $f
+        if (Test-Path -LiteralPath $src) { Copy-Item $src $fetchTmp }
+      }
+      # ワークスペース member の manifest をパス保持でコピー(fetch のワークスペース解決用)。
+      foreach ($m in @('editor\shared', 'editor\server', 'editor\web', 'pie-chart', 'graph-editor', 'pdf-to-svg')) {
+        $src = Join-Path $RepoRoot "$m\package.json"
+        if (Test-Path -LiteralPath $src) {
+          $dst = Join-Path $fetchTmp $m
+          New-Item -ItemType Directory -Path $dst -Force | Out-Null
+          Copy-Item $src $dst
+        }
+      }
+      Push-Location $fetchTmp
+      & corepack pnpm fetch --store-dir $Store
+      $fetchExit = $LASTEXITCODE
+      Pop-Location
+    }
+    finally {
+      Remove-Item -Recurse -Force $fetchTmp -ErrorAction SilentlyContinue
+    }
+    if ($fetchExit -ne 0) { Write-Error '[error] pnpm fetch（ストア充填）に失敗しました。'; exit 1 }
+
+    # node_modules をロックファイルと一致させる([3/4] の playwright exec 等が node_modules を要する)。
     & corepack pnpm install --frozen-lockfile --store-dir $Store
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] pnpm install に失敗しました。'; exit 1 }
 
