@@ -112,4 +112,45 @@ describe('useSnapshotHistory', () => {
     expect(box.state).toBe('2');
     expect(h.canUndo.value).toBe(false); // only 2 entries were retained
   });
+
+  // 外部スタック(editorSession ストア由来)を渡すと、その配列を参照で使い、
+  // 再マウントでも Undo/Redo が維持される。
+  it('uses and mutates the external past/future arrays in place', () => {
+    const box = { state: 'a' };
+    const past: string[] = [];
+    const future: string[] = [];
+    const h = useSnapshotHistory(
+      () => box.state,
+      (s) => {
+        box.state = s;
+      },
+      100,
+      { past, future },
+    );
+    h.pushUndo(); // snapshot 'a'
+    box.state = 'b';
+    expect(past).toEqual(['a']); // 外部配列がそのまま積まれる
+    h.undo();
+    expect(box.state).toBe('a');
+    expect(future).toEqual(['b']); // redo 用に外部 future へ退避される
+  });
+
+  it('restores canUndo/canRedo flags from pre-populated external stacks', () => {
+    const box = { state: 'b' };
+    // 再マウントを模す: past に既存スナップショットがある状態で生成する。
+    const past = ['a'];
+    const future: string[] = [];
+    const h = useSnapshotHistory(
+      () => box.state,
+      (s) => {
+        box.state = s;
+      },
+      100,
+      { past, future },
+    );
+    expect(h.canUndo.value).toBe(true); // 既存スタックからフラグを復元
+    expect(h.canRedo.value).toBe(false);
+    h.undo();
+    expect(box.state).toBe('a');
+  });
 });

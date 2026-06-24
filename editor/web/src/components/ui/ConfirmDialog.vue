@@ -44,15 +44,19 @@ const open = computed({
           {{ confirmState.description }}
         </AlertDialogDescription>
         <div class="mt-6 flex justify-end gap-2">
+          <!-- capture フェーズで解決する: `reka-ui` はボタンの click 後に `update:open`(=false)
+               を bubble で出し、それが下の `open` setter 経由で resolveConfirm(false) を先に
+               走らせてしまう。capture で先に確定値を resolve しておけば、後続の close は
+               resolve 済み(no-op)となり、確定ボタンが常に false になる不具合を防ぐ。 -->
           <AlertDialogCancel
             :class="buttonVariants({ variant: 'outline', size: 'sm' })"
-            @click="resolveConfirm(false)"
+            @click.capture="resolveConfirm(false)"
           >
             {{ confirmState.cancelLabel }}
           </AlertDialogCancel>
           <AlertDialogAction
             :class="buttonVariants({ variant: confirmState.variant === 'destructive' ? 'destructive' : 'default', size: 'sm' })"
-            @click="resolveConfirm(true)"
+            @click.capture="resolveConfirm(true)"
           >
             {{ confirmState.confirmLabel }}
           </AlertDialogAction>

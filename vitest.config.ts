@@ -52,6 +52,7 @@ export default defineConfig({
         'editor/web/src/features/editor/useSnapshotHistory.ts',
         'editor/web/src/features/editor/usePartEditHistory.ts',
         'editor/web/src/features/editor/useAutosave.ts',
+        'editor/web/src/stores/editorSession.ts',
         'editor/web/src/features/compare/htmlBlockDiff.ts',
         'editor/web/src/features/compare/services/compareService.ts',
         'editor/web/src/api/local/authRepo.ts',

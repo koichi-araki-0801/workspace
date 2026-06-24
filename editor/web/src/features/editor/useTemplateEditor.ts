@@ -18,6 +18,7 @@ import { confirm } from '@/components/ui/confirm';
 import { toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
 import { useAuthStore } from '@/stores/auth';
+import { useEditorSessionStore } from '@/stores/editorSession';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { useTemplateEditorService } from './services/templateEditorService';
 import { useAutosave } from './useAutosave';
@@ -41,7 +42,16 @@ export function useTemplateEditor(
   const { canvasEl, layersEl } = els;
   const service = useTemplateEditorService();
   const auth = useAuthStore();
+  const sessionStore = useEditorSessionStore();
   const g = useGrapes();
+
+  // 編集セッション(履歴 + Undo/Redo)。プレビュー往復で EditorView が再マウントされても
+  // ストア側に生存し、ここで `ensure` すると同一セッションが返って履歴が継続する。
+  const sess = sessionStore.ensure(id);
+
+  // 未確定の変更があるか。確定保存せずメニューへ戻る際の破棄判定に使う。canvas 編集で
+  // 立ち、初期値は前回セッションの draft 有無(`loadForEdit` 結果)で決める。
+  const dirty = ref(false);
 
   const template = ref<Template | null>(null);
   const fundName = ref('');
@@ -76,6 +86,7 @@ export function useTemplateEditor(
   // ── 1. undo / redo (snapshot 方式) ──
   // GrapesJS の UndoManager はプログラム経由の style 書き込みを確実には追えないため、
   // 自前で { html, css } snapshot の stack を持ち、load() で復元する。
+  // Undo/Redo スタックはストアの配列を参照で共有する(プレビュー往復で維持する)。
   const { canUndo, canRedo, pushUndo, undo, redo, discardLast } = useSnapshotHistory(
     () => ({ html: g.getBodyHtml(), css: g.getCss() }),
     (s) => {
@@ -84,6 +95,8 @@ export function useTemplateEditor(
       g.setEditable(allowEdit.value);
       autosave.trigger();
     },
+    100,
+    { past: sess.undoPast, future: sess.undoFuture },
   );
 
   const { record: recordChange, displayHistory } = usePartEditHistory(
@@ -98,6 +111,8 @@ export function useTemplateEditor(
         if (isErr(res)) logError(res.error);
       });
     },
+    // セッション内修正履歴もストア管理にし、プレビュー往復で右下の履歴を維持する。
+    { history: sess.partHistory, nextSeq: () => ++sess.seq },
   );
 
   /** 選択ブロックへ幾何変更を適用する(inline style として書き込む)。 */
@@ -187,6 +202,8 @@ export function useTemplateEditor(
     }
     template.value = res.value.template;
     fundName.value = res.value.fundName;
+    // 前回セッションの未確定 draft が残っていれば、最初から dirty 扱いにする。
+    dirty.value = res.value.hasDraft;
     for (const p of res.value.parts) partsById.set(p.id, p);
 
     const canvas = canvasEl.value;
@@ -196,7 +213,12 @@ export function useTemplateEditor(
     g.load(res.value.editableBody, res.value.css);
     // locked 状態で開始する(allowEdit の既定は false)。
     g.setEditable(allowEdit.value);
-    g.onChange(() => autosave.trigger());
+    // canvas の全変更はここを通る — dirty を立て、autosave を起動する。`g.onChange` は
+    // load() より後に張るため、初期ロードでは発火せず純粋なユーザー編集だけを拾う。
+    g.onChange(() => {
+      dirty.value = true;
+      autosave.trigger();
+    });
     // inline text 編集: 開始で snapshot、終了時は内容が変わった場合だけ残す
     g.onTextEditStart(() => pushUndo());
     g.onTextEditEnd((changed) => {
@@ -231,18 +253,30 @@ export function useTemplateEditor(
     g.destroy();
   });
 
-  // アプリ内 navigation guard: pending な save を完了し、失敗していれば確認する。
-  onBeforeRouteLeave(async () => {
+  // アプリ内 navigation guard。
+  //  - プレビューへの遷移(編集セッション内)は破棄しない: 履歴・Undo/Redo・draft を維持する。
+  //  - メニュー等へ離脱する際は、確定保存していない変更があれば yes/no で確認し、承諾された
+  //    場合は draft とセッション履歴を破棄してから移動する(キャンセルなら離脱中止)。
+  onBeforeRouteLeave(async (to) => {
     if (autosave.state.value === 'saving') await autosave.flush();
-    if (autosave.state.value === 'error') {
-      return confirm({
-        title: '保存できていない変更があります',
-        description: 'このまま移動すると、最後の変更が保存されない可能性があります。',
-        confirmLabel: '移動する',
-        cancelLabel: 'とどまる',
+
+    // 同一テンプレートのプレビューへの往復はセッションを保持する。
+    if (to.name === 'preview' && to.params.id === id) return true;
+
+    if (dirty.value) {
+      const discard = await confirm({
+        title: '保存していない変更があります',
+        description: '確定保存していない編集内容は破棄されます。よろしいですか？',
+        confirmLabel: '破棄して戻る',
+        cancelLabel: '編集に戻る',
         variant: 'destructive',
       });
+      if (!discard) return false; // 離脱中止: 編集画面に留まる
+      const res = await service.discardDraft(id);
+      if (isErr(res)) logError(res.error); // 破棄失敗は log のみ(移動は止めない)
     }
+    // 破棄を確定、または変更なし: セッション履歴/Undo/Redo を後始末して移動する。
+    sessionStore.clear(id);
     return true;
   });
 

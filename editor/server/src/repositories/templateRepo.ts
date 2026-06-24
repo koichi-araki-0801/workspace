@@ -30,7 +30,13 @@ import {
   p,
 } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
-import { draftExists, draftMtime, readDraft, writeDraft } from '../files/draftFiles.js';
+import {
+  deleteDraft,
+  draftExists,
+  draftMtime,
+  readDraft,
+  writeDraft,
+} from '../files/draftFiles.js';
 import {
   listTemplateFiles,
   readFundCss,
@@ -155,6 +161,11 @@ export async function getDraft(templateId: string): Promise<TemplateDraft | null
   const { html, css } = await readDraft(`${templateId}.html`, `${templateId}.css`);
   // 保存者はファイルからは判らない(下書きは作業コピー)。保存日時は mtime で代用。
   return { templateId, html, css, savedAt: (await draftMtime(templateId)) ?? '', savedBy: '' };
+}
+
+/** 確定保存せずメニューへ戻った際に、未確定の下書き作業コピーを破棄する。 */
+export async function discardDraft(templateId: string): Promise<void> {
+  await deleteDraft(templateId);
 }
 
 /**

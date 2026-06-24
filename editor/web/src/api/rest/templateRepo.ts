@@ -68,6 +68,9 @@ export const restTemplateRepo: TemplateRepository = {
   getDraft: (templateId: string) =>
     attemptRest(() => apiFetch<TemplateDraft | null>(`/templates/${enc(templateId)}/draft`)),
 
+  discardDraft: (templateId: string) =>
+    attemptRest(() => apiFetch<void>(`/templates/${enc(templateId)}/draft`, { method: 'DELETE' })),
+
   confirmSave: (req: ConfirmSaveRequest) =>
     attemptRest(() =>
       apiFetch<TemplateMeta>(`/templates/${enc(req.templateId)}`, {

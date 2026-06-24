@@ -54,3 +54,14 @@ export function draftMtime(templateId: string): Promise<string | null> {
     .then((s) => s.mtime.toISOString())
     .catch(() => null);
 }
+
+/**
+ * 下書きの作業コピー(HTML/CSS)を破棄する。確定保存せずメニューへ戻った際に
+ * 未確定の編集を消すため呼ぶ。既に無ければ no-op(`ENOENT` は握りつぶす)。
+ */
+export async function deleteDraft(templateId: string): Promise<void> {
+  await Promise.all([
+    fs.rm(path.join(config.draftsDir, htmlName(templateId)), { force: true }),
+    fs.rm(path.join(config.draftsDir, cssName(templateId)), { force: true }),
+  ]);
+}

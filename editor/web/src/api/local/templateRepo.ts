@@ -252,6 +252,13 @@ export const localTemplateRepo: TemplateRepository = {
       return delay(drafts[templateId] ?? null);
     }),
 
+  // 確定保存せずメニューへ戻った際の下書き破棄。`clearDraft` を公開して冪等に削除する。
+  discardDraft: (templateId: string) =>
+    attempt(() => {
+      clearDraft(templateId);
+      return delay(undefined);
+    }),
+
   confirmSave: (req: ConfirmSaveRequest) =>
     attempt(() =>
       // 全 write を一括コミットする: 途中失敗(例: quota)は触れた全キーを保存前状態へ
