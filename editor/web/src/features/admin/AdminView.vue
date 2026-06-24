@@ -2,7 +2,7 @@
 // =============================================================================
 // AdminView.vue — ユーザー管理画面(追加・無効化/有効化・パスワード初期化)
 // =============================================================================
-import { isErr, isOk, type User, type UserRole, validateNewUser } from '@editor/shared';
+import { canDisableUser, isErr, isOk, type User, type UserRole, validateNewUser } from '@editor/shared';
 import { Ban, CircleCheck, KeyRound, Shield, UserPlus } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import BackButton from '@/components/ui/BackButton.vue';
@@ -14,13 +14,15 @@ import Input from '@/components/ui/Input.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { toastSuccess } from '@/components/ui/toast';
+import { toastError, toastSuccess } from '@/components/ui/toast';
 import { ROLE_LABELS } from '@/lib/labels';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { useAuthStore } from '@/stores/auth';
 import { useUserService } from './services/userService';
 import { toUserVm } from './viewmodels/userVm';
 
 const users = useUserService();
+const auth = useAuthStore();
 const { run } = useAsyncResult();
 const rows = ref<User[]>([]);
 const vms = computed(() => rows.value.map(toUserVm));
@@ -56,6 +58,14 @@ async function addUser() {
 
 async function toggleDisabled(u: User) {
   const disabling = !u.disabled;
+  // 無効化方向のみガード: 自分自身・最後の有効 admin の無効化は永久ロックアウトを招くため拒否する。
+  if (disabling) {
+    const check = canDisableUser(u, auth.user?.id ?? '', rows.value);
+    if (!check.ok) {
+      toastError(check.reason ?? 'このユーザーは無効化できません');
+      return;
+    }
+  }
   const ok = await confirm({
     title: disabling ? `${u.displayName} を無効化しますか？` : `${u.displayName} を有効化しますか？`,
     description: disabling

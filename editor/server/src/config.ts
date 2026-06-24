@@ -166,6 +166,15 @@ export const config = {
      * いずれも無ければ `undefined`(= playwright 既定。オンライン開発で使う)。
      */
     executableBrowser: executableBrowser || undefined,
+    /**
+     * PDF ビルドを隔離実行する worker(plain ESM)。in-process の `build()` ハングを避けるため、
+     * `build.ts` はこのスクリプトを `child_process` で spawn する(`pdf-build-worker.mjs` 参照)。
+     */
+    workerScript: resolvePath(
+      process.env.VIVLIO_BUILD_WORKER,
+      undefined,
+      'server/scripts/pdf-build-worker.mjs',
+    ),
   },
 
   /**
@@ -186,6 +195,11 @@ export const config = {
     build: {
       /** 受け付ける project zip の最大バイト数(超過時は 413)。 */
       maxProjectBytes: Number(process.env.VIVLIO_MAX_PROJECT_BYTES ?? 64 * 1024 * 1024),
+      /**
+       * PDF build worker(子プロセス)のタイムアウト(ms)。これを超えたら kill してエラーにする
+       * (応答が永久に返らない無限スピナーを防ぐ)。`config.python.timeoutMs` と同型。
+       */
+      timeoutMs: Number(process.env.VIVLIO_BUILD_TIMEOUT_MS ?? 120_000),
     },
   },
 

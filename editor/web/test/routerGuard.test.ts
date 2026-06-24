@@ -11,6 +11,8 @@ function auth(over: Partial<AuthGuardState> = {}): AuthGuardState {
     ready: true,
     isAuthenticated: false,
     isAdmin: false,
+    mustChangePassword: false,
+    user: null,
     bootstrap: async () => {},
     ...over,
   };
@@ -65,6 +67,25 @@ describe('authGuard', () => {
     const res = await authGuard(
       to('admin', '/admin', { admin: true }),
       auth({ isAuthenticated: true, isAdmin: true }),
+    );
+    expect(res).toBe(true);
+  });
+
+  it('初回PW変更が未了なら保護ルートを password-init へ送る(redirect 付き)', async () => {
+    const res = await authGuard(
+      to('edit', '/edit'),
+      auth({ isAuthenticated: true, mustChangePassword: true, user: { username: 'editor' } }),
+    );
+    expect(res).toEqual({
+      name: 'password-init',
+      query: { username: 'editor', redirect: '/edit' },
+    });
+  });
+
+  it('初回PW変更が未了でも password-init 自身へは入れる', async () => {
+    const res = await authGuard(
+      to('password-init', '/password-init', { public: true }),
+      auth({ isAuthenticated: true, mustChangePassword: true, user: { username: 'editor' } }),
     );
     expect(res).toBe(true);
   });

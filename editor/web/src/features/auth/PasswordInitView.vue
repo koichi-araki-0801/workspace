@@ -2,7 +2,7 @@
 // =============================================================================
 // PasswordInitView.vue — パスワード再設定画面(初回ログイン / PW 忘れの両フロー)
 // =============================================================================
-import { isErr } from '@editor/shared';
+import { isErr, PASSWORD_MIN_LENGTH } from '@editor/shared';
 import { AlertCircle, KeyRound } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -26,7 +26,7 @@ const confirm = ref('');
 const loading = ref(false);
 const error = ref('');
 
-const MIN_LENGTH = 8;
+const MIN_LENGTH = PASSWORD_MIN_LENGTH;
 
 // 初回ログイン(`mustChangePassword`)は既にセッションが確立済み。「PW 忘れ」の入口は
 // セッションを持たない。この差がサブタイトルと戻り先リンクの出し分けを駆動する。
@@ -37,7 +37,8 @@ async function submit() {
     error.value = 'ユーザーIDと新しいパスワードを入力してください';
     return;
   }
-  if (next.value.length < MIN_LENGTH) {
+  // 空白のみ(=実質空)のパスワードを弾くため trim 後の長さで判定する。
+  if (next.value.trim().length < MIN_LENGTH) {
     error.value = `新しいパスワードは${MIN_LENGTH}文字以上で設定してください`;
     return;
   }

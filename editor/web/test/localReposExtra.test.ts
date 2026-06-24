@@ -60,9 +60,12 @@ describe('localAuthRepo session lifecycle', () => {
   });
 
   it('initPassword sets a new password usable for login', async () => {
-    const init = await localAuthRepo.initPassword({ username: 'admin', newPassword: 'newpass' });
+    const init = await localAuthRepo.initPassword({
+      username: 'admin',
+      newPassword: 'newpassword',
+    });
     expect(isOk(init)).toBe(true);
-    const login = await localAuthRepo.login({ username: 'admin', password: 'newpass' });
+    const login = await localAuthRepo.login({ username: 'admin', password: 'newpassword' });
     expect(isOk(login)).toBe(true);
     if (isOk(login)) expect(login.value.mustChangePassword).toBe(false);
   });

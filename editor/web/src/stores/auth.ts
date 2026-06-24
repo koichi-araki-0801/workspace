@@ -60,6 +60,9 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => user.value !== null);
   const isAdmin = computed(() => isAdminUser(user.value));
+  // 初回パスワード変更が未了か。navigation guard が password-init へ強制するのに使う
+  // (直 URL で初期化画面を回避して他画面へ入れてしまう抜け道を塞ぐ)。
+  const mustChangePassword = computed(() => user.value?.mustChangePassword ?? false);
 
   return {
     user,
@@ -70,5 +73,6 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     isAuthenticated,
     isAdmin,
+    mustChangePassword,
   };
 });

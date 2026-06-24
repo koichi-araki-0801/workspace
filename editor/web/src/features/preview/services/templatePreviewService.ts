@@ -20,6 +20,7 @@ import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { logError } from '@/lib/appError';
 import { toTemplate } from '@/lib/jinjaMask';
 import { buildPreviewDocument, renderJinja } from '@/lib/nunjucksRender';
+import { sanitizePreviewHtml } from '@/lib/sanitizeHtml';
 import { replaceBodyInner } from '@/lib/templateDoc';
 
 /** PDF 生成失敗時に表示する文言(原因 cause は別途ログへ記録する)。 */
@@ -91,10 +92,13 @@ export function createTemplatePreviewService(
       try {
         const rendered = renderJinja(html, sample);
         if (rendered.error) return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
+        // サーバの headless ブラウザでレンダリングされる前に能動コンテンツを除去する
+        // (プレビューと同じ保存型 XSS / スクリプト実行対策)。
+        const safeHtml = sanitizePreviewHtml(rendered.html);
         const res = await fetch('/api/build', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ html: rendered.html, css }),
+          body: JSON.stringify({ html: safeHtml, css }),
         });
         if (!res.ok) return err(conflict(PDF_ERROR_MSG, { cause: `HTTP ${res.status}` }));
         return ok(await res.blob());
