@@ -13,7 +13,7 @@ import {
   type Template,
 } from '@editor/shared';
 import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } from 'vue';
-import { onBeforeRouteLeave } from 'vue-router';
+import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import { confirm } from '@/components/ui/confirm';
 import { toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
@@ -41,6 +41,7 @@ export function useTemplateEditor(
 ) {
   const { canvasEl, layersEl } = els;
   const service = useTemplateEditorService();
+  const router = useRouter();
   const auth = useAuthStore();
   const sessionStore = useEditorSessionStore();
   const g = useGrapes();
@@ -198,6 +199,9 @@ export function useTemplateEditor(
     if (isErr(res)) {
       logError(res.error);
       toastError(res.error.message);
+      // 不正/存在しない id では空のエディタ枠を残さず一覧へ戻す(`/preview` 側の
+      // 「見つかりません」表示と挙動を揃える)。
+      router.replace({ name: 'edit' });
       return;
     }
     template.value = res.value.template;

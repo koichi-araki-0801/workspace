@@ -3,6 +3,7 @@
 // =============================================================================
 import type { SampleData } from '@editor/shared';
 import nunjucks from 'nunjucks';
+import { sanitizePreviewHtml } from './sanitizeHtml';
 
 /**
  * 生 Jinja2 テンプレートを sample data でブラウザ上に Nunjucks (Jinja2 互換)で
@@ -34,10 +35,15 @@ export function buildPreviewDocument(rawHtml: string, css: string, data: SampleD
   const rendered = renderJinja(rawHtml, data);
   if (rendered.error) return rendered;
 
+  // 本体 document に直接描画される前に能動コンテンツ(`<script>`/`on*`/`javascript:`)を除去する
+  // (保存型 XSS 対策)。この後で注入する自前 `<style data-preview-css>` はサニタイズ対象外＝
+  // そのまま残す(信頼できる inline CSS のため)。サニタイズ前に行う理由でもある。
+  const safe = sanitizePreviewHtml(rendered.html);
+
   // 外部 stylesheet `<link>`(例: `<link rel="stylesheet" href="css/110024.css">`)を除去する。
   // CSS は直後に inline 化するため不要で, 残すと viewer が Blob 相対 URL で解決して 404 になり,
   // `@vivliostyle/core` のフェッチャがページ分割を中断してしまう(プレビューが 1 ページに崩れる)。
-  const cleaned = rendered.html.replace(/<link\b[^>]*\brel=["']?stylesheet["']?[^>]*>/gi, '');
+  const cleaned = safe.replace(/<link\b[^>]*\brel=["']?stylesheet["']?[^>]*>/gi, '');
   const styleTag = `<style data-preview-css>\n${css}\n</style>`;
   let out: string;
   if (/<\/head>/i.test(cleaned)) {

@@ -1,10 +1,41 @@
 // =============================================================================
 // build.ts — `@vivliostyle/cli` で PDF をビルドする(inline / project)
 // =============================================================================
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 import { sharedInlineConfig } from './options.js';
+
+/** PDF 生成失敗時に投げる Error の前置き(原因は cause として stderr/timeout を連結する)。 */
+const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
+
+/**
+ * `@vivliostyle/cli` の `build()` オプションを隔離 worker プロセスで実行する。
+ * in-process 実行はサーバプロセスでハングするため(`pdf-build-worker.mjs` 冒頭の解説参照)、
+ * `child_process` へ分離し、`config.vivliostyle.build.timeoutMs` の timeout を必ず効かせる。
+ * timeout(kill)や非 0 exit は Error を reject し、上位(`auditedRethrow`)経由で 5xx を返す。
+ */
+function runBuildWorker(buildOptions: unknown): Promise<void> {
+  const timeoutMs = config.vivliostyle.build.timeoutMs;
+  return new Promise((resolve, reject) => {
+    execFile(
+      process.execPath,
+      [config.pdf.workerScript, JSON.stringify(buildOptions)],
+      { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' },
+      (err, _stdout, stderr) => {
+        if (err) {
+          // `execFile` は timeout 時に子を kill し `err.killed = true` を立てる。
+          const killed = (err as NodeJS.ErrnoException & { killed?: boolean }).killed;
+          const reason = killed ? `タイムアウト(${timeoutMs}ms)で中断` : err.message;
+          reject(new Error(`${PDF_BUILD_FAILED}: ${reason}${stderr ? `\n${stderr.trim()}` : ''}`));
+          return;
+        }
+        resolve();
+      },
+    );
+  });
+}
 
 /** inline(レンダリング済み HTML + 任意の CSS)ビルド入力。 */
 export interface BuildInlineInput {
@@ -33,14 +64,13 @@ export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
   await fs.writeFile(htmlPath, doc, 'utf8');
 
   try {
-    const { build } = await import('@vivliostyle/cli');
-    await build({
+    await runBuildWorker({
       input: htmlPath,
       output: [{ path: pdfPath, format: 'pdf' }],
       size: input.size ?? 'A4',
       ...(input.singleDoc ? { singleDoc: true } : {}),
       ...sharedInlineConfig(),
-    } as Parameters<typeof build>[0]);
+    });
 
     return await fs.readFile(pdfPath);
   } finally {
@@ -68,19 +98,18 @@ export async function buildProjectPdf(input: BuildProjectInput): Promise<Buffer>
   const pdfPath = path.join(input.dir, `__out-${Date.now()}.pdf`);
 
   try {
-    const { build } = await import('@vivliostyle/cli');
     // どちらの場合も `cwd` を設定し、vivliostyle がエントリをサーバの作業ディレクトリ
     // ではなく展開済みプロジェクトディレクトリ基準で解決するようにする。
     const entry = input.configPath
       ? { config: input.configPath, cwd: input.dir }
       : { cwd: input.dir, input: input.entry };
-    await build({
+    await runBuildWorker({
       ...entry,
       output: [{ path: pdfPath, format: 'pdf' }],
       ...(input.size ? { size: input.size } : {}),
       ...(input.singleDoc ? { singleDoc: true } : {}),
       ...sharedInlineConfig(),
-    } as Parameters<typeof build>[0]);
+    });
 
     return await fs.readFile(pdfPath);
   } finally {

@@ -81,6 +81,8 @@ export interface AuthGuardState {
   ready: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  mustChangePassword: boolean;
+  user: { username: string } | null;
   bootstrap: () => Promise<void>;
 }
 
@@ -97,6 +99,15 @@ export async function authGuard(
 
   if (to.meta.public) return true;
   if (!auth.isAuthenticated) return { name: 'login', query: { redirect: to.fullPath } };
+  // 初回パスワード変更が未了なら、どの保護ルートへ来ても password-init へ強制する
+  // (直 URL で初期化を回避して他画面に入る抜け道を塞ぐ)。完了で `mustChangePassword` が
+  // 下りて通常遷移へ戻る。
+  if (auth.mustChangePassword && to.name !== 'password-init') {
+    return {
+      name: 'password-init',
+      query: { username: auth.user?.username ?? '', redirect: to.fullPath },
+    };
+  }
   if (to.meta.admin && !auth.isAdmin) return { name: 'edit' };
   return true;
 }

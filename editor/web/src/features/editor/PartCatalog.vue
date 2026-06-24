@@ -140,9 +140,11 @@ function onInsert() {
       </template>
     </div>
 
-    <!-- 追加ボタン(下部固定): 選択確定時のみ有効 -->
+    <!-- 追加ボタン(下部固定): 選択確定時のみ有効。
+         `aria-label` で左ペインの「パーツを追加」トグルとアクセシブル名を区別する
+         (どちらも文言に「追加」を含み、支援技術/自動化での取り違えを避ける)。 -->
     <div class="border-t px-3 py-2.5">
-      <Button class="w-full" :disabled="!selectedPart" @click="onInsert">
+      <Button class="w-full" :disabled="!selectedPart" aria-label="選択したパーツを挿入" @click="onInsert">
         <Plus class="h-4 w-4" /> 追加
       </Button>
     </div>

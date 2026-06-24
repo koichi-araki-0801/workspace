@@ -39,7 +39,17 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
   }
 
   const appError = toAppError(err);
-  const status = statusForKind(appError.kind);
+
+  // express 本体/`body-parser`(http-errors)が投げるエラーは数値 `status`/`statusCode` を持つ
+  // (例: 不正 JSON=400 `entity.parse.failed`、本文超過=413 `entity.too.large`)。AppError の
+  // kind だけで判定すると一律 500 になり HTTP 意味論を誤るため、これらは元の 4xx を尊重する。
+  const httpStatus =
+    (err as { status?: unknown; statusCode?: unknown })?.status ??
+    (err as { statusCode?: unknown })?.statusCode;
+  const status =
+    typeof httpStatus === 'number' && httpStatus >= 400 && httpStatus < 600
+      ? httpStatus
+      : statusForKind(appError.kind);
 
   // 完全なエラー(`cause` 含む)をログに出すが、クライアントには決して漏らさない。
   req.log?.error({ err, kind: appError.kind, status }, appError.message);

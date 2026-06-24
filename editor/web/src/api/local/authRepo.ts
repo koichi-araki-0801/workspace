@@ -4,6 +4,7 @@
 import {
   type AuthRepository,
   type LoginRequest,
+  PASSWORD_MIN_LENGTH,
   type PasswordInitRequest,
   type User,
   unauthorized,
@@ -43,7 +44,9 @@ export const localAuthRepo: AuthRepository = {
       const user = listUsersSync().find((u) => u.username === req.username);
       if (!user) throw unauthorized('ユーザーIDが見つかりません');
       if (user.disabled) throw unauthorized('このアカウントは無効化されています');
-      if (req.newPassword.length < 4) throw validation('新しいパスワードが短すぎます');
+      // client と同一基準で検証する(空白のみ=実質空も弾く)。UI を経由しない経路の保険。
+      if (req.newPassword.trim().length < PASSWORD_MIN_LENGTH)
+        throw validation('新しいパスワードが短すぎます');
       const pw = read<Record<string, string>>(K.passwords, {});
       pw[req.username] = req.newPassword;
       write(K.passwords, pw);

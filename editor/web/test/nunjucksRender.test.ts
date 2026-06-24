@@ -32,9 +32,14 @@ describe('buildPreviewDocument', () => {
     expect(r.html.indexOf('data-preview-css')).toBeLessThan(r.html.indexOf('</head>'));
   });
 
-  it('injects the style right after <body> when there is no </head>', () => {
+  it('normalizes a head-less document and injects the inlined CSS (body attrs/content kept)', () => {
+    // サニタイズ(DOMPurify, WHOLE_DOCUMENT)が <head> を補完するため、CSS は head に入る。
+    // body の属性と描画内容は保持される。
     const r = buildPreviewDocument('<body class="r">{{ name }}</body>', '.a{}', data);
-    expect(r.html).toContain('<body class="r"><style data-preview-css>');
+    expect(r.html).toContain('<!doctype html>');
+    expect(r.html).toContain('<style data-preview-css>');
+    expect(r.html).toContain('<body class="r">');
+    expect(r.html).toContain('X');
   });
 
   it('wraps a bare fragment in a full document', () => {
@@ -72,5 +77,31 @@ describe('buildPreviewDocument', () => {
     );
     expect(r.html).not.toContain('a.css');
     expect(r.html).not.toMatch(/rel=stylesheet/);
+  });
+
+  // 保存型 XSS 対策: テンプレ本文の能動コンテンツは除去され, 体裁(style/構造/値)は保持される。
+  it('strips active content (<script> / on* handlers / javascript: URLs)', () => {
+    const r = buildPreviewDocument(
+      '<html><head></head><body>' +
+        '<h1>レポート</h1>' +
+        '<script>window.__xss=1</script>' +
+        '<img src="x" onerror="window.__xss=2">' +
+        '<a href="javascript:alert(1)">link</a>' +
+        '<div style="margin-top:10mm">本文 {{ name }}</div>' +
+        '</body></html>',
+      '.a{color:red}',
+      data,
+    );
+    expect(r.error).toBeNull();
+    // 危険要素は除去
+    expect(r.html).not.toMatch(/<script/i);
+    expect(r.html).not.toMatch(/onerror=/i);
+    expect(r.html).not.toMatch(/javascript:/i);
+    // 体裁・内容は保持
+    expect(r.html).toContain('レポート');
+    expect(r.html).toContain('margin-top:10mm');
+    expect(r.html).toContain('<style data-preview-css>');
+    expect(r.html).toContain('color:red');
+    expect(r.html).toContain('X');
   });
 });

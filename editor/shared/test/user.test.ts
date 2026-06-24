@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasErrors, isAdmin, validateNewUser } from '../src/domain/user';
+import { canDisableUser, hasErrors, isAdmin, validateNewUser } from '../src/domain/user';
 import type { User } from '../src/index';
 
 const make = (role: User['role']): User => ({
@@ -10,6 +10,8 @@ const make = (role: User['role']): User => ({
   disabled: false,
   mustChangePassword: false,
 });
+
+const user = (over: Partial<User>): User => ({ ...make('editor'), ...over });
 
 describe('isAdmin', () => {
   it('is true only for the admin role', () => {
@@ -36,5 +38,41 @@ describe('validateNewUser / hasErrors', () => {
     const e = validateNewUser({ username: 'taro', displayName: '太郎' });
     expect(e).toEqual({});
     expect(hasErrors(e)).toBe(false);
+  });
+});
+
+describe('canDisableUser', () => {
+  const me = user({ id: 'me', role: 'admin' });
+  const other = user({ id: 'other', role: 'editor' });
+  const admin2 = user({ id: 'a2', role: 'admin' });
+
+  it('禁止: 自分自身の無効化', () => {
+    const r = canDisableUser(me, 'me', [me, other]);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('自分自身');
+  });
+
+  it('禁止: 最後の有効 admin の無効化', () => {
+    const r = canDisableUser(me, 'other', [me, other]); // me が唯一の有効 admin
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('最後の管理者');
+  });
+
+  it('許可: 有効 admin が他にいれば admin を無効化できる', () => {
+    const r = canDisableUser(me, 'other', [me, admin2, other]);
+    expect(r.ok).toBe(true);
+  });
+
+  it('許可: 自分以外の非 admin を無効化できる', () => {
+    const r = canDisableUser(other, 'me', [me, other]);
+    expect(r.ok).toBe(true);
+  });
+
+  it('無効化済みの admin は有効 admin 数に数えない', () => {
+    const disabledAdmin = user({ id: 'a3', role: 'admin', disabled: true });
+    // 有効 admin は me のみ → me を無効化しようとすると拒否
+    const r = canDisableUser(me, 'other', [me, disabledAdmin, other]);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('最後の管理者');
   });
 });
