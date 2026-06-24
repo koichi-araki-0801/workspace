@@ -32,15 +32,16 @@ function goPage(i: number) {
 }
 
 // テンプレート CSS と差分ハイライトを内包した `iframe` ドキュメントを組み立てる。
-// ブロック級(要素まるごと)は左帯+淡い背景、語句級(テキスト中)は前景の下線/打消線で
-// 区別する。語句級は要素級と入れ子になっても潰れないよう前景寄りの強調にしている。
+// ブロック級(要素まるごと)は左帯+淡い背景、語句級(テキスト中)は前景の下線で区別する
+// (挿入=緑下線 / 削除=赤下線。打消線は使わず色で挿入・削除を分ける)。語句級は要素級と
+// 入れ子になっても潰れないよう前景寄りの強調にしている。
 const HIGHLIGHT_CSS = `
   body{margin:0;padding:18px;background:#fff;}
   .${HL_CHANGED}{background:rgba(220,38,38,.06)!important;box-shadow:inset 3px 0 0 #dc2626;}
   .${HL_ADDED}{background:rgba(22,163,74,.08)!important;box-shadow:inset 3px 0 0 #16a34a;}
   .${HL_REMOVED}{background:rgba(217,119,6,.08)!important;box-shadow:inset 3px 0 0 #d97706;}
   .${HL_INS}{background:rgba(22,163,74,.18);color:#15803d;text-decoration:underline;border-radius:2px;}
-  .${HL_DEL}{background:rgba(220,38,38,.14);color:#b91c1c;text-decoration:line-through;border-radius:2px;}
+  .${HL_DEL}{background:rgba(220,38,38,.14);color:#b91c1c;text-decoration:underline;border-radius:2px;}
 `;
 function buildDoc(fragment: string, css: string): string {
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><style>${css}</style><style>${HIGHLIGHT_CSS}</style></head><body>${fragment}</body></html>`;

@@ -153,6 +153,7 @@ function createFromSeries(m: TemplateMeta) {
           hide-search
           bare
           @update="onUpdate"
+          @restore="onUpdate"
         />
       </Step>
 

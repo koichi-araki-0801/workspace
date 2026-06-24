@@ -34,15 +34,18 @@ export function buildPreviewDocument(rawHtml: string, css: string, data: SampleD
   const rendered = renderJinja(rawHtml, data);
   if (rendered.error) return rendered;
 
-  const html = rendered.html;
+  // 外部 stylesheet `<link>`(例: `<link rel="stylesheet" href="css/110024.css">`)を除去する。
+  // CSS は直後に inline 化するため不要で, 残すと viewer が Blob 相対 URL で解決して 404 になり,
+  // `@vivliostyle/core` のフェッチャがページ分割を中断してしまう(プレビューが 1 ページに崩れる)。
+  const cleaned = rendered.html.replace(/<link\b[^>]*\brel=["']?stylesheet["']?[^>]*>/gi, '');
   const styleTag = `<style data-preview-css>\n${css}\n</style>`;
   let out: string;
-  if (/<\/head>/i.test(html)) {
-    out = html.replace(/<\/head>/i, `${styleTag}</head>`);
-  } else if (/<body[^>]*>/i.test(html)) {
-    out = html.replace(/<body([^>]*)>/i, `<body$1>${styleTag}`);
+  if (/<\/head>/i.test(cleaned)) {
+    out = cleaned.replace(/<\/head>/i, `${styleTag}</head>`);
+  } else if (/<body[^>]*>/i.test(cleaned)) {
+    out = cleaned.replace(/<body([^>]*)>/i, `<body$1>${styleTag}`);
   } else {
-    out = `<!doctype html><html><head><meta charset="utf-8" />${styleTag}</head><body>${html}</body></html>`;
+    out = `<!doctype html><html><head><meta charset="utf-8" />${styleTag}</head><body>${cleaned}</body></html>`;
   }
   return { html: out, error: null };
 }

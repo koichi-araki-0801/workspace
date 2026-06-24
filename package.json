@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.5.3+sha512.7ac1c919341c213a34dc0d02afb7143c5c26ac26ee8c4782deea821b8ac64d2134a081fd8941dae6e29bbb48f58dfc2b7fbceeccc07cb2f09d219d342a4969ed",
+  "packageManager": "pnpm@11.8.0+sha512.c1f5e7c4cb241c8f174b743851d82f42b802324afc8b0f116b96adb15aa06664948dde36960a3ba1079ba5b4b29dd0140135b94b5b5f5263592249d68e555f26",
   "engines": {
     "node": ">=24",
     "pnpm": ">=11"
@@ -12,12 +12,12 @@
     "dev": "pnpm --filter @editor/shared run build && pnpm --parallel --filter server --filter web run dev",
     "dev:web": "pnpm --filter web run dev",
     "dev:server": "pnpm --filter server run dev",
-    "build": "pnpm --filter @editor/shared run build && pnpm --filter server run build && pnpm --filter web run build",
-    "test": "pnpm --filter @editor/shared --filter server --filter web --filter pie-chart --filter graph-editor run test",
-    "test:coverage": "pnpm --filter @editor/shared --filter server --filter web --filter pie-chart --filter graph-editor run test:coverage",
+    "build": "tsc -b editor/server && pnpm --filter web run build",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test -c editor/playwright.config.ts",
     "test:e2e:install": "playwright install --with-deps chromium",
-    "typecheck": "pnpm --filter @editor/shared run build && pnpm --filter @editor/shared --filter server --filter web --filter pie-chart --filter graph-editor run typecheck",
+    "typecheck": "tsc -b editor/server && pnpm --filter web --filter pie-chart --filter graph-editor run typecheck",
     "pie-chart:cli": "pnpm --filter pie-chart run cli",
     "pie-chart:check": "pnpm --filter pie-chart run check",
     "lint": "biome lint .",
@@ -25,6 +25,7 @@
     "check": "biome check --write .",
     "check:ci": "biome ci .",
     "check:comments": "node scripts/check-comments.mjs",
+    "knip": "knip",
     "ci": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck && pnpm run test:coverage && pnpm run build && pnpm run test:e2e",
     "prepare": "husky || true"
   },
@@ -34,8 +35,11 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
     "@playwright/test": "^1.50.0",
+    "@vitest/coverage-v8": "^4.1.8",
     "husky": "^9.1.7",
+    "knip": "^5.66.0",
     "lint-staged": "^17.0.7",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
   }
 }

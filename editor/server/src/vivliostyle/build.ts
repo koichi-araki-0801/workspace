@@ -107,9 +107,13 @@ export async function prepareInlineDoc(
 
 /** CSS 文字列を HTML ドキュメントへインライン展開する(head / body / 完全ラッパ)。 */
 function inlineCss(html: string, css: string): string {
-  if (!css) return html;
+  // CSS は inline 化するため, テンプレ由来の外部 stylesheet `<link>` は除去する(head/body 分岐の前)。
+  // PDF(headless browser)では 404 で無視されるだけだが, ブラウザ内 `@vivliostyle/core` を使う
+  // プレビュー経路(`buildPreviewDocument`)と挙動を揃え, 不要な失敗フェッチも無くす。
+  const cleaned = html.replace(/<link\b[^>]*\brel=["']?stylesheet["']?[^>]*>/gi, '');
+  if (!css) return cleaned;
   const styleTag = `<style>\n${css}\n</style>`;
-  if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, `${styleTag}</head>`);
-  if (/<body[^>]*>/i.test(html)) return html.replace(/<body([^>]*)>/i, `<body$1>${styleTag}`);
-  return `<!doctype html><html><head><meta charset="utf-8" />${styleTag}</head><body>${html}</body></html>`;
+  if (/<\/head>/i.test(cleaned)) return cleaned.replace(/<\/head>/i, `${styleTag}</head>`);
+  if (/<body[^>]*>/i.test(cleaned)) return cleaned.replace(/<body([^>]*)>/i, `<body$1>${styleTag}`);
+  return `<!doctype html><html><head><meta charset="utf-8" />${styleTag}</head><body>${cleaned}</body></html>`;
 }

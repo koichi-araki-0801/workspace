@@ -34,47 +34,10 @@ export default defineConfig({
       },
     },
   },
+  // coverage はルート vitest.config.ts に一本化(全プロジェクト集約・閾値 85%)。ここは
+  // web プロジェクトの environment/globals のみを担う。
   test: {
     environment: 'jsdom',
     globals: true,
-    coverage: {
-      provider: 'v8',
-      // Scope coverage (and its thresholds) to the modules under test. Widen this
-      // list as new tests are added so the gate grows with the suite.
-      include: [
-        'src/lib/jinjaMask.ts',
-        'src/lib/appError.ts',
-        'src/lib/useAsyncResult.ts',
-        'src/lib/format.ts',
-        'src/lib/labels.ts',
-        'src/features/templates/viewmodels/templateVm.ts',
-        'src/features/templates/services/templateCreationService.ts',
-        'src/features/editor/services/templateEditorService.ts',
-        'src/features/preview/services/templatePreviewService.ts',
-        'src/features/admin/viewmodels/userVm.ts',
-        'src/lib/templateDoc.ts',
-        'src/lib/usePagedList.ts',
-        'src/lib/nunjucksRender.ts',
-        'src/lib/useCascadingSelect.ts',
-        'src/features/editor/geom.ts',
-        'src/features/editor/pageView.ts',
-        'src/features/editor/useSnapshotHistory.ts',
-        'src/features/editor/usePartEditHistory.ts',
-        'src/features/editor/useAutosave.ts',
-        'src/features/compare/htmlBlockDiff.ts',
-        'src/features/compare/services/compareService.ts',
-        'src/api/local/authRepo.ts',
-        'src/api/local/templateRepo.ts',
-        'src/api/local/userRepo.ts',
-        'src/api/local/historyRepo.ts',
-        'src/api/local/partRepo.ts',
-      ],
-      thresholds: {
-        statements: 85,
-        branches: 85,
-        functions: 85,
-        lines: 85,
-      },
-    },
   },
 });

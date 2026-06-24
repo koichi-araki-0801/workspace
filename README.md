@@ -50,6 +50,7 @@ Python ビルドの venv 準備は共有ライブラリ `scripts/lib/build-pytho
 | `pnpm run build` | 全パッケージをビルド |
 | `pnpm run test` | 単体テスト一式 |
 | `pnpm run check:comments` | コメント規約・スクリプト配置の機械検査 |
+| `pnpm run knip` | 未使用 export / 依存の検出（`knip.json`） |
 | `pnpm run ci` | CI 集約（pre-push でも実行） |
 
 その他のコマンドは各 `package.json` の `scripts` を参照。

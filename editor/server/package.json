@@ -10,8 +10,7 @@
     "start": "node dist/app.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "openapi:gen": "tsx scripts/gen-openapi.ts",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test": "vitest run"
   },
   "dependencies": {
     "@editor/shared": "workspace:*",

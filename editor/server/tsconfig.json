@@ -9,5 +9,9 @@
     "types": ["node"],
     "declaration": false
   },
+  // `@editor/shared` への依存を project reference で宣言。`tsc -b editor/server` が shared を
+  // 先にビルドしてから server を処理するため、手書きの「shared 先行ビルド」が不要になる。
+  // 解決自体は従来どおり node_modules(workspace symlink)→ shared/dist の .d.ts 経由。
+  "references": [{ "path": "../shared" }],
   "include": ["src/**/*"]
 }

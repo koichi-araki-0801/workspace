@@ -15,7 +15,7 @@ Jinja2 で作成された HTML/CSS テンプレート（ファンド報告書系
 
 editor はリポジトリ直下の **pnpm モノレポ**の一部（`editor/shared` `editor/server` `editor/web`）。
 ワークスペース定義とビルド許可（`allowBuilds`）はルート `pnpm-workspace.yaml`、スクリプトはルート `package.json`。
-パッケージマネージャは `pnpm@11.5.3+`、Node は `>=24`（`editor/.nvmrc` = 24）。
+パッケージマネージャは `pnpm@11.8.0+`、Node は `>=24`（`editor/.nvmrc` = 24）。
 
 ```
 editor/shared/   共有 TS 型/DTO + Result/AppError + ドメイン + 集約ごとの Repository 契約（型の真実源）
@@ -54,9 +54,11 @@ Windows では `editor/start.bat` をダブルクリックでも起動できま�
 ### 個別コマンド（ルートから）
 
 ```bash
-pnpm build       # shared → server → web を順にビルド
-pnpm test        # 各 workspace の vitest（jinjaMask 往復テスト 等）
+pnpm build       # tsc -b editor/server（shared→server）後に web をビルド
+pnpm test        # ルート集約の vitest（projects で全 workspace を一括実行）
+pnpm test:coverage  # カバレッジ付き（include 列挙＝テスト済みのみ・全指標 85% 閾値）
 pnpm typecheck   # 全 workspace の型チェック（shared 先行ビルド込み）
+pnpm knip        # 未使用 export / 依存の検出（knip.json）
 pnpm ci          # CI 集約（check:comments → check:ci → typecheck → test:coverage → build → test:e2e）
 ```
 

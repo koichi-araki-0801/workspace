@@ -9,7 +9,6 @@
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
     "gen:filled": "vite-node scripts/genFilled.ts"
   },
   "dependencies": {

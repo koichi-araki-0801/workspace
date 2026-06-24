@@ -49,4 +49,28 @@ describe('buildPreviewDocument', () => {
     expect(r.error).toBeTruthy();
     expect(r.html).toBe('');
   });
+
+  it('strips the external stylesheet <link> (CSS is inlined; the link would 404 in the viewer)', () => {
+    const r = buildPreviewDocument(
+      '<html><head><link rel="stylesheet" href="css/{{ fund.code }}.css" /></head><body>x</body></html>',
+      '.a{color:red}',
+      { fund: { code: '110024' } },
+    );
+    expect(r.error).toBeNull();
+    // 外部 link は除去され, CSS は inline 化されている
+    expect(r.html).not.toContain('rel="stylesheet"');
+    expect(r.html).not.toContain('css/110024.css');
+    expect(r.html).toContain('<style data-preview-css>');
+    expect(r.html).toContain('color:red');
+  });
+
+  it('strips a stylesheet link regardless of attribute order or quoting', () => {
+    const r = buildPreviewDocument(
+      `<head><link href='a.css' rel=stylesheet></head><body>y</body>`,
+      '.a{}',
+      data,
+    );
+    expect(r.html).not.toContain('a.css');
+    expect(r.html).not.toMatch(/rel=stylesheet/);
+  });
 });

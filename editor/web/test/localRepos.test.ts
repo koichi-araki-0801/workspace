@@ -137,15 +137,17 @@ describe('localPartRepo', () => {
     const r = await localPartRepo.getPartClassificationOptions({ category });
     expect(isOk(r)).toBe(true);
     if (isOk(r)) {
-      // categories list is always the full set; majors narrow to the category
-      expect(r.value.categories.length).toBeGreaterThan(0);
+      // categories list is always the full set; majors narrow to the category.
+      // 並びは五十音ソートでなく fixtures の記載(使用)順を保つ。先頭は parts.json 先頭の
+      // カテゴリ(=表紙)になる。
+      expect(r.value.categories[0]).toBe(partCatalog[0].classification.category);
       const expectedMajors = [
         ...new Set(
           partCatalog
             .filter((i) => i.classification.category === category)
             .map((i) => i.classification.majorClass),
         ),
-      ].sort();
+      ];
       expect(r.value.majorClasses).toEqual(expectedMajors);
     }
   });

@@ -100,10 +100,10 @@ function back() {
 
     <div class="rounded-[14px] border bg-card px-6 pb-1 pt-6 shadow-sm">
       <Step :n="1" title="比較元を選ぶ" hint="委託会社・ファンド・版種で絞り込み、テンプレートと版を選択してください。" :active="!sideA" :done="!!sideA">
-        <CompareSideSelector @change="sideA = $event" />
+        <CompareSideSelector side="a" @change="sideA = $event" />
       </Step>
       <Step :n="2" title="比較先を選ぶ" hint="比較するもう一方を選択してください（別ファンドでも可）。" :active="!!sideA && !sideB" :done="!!sideB" :connector="false">
-        <CompareSideSelector @change="sideB = $event" />
+        <CompareSideSelector side="b" @change="sideB = $event" />
       </Step>
     </div>
 
