@@ -14,12 +14,14 @@ import { confirm } from '@/components/ui/confirm';
 import { toastSuccess } from '@/components/ui/toast';
 import AttributeBar from '@/features/editor/AttributeBar.vue';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { useEditorSessionStore } from '@/stores/editorSession';
 import PreviewPanel from './PreviewPanel.vue';
 import { useTemplatePreviewService } from './services/templatePreviewService';
 
 const props = defineProps<{ id: string }>();
 
 const preview = useTemplatePreviewService();
+const sessionStore = useEditorSessionStore();
 const template = ref<Template | null>(null);
 const sample = ref<SampleData>({});
 const restoredHtml = ref('');
@@ -76,7 +78,12 @@ async function confirmSave() {
       filledHtml: previewDoc.value,
     }),
   );
-  if (isOk(saved)) toastSuccess('確定保存しました');
+  if (isOk(saved)) {
+    // 確定済みの編集は持ち越さない: 編集セッション(履歴 + Undo/Redo)を破棄する。
+    // 次回エディタ表示は新規セッションから始まり、メニュー復帰でも警告は出ない。
+    sessionStore.clear(props.id);
+    toastSuccess('確定保存しました');
+  }
 }
 
 async function exportPdf() {

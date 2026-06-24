@@ -48,6 +48,7 @@ describe('TemplateEditorService.loadForEdit', () => {
       expect(res.value.css).toBe('.from-file{}');
       // body masked to editable form (Jinja preserved as a locked chip)
       expect(res.value.editableBody).toContain('jinja');
+      expect(res.value.hasDraft).toBe(false); // draft 無し → dirty 初期値 false
     }
   });
 
@@ -66,6 +67,7 @@ describe('TemplateEditorService.loadForEdit', () => {
     if (isOk(res)) {
       expect(res.value.editableBody).toBe('<p>draft body</p>');
       expect(res.value.css).toBe('.from-draft{}');
+      expect(res.value.hasDraft).toBe(true); // draft 有り → 最初から dirty 扱い
     }
   });
 
@@ -115,6 +117,16 @@ describe('TemplateEditorService.saveDraft / getPartHistory', () => {
     const res = await svc.saveDraft('t1', '<p>x</p>', '.c{}');
     expect(isOk(res)).toBe(true);
     expect(saveDraft).toHaveBeenCalledWith({ templateId: 't1', html: '<p>x</p>', css: '.c{}' });
+  });
+
+  it('delegates discardDraft to the template repository', async () => {
+    const discardDraft = vi.fn(async () => ok(undefined));
+    const templates = { discardDraft } as unknown as TemplateRepository;
+    const parts = {} as unknown as PartRepository;
+    const svc = createTemplateEditorService(templates, parts);
+    const res = await svc.discardDraft('t1');
+    expect(isOk(res)).toBe(true);
+    expect(discardDraft).toHaveBeenCalledWith('t1');
   });
 
   it('delegates getPartHistory to the part repository', async () => {

@@ -503,16 +503,35 @@ export function useGrapes() {
     };
   }
 
-  /** catalog part の HTML を現在の選択の後ろ(無ければ末尾)に挿入する。 */
+  /**
+   * 現在表示中ページ(`.page`)の Component を返す(無ければ undefined)。
+   * `pageEls`(生 DOM)に対応する Component を wrapper 直下子から `getEl()` 一致で引く。
+   * `.page` は `recomputePages` の列挙起点(wrapper)直下に来るため `components()` に含まれる。
+   */
+  function currentPageComponent(): Component | undefined {
+    const pageEl = pageEls.value[currentPageIndex.value];
+    const wrapper = editor.value?.getWrapper();
+    if (!pageEl || !wrapper) return undefined;
+    return wrapper.components().find((c: Component) => c.getEl?.() === pageEl);
+  }
+
+  /**
+   * catalog part の HTML を挿入する。挿入先は「現在ページの `.page` 配下」に限定する:
+   * ページ内の要素を選択中ならその直後へ、そうでなければ(選択なし / `.page` 自身を選択)
+   * 現在ページの末尾へ append する。wrapper 直下へ落とすと `.page` の兄弟=どのページにも
+   * 属さない孤立要素になり、ページ可視制御(`data-pv-idx`)の対象外として全ページに
+   * 出続けるため、それを避ける。`.page` を持たない fallback 時のみ wrapper へ。
+   */
   function insertPart(content: string, partId: string): void {
     const ed = editor.value;
     if (!ed) return;
+    const wrapper = ed.getWrapper();
     const sel = ed.getSelected();
     const parent = sel?.parent();
     const added =
-      parent && sel
+      sel && parent && parent !== wrapper
         ? parent.append(content, { at: sel.index() + 1 })
-        : ed.getWrapper()?.append(content);
+        : (currentPageComponent() ?? wrapper)?.append(content);
     const root = Array.isArray(added) ? added[0] : added;
     // catalog id を付与し、後の canvas 選択から docs を引けるようにする
     root?.addAttributes?.({ 'data-part-id': partId });

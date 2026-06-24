@@ -27,11 +27,15 @@ export interface EditorLoad {
   parts: PartCatalogItem[];
   /** editor タイトル用の表示 fund 名(sample data 由来。無ければファイル名にフォールバック)。 */
   fundName: string;
+  /** 未確定の draft が既に存在したか(前回セッションの編集途中)。dirty 初期化に使う。 */
+  hasDraft: boolean;
 }
 
 export interface TemplateEditorService {
   loadForEdit(id: string): Promise<Result<EditorLoad>>;
   saveDraft(id: string, html: string, css: string): Promise<Result<void>>;
+  /** 確定保存せずメニューへ戻る際に未確定 draft を破棄する。 */
+  discardDraft(id: string): Promise<Result<void>>;
   getPartHistory(templateId: string, partId: string): Promise<Result<PartHistoryEntry[]>>;
   recordPartChange(templateId: string, partId: string, change: string): Promise<Result<void>>;
 }
@@ -76,10 +80,19 @@ export function createTemplateEditorService(
       const fund = sample.fund as { name?: string } | undefined;
       if (fund?.name) fundName = fund.name;
 
-      return ok({ template: tpl, editableBody, css, parts: partsRes.value, fundName });
+      return ok({
+        template: tpl,
+        editableBody,
+        css,
+        parts: partsRes.value,
+        fundName,
+        hasDraft: !!draft,
+      });
     },
 
     saveDraft: (id, html, css) => templates.saveDraft({ templateId: id, html, css }),
+
+    discardDraft: (id) => templates.discardDraft(id),
 
     getPartHistory: (templateId, partId) => parts.getPartHistory(templateId, partId),
 

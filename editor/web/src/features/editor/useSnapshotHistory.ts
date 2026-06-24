@@ -15,13 +15,26 @@ import { ref } from 'vue';
  *
  * snapshot 適用中は `pushUndo` を no-op にするので、`apply` が新たな undo ステップを
  * 誤って記録せずに state を再構築できる。
+ *
+ * `init` に外部の `past`/`future` 配列を渡すと、それを参照で使う(in-place で push/pop/shift
+ * するため呼び出し側のストアにそのまま永続化される)。編集⇄プレビュー往復で Undo/Redo を
+ * 維持する `editorSession` ストアがこれを使い、再マウント時に既存スタックから復元する。
+ * 未指定なら従来どおりローカル配列で開始する。
  */
-export function useSnapshotHistory<T>(capture: () => T, apply: (snap: T) => void, max = 100) {
-  const past: T[] = [];
-  const future: T[] = [];
+export function useSnapshotHistory<T>(
+  capture: () => T,
+  apply: (snap: T) => void,
+  max = 100,
+  init?: { past: T[]; future: T[] },
+) {
+  const past: T[] = init?.past ?? [];
+  const future: T[] = init?.future ?? [];
   const canUndo = ref(false);
   const canRedo = ref(false);
   let applying = false;
+  // 外部スタックを渡された場合、既存エントリに合わせてフラグを初期化する
+  // (再マウント時に Undo/Redo ボタンの活性を復元するため)。
+  updateFlags();
 
   function updateFlags(): void {
     canUndo.value = past.length > 0;

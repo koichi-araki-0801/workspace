@@ -58,6 +58,12 @@ templatesRouter.put(
   },
 );
 
+// 確定保存せずメニューへ戻った際の下書き破棄。冪等(無ければ no-op)なので 204 を返す。
+templatesRouter.delete('/templates/:id/draft', requireAuth, async (req, res) => {
+  await templates.discardDraft(String(req.params.id));
+  res.status(204).end();
+});
+
 templatesRouter.get('/templates/:id', requireAuth, async (req, res) => {
   res.json(await templates.getTemplate(String(req.params.id)));
 });

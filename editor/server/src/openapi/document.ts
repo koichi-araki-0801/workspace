@@ -204,6 +204,13 @@ export function buildOpenApiDocument() {
           requestBody: { content: { 'application/json': { schema: s.SaveDraftRequest } } },
           responses: { '204': noContent('保存完了'), ...ERR_400, ...ERR_401 },
         },
+        delete: {
+          tags: ['templates'],
+          summary: '下書きを破棄(確定保存せずメニューへ戻る時)',
+          operationId: 'discardDraft',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: { '204': noContent('破棄完了(冪等)'), ...ERR_401 },
+        },
       },
       '/generate': {
         post: {
