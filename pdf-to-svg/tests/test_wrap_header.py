@@ -62,6 +62,25 @@ def test_wrapped_header_joined_with_space(tmp_path):
     store.close()
 
 
+def test_wide_gap_stack_not_joined(tmp_path):
+    """縦間隔が広い (font*1.6) 同列セルは折返しとみなさず連結しない (誤判定の回帰防止)。"""
+    # gap = 12*1.6 = 19.2 → LINE_GAP_RATIO(1.3) 超過。別々の単独行として扱う。
+    top = _text("商品", x=50, oy=40)
+    bottom = _text("名称", x=50, oy=40 + 12 * 1.6)  # 直下だが行間が広い
+    pg = _page([top, bottom])
+    store = DictionaryStore(tmp_path / "d.json")
+    store.add("商品名称", "Product")
+
+    # 連結語は当たらない。各行は元のまま (2 行目も描画から除外されない)。
+    n = dict_apply.auto_apply(pg, store, only_headers=False)
+
+    assert n == 0
+    assert top.text == "商品" and not bottom.deleted
+    # 束ねられていないので候補は連結文字列でなく単独テキストを返す。
+    assert dict_apply.joined_candidate(pg, top) == "商品"
+    store.close()
+
+
 def test_single_line_header_still_matches(tmp_path):
     """単独行ヘッダは従来どおり要素単位で照合される (折返し化の回帰防止)。"""
     head = _text("Qty", x=50, oy=40)
