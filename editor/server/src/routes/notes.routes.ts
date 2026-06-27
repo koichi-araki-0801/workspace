@@ -1,13 +1,11 @@
 // =============================================================================
 // notes.routes.ts — パーツ単位メモ(版インスタンス=templateId 単位の取得/保存)
 // =============================================================================
-import { Router } from 'express';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import * as notes from '../repositories/noteRepo.js';
-
-export const notesRouter = Router();
 
 const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
 
@@ -17,17 +15,23 @@ const SaveNoteRequest = z.object({
   content: z.string(),
 });
 
-notesRouter.get('/templates/:templateId/notes', requireAuth, async (req, res) => {
-  res.json(await notes.listNotes(String(req.params.templateId)));
-});
+export async function notesRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/templates/:templateId/notes', { preHandler: requireAuth }, async (request) => {
+    return notes.listNotes(String((request.params as { templateId: string }).templateId));
+  });
 
-notesRouter.put(
-  '/templates/:templateId/notes',
-  requireAuth,
-  validate(SaveNoteRequest),
-  async (req, res) => {
-    const body = req.body as z.infer<typeof SaveNoteRequest>;
-    await notes.saveNote(String(req.params.templateId), body.pathKey, body.content, actor(req));
-    res.status(204).end();
-  },
-);
+  app.put(
+    '/templates/:templateId/notes',
+    { preHandler: [requireAuth, validate(SaveNoteRequest)] },
+    async (request, reply) => {
+      const body = request.body as z.infer<typeof SaveNoteRequest>;
+      await notes.saveNote(
+        String((request.params as { templateId: string }).templateId),
+        body.pathKey,
+        body.content,
+        actor(request),
+      );
+      return reply.code(204).send();
+    },
+  );
+}

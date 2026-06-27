@@ -6,7 +6,7 @@
 // からは触れない。
 import { randomBytes } from 'node:crypto';
 import type { User } from '@editor/shared';
-import type { CookieOptions } from 'express';
+import type { CookieSerializeOptions } from '@fastify/cookie';
 import { config } from '../config.js';
 import { callSproc, firstRow, p } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
@@ -14,14 +14,18 @@ import { rowToUser } from '../repositories/userRepo.js';
 
 const TTL_MS = config.auth.sessionTtlHours * 3_600_000;
 
-/** セッションクッキーのオプション(`res.cookie` 経由の Set-Cookie)。 */
-export const cookieOptions: CookieOptions = {
+/**
+ * セッションクッキーのオプション(`reply.setCookie` 経由の Set-Cookie)。
+ * 注意: `@fastify/cookie` の `maxAge` は**秒**単位(Express `res.cookie` のミリ秒ではない)。
+ * TTL はミリ秒で持っているため、ここで秒へ換算する。
+ */
+export const cookieOptions = {
   httpOnly: true,
   sameSite: 'lax',
   secure: config.auth.cookieSecure,
-  maxAge: TTL_MS,
+  maxAge: Math.floor(TTL_MS / 1000),
   path: '/',
-};
+} satisfies CookieSerializeOptions;
 
 export async function createSession(loginId: string): Promise<string> {
   const id = randomBytes(32).toString('hex');

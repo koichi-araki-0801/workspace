@@ -2,15 +2,13 @@
 // parts.routes.ts — パーツカタログのルート(エディタ左ペイン)+ パーツ単位履歴
 // =============================================================================
 import type { PartClassificationQuery } from '@editor/shared';
-import { Router } from 'express';
+import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { RecordPartChangeRequest } from '../openapi/schemas.js';
 import * as history from '../repositories/historyRepo.js';
 import * as parts from '../repositories/partRepo.js';
-
-export const partsRouter = Router();
 
 const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
 
@@ -24,32 +22,33 @@ function toClassQuery(q: Record<string, unknown>): PartClassificationQuery {
   };
 }
 
-partsRouter.get('/parts/classification-options', requireAuth, async (req, res) => {
-  res.json(
-    await parts.getPartClassificationOptions(toClassQuery(req.query as Record<string, unknown>)),
-  );
-});
-
-partsRouter.get('/parts', requireAuth, async (req, res) => {
-  res.json(await parts.listParts(toClassQuery(req.query as Record<string, unknown>)));
-});
-
-partsRouter.get('/templates/:templateId/part-history', requireAuth, async (req, res) => {
-  res.json(await history.listPartHistory(String(req.params.templateId)));
-});
-
-partsRouter.post(
-  '/templates/:templateId/part-history',
-  requireAuth,
-  validate(RecordPartChangeRequest),
-  async (req, res) => {
-    const body = req.body as z.infer<typeof RecordPartChangeRequest>;
-    await history.recordPartChange(
-      String(req.params.templateId),
-      body.partKey,
-      body.change,
-      actor(req),
+export async function partsRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/parts/classification-options', { preHandler: requireAuth }, async (request) => {
+    return parts.getPartClassificationOptions(
+      toClassQuery(request.query as Record<string, unknown>),
     );
-    res.status(204).end();
-  },
-);
+  });
+
+  app.get('/parts', { preHandler: requireAuth }, async (request) => {
+    return parts.listParts(toClassQuery(request.query as Record<string, unknown>));
+  });
+
+  app.get('/templates/:templateId/part-history', { preHandler: requireAuth }, async (request) => {
+    return history.listPartHistory(String((request.params as { templateId: string }).templateId));
+  });
+
+  app.post(
+    '/templates/:templateId/part-history',
+    { preHandler: [requireAuth, validate(RecordPartChangeRequest)] },
+    async (request, reply) => {
+      const body = request.body as z.infer<typeof RecordPartChangeRequest>;
+      await history.recordPartChange(
+        String((request.params as { templateId: string }).templateId),
+        body.partKey,
+        body.change,
+        actor(request),
+      );
+      return reply.code(204).send();
+    },
+  );
+}
