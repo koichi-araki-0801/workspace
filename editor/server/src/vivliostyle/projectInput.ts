@@ -25,6 +25,37 @@ const CONFIG_NAMES = new Set([
   'vivliostyle.config.mjs',
 ]);
 
+// zip 展開の同時実行上限。多ファイルのプロジェクトで逐次 await の累積待ちを抑えつつ、
+// fd/メモリの過負荷を避けるための上限。
+const EXTRACT_CONCURRENCY = 8;
+
+/**
+ * `items` を最大 `limit` 並列で `task` に通す(順序不問)。最初の失敗で reject し、以降の
+ * 未着手分は走らせない(走行中タスクは完了を待つ)。外部依存(p-limit 等)を増やさないための
+ * 最小実装。
+ */
+async function mapLimit<T>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<unknown>,
+): Promise<void> {
+  let next = 0;
+  let failed = false;
+  const run = async (): Promise<void> => {
+    while (next < items.length && !failed) {
+      const i = next;
+      next += 1;
+      try {
+        await task(items[i]);
+      } catch (e) {
+        failed = true;
+        throw e;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+}
+
 /**
  * zip エントリ名を `root` 配下の安全な絶対パスへ解決する。
  * 絶対パス・Windows ドライブレター・`..` トラバーサルを拒否し、悪意あるアーカイブが
@@ -65,13 +96,18 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
     const archive = new StreamZip.async({ file: zipPath });
     try {
       const entries = await archive.entries();
-      for (const entry of Object.values(entries)) {
-        if (entry.isDirectory) continue;
-        const dest = safeEntryPath(dir, entry.name);
-        await fs.mkdir(path.dirname(dest), { recursive: true });
-        await archive.extract(entry, dest);
-        fileCount++;
-      }
+      // zip-slip 検証を全件先に済ませ(防御を維持し早期失敗)、各 entry の出力先を確定する。
+      const targets = Object.values(entries)
+        .filter((entry) => !entry.isDirectory)
+        .map((entry) => ({ entry, dest: safeEntryPath(dir, entry.name) }));
+      // 親ディレクトリは重複排除して一括作成する(ファイルごとの mkdir 重複呼び出しを避ける)。
+      const parents = [...new Set(targets.map((t) => path.dirname(t.dest)))];
+      await Promise.all(parents.map((d) => fs.mkdir(d, { recursive: true })));
+      // 展開を同時実行上限付きで並列化する。単一 zip ハンドルからの同時 extract は安全:
+      // 各 entry stream は明示 position(`fs.read` の position 引数)で読み、共有 fd の現在
+      // 位置に依存しないため互いに干渉しない(node-stream-zip `EntryDataReaderStream`)。
+      await mapLimit(targets, EXTRACT_CONCURRENCY, (t) => archive.extract(t.entry, t.dest));
+      fileCount = targets.length;
     } finally {
       await archive.close();
       await fs.rm(zipPath, { force: true });
