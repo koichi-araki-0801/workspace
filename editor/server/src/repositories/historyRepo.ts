@@ -76,15 +76,21 @@ export async function getSnapshot(historyId: string): Promise<TemplateSnapshot> 
   if (!fileName) throw notFound(`この版の比較データがありません: ${historyId}`);
   const attrs = parseTemplateFileName(fileName);
   if (!attrs) throw notFound(`版のファイル名を解釈できません: ${historyId}`);
-  const html = await showFile(historyId, templateRel(templateIdFromFileName(fileName)));
-  const css = await showFile(historyId, cssRel(attrs.fundCode));
+  const templateId = templateIdFromFileName(fileName);
+  // html/css/日時は互いに独立した git read(`withGitLock` 非経由 = 並列安全)。
+  // 逐次 await だと 3 プロセスの起動待ちが直列化するため Promise.all でまとめる。
+  const [html, css, timestamp] = await Promise.all([
+    showFile(historyId, templateRel(templateId)),
+    showFile(historyId, cssRel(attrs.fundCode)),
+    commitDate(historyId),
+  ]);
   return {
     historyId,
-    templateId: templateIdFromFileName(fileName),
+    templateId,
     html,
     css,
     fundCode: attrs.fundCode,
-    timestamp: await commitDate(historyId),
+    timestamp,
   };
 }
 

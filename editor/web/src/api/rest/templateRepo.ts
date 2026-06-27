@@ -2,6 +2,8 @@
 // templateRepo.ts — テンプレートの一覧/取得/生成/保存の REST 実装
 // =============================================================================
 import {
+  apiPaths,
+  buildPath,
   type ConfirmSaveRequest,
   type DropdownOptions,
   type DropdownQuery,
@@ -18,12 +20,10 @@ import {
 } from '@editor/shared';
 import { apiFetch, attemptRest } from './http';
 
-const enc = encodeURIComponent;
-
 /** シリーズ(sproc `系列`)の問い合わせ。`resolveFund` と `listSeriesFunds` で共用。 */
 const seriesFetch = (companyCode: string, fundCode: string, editionType: string) =>
   attemptRest(() =>
-    apiFetch<TemplateMeta[]>('/templates/series', {
+    apiFetch<TemplateMeta[]>(apiPaths.templatesSeries, {
       query: { companyCode, fundCode, editionType },
     }),
   );
@@ -31,22 +31,23 @@ const seriesFetch = (companyCode: string, fundCode: string, editionType: string)
 export const restTemplateRepo: TemplateRepository = {
   getDropdownOptions: (query: DropdownQuery) =>
     attemptRest(() =>
-      apiFetch<DropdownOptions>('/templates/options', {
+      apiFetch<DropdownOptions>(apiPaths.templatesOptions, {
         query: query as Record<string, string | undefined>,
       }),
     ),
 
   listTemplates: (query: DropdownQuery) =>
     attemptRest(() =>
-      apiFetch<TemplateMeta[]>('/templates', {
+      apiFetch<TemplateMeta[]>(apiPaths.templates, {
         query: query as Record<string, string | undefined>,
       }),
     ),
 
-  getTemplate: (id: string) => attemptRest(() => apiFetch<Template>(`/templates/${enc(id)}`)),
+  getTemplate: (id: string) =>
+    attemptRest(() => apiFetch<Template>(buildPath(apiPaths.templateById, { id }))),
 
   generate: (req: GenerateRequest) =>
-    attemptRest(() => apiFetch<GenerateResult>('/generate', { method: 'POST', body: req })),
+    attemptRest(() => apiFetch<GenerateResult>(apiPaths.generate, { method: 'POST', body: req })),
 
   // 属性解決: シリーズの sproc 結果に自分以外のメンバーが居ればシリーズファンド。
   resolveFund: async (companyCode: string, fundCode: string, editionType: string) =>
@@ -62,23 +63,30 @@ export const restTemplateRepo: TemplateRepository = {
 
   saveDraft: (req: SaveDraftRequest) =>
     attemptRest(() =>
-      apiFetch<void>(`/templates/${enc(req.templateId)}/draft`, { method: 'PUT', body: req }),
+      apiFetch<void>(buildPath(apiPaths.templateDraft, { id: req.templateId }), {
+        method: 'PUT',
+        body: req,
+      }),
     ),
 
   getDraft: (templateId: string) =>
-    attemptRest(() => apiFetch<TemplateDraft | null>(`/templates/${enc(templateId)}/draft`)),
+    attemptRest(() =>
+      apiFetch<TemplateDraft | null>(buildPath(apiPaths.templateDraft, { id: templateId })),
+    ),
 
   discardDraft: (templateId: string) =>
-    attemptRest(() => apiFetch<void>(`/templates/${enc(templateId)}/draft`, { method: 'DELETE' })),
+    attemptRest(() =>
+      apiFetch<void>(buildPath(apiPaths.templateDraft, { id: templateId }), { method: 'DELETE' }),
+    ),
 
   confirmSave: (req: ConfirmSaveRequest) =>
     attemptRest(() =>
-      apiFetch<TemplateMeta>(`/templates/${enc(req.templateId)}`, {
+      apiFetch<TemplateMeta>(buildPath(apiPaths.templateById, { id: req.templateId }), {
         method: 'PUT',
         body: { html: req.html, css: req.css, fundCode: req.fundCode },
       }),
     ),
 
   getSampleData: (fundCode: string) =>
-    attemptRest(() => apiFetch<SampleData>(`/funds/${enc(fundCode)}/sample-data`)),
+    attemptRest(() => apiFetch<SampleData>(buildPath(apiPaths.fundSampleData, { fundCode }))),
 };

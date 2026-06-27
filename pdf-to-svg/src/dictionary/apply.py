@@ -23,7 +23,9 @@ ROW_TOLERANCE = 3.0    # 同一行とみなす baseline の許容差(pt)
 # 同一列・同一サイズの要素を 1 グループに束ねて辞書を引く (照合・置換時のみ連結。
 # 描画は従来どおり行ごとの <text> のまま)。
 COLUMN_OVERLAP_RATIO = 0.5  # 同一列とみなす bbox 横方向オーバーラップ率 (狭い方基準)
-LINE_GAP_RATIO = 1.8        # 縦隣接とみなす baseline 差 (フォントサイズ比)
+# 縦隣接とみなす baseline 差 (フォントサイズ比)。折返し leading は実測で font*1.0〜1.2
+# が標準。表の行ピッチ (= 別行のセル) を巻き込んで誤連結しないよう上限を 1.3 に絞る。
+LINE_GAP_RATIO = 1.3
 FONT_SIZE_TOL = 0.5         # 同一スタイルとみなす font_size 許容差(pt)
 
 

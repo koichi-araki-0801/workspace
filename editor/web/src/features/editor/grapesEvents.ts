@@ -117,15 +117,31 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   };
   ed.on('canvas:update frame:scroll', onScroll);
 
+  // content/style 変更(`component:update` 等)はテキスト入力中などに高頻度で連続発火する。
+  // 重い再走査トリオ(`recomputeBreakEls` は全要素 `getComputedStyle` = 強制リフロー O(n))を
+  // イベントごとに同期実行すると編集がジャンクするため、rAF で 1 フレーム 1 回へ集約する。
+  // 順序は維持する: `recomputeBreakEls`(break 集合更新) → `refreshPageGuides`(その集合を読む)
+  // → `recomputePages`(.page 列挙)。editor 破棄後に保留フレームが発火しても各関数は
+  // `editor.value` を null ガードして no-op になるため cancel は不要。
+  let heavyScheduled = false;
+  const scheduleHeavyRecompute = () => {
+    if (heavyScheduled) return;
+    heavyScheduled = true;
+    requestAnimationFrame(() => {
+      heavyScheduled = false;
+      recomputeBreakEls();
+      refreshPageGuides();
+      recomputePages();
+    });
+  };
+
   const fireChange = () => {
+    // revision/rect/move/change は即時のまま(体感応答 + autosave 側で別途 debounce 済み)。
     revision.value++;
     refreshRect();
     refreshMove();
-    // content/style が page break を増減した可能性 — 再走査してから再配置する
-    recomputeBreakEls();
-    refreshPageGuides();
-    // ページの増減(.page 追加/削除)にも追従して可視制御を取り直す
-    recomputePages();
+    // content/style が page break やページ数を増減した可能性 — 重い再走査は次フレームへ集約。
+    scheduleHeavyRecompute();
     callbacks.change?.();
   };
   // inline text 編集(RTE): 開始(undo snapshot 用)と終了(実際に内容が変わったか)を

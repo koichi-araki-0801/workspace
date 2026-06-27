@@ -1,26 +1,14 @@
 // =============================================================================
-// index.ts — OpenAPI ドキュメントルータ(生成済み spec と Swagger UI を配信)
+// index.ts — OpenAPI ドキュメントルータ(生成済み spec を配信)
 // =============================================================================
 // `/api` 配下にマウントされ、以下を公開する:
 //   GET /api/openapi.json  — OpenAPI 3.1 ドキュメント(JSON)
-//   GET /api/docs          — Swagger UI
-import { Router } from 'express';
-import swaggerUi from 'swagger-ui-express';
+// API リファレンス UI(`/api/docs`)は `app.ts` で `@scalar/fastify-api-reference` が提供する。
+import type { FastifyInstance } from 'fastify';
 import { getOpenApiDocument } from './document.js';
 
-export const openapiRouter = Router();
-
-openapiRouter.get('/openapi.json', (_req, res) => {
-  res.json(getOpenApiDocument());
-});
-
-openapiRouter.use('/docs', swaggerUi.serve);
-openapiRouter.get(
-  '/docs',
-  swaggerUi.setup(getOpenApiDocument(), {
-    customSiteTitle: 'editor API',
-    swaggerOptions: { docExpansion: 'list', defaultModelsExpandDepth: 1 },
-  }),
-);
+export async function openapiRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/openapi.json', async () => getOpenApiDocument());
+}
 
 export { buildOpenApiDocument, getOpenApiDocument } from './document.js';

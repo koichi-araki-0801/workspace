@@ -4,6 +4,7 @@
 // =============================================================================
 import { type DropdownQuery, isErr, type TemplateMeta, type TemplateVersionMeta } from '@editor/shared';
 import { computed, ref, watch } from 'vue';
+import FormField from '@/components/ui/FormField.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import SearchFilters from '@/features/templates/components/SearchFilters.vue';
@@ -95,11 +96,11 @@ watch(historyId, emitChange);
       <!-- 版種の右で「比較する版」を直接選ばせる。操作(選択)と表示を同じ位置にまとめる
            ため、旧・読み取り専用インジケータを廃しドロップダウン本体をここへ移設した。 -->
       <template #field-trailing>
-        <div class="min-w-[220px] flex-1 space-y-1.5">
+        <FormField width="xl">
           <Label>比較する版</Label>
           <!-- テンプレート未選択時は版が無いので非活性。placeholder が旧「未選択」を兼ねる。 -->
           <Select v-model="historyId" :options="versionOptions" :disabled="!templateId" placeholder="版を選択" />
-        </div>
+        </FormField>
       </template>
     </SearchFilters>
     <CompareCandidateTable

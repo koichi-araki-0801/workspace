@@ -2,6 +2,7 @@
 // templatePreviewService.ts — プレビュー画面のロード/確定保存/PDF 出力サービス
 // =============================================================================
 import {
+  apiPaths,
   applyEdition,
   type ConfirmSaveRequest,
   conflict,
@@ -17,6 +18,7 @@ import {
   unexpected,
 } from '@editor/shared';
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
+import { apiUrl } from '@/api/rest/http';
 import { logError } from '@/lib/appError';
 import { toTemplate } from '@/lib/jinjaMask';
 import { buildPreviewDocument, renderJinja } from '@/lib/nunjucksRender';
@@ -95,7 +97,7 @@ export function createTemplatePreviewService(
         // サーバの headless ブラウザでレンダリングされる前に能動コンテンツを除去する
         // (プレビューと同じ保存型 XSS / スクリプト実行対策)。
         const safeHtml = sanitizePreviewHtml(rendered.html);
-        const res = await fetch('/api/build', {
+        const res = await fetch(apiUrl(apiPaths.build), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ html: safeHtml, css }),

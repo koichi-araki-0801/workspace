@@ -1,44 +1,44 @@
 // =============================================================================
 // history.routes.ts — 履歴フィード / PDF 出力記録 / バージョン一覧 / スナップショット
 // =============================================================================
-import { Router } from 'express';
+import { apiPaths } from '@editor/shared';
+import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { RecordPdfExportRequest } from '../openapi/schemas.js';
 import * as history from '../repositories/historyRepo.js';
 
-export const historyRouter = Router();
-
 const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
 
-historyRouter.get('/history/edit', requireAuth, async (_req, res) => {
-  res.json(await history.getEditHistory());
-});
+export async function historyRoutes(app: FastifyInstance): Promise<void> {
+  app.get(apiPaths.historyEdit, { preHandler: requireAuth }, async () => {
+    return history.getEditHistory();
+  });
 
-historyRouter.get('/history/pdf', requireAuth, async (_req, res) => {
-  res.json(await history.getPdfHistory());
-});
+  app.get(apiPaths.historyPdf, { preHandler: requireAuth }, async () => {
+    return history.getPdfHistory();
+  });
 
-historyRouter.post(
-  '/history/pdf',
-  requireAuth,
-  validate(RecordPdfExportRequest),
-  async (req, res) => {
-    const body = req.body as z.infer<typeof RecordPdfExportRequest>;
-    await history.recordPdfExport(body.templateId, actor(req));
-    res.status(204).end();
-  },
-);
+  app.post(
+    apiPaths.historyPdf,
+    { preHandler: [requireAuth, validate(RecordPdfExportRequest)] },
+    async (request, reply) => {
+      const body = request.body as z.infer<typeof RecordPdfExportRequest>;
+      await history.recordPdfExport(body.templateId, actor(request));
+      return reply.code(204).send();
+    },
+  );
 
-historyRouter.get('/history/create', requireAuth, async (_req, res) => {
-  res.json(await history.getCreateHistory());
-});
+  app.get(apiPaths.historyCreate, { preHandler: requireAuth }, async () => {
+    return history.getCreateHistory();
+  });
 
-historyRouter.get('/templates/:templateId/versions', requireAuth, async (req, res) => {
-  res.json(await history.listVersions(String(req.params.templateId)));
-});
+  app.get(apiPaths.templateVersions, { preHandler: requireAuth }, async (request) => {
+    return history.listVersions(String((request.params as { templateId: string }).templateId));
+  });
 
-historyRouter.get('/snapshots/:historyId', requireAuth, async (req, res) => {
-  res.json(await history.getSnapshot(String(req.params.historyId)));
-});
+  app.get(apiPaths.snapshotById, { preHandler: requireAuth }, async (request) => {
+    return history.getSnapshot(String((request.params as { historyId: string }).historyId));
+  });
+}

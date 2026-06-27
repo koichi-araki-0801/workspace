@@ -51,6 +51,21 @@ Python ビルドの venv 準備は共有ライブラリ `scripts/lib/build-pytho
 | `pnpm run test` | 単体テスト一式 |
 | `pnpm run check:comments` | コメント規約・スクリプト配置の機械検査 |
 | `pnpm run knip` | 未使用 export / 依存の検出（`knip.json`） |
-| `pnpm run ci` | CI 集約（pre-push でも実行） |
+| `pnpm run ci` | CI 集約（全領域＋coverage 85% 閾値ゲート） |
+| `pnpm run ci:affected` | 変更領域だけ CI を実行（`scripts/ci-affected.mjs`。**pre-push で実行**） |
+| `pnpm run ci:editor` / `ci:pie-chart` / `ci:graph-editor` | 領域別 CI を手動実行 |
 
 その他のコマンドは各 `package.json` の `scripts` を参照。
+
+### CI の分割と coverage ゲート
+
+CI は領域（`editor` = shared+server+web / `pie-chart` / `graph-editor`）単位で分割できる。
+`pnpm run ci:<領域>` で手動部分実行、`pnpm run ci:affected` は `git diff`（既定で現ブランチ upstream 基準。
+`--base <ref>` / `--all` / `--dry-run`(計画のみ表示) / 環境変数 `CI_AFFECTED_BASE` で上書き可）から
+変更領域を判定して該当領域だけ走らせる。
+`.husky/pre-push` はこの affected 方式で push を高速化する。領域に紐付かない共有変更（`package.json` /
+lockfile / 各種 config）を検出した場合はフル `ci` にフォールバックする。
+
+> **注意:** 領域別 / affected run は速度優先で **coverage 85% 閾値ゲートを通さない**
+> （vitest の coverage はラン全体で 1 つしか持てず、領域だけ走らせると他領域が 0% 扱いで落ちるため）。
+> 85% ゲートはフル `pnpm run ci` と GitHub Actions（`test:coverage`）が担保する。pre-push 後の GHA で必ず掛かる。

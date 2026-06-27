@@ -1,11 +1,11 @@
 // =============================================================================
-// errorHandler.ts — 集中エラーハンドリングミドルウェア
+// errorHandler.ts — 集中エラーハンドリングミドルウェア(Fastify setErrorHandler)
 // =============================================================================
-// ルートハンドラは `throw` するだけでよい(Express 5 は async の throw を自動でここへ
-// 転送する)。この 1 箇所で失敗を共有の `AppError` 形へ正規化し、HTTP ステータスを決める。
+// ルートハンドラ/preHandler は `throw` するだけでよい(Fastify は async の throw を自動で
+// ここへ転送する)。この 1 箇所で失敗を共有の `AppError` 形へ正規化し、HTTP ステータスを決める。
 // ユーザ向け `message` は常に表示して安全。技術的な `cause` はログのみで、送出しない。
 import { type AppError, type AppErrorKind, toAppError } from '@editor/shared';
-import type { ErrorRequestHandler } from 'express';
+import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
 
 /** ドメインエラーの `kind` を HTTP ステータスコードへ対応づける。 */
 export function statusForKind(kind: AppErrorKind): number {
@@ -30,18 +30,22 @@ export function statusForKind(kind: AppErrorKind): number {
 /** クライアント安全なエラーボディ。共有 `AppError` からログ専用の `cause` を除いたもの。 */
 type ErrorBody = Pick<AppError, 'kind' | 'message' | 'code'>;
 
-export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
-  // ヘッダ送出済み(例: ストリーム配信中の PDF が途中で失敗)の場合は Express 既定の
-  // ハンドラへ委譲する。既定ハンドラは接続を中断する。
-  if (res.headersSent) {
-    next(err);
+export function errorHandler(
+  err: FastifyError,
+  request: FastifyRequest,
+  reply: FastifyReply,
+): void {
+  // ヘッダ送出済み(例: ストリーム配信中の PDF が途中で失敗、または hijack 済みの proxy)の
+  // 場合は応答へ介入できない。ログだけ残して return する(send すると二重送出になる)。
+  if (reply.raw.headersSent || reply.sent) {
+    request.log.error({ err }, 'ヘッダ送出後のエラー — 応答済みのため送出しません');
     return;
   }
 
   const appError = toAppError(err);
 
-  // express 本体/`body-parser`(http-errors)が投げるエラーは数値 `status`/`statusCode` を持つ
-  // (例: 不正 JSON=400 `entity.parse.failed`、本文超過=413 `entity.too.large`)。AppError の
+  // Fastify 本体/コンテンツ型パーサ(http-errors 系)が投げるエラーは数値 `status`/`statusCode`
+  // を持つ(例: 不正 JSON=400 `FST_ERR_CTP_INVALID_JSON_SYNTAX`、本文超過=413)。AppError の
   // kind だけで判定すると一律 500 になり HTTP 意味論を誤るため、これらは元の 4xx を尊重する。
   const httpStatus =
     (err as { status?: unknown; statusCode?: unknown })?.status ??
@@ -52,9 +56,9 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
       : statusForKind(appError.kind);
 
   // 完全なエラー(`cause` 含む)をログに出すが、クライアントには決して漏らさない。
-  req.log?.error({ err, kind: appError.kind, status }, appError.message);
+  request.log.error({ err, kind: appError.kind, status }, appError.message);
 
   const body: ErrorBody = { kind: appError.kind, message: appError.message };
   if (appError.code) body.code = appError.code;
-  res.status(status).json(body);
-};
+  reply.code(status).send(body);
+}

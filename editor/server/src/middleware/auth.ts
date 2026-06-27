@@ -1,62 +1,43 @@
 // =============================================================================
-// auth.ts — 認証 / 認可ミドルウェア(phase 2)
+// auth.ts — 認証 / 認可ミドルウェア(phase 2, Fastify preHandler フック)
 // =============================================================================
-// `requireAuth` はセッション cookie → DB セッション → `req.user` を解決する(無ければ 401)。
-// `requireAdmin` はさらに admin ロールを強制する(403 = forbidden)。
+// `requireAuth` はセッション cookie → DB セッション → `request.user` を解決する(無ければ 401)。
+// `requireAdmin` はさらに admin ロールを強制する(403 = forbidden)。preHandler 配列の順に
+// 実行されるので `[requireAuth, requireAdmin]` の順で適用する。
 // 公開ルート(login / health / init-password)はこれらをスキップする。OpenAPI の
 // `security: []` 指定(`document.ts`)と対応する。
 import { forbidden, type User, unauthorized } from '@editor/shared';
-import type { NextFunction, Request, Response } from 'express';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { getSessionUser, sessionIdFrom } from '../auth/session.js';
 import { config } from '../config.js';
 
-declare global {
-  namespace Express {
-    interface Request {
-      /** `requireAuth` がセッション cookie から解決して埋める。 */
-      user?: User;
-    }
+declare module 'fastify' {
+  interface FastifyRequest {
+    /** `requireAuth` がセッション cookie から解決して埋める(`app.ts` で decorate)。 */
+    user?: User;
   }
 }
 
 /** ログイン中ユーザをセッション cookie から解決する(未ログイン/失効時は null)。 */
-export async function loadUser(req: Request): Promise<User | null> {
+export async function loadUser(req: FastifyRequest): Promise<User | null> {
   const sid = sessionIdFrom(req.headers.cookie);
   if (!sid) return null;
   return getSessionUser(sid);
 }
 
-export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
+export async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
   // ローカルモード(DB/セッション無し)ではデータ系ルートを開放する。web は
   // localStorage を使い呼び出さないため。PDF/generate はそのまま動く。
-  if (!config.requireAuth) {
-    next();
-    return;
-  }
-  try {
-    const user = await loadUser(req);
-    if (!user) throw unauthorized('ログインが必要です');
-    if (user.disabled) throw unauthorized('このアカウントは無効化されています');
-    req.user = user;
-    next();
-  } catch (e) {
-    next(e);
-  }
+  if (!config.requireAuth) return;
+  const user = await loadUser(request);
+  if (!user) throw unauthorized('ログインが必要です');
+  if (user.disabled) throw unauthorized('このアカウントは無効化されています');
+  request.user = user;
 }
 
 /** `requireAuth` の後に実行する前提。admin ロールを強制する。 */
-export function requireAdmin(req: Request, _res: Response, next: NextFunction): void {
-  if (!config.requireAuth) {
-    next();
-    return;
-  }
-  if (!req.user) {
-    next(unauthorized('ログインが必要です'));
-    return;
-  }
-  if (req.user.role !== 'admin') {
-    next(forbidden('管理者権限が必要です'));
-    return;
-  }
-  next();
+export async function requireAdmin(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
+  if (!config.requireAuth) return;
+  if (!request.user) throw unauthorized('ログインが必要です');
+  if (request.user.role !== 'admin') throw forbidden('管理者権限が必要です');
 }

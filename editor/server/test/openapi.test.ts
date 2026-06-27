@@ -1,5 +1,10 @@
+import { apiPaths, toOpenApiPath } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import { buildOpenApiDocument } from '../src/openapi/document.js';
+
+// OpenAPI document に意図的に未記載のパス(設計ギャップ)。現状は無し。将来パスを先に
+// 共有定数へ足して document を後追いにする場合のみ、ここへ一時的に列挙する。
+const KNOWN_OPENAPI_GAPS: readonly string[] = [];
 
 describe('openapi document', () => {
   const doc = buildOpenApiDocument();
@@ -10,26 +15,43 @@ describe('openapi document', () => {
   });
 
   it('covers the full repository contract across all tags', () => {
+    // 代表パスは正典 `apiPaths` から OpenAPI 形へ導出する(手書きのパス文字列を排除)。
     const representativePaths = [
-      '/health',
-      '/auth/login',
-      '/auth/me',
-      '/templates',
-      '/templates/{id}',
-      '/templates/{id}/draft',
-      '/generate',
-      '/funds/{fundCode}/sample-data',
-      '/parts',
-      '/templates/{templateId}/part-history',
-      '/history/edit',
-      '/snapshots/{historyId}',
-      '/build',
-      '/preview',
-      '/users',
-      '/users/{id}',
-    ];
+      apiPaths.health,
+      apiPaths.authLogin,
+      apiPaths.authMe,
+      apiPaths.templates,
+      apiPaths.templateById,
+      apiPaths.templateDraft,
+      apiPaths.generate,
+      apiPaths.fundSampleData,
+      apiPaths.parts,
+      apiPaths.partHistory,
+      apiPaths.historyEdit,
+      apiPaths.snapshotById,
+      apiPaths.build,
+      apiPaths.preview,
+      apiPaths.users,
+      apiPaths.userById,
+    ].map(toOpenApiPath);
     for (const p of representativePaths) {
       expect(doc.paths, `missing path ${p}`).toHaveProperty([p]);
+    }
+  });
+
+  it('documents every canonical path except the known gaps', () => {
+    // 正典の全パスが document に載っていることを保証し、漏れ(例: notes)を CI で可視化する。
+    const documented = new Set(Object.keys(doc.paths ?? {}));
+    const missing = Object.values(apiPaths)
+      .filter((template) => !KNOWN_OPENAPI_GAPS.includes(template))
+      .filter((template) => !documented.has(toOpenApiPath(template)));
+    expect(missing, `paths missing from OpenAPI document: ${missing.join(', ')}`).toEqual([]);
+    // ギャップが解消(document に追記)されたら allowlist からも外すよう促す。
+    for (const gap of KNOWN_OPENAPI_GAPS) {
+      expect(
+        documented.has(toOpenApiPath(gap)),
+        `gap ${gap} is now documented; remove it from KNOWN_OPENAPI_GAPS`,
+      ).toBe(false);
     }
   });
 

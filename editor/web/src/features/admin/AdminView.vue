@@ -10,10 +10,12 @@ import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Card from '@/components/ui/Card.vue';
 import { confirm } from '@/components/ui/confirm';
+import FormField from '@/components/ui/FormField.vue';
 import Input from '@/components/ui/Input.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import TableContainer from '@/components/ui/TableContainer.vue';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, tableMessageCell } from '@/components/ui/table';
 import { toastError, toastSuccess } from '@/components/ui/toast';
 import { ROLE_LABELS } from '@/lib/labels';
 import { useAsyncResult } from '@/lib/useAsyncResult';
@@ -109,7 +111,7 @@ async function resetPw(u: User) {
     <Card class="p-4">
       <h3 class="mb-3 text-sm font-semibold">ユーザー追加</h3>
       <div class="flex flex-wrap items-start gap-3">
-        <div class="min-w-[180px] flex-1 space-y-1.5">
+        <FormField>
           <Label for="new-username">ユーザーID <span class="text-destructive">*</span></Label>
           <Input
             id="new-username"
@@ -119,8 +121,8 @@ async function resetPw(u: User) {
             @input="errors.username = undefined"
           />
           <p v-if="errors.username" class="text-xs text-destructive">{{ errors.username }}</p>
-        </div>
-        <div class="min-w-[180px] flex-1 space-y-1.5">
+        </FormField>
+        <FormField>
           <Label for="new-displayname">表示名 <span class="text-destructive">*</span></Label>
           <Input
             id="new-displayname"
@@ -130,16 +132,16 @@ async function resetPw(u: User) {
             @input="errors.displayName = undefined"
           />
           <p v-if="errors.displayName" class="text-xs text-destructive">{{ errors.displayName }}</p>
-        </div>
-        <div class="min-w-[140px] space-y-1.5">
+        </FormField>
+        <FormField width="xs" :grow="false">
           <Label for="new-role">権限</Label>
           <Select v-model="form.role" :options="roleOptions" />
-        </div>
+        </FormField>
         <Button class="mt-6" @click="addUser"><UserPlus class="h-4 w-4" /> 追加</Button>
       </div>
     </Card>
 
-    <div class="overflow-hidden rounded-lg border bg-card">
+    <TableContainer>
       <Table class="table-fixed">
         <TableHeader>
           <TableRow>
@@ -171,12 +173,12 @@ async function resetPw(u: User) {
             </TableCell>
           </TableRow>
           <TableRow v-if="vms.length === 0">
-            <TableCell colspan="5" class="py-8 text-center text-muted-foreground">
+            <TableCell colspan="5" :class="tableMessageCell()">
               ユーザーがいません
             </TableCell>
           </TableRow>
         </TableBody>
       </Table>
-    </div>
+    </TableContainer>
   </div>
 </template>

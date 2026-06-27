@@ -27,9 +27,25 @@ type Ctx = Record<string, unknown>;
 // テキストは chip の可視ラベルになり, HTML エスケープは自前で行うため。
 const evalEnv = new nunjucks.Environment(undefined, { autoescape: false, throwOnUndefined: false });
 
+// コンパイル結果を *ソース文字列* をキーにキャッシュする。`renderString` は呼ぶたびに
+// テンプレートをコンパイルし直すため, ループ展開(同じ `{{ expr }}` を要素数ぶん評価)で
+// O(要素数 x 式数)のコンパイルが走っていた。ソースは決定的なので, コンパイルを 1 回に
+// 抑えても出力は不変(`renderString` は内部で都度 compile + render するだけ)。
+const tplCache = new Map<string, ReturnType<typeof nunjucks.compile>>();
+
+/** `src`(決定的な nunjucks テンプレート)を compile キャッシュ経由で `ctx` に対し評価する。 */
+function render(src: string, ctx: Ctx): string {
+  let tpl = tplCache.get(src);
+  if (!tpl) {
+    tpl = nunjucks.compile(src, evalEnv);
+    tplCache.set(src, tpl);
+  }
+  return tpl.render(ctx);
+}
+
 function evalExpr(expr: string, ctx: Ctx): string {
   try {
-    return evalEnv.renderString(`{{ ${expr} }}`, ctx);
+    return render(`{{ ${expr} }}`, ctx);
   } catch {
     return '';
   }
@@ -37,7 +53,7 @@ function evalExpr(expr: string, ctx: Ctx): string {
 
 function evalCond(cond: string, ctx: Ctx): boolean {
   try {
-    return evalEnv.renderString(`{% if ${cond} %}1{% else %}0{% endif %}`, ctx).trim() === '1';
+    return render(`{% if ${cond} %}1{% else %}0{% endif %}`, ctx).trim() === '1';
   } catch {
     return false;
   }
@@ -45,7 +61,7 @@ function evalCond(cond: string, ctx: Ctx): boolean {
 
 function evalArray(expr: string, ctx: Ctx): unknown[] {
   try {
-    const v = JSON.parse(evalEnv.renderString(`{{ (${expr}) | dump }}`, ctx));
+    const v = JSON.parse(render(`{{ (${expr}) | dump }}`, ctx));
     return Array.isArray(v) ? v : [];
   } catch {
     return [];

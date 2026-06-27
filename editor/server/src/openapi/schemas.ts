@@ -201,6 +201,25 @@ export const RecordPartChangeRequest = z
   })
   .meta({ id: 'RecordPartChangeRequest' });
 
+/** パーツ単位の作業メモ(版インスタンス=templateId 単位)。`@editor/shared` の `PartNote` に対応。 */
+export const PartNote = z
+  .object({
+    templateId: z.string().meta({ description: '版インスタンス ID(= TemplateMeta.id)' }),
+    pathKey: z.string().meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+    content: z.string().meta({ description: 'メモ本文(空文字はメモ無し)' }),
+    updatedAt: z.string(),
+    updatedBy: z.string(),
+  })
+  .meta({ id: 'PartNote' });
+
+/** メモ保存のボディ。`templateId` はパスから取る。`content` 空文字は削除に倒す。 */
+export const SaveNoteRequest = z
+  .object({
+    pathKey: z.string().min(1).meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+    content: z.string().meta({ description: '空文字は「メモ無し」= 削除' }),
+  })
+  .meta({ id: 'SaveNoteRequest' });
+
 // ── 5. Dropdown — カスケードドロップダウンの query / options ──
 
 /** カスケードドロップダウンのクエリパラメータ(すべて任意)。 */

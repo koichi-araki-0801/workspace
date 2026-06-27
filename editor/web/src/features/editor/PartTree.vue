@@ -3,7 +3,8 @@
 // PartTree.vue — 左ペイン(編集を許可 / パーツを追加トグル + catalog)
 // =============================================================================
 import type { PartCatalogItem } from '@editor/shared';
-import { Check, Lock, Wand2 } from '@lucide/vue';
+import { Lock, Wand2 } from '@lucide/vue';
+import SelectableRow from '@/components/ui/SelectableRow.vue';
 import PartCatalog from './PartCatalog.vue';
 
 const allowAdd = defineModel<boolean>('allowAdd', { default: false });
@@ -19,48 +20,14 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] 
     </div>
 
     <!-- トグル: 編集を許可 -->
-    <button
-      type="button"
-      class="flex items-start gap-2.5 border-b px-3.5 py-3 text-left transition-colors"
-      :class="allowEdit ? 'bg-primary-soft/50' : ''"
-      :aria-pressed="allowEdit"
-      @click="allowEdit = !allowEdit"
-    >
-      <span
-        class="mt-px grid h-[18px] w-[18px] shrink-0 place-items-center rounded-[5px] border-[1.5px] transition-colors"
-        :class="allowEdit ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-card'"
-      >
-        <Check v-if="allowEdit" class="h-3 w-3" />
-      </span>
-      <span class="flex-1">
-        <span class="block text-[12.5px] font-semibold text-foreground">編集を許可</span>
-        <span class="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
-          {{ allowEdit ? 'キャンバスでテキスト編集・並べ替え・レイアウト調整ができます' : 'キャンバスは閲覧のみ（選択は可能）' }}
-        </span>
-      </span>
-    </button>
+    <SelectableRow :checked="allowEdit" title="編集を許可" @toggle="allowEdit = !allowEdit">
+      {{ allowEdit ? 'キャンバスでテキスト編集・並べ替え・レイアウト調整ができます' : 'キャンバスは閲覧のみ（選択は可能）' }}
+    </SelectableRow>
 
     <!-- トグル: パーツを追加 -->
-    <button
-      type="button"
-      class="flex items-start gap-2.5 border-b px-3.5 py-3 text-left transition-colors"
-      :class="allowAdd ? 'bg-primary-soft/50' : ''"
-      :aria-pressed="allowAdd"
-      @click="allowAdd = !allowAdd"
-    >
-      <span
-        class="mt-px grid h-[18px] w-[18px] shrink-0 place-items-center rounded-[5px] border-[1.5px] transition-colors"
-        :class="allowAdd ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-card'"
-      >
-        <Check v-if="allowAdd" class="h-3 w-3" />
-      </span>
-      <span class="flex-1">
-        <span class="block text-[12.5px] font-semibold text-foreground">パーツを追加</span>
-        <span class="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
-          {{ allowAdd ? '分類から選んでパーツを挿入できます' : 'チェックを入れると追加メニューを表示' }}
-        </span>
-      </span>
-    </button>
+    <SelectableRow :checked="allowAdd" title="パーツを追加" @toggle="allowAdd = !allowAdd">
+      {{ allowAdd ? '分類から選んでパーツを挿入できます' : 'チェックを入れると追加メニューを表示' }}
+    </SelectableRow>
 
     <!-- 追加 OFF: ロック中のヒント -->
     <div

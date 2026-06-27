@@ -12,6 +12,8 @@ export default defineConfig({
   // coverage はルート vitest.config.ts に一本化(集約・閾値 85%)。ここは environment/globals と
   // 「テスト時 @editor/shared を source 解決」する alias(上記)のみを担う。
   test: {
+    // ルート vitest.config.ts の `projects` 集約で `--project server` 選別を効かせるための名前。
+    name: 'server',
     environment: 'node',
     globals: true,
   },
