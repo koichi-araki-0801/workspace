@@ -143,6 +143,14 @@ export const K = {
   sessionEpoch: 'editor:session:epoch',
   userOverride: 'editor:users',
   passwords: 'editor:pw',
+  // パーツ単位メモ(版インスタンス単位)。`Record<templateId, Record<pathKey, PartNote>>`。
+  // templateId(委託会社/ファンドコード/基準日/版種を内包)単位で、別の基準日/版種の版へは
+  // 引き継がない。版(構造)に依存する working-state なので `WORKING_KEYS` に含め、スキーマ
+  // bump(版種リネーム等)で破棄する。
+  notes: 'editor:notes',
+  // Undo/Redo スナップショットスタックの永続ミラー。`Record<templateId, {past, future}>`。
+  // クライアント編集の関心事で揮発性が高く、`WORKING_KEYS` に含めて bump で破棄してよい。
+  undoStacks: 'editor:session:undo',
 } as const;
 
 export const META_KEY = 'editor:meta';
@@ -152,7 +160,7 @@ export const META_KEY = 'editor:meta';
  * 変更(例: 版種リネーム + report 再テーマ)を入れたら bump する。`migrateStore()` が
  * bump ごとに一度 working-state をクリアする。
  */
-const SCHEMA_VERSION = '3';
+const SCHEMA_VERSION = '4';
 const SCHEMA_KEY = 'editor:schemaVersion';
 
 /** fixtures 由来の working-state キー群。スキーマ版 bump 時にクリアする。 */
@@ -167,6 +175,8 @@ const WORKING_KEYS = [
   K.pdfHist,
   K.createHist,
   K.partHist,
+  K.notes, // メモ単位を fundCode→templateId へ変更。旧形式は非可逆なので bump で一掃する
+  K.undoStacks,
   'editor:seed:compare', // compare-seed ガード。現行 id で再 seed させるため
 ] as const;
 

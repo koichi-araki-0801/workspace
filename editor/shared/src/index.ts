@@ -117,12 +117,15 @@ export interface CreateHistoryEntry {
   basedOnTemplateId?: string;
 }
 
-/** パーツ (GrapesJS コンポーネント) 別の変更履歴。右ペインに表示する。 */
+/** パーツ別の変更履歴。右ペインに表示する。 */
 export interface PartHistoryEntry {
   id: string;
   templateId: string;
-  /** 安定した GrapesJS コンポーネント id。 */
-  partId: string;
+  /**
+   * 版を跨いで安定なパーツ構造パスキー(`pageAnchor/partAnchor`)。GrapesJS のコンポーネント
+   * id はリロード/版再生成で再採番され不安定なため、構造キー(`partKey.ts`)で紐づける。
+   */
+  partKey: string;
   user: string;
   timestamp: string;
   change: string;
@@ -207,6 +210,25 @@ export interface PartCatalogItem {
   updatedBy: string | null;
   /** キャンバスに挿入するGrapesJS用HTML断片。 */
   content: string;
+}
+
+/**
+ * パーツ単位の作業メモ(版インスタンス単位)。`templateId`(= 委託会社/ファンドコード/基準日/
+ * 版種の4属性を内包する版インスタンス)配下で、パーツ構造パスキー(`pathKey`)にメモ本文を
+ * 紐づける。別の基準日/版種の版へは引き継がない(版ごとに独立)。キー算出は `web` の
+ * `partKey.ts` の `partPathKeyFor`。
+ */
+export interface PartNote {
+  /** 版インスタンス id(= `TemplateMeta.id`)。メモは版種/基準日を含む版単位で独立。 */
+  templateId: string;
+  /** パーツ構造パスキー(`pageAnchor/partAnchor`)。同一版内でパーツを安定に指す。 */
+  pathKey: string;
+  /** メモ本文(自由テキスト)。空文字は「メモ無し」と同義(保存時は削除に倒す)。 */
+  content: string;
+  /** 最終更新日時(ISO 文字列)。 */
+  updatedAt: string;
+  /** 最終更新者の表示名。 */
+  updatedBy: string;
 }
 
 /** カスケード問い合わせ: 既知の分類を入力、残りの候補を出力。 */
@@ -305,6 +327,7 @@ export * from './errors.js';
 // 集約別のリポジトリ契約 (web local と REST が実装)。
 export * from './repositories/AuthRepository.js';
 export * from './repositories/HistoryRepository.js';
+export * from './repositories/NoteRepository.js';
 export * from './repositories/PartRepository.js';
 export * from './repositories/TemplateRepository.js';
 export * from './repositories/UserRepository.js';

@@ -125,14 +125,14 @@ export async function recordCreate(
 
 export async function recordPartChange(
   templateId: string,
-  partId: string,
+  partKey: string,
   change: string,
   loginId: string,
 ): Promise<void> {
   const entry: PartHistoryEntry = {
     id: `pt-${randomUUID()}`,
     templateId,
-    partId,
+    partKey,
     user: loginId,
     timestamp: new Date().toISOString(),
     change,
@@ -140,10 +140,8 @@ export async function recordPartChange(
   await appendHistory('part', entry);
 }
 
-export async function getPartHistory(
-  templateId: string,
-  partId: string,
-): Promise<PartHistoryEntry[]> {
+/** 指定版インスタンスの全パーツ履歴を返す(`partKey` 絞りは呼び出し側で行う)。 */
+export async function listPartHistory(templateId: string): Promise<PartHistoryEntry[]> {
   const all = await readHistory<PartHistoryEntry>('part');
-  return all.filter((e) => e.templateId === templateId && e.partId === partId);
+  return all.filter((e) => e.templateId === templateId);
 }

@@ -27,16 +27,14 @@ export const restPartRepo: PartRepository = {
       }),
     ),
 
-  getPartHistory: (templateId: string, partId: string) =>
-    attemptRest(() =>
-      apiFetch<PartHistoryEntry[]>(`/templates/${enc(templateId)}/parts/${enc(partId)}/history`),
-    ),
+  listPartHistory: (templateId: string) =>
+    attemptRest(() => apiFetch<PartHistoryEntry[]>(`/templates/${enc(templateId)}/part-history`)),
 
-  recordPartChange: (templateId: string, partId: string, change: string) =>
+  recordPartChange: (templateId: string, partKey: string, change: string) =>
     attemptRest(() =>
-      apiFetch<void>(`/templates/${enc(templateId)}/parts/${enc(partId)}/history`, {
+      apiFetch<void>(`/templates/${enc(templateId)}/part-history`, {
         method: 'POST',
-        body: { change },
+        body: { partKey, change },
       }),
     ),
 };

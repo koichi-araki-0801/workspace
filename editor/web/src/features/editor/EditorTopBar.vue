@@ -62,8 +62,9 @@ const attrItems = (a: TemplateAttributes) => [
 
 <template>
   <header
-    class="z-30 flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-3.5 gap-y-2 border-b bg-card px-4 py-1.5 shadow-sm print:hidden"
+    class="z-30 flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b bg-card px-4 py-1.5 shadow-sm print:hidden"
   >
+    <!-- ── 左ゾーン: 一覧へ戻る + 文書情報(タイトル / 属性チップ) ── -->
     <BackButton :fallback="{ name: 'edit' }" aria-label="一覧へ戻る" />
     <div class="h-[26px] w-px shrink-0 bg-border" />
 
@@ -72,93 +73,92 @@ const attrItems = (a: TemplateAttributes) => [
         <span class="truncate text-[15px] font-bold">{{ fundName }}</span>
         <Badge variant="warning" class="shrink-0 whitespace-nowrap">レイアウト調整</Badge>
       </div>
-      <div v-if="attributes" class="mt-px flex gap-3.5">
-        <span v-for="it in attrItems(attributes)" :key="it.k" class="whitespace-nowrap text-[11.5px] text-muted-foreground">
-          {{ it.k }} <span class="mono font-semibold text-foreground">{{ it.v }}</span>
+      <!-- 属性はラベル小 + 値強調のチップに。テキスト羅列より値の判別が速い -->
+      <div v-if="attributes" class="mt-0.5 flex flex-wrap items-center gap-1.5">
+        <span
+          v-for="it in attrItems(attributes)"
+          :key="it.k"
+          class="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-muted px-1.5 py-px text-[10.5px]"
+        >
+          <span class="text-muted-foreground">{{ it.k }}</span>
+          <span class="mono font-semibold tabular-nums text-foreground">{{ it.v }}</span>
         </span>
       </div>
     </div>
 
     <span class="flex-1" />
 
-    <!-- undo / redo -->
-    <div class="flex shrink-0 items-center gap-1">
+    <!-- ── 中央ゾーン: 表示操作(元に戻す/やり直す・ズーム・ページ・表示切替・境界 guide)。
+         関連操作を 1 つの面に束ね、内部だけ細い区切りで小分けする(等間隔罫線の平板さを解消)。
+         グループ全体が `shrink-0` なので狭幅では塊ごと次行へ折り返す(ズーム崩れの回避)。 -->
+    <div class="flex shrink-0 flex-wrap items-center gap-1 rounded-lg bg-muted/50 px-1.5 py-1">
+      <!-- 元に戻す / やり直す -->
       <Button variant="ghost" size="icon" title="元に戻す (⌘Z)" :disabled="!canUndo" @click="emit('undo')">
         <Undo2 class="h-[17px] w-[17px]" />
       </Button>
       <Button variant="ghost" size="icon" title="やり直す (⇧⌘Z)" :disabled="!canRedo" @click="emit('redo')">
         <Redo2 class="h-[17px] w-[17px]" />
       </Button>
-    </div>
-    <div class="h-[26px] w-px shrink-0 bg-border" />
 
-    <!-- zoom -->
-    <div class="flex shrink-0 items-center gap-1.5">
-      <Button variant="outline" size="icon" class="h-7 w-7" title="縮小" @click="emit('zoomOut')">
+      <div class="mx-0.5 h-5 w-px bg-border/70" />
+
+      <!-- ズーム -->
+      <Button variant="ghost" size="icon" title="縮小" @click="emit('zoomOut')">
         <Minus class="h-4 w-4" />
       </Button>
       <span class="w-[42px] text-center text-[12.5px] tabular-nums text-muted-foreground">
         {{ Math.round(zoom * 100) }}%
       </span>
-      <Button variant="outline" size="icon" class="h-7 w-7" title="拡大" @click="emit('zoomIn')">
+      <Button variant="ghost" size="icon" title="拡大" @click="emit('zoomIn')">
         <Plus class="h-4 w-4" />
       </Button>
-    </div>
-    <div class="h-[26px] w-px shrink-0 bg-border" />
 
-    <!-- ページ送り(1 ページ表示時、複数ページのときだけ出す) -->
-    <div v-if="singlePageMode && pageCount > 1" class="flex shrink-0 items-center gap-1.5">
+      <div class="mx-0.5 h-5 w-px bg-border/70" />
+
+      <!-- ページ送り(1 ページ表示時、複数ページのときだけ出す) -->
+      <template v-if="singlePageMode && pageCount > 1">
+        <Button variant="ghost" size="icon" title="前のページ" :disabled="currentPage <= 1" @click="emit('prevPage')">
+          <ChevronLeft class="h-4 w-4" />
+        </Button>
+        <span class="min-w-[46px] text-center text-[12.5px] tabular-nums text-muted-foreground">
+          {{ currentPage }} / {{ pageCount }}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          title="次のページ"
+          :disabled="currentPage >= pageCount"
+          @click="emit('nextPage')"
+        >
+          <ChevronRight class="h-4 w-4" />
+        </Button>
+        <div class="mx-0.5 h-5 w-px bg-border/70" />
+      </template>
+
+      <!-- 1 ページ表示 / 全ページ連続表示の切替 -->
       <Button
-        variant="outline"
+        variant="ghost"
         size="icon"
-        class="h-7 w-7"
-        title="前のページ"
-        :disabled="currentPage <= 1"
-        @click="emit('prevPage')"
+        :title="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
+        :class="singlePageMode ? 'text-primary' : ''"
+        @click="emit('toggleSinglePage')"
       >
-        <ChevronLeft class="h-4 w-4" />
+        <FileText class="h-[17px] w-[17px]" />
       </Button>
-      <span class="min-w-[46px] text-center text-[12.5px] tabular-nums text-muted-foreground">
-        {{ currentPage }} / {{ pageCount }}
-      </span>
+
+      <!-- ページ境界 guide のトグル -->
       <Button
-        variant="outline"
+        variant="ghost"
         size="icon"
-        class="h-7 w-7"
-        title="次のページ"
-        :disabled="currentPage >= pageCount"
-        @click="emit('nextPage')"
+        :title="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
+        :class="showPageGuides ? 'text-primary' : ''"
+        @click="emit('togglePageGuides')"
       >
-        <ChevronRight class="h-4 w-4" />
+        <Rows3 class="h-[17px] w-[17px]" />
       </Button>
-      <div class="h-[26px] w-px shrink-0 bg-border" />
     </div>
 
-    <!-- 1 ページ表示 / 全ページ連続表示の切替 -->
-    <Button
-      variant="ghost"
-      size="icon"
-      :title="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
-      :class="singlePageMode ? 'text-primary' : ''"
-      @click="emit('toggleSinglePage')"
-    >
-      <FileText class="h-[17px] w-[17px]" />
-    </Button>
-    <div class="h-[26px] w-px shrink-0 bg-border" />
-
-    <!-- ページ境界 guide のトグル -->
-    <Button
-      variant="ghost"
-      size="icon"
-      :title="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
-      :class="showPageGuides ? 'text-primary' : ''"
-      @click="emit('togglePageGuides')"
-    >
-      <Rows3 class="h-[17px] w-[17px]" />
-    </Button>
-    <div class="h-[26px] w-px shrink-0 bg-border" />
-
-    <!-- autosave の状態表示 -->
+    <!-- ── 右ゾーン: 保存状態 + アクション(保存 / プレビュー) ── -->
     <span
       class="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12.5px]"
       :class="saveState === 'error' ? 'text-destructive' : 'text-muted-foreground'"

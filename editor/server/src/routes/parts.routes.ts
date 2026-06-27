@@ -34,19 +34,19 @@ partsRouter.get('/parts', requireAuth, async (req, res) => {
   res.json(await parts.listParts(toClassQuery(req.query as Record<string, unknown>)));
 });
 
-partsRouter.get('/templates/:templateId/parts/:partId/history', requireAuth, async (req, res) => {
-  res.json(await history.getPartHistory(String(req.params.templateId), String(req.params.partId)));
+partsRouter.get('/templates/:templateId/part-history', requireAuth, async (req, res) => {
+  res.json(await history.listPartHistory(String(req.params.templateId)));
 });
 
 partsRouter.post(
-  '/templates/:templateId/parts/:partId/history',
+  '/templates/:templateId/part-history',
   requireAuth,
   validate(RecordPartChangeRequest),
   async (req, res) => {
     const body = req.body as z.infer<typeof RecordPartChangeRequest>;
     await history.recordPartChange(
       String(req.params.templateId),
-      String(req.params.partId),
+      body.partKey,
       body.change,
       actor(req),
     );

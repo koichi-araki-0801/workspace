@@ -34,6 +34,7 @@ export default defineConfig({
         'editor/server/src/vivliostyle/previewManager.ts',
         // editor/web (UI/VM/Service/Repository 層)
         'editor/web/src/lib/jinjaMask.ts',
+        'editor/web/src/lib/blockKey.ts',
         'editor/web/src/lib/appError.ts',
         'editor/web/src/lib/useAsyncResult.ts',
         'editor/web/src/lib/format.ts',
@@ -51,6 +52,8 @@ export default defineConfig({
         'editor/web/src/features/editor/pageView.ts',
         'editor/web/src/features/editor/useSnapshotHistory.ts',
         'editor/web/src/features/editor/usePartEditHistory.ts',
+        'editor/web/src/features/editor/usePartNote.ts',
+        'editor/web/src/features/editor/partKey.ts',
         'editor/web/src/features/editor/useAutosave.ts',
         'editor/web/src/stores/editorSession.ts',
         'editor/web/src/features/compare/htmlBlockDiff.ts',
@@ -60,6 +63,7 @@ export default defineConfig({
         'editor/web/src/api/local/userRepo.ts',
         'editor/web/src/api/local/historyRepo.ts',
         'editor/web/src/api/local/partRepo.ts',
+        'editor/web/src/api/local/noteRepo.ts',
         // pie-chart (layout.ts / label_placement.ts / svg_export/* は verify_* が担当し対象外)
         'pie-chart/src/svg_geom.ts',
         'pie-chart/src/config.ts',

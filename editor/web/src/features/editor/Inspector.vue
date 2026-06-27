@@ -27,14 +27,17 @@ import {
   Eye,
   FileText,
   History,
+  Minus,
   PanelRight,
+  Plus,
   RotateCcw,
   SplitSquareVertical,
+  StickyNote,
   Table,
   Trash2,
   TrendingUp,
 } from '@lucide/vue';
-import { computed, reactive, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -46,6 +49,12 @@ const props = defineProps<{
   part: PartCatalogItem | null;
   geom: LayoutGeom | null;
   history: PartHistoryEntry[];
+  /** 全パーツ横断表示(未選択時)で各履歴行のパーツを示すラベル(`partKey` → `ページN・パーツM`)。 */
+  partLabels?: Map<string, string>;
+  /** 選択パーツの版を跨ぐメモ本文(`usePartNote`)。 */
+  note: string;
+  /** 選択がメモ対象キーへ解決できるか(不能なら入力を無効化)。 */
+  canNote: boolean;
   editMode: boolean;
   canUp: boolean;
   canDown: boolean;
@@ -58,14 +67,24 @@ const emit = defineEmits<{
   move: [-1 | 1];
   reset: [];
   del: [];
+  'update-note': [string];
 }>();
 
 const label = computed(() => props.part?.name ?? props.selected?.name ?? '');
 const group = computed(() => props.part?.classification.minorClass ?? props.selected?.name ?? '');
 
+// 修正履歴が複数パーツにまたがるか(= 未選択の「全パーツ表示」)。真のときだけ各行に
+// パーツ識別ラベルを併記する。単一パーツ選択時は全行同一で冗長なので付けない。
+const historySpansParts = computed(() => new Set(props.history.map((h) => h.partKey)).size > 1);
+/** 履歴行のパーツラベル。マップに無い(削除済み)パーツは控えめに示す。 */
+function partLabelOf(partKey: string): string {
+  return props.partLabels?.get(partKey) ?? '削除済みパーツ';
+}
+
 // ── 1. 折りたたみ状態 ──
 // 既定は「閲覧」相当(編集セクションを畳み履歴を開く)。`editMode` 連動で切り替える。
-const open = reactive({ size: false, margin: false, pagebreak: false, history: true });
+// `memo` は editMode 連動の対象外(注釈なので閲覧/編集どちらでも開いておく既定)。
+const open = reactive({ size: false, margin: false, pagebreak: false, memo: true, history: true });
 watch(
   () => props.editMode,
   (on) => {
@@ -90,6 +109,20 @@ watch(
   },
   { immediate: true, deep: true },
 );
+
+// ── 2b. メモ(版を跨ぐパーツ単位)のミラー ──
+// 入力中の文字列をローカル保持しつつ props.note(ストア値)と同期する。入力ごとに親へ
+// emit し、永続化は `usePartNote` 側で debounce される。
+const noteText = ref(props.note);
+watch(
+  () => props.note,
+  (v) => {
+    if (v !== noteText.value) noteText.value = v;
+  },
+);
+function onNoteInput() {
+  emit('update-note', noteText.value);
+}
 
 // ── 3. 編集ハンドラ ──
 const canAlign = () => !!props.geom && props.geom.widthPct < 100;
@@ -137,6 +170,15 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
     emit('apply', { [key]: n } as Partial<LayoutGeom>);
   }
 }
+
+// 数値の増減(ステッパーボタン / 上下キー)。現在のミラー値を起点に ±delta し、clamp と
+// emit は `commitNum` に委譲する(幅は 1%、余白は 1mm 刻み)。
+function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) {
+  if (!props.geom) return;
+  const cur = Math.round(Number(num[key]));
+  const base = Number.isNaN(cur) ? props.geom[key] : cur;
+  commitNum(key, String(base + delta));
+}
 </script>
 
 <template>
@@ -182,16 +224,24 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
           <div v-show="open.size" class="px-4 pb-3">
             <div class="ins-row">
               <span class="text-muted-foreground">幅</span>
-              <label v-if="editMode" class="ins-num">
+              <div v-if="editMode" class="ins-num">
+                <button type="button" class="ins-step" title="減らす" @click="stepNum('widthPct', -1)">
+                  <Minus class="h-3 w-3" />
+                </button>
                 <input
                   v-model="num.widthPct"
                   inputmode="numeric"
                   class="mono"
                   @blur="commitNum('widthPct', num.widthPct)"
                   @keydown.enter="onEnter"
+                  @keydown.up.prevent="stepNum('widthPct', 1)"
+                  @keydown.down.prevent="stepNum('widthPct', -1)"
                 />
                 <span class="ins-unit">%</span>
-              </label>
+                <button type="button" class="ins-step" title="増やす" @click="stepNum('widthPct', 1)">
+                  <Plus class="h-3 w-3" />
+                </button>
+              </div>
               <span v-else class="mono font-semibold tabular-nums">{{ geom.widthPct }} %</span>
             </div>
             <!-- 横の配置: 幅 100% では効かないため、幅 < 100% のときだけ出す -->
@@ -227,30 +277,46 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
           <div v-show="open.margin" class="px-4 pb-3">
             <div class="ins-row">
               <span class="text-muted-foreground">上の余白</span>
-              <label v-if="editMode" class="ins-num">
+              <div v-if="editMode" class="ins-num">
+                <button type="button" class="ins-step" title="減らす" @click="stepNum('marginTop', -1)">
+                  <Minus class="h-3 w-3" />
+                </button>
                 <input
                   v-model="num.marginTop"
                   inputmode="numeric"
                   class="mono"
                   @blur="commitNum('marginTop', num.marginTop)"
                   @keydown.enter="onEnter"
+                  @keydown.up.prevent="stepNum('marginTop', 1)"
+                  @keydown.down.prevent="stepNum('marginTop', -1)"
                 />
                 <span class="ins-unit">mm</span>
-              </label>
+                <button type="button" class="ins-step" title="増やす" @click="stepNum('marginTop', 1)">
+                  <Plus class="h-3 w-3" />
+                </button>
+              </div>
               <span v-else class="mono font-semibold tabular-nums">{{ geom.marginTop }} mm</span>
             </div>
             <div class="ins-row">
               <span class="text-muted-foreground">下の余白</span>
-              <label v-if="editMode" class="ins-num">
+              <div v-if="editMode" class="ins-num">
+                <button type="button" class="ins-step" title="減らす" @click="stepNum('marginBottom', -1)">
+                  <Minus class="h-3 w-3" />
+                </button>
                 <input
                   v-model="num.marginBottom"
                   inputmode="numeric"
                   class="mono"
                   @blur="commitNum('marginBottom', num.marginBottom)"
                   @keydown.enter="onEnter"
+                  @keydown.up.prevent="stepNum('marginBottom', 1)"
+                  @keydown.down.prevent="stepNum('marginBottom', -1)"
                 />
                 <span class="ins-unit">mm</span>
-              </label>
+                <button type="button" class="ins-step" title="増やす" @click="stepNum('marginBottom', 1)">
+                  <Plus class="h-3 w-3" />
+                </button>
+              </div>
               <span v-else class="mono font-semibold tabular-nums">{{ geom.marginBottom }} mm</span>
             </div>
           </div>
@@ -290,6 +356,29 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
           </div>
         </section>
 
+        <!-- ── メモ(版を跨いで継続) ── -->
+        <section class="border-b">
+          <button type="button" class="sec-head" @click="open.memo = !open.memo">
+            <component :is="open.memo ? ChevronDown : ChevronRight" class="h-3.5 w-3.5 opacity-70" />
+            <StickyNote class="h-3.5 w-3.5" /> メモ
+            <span class="flex-1" />
+            <Badge v-if="note" variant="secondary" class="h-[18px] py-0 text-[10.5px]">記入あり</Badge>
+          </button>
+          <div v-show="open.memo" class="px-4 pb-3.5">
+            <textarea
+              v-model="noteText"
+              :disabled="!canNote"
+              class="memo-area"
+              rows="4"
+              placeholder="このパーツへのメモ（版が変わっても継続）"
+              @input="onNoteInput"
+            />
+            <p class="mt-1 text-[11px] text-muted-foreground">
+              会社・ファンド単位で保存し、版（版種・基準日）が変わっても同じパーツに表示します。
+            </p>
+          </div>
+        </section>
+
         <!-- ── 修正履歴 ── -->
         <section :class="editMode ? 'border-b' : ''">
           <button type="button" class="sec-head" @click="open.history = !open.history">
@@ -312,6 +401,11 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
                   <span v-if="i < history.length - 1" class="mt-0.5 w-0.5 flex-1 bg-border" />
                 </div>
                 <div class="flex-1">
+                  <Badge
+                    v-if="historySpansParts"
+                    variant="secondary"
+                    class="mb-0.5 h-[16px] py-0 text-[10px] font-normal"
+                  >{{ partLabelOf(h.partKey) }}</Badge>
                   <div class="text-[12.5px] leading-snug text-foreground">{{ h.change }}</div>
                   <div class="mt-0.5 text-[11px] text-muted-foreground">{{ formatDateTime(h.timestamp) }} ・ {{ h.user }}</div>
                 </div>
@@ -368,21 +462,21 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
   font-size: 12.5px;
 }
 
-/* 数値入力(幅 / 余白) */
+/* 数値入力(幅 / 余白)。両端に増減ステッパーを置き、中央に値 + 単位を据える */
 .ins-num {
   display: inline-flex;
   height: 28px;
   align-items: center;
-  gap: 3px;
+  gap: 1px;
   border-radius: 7px;
   background: var(--muted);
-  padding: 0 8px;
+  padding: 0 2px;
 }
 .ins-num input {
-  width: 36px;
+  width: 40px;
   border: 0;
   background: transparent;
-  text-align: right;
+  text-align: center;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--foreground);
@@ -396,6 +490,47 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
 .ins-unit {
   font-size: 10px;
   color: var(--muted-foreground);
+}
+/* 増減ボタン(クリック / 入力欄の上下キーと同じ刻み) */
+.ins-step {
+  display: inline-flex;
+  height: 22px;
+  width: 22px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--muted-foreground);
+  transition:
+    background-color 0.12s,
+    color 0.12s;
+}
+.ins-step:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+/* メモ入力(版を跨ぐパーツ単位)。固定 UI スケールで常に読める(キャンバスズーム非依存) */
+.memo-area {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--foreground);
+  outline: none;
+}
+.memo-area:focus {
+  border-color: var(--primary);
+  background: var(--background);
+}
+.memo-area:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* 配置のセグメントボタン */

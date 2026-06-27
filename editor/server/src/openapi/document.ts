@@ -258,13 +258,13 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      '/templates/{templateId}/parts/{partId}/history': {
+      '/templates/{templateId}/part-history': {
         get: {
           tags: ['parts'],
-          summary: 'パーツ単位の編集履歴',
-          operationId: 'getPartHistory',
+          summary: 'パーツ単位の編集履歴(版インスタンス単位の全件)',
+          operationId: 'listPartHistory',
           requestParams: {
-            path: z.object({ templateId: z.string(), partId: z.string() }),
+            path: z.object({ templateId: z.string() }),
           },
           responses: {
             '200': json('パーツ履歴の配列', z.array(s.PartHistoryEntry)),
@@ -277,7 +277,7 @@ export function buildOpenApiDocument() {
           summary: 'パーツ単位の編集を記録',
           operationId: 'recordPartChange',
           requestParams: {
-            path: z.object({ templateId: z.string(), partId: z.string() }),
+            path: z.object({ templateId: z.string() }),
           },
           requestBody: { content: { 'application/json': { schema: s.RecordPartChangeRequest } } },
           responses: { '204': noContent('記録完了'), ...ERR_400, ...ERR_401 },

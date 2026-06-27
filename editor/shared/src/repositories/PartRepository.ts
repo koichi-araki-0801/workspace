@@ -15,7 +15,8 @@ export interface PartRepository {
     query: PartClassificationQuery,
   ): Promise<Result<PartClassificationOptions>>;
   listParts(query: PartClassificationQuery): Promise<Result<PartCatalogItem[]>>;
-  getPartHistory(templateId: string, partId: string): Promise<Result<PartHistoryEntry[]>>;
-  /** パーツ別編集履歴を 1 件追記する (id/user/timestamp は実装側で付与)。 */
-  recordPartChange(templateId: string, partId: string, change: string): Promise<Result<void>>;
+  /** 指定版インスタンスの全パーツ履歴を返す(`partKey` 絞りは呼び出し側で行う)。無ければ空配列。 */
+  listPartHistory(templateId: string): Promise<Result<PartHistoryEntry[]>>;
+  /** パーツ別編集履歴を 1 件追記する (id/user/timestamp は実装側で付与)。`partKey` は構造パスキー。 */
+  recordPartChange(templateId: string, partKey: string, change: string): Promise<Result<void>>;
 }

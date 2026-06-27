@@ -14,16 +14,19 @@ import {
 } from '@editor/shared';
 import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } from 'vue';
 import { onBeforeRouteLeave, useRouter } from 'vue-router';
+import { useNoteRepo } from '@/api/repositories';
 import { confirm } from '@/components/ui/confirm';
 import { toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
+import { partLabelMap, partPathKeyFor } from './partKey';
 import { useTemplateEditorService } from './services/templateEditorService';
 import { useAutosave } from './useAutosave';
 import { useGrapes } from './useGrapes';
 import { usePartEditHistory } from './usePartEditHistory';
+import { usePartNote } from './usePartNote';
 import { useSnapshotHistory } from './useSnapshotHistory';
 
 /**
@@ -56,7 +59,18 @@ export function useTemplateEditor(
 
   const template = ref<Template | null>(null);
   const fundName = ref('');
-  const partHistory = ref<PartHistoryEntry[]>([]);
+  /** 当該版インスタンス(templateId)の全パーツ履歴(永続層)。onMounted で一度ロードする。 */
+  const allPartHistory = ref<PartHistoryEntry[]>([]);
+  /**
+   * 現在の選択パーツの永続履歴。版インスタンス全件から安定構造キー(`currentNoteKey`)で絞る。
+   * GrapesJS の選択/改訂で再評価させるため reactive 値を読む。
+   */
+  const partHistory = computed<PartHistoryEntry[]>(() => {
+    void g.selected.value;
+    void g.revision.value;
+    const key = currentNoteKey();
+    return key ? allPartHistory.value.filter((e) => e.partKey === key) : [];
+  });
   /** catalog で最後にクリックされた part(挿入時のプレビュー)。 */
   const previewPart = ref<PartCatalogItem | null>(null);
   /** 現在の canvas 選択から解決した part(catalog part でなければ null)。 */
@@ -88,6 +102,18 @@ export function useTemplateEditor(
   // GrapesJS の UndoManager はプログラム経由の style 書き込みを確実には追えないため、
   // 自前で { html, css } snapshot の stack を持ち、load() で復元する。
   // Undo/Redo スタックはストアの配列を参照で共有する(プレビュー往復で維持する)。
+  // 加えて変更のたびに debounce で localStorage へ永続ミラーし、リロード後も復元する。
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  function persistUndo(): void {
+    sessionStore.persist(id);
+  }
+  function debouncedPersistUndo(): void {
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      persistUndo();
+    }, 500);
+  }
   const { canUndo, canRedo, pushUndo, undo, redo, discardLast } = useSnapshotHistory(
     () => ({ html: g.getBodyHtml(), css: g.getCss() }),
     (s) => {
@@ -97,24 +123,78 @@ export function useTemplateEditor(
       autosave.trigger();
     },
     100,
-    { past: sess.undoPast, future: sess.undoFuture },
+    { past: sess.undoPast, future: sess.undoFuture, onChange: debouncedPersistUndo },
   );
 
   const { record: recordChange, displayHistory } = usePartEditHistory(
     id,
-    () => g.selected.value?.id,
+    // 版を跨いで安定な構造キーで紐づける(メモと共用)。GrapesJS の component id は
+    // リロード/版再生成で再採番され、永続履歴が孤児化するため使わない。選択/編集で
+    // displayHistory を再評価させるため reactive 値を読む(computed の依存に含める)。
+    () => {
+      void g.selected.value;
+      void g.revision.value;
+      return currentNoteKey() ?? undefined;
+    },
     () => auth.user?.displayName ?? '編集者',
-    () => partHistory.value,
+    // 永続 history の getter。選択中はそのパーツに絞り、未選択(全パーツ表示)では全件を返す。
+    (key) => (key ? allPartHistory.value.filter((e) => e.partKey === key) : allPartHistory.value),
     // 各編集を永続化する(fire-and-forget)。失敗は log するが表に出さない。
     // セッション内エントリは既に表示済みで、autosave 済み draft が内容を保持するため。
-    (partId, change) => {
-      service.recordPartChange(id, partId, change).then((res) => {
+    (partKey, change) => {
+      service.recordPartChange(id, partKey, change).then((res) => {
         if (isErr(res)) logError(res.error);
       });
     },
     // セッション内修正履歴もストア管理にし、プレビュー往復で右下の履歴を維持する。
     { history: sess.partHistory, nextSeq: () => ++sess.seq },
   );
+
+  // ── パーツ単位メモ(版インスタンス単位) ──
+  // メモは templateId(委託会社/ファンドコード/基準日/版種を内包)単位で、版内で安定な構造
+  // キー(`partKey.ts`)で保持する。別の基準日/版種の版へは引き継がない。編集は即時ローカル
+  // 反映 + debounce 永続化。
+  const noteRepo = useNoteRepo();
+
+  /** canvas のルート要素(GrapesJS wrapper、無ければ body)。パーツ列挙/キー解決の基準。 */
+  function canvasRoot(): HTMLElement | undefined {
+    const ed = g.editor.value;
+    return (ed?.getWrapper()?.getEl?.() ?? ed?.Canvas?.getBody?.()) as HTMLElement | undefined;
+  }
+
+  /** 現在の canvas 選択を、版を跨いで安定なパーツ構造キーへ解決する(無ければ null)。 */
+  function currentNoteKey(): string | null {
+    const ed = g.editor.value;
+    const el = ed?.getSelected()?.getEl?.() as HTMLElement | undefined;
+    const root = canvasRoot();
+    if (!el || !root) return null;
+    return partPathKeyFor(el, root);
+  }
+
+  /**
+   * canvas 全パーツの安定キー → 表示ラベル(`ページN・パーツM`)。全パーツ横断の修正履歴で
+   * 各行がどのパーツの変更かを示すのに使う。canvas 構築/編集で再評価させるため reactive 値を読む。
+   */
+  const partLabels = computed<Map<string, string>>(() => {
+    void g.revision.value;
+    const root = canvasRoot();
+    return root ? partLabelMap(root) : new Map();
+  });
+
+  const note = usePartNote(
+    () => template.value?.meta.id ?? '',
+    () => {
+      // 選択/編集で再評価させるため reactive 値を読む(computed の依存に含める)。
+      void g.selected.value;
+      void g.revision.value;
+      return currentNoteKey();
+    },
+    () => auth.user?.displayName ?? '編集者',
+    noteRepo,
+  );
+
+  // メモを持つパーツ集合が変わるたび、canvas のセル風マーカーを更新する。
+  watch(note.notedKeys, (keys) => g.setNoteKeys(keys), { immediate: true });
 
   /** 選択ブロックへ幾何変更を適用する(inline style として書き込む)。 */
   function applyGeom(patch: Partial<LayoutGeom>, record = true) {
@@ -174,23 +254,13 @@ export function useTemplateEditor(
   // 「編集を許可」チェックボックスの切替で canvas を lock/unlock する。
   watch(allowEdit, (on) => g.setEditable(on));
 
-  // 選択変更ごとに加算する。下の非同期 history fetch は、より新しい選択に追い越されたら
-  // 結果を捨てる(遅い応答が別 part の history を上書きするのを防ぐ)。
-  let historySeq = 0;
+  // 選択変更で catalog part を解決する。永続履歴は `allPartHistory`(版インスタンス全件)を
+  // onMounted で一度ロードし、表示は `partHistory` computed が選択キーで in-memory に絞るため、
+  // 選択ごとの非同期 fetch も race 対策も不要になった。
   watch(
     () => g.selected.value,
-    async (sel) => {
-      const seq = ++historySeq;
-      // catalog part は同期的に解決し、history fetch を待たずプロパティペインを
-      // 即座に更新する。
+    (sel) => {
       canvasPart.value = sel?.partId ? (partsById.get(sel.partId) ?? null) : null;
-      if (sel && !sel.isJinja) {
-        const res = await service.getPartHistory(id, sel.id);
-        if (seq !== historySeq) return; // より新しい選択が race に勝った
-        partHistory.value = isOk(res) ? res.value : [];
-      } else {
-        partHistory.value = [];
-      }
     },
   );
 
@@ -217,6 +287,15 @@ export function useTemplateEditor(
     g.load(res.value.editableBody, res.value.css);
     // locked 状態で開始する(allowEdit の既定は false)。
     g.setEditable(allowEdit.value);
+    // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
+    // `refreshPageGuides`→`refreshNoteMarkers` が位置を測り直す。
+    void note.reload();
+    // 当該版インスタンスの全パーツ履歴を一度だけロードする。表示は `partHistory` computed が
+    // 選択キーで絞る(リロード後も安定構造キーで一致するため右下の履歴が復元される)。
+    void service.listPartHistory(id).then((res) => {
+      if (isOk(res)) allPartHistory.value = res.value;
+      else logError(res.error);
+    });
     // canvas の全変更はここを通る — dirty を立て、autosave を起動する。`g.onChange` は
     // load() より後に張るため、初期ロードでは発火せず純粋なユーザー編集だけを拾う。
     g.onChange(() => {
@@ -254,6 +333,10 @@ export function useTemplateEditor(
 
   onBeforeUnmount(() => {
     window.removeEventListener('beforeunload', beforeUnload);
+    void note.flush(); // 保留中のメモ保存を取りこぼさない(プレビュー往復の再マウント含む)
+    // 保留中の Undo 永続ミラーを確定する(プレビュー往復の再マウント/リロード前)。
+    if (persistTimer) clearTimeout(persistTimer);
+    persistUndo();
     g.destroy();
   });
 
@@ -263,6 +346,7 @@ export function useTemplateEditor(
   //    場合は draft とセッション履歴を破棄してから移動する(キャンセルなら離脱中止)。
   onBeforeRouteLeave(async (to) => {
     if (autosave.state.value === 'saving') await autosave.flush();
+    await note.flush(); // メモの保留分を確定してから離脱する(メモは破棄対象外で常に保持)
 
     // 同一テンプレートのプレビューへの往復はセッションを保持する。
     if (to.name === 'preview' && to.params.id === id) return true;
@@ -290,8 +374,12 @@ export function useTemplateEditor(
     fundName,
     partHistory,
     displayHistory,
+    partLabels,
     selectedPart,
     selectedGeom,
+    noteText: note.currentNote,
+    canNote: note.canNote,
+    setNote: note.setCurrent,
     allowAdd,
     allowEdit,
     autosave,

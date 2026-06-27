@@ -603,6 +603,36 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": ["templates"],
+        "summary": "下書きを破棄(確定保存せずメニューへ戻る時)",
+        "operationId": "discardDraft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "破棄完了(冪等)"
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/generate": {
@@ -833,23 +863,15 @@
         }
       }
     },
-    "/templates/{templateId}/parts/{partId}/history": {
+    "/templates/{templateId}/part-history": {
       "get": {
         "tags": ["parts"],
-        "summary": "パーツ単位の編集履歴",
-        "operationId": "getPartHistory",
+        "summary": "パーツ単位の編集履歴(版インスタンス単位の全件)",
+        "operationId": "listPartHistory",
         "parameters": [
           {
             "in": "path",
             "name": "templateId",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          },
-          {
-            "in": "path",
-            "name": "partId",
             "schema": {
               "type": "string"
             },
@@ -882,6 +904,55 @@
           },
           "404": {
             "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["parts"],
+        "summary": "パーツ単位の編集を記録",
+        "operationId": "recordPartChange",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPartChangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "記録完了"
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1746,6 +1817,20 @@
         },
         "required": ["companyCode", "fundCode", "editionType"]
       },
+      "RecordPartChangeRequest": {
+        "type": "object",
+        "properties": {
+          "partKey": {
+            "type": "string",
+            "minLength": 1,
+            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+          },
+          "change": {
+            "type": "string"
+          }
+        },
+        "required": ["partKey", "change"]
+      },
       "RecordPdfExportRequest": {
         "type": "object",
         "properties": {
@@ -2183,9 +2268,9 @@
           "templateId": {
             "type": "string"
           },
-          "partId": {
+          "partKey": {
             "type": "string",
-            "description": "安定した GrapesJS コンポーネント ID"
+            "description": "版を跨いで安定なパーツ構造パスキー(pageAnchor/partAnchor)"
           },
           "user": {
             "type": "string"
@@ -2197,7 +2282,7 @@
             "type": "string"
           }
         },
-        "required": ["id", "templateId", "partId", "user", "timestamp", "change"],
+        "required": ["id", "templateId", "partKey", "user", "timestamp", "change"],
         "additionalProperties": false
       },
       "EditHistoryEntry": {

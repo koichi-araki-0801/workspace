@@ -33,7 +33,7 @@ function repos(opts: { draft?: TemplateDraft | null; templateErr?: boolean }) {
   } as unknown as TemplateRepository;
   const parts = {
     listParts: vi.fn(async () => ok([])),
-    getPartHistory: vi.fn(async () => ok([])),
+    listPartHistory: vi.fn(async () => ok([])),
   } as unknown as PartRepository;
   return { templates, parts };
 }
@@ -108,7 +108,7 @@ describe('TemplateEditorService.loadForEdit', () => {
   });
 });
 
-describe('TemplateEditorService.saveDraft / getPartHistory', () => {
+describe('TemplateEditorService.saveDraft / listPartHistory', () => {
   it('delegates saveDraft to the template repository', async () => {
     const saveDraft = vi.fn(async () => ok(undefined));
     const templates = { saveDraft } as unknown as TemplateRepository;
@@ -129,13 +129,13 @@ describe('TemplateEditorService.saveDraft / getPartHistory', () => {
     expect(discardDraft).toHaveBeenCalledWith('t1');
   });
 
-  it('delegates getPartHistory to the part repository', async () => {
-    const getPartHistory = vi.fn(async () => ok([]));
+  it('delegates listPartHistory to the part repository', async () => {
+    const listPartHistory = vi.fn(async () => ok([]));
     const templates = {} as unknown as TemplateRepository;
-    const parts = { getPartHistory } as unknown as PartRepository;
+    const parts = { listPartHistory } as unknown as PartRepository;
     const svc = createTemplateEditorService(templates, parts);
-    const res = await svc.getPartHistory('t1', 'p1');
+    const res = await svc.listPartHistory('t1');
     expect(isOk(res)).toBe(true);
-    expect(getPartHistory).toHaveBeenCalledWith('t1', 'p1');
+    expect(listPartHistory).toHaveBeenCalledWith('t1');
   });
 });

@@ -20,7 +20,7 @@ describe('openapi document', () => {
       '/generate',
       '/funds/{fundCode}/sample-data',
       '/parts',
-      '/templates/{templateId}/parts/{partId}/history',
+      '/templates/{templateId}/part-history',
       '/history/edit',
       '/snapshots/{historyId}',
       '/build',

@@ -152,35 +152,36 @@ describe('localPartRepo', () => {
     }
   });
 
-  it('getPartHistory returns only entries matching templateId and partId', async () => {
+  it('listPartHistory returns all entries for the templateId (across part keys)', async () => {
     const entries: PartHistoryEntry[] = [
-      { id: 'p1', templateId: 'T1', partId: 'A', change: 'x', timestamp: 't', user: 'u' },
-      { id: 'p2', templateId: 'T1', partId: 'B', change: 'y', timestamp: 't', user: 'u' },
-      { id: 'p3', templateId: 'T2', partId: 'A', change: 'z', timestamp: 't', user: 'u' },
+      { id: 'p1', templateId: 'T1', partKey: 'A', change: 'x', timestamp: 't', user: 'u' },
+      { id: 'p2', templateId: 'T1', partKey: 'B', change: 'y', timestamp: 't', user: 'u' },
+      { id: 'p3', templateId: 'T2', partKey: 'A', change: 'z', timestamp: 't', user: 'u' },
     ];
     localStorage.setItem(K.partHist, JSON.stringify(entries));
-    const r = await localPartRepo.getPartHistory('T1', 'A');
+    const r = await localPartRepo.listPartHistory('T1');
     expect(isOk(r)).toBe(true);
-    if (isOk(r)) expect(r.value.map((e) => e.id)).toEqual(['p1']);
+    // partKey 絞りは呼び出し側で行う設計なので、版インスタンス単位で全件返す。
+    if (isOk(r)) expect(r.value.map((e) => e.id)).toEqual(['p1', 'p2']);
   });
 
-  it('getPartHistory returns [] when nothing is stored', async () => {
-    const r = await localPartRepo.getPartHistory('none', 'none');
+  it('listPartHistory returns [] when nothing is stored', async () => {
+    const r = await localPartRepo.listPartHistory('none');
     expect(isOk(r)).toBe(true);
     if (isOk(r)) expect(r.value).toEqual([]);
   });
 
-  it('recordPartChange persists an entry that getPartHistory reads back', async () => {
+  it('recordPartChange persists an entry that listPartHistory reads back', async () => {
     const w = await localPartRepo.recordPartChange('T1', 'A', '幅を変更');
     expect(isOk(w)).toBe(true);
-    const r = await localPartRepo.getPartHistory('T1', 'A');
+    const r = await localPartRepo.listPartHistory('T1');
     expect(isOk(r)).toBe(true);
     if (isOk(r)) {
       expect(r.value).toHaveLength(1);
-      expect(r.value[0]).toMatchObject({ templateId: 'T1', partId: 'A', change: '幅を変更' });
+      expect(r.value[0]).toMatchObject({ templateId: 'T1', partKey: 'A', change: '幅を変更' });
     }
-    // a different part is unaffected
-    const other = await localPartRepo.getPartHistory('T1', 'B');
+    // a different templateId is unaffected
+    const other = await localPartRepo.listPartHistory('T2');
     if (isOk(other)) expect(other.value).toEqual([]);
   });
 });
