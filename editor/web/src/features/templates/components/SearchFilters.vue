@@ -7,6 +7,9 @@ import { Loader2, RotateCcw, Search } from '@lucide/vue';
 import { computed, onMounted, watch } from 'vue';
 import { useTemplateRepo } from '@/api/repositories';
 import Button from '@/components/ui/Button.vue';
+import Combobox from '@/components/ui/Combobox.vue';
+import FilterBar from '@/components/ui/FilterBar.vue';
+import FormField from '@/components/ui/FormField.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import { useCascadingSelect } from '@/lib/useCascadingSelect';
@@ -98,6 +101,10 @@ const optionsByField: Record<Field, () => Option[]> = {
   editionType: () => options.value.editionTypes,
 };
 
+// コード系フィールドは入力で前方一致フィルタする `Combobox` にする。基準日/版種は
+// 候補が少なく入力の旨味が薄いので従来の `Select` のまま。
+const COMBO_FIELDS: Field[] = ['companyCode', 'fundCode'];
+
 // カスケード非活性: 左隣のフィールドが未選択なら、この段はまだ選べない。
 function fieldDisabled(f: Field): boolean {
   const idx = props.fields.indexOf(f);
@@ -107,36 +114,45 @@ function fieldDisabled(f: Field): boolean {
 </script>
 
 <template>
-  <div :class="props.bare ? '' : 'rounded-lg border bg-card p-4'">
-    <div class="flex flex-wrap items-end gap-3">
-      <div v-for="f in props.fields" :key="f" class="min-w-[190px] flex-1 space-y-1.5">
-        <Label>
-          {{ labels[f] }}
-          <span v-if="props.requiredFields.includes(f)" class="text-destructive">*</span>
-        </Label>
-        <Select
-          v-model="query[f]"
-          :options="optionsByField[f]()"
-          :placeholder="`${labels[f]}を選択`"
-          :disabled="loading || fieldDisabled(f)"
-          @update:model-value="onLevelChange(f)"
-        />
-      </div>
-      <!-- 版種の右に追加要素を差し込むスロット (比較画面の「現在の比較する版」表示)。 -->
-      <slot name="field-trailing" />
-      <!-- `stackActions` 時は `basis-full` でボタン群だけ次行へ折り返す。 -->
-      <div class="flex items-center gap-2" :class="props.stackActions ? 'basis-full' : ''">
-        <Loader2 v-if="loading" class="h-4 w-4 animate-spin text-muted-foreground" />
-        <Button v-if="!props.hideSearch" @click="emit('search', { ...query })">
-          <Search class="h-4 w-4" /> {{ props.searchLabel }}
-        </Button>
-        <Button variant="outline" @click="reset">
-          <RotateCcw class="h-4 w-4" /> クリア
-        </Button>
-      </div>
+  <FilterBar :bare="props.bare">
+    <FormField v-for="f in props.fields" :key="f" width="lg">
+      <Label>
+        {{ labels[f] }}
+        <span v-if="props.requiredFields.includes(f)" class="text-destructive">*</span>
+      </Label>
+      <!-- コード系は入力で前方一致フィルタする `Combobox`、それ以外は従来の `Select`。
+           props/イベントは両者同一なので、カスケードの配線(onLevelChange)は不変。 -->
+      <Combobox
+        v-if="COMBO_FIELDS.includes(f)"
+        v-model="query[f]"
+        :options="optionsByField[f]()"
+        :placeholder="`${labels[f]}を入力/選択`"
+        :disabled="loading || fieldDisabled(f)"
+        @update:model-value="onLevelChange(f)"
+      />
+      <Select
+        v-else
+        v-model="query[f]"
+        :options="optionsByField[f]()"
+        :placeholder="`${labels[f]}を選択`"
+        :disabled="loading || fieldDisabled(f)"
+        @update:model-value="onLevelChange(f)"
+      />
+    </FormField>
+    <!-- 版種の右に追加要素を差し込むスロット (比較画面の「現在の比較する版」表示)。 -->
+    <slot name="field-trailing" />
+    <!-- `stackActions` 時は `basis-full` でボタン群だけ次行へ折り返す。 -->
+    <div class="flex items-center gap-2" :class="props.stackActions ? 'basis-full' : ''">
+      <Loader2 v-if="loading" class="h-4 w-4 animate-spin text-muted-foreground" />
+      <Button v-if="!props.hideSearch" @click="emit('search', { ...query })">
+        <Search class="h-4 w-4" /> {{ props.searchLabel }}
+      </Button>
+      <Button variant="outline" @click="reset">
+        <RotateCcw class="h-4 w-4" /> クリア
+      </Button>
     </div>
-    <div v-if="$slots.footer" class="mt-4 border-t pt-4">
+    <template v-if="$slots.footer" #footer>
       <slot name="footer" />
-    </div>
-  </div>
+    </template>
+  </FilterBar>
 </template>

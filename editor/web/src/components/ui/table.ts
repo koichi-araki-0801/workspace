@@ -3,8 +3,19 @@
 // =============================================================================
 // 単純な 5 部品は `styledTag` ファクトリで生成し、`Table` のみ scroll コンテナ
 // 入れ子のため個別定義する。
+import { cva, type VariantProps } from 'class-variance-authority';
 import { defineComponent, h } from 'vue';
 import { cn } from '@/lib/utils';
+
+// 空行/ローディング/「該当なし」など、本文が無いとき全列に渡す中央寄せメッセージセル。
+// 各一覧テーブルで重複していた `py-N text-center text-muted-foreground` を集約する。
+// `pad` は行高の差 (一覧で `lg`=`py-10`, 履歴/管理で既定=`py-8`) を温存するための variant。
+export const tableMessageCell = cva('text-center text-muted-foreground', {
+  variants: { pad: { default: 'py-8', lg: 'py-10' } },
+  defaultVariants: { pad: 'default' },
+});
+
+export type TableMessageCellVariants = VariantProps<typeof tableMessageCell>;
 
 /**
  * 単一要素のスタイル付きラッパを定義する。`base` クラスと任意の `class` prop を

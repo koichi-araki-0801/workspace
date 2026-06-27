@@ -7,7 +7,8 @@ import { FilePlus2, Inbox, Pencil } from '@lucide/vue';
 import { computed } from 'vue';
 import FundCodeName from '@/components/FundCodeName.vue';
 import Button from '@/components/ui/Button.vue';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import TableContainer from '@/components/ui/TableContainer.vue';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, tableMessageCell } from '@/components/ui/table';
 import { toTemplateMetaVm } from '../viewmodels/templateVm';
 
 const props = withDefaults(
@@ -34,7 +35,7 @@ const emptyColspan = computed(
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-lg border bg-card">
+  <TableContainer>
     <Table class="table-fixed">
       <TableHeader>
         <TableRow>
@@ -65,7 +66,7 @@ const emptyColspan = computed(
           </TableCell>
         </TableRow>
         <TableRow v-if="rows.length === 0">
-          <TableCell :colspan="emptyColspan" class="py-10 text-center text-muted-foreground">
+          <TableCell :colspan="emptyColspan" :class="tableMessageCell({ pad: 'lg' })">
             <div class="flex flex-col items-center gap-2">
               <Inbox class="h-8 w-8 opacity-40" />
               <span>該当するテンプレートがありません</span>
@@ -74,5 +75,5 @@ const emptyColspan = computed(
         </TableRow>
       </TableBody>
     </Table>
-  </div>
+  </TableContainer>
 </template>

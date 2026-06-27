@@ -3,7 +3,8 @@
 // HistoryTable.vue — 履歴フィードの汎用テーブル (列定義+ページング行)
 // =============================================================================
 import Button from '@/components/ui/Button.vue';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import TableContainer from '@/components/ui/TableContainer.vue';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, tableMessageCell } from '@/components/ui/table';
 
 /** 履歴テーブルの列定義。header と、各行のテキスト accessor を持つ。 */
 export interface HistoryColumn<Row> {
@@ -30,7 +31,7 @@ const emit = defineEmits<{ loadMore: [] }>();
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-lg border bg-card">
+  <TableContainer>
     <Table class="table-fixed">
       <TableHeader>
         <TableRow>
@@ -39,7 +40,7 @@ const emit = defineEmits<{ loadMore: [] }>();
       </TableHeader>
       <TableBody class="[&>tr:nth-child(even)]:bg-muted/40">
         <TableRow v-if="loading">
-          <TableCell :colspan="columns.length" class="py-8 text-center text-muted-foreground">読み込み中…</TableCell>
+          <TableCell :colspan="columns.length" :class="tableMessageCell()">読み込み中…</TableCell>
         </TableRow>
         <template v-else>
           <TableRow v-for="row in rows" :key="row.id">
@@ -51,7 +52,7 @@ const emit = defineEmits<{ loadMore: [] }>();
             >{{ col.value(row) }}</TableCell>
           </TableRow>
           <TableRow v-if="empty">
-            <TableCell :colspan="columns.length" class="py-8 text-center text-muted-foreground">該当する履歴がありません。</TableCell>
+            <TableCell :colspan="columns.length" :class="tableMessageCell()">該当する履歴がありません。</TableCell>
           </TableRow>
           <TableRow v-if="hasMore">
             <TableCell :colspan="columns.length" class="py-3 text-center">
@@ -61,5 +62,5 @@ const emit = defineEmits<{ loadMore: [] }>();
         </template>
       </TableBody>
     </Table>
-  </div>
+  </TableContainer>
 </template>

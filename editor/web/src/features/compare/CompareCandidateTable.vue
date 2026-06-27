@@ -6,7 +6,8 @@ import { Check, ChevronLeft, ChevronRight, Inbox } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import FundCodeName from '@/components/FundCodeName.vue';
 import Button from '@/components/ui/Button.vue';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import TableContainer from '@/components/ui/TableContainer.vue';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, tableMessageCell } from '@/components/ui/table';
 import { versionLabel } from '@/lib/format';
 import type { CompareVersionRow } from './services/compareService';
 
@@ -41,7 +42,7 @@ watch(
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-lg border bg-card">
+  <TableContainer>
     <Table class="table-fixed">
       <TableHeader>
         <TableRow>
@@ -56,7 +57,7 @@ watch(
       <TableBody>
         <!-- 選択中の行は明確にハイライトする。`bg-primary-soft` 単独はライトモード(白い
              カード)上でほぼ不可視のため、不透明度修飾の淡青 + 左端アクセント罫で視認可能に
-             する(`VersionPicker.vue` の選択表現に合わせる)。 -->
+             する。 -->
         <TableRow
           v-for="c in pagedRows"
           :key="c.version.historyId"
@@ -85,7 +86,7 @@ watch(
           </TableCell>
         </TableRow>
         <TableRow v-if="props.rows.length === 0">
-          <TableCell :colspan="6" class="py-10 text-center text-muted-foreground">
+          <TableCell :colspan="6" :class="tableMessageCell({ pad: 'lg' })">
             <div class="flex flex-col items-center gap-2">
               <Inbox class="h-8 w-8 opacity-40" />
               <span>該当するテンプレートがありません</span>
@@ -118,5 +119,5 @@ watch(
         </TableRow>
       </TableBody>
     </Table>
-  </div>
+  </TableContainer>
 </template>
