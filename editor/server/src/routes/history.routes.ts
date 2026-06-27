@@ -1,6 +1,7 @@
 // =============================================================================
 // history.routes.ts — 履歴フィード / PDF 出力記録 / バージョン一覧 / スナップショット
 // =============================================================================
+import { apiPaths } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
@@ -11,16 +12,16 @@ import * as history from '../repositories/historyRepo.js';
 const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
 
 export async function historyRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/history/edit', { preHandler: requireAuth }, async () => {
+  app.get(apiPaths.historyEdit, { preHandler: requireAuth }, async () => {
     return history.getEditHistory();
   });
 
-  app.get('/history/pdf', { preHandler: requireAuth }, async () => {
+  app.get(apiPaths.historyPdf, { preHandler: requireAuth }, async () => {
     return history.getPdfHistory();
   });
 
   app.post(
-    '/history/pdf',
+    apiPaths.historyPdf,
     { preHandler: [requireAuth, validate(RecordPdfExportRequest)] },
     async (request, reply) => {
       const body = request.body as z.infer<typeof RecordPdfExportRequest>;
@@ -29,15 +30,15 @@ export async function historyRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get('/history/create', { preHandler: requireAuth }, async () => {
+  app.get(apiPaths.historyCreate, { preHandler: requireAuth }, async () => {
     return history.getCreateHistory();
   });
 
-  app.get('/templates/:templateId/versions', { preHandler: requireAuth }, async (request) => {
+  app.get(apiPaths.templateVersions, { preHandler: requireAuth }, async (request) => {
     return history.listVersions(String((request.params as { templateId: string }).templateId));
   });
 
-  app.get('/snapshots/:historyId', { preHandler: requireAuth }, async (request) => {
+  app.get(apiPaths.snapshotById, { preHandler: requireAuth }, async (request) => {
     return history.getSnapshot(String((request.params as { historyId: string }).historyId));
   });
 }

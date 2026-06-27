@@ -10,7 +10,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { validation } from '@editor/shared';
+import { apiPaths, validation } from '@editor/shared';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import staticPlugin from '@fastify/static';
@@ -29,6 +29,7 @@ import { partsRoutes } from './routes/parts.routes.js';
 import { templatesRoutes } from './routes/templates.routes.js';
 import { usersRoutes } from './routes/users.routes.js';
 import { vivliostyleRoutes } from './routes/vivliostyle.routes.js';
+import { buildWorkerPool } from './vivliostyle/buildWorkerServer.js';
 import { previewManager } from './vivliostyle/previewServer.js';
 
 const app = Fastify({
@@ -74,7 +75,8 @@ app.register(helmet, {
 });
 app.register(cookie); // reply.setCookie / reply.clearCookie を提供する
 
-app.get('/api/health', async () => ({ ok: true }));
+// health だけは register prefix を介さず直付けなので、`/api` を明示合成する。
+app.get(`/api${apiPaths.health}`, async () => ({ ok: true }));
 
 app.register(openapiRoutes, { prefix: '/api' });
 app.register(authRoutes, { prefix: '/api' });
@@ -175,7 +177,7 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info(`[server] ${signal} received — closing preview sessions`);
-  await previewManager.disposeAll();
+  await Promise.allSettled([previewManager.disposeAll(), buildWorkerPool.disposeAll()]);
   await app.close();
   process.exit(0);
 }

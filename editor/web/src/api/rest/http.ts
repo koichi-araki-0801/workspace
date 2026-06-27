@@ -13,6 +13,12 @@ export { attempt as attemptRest } from '../local/attempt';
 
 const BASE = '/api';
 
+/**
+ * `apiPaths` の `/api` 無しパスへ `BASE` を前置した絶対パスを返す。`apiFetch` を経由できない
+ * 直 `fetch`(例: Blob を受け取る PDF build)で `BASE` を二重管理しないために使う。
+ */
+export const apiUrl = (path: string): string => `${BASE}${path}`;
+
 const STATUS_KIND: Record<number, AppErrorKind> = {
   400: 'validation',
   401: 'unauthorized',

@@ -4,6 +4,7 @@
 // REST モードでは生成結果をテンプレートファイルへ永続化し、台帳へ登録(status=draft)、
 // 作成履歴フィードへ記録する。Python ステップ自体は変更しない。
 import {
+  apiPaths,
   type TemplateAttributes,
   type TemplateMeta,
   templateFileName,
@@ -23,7 +24,7 @@ import { registerGenerated } from '../repositories/templateRepo.js';
 
 export async function generateRoutes(app: FastifyInstance): Promise<void> {
   app.post(
-    '/generate',
+    apiPaths.generate,
     { preHandler: [requireAuth, validate(GenerateRequest)] },
     async (request) => {
       const body = request.body as z.infer<typeof GenerateRequest>;

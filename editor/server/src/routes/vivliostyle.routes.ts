@@ -11,7 +11,7 @@
 // zip アップロード(project モード)は `app.ts` の content-type parser が `application/zip` /
 // `application/octet-stream` を Buffer 化して `request.body` に載せる。inline(JSON)は通常の
 // JSON パーサが object を載せる。両者は `Buffer.isBuffer` で判別する。
-import { notFound, validation } from '@editor/shared';
+import { apiPaths, notFound, validation } from '@editor/shared';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
@@ -50,7 +50,7 @@ function projectOptions(request: FastifyRequest): {
 export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/build — inline(レンダリング済み HTML + CSS)→ PDF。旧 /pdf を置き換える。
   app.post(
-    '/build',
+    apiPaths.build,
     { preHandler: [requireAuth, validate(BuildInlineRequest)] },
     async (request, reply) => {
       const body = request.body as z.infer<typeof BuildInlineRequest>;
@@ -65,7 +65,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // POST /api/build/project — vivliostyle の project zip → PDF。
-  app.post('/build/project', { preHandler: requireAuth }, async (request, reply) => {
+  app.post(apiPaths.buildProject, { preHandler: requireAuth }, async (request, reply) => {
     const zip = request.body as Buffer;
     const project = await extractProjectZip(zip);
     const opts = projectOptions(request);
@@ -95,12 +95,12 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /api/preview — 稼働中のプレビューセッション一覧(メタデータのみ)。
-  app.get('/preview', { preHandler: requireAuth }, async () => {
+  app.get(apiPaths.preview, { preHandler: requireAuth }, async () => {
     return previewManager.list();
   });
 
   // POST /api/preview — ライブプレビューを起動(inline JSON または project zip)。
-  app.post('/preview', { preHandler: requireAuth }, async (request, reply) => {
+  app.post(apiPaths.preview, { preHandler: requireAuth }, async (request, reply) => {
     let meta: Awaited<ReturnType<typeof previewManager.start>>;
     if (Buffer.isBuffer(request.body)) {
       const zip = request.body;
@@ -139,14 +139,14 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /api/preview/:id — セッションのメタデータ。
-  app.get('/preview/:id', { preHandler: requireAuth }, async (request) => {
+  app.get(apiPaths.previewById, { preHandler: requireAuth }, async (request) => {
     const meta = previewManager.get((request.params as { id: string }).id);
     if (!meta) throw notFound('プレビューセッションが見つかりません');
     return meta;
   });
 
   // DELETE /api/preview/:id — セッションを停止する。
-  app.delete('/preview/:id', { preHandler: requireAuth }, async (request, reply) => {
+  app.delete(apiPaths.previewById, { preHandler: requireAuth }, async (request, reply) => {
     const id = (request.params as { id: string }).id;
     const stopped = await previewManager.stop(id);
     if (!stopped) throw notFound('プレビューセッションが見つかりません');
@@ -161,7 +161,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
 
   // ALL /api/preview/:id/* — ループバックの Vite プレビューサーバへ reverse-proxy する。
   // 完全一致の :id ルートより末尾スラッシュ付きが優先されないよう、ワイルドカードで受ける。
-  app.all('/preview/:id/*', { preHandler: requireAuth }, async (request, reply) => {
+  app.all(`${apiPaths.previewById}/*`, { preHandler: requireAuth }, async (request, reply) => {
     const id = (request.params as { id: string }).id;
     const port = previewManager.portOf(id);
     // hijack 前なので、ここでの throw は通常どおり 404 として errorHandler が処理する。

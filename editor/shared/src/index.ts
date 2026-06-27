@@ -316,6 +316,8 @@ export interface BuildInlineRequest {
 
 // ── 9. Cross-cutting: Result/エラーモデルとドメインヘルパ (barrel 再エクスポート) ──
 
+// REST エンドポイントパスの単一正典(server/web/OpenAPI が共有)。
+export * from './api-paths.js';
 export * from './domain/history.js';
 // パーツ別共通ダミー + ファンド固有マスタ合成(プレビュー文脈の組立)。
 export * from './domain/sampleCommon.js';

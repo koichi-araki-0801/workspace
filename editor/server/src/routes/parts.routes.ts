@@ -1,7 +1,7 @@
 // =============================================================================
 // parts.routes.ts — パーツカタログのルート(エディタ左ペイン)+ パーツ単位履歴
 // =============================================================================
-import type { PartClassificationQuery } from '@editor/shared';
+import { apiPaths, type PartClassificationQuery } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
@@ -23,22 +23,22 @@ function toClassQuery(q: Record<string, unknown>): PartClassificationQuery {
 }
 
 export async function partsRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/parts/classification-options', { preHandler: requireAuth }, async (request) => {
+  app.get(apiPaths.partClassificationOptions, { preHandler: requireAuth }, async (request) => {
     return parts.getPartClassificationOptions(
       toClassQuery(request.query as Record<string, unknown>),
     );
   });
 
-  app.get('/parts', { preHandler: requireAuth }, async (request) => {
+  app.get(apiPaths.parts, { preHandler: requireAuth }, async (request) => {
     return parts.listParts(toClassQuery(request.query as Record<string, unknown>));
   });
 
-  app.get('/templates/:templateId/part-history', { preHandler: requireAuth }, async (request) => {
+  app.get(apiPaths.partHistory, { preHandler: requireAuth }, async (request) => {
     return history.listPartHistory(String((request.params as { templateId: string }).templateId));
   });
 
   app.post(
-    '/templates/:templateId/part-history',
+    apiPaths.partHistory,
     { preHandler: [requireAuth, validate(RecordPartChangeRequest)] },
     async (request, reply) => {
       const body = request.body as z.infer<typeof RecordPartChangeRequest>;

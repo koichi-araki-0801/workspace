@@ -11,6 +11,7 @@
 //   GET /api/templates/:id, PUT /api/templates/:id, POST /api/generate,
 //   POST /api/build, POST /api/build/project, /api/preview*.
 // 以下のその他のパスは design-first(契約のみ文書化、ハンドラ未実装)。
+import { apiPaths, toOpenApiPath } from '@editor/shared';
 import { z } from 'zod';
 import { createDocument } from 'zod-openapi';
 import * as s from './schemas.js';
@@ -56,6 +57,7 @@ export function buildOpenApiDocument() {
       { name: 'auth', description: '認証・セッション' },
       { name: 'templates', description: 'テンプレートの探索・生成・下書き・確定保存' },
       { name: 'parts', description: 'パーツカタログ(エディタ左ペイン)' },
+      { name: 'notes', description: 'パーツ単位の作業メモ(版インスタンス単位)' },
       { name: 'history', description: '編集 / PDF / 作成 履歴とバージョン比較' },
       { name: 'vivliostyle', description: 'vivliostyle build (PDF) / preview (ライブ)' },
       { name: 'users', description: 'ユーザ管理(admin 限定)' },
@@ -163,7 +165,7 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      '/templates/{id}': {
+      [toOpenApiPath(apiPaths.templateById)]: {
         get: {
           tags: ['templates'],
           summary: 'テンプレート(meta + html + css)を取得',
@@ -185,7 +187,7 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      '/templates/{id}/draft': {
+      [toOpenApiPath(apiPaths.templateDraft)]: {
         get: {
           tags: ['templates'],
           summary: '常時オートセーブの下書きを取得',
@@ -226,7 +228,7 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      '/funds/{fundCode}/sample-data': {
+      [toOpenApiPath(apiPaths.fundSampleData)]: {
         get: {
           tags: ['templates'],
           summary: 'プレビュー用サンプルデータ(fundCode ごと)',
@@ -258,7 +260,7 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      '/templates/{templateId}/part-history': {
+      [toOpenApiPath(apiPaths.partHistory)]: {
         get: {
           tags: ['parts'],
           summary: 'パーツ単位の編集履歴(版インスタンス単位の全件)',
@@ -284,7 +286,30 @@ export function buildOpenApiDocument() {
         },
       },
 
-      // ── 5. history ──
+      // ── 5. notes ──
+      [toOpenApiPath(apiPaths.notes)]: {
+        get: {
+          tags: ['notes'],
+          summary: 'パーツ単位メモを取得(版インスタンス単位の全件)',
+          operationId: 'listNotes',
+          requestParams: { path: z.object({ templateId: z.string() }) },
+          responses: {
+            '200': json('メモの配列', z.array(s.PartNote)),
+            ...ERR_401,
+            ...ERR_404,
+          },
+        },
+        put: {
+          tags: ['notes'],
+          summary: 'パーツ単位メモを保存(content 空文字は削除)',
+          operationId: 'saveNote',
+          requestParams: { path: z.object({ templateId: z.string() }) },
+          requestBody: { content: { 'application/json': { schema: s.SaveNoteRequest } } },
+          responses: { '204': noContent('保存完了'), ...ERR_400, ...ERR_401 },
+        },
+      },
+
+      // ── 6. history ──
       '/history/edit': {
         get: {
           tags: ['history'],
@@ -316,7 +341,7 @@ export function buildOpenApiDocument() {
           responses: { '200': json('作成履歴', z.array(s.CreateHistoryEntry)), ...ERR_401 },
         },
       },
-      '/templates/{templateId}/versions': {
+      [toOpenApiPath(apiPaths.templateVersions)]: {
         get: {
           tags: ['history'],
           summary: 'スナップショットを持つ確定バージョン一覧(新しい順)',
@@ -329,7 +354,7 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      '/snapshots/{historyId}': {
+      [toOpenApiPath(apiPaths.snapshotById)]: {
         get: {
           tags: ['history'],
           summary: '確定スナップショット(凍結された HTML/CSS)を取得',
@@ -343,7 +368,7 @@ export function buildOpenApiDocument() {
         },
       },
 
-      // ── 6. vivliostyle ──
+      // ── 7. vivliostyle ──
       '/build': {
         post: {
           tags: ['vivliostyle'],
@@ -407,7 +432,7 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      '/preview/{id}': {
+      [toOpenApiPath(apiPaths.previewById)]: {
         get: {
           tags: ['vivliostyle'],
           summary: 'プレビューセッションのメタを取得',
@@ -424,7 +449,7 @@ export function buildOpenApiDocument() {
         },
       },
 
-      // ── 7. users ──
+      // ── 8. users ──
       '/users': {
         get: {
           tags: ['users'],
@@ -446,7 +471,7 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      '/users/{id}': {
+      [toOpenApiPath(apiPaths.userById)]: {
         patch: {
           tags: ['users'],
           summary: 'ユーザ部分更新(admin 限定)',
@@ -462,7 +487,7 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      '/users/{id}/reset-password': {
+      [toOpenApiPath(apiPaths.userResetPassword)]: {
         post: {
           tags: ['users'],
           summary: 'パスワードをリセット(admin 限定)',

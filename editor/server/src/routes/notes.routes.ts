@@ -1,6 +1,7 @@
 // =============================================================================
 // notes.routes.ts — パーツ単位メモ(版インスタンス=templateId 単位の取得/保存)
 // =============================================================================
+import { apiPaths } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
@@ -16,12 +17,12 @@ const SaveNoteRequest = z.object({
 });
 
 export async function notesRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/templates/:templateId/notes', { preHandler: requireAuth }, async (request) => {
+  app.get(apiPaths.notes, { preHandler: requireAuth }, async (request) => {
     return notes.listNotes(String((request.params as { templateId: string }).templateId));
   });
 
   app.put(
-    '/templates/:templateId/notes',
+    apiPaths.notes,
     { preHandler: [requireAuth, validate(SaveNoteRequest)] },
     async (request, reply) => {
       const body = request.body as z.infer<typeof SaveNoteRequest>;

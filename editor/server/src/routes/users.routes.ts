@@ -1,6 +1,7 @@
 // =============================================================================
 // users.routes.ts — ユーザ管理のルート(admin 限定)
 // =============================================================================
+import { apiPaths } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { actorFromReq, audit } from '../logger.js';
@@ -10,12 +11,12 @@ import { CreateUserRequest, UpdateUserRequest } from '../openapi/schemas.js';
 import * as users from '../repositories/userRepo.js';
 
 export async function usersRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/users', { preHandler: [requireAuth, requireAdmin] }, async () => {
+  app.get(apiPaths.users, { preHandler: [requireAuth, requireAdmin] }, async () => {
     return users.listUsers();
   });
 
   app.post(
-    '/users',
+    apiPaths.users,
     { preHandler: [requireAuth, requireAdmin, validate(CreateUserRequest)] },
     async (request, reply) => {
       const body = request.body as z.infer<typeof CreateUserRequest>;
@@ -31,7 +32,7 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.patch(
-    '/users/:id',
+    apiPaths.userById,
     { preHandler: [requireAuth, requireAdmin, validate(UpdateUserRequest)] },
     async (request) => {
       const body = request.body as z.infer<typeof UpdateUserRequest>;
@@ -40,7 +41,7 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.post(
-    '/users/:id/reset-password',
+    apiPaths.userResetPassword,
     { preHandler: [requireAuth, requireAdmin] },
     async (request, reply) => {
       const id = String((request.params as { id: string }).id);

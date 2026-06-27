@@ -3,6 +3,7 @@
 // =============================================================================
 // login と init-password は公開(OpenAPI の `security: []`)。logout と me は cookie の
 // 読み取り後に動く。
+import { apiPaths } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { cookieOptions, sessionIdFrom } from '../auth/session.js';
@@ -14,7 +15,7 @@ import { LoginRequest, PasswordInitRequest } from '../openapi/schemas.js';
 import * as auth from '../repositories/authRepo.js';
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/auth/login', { preHandler: validate(LoginRequest) }, async (request, reply) => {
+  app.post(apiPaths.authLogin, { preHandler: validate(LoginRequest) }, async (request, reply) => {
     const body = request.body as z.infer<typeof LoginRequest>;
     try {
       const { result, sessionId } = await auth.login(body);
@@ -38,7 +39,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post('/auth/logout', async (request, reply) => {
+  app.post(apiPaths.authLogout, async (request, reply) => {
     await auth.logout(sessionIdFrom(request.headers.cookie));
     // クリアは Set-Cookie の属性(path 等)が発行時と一致する必要がある。maxAge は付けない。
     reply.clearCookie(config.auth.cookieName, {
@@ -50,14 +51,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(204).send();
   });
 
-  app.get('/auth/me', async (request, reply) => {
+  app.get(apiPaths.authMe, async (request, reply) => {
     // 認証状態はキャッシュさせない(再起動/失効後に旧 200 が返るのを防ぐ)。
     reply.header('Cache-Control', 'no-store');
     return loadUser(request);
   });
 
   app.post(
-    '/auth/init-password',
+    apiPaths.authInitPassword,
     { preHandler: validate(PasswordInitRequest) },
     async (request, reply) => {
       const body = request.body as z.infer<typeof PasswordInitRequest>;

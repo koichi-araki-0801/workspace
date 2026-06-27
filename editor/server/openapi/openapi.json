@@ -29,6 +29,10 @@
       "description": "パーツカタログ(エディタ左ペイン)"
     },
     {
+      "name": "notes",
+      "description": "パーツ単位の作業メモ(版インスタンス単位)"
+    },
+    {
       "name": "history",
       "description": "編集 / PDF / 作成 履歴とバージョン比較"
     },
@@ -964,6 +968,107 @@
         }
       }
     },
+    "/templates/{templateId}/notes": {
+      "get": {
+        "tags": ["notes"],
+        "summary": "パーツ単位メモを取得(版インスタンス単位の全件)",
+        "operationId": "listNotes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "メモの配列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PartNote"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["notes"],
+        "summary": "パーツ単位メモを保存(content 空文字は削除)",
+        "operationId": "saveNote",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveNoteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "保存完了"
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/history/edit": {
       "get": {
         "tags": ["history"],
@@ -1831,6 +1936,21 @@
         },
         "required": ["partKey", "change"]
       },
+      "SaveNoteRequest": {
+        "type": "object",
+        "properties": {
+          "pathKey": {
+            "type": "string",
+            "minLength": 1,
+            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+          },
+          "content": {
+            "type": "string",
+            "description": "空文字は「メモ無し」= 削除"
+          }
+        },
+        "required": ["pathKey", "content"]
+      },
       "RecordPdfExportRequest": {
         "type": "object",
         "properties": {
@@ -2283,6 +2403,31 @@
           }
         },
         "required": ["id", "templateId", "partKey", "user", "timestamp", "change"],
+        "additionalProperties": false
+      },
+      "PartNote": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string",
+            "description": "版インスタンス ID(= TemplateMeta.id)"
+          },
+          "pathKey": {
+            "type": "string",
+            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+          },
+          "content": {
+            "type": "string",
+            "description": "メモ本文(空文字はメモ無し)"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          }
+        },
+        "required": ["templateId", "pathKey", "content", "updatedAt", "updatedBy"],
         "additionalProperties": false
       },
       "EditHistoryEntry": {
