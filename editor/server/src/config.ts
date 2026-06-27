@@ -175,6 +175,16 @@ export const config = {
       undefined,
       'server/scripts/pdf-build-worker.mjs',
     ),
+    /**
+     * 常駐 PDF ビルドワーカー(plain ESM)。`@vivliostyle/cli` を 1 回だけ import して常駐し、
+     * IPC でビルドジョブを処理してプロセス(= module load)を使い回す(`buildWorkerPool.ts` 参照)。
+     * `workerScript`(1 ジョブ毎に spawn する従来版)はフォールバックとして残す。
+     */
+    workerDaemonScript: resolvePath(
+      process.env.VIVLIO_BUILD_WORKER_DAEMON,
+      undefined,
+      'server/scripts/pdf-build-worker-daemon.mjs',
+    ),
   },
 
   /**
@@ -200,6 +210,14 @@ export const config = {
        * (応答が永久に返らない無限スピナーを防ぐ)。`config.python.timeoutMs` と同型。
        */
       timeoutMs: Number(process.env.VIVLIO_BUILD_TIMEOUT_MS ?? 120_000),
+      /**
+       * 常駐 PDF ビルドワーカープールの最大プロセス数(`buildWorkerPool.ts`)。各ワーカーは
+       * `@vivliostyle/cli` を読込済みで保持し import コスト(計測 ~11s)を 1 度きりにする。
+       * `0` で従来の「ジョブ毎 spawn」へフォールバックする(安全弁)。
+       */
+      poolSize: Number(process.env.VIVLIO_BUILD_POOL ?? 2),
+      /** ウォームワーカーをこのミリ秒数アイドルしたら停止し Chromium/メモリを解放する。 */
+      idleTtlMs: Number(process.env.VIVLIO_BUILD_IDLE_MS ?? 5 * 60_000),
     },
   },
 

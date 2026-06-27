@@ -5,18 +5,30 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
+import { buildWorkerPool } from './buildWorkerServer.js';
 import { sharedInlineConfig } from './options.js';
 
 /** PDF 生成失敗時に投げる Error の前置き(原因は cause として stderr/timeout を連結する)。 */
 const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
 
 /**
- * `@vivliostyle/cli` の `build()` オプションを隔離 worker プロセスで実行する。
- * in-process 実行はサーバプロセスでハングするため(`pdf-build-worker.mjs` 冒頭の解説参照)、
- * `child_process` へ分離し、`config.vivliostyle.build.timeoutMs` の timeout を必ず効かせる。
- * timeout(kill)や非 0 exit は Error を reject し、上位(`auditedRethrow`)経由で 5xx を返す。
+ * `@vivliostyle/cli` の `build()` オプションを隔離プロセスで実行する。
+ * 既定は常駐ウォームワーカープール(`buildWorkerPool`)へ委譲し、`@vivliostyle/cli` の import
+ * (計測 ~11s)をプロセス使い回しで 1 度きりにする。`config.vivliostyle.build.poolSize <= 0` の
+ * ときは従来の「ジョブ毎 spawn」(`runBuildWorkerSpawn`)へフォールバックする(安全弁)。
  */
 function runBuildWorker(buildOptions: unknown): Promise<void> {
+  if (config.vivliostyle.build.poolSize <= 0) return runBuildWorkerSpawn(buildOptions);
+  return buildWorkerPool.run(buildOptions);
+}
+
+/**
+ * 従来方式: ビルドのたびに worker を spawn する(フォールバック)。in-process 実行はサーバを
+ * ハングさせるため(`pdf-build-worker.mjs` 冒頭の解説参照)`child_process` へ分離し、
+ * `config.vivliostyle.build.timeoutMs` の timeout を必ず効かせる。timeout(kill)/非 0 exit は
+ * Error を reject し、上位(`auditedRethrow`)経由で 5xx を返す。
+ */
+function runBuildWorkerSpawn(buildOptions: unknown): Promise<void> {
   const timeoutMs = config.vivliostyle.build.timeoutMs;
   return new Promise((resolve, reject) => {
     execFile(

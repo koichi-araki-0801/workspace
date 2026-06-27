@@ -32,6 +32,7 @@ export default defineConfig({
         'editor/server/src/vivliostyle/options.ts',
         'editor/server/src/vivliostyle/projectInput.ts',
         'editor/server/src/vivliostyle/previewManager.ts',
+        'editor/server/src/vivliostyle/buildWorkerPool.ts',
         // editor/web (UI/VM/Service/Repository 層)
         'editor/web/src/lib/jinjaMask.ts',
         'editor/web/src/lib/blockKey.ts',
