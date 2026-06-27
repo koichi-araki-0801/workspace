@@ -7,7 +7,7 @@ function persistedEntry(id: string): PartHistoryEntry {
   return {
     id,
     templateId: 't1',
-    partId: 'p1',
+    partKey: 'p1',
     change: 'persisted',
     timestamp: '2024-01-01T00:00:00.000Z',
     user: '過去',
@@ -27,7 +27,7 @@ describe('usePartEditHistory', () => {
     expect(displayHistory.value).toHaveLength(1);
     expect(displayHistory.value[0]).toMatchObject({
       templateId: 't1',
-      partId: 'p1',
+      partKey: 'p1',
       change: '幅を変更',
       user: '編集者',
     });
@@ -77,7 +77,63 @@ describe('usePartEditHistory', () => {
     expect(displayHistory.value.map((e) => e.change)).toEqual(['セッション編集', 'persisted']);
   });
 
-  it('forwards recorded edits to the persist sink (partId + change)', () => {
+  // 未選択(画面を開いた当初)は全パーツの history を併合し timestamp 降順で俯瞰表示する。
+  // セッション/永続の双方が複数パーツにまたがり、timestamp 降順で interleave されること。
+  it('shows all parts merged newest-first when nothing is selected', () => {
+    const cid = ref<string | undefined>(undefined);
+    const sessEntry = (
+      id: string,
+      partKey: string,
+      change: string,
+      ts: string,
+    ): PartHistoryEntry => ({
+      id,
+      templateId: 't1',
+      partKey,
+      change,
+      timestamp: ts,
+      user: '編集者',
+    });
+    const history = reactive<Record<string, PartHistoryEntry[]>>({
+      p1: [sessEntry('s1', 'p1', 'p1 セッション', '2024-01-02T00:00:00.000Z')],
+      p2: [sessEntry('s2', 'p2', 'p2 セッション', '2024-01-04T00:00:00.000Z')],
+    });
+    const persisted: PartHistoryEntry[] = [
+      {
+        ...persistedEntry('h1'),
+        partKey: 'p1',
+        change: 'p1 永続',
+        timestamp: '2024-01-01T00:00:00.000Z',
+      },
+      {
+        ...persistedEntry('h2'),
+        partKey: 'p2',
+        change: 'p2 永続',
+        timestamp: '2024-01-03T00:00:00.000Z',
+      },
+    ];
+    const { displayHistory } = usePartEditHistory(
+      't1',
+      () => cid.value,
+      () => '編集者',
+      // 未選択(key 未指定)なら全件、選択中はそのパーツのみ。
+      (key) => (key ? persisted.filter((e) => e.partKey === key) : persisted),
+      undefined,
+      { history, nextSeq: () => 1 },
+    );
+    // 未選択: 全 4 件(セッション 2 + 永続 2)が timestamp 降順で interleave。
+    expect(displayHistory.value.map((e) => e.change)).toEqual([
+      'p2 セッション', // 2024-01-04
+      'p2 永続', // 2024-01-03
+      'p1 セッション', // 2024-01-02
+      'p1 永続', // 2024-01-01
+    ]);
+    // 選択すればそのパーツのみ(セッション先頭 + 永続)に絞る。
+    cid.value = 'p1';
+    expect(displayHistory.value.map((e) => e.change)).toEqual(['p1 セッション', 'p1 永続']);
+  });
+
+  it('forwards recorded edits to the persist sink (partKey + change)', () => {
     const cid = ref<string | undefined>('p1');
     const calls: Array<[string, string]> = [];
     const { record } = usePartEditHistory(
@@ -85,7 +141,7 @@ describe('usePartEditHistory', () => {
       () => cid.value,
       () => '編集者',
       () => [],
-      (partId, change) => calls.push([partId, change]),
+      (partKey, change) => calls.push([partKey, change]),
     );
     record('幅を変更');
     cid.value = undefined;

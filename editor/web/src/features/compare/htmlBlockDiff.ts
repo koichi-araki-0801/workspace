@@ -17,6 +17,8 @@
 //     語句(緑)・削除された語句(赤)だけを `<span>` で包む。
 // これにより「どの文字が変わったか」までハイライトでき、変更 block 数も数えられる。
 
+import { rawKey } from '@/lib/blockKey';
+
 export type BlockStatus = 'same' | 'changed' | 'added' | 'removed';
 
 export interface DiffBlock {
@@ -146,15 +148,8 @@ function isText(n: Node): n is Text {
   return n.nodeType === Node.TEXT_NODE;
 }
 
-/** element のアンカー: catalog part id → element id → 先頭 class → tag 名 の順で決める。 */
-function rawKey(el: HTMLElement): string {
-  return (
-    el.getAttribute('data-part-id') ||
-    el.id ||
-    (el.classList[0] ? `.${el.classList[0]}` : '') ||
-    el.tagName.toLowerCase()
-  );
-}
+// `rawKey`(要素の整列アンカー)は `@/lib/blockKey` へ集約し、editor のパーツ単位メモと
+// 共有する(版を跨ぐパーツ対応づけが両者で同一ロジックになる)。
 
 /** diff の対象にする子ノード: 要素ノードと、空白のみでないテキストノード。 */
 function childUnits(parent: Node): Node[] {

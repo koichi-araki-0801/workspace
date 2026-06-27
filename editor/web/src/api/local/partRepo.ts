@@ -42,19 +42,20 @@ export const localPartRepo: PartRepository = {
   listParts: (query: PartClassificationQuery) =>
     attempt(() => delay(partCatalog.filter((i) => matchMinor(i, query)))),
 
-  getPartHistory: (templateId: string, partId: string) =>
+  listPartHistory: (templateId: string) =>
     attempt(() => {
       const all = read<PartHistoryEntry[]>(K.partHist, []);
-      return delay(all.filter((e) => e.templateId === templateId && e.partId === partId));
+      // partKey 絞りは呼び出し側で in-memory に行う(版インスタンス単位で全件返す)。
+      return delay(all.filter((e) => e.templateId === templateId));
     }),
 
-  recordPartChange: (templateId: string, partId: string, change: string) =>
+  recordPartChange: (templateId: string, partKey: string, change: string) =>
     attempt(() => {
       const all = read<PartHistoryEntry[]>(K.partHist, []);
       all.unshift({
         id: uid('ph'),
         templateId,
-        partId,
+        partKey,
         user: currentUser()?.displayName ?? '不明',
         timestamp: now(),
         change,

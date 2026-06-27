@@ -160,7 +160,9 @@ export const PartHistoryEntry = z
   .object({
     id: z.string(),
     templateId: z.string(),
-    partId: z.string().meta({ description: '安定した GrapesJS コンポーネント ID' }),
+    partKey: z
+      .string()
+      .meta({ description: '版を跨いで安定なパーツ構造パスキー(pageAnchor/partAnchor)' }),
     user: z.string(),
     timestamp: z.string(),
     change: z.string(),
@@ -193,7 +195,10 @@ export const RecordPdfExportRequest = z
   .meta({ id: 'RecordPdfExportRequest' });
 
 export const RecordPartChangeRequest = z
-  .object({ change: z.string() })
+  .object({
+    partKey: z.string().min(1).meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+    change: z.string(),
+  })
   .meta({ id: 'RecordPartChangeRequest' });
 
 // ── 5. Dropdown — カスケードドロップダウンの query / options ──

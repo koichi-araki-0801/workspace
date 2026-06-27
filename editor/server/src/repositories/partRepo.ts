@@ -3,7 +3,7 @@
 // =============================================================================
 // パーツの HTML スニペットは小さな参照系マスタデータで DB に保持する。パーツの
 // 変更履歴はファイル監査ログ(`logs/history/part.jsonl`)にあり、`historyRepo.ts` の
-// `getPartHistory` から参照する。
+// `listPartHistory` から参照する。
 import type {
   PartCatalogItem,
   PartClassificationOptions,

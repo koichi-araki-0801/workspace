@@ -20,25 +20,33 @@ import { ref } from 'vue';
  * するため呼び出し側のストアにそのまま永続化される)。編集⇄プレビュー往復で Undo/Redo を
  * 維持する `editorSession` ストアがこれを使い、再マウント時に既存スタックから復元する。
  * 未指定なら従来どおりローカル配列で開始する。
+ *
+ * `init.onChange` を渡すと、スタックを変化させる操作(push/undo/redo/discardLast)のたびに
+ * 呼ぶ。`editorSession` ストアがこれで localStorage への永続ミラーを debounce 更新し、
+ * リロード後も Undo/Redo を復元できるようにする。初期化時(フラグ復元)には発火しない。
  */
 export function useSnapshotHistory<T>(
   capture: () => T,
   apply: (snap: T) => void,
   max = 100,
-  init?: { past: T[]; future: T[] },
+  init?: { past: T[]; future: T[]; onChange?: () => void },
 ) {
   const past: T[] = init?.past ?? [];
   const future: T[] = init?.future ?? [];
+  const onChange = init?.onChange;
   const canUndo = ref(false);
   const canRedo = ref(false);
   let applying = false;
   // 外部スタックを渡された場合、既存エントリに合わせてフラグを初期化する
-  // (再マウント時に Undo/Redo ボタンの活性を復元するため)。
+  // (再マウント時に Undo/Redo ボタンの活性を復元するため)。初期化中は onChange を抑止する。
+  let started = false;
   updateFlags();
+  started = true;
 
   function updateFlags(): void {
     canUndo.value = past.length > 0;
     canRedo.value = future.length > 0;
+    if (started) onChange?.();
   }
 
   /** 変更前の state を capture する。記録対象の変更の直前に呼ぶ。 */

@@ -4,7 +4,7 @@
 // =============================================================================
 // 役割: `useTemplateEditor.ts` / `useGeomHandles.ts` を束ね、canvas 上に選択 overlay
 // (ページ境界 guide / ドラッグハンドル / move grip)を描く presentational なルート。
-import { GripVertical } from '@lucide/vue';
+import { GripVertical, StickyNote } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
 import { useRouter } from 'vue-router';
 import EditorTopBar from './EditorTopBar.vue';
@@ -25,8 +25,12 @@ const {
   template,
   fundName,
   displayHistory,
+  partLabels,
   selectedPart,
   selectedGeom,
+  noteText,
+  canNote,
+  setNote,
   allowAdd,
   allowEdit,
   autosave,
@@ -184,6 +188,19 @@ const statusText = computed(() => {
             </div>
           </template>
 
+          <!-- メモ有りパーツの目印(エクセルのセルコメント風)。閲覧/編集どちらでも表示し、
+               位置のみパーツへ追従、バッジは固定 px(ズーム非依存)。クリックは奪わない
+               (pointer-events なし) — パーツ自体をクリックすれば右ペインにメモが出る。 -->
+          <div
+            v-for="m in g.noteMarkers.value"
+            :key="m.key"
+            class="note-marker"
+            title="メモあり"
+            :style="{ left: `${m.left}px`, top: `${m.top}px` }"
+          >
+            <StickyNote class="h-3 w-3" />
+          </div>
+
           <!-- 編集の affordance(ドラッグハンドル)は編集許可時のみ -->
           <template v-if="rect && selectedGeom && allowEdit">
             <!-- drag grip: 選択ブロックを兄弟内で並べ替える -->
@@ -229,28 +246,6 @@ const statusText = computed(() => {
               @mousedown="startHandle('mb', $event)"
             />
 
-            <!-- corner ハンドル(水平方向の delta で幅を駆動する) -->
-            <div
-              class="ret-corner pointer-events-auto"
-              :style="{ left: `${rect.left}px`, top: `${rect.top}px`, cursor: 'nwse-resize' }"
-              @mousedown="startHandle('width-left', $event)"
-            />
-            <div
-              class="ret-corner pointer-events-auto"
-              :style="{ left: `${rect.left + rect.width}px`, top: `${rect.top}px`, cursor: 'nesw-resize' }"
-              @mousedown="startHandle('width', $event)"
-            />
-            <div
-              class="ret-corner pointer-events-auto"
-              :style="{ left: `${rect.left}px`, top: `${rect.top + rect.height}px`, cursor: 'nesw-resize' }"
-              @mousedown="startHandle('width-left', $event)"
-            />
-            <div
-              class="ret-corner pointer-events-auto"
-              :style="{ left: `${rect.left + rect.width}px`, top: `${rect.top + rect.height}px`, cursor: 'nwse-resize' }"
-              @mousedown="startHandle('width', $event)"
-            />
-
             <!-- ハンドルのドラッグ中に出すライブ値の bubble -->
             <div
               v-if="dragLabel"
@@ -270,6 +265,9 @@ const statusText = computed(() => {
         :part="selectedPart"
         :geom="selectedGeom"
         :history="displayHistory"
+        :part-labels="partLabels"
+        :note="noteText"
+        :can-note="canNote"
         :edit-mode="allowEdit"
         :can-up="g.canMoveUp.value"
         :can-down="g.canMoveDown.value"
@@ -277,6 +275,7 @@ const statusText = computed(() => {
         @move="moveSelected($event)"
         @reset="resetGeom"
         @del="deletePart"
+        @update-note="setNote"
       />
     </div>
   </div>
@@ -306,6 +305,25 @@ const statusText = computed(() => {
   background: color-mix(in oklab, var(--primary) 78%, transparent);
 }
 
+/* note marker: small amber sticky-note badge at a part's top-right corner.
+   purely a visual indicator (pointer-events:none) — like Excel's cell comment mark.
+   fixed px size so it stays legible/obvious at any canvas zoom. */
+.note-marker {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  transform: translate(-100%, 0);
+  border-radius: 4px 4px 4px 0;
+  color: #fff;
+  background: #d97706;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  z-index: 24;
+}
+
 /* drag grip on the selected block — large, obvious grab target for reorder */
 .pg-move {
   position: absolute;
@@ -327,12 +345,14 @@ const statusText = computed(() => {
   cursor: grabbing;
 }
 
-/* faint frame echoing the selection so the resize box is obvious */
+/* selection frame echoing the selected block so the resize box is obvious.
+   solid primary outline (was a faint dashed line that read as ambiguous). */
 .ret-frame {
   position: absolute;
   pointer-events: none;
-  border: 1.5px dashed color-mix(in oklab, var(--primary) 55%, transparent);
-  border-radius: 3px;
+  border: 2px solid color-mix(in oklab, var(--primary) 80%, transparent);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--primary) 18%, transparent);
   z-index: 22;
 }
 
@@ -375,29 +395,6 @@ const statusText = computed(() => {
 }
 .ret-handle:hover::before {
   background: color-mix(in oklab, var(--primary) 85%, transparent);
-}
-
-/* corner handles: square knob with a comfortable hit target */
-.ret-corner {
-  position: absolute;
-  width: 26px;
-  height: 26px;
-  transform: translate(-50%, -50%);
-  z-index: 25;
-  user-select: none;
-}
-.ret-corner::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 11px;
-  height: 11px;
-  transform: translate(-50%, -50%);
-  border-radius: 3px;
-  background: #fff;
-  border: 2px solid var(--primary);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
 }
 
 /* live value bubble shown while dragging a handle */

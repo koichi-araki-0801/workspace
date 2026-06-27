@@ -17,6 +17,7 @@ import { openapiRouter } from './openapi/index.js';
 import { authRouter } from './routes/auth.routes.js';
 import { generateRouter } from './routes/generate.routes.js';
 import { historyRouter } from './routes/history.routes.js';
+import { notesRouter } from './routes/notes.routes.js';
 import { partsRouter } from './routes/parts.routes.js';
 import { templatesRouter } from './routes/templates.routes.js';
 import { usersRouter } from './routes/users.routes.js';
@@ -41,6 +42,7 @@ app.use('/api', templatesRouter);
 app.use('/api', generateRouter);
 app.use('/api', partsRouter);
 app.use('/api', historyRouter);
+app.use('/api', notesRouter);
 app.use('/api', usersRouter);
 
 // サーバ起動ごとに変わる epoch。配信する index.html に注入し、クライアントは前回値と

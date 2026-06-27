@@ -4,6 +4,7 @@
 import type {
   AuthRepository,
   HistoryRepository,
+  NoteRepository,
   PartRepository,
   TemplateRepository,
   UserRepository,
@@ -11,11 +12,13 @@ import type {
 import { type InjectionKey, inject } from 'vue';
 import { localAuthRepo } from './local/authRepo';
 import { localHistoryRepo } from './local/historyRepo';
+import { localNoteRepo } from './local/noteRepo';
 import { localPartRepo } from './local/partRepo';
 import { localTemplateRepo } from './local/templateRepo';
 import { localUserRepo } from './local/userRepo';
 import { restAuthRepo } from './rest/authRepo';
 import { restHistoryRepo } from './rest/historyRepo';
+import { restNoteRepo } from './rest/noteRepo';
 import { restPartRepo } from './rest/partRepo';
 import { restTemplateRepo } from './rest/templateRepo';
 import { restUserRepo } from './rest/userRepo';
@@ -26,6 +29,7 @@ export interface Repositories {
   templates: TemplateRepository;
   parts: PartRepository;
   history: HistoryRepository;
+  notes: NoteRepository;
   users: UserRepository;
 }
 
@@ -39,6 +43,7 @@ export const localRepositories: Repositories = {
   templates: localTemplateRepo,
   parts: localPartRepo,
   history: localHistoryRepo,
+  notes: localNoteRepo,
   users: localUserRepo,
 };
 
@@ -51,6 +56,7 @@ export const restRepositories: Repositories = {
   templates: restTemplateRepo,
   parts: restPartRepo,
   history: restHistoryRepo,
+  notes: restNoteRepo,
   users: restUserRepo,
 };
 
@@ -69,4 +75,5 @@ export const useAuthRepo = () => useRepos().auth;
 export const useTemplateRepo = () => useRepos().templates;
 export const usePartRepo = () => useRepos().parts;
 export const useHistoryRepo = () => useRepos().history;
+export const useNoteRepo = () => useRepos().notes;
 export const useUserRepo = () => useRepos().users;

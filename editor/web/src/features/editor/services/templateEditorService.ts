@@ -36,8 +36,8 @@ export interface TemplateEditorService {
   saveDraft(id: string, html: string, css: string): Promise<Result<void>>;
   /** 確定保存せずメニューへ戻る際に未確定 draft を破棄する。 */
   discardDraft(id: string): Promise<Result<void>>;
-  getPartHistory(templateId: string, partId: string): Promise<Result<PartHistoryEntry[]>>;
-  recordPartChange(templateId: string, partId: string, change: string): Promise<Result<void>>;
+  listPartHistory(templateId: string): Promise<Result<PartHistoryEntry[]>>;
+  recordPartChange(templateId: string, partKey: string, change: string): Promise<Result<void>>;
 }
 
 export function createTemplateEditorService(
@@ -94,10 +94,10 @@ export function createTemplateEditorService(
 
     discardDraft: (id) => templates.discardDraft(id),
 
-    getPartHistory: (templateId, partId) => parts.getPartHistory(templateId, partId),
+    listPartHistory: (templateId) => parts.listPartHistory(templateId),
 
-    recordPartChange: (templateId, partId, change) =>
-      parts.recordPartChange(templateId, partId, change),
+    recordPartChange: (templateId, partKey, change) =>
+      parts.recordPartChange(templateId, partKey, change),
   };
 }
 

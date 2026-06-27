@@ -19,6 +19,7 @@ import {
   pageViewCss,
   strayDirectChildren,
 } from './pageView';
+import { partEls, partPathKeyFor } from './partKey';
 
 /**
  * A4 sheet 上に描く 1 本のページ境界 guide(canvas 相対 / zoom 考慮の座標、
@@ -88,6 +89,19 @@ export interface SelectedInfo {
   partId?: string;
 }
 
+/**
+ * 版を跨ぐメモを持つパーツの目印(canvas 相対 / zoom 考慮の座標、`SelectedRect` と同様)。
+ * エクセルのセルコメント風に、パーツ右上隅へ固定 px の小バッジを重畳する。位置のみ
+ * パーツへ追従し、バッジ自体のサイズはズーム非依存(`refreshNoteMarkers` を見よ)。
+ */
+export interface NoteMarker {
+  /** 紐づく構造パスキー(`partKey.ts` の `partPathKeyFor`)。 */
+  key: string;
+  top: number;
+  /** パーツ右上隅の x(`rect.left + rect.width`)。 */
+  left: number;
+}
+
 export function useGrapes() {
   const editor = shallowRef<Editor>();
   const selected = ref<SelectedInfo | null>(null);
@@ -104,6 +118,10 @@ export function useGrapes() {
   const canDragSelected = ref(false);
   /** ページ境界の overlay guide 群(`refreshPageGuides` を見よ)。 */
   const pageGuides = ref<PageGuide[]>([]);
+  /** 版を跨ぐメモを持つパーツの構造キー集合(外部 = `usePartNote` から `setNoteKeys` で注入)。 */
+  const noteKeys = ref<Set<string>>(new Set());
+  /** メモ目印の overlay 位置(`refreshNoteMarkers` が現在ページのパーツから算出)。 */
+  const noteMarkers = ref<NoteMarker[]>([]);
   /**
    * `recomputeBreakEls` が cache する page-break 要素。画面上の位置は scroll/zoom
    * ごとに `refreshPageGuides` が読み直す。
@@ -230,6 +248,46 @@ export function useGrapes() {
       logError(toAppError(e));
       pageGuides.value = [];
     }
+    // guide と同じ scroll/zoom/content の契機でメモ目印も測り直す(位置追従)。
+    refreshNoteMarkers();
+  }
+
+  /**
+   * メモを持つパーツ(`noteKeys`)の overlay 目印位置を再計算する。1 ページ表示中は現在
+   * ページのパーツのみを走査する(非表示ページの `getElementPos` は 0 になり位置が崩れる
+   * ため)。全ページ表示時は全ページを走査する。座標は `noScroll:true`(guide/rect と同様、
+   * 非スクロールの overlay 層に重ねるための viewport 相対)で測る。
+   */
+  function refreshNoteMarkers(): void {
+    const ed = editor.value;
+    const root = ed?.getWrapper()?.getEl?.() ?? ed?.Canvas.getBody();
+    if (!ed || !root || noteKeys.value.size === 0) {
+      noteMarkers.value = [];
+      return;
+    }
+    const pages = singlePageMode.value ? [pageEls.value[currentPageIndex.value]] : pageEls.value;
+    try {
+      const out: NoteMarker[] = [];
+      for (const page of pages) {
+        if (!page) continue;
+        for (const part of partEls(page)) {
+          const key = partPathKeyFor(part, root);
+          if (!key || !noteKeys.value.has(key)) continue;
+          const p = ed.Canvas.getElementPos(part, { noScroll: true });
+          out.push({ key, top: p.top, left: p.left + p.width });
+        }
+      }
+      noteMarkers.value = out;
+    } catch (e) {
+      logError(toAppError(e));
+      noteMarkers.value = [];
+    }
+  }
+
+  /** メモを持つパーツの構造キー集合を差し替え、目印を即時に測り直す(`usePartNote` から)。 */
+  function setNoteKeys(keys: Set<string>): void {
+    noteKeys.value = keys;
+    refreshNoteMarkers();
   }
 
   /** page-view style に現在の可視制御 CSS を流し込む(他ページを `display:none` に)。 */
@@ -626,6 +684,8 @@ export function useGrapes() {
     canMoveDown,
     canDragSelected,
     pageGuides,
+    noteMarkers,
+    setNoteKeys,
     pageCount,
     currentPageIndex,
     singlePageMode,
