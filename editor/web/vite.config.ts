@@ -37,6 +37,8 @@ export default defineConfig({
   // coverage はルート vitest.config.ts に一本化(全プロジェクト集約・閾値 85%)。ここは
   // web プロジェクトの environment/globals のみを担う。
   test: {
+    // ルート vitest.config.ts の `projects` 集約で `--project web` 選別を効かせるための名前。
+    name: 'web',
     environment: 'jsdom',
     globals: true,
   },
