@@ -35,6 +35,9 @@ interface CompareResult {
   diff: HtmlDiff;
   cssBefore: string;
   cssAfter: string;
+  // ページずらし時の再 diff 用に元 HTML を保持(結果画面が `buildHtmlDiffAligned` で再計算)。
+  beforeHtml: string;
+  afterHtml: string;
 }
 
 const rendering = ref(false);
@@ -62,6 +65,8 @@ async function onCompare() {
       diff: await htmlWorker.buildHtmlDiff(ra.value.html, rb.value.html, ra.value.css, rb.value.css),
       cssBefore: ra.value.css,
       cssAfter: rb.value.css,
+      beforeHtml: ra.value.html,
+      afterHtml: rb.value.html,
     };
     phase.value = 'result';
   } catch (e) {
@@ -87,6 +92,8 @@ function back() {
     :diff="result.diff"
     :css-before="result.cssBefore"
     :css-after="result.cssAfter"
+    :before-html="result.beforeHtml"
+    :after-html="result.afterHtml"
     @back="back"
   />
 

@@ -42,6 +42,20 @@ export interface DiffPage {
 export interface HtmlDiff {
   pages: DiffPage[];
   changedPageCount: number;
+  /** 比較元(before)を `page-break` で分割した総ページ数(アライン UI の選択範囲に使う)。 */
+  beforePageCount: number;
+  /** 比較先(after)を `page-break` で分割した総ページ数。 */
+  afterPageCount: number;
+}
+
+/**
+ * 比較元/比較先のどのページ同士を 1 枚として並べるかの対応付け。`null` はその側に
+ * 対応ページが無い(= 反対側だけ存在 → 全 added / 全 removed)。`buildHtmlDiffAligned`
+ * に渡すと、固定 i↔i ではなくユーザー指定のページずらしで diff できる。
+ */
+export interface PagePair {
+  before: number | null;
+  after: number | null;
 }
 
 // ── 1. ハイライト用クラス(スタイルは `iframe` 内で定義) ──────────────────────
@@ -474,8 +488,35 @@ function diffPage(index: number, beforePage: HTMLElement[], afterPage: HTMLEleme
   };
 }
 
+/** HTML を `page-break`(インライン `style` + CSS クラス由来)で top-level page 群へ分割する。 */
+function paginateDoc(html: string, css: string | undefined, parse: HtmlParser): HTMLElement[][] {
+  return paginate(topLevelBlocks(parseBody(html, parse)), extractBreakSelectors(css));
+}
+
+/** ペア配列の各 page を diff する共通本体。`buildHtmlDiff`/`buildHtmlDiffAligned` の合流点。 */
+function diffPairs(
+  beforePages: HTMLElement[][],
+  afterPages: HTMLElement[][],
+  pairs: PagePair[],
+): HtmlDiff {
+  const pages: DiffPage[] = [];
+  for (let i = 0; i < pairs.length; i++) {
+    const { before, after } = pairs[i];
+    const bp = before == null ? [] : (beforePages[before] ?? []);
+    const ap = after == null ? [] : (afterPages[after] ?? []);
+    // 無変更ページは高速パスでスキップ、変わったページのみ精密 diff に回す。
+    pages.push(fastSamePage(i, bp, ap) ?? diffPage(i, bp, ap));
+  }
+  return {
+    pages,
+    changedPageCount: pages.filter((p) => p.changed).length,
+    beforePageCount: beforePages.length,
+    afterPageCount: afterPages.length,
+  };
+}
+
 /**
- * 2 つのレンダリング済み HTML ドキュメント間の page/細粒度差分を構築する。
+ * 2 つのレンダリング済み HTML ドキュメント間の page/細粒度差分を構築する(固定 i↔i 対応)。
  * `cssBefore`/`cssAfter` を渡すと、`.page { page-break-after: always }` のような
  * CSS クラス由来の改ページも分割に反映する(省略時はインライン `style` のみで分割)。
  */
@@ -486,22 +527,33 @@ export function buildHtmlDiff(
   cssAfter?: string,
   parse: HtmlParser = defaultHtmlParser,
 ): HtmlDiff {
-  const beforePages = paginate(
-    topLevelBlocks(parseBody(beforeHtml, parse)),
-    extractBreakSelectors(cssBefore),
-  );
-  const afterPages = paginate(
-    topLevelBlocks(parseBody(afterHtml, parse)),
-    extractBreakSelectors(cssAfter),
-  );
+  const beforePages = paginateDoc(beforeHtml, cssBefore, parse);
+  const afterPages = paginateDoc(afterHtml, cssAfter, parse);
+  // 恒等 pairs(i↔i、範囲外側は null)で合流。出力は従来と不変。
   const pageCount = Math.max(beforePages.length, afterPages.length);
+  const pairs: PagePair[] = Array.from({ length: pageCount }, (_, i) => ({
+    before: i < beforePages.length ? i : null,
+    after: i < afterPages.length ? i : null,
+  }));
+  return diffPairs(beforePages, afterPages, pairs);
+}
 
-  const pages: DiffPage[] = [];
-  for (let i = 0; i < pageCount; i++) {
-    const bp = beforePages[i] ?? [];
-    const ap = afterPages[i] ?? [];
-    // 無変更ページは高速パスでスキップ、変わったページのみ精密 diff に回す。
-    pages.push(fastSamePage(i, bp, ap) ?? diffPage(i, bp, ap));
-  }
-  return { pages, changedPageCount: pages.filter((p) => p.changed).length };
+/**
+ * `buildHtmlDiff` の対応付けをユーザー指定の `pairs` で駆動する版。比較画面でページを
+ * ずらして「指定ページ同士」を並べるのに使う。`pairs` の各要素が結果の 1 ページに対応し、
+ * `before`/`after` がそのページに置くソースページ index(`null` は対応なし)。
+ */
+export function buildHtmlDiffAligned(
+  beforeHtml: string,
+  afterHtml: string,
+  cssBefore: string | undefined,
+  cssAfter: string | undefined,
+  pairs: PagePair[],
+  parse: HtmlParser = defaultHtmlParser,
+): HtmlDiff {
+  return diffPairs(
+    paginateDoc(beforeHtml, cssBefore, parse),
+    paginateDoc(afterHtml, cssAfter, parse),
+    pairs,
+  );
 }

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildHtmlDiff,
+  buildHtmlDiffAligned,
   HL_ADDED,
   HL_CHANGED,
   HL_DEL,
   HL_INS,
   HL_REMOVED,
+  type PagePair,
 } from '@/features/compare/htmlBlockDiff';
 
 /** Wrap body fragments in a minimal HTML document (what renderJinja produces). */
@@ -221,5 +223,77 @@ describe('buildHtmlDiff', () => {
     expect(diff.pages).toHaveLength(2);
     expect(diff.pages[1].blocks.every((b) => b.status === 'removed')).toBe(true);
     expect(diff.pages[1].changed).toBe(true);
+  });
+
+  // 比較画面のページずらしで使う、ユーザー指定の対応付けで diff する版。
+  it('reports before/after page counts', () => {
+    const before = doc('<p>p1</p>', '<p style="page-break-before: always">p2</p>');
+    const after = doc(
+      '<p>p1</p>',
+      '<p style="page-break-before: always">p2</p>',
+      '<p style="page-break-before: always">p3</p>',
+    );
+    const diff = buildHtmlDiff(before, after);
+    expect(diff.beforePageCount).toBe(2);
+    expect(diff.afterPageCount).toBe(3);
+  });
+});
+
+describe('buildHtmlDiffAligned', () => {
+  // ページ A4 区切りつきの 3 ページ文書を作る(各 p が 1 ページ)。
+  const br = 'style="page-break-before: always"';
+  function pages3(p1: string, p2: string, p3: string): string {
+    return doc(`<p>${p1}</p>`, `<p ${br}>${p2}</p>`, `<p ${br}>${p3}</p>`);
+  }
+
+  it('恒等 pairs は buildHtmlDiff と同一結果になる', () => {
+    const before = pages3('a', 'b', 'c');
+    const after = pages3('a', 'X', 'c');
+    const identity: PagePair[] = [
+      { before: 0, after: 0 },
+      { before: 1, after: 1 },
+      { before: 2, after: 2 },
+    ];
+    const aligned = buildHtmlDiffAligned(before, after, undefined, undefined, identity);
+    const plain = buildHtmlDiff(before, after);
+    expect(aligned).toEqual(plain);
+  });
+
+  it('比較先を +1 ずらすと、本来ずれていた同一ページ対が same になる', () => {
+    // after に 1 ページ(X)が先頭挿入され、以降が 1 つ後ろへずれたケース。CSS クラス由来の
+    // ページなら、各ページ要素の markup は位置に依らず同一になり、ずらしの効果を純粋に見られる。
+    const css = '.page { page-break-after: always; }';
+    const before = doc(
+      '<div class="page">a</div>',
+      '<div class="page">b</div>',
+      '<div class="page">c</div>',
+    );
+    const after = doc(
+      '<div class="page">X</div>',
+      '<div class="page">a</div>',
+      '<div class="page">b</div>',
+      '<div class="page">c</div>',
+    );
+    // 比較元 i ↔ 比較先 i+1 に揃える。
+    const pairs: PagePair[] = [
+      { before: 0, after: 1 },
+      { before: 1, after: 2 },
+      { before: 2, after: 3 },
+    ];
+    const diff = buildHtmlDiffAligned(before, after, css, css, pairs);
+    expect(diff.changedPageCount).toBe(0);
+    expect(diff.pages.every((p) => !p.changed)).toBe(true);
+  });
+
+  it('片側 null の pair は全 added / 全 removed になる', () => {
+    const before = pages3('a', 'b', 'c');
+    const after = pages3('a', 'b', 'c');
+    const pairs: PagePair[] = [
+      { before: 0, after: null }, // 比較先なし → removed
+      { before: null, after: 1 }, // 比較元なし → added
+    ];
+    const diff = buildHtmlDiffAligned(before, after, undefined, undefined, pairs);
+    expect(diff.pages[0].blocks.every((b) => b.status === 'removed')).toBe(true);
+    expect(diff.pages[1].blocks.every((b) => b.status === 'added')).toBe(true);
   });
 });

@@ -8,8 +8,10 @@
 import type { SampleData } from '@editor/shared';
 import * as Comlink from 'comlink';
 import {
+  buildHtmlDiffAligned as buildHtmlDiffAlignedCore,
   buildHtmlDiff as buildHtmlDiffCore,
   type HtmlDiff,
+  type PagePair,
 } from '@/features/compare/htmlBlockDiff';
 import { toFilled as toFilledCore } from '@/lib/fillJinja';
 import { type ToTemplateOptions, toTemplate as toTemplateCore } from '@/lib/jinjaMask';
@@ -24,6 +26,13 @@ export interface AsyncHtmlWorker {
     cssBefore?: string,
     cssAfter?: string,
   ): Promise<HtmlDiff>;
+  buildHtmlDiffAligned(
+    before: string,
+    after: string,
+    cssBefore: string | undefined,
+    cssAfter: string | undefined,
+    pairs: PagePair[],
+  ): Promise<HtmlDiff>;
   toTemplate(editable: string, opts?: ToTemplateOptions): Promise<string>;
   toFilled(raw: string, sample: SampleData): Promise<string>;
   renderJinja(template: string, data: SampleData): Promise<RenderResult>;
@@ -33,6 +42,9 @@ export interface AsyncHtmlWorker {
 const mainThreadFallback: AsyncHtmlWorker = {
   async buildHtmlDiff(before, after, cssBefore, cssAfter) {
     return buildHtmlDiffCore(before, after, cssBefore, cssAfter);
+  },
+  async buildHtmlDiffAligned(before, after, cssBefore, cssAfter, pairs) {
+    return buildHtmlDiffAlignedCore(before, after, cssBefore, cssAfter, pairs);
   },
   async toTemplate(editable, opts) {
     return toTemplateCore(editable, opts);

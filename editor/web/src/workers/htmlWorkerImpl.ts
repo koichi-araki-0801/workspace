@@ -8,8 +8,10 @@
 import type { SampleData } from '@editor/shared';
 import { parseHTML } from 'linkedom';
 import {
+  buildHtmlDiffAligned as buildHtmlDiffAlignedCore,
   buildHtmlDiff as buildHtmlDiffCore,
   type HtmlDiff,
+  type PagePair,
 } from '@/features/compare/htmlBlockDiff';
 import { toFilled as toFilledCore } from '@/lib/fillJinja';
 import type { HtmlParser } from '@/lib/htmlParser';
@@ -36,6 +38,22 @@ export const htmlWorkerImpl = {
     cssAfter?: string,
   ): HtmlDiff {
     return buildHtmlDiffCore(beforeHtml, afterHtml, cssBefore, cssAfter, linkedomParse);
+  },
+  buildHtmlDiffAligned(
+    beforeHtml: string,
+    afterHtml: string,
+    cssBefore: string | undefined,
+    cssAfter: string | undefined,
+    pairs: PagePair[],
+  ): HtmlDiff {
+    return buildHtmlDiffAlignedCore(
+      beforeHtml,
+      afterHtml,
+      cssBefore,
+      cssAfter,
+      pairs,
+      linkedomParse,
+    );
   },
   toTemplate(editable: string, opts?: ToTemplateOptions): string {
     return toTemplateCore(editable, opts, linkedomParse);
