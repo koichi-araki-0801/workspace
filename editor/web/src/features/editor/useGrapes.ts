@@ -385,10 +385,13 @@ export function useGrapes() {
     // 直後でも当該ページ先頭が見えるように)。
     editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
     if (cvScrollEl) cvScrollEl.scrollTop = 0;
-    // 再レイアウト後に overlay/guide を測り直す(`setZoom` と同手法)。
+    // 再レイアウト後に overlay/guide を測り直す(`setZoom` と同手法)。`updateScrollMode` も
+    // 併せて呼ぶ: ページごとに高さが異なると(content がページ実寸を超える等)送り先で
+    // 収まり判定が変わり、縦中央寄せ/上揃えの出し分けが要るため。
     requestAnimationFrame(() => {
       refreshRect();
       refreshPageGuides();
+      updateScrollMode();
     });
   }
 
@@ -530,9 +533,8 @@ export function useGrapes() {
       editing,
       refreshRect,
       refreshMove,
-      recomputeBreakEls,
       refreshPageGuides,
-      recomputePages,
+      recomputeLayout,
       fitToView,
       onCanvasLoad,
       toInfo,
@@ -592,6 +594,37 @@ export function useGrapes() {
       body.offsetHeight * zoom.value <= containerEl.clientHeight - FIT_MARGIN &&
       body.offsetWidth * zoom.value <= containerEl.clientWidth - FIT_MARGIN;
     containerEl.classList.toggle('ret-canvas-fits', fits);
+  }
+
+  /**
+   * content/構成が変わった後の「全部測り直す」正典。順序厳守:
+   * `recomputeBreakEls`(break 集合更新) → `refreshPageGuides`(その集合を読む) →
+   * `recomputePages`(.page 列挙) → `updateScrollMode`(body 高さ変化で縦配置を出し分け)。
+   * body 高さ/ページ構成を変える全経路(GrapesJS イベント・`load`・`patchSelectedStyle`)が
+   * これを呼ぶことで、`ret-canvas-fits` や guide が旧レイアウトの値に取り残されるのを防ぐ。
+   */
+  function recomputeLayout(): void {
+    recomputeBreakEls();
+    refreshPageGuides();
+    recomputePages();
+    updateScrollMode();
+  }
+
+  /**
+   * `recomputeLayout` を rAF で 1 フレーム 1 回へ集約する薄ラッパ。`patchSelectedStyle` の
+   * geom ハンドルは mousemove ごとにライブ適用されるため、毎回 `recomputeBreakEls`(全要素
+   * `getComputedStyle` = O(n))を同期実行すると drag がジャンクする。`grapesEvents.ts` の
+   * `scheduleHeavyRecompute` と同型(あちらは GrapesJS イベント駆動、こちらは setStyle が
+   * イベントを出さない programmatic 経路用)。editor 破棄後の保留フレームは各関数の null ガードで no-op。
+   */
+  let layoutScheduled = false;
+  function scheduleLayoutRecompute(): void {
+    if (layoutScheduled) return;
+    layoutScheduled = true;
+    requestAnimationFrame(() => {
+      layoutScheduled = false;
+      recomputeLayout();
+    });
   }
 
   /**
@@ -683,9 +716,12 @@ export function useGrapes() {
     }
     comp.setStyle(next);
     // プログラム経由の setStyle は StyleManager の 'style:update' を emit しないため、
-    // listener(autosave)への通知と派生 state の更新を自前で行う。
+    // listener(autosave)への通知と派生 state の更新を自前で行う。`refreshRect` は即時
+    // (ライブ値ラベルの体感応答)、break/guide/ページ列挙/縦配置は幅・余白変更で動くため
+    // `scheduleLayoutRecompute` で次フレームへ集約する(ハンドル drag の連続適用を間引く)。
     revision.value++;
     refreshRect();
+    scheduleLayoutRecompute();
     callbacks.change?.();
   }
 
@@ -771,9 +807,7 @@ export function useGrapes() {
     // 落ちる。その結果ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に
     // 測り直してページ数 / 境界 guide を確定させる(`goToPage` と同じ `requestAnimationFrame`)。
     requestAnimationFrame(() => {
-      recomputeBreakEls();
-      refreshPageGuides();
-      recomputePages();
+      recomputeLayout();
       // load で iframe body が差し替わるため、保持中のハイライト状態を再適用する。
       setVarsHighlight(varsHighlight);
     });
@@ -856,6 +890,7 @@ export function useGrapes() {
     setSinglePageMode,
     refreshRect,
     refreshPageGuides,
+    updateScrollMode,
     startMove,
     moveSelected,
     deleteSelected,

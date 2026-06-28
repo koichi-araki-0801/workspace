@@ -40,12 +40,13 @@ export interface GrapesEventDeps {
   editing: Ref<boolean>;
   refreshRect: () => void;
   refreshMove: () => void;
-  /** canvas を再走査して page-break 要素を拾い直す(content/style 変更時のみ)。 */
-  recomputeBreakEls: () => void;
-  /** ページ境界 guide の位置を読み直す(scroll/zoom/content 変更時)。 */
+  /** ページ境界 guide の位置を読み直す(scroll 時に cache 済み集合を再利用 — 軽い)。 */
   refreshPageGuides: () => void;
-  /** ページ要素(`body > .page`)を列挙し直し、1 ページ表示の可視制御を更新する。 */
-  recomputePages: () => void;
+  /**
+   * content/構成変更後の正典の再計測(break 集合 → guide → ページ列挙 → 縦配置)。
+   * 重い(全要素 `getComputedStyle`)ため、呼び出し側で rAF 集約してから渡す。
+   */
+  recomputeLayout: () => void;
   /** canvas を A4 ページ全体が収まる倍率へ合わせる(起動時の初期ズーム)。 */
   fitToView: () => void;
   /** canvas load 時に呼ぶ(useGrapes が可視制御用 style を canvas head へ注入する)。 */
@@ -70,9 +71,8 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     revision,
     refreshRect,
     refreshMove,
-    recomputeBreakEls,
     refreshPageGuides,
-    recomputePages,
+    recomputeLayout,
     toInfo,
     callbacks,
   } = deps;
@@ -93,10 +93,9 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     // 直上で canvasCss(A4 `min-height:297mm`)を head へ注入済みのため、次フレームまで遅らせて
     // body 実寸が確定してから測る。
     requestAnimationFrame(() => deps.fitToView());
-    // ページ境界 guide / ページ列挙: styles/components が出揃ったこの時点で一度走査する
-    recomputeBreakEls();
-    refreshPageGuides();
-    recomputePages();
+    // ページ境界 guide / ページ列挙 / 縦配置: styles/components が出揃ったこの時点で一度走査する
+    // (`fitToView` の rAF でも縦配置は揃うが、ここで break/guide/ページも確定させる)。
+    recomputeLayout();
   });
 
   ed.on('component:selected', () => {
@@ -120,20 +119,17 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   ed.on('canvas:update frame:scroll', onScroll);
 
   // content/style 変更(`component:update` 等)はテキスト入力中などに高頻度で連続発火する。
-  // 重い再走査トリオ(`recomputeBreakEls` は全要素 `getComputedStyle` = 強制リフロー O(n))を
-  // イベントごとに同期実行すると編集がジャンクするため、rAF で 1 フレーム 1 回へ集約する。
-  // 順序は維持する: `recomputeBreakEls`(break 集合更新) → `refreshPageGuides`(その集合を読む)
-  // → `recomputePages`(.page 列挙)。editor 破棄後に保留フレームが発火しても各関数は
-  // `editor.value` を null ガードして no-op になるため cancel は不要。
+  // 重い再計測 `recomputeLayout`(全要素 `getComputedStyle` = 強制リフロー O(n))をイベントごとに
+  // 同期実行すると編集がジャンクするため、rAF で 1 フレーム 1 回へ集約する。break 集合更新 →
+  // guide → ページ列挙 → 縦配置の順序は `recomputeLayout` 側で担保。editor 破棄後に保留フレームが
+  // 発火しても各関数は `editor.value` を null ガードして no-op になるため cancel は不要。
   let heavyScheduled = false;
   const scheduleHeavyRecompute = () => {
     if (heavyScheduled) return;
     heavyScheduled = true;
     requestAnimationFrame(() => {
       heavyScheduled = false;
-      recomputeBreakEls();
-      refreshPageGuides();
-      recomputePages();
+      recomputeLayout();
     });
   };
 
@@ -174,7 +170,9 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     if (changed) {
       revision.value++;
       refreshRect();
-      refreshPageGuides(); // テキスト編集で sheet 高さ / 境界が変わりうる
+      // テキスト編集で sheet 高さ / 境界 / ページ数が変わりうるため、guide だけでなく
+      // break 集合・ページ列挙・縦配置まで `recomputeLayout`(rAF 集約)で測り直す。
+      scheduleHeavyRecompute();
       callbacks.change?.();
     }
     callbacks.textEnd?.(changed);

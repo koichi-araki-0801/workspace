@@ -116,8 +116,11 @@ onMounted(() => {
   canvasResizeObserver = new ResizeObserver(() => {
     requestAnimationFrame(() => {
       if (userZoomed.value) {
+        // 手動ズーム中は倍率を尊重し overlay 追従のみだが、リサイズで canvasEl の client
+        // サイズが変われば収まり判定も変わるため `updateScrollMode` で縦配置を出し分け直す。
         g.refreshRect();
         g.refreshPageGuides();
+        g.updateScrollMode();
       } else {
         g.fitToView();
       }
