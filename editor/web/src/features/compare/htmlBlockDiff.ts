@@ -18,6 +18,7 @@
 // これにより「どの文字が変わったか」までハイライトでき、変更 block 数も数えられる。
 
 import { rawKey } from '@/lib/blockKey';
+import { defaultHtmlParser, type HtmlParser } from '@/lib/htmlParser';
 
 export type BlockStatus = 'same' | 'changed' | 'added' | 'removed';
 
@@ -41,6 +42,20 @@ export interface DiffPage {
 export interface HtmlDiff {
   pages: DiffPage[];
   changedPageCount: number;
+  /** 比較元(before)を `page-break` で分割した総ページ数(アライン UI の選択範囲に使う)。 */
+  beforePageCount: number;
+  /** 比較先(after)を `page-break` で分割した総ページ数。 */
+  afterPageCount: number;
+}
+
+/**
+ * 比較元/比較先のどのページ同士を 1 枚として並べるかの対応付け。`null` はその側に
+ * 対応ページが無い(= 反対側だけ存在 → 全 added / 全 removed)。`buildHtmlDiffAligned`
+ * に渡すと、固定 i↔i ではなくユーザー指定のページずらしで diff できる。
+ */
+export interface PagePair {
+  before: number | null;
+  after: number | null;
 }
 
 // ── 1. ハイライト用クラス(スタイルは `iframe` 内で定義) ──────────────────────
@@ -53,8 +68,9 @@ export const HL_INS = 'cmp-ins';
 export const HL_DEL = 'cmp-del';
 
 // ── 2. パースと page 分割 ─────────────────────────────────────────────────
-function parseBody(html: string): HTMLElement {
-  return new DOMParser().parseFromString(html, 'text/html').body;
+// 注入された `parse`(メイン=DOMParser / Worker=linkedom)で body を取り出す。
+function parseBody(html: string, parse: HtmlParser): HTMLElement {
+  return parse(html).body;
 }
 
 function topLevelBlocks(body: HTMLElement): HTMLElement[] {
@@ -141,11 +157,15 @@ function paginate(blocks: HTMLElement[], sels: BreakSelectors): HTMLElement[][] 
 }
 
 // ── 3. ノードの整列キー ───────────────────────────────────────────────────
+// Worker(linkedom)には `Node` グローバルが無いため、nodeType の仕様固定値を直接使う
+// (ELEMENT_NODE=1, TEXT_NODE=3。browser/jsdom/linkedom で共通の DOM 仕様値)。
+const ELEMENT_NODE = 1;
+const TEXT_NODE = 3;
 function isElement(n: Node): n is HTMLElement {
-  return n.nodeType === Node.ELEMENT_NODE;
+  return n.nodeType === ELEMENT_NODE;
 }
 function isText(n: Node): n is Text {
-  return n.nodeType === Node.TEXT_NODE;
+  return n.nodeType === TEXT_NODE;
 }
 
 // `rawKey`(要素の整列アンカー)は `@/lib/blockKey` へ集約し、editor のパーツ単位メモと
@@ -175,16 +195,22 @@ function keyedUnits(parent: Node): { key: string; node: Node }[] {
 }
 
 // ── 4. 正規化と同一判定 ───────────────────────────────────────────────────
-function normalize(el: HTMLElement): string {
-  return el.outerHTML.replace(/\s+/g, ' ').trim();
-}
 function collapse(text: string | null): string {
   return (text ?? '').replace(/\s+/g, ' ').trim();
 }
 
-/** 2 ノードがマークアップ上同一か(要素は正規化 outerHTML、テキストは折り畳み比較)。 */
+/**
+ * 2 ノードがマークアップ上同一か(要素は outerHTML、テキストは折り畳み比較)。
+ * 要素はまず生 outerHTML の厳密一致を見て、一致した時点で空白正規化(`collapse`)を
+ * 省く(同一ページ/同一ブロックが多数派なので、正規表現コストの節約が効く)。生が
+ * 違う時だけ `collapse` で空白差を吸収して比較するため、判定結果は従来と不変。
+ */
 function sameMarkup(x: Node, y: Node): boolean {
-  if (isElement(x) && isElement(y)) return normalize(x) === normalize(y);
+  if (isElement(x) && isElement(y)) {
+    const ox = x.outerHTML;
+    const oy = y.outerHTML;
+    return ox === oy || collapse(ox) === collapse(oy);
+  }
   if (isText(x) && isText(y)) return collapse(x.textContent) === collapse(y.textContent);
   return false;
 }
@@ -192,14 +218,14 @@ function sameMarkup(x: Node, y: Node): boolean {
 // ── 5. 語句単位のテキスト diff ────────────────────────────────────────────
 // 英数字の連なりは 1 単語、CJK・記号・空白はそれぞれ 1 トークンに刻む。日本語は
 // 文字単位、英語は単語単位という直感的な粒度になる。
-function tokenize(text: string): string[] {
+export function tokenize(text: string): string[] {
   return text.match(/[A-Za-z0-9]+|\s+|[^A-Za-z0-9\s]/gu) ?? [];
 }
 
-type DiffOp = { type: 'same' | 'del' | 'ins'; text: string };
+export type DiffOp = { type: 'same' | 'del' | 'ins'; text: string };
 
-/** 2 トークン列の LCS から、前後を再構成できる順序付き編集列を作る。 */
-function diffTokens(a: string[], b: string[]): DiffOp[] {
+/** トリム後の中央部のみを LCS して順序付き編集列を作る(full DP 本体)。 */
+function lcsDiff(a: string[], b: string[]): DiffOp[] {
   const n = a.length;
   const m = b.length;
   // lcs[i][j] = a[i..], b[j..] の最長共通部分列長。
@@ -225,6 +251,24 @@ function diffTokens(a: string[], b: string[]): DiffOp[] {
   }
   while (i < n) ops.push({ type: 'del', text: a[i++] });
   while (j < m) ops.push({ type: 'ins', text: b[j++] });
+  return ops;
+}
+
+/**
+ * 2 トークン列の順序付き編集列。共通する前置トークンを `same` として剥がし、残りだけ
+ * full DP(`lcsDiff`)へ渡す。テキストは先頭が共通で以降だけ変わる場合が多く、DP テーブル
+ * O(n*m) を縮められる。前置の貪欲 `same` と残りの DP は元の素朴 full DP と同一の op 列に
+ * なる(前置共通の op は必ず `same`、残り DP は a[start..]/b[start..] の DP と一致するため)。
+ * 後置(suffix)トリムは DP のタイブレーク `lcs[i+1][j] >= lcs[i][j+1]` と相互作用して稀に
+ * op 列が変わる(`diffTokens` パリティテストで検出)ため採用しない。
+ */
+export function diffTokens(a: string[], b: string[]): DiffOp[] {
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  if (start === 0) return lcsDiff(a, b);
+  const ops: DiffOp[] = [];
+  for (let i = 0; i < start; i++) ops.push({ type: 'same', text: a[i] });
+  ops.push(...lcsDiff(a.slice(start), b.slice(start)));
   return ops;
 }
 
@@ -389,6 +433,30 @@ function renderBlock(
   return { status: 'removed', beforeHtml: clone.outerHTML, afterHtml: '' };
 }
 
+/** ページの top-level block を生 outerHTML で `'\n'` 連結する(高速パスの同一判定用)。 */
+function joinOuter(page: HTMLElement[]): string {
+  return page.map((el) => el.outerHTML).join('\n');
+}
+
+/**
+ * before/after ページが生 outerHTML 連結で完全一致するなら、`diffPage`(再帰 diff +
+ * `cloneNode` + LCS)を省いて `same` ページを直接返す。一致しなければ `null`。
+ * 400p の比較でも実変更は数ページなので、無変更ページのスキップが最大の高速化になる。
+ * 生一致時の `diffPage` の出力(全 block `same`、各ペインは `outerHTML` を `'\n'` 連結)と
+ * バイト同一になるよう構築するため、出力は従来と不変。
+ */
+function fastSamePage(
+  index: number,
+  beforePage: HTMLElement[],
+  afterPage: HTMLElement[],
+): DiffPage | null {
+  const beforeHtml = joinOuter(beforePage);
+  const afterHtml = joinOuter(afterPage);
+  if (beforeHtml.length !== afterHtml.length || beforeHtml !== afterHtml) return null;
+  const blocks: DiffBlock[] = keyedBlocks(afterPage).map((b) => ({ key: b.key, status: 'same' }));
+  return { index, changed: false, changedBlockCount: 0, blocks, beforeHtml, afterHtml };
+}
+
 function diffPage(index: number, beforePage: HTMLElement[], afterPage: HTMLElement[]): DiffPage {
   const before = keyedBlocks(beforePage);
   const after = keyedBlocks(afterPage);
@@ -420,8 +488,35 @@ function diffPage(index: number, beforePage: HTMLElement[], afterPage: HTMLEleme
   };
 }
 
+/** HTML を `page-break`(インライン `style` + CSS クラス由来)で top-level page 群へ分割する。 */
+function paginateDoc(html: string, css: string | undefined, parse: HtmlParser): HTMLElement[][] {
+  return paginate(topLevelBlocks(parseBody(html, parse)), extractBreakSelectors(css));
+}
+
+/** ペア配列の各 page を diff する共通本体。`buildHtmlDiff`/`buildHtmlDiffAligned` の合流点。 */
+function diffPairs(
+  beforePages: HTMLElement[][],
+  afterPages: HTMLElement[][],
+  pairs: PagePair[],
+): HtmlDiff {
+  const pages: DiffPage[] = [];
+  for (let i = 0; i < pairs.length; i++) {
+    const { before, after } = pairs[i];
+    const bp = before == null ? [] : (beforePages[before] ?? []);
+    const ap = after == null ? [] : (afterPages[after] ?? []);
+    // 無変更ページは高速パスでスキップ、変わったページのみ精密 diff に回す。
+    pages.push(fastSamePage(i, bp, ap) ?? diffPage(i, bp, ap));
+  }
+  return {
+    pages,
+    changedPageCount: pages.filter((p) => p.changed).length,
+    beforePageCount: beforePages.length,
+    afterPageCount: afterPages.length,
+  };
+}
+
 /**
- * 2 つのレンダリング済み HTML ドキュメント間の page/細粒度差分を構築する。
+ * 2 つのレンダリング済み HTML ドキュメント間の page/細粒度差分を構築する(固定 i↔i 対応)。
  * `cssBefore`/`cssAfter` を渡すと、`.page { page-break-after: always }` のような
  * CSS クラス由来の改ページも分割に反映する(省略時はインライン `style` のみで分割)。
  */
@@ -430,20 +525,35 @@ export function buildHtmlDiff(
   afterHtml: string,
   cssBefore?: string,
   cssAfter?: string,
+  parse: HtmlParser = defaultHtmlParser,
 ): HtmlDiff {
-  const beforePages = paginate(
-    topLevelBlocks(parseBody(beforeHtml)),
-    extractBreakSelectors(cssBefore),
-  );
-  const afterPages = paginate(
-    topLevelBlocks(parseBody(afterHtml)),
-    extractBreakSelectors(cssAfter),
-  );
+  const beforePages = paginateDoc(beforeHtml, cssBefore, parse);
+  const afterPages = paginateDoc(afterHtml, cssAfter, parse);
+  // 恒等 pairs(i↔i、範囲外側は null)で合流。出力は従来と不変。
   const pageCount = Math.max(beforePages.length, afterPages.length);
+  const pairs: PagePair[] = Array.from({ length: pageCount }, (_, i) => ({
+    before: i < beforePages.length ? i : null,
+    after: i < afterPages.length ? i : null,
+  }));
+  return diffPairs(beforePages, afterPages, pairs);
+}
 
-  const pages: DiffPage[] = [];
-  for (let i = 0; i < pageCount; i++) {
-    pages.push(diffPage(i, beforePages[i] ?? [], afterPages[i] ?? []));
-  }
-  return { pages, changedPageCount: pages.filter((p) => p.changed).length };
+/**
+ * `buildHtmlDiff` の対応付けをユーザー指定の `pairs` で駆動する版。比較画面でページを
+ * ずらして「指定ページ同士」を並べるのに使う。`pairs` の各要素が結果の 1 ページに対応し、
+ * `before`/`after` がそのページに置くソースページ index(`null` は対応なし)。
+ */
+export function buildHtmlDiffAligned(
+  beforeHtml: string,
+  afterHtml: string,
+  cssBefore: string | undefined,
+  cssAfter: string | undefined,
+  pairs: PagePair[],
+  parse: HtmlParser = defaultHtmlParser,
+): HtmlDiff {
+  return diffPairs(
+    paginateDoc(beforeHtml, cssBefore, parse),
+    paginateDoc(afterHtml, cssAfter, parse),
+    pairs,
+  );
 }

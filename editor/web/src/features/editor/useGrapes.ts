@@ -106,6 +106,10 @@ export function useGrapes() {
   const editor = shallowRef<Editor>();
   const selected = ref<SelectedInfo | null>(null);
   const zoom = ref(1);
+  // canvas で inline text 編集(RTE)中か。GrapesJS は iframe のキー入力を親 document へ
+  // 転送するため、編集中はキーボードショートカット側(`useEditorShortcuts.ts`)が undo/redo/
+  // delete を横取りしないよう、この flag を見てネイティブのテキスト編集へ委ねる。
+  const editing = ref(false);
   /** canvas の read-only フラグ(!allowEdit のミラー)。選択は可だが RTE/drag をブロック。 */
   let locked = false;
   /** component/style 変更ごとに加算され、呼び出し側が幾何を再計算できるようにする。 */
@@ -439,11 +443,18 @@ export function useGrapes() {
 
     registerJinjaComponents(ed);
 
+    // GrapesJS 既定の keymap(`core:undo`=⌘z / `core:redo` / `core:component-delete`=
+    // backspace,delete 等)を全撤去する。本エディタは自前の snapshot 方式 Undo/Redo
+    // (`useSnapshotHistory.ts`)と独自の削除を使い、ショートカットは `useEditorShortcuts.ts`
+    // に一本化するため、GrapesJS 側と二重発火させない(誤削除/二重 undo を防ぐ)。
+    ed.Keymaps.removeAll();
+
     wireGrapesEvents(ed, {
       selected,
       selectedRect,
       revision,
       zoom,
+      editing,
       refreshRect,
       refreshMove,
       recomputeBreakEls,
@@ -679,6 +690,7 @@ export function useGrapes() {
   return {
     editor,
     selected,
+    editing,
     selectedRect,
     canMoveUp,
     canMoveDown,

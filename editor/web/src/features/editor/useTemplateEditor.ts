@@ -382,6 +382,7 @@ export function useTemplateEditor(
     setNote: note.setCurrent,
     allowAdd,
     allowEdit,
+    dirty,
     autosave,
     canUndo,
     canRedo,

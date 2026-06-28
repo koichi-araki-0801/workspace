@@ -4,12 +4,13 @@
 // =============================================================================
 // 役割: `useTemplateEditor.ts` / `useGeomHandles.ts` を束ね、canvas 上に選択 overlay
 // (ページ境界 guide / ドラッグハンドル / move grip)を描く presentational なルート。
-import { GripVertical, StickyNote } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
+import { GripVertical, PanelLeft, PanelRight, StickyNote } from '@lucide/vue';
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
 import PartTree from './PartTree.vue';
+import { useEditorShortcuts } from './useEditorShortcuts';
 import { useGeomHandles } from './useGeomHandles';
 import { ZOOM_STEP } from './useGrapes';
 import { useTemplateEditor } from './useTemplateEditor';
@@ -33,6 +34,7 @@ const {
   setNote,
   allowAdd,
   allowEdit,
+  dirty,
   autosave,
   canUndo,
   canRedo,
@@ -62,6 +64,17 @@ const rect = computed(() => g.selectedRect.value);
 
 // ページ境界の overlay guide: 既定 ON、上部バーから切替える。
 const showPageGuides = ref(true);
+
+// ── 左右ペインの折りたたみ(狭幅で canvas を広く使うため) ──
+// 状態は localStorage に保持し、次回も同じ畳み方で開く(キーは theme.ts と同じ `ret:` 接頭辞)。
+function persistedFlag(key: string, def: boolean) {
+  const raw = localStorage.getItem(key);
+  const flag = ref(raw === '1' ? true : raw === '0' ? false : def);
+  watch(flag, (v) => localStorage.setItem(key, v ? '1' : '0'));
+  return flag;
+}
+const leftCollapsed = persistedFlag('ret:editor:leftCollapsed', false);
+const rightCollapsed = persistedFlag('ret:editor:rightCollapsed', false);
 
 async function goPreview() {
   await autosave.flush();
@@ -108,6 +121,27 @@ function zoomOut() {
   userZoomed.value = true;
   g.setZoom(g.zoom.value - ZOOM_STEP);
 }
+// Ctrl/⌘+0: 全体にフィットへ戻す。`userZoomed` を下ろし、以後の resize で自動再フィットを許す。
+function zoomReset() {
+  userZoomed.value = false;
+  g.fitToView();
+}
+
+// グローバルショートカット(元に戻す / やり直す / 保存 / ズーム / 削除)。canvas の
+// inline text 編集中・入力欄フォーカス中はネイティブ動作へ委ねる(`useEditorShortcuts.ts`)。
+useEditorShortcuts({
+  undo,
+  redo,
+  save: () => autosave.flush(),
+  zoomIn,
+  zoomOut,
+  zoomReset,
+  remove: deletePart,
+  canUndo: () => canUndo.value,
+  canRedo: () => canRedo.value,
+  canRemove: () => allowEdit.value && !!g.selected.value,
+  isTextEditing: () => g.editing.value,
+});
 
 /** autosave のステータス行。判明していれば最終保存時刻も含める。 */
 const statusText = computed(() => {
@@ -133,6 +167,7 @@ const statusText = computed(() => {
     <EditorTopBar
       :fund-name="fundName"
       :attributes="template?.meta.attributes"
+      :dirty="dirty"
       :save-state="autosave.state.value"
       :status-text="statusText"
       :zoom="g.zoom.value"
@@ -157,13 +192,25 @@ const statusText = computed(() => {
     <!-- 高ズームで両袖(固定幅)+ 中央が実効ビューポート幅を超える極端な場合は、クリップ
          ではなく横スクロールで全ペインへ到達できるようにする(通常倍率では overflow 無し)。 -->
     <div class="flex flex-1 overflow-x-auto overflow-y-hidden">
-      <!-- 左: パーツ追加(チェックボックス → cascading な絞り込み) -->
+      <!-- 左: パーツ追加(チェックボックス → cascading な絞り込み)。畳むと細いレールになる。 -->
       <PartTree
+        v-if="!leftCollapsed"
         v-model:allow-add="allowAdd"
         v-model:allow-edit="allowEdit"
         @select="onPartSelect"
         @insert="onPartInsert"
+        @collapse="leftCollapsed = true"
       />
+      <button
+        v-else
+        type="button"
+        class="pane-rail border-r"
+        title="左パネルを開く"
+        aria-label="左パネルを開く"
+        @click="leftCollapsed = false"
+      >
+        <PanelLeft class="h-4 w-4" />
+      </button>
 
       <!-- 中央: A4 用紙の見た目にした GrapesJS canvas -->
       <main class="relative min-w-[360px] flex-1 overflow-hidden bg-[hsl(220_16%_91%)] dark:bg-[hsl(222_18%_18%)]">
@@ -259,8 +306,19 @@ const statusText = computed(() => {
         </div>
       </main>
 
-      <!-- 右: 編集可能なプロパティ(折りたたみ式)+ 履歴 -->
+      <!-- 右: 編集可能なプロパティ(折りたたみ式)+ 履歴。畳むと細いレールになる。 -->
+      <button
+        v-if="rightCollapsed"
+        type="button"
+        class="pane-rail border-l"
+        title="右パネルを開く"
+        aria-label="右パネルを開く"
+        @click="rightCollapsed = false"
+      >
+        <PanelRight class="h-4 w-4" />
+      </button>
       <Inspector
+        v-else
         :selected="g.selected.value"
         :part="selectedPart"
         :geom="selectedGeom"
@@ -276,12 +334,29 @@ const statusText = computed(() => {
         @reset="resetGeom"
         @del="deletePart"
         @update-note="setNote"
+        @collapse="rightCollapsed = true"
       />
     </div>
   </div>
 </template>
 
 <style scoped>
+/* collapsed-pane rail: thin vertical strip with an expand button. fixed width keeps
+   the canvas wide while leaving an obvious affordance to reopen the panel. */
+.pane-rail {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  flex-shrink: 0;
+  background: var(--card);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.pane-rail:hover {
+  color: var(--foreground);
+  background: color-mix(in oklab, var(--muted) 60%, var(--card));
+}
+
 /* page-boundary guides drawn over the A4 sheet (sit below the selection frame).
    real page break (from .page / break-* / page-break-*): confident solid line */
 .pg-line {

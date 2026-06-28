@@ -48,6 +48,7 @@ export default defineConfig({
         'editor/web/src/lib/templateDoc.ts',
         'editor/web/src/lib/usePagedList.ts',
         'editor/web/src/lib/nunjucksRender.ts',
+        'editor/web/src/lib/formatOutput.ts',
         'editor/web/src/lib/useCascadingSelect.ts',
         'editor/web/src/features/editor/geom.ts',
         'editor/web/src/features/editor/pageView.ts',

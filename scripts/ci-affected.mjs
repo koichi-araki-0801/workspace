@@ -109,7 +109,10 @@ const base = resolveBase();
 if (!base) runFullCi('ベース ref を解決できませんでした');
 
 const diffRange = `${base}...HEAD`;
-const out = git(['diff', '--name-only', diffRange], { allowFail: true });
+// `-c core.quotePath=false`: 非 ASCII パスの八進エスケープ＋引用符付き出力(`"docs/…\346…"`)を無効化し、
+// UTF-8 リテラルで受け取る。これが無いと `p.startsWith('docs/')` 等の BENIGN 判定が外れ、docs だけの
+// 変更でも不要にフル `ci` へフォールバックしてしまう。
+const out = git(['-c', 'core.quotePath=false', 'diff', '--name-only', diffRange], { allowFail: true });
 if (out === null) runFullCi(`git diff ${diffRange} に失敗しました`);
 
 const changed = out.split('\n').filter(Boolean);

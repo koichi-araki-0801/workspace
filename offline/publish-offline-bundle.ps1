@@ -165,7 +165,11 @@ if ($bundleChanged) {
     if ($fetchExit -ne 0) { Write-Error '[error] pnpm fetch（ストア充填）に失敗しました。'; exit 1 }
 
     # node_modules をロックファイルと一致させる([3/4] の playwright exec 等が node_modules を要する)。
-    & corepack pnpm install --frozen-lockfile --store-dir $Store
+    # `--store-dir .pnpm-store` は通常開発のグローバルストアと異なるため、pnpm は既存 `node_modules` の
+    # purge 確認を出す。post-commit フックは TTY が無く、既定では `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`
+    # で中断して発行全体が落ちる(タグ移動/アップロード未達)。`--config.confirm-modules-purge=false` で
+    # 非対話でも purge を進めさせる(`npm_config_*` 環境変数は pnpm 11 では効かないため CLI 設定で明示)。
+    & corepack pnpm install --frozen-lockfile --store-dir $Store --config.confirm-modules-purge=false
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] pnpm install に失敗しました。'; exit 1 }
 
     Write-Host "[2/4] pnpm 本体 tarball を取得（corepack pack pnpm@$pnpmVersion）..."

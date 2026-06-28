@@ -78,7 +78,8 @@ describe('TemplatePreviewService.loadForPreview', () => {
     const res = await svc.loadForPreview('t1');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
-      expect(res.value.css).toBe('.from-draft{}');
+      // css は整形されて返る(`.from-draft {}`)。draft 由来であることを確認する。
+      expect(res.value.css).toContain('.from-draft');
       expect(res.value.restoredHtml).toContain('draft');
     }
   });

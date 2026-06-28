@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { extractJinjaTokens, toEditable, toTemplate } from '../src/lib/jinjaMask';
+import { renderJinja } from '../src/lib/nunjucksRender';
 
 const cases: Record<string, string> = {
   'inline var': `<p>こんにちは {{ user.name }} さん</p>`,
@@ -47,6 +48,28 @@ describe('toEditable produces GrapesJS-safe markers', () => {
   it('leaves attribute jinja untouched (not wrapped in a chip)', () => {
     const e = toEditable(`<a href="{{ url }}">x</a>`);
     expect(e).toContain('href="{{ url }}"');
+  });
+});
+
+describe('toTemplate pretty mode', () => {
+  // 整形は placeholder マスク後に行うため、Jinja トークンは欠落も改変もしない。
+  for (const [name, raw] of Object.entries(cases)) {
+    it(`preserves all Jinja tokens (${name})`, () => {
+      const restored = toTemplate(toEditable(raw), { pretty: true });
+      expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));
+    });
+  }
+
+  // 整形は空白だけを変え、Jinja 評価結果(描画結果)を変えてはならない — 最重要の保証。
+  it('changes only whitespace, not the rendered result', () => {
+    const raw = `<table><tbody>{% for h in xs %}<tr><td>{{ h.name }}</td></tr>{% endfor %}</tbody></table>`;
+    const data = { xs: [{ name: 'A' }, { name: 'B' }] };
+    // タグ間に入るインデント空白はブロック要素では表示に影響しないので畳んでから比較する
+    // (整形が変えてよいのはこの空白だけ — テキストノードの内容は両者で不変)。
+    const norm = (s: string) => s.replace(/>\s+</g, '><').replace(/\s+/g, ' ').trim();
+    const plain = toTemplate(toEditable(raw), {});
+    const pretty = toTemplate(toEditable(raw), { pretty: true });
+    expect(norm(renderJinja(plain, data).html)).toBe(norm(renderJinja(pretty, data).html));
   });
 });
 

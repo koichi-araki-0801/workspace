@@ -40,6 +40,17 @@ function reportGlobalError(e: unknown): void {
   }
 }
 
+/**
+ * `ResizeObserver loop completed with undelivered notifications`(および limit exceeded)は、
+ * 監視コールバック内の再レイアウトで 1 フレームに配信しきれなかった通知がある、という
+ * **良性の警告**(次フレームで配信され実害なし)。ブラウザはこれを global `error` として
+ * 上げるため、握りつぶさないと比較結果(`iframe` リサイズ)のたび「予期しないエラー」
+ * toast が出てしまう。このメッセージだけは無視する。
+ */
+function isBenignResizeObserverError(message: unknown): boolean {
+  return typeof message === 'string' && message.includes('ResizeObserver loop');
+}
+
 // データソース: `VITE_API_MODE=rest` なら REST(フェーズ2 SQL Server backend),
 // それ以外は local fixtures + localStorage 一式(フェーズ1, 既定)。
 const useRest = import.meta.env.VITE_API_MODE === 'rest';
@@ -56,7 +67,11 @@ if (!useRest) {
 const app = createApp(App);
 app.config.errorHandler = (err) => reportGlobalError(err);
 window.addEventListener('unhandledrejection', (ev) => reportGlobalError(ev.reason));
-window.addEventListener('error', (ev) => reportGlobalError(ev.error ?? ev.message));
+window.addEventListener('error', (ev) => {
+  // ResizeObserver の良性警告は toast を出さない(下記 helper 参照)。
+  if (isBenignResizeObserverError(ev.message)) return;
+  reportGlobalError(ev.error ?? ev.message);
+});
 app.provide(REPOS_KEY, repositories);
 app.use(createPinia());
 app.use(router);

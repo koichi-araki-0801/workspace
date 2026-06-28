@@ -3,13 +3,13 @@
 // PartTree.vue — 左ペイン(編集を許可 / パーツを追加トグル + catalog)
 // =============================================================================
 import type { PartCatalogItem } from '@editor/shared';
-import { Lock, Wand2 } from '@lucide/vue';
+import { Lock, PanelLeftClose, Wand2 } from '@lucide/vue';
 import SelectableRow from '@/components/ui/SelectableRow.vue';
 import PartCatalog from './PartCatalog.vue';
 
 const allowAdd = defineModel<boolean>('allowAdd', { default: false });
 const allowEdit = defineModel<boolean>('allowEdit', { default: false });
-const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] }>();
+const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem]; collapse: [] }>();
 </script>
 
 <template>
@@ -17,6 +17,16 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] 
     <div class="flex h-[46px] shrink-0 items-center gap-2 border-b px-3.5">
       <Wand2 class="h-[15px] w-[15px] text-primary" />
       <span class="text-[12.5px] font-bold text-foreground">編集オプション</span>
+      <span class="flex-1" />
+      <button
+        type="button"
+        class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        title="左パネルを畳む"
+        aria-label="左パネルを畳む"
+        @click="emit('collapse')"
+      >
+        <PanelLeftClose class="h-4 w-4" />
+      </button>
     </div>
 
     <!-- トグル: 編集を許可 -->

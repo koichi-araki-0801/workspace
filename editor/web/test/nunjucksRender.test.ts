@@ -27,7 +27,7 @@ describe('buildPreviewDocument', () => {
     expect(r.error).toBeNull();
     expect(r.html).toContain('<style data-preview-css>');
     // the inlined CSS lands inside the document and the template is rendered
-    expect(r.html).toContain('color:red');
+    expect(r.html).toMatch(/color:\s*red/);
     expect(r.html).toContain('X');
     expect(r.html.indexOf('data-preview-css')).toBeLessThan(r.html.indexOf('</head>'));
   });
@@ -66,7 +66,7 @@ describe('buildPreviewDocument', () => {
     expect(r.html).not.toContain('rel="stylesheet"');
     expect(r.html).not.toContain('css/110024.css');
     expect(r.html).toContain('<style data-preview-css>');
-    expect(r.html).toContain('color:red');
+    expect(r.html).toMatch(/color:\s*red/);
   });
 
   it('strips a stylesheet link regardless of attribute order or quoting', () => {
@@ -101,7 +101,7 @@ describe('buildPreviewDocument', () => {
     expect(r.html).toContain('レポート');
     expect(r.html).toContain('margin-top:10mm');
     expect(r.html).toContain('<style data-preview-css>');
-    expect(r.html).toContain('color:red');
+    expect(r.html).toMatch(/color:\s*red/);
     expect(r.html).toContain('X');
   });
 });

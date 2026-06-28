@@ -9,9 +9,10 @@ import Button from '@/components/ui/Button.vue';
 import Step from '@/components/ui/Step.vue';
 import { logError } from '@/lib/appError';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { htmlWorker } from '@/workers';
 import CompareResultView from './CompareResultView.vue';
 import CompareSideSelector from './CompareSideSelector.vue';
-import { buildHtmlDiff, type HtmlDiff } from './htmlBlockDiff';
+import type { HtmlDiff } from './htmlBlockDiff';
 import { useCompareService } from './services/compareService';
 
 const compare = useCompareService();
@@ -34,6 +35,9 @@ interface CompareResult {
   diff: HtmlDiff;
   cssBefore: string;
   cssAfter: string;
+  // ページずらし時の再 diff 用に元 HTML を保持(結果画面が `buildHtmlDiffAligned` で再計算)。
+  beforeHtml: string;
+  afterHtml: string;
 }
 
 const rendering = ref(false);
@@ -58,9 +62,11 @@ async function onCompare() {
       after: b.version,
       beforeFile: a.meta.fileName,
       afterFile: b.meta.fileName,
-      diff: buildHtmlDiff(ra.value.html, rb.value.html, ra.value.css, rb.value.css),
+      diff: await htmlWorker.buildHtmlDiff(ra.value.html, rb.value.html, ra.value.css, rb.value.css),
       cssBefore: ra.value.css,
       cssAfter: rb.value.css,
+      beforeHtml: ra.value.html,
+      afterHtml: rb.value.html,
     };
     phase.value = 'result';
   } catch (e) {
@@ -86,6 +92,8 @@ function back() {
     :diff="result.diff"
     :css-before="result.cssBefore"
     :css-after="result.cssAfter"
+    :before-html="result.beforeHtml"
+    :after-html="result.afterHtml"
     @back="back"
   />
 
