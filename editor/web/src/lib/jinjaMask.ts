@@ -21,6 +21,7 @@
 //   serialization-safe な placeholder として出力し, 最後の文字列パスで decode する。
 //   これにより式中の `<`, `>`, `&` 等が serializer に HTML エスケープされない。
 
+import { formatHtml } from './formatOutput';
 import { defaultHtmlParser, type HtmlParser } from './htmlParser';
 
 export const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
@@ -100,6 +101,12 @@ export function toEditable(raw: string): string {
 export interface ToTemplateOptions {
   /** true なら `<body>` の inner HTML だけを返す(GrapesJS の body 編集用)。 */
   asFragment?: boolean;
+  /**
+   * true なら復元前の(= Jinja を placeholder に退避済みの)HTML を整形する。確定版テンプレを
+   * git に読める形で残すための pretty-print。整形は placeholder マスク後・decode 前に行うので
+   * Jinja 構文は壊れない(下記 step 2.5 参照)。
+   */
+  pretty?: boolean;
 }
 
 export function toTemplate(
@@ -153,8 +160,13 @@ export function toTemplate(
     if (close !== null) el.parentNode?.insertBefore(ph(close), el.nextSibling);
   });
 
+  // 2.5 (任意)整形する。この時点で Jinja は全て placeholder(private-use 文字のテキスト
+  //     ノード/属性)に退避済みで `serialized` は valid HTML。フォーマッタは Jinja を見ない
+  //     ため `{% for %}` 等の構文を壊さず、placeholder の前後にインデントが入るだけ。
+  const serializedRaw = opts.asFragment ? doc.body.innerHTML : doc.documentElement.outerHTML;
+  const serialized = opts.pretty ? formatHtml(serializedRaw) : serializedRaw;
+
   // 3. placeholder を生文字列置換で decode する(HTML エスケープなし)
-  const serialized = opts.asFragment ? doc.body.innerHTML : doc.documentElement.outerHTML;
   let out = serialized.replace(PH_RE, (_m, enc: string) => b64decode(enc));
   if (!opts.asFragment && hadDoctype) out = `<!doctype html>\n${out}`;
   return out;

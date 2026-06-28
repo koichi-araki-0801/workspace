@@ -3,6 +3,7 @@
 // =============================================================================
 import type { SampleData } from '@editor/shared';
 import nunjucks from 'nunjucks';
+import { formatCss, formatHtml } from './formatOutput';
 import { sanitizePreviewHtml } from './sanitizeHtml';
 
 /**
@@ -37,13 +38,14 @@ export function assemblePreviewDocument(renderedHtml: string, css: string): stri
   // 本体 document に直接描画される前に能動コンテンツ(`<script>`/`on*`/`javascript:`)を除去する
   // (保存型 XSS 対策)。この後で注入する自前 `<style data-preview-css>` はサニタイズ対象外＝
   // そのまま残す(信頼できる inline CSS のため)。サニタイズ前に行う理由でもある。
-  const safe = sanitizePreviewHtml(renderedHtml);
+  // Jinja 解決済みの純 HTML/CSS なので整形は安全。プレビュー/PDF 入力を読める形にする。
+  const safe = formatHtml(sanitizePreviewHtml(renderedHtml));
 
   // 外部 stylesheet `<link>`(例: `<link rel="stylesheet" href="css/110024.css">`)を除去する。
   // CSS は直後に inline 化するため不要で, 残すと viewer が Blob 相対 URL で解決して 404 になり,
   // `@vivliostyle/core` のフェッチャがページ分割を中断してしまう(プレビューが 1 ページに崩れる)。
   const cleaned = safe.replace(/<link\b[^>]*\brel=["']?stylesheet["']?[^>]*>/gi, '');
-  const styleTag = `<style data-preview-css>\n${css}\n</style>`;
+  const styleTag = `<style data-preview-css>\n${formatCss(css)}\n</style>`;
   if (/<\/head>/i.test(cleaned)) return cleaned.replace(/<\/head>/i, `${styleTag}</head>`);
   if (/<body[^>]*>/i.test(cleaned)) return cleaned.replace(/<body([^>]*)>/i, `<body$1>${styleTag}`);
   return `<!doctype html><html><head><meta charset="utf-8" />${styleTag}</head><body>${cleaned}</body></html>`;

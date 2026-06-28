@@ -20,6 +20,7 @@ import {
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { apiUrl } from '@/api/rest/http';
 import { logError } from '@/lib/appError';
+import { formatCss, formatHtml } from '@/lib/formatOutput';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { sanitizePreviewHtml } from '@/lib/sanitizeHtml';
 import { replaceBodyInner } from '@/lib/templateDoc';
@@ -71,13 +72,19 @@ export function createTemplatePreviewService(
       let restoredHtml: string;
       let css: string;
       if (draft) {
-        // Jinja 復元(DOM 重処理)は Worker(linkedom)で実行しメインを塞がない。
-        const restoredBody = await htmlWorker.toTemplate(draft.html, { asFragment: true });
+        // Jinja 復元(DOM 重処理)は Worker(linkedom)で実行しメインを塞がない。`pretty` で
+        // 復元 HTML を整形し、確定保存される `data/templates` が git に読める形になる。
+        const restoredBody = await htmlWorker.toTemplate(draft.html, {
+          asFragment: true,
+          pretty: true,
+        });
         restoredHtml = replaceBodyInner(tpl.html, restoredBody);
-        css = draft.css;
+        css = formatCss(draft.css);
       } else {
+        // draft 無し(編集前)は生テンプレをそのまま使う。生 Jinja HTML は整形しない(構文破壊
+        // 回避)。CSS は静的なので整形して保存形を揃える(整形済みでも冪等)。
         restoredHtml = tpl.html;
-        css = tpl.css;
+        css = formatCss(tpl.css);
       }
 
       // 描画は Worker、サニタイズ + 文書組み立て(安価な文字列操作)はメインで行う。
@@ -100,8 +107,9 @@ export function createTemplatePreviewService(
         const rendered = await htmlWorker.renderJinja(html, sample);
         if (rendered.error) return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
         // サーバの headless ブラウザでレンダリングされる前に能動コンテンツを除去する
-        // (プレビューと同じ保存型 XSS / スクリプト実行対策)。
-        const safeHtml = sanitizePreviewHtml(rendered.html);
+        // (プレビューと同じ保存型 XSS / スクリプト実行対策)。Jinja 解決済みの純 HTML なので
+        // 整形は安全 — PDF 入力を読める形にする(`css` は呼び出し側で整形済み)。
+        const safeHtml = formatHtml(sanitizePreviewHtml(rendered.html));
         const res = await fetch(apiUrl(apiPaths.build), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
