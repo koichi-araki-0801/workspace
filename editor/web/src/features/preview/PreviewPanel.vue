@@ -40,8 +40,9 @@ const iframe = ref<HTMLIFrameElement>();
 const useFallback = ref(false);
 const rendering = ref(false);
 // ページ送りの状態。`currentPage` は 1 起点, `pageCount` は総ページ数(0 = 未確定)。
-// 現在ページは `nav` イベントの `epage`(遅延描画中は小数の推定値で不正確)に頼らず,
-// 前/次ボタンの操作で自前カウンタとして進める。境界判定だけ `nav` の `first`/`last` を使う。
+// どちらも `nav` イベントの値をそのまま反映する。`renderAllPages: true`(下記 `render`)で全ページを
+// 事前レイアウトするため `epage`(現在位置, 0 起点)・`epageCount`(総数)は整数の実測値になり,
+// 自前カウンタを持たずに vivliostyle の実位置と常に一致させられる。
 const currentPage = ref(1);
 const pageCount = ref(0);
 const atFirst = ref(true);
@@ -129,26 +130,39 @@ async function render() {
     const mod = await import('@vivliostyle/core');
     const CoreViewer = mod.CoreViewer;
     nav = mod.Navigation;
-    if (!viewport.value) return;
+    if (!viewport.value) {
+      // viewport 不在(描画前にアンマウント等)。ローダーが残らないよう解除する。
+      rendering.value = false;
+      return;
+    }
     viewport.value.innerHTML = '';
-    // ページ送り表示: 全ページ連続(`renderAllPages`)ではなく 1 ページずつ。フィットは Vivliostyle の
-    // `fitToScreen` に任せず自前(`applyFit`)で行う(resize 時に再計算されない問題の回避)。
+    // `renderAllPages: true` で全ページを事前レイアウトする。これにより Vivliostyle 内部の
+    // `epageIsRenderedPage` が立ち, `nav` の `epageCount`(総数)・`epage`(現在位置)が圧縮バイト数
+    // からの推定値ではなく実レイアウトの整数値になる(ページカウントのずれ対策)。表示は別オプション
+    // `pageViewMode: SINGLE_PAGE` のまま 1 ページずつ。フィットは Vivliostyle の `fitToScreen` に
+    // 任せず自前(`applyFit`)で行う(resize 時に再計算されない問題の回避)。
     viewer = new CoreViewer(
       { viewportElement: viewport.value },
       {
         autoResize: true,
-        renderAllPages: false,
+        renderAllPages: true,
         pageViewMode: mod.PageViewMode.SINGLE_PAGE,
         fitToScreen: false,
       },
     );
-    // `nav` イベントから総ページ数(`epageCount`)と先頭/末尾フラグ(`first`/`last`)を取る。
-    // `epage`(現在ページの推定値)は遅延描画中に小数でぶれるため現在ページには使わない。
+    // `nav` イベントから総ページ数(`epageCount`)・現在位置(`epage`)・先頭/末尾フラグ(`first`/`last`)
+    // を取る。`renderAllPages: true` 下では `epage` は実測の整数(0 起点)なので現在ページに使える。
+    // 通知は 2 種あり, 初回カウント通知は `epageCount` のみ, 位置通知は `epage`+`epageCount` を持つ
+    // ため, それぞれ独立に(値が来たときだけ)更新する。
     viewer.addListener(
       'nav',
-      (p: { epageCount?: number; first?: boolean; last?: boolean }) => {
+      (p: { epage?: number; epageCount?: number; first?: boolean; last?: boolean }) => {
         if (typeof p.epageCount === 'number' && p.epageCount > 0) {
           pageCount.value = Math.max(1, Math.round(p.epageCount));
+        }
+        if (typeof p.epage === 'number') {
+          // `epage` は 0 起点。1 起点表示へ +1 する。
+          currentPage.value = Math.max(1, Math.round(p.epage) + 1);
         }
         if (typeof p.first === 'boolean') atFirst.value = p.first;
         if (typeof p.last === 'boolean') atLast.value = p.last;
@@ -157,6 +171,11 @@ async function render() {
         emitState();
       },
     );
+    // 全ページのレイアウト確定(`readystatechange` -> `COMPLETE`)まで「生成中…」を出し続ける。
+    // 事前レイアウトで初回描画に時間がかかるため, 確定前に空のビューポートを見せないようにする。
+    viewer.addListener('readystatechange', () => {
+      if (viewer?.readyState === mod.ReadyState.COMPLETE) rendering.value = false;
+    });
     viewer.loadDocument({ url: blobUrl });
     useFallback.value = false;
   } catch (e) {
@@ -166,23 +185,23 @@ async function render() {
     logError(toAppError(e));
     useFallback.value = true;
     if (iframe.value) iframe.value.srcdoc = props.html;
-  } finally {
+    // iframe フォールバックは即時表示。レイアウト完了通知が来ないのでここで解除する。
     rendering.value = false;
+  } finally {
+    // 成功経路はローダーを解除しない。全ページ確定時の `readystatechange` -> `COMPLETE` で解除する。
     emitState();
   }
 }
 
+// 現在ページ(`currentPage`)/先頭・末尾フラグは更新せず, `navigateToPage` 後に発火する `nav`
+// イベントで実位置から反映する(自前カウンタを持たず vivliostyle の実位置と常に一致させる)。
 function prevPage() {
   if (!nav || atFirst.value || currentPage.value <= 1) return;
   viewer?.navigateToPage(nav.PREVIOUS);
-  currentPage.value -= 1;
-  emitState();
 }
 function nextPage() {
   if (!nav || atLast.value || currentPage.value >= pageCount.value) return;
   viewer?.navigateToPage(nav.NEXT);
-  currentPage.value += 1;
-  emitState();
 }
 
 function setManualZoom(z: number) {
