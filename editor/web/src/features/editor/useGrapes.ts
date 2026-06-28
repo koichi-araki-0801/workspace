@@ -150,6 +150,15 @@ export function useGrapes() {
   const callbacks: GrapesCallbacks = {};
   /** zoom フィット計測の基準になる canvas コンテナ(= `init` の `c.canvas`)。 */
   let containerEl: HTMLElement | undefined;
+  /**
+   * スクロールコンテナ `.gjs-cv-canvas`(= `scrollableCanvas:true` で overflow:auto になる
+   * GrapesJS の canvas viewport)。背の高いページはここがスクロールするが、その scroll に対する
+   * GrapesJS イベントは無い(`frame:scroll` は iframe document 専用で body overflow:hidden により
+   * 発火しない)ため、下の `cvScrollHandler` を直接張って overlay を追従させる。
+   */
+  let cvScrollEl: HTMLElement | null = null;
+  /** `cvScrollEl` に張る scroll listener(`destroy` で剥がすため参照を保持)。 */
+  let cvScrollHandler: (() => void) | null = null;
 
   function refreshMove(): void {
     const comp = editor.value?.getSelected();
@@ -360,8 +369,11 @@ export function useGrapes() {
     currentPageIndex.value = clampPageIndex(i, pageCount.value);
     applyPageVisibility();
     deselectIfHidden();
-    // 1 ページ表示なので scrollTop=0 で現在ページ先頭に揃う。
+    // 1 ページ表示なので scrollTop=0 で現在ページ先頭に揃う。スクロールは外側 `.gjs-cv-canvas`
+    // へ移ったため、iframe document に加えてそちらの scrollTop も 0 へ戻す(背の高いページを送った
+    // 直後でも当該ページ先頭が見えるように)。
     editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
+    if (cvScrollEl) cvScrollEl.scrollTop = 0;
     // 再レイアウト後に overlay/guide を測り直す(`setZoom` と同手法)。
     requestAnimationFrame(() => {
       refreshRect();
@@ -418,6 +430,13 @@ export function useGrapes() {
       fromElement: false,
       storageManager: false,
       panels: { defaults: [] },
+      // `scrollableCanvas:true` で canvas viewport `.gjs-cv-canvas` を overflow:auto の
+      // スクロールコンテナにする。device `height:'auto'` で iframe がページ実寸(複数ページなら
+      // 全長)へ育つため、ビューポートより背の高いページは外側 canvas で縦スクロールして到達する
+      // (これが無いと stock の `.gjs-cv-canvas{overflow:hidden}` がはみ出しをクリップし、下端/上端へ
+      // 行けない)。auto-height とは独立(overflow と scroll 読取りのみ変更)。`.gjs-frame-wrapper` の
+      // 縦配置は index.css 側で「収まる時=中央 / 超える時=上揃え」に出し分ける。
+      canvas: { scrollableCanvas: true },
       // desktop device に `height:'auto'` を与え GrapesJS の auto-height 経路を起こす。
       // これが無いと frame.height は null のまま base CSS `.gjs-frame{height:100%}` で
       // iframe 高が canvas 高(実機 ~800px)に張り付き、A4 body(`min-height:297mm` ~1123px)が
@@ -469,6 +488,27 @@ export function useGrapes() {
     });
 
     editor.value = ed;
+
+    // 外側スクロール(`.gjs-cv-canvas`)に overlay を追従させる。grapesjs.init は canvas DOM を
+    // 同期描画するので、この時点で querySelector は要素を返す。scroll は連続発火するため rAF で
+    // 1 フレーム 1 回へスロットルし、`refreshRect`(選択枠/ハンドル) と `refreshPageGuides`
+    // (ページ境界 guide / メモ印)を測り直す。座標は `noScroll:true`(boundingClientRect 基準)で
+    // スクロール量を自動で織り込む。
+    cvScrollEl = containerEl?.querySelector<HTMLElement>('.gjs-cv-canvas') ?? null;
+    if (cvScrollEl) {
+      let pending = false;
+      cvScrollHandler = () => {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(() => {
+          pending = false;
+          refreshRect();
+          refreshPageGuides();
+        });
+      };
+      cvScrollEl.addEventListener('scroll', cvScrollHandler, { passive: true });
+    }
+
     return ed;
   }
 
@@ -477,9 +517,26 @@ export function useGrapes() {
     zoom.value = clamped;
     editor.value?.Canvas.setZoom(clamped * 100);
     requestAnimationFrame(() => {
+      updateScrollMode();
       refreshRect();
       refreshPageGuides();
     });
+  }
+
+  /**
+   * ページ全体がビューポートに収まるかを判定し、`containerEl` に `ret-canvas-fits` class を
+   * 出し分ける(index.css の `.gjs-frame-wrapper` 縦配置を切り替える)。収まる時は縦中央寄せ、
+   * 超える時は上揃え + 縦スクロール。判定は `fitToView` と同じ尺度(ページ実寸 `offset*` に zoom を
+   * 掛けた表示サイズ vs `client* - FIT_MARGIN`)。`setZoom`/`fitToView`/canvas load の各 rAF で呼ぶ。
+   */
+  function updateScrollMode(): void {
+    if (!containerEl) return;
+    const body = editor.value?.Canvas.getBody();
+    const fits =
+      !!body &&
+      body.offsetHeight * zoom.value <= containerEl.clientHeight - FIT_MARGIN &&
+      body.offsetWidth * zoom.value <= containerEl.clientWidth - FIT_MARGIN;
+    containerEl.classList.toggle('ret-canvas-fits', fits);
   }
 
   /**
@@ -498,6 +555,8 @@ export function useGrapes() {
     const pageW = body.offsetWidth;
     if (pageH <= 0 || pageW <= 0 || availH <= 0 || availW <= 0) return;
     setZoom(Math.min(availH / pageH, availW / pageW));
+    // `setZoom` 側の rAF でも更新されるが、フィット直後の class を確実に揃えておく。
+    updateScrollMode();
   }
 
   /**
@@ -683,6 +742,10 @@ export function useGrapes() {
   }
 
   function destroy(): void {
+    // 外側スクロール listener を先に剥がす(editor 破棄で DOM は消えるが寿命を明示し leak を防ぐ)。
+    if (cvScrollEl && cvScrollHandler) cvScrollEl.removeEventListener('scroll', cvScrollHandler);
+    cvScrollEl = null;
+    cvScrollHandler = null;
     editor.value?.destroy();
     editor.value = undefined;
   }
