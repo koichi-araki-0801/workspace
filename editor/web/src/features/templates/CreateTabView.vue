@@ -33,7 +33,12 @@ const canCreate = computed(
 );
 
 const methodCards: { key: Method; icon: typeof FilePlus2; title: string; desc: string }[] = [
-  { key: 'blank', icon: FilePlus2, title: '白紙から作成', desc: '標準のレイアウトで新規に作成します。' },
+  {
+    key: 'blank',
+    icon: FilePlus2,
+    title: '属性から新規作成',
+    desc: '指定した属性（委託会社・ファンド・版種）をもとに標準レイアウトで作成します。',
+  },
   {
     key: 'series',
     icon: FileText,
@@ -66,7 +71,7 @@ watch(
 
 function selectMethod(m: Method) {
   if (!canCreate.value || creating.value) return;
-  // 白紙はカード押下で即作成→編集画面へ。シリーズは候補一覧を表示する。
+  // 属性から新規作成 (`blank`) はカード押下で即作成→編集画面へ。シリーズは候補一覧を表示する。
   if (m === 'blank') {
     createNew();
     return;
@@ -161,7 +166,7 @@ function createFromSeries(m: TemplateMeta) {
       <Step
         :n="2"
         title="作成方法を選ぶ"
-        :hint="canCreate ? '白紙を選ぶと編集画面が開きます。シリーズは候補から選びます。' : 'ステップ1を完了すると選択できます。'"
+        :hint="canCreate ? '属性から新規作成を選ぶと編集画面が開きます。シリーズは候補から選びます。' : 'ステップ1を完了すると選択できます。'"
         :active="canCreate"
         :connector="false"
       >
