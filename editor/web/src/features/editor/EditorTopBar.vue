@@ -6,8 +6,6 @@ import type { TemplateAttributes } from '@editor/shared';
 import {
   AlertCircle,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Eye,
   FileText,
   Loader2,
@@ -19,6 +17,7 @@ import {
   Save,
   Undo2,
 } from '@lucide/vue';
+import PageNav from '@/components/PageNav.vue';
 import BackButton from '@/components/ui/BackButton.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
@@ -47,8 +46,8 @@ const emit = defineEmits<{
   zoomIn: [];
   zoomOut: [];
   togglePageGuides: [];
-  prevPage: [];
-  nextPage: [];
+  /** ページ番号ジャンプ(1 起点)。`EditorView` で `g.goToPage(n - 1)` へ。 */
+  go: [page: number];
   toggleSinglePage: [];
   save: [];
   preview: [];
@@ -134,23 +133,16 @@ const attrItems = (a: TemplateAttributes) => [
 
       <div class="mx-0.5 h-5 w-px bg-border/70" />
 
-      <!-- ページ送り(1 ページ表示時、複数ページのときだけ出す) -->
+      <!-- ページ送り(1 ページ表示時、複数ページのときだけ出す)。番号入力で任意ページへジャンプ
+           できる共通 `PageNav`(400 ページ規模対応)。全ページ連続表示中は canvas 右端の
+           `PageRail`(`EditorView.vue`)に集約するためここには出さない。 -->
       <template v-if="singlePageMode && pageCount > 1">
-        <Button variant="ghost" size="icon" title="前のページ" :disabled="currentPage <= 1" @click="emit('prevPage')">
-          <ChevronLeft class="h-4 w-4" />
-        </Button>
-        <span class="min-w-[46px] text-center text-[12.5px] tabular-nums text-muted-foreground">
-          {{ currentPage }} / {{ pageCount }}
-        </span>
-        <Button
+        <PageNav
           variant="ghost"
-          size="icon"
-          title="次のページ"
-          :disabled="currentPage >= pageCount"
-          @click="emit('nextPage')"
-        >
-          <ChevronRight class="h-4 w-4" />
-        </Button>
+          :current-page="currentPage"
+          :page-count="pageCount"
+          @go="emit('go', $event)"
+        />
         <div class="mx-0.5 h-5 w-px bg-border/70" />
       </template>
 

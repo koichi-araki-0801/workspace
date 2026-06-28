@@ -374,7 +374,7 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
           </div>
         </section>
 
-        <!-- ── メモ(版を跨いで継続) ── -->
+        <!-- ── メモ(会社・ファンド・基準日・版 単位) ── -->
         <section class="border-b">
           <button type="button" class="sec-head" @click="open.memo = !open.memo">
             <component :is="open.memo ? ChevronDown : ChevronRight" class="h-3.5 w-3.5 opacity-70" />
@@ -388,11 +388,11 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
               :disabled="!canNote"
               class="memo-area"
               rows="4"
-              placeholder="このパーツへのメモ（版が変わっても継続）"
+              placeholder="このパーツへのメモ（会社・ファンド・基準日・版ごと）"
               @input="onNoteInput"
             />
             <p class="mt-1 text-[11px] text-muted-foreground">
-              会社・ファンド単位で保存し、版（版種・基準日）が変わっても同じパーツに表示します。
+              このパーツへのメモを、会社・ファンド・基準日・版（版種）単位で保存します。
             </p>
           </div>
         </section>

@@ -13,7 +13,7 @@ import {
   type Template,
 } from '@editor/shared';
 import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } from 'vue';
-import { onBeforeRouteLeave, useRouter } from 'vue-router';
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useNoteRepo } from '@/api/repositories';
 import { confirm } from '@/components/ui/confirm';
 import { toastError } from '@/components/ui/toast';
@@ -45,6 +45,7 @@ export function useTemplateEditor(
   const { canvasEl, layersEl } = els;
   const service = useTemplateEditorService();
   const router = useRouter();
+  const route = useRoute();
   const auth = useAuthStore();
   const sessionStore = useEditorSessionStore();
   const g = useGrapes();
@@ -285,6 +286,9 @@ export function useTemplateEditor(
     if (!canvas || !layers) return;
     g.init({ canvas, layers });
     g.load(res.value.editableBody, res.value.css);
+    // 差し込み値ハイライトは作成経路(`?created=1`)でのみ出す。編集経路(query なし)は実値編集
+    // なので出さない。CLAUDE.md「editor 2系統の原則」を参照。
+    g.setVarsHighlight(route.query.created === '1');
     // locked 状態で開始する(allowEdit の既定は false)。
     g.setEditable(allowEdit.value);
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で

@@ -105,7 +105,9 @@ async function create(req: GenerateRequest, successMsg: string) {
   const res = await run(() => templates.create(req));
   if (isErr(res)) return;
   toastSuccess(successMsg);
-  router.push({ name: 'editor', params: { id: res.value.id } });
+  // 作成経路の印。編集画面はこの query で差し込み値ハイライトを出す(編集タブ=query なし=
+  // ハイライト無し)。CLAUDE.md「editor 2系統の原則」を参照。
+  router.push({ name: 'editor', params: { id: res.value.id }, query: { created: '1' } });
 }
 
 function createNew() {

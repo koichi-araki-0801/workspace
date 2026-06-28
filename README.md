@@ -51,6 +51,8 @@ Python ビルドの venv 準備は共有ライブラリ `scripts/lib/build-pytho
 | `pnpm run test` | 単体テスト一式 |
 | `pnpm run check:comments` | コメント規約・スクリプト配置の機械検査 |
 | `pnpm run knip` | 未使用 export / 依存の検出（`knip.json`） |
+| `pnpm run clean` | ルート直下の再生成物を掃除（既定はドライラン。実削除は `-- --yes`。`scripts/clean.mjs`） |
+| `pnpm run clean:deep` / `clean:bundles` | `node_modules` 等 / 大容量バンドルも対象に含める |
 | `pnpm run ci` | CI 集約（全領域＋coverage 85% 閾値ゲート） |
 | `pnpm run ci:affected` | 変更領域だけ CI を実行（`scripts/ci-affected.mjs`。**pre-push で実行**） |
 | `pnpm run ci:editor` / `ci:pie-chart` / `ci:graph-editor` | 領域別 CI を手動実行 |

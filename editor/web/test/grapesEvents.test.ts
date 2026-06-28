@@ -4,11 +4,11 @@ import { ref } from 'vue';
 import { type GrapesEventDeps, wireGrapesEvents } from '@/features/editor/grapesEvents';
 
 // =============================================================================
-// grapesEvents.test.ts — content/style 変更時の重い再走査が rAF で 1 フレーム
+// grapesEvents.test.ts — content/style 変更時の重い再計測が rAF で 1 フレーム
 // 1 回へ集約される(coalescing)ことを検証する。fireChange の即時部
-// (revision/rect/move/change)はイベントごとに走り、重いトリオ
-// (recomputeBreakEls → refreshPageGuides → recomputePages)はフレーム単位で
-// 束ねられる、が確認したい不変条件。
+// (revision/rect/move/change)はイベントごとに走り、重い `recomputeLayout`
+// (break 集合 → guide → ページ列挙 → 縦配置)はフレーム単位で束ねられる、が
+// 確認したい不変条件。順序は `recomputeLayout` 内部の詳細(useGrapes 側)。
 // =============================================================================
 
 /** `ed.on(names, cb)` を記録し `emit(name)` で発火できる最小の偽 editor。 */
@@ -50,9 +50,8 @@ function setup() {
   const spies = {
     refreshRect: vi.fn(),
     refreshMove: vi.fn(),
-    recomputeBreakEls: vi.fn(),
     refreshPageGuides: vi.fn(),
-    recomputePages: vi.fn(),
+    recomputeLayout: vi.fn(),
     change: vi.fn(),
   };
   const revision = ref(0);
@@ -65,9 +64,8 @@ function setup() {
     zoom: ref(1),
     refreshRect: spies.refreshRect,
     refreshMove: spies.refreshMove,
-    recomputeBreakEls: spies.recomputeBreakEls,
     refreshPageGuides: spies.refreshPageGuides,
-    recomputePages: spies.recomputePages,
+    recomputeLayout: spies.recomputeLayout,
     fitToView: vi.fn(),
     onCanvasLoad: vi.fn(),
     toInfo: vi.fn(),
@@ -79,10 +77,10 @@ function setup() {
   return { ed, spies, revision };
 }
 
-describe('wireGrapesEvents — fireChange の重い再走査 coalescing', () => {
+describe('wireGrapesEvents — fireChange の重い再計測 coalescing', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('複数の content/style 変更を 1 フレームへ束ね、重いトリオは 1 回だけ走る', () => {
+  it('複数の content/style 変更を 1 フレームへ束ね、recomputeLayout は 1 回だけ走る', () => {
     const flush = stubRaf();
     const { ed, spies, revision } = setup();
 
@@ -99,43 +97,25 @@ describe('wireGrapesEvents — fireChange の重い再走査 coalescing', () => 
     expect(spies.refreshMove).toHaveBeenCalledTimes(5);
     expect(spies.change).toHaveBeenCalledTimes(5);
 
-    // 重いトリオはフレーム前には未実行(集約待ち)。
-    expect(spies.recomputeBreakEls).not.toHaveBeenCalled();
-    expect(spies.refreshPageGuides).not.toHaveBeenCalled();
-    expect(spies.recomputePages).not.toHaveBeenCalled();
+    // 重い再計測はフレーム前には未実行(集約待ち)。
+    expect(spies.recomputeLayout).not.toHaveBeenCalled();
 
     // 1 フレーム経過 — 5 連打が 1 回に集約される。
     flush();
-    expect(spies.recomputeBreakEls).toHaveBeenCalledTimes(1);
-    expect(spies.refreshPageGuides).toHaveBeenCalledTimes(1);
-    expect(spies.recomputePages).toHaveBeenCalledTimes(1);
+    expect(spies.recomputeLayout).toHaveBeenCalledTimes(1);
   });
 
-  it('重いトリオは recomputeBreakEls → refreshPageGuides → recomputePages の順で走る', () => {
-    const flush = stubRaf();
-    const { ed, spies } = setup();
-    const order: string[] = [];
-    spies.recomputeBreakEls.mockImplementation(() => order.push('break'));
-    spies.refreshPageGuides.mockImplementation(() => order.push('guides'));
-    spies.recomputePages.mockImplementation(() => order.push('pages'));
-
-    ed.emit('component:update');
-    flush();
-
-    expect(order).toEqual(['break', 'guides', 'pages']);
-  });
-
-  it('次フレームでは再スケジュールされ、トリオがもう一度走る', () => {
+  it('次フレームでは再スケジュールされ、recomputeLayout がもう一度走る', () => {
     const flush = stubRaf();
     const { ed, spies } = setup();
 
     ed.emit('component:update');
     flush();
-    expect(spies.recomputeBreakEls).toHaveBeenCalledTimes(1);
+    expect(spies.recomputeLayout).toHaveBeenCalledTimes(1);
 
     ed.emit('component:update');
     ed.emit('component:update');
     flush();
-    expect(spies.recomputeBreakEls).toHaveBeenCalledTimes(2);
+    expect(spies.recomputeLayout).toHaveBeenCalledTimes(2);
   });
 });

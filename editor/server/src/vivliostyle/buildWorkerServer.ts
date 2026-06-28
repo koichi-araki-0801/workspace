@@ -5,7 +5,7 @@
 // (`scripts/pdf-build-worker-daemon.mjs`)を起こし、IPC でジョブを往復させる `BuildWorker` を
 // 提供する。`previewManager.ts`(純粋) と `previewServer.ts`(実 cli starter) の分割に倣い、
 // 実プロセス依存はここへ閉じる(coverage 対象外)。
-import { type ChildProcess, fork } from 'node:child_process';
+import { type ChildProcess, fork, spawn } from 'node:child_process';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { type BuildWorker, BuildWorkerPool } from './buildWorkerPool.js';
@@ -60,6 +60,20 @@ export class ForkedBuildWorker implements BuildWorker {
   kill(): void {
     if (this.dead) return;
     this.dead = true;
+    // daemon は `@vivliostyle/cli` の `build()` 経由で headless chromium を *子プロセス* として
+    // 起こす。Windows の `child.kill('SIGKILL')` は当該プロセスのみを殺し子孫へ伝播しないため、
+    // daemon だけ消えて chromium が孤児化する。OS 標準の `taskkill /T`(ツリー)/`/F`(強制) で
+    // 子孫ごと一掃する(`tree-kill` npm 追加はオフラインバンドル方針に反するため不採用)。
+    const pid = this.child.pid;
+    if (process.platform === 'win32' && pid) {
+      // fire-and-forget。`taskkill` 不在等の起動失敗で出る `'error'` を握り潰さないと
+      // unhandled となり親 server 全体が落ちるため、空ハンドラを必ず付ける。
+      spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on(
+        'error',
+        () => {},
+      );
+      return;
+    }
     this.child.kill('SIGKILL');
   }
 

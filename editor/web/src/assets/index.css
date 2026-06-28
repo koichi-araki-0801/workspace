@@ -233,21 +233,30 @@
    body's real height (A4 `min-height:297mm`, longer for multi-page) via a
    ResizeObserver, so the iframe never scrolls internally — do not pin a fixed
    height here. */
-/* A4 ページ(1123px)は canvas viewport より背が高く、zoom は frames を canvas 中央原点で
-   scale する。上揃え(margin:24px auto)だとスケール後にページ中心が canvas 中心より下へずれ、
-   上に過大余白・下にはみ出し(クリップ)になる。top/bottom:0 + margin:auto で over-tall 要素を
-   上下対称(負マージン)に中央寄せし、上下の余白を揃える(GrapesJS のインライン top/bottom を
-   !important で上書き)。 */
+/* ページ(A4 ~1123px)の縦配置は「収まるか超えるか」で出し分ける。横は常時中央(left/right:0)。
+   既定 = 超える時: 上揃え(top:0 / bottom:auto / margin-top のみ)。`scrollableCanvas:true` で
+   `.gjs-cv-canvas` が overflow:auto になり、全高が正のスクロール域に入って上端・下端へ到達できる。
+   中央寄せ(下の `.ret-canvas-fits`)のままだと over-tall 要素が負マージンで canvas 上端より上へ
+   はみ出し、overflow でクリップされ到達不能になるため、超過時は上揃えにする。判定 class は
+   `useGrapes.ts` の `updateScrollMode` が `<div ref=canvasEl>` へ付与する。 */
 .gjs-frame-wrapper {
   /* biome-ignore lint/complexity/noImportantStyles: GrapesJS がインライン幅を設定するため上書きが必要 */
   width: 210mm !important;
   left: 0;
   right: 0;
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン top を上書きし垂直中央寄せするため必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン top を上書きし上揃えするため必要 */
   top: 0 !important;
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン bottom を上書きし垂直中央寄せするため必要 */
-  bottom: 0 !important;
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン bottom を上書きし上揃えするため必要 */
+  bottom: auto !important;
   /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン余白を上書きするため必要 */
+  margin: 28px auto 0 !important; /* 28px = FIT_MARGIN(56)/2: 上の余白を従来の中央寄せと揃える */
+}
+/* 収まる時: 従来どおり縦中央寄せ。zoom は canvas 中央原点 scale なので、収まっている限り中央が
+   自然(クリップしない)。`getElementPos` の `getViewportDelta`(center 原点前提)とも整合する。 */
+.ret-canvas-fits .gjs-frame-wrapper {
+  /* biome-ignore lint/complexity/noImportantStyles: 上の上揃えを打ち消し垂直中央寄せへ戻すため必要 */
+  bottom: 0 !important;
+  /* biome-ignore lint/complexity/noImportantStyles: 上の margin-top のみ指定を打ち消し上下対称の中央寄せへ戻すため必要 */
   margin: auto !important;
 }
 .gjs-frame {

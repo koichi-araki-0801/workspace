@@ -78,7 +78,11 @@ echo    Login : admin / admin   or   editor / editor
 echo    Stop  : Ctrl+C
 echo   ==========================================
 echo.
-call pnpm run dev
+rem Launch through run-in-job: a hidden watchdog tears down the whole tree (node, vite,
+rem tsx watch, the forked PDF worker daemon and the headless chromium it spawns) even
+rem when this window is closed with the X button, which sends no signal. See
+rem scripts\run-in-job.ps1. %~dp0 stays editor\ even after the cd above.
+call "%~dp0scripts\run-in-job.bat" pnpm run dev
 if errorlevel 1 goto :serverfail
 goto :end
 
@@ -96,7 +100,8 @@ echo    Server : http://localhost:3001
 echo    Stop   : Ctrl+C
 echo   ==========================================
 echo.
-call pnpm --filter server run start
+rem Same run-in-job watchdog wrapper as dev so an X-button close kills the server tree.
+call "%~dp0scripts\run-in-job.bat" pnpm --filter server run start
 if errorlevel 1 goto :serverfail
 goto :end
 
@@ -117,25 +122,47 @@ exit /b 1
 rem Port held by a process that is not our server; :portcheck already printed who.
 rem Pause so the reason stays readable when launched by double-click.
 echo [start] Aborting: free port %PORT% and retry.
+echo [start] Hint: stop the PID printed above, e.g.  taskkill /PID ^<pid^> /F
 pause
 exit /b 1
 
 :serverfail
 rem Server exited non-zero. Keep the window open so the error above is readable
 rem (double-click closes it otherwise), which is what made crashes look silent.
-echo [start] server exited with code %ERRORLEVEL%
+set "RC=%ERRORLEVEL%"
+call :cleanup
+echo [start] server exited with code %RC%
 pause
-exit /b %ERRORLEVEL%
+exit /b %RC%
 
 :end
+call :cleanup
 endlocal
 exit /b 0
 
 rem --- subroutine: free the listen port (called before launch) ----------------
 rem Returns 0 when the port is free (or a stale server of ours was stopped),
 rem 1 when an unrelated process holds it. Detection is delegated to PowerShell
-rem (Get-NetTCPConnection / Win32_Process), available on Windows 10+; the only
-rem process auto-stopped is one whose command line runs our `dist/app.js`.
+rem (Get-NetTCPConnection / Win32_Process), available on Windows 10+. A process
+rem is treated as "ours" when its command line runs our server entry in either
+rem mode: prod `dist/app.js` or dev `src/app.ts` (run under tsx). The dev
+rem supervisor (its parent: `tsx watch src/app.ts`) is stopped too, otherwise
+rem tsx would respawn the child and re-grab the port. We never auto-stop an
+rem unrelated process: a foreign holder aborts with its PID printed.
+rem
+rem We kill with `taskkill /T /F` (whole tree), not `Stop-Process -Force`: on
+rem Windows the latter kills only that PID, so the forked PDF worker daemon and
+rem the headless chromium it spawned would be orphaned. We also reap a stale
+rem vite of ours on :5173 (best-effort, never abort, never touch a foreign holder).
 :portcheck
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $c=Get-NetTCPConnection -LocalPort %PORT% -State Listen; if(-not $c){exit 0}; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); $cl=''; if($p){$cl=$p.CommandLine}; if($cl -match 'dist[\\/]app\.js'){ Write-Host ('[start] stopping stale server (PID '+$procId+') ...'); Stop-Process -Id $procId -Force } else { $n='unknown'; if($p){$n=$p.Name}; Write-Host ('[start] ERROR: port %PORT% is in use by PID '+$procId+' ('+$n+').'); exit 1 } }; for($i=0;$i -lt 20;$i++){ if(-not (Get-NetTCPConnection -LocalPort %PORT% -State Listen)){ exit 0 }; Start-Sleep -Milliseconds 150 }; exit 0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $srv='(dist[\\/]app\.js)|(src[\\/]app\.ts)'; $vite='vite[\\/]bin[\\/]vite\.js'; $kill=@(); $foreign=$false; $c=Get-NetTCPConnection -LocalPort %PORT% -State Listen; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); $cl=''; if($p){$cl=$p.CommandLine}; if($cl -match $srv){ $top=$procId; if($p -and $p.ParentProcessId){ $par=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.ParentProcessId); if($par -and ($par.CommandLine -match $srv)){ $top=$par.ProcessId } }; $kill+=$top } else { $n='unknown'; if($p){$n=$p.Name}; Write-Host ('[start] ERROR: port %PORT% is in use by PID '+$procId+' ('+$n+').'); $foreign=$true } }; if($foreign){exit 1}; $vc=Get-NetTCPConnection -LocalPort 5173 -State Listen; foreach($procId in ($vc | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); if($p -and ($p.CommandLine -match $vite)){ $kill+=$procId } }; foreach($procId in ($kill | Select-Object -Unique)){ Write-Host ('[start] stopping stale process (PID '+$procId+') ...'); $null=(taskkill /PID $procId /T /F 2>&1) }; for($i=0;$i -lt 20;$i++){ if(-not (Get-NetTCPConnection -LocalPort %PORT% -State Listen)){ exit 0 }; Start-Sleep -Milliseconds 150 }; exit 0"
 exit /b %ERRORLEVEL%
+
+rem --- subroutine: tear down our leftover processes on exit -------------------
+rem Best-effort safety net for the normal/Ctrl+C->N exit path (the Job Object in
+rem run-in-job.ps1 already handles X-button and hard kills). Tree-kills any
+rem listener of ours on :%PORT% (server) or :5173 (vite); foreign holders are
+rem left untouched. No abort, no wait - cleanup must never block shutdown.
+:cleanup
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $pat='(dist[\\/]app\.js)|(src[\\/]app\.ts)|(vite[\\/]bin[\\/]vite\.js)'; foreach($port in @(%PORT%,5173)){ $c=Get-NetTCPConnection -LocalPort $port -State Listen; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); if($p -and ($p.CommandLine -match $pat)){ $top=$procId; if($p.ParentProcessId){ $par=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.ParentProcessId); if($par -and ($par.CommandLine -match $pat)){ $top=$par.ProcessId } }; $null=(taskkill /PID $top /T /F 2>&1) } } }"
+exit /b 0

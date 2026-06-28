@@ -105,6 +105,37 @@
     PyYAML を使わず必要な YAML サブセットを自前パースする（オフライン依存追加を避けるため）。
   - 両エンジンの既定フォント定数（`JP` / `MONO`）も上記 BIZ UD 規約に一致させる。
 
+## editor 2系統の原則（根幹・必ず順守）
+
+editor の編集体験は **2系統**で、これはツールの根幹である。**コード修正時は新規・既存いずれも
+必ず本原則に従う**こと（コメント規約と同格の強制ルール）。
+
+- **編集タブ（既存編集）** = 会社・ファンド・基準日・版の **実値が埋め込まれた値埋め込み済み
+  HTML** を編集する。差し込み値ハイライトは **出さない**（値は実値であり、地の本文として表示）。
+  - 経路: `EditTabView` → `/edit/:id`（**query なし**）。
+  - 値の源: ローカルは per-fund 実サンプル `editor/web/src/api/fixtures/sample/<fund>.json` を
+    `genFilled.ts` で `fixtures/filled/*.html`（= `tpl.filled`）へ反映。本番は **ファイルに値が
+    埋め込み済み**で DB 取得は不要（REST が値埋め込み済みファイルを `filled` で返す前提）。
+- **テンプレ作成タブ（新規作成）** = 属性から Jinja スケルトンを作り、**共通sample
+  （`sampleCommon`）** で表示のみ値入りに見せる。差し込み値は placeholder として **ハイライト
+  表示する**（作成中の可視化）。
+  - 経路: `CreateTabView` → `/edit/:id?created=1`。`toFilled(tpl.html, 共通sample)` を編集。
+
+**不変条件**: 編集経路 = `tpl.filled`（per-fund 実値）+ ハイライト無し / 作成経路 =
+`toFilled`（共通sample）+ ハイライト有り。経路の見分けは `route.query.created === '1'`。
+ハイライトは `setVarsHighlight` が canvas body の `jinja-vars-highlight` クラスで出し分ける。
+
+- ⚠ 絶対にやらない: ①素の `.jinja-chip.jinja-var` に `background` を直書きする（編集タブへ
+  ハイライトが漏れる＝過去の `aa9bd65` 退行）。②filled/サンプルを全ファンド共通ダミーに潰す
+  （編集タブが実値を失う＝過去の `42938a0` 退行）。
+- 経緯メモ: 編集画面=値入りHTML編集は `7902a5f` で確立。本原則の関連ファイル — `loadForEdit`
+  (`templateEditorService.ts`) / `jinjaComponents.ts`(ハイライトCSS) / `useGrapes.ts`
+  (`setVarsHighlight`) / `useTemplateEditor.ts`(経路判定) / `sampleCommon.ts`・`sampleData.ts`・
+  `genFilled.ts`(データ源) / `CreateTabView.vue`(query)。
+- 強制の仕組み: PreToolUse フック `.claude/hooks/editor-two-systems-reminder.cjs`（上記ファイル
+  編集時にリマインド）と、CI チェック（`editor/web/test` の 2系統ガードテスト、`pnpm run ci`
+  に組込）を併設する。
+
 ## pie-chart
 
 - 旧称 `graph2`（円グラフ SVG レンダラ）。2026-06 に `pie-chart` へ改称。

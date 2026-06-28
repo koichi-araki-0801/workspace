@@ -9,6 +9,7 @@
 import { type TemplateVersionMeta, toAppError } from '@editor/shared';
 import { ChevronLeft, ChevronRight, RotateCcw } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref } from 'vue';
+import PageNav from '@/components/PageNav.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import Select from '@/components/ui/Select.vue';
@@ -242,33 +243,44 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- ページナビゲータ -->
+    <!-- ページナビゲータ。少数ページは変更マーク付きタブのまま(視認性優先)、多ページ
+         (400 ページ規模など)はタブが破綻するため番号ジャンプ入力の共通 `PageNav` へ切替える。
+         `PageNav` は 1 起点、比較の `currentPage` は 0 起点なので `go` を -1 して渡す。 -->
     <div class="flex items-center justify-center gap-2">
-      <Button variant="outline" size="icon" :disabled="currentPage <= 0" @click="goPage(currentPage - 1)">
-        <ChevronLeft class="h-4 w-4" />
-      </Button>
-      <button
-        v-for="(p, i) in liveDiff.pages"
-        :key="i"
-        type="button"
-        class="relative min-w-9 rounded px-3 py-1 text-sm font-medium transition-colors"
-        :class="i === currentPage ? 'bg-primary-soft text-primary' : 'text-muted-foreground hover:bg-accent'"
-        @click="goPage(i)"
-      >
-        {{ i + 1 }}
-        <span
-          v-if="p.changed"
-          class="absolute -bottom-0.5 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-destructive"
-        />
-      </button>
-      <Button
+      <template v-if="pageCount <= 12">
+        <Button variant="outline" size="icon" :disabled="currentPage <= 0" @click="goPage(currentPage - 1)">
+          <ChevronLeft class="h-4 w-4" />
+        </Button>
+        <button
+          v-for="(p, i) in liveDiff.pages"
+          :key="i"
+          type="button"
+          class="relative min-w-9 rounded px-3 py-1 text-sm font-medium transition-colors"
+          :class="i === currentPage ? 'bg-primary-soft text-primary' : 'text-muted-foreground hover:bg-accent'"
+          @click="goPage(i)"
+        >
+          {{ i + 1 }}
+          <span
+            v-if="p.changed"
+            class="absolute -bottom-0.5 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-destructive"
+          />
+        </button>
+        <Button
+          variant="outline"
+          size="icon"
+          :disabled="currentPage >= pageCount - 1"
+          @click="goPage(currentPage + 1)"
+        >
+          <ChevronRight class="h-4 w-4" />
+        </Button>
+      </template>
+      <PageNav
+        v-else
         variant="outline"
-        size="icon"
-        :disabled="currentPage >= pageCount - 1"
-        @click="goPage(currentPage + 1)"
-      >
-        <ChevronRight class="h-4 w-4" />
-      </Button>
+        :current-page="currentPage + 1"
+        :page-count="pageCount"
+        @go="goPage($event - 1)"
+      />
     </div>
 
     <!-- ページ対応(ずらし)操作: 現在ページ行の比較元・比較先を独立に指定 -->

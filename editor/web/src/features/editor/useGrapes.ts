@@ -132,6 +132,11 @@ export function useGrapes() {
    */
   let breakEls: { el: HTMLElement; edge: 'before' | 'after' }[] = [];
 
+  // 差し込み値ハイライト(琥珀)を canvas に出すか。CLAUDE.md「editor 2系統の原則」に従い
+  // 作成経路でのみ true。`setVarsHighlight` が状態を持ち、`load` 後の再描画でも body へ
+  // 反映し直す(load で iframe body が差し替わるため)。
+  let varsHighlight = false;
+
   // ── ページ送り(1 ページだけ表示)の状態。判定は `pageView.ts` の純粋関数に委譲する ──
   /** 現在 canvas に在るページ要素(`body > .page`、無ければ `[body]`)の cache。 */
   const pageEls = shallowRef<HTMLElement[]>([]);
@@ -142,6 +147,12 @@ export function useGrapes() {
   /** 1 ページだけ表示するか(既定 ON)。OFF で従来の全ページ連続スクロールへ戻る。 */
   const singlePageMode = ref(true);
   /**
+   * 全ページ連続表示中の外側スクロール縦位置(0..1)。`PageRail` のつまみを実位置に合わせる
+   * ために `cvScrollHandler` で更新する。1 ページ表示中はスクロールでページを跨がないため
+   * 参照されない(レール側は `scrollFraction=null` 扱いでページ中央に置く)。
+   */
+  const scrollFraction = ref(0);
+  /**
    * 他ページを隠すために canvas head へ注入する 2 枚目の `<style>`(load 時の A4/jinja
    * スタイルとは別)。ページ送りのたびに textContent だけ書き換える。getCss には出ない。
    */
@@ -150,6 +161,15 @@ export function useGrapes() {
   const callbacks: GrapesCallbacks = {};
   /** zoom フィット計測の基準になる canvas コンテナ(= `init` の `c.canvas`)。 */
   let containerEl: HTMLElement | undefined;
+  /**
+   * スクロールコンテナ `.gjs-cv-canvas`(= `scrollableCanvas:true` で overflow:auto になる
+   * GrapesJS の canvas viewport)。背の高いページはここがスクロールするが、その scroll に対する
+   * GrapesJS イベントは無い(`frame:scroll` は iframe document 専用で body overflow:hidden により
+   * 発火しない)ため、下の `cvScrollHandler` を直接張って overlay を追従させる。
+   */
+  let cvScrollEl: HTMLElement | null = null;
+  /** `cvScrollEl` に張る scroll listener(`destroy` で剥がすため参照を保持)。 */
+  let cvScrollHandler: (() => void) | null = null;
 
   function refreshMove(): void {
     const comp = editor.value?.getSelected();
@@ -360,12 +380,18 @@ export function useGrapes() {
     currentPageIndex.value = clampPageIndex(i, pageCount.value);
     applyPageVisibility();
     deselectIfHidden();
-    // 1 ページ表示なので scrollTop=0 で現在ページ先頭に揃う。
+    // 1 ページ表示なので scrollTop=0 で現在ページ先頭に揃う。スクロールは外側 `.gjs-cv-canvas`
+    // へ移ったため、iframe document に加えてそちらの scrollTop も 0 へ戻す(背の高いページを送った
+    // 直後でも当該ページ先頭が見えるように)。
     editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
-    // 再レイアウト後に overlay/guide を測り直す(`setZoom` と同手法)。
+    if (cvScrollEl) cvScrollEl.scrollTop = 0;
+    // 再レイアウト後に overlay/guide を測り直す(`setZoom` と同手法)。`updateScrollMode` も
+    // 併せて呼ぶ: ページごとに高さが異なると(content がページ実寸を超える等)送り先で
+    // 収まり判定が変わり、縦中央寄せ/上揃えの出し分けが要るため。
     requestAnimationFrame(() => {
       refreshRect();
       refreshPageGuides();
+      updateScrollMode();
     });
   }
 
@@ -376,16 +402,59 @@ export function useGrapes() {
     goToPage(currentPageIndex.value - 1);
   }
 
+  /** 外側スクロール量から縦位置比率(0..1)を測り直す(`PageRail` のつまみ位置用)。 */
+  function updateScrollFraction(): void {
+    const el = cvScrollEl;
+    if (!el) return;
+    const range = el.scrollHeight - el.clientHeight;
+    scrollFraction.value = range > 0 ? Math.min(Math.max(el.scrollTop / range, 0), 1) : 0;
+  }
+
+  /**
+   * 全ページ連続表示時に、指定ページ(0 起点)の先頭が見えるよう外側 `.gjs-cv-canvas` を
+   * スクロールする。ページ要素は iframe 内に在るため、要素と scroller の `getBoundingClientRect`
+   * 差分(= 現在の scroll を織り込んだ表示座標、zoom 反映済み)で目標 scrollTop を求める。
+   * 1 ページ表示時は `goToPage` を使う(本関数は呼ばない)。
+   */
+  function scrollToPage(i: number): void {
+    const idx = clampPageIndex(i, pageCount.value);
+    currentPageIndex.value = idx;
+    const el = pageEls.value[idx];
+    if (!cvScrollEl || !el) return;
+    const delta = el.getBoundingClientRect().top - cvScrollEl.getBoundingClientRect().top;
+    cvScrollEl.scrollTop += delta;
+    requestAnimationFrame(() => {
+      refreshRect();
+      refreshPageGuides();
+      updateScrollFraction();
+    });
+  }
+
   /** 1 ページ表示の ON/OFF を切り替える(OFF で全ページ連続スクロールへ戻る)。 */
   function setSinglePageMode(on: boolean): void {
     singlePageMode.value = on;
     applyPageVisibility();
+    // 1 ページ ⇔ 全ページで body 高さが激変し(他ページの display 切替)、guide / overlay の
+    // 座標が旧レイアウトのまま残る。ON 化時のみ隠れたページの選択を外し、スクロールを先頭へ戻して
+    // 再レイアウト後に縦配置(`ret-canvas-fits`)と guide/選択枠を測り直す(`goToPage`/`setZoom` と同手法)。
+    if (on) deselectIfHidden();
+    editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
+    if (cvScrollEl) cvScrollEl.scrollTop = 0;
+    requestAnimationFrame(() => {
+      updateScrollMode();
+      refreshRect();
+      refreshPageGuides();
+    });
   }
 
   /** canvas load 時に呼ばれ、可視制御用の 2 枚目 style を生成・保持する。 */
   function onCanvasLoad(doc: Document): void {
     pageViewStyleEl = doc.createElement('style');
     doc.head.appendChild(pageViewStyleEl);
+    // iframe (再)ロード毎に、保持中の差し込み値ハイライト状態を新しい body へ反映し直す。
+    // GrapesJS は load の rAF 後にも iframe/body を作り直すことがあり、その際クラスが消える
+    // ため、load イベントを正典の再適用点にする(CLAUDE.md「editor 2系統の原則」)。
+    doc.body.classList.toggle('jinja-vars-highlight', varsHighlight);
   }
 
   /** 選択要素の画面上 rect を再計算する(浮動ツールバー / ハンドル用)。 */
@@ -418,6 +487,13 @@ export function useGrapes() {
       fromElement: false,
       storageManager: false,
       panels: { defaults: [] },
+      // `scrollableCanvas:true` で canvas viewport `.gjs-cv-canvas` を overflow:auto の
+      // スクロールコンテナにする。device `height:'auto'` で iframe がページ実寸(複数ページなら
+      // 全長)へ育つため、ビューポートより背の高いページは外側 canvas で縦スクロールして到達する
+      // (これが無いと stock の `.gjs-cv-canvas{overflow:hidden}` がはみ出しをクリップし、下端/上端へ
+      // 行けない)。auto-height とは独立(overflow と scroll 読取りのみ変更)。`.gjs-frame-wrapper` の
+      // 縦配置は index.css 側で「収まる時=中央 / 超える時=上揃え」に出し分ける。
+      canvas: { scrollableCanvas: true },
       // desktop device に `height:'auto'` を与え GrapesJS の auto-height 経路を起こす。
       // これが無いと frame.height は null のまま base CSS `.gjs-frame{height:100%}` で
       // iframe 高が canvas 高(実機 ~800px)に張り付き、A4 body(`min-height:297mm` ~1123px)が
@@ -457,9 +533,8 @@ export function useGrapes() {
       editing,
       refreshRect,
       refreshMove,
-      recomputeBreakEls,
       refreshPageGuides,
-      recomputePages,
+      recomputeLayout,
       fitToView,
       onCanvasLoad,
       toInfo,
@@ -469,6 +544,28 @@ export function useGrapes() {
     });
 
     editor.value = ed;
+
+    // 外側スクロール(`.gjs-cv-canvas`)に overlay を追従させる。grapesjs.init は canvas DOM を
+    // 同期描画するので、この時点で querySelector は要素を返す。scroll は連続発火するため rAF で
+    // 1 フレーム 1 回へスロットルし、`refreshRect`(選択枠/ハンドル) と `refreshPageGuides`
+    // (ページ境界 guide / メモ印)を測り直す。座標は `noScroll:true`(boundingClientRect 基準)で
+    // スクロール量を自動で織り込む。
+    cvScrollEl = containerEl?.querySelector<HTMLElement>('.gjs-cv-canvas') ?? null;
+    if (cvScrollEl) {
+      let pending = false;
+      cvScrollHandler = () => {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(() => {
+          pending = false;
+          refreshRect();
+          refreshPageGuides();
+          updateScrollFraction();
+        });
+      };
+      cvScrollEl.addEventListener('scroll', cvScrollHandler, { passive: true });
+    }
+
     return ed;
   }
 
@@ -477,8 +574,56 @@ export function useGrapes() {
     zoom.value = clamped;
     editor.value?.Canvas.setZoom(clamped * 100);
     requestAnimationFrame(() => {
+      updateScrollMode();
       refreshRect();
       refreshPageGuides();
+    });
+  }
+
+  /**
+   * ページ全体がビューポートに収まるかを判定し、`containerEl` に `ret-canvas-fits` class を
+   * 出し分ける(index.css の `.gjs-frame-wrapper` 縦配置を切り替える)。収まる時は縦中央寄せ、
+   * 超える時は上揃え + 縦スクロール。判定は `fitToView` と同じ尺度(ページ実寸 `offset*` に zoom を
+   * 掛けた表示サイズ vs `client* - FIT_MARGIN`)。`setZoom`/`fitToView`/canvas load の各 rAF で呼ぶ。
+   */
+  function updateScrollMode(): void {
+    if (!containerEl) return;
+    const body = editor.value?.Canvas.getBody();
+    const fits =
+      !!body &&
+      body.offsetHeight * zoom.value <= containerEl.clientHeight - FIT_MARGIN &&
+      body.offsetWidth * zoom.value <= containerEl.clientWidth - FIT_MARGIN;
+    containerEl.classList.toggle('ret-canvas-fits', fits);
+  }
+
+  /**
+   * content/構成が変わった後の「全部測り直す」正典。順序厳守:
+   * `recomputeBreakEls`(break 集合更新) → `refreshPageGuides`(その集合を読む) →
+   * `recomputePages`(.page 列挙) → `updateScrollMode`(body 高さ変化で縦配置を出し分け)。
+   * body 高さ/ページ構成を変える全経路(GrapesJS イベント・`load`・`patchSelectedStyle`)が
+   * これを呼ぶことで、`ret-canvas-fits` や guide が旧レイアウトの値に取り残されるのを防ぐ。
+   */
+  function recomputeLayout(): void {
+    recomputeBreakEls();
+    refreshPageGuides();
+    recomputePages();
+    updateScrollMode();
+  }
+
+  /**
+   * `recomputeLayout` を rAF で 1 フレーム 1 回へ集約する薄ラッパ。`patchSelectedStyle` の
+   * geom ハンドルは mousemove ごとにライブ適用されるため、毎回 `recomputeBreakEls`(全要素
+   * `getComputedStyle` = O(n))を同期実行すると drag がジャンクする。`grapesEvents.ts` の
+   * `scheduleHeavyRecompute` と同型(あちらは GrapesJS イベント駆動、こちらは setStyle が
+   * イベントを出さない programmatic 経路用)。editor 破棄後の保留フレームは各関数の null ガードで no-op。
+   */
+  let layoutScheduled = false;
+  function scheduleLayoutRecompute(): void {
+    if (layoutScheduled) return;
+    layoutScheduled = true;
+    requestAnimationFrame(() => {
+      layoutScheduled = false;
+      recomputeLayout();
     });
   }
 
@@ -498,6 +643,8 @@ export function useGrapes() {
     const pageW = body.offsetWidth;
     if (pageH <= 0 || pageW <= 0 || availH <= 0 || availW <= 0) return;
     setZoom(Math.min(availH / pageH, availW / pageW));
+    // `setZoom` 側の rAF でも更新されるが、フィット直後の class を確実に揃えておく。
+    updateScrollMode();
   }
 
   /**
@@ -569,9 +716,12 @@ export function useGrapes() {
     }
     comp.setStyle(next);
     // プログラム経由の setStyle は StyleManager の 'style:update' を emit しないため、
-    // listener(autosave)への通知と派生 state の更新を自前で行う。
+    // listener(autosave)への通知と派生 state の更新を自前で行う。`refreshRect` は即時
+    // (ライブ値ラベルの体感応答)、break/guide/ページ列挙/縦配置は幅・余白変更で動くため
+    // `scheduleLayoutRecompute` で次フレームへ集約する(ハンドル drag の連続適用を間引く)。
     revision.value++;
     refreshRect();
+    scheduleLayoutRecompute();
     callbacks.change?.();
   }
 
@@ -636,6 +786,17 @@ export function useGrapes() {
     if (root) ed.select(root); // prototype 同様、挿入した part を選択する
   }
 
+  /**
+   * 差し込み値ハイライト(琥珀)の出し分け。`jinja-vars-highlight` クラスを iframe body へ
+   * 付け外しし、CSS(`jinjaChipCanvasCss`)の `.jinja-vars-highlight .jinja-chip.jinja-var`
+   * を効かせる。body 直書きクラスは `getHtml()`(モデル再生成)に載らず保存出力を汚さない
+   * (ページガイド markers と同じ方針)。CLAUDE.md「editor 2系統の原則」: 作成経路のみ true。
+   */
+  function setVarsHighlight(on: boolean): void {
+    varsHighlight = on;
+    editor.value?.Canvas.getBody()?.classList.toggle('jinja-vars-highlight', on);
+  }
+
   function load(bodyEditableHtml: string, css: string): void {
     const ed = editor.value;
     if (!ed) return;
@@ -646,9 +807,9 @@ export function useGrapes() {
     // 落ちる。その結果ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に
     // 測り直してページ数 / 境界 guide を確定させる(`goToPage` と同じ `requestAnimationFrame`)。
     requestAnimationFrame(() => {
-      recomputeBreakEls();
-      refreshPageGuides();
-      recomputePages();
+      recomputeLayout();
+      // load で iframe body が差し替わるため、保持中のハイライト状態を再適用する。
+      setVarsHighlight(varsHighlight);
     });
   }
 
@@ -683,6 +844,10 @@ export function useGrapes() {
   }
 
   function destroy(): void {
+    // 外側スクロール listener を先に剥がす(editor 破棄で DOM は消えるが寿命を明示し leak を防ぐ)。
+    if (cvScrollEl && cvScrollHandler) cvScrollEl.removeEventListener('scroll', cvScrollHandler);
+    cvScrollEl = null;
+    cvScrollHandler = null;
     editor.value?.destroy();
     editor.value = undefined;
   }
@@ -701,10 +866,12 @@ export function useGrapes() {
     pageCount,
     currentPageIndex,
     singlePageMode,
+    scrollFraction,
     zoom,
     revision,
     init,
     load,
+    setVarsHighlight,
     insertPart,
     getBodyHtml,
     getCss,
@@ -717,11 +884,13 @@ export function useGrapes() {
     fitToView,
     setEditable,
     goToPage,
+    scrollToPage,
     nextPage,
     prevPage,
     setSinglePageMode,
     refreshRect,
     refreshPageGuides,
+    updateScrollMode,
     startMove,
     moveSelected,
     deleteSelected,
