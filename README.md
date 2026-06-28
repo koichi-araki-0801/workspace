@@ -65,8 +65,10 @@ CI は領域（`editor` = shared+server+web / `pie-chart` / `graph-editor`）単
 `pnpm run ci:<領域>` で手動部分実行、`pnpm run ci:affected` は `git diff`（既定で現ブランチ upstream 基準。
 `--base <ref>` / `--all` / `--dry-run`(計画のみ表示) / 環境変数 `CI_AFFECTED_BASE` で上書き可）から
 変更領域を判定して該当領域だけ走らせる。
-`.husky/pre-push` はこの affected 方式で push を高速化する。領域に紐付かない共有変更（`package.json` /
-lockfile / 各種 config）を検出した場合はフル `ci` にフォールバックする。
+`.husky/pre-push` はこの affected 方式で push を高速化する（振り分けは `scripts/pre-push.mjs`）。領域に
+紐付かない共有変更（`package.json` / lockfile / 各種 config）を検出した場合はフル `ci` にフォールバックする。
+**タグのみの push（ローリングタグ `offline-bundle-v1` の移動など）は CI をスキップする**（タグは CI 済み
+コミットへのポインタであり、リリース更新でフル CI を発火させてタグ push を巻き込み失敗させないため）。
 
 > **注意:** 領域別 / affected run は速度優先で **coverage 85% 閾値ゲートを通さない**
 > （vitest の coverage はラン全体で 1 つしか持てず、領域だけ走らせると他領域が 0% 扱いで落ちるため）。

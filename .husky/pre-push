@@ -1,1 +1,2 @@
-pnpm run ci:affected
+# タグのみの push では CI をスキップする振り分けを通す(理由は scripts/pre-push.mjs 冒頭)。
+node scripts/pre-push.mjs
