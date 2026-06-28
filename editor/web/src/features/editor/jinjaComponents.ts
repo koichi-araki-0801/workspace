@@ -89,21 +89,28 @@ export const jinjaChipCanvasCss = `
   cursor: default;
   user-select: none;
 }
-/* 差し込み（値）は自動入力されたサンプル値。実運用でも将来ずっとサンプルなので、
-   地の本文（手書き文）と区別できるよう薄い琥珀のハイライトを乗せる。字形・行送りは
-   本文と揃えるため inline + 各 inherit + white-space:normal は維持し、チップの
-   青箱（枠/monospace/縮小フォント）は打ち消す。data-jinja は CSS 非依存なので選択も
-   toTemplate 復元も不変。背景は canvas のみ（プレビュー/PDF/保存出力には載らない）。 */
+/* 差し込み（値）チップ。字形・行送りを地の本文と揃えるため inline + 各 inherit +
+   white-space:normal を維持し、チップの青箱（枠/monospace/縮小フォント）は打ち消す。
+   これは「値が普通の本文として見える」素体で、両系統（編集/作成）で常に効かせる。
+   data-jinja は CSS 非依存なので選択も toTemplate 復元も不変。 */
 .jinja-chip.jinja-var {
   display: inline;
-  padding: 0 1px;
+  padding: 0;
   border: 0;
-  border-radius: 3px;
-  background: rgba(245, 158, 11, 0.16);
   color: inherit;
   font-family: inherit;
   font-size: inherit;
   white-space: normal;
+}
+/* 差し込み値ハイライト（薄い琥珀）は CLAUDE.md「editor 2系統の原則」に従い、作成経路
+   （テンプレ作成タブ＝共通sample・表示のみ）だけに出す。canvas body へ jinja-vars-highlight
+   クラスが付いたときのみ可視化し、編集経路（実値編集）では出さない（setVarsHighlight が
+   出し分ける）。背景は canvas のみ（プレビュー/PDF/保存出力には載らない）。
+   注意: 素の .jinja-chip.jinja-var に background を直書きしないこと（編集タブへ漏れる）。 */
+.jinja-vars-highlight .jinja-chip.jinja-var {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: rgba(245, 158, 11, 0.16);
   /* 値が行末で折り返しても各行に背景を出す。 */
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;

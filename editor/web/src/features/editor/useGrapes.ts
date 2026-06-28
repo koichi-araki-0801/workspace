@@ -132,6 +132,11 @@ export function useGrapes() {
    */
   let breakEls: { el: HTMLElement; edge: 'before' | 'after' }[] = [];
 
+  // 差し込み値ハイライト(琥珀)を canvas に出すか。CLAUDE.md「editor 2系統の原則」に従い
+  // 作成経路でのみ true。`setVarsHighlight` が状態を持ち、`load` 後の再描画でも body へ
+  // 反映し直す(load で iframe body が差し替わるため)。
+  let varsHighlight = false;
+
   // ── ページ送り(1 ページだけ表示)の状態。判定は `pageView.ts` の純粋関数に委譲する ──
   /** 現在 canvas に在るページ要素(`body > .page`、無ければ `[body]`)の cache。 */
   const pageEls = shallowRef<HTMLElement[]>([]);
@@ -398,6 +403,10 @@ export function useGrapes() {
   function onCanvasLoad(doc: Document): void {
     pageViewStyleEl = doc.createElement('style');
     doc.head.appendChild(pageViewStyleEl);
+    // iframe (再)ロード毎に、保持中の差し込み値ハイライト状態を新しい body へ反映し直す。
+    // GrapesJS は load の rAF 後にも iframe/body を作り直すことがあり、その際クラスが消える
+    // ため、load イベントを正典の再適用点にする(CLAUDE.md「editor 2系統の原則」)。
+    doc.body.classList.toggle('jinja-vars-highlight', varsHighlight);
   }
 
   /** 選択要素の画面上 rect を再計算する(浮動ツールバー / ハンドル用)。 */
@@ -695,6 +704,17 @@ export function useGrapes() {
     if (root) ed.select(root); // prototype 同様、挿入した part を選択する
   }
 
+  /**
+   * 差し込み値ハイライト(琥珀)の出し分け。`jinja-vars-highlight` クラスを iframe body へ
+   * 付け外しし、CSS(`jinjaChipCanvasCss`)の `.jinja-vars-highlight .jinja-chip.jinja-var`
+   * を効かせる。body 直書きクラスは `getHtml()`(モデル再生成)に載らず保存出力を汚さない
+   * (ページガイド markers と同じ方針)。CLAUDE.md「editor 2系統の原則」: 作成経路のみ true。
+   */
+  function setVarsHighlight(on: boolean): void {
+    varsHighlight = on;
+    editor.value?.Canvas.getBody()?.classList.toggle('jinja-vars-highlight', on);
+  }
+
   function load(bodyEditableHtml: string, css: string): void {
     const ed = editor.value;
     if (!ed) return;
@@ -708,6 +728,8 @@ export function useGrapes() {
       recomputeBreakEls();
       refreshPageGuides();
       recomputePages();
+      // load で iframe body が差し替わるため、保持中のハイライト状態を再適用する。
+      setVarsHighlight(varsHighlight);
     });
   }
 
@@ -768,6 +790,7 @@ export function useGrapes() {
     revision,
     init,
     load,
+    setVarsHighlight,
     insertPart,
     getBodyHtml,
     getCss,
