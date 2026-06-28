@@ -89,19 +89,24 @@ export const jinjaChipCanvasCss = `
   cursor: default;
   user-select: none;
 }
-/* 差し込み（値）は自動入力された値そのもの。地の本文と同じ見た目で表示し、
-   チップの青箱（背景/枠/monospace/縮小フォント）を打ち消す。data-jinja は維持
-   されるので選択も toTemplate 復元も不変。 */
+/* 差し込み（値）は自動入力されたサンプル値。実運用でも将来ずっとサンプルなので、
+   地の本文（手書き文）と区別できるよう薄い琥珀のハイライトを乗せる。字形・行送りは
+   本文と揃えるため inline + 各 inherit + white-space:normal は維持し、チップの
+   青箱（枠/monospace/縮小フォント）は打ち消す。data-jinja は CSS 非依存なので選択も
+   toTemplate 復元も不変。背景は canvas のみ（プレビュー/PDF/保存出力には載らない）。 */
 .jinja-chip.jinja-var {
   display: inline;
-  padding: 0;
+  padding: 0 1px;
   border: 0;
-  border-radius: 0;
-  background: none;
+  border-radius: 3px;
+  background: rgba(245, 158, 11, 0.16);
   color: inherit;
   font-family: inherit;
   font-size: inherit;
   white-space: normal;
+  /* 値が行末で折り返しても各行に背景を出す。 */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 .jinja-chip.jinja-stmt { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
 .jinja-chip.jinja-comment { background: #e5e7eb; color: #6b7280; border: 1px dashed #9ca3af; }
