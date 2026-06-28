@@ -397,6 +397,17 @@ export function useGrapes() {
   function setSinglePageMode(on: boolean): void {
     singlePageMode.value = on;
     applyPageVisibility();
+    // 1 ページ ⇔ 全ページで body 高さが激変し(他ページの display 切替)、guide / overlay の
+    // 座標が旧レイアウトのまま残る。ON 化時のみ隠れたページの選択を外し、スクロールを先頭へ戻して
+    // 再レイアウト後に縦配置(`ret-canvas-fits`)と guide/選択枠を測り直す(`goToPage`/`setZoom` と同手法)。
+    if (on) deselectIfHidden();
+    editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
+    if (cvScrollEl) cvScrollEl.scrollTop = 0;
+    requestAnimationFrame(() => {
+      updateScrollMode();
+      refreshRect();
+      refreshPageGuides();
+    });
   }
 
   /** canvas load 時に呼ばれ、可視制御用の 2 枚目 style を生成・保持する。 */
