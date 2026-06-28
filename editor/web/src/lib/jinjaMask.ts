@@ -21,6 +21,8 @@
 //   serialization-safe な placeholder として出力し, 最後の文字列パスで decode する。
 //   これにより式中の `<`, `>`, `&` 等が serializer に HTML エスケープされない。
 
+import { defaultHtmlParser, type HtmlParser } from './htmlParser';
+
 export const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
 // Private-use 区切り文字: HTML serialization をエスケープされずに通過する。
 export const PH_START = String.fromCharCode(0xe000);
@@ -100,9 +102,13 @@ export interface ToTemplateOptions {
   asFragment?: boolean;
 }
 
-export function toTemplate(editable: string, opts: ToTemplateOptions = {}): string {
+export function toTemplate(
+  editable: string,
+  opts: ToTemplateOptions = {},
+  parse: HtmlParser = defaultHtmlParser,
+): string {
   const hadDoctype = /^\s*<!doctype/i.test(editable);
-  const doc = new DOMParser().parseFromString(editable, 'text/html');
+  const doc = parse(editable);
   const ph = (enc: string) => doc.createTextNode(`${PH_START}${enc}${PH_END}`);
 
   // 0. `fillJinja.ts` の `toFilled` が生成した loop clone を破棄する: 展開した

@@ -20,10 +20,10 @@ import {
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { apiUrl } from '@/api/rest/http';
 import { logError } from '@/lib/appError';
-import { toTemplate } from '@/lib/jinjaMask';
-import { buildPreviewDocument, renderJinja } from '@/lib/nunjucksRender';
+import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { sanitizePreviewHtml } from '@/lib/sanitizeHtml';
 import { replaceBodyInner } from '@/lib/templateDoc';
+import { htmlWorker } from '@/workers';
 
 /** PDF 生成失敗時に表示する文言(原因 cause は別途ログへ記録する)。 */
 export const PDF_ERROR_MSG = 'PDFの作成に失敗しました。時間をおいて再度お試しください。';
@@ -71,7 +71,8 @@ export function createTemplatePreviewService(
       let restoredHtml: string;
       let css: string;
       if (draft) {
-        const restoredBody = toTemplate(draft.html, { asFragment: true });
+        // Jinja 復元(DOM 重処理)は Worker(linkedom)で実行しメインを塞がない。
+        const restoredBody = await htmlWorker.toTemplate(draft.html, { asFragment: true });
         restoredHtml = replaceBodyInner(tpl.html, restoredBody);
         css = draft.css;
       } else {
@@ -79,20 +80,24 @@ export function createTemplatePreviewService(
         css = tpl.css;
       }
 
-      const doc = buildPreviewDocument(restoredHtml, css, sample);
+      // 描画は Worker、サニタイズ + 文書組み立て(安価な文字列操作)はメインで行う。
+      const rendered = await htmlWorker.renderJinja(restoredHtml, sample);
+      let previewDoc = '';
       let renderError: string | null = null;
-      if (doc.error) {
-        logError(unexpected('preview render failed', { cause: doc.error }));
+      if (rendered.error) {
+        logError(unexpected('preview render failed', { cause: rendered.error }));
         renderError = RENDER_ERROR_MSG;
+      } else {
+        previewDoc = assemblePreviewDocument(rendered.html, css);
       }
-      return ok({ template: tpl, sample, restoredHtml, css, previewDoc: doc.html, renderError });
+      return ok({ template: tpl, sample, restoredHtml, css, previewDoc, renderError });
     },
 
     confirmSave: (req) => templates.confirmSave(req),
 
     async renderPdf(html, css, sample) {
       try {
-        const rendered = renderJinja(html, sample);
+        const rendered = await htmlWorker.renderJinja(html, sample);
         if (rendered.error) return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
         // サーバの headless ブラウザでレンダリングされる前に能動コンテンツを除去する
         // (プレビューと同じ保存型 XSS / スクリプト実行対策)。

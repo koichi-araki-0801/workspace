@@ -14,8 +14,8 @@ import {
   type TemplateRepository,
 } from '@editor/shared';
 import { usePartRepo, useTemplateRepo } from '@/api/repositories';
-import { toFilled } from '@/lib/fillJinja';
 import { getBodyInner } from '@/lib/templateDoc';
+import { htmlWorker } from '@/workers';
 
 /** editor が template を編集用に開くために必要な一式。 */
 export interface EditorLoad {
@@ -72,7 +72,9 @@ export function createTemplateEditorService(
       // editor canvas は "filled" 形式(値を差込み、Jinja source は保持)を編集する。
       // 静的な fill を優先し、無ければ load 時に生成する。draft は既に編集可能/filled
       // 形式なので最優先となる。
-      const filledBody = tpl.filled || toFilled(tpl.html, sample);
+      // 値差込(filled)生成は Worker(nunjucks)で実行しメインを塞がない。静的 filled が
+      // あればそれを優先する。
+      const filledBody = tpl.filled || (await htmlWorker.toFilled(tpl.html, sample));
       const editableBody = draft ? draft.html : getBodyInner(filledBody);
       const css = draft ? draft.css : tpl.css;
 

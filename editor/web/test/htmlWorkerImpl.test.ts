@@ -1,0 +1,69 @@
+// =============================================================================
+// htmlWorkerImpl.test.ts — Worker(linkedom)経路と メイン(jsdom DOMParser)経路の
+// 出力パリティ検証
+// =============================================================================
+// 「DOM 実装を注入して 1 実装を共有する」設計の妥当性を、同一入力に対する
+// jsdom 既定経路と linkedom 経路の出力一致で担保する。
+import { describe, expect, it } from 'vitest';
+import { buildHtmlDiff, type HtmlDiff } from '@/features/compare/htmlBlockDiff';
+import { toTemplate } from '@/lib/jinjaMask';
+import { htmlWorkerImpl } from '@/workers/htmlWorkerImpl';
+
+const css = '.page { page-break-after: always; }';
+const page = (n: number, body: string) => `<section class="page" id="p${n}">${body}</section>`;
+const build = (pages: string[]) => `<!doctype html><html><body>${pages.join('')}</body></html>`;
+
+// linkedom は table の暗黙 `<tbody>` を補わない(browser/jsdom は補う)。この差は比較画面の
+// 表示専用 HTML にのみ現れ、保存/PDF には出ず描画も同一なので、パリティ比較では `tbody`
+// タグを正規化(除去)して吸収する。
+function stripTbody(diff: HtmlDiff): HtmlDiff {
+  const s = (h: string) => h.replace(/<\/?tbody>/gi, '');
+  return {
+    ...diff,
+    pages: diff.pages.map((p) => ({
+      ...p,
+      beforeHtml: s(p.beforeHtml),
+      afterHtml: s(p.afterHtml),
+    })),
+  };
+}
+
+describe('htmlWorkerImpl linkedom parity', () => {
+  it('buildHtmlDiff: jsdom と linkedom で HtmlDiff が一致(tbody 正規化後)', () => {
+    const before = build([
+      page(0, '<p>序文の段落です</p>'),
+      page(1, '<table><tr><td>売上</td><td>100</td></tr></table>'),
+      page(2, '<p>結びの言葉</p>'),
+    ]);
+    const after = build([
+      page(0, '<p>序文の段落です</p>'),
+      page(1, '<table><tr><td>売上</td><td>200</td></tr></table>'),
+      page(2, '<p>結びの言葉(改訂)</p>'),
+    ]);
+    const viaJsdom = buildHtmlDiff(before, after, css, css);
+    const viaLinkedom = htmlWorkerImpl.buildHtmlDiff(before, after, css, css);
+    // changedPageCount や status 分類は完全一致、表示 HTML は tbody 正規化後に一致。
+    expect(viaLinkedom.changedPageCount).toBe(viaJsdom.changedPageCount);
+    expect(stripTbody(viaLinkedom)).toEqual(stripTbody(viaJsdom));
+  });
+
+  it('toTemplate: jsdom と linkedom で復元結果が一致', () => {
+    // chip span(data-jinja)・loop clone・opaque を含む編集用 HTML。
+    const editable =
+      '<table><tbody>' +
+      '<tr data-jinja-open="' +
+      btoa('{% for r in rows %}') +
+      '" data-jinja-close="' +
+      btoa('{% endfor %}') +
+      '"><td><span data-gjs-type="jinja-var" data-jinja="' +
+      btoa('{{ r.name }}') +
+      '">名前</span></td></tr>' +
+      '<tr data-jinja-loop-clone><td><span data-gjs-type="jinja-var" data-jinja="' +
+      btoa('{{ r.name }}') +
+      '">名前2</span></td></tr>' +
+      '</tbody></table>';
+    const viaJsdom = toTemplate(editable, { asFragment: true });
+    const viaLinkedom = htmlWorkerImpl.toTemplate(editable, { asFragment: true });
+    expect(viaLinkedom).toEqual(viaJsdom);
+  });
+});
