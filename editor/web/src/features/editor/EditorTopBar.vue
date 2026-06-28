@@ -27,6 +27,8 @@ import type { SaveState } from './useAutosave';
 const props = defineProps<{
   fundName: string;
   attributes?: TemplateAttributes;
+  /** 確定保存していない編集が残っているか(下書き自動保存とは別。確定保存は preview 画面)。 */
+  dirty: boolean;
   saveState: SaveState;
   statusText: string;
   zoom: number;
@@ -71,7 +73,24 @@ const attrItems = (a: TemplateAttributes) => [
     <div class="flex min-w-0 flex-col">
       <div class="flex min-w-0 items-center gap-2">
         <span class="truncate text-[15px] font-bold">{{ fundName }}</span>
-        <Badge variant="warning" class="shrink-0 whitespace-nowrap">レイアウト調整</Badge>
+        <!-- 確定状態のバッジ。下書きは常時自動保存されるが「確定保存」は preview 画面で行うため、
+             未確定の編集が残っているかをここで明示する(自動保存ステータスとは別物)。 -->
+        <Badge
+          v-if="dirty"
+          variant="warning"
+          class="shrink-0 whitespace-nowrap"
+          title="確定保存していない編集があります。プレビュー画面で確定保存できます。"
+        >
+          未確定
+        </Badge>
+        <Badge
+          v-else
+          variant="secondary"
+          class="shrink-0 whitespace-nowrap"
+          title="未確定の変更はありません。"
+        >
+          変更なし
+        </Badge>
       </div>
       <!-- 属性はラベル小 + 値強調のチップに。テキスト羅列より値の判別が速い -->
       <div v-if="attributes" class="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -103,13 +122,13 @@ const attrItems = (a: TemplateAttributes) => [
       <div class="mx-0.5 h-5 w-px bg-border/70" />
 
       <!-- ズーム -->
-      <Button variant="ghost" size="icon" title="縮小" @click="emit('zoomOut')">
+      <Button variant="ghost" size="icon" title="縮小 (⌘-)" @click="emit('zoomOut')">
         <Minus class="h-4 w-4" />
       </Button>
       <span class="w-[42px] text-center text-[12.5px] tabular-nums text-muted-foreground">
         {{ Math.round(zoom * 100) }}%
       </span>
-      <Button variant="ghost" size="icon" title="拡大" @click="emit('zoomIn')">
+      <Button variant="ghost" size="icon" title="拡大 (⌘+)" @click="emit('zoomIn')">
         <Plus class="h-4 w-4" />
       </Button>
 
@@ -181,7 +200,7 @@ const attrItems = (a: TemplateAttributes) => [
     >
       <RotateCcw class="h-4 w-4" /> 再試行
     </Button>
-    <Button variant="outline" size="sm" :disabled="saveState === 'saving'" title="今すぐ保存" @click="emit('save')">
+    <Button variant="outline" size="sm" :disabled="saveState === 'saving'" title="今すぐ保存 (⌘S)" @click="emit('save')">
       <Save class="h-[15px] w-[15px]" /> 保存
     </Button>
     <Button size="sm" @click="emit('preview')"><Eye class="h-[15px] w-[15px]" /> プレビュー</Button>

@@ -29,6 +29,7 @@ import {
   History,
   Minus,
   PanelRight,
+  PanelRightClose,
   Plus,
   RotateCcw,
   SplitSquareVertical,
@@ -68,6 +69,7 @@ const emit = defineEmits<{
   reset: [];
   del: [];
   'update-note': [string];
+  collapse: [];
 }>();
 
 const label = computed(() => props.part?.name ?? props.selected?.name ?? '');
@@ -171,6 +173,13 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
   }
 }
 
+// 入力中の値が数値として無効か(空 / 非数値)。blur 時に `commitNum` が元値へ戻すが、
+// それまでは何が起きるか分かりにくいため、無効な間は入力欄を赤系にして気付けるようにする。
+function numInvalid(key: 'widthPct' | 'marginTop' | 'marginBottom'): boolean {
+  const raw = num[key].trim();
+  return raw === '' || Number.isNaN(Number(raw));
+}
+
 // 数値の増減(ステッパーボタン / 上下キー)。現在のミラー値を起点に ±delta し、clamp と
 // emit は `commitNum` に委譲する(幅は 1%、余白は 1mm 刻み)。
 function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) {
@@ -183,12 +192,21 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
 
 <template>
   <aside class="flex w-[312px] shrink-0 flex-col overflow-hidden border-l bg-card">
-    <div class="flex h-[46px] shrink-0 items-center border-b px-4 text-[12.5px] font-bold">
+    <div class="flex h-[46px] shrink-0 items-center gap-2 border-b px-4 text-[12.5px] font-bold">
       <span>プロパティ</span>
       <span class="flex-1" />
       <Badge v-if="selected && !editMode" variant="secondary" class="h-[19px] gap-1 py-0">
         <Eye class="h-[11px] w-[11px]" /> 表示のみ
       </Badge>
+      <button
+        type="button"
+        class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        title="右パネルを畳む"
+        aria-label="右パネルを畳む"
+        @click="emit('collapse')"
+      >
+        <PanelRightClose class="h-4 w-4" />
+      </button>
     </div>
 
     <!-- 未選択 -->
@@ -224,7 +242,7 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
           <div v-show="open.size" class="px-4 pb-3">
             <div class="ins-row">
               <span class="text-muted-foreground">幅</span>
-              <div v-if="editMode" class="ins-num">
+              <div v-if="editMode" class="ins-num" :class="{ 'ins-num-invalid': numInvalid('widthPct') }">
                 <button type="button" class="ins-step" title="減らす" @click="stepNum('widthPct', -1)">
                   <Minus class="h-3 w-3" />
                 </button>
@@ -277,7 +295,7 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
           <div v-show="open.margin" class="px-4 pb-3">
             <div class="ins-row">
               <span class="text-muted-foreground">上の余白</span>
-              <div v-if="editMode" class="ins-num">
+              <div v-if="editMode" class="ins-num" :class="{ 'ins-num-invalid': numInvalid('marginTop') }">
                 <button type="button" class="ins-step" title="減らす" @click="stepNum('marginTop', -1)">
                   <Minus class="h-3 w-3" />
                 </button>
@@ -299,7 +317,7 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
             </div>
             <div class="ins-row">
               <span class="text-muted-foreground">下の余白</span>
-              <div v-if="editMode" class="ins-num">
+              <div v-if="editMode" class="ins-num" :class="{ 'ins-num-invalid': numInvalid('marginBottom') }">
                 <button type="button" class="ins-step" title="減らす" @click="stepNum('marginBottom', -1)">
                   <Minus class="h-3 w-3" />
                 </button>
@@ -486,6 +504,11 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
 .ins-num input:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+/* 無効値(空 / 非数値)の間だけ赤系の枠で気付かせる。blur で `commitNum` が元値へ戻す。 */
+.ins-num-invalid {
+  background: color-mix(in oklab, var(--destructive) 12%, var(--muted));
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--destructive) 70%, transparent);
 }
 .ins-unit {
   font-size: 10px;

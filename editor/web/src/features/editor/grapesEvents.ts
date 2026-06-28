@@ -36,6 +36,8 @@ export interface GrapesEventDeps {
   /** component/style 変更ごとに加算され、呼び出し側が幾何を再計算できるようにする。 */
   revision: Ref<number>;
   zoom: Ref<number>;
+  /** inline text 編集(RTE)中フラグ。`rte:enable`/`rte:disable` でここを上げ下げする。 */
+  editing: Ref<boolean>;
   refreshRect: () => void;
   refreshMove: () => void;
   /** canvas を再走査して page-break 要素を拾い直す(content/style 変更時のみ)。 */
@@ -163,9 +165,11 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
       return;
     }
     rteStartHtml = view?.el?.innerHTML ?? '';
+    deps.editing.value = true;
     callbacks.textStart?.();
   });
   ed.on('rte:disable', (view: { el?: HTMLElement }) => {
+    deps.editing.value = false;
     const changed = (view?.el?.innerHTML ?? '') !== rteStartHtml;
     if (changed) {
       revision.value++;
