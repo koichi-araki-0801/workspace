@@ -6,8 +6,10 @@
 // 実際のズーム/ページ送りは `PreviewPanel`(vivliostyle)へ ref 経由で委譲し, 状態は
 // `state` イベントで受け取って表示する。
 import { isErr, isOk, type SampleData, type Template } from '@editor/shared';
-import { ChevronLeft, ChevronRight, FileDown, Loader2, Minus, Plus, Save } from '@lucide/vue';
+import { FileDown, Loader2, Minus, Plus, Save } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
+import PageNav from '@/components/PageNav.vue';
+import PageRail from '@/components/PageRail.vue';
 import BackButton from '@/components/ui/BackButton.vue';
 import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
@@ -144,33 +146,16 @@ async function exportPdf() {
       </div>
       <div class="h-[26px] w-px shrink-0 bg-border" />
 
-      <!-- ページ送り(複数ページかつ vivliostyle 描画時のみ) -->
+      <!-- ページ送り(複数ページかつ vivliostyle 描画時のみ)。番号入力で任意ページへジャンプ
+           できる共通 `PageNav`(400 ページ規模対応)。実移動は `PreviewPanel.goToPage` へ委譲。 -->
       <template v-if="nav.vivlioReady && nav.pageCount > 1">
-        <div class="flex shrink-0 items-center gap-1.5">
-          <Button
-            variant="outline"
-            size="icon"
-            class="h-7 w-7"
-            title="前のページ"
-            :disabled="nav.atFirst || nav.currentPage <= 1"
-            @click="panel?.prevPage()"
-          >
-            <ChevronLeft class="h-4 w-4" />
-          </Button>
-          <span class="min-w-[46px] text-center text-[12.5px] tabular-nums text-muted-foreground">
-            {{ nav.currentPage }} / {{ nav.pageCount }}
-          </span>
-          <Button
-            variant="outline"
-            size="icon"
-            class="h-7 w-7"
-            title="次のページ"
-            :disabled="nav.atLast || nav.currentPage >= nav.pageCount"
-            @click="panel?.nextPage()"
-          >
-            <ChevronRight class="h-4 w-4" />
-          </Button>
-        </div>
+        <PageNav
+          variant="outline"
+          dense
+          :current-page="nav.currentPage"
+          :page-count="nav.pageCount"
+          @go="panel?.goToPage($event)"
+        />
         <div class="h-[26px] w-px shrink-0 bg-border" />
       </template>
 
@@ -188,8 +173,16 @@ async function exportPdf() {
       {{ renderError }}
     </div>
 
-    <div class="flex-1 overflow-hidden">
+    <div class="relative flex-1 overflow-hidden">
       <PreviewPanel ref="panel" :html="previewDoc" @state="onState" />
+      <!-- 右端の縦ページ目盛り(スクラバ)。vivliostyle は離散表示なのでスクロール比率は渡さず、
+           クリック/ドラッグで `goToPage`(EPAGE ジャンプ)する。 -->
+      <PageRail
+        v-if="nav.vivlioReady && nav.pageCount > 1"
+        :current-page="nav.currentPage"
+        :page-count="nav.pageCount"
+        @go="panel?.goToPage($event)"
+      />
     </div>
   </div>
 </template>

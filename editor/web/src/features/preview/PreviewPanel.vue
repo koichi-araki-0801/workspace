@@ -203,6 +203,16 @@ function nextPage() {
   if (!nav || atLast.value || currentPage.value >= pageCount.value) return;
   viewer?.navigateToPage(nav.NEXT);
 }
+/**
+ * 任意ページへ直接ジャンプする(1 起点)。`renderAllPages: true` で全ページが事前レイアウト
+ * 済みのため `navigateToPage(EPAGE, 0 起点)` で実位置へ飛べる。`currentPage` 等は更新せず、
+ * 続いて発火する `nav` イベントで実位置から反映する(自前カウンタを持たない方針を踏襲)。
+ */
+function goToPage(n: number) {
+  if (!nav || useFallback.value || !viewer) return;
+  const target = Math.min(Math.max(Math.round(n), 1), pageCount.value);
+  viewer.navigateToPage(nav.EPAGE, target - 1);
+}
 
 function setManualZoom(z: number) {
   if (useFallback.value || !viewer) return;
@@ -253,7 +263,7 @@ onBeforeUnmount(() => {
   disposeViewer();
 });
 
-defineExpose({ prevPage, nextPage, zoomIn, zoomOut, fit });
+defineExpose({ prevPage, nextPage, goToPage, zoomIn, zoomOut, fit });
 </script>
 
 <template>

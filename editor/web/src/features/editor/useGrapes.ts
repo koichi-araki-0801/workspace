@@ -147,6 +147,12 @@ export function useGrapes() {
   /** 1 ページだけ表示するか(既定 ON)。OFF で従来の全ページ連続スクロールへ戻る。 */
   const singlePageMode = ref(true);
   /**
+   * 全ページ連続表示中の外側スクロール縦位置(0..1)。`PageRail` のつまみを実位置に合わせる
+   * ために `cvScrollHandler` で更新する。1 ページ表示中はスクロールでページを跨がないため
+   * 参照されない(レール側は `scrollFraction=null` 扱いでページ中央に置く)。
+   */
+  const scrollFraction = ref(0);
+  /**
    * 他ページを隠すために canvas head へ注入する 2 枚目の `<style>`(load 時の A4/jinja
    * スタイルとは別)。ページ送りのたびに textContent だけ書き換える。getCss には出ない。
    */
@@ -393,6 +399,34 @@ export function useGrapes() {
     goToPage(currentPageIndex.value - 1);
   }
 
+  /** 外側スクロール量から縦位置比率(0..1)を測り直す(`PageRail` のつまみ位置用)。 */
+  function updateScrollFraction(): void {
+    const el = cvScrollEl;
+    if (!el) return;
+    const range = el.scrollHeight - el.clientHeight;
+    scrollFraction.value = range > 0 ? Math.min(Math.max(el.scrollTop / range, 0), 1) : 0;
+  }
+
+  /**
+   * 全ページ連続表示時に、指定ページ(0 起点)の先頭が見えるよう外側 `.gjs-cv-canvas` を
+   * スクロールする。ページ要素は iframe 内に在るため、要素と scroller の `getBoundingClientRect`
+   * 差分(= 現在の scroll を織り込んだ表示座標、zoom 反映済み)で目標 scrollTop を求める。
+   * 1 ページ表示時は `goToPage` を使う(本関数は呼ばない)。
+   */
+  function scrollToPage(i: number): void {
+    const idx = clampPageIndex(i, pageCount.value);
+    currentPageIndex.value = idx;
+    const el = pageEls.value[idx];
+    if (!cvScrollEl || !el) return;
+    const delta = el.getBoundingClientRect().top - cvScrollEl.getBoundingClientRect().top;
+    cvScrollEl.scrollTop += delta;
+    requestAnimationFrame(() => {
+      refreshRect();
+      refreshPageGuides();
+      updateScrollFraction();
+    });
+  }
+
   /** 1 ページ表示の ON/OFF を切り替える(OFF で全ページ連続スクロールへ戻る)。 */
   function setSinglePageMode(on: boolean): void {
     singlePageMode.value = on;
@@ -524,6 +558,7 @@ export function useGrapes() {
           pending = false;
           refreshRect();
           refreshPageGuides();
+          updateScrollFraction();
         });
       };
       cvScrollEl.addEventListener('scroll', cvScrollHandler, { passive: true });
@@ -797,6 +832,7 @@ export function useGrapes() {
     pageCount,
     currentPageIndex,
     singlePageMode,
+    scrollFraction,
     zoom,
     revision,
     init,
@@ -814,6 +850,7 @@ export function useGrapes() {
     fitToView,
     setEditable,
     goToPage,
+    scrollToPage,
     nextPage,
     prevPage,
     setSinglePageMode,

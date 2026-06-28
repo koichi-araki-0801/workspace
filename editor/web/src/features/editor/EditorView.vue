@@ -7,6 +7,8 @@
 import { GripVertical, PanelLeft, PanelRight, StickyNote } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import PageRail from '@/components/PageRail.vue';
+import { fractionToPage } from '@/components/pageNav';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
 import PartTree from './PartTree.vue';
@@ -64,6 +66,21 @@ const rect = computed(() => g.selectedRect.value);
 
 // ページ境界の overlay guide: 既定 ON、上部バーから切替える。
 const showPageGuides = ref(true);
+
+// `PageRail` 用の現在ページ(1 起点)。1 ページ表示は表示中 index、全ページ連続表示は
+// 実スクロール位置(`scrollFraction`)から逆算する(目盛りのハイライトをスクロールに追従)。
+const railCurrentPage = computed(() =>
+  g.singlePageMode.value
+    ? g.currentPageIndex.value + 1
+    : fractionToPage(g.scrollFraction.value, g.pageCount.value),
+);
+
+/** レールのジャンプ。1 ページ表示はページ送り、全ページ連続表示は当該ページ先頭へスクロール。 */
+function onRailGo(page: number): void {
+  const i = page - 1;
+  if (g.singlePageMode.value) g.goToPage(i);
+  else g.scrollToPage(i);
+}
 
 // ── 左右ペインの折りたたみ(狭幅で canvas を広く使うため) ──
 // 状態は localStorage に保持し、次回も同じ畳み方で開く(キーは theme.ts と同じ `ret:` 接頭辞)。
@@ -182,8 +199,7 @@ const statusText = computed(() => {
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
       @toggle-page-guides="showPageGuides = !showPageGuides"
-      @prev-page="g.prevPage()"
-      @next-page="g.nextPage()"
+      @go="g.goToPage($event - 1)"
       @toggle-single-page="g.setSinglePageMode(!g.singlePageMode.value)"
       @save="autosave.flush()"
       @preview="goPreview"
@@ -304,6 +320,17 @@ const statusText = computed(() => {
 
           </template>
         </div>
+
+        <!-- 右端の縦ページ目盛り(スクラバ)。400 ページ規模で現在位置の把握と任意ページへの
+             ジャンプを担う。1 ページ表示ではページ送り、全ページ連続表示では当該ページ先頭へ
+             スクロールする(`onRailGo`)。overlay 層とは別に置き、自前でクリックを拾う。 -->
+        <PageRail
+          v-if="g.pageCount.value > 1"
+          :current-page="railCurrentPage"
+          :page-count="g.pageCount.value"
+          :scroll-fraction="g.singlePageMode.value ? null : g.scrollFraction.value"
+          @go="onRailGo"
+        />
       </main>
 
       <!-- 右: 編集可能なプロパティ(折りたたみ式)+ 履歴。畳むと細いレールになる。 -->
