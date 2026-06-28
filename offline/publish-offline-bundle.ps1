@@ -130,6 +130,11 @@ if ($bundleChanged) {
 
     Write-Host '[1/4] 依存を同梱ストアへ充填（pnpm fetch でロックファイル基準の完全充填）...'
     $env:COREPACK_ENABLE_DOWNLOAD_PROMPT = '0'
+    # 後段の `pnpm install --store-dir .pnpm-store` は通常開発のグローバルストアと異なるため、pnpm が
+    # 既存 `node_modules` の purge 確認を出す。post-commit フックは TTY が無く、既定では
+    # `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` で中断し発行全体が落ちる(タグ移動/アップロード未達)。
+    # 非対話では確認を省いて purge を進めるよう明示し、フック発行を落とさない。
+    $env:npm_config_confirm_modules_purge = 'false'
     # `pnpm install --store-dir` は node_modules が既に揃っていると no-op になり、後から
     # 追加された依存(特に dev)を store へ入れ損ねる(パッケージはグローバルストア経由で
     # node_modules に hardlink 済みのため再取得されない)。結果、key は一致するのに store の
