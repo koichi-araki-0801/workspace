@@ -41,6 +41,10 @@
 - **post-commit**: `offline/publish-offline-bundle.ps1` がローリングタグ
   `offline-bundle-v1` を HEAD へ移動し、重量物バンドルは content key 差分時のみ再生成。
   ベストエフォート（コミットはブロックしない）。無効化は `OFFLINE_PUBLISH_SKIP=1`。
+- **pre-push**（`.husky/pre-push` → `scripts/pre-push.mjs`）: ブランチ push では
+  `ci:affected` を走らせるが、**タグのみの push（上記タグ移動など）は CI をスキップ**する。
+  これが無いと、post-commit のタグ push が pre-push のフル CI を発火させ、commit フック内の
+  `GIT_AUTHOR_NAME` 漏れで `gitRepo.test` が落ちてタグ push が中断し、リリースが更新されない。
 - **auto-push**（`.claude/hooks/auto-push.cjs`）: commit 後に現ブランチを origin へ push。
   履歴を amend した場合はリモートが古い同内容コミットのまま分岐するため、ツリー一致を
   確認のうえ `git push --force-with-lease` で揃える。

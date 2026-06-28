@@ -44,12 +44,16 @@ export interface GitAuthor {
   name: string;
 }
 
-/** `git <COMMON_ARGS> <args>` を gitRepoDir で実行し stdout を返す。 */
-async function git(args: string[]): Promise<string> {
+/**
+ * `git <COMMON_ARGS> <args>` を gitRepoDir で実行し stdout を返す。
+ * `env` を渡すと spawn 環境を差し替える(identity を環境変数で確定する commit で使う)。
+ */
+async function git(args: string[], opts?: { env?: NodeJS.ProcessEnv }): Promise<string> {
   const { stdout } = await execFileAsync(GIT_BIN, [...COMMON_ARGS, ...args], {
     cwd: config.gitRepoDir,
     maxBuffer: 64 * 1024 * 1024,
     encoding: 'utf8',
+    env: opts?.env,
   });
   return stdout;
 }
@@ -67,12 +71,30 @@ export function withGitLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** identity の name/email を解決する。email はログインID から安全な local アドレスを合成。 */
+function resolveIdentity(author: GitAuthor): { name: string; email: string } {
+  const name = author.name || 'system';
+  return { name, email: `${name.replace(/[^\w.-]/g, '_')}@editor.local` };
+}
+
 /** identity を表す `-c user.name=... -c user.email=...` 引数を組む。 */
 function identityArgs(author: GitAuthor): string[] {
-  const name = author.name || 'system';
-  // email はメタにのみ使う。ログインID から安全な local アドレスを合成する。
-  const email = `${name.replace(/[^\w.-]/g, '_')}@editor.local`;
+  const { name, email } = resolveIdentity(author);
   return ['-c', `user.name=${name}`, '-c', `user.email=${email}`];
+}
+
+// commit の author/committer を環境変数で確定する。`GIT_AUTHOR_*`/`GIT_COMMITTER_*` は
+// `user.*` config より優先されるため、外側の git フック等から漏れた `GIT_AUTHOR_NAME` が
+// `-c user.name` を上書きする事故(`gitRepo.test` 偽陽性の原因)を防ぐ。
+function identityEnv(author: GitAuthor): NodeJS.ProcessEnv {
+  const { name, email } = resolveIdentity(author);
+  return {
+    ...process.env,
+    GIT_AUTHOR_NAME: name,
+    GIT_AUTHOR_EMAIL: email,
+    GIT_COMMITTER_NAME: name,
+    GIT_COMMITTER_EMAIL: email,
+  };
 }
 
 /**
@@ -118,12 +140,12 @@ export async function ensureRepo(): Promise<void> {
     'utf8',
   );
   await git(['add', '-A']);
-  await git([
-    ...identityArgs({ name: 'system' }),
-    'commit',
-    '-m',
-    '初期化: テンプレ版管理リポジトリ',
-  ]);
+  await git(
+    [...identityArgs({ name: 'system' }), 'commit', '-m', '初期化: テンプレ版管理リポジトリ'],
+    {
+      env: identityEnv({ name: 'system' }),
+    },
+  );
 }
 
 /**
@@ -141,7 +163,7 @@ export async function commitAll(message: string, author: GitAuthor): Promise<str
     dirty = true; // exit 1 = 差分あり
   }
   if (dirty) {
-    await git([...identityArgs(author), 'commit', '-m', message]);
+    await git([...identityArgs(author), 'commit', '-m', message], { env: identityEnv(author) });
   }
   return (await git(['rev-parse', 'HEAD'])).trim();
 }

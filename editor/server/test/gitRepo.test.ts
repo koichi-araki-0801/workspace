@@ -64,6 +64,24 @@ d('gitRepo', () => {
     expect(files).toContain(rel);
   });
 
+  it('commitAll keeps the given author even when GIT_AUTHOR_NAME leaks from the env', async () => {
+    // git フック連鎖(post-commit→push→pre-push→CI)では外側 commit の `GIT_AUTHOR_NAME` が
+    // 子プロセスへ漏れ、`-c user.name` を上書きしうる。identity を環境変数で確定しているため
+    // 漏れ値ではなく指定 author になることを保証する。
+    const saved = process.env.GIT_AUTHOR_NAME;
+    process.env.GIT_AUTHOR_NAME = 'leaked-author';
+    try {
+      const rel = 'templates/AM01_999999_20250102_交付版.html';
+      fs.writeFileSync(path.join(tmp, rel), '<p>{{ fund.code }}</p>', 'utf8');
+      await git.commitAll('確定保存: env leak 回帰', { name: 'tester' });
+      const log = await git.logForFile(rel);
+      expect(log[0].author).toBe('tester');
+    } finally {
+      if (saved === undefined) delete process.env.GIT_AUTHOR_NAME;
+      else process.env.GIT_AUTHOR_NAME = saved;
+    }
+  });
+
   it('commitAll is a no-op when there is nothing to commit (HEAD unchanged)', async () => {
     const before = await git.commitFiles('HEAD');
     const h1 = await git.commitAll('変更なし', { name: 'tester' });
