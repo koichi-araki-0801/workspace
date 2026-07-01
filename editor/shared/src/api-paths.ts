@@ -51,6 +51,11 @@ export const apiPaths = {
   preview: '/preview',
   // ワイルドカード経路(reverse-proxy)はルート側で `+ '/*'` を合成する。
   previewById: '/preview/:id',
+  // reviews (確定保存の精査者承認ワークフロー)
+  reviewRequests: '/review-requests',
+  reviewRequestById: '/review-requests/:reqId',
+  reviewRequestApprove: '/review-requests/:reqId/approve',
+  reviewRequestReject: '/review-requests/:reqId/reject',
   // users
   users: '/users',
   userById: '/users/:id',

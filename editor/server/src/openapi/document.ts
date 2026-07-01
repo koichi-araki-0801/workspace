@@ -58,6 +58,7 @@ export function buildOpenApiDocument() {
       { name: 'templates', description: 'テンプレートの探索・生成・下書き・確定保存' },
       { name: 'parts', description: 'パーツカタログ(エディタ左ペイン)' },
       { name: 'notes', description: 'パーツ単位の作業メモ(版インスタンス単位)' },
+      { name: 'reviews', description: '確定保存の精査者承認ワークフロー' },
       { name: 'history', description: '編集 / PDF / 作成 履歴とバージョン比較' },
       { name: 'vivliostyle', description: 'vivliostyle build (PDF) / preview (ライブ)' },
       { name: 'users', description: 'ユーザ管理(admin 限定)' },
@@ -306,6 +307,73 @@ export function buildOpenApiDocument() {
           requestParams: { path: z.object({ templateId: z.string() }) },
           requestBody: { content: { 'application/json': { schema: s.SaveNoteRequest } } },
           responses: { '204': noContent('保存完了'), ...ERR_400, ...ERR_401 },
+        },
+      },
+
+      // ── 5b. reviews (確定保存の精査者承認) ──
+      [toOpenApiPath(apiPaths.reviewRequests)]: {
+        get: {
+          tags: ['reviews'],
+          summary: '承認キュー一覧(approver|admin は全件、editor は自分の申請のみ)',
+          operationId: 'listReviews',
+          requestParams: { query: s.ReviewListQuery },
+          responses: { '200': json('申請メタの配列', z.array(s.ReviewRequestMeta)), ...ERR_401 },
+        },
+        post: {
+          tags: ['reviews'],
+          summary: '確定保存を申請(pending 作成・実ファイル非更新)',
+          operationId: 'submitReview',
+          requestBody: { content: { 'application/json': { schema: s.SubmitReviewBody } } },
+          responses: {
+            '200': json('作成された申請メタ', s.ReviewRequestMeta),
+            ...ERR_400,
+            ...ERR_401,
+            ...ERR_404,
+          },
+        },
+      },
+      [toOpenApiPath(apiPaths.reviewRequestById)]: {
+        get: {
+          tags: ['reviews'],
+          summary: '申請詳細(本体込み・承認画面のプレビュー用)',
+          operationId: 'getReview',
+          requestParams: { path: z.object({ reqId: z.string() }) },
+          responses: { '200': json('申請(本体込み)', s.ReviewRequest), ...ERR_401, ...ERR_404 },
+        },
+      },
+      [toOpenApiPath(apiPaths.reviewRequestApprove)]: {
+        post: {
+          tags: ['reviews'],
+          summary: '承認して実ファイルへ反映 + git commit(精査者限定)',
+          operationId: 'approveReview',
+          requestParams: { path: z.object({ reqId: z.string() }) },
+          requestBody: { content: { 'application/json': { schema: s.ReviewDecisionBody } } },
+          responses: {
+            '200': json('反映後のテンプレート meta', s.TemplateMeta),
+            ...ERR_400,
+            ...ERR_401,
+            ...ERR_403,
+            ...ERR_404,
+            ...ERR_409,
+            ...ERR_500,
+          },
+        },
+      },
+      [toOpenApiPath(apiPaths.reviewRequestReject)]: {
+        post: {
+          tags: ['reviews'],
+          summary: '却下(精査者限定・実ファイル非更新)',
+          operationId: 'rejectReview',
+          requestParams: { path: z.object({ reqId: z.string() }) },
+          requestBody: { content: { 'application/json': { schema: s.ReviewDecisionBody } } },
+          responses: {
+            '200': json('却下後の申請メタ', s.ReviewRequestMeta),
+            ...ERR_400,
+            ...ERR_401,
+            ...ERR_403,
+            ...ERR_404,
+            ...ERR_409,
+          },
         },
       },
 

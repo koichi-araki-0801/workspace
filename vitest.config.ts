@@ -34,6 +34,7 @@ export default defineConfig({
         'editor/server/src/vivliostyle/previewManager.ts',
         'editor/server/src/vivliostyle/buildWorkerPool.ts',
         // editor/web (UI/VM/Service/Repository 層)
+        'editor/web/src/workers/fallback.ts',
         'editor/web/src/lib/jinjaMask.ts',
         'editor/web/src/lib/blockKey.ts',
         'editor/web/src/lib/appError.ts',
@@ -48,6 +49,7 @@ export default defineConfig({
         'editor/web/src/lib/templateDoc.ts',
         'editor/web/src/lib/usePagedList.ts',
         'editor/web/src/lib/nunjucksRender.ts',
+        'editor/web/src/lib/cropMarks.ts',
         'editor/web/src/lib/formatOutput.ts',
         'editor/web/src/lib/useCascadingSelect.ts',
         'editor/web/src/features/editor/geom.ts',

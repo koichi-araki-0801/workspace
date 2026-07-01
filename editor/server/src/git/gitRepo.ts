@@ -120,19 +120,34 @@ async function hasHead(): Promise<boolean> {
 }
 
 /**
+ * 追跡対象外にすべき作業コピー(下書き・承認待ち申請・一時ファイル)を .gitignore へ
+ * 冪等に揃える。初期化済みリポジトリにも適用し、`/reviews/` 追加のような後付けでも
+ * `commitAll` の `git add -A` がそれらを誤って取り込まないようにする。
+ */
+async function ensureGitignore(): Promise<void> {
+  const file = path.join(config.gitRepoDir, '.gitignore');
+  const required = ['/drafts/', '/reviews/', '*.tmp-*'];
+  const existing = await fs.readFile(file, 'utf8').catch(() => '');
+  const lines = existing.split('\n').map((l) => l.trim());
+  const missing = required.filter((r) => !lines.includes(r));
+  if (missing.length === 0 && existing !== '') return;
+  const merged = [...new Set([...lines.filter((l) => l !== ''), ...missing])];
+  await fs.writeFile(file, `${merged.join('\n')}\n`, 'utf8');
+}
+
+/**
  * リポジトリを必要に応じて初期化する(lazy)。未初期化なら init + .gitignore/
  * .gitattributes 配置 + 既存 templates/css を初回コミット(author=system)。
+ * 初期化済みでも .gitignore は冪等に補修する(`/reviews/` の後付け対応)。
  */
 export async function ensureRepo(): Promise<void> {
   await fs.mkdir(config.gitRepoDir, { recursive: true });
-  if (await isRepo()) return;
+  if (await isRepo()) {
+    await ensureGitignore();
+    return;
+  }
   await git(['init']);
-  await fs.writeFile(
-    path.join(config.gitRepoDir, '.gitignore'),
-    // 下書き(作業コピー)と atomicWrite の一時ファイルは追跡しない。
-    '/drafts/\n*.tmp-*\n',
-    'utf8',
-  );
+  await ensureGitignore();
   await fs.writeFile(
     path.join(config.gitRepoDir, '.gitattributes'),
     // Windows でも byte が揺れないよう改行を LF 固定にする。

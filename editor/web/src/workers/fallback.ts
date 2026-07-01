@@ -1,0 +1,106 @@
+// =============================================================================
+// fallback.ts — Worker RPC を main-thread フォールバック付きで包む(テスト可能な純粋層)
+// =============================================================================
+// `index.ts` は `new Worker(new URL(...))` の構築を持ち jsdom では実行できないため、
+// 「remote(Worker) が失敗/ハングしたら fallback(main-thread)へ倒す」判断ロジックだけを
+// ここへ切り出して単体テスト可能にする。`index.ts` は本層を Worker と main-thread 実装で
+// 束ねるだけにする。
+import { unexpected } from '@editor/shared';
+import { logError } from '@/lib/appError';
+import type { AsyncHtmlWorker } from './index';
+
+// Worker 呼び出しがこの時間内に解決しなければ「不達」とみなして main-thread へ落とす上限。
+// 重処理(400 ページ級の diff/mask)でも数秒で済むため十分な余裕。これを超えるのは
+// チャンク読込失敗や Comlink ハンドシェイク不成立など、Worker が事実上死んでいる場合。
+export const WORKER_CALL_TIMEOUT_MS = 30_000;
+
+/** `p` を `ms` で打ち切る。期限超過で reject し、ハングを観測可能な失敗へ変える。 */
+export function withTimeout<T>(p: Promise<T>, ms: number, method: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(
+      () => reject(unexpected(`html worker call timed out: ${method} (>${ms}ms)`)),
+      ms,
+    );
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
+export interface FallbackWorker {
+  /** フォールバック付きの公開プロキシ。`AsyncHtmlWorker` と同一インタフェース。 */
+  worker: AsyncHtmlWorker;
+  /** Worker の致命エラー検知時に呼ぶ。in-flight 呼び出しを即フォールバックへ落とす。 */
+  markBroken: (reason: unknown) => void;
+}
+
+/**
+ * `remote`(Worker RPC)を呼びつつ、実行時エラー・ハング(タイムアウト)・明示的な
+ * `markBroken` のいずれかで `fallback`(main-thread)へ恒久的に倒すプロキシを作る。
+ *
+ * Worker は重処理でメインを塞がないための最適化であり、読めない/壊れた環境
+ * (オフライン配信で worker チャンクが解決できない等)では描画の正しさを優先して
+ * main-thread 実行へ落とす。一度でも失敗を検知したら以降は即フォールバックして無駄な待ちを避ける。
+ */
+export function createFallbackWorker(
+  remote: AsyncHtmlWorker,
+  fallback: AsyncHtmlWorker,
+  timeoutMs = WORKER_CALL_TIMEOUT_MS,
+): FallbackWorker {
+  // Worker が不達/エラーと判明したら true。以降は main-thread へ恒久フォールバックする。
+  let workerBroken = false;
+  // Worker の error イベント発火を in-flight 呼び出しへ即時伝える reject シグナル。
+  let markBroken!: (reason: unknown) => void;
+  const brokenSignal = new Promise<never>((_, reject) => {
+    markBroken = (reason) => {
+      workerBroken = true;
+      reject(reason);
+    };
+  });
+  // 誰も race していない間の unhandledrejection を防ぐ(シグナルは複数回 race され得る)。
+  brokenSignal.catch(() => {});
+
+  // 各メソッドを「remote 呼び出し vs タイムアウト vs broken シグナル」の race で実行し、
+  // 失敗時はその場で main-thread へ落としつつ `workerBroken` を立てて以降を即フォールバックする。
+  function call<K extends keyof AsyncHtmlWorker>(
+    method: K,
+    args: Parameters<AsyncHtmlWorker[K]>,
+  ): ReturnType<AsyncHtmlWorker[K]> {
+    const fallbackFn = fallback[method] as (...a: unknown[]) => Promise<unknown>;
+    if (workerBroken) return fallbackFn(...args) as ReturnType<AsyncHtmlWorker[K]>;
+    const remoteFn = remote[method] as (...a: unknown[]) => Promise<unknown>;
+    const result = (async () => {
+      try {
+        return await Promise.race([
+          withTimeout(remoteFn(...args), timeoutMs, String(method)),
+          brokenSignal,
+        ]);
+      } catch (e) {
+        workerBroken = true;
+        logError(
+          unexpected(`html worker call failed; falling back to main thread: ${String(method)}`, {
+            cause: e,
+          }),
+        );
+        return fallbackFn(...args);
+      }
+    })();
+    return result as ReturnType<AsyncHtmlWorker[K]>;
+  }
+
+  const worker: AsyncHtmlWorker = {
+    buildHtmlDiff: (...a) => call('buildHtmlDiff', a),
+    buildHtmlDiffAligned: (...a) => call('buildHtmlDiffAligned', a),
+    toTemplate: (...a) => call('toTemplate', a),
+    toFilled: (...a) => call('toFilled', a),
+    renderJinja: (...a) => call('renderJinja', a),
+  };
+  return { worker, markBroken };
+}

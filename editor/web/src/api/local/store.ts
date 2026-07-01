@@ -151,6 +151,9 @@ export const K = {
   // Undo/Redo スナップショットスタックの永続ミラー。`Record<templateId, {past, future}>`。
   // クライアント編集の関心事で揮発性が高く、`WORKING_KEYS` に含めて bump で破棄してよい。
   undoStacks: 'editor:session:undo',
+  // 確定保存の承認待ち申請(オフラインデモ用ミラー)。`Record<reqId, ReviewRequest>`。
+  // 版(構造)依存の working-state なので bump で破棄してよい。
+  reviews: 'editor:reviews',
 } as const;
 
 export const META_KEY = 'editor:meta';
@@ -177,6 +180,7 @@ const WORKING_KEYS = [
   K.partHist,
   K.notes, // メモ単位を fundCode→templateId へ変更。旧形式は非可逆なので bump で一掃する
   K.undoStacks,
+  K.reviews,
   'editor:seed:compare', // compare-seed ガード。現行 id で再 seed させるため
 ] as const;
 

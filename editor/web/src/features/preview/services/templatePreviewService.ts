@@ -20,6 +20,7 @@ import {
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { apiUrl } from '@/api/rest/http';
 import { logError } from '@/lib/appError';
+import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { formatCss, formatHtml } from '@/lib/formatOutput';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { sanitizePreviewHtml } from '@/lib/sanitizeHtml';
@@ -45,8 +46,16 @@ export interface PreviewLoad {
 export interface TemplatePreviewService {
   loadForPreview(id: string): Promise<Result<PreviewLoad>>;
   confirmSave(req: ConfirmSaveRequest): Promise<Result<TemplateMeta>>;
-  /** テンプレートをサーバー経由で PDF blob にレンダリングする。 */
-  renderPdf(html: string, css: string, sample: SampleData): Promise<Result<Blob>>;
+  /**
+   * テンプレートをサーバー経由で PDF blob にレンダリングする。`cropMarks` が true のとき
+   * トンボ用 CSS(`CROP_MARKS_CSS`)を css へ連結する(プレビュー表示と同じ見た目にする)。
+   */
+  renderPdf(
+    html: string,
+    css: string,
+    sample: SampleData,
+    cropMarks: boolean,
+  ): Promise<Result<Blob>>;
   recordPdfExport(id: string): Promise<Result<void>>;
 }
 
@@ -102,7 +111,7 @@ export function createTemplatePreviewService(
 
     confirmSave: (req) => templates.confirmSave(req),
 
-    async renderPdf(html, css, sample) {
+    async renderPdf(html, css, sample, cropMarks) {
       try {
         const rendered = await htmlWorker.renderJinja(html, sample);
         if (rendered.error) return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
@@ -110,10 +119,13 @@ export function createTemplatePreviewService(
         // (プレビューと同じ保存型 XSS / スクリプト実行対策)。Jinja 解決済みの純 HTML なので
         // 整形は安全 — PDF 入力を読める形にする(`css` は呼び出し側で整形済み)。
         const safeHtml = formatHtml(sanitizePreviewHtml(rendered.html));
+        // トンボは CSS 一本で効かせる方針(`cropMarks.ts` 参照)。サーバ `inlineCss` が css を
+        // `<style>` 化するため, ここで連結すればプレビュー表示と同じトンボが PDF にも乗る。
+        const pdfCss = cropMarks ? `${css}\n${CROP_MARKS_CSS}` : css;
         const res = await fetch(apiUrl(apiPaths.build), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ html: safeHtml, css }),
+          body: JSON.stringify({ html: safeHtml, css: pdfCss }),
         });
         if (!res.ok) return err(conflict(PDF_ERROR_MSG, { cause: `HTTP ${res.status}` }));
         return ok(await res.blob());

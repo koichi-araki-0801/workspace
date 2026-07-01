@@ -44,6 +44,17 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/features/compare/CompareView.vue'),
       },
       {
+        path: 'reviews',
+        name: 'reviews',
+        component: () => import('@/features/reviews/ReviewQueueView.vue'),
+      },
+      {
+        path: 'reviews/:reqId',
+        name: 'review-detail',
+        component: () => import('@/features/reviews/ReviewDiffView.vue'),
+        props: true,
+      },
+      {
         path: 'history',
         name: 'history',
         component: () => import('@/features/templates/HistoryTabView.vue'),

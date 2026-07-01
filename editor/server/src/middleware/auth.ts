@@ -41,3 +41,18 @@ export async function requireAdmin(request: FastifyRequest, _reply: FastifyReply
   if (!request.user) throw unauthorized('ログインが必要です');
   if (request.user.role !== 'admin') throw forbidden('管理者権限が必要です');
 }
+
+/**
+ * `requireAuth` の後に実行する前提。精査者(承認者)ロールを強制する(`approver` または
+ * `admin`)。確定保存の承認・却下、および緊急の直接確定保存(`PUT /templates/:id`)を
+ * 施錠し、編集者(editor)が実ファイルへ書けないようにする(承認ワークフローの要)。
+ */
+export async function requireApprover(
+  request: FastifyRequest,
+  _reply: FastifyReply,
+): Promise<void> {
+  if (!config.requireAuth) return;
+  if (!request.user) throw unauthorized('ログインが必要です');
+  if (request.user.role !== 'approver' && request.user.role !== 'admin')
+    throw forbidden('精査者(承認者)権限が必要です');
+}

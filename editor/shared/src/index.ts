@@ -62,7 +62,9 @@ export type SampleData = Record<string, unknown>;
 
 // ── 3. Domain: users / auth ──
 
-export type UserRole = 'admin' | 'editor' | 'viewer';
+// admin = 全権 / approver = 精査者(確定保存の承認) / editor = 編集者(申請のみ) / viewer = 閲覧。
+// 確定保存(実ファイル反映)は approver|admin の承認が要る(`ReviewRepository` を見よ)。
+export type UserRole = 'admin' | 'approver' | 'editor' | 'viewer';
 
 export interface User {
   id: string;
@@ -160,6 +162,65 @@ export interface TemplateVersionMeta {
   timestamp: string;
   user: string;
   summary: string;
+}
+
+// ── 5b. Domain: review workflow (確定保存の精査者承認) ──
+// 確定保存(= 実ファイル `data/templates` + git への反映)を「申請(submit)」と
+// 「承認(approve)」の 2 段に割る。申請は実ファイルを更新せず `data/reviews/` に積み、
+// approver|admin が承認したときに限り実ファイルへ反映する。編集タブ(既存編集)・作成タブ
+// (新規確定)の両経路を一律にゲートする。詳細は `repositories/ReviewRepository.ts` を見よ。
+
+export type ReviewStatus = 'pending' | 'approved' | 'rejected';
+
+/** 確定保存申請のメタデータ(本文 html/css を除く軽量行)。一覧・承認キューに使う。 */
+export interface ReviewRequestMeta {
+  /** 申請 id。 */
+  id: string;
+  /** 対象テンプレートの id(= `TemplateMeta.id`)。 */
+  templateId: string;
+  attributes: TemplateAttributes;
+  fundCode: string;
+  /** 編集タブ(既存編集) / 作成タブ(新規) 由来。2 系統の区別を申請に保持する。 */
+  origin: 'edit' | 'create';
+  status: ReviewStatus;
+  submittedBy: string;
+  submittedAt: string;
+  /** 承認/却下したユーザ。未処理(pending)は null。 */
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  /** 却下理由 / 承認メモ。無ければ null。 */
+  comment: string | null;
+  /** 申請時点の現行版コンテンツキー(承認時に現行と突き合わせ並行性警告に使う)。 */
+  baseHash: string | null;
+}
+
+/** 申請の本体込み(承認画面のプレビュー・承認反映に使う)。 */
+export interface ReviewRequest extends ReviewRequestMeta {
+  /** 確定保存しようとしている生 Jinja2 HTML。 */
+  html: string;
+  /** 確定保存しようとしているファンド共有 CSS。 */
+  css: string;
+  /** 値差込済みの成果物(任意)。補助的な成果物プレビュー用。 */
+  filledHtml?: string;
+}
+
+/** 確定保存の申請ボディ。`PreviewView` が editor/approver いずれの操作でも積む。 */
+export interface SubmitReviewRequest {
+  templateId: string;
+  /** テンプレファイルへ書き戻す、復元済みの生 Jinja2 HTML。 */
+  html: string;
+  /** ファンド共有 CSS へマージする CSS。 */
+  css: string;
+  fundCode: string;
+  /** 値差込済みの成果物(任意)。 */
+  filledHtml?: string;
+  /** 申請元の経路(2 系統)。`route.query.created === '1'` なら `'create'`。 */
+  origin: 'edit' | 'create';
+}
+
+/** 承認/却下のボディ。`comment` は却下理由 / 承認メモ(任意)。 */
+export interface ReviewDecisionRequest {
+  comment?: string;
 }
 
 // ── 6. API DTOs ──
@@ -331,6 +392,7 @@ export * from './repositories/AuthRepository.js';
 export * from './repositories/HistoryRepository.js';
 export * from './repositories/NoteRepository.js';
 export * from './repositories/PartRepository.js';
+export * from './repositories/ReviewRepository.js';
 export * from './repositories/TemplateRepository.js';
 export * from './repositories/UserRepository.js';
 export * from './result.js';

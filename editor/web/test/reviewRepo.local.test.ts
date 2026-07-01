@@ -1,0 +1,102 @@
+// =============================================================================
+// reviewRepo.local.test.ts — local 確定保存承認ワークフローのラウンドトリップ
+// =============================================================================
+// submit は実反映せず pending を作り、approve で既存 confirmSave 経路を通して本文へ反映、
+// reject は反映しない、を localStorage 上で検証する。承認者(admin)でログインしてから操作する。
+import { isOk } from '@editor/shared';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { localAuthRepo } from '@/api/local/authRepo';
+import { localReviewRepo } from '@/api/local/reviewRepo';
+import { localTemplateRepo } from '@/api/local/templateRepo';
+
+beforeEach(() => localStorage.clear());
+
+/** approver|admin としてログインし、承認操作と全件可視を有効にする。 */
+async function loginAdmin(): Promise<void> {
+  const r = await localAuthRepo.login({ username: 'admin', password: 'admin' });
+  expect(isOk(r)).toBe(true);
+}
+
+/** 既存テンプレを 1 件返す(fixtures 由来)。無ければ null。 */
+async function firstTemplate() {
+  const list = await localTemplateRepo.listTemplates({});
+  if (!isOk(list) || list.value.length === 0) return null;
+  return list.value[0];
+}
+
+describe('localReviewRepo round-trip', () => {
+  it('submit creates a pending request without applying to the template', async () => {
+    await loginAdmin();
+    const target = await firstTemplate();
+    if (!target) return;
+    const before = await localTemplateRepo.getTemplate(target.id);
+
+    const submitted = await localReviewRepo.submitReview({
+      templateId: target.id,
+      html: '<p>申請版の本文</p>',
+      css: '.x{}',
+      fundCode: target.attributes.fundCode,
+      origin: 'edit',
+    });
+    expect(isOk(submitted)).toBe(true);
+    if (isOk(submitted)) expect(submitted.value.status).toBe('pending');
+
+    // 実反映されていない(テンプレ本文は元のまま)。
+    const after = await localTemplateRepo.getTemplate(target.id);
+    if (isOk(before) && isOk(after)) expect(after.value.html).toBe(before.value.html);
+
+    const pending = await localReviewRepo.listReviews({ status: 'pending' });
+    expect(isOk(pending)).toBe(true);
+    if (isOk(pending)) expect(pending.value.length).toBe(1);
+  });
+
+  it('approve applies the submitted body and marks the request approved', async () => {
+    await loginAdmin();
+    const target = await firstTemplate();
+    if (!target) return;
+
+    const submitted = await localReviewRepo.submitReview({
+      templateId: target.id,
+      html: '<p>承認後に反映される本文</p>',
+      css: '.y{}',
+      fundCode: target.attributes.fundCode,
+      origin: 'edit',
+    });
+    if (!isOk(submitted)) throw new Error('submit failed');
+
+    const approved = await localReviewRepo.approveReview(submitted.value.id, { comment: 'ok' });
+    expect(isOk(approved)).toBe(true);
+
+    const reread = await localTemplateRepo.getTemplate(target.id);
+    if (isOk(reread)) expect(reread.value.html).toContain('承認後に反映される本文');
+
+    const detail = await localReviewRepo.getReview(submitted.value.id);
+    if (isOk(detail)) {
+      expect(detail.value.status).toBe('approved');
+      expect(detail.value.comment).toBe('ok');
+    }
+  });
+
+  it('reject marks the request rejected without applying', async () => {
+    await loginAdmin();
+    const target = await firstTemplate();
+    if (!target) return;
+    const before = await localTemplateRepo.getTemplate(target.id);
+
+    const submitted = await localReviewRepo.submitReview({
+      templateId: target.id,
+      html: '<p>却下されるべき本文</p>',
+      css: '.z{}',
+      fundCode: target.attributes.fundCode,
+      origin: 'edit',
+    });
+    if (!isOk(submitted)) throw new Error('submit failed');
+
+    const rejected = await localReviewRepo.rejectReview(submitted.value.id, { comment: 'NG' });
+    expect(isOk(rejected)).toBe(true);
+    if (isOk(rejected)) expect(rejected.value.status).toBe('rejected');
+
+    const after = await localTemplateRepo.getTemplate(target.id);
+    if (isOk(before) && isOk(after)) expect(after.value.html).toBe(before.value.html);
+  });
+});

@@ -2,7 +2,15 @@
 // =============================================================================
 // MainLayout.vue — アプリ共通シェル(ヘッダ/タブナビ/`RouterView`)
 // =============================================================================
-import { FilePlus2, FileText, GitCompare, History, Pencil, Shield } from '@lucide/vue';
+import {
+  ClipboardCheck,
+  FilePlus2,
+  FileText,
+  GitCompare,
+  History,
+  Pencil,
+  Shield,
+} from '@lucide/vue';
 import { computed } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';
@@ -19,10 +27,14 @@ const tabs = [
   { name: 'edit', label: '編集', icon: Pencil },
   { name: 'create', label: 'テンプレート作成', icon: FilePlus2 },
   { name: 'compare', label: '比較', icon: GitCompare },
+  { name: 'reviews', label: auth.isApprover ? '承認' : '申請状況', icon: ClipboardCheck },
   { name: 'history', label: '履歴', icon: History },
 ];
 
-const activeName = computed(() => route.name);
+// 承認待ち画面はサブ詳細(`review-detail`)でもタブを点灯させる。
+const activeName = computed(() =>
+  route.name === 'review-detail' ? 'reviews' : route.name,
+);
 
 async function logout() {
   await auth.logout();

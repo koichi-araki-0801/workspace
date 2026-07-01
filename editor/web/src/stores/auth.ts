@@ -1,7 +1,14 @@
 // =============================================================================
 // auth.ts — 認証セッションの Pinia ストア
 // =============================================================================
-import { isAdmin as isAdminUser, isOk, map, type Result, type User } from '@editor/shared';
+import {
+  isAdmin as isAdminUser,
+  isApprover as isApproverUser,
+  isOk,
+  map,
+  type Result,
+  type User,
+} from '@editor/shared';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { useAuthService } from '@/features/auth/services/authService';
@@ -60,6 +67,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => user.value !== null);
   const isAdmin = computed(() => isAdminUser(user.value));
+  // 確定保存の承認権限(approver|admin)。承認画面/導線の出し分けに使う。
+  const isApprover = computed(() => isApproverUser(user.value));
   // 初回パスワード変更が未了か。navigation guard が password-init へ強制するのに使う
   // (直 URL で初期化画面を回避して他画面へ入れてしまう抜け道を塞ぐ)。
   const mustChangePassword = computed(() => user.value?.mustChangePassword ?? false);
@@ -73,6 +82,7 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     isAuthenticated,
     isAdmin,
+    isApprover,
     mustChangePassword,
   };
 });

@@ -26,6 +26,12 @@ export interface DiffBlock {
   /** 2 版で同じ block を整列させるための安定キー。 */
   key: string;
   status: BlockStatus;
+  /** このパーツだけの着色済み before マークアップ(added パーツでは空)。承認画面のパーツ行用。 */
+  beforeHtml: string;
+  /** このパーツだけの着色済み after マークアップ(removed パーツでは空)。 */
+  afterHtml: string;
+  /** 人間向けラベル「ページN・パーツM」(`partKey.ts` の `partLabelMap` と同採番)。 */
+  label: string;
 }
 
 export interface DiffPage {
@@ -453,7 +459,14 @@ function fastSamePage(
   const beforeHtml = joinOuter(beforePage);
   const afterHtml = joinOuter(afterPage);
   if (beforeHtml.length !== afterHtml.length || beforeHtml !== afterHtml) return null;
-  const blocks: DiffBlock[] = keyedBlocks(afterPage).map((b) => ({ key: b.key, status: 'same' }));
+  // 無変更ページなので各パーツの before/after は同一 outerHTML。承認画面の「変更なしも表示」用。
+  const blocks: DiffBlock[] = keyedBlocks(afterPage).map((b, qi) => ({
+    key: b.key,
+    status: 'same',
+    beforeHtml: b.el.outerHTML,
+    afterHtml: b.el.outerHTML,
+    label: `ページ${index + 1}・パーツ${qi + 1}`,
+  }));
   return { index, changed: false, changedBlockCount: 0, blocks, beforeHtml, afterHtml };
 }
 
@@ -470,10 +483,25 @@ function diffPage(index: number, beforePage: HTMLElement[], afterPage: HTMLEleme
     ...after.map((b) => b.key),
     ...before.filter((b) => !afterMap.has(b.key)).map((b) => b.key),
   ];
+  // 「ページN・パーツM」採番(`partLabelMap` と同思想): after(現行)側 DOM 順を優先し、
+  // after に無い removed パーツは before 側 DOM 順で採番する。
+  const labelOf = new Map<string, string>();
+  after.forEach((b, qi) => {
+    labelOf.set(b.key, `ページ${index + 1}・パーツ${qi + 1}`);
+  });
+  before.forEach((b, qi) => {
+    if (!labelOf.has(b.key)) labelOf.set(b.key, `ページ${index + 1}・パーツ${qi + 1}`);
+  });
   for (const key of keys) {
     const r = renderBlock(beforeMap.get(key), afterMap.get(key));
     rendered.set(key, r);
-    blocks.push({ key, status: r.status });
+    blocks.push({
+      key,
+      status: r.status,
+      beforeHtml: r.beforeHtml,
+      afterHtml: r.afterHtml,
+      label: labelOf.get(key) ?? `ページ${index + 1}`,
+    });
   }
 
   const changedBlockCount = blocks.filter((b) => b.status !== 'same').length;

@@ -24,6 +24,12 @@ function stripTbody(diff: HtmlDiff): HtmlDiff {
       ...p,
       beforeHtml: s(p.beforeHtml),
       afterHtml: s(p.afterHtml),
+      // パーツ単位の前後 HTML(承認画面用)も同じ tbody 差を含むため正規化する。
+      blocks: p.blocks.map((b) => ({
+        ...b,
+        beforeHtml: s(b.beforeHtml),
+        afterHtml: s(b.afterHtml),
+      })),
     })),
   };
 }

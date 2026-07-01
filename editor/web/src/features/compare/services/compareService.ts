@@ -71,6 +71,12 @@ export interface CompareService {
   listVersions(templateId: string): Promise<Result<TemplateVersionMeta[]>>;
   /** 1 版の snapshot を HTML へレンダリングする(クライアント側、サーバ往復なし)。 */
   renderVersionHtml(historyId: string): Promise<Result<RenderedVersion>>;
+  /**
+   * 任意のテンプレ本文(html/css)を、現行版/snapshot と同一の描画経路(`getSampleData` +
+   * `renderJinja`)でレンダリングする。承認画面が申請内容を現行版と同じ土俵で diff するために使う
+   * (見せかけ差分を出さないよう、版種を被せない素の sample を現行版と共有する)。
+   */
+  renderTemplateBody(html: string, css: string, fundCode: string): Promise<Result<RenderedVersion>>;
 }
 
 export function createCompareService(
@@ -133,6 +139,15 @@ export function createCompareService(
       const rendered = renderJinja(snap.html, sampleRes.value);
       if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
       return ok({ html: rendered.html, css: snap.css });
+    },
+
+    async renderTemplateBody(html, css, fundCode) {
+      const sampleRes = await templates.getSampleData(fundCode);
+      if (isErr(sampleRes)) return sampleRes;
+      // baseline 経路と同じく素の sample で描画する(版種を被せない)。現行版と土俵を揃える。
+      const rendered = renderJinja(html, sampleRes.value);
+      if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
+      return ok({ html: rendered.html, css });
     },
   };
 }

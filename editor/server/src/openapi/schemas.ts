@@ -66,7 +66,7 @@ export const SampleData = z
 
 // ── 3. Users / auth — ユーザと認証 ──
 
-export const UserRole = z.enum(['admin', 'editor', 'viewer']).meta({ id: 'UserRole' });
+export const UserRole = z.enum(['admin', 'approver', 'editor', 'viewer']).meta({ id: 'UserRole' });
 
 export const User = z
   .object({
@@ -322,6 +322,61 @@ export const ConfirmSaveBody = z
 
 /** `confirmSave` は更新後の `TemplateMeta` を返す(Repository 契約に対応)。 */
 export const ConfirmSaveResult = TemplateMeta;
+
+// ── 7b. Review workflow — 確定保存の精査者承認 ──
+
+export const ReviewStatus = z
+  .enum(['pending', 'approved', 'rejected'])
+  .meta({ id: 'ReviewStatus' });
+
+export const ReviewOrigin = z
+  .enum(['edit', 'create'])
+  .meta({ id: 'ReviewOrigin', description: '編集タブ(既存編集) / 作成タブ(新規) 由来' });
+
+/** 確定保存申請のメタ(本体 html/css を除く軽量行)。`@editor/shared` の `ReviewRequestMeta`。 */
+export const ReviewRequestMeta = z
+  .object({
+    id: z.string(),
+    templateId: z.string(),
+    attributes: TemplateAttributes,
+    fundCode: z.string(),
+    origin: ReviewOrigin,
+    status: ReviewStatus,
+    submittedBy: z.string(),
+    submittedAt: z.string(),
+    reviewedBy: z.string().nullable(),
+    reviewedAt: z.string().nullable(),
+    comment: z.string().nullable(),
+    baseHash: z.string().nullable().meta({ description: '申請時点の現行版コンテンツキー' }),
+  })
+  .meta({ id: 'ReviewRequestMeta' });
+
+/** 申請の本体込み(承認画面のプレビュー用)。 */
+export const ReviewRequest = ReviewRequestMeta.extend({
+  html: z.string().meta({ description: '確定保存しようとしている生 Jinja2 HTML' }),
+  css: z.string(),
+  filledHtml: z.string().optional(),
+}).meta({ id: 'ReviewRequest' });
+
+/** 確定保存の申請ボディ。`templateId` はボディで運ぶ(POST /review-requests)。 */
+export const SubmitReviewBody = z
+  .object({
+    templateId: z.string().min(1),
+    html: z.string().meta({ description: '復元済みの生 Jinja2 HTML' }),
+    css: z.string(),
+    fundCode: z.string().min(1),
+    filledHtml: z.string().optional(),
+    origin: ReviewOrigin,
+  })
+  .meta({ id: 'SubmitReviewBody' });
+
+/** 承認/却下のボディ(任意の理由/メモ)。 */
+export const ReviewDecisionBody = z
+  .object({ comment: z.string().optional().meta({ description: '却下理由 / 承認メモ' }) })
+  .meta({ id: 'ReviewDecisionBody' });
+
+/** 承認キューの絞り込みクエリ。 */
+export const ReviewListQuery = z.object({ status: ReviewStatus.optional() });
 
 /** インライン build のリクエストボディ(レンダリング済み HTML + 任意 CSS → PDF)。 */
 export const BuildInlineRequest = z

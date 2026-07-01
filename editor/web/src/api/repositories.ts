@@ -6,6 +6,7 @@ import type {
   HistoryRepository,
   NoteRepository,
   PartRepository,
+  ReviewRepository,
   TemplateRepository,
   UserRepository,
 } from '@editor/shared';
@@ -14,12 +15,14 @@ import { localAuthRepo } from './local/authRepo';
 import { localHistoryRepo } from './local/historyRepo';
 import { localNoteRepo } from './local/noteRepo';
 import { localPartRepo } from './local/partRepo';
+import { localReviewRepo } from './local/reviewRepo';
 import { localTemplateRepo } from './local/templateRepo';
 import { localUserRepo } from './local/userRepo';
 import { restAuthRepo } from './rest/authRepo';
 import { restHistoryRepo } from './rest/historyRepo';
 import { restNoteRepo } from './rest/noteRepo';
 import { restPartRepo } from './rest/partRepo';
+import { restReviewRepo } from './rest/reviewRepo';
 import { restTemplateRepo } from './rest/templateRepo';
 import { restUserRepo } from './rest/userRepo';
 
@@ -30,6 +33,7 @@ export interface Repositories {
   parts: PartRepository;
   history: HistoryRepository;
   notes: NoteRepository;
+  reviews: ReviewRepository;
   users: UserRepository;
 }
 
@@ -44,6 +48,7 @@ export const localRepositories: Repositories = {
   parts: localPartRepo,
   history: localHistoryRepo,
   notes: localNoteRepo,
+  reviews: localReviewRepo,
   users: localUserRepo,
 };
 
@@ -57,6 +62,7 @@ export const restRepositories: Repositories = {
   parts: restPartRepo,
   history: restHistoryRepo,
   notes: restNoteRepo,
+  reviews: restReviewRepo,
   users: restUserRepo,
 };
 
@@ -76,4 +82,5 @@ export const useTemplateRepo = () => useRepos().templates;
 export const usePartRepo = () => useRepos().parts;
 export const useHistoryRepo = () => useRepos().history;
 export const useNoteRepo = () => useRepos().notes;
+export const useReviewRepo = () => useRepos().reviews;
 export const useUserRepo = () => useRepos().users;

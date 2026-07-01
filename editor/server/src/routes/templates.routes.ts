@@ -9,7 +9,7 @@ import { apiPaths, type DropdownQuery, validation } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { auditedRethrow } from '../logger.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireApprover, requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { ConfirmSaveBody, SaveDraftRequest } from '../openapi/schemas.js';
 import * as templates from '../repositories/templateRepo.js';
@@ -67,9 +67,11 @@ export async function templatesRoutes(app: FastifyInstance): Promise<void> {
     return templates.getTemplate(String((request.params as { id: string }).id));
   });
 
+  // 直接の確定保存は精査者(承認者)限定の緊急経路。通常の確定保存は承認ワークフロー
+  // (POST /review-requests → approve)を使い、編集者は実ファイルへ直接書けない。
   app.put(
     apiPaths.templateById,
-    { preHandler: [requireAuth, validate(ConfirmSaveBody)] },
+    { preHandler: [requireAuth, requireApprover, validate(ConfirmSaveBody)] },
     async (request) => {
       const id = String((request.params as { id: string }).id);
       const body = request.body as z.infer<typeof ConfirmSaveBody>;

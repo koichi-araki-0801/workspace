@@ -6,7 +6,7 @@
 // (ページ境界 guide / ドラッグハンドル / move grip)を描く presentational なルート。
 import { GripVertical, PanelLeft, PanelRight, StickyNote } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import PageRail from '@/components/PageRail.vue';
 import { fractionToPage } from '@/components/pageNav';
 import EditorTopBar from './EditorTopBar.vue';
@@ -19,6 +19,7 @@ import { useTemplateEditor } from './useTemplateEditor';
 
 const props = defineProps<{ id: string }>();
 const router = useRouter();
+const route = useRoute();
 
 const canvasEl = useTemplateRef<HTMLElement>('canvasEl');
 const layersEl = useTemplateRef<HTMLElement>('layersEl');
@@ -95,7 +96,10 @@ const rightCollapsed = persistedFlag('ret:editor:rightCollapsed', false);
 
 async function goPreview() {
   await autosave.flush();
-  router.push({ name: 'preview', params: { id: props.id } });
+  // 編集経路(query なし)/作成経路(`?created=1`)の区別をプレビューへ引き継ぐ。確定保存の
+  // 申請(`SubmitReviewRequest.origin`)で 2 系統を保持するため(`PreviewView` が読む)。
+  const created = route.query.created === '1' ? { created: '1' } : {};
+  router.push({ name: 'preview', params: { id: props.id }, query: created });
 }
 
 // ユーザーが zoom +/- で明示的に倍率を決めたか。立っている間は resize で勝手に再フィット

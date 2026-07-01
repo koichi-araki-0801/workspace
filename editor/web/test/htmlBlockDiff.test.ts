@@ -297,3 +297,42 @@ describe('buildHtmlDiffAligned', () => {
     expect(diff.pages[1].blocks.every((b) => b.status === 'added')).toBe(true);
   });
 });
+
+// 承認画面のパーツ単位プレビューが使う、`DiffBlock` のパーツ別前後 HTML とラベル採番。
+describe('DiffBlock part-level before/after + labels', () => {
+  it('exposes per-part colored before/after HTML and ページN・パーツM labels', () => {
+    const before = doc('<p id="a">old</p>', '<p id="b">keep</p>');
+    const after = doc('<p id="a">new</p>', '<p id="b">keep</p>');
+    const page = buildHtmlDiff(before, after).pages[0];
+
+    const changed = page.blocks.find((b) => b.status === 'changed');
+    expect(changed?.label).toBe('ページ1・パーツ1');
+    expect(changed?.beforeHtml).toContain(`<span class="${HL_DEL}">old</span>`);
+    expect(changed?.afterHtml).toContain(`<span class="${HL_INS}">new</span>`);
+
+    // 2 つ目の top-level block は同ページのパーツ2(無変更)。
+    const same = page.blocks.find((b) => b.status === 'same');
+    expect(same?.label).toBe('ページ1・パーツ2');
+  });
+
+  it('numbers parts per page across page breaks', () => {
+    const css = '.page{page-break-after:always}';
+    const sec = (id: string, body: string) => `<section class="page" id="${id}">${body}</section>`;
+    const before = doc(sec('p0', '<p>a</p>'), sec('p1', '<p>b</p>'));
+    const after = doc(sec('p0', '<p>a</p>'), sec('p1', '<p>B</p>'));
+    const diff = buildHtmlDiff(before, after, css, css);
+
+    // 2 ページ目の唯一のパーツ。ページ採番は 1 起点。
+    expect(diff.pages[1].blocks[0].label).toBe('ページ2・パーツ1');
+    expect(diff.pages[1].blocks[0].status).toBe('changed');
+  });
+
+  it('leaves the before pane empty for added parts and after pane empty for removed', () => {
+    const before = doc('<p id="keep">x</p>');
+    const after = doc('<p id="keep">x</p>', '<p id="fresh">y</p>');
+    const page = buildHtmlDiff(before, after).pages[0];
+    const added = page.blocks.find((b) => b.status === 'added');
+    expect(added?.beforeHtml).toBe('');
+    expect(added?.afterHtml).toContain('fresh');
+  });
+});
