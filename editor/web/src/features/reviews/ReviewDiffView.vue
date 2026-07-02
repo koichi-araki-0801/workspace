@@ -16,14 +16,7 @@ import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { toast, toastSuccess } from '@/components/ui/toast';
-import {
-  type BlockStatus,
-  HL_ADDED,
-  HL_CHANGED,
-  HL_DEL,
-  HL_INS,
-  HL_REMOVED,
-} from '@/features/compare/htmlBlockDiff';
+import { type BlockStatus, buildDiffDoc, diffHighlightCss } from '@/features/compare/htmlBlockDiff';
 import AttributeBar from '@/features/editor/AttributeBar.vue';
 import { formatDateTimeShort } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
@@ -73,17 +66,10 @@ const STATUS_BADGE: Record<
 // 既に処理済み(承認/却下)か。処理済みは閲覧のみ。pending かつ approver のみ操作可。
 const canDecide = computed(() => auth.isApprover && review.value?.status === 'pending');
 
-// ── iframe ドキュメント組み立て(CompareResultView と同じ着色 CSS) ──
-const HIGHLIGHT_CSS = `
-  body{margin:0;padding:14px;background:#fff;}
-  .${HL_CHANGED}{background:rgba(220,38,38,.06)!important;box-shadow:inset 3px 0 0 #dc2626;}
-  .${HL_ADDED}{background:rgba(22,163,74,.08)!important;box-shadow:inset 3px 0 0 #16a34a;}
-  .${HL_REMOVED}{background:rgba(217,119,6,.08)!important;box-shadow:inset 3px 0 0 #d97706;}
-  .${HL_INS}{background:rgba(22,163,74,.18);color:#15803d;text-decoration:underline;border-radius:2px;}
-  .${HL_DEL}{background:rgba(220,38,38,.14);color:#b91c1c;text-decoration:underline;border-radius:2px;}
-`;
+// ── iframe ドキュメント組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差) ──
+const HIGHLIGHT_CSS = diffHighlightCss(14);
 function buildDoc(fragment: string, css: string): string {
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><style>${css}</style><style>${HIGHLIGHT_CSS}</style></head><body>${fragment}</body></html>`;
+  return buildDiffDoc(fragment, css, HIGHLIGHT_CSS);
 }
 
 // `iframe` を中身の高さに合わせ、幅変化にも追随させる(CompareResultView と同方式)。

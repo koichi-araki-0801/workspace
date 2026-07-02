@@ -16,15 +16,7 @@ import Select from '@/components/ui/Select.vue';
 import { logError } from '@/lib/appError';
 import { formatDateTimeShort } from '@/lib/format';
 import { htmlWorker } from '@/workers';
-import {
-  HL_ADDED,
-  HL_CHANGED,
-  HL_DEL,
-  HL_INS,
-  HL_REMOVED,
-  type HtmlDiff,
-  type PagePair,
-} from './htmlBlockDiff';
+import { buildDiffDoc, diffHighlightCss, type HtmlDiff, type PagePair } from './htmlBlockDiff';
 
 const props = defineProps<{
   before: TemplateVersionMeta; // ファイルA(左)
@@ -173,17 +165,9 @@ const afterSel = selModel('after');
 // ブロック級(要素まるごと)は左帯+淡い背景、語句級(テキスト中)は前景の下線で区別する
 // (挿入=緑下線 / 削除=赤下線。打消線は使わず色で挿入・削除を分ける)。語句級は要素級と
 // 入れ子になっても潰れないよう前景寄りの強調にしている。
-const HIGHLIGHT_CSS = `
-  body{margin:0;padding:18px;background:#fff;}
-  .${HL_CHANGED}{background:rgba(220,38,38,.06)!important;box-shadow:inset 3px 0 0 #dc2626;}
-  .${HL_ADDED}{background:rgba(22,163,74,.08)!important;box-shadow:inset 3px 0 0 #16a34a;}
-  .${HL_REMOVED}{background:rgba(217,119,6,.08)!important;box-shadow:inset 3px 0 0 #d97706;}
-  .${HL_INS}{background:rgba(22,163,74,.18);color:#15803d;text-decoration:underline;border-radius:2px;}
-  .${HL_DEL}{background:rgba(220,38,38,.14);color:#b91c1c;text-decoration:underline;border-radius:2px;}
-`;
-function buildDoc(fragment: string, css: string): string {
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><style>${css}</style><style>${HIGHLIGHT_CSS}</style></head><body>${fragment}</body></html>`;
-}
+const HIGHLIGHT_CSS = diffHighlightCss(18);
+const buildDoc = (fragment: string, css: string): string =>
+  buildDiffDoc(fragment, css, HIGHLIGHT_CSS);
 
 const beforeDoc = computed(() => buildDoc(page.value?.beforeHtml ?? '', props.cssBefore));
 const afterDoc = computed(() => buildDoc(page.value?.afterHtml ?? '', props.cssAfter));

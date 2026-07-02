@@ -73,6 +73,25 @@ export const HL_REMOVED = 'cmp-removed';
 export const HL_INS = 'cmp-ins';
 export const HL_DEL = 'cmp-del';
 
+// 版比較(`CompareResultView`)と承認プレビュー(`ReviewDiffView`)が共有する、iframe 内の
+// ハイライト CSS とドキュメント組み立て。着色ルール(`.cmp-*`)は両画面で同一で、body の
+// padding だけ画面ごとに変えるため引数化する(二重管理を避ける)。
+export function diffHighlightCss(bodyPadding: number): string {
+  return `
+  body{margin:0;padding:${bodyPadding}px;background:#fff;}
+  .${HL_CHANGED}{background:rgba(220,38,38,.06)!important;box-shadow:inset 3px 0 0 #dc2626;}
+  .${HL_ADDED}{background:rgba(22,163,74,.08)!important;box-shadow:inset 3px 0 0 #16a34a;}
+  .${HL_REMOVED}{background:rgba(217,119,6,.08)!important;box-shadow:inset 3px 0 0 #d97706;}
+  .${HL_INS}{background:rgba(22,163,74,.18);color:#15803d;text-decoration:underline;border-radius:2px;}
+  .${HL_DEL}{background:rgba(220,38,38,.14);color:#b91c1c;text-decoration:underline;border-radius:2px;}
+`;
+}
+
+/** 断片 HTML を、版ファンド CSS + ハイライト CSS 付きの完結した srcdoc ドキュメントに包む。 */
+export function buildDiffDoc(fragment: string, css: string, highlightCss: string): string {
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><style>${css}</style><style>${highlightCss}</style></head><body>${fragment}</body></html>`;
+}
+
 // ── 2. パースと page 分割 ─────────────────────────────────────────────────
 // 注入された `parse`(メイン=DOMParser / Worker=linkedom)で body を取り出す。
 function parseBody(html: string, parse: HtmlParser): HTMLElement {

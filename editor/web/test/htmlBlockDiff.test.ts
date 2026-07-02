@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildDiffDoc,
   buildHtmlDiff,
   buildHtmlDiffAligned,
+  diffHighlightCss,
   HL_ADDED,
   HL_CHANGED,
   HL_DEL,
@@ -334,5 +336,27 @@ describe('DiffBlock part-level before/after + labels', () => {
     const added = page.blocks.find((b) => b.status === 'added');
     expect(added?.beforeHtml).toBe('');
     expect(added?.afterHtml).toContain('fresh');
+  });
+});
+
+describe('diffHighlightCss / buildDiffDoc（承認・比較で共有する iframe 組み立て）', () => {
+  it('着色ルール(.cmp-*)は共通で、body padding だけ引数で変わる', () => {
+    const a = diffHighlightCss(14);
+    const b = diffHighlightCss(18);
+    expect(a).toContain('padding:14px');
+    expect(b).toContain('padding:18px');
+    // padding 以外(着色ルール)は両者で完全一致する。
+    expect(a.replace('padding:14px', 'padding:Npx')).toBe(b.replace('padding:18px', 'padding:Npx'));
+    for (const cls of [HL_CHANGED, HL_ADDED, HL_REMOVED, HL_INS, HL_DEL]) {
+      expect(a).toContain(`.${cls}{`);
+    }
+  });
+
+  it('buildDiffDoc は版 CSS とハイライト CSS を両方 head に載せて本文を包む', () => {
+    const html = buildDiffDoc('<p>x</p>', '.fund{}', diffHighlightCss(14));
+    expect(html.startsWith('<!doctype html>')).toBe(true);
+    expect(html).toContain('<style>.fund{}</style>');
+    expect(html).toContain('padding:14px');
+    expect(html).toContain('<body><p>x</p></body>');
   });
 });
