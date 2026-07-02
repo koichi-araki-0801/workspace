@@ -64,6 +64,7 @@ export default defineConfig({
         'editor/web/src/features/compare/htmlBlockDiff.ts',
         'editor/web/src/features/compare/services/compareService.ts',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
+        'editor/web/src/features/reviews/useReviewDiff.ts',
         'editor/web/src/api/local/authRepo.ts',
         'editor/web/src/api/local/templateRepo.ts',
         'editor/web/src/api/local/userRepo.ts',

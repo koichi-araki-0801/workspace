@@ -6,11 +6,10 @@
 // 「変更前 | 変更後」を並べる。差分・着色は既存の block diff エンジン(`htmlBlockDiff`)を
 // 流用(`reviewDiffService` が組み立て)。承認は approver|admin のみで、承認時にサーバが
 // 実ファイル + git へ反映する(`reviewRepo.ts`)。
-import { isErr, isOk, type ReviewRequest } from '@editor/shared';
+import { isOk, type ReviewRequest } from '@editor/shared';
 import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { useReviewRepo } from '@/api/repositories';
 import AttributeBar from '@/components/AttributeBar.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
@@ -19,30 +18,28 @@ import EmptyState from '@/components/ui/EmptyState.vue';
 import { toast, toastSuccess } from '@/components/ui/toast';
 import { type BlockStatus, buildDiffDoc, diffHighlightCss } from '@/features/compare/htmlBlockDiff';
 import { formatDateTimeShort } from '@/lib/format';
-import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { useAuthStore } from '@/stores/auth';
-import {
-  type ReviewChangeSummary,
-  type ReviewPartRow,
-  useReviewDiffService,
-} from './services/reviewDiffService';
+import { useReviewDiff } from './useReviewDiff';
 
 const props = defineProps<{ reqId: string }>();
 
-const diffService = useReviewDiffService();
-const reviews = useReviewRepo();
 const auth = useAuthStore();
 const router = useRouter();
-const { loading, run: runLoad } = useAsyncResult();
-const { loading: deciding, run: runDecide } = useAsyncResult();
-
-const review = ref<ReviewRequest | null>(null);
-const rows = ref<ReviewPartRow[]>([]);
-const summary = ref<ReviewChangeSummary>({ total: 0, changed: 0, added: 0, removed: 0 });
-const cssBefore = ref('');
-const cssAfter = ref('');
-const loadError = ref(false);
+// データ取得と承認/却下アクションは composable に委譲(遷移/トーストのみ View に残す)。
+const {
+  review,
+  rows,
+  summary,
+  cssBefore,
+  cssAfter,
+  loadError,
+  loading,
+  deciding,
+  load,
+  approve: approveReview,
+  reject: rejectReview,
+} = useReviewDiff(() => props.reqId);
 
 // 既定は変更パーツのみ。トグルで「変更なし」も表示できる。
 const showUnchanged = ref(false);
@@ -76,24 +73,8 @@ function buildDoc(fragment: string, css: string): string {
 // `iframe` を中身の高さに合わせ、幅変化にも追随させる(CompareResultView と共有)。
 const { fitFrame } = useIframeAutoFit();
 
-async function load() {
-  loadError.value = false;
-  const res = await runLoad(() => diffService.buildDiff(props.reqId));
-  if (isErr(res)) {
-    loadError.value = true;
-    return;
-  }
-  review.value = res.value.review;
-  rows.value = res.value.rows;
-  summary.value = res.value.summary;
-  cssBefore.value = res.value.cssBefore;
-  cssAfter.value = res.value.cssAfter;
-}
-
 async function approve() {
-  const res = await runDecide(() =>
-    reviews.approveReview(props.reqId, { comment: comment.value.trim() || undefined }),
-  );
+  const res = await approveReview(comment.value.trim() || undefined);
   if (isOk(res)) {
     // 申請後に現行版が変更されていた場合は上書き注意を促す(承認自体はブロックしない)。
     if (res.value.staleWarning) {
@@ -110,9 +91,7 @@ async function approve() {
 }
 
 async function reject() {
-  const res = await runDecide(() =>
-    reviews.rejectReview(props.reqId, { comment: comment.value.trim() || undefined }),
-  );
+  const res = await rejectReview(comment.value.trim() || undefined);
   if (isOk(res)) {
     toastSuccess('却下しました');
     router.push({ name: 'reviews' });
