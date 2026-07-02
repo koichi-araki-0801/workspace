@@ -48,6 +48,7 @@ import {
   writeTemplateAndCss,
 } from '../files/templateFiles.js';
 import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
+import { logger } from '../logger.js';
 
 function rowToMeta(r: Record<string, unknown>): TemplateMeta {
   return {
@@ -201,7 +202,7 @@ export async function applyConfirmedSave(req: {
   } catch (e) {
     // コミット失敗(稀: ロック/ディスク)はベストエフォート。確定ファイルは作業ツリー
     // に残し、台帳に「未コミット版」が残る形にする(次回保存/手動コミットで回収)。
-    console.warn(`git コミットに失敗しました(確定ファイルは保存済み): ${String(e)}`);
+    logger.warn({ err: e }, 'git コミットに失敗しました(確定ファイルは保存済み)');
   }
 
   const meta = await fileToMeta(fileName);
