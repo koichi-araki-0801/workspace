@@ -344,6 +344,15 @@ export function useTemplateEditor(
       dirty.value = true;
       autosave.trigger();
     });
+    // ロック中(編集不許可)にダブルクリック(編集ジェスチャ)をした場合、解除導線を案内する。
+    // 既定ロック開始のため「編集を許可」トグルに気付かないと何も編集できない — その発見性を補う。
+    // 騒音にならないようセッション中 1 回だけ出す。
+    let lockGuideShown = false;
+    g.onCanvasDblClick(() => {
+      if (allowEdit.value || lockGuideShown) return;
+      lockGuideShown = true;
+      toast('編集はロックされています。上部バーまたは左パネルの「編集を許可」をオンにしてください');
+    });
     // inline text 編集: 開始で snapshot、終了時は内容が変わった場合だけ残す
     g.onTextEditStart(() => pushUndo());
     g.onTextEditEnd((changed) => {

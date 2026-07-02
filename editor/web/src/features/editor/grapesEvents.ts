@@ -28,6 +28,8 @@ export interface GrapesCallbacks {
   textEnd?: (changed: boolean) => void;
   reorderStart?: () => void;
   reorderEnd?: (moved: boolean) => void;
+  /** canvas(iframe document)のダブルクリック。ロック中の編集ジェスチャ検知に使う。 */
+  canvasDblClick?: () => void;
 }
 
 export interface GrapesEventDeps {
@@ -88,6 +90,8 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
       docu.head.appendChild(styleEl);
       // 1 ページ表示の可視制御用に 2 枚目の style を useGrapes 側で確保する。
       deps.onCanvasLoad(docu);
+      // iframe (再)ロードごとに新しい document へ張り直す(古い document ごと破棄される)。
+      docu.addEventListener('dblclick', () => callbacks.canvasDblClick?.());
     }
     // 起動時はページ全体がキャンバスに収まる倍率へ自動フィットする(以後は手動 +/- で調整)。
     // 直上で canvasCss(A4 `min-height:297mm`)を head へ注入済みのため、次フレームまで遅らせて

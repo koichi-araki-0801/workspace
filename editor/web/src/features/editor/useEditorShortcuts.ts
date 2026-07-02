@@ -9,6 +9,29 @@
 
 import { onBeforeUnmount, onMounted } from 'vue';
 
+/** ヘルプ表示用のショートカット 1 件。`keys` は kbd で並べる表示トークン列。 */
+export interface ShortcutInfo {
+  keys: string[];
+  label: string;
+  /** 代替キーや適用条件の補足(任意)。 */
+  note?: string;
+}
+
+/**
+ * ショートカット一覧(`ShortcutHelpDialog.vue` の表示元)。ハンドラ実装と同じファイルに
+ * 置いて単一情報源を保つ — キーの追加/変更時はこの一覧と下の `onKeydown` を必ず揃えること。
+ */
+export const SHORTCUT_LIST: readonly ShortcutInfo[] = [
+  { keys: ['Ctrl/⌘', 'S'], label: '今すぐ保存' },
+  { keys: ['Ctrl/⌘', 'Z'], label: '元に戻す' },
+  { keys: ['Shift', 'Ctrl/⌘', 'Z'], label: 'やり直す', note: 'Ctrl+Y でも可' },
+  { keys: ['Delete'], label: '選択パーツを削除', note: '編集を許可中のみ' },
+  { keys: ['Ctrl/⌘', '+'], label: '拡大' },
+  { keys: ['Ctrl/⌘', '-'], label: '縮小' },
+  { keys: ['Ctrl/⌘', '0'], label: '画面に合わせる' },
+  { keys: ['?'], label: 'このヘルプを表示' },
+];
+
 /**
  * ショートカットから呼ぶハンドラ群。`can*` は実行可否(無効ならキー既定動作へ委ねる)、
  * `isTextEditing` は canvas の inline text 編集中か(編集中は undo/redo/delete を奪わない)。
@@ -23,6 +46,8 @@ export interface EditorShortcutHandlers {
   zoomReset: () => void;
   /** 選択パーツの削除(`Delete`)。 */
   remove: () => void;
+  /** ショートカットヘルプの表示(`?`)。未指定ならキーを奪わない。 */
+  help?: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
   /** 削除可否(編集許可かつ選択あり)。 */
@@ -89,6 +114,12 @@ export function useEditorShortcuts(h: EditorShortcutHandlers): void {
       if (!h.canRemove()) return;
       e.preventDefault();
       h.remove();
+      return;
+    }
+    // `?`(Shift+/)でヘルプ。入力欄・RTE 中は上の早期 return 済みなので文字入力を奪わない。
+    if (!mod && key === '?' && h.help) {
+      e.preventDefault();
+      h.help();
     }
   }
 

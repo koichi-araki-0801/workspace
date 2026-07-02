@@ -9,9 +9,11 @@ import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from
 import { useRoute, useRouter } from 'vue-router';
 import PageRail from '@/components/PageRail.vue';
 import { fractionToPage } from '@/components/pageNav';
+import { toastSuccess } from '@/components/ui/toast';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
 import PartTree from './PartTree.vue';
+import ShortcutHelpDialog from './ShortcutHelpDialog.vue';
 import { useEditorShortcuts } from './useEditorShortcuts';
 import { useGeomHandles } from './useGeomHandles';
 import { ZOOM_STEP } from './useGrapes';
@@ -151,16 +153,31 @@ function zoomReset() {
   g.fitToView();
 }
 
-// グローバルショートカット(元に戻す / やり直す / 保存 / ズーム / 削除)。canvas の
+// ショートカットヘルプ(`?` / 上部バーのヘルプボタン)。
+const helpOpen = ref(false);
+
+/**
+ * 手動保存(保存ボタン / Ctrl+S)。autosave の flush と同じだが、明示操作にはトーストで
+ * 応える — 自動保存はステータス行のみ(毎回トーストは騒音)で、手動時だけ確信を返す。
+ */
+async function manualSave(): Promise<void> {
+  await autosave.flush();
+  if (autosave.state.value === 'saved') toastSuccess('保存しました');
+}
+
+// グローバルショートカット(元に戻す / やり直す / 保存 / ズーム / 削除 / ヘルプ)。canvas の
 // inline text 編集中・入力欄フォーカス中はネイティブ動作へ委ねる(`useEditorShortcuts.ts`)。
 useEditorShortcuts({
   undo,
   redo,
-  save: () => autosave.flush(),
+  save: () => void manualSave(),
   zoomIn,
   zoomOut,
   zoomReset,
   remove: deletePart,
+  help: () => {
+    helpOpen.value = true;
+  },
   canUndo: () => canUndo.value,
   canRedo: () => canRedo.value,
   canRemove: () => allowEdit.value && !!g.selected.value,
@@ -201,16 +218,22 @@ const statusText = computed(() => {
       :current-page="g.currentPageIndex.value + 1"
       :page-count="g.pageCount.value"
       :single-page-mode="g.singlePageMode.value"
+      :allow-edit="allowEdit"
       @undo="undo"
       @redo="redo"
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
+      @zoom-reset="zoomReset"
       @toggle-page-guides="showPageGuides = !showPageGuides"
       @go="g.goToPage($event - 1)"
       @toggle-single-page="g.setSinglePageMode(!g.singlePageMode.value)"
-      @save="autosave.flush()"
+      @toggle-edit="allowEdit = !allowEdit"
+      @help="helpOpen = true"
+      @save="manualSave"
       @preview="goPreview"
     />
+
+    <ShortcutHelpDialog v-model:open="helpOpen" />
 
     <!-- 高ズームで両袖(固定幅)+ 中央が実効ビューポート幅を超える極端な場合は、クリップ
          ではなく横スクロールで全ペインへ到達できるようにする(通常倍率では overflow 無し)。 -->
