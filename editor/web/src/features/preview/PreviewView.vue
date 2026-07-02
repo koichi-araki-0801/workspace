@@ -19,6 +19,7 @@ import { confirm } from '@/components/ui/confirm';
 import { toastSuccess } from '@/components/ui/toast';
 import { withCropMarks } from '@/lib/cropMarks';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { useSlowIndicator } from '@/lib/useSlowIndicator';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import PreviewPanel from './PreviewPanel.vue';
 import { useTemplatePreviewService } from './services/templatePreviewService';
@@ -50,6 +51,9 @@ const loadFailed = ref(false);
 const { loading: loadingPreview, run: runLoad } = useAsyncResult();
 const { loading: submitting, run: runSubmit } = useAsyncResult();
 const { loading: exporting, run: runExport } = useAsyncResult();
+// 長引くロード/出力への補足(進捗は取得できないため経過時間ベースの段階メッセージ)。
+const { slow: loadSlow } = useSlowIndicator(loadingPreview);
+const { slow: exportSlow } = useSlowIndicator(exporting);
 
 // PreviewPanel から受け取るページ送り/ズーム状態(上部バーの表示と活性制御に使う)。
 const panel = ref<InstanceType<typeof PreviewPanel> | null>(null);
@@ -223,6 +227,15 @@ async function exportPdf() {
       {{ renderError }}
     </div>
 
+    <!-- PDF 出力が長引く場合の補足(ボタンのスピナーだけでは固まったように見えるため)。 -->
+    <div
+      v-if="exportSlow"
+      class="flex items-center gap-2 border-b bg-muted/50 px-4 py-1.5 text-xs text-muted-foreground"
+    >
+      <Loader2 class="h-3.5 w-3.5 animate-spin" />
+      PDF を生成しています。大きな帳票では 30 秒ほどかかることがあります。
+    </div>
+
     <div class="relative flex-1 overflow-hidden">
       <PreviewPanel ref="panel" :html="displayDoc" @state="onState" />
       <!-- 右端の縦ページ目盛り(スクラバ)。vivliostyle は離散表示なのでスクロール比率は渡さず、
@@ -238,9 +251,14 @@ async function exportPdf() {
            return しても、ここで状態が見える(無音の白紙にしない)。 -->
       <div
         v-if="loadingPreview"
-        class="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-background/70 text-sm text-muted-foreground"
+        class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background/70 px-6 text-center text-sm text-muted-foreground"
       >
-        <Loader2 class="h-4 w-4 animate-spin" /> プレビューを読み込み中…
+        <p class="flex items-center gap-2">
+          <Loader2 class="h-4 w-4 animate-spin" /> プレビューを読み込み中…
+        </p>
+        <p v-if="loadSlow" class="text-xs">
+          時間がかかっています。大きな帳票では 30 秒ほどかかることがあります。
+        </p>
       </div>
       <!-- ロード失敗(API/Worker)を本文に常設表示。トースト見逃し時の原因不明な白紙を防ぐ。 -->
       <div

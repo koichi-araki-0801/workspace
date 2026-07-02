@@ -3,6 +3,7 @@
 // HistoryTable.vue — 履歴フィードの汎用テーブル (列定義+ページング行)
 // =============================================================================
 import Button from '@/components/ui/Button.vue';
+import Skeleton from '@/components/ui/Skeleton.vue';
 import TableContainer from '@/components/ui/TableContainer.vue';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, tableMessageCell } from '@/components/ui/table';
 
@@ -39,9 +40,14 @@ const emit = defineEmits<{ loadMore: [] }>();
         </TableRow>
       </TableHeader>
       <TableBody class="[&>tr:nth-child(even)]:bg-muted/40">
-        <TableRow v-if="loading">
-          <TableCell :colspan="columns.length" :class="tableMessageCell()">読み込み中…</TableCell>
-        </TableRow>
+        <!-- ロード中は実列構成のスケルトン行(完了時のレイアウトシフトを防ぐ)。 -->
+        <template v-if="loading">
+          <TableRow v-for="i in 4" :key="`skeleton-${i}`">
+            <TableCell v-for="col in columns" :key="col.header">
+              <Skeleton class="h-3.5 w-3/4" />
+            </TableCell>
+          </TableRow>
+        </template>
         <template v-else>
           <TableRow v-for="row in rows" :key="row.id">
             <TableCell

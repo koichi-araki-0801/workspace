@@ -13,6 +13,7 @@ import AttributeBar from '@/components/AttributeBar.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
+import Skeleton from '@/components/ui/Skeleton.vue';
 import { formatDateTimeShort } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useAuthStore } from '@/stores/auth';
@@ -98,7 +99,19 @@ onMounted(load);
       </Button>
     </div>
 
-    <p v-if="loading" class="text-sm text-muted-foreground">読み込み中…</p>
+    <!-- ロード中は申請カードと同構成のスケルトン(完了時のレイアウトシフトを防ぐ)。 -->
+    <ul v-if="loading" class="space-y-2" aria-label="読み込み中">
+      <li
+        v-for="i in 3"
+        :key="`skeleton-${i}`"
+        class="flex items-center gap-3 rounded-[12px] border bg-card px-4 py-3 shadow-sm"
+      >
+        <Skeleton class="h-5 w-14" />
+        <Skeleton class="h-5 w-12" />
+        <Skeleton class="h-4 flex-1" />
+        <Skeleton class="h-8 w-20" />
+      </li>
+    </ul>
 
     <EmptyState
       v-else-if="items.length === 0"

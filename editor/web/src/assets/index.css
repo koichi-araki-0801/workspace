@@ -35,6 +35,9 @@
      ティント面や card 上のテキスト用(dark 側の同名コメントを見よ)。 */
   --warning: oklch(0.72 0.12 80);
   --warning-foreground: oklch(0.33 0.06 70);
+  /* エディタ/プレビューの用紙下地(A4 ページの外周)。`EditorView.vue` の canvas と
+     `PreviewPanel.vue`(Vivliostyle viewport の #aaaaaa 上書き)で共用し、二重定義を防ぐ。 */
+  --canvas-backdrop: hsl(220 16% 91%);
   --border: oklch(0.915 0.006 85);
   --input: oklch(0.86 0.008 85);
   --ring: oklch(0.585 0.105 240);
@@ -95,6 +98,7 @@
      可読性を確保するため warning 本体より明るく・低彩度に振る。 */
   --warning: oklch(0.78 0.11 82);
   --warning-foreground: oklch(0.87 0.09 85);
+  --canvas-backdrop: hsl(222 18% 18%);
   --border: oklch(0.32 0.01 262);
   --input: oklch(0.38 0.011 262);
   --ring: oklch(0.66 0.11 240);
@@ -131,6 +135,7 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-canvas-backdrop: var(--canvas-backdrop);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

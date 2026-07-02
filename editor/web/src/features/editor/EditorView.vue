@@ -259,7 +259,7 @@ const statusText = computed(() => {
       </button>
 
       <!-- 中央: A4 用紙の見た目にした GrapesJS canvas -->
-      <main class="relative min-w-[360px] flex-1 overflow-hidden bg-[hsl(220_16%_91%)] dark:bg-[hsl(222_18%_18%)]">
+      <main class="relative min-w-[360px] flex-1 overflow-hidden bg-canvas-backdrop">
         <div ref="canvasEl" class="h-full"></div>
         <!-- GrapesJS の layer manager はマウントするが視覚的に隠す(prototype に layers パネルは無い) -->
         <div ref="layersEl" class="hidden"></div>
@@ -455,8 +455,10 @@ const statusText = computed(() => {
   height: 18px;
   transform: translate(-100%, 0);
   border-radius: 4px 4px 4px 0;
+  /* 琥珀はテーマの warning トークンへ統一。アイコン/枠の白はテーマ非依存で固定 —
+     マーカーは常に白い A4 紙面上に重なるため、ダークテーマでも白が正しい対比になる。 */
   color: #fff;
-  background: #d97706;
+  background: var(--warning);
   border: 1.5px solid #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   pointer-events: none;

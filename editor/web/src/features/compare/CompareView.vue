@@ -56,7 +56,12 @@ async function onCompare() {
       run(() => compare.renderVersionHtml(a.version.historyId)),
       run(() => compare.renderVersionHtml(b.version.historyId)),
     ]);
-    if (isErr(ra) || isErr(rb)) return; // toast は既に表示済みなので黙って返す
+    // `run` が toast 表示済みだが、toast(3〜8 秒)を見逃すと「押しても無反応」に見えるため、
+    // 本文の常設エラーにも同じ失敗を載せる(catch 経路の Worker 失敗と表示位置を揃える)。
+    if (isErr(ra) || isErr(rb)) {
+      compareError.value = '比較の生成に失敗しました。時間をおいて再度お試しください。';
+      return;
+    }
     result.value = {
       before: a.version,
       after: b.version,

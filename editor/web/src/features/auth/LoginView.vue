@@ -87,7 +87,7 @@ async function submit() {
       </form>
       <div class="mt-4 text-center">
         <RouterLink :to="{ name: 'password-init' }">
-          <Button variant="link" class="h-auto whitespace-nowrap p-0 text-sm font-semibold">PW をお忘れの方はこちら</Button>
+          <Button variant="link" class="h-auto whitespace-nowrap p-0 text-sm font-semibold">パスワードをお忘れの方はこちら</Button>
         </RouterLink>
       </div>
       <p v-if="isDev" class="mt-4 text-center text-[11.5px] leading-relaxed text-muted-foreground">
