@@ -111,23 +111,23 @@ const attrItems = (a: TemplateAttributes) => [
          グループ全体が `shrink-0` なので狭幅では塊ごと次行へ折り返す(ズーム崩れの回避)。 -->
     <div class="flex shrink-0 flex-wrap items-center gap-1 rounded-lg bg-muted/50 px-1.5 py-1">
       <!-- 元に戻す / やり直す -->
-      <Button variant="ghost" size="icon" title="元に戻す (⌘Z)" :disabled="!canUndo" @click="emit('undo')">
+      <Button variant="ghost" size="icon" title="元に戻す (⌘Z)" aria-label="元に戻す" :disabled="!canUndo" @click="emit('undo')">
         <Undo2 class="h-[17px] w-[17px]" />
       </Button>
-      <Button variant="ghost" size="icon" title="やり直す (⇧⌘Z)" :disabled="!canRedo" @click="emit('redo')">
+      <Button variant="ghost" size="icon" title="やり直す (⇧⌘Z)" aria-label="やり直す" :disabled="!canRedo" @click="emit('redo')">
         <Redo2 class="h-[17px] w-[17px]" />
       </Button>
 
       <div class="mx-0.5 h-5 w-px bg-border/70" />
 
       <!-- ズーム -->
-      <Button variant="ghost" size="icon" title="縮小 (⌘-)" @click="emit('zoomOut')">
+      <Button variant="ghost" size="icon" title="縮小 (⌘-)" aria-label="縮小" @click="emit('zoomOut')">
         <Minus class="h-4 w-4" />
       </Button>
       <span class="w-[42px] text-center text-[12.5px] tabular-nums text-muted-foreground">
         {{ Math.round(zoom * 100) }}%
       </span>
-      <Button variant="ghost" size="icon" title="拡大 (⌘+)" @click="emit('zoomIn')">
+      <Button variant="ghost" size="icon" title="拡大 (⌘+)" aria-label="拡大" @click="emit('zoomIn')">
         <Plus class="h-4 w-4" />
       </Button>
 
@@ -151,6 +151,7 @@ const attrItems = (a: TemplateAttributes) => [
         variant="ghost"
         size="icon"
         :title="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
+        :aria-label="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
         :class="singlePageMode ? 'text-primary' : ''"
         @click="emit('toggleSinglePage')"
       >
@@ -162,6 +163,7 @@ const attrItems = (a: TemplateAttributes) => [
         variant="ghost"
         size="icon"
         :title="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
+        :aria-label="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
         :class="showPageGuides ? 'text-primary' : ''"
         @click="emit('togglePageGuides')"
       >

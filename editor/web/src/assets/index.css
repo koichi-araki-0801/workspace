@@ -31,6 +31,8 @@
   --destructive-foreground: oklch(0.99 0.003 85);
   --success: oklch(0.585 0.085 158);
   --success-foreground: oklch(0.99 0.003 85);
+  /* `--warning-foreground` は solid な warning 背景用ではなく、`bg-warning/15` 等の
+     ティント面や card 上のテキスト用(dark 側の同名コメントを見よ)。 */
   --warning: oklch(0.72 0.12 80);
   --warning-foreground: oklch(0.33 0.06 70);
   --border: oklch(0.915 0.006 85);
@@ -88,8 +90,11 @@
   --destructive-foreground: oklch(0.98 0.003 85);
   --success: oklch(0.66 0.09 158);
   --success-foreground: oklch(0.16 0.01 262);
+  /* `--warning-foreground` は solid な warning 背景用ではなく、`bg-warning/15` 等の
+     ティント面や card 上のテキスト用(Badge warning / Inspector「自動入力」)。暗地での
+     可読性を確保するため warning 本体より明るく・低彩度に振る。 */
   --warning: oklch(0.78 0.11 82);
-  --warning-foreground: oklch(0.84 0.1 85);
+  --warning-foreground: oklch(0.87 0.09 85);
   --border: oklch(0.32 0.01 262);
   --input: oklch(0.38 0.011 262);
   --ring: oklch(0.66 0.11 240);

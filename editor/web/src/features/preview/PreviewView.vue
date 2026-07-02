@@ -155,6 +155,7 @@ async function exportPdf() {
           size="icon"
           class="h-7 w-7"
           title="縮小"
+          aria-label="縮小"
           :disabled="!nav.vivlioReady"
           @click="panel?.zoomOut()"
         >
@@ -164,6 +165,7 @@ async function exportPdf() {
           type="button"
           class="w-[42px] text-center text-[12.5px] tabular-nums text-muted-foreground disabled:opacity-100"
           title="画面に合わせる"
+          aria-label="画面に合わせる"
           :disabled="!nav.vivlioReady"
           @click="panel?.fit()"
         >
@@ -174,6 +176,7 @@ async function exportPdf() {
           size="icon"
           class="h-7 w-7"
           title="拡大"
+          aria-label="拡大"
           :disabled="!nav.vivlioReady"
           @click="panel?.zoomIn()"
         >

@@ -390,6 +390,13 @@ const statusText = computed(() => {
   color: var(--foreground);
   background: color-mix(in oklab, var(--muted) 60%, var(--card));
 }
+/* キーボード操作の現在地を可視化(見た目は index.css の `.ring-focus` と同一)。 */
+.pane-rail:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px color-mix(in oklab, var(--ring) 55%, transparent);
+}
 
 /* page-boundary guides drawn over the A4 sheet (sit below the selection frame).
    real page break (from .page / break-* / page-break-*): confident solid line */
