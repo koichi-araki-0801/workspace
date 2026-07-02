@@ -57,17 +57,18 @@ export function parseRange(rangeText: string): ParsedRange {
  * exceljs のセル値は数式結果やリッチテキストなど複合オブジェクトのことがある。
  * その包みを順に剥がして「素の値」を返す。
  */
-function unwrapCellValue(value: any): any {
+function unwrapCellValue(value: unknown): unknown {
   if (value == null) return null;
   if (typeof value === 'object') {
-    if ('result' in value) return unwrapCellValue(value.result);
-    if ('richText' in value) return value.richText.map((p: any) => p.text).join('');
-    if ('text' in value) return value.text;
+    if ('result' in value) return unwrapCellValue((value as { result: unknown }).result);
+    if ('richText' in value)
+      return (value as { richText: Array<{ text: string }> }).richText.map((p) => p.text).join('');
+    if ('text' in value) return (value as { text: unknown }).text;
   }
   return value;
 }
 
-function cellAsText(cell: any): string {
+function cellAsText(cell: { value: unknown }): string {
   const v = unwrapCellValue(cell.value);
   if (v == null) return '';
   if (v instanceof Date) return v.toISOString();
@@ -75,7 +76,7 @@ function cellAsText(cell: any): string {
 }
 
 /** 数値として読めなければ null を返す(カンマ区切りは許容)。 */
-function cellAsNumber(cell: any): number | null {
+function cellAsNumber(cell: { value: unknown }): number | null {
   const v = unwrapCellValue(cell.value);
   if (v == null || v === '') return null;
   if (typeof v === 'number' && Number.isFinite(v)) return v;
