@@ -2253,6 +2253,7 @@
             "minLength": 1
           },
           "basedOnTemplateId": {
+            "description": "シリーズファンドのテンプレから生成する場合の元テンプレ ID",
             "type": "string"
           },
           "isRedemption": {
@@ -2317,6 +2318,7 @@
             "type": "string"
           },
           "origin": {
+            "description": "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
             "$ref": "#/components/schemas/ReviewOrigin"
           }
         },
@@ -2325,7 +2327,7 @@
       "ReviewOrigin": {
         "type": "string",
         "enum": ["edit", "create"],
-        "description": "編集タブ(既存編集) / 作成タブ(新規) 由来"
+        "description": "編集タブ(既存編集) / 作成タブ(新規) 由来。2 系統の区別を申請に保持する"
       },
       "ReviewDecisionBody": {
         "type": "object",
@@ -2392,7 +2394,8 @@
       },
       "UserRole": {
         "type": "string",
-        "enum": ["admin", "approver", "editor", "viewer"]
+        "enum": ["admin", "approver", "editor", "viewer"],
+        "description": "admin = 全権 / approver = 精査者(確定保存の承認) / editor = 編集者(申請のみ) / viewer = 閲覧"
       },
       "UpdateUserRequest": {
         "type": "object",
@@ -2694,19 +2697,22 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "安定したパーツ ID(SQL 主キー相当)"
+            "description": "安定したパーツ ID(SQL 主キー相当)。挿入したコンポーネントの data-part-id にも使う"
           },
           "classification": {
             "$ref": "#/components/schemas/PartClassification"
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "名称(利用者向け)"
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "description": "説明(利用者向け)"
           },
           "usageNotes": {
-            "type": "string"
+            "type": "string",
+            "description": "使用上の注意"
           },
           "updatedAt": {
             "anyOf": [
@@ -2779,7 +2785,7 @@
           },
           "partKey": {
             "type": "string",
-            "description": "版を跨いで安定なパーツ構造パスキー(pageAnchor/partAnchor)"
+            "description": "版を跨いで安定なパーツ構造パスキー(pageAnchor/partAnchor)。GrapesJS のコンポーネントid は再採番され不安定なため構造キーで紐づける"
           },
           "user": {
             "type": "string"
@@ -2854,7 +2860,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "承認/却下したユーザ。pending は null"
           },
           "reviewedAt": {
             "anyOf": [
@@ -2874,7 +2881,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "却下理由 / 承認メモ。無ければ null"
           },
           "baseHash": {
             "anyOf": [
@@ -2939,7 +2947,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "承認/却下したユーザ。pending は null"
           },
           "reviewedAt": {
             "anyOf": [
@@ -2959,7 +2968,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "却下理由 / 承認メモ。無ければ null"
           },
           "baseHash": {
             "anyOf": [
@@ -2980,6 +2990,7 @@
             "type": "string"
           },
           "filledHtml": {
+            "description": "値差込済みの成果物(任意)",
             "type": "string"
           }
         },
@@ -3084,7 +3095,8 @@
         "type": "object",
         "properties": {
           "historyId": {
-            "type": "string"
+            "type": "string",
+            "description": "EditHistoryEntry.id。読み込む snapshot を識別"
           },
           "templateId": {
             "type": "string"
@@ -3113,13 +3125,16 @@
             "type": "string"
           },
           "html": {
-            "type": "string"
+            "type": "string",
+            "description": "確定時点の生 Jinja2 HTML ソース(タグ保持)"
           },
           "css": {
-            "type": "string"
+            "type": "string",
+            "description": "確定時点の CSS"
           },
           "fundCode": {
-            "type": "string"
+            "type": "string",
+            "description": "再描画用のサンプルデータ取得に使う"
           },
           "timestamp": {
             "type": "string"
