@@ -1,0 +1,150 @@
+// =============================================================================
+// reviewDiffService.test.ts — 承認画面のパーツ単位 diff 組み立ての単体テスト (vitest)
+// =============================================================================
+// `createReviewDiffService` は repo/compare を注入する DI ファクトリなので、`getReview` と
+// `compare.renderTemplateBody`/`renderVersionHtml`、および Worker (`htmlWorker.buildHtmlDiff`)
+// をモックして、2 系統(edit=現行版と diff / create=全 added)・エラー伝播・集計を固定する。
+import { err, notFound, ok, type ReviewRequest } from '@editor/shared';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CompareService } from '@/features/compare/services/compareService';
+import { createReviewDiffService } from '@/features/reviews/services/reviewDiffService';
+
+// Worker は jsdom で生成できないため、`buildHtmlDiff` だけをモックする。
+const buildHtmlDiff = vi.fn();
+vi.mock('@/workers', () => ({
+  htmlWorker: { buildHtmlDiff: (...a: unknown[]) => buildHtmlDiff(...a) },
+}));
+
+/** テスト用の申請(本体込み)。origin を差し替えて 2 系統を作る。 */
+function review(origin: 'edit' | 'create'): ReviewRequest {
+  return {
+    id: 'req-1',
+    templateId: 'AM01_111111_20250101_交付版',
+    attributes: {
+      companyCode: 'AM01',
+      fundCode: '111111',
+      baseDate: '20250101',
+      editionType: '交付版',
+    },
+    fundCode: '111111',
+    origin,
+    status: 'pending',
+    submittedBy: 'editor1',
+    submittedAt: '2025-01-02T00:00:00.000Z',
+    reviewedBy: null,
+    reviewedAt: null,
+    comment: null,
+    baseHash: 'h0',
+    html: '<p>{{ fund.name }}</p>',
+    css: '.x{}',
+  };
+}
+
+/** 1 パーツ = 1 block の最小 diff ページを組む。 */
+function diffPage(blocks: Array<{ status: string }>) {
+  return {
+    pages: [
+      {
+        index: 0,
+        changed: true,
+        changedBlockCount: blocks.length,
+        beforeHtml: '',
+        afterHtml: '',
+        blocks: blocks.map((b, i) => ({
+          key: `k${i}`,
+          label: `ページ1・パーツ${i + 1}`,
+          status: b.status,
+          beforeHtml: `<before-${i}>`,
+          afterHtml: `<after-${i}>`,
+        })),
+      },
+    ],
+    changedPageCount: 1,
+    beforePageCount: 1,
+    afterPageCount: 1,
+  };
+}
+
+function makeService(over: {
+  getReview?: unknown;
+  renderTemplateBody?: unknown;
+  renderVersionHtml?: unknown;
+}) {
+  const reviews = {
+    getReview: vi.fn().mockResolvedValue(over.getReview ?? ok(review('edit'))),
+  } as unknown as Parameters<typeof createReviewDiffService>[0];
+  const compare = {
+    renderTemplateBody: vi
+      .fn()
+      .mockResolvedValue(over.renderTemplateBody ?? ok({ html: '<after>', css: '.after{}' })),
+    renderVersionHtml: vi
+      .fn()
+      .mockResolvedValue(over.renderVersionHtml ?? ok({ html: '<before>', css: '.before{}' })),
+  } as unknown as CompareService;
+  return { service: createReviewDiffService(reviews, compare), reviews, compare };
+}
+
+beforeEach(() => {
+  buildHtmlDiff.mockReset();
+});
+
+describe('reviewDiffService.buildDiff', () => {
+  it('edit 経路: 現行版(baseline)と diff し、パーツ行と集計を組み立てる', async () => {
+    buildHtmlDiff.mockResolvedValue(
+      diffPage([{ status: 'changed' }, { status: 'added' }, { status: 'same' }]),
+    );
+    const { service, compare } = makeService({});
+    const res = await service.buildDiff('req-1');
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // edit なので現行版レンダリングが呼ばれ、before に反映される。
+    expect(compare.renderVersionHtml as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+      'baseline:AM01_111111_20250101_交付版',
+    );
+    expect(res.value.rows).toHaveLength(3);
+    expect(res.value.summary).toEqual({ total: 3, changed: 1, added: 1, removed: 0 });
+    expect(res.value.cssBefore).toBe('.before{}');
+    expect(res.value.cssAfter).toBe('.after{}');
+    // buildHtmlDiff は (beforeHtml, afterHtml, cssBefore, cssAfter) の順で呼ぶ。
+    expect(buildHtmlDiff).toHaveBeenCalledWith('<before>', '<after>', '.before{}', '.after{}');
+  });
+
+  it('create 経路: 現行版を引かず before は空(全 added になる土俵)', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'added' }]));
+    const { service, compare } = makeService({ getReview: ok(review('create')) });
+    const res = await service.buildDiff('req-1');
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(compare.renderVersionHtml as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    // before は空、cssBefore は after の css に倒す。
+    expect(buildHtmlDiff).toHaveBeenCalledWith('', '<after>', '.after{}', '.after{}');
+    expect(res.value.summary).toEqual({ total: 1, changed: 0, added: 1, removed: 0 });
+  });
+
+  it('現行版が取得できなくても before 空で画面は出す(edit・baseline err)', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'removed' }]));
+    const { service } = makeService({ renderVersionHtml: err(notFound('no baseline')) });
+    const res = await service.buildDiff('req-1');
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(buildHtmlDiff).toHaveBeenCalledWith('', '<after>', '.after{}', '.after{}');
+    expect(res.value.summary.removed).toBe(1);
+  });
+
+  it('getReview のエラーはそのまま伝播する', async () => {
+    const { service } = makeService({ getReview: err(notFound('no request')) });
+    const res = await service.buildDiff('req-x');
+    expect(res.ok).toBe(false);
+    expect(buildHtmlDiff).not.toHaveBeenCalled();
+  });
+
+  it('申請版レンダリング(renderTemplateBody)のエラーは伝播する', async () => {
+    const { service } = makeService({ renderTemplateBody: err(notFound('render failed')) });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(false);
+    expect(buildHtmlDiff).not.toHaveBeenCalled();
+  });
+});
