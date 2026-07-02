@@ -4,13 +4,13 @@
 // 申請(submit)は誰でも(認証済み)積めるが実ファイルは更新しない。承認(approve)/却下
 // (reject)は `requireApprover` で施錠し、approve だけが実ファイル + git へ反映する
 // (`reviewRepo.ts`)。承認/却下は監査イベント(`review.approve` / `review.reject`)を記録する。
-import { apiPaths, type ReviewStatus } from '@editor/shared';
+import { apiPaths } from '@editor/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import { auditedRethrow } from '../logger.js';
 import { requireApprover, requireAuth } from '../middleware/auth.js';
-import { validate } from '../middleware/validate.js';
-import { ReviewDecisionBody, SubmitReviewBody } from '../openapi/schemas.js';
+import { validate, validateQuery } from '../middleware/validate.js';
+import { ReviewDecisionBody, ReviewListQuery, SubmitReviewBody } from '../openapi/schemas.js';
 import * as reviews from '../repositories/reviewRepo.js';
 
 /** 操作主体を request.user から導く。local モード(user 未設定)は全件可視の system 扱い。 */
@@ -42,11 +42,15 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // 承認キュー一覧。approver|admin は全件、editor は自分の申請のみ(`reviewRepo` が絞る)。
-  app.get(apiPaths.reviewRequests, { preHandler: requireAuth }, async (request) => {
-    const q = request.query as Record<string, unknown>;
-    const status = typeof q.status === 'string' ? (q.status as ReviewStatus) : undefined;
-    return reviews.listReviews({ status }, actor(request));
-  });
+  // status は `validateQuery` で検証済み(不正値は 400)。
+  app.get(
+    apiPaths.reviewRequests,
+    { preHandler: [requireAuth, validateQuery(ReviewListQuery)] },
+    async (request) => {
+      const { status } = request.query as z.infer<typeof ReviewListQuery>;
+      return reviews.listReviews({ status }, actor(request));
+    },
+  );
 
   // 申請詳細(本体込み・プレビュー用)。閲覧範囲は一覧と対称(本人 or approver|admin)。
   app.get(apiPaths.reviewRequestById, { preHandler: requireAuth }, async (request) => {

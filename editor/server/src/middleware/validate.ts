@@ -18,3 +18,18 @@ export function validate(schema: ZodType): preHandlerHookHandler {
     request.body = parsed.data;
   };
 }
+
+/**
+ * `validate` のクエリ版。`request.query` を Zod で検証し、パース済み(絞り込み済み)の値を
+ * 書き戻す。ルートごとの手作業パース(`typeof q.x === 'string' ? ...`)と 400 ボイラープレートを
+ * 一掃するために使う。失敗時は `validation` の `AppError` を throw し集中ハンドラへ転送する。
+ */
+export function validateQuery(schema: ZodType): preHandlerHookHandler {
+  return async (request) => {
+    const parsed = schema.safeParse(request.query);
+    if (!parsed.success) {
+      throw validation('リクエスト内容が不正です', { cause: z.prettifyError(parsed.error) });
+    }
+    request.query = parsed.data;
+  };
+}

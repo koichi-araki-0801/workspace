@@ -120,6 +120,25 @@ d('review workflow (HTTP routes)', () => {
     expect(allList.some((r) => r.submittedBy === 'editor2')).toBe(true);
   });
 
+  it('GET /review-requests?status: 正しい状態で絞り込め、不正値は 400', async () => {
+    const ok = await app.inject({
+      method: 'GET',
+      url: '/review-requests?status=pending',
+      headers: asUser('approver1', 'approver'),
+    });
+    expect(ok.statusCode).toBe(200);
+    expect((ok.json() as Array<{ status: string }>).every((r) => r.status === 'pending')).toBe(
+      true,
+    );
+
+    const bad = await app.inject({
+      method: 'GET',
+      url: '/review-requests?status=bogus',
+      headers: asUser('approver1', 'approver'),
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
   it('POST approve: approver が承認すると実ファイルへ反映し approved になる', async () => {
     const tplId = 'AM01_633333_20250101_交付版';
     const sub = await submit(asUser('editor1', 'editor'), tplId, '<p>{{ fund.name }} 反映済</p>');
