@@ -10,13 +10,13 @@ import { AlertCircle, Crop, FileDown, Loader2, Minus, Plus, Send } from '@lucide
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useReviewRepo } from '@/api/repositories';
+import AttributeBar from '@/components/AttributeBar.vue';
 import PageNav from '@/components/PageNav.vue';
 import PageRail from '@/components/PageRail.vue';
 import BackButton from '@/components/ui/BackButton.vue';
 import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
 import { toastSuccess } from '@/components/ui/toast';
-import AttributeBar from '@/features/editor/AttributeBar.vue';
 import { withCropMarks } from '@/lib/cropMarks';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useEditorSessionStore } from '@/stores/editorSession';
