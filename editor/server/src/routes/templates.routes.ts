@@ -26,55 +26,62 @@ function toQuery(q: Record<string, unknown>): DropdownQuery {
 
 const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
 
+type IdParams = { Params: { id: string } };
+type QueryRec = { Querystring: Record<string, unknown> };
+
 export async function templatesRoutes(app: FastifyInstance): Promise<void> {
-  app.get(apiPaths.templatesOptions, { preHandler: requireAuth }, async (request) => {
-    return templates.getDropdownOptions(toQuery(request.query as Record<string, unknown>));
+  app.get<QueryRec>(apiPaths.templatesOptions, { preHandler: requireAuth }, async (request) => {
+    return templates.getDropdownOptions(toQuery(request.query));
   });
 
-  app.get(apiPaths.templatesSeries, { preHandler: requireAuth }, async (request) => {
-    const q = request.query as Record<string, unknown>;
+  app.get<QueryRec>(apiPaths.templatesSeries, { preHandler: requireAuth }, async (request) => {
+    const q = request.query;
     const companyCode = typeof q.companyCode === 'string' ? q.companyCode : '';
     const editionType = typeof q.editionType === 'string' ? q.editionType : '';
     if (!companyCode || !editionType) throw validation('companyCode と editionType が必要です');
     return templates.listSeriesFunds(companyCode, editionType);
   });
 
-  app.get(apiPaths.templates, { preHandler: requireAuth }, async (request) => {
-    return templates.listTemplates(toQuery(request.query as Record<string, unknown>));
+  app.get<QueryRec>(apiPaths.templates, { preHandler: requireAuth }, async (request) => {
+    return templates.listTemplates(toQuery(request.query));
   });
 
-  app.get(apiPaths.templateDraft, { preHandler: requireAuth }, async (request) => {
-    return templates.getDraft(String((request.params as { id: string }).id));
+  app.get<IdParams>(apiPaths.templateDraft, { preHandler: requireAuth }, async (request) => {
+    return templates.getDraft(request.params.id);
   });
 
-  app.put(
+  app.put<{ Body: z.infer<typeof SaveDraftRequest> }>(
     apiPaths.templateDraft,
     { preHandler: [requireAuth, validate(SaveDraftRequest)] },
     async (request, reply) => {
-      const body = request.body as z.infer<typeof SaveDraftRequest>;
+      const body = request.body;
       await templates.saveDraft(body.templateId, body.html, body.css, actor(request));
       return reply.code(204).send();
     },
   );
 
   // 確定保存せずメニューへ戻った際の下書き破棄。冪等(無ければ no-op)なので 204 を返す。
-  app.delete(apiPaths.templateDraft, { preHandler: requireAuth }, async (request, reply) => {
-    await templates.discardDraft(String((request.params as { id: string }).id));
-    return reply.code(204).send();
-  });
+  app.delete<IdParams>(
+    apiPaths.templateDraft,
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      await templates.discardDraft(request.params.id);
+      return reply.code(204).send();
+    },
+  );
 
-  app.get(apiPaths.templateById, { preHandler: requireAuth }, async (request) => {
-    return templates.getTemplate(String((request.params as { id: string }).id));
+  app.get<IdParams>(apiPaths.templateById, { preHandler: requireAuth }, async (request) => {
+    return templates.getTemplate(request.params.id);
   });
 
   // 直接の確定保存は精査者(承認者)限定の緊急経路。通常の確定保存は承認ワークフロー
   // (POST /review-requests → approve)を使い、編集者は実ファイルへ直接書けない。
-  app.put(
+  app.put<IdParams & { Body: z.infer<typeof ConfirmSaveBody> }>(
     apiPaths.templateById,
     { preHandler: [requireAuth, requireApprover, validate(ConfirmSaveBody)] },
     async (request) => {
-      const id = String((request.params as { id: string }).id);
-      const body = request.body as z.infer<typeof ConfirmSaveBody>;
+      const id = request.params.id;
+      const body = request.body;
       const resource = { id, fundCode: body.fundCode };
       return auditedRethrow(
         request,
@@ -96,7 +103,11 @@ export async function templatesRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get(apiPaths.fundSampleData, { preHandler: requireAuth }, async (request) => {
-    return templates.getSampleData(String((request.params as { fundCode: string }).fundCode));
-  });
+  app.get<{ Params: { fundCode: string } }>(
+    apiPaths.fundSampleData,
+    { preHandler: requireAuth },
+    async (request) => {
+      return templates.getSampleData(request.params.fundCode);
+    },
+  );
 }

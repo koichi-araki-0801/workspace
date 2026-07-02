@@ -49,11 +49,11 @@ function projectOptions(request: FastifyRequest): {
 
 export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/build — inline(レンダリング済み HTML + CSS)→ PDF。旧 /pdf を置き換える。
-  app.post(
+  app.post<{ Body: z.infer<typeof BuildInlineRequest> }>(
     apiPaths.build,
     { preHandler: [requireAuth, validate(BuildInlineRequest)] },
     async (request, reply) => {
-      const body = request.body as z.infer<typeof BuildInlineRequest>;
+      const body = request.body;
       const detail = { mode: 'inline', htmlBytes: body.html.length, cssBytes: body.css.length };
       const pdf = await auditedRethrow(request, 'pdf.export', () => buildInlinePdf(body), {
         success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
@@ -65,34 +65,38 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // POST /api/build/project — vivliostyle の project zip → PDF。
-  app.post(apiPaths.buildProject, { preHandler: requireAuth }, async (request, reply) => {
-    const zip = request.body as Buffer;
-    const project = await extractProjectZip(zip);
-    const opts = projectOptions(request);
-    const detail = { mode: 'project', files: project.fileCount, bytes: zip.length };
-    try {
-      const pdf = await auditedRethrow(
-        request,
-        'pdf.export',
-        () =>
-          buildProjectPdf({
-            dir: project.dir,
-            configPath: project.configPath,
-            entry: opts.entry,
-            size: opts.size,
-            singleDoc: opts.singleDoc,
-          }),
-        {
-          success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
-          failure: () => ({ detail }),
-          failureMessage: 'PDF generation failed',
-        },
-      );
-      sendPdf(reply, pdf);
-    } finally {
-      await cleanupProject(project.dir);
-    }
-  });
+  app.post<{ Body: Buffer }>(
+    apiPaths.buildProject,
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const zip = request.body;
+      const project = await extractProjectZip(zip);
+      const opts = projectOptions(request);
+      const detail = { mode: 'project', files: project.fileCount, bytes: zip.length };
+      try {
+        const pdf = await auditedRethrow(
+          request,
+          'pdf.export',
+          () =>
+            buildProjectPdf({
+              dir: project.dir,
+              configPath: project.configPath,
+              entry: opts.entry,
+              size: opts.size,
+              singleDoc: opts.singleDoc,
+            }),
+          {
+            success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
+            failure: () => ({ detail }),
+            failureMessage: 'PDF generation failed',
+          },
+        );
+        sendPdf(reply, pdf);
+      } finally {
+        await cleanupProject(project.dir);
+      }
+    },
+  );
 
   // GET /api/preview — 稼働中のプレビューセッション一覧(メタデータのみ)。
   app.get(apiPaths.preview, { preHandler: requireAuth }, async () => {
@@ -139,38 +143,50 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /api/preview/:id — セッションのメタデータ。
-  app.get(apiPaths.previewById, { preHandler: requireAuth }, async (request) => {
-    const meta = previewManager.get((request.params as { id: string }).id);
-    if (!meta) throw notFound('プレビューセッションが見つかりません');
-    return meta;
-  });
+  app.get<{ Params: { id: string } }>(
+    apiPaths.previewById,
+    { preHandler: requireAuth },
+    async (request) => {
+      const meta = previewManager.get(request.params.id);
+      if (!meta) throw notFound('プレビューセッションが見つかりません');
+      return meta;
+    },
+  );
 
   // DELETE /api/preview/:id — セッションを停止する。
-  app.delete(apiPaths.previewById, { preHandler: requireAuth }, async (request, reply) => {
-    const id = (request.params as { id: string }).id;
-    const stopped = await previewManager.stop(id);
-    if (!stopped) throw notFound('プレビューセッションが見つかりません');
-    audit({
-      event: 'vivliostyle.preview.stop',
-      outcome: 'success',
-      ...actorFromReq(request),
-      resource: { id },
-    });
-    return reply.code(204).send();
-  });
+  app.delete<{ Params: { id: string } }>(
+    apiPaths.previewById,
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const id = request.params.id;
+      const stopped = await previewManager.stop(id);
+      if (!stopped) throw notFound('プレビューセッションが見つかりません');
+      audit({
+        event: 'vivliostyle.preview.stop',
+        outcome: 'success',
+        ...actorFromReq(request),
+        resource: { id },
+      });
+      return reply.code(204).send();
+    },
+  );
 
   // ALL /api/preview/:id/* — ループバックの Vite プレビューサーバへ reverse-proxy する。
   // 完全一致の :id ルートより末尾スラッシュ付きが優先されないよう、ワイルドカードで受ける。
-  app.all(`${apiPaths.previewById}/*`, { preHandler: requireAuth }, async (request, reply) => {
-    const id = (request.params as { id: string }).id;
-    const port = previewManager.portOf(id);
-    // hijack 前なので、ここでの throw は通常どおり 404 として errorHandler が処理する。
-    if (port === undefined) throw notFound('プレビューセッションが見つかりません');
-    previewManager.touch(id);
-    // mount 後の残差パス + query を復元する(例 `/`, `/assets/x.js?foo=1`)。
-    const forwardPath = request.url.slice(`/api/preview/${id}`.length) || '/';
-    // Fastify の応答送出を抑止し、proxy が生 res を完全所有する。
-    reply.hijack();
-    proxyToPreview(PREVIEW_HOST, port, forwardPath, request.raw, reply.raw);
-  });
+  app.all<{ Params: { id: string } }>(
+    `${apiPaths.previewById}/*`,
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const id = request.params.id;
+      const port = previewManager.portOf(id);
+      // hijack 前なので、ここでの throw は通常どおり 404 として errorHandler が処理する。
+      if (port === undefined) throw notFound('プレビューセッションが見つかりません');
+      previewManager.touch(id);
+      // mount 後の残差パス + query を復元する(例 `/`, `/assets/x.js?foo=1`)。
+      const forwardPath = request.url.slice(`/api/preview/${id}`.length) || '/';
+      // Fastify の応答送出を抑止し、proxy が生 res を完全所有する。
+      reply.hijack();
+      proxyToPreview(PREVIEW_HOST, port, forwardPath, request.raw, reply.raw);
+    },
+  );
 }

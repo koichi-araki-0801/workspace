@@ -15,11 +15,11 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     return users.listUsers();
   });
 
-  app.post(
+  app.post<{ Body: z.infer<typeof CreateUserRequest> }>(
     apiPaths.users,
     { preHandler: [requireAuth, requireAdmin, validate(CreateUserRequest)] },
     async (request, reply) => {
-      const body = request.body as z.infer<typeof CreateUserRequest>;
+      const body = request.body;
       const user = await users.createUser(body);
       audit({
         event: 'user.create',
@@ -31,20 +31,19 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.patch(
+  app.patch<{ Params: { id: string }; Body: z.infer<typeof UpdateUserRequest> }>(
     apiPaths.userById,
     { preHandler: [requireAuth, requireAdmin, validate(UpdateUserRequest)] },
     async (request) => {
-      const body = request.body as z.infer<typeof UpdateUserRequest>;
-      return users.updateUser(String((request.params as { id: string }).id), body);
+      return users.updateUser(request.params.id, request.body);
     },
   );
 
-  app.post(
+  app.post<{ Params: { id: string } }>(
     apiPaths.userResetPassword,
     { preHandler: [requireAuth, requireAdmin] },
     async (request, reply) => {
-      const id = String((request.params as { id: string }).id);
+      const id = request.params.id;
       await users.resetUserPassword(id);
       audit({
         event: 'user.reset-password',

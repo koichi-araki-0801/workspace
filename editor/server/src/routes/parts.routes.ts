@@ -22,28 +22,33 @@ function toClassQuery(q: Record<string, unknown>): PartClassificationQuery {
   };
 }
 
+type ClassQuery = { Querystring: Record<string, unknown> };
+type PartHistoryParams = { Params: { templateId: string } };
+
 export async function partsRoutes(app: FastifyInstance): Promise<void> {
-  app.get(apiPaths.partClassificationOptions, { preHandler: requireAuth }, async (request) => {
-    return parts.getPartClassificationOptions(
-      toClassQuery(request.query as Record<string, unknown>),
-    );
+  app.get<ClassQuery>(
+    apiPaths.partClassificationOptions,
+    { preHandler: requireAuth },
+    async (request) => {
+      return parts.getPartClassificationOptions(toClassQuery(request.query));
+    },
+  );
+
+  app.get<ClassQuery>(apiPaths.parts, { preHandler: requireAuth }, async (request) => {
+    return parts.listParts(toClassQuery(request.query));
   });
 
-  app.get(apiPaths.parts, { preHandler: requireAuth }, async (request) => {
-    return parts.listParts(toClassQuery(request.query as Record<string, unknown>));
+  app.get<PartHistoryParams>(apiPaths.partHistory, { preHandler: requireAuth }, async (request) => {
+    return history.listPartHistory(request.params.templateId);
   });
 
-  app.get(apiPaths.partHistory, { preHandler: requireAuth }, async (request) => {
-    return history.listPartHistory(String((request.params as { templateId: string }).templateId));
-  });
-
-  app.post(
+  app.post<PartHistoryParams & { Body: z.infer<typeof RecordPartChangeRequest> }>(
     apiPaths.partHistory,
     { preHandler: [requireAuth, validate(RecordPartChangeRequest)] },
     async (request, reply) => {
-      const body = request.body as z.infer<typeof RecordPartChangeRequest>;
+      const body = request.body;
       await history.recordPartChange(
-        String((request.params as { templateId: string }).templateId),
+        request.params.templateId,
         body.partKey,
         body.change,
         actor(request),
