@@ -15,29 +15,33 @@ import { LoginRequest, PasswordInitRequest } from '../openapi/schemas.js';
 import * as auth from '../repositories/authRepo.js';
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
-  app.post(apiPaths.authLogin, { preHandler: validate(LoginRequest) }, async (request, reply) => {
-    const body = request.body as z.infer<typeof LoginRequest>;
-    try {
-      const { result, sessionId } = await auth.login(body);
-      reply.setCookie(config.auth.cookieName, sessionId, cookieOptions);
-      audit({
-        event: 'auth.login',
-        outcome: 'success',
-        actor: result.user.username,
-        ip: request.ip,
-      });
-      return result;
-    } catch (e) {
-      audit({
-        event: 'auth.login',
-        outcome: 'failure',
-        actor: body.username,
-        ip: request.ip,
-        error: e instanceof Error ? e.message : 'login failed',
-      });
-      throw e;
-    }
-  });
+  app.post<{ Body: z.infer<typeof LoginRequest> }>(
+    apiPaths.authLogin,
+    { preHandler: validate(LoginRequest) },
+    async (request, reply) => {
+      const body = request.body;
+      try {
+        const { result, sessionId } = await auth.login(body);
+        reply.setCookie(config.auth.cookieName, sessionId, cookieOptions);
+        audit({
+          event: 'auth.login',
+          outcome: 'success',
+          actor: result.user.username,
+          ip: request.ip,
+        });
+        return result;
+      } catch (e) {
+        audit({
+          event: 'auth.login',
+          outcome: 'failure',
+          actor: body.username,
+          ip: request.ip,
+          error: e instanceof Error ? e.message : 'login failed',
+        });
+        throw e;
+      }
+    },
+  );
 
   app.post(apiPaths.authLogout, async (request, reply) => {
     await auth.logout(sessionIdFrom(request.headers.cookie));
@@ -57,11 +61,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return loadUser(request);
   });
 
-  app.post(
+  app.post<{ Body: z.infer<typeof PasswordInitRequest> }>(
     apiPaths.authInitPassword,
     { preHandler: validate(PasswordInitRequest) },
     async (request, reply) => {
-      const body = request.body as z.infer<typeof PasswordInitRequest>;
+      const body = request.body;
       await auth.initPassword(body);
       audit({
         event: 'auth.init-password',

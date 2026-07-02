@@ -16,22 +16,19 @@ const SaveNoteRequest = z.object({
   content: z.string(),
 });
 
+type NotesParams = { Params: { templateId: string } };
+
 export async function notesRoutes(app: FastifyInstance): Promise<void> {
-  app.get(apiPaths.notes, { preHandler: requireAuth }, async (request) => {
-    return notes.listNotes(String((request.params as { templateId: string }).templateId));
+  app.get<NotesParams>(apiPaths.notes, { preHandler: requireAuth }, async (request) => {
+    return notes.listNotes(request.params.templateId);
   });
 
-  app.put(
+  app.put<NotesParams & { Body: z.infer<typeof SaveNoteRequest> }>(
     apiPaths.notes,
     { preHandler: [requireAuth, validate(SaveNoteRequest)] },
     async (request, reply) => {
-      const body = request.body as z.infer<typeof SaveNoteRequest>;
-      await notes.saveNote(
-        String((request.params as { templateId: string }).templateId),
-        body.pathKey,
-        body.content,
-        actor(request),
-      );
+      const body = request.body;
+      await notes.saveNote(request.params.templateId, body.pathKey, body.content, actor(request));
       return reply.code(204).send();
     },
   );
