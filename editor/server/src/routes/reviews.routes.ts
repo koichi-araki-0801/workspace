@@ -18,16 +18,16 @@ function actor(req: FastifyRequest): reviews.ReviewActor {
   return { username: req.user?.username ?? 'system', role: req.user?.role ?? 'admin' };
 }
 
-const reqIdOf = (req: FastifyRequest): string => String((req.params as { reqId: string }).reqId);
-const decisionOf = (req: FastifyRequest) => req.body as z.infer<typeof ReviewDecisionBody>;
+// `:reqId` を持つルートで共有する params 型(RouteGeneric に渡してキャストを消す)。
+type ReqIdParams = { Params: { reqId: string } };
 
 export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
   // 申請を作成(pending)。実ファイルは更新しない。
-  app.post(
+  app.post<{ Body: z.infer<typeof SubmitReviewBody> }>(
     apiPaths.reviewRequests,
     { preHandler: [requireAuth, validate(SubmitReviewBody)] },
     async (request) => {
-      const body = request.body as z.infer<typeof SubmitReviewBody>;
+      const body = request.body;
       return auditedRethrow(
         request,
         'review.submit',
@@ -43,30 +43,30 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
 
   // 承認キュー一覧。approver|admin は全件、editor は自分の申請のみ(`reviewRepo` が絞る)。
   // status は `validateQuery` で検証済み(不正値は 400)。
-  app.get(
+  app.get<{ Querystring: z.infer<typeof ReviewListQuery> }>(
     apiPaths.reviewRequests,
     { preHandler: [requireAuth, validateQuery(ReviewListQuery)] },
     async (request) => {
-      const { status } = request.query as z.infer<typeof ReviewListQuery>;
+      const { status } = request.query;
       return reviews.listReviews({ status }, actor(request));
     },
   );
 
   // 申請詳細(本体込み・プレビュー用)。閲覧範囲は一覧と対称(本人 or approver|admin)。
-  app.get(apiPaths.reviewRequestById, { preHandler: requireAuth }, async (request) => {
-    return reviews.getReview(reqIdOf(request), actor(request));
+  app.get<ReqIdParams>(apiPaths.reviewRequestById, { preHandler: requireAuth }, async (request) => {
+    return reviews.getReview(request.params.reqId, actor(request));
   });
 
   // 承認 → 実ファイル反映 + git commit(精査者限定)。
-  app.post(
+  app.post<ReqIdParams & { Body: z.infer<typeof ReviewDecisionBody> }>(
     apiPaths.reviewRequestApprove,
     { preHandler: [requireAuth, requireApprover, validate(ReviewDecisionBody)] },
     async (request) => {
-      const reqId = reqIdOf(request);
+      const reqId = request.params.reqId;
       return auditedRethrow(
         request,
         'review.approve',
-        () => reviews.approveReview(reqId, decisionOf(request), actor(request)),
+        () => reviews.approveReview(reqId, request.body, actor(request)),
         {
           success: (result) => ({ resource: { reqId, templateId: result.meta.id } }),
           failure: () => ({ resource: { reqId } }),
@@ -77,15 +77,15 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // 却下(精査者限定)。実ファイルは更新しない。
-  app.post(
+  app.post<ReqIdParams & { Body: z.infer<typeof ReviewDecisionBody> }>(
     apiPaths.reviewRequestReject,
     { preHandler: [requireAuth, requireApprover, validate(ReviewDecisionBody)] },
     async (request) => {
-      const reqId = reqIdOf(request);
+      const reqId = request.params.reqId;
       return auditedRethrow(
         request,
         'review.reject',
-        () => reviews.rejectReview(reqId, decisionOf(request), actor(request)),
+        () => reviews.rejectReview(reqId, request.body, actor(request)),
         {
           success: (meta) => ({ resource: { reqId, templateId: meta.templateId } }),
           failure: () => ({ resource: { reqId } }),
