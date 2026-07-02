@@ -52,6 +52,7 @@ export default defineConfig({
         'editor/web/src/lib/cropMarks.ts',
         'editor/web/src/lib/formatOutput.ts',
         'editor/web/src/lib/useCascadingSelect.ts',
+        'editor/web/src/lib/useIframeAutoFit.ts',
         'editor/web/src/features/editor/geom.ts',
         'editor/web/src/features/editor/pageView.ts',
         'editor/web/src/features/editor/useSnapshotHistory.ts',

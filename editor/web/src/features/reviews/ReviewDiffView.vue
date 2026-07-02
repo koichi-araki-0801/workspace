@@ -8,7 +8,7 @@
 // 実ファイル + git へ反映する(`reviewRepo.ts`)。
 import { isErr, isOk, type ReviewRequest } from '@editor/shared';
 import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useReviewRepo } from '@/api/repositories';
 import Badge from '@/components/ui/Badge.vue';
@@ -20,6 +20,7 @@ import { type BlockStatus, buildDiffDoc, diffHighlightCss } from '@/features/com
 import AttributeBar from '@/features/editor/AttributeBar.vue';
 import { formatDateTimeShort } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { useAuthStore } from '@/stores/auth';
 import {
   type ReviewChangeSummary,
@@ -72,32 +73,8 @@ function buildDoc(fragment: string, css: string): string {
   return buildDiffDoc(fragment, css, HIGHLIGHT_CSS);
 }
 
-// `iframe` を中身の高さに合わせ、幅変化にも追随させる(CompareResultView と同方式)。
-function fitTo(f: HTMLIFrameElement | null | undefined) {
-  if (!f) return;
-  try {
-    const h = f.contentDocument?.body?.scrollHeight;
-    if (h) f.style.height = `${h + 4}px`;
-  } catch {
-    /* ignore cross-doc */
-  }
-}
-const frameObservers = new WeakMap<HTMLIFrameElement, ResizeObserver>();
-const observed: HTMLIFrameElement[] = [];
-function fitFrame(e: Event) {
-  const f = e.target as HTMLIFrameElement;
-  fitTo(f);
-  if (!frameObservers.has(f)) {
-    const ro = new ResizeObserver(() => fitTo(f));
-    ro.observe(f);
-    frameObservers.set(f, ro);
-    observed.push(f);
-  }
-}
-onBeforeUnmount(() => {
-  for (const f of observed) frameObservers.get(f)?.disconnect();
-  observed.length = 0;
-});
+// `iframe` を中身の高さに合わせ、幅変化にも追随させる(CompareResultView と共有)。
+const { fitFrame } = useIframeAutoFit();
 
 async function load() {
   loadError.value = false;
