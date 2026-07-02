@@ -143,6 +143,36 @@ d('review workflow (HTTP routes)', () => {
     expect(got.json().status).toBe('approved');
   });
 
+  it('GET /review-requests/:reqId: 他人の申請は editor から 403、本人/approver は 200', async () => {
+    const sub = await submit(
+      asUser('editor1', 'editor'),
+      'AM01_677777_20250101_交付版',
+      '<p>秘</p>',
+    );
+    const reqId = sub.json().id;
+
+    const other = await app.inject({
+      method: 'GET',
+      url: `/review-requests/${reqId}`,
+      headers: asUser('editor2', 'editor'),
+    });
+    expect(other.statusCode).toBe(403);
+
+    const owner = await app.inject({
+      method: 'GET',
+      url: `/review-requests/${reqId}`,
+      headers: asUser('editor1', 'editor'),
+    });
+    expect(owner.statusCode).toBe(200);
+
+    const approver = await app.inject({
+      method: 'GET',
+      url: `/review-requests/${reqId}`,
+      headers: asUser('approver1', 'approver'),
+    });
+    expect(approver.statusCode).toBe(200);
+  });
+
   it('POST approve: 決定済みの申請は 409', async () => {
     const sub = await submit(
       asUser('editor1', 'editor'),

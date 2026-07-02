@@ -48,9 +48,9 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
     return reviews.listReviews({ status }, actor(request));
   });
 
-  // 申請詳細(本体込み・プレビュー用)。
+  // 申請詳細(本体込み・プレビュー用)。閲覧範囲は一覧と対称(本人 or approver|admin)。
   app.get(apiPaths.reviewRequestById, { preHandler: requireAuth }, async (request) => {
-    return reviews.getReview(reqIdOf(request));
+    return reviews.getReview(reqIdOf(request), actor(request));
   });
 
   // 承認 → 実ファイル反映 + git commit(精査者限定)。

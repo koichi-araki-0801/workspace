@@ -72,7 +72,7 @@ d('review workflow (reviewRepo)', () => {
     expect(log).toContain('approver1');
     expect(log).toContain('確定保存(承認)');
     // 申請は approved に。
-    const after = await reviews.getReview(meta.id);
+    const after = await reviews.getReview(meta.id, approver);
     expect(after.status).toBe('approved');
     expect(after.reviewedBy).toBe('approver1');
   });
