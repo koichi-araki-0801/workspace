@@ -33,6 +33,10 @@
       "description": "パーツ単位の作業メモ(版インスタンス単位)"
     },
     {
+      "name": "reviews",
+      "description": "確定保存の精査者承認ワークフロー"
+    },
+    {
       "name": "history",
       "description": "編集 / PDF / 作成 履歴とバージョン比較"
     },
@@ -1069,6 +1073,338 @@
         }
       }
     },
+    "/review-requests": {
+      "get": {
+        "tags": ["reviews"],
+        "summary": "承認キュー一覧(approver|admin は全件、editor は自分の申請のみ)",
+        "operationId": "listReviews",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "$ref": "#/components/schemas/ReviewStatus"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "申請メタの配列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewRequestMeta"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["reviews"],
+        "summary": "確定保存を申請(pending 作成・実ファイル非更新)",
+        "operationId": "submitReview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitReviewBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "作成された申請メタ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRequestMeta"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/review-requests/{reqId}": {
+      "get": {
+        "tags": ["reviews"],
+        "summary": "申請詳細(本体込み・承認画面のプレビュー用)",
+        "operationId": "getReview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reqId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "申請(本体込み)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRequest"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/review-requests/{reqId}/approve": {
+      "post": {
+        "tags": ["reviews"],
+        "summary": "承認して実ファイルへ反映 + git commit(精査者限定)",
+        "operationId": "approveReview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reqId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewDecisionBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "反映後のテンプレート meta + 並行性警告",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApproveReviewResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "権限不足 (admin 限定など)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "競合 (kind=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "サーバ内部エラー (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/review-requests/{reqId}/reject": {
+      "post": {
+        "tags": ["reviews"],
+        "summary": "却下(精査者限定・実ファイル非更新)",
+        "operationId": "rejectReview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reqId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewDecisionBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "却下後の申請メタ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRequestMeta"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "権限不足 (admin 限定など)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "競合 (kind=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/history/edit": {
       "get": {
         "tags": ["history"],
@@ -1918,6 +2254,10 @@
           },
           "basedOnTemplateId": {
             "type": "string"
+          },
+          "isRedemption": {
+            "description": "償還ファンドとして作成(特定パーツを償還用へ置換。現状はモック実装)",
+            "type": "boolean"
           }
         },
         "required": ["companyCode", "fundCode", "editionType"]
@@ -1950,6 +2290,51 @@
           }
         },
         "required": ["pathKey", "content"]
+      },
+      "ReviewStatus": {
+        "type": "string",
+        "enum": ["pending", "approved", "rejected"]
+      },
+      "SubmitReviewBody": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "html": {
+            "type": "string",
+            "description": "復元済みの生 Jinja2 HTML"
+          },
+          "css": {
+            "type": "string"
+          },
+          "fundCode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "filledHtml": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ReviewOrigin"
+          }
+        },
+        "required": ["templateId", "html", "css", "fundCode", "origin"]
+      },
+      "ReviewOrigin": {
+        "type": "string",
+        "enum": ["edit", "create"],
+        "description": "編集タブ(既存編集) / 作成タブ(新規) 由来"
+      },
+      "ReviewDecisionBody": {
+        "type": "object",
+        "properties": {
+          "comment": {
+            "description": "却下理由 / 承認メモ",
+            "type": "string"
+          }
+        }
       },
       "RecordPdfExportRequest": {
         "type": "object",
@@ -2007,7 +2392,7 @@
       },
       "UserRole": {
         "type": "string",
-        "enum": ["admin", "editor", "viewer"]
+        "enum": ["admin", "approver", "editor", "viewer"]
       },
       "UpdateUserRequest": {
         "type": "object",
@@ -2224,9 +2609,13 @@
           "css": {
             "type": "string",
             "description": "fundCode ごとの共有 CSS"
+          },
+          "filled": {
+            "type": "string",
+            "description": "エディタキャンバス用に事前描画した filled HTML(Jinja 値を差し込みつつ元ソースを保持)。静的な fill が無ければ空で、エディタは都度描画にフォールバックする"
           }
         },
-        "required": ["meta", "html", "css"],
+        "required": ["meta", "html", "css", "filled"],
         "additionalProperties": false
       },
       "TemplateDraft": {
@@ -2428,6 +2817,202 @@
           }
         },
         "required": ["templateId", "pathKey", "content", "updatedAt", "updatedBy"],
+        "additionalProperties": false
+      },
+      "ReviewRequestMeta": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "templateId": {
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/components/schemas/TemplateAttributes"
+          },
+          "fundCode": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ReviewOrigin"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "submittedBy": {
+            "type": "string"
+          },
+          "submittedAt": {
+            "type": "string"
+          },
+          "reviewedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "baseHash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "申請時点の現行版コンテンツキー"
+          }
+        },
+        "required": [
+          "id",
+          "templateId",
+          "attributes",
+          "fundCode",
+          "origin",
+          "status",
+          "submittedBy",
+          "submittedAt",
+          "reviewedBy",
+          "reviewedAt",
+          "comment",
+          "baseHash"
+        ],
+        "additionalProperties": false
+      },
+      "ReviewRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "templateId": {
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/components/schemas/TemplateAttributes"
+          },
+          "fundCode": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ReviewOrigin"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "submittedBy": {
+            "type": "string"
+          },
+          "submittedAt": {
+            "type": "string"
+          },
+          "reviewedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "baseHash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "申請時点の現行版コンテンツキー"
+          },
+          "html": {
+            "type": "string",
+            "description": "確定保存しようとしている生 Jinja2 HTML"
+          },
+          "css": {
+            "type": "string"
+          },
+          "filledHtml": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "templateId",
+          "attributes",
+          "fundCode",
+          "origin",
+          "status",
+          "submittedBy",
+          "submittedAt",
+          "reviewedBy",
+          "reviewedAt",
+          "comment",
+          "baseHash",
+          "html",
+          "css"
+        ],
+        "additionalProperties": false
+      },
+      "ApproveReviewResult": {
+        "type": "object",
+        "properties": {
+          "meta": {
+            "$ref": "#/components/schemas/TemplateMeta"
+          },
+          "staleWarning": {
+            "type": "boolean",
+            "description": "申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)"
+          }
+        },
+        "required": ["meta", "staleWarning"],
         "additionalProperties": false
       },
       "EditHistoryEntry": {

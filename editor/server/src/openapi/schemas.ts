@@ -45,6 +45,11 @@ export const Template = z
     meta: TemplateMeta,
     html: z.string().meta({ description: 'Jinja2 生 HTML(タグ保持)' }),
     css: z.string().meta({ description: 'fundCode ごとの共有 CSS' }),
+    filled: z.string().meta({
+      description:
+        'エディタキャンバス用に事前描画した filled HTML(Jinja 値を差し込みつつ元ソースを保持)。' +
+        '静的な fill が無ければ空で、エディタは都度描画にフォールバックする',
+    }),
   })
   .meta({ id: 'Template' });
 
@@ -295,6 +300,10 @@ export const GenerateRequest = z
     fundCode: z.string().min(1),
     editionType: z.string().min(1),
     basedOnTemplateId: z.string().optional(),
+    isRedemption: z
+      .boolean()
+      .optional()
+      .meta({ description: '償還ファンドとして作成(特定パーツを償還用へ置換。現状はモック実装)' }),
   })
   .meta({ id: 'GenerateRequest' });
 
