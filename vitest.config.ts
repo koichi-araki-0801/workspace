@@ -21,6 +21,7 @@ export default defineConfig({
       include: [
         // editor/shared
         'editor/shared/src/index.ts',
+        'editor/shared/src/schemas.ts',
         'editor/shared/src/result.ts',
         'editor/shared/src/errors.ts',
         'editor/shared/src/domain/template.ts',

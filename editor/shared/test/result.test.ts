@@ -21,7 +21,8 @@ describe('map', () => {
   it('map transforms a success only', () => {
     expect(map(ok(2), (n) => n * 3)).toEqual(ok(6));
     const e: Result<number, string> = err('x');
-    expect(map(e, (n) => n * 3)).toEqual(err('x'));
+    // union からの推論では `n` が unknown に落ちるため注釈する(typecheck モードで検出)。
+    expect(map(e, (n: number) => n * 3)).toEqual(err('x'));
   });
 });
 
