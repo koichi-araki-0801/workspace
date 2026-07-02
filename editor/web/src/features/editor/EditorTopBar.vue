@@ -180,7 +180,8 @@ const attrItems = (a: TemplateAttributes) => [
       <CheckCircle2 v-else-if="saveState === 'saved'" class="h-[15px] w-[15px] text-success" />
       <AlertCircle v-else-if="saveState === 'error'" class="h-[15px] w-[15px]" />
       <Save v-else class="h-[15px] w-[15px]" />
-      <span class="hidden md:inline">{{ statusText }}</span>
+      <!-- 保存失敗だけは狭幅でも文言を出す — アイコンのみでは失敗を見逃しうるため。 -->
+      <span :class="saveState === 'error' ? 'inline' : 'hidden md:inline'">{{ statusText }}</span>
     </span>
 
     <Button

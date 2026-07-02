@@ -8,7 +8,7 @@
 // 実ファイル + git へ反映する(`reviewRepo.ts`)。
 import { isOk, type ReviewRequest } from '@editor/shared';
 import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AttributeBar from '@/components/AttributeBar.vue';
 import Badge from '@/components/ui/Badge.vue';
@@ -48,6 +48,12 @@ const visibleRows = computed(() =>
 );
 
 const comment = ref('');
+// 空理由で「却下」を押した場合のインラインエラー。入力が始まったら消す。
+const rejectError = ref(false);
+const commentEl = ref<HTMLTextAreaElement | null>(null);
+watch(comment, (v) => {
+  if (v.trim()) rejectError.value = false;
+});
 
 const ORIGIN_LABEL: Record<ReviewRequest['origin'], string> = { edit: '編集', create: '新規作成' };
 
@@ -91,7 +97,13 @@ async function approve() {
 }
 
 async function reject() {
-  const res = await rejectReview(comment.value.trim() || undefined);
+  // 却下は申請者への差し戻し — 理由が残らないと編集者が直しようがないため必須にする。
+  if (!comment.value.trim()) {
+    rejectError.value = true;
+    commentEl.value?.focus();
+    return;
+  }
+  const res = await rejectReview(comment.value.trim());
   if (isOk(res)) {
     toastSuccess('却下しました');
     router.push({ name: 'reviews' });
@@ -203,14 +215,20 @@ onMounted(load);
 
       <!-- 承認/却下(精査者のみ・pending のみ) -->
       <div v-if="canDecide" class="space-y-2 rounded-[12px] border bg-muted/30 p-4">
-        <label class="text-sm font-medium" for="review-comment">理由・メモ（却下時は必須推奨）</label>
+        <label class="text-sm font-medium" for="review-comment">理由・メモ（却下時は必須）</label>
         <textarea
           id="review-comment"
+          ref="commentEl"
           v-model="comment"
           rows="2"
           placeholder="承認メモ、または却下理由を入力します。"
-          class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          :aria-invalid="rejectError || undefined"
+          class="w-full rounded-md border bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          :class="rejectError ? 'border-destructive' : 'border-input'"
         />
+        <p v-if="rejectError" role="alert" class="text-xs text-destructive">
+          却下には理由の入力が必要です。
+        </p>
         <div class="flex items-center justify-end gap-2">
           <Button variant="outline" :disabled="deciding" @click="reject">
             <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />

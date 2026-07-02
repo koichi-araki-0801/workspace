@@ -90,5 +90,14 @@ export function useSnapshotHistory<T>(
     updateFlags();
   }
 
-  return { canUndo, canRedo, pushUndo, undo, redo, discardLast };
+  /**
+   * 現在の undo スタック深さ。「元に戻す」トースト(`useTemplateEditor.ts`)が、操作時点の
+   * 深さと押下時点の深さを比べて「その後に別の編集が積まれていないか」を判定するのに使う
+   * (別の編集ごと巻き戻す事故を防ぐ)。
+   */
+  function depth(): number {
+    return past.length;
+  }
+
+  return { canUndo, canRedo, pushUndo, undo, redo, discardLast, depth };
 }

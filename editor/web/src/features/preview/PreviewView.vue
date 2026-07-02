@@ -126,10 +126,15 @@ async function exportPdf() {
   const a = document.createElement('a');
   a.href = url;
   a.download = `${props.id}.pdf`;
+  // DOM に載せてから click する(未接続 anchor の click を無視するブラウザ対策)。
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   URL.revokeObjectURL(url);
   void preview.recordPdfExport(props.id);
-  toastSuccess('PDFを出力しました');
+  // ブラウザがダウンロードをブロックしたかは Web API から検知できないため、
+  // 「出力しました」と断定せず開始の通知に留める。
+  toastSuccess('PDFのダウンロードを開始しました');
 }
 </script>
 
