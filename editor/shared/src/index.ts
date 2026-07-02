@@ -223,6 +223,16 @@ export interface ReviewDecisionRequest {
   comment?: string;
 }
 
+/**
+ * 承認の結果。`meta` は実ファイルへ反映後のテンプレメタ。`staleWarning` は申請時点の現行版
+ * (`baseHash`)と承認時点の現行版が食い違っていたか(= 申請後に別の確定保存が割り込んだ)を表す。
+ * true でも承認自体はブロックせず、承認者へ「上書きに注意」を促す警告フラグとして UI に渡す。
+ */
+export interface ApproveReviewResult {
+  meta: TemplateMeta;
+  staleWarning: boolean;
+}
+
 // ── 6. API DTOs ──
 
 /** カスケード型ドロップダウンの問い合わせ: 既知の属性を入力、残りの候補を出力。 */

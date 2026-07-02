@@ -60,7 +60,9 @@ d('review workflow (reviewRepo)', () => {
     const meta = await submit(tplId, '333333', '<p>{{ fund.name }} 反映済</p>');
     const tplMeta = await reviews.approveReview(meta.id, { comment: 'ok' }, approver);
 
-    expect(tplMeta.id).toBe(tplId);
+    expect(tplMeta.meta.id).toBe(tplId);
+    // 申請〜承認の間に現行版へ割り込みが無いので並行性警告は立たない。
+    expect(tplMeta.staleWarning).toBe(false);
     // 実ファイルが書かれた。
     const written = fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8');
     expect(written).toContain('反映済');
@@ -75,6 +77,19 @@ d('review workflow (reviewRepo)', () => {
     const after = await reviews.getReview(meta.id, approver);
     expect(after.status).toBe('approved');
     expect(after.reviewedBy).toBe('approver1');
+  });
+
+  it('submit 後に現行版が変わっていると承認時に staleWarning=true(ブロックはしない)', async () => {
+    const tplId = 'AM01_888888_20250101_交付版';
+    // 同一テンプレへ 2 件申請。両者の baseHash は「まだ現行版が無い」時点の値で揃う。
+    const first = await submit(tplId, '888888', '<p>先行</p>');
+    const second = await submit(tplId, '888888', '<p>後発</p>');
+    // 先行を承認すると現行版(ディスク)が書き換わる。
+    await reviews.approveReview(first.id, {}, approver);
+    // 後発の baseHash は先行反映前の現行版なので、承認時点の現行版と食い違い警告が立つ。
+    const res = await reviews.approveReview(second.id, {}, approver);
+    expect(res.staleWarning).toBe(true);
+    expect(res.meta.id).toBe(tplId);
   });
 
   it('approving an already-decided request conflicts (409)', async () => {

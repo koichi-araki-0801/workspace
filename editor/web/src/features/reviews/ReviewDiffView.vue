@@ -15,7 +15,7 @@ import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { toastSuccess } from '@/components/ui/toast';
+import { toast, toastSuccess } from '@/components/ui/toast';
 import {
   type BlockStatus,
   HL_ADDED,
@@ -132,7 +132,16 @@ async function approve() {
     reviews.approveReview(props.reqId, { comment: comment.value.trim() || undefined }),
   );
   if (isOk(res)) {
-    toastSuccess('承認しました（本番テンプレートへ反映しました）');
+    // 申請後に現行版が変更されていた場合は上書き注意を促す(承認自体はブロックしない)。
+    if (res.value.staleWarning) {
+      toast(
+        '承認して反映しました。ただし申請後に現行版が変更されていたため、上書きした可能性があります。',
+        'default',
+        6000,
+      );
+    } else {
+      toastSuccess('承認しました（本番テンプレートへ反映しました）');
+    }
     router.push({ name: 'reviews' });
   }
 }

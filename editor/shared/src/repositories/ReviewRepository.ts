@@ -7,12 +7,12 @@
 // 両経路を一律にゲートする(`index.ts` の `ReviewRequest*` 型を見よ)。
 // web の `local`(localStorage ミラー)/`rest`(server API)両実装がこの interface を満たす。
 import type {
+  ApproveReviewResult,
   ReviewDecisionRequest,
   ReviewRequest,
   ReviewRequestMeta,
   ReviewStatus,
   SubmitReviewRequest,
-  TemplateMeta,
 } from '../index.js';
 import type { Result } from '../result.js';
 
@@ -33,8 +33,11 @@ export interface ReviewRepository {
   listReviews(filter?: ReviewListFilter): Promise<Result<ReviewRequestMeta[]>>;
   /** 申請 1 件を本体込みで取得する(承認画面のプレビュー用)。 */
   getReview(reqId: string): Promise<Result<ReviewRequest>>;
-  /** 承認して実ファイルへ反映する(approver|admin のみ)。反映後の `TemplateMeta` を返す。 */
-  approveReview(reqId: string, decision: ReviewDecisionRequest): Promise<Result<TemplateMeta>>;
+  /** 承認して実ファイルへ反映する(approver|admin のみ)。反映後メタ + 並行性警告を返す。 */
+  approveReview(
+    reqId: string,
+    decision: ReviewDecisionRequest,
+  ): Promise<Result<ApproveReviewResult>>;
   /** 却下する(approver|admin のみ)。理由は `decision.comment`。 */
   rejectReview(reqId: string, decision: ReviewDecisionRequest): Promise<Result<ReviewRequestMeta>>;
 }

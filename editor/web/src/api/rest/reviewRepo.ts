@@ -2,6 +2,7 @@
 // reviewRepo.ts — 確定保存の精査者承認ワークフローの REST 実装
 // =============================================================================
 import {
+  type ApproveReviewResult,
   apiPaths,
   buildPath,
   type ReviewDecisionRequest,
@@ -10,7 +11,6 @@ import {
   type ReviewRequest,
   type ReviewRequestMeta,
   type SubmitReviewRequest,
-  type TemplateMeta,
 } from '@editor/shared';
 import { apiFetch, attemptRest } from './http';
 
@@ -32,7 +32,7 @@ export const restReviewRepo: ReviewRepository = {
 
   approveReview: (reqId: string, decision: ReviewDecisionRequest) =>
     attemptRest(() =>
-      apiFetch<TemplateMeta>(buildPath(apiPaths.reviewRequestApprove, { reqId }), {
+      apiFetch<ApproveReviewResult>(buildPath(apiPaths.reviewRequestApprove, { reqId }), {
         method: 'POST',
         body: decision,
       }),

@@ -349,7 +349,7 @@ export function buildOpenApiDocument() {
           requestParams: { path: z.object({ reqId: z.string() }) },
           requestBody: { content: { 'application/json': { schema: s.ReviewDecisionBody } } },
           responses: {
-            '200': json('反映後のテンプレート meta', s.TemplateMeta),
+            '200': json('反映後のテンプレート meta + 並行性警告', s.ApproveReviewResult),
             ...ERR_400,
             ...ERR_401,
             ...ERR_403,

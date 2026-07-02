@@ -378,6 +378,16 @@ export const ReviewDecisionBody = z
 /** 承認キューの絞り込みクエリ。 */
 export const ReviewListQuery = z.object({ status: ReviewStatus.optional() });
 
+/** 承認の結果。反映後 `meta` + 並行性警告 `staleWarning`(`@editor/shared` の `ApproveReviewResult`)。 */
+export const ApproveReviewResult = z
+  .object({
+    meta: TemplateMeta,
+    staleWarning: z
+      .boolean()
+      .meta({ description: '申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)' }),
+  })
+  .meta({ id: 'ApproveReviewResult' });
+
 /** インライン build のリクエストボディ(レンダリング済み HTML + 任意 CSS → PDF)。 */
 export const BuildInlineRequest = z
   .object({

@@ -64,7 +64,7 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
         'review.approve',
         () => reviews.approveReview(reqId, decisionOf(request), actor(request)),
         {
-          success: (meta) => ({ resource: { reqId, templateId: meta.id } }),
+          success: (result) => ({ resource: { reqId, templateId: result.meta.id } }),
           failure: () => ({ resource: { reqId } }),
           failureMessage: 'approve failed',
         },

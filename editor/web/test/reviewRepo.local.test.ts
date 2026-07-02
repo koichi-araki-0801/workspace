@@ -66,6 +66,11 @@ describe('localReviewRepo round-trip', () => {
 
     const approved = await localReviewRepo.approveReview(submitted.value.id, { comment: 'ok' });
     expect(isOk(approved)).toBe(true);
+    // 申請〜承認の間に現行版へ割り込みが無いので並行性警告は立たない。
+    if (isOk(approved)) {
+      expect(approved.value.meta.id).toBe(target.id);
+      expect(approved.value.staleWarning).toBe(false);
+    }
 
     const reread = await localTemplateRepo.getTemplate(target.id);
     if (isOk(reread)) expect(reread.value.html).toContain('承認後に反映される本文');
