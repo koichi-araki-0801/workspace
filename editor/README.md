@@ -6,7 +6,7 @@ Jinja2 で作成された HTML/CSS テンプレート（ファンド報告書系
 - **編集**: GrapesJS（レイアウト/CSS 中心）。`{{ }}` / `{% %}` / `{# #}` は壊さず温存（mask/restore）。ページ境界（`.page`）をオーバーレイ表示。
 - **プレビュー**: ブラウザ内 Nunjucks で生 Jinja2 + サンプルデータを描画 → vivliostyle でページ組み表示。
 - **PDF**: サーバ側 `@vivliostyle/cli` で生成。
-- **作成**: 既存 Python 生成器を Express から child_process で呼び出し。
+- **作成**: 既存 Python 生成器を Fastify から child_process で呼び出し。
 - **比較**: 確定版どうし／現行版との差分を版ピッカーで比較。
 - **認証**: 独自認証（ログイン + 初回パスワード初期化）。配信/サーバ再起動でローカルセッションを失効（`appEpoch`）。
 - **テーマ**: ブルー系（Tailwind v4 + shadcn-vue）。
@@ -20,7 +20,7 @@ editor はリポジトリ直下の **pnpm モノレポ**の一部（`editor/shar
 ```
 editor/shared/   共有 TS 型/DTO + Result/AppError + ドメイン + 集約ごとの Repository 契約（型の真実源）
 editor/web/      Vue3 + Vite + TS + Vue Router + Pinia + Tailwind v4 + shadcn-vue + GrapesJS + Nunjucks + vivliostyle
-editor/server/   Express + TS（PDF 生成 / ファイル索引 / Python 生成器アダプタ / フェーズ2 REST・SQL）
+editor/server/   Fastify + TS（PDF 生成 / ファイル索引 / Python 生成器アダプタ / フェーズ2 REST・SQL）
 editor/data/     テンプレ(.html) と ファンド毎 CSS（サーバが参照）
 ```
 
@@ -34,7 +34,7 @@ editor/data/     テンプレ(.html) と ファンド毎 CSS（サーバが参�
 
 ```bash
 pnpm install
-pnpm dev         # shared をビルド後、Express(:3001) と Vite(:5173) を並行起動
+pnpm dev         # shared をビルド後、Fastify(:3001) と Vite(:5173) を並行起動
 ```
 
 Windows では `editor/start.bat` をダブルクリックでも起動できます（初回は `pnpm install` を自動実行）。
@@ -43,7 +43,7 @@ Windows では `editor/start.bat` をダブルクリックでも起動できま�
 | コマンド | 内容 |
 |---|---|
 | `start.bat` | 本番（build → server 単体 :3001）/ ローカルデータ |
-| `start.bat dev` | 開発（Express :3001 + Vite :5173）/ ローカルデータ |
+| `start.bat dev` | 開発（Fastify :3001 + Vite :5173）/ ローカルデータ |
 | `start.bat rest` | 本番 / REST（SQL Server バックエンド・認証必須） |
 | `start.bat dev rest` | 開発 / REST |
 
