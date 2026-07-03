@@ -614,29 +614,23 @@ function applyTwoLineNameFallback(
     return Math.max(0, -1 - b.left, b.right - (width + 1), -1 - b.top, b.bottom - (height + 1));
   };
 
-  let before = countDefects(placements, cfg, coord);
-  if (before.clips === 0) return;
-  let beforePieBox = countBoxPieIntrusions(placements, cfg, coord);
+  let before = measureDefectGate(placements, cfg, coord);
+  if (before.d.clips === 0) return;
   for (const p of placements) {
     if (p.insideSlice || p.nameSplit || p.lines.length !== 1) continue;
     const myClipBefore = clipPx(p);
     if (myClipBefore <= 0) continue; // 見切れていない 1 行はそのまま
     const snap = toTwoLineNamePlacement(p, cfg);
     if (!snap) continue;
-    const after = countDefects(placements, cfg, coord);
-    const afterPieBox = countBoxPieIntrusions(placements, cfg, coord);
+    const after = measureDefectGate(placements, cfg, coord);
     // do-no-harm: 対象自身の見切れ px が厳密に減り、全体の他カテゴリ (clips件数/交差/円貫通/重なり/box円侵入)
     // が非悪化。2 行化は名前行のみで箱幅が縮むため自分の左右見切れは減るが、高さ増で別不具合を生むなら revert。
     const adopt =
       clipPx(p) < myClipBefore - 1e-9 &&
-      after.clips <= before.clips &&
-      after.crossings <= before.crossings &&
-      after.pie <= before.pie &&
-      overlapsOf(after) <= overlapsOf(before) &&
-      afterPieBox <= beforePieBox;
+      after.d.clips <= before.d.clips &&
+      gateNotWorseExceptClips(after, before);
     if (adopt) {
       before = after;
-      beforePieBox = afterPieBox;
     } else {
       restoreTwoLineNamePlacement(p, snap);
     }
@@ -667,12 +661,10 @@ function applyVerticalDeclipFallback(
   const pieRpx = Math.abs(xScale(cfg.pieRadius) - xScale(0));
   const clipsLeftViewBox = (p: Placement): boolean => placementPixelRect(p, cfg, coord).left < -1;
 
-  let before = countDefects(placements, cfg, coord);
-  if (before.clips === 0) return;
-  let beforePieBox = countBoxPieIntrusions(placements, cfg, coord);
   // `countDefects` は leader×label 貫通を数えない。横優先 L 字の縦 riser が隣ラベル box を貫く退行
-  // (例 `pdf_510037_07` オフショア riser が韓国 box を貫通) を防ぐため、別途 through 件数も非悪化で gate する。
-  let beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
+  // (例 `pdf_510037_07` オフショア riser が韓国 box を貫通) を防ぐため、gate の through も非悪化で見る。
+  let before = measureDefectGate(placements, cfg, coord);
+  if (before.d.clips === 0) return;
 
   // 隣接ラベル間の最小縦間隔 (`countDefects` の重なり閾値 6px に余裕)。
   const marginLogical = 8 / (pieRpx / cfg.pieRadius);
@@ -789,20 +781,13 @@ function applyVerticalDeclipFallback(
       }));
       for (const p of moved) p.declipBottomLeader = true;
       repairResidualLeaderDefects(placements, cfg, coord);
-      const a = countDefects(placements, cfg, coord);
-      const aPieBox = countBoxPieIntrusions(placements, cfg, coord);
-      const aThrough = countLeaderThroughLabels(placements, cfg, coord);
+      const a = measureDefectGate(placements, cfg, coord);
       const ok =
-        a.clips <= before.clips &&
-        a.crossings <= before.crossings &&
-        a.pie <= before.pie &&
-        overlapsOf(a) <= overlapsOf(before) &&
-        aPieBox <= beforePieBox &&
-        aThrough <= beforeThrough;
+        a.d.clips <= before.d.clips &&
+        gateNotWorseExceptClips(a, before) &&
+        a.through <= before.through;
       if (ok) {
         before = a;
-        beforePieBox = aPieBox;
-        beforeThrough = aThrough;
       } else {
         for (const p of moved) p.declipBottomLeader = undefined;
         for (const s of leaderSnap) {
@@ -815,20 +800,13 @@ function applyVerticalDeclipFallback(
     // 手順1: 縦に広げた結果 leader が長い斜線になり交差しうるので既存 leader 修復 (do-no-harm) を掛けて
     // から、移動+spread を do-no-harm ゲート (clips 厳密減) で判定する。
     repairResidualLeaderDefects(placements, cfg, coord);
-    const moveAfter = countDefects(placements, cfg, coord);
-    const moveAfterPieBox = countBoxPieIntrusions(placements, cfg, coord);
-    const moveAfterThrough = countLeaderThroughLabels(placements, cfg, coord);
+    const moveAfter = measureDefectGate(placements, cfg, coord);
     const moveAdopt =
-      moveAfter.clips < before.clips &&
-      moveAfter.crossings <= before.crossings &&
-      moveAfter.pie <= before.pie &&
-      overlapsOf(moveAfter) <= overlapsOf(before) &&
-      moveAfterPieBox <= beforePieBox &&
-      moveAfterThrough <= beforeThrough;
+      moveAfter.d.clips < before.d.clips &&
+      gateNotWorseExceptClips(moveAfter, before) &&
+      moveAfter.through <= before.through;
     if (moveAdopt) {
       before = moveAfter;
-      beforePieBox = moveAfterPieBox;
-      beforeThrough = moveAfterThrough;
       refineMovedLeaders();
       return;
     }
@@ -841,24 +819,17 @@ function applyVerticalDeclipFallback(
     if (splitSnaps.length > 0) {
       for (const { p } of splitSnaps) applyVisualViewBoxNudge([p], cfg);
       repairResidualLeaderDefects(placements, cfg, coord);
-      const splitAfter = countDefects(placements, cfg, coord);
-      const splitAfterPieBox = countBoxPieIntrusions(placements, cfg, coord);
-      const splitAfterThrough = countLeaderThroughLabels(placements, cfg, coord);
+      const splitAfter = measureDefectGate(placements, cfg, coord);
       const magnitudeReduced = splitSnaps.every(
         ({ p, origLeft }) => placementPixelRect(p, cfg, coord).left > origLeft + 1e-6,
       );
       const splitAdopt =
         magnitudeReduced &&
-        splitAfter.clips <= before.clips &&
-        splitAfter.crossings <= before.crossings &&
-        splitAfter.pie <= before.pie &&
-        overlapsOf(splitAfter) <= overlapsOf(before) &&
-        splitAfterPieBox <= beforePieBox &&
-        splitAfterThrough <= beforeThrough;
+        splitAfter.d.clips <= before.d.clips &&
+        gateNotWorseExceptClips(splitAfter, before) &&
+        splitAfter.through <= before.through;
       if (splitAdopt) {
         before = splitAfter;
-        beforePieBox = splitAfterPieBox;
-        beforeThrough = splitAfterThrough;
         return;
       }
     }
@@ -901,9 +872,8 @@ function applyLowerLeftDropFallback(
     return b.left < -1 || b.right > width + 1 || b.top < -1 || b.bottom > height + 1;
   };
 
-  let before = countDefects(placements, cfg, coord);
-  if (before.clips === 0) return;
-  let beforePieBox = countBoxPieIntrusions(placements, cfg, coord);
+  let before = measureDefectGate(placements, cfg, coord);
+  if (before.d.clips === 0) return;
   for (let i = 0; i < placements.length; i += 1) {
     const p = placements[i];
     if (p.insideSlice || !p.item.lowerLeftDropLeader || !clipsViewBox(p)) continue;
@@ -928,17 +898,10 @@ function applyLowerLeftDropFallback(
     applyVisualViewBoxNudge([dropP], cfg);
     applyFinalCondenseToFit([dropP], cfg);
     relaxNameCondense([dropP], cfg);
-    const after = countDefects(placements, cfg, coord);
-    const afterPieBox = countBoxPieIntrusions(placements, cfg, coord);
-    const adopt =
-      after.clips < before.clips &&
-      after.crossings <= before.crossings &&
-      after.pie <= before.pie &&
-      overlapsOf(after) <= overlapsOf(before) &&
-      afterPieBox <= beforePieBox;
+    const after = measureDefectGate(placements, cfg, coord);
+    const adopt = after.d.clips < before.d.clips && gateNotWorseExceptClips(after, before);
     if (adopt) {
       before = after;
-      beforePieBox = afterPieBox;
     } else {
       placements[i] = p;
     }
@@ -2431,6 +2394,39 @@ function placementPixelRect(p: Placement, cfg: PieLayoutConfig, coord: Coord): P
 /** non-clip/crossing/pie の純粋な box 重なり件数 (`countDefects` の分解)。 */
 function overlapsOf(d: DefectCounts): number {
   return d.total - d.clips - d.crossings - d.pie;
+}
+
+/**
+ * ローリング do-no-harm ゲートの複合測定 (`applyTwoLineNameFallback` /
+ * `applyLowerLeftDropFallback` / `applyVerticalDeclipFallback` が共有)。countDefects に加え、
+ * countDefects が数えない box 円侵入件数と leader box 貫通件数も 1 回で測る (全て純粋読み取り)。
+ * through を読むかはパス固有 (declip 系のみ) — 測定は常に行うが述語には焼き込まない。
+ */
+interface DefectGate {
+  d: DefectCounts;
+  pieBox: number;
+  through: number;
+}
+function measureDefectGate(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): DefectGate {
+  return {
+    d: countDefects(placements, cfg, coord),
+    pieBox: countBoxPieIntrusions(placements, cfg, coord),
+    through: countLeaderThroughLabels(placements, cfg, coord),
+  };
+}
+
+/**
+ * do-no-harm 共通部品: clips 以外の共有カテゴリ (交差 / leader 円貫通 / box 重なり / box 円侵入)
+ * の非悪化。clips の扱い (厳密減か非増加か)・through 非悪化・パス固有の改善条件は述語の仕様
+ * そのものなので、呼び出し側が && で合成する。
+ */
+function gateNotWorseExceptClips(after: DefectGate, before: DefectGate): boolean {
+  return (
+    after.d.crossings <= before.d.crossings &&
+    after.d.pie <= before.d.pie &&
+    overlapsOf(after.d) <= overlapsOf(before.d) &&
+    after.pieBox <= before.pieBox
+  );
 }
 
 /**
