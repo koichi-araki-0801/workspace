@@ -2407,7 +2407,11 @@ interface DefectGate {
   pieBox: number;
   through: number;
 }
-function measureDefectGate(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): DefectGate {
+function measureDefectGate(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): DefectGate {
   return {
     d: countDefects(placements, cfg, coord),
     pieBox: countBoxPieIntrusions(placements, cfg, coord),
@@ -3274,6 +3278,335 @@ function collectDefectInvolved(
   return { order, involved };
 }
 
+// `RepairVec` の射影 (crossPie = cross + pieCross の合算)。フィールド名は `residualBetter` 述語の
+// 従来表記を保つ。boxPie は verify の "label inside pie" に対応する非悪化ゲート。
+interface ResidualVec {
+  crossPie: number;
+  through: number;
+  inv: number;
+  clips: number;
+  oob: number;
+  ovl: number;
+  view: number;
+  boxPie: number;
+}
+
+/**
+ * `repairResidualLeaderDefects` の各修復手 (単独手/複合手) が共有するコンテキスト。tol/tolPx/pxUnit
+ * は同関数冒頭の導出値、vecOf は現在の placements の `ResidualVec` 採点、better は採否述語
+ * (辞書式改善 + 非悪化)。クロージャで束ねず引数で渡すことで各手を単体テスト可能にする。
+ */
+interface ResidualRepairCtx {
+  placements: Placement[];
+  cfg: PieLayoutConfig;
+  coord: Coord;
+  tol: number;
+  tolPx: number;
+  pxUnit: number;
+  vecOf: () => ResidualVec;
+  better: (a: ResidualVec, b: ResidualVec) => boolean;
+}
+
+// p の bend を格子から選び直し、cur より良くなる候補があれば適用したまま true を返す。
+// 無ければ元の bend/フラグへ戻して false。 (単独手・複合手の両方から使う)
+function tryBendGridOn(ctx: ResidualRepairCtx, p: Placement): boolean {
+  const { cfg, pxUnit, vecOf, better } = ctx;
+  const drawn2 = computeDrawnLeader(p, cfg, false);
+  if (drawn2.skipLeader || drawn2.pathPoints.length < 2) return false;
+  const a2 = drawn2.pathPoints[0];
+  const e2 = drawn2.detectPathPoints[drawn2.detectPathPoints.length - 1];
+  const tA = Math.atan2(a2.y, a2.x);
+  const tE = Math.atan2(e2.y, e2.x);
+  let dT = tE - tA;
+  while (dT > Math.PI) dT -= 2 * Math.PI;
+  while (dT < -Math.PI) dT += 2 * Math.PI;
+  if (Math.abs(dT) < 0.05 || Math.abs(dT) > LEADER_MAX_ANGULAR_DIFF_RAD) return false;
+  const sv = {
+    bend: { ...p.leaderBend },
+    fy: p.leaderBendFollowsEndpointY,
+    fx: p.leaderBendFollowsEndpointX,
+  };
+  const cur2 = vecOf();
+  for (const f of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+    for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
+      const th = tA + dT * f;
+      const rr = cfg.pieRadius + rPx * pxUnit;
+      p.leaderBend = { x: rr * Math.cos(th), y: rr * Math.sin(th) };
+      p.leaderBendFollowsEndpointY = false;
+      p.leaderBendFollowsEndpointX = false;
+      if (better(vecOf(), cur2)) return true;
+    }
+  }
+  p.leaderBend = sv.bend;
+  p.leaderBendFollowsEndpointY = sv.fy;
+  p.leaderBendFollowsEndpointX = sv.fx;
+  return false;
+}
+
+// 単独手: 関与 leader を名前順に、bend 格子 → 水平 pie-clear シフト → 左 rim 再ハグ の順で試し、
+// cur を辞書式に改善する最初の 1 手を採用して true を返す (採用ゼロなら false)。
+function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: ResidualVec): boolean {
+  const { placements, cfg, coord, pxUnit, vecOf, better } = ctx;
+  for (const i of order) {
+    const p = placements[i];
+    if (p.insideSlice || p.forceTopRight) continue;
+    let adopted = false;
+    const drawn = computeDrawnLeader(p, cfg, false);
+    const a = drawn.pathPoints[0];
+    const e = drawn.detectPathPoints[drawn.detectPathPoints.length - 1];
+    const thA = Math.atan2(a.y, a.x);
+    const thE = Math.atan2(e.y, e.x);
+    let dTh = thE - thA;
+    while (dTh > Math.PI) dTh -= 2 * Math.PI;
+    while (dTh < -Math.PI) dTh += 2 * Math.PI;
+    // 角度差が小さい leader は bend の置き場が無く、大きすぎると 1 曲げで円を回り込めない。
+    const bendFeasible =
+      !drawn.skipLeader &&
+      drawn.pathPoints.length >= 2 &&
+      Math.abs(dTh) >= 0.05 &&
+      Math.abs(dTh) <= LEADER_MAX_ANGULAR_DIFF_RAD;
+    const save = {
+      bend: { ...p.leaderBend },
+      fy: p.leaderBendFollowsEndpointY,
+      fx: p.leaderBendFollowsEndpointX,
+    };
+    outer: for (const f of bendFeasible ? [0.5, 0.35, 0.65, 0.2, 0.8] : []) {
+      for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
+        const th = thA + dTh * f;
+        const rr = cfg.pieRadius + rPx * pxUnit;
+        p.leaderBend = { x: rr * Math.cos(th), y: rr * Math.sin(th) };
+        p.leaderBendFollowsEndpointY = false;
+        p.leaderBendFollowsEndpointX = false;
+        const v = vecOf();
+        if (better(v, cur)) {
+          if (process.env.PIE_CHART_DEBUG_REPAIR) {
+            console.error(
+              `[rebend] "${p.item.name}" f=${f} r=+${rPx}px: ` +
+                `crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through} => ADOPT`,
+            );
+          }
+          adopted = true;
+          break outer;
+        }
+      }
+    }
+    if (!adopted) {
+      p.leaderBend = save.bend;
+      p.leaderBendFollowsEndpointY = save.fy;
+      p.leaderBendFollowsEndpointX = save.fx;
+      // 候補2a: 水平 pie-clear シフト。leader 形状 (bend/フラグ) は再構築せず、箱だけを真横へ
+      // 最小移動して円外クリアランスへ出す (untangle の footprint スワップは X を素通しで交換
+      // するため、円に食い込んだ箱が残ることがある)。Y を変えないので leader の縦経路が乱れず、
+      // radial nudge より副作用が小さい。
+      if (!adopted && p.x < 0) {
+        const snapN = seamSnapshot(placements);
+        p.maxTextX = undefined;
+        p.minTextX = undefined;
+        p.maxTextY = undefined;
+        p.minTextY = undefined;
+        const lb = placementBox(p, cfg);
+        const clearance = pxToLogical(cfg, 4);
+        // 箱の Y 範囲のうち円中心に最も近い縁の高さで必要な円縁 X を求める。
+        const spansZero = lb.top > 0 && lb.bottom < 0;
+        const edgeY = spansZero ? 0 : Math.min(Math.abs(lb.top), Math.abs(lb.bottom));
+        const rimX = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - edgeY * edgeY));
+        const targetRight = -(rimX + clearance);
+        if (lb.right > targetRight) {
+          p.x += targetRight - lb.right;
+          clampPlacement(p);
+          let v = vecOf();
+          let ok = better(v, cur);
+          // シフトで leader が隣と絡んだ場合は、自分と交差相手の bend 替えを重ねて複合手として
+          // 再評価する (相手の bend が旧位置の箱を前提に張り出していることがある)。
+          if (!ok) {
+            tryBendGridOn(ctx, p);
+            const myPath = realLeaderPaths(placements, cfg, coord)[i];
+            if (myPath) {
+              const allPaths = realLeaderPaths(placements, cfg, coord);
+              for (let j = 0; j < placements.length; j += 1) {
+                if (j === i) continue;
+                const q = allPaths[j];
+                if (
+                  q &&
+                  pathsCross(myPath, q) &&
+                  !placements[j].insideSlice &&
+                  !placements[j].forceTopRight
+                ) {
+                  tryBendGridOn(ctx, placements[j]);
+                }
+              }
+            }
+            v = vecOf();
+            ok = better(v, cur);
+          }
+          if (process.env.PIE_CHART_DEBUG_REPAIR) {
+            console.error(
+              `[pienudge] "${p.item.name}" dx=${((targetRight - lb.right) * cfg.pxPerUnit).toFixed(1)}px: crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, boxPie ${cur.boxPie.toFixed(3)}->${v.boxPie.toFixed(3)} => ${ok ? 'ADOPT' : 'REJECT'}`,
+            );
+          }
+          if (ok) {
+            adopted = true;
+          } else {
+            seamRestore(snapN);
+          }
+        } else {
+          seamRestore(snapN); // 動かす必要が無い場合もクランプ解除を巻き戻す
+        }
+      }
+      // 候補2b: 左 rim 再ハグ。bend 替えで直らない時、現在の Y のまま箱を円外クリアランス X へ
+      // 置き直す。円に食い込んだ箱 (label inside pie) を外へ出し、他 leader の回廊を塞ぐ
+      // 被害者箱を退かす。
+      if (!adopted && p.x < 0) {
+        adopted = trySeamMutation(
+          placements,
+          () => reshapeToLeftRimHug(p, cfg, placementBox(p, cfg).top),
+          () => {
+            const v = vecOf();
+            const ok = better(v, cur);
+            if (process.env.PIE_CHART_DEBUG_REPAIR) {
+              console.error(
+                `[rehug] "${p.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, ` +
+                  `boxPie ${cur.boxPie.toFixed(3)}->${v.boxPie.toFixed(3)}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
+                  `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
+              );
+            }
+            return ok;
+          },
+        );
+      }
+    }
+    if (adopted) return true; // 不具合集合が変わったので外側 iter で再列挙する
+  }
+  return false;
+}
+
+// 複合手: 交差対の footprint スワップ。bend 替え・nudge で直らない交差は、角度順が正順でも
+// 「上スライスのラベル枠が下スライスのアンカー上空を塞ぎ、その leader が相手アンカーの外側を
+// 横断する」密集構造で起きる (例 currency_many_small_10: カナダドル×豪ドル)。当事者 2 枚の
+// (x, y, baseline) を丸ごと交換すると両 leader が短い扇形へ組み替わり構造的に解ける。
+// 交差は ERROR・角度順逆転は WARN なので、この手に限り inv の悪化を許容する (他指標は非悪化)。
+function trySwapCrossingPairs(ctx: ResidualRepairCtx, cur: ResidualVec): boolean {
+  const { placements, cfg, coord, tol, tolPx, vecOf } = ctx;
+  const allPaths = realLeaderPaths(placements, cfg, coord);
+  const pairs: [number, number][] = [];
+  for (let i = 0; i < allPaths.length; i += 1) {
+    const pa = allPaths[i];
+    if (!pa) continue;
+    for (let j = i + 1; j < allPaths.length; j += 1) {
+      const pb = allPaths[j];
+      if (pb && pathsCross(pa, pb)) pairs.push([i, j]);
+    }
+  }
+  pairs.sort((m, n) =>
+    `${placements[m[0]].item.name} ${placements[m[1]].item.name}`.localeCompare(
+      `${placements[n[0]].item.name} ${placements[n[1]].item.name}`,
+      'ja',
+    ),
+  );
+  // 交差 (ERROR) の解消を最優先し、through (WARN) への振替は「線不具合の総数が増えない」
+  // 範囲で許す (交差 1 件 → through 1 件 への置換は純改善)。振替で生じた through は次 iter の
+  // bend 替え (better() の through 厳密減クォーラム) が掃除を試みる。
+  const swapBetter = (a: ResidualVec, b: ResidualVec): boolean =>
+    a.crossPie < b.crossPie &&
+    a.crossPie + a.through <= b.crossPie + b.through &&
+    a.clips <= b.clips &&
+    a.oob <= b.oob &&
+    a.ovl <= b.ovl + tol &&
+    a.view <= b.view + tolPx &&
+    a.boxPie <= b.boxPie + tol;
+  for (const [ia, ib] of pairs) {
+    const pa = placements[ia];
+    const pb = placements[ib];
+    if (pa.insideSlice || pb.insideSlice || pa.forceTopRight || pb.forceTopRight) continue;
+    const adopted = trySeamMutation(
+      placements,
+      () => {
+        [pa.x, pb.x] = [pb.x, pa.x];
+        [pa.y, pb.y] = [pb.y, pa.y];
+        const tb = pa.baseline;
+        pa.baseline = pb.baseline;
+        pb.baseline = tb;
+      },
+      () => {
+        const v = vecOf();
+        const ok = swapBetter(v, cur);
+        if (process.env.PIE_CHART_DEBUG_REPAIR) {
+          console.error(
+            `[crossswap] "${pa.item.name}"<->"${pb.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, ` +
+              `through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
+              `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
+          );
+        }
+        return ok;
+      },
+    );
+    if (adopted) return true;
+  }
+  return false;
+}
+
+// 複合手: 左列の再積み上げ。bend 単独では直らない交差 (例 page16: escape で左上が空いたのに
+// 残った 2 枚が下のスロットに留まり、長い leader 同士がサブピクセル余裕で絡む) は、左列全体を
+// 角度順に上から詰め直すと leader が短い扇形になり構造的に解ける。canvas 上端起点と現在の
+// 列上端起点の 2 候補を試し、辞書式で厳密に改善する方だけ採用 (do-no-harm・全 revert)。
+function tryRestackLeftColumn(
+  ctx: ResidualRepairCtx,
+  involved: Set<number>,
+  cur: ResidualVec,
+): boolean {
+  const { placements, cfg, vecOf, better } = ctx;
+  // 左列「全体」を対象にする (不具合の当事者だけ動かすと残りの箱と重なって却下される)。
+  // 発火条件は「列の誰かが不具合に関与している」こと。
+  const stack = placements.filter(
+    (p) => !p.insideSlice && !p.forceTopRight && p.x < 0 && !isOtherCategory(p.item.name),
+  );
+  const anyInvolved = stack.some((p) => [...involved].some((i) => placements[i] === p));
+  if (stack.length < 2 || !anyInvolved) return false;
+  const byAngle = [...stack].sort(
+    (m, n) => Math.sin(degToRad(n.item.midAngle ?? 0)) - Math.sin(degToRad(m.item.midAngle ?? 0)),
+  );
+  const curTop = Math.max(...stack.map((p) => placementBox(p, cfg).top));
+  // 円より上のスロットは rim ハグ X が 0 (中央) になり、右上エスケープの riser/斜線の
+  // 直下まで箱が広がって貫通する。エスケープ riser (anchor x) の左へ右端をキャップする。
+  const escapeAnchors = placements
+    .filter((q) => q.forceTopRight && !q.insideSlice)
+    .map((q) => q.leaderAnchor.x);
+  const rightCap =
+    escapeAnchors.length > 0
+      ? Math.min(...escapeAnchors) - radialFraction(cfg, 0.03, 0.3)
+      : Number.POSITIVE_INFINITY;
+  for (const top of [cfg.canvasYlim[1], curTop]) {
+    const adopted = trySeamMutation(
+      placements,
+      () => {
+        let y = top;
+        for (const p of byAngle) {
+          reshapeToLeftRimHug(p, cfg, y);
+          if (p.x > rightCap) {
+            p.x = rightCap;
+            p.origTextX = p.x;
+          }
+          y -= placementExtent(p, cfg).height + cfg.scaledMinGap;
+        }
+      },
+      () => {
+        const v = vecOf();
+        const ok = better(v, cur);
+        if (process.env.PIE_CHART_DEBUG_REPAIR) {
+          console.error(
+            `[restack-left] top=${top.toFixed(3)} stack=[${byAngle.map((p) => p.item.name).join(',')}]: ` +
+              `crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, ` +
+              `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
+          );
+        }
+        return ok;
+      },
+    );
+    if (adopted) return true;
+  }
+  return false;
+}
+
 function repairResidualLeaderDefects(
   placements: Placement[],
   cfg: PieLayoutConfig,
@@ -3282,21 +3615,7 @@ function repairResidualLeaderDefects(
   const tol = pxToLogical(cfg, 2);
   const tolPx = 2;
   const pxUnit = 1 / cfg.pxPerUnit;
-
-  // `RepairVec` の射影 (crossPie = cross + pieCross の合算)。フィールド名は better 述語の
-  // 従来表記を保つ。boxPie は verify の "label inside pie" に対応する非悪化ゲート。
-  interface Vec {
-    crossPie: number;
-    through: number;
-    inv: number;
-    clips: number;
-    oob: number;
-    ovl: number;
-    view: number;
-    boxPie: number;
-  }
-
-  const vecOf = (): Vec => {
+  const vecOf = (): ResidualVec => {
     const m = measureRepairVec(placements, cfg, coord);
     return {
       crossPie: m.cross + m.pieCross,
@@ -3310,7 +3629,7 @@ function repairResidualLeaderDefects(
     };
   };
   // 主目的は (交差+円貫通) → (箱貫通) → (箱の円内侵入) の辞書式改善。それ以外は全て非悪化。
-  const better = (a: Vec, b: Vec): boolean =>
+  const better = (a: ResidualVec, b: ResidualVec): boolean =>
     ((a.crossPie < b.crossPie && a.through <= b.through && a.boxPie <= b.boxPie + tol) ||
       (a.crossPie === b.crossPie && a.through < b.through && a.boxPie <= b.boxPie + tol) ||
       (a.crossPie === b.crossPie && a.through === b.through && a.boxPie < b.boxPie - tol)) &&
@@ -3319,298 +3638,7 @@ function repairResidualLeaderDefects(
     a.oob <= b.oob &&
     a.ovl <= b.ovl + tol &&
     a.view <= b.view + tolPx;
-
-  // p の bend を格子から選び直し、cur より良くなる候補があれば適用したまま true を返す。
-  // 無ければ元の bend/フラグへ戻して false。 (単独手・複合手の両方から使う)
-  const tryBendGridOn = (p: Placement): boolean => {
-    const drawn2 = computeDrawnLeader(p, cfg, false);
-    if (drawn2.skipLeader || drawn2.pathPoints.length < 2) return false;
-    const a2 = drawn2.pathPoints[0];
-    const e2 = drawn2.detectPathPoints[drawn2.detectPathPoints.length - 1];
-    const tA = Math.atan2(a2.y, a2.x);
-    const tE = Math.atan2(e2.y, e2.x);
-    let dT = tE - tA;
-    while (dT > Math.PI) dT -= 2 * Math.PI;
-    while (dT < -Math.PI) dT += 2 * Math.PI;
-    if (Math.abs(dT) < 0.05 || Math.abs(dT) > LEADER_MAX_ANGULAR_DIFF_RAD) return false;
-    const sv = {
-      bend: { ...p.leaderBend },
-      fy: p.leaderBendFollowsEndpointY,
-      fx: p.leaderBendFollowsEndpointX,
-    };
-    const cur2 = vecOf();
-    for (const f of [0.5, 0.35, 0.65, 0.2, 0.8]) {
-      for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
-        const th = tA + dT * f;
-        const rr = cfg.pieRadius + rPx * pxUnit;
-        p.leaderBend = { x: rr * Math.cos(th), y: rr * Math.sin(th) };
-        p.leaderBendFollowsEndpointY = false;
-        p.leaderBendFollowsEndpointX = false;
-        if (better(vecOf(), cur2)) return true;
-      }
-    }
-    p.leaderBend = sv.bend;
-    p.leaderBendFollowsEndpointY = sv.fy;
-    p.leaderBendFollowsEndpointX = sv.fx;
-    return false;
-  };
-
-  // 単独手: 関与 leader を名前順に、bend 格子 → 水平 pie-clear シフト → 左 rim 再ハグ の順で試し、
-  // cur を辞書式に改善する最初の 1 手を採用して true を返す (採用ゼロなら false)。
-  const tryRebendInvolved = (order: number[], cur: Vec): boolean => {
-    for (const i of order) {
-      const p = placements[i];
-      if (p.insideSlice || p.forceTopRight) continue;
-      let adopted = false;
-      const drawn = computeDrawnLeader(p, cfg, false);
-      const a = drawn.pathPoints[0];
-      const e = drawn.detectPathPoints[drawn.detectPathPoints.length - 1];
-      const thA = Math.atan2(a.y, a.x);
-      const thE = Math.atan2(e.y, e.x);
-      let dTh = thE - thA;
-      while (dTh > Math.PI) dTh -= 2 * Math.PI;
-      while (dTh < -Math.PI) dTh += 2 * Math.PI;
-      // 角度差が小さい leader は bend の置き場が無く、大きすぎると 1 曲げで円を回り込めない。
-      const bendFeasible =
-        !drawn.skipLeader &&
-        drawn.pathPoints.length >= 2 &&
-        Math.abs(dTh) >= 0.05 &&
-        Math.abs(dTh) <= LEADER_MAX_ANGULAR_DIFF_RAD;
-      const save = {
-        bend: { ...p.leaderBend },
-        fy: p.leaderBendFollowsEndpointY,
-        fx: p.leaderBendFollowsEndpointX,
-      };
-      outer: for (const f of bendFeasible ? [0.5, 0.35, 0.65, 0.2, 0.8] : []) {
-        for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
-          const th = thA + dTh * f;
-          const rr = cfg.pieRadius + rPx * pxUnit;
-          p.leaderBend = { x: rr * Math.cos(th), y: rr * Math.sin(th) };
-          p.leaderBendFollowsEndpointY = false;
-          p.leaderBendFollowsEndpointX = false;
-          const v = vecOf();
-          if (better(v, cur)) {
-            if (process.env.PIE_CHART_DEBUG_REPAIR) {
-              console.error(
-                `[rebend] "${p.item.name}" f=${f} r=+${rPx}px: ` +
-                  `crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through} => ADOPT`,
-              );
-            }
-            adopted = true;
-            break outer;
-          }
-        }
-      }
-      if (!adopted) {
-        p.leaderBend = save.bend;
-        p.leaderBendFollowsEndpointY = save.fy;
-        p.leaderBendFollowsEndpointX = save.fx;
-        // 候補2a: 水平 pie-clear シフト。leader 形状 (bend/フラグ) は再構築せず、箱だけを真横へ
-        // 最小移動して円外クリアランスへ出す (untangle の footprint スワップは X を素通しで交換
-        // するため、円に食い込んだ箱が残ることがある)。Y を変えないので leader の縦経路が乱れず、
-        // radial nudge より副作用が小さい。
-        if (!adopted && p.x < 0) {
-          const snapN = seamSnapshot(placements);
-          p.maxTextX = undefined;
-          p.minTextX = undefined;
-          p.maxTextY = undefined;
-          p.minTextY = undefined;
-          const lb = placementBox(p, cfg);
-          const clearance = pxToLogical(cfg, 4);
-          // 箱の Y 範囲のうち円中心に最も近い縁の高さで必要な円縁 X を求める。
-          const spansZero = lb.top > 0 && lb.bottom < 0;
-          const edgeY = spansZero ? 0 : Math.min(Math.abs(lb.top), Math.abs(lb.bottom));
-          const rimX = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - edgeY * edgeY));
-          const targetRight = -(rimX + clearance);
-          if (lb.right > targetRight) {
-            p.x += targetRight - lb.right;
-            clampPlacement(p);
-            let v = vecOf();
-            let ok = better(v, cur);
-            // シフトで leader が隣と絡んだ場合は、自分と交差相手の bend 替えを重ねて複合手として
-            // 再評価する (相手の bend が旧位置の箱を前提に張り出していることがある)。
-            if (!ok) {
-              tryBendGridOn(p);
-              const myPath = realLeaderPaths(placements, cfg, coord)[i];
-              if (myPath) {
-                const allPaths = realLeaderPaths(placements, cfg, coord);
-                for (let j = 0; j < placements.length; j += 1) {
-                  if (j === i) continue;
-                  const q = allPaths[j];
-                  if (
-                    q &&
-                    pathsCross(myPath, q) &&
-                    !placements[j].insideSlice &&
-                    !placements[j].forceTopRight
-                  ) {
-                    tryBendGridOn(placements[j]);
-                  }
-                }
-              }
-              v = vecOf();
-              ok = better(v, cur);
-            }
-            if (process.env.PIE_CHART_DEBUG_REPAIR) {
-              console.error(
-                `[pienudge] "${p.item.name}" dx=${((targetRight - lb.right) * cfg.pxPerUnit).toFixed(1)}px: crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, boxPie ${cur.boxPie.toFixed(3)}->${v.boxPie.toFixed(3)} => ${ok ? 'ADOPT' : 'REJECT'}`,
-              );
-            }
-            if (ok) {
-              adopted = true;
-            } else {
-              seamRestore(snapN);
-            }
-          } else {
-            seamRestore(snapN); // 動かす必要が無い場合もクランプ解除を巻き戻す
-          }
-        }
-        // 候補2b: 左 rim 再ハグ。bend 替えで直らない時、現在の Y のまま箱を円外クリアランス X へ
-        // 置き直す。円に食い込んだ箱 (label inside pie) を外へ出し、他 leader の回廊を塞ぐ
-        // 被害者箱を退かす。
-        if (!adopted && p.x < 0) {
-          adopted = trySeamMutation(
-            placements,
-            () => reshapeToLeftRimHug(p, cfg, placementBox(p, cfg).top),
-            () => {
-              const v = vecOf();
-              const ok = better(v, cur);
-              if (process.env.PIE_CHART_DEBUG_REPAIR) {
-                console.error(
-                  `[rehug] "${p.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, ` +
-                    `boxPie ${cur.boxPie.toFixed(3)}->${v.boxPie.toFixed(3)}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
-                    `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
-                );
-              }
-              return ok;
-            },
-          );
-        }
-      }
-      if (adopted) return true; // 不具合集合が変わったので外側 iter で再列挙する
-    }
-    return false;
-  };
-
-  // 複合手: 交差対の footprint スワップ。bend 替え・nudge で直らない交差は、角度順が正順でも
-  // 「上スライスのラベル枠が下スライスのアンカー上空を塞ぎ、その leader が相手アンカーの外側を
-  // 横断する」密集構造で起きる (例 currency_many_small_10: カナダドル×豪ドル)。当事者 2 枚の
-  // (x, y, baseline) を丸ごと交換すると両 leader が短い扇形へ組み替わり構造的に解ける。
-  // 交差は ERROR・角度順逆転は WARN なので、この手に限り inv の悪化を許容する (他指標は非悪化)。
-  const trySwapCrossingPairs = (cur: Vec): boolean => {
-    const allPaths = realLeaderPaths(placements, cfg, coord);
-    const pairs: [number, number][] = [];
-    for (let i = 0; i < allPaths.length; i += 1) {
-      const pa = allPaths[i];
-      if (!pa) continue;
-      for (let j = i + 1; j < allPaths.length; j += 1) {
-        const pb = allPaths[j];
-        if (pb && pathsCross(pa, pb)) pairs.push([i, j]);
-      }
-    }
-    pairs.sort((m, n) =>
-      `${placements[m[0]].item.name} ${placements[m[1]].item.name}`.localeCompare(
-        `${placements[n[0]].item.name} ${placements[n[1]].item.name}`,
-        'ja',
-      ),
-    );
-    // 交差 (ERROR) の解消を最優先し、through (WARN) への振替は「線不具合の総数が増えない」
-    // 範囲で許す (交差 1 件 → through 1 件 への置換は純改善)。振替で生じた through は次 iter の
-    // bend 替え (better() の through 厳密減クォーラム) が掃除を試みる。
-    const swapBetter = (a: Vec, b: Vec): boolean =>
-      a.crossPie < b.crossPie &&
-      a.crossPie + a.through <= b.crossPie + b.through &&
-      a.clips <= b.clips &&
-      a.oob <= b.oob &&
-      a.ovl <= b.ovl + tol &&
-      a.view <= b.view + tolPx &&
-      a.boxPie <= b.boxPie + tol;
-    for (const [ia, ib] of pairs) {
-      const pa = placements[ia];
-      const pb = placements[ib];
-      if (pa.insideSlice || pb.insideSlice || pa.forceTopRight || pb.forceTopRight) continue;
-      const adopted = trySeamMutation(
-        placements,
-        () => {
-          [pa.x, pb.x] = [pb.x, pa.x];
-          [pa.y, pb.y] = [pb.y, pa.y];
-          const tb = pa.baseline;
-          pa.baseline = pb.baseline;
-          pb.baseline = tb;
-        },
-        () => {
-          const v = vecOf();
-          const ok = swapBetter(v, cur);
-          if (process.env.PIE_CHART_DEBUG_REPAIR) {
-            console.error(
-              `[crossswap] "${pa.item.name}"<->"${pb.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, ` +
-                `through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
-                `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
-            );
-          }
-          return ok;
-        },
-      );
-      if (adopted) return true;
-    }
-    return false;
-  };
-
-  // 複合手: 左列の再積み上げ。bend 単独では直らない交差 (例 page16: escape で左上が空いたのに
-  // 残った 2 枚が下のスロットに留まり、長い leader 同士がサブピクセル余裕で絡む) は、左列全体を
-  // 角度順に上から詰め直すと leader が短い扇形になり構造的に解ける。canvas 上端起点と現在の
-  // 列上端起点の 2 候補を試し、辞書式で厳密に改善する方だけ採用 (do-no-harm・全 revert)。
-  const tryRestackLeftColumn = (involved: Set<number>, cur: Vec): boolean => {
-    // 左列「全体」を対象にする (不具合の当事者だけ動かすと残りの箱と重なって却下される)。
-    // 発火条件は「列の誰かが不具合に関与している」こと。
-    const stack = placements.filter(
-      (p) => !p.insideSlice && !p.forceTopRight && p.x < 0 && !isOtherCategory(p.item.name),
-    );
-    const anyInvolved = stack.some((p) => [...involved].some((i) => placements[i] === p));
-    if (stack.length < 2 || !anyInvolved) return false;
-    const byAngle = [...stack].sort(
-      (m, n) => Math.sin(degToRad(n.item.midAngle ?? 0)) - Math.sin(degToRad(m.item.midAngle ?? 0)),
-    );
-    const curTop = Math.max(...stack.map((p) => placementBox(p, cfg).top));
-    // 円より上のスロットは rim ハグ X が 0 (中央) になり、右上エスケープの riser/斜線の
-    // 直下まで箱が広がって貫通する。エスケープ riser (anchor x) の左へ右端をキャップする。
-    const escapeAnchors = placements
-      .filter((q) => q.forceTopRight && !q.insideSlice)
-      .map((q) => q.leaderAnchor.x);
-    const rightCap =
-      escapeAnchors.length > 0
-        ? Math.min(...escapeAnchors) - radialFraction(cfg, 0.03, 0.3)
-        : Number.POSITIVE_INFINITY;
-    for (const top of [cfg.canvasYlim[1], curTop]) {
-      const adopted = trySeamMutation(
-        placements,
-        () => {
-          let y = top;
-          for (const p of byAngle) {
-            reshapeToLeftRimHug(p, cfg, y);
-            if (p.x > rightCap) {
-              p.x = rightCap;
-              p.origTextX = p.x;
-            }
-            y -= placementExtent(p, cfg).height + cfg.scaledMinGap;
-          }
-        },
-        () => {
-          const v = vecOf();
-          const ok = better(v, cur);
-          if (process.env.PIE_CHART_DEBUG_REPAIR) {
-            console.error(
-              `[restack-left] top=${top.toFixed(3)} stack=[${byAngle.map((p) => p.item.name).join(',')}]: ` +
-                `crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, ` +
-                `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
-            );
-          }
-          return ok;
-        },
-      );
-      if (adopted) return true;
-    }
-    return false;
-  };
+  const ctx: ResidualRepairCtx = { placements, cfg, coord, tol, tolPx, pxUnit, vecOf, better };
 
   // do-no-harm の反復本体: 毎 iter で不具合関与集合を再列挙し、単独手 → 交差スワップ → 左列再積み
   // の順に「最初に改善した 1 手」を採る。どの手も改善しなければ収束として終了 (最大 6 周)。
@@ -3623,9 +3651,9 @@ function repairResidualLeaderDefects(
         `[rebend:iter${iter}] cur={crossPie:${cur.crossPie}, through:${cur.through}, inv:${cur.inv}} involved=[${order.map((i) => placements[i].item.name).join(',')}]`,
       );
     }
-    let improved = tryRebendInvolved(order, cur);
-    if (!improved) improved = trySwapCrossingPairs(cur);
-    if (!improved) improved = tryRestackLeftColumn(involved, cur);
+    let improved = tryRebendInvolved(ctx, order, cur);
+    if (!improved) improved = trySwapCrossingPairs(ctx, cur);
+    if (!improved) improved = tryRestackLeftColumn(ctx, involved, cur);
     if (!improved) return;
   }
 }
@@ -3887,7 +3915,10 @@ const EMIT_REPAIR_PASSES: readonly EmitRepairPass[] = [
   // 12時シーム近傍の小スライスが左帯へ押し出されて near-horizontal leader が交差する場合、
   // 当該スライスを右上空白へ "up-and-over" で逃がして交差を解消する (do-no-harm)。
   // emit では thorough=true (累積プレフィックス探索 + 1 行化フォールバック) を使う。
-  { name: 'escapeTopBandSeamLeader.thorough', run: (p, cfg, v) => escapeTopBandSeamLeader(p, cfg, v, true) },
+  {
+    name: 'escapeTopBandSeamLeader.thorough',
+    run: (p, cfg, v) => escapeTopBandSeamLeader(p, cfg, v, true),
+  },
 
   // leftStackMode 限定の最終手段: untangle で直せない幅広/混在行の左上逆転を、角度順 re-stack +
   // 長体圧縮で解消する (do-no-harm・悪化したら全 revert)。emit でのみ・スコアリングには干渉しない。

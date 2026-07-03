@@ -925,6 +925,23 @@ function topBandLeftSlivers(
   );
 }
 
+/**
+ * leftStackMode / topBandClusterMode いずれかの密集別系統モードか。mark*** 系の共通除外ゲート
+ * (≥4 件密集はそれぞれ専用の再配置を持つため、1強型の特例マーカーは発火させない)。
+ */
+function isDenseClusterMode(diag: Diagnostics): boolean {
+  return diag.leftStackMode === true || diag.topBandClusterMode === true;
+}
+
+/**
+ * 1強チャート判定: 最大スライス (`rankValuesFull` 先頭) が minPct% 以上を占めるか。mark*** 系の
+ * ドミナント帯ゲート。閾値 (90 / 80 / 80–90 帯) はサンプル対応の履歴と共に呼び出し側へ残す —
+ * 定数へ集約すると「どのサンプルがどの帯で発火するか」の文脈がゲートから見えなくなる。
+ */
+function isDominantTop(diag: Diagnostics, minPct: number): boolean {
+  return (diag.rankValuesFull?.[0] ?? 0) >= minPct;
+}
+
 /** 12時 (90°) に最も近い (|midAngle-90| 最小) 要素を返す。同距離は先勝ち。呼び出し側は非空を保証する。 */
 function nearestToTwelveOClock(items: LayoutItemReady[]): LayoutItemReady {
   let best = items[0];
@@ -1030,8 +1047,8 @@ function markClippedUpperLeftLongDrop(
  *  - 上左 (mid>90) の small・top-band (72–108°)・非「その他」・非長名 スライスがちょうど 2 枚
  */
 function markForcedTopSliverLeader(left: LayoutItemReady[], diagnostics: Diagnostics): void {
-  if (diagnostics.leftStackMode || diagnostics.topBandClusterMode) return;
-  if ((diagnostics.rankValuesFull?.[0] ?? 0) < 90) return;
+  if (isDenseClusterMode(diagnostics)) return;
+  if (!isDominantTop(diagnostics, 90)) return;
   if (diagnostics.totalCount !== 3) return;
   // !isLong: 本 leader 付与は各スライスを 1 行ラベルで左右に振り分ける。長名は 1 行化で過剰長体
   // (scaleX 下限 0.6) になり可読性が落ちるため対象外 (例 asset_domestic「国内投資信託証券」)。
@@ -1076,8 +1093,8 @@ function markForcedTopSliverLeader(left: LayoutItemReady[], diagnostics: Diagnos
  *  - 同帯に長名の small スライバが 1 枚以上 (= 周辺3枚のうち1枚が長名である証人)
  */
 function markForcedTopSliverEscapeRight(left: LayoutItemReady[], diagnostics: Diagnostics): void {
-  if (diagnostics.leftStackMode || diagnostics.topBandClusterMode) return;
-  if ((diagnostics.rankValuesFull?.[0] ?? 0) < 90) return;
+  if (isDenseClusterMode(diagnostics)) return;
+  if (!isDominantTop(diagnostics, 90)) return;
   if (diagnostics.totalCount !== 4) return;
   const slivers = topBandLeftSlivers(left, 'small', 'exclude');
   if (slivers.length !== 2) return;
@@ -1118,7 +1135,7 @@ function markLeftStackTopBandEscapeRight(
 ): void {
   if (diagnostics.leftStackMode !== true) return;
   if (diagnostics.topBandClusterMode === true) return;
-  if ((diagnostics.rankValuesFull?.[0] ?? 0) >= 80) return;
+  if (isDominantTop(diagnostics, 80)) return;
   if (candidates.filter((it) => !it.isSmall).length > 2) return;
   if (candidates.some((it) => it.side === 'right' && it.isSmall && !isOtherCategory(it.name))) {
     return;
@@ -1161,9 +1178,9 @@ function markLoneTopSliverLeader(
   left: LayoutItemReady[],
   diagnostics: Diagnostics,
 ): void {
-  if (diagnostics.leftStackMode || diagnostics.topBandClusterMode) return;
-  const dominant = diagnostics.rankValuesFull?.[0] ?? 0;
-  if (dominant < 80 || dominant >= 90) return;
+  if (isDenseClusterMode(diagnostics)) return;
+  // 80–90 帯限定 (90 以上は markDominantTopSliverWithOther 系の管轄)。
+  if (!isDominantTop(diagnostics, 80) || isDominantTop(diagnostics, 90)) return;
   if (diagnostics.totalCount !== 4) return;
   const slivers = topBandLeftSlivers(left, 'tiny', 'exclude');
   if (slivers.length !== 1) return;
@@ -1207,8 +1224,8 @@ function markDominantTopSliverWithOther(
   left: LayoutItemReady[],
   diagnostics: Diagnostics,
 ): void {
-  if (diagnostics.leftStackMode || diagnostics.topBandClusterMode) return;
-  if ((diagnostics.rankValuesFull?.[0] ?? 0) < 90) return;
+  if (isDenseClusterMode(diagnostics)) return;
+  if (!isDominantTop(diagnostics, 90)) return;
   if (diagnostics.totalCount !== 3) return;
   const slivers = topBandLeftSlivers(left, 'small', 'exclude');
   if (slivers.length !== 1) return;
