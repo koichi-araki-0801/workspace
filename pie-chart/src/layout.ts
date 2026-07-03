@@ -42,6 +42,7 @@ import {
   radToDeg,
   labelCongestionOffsetDeg,
   isOtherCategory,
+  pxToLogical,
 } from './svg_geom.js';
 import {
   TOP_BAND_HALF_WIDTH_DEG,
@@ -887,7 +888,7 @@ function markUpperLeftStackRimY(
       Number.isFinite(it.upperLeftRenderY),
   );
   if (eligible.length < 2) return;
-  const overlapTol = 8 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const overlapTol = pxToLogical(cfg, 8);
   const minSep = labelHeightUnits(2, cfg) + overlapTol;
   const rimY = (it: LayoutItemReady) => Math.sin(degToRad(it.midAngle)) * cfg.pieRadius;
   const sorted = [...eligible].sort((a, b) => rimY(b) - rimY(a)); // 上 → 下
@@ -1253,7 +1254,7 @@ function markBottomCenterBelow(
   const clearance = radialFraction(cfg, 0.012, 0.12);
   const boxTop = -(cfg.pieRadius + clearance);
   const boxBottom = boxTop - labelHeightUnits(Math.min(2, it.textLines ?? 2), cfg);
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   if (boxBottom < cfg.canvasYlim[0] - tol) return;
   it.bottomCenterBelow = true;
 }
@@ -1397,7 +1398,7 @@ function hasDominantOutsideEdgeOverflow1Line(
 ): boolean {
   const [xmin, xmax] = cfg.canvasXlim;
   // svg_export 側 DOMINANT_OUTSIDE_OVERFLOW_TOLERANCE_PX (=4px) と同値で揃える。
-  const tol = 4 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 4);
   for (const item of candidates) {
     if ((item.percent ?? 0) < DOMINANT_OUTSIDE_EDGE_MIN_PCT) continue;
     const angle = normalizeAngle(item.midAngle ?? 0);

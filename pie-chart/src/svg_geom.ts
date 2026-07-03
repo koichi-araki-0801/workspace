@@ -38,6 +38,15 @@ export interface InsideFit {
 }
 
 /**
+ * px を論理単位へ変換する。式は従来各所へインライン展開されていた
+ * `px / (cfg.mmPerUnit * cfg.svgUnitsPerMm)` と同一 (演算順序を変えないので出力 byte 不変)。
+ * do-no-harm ゲートの tolerance など、px 基準の閾値を論理座標へ持ち込む時に使う。
+ */
+export function pxToLogical(cfg: PieLayoutConfig, px: number): number {
+  return px / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+}
+
+/**
  * 文字単位で視覚 em 幅を返す。第一に埋め込みフォントの実 glyph advance テーブル
  * GLYPH_ADVANCE_BY_WEIGHT を `cfg.fontWeight` (400/700) で引き分ける (実描画幅そのもの)。
  * テーブルは非 1.0 em の codepoint のみ収録 (漢字は実測一律 1.0)。未収録 codepoint は従来の

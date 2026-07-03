@@ -28,6 +28,7 @@ import {
   labelCongestionOffsetDeg,
   isOtherCategory,
   boxOverlapAmount,
+  pxToLogical,
 } from '../svg_geom.js';
 import {
   leaderPath,
@@ -167,7 +168,7 @@ function nextCascadeRank(state: CascadeState): number {
 
 /** 外側 placement が「失敗」か (= viewBox はみ出し / pie 侵入 / 他ラベルと閾値以上重なり)。 */
 function isCascadeFailed(placement: Placement, others: Placement[], cfg: PieLayoutConfig): boolean {
-  const px = (n: number) => n / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const px = (n: number) => pxToLogical(cfg, n);
   const vboxTol = px(2);
   const overlapTol = px(8);
   const box = placementBox(placement, cfg);
@@ -1232,7 +1233,7 @@ function separateCrossingPairs(
   );
   if (stack.length < 2) return;
   const inStack = new Set(stack);
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   const yLo = cfg.canvasYlim[0];
   const yHi = cfg.canvasYlim[1];
   // 全 placement 対の最大縦重なり (X が重なる対のみ)。resolveLabelOverlaps が他ラベルも動かすため
@@ -1337,7 +1338,7 @@ function untangleAngularOrderBySwap(
   );
   if (stack.length < 2) return;
 
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   const tolPx = 2;
   const yLo = cfg.canvasYlim[0];
   const yHi = cfg.canvasYlim[1];
@@ -1515,7 +1516,7 @@ function reorderLeftStackWithCondense(
   );
   if (stack.length < 4) return;
 
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   const pieR = cfg.pieRadius;
 
   const maxOverlap = (): number => boxOverlapMax(placements, cfg);
@@ -1645,9 +1646,9 @@ function separateLeftColumnByHeight(
   };
   col.sort((a, b) => cy(b) - cy(a));
 
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
-  const overlapThresh = 6 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
-  const sepGap = 6 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
+  const overlapThresh = pxToLogical(cfg, 6);
+  const sepGap = pxToLogical(cfg, 6);
 
   // 角度順 (上→下) に「上 box 底 − 下 box 天」の重なりを検出。閾値以上が無ければ触らない。
   const boxes = col.map((p) => placementBox(p, cfg));
@@ -1769,7 +1770,7 @@ function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutConfig): 
   for (let i = 1; i < stack.length; i += 1) steps.push(cy[i - 1] - cy[i]);
   const sorted = [...steps].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   if (median <= tol) return;
 
   // 過大ステップ (= median*EXCESS 超) 分を累積し、その下のラベルを上 (logical y 増) へ。
@@ -1929,7 +1930,7 @@ function relieveColumnOverlap(
   if (stack.length < 2) return;
   stack.sort((a, b) => b.y - a.y); // logical y 降順 = 視覚 上 → 下
 
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   const boxes = stack.map((p) => placementBox(p, cfg));
   const centers = boxes.map((b) => (b.top + b.bottom) / 2);
   const heights = boxes.map((b) => Math.abs(b.top - b.bottom));
@@ -2031,7 +2032,7 @@ function pullOutsideOverflowTowardPie(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): void {
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   const halfW = cfg.svgWidthPx / 2 / cfg.pxPerUnit;
   const pieR = cfg.pieRadius;
   // anchor=end → 左ラベル (pie 側辺=右端、右へ寄せる)。anchor=start → 右ラベル (pie 側辺=左端、左へ寄せる)。
@@ -2107,7 +2108,7 @@ function relaxStructuralCondense(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): void {
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   const STEP = 0.025; // applyFinalCondenseToFit / relaxNameCondense と同じ格子
   const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
   // 実 viewBox 端 (ハードリミット)。ソフトと違い `marginCapHorizontalPx` を引かない = 見切れる直前まで
@@ -2330,7 +2331,7 @@ function escapeUpperLeftTinyLeaders(
   if (group.length !== 2) return;
 
   // do-no-harm 指標 (全 placement 横断。separateCrossingPairs / applyLeftStackGapClose と同性質)。
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   const tolPx = 2;
   const maxOverlap = (): number => boxOverlapMax(placements, cfg);
   const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
@@ -2663,7 +2664,7 @@ function reshapeToLeftRimHug(p: Placement, cfg: PieLayoutConfig, y: number): voi
   // leader 形状: anchor→ラベルの直線がパイ (中心からの距離 < pieClear) を貫くなら1点曲げ。
   // 終点は実描画 leader が接続する box 縦中央 (右端 X, top−height/2) を使う (box 上端だと浅く誤判定)。
   const a = p.leaderAnchor;
-  const pieClear = pieR - 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const pieClear = pieR - pxToLogical(cfg, 2);
   const straightDist = distPointToSegment(0, 0, a.x, a.y, p.x, p.y - measured.height / 2);
   p.leaderEndpoint = { x: p.x, y: p.y };
   p.leaderBendFollowsEndpointY = false;
@@ -2699,7 +2700,7 @@ function reorderTopBandLeftClusterByAngle(
     return;
   const cx = coord.xScale(0);
   const pieR = cfg.pieRadius;
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   const cluster = placements.filter(
     (p) =>
       !p.insideSlice &&
@@ -2836,7 +2837,7 @@ function escapeTopBandSeamLeader(
   thorough = false,
 ): void {
   if (countLeaderCrossings(placements, cfg, coord) === 0) return;
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   const tolPx = 2;
   const cx = coord.xScale(0);
   const maxOverlap = (): number => boxOverlapMax(placements, cfg);
@@ -3027,7 +3028,7 @@ function enforceFinalPieClearance(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): void {
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   const pieR = cfg.pieRadius;
   const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
   const beforePie = maxPieIntrusion();
@@ -3150,7 +3151,7 @@ function repairResidualLeaderDefects(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): void {
-  const tol = 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const tol = pxToLogical(cfg, 2);
   const tolPx = 2;
   const pxUnit = 1 / cfg.pxPerUnit;
 
@@ -3292,7 +3293,7 @@ function repairResidualLeaderDefects(
           p.maxTextY = undefined;
           p.minTextY = undefined;
           const lb = placementBox(p, cfg);
-          const clearance = 4 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+          const clearance = pxToLogical(cfg, 4);
           // 箱の Y 範囲のうち円中心に最も近い縁の高さで必要な円縁 X を求める。
           const spansZero = lb.top > 0 && lb.bottom < 0;
           const edgeY = spansZero ? 0 : Math.min(Math.abs(lb.top), Math.abs(lb.bottom));
