@@ -7,8 +7,15 @@
 // 指定ページ同士を並べられるようにする。ずらしは Worker(`buildHtmlDiffAligned`)での
 // 再 diff で反映し、設定は一時的(画面を離れる/再比較で破棄)。
 import { type TemplateVersionMeta, toAppError } from '@editor/shared';
-import { ChevronLeft, ChevronRight, RotateCcw } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { ChevronDown, ChevronLeft, ChevronRight, RotateCcw } from '@lucide/vue';
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+} from 'reka-ui';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import PageNav from '@/components/PageNav.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
@@ -46,6 +53,57 @@ const page = computed(() => liveDiff.value.pages[currentPage.value] ?? null);
 function goPage(i: number) {
   currentPage.value = Math.min(Math.max(i, 0), Math.max(pageCount.value - 1, 0));
 }
+
+// ── 変更ページ間のジャンプ ────────────────────────────────────────────────
+// 差分レビューの主タスクは「変更を順に追う」こと。多ページ(>12)では番号ジャンプの
+// `PageNav` に切り替わり変更マークが見えなくなるため、changed ページだけを巡回する
+// 前後ナビと、一覧から直接飛べるドロップダウンを両表示モード共通で置く。
+const changedPages = computed<number[]>(() =>
+  liveDiff.value.pages.reduce<number[]>((acc, p, i) => {
+    if (p.changed) acc.push(i);
+    return acc;
+  }, []),
+);
+const prevChangedPage = computed<number | null>(() => {
+  const list = changedPages.value;
+  for (let k = list.length - 1; k >= 0; k--) {
+    const i = list[k];
+    if (i != null && i < currentPage.value) return i;
+  }
+  return null;
+});
+const nextChangedPage = computed<number | null>(
+  () => changedPages.value.find((i) => i > currentPage.value) ?? null,
+);
+function goPrevChanged() {
+  if (prevChangedPage.value != null) goPage(prevChangedPage.value);
+}
+function goNextChanged() {
+  if (nextChangedPage.value != null) goPage(nextChangedPage.value);
+}
+
+// ── グローバルキーボード送り(←/→、Shift で変更ページ間) ──────────────────
+// `PageNav` の入力欄にフォーカスしないとキー操作できなかったのを補う。入力系への
+// フォーカス中はキーを奪わない(`useEditorShortcuts.ts` の isEditableTarget と同方針)。
+function isEditableTarget(t: EventTarget | null): boolean {
+  if (!(t instanceof HTMLElement)) return false;
+  const tag = t.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
+}
+function onKeydown(e: KeyboardEvent): void {
+  if (isEditableTarget(e.target)) return;
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    if (e.shiftKey) goPrevChanged();
+    else goPage(currentPage.value - 1);
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    if (e.shiftKey) goNextChanged();
+    else goPage(currentPage.value + 1);
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 
 // ── ページずらし状態(一時的) ──────────────────────────────────────────────
 // 行 i の対応ページ index = i + offset[i]。範囲外は null(=対応なし)。オフセットで
@@ -187,11 +245,41 @@ const { fitFrame } = useIframeAutoFit();
       <span class="text-lg font-bold">ファイルの比較</span>
       <span class="mono text-xs text-muted-foreground">比較元: {{ beforeFile }}　↔　比較先: {{ afterFile }}</span>
       <div class="ml-auto flex items-center gap-3">
+        <!-- 変更ありページの集計はジャンプリストを兼ねる: クリックで一覧から直接飛べる。 -->
+        <DropdownMenuRoot v-if="changedPages.length > 0">
+          <DropdownMenuTrigger
+            class="ring-focus flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive outline-none"
+            title="変更ありページの一覧からジャンプ"
+          >
+            変更ありページ: {{ liveDiff.changedPageCount }} / {{ pageCount }}
+            <ChevronDown class="h-3 w-3" />
+          </DropdownMenuTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuContent
+              align="end"
+              :side-offset="6"
+              class="z-50 max-h-72 w-[200px] overflow-y-auto rounded-[11px] border bg-card p-1.5 text-card-foreground shadow-[var(--shadow-lg)] data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+            >
+              <DropdownMenuItem
+                v-for="i in changedPages"
+                :key="i"
+                class="flex cursor-pointer select-none items-center justify-between gap-2 rounded-[7px] px-2.5 py-1.5 text-[13px] font-medium outline-none data-[highlighted]:bg-accent"
+                :class="i === currentPage ? 'text-primary' : ''"
+                @select="goPage(i)"
+              >
+                ページ {{ i + 1 }}
+                <span class="text-[11px] font-normal text-muted-foreground">
+                  変更 {{ liveDiff.pages[i]?.changedBlockCount ?? 0 }} 箇所
+                </span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenuPortal>
+        </DropdownMenuRoot>
         <span
-          class="rounded-full px-2 py-0.5 text-xs font-medium"
-          :class="liveDiff.changedPageCount ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'"
+          v-else
+          class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
         >
-          変更ありページ: {{ liveDiff.changedPageCount }} / {{ pageCount }}
+          変更ありページ: 0 / {{ pageCount }}
         </span>
         <span class="flex items-center gap-1 text-xs text-muted-foreground">
           <span class="inline-block h-1.5 w-1.5 rounded-full bg-destructive" /> = 変更あり
@@ -202,7 +290,17 @@ const { fitFrame } = useIframeAutoFit();
     <!-- ページナビゲータ。少数ページは変更マーク付きタブのまま(視認性優先)、多ページ
          (400 ページ規模など)はタブが破綻するため番号ジャンプ入力の共通 `PageNav` へ切替える。
          `PageNav` は 1 起点、比較の `currentPage` は 0 起点なので `go` を -1 して渡す。 -->
-    <div class="flex items-center justify-center gap-2">
+    <div class="flex flex-wrap items-center justify-center gap-2">
+      <!-- 変更ページだけを巡回するナビ(両表示モード共通、Shift+←/→ でも移動)。 -->
+      <Button
+        variant="outline"
+        size="sm"
+        :disabled="prevChangedPage == null"
+        title="前の変更ありページへ (Shift+←)"
+        @click="goPrevChanged"
+      >
+        <ChevronLeft class="h-3.5 w-3.5" /> 前の変更
+      </Button>
       <template v-if="pageCount <= 12">
         <Button variant="outline" size="icon" :disabled="currentPage <= 0" @click="goPage(currentPage - 1)">
           <ChevronLeft class="h-4 w-4" />
@@ -237,6 +335,15 @@ const { fitFrame } = useIframeAutoFit();
         :page-count="pageCount"
         @go="goPage($event - 1)"
       />
+      <Button
+        variant="outline"
+        size="sm"
+        :disabled="nextChangedPage == null"
+        title="次の変更ありページへ (Shift+→)"
+        @click="goNextChanged"
+      >
+        次の変更 <ChevronRight class="h-3.5 w-3.5" />
+      </Button>
     </div>
 
     <!-- ページ対応(ずらし)操作: 現在ページ行の比較元・比較先を独立に指定 -->
@@ -244,11 +351,25 @@ const { fitFrame } = useIframeAutoFit();
       <div class="flex items-center gap-1.5">
         <span class="text-xs text-muted-foreground">比較元</span>
         <Select v-model="beforeSel" :options="beforeOptions" class="h-8 w-24" />
-        <Button variant="outline" size="sm" class="h-8 px-2" @click="shift('before', -1)">
-          <ChevronLeft class="h-3.5 w-3.5" /> ずらす
+        <!-- 「ずらす/戻す」では方向が予測できなかったため、この行に表示するページを
+             1 つ前/後ろへ動かすことをラベルで明示する(直接指定は左の Select)。 -->
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-8 px-2"
+          title="この行の比較元を 1 ページ前へ"
+          @click="shift('before', -1)"
+        >
+          <ChevronLeft class="h-3.5 w-3.5" /> 1つ前へ
         </Button>
-        <Button variant="outline" size="sm" class="h-8 px-2" @click="shift('before', 1)">
-          戻す <ChevronRight class="h-3.5 w-3.5" />
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-8 px-2"
+          title="この行の比較元を 1 ページ後ろへ"
+          @click="shift('before', 1)"
+        >
+          1つ後ろへ <ChevronRight class="h-3.5 w-3.5" />
         </Button>
       </div>
 
@@ -257,11 +378,23 @@ const { fitFrame } = useIframeAutoFit();
       <div class="flex items-center gap-1.5">
         <span class="text-xs text-muted-foreground">比較先</span>
         <Select v-model="afterSel" :options="afterOptions" class="h-8 w-24" />
-        <Button variant="outline" size="sm" class="h-8 px-2" @click="shift('after', -1)">
-          <ChevronLeft class="h-3.5 w-3.5" /> ずらす
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-8 px-2"
+          title="この行の比較先を 1 ページ前へ"
+          @click="shift('after', -1)"
+        >
+          <ChevronLeft class="h-3.5 w-3.5" /> 1つ前へ
         </Button>
-        <Button variant="outline" size="sm" class="h-8 px-2" @click="shift('after', 1)">
-          戻す <ChevronRight class="h-3.5 w-3.5" />
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-8 px-2"
+          title="この行の比較先を 1 ページ後ろへ"
+          @click="shift('after', 1)"
+        >
+          1つ後ろへ <ChevronRight class="h-3.5 w-3.5" />
         </Button>
       </div>
 
@@ -277,8 +410,12 @@ const { fitFrame } = useIframeAutoFit();
       <span v-if="realigning" class="text-xs text-muted-foreground">再計算中…</span>
     </div>
 
-    <!-- 現在のページ -->
-    <div v-if="page" class="space-y-3">
+    <!-- 現在のページ。再 diff 中は古い内容の表示中であることを減光で示す。 -->
+    <div
+      v-if="page"
+      class="space-y-3 transition-opacity"
+      :class="realigning ? 'pointer-events-none opacity-50' : ''"
+    >
       <div class="flex flex-wrap items-center gap-2">
         <h3 class="text-[15px] font-bold">ページ {{ currentPage + 1 }}・概要</h3>
         <template v-if="page.changed">
