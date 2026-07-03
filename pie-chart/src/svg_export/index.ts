@@ -2817,6 +2817,49 @@ function reshapeToTopRightEscape(p: Placement, cfg: PieLayoutConfig, yOffset = 0
 }
 
 /**
+ * do-no-harm 採否ゲートが読む不具合スナップショットの統合測定。`escapeTopBandSeamLeader`
+ * (thorough) の SeamVec と `repairResidualLeaderDefects` の Vec が共有する (各サイトは本 vec の
+ * 射影を取る)。全フィールドが純粋読み取りで placements を変更しないため、測定の共有・追加は
+ * 出力 byte に影響しない。比較述語はパスごとに意味が異なる (交差厳密減 / through 振替許容 /
+ * crossPie 合算など) 仕様そのものなので統合せず、各パス側に残す。
+ */
+interface RepairVec {
+  /** leader 同士の交差 件数。 */
+  cross: number;
+  /** leader の pie 円貫通 件数。 */
+  pieCross: number;
+  /** leader の他ラベル箱貫通 件数。 */
+  through: number;
+  /** 外側 leader の角度順逆転 対数。 */
+  inv: number;
+  /** viewBox を 1px 超見切れる箱数。 */
+  clips: number;
+  /** viewBox 外へ出る leader 本数。 */
+  oob: number;
+  /** 箱同士の重なり max 深さ (logical)。 */
+  ovl: number;
+  /** 箱の pie 円内侵入 max 深さ (logical)。verify の "label inside pie" に対応。 */
+  boxPie: number;
+  /** 箱の viewBox 超過 max (px)。 */
+  view: number;
+}
+
+/** `RepairVec` の全フィールドを現在の placements から測る (純粋読み取り)。 */
+function measureRepairVec(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): RepairVec {
+  return {
+    cross: countLeaderCrossings(placements, cfg, coord),
+    pieCross: leaderPieCrossCount(placements, cfg, coord),
+    through: countLeaderThroughLabels(placements, cfg, coord),
+    inv: countAngularDiscordantPairs(placements, cfg, coord),
+    clips: placements.filter((p) => boxViewOverflowOf(p, cfg, coord) > 1).length,
+    oob: oobLeaderCount(placements, cfg, coord),
+    ovl: boxOverlapMax(placements, cfg),
+    boxPie: boxPieIntrusionMax(placements, cfg),
+    view: boxViewOverflowMax(placements, cfg, coord),
+  };
+}
+
+/**
  * 12時シーム (midAngle≈90) に最も近い小スライスのラベルが左帯へ押し出され、その near-horizontal な
  * leader が同一側の隣 leader を跨ぐ交差を、当該スライスを右上空白へ "up-and-over" で逃がして解消する。
  *
@@ -2921,6 +2964,7 @@ function escapeTopBandSeamLeader(
     // プレフィックスの不具合ベクトルを記録して最良地点のスナップショットを採用する。greedy では
     // 「1 枚目で交差が一時的に増え、2 枚目を重ねて初めて 0 になる」谷を越えられない (例 page16:
     // アイルランド単独は through 2→0 だが cross 1→2 で却下、ケイマンを重ねると全て解消)。
+    // `RepairVec` の射影 (pie = boxPie)。フィールド名は betterVec 述語の従来表記を保つ。
     interface SeamVec {
       cross: number;
       through: number;
@@ -2931,19 +2975,19 @@ function escapeTopBandSeamLeader(
       pie: number;
       view: number;
     }
-    const boxOut = (p: Placement): number => boxViewOverflowOf(p, cfg, coord);
-    const countClips = (): number => placements.filter((p) => boxOut(p) > 1).length;
-    const countOobLeaders = (): number => oobLeaderCount(placements, cfg, coord);
-    const vecOf = (): SeamVec => ({
-      cross: countLeaderCrossings(placements, cfg, coord),
-      through: countLeaderThroughLabels(placements, cfg, coord),
-      inv: countAngularDiscordantPairs(placements, cfg, coord),
-      clips: countClips(),
-      oob: countOobLeaders(),
-      ovl: maxOverlap(),
-      pie: maxPieIntrusion(),
-      view: maxViewOverflow(),
-    });
+    const vecOf = (): SeamVec => {
+      const m = measureRepairVec(placements, cfg, coord);
+      return {
+        cross: m.cross,
+        through: m.through,
+        inv: m.inv,
+        clips: m.clips,
+        oob: m.oob,
+        ovl: m.ovl,
+        pie: m.boxPie,
+        view: m.view,
+      };
+    };
     // a が b より厳密に良い: 交差+貫通の総数が減り交差単独でも非増加、かつ逆転/見切れ箱数/leader
     // はみ出し本数/重なり/pie/viewBox 深さの全てが非悪化。max 深さだけでなく件数も見る (深さが同じ
     // でも見切れるラベルが増える逃がしを弾く)。
@@ -3155,13 +3199,8 @@ function repairResidualLeaderDefects(
   const tolPx = 2;
   const pxUnit = 1 / cfg.pxPerUnit;
 
-  const maxOverlap = (): number => boxOverlapMax(placements, cfg);
-  const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
-
-  const boxOutPx = (p: Placement): number => boxViewOverflowOf(p, cfg, coord);
-  const countClips = (): number => placements.filter((p) => boxOutPx(p) > 1).length;
-  const countOobLeaders = (): number => oobLeaderCount(placements, cfg, coord);
-
+  // `RepairVec` の射影 (crossPie = cross + pieCross の合算)。フィールド名は better 述語の
+  // 従来表記を保つ。boxPie は verify の "label inside pie" に対応する非悪化ゲート。
   interface Vec {
     crossPie: number;
     through: number;
@@ -3172,20 +3211,20 @@ function repairResidualLeaderDefects(
     view: number;
     boxPie: number;
   }
-  // ラベル箱の円内侵入の最大深さ (logical)。verify の "label inside pie" に対応する非悪化ゲート。
-  const maxBoxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
 
-  const vecOf = (): Vec => ({
-    crossPie:
-      countLeaderCrossings(placements, cfg, coord) + leaderPieCrossCount(placements, cfg, coord),
-    through: countLeaderThroughLabels(placements, cfg, coord),
-    inv: countAngularDiscordantPairs(placements, cfg, coord),
-    clips: countClips(),
-    oob: countOobLeaders(),
-    ovl: maxOverlap(),
-    view: maxViewOverflow(),
-    boxPie: maxBoxPieIntrusion(),
-  });
+  const vecOf = (): Vec => {
+    const m = measureRepairVec(placements, cfg, coord);
+    return {
+      crossPie: m.cross + m.pieCross,
+      through: m.through,
+      inv: m.inv,
+      clips: m.clips,
+      oob: m.oob,
+      ovl: m.ovl,
+      view: m.view,
+      boxPie: m.boxPie,
+    };
+  };
   // 主目的は (交差+円貫通) → (箱貫通) → (箱の円内侵入) の辞書式改善。それ以外は全て非悪化。
   const better = (a: Vec, b: Vec): boolean =>
     ((a.crossPie < b.crossPie && a.through <= b.through && a.boxPie <= b.boxPie + tol) ||
