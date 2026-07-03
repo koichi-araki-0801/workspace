@@ -3722,33 +3722,163 @@ function selectFinalLayout(
         countAngularDiscordantPairs(finalized, cfg, coord)
       );
     };
-    const baseLayout = layoutLabels(items, cfg, 0);
-    if (scoreLayout(finalLayout) > scoreLayout(baseLayout)) {
-      finalLayout = baseLayout; // 回転が不具合を増やすなら非回転を採用
-    } else {
-      // 回転を採用したチャートに限り、回したラベルを円から少し離す。距離は `pieLabelClearance`
-      // (円とラベルの最小クリアランス、`nudgeTextAwayFromPie` が使用)で決まるのでこれを広げる。
-      // do-no-harm: 押し出しで不具合(見切れ等)が増えるなら一段弱い量→最後は元のクリアランスへ戻す。
-      const rotScore = scoreLayout(finalLayout);
+    // 回転を採用したチャートに限り、回したラベルを円から少し離す。距離は `pieLabelClearance`
+    // (円とラベルの最小クリアランス、`nudgeTextAwayFromPie` が使用) で決まるのでこれを広げる。
+    // do-no-harm: 押し出しで不具合 (見切れ等) が増えるなら一段弱い量を試し、全滅なら元のクリアランスへ戻す。
+    // ⚠ 採用時は cfg.pieLabelClearance を origClearance + push のまま**意図的に残す**: emit 後段の
+    // `nudgeTextAwayFromPie` が広げたクリアランスで動くことまで含めて採用後の挙動。「常に復元」へ
+    // 直すと出力が変わるため、この cfg への永続化は仕様として保持する。
+    const adoptRotatedWithClearancePush = (rotated: LayoutResult): LayoutResult => {
+      const rotScore = scoreLayout(rotated);
       const origClearance = cfg.pieLabelClearance;
       for (const push of [0.16, 0.12, 0.09, 0.06]) {
         cfg.pieLabelClearance = origClearance + push;
         const pushed = layoutLabels(items, cfg);
-        if (scoreLayout(pushed) <= rotScore) {
-          finalLayout = pushed;
-          break;
-        }
-        cfg.pieLabelClearance = origClearance; // 悪化 → 次の弱い量を試す(全滅なら元クリアランス)
+        if (scoreLayout(pushed) <= rotScore) return pushed; // 採用: clearance は広げたまま
+        cfg.pieLabelClearance = origClearance; // 悪化 → 次の弱い量を試す (全滅なら元クリアランス)
       }
+      return rotated;
+    };
+    const baseLayout = layoutLabels(items, cfg, 0);
+    if (scoreLayout(finalLayout) > scoreLayout(baseLayout)) {
+      finalLayout = baseLayout; // 回転が不具合を増やすなら非回転を採用
+    } else {
+      finalLayout = adoptRotatedWithClearancePush(finalLayout);
     }
   }
   return finalLayout;
 }
 
+/** `EMIT_REPAIR_PASSES` の 1 エントリが実行する修復パス本体。 */
+type EmitPassFn = (placements: Placement[], cfg: PieLayoutConfig, view: Coord) => void;
+
+interface EmitRepairPass {
+  /** デバッグログ・`PIE_CHART_STOP_AFTER_PASS`・特性テストで参照する一意名。 */
+  name: string;
+  /** 発火条件 (未指定 = 常時)。現状は leftStackMode 限定の 2 群のみ。 */
+  when?: (diag: Diagnostics | null) => boolean;
+  run: EmitPassFn;
+}
+
 /**
- * emit 採用配置 (textPlacements) に対する最終修復パス列。位置確定後に 1 回ずつ適用する do-no-harm
- * の群で、各手の意図はパスごとのコメント参照。**順序依存** (前段の解消が後段を no-op にする / 後段が
- * 前段の前提に乗る) があるため呼び出し順を変えないこと。view は emit と同一座標系 (実 viewBox 基準)。
+ * emit 採用配置に対する最終修復パス列 (宣言テーブル)。位置確定後に 1 回ずつ適用する do-no-harm の
+ * 群で、各手の意図はエントリ直上のコメント参照。**順序依存** (前段の解消が後段を no-op にする /
+ * 後段が前段の前提に乗る) があるためエントリ順を変えないこと。
+ */
+const EMIT_REPAIR_PASSES: readonly EmitRepairPass[] = [
+  // 視覚 viewBox はみ出し最終 nudge (採用配置に 1 回だけ適用)。
+  { name: 'visualViewBoxNudge', run: (p, cfg) => applyVisualViewBoxNudge(p, cfg) },
+  // viewBox をはみ出す外側ラベルを「収まるまで長体」で縮める最終ガード (下限 0.7)。
+  { name: 'finalCondenseToFit', run: (p, cfg) => applyFinalCondenseToFit(p, cfg) },
+  // 長体ラベルをキャンバスに収まる範囲で原寸 (上限 1.0 = デフォルトの大きさ) へ向けて緩和し、
+  // ラベルごとにギリギリ収まる最大サイズへ戻す。
+  { name: 'relaxNameCondense', run: (p, cfg) => relaxNameCondense(p, cfg) },
+
+  // 最終段: 同一側で交差する外側 leader 対を縦に引き離して交差を解消する。viewBox nudge /
+  // condense-to-fit の後 (= emit と同一の最終配置) に実行するので、ここで見た交差は verify が
+  // 報告する交差と一致する。各手は do-no-harm (交差減・重なり非悪化・viewBox 内) で採用。
+  { name: 'outsideLeaderAngularOrder', run: applyOutsideLeaderAngularOrder },
+
+  // applyOutsideLeaderAngularOrder の swap で直せない上左トップバンドクラスタの角度順逆転
+  // (例 page16: ジャージー右逃がし後 ケイマンが天頂へ来てアイルランドの上に逆転) を、角度順
+  // rim 再積み上げで解消する。交差/逆転のどちらかが在る時のみ発火し do-no-harm (悪化で全 revert)。
+  { name: 'reorderTopBandLeftCluster', run: reorderTopBandLeftClusterByAngle },
+
+  // 9時線近傍で near-vertical に重なる左小スライス対 (例 イギリス/イタリア) を角度順に並べ直して
+  // 左上の空きへわずかに逃がし、各 leader を分離した斜め線にする。do-no-harm (悪化したら revert)。
+  { name: 'escapeUpperLeftTinyLeaders', run: escapeUpperLeftTinyLeaders },
+
+  // 12時シーム近傍の小スライスが左帯へ押し出されて near-horizontal leader が交差する場合、
+  // 当該スライスを右上空白へ "up-and-over" で逃がして交差を解消する (do-no-harm)。
+  // emit では thorough=true (累積プレフィックス探索 + 1 行化フォールバック) を使う。
+  { name: 'escapeTopBandSeamLeader.thorough', run: (p, cfg, v) => escapeTopBandSeamLeader(p, cfg, v, true) },
+
+  // leftStackMode 限定の最終手段: untangle で直せない幅広/混在行の左上逆転を、角度順 re-stack +
+  // 長体圧縮で解消する (do-no-harm・悪化したら全 revert)。emit でのみ・スコアリングには干渉しない。
+  {
+    name: 'reorderLeftStackWithCondense',
+    when: (d) => d?.leftStackMode === true,
+    run: reorderLeftStackWithCondense,
+  },
+  {
+    name: 'separateLeftColumnByHeight',
+    when: (d) => d?.leftStackMode === true,
+    run: separateLeftColumnByHeight,
+  },
+
+  // 残余の leader 交差/円内貫通/箱貫通を bend 再配置で解消する最終安全網 (do-no-harm)。
+  // finalizeForScoring と同位置・同条件で呼び、採点と emit の一致を保つ。
+  { name: 'repairResidualLeaderDefects', run: repairResidualLeaderDefects },
+
+  // 円外ラベル box の円内侵入 (label inside pie) を、現在 y での動的 pie クランプで円外へ押し出す
+  // 最終安全網 (do-no-harm)。cascade の nudge を静的 minTextX が引き戻す取りこぼし (例
+  // stress_top_cluster_8 "F") を解消する。侵入の無いチャートは早期 return で無変更。
+  { name: 'enforceFinalPieClearance', run: enforceFinalPieClearance },
+
+  // 左側 near-equator の見切れラベルを、円の縦中心から離す向きへ縦 spread して左 rim を細らせ
+  // viewBox 左端の見切れを解消する最終手段 (do-no-harm)。水平 nudge が pie にブロックされる
+  // (|y| < pieRadius) ラベルが対象。`applyLowerLeftDropFallback` / `applyTwoLineNameFallback` より
+  // 先に試し、解消すれば後続が no-op になる。採否は片側単位で `countDefects` の clips 厳密減・他カテゴリ非悪化。
+  { name: 'verticalDeclipFallback', run: applyVerticalDeclipFallback },
+
+  // 9時直近で長体下限でも見切れる幅広長名を、下left ドロップ + 斜めリーダーで収める最終手段
+  // (do-no-harm)。位置確定後に走るので最終配置を正しく評価する。密チャートで交差/反転を生む場合は revert。
+  { name: 'lowerLeftDropFallback', run: applyLowerLeftDropFallback },
+
+  // 下限長体 (0.7) でも viewBox を見切れる 1 行ラベルを、名前を語中で割らない標準 2 行 [名前, %] へ
+  // 変換する最終手段 (do-no-harm)。語割れ (旧 splitLongName) は pie-chart 全体で廃止。位置確定後に走るので
+  // ゲートは最終配置を正しく評価する。採点 (`finalizeForScoring`) には入れない: 候補選択を乱さず、
+  // finalScore は emit 後の同 placements から数えるため scorer ↔ emit 整合は保たれる。
+  { name: 'twoLineNameFallback', run: applyTwoLineNameFallback },
+
+  // 外側ラベル列の最終整え (overflow fallback の後 = 真に未解消のものだけ対象)。左右両列の過小ギャップ
+  // (隣接 box が box 高未満に詰まる縦重なり) を上下対称に拡げ、なお viewBox を見切れるラベルを pie
+  // クリアランス限界まで pie 側へ寄せる。fallback 後に置くことで、drop/2 行化で解消済みのラベル (例
+  // fidelity オフショア・人民元) は対象外となり干渉しない。両手とも全チャート共通で do-no-harm
+  // (列内重なり厳密減 / 見切れ厳密減 + 他カテゴリ非悪化) なので、収まっている図は無変更。
+  { name: 'relieveOutsideColumnOverlap', run: relieveOutsideColumnOverlap },
+  { name: 'pullOutsideOverflowTowardPie', run: pullOutsideOverflowTowardPie },
+
+  // ソフトマージンには長体下限でも収まらない構造的オーバーフロー (例 currency の "ユーロ": percent 行だけで
+  // 残り幅を食う短名) が下限で過圧縮されたまま残るのを、実 viewBox を見切らない範囲で原寸へ緩和する。
+  // 位置確定後・finalScore 前に 1 回。emit 専用 (scoring 非干渉) で applyTwoLineNameFallback と同方針。
+  { name: 'relaxStructuralCondense', run: relaxStructuralCondense },
+
+  // near-contact (近接) 緩和: 自 leader が隣の box/leader に寄りすぎるラベルを上へ逃がして接触を軽減する
+  // (例 page16 ケイマン諸島)。全 hard-defect パスの後に置くので、ここでの移動が最終配置となり leader
+  // (下 Pass 1) も移動後 box から再計算され追従する。do-no-harm: 近接の無い図は deficit≈0 で無変更。
+  { name: 'relieveLeaderNeighborContact', run: relieveLeaderNeighborContact },
+
+  // leftStackMode の左上スタック最終整え (全 hard-defect パス後)。左 envelope からの突出を pie 寄りへ
+  // 引き戻し (見切れ解消)、赤道寄りの密集側行を円から少し離す。各移動は do-no-harm で個別採否。
+  {
+    name: 'relieveLeftStackSpacing',
+    when: (d) => d?.leftStackMode === true,
+    run: relieveLeftStackSpacing,
+  },
+  // `relieveLeftStackSpacing` が左列を pie 寄りへ右シフトして x を確定させた後は、上の
+  // `relaxStructuralCondense` 評価時より実 viewBox 余白が増えている。x 確定後にもう一度緩和し、
+  // 右シフトで不要になった長体 (例 `stress_top_cluster_8` の "C") を原寸へ戻す。緩めるだけ・
+  // ガードは不変なので退行しない (ガードが拒否すれば現状維持 = no-op)。上の relaxStructuralCondense
+  // 後に x を動かすパスは leftStackMode の本パスだけ (`relieveLeaderNeighborContact` は
+  // 縦移動のみで横余白を増やさない) なので、再緩和はここに限定で全消し忘れを拾える。
+  {
+    name: 'relaxStructuralCondense.afterLeftStackShift',
+    when: (d) => d?.leftStackMode === true,
+    run: relaxStructuralCondense,
+  },
+
+  // 最終: anchor 固定の `relaxStructuralCondense` でも戻せない (= viewBox 端ハグの) 長体ラベルを、
+  // pie 側へ必要最小限シフトしてから原寸へ戻す。「戻せるのに長体のまま」を残さないための仕上げ。
+  // pie 側辺は pie 円周でキャップ・採否は do-no-harm ゲートなので退行しない (戻せなければ no-op)。
+  { name: 'unsqueezeCondensedByShiftTowardPie', run: unsqueezeCondensedByShiftTowardPie },
+];
+
+/**
+ * `EMIT_REPAIR_PASSES` を順に適用する。view は emit と同一座標系 (実 viewBox 基準)。
+ * デバッグ支援 (どちらも測定は純粋読み取りで出力 byte に影響しない):
+ * - `PIE_CHART_DEBUG_REPAIR=1` … パスごとの `RepairVec` 差分を stderr へ出す (無変化パスは無音)。
+ * - `PIE_CHART_STOP_AFTER_PASS=<name>` … 指定パスの直後で打ち切る (回帰の犯人パスを二分探索する用)。
  */
 function applyEmitRepairPasses(
   textPlacements: Placement[],
@@ -3756,100 +3886,22 @@ function applyEmitRepairPasses(
   view: Coord,
   diagnostics: Diagnostics | null,
 ): void {
-  // 視覚 viewBox はみ出し最終 nudge (採用配置に 1 回だけ適用)。
-  applyVisualViewBoxNudge(textPlacements, cfg);
-  // viewBox をはみ出す外側ラベルを「収まるまで長体」で縮める最終ガード (下限 0.7)。
-  applyFinalCondenseToFit(textPlacements, cfg);
-  // 長体ラベルをキャンバスに収まる範囲で原寸 (上限 1.0 = デフォルトの大きさ) へ向けて緩和し、
-  // ラベルごとにギリギリ収まる最大サイズへ戻す。
-  relaxNameCondense(textPlacements, cfg);
-
-  // 最終段: 同一側で交差する外側 leader 対を縦に引き離して交差を解消する。viewBox nudge /
-  // condense-to-fit の後 (= emit と同一の最終配置) に実行するので、ここで見た交差は verify が
-  // 報告する交差と一致する。各手は do-no-harm (交差減・重なり非悪化・viewBox 内) で採用。
-  applyOutsideLeaderAngularOrder(textPlacements, cfg, view);
-
-  // applyOutsideLeaderAngularOrder の swap で直せない上左トップバンドクラスタの角度順逆転
-  // (例 page16: ジャージー右逃がし後 ケイマンが天頂へ来てアイルランドの上に逆転) を、角度順
-  // rim 再積み上げで解消する。交差/逆転のどちらかが在る時のみ発火し do-no-harm (悪化で全 revert)。
-  reorderTopBandLeftClusterByAngle(textPlacements, cfg, view);
-
-  // 9時線近傍で near-vertical に重なる左小スライス対 (例 イギリス/イタリア) を角度順に並べ直して
-  // 左上の空きへわずかに逃がし、各 leader を分離した斜め線にする。do-no-harm (悪化したら revert)。
-  escapeUpperLeftTinyLeaders(textPlacements, cfg, view);
-
-  // 12時シーム近傍の小スライスが左帯へ押し出されて near-horizontal leader が交差する場合、
-  // 当該スライスを右上空白へ "up-and-over" で逃がして交差を解消する (do-no-harm)。
-  // emit では thorough=true (累積プレフィックス探索 + 1 行化フォールバック) を使う。
-  escapeTopBandSeamLeader(textPlacements, cfg, view, true);
-
-  // leftStackMode 限定の最終手段: untangle で直せない幅広/混在行の左上逆転を、角度順 re-stack +
-  // 長体圧縮で解消する (do-no-harm・悪化したら全 revert)。emit でのみ・スコアリングには干渉しない。
-  if (diagnostics?.leftStackMode) {
-    reorderLeftStackWithCondense(textPlacements, cfg, view);
-    separateLeftColumnByHeight(textPlacements, cfg, view);
+  const debug = Boolean(process.env.PIE_CHART_DEBUG_REPAIR);
+  for (const pass of EMIT_REPAIR_PASSES) {
+    if (pass.when && !pass.when(diagnostics)) continue;
+    if (debug) {
+      const before = measureRepairVec(textPlacements, cfg, view);
+      pass.run(textPlacements, cfg, view);
+      const after = measureRepairVec(textPlacements, cfg, view);
+      const diffs = (Object.keys(before) as (keyof RepairVec)[])
+        .filter((k) => before[k] !== after[k])
+        .map((k) => `${k} ${Number(before[k].toFixed(2))}->${Number(after[k].toFixed(2))}`);
+      if (diffs.length > 0) console.error(`[emit-pass] ${pass.name}: ${diffs.join(', ')}`);
+    } else {
+      pass.run(textPlacements, cfg, view);
+    }
+    if (process.env.PIE_CHART_STOP_AFTER_PASS === pass.name) return;
   }
-
-  // 残余の leader 交差/円内貫通/箱貫通を bend 再配置で解消する最終安全網 (do-no-harm)。
-  // finalizeForScoring と同位置・同条件で呼び、採点と emit の一致を保つ。
-  repairResidualLeaderDefects(textPlacements, cfg, view);
-
-  // 円外ラベル box の円内侵入 (label inside pie) を、現在 y での動的 pie クランプで円外へ押し出す
-  // 最終安全網 (do-no-harm)。cascade の nudge を静的 minTextX が引き戻す取りこぼし (例
-  // stress_top_cluster_8 "F") を解消する。侵入の無いチャートは早期 return で無変更。
-  enforceFinalPieClearance(textPlacements, cfg, view);
-
-  // 左側 near-equator の見切れラベルを、円の縦中心から離す向きへ縦 spread して左 rim を細らせ
-  // viewBox 左端の見切れを解消する最終手段 (do-no-harm)。水平 nudge が pie にブロックされる
-  // (|y| < pieRadius) ラベルが対象。`applyLowerLeftDropFallback` / `applyTwoLineNameFallback` より
-  // 先に試し、解消すれば後続が no-op になる。採否は片側単位で `countDefects` の clips 厳密減・他カテゴリ非悪化。
-  applyVerticalDeclipFallback(textPlacements, cfg, view);
-
-  // 9時直近で長体下限でも見切れる幅広長名を、下left ドロップ + 斜めリーダーで収める最終手段
-  // (do-no-harm)。位置確定後に走るので最終配置を正しく評価する。密チャートで交差/反転を生む場合は revert。
-  applyLowerLeftDropFallback(textPlacements, cfg, view);
-
-  // 下限長体 (0.7) でも viewBox を見切れる 1 行ラベルを、名前を語中で割らない標準 2 行 [名前, %] へ
-  // 変換する最終手段 (do-no-harm)。語割れ (旧 splitLongName) は pie-chart 全体で廃止。位置確定後に走るので
-  // ゲートは最終配置を正しく評価する。採点 (`finalizeForScoring`) には入れない: 候補選択を乱さず、
-  // finalScore は emit 後の同 placements から数えるため scorer ↔ emit 整合は保たれる。
-  applyTwoLineNameFallback(textPlacements, cfg, view);
-
-  // 外側ラベル列の最終整え (overflow fallback の後 = 真に未解消のものだけ対象)。左右両列の過小ギャップ
-  // (隣接 box が box 高未満に詰まる縦重なり) を上下対称に拡げ、なお viewBox を見切れるラベルを pie
-  // クリアランス限界まで pie 側へ寄せる。fallback 後に置くことで、drop/2 行化で解消済みのラベル (例
-  // fidelity オフショア・人民元) は対象外となり干渉しない。両手とも全チャート共通で do-no-harm
-  // (列内重なり厳密減 / 見切れ厳密減 + 他カテゴリ非悪化) なので、収まっている図は無変更。
-  relieveOutsideColumnOverlap(textPlacements, cfg, view);
-  pullOutsideOverflowTowardPie(textPlacements, cfg, view);
-
-  // ソフトマージンには長体下限でも収まらない構造的オーバーフロー (例 currency の "ユーロ": percent 行だけで
-  // 残り幅を食う短名) が下限で過圧縮されたまま残るのを、実 viewBox を見切らない範囲で原寸へ緩和する。
-  // 位置確定後・finalScore 前に 1 回。emit 専用 (scoring 非干渉) で applyTwoLineNameFallback と同方針。
-  relaxStructuralCondense(textPlacements, cfg, view);
-
-  // near-contact (近接) 緩和: 自 leader が隣の box/leader に寄りすぎるラベルを上へ逃がして接触を軽減する
-  // (例 page16 ケイマン諸島)。全 hard-defect パスの後に置くので、ここでの移動が最終配置となり leader
-  // (下 Pass 1) も移動後 box から再計算され追従する。do-no-harm: 近接の無い図は deficit≈0 で無変更。
-  relieveLeaderNeighborContact(textPlacements, cfg, view);
-
-  // leftStackMode の左上スタック最終整え (全 hard-defect パス後)。左 envelope からの突出を pie 寄りへ
-  // 引き戻し (見切れ解消)、赤道寄りの密集側行を円から少し離す。各移動は do-no-harm で個別採否。
-  if (diagnostics?.leftStackMode) {
-    relieveLeftStackSpacing(textPlacements, cfg, view);
-    // `relieveLeftStackSpacing` が左列を pie 寄りへ右シフトして x を確定させた後は、上の
-    // `relaxStructuralCondense` 評価時より実 viewBox 余白が増えている。x 確定後にもう一度緩和し、
-    // 右シフトで不要になった長体 (例 `stress_top_cluster_8` の "C") を原寸へ戻す。緩めるだけ・
-    // ガードは不変なので退行しない (ガードが拒否すれば現状維持 = no-op)。`relaxStructuralCondense`
-    // (3679) 後に x を動かすパスは leftStackMode の本パスだけ (`relieveLeaderNeighborContact` は
-    // 縦移動のみで横余白を増やさない) なので、再緩和はここに限定で全消し忘れを拾える。
-    relaxStructuralCondense(textPlacements, cfg, view);
-  }
-
-  // 最終: anchor 固定の `relaxStructuralCondense` でも戻せない (= viewBox 端ハグの) 長体ラベルを、
-  // pie 側へ必要最小限シフトしてから原寸へ戻す。「戻せるのに長体のまま」を残さないための仕上げ。
-  // pie 側辺は pie 円周でキャップ・採否は do-no-harm ゲートなので退行しない (戻せなければ no-op)。
-  unsqueezeCondensedByShiftTowardPie(textPlacements, cfg, view);
 }
 
 export async function renderPdfStylePieToSvg(
