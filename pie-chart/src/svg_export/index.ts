@@ -1879,17 +1879,23 @@ function relieveLeftStackSpacing(
     if (leftPx >= 1 || pxPerUnitX <= 0) continue; // 見切れていない
     const before = countDefects(placements, cfg, coord);
     const origX = m.x;
-    const origMaxTextX = m.maxTextX;
-    const target = origX + (2 - leftPx) / pxPerUnitX; // box 左辺が +2px に来る理想 x (full-fit)
-    m.maxTextX = undefined; // 古い右寄せ上限を外し pie 天井のみ効かせる
-    m.x = target;
-    clampPlacement(m, cfg); // 左ラベルは pie 天井 (pieMaxTextX) まで右寄せに引き戻される
-    m.maxTextX = origMaxTextX;
-    const movedBox = placementBox(m, cfg);
-    const movedLeftPx = Math.min(coord.xScale(movedBox.left), coord.xScale(movedBox.right));
-    if (!(m.x > origX + 1e-4 && movedLeftPx > leftPx + 0.5 && notWorse(before))) {
-      m.x = origX; // 改善せず or 退行 → revert
-    }
+    tryMoveWithGuard(
+      m,
+      () => {
+        const origMaxTextX = m.maxTextX;
+        const target = origX + (2 - leftPx) / pxPerUnitX; // box 左辺が +2px に来る理想 x (full-fit)
+        m.maxTextX = undefined; // 古い右寄せ上限を外し pie 天井のみ効かせる
+        m.x = target;
+        clampPlacement(m, cfg); // 左ラベルは pie 天井 (pieMaxTextX) まで右寄せに引き戻される
+        m.maxTextX = origMaxTextX;
+      },
+      // 実際に右へ動き・見切れが 0.5px 超減り・退行なし、の全てを満たす時だけ採用。
+      () => {
+        const movedBox = placementBox(m, cfg);
+        const movedLeftPx = Math.min(coord.xScale(movedBox.left), coord.xScale(movedBox.right));
+        return m.x > origX + 1e-4 && movedLeftPx > leftPx + 0.5 && notWorse(before);
+      },
+    );
   }
 
   // (2) リムハグ行の押し出し (赤道寄りで円縁に近接した密集側行を円から離す)。キャンバス端で
@@ -2581,20 +2587,21 @@ function relieveLeaderNeighborContact(
     const startDef = measure();
     if (startDef <= tolPx) continue;
     const before = measureHardDefects(placements, cfg, coord);
-    const snapX = p.x;
-    const snapY = p.y;
-    let iter = 0;
-    let cur = startDef;
-    while (cur > tolPx && iter < maxIter) {
-      p.y += stepLogical; // 画面上方向 (logical y-up)
-      clampPlacement(p, cfg);
-      iter += 1;
-      cur = measure();
-    }
-    if (cur >= startDef - tolPx || hardDefectsWorsened(before, placements, cfg, coord)) {
-      p.x = snapX;
-      p.y = snapY;
-    }
+    tryMoveWithGuard(
+      p,
+      () => {
+        let iter = 0;
+        let cur = startDef;
+        while (cur > tolPx && iter < maxIter) {
+          p.y += stepLogical; // 画面上方向 (logical y-up)
+          clampPlacement(p, cfg);
+          iter += 1;
+          cur = measure();
+        }
+      },
+      // 近接 deficit が厳密に減り (measure は移動後の再測定 = ループ最終値と同値)、hard defect 非悪化。
+      () => measure() < startDef - tolPx && !hardDefectsWorsened(before, placements, cfg, coord),
+    );
   }
 }
 
@@ -2674,6 +2681,39 @@ export function seamSnapshot(placements: Placement[]): SeamSnap[] {
 }
 export function seamRestore(snap: SeamSnap[]): void {
   for (const { p, v } of snap) Object.assign(p, v);
+}
+
+/**
+ * seam 系 do-no-harm の単発形: `seamSnapshot` → mutate() → isBetter() が偽なら全 revert して
+ * 採否を返す。before 側の測定は mutate 前に呼び出し側で済ませ isBetter へ閉じ込めること (採否述語は
+ * パス仕様そのものなのでヘルパーは判定に関与しない)。複数 snapshot を管理する best-of-prefix 探索
+ * (`escapeTopBandSeamLeader` の thorough) や「不採用でも一部変更を残す」変則形は対象外。
+ */
+function trySeamMutation(
+  placements: Placement[],
+  mutate: () => void,
+  isBetter: () => boolean,
+): boolean {
+  const snap = seamSnapshot(placements);
+  mutate();
+  if (isBetter()) return true;
+  seamRestore(snap);
+  return false;
+}
+
+/**
+ * 単一ラベル移動の do-no-harm 共通形: 対象の座標 (x, y) を snapshot して mutate() を実行し、
+ * keep() が偽なら座標だけ戻して採否を返す。keep には「対象自身の指標が厳密に改善し、チャート全体の
+ * hard defect が非悪化」等のパス固有述語を丸ごと渡す。座標以外も動かすパスは `trySeamMutation` を使う。
+ */
+function tryMoveWithGuard(target: Placement, mutate: () => void, keep: () => boolean): boolean {
+  const snapX = target.x;
+  const snapY = target.y;
+  mutate();
+  if (keep()) return true;
+  target.x = snapX;
+  target.y = snapY;
+  return false;
 }
 
 /**
@@ -2785,45 +2825,51 @@ function reorderTopBandLeftClusterByAngle(
   const beforeView = maxViewOverflow();
   const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
   const beforeLeaderPie = maxLeaderPie();
-  const snap = seamSnapshot(placements);
 
-  // 角度順 (上→下 = sin 降順) に並べ、最上段を天井 (viewBox 上端) へアンカーして上から詰める。
-  // 中央寄せだと下段に大きな空きが残るため、上端基準でタイトに積む。間隔は上ラベルの実 box 高 +
-  // クラスタ専用の小ギャップ (scaledMinGap より狭く詰める=ユーザー指摘「もう少し上に詰めて」)。
-  // ラベルを上げると box 下端が上がり rim ハグがパイへ近づく → リーダーが短く接続が締まる。
-  const byAngle = [...cluster].sort(
-    (a, b) => Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
+  trySeamMutation(
+    placements,
+    () => {
+      // 角度順 (上→下 = sin 降順) に並べ、最上段を天井 (viewBox 上端) へアンカーして上から詰める。
+      // 中央寄せだと下段に大きな空きが残るため、上端基準でタイトに積む。間隔は上ラベルの実 box 高 +
+      // クラスタ専用の小ギャップ (scaledMinGap より狭く詰める=ユーザー指摘「もう少し上に詰めて」)。
+      // ラベルを上げると box 下端が上がり rim ハグがパイへ近づく → リーダーが短く接続が締まる。
+      const byAngle = [...cluster].sort(
+        (a, b) =>
+          Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
+      );
+      const scaleY = Math.abs(coord.yScale(0) - coord.yScale(1));
+      // 天井 (box 上端=textY が viewBox 上端 +1px に来る logical Y)。baseline=bottom なので box 上端=textY。
+      const ceilTopY = scaleY > 1e-9 ? (coord.yScale(0) - 1) / scaleY : pieR;
+      const clusterGap = radialFraction(cfg, 0.07, 0.7);
+      const yOf: number[] = [];
+      for (let i = 0; i < byAngle.length; i += 1) {
+        if (i === 0) yOf[i] = ceilTopY;
+        else yOf[i] = yOf[i - 1] - (placementExtent(byAngle[i - 1], cfg).height + clusterGap);
+      }
+      byAngle.forEach((p, i) => reshapeToLeftRimHug(p, cfg, yOf[i]));
+      applyFinalCondenseToFit(cluster, cfg);
+    },
+    () => {
+      // viewBox はみ出しは soft cost (WARN 級)。reorderLeftStackWithCondense と同じく交差/逆転 (hard)
+      // を消すためなら 1 行高 (VIEW_OVERFLOW_CAP_PX) までの増加を許容する。重なり/パイ侵入/leader貫通/
+      // leader貫通(box)は非悪化必須。leader のパイ貫通も非悪化必須 (ルクセンブルクの1点曲げ化で減る)。
+      const afterCross = countLeaderCrossings(placements, cfg, coord);
+      const afterDisc = countAngularDiscordantPairs(placements, cfg, coord);
+      // 交差を厳密に減らす、または (交差を増やさずに) 角度順逆転を厳密に減らす時だけ採用する。
+      // 後者は page16 のような「交差は無いが上左クラスタが反転」を直すための経路。
+      const improved =
+        afterCross < beforeCross || (afterCross <= beforeCross && afterDisc < beforeDisc);
+      const harm =
+        !improved ||
+        afterDisc > beforeDisc ||
+        maxOverlap() > beforeOverlap + tol ||
+        maxPieIntrusion() > beforePie + tol ||
+        maxViewOverflow() > beforeView + VIEW_OVERFLOW_CAP_PX ||
+        countLeaderThroughLabels(placements, cfg, coord) > beforeThrough ||
+        maxLeaderPie() > beforeLeaderPie + tol;
+      return !harm;
+    },
   );
-  const scaleY = Math.abs(coord.yScale(0) - coord.yScale(1));
-  // 天井 (box 上端=textY が viewBox 上端 +1px に来る logical Y)。baseline=bottom なので box 上端=textY。
-  const ceilTopY = scaleY > 1e-9 ? (coord.yScale(0) - 1) / scaleY : pieR;
-  const clusterGap = radialFraction(cfg, 0.07, 0.7);
-  const yOf: number[] = [];
-  for (let i = 0; i < byAngle.length; i += 1) {
-    if (i === 0) yOf[i] = ceilTopY;
-    else yOf[i] = yOf[i - 1] - (placementExtent(byAngle[i - 1], cfg).height + clusterGap);
-  }
-  byAngle.forEach((p, i) => reshapeToLeftRimHug(p, cfg, yOf[i]));
-  applyFinalCondenseToFit(cluster, cfg);
-
-  // viewBox はみ出しは soft cost (WARN 級)。reorderLeftStackWithCondense と同じく交差/逆転 (hard)
-  // を消すためなら 1 行高 (VIEW_OVERFLOW_CAP_PX) までの増加を許容する。重なり/パイ侵入/leader貫通/
-  // leader貫通(box)は非悪化必須。leader のパイ貫通も非悪化必須 (ルクセンブルクの1点曲げ化で減る)。
-  const afterCross = countLeaderCrossings(placements, cfg, coord);
-  const afterDisc = countAngularDiscordantPairs(placements, cfg, coord);
-  // 交差を厳密に減らす、または (交差を増やさずに) 角度順逆転を厳密に減らす時だけ採用する。
-  // 後者は page16 のような「交差は無いが上左クラスタが反転」を直すための経路。
-  const improved =
-    afterCross < beforeCross || (afterCross <= beforeCross && afterDisc < beforeDisc);
-  const harm =
-    !improved ||
-    afterDisc > beforeDisc ||
-    maxOverlap() > beforeOverlap + tol ||
-    maxPieIntrusion() > beforePie + tol ||
-    maxViewOverflow() > beforeView + VIEW_OVERFLOW_CAP_PX ||
-    countLeaderThroughLabels(placements, cfg, coord) > beforeThrough ||
-    maxLeaderPie() > beforeLeaderPie + tol;
-  if (harm) seamRestore(snap);
 }
 
 /**
@@ -2986,19 +3032,20 @@ function escapeTopBandSeamLeader(
       const beforePie = maxPieIntrusion();
       const beforeView = maxViewOverflow();
       const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
-      const snap = seamSnapshot(placements);
-      escapeOne(c, false);
-      const harm =
-        countLeaderCrossings(placements, cfg, coord) >= beforeCross ||
-        maxOverlap() > beforeOverlap + tol ||
-        maxPieIntrusion() > beforePie + tol ||
-        maxViewOverflow() > beforeView + tolPx ||
-        countLeaderThroughLabels(placements, cfg, coord) > beforeThrough;
-      if (harm) {
-        seamRestore(snap);
-      } else {
-        adoptedAny = true;
-      }
+      const adopted = trySeamMutation(
+        placements,
+        () => escapeOne(c, false),
+        () => {
+          const harm =
+            countLeaderCrossings(placements, cfg, coord) >= beforeCross ||
+            maxOverlap() > beforeOverlap + tol ||
+            maxPieIntrusion() > beforePie + tol ||
+            maxViewOverflow() > beforeView + tolPx ||
+            countLeaderThroughLabels(placements, cfg, coord) > beforeThrough;
+          return !harm;
+        },
+      );
+      if (adopted) adoptedAny = true;
     }
   } else {
     // 累積プレフィックス探索 (emit 限定): 候補をシーム最寄り順に 1 枚ずつ「追加で」逃がし、各
@@ -3425,22 +3472,22 @@ function repairResidualLeaderDefects(
         // 置き直す。円に食い込んだ箱 (label inside pie) を外へ出し、他 leader の回廊を塞ぐ
         // 被害者箱を退かす。
         if (!adopted && p.x < 0) {
-          const snapA = seamSnapshot(placements);
-          reshapeToLeftRimHug(p, cfg, placementBox(p, cfg).top);
-          const v = vecOf();
-          const ok = better(v, cur);
-          if (process.env.PIE_CHART_DEBUG_REPAIR) {
-            console.error(
-              `[rehug] "${p.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, ` +
-                `boxPie ${cur.boxPie.toFixed(3)}->${v.boxPie.toFixed(3)}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
-                `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
-            );
-          }
-          if (ok) {
-            adopted = true;
-          } else {
-            seamRestore(snapA);
-          }
+          adopted = trySeamMutation(
+            placements,
+            () => reshapeToLeftRimHug(p, cfg, placementBox(p, cfg).top),
+            () => {
+              const v = vecOf();
+              const ok = better(v, cur);
+              if (process.env.PIE_CHART_DEBUG_REPAIR) {
+                console.error(
+                  `[rehug] "${p.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, ` +
+                    `boxPie ${cur.boxPie.toFixed(3)}->${v.boxPie.toFixed(3)}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
+                    `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
+                );
+              }
+              return ok;
+            },
+          );
         }
       }
       if (adopted) return true; // 不具合集合が変わったので外側 iter で再列挙する
@@ -3485,23 +3532,29 @@ function repairResidualLeaderDefects(
       const pa = placements[ia];
       const pb = placements[ib];
       if (pa.insideSlice || pb.insideSlice || pa.forceTopRight || pb.forceTopRight) continue;
-      const snapS = seamSnapshot(placements);
-      [pa.x, pb.x] = [pb.x, pa.x];
-      [pa.y, pb.y] = [pb.y, pa.y];
-      const tb = pa.baseline;
-      pa.baseline = pb.baseline;
-      pb.baseline = tb;
-      const v = vecOf();
-      const ok = swapBetter(v, cur);
-      if (process.env.PIE_CHART_DEBUG_REPAIR) {
-        console.error(
-          `[crossswap] "${pa.item.name}"<->"${pb.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, ` +
-            `through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
-            `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
-        );
-      }
-      if (ok) return true;
-      seamRestore(snapS);
+      const adopted = trySeamMutation(
+        placements,
+        () => {
+          [pa.x, pb.x] = [pb.x, pa.x];
+          [pa.y, pb.y] = [pb.y, pa.y];
+          const tb = pa.baseline;
+          pa.baseline = pb.baseline;
+          pb.baseline = tb;
+        },
+        () => {
+          const v = vecOf();
+          const ok = swapBetter(v, cur);
+          if (process.env.PIE_CHART_DEBUG_REPAIR) {
+            console.error(
+              `[crossswap] "${pa.item.name}"<->"${pb.item.name}": crossPie ${cur.crossPie}->${v.crossPie}, ` +
+                `through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, clips ${cur.clips}->${v.clips}, ` +
+                `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
+            );
+          }
+          return ok;
+        },
+      );
+      if (adopted) return true;
     }
     return false;
   };
@@ -3532,27 +3585,33 @@ function repairResidualLeaderDefects(
         ? Math.min(...escapeAnchors) - radialFraction(cfg, 0.03, 0.3)
         : Number.POSITIVE_INFINITY;
     for (const top of [cfg.canvasYlim[1], curTop]) {
-      const snap = seamSnapshot(placements);
-      let y = top;
-      for (const p of byAngle) {
-        reshapeToLeftRimHug(p, cfg, y);
-        if (p.x > rightCap) {
-          p.x = rightCap;
-          p.origTextX = p.x;
-        }
-        y -= placementExtent(p, cfg).height + cfg.scaledMinGap;
-      }
-      const v = vecOf();
-      const ok = better(v, cur);
-      if (process.env.PIE_CHART_DEBUG_REPAIR) {
-        console.error(
-          `[restack-left] top=${top.toFixed(3)} stack=[${byAngle.map((p) => p.item.name).join(',')}]: ` +
-            `crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, ` +
-            `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
-        );
-      }
-      if (ok) return true;
-      seamRestore(snap);
+      const adopted = trySeamMutation(
+        placements,
+        () => {
+          let y = top;
+          for (const p of byAngle) {
+            reshapeToLeftRimHug(p, cfg, y);
+            if (p.x > rightCap) {
+              p.x = rightCap;
+              p.origTextX = p.x;
+            }
+            y -= placementExtent(p, cfg).height + cfg.scaledMinGap;
+          }
+        },
+        () => {
+          const v = vecOf();
+          const ok = better(v, cur);
+          if (process.env.PIE_CHART_DEBUG_REPAIR) {
+            console.error(
+              `[restack-left] top=${top.toFixed(3)} stack=[${byAngle.map((p) => p.item.name).join(',')}]: ` +
+                `crossPie ${cur.crossPie}->${v.crossPie}, through ${cur.through}->${v.through}, inv ${cur.inv}->${v.inv}, ` +
+                `ovl ${cur.ovl.toFixed(3)}->${v.ovl.toFixed(3)}, view ${cur.view.toFixed(1)}->${v.view.toFixed(1)} => ${ok ? 'ADOPT' : 'REJECT'}`,
+            );
+          }
+          return ok;
+        },
+      );
+      if (adopted) return true;
     }
     return false;
   };
