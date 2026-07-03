@@ -13,21 +13,19 @@ import { resolveInputData, samples } from '../src/data.js';
 import { renderPdfStylePieToSvg } from '../src/svg_export/index.js';
 
 describe('emit 後 finalScore / modeTags のゴールデン表', () => {
-  it(
-    '全サンプルの finalScore と modeTags がスナップショットと一致する',
-    { timeout: 120_000 },
-    async () => {
-      const table: Record<string, { finalScore?: unknown; modeTags: string[] }> = {};
-      for (const name of Object.keys(samples).sort()) {
-        const items = resolveInputData({ data: samples[name].items });
-        const { diagnostics } = await renderPdfStylePieToSvg(items, {});
-        // single-slice チャートは layout を通らないため diagnostics が null になる。
-        table[name] = {
-          finalScore: diagnostics?.finalScore ?? null,
-          modeTags: diagnostics ? [...diagnostics.modeTags] : [],
-        };
-      }
-      expect(table).toMatchSnapshot();
-    },
-  );
+  it('全サンプルの finalScore と modeTags がスナップショットと一致する', {
+    timeout: 120_000,
+  }, async () => {
+    const table: Record<string, { finalScore?: unknown; modeTags: string[] }> = {};
+    for (const name of Object.keys(samples).sort()) {
+      const items = resolveInputData({ data: samples[name].items });
+      const { diagnostics } = await renderPdfStylePieToSvg(items, {});
+      // single-slice チャートは layout を通らないため diagnostics が null になる。
+      table[name] = {
+        finalScore: diagnostics?.finalScore ?? null,
+        modeTags: diagnostics ? [...diagnostics.modeTags] : [],
+      };
+    }
+    expect(table).toMatchSnapshot();
+  });
 });

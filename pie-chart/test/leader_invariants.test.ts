@@ -195,7 +195,10 @@ function minLeaderGap(leaders: { name: string; points: Pt[] }[]): number {
       const distToPolyline = (p: Pt, pts: Pt[]): number => {
         let d = Number.POSITIVE_INFINITY;
         for (let s = 0; s + 1 < pts.length; s += 1) {
-          d = Math.min(d, distPointToSegment(p.x, p.y, pts[s].x, pts[s].y, pts[s + 1].x, pts[s + 1].y));
+          d = Math.min(
+            d,
+            distPointToSegment(p.x, p.y, pts[s].x, pts[s].y, pts[s + 1].x, pts[s + 1].y),
+          );
         }
         return d;
       };

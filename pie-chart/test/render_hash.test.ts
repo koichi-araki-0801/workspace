@@ -104,16 +104,12 @@ function syntheticCases(): Record<string, Slice[]> {
 }
 
 describe('合成入力の SVG ハッシュ固定 (サンプル外の入力分布)', () => {
-  it(
-    '全合成ケースの SHA256 がスナップショットと一致する',
-    { timeout: 120_000 },
-    async () => {
-      const hashes: Record<string, string> = {};
-      for (const [name, items] of Object.entries(syntheticCases())) {
-        const { svg } = await renderPdfStylePieToSvg(items, {});
-        hashes[name] = createHash('sha256').update(svg).digest('hex');
-      }
-      expect(hashes).toMatchSnapshot();
-    },
-  );
+  it('全合成ケースの SHA256 がスナップショットと一致する', { timeout: 120_000 }, async () => {
+    const hashes: Record<string, string> = {};
+    for (const [name, items] of Object.entries(syntheticCases())) {
+      const { svg } = await renderPdfStylePieToSvg(items, {});
+      hashes[name] = createHash('sha256').update(svg).digest('hex');
+    }
+    expect(hashes).toMatchSnapshot();
+  });
 });
