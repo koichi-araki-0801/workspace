@@ -26,7 +26,12 @@
 フロントマター（先頭 `---` ブロック・`key: value` のみの簡易 YAML）でメタを持つ:
   title / subtitle / out（出力 .docx 名）/ version / style（guide|spec）/ kicker（アイブロウ語）/
   images（画像基準ディレクトリの相対パス）/
-  chapter_break（true で h1 章頭を強制改ページ。長文の設計書向けの任意オプション。先頭 h1 は除外）
+  chapter_break（true で h1 章頭を強制改ページ。長文の設計書向けの任意オプション。先頭 h1 は除外）/
+  toc（true で表紙直後に静的目次を描画。spec 向け。TOC フィールドは開くたび F9 更新が要るため
+  自前描画とする。ページ番号は載らないが `chapter_break` 併用で章番号がナビゲーションになる）
+
+spec 文書には加えてフッター（タイトル・版・`PAGE / NUMPAGES` フィールド）と、見出し段落への
+`outlineLvl` 付与（Word ナビゲーションウィンドウ・PDF しおり用。見た目は不変）を自動で行う。
 
 ページ送り制御（章のページまたぎ対策）は Word の段落プロパティで行う:
   見出し=`keepNext`+`keepLines`（孤立見出し防止）/ 全段落=`widowControl`（寡婦・孤児行抑制）/
@@ -39,7 +44,7 @@ import re
 
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
@@ -81,6 +86,14 @@ _H1_SEEN = False         # 先頭 h1 はタイトル直後なので改ページ�
 # コード/callout のページ割れ防止（`keepLines`）を適用する行数の上限。これを超える長大ブロックは
 # 1 ページに収まらず `keepLines` が逆効果（手前を丸ごと次ページへ送る）になるため割れを許容する。
 _KEEP_TOGETHER_MAXLINES = 25
+
+# callout（案2）の `keepLines` 適用上限（文字数）。長文 callout（運用注記など）は 1 ページに
+# 収まらないことがあり、`_KEEP_TOGETHER_MAXLINES` と同じ理由で割れを許容する。
+_CALLOUT_KEEP_MAXCHARS = 400
+
+# 案2 の表で偶数行ゼブラを自動適用するデータ行数のしきい値。短い表は「罫線中心・塗り最小」の
+# 現行トーンを維持し、行を目で追いにくい長大な表だけに視線誘導を入れる。
+_ZEBRA_MIN_ROWS = 8
 
 
 # ── docx ヘルパ（`gen_docs.py` から移植）──
@@ -157,6 +170,41 @@ def _cant_split(row):
     """表行をページまたぎ禁止に（番号バッジ/カード/画像が割れないように）。"""
     trPr = row._tr.get_or_add_trPr()
     trPr.append(OxmlElement("w:cantSplit"))
+
+
+def _tbl_header(row):
+    """表のヘッダ行をページまたぎで繰り返し表示する（`w:tblHeader`。ページを越える長大表向け）。"""
+    trPr = row._tr.get_or_add_trPr()
+    trPr.append(OxmlElement("w:tblHeader"))
+
+
+def _outline_level(p, level):
+    """見出し段落へアウトラインレベルを付与する（`w:outlineLvl`。h1→0）。見た目は不変のまま
+    Word のナビゲーションウィンドウ・PDF 化時のしおりを効かせる。見出しを Heading スタイルに
+    載せない方針（手動装飾を優先）のため、レベルだけを自前で埋める。"""
+    ol = OxmlElement("w:outlineLvl")
+    ol.set(qn("w:val"), str(level - 1))
+    p._p.get_or_add_pPr().append(ol)
+
+
+def _add_field_run(p, instr, size=8):
+    """`PAGE` 等のフィールドを fldChar begin/instrText/end の 3 run で挿入する（python-docx に
+    高水準 API が無いため OOXML を直接組む）。instrText の run にもフォントを設定し、Word が
+    計算した数字が既定フォントへ落ちないようにする。"""
+    rb = p.add_run()
+    fb = OxmlElement("w:fldChar")
+    fb.set(qn("w:fldCharType"), "begin")
+    rb._element.append(fb)
+    ri = p.add_run()
+    _set_run_font(ri, name=MONO, size=size, color=MUTED)
+    it = OxmlElement("w:instrText")
+    it.set(qn("xml:space"), "preserve")
+    it.text = f" {instr} "
+    ri._element.append(it)
+    rn = p.add_run()
+    fe = OxmlElement("w:fldChar")
+    fe.set(qn("w:fldCharType"), "end")
+    rn._element.append(fe)
 
 
 def _run_shade(run, fill):
@@ -243,6 +291,58 @@ def title(doc, text, subtitle=None, version=None, kicker=None):
 _HNUM = re.compile(r"^(\d+(?:\.\d+)*\.?)\s+(.*)$")
 
 
+def toc(doc, entries):
+    """静的目次（案2・front-matter `toc: true`）。`_collect_headings` で先読みした見出し一覧を
+    自前で描画する。TOC フィールドは開くたび F9 更新が要り配布物に不向きなため使わない。
+    h3 はノイズになるので載せない。"""
+    hp = doc.add_paragraph()
+    hp.paragraph_format.space_before = Pt(10)
+    hp.paragraph_format.space_after = Pt(6)
+    hr = hp.add_run("目次")
+    _set_run_font(hr, size=15, bold=True, color=INK)
+    _para_bottom_border(hp, sz=6, color=FILL_RULE2)
+    for level, text in entries:
+        if level >= 3:
+            continue
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(2)
+        m = _HNUM.match(text)
+        if level == 1:
+            if m:
+                rn = p.add_run(m.group(1) + " ")
+                _set_run_font(rn, name=MONO, size=10.5, bold=True, color=ACCENT)
+                text = m.group(2)
+            _add_inline(p, text, size=10.5, base_bold=True, base_color=INK)
+        else:
+            p.paragraph_format.left_indent = Cm(0.5)
+            if m:
+                rn = p.add_run(m.group(1) + " ")
+                _set_run_font(rn, name=MONO, size=9.5, color=MUTED)
+                text = m.group(2)
+            _add_inline(p, text, size=9.5, base_color=MUTED)
+    page_break(doc)
+
+
+def _spec_footer(doc, title_text, version=None):
+    """案2 のフッター。左=タイトル＋版 / 右=`PAGE / NUMPAGES`（Word が表示時に自動再計算）。
+    既定 Footer スタイルが持つ中央/右タブに 1 個目のタブが吸われないよう Normal へ切り替え、
+    本文幅の右端タブを自前で置く。上辺の細罫線で本文の罫線トーンに揃える。"""
+    sec = doc.sections[0]
+    p = sec.footer.paragraphs[0]
+    p.style = doc.styles["Normal"]
+    _para_border(p, "top", 4, FILL_RULE2, 4)
+    width = sec.page_width - sec.left_margin - sec.right_margin
+    p.paragraph_format.tab_stops.add_tab_stop(width, WD_TAB_ALIGNMENT.RIGHT)
+    label = title_text + (f"　v{version}" if version else "")
+    rl = p.add_run(label)
+    _set_run_font(rl, size=8, color=MUTED)
+    p.add_run("\t")
+    _add_field_run(p, "PAGE")
+    rs = p.add_run(" / ")
+    _set_run_font(rs, name=MONO, size=8, color=MUTED)
+    _add_field_run(p, "NUMPAGES")
+
+
 def h(doc, text, level=1):
     """見出し。案3=h1 に左アクセント縦バー、案2=等幅アクセント番号＋h1 下罫線。番号は原文ママ温存。"""
     global _H1_SEEN
@@ -259,6 +359,7 @@ def h(doc, text, level=1):
             p.paragraph_format.page_break_before = True
         _H1_SEEN = True
     if _STYLE == "spec":
+        _outline_level(p, level)
         size = {1: 15, 2: 13, 3: 12}.get(level, 11)
         m = _HNUM.match(text)
         if m:
@@ -402,19 +503,30 @@ def table(doc, header, rows, widths=None):
             _set_cell_border(hdr[i], bottom={"sz": 12, "color": "20242C"})
         else:
             _add_inline(hdr[i].paragraphs[0], htext, size=9.5, base_bold=True, base_color=WHITE)
-    if not spec:
+    if spec:
+        # 長大表対策: ヘッダ行はページまたぎで繰り返し、淡塗りでデータ行との見分けを付ける。
+        _tbl_header(t.rows[0])
+        for c in hdr:
+            _shade(c._tc, FILL_CODE)
+    else:
         # §6-A: style 後ではなく塗りで直接アクセントヘッダにする（淡色潰れ回避）。
         for c in hdr:
             _shade(c._tc, FILL_ACCENT)
             _set_cell_border(c, **_GRID4)
+    zebra = spec and len(rows) >= _ZEBRA_MIN_ROWS
     for ridx, row in enumerate(rows):
-        cells = t.add_row().cells
+        tr = t.add_row()
+        cells = tr.cells
         for i, val in enumerate(row):
             cells[i].text = ""
             _add_inline(cells[i].paragraphs[0], str(val), size=9.5)
         if spec:
+            _cant_split(tr)   # 行は 1〜2 行文なので分割禁止の副作用はない
             for c in cells:
                 _set_cell_border(c, bottom={"sz": 8, "color": FILL_ROW2})
+            if zebra and ridx % 2 == 1:   # データ 1 件目=奇数 → 偶数行に zebra（案3 と同じ位相）
+                for c in cells:
+                    _shade(c._tc, FILL_ZEBRA)
         else:
             if ridx % 2 == 1:   # データ 1 件目=奇数 → 偶数行に zebra
                 for c in cells:
@@ -471,8 +583,10 @@ def callout(doc, text, tag=None):
         p.paragraph_format.space_before = Pt(4)
         p.paragraph_format.space_after = Pt(6)
         p.paragraph_format.left_indent = Cm(0.2)
-        # 案3: 補足ボックスは短いのが通例なのでページ割れを防ぐ（左アクセント罫線が分断されない）。
-        p.paragraph_format.keep_together = True
+        # 補足ボックスは短いのが通例なのでページ割れを防ぐ（左アクセント罫線が分断されない）。
+        # ただし長文（運用注記など）は 1 ページに収まらず逆効果になるため文字数で打ち切る。
+        if len(text) <= _CALLOUT_KEEP_MAXCHARS:
+            p.paragraph_format.keep_together = True
         _para_left_border(p, sz=16, color=FILL_ACCENT, space=8)
         lr = p.add_run(f"{label} — ")
         _set_run_font(lr, name=MONO, size=9.5, bold=True, color=ACCENT)
@@ -516,6 +630,29 @@ def _parse_frontmatter(text: str):
     return meta, text
 
 
+def _meta_flag(meta, key):
+    """front-matter の真偽値オプション（`true`/`1`/`yes`/`on` を真とする）。"""
+    return str(meta.get(key, "")).strip().lower() in ("true", "1", "yes", "on")
+
+
+def _collect_headings(body):
+    """本文から (level, text) を先読み収集する（目次描画用）。コードフェンス内の `#` 行を
+    見出しと誤認しないようフェンス状態を追跡する。level は本パーサと同じく 3 で頭打ち。"""
+    out = []
+    in_fence = False
+    for line in body.splitlines():
+        s = line.strip()
+        if s.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = re.match(r"^(#{1,6})\s+(.*)$", s)
+        if m:
+            out.append((min(len(m.group(1)), 3), m.group(2).strip()))
+    return out
+
+
 _TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$")
 _IMG = re.compile(r"^!\[(?P<cap>.*?)\]\((?P<src>.*?)\)\s*$")
 _CALLOUT = re.compile(r"^>\s?(?:\[!(?P<tag>[A-Z]+)\]\s*)?(?P<body>.*)$")
@@ -551,7 +688,7 @@ def render(md_path, out_path, img_dir, warnings=None):
     _STYLE = style
 
     # 案4: 章頭改ページの可否を front-matter から取得し、先頭 h1 判定フラグを原稿ごとにリセット。
-    _CHAPTER_BREAK = str(meta.get("chapter_break", "")).strip().lower() in ("true", "1", "yes", "on")
+    _CHAPTER_BREAK = _meta_flag(meta, "chapter_break")
     _H1_SEEN = False
 
     doc = new_doc()
@@ -559,6 +696,11 @@ def render(md_path, out_path, img_dir, warnings=None):
         # 版は title 内（案3=サブに続け / 案2=右端）で表示。別段落は出さない。
         title(doc, meta["title"], meta.get("subtitle"),
               version=meta.get("version"), kicker=meta.get("kicker"))
+    # 案2 の長文ナビゲーション: 静的目次（`toc: true` 時）とページ番号入りフッター。
+    if _STYLE == "spec" and _meta_flag(meta, "toc"):
+        toc(doc, _collect_headings(body))
+    if _STYLE == "spec" and meta.get("title"):
+        _spec_footer(doc, meta["title"], meta.get("version"))
 
     lines = body.splitlines()
     i = 0
