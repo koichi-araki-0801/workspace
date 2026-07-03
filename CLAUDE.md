@@ -108,6 +108,10 @@
     ゼブラ・細罫線・ウィンドウ枠固定・オートフィルタ・A4 横の印刷設定を組む。`md2xlsx.py` は
     PyYAML を使わず必要な YAML サブセットを自前パースする（オフライン依存追加を避けるため）。
   - 両エンジンの既定フォント定数（`JP` / `MONO`）も上記 BIZ UD 規約に一致させる。
+- 図版（アーキテクチャ図など）は **SVG が正典**（`docs/<project>/images/*.svg`）で、Word へは隣の
+  同名 PNG を挿入する（python-docx は SVG 非対応）。PNG はコミット済み成果物とし、SVG を変更した
+  ときだけ `python docs/_build/svg2png.py` で手動再生成する（Playwright 依存のため `build_all.py`
+  には組み込まない）。
 
 ## editor 2系統の原則（根幹・必ず順守）
 
