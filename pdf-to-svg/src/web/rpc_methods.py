@@ -8,10 +8,13 @@
 """
 from __future__ import annotations
 
+import base64
+import io
 import json
 import logging
 import os
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -351,6 +354,27 @@ def rpc_exportSvg(s: WebSession, args: dict) -> dict:
     return {"svg": page_to_svg(d.pages[pi]), "name": f"{stem}_p{pi + 1}.svg"}
 
 
+# ---- ZIP 集約 (複数 SVG の一括保存) ----
+
+def rpc_zipEntries(_s: WebSession, args: dict) -> dict:
+    """``{name, text}`` のリストを ZIP 1 本へ固め base64 で返す。
+
+    複数 SVG を個別ダウンロードすると N 回の保存が走り、Edge の連続ダウンロード確認にも
+    阻まれるため、標準ライブラリ ``zipfile`` でサーバ側集約する (追加依存なし)。進捗表示の
+    ため SVG 変換自体はクライアントが ``exportSvg`` をページごとに呼び、集めた結果だけを
+    ここへ渡す (ローカル HTTP なので往復コストは無視できる)。
+    """
+    entries = args.get("entries") or []
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for e in entries:
+            zf.writestr(str(e["name"]), str(e["text"]))
+    return {
+        "zipBase64": base64.b64encode(buf.getvalue()).decode("ascii"),
+        "count": len(entries),
+    }
+
+
 # ---- 辞書 JSON (文字列ベース。ファイル保存/読込はブラウザの FSA が行う) ----
 
 def rpc_dictJson(s: WebSession, _args: dict) -> dict:
@@ -395,6 +419,7 @@ HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "dictJson": rpc_dictJson,
     "dictImportJson": rpc_dictImportJson,
     "exportSvg": rpc_exportSvg,
+    "zipEntries": rpc_zipEntries,
     "setOnlyHeaders": rpc_setOnlyHeaders,
     "reapplyDict": rpc_reapplyDict,
     "reapplyDictPage": rpc_reapplyDictPage,

@@ -69,10 +69,12 @@
         <div class="sheet">
           <h1>変換する PDF を選ぶ</h1>
           <p class="lead">複数のPDFをまとめて選べます。選んだ順に処理されます。</p>
-          <div class="dropzone" id="dropzone">
+          <div class="dropzone" id="dropzone" tabindex="0" role="button"
+               aria-label="PDF ファイルを選択（ドラッグ＆ドロップも可）">
             <div class="dz-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5"></path><path d="m7 10 5-5 5 5"></path><path d="M5 16v2.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V16"></path></svg></div>
-            <div class="dz-t">ここをクリックして PDF を選ぶ</div>
-            <div class="dz-s">または下のボタンから選びます</div>
+            <!-- D&D は実装済み (app.js の drop ハンドラ) — graph-editor と同じ文言で機能を告知する。 -->
+            <div class="dz-t">ここに PDF をドラッグ＆ドロップ</div>
+            <div class="dz-s">またはクリック / 下のボタンから選びます</div>
             <button class="btn primary" id="btn-pick" style="margin:0 auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.2H19.5A1.5 1.5 0 0 1 21 9.7V18a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18V7.5Z"></path></svg>ファイルを選ぶ…</button>
           </div>
           <div class="filelist">
@@ -237,9 +239,14 @@
     <div class="nav-hint" id="nav-hint"></div>
     <div class="spacer"></div>
     <button class="btn primary" id="btn-next">次へ<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 6 6-6 6"></path></svg></button>
+    <!-- 書き出しの determinate 進捗 (i/N はフッター文字 nav-hint にも出す)。 -->
+    <progress class="exp-progress" id="exp-progress" hidden></progress>
     <button class="btn good lg" id="btn-export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4"></path><path d="m8 8 4-4 4 4"></path><path d="M4 14v4.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V14"></path></svg>SVGに書き出す</button>
   </div>
 </div>
+
+<!-- role/aria-live: 書き出し完了などの通知をスクリーンリーダーにも読み上げさせる。 -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="rpc.js"></script>
 <script type="module" src="app.js"></script>

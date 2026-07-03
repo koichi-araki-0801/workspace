@@ -1036,6 +1036,10 @@ ${LEGEND_HTML}
     // 開く (手順1 ドロップゾーン / レールのボタン)
     if (this.dom.dropzone) {
       this.dom.dropzone.addEventListener("click", () => this.openFiles());
+      // `tabindex=0` の div のため Enter/Space のキーボード起動を自前で足す (ui.html 参照)。
+      this.dom.dropzone.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.openFiles(); }
+      });
       this.dom.dropzone.addEventListener("dragover", (e) => { e.preventDefault(); this.dom.dropzone.classList.add("dragover"); });
       this.dom.dropzone.addEventListener("dragleave", () => this.dom.dropzone.classList.remove("dragover"));
       this.dom.dropzone.addEventListener("drop", (e) => {
@@ -1052,7 +1056,11 @@ ${LEGEND_HTML}
     if (this.dom.btnRedo) this.dom.btnRedo.addEventListener("click", () => this.redo());
     this.dom.btnReset.addEventListener("click", () => {
       const it = this.items.find((i) => i.id === this.currentId);
-      if (it) this.load(it);
+      if (!it) return;
+      // 表示中ファイルの調整を全破棄する破壊的操作のため確認を挟む (Undo でも戻れない
+      // `load` による再構築)。フレームワーク無しのため `window.confirm` で足りる。
+      const ok = window.confirm(`「${it.name}」の調整をすべて破棄して、開いた時の状態に戻します。よろしいですか？`);
+      if (ok) this.load(it);
     });
     this.dom.btnZoomIn.addEventListener("click", () => this.setZoom(this.zoom * CONFIG.zoomStep));
     this.dom.btnZoomOut.addEventListener("click", () => this.setZoom(this.zoom / CONFIG.zoomStep));

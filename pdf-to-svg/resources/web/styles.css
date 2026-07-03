@@ -765,3 +765,30 @@
 
   html, body { height: 100%; margin: 0; background: var(--canvas-bg); }
   #app { height: 100vh; }
+/* ---- 書き出し進捗 (フッター) ---- */
+.exp-progress { width: 170px; height: 8px; accent-color: var(--good); }
+
+/* ---- トースト (graph-editor と同型の一時通知) ---- */
+.toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%) translateY(10px); background: oklch(0.34 0.012 262); color: #fff; font-size: 12.5px; font-weight: 600; padding: 9px 16px; border-radius: 999px; box-shadow: var(--shadow-pop); opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s; z-index: 30; }
+.toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---- アクセシビリティ ---- */
+/* キーボード操作の現在地を可視化する focus リング (editor/web の `.ring-focus` と同じ見た目)。
+   :hover しか無いとタブ移動の現在地が見えないため、操作要素へ一括で付ける。 */
+button:focus-visible,
+select:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px color-mix(in oklab, var(--accent) 55%, transparent);
+}
+
+/* 動きの抑制設定を尊重 (editor/web の index.css と同方針)。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
