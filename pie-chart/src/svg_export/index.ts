@@ -2599,11 +2599,52 @@ function relieveLeaderNeighborContact(
 }
 
 /** placement の全可変フィールドのスナップショット (seam 系パスの全 revert 用・退行0 を担保)。 */
-interface SeamSnap {
+export interface SeamSnap {
   p: Placement;
   v: Partial<Placement>;
 }
-function seamSnapshot(placements: Placement[]): SeamSnap[] {
+
+/**
+ * `Placement` 全フィールドの seam-snapshot 分類 (コンパイル時網羅チェック)。`Placement` へ
+ * フィールドを追加すると、本表に分類を書くまで tsc が落ちる。これで `seamSnapshot` への追加漏れ
+ * (= seam 系パスの revert 不完全化) を静かに作れない。'snapshot' = `seamSnapshot` が保存・復元する。
+ * 'static' = seam 系パスが変更しないため保存不要 (理由は各行コメント)。本表と実際の snapshot キーの
+ * 一致は `seam_snapshot.test.ts` が検証する。
+ */
+export const PLACEMENT_SEAM_POLICY: Record<keyof Placement, 'snapshot' | 'static'> = {
+  x: 'snapshot',
+  y: 'snapshot',
+  anchor: 'snapshot',
+  baseline: 'snapshot',
+  lines: 'snapshot',
+  leaderBend: 'snapshot',
+  leaderEndpoint: 'snapshot',
+  leaderBendFollowsEndpointY: 'snapshot',
+  leaderBendFollowsEndpointX: 'snapshot',
+  forceTopRight: 'snapshot',
+  dominantOutsideEdge: 'snapshot',
+  skipLeader: 'snapshot',
+  origTextX: 'snapshot',
+  origTextY: 'snapshot',
+  maxTextX: 'snapshot',
+  minTextX: 'snapshot',
+  maxTextY: 'snapshot',
+  minTextY: 'snapshot',
+  nameScaleX: 'snapshot',
+  condenseNamePortionOnly: 'snapshot',
+  item: 'static', // 入力スライスへの参照。seam 系パスは item を書き換えない
+  measured: 'static', // 実測キャッシュ。読み手 (`placementExtent`) が都度再計算する
+  leaderAnchor: 'static', // スライス rim 上のアンカー。seam 系パスは読み取りのみ
+  upperLeftHairpinCheck: 'static', // cascade 確定時に決まり、以後不変
+  insideSlice: 'static', // 内側/外側の別は seam 系パスで変わらない (候補フィルタで除外済み)
+  nameSplit: 'static', // 語割れ廃止で常に未設定。2 行化は専用 revert (`restoreTwoLineNamePlacement`) 持ち
+  pieClearance: 'static', // draft 由来の動的クランプ印。seam 系パスは変更しない
+  twoLineLeftColumn: 'static', // `applyTwoLineLeftColumn` が一度だけ立てる。seam 系パスは変更しない
+  declipBottomLeader: 'static', // `applyVerticalDeclipFallback` 採用分のみ。seam 系パスは変更しない
+  bisectedSecondSliceNoLeader: 'static', // item から複写される固定印。seam 系パスは変更しない
+};
+
+export function seamSnapshot(placements: Placement[]): SeamSnap[] {
   return placements.map((p) => ({
     p,
     v: {
@@ -2631,7 +2672,7 @@ function seamSnapshot(placements: Placement[]): SeamSnap[] {
     },
   }));
 }
-function seamRestore(snap: SeamSnap[]): void {
+export function seamRestore(snap: SeamSnap[]): void {
   for (const { p, v } of snap) Object.assign(p, v);
 }
 
@@ -3662,7 +3703,7 @@ function runLabelCascade(
  * 入力を正規化し、有限かつ |value|>0 のスライスのみ残して「その他」末尾・値降順に整列する。
  * レンダラの描画順 ([[graph2-renderer-sorts-slices]]) を決める前処理。
  */
-function normalizeAndSortItems(rawItems: unknown): LayoutItem[] {
+export function normalizeAndSortItems(rawItems: unknown): LayoutItem[] {
   return normalizeInputItems(rawItems)
     .filter((item) => Number.isFinite(Number(item.value)) && Math.abs(Number(item.value)) > 0)
     .map((item) => ({

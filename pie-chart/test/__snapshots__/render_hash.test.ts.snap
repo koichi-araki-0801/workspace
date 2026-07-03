@@ -1,0 +1,32 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`合成入力の SVG ハッシュ固定 (サンプル外の入力分布) > 全合成ケースの SHA256 がスナップショットと一致する 1`] = `
+{
+  "gen_dominant_85": "967cc709eb889a36f5350bf27c8d4e20f857308608b1d13b3ac754ae5e7dbd0e",
+  "gen_dominant_92": "6f9befcae1cd291122bd799869be6d98d666714e426282731bbe16b3a226210c",
+  "gen_equal_4": "7cebed42d987a611caa23b72e1e188f82714c62455c3db6f4392b8bed66a5cbd",
+  "gen_long_10_other": "ae151ea6ff4996ce9b4b8c316648588a0d03a58f0151890f937ad3d8bcac43c8",
+  "gen_long_12_other": "ee4231bb394d074dc29f9b3a29b1cba380f7153cbb638ec685b6cba7c3b5720b",
+  "gen_long_14_other": "ee4231bb394d074dc29f9b3a29b1cba380f7153cbb638ec685b6cba7c3b5720b",
+  "gen_long_2_other": "96490462b31b222325e71faefcff8343768831a5a83417792ac8e44a6b071c34",
+  "gen_long_3": "280d043d7ebf9d14ad19c3d8e6c38e913d84a3d63a73b836e3c03998c24b026f",
+  "gen_long_4_other": "68d614b640064c28c0dccdfd3b4a9184e716a3a04e6ea9cf5317eb7a36de866a",
+  "gen_long_5": "382cf298748b016096d51a0a0f59c2c0175d1dd179429423c8a14fc48241e88d",
+  "gen_long_6_other": "e188e71bc9ffcd2e422e90b085d588bb511c0e6ed050806820fe94ec7789b808",
+  "gen_long_7": "4241641f194cca987b7fe30c57e7b2d09741353e01da02423ab229ebb64af23a",
+  "gen_long_8_other": "c230b77a8a7724fd4e84b5a4e9c8caa35b9bff25ff948fe533602f41c93ee23a",
+  "gen_long_9": "b4dc1ad7691a3919d5cd0e46014ac40531b60bf7b3368017cf280945c2bd8b4d",
+  "gen_long_pair": "baa7f3845760fda8cc93e59291a3f1af85b0753d46024cb5267a17dbdf2e7bc5",
+  "gen_short_10_other": "dd0febb098a2aafb35f7e886a1361cffa3613db020095e61002fcbdd5882a329",
+  "gen_short_12_other": "a1ec7ad4a19d157df030db4702dc0584bdd9c51f0781f1dcc0df52086abd9220",
+  "gen_short_14_other": "a1ec7ad4a19d157df030db4702dc0584bdd9c51f0781f1dcc0df52086abd9220",
+  "gen_short_2_other": "68f0d42caa5a5a2dca3e7c47e45044556b6e0dfe2895bac8337b0d67d5ce2265",
+  "gen_short_3": "d914f138afa896b76fccb6908090a86a747342799f621be9582536f86a8f8dab",
+  "gen_short_4_other": "35f30820525986deba3ad9e6fc6856c75b3c6081e9f95928c4ebc860b01e38df",
+  "gen_short_5": "3e36ab7e6f904bd61b0a3dfe1456ca75b269e662a52f4c0e9a71d9f7918b9564",
+  "gen_short_6_other": "42a832e2f464375bf29489156271f38b53552b2c2962b5faa5830c7ea6567984",
+  "gen_short_7": "72e410fc433060653d6c4783588f31055afd719bc3fdf212b0de42596d4e00b1",
+  "gen_short_8_other": "f94a781008729f99de68c97be2c3b03d0cf62ba2c7c6910cd269f2cbf44b5647",
+  "gen_short_9": "393145cfe95ba2e7d0afe7ff008dd40e3527ca542c71383b1f903f52294128f5",
+}
+`;
