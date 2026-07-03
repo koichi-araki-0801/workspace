@@ -25,6 +25,13 @@ export default defineConfig({
       '@editor/shared': fileURLToPath(new URL('../shared/src/index.ts', import.meta.url)),
     },
   },
+  // HTML 重処理は module worker(`workers/index.ts` の `new Worker(..., {type:'module'})`)で動かす。
+  // 既定の `iife` だと worker が共有チャンクを分割 import できず、オフライン/本番の静的配信下で
+  // worker チャンクの解決に失敗してプレビューが白紙になり得る。出力形式を `es` に固定して
+  // module worker と分割チャンクの読み込みを揃える。
+  worker: {
+    format: 'es',
+  },
   server: {
     port: 5173,
     proxy: {

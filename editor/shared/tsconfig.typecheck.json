@@ -1,0 +1,10 @@
+{
+  "//": "vitest typecheck モード(test/schemas.test-d.ts)専用。build 用 tsconfig の include を広げると dist にテストが混入するため別ファイルにする。composite は tsc -b 専用機能なので外す。",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*", "test/**/*"]
+}

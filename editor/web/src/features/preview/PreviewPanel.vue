@@ -269,7 +269,7 @@ defineExpose({ prevPage, nextPage, goToPage, zoomIn, zoomOut, fit });
 <template>
   <div
     ref="container"
-    class="relative h-full w-full overflow-hidden bg-[hsl(220_16%_91%)] dark:bg-[hsl(222_18%_18%)]"
+    class="relative h-full w-full overflow-hidden bg-canvas-backdrop"
   >
     <div
       v-if="rendering"
@@ -293,11 +293,11 @@ defineExpose({ prevPage, nextPage, goToPage, zoomIn, zoomOut, fit });
    要素自身に `data-vivliostyle-viewer-viewport` が付与されるため, scoped 化で付く `[data-v-...]`
    と合わさり, head へ後から注入される Vivliostyle 規則(同詳細度・後勝ち)より高詳細度で確実に勝つ
    (Tailwind ユーティリティクラスでは負ける)。screen 専用で PDF 出力には影響しない。 */
+/* テーマ別の値は `--canvas-backdrop`(index.css)が解決する。旧実装の `:global(.dark)` は
+   実テーマ属性 `[data-theme="dark"]` と一致せずダークで効いていなかった — CSS 変数化で
+   セレクタ分岐ごと不要になり、その取りこぼしも解消される。 */
 [data-vivliostyle-viewer-viewport] {
-  background: hsl(220 16% 91%);
-}
-:global(.dark) [data-vivliostyle-viewer-viewport] {
-  background: hsl(222 18% 18%);
+  background: var(--canvas-backdrop);
 }
 </style>
 

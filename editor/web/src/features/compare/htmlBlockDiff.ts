@@ -26,6 +26,12 @@ export interface DiffBlock {
   /** 2 版で同じ block を整列させるための安定キー。 */
   key: string;
   status: BlockStatus;
+  /** このパーツだけの着色済み before マークアップ(added パーツでは空)。承認画面のパーツ行用。 */
+  beforeHtml: string;
+  /** このパーツだけの着色済み after マークアップ(removed パーツでは空)。 */
+  afterHtml: string;
+  /** 人間向けラベル「ページN・パーツM」(`partKey.ts` の `partLabelMap` と同採番)。 */
+  label: string;
 }
 
 export interface DiffPage {
@@ -66,6 +72,25 @@ export const HL_REMOVED = 'cmp-removed';
 // 語句級(テキスト中の差分): 挿入語句(after ペイン)・削除語句(before ペイン)。
 export const HL_INS = 'cmp-ins';
 export const HL_DEL = 'cmp-del';
+
+// 版比較(`CompareResultView`)と承認プレビュー(`ReviewDiffView`)が共有する、iframe 内の
+// ハイライト CSS とドキュメント組み立て。着色ルール(`.cmp-*`)は両画面で同一で、body の
+// padding だけ画面ごとに変えるため引数化する(二重管理を避ける)。
+export function diffHighlightCss(bodyPadding: number): string {
+  return `
+  body{margin:0;padding:${bodyPadding}px;background:#fff;}
+  .${HL_CHANGED}{background:rgba(220,38,38,.06)!important;box-shadow:inset 3px 0 0 #dc2626;}
+  .${HL_ADDED}{background:rgba(22,163,74,.08)!important;box-shadow:inset 3px 0 0 #16a34a;}
+  .${HL_REMOVED}{background:rgba(217,119,6,.08)!important;box-shadow:inset 3px 0 0 #d97706;}
+  .${HL_INS}{background:rgba(22,163,74,.18);color:#15803d;text-decoration:underline;border-radius:2px;}
+  .${HL_DEL}{background:rgba(220,38,38,.14);color:#b91c1c;text-decoration:underline;border-radius:2px;}
+`;
+}
+
+/** 断片 HTML を、版ファンド CSS + ハイライト CSS 付きの完結した srcdoc ドキュメントに包む。 */
+export function buildDiffDoc(fragment: string, css: string, highlightCss: string): string {
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><style>${css}</style><style>${highlightCss}</style></head><body>${fragment}</body></html>`;
+}
 
 // ── 2. パースと page 分割 ─────────────────────────────────────────────────
 // 注入された `parse`(メイン=DOMParser / Worker=linkedom)で body を取り出す。
@@ -453,7 +478,14 @@ function fastSamePage(
   const beforeHtml = joinOuter(beforePage);
   const afterHtml = joinOuter(afterPage);
   if (beforeHtml.length !== afterHtml.length || beforeHtml !== afterHtml) return null;
-  const blocks: DiffBlock[] = keyedBlocks(afterPage).map((b) => ({ key: b.key, status: 'same' }));
+  // 無変更ページなので各パーツの before/after は同一 outerHTML。承認画面の「変更なしも表示」用。
+  const blocks: DiffBlock[] = keyedBlocks(afterPage).map((b, qi) => ({
+    key: b.key,
+    status: 'same',
+    beforeHtml: b.el.outerHTML,
+    afterHtml: b.el.outerHTML,
+    label: `ページ${index + 1}・パーツ${qi + 1}`,
+  }));
   return { index, changed: false, changedBlockCount: 0, blocks, beforeHtml, afterHtml };
 }
 
@@ -470,10 +502,25 @@ function diffPage(index: number, beforePage: HTMLElement[], afterPage: HTMLEleme
     ...after.map((b) => b.key),
     ...before.filter((b) => !afterMap.has(b.key)).map((b) => b.key),
   ];
+  // 「ページN・パーツM」採番(`partLabelMap` と同思想): after(現行)側 DOM 順を優先し、
+  // after に無い removed パーツは before 側 DOM 順で採番する。
+  const labelOf = new Map<string, string>();
+  after.forEach((b, qi) => {
+    labelOf.set(b.key, `ページ${index + 1}・パーツ${qi + 1}`);
+  });
+  before.forEach((b, qi) => {
+    if (!labelOf.has(b.key)) labelOf.set(b.key, `ページ${index + 1}・パーツ${qi + 1}`);
+  });
   for (const key of keys) {
     const r = renderBlock(beforeMap.get(key), afterMap.get(key));
     rendered.set(key, r);
-    blocks.push({ key, status: r.status });
+    blocks.push({
+      key,
+      status: r.status,
+      beforeHtml: r.beforeHtml,
+      afterHtml: r.afterHtml,
+      label: labelOf.get(key) ?? `ページ${index + 1}`,
+    });
   }
 
   const changedBlockCount = blocks.filter((b) => b.status !== 'same').length;

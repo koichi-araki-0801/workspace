@@ -4,7 +4,15 @@
 // =============================================================================
 import { CircleAlert, CircleCheck, X } from '@lucide/vue';
 import { cn } from '@/lib/utils';
-import { dismissToast, toasts } from './toast';
+import Button from './Button.vue';
+import { dismissToast, type Toast, toasts } from './toast';
+
+// アクション(「元に戻す」等)はハンドラ実行後にそのトーストを閉じる — 押した結果が
+// 新しいトーストで通知されるケースでも二重表示にならない。
+function runAction(t: Toast): void {
+  t.action?.onClick();
+  dismissToast(t.id);
+}
 </script>
 
 <template>
@@ -36,7 +44,12 @@ import { dismissToast, toasts } from './toast';
       >
         <CircleCheck v-if="t.variant === 'success'" class="mt-0.5 h-4 w-4 shrink-0 text-success" />
         <CircleAlert v-else-if="t.variant === 'error'" class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-        <span class="flex-1">{{ t.message }}</span>
+        <div class="flex flex-1 flex-col items-start gap-1.5">
+          <span>{{ t.message }}</span>
+          <Button v-if="t.action" variant="outline" size="sm" class="h-7 px-2.5" @click="runAction(t)">
+            {{ t.action.label }}
+          </Button>
+        </div>
         <button
           type="button"
           class="-mr-1 mt-0.5 shrink-0 rounded text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

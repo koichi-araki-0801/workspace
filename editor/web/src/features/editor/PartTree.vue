@@ -20,7 +20,7 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem];
       <span class="flex-1" />
       <button
         type="button"
-        class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         title="左パネルを畳む"
         aria-label="左パネルを畳む"
         @click="emit('collapse')"

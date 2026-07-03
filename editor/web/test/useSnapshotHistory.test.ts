@@ -57,6 +57,21 @@ describe('useSnapshotHistory', () => {
     expect(h.canUndo.value).toBe(true);
   });
 
+  it('depth() reflects the undo stack size across push/undo/redo', () => {
+    const { box, h } = setup();
+    expect(h.depth()).toBe(0);
+    h.pushUndo();
+    box.state = 'b';
+    expect(h.depth()).toBe(1);
+    h.pushUndo();
+    box.state = 'c';
+    expect(h.depth()).toBe(2);
+    h.undo();
+    expect(h.depth()).toBe(1);
+    h.redo();
+    expect(h.depth()).toBe(2);
+  });
+
   it('a new pushUndo clears the redo stack', () => {
     const { box, h } = setup();
     h.pushUndo();

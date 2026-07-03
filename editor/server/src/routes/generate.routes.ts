@@ -23,11 +23,11 @@ import { recordCreate } from '../repositories/historyRepo.js';
 import { registerGenerated } from '../repositories/templateRepo.js';
 
 export async function generateRoutes(app: FastifyInstance): Promise<void> {
-  app.post(
+  app.post<{ Body: z.infer<typeof GenerateRequest> }>(
     apiPaths.generate,
     { preHandler: [requireAuth, validate(GenerateRequest)] },
     async (request) => {
-      const body = request.body as z.infer<typeof GenerateRequest>;
+      const body = request.body;
       const loginId = request.user?.username ?? 'system';
       const { meta, html, css } = await auditedRethrow(
         request,

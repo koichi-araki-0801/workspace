@@ -6,12 +6,14 @@
 // (ページ境界 guide / ドラッグハンドル / move grip)を描く presentational なルート。
 import { GripVertical, PanelLeft, PanelRight, StickyNote } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import PageRail from '@/components/PageRail.vue';
 import { fractionToPage } from '@/components/pageNav';
+import { toastSuccess } from '@/components/ui/toast';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
 import PartTree from './PartTree.vue';
+import ShortcutHelpDialog from './ShortcutHelpDialog.vue';
 import { useEditorShortcuts } from './useEditorShortcuts';
 import { useGeomHandles } from './useGeomHandles';
 import { ZOOM_STEP } from './useGrapes';
@@ -19,6 +21,7 @@ import { useTemplateEditor } from './useTemplateEditor';
 
 const props = defineProps<{ id: string }>();
 const router = useRouter();
+const route = useRoute();
 
 const canvasEl = useTemplateRef<HTMLElement>('canvasEl');
 const layersEl = useTemplateRef<HTMLElement>('layersEl');
@@ -95,7 +98,10 @@ const rightCollapsed = persistedFlag('ret:editor:rightCollapsed', false);
 
 async function goPreview() {
   await autosave.flush();
-  router.push({ name: 'preview', params: { id: props.id } });
+  // 編集経路(query なし)/作成経路(`?created=1`)の区別をプレビューへ引き継ぐ。確定保存の
+  // 申請(`SubmitReviewRequest.origin`)で 2 系統を保持するため(`PreviewView` が読む)。
+  const created = route.query.created === '1' ? { created: '1' } : {};
+  router.push({ name: 'preview', params: { id: props.id }, query: created });
 }
 
 // ユーザーが zoom +/- で明示的に倍率を決めたか。立っている間は resize で勝手に再フィット
@@ -147,16 +153,31 @@ function zoomReset() {
   g.fitToView();
 }
 
-// グローバルショートカット(元に戻す / やり直す / 保存 / ズーム / 削除)。canvas の
+// ショートカットヘルプ(`?` / 上部バーのヘルプボタン)。
+const helpOpen = ref(false);
+
+/**
+ * 手動保存(保存ボタン / Ctrl+S)。autosave の flush と同じだが、明示操作にはトーストで
+ * 応える — 自動保存はステータス行のみ(毎回トーストは騒音)で、手動時だけ確信を返す。
+ */
+async function manualSave(): Promise<void> {
+  await autosave.flush();
+  if (autosave.state.value === 'saved') toastSuccess('保存しました');
+}
+
+// グローバルショートカット(元に戻す / やり直す / 保存 / ズーム / 削除 / ヘルプ)。canvas の
 // inline text 編集中・入力欄フォーカス中はネイティブ動作へ委ねる(`useEditorShortcuts.ts`)。
 useEditorShortcuts({
   undo,
   redo,
-  save: () => autosave.flush(),
+  save: () => void manualSave(),
   zoomIn,
   zoomOut,
   zoomReset,
   remove: deletePart,
+  help: () => {
+    helpOpen.value = true;
+  },
   canUndo: () => canUndo.value,
   canRedo: () => canRedo.value,
   canRemove: () => allowEdit.value && !!g.selected.value,
@@ -197,16 +218,22 @@ const statusText = computed(() => {
       :current-page="g.currentPageIndex.value + 1"
       :page-count="g.pageCount.value"
       :single-page-mode="g.singlePageMode.value"
+      :allow-edit="allowEdit"
       @undo="undo"
       @redo="redo"
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
+      @zoom-reset="zoomReset"
       @toggle-page-guides="showPageGuides = !showPageGuides"
       @go="g.goToPage($event - 1)"
       @toggle-single-page="g.setSinglePageMode(!g.singlePageMode.value)"
-      @save="autosave.flush()"
+      @toggle-edit="allowEdit = !allowEdit"
+      @help="helpOpen = true"
+      @save="manualSave"
       @preview="goPreview"
     />
+
+    <ShortcutHelpDialog v-model:open="helpOpen" />
 
     <!-- 高ズームで両袖(固定幅)+ 中央が実効ビューポート幅を超える極端な場合は、クリップ
          ではなく横スクロールで全ペインへ到達できるようにする(通常倍率では overflow 無し)。 -->
@@ -232,7 +259,7 @@ const statusText = computed(() => {
       </button>
 
       <!-- 中央: A4 用紙の見た目にした GrapesJS canvas -->
-      <main class="relative min-w-[360px] flex-1 overflow-hidden bg-[hsl(220_16%_91%)] dark:bg-[hsl(222_18%_18%)]">
+      <main class="relative min-w-[360px] flex-1 overflow-hidden bg-canvas-backdrop">
         <div ref="canvasEl" class="h-full"></div>
         <!-- GrapesJS の layer manager はマウントするが視覚的に隠す(prototype に layers パネルは無い) -->
         <div ref="layersEl" class="hidden"></div>
@@ -386,6 +413,13 @@ const statusText = computed(() => {
   color: var(--foreground);
   background: color-mix(in oklab, var(--muted) 60%, var(--card));
 }
+/* キーボード操作の現在地を可視化(見た目は index.css の `.ring-focus` と同一)。 */
+.pane-rail:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px color-mix(in oklab, var(--ring) 55%, transparent);
+}
 
 /* page-boundary guides drawn over the A4 sheet (sit below the selection frame).
    real page break (from .page / break-* / page-break-*): confident solid line */
@@ -421,8 +455,10 @@ const statusText = computed(() => {
   height: 18px;
   transform: translate(-100%, 0);
   border-radius: 4px 4px 4px 0;
+  /* 琥珀はテーマの warning トークンへ統一。アイコン/枠の白はテーマ非依存で固定 —
+     マーカーは常に白い A4 紙面上に重なるため、ダークテーマでも白が正しい対比になる。 */
   color: #fff;
-  background: #d97706;
+  background: var(--warning);
   border: 1.5px solid #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   pointer-events: none;

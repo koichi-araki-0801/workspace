@@ -82,6 +82,30 @@ describe('useAutosave', () => {
     expect(api.state.value).toBe('error');
   });
 
+  it('pending is true while debouncing and false after the flush', async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async () => ok(undefined));
+    const { api } = host(save, 800);
+
+    expect(api.pending.value).toBe(false);
+    api.trigger();
+    expect(api.pending.value).toBe(true); // beforeunload 警告の対象になる窓
+    await vi.advanceTimersByTimeAsync(800);
+    expect(api.pending.value).toBe(false);
+  });
+
+  it('a manual flush() settles the pending debounce without a duplicate save', async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async () => ok(undefined));
+    const { api } = host(save, 800);
+
+    api.trigger();
+    await api.flush();
+    expect(api.pending.value).toBe(false);
+    await vi.advanceTimersByTimeAsync(800); // 元の debounce 予定時刻を過ぎても再保存しない
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
   it('clears a pending timer on unmount', async () => {
     vi.useFakeTimers();
     const save = vi.fn(async () => ok(undefined));

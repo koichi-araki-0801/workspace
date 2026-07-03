@@ -6,9 +6,12 @@ import type { TemplateAttributes } from '@editor/shared';
 import {
   AlertCircle,
   CheckCircle2,
+  CircleHelp,
   Eye,
   FileText,
   Loader2,
+  Lock,
+  LockOpen,
   Minus,
   Plus,
   Redo2,
@@ -38,6 +41,8 @@ const props = defineProps<{
   currentPage: number;
   pageCount: number;
   singlePageMode: boolean;
+  /** 「編集を許可」の状態(左ペイン `PartTree` のトグルと同一 state)。 */
+  allowEdit: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -45,10 +50,14 @@ const emit = defineEmits<{
   redo: [];
   zoomIn: [];
   zoomOut: [];
+  /** ズーム%クリック / ⌘0: 全体フィットへ戻す。 */
+  zoomReset: [];
   togglePageGuides: [];
   /** ページ番号ジャンプ(1 起点)。`EditorView` で `g.goToPage(n - 1)` へ。 */
   go: [page: number];
   toggleSinglePage: [];
+  toggleEdit: [];
+  help: [];
   save: [];
   preview: [];
 }>();
@@ -110,24 +119,49 @@ const attrItems = (a: TemplateAttributes) => [
          関連操作を 1 つの面に束ね、内部だけ細い区切りで小分けする(等間隔罫線の平板さを解消)。
          グループ全体が `shrink-0` なので狭幅では塊ごと次行へ折り返す(ズーム崩れの回避)。 -->
     <div class="flex shrink-0 flex-wrap items-center gap-1 rounded-lg bg-muted/50 px-1.5 py-1">
+      <!-- 編集ロックの状態と解除。左ペインの「編集を許可」トグルと同一 state を、常に見える
+           上部バーにも出す(左ペインを畳んでいても編集ロックに気付け、その場で解除できる)。 -->
+      <Button
+        variant="ghost"
+        size="sm"
+        class="gap-1.5 px-2"
+        :class="allowEdit ? 'text-primary' : 'text-muted-foreground'"
+        :title="allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)'"
+        :aria-label="allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)'"
+        :aria-pressed="allowEdit"
+        @click="emit('toggleEdit')"
+      >
+        <component :is="allowEdit ? LockOpen : Lock" class="h-[15px] w-[15px]" />
+        <span class="text-xs font-medium">{{ allowEdit ? '編集中' : '閲覧のみ' }}</span>
+      </Button>
+
+      <div class="mx-0.5 h-5 w-px bg-border/70" />
+
       <!-- 元に戻す / やり直す -->
-      <Button variant="ghost" size="icon" title="元に戻す (⌘Z)" :disabled="!canUndo" @click="emit('undo')">
+      <Button variant="ghost" size="icon" title="元に戻す (⌘Z)" aria-label="元に戻す" :disabled="!canUndo" @click="emit('undo')">
         <Undo2 class="h-[17px] w-[17px]" />
       </Button>
-      <Button variant="ghost" size="icon" title="やり直す (⇧⌘Z)" :disabled="!canRedo" @click="emit('redo')">
+      <Button variant="ghost" size="icon" title="やり直す (⇧⌘Z)" aria-label="やり直す" :disabled="!canRedo" @click="emit('redo')">
         <Redo2 class="h-[17px] w-[17px]" />
       </Button>
 
       <div class="mx-0.5 h-5 w-px bg-border/70" />
 
       <!-- ズーム -->
-      <Button variant="ghost" size="icon" title="縮小 (⌘-)" @click="emit('zoomOut')">
+      <Button variant="ghost" size="icon" title="縮小 (⌘-)" aria-label="縮小" @click="emit('zoomOut')">
         <Minus class="h-4 w-4" />
       </Button>
-      <span class="w-[42px] text-center text-[12.5px] tabular-nums text-muted-foreground">
+      <!-- % はボタン: クリックで全体フィット(プレビュー画面の % クリックと挙動を統一)。 -->
+      <button
+        type="button"
+        class="w-[42px] rounded text-center text-[12.5px] tabular-nums text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        title="画面に合わせる (⌘0)"
+        aria-label="画面に合わせる"
+        @click="emit('zoomReset')"
+      >
         {{ Math.round(zoom * 100) }}%
-      </span>
-      <Button variant="ghost" size="icon" title="拡大 (⌘+)" @click="emit('zoomIn')">
+      </button>
+      <Button variant="ghost" size="icon" title="拡大 (⌘+)" aria-label="拡大" @click="emit('zoomIn')">
         <Plus class="h-4 w-4" />
       </Button>
 
@@ -151,6 +185,7 @@ const attrItems = (a: TemplateAttributes) => [
         variant="ghost"
         size="icon"
         :title="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
+        :aria-label="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
         :class="singlePageMode ? 'text-primary' : ''"
         @click="emit('toggleSinglePage')"
       >
@@ -162,6 +197,7 @@ const attrItems = (a: TemplateAttributes) => [
         variant="ghost"
         size="icon"
         :title="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
+        :aria-label="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
         :class="showPageGuides ? 'text-primary' : ''"
         @click="emit('togglePageGuides')"
       >
@@ -180,7 +216,8 @@ const attrItems = (a: TemplateAttributes) => [
       <CheckCircle2 v-else-if="saveState === 'saved'" class="h-[15px] w-[15px] text-success" />
       <AlertCircle v-else-if="saveState === 'error'" class="h-[15px] w-[15px]" />
       <Save v-else class="h-[15px] w-[15px]" />
-      <span class="hidden md:inline">{{ statusText }}</span>
+      <!-- 保存失敗だけは狭幅でも文言を出す — アイコンのみでは失敗を見逃しうるため。 -->
+      <span :class="saveState === 'error' ? 'inline' : 'hidden md:inline'">{{ statusText }}</span>
     </span>
 
     <Button
@@ -191,6 +228,15 @@ const attrItems = (a: TemplateAttributes) => [
       @click="emit('save')"
     >
       <RotateCcw class="h-4 w-4" /> 再試行
+    </Button>
+    <Button
+      variant="ghost"
+      size="icon"
+      title="キーボードショートカット (?)"
+      aria-label="キーボードショートカット"
+      @click="emit('help')"
+    >
+      <CircleHelp class="h-[17px] w-[17px]" />
     </Button>
     <Button variant="outline" size="sm" :disabled="saveState === 'saving'" title="今すぐ保存 (⌘S)" @click="emit('save')">
       <Save class="h-[15px] w-[15px]" /> 保存

@@ -15,13 +15,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// drift ガード専用の import。検証ロジック(交差・bbox 等)は本体から取り込まず独立を保つが、
-// 手動同期に頼っていたメトリクス定数/文字幅分類だけは起動時に本体と突き合わせる(assertOracleSync)。
+// 検証ロジック(交差・bbox 等)は本体から取り込まず独立を保つが、複製する数値定数/文字幅分類の
+// drift ガード(定数と `assertOracleSync`)は `oracle_sync.ts` に集約し、起動時に呼ぶ。幅推定でも
+// 使う複製定数(`CHAR_WIDTH_FACTOR` 等)は同モジュールから import する。
 import { createPieLayoutConfig } from './config.js';
 import {
-  TOP_BAND_HALF_WIDTH_DEG as bodyTopBandHalfWidthDeg,
-  TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG as bodySonohokaLeftExtHalfWidthDeg,
-} from './label_placement.js';
+  assertOracleSync,
+  CHAR_WIDTH_FACTOR,
+  LINE_HEIGHT_FACTOR,
+  SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG,
+  TOP_BAND_HALF_WIDTH_DEG,
+} from './oracle_sync.js';
 import { visualCharEm as bodyVisualCharEm } from './svg_geom.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -69,106 +73,15 @@ interface ViewBox {
   height: number;
 }
 
-// 描画器(config.ts)の bbox 推定係数と同期すべき定数。verify は独立オラクルとして検証
-// *ロジック* は本体から import せず複製するが、ここで複製する *数値* は起動時に
-// assertOracleSync() が本体 (config.ts の既定値 / svg_geom.visualCharEm の判定域) と一致するか
-// 自動照合し、乖離があれば FAIL する。よって手動同期忘れによる false PASS/FAIL は防がれる
-// (定数を変えたら verify を一度走らせれば drift を検知できる)。
-// 幅は実描画 em (全角=1.0 / 半角・ASCII=0.5) × fontSizeUnits で数える (= 本体の
-// visualTextWidthUnits)。charWidthFactor は安全マージン用ノブで既定 1.0。
-const CHAR_WIDTH_FACTOR = 1.0; // = config.charWidthFactor
-const LINE_HEIGHT_FACTOR = 1.1; // = config.lineHeightFactor (= lineSpacing)
-const VISUAL_FULLWIDTH_EM = 1.0; // = config.visualFullwidthEm
-const VISUAL_HALFWIDTH_EM = 0.5; // = config.visualHalfwidthEm
-const NAME_CONDENSE_STEPS = [0.7]; // = config.nameCondenseSteps (名前長体の試行段)
-const TOP_BAND_HALF_WIDTH_DEG = 18; // = label_placement.TOP_BAND_HALF_WIDTH_DEG (その他逃がし帯)
-// = label_placement.TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG (その他 真上垂直配置の左拡張帯)
-const SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG = 32;
-
 // 文字幅は本体 (svg_geom.visualCharEm) の実 glyph advance テーブルをそのまま使う。verify が
 // 独自に幅モデルを複製すると本体と乖離し得るため、幅分類はオラクル(本体)を直接引く。数値定数
-// (charWidthFactor 等) のみ複製し assertOracleSync で照合する。
+// (charWidthFactor 等) は `oracle_sync.ts` に集約し assertOracleSync で照合する。
 const oracleCfg = createPieLayoutConfig();
 
 function visualLineUnits(text: string): number {
   let sum = 0;
   for (const ch of text) sum += bodyVisualCharEm(ch, oracleCfg);
   return sum;
-}
-
-/**
- * verify のローカル複製定数/文字幅分類が本体 (config.ts / svg_geom.visualCharEm) と
- * 一致するかを起動時に照合する drift ガード。一致時は無出力。不一致時はズレを列挙して終了。
- */
-function assertOracleSync(): void {
-  const cfg = createPieLayoutConfig();
-  const mismatches: string[] = [];
-  const checkConst = (name: string, body: number, oracle: number) => {
-    if (body !== oracle) mismatches.push(`${name}: body=${body} oracle=${oracle}`);
-  };
-  checkConst('charWidthFactor', cfg.charWidthFactor, CHAR_WIDTH_FACTOR);
-  checkConst('lineHeightFactor', cfg.lineHeightFactor, LINE_HEIGHT_FACTOR);
-  checkConst('visualFullwidthEm', cfg.visualFullwidthEm, VISUAL_FULLWIDTH_EM);
-  checkConst('visualHalfwidthEm', cfg.visualHalfwidthEm, VISUAL_HALFWIDTH_EM);
-  checkConst('topBandHalfWidthDeg', bodyTopBandHalfWidthDeg, TOP_BAND_HALF_WIDTH_DEG);
-  checkConst(
-    'sonohokaLeftExtHalfWidthDeg',
-    bodySonohokaLeftExtHalfWidthDeg,
-    SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG,
-  );
-  const steps = cfg.nameCondenseSteps;
-  if (
-    steps.length !== NAME_CONDENSE_STEPS.length ||
-    steps.some((v, i) => v !== NAME_CONDENSE_STEPS[i])
-  ) {
-    mismatches.push(`nameCondenseSteps: body=[${steps}] oracle=[${NAME_CONDENSE_STEPS}]`);
-  }
-
-  // 実 glyph advance テーブル (src/glyph_advance.ts) が確かに読み込まれ本体 visualCharEm に
-  // 効いているかを代表コードポイントで検査する。テーブル未生成/未適用なら旧 heuristic の
-  // 0.5/1.0 に落ちて以下の実測値と乖離し FAIL する。値は既定ウェイト (400=Regular) の実測。
-  // 漢字は既定 1.0、BIZ UDPGothic のプロポーショナルかな ('ア') と全角幅 ASCII ('%') はテーブル収録値。
-  // '.' と 'ア' は 400/700 で異なるので、ウェイト別テーブルが正しく引かれているかも兼ねて検査する。
-  const widthProbes: [string, number][] = [
-    ['0', 0.7598],
-    ['8', 0.7598],
-    ['.', 0.3101],
-    ['%', 1.0],
-    [' ', 0.3335],
-    ['株', 1.0],
-    ['ア', 0.8901],
-  ];
-  for (const [ch, expect] of widthProbes) {
-    const body = bodyVisualCharEm(ch, cfg);
-    if (Math.abs(body - expect) > 1e-4) {
-      mismatches.push(
-        `visualCharEm("${ch}"): body=${body} expected≈${expect} (glyph_advance テーブル未適用?)`,
-      );
-    }
-  }
-  // 700 (Bold) 側も代表値を検査し、ウェイト切替でテーブルが切り替わることを担保する。
-  const cfg700 = createPieLayoutConfig({ fontWeight: '700' });
-  for (const [ch, expect] of [
-    ['.', 0.3301],
-    ['ア', 0.9102],
-  ] as [string, number][]) {
-    const body = bodyVisualCharEm(ch, cfg700);
-    if (Math.abs(body - expect) > 1e-4) {
-      mismatches.push(
-        `visualCharEm("${ch}" @700): body=${body} expected≈${expect} (ウェイト別テーブル未適用?)`,
-      );
-    }
-  }
-
-  if (mismatches.length > 0) {
-    console.error('✖ verify_svg のメトリクス定数/文字幅が本体と乖離しています:');
-    for (const m of mismatches) console.error(`    - ${m}`);
-    console.error(
-      '  → 定数は verify_svg.ts を config.ts に合わせ、幅は `npm run gen:widths` で' +
-        ' src/glyph_advance.ts を再生成してください。',
-    );
-    process.exit(1);
-  }
 }
 
 function textBBox(t: TextInfo): BBox {
@@ -400,7 +313,14 @@ function findLeaderCrossing(
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-assertOracleSync();
+// drift ガード。乖離時は `assertOracleSync` が Error を throw するので、CLI では従来どおり
+// 内容を stderr に出して exit(1) する(テストは throw の有無だけを検証する)。
+try {
+  assertOracleSync();
+} catch (e) {
+  console.error(`✖ ${e instanceof Error ? e.message : String(e)}`);
+  process.exit(1);
+}
 
 const jsSamples = new Set(
   fs

@@ -16,7 +16,7 @@ import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } fro
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useNoteRepo } from '@/api/repositories';
 import { confirm } from '@/components/ui/confirm';
-import { toastError } from '@/components/ui/toast';
+import { toast, toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
@@ -115,7 +115,15 @@ export function useTemplateEditor(
       persistUndo();
     }, 500);
   }
-  const { canUndo, canRedo, pushUndo, undo, redo, discardLast } = useSnapshotHistory(
+  const {
+    canUndo,
+    canRedo,
+    pushUndo,
+    undo,
+    redo,
+    discardLast,
+    depth: undoDepth,
+  } = useSnapshotHistory(
     () => ({ html: g.getBodyHtml(), css: g.getCss() }),
     (s) => {
       g.load(s.html, s.css);
@@ -218,12 +226,36 @@ export function useTemplateEditor(
     if (label) recordChange(label);
   }
 
+  /**
+   * 破壊的だが Undo 可能な操作(削除/配置初期化)の実行直後フィードバック。確認ダイアログは
+   * 挟まない — 変更はドラフト上の操作で、本番反映は確定保存申請→承認フローが担うため。
+   * かわりに「元に戻す」付きトーストを出す。押下時点で別の編集が積まれていたら、その編集
+   * ごと巻き戻す事故を避けるため undo せず Ctrl+Z の案内に切り替える。
+   */
+  function toastUndoable(message: string): void {
+    const depthAtOp = undoDepth();
+    toast(message, {
+      durationMs: 6000,
+      action: {
+        label: '元に戻す',
+        onClick: () => {
+          if (undoDepth() !== depthAtOp) {
+            toast('その後の編集があるため、Ctrl+Z で順に戻してください');
+            return;
+          }
+          undo();
+        },
+      },
+    });
+  }
+
   /** 選択の layout style を全消去する(既定配置へ戻す)。 */
   function resetGeom() {
     if (!g.selected.value) return;
     pushUndo();
     g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM));
     recordChange('配置を初期化');
+    toastUndoable('配置を初期化しました');
   }
 
   function onPartSelect(p: PartCatalogItem) {
@@ -247,9 +279,15 @@ export function useTemplateEditor(
 
   /** 現在の選択を削除する(history を考慮)。 */
   function deletePart() {
-    if (!g.selected.value) return;
+    const sel = g.selected.value;
+    if (!sel) return;
+    // パーツ名と修正履歴の記録は、削除後に選択が消えてキー解決できなくなるため削除前に行う。
+    // 履歴へ残すことで、確定保存申請の精査時に承認者が編集者の削除操作を追える。
+    const name = canvasPart.value?.name ?? sel.name;
+    recordChange(`パーツ「${name}」を削除`);
     pushUndo();
     g.deleteSelected();
+    toastUndoable(`パーツ「${name}」を削除しました`);
   }
 
   // 「編集を許可」チェックボックスの切替で canvas を lock/unlock する。
@@ -306,6 +344,15 @@ export function useTemplateEditor(
       dirty.value = true;
       autosave.trigger();
     });
+    // ロック中(編集不許可)にダブルクリック(編集ジェスチャ)をした場合、解除導線を案内する。
+    // 既定ロック開始のため「編集を許可」トグルに気付かないと何も編集できない — その発見性を補う。
+    // 騒音にならないようセッション中 1 回だけ出す。
+    let lockGuideShown = false;
+    g.onCanvasDblClick(() => {
+      if (allowEdit.value || lockGuideShown) return;
+      lockGuideShown = true;
+      toast('編集はロックされています。上部バーまたは左パネルの「編集を許可」をオンにしてください');
+    });
     // inline text 編集: 開始で snapshot、終了時は内容が変わった場合だけ残す
     g.onTextEditStart(() => pushUndo());
     g.onTextEditEnd((changed) => {
@@ -326,17 +373,36 @@ export function useTemplateEditor(
     });
   });
 
-  // 保存が進行中/失敗中の間は、離脱(tab を閉じる / reload)前に警告する。
+  // autosave の失敗はステータス行だけでは見逃しうる(狭幅ではアイコンのみになる)ため、
+  // error への遷移エッジで 1 回だけトーストする。debounce された失敗のたびに重ねない方針は
+  // `useAutosave.ts` のコメントを見よ。
+  watch(autosave.state, (s, prev) => {
+    if (s === 'error' && prev !== 'error') {
+      toastError('自動保存に失敗しました。「再試行」で保存し直してください');
+    }
+  });
+
+  // 未保存分が失われうる間は、離脱(tab を閉じる / reload)前に警告する。debounce 待機中
+  // (`pending`)は state が idle/saved のままでも直近の編集が未保存なので含める。dirty 単独では
+  // 警告しない — draft は autosave 済みで、次回オープン時に復元されるため。
   function beforeUnload(e: BeforeUnloadEvent) {
-    if (autosave.state.value === 'saving' || autosave.state.value === 'error') {
+    const st = autosave.state.value;
+    if (autosave.pending.value || st === 'saving' || st === 'error') {
       e.preventDefault();
       e.returnValue = '';
     }
   }
   window.addEventListener('beforeunload', beforeUnload);
 
+  // タブ切替/最小化の時点で debounce を待たず保存を確定し、「未保存の窓」自体を短くする。
+  function onVisibilityChange() {
+    if (document.visibilityState === 'hidden' && autosave.pending.value) void autosave.flush();
+  }
+  document.addEventListener('visibilitychange', onVisibilityChange);
+
   onBeforeUnmount(() => {
     window.removeEventListener('beforeunload', beforeUnload);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     void note.flush(); // 保留中のメモ保存を取りこぼさない(プレビュー往復の再マウント含む)
     // 保留中の Undo 永続ミラーを確定する(プレビュー往復の再マウント/リロード前)。
     if (persistTimer) clearTimeout(persistTimer);

@@ -123,16 +123,24 @@ import { clientToPage, parseSpec } from "./geometry.js";
     return files[0] || null;
   }
 
-  // 保存先フォルダ選択。FSA の `showDirectoryPicker` は VDI でクラッシュするため使わず、
-  // 常に "download" を返してブラウザのダウンロード経路 (`writeIntoDir`) へ流す。
-  async function pickSaveDir() {
-    return "download";
+  // base64 → Uint8Array。ZIP 等のバイナリを `downloadBlob` (BlobPart) へ渡すための小ヘルパ。
+  function b64ToBytes(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
   }
 
-  async function writeIntoDir(dir, name, text) {
-    if (dir === "download") { downloadBlob(name, text, "image/svg+xml"); return; }
-    var h = await dir.getFileHandle(name, { create: true });
-    var w = await h.createWritable(); await w.write(text); await w.close();
+  // 画面下部の一時通知 (graph-editor と同型)。フッター文字 (`setHint`) は視線が届きにくい
+  // ため、完了などの重要イベントはこちらでも知らせる。`aria-live` は index.html 側に付与。
+  var _toastTimer = null;
+  function toast(msg) {
+    var t = document.getElementById("toast");
+    if (!t) return;
+    t.textContent = msg;
+    t.classList.add("on");
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(function () { t.classList.remove("on"); }, 3200);
   }
 
   // ── 4. 読み込み ──
@@ -718,6 +726,10 @@ import { clientToPage, parseSpec } from "./geometry.js";
     dz.addEventListener("click", function (e) {
       if (e.target.closest("#btn-pick")) return; doLoad();
     });
+    // `tabindex=0` の div のため Enter/Space のキーボード起動を自前で足す (index.html 参照)。
+    dz.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doLoad(); }
+    });
     // ドラッグ&ドロップで PDF 追加
     ["dragenter", "dragover"].forEach(function (ev) {
       dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add("dragover"); });
@@ -878,6 +890,17 @@ import { clientToPage, parseSpec } from "./geometry.js";
     document.getElementById("exp-num").textContent = expCount();
   }
 
+  // ZIP のファイル名。対象が 1 PDF ならその名前を継ぎ、複数ファイル混在なら汎用名にする。
+  function zipName(list) {
+    var fis = {};
+    list.forEach(function (it) { fis[it.fileIndex] = 1; });
+    var keys = Object.keys(fis);
+    if (keys.length === 1 && FILES[+keys[0]]) {
+      return FILES[+keys[0]].name.replace(/\.pdf$/i, "") + "_svg.zip";
+    }
+    return "svg_export.zip";
+  }
+
   async function doExport() {
     if (expMode === "page") {
       var pg = PAGES[page] || { fileIndex: 0, pageInFile: 0 };
@@ -885,20 +908,42 @@ import { clientToPage, parseSpec } from "./geometry.js";
       var ok = await saveTextFile(one.name, one.svg, "SVG", "image/svg+xml", ".svg");
       if (!ok) return;
       setHint('<b style="color:var(--good-ink)">1個のSVGを書き出しました。</b>');
+      toast("1個のSVGを書き出しました");
       return;
     }
     var list = exportPageList();
     if (!list.length) { setHint("書き出す対象のページがありません。"); return; }
-    var dir = await pickSaveDir();
-    if (dir === null) return; // キャンセル
-    var n = 0;
-    for (var i = 0; i < list.length; i++) {
-      setHint("書き出し中 " + (i + 1) + "/" + list.length);
-      var item = await rpc("exportSvg", list[i]);
-      await writeIntoDir(dir, item.name, item.svg);
-      n++;
+    // 変換中はボタンを止め、総数が既知の i/N を進捗バーでも示す (フッター文字だけでは
+    // 固まったように見える)。SVG 変換はページごとに `exportSvg` を呼んで進捗を刻む。
+    var btn = document.getElementById("btn-export");
+    var prog = document.getElementById("exp-progress");
+    if (btn) btn.disabled = true;
+    if (prog) { prog.hidden = false; prog.max = list.length; prog.value = 0; }
+    try {
+      var entries = [];
+      for (var i = 0; i < list.length; i++) {
+        setHint("書き出し中 " + (i + 1) + "/" + list.length);
+        var item = await rpc("exportSvg", list[i]);
+        entries.push({ name: item.name, text: item.svg });
+        if (prog) prog.value = i + 1;
+      }
+      if (entries.length === 1) {
+        downloadBlob(entries[0].name, entries[0].text, "image/svg+xml");
+        setHint('<b style="color:var(--good-ink)">1個のSVGを書き出しました。</b>');
+        toast("1個のSVGを書き出しました");
+        return;
+      }
+      // 複数ページは ZIP 1 本へ集約する — N 個の個別ダウンロード (Edge の連続 DL 確認に
+      // 阻まれ、ダウンロードフォルダも散らかる) を避ける。集約はサーバ側 `zipEntries`。
+      setHint("ZIP にまとめています…");
+      var z = await rpc("zipEntries", { entries: entries });
+      downloadBlob(zipName(list), b64ToBytes(z.zipBase64), "application/zip");
+      setHint('<b style="color:var(--good-ink)">' + z.count + "個のSVGを ZIP で書き出しました。</b>");
+      toast(z.count + "個のSVGを ZIP 1 ファイルで書き出しました");
+    } finally {
+      if (btn) btn.disabled = false;
+      if (prog) prog.hidden = true;
     }
-    setHint('<b style="color:var(--good-ink)">' + n + "個のSVGを書き出しました。</b>");
   }
 
   // ── 16. ライフサイクル (サーバ常駐管理) ──

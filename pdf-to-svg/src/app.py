@@ -3,7 +3,8 @@
 QtWebEngine を同梱せず、OS 標準の Edge を「アプリモード」で開いて UI を表示する
 (graph-editor と同方式)。本ファイルは小さなローカル HTTP サーバ (web.server) を
 起動し、Edge を起動・常駐管理する。ファイル入出力は UI 側 (resources/web) が
-File System Access API で行う (http://127.0.0.1 は secure context のため利用可)。
+従来型の `<input type=file>` / `<a download>` で行う — File System Access API は
+VDI の管理された Edge でクラッシュするため無効化してある (app.js `hasFsSave` 参照)。
 
 これにより PySide6 / QtWebEngine ランタイムを同梱せずに済み、配布物が大幅に小さくなる。
 """

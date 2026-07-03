@@ -4,213 +4,120 @@
 // `web/api/local` 実装と `server` の REST 実装は、いずれも `./repositories/*` の
 // 集約別リポジトリ interface を満たさねばならない。これによりデータソースを
 // 画面/サービス/ストアに触れず差し替えできる。
+//
+// API 契約型(ワイヤ形式)の正典は `./schemas.ts` の Zod スキーマで、1:1 対応する型は
+// `z.infer` で導出する(S7 で手書き二重定義を廃止。フィールドの説明は schemas 側に置く)。
+// Zod に対応物が無い型(UI ヘルパ・派生形)のみ、従来どおり interface で手書きする。
+
+// 型導出専用の type-only import。ビルド(tsc)/バンドル(Vite)で消去されるため、web の
+// 実行時バンドルに zod は入らない。
+import type { z } from 'zod';
+import type * as sch from './schemas.js';
 
 // ── 1. Domain: template identity ──
 
 /** テンプレートを識別する4属性 (ファイル名: company_fund_date_edition.html)。 */
-export interface TemplateAttributes {
-  /** 委託会社コード */
-  companyCode: string;
-  /** ファンドコード */
-  fundCode: string;
-  /** 基準日 (yyyymmdd) */
-  baseDate: string;
-  /** 版種 */
-  editionType: string;
-}
+export type TemplateAttributes = z.infer<typeof sch.TemplateAttributes>;
 
-export type TemplateStatus = 'draft' | 'published';
+export type TemplateStatus = z.infer<typeof sch.TemplateStatus>;
 
-export interface TemplateMeta {
-  /** 安定 id。拡張子を除いたファイル名から導出する。 */
-  id: string;
-  attributes: TemplateAttributes;
-  /** 例 "AM01_510037_20240710_kr.html" */
-  fileName: string;
-  status: TemplateStatus;
-  /** 最後の確定保存の ISO タイムスタンプ。 */
-  updatedAt: string | null;
-  updatedBy: string | null;
-}
+export type TemplateMeta = z.infer<typeof sch.TemplateMeta>;
 
-export interface Template {
-  meta: TemplateMeta;
-  /** 生の Jinja2 HTML ソース (タグは保持)。 */
-  html: string;
-  /** ファンド別の共有 CSS (fundCode をキーにする)。 */
-  css: string;
-  /**
-   * エディタキャンバス用に事前描画した "filled" HTML: Jinja 値を差し込みつつ、元の
-   * `{{ }}`/`{% %}` ソースを保持したもの (`fillJinja.toFilled` 参照)。静的な fill が
-   * 無ければ空で、エディタは都度描画にフォールバックする。
-   */
-  filled: string;
-}
+/** テンプレ本体。`filled` はエディタ用の事前描画 HTML(無ければ空 = 都度描画に fallback)。 */
+export type Template = z.infer<typeof sch.Template>;
 
 /** 常時オンの自動保存が保持する下書き。確定ファイルとは別物。 */
-export interface TemplateDraft {
-  templateId: string;
-  html: string;
-  css: string;
-  savedAt: string;
-  savedBy: string;
-}
+export type TemplateDraft = z.infer<typeof sch.TemplateDraft>;
 
 // ── 2. Domain: sample data (nunjucks プレビュー文脈)。fundCode をキーにする ──
 
-export type SampleData = Record<string, unknown>;
+export type SampleData = z.infer<typeof sch.SampleData>;
 
 // ── 3. Domain: users / auth ──
 
-export type UserRole = 'admin' | 'editor' | 'viewer';
+// admin = 全権 / approver = 精査者(確定保存の承認) / editor = 編集者(申請のみ) / viewer = 閲覧。
+// 確定保存(実ファイル反映)は approver|admin の承認が要る(`ReviewRepository` を見よ)。
+export type UserRole = z.infer<typeof sch.UserRole>;
 
-export interface User {
-  id: string;
-  username: string;
-  displayName: string;
-  role: UserRole;
-  disabled: boolean;
-  /** 次回ログイン時にパスワード初期化を強制する。 */
-  mustChangePassword: boolean;
-}
+export type User = z.infer<typeof sch.User>;
 
-export interface LoginRequest {
-  username: string;
-  password: string;
-}
+export type LoginRequest = z.infer<typeof sch.LoginRequest>;
 
-export interface LoginResult {
-  user: User;
-  /** true のとき、クライアントはパスワード初期化画面へ遷移しなければならない。 */
-  mustChangePassword: boolean;
-}
+/** `mustChangePassword` が true のとき、クライアントはパスワード初期化画面へ遷移する。 */
+export type LoginResult = z.infer<typeof sch.LoginResult>;
 
-export interface PasswordInitRequest {
-  username: string;
-  newPassword: string;
-}
+export type PasswordInitRequest = z.infer<typeof sch.PasswordInitRequest>;
 
 // ── 4. Domain: history (履歴タブに表示する3種) ──
 
-export interface EditHistoryEntry {
-  id: string;
-  templateId: string;
-  user: string;
-  timestamp: string;
-  /** 変更内容の人間向け要約。 */
-  summary: string;
-}
+export type EditHistoryEntry = z.infer<typeof sch.EditHistoryEntry>;
 
-export interface PdfHistoryEntry {
-  id: string;
-  templateId: string;
-  user: string;
-  timestamp: string;
-}
+export type PdfHistoryEntry = z.infer<typeof sch.PdfHistoryEntry>;
 
-export interface CreateHistoryEntry {
-  id: string;
-  attributes: TemplateAttributes;
-  user: string;
-  timestamp: string;
-  /** これを生成した元テンプレ id (シリーズファンド由来)。あれば。 */
-  basedOnTemplateId?: string;
-}
+export type CreateHistoryEntry = z.infer<typeof sch.CreateHistoryEntry>;
 
-/** パーツ別の変更履歴。右ペインに表示する。 */
-export interface PartHistoryEntry {
-  id: string;
-  templateId: string;
-  /**
-   * 版を跨いで安定なパーツ構造パスキー(`pageAnchor/partAnchor`)。GrapesJS のコンポーネント
-   * id はリロード/版再生成で再採番され不安定なため、構造キー(`partKey.ts`)で紐づける。
-   */
-  partKey: string;
-  user: string;
-  timestamp: string;
-  change: string;
-}
+/** パーツ別の変更履歴。右ペインに表示する(パスキー算出は web の `partKey.ts`)。 */
+export type PartHistoryEntry = z.infer<typeof sch.PartHistoryEntry>;
 
 // ── 5. Domain: version snapshots ──
 // 各確定保存で凍結した HTML/CSS を捕捉し、比較画面では都度再描画する。
 
 /**
- * テンプレート内容を 1 回の確定保存時点で凍結したコピー。属する編集履歴エントリを
- * キーにする。保存するのはソーステキストのみで、PDF / ページ画像は都度再描画する
- * (snapshot を小さく保つため)。
+ * テンプレート内容を 1 回の確定保存時点で凍結したコピー。属する編集履歴エントリ
+ * (`historyId` = `EditHistoryEntry.id`)をキーにする。
  */
-export interface TemplateSnapshot {
-  /** この snapshot を捕捉した対象の `EditHistoryEntry.id` に一致する。 */
-  historyId: string;
-  templateId: string;
-  /** 確定時点の生 Jinja2 HTML ソース (タグは保持)。 */
-  html: string;
-  /** 確定時点の CSS。 */
-  css: string;
-  /** fundCode。再描画用のサンプルデータ取得に使う。 */
-  fundCode: string;
-  timestamp: string;
-}
+export type TemplateSnapshot = z.infer<typeof sch.TemplateSnapshot>;
 
 /** 比較画面のバージョン選択用の、軽量なバージョン一覧行。 */
-export interface TemplateVersionMeta {
-  /** `EditHistoryEntry.id`。読み込む snapshot を識別する。 */
-  historyId: string;
-  templateId: string;
-  timestamp: string;
-  user: string;
-  summary: string;
-}
+export type TemplateVersionMeta = z.infer<typeof sch.TemplateVersionMeta>;
+
+// ── 5b. Domain: review workflow (確定保存の精査者承認) ──
+// 確定保存(= 実ファイル `data/templates` + git への反映)を「申請(submit)」と
+// 「承認(approve)」の 2 段に割る。申請は実ファイルを更新せず `data/reviews/` に積み、
+// approver|admin が承認したときに限り実ファイルへ反映する。編集タブ(既存編集)・作成タブ
+// (新規確定)の両経路を一律にゲートする。詳細は `repositories/ReviewRepository.ts` を見よ。
+
+export type ReviewStatus = z.infer<typeof sch.ReviewStatus>;
+
+/** 確定保存申請のメタデータ(本文 html/css を除く軽量行)。一覧・承認キューに使う。 */
+export type ReviewRequestMeta = z.infer<typeof sch.ReviewRequestMeta>;
+
+/** 申請の本体込み(承認画面のプレビュー・承認反映に使う)。 */
+export type ReviewRequest = z.infer<typeof sch.ReviewRequest>;
+
+/**
+ * 確定保存の申請ボディ。`PreviewView` が editor/approver いずれの操作でも積む。
+ * HTTP 上のスキーマ名は `SubmitReviewBody`(POST /review-requests)。
+ */
+export type SubmitReviewRequest = z.infer<typeof sch.SubmitReviewBody>;
+
+/**
+ * 承認/却下のボディ。`comment` は却下理由 / 承認メモ(任意)。
+ * HTTP 上のスキーマ名は `ReviewDecisionBody`。
+ */
+export type ReviewDecisionRequest = z.infer<typeof sch.ReviewDecisionBody>;
+
+/**
+ * 承認の結果。`meta` は実ファイルへ反映後のテンプレメタ。`staleWarning` は申請時点の現行版
+ * (`baseHash`)と承認時点の現行版が食い違っていたか(= 申請後に別の確定保存が割り込んだ)を表す。
+ * true でも承認自体はブロックせず、承認者へ「上書きに注意」を促す警告フラグとして UI に渡す。
+ */
+export type ApproveReviewResult = z.infer<typeof sch.ApproveReviewResult>;
 
 // ── 6. API DTOs ──
 
 /** カスケード型ドロップダウンの問い合わせ: 既知の属性を入力、残りの候補を出力。 */
-export interface DropdownQuery {
-  companyCode?: string;
-  fundCode?: string;
-  baseDate?: string;
-  editionType?: string;
-}
+export type DropdownQuery = z.infer<typeof sch.DropdownQuery>;
 
-export interface DropdownOptions {
-  companyCodes: string[];
-  fundCodes: string[];
-  baseDates: string[];
-  editionTypes: string[];
-}
+export type DropdownOptions = z.infer<typeof sch.DropdownOptions>;
 
 // ── 7. Domain: parts catalog (エディタ左ペインのパーツ一覧 / 4段階の分類) ──
 
 /** パーツの4段階分類。上位を選ぶと下位の候補が絞り込まれる。 */
-export interface PartClassification {
-  /** カテゴリ（最上位） */
-  category: string;
-  /** 大分類 */
-  majorClass: string;
-  /** 中分類 */
-  middleClass: string;
-  /** 小分類 */
-  minorClass: string;
-}
+export type PartClassification = z.infer<typeof sch.PartClassification>;
 
 /** カタログ上の1パーツ。SQLの1行に相当する想定。 */
-export interface PartCatalogItem {
-  /** 安定したパーツID（SQL主キー相当）。挿入したコンポーネントの data-part-id にも使う。 */
-  id: string;
-  classification: PartClassification;
-  /** 名称（利用者向け） */
-  name: string;
-  /** 説明（利用者向け） */
-  description: string;
-  /** 使用上の注意 */
-  usageNotes: string;
-  /** 最終更新日時（ISO文字列） */
-  updatedAt: string | null;
-  /** 最終更新者 */
-  updatedBy: string | null;
-  /** キャンバスに挿入するGrapesJS用HTML断片。 */
-  content: string;
-}
+export type PartCatalogItem = z.infer<typeof sch.PartCatalogItem>;
 
 /**
  * パーツ単位の作業メモ(版インスタンス単位)。`templateId`(= 委託会社/ファンドコード/基準日/
@@ -218,48 +125,16 @@ export interface PartCatalogItem {
  * 紐づける。別の基準日/版種の版へは引き継がない(版ごとに独立)。キー算出は `web` の
  * `partKey.ts` の `partPathKeyFor`。
  */
-export interface PartNote {
-  /** 版インスタンス id(= `TemplateMeta.id`)。メモは版種/基準日を含む版単位で独立。 */
-  templateId: string;
-  /** パーツ構造パスキー(`pageAnchor/partAnchor`)。同一版内でパーツを安定に指す。 */
-  pathKey: string;
-  /** メモ本文(自由テキスト)。空文字は「メモ無し」と同義(保存時は削除に倒す)。 */
-  content: string;
-  /** 最終更新日時(ISO 文字列)。 */
-  updatedAt: string;
-  /** 最終更新者の表示名。 */
-  updatedBy: string;
-}
+export type PartNote = z.infer<typeof sch.PartNote>;
 
 /** カスケード問い合わせ: 既知の分類を入力、残りの候補を出力。 */
-export interface PartClassificationQuery {
-  category?: string;
-  majorClass?: string;
-  middleClass?: string;
-  minorClass?: string;
-}
+export type PartClassificationQuery = z.infer<typeof sch.PartClassificationQuery>;
 
 /** 各段階の候補。上位の選択で下位が絞り込まれる。 */
-export interface PartClassificationOptions {
-  categories: string[];
-  majorClasses: string[];
-  middleClasses: string[];
-  minorClasses: string[];
-}
+export type PartClassificationOptions = z.infer<typeof sch.PartClassificationOptions>;
 
 /** 作成タブ: 属性をサーバ側で解決し、Python ツール経由で生成する。 */
-export interface GenerateRequest {
-  companyCode: string;
-  fundCode: string;
-  editionType: string;
-  /** シリーズファンドのテンプレから生成する場合、このテンプレを基にする。 */
-  basedOnTemplateId?: string;
-  /**
-   * 償還ファンドとして作成する。true のとき作成済みテンプレの特定パーツを
-   * 償還用パーツへ置換する（現状はモック実装）。
-   */
-  isRedemption?: boolean;
-}
+export type GenerateRequest = z.infer<typeof sch.GenerateRequest>;
 
 /** ファンドの属性解決の結果 (例: シリーズファンドか否か)。 */
 export interface FundResolution {
@@ -267,15 +142,9 @@ export interface FundResolution {
   isSeriesFund: boolean;
 }
 
-export interface GenerateResult {
-  template: Template;
-}
+export type GenerateResult = z.infer<typeof sch.GenerateResult>;
 
-export interface SaveDraftRequest {
-  templateId: string;
-  html: string;
-  css: string;
-}
+export type SaveDraftRequest = z.infer<typeof sch.SaveDraftRequest>;
 
 export interface ConfirmSaveRequest {
   templateId: string;
@@ -300,15 +169,11 @@ export interface TemplateInstance {
   savedBy: string;
 }
 
-export interface BuildInlineRequest {
-  /** 既に描画済み (nunjucks) の HTML。 */
-  html: string;
-  css: string;
-  /** vivliostyle へ渡すページサイズ (既定 'A4')。 */
-  size?: string;
-  /** 入力を単一ドキュメントとして扱う。 */
-  singleDoc?: boolean;
-}
+/**
+ * インライン build のリクエスト。スキーマの output 型を採るため `css` は必須
+ * (ワイヤ上は `css` 省略可で、サーバ側 validate が `default('')` で補完する)。
+ */
+export type BuildInlineRequest = z.infer<typeof sch.BuildInlineRequest>;
 
 // ── 8. Data-access contracts ──
 // 集約別・Result を返す契約は `./repositories/*` を参照。web の `local` 層と `rest`
@@ -331,6 +196,7 @@ export * from './repositories/AuthRepository.js';
 export * from './repositories/HistoryRepository.js';
 export * from './repositories/NoteRepository.js';
 export * from './repositories/PartRepository.js';
+export * from './repositories/ReviewRepository.js';
 export * from './repositories/TemplateRepository.js';
 export * from './repositories/UserRepository.js';
 export * from './result.js';

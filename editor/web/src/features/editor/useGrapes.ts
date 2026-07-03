@@ -843,6 +843,11 @@ export function useGrapes() {
     callbacks.reorderEnd = cb;
   }
 
+  /** canvas のダブルクリック。ロック中の編集ジェスチャ検知(ガイド表示)に使う。 */
+  function onCanvasDblClick(cb: () => void): void {
+    callbacks.canvasDblClick = cb;
+  }
+
   function destroy(): void {
     // 外側スクロール listener を先に剥がす(editor 破棄で DOM は消えるが寿命を明示し leak を防ぐ)。
     if (cvScrollEl && cvScrollHandler) cvScrollEl.removeEventListener('scroll', cvScrollHandler);
@@ -880,6 +885,7 @@ export function useGrapes() {
     onTextEditEnd,
     onReorderStart,
     onReorderEnd,
+    onCanvasDblClick,
     setZoom,
     fitToView,
     setEditable,

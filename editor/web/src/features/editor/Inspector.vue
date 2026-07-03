@@ -200,7 +200,7 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
       </Badge>
       <button
         type="button"
-        class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         title="右パネルを畳む"
         aria-label="右パネルを畳む"
         @click="emit('collapse')"
@@ -243,7 +243,7 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
             <div class="ins-row">
               <span class="text-muted-foreground">幅</span>
               <div v-if="editMode" class="ins-num" :class="{ 'ins-num-invalid': numInvalid('widthPct') }">
-                <button type="button" class="ins-step" title="減らす" @click="stepNum('widthPct', -1)">
+                <button type="button" class="ins-step" title="幅を減らす" aria-label="幅を減らす" @click="stepNum('widthPct', -1)">
                   <Minus class="h-3 w-3" />
                 </button>
                 <input
@@ -256,7 +256,7 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
                   @keydown.down.prevent="stepNum('widthPct', -1)"
                 />
                 <span class="ins-unit">%</span>
-                <button type="button" class="ins-step" title="増やす" @click="stepNum('widthPct', 1)">
+                <button type="button" class="ins-step" title="幅を増やす" aria-label="幅を増やす" @click="stepNum('widthPct', 1)">
                   <Plus class="h-3 w-3" />
                 </button>
               </div>
@@ -266,13 +266,13 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
             <div v-if="canAlign()" class="ins-row">
               <span class="text-muted-foreground">横の配置</span>
               <div v-if="editMode" class="flex gap-0.5">
-                <button type="button" class="seg" title="左寄せ" :class="cn(geom.align === 'left' && 'seg-on')" @click="setAlign('left')">
+                <button type="button" class="seg" title="左寄せ" aria-label="左寄せ" :aria-pressed="geom.align === 'left'" :class="cn(geom.align === 'left' && 'seg-on')" @click="setAlign('left')">
                   <AlignLeft class="h-[15px] w-[15px]" />
                 </button>
-                <button type="button" class="seg" title="中央" :class="cn(geom.align === 'center' && 'seg-on')" @click="setAlign('center')">
+                <button type="button" class="seg" title="中央" aria-label="中央" :aria-pressed="geom.align === 'center'" :class="cn(geom.align === 'center' && 'seg-on')" @click="setAlign('center')">
                   <AlignCenter class="h-[15px] w-[15px]" />
                 </button>
-                <button type="button" class="seg" title="右寄せ" :class="cn(geom.align === 'right' && 'seg-on')" @click="setAlign('right')">
+                <button type="button" class="seg" title="右寄せ" aria-label="右寄せ" :aria-pressed="geom.align === 'right'" :class="cn(geom.align === 'right' && 'seg-on')" @click="setAlign('right')">
                   <AlignRight class="h-[15px] w-[15px]" />
                 </button>
               </div>
@@ -296,7 +296,7 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
             <div class="ins-row">
               <span class="text-muted-foreground">上の余白</span>
               <div v-if="editMode" class="ins-num" :class="{ 'ins-num-invalid': numInvalid('marginTop') }">
-                <button type="button" class="ins-step" title="減らす" @click="stepNum('marginTop', -1)">
+                <button type="button" class="ins-step" title="上の余白を減らす" aria-label="上の余白を減らす" @click="stepNum('marginTop', -1)">
                   <Minus class="h-3 w-3" />
                 </button>
                 <input
@@ -309,7 +309,7 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
                   @keydown.down.prevent="stepNum('marginTop', -1)"
                 />
                 <span class="ins-unit">mm</span>
-                <button type="button" class="ins-step" title="増やす" @click="stepNum('marginTop', 1)">
+                <button type="button" class="ins-step" title="上の余白を増やす" aria-label="上の余白を増やす" @click="stepNum('marginTop', 1)">
                   <Plus class="h-3 w-3" />
                 </button>
               </div>
@@ -318,7 +318,7 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
             <div class="ins-row">
               <span class="text-muted-foreground">下の余白</span>
               <div v-if="editMode" class="ins-num" :class="{ 'ins-num-invalid': numInvalid('marginBottom') }">
-                <button type="button" class="ins-step" title="減らす" @click="stepNum('marginBottom', -1)">
+                <button type="button" class="ins-step" title="下の余白を減らす" aria-label="下の余白を減らす" @click="stepNum('marginBottom', -1)">
                   <Minus class="h-3 w-3" />
                 </button>
                 <input
@@ -331,7 +331,7 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
                   @keydown.down.prevent="stepNum('marginBottom', -1)"
                 />
                 <span class="ins-unit">mm</span>
-                <button type="button" class="ins-step" title="増やす" @click="stepNum('marginBottom', 1)">
+                <button type="button" class="ins-step" title="下の余白を増やす" aria-label="下の余白を増やす" @click="stepNum('marginBottom', 1)">
                   <Plus class="h-3 w-3" />
                 </button>
               </div>
@@ -435,17 +435,17 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
 
       <!-- ── アクションバー(並べ替え / 初期化 / 削除): 編集許可時のみ ── -->
       <div v-if="editMode" class="flex shrink-0 items-center gap-1 border-t px-3 py-2">
-        <button type="button" class="act" title="上へ移動" :disabled="!canUp" @click="emit('move', -1)">
+        <button type="button" class="act" title="上へ移動" aria-label="上へ移動" :disabled="!canUp" @click="emit('move', -1)">
           <ChevronUp class="h-[15px] w-[15px]" />
         </button>
-        <button type="button" class="act" title="下へ移動" :disabled="!canDown" @click="emit('move', 1)">
+        <button type="button" class="act" title="下へ移動" aria-label="下へ移動" :disabled="!canDown" @click="emit('move', 1)">
           <ChevronDown class="h-[15px] w-[15px]" />
         </button>
         <span class="flex-1" />
-        <button type="button" class="act" title="配置を初期化" @click="emit('reset')">
+        <button type="button" class="act" title="配置を初期化" aria-label="配置を初期化" @click="emit('reset')">
           <RotateCcw class="h-[14px] w-[14px]" />
         </button>
-        <button type="button" class="act act-danger" title="このパーツを削除" @click="emit('del')">
+        <button type="button" class="act act-danger" title="このパーツを削除" aria-label="このパーツを削除" @click="emit('del')">
           <Trash2 class="h-[14px] w-[14px]" />
         </button>
       </div>
@@ -649,5 +649,31 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
 }
 .act-danger:hover {
   background: color-mix(in oklab, var(--destructive) 12%, transparent);
+}
+
+/* キーボード操作の現在地を可視化する focus リング(見た目は index.css の `.ring-focus` と同一)。
+   共通 Button 非採用の独自寸法ボタン群には hover しか無く、Tab 走査で現在地が見えなかった。 */
+.sec-head:focus-visible,
+.seg:focus-visible,
+.act:focus-visible,
+.ins-step:focus-visible,
+.pb-toggle:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px color-mix(in oklab, var(--ring) 55%, transparent);
+}
+/* 数値入力はステッパーと一体の複合コントロールなので、input 単体でなく枠全体にリングを出す。
+   無効値の inset 枠(`.ins-num-invalid`)と重なっても両方見えるよう box-shadow は追記合成しない。 */
+.ins-num:focus-within {
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px color-mix(in oklab, var(--ring) 55%, transparent);
+}
+.ins-num-invalid:focus-within {
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in oklab, var(--destructive) 70%, transparent),
+    0 0 0 2px var(--background),
+    0 0 0 4px color-mix(in oklab, var(--ring) 55%, transparent);
 }
 </style>

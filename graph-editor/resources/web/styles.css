@@ -76,6 +76,8 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none;
 /* ---- ステップバー ---- */
 .stepbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 12px 18px; background: var(--surface); border-bottom: 1px solid var(--border); }
 .step { display: flex; align-items: center; gap: 9px; padding: 7px 14px 7px 10px; border-radius: 999px; color: var(--faint); font-size: 13px; font-weight: 500; }
+/* 手順は button 要素 (キーボード到達のため — ui.html 参照)。UA 既定の枠/背景を打ち消す。 */
+button.step { border: 0; background: transparent; font-family: var(--font-ui); }
 .step .n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--sunk); color: var(--faint); font-family: var(--font-round); font-weight: 700; font-size: 12px; border: 1.5px solid var(--border); }
 .step .n svg { width: 14px; height: 14px; }
 .step.done { color: var(--good-ink); }
@@ -206,3 +208,25 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none;
 /* ---- トースト ---- */
 .toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%) translateY(10px); background: oklch(0.34 0.012 262); color: #fff; font-size: 12.5px; font-weight: 600; padding: 9px 16px; border-radius: 999px; box-shadow: var(--shadow-pop); opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s; z-index: 30; }
 .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---- アクセシビリティ ---- */
+/* キーボード操作の現在地を可視化する focus リング (editor/web の `.ring-focus` と同じ見た目)。
+   :hover しか無いとタブ移動の現在地が見えない。 */
+.btn:focus-visible,
+.iconbtn:focus-visible,
+.segment button:focus-visible,
+button.step:focus-visible,
+.dropzone:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px color-mix(in oklab, var(--accent) 55%, transparent);
+}
+
+/* 動きの抑制設定を尊重 (editor/web の index.css と同方針)。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

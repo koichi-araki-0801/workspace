@@ -14,6 +14,7 @@ import {
   createTemplatePreviewService,
   PDF_ERROR_MSG,
 } from '@/features/preview/services/templatePreviewService';
+import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 
 const history = {
   recordPdfExport: vi.fn(async () => ok(undefined)),
@@ -126,7 +127,7 @@ describe('TemplatePreviewService.renderPdf', () => {
       vi.fn(async () => new Response('boom', { status: 500 })),
     );
     const svc = createTemplatePreviewService({} as TemplateRepository, history);
-    const res = await svc.renderPdf('<p>hi</p>', '', {});
+    const res = await svc.renderPdf('<p>hi</p>', '', {}, false);
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
     if (isErr(res)) {
@@ -141,17 +142,31 @@ describe('TemplatePreviewService.renderPdf', () => {
       vi.fn(async () => new Response('%PDF-1.4', { status: 200 })),
     );
     const svc = createTemplatePreviewService({} as TemplateRepository, history);
-    const res = await svc.renderPdf('<p>hi</p>', '.c{}', {});
+    const res = await svc.renderPdf('<p>hi</p>', '.c{}', {}, false);
     vi.unstubAllGlobals();
     expect(isOk(res)).toBe(true);
     if (isOk(res)) expect(res.value).toBeInstanceOf(Blob);
+  });
+
+  it('appends trim-mark CSS to the sent css only when cropMarks is on', async () => {
+    const bodyOf = async (cropMarks: boolean): Promise<string> => {
+      const fetchSpy = vi.fn(async () => new Response('%PDF-1.4', { status: 200 }));
+      vi.stubGlobal('fetch', fetchSpy);
+      const svc = createTemplatePreviewService({} as TemplateRepository, history);
+      await svc.renderPdf('<p>hi</p>', '.c{}', {}, cropMarks);
+      vi.unstubAllGlobals();
+      const init = fetchSpy.mock.calls[0][1] as RequestInit;
+      return JSON.parse(init.body as string).css as string;
+    };
+    expect(await bodyOf(true)).toContain(CROP_MARKS_CSS);
+    expect(await bodyOf(false)).not.toContain(CROP_MARKS_CSS);
   });
 
   it('returns err without calling fetch when the template fails to render', async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
     const svc = createTemplatePreviewService({} as TemplateRepository, history);
-    const res = await svc.renderPdf('<p>{{ oops</p>', '', {});
+    const res = await svc.renderPdf('<p>{{ oops</p>', '', {}, false);
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.message).toBe(PDF_ERROR_MSG);

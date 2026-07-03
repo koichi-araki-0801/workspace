@@ -20,13 +20,13 @@
     <button class="iconbtn" id="btnRedo" disabled title="やり直し (Ctrl+Y)"><i data-ic="redo"></i></button>
   </div>
 
-  <!-- 手順バー -->
+  <!-- 手順バー (button 化: Tab で到達しキーボードだけでも手順を移動できるようにする) -->
   <div class="stepbar" id="stepbar">
-    <div class="step clickable" id="stp1" data-step="1"><span class="n">1</span>ファイルを開く</div>
+    <button type="button" class="step clickable" id="stp1" data-step="1"><span class="n">1</span>ファイルを開く</button>
     <i data-ic="chevR" class="step-sep"></i>
-    <div class="step clickable" id="stp2" data-step="2"><span class="n">2</span>位置を調整</div>
+    <button type="button" class="step clickable" id="stp2" data-step="2"><span class="n">2</span>位置を調整</button>
     <i data-ic="chevR" class="step-sep"></i>
-    <div class="step clickable" id="stp3" data-step="3"><span class="n">3</span>SVGを保存</div>
+    <button type="button" class="step clickable" id="stp3" data-step="3"><span class="n">3</span>SVGを保存</button>
   </div>
 
   <div class="stage">
@@ -37,7 +37,8 @@
         <div class="sheet">
           <h1>SVGファイルを開く</h1>
           <p class="lead">円グラフのSVGを読み込み、ラベルの位置を調整します。複数選択できます。</p>
-          <div class="dropzone" id="dropzone">
+          <div class="dropzone" id="dropzone" tabindex="0" role="button"
+               aria-label="SVG ファイルを選択（ドラッグ＆ドロップも可）">
             <div class="dz-ic"><i data-ic="upload"></i></div>
             <div class="dz-t">ここにSVGファイルをドラッグ＆ドロップ</div>
             <div class="dz-s">または下のボタンから選択（.svg）</div>
@@ -59,7 +60,8 @@
         <div id="fileList"></div>
         <div class="railfoot">
           <button class="btn outline" id="btnOpenRail" style="width:100%;justify-content:center"><i data-ic="folder"></i>ファイルを開く…</button>
-          <button class="btn ghost" id="btnResetAll" style="width:100%;justify-content:center;margin-top:6px" disabled><i data-ic="reset"></i>全体リセット</button>
+          <!-- 実挙動は「表示中ファイルのみ初期化」— 全ファイル対象と誤解させないラベルにする。 -->
+          <button class="btn ghost" id="btnResetAll" style="width:100%;justify-content:center;margin-top:6px" disabled title="表示中のファイルの調整をすべて破棄して開いた時の状態に戻します"><i data-ic="reset"></i>このファイルをリセット</button>
         </div>
       </nav>
 
@@ -102,7 +104,8 @@
           <div class="dropzone" style="border-style:solid;background:var(--surface);border-color:var(--border)">
             <div class="dz-ic"><i data-ic="download"></i></div>
             <div class="dz-t">SVGとして書き出す</div>
-            <div class="dz-s">調整したラベル位置を反映したファイルを保存します。</div>
+            <!-- 保存先は選べない(FS Access API 無効化 — `utils.js` の `hasFsAccess` 参照)ため事前に予告する。 -->
+            <div class="dz-s">調整したラベル位置を反映したファイルを、ダウンロードフォルダに保存します（保存先は選択できません）。</div>
             <button class="btn primary" id="btnSave" style="margin:0 auto" disabled><i data-ic="download"></i>保存する</button>
           </div>
         </div>
@@ -120,7 +123,8 @@
     <button class="btn primary" id="btnNext">次へ<i data-ic="chevR"></i></button>
   </div>
 </div>
-<div class="toast" id="toast"></div>
+<!-- role/aria-live: 保存完了などの通知をスクリーンリーダーにも読み上げさせる。 -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
   <!-- DOM 非依存の純粋関数 (引出線ジオメトリ/パース)。ui.html と vitest 単体テストで共有。
        classic script として global `LeaderGeom` を生やすため、main スクリプトより前に読み込む。 -->
   <script src="lib/leader_geom.cjs"></script>

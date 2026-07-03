@@ -96,6 +96,13 @@ importers:
         version: 4.5.0
 
   editor/shared:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+      zod-openapi:
+        specifier: ^5.4.6
+        version: 5.4.6(zod@4.4.3)
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.1.8

@@ -21,6 +21,7 @@ export default defineConfig({
       include: [
         // editor/shared
         'editor/shared/src/index.ts',
+        'editor/shared/src/schemas.ts',
         'editor/shared/src/result.ts',
         'editor/shared/src/errors.ts',
         'editor/shared/src/domain/template.ts',
@@ -34,6 +35,7 @@ export default defineConfig({
         'editor/server/src/vivliostyle/previewManager.ts',
         'editor/server/src/vivliostyle/buildWorkerPool.ts',
         // editor/web (UI/VM/Service/Repository 層)
+        'editor/web/src/workers/fallback.ts',
         'editor/web/src/lib/jinjaMask.ts',
         'editor/web/src/lib/blockKey.ts',
         'editor/web/src/lib/appError.ts',
@@ -48,8 +50,10 @@ export default defineConfig({
         'editor/web/src/lib/templateDoc.ts',
         'editor/web/src/lib/usePagedList.ts',
         'editor/web/src/lib/nunjucksRender.ts',
+        'editor/web/src/lib/cropMarks.ts',
         'editor/web/src/lib/formatOutput.ts',
         'editor/web/src/lib/useCascadingSelect.ts',
+        'editor/web/src/lib/useIframeAutoFit.ts',
         'editor/web/src/features/editor/geom.ts',
         'editor/web/src/features/editor/pageView.ts',
         'editor/web/src/features/editor/useSnapshotHistory.ts',
@@ -60,12 +64,15 @@ export default defineConfig({
         'editor/web/src/stores/editorSession.ts',
         'editor/web/src/features/compare/htmlBlockDiff.ts',
         'editor/web/src/features/compare/services/compareService.ts',
+        'editor/web/src/features/reviews/services/reviewDiffService.ts',
+        'editor/web/src/features/reviews/useReviewDiff.ts',
         'editor/web/src/api/local/authRepo.ts',
         'editor/web/src/api/local/templateRepo.ts',
         'editor/web/src/api/local/userRepo.ts',
         'editor/web/src/api/local/historyRepo.ts',
         'editor/web/src/api/local/partRepo.ts',
         'editor/web/src/api/local/noteRepo.ts',
+        'editor/web/src/api/local/reviewRepo.ts',
         // pie-chart (layout.ts / label_placement.ts / svg_export/* は verify_* が担当し対象外)
         'pie-chart/src/svg_geom.ts',
         'pie-chart/src/config.ts',

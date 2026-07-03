@@ -9,6 +9,15 @@
     "password": "admin"
   },
   {
+    "id": "u-approver",
+    "username": "approver",
+    "displayName": "精査花子",
+    "role": "approver",
+    "disabled": false,
+    "mustChangePassword": false,
+    "password": "approver"
+  },
+  {
     "id": "u-editor",
     "username": "editor",
     "displayName": "編集太郎",

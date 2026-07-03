@@ -52,7 +52,7 @@ async function addUser() {
   if (!validate()) return;
   const res = await run(() => users.add({ ...form }));
   if (isErr(res)) return;
-  toastSuccess(`${form.displayName} を追加しました。初期パスワードはユーザID(${form.username})と同じです。`);
+  toastSuccess(`${form.displayName} を追加しました。初期パスワードはユーザーID（${form.username}）と同じです。`);
   form.username = '';
   form.displayName = '';
   await load();
@@ -93,7 +93,7 @@ async function resetPw(u: User) {
   if (!ok) return;
   const res = await run(() => users.resetPassword(u.id));
   if (isErr(res)) return;
-  toastSuccess(`${u.displayName} のパスワードを初期化しました(ユーザID「${u.username}」と同じです)`);
+  toastSuccess(`${u.displayName} のパスワードを初期化しました（ユーザーID「${u.username}」と同じです）`);
   await load();
 }
 </script>

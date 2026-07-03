@@ -41,6 +41,7 @@ const appConfigSchema = z
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
         draftsDir: z.string().optional(),
+        reviewsDir: z.string().optional(),
         tmpDir: z.string().optional(),
         logDir: z.string().optional(),
         webDist: z.string().optional(),
@@ -138,6 +139,15 @@ export const config = {
   cssDir: resolvePath(process.env.CSS_DIR, file.paths?.cssDir, '../../editor-data/css'),
   /** 自動保存(autosave)ドラフトの作業コピー(template ごとに html/css。git 管理外)。 */
   draftsDir: resolvePath(process.env.DRAFTS_DIR, file.paths?.draftsDir, '../../editor-data/drafts'),
+  /**
+   * 確定保存の承認待ち申請(`data/reviews/<reqId>/`。git 管理外)。承認時に実ファイル
+   * (templates/css)へ反映するまでの中間保管。`ensureRepo` が `/reviews/` を .gitignore する。
+   */
+  reviewsDir: resolvePath(
+    process.env.REVIEWS_DIR,
+    file.paths?.reviewsDir,
+    '../../editor-data/reviews',
+  ),
   /** テンプレ版管理の git リポジトリ(= dataRoot)。確定保存ごとに 1 コミット。 */
   gitRepoDir: resolvePath(process.env.GIT_REPO_DIR, file.paths?.dataRoot, '../../editor-data'),
 

@@ -20,11 +20,11 @@ export async function historyRoutes(app: FastifyInstance): Promise<void> {
     return history.getPdfHistory();
   });
 
-  app.post(
+  app.post<{ Body: z.infer<typeof RecordPdfExportRequest> }>(
     apiPaths.historyPdf,
     { preHandler: [requireAuth, validate(RecordPdfExportRequest)] },
     async (request, reply) => {
-      const body = request.body as z.infer<typeof RecordPdfExportRequest>;
+      const body = request.body;
       await history.recordPdfExport(body.templateId, actor(request));
       return reply.code(204).send();
     },
@@ -34,11 +34,19 @@ export async function historyRoutes(app: FastifyInstance): Promise<void> {
     return history.getCreateHistory();
   });
 
-  app.get(apiPaths.templateVersions, { preHandler: requireAuth }, async (request) => {
-    return history.listVersions(String((request.params as { templateId: string }).templateId));
-  });
+  app.get<{ Params: { templateId: string } }>(
+    apiPaths.templateVersions,
+    { preHandler: requireAuth },
+    async (request) => {
+      return history.listVersions(request.params.templateId);
+    },
+  );
 
-  app.get(apiPaths.snapshotById, { preHandler: requireAuth }, async (request) => {
-    return history.getSnapshot(String((request.params as { historyId: string }).historyId));
-  });
+  app.get<{ Params: { historyId: string } }>(
+    apiPaths.snapshotById,
+    { preHandler: requireAuth },
+    async (request) => {
+      return history.getSnapshot(request.params.historyId);
+    },
+  );
 }
