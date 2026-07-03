@@ -3761,7 +3761,7 @@ function applyEmitRepairPasses(
 
   // 左側 near-equator の見切れラベルを、円の縦中心から離す向きへ縦 spread して左 rim を細らせ
   // viewBox 左端の見切れを解消する最終手段 (do-no-harm)。水平 nudge が pie にブロックされる
-  // (|y| < pieRadius) ラベルが対象。`applyLowerLeftDropFallback` / `applySplitNameFallback` より
+  // (|y| < pieRadius) ラベルが対象。`applyLowerLeftDropFallback` / `applyTwoLineNameFallback` より
   // 先に試し、解消すれば後続が no-op になる。採否は片側単位で `countDefects` の clips 厳密減・他カテゴリ非悪化。
   applyVerticalDeclipFallback(textPlacements, cfg, view);
 
