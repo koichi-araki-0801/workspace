@@ -453,9 +453,14 @@ export interface DefectCounts {
 
 /**
  * placements を **emit と同一の後段** で最終化したコピーを返す (採点を実描画基準へ揃える)。
- * 後段順は renderPdfStylePieToSvg と一致: nudge → condense-to-fit → relax-condense →
- * 角度順引き離し → 9時逃がし →（leftStackMode のみ）reorderLeftStackWithCondense。
- * leftStackMode を渡さないと emit 限定の最終 re-stack を取りこぼし採点が emit とズレる。
+ * 後段順は `EMIT_REPAIR_PASSES` の stage='both'/'scoring' エントリをテーブル順に適用したもので、
+ * emit 列と同一テーブルから生成される (パス追加時の scoring↔emit drift を構造的に防ぐ)。
+ * leftStackMode を渡さないと leftStackMode 限定の最終 re-stack を取りこぼし採点が emit とズレる。
+ *
+ * 修復系・fallback 系 (stage 無指定 = emit 限定。`repairResidualLeaderDefects` 等) はここに入れない。
+ * 採点へ入れると「修復で直る前提」のスコアでチャート単位の候補選択 (ソノホカ右/左・spread 等) が
+ * 動き、修復しきれない別候補を選ぶ退行を生む (例 currency_many_small_10)。finalScore は emit 後の
+ * 同一 placements から数えるため scorer ↔ emit の整合 (verify_consistency) はこの除外でも崩れない。
  */
 function finalizeForScoring(
   placements: Placement[],
@@ -464,19 +469,13 @@ function finalizeForScoring(
   leftStackMode = false,
 ): Placement[] {
   const copy = placements.map((p) => ({ ...p }));
-  applyVisualViewBoxNudge(copy, cfg);
-  applyFinalCondenseToFit(copy, cfg);
-  relaxNameCondense(copy, cfg);
-  applyOutsideLeaderAngularOrder(copy, cfg, coord);
-  escapeUpperLeftTinyLeaders(copy, cfg, coord);
-  escapeTopBandSeamLeader(copy, cfg, coord);
-  if (leftStackMode) stackTopRightLiftedLabels(copy);
-  if (leftStackMode) reorderLeftStackWithCondense(copy, cfg, coord);
-  if (leftStackMode) separateLeftColumnByHeight(copy, cfg, coord);
-  // repairResidualLeaderDefects は emit 最終段のみで適用する (ここには入れない)。採点へ入れると
-  // 「修復で直る前提」のスコアでチャート単位の候補選択 (ソノホカ右/左・spread 等) が動き、修復
-  // しきれない別候補を選ぶ退行を生む (例 currency_many_small_10)。finalScore は emit 後の同一
-  // placements から数えるため scorer ↔ emit の整合 (verify_consistency) はこの除外でも崩れない。
+  // `when` 述語は leftStackMode しか読まないため、採点側は最小の Diagnostics 形で受け渡す。
+  const diag = leftStackMode ? ({ leftStackMode: true } as Diagnostics) : null;
+  for (const pass of EMIT_REPAIR_PASSES) {
+    if (pass.stage !== 'both' && pass.stage !== 'scoring') continue;
+    if (pass.when && !pass.when(diag)) continue;
+    (pass.scoringRun ?? pass.run)(copy, cfg, coord);
+  }
   return copy;
 }
 
@@ -3876,32 +3875,41 @@ function selectFinalLayout(
 /** `EMIT_REPAIR_PASSES` の 1 エントリが実行する修復パス本体。 */
 type EmitPassFn = (placements: Placement[], cfg: PieLayoutConfig, view: Coord) => void;
 
-interface EmitRepairPass {
+export interface EmitRepairPass {
   /** デバッグログ・`PIE_CHART_STOP_AFTER_PASS`・特性テストで参照する一意名。 */
   name: string;
   /** 発火条件 (未指定 = 常時)。現状は leftStackMode 限定の 2 群のみ。 */
   when?: (diag: Diagnostics | null) => boolean;
   run: EmitPassFn;
+  /**
+   * どの列に含めるか (既定 'emit')。'both' = 採点列 (`finalizeForScoring`) にも同順で含める。
+   * 'scoring' = 採点列のみ。採点へ入れないパス (修復系・fallback 系) を emit 限定に保つ理由は
+   * `finalizeForScoring` のコメント参照。
+   */
+  stage?: 'emit' | 'scoring' | 'both';
+  /** stage='both' で採点側の実体が emit と異なる場合のみ指定 (例 seam 逃がしの thorough 差)。 */
+  scoringRun?: EmitPassFn;
 }
 
 /**
  * emit 採用配置に対する最終修復パス列 (宣言テーブル)。位置確定後に 1 回ずつ適用する do-no-harm の
  * 群で、各手の意図はエントリ直上のコメント参照。**順序依存** (前段の解消が後段を no-op にする /
- * 後段が前段の前提に乗る) があるためエントリ順を変えないこと。
+ * 後段が前段の前提に乗る) があるためエントリ順を変えないこと。採点列 (`finalizeForScoring`) も
+ * 本テーブルの stage='both'/'scoring' エントリから生成され、scoring↔emit の列 drift を構造的に防ぐ。
  */
-const EMIT_REPAIR_PASSES: readonly EmitRepairPass[] = [
+export const EMIT_REPAIR_PASSES: readonly EmitRepairPass[] = [
   // 視覚 viewBox はみ出し最終 nudge (採用配置に 1 回だけ適用)。
-  { name: 'visualViewBoxNudge', run: (p, cfg) => applyVisualViewBoxNudge(p, cfg) },
+  { name: 'visualViewBoxNudge', stage: 'both', run: (p, cfg) => applyVisualViewBoxNudge(p, cfg) },
   // viewBox をはみ出す外側ラベルを「収まるまで長体」で縮める最終ガード (下限 0.7)。
-  { name: 'finalCondenseToFit', run: (p, cfg) => applyFinalCondenseToFit(p, cfg) },
+  { name: 'finalCondenseToFit', stage: 'both', run: (p, cfg) => applyFinalCondenseToFit(p, cfg) },
   // 長体ラベルをキャンバスに収まる範囲で原寸 (上限 1.0 = デフォルトの大きさ) へ向けて緩和し、
   // ラベルごとにギリギリ収まる最大サイズへ戻す。
-  { name: 'relaxNameCondense', run: (p, cfg) => relaxNameCondense(p, cfg) },
+  { name: 'relaxNameCondense', stage: 'both', run: (p, cfg) => relaxNameCondense(p, cfg) },
 
   // 最終段: 同一側で交差する外側 leader 対を縦に引き離して交差を解消する。viewBox nudge /
   // condense-to-fit の後 (= emit と同一の最終配置) に実行するので、ここで見た交差は verify が
   // 報告する交差と一致する。各手は do-no-harm (交差減・重なり非悪化・viewBox 内) で採用。
-  { name: 'outsideLeaderAngularOrder', run: applyOutsideLeaderAngularOrder },
+  { name: 'outsideLeaderAngularOrder', stage: 'both', run: applyOutsideLeaderAngularOrder },
 
   // applyOutsideLeaderAngularOrder の swap で直せない上左トップバンドクラスタの角度順逆転
   // (例 page16: ジャージー右逃がし後 ケイマンが天頂へ来てアイルランドの上に逆転) を、角度順
@@ -3910,25 +3918,39 @@ const EMIT_REPAIR_PASSES: readonly EmitRepairPass[] = [
 
   // 9時線近傍で near-vertical に重なる左小スライス対 (例 イギリス/イタリア) を角度順に並べ直して
   // 左上の空きへわずかに逃がし、各 leader を分離した斜め線にする。do-no-harm (悪化したら revert)。
-  { name: 'escapeUpperLeftTinyLeaders', run: escapeUpperLeftTinyLeaders },
+  { name: 'escapeUpperLeftTinyLeaders', stage: 'both', run: escapeUpperLeftTinyLeaders },
 
   // 12時シーム近傍の小スライスが左帯へ押し出されて near-horizontal leader が交差する場合、
   // 当該スライスを右上空白へ "up-and-over" で逃がして交差を解消する (do-no-harm)。
-  // emit では thorough=true (累積プレフィックス探索 + 1 行化フォールバック) を使う。
+  // emit では thorough=true (累積プレフィックス探索 + 1 行化フォールバック) を使う。採点では
+  // thorough=false (greedy): 採点に thorough を入れるとチャート単位の候補選択が「emit で直る前提」の
+  // スコアへ寄り、修復しきれない別候補を選ぶ退行が出る (例 currency_many_small_10)。
   {
     name: 'escapeTopBandSeamLeader.thorough',
+    stage: 'both',
     run: (p, cfg, v) => escapeTopBandSeamLeader(p, cfg, v, true),
+    scoringRun: (p, cfg, v) => escapeTopBandSeamLeader(p, cfg, v),
+  },
+
+  // 採点列のみ: leftStackMode の右上リフト済ラベルの縦積み整列。emit 側は cascade 内で処理済み。
+  {
+    name: 'stackTopRightLiftedLabels',
+    stage: 'scoring',
+    when: (d) => d?.leftStackMode === true,
+    run: (p) => stackTopRightLiftedLabels(p),
   },
 
   // leftStackMode 限定の最終手段: untangle で直せない幅広/混在行の左上逆転を、角度順 re-stack +
-  // 長体圧縮で解消する (do-no-harm・悪化したら全 revert)。emit でのみ・スコアリングには干渉しない。
+  // 長体圧縮で解消する (do-no-harm・悪化したら全 revert)。
   {
     name: 'reorderLeftStackWithCondense',
+    stage: 'both',
     when: (d) => d?.leftStackMode === true,
     run: reorderLeftStackWithCondense,
   },
   {
     name: 'separateLeftColumnByHeight',
+    stage: 'both',
     when: (d) => d?.leftStackMode === true,
     run: separateLeftColumnByHeight,
   },
@@ -4015,6 +4037,7 @@ function applyEmitRepairPasses(
 ): void {
   const debug = Boolean(process.env.PIE_CHART_DEBUG_REPAIR);
   for (const pass of EMIT_REPAIR_PASSES) {
+    if (pass.stage === 'scoring') continue;
     if (pass.when && !pass.when(diagnostics)) continue;
     if (debug) {
       const before = measureRepairVec(textPlacements, cfg, view);
