@@ -235,9 +235,28 @@ RenderResult { svg, diagnostics, config }
 クロスファイル参照・体裁（`=` 罫線の装飾ボックスヘッダ、`// ── N. ラベル ──` 節区切り）など
 共通事項はそちらを参照すること。pie-chart もこの規約に準拠する。
 
-- **出力不変の検証（pie-chart 固有）**: コメントのみの変更でも `out/_baseline` に対し SVG を
-  byte-diff し、出力が完全に不変であることを確認する (`npm run batch` 後に SHA256 比較)。
-  これは SVG 出力の決定性に密な pie-chart 限定の鉄則。
+- **出力不変の検証（pie-chart 固有）**: コメントのみの変更でも `out/_baseline` に対し SVG の
+  byte-diff で出力が完全に不変であることを確認する（`npm run batch` → `npm run batch:diff`。
+  下記「検証」節参照）。これは SVG 出力の決定性に密な pie-chart 限定の鉄則。
+
+## 検証
+
+SVG 出力は**完全に決定的**なので、リファクタ・コメント変更の挙動保証はバイト単位で行う。
+
+- **byte-diff**: `npm run batch` → `npm run batch:diff`。`scripts/batch_diff.mjs` が
+  `out/svg_js` ⇔ `out/_baseline` を SHA256 で全件比較し、差分があれば非 0 exit +
+  ファイル名を列挙する。
+- **`npm run verify` は `out/svg_js` の既存 SVG を読む（再レンダーしない）**。コード変更後は
+  必ず `npm run batch` を先行させてから verify / `npm run verify:consistency` を読む。
+- **特性テスト**（`npx vitest run`）: byte-diff はサンプル入力の分布しか守らないため、特性テストで
+  穴埋めしている — mark_flags（mark*** 発火表）/ final_score（finalScore ゴールデン）/
+  render_hash（サンプル外合成入力の SVG ハッシュ）/ seam_snapshot（revert 完全性 +
+  `PLACEMENT_SEAM_POLICY` 網羅表）/ emit_passes（emit/scoring パス列固定）。
+  スナップショット更新（`-u`）は挙動変更を意図した時のみ許される。
+- **デバッグ**: `PIE_CHART_DEBUG_REPAIR=1` で emit 修復パス単位の RepairVec 差分ログ、
+  `PIE_CHART_STOP_AFTER_PASS=<name>` で犯人パスの二分探索（`EMIT_REPAIR_PASSES` の name を指定）。
+- **do-no-harm の採否述語（better / swapBetter 等）はパス仕様そのもの** — ヘルパーへ焼き込まず、
+  一字一句変えない（FP 演算順序が変わると数学的等価でも byte が動く）。
 
 ## 注意
 
