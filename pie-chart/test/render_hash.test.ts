@@ -104,7 +104,9 @@ function syntheticCases(): Record<string, Slice[]> {
 }
 
 describe('合成入力の SVG ハッシュ固定 (サンプル外の入力分布)', () => {
-  it('全合成ケースの SHA256 がスナップショットと一致する', { timeout: 120_000 }, async () => {
+  // timeout はルート `vitest run --coverage`(pre-push CI) 併走時の実測 (~150s) を余裕込みで収める値
+  // (`final_score.test.ts` と同趣旨)。
+  it('全合成ケースの SHA256 がスナップショットと一致する', { timeout: 300_000 }, async () => {
     const hashes: Record<string, string> = {};
     for (const [name, items] of Object.entries(syntheticCases())) {
       const { svg } = await renderPdfStylePieToSvg(items, {});

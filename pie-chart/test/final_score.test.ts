@@ -13,8 +13,10 @@ import { resolveInputData, samples } from '../src/data.js';
 import { renderPdfStylePieToSvg } from '../src/svg_export/index.js';
 
 describe('emit 後 finalScore / modeTags のゴールデン表', () => {
+  // timeout はルート `vitest run --coverage`(pre-push CI) 併走時の実測 (~130s。V8 カバレッジ計測 +
+  // 他プロジェクト並列で単体実行 ~87s の 1.5-2 倍に伸びる) を余裕込みで収める値。
   it('全サンプルの finalScore と modeTags がスナップショットと一致する', {
-    timeout: 120_000,
+    timeout: 300_000,
   }, async () => {
     const table: Record<string, { finalScore?: unknown; modeTags: string[] }> = {};
     for (const name of Object.keys(samples).sort()) {
