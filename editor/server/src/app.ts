@@ -9,13 +9,15 @@
 // 最後に `app.listen()` で一括ブートする。
 
 import fs from 'node:fs';
+import type http from 'node:http';
+import type https from 'node:https';
 import path from 'node:path';
 import { apiPaths, validation } from '@editor/shared';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import staticPlugin from '@fastify/static';
 import ScalarApiReference from '@scalar/fastify-api-reference';
-import Fastify from 'fastify';
+import Fastify, { type FastifyHttpOptions } from 'fastify';
 import { invalidateAllSessions } from './auth/session.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
@@ -33,12 +35,35 @@ import { vivliostyleRoutes } from './routes/vivliostyle.routes.js';
 import { buildWorkerPool } from './vivliostyle/buildWorkerServer.js';
 import { previewManager } from './vivliostyle/previewServer.js';
 
-const app = Fastify({
+const serverOptions: FastifyHttpOptions<http.Server> = {
   // pino-http の置換。既存の pino インスタンスをそのまま使い request.log/reply.log を提供する。
   loggerInstance: logger,
   // express.json({ limit: '8mb' }) 相当。JSON 既定パーサに適用される本文サイズ上限。
   bodyLimit: 8 * 1024 * 1024,
-});
+};
+
+// `HTTPS=true`(start.bat lan が pfx 存在時に設定)のときだけ HTTPS で待受ける。LAN 公開を
+// 平文で行うと Secure cookie が保存されずログイン不能になるため、公開運用は HTTPS を基本と
+// する。opt-in なのに pfx が無いのは設定ミスなので fail-fast する(黙って HTTP に落とすと
+// cookie 問題が分かりにくく再発するため)。`https` を型どおり渡すと Fastify のインスタンス型が
+// `https.Server` に変わり全ルートプラグインの型へ波及するため、型上は HTTP のまま値だけ注入する
+// (Fastify は opts.https を実行時に参照するので挙動は正しく HTTPS になる)。
+const tlsEnabled = config.tls.enabled;
+if (tlsEnabled) {
+  if (!fs.existsSync(config.tls.pfxPath)) {
+    logger.error(
+      `[server] HTTPS=true ですが PFX がありません: ${config.tls.pfxPath} — ` +
+        'editor\\scripts\\setup-lan-https.bat を実行して証明書を生成してください。',
+    );
+    process.exit(1);
+  }
+  (serverOptions as { https?: https.ServerOptions }).https = {
+    pfx: fs.readFileSync(config.tls.pfxPath),
+    passphrase: config.tls.passphrase,
+  };
+}
+
+const app = Fastify(serverOptions);
 
 // `requireAuth` が解決して埋めるユーザ。型は `middleware/auth.ts` の module augmentation を参照。
 app.decorateRequest('user', undefined);
@@ -153,12 +178,18 @@ if (config.requireAuth) {
   }
 }
 
-// listen。Express の `app.listen(port)` は全 IF にバインドするが、Fastify は host 省略時
-// loopback のみ。現行同等(かつ preview host が 127.0.0.1 なのと整合)のため host を明示する。
+// listen。host は既定 127.0.0.1(同一マシン限定・従来挙動)で、社内 LAN へ公開するときだけ
+// `HOST=0.0.0.0`(start.bat lan が設定)で全 IF にバインドする。preview サーバは loopback のまま
+// ここ経由のプロキシでのみ外へ出るため、公開されるのは本ポートだけで認証も効く。
 // listen の失敗(`EADDRINUSE` 等)は reject で届くため、原因を明示してから exit(1) する。
 try {
-  await app.listen({ port: config.port, host: '127.0.0.1' });
-  logger.info(`[server] listening on http://localhost:${config.port}`);
+  await app.listen({ port: config.port, host: config.host });
+  const scheme = tlsEnabled ? 'https' : 'http';
+  const lanExposed = config.host !== '127.0.0.1' && config.host !== 'localhost';
+  logger.info(
+    `[server] listening on ${scheme}://localhost:${config.port}` +
+      (lanExposed ? ` (LAN 公開中: ${scheme}://<この端末のIP>:${config.port})` : ''),
+  );
 } catch (err) {
   const e = err as NodeJS.ErrnoException;
   if (e.code === 'EADDRINUSE') {

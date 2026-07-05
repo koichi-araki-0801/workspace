@@ -3,7 +3,7 @@
 // =============================================================================
 // 実行は editor 配下で:
 //   pnpm exec playwright test e2e/capture_docs.spec.ts
-// `playwright.config.ts` の webServer が Vite dev(:5173, ローカル/ localStorage モード)
+// `playwright.config.ts` の webServer が Vite dev(:24681, ローカル/ localStorage モード)
 // を自動起動する。ログイン後はセッションが localStorage に乗るので、編集/プレビューは
 // seed テンプレ(AM01_510037_20240710_交付版)へ直接遷移して撮る。
 // 承認系(reviews-list/review-diff)は「admin で申請 → approver で精査」を同一

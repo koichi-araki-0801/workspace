@@ -11,7 +11,7 @@ export interface PreviewServerHandle {
   /**
    * cli が生成した絶対 viewer URL(origin + `/__vivliostyle-viewer/...`
    * `#src=<絶対ソース URL>`)。manager はその origin をプロキシ接頭辞へ書き換え、
-   * ブラウザが viewer とそのソースの双方へ :3001 経由で到達できるようにする。
+   * ブラウザが viewer とそのソースの双方へ公開ポート(:24680)経由で到達できるようにする。
    */
   viewerUrl?: string;
   /** サーバを停止しポートを解放する。 */

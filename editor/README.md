@@ -34,7 +34,7 @@ editor/data/     テンプレ(.html) と ファンド毎 CSS（サーバが参�
 
 ```bash
 pnpm install
-pnpm dev         # shared をビルド後、Fastify(:3001) と Vite(:5173) を並行起動
+pnpm dev         # shared をビルド後、Fastify(:24680) と Vite(:24681) を並行起動
 ```
 
 Windows では `editor/start.bat` をダブルクリックでも起動できます（初回は `pnpm install` を自動実行）。
@@ -42,12 +42,13 @@ Windows では `editor/start.bat` をダブルクリックでも起動できま�
 
 | コマンド | 内容 |
 |---|---|
-| `start.bat` | 本番（build → server 単体 :3001）/ ローカルデータ |
-| `start.bat dev` | 開発（Fastify :3001 + Vite :5173）/ ローカルデータ |
+| `start.bat` | 本番（build → server 単体 :24680）/ ローカルデータ |
+| `start.bat dev` | 開発（Fastify :24680 + Vite :24681）/ ローカルデータ |
 | `start.bat rest` | 本番 / REST（SQL Server バックエンド・認証必須） |
 | `start.bat dev rest` | 開発 / REST |
+| `start.bat rest lan` | 本番 / REST + **社内 LAN 公開**（下記「LAN 公開」節） |
 
-ブラウザで http://localhost:5173 → デモログイン `admin / admin`（または `editor / editor`）。
+ブラウザで http://localhost:24681 → デモログイン `admin / admin`（または `editor / editor`）。
 
 > 開発に参加する方は **[CONTRIBUTING.md](./CONTRIBUTING.md)** を最初に読んでください（セットアップ・コマンド・ディレクトリ地図・規約）。
 
@@ -61,6 +62,37 @@ pnpm typecheck   # 全 workspace の型チェック（shared 先行ビルド込�
 pnpm knip        # 未使用 export / 依存の検出（knip.json）
 pnpm ci          # CI 集約（check:comments → check:ci → typecheck → test:coverage → build → test:e2e）
 ```
+
+## LAN 公開（社内ネットワークの他端末から使う）
+
+既定ではサーバは `127.0.0.1` にのみバインドされ、起動した PC 以外からはアクセスできない。
+社内 LAN の他端末へ公開するには **本番モード + `lan` 引数**で起動する（dev モードは対象外）。
+
+セットアップ（サーバにする PC で各 1 回）:
+
+1. `editor\scripts\setup-lan-https.bat` — HTTPS 用の自己署名証明書を生成
+   （`server\tls\editor.pfx` ほか。SAN にホスト名と LAN IP を含む・有効期限 5 年）。
+2. `editor\scripts\setup-lan-firewall.bat` — **管理者で実行**。TCP 24680 の受信許可ルールを
+   登録（Domain/Private プロファイルのみ。`-Remove` で削除）。
+
+起動とアクセス:
+
+```
+editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
+```
+
+他端末のブラウザから `https://<サーバPCのIP>:24680/` を開く（起動バナーに URL が表示される）。
+証明書の警告を消すには、同フォルダの `editor-lan.cer` を各端末の
+「信頼されたルート証明機関」へ取り込む（管理者コマンド例: `certutil -addstore Root editor-lan.cer`）。
+
+注意:
+
+- 証明書未生成のまま `lan` で起動すると **平文 HTTP にフォールバック**し、`COOKIE_SECURE=false`
+  を自動設定してログインを通す（社内 LAN 限定の暫定運用。HTTPS 推奨）。
+- `start.bat lan`（local データ）でも公開はできるが、**local モードは認証なし**のため
+  LAN 上の誰でも編集できる点に注意。
+- 社内 CA 発行の証明書を使う場合は PFX を `server\tls\editor.pfx` に置く
+  （パスフレーズは `editor.pfx.pass` か env `HTTPS_PFX_PASSPHRASE`）。
 
 ## 主要モジュール
 
@@ -82,7 +114,12 @@ pnpm ci          # CI 集約（check:comments → check:ci → typecheck → tes
 
 | 変数 | 既定 | 用途 |
 |---|---|---|
-| `PORT` | 3001 | API ポート |
+| `PORT` | 24680 | API ポート |
+| `HOST` | `127.0.0.1` | listen ホスト（LAN 公開時は `0.0.0.0`。`start.bat lan` が設定） |
+| `HTTPS` | `false` | HTTPS 待受の明示 opt-in（`start.bat lan` が pfx 存在時に設定） |
+| `HTTPS_PFX` | `server/tls/editor.pfx` | HTTPS 用 PFX のパス |
+| `HTTPS_PFX_PASSPHRASE` | （pfx 隣の `.pass`） | PFX のパスフレーズ |
+| `COOKIE_SECURE` | 本番=true | セッション cookie の Secure 属性（HTTP フォールバック時のみ false） |
 | `DATA_ROOT` | `../../editor-data` | テンプレ git リポジトリのルート（下の `*_DIR` の基準） |
 | `TEMPLATES_DIR` | `<DATA_ROOT>/templates` | テンプレ .html 置き場 |
 | `CSS_DIR` | `<DATA_ROOT>/css` | ファンド毎 CSS 置き場 |

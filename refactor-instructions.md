@@ -16,7 +16,7 @@
 |---|---|---|
 | `editor/shared` (`@editor/shared`) | 共有 TS 型・DTO・Result/AppError・Repository 契約の正典 | `src/index.ts` |
 | `editor/server` | Fastify + TS。テンプレ管理 REST・PDF 生成・git 版管理・承認ワークフロー | `src/app.ts` |
-| `editor/web` | Vue3 + Vite + Pinia + GrapesJS。Jinja テンプレの GUI 編集・プレビュー・版比較・承認画面 | Vite (`:5173`) |
+| `editor/web` | Vue3 + Vite + Pinia + GrapesJS。Jinja テンプレの GUI 編集・プレビュー・版比較・承認画面 | Vite (`:24681`) |
 | `pie-chart` | 円グラフ SVG レンダラ（旧 graph2）。**SVG 出力は決定的、byte-diff 不変が鉄則** | `src/cli.ts` |
 | `graph-editor` | pie-chart SVG のラベル位置エディタ（Python + Edge シェル） | `app.py` |
 | `pdf-to-svg` | PDF→SVG 変換・用語統一デスクトップツール（Python + Edge シェル） | `run.py` |

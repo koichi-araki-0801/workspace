@@ -82,7 +82,7 @@ $env:NODE_ENV='production'; corepack pnpm --filter server start
 
 | キー | 既定 | 用途 |
 |---|---|---|
-| `port` | 3001 | API/SPA のポート |
+| `port` | 24680 | API/SPA のポート |
 | `paths.templatesDir` / `paths.cssDir` | `data/...` | テンプレ/CSS 配置 |
 | `paths.tmpDir` / `paths.logDir` / `paths.webDist` | `.tmp` / `logs` / `web/dist` | 一時/ログ/SPA |
 | `python.bin` / `python.script` / `python.timeoutMs` | `python` / `server/scripts/...` / 30000 | Python 生成器 |

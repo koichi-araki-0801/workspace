@@ -35,6 +35,13 @@ function resolveDefaultBrowser(): string | undefined {
 const appConfigSchema = z
   .object({
     port: z.number().int().positive().optional(),
+    host: z.string().optional(),
+    tls: z
+      .object({
+        pfx: z.string().optional(),
+      })
+      .strict()
+      .optional(),
     paths: z
       .object({
         dataRoot: z.string().optional(),
@@ -119,7 +126,38 @@ const executableBrowser =
   resolveDefaultBrowser();
 
 export const config = {
-  port: Number(process.env.PORT ?? file.port ?? 3001),
+  // 既定 24680 は他ツールと被りにくい帯を意図して選んだ固有ポート(3001 は Node 系定番で
+  // 衝突しやすかった)。Vite dev(:24681)と対で予約する。
+  port: Number(process.env.PORT ?? file.port ?? 24680),
+
+  /**
+   * listen ホスト。既定は loopback のみ(=同一マシン限定)で従来挙動を維持する。
+   * 社内 LAN へ公開するときだけ `HOST=0.0.0.0` を明示する(`start.bat lan` が設定)。
+   */
+  host: process.env.HOST ?? file.host ?? '127.0.0.1',
+
+  /**
+   * HTTPS 待受用の TLS 設定(PFX 方式)。PEM 変換(openssl)を要さないよう Node が直接
+   * 読める PFX を使う。生成は `scripts/setup-lan-https.ps1`。
+   */
+  tls: {
+    /**
+     * HTTPS の明示 opt-in(`HTTPS=true`。start.bat lan が pfx 存在時に設定)。pfx の存在だけで
+     * 自動有効化すると、証明書生成後は dev モード(Vite proxy が http 固定)まで HTTPS 化して
+     * プレビューが壊れるため、必ず明示させる。
+     */
+    enabled: envBool(process.env.HTTPS) ?? false,
+    pfxPath: resolvePath(process.env.HTTPS_PFX, file.tls?.pfx, 'server/tls/editor.pfx'),
+    /**
+     * PFX のパスフレーズ。env 優先、無ければ pfx 隣の `<pfx>.pass`(setup-lan-https.ps1 が
+     * 生成時に保存する)を読む。社内 LAN 前提でファイル併置を許容する割り切り。
+     */
+    get passphrase(): string | undefined {
+      if (process.env.HTTPS_PFX_PASSPHRASE) return process.env.HTTPS_PFX_PASSPHRASE;
+      const passFile = `${this.pfxPath}.pass`;
+      return fs.existsSync(passFile) ? fs.readFileSync(passFile, 'utf8').trim() : undefined;
+    },
+  },
 
   /**
    * テンプレ実体(templates/css/drafts)を置く data ルート。git 版管理の対象でもある
@@ -256,7 +294,12 @@ export const config = {
     // 初期パスワードは ログインID(ユーザID) と同一(`userRepo.ts` 参照)。固定値の設定は持たない。
     sessionTtlHours: Number(process.env.AUTH_SESSION_TTL_HOURS ?? 12),
     cookieName: 'editor.sid',
-    cookieSecure: process.env.NODE_ENV === 'production',
+    /**
+     * セッション cookie の Secure 属性。本番既定 true だが、LAN 公開で証明書が無く
+     * HTTP フォールバックした場合はブラウザが Secure cookie を保存せずログイン不能になる
+     * ため、`COOKIE_SECURE=false`(start.bat lan が HTTP 時のみ設定)で明示的に落とせる。
+     */
+    cookieSecure: envBool(process.env.COOKIE_SECURE) ?? process.env.NODE_ENV === 'production',
   },
 
   /**
