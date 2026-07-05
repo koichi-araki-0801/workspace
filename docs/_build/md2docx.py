@@ -28,7 +28,10 @@
   images（画像基準ディレクトリの相対パス）/
   chapter_break（true で h1 章頭を強制改ページ。長文の設計書向けの任意オプション。先頭 h1 は除外）/
   toc（true で表紙直後に静的目次を描画。spec 向け。TOC フィールドは開くたび F9 更新が要るため
-  自前描画とする。ページ番号は載らないが `chapter_break` 併用で章番号がナビゲーションになる）
+  自前描画とする。ページ番号は載らないが `chapter_break` 併用で章番号がナビゲーションになる）/
+  rev（改訂履歴 1 行 = 1 レコード。唯一の繰り返し可キーで、値は `版数 | 日付 | 変更内容` の
+  `|` 区切り 3 列。指定があるとタイトル直下に改訂履歴表を描き、表紙を独立ページにする。
+  版数セルを等幅にしたいときは原稿側で `` `1.0` `` とバッククォートで書く）
 
 spec 文書には加えてフッター（タイトル・版・`PAGE / NUMPAGES` フィールド）と、見出し段落への
 `outlineLvl` 付与（Word ナビゲーションウィンドウ・PDF しおり用。見た目は不変）を自動で行う。
@@ -94,6 +97,11 @@ _CALLOUT_KEEP_MAXCHARS = 400
 # 案2 の表で偶数行ゼブラを自動適用するデータ行数のしきい値。短い表は「罫線中心・塗り最小」の
 # 現行トーンを維持し、行を目で追いにくい長大な表だけに視線誘導を入れる。
 _ZEBRA_MIN_ROWS = 8
+
+# 画像の高さ上限(cm)。縦長スクリーンショットを既定幅 16cm のまま置くとページ本文高
+# （A4 縦 - 上下余白 ≈ 25.7cm）を超え、分割禁止の画像表が丸ごと次ページへ送られて
+# 白紙ページが生じる。上限を超える画像は縦横比を保って幅の側を縮める。
+_IMG_MAX_H_CM = 14.0
 
 
 # ── docx ヘルパ（`gen_docs.py` から移植）──
@@ -285,6 +293,30 @@ def title(doc, text, subtitle=None, version=None, kicker=None):
         ps.paragraph_format.space_after = Pt(8)
         rs = ps.add_run(tail)
         _set_run_font(rs, size=11, color=MUTED)
+
+
+def revision_history(doc, entries):
+    """表紙の改訂履歴表（front-matter `rev` 行の list）。各行は `版数 | 日付 | 変更内容` の
+    `|` 区切り（`maxsplit=2` なので変更内容には `|` を含められる。列不足は空文字で補完）。
+    見出しの装いは案2=`toc()` の見出し、案3=`h()` の h1 と同型に揃え、表本体は `table()` に
+    委ねてスタイル別の塗り分け（案3=ACCENT ヘッダ / 案2=罫線中心）を自動で得る。
+    表紙ページの独立（改ページ）は呼び元 `render()` が行う。"""
+    hp = doc.add_paragraph()
+    hp.paragraph_format.space_before = Pt(18)
+    hp.paragraph_format.space_after = Pt(6)
+    hr = hp.add_run("改訂履歴")
+    if _STYLE == "spec":
+        _set_run_font(hr, size=15, bold=True, color=INK)
+        _para_bottom_border(hp, sz=6, color=FILL_RULE2)
+    else:
+        _para_left_border(hp, sz=24, color=FILL_ACCENT, space=8)
+        hp.paragraph_format.left_indent = Cm(0.2)
+        _set_run_font(hr, size=13, bold=True, color=INK)
+    rows = []
+    for e in entries:
+        cols = [c.strip() for c in e.split("|", 2)]
+        rows.append((cols + ["", "", ""])[:3])
+    table(doc, ["版数", "日付", "変更内容"], rows, widths=[2.0, 3.2, 11.4])
 
 
 # 見出し先頭の章番号（`2.` `8.3` 等）を等幅アクセントで分離するための検出。
@@ -557,7 +589,15 @@ def image(doc, img_dir: pathlib.Path, name, width_cm=16.0, caption=None, figno=N
                      left={"sz": 8, "color": border}, right={"sz": 8, "color": border})
     p = cell.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.add_run().add_picture(str(path), width=Cm(width_cm))
+    # いったんネイティブ寸法で挿入して縦横比を得てから、幅指定と高さ上限（`_IMG_MAX_H_CM`）の
+    # 両方を満たす寸法に縮める。
+    pic = p.add_run().add_picture(str(path))
+    aspect = pic.height / pic.width
+    w = Cm(width_cm)
+    if w * aspect > Cm(_IMG_MAX_H_CM):
+        w = Cm(_IMG_MAX_H_CM) / aspect
+    pic.width = int(w)
+    pic.height = int(w * aspect)
     _cant_split(t.rows[0])
     if caption:
         c = doc.add_paragraph()
@@ -623,7 +663,14 @@ def _parse_frontmatter(text: str):
             line = lines[i]
             if ":" in line:
                 k, _, v = line.partition(":")
-                meta[k.strip()] = v.strip().strip('"').strip("'")
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                # `rev`（改訂履歴）だけは繰り返しキーとして蓄積する。他キーは従来どおり
+                # 後勝ち上書きで、既存原稿の挙動を変えない。
+                if k == "rev":
+                    meta.setdefault("rev", []).append(v)
+                else:
+                    meta[k] = v
             i += 1
         body = "\n".join(lines[i + 1:]) if i < len(lines) else ""
         return meta, body
@@ -696,6 +743,12 @@ def render(md_path, out_path, img_dir, warnings=None):
         # 版は title 内（案3=サブに続け / 案2=右端）で表示。別段落は出さない。
         title(doc, meta["title"], meta.get("subtitle"),
               version=meta.get("version"), kicker=meta.get("kicker"))
+    # 改訂履歴（`rev` 行）があればタイトル直下に描き、表紙を独立ページにする。無い原稿は
+    # 従来どおり（改ページも入れない）で出力不変。
+    revs = meta.get("rev") or []
+    if revs:
+        revision_history(doc, revs)
+        page_break(doc)
     # 案2 の長文ナビゲーション: 静的目次（`toc: true` 時）とページ番号入りフッター。
     if _STYLE == "spec" and _meta_flag(meta, "toc"):
         toc(doc, _collect_headings(body))
