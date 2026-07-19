@@ -27,8 +27,8 @@ if (!loginId || !password) {
   );
   process.exit(1);
 }
-if (!['admin', 'editor', 'viewer'].includes(role)) {
-  console.error(`ロールは admin|editor|viewer のいずれか: ${role}`);
+if (!['admin', 'approver', 'editor', 'viewer'].includes(role)) {
+  console.error(`ロールは admin|approver|editor|viewer のいずれか: ${role}`);
   process.exit(1);
 }
 
