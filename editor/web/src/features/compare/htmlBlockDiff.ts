@@ -502,15 +502,19 @@ function diffPage(index: number, beforePage: HTMLElement[], afterPage: HTMLEleme
     ...after.map((b) => b.key),
     ...before.filter((b) => !afterMap.has(b.key)).map((b) => b.key),
   ];
-  // 「ページN・パーツM」採番(`partLabelMap` と同思想): after(現行)側 DOM 順を優先し、
-  // after に無い removed パーツは before 側 DOM 順で採番する。
+  // 「ページN・パーツM」採番(`partLabelMap` と同思想): after(現行)側 DOM 順を 1..N で優先し、
+  // after に無い removed パーツは N+1 以降を before 側 DOM 順で振る。removed に before 側
+  // index をそのまま使うと after 側の別パーツと同名になり、承認画面で削除対象を取り違える。
   const labelOf = new Map<string, string>();
   after.forEach((b, qi) => {
     labelOf.set(b.key, `ページ${index + 1}・パーツ${qi + 1}`);
   });
-  before.forEach((b, qi) => {
-    if (!labelOf.has(b.key)) labelOf.set(b.key, `ページ${index + 1}・パーツ${qi + 1}`);
-  });
+  let removedSeq = after.length;
+  for (const b of before) {
+    if (labelOf.has(b.key)) continue;
+    removedSeq++;
+    labelOf.set(b.key, `ページ${index + 1}・パーツ${removedSeq}`);
+  }
   for (const key of keys) {
     const r = renderBlock(beforeMap.get(key), afterMap.get(key));
     rendered.set(key, r);

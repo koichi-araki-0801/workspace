@@ -4,7 +4,7 @@
 // 版比較(`CompareResultView`)と承認プレビュー(`ReviewDiffView`)は、`<iframe srcdoc>` を
 // 中身の高さへ合わせ、さらに幅が変わると再フローで高さも変わるため `ResizeObserver` で
 // 追随させる、という同じ処理を各自で持っていた。ここへ集約し `@load="fitFrame"` に渡すだけで
-// 使えるようにする。監視は unmount で解放する(`WeakMap` は列挙できないので `observed` で保持)。
+// 使えるようにする。監視の帳簿は `Map` 1 つ(has 判定・unmount 時の列挙・解放を全て賄う)。
 import { onBeforeUnmount } from 'vue';
 
 export interface IframeAutoFit {
@@ -13,8 +13,7 @@ export interface IframeAutoFit {
 }
 
 export function useIframeAutoFit(): IframeAutoFit {
-  const frameObservers = new WeakMap<HTMLIFrameElement, ResizeObserver>();
-  const observed: HTMLIFrameElement[] = [];
+  const frameObservers = new Map<HTMLIFrameElement, ResizeObserver>();
 
   function fitTo(f: HTMLIFrameElement | null | undefined): void {
     if (!f) return;
@@ -33,13 +32,12 @@ export function useIframeAutoFit(): IframeAutoFit {
       const ro = new ResizeObserver(() => fitTo(f));
       ro.observe(f);
       frameObservers.set(f, ro);
-      observed.push(f);
     }
   }
 
   onBeforeUnmount(() => {
-    for (const f of observed) frameObservers.get(f)?.disconnect();
-    observed.length = 0;
+    for (const ro of frameObservers.values()) ro.disconnect();
+    frameObservers.clear();
   });
 
   return { fitFrame };
