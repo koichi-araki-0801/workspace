@@ -109,4 +109,61 @@ d('review workflow (reviewRepo)', () => {
     expect(rejected.comment).toBe('理由');
     expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
   });
+
+  it('本体(body.html)欠損の申請は承認できず、実ファイルも書かれない', async () => {
+    const tplId = 'AM01_666666_20250101_交付版';
+    const meta = await submit(tplId, '666666', '<p>欠損対象</p>');
+    // メタだけ残して本体を失う異常(部分削除・隔離など)を再現する。
+    fs.rmSync(path.join(tmp, 'reviews', meta.id, 'body.html'));
+
+    await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+      kind: 'unexpected',
+    });
+    // 空内容での上書きが起きていない(実ファイル未作成)。
+    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
+    // 詳細取得も同様にエラーになるが、一覧(メタのみ)には出続ける。
+    await expect(reviews.getReview(meta.id, approver)).rejects.toMatchObject({
+      kind: 'unexpected',
+    });
+    const listed = await reviews.listReviews({}, approver);
+    expect(listed.some((m) => m.id === meta.id)).toBe(true);
+  });
+
+  it('同一申請への並行 approve は片方だけ成立し、承認コミットは 1 件になる', async () => {
+    const tplId = 'AM01_777777_20250101_交付版';
+    const meta = await submit(tplId, '777777', '<p>並行承認</p>');
+    const results = await Promise.allSettled([
+      reviews.approveReview(meta.id, {}, approver),
+      reviews.approveReview(meta.id, {}, approver),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ kind: 'conflict' });
+    // 二重反映が無い = このテンプレの承認コミットは 1 件だけ。
+    const log = execFileSync('git', ['log', '--format=%s'], { cwd: tmp, encoding: 'utf8' });
+    const commits = log.split('\n').filter((s) => s.includes(`確定保存(承認): ${tplId}`));
+    expect(commits).toHaveLength(1);
+  });
+
+  it('approve と reject の並行は片方だけ成立し、実ファイルと meta が矛盾しない', async () => {
+    const tplId = 'AM01_999999_20250101_交付版';
+    const meta = await submit(tplId, '999999', '<p>競合対象</p>');
+    const results = await Promise.allSettled([
+      reviews.approveReview(meta.id, {}, approver),
+      reviews.rejectReview(meta.id, {}, approver),
+    ]);
+
+    const fulfilledCount = results.filter((r) => r.status === 'fulfilled').length;
+    expect(fulfilledCount).toBe(1);
+    for (const r of results)
+      if (r.status === 'rejected') expect(r.reason).toMatchObject({ kind: 'conflict' });
+    // 確定した状態と実ファイルの有無が一致する(反映済みなのに rejected、が起きない)。
+    const after = await reviews.getReview(meta.id, approver);
+    const fileExists = fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`));
+    expect(fileExists).toBe(after.status === 'approved');
+    expect(['approved', 'rejected']).toContain(after.status);
+  });
 });

@@ -8,7 +8,7 @@
 // メタに寄せる方針(`atomicWrite` で半端読みを防ぐ)。
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { notFound, type ReviewRequest, type ReviewRequestMeta } from '@editor/shared';
+import { notFound, type ReviewRequest, type ReviewRequestMeta, unexpected } from '@editor/shared';
 import { config } from '../config.js';
 import { atomicWrite } from './atomic.js';
 
@@ -44,12 +44,26 @@ async function readReviewMeta(reqId: string): Promise<ReviewRequestMeta | null> 
   return JSON.parse(raw) as ReviewRequestMeta;
 }
 
-/** 申請を本体込みで読む。無ければ null。 */
+/**
+ * 本体ファイル(html/css)を読む。読取失敗は `writeReview` の「メタが在れば本体も在る」
+ * 不変条件が破れた異常(部分削除・ディスク障害等)。空文字へ倒すと承認時に本番テンプレート
+ * を空内容で上書きしてしまうため、必ずエラーにする。
+ */
+async function readBodyFile(filePath: string, reqId: string): Promise<string> {
+  try {
+    return await fs.readFile(filePath, 'utf8');
+  } catch (cause) {
+    throw unexpected(`申請本文の読み取りに失敗しました: ${reqId}`, { cause });
+  }
+}
+
+/** 申請を本体込みで読む。無ければ null。本体(html/css)が読めない申請はエラー。 */
 export async function readReview(reqId: string): Promise<ReviewRequest | null> {
   const meta = await readReviewMeta(reqId);
   if (!meta) return null;
-  const html = await fs.readFile(bodyHtmlPath(reqId), 'utf8').catch(() => '');
-  const css = await fs.readFile(bodyCssPath(reqId), 'utf8').catch(() => '');
+  const html = await readBodyFile(bodyHtmlPath(reqId), reqId);
+  const css = await readBodyFile(bodyCssPath(reqId), reqId);
+  // filled.html は任意添付のため、無い(読めない)ときは undefined のままでよい。
   const filledHtml = await fs.readFile(filledPath(reqId), 'utf8').catch(() => undefined);
   return { ...meta, html, css, ...(filledHtml !== undefined ? { filledHtml } : {}) };
 }
