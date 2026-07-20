@@ -5,7 +5,7 @@
 // 「remote(Worker) が失敗/ハングしたら fallback(main-thread)へ倒す」判断ロジックだけを
 // ここへ切り出して単体テスト可能にする。`index.ts` は本層を Worker と main-thread 実装で
 // 束ねるだけにする。
-import { unexpected } from '@editor/shared';
+import { isAppError, unexpected } from '@editor/shared';
 import { logError } from '@/lib/appError';
 import type { AsyncHtmlWorker } from './index';
 
@@ -14,11 +14,19 @@ import type { AsyncHtmlWorker } from './index';
 // チャンク読込失敗や Comlink ハンドシェイク不成立など、Worker が事実上死んでいる場合。
 export const WORKER_CALL_TIMEOUT_MS = 30_000;
 
+/** タイムアウト起因の失敗を実行時エラーと区別するための機械可読コード。 */
+export const WORKER_TIMEOUT_CODE = 'WORKER_TIMEOUT';
+
 /** `p` を `ms` で打ち切る。期限超過で reject し、ハングを観測可能な失敗へ変える。 */
 export function withTimeout<T>(p: Promise<T>, ms: number, method: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(
-      () => reject(unexpected(`html worker call timed out: ${method} (>${ms}ms)`)),
+      () =>
+        reject(
+          unexpected(`html worker call timed out: ${method} (>${ms}ms)`, {
+            code: WORKER_TIMEOUT_CODE,
+          }),
+        ),
       ms,
     );
     p.then(
@@ -43,11 +51,16 @@ export interface FallbackWorker {
 
 /**
  * `remote`(Worker RPC)を呼びつつ、実行時エラー・ハング(タイムアウト)・明示的な
- * `markBroken` のいずれかで `fallback`(main-thread)へ恒久的に倒すプロキシを作る。
+ * `markBroken` のいずれかで `fallback`(main-thread)へ倒すプロキシを作る。
  *
  * Worker は重処理でメインを塞がないための最適化であり、読めない/壊れた環境
  * (オフライン配信で worker チャンクが解決できない等)では描画の正しさを優先して
- * main-thread 実行へ落とす。一度でも失敗を検知したら以降は即フォールバックして無駄な待ちを避ける。
+ * main-thread 実行へ落とす。実行時エラー・`markBroken`・初回応答前のタイムアウトは
+ * 「Worker が事実上死んでいる」ため以降は即フォールバックして無駄な待ちを避ける(恒久化)。
+ * 例外は「一度でも RPC が正常応答した後のタイムアウト」: チャンクは読めており単に処理が
+ * 重い(低速マシン + 大規模ドキュメント)だけの可能性が高いので、当該呼び出しのみ
+ * フォールバックし、次回は remote を再試行する(恒久化すると以降の全処理が main-thread で
+ * 走り、エディタ操作のたびに UI が固まる)。
  */
 export function createFallbackWorker(
   remote: AsyncHtmlWorker,
@@ -56,6 +69,8 @@ export function createFallbackWorker(
 ): FallbackWorker {
   // Worker が不達/エラーと判明したら true。以降は main-thread へ恒久フォールバックする。
   let workerBroken = false;
+  // 一度でも remote RPC が正常応答したか(= チャンク読込と Comlink ハンドシェイクは成立済み)。
+  let hasSucceeded = false;
   // Worker の error イベント発火を in-flight 呼び出しへ即時伝える reject シグナル。
   let markBroken!: (reason: unknown) => void;
   const brokenSignal = new Promise<never>((_, reject) => {
@@ -78,12 +93,17 @@ export function createFallbackWorker(
     const remoteFn = remote[method] as (...a: unknown[]) => Promise<unknown>;
     const result = (async () => {
       try {
-        return await Promise.race([
+        const v = await Promise.race([
           withTimeout(remoteFn(...args), timeoutMs, String(method)),
           brokenSignal,
         ]);
+        hasSucceeded = true;
+        return v;
       } catch (e) {
-        workerBroken = true;
+        // 成功実績のある Worker のタイムアウトは「重い処理」の可能性が高く、恒久化しない
+        // (今回だけ main-thread で救済し、次回は remote を再試行する)。それ以外は恒久化。
+        const transientTimeout = hasSucceeded && isAppError(e) && e.code === WORKER_TIMEOUT_CODE;
+        if (!transientTimeout) workerBroken = true;
         logError(
           unexpected(`html worker call failed; falling back to main thread: ${String(method)}`, {
             cause: e,
