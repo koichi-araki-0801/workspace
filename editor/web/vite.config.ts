@@ -33,10 +33,12 @@ export default defineConfig({
     format: 'es',
   },
   server: {
-    port: 5173,
+    // Vite 既定の 5173 は他ツールと被りやすいため、衝突しにくい 24681 に固定
+    // (server 側 :24680 と対で予約。選定理由は editor/README.md の「LAN 公開」節)。
+    port: 24681,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:24680',
         changeOrigin: true,
       },
     },

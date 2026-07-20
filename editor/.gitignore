@@ -14,3 +14,5 @@ tmp/
 # vivliostyle / playwright artifacts
 playwright-report/
 test-results/
+# LAN 公開用 TLS 証明書(setup-lan-https.ps1 が生成。秘密鍵を含むためコミットしない)
+server/tls/

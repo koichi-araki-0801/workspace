@@ -49,6 +49,18 @@
   履歴を amend した場合はリモートが古い同内容コミットのまま分岐するため、ツリー一致を
   確認のうえ `git push --force-with-lease` で揃える。
 
+## Biome 運用
+
+- 対象範囲は `biome.json` で意図的に限定している: **formatter は `editor/**` と `pie-chart/**`**
+  （`out`/`dist` 等は除外）、**linter / assist（import 整理）はトップレベルの `linter.includes` /
+  `assist.includes` で `editor/**` のみ**。graph-editor / pdf-to-svg（mockup・生成 web 資産・HTML
+  を含み高リスク）へは拡大しない（未整形コードに 8000+ errors / 10000+ warnings が噴出し、
+  多くは自動修正不可）。
+- **`overrides` は使わない**: `overrides[].linter:{enabled:false}` を足すと Biome 2.4.16 は
+  override 対象の **formatter 設定まで既定（tab + double-quote）へ戻して**大量誤整形を起こす
+  （editor のクォート反転 約214 ファイル / pie-chart 全行タブ化 16k 行差分の実績）。
+  範囲の出し分けは上記のとおり `linter.includes` / `assist.includes` で行うのが唯一の安全な方法。
+
 ## PowerShell スクリプト（.ps1）
 
 - スクリプトの**置き場ルール**（入口=プロジェクト直下 / 裏方=`<project>/scripts/`）と入口一覧は
@@ -108,6 +120,10 @@
     ゼブラ・細罫線・ウィンドウ枠固定・オートフィルタ・A4 横の印刷設定を組む。`md2xlsx.py` は
     PyYAML を使わず必要な YAML サブセットを自前パースする（オフライン依存追加を避けるため）。
   - 両エンジンの既定フォント定数（`JP` / `MONO`）も上記 BIZ UD 規約に一致させる。
+- 図版（アーキテクチャ図など）は **SVG が正典**（`docs/<project>/images/*.svg`）で、Word へは隣の
+  同名 PNG を挿入する（python-docx は SVG 非対応）。PNG はコミット済み成果物とし、SVG を変更した
+  ときだけ `python docs/_build/svg2png.py` で手動再生成する（Playwright 依存のため `build_all.py`
+  には組み込まない）。
 
 ## editor 2系統の原則（根幹・必ず順守）
 
@@ -132,6 +148,11 @@ editor の編集体験は **2系統**で、これはツールの根幹である�
 - ⚠ 絶対にやらない: ①素の `.jinja-chip.jinja-var` に `background` を直書きする（編集タブへ
   ハイライトが漏れる＝過去の `aa9bd65` 退行）。②filled/サンプルを全ファンド共通ダミーに潰す
   （編集タブが実値を失う＝過去の `42938a0` 退行）。
+- **テンプレ作成の鉄則**: `toFilled` はテキストノードのみ値差込で、**属性内 Jinja は差し込まれない**
+  （round-trip 保持のため原文のまま残る）。ゆえにデータ連動チャート（座標・幅を Jinja 属性で出す
+  SVG/CSS）は編集キャンバスで空表示になるため**テンプレに入れない**。グラフは固定ジオメトリの
+  静的 inline `<svg>` ＋隣接の値入りテーブル（テキスト）で構成する
+  （雛形: `AM01_510037_20240710_交付版.html`）。
 - 経緯メモ: 編集画面=値入りHTML編集は `7902a5f` で確立。本原則の関連ファイル — `loadForEdit`
   (`templateEditorService.ts`) / `jinjaComponents.ts`(ハイライトCSS) / `useGrapes.ts`
   (`setVarsHighlight`) / `useTemplateEditor.ts`(経路判定) / `sampleCommon.ts`・`sampleData.ts`・
@@ -143,7 +164,8 @@ editor の編集体験は **2系統**で、これはツールの根幹である�
 ## pie-chart
 
 - 旧称 `graph2`（円グラフ SVG レンダラ）。2026-06 に `pie-chart` へ改称。
-- SVG 出力は決定的。挙動保証は `npm run batch` + `out/_baseline` との **byte-diff**。
-  コメント/リファクタ等は出力バイト不変が鉄則。
+- SVG 出力は決定的。挙動保証は `npm run batch` → `npm run batch:diff`（`out/_baseline` との
+  **byte-diff** を SHA256 で全件自動比較）。コメント/リファクタ等は出力バイト不変が鉄則。
+  検証手順の正典は `pie-chart/README.md` の「検証」節。
 - `.claude/hooks/pie-chart-baseline.cjs`（PreToolUse: Write|Edit）が編集前に
   `out/_baseline` を自動生成する。

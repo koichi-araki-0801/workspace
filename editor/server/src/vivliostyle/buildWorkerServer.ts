@@ -67,11 +67,12 @@ export class ForkedBuildWorker implements BuildWorker {
     const pid = this.child.pid;
     if (process.platform === 'win32' && pid) {
       // fire-and-forget。`taskkill` 不在等の起動失敗で出る `'error'` を握り潰さないと
-      // unhandled となり親 server 全体が落ちるため、空ハンドラを必ず付ける。
-      spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on(
-        'error',
-        () => {},
-      );
+      // unhandled となり親 server 全体が落ちるため、必ずハンドラを付ける。起動に失敗した
+      // ときは最終手段として daemon 本体だけでも SIGKILL で確実に落とす(ツリーは殺せず
+      // chromium 子孫の孤児化は残るが、daemon 生存でプールが再起動を繰り返す最悪を防ぐ)。
+      spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on('error', () => {
+        this.child.kill('SIGKILL');
+      });
       return;
     }
     this.child.kill('SIGKILL');

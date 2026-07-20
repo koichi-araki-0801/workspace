@@ -18,6 +18,7 @@ import {
   angleInBand,
   normalizeAngle,
   isOtherCategory,
+  pxToLogical,
 } from '../svg_geom.js';
 import { topBandSonohokaZone } from '../label_placement.js';
 import type { BBox } from '../svg_geom.js';
@@ -503,7 +504,7 @@ export function computeDrawnLeader(
   // 通常 leader は引っかからず、円内へ食い込むセグメントだけを落とす。
   // 線を消すだけなので新規の重なり/交差/はみ出しは生じない。
   if (!skipLeader) {
-    const pieClear = cfg.pieRadius - 2 / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+    const pieClear = cfg.pieRadius - pxToLogical(cfg, 2);
     for (let k = 0; k + 1 < pathPoints.length; k += 1) {
       if (
         distPointToSegment(

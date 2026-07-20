@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="660" viewBox="0 0 1200 660">
+  <!-- Editor 全体アーキテクチャ図（正典）。変更後は docs/_build/svg2png.py で PNG を再生成する。 -->
+  <style>
+    text { font-family: 'BIZ UDPGothic', sans-serif; fill: #20242C; }
+    .mono { font-family: 'BIZ UDGothic', monospace; }
+    .title { font-size: 21px; font-weight: bold; }
+    .item { font-size: 16px; }
+    .small { font-size: 14px; fill: #606874; }
+    .label { font-size: 15px; font-weight: bold; fill: #1F5C99; }
+    .white { fill: #FFFFFF; }
+    .box { fill: #FFFFFF; stroke: #1F5C99; stroke-width: 2; }
+    .panel { fill: #F4F6F8; stroke: #DCE3EA; stroke-width: 1.5; }
+    .accent { fill: #1F5C99; }
+    .edge { stroke: #1F5C99; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+    .dep { stroke: #606874; stroke-width: 1.8; stroke-dasharray: 6 5; fill: none; marker-end: url(#arrow-m); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1F5C99"/>
+    </marker>
+    <marker id="arrow-m" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#606874"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="660" fill="#FFFFFF"/>
+
+  <!-- web/ -->
+  <rect class="box" x="50" y="40" width="470" height="330" rx="8"/>
+  <text class="title" x="80" y="80"><tspan class="mono">web/</tspan> ― Vue 3 + Vite + Pinia</text>
+  <text class="item" x="80" y="130">・GrapesJS 編集（<tspan class="mono">jinjaMask</tspan> で Jinja タグを保護）</text>
+  <text class="item" x="80" y="166">・Nunjucks プレビュー（生 Jinja2 + サンプル）</text>
+  <text class="item" x="80" y="202">・vivliostyle ページ組み表示 / PDF 要求</text>
+  <text class="item" x="80" y="238">・独自認証（login / パスワード初期化）</text>
+  <rect class="accent" x="80" y="272" width="410" height="66" rx="6"/>
+  <text class="item white" x="285" y="299" text-anchor="middle"><tspan class="mono">api/repositories.ts</tspan></text>
+  <text class="small white" x="285" y="324" text-anchor="middle">データソース差し替え点（1 オブジェクト）</text>
+
+  <!-- server/ -->
+  <rect class="box" x="680" y="40" width="470" height="330" rx="8"/>
+  <text class="title" x="710" y="80"><tspan class="mono">server/</tspan> ― Express 5</text>
+  <text class="item" x="710" y="130">・REST API（<tspan class="mono">/api/*</tspan>・OpenAPI / Swagger UI）</text>
+  <text class="item" x="710" y="166">・vivliostyle CLI（PDF 生成 <tspan class="mono">/api/build</tspan>）</text>
+  <text class="item" x="710" y="202">・Python 生成器アダプタ（<tspan class="mono">child_process</tspan>）</text>
+  <text class="item" x="710" y="238">・sproc ゲートウェイ + セッション認証</text>
+  <text class="small" x="710" y="274">フェーズ2（実装済・未デプロイ）で REST + SQL Server 化</text>
+
+  <!-- フェーズ1: localStorage 実装 -->
+  <rect class="panel" x="50" y="420" width="400" height="70" rx="8"/>
+  <text class="item" x="250" y="450" text-anchor="middle">フェーズ1: <tspan class="mono">web/src/api/local</tspan></text>
+  <text class="small" x="250" y="475" text-anchor="middle">localStorage 実装（現行）</text>
+
+  <!-- data/ -->
+  <rect class="panel" x="660" y="420" width="200" height="90" rx="8"/>
+  <text class="item" x="760" y="455" text-anchor="middle"><tspan class="mono">data/</tspan></text>
+  <text class="small" x="760" y="480" text-anchor="middle">テンプレ・ファンド毎 CSS</text>
+
+  <!-- SQL Server -->
+  <rect class="box" x="880" y="420" width="290" height="90" rx="8"/>
+  <text class="item" x="1025" y="452" text-anchor="middle">SQL Server 2012（usrap/ug01）</text>
+  <text class="small" x="1025" y="480" text-anchor="middle">6 ゲートウェイ sproc 経由</text>
+
+  <!-- shared/ -->
+  <rect class="box" x="330" y="540" width="540" height="90" rx="8"/>
+  <text class="item" x="600" y="574" text-anchor="middle"><tspan class="mono" font-weight="bold">shared/（@editor/shared）</tspan> ― 型の真実源</text>
+  <text class="small" x="600" y="602" text-anchor="middle">Repository 契約・DTO・Result / AppError</text>
+
+  <!-- エッジ -->
+  <line class="edge" x1="522" y1="305" x2="674" y2="305"/>
+  <text class="label" x="600" y="292" text-anchor="middle">フェーズ2: REST（同一契約）</text>
+  <line class="edge" x1="250" y1="372" x2="250" y2="414"/>
+  <line class="edge" x1="1000" y1="372" x2="1000" y2="414"/>
+  <line class="dep" x1="760" y1="372" x2="760" y2="414"/>
+  <text class="small" x="785" y="400">参照</text>
+  <line class="dep" x1="480" y1="372" x2="500" y2="534"/>
+  <line class="dep" x1="872" y1="372" x2="862" y2="534"/>
+  <text class="small" x="600" y="524" text-anchor="middle">契約（型）に依存 ― 実装は差し替え可</text>
+</svg>

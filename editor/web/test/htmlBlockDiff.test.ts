@@ -337,6 +337,23 @@ describe('DiffBlock part-level before/after + labels', () => {
     expect(added?.beforeHtml).toBe('');
     expect(added?.afterHtml).toContain('fresh');
   });
+
+  it('removed パーツのラベルは after 側の続き番号になり、同一ページ内で重複しない', () => {
+    // before [a,b,c] から b を削除 → after [a,c]。removed の b へ before 側 index(=2)を
+    // そのまま使うと after 側 c(パーツ2)と同名になる退行の再発防止。
+    const before = doc('<p id="a">a</p>', '<p id="b">b</p>', '<p id="c">c</p>');
+    const after = doc('<p id="a">a</p>', '<p id="c">c</p>');
+    const page = buildHtmlDiff(before, after).pages[0];
+
+    const labels = page.blocks.map((b) => b.label);
+    expect(new Set(labels).size).toBe(labels.length);
+    // removed は after 側パーツ数(2)の続き番号で採番される。
+    const removed = page.blocks.find((b) => b.status === 'removed');
+    expect(removed?.label).toBe('ページ1・パーツ3');
+    // after 側の現行パーツ(a, c)は従来どおり DOM 順で 1..N。
+    const sameLabels = page.blocks.filter((b) => b.status === 'same').map((b) => b.label);
+    expect(sameLabels).toEqual(['ページ1・パーツ1', 'ページ1・パーツ2']);
+  });
 });
 
 describe('diffHighlightCss / buildDiffDoc（承認・比較で共有する iframe 組み立て）', () => {

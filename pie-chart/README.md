@@ -235,9 +235,28 @@ RenderResult { svg, diagnostics, config }
 クロスファイル参照・体裁（`=` 罫線の装飾ボックスヘッダ、`// ── N. ラベル ──` 節区切り）など
 共通事項はそちらを参照すること。pie-chart もこの規約に準拠する。
 
-- **出力不変の検証（pie-chart 固有）**: コメントのみの変更でも `out/_baseline` に対し SVG を
-  byte-diff し、出力が完全に不変であることを確認する (`npm run batch` 後に SHA256 比較)。
-  これは SVG 出力の決定性に密な pie-chart 限定の鉄則。
+- **出力不変の検証（pie-chart 固有）**: コメントのみの変更でも `out/_baseline` に対し SVG の
+  byte-diff で出力が完全に不変であることを確認する（`npm run batch` → `npm run batch:diff`。
+  下記「検証」節参照）。これは SVG 出力の決定性に密な pie-chart 限定の鉄則。
+
+## 検証
+
+SVG 出力は**完全に決定的**なので、リファクタ・コメント変更の挙動保証はバイト単位で行う。
+
+- **byte-diff**: `npm run batch` → `npm run batch:diff`。`scripts/batch_diff.mjs` が
+  `out/svg_js` ⇔ `out/_baseline` を SHA256 で全件比較し、差分があれば非 0 exit +
+  ファイル名を列挙する。
+- **`npm run verify` は `out/svg_js` の既存 SVG を読む（再レンダーしない）**。コード変更後は
+  必ず `npm run batch` を先行させてから verify / `npm run verify:consistency` を読む。
+- **特性テスト**（`npx vitest run`）: byte-diff はサンプル入力の分布しか守らないため、特性テストで
+  穴埋めしている — mark_flags（mark*** 発火表）/ final_score（finalScore ゴールデン）/
+  render_hash（サンプル外合成入力の SVG ハッシュ）/ seam_snapshot（revert 完全性 +
+  `PLACEMENT_SEAM_POLICY` 網羅表）/ emit_passes（emit/scoring パス列固定）。
+  スナップショット更新（`-u`）は挙動変更を意図した時のみ許される。
+- **デバッグ**: `PIE_CHART_DEBUG_REPAIR=1` で emit 修復パス単位の RepairVec 差分ログ、
+  `PIE_CHART_STOP_AFTER_PASS=<name>` で犯人パスの二分探索（`EMIT_REPAIR_PASSES` の name を指定）。
+- **do-no-harm の採否述語（better / swapBetter 等）はパス仕様そのもの** — ヘルパーへ焼き込まず、
+  一字一句変えない（FP 演算順序が変わると数学的等価でも byte が動く）。
 
 ## 注意
 
@@ -246,14 +265,13 @@ RenderResult { svg, diagnostics, config }
 - 文字サイズは `config.ts` の `fontSize` 既定 **40**(`baselineFontSize` 20 を基準に派生スケールが連動）。実描画は `fontSize × textRenderScale`(=40×0.68=**27.2px**) で `<text font-size>` に出力される。
 - 長体 (nameScaleX) は**ラベル単位**: はみ出すラベルだけ `applyFinalCondenseToFit` で縮め、`relaxNameCondense` がキャンバス・pie・隣接ラベルに当たらない範囲で原寸 (sx=1 上限) へ戻す。旧来の「1 つでも長体なら全ラベルを統一圧縮」は廃止 (収まるラベルは原寸のまま)。
 - **上部「その他」の右上逃がしは pie キャップ上へ持ち上げる** (`label_placement.ts` `topRightLiftedRimDraft`): 箱下端を `pieRadius + クリアランス` に揃え (= 箱全体が円の上)、`pieClampXLimits` が横押し出しを起こさないようにして短い縦/斜め leader で結ぶ。`topBandSonohokaRight` 右パス / `topBandSmallRight` / `clusterTopBandBottomRight` が共有。旧実装は箱下端が円の y 域に入り pie クリアランスが textX を右へ押し出し、100〜180px の水平 leader がチャート上部を横断していた。
-- **下限長体でも見切れる長名は 2 行分割で収める** (`svg_geom.ts` `splitLongName` + emit 最終段の `applySplitNameFallback`): 名前を `[前半, 後半+%]` の 2 行に割り (例 `ニュージーランド・ドル`)、`・`/script 境界を優先・括弧内/小書きカナ前では割らない。採否は `countDefects` の chart 全体 do-no-harm ゲート (clips 厳密減・他カテゴリ非悪化) で決め、部分的にしか収まらない分割は revert する。採点 (`finalizeForScoring`) には入れず emit のみ (候補選択を乱さない / finalScore は emit 後の同 placements から数えるため scorer↔emit 整合は保たれる)。
-- **fontSize=40 での tight-pack warning(現況: 2026-06-12 更新 / その他リーダー短縮 + 名前 2 行分割の追加後に再計測)**: 現行設定 (600×450px / 直径 70% / fontSize=40) では `npm run verify` が **15/86 サンプル**で警告する(計 25 件)。警告は全て WARN 級(ERROR 級の leader 交差/円内貫通は 0 を維持)。内訳:
-  - label viewBox はみ出し: 21 件(**大半は condense-to-fit / 2 行分割で縮小済**。残るのは下記の構造的残件)
+- **下限長体でも見切れる長名は標準 2 行化で収める** (`svg_export/index.ts` の `applyTwoLineNameFallback`, emit 最終段): 名前を語中で割らない標準 2 行 `[名前, %]` へ変換し、名前行だけになって箱幅が縮む分だけ見切れを減らす。語割れ (旧 `splitLongName` / `applySplitNameFallback`) は pie-chart 全体で廃止した。採否は対象自身の見切れ px 厳密減 + `countDefects` の他カテゴリ非悪化の do-no-harm ゲートで決め、満たさなければ revert する。採点 (`finalizeForScoring`) には入れず emit のみ (候補選択を乱さない / finalScore は emit 後の同 placements から数えるため scorer↔emit 整合は保たれる)。
+- **fontSize=40 での tight-pack warning(現況: 2026-07-04 再計測)**: 現行設定 (600×450px / 直径 70% / fontSize=40) では `npm run verify` が **6/83 サンプル**で警告する(計 11 件)。警告は全て WARN 級(ERROR 級の leader 交差/円内貫通は 0 を維持)。内訳:
+  - label viewBox はみ出し: 11 件(**大半は condense-to-fit / 標準 2 行化で縮小済**。残るのは下記の構造的残件。対象: `asset_12_long_and_tiny` / `asset_gbca_pdf_like` / `asset_long_labels_9` / `currency_europe_heavy_8` / `currency_many_small_10` / `ten_elements_long_upper_left`)
   - leader 交差: **0 件** / leader 円内侵入: **0 件** / leader through label: **0 件** / label inside pie: **0 件**(`test/leader_invariants.test.ts` が回帰 9 サンプル + 番兵 3 サンプルで不変条件をガード)
-  - label overlap: 2 件(`stress_one_dominant_9`。fontSize 40 の cascade 配置で発生する密集残件)
-  - label order inversion: 2 件(`page16_country_allocation` / `pdf_510037_02_world_bond_idx_country`。1 曲げ leader 制約下の構造的残件)
-- **構造的に残る viewBox はみ出し(対象外として既知)**: いずれも長名を `applyFinalCondenseToFit`(下限 sx=0.7)・`splitLongName` 2 行分割でも収まらないケース。
-  - 長カタカナ単一語(`スウェーデンクローナ`/`ノルウェークローネ`/`オフショア人民元` 等): 600×450px / fontSize 40 では 2 行分割しても後半行 (`クローナ 8.0%` 等) が canvas 幅を超える密スタック位置に残る。`ニュージーランド・ドル` 等、上部の細い pie 帯に置ける長名は 2 行分割で解消済。
+  - label overlap: **0 件** / label order inversion: **0 件**(いずれも過去の残件は解消済)
+- **構造的に残る viewBox はみ出し(対象外として既知)**: いずれも長名を `applyFinalCondenseToFit`(下限 sx=0.7)・`applyTwoLineNameFallback` の標準 2 行化でも収まらないケース。
+  - 長カタカナ単一語(`スウェーデンクローナ`/`ノルウェークローネ`/`オフショア人民元` 等): 600×450px / fontSize 40 では 2 行化しても名前行 (`スウェーデンクローナ` 等) が canvas 幅を超える密スタック位置に残る。`ニュージーランド・ドル` 等、上部の細い pie 帯に置ける長名は 2 行化で解消済。
   - 支配スライス右端(`債券先物(イギリス) 41.8%`): rim 右端に配置余地なし。中央下/スライス内誘導はカスケード新規追加(別タスク)。
   - これらの解消は**別タスク**で対応する。値が動いたら本節を更新すること。**新規回帰と区別すること**。
 - TypeScript は `strict: true`(`noImplicitAny: false` で段階導入、`strictNullChecks: true` 有効）。

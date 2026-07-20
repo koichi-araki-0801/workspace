@@ -3,15 +3,21 @@ rem ============================================================================
 rem  Jinja Template Editor - launcher
 rem
 rem  Usage:
-rem    start.bat               production, local data (build + server :3001)
-rem    start.bat dev           development : Express(:3001) + Vite(:5173)
+rem    start.bat               production, local data (build + server :24680)
+rem    start.bat dev           development : Express(:24680) + Vite(:24681)
 rem    start.bat rest          REST data mode (SQL Server backend; needs login)
 rem    start.bat dev rest      development + REST
 rem    start.bat prod rest     production  + REST
+rem    start.bat rest lan      production + REST, exposed to the intranet LAN
 rem
 rem  Args are order-free. The data mode (local|rest) sets VITE_API_MODE, which
 rem  the web app reads to pick localStorage (local, default, no DB) or the REST
 rem  repositories (rest). 'db' is an alias of 'rest'.
+rem
+rem  'lan' (prod only) binds to 0.0.0.0 so other machines can reach the app.
+rem  With a TLS cert (run scripts\setup-lan-https.bat once) it serves HTTPS;
+rem  without one it falls back to plain HTTP and drops the Secure cookie flag
+rem  (otherwise REST login cookies would be rejected by browsers).
 rem
 rem  Double-click runs production mode with local data. Stop with Ctrl+C.
 rem  ASCII only on purpose: non-ASCII here breaks cmd parsing on JP code pages.
@@ -19,13 +25,24 @@ rem ============================================================================
 setlocal
 rem Drive the pnpm workspace from the repo root (one level up: editor/ -> root).
 cd /d "%~dp0\.."
+rem Repo root absolute path, used to scope the port pre-check/cleanup to THIS repo.
+set "REPO_ROOT=%CD%"
+
+rem --- process-identity patterns (single source for :portcheck and :cleanup) --
+rem A listener is "ours" only when its command line runs our entry (server prod
+rem dist\app.js / dev src/app.ts under tsx / vite) AND mentions this repo's path
+rem (%REPO_ROOT%). Without the path check, a generic `tsx watch src/app.ts` from an
+rem unrelated repo that happens to hold our port would be tree-killed by mistake.
+set "SRV_PAT=(dist[\\/]app\.js)|(src[\\/]app\.ts)"
+set "VITE_PAT=vite[\\/]bin[\\/]vite\.js"
 
 rem --- mode (build prod/dev) and data mode (local/rest), order-free -----------
 set "MODE=prod"
 set "APIMODE=local"
 rem Server listen port. Kept in env so the port pre-check and node agree (see config.ts).
-set "PORT=3001"
-for %%A in (%1 %2) do (
+set "PORT=24680"
+set "LAN="
+for %%A in (%1 %2 %3) do (
   if /I "%%A"=="dev"         set "MODE=dev"
   if /I "%%A"=="-dev"        set "MODE=dev"
   if /I "%%A"=="development" set "MODE=dev"
@@ -33,6 +50,7 @@ for %%A in (%1 %2) do (
   if /I "%%A"=="local"       set "APIMODE=local"
   if /I "%%A"=="rest"        set "APIMODE=rest"
   if /I "%%A"=="db"          set "APIMODE=rest"
+  if /I "%%A"=="lan"         set "LAN=1"
 )
 rem Vite exposes process-env vars prefixed VITE_ to the client at build/dev time.
 set "VITE_API_MODE=%APIMODE%"
@@ -41,6 +59,27 @@ rem (DB_SERVER etc. come from the environment / appconfig; see server/db/README.
 if /I "%APIMODE%"=="rest" (
   set "AUTH_REQUIRED=true"
   set "AUDIT_DB=true"
+)
+
+rem --- LAN exposure (prod only) ------------------------------------------------
+rem 'lan' binds the server to all interfaces so other intranet machines can reach
+rem it. HTTPS is opted in only when the cert exists; a plain-HTTP fallback must
+rem drop the Secure cookie flag or REST logins silently fail on other machines.
+set "SCHEME=http"
+if "%LAN%"=="1" if /I "%MODE%"=="dev" (
+  echo [start] WARN: 'lan' is ignored in dev mode - LAN exposure is prod-only.
+  set "LAN="
+)
+if "%LAN%"=="1" (
+  set "HOST=0.0.0.0"
+  if exist "%~dp0server\tls\editor.pfx" (
+    set "HTTPS=true"
+    set "SCHEME=https"
+  ) else (
+    echo [start] WARN: TLS cert not found: editor\server\tls\editor.pfx
+    echo [start]       Serving plain HTTP. Run editor\scripts\setup-lan-https.bat once for HTTPS.
+    set "COOKIE_SECURE=false"
+  )
 )
 
 rem --- node prerequisite ------------------------------------------------------
@@ -72,8 +111,8 @@ echo [start] mode : development
 echo [start] data : %APIMODE%
 echo.
 echo   ==========================================
-echo    App   : http://localhost:5173
-echo    API   : http://localhost:3001
+echo    App   : http://localhost:24681
+echo    API   : http://localhost:24680
 echo    Login : admin / admin   or   editor / editor
 echo    Stop  : Ctrl+C
 echo   ==========================================
@@ -94,14 +133,25 @@ echo [start] building: shared, server, web ...
 call pnpm run build
 if errorlevel 1 goto :buildfail
 set "NODE_ENV=production"
+rem Resolve this machine's LAN IPv4 for the banner (loopback/APIPA excluded).
+rem Falls back to the computer name when no address is found.
+set "LANIP="
+if "%LAN%"=="1" for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1 -ExpandProperty IPAddress)"') do set "LANIP=%%i"
+if "%LAN%"=="1" if not defined LANIP set "LANIP=%COMPUTERNAME%"
 echo.
 echo   ==========================================
-echo    Server : http://localhost:3001
+echo    Server : %SCHEME%://localhost:%PORT%
+if "%LAN%"=="1" echo    LAN    : %SCHEME%://%LANIP%:%PORT%   ^(from other machines^)
 echo    Stop   : Ctrl+C
 echo   ==========================================
 echo.
 rem Same run-in-job watchdog wrapper as dev so an X-button close kills the server tree.
-call "%~dp0scripts\run-in-job.bat" pnpm --filter server run start
+rem Run node with the absolute entry path instead of `pnpm --filter server run start`:
+rem the path in the command line is what lets :portcheck/:cleanup identify a stale
+rem server as ours (repo-scoped match); pnpm's child shows only `node dist/app.js`.
+rem cwd must stay editor\server (config resolves data dirs from it), hence the cd.
+cd /d "%~dp0server"
+call "%~dp0scripts\run-in-job.bat" node "%~dp0server\dist\app.js"
 if errorlevel 1 goto :serverfail
 goto :end
 
@@ -144,8 +194,8 @@ rem --- subroutine: free the listen port (called before launch) ----------------
 rem Returns 0 when the port is free (or a stale server of ours was stopped),
 rem 1 when an unrelated process holds it. Detection is delegated to PowerShell
 rem (Get-NetTCPConnection / Win32_Process), available on Windows 10+. A process
-rem is treated as "ours" when its command line runs our server entry in either
-rem mode: prod `dist/app.js` or dev `src/app.ts` (run under tsx). The dev
+rem is treated as "ours" when its command line matches SRV_PAT AND contains this
+rem repo's path (REPO_ROOT) - see the pattern block at the top. The dev
 rem supervisor (its parent: `tsx watch src/app.ts`) is stopped too, otherwise
 rem tsx would respawn the child and re-grab the port. We never auto-stop an
 rem unrelated process: a foreign holder aborts with its PID printed.
@@ -153,16 +203,16 @@ rem
 rem We kill with `taskkill /T /F` (whole tree), not `Stop-Process -Force`: on
 rem Windows the latter kills only that PID, so the forked PDF worker daemon and
 rem the headless chromium it spawned would be orphaned. We also reap a stale
-rem vite of ours on :5173 (best-effort, never abort, never touch a foreign holder).
+rem vite of ours on :24681 (best-effort, never abort, never touch a foreign holder).
 :portcheck
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $srv='(dist[\\/]app\.js)|(src[\\/]app\.ts)'; $vite='vite[\\/]bin[\\/]vite\.js'; $kill=@(); $foreign=$false; $c=Get-NetTCPConnection -LocalPort %PORT% -State Listen; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); $cl=''; if($p){$cl=$p.CommandLine}; if($cl -match $srv){ $top=$procId; if($p -and $p.ParentProcessId){ $par=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.ParentProcessId); if($par -and ($par.CommandLine -match $srv)){ $top=$par.ProcessId } }; $kill+=$top } else { $n='unknown'; if($p){$n=$p.Name}; Write-Host ('[start] ERROR: port %PORT% is in use by PID '+$procId+' ('+$n+').'); $foreign=$true } }; if($foreign){exit 1}; $vc=Get-NetTCPConnection -LocalPort 5173 -State Listen; foreach($procId in ($vc | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); if($p -and ($p.CommandLine -match $vite)){ $kill+=$procId } }; foreach($procId in ($kill | Select-Object -Unique)){ Write-Host ('[start] stopping stale process (PID '+$procId+') ...'); $null=(taskkill /PID $procId /T /F 2>&1) }; for($i=0;$i -lt 20;$i++){ if(-not (Get-NetTCPConnection -LocalPort %PORT% -State Listen)){ exit 0 }; Start-Sleep -Milliseconds 150 }; exit 0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $srv='%SRV_PAT%'; $vite='%VITE_PAT%'; $root=[regex]::Escape('%REPO_ROOT%'); $kill=@(); $foreign=$false; $c=Get-NetTCPConnection -LocalPort %PORT% -State Listen; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); $cl=''; if($p){$cl=$p.CommandLine}; if(($cl -match $srv) -and ($cl -match $root)){ $top=$procId; if($p -and $p.ParentProcessId){ $par=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.ParentProcessId); if($par -and ($par.CommandLine -match $srv) -and ($par.CommandLine -match $root)){ $top=$par.ProcessId } }; $kill+=$top } else { $n='unknown'; if($p){$n=$p.Name}; Write-Host ('[start] ERROR: port %PORT% is in use by PID '+$procId+' ('+$n+').'); $foreign=$true } }; if($foreign){exit 1}; $vc=Get-NetTCPConnection -LocalPort 24681 -State Listen; foreach($procId in ($vc | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); if($p -and ($p.CommandLine -match $vite) -and ($p.CommandLine -match $root)){ $kill+=$procId } }; foreach($procId in ($kill | Select-Object -Unique)){ Write-Host ('[start] stopping stale process (PID '+$procId+') ...'); $null=(taskkill /PID $procId /T /F 2>&1) }; for($i=0;$i -lt 20;$i++){ if(-not (Get-NetTCPConnection -LocalPort %PORT% -State Listen)){ exit 0 }; Start-Sleep -Milliseconds 150 }; exit 0"
 exit /b %ERRORLEVEL%
 
 rem --- subroutine: tear down our leftover processes on exit -------------------
 rem Best-effort safety net for the normal/Ctrl+C->N exit path (the Job Object in
 rem run-in-job.ps1 already handles X-button and hard kills). Tree-kills any
-rem listener of ours on :%PORT% (server) or :5173 (vite); foreign holders are
+rem listener of ours on :%PORT% (server) or :24681 (vite); foreign holders are
 rem left untouched. No abort, no wait - cleanup must never block shutdown.
 :cleanup
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $pat='(dist[\\/]app\.js)|(src[\\/]app\.ts)|(vite[\\/]bin[\\/]vite\.js)'; foreach($port in @(%PORT%,5173)){ $c=Get-NetTCPConnection -LocalPort $port -State Listen; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); if($p -and ($p.CommandLine -match $pat)){ $top=$procId; if($p.ParentProcessId){ $par=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.ParentProcessId); if($par -and ($par.CommandLine -match $pat)){ $top=$par.ProcessId } }; $null=(taskkill /PID $top /T /F 2>&1) } } }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $pat='%SRV_PAT%|%VITE_PAT%'; $root=[regex]::Escape('%REPO_ROOT%'); foreach($port in @(%PORT%,24681)){ $c=Get-NetTCPConnection -LocalPort $port -State Listen; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); if($p -and ($p.CommandLine -match $pat) -and ($p.CommandLine -match $root)){ $top=$procId; if($p.ParentProcessId){ $par=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.ParentProcessId); if($par -and ($par.CommandLine -match $pat) -and ($par.CommandLine -match $root)){ $top=$par.ProcessId } }; $null=(taskkill /PID $top /T /F 2>&1) } } }"
 exit /b 0

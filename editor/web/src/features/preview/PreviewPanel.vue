@@ -4,7 +4,7 @@
 // =============================================================================
 // ページ送り/ズームの操作 UI は持たず, 状態は `state` イベントで親(`PreviewView`)へ上げ,
 // 命令は `defineExpose` で公開する。UI は編集画面(`EditorTopBar`)と揃えて上部バーへ集約する。
-import { toAppError } from '@editor/shared';
+import { toAppError, unexpected } from '@editor/shared';
 import { Loader2 } from '@lucide/vue';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { logError } from '@/lib/appError';
@@ -59,6 +59,18 @@ let nav: any = null;
 let blobUrl: string | null = null;
 let resizeObserver: ResizeObserver | null = null;
 
+// ローダー解除は `readystatechange` -> `COMPLETE` に依存するため, vivliostyle が例外を投げずに
+// COMPLETE へ到達しない非同期失敗(組版内エラー等)では「生成中…」が永久に残る。その保険として
+// `loadDocument` 後に上限タイマーを張り, 発火時にまだ描画中表示なら強制解除する。
+const RENDER_LOADER_FAILSAFE_MS = 30_000;
+let loaderFailsafe: ReturnType<typeof setTimeout> | null = null;
+function clearLoaderFailsafe() {
+  if (loaderFailsafe !== null) {
+    clearTimeout(loaderFailsafe);
+    loaderFailsafe = null;
+  }
+}
+
 function emitState() {
   emit('state', {
     currentPage: currentPage.value,
@@ -112,6 +124,8 @@ function applyFit() {
 async function render() {
   revoke();
   disposeViewer();
+  // 再入(html 変更による再描画)時に前回のフェイルセーフが新しい描画を誤解除しないよう破棄。
+  clearLoaderFailsafe();
   currentPage.value = 1;
   pageCount.value = 0;
   atFirst.value = true;
@@ -174,9 +188,21 @@ async function render() {
     // 全ページのレイアウト確定(`readystatechange` -> `COMPLETE`)まで「生成中…」を出し続ける。
     // 事前レイアウトで初回描画に時間がかかるため, 確定前に空のビューポートを見せないようにする。
     viewer.addListener('readystatechange', () => {
-      if (viewer?.readyState === mod.ReadyState.COMPLETE) rendering.value = false;
+      if (viewer?.readyState === mod.ReadyState.COMPLETE) {
+        clearLoaderFailsafe();
+        rendering.value = false;
+      }
     });
     viewer.loadDocument({ url: blobUrl });
+    // COMPLETE 未達の非同期失敗への保険(上記 `loaderFailsafe` コメント参照)。強制解除しても
+    // 組版自体は継続しうるため, fallback 経路と同じく observability ログのみで toast は出さない。
+    loaderFailsafe = setTimeout(() => {
+      loaderFailsafe = null;
+      if (!rendering.value) return;
+      rendering.value = false;
+      logError(unexpected('プレビューの組版が時間内に完了しないため、ローダーを強制解除しました'));
+      emitState();
+    }, RENDER_LOADER_FAILSAFE_MS);
     useFallback.value = false;
   } catch (e) {
     // Fallback: `@vivliostyle/core` の読み込み/ページ分割が失敗したら素の iframe で表示する。
@@ -186,6 +212,7 @@ async function render() {
     useFallback.value = true;
     if (iframe.value) iframe.value.srcdoc = props.html;
     // iframe フォールバックは即時表示。レイアウト完了通知が来ないのでここで解除する。
+    clearLoaderFailsafe();
     rendering.value = false;
   } finally {
     // 成功経路はローダーを解除しない。全ページ確定時の `readystatechange` -> `COMPLETE` で解除する。
@@ -259,6 +286,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   resizeObserver = null;
+  clearLoaderFailsafe();
   revoke();
   disposeViewer();
 });

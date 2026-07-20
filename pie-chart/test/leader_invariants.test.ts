@@ -45,6 +45,10 @@ function parsePie(svg: string): { cx: number; cy: number; r: number } {
   return { cx: parseFloat(m[1]), cy: parseFloat(m[2]), r: parseFloat(m[3]) };
 }
 
+// 交差/最短距離の判定は本体実装 (`svg_geom.ts` / `leader_geometry.ts`) を import せず、
+// テスト内の独立オラクルとして凍結複製する。本体と判定式を共有すると、本体の退行
+// (tolerance の変更ミス・符号誤り等) をテストが同じ誤りで追認して検知できないため。
+
 /** verify_svg.ts segmentsIntersect と同条件 (tolerance 0.5px・端点接触は交差としない)。 */
 function segmentsIntersect(a: Pt, b: Pt, c: Pt, d: Pt, tolerance = 0.5): boolean {
   const cross = (p: Pt, q: Pt, r: Pt) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
@@ -59,13 +63,21 @@ function segmentsIntersect(a: Pt, b: Pt, c: Pt, d: Pt, tolerance = 0.5): boolean
   return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0;
 }
 
-function distPointToSegment(px: number, py: number, a: Pt, b: Pt): number {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
+// 引数は本体 (`leader_geometry.ts`) と同じ数値 6 個形式 (呼び出し箇所の書き換えを避ける)。
+function distPointToSegment(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
   const len2 = dx * dx + dy * dy;
-  let t = len2 > 0 ? ((px - a.x) * dx + (py - a.y) * dy) / len2 : 0;
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
   t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
 function leaderCrossings(leaders: { name: string; points: Pt[] }[]): string[] {
@@ -94,7 +106,9 @@ function pieIntrusions(
   const found: string[] = [];
   for (const l of leaders) {
     for (let k = 0; k + 1 < l.points.length; k += 1) {
-      if (distPointToSegment(pie.cx, pie.cy, l.points[k], l.points[k + 1]) < pie.r - tolerancePx) {
+      const a = l.points[k];
+      const b = l.points[k + 1];
+      if (distPointToSegment(pie.cx, pie.cy, a.x, a.y, b.x, b.y) < pie.r - tolerancePx) {
         found.push(l.name);
         break;
       }
@@ -208,16 +222,18 @@ function minLeaderGap(leaders: { name: string; points: Pt[] }[]): number {
     for (let j = i + 1; j < leaders.length; j += 1) {
       const pa = leaders[i].points;
       const pb = leaders[j].points;
-      for (const p of pa) {
-        for (let m = 0; m + 1 < pb.length; m += 1) {
-          min = Math.min(min, distPointToSegment(p.x, p.y, pb[m], pb[m + 1]));
+      const distToPolyline = (p: Pt, pts: Pt[]): number => {
+        let d = Number.POSITIVE_INFINITY;
+        for (let s = 0; s + 1 < pts.length; s += 1) {
+          d = Math.min(
+            d,
+            distPointToSegment(p.x, p.y, pts[s].x, pts[s].y, pts[s + 1].x, pts[s + 1].y),
+          );
         }
-      }
-      for (const p of pb) {
-        for (let k = 0; k + 1 < pa.length; k += 1) {
-          min = Math.min(min, distPointToSegment(p.x, p.y, pa[k], pa[k + 1]));
-        }
-      }
+        return d;
+      };
+      for (const p of pa) min = Math.min(min, distToPolyline(p, pb));
+      for (const p of pb) min = Math.min(min, distToPolyline(p, pa));
     }
   }
   return min;

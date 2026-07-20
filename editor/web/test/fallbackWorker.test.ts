@@ -69,15 +69,58 @@ describe('createFallbackWorker', () => {
     expect(fallbackFn).toHaveBeenCalledTimes(2);
   });
 
-  it('remote がハングしたらタイムアウトで fallback へ落とす', async () => {
+  it('初回応答前のハングはタイムアウトで fallback へ落とし、以降も恒久フォールバックする', async () => {
     vi.useFakeTimers();
-    const remote = makeWorker({ toFilled: () => new Promise<string>(() => {}) }); // 永久に未解決
+    const remoteFn = vi.fn(() => new Promise<string>(() => {})); // 永久に未解決
+    const remote = makeWorker({ toFilled: remoteFn });
     const fallback = makeWorker({ toFilled: async () => 'from-fallback' });
     const { worker } = createFallbackWorker(remote, fallback, 1000);
 
     const p = worker.toFilled('x', {});
     await vi.advanceTimersByTimeAsync(1000);
     expect(await p).toBe('from-fallback');
+    // 初回から不達 = チャンク不達/ハンドシェイク不成立とみなし、remote を再試行しない。
+    expect(await worker.toFilled('y', {})).toBe('from-fallback');
+    expect(remoteFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('成功実績のある Worker のタイムアウトは当該のみ fallback し、次回は remote へ復帰する', async () => {
+    vi.useFakeTimers();
+    let hang = false;
+    const remoteFn = vi.fn(
+      (): Promise<string> => (hang ? new Promise(() => {}) : Promise.resolve('from-remote')),
+    );
+    const remote = makeWorker({ toFilled: remoteFn });
+    const fallback = makeWorker({ toFilled: async () => 'from-fallback' });
+    const { worker } = createFallbackWorker(remote, fallback, 1000);
+
+    // 一度正常応答した後のタイムアウト = 単に重い処理。恒久化すると以降の全処理が
+    // main-thread 固定になり UI が固まり続けるため、当該呼び出しだけ救済する。
+    expect(await worker.toFilled('a', {})).toBe('from-remote');
+    hang = true;
+    const p = worker.toFilled('b', {});
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await p).toBe('from-fallback');
+    hang = false;
+    expect(await worker.toFilled('c', {})).toBe('from-remote');
+    expect(remoteFn).toHaveBeenCalledTimes(3);
+  });
+
+  it('成功実績があっても実行時エラーは従来どおり恒久フォールバックする', async () => {
+    let fail = false;
+    const remoteFn = vi.fn(async () => {
+      if (fail) throw new Error('boom');
+      return 'from-remote';
+    });
+    const remote = makeWorker({ toFilled: remoteFn });
+    const fallback = makeWorker({ toFilled: async () => 'from-fallback' });
+    const { worker } = createFallbackWorker(remote, fallback);
+
+    expect(await worker.toFilled('a', {})).toBe('from-remote');
+    fail = true;
+    expect(await worker.toFilled('b', {})).toBe('from-fallback');
+    expect(await worker.toFilled('c', {})).toBe('from-fallback');
+    expect(remoteFn).toHaveBeenCalledTimes(2);
   });
 
   it('markBroken で in-flight 呼び出しを即フォールバックし、以降も fallback を使う', async () => {

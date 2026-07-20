@@ -45,7 +45,7 @@ let startChain: Promise<unknown> = Promise.resolve();
  * (`build.ts` を除き)ここだけで、vivliostyle の利用を `vivliostyle/` 配下に集約する。
  *
  * Vite プレビューサーバはループバック(`host`)に bind し、Express がそこへリバースプロキシ
- * するため :3001 のみが公開され認証も効く。アップロード入力はスナップショットで
+ * するため公開ポート(:24680)のみが公開され認証も効く。アップロード入力はスナップショットで
  * ライブリロードする対象が無いため HMR を無効化し(`vite.server.hmr`)、プロキシを素の
  * HTTP に保つ(WebSocket トンネル不要)。ポートは Vite に委ね、同時プレビューが自動
  * インクリメントするようにする。実際のポートと viewer URL は起動後に読み戻す。

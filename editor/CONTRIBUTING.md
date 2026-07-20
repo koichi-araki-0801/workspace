@@ -13,11 +13,11 @@
 nvm use            # （未導入なら Node 24 系を入れる）
 
 pnpm install       # 依存をインストール（husky フックも自動で有効化されます）
-pnpm dev           # shared ビルド後、Express(:3001) と Vite(:5173) を並行起動
+pnpm dev           # shared ビルド後、Express(:24680) と Vite(:24681) を並行起動
 ```
 
 Windows は `editor/start.bat`（ダブルクリック=本番ローカル / `dev` / `rest` 等）でも起動できます。
-ブラウザで http://localhost:5173 → デモログイン `admin / admin`（または `editor / editor`）。
+ブラウザで http://localhost:24681 → デモログイン `admin / admin`（または `editor / editor`）。
 
 ## 2. コマンド早見表（ルートから）
 

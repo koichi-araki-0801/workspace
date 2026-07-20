@@ -35,6 +35,8 @@ editor / pie-chart / pdf-to-svg / graph-editor などを束ねる pnpm モノレ
 | `pdf-to-svg/scripts/build.bat` | PdfToSvg の配布 exe をビルド（隔離 venv） |
 | `graph-editor/scripts/build.bat` | LabelEditor の配布 exe をビルド（隔離 venv） |
 | `editor/scripts/init-data-repo.bat` | テンプレ版管理用 data リポジトリを初期化 |
+| `editor/scripts/setup-lan-https.bat` | LAN 公開用の自己署名 TLS 証明書（PFX/cer）を生成 |
+| `editor/scripts/setup-lan-firewall.bat` | LAN 公開ポート（TCP 24680）の受信許可ルールを登録（要管理者） |
 | `editor/server/db/apply.bat` | SQL Server へ DDL/sproc/seed を適用 |
 | `offline/publish-offline-bundle.bat` | オフラインバンドルを GitHub Releases へ公開（post-commit で自動実行） |
 | `docs/_build/build_all.bat` | `docs/<project>/src/` の原稿から .docx/.xlsx を一括生成 |

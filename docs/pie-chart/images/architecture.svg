@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680">
+  <!-- pie-chart レンダリングパイプライン図（正典）。変更後は docs/_build/svg2png.py で PNG を再生成する。 -->
+  <style>
+    text { font-family: 'BIZ UDPGothic', sans-serif; fill: #20242C; }
+    .mono { font-family: 'BIZ UDGothic', monospace; }
+    .name { font-size: 18px; font-weight: bold; }
+    .item { font-size: 16px; }
+    .small { font-size: 14px; fill: #606874; }
+    .head { font-size: 19px; font-weight: bold; }
+    .box { fill: #FFFFFF; stroke: #1F5C99; stroke-width: 2; }
+    .panel { fill: #F4F6F8; stroke: #DCE3EA; stroke-width: 1.5; }
+    .sub { fill: #FFFFFF; stroke: #DCE3EA; stroke-width: 1.5; }
+    .edge { stroke: #1F5C99; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1F5C99"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="680" fill="#FFFFFF"/>
+
+  <!-- 入力 3 系統 -->
+  <rect class="panel" x="60" y="40" width="310" height="90" rx="8"/>
+  <text class="name" x="215" y="76" text-anchor="middle">JSON / samples.json</text>
+  <text class="small" x="215" y="104" text-anchor="middle">配列 {name, value} を直接読込</text>
+
+  <rect class="panel" x="445" y="40" width="310" height="90" rx="8"/>
+  <text class="name" x="600" y="76" text-anchor="middle">Excel（.xlsx）</text>
+  <text class="small mono" x="600" y="104" text-anchor="middle">xlsx_loader.ts / exceljs</text>
+
+  <rect class="panel" x="830" y="40" width="310" height="90" rx="8"/>
+  <text class="name" x="985" y="76" text-anchor="middle">DB（SQL Server）</text>
+  <text class="small mono" x="985" y="104" text-anchor="middle">db_loader.ts / msnodesqlv8</text>
+
+  <!-- data.ts -->
+  <rect class="box" x="340" y="180" width="520" height="72" rx="8"/>
+  <text class="item" x="600" y="210" text-anchor="middle"><tspan class="mono" font-weight="bold">data.ts</tspan> ― normalizeInputItems / resolveInputData</text>
+  <text class="small" x="600" y="236" text-anchor="middle">→ Item[] {name, value} へ正規化</text>
+
+  <!-- レンダラ本体 -->
+  <rect class="box" x="100" y="300" width="1000" height="230" rx="8"/>
+  <text class="head" x="130" y="336"><tspan class="mono">renderPdfStylePieToSvg</tspan>（svg_export/index.ts）― 最終アセンブリ・ヘアピン省略・交差検査</text>
+
+  <rect class="sub" x="130" y="360" width="300" height="64" rx="6"/>
+  <text class="name mono" x="150" y="386">config.ts</text>
+  <text class="small" x="150" y="410">寸法・スケール・配色</text>
+
+  <rect class="sub" x="450" y="360" width="300" height="64" rx="6"/>
+  <text class="name mono" x="470" y="386">layout.ts</text>
+  <text class="small" x="470" y="410">論理座標でラベル位置決定</text>
+
+  <rect class="sub" x="770" y="360" width="300" height="64" rx="6"/>
+  <text class="name mono" x="790" y="386">rendering.ts</text>
+  <text class="small" x="790" y="410">座標変換・スライス / テキスト生成</text>
+
+  <rect class="sub" x="130" y="444" width="300" height="64" rx="6"/>
+  <text class="name mono" x="150" y="470">label_placement.ts</text>
+  <text class="small" x="150" y="494">経路選択 10 種 + 引出線 path</text>
+
+  <rect class="sub" x="450" y="444" width="300" height="64" rx="6"/>
+  <text class="name mono" x="470" y="470">post_layout.ts</text>
+  <text class="small" x="470" y="494">重なり解消・compact cascade</text>
+
+  <rect class="sub" x="770" y="444" width="300" height="64" rx="6"/>
+  <text class="name mono" x="790" y="470">font.ts</text>
+  <text class="small" x="790" y="494">WOFF2 サブセット埋込（subset-font）</text>
+
+  <!-- 出力 -->
+  <rect class="panel" x="340" y="580" width="520" height="72" rx="8"/>
+  <text class="name" x="600" y="610" text-anchor="middle">決定的 SVG（同一入力 → 同一バイト列）</text>
+  <text class="small" x="600" y="636" text-anchor="middle">out/svg_js ― 87 サンプルの回帰検証（verify_svg.ts）</text>
+
+  <!-- エッジ -->
+  <line class="edge" x1="215" y1="132" x2="450" y2="174"/>
+  <line class="edge" x1="600" y1="132" x2="600" y2="174"/>
+  <line class="edge" x1="985" y1="132" x2="750" y2="174"/>
+  <line class="edge" x1="600" y1="254" x2="600" y2="294"/>
+  <line class="edge" x1="600" y1="532" x2="600" y2="574"/>
+
+  <text class="small" x="600" y="672" text-anchor="middle">外部依存（exceljs / msnodesqlv8 / subset-font）は端の層に隔離 ― レンダリング層は依存ゼロ</text>
+</svg>

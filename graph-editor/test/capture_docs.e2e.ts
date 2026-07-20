@@ -16,11 +16,12 @@ const SVG = readFileSync(
 	resolve(here, "../../pie-chart/out/svg_js/asset_balanced_8.svg"),
 	"utf8",
 );
-const OUT = resolve(here, "../../docs/graph-editor/images/editor_main.png");
+const IMAGES = resolve(here, "../../docs/graph-editor/images");
 
 test.use({ viewport: { width: 1280, height: 820 } });
 
-test("capture editor_main", async ({ page }) => {
+/** サンプル SVG を読み込み、引出線を持つラベルを 1 つ選択した状態にする。 */
+async function loadAndSelect(page: import("@playwright/test").Page) {
 	await page.goto("/ui.html");
 	await page.waitForFunction(
 		() => !!(window as Window & { __editor?: unknown }).__editor,
@@ -38,11 +39,81 @@ test("capture editor_main", async ({ page }) => {
 	await page.waitForFunction(
 		() => (window as unknown as { __editor: any }).__editor.labels?.length >= 2,
 	);
-	// ラベルを 1 つ選択し、右パネルにプロパティ (編集 UI) が出た状態にする。
+	// 引出線 (曲点を含む点列) を持つラベルを優先して選択し、ハンドル 3 種を見せる。
 	await page.evaluate(() => {
 		const ed = (window as unknown as { __editor: any }).__editor;
-		ed.selectLabel(ed.labels[0]);
+		const withLeader = ed.labels.find(
+			(l: any) => (l.leaderPts?.length ?? 0) >= 3,
+		);
+		ed.selectLabel(withLeader ?? ed.labels[0]);
 	});
 	await page.waitForTimeout(400);
-	await page.screenshot({ path: OUT });
+}
+
+/** 選択中ラベル (ハンドル込み) の周囲を切り出す clip 矩形を求める。 */
+async function selectedClip(page: import("@playwright/test").Page) {
+	const box = await page.evaluate(() => {
+		const g = document.querySelector("g.label.is-selected");
+		const r = (g as SVGGElement).getBoundingClientRect();
+		return { x: r.x, y: r.y, width: r.width, height: r.height };
+	});
+	const pad = 90;
+	return {
+		x: Math.max(0, box.x - pad),
+		y: Math.max(0, box.y - pad),
+		width: box.width + pad * 2,
+		height: box.height + pad * 2,
+	};
+}
+
+test("capture open_screen (手順1)", async ({ page }) => {
+	await page.goto("/ui.html");
+	await page.waitForFunction(
+		() => !!(window as Window & { __editor?: unknown }).__editor,
+	);
+	await page.waitForTimeout(300);
+	await page.screenshot({ path: resolve(IMAGES, "open_screen.png") });
+});
+
+test("capture editor_main (手順2 全体)", async ({ page }) => {
+	await loadAndSelect(page);
+	await page.screenshot({ path: resolve(IMAGES, "editor_main.png") });
+});
+
+test("capture handles_zoom / condense_zoom (ハンドルと長体の拡大)", async ({
+	page,
+}) => {
+	await loadAndSelect(page);
+	const clip = await selectedClip(page);
+	await page.screenshot({
+		path: resolve(IMAGES, "handles_zoom.png"),
+		clip,
+	});
+	// 長体スライダを 70% へ (ユーザー操作と同じ input イベント経由で反映)。
+	await page.evaluate(() => {
+		const r = document.getElementById("scaleRange") as HTMLInputElement;
+		r.value = "0.7";
+		r.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	await page.waitForTimeout(400);
+	await page.screenshot({
+		path: resolve(IMAGES, "condense_zoom.png"),
+		clip,
+	});
+});
+
+test("capture panel_right (右パネル)", async ({ page }) => {
+	await loadAndSelect(page);
+	await page
+		.locator(".panel")
+		.screenshot({ path: resolve(IMAGES, "panel_right.png") });
+});
+
+test("capture save_screen (手順3)", async ({ page }) => {
+	await loadAndSelect(page);
+	await page.evaluate(() => {
+		(window as unknown as { __editor: any }).__editor.goPhase(3);
+	});
+	await page.waitForTimeout(300);
+	await page.screenshot({ path: resolve(IMAGES, "save_screen.png") });
 });

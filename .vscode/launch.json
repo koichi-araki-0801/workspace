@@ -14,11 +14,11 @@
 			"skipFiles": ["<node_internals>/**"]
 		},
 		{
-			// Vite dev サーバ(:5173)へ Edge で接続。事前に `dev` タスクで server+web 起動が必要。
+			// Vite dev サーバ(:24681)へ Edge で接続。事前に `dev` タスクで server+web 起動が必要。
 			"type": "msedge",
 			"request": "launch",
-			"name": "web (Edge :5173)",
-			"url": "http://localhost:5173",
+			"name": "web (Edge :24681)",
+			"url": "http://localhost:24681",
 			"webRoot": "${workspaceFolder}/editor/web/src",
 			"preLaunchTask": "dev (server + web)"
 		},

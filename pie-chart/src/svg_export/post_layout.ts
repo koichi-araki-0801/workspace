@@ -31,6 +31,7 @@ import {
   placementExtent,
   pieClampXLimits,
   horizontalLabelLimits,
+  pxToLogical,
 } from '../svg_geom.js';
 import { layoutLabels } from '../layout.js';
 import { TOP_BAND_HALF_WIDTH_DEG } from '../label_placement.js';
@@ -145,7 +146,7 @@ export function blockedInY(p: Placement, dyDelta: number): boolean {
  * の上側ラベルを壁として下方向のみに押し下げるため、最上段は動かさずに確実に離せる。
  */
 function settlePinnedClustersDownward(textPlacements: Placement[], cfg: PieLayoutConfig): void {
-  const margin = 0.5 / (cfg.mmPerUnit * cfg.svgUnitsPerMm); // ≈0.5px の余白
+  const margin = pxToLogical(cfg, 0.5);
   const anchored = new Set<number>();
   textPlacements.forEach((p, i) => {
     if (typeof p.maxTextY === 'number' && p.y >= p.maxTextY - 1e-9) anchored.add(i);
@@ -240,7 +241,7 @@ function iterateOverlapPairs(
 }
 
 export function resolveLabelOverlaps(textPlacements: Placement[], cfg: PieLayoutConfig): void {
-  const thresholdLogical = OVERLAP_THRESHOLD_PX / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const thresholdLogical = pxToLogical(cfg, OVERLAP_THRESHOLD_PX);
 
   // 主パス: bbox が strictly に重なるペアを bbox 中心ベクトル方向へ対角分離。
   iterateOverlapPairs(textPlacements, cfg, (a, b, ba, bb, overlapX, overlapY) => {
@@ -285,7 +286,7 @@ export function resolveLabelOverlaps(textPlacements: Placement[], cfg: PieLayout
     return true;
   });
 
-  const visualHorizGap = OVERLAP_HORIZ_NEAR_GAP_PX / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
+  const visualHorizGap = pxToLogical(cfg, OVERLAP_HORIZ_NEAR_GAP_PX);
   // Secondary パス: 横が非重なり (隙間 < OVERLAP_HORIZ_NEAR_GAP_PX) かつ縦に重なるペアを純縦分離。
   iterateOverlapPairs(textPlacements, cfg, (a, b, ba, bb, overlapX, overlapY) => {
     if (overlapX > 0) return false;

@@ -12,14 +12,14 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? [['html', { open: 'never' }], ['list']] : 'list',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://localhost:24681',
     trace: 'on-first-retry',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
     command: 'pnpm --filter web run dev',
     cwd: fileURLToPath(new URL('..', import.meta.url)),
-    url: 'http://localhost:5173',
+    url: 'http://localhost:24681',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
