@@ -1070,80 +1070,142 @@ function markClippedUpperLeftLongDrop(
 }
 
 /**
- * 「1強(≥90%)+極小トップ2枚」型 (例 manulife_country: 日本99.3/フランス0.6/米国0.1) で、上左に並ぶ
- * 極小スライス2枚の双方に forceOutsideLeader を立て、svg_export runCascadeOnce が rank 9 起点
- * (buildOutsideLeaderDraft) で leader を引けるようにする。これをしないと、2枚が上左で混み合い片方の
- * leader が相手のラベル box / 円貫通ガードに落ちて消える (= フランスに leader が出ない症状)。
+ * 「1強スライス + 上左 top-band に極小スライバ」型チャートで、極小スライバに leader を引かせる/
+ * 右上へ逃がすフラグを立てる 4 構成をテーブル駆動で判定する。元は独立 4 マーカー
+ * (`markForcedTopSliverLeader` / `markForcedTopSliverEscapeRight` / `markLoneTopSliverLeader` /
+ * `markDominantTopSliverWithOther`) で、共通骨格 (denseCluster 除外 → dominant 帯 → 総数 →
+ * top-band スライバ収集 → 枚数 → witness → フラグ付与) をルール表 `TOP_BAND_SLIVER_RULES` へ
+ * 集約したもの。
  *
- * 交差回避の要は「各スライスを自分の側へ逃がす」: 12時に近い方 (near) を topBandSmallRight で右上、
- * 遠い方 (far) を generic radial で左上へ。左寄りスライスの leader を右へ回すと near の riser を跨いで
- * 交差するため、左スライス→左・右スライス→右に振り分けて互いの riser に到達させない。
+ * 各構成は 1〜2 サンプルの狭い形状にだけ発火する (各ルールの `example`)。ゲートの数値
+ * (dominant 帯 / 総数 / スライバ枚数 / witness) が構成を分離しており、緩めると隣の構成を回帰させる
+ * — テーブルは緩和ではなく「どの形状にどの配置」の一覧化。全ルールを順に評価する (元の 4 関数を順に
+ * 呼ぶのと等価。ゲートは排他的なので実際は 1 つだけ発火する)。
  *
- * ゲート (この構成だけに限定し他チャートへ波及させない):
- *  - leftStackMode / topBandClusterMode でない (≥4 件密集の別系統)
- *  - 最大スライス ≥ 90% (1強)
- *  - 総スライス数 == 3 (1強 + 周辺2枚)
- *  - 上左 (mid>90) の small・top-band (72–108°)・非「その他」・非長名 スライスがちょうど 2 枚
+ * `apply` の配置差 (フラグの組合せ → 下流 leader 形状):
+ *  - `nearFarSplit`: near を右上 L 字 (`topBandSmallRight`)・far を左上放射 (`forceOutsideLeader` のみ)。
+ *    左右へ振り分けて互いの riser 交差を防ぐ (near/far は 12時距離で決める)。
+ *  - `nearEscapeRight`: 12時最寄り 1 枚だけ右上 L 字、残りは左に据え置く。
+ *  - `loneRadialWithSonohoka`: 1 枚を放射 leader + `loneTopSliverLeader`
+ *    (`cascadeWithSonohokaPick` へ「その他」右上確定を伝える副作用印)。
+ *  - `dominantRadial`: 1 枚を放射 leader のみ (その他は無印で既存右上経路を維持)。
  */
-function markForcedTopSliverLeader(left: LayoutItemReady[], diagnostics: Diagnostics): void {
-  if (isDenseClusterMode(diagnostics)) return;
-  if (!isDominantTop(diagnostics, 90)) return;
-  if (diagnostics.totalCount !== 3) return;
-  // !isLong: 本 leader 付与は各スライスを 1 行ラベルで左右に振り分ける。長名は 1 行化で過剰長体
-  // (scaleX 下限 0.6) になり可読性が落ちるため対象外 (例 asset_domestic「国内投資信託証券」)。
-  const slivers = topBandLeftSlivers(left, 'small', 'exclude');
-  if (slivers.length !== 2) return;
+interface TopBandSliverRule {
+  readonly example: string;
+  readonly domMinPct: number;
+  readonly domMaxExclusivePct?: number;
+  readonly totalCount: number;
+  readonly sliverSize: 'small' | 'tiny';
+  readonly sliverCount: number;
+  readonly witness: (left: LayoutItemReady[], candidates: LayoutItemReady[]) => boolean;
+  readonly apply: (slivers: LayoutItemReady[]) => void;
+}
+
+// near (12時最寄り) を右上 L 字・far (12時最遠) を左上放射へ振り分ける。
+// 元 `markForcedTopSliverLeader`。1 行化の過剰長体を避けるため witness 側で長名を除外済み。
+const nearFarSplit = (slivers: LayoutItemReady[]): void => {
   let near = slivers[0];
   let far = slivers[0];
   for (const it of slivers) {
     if (Math.abs(it.midAngle - 90) < Math.abs(near.midAngle - 90)) near = it;
     if (Math.abs(it.midAngle - 90) > Math.abs(far.midAngle - 90)) far = it;
   }
-  // 両極小を rank 9 (buildOutsideLeaderDraft) 起点へ強制し、双方に leader を引かせる。
-  // leader 交差を避ける鍵は「各スライスを自分の側へ逃がす」こと: 12時より左寄り (mid が大きい)
-  // の far を左上 (generic radial)、12時に近い near を右上 (topBandSmallRight) へ。これにより
-  // 左スライスの leader を右へ回して near の riser を跨ぐ交差が起きない。各 leader は自 anchor
-  // から外側へ向かうだけなので互いの riser に到達しない。leaderless rim で確定させず rank 9 起点に。
   near.forceOutsideLeader = true;
   far.forceOutsideLeader = true;
   near.topBandSmallRight = true;
-}
+};
 
-/**
- * 「1強(≥90%) + 上左に極小トップ3枚(うち1枚が長名)」型 (例 fund_country_20240710:
- * 日本93.6/ルクセンブルク4.1/ケイマン諸島1.5/ジャージー0.9) で、12時シームに最も近い極小1枚
- * (ジャージー) に topBandSmallRight + forceOutsideLeader を立て、右上へ L 字 leader 付きで逃がす。
- * これにより上左に 3 枚密集して窮屈な状態を解き、残る 2 枚 (ケイマン・ルクセンブルク) は左に留めた
- * まま上方向へ寄る。
- *
- * markForcedTopSliverLeader (総数3・極小2枚型) は両スライバを rank9 へ送る作りで、緩めて流用すると
- * manulife_country を回帰させ、かつ far (ケイマン) まで左放射 leader に巻き込むため別マーカーにする。
- * 右へ動かすのは 12時最寄りの 1 枚のみ・左 2 枚は据え置きとし、leader を反対側へ抜けさせて交差を防ぐ。
- *
- * ルクセンブルク(7文字)は isLong のため下のスライバ抽出 (!isLong) から自動除外され、leader ルーティング
- * 対象にならない (1行化で過剰長体・可読性低下を避ける既存方針)。同帯に長名スライバが 1 枚以上ある事を
- * 「3枚密集のうち1枚が長名」構成の証人として要求し、manulife / world_bond 等と分離する。
- *
- * ゲート (この構成だけに限定):
- *  - leftStackMode / topBandClusterMode でない (≥4 件密集の別系統)
- *  - 最大スライス ≥ 90% (1強)
- *  - 総スライス数 == 4 (1強 + 周辺3枚)
- *  - 上左 (mid>90) の small・top-band(72–108°)・非「その他」・非長名 スライバがちょうど 2 枚
- *  - 同帯に長名の small スライバが 1 枚以上 (= 周辺3枚のうち1枚が長名である証人)
- */
-function markForcedTopSliverEscapeRight(left: LayoutItemReady[], diagnostics: Diagnostics): void {
-  if (isDenseClusterMode(diagnostics)) return;
-  if (!isDominantTop(diagnostics, 90)) return;
-  if (diagnostics.totalCount !== 4) return;
-  const slivers = topBandLeftSlivers(left, 'small', 'exclude');
-  if (slivers.length !== 2) return;
-  const hasLongTopBandSliver = topBandLeftSlivers(left, 'small', 'require').length > 0;
-  if (!hasLongTopBandSliver) return;
-  // 12時(90°)に最も近い 1 枚(=ジャージー)だけを rank9 (buildOutsideLeaderDraft) 起点へ送り、
-  // topBandSmallRight で右上 L 字 leader を引かせる。左 2 枚は無印で左に据え置く。
+const nearEscapeRight = (slivers: LayoutItemReady[]): void => {
   const near = nearestToTwelveOClock(slivers);
   near.forceOutsideLeader = true;
   near.topBandSmallRight = true;
+};
+
+const loneRadialWithSonohoka = (slivers: LayoutItemReady[]): void => {
+  slivers[0].forceOutsideLeader = true;
+  slivers[0].loneTopSliverLeader = true;
+};
+
+const dominantRadial = (slivers: LayoutItemReady[]): void => {
+  slivers[0].forceOutsideLeader = true;
+};
+
+const TOP_BAND_SLIVER_RULES: readonly TopBandSliverRule[] = [
+  // manulife_country (日本99.3/フランス0.6/米国0.1): 極小2枚を左右へ振り分け。
+  {
+    example: 'manulife_country',
+    domMinPct: 90,
+    totalCount: 3,
+    sliverSize: 'small',
+    sliverCount: 2,
+    witness: () => true,
+    apply: nearFarSplit,
+  },
+  // fund_country_20240710 (日本93.6/ルクセンブルク4.1/ケイマン1.5/ジャージー0.9):
+  // 周辺3枚のうち1枚が長名 (ルクセンブルク=isLong で抽出外) である事を証人に、12時最寄り1枚を右上へ。
+  {
+    example: 'fund_country_20240710',
+    domMinPct: 90,
+    totalCount: 4,
+    sliverSize: 'small',
+    sliverCount: 2,
+    witness: (left) => topBandLeftSlivers(left, 'small', 'require').length > 0,
+    apply: nearEscapeRight,
+  },
+  // world_bond_idx_asset (外国債券87.1/外国投資信託11.9/外国債券先物0.2/その他0.8):
+  // 80–90% + top-band の「その他」≥0.5 が上中央を占有。孤立極小1枚を放射 leader へ。
+  {
+    example: 'world_bond_idx_asset',
+    domMinPct: 80,
+    domMaxExclusivePct: 90,
+    totalCount: 4,
+    sliverSize: 'tiny',
+    sliverCount: 1,
+    witness: (_left, candidates) =>
+      candidates.some(
+        (it) =>
+          isOtherCategory(it.name) &&
+          angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
+          (it.percent ?? 0) >= 0.5,
+      ),
+    apply: loneRadialWithSonohoka,
+  },
+  // jp_equity_idx_asset (国内株式98.2/先物1.7/その他0.1): 極小2枚の片方が「その他」。
+  // 非「その他」極小1枚を放射 leader へ (その他は無印で既存右上経路)。
+  {
+    example: 'jp_equity_idx_asset',
+    domMinPct: 90,
+    totalCount: 3,
+    sliverSize: 'small',
+    sliverCount: 1,
+    witness: (_left, candidates) =>
+      candidates.some(
+        (it) =>
+          isOtherCategory(it.name) &&
+          it.isSmall &&
+          angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG),
+      ),
+    apply: dominantRadial,
+  },
+];
+
+function markTopBandSlivers(
+  candidates: LayoutItemReady[],
+  left: LayoutItemReady[],
+  diagnostics: Diagnostics,
+): void {
+  if (isDenseClusterMode(diagnostics)) return;
+  for (const r of TOP_BAND_SLIVER_RULES) {
+    if (!isDominantTop(diagnostics, r.domMinPct)) continue;
+    if (r.domMaxExclusivePct !== undefined && isDominantTop(diagnostics, r.domMaxExclusivePct)) {
+      continue;
+    }
+    if (diagnostics.totalCount !== r.totalCount) continue;
+    const slivers = topBandLeftSlivers(left, r.sliverSize, 'exclude');
+    if (slivers.length !== r.sliverCount) continue;
+    if (!r.witness(left, candidates)) continue;
+    r.apply(slivers);
+  }
 }
 
 /**
@@ -1206,90 +1268,6 @@ function leftStackUpperEscapeCandidates(left: LayoutItemReady[]): LayoutItemRead
     .sort((a, b) => Math.abs(a.midAngle - 90) - Math.abs(b.midAngle - 90));
 }
 
-/**
- * 「1強(80–90%) + 上左に極小1枚 + 上中央を『その他』が占有」型 (例 world_bond_idx_asset:
- * 外国債券87.1/外国投資信託11.9/外国債券先物0.2/その他0.8) で、上左に孤立する極小1枚に
- * forceOutsideLeader を立て rank 9 (buildOutsideLeaderDraft) 起点へ送り、自スライス真上付近の
- * 外側リングへ寄せて放射状 leader を引かせる。これをしないと当該極小は leaderless rim ラベルとして
- * 左上隅へ流され、自スライス (≈12時) から大きく乖離したまま線が付かない。
- *
- * markForcedTopSliverLeader (≥90%・3枚・極小2枚型) とは別構成のため専用マーカーにする。緩めて
- * 統合すると asset_domestic_equity 等の正常な lone-sliver (上中央へ既に leader 済) が誤発火する。
- *
- * 上中央/右は『その他』が占有するため topBandSmallRight は立てず、放射 (左寄り) 配置を選ぶ。
- *
- * ゲート (この構成だけに限定):
- *  - leftStackMode / topBandClusterMode でない
- *  - 最大スライスが 80–90% (≥90% は markForcedTopSliverLeader / 高ドミナント lone-sliver の領分)
- *  - 上左 (mid>90) の tiny・top-band(72–108°)・非「その他」・非長名 スライスがちょうど 1 枚
- *  - top-band に percent≥0.5 の『その他』が存在 (上中央の逃げ場を占有している証人)
- *  - 総スライス数 == 4 (多スライス図への波及防止)
- */
-function markLoneTopSliverLeader(
-  candidates: LayoutItemReady[],
-  left: LayoutItemReady[],
-  diagnostics: Diagnostics,
-): void {
-  if (isDenseClusterMode(diagnostics)) return;
-  // 80–90 帯限定 (90 以上は markDominantTopSliverWithOther 系の管轄)。
-  if (!isDominantTop(diagnostics, 80) || isDominantTop(diagnostics, 90)) return;
-  if (diagnostics.totalCount !== 4) return;
-  const slivers = topBandLeftSlivers(left, 'tiny', 'exclude');
-  if (slivers.length !== 1) return;
-  const topBandSonohokaOccupied = candidates.some(
-    (it) =>
-      isOtherCategory(it.name) &&
-      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG) &&
-      (it.percent ?? 0) >= 0.5,
-  );
-  if (!topBandSonohokaOccupied) return;
-  // forceOutsideLeader で rank 9 (放射 leader) 起点へ。loneTopSliverLeader は
-  // cascadeWithSonohokaPick に「その他を右上へ確定させ中央 box の貫通 suppression を避ける」
-  // ことを伝える印 (極小の up-and-over leader が生き残る条件)。
-  slivers[0].forceOutsideLeader = true;
-  slivers[0].loneTopSliverLeader = true;
-}
-
-/**
- * 「1強(≥90%) + 3 スライス + 極小2枚 (うち1枚が『その他』)」型 (例 pdf_510037_03_jp_equity_idx_asset
- * _20240529: 国内株式98.2/国内株式先物1.7/その他0.1) で、唯一の非「その他」極小スライバ (国内株式先物) に
- * `forceOutsideLeader` を立て rank 9 (`buildOutsideLeaderDraft`) 起点へ送り、放射 leader 付きで左上へ
- * クリーン配置する。これをしないと当該スライバは汎用上左 rim 配置 (2 行・`anchor="middle"`・12時シーム
- * 付近) へ落ち、シームでは rim の x が ≒0 のため箱が名前幅ぶん左へ伸びて `applyFinalCondenseToFit` が
- * 下限 (0.7) まで長体化＋クランプが左端へ寄せる (= 長体・左寄りすぎの症状)。`その他` は無印で既存の
- * 右上経路を維持する (near=右 / far=左 の manulife_country 慣例と同じ左右配置になる)。
- *
- * `markForcedTopSliverLeader` (≥90%・3枚・**極小2枚**型) と別マーカーにする理由: 本構成は極小2枚の片方が
- * `その他` であり、`topBandLeftSlivers` の `その他` 除外で抽出が 1 枚になり `slivers.length !== 2` で
- * 弾かれる。`markLoneTopSliverLeader` (80–90%・4枚・`その他`≥0.5 が上中央占有) とも dominant 帯・総数・
- * `その他` の役割が異なる。ゲートを緩めて統合すると manulife_country / world_bond を回帰させるため独立させる。
- *
- * ゲート (この構成だけに限定):
- *  - leftStackMode / topBandClusterMode でない
- *  - 最大スライス ≥ 90% (1強)
- *  - 総スライス数 == 3 (1強 + 周辺2枚)
- *  - 上左 (mid>90) の small・top-band(72–108°)・非「その他」・非長名 スライバがちょうど 1 枚
- *  - 周辺の残り 1 枚が top-band の『その他』(= 極小2枚の片方が『その他』である証人)
- */
-function markDominantTopSliverWithOther(
-  candidates: LayoutItemReady[],
-  left: LayoutItemReady[],
-  diagnostics: Diagnostics,
-): void {
-  if (isDenseClusterMode(diagnostics)) return;
-  if (!isDominantTop(diagnostics, 90)) return;
-  if (diagnostics.totalCount !== 3) return;
-  const slivers = topBandLeftSlivers(left, 'small', 'exclude');
-  if (slivers.length !== 1) return;
-  const topBandSonohoka = candidates.some(
-    (it) =>
-      isOtherCategory(it.name) &&
-      it.isSmall &&
-      angleInBand(normalizeAngle(it.midAngle), 90, TOP_BAND_HALF_WIDTH_DEG),
-  );
-  if (!topBandSonohoka) return;
-  slivers[0].forceOutsideLeader = true;
-}
 
 // 6時 (270°) 中心の「真下中央」帯の半幅 (度)。BOTTOM_BAND_HALF_WIDTH_DEG(18) より狭く、
 // |cos| 閾値と併せて「ほぼ真下」のみを拾う。
@@ -1624,10 +1602,7 @@ export function layoutLabels(
   assignUpperLeftRenderY(left, diagnostics, cfg);
   markTopBandSmallRight(left, diagnostics);
   markClippedUpperLeftLongDrop(left, diagnostics, cfg);
-  markForcedTopSliverLeader(left, diagnostics);
-  markForcedTopSliverEscapeRight(left, diagnostics);
-  markLoneTopSliverLeader(candidates, left, diagnostics);
-  markDominantTopSliverWithOther(candidates, left, diagnostics);
+  markTopBandSlivers(candidates, left, diagnostics);
   markBottomCenterBelow(candidates, diagnostics, cfg);
   markDenseSideOutsidePush(left, diagnostics);
   markBisectedPie(candidates);
