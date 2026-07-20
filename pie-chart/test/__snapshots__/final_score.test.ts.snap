@@ -480,10 +480,10 @@ exports[`emit 後 finalScore / modeTags のゴールデン表 > 全サンプル�
   },
   "currency_low_diff_10": {
     "finalScore": {
-      "clips": 1,
+      "clips": 0,
       "crossings": 0,
       "pie": 0,
-      "total": 1,
+      "total": 0,
     },
     "modeTags": [
       "many_items",
@@ -497,10 +497,10 @@ exports[`emit 後 finalScore / modeTags のゴールデン表 > 全サンプル�
   },
   "currency_many_small_10": {
     "finalScore": {
-      "clips": 0,
+      "clips": 1,
       "crossings": 0,
       "pie": 0,
-      "total": 0,
+      "total": 1,
     },
     "modeTags": [
       "many_items",
@@ -1063,10 +1063,10 @@ exports[`emit 後 finalScore / modeTags のゴールデン表 > 全サンプル�
   },
   "ten_elements_long_upper_left": {
     "finalScore": {
-      "clips": 2,
+      "clips": 1,
       "crossings": 0,
       "pie": 0,
-      "total": 2,
+      "total": 1,
     },
     "modeTags": [
       "many_items",

@@ -622,17 +622,43 @@ function applyTwoLineNameFallback(
     if (myClipBefore <= 0) continue; // 見切れていない 1 行はそのまま
     const snap = toTwoLineNamePlacement(p, cfg);
     if (!snap) continue;
+    // 2 行化は箱が縦に伸び、下辺が pie 円へ食い込むことがある (クリアランス拡大で顕在化)。ゲートは
+    // 食い込みを nudge で外した実 emit 相当の姿で判定する (却下時は幾何ごと戻す)。
+    const geomSnap = { x: p.x, y: p.y };
+    const nudged = nudgeTextAwayFromPie(
+      p.x,
+      p.y,
+      p.anchor,
+      p.baseline,
+      placementExtent(p, cfg),
+      cfg,
+    );
+    p.x = nudged.x;
+    p.y = nudged.y;
     const after = measureDefectGate(placements, cfg, coord);
     // do-no-harm: 対象自身の見切れ px が厳密に減り、全体の他カテゴリ (clips件数/交差/円貫通/重なり/box円侵入)
     // が非悪化。2 行化は名前行のみで箱幅が縮むため自分の左右見切れは減るが、高さ増で別不具合を生むなら revert。
+    // 例外: チャートの clips 件数が厳密に減る 2 行化に限り、軽微な box 重なり +1 件までは許す
+    // (見切れ ≫ 重なり — `runLabelCascade` の keepTwoLineLeftStack ループと同じ辞書順方針)。クリアランス
+    // 拡大で 2 行化の縦膨らみが隣とグレーズしやすくなり、見切れ完全解消 (currency_low_diff_10
+    // シンガポールドル 21.6px→0) が重なり 1 件で却下されるのを防ぐ。交差/円貫通/box 円侵入/through は
+    // この例外枝でも非悪化を要求する。
     const adopt =
       clipPx(p) < myClipBefore - 1e-9 &&
       after.d.clips <= before.d.clips &&
-      gateNotWorseExceptClips(after, before);
+      (gateNotWorseExceptClips(after, before) ||
+        (after.d.clips < before.d.clips &&
+          after.d.crossings <= before.d.crossings &&
+          after.d.pie <= before.d.pie &&
+          after.pieBox <= before.pieBox &&
+          after.through <= before.through &&
+          overlapsOf(after.d) <= overlapsOf(before.d) + 1));
     if (adopt) {
       before = after;
     } else {
       restoreTwoLineNamePlacement(p, snap);
+      p.x = geomSnap.x;
+      p.y = geomSnap.y;
     }
   }
 }
@@ -1283,6 +1309,13 @@ function untangleAngularOrderBySwap(
   cfg: PieLayoutConfig,
   coord: Coord,
   side: 'left' | 'right',
+  // nudgeBeforeGate=true (emit 最終段のみ): swap 適用後、当事者 2 枚を viewBox 内へ水平に
+  // 引き戻してから do-no-harm を判定する。swap 直後の生配置は幅広ラベルが狭い側の x スロットを
+  // 継承して viewBox を割り、正しいスワップが view 悪化で却下される (country_12_europe_heavy:
+  // デンマーク↔ノルウェー、view 0→48.5px)。上段スロットは円頂上より上で pie 制約が無く全量
+  // 引き戻せるため、採否は引き戻し後の実 emit 相当の姿で測る。採点列に入れない理由は
+  // escapeTopBandSeamLeader の thorough と同じ (修復前提のスコアが候補選択を歪める)。
+  nudgeBeforeGate = false,
 ): void {
   // side は実描画 (p.x の符号) で判定 (separateCrossingPairs と同理由: flip フラグは実描画
   // サイドと乖離し得るため、フラグ持ちを除外すると逆転ペアが修復対象から漏れる)。
@@ -1339,6 +1372,22 @@ function untangleAngularOrderBySwap(
     clampPlacement(p);
   };
 
+  // swap 後の当事者を viewBox 内へ水平に引き戻す (nudgeBeforeGate 用)。`applyVisualViewBoxNudge` は
+  // compact 1 行ラベルを対象外にするためここでは使えない (「デンマーク 2.0%」等が引き戻せない)。
+  // 引き戻しで生じうる pie 食い込みは `nudgeTextAwayFromPie` が防ぎ、なお残る悪化は evalHarm が却下する。
+  const pullIntoView = (p: Placement): void => {
+    const halfW = cfg.svgWidthPx / 2 / cfg.pxPerUnit;
+    const b = placementBox(p, cfg);
+    let shift = 0;
+    if (b.left < -halfW) shift = -halfW - b.left;
+    else if (b.right > halfW) shift = halfW - b.right;
+    if (shift === 0) return;
+    const measured = placementExtent(p, cfg);
+    const nudged = nudgeTextAwayFromPie(p.x + shift, p.y, p.anchor, p.baseline, measured, cfg);
+    p.x = nudged.x;
+    p.y = nudged.y;
+  };
+
   for (let outer = 0; outer < stack.length; outer += 1) {
     stack.sort((a, b) => centerY(b) - centerY(a)); // 上 → 下 (logical y 降順)
     let swapped = false;
@@ -1379,6 +1428,10 @@ function untangleAngularOrderBySwap(
           rehug(lo);
         }
         resolveLabelOverlaps(stack, cfg);
+        if (nudgeBeforeGate) {
+          pullIntoView(up);
+          pullIntoView(lo);
+        }
       };
       // 採用条件: 角度順 discordant 対 (Kendall) が厳密に減り、かつ交差/重なり/pie/viewBox が悪化しない
       // 時のみ。verify の隣接逆転指標だと 3 要素以上の乱れで逆転が別対へ移るだけで総数が減らず採用
@@ -1436,12 +1489,15 @@ function applyOutsideLeaderAngularOrder(
   placements: Placement[],
   cfg: PieLayoutConfig,
   coord: Coord,
+  // thorough=true (emit のみ): untangle の swap 採否を nudge 後の姿で判定する (詳細は
+  // `untangleAngularOrderBySwap` の nudgeBeforeGate コメント)。採点側は従来 (false) のまま。
+  thorough = false,
 ): void {
   separateCrossingPairs(placements, cfg, coord, 'left');
   separateCrossingPairs(placements, cfg, coord, 'right');
   // 交差0 のまま順序だけ逆転している隣接対を (y, baseline) スワップで角度順へ寄せる (do-no-harm)。
-  untangleAngularOrderBySwap(placements, cfg, coord, 'left');
-  untangleAngularOrderBySwap(placements, cfg, coord, 'right');
+  untangleAngularOrderBySwap(placements, cfg, coord, 'left', thorough);
+  untangleAngularOrderBySwap(placements, cfg, coord, 'right', thorough);
 }
 
 /** reorderLeftStackWithCondense が許容する viewBox はみ出し増の上限 (px)。≈1 行高。 */
@@ -1836,29 +1892,43 @@ function relieveLeftStackSpacing(
   // 古い `maxTextX` は右寄せを引き戻すので一時的に外し、`clampPlacement` には pie 天井だけを効かせる
   // (text の pie 侵入はここで防ぐ。`countDefects` は leader の pie 貫通しか見ないため)。退行 (新たな
   // overlap/clip 等) があれば revert。完全には収まらなくても見切れが減れば採用 (clips は等値で許容)。
+  //
+  // 右寄せは隣ラベルの leader 縦回廊を跨いで貫通 (through) を生みうるが、through は `countDefects`
+  // に入らず `notWorse` を素通りする (currency_many_small_10: スウェーデンクローナの full-fit 右寄せが
+  // ノルウェークローネ leader を跨いだ退行)。through 非増加をガードに加え、full-fit で跨ぐ場合は
+  // シフトを 1 割刻みで縮めて「回廊の手前で止まる部分デクリップ」に落とす (見切れ僅少残り > 貫通)。
   for (const m of stack) {
     const box = placementBox(m, cfg);
     const leftPx = Math.min(coord.xScale(box.left), coord.xScale(box.right));
     if (leftPx >= 1 || pxPerUnitX <= 0) continue; // 見切れていない
     const before = countDefects(placements, cfg, coord);
+    const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
     const origX = m.x;
-    tryMoveWithGuard(
-      m,
-      () => {
-        const origMaxTextX = m.maxTextX;
-        const target = origX + (2 - leftPx) / pxPerUnitX; // box 左辺が +2px に来る理想 x (full-fit)
-        m.maxTextX = undefined; // 古い右寄せ上限を外し pie 天井のみ効かせる
-        m.x = target;
-        clampPlacement(m, cfg); // 左ラベルは pie 天井 (pieMaxTextX) まで右寄せに引き戻される
-        m.maxTextX = origMaxTextX;
-      },
-      // 実際に右へ動き・見切れが 0.5px 超減り・退行なし、の全てを満たす時だけ採用。
-      () => {
-        const movedBox = placementBox(m, cfg);
-        const movedLeftPx = Math.min(coord.xScale(movedBox.left), coord.xScale(movedBox.right));
-        return m.x > origX + 1e-4 && movedLeftPx > leftPx + 0.5 && notWorse(before);
-      },
-    );
+    const fullShift = (2 - leftPx) / pxPerUnitX; // box 左辺が +2px に来る理想シフト (full-fit)
+    for (let frac = 1; frac >= 0.1 - 1e-9; frac -= 0.1) {
+      const adopted = tryMoveWithGuard(
+        m,
+        () => {
+          const origMaxTextX = m.maxTextX;
+          m.maxTextX = undefined; // 古い右寄せ上限を外し pie 天井のみ効かせる
+          m.x = origX + fullShift * frac;
+          clampPlacement(m, cfg); // 左ラベルは pie 天井 (pieMaxTextX) まで右寄せに引き戻される
+          m.maxTextX = origMaxTextX;
+        },
+        // 実際に右へ動き・見切れが 0.5px 超減り・退行なし (through 含む)、の全てを満たす時だけ採用。
+        () => {
+          const movedBox = placementBox(m, cfg);
+          const movedLeftPx = Math.min(coord.xScale(movedBox.left), coord.xScale(movedBox.right));
+          return (
+            m.x > origX + 1e-4 &&
+            movedLeftPx > leftPx + 0.5 &&
+            notWorse(before) &&
+            countLeaderThroughLabels(placements, cfg, coord) <= beforeThrough
+          );
+        },
+      );
+      if (adopted) break;
+    }
   }
 
   // (2) リムハグ行の押し出し (赤道寄りで円縁に近接した密集側行を円から離す)。キャンバス端で
@@ -3130,7 +3200,7 @@ function escapeTopBandSeamLeader(
   // ① 既存の角度順整列 (縦引き離し + footprint 同形スワップ)、② 直らない場合は左トップバンドクラスタを
   // 角度順 rim へ再積み上げ。例: ジャージー逃がし後の ケイマン×アイルランド (ケイマンが天頂へ逆転配置)。
   if (adoptedAny) {
-    applyOutsideLeaderAngularOrder(placements, cfg, coord);
+    applyOutsideLeaderAngularOrder(placements, cfg, coord, thorough);
     reorderTopBandLeftClusterByAngle(placements, cfg, coord);
   }
 }
@@ -3917,7 +3987,14 @@ export const EMIT_REPAIR_PASSES: readonly EmitRepairPass[] = [
   // 最終段: 同一側で交差する外側 leader 対を縦に引き離して交差を解消する。viewBox nudge /
   // condense-to-fit の後 (= emit と同一の最終配置) に実行するので、ここで見た交差は verify が
   // 報告する交差と一致する。各手は do-no-harm (交差減・重なり非悪化・viewBox 内) で採用。
-  { name: 'outsideLeaderAngularOrder', stage: 'both', run: applyOutsideLeaderAngularOrder },
+  // emit では thorough=true (swap 採否を nudge 後の姿で判定)。採点は従来 greedy — 理由は
+  // `untangleAngularOrderBySwap` の nudgeBeforeGate コメント参照。
+  {
+    name: 'outsideLeaderAngularOrder',
+    stage: 'both',
+    run: (p, cfg, v) => applyOutsideLeaderAngularOrder(p, cfg, v, true),
+    scoringRun: (p, cfg, v) => applyOutsideLeaderAngularOrder(p, cfg, v),
+  },
 
   // applyOutsideLeaderAngularOrder の swap で直せない上左トップバンドクラスタの角度順逆転
   // (例 page16: ジャージー右逃がし後 ケイマンが天頂へ来てアイルランドの上に逆転) を、角度順
