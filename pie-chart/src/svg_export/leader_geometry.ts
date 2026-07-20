@@ -119,6 +119,7 @@ export function computeDrawnLeader(
   forScoring = false,
   allowTopCenter = false,
   allowGrazeLift = false,
+  allowDiagonal = false,
 ): { pathPoints: Pt[]; detectPathPoints: Pt[]; skipLeader: boolean } {
   // 常時描画 + 縦中央接続は **描画パスのみ** に適用する。conflict scorer (`chartConflicts`) から
   // `forScoring`=true で呼ばれた時は従来挙動を維持し、レイアウト選択 (その他 右/左 等) を baseline と
@@ -129,6 +130,10 @@ export function computeDrawnLeader(
   // `allowGrazeLift` も同様に最終描画 (`index.ts` の Pass 1c) でのみ true。3 点 leader の先頭セグメントが
   // 円周に接するのを W リルートで持ち上げる (下記参照)。realLeaderPaths/scorer/layout は既定 false の
   // ため `pathPoints` が baseline と一致し、`countLeaderCrossings` 経由のラベル位置選択に影響しない。
+  // `allowDiagonal` も最終描画 (`index.ts` の Pass 1d) でのみ true。水平先行 L 字
+  // (`leaderBendFollowsEndpointX`) の bend をアンカーへ畳み、アンカー → 接続点の 2 点斜め直線にする
+  // (下記参照)。既定 false のため realLeaderPaths/scorer/layout の幾何は baseline と一致し、
+  // ラベル位置・採点に影響しない。
   const alwaysDraw = ALWAYS_DRAW_OUTSIDE_LEADERS && !forScoring;
   const endpointMinDist = cfg.pieRadius + radialFraction(cfg, 0.01, 0.1);
   const dominantOutsideLeaderGap = radialFraction(cfg, 0.3, 2.8);
@@ -244,11 +249,19 @@ export function computeDrawnLeader(
     // 直線はアンカー (rim) から外側へ進むため円外を保ち、近端より外側で止まるので box も貫かない。
     bend = { x: placement.leaderAnchor.x, y: placement.leaderAnchor.y };
   } else if (alwaysDraw && placement.declipBottomLeader) {
-    // L 字 (横優先): アンカーから水平にラベル側 (外側) へ出て、ラベル水平中央 x (`endpoint.x`) で縦に
-    // 折れラベル縁へ。水平区間はアンカー (rim 上 dist≈`pieRadius`) から中心より遠い x へ進むので中心
-    // 距離は単調増 = 円外を保つ。縦区間はラベル中央 x (左外側で |x|>`pieRadius`) なので円外。ゆえに
-    // 下記 W 弦リルートは両区間とも円外で不発 (= 斜線化しない)、bend 1 回の素直な L 字になる。
-    bend = { x: endpoint.x, y: placement.leaderAnchor.y };
+    if (allowDiagonal) {
+      // 斜め直線化 (描画のみ): 下の L 字は「アンカー高さで水平 → ラベル縁中央で垂直」の 2 折れが
+      // 遠回りに見える (例 currency_europe_heavy_8 ノルウェー/デンマーク)。bend をアンカーへ畳み、
+      // アンカー → 縁中央接続点の 2 点斜線にする。円へ食い込む場合は下の W 弦リルートが 3 点へ
+      // 戻すため、呼び出し側 (Pass 1d) は「2 点になった時だけ」採用して安全側に倒す。
+      bend = { x: placement.leaderAnchor.x, y: placement.leaderAnchor.y };
+    } else {
+      // L 字 (横優先): アンカーから水平にラベル側 (外側) へ出て、ラベル水平中央 x (`endpoint.x`) で縦に
+      // 折れラベル縁へ。水平区間はアンカー (rim 上 dist≈`pieRadius`) から中心より遠い x へ進むので中心
+      // 距離は単調増 = 円外を保つ。縦区間はラベル中央 x (左外側で |x|>`pieRadius`) なので円外。ゆえに
+      // 下記 W 弦リルートは両区間とも円外で不発 (= 斜線化しない)、bend 1 回の素直な L 字になる。
+      bend = { x: endpoint.x, y: placement.leaderAnchor.y };
+    }
   } else if (placement.leaderBendFollowsEndpointY) {
     const anchorY = placement.leaderAnchor.y;
     const minOffset = radialFraction(cfg, 0.005, 0.05);
@@ -271,7 +284,14 @@ export function computeDrawnLeader(
     const anchorX = placement.leaderAnchor.x;
     const anchorY = placement.leaderAnchor.y;
     const minOffset = radialFraction(cfg, 0.005, 0.05);
-    if (anchorX > 0) bend = { x: Math.max(endpoint.x, anchorX + minOffset), y: anchorY };
+    if (allowDiagonal && alwaysDraw) {
+      // 斜め直線化 (描画のみ): 水平先行 L 字 (例 currency_europe_heavy_8 ノルウェー/デンマーク) は
+      // 「アンカー高さで水平 → ラベル手前で垂直」の 2 折れが遠回りに見えるため、bend をアンカーへ
+      // 畳む。下の縮退スタブ除去が 2 点 [anchor, drawEndpoint] へ畳み、truncate が box 縁 cornerGap
+      // 手前で止める素直な斜線になる。斜線が円へ食い込む場合は下の W 弦リルートが 3 点テントへ
+      // 戻すため、呼び出し側 (Pass 1d) は「2 点になった時だけ」採用して安全側に倒す。
+      bend = { x: anchorX, y: anchorY };
+    } else if (anchorX > 0) bend = { x: Math.max(endpoint.x, anchorX + minOffset), y: anchorY };
     else if (anchorX < 0) bend = { x: Math.min(endpoint.x, anchorX - minOffset), y: anchorY };
   } else if (
     alwaysDraw &&

@@ -4912,6 +4912,41 @@ export async function renderPdfStylePieToSvg(
       }
     }
 
+    // ── Pass 1d: 水平先行 L 字 leader を斜め直線へ畳む (描画のみ; ラベル位置不変) ──
+    // 「アンカー高さで水平 → ラベル手前で垂直」の 3 点 L 字は 2 折れが遠回りに見えるため、
+    // allowDiagonal=true で bend をアンカーへ畳んだ 2 点の斜め直線を試す。対象は 2 系統:
+    // `leaderBendFollowsEndpointX` (例 country_balanced_6 の上部ラベル) と `declipBottomLeader` の
+    // 縁中央接続 (例 currency_europe_heavy_8 ノルウェー/デンマーク)。W 弦リルートが 3 点テントへ
+    // 戻した (= 斜線が円へ食い込む) 場合は不採用にして現形状を維持する。do-no-harm は Pass 1c と
+    // 同一セット: 他 leader との交差関係不変・他ラベル box 非貫通・円食い込み非悪化 (verify /
+    // verify:consistency との整合)。lowerLeftDrop / forceTopRight の L 字は意図的形状 (bend チェーン
+    // の先行分岐 or 明示除外) で対象外。scorer / realLeaderPaths は既定 false のままなので採点・
+    // レイアウト選択は不変。
+    for (const entry of prepared) {
+      if (entry.skipLeader) continue;
+      const p = entry.placement;
+      const diagonalTarget = p.leaderBendFollowsEndpointX || p.declipBottomLeader === true;
+      if (!diagonalTarget || p.forceTopRight || p.insideSlice) continue;
+      if (entry.pathPoints.length !== 3) continue; // 既に 2 点 (縮退直線) やテント再構成は対象外
+      const dg = computeDrawnLeader(p, cfg, false, entry.topCenterApplied, false, true);
+      if (dg.skipLeader || dg.pathPoints.length !== 2) continue;
+      const before = toPixPts(entry.pathPoints);
+      const after = toPixPts(dg.pathPoints);
+      let harmful = dipsIntoPie(dg.pathPoints) && !dipsIntoPie(entry.pathPoints);
+      for (let j = 0; j < prepared.length && !harmful; j += 1) {
+        if (prepared[j] === entry) continue;
+        if (!prepared[j].skipLeader) {
+          const other = toPixPts(prepared[j].pathPoints);
+          if (pathsCross(before, other) !== pathsCross(after, other)) harmful = true;
+        }
+        if (!harmful && leaderCrossesBox(after, prepared[j].pixelBox)) harmful = true;
+      }
+      if (!harmful) {
+        entry.pathPoints = dg.pathPoints;
+        entry.detectPathPoints = dg.detectPathPoints;
+      }
+    }
+
     // ── Pass 1.5: 1 強スライスの冗長な rim leader を省く (ALWAYS_DRAW でも常時実行) ──
     // `buildOutsideRimDraft` 由来の rim ラベルは draft では `skipLeader=true` を意図しているが、
     // `ALWAYS_DRAW_OUTSIDE_LEADERS` 下では `computeDrawnLeader` が一律 leader を描く。そのうち 1 強
