@@ -184,6 +184,8 @@ export type BuildInlineRequest = z.infer<typeof sch.BuildInlineRequest>;
 // REST エンドポイントパスの単一正典(server/web/OpenAPI が共有)。
 export * from './api-paths.js';
 export * from './domain/history.js';
+// 承認ワークフローの純関数(メタ抽出)。
+export * from './domain/review.js';
 // パーツ別共通ダミー + ファンド固有マスタ合成(プレビュー文脈の組立)。
 export * from './domain/sampleCommon.js';
 export * from './domain/sampleData.js';

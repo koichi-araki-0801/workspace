@@ -8,7 +8,13 @@
 // メタに寄せる方針(`atomicWrite` で半端読みを防ぐ)。
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { notFound, type ReviewRequest, type ReviewRequestMeta, unexpected } from '@editor/shared';
+import {
+  notFound,
+  type ReviewRequest,
+  type ReviewRequestMeta,
+  toReviewMeta,
+  unexpected,
+} from '@editor/shared';
 import { config } from '../config.js';
 import { atomicWrite } from './atomic.js';
 
@@ -33,8 +39,7 @@ export async function writeReview(req: ReviewRequest): Promise<void> {
   await atomicWrite(bodyCssPath(req.id), req.css);
   if (req.filledHtml !== undefined) await atomicWrite(filledPath(req.id), req.filledHtml);
   // 本体を先に書いてからメタを書く(メタが在れば本体も在る、を保つ)。
-  const { html: _h, css: _c, filledHtml: _f, ...meta } = req;
-  await atomicWrite(metaPath(req.id), JSON.stringify(meta, null, 2));
+  await atomicWrite(metaPath(req.id), JSON.stringify(toReviewMeta(req), null, 2));
 }
 
 /** 申請メタを読む。無ければ null(モジュール内部ヘルパ)。 */

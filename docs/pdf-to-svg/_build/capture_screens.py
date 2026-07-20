@@ -21,7 +21,10 @@ import time
 REPO = pathlib.Path(__file__).resolve().parents[3]
 ROOT = REPO / "pdf-to-svg"
 sys.path.insert(0, str(ROOT / "src"))
+# 共通撮影ヘルパ (docs/_build/shot.py)。launch/コンテキスト/解像度規約を集約。
+sys.path.insert(0, str(REPO / "docs" / "_build"))
 
+import shot as shot_helper  # noqa: E402
 from dictionary.store import DictionaryStore  # noqa: E402
 from web.rpc_methods import WebSession  # noqa: E402
 from web.server import create_server  # noqa: E402
@@ -63,18 +66,11 @@ def skip_guard_if_present(page):
 
 
 def main():
-    from playwright.sync_api import sync_playwright
-
     server, url = start_server()
     print("server:", url)
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            ctx = browser.new_context(
-                viewport={"width": 1280, "height": 880},
-                device_scale_factor=2,
-            )
-            page = ctx.new_page()
+        with shot_helper.chromium() as browser, \
+                shot_helper.page_context(browser, 1280, 880) as page:
             # File System Access API を消し、隠し <input type=file> フォールバックへ。
             page.add_init_script(
                 "delete window.showOpenFilePicker;"
@@ -157,8 +153,6 @@ def main():
             page.wait_for_selector('.screen[data-screen="4"].on', timeout=10000)
             time.sleep(0.6)
             shot(page, "step4_export.png")
-
-            browser.close()
     finally:
         server.shutdown()
         server.server_close()

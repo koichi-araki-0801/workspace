@@ -19,6 +19,7 @@ import {
   type ReviewStatus,
   type SubmitReviewRequest,
   templateFileName,
+  toReviewMeta,
   unexpected,
 } from '@editor/shared';
 import {
@@ -34,12 +35,6 @@ import { applyConfirmedSave } from './templateRepo.js';
 export interface ReviewActor {
   username: string;
   role: string;
-}
-
-/** 申請から本体(html/css/filled)を剥がした軽量メタ行を返す(一覧 API 用)。 */
-function toMeta(r: ReviewRequest): ReviewRequestMeta {
-  const { html: _h, css: _c, filledHtml: _f, ...meta } = r;
-  return meta;
 }
 
 // ── 承認/却下の直列化(`gitRepo.ts` の `withGitLock` と同型) ──
@@ -95,7 +90,7 @@ export async function submitReview(
     ...(req.filledHtml !== undefined ? { filledHtml: req.filledHtml } : {}),
   };
   await writeReview(review);
-  return toMeta(review);
+  return toReviewMeta(review);
 }
 
 /** 申請一覧(承認キュー)。状態で絞り込み、ロールで可視範囲を絞る。新しい順。 */

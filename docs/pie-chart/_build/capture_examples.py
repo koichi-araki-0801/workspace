@@ -6,9 +6,8 @@
 `pnpm --filter pie-chart run batch`（または pie-chart/ で `npm run batch`）で
 `out/` を生成しておくこと（本スクリプトは pie-chart/ 配下へ一切書き込まない）。
 
-ラスタライズ・撮影の作法は `docs/_build/svg2png.py` / `docs/pdf-to-svg/_build/
-capture_screens.py` と同じ（導入済み Playwright(chromium) 再利用、
-`device_scale_factor=2` で印刷ににじまない解像度を確保）。
+ラスタライズ・撮影の定型部（launch/コンテキスト/解像度規約）は `docs/_build/shot.py` に
+集約されたものを使う（導入済み Playwright(chromium) 再利用）。
 """
 from __future__ import annotations
 
@@ -20,6 +19,10 @@ REPO = pathlib.Path(__file__).resolve().parents[3]
 OUT_DIR = REPO / "pie-chart" / "out"
 IMAGES = REPO / "docs" / "pie-chart" / "images"
 
+# 共通撮影ヘルパ (docs/_build/shot.py) を import 可能にする。
+sys.path.insert(0, str(REPO / "docs" / "_build"))
+import shot  # noqa: E402
+
 # 代表サンプル: シンプル（少数スライス・素直な配置）と高密度（小スライス多数で
 # 引出線・長体・flip 等の自動調整が効く）を対で見せる。
 SAMPLES = [
@@ -29,41 +32,27 @@ SAMPLES = [
 
 
 def main() -> int:
-    from playwright.sync_api import sync_playwright
-
     missing = [s for s, _ in SAMPLES if not (OUT_DIR / "svg_js" / s).exists()]
     if missing or not (OUT_DIR / "compare.html").exists():
         print("out/ が未生成です。先に `npm run batch` を実行してください:", missing)
         return 1
 
     IMAGES.mkdir(parents=True, exist_ok=True)
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-
+    with shot.chromium() as browser:
         # ---- 生成 SVG 例 (600x450 の viewBox 実寸で切り出し) ----
         for src, dst in SAMPLES:
-            ctx = browser.new_context(
-                viewport={"width": 600, "height": 450}, device_scale_factor=2
+            shot.capture(
+                browser, (OUT_DIR / "svg_js" / src).resolve().as_uri(),
+                600, 450, IMAGES / dst, selector="svg",
             )
-            page = ctx.new_page()
-            page.goto((OUT_DIR / "svg_js" / src).resolve().as_uri())
-            page.wait_for_load_state("networkidle")
-            page.locator("svg").screenshot(path=str(IMAGES / dst))
-            ctx.close()
             print("  saved", dst)
 
         # ---- compare.html ビューア (先頭ページが見える範囲を撮影) ----
-        ctx = browser.new_context(
-            viewport={"width": 1280, "height": 880}, device_scale_factor=2
+        shot.capture(
+            browser, (OUT_DIR / "compare.html").resolve().as_uri(),
+            1280, 880, IMAGES / "viewer.png",
         )
-        page = ctx.new_page()
-        page.goto((OUT_DIR / "compare.html").resolve().as_uri())
-        page.wait_for_load_state("networkidle")
-        page.screenshot(path=str(IMAGES / "viewer.png"))
-        ctx.close()
         print("  saved viewer.png")
-
-        browser.close()
     print("done.")
     return 0
 

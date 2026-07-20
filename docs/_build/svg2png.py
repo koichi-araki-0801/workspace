@@ -7,8 +7,8 @@ SVG が正典・PNG はコミット済み成果物という運用（`build_all.p
 PNG 化が必要。
 
 ラスタライズは導入済みの Playwright(chromium) を再利用する（cairosvg 等の依存追加はオフライン
-制約に反するため不採用。撮影の作法は `docs/pdf-to-svg/_build/capture_screens.py` と同じ）。
-`device_scale_factor=2` で印刷時ににじまない解像度を確保する。フォント（`BIZ UDPGothic`）は
+制約に反するため不採用）。launch/コンテキスト/撮影の定型部と解像度規約（印刷ににじまない
+`device_scale_factor`）は同階層の `shot.py` に集約している。フォント（`BIZ UDPGothic`）は
 Windows 同梱のものを chromium の実描画で使う。
 
 使い方:
@@ -49,22 +49,14 @@ def main(argv=None):
         print("対象 SVG がありません")
         return 0
 
-    from playwright.sync_api import sync_playwright
+    import shot
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
+    with shot.chromium() as browser:
         for svg in targets:
             w, h = _svg_size(svg)
-            ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=2)
-            page = ctx.new_page()
-            page.goto(svg.resolve().as_uri())
-            page.wait_for_load_state("networkidle")
             out = svg.with_suffix(".png")
-            # 要素単位で撮ると SVG 実寸ぴったりに切り出せる（viewport の余白が混ざらない）。
-            page.locator("svg").screenshot(path=str(out))
-            ctx.close()
+            shot.capture(browser, svg.resolve().as_uri(), w, h, out, selector="svg")
             print(f"  [ok] {out.relative_to(DOCS)}")
-        browser.close()
     return 0
 
 
