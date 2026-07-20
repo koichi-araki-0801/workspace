@@ -748,7 +748,8 @@ export function leaderThroughPairs(
     if (!pts) continue;
     for (let j = 0; j < placements.length; j += 1) {
       if (j === i) continue;
-      if (leaderCrossesBox(pts, boxes[j])) pairs.add(`${placements[i].item.name}>${placements[j].item.name}`);
+      if (leaderCrossesBox(pts, boxes[j]))
+        pairs.add(`${placements[i].item.name}>${placements[j].item.name}`);
     }
   }
   return pairs;

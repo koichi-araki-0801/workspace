@@ -1389,10 +1389,7 @@ function tidyTopRightEscapeeStack(
   if (!sono) return;
   const escapees = placements.filter(
     (p) =>
-      !p.insideSlice &&
-      p.forceTopRight &&
-      p.anchor === 'start' &&
-      !isOtherCategory(p.item.name),
+      !p.insideSlice && p.forceTopRight && p.anchor === 'start' && !isOtherCategory(p.item.name),
   );
   if (escapees.length === 0) return;
   const defectVec = () => ({
@@ -4233,7 +4230,12 @@ function upperEscapeScore(
   layout: LayoutResult,
   cfg: PieLayoutConfig,
   coord: Coord,
-): DefectCounts & { through: number; stubs: number; throughPairs: Set<string>; crossPairs: Set<string> } {
+): DefectCounts & {
+  through: number;
+  stubs: number;
+  throughPairs: Set<string>;
+  crossPairs: Set<string>;
+} {
   const labelsCopy = structuredClone(layout.labels) as typeof layout.labels;
   const placements = runLabelCascade(labelsCopy, cfg, coord, layout.diagnostics);
   // **emit と同一の後段列** (`applyEmitRepairPasses`) を通してから数える。`finalizeForScoring` は

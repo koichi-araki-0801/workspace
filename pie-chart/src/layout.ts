@@ -1268,7 +1268,6 @@ function leftStackUpperEscapeCandidates(left: LayoutItemReady[]): LayoutItemRead
     .sort((a, b) => Math.abs(a.midAngle - 90) - Math.abs(b.midAngle - 90));
 }
 
-
 // 6時 (270°) 中心の「真下中央」帯の半幅 (度)。BOTTOM_BAND_HALF_WIDTH_DEG(18) より狭く、
 // |cos| 閾値と併せて「ほぼ真下」のみを拾う。
 const BOTTOM_CENTER_HALF_DEG = 8;
