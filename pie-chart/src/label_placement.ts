@@ -82,6 +82,15 @@ interface PlacementDraft {
 // 本ファイルの帯判定に加え、svg_export 側の cascade probe / sorting でも
 // 参照するため公開する。
 export const TOP_BAND_HALF_WIDTH_DEG = 18;
+
+/**
+ * 上左から右上へ逃がす候補帯の半幅 (`layout.ts` の `leftStackUpperEscapeCandidates`)。
+ * 帯 = 90〜135° = **上左象限 (90–180°) のうち 12時側の半分**。これより 9時寄りのスライスを右上へ
+ * 渡すと引出線がチャート上部を横断する長い横線になるため、象限の半分が自然な上限になる。
+ * `TOP_BAND_HALF_WIDTH_DEG`(18) や `TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG`(32) とは別概念
+ * (逃がし候補帯 vs top-band 判定 vs その他真上配置帯) なので独立定数にする。
+ */
+export const LEFT_STACK_UPPER_ESCAPE_HALF_WIDTH_DEG = 45;
 export const BOTTOM_BAND_HALF_WIDTH_DEG = 18;
 
 /**

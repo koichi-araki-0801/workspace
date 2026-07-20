@@ -186,6 +186,11 @@ export interface Diagnostics {
   bottomSmallCount?: number;
   /** 12時近傍 (mid 90°±30°) かつ small の slice 件数 (`topBandClusterMode` の判定入力)。 */
   topBandClusterCount?: number;
+  /**
+   * 上左から右上へ逃がせる候補の枚数 (`layout.ts` の `leftStackUpperEscapeCandidates`)。
+   * `svg_export/index.ts` の `pickUpperEscapeCount` が探索の上限として読む。
+   */
+  upperEscapeCandidateCount?: number;
   totalCount?: number;
   rankValuesFull?: number[];
   /** emit 実配置 (最終後段適用後) を内部スコアラ `countDefects` で数えた不具合数。

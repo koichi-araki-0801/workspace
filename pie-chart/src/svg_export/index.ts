@@ -86,6 +86,7 @@ import {
   realLeaderPaths,
   countLeaderCrossings,
   countLeaderThroughLabels,
+  countBundledRimStubs,
   boxOverlapMax,
   boxPieIntrusionMax,
   boxViewOverflowOf,
@@ -125,6 +126,10 @@ const TOP_BAND_RIGHT_ANGLE_MAX_DEG = 90;
 // =============================================================================
 const CASCADE_INSIDE_RANKS = new Set([1, 3, 5, 7]);
 const CASCADE_MAX_ITER = 10;
+
+// `restackLiftedIfOverlapping` の部分適用の刻み数。必要量の 1/N ずつ浅くしながら「円に当たらない
+// 最大の降下量」を採る。冠直下は円の幅が急に広がるため、刻みを細かくしても得られる余地は僅か。
+const RESTACK_DROP_STEPS = 8;
 
 interface CascadeState {
   item: LayoutItemReady;
@@ -1243,7 +1248,7 @@ function applyTopBandClusterReorder(placements: Placement[], cfg: PieLayoutConfi
  * 割り当て直す。これで横方向の見た目 (各 anchorX 由来の X) は維持しつつ縦順だけ是正する。
  * `markLeftStackTopBandEscapeRight` が 2 枚立てた leftStackMode 形状で発火。1 枚以下なら無処理。
  */
-function stackTopRightLiftedLabels(placements: Placement[]): void {
+function stackTopRightLiftedLabels(placements: Placement[], cfg: PieLayoutConfig): void {
   const esc = placements.filter((p) => p.forceTopRight && !p.insideSlice);
   if (esc.length < 2) return;
   // 望ましい縦順: 12時から遠い (|midAngle-90| 大) ほど上段。
@@ -1256,6 +1261,92 @@ function stackTopRightLiftedLabels(placements: Placement[]): void {
     p.y = slots[i];
     clampPlacement(p);
   });
+  restackLiftedIfOverlapping(byFarthest, placements, cfg);
+}
+
+/** `group` の各 box と、`group` に属さない box との最大縦重なり量 (logical, X が重なる対のみ)。 */
+function crossOverlapMax(group: Placement[], all: Placement[], cfg: PieLayoutConfig): number {
+  const inGroup = new Set(group);
+  let m = 0;
+  for (const g of group) {
+    const a = placementBox(g, cfg);
+    for (const o of all) {
+      if (inGroup.has(o) || o.insideSlice) continue;
+      const b = placementBox(o, cfg);
+      const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
+      if (ox > 0 && oy > 0) m = Math.max(m, oy);
+    }
+  }
+  return m;
+}
+
+/**
+ * 右上へ逃がした lifted ラベルの縦スロットが**重なっている**場合に、上端から「箱高 + 最小ギャップ」で
+ * 積み直す。`topRightLiftedRimDraft` は全 escapee に同じ初期 Y (pie キャップ直上) を与えるため、
+ * 冠〜viewBox 上端に 2 枚分の余白が無いチャートでは cascade の重なり解消でも分離しきれず、
+ * 文字同士が重なって残る。
+ *
+ * 下段は pie キャップより下へ降りることを許す。**その高さでは円の幅が細くなる**ので、箱が円から
+ * 十分離れていれば (箱の最近点と円中心の距離 ≥ pieRadius) 干渉しない — 冠より上という位置ではなく
+ * 「円に当たらない」という条件そのもので判定する。円へ食い込む位置しか取れない段は動かさない
+ * (`topRightLiftedRimDraft` が横押し出しを避けている前提を壊さないため)。
+ *
+ * 全体は do-no-harm: 積み直しても**チャート全体の最大重なりが厳密に減らない**なら丸ごと revert する。
+ * 降ろした先が別のラベル群と干渉して、逃がし先の重なりを他所の重なりへ移すだけになる構成があるため
+ * (実測: 合成入力 `gen_short_12_other` で上左のラベル群が潰れた)。
+ */
+function restackLiftedIfOverlapping(
+  ordered: Placement[],
+  all: Placement[],
+  cfg: PieLayoutConfig,
+): void {
+  const boxes = ordered.map((p) => placementBox(p, cfg));
+  const overlapping = ordered.some((_, i) => {
+    if (i === 0) return false;
+    const a = boxes[i - 1];
+    const b = boxes[i];
+    return Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0 && b.top > a.bottom;
+  });
+  if (!overlapping) return;
+  const snapshot = all.map((p) => p.y);
+  // escapee 同士の重なり (減らしたい量) と、escapee ↔ その他のラベルの重なり (増やしてはいけない量)
+  // を別々に測る。チャート全体の最大重なりで見ると、無関係な別の重なりが最大値を握っている構成で
+  // 「厳密減」が成立せず、余地があるのに諦めてしまう。
+  const escOverlapBefore = boxOverlapMax(ordered, cfg);
+  const crossOverlapBefore = crossOverlapMax(ordered, all, cfg);
+  const intrusionBefore = boxPieIntrusionMax(all, cfg);
+  for (let i = 1; i < ordered.length; i += 1) {
+    const p = ordered[i];
+    const prevBottom = placementBox(ordered[i - 1], cfg).bottom;
+    const box = placementBox(p, cfg);
+    const need = box.top - (prevBottom - cfg.scaledMinGap);
+    if (need <= 0) continue;
+    // 必要量を一度に下げると円へ食い込むことがあるので、**降りられる分だけ降りる**部分適用にする
+    // (「全部やるか諦めるか」にすると余地があるチャートでも重なりが残る)。
+    const before = p.y;
+    for (let step = RESTACK_DROP_STEPS; step >= 1; step -= 1) {
+      p.y = before - (need * step) / RESTACK_DROP_STEPS;
+      clampPlacement(p);
+      const moved = placementBox(p, cfg);
+      const nx = Math.max(moved.left, Math.min(moved.right, 0));
+      const ny = Math.max(moved.bottom, Math.min(moved.top, 0));
+      if (Math.hypot(nx, ny) >= cfg.pieRadius) break;
+      p.y = before;
+      clampPlacement(p);
+    }
+  }
+  // do-no-harm: 逃がし先の重なりを他所の重なりへ移すだけなら丸ごと戻す。
+  if (
+    boxOverlapMax(ordered, cfg) >= escOverlapBefore - 1e-9 ||
+    crossOverlapMax(ordered, all, cfg) > crossOverlapBefore + 1e-9 ||
+    boxPieIntrusionMax(all, cfg) > intrusionBefore + 1e-9
+  ) {
+    all.forEach((p, i) => {
+      p.y = snapshot[i];
+      clampPlacement(p);
+    });
+  }
 }
 
 // leader メトリクス層 (pathsCross / realLeaderPaths / countLeaderCrossings /
@@ -3916,7 +4007,7 @@ function runLabelCascade(
     applyTopBandClusterReorder(result, cfg);
   }
   if (diagnostics?.leftStackMode) {
-    stackTopRightLiftedLabels(result);
+    stackTopRightLiftedLabels(result, cfg);
     applyLeftStackGapClose(result, cfg);
   }
   if (diagnostics?.twoLineLeftStackMode) {
@@ -3963,6 +4054,9 @@ function selectFinalLayout(
 ): LayoutResult | null {
   if (items.length <= 1) return null;
   let finalLayout = layoutLabels(items, cfg);
+  // 逃がし枚数の探索で同じレイアウトを再現するため、採用した回転オーバーライドを覚えておく
+  // (非回転を採った時だけ 0。それ以外は自動判定に任せる = undefined)。
+  let rotateOverride: number | undefined;
   const labelOffset = cfg.counterclock
     ? 0
     : labelCongestionOffsetDeg(
@@ -4012,11 +4106,81 @@ function selectFinalLayout(
     const baseLayout = layoutLabels(items, cfg, 0);
     if (scoreLayout(finalLayout) > scoreLayout(baseLayout)) {
       finalLayout = baseLayout; // 回転が不具合を増やすなら非回転を採用
+      rotateOverride = 0;
     } else {
       finalLayout = adoptRotatedWithClearancePush(finalLayout);
     }
   }
-  return finalLayout;
+  return pickUpperEscapeCount(items, cfg, coord, finalLayout, rotateOverride);
+}
+
+/** `pickUpperEscapeCount` の採点ベクトル。`countDefects` が数えない二級 defect を併載する。 */
+function upperEscapeScore(
+  layout: LayoutResult,
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): DefectCounts & { through: number; stubs: number } {
+  const labelsCopy = structuredClone(layout.labels) as typeof layout.labels;
+  const placements = runLabelCascade(labelsCopy, cfg, coord, layout.diagnostics);
+  // **emit と同一の後段列** (`applyEmitRepairPasses`) を通してから数える。`finalizeForScoring` は
+  // 候補選択用に修復を除外するので、それで採点すると「逃がし先で実際には重なるのに採点上は同点」に
+  // なり、実描画でだけ退行する構成を採用してしまう (実測: 逃がした先で『その他』と 30px 重なる)。
+  // 逃がしは箱を新しい場所へ移す変更なので、修復まで含めた最終形で判断する必要がある。
+  const finalized = placements.map((p) => ({ ...p }));
+  applyEmitRepairPasses(finalized, cfg, coord, layout.diagnostics);
+  return {
+    ...countDefects(finalized, cfg, coord),
+    through: countLeaderThroughLabels(finalized, cfg, coord),
+    stubs: countBundledRimStubs(finalized, cfg),
+  };
+}
+
+/**
+ * 上左ラベルを何枚 右上へ逃がすか (`layout.ts` の `markLeftStackUpperEscapeRight`) をチャート単位で
+ * 決める do-no-harm 探索。0 枚から候補数まで再レイアウトし、最も良い枚数を採る。
+ *
+ * 狙いは「束になった rim 貼り付き短 leader」(`countBundledRimStubs`) の解消。これは `countDefects`
+ * が数えない二級 defect なので、ここで明示的に採点へ足す。ラベル箱貫通 (`countLeaderThroughLabels`)
+ * も同様に足す — 逃がしは箱の配置を変えるため貫通を増やしうる。
+ *
+ * 採否は `pickCapClearanceParity` と同じ hard > soft の辞書順:
+ *  - hardGuard: 交差 / 円内貫通 / ラベル箱貫通 を 1 つも増やさない
+ *  - その下で **stubs が厳密に減り**、見切れ (clips) と総数 (total) が悪化しないなら採用
+ *  - 同点は 0 枚 (既存挙動) を維持する。採点は scoring 段までしか見ず emit 限定パスが生む二級 defect を
+ *    数えないため、同点採用は実描画でだけ退行する。
+ *
+ * 枚数を固定しないのが要点 — 右上の縦余白は約 2 箱分しかなく、詰め込みすぎれば clips が増えて
+ * このゲート自身が弾く。「何枚入るか」をチャートごとに判断させる。
+ */
+function pickUpperEscapeCount(
+  items: LayoutItem[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+  base: LayoutResult,
+  rotateOverride: number | undefined,
+): LayoutResult {
+  const maxCount = base.diagnostics.upperEscapeCandidateCount ?? 0;
+  if (maxCount <= 0) return base;
+  let best = base;
+  let bestScore = upperEscapeScore(base, cfg, coord);
+  for (let count = 1; count <= maxCount; count += 1) {
+    const variant = layoutLabels(items, cfg, rotateOverride, count);
+    const score = upperEscapeScore(variant, cfg, coord);
+    const hardGuard =
+      score.crossings <= bestScore.crossings &&
+      score.pie <= bestScore.pie &&
+      score.through <= bestScore.through;
+    const better =
+      hardGuard &&
+      score.stubs < bestScore.stubs &&
+      score.clips <= bestScore.clips &&
+      score.total <= bestScore.total;
+    if (better) {
+      best = variant;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 /** `EMIT_REPAIR_PASSES` の 1 エントリが実行する修復パス本体。 */
@@ -4091,7 +4255,7 @@ export const EMIT_REPAIR_PASSES: readonly EmitRepairPass[] = [
     name: 'stackTopRightLiftedLabels',
     stage: 'scoring',
     when: (d) => d?.leftStackMode === true,
-    run: (p) => stackTopRightLiftedLabels(p),
+    run: (p, cfg) => stackTopRightLiftedLabels(p, cfg),
   },
 
   // leftStackMode 限定の最終手段: untangle で直せない幅広/混在行の左上逆転を、角度順 re-stack +

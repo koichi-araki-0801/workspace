@@ -64,6 +64,17 @@ const TOP_CENTER_OVERHANG_MAX = 0.2;
 // (実測 D=0.142 / E=0.107 / F=0.095 が < 0.25)。健全な放射 leader (内積≈1) は非発火。
 const NEAR_TANGENT_DOT_RADIAL_MAX = 0.25;
 
+// 「rim 貼り付きの短い leader」(`isShortRimHuggingLeader`) の接線性しきい値。cos(60°) = 先頭セグメントが
+// **放射方向より接線方向に近い** 境界そのもので、「rim から素直に外へ出ていない」を幾何的に言い切る値。
+// 上の `NEAR_TANGENT_DOT_RADIAL_MAX` (持ち上げ発火用) とは目的が違うので独立定数にする。
+const SHORT_RIM_LEADER_DOT_RADIAL_MAX = Math.cos((60 * Math.PI) / 180);
+
+// 短スタブが「束になっている」判定 (`countBundledRimStubs`)。先頭セグメントの単位ベクトルの内積が
+// この値超 (= なす角 20°以内 → ほぼ平行) で、かつ rim アンカー同士が `pieRadius` のこの倍率以内
+// (= 円弧上で隣接と言える距離) なら束とみなす。どちらもチャート寸法に対する相対量。
+const BUNDLED_RIM_STUB_MIN_DIR_COS = Math.cos((20 * Math.PI) / 180);
+const BUNDLED_RIM_STUB_MAX_ANCHOR_GAP_FACTOR = 0.4;
+
 export type Pt = { x: number; y: number };
 
 /**
@@ -719,6 +730,71 @@ export function countLeaderThroughLabels(
     }
   }
   return c;
+}
+
+/** 折れ線の全長 (logical)。leader の「短さ」を測るのに使う。 */
+function pathLength(pts: Pt[]): number {
+  let len = 0;
+  for (let i = 1; i < pts.length; i += 1) {
+    len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  }
+  return len;
+}
+
+/**
+ * 「rim に貼り付いた短い leader」か。rim 上のアンカーから **放射方向より接線方向に近い向き** へ短く
+ * 伸びるだけで、線が円縁に溶けて由来スライスを指し示さない形を捉える。
+ *
+ * 判定は 3 つの論理積で、いずれもチャート寸法に対する相対量 (px 直値もスライス枚数も持たない):
+ * (1) 始点が rim 上 (`|da − pieRadius|` が薄帯内) (2) 全長が短い (`dominantOutsideLeaderGap` 未満)
+ * (3) 先頭セグメント方向と anchor 半径方向の |内積| が `SHORT_RIM_LEADER_DOT_RADIAL_MAX` 未満。
+ * 健全な放射 leader は内積 ≈ 1 なので非発火。
+ */
+export function isShortRimHuggingLeader(pathPoints: Pt[], cfg: PieLayoutConfig): boolean {
+  if (pathPoints.length < 2) return false;
+  const [a, b] = pathPoints;
+  const da = Math.hypot(a.x, a.y);
+  const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+  if (da < 1e-9 || segLen < 1e-9) return false;
+  if (Math.abs(da - cfg.pieRadius) >= radialFraction(cfg, 0.02, 0.2)) return false;
+  if (pathLength(pathPoints) >= radialFraction(cfg, 0.3, 2.8)) return false;
+  const dotRadial = Math.abs(((b.x - a.x) * a.x + (b.y - a.y) * a.y) / (segLen * da));
+  return dotRadial < SHORT_RIM_LEADER_DOT_RADIAL_MAX;
+}
+
+/**
+ * 「束になった rim 貼り付き短 leader」の本数。`isShortRimHuggingLeader` を満たす leader のうち、
+ * 他の同型 leader と **先頭セグメント方向がほぼ平行** かつ **rim アンカーが円弧上で隣接** と言える
+ * 距離にあるものを数える。
+ *
+ * 単独の短スタブは近くに紛らわしい線が無いので由来を取り違えようがない。読めなくなるのは平行な
+ * 短線が並んだときだけなので、症状の定義をそのまま述語にしている。
+ *
+ * **`countDefects` には入れない**: 入れると候補選択 (その他 右/左・spread 等) が全チャートで動く。
+ * `countLeaderThroughLabels` / `countAngularDiscordantPairs` と同じ「二級 defect = ゲートに明示的に
+ * 足したパスだけが見る」立ち位置で使う。
+ */
+export function countBundledRimStubs(placements: Placement[], cfg: PieLayoutConfig): number {
+  const stubs = placements.map((p) => {
+    const r = computeDrawnLeader(p, cfg, false);
+    if (r.skipLeader || !isShortRimHuggingLeader(r.pathPoints, cfg)) return null;
+    const [a, b] = r.pathPoints;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    return { anchor: a, dir: { x: (b.x - a.x) / len, y: (b.y - a.y) / len } };
+  });
+  const maxAnchorGap = cfg.pieRadius * BUNDLED_RIM_STUB_MAX_ANCHOR_GAP_FACTOR;
+  let bundledCount = 0;
+  for (let i = 0; i < stubs.length; i += 1) {
+    const s = stubs[i];
+    if (!s) continue;
+    const hasNeighbour = stubs.some((o, j) => {
+      if (!o || i === j) return false;
+      if (Math.hypot(o.anchor.x - s.anchor.x, o.anchor.y - s.anchor.y) > maxAnchorGap) return false;
+      return s.dir.x * o.dir.x + s.dir.y * o.dir.y > BUNDLED_RIM_STUB_MIN_DIR_COS;
+    });
+    if (hasNeighbour) bundledCount += 1;
+  }
+  return bundledCount;
 }
 
 // -----------------------------------------------------------------------------

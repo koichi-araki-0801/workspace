@@ -46,6 +46,7 @@ import {
 } from './svg_geom.js';
 import {
   TOP_BAND_HALF_WIDTH_DEG,
+  LEFT_STACK_UPPER_ESCAPE_HALF_WIDTH_DEG,
   BOTTOM_BAND_HALF_WIDTH_DEG,
   DOMINANT_OUTSIDE_EDGE_MIN_PCT,
   DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD,
@@ -942,6 +943,44 @@ function isDominantTop(diag: Diagnostics, minPct: number): boolean {
   return (diag.rankValuesFull?.[0] ?? 0) >= minPct;
 }
 
+// -----------------------------------------------------------------------------
+// 混雑の幾何計測。mark*** 系の発火ゲートを「スライス枚数・％の列挙」から「画面上の混雑そのもの」へ
+// 寄せるための測定関数。いずれもチャート寸法に対する無次元比を返し、px 直値も枚数も含まない
+// (同じ見た目のチャートには同じ判定が出る、が設計目標)。`resolveSidePositions` の後に呼ぶこと
+// (finalY が確定していないと変位が測れない)。
+// -----------------------------------------------------------------------------
+
+/**
+ * その側のラベルが「真のスライス角の Y (`naturalY`)」からどれだけ押しのけられたかの平均量を、
+ * ラベル 1 行の高さで割った無次元値。縦の押し合いが起きているかを直接測る。
+ *
+ * 0 に近い = 各ラベルが自スライスの正面に座れている。1 を超える = 平均で 1 行分以上ずれており、
+ * 引出線が放射方向を向かなくなる (どのスライス由来か読めない短スタブが出る条件)。
+ */
+function sideStackDisplacement(sideItems: LayoutItemReady[], cfg: PieLayoutConfig): number {
+  if (sideItems.length === 0) return 0;
+  const total = sideItems.reduce((sum, it) => sum + Math.abs(it.finalY - it.naturalY), 0);
+  return total / sideItems.length / labelHeightUnits(1, cfg);
+}
+
+/**
+ * その側のラベル列を縦に並べるのに必要な長さ ÷ 縦の使用可能長 (`scaledYTop`〜`scaledYBottom`)。
+ * 必要長は **各ラベル箱の高さ + 箱間の最小ギャップ** で、これは「入るか入らないか」の式そのもの。
+ *
+ * 1 を超える = どう並べても入らない = 必ず押し合いが起きる、という幾何的に意味のある境界になる。
+ * 逆に逃がし先として使える側かの判定にも使う (小さいほど空いている)。
+ *
+ * 内側配置になるか外側リムに出るかは cascade が後で決めるため、ここでは**全 item を占有として数える**
+ * (保守側: 反対側に item が多いチャートへは逃がさない)。
+ */
+function sideColumnPackingRatio(sideItems: LayoutItemReady[], cfg: PieLayoutConfig): number {
+  const span = cfg.scaledYTop - cfg.scaledYBottom;
+  if (span <= 0) return 1;
+  const boxes = sideItems.reduce((sum, it) => sum + labelHeightUnits(it.textLines, cfg), 0);
+  const gaps = Math.max(0, sideItems.length - 1) * cfg.scaledMinGap;
+  return (boxes + gaps) / span;
+}
+
 /** 12時 (90°) に最も近い (|midAngle-90| 最小) 要素を返す。同距離は先勝ち。呼び出し側は非空を保証する。 */
 function nearestToTwelveOClock(items: LayoutItemReady[]): LayoutItemReady {
   let best = items[0];
@@ -1152,6 +1191,66 @@ function markLeftStackTopBandEscapeRight(
     it.forceOutsideLeader = true;
     it.flipToRight = false;
   }
+}
+
+/**
+ * 左列が縦に詰まりきったチャートで、上左の小スライス最大 `count` 枚を右上の空白へ逃がす。
+ *
+ * 症状: 左列が縦の使用可能長を超えて詰め込まれると、各ラベルが真のスライス角から押しのけられ、
+ * pie クリアランスと viewBox 端に挟まれて横にも動けなくなる。結果として引出線が円縁に沿った
+ * 短いスタブになり、平行に並んだ隣同士でどちらのスライス由来か読めなくなる
+ * (`svg_export/leader_geometry.ts` の `countBundledRimStubs` が数える形)。逃がして左列の枚数を
+ * 減らすと、残るラベルが自スライスの正面へ戻り引出線が放射方向を向く。
+ *
+ * ゲートは **混雑の幾何計測だけ** で書く (枚数・％の列挙をしない):
+ *  - 左列の占有率 > 1 (`sideRimOccupancy`) = 縦に入りきらず必ず押し合いが起きている
+ *  - 左列の平均変位 > 1 行 (`sideStackDisplacement`) = 実際にスライス角から離れている
+ *  - 右側の占有率 < 1/2 (`sideRimOccupancy`) = 逃がし先のリムが空いている
+ *  - `!topBandClusterMode` (専用の再配置を持つ別モードとの二重発火防止)
+ *
+ * 何枚逃がすかはここでは決めない。`svg_export/index.ts` の `pickLeftStackUpperEscape` が 0 枚から
+ * 増やして do-no-harm で選ぶ。配置座標は既存 `topRightLiftedRimDraft` 経路をそのまま使う。
+ */
+function markLeftStackUpperEscapeRight(
+  left: LayoutItemReady[],
+  right: LayoutItemReady[],
+  diagnostics: Diagnostics,
+  cfg: PieLayoutConfig,
+  count: number,
+): void {
+  if (count <= 0) return;
+  if (diagnostics.topBandClusterMode === true) return;
+  if (sideColumnPackingRatio(left, cfg) <= 1) return;
+  if (sideStackDisplacement(left, cfg) <= 1) return;
+  if (sideColumnPackingRatio(right, cfg) >= 0.5) return;
+  const candidates = leftStackUpperEscapeCandidates(left);
+  // forceOutsideLeader で rank 9 起点 (buildOutsideLeaderDraft) = 1 行フォーム。右上の縦余白は
+  // 冠〜viewBox 上端で約 2 箱分しかなく、2 行だと積んだ下段が円に食い込む
+  // (`markLeftStackTopBandEscapeRight` と同じ理由)。
+  for (const it of candidates.slice(0, count)) {
+    it.topBandSmallRight = true;
+    it.forceOutsideLeader = true;
+    it.flipToRight = false;
+  }
+}
+
+/**
+ * `markLeftStackUpperEscapeRight` の逃がし候補を 12時に近い順で返す。帯は上左象限 (90–180°) の
+ * 12時側の半分 = 90〜135°。これより 9時寄りのスライスを右上へ渡すと引出線がチャート上部を横断する
+ * 長い横線になるため、象限の半分が自然な上限になる。「その他」は専用経路 (`topBandSonohokaRight`)
+ * を持つので除外、既に別マーカーが逃がし済の item も対象外にして経路の二重適用を防ぐ。
+ */
+function leftStackUpperEscapeCandidates(left: LayoutItemReady[]): LayoutItemReady[] {
+  return left
+    .filter(
+      (it) =>
+        it.isSmall &&
+        it.midAngle > 90 &&
+        angleInBand(normalizeAngle(it.midAngle), 90, LEFT_STACK_UPPER_ESCAPE_HALF_WIDTH_DEG) &&
+        !isOtherCategory(it.name) &&
+        !it.topBandSmallRight,
+    )
+    .sort((a, b) => Math.abs(a.midAngle - 90) - Math.abs(b.midAngle - 90));
 }
 
 /**
@@ -1450,6 +1549,7 @@ export function layoutLabels(
   items: LayoutItem[],
   cfg: PieLayoutConfig,
   labelRotateOverrideDeg?: number,
+  upperEscapeCount = 0,
 ): LayoutResult {
   const filtered = items.filter((item) => Number.isFinite(Number(item.value)));
   if (filtered.length === 0) {
@@ -1506,6 +1606,10 @@ export function layoutLabels(
   // (topBandSmallRight)。assignUpperLeftRenderY / 1 行強制 / flip 前に立て、escapee を上左スタックから
   // 除外して残りを上方向へ再分配する。
   markLeftStackTopBandEscapeRight(left, candidates, diagnostics);
+  // 左列が縦に入りきらないチャートの上左小スライスを右上へ逃がす (枚数は呼び出し側の探索が決める)。
+  // 上の専用マーカーと同じく assignUpperLeftRenderY / 1 行強制 / flip より前に立てる必要がある。
+  diagnostics.upperEscapeCandidateCount = leftStackUpperEscapeCandidates(left).length;
+  markLeftStackUpperEscapeRight(left, right, diagnostics, cfg, upperEscapeCount);
 
   // 左側密集 (Diagnostics.leftStackMode) 時、左側の非 flip item は cascade を 1 行起点
   // ("名前 25%") で走らせる。`compactLabel`/`textLines=1` は cascade 到達前の幅計測が
