@@ -83,6 +83,12 @@ export interface LayoutItem {
   // `runLabelCascade` のフォールバックパスで立てると `topBandSonohokaRight` が無効化され左上配置に戻る。
   topRightRejected?: boolean;
 
+  // pie キャップ外の箱に対する静的 pie クランプの「名残制約」除去 (`label_placement.ts` の
+  // `clampAndBuildPlacement`) を、このチャートでは行わない印。名残制約は本来不要だが偶発的に
+  // 隣接ラベルの重なり回避として働いているチャートがあり、除去すると重なり/leader 貫通が増える。
+  // `svg_export/index.ts` の `pickCapClearanceParity` が不具合増を検知した時だけ立てて旧挙動へ戻す。
+  capParityRejected?: boolean;
+
   // 12時近傍 (mid 90°±30°) に 4 以上の small slice が集まる `Diagnostics.topBandClusterMode` の
   // 構成員ラベル印。`runLabelCascade` 後段 `applyTopBandClusterReorder` の対象になる。
   clusterTopBand?: boolean;
@@ -180,6 +186,17 @@ export interface Diagnostics {
   bottomSmallCount?: number;
   /** 12時近傍 (mid 90°±30°) かつ small の slice 件数 (`topBandClusterMode` の判定入力)。 */
   topBandClusterCount?: number;
+  /**
+   * 上左から右上へ逃がせる候補の枚数 (`layout.ts` の `leftStackUpperEscapeCandidates`)。
+   * `svg_export/index.ts` の `pickUpperEscapeCount` が探索の上限として読む。
+   */
+  upperEscapeCandidateCount?: number;
+  /**
+   * 逃がし済み (`topBandSmallRight`) を除いた左列の縦詰め込み比 (`layout.ts` の
+   * `sideColumnPackingRatio`)。1 超 = 縦に入りきらない。`pickUpperEscapeCount` の packing 枝が
+   * base (0 枚) と variant (count 枚) の差で「逃がしで左列が実際に緩んだか」を読む。
+   */
+  leftColumnPackingRatio?: number;
   totalCount?: number;
   rankValuesFull?: number[];
   /** emit 実配置 (最終後段適用後) を内部スコアラ `countDefects` で数えた不具合数。
@@ -352,8 +369,17 @@ export interface PieLayoutConfig {
   insideSliceEnabled: boolean;
   insideSliceClearance: number;
   insideSliceAngularClearanceDeg: number;
-  /** 外側ラベルの text bbox と円との最小ギャップ (論理単位 = pieRadius 比)。 */
+  /**
+   * 外側ラベルの text bbox と円との狙いギャップ (論理単位 = pieRadius 比)。実効値はラベルごとに
+   * 「viewBox に収まる範囲」でのみ本値まで広がる (`svg_geom.ts` の `pieClearanceWithinViewBox`)。
+   * 幅広ラベルで viewBox に収まらない場合は `pieLabelClearanceMin` まで縮む。
+   */
   pieLabelClearance: number;
+  /**
+   * 上記の実効クリアランスの下限。ラベル幅が大きく `pieLabelClearance` では viewBox を見切れる
+   * ラベルでも、最低このギャップは確保する (= これ以上は円へ寄せない)。
+   */
+  pieLabelClearanceMin: number;
   darkSliceTextColor: string;
   darkSliceFillIndexMin: number;
   grayScale4: string[];

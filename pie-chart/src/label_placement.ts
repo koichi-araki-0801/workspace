@@ -29,6 +29,7 @@ import {
   degToRad,
   nudgeTextAwayFromEndpoint,
   nudgeTextAwayFromSegment,
+  pieClearanceWithinViewBox,
   radialFraction,
   fitsInsideSliceExtent,
   scaledLabelWidthUnits,
@@ -81,6 +82,15 @@ interface PlacementDraft {
 // 本ファイルの帯判定に加え、svg_export 側の cascade probe / sorting でも
 // 参照するため公開する。
 export const TOP_BAND_HALF_WIDTH_DEG = 18;
+
+/**
+ * 上左から右上へ逃がす候補帯の半幅 (`layout.ts` の `leftStackUpperEscapeCandidates`)。
+ * 帯 = 90〜135° = **上左象限 (90–180°) のうち 12時側の半分**。これより 9時寄りのスライスを右上へ
+ * 渡すと引出線がチャート上部を横断する長い横線になるため、象限の半分が自然な上限になる。
+ * `TOP_BAND_HALF_WIDTH_DEG`(18) や `TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG`(32) とは別概念
+ * (逃がし候補帯 vs top-band 判定 vs その他真上配置帯) なので独立定数にする。
+ */
+export const LEFT_STACK_UPPER_ESCAPE_HALF_WIDTH_DEG = 45;
 export const BOTTOM_BAND_HALF_WIDTH_DEG = 18;
 
 /**
@@ -831,17 +841,35 @@ function clampAndBuildPlacement(input: {
     let closestY: number;
     if (bboxYMin <= 0 && bboxYMax >= 0) closestY = 0;
     else closestY = Math.abs(bboxYMin) < Math.abs(bboxYMax) ? bboxYMin : bboxYMax;
-    const pieClearanceLogical = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.012, 0.12));
     const insidePieR = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY));
-    pieMinTextX = insidePieR + pieClearanceLogical;
-    pieMaxTextX = -(insidePieR + pieClearanceLogical);
-    if (anchor === 'middle') {
-      pieMinTextX += widthVerify / 2;
-      pieMaxTextX -= widthVerify / 2;
-    } else if (anchor === 'end') {
-      pieMinTextX += widthVerify;
-    } else {
-      pieMaxTextX -= widthVerify;
+    // 箱の最近接 Y 縁が円の完全に外 (|closestY| >= pieRadius) なら円と X 方向で干渉しないので
+    // 制約自体を作らない。動的側 `pieClampXLimits` (`svg_geom.ts`) は同条件で null を返すのに、
+    // 静的側だけが `insidePieR` = 0 のまま ±(0 + クリアランス) という名残制約を残しており、pie
+    // キャップより完全に上へ持ち上げた箱 (`topBandSonohokaRight` の真上垂直 center 配置など) を
+    // 横へ押し出していた。`currency_low_diff_10` の「その他」で textX が anchorX (-0.187) から
+    // -0.607 へ 66px 左寄せされ、真上垂直のはずの leader が長い斜めになる原因。
+    // ただし名残制約は一部チャートで隣接ラベルとの重なり回避として偶然機能していたため、外すと
+    // 退行するチャートがある。チャート単位の do-no-harm (`svg_export/index.ts` の
+    // `pickCapClearanceParity`) が不具合増を検知した時だけ `capParityRejected` を立てて旧挙動へ戻す。
+    if (Math.abs(closestY) < cfg.pieRadius || item.capParityRejected) {
+      // クリアランスは viewBox に収まる範囲でのみ狙い値へ広げる (`pieClearanceWithinViewBox`)。
+      // 動的側 `pieClampXLimits` と同式 (対の関係は同関数の doc コメント参照)。
+      const pieClearanceLogical = pieClearanceWithinViewBox(
+        cfg,
+        insidePieR,
+        widthVerify,
+        radialFraction(cfg, 0.012, 0.12),
+      );
+      pieMinTextX = insidePieR + pieClearanceLogical;
+      pieMaxTextX = -(insidePieR + pieClearanceLogical);
+      if (anchor === 'middle') {
+        pieMinTextX += widthVerify / 2;
+        pieMaxTextX -= widthVerify / 2;
+      } else if (anchor === 'end') {
+        pieMinTextX += widthVerify;
+      } else {
+        pieMaxTextX -= widthVerify;
+      }
     }
   }
   let effectiveMaxTextX: number | undefined =
@@ -852,7 +880,9 @@ function clampAndBuildPlacement(input: {
   if (item.forceHorizontalLowerLeftDrop && anchor === 'end') {
     effectiveMinTextX = undefined;
   }
-  if (draft.pieClearance) {
+  // 上の早期スキップ (円と X 干渉なし) では `pieMin/MaxTextX` が未定義のまま = 制約なしなので、
+  // 合成もまるごと飛ばす。`!` 前提のコードなので、型ガードで未定義の流入を止める。
+  if (draft.pieClearance && typeof pieMinTextX === 'number' && typeof pieMaxTextX === 'number') {
     const strictViewBox = Boolean(draft.pieClearanceStrictViewBox);
     if (textX >= 0) {
       if (pieMinTextX! > effectiveMaxTextX! && !strictViewBox) {

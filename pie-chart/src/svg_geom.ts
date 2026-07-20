@@ -888,6 +888,34 @@ export function boxOverlapAmount(a: BBox, b: BBox): { x: number; y: number } {
 }
 
 /**
+ * ラベルごとの実効 pie クリアランス。`pieLabelClearance` (狙い値) は「箱が viewBox 左右端に
+ * 収まる範囲」でのみ適用し、幅広ラベルは `pieLabelClearanceMin` (旧既定値) まで縮める。
+ *
+ * 背景: クリアランスを一律に広げると、既に viewBox 端に張り付いた幅広ラベルが外へ押し出されて
+ * 見切れが増え、さらに横可動域の減少で emit 後段の 2 行復帰 (`applyVerticalDeclipFallback` の
+ * 分割維持等) の do-no-harm ゲートが不成立になり 1 行の大見切れが残る退行を起こす
+ * (currency_europe_heavy_8 スウェーデンクローナ)。「離すのは余裕がある時だけ・見切れを増やして
+ * まで離さない」を不変則にする。
+ *
+ * insidePieR は箱最近接 Y での円半幅、boxWidth は箱全幅 (pie 側辺から遠端までの張り出し)。
+ * fit 上限 = halfViewBox − boxWidth − insidePieR (箱の pie 側辺が円+クリアランスに接する前提で
+ * 遠端が viewBox 内に残る最大クリアランス)。floorLogical は呼び出しサイト既存の下限
+ * (`radialFraction` 系) をそのまま渡す。
+ */
+export function pieClearanceWithinViewBox(
+  cfg: PieLayoutConfig,
+  insidePieR: number,
+  boxWidth: number,
+  floorLogical: number,
+): number {
+  const maxC = Math.max(cfg.pieLabelClearance, floorLogical);
+  const minC = Math.min(maxC, Math.max(cfg.pieLabelClearanceMin, floorLogical));
+  const halfViewBox = cfg.svgWidthPx / 2 / cfg.pxPerUnit;
+  const fitC = halfViewBox - boxWidth - insidePieR;
+  return Math.min(maxC, Math.max(minC, fitC));
+}
+
+/**
  * ラベル箱の Y 範囲 (boxTop/boxBottom)・幅・anchor から、pie クリアランスを満たす textX の
  * 上下限 (pieMinTextX = 右側ラベルの下限 / pieMaxTextX = 左側ラベルの上限) を計算する。
  *
@@ -913,8 +941,14 @@ export function pieClampXLimits(
   if (boxBottom <= 0 && boxTop >= 0) closestY = 0;
   else closestY = Math.abs(boxBottom) < Math.abs(boxTop) ? boxBottom : boxTop;
   if (Math.abs(closestY) >= cfg.pieRadius) return null;
-  const pieClearanceLogical = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.012, 0.12));
   const insidePieR = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY));
+  // クリアランスは viewBox に収まる範囲でのみ狙い値へ広げる (幅広ラベルの見切れ退行防止)。
+  const pieClearanceLogical = pieClearanceWithinViewBox(
+    cfg,
+    insidePieR,
+    width,
+    radialFraction(cfg, 0.012, 0.12),
+  );
   let pieMinTextX = insidePieR + pieClearanceLogical;
   let pieMaxTextX = -(insidePieR + pieClearanceLogical);
   if (anchor === 'middle') {
@@ -940,7 +974,6 @@ export function nudgeTextAwayFromPie(
   cfg: PieLayoutConfig,
 ): Point {
   const pieR = cfg.pieRadius;
-  const clearance = cfg.pieLabelClearance;
   let nextX = textX;
   let nextY = textY;
 
@@ -949,6 +982,11 @@ export function nudgeTextAwayFromPie(
     const closestX = Math.max(bounds.left, Math.min(0, bounds.right));
     const closestY = Math.max(bounds.bottom, Math.min(0, bounds.top));
     const dist = Math.hypot(closestX, closestY);
+    // 押し出し量も静的クランプ (`pieClampXLimits`) と同じ viewBox 収まりキャップの実効クリアランスで
+    // 決める。狙い値のまま押すと幅広ラベルが viewBox 外へ出て、クランプ側との不整合も生む。
+    const insidePieR =
+      Math.abs(closestY) >= pieR ? 0 : Math.sqrt(pieR * pieR - closestY * closestY);
+    const clearance = pieClearanceWithinViewBox(cfg, insidePieR, bounds.right - bounds.left, 0);
     if (dist >= pieR + clearance) break;
 
     let dirX: number;

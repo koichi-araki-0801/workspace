@@ -64,6 +64,17 @@ const TOP_CENTER_OVERHANG_MAX = 0.2;
 // (実測 D=0.142 / E=0.107 / F=0.095 が < 0.25)。健全な放射 leader (内積≈1) は非発火。
 const NEAR_TANGENT_DOT_RADIAL_MAX = 0.25;
 
+// 「rim 貼り付きの短い leader」(`isShortRimHuggingLeader`) の接線性しきい値。cos(60°) = 先頭セグメントが
+// **放射方向より接線方向に近い** 境界そのもので、「rim から素直に外へ出ていない」を幾何的に言い切る値。
+// 上の `NEAR_TANGENT_DOT_RADIAL_MAX` (持ち上げ発火用) とは目的が違うので独立定数にする。
+const SHORT_RIM_LEADER_DOT_RADIAL_MAX = Math.cos((60 * Math.PI) / 180);
+
+// 短スタブが「束になっている」判定 (`countBundledRimStubs`)。先頭セグメントの単位ベクトルの内積が
+// この値超 (= なす角 20°以内 → ほぼ平行) で、かつ rim アンカー同士が `pieRadius` のこの倍率以内
+// (= 円弧上で隣接と言える距離) なら束とみなす。どちらもチャート寸法に対する相対量。
+const BUNDLED_RIM_STUB_MIN_DIR_COS = Math.cos((20 * Math.PI) / 180);
+const BUNDLED_RIM_STUB_MAX_ANCHOR_GAP_FACTOR = 0.4;
+
 export type Pt = { x: number; y: number };
 
 /**
@@ -108,6 +119,7 @@ export function computeDrawnLeader(
   forScoring = false,
   allowTopCenter = false,
   allowGrazeLift = false,
+  allowDiagonal = false,
 ): { pathPoints: Pt[]; detectPathPoints: Pt[]; skipLeader: boolean } {
   // 常時描画 + 縦中央接続は **描画パスのみ** に適用する。conflict scorer (`chartConflicts`) から
   // `forScoring`=true で呼ばれた時は従来挙動を維持し、レイアウト選択 (その他 右/左 等) を baseline と
@@ -118,6 +130,10 @@ export function computeDrawnLeader(
   // `allowGrazeLift` も同様に最終描画 (`index.ts` の Pass 1c) でのみ true。3 点 leader の先頭セグメントが
   // 円周に接するのを W リルートで持ち上げる (下記参照)。realLeaderPaths/scorer/layout は既定 false の
   // ため `pathPoints` が baseline と一致し、`countLeaderCrossings` 経由のラベル位置選択に影響しない。
+  // `allowDiagonal` も最終描画 (`index.ts` の Pass 1d) でのみ true。水平先行 L 字
+  // (`leaderBendFollowsEndpointX`) の bend をアンカーへ畳み、アンカー → 接続点の 2 点斜め直線にする
+  // (下記参照)。既定 false のため realLeaderPaths/scorer/layout の幾何は baseline と一致し、
+  // ラベル位置・採点に影響しない。
   const alwaysDraw = ALWAYS_DRAW_OUTSIDE_LEADERS && !forScoring;
   const endpointMinDist = cfg.pieRadius + radialFraction(cfg, 0.01, 0.1);
   const dominantOutsideLeaderGap = radialFraction(cfg, 0.3, 2.8);
@@ -233,11 +249,19 @@ export function computeDrawnLeader(
     // 直線はアンカー (rim) から外側へ進むため円外を保ち、近端より外側で止まるので box も貫かない。
     bend = { x: placement.leaderAnchor.x, y: placement.leaderAnchor.y };
   } else if (alwaysDraw && placement.declipBottomLeader) {
-    // L 字 (横優先): アンカーから水平にラベル側 (外側) へ出て、ラベル水平中央 x (`endpoint.x`) で縦に
-    // 折れラベル縁へ。水平区間はアンカー (rim 上 dist≈`pieRadius`) から中心より遠い x へ進むので中心
-    // 距離は単調増 = 円外を保つ。縦区間はラベル中央 x (左外側で |x|>`pieRadius`) なので円外。ゆえに
-    // 下記 W 弦リルートは両区間とも円外で不発 (= 斜線化しない)、bend 1 回の素直な L 字になる。
-    bend = { x: endpoint.x, y: placement.leaderAnchor.y };
+    if (allowDiagonal) {
+      // 斜め直線化 (描画のみ): 下の L 字は「アンカー高さで水平 → ラベル縁中央で垂直」の 2 折れが
+      // 遠回りに見える (例 currency_europe_heavy_8 ノルウェー/デンマーク)。bend をアンカーへ畳み、
+      // アンカー → 縁中央接続点の 2 点斜線にする。円へ食い込む場合は下の W 弦リルートが 3 点へ
+      // 戻すため、呼び出し側 (Pass 1d) は「2 点になった時だけ」採用して安全側に倒す。
+      bend = { x: placement.leaderAnchor.x, y: placement.leaderAnchor.y };
+    } else {
+      // L 字 (横優先): アンカーから水平にラベル側 (外側) へ出て、ラベル水平中央 x (`endpoint.x`) で縦に
+      // 折れラベル縁へ。水平区間はアンカー (rim 上 dist≈`pieRadius`) から中心より遠い x へ進むので中心
+      // 距離は単調増 = 円外を保つ。縦区間はラベル中央 x (左外側で |x|>`pieRadius`) なので円外。ゆえに
+      // 下記 W 弦リルートは両区間とも円外で不発 (= 斜線化しない)、bend 1 回の素直な L 字になる。
+      bend = { x: endpoint.x, y: placement.leaderAnchor.y };
+    }
   } else if (placement.leaderBendFollowsEndpointY) {
     const anchorY = placement.leaderAnchor.y;
     const minOffset = radialFraction(cfg, 0.005, 0.05);
@@ -260,7 +284,14 @@ export function computeDrawnLeader(
     const anchorX = placement.leaderAnchor.x;
     const anchorY = placement.leaderAnchor.y;
     const minOffset = radialFraction(cfg, 0.005, 0.05);
-    if (anchorX > 0) bend = { x: Math.max(endpoint.x, anchorX + minOffset), y: anchorY };
+    if (allowDiagonal && alwaysDraw) {
+      // 斜め直線化 (描画のみ): 水平先行 L 字 (例 currency_europe_heavy_8 ノルウェー/デンマーク) は
+      // 「アンカー高さで水平 → ラベル手前で垂直」の 2 折れが遠回りに見えるため、bend をアンカーへ
+      // 畳む。下の縮退スタブ除去が 2 点 [anchor, drawEndpoint] へ畳み、truncate が box 縁 cornerGap
+      // 手前で止める素直な斜線になる。斜線が円へ食い込む場合は下の W 弦リルートが 3 点テントへ
+      // 戻すため、呼び出し側 (Pass 1d) は「2 点になった時だけ」採用して安全側に倒す。
+      bend = { x: anchorX, y: anchorY };
+    } else if (anchorX > 0) bend = { x: Math.max(endpoint.x, anchorX + minOffset), y: anchorY };
     else if (anchorX < 0) bend = { x: Math.min(endpoint.x, anchorX - minOffset), y: anchorY };
   } else if (
     alwaysDraw &&
@@ -682,23 +713,66 @@ export function realLeaderPaths(
   });
 }
 
+/**
+ * 実描画 leader 同士が交差する **対の集合** (verify の "leader crossing" と同条件・pixel 空間)。
+ * キーはスライス名の対 (辞書順) `"名A×名B"`。**インデックスでなく名前** を使うのは、レイアウトを
+ * 作り直した別 placements 配列 (例 逃がし枚数違い) と集合を比較するため — 配列順は再生成で変わるが
+ * スライス名は不変。合計だけでなく「どの対が交差しているか」を見たい do-no-harm で使う
+ * (合計据え置きの局所入替 = ある交差を消して別の交差を作る、を検出するため)。
+ */
+export function leaderCrossingPairs(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): Set<string> {
+  const paths = realLeaderPaths(placements, cfg, coord);
+  const pairs = new Set<string>();
+  for (let i = 0; i < paths.length; i += 1) {
+    const pa = paths[i];
+    if (!pa) continue;
+    for (let j = i + 1; j < paths.length; j += 1) {
+      const pb = paths[j];
+      if (!pb || !pathsCross(pa, pb)) continue;
+      const [x, y] = [placements[i].item.name, placements[j].item.name].sort();
+      pairs.add(`${x}×${y}`);
+    }
+  }
+  return pairs;
+}
+
 /** 実描画 leader 同士が交差する対の数 (verify の "leader crossing" と同条件・pixel 空間)。 */
 export function countLeaderCrossings(
   placements: Placement[],
   cfg: PieLayoutConfig,
   coord: Coord,
 ): number {
+  return leaderCrossingPairs(placements, cfg, coord).size;
+}
+
+/**
+ * 実描画 leader が自分以外のラベル box を貫く **対の集合** (verify の "leader through label" と同条件・
+ * pixel)。キーはスライス名の対 `"貫くleaderの名>貫かれるboxの名"` (向きがあるので辞書順にしない)。
+ * `leaderCrossingPairs` と同じく **名前キー** で別 placements 配列と比較でき、合計据え置きの局所入替を
+ * 検出する。
+ */
+export function leaderThroughPairs(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): Set<string> {
   const paths = realLeaderPaths(placements, cfg, coord);
-  let c = 0;
+  const boxes = projectBoxesToPixels(placements, cfg, coord);
+  const pairs = new Set<string>();
   for (let i = 0; i < paths.length; i += 1) {
-    const pa = paths[i];
-    if (!pa) continue;
-    for (let j = i + 1; j < paths.length; j += 1) {
-      const pb = paths[j];
-      if (pb && pathsCross(pa, pb)) c += 1;
+    const pts = paths[i];
+    if (!pts) continue;
+    for (let j = 0; j < placements.length; j += 1) {
+      if (j === i) continue;
+      if (leaderCrossesBox(pts, boxes[j]))
+        pairs.add(`${placements[i].item.name}>${placements[j].item.name}`);
     }
   }
-  return c;
+  return pairs;
 }
 
 /** 実描画 leader が自分以外のラベル box を貫く件数 (verify の "leader through label" と同条件・pixel)。 */
@@ -707,18 +781,72 @@ export function countLeaderThroughLabels(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): number {
-  const paths = realLeaderPaths(placements, cfg, coord);
-  const boxes = projectBoxesToPixels(placements, cfg, coord);
-  let c = 0;
-  for (let i = 0; i < paths.length; i += 1) {
-    const pts = paths[i];
-    if (!pts) continue;
-    for (let j = 0; j < placements.length; j += 1) {
-      if (j === i) continue;
-      if (leaderCrossesBox(pts, boxes[j])) c += 1;
-    }
+  return leaderThroughPairs(placements, cfg, coord).size;
+}
+
+/** 折れ線の全長 (logical)。leader の「短さ」を測るのに使う。 */
+function pathLength(pts: Pt[]): number {
+  let len = 0;
+  for (let i = 1; i < pts.length; i += 1) {
+    len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
   }
-  return c;
+  return len;
+}
+
+/**
+ * 「rim に貼り付いた短い leader」か。rim 上のアンカーから **放射方向より接線方向に近い向き** へ短く
+ * 伸びるだけで、線が円縁に溶けて由来スライスを指し示さない形を捉える。
+ *
+ * 判定は 3 つの論理積で、いずれもチャート寸法に対する相対量 (px 直値もスライス枚数も持たない):
+ * (1) 始点が rim 上 (`|da − pieRadius|` が薄帯内) (2) 全長が短い (`dominantOutsideLeaderGap` 未満)
+ * (3) 先頭セグメント方向と anchor 半径方向の |内積| が `SHORT_RIM_LEADER_DOT_RADIAL_MAX` 未満。
+ * 健全な放射 leader は内積 ≈ 1 なので非発火。
+ */
+export function isShortRimHuggingLeader(pathPoints: Pt[], cfg: PieLayoutConfig): boolean {
+  if (pathPoints.length < 2) return false;
+  const [a, b] = pathPoints;
+  const da = Math.hypot(a.x, a.y);
+  const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+  if (da < 1e-9 || segLen < 1e-9) return false;
+  if (Math.abs(da - cfg.pieRadius) >= radialFraction(cfg, 0.02, 0.2)) return false;
+  if (pathLength(pathPoints) >= radialFraction(cfg, 0.3, 2.8)) return false;
+  const dotRadial = Math.abs(((b.x - a.x) * a.x + (b.y - a.y) * a.y) / (segLen * da));
+  return dotRadial < SHORT_RIM_LEADER_DOT_RADIAL_MAX;
+}
+
+/**
+ * 「束になった rim 貼り付き短 leader」の本数。`isShortRimHuggingLeader` を満たす leader のうち、
+ * 他の同型 leader と **先頭セグメント方向がほぼ平行** かつ **rim アンカーが円弧上で隣接** と言える
+ * 距離にあるものを数える。
+ *
+ * 単独の短スタブは近くに紛らわしい線が無いので由来を取り違えようがない。読めなくなるのは平行な
+ * 短線が並んだときだけなので、症状の定義をそのまま述語にしている。
+ *
+ * **`countDefects` には入れない**: 入れると候補選択 (その他 右/左・spread 等) が全チャートで動く。
+ * `countLeaderThroughLabels` / `countAngularDiscordantPairs` と同じ「二級 defect = ゲートに明示的に
+ * 足したパスだけが見る」立ち位置で使う。
+ */
+export function countBundledRimStubs(placements: Placement[], cfg: PieLayoutConfig): number {
+  const stubs = placements.map((p) => {
+    const r = computeDrawnLeader(p, cfg, false);
+    if (r.skipLeader || !isShortRimHuggingLeader(r.pathPoints, cfg)) return null;
+    const [a, b] = r.pathPoints;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    return { anchor: a, dir: { x: (b.x - a.x) / len, y: (b.y - a.y) / len } };
+  });
+  const maxAnchorGap = cfg.pieRadius * BUNDLED_RIM_STUB_MAX_ANCHOR_GAP_FACTOR;
+  let bundledCount = 0;
+  for (let i = 0; i < stubs.length; i += 1) {
+    const s = stubs[i];
+    if (!s) continue;
+    const hasNeighbour = stubs.some((o, j) => {
+      if (!o || i === j) return false;
+      if (Math.hypot(o.anchor.x - s.anchor.x, o.anchor.y - s.anchor.y) > maxAnchorGap) return false;
+      return s.dir.x * o.dir.x + s.dir.y * o.dir.y > BUNDLED_RIM_STUB_MIN_DIR_COS;
+    });
+    if (hasNeighbour) bundledCount += 1;
+  }
+  return bundledCount;
 }
 
 // -----------------------------------------------------------------------------
