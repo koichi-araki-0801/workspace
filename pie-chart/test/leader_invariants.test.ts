@@ -12,10 +12,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { resolveInputData, samples } from '../src/data.js';
-import { distPointToSegment } from '../src/svg_export/leader_geometry.js';
 import { renderPdfStylePieToSvg } from '../src/svg_export/index.js';
 import { createPieLayoutConfig } from '../src/config.js';
-import { segmentsIntersect, visualCharEm } from '../src/svg_geom.js';
+import { visualCharEm } from '../src/svg_geom.js';
 
 interface Pt {
   x: number;
@@ -46,9 +45,40 @@ function parsePie(svg: string): { cx: number; cy: number; r: number } {
   return { cx: parseFloat(m[1]), cy: parseFloat(m[2]), r: parseFloat(m[3]) };
 }
 
-// 交差/最短距離の判定は本体実装を直接使う (`svg_geom.ts` の `segmentsIntersect` /
-// `leader_geometry.ts` の `distPointToSegment`)。verify_svg.ts の独立オラクルと違い、
-// 本テストは本体と同じ判定式で E2E 出力を検査する位置づけなので複製しない。
+// 交差/最短距離の判定は本体実装 (`svg_geom.ts` / `leader_geometry.ts`) を import せず、
+// テスト内の独立オラクルとして凍結複製する。本体と判定式を共有すると、本体の退行
+// (tolerance の変更ミス・符号誤り等) をテストが同じ誤りで追認して検知できないため。
+
+/** verify_svg.ts segmentsIntersect と同条件 (tolerance 0.5px・端点接触は交差としない)。 */
+function segmentsIntersect(a: Pt, b: Pt, c: Pt, d: Pt, tolerance = 0.5): boolean {
+  const cross = (p: Pt, q: Pt, r: Pt) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const d1 = cross(c, d, a);
+  const d2 = cross(c, d, b);
+  const d3 = cross(a, b, c);
+  const d4 = cross(a, b, d);
+  if (Math.abs(d1) <= tolerance) return false;
+  if (Math.abs(d2) <= tolerance) return false;
+  if (Math.abs(d3) <= tolerance) return false;
+  if (Math.abs(d4) <= tolerance) return false;
+  return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0;
+}
+
+// 引数は本体 (`leader_geometry.ts`) と同じ数値 6 個形式 (呼び出し箇所の書き換えを避ける)。
+function distPointToSegment(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
 
 function leaderCrossings(leaders: { name: string; points: Pt[] }[]): string[] {
   const found: string[] = [];
