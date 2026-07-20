@@ -35,6 +35,7 @@ describe('EMIT_REPAIR_PASSES の列', () => {
       'relieveLeftStackSpacing',
       'relaxStructuralCondense.afterLeftStackShift',
       'unsqueezeCondensedByShiftTowardPie',
+      'tidyTopRightEscapeeStack',
     ]);
   });
 

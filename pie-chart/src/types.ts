@@ -191,6 +191,12 @@ export interface Diagnostics {
    * `svg_export/index.ts` の `pickUpperEscapeCount` が探索の上限として読む。
    */
   upperEscapeCandidateCount?: number;
+  /**
+   * 逃がし済み (`topBandSmallRight`) を除いた左列の縦詰め込み比 (`layout.ts` の
+   * `sideColumnPackingRatio`)。1 超 = 縦に入りきらない。`pickUpperEscapeCount` の packing 枝が
+   * base (0 枚) と variant (count 枚) の差で「逃がしで左列が実際に緩んだか」を読む。
+   */
+  leftColumnPackingRatio?: number;
   totalCount?: number;
   rankValuesFull?: number[];
   /** emit 実配置 (最終後段適用後) を内部スコアラ `countDefects` で数えた不具合数。

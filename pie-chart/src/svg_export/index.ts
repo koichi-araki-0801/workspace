@@ -1351,6 +1351,118 @@ function restackLiftedIfOverlapping(
   }
 }
 
+/**
+ * 右上へ逃がした escapee (「その他」以外の `forceTopRight` ラベル) と「その他」の右上スタックを
+ * 整える仕上げ (do-no-harm)。手は 2 つで、それぞれ独立にゲートして採否を決める:
+ *
+ * (1) **縦**: escapee と同段積みになった「その他」が cascade の重なり解消で pie キャップより下へ
+ *     押し下げられている場合、「その他」を draft の定位置 (箱下端 = pieRadius + capClear、
+ *     `topRightLiftedRimDraft` と同じ) へ戻し、上に積まれた escapee 側を必要量だけ上へ積み直す。
+ *     重なり解消は下のラベルを下げるのでなく上のラベルを上げるのが正しい形 —
+ *     `leader_invariants` オラクルが「その他 box 下端 ≤ pie キャップ」を要求する
+ *     (実測退行: pdf_510037_07 で「その他」が 8px 降下しオラクル抵触)。
+ * (2) **横**: escapee の書き出し x を「その他」の x へ寄せる。escapee は横幅が広いと canvasXlim
+ *     (端マージン) の右限界で左へクランプされ、「その他」より書き出しが大きく左へずれる
+ *     (例 currency_many_small_10 の「ノルウェークローネ」)。箱は pie キャップより完全に上で円と
+ *     干渉しないため、可動域を実 viewBox 端 (数 px 内側) まで広げてよい。目標まで届かない幅広
+ *     ラベルは「viewBox に収まる最右」への部分適用 (目標と viewBox キャップの min)。
+ *
+ * ⚠ どの手でも `clampPlacement` は呼ばない: escapee の placement には draft 由来の `minTextX`
+ * (右側ラベルの下限) が残っており、前段パスが x をその下限より左へ確定させている。クランプを通すと
+ * x が古い下限へ引き戻され、viewBox キャップを飛び越えて見切れを作る — しかも revert 経路でも同じ
+ * 引き戻しが起きて do-no-harm ゲートの外で退行する (実測: ノルウェークローネ 右 22px 見切れ)。
+ * 座標は直接動かし、revert も直接戻す。
+ *
+ * do-no-harm: `countDefects` 全カテゴリ非増加 + 貫通/交差の **新規対なし** + 角度順逆転
+ * (`countAngularDiscordantPairs`) 非増加。二級 defect (through/inv) は `countDefects` が数えない前提
+ * なのでゲートへ明示的に足す。悪化したら手ごとに幾何を revert する。
+ */
+function tidyTopRightEscapeeStack(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): void {
+  const sono = placements.find(
+    (p) =>
+      !p.insideSlice && p.forceTopRight && p.anchor === 'start' && isOtherCategory(p.item.name),
+  );
+  if (!sono) return;
+  const escapees = placements.filter(
+    (p) =>
+      !p.insideSlice &&
+      p.forceTopRight &&
+      p.anchor === 'start' &&
+      !isOtherCategory(p.item.name),
+  );
+  if (escapees.length === 0) return;
+  const defectVec = () => ({
+    defects: countDefects(placements, cfg, coord),
+    through: leaderThroughPairs(placements, cfg, coord),
+    cross: leaderCrossingPairs(placements, cfg, coord),
+    inv: countAngularDiscordantPairs(placements, cfg, coord),
+  });
+  const worseThan = (before: ReturnType<typeof defectVec>): boolean => {
+    const after = countDefects(placements, cfg, coord);
+    return (
+      after.clips > before.defects.clips ||
+      after.crossings > before.defects.crossings ||
+      after.pie > before.defects.pie ||
+      after.total > before.defects.total ||
+      hasNewPair(leaderThroughPairs(placements, cfg, coord), before.through) ||
+      hasNewPair(leaderCrossingPairs(placements, cfg, coord), before.cross) ||
+      countAngularDiscordantPairs(placements, cfg, coord) > before.inv
+    );
+  };
+  const boxCenter = (p: Placement): number => {
+    const b = placementBox(p, cfg);
+    return (b.top + b.bottom) / 2;
+  };
+
+  // ── 手(1) 縦: 押し下げられた「その他」を pie キャップへ戻す (グループごと同量シフト) ──
+  // 縦順序は box 中心で判定 (p.y は baseline 向きに依存して視覚順と食い違う)。escapee との相対
+  // 間隔は cascade が解消済みなので崩さず、スタック全体を同量だけ上へ戻す。全量だと最上段が
+  // viewBox 上端を割るチャートでは、上端 (数 px 内側) に当たる手前で止める部分適用にする
+  // (「全部やるか諦めるか」にしない — 部分復帰でもキャップ許容 (+2px) に入れば十分)。
+  const above = escapees.filter((p) => boxCenter(p) > boxCenter(sono));
+  const capClear = radialFraction(cfg, 0.012, 0.12);
+  const idealBottom = cfg.pieRadius + capClear;
+  const sonoBox = placementBox(sono, cfg);
+  if (above.length > 0 && sonoBox.bottom < idealBottom - 1e-9) {
+    const group = [sono, ...above];
+    // 論理 y の viewBox 上端 (数 px 内側): yScale は線形なので 2 点から逆算する。
+    const yA = coord.yScale(0);
+    const yB = yA - coord.yScale(1); // 1 論理単位あたりの px (y 下向き)
+    const hardTop = (yA - 4) / yB;
+    const maxTop = Math.max(...group.map((p) => placementBox(p, cfg).top));
+    const delta = Math.min(idealBottom - sonoBox.bottom, hardTop - maxTop);
+    if (delta > 1e-9) {
+      const snapshot = group.map((p) => p.y);
+      const before = defectVec();
+      for (const p of group) p.y += delta;
+      if (worseThan(before)) group.forEach((p, i) => (p.y = snapshot[i]));
+    }
+  }
+
+  // ── 手(2) 横: escapee の書き出し x を「その他」へ寄せる (viewBox 収まりキャップ付き) ──
+  // 実 viewBox 端の数 px 内側 (`unsqueezeCondensedByShiftTowardPie` と同じ hard 限界)。
+  const hardHalf = cfg.svgWidthPx / 2 / cfg.pxPerUnit - 4 / cfg.pxPerUnit;
+  for (const p of escapees) {
+    if (p.x >= sono.x - 1e-9) continue;
+    const box = placementBox(p, cfg);
+    if (boxCenter(p) <= boxCenter(sono)) continue; // 「その他」より上の段のみ
+    // 箱全体が pie キャップより上にあるラベルのみ (円と干渉せず右可動域を viewBox 端へ広げられる)。
+    if (box.bottom < cfg.pieRadius - 1e-9) continue;
+    const width = box.right - box.left;
+    // (p.x - box.left) は anchor=start でも box 左端と書き出し x の微差 (padding 等) を吸収する補正。
+    const targetX = Math.min(sono.x, hardHalf - width + (p.x - box.left));
+    if (targetX <= p.x + 1e-9) continue;
+    const beforeX = p.x;
+    const before = defectVec();
+    p.x = targetX;
+    if (worseThan(before)) p.x = beforeX;
+  }
+}
+
 // leader メトリクス層 (pathsCross / realLeaderPaths / countLeaderCrossings /
 // countLeaderThroughLabels / box*Max / projectBoxesToPixels / oobLeaderCount / angularStacks /
 // countAngularDiscordantPairs) は ./leader_geometry.js へ分離した。
@@ -4163,6 +4275,11 @@ function hasNewPair(cand: Set<string>, base: Set<string>): boolean {
  *  - その下で **束スタブ / 交差 / 貫通 のいずれかが純減** し、見切れ (clips) と総数 (total) が悪化
  *    しないなら採用。目的関数を束スタブだけに絞らないのは、逃がしが解くのは束スタブとは限らず、
  *    「逃がさないと出る貫通」の解消 (stress_top_cluster_8 の D-through-E) も同じ機構が担うため。
+ *  - **packing 枝**: 左列が縦に入りきらない (`leftColumnPackingRatio` > 1) チャートでは、計量
+ *    defect がどれも動かなくても「逃がしで左列が実際に緩む (packing 厳密減)」ことを採用根拠に
+ *    できる。ただし **最初の 1 手に限る** (最小逃がし則) — packing は 1 枚逃がすたび自明に減る
+ *    ため、これを単独根拠にした累積逃がしを許すと候補を使い切るまで逃がし続けてしまう。
+ *    2 手目以降は従来どおり defect の純減が必要。stubs/clips/total の非悪化ガードは共通。
  *  - 同点は 0 枚 (既存挙動) を維持する。
  *
  * 枚数を固定しないのが要点 — 右上の縦余白は約 2 箱分しかなく、詰め込みすぎれば clips が増えて
@@ -4197,8 +4314,27 @@ function pickUpperEscapeCount(
       score.stubs < bestScore.stubs ||
       hasNewPair(bestScore.crossPairs, score.crossPairs) ||
       hasNewPair(bestScore.throughPairs, score.throughPairs);
+    // packing 枝: 左列 overpack (>1) の緩和 (厳密減) を「最初の 1 手」(best === base) に限り採用根拠に
+    // 加える。stubs 非悪化を明示するのは、improves 枝と違い stubs 減が根拠に含まれないため。
+    // 欠損 (?? ) は枝不成立へ倒す。
+    const basePack = base.diagnostics.leftColumnPackingRatio ?? 0;
+    const variantPack = variant.diagnostics.leftColumnPackingRatio ?? Infinity;
+    const packBranch =
+      best === base && basePack > 1 && variantPack < basePack && score.stubs <= bestScore.stubs;
     const better =
-      hardGuard && improves && score.clips <= bestScore.clips && score.total <= bestScore.total;
+      hardGuard &&
+      (improves || packBranch) &&
+      score.clips <= bestScore.clips &&
+      score.total <= bestScore.total;
+    if (process.env.PIE_CHART_DEBUG_ESCAPE) {
+      console.error(
+        `[upper-escape] count=${count}: clips ${bestScore.clips}->${score.clips} ` +
+          `stubs ${bestScore.stubs}->${score.stubs} through ${bestScore.through}->${score.through} ` +
+          `cross ${bestScore.crossings}->${score.crossings} pie ${bestScore.pie}->${score.pie} ` +
+          `total ${bestScore.total}->${score.total} ` +
+          `pack ${basePack.toFixed(3)}->${variantPack.toFixed(3)} => ${better ? 'ADOPT' : 'REJECT'}`,
+      );
+    }
     if (better) {
       best = variant;
       bestScore = score;
@@ -4363,6 +4499,11 @@ export const EMIT_REPAIR_PASSES: readonly EmitRepairPass[] = [
   // pie 側へ必要最小限シフトしてから原寸へ戻す。「戻せるのに長体のまま」を残さないための仕上げ。
   // pie 側辺は pie 円周でキャップ・採否は do-no-harm ゲートなので退行しない (戻せなければ no-op)。
   { name: 'unsqueezeCondensedByShiftTowardPie', run: unsqueezeCondensedByShiftTowardPie },
+
+  // 最終仕上げ: 右上 escapee スタックの整え — 押し下げられた「その他」の pie キャップ復帰 (縦) と
+  // escapee の書き出し x の「その他」揃え (横)。座標を動かす最後のパスとして末尾に置く — leader は
+  // 移動後 box から再計算され追従する (do-no-harm)。
+  { name: 'tidyTopRightEscapeeStack', run: tidyTopRightEscapeeStack },
 ];
 
 /**

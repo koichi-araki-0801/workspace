@@ -1540,6 +1540,13 @@ export function layoutLabels(
   // 上の専用マーカーと同じく assignUpperLeftRenderY / 1 行強制 / flip より前に立てる必要がある。
   diagnostics.upperEscapeCandidateCount = leftStackUpperEscapeCandidates(left).length;
   markLeftStackUpperEscapeRight(left, right, diagnostics, cfg, upperEscapeCount);
+  // 逃がし済みを除いた左列の詰め込み比を診断へ載せる (`pickUpperEscapeCount` の packing 枝が読む)。
+  // 測定点はゲート自身の計測 (`markLeftStackUpperEscapeRight` 内) と同じくマーク直後に固定し、
+  // base と variant の比較が同条件になるようにする。
+  diagnostics.leftColumnPackingRatio = sideColumnPackingRatio(
+    left.filter((it) => it.topBandSmallRight !== true),
+    cfg,
+  );
 
   // 左側密集 (Diagnostics.leftStackMode) 時、左側の非 flip item は cascade を 1 行起点
   // ("名前 25%") で走らせる。`compactLabel`/`textLines=1` は cascade 到達前の幅計測が
