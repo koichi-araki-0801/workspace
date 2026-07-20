@@ -349,36 +349,37 @@ function spreadLeftStackByAngle(
 }
 
 /**
- * `spreadLeftStackFullHeight` の整え係数。
+ * `alignLeftStackToAnchors` の整え係数。
  *   EDGE_INSET_PX: viewBox 上下端からの内側マージン (px)。右上逃がしスタックの上端
  *     (`tidyTopRightEscapeeStack` の hardTop) と揃える。
- *   MIN_GAP_FRACTION: 発火判定。隣接エアギャップの最小値が `scaledMinGap` のこの割合を下回る
- *     (= 箱がほぼ接触する) 列だけを広げる。健全に空いている列は対象外。
- *   MAX_GAP_FACTOR: 等配分ギャップの上限 (`scaledMinGap` の倍数)。少件数 × 高キャンバスで
- *     列が間延びするのを防ぐ (上限到達時は下端に届かず上端優先で止まる)。
+ *   MIN_GAP_FRACTION: `scaledMinGap` に対する割合で 2 役を兼ねる: ①発火判定 — 隣接エアギャップの
+ *     最小値がこれを下回る (= 箱がほぼ接触する) 列だけを整える。②整列後の最小エアギャップ (floor)。
+ *     発火閾値と floor を同値にすることで、整列済みの列は再発火しない (冪等)。
  */
-const LEFT_STACK_SPREAD_EDGE_INSET_PX = 4;
-const LEFT_STACK_SPREAD_MIN_GAP_FRACTION = 0.25;
-const LEFT_STACK_SPREAD_MAX_GAP_FACTOR = 2;
+const LEFT_STACK_ALIGN_EDGE_INSET_PX = 4;
+const LEFT_STACK_ALIGN_MIN_GAP_FRACTION = 0.25;
 
 /**
- * leftStackMode の左列が接触級に詰まり viewBox の上下に余白を残すとき、列全体を縦全域
- * (上下端の EDGE_INSET_PX 内側) へ等エアギャップで展開する (`applyLeftStackGapClose` の広げる版)。
+ * leftStackMode の左列が接触級に詰まるとき、各ラベルの箱中心を**自スライスの rim 高さ
+ * (sin(midAngle)·R)** へ寄せつつ最小エアギャップと viewBox 上下端だけを制約に再配置する
+ * (`applyLeftStackGapClose` の広げる版)。X は mid-angle 放射方向に `TWO_LINE_LEFT_OUT_FACTOR` 倍
+ * 離し、9時に近いラベルほど円から離れて斜めリーダーが見える (参考 PDF と同じ見せ方 —
+ * `applyTwoLineLeftColumn` の X と同式)。
  *
  * 背景: 左列の積み上げ (`assignUpperLeftRenderY`) は天井超過時に圧縮する一方、収まっている時に
  * 余白へ広げる機構が無く、小スライス連続チャート (例 currency 系 10 スライス) では隣接箱が接触
- * したまま上下に余白が残る。ここで最上箱を上端へ・最下箱を下端へ届かせ、間を均等配分する。
+ * したまま余白が残る。等間隔で縦全域へ展開する案は中段ラベルをスライスから引き離し、rim 沿いの
+ * 長い近平行 leader (所属が読めない) を作ったためボツ — ラベルが自スライスの正面へ並べば leader
+ * は短い放射スタブになり、間隔の粗密より判読性が勝る (ユーザー選定)。
  *
- * 手順: 箱中心の縦順 (上→下。p.y は baseline 向き混在で視覚順と食い違い得る) に、最上箱の上端 =
- * hardTop から 箱高 + airGap で下へ積む (airGap = 残余等分を scaledMinGap×MAX_GAP_FACTOR で
- * キャップ)。y は箱中心オフセット保存で移動し baseline 向き差を吸収、目標列が縦に単調なので
- * 角度順 (=値順) は構成的に保たれる。X は新しい y 区間が円と重なるラベルのみ左 rim へハグし直し
- * (`applyLeftStackGapClose` と同じ rim + pie nudge)、円キャップより完全に上/下のラベルは現状維持
- * (rim が無く、stale minTextX の clamp 引き戻しも避ける — `tidyTopRightEscapeeStack` の ⚠ 参照)。
+ * 手順: 箱中心の縦順 (上→下。p.y は baseline 向き混在で視覚順と食い違い得る) に、目標中心 =
+ * 自スライス rim 高さから始め、隣接ペアの必要間隔 (箱高 + floor) と上下端を反復投影で満たす。
+ * 目標列が角度順に単調なので投影後も角度順 (=値順) は保たれる。y は箱中心オフセット保存で移動し
+ * baseline 向き差を吸収。円キャップより完全に上/下のラベルは X 現状維持 (rim が無い)。
  * 移動ラベルは skipLeader を解除し、leader は emit の描画段が最終 box から再計算して追従する。
  * do-no-harm: `emitDefectsWorsened` (一級 + through/cross 新規対 + inv) 悪化で全 revert。
  */
-function spreadLeftStackFullHeight(
+function alignLeftStackToAnchors(
   placements: Placement[],
   cfg: PieLayoutConfig,
   coord: Coord,
@@ -405,42 +406,79 @@ function spreadLeftStackFullHeight(
   const heights = boxes.map((b) => b.top - b.bottom);
   let minAir = Number.POSITIVE_INFINITY;
   for (let i = 1; i < n; i += 1) minAir = Math.min(minAir, boxes[i - 1].bottom - boxes[i].top);
-  if (minAir >= cfg.scaledMinGap * LEFT_STACK_SPREAD_MIN_GAP_FRACTION) return;
+  if (minAir >= cfg.scaledMinGap * LEFT_STACK_ALIGN_MIN_GAP_FRACTION) return;
 
-  const hardTop = logicalYAtViewBoxYPx(coord, LEFT_STACK_SPREAD_EDGE_INSET_PX);
-  const hardBottom = logicalYAtViewBoxYPx(coord, cfg.svgHeightPx - LEFT_STACK_SPREAD_EDGE_INSET_PX);
+  const hardTop = logicalYAtViewBoxYPx(coord, LEFT_STACK_ALIGN_EDGE_INSET_PX);
+  const hardBottom = logicalYAtViewBoxYPx(coord, cfg.svgHeightPx - LEFT_STACK_ALIGN_EDGE_INSET_PX);
   const sumH = heights.reduce((s, h) => s + h, 0);
-  const airGap = Math.min(
+  // floor は「発火閾値と同値」を上限に、列が上下端に収まらない場合は等分残余へ縮める。
+  const gapFloor = Math.min(
+    cfg.scaledMinGap * LEFT_STACK_ALIGN_MIN_GAP_FRACTION,
     (hardTop - hardBottom - sumH) / (n - 1),
-    cfg.scaledMinGap * LEFT_STACK_SPREAD_MAX_GAP_FACTOR,
   );
   const tol = pxToLogical(cfg, 1);
-  if (airGap <= tol || airGap <= minAir + tol) return; // 広がらない再配分はしない
+  if (gapFloor <= tol || gapFloor <= minAir + tol) return; // 広がらない再配分はしない
 
   const before = captureEmitDefectVec(placements, cfg, coord);
+  const intrusionBefore = boxPieIntrusionMax(placements, cfg);
   const origX = stack.map((p) => p.x);
   const origY = stack.map((p) => p.y);
   const origSkip = stack.map((p) => Boolean(p.skipLeader));
 
+  // 目標中心 = 自スライスの rim 高さ。隣接ペアの必要間隔 (箱高の半分ずつ + floor) と per-label の
+  // 上下境界を反復投影で満たす (押し合いは対称に半分ずつ)。目標列が角度順に単調なので順序は保たれる。
+  // 境界: 基本は viewBox 上下端。加えて、元 box が pie キャップの完全に上/下にあるラベルは移動後も
+  // キャップを跨がせない — 天頂/底近くは mid-angle 放射の押し出しがほぼ横向きに効かず (cos≈0)、
+  // 円の y 帯へ降りると nudge で逃がしきれず box が円内へ入る (実測退行: stress_top_cluster_8 の
+  // "H 2.5%" が 21px 侵入)。
   const pieR = cfg.pieRadius;
-  let topEdge = hardTop;
+  const c = stack.map((p) => Math.sin(degToRad(p.item.midAngle ?? 0)) * cfg.pieRadius);
+  const eps = 1e-9;
+  const minC = stack.map((_, i) =>
+    boxes[i].bottom >= pieR - eps ? pieR + heights[i] / 2 : hardBottom + heights[i] / 2,
+  );
+  const maxC = stack.map((_, i) =>
+    boxes[i].top <= -pieR + eps ? -pieR - heights[i] / 2 : hardTop - heights[i] / 2,
+  );
+  for (let iter = 0; iter < 200; iter += 1) {
+    let moved = false;
+    for (let i = 0; i + 1 < n; i += 1) {
+      const need = (heights[i] + heights[i + 1]) / 2 + gapFloor;
+      const cur = c[i] - c[i + 1];
+      if (cur < need - eps) {
+        const d = (need - cur) / 2;
+        c[i] += d;
+        c[i + 1] -= d;
+        moved = true;
+      }
+    }
+    for (let i = 0; i < n; i += 1) {
+      if (c[i] < minC[i] - eps) {
+        c[i] = minC[i];
+        moved = true;
+      } else if (c[i] > maxC[i] + eps) {
+        c[i] = maxC[i];
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
   for (let i = 0; i < n; i += 1) {
     const p = stack[i];
     const h = heights[i];
-    const newTop = topEdge;
-    const newBottom = topEdge - h;
+    const newTop = c[i] + h / 2;
+    const newBottom = newTop - h;
     // baseline (top/bottom) と y の関係を保つため、現在の y−箱中心オフセットを維持して中心を移す。
     const newY = p.y + ((newTop + newBottom) / 2 - (boxes[i].top + boxes[i].bottom) / 2);
     if (newBottom >= pieR || newTop <= -pieR) {
       // 円キャップより完全に上/下: rim が無いので X 現状維持。
       p.y = newY;
     } else {
-      // 新しい y 区間が円と重なる: 左 rim へハグし直す。rim X は箱の赤道寄り端で測る
-      // (baseline 直用だと |y| ≥ r 付近で x が 0 へ潰れて箱が円上へ飛ぶ)。
-      const yRef = newBottom > 0 ? newBottom : newTop < 0 ? newTop : 0;
-      const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - yRef * yRef));
+      // mid-angle 放射方向へ TWO_LINE_LEFT_OUT_FACTOR 倍離す (9時に近いほど円から離れ、rim→box の
+      // 斜めリーダーが見える)。pie クリアランスは nudge が現在 y で保証する。
       const measured = placementExtent(p, cfg);
-      const nudged = nudgeTextAwayFromPie(-rimXmag, newY, p.anchor, p.baseline, measured, cfg);
+      const outX = Math.cos(degToRad(p.item.midAngle ?? 0)) * pieR * TWO_LINE_LEFT_OUT_FACTOR;
+      const nudged = nudgeTextAwayFromPie(outX, newY, p.anchor, p.baseline, measured, cfg);
       p.x = nudged.x;
       p.y = nudged.y;
     }
@@ -450,10 +488,13 @@ function spreadLeftStackFullHeight(
     // `nudgeTextAwayFromPie` が現在 y で保証し、その他の悪化は下の do-no-harm ゲートが拾う。
     // 前段 gap-close が rim ハグ前提で立てた leader 抑制を解除 (縮退判定は leader 再計算が行う)。
     p.skipLeader = false;
-    topEdge = newBottom - airGap;
   }
 
-  if (emitDefectsWorsened(before, placements, cfg, coord)) {
+  // 二級の box 円侵入 (`countDefects` は数えない) も安全網として非増加を要求する。
+  if (
+    emitDefectsWorsened(before, placements, cfg, coord) ||
+    boxPieIntrusionMax(placements, cfg) > intrusionBefore + tol
+  ) {
     stack.forEach((p, i) => {
       p.x = origX[i];
       p.y = origY[i];
@@ -4384,6 +4425,7 @@ function upperEscapeScore(
 ): DefectCounts & {
   through: number;
   stubs: number;
+  boxPie: number;
   throughPairs: Set<string>;
   crossPairs: Set<string>;
 } {
@@ -4401,6 +4443,9 @@ function upperEscapeScore(
     ...countDefects(finalized, cfg, coord),
     through: throughPairs.size,
     stubs: countBundledRimStubs(finalized, cfg),
+    // 逃がしはラベル箱を pie キャップ近傍へ積み直すため、箱の円内侵入 (`countDefects` は数えない
+    // 二級 defect) を新規に作りうる (実測: 3 枚逃がしで最下段が cap 下へ押されて 21px 侵入)。
+    boxPie: boxPieIntrusionMax(finalized, cfg),
     throughPairs,
     crossPairs,
   };
@@ -4457,8 +4502,11 @@ function pickUpperEscapeCount(
     const variant = layoutLabels(items, cfg, rotateOverride, count);
     const score = upperEscapeScore(variant, cfg, coord);
     // hardGuard: base に無い交差/貫通の対を 1 つも作らない (合計据え置きの局所入替を弾く)。
+    // boxPie (箱の円内侵入) は verify の "label inside pie" と同じ二級 defect で、逃がし枚数が
+    // 増えるほど最下段が pie キャップ下へ押されて起きる。許容は verify と同じ 2px。
     const hardGuard =
       score.pie <= bestScore.pie &&
+      score.boxPie <= bestScore.boxPie + pxToLogical(cfg, 2) &&
       !hasNewPair(score.crossPairs, baseScore.crossPairs) &&
       !hasNewPair(score.throughPairs, baseScore.throughPairs);
     // improves: 束スタブ / 交差対 / 貫通対 のいずれかが直前の best より純減。hardGuard が新規対ゼロを
@@ -4484,6 +4532,7 @@ function pickUpperEscapeCount(
         `[upper-escape] count=${count}: clips ${bestScore.clips}->${score.clips} ` +
           `stubs ${bestScore.stubs}->${score.stubs} through ${bestScore.through}->${score.through} ` +
           `cross ${bestScore.crossings}->${score.crossings} pie ${bestScore.pie}->${score.pie} ` +
+          `boxPie ${bestScore.boxPie.toFixed(3)}->${score.boxPie.toFixed(3)} ` +
           `total ${bestScore.total}->${score.total} ` +
           `pack ${basePack.toFixed(3)}->${variantPack.toFixed(3)} => ${better ? 'ADOPT' : 'REJECT'}`,
       );
@@ -4653,12 +4702,13 @@ export const EMIT_REPAIR_PASSES: readonly EmitRepairPass[] = [
   // pie 側辺は pie 円周でキャップ・採否は do-no-harm ゲートなので退行しない (戻せなければ no-op)。
   { name: 'unsqueezeCondensedByShiftTowardPie', run: unsqueezeCondensedByShiftTowardPie },
 
-  // leftStackMode の左列が接触級に詰まるとき、列を viewBox 縦全域へ等ギャップ展開する
-  // (`applyLeftStackGapClose` の広げる版)。x/長体率の確定後・右上仕上げの前に置く。
+  // leftStackMode の左列が接触級に詰まるとき、各ラベルを自スライスの rim 高さへ寄せつつ最小間隔を
+  // 確保し、mid-angle 放射方向へ円から離す (`applyLeftStackGapClose` の広げる版)。
+  // x/長体率の確定後・右上仕上げの前に置く。
   {
-    name: 'spreadLeftStackFullHeight',
+    name: 'alignLeftStackToAnchors',
     when: (d) => d?.leftStackMode === true,
-    run: spreadLeftStackFullHeight,
+    run: alignLeftStackToAnchors,
   },
 
   // 最終仕上げ: 右上 escapee スタックの整え — 押し下げられた「その他」の pie キャップ復帰 (縦) と
