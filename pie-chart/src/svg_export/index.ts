@@ -981,6 +981,75 @@ function cascadeWithSonohokaPick(
   return rightNotWorse ? right : left;
 }
 
+/** `pickCapClearanceParity` 用の採点。`countDefects` が数えない leader のラベル箱貫通を併載する。 */
+function capParityScore(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+  leftStackMode: boolean,
+): DefectCounts & { through: number } {
+  const finalized = finalizeForScoring(placements, cfg, coord, leftStackMode);
+  return {
+    ...countDefects(finalized, cfg, coord),
+    through: countLeaderThroughLabels(finalized, cfg, coord),
+  };
+}
+
+/**
+ * pie キャップ外の箱に対する静的 pie クランプの「名残制約」除去 (`label_placement.ts` の
+ * `clampAndBuildPlacement`) を、チャート単位で採否する do-no-harm。
+ *
+ * 名残制約は動的側 `pieClampXLimits` (`svg_geom.ts`) が持たない静的側だけの非対称で、円と X 方向で
+ * 干渉しない箱まで横へ押し出す (例 `currency_low_diff_10` の「その他」が 66px 左寄せされ、真上垂直の
+ * はずの leader が長い斜めになる)。ただしこの押し出しが偶発的に隣接ラベルの重なり回避として働いて
+ * いるチャートがあり、一律除去すると退行する (実測: `pdf_510037_01_fund_country_20240710` の
+ * ルクセンブルク↔ケイマン諸島で 48px 重なり + leader 貫通、`pdf_510037_07_fidelity_foreign_bond_currency`
+ * で 24px 重なり)。
+ *
+ * そこで除去版 (parity) と旧挙動版 (rejected) を同じ最終化で比較し、`countDefects` が数えない二級
+ * defect (leader のラベル箱貫通) も明示的に足したうえで、parity が 1 項目も悪化させないチャートだけ
+ * parity を採る。以降の `bestResult()` 再走が同じ選択を再現するよう、フラグは確定側で残す。
+ */
+function pickCapClearanceParity(
+  labels: LayoutItemReady[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+  leftStackMode: boolean,
+  bestResult: () => Placement[],
+): Placement[] {
+  for (const it of labels) it.capParityRejected = false;
+  const parity = bestResult();
+  const parityScore = capParityScore(parity, cfg, coord, leftStackMode);
+  for (const it of labels) it.capParityRejected = true;
+  const rejected = bestResult();
+  const rejectedScore = capParityScore(rejected, cfg, coord, leftStackMode);
+  // 採否は `cascadeWithSonohokaPick` と同じ hard > soft の辞書順。hard (交差 / 円内貫通 / ラベル箱
+  // 貫通) を 1 つも増やさないことをガードにし、その下で hard が厳密に減るなら soft (見切れ / 総数) の
+  // 増加は許す。名残制約の除去は「斜め leader がラベル箱を貫く」型の解消が主目的で、その代償として
+  // placementBox 基準の clips が 1 増えることがあるため (実描画では見切れていないことが多い)。
+  //
+  // 同点なら **既存挙動を維持** する (parity を採らない)。採点は `finalizeForScoring` = scoring 段
+  // までしか見ず、emit 限定の後段パスが生む二級 defect を数えないため、同点採用は実描画でだけ重なりが
+  // 増える退行を招く (実測: `pdf_510037_07_fidelity_foreign_bond_currency` は採点上 完全同点だが
+  // emit 後に ニュージーランド・ドル ↔ その他 の 24px 重なりが出る)。改善が測れるチャートに限定する。
+  const hardGuard =
+    parityScore.crossings <= rejectedScore.crossings &&
+    parityScore.pie <= rejectedScore.pie &&
+    parityScore.through <= rejectedScore.through;
+  const hardBetter =
+    parityScore.crossings < rejectedScore.crossings ||
+    parityScore.pie < rejectedScore.pie ||
+    parityScore.through < rejectedScore.through;
+  const softNotWorse =
+    parityScore.clips <= rejectedScore.clips && parityScore.total <= rejectedScore.total;
+  const softBetter =
+    parityScore.clips < rejectedScore.clips || parityScore.total < rejectedScore.total;
+  const parityNotWorse = hardGuard && (hardBetter || (softNotWorse && softBetter));
+  if (!parityNotWorse) return rejected;
+  for (const it of labels) it.capParityRejected = false;
+  return parity;
+}
+
 /**
  * 1 行起点 (preferOneLineCascade=true) の左側ラベルに対する probe-then-override:
  * cascade を一度プローブし、1 行 placement の実描画 bbox が実 viewBox (svgWidthPx) の
@@ -3800,7 +3869,7 @@ function runLabelCascade(
       ? spread
       : off;
   };
-  let result = bestResult();
+  let result = pickCapClearanceParity(labels, cfg, coord, lsm, bestResult);
   // leftStackMode 限定の 2 行維持 (do-no-harm): 1 行降格で viewBox 左端を見切れる幅広左ラベルを
   // keepTwoLineLeftStack で 2 行 (rank ≤ 4) に留めて再走させ、chart の不具合数が厳密に減る時だけ
   // 採用する。減らなければフラグを戻して既存配置を維持する (leftStackMode は useStackRimY 対象外

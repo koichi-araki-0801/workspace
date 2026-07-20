@@ -83,6 +83,12 @@ export interface LayoutItem {
   // `runLabelCascade` のフォールバックパスで立てると `topBandSonohokaRight` が無効化され左上配置に戻る。
   topRightRejected?: boolean;
 
+  // pie キャップ外の箱に対する静的 pie クランプの「名残制約」除去 (`label_placement.ts` の
+  // `clampAndBuildPlacement`) を、このチャートでは行わない印。名残制約は本来不要だが偶発的に
+  // 隣接ラベルの重なり回避として働いているチャートがあり、除去すると重なり/leader 貫通が増える。
+  // `svg_export/index.ts` の `pickCapClearanceParity` が不具合増を検知した時だけ立てて旧挙動へ戻す。
+  capParityRejected?: boolean;
+
   // 12時近傍 (mid 90°±30°) に 4 以上の small slice が集まる `Diagnostics.topBandClusterMode` の
   // 構成員ラベル印。`runLabelCascade` 後段 `applyTopBandClusterReorder` の対象になる。
   clusterTopBand?: boolean;
