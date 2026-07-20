@@ -1354,6 +1354,7 @@ exports[`mark*** 系マーカーの発火対応表 (layoutLabels 直後) > 全�
         "bisectedDominantCenter",
       ],
       "親投資信託証券": [
+        "lowerLeftDropLeader",
         "bisectedSecondSliceNoLeader",
       ],
     },
@@ -1368,6 +1369,7 @@ exports[`mark*** 系マーカーの発火対応表 (layoutLabels 直後) > 全�
         "bisectedDominantCenter",
       ],
       "親投資信託証券": [
+        "lowerLeftDropLeader",
         "bisectedSecondSliceNoLeader",
       ],
     },

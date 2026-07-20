@@ -29,6 +29,7 @@ import {
   degToRad,
   nudgeTextAwayFromEndpoint,
   nudgeTextAwayFromSegment,
+  pieClearanceWithinViewBox,
   radialFraction,
   fitsInsideSliceExtent,
   scaledLabelWidthUnits,
@@ -831,8 +832,15 @@ function clampAndBuildPlacement(input: {
     let closestY: number;
     if (bboxYMin <= 0 && bboxYMax >= 0) closestY = 0;
     else closestY = Math.abs(bboxYMin) < Math.abs(bboxYMax) ? bboxYMin : bboxYMax;
-    const pieClearanceLogical = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.012, 0.12));
     const insidePieR = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY));
+    // クリアランスは viewBox に収まる範囲でのみ狙い値へ広げる (`pieClearanceWithinViewBox`)。
+    // 動的側 `pieClampXLimits` と同式 (対の関係は同関数の doc コメント参照)。
+    const pieClearanceLogical = pieClearanceWithinViewBox(
+      cfg,
+      insidePieR,
+      widthVerify,
+      radialFraction(cfg, 0.012, 0.12),
+    );
     pieMinTextX = insidePieR + pieClearanceLogical;
     pieMaxTextX = -(insidePieR + pieClearanceLogical);
     if (anchor === 'middle') {

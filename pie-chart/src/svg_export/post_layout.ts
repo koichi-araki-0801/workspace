@@ -25,6 +25,7 @@ import {
   radialFraction,
   normalizeAngle,
   angleInBand,
+  pieClearanceWithinViewBox,
   pieYAtX,
   textBoxBounds,
   visualTextWidthUnits,
@@ -559,7 +560,14 @@ export function applyVisualViewBoxNudge(textPlacements: Placement[], cfg: PieLay
     if (bboxBottom > cfg.pieRadius) closestPieY = bboxBottom;
     else if (bboxTop < -cfg.pieRadius) closestPieY = bboxTop;
     else closestPieY = Math.abs(bboxTop) < Math.abs(bboxBottom) ? bboxTop : bboxBottom;
-    const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
+    // 実効クリアランス (viewBox 収まりキャップ)。狙い値のままだと、幅広ラベルの見切れ解消 shift が
+    // pie 側で早く頭打ちになり、旧クリアランスなら回収できた見切れが残る。
+    const pieClearance = pieClearanceWithinViewBox(
+      cfg,
+      Math.abs(closestPieY) < cfg.pieRadius ? pieYAtX(closestPieY, cfg) : 0,
+      widthLogical,
+      radialFraction(cfg, 0.01, 0.1),
+    );
     const safety = cfg.canvasSafetyMargin;
     const [xlimMin, xlimMax] = horizontalLabelLimits(placement, cfg);
     if (overflow.side === 'left') {

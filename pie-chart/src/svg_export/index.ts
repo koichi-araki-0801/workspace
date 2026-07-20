@@ -18,6 +18,7 @@ import {
   estimateTextExtent,
   estimateVerifyTextExtent,
   nudgeTextAwayFromPie,
+  pieClearanceWithinViewBox,
   pieYAtX,
   placementBox,
   placementExtent,
@@ -2171,7 +2172,6 @@ function unsqueezeCondensedByShiftTowardPie(
 ): void {
   const STEP = 0.025; // applyFinalCondenseToFit / relaxStructuralCondense と同じ格子
   const hardHalf = cfg.svgWidthPx / 2 / cfg.pxPerUnit - 4 / cfg.pxPerUnit; // 実 viewBox 端の数 px 内側
-  const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
   const fitsView = (p: Placement): boolean => {
     const b = placementBox(p, cfg);
     return b.left >= -hardHalf - 1e-9 && b.right <= hardHalf + 1e-9;
@@ -2212,6 +2212,14 @@ function unsqueezeCondensedByShiftTowardPie(
     else
       closestPieY = Math.abs(fullBox.top) < Math.abs(fullBox.bottom) ? fullBox.top : fullBox.bottom;
     const pieSideCapped = Math.abs(closestPieY) < cfg.pieRadius;
+    // 実効クリアランス (viewBox 収まりキャップ、full 幅基準)。狙い値のままだと幅広ラベルの
+    // pie 側キャップが早く頭打ちになり、旧クリアランスなら解けた長体が残る。
+    const pieClearance = pieClearanceWithinViewBox(
+      cfg,
+      pieSideCapped ? pieYAtX(closestPieY, cfg) : 0,
+      fullBox.right - fullBox.left,
+      radialFraction(cfg, 0.01, 0.1),
+    );
     if (p.anchor === 'end') {
       // 左側ラベル: far edge=box.left。左超過分だけ右 (pie 側) へ。pie 側辺=box.right を pie 左縁でキャップ。
       let shift = Math.max(0, -hardHalf - fullBox.left);

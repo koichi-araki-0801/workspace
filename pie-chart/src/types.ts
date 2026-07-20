@@ -352,8 +352,17 @@ export interface PieLayoutConfig {
   insideSliceEnabled: boolean;
   insideSliceClearance: number;
   insideSliceAngularClearanceDeg: number;
-  /** 外側ラベルの text bbox と円との最小ギャップ (論理単位 = pieRadius 比)。 */
+  /**
+   * 外側ラベルの text bbox と円との狙いギャップ (論理単位 = pieRadius 比)。実効値はラベルごとに
+   * 「viewBox に収まる範囲」でのみ本値まで広がる (`svg_geom.ts` の `pieClearanceWithinViewBox`)。
+   * 幅広ラベルで viewBox に収まらない場合は `pieLabelClearanceMin` まで縮む。
+   */
   pieLabelClearance: number;
+  /**
+   * 上記の実効クリアランスの下限。ラベル幅が大きく `pieLabelClearance` では viewBox を見切れる
+   * ラベルでも、最低このギャップは確保する (= これ以上は円へ寄せない)。
+   */
+  pieLabelClearanceMin: number;
   darkSliceTextColor: string;
   darkSliceFillIndexMin: number;
   grayScale4: string[];

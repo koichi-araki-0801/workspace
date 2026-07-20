@@ -93,7 +93,19 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     insideSliceEnabled: true,
     insideSliceClearance: 0.04,
     insideSliceAngularClearanceDeg: 3,
-    pieLabelClearance: 0.05,
+    // 円とラベル bbox の狙いギャップ (pieRadius 比)。0.05 では円に張り付いて窮屈に見えるため
+    // 0.08 へ広げた (意図的な出力変更、baseline 更新済み)。0.09 以上は「その他」の垂直 leader に
+    // 2px 超の水平ドリフトが出て leader_invariants の独立オラクルに抵触するため、これが上限。
+    // 実効値はラベルごとに「viewBox に収まる範囲」でのみ本値まで広がる
+    // (`svg_geom.ts` の `pieClearanceWithinViewBox`)。幅広ラベルは `pieLabelClearanceMin` へ縮み、
+    // 旧既定 0.05 と同位置に留まる = クリアランス拡大が見切れを新設しない。
+    // 消費点の `Math.max(cfg.pieLabelClearance, radialFraction(...))` の floor は既定スケールで
+    // 0.012〜0.0144 と本値より十分小さく素通しなので、円からの距離の実効レバーは本値のみ。
+    // 回転採用時は `index.ts` の `adoptRotatedWithClearancePush` が本値へ push を加算する。
+    pieLabelClearance: 0.08,
+    // 実効クリアランスの下限 = 旧既定値。viewBox に収まらない幅広ラベルはここまで円へ寄せてよい
+    // (旧挙動と同位置)。これ未満へ縮めると旧 baseline より円に近づく退行になるため下げない。
+    pieLabelClearanceMin: 0.05,
     darkSliceTextColor: '#ffffff',
     darkSliceFillIndexMin: 2,
 
