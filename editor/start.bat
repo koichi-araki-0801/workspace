@@ -25,6 +25,16 @@ rem ============================================================================
 setlocal
 rem Drive the pnpm workspace from the repo root (one level up: editor/ -> root).
 cd /d "%~dp0\.."
+rem Repo root absolute path, used to scope the port pre-check/cleanup to THIS repo.
+set "REPO_ROOT=%CD%"
+
+rem --- process-identity patterns (single source for :portcheck and :cleanup) --
+rem A listener is "ours" only when its command line runs our entry (server prod
+rem dist\app.js / dev src/app.ts under tsx / vite) AND mentions this repo's path
+rem (%REPO_ROOT%). Without the path check, a generic `tsx watch src/app.ts` from an
+rem unrelated repo that happens to hold our port would be tree-killed by mistake.
+set "SRV_PAT=(dist[\\/]app\.js)|(src[\\/]app\.ts)"
+set "VITE_PAT=vite[\\/]bin[\\/]vite\.js"
 
 rem --- mode (build prod/dev) and data mode (local/rest), order-free -----------
 set "MODE=prod"
@@ -136,7 +146,12 @@ echo    Stop   : Ctrl+C
 echo   ==========================================
 echo.
 rem Same run-in-job watchdog wrapper as dev so an X-button close kills the server tree.
-call "%~dp0scripts\run-in-job.bat" pnpm --filter server run start
+rem Run node with the absolute entry path instead of `pnpm --filter server run start`:
+rem the path in the command line is what lets :portcheck/:cleanup identify a stale
+rem server as ours (repo-scoped match); pnpm's child shows only `node dist/app.js`.
+rem cwd must stay editor\server (config resolves data dirs from it), hence the cd.
+cd /d "%~dp0server"
+call "%~dp0scripts\run-in-job.bat" node "%~dp0server\dist\app.js"
 if errorlevel 1 goto :serverfail
 goto :end
 
@@ -179,8 +194,8 @@ rem --- subroutine: free the listen port (called before launch) ----------------
 rem Returns 0 when the port is free (or a stale server of ours was stopped),
 rem 1 when an unrelated process holds it. Detection is delegated to PowerShell
 rem (Get-NetTCPConnection / Win32_Process), available on Windows 10+. A process
-rem is treated as "ours" when its command line runs our server entry in either
-rem mode: prod `dist/app.js` or dev `src/app.ts` (run under tsx). The dev
+rem is treated as "ours" when its command line matches SRV_PAT AND contains this
+rem repo's path (REPO_ROOT) - see the pattern block at the top. The dev
 rem supervisor (its parent: `tsx watch src/app.ts`) is stopped too, otherwise
 rem tsx would respawn the child and re-grab the port. We never auto-stop an
 rem unrelated process: a foreign holder aborts with its PID printed.
@@ -190,7 +205,7 @@ rem Windows the latter kills only that PID, so the forked PDF worker daemon and
 rem the headless chromium it spawned would be orphaned. We also reap a stale
 rem vite of ours on :24681 (best-effort, never abort, never touch a foreign holder).
 :portcheck
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $srv='(dist[\\/]app\.js)|(src[\\/]app\.ts)'; $vite='vite[\\/]bin[\\/]vite\.js'; $kill=@(); $foreign=$false; $c=Get-NetTCPConnection -LocalPort %PORT% -State Listen; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); $cl=''; if($p){$cl=$p.CommandLine}; if($cl -match $srv){ $top=$procId; if($p -and $p.ParentProcessId){ $par=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.ParentProcessId); if($par -and ($par.CommandLine -match $srv)){ $top=$par.ProcessId } }; $kill+=$top } else { $n='unknown'; if($p){$n=$p.Name}; Write-Host ('[start] ERROR: port %PORT% is in use by PID '+$procId+' ('+$n+').'); $foreign=$true } }; if($foreign){exit 1}; $vc=Get-NetTCPConnection -LocalPort 24681 -State Listen; foreach($procId in ($vc | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); if($p -and ($p.CommandLine -match $vite)){ $kill+=$procId } }; foreach($procId in ($kill | Select-Object -Unique)){ Write-Host ('[start] stopping stale process (PID '+$procId+') ...'); $null=(taskkill /PID $procId /T /F 2>&1) }; for($i=0;$i -lt 20;$i++){ if(-not (Get-NetTCPConnection -LocalPort %PORT% -State Listen)){ exit 0 }; Start-Sleep -Milliseconds 150 }; exit 0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $srv='%SRV_PAT%'; $vite='%VITE_PAT%'; $root=[regex]::Escape('%REPO_ROOT%'); $kill=@(); $foreign=$false; $c=Get-NetTCPConnection -LocalPort %PORT% -State Listen; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); $cl=''; if($p){$cl=$p.CommandLine}; if(($cl -match $srv) -and ($cl -match $root)){ $top=$procId; if($p -and $p.ParentProcessId){ $par=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.ParentProcessId); if($par -and ($par.CommandLine -match $srv) -and ($par.CommandLine -match $root)){ $top=$par.ProcessId } }; $kill+=$top } else { $n='unknown'; if($p){$n=$p.Name}; Write-Host ('[start] ERROR: port %PORT% is in use by PID '+$procId+' ('+$n+').'); $foreign=$true } }; if($foreign){exit 1}; $vc=Get-NetTCPConnection -LocalPort 24681 -State Listen; foreach($procId in ($vc | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); if($p -and ($p.CommandLine -match $vite) -and ($p.CommandLine -match $root)){ $kill+=$procId } }; foreach($procId in ($kill | Select-Object -Unique)){ Write-Host ('[start] stopping stale process (PID '+$procId+') ...'); $null=(taskkill /PID $procId /T /F 2>&1) }; for($i=0;$i -lt 20;$i++){ if(-not (Get-NetTCPConnection -LocalPort %PORT% -State Listen)){ exit 0 }; Start-Sleep -Milliseconds 150 }; exit 0"
 exit /b %ERRORLEVEL%
 
 rem --- subroutine: tear down our leftover processes on exit -------------------
@@ -199,5 +214,5 @@ rem run-in-job.ps1 already handles X-button and hard kills). Tree-kills any
 rem listener of ours on :%PORT% (server) or :24681 (vite); foreign holders are
 rem left untouched. No abort, no wait - cleanup must never block shutdown.
 :cleanup
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $pat='(dist[\\/]app\.js)|(src[\\/]app\.ts)|(vite[\\/]bin[\\/]vite\.js)'; foreach($port in @(%PORT%,24681)){ $c=Get-NetTCPConnection -LocalPort $port -State Listen; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); if($p -and ($p.CommandLine -match $pat)){ $top=$procId; if($p.ParentProcessId){ $par=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.ParentProcessId); if($par -and ($par.CommandLine -match $pat)){ $top=$par.ProcessId } }; $null=(taskkill /PID $top /T /F 2>&1) } } }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $pat='%SRV_PAT%|%VITE_PAT%'; $root=[regex]::Escape('%REPO_ROOT%'); foreach($port in @(%PORT%,24681)){ $c=Get-NetTCPConnection -LocalPort $port -State Listen; foreach($procId in ($c | Select-Object -ExpandProperty OwningProcess -Unique)){ $p=Get-CimInstance Win32_Process -Filter ('ProcessId='+$procId); if($p -and ($p.CommandLine -match $pat) -and ($p.CommandLine -match $root)){ $top=$procId; if($p.ParentProcessId){ $par=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.ParentProcessId); if($par -and ($par.CommandLine -match $pat) -and ($par.CommandLine -match $root)){ $top=$par.ProcessId } }; $null=(taskkill /PID $top /T /F 2>&1) } } }"
 exit /b 0

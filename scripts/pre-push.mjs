@@ -21,7 +21,13 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // ── 1. push される ref を stdin から読む ──
 const stdin = readStdinSync();
-const lines = stdin
+if (stdin === null) {
+  // 読取失敗を「対象なし」に倒すとブランチ push の CI ゲートまで無言で素通りする
+  // (fail-open)。安全側 = CI 実行へ倒す。意図的なスキップは `git push --no-verify` で行う。
+  console.log('[pre-push] stdin の読取に失敗 → 安全側で CI を実行');
+  runAffectedCi();
+}
+const lines = (stdin ?? '')
   .split('\n')
   .map((l) => l.trim())
   .filter(Boolean);
@@ -38,19 +44,25 @@ if (remoteRefs.length === 0 || tagOnly) {
 }
 
 // ── 3. ブランチを含む push は従来どおり affected CI を実行 ──
-// `pnpm` ラッパを介さず node で直接起動し、Windows の pnpm.cmd 解決を避ける。
-const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'ci-affected.mjs')], {
-  cwd: ROOT,
-  stdio: 'inherit',
-});
-process.exit(res.status ?? 1);
+runAffectedCi();
 
 // ── 4. ユーティリティ ──
-// pre-push の stdin(fd 0)を同期読み。TTY 等で読めない場合は空文字 (= 対象なし扱い)。
+/** affected CI を実行し、その終了コードでプロセスを終える(戻らない)。 */
+function runAffectedCi() {
+  // `pnpm` ラッパを介さず node で直接起動し、Windows の pnpm.cmd 解決を避ける。
+  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'ci-affected.mjs')], {
+    cwd: ROOT,
+    stdio: 'inherit',
+  });
+  process.exit(res.status ?? 1);
+}
+
+// pre-push の stdin(fd 0)を同期読み。空文字は「正常に読めて push 対象なし」。読取自体の失敗
+// (fd 0 が読めない環境要因)は null で区別し、呼び出し側で安全側(CI 実行)へ倒す。
 function readStdinSync() {
   try {
     return readFileSync(0, 'utf8');
   } catch {
-    return '';
+    return null;
   }
 }
