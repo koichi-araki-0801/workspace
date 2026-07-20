@@ -693,23 +693,65 @@ export function realLeaderPaths(
   });
 }
 
+/**
+ * 実描画 leader 同士が交差する **対の集合** (verify の "leader crossing" と同条件・pixel 空間)。
+ * キーはスライス名の対 (辞書順) `"名A×名B"`。**インデックスでなく名前** を使うのは、レイアウトを
+ * 作り直した別 placements 配列 (例 逃がし枚数違い) と集合を比較するため — 配列順は再生成で変わるが
+ * スライス名は不変。合計だけでなく「どの対が交差しているか」を見たい do-no-harm で使う
+ * (合計据え置きの局所入替 = ある交差を消して別の交差を作る、を検出するため)。
+ */
+export function leaderCrossingPairs(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): Set<string> {
+  const paths = realLeaderPaths(placements, cfg, coord);
+  const pairs = new Set<string>();
+  for (let i = 0; i < paths.length; i += 1) {
+    const pa = paths[i];
+    if (!pa) continue;
+    for (let j = i + 1; j < paths.length; j += 1) {
+      const pb = paths[j];
+      if (!pb || !pathsCross(pa, pb)) continue;
+      const [x, y] = [placements[i].item.name, placements[j].item.name].sort();
+      pairs.add(`${x}×${y}`);
+    }
+  }
+  return pairs;
+}
+
 /** 実描画 leader 同士が交差する対の数 (verify の "leader crossing" と同条件・pixel 空間)。 */
 export function countLeaderCrossings(
   placements: Placement[],
   cfg: PieLayoutConfig,
   coord: Coord,
 ): number {
+  return leaderCrossingPairs(placements, cfg, coord).size;
+}
+
+/**
+ * 実描画 leader が自分以外のラベル box を貫く **対の集合** (verify の "leader through label" と同条件・
+ * pixel)。キーはスライス名の対 `"貫くleaderの名>貫かれるboxの名"` (向きがあるので辞書順にしない)。
+ * `leaderCrossingPairs` と同じく **名前キー** で別 placements 配列と比較でき、合計据え置きの局所入替を
+ * 検出する。
+ */
+export function leaderThroughPairs(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): Set<string> {
   const paths = realLeaderPaths(placements, cfg, coord);
-  let c = 0;
+  const boxes = projectBoxesToPixels(placements, cfg, coord);
+  const pairs = new Set<string>();
   for (let i = 0; i < paths.length; i += 1) {
-    const pa = paths[i];
-    if (!pa) continue;
-    for (let j = i + 1; j < paths.length; j += 1) {
-      const pb = paths[j];
-      if (pb && pathsCross(pa, pb)) c += 1;
+    const pts = paths[i];
+    if (!pts) continue;
+    for (let j = 0; j < placements.length; j += 1) {
+      if (j === i) continue;
+      if (leaderCrossesBox(pts, boxes[j])) pairs.add(`${placements[i].item.name}>${placements[j].item.name}`);
     }
   }
-  return c;
+  return pairs;
 }
 
 /** 実描画 leader が自分以外のラベル box を貫く件数 (verify の "leader through label" と同条件・pixel)。 */
@@ -718,18 +760,7 @@ export function countLeaderThroughLabels(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): number {
-  const paths = realLeaderPaths(placements, cfg, coord);
-  const boxes = projectBoxesToPixels(placements, cfg, coord);
-  let c = 0;
-  for (let i = 0; i < paths.length; i += 1) {
-    const pts = paths[i];
-    if (!pts) continue;
-    for (let j = 0; j < placements.length; j += 1) {
-      if (j === i) continue;
-      if (leaderCrossesBox(pts, boxes[j])) c += 1;
-    }
-  }
-  return c;
+  return leaderThroughPairs(placements, cfg, coord).size;
 }
 
 /** 折れ線の全長 (logical)。leader の「短さ」を測るのに使う。 */

@@ -2124,12 +2124,11 @@ exports[`mark*** 系マーカーの発火対応表 (layoutLabels 直後) > 全�
         "preferOneLineCascade",
       ],
       "G": [
-        "topBandSmallRight",
-        "forceOutsideLeader",
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
       ],
       "H": [
-        "topBandSmallRight",
-        "forceOutsideLeader",
+        "flipToRight",
       ],
     },
     "modeTags": [

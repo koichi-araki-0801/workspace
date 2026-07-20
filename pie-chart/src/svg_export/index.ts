@@ -86,6 +86,8 @@ import {
   realLeaderPaths,
   countLeaderCrossings,
   countLeaderThroughLabels,
+  leaderThroughPairs,
+  leaderCrossingPairs,
   countBundledRimStubs,
   boxOverlapMax,
   boxPieIntrusionMax,
@@ -4119,7 +4121,7 @@ function upperEscapeScore(
   layout: LayoutResult,
   cfg: PieLayoutConfig,
   coord: Coord,
-): DefectCounts & { through: number; stubs: number } {
+): DefectCounts & { through: number; stubs: number; throughPairs: Set<string>; crossPairs: Set<string> } {
   const labelsCopy = structuredClone(layout.labels) as typeof layout.labels;
   const placements = runLabelCascade(labelsCopy, cfg, coord, layout.diagnostics);
   // **emit と同一の後段列** (`applyEmitRepairPasses`) を通してから数える。`finalizeForScoring` は
@@ -4128,11 +4130,21 @@ function upperEscapeScore(
   // 逃がしは箱を新しい場所へ移す変更なので、修復まで含めた最終形で判断する必要がある。
   const finalized = placements.map((p) => ({ ...p }));
   applyEmitRepairPasses(finalized, cfg, coord, layout.diagnostics);
+  const throughPairs = leaderThroughPairs(finalized, cfg, coord);
+  const crossPairs = leaderCrossingPairs(finalized, cfg, coord);
   return {
     ...countDefects(finalized, cfg, coord),
-    through: countLeaderThroughLabels(finalized, cfg, coord),
+    through: throughPairs.size,
     stubs: countBundledRimStubs(finalized, cfg),
+    throughPairs,
+    crossPairs,
   };
+}
+
+/** base に無い要素が cand に 1 つでもあれば true (合計据え置きの局所入替を検出する)。 */
+function hasNewPair(cand: Set<string>, base: Set<string>): boolean {
+  for (const k of cand) if (!base.has(k)) return true;
+  return false;
 }
 
 /**
@@ -4144,13 +4156,20 @@ function upperEscapeScore(
  * も同様に足す — 逃がしは箱の配置を変えるため貫通を増やしうる。
  *
  * 採否は `pickCapClearanceParity` と同じ hard > soft の辞書順:
- *  - hardGuard: 交差 / 円内貫通 / ラベル箱貫通 を 1 つも増やさない
- *  - その下で **stubs が厳密に減り**、見切れ (clips) と総数 (total) が悪化しないなら採用
- *  - 同点は 0 枚 (既存挙動) を維持する。採点は scoring 段までしか見ず emit 限定パスが生む二級 defect を
- *    数えないため、同点採用は実描画でだけ退行する。
+ *  - hardGuard: 交差 / 円内貫通 / ラベル箱貫通 を 1 つも増やさない。ただし **合計ではなく対の集合** で
+ *    見て、base に無い交差/貫通の対が 1 つでも新たに生じたら不採用にする。合計だけだと「ある貫通を
+ *    消して別の貫通を作る」局所入替が総和据え置きで通り、実描画で退行する (stress_top_cluster_8 の
+ *    D-through-E)。円内貫通 (pie) は per-pair 化しにくいので合計で押さえる。
+ *  - その下で **束スタブ / 交差 / 貫通 のいずれかが純減** し、見切れ (clips) と総数 (total) が悪化
+ *    しないなら採用。目的関数を束スタブだけに絞らないのは、逃がしが解くのは束スタブとは限らず、
+ *    「逃がさないと出る貫通」の解消 (stress_top_cluster_8 の D-through-E) も同じ機構が担うため。
+ *  - 同点は 0 枚 (既存挙動) を維持する。
  *
  * 枚数を固定しないのが要点 — 右上の縦余白は約 2 箱分しかなく、詰め込みすぎれば clips が増えて
  * このゲート自身が弾く。「何枚入るか」をチャートごとに判断させる。
+ *
+ * 2 つの基準を使い分ける: 新規対ゼロの **hardGuard は base (0 枚) 固定** (best を動かすと「直前の
+ * 採用形」相対になり base に無い対を見逃す)、純減の **improves は best 相対** (単調改善)。
  */
 function pickUpperEscapeCount(
   items: LayoutItem[],
@@ -4161,20 +4180,25 @@ function pickUpperEscapeCount(
 ): LayoutResult {
   const maxCount = base.diagnostics.upperEscapeCandidateCount ?? 0;
   if (maxCount <= 0) return base;
+  const baseScore = upperEscapeScore(base, cfg, coord);
   let best = base;
-  let bestScore = upperEscapeScore(base, cfg, coord);
+  let bestScore = baseScore;
   for (let count = 1; count <= maxCount; count += 1) {
     const variant = layoutLabels(items, cfg, rotateOverride, count);
     const score = upperEscapeScore(variant, cfg, coord);
+    // hardGuard: base に無い交差/貫通の対を 1 つも作らない (合計据え置きの局所入替を弾く)。
     const hardGuard =
-      score.crossings <= bestScore.crossings &&
       score.pie <= bestScore.pie &&
-      score.through <= bestScore.through;
+      !hasNewPair(score.crossPairs, baseScore.crossPairs) &&
+      !hasNewPair(score.throughPairs, baseScore.throughPairs);
+    // improves: 束スタブ / 交差対 / 貫通対 のいずれかが直前の best より純減。hardGuard が新規対ゼロを
+    // 保証するので、対の純減は「悪化を伴わない真の解消」になる。
+    const improves =
+      score.stubs < bestScore.stubs ||
+      hasNewPair(bestScore.crossPairs, score.crossPairs) ||
+      hasNewPair(bestScore.throughPairs, score.throughPairs);
     const better =
-      hardGuard &&
-      score.stubs < bestScore.stubs &&
-      score.clips <= bestScore.clips &&
-      score.total <= bestScore.total;
+      hardGuard && improves && score.clips <= bestScore.clips && score.total <= bestScore.total;
     if (better) {
       best = variant;
       bestScore = score;
