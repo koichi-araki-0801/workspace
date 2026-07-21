@@ -1276,8 +1276,17 @@ function overrideOverflowPreferOneLine(labels: LayoutItemReady[], cfg: PieLayout
  * 占有範囲が広がる方向 (= 下方向) に動くため、クラスタ外ラベル (日本 inside / 右側など)
  * と衝突する可能性は低い (日本は内側、右側は別 X)。Y 変更後は clampPlacement で範囲内
  * に収める。
+ *
+ * 積み直し後、天端に headroom が残る場合は列を viewBox 天端まで持ち上げて均等再配分する
+ * (下記 liftClusterToCanvasTop)。coord / leftStackMode はその do-no-harm ゲート
+ * (`countVerifyIssuesDetailed`) 専用。
  */
-function applyTopBandClusterReorder(placements: Placement[], cfg: PieLayoutConfig): void {
+function applyTopBandClusterReorder(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+  leftStackMode: boolean,
+): void {
   // forceTopRight 済 (= clusterTopBandBottomRight で右上 rim へ逃げた) item は再配置対象外。
   // label_placement.ts 側で確定済みの右上 rim 配置を尊重し、左帯の再スタックには参加させない。
   const cluster = placements.filter(
@@ -1359,6 +1368,61 @@ function applyTopBandClusterReorder(placements: Placement[], cfg: PieLayoutConfi
     // p.y が pie 侵入回避で上方向に動いた場合、次ラベルの起点も追随させる
     currentTop = p.y;
   }
+
+  // rim 最上部起点の積みは、右上へ逃げた forceTopRight メンバー (clampPlacement が viewBox
+  // 天端へ張り付ける) と非対称な左上空白を残す。天端に headroom が残る場合は 12時最寄り
+  // ラベルを maxTextY (= クランプが許す上限) まで持ち上げ、空いた分を最下段との間で均等
+  // 配分する。最下段を rim 由来の現位置へ据え置くのは、中段が rim から離れると長い近平行
+  // leader が生まれ判読性が落ちるため (`spreadLeftStackFullHeight` 却下の経緯と同じ判断)。
+  // 発火は幾何条件のみ: headroom があり、かつ再配分で最小エアギャップが広がる時だけ
+  // (整列後は headroom=0 になるので冪等)。悪化は末尾の do-no-harm ゲートが拾い全 revert。
+  const liftClusterToCanvasTop = (): void => {
+    const n = sorted.length;
+    const first = sorted[0];
+    if (n < 2 || typeof first.maxTextY !== 'number') return;
+    const tol = pxToLogical(cfg, 2);
+    const headroom = first.maxTextY - first.y;
+    if (headroom <= tol) return;
+    const boxes = sorted.map((p) => placementBox(p, cfg));
+    const heights = boxes.map((b) => b.top - b.bottom);
+    let minAir = Number.POSITIVE_INFINITY;
+    for (let i = 1; i < n; i += 1) minAir = Math.min(minAir, boxes[i - 1].bottom - boxes[i].top);
+    // 均等エアギャップ = (持ち上げ後の先頭箱上端 〜 据え置き最下段箱上端) から中間の箱高を
+    // 引いた残余の等分。広がらない再配分はしない (`alignLeftStackToAnchors` と同思想)。
+    const liftedTop = boxes[0].top + headroom;
+    const sumH = heights.slice(0, n - 1).reduce((s, h) => s + h, 0);
+    const gap = (liftedTop - boxes[n - 1].top - sumH) / (n - 1);
+    if (gap <= minAir + tol) return;
+    const before = countVerifyIssuesDetailed(placements, cfg, coord, leftStackMode);
+    const intrusionBefore = boxPieIntrusionMax(placements, cfg);
+    const origY = sorted.map((p) => p.y);
+    let targetTop = liftedTop;
+    for (let i = 0; i < n - 1; i += 1) {
+      const p = sorted[i];
+      // 箱上端を目標へ移す (baseline 向き差は y−箱上端オフセット保存で吸収)。上方向移動は
+      // 円頂から遠ざかる向きなので pushUp/clamp は実質 no-op 想定の安全網。動いた場合は
+      // 実箱上端から次ラベルの目標を取り直し、ギャップ食い潰しを防ぐ。
+      p.y += targetTop - boxes[i].top;
+      pushUpToClearPie(p);
+      clampPlacement(p);
+      const actualTop = boxes[i].top + (p.y - origY[i]);
+      targetTop = actualTop - heights[i] - gap;
+    }
+    const after = countVerifyIssuesDetailed(placements, cfg, coord, leftStackMode);
+    // 二級の box 円侵入 (`countDefects` は数えない) も安全網として非増加を要求する。
+    const worsened =
+      after.clips > before.clips ||
+      after.crossings > before.crossings ||
+      after.pie > before.pie ||
+      after.total > before.total ||
+      boxPieIntrusionMax(placements, cfg) > intrusionBefore + tol;
+    if (worsened) {
+      sorted.forEach((p, i) => {
+        p.y = origY[i];
+      });
+    }
+  };
+  liftClusterToCanvasTop();
 
   // bottom メンバーは最下段ラベルの底面 − (extraGap + labelHeight) へ。
   // 注: pushUpToClearPie で X が pie 中心寄り (12時近傍) の bottom ラベルは pie 上端へ
@@ -4308,7 +4372,7 @@ function runLabelCascade(
     }
   }
   if (diagnostics?.topBandClusterMode) {
-    applyTopBandClusterReorder(result, cfg);
+    applyTopBandClusterReorder(result, cfg, coord, lsm);
   }
   if (diagnostics?.leftStackMode) {
     stackTopRightLiftedLabels(result, cfg);
