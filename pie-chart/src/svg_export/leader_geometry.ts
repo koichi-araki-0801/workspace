@@ -109,6 +109,24 @@ export function qualifiesTopCenterAttach(placement: Placement, cfg: PieLayoutCon
 }
 
 /**
+ * placement が side-edge-center attach (Pass 1e) の候補か。左右 (start/end) ラベルのアンカー x が
+ * 自 box の水平範囲内に食い込む = 既定の側辺接続だと「アンカー x で縦降下 → 近縁へ後退する水平尾」
+ * になり、縦区間が自ラベルをかすめ/貫き、水平尾がラベルの伸長方向と逆へ伸びて見える defect
+ * (例 country_long_labels_9 ドイツ連邦共和国 / country_12_europe_heavy デンマーク) の述語そのもの。
+ * 通常の側辺ラベル (アンカー x が box 外) は非発火。
+ */
+export function qualifiesSideEdgeCenterAttach(placement: Placement, cfg: PieLayoutConfig): boolean {
+  if (placement.insideSlice || placement.forceTopRight) return false;
+  if (placement.anchor === 'middle') return false;
+  // declip ラベルは `computeDrawnLeader` 先行分岐の専用接続 (declipSideAnchor / 縁中央) を持つ。
+  // ここで対象にすると Pass 1e の再計算 (allowDiagonal=false) が Pass 1d の斜め畳みを
+  // 横優先 L 字へ巻き戻す退行を起こす (例 currency_europe_heavy_8 ノルウェー/デンマーククローネ)。
+  if (placement.declipBottomLeader) return false;
+  const box = placementBox(placement, cfg);
+  return placement.leaderAnchor.x > box.left && placement.leaderAnchor.x < box.right;
+}
+
+/**
  * placement から「描画される leader 折れ線 (`pathPoints`)」「貫通判定用折れ線 (`detectPathPoints`)」
  * 「暫定 `skipLeader`」を計算する。Pass 1 と conflict scorer で共有し、両者の leader 形状を
  * 厳密に一致させる (Pass 2 のクロス placement 判定は呼び出し側で行う)。
@@ -120,6 +138,7 @@ export function computeDrawnLeader(
   allowTopCenter = false,
   allowGrazeLift = false,
   allowDiagonal = false,
+  allowSideEdgeCenter = false,
 ): { pathPoints: Pt[]; detectPathPoints: Pt[]; skipLeader: boolean } {
   // 常時描画 + 縦中央接続は **描画パスのみ** に適用する。conflict scorer (`chartConflicts`) から
   // `forScoring`=true で呼ばれた時は従来挙動を維持し、レイアウト選択 (その他 右/左 等) を baseline と
@@ -134,6 +153,9 @@ export function computeDrawnLeader(
   // (`leaderBendFollowsEndpointX`) の bend をアンカーへ畳み、アンカー → 接続点の 2 点斜め直線にする
   // (下記参照)。既定 false のため realLeaderPaths/scorer/layout の幾何は baseline と一致し、
   // ラベル位置・採点に影響しない。
+  // `allowSideEdgeCenter` も最終描画 (`index.ts` の Pass 1e) でのみ true。左右 (start/end) ラベルで
+  // アンカー x が box 水平範囲内に食い込むときの接続を書き出し側の縦縁・縦中央 (9 時/3 時) へ
+  // 切替える (下記参照)。既定 false のため同じく baseline 幾何 = ラベル位置・採点に影響しない。
   const alwaysDraw = ALWAYS_DRAW_OUTSIDE_LEADERS && !forScoring;
   const endpointMinDist = cfg.pieRadius + radialFraction(cfg, 0.01, 0.1);
   const dominantOutsideLeaderGap = radialFraction(cfg, 0.3, 2.8);
@@ -150,6 +172,9 @@ export function computeDrawnLeader(
   // declip ラベルでアンカーが box の真上/真下でなく横にあるケース (例 オフショア・人民元)。
   // 下の bend ロジックで折れ点なしの直線 (rim → 近端) にするため、endpoint 決定時に立てる。
   let declipSideAnchor = false;
+  // side-edge-center 分岐 (allowSideEdgeCenter) が発火したケース。下の bend ロジックで近縁外側 x の
+  // 横優先 L 字にするため、endpoint 決定時に立てる。
+  let sideEdgeAttach = false;
   if (alwaysDraw) {
     // 接続点をラベル縦中央(1 行)/向きに応じた行位置(2 行)へ。終点 Y を target へ寄せると、
     // bendFollowsEndpointY 経路は最終水平セグメントが target Y に揃い、近い縦縁の縦中央で接続する。
@@ -238,12 +263,38 @@ export function computeDrawnLeader(
       // 接続する。ラベル位置・円貫通/交差判定は不変 (描画パス限定)。
       endpoint.x = (finalBox.left + finalBox.right) / 2;
       endpoint.y = finalBox.top + cfg.cornerGap; // 論理 y-up: top の少し上 (box 外)
+    } else if (
+      // 左右 (start/end) ラベルでアンカー x が box 水平範囲内に食い込むケース (例
+      // country_long_labels_9 ドイツ連邦共和国 = 右下 start、country_12_europe_heavy デンマーク =
+      // 上帯 end)。rim 縮退 placement が横シフトされアンカーが近縁を僅かに越えると、既定の側辺
+      // 接続は「アンカー x で縦降下 → 近縁へ後退する水平尾」になり、縦区間が自ラベルを貫き
+      // 水平尾がラベルの伸長方向と逆へ伸びて見える。接続を**書き出し側の縦縁・縦中央**
+      // (start=左縁の 9 時 / end=右縁の 3 時、cornerGap だけ縁の外) へ切替え、下の bend ロジック
+      // (`sideEdgeAttach`) が近縁外側 x で縦に降ろす横優先 L 字にする (ユーザー選定の形)。
+      // 発火は Pass 1e (do-no-harm 採用) のみで、通常の側辺ラベル (アンカー x が box 外) は不変。
+      allowSideEdgeCenter &&
+      placement.anchor !== 'middle' &&
+      placement.leaderAnchor.x > finalBox.left &&
+      placement.leaderAnchor.x < finalBox.right
+    ) {
+      sideEdgeAttach = true;
+      endpoint.x =
+        placement.anchor === 'start'
+          ? finalBox.left - cfg.cornerGap
+          : finalBox.right + cfg.cornerGap;
+      endpoint.y = (finalBox.top + finalBox.bottom) / 2;
     } else {
       endpoint.y = leaderAttachTargetY(finalBox, placement.leaderAnchor, lineCount, perLineHeight);
     }
   }
   let bend = placement.leaderBend;
-  if (alwaysDraw && declipSideAnchor) {
+  if (alwaysDraw && sideEdgeAttach) {
+    // side-edge-center (9 時/3 時) 接続: アンカーから近縁の外側 x (`endpoint.x`) へ短く水平に出て、
+    // 縁に沿って縦に降り縦中央で止まる横優先 L 字。アンカーは縁を僅かに越えた位置なので水平区間は
+    // 数 px。pie 側へ出る場合は下の clampOutsidePie / W 弦リルートが円外を保証し、縦区間は縁の外側
+    // (box 非貫通) を通る。bendFollowsY/X より優先 (rim 縮退 placement は両フラグ true のため)。
+    bend = { x: endpoint.x, y: placement.leaderAnchor.y };
+  } else if (alwaysDraw && declipSideAnchor) {
     // 横アンカー (例 オフショア・人民元): bend をアンカーへ畳む。下の stub 除去で 2 点パス
     // [anchor, drawEndpoint] になり、rim から近端 (pie 側縦縁) の行中央へ折れ点なしの直線で繋ぐ。
     // 直線はアンカー (rim) から外側へ進むため円外を保ち、近端より外側で止まるので box も貫かない。
@@ -363,6 +414,17 @@ export function computeDrawnLeader(
       if (Math.hypot(bend.x - anchor.x, bend.y - anchor.y) < stubEps) {
         pathPoints = [anchor, drawEndpoint];
         detectPathPoints = [anchor, endpoint];
+      }
+      // side-edge-center 接続でアンカー y が縁の縦中央と一致すると bend が endpoint と厳密一致し
+      // 末尾に零長セグメントが残る。視認不能だが重複点はパス肥大と見かけ上の交差源になるため
+      // 2 点へ畳む。既存経路の出力を変えないよう allowSideEdgeCenter 限定 (byte 不変)。
+      if (
+        allowSideEdgeCenter &&
+        pathPoints.length === 3 &&
+        Math.hypot(pathPoints[1].x - pathPoints[2].x, pathPoints[1].y - pathPoints[2].y) < 1e-9
+      ) {
+        pathPoints = [pathPoints[0], pathPoints[2]];
+        detectPathPoints = [detectPathPoints[0], detectPathPoints[2]];
       }
       // 近接線グレイズ (3 点 leader 版): 先頭セグメント anchor→bend が円周のすぐ外 (intrudeR 以上=
       // 非貫通) をほぼ接線方向になぞり「rim に溶ける」ケースを、上の `intrudes` リルートと同じ W
