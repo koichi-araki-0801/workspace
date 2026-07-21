@@ -78,6 +78,7 @@ import {
   ALWAYS_DRAW_OUTSIDE_LEADERS,
   computeDrawnLeader,
   qualifiesTopCenterAttach,
+  qualifiesSideEdgeCenterAttach,
   isRedundantUpperLeftSmallLeader,
   isRedundantDominantRimLeader,
   resolveLeaderCrossings,
@@ -4994,6 +4995,42 @@ export async function renderPdfStylePieToSvg(
       if (!harmful) {
         entry.pathPoints = dg.pathPoints;
         entry.detectPathPoints = dg.detectPathPoints;
+      }
+    }
+
+    // ── Pass 1e: アンカーが自 box 水平範囲内へ食い込む側辺 leader を書き出し側の縦縁・縦中央
+    // (9 時/3 時) 接続へ付け替える (描画のみ) ──
+    // rim 縮退 placement が横シフトされアンカー x が自 box の水平範囲内に食い込むと、既定の側辺
+    // 接続は「アンカー x で縦降下 → 近縁へ後退する水平尾」になり、縦区間が自ラベルをかすめ/貫き
+    // 水平尾がラベルの伸長方向と逆へ伸びて見える (例 country_long_labels_9 ドイツ連邦共和国 /
+    // country_12_europe_heavy デンマーク)。発火は defect 述語そのもの (`qualifiesSideEdgeCenterAttach`:
+    // アンカー x が自 box 水平範囲内。own-box 貫通判定は `leaderCrossesBox` の 2px pad で 1px 未満の
+    // かすめを取り逃がすため使わない)。allowSideEdgeCenter=true で書き出し側の縦縁 (start=左縁の
+    // 9 時 / end=右縁の 3 時) の縦中央へ近縁外側 x の横優先 L 字で接続する形 (ユーザー選定) を試し、
+    // 自 box を貫かない場合のみ採用する。do-no-harm は Pass 1c/1d と同一セット (他 leader との
+    // 交差関係不変・他ラベル box 非貫通・円食い込み非悪化)。scorer / realLeaderPaths は既定 false の
+    // ままなので採点・レイアウト選択は不変 (ラベル位置は動かない)。
+    for (const entry of prepared) {
+      if (entry.skipLeader) continue;
+      const p = entry.placement;
+      if (!qualifiesSideEdgeCenterAttach(p, cfg)) continue;
+      const before = toPixPts(entry.pathPoints);
+      const se = computeDrawnLeader(p, cfg, false, entry.topCenterApplied, false, false, true);
+      if (se.skipLeader) continue;
+      const after = toPixPts(se.pathPoints);
+      if (leaderCrossesBox(after, entry.pixelBox)) continue; // 付け替えで自 box を貫く形は維持
+      let harmful = dipsIntoPie(se.pathPoints) && !dipsIntoPie(entry.pathPoints);
+      for (let j = 0; j < prepared.length && !harmful; j += 1) {
+        if (prepared[j] === entry) continue;
+        if (!prepared[j].skipLeader) {
+          const other = toPixPts(prepared[j].pathPoints);
+          if (pathsCross(before, other) !== pathsCross(after, other)) harmful = true;
+        }
+        if (!harmful && leaderCrossesBox(after, prepared[j].pixelBox)) harmful = true;
+      }
+      if (!harmful) {
+        entry.pathPoints = se.pathPoints;
+        entry.detectPathPoints = se.detectPathPoints;
       }
     }
 
