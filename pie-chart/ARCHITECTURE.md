@@ -7,28 +7,26 @@ byte 比較。**リファクタ・コメント変更は出力バイト不変が�
 
 ## パイプライン全体図
 
+<!-- ノードラベルは短い 2 行構成に保つ。長い行は Mermaid が CJK 幅を過小計算し枠外へ見切れる。 -->
+
 ```mermaid
 flowchart TD
-  IN["入力 (samples.json / JSON / xlsx / DB SELECT)\ninput/load.ts + input/db.ts"] --> NORM["normalizeAndSortItems\n値降順・「その他」末尾 (svg_export/pipeline.ts)"]
-  NORM --> DIAG["layout/diagnostics.ts — layoutLabels\nモード判定・マーカー付与 (Diagnostics)"]
-  DIAG --> CAS["svg_export/pipeline.ts — runLabelCascade\n①〜⑨カスケード配置 (layout/placement.ts の 10 種 placeXxxLabel)"]
-
-  CAS --> MODE{"配置モード\n(83 サンプル中)"}
-  MODE -->|"なし (54)"| SEL
-  MODE -->|"leftStackMode (21)"| LS["mode_passes.ts\n左列 1 行縦積み・2 行維持ゲート\n右上逃がし・gap close・整列 (n≥4)"]
-  MODE -->|"twoLineLeftStackMode (8)"| TL["mode_passes.ts\napplyTwoLineLeftColumn\n(全 2 行の密ピッチ縦 1 列)"]
-  MODE -->|"topBandClusterMode (1)"| TB["mode_passes.ts\napplyTopBandClusterReorder\n+ 天端リフト・均等再配分"]
-
-  LS --> SEL["pipeline.ts — 候補選択\n(sonohoka 左右・cap parity・右上逃がし枚数)\n採点 = countVerifyIssues (emit と同基準)"]
+  IN["入力\nsamples/JSON/xlsx/DB"] --> NORM["正規化・整列\nnormalizeAndSortItems"]
+  NORM --> DIAG["モード判定\nlayout/diagnostics.ts"]
+  DIAG --> CAS["カスケード配置\nsvg_export/pipeline.ts"]
+  CAS --> MODE{"配置モード"}
+  MODE -->|"なし 54件"| SEL
+  MODE -->|"leftStack 21件"| LS["左列 縦積み\nmode_passes.ts"]
+  MODE -->|"twoLine 8件"| TL["全2行 密ピッチ\nmode_passes.ts"]
+  MODE -->|"topBand 1件"| TB["12時クラスタ 再配置\nmode_passes.ts"]
+  LS --> SEL["候補選択・採点\nsvg_export/pipeline.ts"]
   TL --> SEL
   TB --> SEL
-
-  SEL --> EMIT["emit_repair.ts — EMIT_REPAIR_PASSES\n最終修復パス列 (交差ほどき・bend grid・declip …)\n各パスに do-no-harm ゲート"]
-  EMIT --> REN["rendering.ts / font.ts\nSVG 文字列組み立て + WOFF2 サブセット埋込"]
+  SEL --> EMIT["emit 修復パス列\nemit_repair.ts"]
+  EMIT --> REN["SVG 描画・埋込\nrendering / font"]
   REN --> SVG["決定的 SVG 出力"]
-
-  SVG -.->|"batch:diff (SHA256 byte 比較)"| BASE["out/_baseline"]
-  SVG -.->|"独立オラクル検証"| VER["verify/svg.ts (+ verify/oracle_sync.ts)"]
+  SVG -.->|"byte 比較"| BASE["out/_baseline"]
+  SVG -.->|"独立検証"| VER["verify/svg.ts"]
 ```
 
 ## モジュール構成
@@ -68,10 +66,11 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  P["placements (cascade 段)"] --> F["finalizeForScoring\ncopy に EMIT_REPAIR_PASSES の\nstage='both'/'scoring' を同順適用"]
-  F --> C["countDefects\nclips / crossings / pie / total"]
-  C --> S["候補選択・cascade 段ゲートの採点"]
-  P2["placements (emit 採用後)"] --> E["applyEmitRepairPasses\nstage='emit'/'both' を適用"] --> C2["countDefects → finalScore"]
+  P["placements\ncascade 段"] --> F["finalizeForScoring\nboth / scoring を同順適用"]
+  F --> C["countDefects\nclips crossings pie total"]
+  C --> S["候補選択・段ゲートの採点"]
+  P2["placements\nemit 採用後"] --> E["applyEmitRepairPasses\nemit / both を適用"]
+  E --> C2["countDefects\n→ finalScore"]
 ```
 
 - 採点列と emit 列は**同一テーブル** `EMIT_REPAIR_PASSES` から生成され、列 drift を構造的に防ぐ
