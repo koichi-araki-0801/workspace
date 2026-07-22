@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveInputData, samples as jsSamples } from './data.js';
+import { resolveInputData, samples as jsSamples } from './input/load.js';
 import { renderPdfStylePieToSvg } from './svg_export/index.js';
 import { escapeXml } from './svg_export/rendering.js';
 

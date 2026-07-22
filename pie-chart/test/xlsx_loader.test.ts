@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseRange } from '../src/xlsx_loader.js';
+import { parseRange } from '../src/input/load.js';
 
 describe('parseRange', () => {
   it('"A2:B11" を分解する (左=name, 右=value)', () => {

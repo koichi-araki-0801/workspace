@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { assertSelectOnly, buildConnectionString, rowsToItems } from '../src/db_loader.js';
+import { assertSelectOnly, buildConnectionString, rowsToItems } from '../src/input/db.js';
 
 describe('buildConnectionString', () => {
   const saved = { ...process.env };

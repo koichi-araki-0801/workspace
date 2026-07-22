@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { createPieLayoutConfig } from '../src/config.js';
-import { resolveInputData, samples } from '../src/data.js';
+import { resolveInputData, samples } from '../src/input/load.js';
 import { layoutLabels } from '../src/layout.js';
 import { normalizeAndSortItems } from '../src/svg_export/index.js';
 import type { Diagnostics, LayoutItemReady } from '../src/types.js';

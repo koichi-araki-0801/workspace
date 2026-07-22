@@ -11,7 +11,7 @@
 // =============================================================================
 
 import { describe, expect, it } from 'vitest';
-import { resolveInputData, samples } from '../src/data.js';
+import { resolveInputData, samples } from '../src/input/load.js';
 import { renderPdfStylePieToSvg } from '../src/svg_export/index.js';
 import { createPieLayoutConfig } from '../src/config.js';
 import { visualCharEm } from '../src/svg_geom.js';

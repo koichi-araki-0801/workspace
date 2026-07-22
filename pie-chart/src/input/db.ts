@@ -1,5 +1,5 @@
 // =============================================================================
-// db_loader.ts — SQL Server に SELECT を投げ 2 列(name, value)を読み込む
+// input/db.ts — SQL Server に SELECT を投げ 2 列(name, value)を読み込む
 // -----------------------------------------------------------------------------
 // 仕様:
 //   - 入力は単一の SELECT 文(複文・非 SELECT は拒否)。
@@ -10,7 +10,7 @@
 // ODBC `Trusted_Connection=yes`(Windows 統合認証)パターンを踏襲する。ネイティブな
 // optionalDependency のため `createRequire` で**遅延ロード**し、ドライバが無い環境でも
 // 他入力(sample/json/xlsx)と `tsc` は動く。レンダリング層の外部依存ゼロ方針は不変で、
-// DB 依存は本ファイルに隔離する(xlsx_loader.ts と同列の入力層)。
+// DB 依存は本ファイルに隔離する(input/load.ts の xlsx 節と同列の入力層)。
 // =============================================================================
 
 import { createRequire } from 'node:module';

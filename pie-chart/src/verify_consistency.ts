@@ -13,7 +13,7 @@
 //   実行: npm run verify:consistency
 // =============================================================================
 
-import { resolveInputData, samples as jsSamples } from './data.js';
+import { resolveInputData, samples as jsSamples } from './input/load.js';
 import { renderPdfStylePieToSvg, pathsCross, distPointToSegment } from './svg_export/index.js';
 
 type Pt = { x: number; y: number };

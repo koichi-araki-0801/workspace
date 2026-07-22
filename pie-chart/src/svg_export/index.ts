@@ -12,7 +12,7 @@
 // =============================================================================
 
 import { createPieLayoutConfig, makeColors } from '../config.js';
-import { normalizeInputItems } from '../data.js';
+import { normalizeInputItems } from '../input/load.js';
 import { layoutLabels } from '../layout.js';
 import {
   normalizeAngle,

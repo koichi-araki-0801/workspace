@@ -4,11 +4,11 @@ import {
   resolveInputData,
   resolveInputDataAsync,
   samples,
-} from '../src/data.js';
+} from '../src/input/load.js';
 
 // DB ドライバ(msnodesqlv8)は CI/オフラインに無いので db_loader をモックし、
 // resolveInputDataAsync の `sql` 経路(行→正規化)だけを検証する。
-vi.mock('../src/db_loader.js', () => ({
+vi.mock('../src/input/db.js', () => ({
   loadDbItems: vi.fn(async () => [['DB', 7]] as Array<[string, number]>),
 }));
 
