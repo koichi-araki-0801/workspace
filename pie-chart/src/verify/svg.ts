@@ -30,7 +30,7 @@ import { visualCharEm as bodyVisualCharEm } from '../layout/geometry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 本ファイルは src/ にあるため、1 つ上(pie-chart ルート)を基準に out/ を解決する。
-const outRoot = path.resolve(__dirname, '..', 'out');
+const outRoot = path.resolve(__dirname, '..', '..', 'out');
 const jsDir = process.argv[2] ? path.resolve(process.argv[2]) : path.join(outRoot, 'svg_js');
 
 interface BBox {
