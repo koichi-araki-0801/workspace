@@ -65,9 +65,6 @@ import { LEADER_MAX_ANGULAR_DIFF_RAD } from './leader_geometry.js';
 // モード特化パス・fallback は index.ts 側 (関数宣言 hoisting により循環 import でも安全)。
 import {
   alignLeftStackToAnchors,
-  applyLowerLeftDropFallback,
-  applyTwoLineNameFallback,
-  applyVerticalDeclipFallback,
   escapeTopBandSeamLeader,
   relieveLeftStackSpacing,
   reorderLeftStackWithCondense,
@@ -76,6 +73,12 @@ import {
   separateLeftColumnByHeight,
   stackTopRightLiftedLabels,
   tidyTopRightEscapeeStack,
+} from './mode_passes.js';
+// fallback 変形 (2 行化・declip・左下ドロップ) は index.ts 側。
+import {
+  applyLowerLeftDropFallback,
+  applyTwoLineNameFallback,
+  applyVerticalDeclipFallback,
 } from './index.js';
 
 // 9時線 (midAngle≈180) を挟んで縦に重なる左小スライスを「左上へ逃がす」対象とみなす帯の半幅。
