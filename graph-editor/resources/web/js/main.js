@@ -3,9 +3,8 @@
 // =============================================================================
 // 役割: バニラ JS・依存ゼロのクライアント本体。ローカルの小さな HTTP サーバ (`app.py`) から
 // http://127.0.0.1 で配信され、OS の Edge をアプリモードで開いて動作する。ファイル I/O は
-// ブラウザの File System Access API (`showOpenFilePicker` / `showSaveFilePicker`) でネイティブ
-// ダイアログを使う (localhost は secure context なので利用可)。非対応ブラウザでは
-// `<input>` / ダウンロードへフォールバックする。
+// `<input>`(開く) / ダウンロード(保存) 固定。File System Access API は VDI 環境でネイティブ
+// ダイアログが不安定なため使わない (`utils.js` の `hasFsAccess()` が常に false を返す設計)。
 //
 // 構成: 状態 + ライフサイクル + 描画は `editor.js` の `Editor` クラスに集約し、1 ラベル分の
 // 状態と DOM 同期は `label-state.js` の `LabelState` クラスが持つ。描画はホットパス
@@ -33,7 +32,7 @@ editor.goPhase(1);   // 最初は「ファイルを開く」画面
 // E2E テスト用フック (本番動作には無害)。Playwright から `editor` を操作するため公開。
 window.__editor = editor;
 
-// ローカルサーバから配信され、即操作可能。Edge(Chromium) なら FS Access API でネイティブ I/O。
+// `hasFsAccess()` は VDI 方針で常に false (utils.js 参照)。分岐は将来の再有効化に備えて残す。
 if (hasFsAccess()) {
   editor.setStatus(STATUS_READY);
 } else {

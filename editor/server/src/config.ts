@@ -242,7 +242,7 @@ export const config = {
   vivliostyle: {
     /** ライブプレビューサーバのライフサイクル(`previewManager.ts` 参照)。 */
     preview: {
-      /** Vite preview サーバの loopback bind。Express がここへ proxy する。 */
+      /** Vite preview サーバの loopback bind。Fastify がここへ proxy する。 */
       host: process.env.VIVLIO_PREVIEW_HOST ?? '127.0.0.1',
       /** proxy トラフィックがこのミリ秒数だけ無いと preview セッションを自動 close する。 */
       idleTtlMs: Number(process.env.VIVLIO_PREVIEW_IDLE_MS ?? 30 * 60_000),
