@@ -8,7 +8,7 @@
 // =============================================================================
 
 import { describe, expect, it } from 'vitest';
-import { EMIT_REPAIR_PASSES } from '../src/svg_export/index.js';
+import { EMIT_REPAIR_PASSES } from '../src/svg_export/emit_repair.js';
 
 describe('EMIT_REPAIR_PASSES の列', () => {
   it('emit 列 (stage=emit/both) の名前と順序', () => {

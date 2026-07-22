@@ -12,7 +12,7 @@
 // =============================================================================
 
 import { describe, expect, it } from 'vitest';
-import { PLACEMENT_SEAM_POLICY, seamRestore, seamSnapshot } from '../src/svg_export/index.js';
+import { PLACEMENT_SEAM_POLICY, seamRestore, seamSnapshot } from '../src/svg_export/emit_repair.js';
 import type { Placement } from '../src/types.js';
 
 /** round-trip 検証用の最小 placement (snapshot 対象フィールドへ既知の値を入れる)。 */
