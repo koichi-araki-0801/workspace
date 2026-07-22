@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { GLYPH_ADVANCE_BY_WEIGHT } from '../src/glyph_advance.js';
+import { GLYPH_ADVANCE_400 } from '../src/glyph_advance/weight_400.js';
+import { GLYPH_ADVANCE_700 } from '../src/glyph_advance/weight_700.js';
+
+// 生成物 2 表を svg_geom.ts と同形で束ねて検証する (旧 glyph_advance.ts の公開形)。
+const GLYPH_ADVANCE_BY_WEIGHT: Record<string, ReadonlyMap<number, number>> = {
+  '400': GLYPH_ADVANCE_400,
+  '700': GLYPH_ADVANCE_700,
+};
 
 describe('GLYPH_ADVANCE_BY_WEIGHT', () => {
   it('400/700 の非空テーブルを持つ', () => {

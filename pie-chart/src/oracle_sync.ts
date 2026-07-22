@@ -59,7 +59,7 @@ export function assertOracleSync(): void {
     mismatches.push(`nameCondenseSteps: body=[${steps}] oracle=[${NAME_CONDENSE_STEPS}]`);
   }
 
-  // 実 glyph advance テーブル (src/glyph_advance.ts) が確かに読み込まれ本体 visualCharEm に
+  // 実 glyph advance テーブル (src/glyph_advance/weight_{400,700}.ts) が確かに読み込まれ本体 visualCharEm に
   // 効いているかを代表コードポイントで検査する。テーブル未生成/未適用なら旧 heuristic の
   // 0.5/1.0 に落ちて以下の実測値と乖離し FAIL する。値は既定ウェイト (400=Regular) の実測。
   // 漢字は既定 1.0、BIZ UDPGothic のプロポーショナルかな ('ア') と全角幅 ASCII ('%') はテーブル収録値。
@@ -100,7 +100,7 @@ export function assertOracleSync(): void {
     throw new Error(
       `verify_svg のメトリクス定数/文字幅が本体と乖離しています:\n${detail}\n` +
         '  → 定数は oracle_sync.ts を config.ts に合わせ、幅は `npm run gen:widths` で' +
-        ' src/glyph_advance.ts を再生成してください。',
+        ' src/glyph_advance/ を再生成してください。',
     );
   }
 }

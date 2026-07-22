@@ -6,7 +6,8 @@
 // =============================================================================
 
 import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from './types.js';
-import { GLYPH_ADVANCE_BY_WEIGHT } from './glyph_advance.js';
+import { GLYPH_ADVANCE_400 } from './glyph_advance/weight_400.js';
+import { GLYPH_ADVANCE_700 } from './glyph_advance/weight_700.js';
 
 export interface Point {
   x: number;
@@ -45,6 +46,13 @@ export interface InsideFit {
 export function pxToLogical(cfg: PieLayoutConfig, px: number): number {
   return px / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
 }
+
+// 生成物 2 表 (glyph_advance/weight_{400,700}.ts) をウェイトキーで束ねる。旧 glyph_advance.ts の
+// GLYPH_ADVANCE_BY_WEIGHT と同形で、visualCharEm が cfg.fontWeight で引き分ける。
+const GLYPH_ADVANCE_BY_WEIGHT: Record<string, ReadonlyMap<number, number>> = {
+  '400': GLYPH_ADVANCE_400,
+  '700': GLYPH_ADVANCE_700,
+};
 
 /**
  * 文字単位で視覚 em 幅を返す。第一に埋め込みフォントの実 glyph advance テーブル
