@@ -133,7 +133,6 @@ pie-chart/
 ├── tsconfig.json
 ├── samples.json                — サンプルデータ (87 件・object 形式)
 ├── fonts/                     — 埋込フォント (BIZ UDPGothic WOFF2 400/700 + OFL ライセンス)
-├── ARCHITECTURE.md             — 配置パイプライン全体図・モード×パス対応表 (設計の正典)
 ├── src/
 │   ├── types.ts                — 共通型 (Item / LayoutItem / Placement / Diagnostics / PieLayoutConfig)
 │   ├── config.ts               — createPieLayoutConfig + makeColors
@@ -169,6 +168,9 @@ pie-chart/
 ```
 
 ## アーキテクチャ
+
+> 配置パイプラインの**設計正典は `docs/pie-chart/src/設計正典.md`**（旧 `ARCHITECTURE.md`。
+> モード×パス対応表・do-no-harm ゲート使い分け・却下済み設計案）。本節は概観のみ。
 
 レンダリング層は外部ライブラリを使わず、**プレーンな TypeScript で SVG タグの文字列を組み立てる**。Node でもブラウザでも同一コードが動く(DOM API・`<canvas>`・selection 抽象に依存しない)。Excel 入力のみ `exceljs`(`input/load.ts`)、フォント埋込のみ `subset-font`(`svg_export/font.ts`)に依存し、いずれも端の層に隔離している。
 

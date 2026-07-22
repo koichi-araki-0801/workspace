@@ -39,7 +39,7 @@ editor / pie-chart / pdf-to-svg / graph-editor などを束ねる pnpm モノレ
 | `editor/scripts/setup-lan-firewall.bat` | LAN 公開ポート（TCP 24680）の受信許可ルールを登録（要管理者） |
 | `editor/server/db/apply.bat` | SQL Server へ DDL/sproc/seed を適用 |
 | `offline/publish-offline-bundle.bat` | オフラインバンドルを GitHub Releases へ公開（post-commit で自動実行） |
-| `docs/_build/build_all.bat` | `docs/<project>/src/` の原稿から .docx/.xlsx を一括生成 |
+| `docs/_build/build_all.bat` | `docs/<project>/src/` の原稿から閲覧用 HTML（手引き/設計の 2 冊）を一括生成 |
 
 Python ビルドの venv 準備は共有ライブラリ `scripts/lib/build-python-venv.ps1` に集約してあり、
 `pdf-to-svg` / `graph-editor` の `scripts/build.ps1` が dot-source して使う。
