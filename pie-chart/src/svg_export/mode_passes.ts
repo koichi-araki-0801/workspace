@@ -9,7 +9,7 @@
 //                seam 逃がし (`escapeTopBandSeamLeader` 系)
 //   - 右上逃がし: lifted ラベルのスタック整え (`stackTopRightLiftedLabels` /
 //                `tidyTopRightEscapeeStack` 系)
-// 呼び出し元は 2 系統: cascade 段 (`index.ts` の `runLabelCascade`) と emit 段
+// 呼び出し元は 2 系統: cascade 段 (`pipeline.ts` の `runLabelCascade`) と emit 段
 // (`emit_repair.ts` の `EMIT_REPAIR_PASSES` テーブル)。do-no-harm ゲートは emit_repair
 // 側の共通基盤 (`emitDefectsWorsened` / `countVerifyIssuesDetailed` 等) を使う。
 // =============================================================================
@@ -26,8 +26,8 @@ import {
   isOtherCategory,
   boxOverlapAmount,
   pxToLogical,
-} from '../svg_geom.js';
-import { TOP_BAND_HALF_WIDTH_DEG, topBandSonohokaZone } from '../label_placement.js';
+} from '../layout/geometry.js';
+import { TOP_BAND_HALF_WIDTH_DEG, topBandSonohokaZone } from '../layout/placement.js';
 import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from '../types.js';
 import { clampPlacement, blockedInY } from './post_layout.js';
 import {
@@ -51,7 +51,7 @@ import {
   measureRepairVec,
   VIEW_OVERFLOW_CAP_PX,
 } from './emit_repair.js';
-import { upperLeftBendPoint } from '../svg_geom.js';
+import { upperLeftBendPoint } from '../layout/geometry.js';
 import {
   boxOverlapMax,
   computeDrawnLeader,
@@ -403,7 +403,7 @@ export function applyTopBandClusterReorder(
   leftStackMode: boolean,
 ): void {
   // forceTopRight 済 (= clusterTopBandBottomRight で右上 rim へ逃げた) item は再配置対象外。
-  // label_placement.ts 側で確定済みの右上 rim 配置を尊重し、左帯の再スタックには参加させない。
+  // layout/placement.ts 側で確定済みの右上 rim 配置を尊重し、左帯の再スタックには参加させない。
   const cluster = placements.filter(
     (p) => p.item.clusterTopBand === true && !p.insideSlice && !p.forceTopRight,
   );
@@ -1381,7 +1381,7 @@ export function reorderTopBandLeftClusterByAngle(
 /**
  * 確定済 placement を「右上逃がし (topBandSmallRight と同一フォーム)」へ破壊的に変形する。
  * slice から縦に抜けて右へ折れる L 字 leader (forceTopRight) + anchor=start/baseline=bottom。
- * 座標は `label_placement.ts` の `topBandSmallRight` と一致させ、`computeDrawnLeader` の `forceTopRight`
+ * 座標は `layout/placement.ts` の `topBandSmallRight` と一致させ、`computeDrawnLeader` の `forceTopRight`
  * 分岐 (キャップ越え水平区間) に乗せる。labelY を yOffset 分だけ上へずらせば複数枚を縦に重ねられる。
  */
 function reshapeToTopRightEscape(p: Placement, cfg: PieLayoutConfig, yOffset = 0): void {

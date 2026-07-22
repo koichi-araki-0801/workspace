@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { resolveInputData, samples } from '../src/input/load.js';
-import { renderPdfStylePieToSvg } from '../src/svg_export/index.js';
+import { renderPdfStylePieToSvg } from '../src/svg_export/pipeline.js';
 
 describe('emit 後 finalScore / modeTags のゴールデン表', () => {
   // timeout はルート `vitest run --coverage`(pre-push CI) 併走時の実測 (~130s。V8 カバレッジ計測 +

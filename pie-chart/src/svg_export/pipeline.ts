@@ -1,5 +1,5 @@
 // =============================================================================
-// svg_export/index.ts — renderPdfStylePieToSvg (public API, orchestrator)
+// svg_export/pipeline.ts — renderPdfStylePieToSvg (public API, orchestrator)
 // -----------------------------------------------------------------------------
 // 入力 items → 最終 SVG 文字列を組み立てる本ライブラリの最終出力点。
 // サブモジュールの責務:
@@ -13,7 +13,7 @@
 
 import { createPieLayoutConfig, makeColors } from '../config.js';
 import { normalizeInputItems } from '../input/load.js';
-import { layoutLabels } from '../layout.js';
+import { layoutLabels } from '../layout/diagnostics.js';
 import {
   normalizeAngle,
   angleInBand,
@@ -32,7 +32,7 @@ import {
   isOtherCategory,
   boxOverlapAmount,
   pxToLogical,
-} from '../svg_geom.js';
+} from '../layout/geometry.js';
 import {
   leaderPath,
   computeInsideOptions,
@@ -45,8 +45,8 @@ import {
   TOP_BAND_HALF_WIDTH_DEG,
   BOTTOM_BAND_HALF_WIDTH_DEG,
   topBandSonohokaZone,
-} from '../label_placement.js';
-import type { InsideOption } from '../label_placement.js';
+} from '../layout/placement.js';
+import type { InsideOption } from '../layout/placement.js';
 import type {
   PieLayoutConfig,
   RenderResult,
@@ -647,7 +647,7 @@ export function applyVerticalDeclipFallback(
 }
 
 /**
- * 下left ドロップ + 斜めリーダー フォールバック (emit 最終段, do-no-harm)。`layout.ts` の
+ * 下left ドロップ + 斜めリーダー フォールバック (emit 最終段, do-no-harm)。`layout/diagnostics.ts` の
  * `markClippedUpperLeftLongDrop` が識別した `lowerLeftDropLeader` ラベル (9時直近で長体下限でも
  * viewBox 左端を見切れる幅広長名) を、円が横へ逃げ帯が広い下left へ 2 行のまま置き直し
  * (`buildLowerLeftDropLeaderDraft`)、slice rim から斜めリーダーで接続する (参考PDF「オーストラリア」)。
@@ -726,7 +726,7 @@ function cascadeWithSonohokaPick(
   for (const it of topOthers) it.topRightRejected = false;
   const leftIssues = countVerifyIssuesDetailed(left, cfg, coord, leftStackMode);
 
-  // 孤立極小スライス leader 型 (`layout.ts` の `markLoneTopSliverLeader`) では『その他』を右上へ確定
+  // 孤立極小スライス leader 型 (`layout/diagnostics.ts` の `markLoneTopSliverLeader`) では『その他』を右上へ確定
   // (右逃がし)。これをしないと極小の up-and-over leader が中央の『その他』box を貫いて Pass 2 で
   // 抑制され、せっかくの leader が消える。本印は同マーカーの厳ゲートでこの 1 構成のみに立つ。
   if (labels.some((it) => it.loneTopSliverLeader)) return right;
@@ -764,10 +764,10 @@ function capParityScore(
 }
 
 /**
- * pie キャップ外の箱に対する静的 pie クランプの「名残制約」除去 (`label_placement.ts` の
+ * pie キャップ外の箱に対する静的 pie クランプの「名残制約」除去 (`layout/placement.ts` の
  * `clampAndBuildPlacement`) を、チャート単位で採否する do-no-harm。
  *
- * 名残制約は動的側 `pieClampXLimits` (`svg_geom.ts`) が持たない静的側だけの非対称で、円と X 方向で
+ * 名残制約は動的側 `pieClampXLimits` (`layout/geometry.ts`) が持たない静的側だけの非対称で、円と X 方向で
  * 干渉しない箱まで横へ押し出す (例 `currency_low_diff_10` の「その他」が 66px 左寄せされ、真上垂直の
  * はずの leader が長い斜めになる)。ただしこの押し出しが偶発的に隣接ラベルの重なり回避として働いて
  * いるチャートがあり、一律除去すると退行する (実測: `pdf_510037_01_fund_country_20240710` の
@@ -825,12 +825,12 @@ function pickCapClearanceParity(
  *
  * 「左側密集は 1 行優先・入る分だけ」方針。位置 (左帯のどこにあるか) では判定せず、実 bbox が
  * viewBox を越える時だけ 2 行に戻す (= 物理的に 1 行で入らない長名のみ救済)。判定境界は
- * `layout.ts` の `leftStackMode` ゲート / `isCascadeFailed` (`dominantOutsideEdge`) と同じ `svgWidthPx`
+ * `layout/diagnostics.ts` の `leftStackMode` ゲート / `isCascadeFailed` (`dominantOutsideEdge`) と同じ `svgWidthPx`
  * 基準に統一する (detectVisualHorizontalOverflow は可動域 canvasXlim 基準で狭すぎるため使わない)。
  * これにより viewBox に収まる中位ラベルは 1 行を維持し、見切れ判定 (= viewBox) とも整合する。
  *
  * 起点を戻すフラグは 3 点セット (preferOneLineCascade / compactLabel / textLines)
- * で `layout.ts` の `leftStackMode` と対称に書き戻す。`textLines` を 2 (長名は 3) に復元する
+ * で `layout/diagnostics.ts` の `leftStackMode` と対称に書き戻す。`textLines` を 2 (長名は 3) に復元する
  * ことで後段 applyVisualViewBoxNudge (1 行除外ガード) も通過し、最終 shift 救済も
  * 効くようになる。2 行が物理的に入らなければ本番 cascade が 1行/長体/leader まで自然降格
  * するので safety net は既存挙動が担う。
@@ -1089,7 +1089,7 @@ function upperEscapeScore(
 }
 
 /**
- * 上左ラベルを何枚 右上へ逃がすか (`layout.ts` の `markLeftStackUpperEscapeRight`) をチャート単位で
+ * 上左ラベルを何枚 右上へ逃がすか (`layout/diagnostics.ts` の `markLeftStackUpperEscapeRight`) をチャート単位で
  * 決める do-no-harm 探索。0 枚から候補数まで再レイアウトし、最も良い枚数を採る。
  *
  * 狙いは「束になった rim 貼り付き短 leader」(`countBundledRimStubs`) の解消。これは `countDefects`

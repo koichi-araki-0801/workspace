@@ -1,5 +1,5 @@
 // =============================================================================
-// verify_consistency.ts — 「配置判断の採点 (実描画基準) ↔ emit された実 SVG」の一致テスト。
+// verify/consistency.ts — 「配置判断の採点 (実描画基準) ↔ emit された実 SVG」の一致テスト。
 // -----------------------------------------------------------------------------
 // 目的: cascadeWithSonohokaPick 等の配置選択が使う内部スコアラ countDefects と、実際に出力される
 // SVG の幾何がズレない (= 判断が実描画基準である) ことを全サンプルで自動検証する。ズレると、過去
@@ -13,8 +13,8 @@
 //   実行: npm run verify:consistency
 // =============================================================================
 
-import { resolveInputData, samples as jsSamples } from './input/load.js';
-import { renderPdfStylePieToSvg, pathsCross, distPointToSegment } from './svg_export/index.js';
+import { resolveInputData, samples as jsSamples } from '../input/load.js';
+import { renderPdfStylePieToSvg, pathsCross, distPointToSegment } from '../svg_export/pipeline.js';
 
 type Pt = { x: number; y: number };
 

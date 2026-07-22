@@ -1,5 +1,5 @@
 // =============================================================================
-// layout.ts — 円グラフのラベル配置(論理座標上での配置決定)
+// layout/diagnostics.ts — 円グラフのラベル配置(論理座標上での配置決定)
 // -----------------------------------------------------------------------------
 // ラベルを最終的にどの (x, y) に置くかを決める。SVG 文字列生成や引出線描画は
 // svg_export 側の責務。座標は論理単位 (pieRadius = 1.0)。
@@ -43,7 +43,7 @@ import {
   labelCongestionOffsetDeg,
   isOtherCategory,
   pxToLogical,
-} from './svg_geom.js';
+} from './geometry.js';
 import {
   TOP_BAND_HALF_WIDTH_DEG,
   LEFT_STACK_UPPER_ESCAPE_HALF_WIDTH_DEG,
@@ -53,14 +53,14 @@ import {
   DOMINANT_BELOW_CENTER_MIN_PCT,
   BISECT_SECOND_MIN_PCT,
   BISECT_PAIR_MIN_PCT,
-} from './label_placement.js';
+} from './placement.js';
 import type {
   PieLayoutConfig,
   LayoutResult,
   LayoutItem,
   LayoutItemReady,
   Diagnostics,
-} from './types.js';
+} from '../types.js';
 
 // =============================================================================
 // 1. profiles — slice 分類とプロファイル構築
@@ -992,7 +992,7 @@ function nearestToTwelveOClock(items: LayoutItemReady[]): LayoutItemReady {
 
 /**
  * 12時直左の小 top-band スライスが上左で混雑する時、12時に最も近い 1 件に topBandSmallRight を
- * 立てて右上空白へ逃がす (`label_placement.ts` の `topBandSmallRight` が参照)。これにより上左に小
+ * 立てて右上空白へ逃がす (`layout/placement.ts` の `topBandSmallRight` が参照)。これにより上左に小
  * top-band が 2 つ並んで片方が長体化する症状を解消し、両ラベルを原寸 2 行に収める。
  *
  * ゲート (混雑が実在する上左 triad のみに限定):
@@ -1223,7 +1223,7 @@ function markTopBandSlivers(
  *  - 右側の占有率 < 1/2 (`sideRimOccupancy`) = 逃がし先のリムが空いている
  *  - `!topBandClusterMode` (専用の再配置を持つ別モードとの二重発火防止)
  *
- * 何枚逃がすかはここでは決めない。`svg_export/index.ts` の `pickLeftStackUpperEscape` が 0 枚から
+ * 何枚逃がすかはここでは決めない。`svg_export/pipeline.ts` の `pickLeftStackUpperEscape` が 0 枚から
  * 増やして do-no-harm で選ぶ。配置座標は既存 `topRightLiftedRimDraft` 経路をそのまま使う。
  */
 function markLeftStackUpperEscapeRight(

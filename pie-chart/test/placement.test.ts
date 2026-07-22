@@ -5,7 +5,7 @@ import {
   buildOutsideRimDraft,
   topBandSonohokaZone,
   type LabelForm,
-} from '../src/label_placement.js';
+} from '../src/layout/placement.js';
 import type { LayoutItemReady, Scale } from '../src/types.js';
 
 const cfg = createPieLayoutConfig();

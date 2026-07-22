@@ -1,18 +1,18 @@
 // =============================================================================
-// oracle_sync.ts — verify_svg の複製定数/文字幅分類の drift ガード
+// verify/oracle_sync.ts — verify_svg の複製定数/文字幅分類の drift ガード
 // =============================================================================
-// `verify_svg.ts` は検証 *ロジック* を本体から import せず独立オラクルとして複製するが、
+// `verify/svg.ts` は検証 *ロジック* を本体から import せず独立オラクルとして複製するが、
 // そこで複製する *数値定数* と *文字幅分類* だけは本体 (`config.ts` の既定値 /
 // `svg_geom.visualCharEm`) と一致していなければならない。ここに定数と照合関数 `assertOracleSync`
-// を集約し、`verify_svg.ts`(CLI)は import して起動時に呼ぶ。テスト(`test/oracle_sync.test.ts`)
+// を集約し、`verify/svg.ts`(CLI)は import して起動時に呼ぶ。テスト(`test/oracle_sync.test.ts`)
 // からも同関数を直接叩けるよう、乖離時は `process.exit` ではなく `Error` を throw する
 // (CLI 側で捕捉して従来どおり exit(1) する)。SVG 出力経路 (`cli.ts` / render) には無関係。
-import { createPieLayoutConfig } from './config.js';
+import { createPieLayoutConfig } from '../config.js';
 import {
   TOP_BAND_HALF_WIDTH_DEG as bodyTopBandHalfWidthDeg,
   TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG as bodySonohokaLeftExtHalfWidthDeg,
-} from './label_placement.js';
-import { visualCharEm as bodyVisualCharEm } from './svg_geom.js';
+} from '../layout/placement.js';
+import { visualCharEm as bodyVisualCharEm } from '../layout/geometry.js';
 
 // 描画器(config.ts)の bbox 推定係数と同期すべき定数。verify は独立オラクルとして検証
 // *ロジック* は本体から import せず複製するが、ここで複製する *数値* は起動時に
@@ -99,7 +99,7 @@ export function assertOracleSync(): void {
     const detail = mismatches.map((m) => `    - ${m}`).join('\n');
     throw new Error(
       `verify_svg のメトリクス定数/文字幅が本体と乖離しています:\n${detail}\n` +
-        '  → 定数は oracle_sync.ts を config.ts に合わせ、幅は `npm run gen:widths` で' +
+        '  → 定数は verify/oracle_sync.ts を config.ts に合わせ、幅は `npm run gen:widths` で' +
         ' src/glyph_advance/ を再生成してください。',
     );
   }

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createPieLayoutConfig } from '../src/config.js';
 import { relaxNameCondense } from '../src/svg_export/post_layout.js';
-import { placementBox, scaledLabelWidthUnits, radialFraction } from '../src/svg_geom.js';
+import { placementBox, scaledLabelWidthUnits, radialFraction } from '../src/layout/geometry.js';
 import type { Placement, PieLayoutConfig } from '../src/types.js';
 
 const cfg = createPieLayoutConfig();

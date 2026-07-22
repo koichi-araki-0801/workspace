@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveInputData, samples as jsSamples } from './input/load.js';
-import { renderPdfStylePieToSvg } from './svg_export/index.js';
+import { renderPdfStylePieToSvg } from './svg_export/pipeline.js';
 import { escapeXml } from './svg_export/rendering.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

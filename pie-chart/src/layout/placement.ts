@@ -1,5 +1,5 @@
 // =============================================================================
-// label_placement.ts — ラベル配置カスケードの form/draft 生成と引出線 SVG path
+// layout/placement.ts — ラベル配置カスケードの form/draft 生成と引出線 SVG path
 // -----------------------------------------------------------------------------
 // 役割:
 //   - 引出線 1 本ぶんの SVG 断片を組み立てる (leaderPath)
@@ -7,8 +7,8 @@
 //     Placement に組み立てる (finalizePlacement)
 //
 // アーキテクチャ:
-//   - 純粋幾何計算 (屈曲点・bbox 推定・nudge) は svg_geom.ts に分離。
-//   - 配置経路の選択 (rank ごとの優先順位カスケード) は svg_export/index.ts の
+//   - 純粋幾何計算 (屈曲点・bbox 推定・nudge) は layout/geometry.ts に分離。
+//   - 配置経路の選択 (rank ごとの優先順位カスケード) は svg_export/pipeline.ts の
 //     runLabelCascade が駆動し、本ファイルの公開 API (下記 3.) を順に試す。
 //   - 各 draft ビルダは共通の PlacementDraft を返し、finalizePlacement が
 //     nudge → textPlacement 返却を行う。
@@ -36,9 +36,9 @@ import {
   labelHeightUnits,
   textBoxBounds,
   isOtherCategory,
-} from './svg_geom.js';
-import type { PieLayoutConfig, Scale, LayoutItemReady, Placement } from './types.js';
-import type { Point, InsideFit, Extent } from './svg_geom.js';
+} from './geometry.js';
+import type { PieLayoutConfig, Scale, LayoutItemReady, Placement } from '../types.js';
+import type { Point, InsideFit, Extent } from './geometry.js';
 
 // =============================================================================
 // 0. 内部型 — draft (配置中間表現)
@@ -84,7 +84,7 @@ interface PlacementDraft {
 export const TOP_BAND_HALF_WIDTH_DEG = 18;
 
 /**
- * 上左から右上へ逃がす候補帯の半幅 (`layout.ts` の `leftStackUpperEscapeCandidates`)。
+ * 上左から右上へ逃がす候補帯の半幅 (`layout/diagnostics.ts` の `leftStackUpperEscapeCandidates`)。
  * 帯 = 90〜135° = **上左象限 (90–180°) のうち 12時側の半分**。これより 9時寄りのスライスを右上へ
  * 渡すと引出線がチャート上部を横断する長い横線になるため、象限の半分が自然な上限になる。
  * `TOP_BAND_HALF_WIDTH_DEG`(18) や `TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG`(32) とは別概念
@@ -138,7 +138,7 @@ export const DOMINANT_OUTSIDE_EDGE_MIN_PCT = 50;
 /**
  * 「二分割」型 (上位2スライスが円のほぼ全体を占める) の検知閾値。最大スライス ≥ 50%・第2スライス ≥
  * `BISECT_SECOND_MIN_PCT`・両者合算 ≥ `BISECT_PAIR_MIN_PCT` のとき成立 (例 54.3/44.6, 55.6/36.7/7.7,
- * 67/33, 72/28)。markBisectedPie (layout.ts) が判定に使う。
+ * 67/33, 72/28)。markBisectedPie (layout/diagnostics.ts) が判定に使う。
  *
  * 第2下限を 25 に取るのは、35 だと 2 スライス系 (67/33・72/28) を弾くため。`s1 ≥ 25` は算術的に
  * `s0 ≤ 75 (< 80)` を保証するので、1強(≥80%)型は第2が小さく自動除外され、既存の真下中央パスへ流れる。
@@ -435,7 +435,7 @@ function topRightLiftedRimDraft(
 
 /**
  * 12時直左の小スライス (top-band) を右上空白へ逃がす draft を返す。`topBandSmallRight` フラグ
- * (`layout.ts` の `markTopBandSmallRight` が立てる) を持つ item のみ対象。配置座標は `topBandSonohokaRight`
+ * (`layout/diagnostics.ts` の `markTopBandSmallRight` が立てる) を持つ item のみ対象。配置座標は `topBandSonohokaRight`
  * の右パスと同一 (slice から縦に抜けて右へ折れる L 字 + anchor=start)。anchorX が僅かに負でも
  * 右側を維持するため `forceTopRight` で `clampToAnchorSide` の中心跨ぎ引き戻しを免除する。
  *
@@ -461,7 +461,7 @@ function topBandSmallRight(
  *
  * 用途: 12時 真近 (mid 90°±5°) のスライスは左帯の最下段に押し込むと leader が pie 上を
  * 大きく跨いで視覚的に長くなる。右半が空く dominant チャートで右上 rim を出口に使う。
- * `clusterTopBandBottom` は layout.ts で立つフラグ。
+ * `clusterTopBandBottom` は layout/diagnostics.ts で立つフラグ。
  */
 function clusterTopBandBottomRight(
   item: LayoutItemReady,
@@ -843,13 +843,13 @@ function clampAndBuildPlacement(input: {
     else closestY = Math.abs(bboxYMin) < Math.abs(bboxYMax) ? bboxYMin : bboxYMax;
     const insidePieR = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY));
     // 箱の最近接 Y 縁が円の完全に外 (|closestY| >= pieRadius) なら円と X 方向で干渉しないので
-    // 制約自体を作らない。動的側 `pieClampXLimits` (`svg_geom.ts`) は同条件で null を返すのに、
+    // 制約自体を作らない。動的側 `pieClampXLimits` (`layout/geometry.ts`) は同条件で null を返すのに、
     // 静的側だけが `insidePieR` = 0 のまま ±(0 + クリアランス) という名残制約を残しており、pie
     // キャップより完全に上へ持ち上げた箱 (`topBandSonohokaRight` の真上垂直 center 配置など) を
     // 横へ押し出していた。`currency_low_diff_10` の「その他」で textX が anchorX (-0.187) から
     // -0.607 へ 66px 左寄せされ、真上垂直のはずの leader が長い斜めになる原因。
     // ただし名残制約は一部チャートで隣接ラベルとの重なり回避として偶然機能していたため、外すと
-    // 退行するチャートがある。チャート単位の do-no-harm (`svg_export/index.ts` の
+    // 退行するチャートがある。チャート単位の do-no-harm (`svg_export/pipeline.ts` の
     // `pickCapClearanceParity`) が不具合増を検知した時だけ `capParityRejected` を立てて旧挙動へ戻す。
     if (Math.abs(closestY) < cfg.pieRadius || item.capParityRejected) {
       // クリアランスは viewBox に収まる範囲でのみ狙い値へ広げる (`pieClearanceWithinViewBox`)。

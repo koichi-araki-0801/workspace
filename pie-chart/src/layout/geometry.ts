@@ -1,13 +1,13 @@
 // =============================================================================
-// svg_geom.ts — ラベル配置に使う純粋幾何ヘルパー群 (graph/svg_geom.js の TS 移植)
+// layout/geometry.ts — ラベル配置に使う純粋幾何ヘルパー群 (graph/svg_geom.js の TS 移植)
 // -----------------------------------------------------------------------------
 // SVG 文字列の生成や xScale/yScale 等の座標変換は含まない(それらは svg_export
 // 側の責務)。引出線の屈曲点・ラベルの押し出し点・bbox 計算など数学的な操作のみ。
 // =============================================================================
 
-import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from './types.js';
-import { GLYPH_ADVANCE_400 } from './glyph_advance/weight_400.js';
-import { GLYPH_ADVANCE_700 } from './glyph_advance/weight_700.js';
+import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from '../types.js';
+import { GLYPH_ADVANCE_400 } from '../glyph_advance/weight_400.js';
+import { GLYPH_ADVANCE_700 } from '../glyph_advance/weight_700.js';
 
 export interface Point {
   x: number;
@@ -765,7 +765,7 @@ export function horizontalLabelLimits(
 }
 
 /**
- * 線分 ab と cd が交差するか。verify_svg.ts と同一実装 (tolerance は px 基準)。
+ * 線分 ab と cd が交差するか。verify/svg.ts と同一実装 (tolerance は px 基準)。
  * 端点が辺に乗る (=|cross| <= tolerance) 場合は「交差せず」と扱う。
  */
 export function segmentsIntersect(
@@ -790,7 +790,7 @@ export function segmentsIntersect(
 
 /**
  * leader の折れ線 (pixel 座標) が矩形 box (pixel 座標, pad で内側へ収縮) を貫くか。
- * verify_svg.ts の "leader through label" 判定 (segIntersectsBox) を厳密再現する。
+ * verify/svg.ts の "leader through label" 判定 (segIntersectsBox) を厳密再現する。
  * 両端とも box 内のセグメントは貫通とみなさない (verify と同様)。box は top < bottom
  * (pixel, y 下向き) 前提。
  */

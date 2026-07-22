@@ -6,22 +6,22 @@
 //   1. 互いに交差しない
 //   2. パイ円盤を貫かない (中心からの距離 ≥ r − 2px)
 //   3. 曲がりは 1 回以内
-// を満たすことを verify_svg.ts と同じ判定式で検査する。配置ロジックの変更でこれらの
+// を満たすことを verify/svg.ts と同じ判定式で検査する。配置ロジックの変更でこれらの
 // 性質が退行した場合に CI で検知する。
 // =============================================================================
 
 import { describe, expect, it } from 'vitest';
 import { resolveInputData, samples } from '../src/input/load.js';
-import { renderPdfStylePieToSvg } from '../src/svg_export/index.js';
+import { renderPdfStylePieToSvg } from '../src/svg_export/pipeline.js';
 import { createPieLayoutConfig } from '../src/config.js';
-import { visualCharEm } from '../src/svg_geom.js';
+import { visualCharEm } from '../src/layout/geometry.js';
 
 interface Pt {
   x: number;
   y: number;
 }
 
-/** verify_svg.ts と同じ leader 折れ線抽出 (<g class="label"> 内の fill="none" path)。 */
+/** verify/svg.ts と同じ leader 折れ線抽出 (<g class="label"> 内の fill="none" path)。 */
 function parseLeaders(svg: string): { name: string; points: Pt[] }[] {
   const out: { name: string; points: Pt[] }[] = [];
   const groupRe = /<g class="label"([^>]*)>([\s\S]*?)<\/g>/g;
@@ -45,11 +45,11 @@ function parsePie(svg: string): { cx: number; cy: number; r: number } {
   return { cx: parseFloat(m[1]), cy: parseFloat(m[2]), r: parseFloat(m[3]) };
 }
 
-// 交差/最短距離の判定は本体実装 (`svg_geom.ts` / `leader_geometry.ts`) を import せず、
+// 交差/最短距離の判定は本体実装 (`layout/geometry.ts` / `leader_geometry.ts`) を import せず、
 // テスト内の独立オラクルとして凍結複製する。本体と判定式を共有すると、本体の退行
 // (tolerance の変更ミス・符号誤り等) をテストが同じ誤りで追認して検知できないため。
 
-/** verify_svg.ts segmentsIntersect と同条件 (tolerance 0.5px・端点接触は交差としない)。 */
+/** verify/svg.ts segmentsIntersect と同条件 (tolerance 0.5px・端点接触は交差としない)。 */
 function segmentsIntersect(a: Pt, b: Pt, c: Pt, d: Pt, tolerance = 0.5): boolean {
   const cross = (p: Pt, q: Pt, r: Pt) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
   const d1 = cross(c, d, a);
@@ -181,7 +181,7 @@ function parseTexts(svg: string): TextInfo[] {
   return out;
 }
 
-// verify_svg.ts の bbox 推定 (textBBox) を忠実に複製する。幅は本体 svg_geom.visualCharEm の実 glyph
+// verify/svg.ts の bbox 推定 (textBBox) を忠実に複製する。幅は本体 svg_geom.visualCharEm の実 glyph
 // advance テーブルを直接引き、行高は config.lineHeightFactor。これにより本テストの "label inside pie"
 // 判定が verify_svg と一致する (粗い em 近似だと 3/9 時付近のラベルで縦伸長を過大評価し誤検知する)。
 const PIE_TEST_CFG = createPieLayoutConfig();
@@ -191,7 +191,7 @@ function visualLineUnits(text: string): number {
   return sum;
 }
 
-/** verify_svg.ts textBBox と同式の pixel テキスト box (charWidth=fontSize, lineH=fontSize*lineHeightFactor)。 */
+/** verify/svg.ts textBBox と同式の pixel テキスト box (charWidth=fontSize, lineH=fontSize*lineHeightFactor)。 */
 function textBoxPx(t: TextInfo): { left: number; right: number; top: number; bottom: number } {
   const charWidth = t.fontSize * PIE_TEST_CFG.charWidthFactor;
   const totalH = t.fontSize * PIE_TEST_CFG.lineHeightFactor * t.lineCount;
@@ -543,12 +543,12 @@ describe('左列ラベルの縦順序 == スライス角度順 (back-to-back 対
   });
 });
 
-// 引出線が **自分自身のラベル** の bbox を貫通しないこと。`verify_svg.ts` の "leader through label"
+// 引出線が **自分自身のラベル** の bbox を貫通しないこと。`verify/svg.ts` の "leader through label"
 // は j===i (自ラベル) をスキップするため自貫通を検出できず、中央寄せラベル (アンカー x が box 水平
 // 範囲内) で起きる「真下中央 (中国 10.6%) / 真上中央 (ケイマン諸島 1.5%)」の文字食い込みを取りこぼす。
 // `leader_geometry.ts` の computeDrawnLeader が接続点を pie 側の上下縁中央へ寄せて防ぐのを固定する。
 describe('引出線が自ラベル box を貫通しない (self-penetration)', () => {
-  // verify_svg.ts segIntersectsBox と同条件 (両端 box 内=接続点が縁の通常形 → 非貫通)。
+  // verify/svg.ts segIntersectsBox と同条件 (両端 box 内=接続点が縁の通常形 → 非貫通)。
   const segIntersectsBox = (
     p1: Pt,
     p2: Pt,

@@ -46,7 +46,7 @@ import {
   visualCharEm,
   visualMaxEm,
   visualTextWidthUnits,
-} from '../src/svg_geom.js';
+} from '../src/layout/geometry.js';
 
 const cfg: PieLayoutConfig = createPieLayoutConfig();
 

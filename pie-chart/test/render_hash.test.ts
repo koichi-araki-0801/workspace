@@ -10,7 +10,7 @@
 
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { renderPdfStylePieToSvg } from '../src/svg_export/index.js';
+import { renderPdfStylePieToSvg } from '../src/svg_export/pipeline.js';
 
 const SHORT_NAMES = [
   '円',

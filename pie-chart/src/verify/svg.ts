@@ -1,5 +1,5 @@
 // =============================================================================
-// verify_svg.ts — 生成済み SVG の自動検証 (graph/verify_svg.js の TS 移植)
+// verify/svg.ts — 生成済み SVG の自動検証 (graph/verify_svg.js の TS 移植)
 // -----------------------------------------------------------------------------
 // チェック項目:
 //   1. ラベル数 == スライス数
@@ -16,9 +16,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // 検証ロジック(交差・bbox 等)は本体から取り込まず独立を保つが、複製する数値定数/文字幅分類の
-// drift ガード(定数と `assertOracleSync`)は `oracle_sync.ts` に集約し、起動時に呼ぶ。幅推定でも
+// drift ガード(定数と `assertOracleSync`)は `verify/oracle_sync.ts` に集約し、起動時に呼ぶ。幅推定でも
 // 使う複製定数(`CHAR_WIDTH_FACTOR` 等)は同モジュールから import する。
-import { createPieLayoutConfig } from './config.js';
+import { createPieLayoutConfig } from '../config.js';
 import {
   assertOracleSync,
   CHAR_WIDTH_FACTOR,
@@ -26,7 +26,7 @@ import {
   SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG,
   TOP_BAND_HALF_WIDTH_DEG,
 } from './oracle_sync.js';
-import { visualCharEm as bodyVisualCharEm } from './svg_geom.js';
+import { visualCharEm as bodyVisualCharEm } from '../layout/geometry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 本ファイルは src/ にあるため、1 つ上(pie-chart ルート)を基準に out/ を解決する。
@@ -75,7 +75,7 @@ interface ViewBox {
 
 // 文字幅は本体 (svg_geom.visualCharEm) の実 glyph advance テーブルをそのまま使う。verify が
 // 独自に幅モデルを複製すると本体と乖離し得るため、幅分類はオラクル(本体)を直接引く。数値定数
-// (charWidthFactor 等) は `oracle_sync.ts` に集約し assertOracleSync で照合する。
+// (charWidthFactor 等) は `verify/oracle_sync.ts` に集約し assertOracleSync で照合する。
 const oracleCfg = createPieLayoutConfig();
 
 function visualLineUnits(text: string): number {

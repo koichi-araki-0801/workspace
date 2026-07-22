@@ -2,7 +2,7 @@
 // gen_glyph_advance.ts — 埋め込みフォント (fonts/BIZUDPGothic-{Regular,Bold}.woff2) の実
 // glyph advance 幅をパースし、ウェイト別 (400/700) の非予測 codepoint→advance(em) 例外テーブルを
 // src/glyph_advance/weight_{400,700}.ts (GLYPH_ADVANCE_{400,700}) へ 1 ウェイト 1 ファイルで
-// 出力する (束ねる Record は利用側 svg_geom.ts が組む)。
+// 出力する (束ねる Record は利用側 layout/geometry.ts が組む)。
 // -----------------------------------------------------------------------------
 // 幅モデルを「全角1.0/半角0.5」ヒューリスティックから実描画(実 advance)基準へ揃えるための
 // 生成物。visualCharEm の heuristic 予測と一致する advance (例: 漢字=1.0) は省き、
@@ -30,7 +30,7 @@ const WEIGHT_FONT: Record<string, string> = {
   '700': path.join(ROOT, 'fonts', 'BIZUDPGothic-Bold.woff2'),
 };
 
-// svg_geom.ts visualCharEm のフォールバック heuristic と同じ予測値 (全角1.0/半角0.5)。
+// layout/geometry.ts visualCharEm のフォールバック heuristic と同じ予測値 (全角1.0/半角0.5)。
 // テーブル未収録 codepoint はこの値が使われるため、予測と一致する advance は収録不要。
 const heuristicEm = (cp: number): number => {
   if (cp >= 0x4e00 && cp <= 0x9fff) return 1;

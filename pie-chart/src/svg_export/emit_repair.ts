@@ -8,7 +8,7 @@
 //   - 計測/ゲート: `EmitDefectVec` / `DefectGate` / `HardDefects` / `RepairVec` 系と
 //     seam snapshot (`PLACEMENT_SEAM_POLICY`)。パスの do-no-harm 判定はここへ集約
 //   - 汎用修復パス: leader 交差ほどき・角度順整列・列 overlap 緩和・bend grid 残欠修復 等
-// モード特化パス (左列/top-band/右上逃がし) は `index.ts` 側にあり、`EMIT_REPAIR_PASSES`
+// モード特化パス (左列/top-band/右上逃がし) は `pipeline.ts` 側にあり、`EMIT_REPAIR_PASSES`
 // テーブルが関数参照で束ねる。テーブル順は emit_passes.test が固定する (順序依存)。
 // =============================================================================
 
@@ -26,7 +26,7 @@ import {
   isOtherCategory,
   boxOverlapAmount,
   pxToLogical,
-} from '../svg_geom.js';
+} from '../layout/geometry.js';
 import type { PieLayoutConfig, Diagnostics, Placement } from '../types.js';
 import {
   resolveLabelOverlaps,
@@ -58,11 +58,11 @@ import {
   countAngularDiscordantPairs,
 } from './leader_geometry.js';
 import type { Pt, Coord } from './leader_geometry.js';
-import { radialFraction, pieClearanceWithinViewBox } from '../svg_geom.js';
-import { topBandSonohokaZone } from '../label_placement.js';
+import { radialFraction, pieClearanceWithinViewBox } from '../layout/geometry.js';
+import { topBandSonohokaZone } from '../layout/placement.js';
 import { FINAL_CONDENSE_MIN_SCALE } from './post_layout.js';
 import { LEADER_MAX_ANGULAR_DIFF_RAD } from './leader_geometry.js';
-// モード特化パス・fallback は index.ts 側 (関数宣言 hoisting により循環 import でも安全)。
+// モード特化パス・fallback は pipeline.ts 側 (関数宣言 hoisting により循環 import でも安全)。
 import {
   alignLeftStackToAnchors,
   escapeTopBandSeamLeader,
@@ -74,12 +74,12 @@ import {
   stackTopRightLiftedLabels,
   tidyTopRightEscapeeStack,
 } from './mode_passes.js';
-// fallback 変形 (2 行化・declip・左下ドロップ) は index.ts 側。
+// fallback 変形 (2 行化・declip・左下ドロップ) は pipeline.ts 側。
 import {
   applyLowerLeftDropFallback,
   applyTwoLineNameFallback,
   applyVerticalDeclipFallback,
-} from './index.js';
+} from './pipeline.js';
 
 // 9時線 (midAngle≈180) を挟んで縦に重なる左小スライスを「左上へ逃がす」対象とみなす帯の半幅。
 // イギリス(≈189.5°)/イタリア(≈175.2°) の様に 9時線近傍で near-vertical leader が重なる対を拾う。

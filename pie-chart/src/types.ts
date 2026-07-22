@@ -83,10 +83,10 @@ export interface LayoutItem {
   // `runLabelCascade` のフォールバックパスで立てると `topBandSonohokaRight` が無効化され左上配置に戻る。
   topRightRejected?: boolean;
 
-  // pie キャップ外の箱に対する静的 pie クランプの「名残制約」除去 (`label_placement.ts` の
+  // pie キャップ外の箱に対する静的 pie クランプの「名残制約」除去 (`layout/placement.ts` の
   // `clampAndBuildPlacement`) を、このチャートでは行わない印。名残制約は本来不要だが偶発的に
   // 隣接ラベルの重なり回避として働いているチャートがあり、除去すると重なり/leader 貫通が増える。
-  // `svg_export/index.ts` の `pickCapClearanceParity` が不具合増を検知した時だけ立てて旧挙動へ戻す。
+  // `svg_export/pipeline.ts` の `pickCapClearanceParity` が不具合増を検知した時だけ立てて旧挙動へ戻す。
   capParityRejected?: boolean;
 
   // 12時近傍 (mid 90°±30°) に 4 以上の small slice が集まる `Diagnostics.topBandClusterMode` の
@@ -96,22 +96,22 @@ export interface LayoutItem {
   clusterTopBandBottom?: boolean;
 
   // 12時直左の小スライス (top-band) が上左で混雑する時、12時に最も近い1件を右上空白へ
-  // 逃がす印。`layout.ts` の `markTopBandSmallRight` で立て、`label_placement.ts` の `topBandSmallRight` が
+  // 逃がす印。`layout/diagnostics.ts` の `markTopBandSmallRight` で立て、`layout/placement.ts` の `topBandSmallRight` が
   // 参照して `topBandSonohokaRight` と同じ右上 rim 配置を返す。
   topBandSmallRight?: boolean;
 
   // 6時直下 (mid 270°±BOTTOM_CENTER_HALF_DEG, |cos|<閾値) の非 dominant スライスを、左右の列に
-  // 折らず pie 真下中央へ leaderless で据える印。`layout.ts` の `markBottomCenterBelow` が立て、
-  // `label_placement.ts` の `bottomCenterBelow` が参照する。
+  // 折らず pie 真下中央へ leaderless で据える印。`layout/diagnostics.ts` の `markBottomCenterBelow` が立て、
+  // `layout/placement.ts` の `bottomCenterBelow` が参照する。
   bottomCenterBelow?: boolean;
 
   // 「1強(≥90%)+極小トップ2枚」型 (例 manulife_country) で、上左に並ぶ極小スライスを rim 配置
   // (leaderless)で確定させず rank 9 (`buildOutsideLeaderDraft`) 起点へ強制し leader を引かせる印。
-  // `layout.ts` の `markForcedTopSliverLeader` が双方に立て、`index.ts` の `runCascadeOnce` が参照する。
+  // `layout/diagnostics.ts` の `markForcedTopSliverLeader` が双方に立て、`index.ts` の `runCascadeOnce` が参照する。
   forceOutsideLeader?: boolean;
 
   // 9時直近の幅広・長名 上左ラベルが、長体下限でも viewBox 左端を見切れる構成 (例
-  // world_bond_idx_currency「オフショア人民元」) で立てる印。`layout.ts` の `markClippedUpperLeftLongDrop`
+  // world_bond_idx_currency「オフショア人民元」) で立てる印。`layout/diagnostics.ts` の `markClippedUpperLeftLongDrop`
   // が当該 1 ラベルに付与し、`index.ts` の `runCascadeOnce` が rank 9 起点 (`buildLowerLeftDropLeaderDraft`)
   // へ送る。円が横へ逃げ帯が広い下left (水平軸下) へ 2 行のまま配置し、slice rim から斜めリーダーで
   // 接続する (参考PDF「オーストラリア」配置)。`forceHorizontalLowerLeftDrop` (内側 X クランプ解放) と
@@ -119,31 +119,31 @@ export interface LayoutItem {
   lowerLeftDropLeader?: boolean;
 
   // 「1強(80–90%) + 上左に極小1枚 + 上中央を『その他』が占有」型 (例 world_bond_idx_asset) の
-  // 孤立極小スライス印。`forceOutsideLeader` と併せて `layout.ts` の `markLoneTopSliverLeader` が立てる。
+  // 孤立極小スライス印。`forceOutsideLeader` と併せて `layout/diagnostics.ts` の `markLoneTopSliverLeader` が立てる。
   // この印が立つチャートでは `index.ts` の `cascadeWithSonohokaPick` が『その他』を右上へ確定させ
   // (右逃がし)、極小の up-and-over leader が『その他』の中央 box を貫く suppression を回避する。
   loneTopSliverLeader?: boolean;
 
   // 密集側 (片側に外側ラベルが多く寄った列) の外側ラベル印。`buildOutsideRimDraft` が
   // rim 半径に `cfg.denseSideOutsideRadiusFactor` を掛けて円から少し離す。
-  // `layout.ts` の `markDenseSideOutsidePush` が立てる。
+  // `layout/diagnostics.ts` の `markDenseSideOutsidePush` が立てる。
   denseSideOutsidePush?: boolean;
 
   // 「二分割」型 (例 pdf_510037_01_fund_asset: 投信証券54.3/親投信証券44.6/その他1.0) で、
-  // 右半分を占める優勢スライス (最大・≥50%・右) の内側ラベル印。`label_placement.ts` の
+  // 右半分を占める優勢スライス (最大・≥50%・右) の内側ラベル印。`layout/placement.ts` の
   // `computeInsideOptions` が wedge 重心の代わりに右半径中点・縦中央 (cfg.pieRadius/2, 0) へ
-  // center を上書きする。`layout.ts` の `markBisectedPie` が立てる。
+  // center を上書きする。`layout/diagnostics.ts` の `markBisectedPie` が立てる。
   bisectedDominantCenter?: boolean;
 
   // 「1強+小複数」型 (例 currency_balanced_5: 円62/米ドル20/ユーロ9/英5/その他4) の単独優勢スライス
   // (最大・≥50%・<80%・右) の印。`computeInsideOptions` が内側フィットのアンカーを重心 (中心至近で
   // 縁を突き抜ける) から外へ押し出して探索し、bisector 方向の自然位置のまま内側へ収める。中央固定
-  // (`bisectedDominantCenter`) はしない。`layout.ts` の `markSingleDominantInside` が立てる。
+  // (`bisectedDominantCenter`) はしない。`layout/diagnostics.ts` の `markSingleDominantInside` が立てる。
   singleDominantInside?: boolean;
 
   // 同「二分割」型の左半分を占める第2スライス (2番目・≥35%・左) の印。外側 rim 配置のまま
   // (テキスト位置不変)、`leader_geometry.ts` の `computeDrawnLeader` が `ALWAYS_DRAW_OUTSIDE_LEADERS`
-  // を上書きして leader を消す (スライス直近で冗長なため)。`layout.ts` の `markBisectedPie` が立てる。
+  // を上書きして leader を消す (スライス直近で冗長なため)。`layout/diagnostics.ts` の `markBisectedPie` が立てる。
   bisectedSecondSliceNoLeader?: boolean;
 }
 
@@ -187,12 +187,12 @@ export interface Diagnostics {
   /** 12時近傍 (mid 90°±30°) かつ small の slice 件数 (`topBandClusterMode` の判定入力)。 */
   topBandClusterCount?: number;
   /**
-   * 上左から右上へ逃がせる候補の枚数 (`layout.ts` の `leftStackUpperEscapeCandidates`)。
-   * `svg_export/index.ts` の `pickUpperEscapeCount` が探索の上限として読む。
+   * 上左から右上へ逃がせる候補の枚数 (`layout/diagnostics.ts` の `leftStackUpperEscapeCandidates`)。
+   * `svg_export/pipeline.ts` の `pickUpperEscapeCount` が探索の上限として読む。
    */
   upperEscapeCandidateCount?: number;
   /**
-   * 逃がし済み (`topBandSmallRight`) を除いた左列の縦詰め込み比 (`layout.ts` の
+   * 逃がし済み (`topBandSmallRight`) を除いた左列の縦詰め込み比 (`layout/diagnostics.ts` の
    * `sideColumnPackingRatio`)。1 超 = 縦に入りきらない。`pickUpperEscapeCount` の packing 枝が
    * base (0 枚) と variant (count 枚) の差で「逃がしで左列が実際に緩んだか」を読む。
    */
@@ -371,7 +371,7 @@ export interface PieLayoutConfig {
   insideSliceAngularClearanceDeg: number;
   /**
    * 外側ラベルの text bbox と円との狙いギャップ (論理単位 = pieRadius 比)。実効値はラベルごとに
-   * 「viewBox に収まる範囲」でのみ本値まで広がる (`svg_geom.ts` の `pieClearanceWithinViewBox`)。
+   * 「viewBox に収まる範囲」でのみ本値まで広がる (`layout/geometry.ts` の `pieClearanceWithinViewBox`)。
    * 幅広ラベルで viewBox に収まらない場合は `pieLabelClearanceMin` まで縮む。
    */
   pieLabelClearance: number;
