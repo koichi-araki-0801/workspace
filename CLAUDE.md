@@ -169,3 +169,7 @@ editor の編集体験は **2系統**で、これはツールの根幹である�
   検証手順の正典は `pie-chart/README.md` の「検証」節。
 - `.claude/hooks/pie-chart-baseline.cjs`（PreToolUse: Write|Edit）が編集前に
   `out/_baseline` を自動生成する。
+- 配置パイプラインの設計正典は `pie-chart/ARCHITECTURE.md`（モード×パス対応表・do-no-harm
+  ゲート使い分け・却下済み設計案）。下記 import でセッション起動時に読み込む。
+
+@pie-chart/ARCHITECTURE.md
