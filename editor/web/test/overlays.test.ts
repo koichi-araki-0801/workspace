@@ -5,9 +5,10 @@
 // wrapper ではなく body を query して検証する。各テスト後に unmount + body 掃除で
 // Portal 残骸のテスト間リークを防ぐ。
 import { mount, type VueWrapper } from '@vue/test-utils';
+import { TooltipProvider } from 'reka-ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { h, nextTick } from 'vue';
-import { Dialog, DropdownMenu, DropdownMenuItem } from '../src/components/ui/overlays';
+import { defineComponent, h, nextTick } from 'vue';
+import { Dialog, DropdownMenu, DropdownMenuItem, Tooltip } from '../src/components/ui/overlays';
 
 let wrapper: VueWrapper | undefined;
 
@@ -138,5 +139,43 @@ describe('DropdownMenu', () => {
     expect(content?.className).toContain('max-h-72');
     // as-child: reka-ui のトリガ属性が slot の button 要素自身へ付与される。
     expect(w.get('#trg').attributes('aria-haspopup')).toBe('menu');
+  });
+});
+
+describe('Tooltip', () => {
+  // `TooltipRoot` は Provider 祖先が無いと throw するため、App.vue と同様に Provider で
+  // 包んだホストを mount する。キーボードフォーカスは delay 無しの即時表示なので、
+  // jsdom では focus イベントで開く。
+  const mountTooltip = async (props: Record<string, unknown> = {}) => {
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(TooltipProvider, null, () =>
+            h(Tooltip, { text: 'ヒント', ...props }, () => h('button', { id: 'trg' }, 'op')),
+          );
+      },
+    });
+    const w = mount(Host, { attachTo: document.body });
+    await nextTick();
+    return w;
+  };
+
+  it('トリガの focus で text を body へ描画する', async () => {
+    wrapper = await mountTooltip();
+    expect(document.body.textContent).not.toContain('ヒント');
+    wrapper.get('#trg').element.dispatchEvent(new FocusEvent('focus', { bubbles: false }));
+    await nextTick();
+    await nextTick();
+    expect(document.body.textContent).toContain('ヒント');
+  });
+
+  it('disabled はラップせず slot をそのまま描画する', async () => {
+    wrapper = await mountTooltip({ disabled: true });
+    const trg = wrapper.get('#trg');
+    // reka-ui のトリガ属性(data-state 等)が付かない = 素通し。
+    expect(trg.attributes('data-state')).toBeUndefined();
+    trg.element.dispatchEvent(new FocusEvent('focus'));
+    await nextTick();
+    expect(document.body.textContent).not.toContain('ヒント');
   });
 });

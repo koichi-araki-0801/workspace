@@ -12,7 +12,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import PageNav from '@/components/PageNav.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
-import { DropdownMenu, DropdownMenuItem } from '@/components/ui/overlays';
+import { DropdownMenu, DropdownMenuItem, Tooltip } from '@/components/ui/overlays';
 import Select from '@/components/ui/Select.vue';
 import { logError } from '@/lib/appError';
 import { formatDateTimeShort } from '@/lib/format';
@@ -242,6 +242,8 @@ const { fitFrame } = useIframeAutoFit();
       <div class="ml-auto flex items-center gap-3">
         <!-- 変更ありページの集計はジャンプリストを兼ねる: クリックで一覧から直接飛べる。 -->
         <DropdownMenu v-if="changedPages.length > 0" content-class="max-h-72 overflow-y-auto">
+          <!-- Tooltip 化しない: as-child トリガへの Tooltip ネストは props マージが
+               fragment 経由で壊れる(可視ラベル付きピルなので title のままで足りる)。 -->
           <template #trigger>
             <button
               type="button"
@@ -281,15 +283,11 @@ const { fitFrame } = useIframeAutoFit();
          `PageNav` は 1 起点、比較の `currentPage` は 0 起点なので `go` を -1 して渡す。 -->
     <div class="flex flex-wrap items-center justify-center gap-2">
       <!-- 変更ページだけを巡回するナビ(両表示モード共通、Shift+←/→ でも移動)。 -->
-      <Button
-        variant="outline"
-        size="sm"
-        :disabled="prevChangedPage == null"
-        title="前の変更ありページへ (Shift+←)"
-        @click="goPrevChanged"
-      >
-        <ChevronLeft class="h-3.5 w-3.5" /> 前の変更
-      </Button>
+      <Tooltip text="前の変更ありページへ (Shift+←)">
+        <Button variant="outline" size="sm" :disabled="prevChangedPage == null" @click="goPrevChanged">
+          <ChevronLeft class="h-3.5 w-3.5" /> 前の変更
+        </Button>
+      </Tooltip>
       <template v-if="pageCount <= 12">
         <Button variant="outline" size="icon" :disabled="currentPage <= 0" @click="goPage(currentPage - 1)">
           <ChevronLeft class="h-4 w-4" />
@@ -330,15 +328,11 @@ const { fitFrame } = useIframeAutoFit();
         :page-count="pageCount"
         @go="goPage($event - 1)"
       />
-      <Button
-        variant="outline"
-        size="sm"
-        :disabled="nextChangedPage == null"
-        title="次の変更ありページへ (Shift+→)"
-        @click="goNextChanged"
-      >
-        次の変更 <ChevronRight class="h-3.5 w-3.5" />
-      </Button>
+      <Tooltip text="次の変更ありページへ (Shift+→)">
+        <Button variant="outline" size="sm" :disabled="nextChangedPage == null" @click="goNextChanged">
+          次の変更 <ChevronRight class="h-3.5 w-3.5" />
+        </Button>
+      </Tooltip>
     </div>
 
     <!-- ページ対応(ずらし)操作: 現在ページ行の比較元・比較先を独立に指定 -->
@@ -348,24 +342,16 @@ const { fitFrame } = useIframeAutoFit();
         <Select v-model="beforeSel" :options="beforeOptions" class="h-8 w-24" />
         <!-- 「ずらす/戻す」では方向が予測できなかったため、この行に表示するページを
              1 つ前/後ろへ動かすことをラベルで明示する(直接指定は左の Select)。 -->
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-8 px-2"
-          title="この行の比較元を 1 ページ前へ"
-          @click="shift('before', -1)"
-        >
-          <ChevronLeft class="h-3.5 w-3.5" /> 1つ前へ
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-8 px-2"
-          title="この行の比較元を 1 ページ後ろへ"
-          @click="shift('before', 1)"
-        >
-          1つ後ろへ <ChevronRight class="h-3.5 w-3.5" />
-        </Button>
+        <Tooltip text="この行の比較元を 1 ページ前へ">
+          <Button variant="outline" size="sm" class="h-8 px-2" @click="shift('before', -1)">
+            <ChevronLeft class="h-3.5 w-3.5" /> 1つ前へ
+          </Button>
+        </Tooltip>
+        <Tooltip text="この行の比較元を 1 ページ後ろへ">
+          <Button variant="outline" size="sm" class="h-8 px-2" @click="shift('before', 1)">
+            1つ後ろへ <ChevronRight class="h-3.5 w-3.5" />
+          </Button>
+        </Tooltip>
       </div>
 
       <span class="text-muted-foreground">↔</span>
@@ -373,24 +359,16 @@ const { fitFrame } = useIframeAutoFit();
       <div class="flex items-center gap-1.5">
         <span class="text-xs text-muted-foreground">比較先</span>
         <Select v-model="afterSel" :options="afterOptions" class="h-8 w-24" />
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-8 px-2"
-          title="この行の比較先を 1 ページ前へ"
-          @click="shift('after', -1)"
-        >
-          <ChevronLeft class="h-3.5 w-3.5" /> 1つ前へ
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          class="h-8 px-2"
-          title="この行の比較先を 1 ページ後ろへ"
-          @click="shift('after', 1)"
-        >
-          1つ後ろへ <ChevronRight class="h-3.5 w-3.5" />
-        </Button>
+        <Tooltip text="この行の比較先を 1 ページ前へ">
+          <Button variant="outline" size="sm" class="h-8 px-2" @click="shift('after', -1)">
+            <ChevronLeft class="h-3.5 w-3.5" /> 1つ前へ
+          </Button>
+        </Tooltip>
+        <Tooltip text="この行の比較先を 1 ページ後ろへ">
+          <Button variant="outline" size="sm" class="h-8 px-2" @click="shift('after', 1)">
+            1つ後ろへ <ChevronRight class="h-3.5 w-3.5" />
+          </Button>
+        </Tooltip>
       </div>
 
       <label class="flex cursor-pointer items-center gap-1.5">

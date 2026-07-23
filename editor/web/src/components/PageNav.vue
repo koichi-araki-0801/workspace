@@ -11,6 +11,7 @@ import { computed, ref, watch } from 'vue';
 import type { ButtonVariants } from '@/components/ui/Button.vue';
 import Button from '@/components/ui/Button.vue';
 import Input from '@/components/ui/Input.vue';
+import { Tooltip } from '@/components/ui/overlays';
 import { clampPage } from './pageNav';
 
 const props = withDefaults(
@@ -80,16 +81,18 @@ function onInputKeydown(e: KeyboardEvent): void {
 
 <template>
   <div class="flex shrink-0 items-center gap-1.5">
-    <Button
-      :variant="variant"
-      size="icon"
-      :class="denseBtn"
-      title="前のページ"
-      :disabled="currentPage <= 1"
-      @click="step(-1)"
-    >
-      <ChevronLeft class="h-4 w-4" />
-    </Button>
+    <Tooltip text="前のページ">
+      <Button
+        :variant="variant"
+        size="icon"
+        :class="denseBtn"
+        aria-label="前のページ"
+        :disabled="currentPage <= 1"
+        @click="step(-1)"
+      >
+        <ChevronLeft class="h-4 w-4" />
+      </Button>
+    </Tooltip>
 
     <div class="flex items-center gap-1 text-[12.5px] tabular-nums text-muted-foreground">
       <!-- 数値スピナの余計な幅を避けるため text + inputmode=numeric。上下キーは自前で ±1 する。 -->
@@ -106,15 +109,17 @@ function onInputKeydown(e: KeyboardEvent): void {
       <span>/ {{ pageCount }}</span>
     </div>
 
-    <Button
-      :variant="variant"
-      size="icon"
-      :class="denseBtn"
-      title="次のページ"
-      :disabled="currentPage >= pageCount"
-      @click="step(1)"
-    >
-      <ChevronRight class="h-4 w-4" />
-    </Button>
+    <Tooltip text="次のページ">
+      <Button
+        :variant="variant"
+        size="icon"
+        :class="denseBtn"
+        aria-label="次のページ"
+        :disabled="currentPage >= pageCount"
+        @click="step(1)"
+      >
+        <ChevronRight class="h-4 w-4" />
+      </Button>
+    </Tooltip>
   </div>
 </template>

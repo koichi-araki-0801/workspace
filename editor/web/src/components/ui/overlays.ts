@@ -21,6 +21,10 @@ import {
   DropdownMenuPortal as RekaDropdownMenuPortal,
   DropdownMenuRoot as RekaDropdownMenuRoot,
   DropdownMenuTrigger as RekaDropdownMenuTrigger,
+  TooltipContent,
+  TooltipPortal,
+  TooltipRoot,
+  TooltipTrigger,
 } from 'reka-ui';
 import { defineComponent, h, type PropType } from 'vue';
 import { cn } from '@/lib/utils';
@@ -143,5 +147,40 @@ export const DropdownMenuItem = defineComponent({
         },
         () => slots.default?.(),
       );
+  },
+});
+
+// ── 4. Tooltip ─────────────────────────────────────────────────────────────────
+
+const tooltipContentClass =
+  'z-50 rounded-md border bg-popover px-2.5 py-1 text-xs text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95';
+
+// ネイティブ `title` 属性の置き換え(遅延・スタイル・表示位置を全画面で統一する)。
+// 祖先に `TooltipProvider`(App.vue)が必須 — 無いと reka-ui が throw する。
+// トリガは as-child で slot の実要素へ属性が付くため、a11y の `aria-label` は
+// 呼び出し側のトリガ要素に持たせたままにする(Tooltip は hover/focus 時の視覚情報のみ)。
+export const Tooltip = defineComponent({
+  name: 'Tooltip',
+  props: {
+    text: { type: String, required: true },
+    side: { type: String as PropType<'top' | 'right' | 'bottom' | 'left'>, default: 'bottom' },
+    sideOffset: { type: Number, default: 6 },
+    /** true でラップを外し素通しする(条件付きでヒント不要なトリガ用)。 */
+    disabled: { type: Boolean, default: false },
+  },
+  setup(props, { slots }) {
+    return () =>
+      props.disabled
+        ? slots.default?.()
+        : h(TooltipRoot, null, () => [
+            h(TooltipTrigger, { asChild: true }, () => slots.default?.()),
+            h(TooltipPortal, null, () =>
+              h(
+                TooltipContent,
+                { side: props.side, sideOffset: props.sideOffset, class: tooltipContentClass },
+                () => props.text,
+              ),
+            ),
+          ]);
   },
 });

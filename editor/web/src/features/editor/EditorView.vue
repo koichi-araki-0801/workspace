@@ -10,6 +10,7 @@ import { useRoute, useRouter } from 'vue-router';
 import PageRail from '@/components/PageRail.vue';
 import { fractionToPage } from '@/components/pageNav';
 import Button from '@/components/ui/Button.vue';
+import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
@@ -248,16 +249,16 @@ const statusText = computed(() => {
         @insert="onPartInsert"
         @collapse="leftCollapsed = true"
       />
-      <Button
-        v-else
-        variant="ghost"
-        class="pane-rail h-auto w-7 rounded-none border-r p-0"
-        title="左パネルを開く"
-        aria-label="左パネルを開く"
-        @click="leftCollapsed = false"
-      >
-        <PanelLeft class="h-4 w-4" />
-      </Button>
+      <Tooltip v-else text="左パネルを開く" side="right">
+        <Button
+          variant="ghost"
+          class="pane-rail h-auto w-7 rounded-none border-r p-0"
+          aria-label="左パネルを開く"
+          @click="leftCollapsed = false"
+        >
+          <PanelLeft class="h-4 w-4" />
+        </Button>
+      </Tooltip>
 
       <!-- 中央: A4 用紙の見た目にした GrapesJS canvas -->
       <main class="relative min-w-[360px] flex-1 overflow-hidden bg-canvas-backdrop">
@@ -365,16 +366,16 @@ const statusText = computed(() => {
       </main>
 
       <!-- 右: 編集可能なプロパティ(折りたたみ式)+ 履歴。畳むと細いレールになる。 -->
-      <Button
-        v-if="rightCollapsed"
-        variant="ghost"
-        class="pane-rail h-auto w-7 rounded-none border-l p-0"
-        title="右パネルを開く"
-        aria-label="右パネルを開く"
-        @click="rightCollapsed = false"
-      >
-        <PanelRight class="h-4 w-4" />
-      </Button>
+      <Tooltip v-if="rightCollapsed" text="右パネルを開く" side="left">
+        <Button
+          variant="ghost"
+          class="pane-rail h-auto w-7 rounded-none border-l p-0"
+          aria-label="右パネルを開く"
+          @click="rightCollapsed = false"
+        >
+          <PanelRight class="h-4 w-4" />
+        </Button>
+      </Tooltip>
       <Inspector
         v-else
         :selected="g.selected.value"

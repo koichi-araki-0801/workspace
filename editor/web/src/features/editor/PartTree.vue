@@ -5,6 +5,7 @@
 import type { PartCatalogItem } from '@editor/shared';
 import { Lock, PanelLeftClose, Wand2 } from '@lucide/vue';
 import Button from '@/components/ui/Button.vue';
+import { Tooltip } from '@/components/ui/overlays';
 import SelectableRow from '@/components/ui/SelectableRow.vue';
 import PartCatalog from './PartCatalog.vue';
 
@@ -19,16 +20,17 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem];
       <Wand2 class="h-[15px] w-[15px] text-primary" />
       <span class="text-[12.5px] font-bold text-foreground">編集オプション</span>
       <span class="flex-1" />
-      <Button
-        variant="ghost"
-        size="iconSm"
-        class="text-muted-foreground hover:bg-muted hover:text-foreground"
-        title="左パネルを畳む"
-        aria-label="左パネルを畳む"
-        @click="emit('collapse')"
-      >
-        <PanelLeftClose class="h-4 w-4" />
-      </Button>
+      <Tooltip text="左パネルを畳む">
+        <Button
+          variant="ghost"
+          size="iconSm"
+          class="text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="左パネルを畳む"
+          @click="emit('collapse')"
+        >
+          <PanelLeftClose class="h-4 w-4" />
+        </Button>
+      </Tooltip>
     </div>
 
     <!-- トグル: 編集を許可 -->
