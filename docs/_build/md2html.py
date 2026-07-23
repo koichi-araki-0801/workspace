@@ -173,8 +173,14 @@ def _image_data_uri(img_dir: pathlib.Path, name: str):
     return f"data:{mime};base64,{data}"
 
 
-def render_markdown(body: str, doc_idx: int, img_dir: pathlib.Path, warnings, src_name: str):
-    """Markdown 本文 → (html 断片, toc エントリ list)。見出しは +1 シフトし id を付与。"""
+def render_markdown(body: str, doc_idx: int, img_dir: pathlib.Path, warnings, src_name: str,
+                    shift: int = 1):
+    """Markdown 本文 → (html 断片, toc エントリ list)。
+
+    見出しは `shift` 段シフトして id を付与する（既定 +1: `#`→h2）。spec 冊子の従文書
+    （設計正典・デプロイ運用手順書）は +2 で章見出し h2 の下へ格納する。h4 で頭打ち。
+    toc エントリは (nav 階層 1..3, id, テキスト)。
+    """
     lines = body.splitlines()
     i, n = 0, len(lines)
     parts, toc = [], []
@@ -211,15 +217,16 @@ def render_markdown(body: str, doc_idx: int, img_dir: pathlib.Path, warnings, sr
                 parts.append(f'<div class="code">{label}<pre><code>{esc(src)}</code></pre></div>')
             continue
 
-        # 見出し（`#`〜`###` を h2〜h4 へ +1 シフト）
+        # 見出し（`shift` 段シフト・h4 頭打ち）
         m = re.match(r"^(#{1,6})\s+(.*)$", stripped)
         if m:
             lv = min(len(m.group(1)), 3)
+            tag = min(lv + shift, 4)
             hseq += 1
             hid = f"d{doc_idx}-h{hseq}"
             text = m.group(2).strip()
-            parts.append(f'<h{lv + 1} id="{hid}">{inline_html(text)}</h{lv + 1}>')
-            toc.append((lv, hid, text))
+            parts.append(f'<h{tag} id="{hid}">{inline_html(text)}</h{tag}>')
+            toc.append((min(tag - 1, 3), hid, text))
             i += 1
             continue
 
@@ -300,16 +307,17 @@ def render_markdown(body: str, doc_idx: int, img_dir: pathlib.Path, warnings, sr
     return "".join(parts), toc
 
 
-def render_xlsx_yaml(spec: dict, doc_idx: int):
+def render_xlsx_yaml(spec: dict, doc_idx: int, shift: int = 1):
     """xlsx.yaml spec → (html 断片, toc エントリ)。各 sheet を ACCENT ヘッダ + zebra の HTML table に。"""
     parts, toc = [], []
     hseq = 0
+    tag = min(1 + shift, 4)
     for sheet in spec.get("sheets") or []:
         hseq += 1
         hid = f"d{doc_idx}-s{hseq}"
         sname = sheet.get("name") or f"シート{hseq}"
-        parts.append(f'<h2 id="{hid}">{esc(sname)}</h2>')
-        toc.append((1, hid, sname))
+        parts.append(f'<h{tag} id="{hid}">{esc(sname)}</h{tag}>')
+        toc.append((min(tag - 1, 3), hid, sname))
         stitle = sheet.get("title") or spec.get("title") or ""
         smeta = sheet.get("meta") or spec.get("meta") or ""
         if stitle:
@@ -370,19 +378,27 @@ nav.toc {{ position:sticky; top:0; align-self:flex-start; width:290px; min-width
 nav.toc .doc {{ font-weight:700; color:var(--accent); margin:14px 0 4px;
   border-left:4px solid var(--accent); padding-left:8px; }}
 nav.toc a {{ display:block; color:var(--muted); padding:2px 0 2px 6px; }}
-nav.toc a.h1 {{ padding-left:10px; }}
+nav.toc a.h1 {{ padding-left:10px; color:var(--ink); font-weight:600; }}
 nav.toc a.h2 {{ padding-left:22px; }}
 nav.toc a.h3 {{ padding-left:34px; font-size:12px; }}
 main {{ flex:1; min-width:0; max-width:1000px; padding:28px 44px 120px; }}
 section.doc {{ margin-bottom:56px; }}
 section.doc + section.doc {{ border-top:2px solid var(--hair); padding-top:28px; }}
+section.chapter {{ margin-bottom:44px; }}
 h1 {{ font-size:26px; border-left:8px solid var(--accent); padding-left:14px; margin:8px 0 6px; }}
-.subtitle {{ color:var(--muted); margin:0 0 4px; }}
-.version {{ color:var(--muted); font-size:13px; margin:0 0 18px; }}
-h2 {{ font-size:21px; margin:30px 0 10px; padding-bottom:6px; border-bottom:2px solid var(--rule2); }}
+.subtitle {{ color:var(--muted); margin:0 0 6px; }}
+/* 版チップ + 最終改訂日のメタ行（表紙相当の信頼性表示） */
+.docmeta {{ display:flex; gap:10px; align-items:center; color:var(--muted); font-size:13px;
+  margin:2px 0 22px; }}
+.docmeta .ver {{ font-family:{MONO}; font-size:12px; font-weight:700; color:var(--accent);
+  background:var(--card); border:1px solid var(--hair); border-radius:4px; padding:0 8px; }}
+/* 設計正典章の役割リード（規範の要約であることの宣言） */
+.chapter-lead {{ color:var(--muted); font-size:13.5px; margin:-2px 0 14px; }}
+h2 {{ font-size:21px; margin:36px 0 10px; padding-bottom:6px; border-bottom:2px solid var(--rule2); }}
 h3 {{ font-size:17px; margin:22px 0 8px; color:var(--accent); }}
-h4 {{ font-size:15px; margin:18px 0 6px; }}
-h1, h2, h3, h4 {{ scroll-margin-top:10px; }}
+h4 {{ font-size:15.5px; margin:18px 0 6px; }}
+h1, h2, h3, h4 {{ scroll-margin-top:10px; line-height:1.4; }}
+:focus-visible {{ outline:2px solid var(--accent); outline-offset:2px; border-radius:2px; }}
 /* 本文の行長を読める長さ (約 50 字) に抑える。表・図・コードは全幅のまま */
 p, ul, ol, .callout {{ max-width:52em; }}
 p, li {{ text-wrap:pretty; }}
@@ -402,6 +418,7 @@ li {{ margin:3px 0; }}
 table {{ border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px;
   display:block; overflow-x:auto; }}
 th, td {{ border:1px solid var(--hair); padding:6px 10px; text-align:left; vertical-align:top; }}
+thead th {{ padding-top:8px; padding-bottom:8px; }}
 thead th {{ background:var(--accent); color:#fff; font-weight:700; white-space:nowrap; }}
 /* 長い表でも行を目で追えるよう、全テーブルに偶数行ゼブラを適用（仕様一覧の .zebra と同色） */
 tbody tr:nth-child(even), tbody tr.zebra {{ background:var(--zebra); }}
@@ -414,8 +431,8 @@ td.res-ng {{ color:{t['ng_txt']}; background:{t['ng_fill']}; font-weight:700; te
 td.res-todo {{ color:{t['todo_txt']}; background:{t['todo_fill']}; text-align:center; }}
 .sheet-title {{ font-weight:700; margin:6px 0 0; }}
 .sheet-meta {{ color:var(--muted); font-size:13px; margin:2px 0 6px; }}
-/* 画像（図番号は原稿ごとの CSS カウンタで自動採番） */
-section.doc {{ counter-reset:fig; }}
+/* 画像（図番号は冊子通しの CSS カウンタで自動採番） */
+body {{ counter-reset:fig; }}
 figure {{ margin:16px 0; text-align:center; counter-increment:fig; }}
 figure img {{ max-width:100%; height:auto; border:1px solid var(--hair); border-radius:4px; }}
 figcaption {{ color:var(--muted); font-size:12.5px; margin-top:6px; }}
@@ -436,6 +453,16 @@ figcaption::before {{ content:"図 " counter(fig) "　"; font-weight:700; }}
 /* mermaid（未描画時は整形コードとして見せる） */
 pre.mermaid {{ background:var(--card); border:1px solid var(--hair); border-radius:6px;
   padding:16px; text-align:center; overflow-x:auto; line-height:1.4; }}
+/* 手引き冊子の最上位番号手順 = 作業ステップカード（旧 Word 案3 カード型の後継・署名要素）。
+   ネストした番号/箇条書きは通常表示のまま */
+.book-guide section.doc > ol {{ list-style:none; padding-left:0; counter-reset:step; }}
+.book-guide section.doc > ol > li {{ counter-increment:step; position:relative;
+  margin:10px 0; padding:10px 16px 10px 56px; background:var(--card);
+  border:1px solid var(--hair); border-radius:6px; }}
+.book-guide section.doc > ol > li::before {{ content:counter(step); position:absolute;
+  left:15px; top:11px; width:27px; height:27px; border-radius:50%; background:var(--accent);
+  color:#fff; font-weight:700; font-size:14px; line-height:27px; text-align:center; }}
+.book-guide section.doc > ol > li > ol {{ list-style:decimal; padding-left:24px; }}
 /* TOC の現在位置ハイライト（スクロールスパイ。インライン JS が .now を付け外しする） */
 nav.toc a.now {{ color:var(--accent); font-weight:700; background:#fff; border-radius:3px; }}
 @media (max-width:820px) {{
@@ -445,6 +472,9 @@ nav.toc a.now {{ color:var(--accent); font-weight:700; background:#fff; border-r
   nav.toc {{ position:static; width:100%; min-width:0; height:auto; border-right:none;
     border-bottom:1px solid var(--hair); }}
   main {{ padding:18px; }}
+}}
+@media (prefers-reduced-motion: reduce) {{
+  html {{ scroll-behavior:auto; }}
 }}
 @media print {{
   nav.toc {{ display:none; }}
@@ -514,42 +544,31 @@ def discover_srcs(proj_dir: pathlib.Path):
     return sorted(srcs, key=_order_key)
 
 
-def _build_book(book_title: str, srcs, img_dir: pathlib.Path, out_path: pathlib.Path, warnings):
-    """原稿リスト `srcs` を 1 冊の HTML に集約して `out_path` へ保存する。"""
-    sections, nav = [], []
-    has_mermaid = False
-    for di, (src, meta, body_or_spec, is_yaml) in enumerate(srcs):
-        if is_yaml:
-            spec = body_or_spec or {}
-            title = spec.get("title") or src.stem
-            subtitle, version = spec.get("meta"), None
-            frag, toc = render_xlsx_yaml(spec, di)
-        else:
-            title = meta.get("title") or src.stem
-            subtitle, version = meta.get("subtitle"), meta.get("version")
-            if "```mermaid" in body_or_spec:
-                has_mermaid = True
-            frag, toc = render_markdown(body_or_spec, di, img_dir, warnings, src.name)
+def _doc_meta_row(version, revs) -> str:
+    """版チップ + 最終改訂日のメタ行。rev（`版 | 日付 | 内容`）の末尾要素から日付を取る。"""
+    parts = []
+    if version:
+        parts.append(f'<span class="ver">v{esc(version)}</span>')
+    if revs:
+        cols = [c.strip() for c in str(revs[-1]).split("|")]
+        if len(cols) >= 2 and cols[1]:
+            parts.append(f'<span class="revdate">最終改訂 {esc(cols[1])}</span>')
+    return f'<p class="docmeta">{"".join(parts)}</p>' if parts else ""
 
-        sub = f'<p class="subtitle">{esc(subtitle)}</p>' if subtitle else ""
-        ver = f'<p class="version">version {esc(version)}</p>' if version else ""
-        sections.append(
-            f'<section class="doc" id="doc{di}"><h1>{esc(title)}</h1>{sub}{ver}{frag}</section>')
 
-        nav.append(f'<div class="doc"><a href="#doc{di}">{esc(title)}</a></div>')
-        for lv, hid, text in toc:
-            nav.append(f'<a class="h{lv}" href="#{hid}">{esc(text)}</a>')
-
+def _page(book_title: str, body_class: str, nav_html: str, main_html: str,
+          has_mermaid: bool, out_path: pathlib.Path, warnings) -> pathlib.Path:
+    """冊子 1 枚の HTML 全体を組み立てて保存する（guide / spec 共通の外殻）。"""
     doc = (
         "<!doctype html>\n"
         '<html lang="ja"><head><meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f"<title>{esc(book_title)}</title>\n"
-        f"<style>{_css()}</style>\n</head><body>\n"
+        f"<style>{_css()}</style>\n</head><body class=\"{body_class}\">\n"
         '<div class="layout">\n'
         f'<nav class="toc"><div class="doc" style="border:none;color:var(--ink)">'
-        f'{esc(book_title)}</div>{"".join(nav)}</nav>\n'
-        f'<main>{"".join(sections)}</main>\n'
+        f"{esc(book_title)}</div>{nav_html}</nav>\n"
+        f"<main>{main_html}</main>\n"
         "</div>\n"
         f"{_mermaid_script(has_mermaid)}\n"
         f"{_scrollspy_script()}\n"
@@ -561,6 +580,79 @@ def _build_book(book_title: str, srcs, img_dir: pathlib.Path, out_path: pathlib.
         warnings.append(f"{out_path.name}: mermaid 図があるが vendor/mermaid.min.js 未配置"
                         "（整形表示のみ・描画は未有効）")
     return out_path
+
+
+def _build_guide_book(book_title, srcs, img_dir, out_path, warnings):
+    """guide 冊子（操作手順書）。原稿ごとの表紙 h1 + 本文の従来構成。"""
+    sections, nav = [], []
+    has_mermaid = False
+    for di, (src, meta, body, _is_yaml) in enumerate(srcs):
+        title = meta.get("title") or src.stem
+        if "```mermaid" in body:
+            has_mermaid = True
+        frag, toc = render_markdown(body, di, img_dir, warnings, src.name)
+        sub = f'<p class="subtitle">{esc(meta.get("subtitle"))}</p>' if meta.get("subtitle") else ""
+        sections.append(
+            f'<section class="doc" id="doc{di}"><h1>{esc(title)}</h1>{sub}'
+            f'{_doc_meta_row(meta.get("version"), meta.get("rev"))}{frag}</section>')
+        nav.append(f'<div class="doc"><a href="#doc{di}">{esc(title)}</a></div>')
+        for lv, hid, text in toc:
+            nav.append(f'<a class="h{lv}" href="#{hid}">{esc(text)}</a>')
+    return _page(book_title, "book-guide", "".join(nav), "".join(sections),
+                 has_mermaid, out_path, warnings)
+
+
+def _build_spec_book(book_title, srcs, img_dir, out_path, warnings):
+    """spec 冊子。**全体を 1 つの設計書として組む**（原稿ごとの表紙は出さない）。
+
+    主文書（設計書.md）の front-matter を冊子ヘッダに使い、従文書は h2 章として溶かす:
+    設計正典 → 冒頭章（規範の要約であるリード付き）/ 設計書本文 → そのまま各章 /
+    デプロイ運用手順書・仕様一覧 → 後半章。従文書の内部見出しは +2 シフト（h4 頭打ち）。
+    """
+    pidx = next((i for i, t in enumerate(srcs) if not t[3] and "設計書" in t[0].name), 0)
+    pmeta = srcs[pidx][1] if not srcs[pidx][3] else {}
+    sections, nav = [], []
+    has_mermaid = False
+
+    # 冊子ヘッダ（主文書のメタ）。h1 は 1 つだけ
+    sub = f'<p class="subtitle">{esc(pmeta.get("subtitle"))}</p>' if pmeta.get("subtitle") else ""
+    header = (f'<section class="doc" id="top"><h1>{esc(pmeta.get("title") or book_title)}</h1>'
+              f'{sub}{_doc_meta_row(pmeta.get("version"), pmeta.get("rev"))}</section>')
+
+    for di, (src, meta, body_or_spec, is_yaml) in enumerate(srcs):
+        is_primary = di == pidx
+        if is_yaml:
+            spec = body_or_spec or {}
+            chap_title = spec.get("title") or "仕様一覧"
+            frag, toc = render_xlsx_yaml(spec, di, shift=2)
+        else:
+            if "```mermaid" in body_or_spec:
+                has_mermaid = True
+            if is_primary:
+                # 主文書は章立てをそのまま h2 として展開（章ヘッダは作らない）
+                frag, toc = render_markdown(body_or_spec, di, img_dir, warnings, src.name, shift=1)
+                sections.append(f'<section class="chapter" id="doc{di}">{frag}</section>')
+                for lv, hid, text in toc:
+                    nav.append(f'<a class="h{lv}" href="#{hid}">{esc(text)}</a>')
+                continue
+            chap_title = meta.get("title") or src.stem
+            frag, toc = render_markdown(body_or_spec, di, img_dir, warnings, src.name, shift=2)
+
+        # 従文書: タイトル由来の h2 章ヘッダの下へ格納。設計正典には役割リードを添える
+        lead = ""
+        if "設計正典" in src.name:
+            chap_title = "設計正典 — 守るべき不変則の要約"
+            lead = ('<p class="chapter-lead">本章は「守るべきルール」の規範要約です。'
+                    "各仕組みの解説は以降の章をご覧ください。</p>")
+        hid = f"doc{di}-t"
+        sections.append(f'<section class="chapter" id="doc{di}">'
+                        f'<h2 id="{hid}">{esc(chap_title)}</h2>{lead}{frag}</section>')
+        nav.append(f'<a class="h1" href="#{hid}">{esc(chap_title)}</a>')
+        for lv, hid2, text in toc:
+            nav.append(f'<a class="h{lv}" href="#{hid2}">{esc(text)}</a>')
+
+    return _page(book_title, "book-spec", "".join(nav), header + "".join(sections),
+                 has_mermaid, out_path, warnings)
 
 
 def build_project(proj_dir: pathlib.Path, warnings=None):
@@ -586,5 +678,6 @@ def build_project(proj_dir: pathlib.Path, warnings=None):
         if not srcs:
             continue   # 片群が空のプロジェクトはその冊子を出さない
         out_path = proj_dir / f"{proj_dir.name}_{suffix}.html"
-        built.append(_build_book(f"{proj_dir.name} {suffix}", srcs, img_dir, out_path, warnings))
+        builder = _build_guide_book if aud == "guide" else _build_spec_book
+        built.append(builder(f"{proj_dir.name} {suffix}", srcs, img_dir, out_path, warnings))
     return built
