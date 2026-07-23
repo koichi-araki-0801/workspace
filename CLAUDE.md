@@ -99,31 +99,30 @@
 - pie-chart 配下は上記に加えて、コメントのみの変更でも `out/_baseline` との **byte-diff 不変**が鉄則
   （詳細は下記 pie-chart 節）。
 
-## ドキュメント（.docx / .xlsx）
+## ドキュメント（閲覧 HTML 一本化）
 
-- 配布ドキュメントのフォントは **BIZ UD ファミリ**に統一する: 本文 `BIZ UDPGothic`（プロポーショナル）、
-  等幅 `BIZ UDGothic`（コード・識別子・けた揃え）。両者は同一 BIZ UD ファミリなので混在して見えない。
-  MS Gothic / Meiryo UI の混在は廃止。Windows 10+ 同梱（無ければ Microsoft Store の BIZ UD フォント）。
-  - すべてのランで ASCII(`w:ascii`/`w:hAnsi`)・東アジア(`w:eastAsia`)の双方に同じフォント名を設定する。
-  - python-docx の場合: `run.font.name = "BIZ UDPGothic"` に加え、
-    `run._element.rPr.rFonts.set(qn("w:eastAsia"), "BIZ UDPGothic")` を必ず併設する
-    （`eastAsia` を設定しないと日本語グリフが既定フォントに落ちる）。等幅は `BIZ UDGothic`。
-  - 配色は既存トークン（ACCENT `#1F5C99` / INK `#20242C` / MUTED `#606874` 等）を使い、新色を増やさない。
-- 文書種別で生成系を出し分ける。原稿は `docs/<project>/src/` に置き、`docs/_build/build_all.py`
-  （または `.bat`）で一括生成する:
-  - **流れる文書**（操作手順書・設計書・配布運用手順書）→ `*.md`（Markdown 正典）→ 共通エンジン
-    `docs/_build/md2docx.py` で **Word(.docx)**。front-matter `style` で案3 カード型(`guide`)／
-    案2 テクニカル型(`spec`) を出し分け（無指定はファイル名・title から推定）。`out` が出力 docx 名、
-    画像基準は `docs/<project>/images/`。
-  - **表が主役の文書**（画面項目定義・入出力定義・DB 定義・テスト仕様）→ `*.xlsx.yaml` →
-    `docs/_build/md2xlsx.py`（openpyxl）で **Excel(.xlsx)**。Word 版と共通トークンで、ヘッダ塗り・
-    ゼブラ・細罫線・ウィンドウ枠固定・オートフィルタ・A4 横の印刷設定を組む。`md2xlsx.py` は
-    PyYAML を使わず必要な YAML サブセットを自前パースする（オフライン依存追加を避けるため）。
-  - 両エンジンの既定フォント定数（`JP` / `MONO`）も上記 BIZ UD 規約に一致させる。
-- 図版（アーキテクチャ図など）は **SVG が正典**（`docs/<project>/images/*.svg`）で、Word へは隣の
-  同名 PNG を挿入する（python-docx は SVG 非対応）。PNG はコミット済み成果物とし、SVG を変更した
-  ときだけ `python docs/_build/svg2png.py` で手動再生成する（Playwright 依存のため `build_all.py`
-  には組み込まない）。
+- docs の成果物は **HTML のみ**（旧 Word .docx / Excel .xlsx 生成は 2026-07 に廃止）。原稿は
+  `docs/<project>/src/` に置き、`docs/_build/build_all.py`（または `.bat`）で一括生成する。
+  エンジンは `docs/_build/md2html.py`（自前 Markdown パーサ）+ `yamlmini.py`（YAML サブセット。
+  PyYAML 不使用・オフライン依存ゼロ）。
+- **読者別に 1 プロジェクト = 2 冊**へ集約する（分冊は front-matter `audience: guide|spec`）:
+  - `docs/<proj>/<proj>_手引き.html`（`guide` = 操作手順書。読者=派遣の事務員でも操作できる粒度）
+  - `docs/<proj>/<proj>_設計.html`（`spec` = 設計正典 → 設計書 → デプロイ運用手順書 → 仕様一覧
+    (`*.xlsx.yaml` は HTML table 化)。読者=着任直後の初級エンジニア）
+- 見た目は**ライトモード固定**。配色は既存トークン（ACCENT `#1F5C99` / INK `#20242C` / MUTED
+  `#606874` 等）、フォントは BIZ UD ファミリ（本文 `BIZ UDPGothic` / 等幅 `BIZ UDGothic`）で
+  新色・新フォントを増やさない。画像は base64 data-URI でインライン（HTML 1 枚で自己完結）。
+- **Mermaid 図**は原稿の ```mermaid フェンスに書く。`docs/_build/vendor/mermaid.min.js` を HTML へ
+  インラインしてクライアント描画（ライトテーマ固定）。ノードラベルは**短い 2 行構成**に保つ
+  （長い行は CJK 幅の過小計算で枠外へ見切れる）。
+- 図版（アーキテクチャ図など）は **SVG が正典**（`docs/<project>/images/*.svg`）で、原稿からは隣の
+  同名 PNG を参照する。PNG はコミット済み成果物とし、SVG を変更したときだけ
+  `python docs/_build/svg2png.py` で手動再生成する（Playwright 依存のため `build_all.py` には
+  組み込まない）。
+- **editor のスクリーンショット再撮影後は build_all の再実行が必要**: `ci`/pre-push の
+  `capture_docs.spec.ts` が `docs/editor/images` を再撮影するため、画像が変わったら
+  `python docs/_build/build_all.py --project editor` で HTML を作り直してコミットする
+  （HTML は画像を base64 インラインしており自動では追随しない）。
 
 ## editor 2系統の原則（根幹・必ず順守）
 
@@ -169,3 +168,15 @@ editor の編集体験は **2系統**で、これはツールの根幹である�
   検証手順の正典は `pie-chart/README.md` の「検証」節。
 - `.claude/hooks/pie-chart-baseline.cjs`（PreToolUse: Write|Edit）が編集前に
   `out/_baseline` を自動生成する。
+- 配置パイプラインの設計正典は `docs/pie-chart/src/設計正典.md`（モード×パス対応表・do-no-harm
+  ゲート使い分け・却下済み設計案。旧 `pie-chart/ARCHITECTURE.md` を 2026-07 に docs へ移設）。
+
+## 設計正典の自動読込
+
+各プロジェクトの設計正典（簡潔な配置・構成の正典。詳細は各設計書へ委譲）を下記 import で
+セッション起動時に読み込む。
+
+@docs/pie-chart/src/設計正典.md
+@docs/editor/src/設計正典.md
+@docs/graph-editor/src/設計正典.md
+@docs/pdf-to-svg/src/設計正典.md

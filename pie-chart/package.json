@@ -10,8 +10,8 @@
     "cli": "tsx src/cli.ts",
     "batch": "tsx src/test_batch.ts",
     "batch:diff": "node scripts/batch_diff.mjs",
-    "verify": "tsx src/verify_svg.ts",
-    "verify:consistency": "tsx src/verify_consistency.ts",
+    "verify": "tsx src/verify/svg.ts",
+    "verify:consistency": "tsx src/verify/consistency.ts",
     "gen:widths": "tsx scripts/gen_glyph_advance.ts",
     "build:exe": "node scripts/build-exe.mjs"
   },

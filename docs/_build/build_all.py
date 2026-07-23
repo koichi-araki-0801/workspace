@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
-"""全プロジェクトの原稿（`docs/<project>/src/`）を一括で成果物へ生成する。
+"""全プロジェクトの原稿（`docs/<project>/src/`）を閲覧用 HTML へ一括生成する。
 
-2 系統を拡張子で振り分ける（登録表は持たず自動発見）:
-  - `*.md`        → `md2docx`（流れる文書: 操作手順書・設計書・配布運用手順書 → Word .docx）
-  - `*.xlsx.yaml` → `md2xlsx`（表が主役: 画面項目定義・入出力定義・DB 定義・テスト仕様 → Excel .xlsx）
+出力は **HTML 一本化**（旧 Word .docx / Excel .xlsx は廃止）。原稿を読者別に振り分け、
+1 プロジェクトにつき最大 2 枚のライトモード HTML を生成する（`md2html.build_project`）:
 
-各原稿のフロントマター / 先頭メタ `out` が出力名。画像基準は既定で `docs/<project>/images/`
-（.md は原稿側 `images:` で上書き可）。
+  - `docs/<proj>/<proj>_手引き.html` … audience=guide（操作手順書。読者=オペレータ/利用者）
+  - `docs/<proj>/<proj>_設計.html`   … audience=spec（設計正典・設計書・デプロイ運用手順書・
+    仕様一覧。読者=エンジニア）
+
+Mermaid 図の描画は `docs/_build/vendor/mermaid.min.js`（あれば）を HTML へインラインして行う。
 
 使い方:
-  python docs/_build/build_all.py                 全プロジェクト・全文書
+  python docs/_build/build_all.py                 全プロジェクト
   python docs/_build/build_all.py --project editor 指定プロジェクトのみ
-  python docs/_build/build_all.py --only 設計書    ファイル名に該当する原稿のみ
 """
 from __future__ import annotations
 
@@ -19,56 +20,38 @@ import argparse
 import pathlib
 import sys
 
-import md2docx
-import md2xlsx
+import md2html
 
 DOCS = pathlib.Path(__file__).resolve().parents[1]   # <repo>/docs
-SKIP_DIRS = {"_build"}
+SKIP_DIRS = {"_build", "_samples"}
 
 
-def discover():
-    """`docs/<project>/src/` の `*.md` と `*.xlsx.yaml` を (project, src_path) で列挙する。"""
+def discover_projects():
+    """`docs/<project>/src/` を持つプロジェクトディレクトリを列挙する。"""
     for proj in sorted(DOCS.iterdir()):
         if not proj.is_dir() or proj.name in SKIP_DIRS:
             continue
-        src = proj / "src"
-        if not src.is_dir():
-            continue
-        for path in sorted(src.glob("*.md")):
-            yield proj, path
-        for path in sorted(src.glob("*.xlsx.yaml")):
-            yield proj, path
+        if (proj / "src").is_dir():
+            yield proj
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", help="対象プロジェクト名（docs 直下のフォルダ名）")
-    ap.add_argument("--only", help="原稿ファイル名に含まれる語で絞り込み（例: 設計書）")
     args = ap.parse_args(argv)
 
     warnings: list[str] = []
-    built = 0
-    failed = 0
-    for proj, src in discover():
+    built = failed = 0
+    for proj in discover_projects():
         if args.project and proj.name != args.project:
             continue
-        if args.only and args.only not in src.name:
-            continue
-        img_dir = proj / "images"
         try:
-            if src.name.endswith(".xlsx.yaml"):
-                spec = md2xlsx.parse_yaml(src.read_text(encoding="utf-8"))
-                out_name = spec.get("out") or src.name[: -len(".yaml")]
-                md2xlsx.build_workbook(spec, proj / out_name)
-            else:
-                meta, _ = md2docx._parse_frontmatter(src.read_text(encoding="utf-8"))
-                out_name = meta.get("out") or (src.stem + ".docx")
-                md2docx.render(src, proj / out_name, img_dir, warnings=warnings)
-            built += 1
-            print(f"  [ok] {proj.name}/{out_name}")
-        except Exception as exc:  # noqa: BLE001 - 1 文書の失敗で全体を止めない
+            for out_path in md2html.build_project(proj, warnings=warnings):
+                built += 1
+                print(f"  [ok] {proj.name}/{out_path.name}")
+        except Exception as exc:  # noqa: BLE001 - 1 プロジェクトの失敗で全体を止めない
             failed += 1
-            print(f"  [NG] {proj.name}/{src.name}: {exc}")
+            print(f"  [NG] {proj.name}: {exc}")
 
     print(f"\n生成 {built} 件" + (f" / 失敗 {failed} 件" if failed else ""))
     if warnings:

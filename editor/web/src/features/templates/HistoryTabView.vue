@@ -12,6 +12,7 @@ import {
   uniq,
 } from '@editor/shared';
 import { computed, onMounted, ref } from 'vue';
+import Button from '@/components/ui/Button.vue';
 import { formatDateTime } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { usePagedList } from '@/lib/usePagedList';
@@ -104,23 +105,23 @@ onMounted(async () => {
     <HistoryFilters v-model="filter" :users="activeUsers" :keyword-label="activeKeywordLabel">
       <template #lead>
         <div class="inline-flex rounded-md border p-0.5">
-          <button
+          <Button
             v-for="t in TYPES"
             :key="t.value"
-            type="button"
+            variant="ghost"
             :aria-pressed="type === t.value"
             :class="
               cn(
-                'rounded px-3 py-1 text-sm font-medium transition-colors',
+                'h-auto rounded px-3 py-1',
                 type === t.value
-                  ? 'bg-primary-soft text-primary'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                  ? 'bg-primary-soft text-primary hover:bg-primary-soft hover:text-primary'
+                  : 'text-muted-foreground',
               )
             "
             @click="type = t.value"
           >
             {{ t.label }}
-          </button>
+          </Button>
         </div>
       </template>
     </HistoryFilters>

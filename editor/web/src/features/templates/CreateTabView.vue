@@ -6,6 +6,7 @@ import { type DropdownQuery, type GenerateRequest, isErr, type TemplateMeta } fr
 import { FilePlus2, FileText } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import Step from '@/components/ui/Step.vue';
 import { toastError, toastSuccess } from '@/components/ui/toast';
@@ -181,15 +182,17 @@ function createFromSeries(m: TemplateMeta) {
         </label>
 
         <div :class="cn('flex flex-wrap gap-3', !canCreate && 'pointer-events-none')">
-          <button
+          <Button
             v-for="c in visibleMethodCards"
             :key="c.key"
-            type="button"
-            class="ring-focus flex flex-[1_1_220px] items-start gap-3 rounded-[11px] border-[1.5px] px-[15px] py-3.5 text-left transition-all duration-150"
+            variant="ghost"
             :class="
-              method === c.key
-                ? 'border-primary bg-primary-soft ring-[3px] ring-primary/15'
-                : 'border-border bg-card'
+              cn(
+                'h-auto flex-[1_1_220px] items-start justify-start gap-3 whitespace-normal rounded-[11px] border-[1.5px] px-[15px] py-3.5 text-left font-normal transition-all disabled:opacity-100 [&_svg]:size-[15px]',
+                method === c.key
+                  ? 'border-primary bg-primary-soft ring-[3px] ring-primary/15 hover:bg-primary-soft'
+                  : 'border-border bg-card hover:bg-card',
+              )
             "
             :disabled="!canCreate"
             @click="selectMethod(c.key)"
@@ -206,7 +209,7 @@ function createFromSeries(m: TemplateMeta) {
               </span>
               <span class="mt-1 block text-xs leading-relaxed text-muted-foreground">{{ c.desc }}</span>
             </span>
-          </button>
+          </Button>
         </div>
 
         <!-- 文脈依存の action — series のみ。blank はカード押下で即遷移する -->

@@ -1,7 +1,7 @@
 // =============================================================================
 // svg_export/leader_geometry.ts — leader 折れ線の幾何プリミティブ
 // -----------------------------------------------------------------------------
-// placement から「実際に描画される leader パス」を計算する純幾何層 (`index.ts` から
+// placement から「実際に描画される leader パス」を計算する純幾何層 (`pipeline.ts` から
 // 切り出し)。cascade / repair / scoring など上位の配置ロジックはこれらを一方向に呼ぶだけで、
 // 本モジュールは `svg_geom` / 型のみに依存する (上位への逆依存なし = 循環なし)。
 // =============================================================================
@@ -19,9 +19,9 @@ import {
   normalizeAngle,
   isOtherCategory,
   pxToLogical,
-} from '../svg_geom.js';
-import { topBandSonohokaZone } from '../label_placement.js';
-import type { BBox } from '../svg_geom.js';
+} from '../layout/geometry.js';
+import { topBandSonohokaZone } from '../layout/placement.js';
+import type { BBox } from '../layout/geometry.js';
 import type { Placement, PieLayoutConfig } from '../types.js';
 
 // 円外ラベルには常時 leader を描く方針フラグ (ユーザー要望: なるべく leader を使う)。
@@ -36,7 +36,7 @@ const UPPER_LEFT_HAIRPIN_VISIBILITY_COS_THRESHOLD = -0.7;
 // 上左の小スライスが引く短い leader を省く角度範囲の半幅 (90°中心)。midAngle>90 と併用し
 // 12時〜10時半 ([90°,135°]) の小スライスを対象にする (シンガポール 3.5% ≈121.9° を含む)。
 const UPPER_LEFT_SMALL_LEADER_HALF_WIDTH_DEG = 45;
-// 「冗長な短い leader」を省く対象を 1 強スライスに限る下限 (%)。`label_placement.ts` の
+// 「冗長な短い leader」を省く対象を 1 強スライスに限る下限 (%)。`layout/placement.ts` の
 // `DOMINANT_OUTSIDE_EDGE_MIN_PCT` (rim 外縁配置の dominant 判定) と同値。バランス型チャートの中サイズ
 // スライス (>smallSliceThreshold だが非 dominant) の rim leader は「なるべく leader を使う」方針どおり残す。
 const REDUNDANT_RIM_LEADER_DOMINANT_MIN_PCT = 50;
@@ -146,14 +146,14 @@ export function computeDrawnLeader(
   // `allowTopCenter` は最終描画でのみ true。side-attach の top-center 化 (`shouldAttachTopCenter`) を
   // 許可するが、それ以外の経路 (scorer / realLeaderPaths 経由の metric / layout do-no-harm) は既定 false の
   // ため side-center 幾何のまま = baseline と一致し、ラベル位置に影響しない。
-  // `allowGrazeLift` も同様に最終描画 (`index.ts` の Pass 1c) でのみ true。3 点 leader の先頭セグメントが
+  // `allowGrazeLift` も同様に最終描画 (`pipeline.ts` の Pass 1c) でのみ true。3 点 leader の先頭セグメントが
   // 円周に接するのを W リルートで持ち上げる (下記参照)。realLeaderPaths/scorer/layout は既定 false の
   // ため `pathPoints` が baseline と一致し、`countLeaderCrossings` 経由のラベル位置選択に影響しない。
-  // `allowDiagonal` も最終描画 (`index.ts` の Pass 1d) でのみ true。水平先行 L 字
+  // `allowDiagonal` も最終描画 (`pipeline.ts` の Pass 1d) でのみ true。水平先行 L 字
   // (`leaderBendFollowsEndpointX`) の bend をアンカーへ畳み、アンカー → 接続点の 2 点斜め直線にする
   // (下記参照)。既定 false のため realLeaderPaths/scorer/layout の幾何は baseline と一致し、
   // ラベル位置・採点に影響しない。
-  // `allowSideEdgeCenter` も最終描画 (`index.ts` の Pass 1e) でのみ true。左右 (start/end) ラベルで
+  // `allowSideEdgeCenter` も最終描画 (`pipeline.ts` の Pass 1e) でのみ true。左右 (start/end) ラベルで
   // アンカー x が box 水平範囲内に食い込むときの接続を書き出し側の縦縁・縦中央 (9 時/3 時) へ
   // 切替える (下記参照)。既定 false のため同じく baseline 幾何 = ラベル位置・採点に影響しない。
   const alwaysDraw = ALWAYS_DRAW_OUTSIDE_LEADERS && !forScoring;
@@ -169,6 +169,33 @@ export function computeDrawnLeader(
     endpoint.y *= factor;
   }
   const finalBox = placementBox(placement, cfg);
+  if (alwaysDraw && placement.sideCenterLeader && placement.anchor !== 'middle') {
+    // 明示オプトイン (`applyLeftStackClusterEvenSpread` の移動ラベル): 書き出し側の
+    // 縦縁 (end=右縁の 3 時) へ「アンカー → 接続点」の 2 点直線で接続し、**下流の汎用機構
+    // (clampOutsidePie / W 弦リルート / truncate) を通さず確定する**。クラスタ移動ラベルの rim 沿い
+    // 斜線は W リルートで pie+マージン環 (r≈1.1) まで外へ押されると上隣ラベル箱の角を掠め、attach
+    // 退避でもラベル右シフトでも解けない (実測: currency_many_small_10 イギリスポンド × 豪ドル)。
+    // アンカーは rim 上 (r=1.0)・接続点は箱の cornerGap 外なので、素の直線は接線状に rim へ触れ得て
+    // も 1px 級の食い込みに留まり pie-through 判定 (pieRadius−1px) には掛からない。大きく弦を張る
+    // 幾何が生じた場合は後段 do-no-harm ゲートが pie 悪化として全 revert する。
+    // Y は seed (`leaderEndpoint.y`+dy) を box 縦範囲へクランプして使う — 既定は縦中央だが、斜線が
+    // 隣接ラベル箱を掠める時に呼び出し側が上下へ退避できる (豪ドル×カナダドル)。
+    const scEnd = {
+      x:
+        placement.anchor === 'start'
+          ? finalBox.left - cfg.cornerGap
+          : finalBox.right + cfg.cornerGap,
+      y: Math.min(
+        finalBox.top - cfg.cornerGap,
+        Math.max(finalBox.bottom + cfg.cornerGap, endpoint.y),
+      ),
+    };
+    return {
+      pathPoints: [placement.leaderAnchor, scEnd],
+      detectPathPoints: [placement.leaderAnchor, scEnd],
+      skipLeader: false,
+    };
+  }
   // declip ラベルでアンカーが box の真上/真下でなく横にあるケース (例 オフショア・人民元)。
   // 下の bend ロジックで折れ点なしの直線 (rim → 近端) にするため、endpoint 決定時に立てる。
   let declipSideAnchor = false;
@@ -242,7 +269,7 @@ export function computeDrawnLeader(
       // 真下/真上中央の中央寄せラベルで、アンカー x が box 水平範囲内に入るケース
       // (例 中国 10.6% = 真下、ケイマン諸島 1.5% = 真上)。アンカー x が box 内だと L 字 leader の
       // bend (アンカー x 上に畳まれる) が box 内へ落ち、truncate が病的形状 (t0<=0) として切り詰めず
-      // リーダが行内の文字に食い込む (`svg_geom.ts` の `truncateLeaderEndpointAtBox` 参照)。
+      // リーダが行内の文字に食い込む (`layout/geometry.ts` の `truncateLeaderEndpointAtBox` 参照)。
       // 接続点を pie 側の上下縁の水平中央 (cornerGap だけ box 外) へ寄せると truncate は endpoint を
       // そのまま返し box 縁手前で止まる。box が下なら top 縁、上なら bottom 縁 (上記 declipBottom 分岐
       // と同じ向き判定)。アンカー x が box 外 (左右ラベル) は近い縦縁で正しく接続するため対象外。
@@ -623,7 +650,7 @@ export function computeDrawnLeader(
  * (Pass 2.6) だけで使い、`computeDrawnLeader` / 採点には載せない。これにより leader 線を消すだけで
  * レイアウト選択や他 leader の交差解決には一切影響しない (ラベル位置は不変)。閾値 (≈0.5·R) で
  * 「その他」級の右逃がし leader (≈1.2·R) や遠方へ逃がした leader は残す。述語 (`isSmall` / `midAngle`>90 /
- * 帯内 / 非「その他」) は `layout.ts` の `markTopBandSmallRight` の候補条件と同系。
+ * 帯内 / 非「その他」) は `layout/diagnostics.ts` の `markTopBandSmallRight` の候補条件と同系。
  */
 export function isRedundantUpperLeftSmallLeader(
   placement: Placement,

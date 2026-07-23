@@ -8,17 +8,18 @@
 import type { PartCatalogItem, PartClassificationOptions, PartClassificationQuery } from '@editor/shared';
 import { Inbox, Loader2, Plus } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
+import { usePartRepo } from '@/api/repositories';
 import Button from '@/components/ui/Button.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import { useCascadingSelect } from '@/lib/useCascadingSelect';
 import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
+import { cn } from '@/lib/utils';
 import PartPreview from './PartPreview.vue';
-import { usePartCatalogService } from './services/partCatalogService';
 
 const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] }>();
 
-const service = usePartCatalogService();
+const repo = usePartRepo();
 
 type LevelKey = keyof PartClassificationQuery & string;
 
@@ -43,8 +44,8 @@ const { query, options, list: parts, loading, onLevelChange } = useCascadingSele
 >({
   levels: levels.map((l) => l.key),
   emptyOptions: EMPTY,
-  fetchOptions: (q) => service.getOptions(q),
-  fetchList: (q) => service.list(q),
+  fetchOptions: (q) => repo.getPartClassificationOptions(q),
+  fetchList: (q) => repo.listParts(q),
 });
 
 // 分類4段を URL クエリへ同期し、編集画面を離れて戻っても絞り込みを復元する。
@@ -107,14 +108,20 @@ function onInsert() {
     <div v-if="parts.length > 1" class="max-h-32 overflow-auto border-b px-2 py-1.5">
       <ul class="space-y-0.5">
         <li v-for="p in parts" :key="p.id">
-          <button
-            type="button"
-            class="block w-full truncate rounded px-2 py-1 text-left text-sm transition-colors hover:bg-accent"
-            :class="selectedId === p.id ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'"
+          <Button
+            variant="ghost"
+            :class="
+              cn(
+                'block h-auto w-full truncate rounded px-2 py-1 text-left font-normal',
+                selectedId === p.id
+                  ? 'bg-accent font-medium text-foreground'
+                  : 'text-muted-foreground hover:text-muted-foreground',
+              )
+            "
             @click="onSelect(p)"
           >
             {{ p.name }}
-          </button>
+          </Button>
         </li>
       </ul>
     </div>

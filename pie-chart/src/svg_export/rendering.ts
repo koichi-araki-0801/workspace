@@ -17,7 +17,7 @@ import {
   textBoxBounds,
   visualMaxEm,
   visualTextWidthUnits,
-} from '../svg_geom.js';
+} from '../layout/geometry.js';
 import type { PieLayoutConfig, Scale, Placement, LayoutItem } from '../types.js';
 
 // =============================================================================

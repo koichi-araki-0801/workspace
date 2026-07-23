@@ -22,15 +22,12 @@ import {
   ArrowDownToLine,
   ArrowUpToLine,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   Eye,
   FileText,
   History,
-  Minus,
   PanelRight,
   PanelRightClose,
-  Plus,
   RotateCcw,
   SplitSquareVertical,
   StickyNote,
@@ -40,9 +37,13 @@ import {
 } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
+import Button from '@/components/ui/Button.vue';
+import { Tooltip } from '@/components/ui/overlays';
+import StepperInput from '@/components/ui/StepperInput.vue';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { type Align, clampMarginMm, clampWidthPct, type LayoutGeom, WIDTH_PCT_MAX } from './geom';
+import InspectorSection from './InspectorSection.vue';
 import type { SelectedInfo } from './useGrapes';
 
 const props = defineProps<{
@@ -153,10 +154,6 @@ function togglePB(key: 'pageBreakBefore' | 'pageBreakAfter' | 'keepTogether') {
   if (props.editMode && props.geom) emit('apply', { [key]: !props.geom[key] } as Partial<LayoutGeom>);
 }
 
-function onEnter(e: KeyboardEvent) {
-  (e.target as HTMLInputElement).blur();
-}
-
 function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) {
   if (!props.geom) return;
   let n = Math.round(Number(raw));
@@ -188,6 +185,17 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
   const base = Number.isNaN(cur) ? props.geom[key] : cur;
   commitNum(key, String(base + delta));
 }
+
+// ── 4. Button 化した独自コンパクトボタンの共通クラス ──
+// 旧 scoped `.seg` / `.act` / `.pb-toggle` を Tailwind で再現する。ghost variant の
+// hover 文字色変化と基底の `[&_svg]:size-4` は打ち消し、見た目を移行前と揃える。
+const SEG_CLASS =
+  'h-7 w-auto min-w-[30px] rounded-[7px] p-0 text-foreground/80 hover:text-foreground/80 [&_svg]:size-[15px]';
+const ON_CLASS = 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground';
+const ACT_CLASS =
+  'h-[30px] w-auto min-w-[30px] rounded-[7px] p-0 text-foreground/80 hover:text-foreground/80 disabled:opacity-35';
+const PB_CLASS =
+  'mt-0.5 h-auto w-full justify-start gap-2 rounded-[7px] px-2 py-[7px] text-[12.5px] font-normal text-foreground/85 hover:text-foreground/85 [&_svg]:size-[15px]';
 </script>
 
 <template>
@@ -198,15 +206,17 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
       <Badge v-if="selected && !editMode" variant="secondary" class="h-[19px] gap-1 py-0">
         <Eye class="h-[11px] w-[11px]" /> 表示のみ
       </Badge>
-      <button
-        type="button"
-        class="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        title="右パネルを畳む"
-        aria-label="右パネルを畳む"
-        @click="emit('collapse')"
-      >
-        <PanelRightClose class="h-4 w-4" />
-      </button>
+      <Tooltip text="右パネルを畳む">
+        <Button
+          variant="ghost"
+          size="iconSm"
+          class="text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="右パネルを畳む"
+          @click="emit('collapse')"
+        >
+          <PanelRightClose class="h-4 w-4" />
+        </Button>
+      </Tooltip>
     </div>
 
     <!-- 未選択 -->
@@ -234,243 +244,200 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
 
       <div class="flex-1 overflow-y-auto">
         <!-- ── サイズ・配置 ── -->
-        <section class="border-b">
-          <button type="button" class="sec-head" @click="open.size = !open.size">
-            <component :is="open.size ? ChevronDown : ChevronRight" class="h-3.5 w-3.5 opacity-70" />
-            <Table class="h-3.5 w-3.5" /> サイズ・配置
-          </button>
-          <div v-show="open.size" class="px-4 pb-3">
-            <div class="ins-row">
-              <span class="text-muted-foreground">幅</span>
-              <div v-if="editMode" class="ins-num" :class="{ 'ins-num-invalid': numInvalid('widthPct') }">
-                <button type="button" class="ins-step" title="幅を減らす" aria-label="幅を減らす" @click="stepNum('widthPct', -1)">
-                  <Minus class="h-3 w-3" />
-                </button>
-                <input
-                  v-model="num.widthPct"
-                  inputmode="numeric"
-                  class="mono"
-                  @blur="commitNum('widthPct', num.widthPct)"
-                  @keydown.enter="onEnter"
-                  @keydown.up.prevent="stepNum('widthPct', 1)"
-                  @keydown.down.prevent="stepNum('widthPct', -1)"
-                />
-                <span class="ins-unit">%</span>
-                <button type="button" class="ins-step" title="幅を増やす" aria-label="幅を増やす" @click="stepNum('widthPct', 1)">
-                  <Plus class="h-3 w-3" />
-                </button>
-              </div>
-              <span v-else class="mono font-semibold tabular-nums">{{ geom.widthPct }} %</span>
-            </div>
-            <!-- 横の配置: 幅 100% では効かないため、幅 < 100% のときだけ出す -->
-            <div v-if="canAlign()" class="ins-row">
-              <span class="text-muted-foreground">横の配置</span>
-              <div v-if="editMode" class="flex gap-0.5">
-                <button type="button" class="seg" title="左寄せ" aria-label="左寄せ" :aria-pressed="geom.align === 'left'" :class="cn(geom.align === 'left' && 'seg-on')" @click="setAlign('left')">
-                  <AlignLeft class="h-[15px] w-[15px]" />
-                </button>
-                <button type="button" class="seg" title="中央" aria-label="中央" :aria-pressed="geom.align === 'center'" :class="cn(geom.align === 'center' && 'seg-on')" @click="setAlign('center')">
-                  <AlignCenter class="h-[15px] w-[15px]" />
-                </button>
-                <button type="button" class="seg" title="右寄せ" aria-label="右寄せ" :aria-pressed="geom.align === 'right'" :class="cn(geom.align === 'right' && 'seg-on')" @click="setAlign('right')">
-                  <AlignRight class="h-[15px] w-[15px]" />
-                </button>
-              </div>
-              <span v-else class="font-semibold">{{ alignLabel }}</span>
-            </div>
-            <!-- 左インデントは read-only(編集経路なし)。0mm は情報量ゼロなので隠す -->
-            <div v-if="geom.indent > 0" class="ins-row">
-              <span class="text-muted-foreground">左インデント</span>
-              <span class="mono font-semibold tabular-nums">{{ geom.indent }} mm</span>
-            </div>
+        <InspectorSection v-model:open="open.size" label="サイズ・配置" :icon="Table" class="border-b" body-class="px-4 pb-3">
+          <div class="ins-row">
+            <span class="text-muted-foreground">幅</span>
+            <StepperInput
+              v-if="editMode"
+              v-model="num.widthPct"
+              unit="%"
+              :invalid="numInvalid('widthPct')"
+              dec-label="幅を減らす"
+              inc-label="幅を増やす"
+              @commit="commitNum('widthPct', num.widthPct)"
+              @step="stepNum('widthPct', $event)"
+            />
+            <span v-else class="mono font-semibold tabular-nums">{{ geom.widthPct }} %</span>
           </div>
-        </section>
+          <!-- 横の配置: 幅 100% では効かないため、幅 < 100% のときだけ出す -->
+          <div v-if="canAlign()" class="ins-row">
+            <span class="text-muted-foreground">横の配置</span>
+            <div v-if="editMode" class="flex gap-0.5">
+              <Tooltip text="左寄せ">
+                <Button variant="ghost" aria-label="左寄せ" :aria-pressed="geom.align === 'left'" :class="cn(SEG_CLASS, geom.align === 'left' && ON_CLASS)" @click="setAlign('left')">
+                  <AlignLeft class="h-[15px] w-[15px]" />
+                </Button>
+              </Tooltip>
+              <Tooltip text="中央">
+                <Button variant="ghost" aria-label="中央" :aria-pressed="geom.align === 'center'" :class="cn(SEG_CLASS, geom.align === 'center' && ON_CLASS)" @click="setAlign('center')">
+                  <AlignCenter class="h-[15px] w-[15px]" />
+                </Button>
+              </Tooltip>
+              <Tooltip text="右寄せ">
+                <Button variant="ghost" aria-label="右寄せ" :aria-pressed="geom.align === 'right'" :class="cn(SEG_CLASS, geom.align === 'right' && ON_CLASS)" @click="setAlign('right')">
+                  <AlignRight class="h-[15px] w-[15px]" />
+                </Button>
+              </Tooltip>
+            </div>
+            <span v-else class="font-semibold">{{ alignLabel }}</span>
+          </div>
+          <!-- 左インデントは read-only(編集経路なし)。0mm は情報量ゼロなので隠す -->
+          <div v-if="geom.indent > 0" class="ins-row">
+            <span class="text-muted-foreground">左インデント</span>
+            <span class="mono font-semibold tabular-nums">{{ geom.indent }} mm</span>
+          </div>
+        </InspectorSection>
 
         <!-- ── 余白 ── -->
-        <section class="border-b">
-          <button type="button" class="sec-head" @click="open.margin = !open.margin">
-            <component :is="open.margin ? ChevronDown : ChevronRight" class="h-3.5 w-3.5 opacity-70" />
-            <TrendingUp class="h-3.5 w-3.5" /> 余白（前後の間隔）
-          </button>
-          <div v-show="open.margin" class="px-4 pb-3">
-            <div class="ins-row">
-              <span class="text-muted-foreground">上の余白</span>
-              <div v-if="editMode" class="ins-num" :class="{ 'ins-num-invalid': numInvalid('marginTop') }">
-                <button type="button" class="ins-step" title="上の余白を減らす" aria-label="上の余白を減らす" @click="stepNum('marginTop', -1)">
-                  <Minus class="h-3 w-3" />
-                </button>
-                <input
-                  v-model="num.marginTop"
-                  inputmode="numeric"
-                  class="mono"
-                  @blur="commitNum('marginTop', num.marginTop)"
-                  @keydown.enter="onEnter"
-                  @keydown.up.prevent="stepNum('marginTop', 1)"
-                  @keydown.down.prevent="stepNum('marginTop', -1)"
-                />
-                <span class="ins-unit">mm</span>
-                <button type="button" class="ins-step" title="上の余白を増やす" aria-label="上の余白を増やす" @click="stepNum('marginTop', 1)">
-                  <Plus class="h-3 w-3" />
-                </button>
-              </div>
-              <span v-else class="mono font-semibold tabular-nums">{{ geom.marginTop }} mm</span>
-            </div>
-            <div class="ins-row">
-              <span class="text-muted-foreground">下の余白</span>
-              <div v-if="editMode" class="ins-num" :class="{ 'ins-num-invalid': numInvalid('marginBottom') }">
-                <button type="button" class="ins-step" title="下の余白を減らす" aria-label="下の余白を減らす" @click="stepNum('marginBottom', -1)">
-                  <Minus class="h-3 w-3" />
-                </button>
-                <input
-                  v-model="num.marginBottom"
-                  inputmode="numeric"
-                  class="mono"
-                  @blur="commitNum('marginBottom', num.marginBottom)"
-                  @keydown.enter="onEnter"
-                  @keydown.up.prevent="stepNum('marginBottom', 1)"
-                  @keydown.down.prevent="stepNum('marginBottom', -1)"
-                />
-                <span class="ins-unit">mm</span>
-                <button type="button" class="ins-step" title="下の余白を増やす" aria-label="下の余白を増やす" @click="stepNum('marginBottom', 1)">
-                  <Plus class="h-3 w-3" />
-                </button>
-              </div>
-              <span v-else class="mono font-semibold tabular-nums">{{ geom.marginBottom }} mm</span>
-            </div>
+        <InspectorSection v-model:open="open.margin" label="余白（前後の間隔）" :icon="TrendingUp" class="border-b" body-class="px-4 pb-3">
+          <div class="ins-row">
+            <span class="text-muted-foreground">上の余白</span>
+            <StepperInput
+              v-if="editMode"
+              v-model="num.marginTop"
+              unit="mm"
+              :invalid="numInvalid('marginTop')"
+              dec-label="上の余白を減らす"
+              inc-label="上の余白を増やす"
+              @commit="commitNum('marginTop', num.marginTop)"
+              @step="stepNum('marginTop', $event)"
+            />
+            <span v-else class="mono font-semibold tabular-nums">{{ geom.marginTop }} mm</span>
           </div>
-        </section>
+          <div class="ins-row">
+            <span class="text-muted-foreground">下の余白</span>
+            <StepperInput
+              v-if="editMode"
+              v-model="num.marginBottom"
+              unit="mm"
+              :invalid="numInvalid('marginBottom')"
+              dec-label="下の余白を減らす"
+              inc-label="下の余白を増やす"
+              @commit="commitNum('marginBottom', num.marginBottom)"
+              @step="stepNum('marginBottom', $event)"
+            />
+            <span v-else class="mono font-semibold tabular-nums">{{ geom.marginBottom }} mm</span>
+          </div>
+        </InspectorSection>
 
         <!-- ── 改ページ ── -->
-        <section class="border-b">
-          <button type="button" class="sec-head" @click="open.pagebreak = !open.pagebreak">
-            <component :is="open.pagebreak ? ChevronDown : ChevronRight" class="h-3.5 w-3.5 opacity-70" />
-            <FileText class="h-3.5 w-3.5" /> 改ページ
-          </button>
-          <div v-show="open.pagebreak" class="px-4 pb-3">
-            <!-- 編集モード: トグル / 表示のみ: 読み取り専用の状態行 -->
-            <template v-if="editMode">
-              <button
-                v-for="it in PB_ITEMS"
-                :key="it.key"
-                type="button"
-                class="pb-toggle"
-                :class="cn(geom[it.key] && 'pb-on')"
-                @click="togglePB(it.key)"
-              >
-                <component :is="it.icon" class="h-[15px] w-[15px]" />
-                <span class="flex-1 text-left">{{ it.label }}</span>
-                <span class="pb-state">{{ geom[it.key] ? 'ON' : 'OFF' }}</span>
-              </button>
-            </template>
-            <template v-else>
-              <div v-for="it in PB_ITEMS" :key="it.key" class="pb-readonly">
-                <component :is="it.icon" class="h-[15px] w-[15px]" />
-                <span class="flex-1 text-left">{{ it.label }}</span>
-                <span class="pb-state" :class="geom[it.key] ? 'text-primary' : 'text-muted-foreground'">
-                  {{ geom[it.key] ? 'ON' : 'OFF' }}
-                </span>
-              </div>
-            </template>
-          </div>
-        </section>
+        <InspectorSection v-model:open="open.pagebreak" label="改ページ" :icon="FileText" class="border-b" body-class="px-4 pb-3">
+          <!-- 編集モード: トグル / 表示のみ: 読み取り専用の状態行 -->
+          <template v-if="editMode">
+            <Button
+              v-for="it in PB_ITEMS"
+              :key="it.key"
+              variant="ghost"
+              :class="cn(PB_CLASS, geom[it.key] && ON_CLASS)"
+              @click="togglePB(it.key)"
+            >
+              <component :is="it.icon" class="h-[15px] w-[15px]" />
+              <span class="flex-1 text-left">{{ it.label }}</span>
+              <span class="pb-state">{{ geom[it.key] ? 'ON' : 'OFF' }}</span>
+            </Button>
+          </template>
+          <template v-else>
+            <div v-for="it in PB_ITEMS" :key="it.key" class="pb-readonly">
+              <component :is="it.icon" class="h-[15px] w-[15px]" />
+              <span class="flex-1 text-left">{{ it.label }}</span>
+              <span class="pb-state" :class="geom[it.key] ? 'text-primary' : 'text-muted-foreground'">
+                {{ geom[it.key] ? 'ON' : 'OFF' }}
+              </span>
+            </div>
+          </template>
+        </InspectorSection>
 
         <!-- ── メモ(会社・ファンド・基準日・版 単位) ── -->
-        <section class="border-b">
-          <button type="button" class="sec-head" @click="open.memo = !open.memo">
-            <component :is="open.memo ? ChevronDown : ChevronRight" class="h-3.5 w-3.5 opacity-70" />
-            <StickyNote class="h-3.5 w-3.5" /> メモ
+        <InspectorSection v-model:open="open.memo" label="メモ" :icon="StickyNote" class="border-b" body-class="px-4 pb-3.5">
+          <template #badge>
             <span class="flex-1" />
             <Badge v-if="note" variant="secondary" class="h-[18px] py-0 text-[10.5px]">記入あり</Badge>
-          </button>
-          <div v-show="open.memo" class="px-4 pb-3.5">
-            <textarea
-              v-model="noteText"
-              :disabled="!canNote"
-              class="memo-area"
-              rows="4"
-              placeholder="このパーツへのメモ（会社・ファンド・基準日・版ごと）"
-              @input="onNoteInput"
-            />
-            <p class="mt-1 text-[11px] text-muted-foreground">
-              このパーツへのメモを、会社・ファンド・基準日・版（版種）単位で保存します。
-            </p>
-          </div>
-        </section>
+          </template>
+          <textarea
+            v-model="noteText"
+            :disabled="!canNote"
+            class="memo-area"
+            rows="4"
+            placeholder="このパーツへのメモ（会社・ファンド・基準日・版ごと）"
+            @input="onNoteInput"
+          />
+          <p class="mt-1 text-[11px] text-muted-foreground">
+            このパーツへのメモを、会社・ファンド・基準日・版（版種）単位で保存します。
+          </p>
+        </InspectorSection>
 
         <!-- ── 修正履歴 ── -->
-        <section :class="editMode ? 'border-b' : ''">
-          <button type="button" class="sec-head" @click="open.history = !open.history">
-            <component :is="open.history ? ChevronDown : ChevronRight" class="h-3.5 w-3.5 opacity-70" />
-            <History class="h-3.5 w-3.5" /> 修正履歴
+        <InspectorSection
+          v-model:open="open.history"
+          label="修正履歴"
+          :icon="History"
+          :class="editMode ? 'border-b' : ''"
+          body-class="px-4 pb-3.5"
+        >
+          <template #badge>
             <span class="flex-1" />
             <Badge variant="secondary" class="h-[18px] py-0 text-[10.5px]">{{ history.length }} 件</Badge>
-          </button>
-          <div v-show="open.history" class="px-4 pb-3.5">
-            <p v-if="history.length === 0" class="text-[12.5px] text-muted-foreground">変更履歴はまだありません。</p>
-            <div v-else>
-              <div
-                v-for="(h, i) in history"
-                :key="h.id"
-                class="flex gap-2.5"
-                :class="i < history.length - 1 ? 'pb-4' : ''"
-              >
-                <div class="flex flex-col items-center">
-                  <span class="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full" :class="i === 0 ? 'bg-primary' : 'bg-border'" />
-                  <span v-if="i < history.length - 1" class="mt-0.5 w-0.5 flex-1 bg-border" />
-                </div>
-                <div class="flex-1">
-                  <Badge
-                    v-if="historySpansParts"
-                    variant="secondary"
-                    class="mb-0.5 h-[16px] py-0 text-[10px] font-normal"
-                  >{{ partLabelOf(h.partKey) }}</Badge>
-                  <div class="text-[12.5px] leading-snug text-foreground">{{ h.change }}</div>
-                  <div class="mt-0.5 text-[11px] text-muted-foreground">{{ formatDateTime(h.timestamp) }} ・ {{ h.user }}</div>
-                </div>
+          </template>
+          <p v-if="history.length === 0" class="text-[12.5px] text-muted-foreground">変更履歴はまだありません。</p>
+          <div v-else>
+            <div
+              v-for="(h, i) in history"
+              :key="h.id"
+              class="flex gap-2.5"
+              :class="i < history.length - 1 ? 'pb-4' : ''"
+            >
+              <div class="flex flex-col items-center">
+                <span class="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full" :class="i === 0 ? 'bg-primary' : 'bg-border'" />
+                <span v-if="i < history.length - 1" class="mt-0.5 w-0.5 flex-1 bg-border" />
+              </div>
+              <div class="flex-1">
+                <Badge
+                  v-if="historySpansParts"
+                  variant="secondary"
+                  class="mb-0.5 h-[16px] py-0 text-[10px] font-normal"
+                >{{ partLabelOf(h.partKey) }}</Badge>
+                <div class="text-[12.5px] leading-snug text-foreground">{{ h.change }}</div>
+                <div class="mt-0.5 text-[11px] text-muted-foreground">{{ formatDateTime(h.timestamp) }} ・ {{ h.user }}</div>
               </div>
             </div>
           </div>
-        </section>
+        </InspectorSection>
       </div>
 
       <!-- ── アクションバー(並べ替え / 初期化 / 削除): 編集許可時のみ ── -->
       <div v-if="editMode" class="flex shrink-0 items-center gap-1 border-t px-3 py-2">
-        <button type="button" class="act" title="上へ移動" aria-label="上へ移動" :disabled="!canUp" @click="emit('move', -1)">
-          <ChevronUp class="h-[15px] w-[15px]" />
-        </button>
-        <button type="button" class="act" title="下へ移動" aria-label="下へ移動" :disabled="!canDown" @click="emit('move', 1)">
-          <ChevronDown class="h-[15px] w-[15px]" />
-        </button>
+        <Tooltip text="上へ移動">
+          <Button variant="ghost" :class="cn(ACT_CLASS, '[&_svg]:size-[15px]')" aria-label="上へ移動" :disabled="!canUp" @click="emit('move', -1)">
+            <ChevronUp class="h-[15px] w-[15px]" />
+          </Button>
+        </Tooltip>
+        <Tooltip text="下へ移動">
+          <Button variant="ghost" :class="cn(ACT_CLASS, '[&_svg]:size-[15px]')" aria-label="下へ移動" :disabled="!canDown" @click="emit('move', 1)">
+            <ChevronDown class="h-[15px] w-[15px]" />
+          </Button>
+        </Tooltip>
         <span class="flex-1" />
-        <button type="button" class="act" title="配置を初期化" aria-label="配置を初期化" @click="emit('reset')">
-          <RotateCcw class="h-[14px] w-[14px]" />
-        </button>
-        <button type="button" class="act act-danger" title="このパーツを削除" aria-label="このパーツを削除" @click="emit('del')">
-          <Trash2 class="h-[14px] w-[14px]" />
-        </button>
+        <Tooltip text="配置を初期化">
+          <Button variant="ghost" :class="cn(ACT_CLASS, '[&_svg]:size-[14px]')" aria-label="配置を初期化" @click="emit('reset')">
+            <RotateCcw class="h-[14px] w-[14px]" />
+          </Button>
+        </Tooltip>
+        <Tooltip text="このパーツを削除">
+          <Button
+            variant="ghost"
+            :class="cn(ACT_CLASS, '[&_svg]:size-[14px] text-destructive hover:bg-destructive/12 hover:text-destructive')"
+            aria-label="このパーツを削除"
+            @click="emit('del')"
+          >
+            <Trash2 class="h-[14px] w-[14px]" />
+          </Button>
+        </Tooltip>
       </div>
     </template>
   </aside>
 </template>
 
 <style scoped>
-/* 折りたたみセクションの見出し(クリックで開閉) */
-.sec-head {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--muted-foreground);
-  transition: background-color 0.12s;
-}
-.sec-head:hover {
-  background: var(--accent);
-}
-
 /* ラベル + コントロールの 1 行 */
 .ins-row {
   display: flex;
@@ -478,59 +445,6 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
   justify-content: space-between;
   padding: 5px 0;
   font-size: 12.5px;
-}
-
-/* 数値入力(幅 / 余白)。両端に増減ステッパーを置き、中央に値 + 単位を据える */
-.ins-num {
-  display: inline-flex;
-  height: 28px;
-  align-items: center;
-  gap: 1px;
-  border-radius: 7px;
-  background: var(--muted);
-  padding: 0 2px;
-}
-.ins-num input {
-  width: 40px;
-  border: 0;
-  background: transparent;
-  text-align: center;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--foreground);
-  outline: none;
-  padding: 0;
-}
-.ins-num input:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-/* 無効値(空 / 非数値)の間だけ赤系の枠で気付かせる。blur で `commitNum` が元値へ戻す。 */
-.ins-num-invalid {
-  background: color-mix(in oklab, var(--destructive) 12%, var(--muted));
-  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--destructive) 70%, transparent);
-}
-.ins-unit {
-  font-size: 10px;
-  color: var(--muted-foreground);
-}
-/* 増減ボタン(クリック / 入力欄の上下キーと同じ刻み) */
-.ins-step {
-  display: inline-flex;
-  height: 22px;
-  width: 22px;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  border-radius: 5px;
-  color: var(--muted-foreground);
-  transition:
-    background-color 0.12s,
-    color 0.12s;
-}
-.ins-step:hover {
-  background: var(--accent);
-  color: var(--foreground);
 }
 
 /* メモ入力(版を跨ぐパーツ単位)。固定 UI スケールで常に読める(キャンバスズーム非依存) */
@@ -556,59 +470,6 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
   cursor: not-allowed;
 }
 
-/* 配置のセグメントボタン */
-.seg {
-  display: inline-flex;
-  height: 28px;
-  min-width: 30px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 7px;
-  color: color-mix(in oklab, var(--foreground) 80%, transparent);
-  transition: background-color 0.12s;
-}
-.seg:hover:not(:disabled) {
-  background: var(--accent);
-}
-.seg:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-.seg-on {
-  background: var(--primary);
-  color: var(--primary-foreground);
-}
-.seg-on:hover {
-  background: var(--primary);
-}
-
-/* 改ページのトグル(行全体) */
-.pb-toggle {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px;
-  border-radius: 7px;
-  padding: 7px 8px;
-  margin-top: 2px;
-  font-size: 12.5px;
-  color: color-mix(in oklab, var(--foreground) 85%, transparent);
-  transition: background-color 0.12s;
-}
-.pb-toggle:hover:not(:disabled) {
-  background: var(--accent);
-}
-.pb-toggle:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.pb-toggle.pb-on {
-  background: var(--primary);
-  color: var(--primary-foreground);
-}
-.pb-toggle.pb-on:hover {
-  background: var(--primary);
-}
 /* 表示のみモードの改ページ状態(読み取り専用・トグル不可) */
 .pb-readonly {
   display: flex;
@@ -626,54 +487,4 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
   letter-spacing: 0.04em;
 }
 
-/* アクションバーのボタン */
-.act {
-  display: inline-flex;
-  height: 30px;
-  min-width: 30px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 7px;
-  color: color-mix(in oklab, var(--foreground) 80%, transparent);
-  transition: background-color 0.12s;
-}
-.act:hover:not(:disabled) {
-  background: var(--accent);
-}
-.act:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-.act-danger {
-  color: var(--destructive);
-}
-.act-danger:hover {
-  background: color-mix(in oklab, var(--destructive) 12%, transparent);
-}
-
-/* キーボード操作の現在地を可視化する focus リング(見た目は index.css の `.ring-focus` と同一)。
-   共通 Button 非採用の独自寸法ボタン群には hover しか無く、Tab 走査で現在地が見えなかった。 */
-.sec-head:focus-visible,
-.seg:focus-visible,
-.act:focus-visible,
-.ins-step:focus-visible,
-.pb-toggle:focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 2px var(--background),
-    0 0 0 4px color-mix(in oklab, var(--ring) 55%, transparent);
-}
-/* 数値入力はステッパーと一体の複合コントロールなので、input 単体でなく枠全体にリングを出す。
-   無効値の inset 枠(`.ins-num-invalid`)と重なっても両方見えるよう box-shadow は追記合成しない。 */
-.ins-num:focus-within {
-  box-shadow:
-    0 0 0 2px var(--background),
-    0 0 0 4px color-mix(in oklab, var(--ring) 55%, transparent);
-}
-.ins-num-invalid:focus-within {
-  box-shadow:
-    inset 0 0 0 1.5px color-mix(in oklab, var(--destructive) 70%, transparent),
-    0 0 0 2px var(--background),
-    0 0 0 4px color-mix(in oklab, var(--ring) 55%, transparent);
-}
 </style>

@@ -73,6 +73,15 @@ export default defineConfig({
         'editor/web/src/api/local/partRepo.ts',
         'editor/web/src/api/local/noteRepo.ts',
         'editor/web/src/api/local/reviewRepo.ts',
+        // editor/web (ui プリミティブ層。headless 一元化リファクタでテスト追加済みの分)
+        'editor/web/src/components/ui/confirm.ts',
+        'editor/web/src/components/ui/overlays.ts',
+        'editor/web/src/components/ui/toast.ts',
+        'editor/web/src/components/ui/Button.vue',
+        'editor/web/src/components/ui/Input.vue',
+        'editor/web/src/components/ui/Select.vue',
+        'editor/web/src/components/ui/StepperInput.vue',
+        'editor/web/src/components/ui/BackButton.vue',
         // pie-chart (layout.ts / label_placement.ts / svg_export/* は verify_* が担当し対象外)
         'pie-chart/src/svg_geom.ts',
         'pie-chart/src/config.ts',

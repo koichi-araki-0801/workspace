@@ -33,10 +33,10 @@ import {
   pieClampXLimits,
   horizontalLabelLimits,
   pxToLogical,
-} from '../svg_geom.js';
-import { layoutLabels } from '../layout.js';
-import { TOP_BAND_HALF_WIDTH_DEG } from '../label_placement.js';
-import type { BBox } from '../svg_geom.js';
+} from '../layout/geometry.js';
+import { layoutLabels } from '../layout/diagnostics.js';
+import { TOP_BAND_HALF_WIDTH_DEG } from '../layout/placement.js';
+import type { BBox } from '../layout/geometry.js';
 import type { PieLayoutConfig, LayoutItem, Placement } from '../types.js';
 import { detectVisualHorizontalOverflow } from './rendering.js';
 
@@ -608,9 +608,9 @@ export const FINAL_CONDENSE_MIN_SCALE = 0.7;
  * 減りこそすれ増えない)。可読性のため sx は `FINAL_CONDENSE_MIN_SCALE` で打ち止めとする。
  * 本関数は scoring 候補ごと (`finalizeForScoring`) にも走るため、ここでは下限到達を warn せず、
  * `PIE_CHART_DEBUG_CONDENSE` 設定時のみ floor 到達を debug 記録する (既定は無音)。真の見切れ警告は
- * `index.ts` の emit 末尾 (確定配置の viewBox 見切れ警告ループ) が全パス適用後の確定配置に 1 回だけ
+ * `pipeline.ts` の emit 末尾 (確定配置の viewBox 見切れ警告ループ) が全パス適用後の確定配置に 1 回だけ
  * 出す (実 viewBox = verify 一致)。
- * `placement.nameScaleX` は render (`index.ts` の condense) と verify (data-name-scale-x) の双方が
+ * `placement.nameScaleX` は render (`pipeline.ts` の condense) と verify (data-name-scale-x) の双方が
  * honor 済なので、値を下げるだけで描画・検証が一致する。
  */
 export function applyFinalCondenseToFit(textPlacements: Placement[], cfg: PieLayoutConfig): void {
@@ -635,7 +635,7 @@ export function applyFinalCondenseToFit(textPlacements: Placement[], cfg: PieLay
     }
     if (!fitted) {
       // 下限でも収まらない構造的ケース (極端な長カタカナ / 支配スライス右端)。下限を適用する。
-      // 真の見切れ警告は `index.ts` の emit 末尾 (確定配置の見切れ警告ループ) が 1 回だけ出す。本関数は
+      // 真の見切れ警告は `pipeline.ts` の emit 末尾 (確定配置の見切れ警告ループ) が 1 回だけ出す。本関数は
       // scoring 候補ごとにも走るため、ここでは `PIE_CHART_DEBUG_CONDENSE` 時のみ floor 到達を記録 (既定は無音)。
       placement.nameScaleX = FINAL_CONDENSE_MIN_SCALE;
       if (process.env.PIE_CHART_DEBUG_CONDENSE) {

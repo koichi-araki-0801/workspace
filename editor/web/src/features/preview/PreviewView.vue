@@ -16,6 +16,7 @@ import PageRail from '@/components/PageRail.vue';
 import BackButton from '@/components/ui/BackButton.vue';
 import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
+import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
 import { withCropMarks } from '@/lib/cropMarks';
 import { useAsyncResult } from '@/lib/useAsyncResult';
@@ -154,38 +155,41 @@ async function exportPdf() {
 
       <!-- zoom -->
       <div class="flex shrink-0 items-center gap-1.5">
-        <Button
-          variant="outline"
-          size="icon"
-          class="h-7 w-7"
-          title="縮小"
-          aria-label="縮小"
-          :disabled="!nav.vivlioReady"
-          @click="panel?.zoomOut()"
-        >
-          <Minus class="h-4 w-4" />
-        </Button>
-        <button
-          type="button"
-          class="w-[42px] text-center text-[12.5px] tabular-nums text-muted-foreground disabled:opacity-100"
-          title="画面に合わせる"
-          aria-label="画面に合わせる"
-          :disabled="!nav.vivlioReady"
-          @click="panel?.fit()"
-        >
-          {{ Math.round(nav.zoom * 100) }}%
-        </button>
-        <Button
-          variant="outline"
-          size="icon"
-          class="h-7 w-7"
-          title="拡大"
-          aria-label="拡大"
-          :disabled="!nav.vivlioReady"
-          @click="panel?.zoomIn()"
-        >
-          <Plus class="h-4 w-4" />
-        </Button>
+        <Tooltip text="縮小">
+          <Button
+            variant="outline"
+            size="icon"
+            class="h-7 w-7"
+            aria-label="縮小"
+            :disabled="!nav.vivlioReady"
+            @click="panel?.zoomOut()"
+          >
+            <Minus class="h-4 w-4" />
+          </Button>
+        </Tooltip>
+        <Tooltip text="画面に合わせる">
+          <Button
+            variant="ghost"
+            class="h-auto w-[42px] rounded-none p-0 text-[12.5px] font-normal tabular-nums text-muted-foreground hover:bg-transparent hover:text-muted-foreground disabled:opacity-100"
+            aria-label="画面に合わせる"
+            :disabled="!nav.vivlioReady"
+            @click="panel?.fit()"
+          >
+            {{ Math.round(nav.zoom * 100) }}%
+          </Button>
+        </Tooltip>
+        <Tooltip text="拡大">
+          <Button
+            variant="outline"
+            size="icon"
+            class="h-7 w-7"
+            aria-label="拡大"
+            :disabled="!nav.vivlioReady"
+            @click="panel?.zoomIn()"
+          >
+            <Plus class="h-4 w-4" />
+          </Button>
+        </Tooltip>
       </div>
       <div class="h-[26px] w-px shrink-0 bg-border" />
 
@@ -204,15 +208,16 @@ async function exportPdf() {
 
       <!-- トンボ(トリムマーク)ON/OFF。ON は塗り(default), OFF は輪郭(outline)で状態を示す。
            表示(`displayDoc`)と PDF 出力(`exportPdf`)の双方へ効く。 -->
-      <Button
-        :variant="cropMarks ? 'default' : 'outline'"
-        size="sm"
-        :aria-pressed="cropMarks"
-        title="トンボ(トリムマーク)の表示切替"
-        @click="cropMarks = !cropMarks"
-      >
-        <Crop class="h-4 w-4" /> トンボ
-      </Button>
+      <Tooltip text="トンボ(トリムマーク)の表示切替">
+        <Button
+          :variant="cropMarks ? 'default' : 'outline'"
+          size="sm"
+          :aria-pressed="cropMarks"
+          @click="cropMarks = !cropMarks"
+        >
+          <Crop class="h-4 w-4" /> トンボ
+        </Button>
+      </Tooltip>
       <Button variant="outline" size="sm" :disabled="exporting" @click="exportPdf">
         <Loader2 v-if="exporting" class="h-4 w-4 animate-spin" />
         <FileDown v-else class="h-4 w-4" /> PDF出力

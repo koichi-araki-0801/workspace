@@ -4,7 +4,7 @@ rem  Jinja Template Editor - launcher
 rem
 rem  Usage:
 rem    start.bat               production, local data (build + server :24680)
-rem    start.bat dev           development : Express(:24680) + Vite(:24681)
+rem    start.bat dev           development : Fastify(:24680) + Vite(:24681)
 rem    start.bat rest          REST data mode (SQL Server backend; needs login)
 rem    start.bat dev rest      development + REST
 rem    start.bat prod rest     production  + REST

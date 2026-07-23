@@ -1,7 +1,7 @@
 // =============================================================================
 // mark_flags.test.ts — layout 段の特例マーカー発火対応表 (特性テスト)
 // =============================================================================
-// `layout.ts` の mark*** 系 (markTopBandSmallRight / markForcedTopSliverLeader /
+// `layout/diagnostics.ts` の mark*** 系 (markTopBandSmallRight / markForcedTopSliverLeader /
 // markBottomCenterBelow 等) と `deriveModeTags` は、特定サンプルの回帰対応が積層した
 // ゲート付き特例で、byte-diff (SVG 出力) では「どのフラグがどのサンプルで動いたか」を
 // 切り分けられない。本テストは samples.json 全件について layoutLabels 直後の
@@ -14,9 +14,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { createPieLayoutConfig } from '../src/config.js';
-import { resolveInputData, samples } from '../src/data.js';
-import { layoutLabels } from '../src/layout.js';
-import { normalizeAndSortItems } from '../src/svg_export/index.js';
+import { resolveInputData, samples } from '../src/input/load.js';
+import { layoutLabels } from '../src/layout/diagnostics.js';
+import { normalizeAndSortItems } from '../src/svg_export/pipeline.js';
 import type { Diagnostics, LayoutItemReady } from '../src/types.js';
 
 // item 単位のマーカーフラグ (types.ts の LayoutItem 定義順)。true のものだけ表へ載せる。

@@ -24,6 +24,7 @@ import PageNav from '@/components/PageNav.vue';
 import BackButton from '@/components/ui/BackButton.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
+import { Tooltip } from '@/components/ui/overlays';
 import type { SaveState } from './useAutosave';
 
 const props = defineProps<{
@@ -83,22 +84,12 @@ const attrItems = (a: TemplateAttributes) => [
         <span class="truncate text-[15px] font-bold">{{ fundName }}</span>
         <!-- 確定状態のバッジ。下書きは常時自動保存されるが「確定保存」は preview 画面で行うため、
              未確定の編集が残っているかをここで明示する(自動保存ステータスとは別物)。 -->
-        <Badge
-          v-if="dirty"
-          variant="warning"
-          class="shrink-0 whitespace-nowrap"
-          title="確定保存していない編集があります。プレビュー画面で確定保存できます。"
-        >
-          未確定
-        </Badge>
-        <Badge
-          v-else
-          variant="secondary"
-          class="shrink-0 whitespace-nowrap"
-          title="未確定の変更はありません。"
-        >
-          変更なし
-        </Badge>
+        <Tooltip v-if="dirty" text="確定保存していない編集があります。プレビュー画面で確定保存できます。">
+          <Badge variant="warning" class="shrink-0 whitespace-nowrap">未確定</Badge>
+        </Tooltip>
+        <Tooltip v-else text="未確定の変更はありません。">
+          <Badge variant="secondary" class="shrink-0 whitespace-nowrap">変更なし</Badge>
+        </Tooltip>
       </div>
       <!-- 属性はラベル小 + 値強調のチップに。テキスト羅列より値の判別が速い -->
       <div v-if="attributes" class="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -121,49 +112,59 @@ const attrItems = (a: TemplateAttributes) => [
     <div class="flex shrink-0 flex-wrap items-center gap-1 rounded-lg bg-muted/50 px-1.5 py-1">
       <!-- 編集ロックの状態と解除。左ペインの「編集を許可」トグルと同一 state を、常に見える
            上部バーにも出す(左ペインを畳んでいても編集ロックに気付け、その場で解除できる)。 -->
-      <Button
-        variant="ghost"
-        size="sm"
-        class="gap-1.5 px-2"
-        :class="allowEdit ? 'text-primary' : 'text-muted-foreground'"
-        :title="allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)'"
-        :aria-label="allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)'"
-        :aria-pressed="allowEdit"
-        @click="emit('toggleEdit')"
-      >
-        <component :is="allowEdit ? LockOpen : Lock" class="h-[15px] w-[15px]" />
-        <span class="text-xs font-medium">{{ allowEdit ? '編集中' : '閲覧のみ' }}</span>
-      </Button>
+      <Tooltip :text="allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)'">
+        <Button
+          variant="ghost"
+          size="sm"
+          class="gap-1.5 px-2"
+          :class="allowEdit ? 'text-primary' : 'text-muted-foreground'"
+          :aria-label="allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)'"
+          :aria-pressed="allowEdit"
+          @click="emit('toggleEdit')"
+        >
+          <component :is="allowEdit ? LockOpen : Lock" class="h-[15px] w-[15px]" />
+          <span class="text-xs font-medium">{{ allowEdit ? '編集中' : '閲覧のみ' }}</span>
+        </Button>
+      </Tooltip>
 
       <div class="mx-0.5 h-5 w-px bg-border/70" />
 
       <!-- 元に戻す / やり直す -->
-      <Button variant="ghost" size="icon" title="元に戻す (⌘Z)" aria-label="元に戻す" :disabled="!canUndo" @click="emit('undo')">
-        <Undo2 class="h-[17px] w-[17px]" />
-      </Button>
-      <Button variant="ghost" size="icon" title="やり直す (⇧⌘Z)" aria-label="やり直す" :disabled="!canRedo" @click="emit('redo')">
-        <Redo2 class="h-[17px] w-[17px]" />
-      </Button>
+      <Tooltip text="元に戻す (⌘Z)">
+        <Button variant="ghost" size="icon" aria-label="元に戻す" :disabled="!canUndo" @click="emit('undo')">
+          <Undo2 class="h-[17px] w-[17px]" />
+        </Button>
+      </Tooltip>
+      <Tooltip text="やり直す (⇧⌘Z)">
+        <Button variant="ghost" size="icon" aria-label="やり直す" :disabled="!canRedo" @click="emit('redo')">
+          <Redo2 class="h-[17px] w-[17px]" />
+        </Button>
+      </Tooltip>
 
       <div class="mx-0.5 h-5 w-px bg-border/70" />
 
       <!-- ズーム -->
-      <Button variant="ghost" size="icon" title="縮小 (⌘-)" aria-label="縮小" @click="emit('zoomOut')">
-        <Minus class="h-4 w-4" />
-      </Button>
+      <Tooltip text="縮小 (⌘-)">
+        <Button variant="ghost" size="icon" aria-label="縮小" @click="emit('zoomOut')">
+          <Minus class="h-4 w-4" />
+        </Button>
+      </Tooltip>
       <!-- % はボタン: クリックで全体フィット(プレビュー画面の % クリックと挙動を統一)。 -->
-      <button
-        type="button"
-        class="w-[42px] rounded text-center text-[12.5px] tabular-nums text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        title="画面に合わせる (⌘0)"
-        aria-label="画面に合わせる"
-        @click="emit('zoomReset')"
-      >
-        {{ Math.round(zoom * 100) }}%
-      </button>
-      <Button variant="ghost" size="icon" title="拡大 (⌘+)" aria-label="拡大" @click="emit('zoomIn')">
-        <Plus class="h-4 w-4" />
-      </Button>
+      <Tooltip text="画面に合わせる (⌘0)">
+        <Button
+          variant="ghost"
+          class="h-auto w-[42px] rounded p-0 text-[12.5px] font-normal tabular-nums text-muted-foreground hover:bg-transparent hover:text-foreground"
+          aria-label="画面に合わせる"
+          @click="emit('zoomReset')"
+        >
+          {{ Math.round(zoom * 100) }}%
+        </Button>
+      </Tooltip>
+      <Tooltip text="拡大 (⌘+)">
+        <Button variant="ghost" size="icon" aria-label="拡大" @click="emit('zoomIn')">
+          <Plus class="h-4 w-4" />
+        </Button>
+      </Tooltip>
 
       <div class="mx-0.5 h-5 w-px bg-border/70" />
 
@@ -181,28 +182,30 @@ const attrItems = (a: TemplateAttributes) => [
       </template>
 
       <!-- 1 ページ表示 / 全ページ連続表示の切替 -->
-      <Button
-        variant="ghost"
-        size="icon"
-        :title="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
-        :aria-label="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
-        :class="singlePageMode ? 'text-primary' : ''"
-        @click="emit('toggleSinglePage')"
-      >
-        <FileText class="h-[17px] w-[17px]" />
-      </Button>
+      <Tooltip :text="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'">
+        <Button
+          variant="ghost"
+          size="icon"
+          :aria-label="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
+          :class="singlePageMode ? 'text-primary' : ''"
+          @click="emit('toggleSinglePage')"
+        >
+          <FileText class="h-[17px] w-[17px]" />
+        </Button>
+      </Tooltip>
 
       <!-- ページ境界 guide のトグル -->
-      <Button
-        variant="ghost"
-        size="icon"
-        :title="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
-        :aria-label="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
-        :class="showPageGuides ? 'text-primary' : ''"
-        @click="emit('togglePageGuides')"
-      >
-        <Rows3 class="h-[17px] w-[17px]" />
-      </Button>
+      <Tooltip :text="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'">
+        <Button
+          variant="ghost"
+          size="icon"
+          :aria-label="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
+          :class="showPageGuides ? 'text-primary' : ''"
+          @click="emit('togglePageGuides')"
+        >
+          <Rows3 class="h-[17px] w-[17px]" />
+        </Button>
+      </Tooltip>
     </div>
 
     <!-- ── 右ゾーン: 保存状態 + アクション(保存 / プレビュー) ── -->
@@ -229,18 +232,16 @@ const attrItems = (a: TemplateAttributes) => [
     >
       <RotateCcw class="h-4 w-4" /> 再試行
     </Button>
-    <Button
-      variant="ghost"
-      size="icon"
-      title="キーボードショートカット (?)"
-      aria-label="キーボードショートカット"
-      @click="emit('help')"
-    >
-      <CircleHelp class="h-[17px] w-[17px]" />
-    </Button>
-    <Button variant="outline" size="sm" :disabled="saveState === 'saving'" title="今すぐ保存 (⌘S)" @click="emit('save')">
-      <Save class="h-[15px] w-[15px]" /> 保存
-    </Button>
+    <Tooltip text="キーボードショートカット (?)">
+      <Button variant="ghost" size="icon" aria-label="キーボードショートカット" @click="emit('help')">
+        <CircleHelp class="h-[17px] w-[17px]" />
+      </Button>
+    </Tooltip>
+    <Tooltip text="今すぐ保存 (⌘S)">
+      <Button variant="outline" size="sm" :disabled="saveState === 'saving'" @click="emit('save')">
+        <Save class="h-[15px] w-[15px]" /> 保存
+      </Button>
+    </Tooltip>
     <Button size="sm" @click="emit('preview')"><Eye class="h-[15px] w-[15px]" /> プレビュー</Button>
   </header>
 </template>

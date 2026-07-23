@@ -8,8 +8,9 @@
   スクリプトと共通化してある。
 
   設計: ブラウザエンジンは同梱しない。exe は小さなローカル HTTP サーバを起動し、OS の Edge
-  をアプリモードで開く。ファイル入出力はブラウザの File System Access API を使う。WebView2
-  ランタイムを同梱しないため小さい(~10MB)。
+  をアプリモードで開く。ファイル入出力は `<input>`(開く)/ダウンロード(保存)固定
+  (File System Access API は VDI で不安定なため不使用)。WebView2 ランタイムを同梱しない
+  ため小さい(~10MB)。
 .PARAMETER Action
   `clean` を渡すと venv を作り直す(旧 build.bat の `clean` 引数に対応)。
 .PARAMETER NoPause
