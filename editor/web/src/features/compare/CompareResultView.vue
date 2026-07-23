@@ -8,21 +8,16 @@
 // 再 diff で反映し、設定は一時的(画面を離れる/再比較で破棄)。
 import { type TemplateVersionMeta, toAppError } from '@editor/shared';
 import { ChevronDown, ChevronLeft, ChevronRight, RotateCcw } from '@lucide/vue';
-import {
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuRoot,
-  DropdownMenuTrigger,
-} from 'reka-ui';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import PageNav from '@/components/PageNav.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
+import { DropdownMenu, DropdownMenuItem } from '@/components/ui/overlays';
 import Select from '@/components/ui/Select.vue';
 import { logError } from '@/lib/appError';
 import { formatDateTimeShort } from '@/lib/format';
 import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
+import { cn } from '@/lib/utils';
 import { htmlWorker } from '@/workers';
 import { buildDiffDoc, diffHighlightCss, type HtmlDiff, type PagePair } from './htmlBlockDiff';
 
@@ -246,35 +241,29 @@ const { fitFrame } = useIframeAutoFit();
       <span class="mono text-xs text-muted-foreground">比較元: {{ beforeFile }}　↔　比較先: {{ afterFile }}</span>
       <div class="ml-auto flex items-center gap-3">
         <!-- 変更ありページの集計はジャンプリストを兼ねる: クリックで一覧から直接飛べる。 -->
-        <DropdownMenuRoot v-if="changedPages.length > 0">
-          <DropdownMenuTrigger
-            class="ring-focus flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive outline-none"
-            title="変更ありページの一覧からジャンプ"
-          >
-            変更ありページ: {{ liveDiff.changedPageCount }} / {{ pageCount }}
-            <ChevronDown class="h-3 w-3" />
-          </DropdownMenuTrigger>
-          <DropdownMenuPortal>
-            <DropdownMenuContent
-              align="end"
-              :side-offset="6"
-              class="z-50 max-h-72 w-[200px] overflow-y-auto rounded-[11px] border bg-card p-1.5 text-card-foreground shadow-[var(--shadow-lg)] data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+        <DropdownMenu v-if="changedPages.length > 0" content-class="max-h-72 overflow-y-auto">
+          <template #trigger>
+            <button
+              type="button"
+              class="ring-focus flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive outline-none"
+              title="変更ありページの一覧からジャンプ"
             >
-              <DropdownMenuItem
-                v-for="i in changedPages"
-                :key="i"
-                class="flex cursor-pointer select-none items-center justify-between gap-2 rounded-[7px] px-2.5 py-1.5 text-[13px] font-medium outline-none data-[highlighted]:bg-accent"
-                :class="i === currentPage ? 'text-primary' : ''"
-                @select="goPage(i)"
-              >
-                ページ {{ i + 1 }}
-                <span class="text-[11px] font-normal text-muted-foreground">
-                  変更 {{ liveDiff.pages[i]?.changedBlockCount ?? 0 }} 箇所
-                </span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenuPortal>
-        </DropdownMenuRoot>
+              変更ありページ: {{ liveDiff.changedPageCount }} / {{ pageCount }}
+              <ChevronDown class="h-3 w-3" />
+            </button>
+          </template>
+          <DropdownMenuItem
+            v-for="i in changedPages"
+            :key="i"
+            :class="cn('justify-between gap-2 py-1.5', i === currentPage && 'text-primary')"
+            @select="goPage(i)"
+          >
+            ページ {{ i + 1 }}
+            <span class="text-[11px] font-normal text-muted-foreground">
+              変更 {{ liveDiff.pages[i]?.changedBlockCount ?? 0 }} 箇所
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenu>
         <span
           v-else
           class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"

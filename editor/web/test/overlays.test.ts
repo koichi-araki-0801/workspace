@@ -5,9 +5,9 @@
 // wrapper ではなく body を query して検証する。各テスト後に unmount + body 掃除で
 // Portal 残骸のテスト間リークを防ぐ。
 import { mount, type VueWrapper } from '@vue/test-utils';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { h, nextTick } from 'vue';
-import { Dialog } from '../src/components/ui/overlays';
+import { Dialog, DropdownMenu, DropdownMenuItem } from '../src/components/ui/overlays';
 
 let wrapper: VueWrapper | undefined;
 
@@ -80,5 +80,63 @@ describe('Dialog', () => {
     // tailwind-merge により size=sm の `max-w-sm` は contentClass の `max-w-md` で後勝ち上書き。
     expect(content?.className).toContain('max-w-md');
     expect(content?.className).not.toContain('max-w-sm');
+  });
+});
+
+describe('DropdownMenu', () => {
+  // jsdom では pointerdown で開かない(reka-ui が実 PointerEvent の詳細を見る)ため、
+  // キーボード操作(Enter)で開く。トリガは as-child で slot の実要素がそのまま使われる。
+  const mountMenu = async (contentClass?: string, onSelect = vi.fn()) => {
+    const w = mount(DropdownMenu, {
+      props: { contentClass },
+      slots: {
+        trigger: () => h('button', { id: 'trg' }, 'menu'),
+        default: () => h(DropdownMenuItem, { class: 'py-1.5', onSelect }, () => 'ITEM-1'),
+      },
+      attachTo: document.body,
+    });
+    await nextTick();
+    return { w, onSelect };
+  };
+
+  const openMenu = async (w: VueWrapper) => {
+    w.get('#trg').element.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+    await nextTick();
+  };
+
+  it('トリガ操作でメニューを開き、item をクラスマージ込みで描画する', async () => {
+    const { w } = await mountMenu();
+    wrapper = w;
+    expect(document.body.textContent).not.toContain('ITEM-1');
+    await openMenu(w);
+    const item = document.body.querySelector<HTMLElement>('[role="menuitem"]');
+    expect(item?.textContent).toContain('ITEM-1');
+    // 既定 `py-2` は呼び出し側 `py-1.5` で後勝ち上書き(tailwind-merge)。
+    expect(item?.className).toContain('py-1.5');
+    expect(item?.className).not.toContain('py-2 ');
+  });
+
+  it('item クリックで select を emit する', async () => {
+    const { w, onSelect } = await mountMenu();
+    wrapper = w;
+    await openMenu(w);
+    document.body
+      .querySelector<HTMLElement>('[role="menuitem"]')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await nextTick();
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it('contentClass がコンテンツ枠へマージされ、トリガは slot の実要素になる', async () => {
+    const { w } = await mountMenu('max-h-72 overflow-y-auto');
+    wrapper = w;
+    await openMenu(w);
+    const content = document.body.querySelector<HTMLElement>('[role="menu"]');
+    expect(content?.className).toContain('max-h-72');
+    // as-child: reka-ui のトリガ属性が slot の button 要素自身へ付与される。
+    expect(w.get('#trg').attributes('aria-haspopup')).toBe('menu');
   });
 });

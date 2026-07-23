@@ -16,6 +16,11 @@ import {
   DialogPortal,
   DialogRoot,
   DialogTitle,
+  DropdownMenuContent as RekaDropdownMenuContent,
+  DropdownMenuItem as RekaDropdownMenuItem,
+  DropdownMenuPortal as RekaDropdownMenuPortal,
+  DropdownMenuRoot as RekaDropdownMenuRoot,
+  DropdownMenuTrigger as RekaDropdownMenuTrigger,
 } from 'reka-ui';
 import { defineComponent, h, type PropType } from 'vue';
 import { cn } from '@/lib/utils';
@@ -84,6 +89,59 @@ export const Dialog = defineComponent({
               ],
             ),
           ]),
+      );
+  },
+});
+
+// ── 3. DropdownMenu ────────────────────────────────────────────────────────────
+
+const dropdownContentClass =
+  'z-50 w-[200px] rounded-[11px] border bg-card p-1.5 text-card-foreground shadow-[var(--shadow-lg)] data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95';
+
+const dropdownItemClass =
+  'flex cursor-pointer select-none items-center gap-2.5 rounded-[7px] px-2.5 py-2 text-[13px] font-medium outline-none data-[highlighted]:bg-accent';
+
+// トリガは `#trigger` slot の要素を as-child でそのまま使う(ピル/ボタン等の見た目は
+// 呼び出し側の責務)。コンテンツの枠スタイルだけを共通化し、差分は `contentClass` で足す。
+export const DropdownMenu = defineComponent({
+  name: 'DropdownMenu',
+  props: {
+    align: { type: String as PropType<'start' | 'center' | 'end'>, default: 'end' },
+    sideOffset: { type: Number, default: 6 },
+    contentClass: { type: String, default: undefined },
+  },
+  setup(props, { slots }) {
+    return () =>
+      h(RekaDropdownMenuRoot, null, () => [
+        h(RekaDropdownMenuTrigger, { asChild: true }, () => slots.trigger?.()),
+        h(RekaDropdownMenuPortal, null, () =>
+          h(
+            RekaDropdownMenuContent,
+            {
+              align: props.align,
+              sideOffset: props.sideOffset,
+              class: cn(dropdownContentClass, props.contentClass),
+            },
+            () => slots.default?.(),
+          ),
+        ),
+      ]);
+  },
+});
+
+export const DropdownMenuItem = defineComponent({
+  name: 'DropdownMenuItem',
+  props: { class: { type: String, default: undefined } },
+  emits: ['select'],
+  setup(props, { slots, emit }) {
+    return () =>
+      h(
+        RekaDropdownMenuItem,
+        {
+          class: cn(dropdownItemClass, props.class),
+          onSelect: (event: Event) => emit('select', event),
+        },
+        () => slots.default?.(),
       );
   },
 });
