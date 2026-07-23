@@ -5,6 +5,7 @@
 import { canDisableUser, isErr, isOk, type User, type UserRole, validateNewUser } from '@editor/shared';
 import { Ban, CircleCheck, KeyRound, Shield, UserPlus } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useUserRepo } from '@/api/repositories';
 import BackButton from '@/components/ui/BackButton.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
@@ -20,10 +21,9 @@ import { toastError, toastSuccess } from '@/components/ui/toast';
 import { ROLE_LABELS } from '@/lib/labels';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useAuthStore } from '@/stores/auth';
-import { useUserService } from './services/userService';
 import { toUserVm } from './viewmodels/userVm';
 
-const users = useUserService();
+const repo = useUserRepo();
 const auth = useAuthStore();
 const { run } = useAsyncResult();
 const rows = ref<User[]>([]);
@@ -36,7 +36,7 @@ const form = reactive({ username: '', displayName: '', role: 'editor' as UserRol
 const errors = reactive<{ username?: string; displayName?: string }>({});
 
 async function load() {
-  const res = await run(() => users.list());
+  const res = await run(() => repo.listUsers());
   if (isOk(res)) rows.value = res.value;
 }
 onMounted(load);
@@ -50,7 +50,8 @@ function validate(): boolean {
 
 async function addUser() {
   if (!validate()) return;
-  const res = await run(() => users.add({ ...form }));
+  // 仮パスワード運用: 新規ユーザーは有効状態で作成し、初回ログイン時のパスワード再設定を必須にする。
+  const res = await run(() => repo.createUser({ ...form, disabled: false, mustChangePassword: true }));
   if (isErr(res)) return;
   toastSuccess(`${form.displayName} を追加しました。初期パスワードはユーザーID（${form.username}）と同じです。`);
   form.username = '';
@@ -77,7 +78,7 @@ async function toggleDisabled(u: User) {
     variant: disabling ? 'destructive' : 'default',
   });
   if (!ok) return;
-  const res = await run(() => users.setDisabled(u.id, disabling));
+  const res = await run(() => repo.updateUser(u.id, { disabled: disabling }));
   if (isErr(res)) return;
   toastSuccess(disabling ? `${u.displayName} を無効化しました` : `${u.displayName} を有効化しました`);
   await load();
@@ -91,7 +92,7 @@ async function resetPw(u: User) {
     variant: 'destructive',
   });
   if (!ok) return;
-  const res = await run(() => users.resetPassword(u.id));
+  const res = await run(() => repo.resetUserPassword(u.id));
   if (isErr(res)) return;
   toastSuccess(`${u.displayName} のパスワードを初期化しました（ユーザーID「${u.username}」と同じです）`);
   await load();
