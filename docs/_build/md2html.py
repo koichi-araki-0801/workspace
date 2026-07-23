@@ -183,7 +183,14 @@ def render_markdown(body: str, doc_idx: int, img_dir: pathlib.Path, warnings, sr
         line = lines[i]
         stripped = line.strip()
 
-        if not stripped or stripped == "<!-- pagebreak -->":
+        if not stripped:
+            i += 1
+            continue
+
+        # HTML コメント（pagebreak 指示・原稿内メモ）は出力しない。複数行コメントは終端まで消費
+        if stripped.startswith("<!--"):
+            while i < n and "-->" not in lines[i]:
+                i += 1
             i += 1
             continue
 
@@ -283,7 +290,7 @@ def render_markdown(body: str, doc_idx: int, img_dir: pathlib.Path, warnings, sr
             nxt = lines[i].strip()
             if (not nxt or nxt.startswith("#") or nxt.startswith(">")
                     or nxt.startswith("```") or nxt.startswith("|")
-                    or _IMG.match(nxt) or nxt == "<!-- pagebreak -->"
+                    or _IMG.match(nxt) or nxt.startswith("<!--")
                     or _LIST.match(lines[i])):
                 break
             buf.append(nxt)

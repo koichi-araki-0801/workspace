@@ -1,4 +1,3 @@
-out: Editor_仕様一覧.xlsx
 title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
 meta: "対象: 運報自動化 Editor（フェーズ2 REST + SQL Server）・ 版 1.0 ・ 出典: editor/ 実装コード・DDL・テスト"
 sheets:

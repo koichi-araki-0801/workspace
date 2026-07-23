@@ -1,4 +1,3 @@
-out: PdfToSvg_仕様一覧.xlsx
 title: PdfToSvg 仕様一覧（画面項目 / 入出力 / RPC・HTTP / テスト）
 meta: "対象: PDF→SVG 変換ツール PdfToSvg（Edge シェル）・ 版 1.0 ・ 出典: pdf-to-svg/ 実装コード・テスト（DB なし）"
 sheets:

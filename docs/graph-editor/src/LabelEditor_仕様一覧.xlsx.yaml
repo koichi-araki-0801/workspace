@@ -1,4 +1,3 @@
-out: LabelEditor_仕様一覧.xlsx
 title: LabelEditor 仕様一覧（画面項目 / 入出力 / テスト）
 meta: "対象: SVG ラベル位置エディタ LabelEditor（graph-editor）・ 版 1.0 ・ 出典: graph-editor/ 実装コード・テスト（DB なし）"
 sheets:

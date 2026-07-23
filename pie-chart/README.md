@@ -1,7 +1,7 @@
 # pie-chart
 
 TypeScript 製の円グラフ SVG レンダラ。`{name, value}` の配列(JSON / Excel / サンプル)を入力に、ラベルと引出線を自動配置した円グラフ SVG を生成する。2〜3 人チームでメンテしやすい粒度にモジュール分割している。
-`out/svg_js/` の SVG 出力は 87 サンプルの回帰テスト (`verify/svg.ts`) で検証する。
+`out/svg_js/` の SVG 出力は 83 サンプルの回帰テスト (`verify/svg.ts`) で検証する。
 **レンダリング層は外部ライブラリ依存ゼロ**(D3.js 等は不採用)。Excel 入力のみ `exceljs`、フォント埋込のみ `subset-font` に依存し、それぞれ入力層・フォント層に隔離している。
 
 ## セットアップ
@@ -9,7 +9,7 @@ TypeScript 製の円グラフ SVG レンダラ。`{name, value}` の配列(JSON 
 ```bash
 npm install
 npm run check   # tsc --noEmit で型チェック
-npm run batch   # tsx src/test_batch.ts — 87 サンプル一括生成
+npm run batch   # tsx src/test_batch.ts — 83 サンプル一括生成
 npm run verify  # tsx src/verify/svg.ts — 自動検証
 ```
 
@@ -122,7 +122,7 @@ dist-exe/
 
 ### 全件生成 + ビューア
 
-- `npm run batch` — 全 87 サンプルを `out/svg_js/` に出力し、`out/compare.html`(A4 想定・1 ページ 12 件のページ送り)を更新
+- `npm run batch` — 全 83 サンプルを `out/svg_js/` に出力し、`out/compare.html`(A4 想定・1 ページ 12 件のページ送り)を更新
 - `npm run verify` — 生成済み SVG のラベル数・bbox オーバーラップ・円内侵入・引出線交差・viewBox はみ出し・引出線屈曲数を自動検証(引数で対象ディレクトリを指定可。既定は `out/svg_js`)
 
 ## ディレクトリ構成
@@ -131,7 +131,7 @@ dist-exe/
 pie-chart/
 ├── package.json
 ├── tsconfig.json
-├── samples.json                — サンプルデータ (87 件・object 形式)
+├── samples.json                — サンプルデータ (83 件・object 形式)
 ├── fonts/                     — 埋込フォント (BIZ UDPGothic WOFF2 400/700 + OFL ライセンス)
 ├── src/
 │   ├── types.ts                — 共通型 (Item / LayoutItem / Placement / Diagnostics / PieLayoutConfig)
@@ -163,7 +163,7 @@ pie-chart/
 │   │   ├── consistency.ts      — 採点判断 ↔ emit SVG の一致検証
 │   │   └── verify/oracle_sync.ts      — オラクル複製定数の drift ガード
 │   ├── cli.ts                  — CLI (list / one / batch)
-│   └── test_batch.ts           — 87 件一括生成 + compare.html
+│   └── test_batch.ts           — 83 件一括生成 + compare.html
 └── scripts/                    — build-exe.mjs / sign-exe.ps1 / gen_glyph_advance.ts
 ```
 

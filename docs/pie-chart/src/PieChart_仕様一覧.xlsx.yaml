@@ -1,4 +1,3 @@
-out: PieChart_仕様一覧.xlsx
 title: PieChart 仕様一覧（入出力 / CLI・設定 / テスト）
 meta: "対象: 円グラフ SVG レンダラ PieChart ・ 版 1.0 ・ 出典: pie-chart/ 実装コード・テスト"
 sheets:
