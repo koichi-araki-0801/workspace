@@ -9,8 +9,11 @@
   --code-bg:#F4F6F8; --code-bd:#C4CCD4; --rule2:#CDD5DD;
 }
 * { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
 html,body { margin:0; background:var(--bg); color:var(--ink);
-  font-family:"BIZ UDPGothic", "Yu Gothic UI", sans-serif; font-size:15px; line-height:1.75; }
+  font-family:"BIZ UDPGothic", "Yu Gothic UI", sans-serif; font-size:15px; line-height:1.75;
+  /* 日本語の禁則を厳格化し、長い識別子は語中で折り返してはみ出しを防ぐ */
+  line-break:strict; overflow-wrap:break-word; }
 a { color:var(--accent); text-decoration:none; }
 a:hover { text-decoration:underline; }
 code, pre { font-family:"BIZ UDGothic", "Consolas", monospace; }
@@ -34,9 +37,13 @@ h1 { font-size:26px; border-left:8px solid var(--accent); padding-left:14px; mar
 h2 { font-size:21px; margin:30px 0 10px; padding-bottom:6px; border-bottom:2px solid var(--rule2); }
 h3 { font-size:17px; margin:22px 0 8px; color:var(--accent); }
 h4 { font-size:15px; margin:18px 0 6px; }
+h1, h2, h3, h4 { scroll-margin-top:10px; }
+/* 本文の行長を読める長さ (約 50 字) に抑える。表・図・コードは全幅のまま */
+p, ul, ol, .callout { max-width:52em; }
+p, li { text-wrap:pretty; }
 p { margin:10px 0; }
 p code, li code, td code { background:var(--code-bg); border:1px solid var(--hair);
-  border-radius:3px; padding:0 4px; font-size:0.92em; }
+  border-radius:3px; padding:0 4px; font-size:0.92em; overflow-wrap:anywhere; }
 ul, ol { margin:8px 0; padding-left:26px; }
 li { margin:3px 0; }
 /* コード */
@@ -51,7 +58,8 @@ table { border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px;
   display:block; overflow-x:auto; }
 th, td { border:1px solid var(--hair); padding:6px 10px; text-align:left; vertical-align:top; }
 thead th { background:var(--accent); color:#fff; font-weight:700; white-space:nowrap; }
-tbody tr.zebra { background:var(--zebra); }
+/* 長い表でも行を目で追えるよう、全テーブルに偶数行ゼブラを適用（仕様一覧の .zebra と同色） */
+tbody tr:nth-child(even), tbody tr.zebra { background:var(--zebra); }
 td.mono { font-family:"BIZ UDGothic", "Consolas", monospace; }
 td.al-center { text-align:center; }
 td.al-right { text-align:right; }
@@ -61,10 +69,12 @@ td.res-ng { color:#B3403F; background:#FDECEC; font-weight:700; text-align:cente
 td.res-todo { color:#6B727B; background:#EEF1F4; text-align:center; }
 .sheet-title { font-weight:700; margin:6px 0 0; }
 .sheet-meta { color:var(--muted); font-size:13px; margin:2px 0 6px; }
-/* 画像 */
-figure { margin:16px 0; text-align:center; }
+/* 画像（図番号は原稿ごとの CSS カウンタで自動採番） */
+section.doc { counter-reset:fig; }
+figure { margin:16px 0; text-align:center; counter-increment:fig; }
 figure img { max-width:100%; height:auto; border:1px solid var(--hair); border-radius:4px; }
 figcaption { color:var(--muted); font-size:12.5px; margin-top:6px; }
+figcaption::before { content:"図 " counter(fig) "　"; font-weight:700; }
 .img-missing { color:#B3403F; background:#FDECEC; border:1px dashed #B3403F;
   padding:10px; border-radius:4px; }
 /* callout */
@@ -81,11 +91,23 @@ figcaption { color:var(--muted); font-size:12.5px; margin-top:6px; }
 /* mermaid（未描画時は整形コードとして見せる） */
 pre.mermaid { background:var(--card); border:1px solid var(--hair); border-radius:6px;
   padding:16px; text-align:center; overflow-x:auto; line-height:1.4; }
+/* TOC の現在位置ハイライト（スクロールスパイ。インライン JS が .now を付け外しする） */
+nav.toc a.now { color:var(--accent); font-weight:700; background:#fff; border-radius:3px; }
 @media (max-width:820px) {
-  .layout { flex-direction:column; }
+  /* 縦積み時は align-items:flex-start を打ち消して main を全幅に伸ばす
+     （残すと main が max-content 幅へ広がりページ全体が横スクロールする） */
+  .layout { flex-direction:column; align-items:stretch; }
   nav.toc { position:static; width:100%; min-width:0; height:auto; border-right:none;
     border-bottom:1px solid var(--hair); }
   main { padding:18px; }
+}
+@media print {
+  nav.toc { display:none; }
+  .layout { display:block; }
+  main { max-width:none; padding:0; }
+  figure, table, .callout { break-inside:avoid; }
+  .code pre { white-space:pre-wrap; overflow:visible; }
+  a { color:inherit; }
 }
 </style>
 </head><body>
@@ -3105,4 +3127,5 @@ cytoscape/dist/cytoscape.esm.mjs:
 globalThis["mermaid"] = globalThis.__esbuild_esm_mermaid_nm["mermaid"].default;
 </script>
 <script>mermaid.initialize({startOnLoad:true,theme:'base',themeVariables:{primaryColor:'#EAF2FB',primaryBorderColor:'#1F5C99',primaryTextColor:'#20242C',lineColor:'#606874',secondaryColor:'#F5F8FB',tertiaryColor:'#FFFFFF',fontFamily:'BIZ UDPGothic,sans-serif'}});</script>
+<script>(()=>{const links=[...document.querySelectorAll('nav.toc a[href^="#"]')];const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));const obs=new IntersectionObserver(es=>{for(const e of es){if(!e.isIntersecting)continue;const a=map.get(e.target.id);if(!a)continue;links.forEach(x=>x.classList.remove('now'));a.classList.add('now');}},{rootMargin:'0px 0px -75% 0px'});document.querySelectorAll('main h1[id],main h2[id],main h3[id],main h4[id],main section[id]').forEach(el=>obs.observe(el));})();</script>
 </body></html>

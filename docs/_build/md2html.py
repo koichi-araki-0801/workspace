@@ -354,8 +354,11 @@ def _css() -> str:
   --code-bg:{t['code_bg']}; --code-bd:{t['code_bd']}; --rule2:{t['rule2']};
 }}
 * {{ box-sizing:border-box; }}
+html {{ scroll-behavior:smooth; }}
 html,body {{ margin:0; background:var(--bg); color:var(--ink);
-  font-family:{JP}; font-size:15px; line-height:1.75; }}
+  font-family:{JP}; font-size:15px; line-height:1.75;
+  /* 日本語の禁則を厳格化し、長い識別子は語中で折り返してはみ出しを防ぐ */
+  line-break:strict; overflow-wrap:break-word; }}
 a {{ color:var(--accent); text-decoration:none; }}
 a:hover {{ text-decoration:underline; }}
 code, pre {{ font-family:{MONO}; }}
@@ -379,9 +382,13 @@ h1 {{ font-size:26px; border-left:8px solid var(--accent); padding-left:14px; ma
 h2 {{ font-size:21px; margin:30px 0 10px; padding-bottom:6px; border-bottom:2px solid var(--rule2); }}
 h3 {{ font-size:17px; margin:22px 0 8px; color:var(--accent); }}
 h4 {{ font-size:15px; margin:18px 0 6px; }}
+h1, h2, h3, h4 {{ scroll-margin-top:10px; }}
+/* 本文の行長を読める長さ (約 50 字) に抑える。表・図・コードは全幅のまま */
+p, ul, ol, .callout {{ max-width:52em; }}
+p, li {{ text-wrap:pretty; }}
 p {{ margin:10px 0; }}
 p code, li code, td code {{ background:var(--code-bg); border:1px solid var(--hair);
-  border-radius:3px; padding:0 4px; font-size:0.92em; }}
+  border-radius:3px; padding:0 4px; font-size:0.92em; overflow-wrap:anywhere; }}
 ul, ol {{ margin:8px 0; padding-left:26px; }}
 li {{ margin:3px 0; }}
 /* コード */
@@ -396,7 +403,8 @@ table {{ border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px;
   display:block; overflow-x:auto; }}
 th, td {{ border:1px solid var(--hair); padding:6px 10px; text-align:left; vertical-align:top; }}
 thead th {{ background:var(--accent); color:#fff; font-weight:700; white-space:nowrap; }}
-tbody tr.zebra {{ background:var(--zebra); }}
+/* 長い表でも行を目で追えるよう、全テーブルに偶数行ゼブラを適用（仕様一覧の .zebra と同色） */
+tbody tr:nth-child(even), tbody tr.zebra {{ background:var(--zebra); }}
 td.mono {{ font-family:{MONO}; }}
 td.al-center {{ text-align:center; }}
 td.al-right {{ text-align:right; }}
@@ -406,10 +414,12 @@ td.res-ng {{ color:{t['ng_txt']}; background:{t['ng_fill']}; font-weight:700; te
 td.res-todo {{ color:{t['todo_txt']}; background:{t['todo_fill']}; text-align:center; }}
 .sheet-title {{ font-weight:700; margin:6px 0 0; }}
 .sheet-meta {{ color:var(--muted); font-size:13px; margin:2px 0 6px; }}
-/* 画像 */
-figure {{ margin:16px 0; text-align:center; }}
+/* 画像（図番号は原稿ごとの CSS カウンタで自動採番） */
+section.doc {{ counter-reset:fig; }}
+figure {{ margin:16px 0; text-align:center; counter-increment:fig; }}
 figure img {{ max-width:100%; height:auto; border:1px solid var(--hair); border-radius:4px; }}
 figcaption {{ color:var(--muted); font-size:12.5px; margin-top:6px; }}
+figcaption::before {{ content:"図 " counter(fig) "　"; font-weight:700; }}
 .img-missing {{ color:{t['ng_txt']}; background:{t['ng_fill']}; border:1px dashed {t['ng_txt']};
   padding:10px; border-radius:4px; }}
 /* callout */
@@ -426,11 +436,23 @@ figcaption {{ color:var(--muted); font-size:12.5px; margin-top:6px; }}
 /* mermaid（未描画時は整形コードとして見せる） */
 pre.mermaid {{ background:var(--card); border:1px solid var(--hair); border-radius:6px;
   padding:16px; text-align:center; overflow-x:auto; line-height:1.4; }}
+/* TOC の現在位置ハイライト（スクロールスパイ。インライン JS が .now を付け外しする） */
+nav.toc a.now {{ color:var(--accent); font-weight:700; background:#fff; border-radius:3px; }}
 @media (max-width:820px) {{
-  .layout {{ flex-direction:column; }}
+  /* 縦積み時は align-items:flex-start を打ち消して main を全幅に伸ばす
+     （残すと main が max-content 幅へ広がりページ全体が横スクロールする） */
+  .layout {{ flex-direction:column; align-items:stretch; }}
   nav.toc {{ position:static; width:100%; min-width:0; height:auto; border-right:none;
     border-bottom:1px solid var(--hair); }}
   main {{ padding:18px; }}
+}}
+@media print {{
+  nav.toc {{ display:none; }}
+  .layout {{ display:block; }}
+  main {{ max-width:none; padding:0; }}
+  figure, table, .callout {{ break-inside:avoid; }}
+  .code pre {{ white-space:pre-wrap; overflow:visible; }}
+  a {{ color:inherit; }}
 }}
 """
 
@@ -451,6 +473,26 @@ def _mermaid_script(has_mermaid: bool) -> str:
         "tertiaryColor:'#FFFFFF',fontFamily:'BIZ UDPGothic,sans-serif'}});"
     )
     return f"<script>{js}</script>\n<script>{init}</script>"
+
+
+def _scrollspy_script() -> str:
+    """左 TOC の現在位置ハイライト（読者の現在地表示）。自己完結の最小 JS。
+
+    IntersectionObserver で「画面上部 1/4 に入っている見出し」を現在地とみなし、対応する
+    TOC リンクへ `.now` を付ける。JS 無効環境では単に何も起きない（閲覧は損なわれない）。
+    """
+    return (
+        "<script>(()=>{"
+        "const links=[...document.querySelectorAll('nav.toc a[href^=\"#\"]')];"
+        "const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));"
+        "const obs=new IntersectionObserver(es=>{for(const e of es){"
+        "if(!e.isIntersecting)continue;const a=map.get(e.target.id);if(!a)continue;"
+        "links.forEach(x=>x.classList.remove('now'));a.classList.add('now');}},"
+        "{rootMargin:'0px 0px -75% 0px'});"
+        "document.querySelectorAll('main h1[id],main h2[id],main h3[id],main h4[id],"
+        "main section[id]').forEach(el=>obs.observe(el));"
+        "})();</script>"
+    )
 
 
 def _order_key(path: pathlib.Path):
@@ -510,6 +552,7 @@ def _build_book(book_title: str, srcs, img_dir: pathlib.Path, out_path: pathlib.
         f'<main>{"".join(sections)}</main>\n'
         "</div>\n"
         f"{_mermaid_script(has_mermaid)}\n"
+        f"{_scrollspy_script()}\n"
         "</body></html>\n"
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
