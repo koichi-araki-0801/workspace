@@ -30,13 +30,7 @@ import {
 import { TOP_BAND_HALF_WIDTH_DEG, topBandSonohokaZone } from '../layout/placement.js';
 import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from '../types.js';
 import { clampPlacement, blockedInY } from './post_layout.js';
-import {
-  boxPieIntrusionMax,
-  boxViewOverflowMax,
-  countLeaderCrossings,
-  leaderCrossingPairs,
-  leaderThroughPairs,
-} from './leader_geometry.js';
+import { boxPieIntrusionMax, boxViewOverflowMax, countLeaderCrossings } from './leader_geometry.js';
 import type { Coord } from './leader_geometry.js';
 // do-no-harm ゲート・採点は emit_repair.ts の共通基盤を使う (循環 import だが関数宣言のみ参照で安全)。
 import {
@@ -170,6 +164,330 @@ export function applyTwoLineLeftColumn(placements: Placement[], cfg: PieLayoutCo
     p.leaderBend = { x: p.x, y: p.y };
     p.leaderBendFollowsEndpointY = false;
     p.leaderBendFollowsEndpointX = false;
+  }
+}
+
+// ── applyLeftStackClusterEvenSpread のチューニング定数 (プレビュー反復でユーザー確定した値) ──
+/** 12 時 ±この角度内の小スライスは「上部左の縦列」でないため run から除外する (例 香港ドル≈103°)。 */
+const LEFT_CLUSTER_TOP_BAND_EXCLUDE_DEG = 16;
+/** 接触級の判定: 隣接エアギャップ < scaledMinGap×この係数で「密集」とみなす。0.5 だと
+ * country_foreign_equity_pdf など現状維持が望ましい列まで発火した (0.15〜0.05 で接触級のみに安定)。 */
+const LEFT_CLUSTER_CRAMP_GAP_FRACTION = 0.15;
+/** クラスタ入り資格の percent 上限。7.5 で cur8 のイギリスポンド (7%) を含み、大スライス
+ * (ユーロ 8%〜) を除外する境界になる。 */
+const LEFT_CLUSTER_MAX_SMALL_PERCENT = 7.5;
+/** クラスタ内の縦ピッチ (scaledMinGap 比)。参考イメージの「上端から数 px で積む」密ピッチ。 */
+const LEFT_CLUSTER_STACK_GAP_FRACTION = 0.35;
+/** クラスタ直下の大スライス群同士の最小ギャップ (scaledMinGap 比)。 */
+const LEFT_CLUSTER_BELOW_MIN_GAP_FRACTION = 0.35;
+/** クラスタ最下段と最初の大スライスの分離ギャップ (scaledMinGap 比)。小クラスタと大スライスの
+ * 縦分離を視覚化する。1.6 では usd9 の米ドルが下端へ沈んだ (0.4 で rim 位置に復帰)。 */
+const LEFT_CLUSTER_BIG_GAP_FRACTION = 0.4;
+
+/**
+ * leftStackMode の左列を「上部の小スライス密集クラスタ」と「直下の大スライス群」に二分して整える。
+ * 先頭から接触級に詰まる小スライス (percent <= LEFT_CLUSTER_MAX_SMALL_PERCENT) の連続 run を
+ * canvas 上端アンカーの密ピッチで積み直し、大スライス (ユーロ/円/米ドル 等) は自スライス rim
+ * 高さ基準のまま下方向へ分離する。X は前段確定値を維持 (rim 沿い)。leader は書き出し側の
+ * 縦縁・縦中央接続 (`sideCenterLeader`) へ切替える。
+ * 却下済みの等間隔全高展開 (`spreadLeftStackFullHeight`, 設計正典の却下理由集) とは違い、
+ * 全ラベルを等間隔化するのではなく「密集クラスタのみ上端へ整え、大スライスは rim 追従を保つ」
+ * 二層構造なので、中段ラベルがスライスから離れる副作用を避けられる。
+ * 発火は幾何条件のみ (run>=3 等)。悪化時は do-no-harm で全 revert する。
+ */
+export function applyLeftStackClusterEvenSpread(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): void {
+  const boxCenter = (p: Placement): number => {
+    const b = placementBox(p, cfg);
+    return (b.top + b.bottom) / 2;
+  };
+  // 12 時 (midAngle=90°) 近傍の小スライスは「上部左の縦列」ではないので run から外す
+  // (top-right 逃がし対象。境界は狭い: 香港 13° vs スイス 21°)。
+  const isTopBand = (p: Placement): boolean =>
+    Math.abs(((((p.item.midAngle ?? 0) % 360) + 360) % 360) - 90) <=
+    LEFT_CLUSTER_TOP_BAND_EXCLUDE_DEG;
+  const left = placements
+    .filter(
+      (p) =>
+        p.item.side === 'left' &&
+        p.anchor === 'end' &&
+        !p.insideSlice &&
+        !p.item.flipToRight &&
+        !p.item.flipToLeft &&
+        !p.item.topBandSmallRight &&
+        !p.forceTopRight &&
+        !isTopBand(p) &&
+        p.x < 0,
+    )
+    .sort((a, b) => boxCenter(b) - boxCenter(a)); // 上 → 下 (+y 上, 箱中心降順)
+  if (left.length < 3) return;
+  // 先頭の密集ラン: 隣接エアギャップが接触級で、かつ小スライスが続く先頭連続 run。
+  // 大スライス (ユーロ/円/米ドル 等) は自スライス寄りに残す。
+  if ((left[0].item.percent ?? 100) > LEFT_CLUSTER_MAX_SMALL_PERCENT) return;
+  const run: Placement[] = [left[0]];
+  for (let i = 1; i < left.length; i += 1) {
+    const air = placementBox(left[i - 1], cfg).bottom - placementBox(left[i], cfg).top;
+    if (
+      air < cfg.scaledMinGap * LEFT_CLUSTER_CRAMP_GAP_FRACTION &&
+      (left[i].item.percent ?? 100) <= LEFT_CLUSTER_MAX_SMALL_PERCENT
+    )
+      run.push(left[i]);
+    else break;
+  }
+  if (run.length < 3) return;
+  // run の直下に続く大スライス群 (ユーロ/円/米ドル 等)。クラスタを上部へ詰めた分、これらを下方向へ
+  // 押し下げてクラスタとの間に大きな間隔を作る (小スライスクラスタと大スライスを上下に分離)。
+  const below = left.slice(run.length);
+  // 積み順は**角度順 (上→下 = sin 降順)**。box 中心順は baseline で箱が重なっていると角度順と
+  // 食い違い、そのまま積むと縦並び=角度順の逆転 (inv) を作る (実測: pdf07 の韓国・ウォン重なり)。
+  const bySin = (a: Placement, b: Placement): number =>
+    Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0));
+  run.sort(bySin);
+  below.sort(bySin);
+  const all = [...run, ...below];
+
+  // do-no-harm 用に対象メンバの現状を退避 + 採点 before。本パスは emit 最終段なので、採点用
+  // finalize (scoring パスを複製上で再適用) を通す countVerifyIssuesDetailed ではなく、finalScore と
+  // 同じ素の countDefects 基準 (EmitDefectVec) で測る。box 重なり (二級) も非増加を要求する。
+  const before = captureEmitDefectVec(placements, cfg, coord);
+  const overlapBefore = boxOverlapMax(placements, cfg);
+  const snap = all.map((p) => ({
+    x: p.x,
+    y: p.y,
+    two: p.twoLineLeftColumn,
+    otx: p.origTextX,
+    oty: p.origTextY,
+    lep: p.leaderEndpoint,
+    lbd: p.leaderBend,
+    lbfy: p.leaderBendFollowsEndpointY,
+    lbfx: p.leaderBendFollowsEndpointX,
+    scl: p.sideCenterLeader,
+  }));
+
+  const pieR = cfg.pieRadius;
+  const gapMin = cfg.scaledMinGap * LEFT_CLUSTER_BELOW_MIN_GAP_FRACTION;
+  const bigGap = cfg.scaledMinGap * LEFT_CLUSTER_BIG_GAP_FRACTION;
+  const yHi = cfg.canvasYlim[1] - cfg.canvasSafetyMargin;
+  const yLoEdge = cfg.canvasYlim[0] + cfg.canvasSafetyMargin;
+
+  // 各メンバの目標中心 c[] を計算 (上→下)。
+  const n = all.length;
+  const nRun = run.length;
+  const boxes0 = all.map((p) => placementBox(p, cfg));
+  const heights = boxes0.map((b) => b.top - b.bottom);
+  const rim = all.map((p) => Math.sin(degToRad(p.item.midAngle ?? 0)) * pieR);
+  const c: number[] = new Array(n);
+  // クラスタ: canvas 上端アンカーの密ピッチ順積み (参考イメージは gap 数 px で上端から積む)。
+  // rim 追従だとクラスタが下に広がり、below の大スライスが bigGap チェーンで下端へ沈む。
+  const gapClu = cfg.scaledMinGap * LEFT_CLUSTER_STACK_GAP_FRACTION;
+  // クラスタ上端キャップ: 左半分に box を持つ外部ラベル (top-band 逃がし等、all 非メンバ) のうち
+  // 角度的に run 先頭より上のものの**視覚的な下**へ留まる。上へ出ると縦並び=角度順の逆転 (inv) を
+  // 作る (実測: pdf07 で 韓国・ウォン が ニュージーランド・ドル を追い越して inv 0→1)。
+  let topCenterCap = yHi - heights[0] / 2;
+  {
+    const sin0 = Math.sin(degToRad(run[0].item.midAngle ?? 0));
+    for (const q of placements) {
+      if (q.insideSlice || all.includes(q) || q.x >= 0) continue;
+      if (Math.sin(degToRad(q.item.midAngle ?? 0)) <= sin0) continue; // 角度的に下 → 制約なし
+      const qb = placementBox(q, cfg);
+      topCenterCap = Math.min(topCenterCap, (qb.top + qb.bottom) / 2 - pxToLogical(cfg, 6));
+    }
+  }
+  c[0] = topCenterCap;
+  for (let i = 1; i < n; i += 1) {
+    const half = (heights[i - 1] + heights[i]) / 2;
+    if (i < nRun) {
+      // クラスタ内: 上から密ピッチ順積み。
+      c[i] = c[i - 1] - (half + gapClu);
+    } else if (i === nRun) {
+      // クラスタ直下の最初の大スライス: 自 rim を基本に、クラスタ最下段から bigGap 以上あけて下へ。
+      c[i] = Math.min(rim[i], c[i - 1] - (half + bigGap));
+    } else {
+      // 以降の大スライス: 自 rim を基本に、直前から minGap 以上あけて下へ。
+      c[i] = Math.min(rim[i], c[i - 1] - (half + gapMin));
+    }
+  }
+  // 下端: 最下段が canvas 下端を割らないよう、割る分だけ下側グループを上へ戻す (順序保存)。
+  for (let i = n - 1; i >= 1; i -= 1) {
+    const minCenter = yLoEdge + heights[i] / 2;
+    if (c[i] < minCenter) {
+      c[i] = minCenter;
+      const half = (heights[i - 1] + heights[i]) / 2;
+      const maxAbove = c[i] + half + gapMin; // 直上はこれ以上下げない (重なり防止)
+      if (c[i - 1] < maxAbove) c[i - 1] = maxAbove;
+    }
+  }
+
+  for (let i = 0; i < n; i += 1) {
+    const p = all[i];
+    const h = heights[i];
+    const newTop = c[i] + h / 2;
+    const newBottom = newTop - h;
+    const newY = p.y + ((newTop + newBottom) / 2 - (boxes0[i].top + boxes0[i].bottom) / 2);
+    const isCluster = i < nRun || newBottom >= pieR || newTop <= -pieR;
+    if (isCluster) {
+      // クラスタ: X は前段確定値を維持し Y のみ移動 (参考イメージも X 不変)。新 y で rim-hug や
+      // clampPlacement を掛けると静的 pie クランプが上端付近でラベルを右へ引き戻し、top-band
+      // 逃がしの leader と交差する (スイス×香港ドル)。前段が元 y で pie クリアランスを保証済みで、
+      // 左上へ上げる移動は pie から離れる方向なので再クランプ不要。円キャップの完全に上/下も同様。
+      p.y = newY;
+    } else {
+      // below の大スライス: 新 Y での左 rim (x=-sqrt(r^2-y^2)) を起点に pie クリアランス nudge。
+      const measured = placementExtent(p, cfg);
+      const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - newY * newY));
+      const nudged = nudgeTextAwayFromPie(-rimXmag, newY, p.anchor, p.baseline, measured, cfg);
+      p.x = nudged.x;
+      p.y = nudged.y;
+    }
+    p.twoLineLeftColumn = true;
+    if (!isCluster) clampPlacement(p, cfg);
+    // 長名ラベルの箱左端が viewBox 左端を割る見切れは、割った分だけ右へ戻す (pie 側の悪化は
+    // 後段の do-no-harm ゲートが拾う)。⚠ canvasXlim (余白キャップ済み境界) ではなく clip 判定と
+    // 同じ viewBox 端を使う — canvasXlim だと列全体が 60px 右へ押され leader 交差を作る。
+    {
+      const bx = placementBox(p, cfg);
+      const xLo = -pxToLogical(cfg, cfg.svgWidthPx / 2 - 2);
+      if (bx.left < xLo) p.x += xLo - bx.left;
+    }
+    p.origTextX = p.x;
+    p.origTextY = p.y;
+    // leader は**書き出し側の縦縁・縦中央**へ接続する (ユーザー指定の見せ方)。既定の行中央シードだと
+    // 長い斜め leader が truncate で上縁の角に刺さって見える (ユーロ/先物/B の指摘)。実接続は
+    // `computeDrawnLeader` の `sideCenterLeader` 分岐が行う (endpoint シードはアンカー側の保険)。
+    p.sideCenterLeader = true;
+    {
+      const fb2 = placementBox(p, cfg);
+      p.leaderEndpoint = { x: p.x, y: (fb2.top + fb2.bottom) / 2 };
+    }
+    p.leaderBend = { x: p.x, y: p.y };
+    p.leaderBendFollowsEndpointY = false;
+    p.leaderBendFollowsEndpointX = false;
+  }
+
+  // sideCenterLeader の斜め直線が**隣接ラベル箱を掠める**場合の退避 (through 判定は数 px の graze を
+  // 数えないため do-no-harm では拾えない)。退避ラダー: ①attach を接触箱と反対側へ h/4 → 縁いっぱい
+  // ②それでも解けなければラベル右シフト ③解消不能なら反対側縁で許容 (下記各分岐コメント参照)。
+  {
+    const pad = pxToLogical(cfg, 2);
+    const segHitsBox = (
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+      bx: { left: number; right: number; top: number; bottom: number },
+    ): boolean => {
+      // 論理座標 (y-up)。粗い除外 → 端点内包 → 4 辺との交差判定。
+      if (Math.max(a.x, b.x) < bx.left || Math.min(a.x, b.x) > bx.right) return false;
+      if (Math.max(a.y, b.y) < bx.bottom || Math.min(a.y, b.y) > bx.top) return false;
+      const inside = (p2: { x: number; y: number }): boolean =>
+        p2.x >= bx.left && p2.x <= bx.right && p2.y >= bx.bottom && p2.y <= bx.top;
+      if (inside(a) || inside(b)) return true;
+      const cross = (
+        p1: { x: number; y: number },
+        p2: { x: number; y: number },
+        p3: { x: number; y: number },
+        p4: { x: number; y: number },
+      ): boolean => {
+        const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+        if (Math.abs(d) < 1e-12) return false;
+        const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d;
+        const u = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d;
+        return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+      };
+      const tl = { x: bx.left, y: bx.top };
+      const tr = { x: bx.right, y: bx.top };
+      const bl = { x: bx.left, y: bx.bottom };
+      const br = { x: bx.right, y: bx.bottom };
+      return (
+        cross(a, b, tl, tr) || cross(a, b, bl, br) || cross(a, b, tl, bl) || cross(a, b, tr, br)
+      );
+    };
+    for (const p of all) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        if (!p.sideCenterLeader) break;
+        const drawn = computeDrawnLeader(p, cfg);
+        if (drawn.skipLeader) break;
+        let hitBox: { left: number; right: number; top: number; bottom: number } | null = null;
+        let hitSegMinX = Number.POSITIVE_INFINITY;
+        for (const q of placements) {
+          if (q === p || q.insideSlice) continue;
+          const qb = placementBox(q, cfg);
+          const inflated = {
+            left: qb.left - pad,
+            right: qb.right + pad,
+            top: qb.top + pad,
+            bottom: qb.bottom - pad,
+          };
+          for (let k = 0; k + 1 < drawn.pathPoints.length; k += 1) {
+            if (segHitsBox(drawn.pathPoints[k], drawn.pathPoints[k + 1], inflated)) {
+              hitBox = qb;
+              hitSegMinX = Math.min(drawn.pathPoints[k].x, drawn.pathPoints[k + 1].x);
+              break;
+            }
+          }
+          if (hitBox) break;
+        }
+        if (!hitBox) break;
+        // 既定接続へのフォールバックはしない — 既定経路は同じ幾何で本物の through
+        // (豪ドル>カナダドル) を作り、do-no-harm が全 revert してしまう。
+        const fb = placementBox(p, cfg);
+        const h = fb.top - fb.bottom;
+        const hitAbove = (hitBox.top + hitBox.bottom) / 2 > (fb.top + fb.bottom) / 2;
+        const mid = (fb.top + fb.bottom) / 2;
+        if (attempt >= 4) {
+          // 掠り解消不能。attach をアンカーと反対側の縁 (交差を作らない最小被害の状態) へ戻して
+          // sideCenter のまま許容する (アンカー側の縁は円回避エルボが張り出し実交差を作る実測あり)。
+          p.leaderEndpoint = { x: p.x, y: hitAbove ? fb.bottom : fb.top };
+          break;
+        }
+        if (attempt === 0 && hitAbove && hitBox.right > fb.right) {
+          // 接触箱 (上) が自分より右へはみ出す形 (カナダドル×豪ドル): attach の上下退避では
+          // 「アンカーへ立ち上がる第1セグメントが箱の右下角を掠める」幾何が解けない。ラベルを
+          // 右へシフトし、箱の右端より外側から立ち上がらせる (右方向は pie 縁まで余裕がある。
+          // 侵入等の悪化は後段 do-no-harm が拾う)。
+          const shift = hitBox.right + pad - fb.right;
+          p.x += shift;
+          p.origTextX = p.x;
+          p.leaderEndpoint = { x: p.x, y: mid };
+        } else if (attempt <= 1) {
+          // 接触箱と反対側へ attach を退避: まず h/4、次に縁いっぱい。
+          p.leaderEndpoint = {
+            x: p.leaderEndpoint.x,
+            y: attempt === 0 ? mid + (hitAbove ? -h / 4 : h / 4) : hitAbove ? fb.bottom : fb.top,
+          };
+        } else {
+          // attach 退避では解けない幾何 (実測: イギリスポンド。rim 側の円回避エルボが上隣・
+          // 豪ドル箱の右下角へ張り出す): 掠っている path 点ごと箱の右外へ出すラベル右シフト。
+          // 接触箱が自分より左でも、エルボは箱右端より左へ食い込むため shift は正になる。
+          const shift = hitBox.right + pad - hitSegMinX + pad;
+          if (shift > 0) {
+            p.x += shift;
+            p.origTextX = p.x;
+          }
+          p.leaderEndpoint = { x: p.x, y: mid };
+        }
+      }
+    }
+  }
+
+  // do-no-harm: emit 段標準ゲート (一級 defect + through/cross 新規対 + inv) と box 重なりの
+  // いずれかが悪化したら全 revert。
+  const worsened = emitDefectsWorsened(before, placements, cfg, coord);
+  if (worsened || boxOverlapMax(placements, cfg) > overlapBefore + pxToLogical(cfg, 1)) {
+    all.forEach((p, i) => {
+      const s = snap[i];
+      p.x = s.x;
+      p.y = s.y;
+      p.twoLineLeftColumn = s.two;
+      p.origTextX = s.otx;
+      p.origTextY = s.oty;
+      p.leaderEndpoint = s.lep;
+      p.leaderBend = s.lbd;
+      p.leaderBendFollowsEndpointY = s.lbfy;
+      p.leaderBendFollowsEndpointX = s.lbfx;
+      p.sideCenterLeader = s.scl;
+    });
   }
 }
 

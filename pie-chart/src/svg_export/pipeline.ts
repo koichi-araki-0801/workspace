@@ -1073,7 +1073,10 @@ function upperEscapeScore(
   // なり、実描画でだけ退行する構成を採用してしまう (実測: 逃がした先で『その他』と 30px 重なる)。
   // 逃がしは箱を新しい場所へ移す変更なので、修復まで含めた最終形で判断する必要がある。
   const finalized = placements.map((p) => ({ ...p }));
-  applyEmitRepairPasses(finalized, cfg, coord, layout.diagnostics);
+  // context='candidateScoring': `finalOnly` の最終確定パス (applyLeftStackClusterEvenSpread) は
+  // 通さない。混ぜると escape 候補の採点が確定パス適用後の姿で歪み、escape 数の選択自体が変わる
+  // (`EmitRepairPass.finalOnly` の doc comment 参照)。
+  applyEmitRepairPasses(finalized, cfg, coord, layout.diagnostics, 'candidateScoring');
   const throughPairs = leaderThroughPairs(finalized, cfg, coord);
   const crossPairs = leaderCrossingPairs(finalized, cfg, coord);
   return {

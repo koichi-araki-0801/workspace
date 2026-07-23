@@ -169,6 +169,33 @@ export function computeDrawnLeader(
     endpoint.y *= factor;
   }
   const finalBox = placementBox(placement, cfg);
+  if (alwaysDraw && placement.sideCenterLeader && placement.anchor !== 'middle') {
+    // 明示オプトイン (`applyLeftStackClusterEvenSpread` の移動ラベル): 書き出し側の
+    // 縦縁 (end=右縁の 3 時) へ「アンカー → 接続点」の 2 点直線で接続し、**下流の汎用機構
+    // (clampOutsidePie / W 弦リルート / truncate) を通さず確定する**。クラスタ移動ラベルの rim 沿い
+    // 斜線は W リルートで pie+マージン環 (r≈1.1) まで外へ押されると上隣ラベル箱の角を掠め、attach
+    // 退避でもラベル右シフトでも解けない (実測: currency_many_small_10 イギリスポンド × 豪ドル)。
+    // アンカーは rim 上 (r=1.0)・接続点は箱の cornerGap 外なので、素の直線は接線状に rim へ触れ得て
+    // も 1px 級の食い込みに留まり pie-through 判定 (pieRadius−1px) には掛からない。大きく弦を張る
+    // 幾何が生じた場合は後段 do-no-harm ゲートが pie 悪化として全 revert する。
+    // Y は seed (`leaderEndpoint.y`+dy) を box 縦範囲へクランプして使う — 既定は縦中央だが、斜線が
+    // 隣接ラベル箱を掠める時に呼び出し側が上下へ退避できる (豪ドル×カナダドル)。
+    const scEnd = {
+      x:
+        placement.anchor === 'start'
+          ? finalBox.left - cfg.cornerGap
+          : finalBox.right + cfg.cornerGap,
+      y: Math.min(
+        finalBox.top - cfg.cornerGap,
+        Math.max(finalBox.bottom + cfg.cornerGap, endpoint.y),
+      ),
+    };
+    return {
+      pathPoints: [placement.leaderAnchor, scEnd],
+      detectPathPoints: [placement.leaderAnchor, scEnd],
+      skipLeader: false,
+    };
+  }
   // declip ラベルでアンカーが box の真上/真下でなく横にあるケース (例 オフショア・人民元)。
   // 下の bend ロジックで折れ点なしの直線 (rim → 近端) にするため、endpoint 決定時に立てる。
   let declipSideAnchor = false;

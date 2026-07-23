@@ -20,6 +20,8 @@ import {
   pieYAtX,
   placementBox,
   placementExtent,
+  scaledLabelWidthUnits,
+  labelHeightUnits,
   leaderCrossesBox,
   degToRad,
   upperLeftBendPoint,
@@ -27,6 +29,7 @@ import {
   boxOverlapAmount,
   pxToLogical,
 } from '../layout/geometry.js';
+import type { BBox } from '../layout/geometry.js';
 import type { PieLayoutConfig, Diagnostics, Placement } from '../types.js';
 import {
   resolveLabelOverlaps,
@@ -65,6 +68,7 @@ import { LEADER_MAX_ANGULAR_DIFF_RAD } from './leader_geometry.js';
 // モード特化パス・fallback は pipeline.ts 側 (関数宣言 hoisting により循環 import でも安全)。
 import {
   alignLeftStackToAnchors,
+  applyLeftStackClusterEvenSpread,
   escapeTopBandSeamLeader,
   relieveLeftStackSpacing,
   reorderLeftStackWithCondense,
@@ -756,6 +760,52 @@ function pullOutsideOverflowTowardPie(
 }
 
 /**
+ * placement の実描画「行」sub-box 列 (論理単位・y-up)。union box (`placementBox`) の縦帯を行数で
+ * 等分し (`labelHeightUnits` は行数に線形なので上端から 1 行分ずつ切れば正確)、各行の実幅を anchor に
+ * 合わせて水平配置する。名前行のみ長体 (`nameScaleX`) を反映し、% 行 (および `nameSplit` の下行) は
+ * 原寸 (`placementExtent` と同じ規約)。1 行ラベルは行 = union box なので `[placementBox(p)]` を返す。
+ *
+ * なぜ必要か: union box は 2 行ラベルの短い % 行の脇に、実描画 ink の無い「空隅」を含む。pie 侵入や
+ * 隣接重なりを union box で測るとこの空隅が偽の干渉を生み、まだ原寸へ戻せる長体が下限に固定される
+ * (例 `asset_domestic_equity_pdf` の「国内株式先物」)。実 ink の行 sub-box で測ることで、その偽陽性
+ * だけを除きつつ ink の不変条件は保つ。
+ */
+function placementLineBoxes(p: Placement, cfg: PieLayoutConfig): BBox[] {
+  const box = placementBox(p, cfg);
+  if (p.lines.length < 2) return [box];
+  const sx = p.nameScaleX ?? 1;
+  // nameSplit は lines = [名前前半(長体), 名前後半+%(原寸)]、通常 2 行は [名前(長体), %(原寸)]。
+  const rows: Array<{ text: string; sx: number }> = p.nameSplit
+    ? [
+        { text: p.lines[0], sx },
+        { text: p.lines[1], sx: 1 },
+      ]
+    : [
+        { text: p.item.name, sx },
+        { text: p.item.percentText ?? '', sx: 1 },
+      ];
+  const rowH = labelHeightUnits(1, cfg);
+  return rows.map((row, i) => {
+    const w = scaledLabelWidthUnits(row.text, '', 2, row.sx, cfg);
+    let left: number;
+    let right: number;
+    if (p.anchor === 'start') {
+      left = p.x;
+      right = p.x + w;
+    } else if (p.anchor === 'end') {
+      left = p.x - w;
+      right = p.x;
+    } else {
+      left = p.x - w / 2;
+      right = p.x + w / 2;
+    }
+    // 上端 (box.top) から 1 行分ずつ下へ (y-up なので top が大きい側)。
+    const top = box.top - i * rowH;
+    return { left, right, top, bottom: top - rowH };
+  });
+}
+
+/**
  * emit 専用: ソフトマージン (`canvasXlim` = viewBox 端から `marginCapHorizontalPx`) には長体下限
  * (`FINAL_CONDENSE_MIN_SCALE`) でも収まらない「構造的オーバーフロー」ラベル — percent 行だけで残り幅を
  * 食い切る短名 (例 currency の "ユーロ")、極端な長カタカナ、支配スライス右端 — を、**実 viewBox を
@@ -773,6 +823,14 @@ function pullOutsideOverflowTowardPie(
  * (それを許すのが本パスの目的)。`relaxNameCondense` の後・finalScore の前に 1 回だけ呼ぶ。scoring
  * (`finalizeForScoring`) には入れない: 候補選択を乱さず、finalScore は本パス後の placements から数える
  * ため scorer ↔ emit 整合は保たれる (`applyTwoLineNameFallback` と同方針)。
+ *
+ * pie 侵入 (b) と隣接重なり (c) のゲートは union box ではなく実描画の行 sub-box (`placementLineBoxes`)
+ * で測る。union box は 2 行ラベルの短い % 行の脇に ink の無い「空隅」を含み、これを干渉と誤判定すると
+ * まだ戻せる長体が下限に固定されるため (例 `asset_domestic_equity_pdf` の「国内株式先物」が 0.7 に
+ * 取り残される)。行 ink はクリアランス (`pieRadius + pieClearance`) と実 ink 横交差の非増加を維持し、
+ * union box は verify/countDefects の実カウント境界 (pie は `bboxIntrudesPie` の pieRadius−2px、重なりは
+ * countDefects の ox>0 && oy≥6px と verify overlaps の両軸>2px) を新規に割らせない。1 行ラベルは
+ * 行 = union box なので判定は従来と数学的に同一で、変化は多行 + 長体ラベルに限定される。
  */
 function relaxStructuralCondense(
   placements: Placement[],
@@ -815,26 +873,61 @@ function relaxStructuralCondense(
       if (cur >= 1 - 1e-9) continue;
       const beforeBox = placementBox(p, cfg);
       const beforePieDist = distToPie(beforeBox);
+      const beforeLineBoxes = placementLineBoxes(p, cfg);
       p.nameScaleX = Math.min(1, Math.round((cur + STEP) * 1000) / 1000);
       const box = placementBox(p, cfg);
       // (a) このラベルの見切れを開始時から増やさない。収まっていれば収まったまま、既に見切れる真の
       //     クリップ floor ラベルは広げると悪化するので revert = floor 据え置き。
       let ok = hardClip(box) <= (initialClip.get(p) ?? 0) + 1e-9;
-      // (b) pie 非侵入 (anchor=start/end は pie 側辺固定で自明・middle 用ガード)。
+      // (b) pie 非侵入: 実描画 ink (行 sub-box) は狙いクリアランス (pieRadius + pieClearance) を維持し、
+      //     union box は verify の label-inside-pie 境界 (pieRadius − 2px = `bboxIntrudesPie` tolerance と
+      //     同境界, verify/svg.ts) を割らない。2 行ラベルの「% 短行脇の空隅」だけがクリアランス帯へ入れる
+      //     (ink は従来どおり外)。1 行ラベルは行 = union box なので旧判定 (d ≥ pieRadius + clearance) と等価。
       if (ok) {
         const d = distToPie(box);
-        ok = d >= cfg.pieRadius + pieClearance - 1e-9 || d >= beforePieDist - 1e-9;
+        const linesClearPie = placementLineBoxes(p, cfg).every(
+          (lb) => distToPie(lb) >= cfg.pieRadius + pieClearance - 1e-9,
+        );
+        ok = (linesClearPie && d >= cfg.pieRadius - tol - 1e-9) || d >= beforePieDist - 1e-9;
       }
-      // (c) 他 box との横重なりを増やさない (ラベル単位)。
+      // (c) 他ラベルとの重なり非悪化 — 2 層で判定する:
+      //   (c1) 実描画の行 sub-box 対で、縦重なりする行対の横交差を増やさない (union の空隅による偽陽性を
+      //        除去。実 ink の重なり増はこれまで通り常に block)。sx は名前行の幅だけを変えるので、行の
+      //        縦位置と % 行幅は不変 = 行対は index 対応で before/after を比較できる。
+      //   (c2) union box で、countDefects が数える対 (ox>0 && oy≥6px) と verify overlaps が flag する対
+      //        (両軸 >2px) を「新規に (before で偽 → after で真)」作らない (既に数えられている対の交差増は
+      //        件数不変なので許す)。
       if (ok) {
+        const afterLineBoxes = placementLineBoxes(p, cfg);
+        const cnt6 = pxToLogical(cfg, 6);
         for (const q of placements) {
           if (q === p) continue;
           const b = placementBox(q, cfg);
-          const oy = Math.min(box.top, b.top) - Math.max(box.bottom, b.bottom);
-          if (oy <= 0) continue;
-          const oxAfter = Math.min(box.right, b.right) - Math.max(box.left, b.left);
-          const oxBefore = Math.min(beforeBox.right, b.right) - Math.max(beforeBox.left, b.left);
-          if (oxAfter > Math.max(oxBefore, 0) + 1e-9) {
+          const qLines = placementLineBoxes(q, cfg);
+          // (c1) 行 sub-box 対の実 ink 横交差非増加。
+          let c1ok = true;
+          for (let i = 0; i < afterLineBoxes.length && c1ok; i += 1) {
+            const la = afterLineBoxes[i];
+            const lbBefore = beforeLineBoxes[i];
+            for (const lq of qLines) {
+              const oy = Math.min(la.top, lq.top) - Math.max(la.bottom, lq.bottom);
+              if (oy <= 0) continue;
+              const oxAfter = Math.min(la.right, lq.right) - Math.max(la.left, lq.left);
+              const oxBefore =
+                Math.min(lbBefore.right, lq.right) - Math.max(lbBefore.left, lq.left);
+              if (oxAfter > Math.max(oxBefore, 0) + 1e-9) {
+                c1ok = false;
+                break;
+              }
+            }
+          }
+          // (c2) union box: 可算/flag 対を新規に作らない (oy は sx で不変なので ox のみで遷移する)。
+          const oyU = Math.min(box.top, b.top) - Math.max(box.bottom, b.bottom);
+          const oxAfterU = Math.min(box.right, b.right) - Math.max(box.left, b.left);
+          const oxBeforeU = Math.min(beforeBox.right, b.right) - Math.max(beforeBox.left, b.left);
+          const countNew = !(oxBeforeU > 0 && oyU >= cnt6) && oxAfterU > 0 && oyU >= cnt6;
+          const verifyNew = !(oxBeforeU > tol && oyU > tol) && oxAfterU > tol && oyU > tol;
+          if (!c1ok || countNew || verifyNew) {
             ok = false;
             break;
           }
@@ -1357,6 +1450,7 @@ export const PLACEMENT_SEAM_POLICY: Record<keyof Placement, 'snapshot' | 'static
   twoLineLeftColumn: 'static', // `applyTwoLineLeftColumn` が一度だけ立てる。seam 系パスは変更しない
   declipBottomLeader: 'static', // `applyVerticalDeclipFallback` 採用分のみ。seam 系パスは変更しない
   bisectedSecondSliceNoLeader: 'static', // item から複写される固定印。seam 系パスは変更しない
+  sideCenterLeader: 'static', // `applyLeftStackClusterEvenSpread` (seam 系より後段) のみ設定・revert する
 };
 
 export function seamSnapshot(placements: Placement[]): SeamSnap[] {
@@ -2027,6 +2121,13 @@ export interface EmitRepairPass {
   stage?: 'emit' | 'scoring' | 'both';
   /** stage='both' で採点側の実体が emit と異なる場合のみ指定 (例 seam 逃がしの thorough 差)。 */
   scoringRun?: EmitPassFn;
+  /**
+   * true = 最終 emit だけで走り、候補採点コンテキスト (`applyEmitRepairPasses` の
+   * context='candidateScoring'、`upperEscapeScore` 等) では走らない。座標を大きく最終確定する
+   * パスを候補採点に混ぜると、escape 候補の採点が「確定パスで動いた後の姿」で歪み、escape 数の
+   * 選択自体が変わる (実測: currency_usd_heavy_9 の香港ドルが top-right 逃がしを失い左列へ落ちた)。
+   */
+  finalOnly?: boolean;
 }
 
 /**
@@ -2180,10 +2281,23 @@ export const EMIT_REPAIR_PASSES: readonly EmitRepairPass[] = [
   // escapee の書き出し x の「その他」揃え (横)。座標を動かす最後のパスとして末尾に置く — leader は
   // 移動後 box から再計算され追従する (do-no-harm)。
   { name: 'tidyTopRightEscapeeStack', run: tidyTopRightEscapeeStack },
+
+  // leftStackMode: 先頭の小スライス密集クラスタを canvas 上部の密ピッチへ整え、直下の大スライス群を
+  // 下方向へ分離する (詳細は関数 doc comment)。座標を最終確定するため emit 列の末尾に置く
+  // (cascade 段に置くと後段パスが座標を上書きして washout する実測あり)。finalOnly: 候補採点へ
+  // 混ぜると escape 候補選択が歪む (フィールドの doc comment 参照)。
+  {
+    name: 'applyLeftStackClusterEvenSpread',
+    when: (d) => d?.leftStackMode === true,
+    finalOnly: true,
+    run: applyLeftStackClusterEvenSpread,
+  },
 ];
 
 /**
  * `EMIT_REPAIR_PASSES` を順に適用する。view は emit と同一座標系 (実 viewBox 基準)。
+ * context='candidateScoring' は候補採点 (`upperEscapeScore` 等) からの呼び出しで、`finalOnly`
+ * パスをスキップする (最終確定パスを採点へ混ぜない — `EmitRepairPass.finalOnly` 参照)。
  * デバッグ支援 (どちらも測定は純粋読み取りで出力 byte に影響しない):
  * - `PIE_CHART_DEBUG_REPAIR=1` … パスごとの `RepairVec` 差分を stderr へ出す (無変化パスは無音)。
  * - `PIE_CHART_STOP_AFTER_PASS=<name>` … 指定パスの直後で打ち切る (回帰の犯人パスを二分探索する用)。
@@ -2193,10 +2307,12 @@ export function applyEmitRepairPasses(
   cfg: PieLayoutConfig,
   view: Coord,
   diagnostics: Diagnostics | null,
+  context: 'emit' | 'candidateScoring' = 'emit',
 ): void {
   const debug = Boolean(process.env.PIE_CHART_DEBUG_REPAIR);
   for (const pass of EMIT_REPAIR_PASSES) {
     if (pass.stage === 'scoring') continue;
+    if (pass.finalOnly && context === 'candidateScoring') continue;
     if (pass.when && !pass.when(diagnostics)) continue;
     if (debug) {
       const before = measureRepairVec(textPlacements, cfg, view);

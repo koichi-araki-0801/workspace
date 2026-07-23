@@ -306,6 +306,13 @@ export interface Placement {
    * (スライス直近で線が冗長なため。テキスト位置は不変)。`clampAndBuildPlacement` が item から複写。
    */
   bisectedSecondSliceNoLeader?: boolean;
+  /**
+   * leader を**書き出し側の縦縁・縦中央** (end=右縁の 3 時、cornerGap だけ縁の外) へ
+   * アンカーからの 2 点直線で接続する明示オプトイン。`applyLeftStackClusterEvenSpread` が移動した
+   * ラベルに立てる (既定の行中央シードだと長い斜め leader が truncate で上縁の角に刺さって見える)。
+   * `computeDrawnLeader` の `alwaysDraw` 経路でのみ効く (描画パス限定・scorer 不変)。
+   */
+  sideCenterLeader?: boolean;
 }
 
 /**

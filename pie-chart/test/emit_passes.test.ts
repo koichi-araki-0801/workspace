@@ -37,6 +37,7 @@ describe('EMIT_REPAIR_PASSES の列', () => {
       'unsqueezeCondensedByShiftTowardPie',
       'alignLeftStackToAnchors',
       'tidyTopRightEscapeeStack',
+      'applyLeftStackClusterEvenSpread',
     ]);
   });
 
@@ -65,6 +66,14 @@ describe('EMIT_REPAIR_PASSES の列', () => {
   it('scoringRun を持つのは stage=both のエントリのみ', () => {
     for (const p of EMIT_REPAIR_PASSES) {
       if (p.scoringRun) expect(p.stage, `${p.name} の stage`).toBe('both');
+    }
+  });
+
+  it('finalOnly を持つのは emit 限定 (stage 未指定) のエントリのみ', () => {
+    // finalOnly は候補採点コンテキストのスキップ指定。stage='both'/'scoring' に付けると
+    // `finalizeForScoring` (context 概念なし) へ漏れて採点列との一貫性が壊れるため禁止。
+    for (const p of EMIT_REPAIR_PASSES) {
+      if (p.finalOnly) expect(p.stage, `${p.name} の stage`).toBeUndefined();
     }
   });
 });
