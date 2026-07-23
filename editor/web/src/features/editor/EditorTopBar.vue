@@ -152,15 +152,15 @@ const attrItems = (a: TemplateAttributes) => [
         <Minus class="h-4 w-4" />
       </Button>
       <!-- % はボタン: クリックで全体フィット(プレビュー画面の % クリックと挙動を統一)。 -->
-      <button
-        type="button"
-        class="w-[42px] rounded text-center text-[12.5px] tabular-nums text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      <Button
+        variant="ghost"
+        class="h-auto w-[42px] rounded p-0 text-[12.5px] font-normal tabular-nums text-muted-foreground hover:bg-transparent hover:text-foreground"
         title="画面に合わせる (⌘0)"
         aria-label="画面に合わせる"
         @click="emit('zoomReset')"
       >
         {{ Math.round(zoom * 100) }}%
-      </button>
+      </Button>
       <Button variant="ghost" size="icon" title="拡大 (⌘+)" aria-label="拡大" @click="emit('zoomIn')">
         <Plus class="h-4 w-4" />
       </Button>

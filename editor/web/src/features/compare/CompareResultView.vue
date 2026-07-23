@@ -294,12 +294,18 @@ const { fitFrame } = useIframeAutoFit();
         <Button variant="outline" size="icon" :disabled="currentPage <= 0" @click="goPage(currentPage - 1)">
           <ChevronLeft class="h-4 w-4" />
         </Button>
-        <button
+        <Button
           v-for="(p, i) in liveDiff.pages"
           :key="i"
-          type="button"
-          class="relative min-w-9 rounded px-3 py-1 text-sm font-medium transition-colors"
-          :class="i === currentPage ? 'bg-primary-soft text-primary' : 'text-muted-foreground hover:bg-accent'"
+          variant="ghost"
+          :class="
+            cn(
+              'relative h-auto min-w-9 rounded px-3 py-1',
+              i === currentPage
+                ? 'bg-primary-soft text-primary hover:bg-primary-soft hover:text-primary'
+                : 'text-muted-foreground hover:text-muted-foreground',
+            )
+          "
           @click="goPage(i)"
         >
           {{ i + 1 }}
@@ -307,7 +313,7 @@ const { fitFrame } = useIframeAutoFit();
             v-if="p.changed"
             class="absolute -bottom-0.5 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-destructive"
           />
-        </button>
+        </Button>
         <Button
           variant="outline"
           size="icon"

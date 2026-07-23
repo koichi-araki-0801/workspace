@@ -13,6 +13,7 @@ import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import { useCascadingSelect } from '@/lib/useCascadingSelect';
 import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
+import { cn } from '@/lib/utils';
 import PartPreview from './PartPreview.vue';
 import { usePartCatalogService } from './services/partCatalogService';
 
@@ -107,14 +108,20 @@ function onInsert() {
     <div v-if="parts.length > 1" class="max-h-32 overflow-auto border-b px-2 py-1.5">
       <ul class="space-y-0.5">
         <li v-for="p in parts" :key="p.id">
-          <button
-            type="button"
-            class="block w-full truncate rounded px-2 py-1 text-left text-sm transition-colors hover:bg-accent"
-            :class="selectedId === p.id ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'"
+          <Button
+            variant="ghost"
+            :class="
+              cn(
+                'block h-auto w-full truncate rounded px-2 py-1 text-left font-normal',
+                selectedId === p.id
+                  ? 'bg-accent font-medium text-foreground'
+                  : 'text-muted-foreground hover:text-muted-foreground',
+              )
+            "
             @click="onSelect(p)"
           >
             {{ p.name }}
-          </button>
+          </Button>
         </li>
       </ul>
     </div>

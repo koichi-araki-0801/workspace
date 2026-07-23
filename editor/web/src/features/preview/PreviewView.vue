@@ -165,16 +165,16 @@ async function exportPdf() {
         >
           <Minus class="h-4 w-4" />
         </Button>
-        <button
-          type="button"
-          class="w-[42px] text-center text-[12.5px] tabular-nums text-muted-foreground disabled:opacity-100"
+        <Button
+          variant="ghost"
+          class="h-auto w-[42px] rounded-none p-0 text-[12.5px] font-normal tabular-nums text-muted-foreground hover:bg-transparent hover:text-muted-foreground disabled:opacity-100"
           title="画面に合わせる"
           aria-label="画面に合わせる"
           :disabled="!nav.vivlioReady"
           @click="panel?.fit()"
         >
           {{ Math.round(nav.zoom * 100) }}%
-        </button>
+        </Button>
         <Button
           variant="outline"
           size="icon"

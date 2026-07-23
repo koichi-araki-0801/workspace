@@ -10,6 +10,7 @@ import { ChevronLeft, ChevronRight } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import type { ButtonVariants } from '@/components/ui/Button.vue';
 import Button from '@/components/ui/Button.vue';
+import Input from '@/components/ui/Input.vue';
 import { clampPage } from './pageNav';
 
 const props = withDefaults(
@@ -58,6 +59,23 @@ function onFocus(e: FocusEvent): void {
 function step(delta: number): void {
   emit('go', clampPage(props.currentPage + delta, props.pageCount));
 }
+
+// コンポーネントへの `@keydown.enter` 等の多重指定は同名 prop の重複になる(TS1117)ため、
+// 1 ハンドラへ集約してキー別に分岐する。挙動は従来の modifier 版と同一。
+function onInputKeydown(e: KeyboardEvent): void {
+  const actions: Record<string, () => void> = {
+    Enter: () => (e.target as HTMLInputElement).blur(),
+    ArrowUp: () => step(1),
+    ArrowDown: () => step(-1),
+    PageUp: () => step(10),
+    PageDown: () => step(-10),
+  };
+  const action = actions[e.key];
+  if (action) {
+    e.preventDefault();
+    action();
+  }
+}
 </script>
 
 <template>
@@ -75,20 +93,15 @@ function step(delta: number): void {
 
     <div class="flex items-center gap-1 text-[12.5px] tabular-nums text-muted-foreground">
       <!-- 数値スピナの余計な幅を避けるため text + inputmode=numeric。上下キーは自前で ±1 する。 -->
-      <input
+      <Input
         v-model="draft"
-        type="text"
         inputmode="numeric"
         aria-label="ページ番号(Enter でジャンプ)"
-        class="h-7 rounded border border-input bg-background px-1 text-center tabular-nums text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        class="h-7 w-auto rounded bg-background px-1 py-0 text-center text-[12.5px] tabular-nums text-foreground shadow-none"
         :style="{ width: inputWidth }"
         @focus="onFocus"
         @blur="commit"
-        @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
-        @keydown.up.prevent="step(1)"
-        @keydown.down.prevent="step(-1)"
-        @keydown.page-up.prevent="step(10)"
-        @keydown.page-down.prevent="step(-10)"
+        @keydown="onInputKeydown"
       />
       <span>/ {{ pageCount }}</span>
     </div>

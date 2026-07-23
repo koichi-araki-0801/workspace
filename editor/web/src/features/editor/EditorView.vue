@@ -9,6 +9,7 @@ import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from
 import { useRoute, useRouter } from 'vue-router';
 import PageRail from '@/components/PageRail.vue';
 import { fractionToPage } from '@/components/pageNav';
+import Button from '@/components/ui/Button.vue';
 import { toastSuccess } from '@/components/ui/toast';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
@@ -247,16 +248,16 @@ const statusText = computed(() => {
         @insert="onPartInsert"
         @collapse="leftCollapsed = true"
       />
-      <button
+      <Button
         v-else
-        type="button"
-        class="pane-rail border-r"
+        variant="ghost"
+        class="pane-rail h-auto w-7 rounded-none border-r p-0"
         title="左パネルを開く"
         aria-label="左パネルを開く"
         @click="leftCollapsed = false"
       >
         <PanelLeft class="h-4 w-4" />
-      </button>
+      </Button>
 
       <!-- 中央: A4 用紙の見た目にした GrapesJS canvas -->
       <main class="relative min-w-[360px] flex-1 overflow-hidden bg-canvas-backdrop">
@@ -364,16 +365,16 @@ const statusText = computed(() => {
       </main>
 
       <!-- 右: 編集可能なプロパティ(折りたたみ式)+ 履歴。畳むと細いレールになる。 -->
-      <button
+      <Button
         v-if="rightCollapsed"
-        type="button"
-        class="pane-rail border-l"
+        variant="ghost"
+        class="pane-rail h-auto w-7 rounded-none border-l p-0"
         title="右パネルを開く"
         aria-label="右パネルを開く"
         @click="rightCollapsed = false"
       >
         <PanelRight class="h-4 w-4" />
-      </button>
+      </Button>
       <Inspector
         v-else
         :selected="g.selected.value"
@@ -412,13 +413,6 @@ const statusText = computed(() => {
 .pane-rail:hover {
   color: var(--foreground);
   background: color-mix(in oklab, var(--muted) 60%, var(--card));
-}
-/* キーボード操作の現在地を可視化(見た目は index.css の `.ring-focus` と同一)。 */
-.pane-rail:focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 2px var(--background),
-    0 0 0 4px color-mix(in oklab, var(--ring) 55%, transparent);
 }
 
 /* page-boundary guides drawn over the A4 sheet (sit below the selection frame).
