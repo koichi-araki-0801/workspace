@@ -2,9 +2,18 @@
 # publish-offline-bundle.ps1 がローリングタグを HEAD へ移動（=ソース更新）し、
 # 重量物（バンドル）は content key に差分がある時だけ再生成・再アップロードする。
 #
+# opt-in 方式: GitHub（gh / Releases）は公開担当者のオンライン環境限定の運用のため、
+# 公開に使う clone で `git config offline.publish true` を 1 回実行した環境でのみ走る。
+# 新規 clone・オフライン運用環境では既定でスキップされる（skip は 1 行表示する —
+# 無音にすると公開担当者が新しい clone へ移った際にリリース更新が黙って止まるため）。
+#
 # ベストエフォート（コミットはブロックしない）: gh 未認証・オフライン・タグ push 失敗でも
-# コミット自体は成立させる。無効化したい場合は OFFLINE_PUBLISH_SKIP=1 を設定する。
+# コミット自体は成立させる。opt-in 済み環境で一時停止したい場合は OFFLINE_PUBLISH_SKIP=1。
 if [ "${OFFLINE_PUBLISH_SKIP:-}" = "1" ]; then
+  exit 0
+fi
+if [ "$(git config --bool --get offline.publish 2>/dev/null)" != "true" ]; then
+  echo "[offline-publish] skip: opt-in 未設定（公開担当者のみ: git config offline.publish true）"
   exit 0
 fi
 powershell -NoProfile -ExecutionPolicy Bypass -File "offline/publish-offline-bundle.ps1" || true

@@ -118,6 +118,7 @@ if (out === null) runFullCi(`git diff ${diffRange} に失敗しました`);
 const changed = out.split('\n').filter(Boolean);
 console.log(`[ci:affected] ベース: ${base}  (${diffRange})`);
 console.log(`[ci:affected] 変更ファイル数: ${changed.length}`);
+console.log('[ci:affected] 注: coverage 85% ゲートはフル `pnpm run ci` でのみ検査します (affected/領域別は速度優先で対象外)');
 
 // 領域マッピング。無害でも領域でもないルート直下/共有変更を見つけたらフル CI へ。
 const selected = new Set();

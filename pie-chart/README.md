@@ -154,6 +154,9 @@ pie-chart/
 │   │   ├── mode_passes.ts      — モード特化パス (左列 / top-band クラスタ / 右上逃がし)
 │   │   ├── emit_repair.ts      — emit 修復パス列 (EMIT_REPAIR_PASSES) + 採点・do-no-harm ゲート基盤
 │   │   ├── leader_geometry.ts  — leader 幾何 (交差・貫通・角度整合の計測)
+│   │   │                         ※ graph-editor の resources/web/lib/leader_geom.cjs は
+│   │   │                           意図的な並行実装 (共通化は禁じ手・graph-editor 設計正典
+│   │   │                           参照)。幾何仕様を変えるときは両側を突き合わせる
 │   │   ├── rendering.ts        — 座標変換 + slice path + text + 視覚 em 推定
 │   │   ├── post_layout.ts      — overlap 解消 / compactify cascade /
 │   │   │                         半角カナ fallback / 視覚 viewBox nudge

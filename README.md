@@ -54,11 +54,22 @@ editor / pie-chart / pdf-to-svg / graph-editor などを束ねる pnpm モノレ
 | `editor/scripts/setup-lan-https.bat` | LAN 公開用の自己署名 TLS 証明書（PFX/cer）を生成 |
 | `editor/scripts/setup-lan-firewall.bat` | LAN 公開ポート（TCP 24680）の受信許可ルールを登録（要管理者） |
 | `editor/server/db/apply.bat` | SQL Server へ DDL/sproc/seed を適用 |
-| `offline/publish-offline-bundle.bat` | オフラインバンドルを GitHub Releases へ公開（post-commit で自動実行） |
+| `offline/publish-offline-bundle.bat` | オフラインバンドルを GitHub Releases へ公開（post-commit で自動実行。`git config offline.publish true` を設定した公開担当者の clone のみ） |
 | `docs/_build/build_all.bat` | `docs/<project>/src/` の原稿から閲覧用 HTML（手引き/設計の 2 冊）を一括生成 |
 
 Python ビルドの venv 準備は共有ライブラリ `scripts/lib/build-python-venv.ps1` に集約してあり、
 `pdf-to-svg` / `graph-editor` の `scripts/build.ps1` が dot-source して使う。
+
+## フォント資産の対応（同一書体の 2 形式管理）
+
+BIZ UDPGothic は 2 プロジェクトが**形式要件の違いから別形式で同梱**している。統合はしない
+（pdf-to-svg はサブセット元に TTF 原本が必須 — WOFF2 元は却下済み設計。pie-chart は
+埋込サイズ優先で WOFF2）。**書体を差し替えるときは両方を同じ版で更新**すること。
+
+| 置き場 | 形式 | 用途 |
+|---|---|---|
+| `pdf-to-svg/fonts/BIZUDPGothic-{Regular,Bold}.ttf` | TTF 原本 | WOFF2 サブセット埋込の変換元 |
+| `pie-chart/fonts/BIZUDPGothic-{Regular,Bold}.woff2` | WOFF2 | SVG への base64 埋込 |
 
 ## 主な pnpm コマンド（リポジトリ直下）
 
