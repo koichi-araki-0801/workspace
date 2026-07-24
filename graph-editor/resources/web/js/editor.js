@@ -2,12 +2,14 @@
 // editor.js — エディタ本体 (セッション状態 + ライフサイクル + 描画統括)
 // =============================================================================
 
-import { CONFIG, WHITE, BLACK, DEFAULT_LEADER_STYLE, EMPTY_LIST_HTML, INSPECTOR_EMPTY_HTML, LEGEND_HTML, INSPECTOR_ACTIONS } from "./constants.js";
+import { CONFIG, WHITE, BLACK, DEFAULT_LEADER_STYLE, INSPECTOR_ACTIONS } from "./constants.js";
 import { clampPointToBox, parseTranslate } from "./geom.js";
 import { parsePieGeometry, fallbackPieGeometry, labelBox, labelCenter, isOutsidePie, computeDefaultLeaderPts } from "./pie-rules.js";
-import { escapeHtml, round, createSvgEl, safeGetBBox, formatCoords, sanitizeSvg, hasFsAccess, SVG_PICKER_TYPES } from "./utils.js";
-import { drawIcons, showToast } from "./icons.js";
+import { round, createSvgEl, safeGetBBox, sanitizeSvg, hasFsAccess, SVG_PICKER_TYPES } from "./utils.js";
+import { showToast } from "./icons.js";
 import { LabelState } from "./label-state.js";
+// 描画 (オーバーレイ / インスペクタ / レール) は editor-render.js へ分離。名前空間 import で衝突回避。
+import * as render from "./editor-render.js";
 
 // ── 1. エディタ本体 (セッション状態 + ライフサイクル + 描画オーケストレーション) ──
 
@@ -250,8 +252,8 @@ class Editor {
     const d = this._dirty;
     this._dirty = { dom: false, overlay: false, inspector: false };
     if (d.dom && this.selected) this.selected.renderToDom();
-    if (d.overlay) this._syncOverlay();
-    if (d.inspector) this._renderInspector();
+    if (d.overlay) render.syncOverlay(this);
+    if (d.inspector) render.renderInspector(this);
   }
 
   /** 保留中の描画を同期的に確定させる (保存前の DOM 読出しや、即時反映が要る操作で使用) */
@@ -307,77 +309,7 @@ class Editor {
     this.dom.btnSave.disabled = !this.svg;
   }
 
-  // ── 7. オーバーレイ (ハンドル) 描画 — 構造変化時のみ再構築、通常は座標更新 ──
-
-  handleSize() {
-    // ズームに依らず一定の見かけサイズになるよう SVG 単位を補正
-    return CONFIG.handleScreenRadius / this.zoom;
-  }
-
-  /** ハンドル構成 (選択ラベル・表示状態・頂点数) を表すシグネチャ */
-  _overlaySignature() {
-    const s = this.selected;
-    if (!s || !this.overlay || !s.leaderVisible || !s.leaderPts.length) return "none";
-    return `${this.labels.indexOf(s)}|${s.leaderPts.length}`;
-  }
-
-  _syncOverlay() {
-    const sig = this._overlaySignature();
-    if (sig !== this._overlaySig) {
-      this._buildOverlay();
-      this._overlaySig = sig;
-    } else {
-      this._positionHandles();
-    }
-  }
-
-  /** ハンドル円を作り直す (頂点数・選択が変わった時だけ呼ばれる) */
-  _buildOverlay() {
-    if (this.overlay) this.overlay.replaceChildren();
-    this._handles = [];
-    const s = this.selected;
-    if (!s || !this.overlay) return;
-    if (!(s.leaderVisible && s.leaderPts.length)) return;
-    const r = this.handleSize();
-    const last = s.leaderPts.length - 1;
-    s.leaderPts.forEach((p, i) => {
-      // 先頭=アンカー: 橙, 末尾=端点: 緑, 中間: 青
-      const color = i === 0 ? "#ffb84c" : i === last ? "#57c878" : "#4c9aff";
-      const c = this._circle(p.x, p.y, r, color);
-      // 円側アンカー (i===0) はスライス中心角に固定 → ドラッグ不可。端点/曲げ点のみ可動。
-      if (i === 0) {
-        c.style.cursor = "not-allowed";
-      } else {
-        c.style.cursor = "move";
-        c.addEventListener("pointerdown", (e) => this.startLeaderDrag(e, s, i));
-      }
-      this.overlay.appendChild(c);
-      this._handles.push(c);
-    });
-  }
-
-  /** 既存ハンドル円の cx/cy (+ズーム時の r/stroke) だけを更新 */
-  _positionHandles() {
-    const s = this.selected;
-    if (!s || !this._handles.length) return;
-    const r = this.handleSize();
-    const sw = 1 / this.zoom;
-    s.leaderPts.forEach((p, i) => {
-      const c = this._handles[i];
-      if (!c) return;
-      c.setAttribute("cx", p.x);
-      c.setAttribute("cy", p.y);
-      c.setAttribute("r", r);
-      c.setAttribute("stroke-width", sw);
-    });
-  }
-
-  _circle(x, y, r, color) {
-    return createSvgEl("circle", {
-      cx: x, cy: y, r, fill: color,
-      stroke: "#1e1f22", "stroke-width": 1 / this.zoom, "data-editor": "1",
-    });
-  }
+  // ── 7. オーバーレイ (ハンドル) 描画 → editor-render.js の `syncOverlay` へ分離 ──
 
   // ── 8. ドラッグ操作 ──
 
@@ -454,124 +386,7 @@ class Editor {
     return c && c !== "none" ? c : "var(--sunk)";
   }
 
-  /** 選択中ラベルの右パネル本体 HTML (モック「案A」準拠のセグメント UI)。
-   *  各セグメントボタンは `data-act` を持ち、`_buildInspector` が `INSPECTOR_ACTIONS` へ配線する。 */
-  _inspectorBodyHtml(s) {
-    const hasLeader = s.leaderPts.length >= 2;
-    const hasBend = s.leaderPts.length >= 3;
-    const pct = s.percentText ? ` ${escapeHtml(s.percentText)}` : "";
-    // 引出線: 「表示」は leader が無ければ追加(`leaderAdd`)、有れば表示(`leaderOn`)。
-    const showAct = hasLeader ? "leaderOn" : "leaderAdd";
-    return `
-<div class="selname"><span class="sw" style="background:${this.sliceColor(s.name)}"></span><span class="nm">${escapeHtml(s.name)}${pct}</span></div>
-
-<div class="ctl">
-  <div class="clab"><i data-ic="leader"></i>引出線</div>
-  <div class="segment" data-ctl="leader">
-    <button data-act="${showAct}" aria-pressed="${s.leaderVisible}">表示</button>
-    <button data-act="leaderOff" aria-pressed="${!s.leaderVisible}">非表示</button>
-  </div>
-</div>
-
-<div class="ctl${hasLeader ? "" : " off"}" data-dep="leader">
-  <div class="clab"><i data-ic="bend"></i>曲げ点</div>
-  <div class="segment" data-ctl="bent">
-    <button data-act="bendAdd" aria-pressed="${hasBend}">あり</button>
-    <button data-act="bendRemove" aria-pressed="${!hasBend}">なし</button>
-  </div>
-</div>
-
-<div class="ctl">
-  <div class="clab"><i data-ic="droplet"></i>文字色</div>
-  <div class="segment" data-ctl="color">
-    <button data-act="insideOff" aria-pressed="${s.fill !== WHITE}"><span class="swdot" style="background:#111"></span>黒</button>
-    <button data-act="insideOn" aria-pressed="${s.fill === WHITE}"><span class="swdot" style="background:#fff;box-shadow:0 0 0 1px var(--border-strong)"></span>白</button>
-  </div>
-</div>
-
-<div class="ctl">
-  <div class="clab"><i data-ic="rows"></i>行数</div>
-  <div class="segment" data-ctl="lines">
-    <button data-act="lines1" aria-pressed="${s.lineCount < 2}">1行</button>
-    <button data-act="lines2" aria-pressed="${s.lineCount >= 2}">2行</button>
-  </div>
-</div>
-
-<div class="ctl">
-  <div class="clab"><i data-ic="width"></i>長体 <span class="tech">（横圧縮）</span></div>
-  <div class="rng">
-    <input type="range" id="scaleRange" min="${CONFIG.condenseMin}" max="1" step="${CONFIG.condenseStep}" value="${s.nameScaleX}">
-    <span class="v" id="scaleVal">${Math.round(s.nameScaleX * 100)}%</span>
-  </div>
-</div>
-
-${LEGEND_HTML}
-
-<div class="panel-reset">
-  <button class="btn outline" data-act="resetOne" style="width:100%;justify-content:center"><i data-ic="reset"></i>このラベルをリセット</button>
-</div>`;
-  }
-
-  /** インスペクタの構造を表すシグネチャ (座標 `dx`/`dy` は含めない = 構造再構築の対象外) */
-  _inspectorSignature() {
-    const s = this.selected;
-    if (!s) return "none";
-    return [this.labels.indexOf(s), s.leaderPts.length, s.leaderVisible, s.fill === WHITE, s.lineCount, s.nameScaleX].join("|");
-  }
-
-  /** 構造シグネチャが変わった時だけパネルを作り直し、毎回 座標表示だけ更新する */
-  _renderInspector() {
-    const sig = this._inspectorSignature();
-    if (sig !== this._inspSig) {
-      this._inspSig = sig;
-      this._buildInspector();
-    }
-    this._updateInspectorReadout();
-    this._syncRail();
-  }
-
-  _buildInspector() {
-    const s = this.selected;
-    if (!s) {
-      this.dom.inspectorBody.innerHTML = INSPECTOR_EMPTY_HTML;
-      drawIcons(this.dom.inspectorBody);
-      this._inspCoordEl = null;
-      return;
-    }
-    const box = document.createElement("div");
-    box.innerHTML = this._inspectorBodyHtml(s);
-    box.querySelectorAll("button[data-act]").forEach((btn) => {
-      btn.addEventListener("click", () => this.inspectorAction(btn.getAttribute("data-act")));
-    });
-    // 長体スライダ: ドラッグ中はライブ反映し、操作開始時に 1 度だけ履歴へ積む。
-    // インスペクタは再構築しない (`markDirty` の inspector を立てない) のでドラッグが途切れない。
-    const range = box.querySelector("#scaleRange");
-    if (range) {
-      const valEl = box.querySelector("#scaleVal");
-      let pushed = false;
-      const begin = () => { pushed = false; };
-      range.addEventListener("pointerdown", begin);
-      range.addEventListener("keydown", begin);
-      range.addEventListener("input", () => {
-        if (!this.selected) return;
-        if (!pushed) { this.pushHistory(); pushed = true; }
-        const v = parseFloat(range.value);
-        this.selected.nameScaleX = v;
-        if (valEl) valEl.textContent = `${Math.round(v * 100)}%`;
-        this.markDirty({ dom: true });
-      });
-    }
-    this.dom.inspectorBody.replaceChildren(box);
-    drawIcons(this.dom.inspectorBody);
-    this._inspCoordEl = box.querySelector(".coords");
-  }
-
-  /** ドラッグ中に毎フレーム変わる `dx`/`dy` 表示だけを軽量に更新 */
-  _updateInspectorReadout() {
-    const s = this.selected;
-    if (!s || !this._inspCoordEl) return;
-    this._inspCoordEl.textContent = formatCoords(s.textTx);
-  }
+  // インスペクタ本体の描画/配線は editor-render.js の `renderInspector` へ分離。
 
   inspectorAction(act) {
     const s = this.selected;
@@ -906,98 +721,11 @@ ${LEGEND_HTML}
     return JSON.stringify(s.snapshot()) !== JSON.stringify(s.initial);
   }
 
-  /** 左レール: ファイル一覧 + 選択中ファイルのラベル一覧 */
-  buildRail() {
-    const list = this.dom.list;
-    if (!list) return;
-    list.replaceChildren();
-    if (!this.items.length) {
-      list.innerHTML = EMPTY_LIST_HTML;
-      drawIcons(list);
-      return;
-    }
-    for (const it of this.items) {
-      const isCur = it.id === this.currentId;
-      const item = document.createElement("div");
-      item.className = "fileitem" + (isCur ? " cur" : "");
-      item.dataset.id = it.id;
-      let status = "";
-      if (it.edited) status = '<span class="rok"><i data-ic="check"></i></span>';
-      else if (isCur) status = '<span class="rdot" title="編集中"></span>';
-      item.innerHTML = `<span class="rp"></span><span class="rn">${escapeHtml(it.name.replace(/\.svg$/i, ""))}</span>${status}`;
-      item.addEventListener("click", (e) => {
-        if (e.target.closest(".lblrow")) return;
-        if (it.id !== this.currentId) this.load(it);
-      });
-      list.appendChild(item);
-      // 選択中ファイルの直下にラベル一覧 (`.lblsub`)
-      if (isCur && this.labels.length) {
-        const sub = document.createElement("div");
-        sub.className = "lblsub";
-        sub.innerHTML = this.labels.map((s, i) =>
-          `<div class="lblrow${s === this.selected ? " on" : ""}" data-idx="${i}">` +
-          `<span class="ld${this.isLabelEdited(s) ? " ed" : ""}"></span>` +
-          `<span class="nm">${escapeHtml(s.name)}</span>` +
-          (s.percentText ? `<span class="pc">${escapeHtml(s.percentText)}</span>` : "") +
-          `</div>`
-        ).join("");
-        list.appendChild(sub);
-        sub.querySelectorAll(".lblrow").forEach((r) =>
-          r.addEventListener("click", () => this.selectLabel(this.labels[+r.dataset.idx]))
-        );
-      }
-    }
-    drawIcons(list);
-  }
-
-  /** 手順1 の「開いたファイル」一覧 */
-  renderOpenList() {
-    const el = this.dom.openList;
-    if (!el) return;
-    if (this.dom.openCount) this.dom.openCount.textContent = this.items.length ? `${this.items.length} 件` : "";
-    el.replaceChildren();
-    for (const it of this.items) {
-      const card = document.createElement("div");
-      card.className = "file-card clickable";
-      card.innerHTML =
-        `<div class="fic"><i data-ic="file"></i></div>` +
-        `<div class="fmeta"><div class="fname">${escapeHtml(it.name)}</div><div class="fsub">${it.edited ? "保存済み" : "未保存"}</div></div>` +
-        (it.edited ? '<span class="rok"><i data-ic="check"></i></span>' : "");
-      card.addEventListener("click", async () => { await this.load(it); this.goPhase(2); });
-      el.appendChild(card);
-    }
-    drawIcons(el);
-  }
-
-  /** トップバー / ページナビ / ズーム% / 保存画面 の文言を最新化 */
-  updateChrome() {
-    if (this.dom.fileChip) this.dom.fileChip.textContent = this.name || "ファイル未選択";
-    if (this.dom.pgInfo) {
-      if (!this.svg) this.dom.pgInfo.textContent = "ファイル未選択";
-      else if (this.selected) this.dom.pgInfo.innerHTML = `選択中：<b>${escapeHtml(this.selected.name)}</b>（ラベル ${this.labels.length} 個）`;
-      else this.dom.pgInfo.innerHTML = `ラベル <b>${this.labels.length}</b> 個（クリックで選択）`;
-    }
-    if (this.dom.zoomLvl) this.dom.zoomLvl.textContent = `${Math.round(this.zoom * 100)}%`;
-    if (this.dom.saveName) this.dom.saveName.textContent = this.name || "ファイル未選択";
-    if (this.dom.saveSub) this.dom.saveSub.textContent = this.svg ? `ラベル ${this.labels.length} 個` : "—";
-  }
-
-  /** レールのラベル行の選択/編集済み表示だけを軽量更新 (毎フレーム可) */
-  _syncRail() {
-    const list = this.dom.list;
-    if (!list) return;
-    list.querySelectorAll(".lblrow").forEach((r) => {
-      const s = this.labels[+r.dataset.idx];
-      r.classList.toggle("on", s === this.selected);
-      const ld = r.querySelector(".ld");
-      if (ld) ld.classList.toggle("ed", this.isLabelEdited(s));
-    });
-    this.updateChrome();
-  }
-
-  /** 互換: 旧 `renderList` / `highlightActiveInList` の呼び出し元をそのまま活かす */
-  renderList() { this.buildRail(); this.renderOpenList(); this.updateChrome(); }
-  highlightActiveInList() { this.buildRail(); this.updateChrome(); }
+  // レール / 開いたファイル一覧 / クロームの描画は editor-render.js へ分離。
+  // 既存呼び出し元 (load / save / openFiles / goPhase) 向けの薄い委譲のみ残す。
+  updateChrome() { render.updateChrome(this); }
+  renderList() { render.buildRail(this); render.renderOpenList(this); render.updateChrome(this); }
+  highlightActiveInList() { render.buildRail(this); render.updateChrome(this); }
 
   // ── 14. イベント配線 ──
 
