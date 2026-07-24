@@ -76,7 +76,8 @@ PDF → engine(PyMuPDF抽出 + vector/scan判定) → model(Document/Page/Elemen
 - 主要モジュール: `engine/pdf_engine.py`, `model/elements.py`, `export/svg_exporter.py`,
   `dictionary/apply.py`, `web/server.py`, `web/rpc_methods.py`。
 
-> `resources/web/` の `index.html` / `app.js` / `dom.js` / `geometry.js` / `rpc.js` / `styles.css` は
+> `resources/web/` の `index.html` / `app.js`（画面組み立て）/ `state.js`（状態機械 `S` と遷移）/
+> `rail.js`（左ページレール）/ `icons.js` / `dom.js` / `geometry.js` / `rpc.js` / `styles.css` は
 > 手書き管理（`styles.css` のフォントは UI 用に Windows 標準へ差し替え済み）。
 
 ### 触りやすさマップ（どこから触るか / どこは慎重に）
@@ -107,6 +108,11 @@ python -m pytest
 
 抽出→辞書適用→クロップ→SVG 書き出し、正規化、ストア照合、スキャン画像埋め込み、RPC
 ディスパッチ・Undo スタック・SVG 書き出しを網羅。コアは UI/Qt 非依存のため Qt 無しで走る。
+
+フロントは `pnpm --filter pdf-to-svg run test`（vitest: `geometry.js` / `state.js` の純粋関数）と
+`pnpm --filter pdf-to-svg run test:e2e`（Playwright: 実 Python サーバ + 実ブラウザで
+取込→置換→削除/Undo→書き出しを通し、書き出した SVG の中身まで検証。
+`test/e2e_server.py` が Edge を開かず固定ポートで起動する）。
 
 ---
 
