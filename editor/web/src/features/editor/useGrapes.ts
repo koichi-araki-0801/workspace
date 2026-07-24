@@ -1,16 +1,15 @@
 // =============================================================================
 // useGrapes.ts — GrapesJS canvas のラッパ composable(3-pane editor の中核)
 // =============================================================================
-// 役割: GrapesJS の init / 選択 rect / ページ境界 guide / zoom / 並べ替え /
-// inline style パッチ等を Vue ref として束ね、`useTemplateEditor.ts` へ提供する。
-// イベント配線は `grapesEvents.ts` の `wireGrapesEvents` へ委譲する。
+// 役割: GrapesJS の init / ページ送り / 並べ替え / inline style パッチ等を Vue ref として
+// 束ね、`useTemplateEditor.ts` へ提供する。イベント配線は `grapesEvents.ts` の
+// `wireGrapesEvents` へ、zoom/フィットは `useZoomFit.ts` へ、ページ境界 guide は
+// `usePageGuides.ts` へ、選択枠 rect / メモ目印は `useCanvasMarkers.ts` へ委譲する。
 
-import { toAppError } from '@editor/shared';
 import grapesjs, { type Component, type Editor } from 'grapesjs';
 import { ref, shallowRef } from 'vue';
-import { logError } from '@/lib/appError';
 import 'grapesjs/dist/css/grapes.min.css';
-import { type GrapesCallbacks, type SelectedRect, wireGrapesEvents } from './grapesEvents';
+import { type GrapesCallbacks, wireGrapesEvents } from './grapesEvents';
 import { jinjaChipCanvasCss, registerJinjaComponents } from './jinjaComponents';
 import {
   clampPageIndex,
@@ -19,37 +18,19 @@ import {
   pageViewCss,
   strayDirectChildren,
 } from './pageView';
-import { partEls, partPathKeyFor } from './partKey';
+import { useCanvasMarkers } from './useCanvasMarkers';
+import { usePageGuides } from './usePageGuides';
+import { useZoomFit } from './useZoomFit';
 
-/**
- * A4 sheet 上に描く 1 本のページ境界 guide(canvas 相対 / zoom 考慮の座標、
- * `SelectedRect` と同様)。実際の page break(`break-*` / `page-break-*`、class 由来の
- * `.page` を含む)= 論理ページブロックの末尾だけを表す。改ページ判定は page break のみで
- * 行い、297mm の高さ推定(estimate)は描かない(`refreshPageGuides` を見よ)。
- */
-export interface PageGuide {
-  top: number;
-  left: number;
-  width: number;
-  /** この境界で*終わる*累積ページ番号(「ここまで N ページ目」)。 */
-  page: number;
-}
+export type { NoteMarker } from './useCanvasMarkers';
+export type { PageGuide } from './usePageGuides';
+// 分離前からの import 元互換(型と zoom 定数は各 composable が正典)。
+export { ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from './useZoomFit';
 
 export interface GrapesContainers {
   canvas: HTMLElement;
   layers: HTMLElement;
 }
-
-// canvas の zoom 範囲とクリック毎のステップ。`EditorView.vue` の zoom in/out ボタンと
-// 共有し、`setZoom` と同じ範囲へ clamp させる。
-export const ZOOM_MIN = 0.4;
-export const ZOOM_MAX = 1.4;
-export const ZOOM_STEP = 0.1;
-
-// `fitToView` で利用可能サイズから差し引く余白(px)。これを引いた領域へ A4 ページ全体が
-// 収まる倍率を求める。`index.css` の `.gjs-frame-wrapper{ margin:auto; top/bottom:0 }` で
-// ページは canvas 中央へ上下対称に寄せるため、この余白が上下に半分(28px)ずつ分かれて見える。
-const FIT_MARGIN = 56;
 
 /**
  * GrapesJS canvas の body を A4 用紙の見た目にする。iframe の幅は index.css の
@@ -89,23 +70,9 @@ export interface SelectedInfo {
   partId?: string;
 }
 
-/**
- * 版を跨ぐメモを持つパーツの目印(canvas 相対 / zoom 考慮の座標、`SelectedRect` と同様)。
- * エクセルのセルコメント風に、パーツ右上隅へ固定 px の小バッジを重畳する。位置のみ
- * パーツへ追従し、バッジ自体のサイズはズーム非依存(`refreshNoteMarkers` を見よ)。
- */
-export interface NoteMarker {
-  /** 紐づく構造パスキー(`partKey.ts` の `partPathKeyFor`)。 */
-  key: string;
-  top: number;
-  /** パーツ右上隅の x(`rect.left + rect.width`)。 */
-  left: number;
-}
-
 export function useGrapes() {
   const editor = shallowRef<Editor>();
   const selected = ref<SelectedInfo | null>(null);
-  const zoom = ref(1);
   // canvas で inline text 編集(RTE)中か。GrapesJS は iframe のキー入力を親 document へ
   // 転送するため、編集中はキーボードショートカット側(`useEditorShortcuts.ts`)が undo/redo/
   // delete を横取りしないよう、この flag を見てネイティブのテキスト編集へ委ねる。
@@ -114,23 +81,10 @@ export function useGrapes() {
   let locked = false;
   /** component/style 変更ごとに加算され、呼び出し側が幾何を再計算できるようにする。 */
   const revision = ref(0);
-  /** overlay 用に保持する選択要素の画面 rect(canvas 相対, zoom 考慮)。 */
-  const selectedRect = ref<SelectedRect | null>(null);
   const canMoveUp = ref(false);
   const canMoveDown = ref(false);
   /** 現在の選択が drag-reorder 可能か(move grip の表示を駆動する)。 */
   const canDragSelected = ref(false);
-  /** ページ境界の overlay guide 群(`refreshPageGuides` を見よ)。 */
-  const pageGuides = ref<PageGuide[]>([]);
-  /** 版を跨ぐメモを持つパーツの構造キー集合(外部 = `usePartNote` から `setNoteKeys` で注入)。 */
-  const noteKeys = ref<Set<string>>(new Set());
-  /** メモ目印の overlay 位置(`refreshNoteMarkers` が現在ページのパーツから算出)。 */
-  const noteMarkers = ref<NoteMarker[]>([]);
-  /**
-   * `recomputeBreakEls` が cache する page-break 要素。画面上の位置は scroll/zoom
-   * ごとに `refreshPageGuides` が読み直す。
-   */
-  let breakEls: { el: HTMLElement; edge: 'before' | 'after' }[] = [];
 
   // 差し込み値ハイライト(琥珀)を canvas に出すか。設計正典.md「編集 2 系統」に従い
   // 作成経路でのみ true。`setVarsHighlight` が状態を持ち、`load` 後の再描画でも body へ
@@ -171,6 +125,22 @@ export function useGrapes() {
   /** `cvScrollEl` に張る scroll listener(`destroy` で剥がすため参照を保持)。 */
   let cvScrollHandler: (() => void) | null = null;
 
+  // ── 分離 composable(選択枠/メモ目印 → guide → zoom の順に依存を注ぐ)。ローカルへ
+  //    同名で分配し、既存の呼び出し側(grapesEvents 配線・ページ送り・return)を無改修に保つ ──
+  const markers = useCanvasMarkers({ editor, pageEls, currentPageIndex, singlePageMode });
+  const { selectedRect, noteMarkers, refreshRect, setNoteKeys } = markers;
+  const guides = usePageGuides({ editor, afterGuides: markers.refreshNoteMarkers });
+  const { pageGuides, recomputeBreakEls, refreshPageGuides } = guides;
+  const zoomFit = useZoomFit({
+    editor,
+    getContainer: () => containerEl,
+    afterZoom: () => {
+      refreshRect();
+      refreshPageGuides();
+    },
+  });
+  const { zoom, setZoom, fitToView, updateScrollMode } = zoomFit;
+
   function refreshMove(): void {
     const comp = editor.value?.getSelected();
     canDragSelected.value = !locked && !!comp?.get('draggable');
@@ -185,134 +155,7 @@ export function useGrapes() {
     canMoveDown.value = i < parent.components().length - 1;
   }
 
-  /** `break-*` / `page-break-*` で使う page-break キーワードに該当すれば true。 */
-  function isBreakValue(v: string | undefined): boolean {
-    return (
-      v === 'always' ||
-      v === 'page' ||
-      v === 'left' ||
-      v === 'right' ||
-      v === 'recto' ||
-      v === 'verso'
-    );
-  }
-
-  /**
-   * canvas document を走査し、印刷ページの開始/終了となる要素を `break-before/after`
-   * や旧来の `page-break-*` から拾う。class 由来のルール(例
-   * `.page { page-break-after: always }`)も含むが、それらは computed style にしか
-   * 現れない(inline 専用の `geom.ts` の `geomFromStyle` は取りこぼす)。全ノードの
-   * computed style を読むため重い。よって content/style 変更時のみ走らせ、
-   * `refreshPageGuides` は scroll/zoom 時に cache 済み集合を再利用する。
-   */
-  function recomputeBreakEls(): void {
-    const ed = editor.value;
-    const doc = ed?.Canvas.getDocument();
-    const win = doc?.defaultView;
-    const body = ed?.Canvas.getBody();
-    if (!doc || !win || !body) {
-      breakEls = [];
-      return;
-    }
-    const out: { el: HTMLElement; edge: 'before' | 'after' }[] = [];
-    for (const el of Array.from(body.querySelectorAll<HTMLElement>('*'))) {
-      const cs = win.getComputedStyle(el);
-      if (isBreakValue(cs.breakBefore || cs.pageBreakBefore)) out.push({ el, edge: 'before' });
-      if (isBreakValue(cs.breakAfter || cs.pageBreakAfter)) out.push({ el, edge: 'after' });
-    }
-    breakEls = out;
-  }
-
-  /**
-   * 連続スクロールの canvas(`page-break-*` は画面レイアウトに効かない)の上に、
-   * ページ境界 guide 線を再計算する。改ページ判定は実際の page break のみで行う:
-   *
-   * - cache 済みの各 break(`.page` 末尾、`break-*` / `page-break-*`)を hard break =
-   *   論理ページの末尾とみなし、その位置に guide を 1 本引く。
-   * - guide は出現順に累積ページ番号を付ける(「ここまで N ページ目」)。
-   *
-   * 高さ 297mm 由来の estimate(推定改ページ)は描かない。厳密な改ページは
-   * Vivliostyle preview の役目であり、ここは page break 位置の可視化に徹する。
-   */
-  function refreshPageGuides(): void {
-    const ed = editor.value;
-    const body = ed?.Canvas.getBody();
-    if (!ed || !body) {
-      pageGuides.value = [];
-      return;
-    }
-    try {
-      // `noScroll: true`: 既定の `getElementPos` は内部 `offset()` で iframe document の
-      // scroll 量を足し戻し、戻り値が content 基準(scroll 非依存)になる。overlay guide は
-      // 非スクロールの `<main>` 上に置くため、iframe スクロール時に追従させるには viewport
-      // 相対が要る。GrapesJS 自身も tool 配置で同じ opts を使う(grapesjs canvas の
-      // `CommandSelectComponent.getElementPos`)。`refreshRect` も同様。
-      const bodyPos = ed.Canvas.getElementPos(body, { noScroll: true });
-      const top0 = bodyPos.top;
-      const bottom = bodyPos.top + bodyPos.height;
-
-      // hard break(論理ページ末尾)を昇順に並べ、端ぎりぎりのものは捨てる。
-      const hard = breakEls
-        .map(({ el, edge }) => {
-          const p = ed.Canvas.getElementPos(el, { noScroll: true });
-          return edge === 'before' ? p.top : p.top + p.height;
-        })
-        .filter((t) => t > top0 + 1 && t < bottom - 1)
-        .sort((a, b) => a - b);
-
-      // 各 hard break に guide を 1 本ずつ。番号は出現順の累積ページ。
-      pageGuides.value = hard.map((top, i) => ({
-        top,
-        left: bodyPos.left,
-        width: bodyPos.width,
-        page: i + 1,
-      }));
-    } catch (e) {
-      // 幾何の再計算に失敗(canvas の一時的な状態) — guide を静かに隠す。
-      logError(toAppError(e));
-      pageGuides.value = [];
-    }
-    // guide と同じ scroll/zoom/content の契機でメモ目印も測り直す(位置追従)。
-    refreshNoteMarkers();
-  }
-
-  /**
-   * メモを持つパーツ(`noteKeys`)の overlay 目印位置を再計算する。1 ページ表示中は現在
-   * ページのパーツのみを走査する(非表示ページの `getElementPos` は 0 になり位置が崩れる
-   * ため)。全ページ表示時は全ページを走査する。座標は `noScroll:true`(guide/rect と同様、
-   * 非スクロールの overlay 層に重ねるための viewport 相対)で測る。
-   */
-  function refreshNoteMarkers(): void {
-    const ed = editor.value;
-    const root = ed?.getWrapper()?.getEl?.() ?? ed?.Canvas.getBody();
-    if (!ed || !root || noteKeys.value.size === 0) {
-      noteMarkers.value = [];
-      return;
-    }
-    const pages = singlePageMode.value ? [pageEls.value[currentPageIndex.value]] : pageEls.value;
-    try {
-      const out: NoteMarker[] = [];
-      for (const page of pages) {
-        if (!page) continue;
-        for (const part of partEls(page)) {
-          const key = partPathKeyFor(part, root);
-          if (!key || !noteKeys.value.has(key)) continue;
-          const p = ed.Canvas.getElementPos(part, { noScroll: true });
-          out.push({ key, top: p.top, left: p.left + p.width });
-        }
-      }
-      noteMarkers.value = out;
-    } catch (e) {
-      logError(toAppError(e));
-      noteMarkers.value = [];
-    }
-  }
-
-  /** メモを持つパーツの構造キー集合を差し替え、目印を即時に測り直す(`usePartNote` から)。 */
-  function setNoteKeys(keys: Set<string>): void {
-    noteKeys.value = keys;
-    refreshNoteMarkers();
-  }
+  // break 収集 / guide 算出は usePageGuides.ts、メモ目印は useCanvasMarkers.ts へ分離。
 
   /** page-view style に現在の可視制御 CSS を流し込む(他ページを `display:none` に)。 */
   function applyPageVisibility(): void {
@@ -457,27 +300,6 @@ export function useGrapes() {
     doc.body.classList.toggle('jinja-vars-highlight', varsHighlight);
   }
 
-  /** 選択要素の画面上 rect を再計算する(浮動ツールバー / ハンドル用)。 */
-  function refreshRect(): void {
-    const ed = editor.value;
-    const comp = ed?.getSelected();
-    const el = comp?.getEl?.();
-    if (!ed || !el) {
-      selectedRect.value = null;
-      return;
-    }
-    try {
-      // `noScroll: true`: overlay 相対の viewport 座標へ揃える(`refreshPageGuides` 参照)。
-      const p = ed.Canvas.getElementPos(el, { noScroll: true });
-      selectedRect.value = { left: p.left, top: p.top, width: p.width, height: p.height };
-    } catch (e) {
-      // 幾何の再計算に失敗(canvas の一時的な状態) — 観測のため log は残すが、
-      // toast でユーザーに見せず toolbar を隠したままにする。
-      logError(toAppError(e));
-      selectedRect.value = null;
-    }
-  }
-
   function init(c: GrapesContainers): Editor {
     containerEl = c.canvas;
     const ed = grapesjs.init({
@@ -569,34 +391,10 @@ export function useGrapes() {
     return ed;
   }
 
-  function setZoom(z: number): void {
-    const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
-    zoom.value = clamped;
-    editor.value?.Canvas.setZoom(clamped * 100);
-    requestAnimationFrame(() => {
-      updateScrollMode();
-      refreshRect();
-      refreshPageGuides();
-    });
-  }
+  // setZoom / updateScrollMode / fitToView は useZoomFit.ts へ分離。
 
   /**
-   * ページ全体がビューポートに収まるかを判定し、`containerEl` に `ret-canvas-fits` class を
-   * 出し分ける(index.css の `.gjs-frame-wrapper` 縦配置を切り替える)。収まる時は縦中央寄せ、
-   * 超える時は上揃え + 縦スクロール。判定は `fitToView` と同じ尺度(ページ実寸 `offset*` に zoom を
-   * 掛けた表示サイズ vs `client* - FIT_MARGIN`)。`setZoom`/`fitToView`/canvas load の各 rAF で呼ぶ。
-   */
-  function updateScrollMode(): void {
-    if (!containerEl) return;
-    const body = editor.value?.Canvas.getBody();
-    const fits =
-      !!body &&
-      body.offsetHeight * zoom.value <= containerEl.clientHeight - FIT_MARGIN &&
-      body.offsetWidth * zoom.value <= containerEl.clientWidth - FIT_MARGIN;
-    containerEl.classList.toggle('ret-canvas-fits', fits);
-  }
-
-  /**
+   * content/構成が変わった後の「全部測り直す」正典。  /**
    * content/構成が変わった後の「全部測り直す」正典。順序厳守:
    * `recomputeBreakEls`(break 集合更新) → `refreshPageGuides`(その集合を読む) →
    * `recomputePages`(.page 列挙) → `updateScrollMode`(body 高さ変化で縦配置を出し分け)。
@@ -625,26 +423,6 @@ export function useGrapes() {
       layoutScheduled = false;
       recomputeLayout();
     });
-  }
-
-  /**
-   * canvas を A4 ページ全体が縦横とも収まる倍率へ合わせる(起動時の初期ズーム用)。
-   * ページ実寸は body の `offsetHeight/offsetWidth`(CSS px、transform 非依存なので
-   * `setZoom` の scale に影響されない)で測り、利用可能サイズは canvas コンテナの
-   * client サイズから `FIT_MARGIN` を引いた値とする。両軸の min を取り `setZoom` に委譲
-   * (clamp `[ZOOM_MIN, ZOOM_MAX]` / 丸め / overlay 再計算はそちら任せ)。以後は手動 +/- で調整。
-   */
-  function fitToView(): void {
-    const body = editor.value?.Canvas.getBody();
-    if (!body || !containerEl) return;
-    const availH = containerEl.clientHeight - FIT_MARGIN;
-    const availW = containerEl.clientWidth - FIT_MARGIN;
-    const pageH = body.offsetHeight;
-    const pageW = body.offsetWidth;
-    if (pageH <= 0 || pageW <= 0 || availH <= 0 || availW <= 0) return;
-    setZoom(Math.min(availH / pageH, availW / pageW));
-    // `setZoom` 側の rAF でも更新されるが、フィット直後の class を確実に揃えておく。
-    updateScrollMode();
   }
 
   /**

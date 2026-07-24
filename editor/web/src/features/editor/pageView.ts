@@ -48,6 +48,21 @@ export function clampPageIndex(index: number, count: number): number {
 }
 
 /**
+ * `break-*` / `page-break-*` で使う page-break キーワードに該当すれば true。
+ * `usePageGuides.ts` の break 要素収集(computed style 判定)が使う。
+ */
+export function isBreakValue(v: string | undefined): boolean {
+  return (
+    v === 'always' ||
+    v === 'page' ||
+    v === 'left' ||
+    v === 'right' ||
+    v === 'recto' ||
+    v === 'verso'
+  );
+}
+
+/**
  * `root`(= wrapper)直下の「`.page` でない素の要素」を列挙する(防御的措置の対象)。
  * 正常時はテンプレの wrapper 直下が `.page` のみで戻り値は空。だが万一どの `.page` にも
  * 属さない孤立要素(挿入経路の取りこぼし等)が wrapper 直下に出来ると、`PV_ATTR` が付かず
