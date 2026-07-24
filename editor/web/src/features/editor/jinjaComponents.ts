@@ -6,6 +6,8 @@
 
 import type { Editor } from 'grapesjs';
 
+import { DATA_JINJA_OPEN } from '@/lib/jinjaAttrs';
+
 /**
  * locked な Jinja chip の `Component` type 群を登録する。chip は `toEditable` が
  * `<span data-gjs-type="jinja-var|stmt|comment" data-jinja="…">` として生成する。
@@ -119,5 +121,5 @@ export const jinjaChipCanvasCss = `
 .jinja-chip.jinja-comment { background: #e5e7eb; color: #6b7280; border: 1px dashed #9ca3af; }
 .jinja-chip.jinja-script { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
 .jinja-chip.jinja-math { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
-[data-jinja-open] { outline: 1px dashed #f59e0b; outline-offset: 2px; }
+[${DATA_JINJA_OPEN}] { outline: 1px dashed #f59e0b; outline-offset: 2px; }
 `;

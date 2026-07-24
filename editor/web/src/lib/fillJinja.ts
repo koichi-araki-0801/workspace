@@ -19,6 +19,15 @@
 //       script を除去する), 保存時に verbatim 復元する。
 import type { SampleData } from '@editor/shared';
 import nunjucks from 'nunjucks';
+import {
+  DATA_JINJA,
+  DATA_JINJA_BLOCK,
+  DATA_JINJA_CLOSE,
+  DATA_JINJA_LOOP_CLONE,
+  DATA_JINJA_OPEN,
+  DATA_OPAQUE,
+  DATA_OPAQUE_KIND,
+} from './jinjaAttrs';
 import { b64encode, htmlEscape, TOKEN_RE, tokenKind } from './jinjaMask';
 
 type Ctx = Record<string, unknown>;
@@ -88,7 +97,7 @@ function fillInline(html: string, ctx: Ctx): string {
       return part.replace(TOKEN_RE, (token) => {
         const kind = tokenKind(token);
         const visible = kind === 'var' ? evalExpr(token.slice(2, -2).trim(), ctx) : token;
-        return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" data-jinja="${b64encode(token)}">${htmlEscape(visible)}</span>`;
+        return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_JINJA}="${b64encode(token)}">${htmlEscape(visible)}</span>`;
       });
     })
     .join('');
@@ -100,7 +109,7 @@ function fillInline(html: string, ctx: Ctx): string {
  * `script` → 実行, `math` → MathJax (TeX)で組版 または MathML を描画。
  */
 function opaqueChip(source: string, kind: 'script' | 'math', label: string): string {
-  return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" data-opaque="${b64encode(source)}" data-opaque-kind="${kind}">${label}</span>`;
+  return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_OPAQUE}="${b64encode(source)}" ${DATA_OPAQUE_KIND}="${kind}">${label}</span>`;
 }
 
 // MathJax が受理する TeX 区切り: $$…$$ / \(…\) / \[…\]。(単独の `$` はマッチさせ
@@ -138,7 +147,7 @@ function expandLoops(html: string, ctx: Ctx): string {
       const items = evalArray(iter.trim(), ctx);
       const tplRow = insertAttrs(
         element,
-        `data-jinja-open="${b64encode(open)}" data-jinja-close="${b64encode(close)}"`,
+        `${DATA_JINJA_OPEN}="${b64encode(open)}" ${DATA_JINJA_CLOSE}="${b64encode(close)}"`,
       );
       // iterable が空: ループが生き残るよう(未 fill の)テンプレート行を残す。
       if (items.length === 0) return fillInline(tplRow, ctx);
@@ -156,7 +165,7 @@ function expandLoops(html: string, ctx: Ctx): string {
             },
           };
           // 先頭行が for/endfor マーカを運ぶ。clone は表示専用。
-          const row = i === 0 ? tplRow : insertAttrs(element, 'data-jinja-loop-clone');
+          const row = i === 0 ? tplRow : insertAttrs(element, DATA_JINJA_LOOP_CLONE);
           return fillInline(row, loopCtx);
         })
         .join('\n');
@@ -175,7 +184,7 @@ function collapseIfs(html: string, ctx: Ctx): string {
     // marker を運べるのは単一要素 branch のみ。それ以外は生ブロックを残し,
     // `jinjaMask.ts` の inline chip に処理させる(なお round-trip する)。
     if (!el) return whole;
-    return fillInline(insertAttrs(taken, `data-jinja-block="${b64encode(whole)}"`), ctx);
+    return fillInline(insertAttrs(taken, `${DATA_JINJA_BLOCK}="${b64encode(whole)}"`), ctx);
   });
 }
 

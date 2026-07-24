@@ -10,6 +10,7 @@
     "cli": "tsx src/cli.ts",
     "batch": "tsx src/test_batch.ts",
     "batch:diff": "node scripts/batch_diff.mjs",
+    "baseline:accept": "node scripts/baseline_accept.mjs",
     "verify": "tsx src/verify/svg.ts",
     "verify:consistency": "tsx src/verify/consistency.ts",
     "gen:widths": "tsx scripts/gen_glyph_advance.ts",

@@ -14,10 +14,17 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const baselineDir = path.join(projectRoot, 'out', '_baseline');
 const currentDir = path.join(projectRoot, 'out', 'svg_js');
 
-/** ディレクトリ直下の .svg ファイル名一覧 (ソート済み) を返す。 */
+/** ディレクトリ直下の .svg ファイル名一覧 (ソート済み) を返す。不在時は初回導線を案内。 */
 function listSvgNames(dir) {
   if (!fs.existsSync(dir)) {
-    console.error(`[batch:diff] ディレクトリがありません: ${dir}`);
+    if (dir === baselineDir) {
+      console.error(
+        '[batch:diff] baseline がありません。初回はコミット済みのクリーンな状態で ' +
+          '`npm run batch` → `npm run baseline:accept` を実行して基準を作成してください',
+      );
+    } else {
+      console.error('[batch:diff] out/svg_js がありません。`npm run batch` で出力を生成してください');
+    }
     process.exit(1);
   }
   return fs
@@ -54,5 +61,7 @@ if (missing.length > 0)
 if (extra.length > 0) console.error(`[batch:diff] 追加 (${extra.length}): ${extra.join(', ')}`);
 if (changed.length > 0)
   console.error(`[batch:diff] 差分 (${changed.length}): ${changed.join(', ')}`);
-console.error('[batch:diff] NG — 出力が baseline と一致しません (意図的な場合は baseline を更新)');
+console.error(
+  '[batch:diff] NG — 出力が baseline と一致しません (意図的な場合は `npm run baseline:accept` で baseline を更新)',
+);
 process.exit(1);

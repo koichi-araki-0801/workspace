@@ -73,6 +73,15 @@ describe('toTemplate pretty mode', () => {
   });
 });
 
+describe('jinja data attribute names stay stable', () => {
+  // 属性名リテラルは意図的に定数(jinjaAttrs.ts)を import せず固定する: 定数の値を
+  // 誤変更したとき、このテストと fixture round-trip が「破壊」として検知するため。
+  it('canvas CSS still targets [data-jinja-open]', async () => {
+    const { jinjaChipCanvasCss } = await import('../src/features/editor/jinjaComponents');
+    expect(jinjaChipCanvasCss).toContain('[data-jinja-open]');
+  });
+});
+
 describe('full document round-trip', () => {
   it('keeps doctype and all tokens', () => {
     const raw = `<!doctype html>
