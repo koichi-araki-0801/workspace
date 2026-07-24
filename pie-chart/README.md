@@ -241,6 +241,23 @@ RenderResult { svg, diagnostics, config }
 - **`layout/diagnostics.ts` / `layout/placement.ts` は 1 ファイル**: 公開 API は 1 関数 (`layoutLabels` / `drawLabelFragments`) で、サブモジュール化は内部詳細にすぎず grep 性が下がる。section header コメントで「profiles / diagnostics / ...」を識別できれば十分
 - **`svg_export/` は subdir 維持**: rendering (純粋関数) / post_layout (placement 修正) / font (async I/O + 独自依存) / orchestrator は性質が異なるため分けるメリットあり
 
+## 触りやすさマップ（どこから触るか / どこは慎重に）
+
+初めての変更は 🟢 から着手し、🔴 は設計正典（`docs/pie-chart/src/設計正典.md` の
+「触る前のチェックリスト」）を読んでからレビュー付きで触ること。
+
+| ゾーン | 場所 | 理由 |
+|---|---|---|
+| 🟢 まず触ってよい | `src/layout/geometry.ts` | 副作用なしの純粋幾何ヘルパー約 60 個。`test/geometry.test.ts` が手厚い |
+| 🟢 | `src/config.ts`・`src/input/` | 定数の集約・入力正規化。端の層に隔離済み |
+| 🟢 | `src/verify/oracle_sync.ts` | 定数追加は照合付きで安全 |
+| 🟡 局所なら可 | `src/layout/placement.ts` | 10 個の `placeXxxLabel` は角度ゾーンごとに独立。1 関数の理解で 1 ケース触れる |
+| 🔴 レビュー必須 | `src/svg_export/emit_repair.ts` | パス順序・stage/gate・循環 import・FP 演算順序が絡む最難関 |
+| 🔴 | `src/svg_export/pipeline.ts`・`mode_passes.ts` | orchestrator と fallback 群・モード特化パス |
+| 🔴 | `src/layout/diagnostics.ts` のモード判定 | フラグ間の相互作用が非自明（`mark_flags` ゴールデンが分布を固定） |
+
+`src/glyph_advance/*` は生成物（`npm run gen:widths`）なので手で編集しない。
+
 ## コメント規約
 
 コメント規約の正典は **`docs/コメント規約.md`**（全プロジェクト共通）。言語・識別子バッククォート・

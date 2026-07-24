@@ -5,6 +5,20 @@ editor / pie-chart / pdf-to-svg / graph-editor などを束ねる pnpm モノレ
 [`docs/コメント規約.md`](docs/コメント規約.md)、各プロジェクトの構成・不変則は
 `docs/<project>/src/設計正典.md` が正典。
 
+## 新しく参加した人へ（最初に読む）
+
+1. **読む順序**: この README → 担当プロジェクトの `README.md`（各 README に
+   「触りやすさマップ」がある。🟢 から着手する）→ [`docs/コメント規約.md`](docs/コメント規約.md)
+   → `docs/<project>/src/設計正典.md`（構成・不変則・却下済み設計）。
+   editor を触るなら `editor/CONTRIBUTING.md` がハブ。
+2. **最初に覚える 3 コマンド**:
+   - セットアップ: `offline\setup-offline-local.bat`（完全オフライン環境）または `pnpm install`
+   - 検証: `pnpm run ci:<領域>`（editor / pie-chart / graph-editor。PR 前はフル `pnpm run ci`）
+   - 起動: 各プロジェクト直下の入口 .bat（下記「入口スクリプト一覧」）
+3. **リポジトリ直下の見分け方**: `offline-deps-bundle.tar.gz`・`pnpm.tgz`・`python-wheelhouse/`・
+   `ms-playwright/` などはオフライン配布用の**生成物・配布物**であり、手で編集する本体コードではない。
+4. **ハマったら**: [`docs/トラブルシュート.md`](docs/トラブルシュート.md)（症状 → 原因 → 対処の一覧）。
+
 ## スクリプトの置き場ルール
 
 > **入口（利用者がダブルクリック/コマンドで直接実行する）はプロジェクト直下に最小限置く。**
