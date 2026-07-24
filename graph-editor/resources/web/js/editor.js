@@ -11,6 +11,7 @@ import { showToast } from "./icons.js";
 // 保存 bake / 開く) は editor-io.js へ分離。名前空間 import で衝突回避。
 import * as render from "./editor-render.js";
 import * as io from "./editor-io.js";
+import { bindEvents as bindEditorEvents } from "./editor-events.js";
 
 // ── 1. エディタ本体 (セッション状態 + ライフサイクル + 描画オーケストレーション) ──
 
@@ -460,88 +461,9 @@ class Editor {
   renderList() { render.buildRail(this); render.renderOpenList(this); render.updateChrome(this); }
   highlightActiveInList() { render.buildRail(this); render.updateChrome(this); }
 
-  // ── 14. イベント配線 ──
+  // ── 14. イベント配線 → editor-events.js へ分離 (委譲) ──
 
-  bindEvents() {
-    // 開く (手順1 ドロップゾーン / レールのボタン)
-    if (this.dom.dropzone) {
-      this.dom.dropzone.addEventListener("click", () => this.openFiles());
-      // `tabindex=0` の div のため Enter/Space のキーボード起動を自前で足す (ui.html 参照)。
-      this.dom.dropzone.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); this.openFiles(); }
-      });
-      this.dom.dropzone.addEventListener("dragover", (e) => { e.preventDefault(); this.dom.dropzone.classList.add("dragover"); });
-      this.dom.dropzone.addEventListener("dragleave", () => this.dom.dropzone.classList.remove("dragover"));
-      this.dom.dropzone.addEventListener("drop", (e) => {
-        e.preventDefault();
-        this.dom.dropzone.classList.remove("dragover");
-        this.handleDrop(e.dataTransfer);
-      });
-    }
-    if (this.dom.btnOpenRail) this.dom.btnOpenRail.addEventListener("click", () => this.openFiles());
-
-    // 保存 / Undo / Redo / 全体リセット / ズーム
-    this.dom.btnSave.addEventListener("click", () => this.save());
-    this.dom.btnUndo.addEventListener("click", () => this.undo());
-    if (this.dom.btnRedo) this.dom.btnRedo.addEventListener("click", () => this.redo());
-    this.dom.btnReset.addEventListener("click", () => {
-      const it = this.items.find((i) => i.id === this.currentId);
-      if (!it) return;
-      // 表示中ファイルの調整を全破棄する破壊的操作のため確認を挟む (Undo でも戻れない
-      // `load` による再構築)。フレームワーク無しのため `window.confirm` で足りる。
-      const ok = window.confirm(`「${it.name}」の調整をすべて破棄して、開いた時の状態に戻します。よろしいですか？`);
-      if (ok) this.load(it);
-    });
-    this.dom.btnZoomIn.addEventListener("click", () => this.setZoom(this.zoom * CONFIG.zoomStep));
-    this.dom.btnZoomOut.addEventListener("click", () => this.setZoom(this.zoom / CONFIG.zoomStep));
-
-    // ウィザード遷移 (フッター / ステップバー)
-    if (this.dom.btnBack) this.dom.btnBack.addEventListener("click", () => this.goPhase(this.phase - 1));
-    if (this.dom.btnNext) this.dom.btnNext.addEventListener("click", () => this.goPhase(this.phase + 1));
-    if (this.dom.stepbar) {
-      this.dom.stepbar.querySelectorAll(".step").forEach((st) => {
-        st.addEventListener("click", () => this.goPhase(+st.dataset.step));
-      });
-    }
-
-    window.addEventListener("keydown", (e) => {
-      // Redo: Ctrl+Y / Ctrl+Shift+Z
-      if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
-        e.preventDefault();
-        this.redo();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        this.undo();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        this.save();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
-        e.preventDefault();
-        this.openFiles();
-        return;
-      }
-      if (e.key === "Escape") {
-        this.selectLabel(null);
-        return;
-      }
-      // 入力欄/スライダ(長体)にフォーカス中は矢印をそのコントロールに委ね、ラベル移動はしない
-      const ae = document.activeElement;
-      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return;
-      if (!this.selected) return;
-      const step = e.shiftKey ? CONFIG.nudgeStepFast : CONFIG.nudgeStep;
-      const map = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
-      if (map[e.key]) {
-        e.preventDefault();
-        this.nudge(map[e.key][0], map[e.key][1]);
-      }
-    });
-  }
+  bindEvents() { bindEditorEvents(this); }
 }
 
 export { Editor };
