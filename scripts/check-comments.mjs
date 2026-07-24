@@ -33,7 +33,7 @@ const SKIP_DIRS = new Set([
 ]);
 
 // `.ps1`↔`.bat` 併設の例外: dot-source 専用ライブラリは単体起動しないため `.bat` 不要。
-// 正典は `offline/lib/content-key.ts` 相当の運用 (`CLAUDE.md` の PowerShell 節を参照)。
+// 正典は `offline/lib/content-key.ts` 相当の運用 (ルート `README.md` のスクリプト節を参照)。
 const BAT_PAIRING_EXCEPTIONS = new Set([
   'offline/lib/content-key.ps1',
   'scripts/lib/build-python-venv.ps1',

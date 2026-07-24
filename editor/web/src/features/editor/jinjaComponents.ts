@@ -102,7 +102,7 @@ export const jinjaChipCanvasCss = `
   font-size: inherit;
   white-space: normal;
 }
-/* 差し込み値ハイライト（薄い琥珀）は CLAUDE.md「editor 2系統の原則」に従い、作成経路
+/* 差し込み値ハイライト（薄い琥珀）は 設計正典.md「編集 2 系統」に従い、作成経路
    （テンプレ作成タブ＝共通sample・表示のみ）だけに出す。canvas body へ jinja-vars-highlight
    クラスが付いたときのみ可視化し、編集経路（実値編集）では出さない（setVarsHighlight が
    出し分ける）。背景は canvas のみ（プレビュー/PDF/保存出力には載らない）。

@@ -8,7 +8,7 @@
  * The filled form preserves the original Jinja source (see fillJinja.toFilled),
  * so jinjaMask.toTemplate restores the exact template on save.
  *
- * 2系統の原則(CLAUDE.md「editor 2系統の原則」)に従い、filled fixtures は編集タブが
+ * 2系統の原則(設計正典.md「編集 2 系統」)に従い、filled fixtures は編集タブが
  * 読む「値埋め込み済みHTML」であり、値は**ファンド別の実サンプル**でなければならない
  * (全ファンド共通ダミーにしない)。ファンド別実値は `src/api/fixtures/sample/<fund>.json`
  * を正典とし、版種(ファイル名由来)だけ `applyEdition` で被せる。per-fund サンプルが無い

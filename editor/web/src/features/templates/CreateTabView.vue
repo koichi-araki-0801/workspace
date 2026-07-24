@@ -107,7 +107,7 @@ async function create(req: GenerateRequest, successMsg: string) {
   if (isErr(res)) return;
   toastSuccess(successMsg);
   // 作成経路の印。編集画面はこの query で差し込み値ハイライトを出す(編集タブ=query なし=
-  // ハイライト無し)。CLAUDE.md「editor 2系統の原則」を参照。
+  // ハイライト無し)。設計正典.md「編集 2 系統」を参照。
   router.push({ name: 'editor', params: { id: res.value.id }, query: { created: '1' } });
 }
 

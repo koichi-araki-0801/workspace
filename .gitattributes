@@ -14,6 +14,6 @@
 *.css   text eol=lf
 *.html  text eol=lf
 
-# Windows 用スクリプトは CRLF を維持(cmd 互換)。.ps1 は UTF-8 BOM 運用(CLAUDE.md 参照)。
+# Windows 用スクリプトは CRLF を維持(cmd 互換)。.ps1 は UTF-8 BOM 運用(docs/コメント規約.md 参照)。
 *.bat   text eol=crlf
 *.ps1   text eol=crlf
