@@ -1,0 +1,65 @@
+// =============================================================================
+// app_flow.e2e.ts — 4 ステップ UI の実画面通し E2E (Playwright + 実 Python バックエンド)
+// =============================================================================
+// `app.js` の状態機械リファクタに先行して回帰網を敷く。取込 (upload) → 用語置換
+// (辞書追加・再適用) → 要素削除と Undo → SVG 書き出し、を実ブラウザ + 実 RPC で通し、
+// 書き出した SVG の中身 (置換済み・削除済み) まで検証する。
+
+import { test, expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
+
+const FIXTURE = new URL("./fixtures/sample.pdf", import.meta.url).pathname.replace(/^\/(\w:)/, "$1");
+
+test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto("/");
+
+  // ── 1. PDF を選ぶ (動的 `<input type=file>` は filechooser イベントで受ける) ──
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.click("#btn-pick"),
+  ]);
+  await chooser.setFiles(FIXTURE);
+  await expect(page.locator("#filelist-count")).toContainText("1 ファイル", { timeout: 30_000 });
+
+  // ── 2. 用語を置換 (辞書タブ → 追加 → ヘッダ限定を解除 → 再適用) ──
+  await page.click("#btn-next");
+  await expect(page.locator('[data-screen="2"]')).toHaveClass(/on/);
+  await page.click('[data-tab="dict"]');
+  await page.fill("#dict-src", "Revenue");
+  await page.fill("#dict-tgt", "売上高");
+  await page.click("#dict-add");
+  await expect(page.locator("#dict-count")).toContainText("1");
+  await page.click("#chk-headers"); // 「ヘッダのみ」を解除して平文にも適用
+  await page.click("#btn-reapply");
+  // 「N 件置換」ヒントは直後の render() が状態行で上書きするため文言では見ない。
+  // 置換の成立は「要確認 1 (changed 化)」とページ表示 (書き出しと同一経路) で確認する。
+  await expect(page.locator("#nav-hint")).toContainText("要確認 1");
+  await expect(page.locator("#doc-master")).toContainText("売上高", { timeout: 15_000 });
+
+  // ── 3. 不要範囲を削除: 要素クリック選択 → 削除 → Undo → 再削除 ──
+  await page.click('[data-screen="2"] [data-skipall]'); // 未確認をまとめてスキップ → 手順3 へ
+  await expect(page.locator('[data-screen="3"]')).toHaveClass(/on/);
+  const target = page.locator('#trim-stage svg [data-el]', { hasText: "DeleteMe" });
+  await target.click();
+  await page.click("#btn-deletesel");
+  await expect(page.locator("#trim-dyn")).toContainText("削除した要素（1）");
+  await page.click("#btn-undo"); // 直近の削除を取り消す
+  await expect(page.locator("#trim-dyn")).toContainText("削除した要素（0）");
+  await page.locator('#trim-stage svg [data-el]', { hasText: "DeleteMe" }).click();
+  await page.click("#btn-deletesel");
+  await expect(page.locator("#trim-dyn")).toContainText("削除した要素（1）");
+
+  // ── 4. SVG に書き出す (1 ページ → 単一 SVG ダウンロード) ──
+  await page.click('[data-screen="3"] [data-skipall]');
+  await expect(page.locator("#btn-export")).toBeVisible();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.click("#btn-export"),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/\.svg$/i);
+  const saved = await download.path();
+  const svgText = readFileSync(saved, "utf8");
+  expect(svgText).toContain("売上高");   // 置換が成果物へ反映されている
+  expect(svgText).not.toContain("DeleteMe"); // 削除が成果物へ反映されている
+});
