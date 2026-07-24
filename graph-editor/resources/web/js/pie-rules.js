@@ -1,0 +1,59 @@
+// =============================================================================
+// pie-rules.js — 円幾何と leader 既定配置の純粋関数 (DOM 非依存)
+// =============================================================================
+// `editor.js` から抽出した判定・算出ロジック。DOM (`getBBox` / querySelector) には
+// 触れず、呼び出し側が測った bbox / スライス d 文字列を入力に取る。vitest
+// (`test/editor_pie_rules.test.ts`) が node 単体で同一実装を検証する。
+
+/** slice パスの d ("M cx,cy … A r,…") から円中心・半径を推定する。楔形でなければ null */
+function parsePieGeometry(d) {
+  const m = (d || "").match(/M\s*(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)/);
+  const a = (d || "").match(/A\s*(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)/);
+  if (!m || !a) return null;
+  return { cx: parseFloat(m[1]), cy: parseFloat(m[2]), r: parseFloat(a[1]) };
+}
+
+/** slice から推定できない時の既定円 (キャンバス中央・短辺 × ratio) */
+function fallbackPieGeometry(w, h, ratio) {
+  return { cx: w / 2, cy: h / 2, r: Math.min(w, h) * ratio };
+}
+
+/** 素の bbox + `textTx` から ラベル外枠 {left,top,right,bottom} を組む */
+function labelBox(bbox, tx) {
+  const left = bbox.x + tx.x;
+  const top = bbox.y + tx.y;
+  return { left, top, right: left + bbox.width, bottom: top + bbox.height };
+}
+
+/** 素の bbox + `textTx` から ラベル中心点を返す */
+function labelCenter(bbox, tx) {
+  return { x: bbox.x + bbox.width / 2 + tx.x, y: bbox.y + bbox.height / 2 + tx.y };
+}
+
+/** 点 `c` が円周の外にあるか */
+function isOutsidePie(c, pie) {
+  return Math.hypot(c.x - pie.cx, c.y - pie.cy) > pie.r;
+}
+
+/** リーダー後付け時の既定 2 点 [リム上アンカー, ラベル端点] を算出する。
+ *  端点 = ラベル外枠上で円中心に最も近い点。`anchor` (スライス中心角リム点) が
+ *  null なら 中心→端点 方向のリム点へ退避する (`eps` 未満の零ベクトルは右向きに既定化)。 */
+function computeDefaultLeaderPts(pie, box, anchor, eps) {
+  const { cx, cy, r } = pie;
+  const endpoint = {
+    x: Math.max(box.left, Math.min(cx, box.right)),
+    y: Math.max(box.top, Math.min(cy, box.bottom)),
+  };
+  if (!anchor) {
+    let dx = endpoint.x - cx;
+    let dy = endpoint.y - cy;
+    const len = Math.hypot(dx, dy);
+    if (len < eps) { dx = 1; dy = 0; }
+    const ux = dx / (len || 1);
+    const uy = dy / (len || 1);
+    anchor = { x: cx + ux * r, y: cy + uy * r };
+  }
+  return [anchor, endpoint];
+}
+
+export { parsePieGeometry, fallbackPieGeometry, labelBox, labelCenter, isOutsidePie, computeDefaultLeaderPts };

@@ -4,6 +4,7 @@
 
 import { CONFIG, WHITE, BLACK, DEFAULT_LEADER_STYLE, EMPTY_LIST_HTML, INSPECTOR_EMPTY_HTML, LEGEND_HTML, INSPECTOR_ACTIONS } from "./constants.js";
 import { clampPointToBox, parseTranslate } from "./geom.js";
+import { parsePieGeometry, fallbackPieGeometry, labelBox, labelCenter, isOutsidePie, computeDefaultLeaderPts } from "./pie-rules.js";
 import { escapeHtml, round, createSvgEl, safeGetBBox, formatCoords, sanitizeSvg, hasFsAccess, SVG_PICKER_TYPES } from "./utils.js";
 import { drawIcons, showToast } from "./icons.js";
 import { LabelState } from "./label-state.js";
@@ -100,19 +101,10 @@ class Editor {
   /** 円(パイ)の中心・半径を slice パスから推定 (リーダー後付けの既定座標に使用) */
   getPieGeometry() {
     if (this._pie) return this._pie;
-    let geom = null;
     const slicePath = this.svg && this.svg.querySelector("#slices .slice path, #slices path");
-    if (slicePath) {
-      const d = slicePath.getAttribute("d") || "";
-      const m = d.match(/M\s*(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)/);
-      const a = d.match(/A\s*(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)/);
-      if (m && a) {
-        geom = { cx: parseFloat(m[1]), cy: parseFloat(m[2]), r: parseFloat(a[1]) };
-      }
-    }
-    if (!geom) {
-      geom = { cx: this.baseW / 2, cy: this.baseH / 2, r: Math.min(this.baseW, this.baseH) * CONFIG.pieRadiusRatio };
-    }
+    const geom =
+      (slicePath && parsePieGeometry(slicePath.getAttribute("d"))) ||
+      fallbackPieGeometry(this.baseW, this.baseH, CONFIG.pieRadiusRatio);
     this._pie = geom;
     return geom;
   }
@@ -171,31 +163,12 @@ class Editor {
   }
 
   /** リーダー後付け時の既定 2 点 [リム上アンカー, ラベル端点] を算出。
-   *  `bbox` 省略時は `getBBox`。ドラッグ中は開始時 `bbox` を渡し reflow を避ける。 */
+   *  `bbox` 省略時は `getBBox`。ドラッグ中は開始時 `bbox` を渡し reflow を避ける。
+   *  算出本体は `pie-rules.js` の `computeDefaultLeaderPts` (純粋関数)。 */
   defaultLeaderPts(s, bbox) {
-    const { cx, cy, r } = this.getPieGeometry();
-    if (!bbox) bbox = safeGetBBox(s.text, { x: cx, y: cy, width: 0, height: 0 });
-    const left = bbox.x + s.textTx.x;
-    const top = bbox.y + s.textTx.y;
-    const right = left + bbox.width;
-    const bottom = top + bbox.height;
-    // ラベル矩形上で中心に最も近い点 = 端点
-    const endpoint = {
-      x: Math.max(left, Math.min(cx, right)),
-      y: Math.max(top, Math.min(cy, bottom)),
-    };
-    // アンカー = スライス中心角リム点 (固定)。未取得時のみ中心→端点 方向のリム点へ退避。
-    let anchor = this.sliceMidAnchor(s.name);
-    if (!anchor) {
-      let dx = endpoint.x - cx;
-      let dy = endpoint.y - cy;
-      const len = Math.hypot(dx, dy);
-      if (len < CONFIG.vecEpsilon) { dx = 1; dy = 0; }
-      const ux = dx / (len || 1);
-      const uy = dy / (len || 1);
-      anchor = { x: cx + ux * r, y: cy + uy * r };
-    }
-    return [anchor, endpoint];
+    const pie = this.getPieGeometry();
+    if (!bbox) bbox = safeGetBBox(s.text, { x: pie.cx, y: pie.cy, width: 0, height: 0 });
+    return computeDefaultLeaderPts(pie, labelBox(bbox, s.textTx), this.sliceMidAnchor(s.name), CONFIG.vecEpsilon);
   }
 
   /** leader 末尾(端点)を必ずラベル外枠上へ置く。アンカー/曲げ点は保持。
@@ -203,10 +176,7 @@ class Editor {
   snapEndpointToFrame(s, bbox) {
     const n = s.leaderPts.length;
     if (n < 2) return;
-    const left = bbox.x + s.textTx.x;
-    const top = bbox.y + s.textTx.y;
-    const box = { left, top, right: left + bbox.width, bottom: top + bbox.height };
-    s.leaderPts[n - 1] = clampPointToBox(s.leaderPts[n - 2], box);
+    s.leaderPts[n - 1] = clampPointToBox(s.leaderPts[n - 2], labelBox(bbox, s.textTx));
   }
 
   /** ラベル移動後の leader 追従。既存 leader を持ち円外なら端点を外枠上へ
@@ -230,15 +200,14 @@ class Editor {
       b = safeGetBBox(s.text, null);
       if (!b) return null;
     }
-    return { x: b.x + b.width / 2 + s.textTx.x, y: b.y + b.height / 2 + s.textTx.y };
+    return labelCenter(b, s.textTx);
   }
 
   /** ラベル中心が円周の外にあるか。`bbox` 省略時は `getBBox`。 */
   isOutsideRim(s, bbox) {
-    const { cx, cy, r } = this.getPieGeometry();
     const c = this.labelCenterPoint(s, bbox);
     if (!c) return false;
-    return Math.hypot(c.x - cx, c.y - cy) > r;
+    return isOutsidePie(c, this.getPieGeometry());
   }
 
   // leader 状態モデル:
