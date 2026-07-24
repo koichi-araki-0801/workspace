@@ -3,13 +3,14 @@
 // =============================================================================
 
 import { CONFIG, WHITE, BLACK, DEFAULT_LEADER_STYLE, INSPECTOR_ACTIONS } from "./constants.js";
-import { clampPointToBox, parseTranslate } from "./geom.js";
+import { clampPointToBox } from "./geom.js";
 import { parsePieGeometry, fallbackPieGeometry, labelBox, labelCenter, isOutsidePie, computeDefaultLeaderPts } from "./pie-rules.js";
-import { round, createSvgEl, safeGetBBox, sanitizeSvg, hasFsAccess, SVG_PICKER_TYPES } from "./utils.js";
+import { safeGetBBox } from "./utils.js";
 import { showToast } from "./icons.js";
-import { LabelState } from "./label-state.js";
-// 描画 (オーバーレイ / インスペクタ / レール) は editor-render.js へ分離。名前空間 import で衝突回避。
+// 描画 (オーバーレイ / インスペクタ / レール) は editor-render.js、ファイル I/O (読込 /
+// 保存 bake / 開く) は editor-io.js へ分離。名前空間 import で衝突回避。
 import * as render from "./editor-render.js";
+import * as io from "./editor-io.js";
 
 // ── 1. エディタ本体 (セッション状態 + ライフサイクル + 描画オーケストレーション) ──
 
@@ -407,101 +408,9 @@ class Editor {
     this.markDirty({ dom: true, overlay: true, inspector: true });
   }
 
-  // ── 10. SVG 読込 & セットアップ (メモリ上の `content` を直接インライン挿入) ──
+  // ── 10. SVG 読込 & セットアップ → editor-io.js へ分離 (委譲) ──
 
-  async load(item) {
-    if (!item || typeof item.content !== "string") return;
-    const seq = ++this._loadSeq; // この呼び出しの世代 (後勝ち判定用)
-    this.name = item.name;
-    this.currentId = item.id;
-    this.history = [];
-    this.redoStack = [];
-    this.selected = null;
-    this.zoom = 1;
-    this._pie = null;
-    this._leaderStyle = null;
-    this._sliceByName = null;
-    this._sliceAnchor = null;
-    // 別ファイルへ切替えるので構造シグネチャ / 参照キャッシュをリセット
-    this._inspSig = null;
-    this._inspCoordEl = null;
-    this._overlaySig = null;
-    this._handles = [];
-
-    // 接続前にサニタイズした `<svg>` を取り込んでインライン挿入 (フォント込みで描画)
-    const clean = sanitizeSvg(item.content);
-    if (!clean) {
-      this.dom.canvas.replaceChildren();
-      this.setStatus(`${item.name}: SVG を解釈できませんでした`, "err");
-      this.svg = null;
-      this.updateToolbar();
-      return;
-    }
-    this.dom.canvas.replaceChildren(document.importNode(clean, true));
-    const svg = this.dom.canvas.querySelector("svg");
-    this.svg = svg;
-
-    // ベースサイズを `viewBox` から取得
-    const vb = (svg.getAttribute("viewBox") || `0 0 ${CONFIG.defaultViewBox.w} ${CONFIG.defaultViewBox.h}`).split(/\s+/).map(Number);
-    this.baseW = vb[2] || CONFIG.defaultViewBox.w;
-    this.baseH = vb[3] || CONFIG.defaultViewBox.h;
-    this.applyZoom();
-
-    // 編集画面(手順2)を表示してから `getBBox` を測る。非表示(`display:none`)のままだと
-    // `getBBox` が 0 を返し、ヒット領域や引出線の既定座標が崩れるため必ず先に表示する。
-    this.goPhase(2);
-
-    // 埋め込みフォントの読込を待ってから `getBBox` (正確なヒット領域のため)
-    try {
-      await document.fonts.ready;
-    } catch {
-      /* fonts API 非対応でも続行 */
-    }
-    // await 中に別ファイルが読み込まれていたら後勝ち。古い継続は中断する。
-    if (seq !== this._loadSeq) return;
-
-    // 各ラベルにヒット領域を付与 + 状態構築
-    this.labels = [];
-    const labelGroups = svg.querySelectorAll("#labels > g.label");
-    labelGroups.forEach((g) => {
-      const s = new LabelState(g, this);
-      this.labels.push(s);
-      this.attachHitArea(s);
-    });
-
-    // ハンドル用オーバーレイ `<g>` (最前面)
-    const overlay = createSvgEl("g", { id: "editor-overlay", "data-editor": "1" });
-    svg.appendChild(overlay);
-    this.overlay = overlay;
-
-    // 背景クリックで選択解除
-    svg.addEventListener("pointerdown", (e) => {
-      if (e.target === svg || e.target.closest("#slices")) this.selectLabel(null);
-    });
-
-    this.markDirty({ overlay: true, inspector: true });
-    this.flushNow();
-    this.updateToolbar();
-    this.highlightActiveInList();
-    this.setStatus(`${item.name}  (ラベル ${this.labels.length} 個)`);
-  }
-
-  /** ラベルにドラッグ用の透明ヒット矩形 (`<rect>`) を追加 */
-  attachHitArea(s) {
-    const bbox = safeGetBBox(s.text);
-    const pad = CONFIG.hitPadding;
-    const rect = createSvgEl("rect", {
-      class: "label-hit", "data-editor-hit": "1",
-      x: bbox.x - pad, y: bbox.y - pad,
-      width: bbox.width + pad * 2, height: bbox.height + pad * 2,
-    });
-    s._hitRect = rect;
-    // `text` と同じ transform を適用して追従させる
-    s.syncHit();
-    rect.addEventListener("pointerdown", (e) => this.startTextDrag(e, s));
-    // 最前面 (glyph の隙間も含めて bbox 全体を掴めるよう `text` の上に重ねる)
-    s.g.appendChild(rect);
-  }
+  async load(item) { return io.load(this, item); }
 
   // ── 11. ズーム ──
 
@@ -529,191 +438,15 @@ class Editor {
     this.flushNow();
   }
 
-  // ── 12. 保存 (baking → ネイティブ保存ダイアログ) ──
+  // ── 12. 保存 (bake → ダウンロード) → editor-io.js へ分離 (委譲) ──
 
-  async save() {
-    if (!this.svg) return;
-    // 保留中の描画を確定させてから DOM を読む
-    this.flushNow();
-    const out = this.bakeSvg();
-    const markSaved = () => {
-      const it = this.items.find((i) => i.id === this.currentId);
-      if (it) it.edited = true;
-      this.renderList();
-      this.highlightActiveInList();
-    };
-    if (hasFsAccess()) {
-      this.setStatus("保存先を選択してください…");
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: this.name || "edited.svg",
-          types: SVG_PICKER_TYPES,
-        });
-        const w = await handle.createWritable();
-        await w.write(out);
-        await w.close();
-        this.setStatus(`保存しました → ${handle.name}`, "ok");
-        markSaved();
-      } catch (e) {
-        if (e && e.name === "AbortError") this.setStatus("保存をキャンセルしました");
-        else this.setStatus(`保存に失敗しました: ${e}`, "err");
-      }
-    } else {
-      // 非対応ブラウザ: `Blob` をダウンロード (ブラウザの保存先へ)
-      this.downloadSvg(out, this.name || "edited.svg");
-      this.setStatus("ダウンロードフォルダに保存しました", "ok");
-      markSaved();
-    }
-  }
+  async save() { return io.save(this); }
+  bakeSvg() { return io.bakeSvg(this); }
 
-  /** FS Access API 非対応時のフォールバック保存 (`Blob` ダウンロード) */
-  downloadSvg(text, name) {
-    const blob = new Blob([text], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = /\.svg$/i.test(name) ? name : `${name}.svg`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
+  // ── 13. ファイル選択 / ドロップ (開く) → editor-io.js へ分離 (委譲) ──
 
-  /** 編集を恒久座標へ焼き込み、エディタ専用要素を除去したクリーン SVG 文字列を返す */
-  bakeSvg() {
-    const clone = this.svg.cloneNode(true);
-
-    // エディタ専用要素を除去
-    clone.querySelectorAll("[data-editor], [data-editor-hit]").forEach((el) => el.remove());
-    // 選択ハイライト等の編集専用クラスを除去
-    clone.querySelectorAll(".is-selected").forEach((el) => el.classList.remove("is-selected"));
-
-    // 表示用に付けた width/height (ズーム) を元サイズへ戻す
-    clone.setAttribute("width", `${this.baseW}px`);
-    clone.setAttribute("height", `${this.baseH}px`);
-
-    // 各ラベル: `text` の transform を `x`/`y` へ焼き込み、非表示 leader を除去
-    clone.querySelectorAll("#labels > g.label").forEach((g) => {
-      const text = g.querySelector("text");
-      if (text) {
-        const t = parseTranslate(text.getAttribute("transform"));
-        if (t.x || t.y) {
-          const x = parseFloat(text.getAttribute("x") || "0") + t.x;
-          const y = parseFloat(text.getAttribute("y") || "0") + t.y;
-          text.setAttribute("x", round(x));
-          text.setAttribute("y", round(y));
-          text.querySelectorAll("tspan").forEach((ts) => {
-            if (ts.hasAttribute("x")) ts.setAttribute("x", round(parseFloat(ts.getAttribute("x")) + t.x));
-            // `dy` は相対値なので不変
-          });
-          text.removeAttribute("transform");
-        }
-      }
-      const path = g.querySelector("path");
-      if (path) {
-        if (path.style.display === "none") {
-          path.remove();
-        } else {
-          // 表示用に付けた `display` だけ消す。入力 SVG 由来の他の inline style は保持。
-          path.style.removeProperty("display");
-          if (!path.getAttribute("style")) path.removeAttribute("style");
-        }
-      }
-    });
-
-    const xml = new XMLSerializer().serializeToString(clone);
-    return `<?xml version="1.0" encoding="UTF-8"?>\n${xml}`;
-  }
-
-  // ── 13. ファイル一覧 (メモリ保持) & 開く ──
-
-  async openFiles() {
-    this.setStatus("ファイルを選択してください…");
-    let files = [];
-    if (hasFsAccess()) {
-      let handles;
-      try {
-        handles = await window.showOpenFilePicker({ multiple: true, types: SVG_PICKER_TYPES });
-      } catch (e) {
-        if (e && e.name === "AbortError") { this.setStatus("ファイルが選択されませんでした"); return; }
-        this.setStatus(`読込に失敗しました: ${e}`, "err");
-        return;
-      }
-      for (const h of handles) {
-        try {
-          const file = await h.getFile();
-          files.push({ name: file.name, content: await file.text() });
-        } catch (e) {
-          files.push({ name: h.name || "(no name)", content: "", error: String(e) });
-        }
-      }
-    } else {
-      files = await this.pickFilesFallback();
-    }
-    if (!files || !files.length) {
-      this.setStatus("ファイルが選択されませんでした");
-      return;
-    }
-    // 同名でも別ファイルとして区別したいので `name` で重複排除せず、各々へ一意 `id` を振る。
-    const added = files.map((f) => {
-      const it = { ...f, id: ++this._itemSeq, edited: false };
-      this.items.push(it);
-      return it;
-    });
-    this.renderList();
-    await this.load(added[0]);
-    // 読込が済んだら「位置を調整」へ進む
-    this.goPhase(2);
-  }
-
-  /** ドラッグ＆ドロップされた .svg ファイルを取り込む (手順1 のドロップゾーン) */
-  async handleDrop(dt) {
-    if (!dt) return;
-    const dropped = [...(dt.files || [])].filter((f) => /\.svg$/i.test(f.name) || f.type === "image/svg+xml");
-    if (!dropped.length) { this.setStatus("SVG ファイルをドロップしてください"); return; }
-    const files = [];
-    for (const file of dropped) {
-      try { files.push({ name: file.name, content: await file.text() }); }
-      catch (e) { files.push({ name: file.name, content: "", error: String(e) }); }
-    }
-    const added = files.map((f) => {
-      const it = { ...f, id: ++this._itemSeq, edited: false };
-      this.items.push(it);
-      return it;
-    });
-    this.renderList();
-    await this.load(added[0]);
-    this.goPhase(2);
-  }
-
-  /** FS Access API 非対応時のフォールバック: `<input type=file>` で複数選択 */
-  pickFilesFallback() {
-    return new Promise((resolve) => {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = ".svg,image/svg+xml";
-      input.multiple = true;
-      input.style.display = "none";
-      let done = false;
-      const finish = async () => {
-        if (done) return;
-        done = true;
-        const out = [];
-        for (const file of [...(input.files || [])]) {
-          out.push({ name: file.name, content: await file.text() });
-        }
-        input.remove();
-        resolve(out);
-      };
-      input.addEventListener("change", finish);
-      // キャンセル検知 (`focus` が戻り `files` が空なら空配列で解決)
-      window.addEventListener("focus", () => setTimeout(() => {
-        if (!done && (!input.files || !input.files.length)) { done = true; input.remove(); resolve([]); }
-      }, 500), { once: true });
-      document.body.appendChild(input);
-      input.click();
-    });
-  }
+  async openFiles() { return io.openFiles(this); }
+  async handleDrop(dt) { return io.handleDrop(this, dt); }
 
   /** ラベルが初期状態から変更されているか (編集済みドット用) */
   isLabelEdited(s) {
