@@ -23,7 +23,9 @@ function listSvgNames(dir) {
           '`npm run batch` → `npm run baseline:accept` を実行して基準を作成してください',
       );
     } else {
-      console.error('[batch:diff] out/svg_js がありません。`npm run batch` で出力を生成してください');
+      console.error(
+        '[batch:diff] out/svg_js がありません。`npm run batch` で出力を生成してください',
+      );
     }
     process.exit(1);
   }

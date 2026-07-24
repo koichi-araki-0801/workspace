@@ -19,7 +19,9 @@ const svgCount = (dir) =>
   fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.svg')).length : 0;
 
 if (svgCount(currentDir) === 0) {
-  console.error(`[baseline:accept] ${currentDir} に SVG がありません。先に \`npm run batch\` を実行してください`);
+  console.error(
+    `[baseline:accept] ${currentDir} に SVG がありません。先に \`npm run batch\` を実行してください`,
+  );
   process.exit(1);
 }
 
