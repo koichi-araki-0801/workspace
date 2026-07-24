@@ -1,8 +1,9 @@
 # workspace
 
 editor / pie-chart / pdf-to-svg / graph-editor などを束ねる pnpm モノレポ。
-各プロジェクトの詳細はそれぞれの `README.md` を参照。共通ルールは [`CLAUDE.md`](CLAUDE.md) と
-[`docs/コメント規約.md`](docs/コメント規約.md) が正典。
+各プロジェクトの詳細はそれぞれの `README.md` を参照。コメントの書き方は
+[`docs/コメント規約.md`](docs/コメント規約.md)、各プロジェクトの構成・不変則は
+`docs/<project>/src/設計正典.md` が正典。
 
 ## スクリプトの置き場ルール
 
@@ -13,7 +14,8 @@ editor / pie-chart / pdf-to-svg / graph-editor などを束ねる pnpm モノレ
   CI (`pnpm run check:comments`) が併設と UTF-8 BOM を検査する。
 - dot-source 専用ライブラリ（`offline/lib/content-key.ps1`、`scripts/lib/build-python-venv.ps1`）は
   単体起動しないため `.bat` 併設の例外。
-- 詳しい `.ps1`/`.bat` 規約は [`CLAUDE.md`](CLAUDE.md) の「PowerShell スクリプト」節を参照。
+- 詳しい `.ps1`/`.bat` 規約は [`docs/コメント規約.md`](docs/コメント規約.md) の
+  言語別付録 C（PowerShell）/ D（.bat ランチャ）を参照。
 
 ## 入口スクリプト一覧
 

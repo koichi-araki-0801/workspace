@@ -11,7 +11,7 @@ docs ビルドの唯一の成果物系統（旧 `md2docx`=Word / `md2xlsx`=Excel
 振り分けは front-matter `audience: guide|spec` を正とし、無指定は名前推定（「操作手順書」
 「利用手引き」→ guide、それ以外と `*.xlsx.yaml` → spec）。見た目の `style:` とは独立。
 
-設計方針（CLAUDE.md「ドキュメント」節・オフライン依存回避と整合）:
+設計方針（オフライン依存回避の方針と整合）:
   - 外部 Markdown ライブラリを使わず、行指向の自前パーサ（旧 `md2docx.py` の実績ロジックを移植）。
   - 表文書（`*.xlsx.yaml`）は `yamlmini.parse_yaml`（YAML サブセット自前パーサ）で読み HTML table 化。
   - 画像は `docs/<project>/images/*.png` を base64 data-URI でインライン（1 枚で自己完結）。

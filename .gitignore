@@ -14,8 +14,10 @@ tmp/
 # Python バイトコードキャッシュ（コミット対象外）
 __pycache__/
 *.pyc
-# Claude Code: マシン固有のローカル設定（auto-push フック等）。共有しない
-.claude/settings.local.json
+# ローカル開発支援ツールの設定・作業ファイル（マシン固有。リポジトリでは共有しない）
+.claude/
+CLAUDE.md
+pie-chart/.claude/
 # vivliostyle / playwright artifacts
 playwright-report/
 test-results/
@@ -36,8 +38,6 @@ _bundle_stage/
 _bundle_verify/
 # オフライン環境構築後、ダウンロード物（ソースZIP/バンドル/sha256/key）の退避先
 bk/
-# Claude Code: 計画文書（内部作業用。共有しない）
-.claude/plans/
 # editor のテンプレ実体(templates/css/drafts)はワークスペース外の dataRoot で git 版管理する
 editor/data/
 # git/TortoiseGit の同梱バイナリ（重量物。content key 差分で再配布）
