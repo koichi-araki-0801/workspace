@@ -6,6 +6,12 @@
 // `dom.js` / `geometry.js` へ分離 (type="module" で読込)。
 import { esc, svg } from "./dom.js";
 import { clientToPage, parseSpec } from "./geometry.js";
+import {
+  S, counts, pass, initStatus,
+  statusArr, changedArr, selSet, pkey, curElSel, statusOfCur, selKeys, selCount, clearSel,
+  applyState, nextPending, firstPending, advancePhase,
+  exportPageList, expCount, zipName,
+} from "./state.js";
 
 (function () {
   "use strict";
@@ -22,46 +28,12 @@ import { clientToPage, parseSpec } from "./geometry.js";
   var skipDot = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 8l4 4-4 4M15 8v8"/></svg>';
 
   // ── 2. 状態 ──
-  var FILES = [], PAGES = [], FILE_START = [], TOTAL = 0;
-  var changed2 = [], changed3 = [], status2 = [], status3 = [];
-  var phase = 1, page = 0, guarding = false;
-  var filterFor = { 2: "all", 3: "pending" };
-  var selFor = { 2: {}, 3: {} };       // ページレール選択 (global idx -> true)
-  var collapsed = {};                  // step:fi -> true
-  var tool = "select";                 // 手順3 ツール (select/crop/border)
-  var cropDrag = null;                 // 範囲ドラッグ中の状態 {origin,rubber,mode}
-  var elSel = {};                      // 'fi:pi' -> {elId:true}  (要素選択)
-  var svgCache = {};                   // 'fi:pi' -> {svg,width,height}
-  var zoomFor = { 2: 1, 3: 1 };        // 手順2/3 のキャンバス内ズーム倍率
-  var borderColor = "#000000";         // 枠線ツールの色
-  var borderWidth = 1;                 // 枠線ツールの太さ (pt)
-
+  // 可変状態は state.js の `S` に集約 (導出・遷移関数も同居)。ここは表示定数のみ。
   var FILTERS = [
     { v: "pending", t: "要確認" }, { v: "all", t: "すべて" },
     { v: "reviewed", t: "確認済み" }, { v: "skipped", t: "スキップ" }, { v: "none", t: "変更なし" },
   ];
   var STAT = { reviewed: "確認済み", skipped: "スキップ", pending: "要確認", none: "変更なし" };
-
-  function statusArr() { return phase === 2 ? status2 : status3; }
-  function changedArr() { return phase === 2 ? changed2 : changed3; }
-  function selSet() { return (selFor[phase] = selFor[phase] || {}); }
-  function pkey() { var pg = PAGES[page]; return pg.fileIndex + ":" + pg.pageInFile; }
-  function curElSel() { var k = pkey(); return (elSel[k] = elSel[k] || {}); }
-
-  function counts(arr) {
-    var c = { done: 0, skip: 0, pend: 0, none: 0 };
-    arr.forEach(function (s) {
-      if (s === "reviewed") c.done++; else if (s === "skipped") c.skip++;
-      else if (s === "pending") c.pend++; else c.none++;
-    });
-    return c;
-  }
-  function statusOfCur() { return statusArr()[page]; }
-  function pass(st, filt) { return filt === "all" ? true : st === filt; }
-  function selKeys() { var s = selSet(); return Object.keys(s).filter(function (k) { return s[k]; }); }
-  function selCount() { return selKeys().length; }
-  function clearSel() { var s = selSet(); Object.keys(s).forEach(function (k) { delete s[k]; }); }
-  function initStatus(ch) { return ch.map(function (c) { return c ? "pending" : "none"; }); }
 
   // ── 3. ファイル入出力 ──
   // File System Access API のネイティブピッカー (`showOpenFilePicker` / `showSaveFilePicker` /
@@ -144,16 +116,6 @@ import { clientToPage, parseSpec } from "./geometry.js";
   }
 
   // ── 4. 読み込み ──
-  function applyState(st) {
-    FILES = st.files; PAGES = st.pages; TOTAL = st.total;
-    changed2 = st.changed2; changed3 = st.changed3;
-    status2 = initStatus(changed2); status3 = initStatus(changed3);
-    FILE_START = []; var s = 0;
-    FILES.forEach(function (f, i) { FILE_START[i] = s; s += f.pages; });
-    svgCache = {}; elSel = {};
-    if (page >= TOTAL) page = 0;
-  }
-
   async function reloadState() { applyState(await rpc("state")); }
 
   // File 配列を順にアップロードして状態を更新する (クリック選択・D&D 共用)。
@@ -174,8 +136,8 @@ import { clientToPage, parseSpec } from "./geometry.js";
   // ── 5. (1) ファイルカード ──
   function renderFileCards() {
     document.getElementById("filelist-count").textContent =
-      FILES.length + " ファイル・" + TOTAL + " ページ";
-    document.getElementById("file-cards").innerHTML = FILES.map(function (f, i) {
+      S.FILES.length + " ファイル・" + S.TOTAL + " ページ";
+    document.getElementById("file-cards").innerHTML = S.FILES.map(function (f, i) {
       return '<div class="file-card"><div class="fic">' + svg(fileIcon, 20) +
         '</div><div class="fmeta"><div class="fname">' + esc(f.name) + '</div><div class="fsub">' +
         f.pages + " ページ" + (f.size ? " ・ " + f.size : "") + "</div></div>" +
@@ -193,10 +155,10 @@ import { clientToPage, parseSpec } from "./geometry.js";
   // ── 6. ページ SVG ──
   async function ensureSvg(fi, pi) {
     var k = fi + ":" + pi;
-    if (!svgCache[k]) svgCache[k] = await rpc("pageSvg", { fileIndex: fi, pageInFile: pi });
-    return svgCache[k];
+    if (!S.svgCache[k]) S.svgCache[k] = await rpc("pageSvg", { fileIndex: fi, pageInFile: pi });
+    return S.svgCache[k];
   }
-  function invalidate(fi, pi) { delete svgCache[fi + ":" + pi]; }
+  function invalidate(fi, pi) { delete S.svgCache[fi + ":" + pi]; }
 
   // フィット率 (現行どおりクランプ 0.05〜3) にズーム倍率を掛けた最終スケールを当てる。
   // zoom=1 なら従来表示と一致。
@@ -211,24 +173,24 @@ import { clientToPage, parseSpec } from "./geometry.js";
   }
 
   // ── 7. キャンバス内ズーム (手順2・3、キャンバスのみ拡大縮小) ──
-  function curZoom() { return zoomFor[phase] || 1; }
+  function curZoom() { return S.zoomFor[S.phase] || 1; }
   function updateZoomLabel() {
-    var el = app.querySelector('[data-screen="' + phase + '"] .zoom-ctrl .zpct');
+    var el = app.querySelector('[data-screen="' + S.phase + '"] .zoom-ctrl .zpct');
     if (el) el.textContent = Math.round(curZoom() * 100) + "%";
   }
   function setZoom(z) {
-    zoomFor[phase] = Math.max(0.25, Math.min(6, z));
+    S.zoomFor[S.phase] = Math.max(0.25, Math.min(6, z));
     rescaleCurrent();
   }
   // 再フェッチせず現在表示中の SVG にスケールだけ当て直す。
   function rescaleCurrent() {
-    var host = document.getElementById(phase === 2 ? "doc-master" : "trim-stage");
+    var host = document.getElementById(S.phase === 2 ? "doc-master" : "trim-stage");
     if (!host) return;
     var svgEl = host.querySelector("svg");
-    var data = svgCache[pkey()];
+    var data = S.svgCache[pkey()];
     if (svgEl && data) {
-      scalePage(svgEl, data.width, data.height, app.querySelector('[data-screen="' + phase + '"] .editor'));
-      if (phase === 3) drawSelBoxes(host); // sel-box は host 相対なので再計算
+      scalePage(svgEl, data.width, data.height, app.querySelector('[data-screen="' + S.phase + '"] .editor'));
+      if (S.phase === 3) drawSelBoxes(host); // sel-box は host 相対なので再計算
     }
     updateZoomLabel();
   }
@@ -237,7 +199,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
   // SVG 取得は失敗・遅延し得るため、無言でプレースホルダのまま固まらせず
   // エラーを画面に出す (この描画が唯一ページを表示する経路のため)。
   async function mountPage(host, editorEl, withSelect) {
-    var pg = PAGES[page];
+    var pg = S.PAGES[S.page];
     var token = pg.fileIndex + ":" + pg.pageInFile + ":" + Date.now();
     host.dataset.token = token;
     var data;
@@ -259,19 +221,19 @@ import { clientToPage, parseSpec } from "./geometry.js";
 
   // ── 8. 左: ページ一覧 (モック踏襲) ──
   function buildRail(navId) {
-    var arr = statusArr(); var filt = filterFor[phase]; var sel = selSet(); var c = counts(arr);
+    var arr = statusArr(); var filt = S.filterFor[S.phase]; var sel = selSet(); var c = counts(arr);
     var html = "";
     html += '<div class="pl-head">';
-    html += '<div class="pl-title">全 <b>' + TOTAL + "</b> ページ　要確認 <b>" + c.pend + "</b></div>";
+    html += '<div class="pl-title">全 <b>' + S.TOTAL + "</b> ページ　要確認 <b>" + c.pend + "</b></div>";
     html += '<select class="pl-filter">' + FILTERS.map(function (f) {
       return '<option value="' + f.v + '"' + (f.v === filt ? " selected" : "") + ">" + f.t + "</option>"; }).join("") + "</select>";
     var visSelectable = [];
-    PAGES.forEach(function (pg, g) { if (pass(arr[g], filt) && arr[g] !== "none") visSelectable.push(g); });
+    S.PAGES.forEach(function (pg, g) { if (pass(arr[g], filt) && arr[g] !== "none") visSelectable.push(g); });
     var allSel = visSelectable.length > 0 && visSelectable.every(function (g) { return sel[g]; });
     html += '<label class="pl-all"><span class="ck' + (allSel ? " on" : "") + '" data-all="1">' + (allSel ? ckMark : "") + "</span>表示中をすべて選択</label>";
     html += '<button class="pl-skipall" data-skipall="1">' + svg('<path d="M9 8l4 4-4 4M15 8v8"/>', 15, 1.9) + "未確認をまとめてスキップ</button>";
-    if (PAGES.length) {
-      var curFile = FILES[PAGES[page].fileIndex];
+    if (S.PAGES.length) {
+      var curFile = S.FILES[S.PAGES[S.page].fileIndex];
       html += '<div class="pl-range"><div class="rg-lab">範囲で指定（' + esc(curFile.name) + "）</div>" +
         '<div class="rg-row"><input class="rg-from" type="number" min="1" max="' + curFile.pages + '" placeholder="1"> 〜 ' +
         '<input class="rg-to" type="number" min="1" max="' + curFile.pages + '" placeholder="' + curFile.pages + '"> ページを</div>' +
@@ -285,15 +247,15 @@ import { clientToPage, parseSpec } from "./geometry.js";
     }
     html += '<div class="pl-body">';
     var g = 0, anyRow = false;
-    FILES.forEach(function (f, fi) {
+    S.FILES.forEach(function (f, fi) {
       var idxs = [];
       for (var p = 0; p < f.pages; p++) { var gg = g + p; if (pass(arr[gg], filt)) idxs.push(gg); }
       if (idxs.length === 0) { g += f.pages; return; }
       anyRow = true;
-      var key = phase + ":" + fi; var isColl = !!collapsed[key];
+      var key = S.phase + ":" + fi; var isColl = !!S.collapsed[key];
       var selectable = idxs.filter(function (i) { return arr[i] !== "none"; });
       var fileSel = selectable.length > 0 && selectable.every(function (i) { return sel[i]; });
-      html += '<div class="pl-file' + (isColl ? " collapsed" : "") + '">' +
+      html += '<div class="pl-file' + (isColl ? " S.collapsed" : "") + '">' +
         '<span class="ck' + (fileSel ? " on" : "") + '" data-fileck="' + fi + '">' + (fileSel ? ckMark : "") + "</span>" +
         '<span class="fname" data-fcoll="' + fi + '">' + svg(fileIcon, 13).replace("<svg", '<svg class="fic"') + esc(f.name) + "</span>" +
         '<span class="fcount">' + idxs.length + "</span>" +
@@ -306,7 +268,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
           var ckbox = st !== "none"
             ? '<span class="ck row-ck' + (sel[gg] ? " on" : "") + '" data-ck="' + gg + '">' + (sel[gg] ? ckMark : "") + "</span>"
             : '<span style="width:17px;flex:none"></span>';
-          html += '<div class="pg-row2 ' + cls + (gg === page ? " current" : "") + '" data-g="' + gg + '">' +
+          html += '<div class="pg-row2 ' + cls + (gg === S.page ? " current" : "") + '" data-g="' + gg + '">' +
             ckbox + '<span class="dot">' + dot + '</span><span class="lbl">' + (off + 1) + " ページ</span>" +
             '<span class="tg t-' + cls + '">' + STAT[st] + "</span></div>";
         });
@@ -322,19 +284,19 @@ import { clientToPage, parseSpec } from "./geometry.js";
   function wireRail(navId, visSelectable) {
     var nav = document.getElementById(navId);
     var arr = statusArr(); var sel = selSet();
-    nav.querySelector(".pl-filter").addEventListener("change", function () { filterFor[phase] = this.value; render(); });
+    nav.querySelector(".pl-filter").addEventListener("change", function () { S.filterFor[S.phase] = this.value; render(); });
     nav.querySelector("[data-all]").addEventListener("click", function () {
       var allSel = visSelectable.length > 0 && visSelectable.every(function (g) { return sel[g]; });
       visSelectable.forEach(function (g) { if (allSel) delete sel[g]; else sel[g] = true; });
       render();
     });
     nav.querySelector("[data-skipall]").addEventListener("click", function () {
-      for (var g = 0; g < TOTAL; g++) if (arr[g] === "pending") arr[g] = "skipped";
+      for (var g = 0; g < S.TOTAL; g++) if (arr[g] === "pending") arr[g] = "skipped";
       tryNext(); // 全スキップ後はそのまま次のステップへ進む
     });
     var rg = nav.querySelector("[data-rg]");
     if (rg) rg.addEventListener("click", function () {
-      var fi = PAGES[page].fileIndex; var start = FILE_START[fi]; var fp = FILES[fi].pages;
+      var fi = S.PAGES[S.page].fileIndex; var start = S.FILE_START[fi]; var fp = S.FILES[fi].pages;
       var from = parseInt(nav.querySelector(".rg-from").value, 10) || 1;
       var to = parseInt(nav.querySelector(".rg-to").value, 10) || fp;
       if (from > to) { var t = from; from = to; to = t; }
@@ -355,8 +317,8 @@ import { clientToPage, parseSpec } from "./geometry.js";
     nav.querySelectorAll("[data-fileck]").forEach(function (el) {
       el.addEventListener("click", function (e) {
         e.stopPropagation();
-        var fi = +el.dataset.fileck; var start = FILE_START[fi]; var idxs = [];
-        for (var p = 0; p < FILES[fi].pages; p++) { var gg = start + p; if (pass(arr[gg], filterFor[phase]) && arr[gg] !== "none") idxs.push(gg); }
+        var fi = +el.dataset.fileck; var start = S.FILE_START[fi]; var idxs = [];
+        for (var p = 0; p < S.FILES[fi].pages; p++) { var gg = start + p; if (pass(arr[gg], S.filterFor[S.phase]) && arr[gg] !== "none") idxs.push(gg); }
         var allSel = idxs.length > 0 && idxs.every(function (g) { return sel[g]; });
         idxs.forEach(function (g) { if (allSel) delete sel[g]; else sel[g] = true; });
         render();
@@ -364,7 +326,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
     });
     nav.querySelectorAll("[data-fcoll]").forEach(function (el) {
       el.addEventListener("click", function (e) {
-        e.stopPropagation(); collapsed[phase + ":" + el.dataset.fcoll] = !collapsed[phase + ":" + el.dataset.fcoll]; render();
+        e.stopPropagation(); S.collapsed[S.phase + ":" + el.dataset.fcoll] = !S.collapsed[S.phase + ":" + el.dataset.fcoll]; render();
       });
     });
     nav.querySelectorAll(".row-ck").forEach(function (el) {
@@ -373,7 +335,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
       });
     });
     nav.querySelectorAll(".pg-row2").forEach(function (r) {
-      r.addEventListener("click", function () { page = +r.dataset.g; render(); });
+      r.addEventListener("click", function () { S.page = +r.dataset.g; render(); });
     });
   }
 
@@ -390,16 +352,16 @@ import { clientToPage, parseSpec } from "./geometry.js";
   async function renderConfirm() {
     var el = document.getElementById("confirm-dyn");
     var ed2 = app.querySelector('[data-screen="2"] .editor');
-    if (!changed2[page]) {
+    if (!S.changed2[S.page]) {
       ed2.classList.add("nochange");
       el.innerHTML = noChangeNote("このページに置換はありません");
       return;
     }
     ed2.classList.remove("nochange");
-    var pg = PAGES[page];
+    var pg = S.PAGES[S.page];
     var token = pg.fileIndex + ":" + pg.pageInFile;
     var data = await rpc("planPage", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
-    if (token !== PAGES[page].fileIndex + ":" + PAGES[page].pageInFile) return; // ページが変わった
+    if (token !== S.PAGES[S.page].fileIndex + ":" + S.PAGES[S.page].pageInFile) return; // ページが変わった
     var rows = data.changes.map(function (ch) {
       var warn = ch.warning ? '<span class="warn" title="置換語が元の幅より長く、圧縮表示される可能性があります">幅超過</span>' : "";
       return '<div class="change-row" data-el="' + ch.elId + '"><span class="loc">' + esc(ch.loc) + '</span><span class="pair"><span class="from">' +
@@ -439,10 +401,10 @@ import { clientToPage, parseSpec } from "./geometry.js";
     var el = document.getElementById("trim-dyn");
     var ed3 = app.querySelector('[data-screen="3"] .editor');
     ed3.classList.remove("nochange");
-    var pg = PAGES[page];
+    var pg = S.PAGES[S.page];
     var token = pg.fileIndex + ":" + pg.pageInFile;
     var data = await rpc("removedList", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
-    if (token !== PAGES[page].fileIndex + ":" + PAGES[page].pageInFile) return; // ページが変わった
+    if (token !== S.PAGES[S.page].fileIndex + ":" + S.PAGES[S.page].pageInFile) return; // ページが変わった
     var n = data.removed.length;
     var head = '<div class="field-label">このページで削除した要素（' + n + "）</div>";
     if (n === 0) {
@@ -480,7 +442,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
   // 選択モードのクリック結線のみ。SVG は mountPage で毎回差し替わるため漏れない。
   // crop ドラッグのリスナーは wireStatic で一度だけ張る (多重登録防止)。
   function wireTrimStage() {
-    if (tool !== "select") return;
+    if (S.tool !== "select") return;
     var host = document.getElementById("trim-stage");
     var svgEl = host.querySelector("svg"); if (!svgEl) return;
     svgEl.addEventListener("click", function (e) {
@@ -492,38 +454,38 @@ import { clientToPage, parseSpec } from "./geometry.js";
   }
 
   // crop/border ツール: ドラッグした矩形で範囲削除 (crop) または枠線追加 (border)。
-  // リスナーは起動時に一度だけ設置し、イベント時に phase/tool を判定する。
+  // リスナーは起動時に一度だけ設置し、イベント時に S.phase/S.tool を判定する。
   function installCropDrag() {
     var host = document.getElementById("trim-stage");
     host.addEventListener("mousedown", function (e) {
-      if (phase !== 3 || (tool !== "crop" && tool !== "border")) return;
+      if (S.phase !== 3 || (S.tool !== "crop" && S.tool !== "border")) return;
       if (!host.querySelector("svg")) return;
       var rubber = document.createElement("div");
-      rubber.className = tool === "border" ? "border-rubber" : "crop-rubber";
+      rubber.className = S.tool === "border" ? "border-rubber" : "crop-rubber";
       host.appendChild(rubber);
-      cropDrag = { origin: { x: e.clientX, y: e.clientY }, rubber: rubber, mode: tool };
+      S.cropDrag = { origin: { x: e.clientX, y: e.clientY }, rubber: rubber, mode: S.tool };
       e.preventDefault();
     });
     window.addEventListener("mousemove", function (e) {
-      if (!cropDrag) return;
+      if (!S.cropDrag) return;
       var hb = host.getBoundingClientRect();
-      var x1 = Math.min(cropDrag.origin.x, e.clientX), y1 = Math.min(cropDrag.origin.y, e.clientY);
-      var x2 = Math.max(cropDrag.origin.x, e.clientX), y2 = Math.max(cropDrag.origin.y, e.clientY);
-      cropDrag.rubber.style.left = (x1 - hb.left) + "px"; cropDrag.rubber.style.top = (y1 - hb.top) + "px";
-      cropDrag.rubber.style.width = (x2 - x1) + "px"; cropDrag.rubber.style.height = (y2 - y1) + "px";
+      var x1 = Math.min(S.cropDrag.origin.x, e.clientX), y1 = Math.min(S.cropDrag.origin.y, e.clientY);
+      var x2 = Math.max(S.cropDrag.origin.x, e.clientX), y2 = Math.max(S.cropDrag.origin.y, e.clientY);
+      S.cropDrag.rubber.style.left = (x1 - hb.left) + "px"; S.cropDrag.rubber.style.top = (y1 - hb.top) + "px";
+      S.cropDrag.rubber.style.width = (x2 - x1) + "px"; S.cropDrag.rubber.style.height = (y2 - y1) + "px";
     });
     window.addEventListener("mouseup", async function (e) {
-      if (!cropDrag) return;
-      var d = cropDrag; cropDrag = null; d.rubber.remove();
+      if (!S.cropDrag) return;
+      var d = S.cropDrag; S.cropDrag = null; d.rubber.remove();
       var svgEl = host.querySelector("svg"); if (!svgEl) return;
       var a = clientToPage(svgEl, d.origin.x, d.origin.y);
       var b = clientToPage(svgEl, e.clientX, e.clientY);
       var x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
       var w = Math.abs(a.x - b.x), h = Math.abs(a.y - b.y);
       if (w < 4 || h < 4) return;
-      var pg = PAGES[page]; var rect = { x: x, y: y, w: w, h: h };
+      var pg = S.PAGES[S.page]; var rect = { x: x, y: y, w: w, h: h };
       if (d.mode === "border") {
-        await rpc("addBorder", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, rect: rect, color: borderColor, width: borderWidth });
+        await rpc("addBorder", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, rect: rect, color: S.borderColor, width: S.borderWidth });
       } else {
         await rpc("deleteRegion", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, rect: rect });
       }
@@ -532,9 +494,9 @@ import { clientToPage, parseSpec } from "./geometry.js";
   }
 
   async function afterEdit() {
-    var pg = PAGES[page];
+    var pg = S.PAGES[S.page];
     invalidate(pg.fileIndex, pg.pageInFile);
-    curElSel(); elSel[pkey()] = {};
+    curElSel(); S.elSel[pkey()] = {};
     render();
   }
 
@@ -544,27 +506,22 @@ import { clientToPage, parseSpec } from "./geometry.js";
     if (st === "none") return '<div class="pa-prompt" style="margin:0">このページは変更がないため操作は不要です</div>';
     if (st === "reviewed") return '<div class="pa-badge good">' + svg('<path d="' + checkD + '"/>', 17) + 'このページは確認済み</div><button class="pa-link" data-pa="reset">取り消す</button>';
     if (st === "skipped") return '<div class="pa-badge warn">' + svg('<path d="M9 8l4 4-4 4M15 8v8"/>', 17) + 'このページはスキップ</div><button class="pa-link" data-pa="review">確認する</button>';
-    return '<div class="pa-prompt">' + (phase === 2 ? "このページの置換を確認、または不要ならスキップ" : "このページを確認、または不要ならスキップ") + "</div>" +
-      '<div class="pa-btns"><button class="btn ghost" data-pa="skip">スキップ</button><button class="btn primary" data-pa="done">' + (phase === 2 ? "確認しました" : "確認しました") + "</button></div>";
-  }
-  function nextPending(arr) {
-    for (var i = page + 1; i < TOTAL; i++) if (arr[i] === "pending") return i;
-    for (var j = 0; j < page; j++) if (arr[j] === "pending") return j;
-    return -1;
+    return '<div class="pa-prompt">' + (S.phase === 2 ? "このページの置換を確認、または不要ならスキップ" : "このページを確認、または不要ならスキップ") + "</div>" +
+      '<div class="pa-btns"><button class="btn ghost" data-pa="skip">スキップ</button><button class="btn primary" data-pa="done">' + (S.phase === 2 ? "確認しました" : "確認しました") + "</button></div>";
   }
   function onPageAct(actv) {
     var arr = statusArr();
-    if (actv === "done") { arr[page] = "reviewed"; var n1 = nextPending(arr); if (n1 >= 0) page = n1; }
-    else if (actv === "skip") { arr[page] = "skipped"; var n2 = nextPending(arr); if (n2 >= 0) page = n2; }
-    else { arr[page] = "pending"; }
+    if (actv === "done") { arr[S.page] = "reviewed"; var n1 = nextPending(arr); if (n1 >= 0) S.page = n1; }
+    else if (actv === "skip") { arr[S.page] = "skipped"; var n2 = nextPending(arr); if (n2 >= 0) S.page = n2; }
+    else { arr[S.page] = "pending"; }
     render();
   }
   function renderPageAct() {
-    var el = document.getElementById(phase === 2 ? "pageact-2" : "pageact-3");
+    var el = document.getElementById(S.phase === 2 ? "pageact-2" : "pageact-3");
     el.innerHTML = pageActHTML();
     el.querySelectorAll("[data-pa]").forEach(function (b) { b.addEventListener("click", function () { onPageAct(b.dataset.pa); }); });
   }
-  function pageLabel() { var pg = PAGES[page]; return "<b>" + esc(FILES[pg.fileIndex].name) + "</b> ・ " + (pg.pageInFile + 1) + " ページ"; }
+  function pageLabel() { var pg = S.PAGES[S.page]; return "<b>" + esc(S.FILES[pg.fileIndex].name) + "</b> ・ " + (pg.pageInFile + 1) + " ページ"; }
 
   // ── 13. 辞書ペイン ──
   var dictState = { entries: [], onlyHeaders: true };
@@ -613,7 +570,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
       var txt = (t.textContent || "").trim();
       if (!txt) return;
       activateTab("dict");
-      var pg = PAGES[page];
+      var pg = S.PAGES[S.page];
       if (pg) {
         try {
           var r = await rpc("dictSuggest", {
@@ -640,61 +597,61 @@ import { clientToPage, parseSpec } from "./geometry.js";
     var ctxText = document.getElementById("ctx-text");
     var guard = document.getElementById("guard");
 
-    screens.forEach(function (s) { s.classList.toggle("on", +s.dataset.screen === phase); });
+    screens.forEach(function (s) { s.classList.toggle("on", +s.dataset.screen === S.phase); });
     steps.forEach(function (st) {
-      var n = +st.dataset.step; var done = n < phase, active = n === phase;
+      var n = +st.dataset.step; var done = n < S.phase, active = n === S.phase;
       st.classList.toggle("done", done); st.classList.toggle("active", active);
-      st.classList.toggle("future", !done && !active); st.classList.toggle("clickable", n <= phase);
+      st.classList.toggle("future", !done && !active); st.classList.toggle("clickable", n <= S.phase);
       st.querySelector(".n").innerHTML = done ? ckMark : n;
     });
-    if (guarding && (phase === 2 || phase === 3)) {
+    if (S.guarding && (S.phase === 2 || S.phase === 3)) {
       var gpend = counts(statusArr()).pend;
-      if (gpend === 0) guarding = false;            // 未確認0 → ガードを閉じる
+      if (gpend === 0) S.guarding = false;            // 未確認0 → ガードを閉じる
       else document.getElementById("guard-n").textContent = gpend; // 件数を最新に
     }
-    guard.hidden = !guarding;
-    btnBack.style.visibility = phase === 1 ? "hidden" : "visible";
-    btnNext.style.display = phase < 4 ? "" : "none";
-    btnExport.style.display = phase === 4 ? "" : "none";
-    btnNext.childNodes[0].nodeValue = phase === 3 ? "書き出しへ" : "次へ";
-    btnNext.disabled = (phase === 1 && TOTAL === 0);
+    guard.hidden = !S.guarding;
+    btnBack.style.visibility = S.phase === 1 ? "hidden" : "visible";
+    btnNext.style.display = S.phase < 4 ? "" : "none";
+    btnExport.style.display = S.phase === 4 ? "" : "none";
+    btnNext.childNodes[0].nodeValue = S.phase === 3 ? "書き出しへ" : "次へ";
+    btnNext.disabled = (S.phase === 1 && S.TOTAL === 0);
     btnNext.style.opacity = btnNext.disabled ? ".5" : "";
 
-    if (phase === 1) {
-      setHint(TOTAL ? "「次へ」で用語の置換に進みます" : "変換するPDFを選びます");
-      ctxText.textContent = TOTAL ? FILES.length + " ファイル・" + TOTAL + " ページ" : "ファイル未選択";
-    } else if (phase === 4) {
+    if (S.phase === 1) {
+      setHint(S.TOTAL ? "「次へ」で用語の置換に進みます" : "変換するPDFを選びます");
+      ctxText.textContent = S.TOTAL ? S.FILES.length + " ファイル・" + S.TOTAL + " ページ" : "ファイル未選択";
+    } else if (S.phase === 4) {
       setHint("内容を確認して書き出します。");
-      ctxText.textContent = FILES.length + " ファイル・" + TOTAL + " ページ";
+      ctxText.textContent = S.FILES.length + " ファイル・" + S.TOTAL + " ページ";
       refreshExport();
-      var s2 = counts(status2), s3 = counts(status3);
+      var s2 = counts(S.status2), s3 = counts(S.status3);
       document.getElementById("export-summary").innerHTML =
-        FILES.length + "ファイル・全" + TOTAL + "ページ<br/>用語：確認 " + s2.done + " / スキップ " + s2.skip +
+        S.FILES.length + "ファイル・全" + S.TOTAL + "ページ<br/>用語：確認 " + s2.done + " / スキップ " + s2.skip +
         "　削除：確認 " + s3.done + " / スキップ " + s3.skip;
     } else {
-      var task = phase === 2 ? "用語の置換" : "削除・枠線の編集";
+      var task = S.phase === 2 ? "用語の置換" : "削除・枠線の編集";
       var c = counts(statusArr());
       setHint(task + " — 要確認 <b>" + c.pend + "</b> / 確認済み <b>" + c.done + "</b> / スキップ <b>" + c.skip + "</b>");
-      var pg = PAGES[page];
-      ctxText.textContent = FILES[pg.fileIndex].name + " ・ " + (pg.pageInFile + 1) + "/" + FILES[pg.fileIndex].pages + " ページ";
+      var pg = S.PAGES[S.page];
+      ctxText.textContent = S.FILES[pg.fileIndex].name + " ・ " + (pg.pageInFile + 1) + "/" + S.FILES[pg.fileIndex].pages + " ページ";
     }
 
-    if (phase === 2 && TOTAL) {
-      buildRail("pagenav"); renderSummary("sum-2", status2); renderPageAct();
+    if (S.phase === 2 && S.TOTAL) {
+      buildRail("pagenav"); renderSummary("sum-2", S.status2); renderPageAct();
       document.getElementById("pgnav-2").innerHTML = pageLabel();
       mountPage(document.getElementById("doc-master"), app.querySelector('[data-screen="2"] .editor'), false).then(wireConfirmPick);
       renderConfirm();
       updateZoomLabel();
     }
-    if (phase === 3 && TOTAL) {
-      buildRail("pagenav-3"); renderSummary("sum-3", status3); renderPageAct();
+    if (S.phase === 3 && S.TOTAL) {
+      buildRail("pagenav-3"); renderSummary("sum-3", S.status3); renderPageAct();
       document.getElementById("pgnav-3").innerHTML = pageLabel();
       var ed3 = app.querySelector('[data-screen="3"] .editor');
-      ed3.classList.toggle("tool-crop", tool === "crop");
-      ed3.classList.toggle("tool-select", tool === "select");
-      ed3.classList.toggle("tool-border", tool === "border");
+      ed3.classList.toggle("tool-crop", S.tool === "crop");
+      ed3.classList.toggle("tool-select", S.tool === "select");
+      ed3.classList.toggle("tool-border", S.tool === "border");
       var bo = document.getElementById("border-opts");
-      if (bo) bo.hidden = tool !== "border";
+      if (bo) bo.hidden = S.tool !== "border";
       mountPage(document.getElementById("trim-stage"), ed3, true).then(wireTrimStage);
       renderTrim();
       updateZoomLabel();
@@ -702,20 +659,17 @@ import { clientToPage, parseSpec } from "./geometry.js";
   }
 
   // ── 15. ナビゲーション ──
-  var expMode = "all", expFile = 0;   // 書き出しモード: page/all/noskip/spec, 指定ファイル
-  function firstPending(arr) { for (var i = 0; i < TOTAL; i++) if (arr[i] === "pending") return i; return 0; }
-  function advancePhase() { guarding = false; if (phase === 2) { phase = 3; page = 0; } else if (phase === 3) phase = 4; clearSel(); render(); }
   function tryNext() {
-    if (phase === 1) { if (!TOTAL) return; phase = 2; page = 0; guarding = false; render(); return; }
-    if (phase === 2 || phase === 3) {
+    if (S.phase === 1) { if (!S.TOTAL) return; S.phase = 2; S.page = 0; S.guarding = false; render(); return; }
+    if (S.phase === 2 || S.phase === 3) {
       var pend = counts(statusArr()).pend;
-      if (pend > 0) { guarding = true; document.getElementById("guard-n").textContent = pend; render(); return; }
-      advancePhase();
+      if (pend > 0) { S.guarding = true; document.getElementById("guard-n").textContent = pend; render(); return; }
+      advancePhase(); render();
     }
   }
   function back() {
-    guarding = false;
-    if (phase === 2) phase = 1; else if (phase === 3) { phase = 2; page = 0; } else if (phase === 4) { phase = 3; page = 0; }
+    S.guarding = false;
+    if (S.phase === 2) S.phase = 1; else if (S.phase === 3) { S.phase = 2; S.page = 0; } else if (S.phase === 4) { S.phase = 3; S.page = 0; }
     render();
   }
 
@@ -756,7 +710,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
     });
     app.querySelectorAll('[data-screen="2"] .editor, [data-screen="3"] .editor').forEach(function (ed) {
       ed.addEventListener("wheel", function (e) {
-        if (!e.ctrlKey || (phase !== 2 && phase !== 3)) return;
+        if (!e.ctrlKey || (S.phase !== 2 && S.phase !== 3)) return;
         e.preventDefault();
         setZoom(curZoom() * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
       }, { passive: false });
@@ -765,14 +719,14 @@ import { clientToPage, parseSpec } from "./geometry.js";
     document.getElementById("btn-next").addEventListener("click", tryNext);
     document.getElementById("btn-undo").addEventListener("click", async function () { await rpc("undo"); await afterEdit(); });
     document.getElementById("btn-redo").addEventListener("click", async function () { await rpc("redo"); await afterEdit(); });
-    document.getElementById("guard-back").addEventListener("click", function () { guarding = false; page = firstPending(statusArr()); render(); });
+    document.getElementById("guard-back").addEventListener("click", function () { S.guarding = false; S.page = firstPending(statusArr()); render(); });
     document.getElementById("guard-skip").addEventListener("click", function () {
-      var arr = statusArr(); for (var i = 0; i < TOTAL; i++) if (arr[i] === "pending") arr[i] = "skipped"; advancePhase();
+      var arr = statusArr(); for (var i = 0; i < S.TOTAL; i++) if (arr[i] === "pending") arr[i] = "skipped"; advancePhase(); render();
     });
     app.querySelectorAll("#stepbar .step").forEach(function (st) {
       st.addEventListener("click", function () {
-        var n = +st.dataset.step; if (n > phase || !TOTAL) return;
-        guarding = false; phase = n; if (n === 2 || n === 3) page = 0; clearSel(); render();
+        var n = +st.dataset.step; if (n > S.phase || !S.TOTAL) return;
+        S.guarding = false; S.phase = n; if (n === 2 || n === 3) S.page = 0; clearSel(); render();
       });
     });
     // タブ
@@ -782,18 +736,18 @@ import { clientToPage, parseSpec } from "./geometry.js";
     // 手順3 ツール
     app.querySelectorAll(".float-tools [data-tool]").forEach(function (b) {
       b.addEventListener("click", function () {
-        tool = b.dataset.tool;
+        S.tool = b.dataset.tool;
         app.querySelectorAll(".float-tools [data-tool]").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
         render();
       });
     });
     // 枠線ツールの色・太さ
-    document.getElementById("border-color").addEventListener("input", function () { borderColor = this.value; });
+    document.getElementById("border-color").addEventListener("input", function () { S.borderColor = this.value; });
     document.getElementById("border-width").addEventListener("input", function () {
-      var v = parseFloat(this.value); if (!isNaN(v) && v > 0) borderWidth = v;
+      var v = parseFloat(this.value); if (!isNaN(v) && v > 0) S.borderWidth = v;
     });
     document.getElementById("btn-deletesel").addEventListener("click", async function () {
-      var pg = PAGES[page]; if (!pg) return;
+      var pg = S.PAGES[S.page]; if (!pg) return;
       var ids = Object.keys(curElSel()); if (!ids.length) return;
       await rpc("applyDelete", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, elIds: ids }); await afterEdit();
     });
@@ -817,8 +771,8 @@ import { clientToPage, parseSpec } from "./geometry.js";
       render();
     });
     document.getElementById("btn-reapply-page").addEventListener("click", async function () {
-      if (page >= TOTAL) return;
-      var pg = PAGES[page];
+      if (S.page >= S.TOTAL) return;
+      var pg = S.PAGES[S.page];
       var r = await rpc("reapplyDictPage", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
       invalidate(pg.fileIndex, pg.pageInFile);  // 置換で SVG が変わるため当該ページを再生成
       await reloadState();
@@ -843,9 +797,9 @@ import { clientToPage, parseSpec } from "./geometry.js";
     });
     // 書き出し範囲
     app.querySelectorAll(".segment [data-mode]").forEach(function (b) {
-      b.addEventListener("click", function () { expMode = b.dataset.mode; refreshExport(); });
+      b.addEventListener("click", function () { S.expMode = b.dataset.mode; refreshExport(); });
     });
-    document.getElementById("exp-file").addEventListener("change", function () { expFile = +this.value; refreshExport(); });
+    document.getElementById("exp-file").addEventListener("change", function () { S.expFile = +this.value; refreshExport(); });
     document.getElementById("exp-spec").addEventListener("input", refreshExport);
     document.getElementById("btn-export").addEventListener("click", doExport);
     // ショートカット
@@ -857,53 +811,29 @@ import { clientToPage, parseSpec } from "./geometry.js";
     window.onProgress(function (msg) { setHint(esc(msg)); });
   }
 
-  // 現在のモードで書き出す [{fileIndex, pageInFile}] を返す
-  function exportPageList() {
-    if (expMode === "all") return PAGES.slice();
-    if (expMode === "noskip") {
-      return PAGES.filter(function (pg, g) { return status2[g] !== "skipped" && status3[g] !== "skipped"; });
-    }
-    if (expMode === "spec") {
-      var fi = expFile; if (!FILES[fi]) return [];
-      return parseSpec(document.getElementById("exp-spec").value, FILES[fi].pages)
-        .map(function (n) { return { fileIndex: fi, pageInFile: n - 1 }; });
-    }
-    return []; // page モードは exportPage を使うため対象外
-  }
-
-  function expCount() { return expMode === "page" ? (TOTAL ? 1 : 0) : exportPageList().length; }
+  // 書き出し範囲テキスト入力の現在値 (state.js は DOM 非依存のため引数で渡す)
+  function expSpecValue() { var el = document.getElementById("exp-spec"); return el ? el.value : ""; }
 
   function refreshExport() {
     app.querySelectorAll(".segment [data-mode]").forEach(function (b) {
-      b.setAttribute("aria-pressed", b.dataset.mode === expMode ? "true" : "false");
+      b.setAttribute("aria-pressed", b.dataset.mode === S.expMode ? "true" : "false");
     });
     var specRow = document.getElementById("exp-spec-row");
-    if (specRow) specRow.style.display = expMode === "spec" ? "flex" : "none";
+    if (specRow) specRow.style.display = S.expMode === "spec" ? "flex" : "none";
     var sel = document.getElementById("exp-file");
     if (sel) {
-      sel.innerHTML = FILES.map(function (f, i) {
+      sel.innerHTML = S.FILES.map(function (f, i) {
         return '<option value="' + i + '">' + esc(f.name) + "（" + f.pages + "ページ）</option>";
       }).join("");
-      if (expFile >= FILES.length) expFile = 0;
-      sel.value = String(expFile);
+      if (S.expFile >= S.FILES.length) S.expFile = 0;
+      sel.value = String(S.expFile);
     }
-    document.getElementById("exp-num").textContent = expCount();
-  }
-
-  // ZIP のファイル名。対象が 1 PDF ならその名前を継ぎ、複数ファイル混在なら汎用名にする。
-  function zipName(list) {
-    var fis = {};
-    list.forEach(function (it) { fis[it.fileIndex] = 1; });
-    var keys = Object.keys(fis);
-    if (keys.length === 1 && FILES[+keys[0]]) {
-      return FILES[+keys[0]].name.replace(/\.pdf$/i, "") + "_svg.zip";
-    }
-    return "svg_export.zip";
+    document.getElementById("exp-num").textContent = expCount(expSpecValue(), parseSpec);
   }
 
   async function doExport() {
-    if (expMode === "page") {
-      var pg = PAGES[page] || { fileIndex: 0, pageInFile: 0 };
+    if (S.expMode === "page") {
+      var pg = S.PAGES[S.page] || { fileIndex: 0, pageInFile: 0 };
       var one = await rpc("exportSvg", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
       var ok = await saveTextFile(one.name, one.svg, "SVG", "image/svg+xml", ".svg");
       if (!ok) return;
@@ -911,7 +841,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
       toast("1個のSVGを書き出しました");
       return;
     }
-    var list = exportPageList();
+    var list = exportPageList(expSpecValue(), parseSpec);
     if (!list.length) { setHint("書き出す対象のページがありません。"); return; }
     // 変換中はボタンを止め、総数が既知の i/N を進捗バーでも示す (フッター文字だけでは
     // 固まったように見える)。SVG 変換はページごとに `exportSvg` を呼んで進捗を刻む。
@@ -965,6 +895,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
 
   // ── 17. 起動 ──
   window.__rpcReady.then(function () {
+    window.__state = S; // E2E/デバッグ用の読み取り窓
     wireStatic();
     render();
     startLifecycle();
