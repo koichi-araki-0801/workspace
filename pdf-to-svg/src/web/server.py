@@ -21,7 +21,6 @@ import threading
 import time
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from dictionary import apply as dict_apply
 from web import loader, rpc_methods
 from web.rpc_methods import WebSession
 
@@ -153,11 +152,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             session = self.server.session
             with self.server.lock:
                 # 新規読み込みは編集履歴をリセットする (アップロードは履歴を積まない)。
+                # 辞書はここでは適用しない: 適用は再適用ボタンからの明示操作のみとし、
+                # 必ず Undo 可能な経路 (reapplyDict/Page の Command マクロ) に一本化する。
                 session.undo.clear()
                 doc = loader.load_document_bytes(name, data)
-                for page in doc.pages:
-                    dict_apply.auto_apply(page, session.store,
-                                          only_headers=session.only_headers)
                 session.docs.append(doc)
         except Exception as exc:  # noqa: BLE001
             self._send_json({"ok": False, "error": str(exc)})

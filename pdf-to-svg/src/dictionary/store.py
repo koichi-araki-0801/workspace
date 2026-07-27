@@ -1,7 +1,8 @@
 """辞書の永続化 (JSON ファイル)。
 
 exe と同じフォルダの `data/dictionary.json` に保存する (config 側でパス決定)。
-人が直接開いて編集・差分管理・共有できる形式 ``[{"source","target","enabled"}]``。
+人が直接開いて編集・差分管理・共有できる形式 ``[{"source","target","enabled","joined"}]``
+(``joined`` は折返し連結由来の印。旧形式のキー無しは False として読む)。
 SQLite からの移行: バックエンドのみ差し替え、公開 API は据え置き
 (`add/upsert/update/delete/all/lookup/export_json/import_json/close`)。
 
@@ -22,12 +23,18 @@ from .normalize import DEFAULT_OPTIONS, NormOptions, normalize
 
 @dataclass
 class Mapping:
-    """辞書 1 エントリ。`source_raw` は入力原文、`target` は置換後、`enabled` で適用可否。"""
+    """辞書 1 エントリ。`source_raw` は入力原文、`target` は置換後、`enabled` で適用可否。
+
+    `joined` は「元の語が折返し 2 行の連結取り込み由来か」の記録。一括適用の連結照合
+    (`lookup_wrap`) はこのフラグ付きエントリにのみ一致させ、単独行で登録した語が
+    偶然連結形と一致して意図せず 2 行を畳む事故を防ぐ。
+    """
 
     id: int
     source_raw: str
     target: str
     enabled: bool = True
+    joined: bool = False
 
 
 class DictionaryStore:
@@ -38,7 +45,7 @@ class DictionaryStore:
         self.options = options
         self._mappings: List[Mapping] = []
         self._next_id = 1
-        self._index: Dict[str, str] = {}  # source_norm -> target (enabled のみ)
+        self._index: Dict[str, Mapping] = {}  # source_norm -> Mapping (enabled のみ)
         self._load()
 
     def close(self) -> None:
@@ -64,23 +71,26 @@ class DictionaryStore:
                         source_raw=src,
                         target=item.get("target", ""),
                         enabled=bool(item.get("enabled", True)),
+                        # 旧形式 (キー無し) は非連結として読む (後方互換)
+                        joined=bool(item.get("joined", False)),
                     )
                 )
                 self._next_id += 1
         self._rebuild_index()
 
     def _rebuild_index(self) -> None:
-        """`source_norm` → `target` の lookup インデックスを enabled 分のみで再構築する。"""
+        """`source_norm` → `Mapping` の lookup インデックスを enabled 分のみで再構築する。"""
         self._index = {}
         for m in self._mappings:
             if m.enabled:
                 # 後勝ち: 同一正規化キーが複数あれば最後の有効分を採用
-                self._index[normalize(m.source_raw, self.options)] = m.target
+                self._index[normalize(m.source_raw, self.options)] = m
 
     def _save(self) -> None:
         """全 `_mappings` を JSON へアトミック保存する (temp → `os.replace`)。"""
         data = [
-            {"source": m.source_raw, "target": m.target, "enabled": m.enabled}
+            {"source": m.source_raw, "target": m.target, "enabled": m.enabled,
+             "joined": m.joined}
             for m in self._mappings
         ]
         text = json.dumps(data, ensure_ascii=False, indent=2)
@@ -105,25 +115,31 @@ class DictionaryStore:
         return None
 
     # ── CRUD ──
-    def add(self, source_raw: str, target: str, enabled: bool = True) -> int:
+    def add(
+        self, source_raw: str, target: str, enabled: bool = True, joined: bool = False
+    ) -> int:
         """新規エントリを追加し採番した `id` を返す。"""
-        m = Mapping(id=self._next_id, source_raw=source_raw, target=target, enabled=enabled)
+        m = Mapping(
+            id=self._next_id, source_raw=source_raw, target=target,
+            enabled=enabled, joined=joined,
+        )
         self._next_id += 1
         self._mappings.append(m)
         self._rebuild_index()
         self._save()
         return m.id
 
-    def upsert(self, source_raw: str, target: str) -> int:
-        """同じ正規化キーがあれば target を更新、無ければ追加。"""
+    def upsert(self, source_raw: str, target: str, joined: bool = False) -> int:
+        """同じ正規化キーがあれば target と joined を更新、無ければ追加。"""
         existing = self._find_by_norm(source_raw)
         if existing is not None:
             existing.target = target
             existing.source_raw = source_raw
+            existing.joined = joined
             self._rebuild_index()
             self._save()
             return existing.id
-        return self.add(source_raw, target)
+        return self.add(source_raw, target, joined=joined)
 
     def update(self, mid: int, source_raw: str, target: str, enabled: bool) -> None:
         """`id` が `mid` のエントリを全フィールド更新する。"""
@@ -145,19 +161,33 @@ class DictionaryStore:
     def all(self) -> List[Mapping]:
         """全エントリを `source_raw` 昇順のコピーで返す (内部状態は不変)。"""
         return sorted(
-            (Mapping(m.id, m.source_raw, m.target, m.enabled) for m in self._mappings),
+            (
+                Mapping(m.id, m.source_raw, m.target, m.enabled, m.joined)
+                for m in self._mappings
+            ),
             key=lambda m: m.source_raw,
         )
 
     def lookup(self, text: str) -> Optional[str]:
         """正規化キー一致で target を返す (enabled のみ)。"""
-        return self._index.get(normalize(text, self.options))
+        m = self._index.get(normalize(text, self.options))
+        return m.target if m is not None else None
+
+    def lookup_wrap(self, text: str) -> Optional[str]:
+        """連結由来 (`joined=True`) エントリに限って target を返す (enabled のみ)。
+
+        折返し 2 行の連結照合専用。単独行として登録した語が偶然連結形と一致しても
+        ここでは引かず、意図して連結取り込みした語だけが 2 行畳み込みの対象になる。
+        """
+        m = self._index.get(normalize(text, self.options))
+        return m.target if (m is not None and m.joined) else None
 
     # ── JSON 入出力 (共有用。実体ファイルと同形式) ──
     def export_json(self, path: Path) -> None:
         """全エントリを `path` へ JSON 書き出しする (実体ファイルと同形式)。"""
         data = [
-            {"source": m.source_raw, "target": m.target, "enabled": m.enabled}
+            {"source": m.source_raw, "target": m.target, "enabled": m.enabled,
+             "joined": m.joined}
             for m in self.all()
         ]
         Path(path).write_text(
@@ -177,6 +207,6 @@ class DictionaryStore:
             src = item.get("source", "").strip()
             tgt = item.get("target", "").strip()
             if src:
-                self.upsert(src, tgt)
+                self.upsert(src, tgt, joined=bool(item.get("joined", False)))
                 count += 1
         return count

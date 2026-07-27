@@ -53,3 +53,55 @@ def test_json_roundtrip(tmp_path):
     assert s2.lookup("A") == "あ"
     s.close()
     s2.close()
+
+
+def test_lookup_wrap_matches_joined_entries_only(tmp_path):
+    """`lookup_wrap` は連結由来 (joined=True) エントリのみ引く。`lookup` は両方引く。"""
+    s = make_store(tmp_path)
+    s.add("商品名称", "Product", joined=True)
+    s.add("備考", "Note")  # 手入力相当 (非連結)
+    assert s.lookup_wrap("商品名称") == "Product"
+    assert s.lookup_wrap("備考") is None       # 非連結エントリは連結照合に使わない
+    assert s.lookup("備考") == "Note"          # 単独照合では従来どおり引ける
+    s.close()
+
+
+def test_joined_flag_persists_roundtrip(tmp_path):
+    """joined フラグは実体ファイル・export/import の双方で保持される。"""
+    s = make_store(tmp_path)
+    s.add("商品名称", "Product", joined=True)
+    # 実体ファイルの再読込 (同パスで開き直し)
+    s2 = DictionaryStore(tmp_path / "d.json")
+    assert s2.lookup_wrap("商品名称") == "Product"
+    # export → 別ストアへ import でも保持
+    out = tmp_path / "shared.json"
+    s2.export_json(out)
+    s3 = DictionaryStore(tmp_path / "d3.json")
+    s3.import_json(out)
+    assert s3.lookup_wrap("商品名称") == "Product"
+    s.close()
+    s2.close()
+    s3.close()
+
+
+def test_legacy_json_without_joined_key(tmp_path):
+    """旧形式 (joined キー無し) の JSON は非連結として読める (後方互換)。"""
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(
+        '[{"source": "Total", "target": "合計", "enabled": true}]', encoding="utf-8"
+    )
+    s = DictionaryStore(legacy)
+    assert s.lookup("Total") == "合計"
+    assert s.lookup_wrap("Total") is None  # 連結照合の対象にはならない
+    s.close()
+
+
+def test_upsert_updates_joined(tmp_path):
+    """連結取り込みで登録し直すと既存エントリの joined も更新される。"""
+    s = make_store(tmp_path)
+    s.add("商品名称", "Product")  # まず手入力 (非連結)
+    assert s.lookup_wrap("商品名称") is None
+    s.upsert("商品名称", "Product", joined=True)
+    assert s.lookup_wrap("商品名称") == "Product"
+    assert len(s.all()) == 1
+    s.close()

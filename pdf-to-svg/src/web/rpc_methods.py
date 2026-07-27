@@ -41,6 +41,9 @@ class WebSession:
         self.undo = undo  # QUndoStack (test では push() を持つ任意オブジェクト可)
         self.docs: List[Document] = []
         self.only_headers: bool = True
+        # クリック取り込み (dictSuggest) で折返し 2 行を連結するか。既定 OFF で、
+        # チェックボックス ON のときだけ連結候補を返す (連結由来はエントリへ記録)。
+        self.suggest_join: bool = False
 
     # ---- 参照ヘルパ ----
     def doc(self, file_index: int) -> Document:
@@ -114,6 +117,7 @@ def rpc_state(s: WebSession, _args: dict) -> dict:
         "changed3": changed3,
         "total": total,
         "onlyHeaders": s.only_headers,
+        "suggestJoin": s.suggest_join,
     }
 
 
@@ -172,10 +176,12 @@ def rpc_removedList(s: WebSession, args: dict) -> dict:
 def _dict_payload(s: WebSession) -> dict:
     return {
         "entries": [
-            {"id": m.id, "source": m.source_raw, "target": m.target, "enabled": m.enabled}
+            {"id": m.id, "source": m.source_raw, "target": m.target,
+             "enabled": m.enabled, "joined": m.joined}
             for m in s.store.all()
         ],
         "onlyHeaders": s.only_headers,
+        "suggestJoin": s.suggest_join,
     }
 
 
@@ -187,7 +193,9 @@ def rpc_dictAdd(s: WebSession, args: dict) -> dict:
     src = (args.get("source") or "").strip()
     tgt = (args.get("target") or "").strip()
     if src:
-        s.store.upsert(src, tgt)
+        # joined はクリック取り込みが連結候補を返したときにフロントが立てる
+        # (連結照合の対象にするかの記録。手入力は常に False)。
+        s.store.upsert(src, tgt, joined=bool(args.get("joined", False)))
     return _dict_payload(s)
 
 
@@ -199,8 +207,10 @@ def rpc_dictDelete(s: WebSession, args: dict) -> dict:
 def rpc_dictSuggest(s: WebSession, args: dict) -> dict:
     """クリックした文字要素から辞書「元の語」候補を返す。
 
-    折返しで複数行に分かれた 1 文 (セル) の場合、マッチャと同じ束ね方で連結した
-    文字列を返すため、クリック 1 回で文全体を取り込める。単独行は当該行の文字列。
+    `suggest_join` が ON のとき、折返しで複数行に分かれた 1 文 (セル) はマッチャと
+    同じ束ね方で連結した文字列を返すため、クリック 1 回で文全体を取り込める。
+    `joined` は連結したかの印で、フロントが登録時にエントリの連結由来として渡し返す。
+    OFF・単独行は当該行の文字列。
     対象が無ければ空文字 (クライアントはクリック行の textContent にフォールバック)。
     """
     pg = s.page(int(args["fileIndex"]), int(args["pageInFile"]))
@@ -214,13 +224,19 @@ def rpc_dictSuggest(s: WebSession, args: dict) -> dict:
         None,
     )
     if el is None:
-        return {"source": ""}
-    return {"source": dict_apply.joined_candidate(pg, el)}
+        return {"source": "", "joined": False}
+    source, joined = dict_apply.joined_candidate(pg, el, join_wrapped=s.suggest_join)
+    return {"source": source, "joined": joined}
 
 
 def rpc_setOnlyHeaders(s: WebSession, args: dict) -> dict:
     s.only_headers = bool(args.get("value", True))
     return {"onlyHeaders": s.only_headers}
+
+
+def rpc_setSuggestJoin(s: WebSession, args: dict) -> dict:
+    s.suggest_join = bool(args.get("value", False))
+    return {"suggestJoin": s.suggest_join}
 
 
 def rpc_dictExport(s: WebSession, args: dict) -> dict:
@@ -380,7 +396,8 @@ def rpc_zipEntries(_s: WebSession, args: dict) -> dict:
 def rpc_dictJson(s: WebSession, _args: dict) -> dict:
     """現在の辞書を共有用 JSON 文字列 (実体ファイルと同形式) で返す。"""
     data = [
-        {"source": m.source_raw, "target": m.target, "enabled": m.enabled}
+        {"source": m.source_raw, "target": m.target, "enabled": m.enabled,
+         "joined": m.joined}
         for m in s.store.all()
     ]
     return {"json": json.dumps(data, ensure_ascii=False, indent=2), "count": len(data)}
@@ -421,6 +438,7 @@ HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "exportSvg": rpc_exportSvg,
     "zipEntries": rpc_zipEntries,
     "setOnlyHeaders": rpc_setOnlyHeaders,
+    "setSuggestJoin": rpc_setSuggestJoin,
     "reapplyDict": rpc_reapplyDict,
     "reapplyDictPage": rpc_reapplyDictPage,
     "applyDelete": rpc_applyDelete,

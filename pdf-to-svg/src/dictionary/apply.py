@@ -136,12 +136,14 @@ def _lookup_joined(
 ) -> Optional[Tuple[str, str]]:
     """折返しグループを連結して辞書を引く (区切り無し→空白の順で最初の一致)。
 
-    一致した連結元文字列 (source) と置換先 (target) の組を返す。
+    一致した連結元文字列 (source) と置換先 (target) の組を返す。照合は連結由来
+    (`joined=True`) エントリ限定の `lookup_wrap`: 単独行で登録した語が偶然
+    連結形と一致して 2 行を畳む事故を防ぐ (連結の可否はエントリ側が記録している)。
     """
     parts = [t.text.strip() for t in group]
     for sep in ("", " "):  # 和文(区切り無し)・欧文(空白)の双方を拾う
         joined = sep.join(parts)
-        target = store.lookup(joined)
+        target = store.lookup_wrap(joined)
         if target is not None:
             return joined, target
     return None
@@ -162,20 +164,26 @@ def _join_for_candidate(parts: List[str]) -> str:
     return "".join(parts) if _CJK.search("".join(parts)) else " ".join(parts)
 
 
-def joined_candidate(page: Page, element: TextElement) -> str:
-    """`element` の折返しグループを連結した辞書 source 候補を返す (UI の取り込み用)。
+def joined_candidate(
+    page: Page, element: TextElement, join_wrapped: bool = False
+) -> Tuple[str, bool]:
+    """`element` の辞書 source 候補と「連結したか」を返す (UI の取り込み用)。
 
-    マッチャ (`_wrap_groups` / `_lookup_joined`) と同じ束ね方で連結するため、返り値を
-    そのまま辞書へ登録すれば、複数行にまたがる 1 文 (折返しセル) に再適用で一致する。
-    単独行 (グループ要素 1) はその行のテキストをそのまま返す (従来挙動)。
+    `join_wrapped=True` のとき、折返しグループをマッチャ (`_wrap_groups` /
+    `_lookup_joined`) と同じ束ね方で連結する。返り値をそのまま辞書へ登録すれば
+    複数行にまたがる 1 文 (折返しセル) に再適用で一致する。第 2 要素の連結印は
+    登録エントリの `joined` フラグ (連結照合の対象にするか) の記録に使う。
+    `join_wrapped=False` (既定)・単独行はクリック行のテキストをそのまま返す。
     """
+    if not join_wrapped:
+        return element.text.strip(), False
     texts = _text_elements(page)
     for group in _wrap_groups(texts):
         if any(t is element for t in group):
             if len(group) < 2:
-                return element.text.strip()
-            return _join_for_candidate([t.text.strip() for t in group])
-    return element.text.strip()
+                return element.text.strip(), False
+            return _join_for_candidate([t.text.strip() for t in group]), True
+    return element.text.strip(), False
 
 
 def plan_replacements(
@@ -186,7 +194,8 @@ def plan_replacements(
     texts = _text_elements(page)
     consumed: set = set()
 
-    # 折返し連結照合 (要素単位より優先)。連結で一致しなければグループは解放され、
+    # 折返し連結照合 (要素単位より優先)。一致は連結由来エントリのみ (`_lookup_joined`
+    # 参照)。連結で一致しなければグループは解放され、
     # 各行が従来どおり単独照合される (後方互換)。`only_headers` のゲートは単独ループと
     # 揃える: 既定はヘッダ折返しのみ、OFF 時は本文セルの折返し (複数行にまたがる 1 文)
     # も連結対象にする。
@@ -240,7 +249,11 @@ def apply_replacement(rep: Replacement) -> None:
 
 
 def auto_apply(page: Page, store: DictionaryStore, only_headers: bool = True) -> int:
-    """ヘッダ検出 → 一致を直接適用。適用件数を返す (文書オープン時用)。"""
+    """ヘッダ検出 → 一致を直接適用。適用件数を返す。
+
+    テスト・バッチ用の一括ヘルパ。本番 UI はアップロード時に辞書を適用せず、
+    再適用ボタン (Undo 可能な Command マクロ経路) からのみ適用する。
+    """
     detect_headers(page)
     plans = plan_replacements(page, store, only_headers=only_headers)
     for rep in plans:

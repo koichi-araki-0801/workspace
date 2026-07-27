@@ -395,7 +395,11 @@ import { initRail, buildRail } from "./rail.js";
   function pageLabel() { var pg = S.PAGES[S.page]; return "<b>" + esc(S.FILES[pg.fileIndex].name) + "</b> ・ " + (pg.pageInFile + 1) + " ページ"; }
 
   // ── 13. 辞書ペイン ──
-  var dictState = { entries: [], onlyHeaders: true };
+  var dictState = { entries: [], onlyHeaders: true, suggestJoin: false };
+  // クリック取り込みが折返し連結した候補かの記憶。登録時にエントリの連結由来
+  // (joined) として送り、一括適用の連結照合の対象を決める。#dict-src を手編集
+  // したら連結由来は外す (連結文字列でなくなるため)。
+  var pendingJoined = false;
   async function loadDict() {
     dictState = await rpc("dictList");
     renderDict();
@@ -403,7 +407,8 @@ import { initRail, buildRail } from "./rail.js";
   function renderDict() {
     document.getElementById("dict-count").textContent = "登録済みの用語（" + dictState.entries.length + "）";
     document.getElementById("dict-rows").innerHTML = dictState.entries.map(function (m) {
-      return '<div class="dict-row" data-id="' + m.id + '"><span class="src">' + esc(m.source) + '</span><span class="arr">' +
+      var joinBadge = m.joined ? '<span class="join-badge" title="折返し連結の取り込み由来。再適用時に 2 行を連結して照合します">連結</span>' : "";
+      return '<div class="dict-row" data-id="' + m.id + '"><span class="src">' + esc(m.source) + joinBadge + '</span><span class="arr">' +
         svg('<path d="M4 12h15"/><path d="m13 6 6 6-6 6"/>', 14) + '</span><span class="tgt">' + esc(m.target) + "</span>" +
         '<button class="iconbtn" data-del="' + m.id + '" title="削除" style="width:26px;height:26px">' + svg(xIcon, 15) + "</button></div>";
     }).join("");
@@ -414,6 +419,8 @@ import { initRail, buildRail } from "./rail.js";
     });
     var chk = document.getElementById("chk-headers");
     chk.querySelector(".box").classList.toggle("on", !!dictState.onlyHeaders);
+    var chkJoin = document.getElementById("chk-suggest-join");
+    chkJoin.querySelector(".box").classList.toggle("on", !!dictState.suggestJoin);
   }
 
   // 手順2 のパネルタブ切替 (タブクリック・機能1 の双方から使う)
@@ -428,9 +435,10 @@ import { initRail, buildRail } from "./rail.js";
   }
 
   // 機能1: 手順2 のページ上の文字クリック → 「元の語」に取り込む。
-  // 折返しで複数行に分かれた 1 文 (セル) は、サーバの dictSuggest がマッチャと同じ
-  // 束ね方で連結した文字列を返すため、クリック 1 回で文全体を取り込める。取得に失敗した
-  // ときはクリック行の textContent をそのまま使う。
+  // 「クリック取り込みで折返しを連結」チェックが ON のとき、折返しで複数行に分かれた
+  // 1 文 (セル) はサーバの dictSuggest がマッチャと同じ束ね方で連結した文字列を返す
+  // (連結したかは pendingJoined に記録し、登録エントリの連結由来になる)。取得に
+  // 失敗したときはクリック行の textContent をそのまま使う。
   function wireConfirmPick() {
     var host = document.getElementById("doc-master");
     var svgEl = host.querySelector("svg");
@@ -442,14 +450,16 @@ import { initRail, buildRail } from "./rail.js";
       if (!txt) return;
       activateTab("dict");
       var pg = S.PAGES[S.page];
+      var joined = false;
       if (pg) {
         try {
           var r = await rpc("dictSuggest", {
             fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, elId: t.getAttribute("data-el"),
           });
-          if (r && r.source) txt = r.source;
+          if (r && r.source) { txt = r.source; joined = !!r.joined; }
         } catch (_) { /* 折返し連結の取得失敗時はクリック行の文字列を使う */ }
       }
+      pendingJoined = joined;
       document.getElementById("dict-src").value = txt;
       document.getElementById("dict-tgt").focus();
       flashElement("doc-master", t.getAttribute("data-el"));
@@ -644,17 +654,26 @@ import { initRail, buildRail } from "./rail.js";
     });
   }
 
-  /** 辞書ペイン (追加・ヘッダのみ・再適用・入出力) */
+  /** 辞書ペイン (追加・ヘッダのみ・折返し連結・再適用・入出力) */
   function wireDictPane() {
     document.getElementById("dict-add").addEventListener("click", async function () {
       var src = document.getElementById("dict-src"); var tgt = document.getElementById("dict-tgt");
       if (!src.value.trim()) return;
-      dictState = await rpc("dictAdd", { source: src.value, target: tgt.value });
+      dictState = await rpc("dictAdd", { source: src.value, target: tgt.value, joined: pendingJoined });
+      pendingJoined = false;
       src.value = ""; tgt.value = ""; renderDict();
+    });
+    // 元の語を手編集したら連結由来を外す (取り込んだ連結文字列ではなくなるため)
+    document.getElementById("dict-src").addEventListener("input", function () {
+      pendingJoined = false;
     });
     document.getElementById("chk-headers").addEventListener("click", async function () {
       dictState.onlyHeaders = !dictState.onlyHeaders;
       await rpc("setOnlyHeaders", { value: dictState.onlyHeaders }); renderDict();
+    });
+    document.getElementById("chk-suggest-join").addEventListener("click", async function () {
+      dictState.suggestJoin = !dictState.suggestJoin;
+      await rpc("setSuggestJoin", { value: dictState.suggestJoin }); renderDict();
     });
     document.getElementById("btn-reapply").addEventListener("click", async function () {
       var r = await rpc("reapplyDict");

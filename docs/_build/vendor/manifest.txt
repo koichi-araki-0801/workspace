@@ -1,0 +1,6 @@
+# docs mermaid vendor manifest。
+# mermaid.min.js は git に入れず offline 重量物バンドル(offline-deps-bundle.tar.gz)へ同梱し、
+# setup が docs/_build/vendor/ へ展開する。build 時は md2html.py がそこから読んで HTML へインライン
+# する(未配置時は <pre class="mermaid"> フォールバック + 警告)。下の有意行(版 + sha256)が
+# content-key に折り込まれ、mermaid を差し替えるとバンドルが再生成される。
+mermaid.min.js  version=11.12.2  sha256=d0830a6c05546e9edb8fe20a8f545f3e0dc7c4c3134d584bad9c13a99d7a71e0

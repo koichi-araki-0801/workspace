@@ -81,6 +81,7 @@ def test_state(session):
     assert st["files"][0]["pages"] == 1
     assert st["changed2"] == [True]   # dict_match のあるページは要確認
     assert st["changed3"] == [True]   # トリミングは全ページ対象
+    assert st["suggestJoin"] is False  # クリック取り込みの連結は既定 OFF
 
 
 def test_page_svg_has_data_el(session):
@@ -174,10 +175,13 @@ def test_dict_add_and_list(session):
     lst = rpc_methods.dispatch(session, "dictList", {})
     sources = [e["source"] for e in lst["entries"]]
     assert "Q'ty" in sources
+    # joined 指定なしの手入力登録は非連結、payload には suggestJoin も乗る
+    assert lst["entries"][0]["joined"] is False
+    assert lst["suggestJoin"] is False
 
 
-def test_dict_suggest_joins_wrapped_lines(tmp_path):
-    """折返しセルのどの行をクリックしても、連結した 1 文を「元の語」候補に返す。"""
+def _wrapped_pair_session(tmp_path):
+    """折返し 2 行 (商品/名称) を持つ 1 ページのセッションを作る。"""
     page = Page(index=0, width_pt=200.0, height_pt=300.0)
     top = TextElement(bbox=Rect(50, 28, 20, 12), text="商品",
                       font_size=12, origin_x=50, origin_y=40)
@@ -186,17 +190,54 @@ def test_dict_suggest_joins_wrapped_lines(tmp_path):
     page.elements = [top, bottom]
     s = WebSession(DictionaryStore(tmp_path / "d.json"), FakeUndo())
     s.docs = [Document(source_path="表.pdf", pages=[page])]
+    return s, top, bottom
+
+
+def test_dict_suggest_joins_only_when_enabled(tmp_path):
+    """クリック取り込みの連結は setSuggestJoin ON のときのみ。既定はクリック行を返す。"""
+    s, _top, bottom = _wrapped_pair_session(tmp_path)
 
     r = rpc_methods.dispatch(
         s, "dictSuggest", {"fileIndex": 0, "pageInFile": 0, "elId": bottom.id}
     )
-    assert r["source"] == "商品名称"  # クリックは 2 行目でも文全体を返す
+    assert r["source"] == "名称" and r["joined"] is False  # 既定 OFF はクリック行のみ
+
+    rpc_methods.dispatch(s, "setSuggestJoin", {"value": True})
+    r = rpc_methods.dispatch(
+        s, "dictSuggest", {"fileIndex": 0, "pageInFile": 0, "elId": bottom.id}
+    )
+    # ON ならクリックは 2 行目でも文全体を返し、連結の印が立つ
+    assert r["source"] == "商品名称" and r["joined"] is True
 
     # 範囲外/不明な elId は空文字 (クライアントはクリック行へフォールバック)
     r2 = rpc_methods.dispatch(
         s, "dictSuggest", {"fileIndex": 0, "pageInFile": 0, "elId": 999999}
     )
-    assert r2["source"] == ""
+    assert r2["source"] == "" and r2["joined"] is False
+
+
+def test_reapply_joins_only_joined_entries(tmp_path):
+    """一括適用の連結照合は連結由来 (joined=True) エントリのみに一致する。"""
+    s, top, bottom = _wrapped_pair_session(tmp_path)
+    rpc_methods.dispatch(s, "setOnlyHeaders", {"value": False})
+
+    # 手入力 (joined なし) の連結形は一致しない = 2 行は畳まれない
+    rpc_methods.dispatch(s, "dictAdd", {"source": "商品名称", "target": "Product"})
+    r = rpc_methods.dispatch(s, "reapplyDictPage", {"fileIndex": 0, "pageInFile": 0})
+    assert r["count"] == 0
+    assert top.text == "商品" and bottom.deleted is False
+
+    # 連結取り込み由来 (joined=True) で登録し直すと連結照合され 2 行目が畳まれる
+    rpc_methods.dispatch(
+        s, "dictAdd", {"source": "商品名称", "target": "Product", "joined": True}
+    )
+    r = rpc_methods.dispatch(s, "reapplyDictPage", {"fileIndex": 0, "pageInFile": 0})
+    assert r["count"] == 1
+    assert top.text == "Product" and bottom.deleted is True
+    # undo で戻る (FakeUndo はマクロ透過のため置換と削除を 1 回ずつ戻す)
+    rpc_methods.dispatch(s, "undo", {})
+    rpc_methods.dispatch(s, "undo", {})
+    assert top.text == "商品" and bottom.deleted is False
 
 
 def test_dict_export_import(tmp_path):
