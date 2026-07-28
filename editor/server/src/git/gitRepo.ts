@@ -40,7 +40,7 @@ export interface GitCommitMeta {
 }
 
 /** コミットの author/committer identity(= ログインID)。 */
-export interface GitAuthor {
+interface GitAuthor {
   name: string;
 }
 

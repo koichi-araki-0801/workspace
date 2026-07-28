@@ -16,6 +16,7 @@ import { isBreakValue } from './pageView';
  * `SelectedRect` と同様)。実際の page break(`break-*` / `page-break-*`、class 由来の
  * `.page` を含む)= 論理ページブロックの末尾だけを表す。改ページ判定は page break のみで
  * 行い、297mm の高さ推定(estimate)は描かない(`refreshPageGuides` を見よ)。
+ * `useTemplateEditor` の推論戻り値型が参照するため export が必要(TS4058 回避)。 @public
  */
 export interface PageGuide {
   top: number;
@@ -25,7 +26,7 @@ export interface PageGuide {
   page: number;
 }
 
-export interface PageGuidesContext {
+interface PageGuidesContext {
   editor: ShallowRef<Editor | undefined>;
   /** guide と同じ scroll/zoom/content の契機で連動再計測するフック(メモ目印)。 */
   afterGuides?: () => void;

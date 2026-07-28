@@ -50,10 +50,10 @@ export interface PreviewSpec {
 }
 
 /** spec に対しプレビューサーバを起動する。テストが実ブラウザを避けられるよう注入する。 */
-export type PreviewStarter = (spec: PreviewSpec, host: string) => Promise<PreviewServerHandle>;
+type PreviewStarter = (spec: PreviewSpec, host: string) => Promise<PreviewServerHandle>;
 
 /** プレビューセッションの公開・直列化可能なビュー(サーバ内部を含まない)。 */
-export interface PreviewSessionMeta {
+interface PreviewSessionMeta {
   id: string;
   mode: 'inline' | 'project';
   createdAt: string;
@@ -69,7 +69,7 @@ interface Session {
   timer: NodeJS.Timeout;
 }
 
-export interface PreviewManagerOptions {
+interface PreviewManagerOptions {
   idleTtlMs: number;
   maxSessions: number;
   host: string;

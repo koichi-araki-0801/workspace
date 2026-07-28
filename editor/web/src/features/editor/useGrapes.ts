@@ -25,6 +25,7 @@ import { useZoomFit } from './useZoomFit';
 // 分離前からの import 元互換(zoom 定数の正典は `useZoomFit`)。
 export { ZOOM_STEP } from './useZoomFit';
 
+/** `useGrapes` の推論戻り値型が参照するため export が必要(TS4058 回避)。 @public */
 export interface GrapesContainers {
   canvas: HTMLElement;
   layers: HTMLElement;

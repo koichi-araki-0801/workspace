@@ -12,13 +12,13 @@ import type { AsyncHtmlWorker } from './index';
 // Worker 呼び出しがこの時間内に解決しなければ「不達」とみなして main-thread へ落とす上限。
 // 重処理(400 ページ級の diff/mask)でも数秒で済むため十分な余裕。これを超えるのは
 // チャンク読込失敗や Comlink ハンドシェイク不成立など、Worker が事実上死んでいる場合。
-export const WORKER_CALL_TIMEOUT_MS = 30_000;
+const WORKER_CALL_TIMEOUT_MS = 30_000;
 
 /** タイムアウト起因の失敗を実行時エラーと区別するための機械可読コード。 */
-export const WORKER_TIMEOUT_CODE = 'WORKER_TIMEOUT';
+const WORKER_TIMEOUT_CODE = 'WORKER_TIMEOUT';
 
 /** `p` を `ms` で打ち切る。期限超過で reject し、ハングを観測可能な失敗へ変える。 */
-export function withTimeout<T>(p: Promise<T>, ms: number, method: string): Promise<T> {
+function withTimeout<T>(p: Promise<T>, ms: number, method: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(
       () =>
@@ -42,7 +42,7 @@ export function withTimeout<T>(p: Promise<T>, ms: number, method: string): Promi
   });
 }
 
-export interface FallbackWorker {
+interface FallbackWorker {
   /** フォールバック付きの公開プロキシ。`AsyncHtmlWorker` と同一インタフェース。 */
   worker: AsyncHtmlWorker;
   /** Worker の致命エラー検知時に呼ぶ。in-flight 呼び出しを即フォールバックへ落とす。 */

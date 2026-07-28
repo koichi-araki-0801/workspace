@@ -18,7 +18,7 @@ export interface LayoutGeom {
   keepTogether: boolean;
 }
 
-export type StyleMap = Record<string, string | undefined>;
+type StyleMap = Record<string, string | undefined>;
 
 export const PX_PER_MM = 96 / 25.4;
 
@@ -120,7 +120,7 @@ export function geomToStyle(g: LayoutGeom): Record<string, string> {
   };
 }
 
-export const ALIGN_JP: Record<Align, string> = {
+const ALIGN_JP: Record<Align, string> = {
   left: '左',
   center: '中央',
   right: '右',

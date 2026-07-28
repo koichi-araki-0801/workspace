@@ -10,7 +10,7 @@
 import { onBeforeUnmount, onMounted } from 'vue';
 
 /** ヘルプ表示用のショートカット 1 件。`keys` は kbd で並べる表示トークン列。 */
-export interface ShortcutInfo {
+interface ShortcutInfo {
   keys: string[];
   label: string;
   /** 代替キーや適用条件の補足(任意)。 */
@@ -36,7 +36,7 @@ export const SHORTCUT_LIST: readonly ShortcutInfo[] = [
  * ショートカットから呼ぶハンドラ群。`can*` は実行可否(無効ならキー既定動作へ委ねる)、
  * `isTextEditing` は canvas の inline text 編集中か(編集中は undo/redo/delete を奪わない)。
  */
-export interface EditorShortcutHandlers {
+interface EditorShortcutHandlers {
   undo: () => void;
   redo: () => void;
   save: () => void;

@@ -34,8 +34,8 @@ import {
 
 export const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
 // Private-use 区切り文字: HTML serialization をエスケープされずに通過する。
-export const PH_START = String.fromCharCode(0xe000);
-export const PH_END = String.fromCharCode(0xe001);
+const PH_START = String.fromCharCode(0xe000);
+const PH_END = String.fromCharCode(0xe001);
 const PH_RE = new RegExp(`${PH_START}([A-Za-z0-9+/=]*)${PH_END}`, 'g');
 
 export function extractJinjaTokens(s: string): string[] {
@@ -49,7 +49,7 @@ export function b64encode(s: string): string {
   return btoa(bin);
 }
 
-export function b64decode(b: string): string {
+function b64decode(b: string): string {
   const bin = atob(b);
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   return new TextDecoder().decode(bytes);

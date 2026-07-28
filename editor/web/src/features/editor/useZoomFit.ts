@@ -10,8 +10,8 @@ import { ref, type ShallowRef } from 'vue';
 
 // canvas の zoom 範囲とクリック毎のステップ。`EditorView.vue` の zoom in/out ボタンと
 // 共有し、`setZoom` と同じ範囲へ clamp させる。
-export const ZOOM_MIN = 0.4;
-export const ZOOM_MAX = 1.4;
+const ZOOM_MIN = 0.4;
+const ZOOM_MAX = 1.4;
 export const ZOOM_STEP = 0.1;
 
 // `fitToView` で利用可能サイズから差し引く余白(px)。これを引いた領域へ A4 ページ全体が
@@ -19,7 +19,7 @@ export const ZOOM_STEP = 0.1;
 // ページは canvas 中央へ上下対称に寄せるため、この余白が上下に半分(28px)ずつ分かれて見える。
 const FIT_MARGIN = 56;
 
-export interface ZoomFitContext {
+interface ZoomFitContext {
   editor: ShallowRef<Editor | undefined>;
   /** zoom フィット計測の基準になる canvas コンテナ(`init` 後に確定するため getter で受ける)。 */
   getContainer: () => HTMLElement | undefined;

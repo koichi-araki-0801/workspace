@@ -9,14 +9,14 @@ import { useAuthRepo } from '@/api/repositories';
  * 持たないが、追加するならここが境界。Pinia ルールに従い store を repository から
  * 切り離す)。純粋な factory — repo を注入することで Vue なしでテストできる。
  */
-export interface AuthService {
+interface AuthService {
   login(username: string, password: string): Promise<Result<LoginResult>>;
   logout(): Promise<Result<void>>;
   me(): Promise<Result<User | null>>;
   initPassword(username: string, newPassword: string): Promise<Result<void>>;
 }
 
-export function createAuthService(repo: AuthRepository): AuthService {
+function createAuthService(repo: AuthRepository): AuthService {
   return {
     login: (username, password) => repo.login({ username, password }),
     logout: () => repo.logout(),

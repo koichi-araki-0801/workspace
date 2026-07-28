@@ -10,7 +10,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 
 /** ファイル監査ログに記録する履歴の種別。 */
-export type HistoryKind = 'pdf' | 'create' | 'part';
+type HistoryKind = 'pdf' | 'create' | 'part';
 
 const historyDir = (): string => path.join(config.logging.dir, 'history');
 const fileFor = (kind: HistoryKind): string => path.join(historyDir(), `${kind}.jsonl`);

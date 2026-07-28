@@ -50,7 +50,7 @@ function runBuildWorkerSpawn(buildOptions: unknown): Promise<void> {
 }
 
 /** inline(レンダリング済み HTML + 任意の CSS)ビルド入力。 */
-export interface BuildInlineInput {
+interface BuildInlineInput {
   html: string;
   css?: string;
   /** vivliostyle へ渡すページサイズ(既定 'A4')。 */
@@ -91,7 +91,7 @@ export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
 }
 
 /** project(展開済みディレクトリ)ビルド入力。`projectInput.ts` を見よ。 */
-export interface BuildProjectInput {
+interface BuildProjectInput {
   /** 展開済み vivliostyle プロジェクトを格納するディレクトリ。 */
   dir: string;
   /** `vivliostyle.config.*` のパス(存在すれば優先エントリ)。 */

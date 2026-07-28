@@ -8,7 +8,7 @@
 import type { EditHistoryEntry, TemplateMeta, TemplateSnapshot } from '@editor/shared';
 import { fixtureCss, fixtureTemplates, K, META_KEY, read, write } from './store';
 
-export const SEED_KEY = 'editor:seed:compare';
+const SEED_KEY = 'editor:seed:compare';
 const SEED_USER = '佐藤花子';
 
 interface SeedVersion {

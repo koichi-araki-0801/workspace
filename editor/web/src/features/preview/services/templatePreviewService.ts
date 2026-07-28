@@ -29,7 +29,7 @@ import { htmlWorker } from '@/workers';
 export const PDF_ERROR_MSG = 'PDFの作成に失敗しました。時間をおいて再度お試しください。';
 const RENDER_ERROR_MSG = 'プレビューを表示できませんでした。テンプレートの内容をご確認ください。';
 
-export interface PreviewLoad {
+interface PreviewLoad {
   template: Template;
   sample: SampleData;
   /** Jinja を復元した HTML(draft があれば適用済み)。save と PDF で使う。 */
@@ -41,7 +41,7 @@ export interface PreviewLoad {
   renderError: string | null;
 }
 
-export interface TemplatePreviewService {
+interface TemplatePreviewService {
   loadForPreview(id: string): Promise<Result<PreviewLoad>>;
   /**
    * テンプレートをサーバー経由で PDF blob にレンダリングする。`cropMarks` が true のとき

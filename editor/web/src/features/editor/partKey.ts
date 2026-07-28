@@ -12,7 +12,7 @@
 // `data-part-id` を持たない)では best-effort になる(compare の位置整列と同程度)。基準日
 // 更新のように構造が同一な版替えでは確実に一致する。
 
-import { occurrenceKey, rawKey } from '@/lib/blockKey';
+import { occurrenceKey } from '@/lib/blockKey';
 
 /**
  * canvas root(GrapesJS wrapper か body)直下の `.page` 要素列。1 件も無ければ root 自身を
@@ -88,6 +88,3 @@ export function partLabelMap(root: HTMLElement): Map<string, string> {
   });
   return map;
 }
-
-// `rawKey` は marker 側の単体テストや将来の利用に備えて再 export する(集約元は blockKey)。
-export { rawKey };

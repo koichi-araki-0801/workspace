@@ -7,14 +7,14 @@
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /** PBKDF2 の既定イテレーション数。行ごとに保存するので後から引き上げ可能。 */
-export const PBKDF2_ITERATIONS = 120_000;
+const PBKDF2_ITERATIONS = 120_000;
 /** 導出鍵長(バイト)。ユーザーテーブルの VARBINARY(64) に収まる。 */
 const KEY_LEN = 64;
 /** ソルト長(バイト)。VARBINARY(32) に収まる。 */
 const SALT_LEN = 32;
 const DIGEST = 'sha512';
 
-export interface PasswordHash {
+interface PasswordHash {
   hash: Buffer;
   salt: Buffer;
   iterations: number;

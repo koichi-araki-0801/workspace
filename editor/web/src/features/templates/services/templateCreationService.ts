@@ -16,7 +16,7 @@ import { useTemplateRepo } from '@/api/repositories';
 /** テンプレ作成に必要な属性が不足しているときに表示するメッセージ。 */
 export const SELECT_ALL_MSG = '委託会社・ファンド・版種を選択してください';
 
-export interface TemplateCreationService {
+interface TemplateCreationService {
   /** 属性を検証してから生成する。成功時は新規テンプレの meta を返す。 */
   create(req: GenerateRequest): Promise<Result<TemplateMeta>>;
   /** 属性解決: シリーズファンド判定など。 */

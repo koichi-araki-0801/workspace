@@ -48,10 +48,10 @@ export const partCatalog = (
   >
 )['../fixtures/parts.json'];
 
-export interface SeedUser extends User {
+interface SeedUser extends User {
   password: string;
 }
-export const seedUsers = (
+const seedUsers = (
   import.meta.glob('../fixtures/users.json', { eager: true, import: 'default' }) as Record<
     string,
     SeedUser[]

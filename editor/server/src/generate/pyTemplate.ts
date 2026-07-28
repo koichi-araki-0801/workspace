@@ -4,7 +4,7 @@
 import { execFile } from 'node:child_process';
 import { config } from '../config.js';
 
-export interface GenerateAttributes {
+interface GenerateAttributes {
   companyCode: string;
   fundCode: string;
   editionType: string;

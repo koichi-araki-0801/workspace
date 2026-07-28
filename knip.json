@@ -1,13 +1,21 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "workspaces": {
+    ".": {
+      "entry": ["scripts/pre-push.mjs"]
+    },
     "editor/server": {
-      "entry": ["scripts/hash-password.ts", "scripts/gen-seed.ts"]
+      "entry": [
+        "scripts/hash-password.ts",
+        "scripts/gen-seed.ts",
+        "scripts/pdf-build-worker.mjs",
+        "scripts/pdf-build-worker-daemon.mjs"
+      ]
     },
     "graph-editor": {
       "entry": ["test/editor_server.mjs"]
     }
   },
-  "ignore": [".claude/**", "**/resources/web/**"],
+  "ignore": ["**/resources/web/**"],
   "ignoreDependencies": ["subset-font", "pino-pretty"]
 }

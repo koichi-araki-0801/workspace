@@ -10,7 +10,7 @@ import StreamZip from 'node-stream-zip';
 import { config } from '../config.js';
 
 /** アップロード zip から展開した vivliostyle プロジェクト。 */
-export interface ExtractedProject {
+interface ExtractedProject {
   /** 展開ファイルを格納するルートディレクトリ。`cleanupProject` で削除する。 */
   dir: string;
   /** `vivliostyle.config.*` の絶対パス(存在すれば優先エントリ)。 */

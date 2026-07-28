@@ -31,7 +31,7 @@ export interface ReviewChangeSummary {
   removed: number;
 }
 
-export interface ReviewDiffData {
+interface ReviewDiffData {
   review: ReviewRequest;
   rows: ReviewPartRow[];
   summary: ReviewChangeSummary;
@@ -41,7 +41,7 @@ export interface ReviewDiffData {
   cssAfter: string;
 }
 
-export interface ReviewDiffService {
+interface ReviewDiffService {
   /** 申請 1 件を読み、現行版と diff してパーツ行を組み立てる。 */
   buildDiff(reqId: string): Promise<Result<ReviewDiffData>>;
 }

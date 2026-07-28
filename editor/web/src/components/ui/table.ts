@@ -3,7 +3,7 @@
 // =============================================================================
 // 単純な 5 部品は `styledTag` ファクトリで生成し、`Table` のみ scroll コンテナ
 // 入れ子のため個別定義する。
-import { cva, type VariantProps } from 'class-variance-authority';
+import { cva } from 'class-variance-authority';
 import { defineComponent, h } from 'vue';
 import { cn } from '@/lib/utils';
 
@@ -14,8 +14,6 @@ export const tableMessageCell = cva('text-center text-muted-foreground', {
   variants: { pad: { default: 'py-8', lg: 'py-10' } },
   defaultVariants: { pad: 'default' },
 });
-
-export type TableMessageCellVariants = VariantProps<typeof tableMessageCell>;
 
 /**
  * 単一要素のスタイル付きラッパを定義する。`base` クラスと任意の `class` prop を

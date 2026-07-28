@@ -10,8 +10,8 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { atomicWrite } from './atomic.js';
 
-export const templatePath = (fileName: string): string => path.join(config.templatesDir, fileName);
-export const cssPath = (fundCode: string): string => path.join(config.cssDir, `${fundCode}.css`);
+const templatePath = (fileName: string): string => path.join(config.templatesDir, fileName);
+const cssPath = (fundCode: string): string => path.join(config.cssDir, `${fundCode}.css`);
 
 /** 確定済みテンプレートの `*.html` 一覧(台帳ではなくディレクトリ走査が一覧の源)。 */
 export async function listTemplateFiles(): Promise<string[]> {

@@ -16,6 +16,7 @@ import { partEls, partPathKeyFor } from './partKey';
  * 版を跨ぐメモを持つパーツの目印(canvas 相対 / zoom 考慮の座標、`SelectedRect` と同様)。
  * エクセルのセルコメント風に、パーツ右上隅へ固定 px の小バッジを重畳する。位置のみ
  * パーツへ追従し、バッジ自体のサイズはズーム非依存(`refreshNoteMarkers` を見よ)。
+ * `useTemplateEditor` の推論戻り値型が参照するため export が必要(TS4058 回避)。 @public
  */
 export interface NoteMarker {
   /** 紐づく構造パスキー(`partKey.ts` の `partPathKeyFor`)。 */
@@ -25,7 +26,7 @@ export interface NoteMarker {
   left: number;
 }
 
-export interface CanvasMarkersContext {
+interface CanvasMarkersContext {
   editor: ShallowRef<Editor | undefined>;
   pageEls: ShallowRef<HTMLElement[]>;
   currentPageIndex: Ref<number>;

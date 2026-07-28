@@ -14,7 +14,7 @@ import { atomicWrite } from './atomic.js';
 const htmlName = (templateId: string): string => `${templateId}.html`;
 const cssName = (templateId: string): string => `${templateId}.css`;
 
-export interface DraftFileRefs {
+interface DraftFileRefs {
   htmlFile: string;
   cssFile: string;
 }
