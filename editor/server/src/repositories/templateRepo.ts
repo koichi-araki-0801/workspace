@@ -173,8 +173,8 @@ export async function discardDraft(templateId: string): Promise<void> {
  * 確定内容を実ファイルへ反映する唯一の物理書込経路。テンプレ本体 + ファンド CSS を
  * ファイルへ書き、git に 1 コミット積む(版管理の正典)。ファイル書込失敗時は直前
  * バイト列へ復元。git コミット失敗はベストエフォート(確定ファイルは残し、次回保存か
- * 手動コミットで取り込む)。`confirmSave`(緊急の直接保存)と承認ワークフローの
- * `approveReview`(`reviewRepo.ts`)が共有し、コミットメッセージ/著者だけを差し替える。
+ * 手動コミットで取り込む)。呼び出し元は承認ワークフローの `approveReview`
+ * (`reviewRepo.ts`)のみ(確定保存は申請 → 承認の 2 段階ゲートに一本化)。
  */
 export async function applyConfirmedSave(req: {
   templateId: string;
@@ -208,27 +208,6 @@ export async function applyConfirmedSave(req: {
   const meta = await fileToMeta(fileName);
   if (!meta) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
   return meta;
-}
-
-/**
- * 緊急の直接確定保存(精査者承認を経ない直接反映)。ルートは `requireApprover` で施錠する
- * (`templates.routes.ts`)。通常経路は承認ワークフロー(`reviewRepo.ts`)を使う。
- */
-export async function confirmSave(req: {
-  templateId: string;
-  html: string;
-  css: string;
-  fundCode: string;
-  loginId: string;
-}): Promise<TemplateMeta> {
-  return applyConfirmedSave({
-    templateId: req.templateId,
-    html: req.html,
-    css: req.css,
-    fundCode: req.fundCode,
-    commitMessage: `確定保存: ${req.templateId} by ${req.loginId}`,
-    author: req.loginId,
-  });
 }
 
 /** サンプルデータ台帳 JSON からファンド固有マスタ(名称/会社)を取り出す。 */

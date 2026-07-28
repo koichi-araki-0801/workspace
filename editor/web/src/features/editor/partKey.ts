@@ -89,10 +89,5 @@ export function partLabelMap(root: HTMLElement): Map<string, string> {
   return map;
 }
 
-/** `root` 配下の `.page`(無ければ root)列。マーカー走査側と列挙基準を揃えるため公開する。 */
-export function pageElsOf(root: HTMLElement): HTMLElement[] {
-  return pageEls(root);
-}
-
 // `rawKey` は marker 側の単体テストや将来の利用に備えて再 export する(集約元は blockKey)。
 export { rawKey };

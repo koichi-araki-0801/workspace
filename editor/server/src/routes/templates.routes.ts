@@ -8,10 +8,9 @@
 import { apiPaths, type DropdownQuery, validation } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
-import { auditedRethrow } from '../logger.js';
-import { requireApprover, requireAuth } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { ConfirmSaveBody, SaveDraftRequest } from '../openapi/schemas.js';
+import { SaveDraftRequest } from '../openapi/schemas.js';
 import * as templates from '../repositories/templateRepo.js';
 
 function toQuery(q: Record<string, unknown>): DropdownQuery {
@@ -73,35 +72,6 @@ export async function templatesRoutes(app: FastifyInstance): Promise<void> {
   app.get<IdParams>(apiPaths.templateById, { preHandler: requireAuth }, async (request) => {
     return templates.getTemplate(request.params.id);
   });
-
-  // 直接の確定保存は精査者(承認者)限定の緊急経路。通常の確定保存は承認ワークフロー
-  // (POST /review-requests → approve)を使い、編集者は実ファイルへ直接書けない。
-  app.put<IdParams & { Body: z.infer<typeof ConfirmSaveBody> }>(
-    apiPaths.templateById,
-    { preHandler: [requireAuth, requireApprover, validate(ConfirmSaveBody)] },
-    async (request) => {
-      const id = request.params.id;
-      const body = request.body;
-      const resource = { id, fundCode: body.fundCode };
-      return auditedRethrow(
-        request,
-        'template.save',
-        () =>
-          templates.confirmSave({
-            templateId: id,
-            html: body.html,
-            css: body.css,
-            fundCode: body.fundCode,
-            loginId: actor(request),
-          }),
-        {
-          success: () => ({ resource }),
-          failure: () => ({ resource }),
-          failureMessage: 'save failed',
-        },
-      );
-    },
-  );
 
   app.get<{ Params: { fundCode: string } }>(
     apiPaths.fundSampleData,

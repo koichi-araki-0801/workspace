@@ -1,7 +1,7 @@
 // =============================================================================
 // reviewRepo.local.test.ts — local 確定保存承認ワークフローのラウンドトリップ
 // =============================================================================
-// submit は実反映せず pending を作り、approve で既存 confirmSave 経路を通して本文へ反映、
+// submit は実反映せず pending を作り、approve で既存 confirmSaveLocal 経路を通して本文へ反映、
 // reject は反映しない、を localStorage 上で検証する。承認者(admin)でログインしてから操作する。
 import { isOk } from '@editor/shared';
 import { beforeEach, describe, expect, it } from 'vitest';

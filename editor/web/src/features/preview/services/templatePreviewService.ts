@@ -1,10 +1,9 @@
 // =============================================================================
-// templatePreviewService.ts — プレビュー画面のロード/確定保存/PDF 出力サービス
+// templatePreviewService.ts — プレビュー画面のロード/PDF 出力サービス
 // =============================================================================
 import {
   apiPaths,
   applyEdition,
-  type ConfirmSaveRequest,
   conflict,
   err,
   type HistoryRepository,
@@ -13,7 +12,6 @@ import {
   type Result,
   type SampleData,
   type Template,
-  type TemplateMeta,
   type TemplateRepository,
   unexpected,
 } from '@editor/shared';
@@ -45,7 +43,6 @@ export interface PreviewLoad {
 
 export interface TemplatePreviewService {
   loadForPreview(id: string): Promise<Result<PreviewLoad>>;
-  confirmSave(req: ConfirmSaveRequest): Promise<Result<TemplateMeta>>;
   /**
    * テンプレートをサーバー経由で PDF blob にレンダリングする。`cropMarks` が true のとき
    * トンボ用 CSS(`CROP_MARKS_CSS`)を css へ連結する(プレビュー表示と同じ見た目にする)。
@@ -108,8 +105,6 @@ export function createTemplatePreviewService(
       }
       return ok({ template: tpl, sample, restoredHtml, css, previewDoc, renderError });
     },
-
-    confirmSave: (req) => templates.confirmSave(req),
 
     async renderPdf(html, css, sample, cropMarks) {
       try {

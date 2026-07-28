@@ -2,7 +2,7 @@
 // reviewRepo.ts — 確定保存の精査者承認ワークフローの local 実装(オフラインデモ用ミラー)
 // =============================================================================
 // localStorage に申請(`K.reviews`)を積む。submit は実反映せず pending を作り、approve は
-// 既存の `localTemplateRepo.confirmSave`(本文 override + 公開 meta + 履歴 + snapshot + instance
+// `confirmSaveLocal`(本文 override + 公開 meta + 履歴 + snapshot + instance
 // + draft 破棄)を再利用して反映してから申請を approved にする。ロール強制は本番(REST)が担い、
 // ここは表示の絞り込み(approver|admin は全件、それ以外は自分の申請のみ)程度に留める。
 import {
@@ -21,7 +21,7 @@ import {
 } from '@editor/shared';
 import { attempt } from './attempt';
 import { currentUser, delay, K, now, read, uid, write } from './store';
-import { localTemplateRepo } from './templateRepo';
+import { confirmSaveLocal, localTemplateRepo } from './templateRepo';
 
 /** 現行版(現在の本文 override + CSS override)の簡易コンテンツキー(djb2)。 */
 function contentKey(html: string, css: string): string {
@@ -100,8 +100,8 @@ export const localReviewRepo: ReviewRepository = {
         review.baseHash !== null &&
         !isErr(cur) &&
         review.baseHash !== contentKey(cur.value.html, cur.value.css);
-      // 実反映は既存の confirmSave 経路を再利用する(履歴/snapshot/instance も同時に積む)。
-      const applied = await localTemplateRepo.confirmSave({
+      // 実反映は既存の confirmSaveLocal 経路を再利用する(履歴/snapshot/instance も同時に積む)。
+      const applied = await confirmSaveLocal({
         templateId: review.templateId,
         html: review.html,
         css: review.css,

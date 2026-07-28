@@ -2,7 +2,6 @@
 // TemplateRepository.ts — テンプレート集約ルート (探索/生成/下書き/確定/サンプル)
 // =============================================================================
 import type {
-  ConfirmSaveRequest,
   DropdownOptions,
   DropdownQuery,
   FundResolution,
@@ -43,9 +42,8 @@ export interface TemplateRepository {
   getDraft(templateId: string): Promise<Result<TemplateDraft | null>>;
   /**
    * 確定保存せずメニューへ戻った際に、未確定の下書きを破棄する。冪等(無ければ no-op)。
-   * 確定保存は `confirmSave` 内で下書きを自動クリアするため、こちらは「破棄」専用。
+   * 確定保存(承認ワークフローの実反映)は下書きを自動クリアするため、こちらは「破棄」専用。
    */
   discardDraft(templateId: string): Promise<Result<void>>;
-  confirmSave(req: ConfirmSaveRequest): Promise<Result<TemplateMeta>>;
   getSampleData(fundCode: string): Promise<Result<SampleData>>;
 }

@@ -1,5 +1,4 @@
 import {
-  type ConfirmSaveRequest,
   err,
   type HistoryRepository,
   isErr,
@@ -98,18 +97,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
   });
 });
 
-describe('TemplatePreviewService.confirmSave / recordPdfExport', () => {
-  it('delegates confirmSave to the template repository', async () => {
-    const meta = tpl.meta;
-    const confirmSave = vi.fn(async () => ok(meta));
-    const templates = { confirmSave } as unknown as TemplateRepository;
-    const svc = createTemplatePreviewService(templates, history);
-    const req = { templateId: 't1' } as unknown as ConfirmSaveRequest;
-    const res = await svc.confirmSave(req);
-    expect(isOk(res)).toBe(true);
-    expect(confirmSave).toHaveBeenCalledWith(req);
-  });
-
+describe('TemplatePreviewService.recordPdfExport', () => {
   it('delegates recordPdfExport to the history repository', async () => {
     const recordPdfExport = vi.fn(async () => ok(undefined));
     const hist = { recordPdfExport } as unknown as HistoryRepository;

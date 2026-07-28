@@ -22,10 +22,8 @@ import { useCanvasMarkers } from './useCanvasMarkers';
 import { usePageGuides } from './usePageGuides';
 import { useZoomFit } from './useZoomFit';
 
-export type { NoteMarker } from './useCanvasMarkers';
-export type { PageGuide } from './usePageGuides';
-// 分離前からの import 元互換(型と zoom 定数は各 composable が正典)。
-export { ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from './useZoomFit';
+// 分離前からの import 元互換(zoom 定数の正典は `useZoomFit`)。
+export { ZOOM_STEP } from './useZoomFit';
 
 export interface GrapesContainers {
   canvas: HTMLElement;

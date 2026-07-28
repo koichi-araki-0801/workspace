@@ -43,7 +43,7 @@ import {
   write,
 } from './store';
 
-// ── confirmSave steps ──
+// ── confirmSaveLocal steps ──
 // 各ステップは単一の localStorage read+write。呼び出し元が 1 つの `tx()` 内で実行し、
 // 途中失敗時に全キーをロールバックする。
 
@@ -118,6 +118,37 @@ function clearDraft(templateId: string): void {
   delete drafts[templateId];
   write(K.drafts, drafts);
 }
+
+/**
+ * 確定内容の実反映(local 版)。承認ワークフローの `approveReview`(`reviewRepo.ts`)だけが
+ * 呼ぶ内部経路で、Repository 契約には公開しない(確定保存は申請 → 承認の 2 段階ゲートに
+ * 一本化。REST 側の対応物は server の `applyConfirmedSave`)。
+ */
+export const confirmSaveLocal = (req: ConfirmSaveRequest) =>
+  attempt(() =>
+    // 全 write を一括コミットする: 途中失敗(例: quota)は触れた全キーを保存前状態へ
+    // ロールバックし、ストアが half-published で残らないようにする。`notFound` ガードも
+    // tx 内にあるため、meta 欠落時はその上の write も巻き戻る。
+    tx(
+      [K.htmlOverride, K.cssOverride, META_KEY, K.editHist, K.snapshots, K.instances, K.drafts],
+      () => {
+        const who = currentUser()?.displayName ?? '不明';
+        const historyId = uid('eh');
+        const timestamp = now(); // edit-history entry とその snapshot で共有する
+
+        putContentOverrides(req);
+        publishMeta(req.templateId, who);
+        appendEditHistory(req, who, historyId, timestamp);
+        freezeSnapshot(req, historyId, timestamp);
+        putInstance(req, who);
+        clearDraft(req.templateId);
+
+        const meta = allMetas().find((m) => m.id === req.templateId);
+        if (!meta) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
+        return delay(meta);
+      },
+    ),
+  );
 
 export const localTemplateRepo: TemplateRepository = {
   getDropdownOptions: (query: DropdownQuery) =>
@@ -258,32 +289,6 @@ export const localTemplateRepo: TemplateRepository = {
       clearDraft(templateId);
       return delay(undefined);
     }),
-
-  confirmSave: (req: ConfirmSaveRequest) =>
-    attempt(() =>
-      // 全 write を一括コミットする: 途中失敗(例: quota)は触れた全キーを保存前状態へ
-      // ロールバックし、ストアが half-published で残らないようにする。`notFound` ガードも
-      // tx 内にあるため、meta 欠落時はその上の write も巻き戻る。
-      tx(
-        [K.htmlOverride, K.cssOverride, META_KEY, K.editHist, K.snapshots, K.instances, K.drafts],
-        () => {
-          const who = currentUser()?.displayName ?? '不明';
-          const historyId = uid('eh');
-          const timestamp = now(); // edit-history entry とその snapshot で共有する
-
-          putContentOverrides(req);
-          publishMeta(req.templateId, who);
-          appendEditHistory(req, who, historyId, timestamp);
-          freezeSnapshot(req, historyId, timestamp);
-          putInstance(req, who);
-          clearDraft(req.templateId);
-
-          const meta = allMetas().find((m) => m.id === req.templateId);
-          if (!meta) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
-          return delay(meta);
-        },
-      ),
-    ),
 
   // パーツ別共通ダミー(`sampleCommon`)に funds.json のファンド固有値だけ被せて返す。
   // 版種(ファイル名由来)はテンプレを開く文脈で `applyEdition` が上書きする。
