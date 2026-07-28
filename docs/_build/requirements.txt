@@ -1,6 +1,5 @@
 # docs 閲覧 HTML ビルド(docs/_build/build_all.py)の Python 依存。
 # build_all.bat が導入する(オフライン時は同梱 python-wheelhouse から --no-index)。
-# markdown-it-py=Markdown 解析 / python-frontmatter=front-matter / PyYAML=xlsx.yaml(yaml.safe_load)。
-PyYAML
+# markdown-it-py=Markdown 解析 / python-frontmatter=front-matter(PyYAML を推移依存で導入)。
 markdown-it-py
 python-frontmatter

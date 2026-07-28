@@ -16,12 +16,15 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
   - .pnpm-store/        … 依存パッケージのオフラインストア（content-addressable）
   - pnpm.tgz            … pnpm 11 本体（corepack 用オフライン tarball）
   - ms-playwright/      … Playwright 用 Chromium（E2E テスト用）
-  - python-wheelhouse/  … Python ビルド依存の wheel（pdf-to-svg / graph-editor の exe ビルド用）
+  - python-wheelhouse/  … Python 依存の wheel（pdf-to-svg / graph-editor の exe ビルド用 +
+                          docs 閲覧 HTML ビルド用: markdown-it-py / python-frontmatter / PyYAML）
   - git-tools/          … PortableGit / TortoiseGit（editor のテンプレ版管理に使う git。
                           air-gapped 機に git が無くても動くよう同梱。setup が展開・導入する）
+  - docs/_build/vendor/mermaid*.js … docs の Mermaid 描画ランタイム + ELK レイアウト（計 ~4.3MB。
+                          git に入れず同梱し setup が vendor へ展開。版は docs/_build/vendor/manifest.txt）
   これらは offline-deps-bundle.tar.gz 1 ファイルに固めて Release に置かれます。
-  内容（pnpm-lock.yaml / packageManager / 各 requirements.txt / git-tools/manifest.txt）に
-  変更が無い限り再アップロードされません。
+  内容（pnpm-lock.yaml / packageManager / 各 requirements.txt / git-tools/manifest.txt /
+  docs/_build/vendor/manifest.txt）に変更が無い限り再アップロードされません。
 
   ※ setup（オンライン/完全オフラインとも）は git-tools の PortableGit を
      git-tools\portablegit\ へ自己展開し、ユーザー PATH と環境変数 GIT_BIN を設定する

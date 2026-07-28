@@ -7,9 +7,11 @@
 # packageManager 文字列を連結してから SHA256 を測る。publish / setup 双方で同一値になる。
 # pnpm-lock.yaml は機械生成でコメントを持たないため、この CR 除去バイト列をそのまま使う。
 #
-# さらに、Python ビルド依存（`pdf-to-svg\requirements.txt` / `graph-editor\requirements.txt`）
-# と git-tools の manifest（`git-tools\manifest.txt`）も折り込む。前者は重量物バンドルに同梱する
-# `python-wheelhouse` の内容を、後者は同梱する git / TortoiseGit のバイナリ版を規定するため、
+# さらに、Python 依存（`pdf-to-svg\requirements.txt` / `graph-editor\requirements.txt` /
+# `docs\_build\requirements.txt`）と、同梱物の manifest（git-tools の `git-tools\manifest.txt`、
+# docs mermaid の `docs\_build\vendor\manifest.txt`）も折り込む。requirements は重量物バンドルへ
+# 同梱する `python-wheelhouse` の内容を、manifest は同梱する git / TortoiseGit / mermaid.min.js の
+# 版を規定するため、
 # 変われば重量物バンドルの再生成・再配布が要る。1 キーで pnpm 依存・pnpm 本体・Playwright・
 # Python wheel・git ツールすべての変化を覆える。
 #
@@ -56,7 +58,8 @@ function Get-LockContentKey {
   # requirements.txt と git-tools の manifest は lockfile の親（= リポジトリ直下）からの
   # 相対で探し、存在するものだけ有意行で折り込む。
   $repoRoot = Split-Path -Parent $LockFile
-  foreach ($rel in @('pdf-to-svg\requirements.txt', 'graph-editor\requirements.txt', 'git-tools\manifest.txt')) {
+  foreach ($rel in @('pdf-to-svg\requirements.txt', 'graph-editor\requirements.txt',
+      'docs\_build\requirements.txt', 'docs\_build\vendor\manifest.txt', 'git-tools\manifest.txt')) {
     $rp = Join-Path $repoRoot $rel
     if (Test-Path -LiteralPath $rp) { $acc.AddRange((& $readSignificant $rp)) }
   }

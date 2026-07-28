@@ -118,7 +118,8 @@ if ($ExtractedOk) {
   $TarExe = Resolve-Tar
   & $TarExe -xzf $Bundle -C $RepoRoot
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] 展開に失敗しました。'; exit 1 }
-  foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse', 'git-tools')) {
+  foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse', 'git-tools',
+      'docs\_build\vendor\mermaid.min.js', 'docs\_build\vendor\mermaid-layout-elk.min.js')) {
     if (-not (Test-Path (Join-Path $RepoRoot $p))) {
       Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1
     }

@@ -117,6 +117,8 @@ $PnpmTgz    = Join-Path $RepoRoot 'pnpm.tgz'
 $MsPw       = Join-Path $RepoRoot 'ms-playwright'
 $Wheelhouse = Join-Path $RepoRoot 'python-wheelhouse'
 $GitTools   = Join-Path $RepoRoot 'git-tools'
+$MermaidJs  = Join-Path $RepoRoot 'docs\_build\vendor\mermaid.min.js'
+$MermaidElk = Join-Path $RepoRoot 'docs\_build\vendor\mermaid-layout-elk.min.js'
 $BundleName = 'offline-deps-bundle.tar.gz'
 $Bundle     = Join-Path $RepoRoot $BundleName
 $Sha        = "$Bundle.sha256"
@@ -188,17 +190,19 @@ if ($bundleChanged) {
     & corepack pnpm exec playwright install chromium
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] playwright install に失敗しました。'; exit 1 }
 
-    Write-Host '[4/4] Python ビルド依存の wheel を python-wheelhouse へ収集（pip download）...'
-    # pdf-to-svg / graph-editor の scripts\build.bat は、この python-wheelhouse から --no-index で
-    # オフライン install する。両 requirements.txt の和を 1 ディレクトリへ収集する。
+    Write-Host '[4/4] Python 依存の wheel を python-wheelhouse へ収集（pip download）...'
+    # pdf-to-svg / graph-editor の scripts\build.bat と docs\_build\build_all.bat は、この
+    # python-wheelhouse から --no-index でオフライン install する。全 requirements.txt の和を
+    # 1 ディレクトリへ収集する。
     $pyExe = $null
     foreach ($cand in @('py', 'python')) {
       if (Get-Command $cand -ErrorAction SilentlyContinue) { $pyExe = $cand; break }
     }
     if (-not $pyExe) { Write-Error '[error] Python が見つかりません（wheel 収集に必要）。'; exit 1 }
-    $pyReqs = @('pdf-to-svg\requirements.txt', 'graph-editor\requirements.txt') |
+    $pyReqs = @('pdf-to-svg\requirements.txt', 'graph-editor\requirements.txt',
+      'docs\_build\requirements.txt') |
       ForEach-Object { Join-Path $RepoRoot $_ } | Where-Object { Test-Path -LiteralPath $_ }
-    if (-not $pyReqs) { Write-Error '[error] requirements.txt が見つかりません（pdf-to-svg / graph-editor）。'; exit 1 }
+    if (-not $pyReqs) { Write-Error '[error] requirements.txt が見つかりません（pdf-to-svg / graph-editor / docs）。'; exit 1 }
     Remove-Item $Wheelhouse -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Path $Wheelhouse | Out-Null
     $dlArgs = @('-m', 'pip', 'download', '-d', $Wheelhouse)
@@ -210,7 +214,8 @@ if ($bundleChanged) {
   }
 
   # git-tools（PortableGit / TortoiseGit）は air-gapped 環境で git を供給するため同梱する。
-  foreach ($p in @($Store, $PnpmTgz, $MsPw, $Wheelhouse, $GitTools)) {
+  # mermaid.min.js / mermaid-layout-elk.min.js は git 管理外（重量物）なので、ここで在庫を確認する。
+  foreach ($p in @($Store, $PnpmTgz, $MsPw, $Wheelhouse, $GitTools, $MermaidJs, $MermaidElk)) {
     if (-not (Test-Path $p)) { Write-Error "[error] 重量物が見つかりません: $p（-SkipRegen 指定時は事前生成が必要）"; exit 1 }
   }
 
@@ -224,9 +229,9 @@ if ($bundleChanged) {
   }
 
   # ---- パッケージング（重量物のみ。ソースは含めない） ----
-  Write-Host "[info] tar -czf $BundleName .pnpm-store pnpm.tgz ms-playwright python-wheelhouse git-tools ..."
+  Write-Host "[info] tar -czf $BundleName .pnpm-store pnpm.tgz ms-playwright python-wheelhouse git-tools docs/_build/vendor/mermaid*.js ..."
   Remove-Item $Bundle -Force -ErrorAction SilentlyContinue
-  & $TarExe -czf $Bundle -C $RepoRoot '.pnpm-store' 'pnpm.tgz' 'ms-playwright' 'python-wheelhouse' 'git-tools'
+  & $TarExe -czf $Bundle -C $RepoRoot '.pnpm-store' 'pnpm.tgz' 'ms-playwright' 'python-wheelhouse' 'git-tools' 'docs/_build/vendor/mermaid.min.js' 'docs/_build/vendor/mermaid-layout-elk.min.js'
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] tar に失敗しました。'; exit 1 }
 
   $sizeMB = [math]::Round((Get-Item $Bundle).Length / 1MB, 1)

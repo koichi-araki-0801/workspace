@@ -42,3 +42,7 @@ bk/
 editor/data/
 # git/TortoiseGit の同梱バイナリ（重量物。content key 差分で再配布）
 git-tools/
+# docs の Mermaid ランタイムと ELK レイアウト（計 ~4.3MB。git に入れず重量物バンドルへ同梱し
+# setup が vendor へ展開。版は docs/_build/vendor/manifest.txt が規定し content key に折り込まれる）
+docs/_build/vendor/mermaid.min.js
+docs/_build/vendor/mermaid-layout-elk.min.js
