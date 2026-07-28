@@ -27,7 +27,6 @@ async function load(ed, item) {
   ed._sliceAnchor = null;
   // 別ファイルへ切替えるので構造シグネチャ / 参照キャッシュをリセット
   ed._inspSig = null;
-  ed._inspCoordEl = null;
   ed._overlaySig = null;
   ed._handles = [];
 

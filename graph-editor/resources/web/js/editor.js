@@ -43,9 +43,8 @@ class Editor {
     // 描画スケジューラ (rAF + dirty フラグ)
     this._dirty = { dom: false, overlay: false, inspector: false };
     this._frame = 0;         // rAF ハンドル (0=未予約)
-    // インスペクタの構造再構築判定 + 座標表示の参照キャッシュ
+    // インスペクタの構造再構築判定
     this._inspSig = null;
-    this._inspCoordEl = null;
     // オーバーレイのハンドル要素キャッシュ + 構造再構築判定
     this._handles = [];
     this._overlaySig = null;
@@ -442,6 +441,8 @@ class Editor {
   // ── 12. 保存 (bake → ダウンロード) → editor-io.js へ分離 (委譲) ──
 
   async save() { return io.save(this); }
+  // E2E 検証用フック (`window.__editor` 経由で bake 結果を検査する)。本番の保存経路は
+  // `io.save` がモジュール内の bakeSvg を直接呼ぶため、このラッパを通らない。
   bakeSvg() { return io.bakeSvg(this); }
 
   // ── 13. ファイル選択 / ドロップ (開く) → editor-io.js へ分離 (委譲) ──

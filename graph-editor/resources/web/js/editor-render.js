@@ -8,7 +8,7 @@
 // 本モジュール内の `signature → build/position` 対で実現する。
 
 import { CONFIG, WHITE, EMPTY_LIST_HTML, INSPECTOR_EMPTY_HTML, LEGEND_HTML } from "./constants.js";
-import { escapeHtml, createSvgEl, formatCoords } from "./utils.js";
+import { escapeHtml, createSvgEl } from "./utils.js";
 import { drawIcons } from "./icons.js";
 
 // ── 1. オーバーレイ (ハンドル) — 構造変化時のみ再構築、通常は座標更新 ──
@@ -150,14 +150,13 @@ function inspectorSignature(ed) {
   return [ed.labels.indexOf(s), s.leaderPts.length, s.leaderVisible, s.fill === WHITE, s.lineCount, s.nameScaleX].join("|");
 }
 
-/** 構造シグネチャが変わった時だけパネルを作り直し、毎回 座標表示だけ更新する */
+/** 構造シグネチャが変わった時だけパネルを作り直す */
 function renderInspector(ed) {
   const sig = inspectorSignature(ed);
   if (sig !== ed._inspSig) {
     ed._inspSig = sig;
     buildInspector(ed);
   }
-  updateInspectorReadout(ed);
   syncRail(ed);
 }
 
@@ -166,7 +165,6 @@ function buildInspector(ed) {
   if (!s) {
     ed.dom.inspectorBody.innerHTML = INSPECTOR_EMPTY_HTML;
     drawIcons(ed.dom.inspectorBody);
-    ed._inspCoordEl = null;
     return;
   }
   const box = document.createElement("div");
@@ -194,14 +192,6 @@ function buildInspector(ed) {
   }
   ed.dom.inspectorBody.replaceChildren(box);
   drawIcons(ed.dom.inspectorBody);
-  ed._inspCoordEl = box.querySelector(".coords");
-}
-
-/** ドラッグ中に毎フレーム変わる `dx`/`dy` 表示だけを軽量に更新 */
-function updateInspectorReadout(ed) {
-  const s = ed.selected;
-  if (!s || !ed._inspCoordEl) return;
-  ed._inspCoordEl.textContent = formatCoords(s.textTx);
 }
 
 // ── 3. レール (左) / トップバー等のクローム ──
