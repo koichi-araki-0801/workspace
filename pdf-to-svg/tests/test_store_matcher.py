@@ -1,6 +1,6 @@
 """`dictionary.store.DictionaryStore` の単体テスト。
 
-追加・引き当て (正規化込みの `lookup`)・`upsert`・無効化・JSON 入出力の往復を確認する。
+追加・引き当て (正規化込みの `lookup`)・`upsert`・無効化・JSON 取り込みの往復を確認する。
 """
 from dictionary.store import DictionaryStore
 
@@ -35,20 +35,18 @@ def test_upsert_updates_existing(tmp_path):
 
 def test_disabled_not_matched(tmp_path):
     s = make_store(tmp_path)
-    mid = s.add("Total", "合計")
-    s.update(mid, "Total", "合計", enabled=False)
+    s.add("Total", "合計", enabled=False)
     assert s.lookup("Total") is None
     s.close()
 
 
 def test_json_roundtrip(tmp_path):
+    # 実体ファイルは共有 JSON と同形式なので、それを直接 import 元にできる。
     s = make_store(tmp_path)
     s.add("A", "あ")
     s.add("B", "い")
-    out = tmp_path / "dict.json"
-    s.export_json(out)
     s2 = DictionaryStore(tmp_path / "d2.json")
-    n = s2.import_json(out)
+    n = s2.import_json(tmp_path / "d.json")
     assert n == 2
     assert s2.lookup("A") == "あ"
     s.close()
@@ -67,17 +65,15 @@ def test_lookup_wrap_matches_joined_entries_only(tmp_path):
 
 
 def test_joined_flag_persists_roundtrip(tmp_path):
-    """joined フラグは実体ファイル・export/import の双方で保持される。"""
+    """joined フラグは実体ファイルの再読込・import の双方で保持される。"""
     s = make_store(tmp_path)
     s.add("商品名称", "Product", joined=True)
     # 実体ファイルの再読込 (同パスで開き直し)
     s2 = DictionaryStore(tmp_path / "d.json")
     assert s2.lookup_wrap("商品名称") == "Product"
-    # export → 別ストアへ import でも保持
-    out = tmp_path / "shared.json"
-    s2.export_json(out)
+    # 実体ファイル (共有 JSON と同形式) を別ストアへ import しても保持
     s3 = DictionaryStore(tmp_path / "d3.json")
-    s3.import_json(out)
+    s3.import_json(tmp_path / "d.json")
     assert s3.lookup_wrap("商品名称") == "Product"
     s.close()
     s2.close()

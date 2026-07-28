@@ -4,7 +4,7 @@ exe と同じフォルダの `data/dictionary.json` に保存する (config 側�
 人が直接開いて編集・差分管理・共有できる形式 ``[{"source","target","enabled","joined"}]``
 (``joined`` は折返し連結由来の印。旧形式のキー無しは False として読む)。
 SQLite からの移行: バックエンドのみ差し替え、公開 API は据え置き
-(`add/upsert/update/delete/all/lookup/export_json/import_json/close`)。
+(`add/upsert/delete/all/lookup/import_json/close`)。
 
 実装方針: 起動時にファイルを読み込みメモリ上で操作し、変更のたびにアトミック保存する。
 単一ユーザーのデスクトップ用途のため、これで十分かつ堅牢。
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .normalize import DEFAULT_OPTIONS, NormOptions, normalize
+from .normalize import normalize
 
 
 @dataclass
@@ -40,9 +40,8 @@ class Mapping:
 class DictionaryStore:
     """JSON ファイルを正典とするインメモリ辞書ストア (CRUD + 正規化 lookup)。"""
 
-    def __init__(self, json_path: Path, options: NormOptions = DEFAULT_OPTIONS):
+    def __init__(self, json_path: Path):
         self.path = Path(json_path)
-        self.options = options
         self._mappings: List[Mapping] = []
         self._next_id = 1
         self._index: Dict[str, Mapping] = {}  # source_norm -> Mapping (enabled のみ)
@@ -84,7 +83,7 @@ class DictionaryStore:
         for m in self._mappings:
             if m.enabled:
                 # 後勝ち: 同一正規化キーが複数あれば最後の有効分を採用
-                self._index[normalize(m.source_raw, self.options)] = m
+                self._index[normalize(m.source_raw)] = m
 
     def _save(self) -> None:
         """全 `_mappings` を JSON へアトミック保存する (temp → `os.replace`)。"""
@@ -108,9 +107,9 @@ class DictionaryStore:
 
     def _find_by_norm(self, source_raw: str) -> Optional[Mapping]:
         """`source_raw` の正規化キーに一致する最初の `Mapping` を返す (無ければ None)。"""
-        norm = normalize(source_raw, self.options)
+        norm = normalize(source_raw)
         for m in self._mappings:
-            if normalize(m.source_raw, self.options) == norm:
+            if normalize(m.source_raw) == norm:
                 return m
         return None
 
@@ -141,17 +140,6 @@ class DictionaryStore:
             return existing.id
         return self.add(source_raw, target, joined=joined)
 
-    def update(self, mid: int, source_raw: str, target: str, enabled: bool) -> None:
-        """`id` が `mid` のエントリを全フィールド更新する。"""
-        for m in self._mappings:
-            if m.id == mid:
-                m.source_raw = source_raw
-                m.target = target
-                m.enabled = enabled
-                break
-        self._rebuild_index()
-        self._save()
-
     def delete(self, mid: int) -> None:
         """`id` が `mid` のエントリを削除する。"""
         self._mappings = [m for m in self._mappings if m.id != mid]
@@ -170,7 +158,7 @@ class DictionaryStore:
 
     def lookup(self, text: str) -> Optional[str]:
         """正規化キー一致で target を返す (enabled のみ)。"""
-        m = self._index.get(normalize(text, self.options))
+        m = self._index.get(normalize(text))
         return m.target if m is not None else None
 
     def lookup_wrap(self, text: str) -> Optional[str]:
@@ -179,21 +167,10 @@ class DictionaryStore:
         折返し 2 行の連結照合専用。単独行として登録した語が偶然連結形と一致しても
         ここでは引かず、意図して連結取り込みした語だけが 2 行畳み込みの対象になる。
         """
-        m = self._index.get(normalize(text, self.options))
+        m = self._index.get(normalize(text))
         return m.target if (m is not None and m.joined) else None
 
-    # ── JSON 入出力 (共有用。実体ファイルと同形式) ──
-    def export_json(self, path: Path) -> None:
-        """全エントリを `path` へ JSON 書き出しする (実体ファイルと同形式)。"""
-        data = [
-            {"source": m.source_raw, "target": m.target, "enabled": m.enabled,
-             "joined": m.joined}
-            for m in self.all()
-        ]
-        Path(path).write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-
+    # ── JSON 入力 (共有用。実体ファイルと同形式。書き出しは rpc_dictJson が文字列で返す) ──
     def import_json(self, path: Path) -> int:
         """`path` の JSON を `upsert` で取り込み、取り込んだ件数を返す。"""
         try:

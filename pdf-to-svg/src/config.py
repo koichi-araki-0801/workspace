@@ -11,8 +11,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-APP_NAME = "PdfToSvg"
-
 
 def is_frozen() -> bool:
     """PyInstaller でバンドルされた実行ファイルから起動されているか。"""

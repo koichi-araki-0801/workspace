@@ -173,7 +173,6 @@ def _text_element(span: dict, z: int) -> Optional[TextElement]:
         z=z,
         text=text,
         font_family=mapped.family,
-        original_font=raw_font,
         font_size=float(span.get("size", 12.0)),
         weight=weight,
         italic=bool(flags & FLAG_ITALIC) or mapped.italic,

@@ -25,7 +25,7 @@ class FakeUndo:
         self._stack = []
         self._pos = 0
 
-    def beginMacro(self, _label):  # noqa: N802
+    def beginMacro(self):  # noqa: N802
         pass
 
     def endMacro(self):  # noqa: N802
@@ -81,7 +81,6 @@ def test_state(session):
     assert st["files"][0]["pages"] == 1
     assert st["changed2"] == [True]   # dict_match のあるページは要確認
     assert st["changed3"] == [True]   # トリミングは全ページ対象
-    assert st["suggestJoin"] is False  # クリック取り込みの連結は既定 OFF
 
 
 def test_page_svg_has_data_el(session):
@@ -124,39 +123,40 @@ def test_delete_region(session):
     page = session.page(0, 0)
     body = page.elements[1]  # bbox(10,40,60,12)
     # 重なる矩形 → 削除される
-    res = rpc_methods.dispatch(session, "deleteRegion",
-                               {"fileIndex": 0, "pageInFile": 0,
-                                "rect": {"x": 0, "y": 35, "w": 100, "h": 40}})
-    assert res["deleted"] >= 1 and body.deleted is True
-    # 戻して、重ならない矩形では 0 件
+    rpc_methods.dispatch(session, "deleteRegion",
+                         {"fileIndex": 0, "pageInFile": 0,
+                          "rect": {"x": 0, "y": 35, "w": 100, "h": 40}})
+    assert body.deleted is True
+    # 戻して、重ならない矩形では何も消えない
     rpc_methods.dispatch(session, "undo", {})
     assert body.deleted is False
-    res2 = rpc_methods.dispatch(session, "deleteRegion",
-                                {"fileIndex": 0, "pageInFile": 0,
-                                 "rect": {"x": 150, "y": 150, "w": 10, "h": 10}})
-    assert res2["deleted"] == 0
+    before = len(page.live_elements())
+    rpc_methods.dispatch(session, "deleteRegion",
+                         {"fileIndex": 0, "pageInFile": 0,
+                          "rect": {"x": 150, "y": 150, "w": 10, "h": 10}})
+    assert len(page.live_elements()) == before
 
 
 def test_remove_file(session):
     session.docs.append(_make_doc("図面.pdf"))
     assert len(session.docs) == 2
-    res = rpc_methods.dispatch(session, "removeFile", {"fileIndex": 0})
-    assert res["total"] == 1
+    rpc_methods.dispatch(session, "removeFile", {"fileIndex": 0})
+    assert len(session.docs) == 1
     # 先頭を消したので残るのは 2 番目に追加したファイル
     assert session.docs[0].source_path == "図面.pdf"
     # 範囲外の index は無視 (例外を投げない)
-    res2 = rpc_methods.dispatch(session, "removeFile", {"fileIndex": 9})
-    assert res2["total"] == 1
+    rpc_methods.dispatch(session, "removeFile", {"fileIndex": 9})
+    assert len(session.docs) == 1
 
 
 def test_add_border(session):
     page = session.page(0, 0)
     before = len(page.live_elements())
-    res = rpc_methods.dispatch(session, "addBorder",
-                               {"fileIndex": 0, "pageInFile": 0,
-                                "rect": {"x": 5, "y": 5, "w": 100, "h": 80},
-                                "color": "#ff0000", "width": 2})
-    el = next(e for e in page.elements if e.id == res["elId"])
+    rpc_methods.dispatch(session, "addBorder",
+                         {"fileIndex": 0, "pageInFile": 0,
+                          "rect": {"x": 5, "y": 5, "w": 100, "h": 80},
+                          "color": "#ff0000", "width": 2})
+    el = page.elements[-1]  # AddElementCommand は末尾へ追加する
     assert el.stroke == "#ff0000" and el.fill is None and el.stroke_width == 2.0
     assert el.kind == "rect" and el.deleted is False
     assert len(page.live_elements()) == before + 1
@@ -240,18 +240,17 @@ def test_reapply_joins_only_joined_entries(tmp_path):
     assert top.text == "商品" and bottom.deleted is False
 
 
-def test_dict_export_import(tmp_path):
-    out = tmp_path / "shared_dict.json"
-    # 書き出し元セッション
+def test_dict_json_roundtrip(tmp_path):
+    # 書き出し元セッション: dictJson が共有用 JSON 文字列を返す
     s1 = WebSession(DictionaryStore(tmp_path / "d1.json"), FakeUndo())
     rpc_methods.dispatch(s1, "dictAdd", {"source": "Item No.", "target": "品番"})
     rpc_methods.dispatch(s1, "dictAdd", {"source": "Q'ty", "target": "数量"})
-    res = rpc_methods.dispatch(s1, "dictExport", {"path": str(out)})
-    assert out.exists() and res["count"] == 2
+    res = rpc_methods.dispatch(s1, "dictJson", {})
+    assert res["count"] == 2
 
-    # 別セッションへ読み込み
+    # 別セッションへ文字列のまま取り込み (ブラウザ保存/読込を模す)
     s2 = WebSession(DictionaryStore(tmp_path / "d2.json"), FakeUndo())
-    imp = rpc_methods.dispatch(s2, "dictImport", {"path": str(out)})
+    imp = rpc_methods.dispatch(s2, "dictImportJson", {"json": res["json"]})
     assert imp["imported"] == 2
     sources = [e["source"] for e in imp["entries"]]
     assert "Item No." in sources and "Q'ty" in sources

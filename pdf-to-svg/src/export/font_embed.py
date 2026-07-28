@@ -24,9 +24,6 @@ import config
 from model import fonts
 from model.elements import TextElement
 
-# 使用フォントのキー。可変は ("var", family)、静的は ("static", family, bucket)。
-_VarKey = Tuple[str, str]
-_StaticKey = Tuple[str, str, int]
 
 
 def font_face_css(elements: Iterable[TextElement]) -> str:
