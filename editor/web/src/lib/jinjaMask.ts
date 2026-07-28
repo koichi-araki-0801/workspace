@@ -23,11 +23,19 @@
 
 import { formatHtml } from './formatOutput';
 import { defaultHtmlParser, type HtmlParser } from './htmlParser';
+import {
+  DATA_JINJA,
+  DATA_JINJA_BLOCK,
+  DATA_JINJA_CLOSE,
+  DATA_JINJA_LOOP_CLONE,
+  DATA_JINJA_OPEN,
+  DATA_OPAQUE,
+} from './jinjaAttrs';
 
 export const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
 // Private-use 区切り文字: HTML serialization をエスケープされずに通過する。
-export const PH_START = String.fromCharCode(0xe000);
-export const PH_END = String.fromCharCode(0xe001);
+const PH_START = String.fromCharCode(0xe000);
+const PH_END = String.fromCharCode(0xe001);
 const PH_RE = new RegExp(`${PH_START}([A-Za-z0-9+/=]*)${PH_END}`, 'g');
 
 export function extractJinjaTokens(s: string): string[] {
@@ -41,7 +49,7 @@ export function b64encode(s: string): string {
   return btoa(bin);
 }
 
-export function b64decode(b: string): string {
+function b64decode(b: string): string {
   const bin = atob(b);
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   return new TextDecoder().decode(bytes);
@@ -70,7 +78,7 @@ function absorbBlocks(html: string, open: string, close: string): string {
     'g',
   );
   return html.replace(re, (_m, openStmt, tagStart, _tagName, rest, closeStmt) => {
-    return `${tagStart} data-jinja-open="${b64encode(openStmt)}" data-jinja-close="${b64encode(closeStmt)}"${rest}`;
+    return `${tagStart} ${DATA_JINJA_OPEN}="${b64encode(openStmt)}" ${DATA_JINJA_CLOSE}="${b64encode(closeStmt)}"${rest}`;
   });
 }
 
@@ -82,7 +90,7 @@ function wrapInlineTokens(html: string): string {
       if (part.startsWith('<')) return part; // タグ — 属性はそのままにする
       return part.replace(TOKEN_RE, (token) => {
         const kind = tokenKind(token);
-        return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" data-jinja="${b64encode(token)}">${htmlEscape(token)}</span>`;
+        return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_JINJA}="${b64encode(token)}">${htmlEscape(token)}</span>`;
       });
     })
     .join('');
@@ -121,13 +129,13 @@ export function toTemplate(
   // 0. `fillJinja.ts` の `toFilled` が生成した loop clone を破棄する: 展開した
   //    `{% for %}` の先頭(テンプレート)行だけが data-jinja-open/close を運ぶ。
   //    filled clone は表示専用であり, 復元後のテンプレートに残してはならない。
-  doc.querySelectorAll('[data-jinja-loop-clone]').forEach((el) => {
+  doc.querySelectorAll(`[${DATA_JINJA_LOOP_CLONE}]`).forEach((el) => {
     el.remove();
   });
 
   // 1. chip span -> placeholder テキストへ復元する
-  doc.querySelectorAll('[data-jinja]').forEach((el) => {
-    const enc = el.getAttribute('data-jinja');
+  doc.querySelectorAll(`[${DATA_JINJA}]`).forEach((el) => {
+    const enc = el.getAttribute(DATA_JINJA);
     if (enc === null) return;
     el.replaceWith(ph(enc));
   });
@@ -135,8 +143,8 @@ export function toTemplate(
   // 1b. opaque mask されたコンテンツを復元する — `<script>`, MathML `<math>`, TeX
   //     数式(`fillJinja.ts` の `toFilled` がこれらを inert chip として GrapesJS から
   //     隠す。verbatim ソースは data-opaque に入る)。
-  doc.querySelectorAll('[data-opaque]').forEach((el) => {
-    const enc = el.getAttribute('data-opaque');
+  doc.querySelectorAll(`[${DATA_OPAQUE}]`).forEach((el) => {
+    const enc = el.getAttribute(DATA_OPAQUE);
     if (enc === null) return;
     el.replaceWith(ph(enc));
   });
@@ -144,18 +152,18 @@ export function toTemplate(
   // 1c. collapse 済みの `{% if %}…{% endif %}` を復元する(`fillJinja.ts` の
   //     `toFilled` は表示用に taken branch のみを残し, ブロック全体を
   //     data-jinja-block に保持する)。
-  doc.querySelectorAll('[data-jinja-block]').forEach((el) => {
-    const enc = el.getAttribute('data-jinja-block');
+  doc.querySelectorAll(`[${DATA_JINJA_BLOCK}]`).forEach((el) => {
+    const enc = el.getAttribute(DATA_JINJA_BLOCK);
     if (enc === null) return;
     el.replaceWith(ph(enc));
   });
 
   // 2. absorb したブロック文を, その要素の前後へ復元する
-  doc.querySelectorAll('[data-jinja-open]').forEach((el) => {
-    const open = el.getAttribute('data-jinja-open');
-    const close = el.getAttribute('data-jinja-close');
-    el.removeAttribute('data-jinja-open');
-    el.removeAttribute('data-jinja-close');
+  doc.querySelectorAll(`[${DATA_JINJA_OPEN}]`).forEach((el) => {
+    const open = el.getAttribute(DATA_JINJA_OPEN);
+    const close = el.getAttribute(DATA_JINJA_CLOSE);
+    el.removeAttribute(DATA_JINJA_OPEN);
+    el.removeAttribute(DATA_JINJA_CLOSE);
     if (open !== null) el.parentNode?.insertBefore(ph(open), el);
     if (close !== null) el.parentNode?.insertBefore(ph(close), el.nextSibling);
   });

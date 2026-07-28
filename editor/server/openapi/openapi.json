@@ -450,72 +450,6 @@
             }
           }
         }
-      },
-      "put": {
-        "tags": ["templates"],
-        "summary": "確定保存(テンプレートファイル + fund 共有 CSS を書き込み)",
-        "operationId": "confirmSave",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConfirmSaveBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "保存結果",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TemplateMeta"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "リクエスト検証エラー (kind=validation)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "未認証 (kind=unauthorized)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "サーバ内部エラー (kind=unexpected)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppError"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/templates/{id}/draft": {
@@ -2204,23 +2138,6 @@
           }
         },
         "required": ["username", "newPassword"]
-      },
-      "ConfirmSaveBody": {
-        "type": "object",
-        "properties": {
-          "html": {
-            "type": "string",
-            "description": "復元済みの Jinja2 生 HTML"
-          },
-          "css": {
-            "type": "string",
-            "description": "fund 共有 CSS にマージする CSS"
-          },
-          "fundCode": {
-            "type": "string"
-          }
-        },
-        "required": ["html", "css", "fundCode"]
       },
       "SaveDraftRequest": {
         "type": "object",

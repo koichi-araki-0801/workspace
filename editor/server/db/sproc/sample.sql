@@ -1,6 +1,8 @@
 ﻿/* ============================================================================
  *  ゲートウェイ sproc: Rep1_運報自動化_Editor_usp_サンプルデータ
- *  @操作: 取得 / 登録(upsert, seed)   JSON はテキスト保管(2012: OPENJSON 不可)。
+ *  @操作: 取得   JSON はテキスト保管(2012: OPENJSON 不可)。
+ *  seed は `db/seed/サンプルデータ.sql` がテーブルへ直接 INSERT する(登録用の @操作 は
+ *  呼び出し元が無く廃止)。
  * ==========================================================================*/
 
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_usp_サンプルデータ]', N'P') IS NOT NULL
@@ -9,8 +11,7 @@ GO
 
 CREATE PROCEDURE [ug01].[Rep1_運報自動化_Editor_usp_サンプルデータ]
   @操作          NVARCHAR(32),
-  @ファンドコード NVARCHAR(32)  = NULL,
-  @データJSON     NVARCHAR(MAX) = NULL
+  @ファンドコード NVARCHAR(32)  = NULL
 AS
 BEGIN
   SET NOCOUNT ON;
@@ -21,22 +22,6 @@ BEGIN
     SELECT [データJSON]
       FROM [ug01].[Rep1_運報自動化_Editor_サンプルデータ]
       WHERE [ファンドコード] = @ファンドコード;
-    RETURN;
-  END
-
-  IF @操作 = N'登録'
-  BEGIN
-    IF @ファンドコード IS NULL OR @データJSON IS NULL
-      THROW 50000, N'ファンドコード・データJSON が必要です', 1;
-    IF EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_サンプルデータ]
-               WHERE [ファンドコード] = @ファンドコード)
-      UPDATE [ug01].[Rep1_運報自動化_Editor_サンプルデータ]
-        SET [データJSON] = @データJSON, [更新日時] = SYSUTCDATETIME()
-        WHERE [ファンドコード] = @ファンドコード;
-    ELSE
-      INSERT INTO [ug01].[Rep1_運報自動化_Editor_サンプルデータ]
-        ([ファンドコード], [データJSON], [更新日時])
-      VALUES (@ファンドコード, @データJSON, SYSUTCDATETIME());
     RETURN;
   END
 

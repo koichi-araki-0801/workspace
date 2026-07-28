@@ -8,7 +8,7 @@ import { config } from '../config.js';
  * inline-config フィールド。ブラウザの固定とログ抑制を一元化する唯一の場所で、3 つの
  * コード経路を歩調を揃えて保つ(vivliostyle の利用は `vivliostyle/` 配下に集約)。
  */
-export interface SharedInlineConfig {
+interface SharedInlineConfig {
   /** オフライン実行用に固定するシステムブラウザ。省略時は既定を使う。 */
   executableBrowser?: string;
   logLevel: 'silent';

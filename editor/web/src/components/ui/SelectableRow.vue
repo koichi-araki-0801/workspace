@@ -4,7 +4,7 @@ import { cva } from 'class-variance-authority';
 // チェック ON/OFF で行の背景と、左の角丸チェックマークの塗りを切り替える。元の
 // `PartTree` の 2 トグルが持っていた `checked` 分岐 (行 `bg-primary-soft/50` とマークの
 // 塗り) を `cva` へ畳み込む。px 値・flex 構造はズーム堅牢性に直結するため厳密に温存する。
-export const selectableRowVariants = cva(
+const selectableRowVariants = cva(
   'flex items-start gap-2.5 border-b px-3.5 py-3 text-left transition-colors',
   {
     variants: { checked: { true: 'bg-primary-soft/50', false: '' } },
@@ -13,7 +13,7 @@ export const selectableRowVariants = cva(
 );
 
 // 左端の角丸チェックマーク (18px 角)。ON で primary 塗り、OFF で枠のみ。
-export const selectableRowMark = cva(
+const selectableRowMark = cva(
   'mt-px grid h-[18px] w-[18px] shrink-0 place-items-center rounded-[5px] border-[1.5px] transition-colors',
   {
     variants: { checked: { true: 'border-primary bg-primary text-primary-foreground', false: 'border-input bg-card' } },

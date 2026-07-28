@@ -4,7 +4,7 @@
 import type { TemplateAttributes, TemplateMeta, TemplateStatus } from '@editor/shared';
 
 /** テンプレ一覧行の表示形。`status` をラベルと badge variant に展開して持つ。 */
-export interface TemplateMetaVm {
+interface TemplateMetaVm {
   id: string;
   attributes: TemplateAttributes;
   fileName: string;

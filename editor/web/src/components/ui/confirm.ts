@@ -5,7 +5,7 @@
 // Promise<boolean> として提供する。表示部品と呼び出し側を疎結合に保つ。
 import { ref } from 'vue';
 
-export interface ConfirmOptions {
+interface ConfirmOptions {
   title: string;
   description?: string;
   confirmLabel?: string;

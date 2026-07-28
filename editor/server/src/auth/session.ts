@@ -56,7 +56,7 @@ export async function invalidateAllSessions(): Promise<void> {
 }
 
 /** リクエストの Cookie ヘッダを name→value マップへ解析する(cookie-parser 依存なし)。 */
-export function parseCookies(header: string | undefined): Record<string, string> {
+function parseCookies(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!header) return out;
   for (const part of header.split(';')) {

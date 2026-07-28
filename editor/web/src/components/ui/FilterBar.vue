@@ -1,15 +1,14 @@
 <script lang="ts">
-import { cva, type VariantProps } from 'class-variance-authority';
+import { cva } from 'class-variance-authority';
 
 // `bare` 時はカード装飾を外す (例 step card 内や比較 A/B の埋め込み)。装飾ありが既定。
-export const filterBarVariants = cva('', {
+const filterBarVariants = cva('', {
   variants: {
     bare: { true: '', false: 'rounded-lg border bg-card p-4' },
   },
   defaultVariants: { bare: false },
 });
 
-export type FilterBarVariants = VariantProps<typeof filterBarVariants>;
 </script>
 
 <script setup lang="ts">

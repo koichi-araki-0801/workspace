@@ -49,6 +49,8 @@ def load_document(path: str) -> Document:
 
 
 def _extract_page(page: "fitz.Page", index: int) -> Page:
+    """1 ページを Page へ抽出する。スキャン判定ならラスタ背景のみ、ベクターなら
+    テキスト/画像/描画を PDF の実ペイント順 (seqno) を復元した z 付きで積む。"""
     rect = page.rect
     scanned = classify.is_scanned_page(page)
     p = Page(
@@ -142,6 +144,7 @@ def _match_seqno(bbox: Rect, candidates: List[Tuple[int, Rect]], default: int) -
 
 
 def _render_background(page: "fitz.Page") -> RasterBackground:
+    """スキャンページ全面を PNG にラスタ化して背景要素にする (倍率 `SCAN_RENDER_SCALE`)。"""
     mat = fitz.Matrix(SCAN_RENDER_SCALE, SCAN_RENDER_SCALE)
     pix = page.get_pixmap(matrix=mat, alpha=False)
     png = pix.tobytes("png")
@@ -150,6 +153,8 @@ def _render_background(page: "fitz.Page") -> RasterBackground:
 
 
 def _text_element(span: dict, z: int) -> Optional[TextElement]:
+    """get_text("dict") の span 1 個を TextElement へ変換する。空白のみは None。
+    フォントは同梱 2 書体へマッピングし、ウェイトは名前優先 + bold フラグで補正。"""
     text = sanitize_text(span.get("text", ""))
     if text == "" or text.isspace():
         return None
@@ -168,7 +173,6 @@ def _text_element(span: dict, z: int) -> Optional[TextElement]:
         z=z,
         text=text,
         font_family=mapped.family,
-        original_font=raw_font,
         font_size=float(span.get("size", 12.0)),
         weight=weight,
         italic=bool(flags & FLAG_ITALIC) or mapped.italic,
@@ -186,6 +190,7 @@ def _clean_font(font: str) -> str:
 
 
 def _image_element(block: dict, z: int) -> Optional[ImageElement]:
+    """画像ブロックを ImageElement へ変換する。バイト列を持たないブロックは None。"""
     data = block.get("image")
     if not data:
         return None
@@ -200,6 +205,8 @@ def _image_element(block: dict, z: int) -> Optional[ImageElement]:
 
 
 def _drawing_elements(drawing: dict, z: int) -> List[Element]:
+    """get_drawings() の 1 描画を要素へ変換する。単一の線/矩形は編集しやすい
+    専用要素 (Line/Rect) に、それ以外は path d 文字列の PathElement に落とす。"""
     dtype = drawing.get("type", "s")  # "s" stroke / "f" fill / "fs" both
     stroke = rgbf_to_hex(drawing.get("color")) if dtype in ("s", "fs") else None
     fill = rgbf_to_hex(drawing.get("fill")) if dtype in ("f", "fs") else None
@@ -240,6 +247,8 @@ def _drawing_elements(drawing: dict, z: int) -> List[Element]:
 
 
 def _items_to_path_d(items: list, close: bool) -> str:
+    """描画 items (l/c/re/qu) を SVG path の d 文字列へ直列化する。連続セグメントは
+    始点一致なら M を挟まず繋ぎ、re/qu は独立サブパスとして出力する。"""
     parts: List[str] = []
     last = None
 

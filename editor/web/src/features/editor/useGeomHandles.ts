@@ -9,7 +9,7 @@ import { clampMarginMm, clampWidthPct, type LayoutGeom, PX_PER_MM, WIDTH_PCT_MAX
 import type { SelectedRect } from './grapesEvents';
 
 /** どの edge/corner ハンドルをドラッグ中か。 */
-export type HandleKind = 'width' | 'width-left' | 'mt' | 'mb';
+type HandleKind = 'width' | 'width-left' | 'mt' | 'mb';
 
 interface GeomHandleDeps {
   /** 現在の選択の幾何(未選択時は null)。 */

@@ -386,6 +386,8 @@
 .dict-row .tgt { color: var(--ink); font-weight: 500; }
 .dict-row .arr { color: var(--faint); }
 .dict-row .on { width: 16px; height: 16px; border-radius: 5px; background: var(--good); color:#fff; display:grid; place-items:center; }
+/* 折返し連結由来のエントリの印 (連結照合の対象になるエントリをユーザーが判別できるように) */
+.dict-row .join-badge { margin-left: 6px; padding: 1px 5px; border-radius: 4px; background: var(--sunk); color: var(--muted); font-size: 10px; font-weight: 700; }
 .dict-row .on svg { width: 11px; height: 11px; }
 .dict-head { display:flex; align-items:center; justify-content: space-between; padding: 8px 11px; background: var(--sunk); border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 700; color: var(--muted); }
 

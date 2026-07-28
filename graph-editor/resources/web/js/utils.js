@@ -32,9 +32,6 @@ function safeGetBBox(el, fallback = { x: 0, y: 0, width: 0, height: 0 }) {
   }
 }
 
-/** インスペクタの移動量表示 (構築時と読出し更新で同一文字列を使う) */
-const formatCoords = (tx) => `移動量 dx ${tx.x.toFixed(1)} / dy ${tx.y.toFixed(1)} px`;
-
 // `normColor` は `leader_geom.cjs` へ移設 (冒頭で分割代入)。
 
 /** 未信頼 SVG を DOM 接続前に無害化する (多層防御)。
@@ -85,4 +82,4 @@ const STATE_FIELDS = {
   nameScaleX: (v) => v,   // 名前の横圧縮率 (長体)。1=圧縮なし
 };
 
-export { escapeHtml, round, createSvgEl, safeGetBBox, formatCoords, sanitizeSvg, hasFsAccess, SVG_PICKER_TYPES, STATE_FIELDS };
+export { escapeHtml, round, createSvgEl, safeGetBBox, sanitizeSvg, hasFsAccess, SVG_PICKER_TYPES, STATE_FIELDS };

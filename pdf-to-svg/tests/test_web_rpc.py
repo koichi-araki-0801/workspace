@@ -25,7 +25,7 @@ class FakeUndo:
         self._stack = []
         self._pos = 0
 
-    def beginMacro(self, _label):  # noqa: N802
+    def beginMacro(self):  # noqa: N802
         pass
 
     def endMacro(self):  # noqa: N802
@@ -123,39 +123,40 @@ def test_delete_region(session):
     page = session.page(0, 0)
     body = page.elements[1]  # bbox(10,40,60,12)
     # 重なる矩形 → 削除される
-    res = rpc_methods.dispatch(session, "deleteRegion",
-                               {"fileIndex": 0, "pageInFile": 0,
-                                "rect": {"x": 0, "y": 35, "w": 100, "h": 40}})
-    assert res["deleted"] >= 1 and body.deleted is True
-    # 戻して、重ならない矩形では 0 件
+    rpc_methods.dispatch(session, "deleteRegion",
+                         {"fileIndex": 0, "pageInFile": 0,
+                          "rect": {"x": 0, "y": 35, "w": 100, "h": 40}})
+    assert body.deleted is True
+    # 戻して、重ならない矩形では何も消えない
     rpc_methods.dispatch(session, "undo", {})
     assert body.deleted is False
-    res2 = rpc_methods.dispatch(session, "deleteRegion",
-                                {"fileIndex": 0, "pageInFile": 0,
-                                 "rect": {"x": 150, "y": 150, "w": 10, "h": 10}})
-    assert res2["deleted"] == 0
+    before = len(page.live_elements())
+    rpc_methods.dispatch(session, "deleteRegion",
+                         {"fileIndex": 0, "pageInFile": 0,
+                          "rect": {"x": 150, "y": 150, "w": 10, "h": 10}})
+    assert len(page.live_elements()) == before
 
 
 def test_remove_file(session):
     session.docs.append(_make_doc("図面.pdf"))
     assert len(session.docs) == 2
-    res = rpc_methods.dispatch(session, "removeFile", {"fileIndex": 0})
-    assert res["total"] == 1
+    rpc_methods.dispatch(session, "removeFile", {"fileIndex": 0})
+    assert len(session.docs) == 1
     # 先頭を消したので残るのは 2 番目に追加したファイル
     assert session.docs[0].source_path == "図面.pdf"
     # 範囲外の index は無視 (例外を投げない)
-    res2 = rpc_methods.dispatch(session, "removeFile", {"fileIndex": 9})
-    assert res2["total"] == 1
+    rpc_methods.dispatch(session, "removeFile", {"fileIndex": 9})
+    assert len(session.docs) == 1
 
 
 def test_add_border(session):
     page = session.page(0, 0)
     before = len(page.live_elements())
-    res = rpc_methods.dispatch(session, "addBorder",
-                               {"fileIndex": 0, "pageInFile": 0,
-                                "rect": {"x": 5, "y": 5, "w": 100, "h": 80},
-                                "color": "#ff0000", "width": 2})
-    el = next(e for e in page.elements if e.id == res["elId"])
+    rpc_methods.dispatch(session, "addBorder",
+                         {"fileIndex": 0, "pageInFile": 0,
+                          "rect": {"x": 5, "y": 5, "w": 100, "h": 80},
+                          "color": "#ff0000", "width": 2})
+    el = page.elements[-1]  # AddElementCommand は末尾へ追加する
     assert el.stroke == "#ff0000" and el.fill is None and el.stroke_width == 2.0
     assert el.kind == "rect" and el.deleted is False
     assert len(page.live_elements()) == before + 1
@@ -174,10 +175,13 @@ def test_dict_add_and_list(session):
     lst = rpc_methods.dispatch(session, "dictList", {})
     sources = [e["source"] for e in lst["entries"]]
     assert "Q'ty" in sources
+    # joined 指定なしの手入力登録は非連結、payload には suggestJoin も乗る
+    assert lst["entries"][0]["joined"] is False
+    assert lst["suggestJoin"] is False
 
 
-def test_dict_suggest_joins_wrapped_lines(tmp_path):
-    """折返しセルのどの行をクリックしても、連結した 1 文を「元の語」候補に返す。"""
+def _wrapped_pair_session(tmp_path):
+    """折返し 2 行 (商品/名称) を持つ 1 ページのセッションを作る。"""
     page = Page(index=0, width_pt=200.0, height_pt=300.0)
     top = TextElement(bbox=Rect(50, 28, 20, 12), text="商品",
                       font_size=12, origin_x=50, origin_y=40)
@@ -186,31 +190,67 @@ def test_dict_suggest_joins_wrapped_lines(tmp_path):
     page.elements = [top, bottom]
     s = WebSession(DictionaryStore(tmp_path / "d.json"), FakeUndo())
     s.docs = [Document(source_path="表.pdf", pages=[page])]
+    return s, top, bottom
+
+
+def test_dict_suggest_joins_only_when_enabled(tmp_path):
+    """クリック取り込みの連結は setSuggestJoin ON のときのみ。既定はクリック行を返す。"""
+    s, _top, bottom = _wrapped_pair_session(tmp_path)
 
     r = rpc_methods.dispatch(
         s, "dictSuggest", {"fileIndex": 0, "pageInFile": 0, "elId": bottom.id}
     )
-    assert r["source"] == "商品名称"  # クリックは 2 行目でも文全体を返す
+    assert r["source"] == "名称" and r["joined"] is False  # 既定 OFF はクリック行のみ
+
+    rpc_methods.dispatch(s, "setSuggestJoin", {"value": True})
+    r = rpc_methods.dispatch(
+        s, "dictSuggest", {"fileIndex": 0, "pageInFile": 0, "elId": bottom.id}
+    )
+    # ON ならクリックは 2 行目でも文全体を返し、連結の印が立つ
+    assert r["source"] == "商品名称" and r["joined"] is True
 
     # 範囲外/不明な elId は空文字 (クライアントはクリック行へフォールバック)
     r2 = rpc_methods.dispatch(
         s, "dictSuggest", {"fileIndex": 0, "pageInFile": 0, "elId": 999999}
     )
-    assert r2["source"] == ""
+    assert r2["source"] == "" and r2["joined"] is False
 
 
-def test_dict_export_import(tmp_path):
-    out = tmp_path / "shared_dict.json"
-    # 書き出し元セッション
+def test_reapply_joins_only_joined_entries(tmp_path):
+    """一括適用の連結照合は連結由来 (joined=True) エントリのみに一致する。"""
+    s, top, bottom = _wrapped_pair_session(tmp_path)
+    rpc_methods.dispatch(s, "setOnlyHeaders", {"value": False})
+
+    # 手入力 (joined なし) の連結形は一致しない = 2 行は畳まれない
+    rpc_methods.dispatch(s, "dictAdd", {"source": "商品名称", "target": "Product"})
+    r = rpc_methods.dispatch(s, "reapplyDictPage", {"fileIndex": 0, "pageInFile": 0})
+    assert r["count"] == 0
+    assert top.text == "商品" and bottom.deleted is False
+
+    # 連結取り込み由来 (joined=True) で登録し直すと連結照合され 2 行目が畳まれる
+    rpc_methods.dispatch(
+        s, "dictAdd", {"source": "商品名称", "target": "Product", "joined": True}
+    )
+    r = rpc_methods.dispatch(s, "reapplyDictPage", {"fileIndex": 0, "pageInFile": 0})
+    assert r["count"] == 1
+    assert top.text == "Product" and bottom.deleted is True
+    # undo で戻る (FakeUndo はマクロ透過のため置換と削除を 1 回ずつ戻す)
+    rpc_methods.dispatch(s, "undo", {})
+    rpc_methods.dispatch(s, "undo", {})
+    assert top.text == "商品" and bottom.deleted is False
+
+
+def test_dict_json_roundtrip(tmp_path):
+    # 書き出し元セッション: dictJson が共有用 JSON 文字列を返す
     s1 = WebSession(DictionaryStore(tmp_path / "d1.json"), FakeUndo())
     rpc_methods.dispatch(s1, "dictAdd", {"source": "Item No.", "target": "品番"})
     rpc_methods.dispatch(s1, "dictAdd", {"source": "Q'ty", "target": "数量"})
-    res = rpc_methods.dispatch(s1, "dictExport", {"path": str(out)})
-    assert out.exists() and res["count"] == 2
+    res = rpc_methods.dispatch(s1, "dictJson", {})
+    assert res["count"] == 2
 
-    # 別セッションへ読み込み
+    # 別セッションへ文字列のまま取り込み (ブラウザ保存/読込を模す)
     s2 = WebSession(DictionaryStore(tmp_path / "d2.json"), FakeUndo())
-    imp = rpc_methods.dispatch(s2, "dictImport", {"path": str(out)})
+    imp = rpc_methods.dispatch(s2, "dictImportJson", {"json": res["json"]})
     assert imp["imported"] == 2
     sources = [e["source"] for e in imp["entries"]]
     assert "Item No." in sources and "Q'ty" in sources

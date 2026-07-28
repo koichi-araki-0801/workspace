@@ -13,7 +13,7 @@
 nvm use            # （未導入なら Node 24 系を入れる）
 
 pnpm install       # 依存をインストール（husky フックも自動で有効化されます）
-pnpm dev           # shared ビルド後、Express(:24680) と Vite(:24681) を並行起動
+pnpm dev           # shared ビルド後、Fastify(:24680) と Vite(:24681) を並行起動
 ```
 
 Windows は `editor/start.bat`（ダブルクリック=本番ローカル / `dev` / `rest` 等）でも起動できます。
@@ -100,7 +100,27 @@ data/                  ← テンプレ(.html)・CSS（サーバが参照。整�
 | `chore` | ビルド・設定・依存など |
 | `test` | テストの追加・修正 |
 
-## 7. 困ったとき（初心者向けヒント）
+## 7. 触りやすさマップ（どこから触るか / どこは慎重に）
+
+初めての変更は 🟢 から着手し、🔴 は必ずレビュー（またはペア作業）を挟むこと。
+
+| ゾーン | 場所 | 理由 |
+|---|---|---|
+| 🟢 まず触ってよい | `shared/src/domain/`・`shared/src/schemas.ts`・`shared/src/index.ts` | 値オブジェクト・Zod スキーマ。宣言的でテスト完備 |
+| 🟢 | `web/src/api/local/*Repo.ts` | fixtures + localStorage。契約が明快でテスト済み |
+| 🟢 | `web/src/components/ui/`・`features/admin/`・`features/templates/` | CRUD 的でパターンが素直 |
+| 🟢 | `web/src/lib/format.ts`・`lib/labels.ts` | 小さな純粋関数 |
+| 🔴 レビュー必須 | `web/src/features/editor/useGrapes.ts` | GrapesJS 内部挙動（iframe 膨張ループ回避・zoom 座標系）に依存 |
+| 🔴 | `web/src/lib/jinjaMask.ts` + `lib/fillJinja.ts` | Jinja 保護の核心。正規表現 + data 属性プロトコルの往復対 |
+| 🔴 | `web/src/features/compare/htmlBlockDiff.ts` | 再帰木差分 + 語句 LCS |
+| 🔴 | `web/src/workers/fallback.ts` | Worker 境界の並行制御（恒久化/一時化の分岐が繊細） |
+| 🔴 | `server/src/vivliostyle/`・`server/src/git/gitRepo.ts` | PDF worker pool・git 反映の関所 |
+
+編集 2 系統の関連ファイル（`useGrapes` / `jinjaComponents` / `useTemplateEditor` /
+`templateEditorService` / `sampleCommon` / `genFilled`）に触るときは、着手前に
+`docs/editor/src/設計正典.md`「中核原則」と設計書 7.1 章を再読すること。
+
+## 8. 困ったとき（初心者向けヒント）
 
 - **赤い波線/型エラーが出る** → メッセージの「`Type 'X' is not assignable to 'Y'`」は「X を Y として使おうとしている」の意味。`shared/src/index.ts` の型定義を確認すると解決の糸口になることが多いです。
 - **保存しても整形されない** → 推奨拡張「Biome」が入っているか確認（左下に Biome が出ます）。`.vscode/extensions.json` から入れ直せます。

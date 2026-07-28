@@ -3,7 +3,7 @@
 // =============================================================================
 import { ref } from 'vue';
 
-export type ThemeMode = 'light' | 'dark';
+type ThemeMode = 'light' | 'dark';
 
 const STORAGE_KEY = 'ret:theme';
 
@@ -40,7 +40,7 @@ export function initTheme(): void {
   apply(theme.value);
 }
 
-export function setTheme(mode: ThemeMode): void {
+function setTheme(mode: ThemeMode): void {
   theme.value = mode;
   localStorage.setItem(STORAGE_KEY, mode);
   apply(mode);

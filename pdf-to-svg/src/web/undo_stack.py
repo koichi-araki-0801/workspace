@@ -18,8 +18,7 @@ from typing import List, Optional
 class _Macro:
     """`beginMacro`〜`endMacro` でまとめた複合コマンド。"""
 
-    def __init__(self, label: str):
-        self.label = label
+    def __init__(self):
         self.cmds: list = []
 
     def redo(self) -> None:
@@ -49,8 +48,8 @@ class UndoStack:
         self._stack.append(cmd)
         self._pos += 1
 
-    def beginMacro(self, label: str) -> None:  # noqa: N802 (QUndoStack 互換)
-        self._macro = _Macro(label)
+    def beginMacro(self) -> None:  # noqa: N802 (QUndoStack 互換。履歴ラベルは UI が無く廃止)
+        self._macro = _Macro()
 
     def endMacro(self) -> None:  # noqa: N802
         m = self._macro

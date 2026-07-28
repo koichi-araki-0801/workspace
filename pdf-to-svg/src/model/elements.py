@@ -80,7 +80,6 @@ class TextElement(Element):
     text: str = ""
     original_text: str = ""  # 辞書置換前の値 (Undo / レビュー用)
     font_family: str = "sans-serif"
-    original_font: str = ""  # マッピング前の PDF フォント名 (デバッグ用)
     font_size: float = 12.0
     weight: int = 400  # CSS フォントウェイト (100-900)。元 PDF のウェイトを保持
     italic: bool = False
@@ -93,8 +92,6 @@ class TextElement(Element):
     def __post_init__(self) -> None:
         if not self.original_text:
             self.original_text = self.text
-        if not self.original_font:
-            self.original_font = self.font_family
 
     @property
     def bold(self) -> bool:

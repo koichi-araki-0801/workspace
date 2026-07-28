@@ -891,7 +891,7 @@ function pathLength(pts: Pt[]): number {
  * (3) 先頭セグメント方向と anchor 半径方向の |内積| が `SHORT_RIM_LEADER_DOT_RADIAL_MAX` 未満。
  * 健全な放射 leader は内積 ≈ 1 なので非発火。
  */
-export function isShortRimHuggingLeader(pathPoints: Pt[], cfg: PieLayoutConfig): boolean {
+function isShortRimHuggingLeader(pathPoints: Pt[], cfg: PieLayoutConfig): boolean {
   if (pathPoints.length < 2) return false;
   const [a, b] = pathPoints;
   const da = Math.hypot(a.x, a.y);
@@ -1030,7 +1030,7 @@ export function oobLeaderCount(
 }
 
 /** verify と同基準で各円外ラベルの {labelY, anchorY} (pixel) を左右スタックに分けて返す。 */
-export function angularStacks(
+function angularStacks(
   placements: Placement[],
   cfg: PieLayoutConfig,
   coord: Coord,

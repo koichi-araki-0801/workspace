@@ -23,9 +23,9 @@ import { visualCharEm as bodyVisualCharEm } from '../layout/geometry.js';
 // visualTextWidthUnits)。charWidthFactor は安全マージン用ノブで既定 1.0。
 export const CHAR_WIDTH_FACTOR = 1.0; // = config.charWidthFactor
 export const LINE_HEIGHT_FACTOR = 1.1; // = config.lineHeightFactor (= lineSpacing)
-export const VISUAL_FULLWIDTH_EM = 1.0; // = config.visualFullwidthEm
-export const VISUAL_HALFWIDTH_EM = 0.5; // = config.visualHalfwidthEm
-export const NAME_CONDENSE_STEPS = [0.7]; // = config.nameCondenseSteps (名前長体の試行段)
+const VISUAL_FULLWIDTH_EM = 1.0; // = config.visualFullwidthEm
+const VISUAL_HALFWIDTH_EM = 0.5; // = config.visualHalfwidthEm
+const NAME_CONDENSE_STEPS = [0.7]; // = config.nameCondenseSteps (名前長体の試行段)
 export const TOP_BAND_HALF_WIDTH_DEG = 18; // = label_placement.TOP_BAND_HALF_WIDTH_DEG (その他逃がし帯)
 // = label_placement.TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG (その他 真上垂直配置の左拡張帯)
 export const SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG = 32;

@@ -19,7 +19,7 @@ export interface EditorSnapshot {
 }
 
 /** 1 テンプレートの編集セッション state。編集⇄プレビュー往復を跨いで保持する。 */
-export interface EditSession {
+interface EditSession {
   /** パーツ構造キー(`partKey`)ごとのセッション内修正履歴(新しい順)。 */
   partHistory: Record<string, PartHistoryEntry[]>;
   /** セッション内履歴エントリ id の採番カウンタ。 */

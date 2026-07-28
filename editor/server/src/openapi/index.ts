@@ -11,4 +11,4 @@ export async function openapiRoutes(app: FastifyInstance): Promise<void> {
   app.get('/openapi.json', async () => getOpenApiDocument());
 }
 
-export { buildOpenApiDocument, getOpenApiDocument } from './document.js';
+export { getOpenApiDocument } from './document.js';

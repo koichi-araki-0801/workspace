@@ -36,7 +36,7 @@ def test_push_executes_redo_then_undo_redo():
 def test_macro_collapses_to_single_step():
     log = []
     s = UndoStack()
-    s.beginMacro("m")
+    s.beginMacro()
     s.push(_Cmd(log, "a"))
     s.push(_Cmd(log, "b"))
     s.push(_Cmd(log, "c"))
@@ -52,7 +52,7 @@ def test_macro_collapses_to_single_step():
 
 def test_empty_macro_not_pushed():
     s = UndoStack()
-    s.beginMacro("m")
+    s.beginMacro()
     s.endMacro()
     assert not s.canUndo()
 

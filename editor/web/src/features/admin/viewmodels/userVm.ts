@@ -5,7 +5,7 @@ import type { User } from '@editor/shared';
 import { roleLabel } from '@/lib/labels';
 
 /** ユーザー行の表示形状: role/status をラベルと badge variant で表す。 */
-export interface UserVm {
+interface UserVm {
   id: string;
   username: string;
   displayName: string;

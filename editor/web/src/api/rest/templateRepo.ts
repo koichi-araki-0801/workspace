@@ -4,7 +4,6 @@
 import {
   apiPaths,
   buildPath,
-  type ConfirmSaveRequest,
   type DropdownOptions,
   type DropdownQuery,
   type FundResolution,
@@ -77,14 +76,6 @@ export const restTemplateRepo: TemplateRepository = {
   discardDraft: (templateId: string) =>
     attemptRest(() =>
       apiFetch<void>(buildPath(apiPaths.templateDraft, { id: templateId }), { method: 'DELETE' }),
-    ),
-
-  confirmSave: (req: ConfirmSaveRequest) =>
-    attemptRest(() =>
-      apiFetch<TemplateMeta>(buildPath(apiPaths.templateById, { id: req.templateId }), {
-        method: 'PUT',
-        body: { html: req.html, css: req.css, fundCode: req.fundCode },
-      }),
     ),
 
   getSampleData: (fundCode: string) =>

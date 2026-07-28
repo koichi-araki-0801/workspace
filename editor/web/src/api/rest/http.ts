@@ -59,7 +59,7 @@ async function toError(res: Response): Promise<AppError> {
   return appError(kind, KIND_MESSAGE[kind]);
 }
 
-export interface FetchOptions {
+interface FetchOptions {
   method?: string;
   query?: Record<string, string | undefined>;
   body?: unknown;

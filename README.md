@@ -5,6 +5,20 @@ editor / pie-chart / pdf-to-svg / graph-editor などを束ねる pnpm モノレ
 [`docs/コメント規約.md`](docs/コメント規約.md)、各プロジェクトの構成・不変則は
 `docs/<project>/src/設計正典.md` が正典。
 
+## 新しく参加した人へ（最初に読む）
+
+1. **読む順序**: この README → 担当プロジェクトの `README.md`（各 README に
+   「触りやすさマップ」がある。🟢 から着手する）→ [`docs/コメント規約.md`](docs/コメント規約.md)
+   → `docs/<project>/src/設計正典.md`（構成・不変則・却下済み設計）。
+   editor を触るなら `editor/CONTRIBUTING.md` がハブ。
+2. **最初に覚える 3 コマンド**:
+   - セットアップ: `offline\setup-offline-local.bat`（完全オフライン環境）または `pnpm install`
+   - 検証: `pnpm run ci:<領域>`（editor / pie-chart / graph-editor。PR 前はフル `pnpm run ci`）
+   - 起動: 各プロジェクト直下の入口 .bat（下記「入口スクリプト一覧」）
+3. **リポジトリ直下の見分け方**: `offline-deps-bundle.tar.gz`・`pnpm.tgz`・`python-wheelhouse/`・
+   `ms-playwright/` などはオフライン配布用の**生成物・配布物**であり、手で編集する本体コードではない。
+4. **ハマったら**: [`docs/トラブルシュート.md`](docs/トラブルシュート.md)（症状 → 原因 → 対処の一覧）。
+
 ## スクリプトの置き場ルール
 
 > **入口（利用者がダブルクリック/コマンドで直接実行する）はプロジェクト直下に最小限置く。**
@@ -40,11 +54,22 @@ editor / pie-chart / pdf-to-svg / graph-editor などを束ねる pnpm モノレ
 | `editor/scripts/setup-lan-https.bat` | LAN 公開用の自己署名 TLS 証明書（PFX/cer）を生成 |
 | `editor/scripts/setup-lan-firewall.bat` | LAN 公開ポート（TCP 24680）の受信許可ルールを登録（要管理者） |
 | `editor/server/db/apply.bat` | SQL Server へ DDL/sproc/seed を適用 |
-| `offline/publish-offline-bundle.bat` | オフラインバンドルを GitHub Releases へ公開（post-commit で自動実行） |
+| `offline/publish-offline-bundle.bat` | オフラインバンドルを GitHub Releases へ公開（post-commit で自動実行。`git config offline.publish true` を設定した公開担当者の clone のみ） |
 | `docs/_build/build_all.bat` | `docs/<project>/src/` の原稿から閲覧用 HTML（手引き/設計の 2 冊）を一括生成 |
 
 Python ビルドの venv 準備は共有ライブラリ `scripts/lib/build-python-venv.ps1` に集約してあり、
 `pdf-to-svg` / `graph-editor` の `scripts/build.ps1` が dot-source して使う。
+
+## フォント資産の対応（同一書体の 2 形式管理）
+
+BIZ UDPGothic は 2 プロジェクトが**形式要件の違いから別形式で同梱**している。統合はしない
+（pdf-to-svg はサブセット元に TTF 原本が必須 — WOFF2 元は却下済み設計。pie-chart は
+埋込サイズ優先で WOFF2）。**書体を差し替えるときは両方を同じ版で更新**すること。
+
+| 置き場 | 形式 | 用途 |
+|---|---|---|
+| `pdf-to-svg/fonts/BIZUDPGothic-{Regular,Bold}.ttf` | TTF 原本 | WOFF2 サブセット埋込の変換元 |
+| `pie-chart/fonts/BIZUDPGothic-{Regular,Bold}.woff2` | WOFF2 | SVG への base64 埋込 |
 
 ## 主な pnpm コマンド（リポジトリ直下）
 

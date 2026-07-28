@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   clampPageIndex,
   enumeratePageEls,
+  isBreakValue,
   PV_ATTR,
   pageViewCss,
   strayDirectChildren,
@@ -95,5 +96,20 @@ describe('clampPageIndex', () => {
 
   it('count=0 は 0 を返す', () => {
     expect(clampPageIndex(3, 0)).toBe(0);
+  });
+});
+
+describe('isBreakValue', () => {
+  it('page-break キーワード(always/page/left/right/recto/verso)を受理する', () => {
+    for (const v of ['always', 'page', 'left', 'right', 'recto', 'verso']) {
+      expect(isBreakValue(v)).toBe(true);
+    }
+  });
+
+  it('auto / avoid / 空 / undefined は非該当', () => {
+    expect(isBreakValue('auto')).toBe(false);
+    expect(isBreakValue('avoid')).toBe(false);
+    expect(isBreakValue('')).toBe(false);
+    expect(isBreakValue(undefined)).toBe(false);
   });
 });

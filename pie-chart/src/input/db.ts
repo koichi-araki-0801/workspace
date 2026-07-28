@@ -31,7 +31,7 @@ interface MsSql {
   ) => void;
 }
 
-export interface LoadDbOpts {
+interface LoadDbOpts {
   /** SELECT 文(単一・複文不可)。 */
   query: string;
   /** 接続先サーバ。未指定は env `DB_SERVER`、既定 `localhost`。 */

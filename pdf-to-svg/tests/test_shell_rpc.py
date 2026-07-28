@@ -119,3 +119,32 @@ def test_http_shell_smoke(tmp_path, vector_pdf):
         server.shutdown()
         server.server_close()
         s.store.close()
+
+
+def test_upload_does_not_auto_apply(tmp_path, vector_pdf):
+    """アップロードでは辞書を適用しない。適用は再適用 RPC (Undo 可能経路) のみ。"""
+    s = _session(tmp_path)
+    server = create_server(str(config.resource_path("web")), s)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{port}"
+    try:
+        # アップロード前に一致するはずの語を登録しておく
+        rpc_methods.dispatch(s, "dictAdd", {"source": "Header A", "target": "見出し"})
+        pdf = Path(vector_pdf).read_bytes()
+        _, body = _post(base + "/upload?name=sample.pdf", pdf, "application/octet-stream")
+        assert json.loads(body)["ok"] is True
+        # 自動適用されないので「要確認」もゼロ、SVG には原文が残る
+        st = rpc_methods.dispatch(s, "state", {})
+        assert st["changed2"] == [False]
+        svg = rpc_methods.dispatch(s, "exportSvg", {"fileIndex": 0, "pageInFile": 0})["svg"]
+        assert "Header A" in svg and "見出し" not in svg
+        # 明示の再適用では従来どおり置換される
+        r = rpc_methods.dispatch(s, "reapplyDict", {})
+        assert r["count"] >= 1
+        svg = rpc_methods.dispatch(s, "exportSvg", {"fileIndex": 0, "pageInFile": 0})["svg"]
+        assert "見出し" in svg
+    finally:
+        server.shutdown()
+        server.server_close()
+        s.store.close()

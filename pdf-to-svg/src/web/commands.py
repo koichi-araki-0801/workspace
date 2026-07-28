@@ -3,7 +3,7 @@
 旧実装は ``QUndoCommand`` 派生だったが、QtWebEngine 撤廃に伴い素の Python クラスへ。
 :class:`web.undo_stack.UndoStack` が push 時に ``redo()`` を実行し、``undo()`` /
 ``redo()`` で巻き戻す。``redo()`` / ``undo()`` の本体とコンストラクタ・シグネチャは
-従来と不変 (rpc_methods 側は無改変)。``label`` は履歴表示用 (現状は未使用)。
+従来と不変 (rpc_methods 側は無改変)。
 """
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from model.elements import DictMatch, Element, Rect, TextElement
 
 class DeleteCommand:
     def __init__(self, elements: List[Element]):
-        self.label = f"{len(elements)} 要素を削除"
         self.elements = list(elements)
 
     def redo(self) -> None:
@@ -32,7 +31,6 @@ class AddElementCommand:
     redo で可視化・undo で非表示にする (要素はリストに残し ``deleted`` で制御)。"""
 
     def __init__(self, page: Page, element: Element):
-        self.label = "枠線を追加"
         self.page = page
         self.element = element
 
@@ -53,7 +51,6 @@ class ReplaceTextCommand:
         dict_match: Optional[DictMatch] = None,
         new_bbox: Optional[Rect] = None,
     ):
-        self.label = "テキスト置換"
         self.el = el
         self.new_text = new_text
         self.dict_match = dict_match

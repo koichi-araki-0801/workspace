@@ -27,7 +27,7 @@ import { restTemplateRepo } from './rest/templateRepo';
 import { restUserRepo } from './rest/userRepo';
 
 /** 画面/サービス/ストアへ inject する集約単位のデータアクセス面。 */
-export interface Repositories {
+interface Repositories {
   auth: AuthRepository;
   templates: TemplateRepository;
   parts: PartRepository;
@@ -70,7 +70,7 @@ export const restRepositories: Repositories = {
 export const REPOS_KEY: InjectionKey<Repositories> = Symbol('Repositories');
 
 /** 全リポジトリを inject する。コンポーネント/ストア/サービスの setup で使う。 */
-export function useRepos(): Repositories {
+function useRepos(): Repositories {
   const repos = inject(REPOS_KEY);
   if (!repos)
     throw new Error('Repositories が provide されていません（main.ts の provide を確認）');

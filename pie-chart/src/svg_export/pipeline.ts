@@ -139,7 +139,6 @@ import {
   stackTopRightLiftedLabels,
 } from './mode_passes.js';
 
-export { escapeXml } from './rendering.js';
 export { distPointToSegment, pathsCross } from './leader_geometry.js';
 const TOP_BAND_RIGHT_ANGLE_MIN_DEG = 90 - TOP_BAND_HALF_WIDTH_DEG;
 const TOP_BAND_RIGHT_ANGLE_MAX_DEG = 90;

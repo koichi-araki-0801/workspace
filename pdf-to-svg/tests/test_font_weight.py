@@ -10,7 +10,7 @@ from model.elements import Rect, TextElement
 def _text(text, family, weight, x=10.0, y=20.0):
     return TextElement(
         bbox=Rect(x, y - 10, 80, 12), z=1, text=text, original_text=text,
-        font_family=family, original_font=family, font_size=10.0,
+        font_family=family, font_size=10.0,
         weight=weight, origin_x=x, origin_y=y,
     )
 

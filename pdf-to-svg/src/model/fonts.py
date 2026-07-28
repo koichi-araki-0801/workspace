@@ -29,11 +29,6 @@ class MappedFont:
     weight: int = 400
     italic: bool = False
 
-    @property
-    def bold(self) -> bool:
-        """太字相当か (SemiBold 以上)。既存の bold 参照との互換用。"""
-        return self.weight >= 600
-
 
 # 同梱・静的フォント (本プロジェクトの fonts/)。(family, weight bucket) → フォントファイル名。
 # サブセット元は正規 TTF 原本 (Morisawa/Google Fonts・SIL OFL) を使う。WOFF2 をサブセット

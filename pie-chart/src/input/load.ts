@@ -94,7 +94,7 @@ function cellAsNumber(cell: { value: unknown }): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export interface LoadXlsxOpts {
+interface LoadXlsxOpts {
   path: string;
   sheet: string;
   range: string;
@@ -104,7 +104,7 @@ export interface LoadXlsxOpts {
  * Excel ファイルから [name, value][] を読み出す。
  * 戻り値は data.ts の normalizeInputItems で {name, value} 形式に整形される。
  */
-export async function loadXlsxItems({
+async function loadXlsxItems({
   path: xlsxPath,
   sheet,
   range,
@@ -148,7 +148,7 @@ export async function loadXlsxItems({
 const samples = samplesData as unknown as Samples;
 export { samples };
 
-export interface ResolveSyncOpts {
+interface ResolveSyncOpts {
   sample?: string;
   data?: unknown[];
   dataJson?: string;

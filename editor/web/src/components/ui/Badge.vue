@@ -1,7 +1,7 @@
 <script lang="ts">
 import { cva, type VariantProps } from 'class-variance-authority';
 
-export const badgeVariants = cva(
+const badgeVariants = cva(
   'inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors',
   {
     variants: {
@@ -17,7 +17,6 @@ export const badgeVariants = cva(
     defaultVariants: { variant: 'default' },
   },
 );
-export type BadgeVariants = VariantProps<typeof badgeVariants>;
 </script>
 
 <script setup lang="ts">
@@ -26,6 +25,8 @@ export type BadgeVariants = VariantProps<typeof badgeVariants>;
 //             でスタイル分けする小型バッジ
 // =============================================================================
 import { cn } from '@/lib/utils';
+
+type BadgeVariants = VariantProps<typeof badgeVariants>;
 
 defineProps<{ variant?: BadgeVariants['variant']; class?: string }>();
 </script>

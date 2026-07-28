@@ -7,7 +7,6 @@ const dom = {
   // 一覧 / キャンバス / パネル
   list: $("fileList"),
   canvas: $("canvas"),
-  canvasPane: $("canvasPane"),
   inspectorBody: $("inspectorBody"),
   // トップバー / ステータス
   status: $("status"),
@@ -25,7 +24,6 @@ const dom = {
   scEdit: $("scEdit"),
   scSave: $("scSave"),
   dropzone: $("dropzone"),
-  btnPick: $("btnPick"),
   btnOpenRail: $("btnOpenRail"),
   btnBack: $("btnBack"),
   btnNext: $("btnNext"),
@@ -40,4 +38,4 @@ const dom = {
   saveSub: $("saveSub"),
 };
 
-export { $, dom };
+export { dom };

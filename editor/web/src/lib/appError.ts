@@ -8,10 +8,7 @@
 // `AppError.message` は表示しても安全な文面として書かれているため, この層は
 // かつての "user-facing" 文字列ホワイトリストをもう必要としない。
 
-import { type AppError, isAppError, toAppError } from '@editor/shared';
-
-export type { AppError };
-export { toAppError };
+import { isAppError } from '@editor/shared';
 
 /** エラー(と技術的な `cause`)をログ出力し, 失敗が無言で消えないようにする。 */
 export function logError(e: unknown): void {

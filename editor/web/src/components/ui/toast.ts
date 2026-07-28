@@ -21,7 +21,7 @@ export interface Toast {
 }
 
 /** `toast()` の options 形式(第2引数がオブジェクトのとき)。 */
-export interface ToastOptions {
+interface ToastOptions {
   variant?: ToastVariant;
   durationMs?: number;
   action?: ToastAction;

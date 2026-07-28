@@ -76,8 +76,26 @@ PDF → engine(PyMuPDF抽出 + vector/scan判定) → model(Document/Page/Elemen
 - 主要モジュール: `engine/pdf_engine.py`, `model/elements.py`, `export/svg_exporter.py`,
   `dictionary/apply.py`, `web/server.py`, `web/rpc_methods.py`。
 
-> `resources/web/` の `index.html` / `app.js` / `dom.js` / `geometry.js` / `rpc.js` / `styles.css` は
+> `resources/web/` の `index.html` / `app.js`（画面組み立て）/ `state.js`（状態機械 `S` と遷移）/
+> `rail.js`（左ページレール）/ `icons.js` / `dom.js` / `geometry.js` / `rpc.js` / `styles.css` は
 > 手書き管理（`styles.css` のフォントは UI 用に Windows 標準へ差し替え済み）。
+
+### 触りやすさマップ（どこから触るか / どこは慎重に）
+
+初めての変更は 🟢 から着手し、🔴 はレビュー（またはペア作業）を挟むこと。
+禁じ手（Edge 起動フラグ追加・ネイティブピッカー等）は `docs/pdf-to-svg/src/設計正典.md` の
+「却下済み設計」を先に読むこと。
+
+| ゾーン | 場所 | 理由 |
+|---|---|---|
+| 🟢 まず触ってよい | `src/dictionary/`（normalize / store） | 純粋寄り・pytest 完備 |
+| 🟢 | `src/model/elements.py`・`src/engine/classify.py`・`src/engine/colors.py` | dataclass・判定関数。テスト済み |
+| 🟢 | `src/web/undo_stack.py`・`src/web/commands.py` | コマンドパターンの器。テスト済み |
+| 🟢 | `resources/web/geometry.js` | 純粋関数のみ。`test/geometry.test.js` あり |
+| 🟡 注意 | `src/web/rpc_methods.py`・`src/export/`・`src/model/fonts.py`・`src/dictionary/apply.py` | 範囲は広いが 1 RPC = 1 関数で局所改修は可 |
+| 🔴 レビュー必須 | `resources/web/app.js` | 972 行・単一 IIFE・可変グローバル状態多数。自動テストなし |
+| 🔴 | `src/engine/pdf_engine.py` | PyMuPDF 抽出と z 順復元（`_match_seqno`）。AGPL 隔離境界でもある |
+| 🔴 | `src/web/server.py`・`src/app.py` | スレッド・Edge ライフサイクル（/quit + watchdog） |
 
 ---
 
@@ -90,6 +108,11 @@ python -m pytest
 
 抽出→辞書適用→クロップ→SVG 書き出し、正規化、ストア照合、スキャン画像埋め込み、RPC
 ディスパッチ・Undo スタック・SVG 書き出しを網羅。コアは UI/Qt 非依存のため Qt 無しで走る。
+
+フロントは `pnpm --filter pdf-to-svg run test`（vitest: `geometry.js` / `state.js` の純粋関数）と
+`pnpm --filter pdf-to-svg run test:e2e`（Playwright: 実 Python サーバ + 実ブラウザで
+取込→置換→削除/Undo→書き出しを通し、書き出した SVG の中身まで検証。
+`test/e2e_server.py` が Edge を開かず固定ポートで起動する）。
 
 ---
 

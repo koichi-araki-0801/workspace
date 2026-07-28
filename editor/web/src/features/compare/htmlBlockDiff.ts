@@ -22,7 +22,7 @@ import { defaultHtmlParser, type HtmlParser } from '@/lib/htmlParser';
 
 export type BlockStatus = 'same' | 'changed' | 'added' | 'removed';
 
-export interface DiffBlock {
+interface DiffBlock {
   /** 2 版で同じ block を整列させるための安定キー。 */
   key: string;
   status: BlockStatus;

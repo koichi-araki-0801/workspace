@@ -21,8 +21,9 @@ pie-chart が生成した円グラフ SVG を読み込み、**ラベル（文字
    - 行数を変えると、名前と「○○%」を 1 行にまとめる／2 行に分けるが切り替わります。
    - 長体は名前部分だけを横に縮め、高さと「%」部分は変えません。
 6. キーボード：**矢印キー**で 1px ずつ、**Shift+矢印**で 10px ずつ移動。**Ctrl+Z** で元に戻す。
-7. 調整できたら右上の **「保存…」** をクリックし、保存先を選びます。
-   - 元のファイルは上書きされません（別名で保存できます）。
+7. 調整できたら右上の **「保存…」** をクリックします。修正版 SVG が
+   **ダウンロードフォルダに保存**されます（保存先の選択画面は出ません）。
+   - 元のファイルは上書きされません。
 
 > ヒント：元データを直接書き換えるツールではありません。あくまで「出来上がった SVG の見た目を手直しする」ための道具です。
 
@@ -35,12 +36,24 @@ pie-chart が生成した円グラフ SVG を読み込み、**ラベル（文字
 | ファイル | 役割 |
 |---|---|
 | `app.py` | 標準ライブラリの小さな HTTP サーバ（127.0.0.1）で `resources/web/` の `ui.html` と `lib/leader_geom.cjs` を配信し、Edge をアプリモードで起動・常駐管理。実行時の外部依存なし |
-| `resources/web/` | Web 資産集約先（`pdf-to-svg` と同構成）。`ui.html`（UI 本体・WYSIWYG 編集ロジック全部）/ `styles.css` / `js/`（ES モジュール群）/ `lib/leader_geom.cjs` |
+| `resources/web/` | Web 資産集約先（`pdf-to-svg` と同構成）。`ui.html`（画面骨格のみ・インライン JS なし）/ `styles.css` / `js/`（編集ロジック本体の ES モジュール群。`editor.js` が中核）/ `lib/leader_geom.cjs` |
 | `resources/web/lib/leader_geom.cjs` | 引出線まわりの DOM 非依存な純粋関数（`clampPointToBox`/`parsePath`/`buildPath` 等）。`ui.html` と `pie-chart` 側の vitest 単体テストで同一実装を共有（UMD: ブラウザは global `LeaderGeom`、node は `module.exports`） |
 | `requirements.txt` | 実行は標準ライブラリのみ。`pyinstaller`（ビルド時のみ） |
 | `scripts\build.bat` | exe をワンクリックでビルド（`--onefile`、`resources/web/` 一式を同梱） |
 
 pie-chart のレンダラ（`src/`）には一切依存しません。ブラウザエンジンも同梱せず、OS の Edge を使うため配布物は単一 exe（~10MB）です。
+
+### 触りやすさマップ（どこから触るか / どこは慎重に）
+
+初めての変更は 🟢 から着手し、🔴 はレビュー（またはペア作業）を挟むこと。
+
+| ゾーン | 場所 | 理由 |
+|---|---|---|
+| 🟢 まず触ってよい | `js/constants.js`・`js/geom.js`・`js/utils.js`・`js/icons.js` | 定数・純粋関数・部品。影響が局所 |
+| 🟢 | `lib/leader_geom.cjs` | DOM 非依存の純粋関数。vitest でテスト済み |
+| 🟢 | `app.py` | コメントが厚く独立性が高い（ただし Edge 起動フラグと終了契機は設計正典の却下集を先に読む） |
+| 🟡 注意 | `js/label-state.js`・`js/main.js` | DOM 同期・起動/heartbeat。テストが薄い |
+| 🔴 レビュー必須 | `js/editor.js` | 描画スケジューラ（rAF + dirty フラグ）・`load()` の再入レース・undo/redo が同居する中核 |
 
 ### 開発実行
 

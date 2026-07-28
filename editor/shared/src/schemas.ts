@@ -10,8 +10,8 @@
 // `#/components/schemas/<id>` として出力され、使用箇所すべてで `$ref` 参照される。
 // セクション番号は `index.ts` の節構成に揃えている(並走レビューのため)。「(server 専用)」
 // と記したスキーマは HTTP 固有の派生形(body/query)で、対応する shared 型を持たない。
-// 意図的に型と食い違うもの(`AppError` のワイヤ形式 = `cause` 除外 / `ConfirmSaveBody` =
-// path 由来の `templateId` を持たない HTTP 派生)は `test/schemas.test-d.ts` が型テストで固定する。
+// 意図的に型と食い違うもの(`AppError` のワイヤ形式 = `cause` 除外)は
+// `test/schemas.test-d.ts` が型テストで固定する。
 
 // zod-openapi を import すると Zod の `.meta()` 型が OpenAPI 固有フィールド
 // (`id`, `param` ...)で拡張される。実行時の影響は無い。
@@ -416,22 +416,6 @@ export const SaveDraftRequest = z
     css: z.string(),
   })
   .meta({ id: 'SaveDraftRequest' });
-
-/**
- * (server 専用) 確定保存のボディ。`templateId` はパスから取るため、ボディは内容のみを運ぶ
- * (shared の `ConfirmSaveRequest` から `templateId`/`filledHtml` を除いた HTTP 派生。
- * この対応は `test/schemas.test-d.ts` が固定する)。`PUT /templates/:id` に対応。
- */
-export const ConfirmSaveBody = z
-  .object({
-    html: z.string().meta({ description: '復元済みの Jinja2 生 HTML' }),
-    css: z.string().meta({ description: 'fund 共有 CSS にマージする CSS' }),
-    fundCode: z.string(),
-  })
-  .meta({ id: 'ConfirmSaveBody' });
-
-/** `confirmSave` は更新後の `TemplateMeta` を返す(Repository 契約に対応)。 */
-export const ConfirmSaveResult = TemplateMeta;
 
 /** インライン build のリクエストボディ(レンダリング済み HTML + 任意 CSS → PDF)。 */
 export const BuildInlineRequest = z

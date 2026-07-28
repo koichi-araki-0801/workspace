@@ -6,18 +6,12 @@
 // ときに CI(vitest typecheck モード)が即座に落ちるようにする。
 import { describe, expectTypeOf, it } from 'vitest';
 import type { z } from 'zod';
-import type { AppError, AppErrorKind, ConfirmSaveRequest } from '../src/index.js';
+import type { AppError, AppErrorKind } from '../src/index.js';
 import type * as sch from '../src/schemas.js';
 
 describe('schemas と手書き型の意図的差分', () => {
   it('AppError: ワイヤ形式はログ専用の cause を除いた形(クライアントへ送らない)', () => {
     expectTypeOf<z.infer<typeof sch.AppError>>().toEqualTypeOf<Omit<AppError, 'cause'>>();
     expectTypeOf<z.infer<typeof sch.AppErrorKind>>().toEqualTypeOf<AppErrorKind>();
-  });
-
-  it('ConfirmSaveBody: templateId はパス・filledHtml は申請経路のみが運ぶ HTTP 派生', () => {
-    expectTypeOf<z.infer<typeof sch.ConfirmSaveBody>>().toEqualTypeOf<
-      Omit<ConfirmSaveRequest, 'templateId' | 'filledHtml'>
-    >();
   });
 });

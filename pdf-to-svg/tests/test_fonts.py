@@ -61,8 +61,6 @@ def test_morisawa_ud_fonts():
     assert map_font("UDShinGoNTPr6N-Light", "あ") == MappedFont("BIZ UDPGothic", weight=300)
     assert map_font("UDShinGoNTPr6N-Medium", "あ") == MappedFont("BIZ UDPGothic", weight=500)
     assert map_font("UDShinGoNTPr6N-DeBold", "あ") == MappedFont("BIZ UDPGothic", weight=600)
-    assert map_font("UDShinGoNTPr6N-DeBold", "あ").bold is True
-    assert map_font("UDReiminPr6N-Light", "あ").bold is False
     assert map_font("RyuminPro-Regular", "あ") == MappedFont("Noto Serif JP", weight=400)
     assert map_font("ShinGoPro-DB", "あ") == MappedFont("BIZ UDPGothic", weight=600)
 
@@ -78,7 +76,7 @@ def test_unmatched_heuristics():
     assert map_font("FancySerif", "請求書").family == "Noto Serif JP"
     # スタイルトークンは未知名でも拾う
     m = map_font("UnknownFont-Bold", "abc")
-    assert m.family == "Arial" and m.bold
+    assert m.family == "Arial" and m.weight == 700
 
 
 def test_contains_japanese():

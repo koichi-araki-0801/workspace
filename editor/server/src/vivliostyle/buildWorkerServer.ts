@@ -21,7 +21,7 @@ interface WorkerReply {
  * `fork` した常駐 daemon を 1 プロセス内包する `BuildWorker`。プールが直列化するため、同時に
  * 1 ジョブのみ in-flight になる(`pending` は最大 1 件)。
  */
-export class ForkedBuildWorker implements BuildWorker {
+class ForkedBuildWorker implements BuildWorker {
   private readonly child: ChildProcess;
   private seq = 0;
   private readonly pending = new Map<number, { resolve: () => void; reject: (e: Error) => void }>();

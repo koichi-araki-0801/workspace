@@ -7,7 +7,7 @@
 // 使えるようにする。監視の帳簿は `Map` 1 つ(has 判定・unmount 時の列挙・解放を全て賄う)。
 import { onBeforeUnmount } from 'vue';
 
-export interface IframeAutoFit {
+interface IframeAutoFit {
   /** `<iframe @load>` ハンドラ。初回フィット + 以降の幅変化監視を仕掛ける。 */
   fitFrame(e: Event): void;
 }

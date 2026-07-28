@@ -154,6 +154,9 @@ pie-chart/
 │   │   ├── mode_passes.ts      — モード特化パス (左列 / top-band クラスタ / 右上逃がし)
 │   │   ├── emit_repair.ts      — emit 修復パス列 (EMIT_REPAIR_PASSES) + 採点・do-no-harm ゲート基盤
 │   │   ├── leader_geometry.ts  — leader 幾何 (交差・貫通・角度整合の計測)
+│   │   │                         ※ graph-editor の resources/web/lib/leader_geom.cjs は
+│   │   │                           意図的な並行実装 (共通化は禁じ手・graph-editor 設計正典
+│   │   │                           参照)。幾何仕様を変えるときは両側を突き合わせる
 │   │   ├── rendering.ts        — 座標変換 + slice path + text + 視覚 em 推定
 │   │   ├── post_layout.ts      — overlap 解消 / compactify cascade /
 │   │   │                         半角カナ fallback / 視覚 viewBox nudge
@@ -241,6 +244,23 @@ RenderResult { svg, diagnostics, config }
 - **`layout/diagnostics.ts` / `layout/placement.ts` は 1 ファイル**: 公開 API は 1 関数 (`layoutLabels` / `drawLabelFragments`) で、サブモジュール化は内部詳細にすぎず grep 性が下がる。section header コメントで「profiles / diagnostics / ...」を識別できれば十分
 - **`svg_export/` は subdir 維持**: rendering (純粋関数) / post_layout (placement 修正) / font (async I/O + 独自依存) / orchestrator は性質が異なるため分けるメリットあり
 
+## 触りやすさマップ（どこから触るか / どこは慎重に）
+
+初めての変更は 🟢 から着手し、🔴 は設計正典（`docs/pie-chart/src/設計正典.md` の
+「触る前のチェックリスト」）を読んでからレビュー付きで触ること。
+
+| ゾーン | 場所 | 理由 |
+|---|---|---|
+| 🟢 まず触ってよい | `src/layout/geometry.ts` | 副作用なしの純粋幾何ヘルパー約 60 個。`test/geometry.test.ts` が手厚い |
+| 🟢 | `src/config.ts`・`src/input/` | 定数の集約・入力正規化。端の層に隔離済み |
+| 🟢 | `src/verify/oracle_sync.ts` | 定数追加は照合付きで安全 |
+| 🟡 局所なら可 | `src/layout/placement.ts` | 10 個の `placeXxxLabel` は角度ゾーンごとに独立。1 関数の理解で 1 ケース触れる |
+| 🔴 レビュー必須 | `src/svg_export/emit_repair.ts` | パス順序・stage/gate・循環 import・FP 演算順序が絡む最難関 |
+| 🔴 | `src/svg_export/pipeline.ts`・`mode_passes.ts` | orchestrator と fallback 群・モード特化パス |
+| 🔴 | `src/layout/diagnostics.ts` のモード判定 | フラグ間の相互作用が非自明（`mark_flags` ゴールデンが分布を固定） |
+
+`src/glyph_advance/*` は生成物（`npm run gen:widths`）なので手で編集しない。
+
 ## コメント規約
 
 コメント規約の正典は **`docs/コメント規約.md`**（全プロジェクト共通）。言語・識別子バッククォート・
@@ -258,6 +278,10 @@ SVG 出力は**完全に決定的**なので、リファクタ・コメント変
 - **byte-diff**: `npm run batch` → `npm run batch:diff`。`scripts/batch_diff.mjs` が
   `out/svg_js` ⇔ `out/_baseline` を SHA256 で全件比較し、差分があれば非 0 exit +
   ファイル名を列挙する。
+- **baseline の初回作成 / 更新**: `out/_baseline` はローカル生成物（git 管理外）で clone 直後は
+  存在しない。**必ずコミット済みのクリーンな状態で** `npm run batch` → `npm run baseline:accept`
+  を 1 回実行して基準を作る。出力変更を意図した確定時も同じコマンドで更新する
+  （未検証の変更を基準に凍結すると以後 byte-diff が退行を検出できなくなる）。
 - **`npm run verify` は `out/svg_js` の既存 SVG を読む（再レンダーしない）**。コード変更後は
   必ず `npm run batch` を先行させてから verify / `npm run verify:consistency` を読む。
 - **特性テスト**（`npx vitest run`）: byte-diff はサンプル入力の分布しか守らないため、特性テストで
@@ -269,6 +293,16 @@ SVG 出力は**完全に決定的**なので、リファクタ・コメント変
   `PIE_CHART_STOP_AFTER_PASS=<name>` で犯人パスの二分探索（`EMIT_REPAIR_PASSES` の name を指定）。
 - **do-no-harm の採否述語（better / swapBetter 等）はパス仕様そのもの** — ヘルパーへ焼き込まず、
   一字一句変えない（FP 演算順序が変わると数学的等価でも byte が動く）。
+
+### 初心者向けの落とし穴（等価に見えるのに壊れる 2 大制約）
+
+- **FP 演算順序への依存**: 出力は byte 単位で決定的なため、数学的に等価な式変形
+  （例: `a*b + a*c` → `a*(b+c)`）でも浮動小数の丸めが変わり出力 byte が動く。
+  「等価だからリファクタしてよい」は本プロジェクトでは成り立たない — `batch:diff` で必ず確認する。
+- **循環 import + 関数宣言 hoisting 依存**: `emit_repair.ts ⇄ pipeline.ts ⇄ mode_passes.ts` は
+  相互 import しており、関数宣言の hoisting によって初めて安全に動いている。ここへ
+  トップレベル評価（定数の即時初期化など）を持ち込むとランタイム未定義エラーを踏む。
+  import を追加・並べ替えする前に各ファイル冒頭の設計コメントを読むこと。
 
 ## 注意
 

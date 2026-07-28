@@ -48,4 +48,4 @@ function showToast(msg) {
   _toastTimer = setTimeout(() => t.classList.remove("on"), 2200);
 }
 
-export { ICONS, drawIcons, showToast };
+export { drawIcons, showToast };

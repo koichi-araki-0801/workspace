@@ -18,7 +18,7 @@ import { getBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
 
 /** editor が template を編集用に開くために必要な一式。 */
-export interface EditorLoad {
+interface EditorLoad {
   template: Template;
   /** 編集可能(Jinja-mask 済み)形式の body HTML — draft 由来、または新規に mask したもの。 */
   editableBody: string;
@@ -31,7 +31,7 @@ export interface EditorLoad {
   hasDraft: boolean;
 }
 
-export interface TemplateEditorService {
+interface TemplateEditorService {
   loadForEdit(id: string): Promise<Result<EditorLoad>>;
   saveDraft(id: string, html: string, css: string): Promise<Result<void>>;
   /** 確定保存せずメニューへ戻る際に未確定 draft を破棄する。 */

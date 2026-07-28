@@ -16,12 +16,15 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
   - .pnpm-store/        … 依存パッケージのオフラインストア（content-addressable）
   - pnpm.tgz            … pnpm 11 本体（corepack 用オフライン tarball）
   - ms-playwright/      … Playwright 用 Chromium（E2E テスト用）
-  - python-wheelhouse/  … Python ビルド依存の wheel（pdf-to-svg / graph-editor の exe ビルド用）
+  - python-wheelhouse/  … Python 依存の wheel（pdf-to-svg / graph-editor の exe ビルド用 +
+                          docs 閲覧 HTML ビルド用: markdown-it-py / python-frontmatter / PyYAML）
   - git-tools/          … PortableGit / TortoiseGit（editor のテンプレ版管理に使う git。
                           air-gapped 機に git が無くても動くよう同梱。setup が展開・導入する）
+  - docs/_build/vendor/mermaid*.js … docs の Mermaid 描画ランタイム + ELK レイアウト（計 ~4.3MB。
+                          git に入れず同梱し setup が vendor へ展開。版は docs/_build/vendor/manifest.txt）
   これらは offline-deps-bundle.tar.gz 1 ファイルに固めて Release に置かれます。
-  内容（pnpm-lock.yaml / packageManager / 各 requirements.txt / git-tools/manifest.txt）に
-  変更が無い限り再アップロードされません。
+  内容（pnpm-lock.yaml / packageManager / 各 requirements.txt / git-tools/manifest.txt /
+  docs/_build/vendor/manifest.txt）に変更が無い限り再アップロードされません。
 
   ※ setup（オンライン/完全オフラインとも）は git-tools の PortableGit を
      git-tools\portablegit\ へ自己展開し、ユーザー PATH と環境変数 GIT_BIN を設定する
@@ -103,9 +106,20 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
       Source code が最新ソースに更新される）
     - 重量物は content key（pnpm-lock.yaml + packageManager + 各 requirements.txt）に
       差分がある時だけ再生成・再アップロード（差分が無ければ据え置き）
+
+  ★ opt-in 方式（2026-07 変更）: フックは公開に使う clone で 1 回だけ
+       git config offline.publish true
+     を実行した環境でのみ動きます。新規 clone・オフライン運用環境では既定でスキップ
+     され、コミット時に skip の 1 行が表示されます（公開担当者が新しい clone へ移った
+     ときは上記コマンドを再実行してください。確認: git config --get offline.publish）。
+
   手動で実行する場合:
        pwsh -File offline\publish-offline-bundle.ps1
-  フックを一時的に無効化したい場合は環境変数 OFFLINE_PUBLISH_SKIP=1 を設定。
+  opt-in 済み環境で一時的に無効化したい場合は環境変数 OFFLINE_PUBLISH_SKIP=1 を設定。
+
+  ※ 公開担当者の環境には Claude Code のローカルフック（.claude/hooks/ の
+     auto-push / pie-chart-baseline。git 管理外）が別途あり、新規 clone には
+     伝播しません（commit 後の自動 push 等はこのローカル設定によるもの）。
 
 ------------------------------------------------------------------------------
 ■ トラブルシュート

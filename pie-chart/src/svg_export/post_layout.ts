@@ -47,13 +47,13 @@ import { detectVisualHorizontalOverflow } from './rendering.js';
 /** 重なり量がこの値 (px) 未満なら警告に達しないので無視する閾値。重なり警告の境界
  *  (8px) に対し、bbox 推定差で取りこぼす境界ケース (8px ちょうど) を確実に解消するため
  *  僅かに低く設定する。 */
-export const OVERLAP_THRESHOLD_PX = 6;
+const OVERLAP_THRESHOLD_PX = 6;
 /** 1 パス内での同じペアに対する押し離し試行回数の上限。 */
-export const OVERLAP_MAX_ITER = 8;
+const OVERLAP_MAX_ITER = 8;
 /** 主パスで対角押しに切り替える dy 正規化の最小値。 */
-export const OVERLAP_DIAG_MIN_DY_NORM = 0.3;
+const OVERLAP_DIAG_MIN_DY_NORM = 0.3;
 /** 横方向の隙間がこの px 未満かつ縦に重なるペアを Secondary パスで縦分離する。 */
-export const OVERLAP_HORIZ_NEAR_GAP_PX = 24;
+const OVERLAP_HORIZ_NEAR_GAP_PX = 24;
 /** resolveLabelOverlaps + nudgeTextAwayFromPie の交互反復回数。 */
 export const POST_LAYOUT_PASS_COUNT = 4;
 
@@ -114,7 +114,7 @@ export function clampPlacement(placement: Placement, cfg?: PieLayoutConfig): voi
  * placement.x の変更後、leader endpoint が pie 中心 (x=0) を跨いで anchor の
  * 反対側へ移った場合、placement.x を「leader endpoint が x=0 に戻る位置」へ引き戻す。
  */
-export function clampToAnchorSide(p: Placement): void {
+function clampToAnchorSide(p: Placement): void {
   // 上部「その他」を右上へ第一優先で置いたラベルは中心跨ぎの引き戻しを免除 (anchorX が
   // 僅かに負でも右側を維持する)。
   if (p.forceTopRight) return;
@@ -330,7 +330,7 @@ export function resolveLabelOverlaps(textPlacements: Placement[], cfg: PieLayout
 //   6) 180° 寄り long の revert
 // =============================================================================
 
-export const COMPACT_CASCADE_MAX_ATTEMPTS = 10;
+const COMPACT_CASCADE_MAX_ATTEMPTS = 10;
 
 /** dense + 第3パス flip で pre-compact を発動する閾値 = oneSideVeryDenseThreshold + 1。 */
 function denseUpperLeftPrecompactThreshold(cfg: PieLayoutConfig): number {

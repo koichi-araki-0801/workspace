@@ -174,19 +174,6 @@ export function buildOpenApiDocument() {
           requestParams: { path: z.object({ id: z.string() }) },
           responses: { '200': json('テンプレート', s.Template), ...ERR_401, ...ERR_404 },
         },
-        put: {
-          tags: ['templates'],
-          summary: '確定保存(テンプレートファイル + fund 共有 CSS を書き込み)',
-          operationId: 'confirmSave',
-          requestParams: { path: z.object({ id: z.string() }) },
-          requestBody: { content: { 'application/json': { schema: s.ConfirmSaveBody } } },
-          responses: {
-            '200': json('保存結果', s.ConfirmSaveResult),
-            ...ERR_400,
-            ...ERR_401,
-            ...ERR_500,
-          },
-        },
       },
       [toOpenApiPath(apiPaths.templateDraft)]: {
         get: {

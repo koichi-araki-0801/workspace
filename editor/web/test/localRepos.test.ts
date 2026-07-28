@@ -4,7 +4,7 @@ import { localAuthRepo } from '@/api/local/authRepo';
 import { localHistoryRepo } from '@/api/local/historyRepo';
 import { localPartRepo } from '@/api/local/partRepo';
 import { K, partCatalog } from '@/api/local/store';
-import { localTemplateRepo } from '@/api/local/templateRepo';
+import { confirmSaveLocal, localTemplateRepo } from '@/api/local/templateRepo';
 import { localUserRepo } from '@/api/local/userRepo';
 
 beforeEach(() => localStorage.clear());
@@ -40,14 +40,14 @@ describe('localTemplateRepo.getTemplate', () => {
   });
 });
 
-describe('localTemplateRepo confirmSave round-trip', () => {
+describe('confirmSaveLocal round-trip', () => {
   it('persists html/css and marks the template published', async () => {
     const list = await localTemplateRepo.listTemplates({});
     expect(isOk(list)).toBe(true);
     if (!isOk(list) || list.value.length === 0) return;
     const target = list.value[0];
 
-    const saved = await localTemplateRepo.confirmSave({
+    const saved = await confirmSaveLocal({
       templateId: target.id,
       html: '<p>round-trip</p>',
       css: '.x{}',
@@ -70,13 +70,13 @@ describe('localUserRepo.updateUser', () => {
   });
 });
 
-describe('confirmSave version snapshots', () => {
+describe('confirmSaveLocal version snapshots', () => {
   it('captures a snapshot retrievable via getSnapshot and listVersions', async () => {
     const list = await localTemplateRepo.listTemplates({});
     if (!isOk(list) || list.value.length === 0) return;
     const target = list.value[0];
 
-    const saved = await localTemplateRepo.confirmSave({
+    const saved = await confirmSaveLocal({
       templateId: target.id,
       html: '<p>v1</p>',
       css: '.v1{}',

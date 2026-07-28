@@ -2,13 +2,13 @@
 // seed.ts — 版の比較(compare)画面向けの一度きりサンプルデータ投入
 // =============================================================================
 // 役割: 確定版履歴(`K.editHist`)・凍結 snapshot(`K.snapshots`)・公開ステータス
-// (`META_KEY`)は通常 `confirmSave` が実行時にのみ生成する。空ストアでは比較対象が
+// (`META_KEY`)は通常 `confirmSaveLocal` が実行時にのみ生成する。空ストアでは比較対象が
 // 無いため、複数の確定版を持つテンプレートを数件 seed する。ガード付きで一度だけ
 // 実行し、既存のユーザーデータは決して上書きしない。
 import type { EditHistoryEntry, TemplateMeta, TemplateSnapshot } from '@editor/shared';
 import { fixtureCss, fixtureTemplates, K, META_KEY, read, write } from './store';
 
-export const SEED_KEY = 'editor:seed:compare';
+const SEED_KEY = 'editor:seed:compare';
 const SEED_USER = '佐藤花子';
 
 interface SeedVersion {
