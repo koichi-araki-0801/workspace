@@ -395,7 +395,7 @@ import { initRail, buildRail } from "./rail.js";
   function pageLabel() { var pg = S.PAGES[S.page]; return "<b>" + esc(S.FILES[pg.fileIndex].name) + "</b> ・ " + (pg.pageInFile + 1) + " ページ"; }
 
   // ── 13. 辞書ペイン ──
-  var dictState = { entries: [], onlyHeaders: true, suggestJoin: false };
+  var dictState = { entries: [], suggestJoin: false };
   // クリック取り込みが折返し連結した候補かの記憶。登録時にエントリの連結由来
   // (joined) として送り、一括適用の連結照合の対象を決める。#dict-src を手編集
   // したら連結由来は外す (連結文字列でなくなるため)。
@@ -417,8 +417,6 @@ import { initRail, buildRail } from "./rail.js";
         dictState = await rpc("dictDelete", { id: +b.dataset.del }); renderDict();
       });
     });
-    var chk = document.getElementById("chk-headers");
-    chk.querySelector(".box").classList.toggle("on", !!dictState.onlyHeaders);
     var chkJoin = document.getElementById("chk-suggest-join");
     chkJoin.querySelector(".box").classList.toggle("on", !!dictState.suggestJoin);
   }
@@ -654,7 +652,7 @@ import { initRail, buildRail } from "./rail.js";
     });
   }
 
-  /** 辞書ペイン (追加・ヘッダのみ・折返し連結・再適用・入出力) */
+  /** 辞書ペイン (追加・折返し連結・再適用・入出力) */
   function wireDictPane() {
     document.getElementById("dict-add").addEventListener("click", async function () {
       var src = document.getElementById("dict-src"); var tgt = document.getElementById("dict-tgt");
@@ -666,10 +664,6 @@ import { initRail, buildRail } from "./rail.js";
     // 元の語を手編集したら連結由来を外す (取り込んだ連結文字列ではなくなるため)
     document.getElementById("dict-src").addEventListener("input", function () {
       pendingJoined = false;
-    });
-    document.getElementById("chk-headers").addEventListener("click", async function () {
-      dictState.onlyHeaders = !dictState.onlyHeaders;
-      await rpc("setOnlyHeaders", { value: dictState.onlyHeaders }); renderDict();
     });
     document.getElementById("chk-suggest-join").addEventListener("click", async function () {
       dictState.suggestJoin = !dictState.suggestJoin;

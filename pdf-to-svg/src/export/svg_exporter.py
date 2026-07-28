@@ -139,10 +139,23 @@ def _text_to_svg(el: TextElement) -> str:
     if el.text == el.original_text:
         # 未編集: 元 PDF のベースライン原点に置く (従来出力と完全一致)。
         x, y, base = el.origin_x, el.origin_y, ""
+    elif el.wrap_align is not None:
+        # 折返し畳み込み置換: 縦は下揃え (origin_y = 最終行のベースラインに据え直し済み)、
+        # 横は元の折返し行の揃え (`wrap_align`) を text-anchor で踏襲する。全幅への
+        # 引き伸ばしはせず、合成領域の幅を超える恐れがあるときだけ textLength で圧縮する。
+        y, base = el.origin_y, ""
+        if el.wrap_align == "center":
+            x, base = el.bbox.x + el.bbox.w / 2, ' text-anchor="middle"'
+        elif el.wrap_align == "right":
+            x, base = el.bbox.x1, ' text-anchor="end"'
+        else:
+            x = el.bbox.x
+        if not fonts.is_width_overflow(el.text, el.font_size, el.bbox.w):
+            stretch = ""
     else:
-        # 置換後: 元グリフ箱に収め、水平は左端 + 元幅 (揃え維持)、垂直は箱の縦中央へ
-        # `dominant-baseline="central"` で据える。フォント置換でアセントが変わっても
-        # 縦中央が保たれ、ベースライン据えで起きる「上詰まり」を防ぐ。
+        # 置換後 (単独行): 元グリフ箱に収め、水平は左端 + 元幅 (揃え維持)、垂直は箱の
+        # 縦中央へ `dominant-baseline="central"` で据える。フォント置換でアセントが
+        # 変わっても縦中央が保たれ、ベースライン据えで起きる「上詰まり」を防ぐ。
         x = el.bbox.x
         y = el.bbox.y + el.bbox.h / 2
         base = ' dominant-baseline="central"'

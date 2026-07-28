@@ -41,7 +41,6 @@ def start_server():
     store = DictionaryStore(pathlib.Path(tmpdir) / "dictionary.json")
     store.add("Header A", "見出し A")  # ステップ2で実際の置換を見せるための種
     session = WebSession(store, UndoStack())
-    session.only_headers = True  # 既定どおりヘッダのみ（"Header A" は見出し検出される）
     server = create_server(str(ROOT / "resources" / "web"), session)
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()

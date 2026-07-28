@@ -50,16 +50,22 @@ class ReplaceTextCommand:
         new_text: str,
         dict_match: Optional[DictMatch] = None,
         new_bbox: Optional[Rect] = None,
+        wrap_align: Optional[str] = None,
+        baseline_y: Optional[float] = None,
     ):
         self.el = el
         self.new_text = new_text
         self.dict_match = dict_match
-        # 折返し畳み込み時に結合テキストを据え直す合成領域 (`dictionary/apply.py` の
-        # `Replacement.new_bbox`)。None なら bbox は変更しない。
+        # 折返し畳み込み時に結合テキストを据え直す合成領域と据え方 (`dictionary/apply.py`
+        # の `Replacement.new_bbox` / `align` / `baseline_y`)。None なら変更しない。
         self.new_bbox = new_bbox
+        self.wrap_align = wrap_align
+        self.baseline_y = baseline_y
         self.old_text = el.text
         self.old_match = el.dict_match
         self.old_bbox = el.bbox
+        self.old_wrap_align = el.wrap_align
+        self.old_origin_y = el.origin_y
 
     def redo(self) -> None:
         self.el.text = self.new_text
@@ -67,8 +73,14 @@ class ReplaceTextCommand:
             self.el.dict_match = self.dict_match
         if self.new_bbox is not None:
             self.el.bbox = self.new_bbox
+        if self.wrap_align is not None:
+            self.el.wrap_align = self.wrap_align
+        if self.baseline_y is not None:  # 折返し畳み込みは下揃え (最終行のベースライン)
+            self.el.origin_y = self.baseline_y
 
     def undo(self) -> None:
         self.el.text = self.old_text
         self.el.dict_match = self.old_match
         self.el.bbox = self.old_bbox
+        self.el.wrap_align = self.old_wrap_align
+        self.el.origin_y = self.old_origin_y

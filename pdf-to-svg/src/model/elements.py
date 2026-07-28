@@ -88,6 +88,10 @@ class TextElement(Element):
     origin_y: float = 0.0  # ベースライン原点 (SVG <text> の y)
     is_header: bool = False
     dict_match: Optional[DictMatch] = None
+    # 折返し畳み込み置換の水平揃え ("left"/"center"/"right")。None = 非連結の通常要素。
+    # 設定時は SVG 出力が bbox (折返しグループの合成領域) の左/中央/右へ anchor し、
+    # 縦は origin_y (最終行のベースラインへ据え直し済み) の下揃えで描く。
+    wrap_align: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not self.original_text:

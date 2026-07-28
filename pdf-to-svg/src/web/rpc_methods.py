@@ -40,7 +40,6 @@ class WebSession:
         self.store = store
         self.undo = undo  # QUndoStack (test では push() を持つ任意オブジェクト可)
         self.docs: List[Document] = []
-        self.only_headers: bool = True
         # クリック取り込み (dictSuggest) で折返し 2 行を連結するか。既定 OFF で、
         # チェックボックス ON のときだけ連結候補を返す (連結由来はエントリへ記録)。
         self.suggest_join: bool = False
@@ -110,7 +109,7 @@ def rpc_state(s: WebSession, _args: dict) -> dict:
             # 手順3: トリミングは全ページが対象 (各ページを見て確認/スキップ)。
             changed3.append(True)
     total = len(pages)
-    # onlyHeaders / suggestJoin は state には含めない (クライアントの読者は
+    # suggestJoin は state には含めない (クライアントの読者は
     # files/pages/total/changed2/changed3 のみ。辞書設定は dictList 側ペイロードが正)。
     return {
         "files": files,
@@ -180,7 +179,6 @@ def _dict_payload(s: WebSession) -> dict:
              "enabled": m.enabled, "joined": m.joined}
             for m in s.store.all()
         ],
-        "onlyHeaders": s.only_headers,
         "suggestJoin": s.suggest_join,
     }
 
@@ -229,11 +227,6 @@ def rpc_dictSuggest(s: WebSession, args: dict) -> dict:
     return {"source": source, "joined": joined}
 
 
-def rpc_setOnlyHeaders(s: WebSession, args: dict) -> dict:
-    s.only_headers = bool(args.get("value", True))
-    return {"onlyHeaders": s.only_headers}
-
-
 def rpc_setSuggestJoin(s: WebSession, args: dict) -> dict:
     s.suggest_join = bool(args.get("value", False))
     return {"suggestJoin": s.suggest_join}
@@ -253,6 +246,8 @@ def _apply_plans(s: WebSession, plans) -> dict:
                 rep.element, rep.target,
                 DictMatch(source=rep.source, target=rep.target),
                 new_bbox=rep.new_bbox,
+                wrap_align=rep.align,
+                baseline_y=rep.baseline_y,
             )
         )
         if rep.extras:  # 折返しヘッダの 2 行目以降を描画から除外
@@ -268,16 +263,16 @@ def rpc_reapplyDict(s: WebSession, _args: dict) -> dict:
     """全ファイル・全ページに辞書を再適用 (Undo 可・1 マクロ)。置換件数を返す。"""
     plans = []
     for _fi, _pi, pg in s.all_pages():
-        dict_apply.detect_headers(pg)
-        plans.extend(dict_apply.plan_replacements(pg, s.store, s.only_headers))
+        dict_apply.detect_headers(pg)  # 確認一覧の「ヘッダ/本文」表示 (loc) 用
+        plans.extend(dict_apply.plan_replacements(pg, s.store))
     return _apply_plans(s, plans)
 
 
 def rpc_reapplyDictPage(s: WebSession, args: dict) -> dict:
     """指定ページにのみ辞書を再適用 (Undo 可・1 マクロ)。置換件数を返す。"""
     pg = s.page(int(args["fileIndex"]), int(args["pageInFile"]))
-    dict_apply.detect_headers(pg)
-    plans = dict_apply.plan_replacements(pg, s.store, s.only_headers)
+    dict_apply.detect_headers(pg)  # 確認一覧の「ヘッダ/本文」表示 (loc) 用
+    plans = dict_apply.plan_replacements(pg, s.store)
     return _apply_plans(s, plans)
 
 
@@ -423,7 +418,6 @@ HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "dictImportJson": rpc_dictImportJson,
     "exportSvg": rpc_exportSvg,
     "zipEntries": rpc_zipEntries,
-    "setOnlyHeaders": rpc_setOnlyHeaders,
     "setSuggestJoin": rpc_setSuggestJoin,
     "reapplyDict": rpc_reapplyDict,
     "reapplyDictPage": rpc_reapplyDictPage,

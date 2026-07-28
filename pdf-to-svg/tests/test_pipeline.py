@@ -51,7 +51,7 @@ def test_dictionary_auto_apply_on_header(vector_pdf, tmp_path):
     pg = doc.pages[0]
     store = DictionaryStore(tmp_path / "d.json")
     store.add("Header A", "見出し A")
-    n = dict_apply.auto_apply(pg, store, only_headers=True)
+    n = dict_apply.auto_apply(pg, store)
     assert n == 1
     svg = page_to_svg(pg)
     assert "見出し A" in svg
@@ -98,7 +98,7 @@ def test_svg_replaced_text_centered_in_box(vector_pdf, tmp_path):
     cx, cy = el.bbox.x, el.bbox.y + el.bbox.h / 2
     store = DictionaryStore(tmp_path / "d.json")
     store.add("Header A", "見出し")
-    dict_apply.auto_apply(pg, store, only_headers=True)
+    dict_apply.auto_apply(pg, store)
     store.close()
     svg = page_to_svg(pg)
     line = next(ln for ln in svg.splitlines() if "見出し" in ln)
@@ -125,7 +125,7 @@ def test_svg_embeds_bundled_font_for_japanese(vector_pdf, tmp_path):
     pg = doc.pages[0]
     store = DictionaryStore(tmp_path / "d.json")
     store.add("Header A", "見出し A")
-    dict_apply.auto_apply(pg, store, only_headers=True)
+    dict_apply.auto_apply(pg, store)
     store.close()
     svg = page_to_svg(pg)
     assert "@font-face" in svg
