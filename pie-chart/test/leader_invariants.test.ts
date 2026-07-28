@@ -296,7 +296,10 @@ describe('leader 幾何の不変条件 (実レンダリング)', () => {
       for (const l of leaders) {
         expect(l.points.length - 2, `"${l.name}" の曲がり回数`).toBeLessThanOrEqual(1);
       }
-    });
+      // pre-push の `ci:affected` 併走下では 1 サンプルのレンダリングが既定 5s を境界超え
+      // する実測 (currency_many_small_10 で 5.1s)。上の集約テストと同じ「併走実測を余裕
+      // 込みで収める」方針で広げる (検査ロジック・閾値は不変)。
+    }, 30_000);
   }
 });
 
