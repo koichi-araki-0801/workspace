@@ -24,7 +24,7 @@ import type { PieLayoutConfig, Scale, Placement, LayoutItem } from '../types.js'
 // 1. coordinate system
 // =============================================================================
 
-export interface CoordSystem {
+interface CoordSystem {
   width: number;
   height: number;
   unitScale: number;
@@ -102,7 +102,7 @@ export function buildSlicePath(
 }
 
 /** computeArcs の戻り値: LayoutItem に弧の開始/終了角 (rad) を付与したもの。 */
-export type Arc = LayoutItem & { startAngle: number; endAngle: number };
+type Arc = LayoutItem & { startAngle: number; endAngle: number };
 
 /** 各スライスに startAngle / endAngle (rad) を付与する */
 export function computeArcs(items: LayoutItem[], cfg: PieLayoutConfig): Arc[] {
@@ -137,7 +137,7 @@ export function escapeXml(value: unknown): string {
  * - rest: 1 行レイアウト時に名前の後ろへ原寸で続ける部分 (例 " 25%")。2 行時は未使用。
  * - nameScaleX: 横圧縮率 (<1)。1 以上なら圧縮なし扱い。
  */
-export interface CondenseSpec {
+interface CondenseSpec {
   nameScaleX: number;
   name: string;
   rest: string;

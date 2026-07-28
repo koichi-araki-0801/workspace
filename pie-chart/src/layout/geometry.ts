@@ -26,7 +26,7 @@ export interface Extent {
   height: number;
 }
 
-export interface ArcSpan {
+interface ArcSpan {
   startAngle: number;
   endAngle: number;
   midAngle: number;
@@ -177,7 +177,7 @@ export function radToDeg(rad: number): number {
 }
 
 /** スライス名のうち「その他」カテゴリを表す前方一致プレフィックス。 */
-export const OTHER_CATEGORY_PREFIX = 'その他';
+const OTHER_CATEGORY_PREFIX = 'その他';
 
 /**
  * スライス名が「その他」カテゴリか (前方一致) を返す。配置(右上逃がし等)・ソート末尾固定・
@@ -560,7 +560,7 @@ export function labelOutwardClearance(item: LayoutItem, base: number): number {
   return base + extra;
 }
 
-export interface LabelLines {
+interface LabelLines {
   isCompact: boolean;
   lines: string[];
   longestUnits: number;

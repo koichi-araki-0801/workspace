@@ -2107,7 +2107,7 @@ export function repairResidualLeaderDefects(
 /** `EMIT_REPAIR_PASSES` の 1 エントリが実行する修復パス本体。 */
 type EmitPassFn = (placements: Placement[], cfg: PieLayoutConfig, view: Coord) => void;
 
-export interface EmitRepairPass {
+interface EmitRepairPass {
   /** デバッグログ・`PIE_CHART_STOP_AFTER_PASS`・特性テストで参照する一意名。 */
   name: string;
   /** 発火条件 (未指定 = 常時)。現状は leftStackMode 限定の 2 群のみ。 */

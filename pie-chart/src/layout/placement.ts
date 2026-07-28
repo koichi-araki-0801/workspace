@@ -104,7 +104,7 @@ export const BOTTOM_BAND_HALF_WIDTH_DEG = 18;
 export const TOP_BAND_SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG = 32;
 
 /** 上部「その他」の帯ゾーン。core=12時バンド内 / leftExt=左拡張帯 / null=対象外。 */
-export type TopBandSonohokaZone = 'core' | 'leftExt' | null;
+type TopBandSonohokaZone = 'core' | 'leftExt' | null;
 
 /**
  * name が「その他」前方一致のラベルについて、midAngle がどの上部帯に入るかを返す。
@@ -150,7 +150,7 @@ export const BISECT_PAIR_MIN_PCT = 90;
  * 6 文字名 (例「投資信託証券」) がスライス境界と右リムに迫るため、横圧縮して左右クリアランスを
  * 均等に確保する。`computeInsideOptions` が `buildForm` の `nameScaleX` へ渡す。
  */
-export const BISECT_DOMINANT_NAME_SCALE_X = 0.85;
+const BISECT_DOMINANT_NAME_SCALE_X = 0.85;
 /**
  * 円外 rim 配置 (buildOutsideRimDraft) の label 配置半径 (scaledLabelRadius 係数)。
  * スライス外縁に寄せるため小さめ。実際の円クリアランスは pieClearance クランプが
