@@ -219,7 +219,6 @@ def test_dict_suggest_joins_only_when_enabled(tmp_path):
 def test_reapply_joins_only_joined_entries(tmp_path):
     """一括適用の連結照合は連結由来 (joined=True) エントリのみに一致する。"""
     s, top, bottom = _wrapped_pair_session(tmp_path)
-    rpc_methods.dispatch(s, "setOnlyHeaders", {"value": False})
 
     # 手入力 (joined なし) の連結形は一致しない = 2 行は畳まれない
     rpc_methods.dispatch(s, "dictAdd", {"source": "商品名称", "target": "Product"})
@@ -257,9 +256,8 @@ def test_dict_json_roundtrip(tmp_path):
 
 
 def test_reapply_dict(session):
-    # 辞書に body テキストの語を登録し、ヘッダ以外も対象にして再適用
+    # 辞書に body テキストの語を登録して再適用 (ヘッダ・本文を問わず全文が対象)
     rpc_methods.dispatch(session, "dictAdd", {"source": "A-1042", "target": "ボルト"})
-    rpc_methods.dispatch(session, "setOnlyHeaders", {"value": False})
     r = rpc_methods.dispatch(session, "reapplyDict", {})
     assert r["count"] >= 1
     assert r["warnings"] == 0  # "ボルト" は箱幅に収まる
@@ -270,7 +268,6 @@ def test_reapply_dict_page_scopes_to_one_page(session):
     """reapplyDictPage は指定ページだけに効き、他ファイル/ページは変えない。"""
     session.docs.append(_make_doc("図面.pdf"))  # file 1 を追加 (計 2 ファイル)
     rpc_methods.dispatch(session, "dictAdd", {"source": "A-1042", "target": "ボルト"})
-    rpc_methods.dispatch(session, "setOnlyHeaders", {"value": False})
 
     r = rpc_methods.dispatch(session, "reapplyDictPage", {"fileIndex": 1, "pageInFile": 0})
 

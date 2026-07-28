@@ -37,9 +37,14 @@ class Replacement:
     # 折返しヘッダの 2 行目以降。置換時は描画から除外 (deleted) する。
     extras: List[TextElement] = field(default_factory=list)
     # 折返し畳み込み時、結合テキストを据え直す合成領域 (グループ全体の bbox)。
-    # SVG 書き出しは置換後テキストをこの箱の縦横中央へ収める (`svg_exporter.py` の
-    # `_text_to_svg`)。単独行は None で元 bbox のまま。
+    # SVG 書き出しは置換後テキストを下揃え (baseline_y) + 元の行揃え (align) で
+    # この箱へ収める (`svg_exporter.py` の `_text_to_svg`)。単独行は None で元 bbox のまま。
     new_bbox: Optional[Rect] = None
+    # 折返し畳み込み時の水平揃え ("left"/"center"/"right")。元の折返し各行の揃えを
+    # 検出して踏襲する (`_detect_wrap_align`)。単独行は None。
+    align: Optional[str] = None
+    # 折返し畳み込み時のベースライン (= 最終行のベースライン)。縦は常に下揃え。
+    baseline_y: Optional[float] = None
     # 置換語の推定幅が収め先の箱幅を超える恐れ ("width_overflow")。レビュー UI / ログ用。
     warning: Optional[str] = None
 
@@ -51,6 +56,23 @@ def _merged_bbox(group: List[TextElement]) -> Rect:
     x1 = max(t.bbox.x1 for t in group)
     y1 = max(t.bbox.y1 for t in group)
     return Rect(x0, y0, x1 - x0, y1 - y0)
+
+
+def _detect_wrap_align(group: List[TextElement]) -> str:
+    """折返し各行の bbox から元の水平揃えを推定する ("left"/"center"/"right")。
+
+    左端・中央・右端それぞれの行間ばらつき (max-min) を比べ、最も揃っている辺を
+    元の揃えとみなす。全行同幅などの同点は左揃えを既定とする。
+    """
+    lefts = [t.bbox.x for t in group]
+    centers = [(t.bbox.x + t.bbox.x1) / 2 for t in group]
+    rights = [t.bbox.x1 for t in group]
+    spreads = [
+        ("left", max(lefts) - min(lefts)),
+        ("center", max(centers) - min(centers)),
+        ("right", max(rights) - min(rights)),
+    ]
+    return min(spreads, key=lambda kv: kv[1])[0]
 
 
 def _overflow_warning(target: str, font_size: float, box_w: float) -> Optional[str]:
@@ -186,23 +208,17 @@ def joined_candidate(
     return element.text.strip(), False
 
 
-def plan_replacements(
-    page: Page, store: DictionaryStore, only_headers: bool = True
-) -> List[Replacement]:
-    """辞書に一致する置換案を列挙する (実際の書き換えはしない)。"""
+def plan_replacements(page: Page, store: DictionaryStore) -> List[Replacement]:
+    """辞書に一致する置換案を列挙する (実際の書き換えはしない)。ヘッダ・本文を問わない。"""
     plans: List[Replacement] = []
     texts = _text_elements(page)
     consumed: set = set()
 
     # 折返し連結照合 (要素単位より優先)。一致は連結由来エントリのみ (`_lookup_joined`
     # 参照)。連結で一致しなければグループは解放され、
-    # 各行が従来どおり単独照合される (後方互換)。`only_headers` のゲートは単独ループと
-    # 揃える: 既定はヘッダ折返しのみ、OFF 時は本文セルの折返し (複数行にまたがる 1 文)
-    # も連結対象にする。
+    # 各行が従来どおり単独照合される (後方互換)。
     for group in _wrap_groups(texts):
         if len(group) < 2:
-            continue
-        if only_headers and not group[0].is_header:
             continue
         hit = _lookup_joined(store, group)
         if hit is None:
@@ -210,12 +226,13 @@ def plan_replacements(
         source, target = hit
         top = group[0]
         if target != top.text:
-            # 折返しは結合テキストをグループ全体の合成領域へ据え直す (縦の畳み込みで
-            # 上詰まりするのを防ぎ、水平も合成全幅に収めて圧縮を緩める)。
+            # 折返しは結合テキストをグループ全体の合成領域へ据え直す。縦は下揃え
+            # (最終行のベースライン) 固定、横は元の折返し行の揃えを検出して踏襲する。
             box = _merged_bbox(group)
             plans.append(
                 Replacement(
                     top, source, target, extras=group[1:], new_bbox=box,
+                    align=_detect_wrap_align(group), baseline_y=group[-1].origin_y,
                     warning=_overflow_warning(target, top.font_size, box.w),
                 )
             )
@@ -224,8 +241,6 @@ def plan_replacements(
 
     for el in texts:
         if id(el) in consumed:
-            continue
-        if only_headers and not el.is_header:
             continue
         target = store.lookup(el.text)
         if target is not None and target != el.text:
@@ -244,18 +259,22 @@ def apply_replacement(rep: Replacement) -> None:
     rep.element.dict_match = DictMatch(source=rep.source, target=rep.target)
     if rep.new_bbox is not None:  # 折返し畳み込み: 合成領域へ据え直す
         rep.element.bbox = rep.new_bbox
+    if rep.baseline_y is not None:  # 縦は下揃え (最終行のベースライン)
+        rep.element.origin_y = rep.baseline_y
+    if rep.align is not None:  # 横は元の行揃えを踏襲 (SVG 出力の据え方が変わる)
+        rep.element.wrap_align = rep.align
     for ex in rep.extras:  # 折返し 2 行目以降は描画から除外
         ex.deleted = True
 
 
-def auto_apply(page: Page, store: DictionaryStore, only_headers: bool = True) -> int:
+def auto_apply(page: Page, store: DictionaryStore) -> int:
     """ヘッダ検出 → 一致を直接適用。適用件数を返す。
 
     テスト・バッチ用の一括ヘルパ。本番 UI はアップロード時に辞書を適用せず、
     再適用ボタン (Undo 可能な Command マクロ経路) からのみ適用する。
     """
     detect_headers(page)
-    plans = plan_replacements(page, store, only_headers=only_headers)
+    plans = plan_replacements(page, store)
     for rep in plans:
         apply_replacement(rep)
     return len(plans)

@@ -22,7 +22,7 @@ test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し",
   await chooser.setFiles(FIXTURE);
   await expect(page.locator("#filelist-count")).toContainText("1 ファイル", { timeout: 30_000 });
 
-  // ── 2. 用語を置換 (辞書タブ → 追加 → ヘッダ限定を解除 → 再適用) ──
+  // ── 2. 用語を置換 (辞書タブ → 追加 → 再適用。ヘッダ・本文を問わず全文が対象) ──
   await page.click("#btn-next");
   await expect(page.locator('[data-screen="2"]')).toHaveClass(/on/);
   await page.click('[data-tab="dict"]');
@@ -30,7 +30,6 @@ test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し",
   await page.fill("#dict-tgt", "売上高");
   await page.click("#dict-add");
   await expect(page.locator("#dict-count")).toContainText("1");
-  await page.click("#chk-headers"); // 「ヘッダのみ」を解除して平文にも適用
   await page.click("#btn-reapply");
   // 「N 件置換」ヒントは直後の render() が状態行で上書きするため文言では見ない。
   // 置換の成立は「要確認 1 (changed 化)」とページ表示 (書き出しと同一経路) で確認する。

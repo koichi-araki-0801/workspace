@@ -67,7 +67,6 @@ def test_reapply_macro_reverts_in_one_undo(tmp_path):
     a, b = s.docs[0].pages[0].elements
     rpc_methods.dispatch(s, "dictAdd", {"source": "A-1042", "target": "AAA"})
     rpc_methods.dispatch(s, "dictAdd", {"source": "B-2055", "target": "BBB"})
-    rpc_methods.dispatch(s, "setOnlyHeaders", {"value": False})
     r = rpc_methods.dispatch(s, "reapplyDict", {})
     assert r["count"] == 2 and a.text == "AAA" and b.text == "BBB"
     # マクロなので 1 回の undo で両方戻る
