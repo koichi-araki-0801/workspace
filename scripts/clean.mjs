@@ -22,9 +22,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // ── 1. 絶対に触れない領域 ──
 // 走査で降りず、削除候補にも絶対に入れない。`.git` は履歴、`editor/data` はテンプレ実体
-// (ワークスペース外 dataRoot の git 管理対象)、`git-tools` は同梱バイナリ (再配布は重い)。
+// (ワークスペース外 dataRoot の git 管理対象)、`git-tools` と `native-prebuilds` は
+// 同梱バイナリ (git 管理外の重量物。再配布・再取得が要る)。
 const NEVER = new Set(['.git', '.claude', '.github', '.husky', '.vscode']);
-const NEVER_REL = new Set([rel('editor/data'), rel('git-tools')]);
+const NEVER_REL = new Set([rel('editor/data'), rel('git-tools'), rel('native-prebuilds')]);
 
 // ── 2. ティア別の固定削除リスト ──
 // light: 再生成が軽い生成物。`pnpm run build` / `test` ですぐ戻る。

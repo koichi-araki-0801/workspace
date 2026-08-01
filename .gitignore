@@ -46,3 +46,6 @@ git-tools/
 # setup が vendor へ展開。版は docs/_build/vendor/manifest.txt が規定し content key に折り込まれる）
 docs/_build/vendor/mermaid.min.js
 docs/_build/vendor/mermaid-layout-elk.min.js
+# msnodesqlv8 の公式 prebuild（.node 入り tar.gz。npm tarball に入らないため重量物バンドルへ同梱し
+# setup が node_modules の .pnpm 実体へ展開。版は native-prebuilds/manifest.txt が規定し content key に折り込まれる）
+native-prebuilds/*.tar.gz
