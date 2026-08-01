@@ -176,8 +176,14 @@ if ($SkipBuild) {
       $full = Join-Path $RepoRoot $d
       if (Test-Path $full) { Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    $tsbi = Join-Path $RepoRoot 'editor\web\tsconfig.tsbuildinfo'
-    if (Test-Path $tsbi) { Remove-Item -LiteralPath $tsbi -Force -ErrorAction SilentlyContinue }
+    # tsbuildinfo は dist の外に残るため個別に消す。特に editor\shared / editor\server の分が
+    # 残ると `tsc -b` が「最新」と誤認して shared の dist を再生成せず、build が
+    # 「Cannot find module '@editor/shared'」で全滅する（2026-08 実測）。
+    foreach ($f in @('editor\web\tsconfig.tsbuildinfo', 'editor\shared\tsconfig.tsbuildinfo',
+        'editor\server\tsconfig.tsbuildinfo')) {
+      $tsbi = Join-Path $RepoRoot $f
+      if (Test-Path $tsbi) { Remove-Item -LiteralPath $tsbi -Force -ErrorAction SilentlyContinue }
+    }
 
     & corepack pnpm install --offline --frozen-lockfile --store-dir (Join-Path $RepoRoot '.pnpm-store')
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] オフライン install に失敗しました。'; exit 1 }
