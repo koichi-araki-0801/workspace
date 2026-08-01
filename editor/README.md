@@ -15,7 +15,7 @@ Jinja2 で作成された HTML/CSS テンプレート（ファンド報告書系
 
 editor はリポジトリ直下の **pnpm モノレポ**の一部（`editor/shared` `editor/server` `editor/web`）。
 ワークスペース定義とビルド許可（`allowBuilds`）はルート `pnpm-workspace.yaml`、スクリプトはルート `package.json`。
-パッケージマネージャは `pnpm@11.8.0+`、Node は `>=24`（`editor/.nvmrc` = 24）。
+パッケージマネージャは `pnpm@11.18.0+`、Node は `>=24`（`editor/.nvmrc` = 24）。
 
 ```
 editor/shared/   共有 TS 型/DTO + Result/AppError + ドメイン + 集約ごとの Repository 契約（型の真実源）
