@@ -65,7 +65,7 @@ BEGIN
       SET [失効] = 1
       WHERE [失効] = 0;
     RETURN;
-  END
+  END;
 
   THROW 50000, N'未知の @操作 です(セッション)', 1;
 END

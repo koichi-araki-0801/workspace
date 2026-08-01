@@ -30,7 +30,7 @@ BEGIN
     VALUES
       (@イベント, @結果, @実行者, @IP, @リソースJSON, @詳細JSON, @エラー);
     RETURN;
-  END
+  END;
 
   THROW 50000, N'未知の @操作 です(監査ログ)', 1;
 END

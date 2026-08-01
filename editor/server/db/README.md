@@ -12,7 +12,7 @@ seed/   管理ユーザー.sql（生成物）/ パーツカタログ.sql / サ�
 apply.ps1  … ddl→sproc→seed を sqlcmd(-E -f 65001) で順に適用
 ```
 
-すべての `.sql` は **UTF-8 BOM** で保存（日本語識別子 + sqlcmd の cp932 環境対策）。SQL Server 2012 互換のため `CREATE OR ALTER` / `OPENJSON` / `FOR JSON` / `STRING_AGG` は不使用（sproc は `DROP`+`CREATE`、JSON はテキスト保管で Node 側パース）。
+すべての `.sql` は **UTF-8 BOM** で保存（日本語識別子 + sqlcmd の cp932 環境対策）。SQL Server 2012 互換のため `CREATE OR ALTER` / `OPENJSON` / `FOR JSON` / `STRING_AGG` は不使用（sproc は `DROP`+`CREATE`、JSON はテキスト保管で Node 側パース）。`THROW` の直前の文は `;` 終端が必須（T-SQL の構文規則。sproc 末尾の `END` の後に `THROW` を置く場合は `END;` と書く。2026-08 の LocalDB 実適用検証で全 sproc が「Incorrect syntax near 'THROW'」になった実績）。
 
 ## 適用手順
 ```powershell

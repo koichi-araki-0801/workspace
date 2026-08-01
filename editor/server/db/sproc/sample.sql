@@ -23,7 +23,7 @@ BEGIN
       FROM [ug01].[Rep1_運報自動化_Editor_サンプルデータ]
       WHERE [ファンドコード] = @ファンドコード;
     RETURN;
-  END
+  END;
 
   THROW 50000, N'未知の @操作 です(サンプルデータ)', 1;
 END

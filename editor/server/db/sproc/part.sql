@@ -62,7 +62,7 @@ BEGIN
         AND (@小分類   IS NULL OR [小分類]   = @小分類)
       ORDER BY [パーツ内部ID];
     RETURN;
-  END
+  END;
 
   THROW 50000, N'未知の @操作 です(パーツ)', 1;
 END
