@@ -72,6 +72,16 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     ON [ug01].[Rep1_運報自動化_Editor_サンプルデータ] ([ファンドコード]);
 GO
 
+/* --- 注記マスタ(仮組) ---------------------------------------------------- */
+/* upsert(usp_注記マスタ `反映`)のキー。実運用テーブルへの差し替え時はキー設計ごと見直す。 */
+IF NOT EXISTS (SELECT 1 FROM sys.indexes
+  WHERE name = N'UQ_注記_パーツ_ファンド_版種'
+    AND object_id = OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_注記マスタ]'))
+  CREATE UNIQUE INDEX [UQ_注記_パーツ_ファンド_版種]
+    ON [ug01].[Rep1_運報自動化_Editor_注記マスタ]
+       ([パーツID], [ファンドコード], [版種]);
+GO
+
 /* --- セッション ---------------------------------------------------------- */
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
   WHERE name = N'IX_セッション_ログインID'

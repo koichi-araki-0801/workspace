@@ -97,6 +97,18 @@ const syncBadge = computed(
       : null,
 );
 
+// ── 0c. 注記マスタ書き戻し(次回作成テンプレへの反映)の既定バッジ ──
+// 正典はカタログ台帳の `次回反映既定` 列。null(未判断)はバッジ非表示 — ペア同期の
+// 「未判断 warning」と非対称なのは、書き戻しがオプトイン運用で未設定が正常状態のため
+// (大多数のパーツに warning が並ぶと本当に見るべき警告が埋もれる)。
+const REFLECT_BADGE: Record<string, { label: string; variant: 'success' | 'secondary' }> = {
+  反映: { label: '次回作成へ反映', variant: 'success' },
+  非反映: { label: '次回作成へ反映しない', variant: 'secondary' },
+};
+const reflectBadge = computed(
+  () => REFLECT_BADGE[props.part?.masterReflectDefault ?? ''] ?? null,
+);
+
 // 修正履歴が複数パーツにまたがるか(= 未選択の「全パーツ表示」)。真のときだけ各行に
 // パーツ識別ラベルを併記する。単一パーツ選択時は全行同一で冗長なので付けない。
 const historySpansParts = computed(() => new Set(props.history.map((h) => h.partKey)).size > 1);
@@ -263,6 +275,9 @@ const PB_CLASS =
         </div>
         <Badge v-if="syncBadge" :variant="syncBadge.variant" class="mt-1.5 h-[18px] py-0 text-[10.5px]">
           {{ syncBadge.label }}
+        </Badge>
+        <Badge v-if="reflectBadge" :variant="reflectBadge.variant" class="ml-1 mt-1.5 h-[18px] py-0 text-[10.5px]">
+          {{ reflectBadge.label }}
         </Badge>
       </div>
 

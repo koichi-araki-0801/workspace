@@ -160,7 +160,7 @@ export interface PairSyncComputeResult {
 }
 
 /** target HTML への編集操作。span は互いに重ならない(パーツ範囲は排他 + 挿入は境界点)。 */
-interface EditOp {
+export interface EditOp {
   start: number;
   end: number;
   text: string;
@@ -168,7 +168,12 @@ interface EditOp {
   seq: number;
 }
 
-function applyOps(html: string, ops: EditOp[]): string {
+/**
+ * 非重複の編集操作列を文字列連結で適用する(DOM round-trip をしない = 非対象範囲は
+ * バイト不変)。ペア同期の転写のほか、注記マスタの生成時適用(`noteMasterService.ts`)も
+ * 同じ「span 差し替え」規約を共有するため export する。
+ */
+export function applyOps(html: string, ops: EditOp[]): string {
   const sorted = [...ops].sort((a, b) => a.start - b.start || a.seq - b.seq);
   let out = '';
   let cursor = 0;

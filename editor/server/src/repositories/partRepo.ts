@@ -8,6 +8,7 @@ import type {
   PartCatalogItem,
   PartClassificationOptions,
   PartClassificationQuery,
+  PartMasterReflectDefault,
   PartSyncDefault,
 } from '@editor/shared';
 import { asIso, asString, asStringOrNull, callSproc, type Param, p } from '../db/sproc.js';
@@ -52,7 +53,8 @@ export async function listParts(q: PartClassificationQuery): Promise<PartCatalog
     updatedAt: asIso(r.更新日時),
     updatedBy: asStringOrNull(r.更新者),
     content: asString(r.内容HTML),
-    // 値域は DDL の CHECK([CK_パーツ_同期既定])が保証するため cast で写す。NULL = 未判断。
+    // 値域は DDL の CHECK([CK_パーツ_同期既定] 等)が保証するため cast で写す。NULL = 未判断。
     syncDefault: asStringOrNull(r.同期既定) as PartSyncDefault | null,
+    masterReflectDefault: asStringOrNull(r.次回反映既定) as PartMasterReflectDefault | null,
   }));
 }

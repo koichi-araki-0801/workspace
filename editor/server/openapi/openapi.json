@@ -2747,6 +2747,17 @@
                 "type": "null"
               }
             ]
+          },
+          "masterReflectDefault": {
+            "description": "注記マスタ書き戻しの既定。null/欠落 = 未判断(反映しない)",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartMasterReflectDefault"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2787,6 +2798,10 @@
       "PartSyncDefault": {
         "type": "string",
         "enum": ["同期", "非同期", "交付版のみ", "全体版のみ"]
+      },
+      "PartMasterReflectDefault": {
+        "type": "string",
+        "enum": ["反映", "非反映"]
       },
       "PartHistoryEntry": {
         "type": "object",
@@ -3046,6 +3061,17 @@
                 "type": "null"
               }
             ]
+          },
+          "noteMaster": {
+            "description": "注記マスタ書き戻しの結果。テンプレ ID 解決不能なら null/欠落",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NoteMasterReflectSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["meta", "staleWarning"],
@@ -3095,6 +3121,31 @@
           }
         },
         "required": ["pairTemplateId", "applied", "skipped", "error"],
+        "additionalProperties": false
+      },
+      "NoteMasterReflectSummary": {
+        "type": "object",
+        "properties": {
+          "updated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "注記マスタへ書き戻したパーツ ID"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "書き戻し自体の失敗理由。正常時は null"
+          }
+        },
+        "required": ["updated", "error"],
         "additionalProperties": false
       },
       "EditHistoryEntry": {

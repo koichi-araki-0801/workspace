@@ -96,6 +96,14 @@ IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'�
     ADD [同期既定] NVARCHAR(16) COLLATE Japanese_CI_AS NULL;
 GO
 
+/* 承認確定パーツの注記マスタ書き戻し既定(後付け列のため COL_LENGTH で冪等追加)。
+ * NULL = 未判断(反映しない。オプトイン運用)。列挙値の CHECK は 03_制約.sql。
+ * `同期既定`(ペア同期)と直交し、ポリシーの正典はこの列のみ。 */
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'次回反映既定') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
+    ADD [次回反映既定] NVARCHAR(16) COLLATE Japanese_CI_AS NULL;
+GO
+
 /* --- 4. 監査ログ --------------------------------------------------------- */
 /* logger.ts の AuditEvent を列化(ファイルログとの二重化)。JSON はテキスト保管。   */
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_監査ログ]', N'U') IS NULL
@@ -145,6 +153,26 @@ BEGIN
     [失効]              BIT           NOT NULL
                           CONSTRAINT [DF_セッション_失効] DEFAULT (0),
     CONSTRAINT [PK_セッション] PRIMARY KEY CLUSTERED ([セッションID])
+  );
+END
+GO
+
+/* --- 7. 注記マスタ(仮組) ------------------------------------------------- */
+/* 実運用 DB の既存注記テーブルへ差し替える前提の仮組(スタブ)。列は「承認確定パーツの
+ * 書き戻し → 次回テンプレ生成時の適用」経路の疎通に必要な最小限に留める。キーは
+ * (パーツID, ファンドコード, 版種) — 反映は「そのファンドのみ」の要件に閉じ、交付版/全体版で
+ * 注記文言が異なりうるため版種も鍵に含める。一意索引は 02_索引.sql。               */
+IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_注記マスタ]', N'U') IS NULL
+BEGIN
+  CREATE TABLE [ug01].[Rep1_運報自動化_Editor_注記マスタ] (
+    [注記内部ID]        BIGINT IDENTITY(1,1) NOT NULL,
+    [パーツID]          NVARCHAR(64)  COLLATE Japanese_CI_AS NOT NULL,
+    [ファンドコード]    NVARCHAR(32)  COLLATE Japanese_CI_AS NOT NULL,
+    [版種]              NVARCHAR(16)  COLLATE Japanese_CI_AS NOT NULL,
+    [注記HTML]          NVARCHAR(MAX) NULL,
+    [更新日時]          DATETIME2(3)  NULL,
+    [更新者]            NVARCHAR(64)  NULL,
+    CONSTRAINT [PK_注記マスタ] PRIMARY KEY CLUSTERED ([注記内部ID])
   );
 END
 GO

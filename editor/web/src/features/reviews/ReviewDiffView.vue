@@ -93,6 +93,7 @@ async function approve() {
       toastSuccess('承認しました（本番テンプレートへ反映しました）');
     }
     notifySyncResult(res.value.sync);
+    notifyNoteMasterResult(res.value.noteMaster);
     router.push({ name: 'reviews' });
   }
 }
@@ -112,6 +113,25 @@ function notifySyncResult(sync: ApproveReviewResult['sync']): void {
   const skippedNote = sync.skipped.length > 0 ? `・スキップ ${sync.skipped.length} 件(要確認)` : '';
   toast(
     `ペア ${sync.pairTemplateId} へ ${sync.applied.length} パーツを自動同期しました${skippedNote}`,
+    'default',
+    6000,
+  );
+}
+
+/**
+ * 承認直後に走った注記マスタ書き戻し(`次回反映既定`=`反映` パーツ)の結果を通知する。
+ * ペア同期と同じベストエフォートのため失敗は destructive/長め表示、成功は書き戻しが
+ * あったときだけ短く伝える(対象パーツ無しの承認で毎回鳴らさない)。
+ */
+function notifyNoteMasterResult(noteMaster: ApproveReviewResult['noteMaster']): void {
+  if (!noteMaster) return;
+  if (noteMaster.error) {
+    toast(`注記マスタへの反映に失敗しました: ${noteMaster.error}`, 'error', 8000);
+    return;
+  }
+  if (noteMaster.updated.length === 0) return;
+  toast(
+    `注記マスタへ ${noteMaster.updated.length} パーツを反映しました（次回作成のテンプレートに適用されます）`,
     'default',
     6000,
   );

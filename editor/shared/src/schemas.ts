@@ -300,6 +300,17 @@ export const PairSyncSummary = z
   .meta({ id: 'PairSyncSummary' });
 
 /**
+ * 承認直後に走る注記マスタ書き戻し(`次回反映既定`=`反映` のパーツをファンド・版種別に upsert)の
+ * 結果概要。ペア同期と同じくベストエフォートで、失敗しても承認自体は成立する。
+ */
+export const NoteMasterReflectSummary = z
+  .object({
+    updated: z.array(z.string()).meta({ description: '注記マスタへ書き戻したパーツ ID' }),
+    error: z.string().nullable().meta({ description: '書き戻し自体の失敗理由。正常時は null' }),
+  })
+  .meta({ id: 'NoteMasterReflectSummary' });
+
+/**
  * ペア同期の現況(編集画面のバナー・要判断表示用の軽量ビュー)。未解決競合 = 自動同期を
  * 停止して人間の判断を待っているパーツ。競合の解消は「両版の内容を一致させる」ことで
  * 次回承認時に自動で消える(専用の解消 API は持たない)。
@@ -333,6 +344,9 @@ export const ApproveReviewResult = z
     sync: PairSyncSummary.nullable()
       .optional()
       .meta({ description: 'ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落' }),
+    noteMaster: NoteMasterReflectSummary.nullable()
+      .optional()
+      .meta({ description: '注記マスタ書き戻しの結果。テンプレ ID 解決不能なら null/欠落' }),
   })
   .meta({ id: 'ApproveReviewResult' });
 
@@ -394,6 +408,16 @@ export const PartSyncDefault = z
   .enum(['同期', '非同期', '交付版のみ', '全体版のみ'])
   .meta({ id: 'PartSyncDefault' });
 
+/**
+ * 承認確定パーツの注記マスタ書き戻し既定(パーツカタログ台帳の `次回反映既定` 列)。
+ * `反映` = 承認直後にそのファンド・版種の注記マスタへ upsert し、次回のテンプレ新規生成時に
+ * スケルトンへ適用する / `非反映` = 書き戻さない宣言。null(未判断)は反映しない(オプトイン
+ * 運用。誤爆防止のため未設定は安全側へ倒す)。ポリシーの正典は `同期既定` と同じくこの列のみ。
+ */
+export const PartMasterReflectDefault = z
+  .enum(['反映', '非反映'])
+  .meta({ id: 'PartMasterReflectDefault' });
+
 /** カタログ上の 1 パーツ。SQL の 1 行に相当する想定。 */
 export const PartCatalogItem = z
   .object({
@@ -411,6 +435,9 @@ export const PartCatalogItem = z
     syncDefault: PartSyncDefault.nullable()
       .optional()
       .meta({ description: '交付版⇄全体版 自動同期の既定。null/欠落 = 未判断(同期しない)' }),
+    masterReflectDefault: PartMasterReflectDefault.nullable()
+      .optional()
+      .meta({ description: '注記マスタ書き戻しの既定。null/欠落 = 未判断(反映しない)' }),
   })
   .meta({ id: 'PartCatalogItem' });
 

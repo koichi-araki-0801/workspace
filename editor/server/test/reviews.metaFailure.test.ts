@@ -19,6 +19,18 @@ process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
 process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.REVIEWS_DIR = path.join(tmp, 'reviews');
 
+// DB(sproc)は本テストの対象外。承認直後の注記マスタ書き戻しが実 DB へ触れないよう
+// `callSproc` を決定的に失敗させる(reviews.test.ts と同じ理由)。
+vi.mock('../src/db/sproc.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../src/db/sproc.js')>();
+  return {
+    ...orig,
+    callSproc: async () => {
+      throw new Error('DB 不在(テストの意図的失敗)');
+    },
+  };
+});
+
 // updateReviewMeta だけを差し替え、指定回数だけ失敗させる(他は実装のまま)。
 const metaFail = vi.hoisted(() => ({ remaining: 0 }));
 vi.mock('../src/files/reviewFiles.js', async (importOriginal) => {

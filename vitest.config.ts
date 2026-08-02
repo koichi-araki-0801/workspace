@@ -29,6 +29,8 @@ export default defineConfig({
         'editor/shared/src/domain/history.ts',
         // editor/server (vivliostyle は pure layer のみ。build.ts 等は browser+socket 依存で対象外)
         'editor/server/src/generate/pyTemplate.ts',
+        'editor/server/src/sync/partSync.ts',
+        'editor/server/src/sync/noteMasterService.ts',
         'editor/server/src/middleware/*.ts',
         'editor/server/src/vivliostyle/options.ts',
         'editor/server/src/vivliostyle/projectInput.ts',

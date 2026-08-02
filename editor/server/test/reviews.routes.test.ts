@@ -11,7 +11,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// DB(sproc)は本テストの対象外。承認直後の注記マスタ書き戻しが実 DB へ触れない(接続待ちで
+// タイムアウトしない)よう `callSproc` を決定的に失敗させる(reviews.test.ts と同じ理由)。
+vi.mock('../src/db/sproc.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../src/db/sproc.js')>();
+  return {
+    ...orig,
+    callSproc: async () => {
+      throw new Error('DB 不在(テストの意図的失敗)');
+    },
+  };
+});
 
 // config を import する前に一時ディレクトリへ向ける(reviews.test.ts と同方針)。
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-review-routes-'));
