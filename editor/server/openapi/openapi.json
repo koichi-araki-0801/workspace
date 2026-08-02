@@ -2654,6 +2654,17 @@
           "content": {
             "type": "string",
             "description": "キャンバスに挿入する GrapesJS 用 HTML 断片"
+          },
+          "syncDefault": {
+            "description": "交付版⇄全体版 自動同期の既定。null/欠落 = 未判断(同期しない)",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartSyncDefault"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2690,6 +2701,10 @@
         },
         "required": ["category", "majorClass", "middleClass", "minorClass"],
         "additionalProperties": false
+      },
+      "PartSyncDefault": {
+        "type": "string",
+        "enum": ["同期", "非同期", "交付版のみ", "全体版のみ"]
       },
       "PartHistoryEntry": {
         "type": "object",
@@ -2938,9 +2953,66 @@
           "staleWarning": {
             "type": "boolean",
             "description": "申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)"
+          },
+          "sync": {
+            "description": "ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PairSyncSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["meta", "staleWarning"],
+        "additionalProperties": false
+      },
+      "PairSyncSummary": {
+        "type": "object",
+        "properties": {
+          "pairTemplateId": {
+            "type": "string",
+            "description": "同期先(ペア)のテンプレート ID"
+          },
+          "applied": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "転写したパーツキー(partId#n)"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partKey": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["partKey", "reason"],
+              "additionalProperties": false
+            },
+            "description": "転写しなかったパーツと理由(競合・初期差分・未判断など)"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "同期処理自体の失敗理由。正常時は null"
+          }
+        },
+        "required": ["pairTemplateId", "applied", "skipped", "error"],
         "additionalProperties": false
       },
       "EditHistoryEntry": {

@@ -26,6 +26,14 @@ ALTER TABLE [ug01].[Rep1_運報自動化_Editor_ユーザー]
     CHECK ([ロール] IN (N'admin', N'approver', N'editor', N'viewer'));
 GO
 
+/* パーツカタログ.同期既定 ∈ {同期, 非同期, 交付版のみ, 全体版のみ} (NULL = 未判断) */
+IF OBJECT_ID(N'[ug01].[CK_パーツ_同期既定]', N'C') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
+    ADD CONSTRAINT [CK_パーツ_同期既定]
+      CHECK ([同期既定] IS NULL
+             OR [同期既定] IN (N'同期', N'非同期', N'交付版のみ', N'全体版のみ'));
+GO
+
 /* 監査ログ.結果 ∈ {success, failure} */
 IF OBJECT_ID(N'[ug01].[CK_監査_結果]', N'C') IS NULL
   ALTER TABLE [ug01].[Rep1_運報自動化_Editor_監査ログ]

@@ -284,13 +284,31 @@ export const ReviewDecisionBody = z
 /** (server 専用) 承認キューの絞り込みクエリ。 */
 export const ReviewListQuery = z.object({ status: ReviewStatus.optional() });
 
-/** 承認の結果。反映後 `meta` + 並行性警告 `staleWarning`。 */
+/**
+ * 承認直後に走る交付版⇄全体版のパーツ自動同期の結果概要。同期はベストエフォートで、
+ * 失敗しても承認自体は成立する(`error` に理由を載せて UI へ渡す)。
+ */
+export const PairSyncSummary = z
+  .object({
+    pairTemplateId: z.string().meta({ description: '同期先(ペア)のテンプレート ID' }),
+    applied: z.array(z.string()).meta({ description: '転写したパーツキー(partId#n)' }),
+    skipped: z
+      .array(z.object({ partKey: z.string(), reason: z.string() }))
+      .meta({ description: '転写しなかったパーツと理由(競合・初期差分・未判断など)' }),
+    error: z.string().nullable().meta({ description: '同期処理自体の失敗理由。正常時は null' }),
+  })
+  .meta({ id: 'PairSyncSummary' });
+
+/** 承認の結果。反映後 `meta` + 並行性警告 `staleWarning` + ペア自動同期の概要 `sync`。 */
 export const ApproveReviewResult = z
   .object({
     meta: TemplateMeta,
     staleWarning: z
       .boolean()
       .meta({ description: '申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)' }),
+    sync: PairSyncSummary.nullable()
+      .optional()
+      .meta({ description: 'ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落' }),
   })
   .meta({ id: 'ApproveReviewResult' });
 
@@ -342,6 +360,16 @@ export const PartClassificationOptions = z
   })
   .meta({ id: 'PartClassificationOptions' });
 
+/**
+ * 交付版⇄全体版 自動同期の種別既定(パーツカタログ台帳の `同期既定` 列)。
+ * `同期` = 両版に在れば承認直後に転写 / `非同期` = 意図的な二重メンテ対象 /
+ * `交付版のみ`・`全体版のみ` = 版固有の宣言(相手版に無くても同期漏れ扱いしない)。
+ * null(未判断)は同期しない。ポリシーの正典はこの列のみ(ペア個別オーバーライドは持たない)。
+ */
+export const PartSyncDefault = z
+  .enum(['同期', '非同期', '交付版のみ', '全体版のみ'])
+  .meta({ id: 'PartSyncDefault' });
+
 /** カタログ上の 1 パーツ。SQL の 1 行に相当する想定。 */
 export const PartCatalogItem = z
   .object({
@@ -356,6 +384,9 @@ export const PartCatalogItem = z
     updatedAt: z.string().nullable(),
     updatedBy: z.string().nullable(),
     content: z.string().meta({ description: 'キャンバスに挿入する GrapesJS 用 HTML 断片' }),
+    syncDefault: PartSyncDefault.nullable()
+      .optional()
+      .meta({ description: '交付版⇄全体版 自動同期の既定。null/欠落 = 未判断(同期しない)' }),
   })
   .meta({ id: 'PartCatalogItem' });
 

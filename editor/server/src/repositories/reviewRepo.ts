@@ -29,6 +29,7 @@ import {
   writeReview,
 } from '../files/reviewFiles.js';
 import { readFundCss, readTemplateHtml } from '../files/templateFiles.js';
+import { syncPairAfterConfirm } from '../sync/pairSyncService.js';
 import { applyConfirmedSave } from './templateRepo.js';
 
 /** 操作主体(認証済みユーザ)。ロールは自己承認/閲覧範囲の判定に使う。 */
@@ -159,7 +160,10 @@ export async function approveReview(
       reviewedAt: new Date().toISOString(),
       comment: decision.comment ?? null,
     });
-    return { meta, staleWarning };
+    // 承認の完結後に交付版⇄全体版のパーツ自動同期を掛ける(ベストエフォート。失敗しても
+    // 承認は成立済みで、結果/理由は summary として UI へ返す)。ペア対象外なら null。
+    const sync = await syncPairAfterConfirm(review.templateId, actor.username);
+    return { meta, staleWarning, sync };
   });
 }
 

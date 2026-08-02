@@ -2,163 +2,163 @@
 SET NOCOUNT ON;
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-cover-title')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-cover-title', N'表紙', N'表紙ヘッダー', N'ファンド名', N'標準',
-    N'ファンド名タイトル', N'表紙上部のファンド分類・ファンド名・愛称のまとまりです。', N'表紙の先頭に1つだけ置きます。ファンド名は自動入力（{{ fund.name }}）で差し替わります。', N'<p class="cover-category">追加型投信／内外／資産複合</p><h1 class="cover-title">サンプルファンド</h1><p class="cover-alias">（愛称：サンプル愛称）</p>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎');
+    N'ファンド名タイトル', N'表紙上部のファンド分類・ファンド名・愛称のまとまりです。', N'表紙の先頭に1つだけ置きます。ファンド名は自動入力（{{ fund.name }}）で差し替わります。', N'<p class="cover-category">追加型投信／内外／資産複合</p><h1 class="cover-title">サンプルファンド</h1><p class="cover-alias">（愛称：サンプル愛称）</p>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-cover-report-band')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-cover-report-band', N'表紙', N'表紙ヘッダー', N'報告書種別', N'標準',
-    N'報告書種別の帯', N'「交付運用報告書（交付版）」などの報告書種別と決算期・作成対象期間の帯です。', N'版種（交付版／全体版）に合わせて文言を調整してください。', N'<div class="cover-report-band">交付運用報告書（交付版）</div><p class="cover-report-sub">第1期（決算日　2025年12月31日）／作成対象期間　2025年1月1日～2025年12月31日</p>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎');
+    N'報告書種別の帯', N'「交付運用報告書（交付版）」などの報告書種別と決算期・作成対象期間の帯です。', N'版種（交付版／全体版）に合わせて文言を調整してください。', N'<div class="cover-report-band">交付運用報告書（交付版）</div><p class="cover-report-sub">第1期（決算日　2025年12月31日）／作成対象期間　2025年1月1日～2025年12月31日</p>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-cover-summary')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-cover-summary', N'表紙', N'表紙左側', N'基準価額の表', N'標準',
-    N'基準価額サマリー表', N'基準価額・純資産総額・騰落率・分配金合計をまとめた表紙左側の2列表です。', N'数値は自動入力で差し替わります。表紙左側のカラムに置いてください。', N'<table class="summary-table"><tbody><tr><th>基準価額</th><td>12,345 円</td></tr><tr><th>純資産総額</th><td>123,456 百万円</td></tr><tr><th>騰落率</th><td>12.3 ％</td></tr><tr><th>分配金合計</th><td>100 円</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-05T09:00:00.000'), N'山田 太郎');
+    N'基準価額サマリー表', N'基準価額・純資産総額・騰落率・分配金合計をまとめた表紙左側の2列表です。', N'数値は自動入力で差し替わります。表紙左側のカラムに置いてください。', N'<table class="summary-table"><tbody><tr><th>基準価額</th><td>12,345 円</td></tr><tr><th>純資産総額</th><td>123,456 百万円</td></tr><tr><th>騰落率</th><td>12.3 ％</td></tr><tr><th>分配金合計</th><td>100 円</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-05T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-cover-notes')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-cover-notes', N'表紙', N'表紙左側', N'注記', N'標準',
-    N'表紙の注記', N'基準価額・分配金の単位や騰落率の計算方法に関する注記文です。', N'サマリー表の直下に置きます。短い注記のみを記載してください。', N'<p class="notes">（注）基準価額および分配金は1万口当たりで表記しています。騰落率は分配金（税引前）を分配時に再投資したものとみなして計算しています。</p>', CONVERT(datetime2(3), N'2026-05-05T09:00:00.000'), N'佐藤 花子');
+    N'表紙の注記', N'基準価額・分配金の単位や騰落率の計算方法に関する注記文です。', N'サマリー表の直下に置きます。短い注記のみを記載してください。', N'<p class="notes">（注）基準価額および分配金は1万口当たりで表記しています。騰落率は分配金（税引前）を分配時に再投資したものとみなして計算しています。</p>', CONVERT(datetime2(3), N'2026-05-05T09:00:00.000'), N'佐藤 花子', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-cover-greeting')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-cover-greeting', N'表紙', N'表紙右側', N'受益者あてコメント', N'標準',
-    N'受益者あてコメント', N'「受益者のみなさまへ」で始まる表紙右側のあいさつ文です。', N'運用状況の概要を簡潔に記載します。長文になりすぎないようにしてください。', N'<div><p>受益者のみなさまへ</p><p>平素は格別のご愛顧を賜り、厚くお礼申しあげます。さて、当ファンドは、このたび、上記の決算を行いました。ここに期間中の運用状況についてご報告申しあげます。今後とも一層のご愛顧を賜りますよう、お願い申しあげます。</p></div>', CONVERT(datetime2(3), N'2026-04-20T09:00:00.000'), N'佐藤 花子');
+    N'受益者あてコメント', N'「受益者のみなさまへ」で始まる表紙右側のあいさつ文です。', N'運用状況の概要を簡潔に記載します。長文になりすぎないようにしてください。', N'<div><p>受益者のみなさまへ</p><p>平素は格別のご愛顧を賜り、厚くお礼申しあげます。さて、当ファンドは、このたび、上記の決算を行いました。ここに期間中の運用状況についてご報告申しあげます。今後とも一層のご愛顧を賜りますよう、お願い申しあげます。</p></div>', CONVERT(datetime2(3), N'2026-04-20T09:00:00.000'), N'佐藤 花子', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-cover-company')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-cover-company', N'表紙', N'表紙右側', N'会社名・住所', N'会社名',
-    N'委託会社名', N'表紙右側の署名にあたる委託会社名です。', N'会社名は自動入力（{{ company.name }}）で差し替わります。住所行とセットで使います。', N'<p class="sign">サンプル委託会社</p>', CONVERT(datetime2(3), N'2026-04-20T09:00:00.000'), N'佐藤 花子');
+    N'委託会社名', N'表紙右側の署名にあたる委託会社名です。', N'会社名は自動入力（{{ company.name }}）で差し替わります。住所行とセットで使います。', N'<p class="sign">サンプル委託会社</p>', CONVERT(datetime2(3), N'2026-04-20T09:00:00.000'), N'佐藤 花子', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-cover-address')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-cover-address', N'表紙', N'表紙右側', N'会社名・住所', N'住所',
-    N'委託会社の住所', N'委託会社の郵便番号・住所・ホームページの1行です。', N'会社名の直下に置きます。住所・URLは委託会社に合わせて差し替えてください。', N'<p>〒105-0011　東京都港区芝公園一丁目1番1号　ホームページ　https://www.smtam.jp/</p>', CONVERT(datetime2(3), N'2026-04-20T09:00:00.000'), N'佐藤 花子');
+    N'委託会社の住所', N'委託会社の郵便番号・住所・ホームページの1行です。', N'会社名の直下に置きます。住所・URLは委託会社に合わせて差し替えてください。', N'<p>〒105-0011　東京都港区芝公園一丁目1番1号　ホームページ　https://www.smtam.jp/</p>', CONVERT(datetime2(3), N'2026-04-20T09:00:00.000'), N'佐藤 花子', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-scheme-band')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-scheme-band', N'ファンドの仕組み', N'セクション見出し', N'見出し帯', N'標準',
-    N'見出し帯（ファンドの仕組み）', N'「ファンドの仕組み」セクションの濃紺見出し帯です。', N'セクションの先頭に置きます。1セクションに1つを目安にします。', N'<h2 class="band">ファンドの仕組み</h2>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎');
+    N'見出し帯（ファンドの仕組み）', N'「ファンドの仕組み」セクションの濃紺見出し帯です。', N'セクションの先頭に置きます。1セクションに1つを目安にします。', N'<h2 class="band">ファンドの仕組み</h2>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-scheme-product')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-scheme-product', N'ファンドの仕組み', N'商品概要', N'商品概要の表', N'標準',
-    N'商品概要表', N'商品分類・信託期間・運用方針・分配方針・組入制限を並べた商品概要表です。', N'全体版で使用します。項目名（左列）は短くしてください。', N'<table class="product-table"><tbody><tr><th>商品分類</th><td>追加型投信／内外／資産複合</td></tr><tr><th>信託期間</th><td>2020年1月1日から無期限</td></tr><tr><th>運用方針</th><td>投資信託財産の中長期的な成長を目指して運用を行います。</td></tr><tr><th>分配方針</th><td>毎決算時に委託会社が基準価額水準・市況動向などを勘案して分配金額を決定します。</td></tr><tr><th>組入制限</th><td>投資信託証券への投資割合に制限を設けません。株式への直接投資は行いません。</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-10T09:00:00.000'), N'山田 太郎');
+    N'商品概要表', N'商品分類・信託期間・運用方針・分配方針・組入制限を並べた商品概要表です。', N'全体版で使用します。項目名（左列）は短くしてください。', N'<table class="product-table"><tbody><tr><th>商品分類</th><td>追加型投信／内外／資産複合</td></tr><tr><th>信託期間</th><td>2020年1月1日から無期限</td></tr><tr><th>運用方針</th><td>投資信託財産の中長期的な成長を目指して運用を行います。</td></tr><tr><th>分配方針</th><td>毎決算時に委託会社が基準価額水準・市況動向などを勘案して分配金額を決定します。</td></tr><tr><th>組入制限</th><td>投資信託証券への投資割合に制限を設けません。株式への直接投資は行いません。</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-10T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-scheme-mainassets')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-scheme-mainassets', N'ファンドの仕組み', N'主要運用対象', N'主要運用対象の一覧', N'標準',
-    N'主要運用対象の一覧', N'主要運用対象（マザーファンド等）を2段組で並べた一覧です。', N'商品概要表の下に置きます。件数が多いと折り返します。', N'<div class="sub"><span class="no">主</span><h3>主要運用対象</h3></div><ul class="main-assets"><li>サンプル マザーファンド1</li><li>サンプル マザーファンド2</li><li>サンプル マザーファンド3</li></ul>', CONVERT(datetime2(3), N'2026-05-10T09:00:00.000'), N'山田 太郎');
+    N'主要運用対象の一覧', N'主要運用対象（マザーファンド等）を2段組で並べた一覧です。', N'商品概要表の下に置きます。件数が多いと折り返します。', N'<div class="sub"><span class="no">主</span><h3>主要運用対象</h3></div><ul class="main-assets"><li>サンプル マザーファンド1</li><li>サンプル マザーファンド2</li><li>サンプル マザーファンド3</li></ul>', CONVERT(datetime2(3), N'2026-05-10T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-progress-band')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-progress-band', N'運用経過の説明', N'セクション見出し', N'見出し帯', N'標準',
-    N'見出し帯（運用経過の説明）', N'「運用経過の説明」セクションの濃紺見出し帯です。', N'セクションの先頭に置きます。', N'<h2 class="band">運用経過の説明</h2>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎');
+    N'見出し帯（運用経過の説明）', N'「運用経過の説明」セクションの濃紺見出し帯です。', N'セクションの先頭に置きます。', N'<h2 class="band">運用経過の説明</h2>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-progress-chart')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-progress-chart', N'運用経過の説明', N'基準価額等の推移', N'推移グラフ', N'標準',
-    N'基準価額推移グラフ', N'基準価額・分配金再投資基準価額・純資産総額のモノクロ2軸グラフと凡例・注釈です。', N'グラフは静的SVGです。値の更新はテンプレートの自動入力で行います。', N'<div class="sub"><span class="no">1</span><h3>基準価額等の推移</h3></div><svg class="nav-chart" viewBox="0 0 620 196" role="img" aria-label="基準価額等の推移"><line class="grid" x1="50" y1="24" x2="580" y2="24" /><line class="grid" x1="50" y1="51" x2="580" y2="51" /><line class="grid" x1="50" y1="78" x2="580" y2="78" /><line class="grid" x1="50" y1="105" x2="580" y2="105" /><line class="grid" x1="50" y1="132" x2="580" y2="132" /><line class="axis" x1="50" y1="159" x2="580" y2="159" /><polygon class="area" points="50,140 143,141 275,140 407,142 580,139 580,159 50,159" /><polyline class="line-dash" points="55,72 99,68 143,58 187,52 231,64 275,56 319,80 363,86 407,102 451,114 495,104 539,86 575,82" /><polyline class="line" points="55,78 99,74 143,64 187,58 231,70 275,62 319,86 363,92 407,108 451,120 495,110 539,92 575,88" /><text class="lbl-r" x="46" y="27">16,000</text><text class="lbl-r" x="46" y="54">15,000</text><text class="lbl-r" x="46" y="81">14,000</text><text class="lbl-r" x="46" y="108">13,000</text><text class="lbl-r" x="46" y="135">12,000</text><text class="lbl-r" x="46" y="162">11,000</text><text class="lbl-x" x="55" y="174">24/7</text><text class="lbl-x" x="143" y="174">24/9</text><text class="lbl-x" x="231" y="174">24/11</text><text class="lbl-x" x="319" y="174">25/1</text><text class="lbl-x" x="407" y="174">25/3</text><text class="lbl-x" x="495" y="174">25/5</text><text class="lbl-x" x="575" y="174">25/7</text></svg><p class="chart-note">― 基準価額（左軸）　- - 分配金再投資基準価額（左軸）　▨ 純資産総額（右軸）</p><p class="chart-annot">第1期首：12,000 円　／　第1期末：12,345 円（既払分配金 100 円）　／　騰落率：12.3 ％</p>', CONVERT(datetime2(3), N'2026-05-12T09:00:00.000'), N'山田 太郎');
+    N'基準価額推移グラフ', N'基準価額・分配金再投資基準価額・純資産総額のモノクロ2軸グラフと凡例・注釈です。', N'グラフは静的SVGです。値の更新はテンプレートの自動入力で行います。', N'<div class="sub"><span class="no">1</span><h3>基準価額等の推移</h3></div><svg class="nav-chart" viewBox="0 0 620 196" role="img" aria-label="基準価額等の推移"><line class="grid" x1="50" y1="24" x2="580" y2="24" /><line class="grid" x1="50" y1="51" x2="580" y2="51" /><line class="grid" x1="50" y1="78" x2="580" y2="78" /><line class="grid" x1="50" y1="105" x2="580" y2="105" /><line class="grid" x1="50" y1="132" x2="580" y2="132" /><line class="axis" x1="50" y1="159" x2="580" y2="159" /><polygon class="area" points="50,140 143,141 275,140 407,142 580,139 580,159 50,159" /><polyline class="line-dash" points="55,72 99,68 143,58 187,52 231,64 275,56 319,80 363,86 407,102 451,114 495,104 539,86 575,82" /><polyline class="line" points="55,78 99,74 143,64 187,58 231,70 275,62 319,86 363,92 407,108 451,120 495,110 539,92 575,88" /><text class="lbl-r" x="46" y="27">16,000</text><text class="lbl-r" x="46" y="54">15,000</text><text class="lbl-r" x="46" y="81">14,000</text><text class="lbl-r" x="46" y="108">13,000</text><text class="lbl-r" x="46" y="135">12,000</text><text class="lbl-r" x="46" y="162">11,000</text><text class="lbl-x" x="55" y="174">24/7</text><text class="lbl-x" x="143" y="174">24/9</text><text class="lbl-x" x="231" y="174">24/11</text><text class="lbl-x" x="319" y="174">25/1</text><text class="lbl-x" x="407" y="174">25/3</text><text class="lbl-x" x="495" y="174">25/5</text><text class="lbl-x" x="575" y="174">25/7</text></svg><p class="chart-note">― 基準価額（左軸）　- - 分配金再投資基準価額（左軸）　▨ 純資産総額（右軸）</p><p class="chart-annot">第1期首：12,000 円　／　第1期末：12,345 円（既払分配金 100 円）　／　騰落率：12.3 ％</p>', CONVERT(datetime2(3), N'2026-05-12T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-progress-chart-notes')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-progress-chart-notes', N'運用経過の説明', N'基準価額等の推移', N'注記', N'標準',
-    N'推移グラフの注記', N'分配金再投資基準価額の計算方法・指数化に関する注記文です。', N'推移グラフの直下に置きます。', N'<p class="notes">（注1）分配金再投資基準価額は、分配金（税引前）を分配時に再投資したものとみなして計算したもので、ファンド運用の実質的なパフォーマンスを示すものです。（注2）分配金再投資基準価額は、期首の値を基準価額に合わせて指数化しています。</p>', CONVERT(datetime2(3), N'2026-05-12T09:00:00.000'), N'佐藤 花子');
+    N'推移グラフの注記', N'分配金再投資基準価額の計算方法・指数化に関する注記文です。', N'推移グラフの直下に置きます。', N'<p class="notes">（注1）分配金再投資基準価額は、分配金（税引前）を分配時に再投資したものとみなして計算したもので、ファンド運用の実質的なパフォーマンスを示すものです。（注2）分配金再投資基準価額は、期首の値を基準価額に合わせて指数化しています。</p>', CONVERT(datetime2(3), N'2026-05-12T09:00:00.000'), N'佐藤 花子', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-progress-return-table')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-progress-return-table', N'運用経過の説明', N'期間別騰落率', N'騰落率の表', N'標準',
-    N'期間別騰落率表', N'1ヶ月・6ヶ月・1年などの期間別騰落率を横並びにした表です。', N'数値は自動入力で差し替わります。', N'<div class="sub"><span class="no">2</span><h3>期間別騰落率</h3></div><table class="data"><thead><tr><th>1ヶ月</th><th>6ヶ月</th><th>1年</th></tr></thead><tbody><tr><td class="num">1.2％</td><td class="num">6.5％</td><td class="num">12.3％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-12T09:00:00.000'), N'佐藤 花子');
+    N'期間別騰落率表', N'1ヶ月・6ヶ月・1年などの期間別騰落率を横並びにした表です。', N'数値は自動入力で差し替わります。', N'<div class="sub"><span class="no">2</span><h3>期間別騰落率</h3></div><table class="data"><thead><tr><th>1ヶ月</th><th>6ヶ月</th><th>1年</th></tr></thead><tbody><tr><td class="num">1.2％</td><td class="num">6.5％</td><td class="num">12.3％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-12T09:00:00.000'), N'佐藤 花子', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-progress-distribution')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-progress-distribution', N'運用経過の説明', N'分配金の推移', N'分配金の表', N'標準',
-    N'分配金の推移表', N'決算期・決算日・分配金（円）を並べた分配金の推移表です。', N'決算期ごとに行が増えます。数値は自動入力で差し替わります。', N'<div class="sub"><span class="no">2</span><h3>分配金の推移</h3></div><table class="data"><thead><tr><th>決算期</th><th>決算日</th><th>分配金（円）</th></tr></thead><tbody><tr><td>第1期</td><td>2025/4/30</td><td class="num">10</td></tr><tr><td>第2期</td><td>2025/8/31</td><td class="num">10</td></tr><tr><td>第3期</td><td>2025/12/31</td><td class="num">10</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-14T09:00:00.000'), N'山田 太郎');
+    N'分配金の推移表', N'決算期・決算日・分配金（円）を並べた分配金の推移表です。', N'決算期ごとに行が増えます。数値は自動入力で差し替わります。', N'<div class="sub"><span class="no">2</span><h3>分配金の推移</h3></div><table class="data"><thead><tr><th>決算期</th><th>決算日</th><th>分配金（円）</th></tr></thead><tbody><tr><td>第1期</td><td>2025/4/30</td><td class="num">10</td></tr><tr><td>第2期</td><td>2025/8/31</td><td class="num">10</td></tr><tr><td>第3期</td><td>2025/12/31</td><td class="num">10</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-14T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-progress-navhistory')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-progress-navhistory', N'運用経過の説明', N'基準価額の月次推移', N'月次推移の表', N'標準',
-    N'基準価額の月次推移表', N'月次の基準価額を横並びにした推移表です。', N'全体版で使用します。月数が多いと折り返します。', N'<div class="sub"><span class="no">4</span><h3>基準価額の月次推移</h3></div><table class="data"><thead><tr><th>25/1</th><th>25/3</th><th>25/5</th><th>25/7</th><th>25/9</th><th>25/12</th></tr></thead><tbody><tr><td class="num">12,000</td><td class="num">12,100</td><td class="num">12,200</td><td class="num">12,250</td><td class="num">12,300</td><td class="num">12,345</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-14T09:00:00.000'), N'山田 太郎');
+    N'基準価額の月次推移表', N'月次の基準価額を横並びにした推移表です。', N'全体版で使用します。月数が多いと折り返します。', N'<div class="sub"><span class="no">4</span><h3>基準価額の月次推移</h3></div><table class="data"><thead><tr><th>25/1</th><th>25/3</th><th>25/5</th><th>25/7</th><th>25/9</th><th>25/12</th></tr></thead><tbody><tr><td class="num">12,000</td><td class="num">12,100</td><td class="num">12,200</td><td class="num">12,250</td><td class="num">12,300</td><td class="num">12,345</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-14T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-holdings-band')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-holdings-band', N'投資対象ファンドの状況', N'セクション見出し', N'見出し帯', N'標準',
-    N'見出し帯（投資対象ファンドの状況）', N'「投資対象ファンドの状況」セクションの濃紺見出し帯です。', N'セクションの先頭に置きます。', N'<h2 class="band">投資対象ファンドの状況</h2>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎');
+    N'見出し帯（投資対象ファンドの状況）', N'「投資対象ファンドの状況」セクションの濃紺見出し帯です。', N'セクションの先頭に置きます。', N'<h2 class="band">投資対象ファンドの状況</h2>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-holdings-table')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-holdings-table', N'投資対象ファンドの状況', N'組入上位ファンド', N'組入の表', N'標準',
-    N'組入上位ファンド表', N'順位・組入ファンド・投資資産・組入比率・騰落率の5列表です。', N'上位ファンドの件数だけ行が増えます。数値は自動入力で差し替わります。', N'<div class="sub"><span class="no">3</span><h3>組入上位ファンドと騰落率</h3></div><table class="data"><thead><tr><th>順位</th><th>組入ファンド</th><th>投資資産</th><th>組入比率</th><th>騰落率</th></tr></thead><tbody><tr><td>1</td><td>サンプル銘柄1</td><td>国内株式</td><td class="num">12.3％</td><td class="num">1.2％</td></tr><tr><td>2</td><td>サンプル銘柄2</td><td>先進国株式</td><td class="num">10.0％</td><td class="num">2.3％</td></tr><tr><td>3</td><td>サンプル銘柄3</td><td>先進国債券</td><td class="num">8.0％</td><td class="num">3.4％</td></tr><tr><td>4</td><td>サンプル銘柄4</td><td>新興国株式</td><td class="num">6.0％</td><td class="num">4.5％</td></tr><tr><td>5</td><td>サンプル銘柄5</td><td>コモディティ</td><td class="num">4.0％</td><td class="num">5.6％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-15T09:00:00.000'), N'佐藤 花子');
+    N'組入上位ファンド表', N'順位・組入ファンド・投資資産・組入比率・騰落率の5列表です。', N'上位ファンドの件数だけ行が増えます。数値は自動入力で差し替わります。', N'<div class="sub"><span class="no">3</span><h3>組入上位ファンドと騰落率</h3></div><table class="data"><thead><tr><th>順位</th><th>組入ファンド</th><th>投資資産</th><th>組入比率</th><th>騰落率</th></tr></thead><tbody><tr><td>1</td><td>サンプル銘柄1</td><td>国内株式</td><td class="num">12.3％</td><td class="num">1.2％</td></tr><tr><td>2</td><td>サンプル銘柄2</td><td>先進国株式</td><td class="num">10.0％</td><td class="num">2.3％</td></tr><tr><td>3</td><td>サンプル銘柄3</td><td>先進国債券</td><td class="num">8.0％</td><td class="num">3.4％</td></tr><tr><td>4</td><td>サンプル銘柄4</td><td>新興国株式</td><td class="num">6.0％</td><td class="num">4.5％</td></tr><tr><td>5</td><td>サンプル銘柄5</td><td>コモディティ</td><td class="num">4.0％</td><td class="num">5.6％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-15T09:00:00.000'), N'佐藤 花子', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-holdings-alloc')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-holdings-alloc', N'投資対象ファンドの状況', N'資産配分', N'配分の表', N'標準',
-    N'資産配分表', N'資産と純資産比を並べた資産配分表です。', N'幅は狭めに設定されています。資産区分ごとに行が増えます。', N'<div class="sub"><span class="no">4</span><h3>資産配分</h3></div><table class="data alloc-table"><thead><tr><th>資産</th><th>純資産比</th></tr></thead><tbody><tr><td>国内株式</td><td class="num">30.0％</td></tr><tr><td>先進国株式</td><td class="num">30.0％</td></tr><tr><td>国内債券</td><td class="num">20.0％</td></tr><tr><td>先進国債券</td><td class="num">20.0％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-15T09:00:00.000'), N'佐藤 花子');
+    N'資産配分表', N'資産と純資産比を並べた資産配分表です。', N'幅は狭めに設定されています。資産区分ごとに行が増えます。', N'<div class="sub"><span class="no">4</span><h3>資産配分</h3></div><table class="data alloc-table"><thead><tr><th>資産</th><th>純資産比</th></tr></thead><tbody><tr><td>国内株式</td><td class="num">30.0％</td></tr><tr><td>先進国株式</td><td class="num">30.0％</td></tr><tr><td>国内債券</td><td class="num">20.0％</td></tr><tr><td>先進国債券</td><td class="num">20.0％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-15T09:00:00.000'), N'佐藤 花子', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-data-band')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-data-band', N'当ファンドのデータ', N'セクション見出し', N'見出し帯', N'標準',
-    N'見出し帯（当ファンドのデータ）', N'「当ファンドのデータ」セクションの濃紺見出し帯です。', N'セクションの先頭に置きます。', N'<h2 class="band">当ファンドのデータ</h2>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎');
+    N'見出し帯（当ファンドのデータ）', N'「当ファンドのデータ」セクションの濃紺見出し帯です。', N'セクションの先頭に置きます。', N'<h2 class="band">当ファンドのデータ</h2>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-data-holdings')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-data-holdings', N'当ファンドのデータ', N'組入上位銘柄', N'銘柄の表', N'標準',
-    N'組入上位銘柄表', N'順位・銘柄名・国地域・組入比率の4列表です（債券系テンプレート向け）。', N'銘柄の件数だけ行が増えます。数値は自動入力で差し替わります。', N'<div class="sub"><span class="no">3</span><h3>組入上位銘柄</h3></div><table class="data"><thead><tr><th>順位</th><th>銘柄名</th><th>国・地域</th><th>組入比率</th></tr></thead><tbody><tr><td>1</td><td>サンプル銘柄1</td><td>日本</td><td class="num">12.3％</td></tr><tr><td>2</td><td>サンプル銘柄2</td><td>アメリカ</td><td class="num">10.0％</td></tr><tr><td>3</td><td>サンプル銘柄3</td><td>イギリス</td><td class="num">8.0％</td></tr><tr><td>4</td><td>サンプル銘柄4</td><td>その他</td><td class="num">6.0％</td></tr><tr><td>5</td><td>サンプル銘柄5</td><td>日本</td><td class="num">4.0％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-16T09:00:00.000'), N'山田 太郎');
+    N'組入上位銘柄表', N'順位・銘柄名・国地域・組入比率の4列表です（債券系テンプレート向け）。', N'銘柄の件数だけ行が増えます。数値は自動入力で差し替わります。', N'<div class="sub"><span class="no">3</span><h3>組入上位銘柄</h3></div><table class="data"><thead><tr><th>順位</th><th>銘柄名</th><th>国・地域</th><th>組入比率</th></tr></thead><tbody><tr><td>1</td><td>サンプル銘柄1</td><td>日本</td><td class="num">12.3％</td></tr><tr><td>2</td><td>サンプル銘柄2</td><td>アメリカ</td><td class="num">10.0％</td></tr><tr><td>3</td><td>サンプル銘柄3</td><td>イギリス</td><td class="num">8.0％</td></tr><tr><td>4</td><td>サンプル銘柄4</td><td>その他</td><td class="num">6.0％</td></tr><tr><td>5</td><td>サンプル銘柄5</td><td>日本</td><td class="num">4.0％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-16T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-data-currency')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-data-currency', N'当ファンドのデータ', N'通貨別配分', N'配分の表', N'標準',
-    N'通貨別配分表', N'通貨と純資産比を並べた通貨別配分表です。', N'債券系テンプレートで使用します。', N'<div class="sub"><span class="no">4</span><h3>通貨別配分</h3></div><table class="data alloc-table"><thead><tr><th>通貨</th><th>純資産比</th></tr></thead><tbody><tr><td>米ドル</td><td class="num">40.0％</td></tr><tr><td>ユーロ</td><td class="num">30.0％</td></tr><tr><td>円</td><td class="num">20.0％</td></tr><tr><td>その他</td><td class="num">10.0％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-16T09:00:00.000'), N'山田 太郎');
+    N'通貨別配分表', N'通貨と純資産比を並べた通貨別配分表です。', N'債券系テンプレートで使用します。', N'<div class="sub"><span class="no">4</span><h3>通貨別配分</h3></div><table class="data alloc-table"><thead><tr><th>通貨</th><th>純資産比</th></tr></thead><tbody><tr><td>米ドル</td><td class="num">40.0％</td></tr><tr><td>ユーロ</td><td class="num">30.0％</td></tr><tr><td>円</td><td class="num">20.0％</td></tr><tr><td>その他</td><td class="num">10.0％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-16T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-data-country')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-data-country', N'当ファンドのデータ', N'国別配分', N'配分の表', N'標準',
-    N'国別配分表', N'国・地域と比率を並べた国別配分表です。', N'債券系テンプレートで使用します。', N'<div class="sub"><span class="no">5</span><h3>国別配分</h3></div><table class="data alloc-table"><thead><tr><th>国・地域</th><th>比率</th></tr></thead><tbody><tr><td>アメリカ</td><td class="num">40.0％</td></tr><tr><td>イギリス</td><td class="num">30.0％</td></tr><tr><td>ドイツ</td><td class="num">20.0％</td></tr><tr><td>その他</td><td class="num">10.0％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-16T09:00:00.000'), N'山田 太郎');
+    N'国別配分表', N'国・地域と比率を並べた国別配分表です。', N'債券系テンプレートで使用します。', N'<div class="sub"><span class="no">5</span><h3>国別配分</h3></div><table class="data alloc-table"><thead><tr><th>国・地域</th><th>比率</th></tr></thead><tbody><tr><td>アメリカ</td><td class="num">40.0％</td></tr><tr><td>イギリス</td><td class="num">30.0％</td></tr><tr><td>ドイツ</td><td class="num">20.0％</td></tr><tr><td>その他</td><td class="num">10.0％</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-16T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-cost-band')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-cost-band', N'費用および運用コメント', N'セクション見出し', N'見出し帯', N'標準',
-    N'見出し帯（費用および運用コメント）', N'「費用および運用コメント」セクションの濃紺見出し帯です。', N'セクションの先頭に置きます。', N'<h2 class="band">費用および運用コメント</h2>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎');
+    N'見出し帯（費用および運用コメント）', N'「費用および運用コメント」セクションの濃紺見出し帯です。', N'セクションの先頭に置きます。', N'<h2 class="band">費用および運用コメント</h2>', CONVERT(datetime2(3), N'2026-05-01T09:00:00.000'), N'山田 太郎', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-cost-table')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-cost-table', N'費用および運用コメント', N'費用明細', N'費用の表', N'標準',
-    N'費用明細表', N'項目・金額・比率を並べ、最終行に合計を持つ1万口当たりの費用明細表です。', N'合計行（太字）は1つだけにしてください。数値は自動入力で差し替わります。', N'<div class="sub"><span class="no">5</span><h3>1万口当たりの費用明細</h3></div><table class="data"><thead><tr><th>項目</th><th>金額（円）</th><th>比率（％）</th></tr></thead><tbody><tr><td>(a) 信託報酬</td><td class="num">123</td><td class="num">1.234</td></tr><tr><td>(b) 売買委託手数料</td><td class="num">12</td><td class="num">0.123</td></tr><tr><td>(c) その他費用</td><td class="num">1</td><td class="num">0.012</td></tr><tr class="total"><td>合計</td><td class="num">136</td><td class="num">1.369</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-17T09:00:00.000'), N'佐藤 花子');
+    N'費用明細表', N'項目・金額・比率を並べ、最終行に合計を持つ1万口当たりの費用明細表です。', N'合計行（太字）は1つだけにしてください。数値は自動入力で差し替わります。', N'<div class="sub"><span class="no">5</span><h3>1万口当たりの費用明細</h3></div><table class="data"><thead><tr><th>項目</th><th>金額（円）</th><th>比率（％）</th></tr></thead><tbody><tr><td>(a) 信託報酬</td><td class="num">123</td><td class="num">1.234</td></tr><tr><td>(b) 売買委託手数料</td><td class="num">12</td><td class="num">0.123</td></tr><tr><td>(c) その他費用</td><td class="num">1</td><td class="num">0.012</td></tr><tr class="total"><td>合計</td><td class="num">136</td><td class="num">1.369</td></tr></tbody></table>', CONVERT(datetime2(3), N'2026-05-17T09:00:00.000'), N'佐藤 花子', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-cost-commentary')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-cost-commentary', N'費用および運用コメント', N'運用コメント', N'コメント本文', N'標準',
-    N'運用コメント本文', N'当期の運用状況を説明する運用コメントの本文です。', N'段落が長くなりすぎないよう、適度に区切ってください。', N'<div class="sub"><span class="no">6</span><h3>運用コメント</h3></div><div class="commentary"><p>当期の基準価額は、各資産の値動きを反映してサンプルの水準で推移しました。本文はパーツ別共通のダミーテキストです。実データはファンドごとに差し替えてご利用ください。</p></div>', CONVERT(datetime2(3), N'2026-05-17T09:00:00.000'), N'佐藤 花子');
+    N'運用コメント本文', N'当期の運用状況を説明する運用コメントの本文です。', N'段落が長くなりすぎないよう、適度に区切ってください。', N'<div class="sub"><span class="no">6</span><h3>運用コメント</h3></div><div class="commentary"><p>当期の基準価額は、各資産の値動きを反映してサンプルの水準で推移しました。本文はパーツ別共通のダミーテキストです。実データはファンドごとに差し替えてご利用ください。</p></div>', CONVERT(datetime2(3), N'2026-05-17T09:00:00.000'), N'佐藤 花子', NULL);
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-cost-footer')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定])
   VALUES (N'part-cost-footer', N'費用および運用コメント', N'フッター', N'委託会社情報', N'標準',
-    N'フッター（委託会社情報）', N'ページ下部の委託会社名・会社コード・ファンドコードのフッター行です。', N'ページの末尾に置きます。会社名・コードは自動入力で差し替わります。', N'<footer class="report-footer"><p>委託会社: サンプル委託会社（AM01）　〈000000〉</p></footer>', CONVERT(datetime2(3), N'2026-05-17T09:00:00.000'), N'山田 太郎');
+    N'フッター（委託会社情報）', N'ページ下部の委託会社名・会社コード・ファンドコードのフッター行です。', N'ページの末尾に置きます。会社名・コードは自動入力で差し替わります。', N'<footer class="report-footer"><p>委託会社: サンプル委託会社（AM01）　〈000000〉</p></footer>', CONVERT(datetime2(3), N'2026-05-17T09:00:00.000'), N'山田 太郎', NULL);
 GO

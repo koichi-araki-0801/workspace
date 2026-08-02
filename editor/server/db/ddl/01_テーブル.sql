@@ -88,6 +88,14 @@ BEGIN
 END
 GO
 
+/* 交付版⇄全体版 パーツ自動同期の種別既定(後付け列のため COL_LENGTH で冪等追加)。
+ * NULL = 未判断(同期しない)。列挙値の CHECK は 03_制約.sql。ペア個別の設定は持たず、
+ * ポリシーの正典はこの列のみ(同期の実行状態は dataRoot/sync の JSON がファイル側で持つ)。 */
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'同期既定') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
+    ADD [同期既定] NVARCHAR(16) COLLATE Japanese_CI_AS NULL;
+GO
+
 /* --- 4. 監査ログ --------------------------------------------------------- */
 /* logger.ts の AuditEvent を列化(ファイルログとの二重化)。JSON はテキスト保管。   */
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_監査ログ]', N'U') IS NULL

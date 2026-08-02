@@ -104,6 +104,13 @@ export type ReviewDecisionRequest = z.infer<typeof sch.ReviewDecisionBody>;
  */
 export type ApproveReviewResult = z.infer<typeof sch.ApproveReviewResult>;
 
+/**
+ * 承認直後に走る交付版⇄全体版のパーツ自動同期の結果概要。承認応答(`ApproveReviewResult.sync`)
+ * に載せて UI へ渡す。同期の実装は server の `sync/partSync.ts`、ポリシーの正典はパーツ
+ * カタログ台帳の `同期既定` 列(`PartSyncDefault`)。
+ */
+export type PairSyncSummary = z.infer<typeof sch.PairSyncSummary>;
+
 // ── 6. API DTOs ──
 
 /** カスケード型ドロップダウンの問い合わせ: 既知の属性を入力、残りの候補を出力。 */
@@ -118,6 +125,9 @@ export type PartClassification = z.infer<typeof sch.PartClassification>;
 
 /** カタログ上の1パーツ。SQLの1行に相当する想定。 */
 export type PartCatalogItem = z.infer<typeof sch.PartCatalogItem>;
+
+/** 交付版⇄全体版 自動同期の種別既定(カタログ台帳の `同期既定` 列)。null は未判断。 */
+export type PartSyncDefault = z.infer<typeof sch.PartSyncDefault>;
 
 /**
  * パーツ単位の作業メモ(版インスタンス単位)。`templateId`(= 委託会社/ファンドコード/基準日/
