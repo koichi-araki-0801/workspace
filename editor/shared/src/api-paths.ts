@@ -31,6 +31,7 @@ export const apiPaths = {
   templates: '/templates',
   templateById: '/templates/:id',
   templateDraft: '/templates/:id/draft',
+  templateSyncStatus: '/templates/:id/sync-status',
   generate: '/generate',
   fundSampleData: '/funds/:fundCode/sample-data',
   // parts

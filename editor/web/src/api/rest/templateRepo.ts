@@ -10,6 +10,7 @@ import {
   type GenerateRequest,
   type GenerateResult,
   map,
+  type PairSyncStatus,
   type SampleData,
   type SaveDraftRequest,
   type Template,
@@ -80,4 +81,9 @@ export const restTemplateRepo: TemplateRepository = {
 
   getSampleData: (fundCode: string) =>
     attemptRest(() => apiFetch<SampleData>(buildPath(apiPaths.fundSampleData, { fundCode }))),
+
+  getSyncStatus: (templateId: string) =>
+    attemptRest(() =>
+      apiFetch<PairSyncStatus>(buildPath(apiPaths.templateSyncStatus, { id: templateId })),
+    ),
 };

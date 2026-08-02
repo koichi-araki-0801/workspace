@@ -299,6 +299,30 @@ export const PairSyncSummary = z
   })
   .meta({ id: 'PairSyncSummary' });
 
+/**
+ * ペア同期の現況(編集画面のバナー・要判断表示用の軽量ビュー)。未解決競合 = 自動同期を
+ * 停止して人間の判断を待っているパーツ。競合の解消は「両版の内容を一致させる」ことで
+ * 次回承認時に自動で消える(専用の解消 API は持たない)。
+ */
+export const PairSyncStatus = z
+  .object({
+    pairTemplateId: z
+      .string()
+      .nullable()
+      .meta({ description: 'ペアのテンプレート ID。版種がペア対象外なら null' }),
+    pairExists: z.boolean().meta({ description: 'ペア実体(ファイル)が存在するか' }),
+    conflicts: z
+      .array(
+        z.object({
+          partKey: z.string(),
+          kind: z.enum(['初期差分', '両側変更']),
+          detectedAt: z.string(),
+        }),
+      )
+      .meta({ description: '未解決競合(自動同期停止中)のパーツ一覧' }),
+  })
+  .meta({ id: 'PairSyncStatus' });
+
 /** 承認の結果。反映後 `meta` + 並行性警告 `staleWarning` + ペア自動同期の概要 `sync`。 */
 export const ApproveReviewResult = z
   .object({

@@ -111,6 +111,9 @@ export type ApproveReviewResult = z.infer<typeof sch.ApproveReviewResult>;
  */
 export type PairSyncSummary = z.infer<typeof sch.PairSyncSummary>;
 
+/** ペア同期の現況(編集画面のバナー用軽量ビュー。未解決競合の一覧を運ぶ)。 */
+export type PairSyncStatus = z.infer<typeof sch.PairSyncStatus>;
+
 // ── 6. API DTOs ──
 
 /** カスケード型ドロップダウンの問い合わせ: 既知の属性を入力、残りの候補を出力。 */

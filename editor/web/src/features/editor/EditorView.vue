@@ -4,7 +4,7 @@
 // =============================================================================
 // 役割: `useTemplateEditor.ts` / `useGeomHandles.ts` を束ね、canvas 上に選択 overlay
 // (ページ境界 guide / ドラッグハンドル / move grip)を描く presentational なルート。
-import { GripVertical, PanelLeft, PanelRight, StickyNote } from '@lucide/vue';
+import { GripVertical, PanelLeft, PanelRight, StickyNote, TriangleAlert } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import PageRail from '@/components/PageRail.vue';
@@ -32,6 +32,7 @@ const {
   g,
   template,
   fundName,
+  syncStatus,
   displayHistory,
   partLabels,
   selectedPart,
@@ -236,6 +237,22 @@ const statusText = computed(() => {
     />
 
     <ShortcutHelpDialog v-model:open="helpOpen" />
+
+    <!-- 交付版⇄全体版 ペア同期の未解決競合バナー。競合中のパーツは自動同期が止まって
+         いる(両版の内容を一致させると次回承認時に解消される)。放置による二重メンテ回帰を
+         防ぐため、解消まで開くたびに表示する(閉じるボタンは意図的に置かない)。 -->
+    <div
+      v-if="syncStatus && syncStatus.conflicts.length > 0"
+      class="flex items-center gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
+      role="alert"
+    >
+      <TriangleAlert class="h-4 w-4 shrink-0" />
+      <span>
+        ペア（{{ syncStatus.pairTemplateId }}）と {{ syncStatus.conflicts.length }} 件のパーツが
+        競合しています（自動同期停止中）:
+        {{ syncStatus.conflicts.map((c) => `${c.partKey}〔${c.kind}〕`).join('、') }}
+      </span>
+    </div>
 
     <!-- 高ズームで両袖(固定幅)+ 中央が実効ビューポート幅を超える極端な場合は、クリップ
          ではなく横スクロールで全ペインへ到達できるようにする(通常倍率では overflow 無し)。 -->

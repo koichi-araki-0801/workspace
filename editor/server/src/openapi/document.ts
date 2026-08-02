@@ -175,6 +175,15 @@ export function buildOpenApiDocument() {
           responses: { '200': json('テンプレート', s.Template), ...ERR_401, ...ERR_404 },
         },
       },
+      [toOpenApiPath(apiPaths.templateSyncStatus)]: {
+        get: {
+          tags: ['templates'],
+          summary: '交付版⇄全体版 ペア同期の現況(未解決競合の一覧)',
+          operationId: 'getTemplateSyncStatus',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: { '200': json('ペア同期の現況', s.PairSyncStatus), ...ERR_401 },
+        },
+      },
       [toOpenApiPath(apiPaths.templateDraft)]: {
         get: {
           tags: ['templates'],

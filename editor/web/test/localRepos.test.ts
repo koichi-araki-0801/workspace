@@ -40,6 +40,33 @@ describe('localTemplateRepo.getTemplate', () => {
   });
 });
 
+describe('localTemplateRepo.getSyncStatus', () => {
+  it('ペア(交付版⇄全体版)が fixtures に居れば pairExists を立てる(競合は常に空)', async () => {
+    const r = await localTemplateRepo.getSyncStatus('AM01_510037_20240710_交付版');
+    expect(isOk(r)).toBe(true);
+    if (isOk(r)) {
+      expect(r.value.pairTemplateId).toBe('AM01_510037_20240710_全体版');
+      expect(r.value.pairExists).toBe(true);
+      expect(r.value.conflicts).toEqual([]);
+    }
+  });
+
+  it('ペア実体が無いテンプレは pairExists=false', async () => {
+    const r = await localTemplateRepo.getSyncStatus('AM01_510155_20240710_交付版');
+    expect(isOk(r)).toBe(true);
+    if (isOk(r)) {
+      expect(r.value.pairTemplateId).toBe('AM01_510155_20240710_全体版');
+      expect(r.value.pairExists).toBe(false);
+    }
+  });
+
+  it('ペア対象外の版種は pairTemplateId=null', async () => {
+    const r = await localTemplateRepo.getSyncStatus('AM01_510037_20240710_kr');
+    expect(isOk(r)).toBe(true);
+    if (isOk(r)) expect(r.value.pairTemplateId).toBeNull();
+  });
+});
+
 describe('confirmSaveLocal round-trip', () => {
   it('persists html/css and marks the template published', async () => {
     const list = await localTemplateRepo.listTemplates({});

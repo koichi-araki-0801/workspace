@@ -8,6 +8,7 @@ import {
   isErr,
   isOk,
   ok,
+  type PairSyncStatus,
   type PartCatalogItem,
   type PartHistoryEntry,
   type Template,
@@ -72,6 +73,12 @@ export function useTemplateEditor(
     const key = currentNoteKey();
     return key ? allPartHistory.value.filter((e) => e.partKey === key) : [];
   });
+  /**
+   * 交付版⇄全体版 ペア同期の現況。未解決競合(自動同期停止中のパーツ)があるときだけ
+   * canvas 上部にバナーを出す。取得失敗は無視する(バナーは補助情報で、編集を止めない)。
+   */
+  const syncStatus = ref<PairSyncStatus | null>(null);
+
   /** catalog で最後にクリックされた part(挿入時のプレビュー)。 */
   const previewPart = ref<PartCatalogItem | null>(null);
   /** 現在の canvas 選択から解決した part(catalog part でなければ null)。 */
@@ -338,6 +345,12 @@ export function useTemplateEditor(
       if (isOk(res)) allPartHistory.value = res.value;
       else logError(res.error);
     });
+    // ペア同期の競合バナー用。編集経路のみ(作成経路 `?created=1` は未確定テンプレでペア無し)。
+    if (route.query.created !== '1') {
+      void service.getSyncStatus(id).then((res) => {
+        if (isOk(res)) syncStatus.value = res.value;
+      });
+    }
     // canvas の全変更はここを通る — dirty を立て、autosave を起動する。`g.onChange` は
     // load() より後に張るため、初期ロードでは発火せず純粋なユーザー編集だけを拾う。
     g.onChange(() => {
@@ -442,6 +455,7 @@ export function useTemplateEditor(
     g,
     template,
     fundName,
+    syncStatus,
     partHistory,
     displayHistory,
     partLabels,

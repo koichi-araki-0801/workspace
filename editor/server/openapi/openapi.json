@@ -452,6 +452,45 @@
         }
       }
     },
+    "/templates/{id}/sync-status": {
+      "get": {
+        "tags": ["templates"],
+        "summary": "交付版⇄全体版 ペア同期の現況(未解決競合の一覧)",
+        "operationId": "getTemplateSyncStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ペア同期の現況",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairSyncStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/templates/{id}/draft": {
       "get": {
         "tags": ["templates"],
@@ -2536,6 +2575,49 @@
           }
         },
         "required": ["meta", "html", "css", "filled"],
+        "additionalProperties": false
+      },
+      "PairSyncStatus": {
+        "type": "object",
+        "properties": {
+          "pairTemplateId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ペアのテンプレート ID。版種がペア対象外なら null"
+          },
+          "pairExists": {
+            "type": "boolean",
+            "description": "ペア実体(ファイル)が存在するか"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partKey": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["初期差分", "両側変更"]
+                },
+                "detectedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["partKey", "kind", "detectedAt"],
+              "additionalProperties": false
+            },
+            "description": "未解決競合(自動同期停止中)のパーツ一覧"
+          }
+        },
+        "required": ["pairTemplateId", "pairExists", "conflicts"],
         "additionalProperties": false
       },
       "TemplateDraft": {

@@ -138,4 +138,16 @@ describe('TemplateEditorService.saveDraft / listPartHistory', () => {
     expect(isOk(res)).toBe(true);
     expect(listPartHistory).toHaveBeenCalledWith('t1');
   });
+
+  it('delegates getSyncStatus to the template repository', async () => {
+    const getSyncStatus = vi.fn(async () =>
+      ok({ pairTemplateId: null, pairExists: false, conflicts: [] }),
+    );
+    const templates = { getSyncStatus } as unknown as TemplateRepository;
+    const parts = {} as unknown as PartRepository;
+    const svc = createTemplateEditorService(templates, parts);
+    const res = await svc.getSyncStatus('t1');
+    expect(isOk(res)).toBe(true);
+    expect(getSyncStatus).toHaveBeenCalledWith('t1');
+  });
 });

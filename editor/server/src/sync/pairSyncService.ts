@@ -11,6 +11,7 @@
 // スキップして人間へ返す)。
 
 import {
+  type PairSyncStatus,
   type PairSyncSummary,
   pairedTemplateId,
   parseTemplateFileName,
@@ -22,6 +23,25 @@ import { commitAll, withGitLock } from '../git/gitRepo.js';
 import { logger } from '../logger.js';
 import { listParts } from '../repositories/partRepo.js';
 import { computePairSync } from './partSync.js';
+
+/**
+ * ペア同期の現況(編集画面バナー用)。状態ファイルから未解決競合だけを軽量ビューへ写す。
+ * 状態ファイルの破損や読取失敗は「競合なし」へ倒す(バナーは補助情報であり、本流の
+ * 編集・承認を止めない。破損の一次対処は次回承認時の同期スキップ警告が担う)。
+ */
+export async function getPairSyncStatus(templateId: string): Promise<PairSyncStatus> {
+  const pairId = pairedTemplateId(templateId);
+  const attrs = parseTemplateFileName(`${templateId}.html`);
+  if (pairId === null || !attrs) return { pairTemplateId: null, pairExists: false, conflicts: [] };
+  const pairExists = await templateExists(`${pairId}.html`);
+  const state = pairExists ? await readSyncState(templatePairKey(attrs)).catch(() => null) : null;
+  const conflicts = state
+    ? Object.entries(state.parts).flatMap(([partKey, p]) =>
+        p.conflict ? [{ partKey, kind: p.conflict.kind, detectedAt: p.conflict.detectedAt }] : [],
+      )
+    : [];
+  return { pairTemplateId: pairId, pairExists, conflicts };
+}
 
 /**
  * 承認確定した `sourceTemplateId` の変更をペアへ自動同期する。ペア対象外の版種・ペア実体
