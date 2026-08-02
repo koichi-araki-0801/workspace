@@ -47,15 +47,16 @@ title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
 | 16 | `GET` | `/templates/:templateId/parts/:partId/history` | ○ | templateId, partId | パーツ変更履歴 |
 | 17 | `POST` | `/build` | ○ | BuildInlineRequest（html, css, size, singleDoc） | PDF（vivliostyle） |
 | 18 | `POST` | `/build/project` | ○ | プロジェクト zip | PDF |
-| 19 | `GET` | `/preview/:id` | ○ | id | プレビュー（Vite proxy） |
-| 20 | `POST` | `/preview` | ○ | html/css | プレビューセッション開始 |
-| 21 | `GET` | `/history/edit` | ○ | — | 編集履歴一覧 |
-| 22 | `GET` | `/history/pdf` | ○ | — | PDF出力履歴一覧 |
-| 23 | `GET` | `/history/create` | ○ | — | 作成履歴一覧 |
-| 24 | `GET` | `/templates/:templateId/versions` | ○ | templateId | 版一覧（比較用） |
-| 25 | `GET` | `/snapshots/:historyId` | ○ | historyId | スナップショット本文 |
-| 26 | `GET` | `/users` | admin | — | User[] |
-| 27 | `POST` | `/users/:id/reset-password` | admin | id | PWリセット結果（要PW変更） |
+| 19 | `POST` | `/build/merge` | ○ | BuildMergeRequest（documents[]（html, css）, size?） | PDF（複数文書を結合・通しページ番号） |
+| 20 | `GET` | `/preview/:id` | ○ | id | プレビュー（Vite proxy） |
+| 21 | `POST` | `/preview` | ○ | html/css | プレビューセッション開始 |
+| 22 | `GET` | `/history/edit` | ○ | — | 編集履歴一覧 |
+| 23 | `GET` | `/history/pdf` | ○ | — | PDF出力履歴一覧 |
+| 24 | `GET` | `/history/create` | ○ | — | 作成履歴一覧 |
+| 25 | `GET` | `/templates/:templateId/versions` | ○ | templateId | 版一覧（比較用） |
+| 26 | `GET` | `/snapshots/:historyId` | ○ | historyId | スナップショット本文 |
+| 27 | `GET` | `/users` | admin | — | User[] |
+| 28 | `POST` | `/users/:id/reset-password` | admin | id | PWリセット結果（要PW変更） |
 
 # DB定義(テーブル)
 
@@ -144,13 +145,20 @@ title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
 
 | No | 区分 | テスト観点 | 手順 | 期待結果 | 結果 | 確認者 |
 |:--:|---|---|---|---|:--:|---|
-| 1 | 認証(E2E) | 未認証アクセス | 保護ページへ直接アクセス | ログイン画面へリダイレクト | 未 |  |
-| 2 | 認証(E2E) | ログイン成功 | 正しいID/PWでログイン | 編集（/edit）タブへ遷移 | 未 |  |
-| 3 | 認証(E2E) | ログイン失敗 | 不正なパスワードで送信 | エラー表示・ログイン画面に滞在 | 未 |  |
-| 4 | API | OpenAPI パス網羅 | openapi.test.ts を実行 | 16パスとスキーマが定義済み | 未 |  |
-| 5 | API | 公開エンドポイント | /health /auth/login の security | security:[]（認証不要） | 未 |  |
-| 6 | 認可 | 管理者限定 | viewer で /users を呼ぶ | 403（requireAdmin） | 未 |  |
-| 7 | ドメイン | ユーザー検証 | username に記号を含めて検証 | 『半角英数字とアンダースコアのみ』 | 未 |  |
-| 8 | ドメイン | 重複ID | 既存ID（大小違い）で作成 | 『既に使われています』 | 未 |  |
-| 9 | 入力検証 | zip アップロード | projectInput.test.ts | 不正zipを拒否 | 未 |  |
-| 10 | 生成 | テンプレ生成 | pyTemplate.test.ts | 骨子HTMLを生成 | 未 |  |
+| 1 | 認証(E2E) | 未認証アクセス | 保護ページへ直接アクセス | ログイン画面へリダイレクト | 済 |  |
+| 2 | 認証(E2E) | ログイン成功 | 正しいID/PWでログイン | 編集（/edit）タブへ遷移 | 済 |  |
+| 3 | 認証(E2E) | ログイン失敗 | 不正なパスワードで送信 | エラー表示・ログイン画面に滞在 | 済 |  |
+| 4 | API | OpenAPI パス網羅 | openapi.test.ts を実行 | apiPaths 正典の全パスとスキーマが定義済み | 済 |  |
+| 5 | API | 公開エンドポイント | /health /auth/login の security | security:[]（認証不要） | 済 |  |
+| 6 | 認可 | 管理者限定 | viewer で /users を呼ぶ | 403（requireAdmin） | 済 |  |
+| 7 | ドメイン | ユーザー検証 | username に記号を含めて検証 | 『半角英数字とアンダースコアのみ』 | 済 |  |
+| 8 | ドメイン | 重複ID | 既存ID（大小違い）で作成 | 『既に使われています』 | 済 |  |
+| 9 | 入力検証 | zip アップロード | projectInput.test.ts | 不正zipを拒否 | 済 |  |
+| 10 | 生成 | テンプレ生成 | pyTemplate.test.ts | 骨子HTMLを生成 | 済 |  |
+| 11 | DB | DDL/索引/制約の適用 | apply.ps1 を 2 回実行（冪等性確認） | エラー無し・テーブル6/索引10/CHECK制約3 | 済 |  |
+| 12 | DB | sproc ゲートウェイ疎通 | 6 sproc の代表 @操作 を EXEC | 結果セット返却・THROW 50404/50409/50000 が仕様どおり | 済 |  |
+| 13 | DB | REST 縦貫 + 監査ミラー | rest モードで login〜API〜logout | セッション作成/失効・監査ログが DB に記録 | 済 |  |
+
+> 検証環境（2026-08-02）: SQL Server 2022 Express LocalDB + ODBC Driver 17 + msnodesqlv8 4.5.0
+> （Node 24 prebuild）。本番ターゲット SQL Server 2012 上での再検証は未実施
+> （2012 非互換構文の不使用は静的確認済み）。

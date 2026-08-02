@@ -452,6 +452,45 @@
         }
       }
     },
+    "/templates/{id}/sync-status": {
+      "get": {
+        "tags": ["templates"],
+        "summary": "交付版⇄全体版 ペア同期の現況(未解決競合の一覧)",
+        "operationId": "getTemplateSyncStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ペア同期の現況",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairSyncStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/templates/{id}/draft": {
       "get": {
         "tags": ["templates"],
@@ -2538,6 +2577,49 @@
         "required": ["meta", "html", "css", "filled"],
         "additionalProperties": false
       },
+      "PairSyncStatus": {
+        "type": "object",
+        "properties": {
+          "pairTemplateId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ペアのテンプレート ID。版種がペア対象外なら null"
+          },
+          "pairExists": {
+            "type": "boolean",
+            "description": "ペア実体(ファイル)が存在するか"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partKey": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["初期差分", "両側変更"]
+                },
+                "detectedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["partKey", "kind", "detectedAt"],
+              "additionalProperties": false
+            },
+            "description": "未解決競合(自動同期停止中)のパーツ一覧"
+          }
+        },
+        "required": ["pairTemplateId", "pairExists", "conflicts"],
+        "additionalProperties": false
+      },
       "TemplateDraft": {
         "type": "object",
         "properties": {
@@ -2654,6 +2736,28 @@
           "content": {
             "type": "string",
             "description": "キャンバスに挿入する GrapesJS 用 HTML 断片"
+          },
+          "syncDefault": {
+            "description": "交付版⇄全体版 自動同期の既定。null/欠落 = 未判断(同期しない)",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartSyncDefault"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "masterReflectDefault": {
+            "description": "注記マスタ書き戻しの既定。null/欠落 = 未判断(反映しない)",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartMasterReflectDefault"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2690,6 +2794,14 @@
         },
         "required": ["category", "majorClass", "middleClass", "minorClass"],
         "additionalProperties": false
+      },
+      "PartSyncDefault": {
+        "type": "string",
+        "enum": ["同期", "非同期", "交付版のみ", "全体版のみ"]
+      },
+      "PartMasterReflectDefault": {
+        "type": "string",
+        "enum": ["反映", "非反映"]
       },
       "PartHistoryEntry": {
         "type": "object",
@@ -2938,9 +3050,102 @@
           "staleWarning": {
             "type": "boolean",
             "description": "申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)"
+          },
+          "sync": {
+            "description": "ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PairSyncSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "noteMaster": {
+            "description": "注記マスタ書き戻しの結果。テンプレ ID 解決不能なら null/欠落",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NoteMasterReflectSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["meta", "staleWarning"],
+        "additionalProperties": false
+      },
+      "PairSyncSummary": {
+        "type": "object",
+        "properties": {
+          "pairTemplateId": {
+            "type": "string",
+            "description": "同期先(ペア)のテンプレート ID"
+          },
+          "applied": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "転写したパーツキー(partId#n)"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partKey": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["partKey", "reason"],
+              "additionalProperties": false
+            },
+            "description": "転写しなかったパーツと理由(競合・初期差分・未判断など)"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "同期処理自体の失敗理由。正常時は null"
+          }
+        },
+        "required": ["pairTemplateId", "applied", "skipped", "error"],
+        "additionalProperties": false
+      },
+      "NoteMasterReflectSummary": {
+        "type": "object",
+        "properties": {
+          "updated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "注記マスタへ書き戻したパーツ ID"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "書き戻し自体の失敗理由。正常時は null"
+          }
+        },
+        "required": ["updated", "error"],
         "additionalProperties": false
       },
       "EditHistoryEntry": {

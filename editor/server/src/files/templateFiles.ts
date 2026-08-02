@@ -67,6 +67,15 @@ export async function writeTemplateAndCss(
   await atomicWrite(cssPath(fundCode), css);
 }
 
+/**
+ * テンプレ本体だけの単ファイル書込。ペア同期(`pairSyncService.ts`)が転写結果を書く経路で、
+ * CSS はファンド単位共有(ペアの双方が同一ファイル)のため触らない。
+ */
+export async function writeTemplateHtml(fileName: string, html: string): Promise<void> {
+  await fs.mkdir(config.templatesDir, { recursive: true });
+  await atomicWrite(templatePath(fileName), html);
+}
+
 /** 先に読んだバイト列を復元する(DB コミット失敗時の補償 = compensation)。 */
 export async function restoreTemplateAndCss(
   fileName: string,

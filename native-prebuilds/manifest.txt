@@ -1,0 +1,7 @@
+# msnodesqlv8 の公式 prebuild (ネイティブ .node 入り tar.gz)。npm tarball / .pnpm-store には
+# バイナリが入らないため重量物バンドルで配布し、offline setup が pnpm install --offline の後に
+# node_modules\.pnpm の msnodesqlv8 実体ディレクトリへ展開する (editor/server と pie-chart の
+# 両 symlink 参照に 1 箇所で効く)。msnodesqlv8 の版や Node のメジャー (ABI) を上げるときは
+# 対応する prebuild を差し替えて本ファイルを更新する (content key 入力 → バンドル再配布を検知)。
+# 取得元: https://github.com/TimelordUK/node-sqlserver-v8/releases
+msnodesqlv8-v4.5.0-node-v137-win32-x64.tar.gz version=4.5.0 abi=node-v137(Node24.x) platform=win32-x64 sha256=39a43c276b98862ba9afc5402bc9a3ce1c9d907d66f4a4f27659c5e1eb2a4970

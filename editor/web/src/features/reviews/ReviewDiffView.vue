@@ -6,7 +6,7 @@
 // 「変更前 | 変更後」を並べる。差分・着色は既存の block diff エンジン(`htmlBlockDiff`)を
 // 流用(`reviewDiffService` が組み立て)。承認は approver|admin のみで、承認時にサーバが
 // 実ファイル + git へ反映する(`reviewRepo.ts`)。
-import { isOk, type ReviewRequest } from '@editor/shared';
+import { type ApproveReviewResult, isOk, type ReviewRequest } from '@editor/shared';
 import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -92,8 +92,49 @@ async function approve() {
     } else {
       toastSuccess('承認しました（本番テンプレートへ反映しました）');
     }
+    notifySyncResult(res.value.sync);
+    notifyNoteMasterResult(res.value.noteMaster);
     router.push({ name: 'reviews' });
   }
+}
+
+/**
+ * 承認直後に走った交付版⇄全体版のパーツ自動同期の結果を通知する。同期はベストエフォート
+ * (失敗しても承認は成立)のため、失敗・スキップは destructive/長め表示で見落としを防ぐ。
+ * スキップの内訳(競合など)は同期先テンプレを開いた時のバナーが恒常表示する。
+ */
+function notifySyncResult(sync: ApproveReviewResult['sync']): void {
+  if (!sync) return;
+  if (sync.error) {
+    toast(`ペア(${sync.pairTemplateId})への自動同期に失敗しました: ${sync.error}`, 'error', 8000);
+    return;
+  }
+  if (sync.applied.length === 0 && sync.skipped.length === 0) return;
+  const skippedNote = sync.skipped.length > 0 ? `・スキップ ${sync.skipped.length} 件(要確認)` : '';
+  toast(
+    `ペア ${sync.pairTemplateId} へ ${sync.applied.length} パーツを自動同期しました${skippedNote}`,
+    'default',
+    6000,
+  );
+}
+
+/**
+ * 承認直後に走った注記マスタ書き戻し(`次回反映既定`=`反映` パーツ)の結果を通知する。
+ * ペア同期と同じベストエフォートのため失敗は destructive/長め表示、成功は書き戻しが
+ * あったときだけ短く伝える(対象パーツ無しの承認で毎回鳴らさない)。
+ */
+function notifyNoteMasterResult(noteMaster: ApproveReviewResult['noteMaster']): void {
+  if (!noteMaster) return;
+  if (noteMaster.error) {
+    toast(`注記マスタへの反映に失敗しました: ${noteMaster.error}`, 'error', 8000);
+    return;
+  }
+  if (noteMaster.updated.length === 0) return;
+  toast(
+    `注記マスタへ ${noteMaster.updated.length} パーツを反映しました（次回作成のテンプレートに適用されます）`,
+    'default',
+    6000,
+  );
 }
 
 async function reject() {

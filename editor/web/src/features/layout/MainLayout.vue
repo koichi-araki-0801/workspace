@@ -5,6 +5,7 @@
 import {
   ClipboardCheck,
   FilePlus2,
+  FileStack,
   FileText,
   GitCompare,
   History,
@@ -29,6 +30,7 @@ const tabs = [
   { name: 'compare', label: '比較', icon: GitCompare },
   { name: 'reviews', label: auth.isApprover ? '承認' : '申請状況', icon: ClipboardCheck },
   { name: 'history', label: '履歴', icon: History },
+  { name: 'merge', label: '結合PDF', icon: FileStack },
 ];
 
 // 承認待ち画面はサブ詳細(`review-detail`)でもタブを点灯させる。

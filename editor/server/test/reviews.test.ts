@@ -7,7 +7,20 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// DB(sproc)は本テストの対象外。承認直後の注記マスタ書き戻しが実 DB へ触れないよう
+// `callSproc` を決定的に失敗させ、「DB 不在でも承認は成立する」ベストエフォート経路に
+// 固定する(開発機に LocalDB が居ると素通しで実 DB へ書いてしまうため必須)。
+vi.mock('../src/db/sproc.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../src/db/sproc.js')>();
+  return {
+    ...orig,
+    callSproc: async () => {
+      throw new Error('DB 不在(テストの意図的失敗)');
+    },
+  };
+});
 
 // config を import する前に一時ディレクトリへ向ける。
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-review-'));
@@ -77,6 +90,9 @@ d('review workflow (reviewRepo)', () => {
     const after = await reviews.getReview(meta.id, approver);
     expect(after.status).toBe('approved');
     expect(after.reviewedBy).toBe('approver1');
+    // 注記マスタ書き戻しはベストエフォート: DB 不在でも承認は成立し error 付き summary が返る。
+    expect(tplMeta.noteMaster).toMatchObject({ updated: [] });
+    expect(tplMeta.noteMaster?.error).toBeTruthy();
   });
 
   it('submit 後に現行版が変わっていると承認時に staleWarning=true(ブロックはしない)', async () => {

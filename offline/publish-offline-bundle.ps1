@@ -119,6 +119,7 @@ $Wheelhouse = Join-Path $RepoRoot 'python-wheelhouse'
 $GitTools   = Join-Path $RepoRoot 'git-tools'
 $MermaidJs  = Join-Path $RepoRoot 'docs\_build\vendor\mermaid.min.js'
 $MermaidElk = Join-Path $RepoRoot 'docs\_build\vendor\mermaid-layout-elk.min.js'
+$NativePb   = Join-Path $RepoRoot 'native-prebuilds'
 $BundleName = 'offline-deps-bundle.tar.gz'
 $Bundle     = Join-Path $RepoRoot $BundleName
 $Sha        = "$Bundle.sha256"
@@ -214,8 +215,9 @@ if ($bundleChanged) {
   }
 
   # git-tools（PortableGit / TortoiseGit）は air-gapped 環境で git を供給するため同梱する。
-  # mermaid.min.js / mermaid-layout-elk.min.js は git 管理外（重量物）なので、ここで在庫を確認する。
-  foreach ($p in @($Store, $PnpmTgz, $MsPw, $Wheelhouse, $GitTools, $MermaidJs, $MermaidElk)) {
+  # mermaid.min.js / mermaid-layout-elk.min.js と native-prebuilds（msnodesqlv8 の .node 入り
+  # prebuild。npm tarball/.pnpm-store に入らない）は git 管理外（重量物）なので、ここで在庫を確認する。
+  foreach ($p in @($Store, $PnpmTgz, $MsPw, $Wheelhouse, $GitTools, $MermaidJs, $MermaidElk, $NativePb)) {
     if (-not (Test-Path $p)) { Write-Error "[error] 重量物が見つかりません: $p（-SkipRegen 指定時は事前生成が必要）"; exit 1 }
   }
 
@@ -229,9 +231,9 @@ if ($bundleChanged) {
   }
 
   # ---- パッケージング（重量物のみ。ソースは含めない） ----
-  Write-Host "[info] tar -czf $BundleName .pnpm-store pnpm.tgz ms-playwright python-wheelhouse git-tools docs/_build/vendor/mermaid*.js ..."
+  Write-Host "[info] tar -czf $BundleName .pnpm-store pnpm.tgz ms-playwright python-wheelhouse git-tools docs/_build/vendor/mermaid*.js native-prebuilds ..."
   Remove-Item $Bundle -Force -ErrorAction SilentlyContinue
-  & $TarExe -czf $Bundle -C $RepoRoot '.pnpm-store' 'pnpm.tgz' 'ms-playwright' 'python-wheelhouse' 'git-tools' 'docs/_build/vendor/mermaid.min.js' 'docs/_build/vendor/mermaid-layout-elk.min.js'
+  & $TarExe -czf $Bundle -C $RepoRoot '.pnpm-store' 'pnpm.tgz' 'ms-playwright' 'python-wheelhouse' 'git-tools' 'docs/_build/vendor/mermaid.min.js' 'docs/_build/vendor/mermaid-layout-elk.min.js' 'native-prebuilds'
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] tar に失敗しました。'; exit 1 }
 
   $sizeMB = [math]::Round((Get-Item $Bundle).Length / 1MB, 1)
@@ -258,6 +260,7 @@ $notes = @"
 - ms-playwright … Chromium（E2E 用）
 - python-wheelhouse … Python ビルド依存の wheel（pdf-to-svg / graph-editor の exe ビルド用）
 - git-tools … PortableGit / TortoiseGit（editor のテンプレ版管理に使う git。air-gapped 用）
+- native-prebuilds … msnodesqlv8 の Node 24 用 prebuild（editor REST / pie-chart DB 入力のネイティブ .node）
 
 ## 取得手順（別端末・gh 不要）
 1. 取得中のみリポジトリを Public にする

@@ -5,6 +5,7 @@ import {
   applyEdition,
   isErr,
   ok,
+  type PairSyncStatus,
   type PartCatalogItem,
   type PartHistoryEntry,
   type PartRepository,
@@ -38,6 +39,8 @@ interface TemplateEditorService {
   discardDraft(id: string): Promise<Result<void>>;
   listPartHistory(templateId: string): Promise<Result<PartHistoryEntry[]>>;
   recordPartChange(templateId: string, partKey: string, change: string): Promise<Result<void>>;
+  /** 交付版⇄全体版 ペア同期の現況(未解決競合)。編集画面を開いた時のバナー表示用。 */
+  getSyncStatus(templateId: string): Promise<Result<PairSyncStatus>>;
 }
 
 export function createTemplateEditorService(
@@ -100,6 +103,8 @@ export function createTemplateEditorService(
 
     recordPartChange: (templateId, partKey, change) =>
       parts.recordPartChange(templateId, partKey, change),
+
+    getSyncStatus: (templateId) => templates.getSyncStatus(templateId),
   };
 }
 

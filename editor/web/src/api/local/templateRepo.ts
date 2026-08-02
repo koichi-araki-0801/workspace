@@ -10,6 +10,7 @@ import {
   type GenerateRequest,
   isErr,
   notFound,
+  pairedTemplateId,
   type SaveDraftRequest,
   type TemplateAttributes,
   type TemplateDraft,
@@ -294,4 +295,16 @@ export const localTemplateRepo: TemplateRepository = {
   // 版種(ファイル名由来)はテンプレを開く文脈で `applyEdition` が上書きする。
   getSampleData: (fundCode: string) =>
     attempt(() => delay(buildSampleData(fundMaster[fundCode], fundCode))),
+
+  // ペア同期は server 側機構(承認直後に実行)のため local ではペアの有無だけを返す。
+  // 競合は常に空(local に同期状態ファイルは存在しない)。
+  getSyncStatus: (templateId: string) =>
+    attempt(() => {
+      const pairId = pairedTemplateId(templateId);
+      return delay({
+        pairTemplateId: pairId,
+        pairExists: pairId !== null && allMetas().some((m) => m.id === pairId),
+        conflicts: [],
+      });
+    }),
 };

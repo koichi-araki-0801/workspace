@@ -104,6 +104,23 @@ export type ReviewDecisionRequest = z.infer<typeof sch.ReviewDecisionBody>;
  */
 export type ApproveReviewResult = z.infer<typeof sch.ApproveReviewResult>;
 
+/**
+ * 承認直後に走る交付版⇄全体版のパーツ自動同期の結果概要。承認応答(`ApproveReviewResult.sync`)
+ * に載せて UI へ渡す。同期の実装は server の `sync/partSync.ts`、ポリシーの正典はパーツ
+ * カタログ台帳の `同期既定` 列(`PartSyncDefault`)。
+ */
+export type PairSyncSummary = z.infer<typeof sch.PairSyncSummary>;
+
+/** ペア同期の現況(編集画面のバナー用軽量ビュー。未解決競合の一覧を運ぶ)。 */
+export type PairSyncStatus = z.infer<typeof sch.PairSyncStatus>;
+
+/**
+ * 承認直後に走る注記マスタ書き戻しの結果概要。承認応答(`ApproveReviewResult.noteMaster`)に
+ * 載せて UI へ渡す。実装は server の `sync/noteMasterService.ts`、ポリシーの正典はパーツ
+ * カタログ台帳の `次回反映既定` 列(`PartMasterReflectDefault`)。
+ */
+export type NoteMasterReflectSummary = z.infer<typeof sch.NoteMasterReflectSummary>;
+
 // ── 6. API DTOs ──
 
 /** カスケード型ドロップダウンの問い合わせ: 既知の属性を入力、残りの候補を出力。 */
@@ -118,6 +135,12 @@ export type PartClassification = z.infer<typeof sch.PartClassification>;
 
 /** カタログ上の1パーツ。SQLの1行に相当する想定。 */
 export type PartCatalogItem = z.infer<typeof sch.PartCatalogItem>;
+
+/** 交付版⇄全体版 自動同期の種別既定(カタログ台帳の `同期既定` 列)。null は未判断。 */
+export type PartSyncDefault = z.infer<typeof sch.PartSyncDefault>;
+
+/** 注記マスタ書き戻しの既定(カタログ台帳の `次回反映既定` 列)。null は未判断(反映しない)。 */
+export type PartMasterReflectDefault = z.infer<typeof sch.PartMasterReflectDefault>;
 
 /**
  * パーツ単位の作業メモ(版インスタンス単位)。`templateId`(= 委託会社/ファンドコード/基準日/
@@ -174,6 +197,12 @@ export interface TemplateInstance {
  * (ワイヤ上は `css` 省略可で、サーバ側 validate が `default('')` で補完する)。
  */
 export type BuildInlineRequest = z.infer<typeof sch.BuildInlineRequest>;
+
+/** 結合 build の 1 文書。`css` の扱いは `BuildInlineRequest` と同じ(validate が補完)。 */
+export type BuildMergeDocument = z.infer<typeof sch.BuildMergeDocument>;
+
+/** 複数文書 → 1 PDF の結合 build リクエスト(配列順 = ページ順)。 */
+export type BuildMergeRequest = z.infer<typeof sch.BuildMergeRequest>;
 
 // ── 8. Data-access contracts ──
 // 集約別・Result を返す契約は `./repositories/*` を参照。web の `local` 層と `rest`

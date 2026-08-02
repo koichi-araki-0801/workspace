@@ -49,6 +49,7 @@ const appConfigSchema = z
         cssDir: z.string().optional(),
         draftsDir: z.string().optional(),
         reviewsDir: z.string().optional(),
+        syncDir: z.string().optional(),
         tmpDir: z.string().optional(),
         logDir: z.string().optional(),
         webDist: z.string().optional(),
@@ -186,6 +187,12 @@ export const config = {
     file.paths?.reviewsDir,
     '../../editor-data/reviews',
   ),
+  /**
+   * 交付版⇄全体版 パーツ自動同期の実行状態(`sync/<pairKey>.json` = lastSynced/競合記録)。
+   * テンプレ実体と同じコミットへ入れて履歴を揃えるため git 管理**内**(drafts/reviews と違い
+   * .gitignore しない)。ポリシー(同期既定)は DB のパーツカタログ列で、ここには持たない。
+   */
+  syncDir: resolvePath(process.env.SYNC_DIR, file.paths?.syncDir, '../../editor-data/sync'),
   /** テンプレ版管理の git リポジトリ(= dataRoot)。確定保存ごとに 1 コミット。 */
   gitRepoDir: resolvePath(process.env.GIT_REPO_DIR, file.paths?.dataRoot, '../../editor-data'),
 
@@ -253,6 +260,11 @@ export const config = {
     build: {
       /** 受け付ける project zip の最大バイト数(超過時は 413)。 */
       maxProjectBytes: Number(process.env.VIVLIO_MAX_PROJECT_BYTES ?? 64 * 1024 * 1024),
+      /**
+       * 結合 build(`/build/merge`、JSON)の本文サイズ上限。複数 HTML を 1 リクエストに
+       * 載せるためグローバル bodyLimit(8MB)では足りず、ルート単位で上書きする(超過時は 413)。
+       */
+      maxMergeBytes: Number(process.env.VIVLIO_MAX_MERGE_BYTES ?? 32 * 1024 * 1024),
       /**
        * PDF build worker(子プロセス)のタイムアウト(ms)。これを超えたら kill してエラーにする
        * (応答が永久に返らない無限スピナーを防ぐ)。`config.python.timeoutMs` と同型。

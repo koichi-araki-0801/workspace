@@ -9,9 +9,10 @@
 #
 # さらに、Python 依存（`pdf-to-svg\requirements.txt` / `graph-editor\requirements.txt` /
 # `docs\_build\requirements.txt`）と、同梱物の manifest（git-tools の `git-tools\manifest.txt`、
-# docs mermaid の `docs\_build\vendor\manifest.txt`）も折り込む。requirements は重量物バンドルへ
-# 同梱する `python-wheelhouse` の内容を、manifest は同梱する git / TortoiseGit / mermaid.min.js の
-# 版を規定するため、
+# docs mermaid の `docs\_build\vendor\manifest.txt`、msnodesqlv8 prebuild の
+# `native-prebuilds\manifest.txt`）も折り込む。requirements は重量物バンドルへ
+# 同梱する `python-wheelhouse` の内容を、manifest は同梱する git / TortoiseGit / mermaid.min.js /
+# ネイティブ prebuild の版を規定するため、
 # 変われば重量物バンドルの再生成・再配布が要る。1 キーで pnpm 依存・pnpm 本体・Playwright・
 # Python wheel・git ツールすべての変化を覆える。
 #
@@ -59,7 +60,8 @@ function Get-LockContentKey {
   # 相対で探し、存在するものだけ有意行で折り込む。
   $repoRoot = Split-Path -Parent $LockFile
   foreach ($rel in @('pdf-to-svg\requirements.txt', 'graph-editor\requirements.txt',
-      'docs\_build\requirements.txt', 'docs\_build\vendor\manifest.txt', 'git-tools\manifest.txt')) {
+      'docs\_build\requirements.txt', 'docs\_build\vendor\manifest.txt', 'git-tools\manifest.txt',
+      'native-prebuilds\manifest.txt')) {
     $rp = Join-Path $repoRoot $rel
     if (Test-Path -LiteralPath $rp) { $acc.AddRange((& $readSignificant $rp)) }
   }

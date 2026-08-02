@@ -22,9 +22,14 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
                           air-gapped 機に git が無くても動くよう同梱。setup が展開・導入する）
   - docs/_build/vendor/mermaid*.js … docs の Mermaid 描画ランタイム + ELK レイアウト（計 ~4.3MB。
                           git に入れず同梱し setup が vendor へ展開。版は docs/_build/vendor/manifest.txt）
+  - native-prebuilds/   … msnodesqlv8 の公式 prebuild（editor REST / pie-chart DB 入力に必要な
+                          ネイティブ .node。npm tarball に入らないため同梱し、setup が
+                          pnpm install 後に node_modules の .pnpm 実体へ展開する。
+                          版は native-prebuilds/manifest.txt。Node 24.x（ABI 137）専用）
   これらは offline-deps-bundle.tar.gz 1 ファイルに固めて Release に置かれます。
   内容（pnpm-lock.yaml / packageManager / 各 requirements.txt / git-tools/manifest.txt /
-  docs/_build/vendor/manifest.txt）に変更が無い限り再アップロードされません。
+  docs/_build/vendor/manifest.txt / native-prebuilds/manifest.txt）に変更が無い限り
+  再アップロードされません。
 
   ※ setup（オンライン/完全オフラインとも）は git-tools の PortableGit を
      git-tools\portablegit\ へ自己展開し、ユーザー PATH と環境変数 GIT_BIN を設定する

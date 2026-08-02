@@ -284,13 +284,69 @@ export const ReviewDecisionBody = z
 /** (server 専用) 承認キューの絞り込みクエリ。 */
 export const ReviewListQuery = z.object({ status: ReviewStatus.optional() });
 
-/** 承認の結果。反映後 `meta` + 並行性警告 `staleWarning`。 */
+/**
+ * 承認直後に走る交付版⇄全体版のパーツ自動同期の結果概要。同期はベストエフォートで、
+ * 失敗しても承認自体は成立する(`error` に理由を載せて UI へ渡す)。
+ */
+export const PairSyncSummary = z
+  .object({
+    pairTemplateId: z.string().meta({ description: '同期先(ペア)のテンプレート ID' }),
+    applied: z.array(z.string()).meta({ description: '転写したパーツキー(partId#n)' }),
+    skipped: z
+      .array(z.object({ partKey: z.string(), reason: z.string() }))
+      .meta({ description: '転写しなかったパーツと理由(競合・初期差分・未判断など)' }),
+    error: z.string().nullable().meta({ description: '同期処理自体の失敗理由。正常時は null' }),
+  })
+  .meta({ id: 'PairSyncSummary' });
+
+/**
+ * 承認直後に走る注記マスタ書き戻し(`次回反映既定`=`反映` のパーツをファンド・版種別に upsert)の
+ * 結果概要。ペア同期と同じくベストエフォートで、失敗しても承認自体は成立する。
+ */
+export const NoteMasterReflectSummary = z
+  .object({
+    updated: z.array(z.string()).meta({ description: '注記マスタへ書き戻したパーツ ID' }),
+    error: z.string().nullable().meta({ description: '書き戻し自体の失敗理由。正常時は null' }),
+  })
+  .meta({ id: 'NoteMasterReflectSummary' });
+
+/**
+ * ペア同期の現況(編集画面のバナー・要判断表示用の軽量ビュー)。未解決競合 = 自動同期を
+ * 停止して人間の判断を待っているパーツ。競合の解消は「両版の内容を一致させる」ことで
+ * 次回承認時に自動で消える(専用の解消 API は持たない)。
+ */
+export const PairSyncStatus = z
+  .object({
+    pairTemplateId: z
+      .string()
+      .nullable()
+      .meta({ description: 'ペアのテンプレート ID。版種がペア対象外なら null' }),
+    pairExists: z.boolean().meta({ description: 'ペア実体(ファイル)が存在するか' }),
+    conflicts: z
+      .array(
+        z.object({
+          partKey: z.string(),
+          kind: z.enum(['初期差分', '両側変更']),
+          detectedAt: z.string(),
+        }),
+      )
+      .meta({ description: '未解決競合(自動同期停止中)のパーツ一覧' }),
+  })
+  .meta({ id: 'PairSyncStatus' });
+
+/** 承認の結果。反映後 `meta` + 並行性警告 `staleWarning` + ペア自動同期の概要 `sync`。 */
 export const ApproveReviewResult = z
   .object({
     meta: TemplateMeta,
     staleWarning: z
       .boolean()
       .meta({ description: '申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)' }),
+    sync: PairSyncSummary.nullable()
+      .optional()
+      .meta({ description: 'ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落' }),
+    noteMaster: NoteMasterReflectSummary.nullable()
+      .optional()
+      .meta({ description: '注記マスタ書き戻しの結果。テンプレ ID 解決不能なら null/欠落' }),
   })
   .meta({ id: 'ApproveReviewResult' });
 
@@ -342,6 +398,26 @@ export const PartClassificationOptions = z
   })
   .meta({ id: 'PartClassificationOptions' });
 
+/**
+ * 交付版⇄全体版 自動同期の種別既定(パーツカタログ台帳の `同期既定` 列)。
+ * `同期` = 両版に在れば承認直後に転写 / `非同期` = 意図的な二重メンテ対象 /
+ * `交付版のみ`・`全体版のみ` = 版固有の宣言(相手版に無くても同期漏れ扱いしない)。
+ * null(未判断)は同期しない。ポリシーの正典はこの列のみ(ペア個別オーバーライドは持たない)。
+ */
+export const PartSyncDefault = z
+  .enum(['同期', '非同期', '交付版のみ', '全体版のみ'])
+  .meta({ id: 'PartSyncDefault' });
+
+/**
+ * 承認確定パーツの注記マスタ書き戻し既定(パーツカタログ台帳の `次回反映既定` 列)。
+ * `反映` = 承認直後にそのファンド・版種の注記マスタへ upsert し、次回のテンプレ新規生成時に
+ * スケルトンへ適用する / `非反映` = 書き戻さない宣言。null(未判断)は反映しない(オプトイン
+ * 運用。誤爆防止のため未設定は安全側へ倒す)。ポリシーの正典は `同期既定` と同じくこの列のみ。
+ */
+export const PartMasterReflectDefault = z
+  .enum(['反映', '非反映'])
+  .meta({ id: 'PartMasterReflectDefault' });
+
 /** カタログ上の 1 パーツ。SQL の 1 行に相当する想定。 */
 export const PartCatalogItem = z
   .object({
@@ -356,6 +432,12 @@ export const PartCatalogItem = z
     updatedAt: z.string().nullable(),
     updatedBy: z.string().nullable(),
     content: z.string().meta({ description: 'キャンバスに挿入する GrapesJS 用 HTML 断片' }),
+    syncDefault: PartSyncDefault.nullable()
+      .optional()
+      .meta({ description: '交付版⇄全体版 自動同期の既定。null/欠落 = 未判断(同期しない)' }),
+    masterReflectDefault: PartMasterReflectDefault.nullable()
+      .optional()
+      .meta({ description: '注記マスタ書き戻しの既定。null/欠落 = 未判断(反映しない)' }),
   })
   .meta({ id: 'PartCatalogItem' });
 
@@ -426,6 +508,29 @@ export const BuildInlineRequest = z
     singleDoc: z.boolean().optional().meta({ description: '単一ドキュメント扱い' }),
   })
   .meta({ id: 'BuildInlineRequest' });
+
+/** 結合 build の 1 文書(レンダリング済み HTML + 任意 CSS)。 */
+export const BuildMergeDocument = z
+  .object({
+    html: z.string().min(1).meta({ description: 'レンダリング済み(nunjucks)HTML' }),
+    css: z.string().default(''),
+  })
+  .meta({ id: 'BuildMergeDocument' });
+
+/**
+ * 複数文書を 1 つの PDF へ結合するリクエスト(配列順 = ページ順)。文書数上限は
+ * ビルド時間(`vivliostyle.build.timeoutMs` = 120s)内に収める安全弁。
+ */
+export const BuildMergeRequest = z
+  .object({
+    documents: z
+      .array(BuildMergeDocument)
+      .min(1)
+      .max(30)
+      .meta({ description: '結合する文書。配列順に連結し通しページ番号を振る' }),
+    size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
+  })
+  .meta({ id: 'BuildMergeRequest' });
 
 /** (server 専用) ライブプレビューセッションの公開メタデータ(サーバ内部情報は露出しない)。 */
 export const PreviewSession = z

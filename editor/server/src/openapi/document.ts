@@ -175,6 +175,15 @@ export function buildOpenApiDocument() {
           responses: { '200': json('テンプレート', s.Template), ...ERR_401, ...ERR_404 },
         },
       },
+      [toOpenApiPath(apiPaths.templateSyncStatus)]: {
+        get: {
+          tags: ['templates'],
+          summary: '交付版⇄全体版 ペア同期の現況(未解決競合の一覧)',
+          operationId: 'getTemplateSyncStatus',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: { '200': json('ペア同期の現況', s.PairSyncStatus), ...ERR_401 },
+        },
+      },
       [toOpenApiPath(apiPaths.templateDraft)]: {
         get: {
           tags: ['templates'],
@@ -461,6 +470,26 @@ export function buildOpenApiDocument() {
             ...ERR_400,
             ...ERR_401,
             '413': err('プロジェクトが大きすぎる (kind=validation)'),
+            ...ERR_500,
+          },
+        },
+      },
+      '/build/merge': {
+        post: {
+          tags: ['vivliostyle'],
+          summary: '複数のレンダリング済み文書を 1 つの PDF へ結合',
+          operationId: 'buildMerge',
+          description:
+            '`documents` の配列順に連結し、全体で通しページ番号を振った 1 つの PDF を返す。',
+          requestBody: { content: { 'application/json': { schema: s.BuildMergeRequest } } },
+          responses: {
+            '200': {
+              description: 'PDF バイナリ',
+              content: { 'application/pdf': { schema: PdfBinary } },
+            },
+            ...ERR_400,
+            ...ERR_401,
+            '413': err('リクエストが大きすぎる (kind=validation)'),
             ...ERR_500,
           },
         },

@@ -134,7 +134,8 @@ Write-Host '[4/6] 重量物を直下へ展開（.pnpm-store / pnpm.tgz / ms-play
 & $TarExe -xzf $Bundle -C $RepoRoot
 if ($LASTEXITCODE -ne 0) { Write-Error '[error] 展開に失敗しました。'; exit 1 }
 foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse', 'git-tools',
-    'docs\_build\vendor\mermaid.min.js', 'docs\_build\vendor\mermaid-layout-elk.min.js')) {
+    'docs\_build\vendor\mermaid.min.js', 'docs\_build\vendor\mermaid-layout-elk.min.js',
+    'native-prebuilds\manifest.txt')) {
   if (-not (Test-Path (Join-Path $RepoRoot $p))) { Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1 }
 }
 
@@ -180,11 +181,47 @@ if (-not $SkipBuild) {
       $full = Join-Path $RepoRoot $d
       if (Test-Path $full) { Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    $tsbi = Join-Path $RepoRoot 'editor\web\tsconfig.tsbuildinfo'
-    if (Test-Path $tsbi) { Remove-Item -LiteralPath $tsbi -Force -ErrorAction SilentlyContinue }
+    # tsbuildinfo は dist の外に残るため個別に消す。特に editor\shared / editor\server の分が
+    # 残ると `tsc -b` が「最新」と誤認して shared の dist を再生成せず、build が
+    # 「Cannot find module '@editor/shared'」で全滅する（2026-08 実測）。
+    foreach ($f in @('editor\web\tsconfig.tsbuildinfo', 'editor\shared\tsconfig.tsbuildinfo',
+        'editor\server\tsconfig.tsbuildinfo')) {
+      $tsbi = Join-Path $RepoRoot $f
+      if (Test-Path $tsbi) { Remove-Item -LiteralPath $tsbi -Force -ErrorAction SilentlyContinue }
+    }
 
     & corepack pnpm install --offline --frozen-lockfile --store-dir (Join-Path $RepoRoot '.pnpm-store')
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] オフライン install に失敗しました。'; exit 1 }
+
+    # msnodesqlv8 のネイティブ .node を配置する。npm tarball / .pnpm-store にバイナリは入らず
+    # install スクリプトも allowBuilds で封止しているため、同梱の公式 prebuild を install 後の
+    # .pnpm 実体へ展開する（editor/server と pie-chart は同実体への symlink 参照＝1 箇所で両方に
+    # 効く。install 前だと purge/再構成で消える）。REST/DB 入力を使わない構成では無くても動くため
+    # 失敗は警告止まりで setup を続行する。
+    $pbTar = Get-ChildItem (Join-Path $RepoRoot 'native-prebuilds\msnodesqlv8-*.tar.gz') -ErrorAction SilentlyContinue | Select-Object -First 1
+    $pbPkg = Get-ChildItem (Join-Path $RepoRoot 'node_modules\.pnpm\msnodesqlv8@*\node_modules\msnodesqlv8') -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($pbTar -and $pbPkg) {
+      # lockfile の版だけ上げて prebuild の差し替えを忘れる事故の検知（native-prebuilds\manifest.txt 参照）。
+      $instVer = (Get-Content (Join-Path $pbPkg.FullName 'package.json') -Raw | ConvertFrom-Json).version
+      if ($pbTar.Name -notlike "*v$instVer*") {
+        Write-Warning "[warn] msnodesqlv8 の install 版($instVer)と prebuild($($pbTar.Name))の版が不一致。native-prebuilds の差し替えが必要です。"
+      }
+      & (Resolve-Tar) -xzf $pbTar.FullName -C $pbPkg.FullName
+      if ($LASTEXITCODE -ne 0) {
+        Write-Warning '[warn] msnodesqlv8 prebuild の展開に失敗（editor REST / pie-chart DB 入力は使用不可）。'
+      } else {
+        # ABI 不一致・破損はロードで露見するため require で疎通確認する（editor/server から解決）。
+        # EAP=Stop のため stderr リダイレクトは使わず、node 側 try/catch で exit code のみ返す。
+        Push-Location (Join-Path $RepoRoot 'editor\server')
+        & node -e "try{require('msnodesqlv8');process.exit(0)}catch(e){process.exit(1)}"
+        $reqOk = ($LASTEXITCODE -eq 0)
+        Pop-Location
+        if ($reqOk) { Write-Host '[info] msnodesqlv8 ネイティブ .node を配置（require OK）。' }
+        else { Write-Warning '[warn] msnodesqlv8 の require に失敗。Node の ABI（24.x=137）と prebuild の対応を確認してください。' }
+      }
+    } else {
+      Write-Warning '[warn] msnodesqlv8 prebuild または install 先が見つからず、ネイティブ .node を配置できませんでした（editor REST / pie-chart DB 入力は使用不可）。'
+    }
 
     & corepack pnpm build
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] build に失敗しました。'; exit 1 }

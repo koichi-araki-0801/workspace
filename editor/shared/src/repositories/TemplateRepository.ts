@@ -7,6 +7,7 @@ import type {
   FundResolution,
   GenerateRequest,
   GenerateResult,
+  PairSyncStatus,
   SampleData,
   SaveDraftRequest,
   Template,
@@ -46,4 +47,9 @@ export interface TemplateRepository {
    */
   discardDraft(templateId: string): Promise<Result<void>>;
   getSampleData(fundCode: string): Promise<Result<SampleData>>;
+  /**
+   * 交付版⇄全体版 ペア同期の現況(未解決競合の一覧)。編集画面を開いた時のバナー表示に使う。
+   * ペア対象外の版種でもエラーにせず `pairTemplateId: null` を返す(呼び出し側の分岐を単純に)。
+   */
+  getSyncStatus(templateId: string): Promise<Result<PairSyncStatus>>;
 }

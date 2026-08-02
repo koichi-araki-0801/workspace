@@ -21,6 +21,7 @@ import { validate } from '../middleware/validate.js';
 import { GenerateRequest } from '../openapi/schemas.js';
 import { recordCreate } from '../repositories/historyRepo.js';
 import { registerGenerated } from '../repositories/templateRepo.js';
+import { applyNoteMasterToHtml } from '../sync/noteMasterService.js';
 
 export async function generateRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: z.infer<typeof GenerateRequest> }>(
@@ -33,7 +34,14 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         request,
         'template.generate',
         async () => {
-          const html = await generateTemplate(body);
+          // 生成器の出力へ、承認済み注記マスタ(そのファンド・版種)を適用してから保存する。
+          // 生成器(差し替え前提)にマスタ参照を要求しないための編集側適用点。DB 不達時は
+          // 関数内で warn + 素通し(生成をブロックしない)。
+          const html = await applyNoteMasterToHtml(
+            await generateTemplate(body),
+            body.fundCode,
+            body.editionType,
+          );
           const attributes: TemplateAttributes = {
             companyCode: body.companyCode,
             fundCode: body.fundCode,

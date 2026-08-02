@@ -12,6 +12,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { SaveDraftRequest } from '../openapi/schemas.js';
 import * as templates from '../repositories/templateRepo.js';
+import { getPairSyncStatus } from '../sync/pairSyncService.js';
 
 function toQuery(q: Record<string, unknown>): DropdownQuery {
   const pick = (k: string) => (typeof q[k] === 'string' && q[k] ? (q[k] as string) : undefined);
@@ -68,6 +69,11 @@ export async function templatesRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(204).send();
     },
   );
+
+  // 交付版⇄全体版 ペア同期の現況(編集画面を開いた時の競合バナー用)。
+  app.get<IdParams>(apiPaths.templateSyncStatus, { preHandler: requireAuth }, async (request) => {
+    return getPairSyncStatus(request.params.id);
+  });
 
   app.get<IdParams>(apiPaths.templateById, { preHandler: requireAuth }, async (request) => {
     return templates.getTemplate(request.params.id);

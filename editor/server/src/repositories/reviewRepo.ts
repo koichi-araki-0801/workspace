@@ -29,6 +29,8 @@ import {
   writeReview,
 } from '../files/reviewFiles.js';
 import { readFundCss, readTemplateHtml } from '../files/templateFiles.js';
+import { reflectNoteMasterAfterConfirm } from '../sync/noteMasterService.js';
+import { syncPairAfterConfirm } from '../sync/pairSyncService.js';
 import { applyConfirmedSave } from './templateRepo.js';
 
 /** 操作主体(認証済みユーザ)。ロールは自己承認/閲覧範囲の判定に使う。 */
@@ -159,7 +161,14 @@ export async function approveReview(
       reviewedAt: new Date().toISOString(),
       comment: decision.comment ?? null,
     });
-    return { meta, staleWarning };
+    // 承認の完結後に交付版⇄全体版のパーツ自動同期を掛ける(ベストエフォート。失敗しても
+    // 承認は成立済みで、結果/理由は summary として UI へ返す)。ペア対象外なら null。
+    const sync = await syncPairAfterConfirm(review.templateId, actor.username);
+    // 続けて `次回反映既定`=`反映` パーツの注記マスタ書き戻し(同じくベストエフォート)。
+    // 契機は承認のみ = ペア同期で機械転写された側の版種はここでは書き戻さない
+    // (その版種自身の承認時に昇格する)。
+    const noteMaster = await reflectNoteMasterAfterConfirm(review.templateId, actor.username);
+    return { meta, staleWarning, sync, noteMaster };
   });
 }
 

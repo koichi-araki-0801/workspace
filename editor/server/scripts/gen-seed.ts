@@ -33,6 +33,8 @@ interface Part {
   updatedAt?: string | null;
   updatedBy?: string | null;
   content: string;
+  syncDefault?: string | null;
+  masterReflectDefault?: string | null;
 }
 const parts = JSON.parse(fs.readFileSync(path.join(fixtures, 'parts.json'), 'utf8')) as Part[];
 const T_PART = '[ug01].[Rep1_運報自動化_Editor_パーツカタログ]';
@@ -41,9 +43,9 @@ const partRows = parts
     const c = p.classification;
     return `IF NOT EXISTS (SELECT 1 FROM ${T_PART} WHERE [パーツID] = ${q(p.id)})
   INSERT INTO ${T_PART}
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定],[次回反映既定])
   VALUES (${q(p.id)}, ${q(c.category)}, ${q(c.majorClass)}, ${q(c.middleClass)}, ${q(c.minorClass)},
-    ${q(p.name)}, ${q(p.description)}, ${q(p.usageNotes)}, ${q(p.content)}, ${dt(p.updatedAt)}, ${q(p.updatedBy)});`;
+    ${q(p.name)}, ${q(p.description)}, ${q(p.usageNotes)}, ${q(p.content)}, ${dt(p.updatedAt)}, ${q(p.updatedBy)}, ${q(p.syncDefault)}, ${q(p.masterReflectDefault)});`;
   })
   .join('\nGO\n');
 const partSql = `${BOM}/* seed: パーツカタログ (生成物 — gen-seed.ts from web fixtures) */

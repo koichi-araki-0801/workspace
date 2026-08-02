@@ -60,6 +60,11 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/features/templates/HistoryTabView.vue'),
       },
       {
+        path: 'merge',
+        name: 'merge',
+        component: () => import('@/features/merge/MergeTabView.vue'),
+      },
+      {
         path: 'admin',
         name: 'admin',
         component: () => import('@/features/admin/AdminView.vue'),

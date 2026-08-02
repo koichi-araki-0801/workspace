@@ -4,7 +4,7 @@
 
 > **前提**: editor はリポジトリ直下の **pnpm モノレポ**の一部（`editor/shared` `editor/server` `editor/web`）。
 > コマンドは**リポジトリルート**から `pnpm` で実行します（editor 単体の `package.json` はありません）。
-> パッケージマネージャは `pnpm@11.8.0+`、Node は 24 系（`editor/.nvmrc` = 24）。
+> パッケージマネージャは `pnpm@11.18.0+`、Node は 24 系（`editor/.nvmrc` = 24）。
 
 ## 1. セットアップ
 

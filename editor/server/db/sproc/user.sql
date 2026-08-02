@@ -110,7 +110,7 @@ BEGIN
       WHERE [ログインID] = @ログインID;
     IF @@ROWCOUNT = 0 THROW 50404, N'ユーザーが見つかりません', 1;
     RETURN;
-  END
+  END;
 
   THROW 50000, N'未知の @操作 です(ユーザー)', 1;
 END
