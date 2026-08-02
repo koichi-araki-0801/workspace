@@ -18,8 +18,13 @@ import { config } from '../config.js';
 import { actorFromReq, audit, auditedRethrow } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { BuildInlineRequest } from '../openapi/schemas.js';
-import { buildInlinePdf, buildProjectPdf, prepareInlineDoc } from '../vivliostyle/build.js';
+import { BuildInlineRequest, BuildMergeRequest } from '../openapi/schemas.js';
+import {
+  buildInlinePdf,
+  buildMergedPdf,
+  buildProjectPdf,
+  prepareInlineDoc,
+} from '../vivliostyle/build.js';
 import { proxyToPreview } from '../vivliostyle/previewProxy.js';
 import { previewManager } from '../vivliostyle/previewServer.js';
 import { cleanupProject, extractProjectZip } from '../vivliostyle/projectInput.js';
@@ -95,6 +100,31 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
       } finally {
         await cleanupProject(project.dir);
       }
+    },
+  );
+
+  // POST /api/build/merge — 複数のレンダリング済み文書 → 通しページ番号付きの 1 PDF。
+  app.post<{ Body: z.infer<typeof BuildMergeRequest> }>(
+    apiPaths.buildMerge,
+    {
+      // 複数 HTML を 1 つの JSON に載せるためグローバル bodyLimit(8MB)では足りない。
+      // zip 経路の `maxProjectBytes` と同じ発想で、結合専用の上限へルート単位で引き上げる。
+      bodyLimit: config.vivliostyle.build.maxMergeBytes,
+      preHandler: [requireAuth, validate(BuildMergeRequest)],
+    },
+    async (request, reply) => {
+      const body = request.body;
+      const detail = {
+        mode: 'merge',
+        docCount: body.documents.length,
+        htmlBytes: body.documents.reduce((n, d) => n + d.html.length, 0),
+      };
+      const pdf = await auditedRethrow(request, 'pdf.export', () => buildMergedPdf(body), {
+        success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
+        failure: () => ({ detail }),
+        failureMessage: 'PDF generation failed',
+      });
+      sendPdf(reply, pdf);
     },
   );
 

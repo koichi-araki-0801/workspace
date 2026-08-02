@@ -47,15 +47,16 @@ title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
 | 16 | `GET` | `/templates/:templateId/parts/:partId/history` | ○ | templateId, partId | パーツ変更履歴 |
 | 17 | `POST` | `/build` | ○ | BuildInlineRequest（html, css, size, singleDoc） | PDF（vivliostyle） |
 | 18 | `POST` | `/build/project` | ○ | プロジェクト zip | PDF |
-| 19 | `GET` | `/preview/:id` | ○ | id | プレビュー（Vite proxy） |
-| 20 | `POST` | `/preview` | ○ | html/css | プレビューセッション開始 |
-| 21 | `GET` | `/history/edit` | ○ | — | 編集履歴一覧 |
-| 22 | `GET` | `/history/pdf` | ○ | — | PDF出力履歴一覧 |
-| 23 | `GET` | `/history/create` | ○ | — | 作成履歴一覧 |
-| 24 | `GET` | `/templates/:templateId/versions` | ○ | templateId | 版一覧（比較用） |
-| 25 | `GET` | `/snapshots/:historyId` | ○ | historyId | スナップショット本文 |
-| 26 | `GET` | `/users` | admin | — | User[] |
-| 27 | `POST` | `/users/:id/reset-password` | admin | id | PWリセット結果（要PW変更） |
+| 19 | `POST` | `/build/merge` | ○ | BuildMergeRequest（documents[]（html, css）, size?） | PDF（複数文書を結合・通しページ番号） |
+| 20 | `GET` | `/preview/:id` | ○ | id | プレビュー（Vite proxy） |
+| 21 | `POST` | `/preview` | ○ | html/css | プレビューセッション開始 |
+| 22 | `GET` | `/history/edit` | ○ | — | 編集履歴一覧 |
+| 23 | `GET` | `/history/pdf` | ○ | — | PDF出力履歴一覧 |
+| 24 | `GET` | `/history/create` | ○ | — | 作成履歴一覧 |
+| 25 | `GET` | `/templates/:templateId/versions` | ○ | templateId | 版一覧（比較用） |
+| 26 | `GET` | `/snapshots/:historyId` | ○ | historyId | スナップショット本文 |
+| 27 | `GET` | `/users` | admin | — | User[] |
+| 28 | `POST` | `/users/:id/reset-password` | admin | id | PWリセット結果（要PW変更） |
 
 # DB定義(テーブル)
 

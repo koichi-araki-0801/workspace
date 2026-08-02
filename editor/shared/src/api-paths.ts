@@ -49,6 +49,7 @@ export const apiPaths = {
   // vivliostyle
   build: '/build',
   buildProject: '/build/project',
+  buildMerge: '/build/merge',
   preview: '/preview',
   // ワイルドカード経路(reverse-proxy)はルート側で `+ '/*'` を合成する。
   previewById: '/preview/:id',

@@ -18,15 +18,16 @@ import {
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { apiUrl } from '@/api/rest/http';
 import { logError } from '@/lib/appError';
-import { CROP_MARKS_CSS } from '@/lib/cropMarks';
-import { formatCss, formatHtml } from '@/lib/formatOutput';
+import { formatCss } from '@/lib/formatOutput';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
-import { sanitizePreviewHtml } from '@/lib/sanitizeHtml';
+import { PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
 import { replaceBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
 
-/** PDF 生成失敗時に表示する文言(原因 cause は別途ログへ記録する)。 */
-export const PDF_ERROR_MSG = 'PDFの作成に失敗しました。時間をおいて再度お試しください。';
+// 文書組み立て(renderJinja → sanitize → format)は結合 PDF と共用のため
+// `lib/pdfDocument.ts` へ抽出済み。文言定数は従来の import 元を保つため再エクスポートする。
+export { PDF_ERROR_MSG };
+
 const RENDER_ERROR_MSG = 'プレビューを表示できませんでした。テンプレートの内容をご確認ください。';
 
 interface PreviewLoad {
@@ -108,19 +109,12 @@ export function createTemplatePreviewService(
 
     async renderPdf(html, css, sample, cropMarks) {
       try {
-        const rendered = await htmlWorker.renderJinja(html, sample);
-        if (rendered.error) return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
-        // サーバの headless ブラウザでレンダリングされる前に能動コンテンツを除去する
-        // (プレビューと同じ保存型 XSS / スクリプト実行対策)。Jinja 解決済みの純 HTML なので
-        // 整形は安全 — PDF 入力を読める形にする(`css` は呼び出し側で整形済み)。
-        const safeHtml = formatHtml(sanitizePreviewHtml(rendered.html));
-        // トンボは CSS 一本で効かせる方針(`cropMarks.ts` 参照)。サーバ `inlineCss` が css を
-        // `<style>` 化するため, ここで連結すればプレビュー表示と同じトンボが PDF にも乗る。
-        const pdfCss = cropMarks ? `${css}\n${CROP_MARKS_CSS}` : css;
+        const doc = await renderPdfDocument(html, css, sample, { cropMarks });
+        if (isErr(doc)) return doc;
         const res = await fetch(apiUrl(apiPaths.build), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ html: safeHtml, css: pdfCss }),
+          body: JSON.stringify(doc.value),
         });
         if (!res.ok) return err(conflict(PDF_ERROR_MSG, { cause: `HTTP ${res.status}` }));
         return ok(await res.blob());

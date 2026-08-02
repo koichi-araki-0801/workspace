@@ -509,6 +509,29 @@ export const BuildInlineRequest = z
   })
   .meta({ id: 'BuildInlineRequest' });
 
+/** 結合 build の 1 文書(レンダリング済み HTML + 任意 CSS)。 */
+export const BuildMergeDocument = z
+  .object({
+    html: z.string().min(1).meta({ description: 'レンダリング済み(nunjucks)HTML' }),
+    css: z.string().default(''),
+  })
+  .meta({ id: 'BuildMergeDocument' });
+
+/**
+ * 複数文書を 1 つの PDF へ結合するリクエスト(配列順 = ページ順)。文書数上限は
+ * ビルド時間(`vivliostyle.build.timeoutMs` = 120s)内に収める安全弁。
+ */
+export const BuildMergeRequest = z
+  .object({
+    documents: z
+      .array(BuildMergeDocument)
+      .min(1)
+      .max(30)
+      .meta({ description: '結合する文書。配列順に連結し通しページ番号を振る' }),
+    size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
+  })
+  .meta({ id: 'BuildMergeRequest' });
+
 /** (server 専用) ライブプレビューセッションの公開メタデータ(サーバ内部情報は露出しない)。 */
 export const PreviewSession = z
   .object({

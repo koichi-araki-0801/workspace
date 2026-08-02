@@ -261,6 +261,11 @@ export const config = {
       /** 受け付ける project zip の最大バイト数(超過時は 413)。 */
       maxProjectBytes: Number(process.env.VIVLIO_MAX_PROJECT_BYTES ?? 64 * 1024 * 1024),
       /**
+       * 結合 build(`/build/merge`、JSON)の本文サイズ上限。複数 HTML を 1 リクエストに
+       * 載せるためグローバル bodyLimit(8MB)では足りず、ルート単位で上書きする(超過時は 413)。
+       */
+      maxMergeBytes: Number(process.env.VIVLIO_MAX_MERGE_BYTES ?? 32 * 1024 * 1024),
+      /**
        * PDF build worker(子プロセス)のタイムアウト(ms)。これを超えたら kill してエラーにする
        * (応答が永久に返らない無限スピナーを防ぐ)。`config.python.timeoutMs` と同型。
        */

@@ -198,6 +198,12 @@ export interface TemplateInstance {
  */
 export type BuildInlineRequest = z.infer<typeof sch.BuildInlineRequest>;
 
+/** 結合 build の 1 文書。`css` の扱いは `BuildInlineRequest` と同じ(validate が補完)。 */
+export type BuildMergeDocument = z.infer<typeof sch.BuildMergeDocument>;
+
+/** 複数文書 → 1 PDF の結合 build リクエスト(配列順 = ページ順)。 */
+export type BuildMergeRequest = z.infer<typeof sch.BuildMergeRequest>;
+
 // ── 8. Data-access contracts ──
 // 集約別・Result を返す契約は `./repositories/*` を参照。web の `local` 層と `rest`
 // 層がいずれもこれらの interface を実装する。

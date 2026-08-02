@@ -474,6 +474,26 @@ export function buildOpenApiDocument() {
           },
         },
       },
+      '/build/merge': {
+        post: {
+          tags: ['vivliostyle'],
+          summary: '複数のレンダリング済み文書を 1 つの PDF へ結合',
+          operationId: 'buildMerge',
+          description:
+            '`documents` の配列順に連結し、全体で通しページ番号を振った 1 つの PDF を返す。',
+          requestBody: { content: { 'application/json': { schema: s.BuildMergeRequest } } },
+          responses: {
+            '200': {
+              description: 'PDF バイナリ',
+              content: { 'application/pdf': { schema: PdfBinary } },
+            },
+            ...ERR_400,
+            ...ERR_401,
+            '413': err('リクエストが大きすぎる (kind=validation)'),
+            ...ERR_500,
+          },
+        },
+      },
       '/preview': {
         get: {
           tags: ['vivliostyle'],

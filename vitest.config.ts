@@ -34,6 +34,8 @@ export default defineConfig({
         'editor/server/src/middleware/*.ts',
         'editor/server/src/vivliostyle/options.ts',
         'editor/server/src/vivliostyle/projectInput.ts',
+        'editor/server/src/vivliostyle/inlineCss.ts',
+        'editor/server/src/vivliostyle/mergeInput.ts',
         'editor/server/src/vivliostyle/previewManager.ts',
         'editor/server/src/vivliostyle/buildWorkerPool.ts',
         // editor/web (UI/VM/Service/Repository 層)
@@ -48,6 +50,8 @@ export default defineConfig({
         'editor/web/src/features/templates/services/templateCreationService.ts',
         'editor/web/src/features/editor/services/templateEditorService.ts',
         'editor/web/src/features/preview/services/templatePreviewService.ts',
+        'editor/web/src/lib/pdfDocument.ts',
+        'editor/web/src/features/merge/services/mergePdfService.ts',
         'editor/web/src/features/admin/viewmodels/userVm.ts',
         'editor/web/src/lib/templateDoc.ts',
         'editor/web/src/lib/usePagedList.ts',
