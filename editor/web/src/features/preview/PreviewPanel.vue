@@ -306,9 +306,12 @@ defineExpose({ prevPage, nextPage, goToPage, zoomIn, zoomOut, fit });
       <Loader2 class="h-4 w-4 animate-spin" /> プレビューを生成中…
     </div>
     <div v-show="!useFallback" ref="viewport" class="h-full w-full"></div>
+    <!-- 中身は `sanitizePreviewHtml` 済みだが、sandbox は多層防御として付けておく
+         (サニタイズを 1 箇所外した時に即 XSS にならないため)。スクリプトは許可しない。 -->
     <iframe
       v-show="useFallback"
       ref="iframe"
+      sandbox="allow-same-origin"
       class="h-full w-full border-0 bg-white"
       title="プレビュー"
     ></iframe>

@@ -3,9 +3,13 @@
 // =============================================================================
 // `login` / `initPassword` はユーザテーブルに対し PBKDF2(定数時間比較)で資格情報を
 // 検証する。`login` は併せて DB セッションを開き、ルート側が返却 id から cookie を張る。
+// KDF は非同期版(libuv スレッドプール)なので全て await する — 同期版はイベントループを
+// 12 万回反復ぶん占有し、ログインの連打だけでサーバ全体が止まる(`auth/password.ts`)。
+// 試行回数そのものの制限はルート側(`auth.routes.ts` + `auth/loginRateLimit.ts`)の責務。
 import {
   type LoginRequest,
   type LoginResult,
+  PASSWORD_MIN_LENGTH,
   type PasswordInitRequest,
   unauthorized,
   validation,
@@ -24,7 +28,7 @@ export async function login(
   // 不明な id とパスワード誤りは同一メッセージにする(どちらかを漏らさない)。
   if (!row) throw unauthorized('ユーザーIDまたはパスワードが違います');
   if (asBool(row.無効)) throw unauthorized('このアカウントは無効化されています');
-  const ok = verifyPassword(
+  const ok = await verifyPassword(
     req.password,
     asBuffer(row.PWハッシュ),
     asBuffer(row.PWソルト),
@@ -41,12 +45,27 @@ export async function logout(sessionId: string | undefined): Promise<void> {
   if (sessionId) await destroySession(sessionId);
 }
 
+/**
+ * 自分自身のパスワードを変更する。呼び出し側(`auth.routes.ts`)がセッション所有者と
+ * `req.username` の一致を保証し、ここでは現行パスワードによる所有証明を検証する。この 2 段が
+ * 揃うまで本エンドポイントは未認証で任意アカウントを乗っ取れる状態だった。
+ */
 export async function initPassword(req: PasswordInitRequest): Promise<void> {
   const row = firstRow(await callSproc(SP.user, '認証情報取得', [p('ログインID', req.username)]));
-  if (!row) throw unauthorized('ユーザーIDが見つかりません');
+  // 存在有無を漏らさないため、未知の id も現行パスワード誤りも同一メッセージにする。
+  if (!row) throw unauthorized('ユーザーIDまたはパスワードが違います');
   if (asBool(row.無効)) throw unauthorized('このアカウントは無効化されています');
-  if (req.newPassword.length < 4) throw validation('新しいパスワードが短すぎます');
-  const { hash, salt, iterations } = hashPassword(req.newPassword);
+  const owns = await verifyPassword(
+    req.currentPassword,
+    asBuffer(row.PWハッシュ),
+    asBuffer(row.PWソルト),
+    asNumberOrNull(row.PW反復回数),
+  );
+  if (!owns) throw unauthorized('ユーザーIDまたはパスワードが違います');
+  // 閾値は UI と同じ `PASSWORD_MIN_LENGTH`。空白のみ(実質空)も弾くため trim 後で測る。
+  if (req.newPassword.trim().length < PASSWORD_MIN_LENGTH)
+    throw validation('新しいパスワードが短すぎます');
+  const { hash, salt, iterations } = await hashPassword(req.newPassword);
   await callSproc(SP.user, 'PW初期化', [
     p('ログインID', req.username),
     p('PWハッシュ', hash),

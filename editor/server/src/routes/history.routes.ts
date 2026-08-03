@@ -1,7 +1,7 @@
 // =============================================================================
 // history.routes.ts — 履歴フィード / PDF 出力記録 / バージョン一覧 / スナップショット
 // =============================================================================
-import { apiPaths } from '@editor/shared';
+import { apiPaths, isGitObjectId, validation } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
@@ -42,11 +42,16 @@ export async function historyRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // `:historyId` はそのまま `git show` のリビジョン引数になる。`-` 始まりの値を git は
+  // オプションとして読む(`--output=<file>` で任意ファイルを破壊できる)ため、リポジトリ層へ
+  // 渡す前に境界で弾く。同じ検査は `historyRepo`/`gitRepo` にも置く(多層防御)。
   app.get<{ Params: { historyId: string } }>(
     apiPaths.snapshotById,
     { preHandler: requireAuth },
     async (request) => {
-      return history.getSnapshot(request.params.historyId);
+      const { historyId } = request.params;
+      if (!isGitObjectId(historyId)) throw validation(`版の指定が不正です: ${historyId}`);
+      return history.getSnapshot(historyId);
     },
   );
 }

@@ -4,6 +4,7 @@
 import type { SampleData } from '@editor/shared';
 import nunjucks from 'nunjucks';
 import { formatCss, formatHtml } from './formatOutput';
+import { sanitizeStyleContent } from './sanitizeCss';
 import { sanitizePreviewHtml } from './sanitizeHtml';
 
 /**
@@ -45,7 +46,8 @@ export function assemblePreviewDocument(renderedHtml: string, css: string): stri
   // CSS は直後に inline 化するため不要で, 残すと viewer が Blob 相対 URL で解決して 404 になり,
   // `@vivliostyle/core` のフェッチャがページ分割を中断してしまう(プレビューが 1 ページに崩れる)。
   const cleaned = safe.replace(/<link\b[^>]*\brel=["']?stylesheet["']?[^>]*>/gi, '');
-  const styleTag = `<style data-preview-css>\n${formatCss(css)}\n</style>`;
+  // CSS は DOMPurify を通らないため、`</style>` による脱出をここで潰す(`sanitizeCss.ts`)。
+  const styleTag = `<style data-preview-css>\n${sanitizeStyleContent(formatCss(css))}\n</style>`;
   if (/<\/head>/i.test(cleaned)) return cleaned.replace(/<\/head>/i, `${styleTag}</head>`);
   if (/<body[^>]*>/i.test(cleaned)) return cleaned.replace(/<body([^>]*)>/i, `<body$1>${styleTag}`);
   return `<!doctype html><html><head><meta charset="utf-8" />${styleTag}</head><body>${cleaned}</body></html>`;

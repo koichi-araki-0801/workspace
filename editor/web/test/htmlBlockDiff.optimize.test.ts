@@ -71,7 +71,7 @@ describe('diffTokens parity (A-3 trim)', () => {
     for (const [s1, s2] of cases) {
       const a = tokenize(s1);
       const b = tokenize(s2);
-      expect(diffTokens(a, b)).toEqual(oldDiffTokens(a, b));
+      expect(diffTokens(a, b).ops).toEqual(oldDiffTokens(a, b));
     }
   });
 
@@ -83,7 +83,15 @@ describe('diffTokens parity (A-3 trim)', () => {
     for (let k = 0; k < 2000; k++) {
       const a = tokenize(randStr(Math.floor(next() * 12)));
       const b = tokenize(randStr(Math.floor(next() * 12)));
-      expect(diffTokens(a, b)).toEqual(oldDiffTokens(a, b));
+      expect(diffTokens(a, b).ops).toEqual(oldDiffTokens(a, b));
+    }
+  });
+
+  it('パリティ対象は上限内(coarse=false)であること', () => {
+    // 上のパリティ 2 本が「粗い差分同士の一致」で通ってしまうと無意味になるため、
+    // 代表コーパスが full DP を通っていること自体を固定する。
+    for (const [s1, s2] of cases) {
+      expect(diffTokens(tokenize(s1), tokenize(s2)).coarse).toBe(false);
     }
   });
 });

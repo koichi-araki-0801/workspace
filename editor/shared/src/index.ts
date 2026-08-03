@@ -48,6 +48,15 @@ export type LoginResult = z.infer<typeof sch.LoginResult>;
 
 export type PasswordInitRequest = z.infer<typeof sch.PasswordInitRequest>;
 
+/**
+ * ユーザ作成の応答。`temporaryPassword` は払い出しの 1 回だけ運ばれる平文で、管理者が
+ * 画面で読み取り本人へ帯域外(口頭・紙)で渡す。保存も再表示もできない。
+ */
+export type CreatedUser = z.infer<typeof sch.CreatedUser>;
+
+/** 管理者によるパスワードリセットの応答。新しい一時パスワードのみを運ぶ。 */
+export type PasswordResetResult = z.infer<typeof sch.PasswordResetResult>;
+
 // ── 4. Domain: history (履歴タブに表示する3種) ──
 
 export type EditHistoryEntry = z.infer<typeof sch.EditHistoryEntry>;

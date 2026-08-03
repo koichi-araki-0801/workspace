@@ -120,14 +120,20 @@ export function buildOpenApiDocument() {
           },
         },
       },
+      // `security: []` は付けない。自分自身のパスワード変更であり、セッションと現行パスワードの
+      // 両方を要する(未認証で開けていた頃は任意アカウントの乗っ取り経路だった)。
       '/auth/init-password': {
         post: {
           tags: ['auth'],
-          summary: 'パスワード初期化(初回ログイン時)',
+          summary: 'パスワード変更(本人・現行パスワードによる所有証明が必要)',
           operationId: 'initPassword',
-          security: [],
           requestBody: { content: { 'application/json': { schema: s.PasswordInitRequest } } },
-          responses: { '204': noContent('初期化完了'), ...ERR_400, ...ERR_401 },
+          responses: {
+            '204': noContent('変更完了'),
+            ...ERR_400,
+            ...ERR_401,
+            ...ERR_403,
+          },
         },
       },
 
@@ -547,7 +553,10 @@ export function buildOpenApiDocument() {
           operationId: 'createUser',
           requestBody: { content: { 'application/json': { schema: s.CreateUserRequest } } },
           responses: {
-            '201': json('作成されたユーザ', s.User),
+            // 応答は `User` 単体ではなく `{ user, temporaryPassword }`。初期パスワードを
+            // ログインID と同じにする設計をやめた結果、払い出した平文をここでしか運べない
+            // (サーバは保存も再表示もしない)。外部クライアントは `user` を 1 段掘ること。
+            '201': json('作成されたユーザと一時パスワード', s.CreatedUser),
             ...ERR_400,
             ...ERR_401,
             ...ERR_403,
@@ -578,7 +587,8 @@ export function buildOpenApiDocument() {
           operationId: 'resetUserPassword',
           requestParams: { path: z.object({ id: z.string() }) },
           responses: {
-            '204': noContent('リセット完了'),
+            // 新しい一時パスワードを運ぶため 204 ではなく 200 + ボディ。
+            '200': json('新しい一時パスワード', s.PasswordResetResult),
             ...ERR_401,
             ...ERR_403,
             ...ERR_404,

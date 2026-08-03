@@ -6,8 +6,10 @@
 // (`logs/history/*.jsonl`)へ記録/参照する。
 import { randomUUID } from 'node:crypto';
 import {
+  assertTemplateId,
   type CreateHistoryEntry,
   type EditHistoryEntry,
+  isGitObjectId,
   notFound,
   type PartHistoryEntry,
   type PdfHistoryEntry,
@@ -16,6 +18,7 @@ import {
   type TemplateSnapshot,
   type TemplateVersionMeta,
   templateIdFromFileName,
+  validation,
 } from '@editor/shared';
 import { appendHistory, readHistory } from '../files/historyFiles.js';
 import {
@@ -60,7 +63,9 @@ export async function getEditHistory(): Promise<EditHistoryEntry[]> {
 
 /** テンプレ単位の版一覧(新しい順)。historyId はコミット hash。 */
 export async function listVersions(templateId: string): Promise<TemplateVersionMeta[]> {
-  const commits = await logForFile(templateRel(templateId));
+  // `templateId` は URL 由来で pathspec の一部になる。ファイル名規約 + 単一セグメント安全性を
+  // 通ってからでないと git へ渡さない(`..` や pathspec magic の混入を入口で断つ)。
+  const commits = await logForFile(templateRel(assertTemplateId(templateId)));
   return commits.map((c) => ({
     historyId: c.hash,
     templateId,
@@ -72,6 +77,10 @@ export async function listVersions(templateId: string): Promise<TemplateVersionM
 
 /** 版スナップショット(本体は git show でコミット時点を取り出す)。 */
 export async function getSnapshot(historyId: string): Promise<TemplateSnapshot> {
+  // `historyId` は URL 由来で `git show` のリビジョン引数になる。`-` 始まりの値は git が
+  // オプションとして解釈するため(`--output=<file>` で任意ファイルを破壊できる)、git を
+  // 呼ぶ前にオブジェクトID 形式で弾く。git 呼び出し側の多層防御は `gitRepo.ts` の検証節。
+  if (!isGitObjectId(historyId)) throw validation(`版の指定が不正です: ${historyId}`);
   const fileName = await changedTemplateFile(historyId);
   if (!fileName) throw notFound(`この版の比較データがありません: ${historyId}`);
   const attrs = parseTemplateFileName(fileName);

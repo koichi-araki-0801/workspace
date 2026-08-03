@@ -2,6 +2,7 @@
 // pyTemplate.ts — Python テンプレート生成器を child_process で呼び出す
 // =============================================================================
 import { execFile } from 'node:child_process';
+import { assertTemplateId } from '@editor/shared';
 import { config } from '../config.js';
 
 interface GenerateAttributes {
@@ -18,6 +19,10 @@ interface GenerateAttributes {
  * プレースホルダ。統合時は同じ I/O 契約を保ったまま本物の生成器に差し替える。
  */
 export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
+  // `basedOnTemplateId` は生成器側で templates ディレクトリと連結して読まれる。request 由来の
+  // ままだと任意ファイルの中身を新規テンプレートとして取り込めるため、渡す前に検査する
+  // (Python 側にも basename + 実パス封じ込めの二重チェックを置いてある)。
+  if (attrs.basedOnTemplateId) assertTemplateId(attrs.basedOnTemplateId);
   return new Promise((resolve, reject) => {
     const child = execFile(
       config.python.bin,

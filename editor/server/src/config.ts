@@ -4,9 +4,11 @@
 // 設定値の優先順位は default < `appconfig.json` < 環境変数(env)。
 // `appConfigSchema` でファイルを検証し、`config` として一元的に公開する。
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { apiPaths } from '@editor/shared';
 import { z } from 'zod';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -119,6 +121,20 @@ function resolvePath(envVal: string | undefined, fileVal: string | undefined, de
 function envBool(envVal: string | undefined): boolean | undefined {
   if (envVal === undefined) return undefined;
   return envVal.toLowerCase() === 'true';
+}
+
+/**
+ * 正の有限数を要求する env 変数を解決する。上限(サイズ制限)に `Number()` を直接使うと
+ * `'64MB'` のような打ち間違いが `NaN` になり、`size > NaN` が常に false = 上限が黙って
+ * 消える。非数値・0 以下は既定値へ倒し、上限が必ず有効であることを保証する。
+ *
+ * `config` の外にも上限を持つモジュール(`vivliostyle/projectInput.ts` の展開上限)が
+ * あるため export する。**資源上限を env で上書きできるようにするときは必ずこれを通す**
+ * — 素の `Number()` は上限を無効化できる経路になる。
+ */
+export function envPositiveNumber(envVal: string | undefined, def: number): number {
+  const n = Number(envVal);
+  return envVal !== undefined && Number.isFinite(n) && n > 0 ? n : def;
 }
 
 const executableBrowser =
@@ -259,12 +275,12 @@ export const config = {
     /** project build のアップロード上限(`projectInput.ts` 参照)。 */
     build: {
       /** 受け付ける project zip の最大バイト数(超過時は 413)。 */
-      maxProjectBytes: Number(process.env.VIVLIO_MAX_PROJECT_BYTES ?? 64 * 1024 * 1024),
+      maxProjectBytes: envPositiveNumber(process.env.VIVLIO_MAX_PROJECT_BYTES, 64 * 1024 * 1024),
       /**
        * 結合 build(`/build/merge`、JSON)の本文サイズ上限。複数 HTML を 1 リクエストに
        * 載せるためグローバル bodyLimit(8MB)では足りず、ルート単位で上書きする(超過時は 413)。
        */
-      maxMergeBytes: Number(process.env.VIVLIO_MAX_MERGE_BYTES ?? 32 * 1024 * 1024),
+      maxMergeBytes: envPositiveNumber(process.env.VIVLIO_MAX_MERGE_BYTES, 32 * 1024 * 1024),
       /**
        * PDF build worker(子プロセス)のタイムアウト(ms)。これを超えたら kill してエラーにする
        * (応答が永久に返らない無限スピナーを防ぐ)。`config.python.timeoutMs` と同型。
@@ -303,7 +319,8 @@ export const config = {
 
   /** editor 自身の認証(phase 2)。秘密情報(secrets)は `appconfig.json` の外に置く。 */
   auth: {
-    // 初期パスワードは ログインID(ユーザID) と同一(`userRepo.ts` 参照)。固定値の設定は持たない。
+    // 初期 / リセットのパスワードは払い出しごとの CSPRNG 一時パスワード(`userRepo.ts` 参照)。
+    // 設定として固定値は持たない — 持てば全環境で同じ既定資格情報になる。
     sessionTtlHours: Number(process.env.AUTH_SESSION_TTL_HOURS ?? 12),
     cookieName: 'editor.sid',
     /**
@@ -340,3 +357,133 @@ export const config = {
       process.env.NODE_ENV !== 'production',
   },
 };
+
+// ── 2. セキュリティ方針 ──
+// 判定ロジックを設定側に置くのは、消費側の `app.ts` が「import した瞬間に listen する起動
+// スクリプト」でテストから読み込めないため。方針の値(上限・host・requireAuth)もここが持つ。
+
+/**
+ * ループバック(同一マシン限定)への bind か。`127.0.0.0/8`・`::1`・`localhost` のみを
+ * loopback とみなし、`0.0.0.0` / `::`(全 IF)や LAN IP 直指定・空文字は外部公開扱いにする。
+ */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+  if (h === 'localhost' || h === '::1' || h === '::ffff:127.0.0.1') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+}
+
+/**
+ * 認証なしのまま外部へ待ち受ける設定を起動前に弾く(fail closed)。`requireAuth` が false だと
+ * `requireAuth`/`requireAdmin`/`requireApprover` が素通りし、テンプレの読み書きも承認も
+ * 無資格で通ってしまう。ホスト公開(`HOST=0.0.0.0`)と認証(`AUTH_REQUIRED`)は別々の
+ * スイッチで、`start.bat` の引数の組み合わせ次第で片方だけ立つ事故が起きうるため、
+ * 「公開しているのに認証オフ」の組み合わせだけは起動を拒否する。
+ */
+export function assertAuthRequiredWhenExposed(host: string, requireAuth: boolean): void {
+  if (requireAuth || isLoopbackHost(host)) return;
+  throw new Error(
+    `[config] HOST=${host} は loopback ではない(=外部から到達できる)のに認証が無効です。` +
+      ' LAN へ公開するなら AUTH_REQUIRED=true を指定してください' +
+      '(editor\\start.bat は lan 指定時に自動で立てます)。' +
+      ' 同一マシンだけで使うなら HOST を 127.0.0.1 のままにしてください。',
+  );
+}
+
+/**
+ * 認証前にメモリへ全量を積むボディ(project zip)の content-type か。Fastify は
+ * content-type parser を preHandler(`requireAuth`)より前に走らせるため、この判定で
+ * `onRequest` 段の認証ゲートを掛ける(`app.ts`)。`; charset=` 等のパラメータは無視する。
+ */
+export function isBufferedUploadContentType(contentType: string | undefined): boolean {
+  const mime = (contentType ?? '').split(';', 1)[0].trim().toLowerCase();
+  return mime === 'application/zip' || mime === 'application/octet-stream';
+}
+
+/**
+ * 大きな本文を受ける前提のアップロード経路(`/api` prefix 込み)。現に上限を上げているのは
+ * `/build/merge`(`maxMergeBytes`)だけで、残り 2 本は zip の受け口。content-type を伏せて
+ * 送られても同じ扱いにするため path でも並べる。ルート側で `bodyLimit` を引き上げたときは
+ * ここへ足すこと — 足し忘れると、そのルートだけ「未認証で上限いっぱいを積める」経路に戻る。
+ */
+const RAISED_BODY_LIMIT_PATHS: readonly string[] = [
+  `/api${apiPaths.buildMerge}`,
+  `/api${apiPaths.buildProject}`,
+  `/api${apiPaths.preview}`,
+];
+
+/**
+ * 認証より前に本文を積んでしまうリクエストか(`app.ts` の `onRequest` ゲートの判定)。
+ *
+ * Fastify のライフサイクルは onRequest → parsing → preHandler で、`requireAuth` は
+ * preHandler。つまり本文の解析は常に認証より先に終わる。content-type だけを見ていた頃は
+ * `application/json` へ変えるだけで `POST /api/build/merge` の 32MB を未認証で積めたため、
+ * 「上限を引き上げたルート」も path で見る。
+ */
+export function isPreAuthBufferedRequest(
+  method: string | undefined,
+  url: string | undefined,
+  contentType: string | undefined,
+): boolean {
+  if (isBufferedUploadContentType(contentType)) return true;
+  // 本文を持たないメソッド(GET/HEAD/DELETE)は積みようがないので、無駄なセッション解決を避ける。
+  if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH') return false;
+  const pathOnly = (url ?? '').split(/[?#]/, 1)[0];
+  return RAISED_BODY_LIMIT_PATHS.includes(pathOnly);
+}
+
+/**
+ * インライン `<script>` の CSP ハッシュ(`'sha256-...'`)を、配信する index.html そのものから
+ * 算出する。SPA シェルはテーマ適用の inline script を持つため、`'unsafe-inline'` を許すか
+ * ハッシュを載せるかの二択で、後者を採る(注入された script タグは弾かれたままになる)。
+ * ハッシュ対象は改変後(epoch 置換後)の文字列でなければならない — 実際に配信する
+ * バイト列とハッシュが一致しないとブラウザが script を落とす。
+ */
+export function inlineScriptCspHashes(html: string): string[] {
+  const hashes: string[] = [];
+  for (const m of html.matchAll(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
+    // ブラウザは HTML パーサが改行を LF へ正規化した後の本文をハッシュする。ビルド成果物の
+    // index.html は CRLF になりうるため、生バイト列のまま計算すると必ず不一致になり、
+    // inline script が落とされる(実測で判明)。
+    const body = m[1].replace(/\r\n?/g, '\n');
+    if (body.length === 0) continue;
+    hashes.push(`'sha256-${crypto.createHash('sha256').update(body, 'utf8').digest('base64')}'`);
+  }
+  return hashes;
+}
+
+/**
+ * helmet に渡す CSP ディレクティブ。SPA(Vite ビルド成果物)と blob プレビューが動く最小限に
+ * 絞る。`null` は helmet の既定ディレクティブを消す指定(`useDefaults: true` 前提)。
+ */
+export function buildCspDirectives(
+  inlineScriptHashes: readonly string[],
+): Record<string, string[] | null> {
+  return {
+    defaultSrc: ["'self'"],
+    // `'unsafe-eval'`: プレビューの Jinja 描画に使う nunjucks が、テンプレートを実行時に
+    // JS へコンパイルする(`new Function`)。除くとプレビュー(worker 側も含む)が全滅する。
+    // inline script はハッシュ許可のみで、`'unsafe-inline'` は載せない。
+    scriptSrc: ["'self'", "'unsafe-eval'", ...inlineScriptHashes],
+    // GrapesJS と Vue が要素の style 属性 / 動的 `<style>` を直接書くため inline を許す。
+    styleSrc: ["'self'", "'unsafe-inline'"],
+    // `blob:` = プレビュー・PDF の Blob URL(`URL.createObjectURL`)、`data:` = 埋め込み画像と
+    // @fontsource の同梱フォント。外部ホストは許可しない(オフライン運用のため不要)。
+    imgSrc: ["'self'", 'data:', 'blob:'],
+    fontSrc: ["'self'", 'data:'],
+    // 外部ホストは許可しない。GrapesJS が `app.grapesjs.com` へ送るテレメトリはここで落ちて
+    // コンソールに CSP 違反が出るが、閉域運用ではむしろ望ましい挙動で機能に影響はない。
+    connectSrc: ["'self'", 'blob:', 'data:'],
+    // Vite の module worker(本番は同一オリジンのチャンク)と Blob フォールバック。
+    workerSrc: ["'self'", 'blob:'],
+    // プレビュー iframe は Blob URL と同一オリジンの `/api/preview/...` を読み込む。
+    frameSrc: ["'self'", 'blob:', 'data:'],
+    // LAN 公開は証明書が無ければ平文 HTTP へ落とす運用なので、既定の
+    // `upgrade-insecure-requests`(全リクエストを https へ強制)を外す。付けたままだと
+    // HTTP 運用時にアセットが読めずアプリが起動しない。
+    upgradeInsecureRequests: null,
+  };
+}
+
+// 危険な既定値(認証オフ + 外部公開)は起動前に落とす。値の解決直後に評価するので、
+// `app.ts` が listen する前 — import 時点で失敗する。
+assertAuthRequiredWhenExposed(config.host, config.requireAuth);

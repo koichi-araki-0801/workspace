@@ -42,8 +42,13 @@ export const localAuthRepo: AuthRepository = {
   initPassword: (req: PasswordInitRequest) =>
     attempt(() => {
       const user = listUsersSync().find((u) => u.username === req.username);
-      if (!user) throw unauthorized('ユーザーIDが見つかりません');
+      // 存在有無を漏らさないため、未知の id も現行パスワード誤りも同一メッセージにする
+      // (rest 実装 `server/src/repositories/authRepo.ts` と同じ判定順・同じ文言)。
+      if (!user) throw unauthorized('ユーザーIDまたはパスワードが違います');
       if (user.disabled) throw unauthorized('このアカウントは無効化されています');
+      // 所有証明。local は平文比較だが、rest 同様「現行を知らなければ変えられない」を守る。
+      if (passwordFor(req.username) !== req.currentPassword)
+        throw unauthorized('ユーザーIDまたはパスワードが違います');
       // client と同一基準で検証する(空白のみ=実質空も弾く)。UI を経由しない経路の保険。
       if (req.newPassword.trim().length < PASSWORD_MIN_LENGTH)
         throw validation('新しいパスワードが短すぎます');

@@ -18,6 +18,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { isGitObjectId, validation } from '@editor/shared';
 import { config } from '../config.js';
 
 const execFileAsync = promisify(execFile);
@@ -27,6 +28,39 @@ const GIT_BIN = process.env.GIT_BIN ?? 'git';
 
 /** 日本語パスを生のまま扱うための共通フラグ。 */
 const COMMON_ARGS = ['-c', 'core.quotepath=false'];
+
+// ── ユーザー由来引数の検証(git のオプション注入対策) ──
+// 呼び出しは `execFile` 直叩きなのでシェル注入は起きないが、`-` で始まる値を渡すと git は
+// それをオプションとして解釈する(`git show --output=<file>` はリポジトリ外のファイルを
+// 作成/切り詰める)。リビジョンは `--` の後ろへ回すとパス扱いになって使えないので、
+// 形式検証 + `--end-of-options`(以降を非オプションとして扱う git 2.24+ の区切り)の 2 段で
+// 守る。パス側は `--` の後ろに置けるため、区切り + 形式検証で守る。
+// 到達経路: `historyId`(GET /snapshots/:historyId)→ `commitFiles`/`showFile`/`commitDate`、
+// `templateId`(GET /templates/:templateId/versions)→ `logForFile`。
+
+/** リビジョン引数を「オプションと解釈されない形」に限る。`HEAD` はコード内定数用。 */
+function checkRevision(rev: string): string {
+  if (rev === 'HEAD' || isGitObjectId(rev)) return rev;
+  throw validation(`版の指定が不正です: ${rev}`);
+}
+
+/**
+ * リポジトリ相対パス(pathspec / `<rev>:<path>` のパス部)を検証する。`--` の後ろでは
+ * オプション注入は起きないが、`:` 始まりは pathspec magic(`:(exclude)` 等)として働き、
+ * `..` はリポジトリ外を指す。Windows のパス区切り `\` は git のパス表現ではないので落とす。
+ */
+function checkRelPath(relPath: string): string {
+  const unsafe =
+    relPath.length === 0 ||
+    relPath.includes('\0') ||
+    relPath.startsWith('-') ||
+    relPath.startsWith(':') ||
+    relPath.startsWith('/') ||
+    relPath.includes('\\') ||
+    /(^|\/)\.\.(\/|$)/.test(relPath);
+  if (unsafe) throw validation(`ファイルの指定が不正です: ${relPath}`);
+  return relPath;
+}
 
 /** git log の 1 コミット分のメタ(版一覧/編集履歴の素)。 */
 export interface GitCommitMeta {
@@ -166,6 +200,8 @@ export async function ensureRepo(): Promise<void> {
 /**
  * 作業ツリーの全変更を 1 コミットにする。変更が無ければ HEAD を維持する。
  * コミットの author/committer は `author`(= ログインID)。新しい HEAD の hash を返す。
+ * `message`/`author` はユーザー由来だが `-m` / `-c` の値位置に置かれるため、`-` 始まりでも
+ * git はオプションとして読まない(検証が要るのはリビジョン/パス位置のみ)。
  */
 export async function commitAll(message: string, author: GitAuthor): Promise<string> {
   await git(['add', '-A']);
@@ -198,31 +234,46 @@ function parseLog(stdout: string): GitCommitMeta[] {
 
 /** 指定パス(リポジトリ相対)に触れたコミット履歴を新しい順で返す。 */
 export async function logForFile(relPath: string): Promise<GitCommitMeta[]> {
+  // 検証はリポジトリ状態の判定より先に置く。未初期化時の早期 return に隠れて不正入力が
+  // 素通り(= 検査がリポジトリ状態依存)になるのを避けるため。
+  const spec = checkRelPath(relPath);
   if (!(await isRepo()) || !(await hasHead())) return [];
-  const out = await git(['log', '--follow', `--format=${LOG_FORMAT}`, '--', relPath]);
+  const out = await git(['log', '--follow', `--format=${LOG_FORMAT}`, '--', spec]);
   return parseLog(out);
 }
 
 /** 全テンプレの編集履歴(templates/ に触れたコミット)を新しい順で返す。 */
 export async function logAll(pathspec: string): Promise<GitCommitMeta[]> {
+  const spec = checkRelPath(pathspec);
   if (!(await isRepo()) || !(await hasHead())) return [];
-  const out = await git(['log', `--format=${LOG_FORMAT}`, '--', pathspec]);
+  const out = await git(['log', `--format=${LOG_FORMAT}`, '--', spec]);
   return parseLog(out);
 }
 
 /** あるコミットで変更されたファイル(リポジトリ相対パス)の一覧。 */
 export async function commitFiles(hash: string): Promise<string[]> {
-  const out = await git(['show', '--name-only', '--format=', hash]);
+  const out = await git([
+    'show',
+    '--name-only',
+    '--format=',
+    '--end-of-options',
+    checkRevision(hash),
+  ]);
   return out
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
 }
 
-/** あるコミット時点のファイル内容。存在しなければ空文字。 */
+/**
+ * あるコミット時点のファイル内容。存在しなければ空文字。
+ * 検証は try の外に置く: 不正な引数は「そのコミットに無い」ではなく入力の誤りなので、
+ * 空文字へ丸めず `validation` として呼び出し元(= HTTP 400)へ返す。
+ */
 export async function showFile(hash: string, relPath: string): Promise<string> {
+  const rev = `${checkRevision(hash)}:${checkRelPath(relPath)}`;
   try {
-    return await git(['show', `${hash}:${relPath}`]);
+    return await git(['show', '--end-of-options', rev]);
   } catch {
     return '';
   }
@@ -230,6 +281,6 @@ export async function showFile(hash: string, relPath: string): Promise<string> {
 
 /** あるコミットの author date(ISO)。 */
 export async function commitDate(hash: string): Promise<string> {
-  const out = await git(['show', '-s', '--format=%aI', hash]);
+  const out = await git(['show', '-s', '--format=%aI', '--end-of-options', checkRevision(hash)]);
   return out.trim();
 }

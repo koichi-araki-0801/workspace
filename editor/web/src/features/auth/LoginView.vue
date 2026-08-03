@@ -85,11 +85,11 @@ async function submit() {
           {{ loading ? 'ログイン中…' : 'ログイン' }}
         </Button>
       </form>
-      <div class="mt-4 text-center">
-        <RouterLink :to="{ name: 'password-init' }">
-          <Button variant="link" class="h-auto whitespace-nowrap p-0 text-sm font-semibold">パスワードをお忘れの方はこちら</Button>
-        </RouterLink>
-      </div>
+      <!-- 「お忘れの方はこちら」で未認証のまま再設定させる導線は置かない(任意アカウントの
+           乗っ取り経路になる)。復旧は管理者リセットの一本に寄せる。 -->
+      <p class="mt-4 text-center text-[12.5px] leading-relaxed text-muted-foreground">
+        パスワードをお忘れの場合は、管理者にリセットを依頼してください。
+      </p>
       <p v-if="isDev" class="mt-4 text-center text-[11.5px] leading-relaxed text-muted-foreground">
         デモ: <span class="mono">admin / admin</span>　または　<span class="mono">editor / editor</span>
       </p>

@@ -400,6 +400,15 @@ const { fitFrame } = useIframeAutoFit();
         <span v-else class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
           変更なし
         </span>
+        <!-- 語句単位 LCS を面積上限(`MAX_LCS_CELLS`)で打ち切ったページ。差分自体は出るが
+             変更前後の全文が塊で着色されるため、粒度が違うことだけ控えめに伝える。 -->
+        <span
+          v-if="page.coarse"
+          class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+          title="テキストが大きいため語句単位の着色を省略し、変更前後の全文を色分けしています。"
+        >
+          この箇所は差分が大きいため簡易表示です
+        </span>
       </div>
 
       <div class="grid gap-3 md:grid-cols-2">
@@ -408,8 +417,13 @@ const { fitFrame } = useIframeAutoFit();
             比較元・{{ beforeFile }}・{{ formatDateTimeShort(before.timestamp) }}・{{ before.user }}
           </figcaption>
           <div class="overflow-hidden rounded border bg-white">
+            <!-- sandbox は必須。srcdoc の中身は他ユーザが書いたテンプレ HTML/CSS で、無指定だと
+                 閲覧者のブラウザ上・アプリと同一オリジンでスクリプトが走る。`allow-same-origin`
+                 のみ許すのは `fitFrame` が `contentDocument` の高さを読むためで、
+                 `allow-scripts` を伴わない限りスクリプトは実行されない。 -->
             <iframe
               :srcdoc="beforeDoc"
+              sandbox="allow-same-origin"
               title="比較元"
               class="block w-full"
               style="height: 600px; border: 0"
@@ -422,8 +436,10 @@ const { fitFrame } = useIframeAutoFit();
             比較先・{{ afterFile }}・{{ formatDateTimeShort(after.timestamp) }}・{{ after.user }}
           </figcaption>
           <div class="overflow-hidden rounded border bg-white">
+            <!-- sandbox の意図は「比較元」ペインと同じ(上のコメントを見よ)。 -->
             <iframe
               :srcdoc="afterDoc"
+              sandbox="allow-same-origin"
               title="比較先"
               class="block w-full"
               style="height: 600px; border: 0"

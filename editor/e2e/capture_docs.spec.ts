@@ -35,12 +35,15 @@ test('capture editor screens', async ({ page }) => {
   await page.locator('#u').waitFor();
   await page.screenshot({ path: IMG('login.png') });
 
-  // ①b パスワード初期設定画面（初回ログイン時に出る画面。public ルートを直接開く）
-  await page.goto('/password-init?username=editor');
-  await page.locator('#n').waitFor();
-  await page.screenshot({ path: IMG('password-init.png') });
-
   await login(page, 'admin', 'admin');
+
+  // ①b パスワード変更画面。ログイン後にしか出せない（未認証だと現行パスワードを示せず、
+  // フォーム自体が出ない仕様）。撮影後は編集タブへ戻して以降の導線を元の順序に保つ。
+  await page.goto('/password-init');
+  await page.locator('#c').waitFor();
+  await page.screenshot({ path: IMG('password-init.png') });
+  await page.goto('/edit');
+  await page.waitForTimeout(600);
 
   // ② 編集タブ（属性ドロップダウンが見える）
   await page.screenshot({ path: IMG('edit-tab.png') });

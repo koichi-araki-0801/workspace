@@ -5,6 +5,7 @@
 // throw し、ルートハンドラは中央の `errorHandler` に HTTP への変換を委ねる
 // (Result を返す Repository 契約は web の `rest` 層が満たす。ここでは throw する)。
 import {
+  assertTemplateFileName,
   buildSampleData,
   type DropdownOptions,
   type DropdownQuery,
@@ -19,6 +20,7 @@ import {
   type TemplateStatus,
   templateFileName,
   templateIdFromFileName,
+  validation,
 } from '@editor/shared';
 import {
   asIso,
@@ -184,8 +186,18 @@ export async function applyConfirmedSave(req: {
   commitMessage: string;
   author: string;
 }): Promise<TemplateMeta> {
-  const attrs = parseTemplateFileName(`${req.templateId}.html`);
-  const fileName = attrs ? templateFileName(attrs) : `${req.templateId}.html`;
+  // 規約外の id は素通しせず拒否する。以前は `${templateId}.html` へ fallback していたため、
+  // ここが templatesDir の外へ書き込む最後の抜け道になっていた(承認の関所を通った直後に、
+  // 承認者の意図しないパスへ書ける)。名前は検証を通した上で 4 属性から組み直す。
+  const fileName = assertTemplateFileName(`${req.templateId}.html`);
+  // CSS はファンド単位の共有ファイル。申請が持つ `fundCode` が id の示すファンドと食い違うと、
+  // 別ファンドの共有 CSS を上書きできてしまうため、ここで一致を要求する。
+  const attrs = parseTemplateFileName(fileName);
+  if (attrs?.fundCode !== req.fundCode) {
+    throw validation(
+      `ファンドコードがテンプレート id と一致しません: ${req.fundCode} (id=${req.templateId})`,
+    );
+  }
 
   await ensureRepo();
   // ロールバック用に現在のバイト列を控えてから上書きする。

@@ -6,9 +6,10 @@
 // `wireGrapesEvents` へ、zoom/フィットは `useZoomFit.ts` へ、ページ境界 guide は
 // `usePageGuides.ts` へ、選択枠 rect / メモ目印は `useCanvasMarkers.ts` へ委譲する。
 
-import grapesjs, { type Component, type Editor } from 'grapesjs';
+import grapesjs, { type Component, type Editor, type ParsedNode } from 'grapesjs';
 import { ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
+import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
 import { type GrapesCallbacks, wireGrapesEvents } from './grapesEvents';
 import { jinjaChipCanvasCss, registerJinjaComponents } from './jinjaComponents';
 import {
@@ -337,6 +338,14 @@ export function useGrapes() {
       // `import 'font-awesome/...'` で代わりにローカル同梱している。
       cssIcons: '',
     });
+
+    // canvas へ入る HTML は他ユーザが書いた draft / テンプレ実体で、canvas の iframe は
+    // `about:blank` としてアプリのオリジンを継承する(`sandbox` は付けられない — GrapesJS が
+    // 親から中の DOM を直接触るため、`allow-same-origin` 無しでは編集自体が成立しない)。
+    // `parse:html:root` は GrapesJS 既定のサニタイズ後・component 化前に発火する唯一の点で、
+    // ここで刈れば `load`(= `setComponents`)・part 挿入・snapshot 復帰と、HTML 文字列を
+    // パースする全経路を 1 箇所で覆える。
+    ed.on('parse:html:root', ({ root }: { root: ParsedNode }) => pruneCanvasActiveContent(root));
 
     registerJinjaComponents(ed);
 

@@ -76,6 +76,32 @@ describe('openapi document', () => {
     expect(login.security).toEqual([]);
   });
 
+  it('does not expose init-password as a public endpoint', () => {
+    // 未認証で開けていた頃は任意アカウントのパスワードを書き換えられた。`security: []` が
+    // 戻ってきたらここで落とす(ルート側の `requireAuth` と対で守る)。
+    // biome-ignore lint/suspicious/noExplicitAny: traversing the generated doc
+    const initPassword = (doc.paths?.['/auth/init-password'] as any)?.post;
+    expect(initPassword).toBeTruthy();
+    expect(initPassword.security).toBeUndefined();
+  });
+
+  it('documents the one-shot temporary password channel on user create / reset', () => {
+    // 一時パスワードの平文は「この応答 1 回だけ」しか運ばれない(サーバは保存も再表示も
+    // しない)。document が旧契約(201=User / 204 空)へ戻ると外部クライアントは払い出し値を
+    // 取り損ね、初期パスワード=ログインID の運用へ逆戻りする。ルート実装と対で固定する。
+    // biome-ignore lint/suspicious/noExplicitAny: traversing the generated doc
+    const create = (doc.paths?.['/users'] as any)?.post;
+    expect(create.responses['201'].content['application/json'].schema.$ref).toBe(
+      '#/components/schemas/CreatedUser',
+    );
+    // biome-ignore lint/suspicious/noExplicitAny: traversing the generated doc
+    const reset = (doc.paths?.[toOpenApiPath(apiPaths.userResetPassword)] as any)?.post;
+    expect(reset.responses['204']).toBeUndefined();
+    expect(reset.responses['200'].content['application/json'].schema.$ref).toBe(
+      '#/components/schemas/PasswordResetResult',
+    );
+  });
+
   it('resolves every $ref to a defined component schema', () => {
     const schemas = doc.components?.schemas ?? {};
     const refs: string[] = [];

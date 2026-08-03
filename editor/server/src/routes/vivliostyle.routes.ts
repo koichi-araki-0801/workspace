@@ -27,7 +27,11 @@ import {
 } from '../vivliostyle/build.js';
 import { proxyToPreview } from '../vivliostyle/previewProxy.js';
 import { previewManager } from '../vivliostyle/previewServer.js';
-import { cleanupProject, extractProjectZip } from '../vivliostyle/projectInput.js';
+import {
+  cleanupProject,
+  extractProjectZip,
+  safeProjectEntry,
+} from '../vivliostyle/projectInput.js';
 
 const PREVIEW_HOST = config.vivliostyle.preview.host;
 
@@ -38,15 +42,26 @@ function sendPdf(reply: FastifyReply, pdf: Buffer): void {
     .send(pdf);
 }
 
-/** project build / preview で共有する任意のクエリ上書き。 */
-function projectOptions(request: FastifyRequest): {
+/**
+ * project build / preview で共有する任意のクエリ上書き。
+ *
+ * `entry` は展開ディレクトリ `root` 配下の絶対パスへ解決してから返す。CLI は `input` を
+ * 封じ込め無しで解決し URL も受け取るため、ここを通さずに渡すと任意ファイル読み出しと
+ * SSRF になる(`safeProjectEntry` を見よ)。空文字は「指定なし」として扱い、従来どおり
+ * config / CLI 既定に委ねる。
+ */
+function projectOptions(
+  request: FastifyRequest,
+  root: string,
+): {
   entry?: string;
   size?: string;
   singleDoc?: boolean;
 } {
   const q = request.query as Record<string, unknown>;
+  const entry = typeof q.entry === 'string' && q.entry !== '' ? q.entry : undefined;
   return {
-    entry: typeof q.entry === 'string' ? q.entry : undefined,
+    entry: entry === undefined ? undefined : safeProjectEntry(root, entry),
     size: typeof q.size === 'string' ? q.size : undefined,
     singleDoc: q.singleDoc === 'true',
   };
@@ -76,9 +91,10 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const zip = request.body;
       const project = await extractProjectZip(zip);
-      const opts = projectOptions(request);
       const detail = { mode: 'project', files: project.fileCount, bytes: zip.length };
       try {
+        // `entry` 検証も try の内側に置く。外に出すと 400 の時だけ展開ディレクトリが残る。
+        const opts = projectOptions(request, project.dir);
         const pdf = await auditedRethrow(
           request,
           'pdf.export',
@@ -139,7 +155,15 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     if (Buffer.isBuffer(request.body)) {
       const zip = request.body;
       const project = await extractProjectZip(zip);
-      const opts = projectOptions(request);
+      // `previewManager.start` は起動失敗時に `workDir` を掃除するが、その手前で弾く
+      // `entry` 検証は自分で後始末する(展開ディレクトリを残さない)。
+      let opts: ReturnType<typeof projectOptions>;
+      try {
+        opts = projectOptions(request, project.dir);
+      } catch (e) {
+        await cleanupProject(project.dir);
+        throw e;
+      }
       meta = await previewManager.start({
         mode: 'project',
         configPath: project.configPath,

@@ -4,9 +4,11 @@
 // `requireAuth` はセッション cookie → DB セッション → `request.user` を解決する(無ければ 401)。
 // `requireAdmin` はさらに admin ロールを強制する(403 = forbidden)。preHandler 配列の順に
 // 実行されるので `[requireAuth, requireAdmin]` の順で適用する。
-// 公開ルート(login / health / init-password)はこれらをスキップする。OpenAPI の
+// 公開ルート(login / health)はこれらをスキップする。OpenAPI の
 // `security: []` 指定(`document.ts`)と対応する。
-import { forbidden, type User, unauthorized } from '@editor/shared';
+// `要パスワード変更` の強制もここで行う。SPA のルータガードだけに任せていた頃は、API を
+// 直接叩けば初期パスワードのままフル権限で操作できた(承認まで通った)。
+import { apiPaths, forbidden, type User, unauthorized } from '@editor/shared';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { getSessionUser, sessionIdFrom } from '../auth/session.js';
 import { config } from '../config.js';
@@ -25,6 +27,28 @@ export async function loadUser(req: FastifyRequest): Promise<User | null> {
   return getSessionUser(sid);
 }
 
+/**
+ * `要パスワード変更` のセッションでも通す経路。パスワード変更そのものと、変更画面が必ず使う
+ * 「自分は誰か」「やめる」の 3 つに限る。ここを増やすと、初期パスワードのままのセッションで
+ * 触れる API が増える = F16/F21 の再来になるので、追加は設計判断として扱うこと
+ * (`server/test/mustChangePassword.test.ts` が「例外は 3 経路のみ」を固定している)。
+ */
+export const PASSWORD_CHANGE_ALLOWED_PATHS: readonly string[] = [
+  apiPaths.authInitPassword,
+  apiPaths.authMe,
+  apiPaths.authLogout,
+];
+
+/**
+ * 現在のリクエストが上記 3 経路のいずれかか。ルートは `/api` prefix 付きで登録されるため、
+ * 正典 `apiPaths`(prefix 無し)とは後方一致で突き合わせる。`routeOptions.url` は
+ * 「登録時のパターン」なので、query や動的セグメントの中身に影響されない。
+ */
+function isPasswordChangeAllowed(request: FastifyRequest): boolean {
+  const url = request.routeOptions?.url ?? request.url.split('?')[0];
+  return PASSWORD_CHANGE_ALLOWED_PATHS.some((p) => url === p || url.endsWith(p));
+}
+
 export async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
   // ローカルモード(DB/セッション無し)ではデータ系ルートを開放する。web は
   // localStorage を使い呼び出さないため。PDF/generate はそのまま動く。
@@ -32,6 +56,11 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
   const user = await loadUser(request);
   if (!user) throw unauthorized('ログインが必要です');
   if (user.disabled) throw unauthorized('このアカウントは無効化されています');
+  // 初期パスワードのままのセッションは、変更を終えるまでパスワード変更経路しか触れない。
+  if (user.mustChangePassword && !isPasswordChangeAllowed(request))
+    throw forbidden('パスワードの再設定が完了するまで、この操作は利用できません', {
+      code: 'PASSWORD_CHANGE_REQUIRED',
+    });
   request.user = user;
 }
 

@@ -91,4 +91,66 @@ d('gitRepo', () => {
     const after = await git.commitFiles('HEAD');
     expect(after).toEqual(before);
   });
+
+  it('showFile still resolves a valid hash:path after the option guard', async () => {
+    const rel = 'templates/AM01_999999_20250103_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>guard 正常系</p>', 'utf8');
+    const hash = await git.commitAll('確定保存: guard 正常系', { name: 'tester' });
+    expect(await git.showFile(hash, rel)).toContain('guard 正常系');
+    // 短縮 hash(7 桁)も検証を通り、同じ内容を返す。
+    expect(await git.showFile(hash.slice(0, 7), rel)).toContain('guard 正常系');
+    expect(await git.commitDate(hash)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
+// ── 引数注入ガード(git 不要: 検証は git を起動する前に効く) ──
+// `execFile` 直叩きなのでシェル注入は起きないが、`-` 始まりの値は git がオプションとして
+// 読む。`git show --output=<file>` は任意ファイルを作成/切り詰められるため、リビジョン/
+// パス位置に来たユーザー入力が git へ届かないことを固定する(F30 の回帰)。
+describe('gitRepo argument guards', () => {
+  let git: typeof import('../src/git/gitRepo.js');
+  const hash = 'a'.repeat(40);
+
+  beforeAll(async () => {
+    git = await import('../src/git/gitRepo.js');
+  });
+
+  it('rejects an --output= revision without creating the target file', async () => {
+    const victim = path.join(tmp, 'pwned.html');
+    await expect(git.commitFiles(`--output=${victim}`)).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    expect(fs.existsSync(victim)).toBe(false);
+  });
+
+  it('rejects option-shaped revisions in commitDate / showFile', async () => {
+    await expect(git.commitDate('--format=%H')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(git.showFile('-deadbeef', 'templates/a.html')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    // 記号リビジョン(`HEAD~1` 等)もオブジェクトID ではないので通さない。
+    await expect(git.commitDate('HEAD~1')).rejects.toMatchObject({ kind: 'validation' });
+  });
+
+  it('rejects escaping or pathspec-magic paths', async () => {
+    await expect(git.showFile(hash, '../../etc/passwd')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    await expect(git.showFile(hash, ':(exclude)templates')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    await expect(git.logForFile('-Ppwn')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(git.logForFile('templates/../../x')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    await expect(git.logAll('')).rejects.toMatchObject({ kind: 'validation' });
+  });
+
+  it('keeps normal repo-relative paths (including Japanese names) valid', async () => {
+    // 検証はリポジトリ未初期化でも先に効くため、正常な pathspec は空配列で返る。
+    await expect(git.logForFile('templates/AM01_510037_20240710_交付版.html')).resolves.toEqual(
+      expect.any(Array),
+    );
+    await expect(git.logAll('templates')).resolves.toEqual(expect.any(Array));
+  });
 });

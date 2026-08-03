@@ -16,10 +16,16 @@ import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { toast, toastSuccess } from '@/components/ui/toast';
-import { type BlockStatus, buildDiffDoc, diffHighlightCss } from '@/features/compare/htmlBlockDiff';
+import {
+  type BlockStatus,
+  buildDiffDoc,
+  diffHighlightCss,
+  hasCoarseDiff,
+} from '@/features/compare/htmlBlockDiff';
 import { formatDateTimeShort } from '@/lib/format';
 import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { useAuthStore } from '@/stores/auth';
+import type { ReviewPartRow } from './services/reviewDiffService';
 import { useReviewDiff } from './useReviewDiff';
 
 const props = defineProps<{ reqId: string }>();
@@ -78,6 +84,14 @@ function buildDoc(fragment: string, css: string): string {
 
 // `iframe` を中身の高さに合わせ、幅変化にも追随させる(CompareResultView と共有)。
 const { fitFrame } = useIframeAutoFit();
+
+/**
+ * 語句単位の着色を面積上限(`MAX_LCS_CELLS`)で諦めたパーツか。`ReviewPartRow` は
+ * presentation 用の写しでフラグ列を持たないため、着色済みマークアップから判定する。
+ */
+function isCoarseRow(row: ReviewPartRow): boolean {
+  return hasCoarseDiff(row.beforeHtml, row.afterHtml);
+}
 
 async function approve() {
   const res = await approveReview(comment.value.trim() || undefined);
@@ -212,6 +226,14 @@ onMounted(load);
             <Badge :variant="STATUS_BADGE[row.status].variant">
               {{ STATUS_BADGE[row.status].label }}
             </Badge>
+            <!-- 差分自体は必ず出す。語句単位の着色だけ諦めた旨を控えめに添える。 -->
+            <span
+              v-if="isCoarseRow(row)"
+              class="text-xs text-muted-foreground"
+              title="テキストが大きいため語句単位の着色を省略し、変更前後の全文を色分けしています。"
+            >
+              この箇所は差分が大きいため簡易表示です
+            </span>
           </div>
           <div class="grid gap-3 p-3 md:grid-cols-2">
             <figure class="space-y-1">
@@ -223,8 +245,13 @@ onMounted(load);
                 （なし・新規追加）
               </div>
               <div v-else class="overflow-hidden rounded border bg-white">
+                <!-- sandbox は必須。srcdoc の中身は申請者が書いた HTML/CSS で、無指定だと
+                     承認者のブラウザ上・アプリと同一オリジンでスクリプトが走る。`allow-same-origin`
+                     のみ許すのは `fitFrame` が `contentDocument` の高さを読むためで、
+                     `allow-scripts` を伴わない限りスクリプトは実行されない。 -->
                 <iframe
                   :srcdoc="buildDoc(row.beforeHtml, cssBefore)"
+                  sandbox="allow-same-origin"
                   title="変更前"
                   class="block w-full"
                   style="height: 120px; border: 0"
@@ -241,8 +268,10 @@ onMounted(load);
                 （なし・削除）
               </div>
               <div v-else class="overflow-hidden rounded border bg-white">
+                <!-- sandbox の意図は「変更前」ペインと同じ(上のコメントを見よ)。 -->
                 <iframe
                   :srcdoc="buildDoc(row.afterHtml, cssAfter)"
+                  sandbox="allow-same-origin"
                   title="変更後"
                   class="block w-full"
                   style="height: 120px; border: 0"

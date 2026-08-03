@@ -17,10 +17,21 @@
 // (`id`, `param` ...)で拡張される。実行時の影響は無い。
 import 'zod-openapi';
 import { z } from 'zod';
+import { isValidTemplateId } from './domain/template.js';
 
 // ── 1. Template identity — テンプレート同定 ──
 
 export const TemplateStatus = z.enum(['draft', 'published']).meta({ id: 'TemplateStatus' });
+
+/**
+ * ファイル名規約に一致し、単一のファイル名セグメントとして安全なテンプレート id。
+ * ディレクトリと連結される値は契約の段でここに通す(最終的な強制は I/O 層の
+ * `assertTemplateId`。二重にするのは、契約を通らない内部経路でも守るため)。
+ */
+export const TemplateId = z
+  .string()
+  .refine(isValidTemplateId, { message: '不正なテンプレート id です' })
+  .meta({ id: 'TemplateId', example: 'AM01_510037_20240710_交付版' });
 
 /** テンプレートを識別する 4 属性(ファイル名: company_fund_date_edition.html)。 */
 export const TemplateAttributes = z
@@ -108,12 +119,43 @@ export const LoginResult = z
   })
   .meta({ id: 'LoginResult' });
 
+/**
+ * 自分自身のパスワード変更。`currentPassword` は所有証明であり省略不可 — これが無い頃は
+ * 未認証のまま任意アカウントのパスワードを書き換えられ、`admin` の乗っ取りに直結していた。
+ * 本人が現行パスワードを知らない場合の復旧は、管理者によるリセット(`usersReset`)だけが経路。
+ */
 export const PasswordInitRequest = z
   .object({
     username: z.string(),
+    currentPassword: z.string().meta({ description: '現在のパスワード(所有証明)' }),
     newPassword: z.string(),
   })
   .meta({ id: 'PasswordInitRequest' });
+
+/**
+ * 新規作成 / 管理者リセットで払い出す一時パスワード。CSPRNG 由来のランダム値で、
+ * **この応答 1 回だけ**運ばれる(サーバは平文を保存も再表示もしない)。以前はログインID を
+ * そのまま初期パスワードにしていたため、ID を知る者なら誰でも未活性アカウントへ入れた。
+ */
+export const TemporaryPassword = z.string().meta({
+  id: 'TemporaryPassword',
+  description: '払い出した一時パスワード(平文)。この応答でのみ返り、以後は再取得できない',
+});
+
+/** ユーザ作成の応答。作成されたユーザと、本人へ帯域外で渡す一時パスワードの対。 */
+export const CreatedUser = z
+  .object({
+    user: User,
+    temporaryPassword: TemporaryPassword,
+  })
+  .meta({ id: 'CreatedUser' });
+
+/** パスワードリセットの応答。新しい一時パスワードだけを返す。 */
+export const PasswordResetResult = z
+  .object({
+    temporaryPassword: TemporaryPassword,
+  })
+  .meta({ id: 'PasswordResetResult' });
 
 /** (server 専用) Omit<User, 'id'> — 新規ユーザ作成リクエスト。 */
 export const CreateUserRequest = z
@@ -493,7 +535,10 @@ export const GenerateResult = z.object({ template: Template }).meta({ id: 'Gener
 
 export const SaveDraftRequest = z
   .object({
-    templateId: z.string(),
+    // ファイル名規約に一致する id だけを受ける。ここが素の `z.string()` だった頃は、
+    // `../templates/<確定版>` を渡すだけで承認ゲートを迂回して確定ファイルを上書きできた
+    // (最終的な砦は I/O 層の `assertTemplateId` だが、契約の段で落として 400 を返す)。
+    templateId: TemplateId,
     html: z.string(),
     css: z.string(),
   })

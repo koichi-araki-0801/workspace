@@ -15,6 +15,7 @@ import {
 } from '@editor/shared';
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { renderJinja } from '@/lib/nunjucksRender';
+import { sanitizePreviewHtml } from '@/lib/sanitizeHtml';
 
 /** 版レンダリング失敗時に表示する文言(原因は別途ログに記録する)。 */
 export const COMPARE_RENDER_ERROR =
@@ -112,6 +113,9 @@ export function createCompareService(
       return ok(candidates);
     },
 
+    // ここが返す HTML は比較画面・承認画面の iframe へそのまま入る。中身は他ユーザ(申請者)が
+    // 書いたテンプレート本文で、nunjucks はテンプレ本文自体をエスケープしない(autoescape が
+    // 効くのは差し込む値だけ)。ゆえに描画結果は必ず `sanitizePreviewHtml` を通してから返す。
     async renderVersionHtml(historyId) {
       // 「現行版」は snapshot を持たない。原本(現在のテンプレート HTML)をサンプル値で
       // 描画し、確定版と同じ「値埋め込み後」HTML を返す。描画経路を snapshot と一致させ、
@@ -124,7 +128,7 @@ export function createCompareService(
         if (isErr(sampleRes)) return sampleRes;
         const rendered = renderJinja(tpl.html, sampleRes.value);
         if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
-        return ok({ html: rendered.html, css: tpl.css });
+        return ok({ html: sanitizePreviewHtml(rendered.html), css: tpl.css });
       }
 
       const snapRes = await history.getSnapshot(historyId);
@@ -138,7 +142,7 @@ export function createCompareService(
       // block diff がこの HTML を直接パースするため、PDF 化やサーバ往復は不要。
       const rendered = renderJinja(snap.html, sampleRes.value);
       if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
-      return ok({ html: rendered.html, css: snap.css });
+      return ok({ html: sanitizePreviewHtml(rendered.html), css: snap.css });
     },
 
     async renderTemplateBody(html, css, fundCode) {
@@ -147,7 +151,7 @@ export function createCompareService(
       // baseline 経路と同じく素の sample で描画する(版種を被せない)。現行版と土俵を揃える。
       const rendered = renderJinja(html, sampleRes.value);
       if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
-      return ok({ html: rendered.html, css });
+      return ok({ html: sanitizePreviewHtml(rendered.html), css });
     },
   };
 }

@@ -50,12 +50,18 @@ export async function templatesRoutes(app: FastifyInstance): Promise<void> {
     return templates.getDraft(request.params.id);
   });
 
-  app.put<{ Body: z.infer<typeof SaveDraftRequest> }>(
+  // 保存先は URL の `:id` を正とする。body の `templateId` は互換のため受けるが、URL と
+  // 食い違うものは拒否する — body 側だけを信じていた頃は、任意のパスへ HTML/CSS を書けた。
+  app.put<{ Params: { id: string }; Body: z.infer<typeof SaveDraftRequest> }>(
     apiPaths.templateDraft,
     { preHandler: [requireAuth, validate(SaveDraftRequest)] },
     async (request, reply) => {
       const body = request.body;
-      await templates.saveDraft(body.templateId, body.html, body.css, actor(request));
+      const templateId = request.params.id;
+      if (body.templateId !== templateId) {
+        throw validation('templateId が URL と一致しません');
+      }
+      await templates.saveDraft(templateId, body.html, body.css, actor(request));
       return reply.code(204).send();
     },
   );
