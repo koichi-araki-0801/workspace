@@ -380,7 +380,11 @@ class Editor {
     this.flushNow();
   }
 
-  /** スライス(扇形)の塗り色を `data-name` から引く。見つからなければ既定。 */
+  /** スライス(扇形)の塗り色を `data-name` から引く。見つからなければ既定。
+   *  戻り値は**未検証の文字列**で、入力 SVG の `fill` 属性そのまま。画面へ出す側が
+   *  `safeCssColor` で文法検証する (検証済み専用にすると他用途で使いにくいため、
+   *  検証は使う側に置く)。`path.style.fill` の分岐は、インライン `style` 属性を
+   *  サニタイザが通さないので実質エディタ内部由来の値しか拾わない。 */
   sliceColor(name) {
     const path = this._sliceMap().get(name);
     const c = path && (path.getAttribute("fill") || (path.style && path.style.fill));

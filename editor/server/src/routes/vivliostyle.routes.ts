@@ -25,7 +25,9 @@ import {
   buildProjectPdf,
   prepareInlineDoc,
 } from '../vivliostyle/build.js';
-import { proxyToPreview } from '../vivliostyle/previewProxy.js';
+import type { PreviewActor } from '../vivliostyle/previewManager.js';
+import { UUID_RE } from '../vivliostyle/previewManager.js';
+import { allowForwardPath, DEFAULT_DOC_BASE, proxyToPreview } from '../vivliostyle/previewProxy.js';
 import { previewManager } from '../vivliostyle/previewServer.js';
 import {
   cleanupProject,
@@ -34,6 +36,20 @@ import {
 } from '../vivliostyle/projectInput.js';
 
 const PREVIEW_HOST = config.vivliostyle.preview.host;
+
+/**
+ * プレビューセッションの所有者判定に使う主体。監査用の `actorFromReq`(`logger.ts`)は
+ * 未認証を `anonymous` へ潰す仕様なので**流用しない** — 認可判定で複数の未認証主体を
+ * 1 つの名前へ畳むと、そこが全一致の抜け道になる。
+ * ローカルモード(`requireAuth=false`)は単一端末利用が前提なので、センチネル actor で
+ * 意図的に全一致させる(素通しであることは `previewOwnership.test.ts` が固定する)。
+ */
+function actorOf(request: FastifyRequest): PreviewActor {
+  if (!config.requireAuth) return { loginId: '@local', isAdmin: true };
+  const u = request.user;
+  if (!u) throw notFound('プレビューセッションが見つかりません');
+  return { loginId: u.username, isAdmin: u.role === 'admin' };
+}
 
 function sendPdf(reply: FastifyReply, pdf: Buffer): void {
   reply
@@ -101,7 +117,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
           () =>
             buildProjectPdf({
               dir: project.dir,
-              configPath: project.configPath,
+              config: project.config,
               entry: opts.entry,
               size: opts.size,
               singleDoc: opts.singleDoc,
@@ -144,9 +160,10 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // GET /api/preview — 稼働中のプレビューセッション一覧(メタデータのみ)。
-  app.get(apiPaths.preview, { preHandler: requireAuth }, async () => {
-    return previewManager.list();
+  // GET /api/preview — 稼働中のプレビューセッション一覧(メタデータのみ・自分の分だけ)。
+  // 全件返していた頃は、id を列挙してプロキシ経由で他人の作業を読めた(IDOR の足場)。
+  app.get(apiPaths.preview, { preHandler: requireAuth }, async (request) => {
+    return previewManager.list(actorOf(request));
   });
 
   // POST /api/preview — ライブプレビューを起動(inline JSON または project zip)。
@@ -164,27 +181,36 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
         await cleanupProject(project.dir);
         throw e;
       }
-      meta = await previewManager.start({
-        mode: 'project',
-        configPath: project.configPath,
-        cwd: project.dir,
-        input: opts.entry,
-        size: opts.size,
-        singleDoc: opts.singleDoc,
-        workDir: project.dir,
-      });
+      meta = await previewManager.start(
+        {
+          mode: 'project',
+          config: project.config,
+          cwd: project.dir,
+          input: opts.entry,
+          size: opts.size,
+          singleDoc: opts.singleDoc,
+          workDir: project.dir,
+          docBase: project.docBase,
+        },
+        actorOf(request),
+      );
     } else {
       const parsed = BuildInlineRequest.safeParse(request.body);
       if (!parsed.success) throw validation('リクエスト内容が不正です');
       const { dir, entry } = await prepareInlineDoc(parsed.data);
-      meta = await previewManager.start({
-        mode: 'inline',
-        input: entry,
-        cwd: dir,
-        size: parsed.data.size,
-        singleDoc: parsed.data.singleDoc,
-        workDir: dir,
-      });
+      meta = await previewManager.start(
+        {
+          mode: 'inline',
+          input: entry,
+          cwd: dir,
+          size: parsed.data.size,
+          singleDoc: parsed.data.singleDoc,
+          workDir: dir,
+          // inline は config を持たないので CLI 既定の base になる。
+          docBase: DEFAULT_DOC_BASE,
+        },
+        actorOf(request),
+      );
     }
     audit({
       event: 'vivliostyle.preview.start',
@@ -201,7 +227,8 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     apiPaths.previewById,
     { preHandler: requireAuth },
     async (request) => {
-      const meta = previewManager.get(request.params.id);
+      // 他人のセッションも「見つかりません」に合流させる(403 は存在オラクルになる)。
+      const meta = previewManager.get(request.params.id, actorOf(request));
       if (!meta) throw notFound('プレビューセッションが見つかりません');
       return meta;
     },
@@ -213,7 +240,9 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireAuth },
     async (request, reply) => {
       const id = request.params.id;
-      const stopped = await previewManager.stop(id);
+      // 空振りは workDir も消さない(`stop` は cleanupProject まで行うため、素通しすると
+      // 他人の作業ディレクトリを消せる)。
+      const stopped = await previewManager.stop(id, actorOf(request));
       if (!stopped) throw notFound('プレビューセッションが見つかりません');
       audit({
         event: 'vivliostyle.preview.stop',
@@ -225,22 +254,37 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // ALL /api/preview/:id/* — ループバックの Vite プレビューサーバへ reverse-proxy する。
+  // GET|HEAD /api/preview/:id/* — ループバックの Vite プレビューサーバへ reverse-proxy する。
   // 完全一致の :id ルートより末尾スラッシュ付きが優先されないよう、ワイルドカードで受ける。
-  app.all<{ Params: { id: string } }>(
-    `${apiPaths.previewById}/*`,
-    { preHandler: requireAuth },
-    async (request, reply) => {
-      const id = request.params.id;
-      const port = previewManager.portOf(id);
+  //
+  // **`app.all` にしない。** POST を登録すると `app.ts` の content-type parser が
+  // preHandler より前にボディを Buffer 化し(最大 `maxProjectBytes`)、消費済みストリームを
+  // pipe しようとして上流が宙吊りになる。メソッドを登録しなければルーティング自体が起きない。
+  app.route({
+    method: ['GET', 'HEAD'],
+    url: `${apiPaths.previewById}/*`,
+    preHandler: requireAuth,
+    handler: async (request, reply) => {
+      // 生 URL から id と残差を切り出す。`request.params.id` は find-my-way が復号済みで
+      // 生 URL と長さが合わず、`slice` すると**検査する文字列と転送する文字列がずれる**
+      // (`%2D` で書いた UUID など)。許可リストを載せる以上、この算術は置けない。
+      const m = /^\/api\/preview\/([^/?#]+)((?:\/[^?#]*)?(?:[?#].*)?)$/.exec(request.url);
       // hijack 前なので、ここでの throw は通常どおり 404 として errorHandler が処理する。
-      if (port === undefined) throw notFound('プレビューセッションが見つかりません');
-      previewManager.touch(id);
-      // mount 後の残差パス + query を復元する(例 `/`, `/assets/x.js?foo=1`)。
-      const forwardPath = request.url.slice(`/api/preview/${id}`.length) || '/';
+      if (!m) throw notFound('プレビューセッションが見つかりません');
+      const rawId = m[1];
+      // セッション id は `crypto.randomUUID`。literal UUID 以外は受けない(encode 揺れを
+      // 型ごと排除する)。
+      if (!UUID_RE.test(rawId)) throw notFound('プレビューセッションが見つかりません');
+      const target = previewManager.resolveFor(rawId, actorOf(request));
+      if (!target) throw notFound('プレビューセッションが見つかりません');
+      const forward = allowForwardPath(m[2] || '/', target.docBase);
+      // 許可リスト非該当は**上流へ 1 バイトも出さずに**落とす。上流へ届けてから 404 に
+      // すると、応答時間差や上流ログで存在が漏れる。
+      if (!forward) throw notFound('このパスはプレビューでは配信されません');
+      previewManager.touch(rawId);
       // Fastify の応答送出を抑止し、proxy が生 res を完全所有する。
       reply.hijack();
-      proxyToPreview(PREVIEW_HOST, port, forwardPath, request.raw, reply.raw);
+      proxyToPreview(PREVIEW_HOST, target.port, forward, request.raw, reply.raw);
     },
-  );
+  });
 }

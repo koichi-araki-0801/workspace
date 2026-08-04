@@ -111,10 +111,13 @@ export function hasCoarseDiff(...htmls: string[]): boolean {
 
 /**
  * 断片 HTML を、版ファンド CSS + ハイライト CSS 付きの完結した srcdoc ドキュメントに包む。
- * `css` は他ユーザが書いたテンプレ由来なので `<style>` の脱出を潰してから埋める
- * (`fragment` 側の能動コンテンツ除去は `compareService` のサニタイズが担い、表示先の
- * iframe にも `sandbox` を掛けてある。三重にしているのはどれか 1 つ外れても即 XSS に
- * しないため)。
+ * `css` は他ユーザが書いたテンプレ由来なので `<style>` の脱出を潰してから埋める。
+ *
+ * `fragment` 側の能動コンテンツは**除去しない**(テンプレの JS は正当なコンテンツで、
+ * 承認者は実行結果を見て承認する)。隔離は表示先 iframe の `sandbox="allow-scripts"`
+ * (same-origin なし)が担う。ここで潰すのは「`</style>` で CSS 文脈を抜けて親の srcdoc
+ * 構造そのものを書き換える」形だけで、これは sandbox の内側でも成立してしまう
+ * (ハイライト表示を偽装して差分を隠せる)ため別途必要である。
  */
 export function buildDiffDoc(fragment: string, css: string, highlightCss: string): string {
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8" />${styleTag(css)}${styleTag(highlightCss)}</head><body>${fragment}</body></html>`;

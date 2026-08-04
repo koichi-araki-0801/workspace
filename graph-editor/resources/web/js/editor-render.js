@@ -9,6 +9,7 @@
 
 import { CONFIG, WHITE, EMPTY_LIST_HTML, INSPECTOR_EMPTY_HTML, LEGEND_HTML } from "./constants.js";
 import { escapeHtml, createSvgEl } from "./utils.js";
+import { safeCssColor } from "./svg-policy.js";
 import { drawIcons } from "./icons.js";
 
 // ── 1. オーバーレイ (ハンドル) — 構造変化時のみ再構築、通常は座標更新 ──
@@ -86,53 +87,52 @@ function handleCircle(ed, x, y, r, color) {
 // ── 2. インスペクタ (右パネル) — 構造変化時のみ再構築、毎回 座標表示のみ更新 ──
 
 /** 選択中ラベルの右パネル本体 HTML (モック「案A」準拠のセグメント UI)。
- *  各セグメントボタンは `data-act` を持ち、`buildInspector` が `INSPECTOR_ACTIONS` へ配線する。 */
-function inspectorBodyHtml(ed, s) {
-  const hasLeader = s.leaderPts.length >= 2;
-  const hasBend = s.leaderPts.length >= 3;
-  const pct = s.percentText ? ` ${escapeHtml(s.percentText)}` : "";
-  // 引出線: 「表示」は leader が無ければ追加(`leaderAdd`)、有れば表示(`leaderOn`)。
-  const showAct = hasLeader ? "leaderOn" : "leaderAdd";
-  return `
-<div class="selname"><span class="sw" style="background:${ed.sliceColor(s.name)}"></span><span class="nm">${escapeHtml(s.name)}${pct}</span></div>
+ *  **補間を 1 箇所も含まない静的スケルトン**であること。値は `fillInspector` が
+ *  `textContent` / `setAttribute` / `style` プロパティ代入で流し込む。
+ *  ここへ `${...}` を戻すと「1 箇所だけエスケープを忘れる」形が復活する
+ *  (スライス色だけが素通しで、選択しただけで任意 JS が走った事例)。
+ *  クラス名・要素構造・並びは docs のスクリーンショット (`panel_right.png`) の
+ *  基準でもあるので、見た目に出る変更は再撮影とセットで行うこと。 */
+const INSPECTOR_BODY_HTML = `
+<div class="selname"><span class="sw"></span><span class="nm"></span></div>
 
 <div class="ctl">
   <div class="clab"><i data-ic="leader"></i>引出線</div>
   <div class="segment" data-ctl="leader">
-    <button data-act="${showAct}" aria-pressed="${s.leaderVisible}">表示</button>
-    <button data-act="leaderOff" aria-pressed="${!s.leaderVisible}">非表示</button>
+    <button data-act="leaderAdd" aria-pressed="false">表示</button>
+    <button data-act="leaderOff" aria-pressed="false">非表示</button>
   </div>
 </div>
 
-<div class="ctl${hasLeader ? "" : " off"}" data-dep="leader">
+<div class="ctl" data-dep="leader">
   <div class="clab"><i data-ic="bend"></i>曲げ点</div>
   <div class="segment" data-ctl="bent">
-    <button data-act="bendAdd" aria-pressed="${hasBend}">あり</button>
-    <button data-act="bendRemove" aria-pressed="${!hasBend}">なし</button>
+    <button data-act="bendAdd" aria-pressed="false">あり</button>
+    <button data-act="bendRemove" aria-pressed="false">なし</button>
   </div>
 </div>
 
 <div class="ctl">
   <div class="clab"><i data-ic="droplet"></i>文字色</div>
   <div class="segment" data-ctl="color">
-    <button data-act="insideOff" aria-pressed="${s.fill !== WHITE}"><span class="swdot" style="background:#111"></span>黒</button>
-    <button data-act="insideOn" aria-pressed="${s.fill === WHITE}"><span class="swdot" style="background:#fff;box-shadow:0 0 0 1px var(--border-strong)"></span>白</button>
+    <button data-act="insideOff" aria-pressed="false"><span class="swdot" style="background:#111"></span>黒</button>
+    <button data-act="insideOn" aria-pressed="false"><span class="swdot" style="background:#fff;box-shadow:0 0 0 1px var(--border-strong)"></span>白</button>
   </div>
 </div>
 
 <div class="ctl">
   <div class="clab"><i data-ic="rows"></i>行数</div>
   <div class="segment" data-ctl="lines">
-    <button data-act="lines1" aria-pressed="${s.lineCount < 2}">1行</button>
-    <button data-act="lines2" aria-pressed="${s.lineCount >= 2}">2行</button>
+    <button data-act="lines1" aria-pressed="false">1行</button>
+    <button data-act="lines2" aria-pressed="false">2行</button>
   </div>
 </div>
 
 <div class="ctl">
   <div class="clab"><i data-ic="width"></i>長体 <span class="tech">（横圧縮）</span></div>
   <div class="rng">
-    <input type="range" id="scaleRange" min="${CONFIG.condenseMin}" max="1" step="${CONFIG.condenseStep}" value="${s.nameScaleX}">
-    <span class="v" id="scaleVal">${Math.round(s.nameScaleX * 100)}%</span>
+    <input type="range" id="scaleRange" min="0" max="1" step="0.01" value="1">
+    <span class="v" id="scaleVal"></span>
   </div>
 </div>
 
@@ -141,6 +141,50 @@ ${LEGEND_HTML}
 <div class="panel-reset">
   <button class="btn outline" data-act="resetOne" style="width:100%;justify-content:center"><i data-ic="reset"></i>このラベルをリセット</button>
 </div>`;
+
+/** 選択ラベル `s` の値を静的スケルトン `box` へ流し込む (文字列連結を経由しない)。
+ *  スライス色は入力 SVG 由来なので `safeCssColor` で文法検証したうえで
+ *  `style.backgroundColor` へ**プロパティ代入**する。`setAttribute("style", ...)` は
+ *  不可 — markup 脱出は防げても `red;background-image:url(https://…)` で宣言を継ぎ足され
+ *  外部フェッチが立つ (CSSOM のプロパティ代入なら不正値が黙って無視される)。 */
+function fillInspector(ed, box, s) {
+  const hasLeader = s.leaderPts.length >= 2;
+  const hasBend = s.leaderPts.length >= 3;
+
+  const sw = box.querySelector(".selname .sw");
+  if (sw) sw.style.backgroundColor = safeCssColor(ed.sliceColor(s.name)) ?? "var(--sunk)";
+  const nm = box.querySelector(".selname .nm");
+  if (nm) nm.textContent = s.percentText ? `${s.name} ${s.percentText}` : s.name;
+
+  // 引出線の「表示」は leader が無ければ追加(`leaderAdd`)、有れば表示(`leaderOn`)。
+  const pressed = {
+    leaderAdd: [hasLeader ? "leaderOn" : "leaderAdd", s.leaderVisible],
+    leaderOff: ["leaderOff", !s.leaderVisible],
+    bendAdd: ["bendAdd", hasBend],
+    bendRemove: ["bendRemove", !hasBend],
+    insideOff: ["insideOff", s.fill !== WHITE],
+    insideOn: ["insideOn", s.fill === WHITE],
+    lines1: ["lines1", s.lineCount < 2],
+    lines2: ["lines2", s.lineCount >= 2],
+  };
+  for (const [key, [act, on]] of Object.entries(pressed)) {
+    const btn = box.querySelector(`button[data-act="${key}"]`);
+    if (!btn) continue;
+    btn.setAttribute("data-act", act);
+    btn.setAttribute("aria-pressed", String(on));
+  }
+
+  const dep = box.querySelector('.ctl[data-dep="leader"]');
+  if (dep) dep.classList.toggle("off", !hasLeader);
+
+  const range = box.querySelector("#scaleRange");
+  if (range) {
+    range.min = String(CONFIG.condenseMin);
+    range.step = String(CONFIG.condenseStep);
+    range.value = String(s.nameScaleX);
+  }
+  const valEl = box.querySelector("#scaleVal");
+  if (valEl) valEl.textContent = `${Math.round(s.nameScaleX * 100)}%`;
 }
 
 /** インスペクタの構造を表すシグネチャ (座標 `dx`/`dy` は含めない = 構造再構築の対象外) */
@@ -168,7 +212,9 @@ function buildInspector(ed) {
     return;
   }
   const box = document.createElement("div");
-  box.innerHTML = inspectorBodyHtml(ed, s);
+  // 定数スケルトンなので `innerHTML` で良い。動的な値は `fillInspector` が DOM API で入れる。
+  box.innerHTML = INSPECTOR_BODY_HTML;
+  fillInspector(ed, box, s);
   box.querySelectorAll("button[data-act]").forEach((btn) => {
     btn.addEventListener("click", () => ed.inspectorAction(btn.getAttribute("data-act")));
   });

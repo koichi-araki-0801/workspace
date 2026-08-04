@@ -18,6 +18,8 @@ exe ビルド:  scripts\build.bat   (PyInstaller --onefile, 同梱の `ui.html` 
 import http.server
 import logging
 import os
+import socket
+import string
 import subprocess
 import sys
 import threading
@@ -74,11 +76,281 @@ with open(resource_path(os.path.join("lib", "leader_geom.cjs")), "rb") as _f:
     LEADER_GEOM = _f.read()
 
 
+# ── 同一オリジン検査 (CSRF / DNS リバインディング) ──
+
+# 127.0.0.1 に bind するだけでは外部ページからの副作用を防げない。攻撃者ページの
+# `fetch(..., {mode:'no-cors'})` や `navigator.sendBeacon()` は応答を読めなくても
+# **リクエストは確実に届く**ため、`/quit` で編集中の全内容を捨てさせたり、`/ping` を打ち続けて
+# idle watchdog を無効化しゾンビサーバを維持したりできてしまう。`/quit` は `main()` の
+# `finally` で `msedge.exe` へ `proc.terminate()` を撃つので、既定プロファイル起動 (隔離
+# user-data-dir を付けないのが正典) ではユーザーの他の Edge 窓まで巻き添えになりうる。
+# さらに短 TTL DNS で攻撃者ドメインを 127.0.0.1 へ再束縛されるとブラウザから見て同一オリジンに
+# なる (DNS リバインディング)。よって「どこから来たか」を `Host` と `Origin` で検査する。
+#
+# **検査は `parse_request()` の 1 箇所だけに置く。** `BaseHTTPRequestHandler` はリクエスト行と
+# ヘッダを解析した直後に `parse_request()` を呼び、戻り値が偽なら「エラー応答は送信済み」と
+# みなして `do_*` へ分岐しない。ここへ載せると新しい `do_XXX` を足しても検査を忘れられない。
+# 各ハンドラの先頭に `if` を書く設計は必ず書き忘れるので採らない。判定はすべて**完全一致の
+# 許可リスト**で、`startswith` / 部分一致 / 正規表現は使わない (`http://127.0.0.1:5179.evil.com`
+# のような前方一致バイパスを構造的に排除する)。`Access-Control-Allow-Origin` は**将来も
+# 出さない**: 出さないこと自体が防御で、許可外オリジンのプリフライトを必ず失敗させる。
+#
+# 本セクションは `pdf-to-svg/src/web/origin_guard.py` と**同一仕様の並行実装**である
+# (graph-editor は実行時依存ゼロ・単一 `app.py` が設計前提のため共有モジュールを持てない。
+# `resources/web/lib/leader_geom.cjs` と pie-chart の関係と同じ運用)。判定順・理由コード・
+# 許可リストの中身は逐語で揃えてあり、**片方を変えたら必ず両方を変える**こと。テストベクタも
+# 両プロジェクトへ複製している (`tests/test_app_guard.py` と
+# `pdf-to-svg/tests/test_origin_guard.py`)。
+
+# 非安全メソッドで許す Content-Type。どちらも CORS セーフリスト外なので、クロスオリジンから
+# 送るにはプリフライトが要る。本サーバは `do_OPTIONS` を持たず ACAO も出さないため、
+# プリフライトは必ず失敗する (`text/plain;charset=UTF-8` の simple request 抜け道を Origin 検査
+# とは独立に閉じる)。graph-editor の現行 UI は本文付き POST を送らないので実質使われないが、
+# **表は削らない**: 2 プロジェクトで判定表を同一に保つことが drift 防止の要。
+ALLOWED_REQUEST_CONTENT_TYPES = frozenset({"application/json", "application/octet-stream"})
+
+# Origin を要求しないメソッド。Fetch 仕様上、GET/HEAD 以外にはブラウザが必ず Origin を
+# 付けるので、非安全メソッドで Origin が無い = ブラウザ以外とみなして拒否できる。
+SAFE_METHODS = frozenset({"GET", "HEAD"})
+
+# 403 の理由コードごとにログへ出す上限。全件出すと攻撃者にログを膨らませられる
+# (`startup.log` はローテーションを持たない)。
+REJECT_LOG_LIMIT = 3
+
+# 403 を返す前に読み捨てる本文の上限。読み捨てずに閉じると未読データの残った TCP が RST し、
+# クライアントは 403 ではなく接続エラーを見る。上限超はそのまま閉じる (DoS 対策を優先)。
+_DRAIN_LIMIT = 1 << 20
+
+# `_drain_body` で読み切れなかった本文を応答送信後に読み捨てる待ち時間 (秒)。相手が応答を
+# 読んで閉じれば即 EOF になるので、これは相手が黙り込んだ場合に接続を抱え続けないための上限。
+_LINGER_TIMEOUT = 0.5
+
+# ログへ出す詳細値の整形。攻撃者が入れた制御文字でログ行を偽装できないよう、印字可能 ASCII
+# 以外は落として短く切る。
+_LOG_SAFE_CHARS = frozenset(string.ascii_letters + string.digits + "-._:[]/")
+_LOG_DETAIL_MAX = 64
+
+
+def _allowed_hosts(port):
+    """許可する `Host` ヘッダ値。ブラウザは Host を書き換えられないので、これが
+    DNS リバインディング (攻撃者ドメイン名のまま 127.0.0.1 へ解決) の決定的な壁になる。"""
+    return frozenset({f"127.0.0.1:{port}", f"localhost:{port}"})
+
+
+def _allowed_origins(port):
+    """許可する `Origin` ヘッダ値。`null` (sandbox iframe・`file://`・`data:`) は含めない。
+    IPv6 の `[::1]` も含めない (127.0.0.1 に bind しているので到達しない)。"""
+    return frozenset({f"http://127.0.0.1:{port}", f"http://localhost:{port}"})
+
+
+def configure_guard(server, port):
+    """サーバへ許可リストを固定する。**bind 後の実ポート**で呼ぶこと (port 0 で組むと全滅する)。
+    設定されていないサーバは `unconfigured` で全拒否になる (fail closed)。"""
+    server.guard_hosts = _allowed_hosts(port)
+    server.guard_origins = _allowed_origins(port)
+    server.guard_reject_counts = {}
+
+
+class GuardedHandler(http.server.BaseHTTPRequestHandler):
+    """`parse_request()` で同一オリジン検査を行うハンドラ基底。
+
+    サブクラスは `do_GET` / `do_POST` を素直に書けばよく、検査は上に載る。
+    **`do_GET` / `do_HEAD` に副作用を持たせないこと**: 安全メソッドは Origin 無しでも
+    通す (ブラウザが付けないため) ので、副作用を置くと CSRF が素通りする。
+    idle watchdog 用の `last_seen` 更新もその副作用の 1 つなので、判定と同じ場所
+    (`_touch_if_same_origin`) に置いて `do_*` からは触らせない。
+    """
+
+    def parse_request(self):
+        # `super()` の解析後 (self.command / self.path / self.headers が揃った直後) かつ
+        # `do_*` への分岐前が唯一の共通点。ここで落とせばハンドラ本体へは一切到達しない
+        # ("実行してから 403 を返す" = `quit_event` が立ってしまう形を構造的に避ける)。
+        if not super().parse_request():
+            return False
+        reason = self._guard_reason()
+        if reason is not None:
+            return self._reject(reason)
+        self._touch_if_same_origin()
+        return True
+
+    def _touch_if_same_origin(self):
+        """idle watchdog の最終アクセス時刻を更新する。**Origin が完全一致した
+        リクエストだけ**が対象である。
+
+        安全メソッドは Origin 無しでも通す (G3/G4) ため、`do_GET` 側で無条件に更新すると
+        クロスオリジンの no-cors GET (`<img src>` / `<link href>` の連打) で
+        `IDLE_TIMEOUT` を永久に先送りでき、ゾンビサーバを維持できてしまう。正規の
+        ハートビートは `resources/web/js/main.js` の `POST /ping` で必ず Origin を伴うので、
+        Origin 無しの経路を延命へ使わせない。
+        """
+        origin = self._single_header("Origin")
+        if origin is None:
+            return
+        if origin.strip().lower() in (getattr(self.server, "guard_origins", None) or ()):
+            self.server.last_seen = time.monotonic()
+
+    def _guard_reason(self):
+        """拒否理由コードを返す。通してよければ `None`。判定順は pdf-to-svg と同一。"""
+        hosts = getattr(self.server, "guard_hosts", None)
+        origins = getattr(self.server, "guard_origins", None)
+        if not hosts or not origins:
+            return "unconfigured"
+
+        # G0: リクエストターゲットは origin-form (`/...`) のみ。absolute-form
+        # (`POST http://127.0.0.1:p/quit`) を許すと経路分岐は通るのに Host は攻撃者値、
+        # という食い違いを作れる。
+        if not self.path.startswith("/"):
+            return "request-target"
+
+        # G1: Host は完全一致。重複ヘッダは `get()` が先頭しか返さず食い違うので個数を見る。
+        host = self._single_header("Host")
+        if host is None or host.strip().lower() not in hosts:
+            return "host-mismatch"
+
+        # G2: フレーミングは Content-Length 単独のみ。`Transfer-Encoding` は本文が未読のまま
+        # keep-alive 接続に残り、次のリクエスト行として解釈されうる (デシンク)。
+        if self.headers.get_all("Transfer-Encoding"):
+            return "framing"
+        if len(self.headers.get_all("Content-Length") or ()) > 1:
+            return "framing"
+
+        raw_origin = self.headers.get_all("Origin")
+        if raw_origin:
+            # G3: Origin があるなら完全一致。`null` は許可リストに入れていないので落ちる。
+            if len(raw_origin) != 1 or raw_origin[0].strip().lower() not in origins:
+                return "origin-mismatch"
+        elif self.command not in SAFE_METHODS:
+            # G4: 非安全メソッドで Origin が無い = ブラウザではない。ローカルの非ブラウザ
+            # プロセスは任意ヘッダを詐称できて防御力が変わらない以上、閉じる方を採る。
+            # `navigator.sendBeacon('/quit')` は no-cors POST だが Origin は付くので通る。
+            # 注意: 応答へ `Referrer-Policy: no-referrer` を足すとその Origin が `null` へ
+            # 置換され `/quit` が 403 になる。足すなら `same-origin` か
+            # `strict-origin-when-cross-origin` を選ぶこと。
+            return "origin-missing"
+
+        # G5: 非安全メソッドの Content-Type。無い場合は本文も無いこと (`/quit` `/ping` の
+        # 空ビーコン)。ある場合はパラメータを落として完全一致。
+        if self.command not in SAFE_METHODS:
+            return self._content_type_reason()
+        return None
+
+    def _content_type_reason(self):
+        raw = self.headers.get_all("Content-Type")
+        if not raw:
+            length = self._single_header("Content-Length")
+            if length is not None and length.strip() not in ("", "0"):
+                return "content-type"
+            return None
+        if len(raw) != 1:
+            return "content-type"
+        if raw[0].split(";", 1)[0].strip().lower() not in ALLOWED_REQUEST_CONTENT_TYPES:
+            return "content-type"
+        return None
+
+    def _single_header(self, name):
+        """ちょうど 1 本だけ存在するときにその値を返す。0 本・2 本以上は `None`。"""
+        values = self.headers.get_all(name)
+        return values[0] if values and len(values) == 1 else None
+
+    def _reject(self, reason):
+        """本文を読み捨ててから 403 を返し、接続を閉じる。常に `False` を返す
+        (= `handle_one_request` から見て「エラー応答送信済み」)。"""
+        drained = self._drain_body()
+        self.close_connection = True
+        body = b"forbidden"
+        try:
+            self.send_response(403)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+        except OSError:
+            pass  # 相手が先に切っただけ。ログを増やさない。
+        if not drained:
+            self._linger_close()
+        self._log_reject(reason)
+        return False
+
+    def _drain_body(self):
+        """宣言された本文を上限まで読み捨てる。403 の本体はリクエスト内容を一切反射しない。
+        未読データを残していなければ `True`、残したなら `False` (呼び出し側が lingering close)。"""
+        if self.headers.get_all("Transfer-Encoding"):
+            return False  # チャンク解析はしない (それ自体がデシンクの温床)。残りは linger 任せ。
+        raw = self._single_header("Content-Length")
+        if raw is None:
+            # Content-Length も Transfer-Encoding も無ければ本文は存在しない。重複 Content-Length
+            # (`_single_header` が None) はどちらが真か決められないので読まずに linger へ回す。
+            return not self.headers.get_all("Content-Length")
+        try:
+            remaining = int(raw.strip())
+        except ValueError:
+            return False
+        if remaining == 0:
+            return True
+        if remaining < 0 or remaining > _DRAIN_LIMIT:
+            return False  # 未認可の巨大 body は読まない (DoS 対策を優先)。
+        while remaining > 0:
+            chunk = self.rfile.read(min(remaining, 65536))
+            if not chunk:
+                return True  # 相手が先に切った。未読データは残らない。
+            remaining -= len(chunk)
+        return True
+
+    def _linger_close(self):
+        """応答送信後、相手が送った未読データを短時間だけ読み捨ててから接続を手放す。
+
+        未読データを残したまま閉じると OS は RST を送り、**送信済みの 403 ごと**クライアントの
+        受信バッファが捨てられる (Windows で顕在化し、クライアントは接続エラーだけを見る)。
+        書き込み側だけ先に閉じて FIN を届け、相手が閉じるまで読み捨てる。`_DRAIN_LIMIT` と
+        `_LINGER_TIMEOUT` で上限を切り、拒否した相手に接続を抱えさせない。
+        """
+        sock = self.connection
+        try:
+            sock.shutdown(socket.SHUT_WR)
+            sock.settimeout(_LINGER_TIMEOUT)
+            drained = 0
+            while drained < _DRAIN_LIMIT:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    return
+                drained += len(chunk)
+        except OSError:
+            pass  # timeout・相手が先に切った等。いずれも RST 回避の努力目標でしかない。
+
+    def _log_reject(self, reason):
+        counts = getattr(self.server, "guard_reject_counts", None)
+        if counts is None:
+            counts = self.server.guard_reject_counts = {}
+        seen = counts.get(reason, 0) + 1
+        counts[reason] = seen
+        if seen > REJECT_LOG_LIMIT:
+            return
+        logging.getLogger("labeleditor").warning(
+            "rejected request reason=%s host=%s origin=%s",
+            reason,
+            _log_safe(self.headers.get("Host")),
+            _log_safe(self.headers.get("Origin")))
+
+
+def _log_safe(value):
+    """ログへ出す前に印字可能 ASCII の部分集合だけへ落として短く切る (ログ行の偽装防止)。"""
+    if not value:
+        return "-"
+    kept = "".join(c for c in value if c in _LOG_SAFE_CHARS)
+    return kept[:_LOG_DETAIL_MAX] or "-"
+
+
 # ── HTTP ハンドラ ──
 
 
-class Handler(http.server.BaseHTTPRequestHandler):
-    """`ui.html` を配信し、ウィンドウ閉鎖時の `/quit` ビーコンでサーバを止めるだけの最小ハンドラ。"""
+class Handler(GuardedHandler):
+    """`ui.html` を配信し、ウィンドウ閉鎖時の `/quit` ビーコンでサーバを止めるだけの最小ハンドラ。
+
+    同一オリジン検査は基底 `GuardedHandler.parse_request()` が一手に引き受けるので、以下の
+    `do_*` / `_serve_static` に検査は書かない。ここへ `do_GET` の副作用を足すと、Origin を
+    要求しない安全メソッドの経路が CSRF の穴になる点にだけ注意する。"""
 
     # ローカル単一ユーザ用途。アクセスログは出さない。
     def log_message(self, *args):
@@ -93,12 +365,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if body:
             self.wfile.write(body)
 
-    def _touch(self):
-        """アイドル watchdog 用に最終リクエスト時刻を更新する。"""
-        self.server.last_seen = time.monotonic()
+    # `last_seen` の更新は基底 `GuardedHandler._touch_if_same_origin` が Origin 完全一致時
+    # にだけ行う。ここへ書き戻すと Origin 無し GET で watchdog を無期限に延命できる。
 
     def do_GET(self):
-        self._touch()
         if self.path in ("/", "/index.html", "/ui.html"):
             self._send(200, UI_HTML, "text/html; charset=utf-8")
         elif self.path == "/lib/leader_geom.cjs":
@@ -130,7 +400,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._send(200, body, ctype)
 
     def do_POST(self):
-        self._touch()
         if self.path == "/quit":
             self._send(204)
             self.server.quit_event.set()
@@ -233,12 +502,23 @@ def _watch_proc(proc, log):
 # ── エントリポイント ──
 
 
+def create_server(port=0):
+    """127.0.0.1 で待ち受けるサーバを構築する (まだ serve はしない)。既定の `port=0` は空きポート。
+
+    `ThreadingHTTPServer` を手組みせず**必ずこの関数を通す**こと: `configure_guard` を忘れた
+    サーバは `unconfigured` の全拒否になる (fail closed なので黙って穴が開くことはないが、
+    構築経路が複数あると設定漏れを作れる)。許可リストは bind 後の実ポートから作る。"""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server.quit_event = threading.Event()  # `/quit` ビーコン or watchdog で立てる
+    server.last_seen = time.monotonic()    # 最終リクエスト時刻 (watchdog 用)
+    configure_guard(server, server.server_address[1])
+    return server
+
+
 def main():
     log = _setup_logging()
     # 127.0.0.1 の空きポートで待受 (外部公開しない)。
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    server.quit_event = threading.Event()  # `/quit` ビーコン or watchdog で立てる
-    server.last_seen = time.monotonic()    # 最終リクエスト時刻 (watchdog 用)
+    server = create_server()
     port = server.server_address[1]
     url = f"http://127.0.0.1:{port}/"
     log.info("server listening on %s (frozen=%s)", url, getattr(sys, "frozen", False))

@@ -18,9 +18,10 @@ import {
   templatePairKey,
 } from '@editor/shared';
 import { readSyncState, writeSyncState } from '../files/syncFiles.js';
-import { readTemplateHtml, templateExists, writeTemplateHtml } from '../files/templateFiles.js';
+import { readTemplateHtml, templateExists } from '../files/templateFiles.js';
 import { commitAll, withGitLock } from '../git/gitRepo.js';
 import { logger } from '../logger.js';
+import { applyConfirmedWrite } from '../repositories/confirmedWrite.js';
 import { listParts } from '../repositories/partRepo.js';
 import { computePairSync } from './partSync.js';
 
@@ -76,20 +77,34 @@ export async function syncPairAfterConfirm(
       now: new Date().toISOString(),
     });
 
-    if (result.changed) await writeTemplateHtml(pairFile, result.targetHtml);
-    if (result.changed || result.stateChanged) {
+    if (result.changed) {
+      // 確定ディレクトリへの書込はチョークポイント経由に限る(承認ゲート・帰属検査・
+      // 実行コード不変性・snapshot/restore・監査を素通りさせない)。転写先は
+      // チョークポイント側が source から再計算して照合するため、ここの `pairId` を
+      // 信用させない構造になっている。
+      // 同期状態ファイルは「本体書込の成功後」という順序を保ちつつ `afterWrite` で書く。
+      // ここが失敗すると本体も元へ戻る = 「転写済みなのに lastSynced が古い」状態を作らない。
+      await applyConfirmedWrite({
+        kind: 'pair-sync',
+        targetTemplateId: pairId,
+        sourceTemplateId,
+        html: result.targetHtml,
+        actor,
+        appliedParts: result.applied,
+        afterWrite: () => writeSyncState(result.state),
+      });
+    } else if (result.stateChanged) {
+      // 本体を書かない(状態だけ動いた)場合はチョークポイントを通らないので、状態ファイルの
+      // コミットだけをここで積む。ベストエフォートは従来どおり。
       await writeSyncState(result.state);
-      // 承認コミットとは分けた独立コミットにし、「どの承認からの転写か」を履歴で追える
-      // メッセージにする。失敗は applyConfirmedSave と同じくベストエフォート(warn のみ)。
       try {
         await withGitLock(() =>
-          commitAll(
-            `同期: ${pairId} ← ${sourceTemplateId} (${result.applied.length} パーツ) 実行者=${actor}`,
-            { name: actor },
-          ),
+          commitAll(`同期状態更新: ${pairId} ← ${sourceTemplateId} 実行者=${actor}`, {
+            name: actor,
+          }),
         );
       } catch (e) {
-        logger.warn({ err: e }, 'ペア同期の git コミットに失敗しました(転写ファイルは保存済み)');
+        logger.warn({ err: e }, 'ペア同期状態の git コミットに失敗しました(状態は保存済み)');
       }
     }
     return {

@@ -16,6 +16,7 @@ import { Eye } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 // レポートの正テーマ(全ファンド共通)。クラスの見た目はこの 1 枚で確定する。
 import reportCss from '@/api/fixtures/css/510037.css?raw';
+import { onFrameHeight, withHeightReporter } from '@/lib/useIframeAutoFit';
 
 const props = defineProps<{ content: string | null }>();
 
@@ -29,12 +30,15 @@ const frameRef = useTemplateRef<HTMLIFrameElement>('frame');
 const scale = ref(0.3);
 const contentHeight = ref(200);
 
-const srcdoc = computed(
-  () =>
+const srcdoc = computed(() =>
+  // 計測スクリプトを末尾に付ける。パーツ HTML も他者が書いたコンテンツなので
+  // `sandbox="allow-scripts"`(same-origin なし)で開き、親からは中を読まない。
+  withHeightReporter(
     `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><style>${reportCss}` +
-    // body 直書きで余白を詰め、パーツ単体が枠いっぱいに見えるようにする。
-    `\nbody{margin:0;padding:10px;width:${CANVAS_WIDTH}px;box-sizing:border-box}` +
-    `</style></head><body>${props.content ?? ''}</body></html>`,
+      // body 直書きで余白を詰め、パーツ単体が枠いっぱいに見えるようにする。
+      `\nbody{margin:0;padding:10px;width:${CANVAS_WIDTH}px;box-sizing:border-box}` +
+      `</style></head><body>${props.content ?? ''}</body></html>`,
+  ),
 );
 
 // ステージ幅の変化(ペイン幅変更など)に追従して scale を測り直す。
@@ -44,18 +48,22 @@ function measure(): void {
   if (w > 0) scale.value = w / CANVAS_WIDTH;
 }
 
-// iframe ロード後に実コンテンツ高を読む。srcdoc 変更のたびに load が再発火する。
-function onFrameLoad(): void {
-  const body = frameRef.value?.contentDocument?.body;
-  if (body) contentHeight.value = body.scrollHeight;
-}
+// 実コンテンツ高は子から postMessage で受け取る。`allow-same-origin` を付けていないので
+// 親から `contentDocument` は読めない(読めないことが隔離の条件。`useIframeAutoFit` の doc)。
+let stopHeight: (() => void) | null = null;
 
 onMounted(() => {
   measure();
   ro = new ResizeObserver(measure);
   if (stageRef.value) ro.observe(stageRef.value);
+  stopHeight = onFrameHeight((source, height) => {
+    if (source === frameRef.value?.contentWindow) contentHeight.value = height;
+  });
 });
-onBeforeUnmount(() => ro?.disconnect());
+onBeforeUnmount(() => {
+  ro?.disconnect();
+  stopHeight?.();
+});
 
 // content が変わったら一旦既定高へ戻す(古い高さのちらつき回避)。load で実高へ更新。
 watch(
@@ -88,9 +96,8 @@ watch(
           height: `${contentHeight}px`,
           transform: `scale(${scale})`,
         }"
-        sandbox="allow-same-origin"
+        sandbox="allow-scripts"
         title="パーツのプレビュー"
-        @load="onFrameLoad"
       />
     </div>
   </div>

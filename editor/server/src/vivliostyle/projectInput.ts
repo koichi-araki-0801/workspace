@@ -10,36 +10,115 @@ import { pipeline } from 'node:stream/promises';
 import { isAppError, validation } from '@editor/shared';
 import StreamZip from 'node-stream-zip';
 import { config, envPositiveNumber } from '../config.js';
+import { DEFAULT_DOC_BASE } from './previewProxy.js';
+import { isConfigFileName, parseProjectConfig, type SafeProjectConfig } from './projectConfig.js';
 
 /** アップロード zip から展開した vivliostyle プロジェクト。 */
 interface ExtractedProject {
   /** 展開ファイルを格納するルートディレクトリ。`cleanupProject` で削除する。 */
   dir: string;
-  /** `vivliostyle.config.*` の絶対パス(存在すれば優先エントリ)。 */
-  configPath?: string;
+  /**
+   * 許可リストで組み直した config。**CLI へはこのオブジェクトを `configData` で渡す**
+   * (ファイルパスは渡さない)。config 同梱が無ければ undefined でクエリ `?entry=` 経路。
+   */
+  config?: SafeProjectConfig;
   /** 書き出したファイル数。 */
   fileCount: number;
+  /**
+   * 文書と資産が配信される path 接頭辞(config の `base`)。プレビュープロキシの許可リスト
+   * (`previewProxy.allowForwardPath`)がこの値を使うので、展開時に確定させてセッションへ運ぶ。
+   * `base` は利用者に指定させず我々が固定するため、実際には常に既定値である。
+   */
+  docBase: string;
 }
 
-// vivliostyle CLI は config を「モジュールとして読み込む」= 中身の JS がこのプロセス
-// (PDF ビルド worker)で実行される。アップロード zip は外部クライアントが任意に作れるため、
-// 実行可能形式の config を受け入れることは任意コード実行を受け入れることと同義になる。
-// よって受け付けるのは宣言的な JSON だけとし、実行可能形式は展開段階で 400 として弾く。
-const DECLARATIVE_CONFIG_NAME = 'vivliostyle.config.json';
+// ── 展開して残すファイルの許可リスト ──
+// 以前は「実行可能な config のファイル名」を数え上げて拒否していた。数え上げは漏れる:
+// 別ツールの config(`vite.config.js`)、同じ名前の別綴り(`vivliostyle.config.JS`)、
+// 名前では判別できない中身(theme 指定子)で 3 通りに破られた。**数え上げが漏れるのではなく、
+// 数え上げるという設計が漏れる。** よって「書き出す拡張子を数える」方式へ反転する。
+//
+// 判定は 3 分類で、既定は reject:
+//   write  — `ALLOWED_EXTENSIONS` に載る(小文字化した basename の末尾一致)
+//   ignore — OS が勝手に入れるノイズ。**捨てるだけ**でセキュリティ判断には関与しない
+//   reject — それ以外すべて → 展開ごと 400
+// ignore を分けるのは、macOS/Windows 製の zip が常に `__MACOSX/` や `.DS_Store` を含み、
+// 純粋 400 だと正常業務が回らないため。逆に非許可を黙って捨てるだけにしないのは、`.js` が
+// 無言で消えると「サーバのバグでアセットが落ちた」ように見えて原因究明に時間が溶けるため。
 
 /**
- * 実行可能な config のファイル名。CLI 側の探索順(`.js .mjs .cjs .ts .mts .cts .json`)から
- * JSON を除いた全部。1 つでもツリーに残っていると、こちらが `configPath` を渡さなくても
- * CLI が cwd から自動発見して読み込むため、「使わない」ではなく「置かせない」で守る。
+ * 展開して残す拡張子。すべて CLI 実装から決めた値で、憶測で足さないこと。
+ * 原稿 = `htmlExtensions` と input format 判定、アセット = `DEFAULT_ASSET_EXTENSIONS` 逐語、
+ * 宣言 = `vivliostyle.config.json` と publication manifest。
+ *
+ * **意図的に入れない**: `.js` `.mjs` `.cjs` `.ts`(実行面)、`.epub` `.opf`(zip-in-zip の
+ * 別攻撃面)。`.js` を落として整合が取れるのは、`previewProxy` の `CONTENT_CSP` が既に
+ * アップロード文書へ `script-src 'none'` を当てているからで、配信段の決定を展開段でも
+ * 同じに揃える改修になる。
  */
-const EXECUTABLE_CONFIG_NAMES = new Set([
-  'vivliostyle.config.js',
-  'vivliostyle.config.mjs',
-  'vivliostyle.config.cjs',
-  'vivliostyle.config.ts',
-  'vivliostyle.config.mts',
-  'vivliostyle.config.cts',
+const ALLOWED_EXTENSIONS: ReadonlySet<string> = new Set([
+  '.html',
+  '.htm',
+  '.xhtml',
+  '.xht',
+  '.md',
+  '.markdown',
+  '.css',
+  '.css.map',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.svg',
+  '.gif',
+  '.webp',
+  '.apng',
+  '.ttf',
+  '.otf',
+  '.woff',
+  '.woff2',
+  '.json',
 ]);
+
+/** 黙って捨てる OS ノイズ。`write` させない点は reject と同じで、400 にするかだけが違う。 */
+function isIgnorableEntry(rel: string): boolean {
+  const lower = rel.toLowerCase();
+  const base = lower.split('/').pop() ?? '';
+  return (
+    lower.startsWith('__macosx/') ||
+    lower.includes('/__macosx/') ||
+    base === '.ds_store' ||
+    base === 'thumbs.db' ||
+    base === 'desktop.ini' ||
+    base.startsWith('._')
+  );
+}
+
+/**
+ * `.json` を許すと `package.json` も通る。`theme` が `.css` 実ファイルへ固定される以上
+ * arborist は起動しないが、二次防御として npm の足場になる名前は落とす。
+ * **これは theme 検証の代替ではない。**
+ */
+function isNpmArtifact(rel: string): boolean {
+  const lower = rel.toLowerCase();
+  const segments = lower.split('/');
+  return (
+    segments.includes('node_modules') ||
+    segments.some((s) => s === '.npmrc' || s === 'package.json' || s === 'package-lock.json')
+  );
+}
+
+/**
+ * 展開して書き出してよい名前か。判定は**正規化後の相対パス**に対して行う
+ * (生の `entry.name` で判定すると `x.png/../y.js` が抜ける)。小文字化するのは
+ * **拒否を広げる方向の case-fold なので安全**である(受理を広げる方向では畳まない)。
+ */
+function isAllowedEntryName(rel: string): boolean {
+  const base = rel.toLowerCase().split('/').pop() ?? '';
+  // Windows は末尾の `.` / 空白 / ADS を落として別名で作成する。分類の前に落とす。
+  if (base !== base.trim() || base.endsWith('.') || base.includes(':')) return false;
+  if (isNpmArtifact(rel)) return false;
+  return [...ALLOWED_EXTENSIONS].some((ext) => base.endsWith(ext));
+}
 
 // zip 展開の同時実行上限。多ファイルのプロジェクトで逐次 await の累積待ちを抑えつつ、
 // fd/メモリの過負荷を避けるための上限。
@@ -80,7 +159,7 @@ const COMPRESSION_RATIO_FLOOR_BYTES = 8 * 1024 * 1024;
  * (`C:`)を巻き込まないようスキーム名は 2 文字以上を要求する。ドライブレターは
  * `safeEntryPath` 側が別途弾くため、ここを通り抜けても封じ込めは崩れない。
  */
-const URI_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
+export const URI_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
 
 /**
  * `items` を最大 `limit` 並列で `task` に通す(順序不問)。最初の失敗で reject し、以降の
@@ -116,6 +195,9 @@ async function mapLimit<T>(
  */
 export function safeEntryPath(root: string, name: string): string {
   const normalized = name.replace(/\\/g, '/');
+  // `path.resolve` は NUL を含むパスで TypeError を投げる(= 500)。ここで 400 に落とす。
+  // zip エントリ名にも NUL は入りうるので、`safeProjectEntry` 側だけでなくここでも見る。
+  if (name.includes('\0')) throw validation(`不正なエントリパスです: ${name}`);
   if (normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) {
     throw validation(`不正なエントリパスです: ${name}`);
   }
@@ -160,6 +242,66 @@ function assertWithinExtractLimits(zipBytes: number, sizes: number[]): void {
   }
   if (total > COMPRESSION_RATIO_FLOOR_BYTES && total > zipBytes * MAX_COMPRESSION_RATIO) {
     throw validation('プロジェクト zip の圧縮比が高すぎます');
+  }
+}
+
+/**
+ * 中央ディレクトリ(central directory)のバイト長の上限。最小 46B/件なので既定 4MB は
+ * おおよそ 9 万件相当。
+ */
+const MAX_CENTRAL_DIRECTORY_BYTES = envPositiveNumber(
+  process.env.VIVLIO_MAX_ZIP_CD_BYTES,
+  4 * 1024 * 1024,
+);
+
+/**
+ * zip の EOCD(End Of Central Directory)から**申告**エントリ数と中央ディレクトリ長を読み、
+ * 上限超過を展開前に切る。
+ *
+ * node-stream-zip の `entriesCount` では代用できない — あれは `'ready'` イベント待ちで、
+ * `'ready'` は全エントリを読み終えた後に発火する。つまり await した時点で materialize は
+ * 済んでいる。事前検査は node-stream-zip の外でやるしかない。
+ *
+ * **申告値なので偽れる。** ここは「materialize のコストを事前に切る」ための前段であって、
+ * 真の関所は実測バイト予算(`ExtractBudget`)である。小さく偽った zip はエントリが読めずに
+ * 落ちるか、実測予算で止まる。この 2 段構えは既存の資源上限と同じ流儀。
+ */
+export function assertDeclaredEntryCount(zip: Buffer): void {
+  // EOCD は末尾から後方走査する(zip 仕様どおり最後に見つかったものが本物)。前方走査だと
+  // コメント欄に仕込んだ偽シグネチャを掴む。
+  const minStart = Math.max(0, zip.length - (22 + 0xffff));
+  let eocd = -1;
+  for (let i = zip.length - 22; i >= minStart; i--) {
+    if (zip.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw validation('プロジェクト zip の形式が不正です');
+
+  let entries = zip.readUInt16LE(eocd + 10);
+  let cdBytes = zip.readUInt32LE(eocd + 12);
+  if (entries === 0xffff || cdBytes === 0xffffffff) {
+    // ZIP64: EOCD ロケータ(0x07064b50)→ ZIP64 EOCD(0x06064b50)を辿って 64bit 値を読む。
+    const locator = eocd - 20;
+    if (locator < 0 || zip.readUInt32LE(locator) !== 0x07064b50) {
+      throw validation('プロジェクト zip の形式が不正です');
+    }
+    const z64 = Number(zip.readBigUInt64LE(locator + 8));
+    if (!Number.isSafeInteger(z64) || z64 < 0 || z64 + 56 > zip.length) {
+      throw validation('プロジェクト zip の形式が不正です');
+    }
+    if (zip.readUInt32LE(z64) !== 0x06064b50) {
+      throw validation('プロジェクト zip の形式が不正です');
+    }
+    entries = Number(zip.readBigUInt64LE(z64 + 32));
+    cdBytes = Number(zip.readBigUInt64LE(z64 + 40));
+  }
+  if (entries > MAX_ENTRY_COUNT) {
+    throw validation(`プロジェクト zip のファイル数が多すぎます(上限 ${MAX_ENTRY_COUNT} 件)`);
+  }
+  if (cdBytes > MAX_CENTRAL_DIRECTORY_BYTES) {
+    throw validation('プロジェクト zip の目録が大きすぎます');
   }
 }
 
@@ -229,6 +371,8 @@ async function extractEntry(
  */
 export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> {
   if (zip.length === 0) throw validation('プロジェクト zip が空です');
+  // materialize(`archive.entries()`)の**前**に申告値で足切りする。
+  assertDeclaredEntryCount(zip);
 
   const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   const dir = path.join(config.tmpDir, `vivlio-${stamp}`);
@@ -242,10 +386,28 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
     try {
       const entries = await archive.entries();
       // zip-slip 検証を全件先に済ませ(防御を維持し早期失敗)、各 entry の出力先を確定する。
-      const targets = Object.values(entries)
-        .filter((entry) => !entry.isDirectory)
-        .map((entry) => ({ entry, dest: safeEntryPath(dir, entry.name) }));
-      // 1 バイトも書く前に資源上限を検査する(zip bomb)。
+      // 分類は**正規化後の相対パス**に対して行う(生の名前で見ると `x.png/../y.js` が抜ける)。
+      const targets: { entry: StreamZip.ZipEntry; dest: string }[] = [];
+      for (const entry of Object.values(entries)) {
+        const dest = safeEntryPath(dir, entry.name);
+        const rel = path.relative(dir, dest).split(path.sep).join('/');
+        if (entry.isDirectory) {
+          // ディレクトリ名も同じ規則で見る(`node_modules/` の作成自体を塞ぐ)。
+          if (!isIgnorableEntry(rel) && isNpmArtifact(rel)) {
+            throw validation(`このディレクトリは取り込めません: ${entry.name}`);
+          }
+          continue;
+        }
+        if (isIgnorableEntry(rel)) continue;
+        if (!isAllowedEntryName(rel)) {
+          throw validation(
+            `このファイルは取り込めません: ${entry.name}。` +
+              `取り込めるのは ${[...ALLOWED_EXTENSIONS].join(' ')} だけです`,
+          );
+        }
+        targets.push({ entry, dest });
+      }
+      // 1 バイトも書く前に資源上限を検査する(zip bomb)。ignore 分は書かないので数えない。
       assertWithinExtractLimits(
         zip.length,
         targets.map((t) => t.entry.size),
@@ -274,13 +436,22 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
     // temp ディレクトリはこのリポジトリ配下にあり、その package.json は "type":"module"。
     // 最近傍 package.json 解決がリポジトリ側まで登らないよう、プロジェクトが同梱しない場合は
     // ルートへ空の package.json を置いて解決をここで止める(展開物がリポジトリの module 設定を
-    // 引き継がないようにする)。config の実行可能形式自体は `findConfig` が拒否する。
+    // 引き継がないようにする)。zip 同梱の `package.json` は拡張子許可リスト側で拒否済み
+    // なので、ここで置くのは常に我々の空ファイルである。
     const pkg = path.join(dir, 'package.json');
     if (!existsSync(pkg)) await fs.writeFile(pkg, '{}\n', 'utf8');
 
-    const configPath = await findConfig(dir);
-    if (configPath) assertSafeConfigBase(await fs.readFile(configPath, 'utf8'));
-    return { dir, configPath, fileCount };
+    const configPaths = await findConfigFiles(dir);
+    // 2 件以上は 400。以前は BFS 順の最初の 1 件を黙って採っていたため、深い所に別の
+    // config を隠して「どちらが効くか」を人間に判らなくできた。曖昧なら拒否へ倒す。
+    if (configPaths.length > 1) {
+      throw validation('vivliostyle.config.json が複数あります。1 つにしてください');
+    }
+    const parsed =
+      configPaths.length === 1
+        ? parseProjectConfig(await fs.readFile(configPaths[0], 'utf8'), dir)
+        : undefined;
+    return { dir, config: parsed, fileCount, docBase: parsed?.base ?? DEFAULT_DOC_BASE };
   } catch (e) {
     // 中途展開のディレクトリを決して漏らさない(例: zip-slip エントリ拒否時)。
     await cleanupProject(dir);
@@ -297,61 +468,21 @@ export async function cleanupProject(dir: string): Promise<void> {
 }
 
 /**
- * プレビューの CSP プロファイル判定(`previewProxy.VIEWER_PATH_PREFIXES`)がビューア側と
- * 見なす path 接頭辞。ここへ文書をマウントされると、アップロード由来の HTML が
- * `script-src 'unsafe-eval'` のビューアプロファイルで配信されてしまう。
- * `/node_modules` に末尾スラッシュを付けないのは、`base` が `/node_modules` なら配信 path が
- * `/node_modules/...` になり向こう側の判定に当たるため(こちらを広めに取る)。
+ * 展開ツリー内の `vivliostyle.config.json` を**すべて**探す(浅い順)。照合は小文字化して
+ * 行う — 探して検証する側は fold して広く拾うのが正しい(`vivliostyle.config.JSON` を
+ * 見落とすと、我々が検証しないまま zip に残る)。CLI は `configData` 経路で動くので、
+ * ここで拾った以外のファイルを CLI が読み直すことは無い。
  */
-const RESERVED_CONFIG_BASES = ['/__vivliostyle-viewer', '/@', '/node_modules'];
-
-/**
- * 宣言的 config の `base`(文書の配信 path)がビューア側の予約接頭辞を奪っていないか見る。
- *
- * `base` は CLI の正規フィールドで、config ファイル側の値が唯一の権威になる — inline config
- * の `base` は `mergeInlineConfig` が `inlineOptions` へ落とすだけで `config.base` を
- * 上書きしないため、サーバ側から固定できない。よって「ビューアの取り分を名乗る base だけ
- * 拒否する」形で入口を絞る。既定 `/vivliostyle` から変えること自体は許す — その場合の文書は
- * `previewProxy` の fail-close 既定で文書プロファイル(`script-src 'none'`)になる。
- *
- * JSON として読めない config はここでは判断せず素通しする(CLI 側が読めずに失敗する)。
- */
-export function assertSafeConfigBase(configText: string): void {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(configText);
-  } catch {
-    return;
-  }
-  const base = (parsed as { base?: unknown } | null)?.base;
-  if (typeof base !== 'string') return;
-  if (!RESERVED_CONFIG_BASES.some((p) => base.startsWith(p))) return;
-  throw validation(`この base はプレビューの予約領域と衝突するため使えません: ${base}`);
-}
-
-/**
- * 展開ツリー内で最初の `vivliostyle.config.json` を浅い順に探す。フラットに zip された
- * プロジェクトも、単一トップレベルフォルダ配下のものも、どちらも動くようにする。
- * 実行可能形式の config を 1 つでも見つけたら、その時点で `validation` を投げて展開ごと
- * 拒否する(見つけた場所が浅いか深いかは問わない。CLI の自動発見も潰すため)。
- */
-async function findConfig(root: string): Promise<string | undefined> {
+async function findConfigFiles(root: string): Promise<string[]> {
   const queue: string[] = [root];
-  let found: string | undefined;
+  const found: string[] = [];
   while (queue.length > 0) {
     const dir = queue.shift() as string;
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
       const full = path.join(dir, e.name);
-      if (e.isDirectory()) {
-        queue.push(full);
-      } else if (EXECUTABLE_CONFIG_NAMES.has(e.name)) {
-        throw validation(
-          `実行可能形式の設定ファイルは受け付けません: ${e.name}。${DECLARATIVE_CONFIG_NAME} を使うか、entry パラメータで入力ファイルを指定してください`,
-        );
-      } else if (e.name === DECLARATIVE_CONFIG_NAME && !found) {
-        found = full;
-      }
+      if (e.isDirectory()) queue.push(full);
+      else if (isConfigFileName(e.name)) found.push(full);
     }
   }
   return found;

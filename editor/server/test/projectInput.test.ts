@@ -7,7 +7,6 @@ import JSZip from 'jszip';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { config } from '../src/config.js';
 import {
-  assertSafeConfigBase,
   cleanupProject,
   extractByteBudget,
   extractProjectZip,
@@ -101,6 +100,33 @@ function dataDescriptorZip(name: string, content: Buffer, declaredSize: number):
 }
 
 /**
+ * EOCD だけを持つ最小 zip を手組みする。`assertDeclaredEntryCount` は `archive.entries()`
+ * より前に走るので、中央ディレクトリの実体を持たなくても足切りの検査ができる。
+ * `zip64` を立てると ZIP64 EOCD 経路(64bit 値)を通す。
+ */
+function eocdOnlyZip(opts: { entries: number; cdBytes: number; zip64?: boolean }): Buffer {
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(opts.zip64 ? 0xffff : opts.entries, 8);
+  eocd.writeUInt16LE(opts.zip64 ? 0xffff : opts.entries, 10);
+  eocd.writeUInt32LE(opts.zip64 ? 0xffffffff : opts.cdBytes, 12);
+  if (!opts.zip64) return eocd;
+
+  const z64 = Buffer.alloc(56);
+  z64.writeUInt32LE(0x06064b50, 0);
+  z64.writeBigUInt64LE(44n, 4);
+  z64.writeBigUInt64LE(BigInt(opts.entries), 24);
+  z64.writeBigUInt64LE(BigInt(opts.entries), 32);
+  z64.writeBigUInt64LE(BigInt(opts.cdBytes), 40);
+
+  const locator = Buffer.alloc(20);
+  locator.writeUInt32LE(0x07064b50, 0);
+  locator.writeBigUInt64LE(0n, 8); // ZIP64 EOCD の位置 = バッファ先頭
+  locator.writeUInt32LE(1, 16);
+  return Buffer.concat([z64, locator, eocd]);
+}
+
+/**
  * 展開の資源上限はモジュール読込時に env から確定する。巨大な zip を作らずに上限へ
  * 到達させるため、env を差し替えてモジュールを読み直す。
  */
@@ -152,7 +178,7 @@ describe('safeEntryPath', () => {
 });
 
 describe('extractProjectZip', () => {
-  it('extracts files (incl. Japanese names) and detects the config', async () => {
+  it('extracts files (incl. Japanese names) and parses the config', async () => {
     const buf = await zipOf({
       'vivliostyle.config.json': '{"entry":"manuscript/本文.md"}',
       'manuscript/本文.md': '# こんにちは',
@@ -161,44 +187,120 @@ describe('extractProjectZip', () => {
     created.push(project.dir);
 
     expect(project.fileCount).toBe(2);
-    expect(project.configPath).toBe(path.join(project.dir, 'vivliostyle.config.json'));
+    // CLI へはファイルパスではなく検証済みオブジェクトを渡す(`configData` 方式)。
+    expect(project.config?.entry).toBe('manuscript/本文.md');
+    expect(project.config?.base).toBe('/vivliostyle');
     expect(existsSync(path.join(project.dir, 'manuscript', '本文.md'))).toBe(true);
     expect(await fs.readFile(path.join(project.dir, 'manuscript', '本文.md'), 'utf8')).toContain(
       'こんにちは',
     );
   });
 
-  it('detects a config nested under a top-level folder, leaves configPath undefined otherwise', async () => {
-    const nested = await zipOf({ 'proj/vivliostyle.config.json': '{}' });
+  it('finds a config nested under a top-level folder, leaves config undefined otherwise', async () => {
+    const nested = await zipOf({
+      'proj/vivliostyle.config.json': '{"entry":"index.html"}',
+      'proj/index.html': '<p>x</p>',
+    });
     const a = await extractProjectZip(nested);
     created.push(a.dir);
-    expect(a.configPath).toBe(path.join(a.dir, 'proj', 'vivliostyle.config.json'));
+    expect(a.config?.entry).toBe('index.html');
 
     const noConfig = await zipOf({ 'index.html': '<p>x</p>' });
     const b = await extractProjectZip(noConfig);
     created.push(b.dir);
-    expect(b.configPath).toBeUndefined();
+    expect(b.config).toBeUndefined();
   });
 
-  // 実行可能形式の config は vivliostyle CLI が「モジュールとして読み込む」= サーバ上で
-  // 任意コードが走る。こちらが configPath を渡さなくても CLI は cwd から自動発見するため、
-  // 「使わない」ではなく展開ごと拒否する、が守るべき挙動。
+  // 探索側は case-fold して**広く拾う**のが正しい。見落とすと検証しないまま zip に残る。
+  it('picks up a config whose name differs only in case', async () => {
+    const buf = await zipOf({
+      'VIVLIOSTYLE.CONFIG.JSON': '{"entry":"index.html"}',
+      'index.html': '<p>x</p>',
+    });
+    const project = await extractProjectZip(buf);
+    created.push(project.dir);
+    expect(project.config?.entry).toBe('index.html');
+  });
+
+  it('rejects a zip that carries two configs (ambiguity falls to reject)', async () => {
+    // 以前は BFS 順の最初の 1 件を黙って採っていたため、深い所に別の config を隠して
+    // 「どちらが効くか」を人間に判らなくできた。
+    const buf = await zipOf({
+      'vivliostyle.config.json': '{"entry":"index.html"}',
+      'deep/vivliostyle.config.json': '{"entry":"index.html"}',
+      'index.html': '<p>x</p>',
+    });
+    await expect(extractProjectZip(buf)).rejects.toSatisfy(isAppError);
+  });
+
+  // 以前は「実行可能な config のファイル名」を数え上げて拒否していた。今は**拡張子の
+  // 許可リスト**に載らないので落ちる — 別ツールの config も未知の実行面も同じ理由で落ちる。
   it.each([
     'vivliostyle.config.js',
     'vivliostyle.config.cjs',
     'vivliostyle.config.mjs',
     'vivliostyle.config.ts',
-  ])('rejects an executable config (%s) anywhere in the tree', async (name) => {
-    const buf = await zipOf({ [name]: 'process.exit(1)', 'index.html': '<p>x</p>' });
+    'vivliostyle.config.JS',
+    'vite.config.js',
+    'vite.config.mts',
+    'postcss.config.js',
+    '.npmrc',
+    'package.json',
+    'node_modules/a/index.js',
+    'evil.JS',
+    'evil.jS',
+    'x.png.js',
+    'x.js.',
+    'x.js ',
+    'assets/logo.bmp',
+  ])('rejects a non-allowlisted file (%s) anywhere in the tree', async (name) => {
+    const before = await tmpProjectDirs();
+    const buf = await zipOf({ [name]: 'x', 'index.html': '<p>x</p>' });
     await expect(extractProjectZip(buf)).rejects.toSatisfy(isAppError);
+    // 拒否した展開ディレクトリを残さない。
+    expect((await tmpProjectDirs()).filter((n) => !before.includes(n))).toEqual([]);
   });
 
-  it('rejects an executable config hidden deep under subdirectories', async () => {
+  it('rejects a non-allowlisted file hidden deep under subdirectories', async () => {
     const buf = await zipOf({
-      'vivliostyle.config.json': '{}',
+      'vivliostyle.config.json': '{"entry":"index.html"}',
+      'index.html': '<p>x</p>',
       'a/b/c/vivliostyle.config.js': 'module.exports = {};',
     });
     await expect(extractProjectZip(buf)).rejects.toSatisfy(isAppError);
+  });
+
+  it('accepts a name that merely looks dangerous but ends with an allowed extension', () => {
+    // 末尾一致であることの主張。「許可拡張子を**含む**」判定だと `x.png.js` が通る。
+    return zipOf({ 'x.js.png': 'x', 'index.html': '<p>x</p>' })
+      .then((buf) => extractProjectZip(buf))
+      .then((project) => {
+        created.push(project.dir);
+        expect(existsSync(path.join(project.dir, 'x.js.png'))).toBe(true);
+      });
+  });
+
+  it('silently drops OS noise but keeps the upload valid', async () => {
+    const buf = await zipOf({
+      '__MACOSX/._index.html': 'junk',
+      '.DS_Store': 'junk',
+      'Thumbs.db': 'junk',
+      'desktop.ini': 'junk',
+      'index.html': '<p>x</p>',
+    });
+    const project = await extractProjectZip(buf);
+    created.push(project.dir);
+    expect(project.fileCount).toBe(1);
+    for (const n of ['.DS_Store', 'Thumbs.db', 'desktop.ini', '__MACOSX']) {
+      expect(existsSync(path.join(project.dir, n)), n).toBe(false);
+    }
+  });
+
+  it('names the offending file in the 400 message', async () => {
+    const buf = await zipOf({ 'evil.js': 'x', 'index.html': '<p>x</p>' });
+    await expect(extractProjectZip(buf)).rejects.toMatchObject({
+      message: expect.stringContaining('evil.js'),
+    });
   });
 
   it('leaves no extracted directory behind when a config is rejected', async () => {
@@ -315,44 +417,66 @@ describe('extractProjectZip resource limits', () => {
   });
 });
 
-// `base` は文書の配信 path を決める CLI の正規フィールドで、config ファイル側の値が
-// 唯一の権威(inline config では上書きできない)。ビューアの取り分を名乗られると、
-// アップロード由来の HTML が `previewProxy` のビューアプロファイル
-// (`script-src 'unsafe-eval'`)で配信されるため、入口で拒否する。
-describe('assertSafeConfigBase', () => {
-  it('rejects a base that claims the viewer or Vite internal namespace', () => {
-    for (const base of [
-      '/__vivliostyle-viewer',
-      '/__vivliostyle-viewer/docs',
-      '/@',
-      '/@fs/x',
-      '/node_modules/evil',
-    ]) {
-      expect(() => assertSafeConfigBase(JSON.stringify({ base })), base).toThrow();
-    }
-  });
-
-  it('allows the default and other bases (they land on the content CSP profile)', () => {
-    for (const text of [
-      '{}',
-      JSON.stringify({ base: '/vivliostyle' }),
-      JSON.stringify({ base: '/docs' }),
-      // `base` が文字列でない・JSON として読めない config は CLI 側の失敗に委ねる。
-      JSON.stringify({ base: 1 }),
-      'not json at all',
-    ]) {
-      expect(() => assertSafeConfigBase(text), text).not.toThrow();
-    }
-  });
-
-  it('rejects the whole upload when the bundled config declares a reserved base', async () => {
+// `base`(文書の配信 path)は利用者に指定させず、サーバ側で固定する。指定を黙って捨てず
+// 400 にするのは、「設定が効かない」を利用者が無言で踏まないため。値の検証そのものは
+// `projectConfig.test.ts` が持つ。
+describe('config の base', () => {
+  it('rejects the whole upload when the bundled config declares a base', async () => {
     const before = await tmpProjectDirs();
     const buf = await zipOf({
-      'vivliostyle.config.json': '{"base":"/__vivliostyle-viewer"}',
+      'vivliostyle.config.json': '{"entry":"index.html","base":"/__vivliostyle-viewer"}',
       'index.html': '<p>x</p>',
     });
     await expect(extractProjectZip(buf)).rejects.toSatisfy(isAppError);
-    expect(await tmpProjectDirs()).toEqual(before);
+    expect((await tmpProjectDirs()).filter((n) => !before.includes(n))).toEqual([]);
+  });
+
+  it('always reports the fixed docBase for the preview allowlist', async () => {
+    const buf = await zipOf({
+      'vivliostyle.config.json': '{"entry":"index.html"}',
+      'index.html': '<p>x</p>',
+    });
+    const project = await extractProjectZip(buf);
+    created.push(project.dir);
+    expect(project.docBase).toBe('/vivliostyle');
+  });
+});
+
+// zip のエントリ数は `archive.entries()` が**全件読み終えた後**にしか観測できない
+// (node-stream-zip の `entriesCount` は 'ready' 待ち = materialize 済み)。したがって
+// 事前の足切りは EOCD を自前で読むしかない。申告値は偽れるので、真の関所は実測バイト予算。
+describe('assertDeclaredEntryCount(EOCD の事前足切り)', () => {
+  it('rejects a zip that declares more entries than the limit before materialising', async () => {
+    const before = await tmpProjectDirs();
+    await expect(
+      extractProjectZip(eocdOnlyZip({ entries: 60000, cdBytes: 1024 })),
+    ).rejects.toSatisfy(isAppError);
+    expect((await tmpProjectDirs()).filter((n) => !before.includes(n))).toEqual([]);
+  });
+
+  it('reads 64-bit values from a ZIP64 EOCD (1,000,000 declared entries)', async () => {
+    await expect(
+      extractProjectZip(eocdOnlyZip({ entries: 1_000_000, cdBytes: 1024, zip64: true })),
+    ).rejects.toSatisfy(isAppError);
+  });
+
+  it('rejects an oversized central directory', async () => {
+    await expect(
+      extractProjectZip(eocdOnlyZip({ entries: 10, cdBytes: 64 * 1024 * 1024 })),
+    ).rejects.toSatisfy(isAppError);
+  });
+
+  it('rejects a buffer with no EOCD at all', async () => {
+    await expect(extractProjectZip(Buffer.alloc(64, 0x41))).rejects.toSatisfy(isAppError);
+  });
+
+  it('takes the last EOCD, not a decoy planted in the comment area', async () => {
+    // zip 仕様どおり後方から最初に見つかったものが本物。前方走査だと偽 EOCD を掴む。
+    const decoy = Buffer.alloc(22);
+    decoy.writeUInt32LE(0x06054b50, 0);
+    decoy.writeUInt16LE(1, 10);
+    const real = eocdOnlyZip({ entries: 60000, cdBytes: 1024 });
+    await expect(extractProjectZip(Buffer.concat([decoy, real]))).rejects.toSatisfy(isAppError);
   });
 });
 

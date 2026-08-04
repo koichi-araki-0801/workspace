@@ -20,6 +20,10 @@ describe('sharedInlineConfig', () => {
     expect(sharedInlineConfig()).toEqual({
       executableBrowser: 'C:/Edge/Application/msedge.exe',
       logLevel: 'silent',
+      // Vite の `vite.config.*` 自動発見を止める(展開ツリーの `vite.config.js` が
+      // バンドル・import される経路)。`toEqual` の全体一致のままにして、フィールドが
+      // 増減したら気付ける形を保つ。`toMatchObject` へ緩めないこと。
+      viteConfigFile: false,
     });
   });
 
@@ -28,7 +32,7 @@ describe('sharedInlineConfig', () => {
     vi.doMock('../src/config.js', () => ({ config: { pdf: { executableBrowser: undefined } } }));
     const { sharedInlineConfig } = await import('../src/vivliostyle/options.js');
     const c = sharedInlineConfig();
-    expect(c).toEqual({ logLevel: 'silent' });
+    expect(c).toEqual({ logLevel: 'silent', viteConfigFile: false });
     expect('executableBrowser' in c).toBe(false);
   });
 });

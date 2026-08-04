@@ -11,6 +11,7 @@ import json
 import threading
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import config
 from dictionary.store import DictionaryStore
@@ -74,10 +75,13 @@ def test_reapply_macro_reverts_in_one_undo(tmp_path):
     assert a.text == "A-1042" and b.text == "B-2055"
 
 
-def _post(url: str, data: bytes, ctype: str):
-    req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": ctype}, method="POST"
-    )
+def _post(url: str, data: bytes, ctype: str, origin: str | None = None):
+    """`origin` 既定は URL から組んだ正規オリジン。同一オリジン検査 (`web/origin_guard.py`)
+    が非安全メソッドに Origin を要求するため、ブラウザと同じ形で付ける。"""
+    parts = urlsplit(url)
+    headers = {"Content-Type": ctype,
+               "Origin": origin if origin is not None else f"{parts.scheme}://{parts.netloc}"}
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     with urllib.request.urlopen(req) as r:
         return r.status, r.read()
 

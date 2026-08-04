@@ -1,0 +1,7 @@
+# pytest の設定のみを持つ最小ファイル。graph-editor は「実行時依存ゼロ・標準ライブラリのみ・
+# 単一 app.py + resources/」が設計前提なので、`requirements.txt` は触らず、ここにも
+# `[project]` (配布パッケージ定義) を書かない。pytest は開発時だけ端末の Python で入れる
+# (`python -m pip install pytest`)。pdf-to-svg 側と同じく `python -m pytest` で走る。
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

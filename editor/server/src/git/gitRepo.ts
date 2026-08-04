@@ -160,7 +160,10 @@ async function hasHead(): Promise<boolean> {
  */
 async function ensureGitignore(): Promise<void> {
   const file = path.join(config.gitRepoDir, '.gitignore');
-  const required = ['/drafts/', '/reviews/', '*.tmp-*'];
+  // `/pending/` は整理ではなく防御の一部: 生成直後の未承認テンプレ実体を置く場所で、
+  // 追跡すると承認コミット(`git add -A`)へ未承認の内容が混ざり、確定領域へ書けないよう
+  // にした意味が消える。
+  const required = ['/drafts/', '/reviews/', '/pending/', '*.tmp-*'];
   const existing = await fs.readFile(file, 'utf8').catch(() => '');
   const lines = existing.split('\n').map((l) => l.trim());
   const missing = required.filter((r) => !lines.includes(r));

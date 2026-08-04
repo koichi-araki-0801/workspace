@@ -32,6 +32,7 @@ process.env.GIT_REPO_DIR = tmp;
 process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
 process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.REVIEWS_DIR = path.join(tmp, 'reviews');
+process.env.PENDING_DIR = path.join(tmp, 'pending');
 
 let gitAvailable = true;
 try {

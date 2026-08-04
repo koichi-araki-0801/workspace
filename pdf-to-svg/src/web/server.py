@@ -21,7 +21,7 @@ import threading
 import time
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from web import loader, rpc_methods
+from web import loader, origin_guard, rpc_methods
 from web.rpc_methods import WebSession
 
 # 静的配信を許す拡張子と MIME (旧 `scheme.py` の `_MIME` を踏襲)。
@@ -42,8 +42,13 @@ _MIME = {
 }
 
 
-class Handler(http.server.BaseHTTPRequestHandler):
-    """静的配信 + RPC + アップロード + ライフサイクルビーコンの最小ハンドラ。"""
+class Handler(origin_guard.GuardedHTTPRequestHandler):
+    """静的配信 + RPC + アップロード + ライフサイクルビーコンの最小ハンドラ。
+
+    同一オリジン検査は基底の `parse_request()` が一手に引き受けるので、以下の `do_*` /
+    `_handle_*` に検査は書かない (`web/origin_guard.py` 参照)。ここへ `do_GET` の副作用を
+    足すと、Origin を要求しない安全メソッドの経路が CSRF の穴になる点にだけ注意する。
+    """
 
     # ローカル単一ユーザ用途。アクセスログは出さない。
     def log_message(self, *args):
@@ -65,12 +70,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, ensure_ascii=False),
                    "application/json; charset=utf-8")
 
-    def _touch(self):
-        self.server.last_seen = time.monotonic()
+    # `last_seen` の更新は基底 `GuardedHTTPRequestHandler._touch_if_same_origin` が
+    # Origin 完全一致時にだけ行う。ここへ書き戻すと Origin 無し GET で watchdog を
+    # 無期限に延命できるようになる (`origin_guard.py` の同名メソッドの doc を見よ)。
 
     # ── GET (静的配信) ──
     def do_GET(self):
-        self._touch()
         path = urlsplit(self.path).path
         if path in ("/", "/index.html"):
             self._serve_file("index.html")
@@ -101,7 +106,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # ── POST ──
     def do_POST(self):
-        self._touch()
         path = urlsplit(self.path).path
         if path == "/rpc":
             self._handle_rpc()
@@ -163,12 +167,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": True, "data": {"total": len(session.docs)}})
 
 
-def create_server(web_root: str, session: WebSession) -> http.server.ThreadingHTTPServer:
-    """127.0.0.1 の空きポートで待ち受けるサーバを構築する (まだ serve はしない)。"""
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+def create_server(web_root: str, session: WebSession,
+                  port: int = 0) -> http.server.ThreadingHTTPServer:
+    """127.0.0.1 で待ち受けるサーバを構築する (まだ serve はしない)。既定の `port=0` は
+    空きポート。固定ポートが要る E2E も**この関数を通す**こと: `ThreadingHTTPServer` を
+    手組みすると `configure_guard` を忘れて `unconfigured` の全拒否になる (かつては
+    `test/e2e_server.py` が実際にその形だった)。許可リストは bind 後の実ポートから作る。"""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.web_root = os.path.abspath(web_root)
     server.session = session
     server.lock = threading.Lock()
     server.quit_event = threading.Event()
     server.last_seen = time.monotonic()
+    origin_guard.configure_guard(server, server.server_address[1])
     return server

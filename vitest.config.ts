@@ -30,6 +30,13 @@ export default defineConfig({
         // editor/server (vivliostyle は pure layer のみ。build.ts 等は browser+socket 依存で対象外)
         'editor/server/src/auth/password.ts',
         'editor/server/src/auth/loginRateLimit.ts',
+        // セキュリティ修正で新設した層。確定書き込みの関所とテンプレ JS の不変性チェックは
+        // 迂回されると他の防御が全部無意味になるため、閾値の対象へ入れる。
+        'editor/server/src/security/templateScripts.ts',
+        'editor/server/src/repositories/confirmedWrite.ts',
+        'editor/server/src/repositories/templateMeta.ts',
+        'editor/server/src/files/pendingFiles.ts',
+        'editor/server/src/vivliostyle/projectConfig.ts',
         'editor/server/src/git/gitRepo.ts',
         'editor/server/src/openapi/docsRoutes.ts',
         'editor/server/src/vivliostyle/previewProxy.ts',
@@ -102,6 +109,11 @@ export default defineConfig({
         'pie-chart/src/data.ts',
         // graph-editor (ui.html と共有する純粋関数のみ)
         'graph-editor/resources/web/lib/leader_geom.cjs',
+        // 未信頼 SVG の許可リスト。denylist へ退行すると読み込み即実行に戻るため閾値で守る。
+        'graph-editor/resources/web/js/svg-policy.js',
+        // SEA 実行時のモジュール解決。上位ディレクトリ遡りが復活すると任意コード実行になる。
+        'pie-chart/src/runtime/seaRuntime.ts',
+        'pie-chart/src/runtime/subsetFontFs.ts',
       ],
       // auth.ts はフェーズ2(DBセッション/SQL Server依存)で未テスト・未デプロイのため対象外。
       exclude: ['editor/server/src/middleware/auth.ts'],

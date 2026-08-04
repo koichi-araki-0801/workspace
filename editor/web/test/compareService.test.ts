@@ -189,9 +189,9 @@ describe('CompareService.listCandidates', () => {
     }
   });
 
-  it('includes un-edited (draft, zero-snapshot) templates via the baseline', async () => {
+  it('includes un-edited (zero-snapshot) published templates via the baseline', async () => {
     const templates = {
-      listTemplates: vi.fn(async () => ok([{ ...meta('d'), status: 'draft' as const }])),
+      listTemplates: vi.fn(async () => ok([meta('d')])),
     } as unknown as TemplateRepository;
     const history = {
       listVersions: vi.fn(async () => ok([])),
@@ -201,12 +201,31 @@ describe('CompareService.listCandidates', () => {
     const res = await svc.listCandidates({});
 
     expect(isOk(res)).toBe(true);
-    // status='draft' でも除外されず、現行版 1 版を持つ候補として出る。
+    // 確定版スナップショットがゼロでも除外されず、現行版 1 版を持つ候補として出る。
     if (isOk(res)) {
       expect(res.value).toHaveLength(1);
       expect(res.value[0].meta.id).toBe('d');
       expect(res.value[0].versionCount).toBe(1);
     }
+  });
+
+  it('excludes unapproved (draft = pending) templates', async () => {
+    // `listTemplates` は編集タブが生成直後のテンプレへ到達できるよう pending も返す。
+    // 比較は確定済み同士で行うので、呼び出し側で落とせていなければ未承認の内容が
+    // 比較画面(= 承認者が見る面)へ載る。
+    const templates = {
+      listTemplates: vi.fn(async () =>
+        ok([meta('a'), { ...meta('pending1'), status: 'draft' as const }]),
+      ),
+    } as unknown as TemplateRepository;
+    const history = {
+      listVersions: vi.fn(async () => ok([])),
+    } as unknown as HistoryRepository;
+
+    const svc = createCompareService(templates, history);
+    const res = await svc.listCandidates({});
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.map((c) => c.meta.id)).toEqual(['a']);
   });
 
   it('propagates a listTemplates error', async () => {

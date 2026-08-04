@@ -7,19 +7,16 @@
 # data/dictionary.json を汚さない。終了は Playwright webServer のプロセス kill に任せる。
 from __future__ import annotations
 
-import http.server
 import os
 import sys
 import tempfile
-import threading
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import config  # noqa: E402
 from dictionary.store import DictionaryStore  # noqa: E402
 from web.rpc_methods import WebSession  # noqa: E402
-from web.server import Handler  # noqa: E402
+from web.server import create_server  # noqa: E402
 from web.undo_stack import UndoStack  # noqa: E402
 
 PORT = 5180
@@ -29,13 +26,9 @@ def main() -> None:
     tmp = tempfile.mkdtemp(prefix="pdftosvg-e2e-")
     store = DictionaryStore(os.path.join(tmp, "dictionary.json"))
     session = WebSession(store, UndoStack())
-    # `create_server` は port 0 で bind してしまうため、同じ属性構成で固定ポート版を組む。
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    server.web_root = os.path.abspath(str(config.resource_path("web")))
-    server.session = session
-    server.lock = threading.Lock()
-    server.quit_event = threading.Event()
-    server.last_seen = time.monotonic()
+    # 属性の手組みはしない。同一オリジン検査の許可リスト設定 (`configure_guard`) を
+    # 取りこぼすと全リクエストが 403 になるため、構築経路は `create_server` 1 本に畳む。
+    server = create_server(str(config.resource_path("web")), session, port=PORT)
     print(f"e2e server listening on http://127.0.0.1:{PORT}/", flush=True)
     server.serve_forever()
 

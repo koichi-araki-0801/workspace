@@ -8,7 +8,7 @@ import { inlineCss } from '../src/vivliostyle/inlineCss.js';
 import {
   MERGE_PAGE_COUNTER_CSS,
   materializeMergeProject,
-  mergeConfigSource,
+  mergeConfigObject,
   stripPageCounterReset,
 } from '../src/vivliostyle/mergeInput.js';
 import { cleanupProject } from '../src/vivliostyle/projectInput.js';
@@ -116,35 +116,40 @@ describe('stripPageCounterReset', () => {
   });
 });
 
-describe('mergeConfigSource', () => {
-  it('emits entries in order as CommonJS', () => {
-    const src = mergeConfigSource(['doc-000.html', 'doc-001.html']);
-    expect(src).toMatch(/^module\.exports = \{/);
-    expect(src.indexOf('doc-000.html')).toBeLessThan(src.indexOf('doc-001.html'));
-    expect(src).not.toContain('"size"');
+describe('mergeConfigObject', () => {
+  it('emits entries in order with a fixed base', () => {
+    expect(mergeConfigObject(['doc-000.html', 'doc-001.html'])).toEqual({
+      entry: ['doc-000.html', 'doc-001.html'],
+      base: '/vivliostyle',
+    });
   });
 
-  it('includes size when given and escapes special characters via JSON', () => {
-    const src = mergeConfigSource(['a"b.html'], 'A4');
-    expect(src).toContain('"size": "A4"');
-    expect(src).toContain('"a\\"b.html"');
+  it('includes size only when given', () => {
+    expect(mergeConfigObject(['a.html'], 'A4').size).toBe('A4');
+    expect(mergeConfigObject(['a.html'])).not.toHaveProperty('size');
   });
 });
 
 describe('materializeMergeProject', () => {
-  it('writes zero-padded docs with per-doc css + page counter css, and a .cjs config', async () => {
+  it('writes zero-padded docs with per-doc css + page counter css, and no config file', async () => {
     const docs = [
       { html: '<html><head></head><body>一</body></html>', css: 'body{margin:0}' },
       { html: '<html><head></head><body>二</body></html>', css: '' },
     ];
-    const { dir, configPath } = await materializeMergeProject(docs, 'A4');
+    const { dir, config: mergeConfig } = await materializeMergeProject(docs, 'A4');
     created.push(dir);
 
-    expect(configPath).toBe(path.join(dir, 'vivliostyle.config.cjs'));
-    const confSrc = await fs.readFile(configPath, 'utf8');
-    expect(confSrc).toContain('"doc-000.html"');
-    expect(confSrc).toContain('"doc-001.html"');
-    expect(confSrc).toContain('"size": "A4"');
+    expect(mergeConfig.entry).toEqual(['doc-000.html', 'doc-001.html']);
+    expect(mergeConfig.size).toBe('A4');
+    // 実行可能な config をリポジトリから消した(CLI へは `configData` で渡す)。ここが
+    // 戻ると「config はオブジェクトでしか CLI へ渡らない」不変則が破れる。
+    for (const name of [
+      'vivliostyle.config.cjs',
+      'vivliostyle.config.js',
+      'vivliostyle.config.json',
+    ]) {
+      expect(existsSync(path.join(dir, name)), name).toBe(false);
+    }
 
     const doc0 = await fs.readFile(path.join(dir, 'doc-000.html'), 'utf8');
     expect(doc0).toContain('body{margin:0}');

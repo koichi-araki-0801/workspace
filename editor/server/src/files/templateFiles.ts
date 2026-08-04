@@ -4,19 +4,26 @@
 // 確定済み template 本体(HTML)とファンド別(per-fund)共有 CSS をディスク上に持つ。
 // DB レジストリ(台帳)はメタデータのみを保持し、バイト列(本体)はここに置く。
 // キーはファイル名規約 / `fundCode`(phase 1 のファイルレイアウトから不変)。
+//
+// **このモジュールは読み取りとパス解決のみを持つ。** 確定ディレクトリへの書き込みは
+// `repositories/confirmedWrite.ts` が唯一の実装で、書き込みプリミティブ(`atomicWrite`)を
+// そちらのモジュール境界の内側へ移してある。以前はここが `writeTemplateAndCss` /
+// `writeTemplateHtml` を素の export で持っていたため、承認ゲートを通らない呼び出し元
+// (生成ルート・ペア同期)が直接確定ファイルを書けていた。「唯一の関所」を doc comment
+// でなくモジュール境界で強制するのが本構成の目的。
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { assertFundCode, assertTemplateFileName } from '@editor/shared';
 import { config } from '../config.js';
-import { atomicWrite } from './atomic.js';
 
 // パス検査はこの 2 つの解決関数に内蔵する。呼び出し側(ルート・リポジトリ・同期)ごとに
 // 検査を置くと必ずどこかで漏れるため、ディレクトリと連結する唯一の場所で強制する。
 // 名前は request 由来のまま渡ってくる前提で読むこと。
-const templatePath = (fileName: string): string =>
+// export しているが、これ単体では 1 バイトも書けない(純粋なパス解決 + 検査)。
+export const templatePath = (fileName: string): string =>
   path.join(config.templatesDir, assertTemplateFileName(fileName));
-const cssPath = (fundCode: string): string =>
+export const cssPath = (fundCode: string): string =>
   path.join(config.cssDir, `${assertFundCode(fundCode)}.css`);
 
 /**
@@ -70,62 +77,19 @@ export function readTemplateHtml(fileName: string): Promise<string> {
   if (!p) return Promise.resolve('');
   return fs.readFile(p, 'utf8').catch(() => '');
 }
+/**
+ * ファンド共有 CSS を読む。**規約外の名前(解決できない)だけを空文字へ倒し、解決できた
+ * パスの読み取り失敗は例外にする。** 読んだ値をそのまま書き戻す経路が実在するため、
+ * EACCES / EBUSY / EMFILE を `''` へ倒すと一過性の I/O 障害で共有 CSS を空にできてしまう。
+ * `reviewFiles.ts` の `readReview` と同方針(あちらも「空文字へ倒すと本番テンプレートを
+ * 空内容で上書きしてしまうため必ずエラーにする」と書いている)。
+ * ENOENT だけは「まだ CSS が無いファンド」という正常状態なので `''` を返す。
+ */
 export function readFundCss(fundCode: string): Promise<string> {
   const p = cssPathOrNull(fundCode);
   if (!p) return Promise.resolve('');
-  return fs.readFile(p, 'utf8').catch(() => '');
-}
-
-/** 確定保存(confirm-save)失敗時にロールバックできるよう、現在のバイト列を読む。 */
-export async function snapshotCurrent(
-  fileName: string,
-  fundCode: string,
-): Promise<{ html: string | null; css: string | null }> {
-  const read = (p: string | null) =>
-    p === null
-      ? Promise.resolve(null)
-      : fs
-          .readFile(p, 'utf8')
-          .then((s) => s as string | null)
-          .catch(() => null);
-  return {
-    html: await read(templatePathOrNull(fileName)),
-    css: await read(cssPathOrNull(fundCode)),
-  };
-}
-
-export async function writeTemplateAndCss(
-  fileName: string,
-  html: string,
-  fundCode: string,
-  css: string,
-): Promise<void> {
-  // 先に両方のパスを解決する。不正な名前でディレクトリだけ作られる(片方書けて片方落ちる)
-  // 中途半端な状態を避けるため、副作用の前に検査を済ませる。
-  const htmlPath = templatePath(fileName);
-  const stylePath = cssPath(fundCode);
-  await fs.mkdir(config.templatesDir, { recursive: true });
-  await fs.mkdir(config.cssDir, { recursive: true });
-  await atomicWrite(htmlPath, html);
-  await atomicWrite(stylePath, css);
-}
-
-/**
- * テンプレ本体だけの単ファイル書込。ペア同期(`pairSyncService.ts`)が転写結果を書く経路で、
- * CSS はファンド単位共有(ペアの双方が同一ファイル)のため触らない。
- */
-export async function writeTemplateHtml(fileName: string, html: string): Promise<void> {
-  const htmlPath = templatePath(fileName);
-  await fs.mkdir(config.templatesDir, { recursive: true });
-  await atomicWrite(htmlPath, html);
-}
-
-/** 先に読んだバイト列を復元する(DB コミット失敗時の補償 = compensation)。 */
-export async function restoreTemplateAndCss(
-  fileName: string,
-  fundCode: string,
-  prev: { html: string | null; css: string | null },
-): Promise<void> {
-  if (prev.html !== null) await atomicWrite(templatePath(fileName), prev.html);
-  if (prev.css !== null) await atomicWrite(cssPath(fundCode), prev.css);
+  return fs.readFile(p, 'utf8').catch((e: NodeJS.ErrnoException) => {
+    if (e?.code === 'ENOENT') return '';
+    throw e;
+  });
 }

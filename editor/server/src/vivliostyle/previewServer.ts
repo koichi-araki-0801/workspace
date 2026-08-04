@@ -57,8 +57,8 @@ const vivliostylePreviewStarter = (
   const run = async (): Promise<PreviewServerHandle> => {
     const { preview } = await import('@vivliostyle/cli');
     // どちらの場合も `cwd` を設定し、エントリをプロジェクトディレクトリ基準で解決する。
-    const entry = spec.configPath
-      ? { config: spec.configPath, cwd: spec.cwd }
+    const entry = spec.config
+      ? { configData: spec.config, cwd: spec.cwd }
       : { cwd: spec.cwd, input: spec.input };
 
     const { result: server, output } = await captureStdio(() =>
@@ -68,7 +68,14 @@ const vivliostylePreviewStarter = (
         ...(spec.singleDoc ? { singleDoc: true } : {}),
         openViewer: false,
         host,
-        vite: { server: { hmr: false } },
+        // inline の `vite` は `mergeInlineConfig` がアップロード config の `vite` へ
+        // 被せる(`pruneObject` が落とすのは undefined/null だけ)ので、こちらが必ず勝つ。
+        // `fs.allow` を作業ディレクトリへ固定するのは多層防御:
+        //   ① `/@fs` が万一プロキシの許可リストを抜けても Vite 側で 403 になる、
+        //   ② アップロード config の `vite.server.proxy`(上流 Vite を踏み台にした SSRF)や
+        //      `cors` / `allowedHosts` の上書きをまとめて無効化する。
+        // 主防御は `previewProxy.allowForwardPath` であって、ここではない。
+        vite: { server: { hmr: false, fs: { strict: true, allow: [spec.workDir] } } },
         ...sharedInlineConfig(),
         logLevel: 'info', // 捕捉対象の "Preview URL" を cli に出力させるため
       } as Parameters<typeof preview>[0]),

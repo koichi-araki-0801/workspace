@@ -18,6 +18,7 @@ process.env.GIT_REPO_DIR = tmp;
 process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
 process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.REVIEWS_DIR = path.join(tmp, 'reviews');
+process.env.PENDING_DIR = path.join(tmp, 'pending');
 
 // DB(sproc)は本テストの対象外。承認直後の注記マスタ書き戻しが実 DB へ触れないよう
 // `callSproc` を決定的に失敗させる(reviews.test.ts と同じ理由)。

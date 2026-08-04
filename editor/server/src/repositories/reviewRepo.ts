@@ -29,8 +29,10 @@ import {
   writeReview,
 } from '../files/reviewFiles.js';
 import { readFundCss, readTemplateHtml } from '../files/templateFiles.js';
+import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import { reflectNoteMasterAfterConfirm } from '../sync/noteMasterService.js';
 import { syncPairAfterConfirm } from '../sync/pairSyncService.js';
+import { baselineTemplateHtml } from './confirmedWrite.js';
 import { applyConfirmedSave } from './templateRepo.js';
 
 /** 操作主体(認証済みユーザ)。ロールは自己承認/閲覧範囲の判定に使う。 */
@@ -74,6 +76,15 @@ export async function submitReview(
 ): Promise<ReviewRequestMeta> {
   const attrs = parseTemplateFileName(`${req.templateId}.html`);
   if (!attrs) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
+  // 実行コード面は生成時に確定し、以後どの経路でも変えられない。最後の関所は承認側の
+  // `applyConfirmedWrite` だが、申請の入口でも同じ照合を掛ける — 通してしまうと精査者の
+  // キューに「承認できない申請」が積まれ、承認者は実行結果しか見ないため差分にも気付けない。
+  // 基準は確定テンプレ → 生成物(pending)の順(確定優先)で、いずれも `data-opaque` 等を
+  // 復号した実体に対して比較する。
+  assertTemplateScriptsUnchanged(await baselineTemplateHtml(req.templateId), req.html, {
+    templateId: req.templateId,
+    where: 'review-submit',
+  });
   const review: ReviewRequest = {
     id: randomUUID(),
     templateId: req.templateId,

@@ -9,6 +9,7 @@ import { buildWorkerPool } from './buildWorkerServer.js';
 import { inlineCss } from './inlineCss.js';
 import { type MergeDocument, materializeMergeProject } from './mergeInput.js';
 import { sharedInlineConfig } from './options.js';
+import type { SafeProjectConfig } from './projectConfig.js';
 import { cleanupProject } from './projectInput.js';
 
 /** PDF 生成失敗時に投げる Error の前置き(原因は cause として stderr/timeout を連結する)。 */
@@ -97,8 +98,13 @@ export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
 interface BuildProjectInput {
   /** 展開済み vivliostyle プロジェクトを格納するディレクトリ。 */
   dir: string;
-  /** `vivliostyle.config.*` のパス(存在すれば優先エントリ)。 */
-  configPath?: string;
+  /**
+   * 許可リストで組み直した config(`projectConfig.parseProjectConfig` の出力)。CLI へは
+   * **パスではなくこのオブジェクト**を `configData` で渡す。パスを渡すと CLI 側が
+   * `locateVivliostyleConfig` でファイルを探し直し、我々のパーサとは別の JSONC パーサで
+   * 読むため、検査したバイト列と実際に効く設定が分岐する。
+   */
+  config?: SafeProjectConfig;
   /** config が無い場合に使う相対エントリファイル。 */
   entry?: string;
   size?: string;
@@ -115,8 +121,8 @@ export async function buildProjectPdf(input: BuildProjectInput): Promise<Buffer>
   try {
     // どちらの場合も `cwd` を設定し、vivliostyle がエントリをサーバの作業ディレクトリ
     // ではなく展開済みプロジェクトディレクトリ基準で解決するようにする。
-    const entry = input.configPath
-      ? { config: input.configPath, cwd: input.dir }
+    const entry = input.config
+      ? { configData: input.config, cwd: input.dir }
       : { cwd: input.dir, input: input.entry };
     await runBuildWorker({
       ...entry,
@@ -141,9 +147,9 @@ export async function buildMergedPdf(input: {
   documents: MergeDocument[];
   size?: string;
 }): Promise<Buffer> {
-  const { dir, configPath } = await materializeMergeProject(input.documents, input.size);
+  const { dir, config: mergeConfig } = await materializeMergeProject(input.documents, input.size);
   try {
-    return await buildProjectPdf({ dir, configPath });
+    return await buildProjectPdf({ dir, config: mergeConfig });
   } finally {
     await cleanupProject(dir);
   }

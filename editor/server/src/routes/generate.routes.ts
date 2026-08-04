@@ -1,19 +1,30 @@
 // =============================================================================
 // generate.routes.ts — 既存 Python ツールで新規テンプレートを生成
 // =============================================================================
-// REST モードでは生成結果をテンプレートファイルへ永続化し、台帳へ登録(status=draft)、
-// 作成履歴フィードへ記録する。Python ステップ自体は変更しない。
+// REST モードでは生成結果を**未確定(pending)領域**へ置き、台帳へ登録(status=draft)、作成
+// 履歴フィードへ記録する。Python ステップ自体は変更しない。
+//
+// **確定ディレクトリ(templatesDir)へは書かない。** 以前はここが `writeTemplateAndCss` を
+// 直呼びしていたため、任意ロールの認証済みユーザが承認を経ない確定テンプレ実体を作れた。
+// 確定実体はペア同期の転写先条件・結合 PDF・比較タブの入力であり、さらに実行コード不変性
+// (`security/templateScripts.ts`)の**基準そのもの**でもあるため、生成が確定領域へ書けると
+// 基準を差し替えて任意の JS を承認へ通せる。よって本ルートは `pendingFiles.ts` にしか
+// 書かず、確定への昇格は承認(`repositories/confirmedWrite.ts`)だけが行う。
 import {
   apiPaths,
+  conflict,
+  isValidFundCode,
   type TemplateAttributes,
   type TemplateMeta,
   templateFileName,
   templateIdFromFileName,
+  validation,
 } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
-import { readFundCss, writeTemplateAndCss } from '../files/templateFiles.js';
+import { pendingExists, writePending } from '../files/pendingFiles.js';
+import { readFundCss, templateExists } from '../files/templateFiles.js';
 import { generateTemplate } from '../generate/pyTemplate.js';
 import { auditedRethrow } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -22,6 +33,19 @@ import { GenerateRequest } from '../openapi/schemas.js';
 import { recordCreate } from '../repositories/historyRepo.js';
 import { registerGenerated } from '../repositories/templateRepo.js';
 import { applyNoteMasterToHtml } from '../sync/noteMasterService.js';
+
+/**
+ * ファイル名規約の 1 トークンとして安全か検査する。`assertTemplateFileName` は**ファイル名
+ * 全体**しか trim 検査しないため、`companyCode: 'AM01 '` は `AM01 _510037_..._交付版.html`
+ * として素通りする。一方 SQL Server の `=` は末尾空白を無視するので、台帳では同一行として
+ * 扱われ「ファイルは 2 つ・台帳は 1 行」の食い違いを作れる。トークン単位で入口を締める。
+ * 判定は `isValidFundCode`(安全セグメント + `_` 不可)を流用する — ファイル名規約の
+ * トークンは 4 つとも `[^_/\\]+` で、要求は fundCode と同一である。
+ */
+function assertAttributeToken(label: string, value: string): string {
+  if (!isValidFundCode(value)) throw validation(`不正な${label}です: ${value}`);
+  return value;
+}
 
 export async function generateRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: z.infer<typeof GenerateRequest> }>(
@@ -34,22 +58,32 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         request,
         'template.generate',
         async () => {
+          const attributes: TemplateAttributes = {
+            companyCode: assertAttributeToken('会社コード', body.companyCode),
+            fundCode: assertAttributeToken('ファンドコード', body.fundCode),
+            baseDate: todayYmd(),
+            editionType: assertAttributeToken('版種', body.editionType),
+          };
+          const fileName = templateFileName(attributes);
+          const id = templateIdFromFileName(fileName);
+
+          // 同一属性の確定テンプレが既にあるなら生成では触らない。以前は `atomicWrite` が
+          // 存在検査なしに上書きしていたため、baseDate がサーバ現在日と一致する確定
+          // テンプレを黙って壊せた。続きは編集タブ(承認フロー)から行う。
+          if (await templateExists(fileName)) {
+            throw conflict(
+              `同じ属性のテンプレートが既にあります: ${id}。編集タブから開いてください`,
+            );
+          }
+
           // 生成器の出力へ、承認済み注記マスタ(そのファンド・版種)を適用してから保存する。
           // 生成器(差し替え前提)にマスタ参照を要求しないための編集側適用点。DB 不達時は
           // 関数内で warn + 素通し(生成をブロックしない)。
           const html = await applyNoteMasterToHtml(
             await generateTemplate(body),
-            body.fundCode,
-            body.editionType,
+            attributes.fundCode,
+            attributes.editionType,
           );
-          const attributes: TemplateAttributes = {
-            companyCode: body.companyCode,
-            fundCode: body.fundCode,
-            baseDate: todayYmd(),
-            editionType: body.editionType,
-          };
-          const fileName = templateFileName(attributes);
-          const id = templateIdFromFileName(fileName);
           const css = await readFundCss(attributes.fundCode);
           const meta: TemplateMeta = {
             id,
@@ -60,10 +94,18 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
             updatedBy: null,
           };
 
-          // REST モード: ボディの永続化 + テンプレート登録 + 作成記録を行う。
+          // REST モード: 台帳登録 → pending 実体 → 作成記録の順。**台帳が先**なのは
+          // `UQ_台帳_属性4` 違反で弾かれたときに実体だけが残る(孤児)のを避けるため。
+          // CSS はファンド共有ファイルなので pending にしか書かない — 共有 CSS の
+          // 書き換えは承認経路(`applyConfirmedWrite`)の専権である。
+          //
+          // 同一属性の pending が既に在るなら台帳行も既に在る(前回の生成で登録済み)。
+          // ここで再登録すると `UQ_台帳_属性4` に当たり、未承認テンプレの作り直しが
+          // 永久に不能になる。pending は未確定の作業用実体なので上書きしてよい
+          // (確定側は上の 409 が守る。承認ゲートは一切迂回していない)。
           if (config.requireAuth) {
-            await writeTemplateAndCss(fileName, html, attributes.fundCode, css);
-            await registerGenerated(attributes, id);
+            if (!(await pendingExists(id))) await registerGenerated(attributes, id);
+            await writePending(id, html, css);
             await recordCreate(attributes, body.basedOnTemplateId, loginId);
           }
 

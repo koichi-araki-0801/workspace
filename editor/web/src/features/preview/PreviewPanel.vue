@@ -306,12 +306,16 @@ defineExpose({ prevPage, nextPage, goToPage, zoomIn, zoomOut, fit });
       <Loader2 class="h-4 w-4 animate-spin" /> プレビューを生成中…
     </div>
     <div v-show="!useFallback" ref="viewport" class="h-full w-full"></div>
-    <!-- 中身は `sanitizePreviewHtml` 済みだが、sandbox は多層防御として付けておく
-         (サニタイズを 1 箇所外した時に即 XSS にならないため)。スクリプトは許可しない。 -->
+    <!-- vivliostyle 描画が失敗した時の素の表示。中身はテンプレ本文で、テンプレの JS は
+         正当なコンテンツなので `allow-scripts` で動かし、`allow-same-origin` は付けない
+         (両方を同時に付けると sandbox が無効化される)。親はこの iframe の中を読まない。
+         注意: 現状 `props.html` は `sanitizePreviewHtml` を通っており script は落ちている。
+         その除去を外すのは B2'(プレビュー / PDF の隔離)の担当で、本 iframe の設定は
+         それが入っても安全側のままになるよう先に正しておく。 -->
     <iframe
       v-show="useFallback"
       ref="iframe"
-      sandbox="allow-same-origin"
+      sandbox="allow-scripts"
       class="h-full w-full border-0 bg-white"
       title="プレビュー"
     ></iframe>

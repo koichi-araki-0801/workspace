@@ -15,9 +15,11 @@
 
 import { createRequire } from 'node:module';
 
+import { isSea } from '../runtime/seaRuntime.js';
+
 // 通常の ESM(tsx)では `require` が無いので createRequire で作る。SEA(esbuild の cjs
-// バンドル)では `require` が既にあり、かつ `import.meta.url` が空で createRequire が
-// 投げるため、グローバル `require` を優先する。
+// バンドル)の ambient `require` は **builtin 専用**で `msnodesqlv8` を解決できないが、
+// `loadDbItems` 冒頭の `isSea()` ガードがそこへ到達させない(exe 版は DB 入力非対応)。
 const requireCjs: NodeRequire =
   typeof require === 'function' ? require : createRequire(import.meta.url);
 
@@ -157,6 +159,15 @@ export function rowsToItems(
  * optional 依存)を遅延 require し、未導入時は明確なメッセージで失敗する。
  */
 export async function loadDbItems(opts: LoadDbOpts): Promise<Array<[string, number]>> {
+  // exe 版は DB 入力を非対応とする。ネイティブ `.node` はバンドルできず、外部配置は
+  // 「署名の外にあるコードを実行時に読む」ことそのもの(= `runtime/seaRuntime.ts` が閉じた
+  // 経路)なので、exe 隣へ msnodesqlv8 を置く運用は復活させない。dev(Node + tsx/CLI)を使う。
+  if (isSea()) {
+    throw new Error(
+      'DB SELECT input (--sql) is not available in the packaged executable. ' +
+        'Use the development CLI (Node + tsx) instead.',
+    );
+  }
   if (!opts.query || !opts.query.trim()) {
     throw new Error('query is required (e.g. "SELECT name, value FROM ...").');
   }

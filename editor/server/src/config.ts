@@ -50,6 +50,7 @@ const appConfigSchema = z
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
         draftsDir: z.string().optional(),
+        pendingDir: z.string().optional(),
         reviewsDir: z.string().optional(),
         syncDir: z.string().optional(),
         tmpDir: z.string().optional(),
@@ -194,6 +195,18 @@ export const config = {
   cssDir: resolvePath(process.env.CSS_DIR, file.paths?.cssDir, '../../editor-data/css'),
   /** 自動保存(autosave)ドラフトの作業コピー(template ごとに html/css。git 管理外)。 */
   draftsDir: resolvePath(process.env.DRAFTS_DIR, file.paths?.draftsDir, '../../editor-data/drafts'),
+  /**
+   * 新規生成テンプレの未確定(pending)実体(`pending/<id>.{html,css}`)。`POST /api/generate` は
+   * ここにだけ書き、確定ディレクトリ(templatesDir)へは触らない — 生成が確定ファイルを
+   * 直接作れると、承認ゲートを経ない実体が本番一覧に載り、実行コード不変性の**基準そのもの**
+   * を差し替えられる。git 管理**外**にするのも同じ理由で、`commitAll` の `git add -A` が
+   * 未承認の内容を承認コミットへ巻き込まないため。
+   */
+  pendingDir: resolvePath(
+    process.env.PENDING_DIR,
+    file.paths?.pendingDir,
+    '../../editor-data/pending',
+  ),
   /**
    * 確定保存の承認待ち申請(`data/reviews/<reqId>/`。git 管理外)。承認時に実ファイル
    * (templates/css)へ反映するまでの中間保管。`ensureRepo` が `/reviews/` を .gitignore する。

@@ -78,12 +78,15 @@ const canDecide = computed(() => auth.isApprover && review.value?.status === 'pe
 
 // ── iframe ドキュメント組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差) ──
 const HIGHLIGHT_CSS = diffHighlightCss(14);
-function buildDoc(fragment: string, css: string): string {
-  return buildDiffDoc(fragment, css, HIGHLIGHT_CSS);
-}
 
-// `iframe` を中身の高さに合わせ、幅変化にも追随させる(CompareResultView と共有)。
-const { fitFrame } = useIframeAutoFit();
+// `iframe` を中身の高さに合わせる(CompareResultView と共有)。高さは子からの postMessage
+// で受け取る — `sandbox="allow-scripts"`(same-origin なし)では親から `contentDocument` を
+// 読めないためで、読めないことがテンプレ JS を隔離したまま動かすための条件である。
+const { fitFrame, withHeightReporter } = useIframeAutoFit();
+
+function buildDoc(fragment: string, css: string): string {
+  return withHeightReporter(buildDiffDoc(fragment, css, HIGHLIGHT_CSS));
+}
 
 /**
  * 語句単位の着色を面積上限(`MAX_LCS_CELLS`)で諦めたパーツか。`ReviewPartRow` は
@@ -245,13 +248,15 @@ onMounted(load);
                 （なし・新規追加）
               </div>
               <div v-else class="overflow-hidden rounded border bg-white">
-                <!-- sandbox は必須。srcdoc の中身は申請者が書いた HTML/CSS で、無指定だと
-                     承認者のブラウザ上・アプリと同一オリジンでスクリプトが走る。`allow-same-origin`
-                     のみ許すのは `fitFrame` が `contentDocument` の高さを読むためで、
-                     `allow-scripts` を伴わない限りスクリプトは実行されない。 -->
+                <!-- sandbox は必須。srcdoc の中身は申請者が書いた HTML/CSS である。
+                     テンプレの JS は正当なコンテンツで、承認者は「JS が効いた実行結果」を
+                     見て承認するので**動かす**(止めると承認していない見た目が確定する)。
+                     よって `allow-scripts` を許し、`allow-same-origin` は**付けない** —
+                     両方を同時に付けると子は親オリジンの DOM へ到達でき sandbox が無効化
+                     される。高さは子からの postMessage で受ける(`useIframeAutoFit`)。 -->
                 <iframe
                   :srcdoc="buildDoc(row.beforeHtml, cssBefore)"
-                  sandbox="allow-same-origin"
+                  sandbox="allow-scripts"
                   title="変更前"
                   class="block w-full"
                   style="height: 120px; border: 0"
@@ -271,7 +276,7 @@ onMounted(load);
                 <!-- sandbox の意図は「変更前」ペインと同じ(上のコメントを見よ)。 -->
                 <iframe
                   :srcdoc="buildDoc(row.afterHtml, cssAfter)"
-                  sandbox="allow-same-origin"
+                  sandbox="allow-scripts"
                   title="変更後"
                   class="block w-full"
                   style="height: 120px; border: 0"

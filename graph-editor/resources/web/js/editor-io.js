@@ -7,7 +7,7 @@
 
 import { CONFIG } from "./constants.js";
 import { parseTranslate } from "./geom.js";
-import { round, createSvgEl, safeGetBBox, sanitizeSvg, hasFsAccess, SVG_PICKER_TYPES } from "./utils.js";
+import { round, createSvgEl, safeGetBBox, sanitizeSvg, removedCount, hasFsAccess, SVG_PICKER_TYPES } from "./utils.js";
 import { LabelState } from "./label-state.js";
 
 // ── 1. SVG 読込 & セットアップ (メモリ上の `content` を直接インライン挿入) ──
@@ -30,17 +30,18 @@ async function load(ed, item) {
   ed._overlaySig = null;
   ed._handles = [];
 
-  // 接続前にサニタイズした `<svg>` を取り込んでインライン挿入 (フォント込みで描画)
-  const clean = sanitizeSvg(item.content);
-  if (!clean) {
+  // 許可リストに沿って組み直した `<svg>` をインライン挿入 (フォント込みで描画)。
+  // `sanitizeSvg` は本文書の `createElementNS` で組んだ木を返すので `importNode` は不要。
+  const res = sanitizeSvg(item.content);
+  if (!res) {
     ed.dom.canvas.replaceChildren();
     ed.setStatus(`${item.name}: SVG を解釈できませんでした`, "err");
     ed.svg = null;
     ed.updateToolbar();
     return;
   }
-  ed.dom.canvas.replaceChildren(document.importNode(clean, true));
-  const svg = ed.dom.canvas.querySelector("svg");
+  ed.dom.canvas.replaceChildren(res.root);
+  const svg = res.root;
   ed.svg = svg;
 
   // ベースサイズを `viewBox` から取得
@@ -66,6 +67,9 @@ async function load(ed, item) {
   ed.labels = [];
   const labelGroups = svg.querySelectorAll("#labels > g.label");
   labelGroups.forEach((g) => {
+    // `<text>` を持たない `g.label` は `LabelState` が組み立てられない (以降の描画も
+    // 成立しない)。細工 SVG で確実に踏めるので、例外で読込全体を落とさず読み飛ばす。
+    if (!g.querySelector("text")) return;
     const s = new LabelState(g, ed);
     ed.labels.push(s);
     attachHitArea(ed, s);
@@ -85,7 +89,15 @@ async function load(ed, item) {
   ed.flushNow();
   ed.updateToolbar();
   ed.highlightActiveInList();
-  ed.setStatus(`${item.name}  (ラベル ${ed.labels.length} 個)`);
+  // 落とした分は黙って消さずに件数で知らせる。「開いたのに一部が出ない」理由が
+  // 利用者に見えないと、サニタイザの誤検知にも気づけないため。`err` は
+  // `.skip-note.err` (警告色) + トーストで、注意を引く経路として流用する。
+  const dropped = removedCount(res.removed);
+  if (dropped > 0) {
+    ed.setStatus(`${item.name}  (ラベル ${ed.labels.length} 個 / 許可外の要素・属性 ${dropped} 件を除去)`, "err");
+  } else {
+    ed.setStatus(`${item.name}  (ラベル ${ed.labels.length} 個)`);
+  }
 }
 
 /** ラベルにドラッグ用の透明ヒット矩形 (`<rect>`) を追加 */
@@ -112,6 +124,15 @@ async function save(ed) {
   // 保留中の描画を確定させてから DOM を読む
   ed.flushNow();
   const out = bakeSvg(ed);
+  // 出口の自己検証: 書き出す文字列を入口と**同じ** `sanitizeSvg` に通し、1 件でも
+  // 落ちるなら保存を中止する。取り込み時に許可外が残っていない限り除去件数は 0 に
+  // なるはずで、0 でなければ入口の実装が壊れた合図 (下流の閲覧者へ能動コンテンツを
+  // 持ち出す事故を、入口の穴に依存せず出口で止める)。
+  const check = sanitizeSvg(out);
+  if (!check || removedCount(check.removed) > 0) {
+    ed.setStatus("保存を中止しました: 出力に許可されていない内容が含まれています", "err");
+    return;
+  }
   const markSaved = () => {
     const it = ed.items.find((i) => i.id === ed.currentId);
     if (it) it.edited = true;
@@ -190,7 +211,8 @@ function bakeSvg(ed) {
       if (path.style.display === "none") {
         path.remove();
       } else {
-        // 表示用に付けた `display` だけ消す。入力 SVG 由来の他の inline style は保持。
+        // 表示用に付けた `display` だけ消す。入力由来の inline `style` 属性は
+        // サニタイザが通さないので、ここに残るのはエディタが書いたものだけ。
         path.style.removeProperty("display");
         if (!path.getAttribute("style")) path.removeAttribute("style");
       }

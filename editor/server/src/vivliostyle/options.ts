@@ -12,6 +12,14 @@ interface SharedInlineConfig {
   /** オフライン実行用に固定するシステムブラウザ。省略時は既定を使う。 */
   executableBrowser?: string;
   logLevel: 'silent';
+  /**
+   * Vite の `vite.config.*` 自動発見を止める。CLI 既定は `viteConfigFile ?? true` で、
+   * `mergeInlineConfig` の `pruneObject` が落とすのは `undefined`/`null` だけなので `false` は
+   * task まで残り、inline がアップロード config 側に勝つ。**これを外すと展開ツリー内の
+   * `vite.config.*` が Vite にバンドル・import される**(vivliostyle の config 許可リストは
+   * Vite の探索系統には及ばない)。
+   */
+  viteConfigFile: false;
 }
 
 /**
@@ -27,5 +35,6 @@ export function sharedInlineConfig(): SharedInlineConfig {
   return {
     ...(executableBrowser ? { executableBrowser } : {}),
     logLevel: 'silent',
+    viteConfigFile: false,
   };
 }

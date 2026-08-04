@@ -3,6 +3,7 @@
   "paths": {
     "templatesDir": "data/templates",
     "cssDir": "data/css",
+    "pendingDir": "data/pending",
     "tmpDir": ".tmp",
     "logDir": "logs",
     "webDist": "web/dist"

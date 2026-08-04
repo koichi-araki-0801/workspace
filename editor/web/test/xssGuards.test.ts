@@ -3,9 +3,13 @@
 // =============================================================================
 // 差分・比較画面は他ユーザ(申請者)が書いたテンプレ HTML/CSS を描画する。ここが素通しだと
 // 承認者のブラウザ上・アプリと同一オリジンでスクリプトが走り、職務分掌(自己承認拒否)を
-// 実質回避できる。守りは 3 枚あり、このファイルはそのうち 2 枚を検証する:
-//   1. iframe の `sandbox`      → `iframeSandbox.guard.test.ts`
-//   2. HTML のサニタイズ         → `compareService` の描画結果
+// 実質回避できる。
+//
+// **守り方は「除去」ではなく「隔離」である。** テンプレの JS は開発者が生成時に埋め込む
+// 正当なコンテンツで、落とすと承認者は「JS が効いていない見た目」を承認してしまう。
+// よって守りは次の 3 枚で、このファイルは 2・3 を検証する:
+//   1. iframe の `sandbox="allow-scripts"`(same-origin なし) → `iframeSandbox.guard.test.ts`
+//   2. 描画経路が能動コンテンツを**保持**すること(承認対象を痩せさせない)
 //   3. CSS のコンテキスト脱出封じ → `sanitizeStyleContent` / `buildDiffDoc`
 import { ok } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
@@ -60,53 +64,55 @@ describe('buildDiffDoc', () => {
 
 describe('compareService の描画結果', () => {
   const TEMPLATE_ID = 'AM01_510037_20240710_交付版';
-  const EVIL = `<!doctype html><html><body>
-    <p onclick="alert(1)">click</p>
-    <script>alert('xss')</script>
-    <img src=x onerror="alert(2)">
-    <a href="javascript:alert(3)">link</a>
+  const ACTIVE = `<!doctype html><html><body>
+    <p onclick="fit()">click</p>
+    <script>col.width=1</script>
+    <a href="javascript:go()">link</a>
   </body></html>`;
 
   /** 攻撃者の本文をそのまま返す最小のリポジトリ。描画経路だけを見たいので他は使わない。 */
   const templates = {
     getTemplate: async () =>
-      ok({ meta: { attributes: { fundCode: '510037' } }, html: EVIL, css: '' }),
+      ok({ meta: { attributes: { fundCode: '510037' } }, html: ACTIVE, css: '' }),
     getSampleData: async () => ok({ fund: { code: '510037' } }),
   };
   const history = {
-    getSnapshot: async () => ok({ html: EVIL, css: '', fundCode: '510037' }),
+    getSnapshot: async () => ok({ html: ACTIVE, css: '', fundCode: '510037' }),
   };
   // biome-ignore lint/suspicious/noExplicitAny: テストダブルは必要な 3 メソッドだけを持つ。
   const service = createCompareService(templates as any, history as any);
 
-  /** 能動コンテンツ(script / on* / javascript: URL)が 1 つも残っていないこと。 */
-  function expectInert(html: string): void {
-    expect(html).not.toMatch(/<script/i);
-    expect(html).not.toMatch(/onerror\s*=/i);
-    expect(html).not.toMatch(/onclick\s*=/i);
-    expect(html).not.toMatch(/javascript:/i);
+  /**
+   * 能動コンテンツが**残っている**こと。ここを「除去する」へ戻すと、承認者は JS が
+   * 効いていない見た目を承認することになり、承認ゲートの意味が失われる(隔離は
+   * `sandbox="allow-scripts"` = same-origin なしの iframe が担う)。
+   */
+  function expectActiveKept(html: string): void {
+    expect(html).toMatch(/<script/i);
+    expect(html).toMatch(/onclick\s*=/i);
+    expect(html).toMatch(/javascript:/i);
   }
 
-  it('strips active content from the current version (baseline path)', async () => {
+  it('keeps active content in the current version (baseline path)', async () => {
     const res = await service.renderVersionHtml(`baseline:${TEMPLATE_ID}`);
     expect(res.ok).toBe(true);
-    if (res.ok) expectInert(res.value.html);
+    if (res.ok) expectActiveKept(res.value.html);
   });
 
-  it('strips active content from a confirmed snapshot', async () => {
+  it('keeps active content in a confirmed snapshot', async () => {
     const res = await service.renderVersionHtml('some-history-id');
     expect(res.ok).toBe(true);
-    if (res.ok) expectInert(res.value.html);
+    if (res.ok) expectActiveKept(res.value.html);
   });
 
-  it('strips active content from a submitted body (approval screen)', async () => {
-    const res = await service.renderTemplateBody(EVIL, '', '510037');
+  it('keeps active content in a submitted body (approval screen)', async () => {
+    const res = await service.renderTemplateBody(ACTIVE, '', '510037');
     expect(res.ok).toBe(true);
-    if (res.ok) expectInert(res.value.html);
+    if (res.ok) expectActiveKept(res.value.html);
   });
 
   it('keeps the report markup that the diff relies on', async () => {
-    // サニタイズが構造まで削ると差分が壊れる。無害なマークアップは残ることを確かめる。
+    // 構造を削ると差分が壊れる。無害なマークアップがそのまま残ることを確かめる。
     const res = await service.renderTemplateBody(
       '<!doctype html><html><body><table class="t"><tr><td style="width:1px">値</td></tr></table></body></html>',
       '',
