@@ -11,11 +11,15 @@
 //   1. iframe の `sandbox="allow-scripts"`(same-origin なし) → `iframeSandbox.guard.test.ts`
 //   2. 描画経路が能動コンテンツを**保持**すること(承認対象を痩せさせない)
 //   3. CSS のコンテキスト脱出封じ → `sanitizeStyleContent` / `buildDiffDoc`
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ok } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import { buildDiffDoc } from '@/features/compare/htmlBlockDiff';
 import { createCompareService } from '@/features/compare/services/compareService';
-import { sanitizeStyleContent, styleTag } from '@/lib/sanitizeCss';
+import { findExternalRefsInCss, sanitizeStyleContent, styleTag } from '@/lib/sanitizeCss';
+import { appendPreviewStyle, sanitizePreviewRoot, stripExternalRefs } from '@/lib/sanitizeHtml';
 
 describe('sanitizeStyleContent', () => {
   it('neutralises a </style> escape so the element cannot be closed', () => {
@@ -48,6 +52,124 @@ describe('sanitizeStyleContent', () => {
   });
 });
 
+// CSS の外部参照は「削る」ではなく「拒む」。削る実装(正規表現)は CSS のエスケープで必ず
+// 迂回されるため、以下のエスケープ難読化ケースが実装方式そのものを機械検証している。
+describe('findExternalRefsInCss', () => {
+  it.each([
+    '@import url(http://evil.example/x.css);',
+    '@import "http://evil.example/x.css";',
+    '@IMPORT url(http://evil.example/x.css);',
+    '@\\69 mport url(http://evil.example/x.css);',
+    '.a{background:url(http://evil.example/y.png)}',
+    '.a{background:url(\\68ttp://evil.example/y.png)}',
+    '.a{background:url( "https://evil.example/y.png" )}',
+    '.a{background:url(//evil.example/y.png)}',
+    '@font-face{src:url(https://evil.example/f.woff2)}',
+    '@media print{@import url(http://evil.example/x.css);}',
+    '.a{background:image-set(url(http://evil.example/y.png) 1x)}',
+    // 引用符文字列で URL を取る CSS 関数。`url(` を探す実装だとここが素通りした
+    // (Chromium は image-set / -webkit-image-set のどちらも実際に取得しに行く)。
+    '.a{background-image:image-set("http://evil.example/x.png" 1x)}',
+    '.a{background-image:-webkit-image-set("http://evil.example/x.png" 1x)}',
+    '.a{background-image:image-set("//evil.example/x.png" 1x)}',
+    '.a{src:local("http://evil.example/f.woff2")}',
+    // SVG は文脈次第でスクリプトを持ち込むため data:image/svg+xml も許可しない。
+    '.a{background:url("data:image/svg+xml,<svg onload=alert(1)></svg>")}',
+  ])('外部参照を検出する: %s', (css) => {
+    expect(findExternalRefsInCss(css).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    '.a{background:url(img/a.png)}',
+    '.a{background:url("../shared/a.png")}',
+    '.a{background:url(#grad)}',
+    '.a{background:url(data:image/png;base64,AAAA)}',
+    '@font-face{src:url(data:font/woff2;base64,AAAA)}',
+    '.a::after{content:"@import url(http://evil.example/x)"}',
+    '/* @import url(http://evil.example/x) */ .a{color:red}',
+    '@media print{.a{color:red}} @supports (a:b){.b{}} @page{margin:0} @charset "utf-8";',
+    // CSS Paged Media のマージンボックス。ページ番号を印字するだけのごく普通の
+    // テンプレ CSS で、拒むと PDF タブが恒久的に失敗する(しかも文言が不一致)。
+    '@page{size:A4;@bottom-center{content:counter(page);font-size:8pt}}',
+    '@page{@top-left-corner{content:""}@right-middle{content:""}@left-bottom{content:""}}',
+    '.a{content:"注: 説明"}',
+    '.b{font-family:"BIZ UDPGothic"}',
+  ])('誤検出しない: %s', (css) => {
+    expect(findExternalRefsInCss(css)).toEqual([]);
+  });
+
+  it.each([
+    // 引用符文字列の中のエスケープ、`\` が入力末尾、16 進でないエスケープ、`url()` の
+    // 引用符付き形。いずれもトークナイザの分岐で、正規表現実装だと素通りする経路。
+    ['.a{background:url("http\\3a //evil.example/x")}', true],
+    ['.a::after{content:"\\"@import url(http://evil.example/x)"}', false],
+    ['.a{background:url(\\', false],
+    // エスケープ解決は許可側にも効く: `\-webkit-keyframes` は許可リストの名前と一致する。
+    ['@\\-webkit-keyframes x{}', false],
+  ])('トークナイザの端の入力を取りこぼさない: %j', (css, expectFound) => {
+    expect(findExternalRefsInCss(css).length > 0).toBe(expectFound);
+  });
+
+  it('現行の全ファンド CSS が誤検出ゼロで通る', () => {
+    const dir = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../src/api/fixtures/css',
+    );
+    const files = readdirSync(dir).filter((n) => n.endsWith('.css'));
+    // 0 件だと以下の forEach が素通りして「常に緑」になるため、下限を固定する。
+    expect(files.length).toBeGreaterThanOrEqual(1);
+    for (const name of files) {
+      expect(findExternalRefsInCss(readFileSync(path.join(dir, name), 'utf8')), name).toEqual([]);
+    }
+  });
+});
+
+describe('プレビュー文書の DOM 組み立てプリミティブ', () => {
+  it('sanitizePreviewRoot は素の <link rel=stylesheet> を残さない(後段の除去に頼らない)', () => {
+    // DOMPurify の版更新で既定の許可リストが変わったら、ここが落ちて検知できる。
+    const root = sanitizePreviewRoot(
+      '<html><head><link rel=stylesheet href=a.css><base href="http://evil/"></head><body>x</body></html>',
+    );
+    expect(root.querySelectorAll('link')).toHaveLength(0);
+    expect(root.querySelectorAll('base')).toHaveLength(0);
+  });
+
+  it('stripExternalRefs は <template> の中の外部参照も落とす', () => {
+    // `querySelectorAll` は template content へ降りないため、明示的に走査していないと素通りする。
+    const doc = new DOMParser().parseFromString(
+      '<html><head></head><body><template><link rel=stylesheet href=a.css>' +
+        '<meta http-equiv="refresh" content="0;url=http://evil/"></template></body></html>',
+      'text/html',
+    );
+    const removed = stripExternalRefs(doc.documentElement);
+    expect(removed).toBe(2);
+    const tpl = doc.querySelector('template') as HTMLTemplateElement;
+    expect(tpl.content.querySelectorAll('link, meta')).toHaveLength(0);
+  });
+
+  it('appendPreviewStyle は CSS を textContent として入れる(置換の特殊解釈が起きない)', () => {
+    const doc = new DOMParser().parseFromString(
+      '<html><head></head><body></body></html>',
+      'text/html',
+    );
+    const style = appendPreviewStyle(doc.documentElement, '.a{content:"$& $\' $`"}', {
+      'data-x': '',
+    });
+    expect(style.textContent).toBe('.a{content:"$& $\' $`"}');
+    expect(style.parentElement?.tagName).toBe('HEAD');
+  });
+
+  it('appendPreviewStyle は head が無い文書へも head を作って足す', () => {
+    // 素の `<html>` 要素を組んで head 欠落を再現する(DOMParser は必ず head を補うため)。
+    const doc = new DOMParser().parseFromString('<html></html>', 'text/html');
+    const root = doc.createElement('html');
+    root.appendChild(doc.createElement('body'));
+    const style = appendPreviewStyle(root, '.a{}');
+    expect(style.parentElement?.tagName).toBe('HEAD');
+    expect(root.firstElementChild?.tagName).toBe('HEAD');
+  });
+});
+
 describe('buildDiffDoc', () => {
   it('does not let attacker CSS close the style element', () => {
     const src = buildDiffDoc('<p>body</p>', 'x{}</style><script>alert(1)</script>', '.hl{}');
@@ -59,6 +181,17 @@ describe('buildDiffDoc', () => {
     expect(doc.querySelector('script')).toBeNull();
     expect(doc.querySelectorAll('style')).toHaveLength(2);
     expect(doc.querySelector('style')?.textContent).toContain('<script>alert(1)</script>');
+  });
+
+  // `buildDiffDoc` は「自分で用意した器へ、既に安全化した素材を詰める」= *包む*だけなので
+  // 文字列組み立てのままでよい。ここへアンカー探索(`</head>` を探して足す)や部分除去を
+  // 1 行でも入れると、その瞬間に `nunjucksRender` と同じ穴になる。
+  it('fragment に </head> や <link rel=stylesheet> の字面があっても文書構造が壊れない', () => {
+    const src = buildDiffDoc('<p title="</head><link rel=stylesheet>">x</p>', 'a{}', '.hl{}');
+    const doc = new DOMParser().parseFromString(src, 'text/html');
+    expect(doc.head.querySelectorAll('style')).toHaveLength(2);
+    expect(doc.head.querySelectorAll('link')).toHaveLength(0);
+    expect(doc.querySelector('body > p')?.textContent).toBe('x');
   });
 });
 

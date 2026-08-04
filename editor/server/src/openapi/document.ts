@@ -82,6 +82,28 @@ const PROJECT_ZIP_CONTRACT = [
   '\n\n',
 ].join('');
 
+/**
+ * 外部参照の禁止。build 3 本と project プレビューが同じゲート
+ * (`security/externalRefs.ts`)を通るので文面を 1 つにする。外部クライアントはまだ存在せず、
+ * **ここに書いたものがそのまま本番の契約になる**。
+ */
+const EXTERNAL_REF_CONTRACT = [
+  '\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ',
+  'ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。',
+  '検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、',
+  '(3) HTML の `style="…"` 属性、(zip 経路は加えて展開した `.css` / `.html` 全件)。',
+  '拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` と',
+  'マージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**',
+  '(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず',
+  '`image-set("http://…")` のような引用符文字列も含む。許可する `data:` は ',
+  '`data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` ',
+  '`data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。',
+  '相対 URL と断片(`#id`)は通る。**削らずに拒む** — 違反が 1 件でも PDF は生成されない。',
+  'また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は',
+  '`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。',
+  '\n\n',
+].join('');
+
 export function buildOpenApiDocument() {
   return createDocument({
     openapi: '3.1.0',
@@ -140,7 +162,14 @@ export function buildOpenApiDocument() {
           responses: {
             '200': json('ログイン成功(セッション cookie を Set-Cookie)', s.LoginResult),
             ...ERR_400,
-            '401': err('資格情報が不正、またはユーザ無効'),
+            // 未知の ID・無効アカウント・パスワード誤りは**すべて同一の応答**(kind /
+            // message / code / 応答時間)。差を作ると利用者の存在有無が読める。
+            '401': err('資格情報が不正 (kind=unauthorized。存在有無は区別しない)'),
+            '403': err(
+              'レート制限で拒否 (kind=forbidden)。`code` は総当たり検出時 LOGIN_RATE_LIMITED、' +
+                '同時実行の上限超過時 LOGIN_BUSY。前者は (IP, ログインID) または IP 単位の窓を' +
+                '超えた場合で、message に待ち秒数を含む。後者は即時再試行してよい',
+            ),
           },
         },
       },
@@ -169,12 +198,19 @@ export function buildOpenApiDocument() {
           tags: ['auth'],
           summary: 'パスワード変更(本人・現行パスワードによる所有証明が必要)',
           operationId: 'initPassword',
+          // `username` は**宛先として使わない**。対象は常にセッションの所有者で、食い違う
+          // 指定は 403 になる(将来スキーマから外す予定のフィールド)。成功すると同一
+          // ユーザーの**他の**セッションは全て失効する(操作中のセッションだけ残る)。
           requestBody: { content: { 'application/json': { schema: s.PasswordInitRequest } } },
           responses: {
-            '204': noContent('変更完了'),
+            '204': noContent('変更完了(他端末のセッションは失効)'),
             ...ERR_400,
+            // 認証が課されない構成でも 401 になる(ガードは設定値を参照しない)。
             ...ERR_401,
-            ...ERR_403,
+            '403': err(
+              '本人以外を指定した、またはレート制限で拒否 (kind=forbidden)。' +
+                '後者の `code` は login と同じ LOGIN_RATE_LIMITED / LOGIN_BUSY',
+            ),
           },
         },
       },
@@ -499,6 +535,7 @@ export function buildOpenApiDocument() {
           tags: ['vivliostyle'],
           summary: 'インライン HTML+CSS から PDF を生成',
           operationId: 'buildInline',
+          description: EXTERNAL_REF_CONTRACT,
           requestBody: { content: { 'application/json': { schema: s.BuildInlineRequest } } },
           responses: {
             '200': {
@@ -516,7 +553,9 @@ export function buildOpenApiDocument() {
           tags: ['vivliostyle'],
           summary: 'vivliostyle プロジェクト(zip)から PDF を生成',
           operationId: 'buildProject',
-          description: `${PROJECT_ZIP_CONTRACT}任意クエリ: \`entry\`, \`size\`, \`singleDoc\`。`,
+          description:
+            `${PROJECT_ZIP_CONTRACT}任意クエリ: \`entry\`, \`size\`, \`singleDoc\`。` +
+            EXTERNAL_REF_CONTRACT,
           requestBody: {
             content: { 'application/zip': { schema: PdfBinary } },
           },
@@ -538,7 +577,8 @@ export function buildOpenApiDocument() {
           summary: '複数のレンダリング済み文書を 1 つの PDF へ結合',
           operationId: 'buildMerge',
           description:
-            '`documents` の配列順に連結し、全体で通しページ番号を振った 1 つの PDF を返す。',
+            '`documents` の配列順に連結し、全体で通しページ番号を振った 1 つの PDF を返す。' +
+            EXTERNAL_REF_CONTRACT,
           requestBody: { content: { 'application/json': { schema: s.BuildMergeRequest } } },
           responses: {
             '200': {

@@ -1,6 +1,7 @@
 // fallbackWorker.test.ts — Worker RPC が失敗/ハングしたとき main-thread へ倒すことを検証する。
 // 「プレビューが白紙のまま進まない」(Worker チャンクがオフラインで読めず RPC が永久に解決しない)
 // 退行を防ぐ要のテスト。
+import { isAppError } from '@editor/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AsyncHtmlWorker } from '../src/workers';
 import { createFallbackWorker } from '../src/workers/fallback';
@@ -69,41 +70,67 @@ describe('createFallbackWorker', () => {
     expect(fallbackFn).toHaveBeenCalledTimes(2);
   });
 
-  it('初回応答前のハングはタイムアウトで fallback へ落とし、以降も恒久フォールバックする', async () => {
+  // 初回応答前のハング = Worker 不達(チャンクが読めない / Comlink ハンドシェイク不成立)。
+  // この形は `worker.onerror` を発火させないので、タイムアウトが唯一の検知経路になる。
+  // ここを reject へ変えると「プレビューが白紙のまま進まない」が再発する。
+  it('初回応答前のタイムアウトは main-thread へ恒久フォールバックする', async () => {
     vi.useFakeTimers();
     const remoteFn = vi.fn(() => new Promise<string>(() => {})); // 永久に未解決
     const remote = makeWorker({ toFilled: remoteFn });
-    const fallback = makeWorker({ toFilled: async () => 'from-fallback' });
-    const { worker } = createFallbackWorker(remote, fallback, 1000);
+    const fallbackFn = vi.fn(async () => 'from-fallback');
+    const fallback = makeWorker({ toFilled: fallbackFn });
+    const { worker } = createFallbackWorker(remote, fallback, 60_000, 1000);
 
-    const p = worker.toFilled('x', {});
+    const first = worker.toFilled('x', {});
     await vi.advanceTimersByTimeAsync(1000);
-    expect(await p).toBe('from-fallback');
-    // 初回から不達 = チャンク不達/ハンドシェイク不成立とみなし、remote を再試行しない。
+    expect(await first).toBe('from-fallback');
+    // 一度不達と判ったら 2 回目以降は remote を呼ばない(待ち時間を重ねない)。
     expect(await worker.toFilled('y', {})).toBe('from-fallback');
     expect(remoteFn).toHaveBeenCalledTimes(1);
+    expect(fallbackFn).toHaveBeenCalledTimes(2);
   });
 
-  it('成功実績のある Worker のタイムアウトは当該のみ fallback し、次回は remote へ復帰する', async () => {
+  // 一方、初回応答の**後**のタイムアウトは単に重いだけ。main でやり直すと同じ重処理を
+  // メインスレッドで走らせる増幅器になるので、fallback を呼ばず reject する。
+  it('初回応答後のタイムアウトは fallbackFn を呼ばず reject する', async () => {
     vi.useFakeTimers();
     let hang = false;
     const remoteFn = vi.fn(
       (): Promise<string> => (hang ? new Promise(() => {}) : Promise.resolve('from-remote')),
     );
     const remote = makeWorker({ toFilled: remoteFn });
-    const fallback = makeWorker({ toFilled: async () => 'from-fallback' });
-    const { worker } = createFallbackWorker(remote, fallback, 1000);
+    const fallbackFn = vi.fn(async () => 'from-fallback');
+    const fallback = makeWorker({ toFilled: fallbackFn });
+    const { worker } = createFallbackWorker(remote, fallback, 1000, 1000);
 
-    // 一度正常応答した後のタイムアウト = 単に重い処理。恒久化すると以降の全処理が
-    // main-thread 固定になり UI が固まり続けるため、当該呼び出しだけ救済する。
     expect(await worker.toFilled('a', {})).toBe('from-remote');
     hang = true;
-    const p = worker.toFilled('b', {});
+    const seen = worker.toFilled('b', {}).catch((e) => e);
     await vi.advanceTimersByTimeAsync(1000);
-    expect(await p).toBe('from-fallback');
+    const err = await seen;
+    expect(isAppError(err) && err.code).toBe('WORKER_TIMEOUT');
+    expect(fallbackFn).not.toHaveBeenCalled();
+  });
+
+  it('初回応答後のタイムアウトは Worker を壊れた扱いにしない(次回は remote を再試行)', async () => {
+    vi.useFakeTimers();
+    let hang = false;
+    const remoteFn = vi.fn(
+      (): Promise<string> => (hang ? new Promise(() => {}) : Promise.resolve('from-remote')),
+    );
+    const remote = makeWorker({ toFilled: remoteFn });
+    const fallbackFn = vi.fn(async () => 'from-fallback');
+    const fallback = makeWorker({ toFilled: fallbackFn });
+    const { worker } = createFallbackWorker(remote, fallback, 1000, 1000);
+
+    expect(await worker.toFilled('a', {})).toBe('from-remote');
+    hang = true;
+    const seen = worker.toFilled('b', {}).catch((e) => e);
+    await vi.advanceTimersByTimeAsync(1000);
+    await seen;
     hang = false;
     expect(await worker.toFilled('c', {})).toBe('from-remote');
-    expect(remoteFn).toHaveBeenCalledTimes(3);
+    expect(fallbackFn).not.toHaveBeenCalled();
   });
 
   it('成功実績があっても実行時エラーは従来どおり恒久フォールバックする', async () => {

@@ -155,8 +155,13 @@ export async function recordPartChange(
   await appendHistory('part', entry);
 }
 
-/** 指定版インスタンスの全パーツ履歴を返す(`partKey` 絞りは呼び出し側で行う)。 */
+/**
+ * 指定版インスタンスの全パーツ履歴を返す(`partKey` 絞りは呼び出し側で行う)。
+ *
+ * 絞り込みは `readHistory` へ渡す(後から `filter` しない)。`part.jsonl` は全テンプレ共用の
+ * 1 本なので、先に件数で打ち切ってから絞ると、他テンプレの編集が上限件数進むだけで当該
+ * テンプレの履歴が 0 件になり「履歴が消えた」ように見える。
+ */
 export async function listPartHistory(templateId: string): Promise<PartHistoryEntry[]> {
-  const all = await readHistory<PartHistoryEntry>('part');
-  return all.filter((e) => e.templateId === templateId);
+  return readHistory<PartHistoryEntry>('part', { where: (e) => e.templateId === templateId });
 }

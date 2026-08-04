@@ -13,11 +13,13 @@
 // (db を別ファイルに保つのは、テストの module モック境界とネイティブ依存の隔離のため)。
 // =============================================================================
 
+import fsp from 'node:fs/promises';
 import ExcelJS from 'exceljs';
 
 import { loadDbItems } from './db.js';
 import samplesData from '../../samples.json' with { type: 'json' };
 import type { Item, Samples } from '../types.js';
+import { MAX_JSON_BYTES, MAX_LABEL_CHARS, MAX_RANGE_ROWS, MAX_XLSX_BYTES } from '../limits.js';
 // ── 1. Excel(.xlsx) 入力 ────────────────────────────────────────────────────────────
 // 仕様: range は必ず 2 列固定 (左=name / 右=value)。ヘッダ行は範囲に含めない。空行はスキップ、
 // name 空欄・value 数値変換不可はエラー。
@@ -59,6 +61,13 @@ export function parseRange(rangeText: string): ParsedRange {
   if (endRow < startRow) [startRow, endRow] = [endRow, startRow];
   if (endCol - startCol !== 1) {
     throw new Error(`Range must span exactly 2 columns (left=name, right=value): "${rangeText}"`);
+  }
+  // 列幅だけを見て行数を見ていなかったため、`A1:B99999999` が素通りしていた。
+  if (endRow - startRow + 1 > MAX_RANGE_ROWS) {
+    throw new Error(
+      `Range spans ${endRow - startRow + 1} rows (limit ${MAX_RANGE_ROWS}): "${rangeText}". ` +
+        'Narrow the range, or raise the limit with PIE_MAX_RANGE_ROWS=<n>.',
+    );
   }
   return { startRow, endRow, nameCol: startCol, valueCol: endCol };
 }
@@ -113,6 +122,16 @@ async function loadXlsxItems({
   if (!sheet) throw new Error('sheet name is required.');
   if (!range) throw new Error('range is required (e.g. "A2:B11").');
 
+  // exceljs は zip 内の全エントリを無条件展開して JS 文字列へ載せる(必要判定は展開の後)
+  // ので、展開の**前**に掛けられる防御はファイルサイズだけ。展開後サイズは残余リスク
+  // (`limits.ts` の `MAX_XLSX_BYTES` の doc を参照)。
+  const stat = await fsp.stat(xlsxPath);
+  if (stat.size > MAX_XLSX_BYTES) {
+    throw new Error(
+      `xlsx file is ${stat.size} bytes (limit ${MAX_XLSX_BYTES}): "${xlsxPath}". ` +
+        'Raise the limit with PIE_MAX_XLSX_BYTES=<n> if this file is expected.',
+    );
+  }
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(xlsxPath);
   const ws = wb.getWorksheet(sheet);
@@ -122,9 +141,15 @@ async function loadXlsxItems({
   }
 
   const { startRow, endRow, nameCol, valueCol } = parseRange(range);
+  // `ws.getRow(r)` は存在しない行に対して新規 Row を生成して `_rows` へ格納するため、
+  // 実データ数行でも指定行数ぶんの Row/Cell が実体化する。`findRow` は生成せず undefined を
+  // 返す。加えて実データ最終行でクランプし、空振りのループ自体を短くする。
+  const lastRow = Math.max(ws.actualRowCount ?? 0, ws.rowCount ?? 0);
+  const scanEnd = lastRow > 0 ? Math.min(endRow, lastRow) : endRow;
   const items: Array<[string, number]> = [];
-  for (let r = startRow; r <= endRow; r += 1) {
-    const row = ws.getRow(r);
+  for (let r = startRow; r <= scanEnd; r += 1) {
+    const row = ws.findRow(r);
+    if (!row) continue;
     const name = cellAsText(row.getCell(nameCol));
     const valueCell = row.getCell(valueCol);
     const value = cellAsNumber(valueCell);
@@ -181,13 +206,23 @@ export function normalizeInputItems(rawItems: unknown): Item[] {
   if (!Array.isArray(rawItems)) {
     throw new Error('Input data must be an array.');
   }
+  // 幅計算(`visualMaxEm`)は 1 文字ずつ加算するループで、配置カスケードの内側から
+  // 何度も呼ばれる。切り詰めると出力が黙って変わるのでエラーにする(分類: 明示エラー)。
+  const checkName = (name: string): string => {
+    if (name.length > MAX_LABEL_CHARS)
+      throw new Error(
+        `Label is ${name.length} characters (limit ${MAX_LABEL_CHARS}). ` +
+          'Shorten it, or raise the limit with PIE_MAX_LABEL_CHARS=<n>.',
+      );
+    return name;
+  };
   return rawItems.map((item: unknown): Item => {
     if (Array.isArray(item) && item.length >= 2) {
-      return { name: String(item[0]), value: Number(item[1]) };
+      return { name: checkName(String(item[0])), value: Number(item[1]) };
     }
     if (typeof item === 'object' && item !== null && 'name' in item && 'value' in item) {
       const obj = item as { name: unknown; value: unknown };
-      return { name: String(obj.name), value: Number(obj.value) };
+      return { name: checkName(String(obj.name)), value: Number(obj.value) };
     }
     throw new Error('Each item must be {name, value} or [name, value].');
   });
@@ -208,6 +243,11 @@ export function resolveInputData({ sample, data, dataJson }: ResolveSyncOpts): I
     return normalizeInputItems(data);
   }
   if (dataJson) {
+    if (dataJson.length > MAX_JSON_BYTES)
+      throw new Error(
+        `dataJson is ${dataJson.length} characters (limit ${MAX_JSON_BYTES}). ` +
+          'Raise the limit with PIE_MAX_JSON_BYTES=<n> if this input is expected.',
+      );
     return normalizeInputItems(JSON.parse(dataJson));
   }
   throw new Error('Provide one of: sample, data, dataJson.');

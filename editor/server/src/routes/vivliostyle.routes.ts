@@ -16,7 +16,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
 import { actorFromReq, audit, auditedRethrow } from '../logger.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { BuildInlineRequest, BuildMergeRequest } from '../openapi/schemas.js';
 import {
@@ -103,7 +103,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/build/project — vivliostyle の project zip → PDF。
   app.post<{ Body: Buffer }>(
     apiPaths.buildProject,
-    { preHandler: requireAuth },
+    { preHandler: [requireAuth, requireEditor] },
     async (request, reply) => {
       const zip = request.body;
       const project = await extractProjectZip(zip);
@@ -167,60 +167,64 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // POST /api/preview — ライブプレビューを起動(inline JSON または project zip)。
-  app.post(apiPaths.preview, { preHandler: requireAuth }, async (request, reply) => {
-    let meta: Awaited<ReturnType<typeof previewManager.start>>;
-    if (Buffer.isBuffer(request.body)) {
-      const zip = request.body;
-      const project = await extractProjectZip(zip);
-      // `previewManager.start` は起動失敗時に `workDir` を掃除するが、その手前で弾く
-      // `entry` 検証は自分で後始末する(展開ディレクトリを残さない)。
-      let opts: ReturnType<typeof projectOptions>;
-      try {
-        opts = projectOptions(request, project.dir);
-      } catch (e) {
-        await cleanupProject(project.dir);
-        throw e;
+  app.post(
+    apiPaths.preview,
+    { preHandler: [requireAuth, requireEditor] },
+    async (request, reply) => {
+      let meta: Awaited<ReturnType<typeof previewManager.start>>;
+      if (Buffer.isBuffer(request.body)) {
+        const zip = request.body;
+        const project = await extractProjectZip(zip);
+        // `previewManager.start` は起動失敗時に `workDir` を掃除するが、その手前で弾く
+        // `entry` 検証は自分で後始末する(展開ディレクトリを残さない)。
+        let opts: ReturnType<typeof projectOptions>;
+        try {
+          opts = projectOptions(request, project.dir);
+        } catch (e) {
+          await cleanupProject(project.dir);
+          throw e;
+        }
+        meta = await previewManager.start(
+          {
+            mode: 'project',
+            config: project.config,
+            cwd: project.dir,
+            input: opts.entry,
+            size: opts.size,
+            singleDoc: opts.singleDoc,
+            workDir: project.dir,
+            docBase: project.docBase,
+          },
+          actorOf(request),
+        );
+      } else {
+        const parsed = BuildInlineRequest.safeParse(request.body);
+        if (!parsed.success) throw validation('リクエスト内容が不正です');
+        const { dir, entry } = await prepareInlineDoc(parsed.data);
+        meta = await previewManager.start(
+          {
+            mode: 'inline',
+            input: entry,
+            cwd: dir,
+            size: parsed.data.size,
+            singleDoc: parsed.data.singleDoc,
+            workDir: dir,
+            // inline は config を持たないので CLI 既定の base になる。
+            docBase: DEFAULT_DOC_BASE,
+          },
+          actorOf(request),
+        );
       }
-      meta = await previewManager.start(
-        {
-          mode: 'project',
-          config: project.config,
-          cwd: project.dir,
-          input: opts.entry,
-          size: opts.size,
-          singleDoc: opts.singleDoc,
-          workDir: project.dir,
-          docBase: project.docBase,
-        },
-        actorOf(request),
-      );
-    } else {
-      const parsed = BuildInlineRequest.safeParse(request.body);
-      if (!parsed.success) throw validation('リクエスト内容が不正です');
-      const { dir, entry } = await prepareInlineDoc(parsed.data);
-      meta = await previewManager.start(
-        {
-          mode: 'inline',
-          input: entry,
-          cwd: dir,
-          size: parsed.data.size,
-          singleDoc: parsed.data.singleDoc,
-          workDir: dir,
-          // inline は config を持たないので CLI 既定の base になる。
-          docBase: DEFAULT_DOC_BASE,
-        },
-        actorOf(request),
-      );
-    }
-    audit({
-      event: 'vivliostyle.preview.start',
-      outcome: 'success',
-      ...actorFromReq(request),
-      resource: { id: meta.id },
-      detail: { mode: meta.mode },
-    });
-    return reply.code(201).send(meta);
-  });
+      audit({
+        event: 'vivliostyle.preview.start',
+        outcome: 'success',
+        ...actorFromReq(request),
+        resource: { id: meta.id },
+        detail: { mode: meta.mode },
+      });
+      return reply.code(201).send(meta);
+    },
+  );
 
   // GET /api/preview/:id — セッションのメタデータ。
   app.get<{ Params: { id: string } }>(
@@ -237,7 +241,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   // DELETE /api/preview/:id — セッションを停止する。
   app.delete<{ Params: { id: string } }>(
     apiPaths.previewById,
-    { preHandler: requireAuth },
+    { preHandler: [requireAuth, requireEditor] },
     async (request, reply) => {
       const id = request.params.id;
       // 空振りは workDir も消さない(`stop` は cleanupProject まで行うため、素通しすると

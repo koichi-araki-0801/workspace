@@ -130,6 +130,10 @@ export async function buildFontFaceDefs(
     ({ mime, format } = sniffFontFormat(buf));
   }
 
+  // ここは属性ではなく **CDATA 内の CSS 宣言**で、XML エスケープは無力(`"` を閉じて `;` で
+  // 次の宣言へ移れる)。`embedFontFamilyName` と `fontWeight` が
+  // `createPieLayoutConfig` の `assertConfigValues` で許可リスト検証済みであることが唯一の
+  // 防御で、`]]>` もフォント名の許可リストが潰す(base64 のアルファベットに `]` `>` は無い)。
   const base64 = subsetBuf.toString('base64');
   const css = `@font-face{font-family:"${cfg.embedFontFamilyName}";font-weight:${cfg.fontWeight};font-style:normal;font-display:block;src:url(data:${mime};base64,${base64}) format("${format}");}`;
   const defs = `<defs><style type="text/css"><![CDATA[${css}]]></style></defs>`;

@@ -17,7 +17,7 @@ import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import staticPlugin from '@fastify/static';
 import Fastify, { type FastifyHttpOptions } from 'fastify';
-import { invalidateAllSessions } from './auth/session.js';
+import { invalidateAllSessions, purgeExpiredSessions } from './auth/session.js';
 import {
   buildCspDirectives,
   config,
@@ -34,6 +34,7 @@ import { historyRoutes } from './routes/history.routes.js';
 import { notesRoutes } from './routes/notes.routes.js';
 import { partsRoutes } from './routes/parts.routes.js';
 import { reviewsRoutes } from './routes/reviews.routes.js';
+import { assertRoutePolicy } from './routes/routeGuards.js';
 import { templatesRoutes } from './routes/templates.routes.js';
 import { usersRoutes } from './routes/users.routes.js';
 import { vivliostyleRoutes } from './routes/vivliostyle.routes.js';
@@ -72,6 +73,12 @@ const app = Fastify(serverOptions);
 
 // `requireAuth` が解決して埋めるユーザ。型は `middleware/auth.ts` の module augmentation を参照。
 app.decorateRequest('user', undefined);
+
+// ルートごとの必要ロールの網羅検査。**API ルートの register より前**に張る必要がある
+// (`onRoute` は張った後の登録しか見ないため、後ろに置くと検査漏れが静かに生まれる)。
+// 新しいルートを足したら `routes/routeGuards.ts` の `ROUTE_POLICY` を更新すること。
+// 忘れるとここで起動が落ちる = 付け忘れが本番まで届かない。
+app.addHook('onRoute', assertRoutePolicy);
 
 // 未認証のアップロードを body 解析の前に切る認証ゲート。Fastify のライフサイクルは
 // onRequest → parsing → preHandler の順で、zip パーサ(下)もルート単位の `bodyLimit` 引き上げも
@@ -218,6 +225,17 @@ if (config.requireAuth) {
       '[server] 起動時の全セッション失効に失敗 — 旧セッションが残存する恐れ',
     );
   }
+  // 失効は論理フラグなので行は消えない。起動時と 6 時間ごとに保持期間切れを物理削除する。
+  // `unref` でこのタイマーがプロセスを生かし続けないようにする。
+  const purge = async (): Promise<void> => {
+    try {
+      await purgeExpiredSessions();
+    } catch (e) {
+      logger.warn({ err: e }, '[server] 期限切れセッションの掃除に失敗しました');
+    }
+  };
+  await purge();
+  setInterval(() => void purge(), 6 * 3_600_000).unref();
 }
 
 // listen。host は既定 127.0.0.1(同一マシン限定・従来挙動)で、社内 LAN へ公開するときだけ

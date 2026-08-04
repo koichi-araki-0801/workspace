@@ -4,8 +4,12 @@
 import type { SampleData } from '@editor/shared';
 import nunjucks from 'nunjucks';
 import { formatCss, formatHtml } from './formatOutput';
-import { sanitizeStyleContent } from './sanitizeCss';
-import { sanitizePreviewHtml } from './sanitizeHtml';
+import {
+  appendPreviewStyle,
+  sanitizePreviewRoot,
+  serializePreviewRoot,
+  stripExternalRefs,
+} from './sanitizeHtml';
 
 /**
  * 生 Jinja2 テンプレートを sample data でブラウザ上に Nunjucks (Jinja2 互換)で
@@ -31,26 +35,37 @@ export function renderJinja(template: string, data: SampleData): RenderResult {
 
 /**
  * 描画済み HTML(nunjucks 適用後)を自己完結なプレビュー文書へ組み立てる: サニタイズし,
- * 外部 `<link>` を除去して CSS を inline 化する。重い `renderJinja` を含まないので,
- * Worker から受け取った描画済み HTML をメインで組み立てる用途に使える(描画は Worker,
- * 組み立てはメイン、という分割のためのシーム)。
+ * CSS を inline 化する。重い `renderJinja` を含まないので, Worker から受け取った描画済み
+ * HTML をメインで組み立てる用途に使える(描画は Worker, 組み立てはメイン、という分割の
+ * ためのシーム)。
+ *
+ * 加工はすべて**パース済み DOM の上**で行い、文字列に戻すのは最後の 1 回だけ
+ * (`sanitizeHtml.ts` 冒頭の不変則)。以前はサニタイズ済み文字列へ `<link…>` 除去と
+ * `</head>` アンカー挿入を正規表現で当てていたが、属性値に置いた `<link rel=stylesheet>` や
+ * `</head>` の字面にマッチして要素のタグ終端まで食い、直後のテキストが `on*` 属性として
+ * 復活した。**ここへアンカー探索や部分除去を戻してはならない。**
+ *
+ * `opts.extraCss` は本文 CSS の後ろへもう 1 枚 `<style>` を足す(トンボ等、アプリ定数の CSS
+ * 用)。後勝ちにするため本文 CSS より後に挿す。
  */
-export function assemblePreviewDocument(renderedHtml: string, css: string): string {
-  // 本体 document に直接描画される前に能動コンテンツ(`<script>`/`on*`/`javascript:`)を除去する
-  // (保存型 XSS 対策)。この後で注入する自前 `<style data-preview-css>` はサニタイズ対象外＝
-  // そのまま残す(信頼できる inline CSS のため)。サニタイズ前に行う理由でもある。
-  // Jinja 解決済みの純 HTML/CSS なので整形は安全。プレビュー/PDF 入力を読める形にする。
-  const safe = formatHtml(sanitizePreviewHtml(renderedHtml));
-
-  // 外部 stylesheet `<link>`(例: `<link rel="stylesheet" href="css/110024.css">`)を除去する。
-  // CSS は直後に inline 化するため不要で, 残すと viewer が Blob 相対 URL で解決して 404 になり,
-  // `@vivliostyle/core` のフェッチャがページ分割を中断してしまう(プレビューが 1 ページに崩れる)。
-  const cleaned = safe.replace(/<link\b[^>]*\brel=["']?stylesheet["']?[^>]*>/gi, '');
-  // CSS は DOMPurify を通らないため、`</style>` による脱出をここで潰す(`sanitizeCss.ts`)。
-  const styleTag = `<style data-preview-css>\n${sanitizeStyleContent(formatCss(css))}\n</style>`;
-  if (/<\/head>/i.test(cleaned)) return cleaned.replace(/<\/head>/i, `${styleTag}</head>`);
-  if (/<body[^>]*>/i.test(cleaned)) return cleaned.replace(/<body([^>]*)>/i, `<body$1>${styleTag}`);
-  return `<!doctype html><html><head><meta charset="utf-8" />${styleTag}</head><body>${cleaned}</body></html>`;
+export function assemblePreviewDocument(
+  renderedHtml: string,
+  css: string,
+  opts?: { extraCss?: string },
+): string {
+  // 整形はサニタイズの**前**。最終バイトを決めるのは HTML 仕様のパーサ(DOMPurify 内蔵)で
+  // なければならず、js-beautify を後段に置くと保証がそこで途切れる。Jinja 解決済みの純
+  // HTML なので整形は安全 — プレビュー/PDF 入力を読める形にする。
+  const root = sanitizePreviewRoot(formatHtml(renderedHtml));
+  // 外部 stylesheet `<link>`(例: `<link rel="stylesheet" href="css/110024.css">`)は
+  // サニタイザの許可リストが既に落としている。CSS は直後に inline 化するため不要で, 残ると
+  // viewer が Blob 相対 URL で解決して 404 になり `@vivliostyle/core` のフェッチャが
+  // ページ分割を中断する。ここは構造の上での二重化(版差と非サニタイズ経路の保険)。
+  stripExternalRefs(root);
+  // CSS は DOMPurify を通らないため `</style>` 脱出は `appendPreviewStyle` の中で潰す。
+  appendPreviewStyle(root, formatCss(css), { 'data-preview-css': '' });
+  if (opts?.extraCss) appendPreviewStyle(root, opts.extraCss, { 'data-extra-css': '' });
+  return serializePreviewRoot(root);
 }
 
 /**

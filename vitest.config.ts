@@ -27,6 +27,7 @@ export default defineConfig({
         'editor/shared/src/domain/template.ts',
         'editor/shared/src/domain/user.ts',
         'editor/shared/src/domain/history.ts',
+        'editor/shared/src/security/cssExternalRefs.ts',
         // editor/server (vivliostyle は pure layer のみ。build.ts 等は browser+socket 依存で対象外)
         'editor/server/src/auth/password.ts',
         'editor/server/src/auth/loginRateLimit.ts',
@@ -37,6 +38,13 @@ export default defineConfig({
         'editor/server/src/repositories/templateMeta.ts',
         'editor/server/src/files/pendingFiles.ts',
         'editor/server/src/vivliostyle/projectConfig.ts',
+        // 段階 2 の新設層。認可テーブル・資格情報の正規化・応答時間フロアは、
+        // 迂回されると認証全体が骨抜きになるため閾値の対象へ入れる。
+        'editor/server/src/auth/loginId.ts',
+        'editor/server/src/auth/timing.ts',
+        'editor/server/src/routes/routeGuards.ts',
+        'editor/server/src/middleware/auth.ts',
+        'editor/server/src/security/externalRefs.ts',
         'editor/server/src/git/gitRepo.ts',
         'editor/server/src/openapi/docsRoutes.ts',
         'editor/server/src/vivliostyle/previewProxy.ts',
@@ -107,6 +115,8 @@ export default defineConfig({
         'pie-chart/src/config.ts',
         'pie-chart/src/glyph_advance.ts',
         'pie-chart/src/data.ts',
+        'pie-chart/src/limits.ts',
+        'pie-chart/src/svg_export/values.ts',
         // graph-editor (ui.html と共有する純粋関数のみ)
         'graph-editor/resources/web/lib/leader_geom.cjs',
         // 未信頼 SVG の許可リスト。denylist へ退行すると読み込み即実行に戻るため閾値で守る。
@@ -115,8 +125,9 @@ export default defineConfig({
         'pie-chart/src/runtime/seaRuntime.ts',
         'pie-chart/src/runtime/subsetFontFs.ts',
       ],
-      // auth.ts はフェーズ2(DBセッション/SQL Server依存)で未テスト・未デプロイのため対象外。
-      exclude: ['editor/server/src/middleware/auth.ts'],
+      // 2026-08-05: `middleware/auth.ts` の exclude を解除した。viewer ロール強制と
+      // `要パスワード変更` の関門がここに集約されたため、閾値の外へ置くと退行を検出できない。
+      exclude: [],
       thresholds: {
         statements: 85,
         branches: 85,

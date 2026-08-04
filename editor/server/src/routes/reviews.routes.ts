@@ -8,7 +8,7 @@ import { apiPaths } from '@editor/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import { auditedRethrow } from '../logger.js';
-import { requireApprover, requireAuth } from '../middleware/auth.js';
+import { requireApprover, requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
 import { ReviewDecisionBody, ReviewListQuery, SubmitReviewBody } from '../openapi/schemas.js';
 import * as reviews from '../repositories/reviewRepo.js';
@@ -25,7 +25,7 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
   // 申請を作成(pending)。実ファイルは更新しない。
   app.post<{ Body: z.infer<typeof SubmitReviewBody> }>(
     apiPaths.reviewRequests,
-    { preHandler: [requireAuth, validate(SubmitReviewBody)] },
+    { preHandler: [requireAuth, requireEditor, validate(SubmitReviewBody)] },
     async (request) => {
       const body = request.body;
       return auditedRethrow(

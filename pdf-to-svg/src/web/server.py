@@ -24,6 +24,12 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from web import loader, origin_guard, rpc_methods
 from web.rpc_methods import WebSession
 
+# 受け付けるリクエスト本文の上限。`ThreadingHTTPServer` はスレッド数上限を持たないため、
+# 巨大な Content-Length を申告してゆっくり送るだけでスレッドとメモリを長時間占有できる。
+# 申告値がこれを超えたら**本文を読まずに** 413 を返す (読んでから捨てるのは DoS を防がない)。
+MAX_UPLOAD_BYTES = 64 * 1024 * 1024
+MAX_RPC_BYTES = 8 * 1024 * 1024
+
 # 静的配信を許す拡張子と MIME (旧 `scheme.py` の `_MIME` を踏襲)。
 _MIME = {
     ".html": "text/html; charset=utf-8",
@@ -119,9 +125,22 @@ class Handler(origin_guard.GuardedHTTPRequestHandler):
         else:
             self._send(404, b"not found")
 
-    def _read_body(self) -> bytes:
-        """Content-Length 分を確実に読み切る (大きな PDF での短絡読み防止)。"""
-        n = int(self.headers.get("Content-Length") or 0)
+    def _read_body(self, limit: int) -> "bytes | None":
+        """Content-Length 分を確実に読み切る (大きな PDF での短絡読み防止)。
+
+        申告値が `limit` を超えていたら**本文を読まずに** None を返す。読んでから捨てる
+        のは DoS を防がない (受け取らないのが最も安い)。呼び出し側は 413 を返して
+        `close_connection` を立てること — 読み切らずに応答すると keep-alive が壊れる。
+        """
+        raw = self.headers.get("Content-Length")
+        if raw is None:
+            return b""
+        try:
+            n = int(raw)
+        except ValueError:
+            return None
+        if n < 0 or n > limit:
+            return None
         buf = bytearray()
         while len(buf) < n:
             chunk = self.rfile.read(n - len(buf))
@@ -130,9 +149,18 @@ class Handler(origin_guard.GuardedHTTPRequestHandler):
             buf.extend(chunk)
         return bytes(buf)
 
+    def _too_large(self, limit: int) -> None:
+        self.close_connection = True
+        self._send_json({"ok": False, "error": f"request body too large (limit {limit} bytes)"},
+                        413)
+
     def _handle_rpc(self):
+        body = self._read_body(MAX_RPC_BYTES)
+        if body is None:
+            self._too_large(MAX_RPC_BYTES)
+            return
         try:
-            req = json.loads(self._read_body() or b"{}")
+            req = json.loads(body or b"{}")
             method = req.get("method")
             args = req.get("args") or {}
         except (json.JSONDecodeError, AttributeError) as exc:
@@ -151,16 +179,23 @@ class Handler(origin_guard.GuardedHTTPRequestHandler):
     def _handle_upload(self):
         qs = parse_qs(urlsplit(self.path).query)
         name = unquote((qs.get("name") or ["document.pdf"])[0])
-        data = self._read_body()
+        data = self._read_body(MAX_UPLOAD_BYTES)
+        if data is None:
+            self._too_large(MAX_UPLOAD_BYTES)
+            return
         try:
             session = self.server.session
-            with self.server.lock:
-                # 新規読み込みは編集履歴をリセットする (アップロードは履歴を積まない)。
-                # 辞書はここでは適用しない: 適用は再適用ボタンからの明示操作のみとし、
-                # 必ず Undo 可能な経路 (reapplyDict/Page の Command マクロ) に一本化する。
-                session.undo.clear()
+            # 解析は**ロックの外**で行う。構築中の Document はまだ誰からも見えない純ローカル
+            # 値なので共有状態を触らず、その間 `/rpc` が応答できる (以前は解析の間ずっと
+            # アプリ全体が無反応だった)。アップロード同士は `upload_lock` で直列化する。
+            with self.server.upload_lock:
                 doc = loader.load_document_bytes(name, data)
-                session.docs.append(doc)
+                with self.server.lock:
+                    # 履歴のリセットは解析が成功してから。以前は解析の**前**にクリアして
+                    # いたため、読み込みに失敗すると「読めなかったのに Undo 履歴だけ
+                    # 消えている」状態になっていた。
+                    session.undo.clear()
+                    session.docs.append(doc)
         except Exception as exc:  # noqa: BLE001
             self._send_json({"ok": False, "error": str(exc)})
         else:
@@ -177,6 +212,9 @@ def create_server(web_root: str, session: WebSession,
     server.web_root = os.path.abspath(web_root)
     server.session = session
     server.lock = threading.Lock()
+    # アップロードの直列化用。`lock`(共有状態の保護)とは別に持つことで、巨大 PDF の
+    # 解析中も `/rpc` が応答しつつ、アップロードだけは並列に積み上がらない。
+    server.upload_lock = threading.Lock()
     server.quit_event = threading.Event()
     server.last_seen = time.monotonic()
     origin_guard.configure_guard(server, server.server_address[1])

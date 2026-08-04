@@ -4,7 +4,7 @@
 import { apiPaths, type PartClassificationQuery } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { RecordPartChangeRequest } from '../openapi/schemas.js';
 import * as history from '../repositories/historyRepo.js';
@@ -44,7 +44,7 @@ export async function partsRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<PartHistoryParams & { Body: z.infer<typeof RecordPartChangeRequest> }>(
     apiPaths.partHistory,
-    { preHandler: [requireAuth, validate(RecordPartChangeRequest)] },
+    { preHandler: [requireAuth, requireEditor, validate(RecordPartChangeRequest)] },
     async (request, reply) => {
       const body = request.body;
       await history.recordPartChange(

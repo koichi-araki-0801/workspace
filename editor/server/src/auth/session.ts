@@ -55,20 +55,40 @@ export async function invalidateAllSessions(): Promise<void> {
   await callSproc(SP.session, '全失効', []);
 }
 
-/** リクエストの Cookie ヘッダを name→value マップへ解析する(cookie-parser 依存なし)。 */
-function parseCookies(header: string | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!header) return out;
-  for (const part of header.split(';')) {
+/** セッション id の形。`randomBytes(32).toString('hex')` = 64 桁の小文字 hex に限る。 */
+const SESSION_ID_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * リクエストのクッキーヘッダからセッション id を読み取る。
+ *
+ * 以前は Cookie ヘッダの**全**エントリへ `decodeURIComponent` を try/catch 無しで掛けて
+ * いた。`x=%` のような壊れた値が 1 個混ざるだけで URIError が飛び、editor と無関係な
+ * cookie でも全 API が 500 になった(401 ですらない)。セッション id は hex なので
+ * パーセントエスケープを解く必要が最初から無く、**目的の名前だけを取り出して decode
+ * しない**形にすれば経路ごと消える。
+ *
+ * 形が合わない値は DB 往復の前に捨てる。ゴミ id での sproc 呼び出しを無くすと同時に、
+ * 「解析できる cookie / できない cookie」で挙動が割れる面も無くなる。
+ */
+export function sessionIdFrom(cookieHeader: string | undefined): string | undefined {
+  if (!cookieHeader) return undefined;
+  const name = config.auth.cookieName;
+  for (const part of cookieHeader.split(';')) {
     const eq = part.indexOf('=');
     if (eq < 0) continue;
-    const k = part.slice(0, eq).trim();
-    if (k) out[k] = decodeURIComponent(part.slice(eq + 1).trim());
+    if (part.slice(0, eq).trim() !== name) continue;
+    const value = part.slice(eq + 1).trim();
+    return SESSION_ID_RE.test(value) ? value : undefined;
   }
-  return out;
+  return undefined;
 }
 
-/** リクエストのクッキーヘッダからセッション id を読み取る。 */
-export function sessionIdFrom(cookieHeader: string | undefined): string | undefined {
-  return parseCookies(cookieHeader)[config.auth.cookieName];
+/**
+ * 期限切れ・失効済みのセッション行を物理削除する。`失効` / `全失効` は論理フラグを
+ * 立てるだけなので、行はログインのたびに単調増加していた。起動時と定期実行で回す。
+ * 削除の境界は「有効期限が保持日数ぶん過去」— `有効期限 < now` にすると、期限内の
+ * 行まで巻き込む書き方に一歩で退行しうる(全員が突然ログアウトする可用性事故)。
+ */
+export async function purgeExpiredSessions(retentionDays = 7): Promise<void> {
+  await callSproc(SP.session, '掃除', [p('保持日数', retentionDays)]);
 }

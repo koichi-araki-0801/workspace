@@ -2,8 +2,10 @@
 // auth.ts — 認証 / 認可ミドルウェア(phase 2, Fastify preHandler フック)
 // =============================================================================
 // `requireAuth` はセッション cookie → DB セッション → `request.user` を解決する(無ければ 401)。
-// `requireAdmin` はさらに admin ロールを強制する(403 = forbidden)。preHandler 配列の順に
-// 実行されるので `[requireAuth, requireAdmin]` の順で適用する。
+// `requireEditor` / `requireApprover` / `requireAdmin` はさらにロールを強制する
+// (403 = forbidden)。preHandler 配列の順に実行されるので `[requireAuth, requireAdmin]` の
+// 順で適用する。どのルートにどれを付けるかの正典は `routes/routeGuards.ts` の `ROUTE_POLICY`
+// で、表と実際のガードの食い違いはサーバ起動時に落ちる。
 // 公開ルート(login / health)はこれらをスキップする。OpenAPI の
 // `security: []` 指定(`document.ts`)と対応する。
 // `要パスワード変更` の強制もここで行う。SPA のルータガードだけに任せていた頃は、API を
@@ -49,9 +51,21 @@ function isPasswordChangeAllowed(request: FastifyRequest): boolean {
   return PASSWORD_CHANGE_ALLOWED_PATHS.some((p) => url === p || url.endsWith(p));
 }
 
+/**
+ * ロールの許可集合。**許可リストで書く**(`viewer` を名指しで拒む denylist にしない) —
+ * 将来ロールが増えたときに既定で通ってしまう形を避けるため。未知のロール文字列は
+ * どの集合にも属さないので自動的に 403 になる。
+ */
+const EDITOR_ROLES: readonly string[] = ['editor', 'approver', 'admin'];
+const APPROVER_ROLES: readonly string[] = ['approver', 'admin'];
+const ADMIN_ROLES: readonly string[] = ['admin'];
+
 export async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
   // ローカルモード(DB/セッション無し)ではデータ系ルートを開放する。web は
   // localStorage を使い呼び出さないため。PDF/generate はそのまま動く。
+  // ⚠ この素通しは**データ系ルートに限る**意図的な設計である。資格情報を書き換える
+  // ルート(パスワード変更)はこの区分に属さないので、`requireIdentifiedUser` を重ねて
+  // 設定値に依存しない施錠を掛けること。
   if (!config.requireAuth) return;
   const user = await loadUser(request);
   if (!user) throw unauthorized('ログインが必要です');
@@ -64,11 +78,42 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
   request.user = user;
 }
 
+/**
+ * `config.requireAuth` を**参照しない**唯一のガード。ローカルモードでも 401 にする。
+ *
+ * 資格情報を書き換えるルート(パスワード変更)の本人確認は、以前
+ * `if (request.user && request.user.username !== body.username)` の形で書かれていた。
+ * `requireAuth` はローカルモードで `request.user` を埋めないまま素通りするため、
+ * `AUTH_REQUIRED` が false の配備ではこの条件式ごと消え、未認証で任意アカウントの
+ * パスワードを書き換えられた。**ガードの発火条件を設定値に従属させない**のがここの仕様で、
+ * ローカルモードにサーバ側アカウントは存在しないのだから 401 が正しい応答である。
+ */
+export async function requireIdentifiedUser(
+  request: FastifyRequest,
+  _reply: FastifyReply,
+): Promise<void> {
+  if (!request.user) throw unauthorized('ログインが必要です');
+}
+
 /** `requireAuth` の後に実行する前提。admin ロールを強制する。 */
 export async function requireAdmin(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
   if (!config.requireAuth) return;
   if (!request.user) throw unauthorized('ログインが必要です');
-  if (request.user.role !== 'admin') throw forbidden('管理者権限が必要です');
+  if (!ADMIN_ROLES.includes(request.user.role)) throw forbidden('管理者権限が必要です');
+}
+
+/**
+ * `requireAuth` の後に実行する前提。編集者以上(`editor` / `approver` / `admin`)を強制する。
+ *
+ * `viewer` は**閲覧のみ**のロールで、以前は台帳(`ユーザー.ロール`)の上にしか存在せず、
+ * 下書き上書き・削除・メモ書き・履歴追記・承認申請の投入まで全部通れた。変更系ルートは
+ * 必ずこのガードを通すこと。適用の網羅は `routes/routeGuards.ts` の `ROUTE_POLICY` が
+ * 正典で、表に無いルートはサーバ起動時に落ちる(付け忘れが本番まで届かない)。
+ */
+export async function requireEditor(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
+  if (!config.requireAuth) return;
+  if (!request.user) throw unauthorized('ログインが必要です');
+  if (!EDITOR_ROLES.includes(request.user.role)) throw forbidden('編集者権限が必要です');
 }
 
 /**
@@ -82,6 +127,5 @@ export async function requireApprover(
 ): Promise<void> {
   if (!config.requireAuth) return;
   if (!request.user) throw unauthorized('ログインが必要です');
-  if (request.user.role !== 'approver' && request.user.role !== 'admin')
-    throw forbidden('精査者(承認者)権限が必要です');
+  if (!APPROVER_ROLES.includes(request.user.role)) throw forbidden('精査者(承認者)権限が必要です');
 }

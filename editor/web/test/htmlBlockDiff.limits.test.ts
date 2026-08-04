@@ -18,9 +18,11 @@ import {
   HL_DEL,
   HL_INS,
   hasCoarseDiff,
+  MAX_COMPLEX_SELECTORS,
   MAX_LCS_CELLS,
   MAX_LCS_DIM,
   MAX_LCS_TOTAL_CELLS,
+  MAX_TOP_LEVEL_BLOCKS,
 } from '@/features/compare/htmlBlockDiff';
 
 /** 全トークンが互いに異なる長さ `len` の列(共通 prefix トリムが効かない最悪形)。 */
@@ -174,5 +176,111 @@ describe('hasCoarseDiff(承認画面の行判定)', () => {
 
   it('簡易表示の塊は iframe 内でも見分けが付く(CSS 規則がある)', () => {
     expect(diffHighlightCss(14)).toContain(`.${HL_COARSE}{`);
+  });
+});
+
+// =============================================================================
+// ページ分割側の上限(R23 / R24)
+// =============================================================================
+// 承認画面のページ分割は、申請者が書いた CSS と HTML の両方を無加工で受け取る。
+// 旧実装は ① CSS ルール抽出の正規表現 `/([^{}]+)\{([^{}]*)\}/g` が波括弧を含まない入力で
+// 二次(実測 160KB=13 秒)、② セレクタ照合が「直下要素数 x セレクタ数」の総当たりで
+// linkedom がコール毎にセレクタをコンパイル(B=S=20,000 で数百〜数千秒)だった。
+// **迂回入力で二次にならないこと**を比で主張する(絶対時間はマシン差に弱い)。
+
+/** 実行時間を測る(比で主張するので絶対値は使わない)。 */
+function measure(fn: () => void): number {
+  const t0 = performance.now();
+  fn();
+  return performance.now() - t0;
+}
+
+describe('ページ分割の資源上限(R23 / R24)', () => {
+  it('上限を定数として固定する', () => {
+    expect(MAX_COMPLEX_SELECTORS).toBe(32);
+    expect(MAX_TOP_LEVEL_BLOCKS).toBe(5_000);
+  });
+
+  it('波括弧を含まない長大 CSS で線形に収まる(旧実装は二次)', () => {
+    const css = (k: number) => `${'a'.repeat(k)}`;
+    const t1 = measure(() => buildHtmlDiff(doc('<p>x</p>'), doc('<p>y</p>'), css(20_000)));
+    const t4 = measure(() => buildHtmlDiff(doc('<p>x</p>'), doc('<p>y</p>'), css(80_000)));
+    // 二次なら長さ 4 倍で約 16 倍。線形なら約 4 倍。
+    expect(t4).toBeLessThan(Math.max(t1, 1) * 8);
+  });
+
+  // 単体実行では 0.5 秒前後で終わるが、フルスイートは 100 本超のテストファイルを並列に
+  // 走らせるため CPU 競合で数倍に伸びる。既定 5 秒のままだと「実装が線形か」ではなく
+  // 「その時のマシン負荷」を測ることになるので、重い 2 本には明示タイムアウトを与える。
+  // 上限そのものは緩めない — 旧実装(二次)は同じ入力で数百〜数千秒かかる。
+  const HEAVY_TIMEOUT_MS = 120_000;
+
+  it(
+    'セレクタ数 x 直下要素数を増やしても二次にならない',
+    () => {
+      // 単純セレクタは集合照合へ落ちるので、S が増えても照合コストは O(B) のまま。
+      const rules = Array.from(
+        { length: 2_000 },
+        (_, i) => `.c${i} { page-break-after: always }`,
+      ).join('\n');
+      const blocks = Array.from({ length: 2_000 }, (_, i) => `<div class="c${i}">x</div>`).join('');
+      const t = measure(() => buildHtmlDiff(doc(blocks), doc(blocks), rules));
+      expect(t).toBeLessThan(30_000);
+    },
+    HEAVY_TIMEOUT_MS,
+  );
+
+  it('複合セレクタが上限を超えても差分は必ず出る(degrade であって停止ではない)', () => {
+    const rules = Array.from(
+      { length: MAX_COMPLEX_SELECTORS + 50 },
+      (_, i) => `div > .x${i}:not(.y) { page-break-after: always }`,
+    ).join('\n');
+    const res = buildHtmlDiff(doc('<p>a</p>'), doc('<p>b</p>'), rules);
+    expect(res.pages.length).toBeGreaterThan(0);
+  });
+
+  it(
+    '直下要素が上限を超えても例外にならず差分が出る',
+    () => {
+      const blocks = Array.from({ length: MAX_TOP_LEVEL_BLOCKS + 100 }, () => '<p>x</p>').join('');
+      const res = buildHtmlDiff(doc(blocks), doc(blocks));
+      expect(res.pages.length).toBeGreaterThan(0);
+    },
+    HEAVY_TIMEOUT_MS,
+  );
+
+  it('単純セレクタによる改ページは従来どおり効く(回帰)', () => {
+    const css = '.page { page-break-after: always }';
+    const body = '<div class="page">1</div><div class="page">2</div><div>3</div>';
+    const res = buildHtmlDiff(doc(body), doc(body), css);
+    expect(res.pages).toHaveLength(3);
+  });
+
+  // 旧実装(二次の正規表現 `/([^{}]+)\{([^{}]*)\}/g`)は `@media` の中の規則も拾っていた。
+  // 条件付きグループ規則を読み飛ばすと承認画面のページ対応が変わる = 差分の正しさが変わる。
+  it('条件付きグループ規則(@media / @supports / @layer)の中の改ページを拾う', () => {
+    const body = '<div class="page">1</div><div class="page">2</div>';
+    for (const css of [
+      '@media print { .page { page-break-after: always } }',
+      '@supports (display: grid) { .page { page-break-after: always } }',
+      '@layer print { .page { page-break-after: always } }',
+    ]) {
+      expect(buildHtmlDiff(doc(body), doc(body), css).pages, css).toHaveLength(2);
+    }
+  });
+
+  // グループ規則の後ろに続く通常規則の prelude が閉じ `}` を巻き込むと `el.matches()` が
+  // 壊れたセレクタを受け取る。カーソルは前進したまま prelude だけ切り直すのが正。
+  it('グループ規則の直後に置いた通常規則も正しく拾う', () => {
+    const css = '@media print { .x { color: red } } .page { page-break-after: always }';
+    const body = '<div class="page">1</div><div class="page">2</div>';
+    expect(buildHtmlDiff(doc(body), doc(body), css).pages).toHaveLength(2);
+  });
+
+  // 中身が宣言/マージンボックスだけの at-rule は従来どおりブロックごと飛ばす。
+  it('@page / @keyframes の中は走査しない', () => {
+    const css = '@page { size: A4; @bottom-center { content: counter(page) } }';
+    const body = '<div class="page">1</div><div class="page">2</div>';
+    expect(buildHtmlDiff(doc(body), doc(body), css).pages).toHaveLength(1);
   });
 });

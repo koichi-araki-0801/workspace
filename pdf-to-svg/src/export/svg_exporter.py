@@ -19,6 +19,7 @@ from model.elements import (
     Rect,
     RectElement,
     TextElement,
+    sanitize_color,
     sanitize_text,
 )
 
@@ -44,11 +45,19 @@ def page_to_svg(page: Page, *, annotate: bool = False) -> str:
     rect = page.export_rect()
     lines: List[str] = []
     lines.append('<?xml version="1.0" encoding="UTF-8"?>')
+    viewbox = f"{_fmt(rect.x)} {_fmt(rect.y)} {_fmt(rect.w)} {_fmt(rect.h)}"
     lines.append(
-        f'<svg xmlns="http://www.w3.org/2000/svg" '
-        f'xmlns:xlink="http://www.w3.org/1999/xlink" '
-        f'width="{_fmt(rect.w)}" height="{_fmt(rect.h)}" '
-        f'viewBox="{_fmt(rect.x)} {_fmt(rect.y)} {_fmt(rect.w)} {_fmt(rect.h)}">'
+        "<svg "
+        + _attr("xmlns", "http://www.w3.org/2000/svg")
+        + " "
+        + _attr("xmlns:xlink", "http://www.w3.org/1999/xlink")
+        + " "
+        + _attr("width", _fmt(rect.w))
+        + " "
+        + _attr("height", _fmt(rect.h))
+        + " "
+        + _attr("viewBox", viewbox)
+        + ">"
     )
 
     # スキャン背景
@@ -84,7 +93,7 @@ def _with_data_el(svg: str, el_id: int) -> str:
     sp = svg.find(" ")
     if sp < 0:
         return svg
-    return f'{svg[:sp]} data-el="{el_id}"{svg[sp:]}'
+    return f"{svg[:sp]} {_attr('data-el', el_id)}{svg[sp:]}"
 
 
 def _intersects_export(bbox: Rect, export: Rect) -> bool:
@@ -99,43 +108,89 @@ def _element_to_svg(el) -> str:
         return _text_to_svg(el)
     if isinstance(el, LineElement):
         return (
-            f'<line x1="{_fmt(el.x0)}" y1="{_fmt(el.y0)}" '
-            f'x2="{_fmt(el.x1)}" y2="{_fmt(el.y1)}" '
-            f'stroke="{el.color}" stroke-width="{_fmt(el.width)}"/>'
+            "<line "
+            + _attr("x1", _fmt(el.x0))
+            + " "
+            + _attr("y1", _fmt(el.y0))
+            + " "
+            + _attr("x2", _fmt(el.x1))
+            + " "
+            + _attr("y2", _fmt(el.y1))
+            + " "
+            + _attr("stroke", sanitize_color(el.color))
+            + " "
+            + _attr("stroke-width", _fmt(el.width))
+            + "/>"
         )
     if isinstance(el, RectElement):
         return (
-            f'<rect x="{_fmt(el.rect.x)}" y="{_fmt(el.rect.y)}" '
-            f'width="{_fmt(el.rect.w)}" height="{_fmt(el.rect.h)}" '
-            f'{_paint("fill", el.fill)} {_paint("stroke", el.stroke)} '
-            f'stroke-width="{_fmt(el.stroke_width)}"/>'
+            "<rect "
+            + _attr("x", _fmt(el.rect.x))
+            + " "
+            + _attr("y", _fmt(el.rect.y))
+            + " "
+            + _attr("width", _fmt(el.rect.w))
+            + " "
+            + _attr("height", _fmt(el.rect.h))
+            + " "
+            + _paint("fill", el.fill)
+            + " "
+            + _paint("stroke", el.stroke)
+            + " "
+            + _attr("stroke-width", _fmt(el.stroke_width))
+            + "/>"
         )
     if isinstance(el, PathElement):
         return (
-            f'<path d={quoteattr(el.d)} '
-            f'{_paint("fill", el.fill)} {_paint("stroke", el.stroke)} '
-            f'stroke-width="{_fmt(el.stroke_width)}"/>'
+            "<path "
+            + _attr("d", el.d)
+            + " "
+            + _paint("fill", el.fill)
+            + " "
+            + _paint("stroke", el.stroke)
+            + " "
+            + _attr("stroke-width", _fmt(el.stroke_width))
+            + "/>"
         )
     if isinstance(el, ImageElement):
         return _image_tag(el.rect, el.img_bytes, el.ext)
     return ""
 
 
+def _attr(name: str, value) -> str:
+    """SVG 属性 1 個を ``name="value"`` の形で直列化する。
+
+    **SVG 属性はこの関数経由でのみ書く**。f-string で属性を直接組む箇所を残すと、
+    そこが次の注入点になる (色だけがエスケープ漏れしていた実績がそれ)。列挙ではなく
+    構造で守るという反転で、漏れは「この関数を使っていない箇所」として機械検出できる
+    (``tests/test_export_escaping.py``)。
+
+    出力バイトの不変則: ``quoteattr`` は ``"`` を含まない値へ ``"..."`` を付けるだけ
+    なので、既存出力と 1 バイトも変わらない (``tests/test_pipeline.py`` が固定)。
+    """
+    return f"{name}={quoteattr(str(value))}"
+
+
 def _paint(attr: str, color) -> str:
-    return f'{attr}="{color}"' if color else f'{attr}="none"'
+    """塗り/線の色属性。**出口側の関門**で、入口 (``rpc_addBorder``) を迂回して
+    モデルへ直接不正な色を入れられても、ここで ``ValueError`` になる。"""
+    return _attr(attr, sanitize_color(color)) if color else _attr(attr, "none")
 
 
 def _text_to_svg(el: TextElement) -> str:
     # 代替フォントでも崩れないよう和文補完 + 汎用名のフォールバックチェーンを付与
     family = fonts.fallback_css(el.font_family, el.text)
-    weight = f' font-weight="{el.weight}"' if el.weight != 400 else ""
+    weight = f" {_attr('font-weight', el.weight)}" if el.weight != 400 else ""
     style = ' font-style="italic"' if el.italic else ""
     # 元 PDF 上のグリフ箱の幅 (bbox.w) に収め、代替フォントの字幅差や辞書置換後の
     # 文字数差があっても元の水平位置 (中央/左/右の揃え) を維持する。文字数が大きく
     # 変わる場合は lengthAdjust="spacingAndGlyphs" が字間を伸縮して吸収する。
     stretch = ""
     if el.bbox.w > 0:
-        stretch = f' textLength="{_fmt(el.bbox.w)}" lengthAdjust="spacingAndGlyphs"'
+        stretch = (
+            f" {_attr('textLength', _fmt(el.bbox.w))}"
+            f" {_attr('lengthAdjust', 'spacingAndGlyphs')}"
+        )
     if el.text == el.original_text:
         # 未編集: 元 PDF のベースライン原点に置く (従来出力と完全一致)。
         x, y, base = el.origin_x, el.origin_y, ""
@@ -160,9 +215,19 @@ def _text_to_svg(el: TextElement) -> str:
         y = el.bbox.y + el.bbox.h / 2
         base = ' dominant-baseline="central"'
     return (
-        f'<text x="{_fmt(x)}" y="{_fmt(y)}"{base} '
-        f'font-family={quoteattr(family)} font-size="{_fmt(el.font_size)}" '
-        f'fill="{el.color}"{weight}{style}{stretch}>{escape(sanitize_text(el.text))}</text>'
+        "<text "
+        + _attr("x", _fmt(x))
+        + " "
+        + _attr("y", _fmt(y))
+        + f"{base} "
+        + _attr("font-family", family)
+        + " "
+        + _attr("font-size", _fmt(el.font_size))
+        + " "
+        + _attr("fill", sanitize_color(el.color))
+        + f"{weight}{style}{stretch}>"
+        + escape(sanitize_text(el.text))
+        + "</text>"
     )
 
 
@@ -170,7 +235,15 @@ def _image_tag(rect: Rect, data: bytes, ext: str) -> str:
     b64 = base64.b64encode(data).decode("ascii")
     href = f"data:{_mime(ext)};base64,{b64}"
     return (
-        f'<image x="{_fmt(rect.x)}" y="{_fmt(rect.y)}" '
-        f'width="{_fmt(rect.w)}" height="{_fmt(rect.h)}" '
-        f'xlink:href={quoteattr(href)}/>'
+        "<image "
+        + _attr("x", _fmt(rect.x))
+        + " "
+        + _attr("y", _fmt(rect.y))
+        + " "
+        + _attr("width", _fmt(rect.w))
+        + " "
+        + _attr("height", _fmt(rect.h))
+        + " "
+        + _attr("xlink:href", href)
+        + "/>"
     )

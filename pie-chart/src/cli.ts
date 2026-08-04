@@ -22,6 +22,7 @@ import {
 import { installSeaGuards, isSea, readSeaAsset } from './runtime/seaRuntime.js';
 import { renderPdfStylePieToSvg } from './svg_export/pipeline.js';
 import type { PieLayoutConfig } from './types.js';
+import { assertFontWeight } from './svg_export/values.js';
 
 interface ParsedArgs {
   command: string | undefined;
@@ -54,7 +55,10 @@ function parseArgs(argv: string[]): ParsedArgs {
 function buildRenderOverrides(options: Record<string, string | boolean>): Partial<PieLayoutConfig> {
   const overrides: Partial<PieLayoutConfig> = {};
   const fw = options['font-weight'];
-  if (typeof fw === 'string') overrides.fontWeight = fw;
+  // 隣の `--stroke-ratio` が形式を検査しているのに、ここだけ `typeof` で素通ししていた。
+  // 入口と出口(`assertConfigValues`)の両方で検証する — 入口だけだと別の入口が生えたときに
+  // 漏れ、出口だけだとエラーが「SVG を書く瞬間」に出て原因が遠い。
+  if (typeof fw === 'string') overrides.fontWeight = assertFontWeight('--font-weight', fw);
   const sr = options['stroke-ratio'];
   if (typeof sr === 'string') {
     const ratio = Number(sr);

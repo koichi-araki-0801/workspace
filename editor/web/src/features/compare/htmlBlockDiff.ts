@@ -129,8 +129,18 @@ function parseBody(html: string, parse: HtmlParser): HTMLElement {
   return parse(html).body;
 }
 
+/**
+ * ページ分割で走査する直下要素の数。実テンプレの直下要素はページ数オーダー(400 ページ級
+ * でも数千)なので 5,000 で十分な余裕がある。超過分は畳んで捨てる — 分類 B(degrade)に
+ * 従い例外にはしない。承認者が「差分を見られない」状態を作らないのが最優先。
+ */
+export const MAX_TOP_LEVEL_BLOCKS = 5_000;
+
 function topLevelBlocks(body: HTMLElement): HTMLElement[] {
-  return Array.from(body.children) as HTMLElement[];
+  const children = Array.from(body.children) as HTMLElement[];
+  return children.length > MAX_TOP_LEVEL_BLOCKS
+    ? children.slice(0, MAX_TOP_LEVEL_BLOCKS)
+    : children;
 }
 
 /**
@@ -156,27 +166,129 @@ function declHasBreak(decls: string, which: 'before' | 'after'): boolean {
 
 /**
  * CSS テキストを走査し、改ページを設定しているルールの **セレクタ列**を方向別に集める。
- * `el.matches(selector)` で top-level block 側を判定するために使う。`@media` 等の
- * ネストブロックは扱わない簡易スキャンだが、テンプレの素朴な flat ルールには十分。
+ * `el.matches(selector)` で top-level block 側を判定するために使う。
+ *
+ * 正規表現 `/([^{}]+)\{([^{}]*)\}/g` は波括弧を含まない入力に対して開始位置ごとに末尾まで
+ * 舐め直す二次で、実測 160KB = 13 秒・800KB で 5 分超だった。**カーソル単調前進**の走査へ
+ * 置き換える — 前進は `indexOf` か 1 文字進みだけで、決して戻さない(戻す実装を書いた
+ * 瞬間に二次が復活する)。閉じない `{` は入力末尾で打ち切る(例外にしない)。
+ *
+ * `@media` / `@supports` / `@layer` / `@container` は**条件付きグループ規則**で中身は通常の
+ * スタイル規則なので、深さを 1 段下げて同じループで収集する。旧実装(二次の正規表現
+ * `/([^{}]+)\{([^{}]*)\}/g`)は `@media print { .p { page-break-after: always } }` に対し
+ * `['.p', …]` を返していたので、読み飛ばすと承認画面のページ分割が変わる(= 差分の
+ * ページ対応が変わる)。`@page` / `@font-face` / `@keyframes` は中身が宣言かマージン
+ * ボックスなので従来どおりブロックごと飛ばす。
  */
+const CONDITIONAL_GROUP_AT_RULES = ['@media', '@supports', '@layer', '@container'];
+
 function extractBreakSelectors(css: string | undefined): BreakSelectors {
   if (!css) return NO_BREAK_SELECTORS;
   const out: BreakSelectors = { before: [], after: [] };
   const lower = css.toLowerCase();
-  for (const m of lower.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const selector = m[1].trim();
-    if (!selector || selector.startsWith('@')) continue;
-    const decls = m[2];
-    if (declHasBreak(decls, 'before')) out.before.push(selector);
-    if (declHasBreak(decls, 'after')) out.after.push(selector);
+  const n = lower.length;
+  let i = 0;
+  while (i < n) {
+    const open = lower.indexOf('{', i);
+    if (open < 0) break;
+    // グループ規則の閉じ `}` を跨いだ位置から読み始めることがあるので、prelude は最後の
+    // `}` より後ろだけを採る(旧実装の `[^{}]+` と同じ範囲になる)。
+    const rawPrelude = lower.slice(i, open);
+    const afterBrace = rawPrelude.lastIndexOf('}');
+    const prelude = (afterBrace < 0 ? rawPrelude : rawPrelude.slice(afterBrace + 1)).trim();
+    const close = lower.indexOf('}', open + 1);
+    if (close < 0) break;
+    const nested = lower.indexOf('{', open + 1);
+    if (prelude.startsWith('@') && nested >= 0 && nested < close) {
+      if (CONDITIONAL_GROUP_AT_RULES.some((at) => prelude.startsWith(at))) {
+        // 中身は通常のスタイル規則。カーソルをブロックの内側へ進めるだけ(単調前進は保つ)。
+        i = open + 1;
+        continue;
+      }
+      // それ以外の入れ子 at-rule はブロックごと飛ばす。
+      let depth = 1;
+      let p = open + 1;
+      while (p < n && depth > 0) {
+        const nextOpen = lower.indexOf('{', p);
+        const nextClose = lower.indexOf('}', p);
+        if (nextClose < 0) break;
+        if (nextOpen >= 0 && nextOpen < nextClose) {
+          depth++;
+          p = nextOpen + 1;
+        } else {
+          depth--;
+          p = nextClose + 1;
+        }
+      }
+      i = p > open ? p : n;
+      continue;
+    }
+    if (prelude && !prelude.startsWith('@')) {
+      const decls = lower.slice(open + 1, close);
+      if (declHasBreak(decls, 'before')) out.before.push(prelude);
+      if (declHasBreak(decls, 'after')) out.after.push(prelude);
+    }
+    i = close + 1;
   }
   return out;
 }
 
+/**
+ * `el.matches()` に回すセレクタ本数の上限。照合コストは「直下要素数 x セレクタ数」で、
+ * linkedom は呼び出しごとにセレクタをコンパイルする(1 コール 1〜2.5 マイクロ秒)ため
+ * B=S=20,000 で 500〜2,000 秒規模になる。単純セレクタ(`.cls` / `#id` / `tag`)は集合
+ * 照合へ落とすので上限を消費せず、実テンプレがこの上限に当たることはまずない。
+ */
+export const MAX_COMPLEX_SELECTORS = 32;
+
+/** 事前に単純セレクタを集合へ落としたもの。残りだけ `el.matches()` に回す。 */
+interface CompiledBreaks {
+  classes: Set<string>;
+  ids: Set<string>;
+  tags: Set<string>;
+  complex: string[];
+  /** 複合セレクタが上限を超えて切り捨てられたか(UI へ出すための degrade 印)。 */
+  truncated: boolean;
+}
+
+/** 単純セレクタ = クラス / ID / タグ 1 つだけ。これらは集合照合で O(1) に落とせる。 */
+const SIMPLE_SELECTOR_RE = /^(?:\.([a-z0-9_-]+)|#([a-z0-9_-]+)|([a-z][a-z0-9]*))$/;
+
+function compileBreaks(selectors: string[]): CompiledBreaks {
+  const compiled: CompiledBreaks = {
+    classes: new Set(),
+    ids: new Set(),
+    tags: new Set(),
+    complex: [],
+    truncated: false,
+  };
+  for (const raw of selectors) {
+    // `.a, .b` のようなセレクタ列は個々に分けてから単純判定する。
+    for (const sel of raw.split(',')) {
+      const one = sel.trim();
+      if (!one) continue;
+      const m = SIMPLE_SELECTOR_RE.exec(one);
+      if (m?.[1]) compiled.classes.add(m[1]);
+      else if (m?.[2]) compiled.ids.add(m[2]);
+      else if (m?.[3]) compiled.tags.add(m[3]);
+      else if (compiled.complex.length < MAX_COMPLEX_SELECTORS) compiled.complex.push(one);
+      else compiled.truncated = true;
+    }
+  }
+  return compiled;
+}
+
 // 不正セレクタ(`:last-child` 等は有効だが、CSS には matches が解さない記法も混じり得る)で
 // `el.matches` が throw しても分割判定を止めないようガードする。
-function matchesAny(el: HTMLElement, selectors: string[]): boolean {
-  for (const sel of selectors) {
+function matchesAny(el: HTMLElement, breaks: CompiledBreaks): boolean {
+  if (breaks.tags.has(el.tagName.toLowerCase())) return true;
+  if (el.id && breaks.ids.has(el.id.toLowerCase())) return true;
+  if (breaks.classes.size > 0) {
+    for (const cls of el.classList) {
+      if (breaks.classes.has(cls.toLowerCase())) return true;
+    }
+  }
+  for (const sel of breaks.complex) {
     try {
       if (el.matches(sel)) return true;
     } catch {
@@ -186,8 +298,22 @@ function matchesAny(el: HTMLElement, selectors: string[]): boolean {
   return false;
 }
 
+/** 方向別にコンパイル済みのセレクタ。`paginate` の呼び出し 1 回につき 1 度だけ作る。 */
+interface CompiledBreakSelectors {
+  before: CompiledBreaks;
+  after: CompiledBreaks;
+}
+
+function compileBreakSelectors(sels: BreakSelectors): CompiledBreakSelectors {
+  return { before: compileBreaks(sels.before), after: compileBreaks(sels.after) };
+}
+
 // インライン `style` 属性の改ページ、または CSS クラス由来の改ページセレクタへの一致。
-function hasBreak(el: HTMLElement, which: 'before' | 'after', sels: BreakSelectors): boolean {
+function hasBreak(
+  el: HTMLElement,
+  which: 'before' | 'after',
+  sels: CompiledBreakSelectors,
+): boolean {
   const style = (el.getAttribute('style') ?? '').toLowerCase();
   return (
     new RegExp(`page-break-${which}\\s*:\\s*always`).test(style) ||
@@ -197,7 +323,9 @@ function hasBreak(el: HTMLElement, which: 'before' | 'after', sels: BreakSelecto
 }
 
 /** top-level の block を、明示的な page-break マーカーで page にグループ化する。 */
-function paginate(blocks: HTMLElement[], sels: BreakSelectors): HTMLElement[][] {
+function paginate(blocks: HTMLElement[], rawSels: BreakSelectors): HTMLElement[][] {
+  // セレクタのコンパイルは要素ごとではなく 1 回だけ(ここが B x S の S を潰す点)。
+  const sels = compileBreakSelectors(rawSels);
   const pages: HTMLElement[][] = [[]];
   for (const el of blocks) {
     let cur = pages[pages.length - 1];

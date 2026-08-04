@@ -27,6 +27,53 @@ def sanitize_text(text: str) -> str:
     return _XML_INVALID.sub("", text)
 
 
+# hex 表記 (3/4/6/8 桁)。engine 由来の色は必ず ``#rrggbb`` なのでこの形に収まる。
+_HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
+
+# CSS の名前付き色。正規表現で近似せず固定集合で持つ (近似は必ず余計な形を通す)。
+_NAMED_COLORS = frozenset(
+    """aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue
+    blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk
+    crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki
+    darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen
+    darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue
+    dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite
+    gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki
+    lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan
+    lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen
+    lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen
+    magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen
+    mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream
+    mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid
+    palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum
+    powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown
+    seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen
+    steelblue tan teal thistle tomato transparent turquoise violet wheat white whitesmoke
+    yellow yellowgreen""".split()
+)
+
+
+def sanitize_color(value):
+    """SVG paint として受理できる色だけを通す (不正値は ``ValueError``)。
+
+    ``None`` はそのまま返す (``_paint`` が ``none`` を書く)。``rgb()`` / ``hsl()`` /
+    ``url(#x)`` は**許さない** — 関数記法は CSS 経路で ``rgb(0,0,0);x:y`` と宣言を
+    増やせ、``url()`` は外部参照と ``javascript:`` の入口になる。書き出した SVG は
+    社内回覧される成果物なので、守るべきは表示面ではなく**生成点**である。
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"color must be a string: {value!r}")
+    v = value.strip()
+    if _HEX_COLOR.match(v) or v.lower() in _NAMED_COLORS or v in ("none", "currentColor"):
+        return v
+    raise ValueError(
+        f"unsupported color: {value!r} "
+        "(allowed: #rgb / #rgba / #rrggbb / #rrggbbaa / CSS named colors / none / currentColor)"
+    )
+
+
 @dataclass
 class Rect:
     x: float

@@ -121,6 +121,15 @@ export class PreviewManager {
   private readonly opts: PreviewManagerOptions;
 
   constructor(opts: PreviewManagerOptions) {
+    // `maxSessions` が NaN だと `size >= NaN` が常に false になり eviction が一切
+    // 起きない(各セッションは Vite サーバをメモリに保持するので無制限に積める)。
+    // config 側の env parse だけを直すのは「入口 1 つを塞ぐ」形なので、値を使う側でも
+    // 不変則として要求する。`idleTtlMs` も NaN だと setTimeout が 1ms 扱いになる。
+    for (const key of ['maxSessions', 'idleTtlMs'] as const) {
+      const v = opts[key];
+      if (!Number.isInteger(v) || v <= 0)
+        throw new Error(`[previewManager] ${key} は正の整数である必要があります(受領値: ${v})`);
+    }
     this.opts = opts;
   }
 

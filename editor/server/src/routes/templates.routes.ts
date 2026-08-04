@@ -8,7 +8,7 @@
 import { apiPaths, type DropdownQuery, validation } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { SaveDraftRequest } from '../openapi/schemas.js';
 import * as templates from '../repositories/templateRepo.js';
@@ -54,7 +54,7 @@ export async function templatesRoutes(app: FastifyInstance): Promise<void> {
   // 食い違うものは拒否する — body 側だけを信じていた頃は、任意のパスへ HTML/CSS を書けた。
   app.put<{ Params: { id: string }; Body: z.infer<typeof SaveDraftRequest> }>(
     apiPaths.templateDraft,
-    { preHandler: [requireAuth, validate(SaveDraftRequest)] },
+    { preHandler: [requireAuth, requireEditor, validate(SaveDraftRequest)] },
     async (request, reply) => {
       const body = request.body;
       const templateId = request.params.id;
@@ -69,7 +69,7 @@ export async function templatesRoutes(app: FastifyInstance): Promise<void> {
   // 確定保存せずメニューへ戻った際の下書き破棄。冪等(無ければ no-op)なので 204 を返す。
   app.delete<IdParams>(
     apiPaths.templateDraft,
-    { preHandler: requireAuth },
+    { preHandler: [requireAuth, requireEditor] },
     async (request, reply) => {
       await templates.discardDraft(request.params.id);
       return reply.code(204).send();

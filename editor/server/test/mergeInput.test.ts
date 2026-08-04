@@ -4,7 +4,6 @@ import path from 'node:path';
 import { BuildMergeRequest } from '@editor/shared/schemas';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { config } from '../src/config.js';
-import { inlineCss } from '../src/vivliostyle/inlineCss.js';
 import {
   MERGE_PAGE_COUNTER_CSS,
   materializeMergeProject,
@@ -17,83 +16,6 @@ const created: string[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
   while (created.length) await cleanupProject(created.pop() as string);
-});
-
-describe('inlineCss', () => {
-  it('injects a style tag before </head> and strips stylesheet links', () => {
-    const html = '<html><head><link rel="stylesheet" href="a.css"></head><body>x</body></html>';
-    const out = inlineCss(html, 'p{color:red}');
-    expect(out).toContain('<style>\np{color:red}\n</style></head>');
-    expect(out).not.toContain('<link');
-  });
-
-  // `css` は `/api/build`・`/api/build/merge`・`/api/preview`(inline)のリクエスト本文
-  // そのもの。`<style>` は raw text 要素なので、`</style>` を書かれると要素が閉じて
-  // 続きが HTML として解釈される。PDF build 経路には CSP が無く、ここが唯一の防壁。
-  it('neutralises a </style> escape in user css (head / body / wrapper paths)', () => {
-    const evil = '}</style><script>fetch("/api/review-requests")</script><style>{';
-    for (const html of ['<html><head></head><body>x</body></html>', '<body>x</body>', '<p>x</p>']) {
-      const out = inlineCss(html, evil);
-      // `<style>` を閉じさせない: 終端タグは差し込んだ 1 つだけで、`<script>` は style の
-      // 中身(raw text)のまま = 実行されない。
-      expect(out.match(/<\/style>/gi) ?? [], html).toHaveLength(1);
-      expect(out, html).not.toContain('</style><script');
-      // 内容は落とさない: CSS のエスケープ `\/` は文字列中で `/` と同義。
-      expect(out, html).toContain('<\\/style>');
-    }
-  });
-
-  it('leaves ordinary css byte-identical', () => {
-    const css = 'p{color:red}\n@page{size:A4}\na::after{content:"a/b"}';
-    expect(inlineCss('<html><head></head><body>x</body></html>', css)).toContain(
-      `<style>\n${css}\n</style>`,
-    );
-  });
-
-  it('wraps a bare fragment into a full document', () => {
-    const out = inlineCss('<p>x</p>', 'p{}');
-    expect(out).toMatch(/^<!doctype html>/);
-    expect(out).toContain('<p>x</p>');
-  });
-
-  it('returns html unchanged (minus links) when css is empty', () => {
-    expect(inlineCss('<html><head></head><body>x</body></html>', '')).toBe(
-      '<html><head></head><body>x</body></html>',
-    );
-  });
-
-  it('keeps non-stylesheet links and elements whose name merely starts with "link"', () => {
-    const html =
-      '<head><link rel="icon" href="i.png">' +
-      "<link rel=stylesheet href='a.css'>" +
-      '<linkish rel="stylesheet"></head><body>x</body>';
-    const out = inlineCss(html, '');
-    expect(out).toContain('<link rel="icon" href="i.png">');
-    expect(out).toContain('<linkish rel="stylesheet">');
-    expect(out).not.toContain('a.css');
-  });
-
-  it('injects into the body tag when there is no head', () => {
-    const out = inlineCss('<body class="p">x</body>', 'b{}');
-    expect(out).toBe('<body class="p"><style>\nb{}\n</style>x</body>');
-  });
-
-  // 差し込みは文字列連結で行う。`replace` の置換文字列は `$&` などを特殊解釈するため、
-  // CSS(利用者入力)がそのまま化ける。
-  it('inserts css containing $-patterns verbatim', () => {
-    const css = "a::after{content:'$& $` $0'}";
-    expect(inlineCss('<html><head></head><body>x</body></html>', css)).toContain(css);
-    expect(inlineCss('<body>x</body>', css)).toContain(css);
-  });
-
-  // 二次バックトラックの回帰テスト: `>` を一切含まない入力は、旧実装だと `<link` の
-  // 出現ごとに末尾まで舐め直してイベントループを塞いだ。
-  it('handles pathological link-heavy input in linear time', () => {
-    const html = '<link '.repeat(200_000);
-    const started = performance.now();
-    expect(inlineCss(html, '')).toBe(html);
-    expect(performance.now() - started).toBeLessThan(2000);
-  });
 });
 
 describe('stripPageCounterReset', () => {

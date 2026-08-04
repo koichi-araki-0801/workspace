@@ -30,6 +30,15 @@ FLAG_BOLD = 1 << 4
 
 SCAN_RENDER_SCALE = 2.0  # スキャンページのラスタ化倍率
 
+# ラスタ化の資源上限。MediaBox は攻撃者が自由に書ける値で、実測では 20000x20000 pt・実体
+# 3,610 バイトの PDF が素通りし 40000x40000 = 4.8 GB を確保して 36〜42 秒かかった。
+# 上限に当たったら**縮小 degrade** する (GUI 操作の途中で無言の 40 秒停止が最悪であり、
+# 可視な劣化のほうがまし)。縮小しても収まらないページは背景を諦めて None を返す。
+MAX_RASTER_PIXELS = 16_000_000  # 1 ページの出力ピクセル数 (A4 @2.0 = 2.2M px の約 7 倍)
+MIN_RENDER_SCALE = 0.25  # これ以下には縮めない (縮めても読めないため諦めへ倒す)
+MAX_DOC_RASTER_PIXELS = 128_000_000  # 文書全体のラスタ予算 (ページ上限だけでは足りない)
+MAX_PAGES = 2_000  # 解析するページ数の上限
+
 
 def _fmt(v: float) -> str:
     return f"{v:.3f}".rstrip("0").rstrip(".")
@@ -39,16 +48,37 @@ def _pt(p) -> str:
     return f"{_fmt(p.x)},{_fmt(p.y)}"
 
 
+class RasterBudget:
+    """文書全体のラスタ化ピクセル予算。1 ページの上限だけでは「上限内のページを大量に
+    並べる」形を止められないので、`LcsBudget` と同じく文書単位の予算を持ち回る。"""
+
+    def __init__(self, total: int = MAX_DOC_RASTER_PIXELS) -> None:
+        self.remaining = total
+
+    def take(self, pixels: int) -> bool:
+        if pixels > self.remaining:
+            return False
+        self.remaining -= pixels
+        return True
+
+
 def load_document(path: str) -> Document:
     """PDF を開き Document を構築する。"""
     doc = Document(source_path=path)
+    budget = RasterBudget()
     with fitz.open(path) as pdf:
+        if pdf.page_count > MAX_PAGES:
+            raise ValueError(
+                f"PDF has {pdf.page_count} pages (limit {MAX_PAGES}); refusing to load."
+            )
         for i, page in enumerate(pdf):
-            doc.pages.append(_extract_page(page, i))
+            doc.pages.append(_extract_page(page, i, budget))
     return doc
 
 
-def _extract_page(page: "fitz.Page", index: int) -> Page:
+def _extract_page(
+    page: "fitz.Page", index: int, budget: "RasterBudget | None" = None
+) -> Page:
     """1 ページを Page へ抽出する。スキャン判定ならラスタ背景のみ、ベクターなら
     テキスト/画像/描画を PDF の実ペイント順 (seqno) を復元した z 付きで積む。"""
     rect = page.rect
@@ -61,7 +91,9 @@ def _extract_page(page: "fitz.Page", index: int) -> Page:
     )
 
     if scanned:
-        p.background = _render_background(page)
+        # `None` = ラスタ化を省略した (上限超過)。背景無しのまま返し、UI は
+        # 「このページは背景を生成できなかった」を出せる (無言で欠落させない)。
+        p.background = _render_background(page, budget)
         return p
 
     # z は PDF の実ペイント順 (コンテンツストリームの seqno) を復元して採番する。
@@ -143,12 +175,27 @@ def _match_seqno(bbox: Rect, candidates: List[Tuple[int, Rect]], default: int) -
     return best
 
 
-def _render_background(page: "fitz.Page") -> RasterBackground:
-    """スキャンページ全面を PNG にラスタ化して背景要素にする (倍率 `SCAN_RENDER_SCALE`)。"""
-    mat = fitz.Matrix(SCAN_RENDER_SCALE, SCAN_RENDER_SCALE)
+def _render_background(
+    page: "fitz.Page", budget: "RasterBudget | None" = None
+) -> "RasterBackground | None":
+    """スキャンページ全面を PNG にラスタ化して背景要素にする (倍率 `SCAN_RENDER_SCALE`)。
+
+    ページ寸法は攻撃者が書ける値なので、**確保の直前**に目標ピクセル数を見て倍率を
+    下げる。`MIN_RENDER_SCALE` まで下げても上限を超えるページ、および文書全体の予算を
+    使い切った以降のページは背景を作らず ``None`` を返す (呼び出し側が UI へ通知する)。
+    """
+    r = page.rect
+    scale = SCAN_RENDER_SCALE
+    while scale > MIN_RENDER_SCALE and r.width * scale * r.height * scale > MAX_RASTER_PIXELS:
+        scale /= 2
+    pixels = int(r.width * scale * r.height * scale)
+    if pixels > MAX_RASTER_PIXELS:
+        return None
+    if budget is not None and not budget.take(pixels):
+        return None
+    mat = fitz.Matrix(scale, scale)
     pix = page.get_pixmap(matrix=mat, alpha=False)
     png = pix.tobytes("png")
-    r = page.rect
     return RasterBackground(png_bytes=png, rect=Rect(0, 0, r.width, r.height))
 
 

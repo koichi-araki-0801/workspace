@@ -1,7 +1,7 @@
 // =============================================================================
 // config.security.test.ts — 危険な既定値の禁止・CSP・認証前バッファ上限の単体テスト
 // =============================================================================
-// `config.ts` の security 節(`isLoopbackHost` / `assertAuthRequiredWhenExposed` /
+// `config.ts` の security 節(`isLoopbackHost` / `assertSafeExposure` / env parse /
 // `isBufferedUploadContentType` / CSP ビルダ)と、起動時アサーションが import 時点で
 // 効くことを固定する。env を差し替えて評価し直すため、モジュールは毎回 `vi.resetModules()`
 // してから動的 import する(`config.ts` は import 時に env を読んで値を確定する)。
@@ -50,17 +50,147 @@ describe('isLoopbackHost', () => {
   });
 });
 
-describe('assertAuthRequiredWhenExposed', () => {
+describe('assertSafeExposure', () => {
+  /** 既定は「loopback bind・認証あり・TLS あり・Secure cookie」の安全側。 */
+  const safe = {
+    host: '127.0.0.1',
+    previewHost: '127.0.0.1',
+    requireAuth: true,
+    tlsEnabled: true,
+    cookieSecure: true,
+    allowPlaintext: false,
+  };
+
   it('rejects an exposed bind while authentication is off', async () => {
-    const { assertAuthRequiredWhenExposed } = await importConfig();
-    expect(() => assertAuthRequiredWhenExposed('0.0.0.0', false)).toThrow(/AUTH_REQUIRED=true/);
-    expect(() => assertAuthRequiredWhenExposed('192.168.0.9', false)).toThrow(/loopback/);
+    const { assertSafeExposure } = await importConfig();
+    expect(() => assertSafeExposure({ ...safe, host: '0.0.0.0', requireAuth: false })).toThrow(
+      /AUTH_REQUIRED=true/,
+    );
+    expect(() => assertSafeExposure({ ...safe, host: '192.168.0.9', requireAuth: false })).toThrow(
+      /loopback/,
+    );
   });
 
-  it('allows an exposed bind with authentication, and loopback either way', async () => {
-    const { assertAuthRequiredWhenExposed } = await importConfig();
-    expect(() => assertAuthRequiredWhenExposed('0.0.0.0', true)).not.toThrow();
-    expect(() => assertAuthRequiredWhenExposed('127.0.0.1', false)).not.toThrow();
+  // R46: 旧 `assertAuthRequiredWhenExposed` は requireAuth が真なら 1 行目で return し、
+  // TLS の有無を一切見なかった。同一 LAN からログイン資格情報が平文で読める構成が通った。
+  it('rejects an exposed bind without TLS even when authentication is on', async () => {
+    const { assertSafeExposure } = await importConfig();
+    expect(() => assertSafeExposure({ ...safe, host: '0.0.0.0', tlsEnabled: false })).toThrow(
+      /TLS が無効/,
+    );
+    expect(() =>
+      assertSafeExposure({ ...safe, host: '0.0.0.0', tlsEnabled: false, allowPlaintext: true }),
+    ).not.toThrow();
+  });
+
+  // R65: preview listener は Fastify の preHandler の外側で、認証を掛ける手段が無い。
+  // 免除(opt-in)を設けないのが要点 — 用意すれば必ず誤用される。
+  it('rejects a non-loopback preview host unconditionally', async () => {
+    const { assertSafeExposure } = await importConfig();
+    for (const previewHost of ['0.0.0.0', '::', '192.168.0.9']) {
+      expect(() => assertSafeExposure({ ...safe, previewHost }), previewHost).toThrow(
+        /VIVLIO_PREVIEW_HOST/,
+      );
+    }
+    for (const previewHost of ['127.0.0.1', 'localhost', '::1']) {
+      expect(() => assertSafeExposure({ ...safe, previewHost }), previewHost).not.toThrow();
+    }
+  });
+
+  it('rejects TLS with the Secure cookie flag explicitly turned off (contradiction)', async () => {
+    const { assertSafeExposure } = await importConfig();
+    expect(() =>
+      assertSafeExposure({ ...safe, cookieSecure: false, cookieSecureExplicit: false }),
+    ).toThrow(/COOKIE_SECURE/);
+    // 逆向き(前段プロキシで TLS 終端 + loopback 平文 + Secure)は正当なので通す。
+    expect(() =>
+      assertSafeExposure({ ...safe, tlsEnabled: false, cookieSecure: true }),
+    ).not.toThrow();
+  });
+
+  // `HTTPS=true` は dev でも使える明示 opt-in。利用者が COOKIE_SECURE を一度も書いて
+  // いないのに「同時に指定できません」で起動を止めるのは、指定していない変数を原因として
+  // 名指しすることになる。既定値由来の false では止めない。
+  it('allows HTTPS=true when COOKIE_SECURE was never specified', async () => {
+    const { assertSafeExposure } = await importConfig();
+    expect(() =>
+      assertSafeExposure({ ...safe, cookieSecure: false, cookieSecureExplicit: undefined }),
+    ).not.toThrow();
+  });
+
+  it('allows an exposed bind with authentication and TLS, and loopback either way', async () => {
+    const { assertSafeExposure } = await importConfig();
+    expect(() => assertSafeExposure({ ...safe, host: '0.0.0.0' })).not.toThrow();
+    expect(() =>
+      assertSafeExposure({ ...safe, requireAuth: false, tlsEnabled: false, cookieSecure: false }),
+    ).not.toThrow();
+  });
+});
+
+// R62: 旧 `envBool` は `=== 'true'` 以外をすべて false へ倒したため、`AUTH_REQUIRED=1` と
+// 書いた運用者は認証が無効のまま起動していた。未知の値は既定へ倒さず起動を中止する。
+describe('真偽値 env の許可トークン集合', () => {
+  it('accepts every documented true spelling for AUTH_REQUIRED', async () => {
+    for (const raw of ['1', 'true', 'TRUE', ' true ', 'yes', 'on']) {
+      const mod = await importConfigWithEnv({ AUTH_REQUIRED: raw });
+      expect(mod.config.requireAuth, raw).toBe(true);
+    }
+  });
+
+  it('accepts every documented false spelling', async () => {
+    for (const raw of ['0', 'false', 'no', 'OFF']) {
+      const mod = await importConfigWithEnv({ AUTH_REQUIRED: raw });
+      expect(mod.config.requireAuth, raw).toBe(false);
+    }
+  });
+
+  it('refuses to start on an unknown spelling, naming the variable', async () => {
+    for (const raw of ['ture', 'enabled', '"true"', '']) {
+      await expect(importConfigWithEnv({ AUTH_REQUIRED: raw }), raw).rejects.toThrow(
+        /AUTH_REQUIRED/,
+      );
+    }
+  });
+
+  it('applies the same rule to the other boolean switches', async () => {
+    await expect(importConfigWithEnv({ AUDIT_DB: 'ON!' })).rejects.toThrow(/AUDIT_DB/);
+    await expect(importConfigWithEnv({ LOG_PRETTY: 'maybe' })).rejects.toThrow(/LOG_PRETTY/);
+    await expect(importConfigWithEnv({ COOKIE_SECURE: 'ture' })).rejects.toThrow(/COOKIE_SECURE/);
+  });
+
+  // HTTPS=1 は「TLS 有効」— 旧実装はこれを false にして平文で起動していた。
+  it('turns TLS on for HTTPS=1 (the old parser silently served plaintext)', async () => {
+    const mod = await importConfigWithEnv({ HTTPS: '1', COOKIE_SECURE: 'true' });
+    expect(mod.config.tls.enabled).toBe(true);
+  });
+});
+
+// R63: 資源上限が素の `Number()` のままだと `'three'` が NaN になり、
+// `size >= NaN` が常に false = 上限が黙って消える。
+describe('数値 env の形式検証', () => {
+  it('never lets a resource limit become NaN', async () => {
+    for (const raw of ['three', '0', '-1', '0x10', '1e9', '4.5']) {
+      await expect(importConfigWithEnv({ VIVLIO_PREVIEW_MAX: raw }), raw).rejects.toThrow(
+        /VIVLIO_PREVIEW_MAX/,
+      );
+    }
+    const ok = await importConfigWithEnv({ VIVLIO_PREVIEW_MAX: '8' });
+    expect(Number.isInteger(ok.config.vivliostyle.preview.maxSessions)).toBe(true);
+    expect(ok.config.vivliostyle.preview.maxSessions).toBe(8);
+  });
+
+  it('guards the auth TTL, the port and the DB pool the same way', async () => {
+    await expect(importConfigWithEnv({ AUTH_SESSION_TTL_HOURS: '12h' })).rejects.toThrow(
+      /AUTH_SESSION_TTL_HOURS/,
+    );
+    await expect(importConfigWithEnv({ PORT: '0' })).rejects.toThrow(/PORT/);
+    await expect(importConfigWithEnv({ PORT: '70000' })).rejects.toThrow(/PORT/);
+    await expect(importConfigWithEnv({ DB_POOL_MAX: '-4' })).rejects.toThrow(/DB_POOL_MAX/);
+  });
+
+  it('keeps VIVLIO_BUILD_POOL=0 working (the documented per-job spawn fallback)', async () => {
+    const mod = await importConfigWithEnv({ VIVLIO_BUILD_POOL: '0' });
+    expect(mod.config.vivliostyle.build.poolSize).toBe(0);
   });
 });
 
@@ -71,10 +201,40 @@ describe('startup assertion (config module evaluation)', () => {
     ).rejects.toThrow(/AUTH_REQUIRED=true/);
   });
 
-  it('loads with HOST=0.0.0.0 when AUTH_REQUIRED=true', async () => {
-    const mod = await importConfigWithEnv({ HOST: '0.0.0.0', AUTH_REQUIRED: 'true' });
+  // TLS 必須化(R46)により、認証だけでは足りない。証明書か明示の平文 opt-in が要る。
+  it('refuses to load with HOST=0.0.0.0 and AUTH_REQUIRED but no TLS', async () => {
+    await expect(
+      importConfigWithEnv({ HOST: '0.0.0.0', AUTH_REQUIRED: 'true', HTTPS: undefined }),
+    ).rejects.toThrow(/TLS が無効/);
+  });
+
+  it('loads with HOST=0.0.0.0 when AUTH_REQUIRED and HTTPS are both on', async () => {
+    const mod = await importConfigWithEnv({
+      HOST: '0.0.0.0',
+      AUTH_REQUIRED: 'true',
+      HTTPS: 'true',
+      COOKIE_SECURE: 'true',
+    });
     expect(mod.config.host).toBe('0.0.0.0');
     expect(mod.config.requireAuth).toBe(true);
+    expect(mod.config.tls.enabled).toBe(true);
+  });
+
+  it('loads plaintext LAN only with the explicit opt-in', async () => {
+    const mod = await importConfigWithEnv({
+      HOST: '0.0.0.0',
+      AUTH_REQUIRED: 'true',
+      ALLOW_PLAINTEXT_LAN: '1',
+      COOKIE_SECURE: 'false',
+    });
+    expect(mod.allowPlaintextLan).toBe(true);
+  });
+
+  // R65 の起動時経路: HOST は既定 loopback でも preview listener だけ公開できてしまった。
+  it('refuses to load when VIVLIO_PREVIEW_HOST is exposed', async () => {
+    await expect(importConfigWithEnv({ VIVLIO_PREVIEW_HOST: '0.0.0.0' })).rejects.toThrow(
+      /VIVLIO_PREVIEW_HOST/,
+    );
   });
 
   it('keeps the loopback default (no HOST) loading without authentication', async () => {
@@ -130,17 +290,44 @@ describe('isPreAuthBufferedRequest', () => {
 });
 
 describe('upload size limits', () => {
-  it('falls back to the default when the env value is not a positive number', async () => {
-    const bad = await importConfigWithEnv({ VIVLIO_MAX_PROJECT_BYTES: '64MB' });
-    expect(bad.config.vivliostyle.build.maxProjectBytes).toBe(64 * 1024 * 1024);
-
-    const zero = await importConfigWithEnv({ VIVLIO_MAX_PROJECT_BYTES: '0' });
-    expect(zero.config.vivliostyle.build.maxProjectBytes).toBe(64 * 1024 * 1024);
+  // 仕様変更(旧: 既定へ倒す)。既定へ倒すと `'64MB'` と書いた運用者は上限が変わって
+  // いないことに一生気付けない — 上書きしたつもりの無防備が残るので fail-fast にする。
+  it('refuses to start when the env value is not a positive decimal number', async () => {
+    await expect(importConfigWithEnv({ VIVLIO_MAX_PROJECT_BYTES: '64MB' })).rejects.toThrow(
+      /VIVLIO_MAX_PROJECT_BYTES/,
+    );
+    await expect(importConfigWithEnv({ VIVLIO_MAX_PROJECT_BYTES: '0' })).rejects.toThrow(
+      /VIVLIO_MAX_PROJECT_BYTES/,
+    );
   });
 
   it('honours a valid override', async () => {
     const mod = await importConfigWithEnv({ VIVLIO_MAX_PROJECT_BYTES: '1024' });
     expect(mod.config.vivliostyle.build.maxProjectBytes).toBe(1024);
+  });
+});
+
+// 存在オラクル対策(失敗応答の時間フロア)のパラメータも `envNumber` の規律の内側に置く。
+// 素の `Number()` だと `AUTH_FAILURE_FLOOR_MS=`(空)が 0 になって**防御が無言で消え**、
+// `1e9` が受理されて全失敗応答が 11 日待ちになる。
+describe('認証失敗の時間フロア', () => {
+  it.each([
+    '',
+    ' ',
+    '1e9',
+    'abc',
+    '-1',
+    '10001',
+  ])('refuses to start when AUTH_FAILURE_FLOOR_MS=%j', async (value) => {
+    await expect(importConfigWithEnv({ AUTH_FAILURE_FLOOR_MS: value })).rejects.toThrow(
+      /AUTH_FAILURE_FLOOR_MS/,
+    );
+  });
+
+  it('未指定なら 300ms、明示指定はそのまま効く', async () => {
+    expect((await importConfigWithEnv({})).config.auth.failedAuthFloorMs).toBe(300);
+    const mod = await importConfigWithEnv({ AUTH_FAILURE_FLOOR_MS: '0' });
+    expect(mod.config.auth.failedAuthFloorMs).toBe(0);
   });
 });
 

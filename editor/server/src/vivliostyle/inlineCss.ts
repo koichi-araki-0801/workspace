@@ -4,23 +4,27 @@
 // 元は `build.ts` の私有関数。結合 build(`mergeInput.ts`)が文書実体化で同じ展開を
 // 必要とするため独立モジュールへ切り出した。
 //
-// タグの検出を正規表現でなく indexOf 主体の線形走査で行う理由: `<link\b[^>]*...>` の形は
-// `>` を含まない入力(例 `'<link '.repeat(1e6)`)に対し `<link` の出現位置ごとに末尾まで
-// 舐め直す(二次のバックトラック)。`html` はリクエスト本文そのもので長さは呼び出し側の
-// ボディ上限までしか縛られておらず、1 リクエストで単一スレッドのイベントループを塞げる。
-// 走査位置を単調に前進させる実装なら、同じ結果を入力長に比例する時間で得られる。
+// ── なぜタグの切り出しを自前の走査でやるのか ──
+// この関数は「外部参照要素を落とす」「`</head>` の直前へ `<style>` を足す」の 2 つをするが、
+// どちらも**タグの正確な範囲**を知らないと誤爆する。旧実装は `<link` から次の `>` までを
+// 1 タグとみなしていたため、`<img alt="<link rel=stylesheet">…` のように属性値の中から
+// 始まった span がその要素のタグ終端 `>` を食い、除去後に残ったテキストが属性トークン列
+// として再解釈された(= `onerror=` が live な属性として復活する)。`</head>` の初出探索も
+// 同型で、属性値に字面を置くとアプリが組み立てた `<style>` が属性値の内側へ落ちる。
+//
+// 正しい解は HTML パーサに読ませることだが、`editor/server` は DOM 実装(linkedom/jsdom)を
+// 依存に持たない。よって本ファイルは**タグの境界だけを求める最小の走査器**(`scanTags`)を
+// 持ち、引用符・コメント・raw text 要素の 3 点だけを仕様どおりに扱う。属性値の中身も
+// 実体参照も解釈しない — 求めるのが「タグの開始と終了の位置」だけだからである。
+// 走査器が確信を持てない入力(閉じないタグ / 閉じないコメント / 閉じない raw text)では
+// `ok:false` を返し、呼び出し側は**加工を諦めて包むだけ**にする(fail closed)。
+//
+// ⚠ ここを `String.prototype.replace` + 正規表現へ戻さないこと。`[^>]*` は引用符を越えるので
+// 上記の span 食いが即座に復活する。DOM 実装を依存に足せるようになったら、本ファイルは
+// linkedom でのパース + `head.appendChild` へ置き換えるのが本来の姿(`docs` の申し送り)。
 //
 // 文字列連結で差し込むのも意図的: `String.prototype.replace` は置換文字列中の `$&` `$'`
 // などを特殊解釈するため、CSS(利用者入力)をそのまま置換文字列に載せると内容が化ける。
-
-/** 開きタグ 1 つの位置。`start` は `<` の位置、`end` は対応する `>` の次の位置。 */
-interface TagSpan {
-  start: number;
-  end: number;
-}
-
-/** `\b` 相当の判定に使う語構成文字。 */
-const WORD_RE = /[A-Za-z0-9_]/;
 
 /**
  * `<style>` の中身は HTML パーサにとって raw text で、終端は最初に現れる `</style` 1 つだけ。
@@ -35,67 +39,269 @@ const WORD_RE = /[A-Za-z0-9_]/;
 const STYLE_CLOSE_RE = /<\/(?=style)/gi;
 
 /**
- * `<name` で始まる開きタグを先頭から順に列挙する(大文字小文字は無視)。
+ * 中身を raw text / RCDATA として読む要素。開始タグの後は、対応する終了タグまで一切の
+ * マークアップが解釈されない。ここを見落とすと `<script>var s='</head>'</script>` の
+ * 文字列リテラルを本物の終了タグと誤認する。
  *
- * `>` が以降に 1 つも無ければ、閉じられる開きタグはもう存在しないので走査を打ち切る。
- * これと「次の探索を直前のタグの `>` の後ろから始める」ことで、入力全体を高々 1 回しか
- * 舐めない(上のヘッダで述べた二次挙動の回避)。
- *
- * `boundary` は元の正規表現の `\b` に対応する。`<link` は `\b` 付き(`<linkfoo>` は別要素)、
- * `<body` は `\b` 無し(`<bodyfoo>` も一致)で、挙動を移行前と揃えるため呼び分ける。
+ * `noscript` は本来「スクリプト有効時のみ raw text」だが、常に raw text 扱いにしておく。
+ * 誤って raw text とみなす方向の間違いは「中の本物のタグを見落とす」= 加工を諦める側へ
+ * 倒れるだけで、偽のタグを掴むより安全だからである。
  */
-function* openTags(html: string, name: string, boundary: boolean): Generator<TagSpan> {
-  const starts = new RegExp(`<${name}`, 'gi');
-  let from = 0;
-  while (from < html.length) {
-    starts.lastIndex = from;
-    const m = starts.exec(html);
-    if (!m) return;
-    const afterName = m.index + m[0].length;
-    // 境界判定は `>` 探索より先に行う。逆順にすると `<linkx` の連続で毎回末尾まで
-    // 走査してしまい、避けたはずの二次挙動が戻る。
-    if (boundary && WORD_RE.test(html[afterName] ?? '')) {
-      from = afterName;
-      continue;
-    }
-    const gt = html.indexOf('>', afterName);
-    if (gt === -1) return;
-    yield { start: m.index, end: gt + 1 };
-    from = gt + 1;
+const RAW_TEXT_ELEMENTS = new Set([
+  'script',
+  'style',
+  'textarea',
+  'title',
+  'xmp',
+  'iframe',
+  'noembed',
+  'noframes',
+  'noscript',
+  'plaintext',
+]);
+
+/** 外部リソースの取得を発生させる要素。CSP の無い headless ブラウザで egress を作らせない。 */
+const EXTERNAL_REF_ELEMENTS = new Set(['link', 'base']);
+
+/** タグ 1 つの位置。`start` は `<` の位置、`end` は対応する `>` の次の位置。 */
+export interface TagSpan {
+  start: number;
+  end: number;
+  /** 小文字化したタグ名。 */
+  name: string;
+  /** 終了タグ(`</name>`)か。 */
+  isEnd: boolean;
+  /** `<` から `>` までの原文(診断用)。 */
+  raw: string;
+  /**
+   * 小文字化した属性名の列(開始タグのみ。終了タグは空)。
+   * **属性の有無を `raw` への正規表現で嗅ぎ分けないこと。** `/[\s"']http-equiv=/` は
+   * `<meta/http-equiv=refresh>` を取り逃がす — タグ名直後の `/` は self-closing 開始タグ
+   * 状態を経て before-attribute-name へ**再消費**されるので、これは正当な属性である
+   * (Chromium で実際に遷移する)。境界を正しく求める走査器を持ちながら中身だけ正規表現に
+   * 戻すと、その 1 箇所が穴になる。
+   */
+  attrNames: string[];
+  /** 属性名と値の組(開始タグのみ)。値は引用符を外した原文で、実体参照は解かない。 */
+  attrs: ParsedAttr[];
+  /**
+   * raw text 要素(`script` / `style` 等)の中身。終了タグを持つ開始タグにのみ入る。
+   * `<style>` の CSS を外部参照検査へ回すために使う(`security/externalRefs.ts`)。
+   */
+  rawText?: string;
+}
+
+/** 属性 1 つ。`name` は小文字化済み。 */
+export interface ParsedAttr {
+  name: string;
+  value: string;
+}
+
+interface ScanResult {
+  tags: TagSpan[];
+  /** 走査が最後まで一意に決まったか。false なら加工してはならない(fail closed)。 */
+  ok: boolean;
+}
+
+const isAsciiAlpha = (c: string | undefined): boolean =>
+  c !== undefined && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'));
+
+/** タグ名を構成しうる文字(空白・`/`・`>` でタグ名は終わる)。 */
+const isTagNameChar = (c: string): boolean => !/[\s/>]/.test(c);
+
+/**
+ * raw text 要素 `name` の終了タグ位置(`<` の index)を返す。見つからなければ -1。
+ * 終端条件は仕様どおり「`</` + 名前 + 空白 / `/` / `>`」で、大文字小文字は無視する。
+ */
+function findRawTextEnd(html: string, from: number, name: string): number {
+  const needle = `</${name}`;
+  const lower = html.toLowerCase();
+  let i = from;
+  while (i < lower.length) {
+    const at = lower.indexOf(needle, i);
+    if (at === -1) return -1;
+    const after = html[at + needle.length];
+    if (after === undefined || /[\s/>]/.test(after)) return at;
+    i = at + needle.length;
   }
+  return -1;
 }
 
 /**
- * タグ本文が外部 stylesheet の `<link>` かを判定する。判定式は移行前の
- * `\brel=["']?stylesheet["']?` と同一(引用符は任意、閉じ引用符の欠落も許す)。
+ * 開始タグの属性領域(タグ名の直後 〜 閉じ `>` の手前)から属性名を切り出す。
+ * HTML の before-attribute-name / attribute-name / before-attribute-value の 3 状態だけを
+ * 素直に写したもので、`/` と空白はどちらも属性名の区切りとして読み飛ばす。
  */
-function isStylesheetLink(tag: string): boolean {
-  return /\brel=["']?stylesheet["']?/i.test(tag);
+function parseAttrs(inner: string): ParsedAttr[] {
+  const attrs: ParsedAttr[] = [];
+  let i = 0;
+  while (i < inner.length) {
+    if (/[\s/]/.test(inner[i])) {
+      i++;
+      continue;
+    }
+    const start = i;
+    while (i < inner.length && !/[\s/=>]/.test(inner[i])) i++;
+    const name = inner.slice(start, i).toLowerCase();
+    while (i < inner.length && /\s/.test(inner[i])) i++;
+    let value = '';
+    if (inner[i] === '=') {
+      i++;
+      while (i < inner.length && /\s/.test(inner[i])) i++;
+      const quote = inner[i];
+      if (quote === '"' || quote === "'") {
+        const e = inner.indexOf(quote, i + 1);
+        value = inner.slice(i + 1, e === -1 ? inner.length : e);
+        i = e === -1 ? inner.length : e + 1;
+      } else {
+        const vs = i;
+        while (i < inner.length && !/\s/.test(inner[i])) i++;
+        value = inner.slice(vs, i);
+      }
+    }
+    if (name !== '') attrs.push({ name, value });
+  }
+  return attrs;
+}
+
+/**
+ * HTML 中のタグを先頭から順に列挙する。属性値の引用符・コメント・raw text を跨がないので、
+ * 返る span は必ず本物のタグ 1 つに対応する。
+ *
+ * 入力全体を高々 1 回しか舐めない(走査位置は単調前進)。`'<link '.repeat(200_000)` のような
+ * 病的入力では最初のタグで `>` が見つからず `ok:false` で即座に打ち切るため、旧実装が
+ * 避けていた二次のバックトラックも起きない。
+ */
+export function scanTags(html: string): ScanResult {
+  const tags: TagSpan[] = [];
+  let i = 0;
+  while (i < html.length) {
+    if (html[i] !== '<') {
+      i++;
+      continue;
+    }
+    const next = html[i + 1];
+    if (next === '!') {
+      // コメントは `-->` まで。それ以外の markup declaration(doctype 等)は bogus comment
+      // として最初の `>` まで。どちらも中身にタグは無い。
+      if (html.startsWith('<!--', i)) {
+        const end = html.indexOf('-->', i + 4);
+        if (end === -1) return { tags, ok: false };
+        i = end + 3;
+      } else {
+        const end = html.indexOf('>', i + 2);
+        if (end === -1) return { tags, ok: false };
+        i = end + 1;
+      }
+      continue;
+    }
+    if (next === '?') {
+      const end = html.indexOf('>', i + 2);
+      if (end === -1) return { tags, ok: false };
+      i = end + 1;
+      continue;
+    }
+    const isEnd = next === '/';
+    const nameStart = i + (isEnd ? 2 : 1);
+    if (!isAsciiAlpha(html[nameStart])) {
+      // `</` + 非英字は bogus comment(最初の `>` まで)。`<` + 非英字はただのテキスト。
+      if (isEnd) {
+        const end = html.indexOf('>', nameStart);
+        if (end === -1) return { tags, ok: false };
+        i = end + 1;
+      } else {
+        i++;
+      }
+      continue;
+    }
+    let j = nameStart;
+    while (j < html.length && isTagNameChar(html[j])) j++;
+    const name = html.slice(nameStart, j).toLowerCase();
+    // 属性領域を引用符状態つきで走査する。引用符の外に現れた `>` だけがタグを閉じる
+    // (未引用の属性値中の `>` もタグを閉じる — これは仕様どおりの挙動)。
+    let k = j;
+    let quote = '';
+    while (k < html.length) {
+      const ch = html[k];
+      if (quote !== '') {
+        if (ch === quote) quote = '';
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === '>') break;
+      k++;
+    }
+    if (k >= html.length) return { tags, ok: false };
+    const end = k + 1;
+    const span: TagSpan = {
+      start: i,
+      end,
+      name,
+      isEnd,
+      raw: html.slice(i, end),
+      attrs: isEnd ? [] : parseAttrs(html.slice(j, k)),
+      attrNames: [],
+    };
+    span.attrNames = span.attrs.map((a) => a.name);
+    tags.push(span);
+    i = end;
+    if (!isEnd && RAW_TEXT_ELEMENTS.has(name)) {
+      const close = findRawTextEnd(html, i, name);
+      if (close === -1) return { tags, ok: false };
+      span.rawText = html.slice(i, close);
+      i = close;
+    }
+  }
+  return { tags, ok: true };
+}
+
+/** 開始タグが `http-equiv` 属性を持つか(`<meta http-equiv=refresh>` の判定用)。 */
+function hasHttpEquiv(tag: TagSpan): boolean {
+  return tag.attrNames.includes('http-equiv');
+}
+
+/**
+ * 外部リソースを取りに行く要素を落とす。CSS は inline 化するため `<link>` は不要で、残すと
+ * ブラウザ内 `@vivliostyle/core` のフェッチャが 404 でページ分割を中断する。`<base>` は
+ * 相対 URL の解決先を丸ごと外部へ向け替えられ、`<meta http-equiv>` は宣言的リフレッシュで
+ * 遷移を起こせるため、いずれも rel の値によらず落とす(許可リスト側の判断)。
+ */
+function stripExternalRefTags(html: string, tags: TagSpan[]): string {
+  const kept: string[] = [];
+  let cursor = 0;
+  for (const tag of tags) {
+    if (tag.isEnd) continue;
+    const drop = EXTERNAL_REF_ELEMENTS.has(tag.name) || (tag.name === 'meta' && hasHttpEquiv(tag));
+    if (!drop) continue;
+    kept.push(html.slice(cursor, tag.start));
+    cursor = tag.end;
+  }
+  return kept.length === 0 ? html : kept.join('') + html.slice(cursor);
 }
 
 /** CSS 文字列を HTML ドキュメントへインライン展開する(head / body / 完全ラッパ)。 */
 export function inlineCss(html: string, css: string): string {
-  // CSS は inline 化するため, テンプレ由来の外部 stylesheet `<link>` は除去する(head/body 分岐の前)。
-  // PDF(headless browser)では 404 で無視されるだけだが, ブラウザ内 `@vivliostyle/core` を使う
-  // プレビュー経路(`buildPreviewDocument`)と挙動を揃え, 不要な失敗フェッチも無くす。
-  const kept: string[] = [];
-  let cursor = 0;
-  for (const span of openTags(html, 'link', true)) {
-    if (!isStylesheetLink(html.slice(span.start, span.end))) continue;
-    kept.push(html.slice(cursor, span.start));
-    cursor = span.end;
-  }
-  const cleaned = kept.length === 0 ? html : kept.join('') + html.slice(cursor);
+  const styleTag = css ? `<style>\n${css.replace(STYLE_CLOSE_RE, '<\\/')}\n</style>` : '';
 
-  if (!css) return cleaned;
-  const styleTag = `<style>\n${css.replace(STYLE_CLOSE_RE, '<\\/')}\n</style>`;
-  const headEnd = cleaned.search(/<\/head>/i);
-  if (headEnd !== -1) {
-    return `${cleaned.slice(0, headEnd)}${styleTag}${cleaned.slice(headEnd)}`;
+  const first = scanTags(html);
+  if (!first.ok) {
+    // 走査が一意に決まらない入力は加工しない。文書の前へ定数を連結するだけ(= *包む*)なら
+    // アンカー探索も部分除去も要らず、誤った位置へ差し込む余地が無い。
+    return styleTag ? `<!doctype html>\n${styleTag}\n${html}` : html;
   }
-  const body = openTags(cleaned, 'body', false).next();
-  if (!body.done) {
-    return `${cleaned.slice(0, body.value.end)}${styleTag}${cleaned.slice(body.value.end)}`;
+  const cleaned = stripExternalRefTags(html, first.tags);
+  if (!styleTag) return cleaned;
+
+  // 除去でオフセットが動くので、挿入位置は掃除後の文字列から取り直す。
+  const scan = scanTags(cleaned);
+  if (!scan.ok) return `<!doctype html>\n${styleTag}\n${cleaned}`;
+
+  const headEnd = scan.tags.find((t) => t.isEnd && t.name === 'head');
+  if (headEnd) {
+    return `${cleaned.slice(0, headEnd.start)}${styleTag}${cleaned.slice(headEnd.start)}`;
+  }
+  const bodyStart = scan.tags.find((t) => !t.isEnd && t.name === 'body');
+  if (bodyStart) {
+    return `${cleaned.slice(0, bodyStart.end)}${styleTag}${cleaned.slice(bodyStart.end)}`;
   }
   return `<!doctype html><html><head><meta charset="utf-8" />${styleTag}</head><body>${cleaned}</body></html>`;
 }

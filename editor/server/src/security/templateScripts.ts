@@ -22,7 +22,7 @@
 // 生テキストで比べると、GrapesJS の再直列化で属性順や引用符が動いただけで正当な保存が
 // 拒否される(誤検知は運用を止め、結果として検査ごと外される圧力になる)。
 
-import { forbidden } from '@editor/shared';
+import { findExternalRefsInCss, forbidden } from '@editor/shared';
 
 // ── 1. round-trip 用に退避された属性の復号 ──
 
@@ -250,8 +250,21 @@ const INERT_ELEMENTS = new Set([
   'marker',
 ]);
 
-/** 内容がテキストとして扱われ、タグ走査を打ち切るべき要素(終了タグまで読み飛ばす)。 */
-const RAW_TEXT_ELEMENTS = new Set(['script', 'style', 'textarea', 'title']);
+/**
+ * 内容をタグとして解釈せず、終了タグまで読み飛ばす要素。
+ *
+ * **不変則: 読み飛ばした範囲は必ず単位化すること。** ここに載る要素は下の `collectInto` が
+ * 中身を単位へ変換する専用分岐を持つ(`script` = 本文丸ごと 1 単位 / `style` = CSS の外部
+ * 参照を単位化)。単位化しない要素をここへ足すと、その内側が単位抽出から**完全に消える**。
+ *
+ * 実際に `title` と `textarea` を載せていた版が破れていた: HTML の `<title>` が RCDATA
+ * なのは HTML 名前空間の場合だけで、SVG の foreign content では普通の外来要素である。
+ * `<svg><title><script>…</script></title></svg>` は Chromium で実行されるのに単位ゼロで
+ * 通った(`<svg><title><style>@import url(…)` も同様)。よって両者はここから外し、素の
+ * マークアップとして走査する。HTML 名前空間では実行されない字面まで拾うことになるが、
+ * 過剰包含は基準側にも同じだけ現れるので害にならない(ファイル冒頭の方針どおり)。
+ */
+const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
 
 /**
  * 能動性を持たない属性。ここに**無い**属性は単位になる。`on*`(既知/未知を問わず)・
@@ -520,10 +533,13 @@ function isInertAttrName(name: string): boolean {
   return INERT_ATTRS.has(name) || INERT_ATTR_PREFIXES.some((p) => name.startsWith(p));
 }
 
-/** URL 値のスキームが不活性か。制御文字・空白はブラウザ同様に落としてから判定する。 */
-function isInertUrl(value: string): boolean {
+/** Jinja のトークン(描画時に任意の文字列へ展開される部分)。 */
+const JINJA_TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
+
+/** 字面のスキームだけを見る素の判定。`isInertUrl` の内側でのみ使う。 */
+function isInertUrlLiteral(decoded: string): boolean {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: ブラウザが URL から除く文字域
-  const compact = decodeEntities(value).replace(/[\s\u0000-\u001f\u007f]/g, '');
+  const compact = decoded.replace(/[\s\u0000-\u001f\u007f]/g, '');
   const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(compact);
   if (!m) return true; // 相対 URL・断片(`#id`)・クエリのみ
   const scheme = (m[1] as string).toLowerCase();
@@ -532,22 +548,32 @@ function isInertUrl(value: string): boolean {
   return INERT_DATA_MEDIA.test(compact.slice(m[0].length));
 }
 
-/** CSS の外部参照だけを取り出す。宣言(色・寸法)の編集は単位を動かさない。 */
-const CSS_IMPORT_RE = /@import[^;{}]*/gi;
-const CSS_URL_RE = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\)/gi;
+/**
+ * URL 値のスキームが不活性か。制御文字・空白はブラウザ同様に落としてから判定する。
+ *
+ * テンプレは Jinja で描画されてから帳票パイプラインへ渡るので、**描画後の形**でも判定する。
+ * `href="{{''}}javascript:alert(1)"` は字面が `{` で始まるためスキーム正規表現に当たらず、
+ * 素の判定だけだと「相対 URL」として無条件に inert になっていた(実測: 単位ゼロで通る)。
+ * トークンを空文字へ潰した残りにも同じ判定を掛け、どちらかが活性なら単位化する。
+ */
+function isInertUrl(value: string): boolean {
+  const decoded = decodeEntities(value);
+  if (!isInertUrlLiteral(decoded)) return false;
+  const stripped = decoded.replace(JINJA_TOKEN_RE, '');
+  return stripped === decoded || isInertUrlLiteral(stripped);
+}
 
+/**
+ * CSS の外部参照だけを取り出す。宣言(色・寸法)の編集は単位を動かさない。
+ *
+ * 判定は `@editor/shared` の `findExternalRefsInCss` へ一本化する。ここに独自の正規表現
+ * (`/url\(…/`)を持っていた版は `image-set("http://evil/x.png" 1x)` を単位ゼロで通し、
+ * PDF 経路のゲートと**別の入力集合**を見ていた。同じ関数を共有すれば、片方だけが破れる
+ * 形が構造的に作れない。
+ */
 function pushCssUnits(css: string, at: number, out: PositionedUnit[]): void {
-  const text = decodeEntities(css);
-  // `@import` は許可リストの外側からスタイルシートを引き込む唯一の CSS 機能なので、
-  // URL の中身に依らず常に単位にする(スタイル編集では現れない構文である)。
-  CSS_IMPORT_RE.lastIndex = 0;
-  for (let m = CSS_IMPORT_RE.exec(text); m !== null; m = CSS_IMPORT_RE.exec(text)) {
-    out.push({ at, seq: out.length, unit: `css-import:${collapse(m[0])}` });
-  }
-  CSS_URL_RE.lastIndex = 0;
-  for (let m = CSS_URL_RE.exec(text); m !== null; m = CSS_URL_RE.exec(text)) {
-    const raw = m[1] ?? m[2] ?? m[3] ?? '';
-    if (!isInertUrl(raw)) out.push({ at, seq: out.length, unit: `css-url:${collapse(raw)}` });
+  for (const ref of findExternalRefsInCss(decodeEntities(css))) {
+    out.push({ at, seq: out.length, unit: `css-ref:${collapse(ref)}` });
   }
 }
 

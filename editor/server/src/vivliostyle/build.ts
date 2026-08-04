@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
+import { assertNoDocumentExternalRefs } from '../security/externalRefs.js';
 import { buildWorkerPool } from './buildWorkerServer.js';
 import { inlineCss } from './inlineCss.js';
 import { type MergeDocument, materializeMergeProject } from './mergeInput.js';
@@ -76,6 +77,9 @@ export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
   const htmlPath = path.join(config.tmpDir, `doc-${stamp}.html`);
   const pdfPath = path.join(config.tmpDir, `doc-${stamp}.pdf`);
 
+  // 外部参照の関門は**ここ**(サーバの build 入口)。ブラウザ側の検査だけだと
+  // 公開 API へ直接 POST すれば無検査で headless へ届く(`security/externalRefs.ts` 参照)。
+  assertNoDocumentExternalRefs(input.html, input.css ?? '', 'build.inline');
   const doc = inlineCss(input.html, input.css ?? '');
   await fs.writeFile(htmlPath, doc, 'utf8');
 
@@ -147,6 +151,11 @@ export async function buildMergedPdf(input: {
   documents: MergeDocument[];
   size?: string;
 }): Promise<Buffer> {
+  // 結合は文書毎に実体化されるので、実体化の**前**に全文書を検査する
+  // (1 文書でも外部参照を持てば egress は成立する)。
+  for (const [i, doc] of input.documents.entries()) {
+    assertNoDocumentExternalRefs(doc.html, doc.css, `build.merge[${i}]`);
+  }
   const { dir, config: mergeConfig } = await materializeMergeProject(input.documents, input.size);
   try {
     return await buildProjectPdf({ dir, config: mergeConfig });
@@ -168,6 +177,7 @@ export async function prepareInlineDoc(
   const dir = path.join(config.tmpDir, `vivlio-prev-${stamp}`);
   await fs.mkdir(dir, { recursive: true });
   const entry = path.join(dir, 'index.html');
+  assertNoDocumentExternalRefs(input.html, input.css ?? '', 'preview.inline');
   await fs.writeFile(entry, inlineCss(input.html, input.css ?? ''), 'utf8');
   return { dir, entry };
 }

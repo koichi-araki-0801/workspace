@@ -27,9 +27,21 @@ import { DEFAULT_DOC_BASE } from './previewProxy.js';
 import { safeEntryPath, URI_SCHEME_RE } from './projectInput.js';
 
 /** config テキストの上限(展開後のファイルなので body 上限とは別に要る)。 */
-const MAX_CONFIG_BYTES = envPositiveNumber(process.env.VIVLIO_MAX_CONFIG_BYTES, 256 * 1024);
+const MAX_CONFIG_BYTES = envPositiveNumber(
+  'VIVLIO_MAX_CONFIG_BYTES',
+  process.env.VIVLIO_MAX_CONFIG_BYTES,
+  256 * 1024,
+  { integer: true },
+);
 /** `entry` / `copyAsset` の要素数上限。 */
-const MAX_LIST_ITEMS = envPositiveNumber(process.env.VIVLIO_MAX_CONFIG_LIST, 1000);
+const MAX_LIST_ITEMS = envPositiveNumber(
+  'VIVLIO_MAX_CONFIG_LIST',
+  process.env.VIVLIO_MAX_CONFIG_LIST,
+  1000,
+  {
+    integer: true,
+  },
+);
 /** 自由文字列フィールド(title / author 等)の長さ上限。 */
 const MAX_TEXT_LENGTH = 1000;
 

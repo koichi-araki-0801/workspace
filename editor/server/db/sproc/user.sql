@@ -4,6 +4,9 @@
  *  PW は PBKDF2 派生鍵+ソルト。照合は Node 側(timingSafeEqual)。
  *  THROW 番号 → kind: 50404=not_found / 50409=conflict / 50000=validation。
  *  一覧/作成/更新はハッシュ列を返さない。認証情報取得のみハッシュを返す。
+ *  PWリセット / PW初期化 はセッション表も触る(このゲートウェイ唯一の越境)。パスワードを
+ *  書き換えたのに旧セッションが生きている中間状態を作らないため、失効は同一トランザクション
+ *  でなければならない。Node 側で 2 回 sproc を呼ぶ形にすると、間で落ちた時にその状態が残る。
  * ==========================================================================*/
 
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_usp_ユーザー]', N'P') IS NOT NULL
@@ -20,7 +23,8 @@ CREATE PROCEDURE [ug01].[Rep1_運報自動化_Editor_usp_ユーザー]
   @要パスワード変更  BIT           = NULL,
   @PWハッシュ        VARBINARY(64) = NULL,
   @PWソルト          VARBINARY(32) = NULL,
-  @PW反復回数        INT           = NULL
+  @PW反復回数        INT           = NULL,
+  @除外セッションID  NVARCHAR(64)  = NULL
 AS
 BEGIN
   SET NOCOUNT ON;
@@ -84,6 +88,13 @@ BEGIN
           [更新日時] = SYSUTCDATETIME()
       WHERE [公開ID] = @公開ID;
     IF @@ROWCOUNT = 0 THROW 50404, N'ユーザーが見つかりません', 1;
+    /* 管理者リセットは「本人が現行パスワードを知らない」= 乗っ取り疑いの経路なので、
+       除外なしでそのユーザーの全セッションを失効させる。 */
+    UPDATE s
+      SET s.[失効] = 1
+      FROM [ug01].[Rep1_運報自動化_Editor_セッション] s
+      JOIN [ug01].[Rep1_運報自動化_Editor_ユーザー] u ON u.[ログインID] = s.[ログインID]
+      WHERE u.[公開ID] = @公開ID AND s.[失効] = 0;
     RETURN;
   END
 
@@ -109,6 +120,14 @@ BEGIN
           [更新日時] = SYSUTCDATETIME()
       WHERE [ログインID] = @ログインID;
     IF @@ROWCOUNT = 0 THROW 50404, N'ユーザーが見つかりません', 1;
+    /* 本人によるパスワード変更。@除外セッションID(操作中の自分)だけ残して他端末を蹴る。
+       全部切ると変更直後に自分もログアウトされ、要パスワード変更の封じ込めと噛み合って
+       復旧不能になる。 */
+    UPDATE [ug01].[Rep1_運報自動化_Editor_セッション]
+      SET [失効] = 1
+      WHERE [ログインID] = @ログインID
+        AND [失効] = 0
+        AND [セッションID] <> ISNULL(@除外セッションID, N'');
     RETURN;
   END;
 

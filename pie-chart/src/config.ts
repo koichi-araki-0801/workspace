@@ -9,6 +9,12 @@
 // =============================================================================
 
 import type { PieLayoutConfig } from './types.js';
+import {
+  assertFontFamilyName,
+  assertFontWeight,
+  assertSvgColor,
+  hasXmlInvalidChars,
+} from './svg_export/values.js';
 
 const PT_PER_MM = 1 / 0.352778; // ≈ 2.83465 pt/mm
 
@@ -20,6 +26,53 @@ const WEIGHT_FONT: Record<string, string> = {
   '400': 'fonts/BIZUDPGothic-Regular.woff2',
   '700': 'fonts/BIZUDPGothic-Bold.woff2',
 };
+
+/**
+ * 出力へ素通しされる設定値を許可リストで検証する。不正値は**例外**にする(既定色へ黙って
+ * 落とさない) — 帳票用途では無警告の誤出力が最悪で、`input/db.ts` の `assertSelectOnly` が
+ * 既に「想定外は明示的に拒否」の流儀を持つのとも一致する。
+ */
+/**
+ * SVG 属性へそのまま出る数値フィールド(`rendering.ts` の `attr()` 引数になるもの)。
+ * 派生値(`fontSizeUnits` 等)は戻り値の getter が定義するので overrides では差し替わらず、
+ * ここで見るのは base に居座る(= 外部から直接上書きできる)フィールドだけでよい。
+ */
+const NUMERIC_ATTR_FIELDS = ['lineSpacing', 'textWeightStrokeRatio'] as const;
+
+function assertConfigValues(base: {
+  backgroundColor: string;
+  textColor: string;
+  lineColor: string;
+  darkSliceTextColor: string;
+  grayScale4: string[];
+  fontWeight: string;
+  fontFamily: string;
+  embedFontFamilyName: string;
+  lineSpacing: number;
+  textWeightStrokeRatio: number;
+}): void {
+  assertSvgColor('backgroundColor', base.backgroundColor);
+  assertSvgColor('textColor', base.textColor);
+  assertSvgColor('lineColor', base.lineColor);
+  assertSvgColor('darkSliceTextColor', base.darkSliceTextColor);
+  if (!Array.isArray(base.grayScale4) || base.grayScale4.length === 0)
+    throw new Error('grayScale4 は 1 色以上の配列である必要があります。');
+  base.grayScale4.forEach((color, i) => assertSvgColor(`grayScale4[${i}]`, color));
+  assertFontWeight('fontWeight', base.fontWeight);
+  assertFontFamilyName('embedFontFamilyName', base.embedFontFamilyName);
+  // `fontFamily` は属性側でのみ使われ escapeXml が効くので、CSS のような許可リストまでは
+  // 要らない。ただし XML 不正文字が混じると SVG 全体がパース不能になるので落ちる形を弾く。
+  if (typeof base.fontFamily !== 'string' || hasXmlInvalidChars(base.fontFamily))
+    throw new Error('fontFamily に XML として出力できない文字が含まれています。');
+  // 属性へ直接出る数値。`renderPdfStylePieToSvg(items, overrides)` は型を守らない
+  // 呼び出し側(JS からの統合)からも到達できるので、有限数値であることをここで見る
+  // (`escapeXml` は `NaN` や `'1" onload="x'` を数値としては見ない)。
+  for (const key of NUMERIC_ATTR_FIELDS) {
+    const value = (base as Record<string, unknown>)[key];
+    if (typeof value !== 'number' || !Number.isFinite(value))
+      throw new Error(`${key} に有限の数値でない値が渡されました: ${JSON.stringify(value)}。`);
+  }
+}
 
 /**
  * 円グラフ用設定オブジェクトを生成する。
@@ -120,9 +173,18 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     ...overrides,
   };
 
+  // 設定値の検証はここ 1 箇所。`createPieLayoutConfig` が config の唯一の生成点で、公開 API
+  // `renderPdfStylePieToSvg(items, options)` も必ずここを通るため、外部入力を options へ
+  // 流し込む統合側があっても素通りしない。**属性エスケープでは足りない**のが要点で、
+  // 色と weight とフォント名は `font.ts` の `@font-face{...}` = CSS へも入り、CSS の文脈では
+  // `"` を閉じて `;` で宣言を増やせる (`--font-weight '400" onload="alert(1)'` の実測)。
+  assertConfigValues(base);
+
   // `embedFontPath` を override で明示していなければ、`fontWeight` に対応するフォントを既定にする。
   // これで `fontWeight` だけ切り替えれば対応フォント (400=Regular / 700=Bold) が自動で選ばれる。
-  if (overrides.embedFontPath === undefined && WEIGHT_FONT[base.fontWeight]) {
+  // `Object.hasOwn` で見るのは、`fontWeight='constructor'` のようなプロトタイプ由来のキーで
+  // `embedFontPath` に関数が入るのを防ぐため (素の添字は Object.prototype を辿る)。
+  if (overrides.embedFontPath === undefined && Object.hasOwn(WEIGHT_FONT, base.fontWeight)) {
     base.embedFontPath = WEIGHT_FONT[base.fontWeight];
   }
 

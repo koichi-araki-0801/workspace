@@ -27,7 +27,7 @@ import { pendingExists, writePending } from '../files/pendingFiles.js';
 import { readFundCss, templateExists } from '../files/templateFiles.js';
 import { generateTemplate } from '../generate/pyTemplate.js';
 import { auditedRethrow } from '../logger.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { GenerateRequest } from '../openapi/schemas.js';
 import { recordCreate } from '../repositories/historyRepo.js';
@@ -50,7 +50,7 @@ function assertAttributeToken(label: string, value: string): string {
 export async function generateRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: z.infer<typeof GenerateRequest> }>(
     apiPaths.generate,
-    { preHandler: [requireAuth, validate(GenerateRequest)] },
+    { preHandler: [requireAuth, requireEditor, validate(GenerateRequest)] },
     async (request) => {
       const body = request.body;
       const loginId = request.user?.username ?? 'system';

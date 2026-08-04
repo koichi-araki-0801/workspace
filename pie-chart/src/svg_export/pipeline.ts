@@ -12,6 +12,7 @@
 // =============================================================================
 
 import { createPieLayoutConfig, makeColors } from '../config.js';
+import { assertItemCount } from '../limits.js';
 import { normalizeInputItems } from '../input/load.js';
 import { layoutLabels } from '../layout/diagnostics.js';
 import {
@@ -61,7 +62,7 @@ import {
   createCoordinateSystem,
   buildSlicePath,
   computeArcs,
-  escapeXml,
+  attr,
   textFragment,
 } from './rendering.js';
 import {
@@ -1188,6 +1189,9 @@ export async function renderPdfStylePieToSvg(
     // 上の filter で |value| > 0 のみ残るため、件数が残れば総和は必ず正。
     throw new Error('At least one item with a non-zero value is required.');
   }
+  // 上限は「割り当ての直前」= 唯一の funnel であるここに置く。全入力経路
+  // (sample / data / dataJson / xlsx / sql)がここを通るので 1 箇所で覆える。
+  assertItemCount(items.length);
 
   if (options.compactLabel === undefined) {
     runCompactCascade(items, cfg);
@@ -1209,9 +1213,10 @@ export async function renderPdfStylePieToSvg(
   const sliceGroups = arcs
     .map((arc, index) => {
       if (Math.abs(Number(arc.value)) === 0) return '';
-      const path = `<path d="${buildSlicePath(arc.startAngle, arc.endAngle, cfg.pieRadius, xScale, yScale)}" fill="${colors[index]}" />`;
+      const d = buildSlicePath(arc.startAngle, arc.endAngle, cfg.pieRadius, xScale, yScale);
+      const path = `<path${attr('d', d)}${attr('fill', colors[index])} />`;
       const pct = percentOf(arc.value).toFixed(1);
-      return `<g class="slice" data-name="${escapeXml(arc.name)}" data-percent="${pct}">${path}</g>`;
+      return `<g class="slice"${attr('data-name', arc.name)}${attr('data-percent', pct)}>${path}</g>`;
     })
     .filter(Boolean);
 
@@ -1242,7 +1247,7 @@ export async function renderPdfStylePieToSvg(
     );
     const pct = percentOf(item.value).toFixed(1);
     labelGroups.push(
-      `<g class="label" data-name="${escapeXml(item.name)}" data-percent="${pct}">${text}</g>`,
+      `<g class="label"${attr('data-name', item.name)}${attr('data-percent', pct)}>${text}</g>`,
     );
   } else {
     const layout = finalLayout!;
@@ -1566,11 +1571,12 @@ export async function renderPdfStylePieToSvg(
       collectChars(placement.lines);
       const item = placement.item;
       const pct = percentOf(item.value).toFixed(1);
-      const insideAttr = placement.insideSlice ? ` data-inside-slice="true"` : '';
-      const lineCountAttr = ` data-line-count="${placement.lines.length >= 2 ? 2 : 1}"`;
-      const scaleAttr = sx < 1 ? ` data-name-scale-x="${sx}"` : '';
+      const insideAttr = placement.insideSlice ? attr('data-inside-slice', 'true') : '';
+      const lineCountAttr = attr('data-line-count', placement.lines.length >= 2 ? 2 : 1);
+      const scaleAttr = sx < 1 ? attr('data-name-scale-x', sx) : '';
       labelGroups.push(
-        `<g class="label" data-name="${escapeXml(item.name)}" data-percent="${pct}"${insideAttr}${lineCountAttr}${scaleAttr}>${leader}${text}</g>`,
+        `<g class="label"${attr('data-name', item.name)}${attr('data-percent', pct)}` +
+          `${insideAttr}${lineCountAttr}${scaleAttr}>${leader}${text}</g>`,
       );
     }
   }
@@ -1579,9 +1585,11 @@ export async function renderPdfStylePieToSvg(
   const fontDefs = await buildFontFaceDefs(cfg, usedChars);
   const svg = [
     `<?xml version="1.0" encoding="UTF-8"?>`,
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${cfg.svgWidthPx}px" height="${cfg.svgHeightPx}px" shape-rendering="geometricPrecision">`,
+    `<svg${attr('xmlns', 'http://www.w3.org/2000/svg')}${attr('viewBox', `0 0 ${width} ${height}`)}` +
+      `${attr('width', `${cfg.svgWidthPx}px`)}${attr('height', `${cfg.svgHeightPx}px`)}` +
+      `${attr('shape-rendering', 'geometricPrecision')}>`,
     fontDefs,
-    `<rect width="${width}" height="${height}" fill="${cfg.backgroundColor}" />`,
+    `<rect${attr('width', width)}${attr('height', height)}${attr('fill', cfg.backgroundColor)} />`,
     `<g id="slices">${sliceGroups.join('')}</g>`,
     `<g id="labels">${labelGroups.join('')}</g>`,
     `</svg>`,

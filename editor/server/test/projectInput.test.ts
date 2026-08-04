@@ -360,21 +360,20 @@ describe('extractProjectZip resource limits', () => {
     expect(await tmpProjectDirs()).toEqual(before);
   });
 
-  it('falls back to the default limit when the env override is not a positive number', async () => {
-    // `'256MB'` のような打ち間違いが `NaN` になると `total > NaN` が常に false になり、
-    // 上限を上書きしたつもりで無効化されてしまう。既定へ倒れて検査が生き続けること
-    // (= 既定 256MB 内の zip は通り、上限そのものは消えていない)を固定する。
-    const mod = await importWithEnv({
-      VIVLIO_MAX_UNZIP_BYTES: '256MB',
-      VIVLIO_MAX_UNZIP_ENTRIES: '0',
-      VIVLIO_MAX_UNZIP_RATIO: '',
-    });
-    const project = await mod.extractProjectZip(await zipOf({ 'index.html': 'x'.repeat(200) }));
-    created.push(project.dir);
-    expect(project.fileCount).toBe(1);
-    // 既定の圧縮比上限(100 倍)は生きているので、zip bomb は引き続き弾かれる。
-    const bomb = await zipOf({ 'bomb.html': 'a'.repeat(9 * 1024 * 1024) }, true);
-    await expect(mod.extractProjectZip(bomb)).rejects.toSatisfy(isAppError);
+  // `'256MB'` のような打ち間違いが `NaN` になると `total > NaN` が常に false になり、
+  // 上限を上書きしたつもりで無効化されてしまう。旧仕様は既定へ倒していたが、それだと
+  // 運用者は上限が変わっていないことに一生気付けない。現仕様は**起動を中止**する。
+  it('refuses to load when an env override is not a positive decimal number', async () => {
+    // `vi.stubEnv` は積み上がるので、1 変数ずつ隔離して評価する。
+    for (const [name, value] of [
+      ['VIVLIO_MAX_UNZIP_BYTES', '256MB'],
+      ['VIVLIO_MAX_UNZIP_ENTRIES', '0'],
+      ['VIVLIO_MAX_UNZIP_RATIO', ''],
+    ] as const) {
+      vi.unstubAllEnvs();
+      await expect(importWithEnv({ [name]: value }), name).rejects.toThrow(name);
+    }
+    vi.unstubAllEnvs();
   });
 
   // 申告値だけを見る検査は汎用フラグ bit3 で完全に外れる(CRC 検証が繋がれない)。

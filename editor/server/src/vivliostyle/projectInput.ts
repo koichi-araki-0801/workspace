@@ -10,6 +10,7 @@ import { pipeline } from 'node:stream/promises';
 import { isAppError, validation } from '@editor/shared';
 import StreamZip from 'node-stream-zip';
 import { config, envPositiveNumber } from '../config.js';
+import { assertProjectDirHasNoExternalRefs } from '../security/externalRefs.js';
 import { DEFAULT_DOC_BASE } from './previewProxy.js';
 import { isConfigFileName, parseProjectConfig, type SafeProjectConfig } from './projectConfig.js';
 
@@ -141,13 +142,24 @@ const EXTRACT_CONCURRENCY = 8;
 
 /** 展開後の合計バイト数の上限。 */
 const MAX_UNCOMPRESSED_BYTES = envPositiveNumber(
+  'VIVLIO_MAX_UNZIP_BYTES',
   process.env.VIVLIO_MAX_UNZIP_BYTES,
   256 * 1024 * 1024,
+  { integer: true },
 );
 /** 展開するファイル数の上限(inode / ディレクトリエントリの枯渇を防ぐ)。 */
-const MAX_ENTRY_COUNT = envPositiveNumber(process.env.VIVLIO_MAX_UNZIP_ENTRIES, 5000);
+const MAX_ENTRY_COUNT = envPositiveNumber(
+  'VIVLIO_MAX_UNZIP_ENTRIES',
+  process.env.VIVLIO_MAX_UNZIP_ENTRIES,
+  5000,
+  { integer: true },
+);
 /** 圧縮比(展開後合計 ÷ zip バイト数)の上限。 */
-const MAX_COMPRESSION_RATIO = envPositiveNumber(process.env.VIVLIO_MAX_UNZIP_RATIO, 100);
+const MAX_COMPRESSION_RATIO = envPositiveNumber(
+  'VIVLIO_MAX_UNZIP_RATIO',
+  process.env.VIVLIO_MAX_UNZIP_RATIO,
+  100,
+);
 /**
  * 圧縮比を見始める展開後サイズ。小さなプロジェクト(繰り返しの多い HTML は正当でも
  * 容易に 100 倍を超える)を誤検知で弾かないための下駄。
@@ -250,8 +262,10 @@ function assertWithinExtractLimits(zipBytes: number, sizes: number[]): void {
  * おおよそ 9 万件相当。
  */
 const MAX_CENTRAL_DIRECTORY_BYTES = envPositiveNumber(
+  'VIVLIO_MAX_ZIP_CD_BYTES',
   process.env.VIVLIO_MAX_ZIP_CD_BYTES,
   4 * 1024 * 1024,
+  { integer: true },
 );
 
 /**
@@ -451,6 +465,10 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
       configPaths.length === 1
         ? parseProjectConfig(await fs.readFile(configPaths[0], 'utf8'), dir)
         : undefined;
+    // CSS の外部参照はここで拒む。zip 経路はリクエスト本文に CSS が現れないため
+    // build 入口の `assertNoDocumentExternalRefs` では掴まらず、展開直後が唯一の関所になる
+    // (build も project プレビューもこのディレクトリを見る)。
+    await assertProjectDirHasNoExternalRefs(dir);
     return { dir, config: parsed, fileCount, docBase: parsed?.base ?? DEFAULT_DOC_BASE };
   } catch (e) {
     // 中途展開のディレクトリを決して漏らさない(例: zip-slip エントリ拒否時)。

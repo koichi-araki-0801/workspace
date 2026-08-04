@@ -240,3 +240,5 @@ export * from './repositories/ReviewRepository.js';
 export * from './repositories/TemplateRepository.js';
 export * from './repositories/UserRepository.js';
 export * from './result.js';
+// CSS の外部参照検出。関門はサーバ(build 入口)に置き、web は同じ関数を早期表示に使う。
+export * from './security/cssExternalRefs.js';

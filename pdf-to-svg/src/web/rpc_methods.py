@@ -12,6 +12,7 @@ import base64
 import io
 import json
 import logging
+import math
 import os
 import tempfile
 import zipfile
@@ -23,7 +24,7 @@ from dictionary.store import DictionaryStore
 from export.svg_exporter import page_to_svg
 from model import fonts
 from model.document import Document, Page
-from model.elements import DictMatch, Rect, RectElement, TextElement
+from model.elements import DictMatch, Rect, RectElement, TextElement, sanitize_color
 
 _log = logging.getLogger("pdftosvg")
 from web.commands import (
@@ -320,8 +321,13 @@ def rpc_addBorder(s: WebSession, args: dict) -> dict:
     pg = s.page(args["fileIndex"], args["pageInFile"])
     r = args["rect"]
     rect = Rect(float(r["x"]), float(r["y"]), float(r["w"]), float(r["h"]))
-    color = args.get("color") or "#000000"
+    # 外部由来の色は必ず ``sanitize_color`` を通す (入口)。出口の ``_paint`` にも同じ検証が
+    # あるのは、入口だけだと別の入口が生えたときに漏れるため。``width`` も範囲を見る —
+    # ``float()`` は ``inf`` / ``nan`` を通し、``_fmt`` がそれを書いて SVG が壊れる。
+    color = sanitize_color(args.get("color") or "#000000")
     width = float(args.get("width") or 1.0)
+    if not math.isfinite(width) or not (0 < width <= 100):
+        raise ValueError(f"width must be a finite number in (0, 100]: {width!r}")
     z = max((e.z for e in pg.elements), default=0) + 1
     el = RectElement(
         bbox=rect, z=z, rect=rect, stroke=color, fill=None, stroke_width=width
