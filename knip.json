@@ -14,6 +14,9 @@
     },
     "graph-editor": {
       "entry": ["test/editor_server.mjs"]
+    },
+    "editor/web": {
+      "ignoreDependencies": ["@vivliostyle/core"]
     }
   },
   "ignore": ["**/resources/web/**"],

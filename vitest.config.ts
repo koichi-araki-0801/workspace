@@ -63,6 +63,10 @@ export default defineConfig({
         'editor/server/src/vivliostyle/projectInput.ts',
         'editor/server/src/vivliostyle/inlineCss.ts',
         'editor/server/src/vivliostyle/mergeInput.ts',
+        // プレビュー隔離 iframe(opaque オリジン)の配信面と PDF 側の script 対称化。
+        // 経路専用 CSP と資産解決は迂回されるとテンプレ資産が未認証露出するため対象へ入れる。
+        'editor/server/src/vivliostyle/previewHost.ts',
+        'editor/server/src/vivliostyle/inlineDocScripts.ts',
         'editor/server/src/vivliostyle/previewManager.ts',
         'editor/server/src/vivliostyle/buildWorkerPool.ts',
         // editor/web (UI/VM/Service/Repository 層)
@@ -85,6 +89,9 @@ export default defineConfig({
         'editor/web/src/lib/nunjucksRender.ts',
         'editor/web/src/lib/sanitizeCss.ts',
         'editor/web/src/lib/sanitizeHtml.ts',
+        // プレビュー文書の自己完結化(子の要求ゼロ化)と postMessage クライアント。
+        'editor/web/src/lib/previewSelfContain.ts',
+        'editor/web/src/features/preview/PreviewPanel.vue',
         'editor/web/src/lib/cropMarks.ts',
         'editor/web/src/lib/formatOutput.ts',
         'editor/web/src/lib/useCascadingSelect.ts',

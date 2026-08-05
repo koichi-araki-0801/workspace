@@ -39,6 +39,7 @@ import { templatesRoutes } from './routes/templates.routes.js';
 import { usersRoutes } from './routes/users.routes.js';
 import { vivliostyleRoutes } from './routes/vivliostyle.routes.js';
 import { buildWorkerPool } from './vivliostyle/buildWorkerServer.js';
+import { previewHostRoutes } from './vivliostyle/previewHost.js';
 import { previewManager } from './vivliostyle/previewServer.js';
 
 const serverOptions: FastifyHttpOptions<http.Server> = {
@@ -180,6 +181,11 @@ app.register(usersRoutes, { prefix: '/api' });
 // オフライン(air-gapped)でも動作する。Scalar のインライン起動 script はグローバル CSP の
 // ハッシュ許可に載らないため、専用 CSP ごと `docsRoutes` に閉じてある。
 app.register(docsRoutes);
+
+// 画面内プレビューのビューアホストページ。テンプレの inline JS を動かすために全域 CSP より
+// 緩い CSP が要るので、`docsRoutes` と同じく専用コンテキストへ閉じて登録する
+// (fastify-plugin を通さない = onSend がこのルート群だけに掛かる)。全域 CSP は動かさない。
+app.register(previewHostRoutes, { prefix: '/api' });
 
 // 本番ではビルド済み SPA を配信する(Vite がアプリを配信する dev では no-op)。
 if (hasWebDist) {

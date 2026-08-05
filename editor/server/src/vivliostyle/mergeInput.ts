@@ -14,6 +14,7 @@ import { config } from '../config.js';
 import { stageDocAssets } from './docAssets.js';
 import { collectDocumentAssetRefs } from './docRefs.js';
 import { inlineCss } from './inlineCss.js';
+import { inlineDocScripts } from './inlineDocScripts.js';
 import { DEFAULT_DOC_BASE } from './previewProxy.js';
 import type { SafeProjectConfig } from './projectConfig.js';
 import { cleanupProject } from './projectInput.js';
@@ -89,9 +90,11 @@ export async function materializeMergeProject(
     for (const [i, doc] of documents.entries()) {
       const name = `doc-${String(i).padStart(3, '0')}.html`;
       const css = `${stripPageCounterReset(doc.css)}\n${MERGE_PAGE_COUNTER_CSS}`;
+      // 外部 JS のインライン展開は inline build と同条件で行う(理由は
+      // `inlineDocScripts.ts` 冒頭)。結合 PDF だけ JS が効かない、という差を作らない。
       await fs.writeFile(
         path.join(dir, name),
-        inlineCss(doc.html, css, { servedAssets: served }),
+        await inlineDocScripts(inlineCss(doc.html, css, { servedAssets: served }), dir, served),
         'utf8',
       );
       entries.push(name);

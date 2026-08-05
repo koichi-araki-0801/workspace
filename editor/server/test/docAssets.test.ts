@@ -177,6 +177,73 @@ describe('stageDocAssets — 置けないもの(迂回入力)', () => {
   });
 });
 
+/** `config` を temp 向けに差し替えた `resolveServedAssetSource` を読み込む。 */
+async function loadResolve(): Promise<(rel: string) => Promise<string | undefined>> {
+  vi.resetModules();
+  vi.doMock('../src/config.js', () => ({
+    config: { cssDir, assetsDir },
+    envPositiveNumber: (_n: string, _v: string | undefined, def: number) => def,
+  }));
+  const mod = await import('../src/vivliostyle/docAssets.js');
+  return mod.resolveServedAssetSource;
+}
+
+// 「その場で 1 本配る」経路(previewHost / 親の fetch)の解決器。`stageDocAssets` と
+// 同じ許可リスト・深さ・リンク拒否を共有していることを、置く側と同じ強さで固定する。
+describe('resolveServedAssetSource — 引けるもの / 引けないもの', () => {
+  it('許可リスト配下の実体を絶対パスで返す', async () => {
+    await write(path.join(cssDir, '510037.css'), 'p{}');
+    await write(path.join(assetsDir, 'js', 'column-width.js'), 'ok()');
+    const resolve = await loadResolve();
+    expect(await resolve('css/510037.css')).toBe(path.join(cssDir, '510037.css'));
+    expect(await resolve('js/column-width.js')).toBe(path.join(assetsDir, 'js', 'column-width.js'));
+  });
+
+  it('実体が無い / 許可外拡張子 / 未知の置き場 / `..` セグメントは undefined', async () => {
+    await write(path.join(assetsDir, 'js', 'secret.env'), 'TOKEN');
+    await write(path.join(root, 'outside.js'), 'LEAK');
+    const resolve = await loadResolve();
+    expect(await resolve('js/missing.js')).toBeUndefined();
+    expect(await resolve('js/secret.env')).toBeUndefined();
+    expect(await resolve('templates/x.js')).toBeUndefined();
+    expect(await resolve('js/../../outside.js')).toBeUndefined();
+    expect(await resolve('outside.js')).toBeUndefined();
+  });
+
+  it('深さ上限を超えるパスは引けない(stageDocAssets の走査と同じ物差し)', async () => {
+    await write(path.join(assetsDir, 'fonts', 'a', 'b', 'c', 'd', 'e', 'deep.woff2'));
+    const resolve = await loadResolve();
+    expect(await resolve('fonts/a/b/c/d/e/deep.woff2')).toBeUndefined();
+  });
+
+  it('経路上のシンボリックリンクは拒む(ファイル)', async () => {
+    const secret = path.join(root, 'outside', 'secret.css');
+    await write(secret, 'SECRET');
+    await fs.mkdir(cssDir, { recursive: true });
+    try {
+      await fs.symlink(secret, path.join(cssDir, 'linked.css'), 'file');
+    } catch {
+      // Windows は開発者モードでないと symlink を作れない(上の stage 側テストと同じ扱い)。
+      return;
+    }
+    const resolve = await loadResolve();
+    expect(await resolve('css/linked.css')).toBeUndefined();
+  });
+
+  it('経路上のシンボリックリンクは拒む(ディレクトリ)', async () => {
+    const outside = path.join(root, 'outside2');
+    await write(path.join(outside, 'secret.woff2'), 'SECRET');
+    await fs.mkdir(path.join(assetsDir, 'fonts'), { recursive: true });
+    try {
+      await fs.symlink(outside, path.join(assetsDir, 'fonts', 'sub'), 'dir');
+    } catch {
+      return;
+    }
+    const resolve = await loadResolve();
+    expect(await resolve('fonts/sub/secret.woff2')).toBeUndefined();
+  });
+});
+
 // ── 参照されたものだけを置く ──
 // 全件配置は (a) 単一ファンドのビルドの配信ルートへ他ファンドの CSS が載り、文書が
 // `<link href="css/<他ファンド>.css">` と書けば解決してしまう (b) 共通フォント一式が

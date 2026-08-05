@@ -12,6 +12,7 @@ import { stageDocAssets } from './docAssets.js';
 import { collectDocumentAssetRefs } from './docRefs.js';
 import { type BuildOriginReservation, reserveBuildOrigin } from './egressGuard.js';
 import { inlineCss } from './inlineCss.js';
+import { inlineDocScripts } from './inlineDocScripts.js';
 import { type MergeDocument, materializeMergeProject } from './mergeInput.js';
 import { sharedInlineConfig } from './options.js';
 import type { SafeProjectConfig } from './projectConfig.js';
@@ -120,9 +121,21 @@ export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
     const served = await stageDocAssets(dir, {
       referenced: collectDocumentAssetRefs(input.html, input.css ?? ''),
     });
+    // 外部 JS は `src` の解決基準がビューアページ URL になり 404 で不実行になる(しかも
+    // ビルドは成功する)。組版へ渡す直前に配信ルートの実体でインライン化して、テンプレ JS が
+    // 「黙って効かない PDF」を作らないようにする(`inlineDocScripts.ts` 冒頭)。
+    //
+    // ⚠ これは**組版入力の一時的な変形**で、保存物には一切戻らない(このディレクトリは
+    // `cleanupProject` で消える)。テンプレ JS の不変性照合(`security/templateScripts.ts`)は
+    // 申請・承認・確定反映が扱う**原文 HTML** に対して行われるため、展開が原因で正当な
+    // 保存が拒否されることはない。展開結果を保存経路へ回さないこと。
     await fs.writeFile(
       htmlPath,
-      inlineCss(input.html, input.css ?? '', { servedAssets: served }),
+      await inlineDocScripts(
+        inlineCss(input.html, input.css ?? '', { servedAssets: served }),
+        dir,
+        served,
+      ),
       'utf8',
     );
 
@@ -226,9 +239,13 @@ export async function prepareInlineDoc(
   await fs.mkdir(dir, { recursive: true });
   const entry = path.join(dir, 'index.html');
   assertNoDocumentExternalRefs(input.html, input.css ?? '', 'preview.inline');
-  // プレビューも配信ルートは同じ形にする(同梱資産を相対パスで引ける)。ただし
-  // プレビュー経路の script は `previewProxy.CONTENT_CSP` の `script-src 'none'` で
-  // 止まったままである — プレビューの iframe 化が未実施のため意図的に据え置いている。
+  // プレビューも配信ルートは同じ形にする(同梱資産を相対パスで引ける)。
+  //
+  // ⚠ ここは**外部クライアント向けのライブプレビュー API**(`/api/preview`)の経路で、
+  // 画面内プレビュー(`web/src/features/preview/PreviewPanel.vue` + `previewHost.ts`)とは
+  // 別物である。こちらの script は `previewProxy.CONTENT_CSP` の `script-src 'none'` で
+  // 止まったままで(中継先が我々のオリジンで返るため隔離が効かない)、外部 JS の
+  // インライン展開も行わない — 「JS を止める面」であることを CSP と揃えて据え置く。
   const served = await stageDocAssets(dir, {
     referenced: collectDocumentAssetRefs(input.html, input.css ?? ''),
   });

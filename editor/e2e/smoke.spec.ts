@@ -25,6 +25,35 @@ test('demo login lands the user on the edit tab', async ({ page }) => {
   await expect(page).toHaveURL(/\/edit/);
 });
 
+// プレビュー可視化の退行ガード。表を含む帳票の直接遷移はかつて 5/5 で「組版が loading の
+// まま止まりページが永久 hidden」になった — 真因はホストページ CSP の connect-src に
+// data: が無く、@vivliostyle/core が表セル・脚注用の内蔵 user-agent.xml を
+// `data:application/xml,…` の XHR で読む経路が塞がれて文書ロードが中断していたため
+// (previewHost.ts の PREVIEW_HOST_CSP コメントを見よ)。seed テンプレは表を含むので、
+// この直行導線が green であること自体が data: 許可の退行検知になる。マウント直後の
+// リサイズ連打は当時の再現プローブの形の踏襲で、resize 起因の退行(core の resize
+// 再レンダ・COMPLETE 前の setOptions)もまとめて網に掛ける。
+test('direct preview navigation survives early viewport resizes', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto('/login');
+  await page.locator('#u').fill('admin');
+  await page.locator('#p').fill('admin');
+  await page.getByRole('button', { name: 'ログイン' }).click();
+  await page.waitForURL(/\/edit/);
+
+  await page.goto(`/preview/${encodeURIComponent('AM01_510037_20240710_交付版')}`);
+  for (let i = 0; i < 20; i++) {
+    await page.setViewportSize({ width: 1280 + (i % 2 === 0 ? 16 : -16), height: 720 });
+    await page.waitForTimeout(100);
+  }
+  await expect(
+    page
+      .frameLocator('iframe[title="プレビュー"]')
+      .locator('[data-vivliostyle-page-container]:visible')
+      .first(),
+  ).toBeVisible({ timeout: 60_000 });
+});
+
 test('wrong credentials show an error and stay on login', async ({ page }) => {
   await page.goto('/login');
 

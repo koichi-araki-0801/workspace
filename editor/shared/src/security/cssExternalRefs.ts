@@ -220,12 +220,41 @@ export function collectCssUrlCandidates(css: string): string[] {
   return found;
 }
 
-/** `findExternalRefsInCss` / `collectCssUrlCandidates` が共有する 1 パス走査。 */
+/** `collectCssUrlSpans` が返す 1 件。`start`〜`end` は `url(…)` 式全体の原文範囲。 */
+export interface CssUrlSpan {
+  /** エスケープ解決後の URL 値(`collectCssUrlCandidates` と同じ物差し)。 */
+  value: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * CSS の `url()` 参照を**原文の置換範囲つき**で拾う。
+ *
+ * 用途は web の表示境界インライン化(`previewSelfContain.ts` — フォント参照を data: URI へ
+ * 置き換える)で、値だけでは足りず「原文のどこを書き換えるか」が要る。検査
+ * (`findExternalRefsInCss`)・staging(`collectCssUrlCandidates`)と**同じ走査器**を共有する
+ * のが要点で、置換側だけ別の正規表現で探すと「検査は見たが置換は見ていない」形の
+ * 食い違い(エスケープで書いた参照が置換だけ素通りする等)が生まれる。
+ * 引用符文字列は範囲を返さない — `url()` 以外の形は置換対象にしない(fail closed)。
+ */
+export function collectCssUrlSpans(css: string): CssUrlSpan[] {
+  const found: CssUrlSpan[] = [];
+  walkCss(css, {
+    atRule: () => undefined,
+    value: (value, kind, span) => {
+      if (kind === 'url' && span !== undefined) found.push({ value, ...span });
+    },
+  });
+  return found;
+}
+
+/** `findExternalRefsInCss` / `collectCssUrlCandidates` / `collectCssUrlSpans` が共有する 1 パス走査。 */
 function walkCss(
   css: string,
   visit: {
     atRule: (name: string) => void;
-    value: (value: string, kind: 'url' | 'string') => void;
+    value: (value: string, kind: 'url' | 'string', span?: { start: number; end: number }) => void;
   },
 ): void {
   let i = 0;
@@ -257,7 +286,8 @@ function walkCss(
       // `url` は関数名としてのみ意味を持つ(直後が `(` の場合だけ URL トークンを読む)。
       if (id.value.toLowerCase() === 'url' && css[id.next] === '(') {
         const u = readUrlToken(css, id.next + 1);
-        visit.value(u.value, 'url');
+        // span は `url(` の先頭から閉じ括弧の直後まで = `url(…)` 式全体を置換できる範囲。
+        visit.value(u.value, 'url', { start: i, end: u.next });
         i = u.next;
         continue;
       }

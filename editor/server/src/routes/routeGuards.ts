@@ -15,7 +15,7 @@
 //
 // パス文字列は `apiPaths` から導出する(手書きを増やさない)。`:id` と `:templateId` の
 // ような表記ゆれは、導出していれば構造的に起こらない。
-import { apiPaths } from '@editor/shared';
+import { apiPaths, PREVIEW_HOST_BASE } from '@editor/shared';
 import type { RouteOptions } from 'fastify';
 import { requireAdmin, requireApprover, requireAuth, requireEditor } from '../middleware/auth.js';
 
@@ -83,6 +83,10 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   [`GET ${api(apiPaths.previewById)}`]: 'auth',
   [`DELETE ${api(apiPaths.previewById)}`]: 'editor',
   [`GET ${api(apiPaths.previewById)}/*`]: 'auth',
+  // 画面内プレビューの隔離ビューア(ホストページ + バンドル + 同梱資産)。閲覧そのものなので
+  // viewer にも開く。認証は必須 — 未認証に開くと同梱資産が匿名で読める面になる。
+  [`GET ${api(PREVIEW_HOST_BASE)}/index.html`]: 'auth',
+  [`GET ${api(PREVIEW_HOST_BASE)}/*`]: 'auth',
 
   // reviews
   [`POST ${api(apiPaths.reviewRequests)}`]: 'editor',

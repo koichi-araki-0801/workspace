@@ -99,21 +99,17 @@ describe('renderPdfDocument', () => {
     if (isErr(res)) expect(res.error.message).toBe(PDF_CSS_EXTERNAL_REF_MSG);
   });
 
-  // ⚠ **プレビューだけ PDF と結果が違う。意図的な差であり、暫定である。**
   // 承認者は実行結果しか見ない運用(DECISIONS の Q10)なので、「PDF では動くのに
-  // プレビューでは動かない」差は運用上の落とし穴になる。差の所在をここで機械固定し、
-  // どちらか片方が黙って変わったら落ちるようにする。
-  //
-  // プレビューが script を残せない理由は `@vivliostyle/core` が**アプリ本体の document へ
-  // 直接描画する**こと(`PreviewPanel.vue` の `viewportElement`)。opaque オリジンの iframe へ
-  // 移すのが解で、それが済んだらこのテストは「両方残る」へ書き換える。
-  // サーバ経由のプレビューも `previewProxy.CONTENT_CSP` の `script-src 'none'` で同じく止まる。
-  it('同じ入力でも PDF は script を残し、プレビューは落とす(既知の差・iframe 化まで暫定)', async () => {
+  // プレビューでは動かない」差は運用上の落とし穴になる。プレビューを opaque オリジンの
+  // iframe へ隔離した(`PreviewPanel.vue` + `server/src/vivliostyle/previewHost.ts`)ことで
+  // 除去の必要が消え、両経路とも script を残す。**この一致をここで機械固定する** —
+  // 片方だけ黙って除去へ戻ると、承認者が「JS が効いていない見た目」を承認する形に戻る。
+  it('PDF とプレビューは同じ入力で同じく script を残す', async () => {
     const html = `<html><head></head><body><p>x</p><scr${'ipt>'}fitColumns()</scr${'ipt>'}</body></html>`;
     const pdf = await renderPdfDocument(html, '', {});
     expect(isOk(pdf)).toBe(true);
     if (isOk(pdf)) expect(pdf.value.html).toContain('fitColumns()');
-    expect(assemblePreviewDocument(html, '')).not.toContain('fitColumns()');
+    expect(assemblePreviewDocument(html, '')).toContain('fitColumns()');
   });
 
   it('自己完結な CSS(相対パス / data:image / 文字列中の字面)は通す', async () => {

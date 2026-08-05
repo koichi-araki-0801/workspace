@@ -22,15 +22,33 @@ import { sanitizeStyleContent } from './sanitizeCss';
 // 連結する)ことだけで、それも素材が 100% 自分の管理下にある場合に限る。`</head>` を探す・
 // `<link…>` を消す、といったアンカー探索と部分除去は文字列では禁止。
 
-/** DOMPurify へ渡す共通設定を毎回新しく作る(DOMPurify は Config を破壊的に読むため使い回さない)。 */
+/**
+ * DOMPurify へ渡す共通設定を毎回新しく作る(DOMPurify は Config を破壊的に読むため使い回さない)。
+ *
+ * **`<script>` は残す。** テンプレの JS は開発者が生成時に埋め込む正当なコンテンツで、
+ * 承認者は「JS が効いた実行結果」を見て承認する。落としていた頃はプレビューだけ JS が
+ * 効かず、PDF・承認画面と見た目が食い違っていた。守り方は除去ではなく隔離で、プレビューは
+ * `PreviewPanel.vue` が opaque オリジンの iframe(`sandbox="allow-scripts"`・same-origin
+ * なし)の中で組版する — アプリのオリジン・cookie・API には届かない。変更されていないことは
+ * サーバの `security/templateScripts.ts` が照合する。
+ *
+ * script 以外の DOMPurify の防御(`on*` 属性・`javascript:` URL・`<object>`/`<embed>` 等の
+ * 危険要素・mXSS 対策)は**そのまま効かせる**。ここで緩めるのは「実行面を持つ要素のうち、
+ * 生成時に確定し照合で固定されているもの」= script だけである。
+ */
 function previewPurifyConfig(): PurifyConfig {
   return {
     WHOLE_DOCUMENT: true,
-    ADD_TAGS: ['style'],
-    ADD_ATTR: ['style'],
+    ADD_TAGS: ['style', 'script'],
+    // `script` の `src`/`type` を通す。URL 値は DOMPurify の `ALLOWED_URI_REGEXP` が引き続き
+    // 検査し、`javascript:` 等は落ちる。相対 `src` はビューアホストページ配下
+    // (`/api/preview-host/js/…`)へ解決され、サーバが同梱資産として配る。
+    ADD_ATTR: ['style', 'src', 'type'],
     // 主防御は DOMPurify 既定の**許可リスト**で、`link`/`base`/`meta` はそこに元々含まれない。
     // ここでの禁止指定は「将来の版で既定の許可リストへ入ったら黙って穴が開く」一点だけを塞ぐ
     // 保険であり、これを主防御に据えてはならない(ブロックリストは必ず漏れる)。
+    // `link` を落とすのはプレビューでは CSS を inline 化して当てるためで(適用元を 1 つに保つ)、
+    // `base` は相対解決先の付け替え、`meta http-equiv` は宣言的遷移を作れるため。
     FORBID_TAGS: ['link', 'base', 'meta'],
   };
 }
@@ -60,10 +78,8 @@ function previewPurifyConfig(): PurifyConfig {
  * オリジンへ向け替えられ(= 1 と 2 の前提そのものを壊す)、`<meta http-equiv>` は
  * 宣言的リフレッシュで遷移を起こす。
  *
- * ⚠ **プレビュー経路(`assemblePreviewDocument`)にはこれを使わない。** プレビューは
- * vivliostyle が本体 document へ直接描画しており、opaque オリジンの iframe へ移す作業が
- * 未着手のため、script を残すとアプリと同一オリジンで動く。結果として
- * 「PDF と承認画面では JS が動き、プレビューでは動かない」差が残る(既知・意図的)。
+ * プレビュー経路(`assemblePreviewDocument` → `previewPurifyConfig`)との差は `<link>` の
+ * 扱いだけになった。プレビューも隔離 iframe 化(`PreviewPanel.vue`)に伴い script を残す。
  */
 function pdfPurifyConfig(): PurifyConfig {
   return {

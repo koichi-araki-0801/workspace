@@ -106,13 +106,13 @@ describe('buildPreviewDocument', () => {
     expect(r.html).not.toContain('a.css');
   });
 
-  // ⚠ **プレビューだけ PDF と結果が違う。意図的な差であり、暫定である。**
-  // テンプレの JS は正当なコンテンツなので PDF 経路(`pdfDocument.ts` / `sanitizePdfRoot`)は
-  // script を残す。プレビューが残せないのは、`@vivliostyle/core` が**アプリ本体の document へ
-  // 直接描画する**(`PreviewPanel.vue` の `viewportElement`)ため、script を残すとアプリと
-  // 同一オリジンで動いてしまうからである。opaque オリジンの iframe へ移すまでは除去を続ける。
-  // 下の 2 本は「今どちらの状態か」を機械で固定する — 片方だけ黙って変わるのを防ぐ。
-  it('strips active content (<script> / on* handlers / javascript: URLs)', () => {
+  // テンプレの JS は正当なコンテンツなのでプレビューも PDF も **script は残す**
+  // (承認者は JS が効いた実行結果を見て承認する)。プレビューの隔離は除去ではなく
+  // opaque オリジンの iframe(`PreviewPanel.vue` + `server/src/vivliostyle/previewHost.ts`)で
+  // 行う。ここで固定するのは「script 以外の能動コンテンツは今も落ちている」ことである —
+  // `on*` ハンドラと `javascript:` URL は生成時の照合(`security/templateScripts.ts`)を
+  // 経ていない実行面で、隔離の有無に関わらず通してはならない。
+  it('script は残し、on* ハンドラと javascript: URL は落とす', () => {
     const r = buildPreviewDocument(
       '<html><head></head><body>' +
         '<h1>レポート</h1>' +
@@ -126,7 +126,8 @@ describe('buildPreviewDocument', () => {
     );
     expect(r.error).toBeNull();
     const doc = parse(r.html);
-    expect(doc.querySelectorAll('script')).toHaveLength(0);
+    expect(doc.querySelectorAll('script')).toHaveLength(1);
+    expect(doc.querySelector('script')?.textContent).toContain('window.__xss=1');
     expectNoEventHandlers(doc);
     expect(doc.querySelector('a')?.getAttribute('href')).toBeNull();
     // 体裁・内容は保持

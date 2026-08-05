@@ -44,12 +44,12 @@ interface AssetGroup {
  * 「実行面だから落とす」という判断はここでは採らない。代わりに実行の隔離
  * (egress 遮断・作業ディレクトリの封じ込め)で受ける。
  *
- * ⚠ **`js/…` を `<script src>` で参照しても、現行 vivliostyle の PDF 組版では実行されない**
- * (実測)。ビューアが script 要素を自分の window へ作り直すとき `src` の解決基準が
- * ビューアアプリの URL になり、`/__vivliostyle-viewer/js/…` を取りに行って 404 になる。
- * 実行させたいテンプレ JS は body 末尾の**インライン** script に置くこと。ここで `.js` を
- * 配れるようにしているのは、プレビューや将来の解決先修正で参照が 404 にならないためで、
- * 「配れば動く」という前提は置いていない。
+ * ⚠ **`js/…` を `<script src>` で参照しても、素のままでは PDF 組版で実行されない**(実測)。
+ * ビューアが script 要素を自分の window へ作り直すとき `src` の解決基準がビューアアプリの
+ * URL になり、`/__vivliostyle-viewer/js/…` を取りに行って 404 になる(しかもビルドは成功
+ * するので「JS が効かない PDF が黙って出る」)。この非対称は
+ * `inlineDocScripts.ts` が**組版の直前に配信ルートの実体をインライン展開する**ことで塞ぐ
+ * — つまり本ファイルが `.js` を配ることと、その展開はやはり対になっている。
  *
  * `.map`(sourcemap)は入れない。組版に不要で、開発者の作業ツリーの構造を配信ルートへ
  * 持ち出すだけになる。
@@ -143,6 +143,38 @@ async function collectGroup(group: AssetGroup): Promise<AssetFile[]> {
   };
   await walk(root, group.mount, 0);
   return out;
+}
+
+/**
+ * 配信ルート相対パス(`js/x.js`)から**実体の絶対パス**を引く。見つからない / 許可リストに
+ * 載らない / 途中にシンボリックリンクがある場合は `undefined`。
+ *
+ * 用途は「配信ルートへ写す」のではなく「その場で 1 本配る」経路(画面内プレビューの
+ * ビューアホストページ = `previewHost.ts`)。**許可リスト(`ASSET_GROUPS`)と深さ上限を
+ * `stageDocAssets` と共有する**のが要点で、別実装の解決器を置くと片方だけが緩む。
+ *
+ * リンクの扱いも `collectGroup` と揃える: `lstat` を各セグメントに掛け、途中に 1 つでも
+ * リンクがあれば拒む(`dataRoot` の外を配信面へ引き込ませない)。`stat` へ変えないこと。
+ */
+export async function resolveServedAssetSource(rel: string): Promise<string | undefined> {
+  const segments = rel.split('/');
+  if (segments.length < 2 || segments.length > MAX_ASSET_DEPTH + 2) return undefined;
+  const group = ASSET_GROUPS.find((g) => g.mount === segments[0]);
+  if (group === undefined) return undefined;
+  const rest = segments.slice(1);
+  if (rest.some((s) => s === '' || s === '.' || s === '..')) return undefined;
+  if (!group.extensions.has(path.extname(rest[rest.length - 1]).toLowerCase())) return undefined;
+  let current = group.sourceDir();
+  for (const [i, seg] of rest.entries()) {
+    current = path.join(current, seg);
+    try {
+      const st = await fs.lstat(current);
+      if (i === rest.length - 1 ? !st.isFile() : !st.isDirectory()) return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return current;
 }
 
 /** `stageDocAssets` の任意設定。 */
