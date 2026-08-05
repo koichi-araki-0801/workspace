@@ -242,3 +242,7 @@ export * from './repositories/UserRepository.js';
 export * from './result.js';
 // CSS の外部参照検出。関門はサーバ(build 入口)に置き、web は同じ関数を早期表示に使う。
 export * from './security/cssExternalRefs.js';
+// HTML 属性値の正規化(文字参照の復号 + URL パーサ相当の空白除去)。判定の手前で必ず通す。
+export * from './security/htmlEntities.js';
+// HTML 属性の外部参照検出。同梱資産への相対参照は通し、オリジン外の絶対参照だけを拒む。
+export * from './security/htmlExternalRefs.js';

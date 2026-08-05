@@ -60,6 +60,9 @@ const vivliostylePreviewStarter = (
     const entry = spec.config
       ? { configData: spec.config, cwd: spec.cwd }
       : { cwd: spec.cwd, input: spec.input };
+    // `captureStdio` は stdout/stderr をグローバルに差し替えるので、その内側で
+    // 非同期の準備(egress guard の起動)をしない — 起動ログを飲み込みうるため先に解く。
+    const shared = await sharedInlineConfig();
 
     const { result: server, output } = await captureStdio(() =>
       preview({
@@ -76,7 +79,7 @@ const vivliostylePreviewStarter = (
         //      `cors` / `allowedHosts` の上書きをまとめて無効化する。
         // 主防御は `previewProxy.allowForwardPath` であって、ここではない。
         vite: { server: { hmr: false, fs: { strict: true, allow: [spec.workDir] } } },
-        ...sharedInlineConfig(),
+        ...shared,
         logLevel: 'info', // 捕捉対象の "Preview URL" を cli に出力させるため
       } as Parameters<typeof preview>[0]),
     );

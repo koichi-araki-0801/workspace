@@ -195,6 +195,39 @@ export function isSelfContainedUrl(url: string): boolean {
  */
 export function findExternalRefsInCss(css: string): string[] {
   const found: string[] = [];
+  walkCss(css, {
+    atRule: (name) => {
+      if (!ALLOWED_AT_RULES.has(name.toLowerCase())) found.push(`@${name}`);
+    },
+    value: (value, kind) => {
+      if (isSelfContainedUrl(value)) return;
+      found.push(kind === 'url' ? `url(${value})` : `"${value}"`);
+    },
+  });
+  return found;
+}
+
+/**
+ * CSS が値として持つ URL 候補を**外部・内部を問わず**すべて拾う(エスケープ解決後)。
+ *
+ * 用途は `vivliostyle/docAssets.ts` の「実際に参照された資産だけを配信ルートへ置く」判断で、
+ * 検査ではない。検査(`findExternalRefsInCss`)と**同じ走査器**を共有するのが要点 —
+ * 別の正規表現で拾い直すと「検査は見たが staging は見ていない」形の食い違いが生まれる。
+ */
+export function collectCssUrlCandidates(css: string): string[] {
+  const found: string[] = [];
+  walkCss(css, { atRule: () => undefined, value: (value) => found.push(value) });
+  return found;
+}
+
+/** `findExternalRefsInCss` / `collectCssUrlCandidates` が共有する 1 パス走査。 */
+function walkCss(
+  css: string,
+  visit: {
+    atRule: (name: string) => void;
+    value: (value: string, kind: 'url' | 'string') => void;
+  },
+): void {
   let i = 0;
   while (i < css.length) {
     const c = css[i];
@@ -205,15 +238,13 @@ export function findExternalRefsInCss(css: string): string[] {
     }
     if (c === '"' || c === "'") {
       const s = readString(css, i);
-      if (!isSelfContainedUrl(s.value)) found.push(`"${s.value}"`);
+      visit.value(s.value, 'string');
       i = s.next;
       continue;
     }
     if (c === '@') {
       const id = readIdent(css, i + 1);
-      if (id.next > i + 1 && !ALLOWED_AT_RULES.has(id.value.toLowerCase())) {
-        found.push(`@${id.value}`);
-      }
+      if (id.next > i + 1) visit.atRule(id.value);
       i = id.next > i + 1 ? id.next : i + 1;
       continue;
     }
@@ -226,7 +257,7 @@ export function findExternalRefsInCss(css: string): string[] {
       // `url` は関数名としてのみ意味を持つ(直後が `(` の場合だけ URL トークンを読む)。
       if (id.value.toLowerCase() === 'url' && css[id.next] === '(') {
         const u = readUrlToken(css, id.next + 1);
-        if (!isSelfContainedUrl(u.value)) found.push(`url(${u.value})`);
+        visit.value(u.value, 'url');
         i = u.next;
         continue;
       }
@@ -235,5 +266,4 @@ export function findExternalRefsInCss(css: string): string[] {
     }
     i++;
   }
-  return found;
 }

@@ -53,9 +53,10 @@ interface ExtractedProject {
  * 宣言 = `vivliostyle.config.json` と publication manifest。
  *
  * **意図的に入れない**: `.js` `.mjs` `.cjs` `.ts`(実行面)、`.epub` `.opf`(zip-in-zip の
- * 別攻撃面)。`.js` を落として整合が取れるのは、`previewProxy` の `CONTENT_CSP` が既に
- * アップロード文書へ `script-src 'none'` を当てているからで、配信段の決定を展開段でも
- * 同じに揃える改修になる。
+ * 別攻撃面)。プレビュー経路では `previewProxy` の `CONTENT_CSP` が `script-src 'none'` を
+ * 当てるので、外部 `.js` を展開段でも落とすのは配信段の決定を前倒しにするだけである。
+ * ⚠ **build 経路には CSP が無い**ので、ここで落ちるのは外部ファイルとしての `.js` だけで、
+ * `.html` 内のインライン script は組版時に実行される(下の展開処理の注記を見よ)。
  */
 const ALLOWED_EXTENSIONS: ReadonlySet<string> = new Set([
   '.html',
@@ -465,6 +466,19 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
       configPaths.length === 1
         ? parseProjectConfig(await fs.readFile(configPaths[0], 'utf8'), dir)
         : undefined;
+    // ⚠ zip 経路には `docAssets.stageDocAssets` を**掛けない**(コードを読んで確認した
+    // 上での判断)。zip は外部クライアントが送ってくる自己完結のプロジェクトで、CSS も
+    // フォントもアーカイブ自身が同梱する。我々の per-fund CSS と共通フォントを他人の
+    // プロジェクトへ混ぜ込む理由が無く、同名衝突で相手の資産を隠す副作用だけが残る。
+    // テンプレ JS が要るのは editor 自身のテンプレ(inline / merge / preview-inline)であって
+    // zip 側ではない — zip の**外部** `.js` は拡張子許可リストが拒否する。
+    // ⚠ zip の `.html` に直接書かれた**インライン script は、build 経路では実行される**。
+    // `previewProxy.CONTENT_CSP` の `script-src 'none'` はプレビュー中継の応答ヘッダであって、
+    // `POST /api/build/project` の組版(headless で直接読む)には掛からない
+    // (OpenAPI の `/build/project` 説明が正しく「組版時に実行される」と書いている)。
+    // これを受けるのは CSP ではなく、egress 遮断(そのビルド専用オリジンのみ中継)と
+    // 作業ディレクトリの封じ込めである。
+    //
     // CSS の外部参照はここで拒む。zip 経路はリクエスト本文に CSS が現れないため
     // build 入口の `assertNoDocumentExternalRefs` では掴まらず、展開直後が唯一の関所になる
     // (build も project プレビューもこのディレクトリを見る)。

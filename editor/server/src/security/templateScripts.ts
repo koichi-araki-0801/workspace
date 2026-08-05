@@ -22,7 +22,7 @@
 // 生テキストで比べると、GrapesJS の再直列化で属性順や引用符が動いただけで正当な保存が
 // 拒否される(誤検知は運用を止め、結果として検査ごと外される圧力になる)。
 
-import { findExternalRefsInCss, forbidden } from '@editor/shared';
+import { decodeHtmlEntities, findExternalRefsInCss, forbidden } from '@editor/shared';
 
 // ── 1. round-trip 用に退避された属性の復号 ──
 
@@ -106,42 +106,18 @@ export function expandEncodedChips(html: string): string {
 
 // ── 2. HTML 実体参照の復号 ──
 
-const NAMED_ENTITIES: Record<string, string> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  colon: ':',
-  Tab: '\t',
-  NewLine: '\n',
-  sol: '/',
-  nbsp: '\u00a0',
-};
-
 /**
  * 属性値・CSS 値の比較前に実体参照を解く。`javascript&#58;alert(1)` や
  * `&lt;script&gt;` のように、パーサが解いてから解釈するものを解かずに比べると
- * 「基準に無い実行面」を実体参照の衣で通せる。セミコロン省略形も受ける(ブラウザが受ける)。
- * 復号しすぎても害は無い — 両側を同じ関数へ通すため。
+ * 「基準に無い実行面」を実体参照の衣で通せる。
+ *
+ * 実装は `@editor/shared` の `decodeHtmlEntities` **1 本**に寄せる。ここに私有の複製を
+ * 置いていた版では、外部参照ゲート(`security/externalRefs.ts` が呼ぶ
+ * `findExternalRefsInTag`)が復号を**しない**まま判定しており、`&#104;ttps://evil/x` は
+ * 不変性照合には掛かるのに 400 ゲートは素通りする、という非対称ができていた。
+ * 復号器が 1 つなら、その形の食い違いを構造的に作れない。
  */
-function decodeEntities(value: string): string {
-  return value.replace(/&(#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]{1,31});?/g, (whole, body) => {
-    if (body.startsWith('#')) {
-      const code =
-        body[1] === 'x' || body[1] === 'X'
-          ? Number.parseInt(body.slice(2), 16)
-          : Number.parseInt(body.slice(1), 10);
-      if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) return whole;
-      try {
-        return String.fromCodePoint(code);
-      } catch {
-        return whole;
-      }
-    }
-    return NAMED_ENTITIES[body] ?? whole;
-  });
-}
+const decodeEntities = decodeHtmlEntities;
 
 // ── 3. 許可リスト ──
 

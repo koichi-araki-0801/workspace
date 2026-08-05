@@ -1,19 +1,75 @@
 import { isErr, isOk } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
+import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { PDF_CSS_EXTERNAL_REF_MSG, PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
 
 describe('renderPdfDocument', () => {
-  it('renders Jinja values and sanitizes active content', async () => {
-    const res = await renderPdfDocument('<p>{{ name }}</p><script>alert(1)</scr' + 'ipt>', '.c{}', {
-      name: 'ファンドA',
-    });
+  it('renders Jinja values and keeps the template script', async () => {
+    const res = await renderPdfDocument(
+      '<p>{{ name }}</p><script>fitColumns()</scr' + 'ipt>',
+      '.c{}',
+      { name: 'ファンドA' },
+    );
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       expect(res.value.html).toContain('ファンドA');
-      expect(res.value.html).not.toContain('<script');
+      // テンプレの JS は正当なコンテンツ(列幅自動調整など)。ここで除去していた頃は
+      // PDF でインライン script が 1 つも効かず(実測で、残すと出力 PDF が変わる)、
+      // 承認者は「JS が効いていない見た目」を承認することになっていた。
+      expect(res.value.html).toContain('fitColumns()');
       expect(res.value.css).toBe('.c{}');
     }
+  });
+
+  // script を残すのは「サニタイズをやめた」のではない。外すのは script 要素の除去**だけ**で、
+  // DOMPurify の他の防御(on* 属性 / javascript: URL / 危険要素)は維持する。
+  it.each([
+    ['<img src="img/a.png" onerror="alert(1)">', 'onerror', 'イベントハンドラ属性'],
+    ['<a href="javascript:alert(1)">x</a>', 'javascript:', 'javascript: URL'],
+    ['<object data="x.swf"></object>', '<object', '危険要素 object'],
+    ['<base href="https://evil.example/">', '<base', 'base(相対解決先の乗っ取り)'],
+    ['<meta http-equiv="refresh" content="0;url=x">', 'http-equiv', '宣言的リフレッシュ'],
+  ])('script 以外の防御は維持する(%s → %s を残さない = %s)', async (html, needle) => {
+    const res = await renderPdfDocument(html, '', {});
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.html).not.toContain(needle);
+  });
+
+  // ⚠ ここで `<link>` が残るのは「サニタイザが落とさない」だけの話で、**当たる CSS が
+  // 2 枚になる訳ではない**。CSS の適用元を 1 つに保つ判断はサーバ側にあり、
+  // `vivliostyle/inlineCss.ts` がリクエストに `css` がある限り stylesheet の `<link>` を
+  // 落とす(= プレビューと同じ 1 枚)。両方当てていた版では、下書きで削除した規則が
+  // ディスクの旧 per-fund CSS から復活し、プレビューと PDF が食い違った。
+  it('同梱資産への相対参照(link / script src)は残す', async () => {
+    const html =
+      '<html><head><link rel="stylesheet" href="css/510037.css">' +
+      '<script src="js/column-width.js"></scr' +
+      'ipt></head><body>x</body></html>';
+    const res = await renderPdfDocument(html, '', {});
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.html).toContain('css/510037.css');
+      expect(res.value.html).toContain('js/column-width.js');
+    }
+  });
+
+  // PDF 経路は解決済み CSS を必ず `css` として運ぶ(= サーバがそれを唯一の源にできる)。
+  // ここが空になると、サーバは `<link>` を残す分岐へ落ちてプレビューと食い違う。
+  it('解決済み CSS を css として返す(サーバが唯一の源にできる形)', async () => {
+    const res = await renderPdfDocument('<p>x</p>', 'p{color:red}', {});
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.css).toContain('p{color:red}');
+  });
+
+  it.each([
+    ['<link rel="stylesheet" href="https://evil.example/x.css">', '外部 stylesheet'],
+    ['<script src="//evil.example/x.js"></scr' + 'ipt>', 'scheme 相対の script'],
+    ['<img src="http://evil.example/beacon.png">', 'ビーコン画像'],
+  ])('HTML の絶対参照(%s = %s)で PDF を作らない', async (html) => {
+    const res = await renderPdfDocument(html, '', {});
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) expect(res.error.message).toBe(PDF_CSS_EXTERNAL_REF_MSG);
   });
 
   it('appends trim-mark CSS only when cropMarks is on', async () => {
@@ -41,6 +97,23 @@ describe('renderPdfDocument', () => {
     const res = await renderPdfDocument('<p>x</p>', css, {});
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.message).toBe(PDF_CSS_EXTERNAL_REF_MSG);
+  });
+
+  // ⚠ **プレビューだけ PDF と結果が違う。意図的な差であり、暫定である。**
+  // 承認者は実行結果しか見ない運用(DECISIONS の Q10)なので、「PDF では動くのに
+  // プレビューでは動かない」差は運用上の落とし穴になる。差の所在をここで機械固定し、
+  // どちらか片方が黙って変わったら落ちるようにする。
+  //
+  // プレビューが script を残せない理由は `@vivliostyle/core` が**アプリ本体の document へ
+  // 直接描画する**こと(`PreviewPanel.vue` の `viewportElement`)。opaque オリジンの iframe へ
+  // 移すのが解で、それが済んだらこのテストは「両方残る」へ書き換える。
+  // サーバ経由のプレビューも `previewProxy.CONTENT_CSP` の `script-src 'none'` で同じく止まる。
+  it('同じ入力でも PDF は script を残し、プレビューは落とす(既知の差・iframe 化まで暫定)', async () => {
+    const html = `<html><head></head><body><p>x</p><scr${'ipt>'}fitColumns()</scr${'ipt>'}</body></html>`;
+    const pdf = await renderPdfDocument(html, '', {});
+    expect(isOk(pdf)).toBe(true);
+    if (isOk(pdf)) expect(pdf.value.html).toContain('fitColumns()');
+    expect(assemblePreviewDocument(html, '')).not.toContain('fitColumns()');
   });
 
   it('自己完結な CSS(相対パス / data:image / 文字列中の字面)は通す', async () => {

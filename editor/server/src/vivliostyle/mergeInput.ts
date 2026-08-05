@@ -11,6 +11,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
+import { stageDocAssets } from './docAssets.js';
+import { collectDocumentAssetRefs } from './docRefs.js';
 import { inlineCss } from './inlineCss.js';
 import { DEFAULT_DOC_BASE } from './previewProxy.js';
 import type { SafeProjectConfig } from './projectConfig.js';
@@ -75,11 +77,23 @@ export async function materializeMergeProject(
   await fs.mkdir(dir, { recursive: true });
 
   try {
+    // 同梱資産は文書より先に置く。`inlineCss` が `<link>`/`<script src>` を残すかどうかを
+    // 「配信ルートに実体があるか」で決めるため、集合が先に確定していないと全部落ちる。
+    // 参照集合は**全文書の和**にする(1 つの配信ルートを全文書が共有するため)。
+    const referenced = new Set<string>();
+    for (const doc of documents) {
+      for (const rel of collectDocumentAssetRefs(doc.html, doc.css)) referenced.add(rel);
+    }
+    const served = await stageDocAssets(dir, { referenced });
     const entries: string[] = [];
     for (const [i, doc] of documents.entries()) {
       const name = `doc-${String(i).padStart(3, '0')}.html`;
       const css = `${stripPageCounterReset(doc.css)}\n${MERGE_PAGE_COUNTER_CSS}`;
-      await fs.writeFile(path.join(dir, name), inlineCss(doc.html, css), 'utf8');
+      await fs.writeFile(
+        path.join(dir, name),
+        inlineCss(doc.html, css, { servedAssets: served }),
+        'utf8',
+      );
       entries.push(name);
     }
     return { dir, config: mergeConfigObject(entries, size) };

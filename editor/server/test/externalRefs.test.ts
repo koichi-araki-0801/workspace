@@ -77,6 +77,39 @@ describe('findDocumentExternalRefs — 検査面の網羅', () => {
     expect(findDocumentExternalRefs(html, '@import url(http://evil/y.css);')).not.toEqual([]);
   });
 
+  // ── HTML の取得系属性 ──
+  // 同梱資産(`css/…` `fonts/…` `js/…`)への相対参照は**通さねばならない**要件で、
+  // 落ちるのはオリジン外の絶対参照だけ。両方を主張しないと、次に触る人が
+  // 「link/script を全部落とせば安全」へ倒してテンプレを壊す。
+  it.each([
+    ['<link rel=stylesheet href="https://evil/x.css">', '外部 stylesheet'],
+    ['<script src="//evil/x.js"></scr' + 'ipt>', 'scheme 相対の script'],
+    ['<img src="http://evil/beacon.png">', 'ビーコン画像'],
+    ['<iframe src="https://evil/"></iframe>', '外部 iframe'],
+    ['<image xlink:href="https://evil/x.png"/>', 'SVG の xlink:href'],
+    ['<img srcset="img/a.png 1x, https://evil/b.png 2x">', 'srcset の 2 つ目だけ外部'],
+  ])('HTML の取得系属性に置いた絶対参照を拾う(%s = %s)', (html) => {
+    expect(findDocumentExternalRefs(`<html><body>${html}</body></html>`, '')).not.toEqual([]);
+  });
+
+  it('同梱資産への相対参照は通す(css/ fonts/ js/)', () => {
+    const html =
+      '<html><head>' +
+      '<link rel="stylesheet" href="css/510037.css">' +
+      '<script src="js/column-width.js"></scr' +
+      'ipt>' +
+      '</head><body><img src="img/logo.png"><use xlink:href="#m"/></body></html>';
+    expect(findDocumentExternalRefs(html, '')).toEqual([]);
+  });
+
+  // `<a href>` は組版中に 1 バイトも取りに行かない。ここを弾いても egress は減らず、
+  // 引用元 URL を書いた帳票が全部 400 になるだけ。
+  it('<a href="https://…"> は拒まない', () => {
+    expect(findDocumentExternalRefs('<p><a href="https://example.com/">出典</a></p>', '')).toEqual(
+      [],
+    );
+  });
+
   it('相対参照・断片・許可 data: と通常の content 文字列は通す', () => {
     const css = [
       '@page{size:A4}',
@@ -122,6 +155,18 @@ describe('POST /build 系 — UI を経由しない経路が拒否される', ()
       '<style> 埋め込み',
       { html: '<html><head><style>@import url(http://evil/x)</style></head></html>', css: '' },
     ],
+    // HTML の取得系属性。UI を通さず公開 API へ直接 POST しても同じ関門に当たる。
+    [
+      '<link href=絶対URL>',
+      {
+        html: '<html><head><link rel=stylesheet href="https://evil/x.css"></head></html>',
+        css: '',
+      },
+    ],
+    [
+      '<script src=絶対URL>',
+      { html: `<html><body><script src="https://evil/x.js"></scr${'ipt>'}</body></html>`, css: '' },
+    ],
   ])('POST /build は %s を 4xx で拒む', async (_label, body) => {
     const res = await app.inject({ method: 'POST', url: '/build', payload: body });
     expect(res.statusCode).toBeGreaterThanOrEqual(400);
@@ -158,5 +203,46 @@ describe('POST /build 系 — UI を経由しない経路が拒否される', ()
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe(EXTERNAL_REF_CODE);
+  });
+});
+
+// ── 迂回入力(実測でゲートを通り抜けていた形)──
+// サーバの走査器は属性値を「引用符を外しただけの原文」で渡す。ブラウザは文字参照を解き
+// URL から TAB/LF/CR を落とすので、正規化しないと届く先だけが絶対 URL になる。
+// これは「唯一の関門であるサーバがクライアントより弱い」形そのものである。
+describe('findDocumentExternalRefs — 実体参照・制御文字・srcdoc での迂回', () => {
+  const LF = String.fromCharCode(0x0a);
+
+  it.each([
+    ['取得系属性の 10 進文字参照', '<img src="&#104;ttp://127.0.0.1:1433/x.png">'],
+    ['取得系属性の 16 進文字参照', '<img src="&#x68;ttps://evil.example/x.png">'],
+    ['取得系属性の名前つき参照', '<script src="https&colon;//evil.example/x.js"></script>'],
+    ['取得系属性の URL 途中改行', `<img src="htt${LF}ps://evil.example/x.png">`],
+    ['style 属性の文字参照', '<div style="background:url(&#104;ttp://evil.example/x)"></div>'],
+    ['iframe srcdoc の中の絶対参照', '<iframe srcdoc="<img src=https://evil.example/x>"></iframe>'],
+    [
+      'iframe srcdoc(実体参照で書いた形)',
+      '<iframe srcdoc="&lt;link rel=stylesheet href=https://evil.example/a.css&gt;"></iframe>',
+    ],
+    [
+      'iframe srcdoc の中の @import',
+      '<iframe srcdoc="<style>@import url(http://evil/x)</style>"></iframe>',
+    ],
+  ])('%s は外部参照として報告される', (_label, html) => {
+    expect(findDocumentExternalRefs(html, '')).not.toEqual([]);
+    expect(() => assertNoDocumentExternalRefs(html, '', 'test')).toThrow();
+  });
+
+  it('srcdoc の中身が同梱資産への相対参照なら通る(遮断しすぎない)', () => {
+    const html = '<iframe srcdoc="<link rel=stylesheet href=css/510037.css>"></iframe>';
+    expect(findDocumentExternalRefs(html, '')).toEqual([]);
+  });
+
+  it('正規化しても同梱資産への相対参照は通る(業務を止めない)', () => {
+    const html =
+      '<link rel="stylesheet" href="css/510&#48;37.css">' +
+      '<script src="js/column-width.js"></script>' +
+      '<div style="background:url(img/logo.png)"></div>';
+    expect(findDocumentExternalRefs(html, '')).toEqual([]);
   });
 });

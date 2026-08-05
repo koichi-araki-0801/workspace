@@ -18,16 +18,32 @@
 //   2. HTML 中の `<style>` ブロック(DOMPurify は `<style>` の中身を逐語保存する)
 //   3. HTML の `style="…"` 属性(インライン宣言も `url()` を取れる)
 
+//   4. HTML の取得系属性(`<link href>` `<script src>` `<img src>` …)
+//
+// ── 相対参照は「拒む対象」ではない。むしろ必須である ──
+// テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `fonts/…` `js/…` の
+// 相対パスで参照し、その実体は `vivliostyle/docAssets.ts` が配信ルートへ置く。よって
+// 4 の判定は「取得系属性かどうか」ではなく「**その URL がオリジンの外を指すか**」で行い、
+// 基準は CSS 側と同じ `isSelfContainedUrl`(`@editor/shared`)1 つに揃える。
+
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { findExternalRefsInCss, validation } from '@editor/shared';
+import {
+  decodeHtmlEntities,
+  findExternalRefsInCss,
+  findExternalRefsInTag,
+  nestedHtmlAttrsFor,
+  validation,
+} from '@editor/shared';
 import { scanTags } from '../vivliostyle/inlineCss.js';
 
 /** 拒否時にクライアントへ返す文言。外部クライアントの契約になるので変えるときは OpenAPI も。 */
 export const EXTERNAL_REF_MESSAGE =
-  'CSSに外部参照(@import / 絶対URLのurl() / 引用符付きの絶対URL)が含まれるためPDFを作成できません。' +
-  'フォントや画像は文書に同梱するか相対パスで指定してください。';
+  'CSSまたはHTMLに外部参照(@import / 絶対URLのurl() / 絶対URLのhref・src)が含まれるため' +
+  'PDFを作成できません。' +
+  'フォントや画像やスクリプトは文書に同梱するか、同梱資産への相対パス(css/… fonts/… js/…)で' +
+  '指定してください。';
 
 /** 応答に載せる機械可読コード(OpenAPI に明記。クライアントはこれで分岐する)。 */
 export const EXTERNAL_REF_CODE = 'DOCUMENT_EXTERNAL_REF';
@@ -51,22 +67,47 @@ const MAX_REPORTED_REFS = 5;
  */
 export function findDocumentExternalRefs(html: string, css: string): string[] {
   const refs = [...findExternalRefsInCss(css)];
+  collectHtmlRefs(html, refs, 0);
+  return refs;
+}
+
+/**
+ * `srcdoc` の中の HTML を走査し直す深さの上限。1 段で足りる(`srcdoc` の中の `srcdoc` も
+ * 同じ経路でもう 1 段拾えるが、無限に降りる意味は無い)。上限を置くのは自己参照する
+ * 入力で走査が止まらなくなるのを防ぐため。
+ */
+const MAX_NESTED_HTML_DEPTH = 2;
+
+/** HTML 1 枚分の外部参照を `out` へ積む(`srcdoc` の入れ子文書は再帰で降りる)。 */
+function collectHtmlRefs(html: string, out: string[], depth: number): void {
   const scan = scanTags(html);
   if (!scan.ok) {
-    refs.push(...findExternalRefsInCss(html));
-    return refs;
+    out.push(...findExternalRefsInCss(html));
+    return;
   }
   for (const tag of scan.tags) {
     if (tag.name === 'style' && tag.rawText !== undefined) {
-      refs.push(...findExternalRefsInCss(tag.rawText));
+      out.push(...findExternalRefsInCss(tag.rawText));
     }
     // 属性値は走査器が切り出したものを使う。原文への正規表現で拾うと
     // `data-style="…"` や他属性の値の中の字面まで拾って誤検知になる。
+    // 値は**引用符を外しただけの原文**なので、CSS 検査へ渡す前に実体参照を解く —
+    // 解かない版は `style="background:url(&#104;ttp://evil/x)"` を 0 件で通した(実測)。
     for (const a of tag.attrs) {
-      if (a.name === 'style') refs.push(...findExternalRefsInCss(a.value));
+      if (a.name === 'style') out.push(...findExternalRefsInCss(decodeHtmlEntities(a.value)));
+    }
+    if (tag.isEnd) continue;
+    // 取得系属性の絶対 URL。相対参照(同梱資産)は `isSelfContainedUrl` が通す。
+    out.push(...findExternalRefsInTag(tag.name, tag.attrs));
+    // `srcdoc` は URL ではなく HTML 文書。URL として検査すると必ず「相対参照」と判定され、
+    // 中に書いた絶対参照が丸ごと検査から消える(`htmlExternalRefs.ts` の注記)。
+    if (depth >= MAX_NESTED_HTML_DEPTH) continue;
+    const nested = nestedHtmlAttrsFor(tag.name);
+    if (nested.length === 0) continue;
+    for (const a of tag.attrs) {
+      if (nested.includes(a.name)) collectHtmlRefs(decodeHtmlEntities(a.value), out, depth + 1);
     }
   }
-  return refs;
 }
 
 /**

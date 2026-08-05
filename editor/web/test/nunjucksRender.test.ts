@@ -106,7 +106,12 @@ describe('buildPreviewDocument', () => {
     expect(r.html).not.toContain('a.css');
   });
 
-  // 保存型 XSS 対策: テンプレ本文の能動コンテンツは除去され, 体裁(style/構造/値)は保持される。
+  // ⚠ **プレビューだけ PDF と結果が違う。意図的な差であり、暫定である。**
+  // テンプレの JS は正当なコンテンツなので PDF 経路(`pdfDocument.ts` / `sanitizePdfRoot`)は
+  // script を残す。プレビューが残せないのは、`@vivliostyle/core` が**アプリ本体の document へ
+  // 直接描画する**(`PreviewPanel.vue` の `viewportElement`)ため、script を残すとアプリと
+  // 同一オリジンで動いてしまうからである。opaque オリジンの iframe へ移すまでは除去を続ける。
+  // 下の 2 本は「今どちらの状態か」を機械で固定する — 片方だけ黙って変わるのを防ぐ。
   it('strips active content (<script> / on* handlers / javascript: URLs)', () => {
     const r = buildPreviewDocument(
       '<html><head></head><body>' +

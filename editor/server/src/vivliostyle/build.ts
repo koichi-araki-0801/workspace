@@ -2,11 +2,15 @@
 // build.ts — `@vivliostyle/cli` で PDF をビルドする(inline / project / merge)
 // =============================================================================
 import { execFile } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 import { assertNoDocumentExternalRefs } from '../security/externalRefs.js';
 import { buildWorkerPool } from './buildWorkerServer.js';
+import { stageDocAssets } from './docAssets.js';
+import { collectDocumentAssetRefs } from './docRefs.js';
+import { type BuildOriginReservation, reserveBuildOrigin } from './egressGuard.js';
 import { inlineCss } from './inlineCss.js';
 import { type MergeDocument, materializeMergeProject } from './mergeInput.js';
 import { sharedInlineConfig } from './options.js';
@@ -54,6 +58,30 @@ function runBuildWorkerSpawn(buildOptions: unknown): Promise<void> {
   });
 }
 
+/**
+ * 1 ビルド分の CLI オプション共通部を、**そのビルド専用の loopback オリジン**込みで組む。
+ *
+ * `port` を我々が決めるのが要点で、これによって `egressGuard` は「loopback の全ポート」では
+ * なく「このビルドが自分の組版に使う 1 オリジン」だけを中継できるようになる
+ * (`egressGuard.ts` 冒頭の理由を見よ)。組版ブラウザは `--disable-web-security` 付きで動く
+ * ため、他の loopback サービスへ届くこと自体が持ち出し経路になる。
+ *
+ * 呼び出し側は戻り値の `release()` を**必ず `finally` で呼ぶ**こと。呼び忘れると許可枠が
+ * 開いたまま残り、以後のビルドからそのポートへ到達できてしまう。
+ */
+async function buildScope(): Promise<{
+  options: Record<string, unknown>;
+  reservation: BuildOriginReservation;
+}> {
+  const reservation = await reserveBuildOrigin();
+  try {
+    return { options: { ...(await sharedInlineConfig()), port: reservation.port }, reservation };
+  } catch (e) {
+    reservation.release();
+    throw e;
+  }
+}
+
 /** inline(レンダリング済み HTML + 任意の CSS)ビルド入力。 */
 interface BuildInlineInput {
   html: string;
@@ -73,28 +101,46 @@ interface BuildInlineInput {
  */
 export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
   await fs.mkdir(config.tmpDir, { recursive: true });
-  const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-  const htmlPath = path.join(config.tmpDir, `doc-${stamp}.html`);
-  const pdfPath = path.join(config.tmpDir, `doc-${stamp}.pdf`);
-
-  // 外部参照の関門は**ここ**(サーバの build 入口)。ブラウザ側の検査だけだと
-  // 公開 API へ直接 POST すれば無検査で headless へ届く(`security/externalRefs.ts` 参照)。
-  assertNoDocumentExternalRefs(input.html, input.css ?? '', 'build.inline');
-  const doc = inlineCss(input.html, input.css ?? '');
-  await fs.writeFile(htmlPath, doc, 'utf8');
+  const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  // ⚠ **ビルドごとに専用ディレクトリを作る。** `config.tmpDir` 直下へ書いていた頃は、
+  // CLI の `workspaceDir`(= エントリ HTML の親)が `.tmp` そのものになり、同時に走る
+  // 他のプレビューセッションや展開済み zip まで丸ごと loopback の Vite サーバから
+  // 配信されていた。1 文書 = 1 ルートにするのが「作業ディレクトリの外へ出さない」の実体。
+  const dir = path.join(config.tmpDir, `vivlio-inline-${stamp}`);
+  await fs.mkdir(dir, { recursive: true });
+  const htmlPath = path.join(dir, 'index.html');
+  const pdfPath = path.join(dir, 'output.pdf');
+  const scope = await buildScope();
 
   try {
+    // 外部参照の関門は**ここ**(サーバの build 入口)。ブラウザ側の検査だけだと
+    // 公開 API へ直接 POST すれば無検査で headless へ届く(`security/externalRefs.ts` 参照)。
+    assertNoDocumentExternalRefs(input.html, input.css ?? '', 'build.inline');
+    // 配置するのは**この文書が参照している**資産だけ(`docRefs.ts` の理由を見よ)。
+    const served = await stageDocAssets(dir, {
+      referenced: collectDocumentAssetRefs(input.html, input.css ?? ''),
+    });
+    await fs.writeFile(
+      htmlPath,
+      inlineCss(input.html, input.css ?? '', { servedAssets: served }),
+      'utf8',
+    );
+
     await runBuildWorker({
       input: htmlPath,
+      // `cwd` を明示する。省略すると CLI の `entryContextDir` がサーバの作業ディレクトリ
+      // (= リポジトリルート)になり、そこが `sirv` で配信対象に載る。
+      cwd: dir,
       output: [{ path: pdfPath, format: 'pdf' }],
       size: input.size ?? 'A4',
       ...(input.singleDoc ? { singleDoc: true } : {}),
-      ...sharedInlineConfig(),
+      ...scope.options,
     });
 
     return await fs.readFile(pdfPath);
   } finally {
-    await Promise.allSettled([fs.rm(htmlPath, { force: true }), fs.rm(pdfPath, { force: true })]);
+    scope.reservation.release();
+    await cleanupProject(dir);
   }
 }
 
@@ -121,6 +167,7 @@ interface BuildProjectInput {
  */
 export async function buildProjectPdf(input: BuildProjectInput): Promise<Buffer> {
   const pdfPath = path.join(input.dir, `__out-${Date.now()}.pdf`);
+  const scope = await buildScope();
 
   try {
     // どちらの場合も `cwd` を設定し、vivliostyle がエントリをサーバの作業ディレクトリ
@@ -133,11 +180,12 @@ export async function buildProjectPdf(input: BuildProjectInput): Promise<Buffer>
       output: [{ path: pdfPath, format: 'pdf' }],
       ...(input.size ? { size: input.size } : {}),
       ...(input.singleDoc ? { singleDoc: true } : {}),
-      ...sharedInlineConfig(),
+      ...scope.options,
     });
 
     return await fs.readFile(pdfPath);
   } finally {
+    scope.reservation.release();
     await fs.rm(pdfPath, { force: true });
   }
 }
@@ -178,6 +226,16 @@ export async function prepareInlineDoc(
   await fs.mkdir(dir, { recursive: true });
   const entry = path.join(dir, 'index.html');
   assertNoDocumentExternalRefs(input.html, input.css ?? '', 'preview.inline');
-  await fs.writeFile(entry, inlineCss(input.html, input.css ?? ''), 'utf8');
+  // プレビューも配信ルートは同じ形にする(同梱資産を相対パスで引ける)。ただし
+  // プレビュー経路の script は `previewProxy.CONTENT_CSP` の `script-src 'none'` で
+  // 止まったままである — プレビューの iframe 化が未実施のため意図的に据え置いている。
+  const served = await stageDocAssets(dir, {
+    referenced: collectDocumentAssetRefs(input.html, input.css ?? ''),
+  });
+  await fs.writeFile(
+    entry,
+    inlineCss(input.html, input.css ?? '', { servedAssets: served }),
+    'utf8',
+  );
   return { dir, entry };
 }

@@ -28,6 +28,8 @@ export default defineConfig({
         'editor/shared/src/domain/user.ts',
         'editor/shared/src/domain/history.ts',
         'editor/shared/src/security/cssExternalRefs.ts',
+        'editor/shared/src/security/htmlExternalRefs.ts',
+        'editor/shared/src/security/htmlEntities.ts',
         // editor/server (vivliostyle は pure layer のみ。build.ts 等は browser+socket 依存で対象外)
         'editor/server/src/auth/password.ts',
         'editor/server/src/auth/loginRateLimit.ts',
@@ -45,6 +47,11 @@ export default defineConfig({
         'editor/server/src/routes/routeGuards.ts',
         'editor/server/src/middleware/auth.ts',
         'editor/server/src/security/externalRefs.ts',
+        // 隔離の完結で新設。配信ルートへ写す許可リストと egress 遮断の実体で、
+        // どちらも「サニタイズを外した代わりの守り」なので閾値の対象へ入れる。
+        'editor/server/src/vivliostyle/docAssets.ts',
+        'editor/server/src/vivliostyle/docRefs.ts',
+        'editor/server/src/vivliostyle/egressGuard.ts',
         'editor/server/src/git/gitRepo.ts',
         'editor/server/src/openapi/docsRoutes.ts',
         'editor/server/src/vivliostyle/previewProxy.ts',

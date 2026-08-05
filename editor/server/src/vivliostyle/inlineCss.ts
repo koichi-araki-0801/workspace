@@ -26,6 +26,11 @@
 // 文字列連結で差し込むのも意図的: `String.prototype.replace` は置換文字列中の `$&` `$'`
 // などを特殊解釈するため、CSS(利用者入力)をそのまま置換文字列に載せると内容が化ける。
 
+import { resolveServedAssetPath } from '@editor/shared';
+
+/** `servedAssets` 未指定時の既定(資産を 1 つも配置していない配信ルート)。 */
+const EMPTY_SERVED: ReadonlySet<string> = new Set<string>();
+
 /**
  * `<style>` の中身は HTML パーサにとって raw text で、終端は最初に現れる `</style` 1 つだけ。
  * CSS の文字列リテラルの内側かどうかは見ないため、`css`(= `/api/build` 等のリクエスト本文
@@ -60,8 +65,19 @@ const RAW_TEXT_ELEMENTS = new Set([
   'plaintext',
 ]);
 
-/** 外部リソースの取得を発生させる要素。CSP の無い headless ブラウザで egress を作らせない。 */
-const EXTERNAL_REF_ELEMENTS = new Set(['link', 'base']);
+/**
+ * URL によらず必ず落とす要素。
+ *
+ * `<base>` は相対 URL の解決先を丸ごと別オリジンへ向け替えられるので、値の形に関わらず
+ * 落とす(相対参照を許す設計の土台そのものを動かせてしまう)。`<meta http-equiv>` は
+ * 宣言的リフレッシュで遷移を起こせるので同様。
+ *
+ * **`link` と `script` はここに入れない。** テンプレは per-fund CSS・共通フォント・
+ * テンプレ JS を相対パスで参照し、その実体は `docAssets.ts` が配信ルートへ置く。
+ * 要素名で落とすと同梱資産まで道連れになるため、判定は
+ * 「**href / src が配信ルート配下の実体に解決されるか**」で行う(`dropsUnservedRef`)。
+ */
+const ALWAYS_DROPPED_ELEMENTS = new Set(['base']);
 
 /** タグ 1 つの位置。`start` は `<` の位置、`end` は対応する `>` の次の位置。 */
 export interface TagSpan {
@@ -260,27 +276,102 @@ function hasHttpEquiv(tag: TagSpan): boolean {
 }
 
 /**
- * 外部リソースを取りに行く要素を落とす。CSS は inline 化するため `<link>` は不要で、残すと
- * ブラウザ内 `@vivliostyle/core` のフェッチャが 404 でページ分割を中断する。`<base>` は
- * 相対 URL の解決先を丸ごと外部へ向け替えられ、`<meta http-equiv>` は宣言的リフレッシュで
- * 遷移を起こせるため、いずれも rel の値によらず落とす(許可リスト側の判断)。
+ * `<link rel="stylesheet">` か(`rel` は空白区切りの複数値・大小文字を区別しない)。
  */
-function stripExternalRefTags(html: string, tags: TagSpan[]): string {
+function isStylesheetLink(tag: TagSpan): boolean {
+  if (tag.name !== 'link') return false;
+  const rel = tag.attrs.find((a) => a.name === 'rel');
+  if (rel === undefined) return false;
+  return rel.value.toLowerCase().split(/\s+/).includes('stylesheet');
+}
+
+/**
+ * `<link href>` / `<script src>` が **配信ルートに実体の無い**参照か。
+ *
+ * 絶対参照(`https://…` 等)はここへ来るより前に 400 で拒否済み
+ * (`security/externalRefs.ts` の `assertNoDocumentExternalRefs`)なので、ここで見るのは
+ * 「相対参照だが実体が無い」形だけである。残すと組版側のフェッチャが 404 を踏み、
+ * ページ分割が中断する — だから**残すのは実体があるときだけ**という非対称にする。
+ *
+ * 属性そのものが無い場合(素の `<script>` = テンプレ JS 本体、href の無い `<link>`)は
+ * 取得を起こさないので落とさない。
+ */
+function dropsUnservedRef(tag: TagSpan, served: ReadonlySet<string>): boolean {
+  const attrName = tag.name === 'link' ? 'href' : 'src';
+  const attr = tag.attrs.find((a) => a.name === attrName);
+  if (attr === undefined) return false;
+  const rel = resolveServedAssetPath(attr.value);
+  return rel === undefined || !served.has(rel);
+}
+
+/**
+ * 取得を起こす要素のうち、配信ルートで解決できないものを落とす。
+ *
+ * 旧実装は `link` / `base` を要素名で無条件に落としていたが、それはテンプレが CSS・
+ * フォント・JS を同梱資産への相対パスで参照する、という要件と正面から衝突する
+ * (`docAssets.ts` 冒頭を見よ)。判定軸を要素名から URL の解決先へ移した。
+ *
+ * ── CSS の適用元は 1 つに保つ(`hasInlineCss`)──
+ * リクエストが `css` を持つとき、その CSS が**唯一の源**である。同じ per-fund CSS が
+ * ディスク側にも在るので、`<link href="css/510037.css">` を残すと 2 重に当たり、しかも
+ * 挿入位置の都合で**ディスク側が先・リクエスト側が後**になる。編集中の下書き CSS で
+ * 規則を「削除」しても、後勝ちでは削除を上書きできないためディスクの旧規則が復活する。
+ * プレビュー(`web/src/lib/nunjucksRender.ts`)は `<link>` を落として inline だけを当てるので、
+ * 残すとプレビューと PDF で見た目が食い違う。よってこの場合は stylesheet の `<link>` を落とす。
+ * `css` が空のリクエスト(同梱 CSS だけで組む外部クライアント)では従来どおり残す。
+ */
+function stripUnresolvableRefTags(
+  html: string,
+  tags: TagSpan[],
+  served: ReadonlySet<string>,
+  hasInlineCss: boolean,
+): string {
   const kept: string[] = [];
   let cursor = 0;
-  for (const tag of tags) {
+  for (const [i, tag] of tags.entries()) {
     if (tag.isEnd) continue;
-    const drop = EXTERNAL_REF_ELEMENTS.has(tag.name) || (tag.name === 'meta' && hasHttpEquiv(tag));
+    const drop =
+      ALWAYS_DROPPED_ELEMENTS.has(tag.name) ||
+      (tag.name === 'meta' && hasHttpEquiv(tag)) ||
+      (hasInlineCss && isStylesheetLink(tag)) ||
+      ((tag.name === 'link' || tag.name === 'script') && dropsUnservedRef(tag, served));
     if (!drop) continue;
     kept.push(html.slice(cursor, tag.start));
-    cursor = tag.end;
+    cursor = dropEndOf(tags, i, tag);
   }
   return kept.length === 0 ? html : kept.join('') + html.slice(cursor);
 }
 
+/**
+ * 落とす要素の終端(除去後に再開する位置)。
+ *
+ * raw text 要素(`<script>`)は**中身と終了タグまで**落とす。開始タグだけ消すと、それまで
+ * raw text として読まれていた中身が地の HTML として再解釈され、`<script src=…>` の中に
+ * 書かれた `<img onerror=…>` が live なマークアップとして復活する。
+ * `inlineCss.ts` 冒頭の「除去でタグ境界を壊さない」不変則と同じ種類の罠である。
+ */
+function dropEndOf(tags: TagSpan[], index: number, tag: TagSpan): number {
+  if (tag.rawText === undefined) return tag.end;
+  const next = tags[index + 1];
+  // `scanTags` は raw text の直後に終了タグ span を積む。無ければ中身の末尾で止める。
+  const contentEnd = tag.end + tag.rawText.length;
+  return next?.isEnd && next.name === tag.name && next.start === contentEnd ? next.end : contentEnd;
+}
+
+/** `inlineCss` の任意設定。 */
+export interface InlineCssOptions {
+  /**
+   * 配信ルートへ実際に配置した資産の相対パス集合(`docAssets.stageDocAssets` の戻り値)。
+   * 省略 = 何も配置していない、なので相対参照を持つ `<link>`/`<script src>` は全部落ちる
+   * (= 資産配置を入れる前と同じ挙動)。
+   */
+  servedAssets?: ReadonlySet<string>;
+}
+
 /** CSS 文字列を HTML ドキュメントへインライン展開する(head / body / 完全ラッパ)。 */
-export function inlineCss(html: string, css: string): string {
+export function inlineCss(html: string, css: string, opts: InlineCssOptions = {}): string {
   const styleTag = css ? `<style>\n${css.replace(STYLE_CLOSE_RE, '<\\/')}\n</style>` : '';
+  const served = opts.servedAssets ?? EMPTY_SERVED;
 
   const first = scanTags(html);
   if (!first.ok) {
@@ -288,7 +379,7 @@ export function inlineCss(html: string, css: string): string {
     // アンカー探索も部分除去も要らず、誤った位置へ差し込む余地が無い。
     return styleTag ? `<!doctype html>\n${styleTag}\n${html}` : html;
   }
-  const cleaned = stripExternalRefTags(html, first.tags);
+  const cleaned = stripUnresolvableRefTags(html, first.tags, served, styleTag !== '');
   if (!styleTag) return cleaned;
 
   // 除去でオフセットが動くので、挿入位置は掃除後の文字列から取り直す。

@@ -36,6 +36,47 @@ function previewPurifyConfig(): PurifyConfig {
 }
 
 /**
+ * PDF 経路専用のサニタイズ設定。**プレビュー用との差は 2 つだけ**で、それ以外の
+ * DOMPurify の防御(`on*` 属性・`javascript:` URL・`<object>`/`<embed>` 等の危険要素・
+ * mXSS 対策)はそのまま効かせる。
+ *
+ *   1. `<script>` を残す — テンプレの JS は開発者が生成時に埋め込む**正当なコンテンツ**で
+ *      (列幅自動調整など)、サニタイズで削る対象ではない。変更されていないことはサーバの
+ *      `security/templateScripts.ts` が照合して保証し、実行の危険は隔離(egress 遮断・
+ *      作業ディレクトリ封じ込め)で受ける。
+ *      ここを落としていた頃は、テンプレ JS が PDF で 1 つも効かなかった(実測で、残すと
+ *      **インライン script は組版時に実行される** = 出力 PDF が変わる)。外部 `src` の
+ *      script は現行 vivliostyle では解決先がずれて動かない(`pdfDocument.ts` の該当コメント)。
+ *   2. `<link>` を残す — テンプレは per-fund CSS・共通フォントを相対パスで参照し、その実体を
+ *      サーバの `vivliostyle/docAssets.ts` が配信ルートへ置く。落とすと同梱資産が読めない。
+ *      ⚠ ただし **CSS の適用元は 1 つ**である。この経路(`renderPdfDocument`)はリクエストに
+ *      解決済みの `css` を必ず載せるので、サーバの `inlineCss` が stylesheet の `<link>` を
+ *      落とし、当たる CSS はリクエスト側だけになる(= プレビューと同じ 1 枚)。ここで
+ *      `<link>` を残しているのは `rel="preload"` のような**取得を伴う非 stylesheet の用途**を
+ *      殺さないためで、「ディスクの CSS も当てる」ためではない。両方当てていた版では、
+ *      下書きで削除した規則がディスク側の旧 CSS から復活し、プレビューと PDF が食い違った。
+ *
+ * `<base>` と `<meta>` は落としたままにする。`<base>` は相対 URL の解決先を丸ごと別
+ * オリジンへ向け替えられ(= 1 と 2 の前提そのものを壊す)、`<meta http-equiv>` は
+ * 宣言的リフレッシュで遷移を起こす。
+ *
+ * ⚠ **プレビュー経路(`assemblePreviewDocument`)にはこれを使わない。** プレビューは
+ * vivliostyle が本体 document へ直接描画しており、opaque オリジンの iframe へ移す作業が
+ * 未着手のため、script を残すとアプリと同一オリジンで動く。結果として
+ * 「PDF と承認画面では JS が動き、プレビューでは動かない」差が残る(既知・意図的)。
+ */
+function pdfPurifyConfig(): PurifyConfig {
+  return {
+    WHOLE_DOCUMENT: true,
+    ADD_TAGS: ['style', 'script', 'link'],
+    // `link` の `rel`/`href`/`type` と `script` の `src`/`type` を通す。URL 値は DOMPurify の
+    // `ALLOWED_URI_REGEXP` が引き続き検査し、`javascript:` 等は落ちる。
+    ADD_ATTR: ['style', 'rel', 'href', 'src', 'type', 'as', 'media'],
+    FORBID_TAGS: ['base', 'meta'],
+  };
+}
+
+/**
  * テンプレ HTML(レンダリング済み)をサニタイズし、**DOM のまま**返す。文字列を経由しないので
  * 呼び出し側は構造の上で `<style>` を足すなどの加工ができる(不変則: 探す・切るは DOM の上で)。
  *
@@ -120,6 +161,17 @@ export function appendPreviewStyle(
  */
 export function sanitizePreviewHtml(html: string): string {
   return serializePreviewRoot(sanitizePreviewRoot(html));
+}
+
+/**
+ * PDF ビルドへ送る HTML をサニタイズし、**DOM のまま**返す(`pdfPurifyConfig` を見よ)。
+ * script と link を残すのがプレビュー用との差で、他の防御は同じだけ効いている。
+ */
+export function sanitizePdfRoot(html: string): Element {
+  return DOMPurify.sanitize(html, {
+    ...pdfPurifyConfig(),
+    RETURN_DOM: true,
+  }) as unknown as Element;
 }
 
 // ── 2. 編集 canvas(GrapesJS パーサ)経路 ──

@@ -49,6 +49,7 @@ const appConfigSchema = z
         dataRoot: z.string().optional(),
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
+        assetsDir: z.string().optional(),
         draftsDir: z.string().optional(),
         pendingDir: z.string().optional(),
         reviewsDir: z.string().optional(),
@@ -275,6 +276,16 @@ export const config = {
   ),
   /** ファンド別(per-fund)共有 CSS ファイルを置くディレクトリ。 */
   cssDir: resolvePath(process.env.CSS_DIR, file.paths?.cssDir, '../../editor-data/css'),
+  /**
+   * **全ファンド共通**の同梱資産(`fonts/` と `js/`)を置くディレクトリ。テンプレはこれらを
+   * `fonts/…` `js/…` の相対パスで参照し、PDF ビルド / プレビューの配信ルートへ
+   * `vivliostyle/docAssets.ts` が写す。CSS だけ per-fund で `cssDir` に分かれているのは
+   * ファンドごとに中身が違うためで、フォントと JS は共通なのでここに 1 組だけ置く。
+   *
+   * ⚠ この配下は **headless ブラウザが読む配信ルートへ写される**。任意のファイルを置く
+   * 場所ではなく、写す対象は `docAssets.ts` の拡張子許可リストで絞る。
+   */
+  assetsDir: resolvePath(process.env.ASSETS_DIR, file.paths?.assetsDir, '../../editor-data/assets'),
   /** 自動保存(autosave)ドラフトの作業コピー(template ごとに html/css。git 管理外)。 */
   draftsDir: resolvePath(process.env.DRAFTS_DIR, file.paths?.draftsDir, '../../editor-data/drafts'),
   /**
