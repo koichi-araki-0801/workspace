@@ -91,11 +91,15 @@ def test_svg_unedited_text_uses_baseline(vector_pdf):
 
 
 def test_svg_replaced_text_centered_in_box(vector_pdf, tmp_path):
-    """置換後テキストは元グリフ箱の縦中央へ dominant-baseline=central で据える。"""
+    """箱に収まる置換語は textLength を出さず、元グリフ箱の縦横中央へ据える。
+
+    引き伸ばし (textLength + spacingAndGlyphs) は超過の恐れがあるときだけ。短い置換語へ
+    残すとグリフごと水平拡大されて「横太り」に見える退行を起こす。
+    """
     doc = load_document(str(vector_pdf))
     pg = doc.pages[0]
     el = next(e for e in pg.elements if isinstance(e, TextElement) and e.text == "Header A")
-    cx, cy = el.bbox.x, el.bbox.y + el.bbox.h / 2
+    cx, cy = el.bbox.x + el.bbox.w / 2, el.bbox.y + el.bbox.h / 2
     store = DictionaryStore(tmp_path / "d.json")
     store.add("Header A", "見出し")
     dict_apply.auto_apply(pg, store)
@@ -103,8 +107,28 @@ def test_svg_replaced_text_centered_in_box(vector_pdf, tmp_path):
     svg = page_to_svg(pg)
     line = next(ln for ln in svg.splitlines() if "見出し" in ln)
     assert 'dominant-baseline="central"' in line
-    assert "textLength=" in line
+    assert 'text-anchor="middle"' in line
+    assert "textLength" not in line
     assert f'x="{_fmt(cx)}"' in line and f'y="{_fmt(cy)}"' in line
+
+
+def test_svg_replaced_text_overflow_keeps_textlength(vector_pdf, tmp_path):
+    """箱の幅を超える置換語は従来どおり左端 + textLength で全幅圧縮する。"""
+    doc = load_document(str(vector_pdf))
+    pg = doc.pages[0]
+    el = next(e for e in pg.elements if isinstance(e, TextElement) and e.text == "Header A")
+    long_text = "十二全角文字の長い置換語です"  # 概算幅 14 全角 ≫ 元 bbox 幅
+    cx = el.bbox.x
+    store = DictionaryStore(tmp_path / "d.json")
+    store.add("Header A", long_text)
+    dict_apply.auto_apply(pg, store)
+    store.close()
+    svg = page_to_svg(pg)
+    line = next(ln for ln in svg.splitlines() if long_text in ln)
+    assert "textLength=" in line
+    assert 'lengthAdjust="spacingAndGlyphs"' in line
+    assert "text-anchor" not in line
+    assert f'x="{_fmt(cx)}"' in line
 
 
 def test_svg_strips_xml_invalid_control_chars(vector_pdf):
@@ -131,11 +155,11 @@ def test_svg_embeds_bundled_font_for_japanese(vector_pdf, tmp_path):
     assert "@font-face" in svg
     assert "BIZ UDPGothic" in svg
     assert "data:font/woff2;base64," in svg
-    # 置換済みテキストも元グリフ箱に収めて水平位置を維持する (textLength) ＋
-    # 縦中央へ据える (dominant-baseline="central")。
+    # 箱に収まる置換語は引き伸ばさず (textLength 無し)、元グリフ箱の中央へ据える
+    # (text-anchor="middle" + dominant-baseline="central")。
     line = next(ln for ln in svg.splitlines() if "見出し A" in ln)
-    assert "textLength=" in line
-    assert 'lengthAdjust="spacingAndGlyphs"' in line
+    assert "textLength" not in line
+    assert 'text-anchor="middle"' in line
     assert 'dominant-baseline="central"' in line
     # サブセット化により SVG が肥大しない (フォント全体 ~5MB に対し数十 KB)
     assert len(svg) < 200_000

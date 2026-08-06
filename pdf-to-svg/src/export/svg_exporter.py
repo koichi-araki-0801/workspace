@@ -182,9 +182,9 @@ def _text_to_svg(el: TextElement) -> str:
     family = fonts.fallback_css(el.font_family, el.text)
     weight = f" {_attr('font-weight', el.weight)}" if el.weight != 400 else ""
     style = ' font-style="italic"' if el.italic else ""
-    # 元 PDF 上のグリフ箱の幅 (bbox.w) に収め、代替フォントの字幅差や辞書置換後の
-    # 文字数差があっても元の水平位置 (中央/左/右の揃え) を維持する。文字数が大きく
-    # 変わる場合は lengthAdjust="spacingAndGlyphs" が字間を伸縮して吸収する。
+    # 元 PDF 上のグリフ箱の幅 (bbox.w) に収め、代替フォントの字幅差があっても元の
+    # 水平位置 (中央/左/右の揃え) を維持する。置換で箱に収まるほど短くなった場合は
+    # 後段の各枝が stretch を外す (引き伸ばしは超過の恐れがあるときだけ)。
     stretch = ""
     if el.bbox.w > 0:
         stretch = (
@@ -208,12 +208,21 @@ def _text_to_svg(el: TextElement) -> str:
         if not fonts.is_width_overflow(el.text, el.font_size, el.bbox.w):
             stretch = ""
     else:
-        # 置換後 (単独行): 元グリフ箱に収め、水平は左端 + 元幅 (揃え維持)、垂直は箱の
-        # 縦中央へ `dominant-baseline="central"` で据える。フォント置換でアセントが
-        # 変わっても縦中央が保たれ、ベースライン据えで起きる「上詰まり」を防ぐ。
-        x = el.bbox.x
+        # 置換後 (単独行): 垂直は箱の縦中央へ `dominant-baseline="central"` で据える。
+        # フォント置換でアセントが変わっても縦中央が保たれ、ベースライン据えで起きる
+        # 「上詰まり」を防ぐ。水平は折返し枝と同じ超過判定で二分する — 元グリフ箱の幅を
+        # 超える恐れがあるときだけ左端 + textLength で全幅圧縮し、収まる場合は textLength
+        # を外して箱中央へ据える (spacingAndGlyphs はグリフ自体を水平拡大するため、短い
+        # 置換語を元の広い幅へ引き伸ばすと「横太り」に見える。中央据えは元テキストの
+        # 視覚中心を保ち、セルの真の揃えが不明でもずれを幅差の半分に抑える)。
         y = el.bbox.y + el.bbox.h / 2
-        base = ' dominant-baseline="central"'
+        if fonts.is_width_overflow(el.text, el.font_size, el.bbox.w):
+            x = el.bbox.x
+            base = ' dominant-baseline="central"'
+        else:
+            stretch = ""
+            x = el.bbox.x + el.bbox.w / 2
+            base = ' dominant-baseline="central" text-anchor="middle"'
     return (
         "<text "
         + _attr("x", _fmt(x))
