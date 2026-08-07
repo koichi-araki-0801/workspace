@@ -410,6 +410,54 @@ function jinjaEnd(text: string, at: number): number {
 }
 
 /**
+ * `<!--` で始まるコメントの終端(終端記号の直後)を返す。
+ *
+ * HTML のコメントは `-->` **と `--!>` の両方**で終わり、`<!-->` / `<!--->` は開いた直後に
+ * 閉じる(abrupt closing)。`-->` だけを見ていた版は `<!-- a --!><script>…</script>-->` を
+ * 「コメント 1 個」と読み、中の `<script>` を単位ゼロで申請・承認へ通した(ブラウザは
+ * `--!>` でコメントを閉じるので、確定テンプレでは実行される)。
+ *
+ * ⚠ 本ファイルの走査器は手書きで、仕様準拠パーサではない。本筋は基準側・提出側の両方を
+ * 仕様準拠パーサで DOM 化して実行面を列挙することだが、ここは申請ゲートの中核で
+ * 「単位列が動く = 正当な保存が止まる」ため、今回は既知の乖離(コメント終端・終了タグの
+ * 直後文字)を塞ぐに留める。パーサ化は別途評価する。
+ */
+function commentEnd(text: string, lt: number): number {
+  // `<!-->` / `<!--->` は開始直後に閉じる。
+  if (text.startsWith('<!-->', lt)) return lt + 5;
+  if (text.startsWith('<!--->', lt)) return lt + 6;
+  const a = text.indexOf('-->', lt + 4);
+  const b = text.indexOf('--!>', lt + 4);
+  if (a < 0 && b < 0) return -1;
+  if (a < 0) return b + 4;
+  if (b < 0) return a + 3;
+  return a < b ? a + 3 : b + 4;
+}
+
+/**
+ * raw text 要素(`script` / `style`)の終了タグの `<` 位置を返す(無ければ `-1`)。
+ *
+ * `</script` の前方一致だけでは足りない。HTML のトークナイザは終了タグ名の直後が
+ * 空白 / `/` / `>` のときにだけ終了タグとみなすので、`</scriptx>` は**本文の一部**である。
+ * 前方一致で切っていた版は `<script>init()</scriptx>/;evil()</script>` の本文を
+ * `init()` と読み、基準と一致させたまま `evil()` を確定テンプレへ通した。
+ * 判定は `inlineCss.ts` の `findRawTextEnd` と同じ規則(片方だけ緩めない)。
+ */
+function rawTextEnd(text: string, name: string, from: number): number {
+  const needle = `</${name}`;
+  const lower = text.toLowerCase();
+  let i = from;
+  while (i < lower.length) {
+    const at = lower.indexOf(needle, i);
+    if (at === -1) return -1;
+    const after = text[at + needle.length];
+    if (after === undefined || isSpace(after) || after === '/' || after === '>') return at;
+    i = at + needle.length;
+  }
+  return -1;
+}
+
+/**
  * 開始タグだけを順に取り出す簡易走査。**HTML パーサではない**(整形式でない入力でも
  * 止まらず、拾いすぎる方へ倒れる)。終了タグ・コメント・doctype は読み飛ばす。
  */
@@ -421,10 +469,16 @@ function* scanOpenTags(text: string): Generator<ParsedTag> {
     if (lt < 0) return;
     const next = text[lt + 1] ?? '';
     if (next === '!') {
-      // コメントは `-->` まで、doctype 等は `>` まで読み飛ばす。
-      const end = text.startsWith('<!--', lt)
-        ? text.indexOf('-->', lt + 4) + 3 || len
-        : text.indexOf('>', lt) + 1 || len;
+      if (text.startsWith('<!--', lt)) {
+        // コメントは `-->` / `--!>` まで(`commentEnd`)。閉じないコメントは読み飛ばさず
+        // **中身を走査する**(fail closed) — 閉じないコメントを 1 つ置くだけで以降の
+        // 実行面が単位から消える形を作らないため。過剰包含は基準側にも同じだけ現れる。
+        const end = commentEnd(text, lt);
+        i = end > lt ? end : lt + 4;
+        continue;
+      }
+      // doctype 等の markup declaration は `>` まで。
+      const end = text.indexOf('>', lt) + 1 || len;
       i = end <= lt ? len : end;
       continue;
     }
@@ -478,7 +532,7 @@ function* scanOpenTags(text: string): Generator<ParsedTag> {
     yield { at: lt, contentAt: p, name, attrs, jinja };
     // raw text 要素の内容はタグとして解釈されない。走査位置を終了タグの後ろへ進める。
     if (RAW_TEXT_ELEMENTS.has(name)) {
-      const close = text.toLowerCase().indexOf(`</${name}`, p);
+      const close = rawTextEnd(text, name, p);
       i = close < 0 ? len : close + name.length + 2;
     } else {
       i = p > lt ? p : lt + 1;
@@ -486,9 +540,9 @@ function* scanOpenTags(text: string): Generator<ParsedTag> {
   }
 }
 
-/** raw text 要素の内容(終了タグが無ければ EOF まで)。 */
+/** raw text 要素の内容(終了タグが無ければ EOF まで)。終端規則は `rawTextEnd` と共有する。 */
 function rawTextOf(text: string, tag: ParsedTag): string {
-  const close = text.toLowerCase().indexOf(`</${tag.name}`, tag.contentAt);
+  const close = rawTextEnd(text, tag.name, tag.contentAt);
   return close < 0 ? text.slice(tag.contentAt) : text.slice(tag.contentAt, close);
 }
 

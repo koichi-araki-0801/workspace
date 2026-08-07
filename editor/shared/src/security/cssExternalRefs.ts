@@ -119,15 +119,36 @@ function readIdent(css: string, at: number): { value: string; next: number } {
   return { value, next: i };
 }
 
-/** 引用符文字列を 1 つ読み、エスケープ解決後の中身と次位置(閉じ引用符の次)を返す。 */
-function readString(css: string, at: number): { value: string; next: number } {
+/** CSS Syntax の改行(入力前処理で CR / CRLF / FF は LF へ畳まれるが、原文のまま走査する)。 */
+function isCssNewline(c: string): boolean {
+  return c === '\n' || c === '\r' || c === '\f';
+}
+
+/**
+ * 引用符文字列を 1 つ読み、エスケープ解決後の中身と次位置(閉じ引用符の次)を返す。
+ *
+ * **改行でも終端する**(CSS Syntax Level 3 §4.3.5 の bad-string-token)。ここを引用符と EOF
+ * だけで終端していた版は、1 行未終端の引用符を置くだけで**以降のスタイルシート全体が
+ * 検査から消えた** — ブラウザはその宣言だけを捨てて次の `;`/`}` から再開するので、
+ * 検査器だけが残り全部を「文字列の中身」と見なす形になる(外部参照ゲートの 400 と
+ * `templateScripts.ts` の `pushCssUnits` が同時に無効化される)。
+ * 終端時の `next` は**改行の位置**を指す(消費しない) — 呼び出し側の `walkCss` が
+ * そこから走査を再開できるようにするため。
+ */
+function readString(css: string, at: number): { value: string; next: number; bad: boolean } {
   const quote = css[at];
   let i = at + 1;
   let value = '';
   while (i < css.length) {
     const c = css[i];
-    if (c === quote) return { value, next: i + 1 };
+    if (c === quote) return { value, next: i + 1, bad: false };
+    if (isCssNewline(c)) return { value, next: i, bad: true };
     if (c === '\\') {
+      // `\` + 改行は行継続で、文字を 1 つも生まない(仕様どおり)。
+      if (isCssNewline(css[i + 1] ?? '')) {
+        i += css.startsWith('\r\n', i + 1) ? 3 : 2;
+        continue;
+      }
       const esc = readEscape(css, i);
       value += esc.ch;
       i = esc.next;
@@ -136,7 +157,7 @@ function readString(css: string, at: number): { value: string; next: number } {
     value += c;
     i++;
   }
-  return { value, next: i };
+  return { value, next: i, bad: false };
 }
 
 /** `url(` の直後から `)` までを読み、エスケープ解決後の URL と次位置を返す。 */
@@ -145,6 +166,9 @@ function readUrlToken(css: string, at: number): { value: string; next: number } 
   while (i < css.length && WS.test(css[i])) i++;
   if (css[i] === '"' || css[i] === "'") {
     const s = readString(css, i);
+    // 未終端文字列(改行終端)を含む `url()` は bad-url。閉じ括弧を探しに行かず、その場で
+    // 走査を返す — 探しに行くと改行の先が丸ごと「url の中身」として検査から消える。
+    if (s.bad) return { value: s.value, next: s.next };
     let j = s.next;
     while (j < css.length && css[j] !== ')') j++;
     return { value: s.value, next: Math.min(j + 1, css.length) };
@@ -163,9 +187,16 @@ function readUrlToken(css: string, at: number): { value: string; next: number } 
   return { value: value.trim(), next: Math.min(i + 1, css.length) };
 }
 
-/** URL 値が「文書外へ取りに行かない」と言えるか。判定はエスケープ解決後の値に対して行う。 */
+/**
+ * URL 値が「文書外へ取りに行かない」と言えるか。判定はエスケープ解決後の値に対して行う。
+ *
+ * 判定前に `\` を `/` へ畳む。WHATWG URL パーサは**特殊スキーム**(http/https/file 等)の
+ * base に対して `\` を `/` と同一視するため、`\\host/x` `/\host/x` `\/host/x` はいずれも
+ * `http://host/x` へ解決される。畳まずに `startsWith('//')` だけを見ていた版は、この 3 形と
+ * CSS エスケープ表記(`\5c\5c host/x`)を「相対参照」として通していた。
+ */
 export function isSelfContainedUrl(url: string): boolean {
-  const v = url.trim();
+  const v = url.trim().replace(/\\/g, '/');
   if (v === '' || v.startsWith('#')) return true;
   // `//host/x` は scheme 相対 = 外部。`:` より先に現れる `/` は path 区切りなので相対。
   if (v.startsWith('//')) return false;

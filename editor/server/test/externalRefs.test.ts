@@ -246,3 +246,68 @@ describe('findDocumentExternalRefs — 実体参照・制御文字・srcdoc で�
     expect(findDocumentExternalRefs(html, '')).toEqual([]);
   });
 });
+
+// ── 入れ子 srcdoc の fail-open(F25)──
+// トップレベルは `scanTags` が諦めたら `UNPARSABLE_CODE` で拒む(fail closed)。一方
+// 入れ子は CSS 走査へ**降格**し、しかも失敗前に解析済みのタグを捨てていた。CSS 走査は
+// 引用符なし属性値を 1 つも見ないので、下記は零件で通っていた。
+describe('入れ子 srcdoc が走査不能なら fail closed', () => {
+  it('srcdoc の中に閉じないタグを置いても零件で通らない', () => {
+    const html = '<iframe srcdoc="<img src=https://evil.example/x><b"></iframe>';
+    expect(findDocumentExternalRefs(html, '')).not.toEqual([]);
+    expect(() => assertNoDocumentExternalRefs(html, '', 'test')).toThrow();
+  });
+
+  it('走査を諦める前に読めたタグは検査する(手前の全タグが消えない)', () => {
+    const html =
+      '<iframe srcdoc="<link rel=stylesheet href=https://evil.example/a.css><b"></iframe>';
+    const refs = findDocumentExternalRefs(html, '');
+    expect(refs.some((r) => r.includes('evil.example'))).toBe(true);
+  });
+
+  it('入れ子の中の閉じない <style> も fail closed', () => {
+    const html = '<iframe srcdoc="<style>.a{color:red}"></iframe>';
+    expect(findDocumentExternalRefs(html, '')).not.toEqual([]);
+  });
+
+  it('走査できる srcdoc の相対参照は従来どおり通る(遮断しすぎない)', () => {
+    const html = '<iframe srcdoc="<img src=img/logo.png>"></iframe>';
+    expect(findDocumentExternalRefs(html, '')).toEqual([]);
+  });
+});
+
+// ── 検査器そのものの穴(F8 / F24 / F35)が build 入口まで届いていることの主張 ──
+// 純関数側の単体は shared 側にあるが、「上流のゲートが静かに素通しになる」ことの実害は
+// この入口で測るのが正しい。
+describe('検査器の終端・正規化の穴が build 入口を素通りしない', () => {
+  const LF = String.fromCharCode(0x0a);
+
+  it.each([
+    [
+      '未終端の引用符で以降の CSS が消える(CSS 側)',
+      '<p>x</p>',
+      `.a{content:"oops${LF}}${LF}body{background:url(http://evil.example/x.png)}`,
+    ],
+    [
+      '未終端の引用符で以降の CSS が消える(<style> 側)',
+      `<style>.a{content:"oops${LF}}${LF}@import url(http://evil.example/x.css);</style>`,
+      '',
+    ],
+    ['バックスラッシュの scheme 相対', '<img src="\\\\evil.example/x.png">', ''],
+    ['SVG script の xlink:href', '<svg><script xlink:href="https://evil.example/x.js"/></svg>', ''],
+    [
+      'meta http-equiv=refresh',
+      '<meta http-equiv="refresh" content="0;url=https://evil.example/">',
+      '',
+    ],
+    [
+      'link rel=preload の imagesrcset',
+      '<link rel="preload" as="image" ' +
+        'imagesrcset="img/a.png 1x, https://evil.example/b.png 2x">',
+      '',
+    ],
+  ])('%s は 400 の対象になる', (_label, html, css) => {
+    expect(findDocumentExternalRefs(html, css)).not.toEqual([]);
+    expect(() => assertNoDocumentExternalRefs(html, css, 'test')).toThrow();
+  });
+});

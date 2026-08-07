@@ -12,13 +12,12 @@
 // 書かず、確定への昇格は承認(`repositories/confirmedWrite.ts`)だけが行う。
 import {
   apiPaths,
+  assertTemplateAttributeToken,
   conflict,
-  isValidFundCode,
   type TemplateAttributes,
   type TemplateMeta,
   templateFileName,
   templateIdFromFileName,
-  validation,
 } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
@@ -34,18 +33,10 @@ import { recordCreate } from '../repositories/historyRepo.js';
 import { registerGenerated } from '../repositories/templateRepo.js';
 import { applyNoteMasterToHtml } from '../sync/noteMasterService.js';
 
-/**
- * ファイル名規約の 1 トークンとして安全か検査する。`assertTemplateFileName` は**ファイル名
- * 全体**しか trim 検査しないため、`companyCode: 'AM01 '` は `AM01 _510037_..._交付版.html`
- * として素通りする。一方 SQL Server の `=` は末尾空白を無視するので、台帳では同一行として
- * 扱われ「ファイルは 2 つ・台帳は 1 行」の食い違いを作れる。トークン単位で入口を締める。
- * 判定は `isValidFundCode`(安全セグメント + `_` 不可)を流用する — ファイル名規約の
- * トークンは 4 つとも `[^_/\\]+` で、要求は fundCode と同一である。
- */
-function assertAttributeToken(label: string, value: string): string {
-  if (!isValidFundCode(value)) throw validation(`不正な${label}です: ${value}`);
-  return value;
-}
+// トークン単位の検査はここに私有の複製を置かず `@editor/shared` の
+// `assertTemplateAttributeToken` 1 本を呼ぶ。かつては同じ判定をこのファイルのローカル関数
+// として持っていたが、`assertTemplateFileName` 側がファイル名全体しか見ていなかったため、
+// 「生成は締まっているのに確定書込(`confirmedWrite.ts`)は緩い」という非対称ができていた。
 
 export async function generateRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: z.infer<typeof GenerateRequest> }>(
@@ -59,10 +50,10 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         'template.generate',
         async () => {
           const attributes: TemplateAttributes = {
-            companyCode: assertAttributeToken('会社コード', body.companyCode),
-            fundCode: assertAttributeToken('ファンドコード', body.fundCode),
+            companyCode: assertTemplateAttributeToken('会社コード', body.companyCode),
+            fundCode: assertTemplateAttributeToken('ファンドコード', body.fundCode),
             baseDate: todayYmd(),
-            editionType: assertAttributeToken('版種', body.editionType),
+            editionType: assertTemplateAttributeToken('版種', body.editionType),
           };
           const fileName = templateFileName(attributes);
           const id = templateIdFromFileName(fileName);

@@ -86,7 +86,9 @@ describe('取得を起こさない属性は検査しない', () => {
 
   it('isFetchUrlAttr は要素と属性の組で判定する', () => {
     expect(isFetchUrlAttr('script', 'src')).toBe(true);
-    expect(isFetchUrlAttr('script', 'href')).toBe(false);
+    // SVG の `<script>` は `href` でも外部 JS を引くので、これも取得系として見る。
+    expect(isFetchUrlAttr('script', 'href')).toBe(true);
+    expect(isFetchUrlAttr('script', 'rel')).toBe(false);
     expect(isFetchUrlAttr('div', 'src')).toBe(false);
   });
 });
@@ -197,5 +199,84 @@ describe('複数 URL 属性は分解して全部見る', () => {
     expect(findExternalRefsInTag('object', [{ name: 'archive', value: 'a.jar b.jar' }])).toEqual(
       [],
     );
+  });
+});
+
+// ── 列挙漏れだった URL 属性(F35)──
+// 属性の数え上げは必ず漏れる。漏れを塞ぐこと自体は必要だが、**強制点は egressGuard** で
+// あることを忘れないこと(`htmlExternalRefs.ts` 冒頭)。ここは 400 で早期に返す層。
+describe('列挙漏れだった取得系属性', () => {
+  it.each([
+    ['SVG script の href(SVG2)', 'script', 'href', 'https://evil.example/x.js'],
+    ['SVG script の xlink:href(SVG1.1)', 'script', 'xlink:href', 'https://evil.example/x.js'],
+    ['link rel=preload の imagesrcset', 'link', 'imagesrcset', 'https://evil.example/x.png 2x'],
+  ])('%s は外部参照として報告される', (_label, tag, attr, value) => {
+    expect(findExternalRefsInTag(tag, [{ name: attr, value }])).toHaveLength(1);
+  });
+
+  it('imagesrcset は複数 URL を分解する(2 個目が消えない)', () => {
+    const refs = findExternalRefsInTag('link', [
+      { name: 'imagesrcset', value: 'img/a.png 1x, https://evil.example/b.png 2x' },
+    ]);
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toContain('evil.example');
+  });
+
+  it('相対パスだけの imagesrcset は通す', () => {
+    expect(
+      findExternalRefsInTag('link', [{ name: 'imagesrcset', value: 'img/a.png 1x, img/b.png 2x' }]),
+    ).toEqual([]);
+  });
+});
+
+// `<meta http-equiv=refresh content="0;url=…">` は URL 属性ではないので、
+// `content` を許可リストへ載せる形では拾えない(載せると description 等が全部 URL 判定へ入る)。
+describe('meta http-equiv=refresh の content', () => {
+  it.each([
+    ['url= 付き', '0;url=https://evil.example/'],
+    ['url= 無し(仕様上ナビゲートする)', '0;https://evil.example/'],
+    ['引用符つき', "0; url='https://evil.example/'"],
+    ['空白と大小文字の揺れ', '  5 , URL = https://evil.example/  '],
+  ])('%s は外部参照として報告される', (_label, content) => {
+    const refs = findExternalRefsInTag('meta', [
+      { name: 'http-equiv', value: 'refresh' },
+      { name: 'content', value: content },
+    ]);
+    expect(refs).toHaveLength(1);
+  });
+
+  it('同一文書内への refresh は通す(遮断しすぎない)', () => {
+    expect(
+      findExternalRefsInTag('meta', [
+        { name: 'http-equiv', value: 'Refresh' },
+        { name: 'content', value: '30' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('refresh 以外の meta の content は URL 判定へ掛けない', () => {
+    expect(
+      findExternalRefsInTag('meta', [
+        { name: 'name', value: 'description' },
+        { name: 'content', value: 'https://example.com を参照' },
+      ]),
+    ).toEqual([]);
+  });
+});
+
+// ── バックスラッシュの scheme 相対(F24)──
+// WHATWG URL パーサは特殊スキームの base に対し `\` を `/` と同一視する。
+describe('バックスラッシュで書いた scheme 相対', () => {
+  it.each([
+    '\\\\evil.example/x.png',
+    '/\\evil.example/x.png',
+    '\\/evil.example/x.png',
+  ])('<img src="%s"> は外部参照として報告される', (value) => {
+    expect(findExternalRefsInTag('img', [{ name: 'src', value }])).toHaveLength(1);
+  });
+
+  it('resolveServedAssetPath も同じ形を配信ルート配下へ解決しない', () => {
+    expect(resolveServedAssetPath('\\\\evil.example/x.png')).toBeUndefined();
+    expect(resolveServedAssetPath('/\\evil.example/x.png')).toBeUndefined();
   });
 });

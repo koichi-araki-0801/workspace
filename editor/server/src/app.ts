@@ -23,6 +23,7 @@ import {
   config,
   inlineScriptCspHashes,
   isPreAuthBufferedRequest,
+  preAuthGateUrl,
 } from './config.js';
 import { logger } from './logger.js';
 import { loadUser } from './middleware/auth.js';
@@ -92,8 +93,10 @@ app.addHook('onRoute', assertRoutePolicy);
 // 課さないローカルモード(`requireAuth=false`)は従来どおり素通しする。
 app.addHook('onRequest', async (request) => {
   if (!config.requireAuth) return;
-  if (!isPreAuthBufferedRequest(request.method, request.url, request.headers['content-type']))
-    return;
+  // 照合は**ルーティング結果の登録パターン**で行う(`request.url` は生の request target で、
+  // percent-encoding も dot セグメントも解かれていない)。選び方は `preAuthGateUrl` に閉じる。
+  const gateUrl = preAuthGateUrl(request);
+  if (!isPreAuthBufferedRequest(request.method, gateUrl, request.headers['content-type'])) return;
   const user = await loadUser(request);
   if (!user || user.disabled) throw unauthorized('ログインが必要です');
 });

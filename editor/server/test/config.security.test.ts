@@ -6,6 +6,7 @@
 // 効くことを固定する。env を差し替えて評価し直すため、モジュールは毎回 `vi.resetModules()`
 // してから動的 import する(`config.ts` は import 時に env を読んで値を確定する)。
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import helmet from '@fastify/helmet';
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
@@ -286,6 +287,98 @@ describe('isPreAuthBufferedRequest', () => {
     // 本文を持たないメソッドは積みようがない。
     expect(isPreAuthBufferedRequest('GET', '/api/preview', undefined)).toBe(false);
     expect(isPreAuthBufferedRequest(undefined, undefined, undefined)).toBe(false);
+  });
+
+  // ── 生の request target を渡してはならない(F7)──
+  // find-my-way は percent-encoding を解いてから照合するのに、この関数は解かない。
+  // よって**生 target を渡すと素通りする**。渡すべきは `request.routeOptions.url`。
+  it('生の request target(percent-encoded / absolute-form)は照合に当たらない', async () => {
+    const { isPreAuthBufferedRequest } = await importConfig();
+    for (const raw of [
+      '/api/build/%6Derge',
+      '/api/build/%70roject',
+      'http://127.0.0.1:24680/api/build/merge',
+      '/api/./build/merge',
+    ]) {
+      expect(isPreAuthBufferedRequest('POST', raw, 'application/json'), raw).toBe(false);
+    }
+  });
+});
+
+// ゲートが**実際にルーティングされたパターン**で判定していることを、Fastify を通して主張する。
+// URL の選択は `app.ts` が使うのと同じ `preAuthGateUrl` を呼ぶ(式を写すと、呼び出し側だけの
+// 退行を検出できない)。生 target で照合していた版は `POST /api/build/%6Derge` がここを外し、
+// 未認証のままルートの `bodyLimit`(32MB)いっぱいを積めた。
+describe('onRequest ゲートはルーティング結果で照合する', () => {
+  /** merge ルートを `/api` prefix つきで持つ最小構成。ゲート発火を配列へ記録する。 */
+  async function buildProbe(): Promise<{
+    app: ReturnType<typeof Fastify>;
+    gated: string[];
+  }> {
+    const { isPreAuthBufferedRequest, preAuthGateUrl } = await importConfig();
+    const gated: string[] = [];
+    const app = Fastify();
+    app.register(
+      async (scope) => {
+        scope.post('/build/merge', { bodyLimit: 32 * 1024 * 1024 }, async () => ({ ok: true }));
+      },
+      { prefix: '/api' },
+    );
+    app.addHook('onRequest', async (request) => {
+      const gateUrl = preAuthGateUrl(request);
+      if (isPreAuthBufferedRequest(request.method, gateUrl, request.headers['content-type'])) {
+        gated.push(request.url);
+      }
+    });
+    await app.ready();
+    return { app, gated };
+  }
+
+  it.each([
+    ['そのまま', '/api/build/merge'],
+    ['percent-encoded', '/api/build/%6Derge'],
+    ['dot セグメント', '/api/./build/merge'],
+    ['absolute-form', 'http://127.0.0.1:24680/api/build/merge'],
+  ])('%s の request target でもゲートが発火する', async (_label, url) => {
+    const { app, gated } = await buildProbe();
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url,
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      });
+      // どの綴りでも同じハンドラへ届く = 32MB の bodyLimit が当たる経路である。
+      expect(res.statusCode).toBe(200);
+      expect(gated).toHaveLength(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // 上の probe は本番の hook そのものではないので、配線もソース走査で固定する。
+  // `request.url`(生 target)を直接渡す形へ戻したら落ちる。
+  it('app.ts の onRequest は preAuthGateUrl を通す(生 target を渡さない)', async () => {
+    const src = await fs.readFile(new URL('../src/app.ts', import.meta.url), 'utf8');
+    const call = /isPreAuthBufferedRequest\(\s*request\.method,\s*([^,]+),/.exec(src);
+    expect(call?.[1]?.trim()).toBe('gateUrl');
+    expect(src).toContain('const gateUrl = preAuthGateUrl(request);');
+  });
+
+  it('ルートに当たらないリクエストはゲートしない(無駄なセッション解決を増やさない)', async () => {
+    const { app, gated } = await buildProbe();
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/build/merge-x',
+        headers: { 'content-type': 'application/json' },
+        payload: '{}',
+      });
+      expect(res.statusCode).toBe(404);
+      expect(gated).toEqual([]);
+    } finally {
+      await app.close();
+    }
   });
 });
 

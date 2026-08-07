@@ -79,17 +79,36 @@ function isSafeFileNameSegment(s: string): boolean {
   return true;
 }
 
-/** テンプレート id がファイル名規約に一致し、かつ単一セグメントとして安全か。 */
+/**
+ * ファイル名規約の 1 トークン(`companyCode` / `fundCode` / `baseDate` / `editionType`)として
+ * 安全か。`_` を弾くのはトークン区切りだから(正当な値には現れない)。
+ *
+ * **セグメント検査は組み立て済みファイル名ではなくトークンごとに掛ける。** 全体にだけ
+ * 掛けていた版は `AM01 _510037_20240710_交付版.html` を通していた — トークン内部の末尾空白は
+ * ファイル名全体の trim では消えないのに、SQL Server の `=` は末尾空白を無視するので
+ * 「ファイルは 2 つ・台帳は 1 行」の食い違いを作れた。
+ */
+export function isValidTemplateToken(token: string): boolean {
+  return isSafeFileNameSegment(token) && !token.includes('_');
+}
+
+/** `TemplateAttributes` の 4 トークンがすべて安全か。 */
+function attributesAreSafe(a: TemplateAttributes): boolean {
+  return [a.companyCode, a.fundCode, a.baseDate, a.editionType].every(isValidTemplateToken);
+}
+
+/** テンプレート id がファイル名規約に一致し、全体もトークン単位でも安全か。 */
 export function isValidTemplateId(templateId: string): boolean {
-  return isSafeFileNameSegment(templateId) && parseTemplateFileName(`${templateId}.html`) !== null;
+  const attrs = parseTemplateFileName(`${templateId}.html`);
+  return attrs !== null && isSafeFileNameSegment(templateId) && attributesAreSafe(attrs);
 }
 
 /**
- * ファンドコードが単一セグメントとして安全か。`_` を弾くのはファイル名規約上
- * トークン区切りであり、正当な fundCode には現れないため(`AM01_510037_...` の 2 番目)。
+ * ファンドコードが単一セグメントとして安全か。要求はファイル名規約の 1 トークンと同一なので
+ * `isValidTemplateToken` へ委譲する(判定を 2 本持つと片方だけが緩む)。
  */
 export function isValidFundCode(fundCode: string): boolean {
-  return isSafeFileNameSegment(fundCode) && !fundCode.includes('_');
+  return isValidTemplateToken(fundCode);
 }
 
 /** `isValidTemplateId` に通らなければ `validation` を投げ、通れば入力をそのまま返す。 */
@@ -109,12 +128,23 @@ export function assertFundCode(fundCode: string): string {
 }
 
 /**
+ * ファイル名規約の 1 トークンを検査して返す(`label` はユーザー向け文言に使う)。
+ * テンプレ生成のように「ファイル名を組み立てる前のトークン」を受ける入口はここを通す —
+ * 検査を各ルートのローカル関数へ複製すると、複製されなかった入口だけが緩む。
+ */
+export function assertTemplateAttributeToken(label: string, value: string): string {
+  if (!isValidTemplateToken(value)) throw validation(`不正な${label}です: ${value}`);
+  return value;
+}
+
+/**
  * テンプレート本体のファイル名(`*.html`)として安全か検査し、正規化した名前を返す。
  * 台帳やディレクトリ走査で得た名前も、書き込み先に使う前にここを通す。
+ * 検査はファイル名全体と**4 トークンそれぞれ**の両方に掛ける(`isValidTemplateToken`)。
  */
 export function assertTemplateFileName(fileName: string): string {
   const attrs = parseTemplateFileName(fileName);
-  if (!attrs || !isSafeFileNameSegment(fileName)) {
+  if (!attrs || !isSafeFileNameSegment(fileName) || !attributesAreSafe(attrs)) {
     throw validation(`不正なテンプレートファイル名です: ${fileName}`);
   }
   return templateFileName(attrs);

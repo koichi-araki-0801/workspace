@@ -622,22 +622,45 @@ const RAISED_BODY_LIMIT_PATHS: readonly string[] = [
 ];
 
 /**
+ * `onRequest` ゲートが照合に使う URL を選ぶ。`request.routeOptions.url` は Fastify が
+ * 実際にルーティングした**登録パターン**で、生の request target(`request.url`)と違って
+ * percent-encoding・dot セグメント・absolute-form の綴り差を持たない。ルートに当たらない
+ * リクエスト(404)は上限を上げたハンドラへ届かないので、生 URL への退避で足りる。
+ *
+ * `app.ts` から式を直接書かずここへ切り出しているのは、テストが**本番と同じ選択**を
+ * 検証できるようにするため(式を写したテストは、呼び出し側だけの退行を検出できない)。
+ */
+export function preAuthGateUrl(request: {
+  url?: string;
+  routeOptions?: { url?: string };
+}): string | undefined {
+  return request.routeOptions?.url ?? request.url;
+}
+
+/**
  * 認証より前に本文を積んでしまうリクエストか(`app.ts` の `onRequest` ゲートの判定)。
  *
  * Fastify のライフサイクルは onRequest → parsing → preHandler で、`requireAuth` は
  * preHandler。つまり本文の解析は常に認証より先に終わる。content-type だけを見ていた頃は
  * `application/json` へ変えるだけで `POST /api/build/merge` の 32MB を未認証で積めたため、
  * 「上限を引き上げたルート」も path で見る。
+ *
+ * ⚠ `routedUrl` に渡すのは**生の request target ではなく `request.routeOptions.url`**
+ * (Fastify が実際にルーティングした登録パターン)である。生の target で照合していた版は、
+ * find-my-way が percent-encoding を解いてから照合する一方こちらは解かないため、
+ * `POST /api/build/%6Derge` がゲートを外して未認証のまま 32MB を積めた(absolute-form・
+ * dot セグメントも同じ)。登録パターンで照合すればその差が**構造的に**消える。
+ * 選び方は `preAuthGateUrl` に閉じてあるので、呼び出し側は必ずそれを通すこと。
  */
 export function isPreAuthBufferedRequest(
   method: string | undefined,
-  url: string | undefined,
+  routedUrl: string | undefined,
   contentType: string | undefined,
 ): boolean {
   if (isBufferedUploadContentType(contentType)) return true;
   // 本文を持たないメソッド(GET/HEAD/DELETE)は積みようがないので、無駄なセッション解決を避ける。
   if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH') return false;
-  const pathOnly = (url ?? '').split(/[?#]/, 1)[0];
+  const pathOnly = (routedUrl ?? '').split(/[?#]/, 1)[0];
   return RAISED_BODY_LIMIT_PATHS.includes(pathOnly);
 }
 

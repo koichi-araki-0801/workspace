@@ -32,10 +32,21 @@ import { normalizeHtmlUrlValue } from './htmlEntities.js';
  * URL として `isSelfContainedUrl` に掛けると `<` 始まりの断片は必ず「相対参照」と判定され
  * (実測: `srcdoc="<img src=https://evil/x>"` は 0 件)、**検査した気になるだけ**になる。
  * 入れ子の HTML は `nestedHtmlAttrsFor` 経由で呼び出し側が再帰的に走査する。
+ *
+ * ⚠ **この表(= 本ゲート全体)は best-effort である。** 属性の数え上げは必ず漏れる
+ * (実測で漏れていた例: SVG `<script href>` / `<script xlink:href>`、
+ * `<link rel=preload imagesrcset>`、`<meta http-equiv=refresh content="0;url=…">`)。
+ * 漏れを致命傷にしないための**強制点は `server/src/vivliostyle/egressGuard.ts`** で、
+ * 組版ブラウザはそのビルドが押さえたオリジンの外へ出られない。ここは「早期に 400 で
+ * 拒んで運用者へ理由を返す」層であって、最後の砦ではない。
  */
 const FETCH_URL_ATTRS: ReadonlyMap<string, readonly string[]> = new Map([
-  ['link', ['href']],
-  ['script', ['src']],
+  // `imagesrcset` は `<link rel=preload as=image>` が実際に取得を起こす URL 列。
+  // `imagesizes` は URL を持たない記述子だが、ファイル冒頭の「過剰包含は害にならない」
+  // 方針に従って対で載せる(誤検知側へ倒れるだけで、見落としへは倒れない)。
+  ['link', ['href', 'imagesrcset', 'imagesizes']],
+  // SVG の `<script>` は `href`(SVG2)/ `xlink:href`(SVG1.1)で外部 JS を引く。
+  ['script', ['src', 'href', 'xlink:href']],
   ['img', ['src', 'srcset', 'longdesc']],
   ['source', ['src', 'srcset']],
   ['video', ['src', 'poster']],
@@ -95,7 +106,35 @@ export function nestedHtmlAttrsFor(tagName: string): readonly string[] {
  * 2 個目以降が丸ごと検査から消える**(実測: `archive="a.jar https://evil/b.jar"` が 0 件)。
  * 分解の失敗は「余計に候補が増える」= 誤検知側へ倒れるだけで、見落としへは倒れない。
  */
-const MULTI_URL_ATTRS = new Set(['srcset', 'archive']);
+const MULTI_URL_ATTRS = new Set(['srcset', 'imagesrcset', 'archive']);
+
+/**
+ * `<meta http-equiv="refresh" content="0;url=https://evil/">` から URL 部分を取り出す。
+ *
+ * `content` は URL 属性ではないので `FETCH_URL_ATTRS` には載せられない(`content` を
+ * 無条件に URL 扱いすると `<meta name=description content="…">` の本文が全部 URL 判定へ
+ * 掛かる)。`http-equiv` が `refresh` のときだけ、HTML 仕様の refresh 値の構文
+ * (時間 → 区切り → 任意の `url=` → URL)で切り出す。`url=` を省いた
+ * `content="0;https://evil/"` も仕様上ナビゲートするので同じ経路で拾う。
+ */
+function metaRefreshUrl(attrs: ReadonlyArray<{ name: string; value: string }>): string | undefined {
+  let isRefresh = false;
+  let content: string | undefined;
+  for (const a of attrs) {
+    const name = a.name.toLowerCase();
+    if (name === 'http-equiv' && a.value.trim().toLowerCase() === 'refresh') isRefresh = true;
+    if (name === 'content') content = a.value;
+  }
+  if (!isRefresh || content === undefined) return undefined;
+  const m = /^\s*[0-9.]*\s*[;,]?\s*(?:url\s*=\s*)?([\s\S]*)$/i.exec(content);
+  const raw = (m?.[1] ?? '').trim();
+  // 値は引用符で囲まれることがある(`content="0;url='https://evil/'"`)。
+  const unquoted =
+    (raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))
+      ? raw.slice(1, -1)
+      : raw;
+  return unquoted === '' ? undefined : unquoted;
+}
 
 function splitCandidateUrls(attrName: string, value: string): string[] {
   if (!MULTI_URL_ATTRS.has(attrName)) return [value];
@@ -118,9 +157,15 @@ export function findExternalRefsInTag(
   tagName: string,
   attrs: ReadonlyArray<{ name: string; value: string }>,
 ): string[] {
-  const watched = fetchUrlAttrsFor(tagName);
-  if (watched.length === 0) return [];
   const found: string[] = [];
+  if (tagName.toLowerCase() === 'meta') {
+    const refresh = metaRefreshUrl(attrs);
+    if (refresh !== undefined && !isSelfContainedUrl(normalizeHtmlUrlValue(refresh))) {
+      found.push(`<meta http-equiv="refresh" content="…${refresh}">`);
+    }
+  }
+  const watched = fetchUrlAttrsFor(tagName);
+  if (watched.length === 0) return found;
   for (const attr of attrs) {
     const name = attr.name.toLowerCase();
     if (!watched.includes(name)) continue;

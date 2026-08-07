@@ -277,3 +277,57 @@ describe('Jinja トークンを前置した URL', () => {
     expect(collectExecutableUnits('<img src="{{ logo }}/a.png">')).toEqual([]);
   });
 });
+
+// ── 走査器の終端規則(F3 / F21)──
+// この走査器は手書きで、仕様準拠パーサではない。よって「終端の解釈がブラウザとずれる」
+// 形が迂回路になる。ずれている間、単位列は基準と一致したまま実行面だけが増える。
+describe('コメント終端 --!> の解釈', () => {
+  it('<!-- a --!><script>…</script>--> に隠した script を拒否する', () => {
+    // ブラウザは `--!>` でコメントを閉じるので、続く <script> は実行される。
+    const evil = BASE.replace(
+      '<p>本文</p>',
+      '<p>本文</p><!-- a --!><script>fetch("/x")</script>-->',
+    );
+    expect(collectExecutableUnits(evil).length).toBeGreaterThan(
+      collectExecutableUnits(BASE).length,
+    );
+    expect(accepted(BASE, evil)).toBe(false);
+  });
+
+  it('abrupt closing(<!-->)の後ろに置いた script も拒否する', () => {
+    const evil = BASE.replace('<p>本文</p>', '<!--><script>fetch("/x")</script>');
+    expect(accepted(BASE, evil)).toBe(false);
+  });
+
+  it('閉じないコメントの中身も走査する(fail closed)', () => {
+    const evil = `${BASE}<!-- <script>fetch("/x")</script>`;
+    expect(accepted(BASE, evil)).toBe(false);
+  });
+
+  it('普通のコメントは単位を作らない(誤検知しない)', () => {
+    const ok = BASE.replace('<p>本文</p>', '<!-- 説明 --><p>本文</p>');
+    expect(accepted(BASE, ok)).toBe(true);
+  });
+});
+
+describe('raw text の終了タグは直後の文字まで見る', () => {
+  it('</scriptx> は終了タグではない(末尾のコードが単位へ入る)', () => {
+    // JS エンジンは `init() < /scriptx>/ ; evil()` と読むので `evil()` が走る。
+    const base = '<html><body><script>/*x*/init()</script></body></html>';
+    const evil = '<html><body><script>/*x*/init()</scriptx>/;evil()</script></body></html>';
+    expect(collectExecutableUnits(evil)).not.toEqual(collectExecutableUnits(base));
+    expect(accepted(base, evil)).toBe(false);
+  });
+
+  it('</style-x> も終了タグではない(隠した @import を拾う)', () => {
+    const base = '<div><style>.a{color:red}</style></div>';
+    const evil = '<div><style>.a{color:red}</style-x>@import url(http://evil/x);</style></div>';
+    expect(accepted(base, evil)).toBe(false);
+  });
+
+  it('大小文字・空白入りの正規の終了タグは従来どおり終端する(誤検知しない)', () => {
+    const base = '<html><body><script>col.width=1</script></body></html>';
+    const same = '<html><body><script>col.width=1</SCRIPT ></body></html>';
+    expect(accepted(base, same)).toBe(true);
+  });
+});

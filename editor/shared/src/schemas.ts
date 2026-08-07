@@ -304,10 +304,14 @@ export const ReviewRequest = ReviewRequestMeta.extend({
   filledHtml: z.string().optional().meta({ description: '値差込済みの成果物(任意)' }),
 }).meta({ id: 'ReviewRequest' });
 
-/** 確定保存の申請ボディ。`templateId` はボディで運ぶ(POST /review-requests)。 */
+/**
+ * 確定保存の申請ボディ。`templateId` はボディで運ぶ(POST /review-requests)。
+ * `templateId` を素の文字列にしていた版は、トークン内部に空白を持つ id
+ * (`AM01 _510037_…`)を承認経路へ通していた。契約の段で `TemplateId` に通す。
+ */
 export const SubmitReviewBody = z
   .object({
-    templateId: z.string().min(1),
+    templateId: TemplateId,
     html: z.string().meta({ description: '復元済みの生 Jinja2 HTML' }),
     css: z.string(),
     fundCode: z.string().min(1),

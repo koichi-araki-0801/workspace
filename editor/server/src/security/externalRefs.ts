@@ -78,14 +78,37 @@ export function findDocumentExternalRefs(html: string, css: string): string[] {
  */
 const MAX_NESTED_HTML_DEPTH = 2;
 
+/**
+ * 走査不能な入れ子文書(`srcdoc`)を報告するときの説明文字列。トップレベルの
+ * `assertNoDocumentExternalRefs` は `scanTags` が諦めた入力を `UNPARSABLE_CODE` で 400 に
+ * するが、入れ子は「参照 1 件」として計上して同じ 400 へ倒す(呼び出し側が
+ * `findDocumentExternalRefs` を件数でしか見ない経路もあるため)。
+ */
+const NESTED_UNPARSABLE_REF = '<iframe srcdoc="(解析不能)">';
+
 /** HTML 1 枚分の外部参照を `out` へ積む(`srcdoc` の入れ子文書は再帰で降りる)。 */
 function collectHtmlRefs(html: string, out: string[], depth: number): void {
   const scan = scanTags(html);
   if (!scan.ok) {
+    // 解析を諦めた入力でも **諦める前に読めたタグは必ず検査する**。捨てていた版は、
+    // 末尾に閉じないタグを 1 つ置くだけで手前の全タグが検査から消えた。
+    collectFromTags(scan.tags, out, depth);
     out.push(...findExternalRefsInCss(html));
+    // 入れ子は fail closed。CSS 走査は引用符なし属性値を 1 つも見ないので、
+    // `<iframe srcdoc="<img src=https://evil/x><b">` が零件で通っていた(実測)。
+    if (depth > 0) out.push(NESTED_UNPARSABLE_REF);
     return;
   }
-  for (const tag of scan.tags) {
+  collectFromTags(scan.tags, out, depth);
+}
+
+/** 走査済みタグ列から外部参照を積む(`collectHtmlRefs` の ok/失敗の両経路が共有する)。 */
+function collectFromTags(
+  tags: ReturnType<typeof scanTags>['tags'],
+  out: string[],
+  depth: number,
+): void {
+  for (const tag of tags) {
     if (tag.name === 'style' && tag.rawText !== undefined) {
       out.push(...findExternalRefsInCss(tag.rawText));
     }
