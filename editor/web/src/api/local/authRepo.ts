@@ -3,6 +3,7 @@
 // =============================================================================
 import {
   type AuthRepository,
+  INVALID_CREDENTIALS_MESSAGE,
   type LoginRequest,
   PASSWORD_MIN_LENGTH,
   type PasswordInitRequest,
@@ -19,10 +20,10 @@ export const localAuthRepo: AuthRepository = {
     attempt(() => {
       const user = listUsersSync().find((u) => u.username === req.username);
       // ID の存在有無を漏らさない: 未知ユーザーとパスワード誤りで同一メッセージにする。
-      if (!user) throw unauthorized('ユーザーIDまたはパスワードが違います');
+      if (!user) throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
       if (user.disabled) throw unauthorized('このアカウントは無効化されています');
       if (passwordFor(req.username) !== req.password)
-        throw unauthorized('ユーザーIDまたはパスワードが違います');
+        throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
       // session と現在の起動 epoch を対で保存する(`currentUser` が epoch 不一致=再起動を
       // 検知して再ログインを促すため)。
       write(K.session, user.id);
@@ -44,11 +45,11 @@ export const localAuthRepo: AuthRepository = {
       const user = listUsersSync().find((u) => u.username === req.username);
       // 存在有無を漏らさないため、未知の id も現行パスワード誤りも同一メッセージにする
       // (rest 実装 `server/src/repositories/authRepo.ts` と同じ判定順・同じ文言)。
-      if (!user) throw unauthorized('ユーザーIDまたはパスワードが違います');
+      if (!user) throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
       if (user.disabled) throw unauthorized('このアカウントは無効化されています');
       // 所有証明。local は平文比較だが、rest 同様「現行を知らなければ変えられない」を守る。
       if (passwordFor(req.username) !== req.currentPassword)
-        throw unauthorized('ユーザーIDまたはパスワードが違います');
+        throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
       // client と同一基準で検証する(空白のみ=実質空も弾く)。UI を経由しない経路の保険。
       if (req.newPassword.trim().length < PASSWORD_MIN_LENGTH)
         throw validation('新しいパスワードが短すぎます');

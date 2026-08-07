@@ -10,7 +10,7 @@
 // ★ 失敗応答から「その ID が存在するか」を読ませない。以前は未知 ID と無効アカウントで
 // **文言が違い**、しかもどちらも KDF より前で return していた。文言を揃えるだけでは
 // 足りない(応答時間が second channel として残る)ので、
-//   1. 文言は module 定数 `INVALID_CREDENTIALS` の 1 箇所参照へ統一し、
+//   1. 文言は共有定数 `INVALID_CREDENTIALS_MESSAGE`(`@editor/shared`)の 1 箇所参照へ統一し、
 //   2. 判定を溜めて `verifyPassword` の後で 1 回だけ throw し、
 //   3. 応答時間の差はルート側の `applyFailureFloor` が吸収する
 // の 3 点で塞ぐ。無効アカウントであることは応答からは消えるが、監査ログには残す。
@@ -19,6 +19,7 @@
 // コストが 0ms から 60ms へ上がり、毎回違う ID を送るだけでスレッドプールを無制限に
 // 占有できる(存在オラクルを塞ぐ修正がそのまま DoS 増幅器になる)。
 import {
+  INVALID_CREDENTIALS_MESSAGE,
   type LoginResult,
   PASSWORD_MIN_LENGTH,
   type PasswordInitRequest,
@@ -31,12 +32,6 @@ import { asBool, asBuffer, asNumberOrNull, callSproc, firstRow, p } from '../db/
 import { SP } from '../db/sprocNames.js';
 import { audit } from '../logger.js';
 import { rowToUser } from './userRepo.js';
-
-/**
- * 資格情報の不一致で返す唯一の文言。未知 ID・無効アカウント・パスワード誤りの 3 分岐が
- * **同じ定数を参照する**ようにして、コピペのずれで文言が割れるのを防ぐ。
- */
-const INVALID_CREDENTIALS = 'ユーザーIDまたはパスワードが違います';
 
 /**
  * 資格情報を検証しセッションを開く。結果と新しい session id を返す。
@@ -62,7 +57,7 @@ export async function login(
     // 無効アカウントへの試行は応答からは判別できないが、運用が追えるよう証跡は残す。
     if (row && ok && disabled)
       audit({ event: 'auth.login', outcome: 'failure', actor: loginId, error: 'account_disabled' });
-    throw unauthorized(INVALID_CREDENTIALS);
+    throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
   }
 
   const user = rowToUser(row);
@@ -97,7 +92,7 @@ export async function initPassword(
         asNumberOrNull(row.PW反復回数),
       )
     : false;
-  if (!row || !owns || disabled) throw unauthorized(INVALID_CREDENTIALS);
+  if (!row || !owns || disabled) throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
   // 閾値は UI と同じ `PASSWORD_MIN_LENGTH`。空白のみ(実質空)も弾くため trim 後で測る。
   if (req.newPassword.trim().length < PASSWORD_MIN_LENGTH)
     throw validation('新しいパスワードが短すぎます');

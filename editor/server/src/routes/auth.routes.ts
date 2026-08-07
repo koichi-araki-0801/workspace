@@ -13,10 +13,10 @@
 // 失敗応答には `applyFailureFloor` で下限時間を課す。未知 ID / 無効アカウント /
 // パスワード誤り / DB 障害で文言・ステータス・`code`・レート制限の状態を揃えても、
 // 応答時間だけで「その ID は存在するか」が読めてしまうため(`auth/timing.ts`)。
-import { apiPaths, forbidden } from '@editor/shared';
+import { apiPaths, forbidden, INVALID_CREDENTIALS_MESSAGE, unauthorized } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
-import { canonicalLoginId } from '../auth/loginId.js';
+import { canonicalLoginId, isOperationalLoginId } from '../auth/loginId.js';
 import {
   type AttemptTicket,
   beginCredentialAttempt,
@@ -41,6 +41,23 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       // 大小文字や全角で書き分けるだけで 1 アカウントに独立したカウンタを作れる。
       const loginId = canonicalLoginId(body.username);
       const started = startedNow();
+      // 運用アルファベット外の ID は**レート制限より手前**で断つ。DB の照合順序は
+      // ゼロウェイト文字などを無視して等価と見なすので、アルファベットの外では
+      // 「正規形が違う ⇔ DB の行が違う」が成り立たず、1 アカウントへ無限の失敗カウンタを
+      // 割り当てられる(`auth/loginId.ts` の `isOperationalLoginId`)。ここでキーを作って
+      // から断ると、断るためだけに表を埋められるので手前で落とす。
+      // 応答は「未知 ID」と全次元で同じ — 文言・401・code 無し・フロアまで揃える。
+      if (!isOperationalLoginId(loginId)) {
+        audit({
+          event: 'auth.login',
+          outcome: 'failure',
+          actor: loginId,
+          ip: request.ip,
+          error: 'login_id_out_of_alphabet',
+        });
+        await applyFailureFloor(started);
+        throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
+      }
       const attempt = beginCredentialAttempt('login', request.ip, loginId);
       if (!attempt.ok) {
         // 拒否も攻撃の痕跡なので監査ログへ残す。フロアは掛けない — 攻撃者自身のキーの

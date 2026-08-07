@@ -7,7 +7,11 @@
 // ここでズレると、DB では同じ 1 行に当たる入力が JS では別キーになり、1 アカウントに
 // 対して独立した失敗カウンタをいくつでも作れる。
 import { describe, expect, it } from 'vitest';
-import { canonicalLoginId, LOGIN_ID_MAX_LENGTH } from '../src/auth/loginId.js';
+import {
+  canonicalLoginId,
+  isOperationalLoginId,
+  LOGIN_ID_MAX_LENGTH,
+} from '../src/auth/loginId.js';
 
 describe('canonicalLoginId', () => {
   const cases: ReadonlyArray<readonly [string, string, string]> = [
@@ -48,5 +52,34 @@ describe('canonicalLoginId', () => {
   it('never returns something longer than the column width', () => {
     // NFKC は合字展開で伸びうるので、畳んだ後にも上限が効いていること。
     expect(canonicalLoginId('ﬁ'.repeat(LOGIN_ID_MAX_LENGTH)).length).toBe(LOGIN_ID_MAX_LENGTH);
+  });
+});
+
+// ★ 正規形だけでは足りない。照合順序はゼロウェイト文字を無視して等価と見なす一方、
+// NFKC はそれを残すので「DB では同一行・JS では別キー」が作れる(= 1 アカウントに対して
+// 無限の失敗カウンタ)。照合順序の再現は諦め、運用アルファベットの外を資格情報経路の
+// 手前で断つ。応答が既知 ID の失敗と区別できないことは `auth.loginIdAlphabet.test.ts`。
+describe('isOperationalLoginId', () => {
+  it.each(['admin', 'user_01', '_'])('%j は資格情報経路へ進める', (id) => {
+    expect(isOperationalLoginId(canonicalLoginId(id))).toBe(true);
+  });
+
+  // 全角は NFKC で畳まれて域内に入る。DB も width-insensitive で同じ行に当たるので、
+  // ここを断つと正規の利用者を締め出すことになる。
+  it('正規化で域内へ入る入力は通す(全角 / 大文字 / 末尾空白)', () => {
+    for (const id of ['ＡＤＭＩＮ', 'ADMIN', 'admin　', 'admin﻿']) {
+      expect(canonicalLoginId(id), id).toBe('admin');
+      expect(isOperationalLoginId(canonicalLoginId(id)), id).toBe(true);
+    }
+  });
+
+  it.each([
+    ['ad​min', 'ゼロ幅空白: 照合順序は無視するが NFKC は残す'],
+    ['ad﻿min', '語中の BOM(末尾なら trimEnd が落とすが、語中は残る)'],
+    ['admin-1', 'ハイフン'],
+    ['あどみん', 'かな: NFKC でも畳まれない'],
+    ['', '空'],
+  ])('%j は断つ (%s)', (id) => {
+    expect(isOperationalLoginId(canonicalLoginId(id))).toBe(false);
   });
 });

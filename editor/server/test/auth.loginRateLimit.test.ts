@@ -148,9 +148,12 @@ describe('POST /auth/login のレート制限', () => {
   });
 
   // 正規形は DB の引数にも渡る。ルートが生の入力をそのまま repo へ流していないこと。
+  // 先頭空白は入れない — 照合順序が詰めるのは**末尾**だけなので `  admin` は DB 上も
+  // 別の行であり、運用アルファベット外としてルートの手前で断たれる
+  // (`auth.loginIdAlphabet.test.ts`)。
   it('passes the canonical login id to the repository', async () => {
-    await post(app, '  Admin  ');
-    expect(login).toHaveBeenCalledWith('  admin', 'wrong');
+    await post(app, 'Admin  ');
+    expect(login).toHaveBeenCalledWith('admin', 'wrong');
   });
 
   it('clears the counter on a successful login', async () => {

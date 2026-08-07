@@ -44,6 +44,32 @@
 // する。ポートは親が先に押さえて CLI へ `port` として渡すので(`reserveBuildOrigin`)、
 // 事前に判らないという初版の前提はもう成り立たない。
 //
+// ── なぜ中継を**ビルドごとに立てる**のか(許可の和集合を作らないため)──
+// 前版は中継を 1 本だけ立て、許可ポートをプロセス全体で共有する 1 つの Map に足していた。
+// これだと `isForwardableTarget` が見るのは「**実行中の全ビルドの予約ポートの和集合**」で、
+// 同時に走る別ビルドのオリジンまで通る。SOP 無効の組版ブラウザでは、これはそのまま
+// 「A の文書に埋めた JS が B の Vite サーバから B の本文を読み、自分の PDF へ書き写す」
+// 経路になる(既定 `poolSize` は 2 なので同時実行は普通に起きる)。
+//
+// 採ったのは **予約ごとに専用の中継リスナを立てる**案で、そのビルドの CLI にだけ
+// `proxyServer` としてその URL を渡す(`build.ts` の `buildScope`)。宛先の判定は
+// 「**この中継の枠か**」だけになり、他ビルドの枠は判定の入力に存在しないので和集合が
+// 原理的に作れない。プロキシはブラウザの起動引数で決まるため、文書内 JS が自分の中継を
+// 別のビルドのものへ差し替えることもできない。
+//
+// 採らなかった案: ビルドごとにランダムな資格情報を発行し、1 本の中継で
+// `Proxy-Authorization` を見て枠を引く形。CLI 側の受け口は実在する(11.0.0 の
+// inline-config に `proxyUser` / `proxyPass` があり、`launchPreview` が
+// `page.authenticate({username, password})` へ渡す = puppeteer が CDP の
+// `Fetch.authRequired` に応答する)。それでも採らない理由は 3 つある:
+//   1. 資格情報が効くのは中継が 407 を返し、**puppeteer がそのページの認証要求に応答した**
+//      ときだけ。`page.authenticate` はページ単位の設定なので、組版が別ページや worker から
+//      取りに行く経路が 1 つでもあれば、そこは 407 のまま落ちて組版ごと死ぬ。
+//   2. 遮断の成否が CLI と puppeteer の実装詳細(407 ハンドリング)へ従属する。版差で
+//      静かに壊れないことを狙って bypass 依存を捨てたのに、同じ形の従属を戻すことになる。
+//   3. そもそも資格情報が言えるのは「**そのブラウザ**が資格情報を持つ」ことだけで、粒度は
+//      ブラウザ単位 = 中継を分ける案と同じ。得るものが無い分、単純な方を採る。
+//
 // 残余リスク: 遮断は HTTP プロキシ 1 本で実現しており、HTTP/HTTPS 以外(WebRTC の UDP 等)は
 // この中継を通らない。OpenAPI の記述もその粒度に揃えてある。
 
@@ -68,95 +94,153 @@ const FORWARD_TIMEOUT_MS = 30_000;
  */
 const BUILD_PORT_SPAN = 4;
 
+/** 空き枠の取り直し回数。連番が空いていない番地・他のビルドと重なる番地を引くと消費する。 */
+const PORT_SPAN_ATTEMPTS = 16;
+
 /** 拒否時に返す本文。組版側のログに出るので、なぜ落ちたかが判る文言にする。 */
 const BLOCKED_BODY =
   'この文書からオリジン外への通信は許可されていません' +
   '(PDF 組版のネットワークは、そのビルド専用の loopback オリジンのみ)。';
 
-let server: http.Server | undefined;
-let starting: Promise<string> | undefined;
+/** 中継 1 本。`allowed` はこの中継**だけ**が通す宛先で、他の中継とは共有しない。 */
+interface EgressRelay {
+  /** CLI の `proxyServer` へ渡すプロキシ URL。 */
+  readonly url: string;
+  /** 中継を閉じる(冪等)。 */
+  close(): void;
+}
 
 /**
- * 中継を許可する loopback ポート。値は参照数で、同時に走る複数ビルドが同じ番地を
- * 押さえた場合でも、先に終わった側の解放で後続の許可が消えないようにする。
- *
- * **空 = 何も中継しない。** これが既定であり、許可はビルドが自分の枠を登録している間だけ
- * 開く(`reserveBuildOrigin`)。プレビュー経路は CLI にブラウザを起こさせない
- * (`openViewer:false`)ので、ここへ登録するものが無くても成立する。
+ * 生きている中継の実体。`stopEgressGuard` が取りこぼし無く閉じるために持つ。
+ * 件数の上限はビルド行列の同時実行数(`buildWorkerPool.withSlot`)が与える — 枠を取る前に
+ * 予約しない規律(`build.ts` の `withBuildSlot`)がここでも上限の根拠になっている。
  */
-const allowedPorts = new Map<number, number>();
+const relays = new Set<http.Server>();
 
 /**
- * 中継してよい宛先か。ホストは loopback、かつポートは登録済みの枠に限る。
+ * 生きている中継自身の待受ポート。**転送先には決してしない。**
+ *
+ * 中継 A から中継 B のポートへ中継してしまうと、B を踏み台にして B の枠へ届く形が
+ * 理屈の上で作れる(相対形要求は B 側で落ちるので実害は無いが、番地の巡り合わせ次第の
+ * 「たまたま安全」に寄りかからない)。
+ */
+const relayPorts = new Set<number>();
+
+/**
+ * 予約中の全ビルドの枠(和集合)。**枠を重ねさせないためだけに持つ。**
+ *
+ * 中継を分けても、A の span が B の使うポートを覆っていれば A から B へ届いてしまう
+ * (実測: OS の ephemeral 割当は近接した番地を続けて配るので、素朴に取ると連続する
+ * 2 つの予約はほぼ必ず重なる)。判定には使わない — 判定は各中継が持つ自分の枠だけを見る。
+ */
+const reservedPorts = new Set<number>();
+
+/**
+ * 枠を 1 つも持たない共有の中継(プレビュー経路用。全宛先を 502 にする)の起動。
+ * 実体は `relays` が持つので、ここは URL のキャッシュだけを持つ。
+ */
+let sharedStarting: Promise<string> | undefined;
+
+/**
+ * 中継してよい宛先か。ホストは loopback、かつポートは**この中継の枠**に限る。
  *
  * editor 自身の API ポートだけは、たとえ枠に入っていても通さない。枠は空きポートの周辺
  * `BUILD_PORT_SPAN` 個を機械的に取るので、番地の巡り合わせで API ポートを覆う可能性が
  * 理屈の上では残る。ここが覆われると、組版ブラウザから我々自身の API を叩けてしまう
  * (認証 cookie は載らないが、無認証面がある限り最悪の当たりになる)。
  */
-function isForwardableTarget(target: URL): boolean {
+function isForwardableTarget(target: URL, allowed: ReadonlySet<number>): boolean {
   if (!isLoopbackHost(target.hostname)) return false;
   const port = target.port === '' ? 80 : Number(target.port);
   if (port === config.port) return false;
-  return allowedPorts.has(port);
+  if (relayPorts.has(port)) return false;
+  return allowed.has(port);
 }
 
-/** 空きポートを 1 つ観測する(押さえた直後に閉じるので、確保の保証はない)。 */
-function pickFreePort(): Promise<number> {
+/** 指定ポート(0 なら任意の空き)を実際に押さえる。押さえられなければ reject。 */
+function listenProbe(port: number): Promise<net.Server> {
   return new Promise((resolve, reject) => {
     const probe = net.createServer();
-    probe.on('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address() as AddressInfo;
-      probe.close(() => resolve(port));
+    probe.once('error', reject);
+    probe.listen(port, '127.0.0.1', () => {
+      probe.removeListener('error', reject);
+      resolve(probe);
     });
   });
 }
 
+function closeProbe(probe: net.Server): Promise<void> {
+  return new Promise((resolve) => probe.close(() => resolve()));
+}
+
 /**
- * loopback ポートを許可枠へ入れ、取り消す関数を返す。**枠の登録はこの 1 関数だけ**にして、
- * 「どこかで直接 Map を触った」形が生まれないようにする。
+ * 連番 `BUILD_PORT_SPAN` 個がまとめて空いている番地を 1 つ観測し、`reservedPorts` へ載せる
+ * (bind は観測のためだけで、押さえた直後に閉じるので確保の保証はない)。
  *
- * 通常のビルドは `reserveBuildOrigin` を使うこと(空きポートの選択込み)。これを直接使うのは
- * 「既に待受中のポートを許可したい」場合(テスト)に限る。
- * 戻り値は冪等 — 2 度呼んでも他のビルドの枠を巻き添えにしない。
+ * **span の全ポートを実際に bind して確かめる。** 先頭 1 つだけ確かめていた版は、残りを
+ * 無確認で許可枠へ入れていた — たまたまその番地に居る無関係な loopback リスナ(他利用者の
+ * プレビュー Vite サーバなど)が、そのビルドから到達可能になる。
+ *
+ * **他のビルドの枠と重なる番地も使わない。** 中継を分けても、span が相手のポートを覆えば
+ * そこから届いてしまう(OS の ephemeral 割当は近接した番地を続けて配るので、素朴に取ると
+ * 連続する 2 予約はほぼ必ず重なる — テストで実測)。
+ *
+ * 外れた番地の probe は**閉じずに握ったまま**次の試行へ進む。閉じてしまうと OS が同じ番地を
+ * 配り直し、同じ理由で外し続ける(進捗しない)。全部まとめて最後に閉じる。
  */
-export function allowEgressPorts(ports: readonly number[]): () => void {
-  for (const p of ports) allowedPorts.set(p, (allowedPorts.get(p) ?? 0) + 1);
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    for (const p of ports) {
-      const n = (allowedPorts.get(p) ?? 1) - 1;
-      if (n <= 0) allowedPorts.delete(p);
-      else allowedPorts.set(p, n);
+async function pickFreePortSpan(): Promise<number[]> {
+  const held: net.Server[] = [];
+  try {
+    for (let attempt = 0; attempt < PORT_SPAN_ATTEMPTS; attempt += 1) {
+      let base: number;
+      try {
+        const head = await listenProbe(0);
+        held.push(head);
+        base = (head.address() as AddressInfo).port;
+      } catch {
+        continue;
+      }
+      const ports = Array.from({ length: BUILD_PORT_SPAN }, (_, i) => base + i);
+      // API ポートを覆う番地は端から使わない(`isForwardableTarget` の最終防御に頼らない)。
+      if (ports.includes(config.port)) continue;
+      if (ports.some((p) => reservedPorts.has(p))) continue;
+      let free = true;
+      for (const p of ports.slice(1)) {
+        try {
+          held.push(await listenProbe(p));
+        } catch {
+          // 連番の途中に先客が居た(または 65535 を跨いだ)。番地を替えて取り直す。
+          free = false;
+          break;
+        }
+      }
+      if (!free) continue;
+      for (const p of ports) reservedPorts.add(p);
+      return ports;
     }
-  };
-}
-
-/** 1 ビルド分の許可枠。`port` を CLI の `port` オプションへ渡し、終了時に `release()` する。 */
-export interface BuildOriginReservation {
-  /** CLI に使わせるポート(Vite が繰り上げても許可範囲内に収まる)。 */
-  port: number;
-  /** 許可を取り消す。**必ず `finally` で呼ぶこと** — 呼び忘れは遮断の穴として残る。 */
-  release(): void;
+  } finally {
+    await Promise.all(held.map(closeProbe));
+  }
+  throw new Error(`PDF 組版用の連番ポート ${BUILD_PORT_SPAN} 個を確保できませんでした`);
 }
 
 /**
- * このビルドが自分の組版に使う loopback オリジンを 1 つ押さえ、中継の許可へ登録する。
- * 許可はここで登録した連番ポートだけで、他の loopback ポート(editor の API・SQL Server・
- * 他利用者のプレビューセッション)は 502 で落ちる。
+ * 枠取りの直列化。**同時に probe させない。**
+ *
+ * 並行に走らせると、互いの probe が連番の途中を握って**誰も `BUILD_PORT_SPAN` 連番を
+ * 取れない**ライブロックになる(実測: 5 本同時で全滅し、全員が試行回数を使い切った)。
+ * 1 回の枠取りは数回の bind で終わるので、取り合いを順番待ちに変えるのが素直。
  */
-export async function reserveBuildOrigin(): Promise<BuildOriginReservation> {
-  const port = await pickFreePort();
-  const ports = Array.from({ length: BUILD_PORT_SPAN }, (_, i) => port + i);
-  return { port, release: allowEgressPorts(ports) };
-}
+let pickQueue: Promise<unknown> = Promise.resolve();
 
-/** テスト用: 現在許可されている loopback ポートの一覧(順序は登録順)。 */
-export function allowedEgressPorts(): number[] {
-  return [...allowedPorts.keys()];
+function pickFreePortSpanSerialized(): Promise<number[]> {
+  const next = pickQueue.then(
+    () => pickFreePortSpan(),
+    () => pickFreePortSpan(),
+  );
+  // 直前の失敗で行列を止めない(失敗した約束を繋ぐと以後の全予約が同じ失敗を再生する)。
+  pickQueue = next.catch(() => undefined);
+  return next;
 }
 
 function refuse(res: http.ServerResponse, target: string): void {
@@ -170,7 +254,11 @@ function refuse(res: http.ServerResponse, target: string): void {
  * プロキシ要求を処理する。プロキシへ来る要求は絶対形リクエストライン
  * (`GET http://host:port/path HTTP/1.1`)なので、`req.url` をそのまま URL として解ける。
  */
-function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+function handleRequest(
+  allowed: ReadonlySet<number>,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
   let target: URL;
   try {
     target = new URL(req.url ?? '');
@@ -179,7 +267,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     refuse(res, String(req.url));
     return;
   }
-  if (target.protocol !== 'http:' || !isForwardableTarget(target)) {
+  if (target.protocol !== 'http:' || !isForwardableTarget(target, allowed)) {
     refuse(res, target.href);
     return;
   }
@@ -205,15 +293,10 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   req.pipe(upstream);
 }
 
-/**
- * `startEgressGuard` の待受を開始し、プロキシ URL を返す(多重呼び出しは同じ URL)。
- * 起動に失敗したら**呼び出し側へ throw する** — 「プロキシ無しで組版する」へ静かに
- * 落とすと遮断ごと消えるので、fail closed にする。
- */
-export function startEgressGuard(): Promise<string> {
-  if (starting) return starting;
-  const attempt = new Promise<string>((resolve, reject) => {
-    const s = http.createServer(handleRequest);
+/** 枠 `allowed` だけを通す中継を 1 本立てる。**中継の生成はこの 1 関数だけ**にする。 */
+function startRelay(allowed: ReadonlySet<number>): Promise<EgressRelay> {
+  return new Promise((resolve, reject) => {
+    const s = http.createServer((req, res) => handleRequest(allowed, req, res));
     // CONNECT は中身が見えないトンネル。loopback の平文 HTTP しか要らないので一律拒否する。
     s.on('connect', (req, socket) => {
       logger.warn(
@@ -224,29 +307,109 @@ export function startEgressGuard(): Promise<string> {
     });
     s.on('error', reject);
     s.listen(0, '127.0.0.1', () => {
-      server = s;
       // サーバプロセスの終了を妨げない(このポートは組版中だけ意味がある)。
       s.unref();
       const { port } = s.address() as AddressInfo;
-      resolve(`http://127.0.0.1:${port}`);
+      relays.add(s);
+      relayPorts.add(port);
+      let closed = false;
+      resolve({
+        url: `http://127.0.0.1:${port}`,
+        close() {
+          if (closed) return;
+          closed = true;
+          relays.delete(s);
+          relayPorts.delete(port);
+          // keep-alive の残り接続ごと落とす。閉じ残ると、枠を返したはずの中継が
+          // 既存接続の上でだけ生き続ける。
+          s.closeAllConnections();
+          s.close();
+        },
+      });
     });
   });
+}
+
+/** 1 ビルド分の許可枠と、その枠専用の中継。 */
+export interface BuildOriginReservation {
+  /** CLI に使わせるポート(Vite が繰り上げても `ports` の中に収まる)。 */
+  port: number;
+  /** このビルドだけが到達できる連番ポート(先頭が `port`)。 */
+  ports: readonly number[];
+  /** このビルドの CLI へ渡すプロキシ URL。**他のビルドへは渡さないこと。** */
+  proxyServer: string;
+  /** 中継ごと枠を畳む。**必ず `finally` で呼ぶこと** — 呼び忘れは遮断の穴として残る。 */
+  release(): void;
+}
+
+/**
+ * このビルドが自分の組版に使う loopback オリジンを 1 つ押さえ、**その枠だけを通す中継**を
+ * 立てる。許可はここで押さえた連番ポートだけで、他の loopback ポート(editor の API・
+ * SQL Server・他利用者のプレビューセッション・**他のビルドの枠**)は 502 で落ちる。
+ */
+export async function reserveBuildOrigin(): Promise<BuildOriginReservation> {
+  const ports = await pickFreePortSpanSerialized();
+  let relay: EgressRelay;
+  try {
+    relay = await startRelay(new Set(ports));
+  } catch (e) {
+    // 中継が立たないなら枠も返す。返さないと以後の予約がこの番地を避け続ける(枠の枯渇)。
+    for (const p of ports) reservedPorts.delete(p);
+    throw e;
+  }
+  // 冪等にする。2 度目の release で枠を消すと、その番地を既に取り直した別のビルドの
+  // 予約を `reservedPorts` から落とし、重なりの禁止が効かなくなる。
+  let released = false;
+  return {
+    port: ports[0],
+    ports,
+    proxyServer: relay.url,
+    release: () => {
+      if (released) return;
+      released = true;
+      relay.close();
+      for (const p of ports) reservedPorts.delete(p);
+    },
+  };
+}
+
+/**
+ * 枠を 1 つも持たない共有の中継を起動し、その URL を返す(多重呼び出しは同じ URL)。
+ * **既定は全遮断**で、これはプレビュー経路(`options.ts` の `sharedInlineConfig`)が
+ * `proxyServer` を空にしないためだけに在る — CLI は空文字や `undefined` だと
+ * `process.env.HTTP_PROXY` へフォールバックし、遮断ごと消える。
+ * ビルド経路は自分の枠を持つ中継(`reserveBuildOrigin`)で**上書きする**。
+ *
+ * 起動に失敗したら**呼び出し側へ throw する** — 「プロキシ無しで組版する」へ静かに
+ * 落とすと遮断ごと消えるので、fail closed にする。
+ */
+export function startEgressGuard(): Promise<string> {
+  if (sharedStarting) return sharedStarting;
+  const attempt = startRelay(new Set<number>()).then((relay) => relay.url);
   // 失敗した約束を握り続けると、以後の build が全部同じ失敗を再生し続ける(一時的な
   // EADDRINUSE で永続故障になる)。失敗時だけキャッシュを捨てて次回に再試行させる。
   // fail closed は保たれている — 呼び出し側へは毎回 reject が返るだけである。
-  starting = attempt.catch((e: unknown) => {
-    starting = undefined;
+  sharedStarting = attempt.catch((e: unknown) => {
+    sharedStarting = undefined;
     throw e;
   });
-  return starting;
+  return sharedStarting;
 }
 
-/** テスト用の停止。次回の `startEgressGuard` は新しい待受を開く。 */
+/** テスト用: 生きている中継の本数(共有 1 本 + 予約中のビルドぶん)。 */
+export function activeEgressRelayCount(): number {
+  return relays.size;
+}
+
+/** テスト用の停止。共有・ビルド専用を問わず全部畳む。次回の起動は新しい待受を開く。 */
 export async function stopEgressGuard(): Promise<void> {
-  const s = server;
-  server = undefined;
-  starting = undefined;
-  allowedPorts.clear();
-  if (!s) return;
-  await new Promise<void>((resolve) => s.close(() => resolve()));
+  sharedStarting = undefined;
+  const closing = [...relays].map((s) => {
+    relays.delete(s);
+    s.closeAllConnections();
+    return new Promise<void>((resolve) => s.close(() => resolve()));
+  });
+  relayPorts.clear();
+  reservedPorts.clear();
+  await Promise.all(closing);
 }

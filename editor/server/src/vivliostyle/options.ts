@@ -25,10 +25,11 @@ interface SharedInlineConfig {
    * 組版ブラウザの全通信を通す中継先(`egressGuard.ts`)。中継するのは**そのビルドが
    * 押さえた loopback オリジンだけ**で、他は宛先が loopback でも 502 で落ちる。
    *
-   * ⚠ ここを設定するだけでは何も通らない。ビルド経路は `build.ts` の `buildScope` が
-   * `reserveBuildOrigin()` で枠を取り、その `port` を CLI へ渡して初めて自分の Vite
-   * サーバへ届く。プレビュー経路は CLI にブラウザを起こさせない(`openViewer:false`)ので
-   * 枠を取らない — 利用者のブラウザは `previewProxy` を通る。
+   * ⚠ ここで入るのは**枠を 1 つも持たない共有の中継 = 全遮断**である。ビルド経路は
+   * `build.ts` の `buildScope` が `reserveBuildOrigin()` で自分専用の中継を立て、この値を
+   * その URL で**上書き**して初めて自分の Vite サーバへ届く(中継をビルドごとに分ける理由は
+   * `egressGuard.ts` 冒頭)。プレビュー経路は CLI にブラウザを起こさせない
+   * (`openViewer:false`)ので枠を取らない — 利用者のブラウザは `previewProxy` を通る。
    *
    * ⚠ 空文字や `undefined` にすると CLI は `process.env.HTTP_PROXY` へフォールバックし、
    * 遮断ごと消える(`options.proxyServer ?? process.env.HTTP_PROXY`)。値は常に明示する。

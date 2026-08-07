@@ -18,6 +18,7 @@
 import 'zod-openapi';
 import { z } from 'zod';
 import { isValidTemplateId } from './domain/template.js';
+import { isValidUsername, USERNAME_MAX_LENGTH } from './domain/user.js';
 
 // ── 0. 資源上限 — 契約の段で本文の大きさを縛る ──
 //
@@ -173,10 +174,25 @@ export const PasswordResetResult = z
   })
   .meta({ id: 'PasswordResetResult' });
 
+/**
+ * ユーザーID(ログインID)の契約。**サーバ側でも運用アルファベットを強制する。**
+ *
+ * 以前は `USERNAME_PATTERN` を web クライアントでしか見ておらず、API を直接叩けば
+ * アルファベット外の ID を持つアカウントを作れた。作られてしまうと、その ID は
+ * ログイン経路の入口検査(`auth/loginId.ts` の `isOperationalLoginId`)で必ず弾かれ、
+ * **ログインできないアカウント**になる。作成の段で断つのが正しい位置。
+ */
+export const Username = z
+  .string()
+  .min(1)
+  .max(USERNAME_MAX_LENGTH)
+  .refine(isValidUsername, { error: '半角英数字とアンダースコアのみ使用できます' })
+  .meta({ id: 'Username' });
+
 /** (server 専用) Omit<User, 'id'> — 新規ユーザ作成リクエスト。 */
 export const CreateUserRequest = z
   .object({
-    username: z.string(),
+    username: Username,
     displayName: z.string(),
     role: UserRole,
     disabled: z.boolean(),
@@ -187,7 +203,7 @@ export const CreateUserRequest = z
 /** (server 専用) Partial<Omit<User, 'id'>> — ユーザ部分更新リクエスト。 */
 export const UpdateUserRequest = z
   .object({
-    username: z.string(),
+    username: Username,
     displayName: z.string(),
     role: UserRole,
     disabled: z.boolean(),

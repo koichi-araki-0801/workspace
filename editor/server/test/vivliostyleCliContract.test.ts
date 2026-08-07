@@ -96,6 +96,17 @@ describe('@vivliostyle/cli の proxy 契約(実装を読んで固定する)', ()
     expect(launcherSource()).toContain('"<-loopback>"');
   });
 
+  // ⚠ 資格情報の受け口(`proxyUser` / `proxyPass`)は実在するが、CLI がそれを適用するのは
+  // **ページ単位の** `page.authenticate` で、効くのは中継が 407 を返し、そのページの認証要求に
+  // puppeteer が応答したときだけ。だから「1 本の中継 + ビルドごとの資格情報で枠を引く」案は
+  // 採らず、「ビルドごとに中継を分ける」案を採った(`egressGuard.ts` 冒頭の比較)。
+  // ここが変わったら選択の前提が変わるので読み直すこと。
+  it('proxy 資格情報は page.authenticate 経由(= ページ単位の仕組み)', () => {
+    const src = launcherSource();
+    expect(src).toContain('page.authenticate(');
+    expect(src).toContain('username: proxy.username');
+  });
+
   it('proxyServer 未指定なら HTTP_PROXY へフォールバックする(= 常に明示せねばならない)', () => {
     const dist = path.dirname(fileURLToPath(import.meta.resolve('@vivliostyle/cli/package.json')));
     const distDir = path.join(dist, 'dist');

@@ -77,8 +77,13 @@ function runBuildWorkerSpawn(buildOptions: unknown): Promise<void> {
  * (`egressGuard.ts` 冒頭の理由を見よ)。組版ブラウザは `--disable-web-security` 付きで動く
  * ため、他の loopback サービスへ届くこと自体が持ち出し経路になる。
  *
- * 呼び出し側は戻り値の `release()` を**必ず `finally` で呼ぶ**こと。呼び忘れると許可枠が
- * 開いたまま残り、以後のビルドからそのポートへ到達できてしまう。
+ * ⚠ `proxyServer` は `sharedInlineConfig` の既定(枠を持たない = 全遮断の共有中継)を
+ * **予約専用の中継で上書きする**。上書きを外すと全ビルドが同じ中継を共有し、判定が
+ * 「実行中の全ビルドの枠の和集合」へ戻る(= 同時実行中の他人の文書を読める)。
+ * 展開の順序を入れ替えないこと。
+ *
+ * 呼び出し側は戻り値の `release()` を**必ず `finally` で呼ぶ**こと。呼び忘れると中継が
+ * 開いたまま残り、以後もそのポートへ到達できてしまう。
  */
 async function buildScope(): Promise<{
   options: Record<string, unknown>;
@@ -86,7 +91,14 @@ async function buildScope(): Promise<{
 }> {
   const reservation = await reserveBuildOrigin();
   try {
-    return { options: { ...(await sharedInlineConfig()), port: reservation.port }, reservation };
+    return {
+      options: {
+        ...(await sharedInlineConfig()),
+        port: reservation.port,
+        proxyServer: reservation.proxyServer,
+      },
+      reservation,
+    };
   } catch (e) {
     reservation.release();
     throw e;

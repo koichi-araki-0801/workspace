@@ -5,53 +5,84 @@
 // 許可枠は通り・それ以外は 502 になることを観測する。CONNECT(https トンネル)も同様に
 // 実接続で確かめる — ここを通すと中身を見ずに任意ホストへ抜けられる。
 //
-// ⚠ 遮断の単位は「loopback かどうか」ではなく「**そのビルドが押さえたオリジンかどうか**」。
-// loopback を全ポート通していた版は、SOP 無効(CLI が `--disable-web-security` を必ず渡す)の
-// 組版ブラウザから、他利用者のプレビュー Vite サーバや editor 自身の API を読める状態だった。
+// ⚠ 遮断の単位は「loopback かどうか」でも「実行中のどれかのビルドの枠か」でもなく、
+// 「**この中継を渡されたビルド自身の枠かどうか**」。loopback を全ポート通していた版は、
+// SOP 無効(CLI が `--disable-web-security` を必ず渡す)の組版ブラウザから他利用者の
+// プレビュー Vite サーバや editor 自身の API を読めた。許可を 1 本の中継で共有していた版は、
+// そこから「同時に走る別ビルドの本文」まで読めた(このファイルの最後の describe)。
 import { EventEmitter } from 'node:events';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import net from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
-  allowEgressPorts,
-  allowedEgressPorts,
+  activeEgressRelayCount,
+  type BuildOriginReservation,
   reserveBuildOrigin,
   startEgressGuard,
   stopEgressGuard,
 } from '../src/vivliostyle/egressGuard.js';
 
+/** 1 ビルド分の枠。中継 URL と、その枠のポートで待つ「自分の Vite サーバ」役。 */
+interface FakeBuild {
+  reservation: BuildOriginReservation;
+  proxyUrl: URL;
+  originPort: number;
+  origin: http.Server;
+}
+
+/**
+ * 枠を取り、その枠のポートで実際に待ち受けるサーバを起こす(組版が自分の Vite サーバを
+ * 立てるのと同じ形)。予約はポートを押さえっぱなしにしないので、ここで bind できる。
+ */
+async function startFakeBuild(body: string): Promise<FakeBuild> {
+  const reservation = await reserveBuildOrigin();
+  const origin = http.createServer((_req, res) => {
+    res.statusCode = 200;
+    res.end(body);
+  });
+  await new Promise<void>((resolve, reject) => {
+    origin.once('error', reject);
+    origin.listen(reservation.port, '127.0.0.1', () => resolve());
+  });
+  return {
+    reservation,
+    proxyUrl: new URL(reservation.proxyServer),
+    originPort: (origin.address() as AddressInfo).port,
+    origin,
+  };
+}
+
+async function stopFakeBuild(build: FakeBuild): Promise<void> {
+  build.reservation.release();
+  await new Promise<void>((resolve) => build.origin.close(() => resolve()));
+}
+
+let build: FakeBuild;
 let proxyUrl: URL;
-let origin: http.Server;
 let originPort: number;
-/** 起点サーバのポートを「そのビルドが押さえた枠」として登録したままにする。 */
-let releaseOrigin: () => void;
 
 beforeAll(async () => {
-  proxyUrl = new URL(await startEgressGuard());
-  origin = http.createServer((_req, res) => {
-    res.statusCode = 200;
-    res.end('LOOPBACK-OK');
-  });
-  await new Promise<void>((resolve) => origin.listen(0, '127.0.0.1', () => resolve()));
-  originPort = (origin.address() as AddressInfo).port;
-  // 中継は**登録した枠だけ**通る。起点サーバも登録しないと通らない(それが仕様)。
-  releaseOrigin = allowEgressPorts([originPort]);
+  build = await startFakeBuild('LOOPBACK-OK');
+  proxyUrl = build.proxyUrl;
+  originPort = build.originPort;
 });
 
 afterAll(async () => {
-  releaseOrigin();
-  await new Promise<void>((resolve) => origin.close(() => resolve()));
+  await stopFakeBuild(build);
   await stopEgressGuard();
 });
 
 /** プロキシへ絶対形リクエストラインで投げる(Chromium がプロキシへ喋る形と同じ)。 */
-function viaProxy(targetUrl: string): Promise<{ status: number; body: string }> {
+function viaProxy(
+  targetUrl: string,
+  proxy: URL = proxyUrl,
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
-        host: proxyUrl.hostname,
-        port: Number(proxyUrl.port),
+        host: proxy.hostname,
+        port: Number(proxy.port),
         method: 'GET',
         path: targetUrl,
         headers: { host: new URL(targetUrl).host },
@@ -86,6 +117,15 @@ describe('egressGuard — 自分のビルドのオリジンは通る(組版が�
     expect(res.status).toBe(200);
     expect(res.body).toBe('LOOPBACK-OK');
   });
+
+  // Vite が `port` の繰り上げをしても組版が落ちないための幅。無確認で配ると無関係な
+  // リスナまで到達可能になるので、`pickFreePortSpan` は span の全ポートを bind して確かめる。
+  it('枠は連番で、先頭が CLI へ渡す port(全ポートが空き確認済み)', () => {
+    const ports = build.reservation.ports;
+    expect(ports.length).toBeGreaterThan(1);
+    expect(ports[0]).toBe(build.reservation.port);
+    expect([...ports]).toEqual(ports.map((_, i) => ports[0] + i));
+  });
 });
 
 describe('egressGuard — オリジン外は 1 バイトも出さない', () => {
@@ -108,7 +148,7 @@ describe('egressGuard — オリジン外は 1 バイトも出さない', () => 
   it('予約済みだが誰も待っていないポートは 502 で返す(中継が落ちない)', async () => {
     const dead = await reserveBuildOrigin();
     try {
-      const res = await viaProxy(`http://127.0.0.1:${dead.port}/x`);
+      const res = await viaProxy(`http://127.0.0.1:${dead.port}/x`, new URL(dead.proxyServer));
       expect(res.status).toBe(502);
     } finally {
       dead.release();
@@ -147,7 +187,7 @@ describe('egressGuard — オリジン外は 1 バイトも出さない', () => 
   });
 });
 
-// ── ここが今回の主眼 ── 「loopback だから通す」を捨てたことの主張。
+// ── 「loopback だから通す」を捨てたことの主張 ──
 // 組版ブラウザは SOP 無効で動くので、loopback の他サービスへ**届くこと自体**が持ち出し経路。
 describe('egressGuard — 予約していない loopback ポートは通さない', () => {
   it('別プロセスが待っている loopback ポート(editor API / DB / 他人のプレビュー相当)は 502', async () => {
@@ -168,43 +208,115 @@ describe('egressGuard — 予約していない loopback ポートは通さな�
     expect(res.status).toBe(502);
   });
 
-  it('release 後は同じポートでも 502 になる(枠が開いたまま残らない)', async () => {
-    const before = allowedEgressPorts().length;
+  it('release 後は中継ごと畳まれる(枠が開いたまま残らない)', async () => {
+    const before = activeEgressRelayCount();
     const r = await reserveBuildOrigin();
-    expect(allowedEgressPorts().length).toBeGreaterThan(before);
-    const port = r.port;
+    expect(activeEgressRelayCount()).toBe(before + 1);
     r.release();
-    expect(allowedEgressPorts().length).toBe(before);
-    // 二重 release で他のビルドの枠を巻き添えにしない。
+    expect(activeEgressRelayCount()).toBe(before);
+    // 二重 release で他のビルドの中継を巻き添えにしない。
     r.release();
-    expect(allowedEgressPorts().length).toBe(before);
-    expect((await viaProxy(`http://127.0.0.1:${port}/x`)).status).toBe(502);
+    expect(activeEgressRelayCount()).toBe(before);
+    // 畳んだ中継はもう喋らない(繋がらないので接続そのものが失敗する)。
+    await expect(
+      viaProxy(`http://127.0.0.1:${r.port}/x`, new URL(r.proxyServer)),
+    ).rejects.toThrow();
   });
 });
 
-describe('egressGuard — 起動の性質', () => {
+// ── ここが今回の主眼 ── 許可を 1 本の中継で共有していた版は、`allowedPorts` が
+// 「実行中の全ビルドの予約ポートの和集合」になっていた。SOP 無効の組版ブラウザでは、
+// これは「A の文書に埋めた JS が B の本文を読んで自分の PDF へ書き写す」経路そのもの。
+describe('egressGuard — 同時に走る別ビルドのオリジンへは中継しない', () => {
+  it('A の中継から B の枠は 502(和集合になっていない)', async () => {
+    const a = await startFakeBuild('SECRET-OF-BUILD-A');
+    const b = await startFakeBuild('SECRET-OF-BUILD-B');
+    try {
+      // 前提: どちらのビルドも自分のオリジンへは届いている(遮断が強すぎるのではない)。
+      expect((await viaProxy(`http://127.0.0.1:${a.originPort}/`, a.proxyUrl)).body).toBe(
+        'SECRET-OF-BUILD-A',
+      );
+      expect((await viaProxy(`http://127.0.0.1:${b.originPort}/`, b.proxyUrl)).body).toBe(
+        'SECRET-OF-BUILD-B',
+      );
+      // 主張: 互いの枠へは 1 バイトも出ない。
+      const aToB = await viaProxy(`http://127.0.0.1:${b.originPort}/`, a.proxyUrl);
+      expect(aToB.status).toBe(502);
+      expect(aToB.body).not.toContain('SECRET-OF-BUILD-B');
+      const bToA = await viaProxy(`http://127.0.0.1:${a.originPort}/`, b.proxyUrl);
+      expect(bToA.status).toBe(502);
+      expect(bToA.body).not.toContain('SECRET-OF-BUILD-A');
+    } finally {
+      await stopFakeBuild(a);
+      await stopFakeBuild(b);
+    }
+  });
+
+  // 中継を分けても span が相手のポートを覆えば届いてしまう。OS の ephemeral 割当は
+  // 近接した番地を続けて配るので、重なりの禁止が無いと連続する 2 予約はほぼ必ず重なる
+  // (この主張が無いと上のテストが「たまたま通る」に化ける)。
+  it('同時に取った枠どうしは 1 ポートも重ならない', async () => {
+    const reservations = await Promise.all(Array.from({ length: 5 }, () => reserveBuildOrigin()));
+    try {
+      const seen = new Set<number>();
+      for (const r of reservations) {
+        for (const p of r.ports) {
+          expect(seen.has(p), `port ${p} が 2 つの予約に入っている`).toBe(false);
+          seen.add(p);
+        }
+      }
+    } finally {
+      for (const r of reservations) r.release();
+    }
+  });
+
+  // 中継自身の待受ポートを転送先にすると、隣の中継を踏み台にする形が作れる。
+  it('別ビルドの中継の待受ポートそのものへも中継しない', async () => {
+    const other = await reserveBuildOrigin();
+    try {
+      const res = await viaProxy(`http://${new URL(other.proxyServer).host}/x`);
+      expect(res.status).toBe(502);
+    } finally {
+      other.release();
+    }
+  });
+});
+
+describe('egressGuard — 共有中継(プレビュー経路)の性質', () => {
   it('多重呼び出しでも同じ URL(ポートを増やさない)', async () => {
     const a = await startEgressGuard();
     const b = await startEgressGuard();
     expect(a).toBe(b);
   });
 
+  // 共有中継は枠を 1 つも持たない = 既定は全遮断。ビルドは自分の中継で上書きする。
+  it('共有中継はどのビルドの枠も通さない', async () => {
+    const shared = new URL(await startEgressGuard());
+    const res = await viaProxy(`http://127.0.0.1:${originPort}/doc.html`, shared);
+    expect(res.status).toBe(502);
+    expect(res.body).not.toContain('LOOPBACK-OK');
+  });
+
   it('loopback にしか bind しない(LAN からプロキシとして使われない)', () => {
     expect(proxyUrl.hostname).toBe('127.0.0.1');
+    expect(new URL(build.reservation.proxyServer).hostname).toBe('127.0.0.1');
   });
 
   it('起動していない状態で止めても壊れない', async () => {
     await stopEgressGuard();
     await expect(stopEgressGuard()).resolves.toBeUndefined();
-    proxyUrl = new URL(await startEgressGuard());
-    // `stopEgressGuard` は許可枠も落とすので、以降のテストのために張り直す。
-    releaseOrigin = allowEgressPorts([originPort]);
+    expect(new URL(await startEgressGuard()).hostname).toBe('127.0.0.1');
+    // `stopEgressGuard` はビルド専用の中継も畳むので、以降のテストのために張り直す。
+    build = await startFakeBuild('LOOPBACK-OK');
+    proxyUrl = build.proxyUrl;
+    originPort = build.originPort;
   });
 
   // 起動失敗は fail closed(build ごと落とす)だが、**失敗した約束を握り続けてはいけない**。
   // 握ると一時的な EADDRINUSE がサーバ再起動まで続く永続故障になり、以後の PDF が全部
   // 同じ失敗を再生する。失敗はその 1 回で終わり、次の呼び出しは再試行できること。
   it('起動に失敗しても次の呼び出しで再試行できる(失敗を握り続けない)', async () => {
+    await stopFakeBuild(build);
     await stopEgressGuard();
     const boom = vi.spyOn(http, 'createServer').mockImplementation(() => {
       const fake = new EventEmitter() as unknown as http.Server;
@@ -217,7 +329,8 @@ describe('egressGuard — 起動の性質', () => {
     boom.mockRestore();
     const url = await startEgressGuard();
     expect(new URL(url).hostname).toBe('127.0.0.1');
-    proxyUrl = new URL(url);
-    releaseOrigin = allowEgressPorts([originPort]);
+    build = await startFakeBuild('LOOPBACK-OK');
+    proxyUrl = build.proxyUrl;
+    originPort = build.originPort;
   });
 });
