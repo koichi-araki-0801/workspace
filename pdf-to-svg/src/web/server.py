@@ -51,9 +51,11 @@ _MIME = {
 class Handler(origin_guard.GuardedHTTPRequestHandler):
     """静的配信 + RPC + アップロード + ライフサイクルビーコンの最小ハンドラ。
 
-    同一オリジン検査は基底の `parse_request()` が一手に引き受けるので、以下の `do_*` /
-    `_handle_*` に検査は書かない (`web/origin_guard.py` 参照)。ここへ `do_GET` の副作用を
-    足すと、Origin を要求しない安全メソッドの経路が CSRF の穴になる点にだけ注意する。
+    同一オリジン検査とセッショントークン認可は基底の `parse_request()` が一手に引き受ける
+    ので、以下の `do_*` / `_handle_*` に検査は書かない (`web/origin_guard.py` 参照)。
+    `/rpc` `/upload` `/quit` `/ping` はすべて非安全メソッドなので、この 1 箇所でまとめて
+    トークンを要求できている。ここへ `do_GET` の副作用や機微データの読み出しを足すと、
+    Origin もトークンも要求しない安全メソッドの経路が穴になる点にだけ注意する。
     """
 
     # ローカル単一ユーザ用途。アクセスログは出さない。
@@ -68,6 +70,10 @@ class Handler(origin_guard.GuardedHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        # frame 化・他オリジン読み出し・MIME 誤解釈を断つ防御ヘッダ。成功応答も 404 も
+        # ここを通るので、`_send` 以外の送信経路を足すときは基底の `_reject` と同じく
+        # `send_security_headers()` を必ず呼ぶこと (`web/origin_guard.py`)。
+        self.send_security_headers()
         self.end_headers()
         if body:
             self.wfile.write(body)
@@ -202,12 +208,16 @@ class Handler(origin_guard.GuardedHTTPRequestHandler):
             self._send_json({"ok": True, "data": {"total": len(session.docs)}})
 
 
-def create_server(web_root: str, session: WebSession,
-                  port: int = 0) -> http.server.ThreadingHTTPServer:
+def create_server(web_root: str, session: WebSession, port: int = 0,
+                  token: str | None = None) -> http.server.ThreadingHTTPServer:
     """127.0.0.1 で待ち受けるサーバを構築する (まだ serve はしない)。既定の `port=0` は
     空きポート。固定ポートが要る E2E も**この関数を通す**こと: `ThreadingHTTPServer` を
     手組みすると `configure_guard` を忘れて `unconfigured` の全拒否になる (かつては
-    `test/e2e_server.py` が実際にその形だった)。許可リストは bind 後の実ポートから作る。"""
+    `test/e2e_server.py` が実際にその形だった)。許可リストは bind 後の実ポートから作る。
+
+    `token` はセッショントークン。既定 (`None`) では起動ごとに新しい値を作る。固定値を
+    渡してよいのはテスト・E2E の使い捨てサーバだけで、本番経路 (`app.py`) は既定に任せる。
+    発行後の値は `server.guard_token` から読める (`--app=` の URL へ載せる用)。"""
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.web_root = os.path.abspath(web_root)
     server.session = session
@@ -217,5 +227,6 @@ def create_server(web_root: str, session: WebSession,
     server.upload_lock = threading.Lock()
     server.quit_event = threading.Event()
     server.last_seen = time.monotonic()
-    origin_guard.configure_guard(server, server.server_address[1])
+    origin_guard.configure_guard(server, server.server_address[1],
+                                 token or origin_guard.new_session_token())
     return server

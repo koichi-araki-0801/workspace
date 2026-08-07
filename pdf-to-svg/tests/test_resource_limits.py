@@ -89,13 +89,19 @@ def test_a4_at_the_default_scale_is_untouched():
 
 # ── P012: リクエスト本文の上限 ─────────────────────────────────────────────
 
+# 使い捨てサーバの固定セッショントークン (本番は起動ごとの CSPRNG 値)。認可の主張は
+# `tests/test_origin_guard.py` が持ち、ここは資源上限だけを見る。
+_TOKEN = "resource-limits-test-token"
+
+
 def _post(base: str, path: str, body: bytes, content_length: int | None = None,
           content_type: str = "application/json"):
-    """A2 の Origin/Host/content-type ガードを満たした上で本文上限だけを試す。"""
+    """A2 の Origin/Host/content-type/トークンのガードを満たした上で本文上限だけを試す。"""
     req = urllib.request.Request(base + path, data=body, method="POST")
     if content_length is not None:
         req.add_header("Content-Length", str(content_length))
     req.add_header("Origin", base)
+    req.add_header("X-Session-Token", _TOKEN)
     req.add_header("Content-Type", content_type)
     return urllib.request.urlopen(req, timeout=10)
 
@@ -109,7 +115,7 @@ def running_server(tmp_path):
     from web.undo_stack import UndoStack
 
     session = WebSession(DictionaryStore(tmp_path / "dict.json"), UndoStack())
-    server = create_server(str(config.resource_path("web")), session)
+    server = create_server(str(config.resource_path("web")), session, token=_TOKEN)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         yield f"http://127.0.0.1:{server.server_address[1]}"

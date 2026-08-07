@@ -20,6 +20,18 @@ const MIME = {
   ".svg": "image/svg+xml",
 };
 
+// 本番 (`app.py` の `SECURITY_HEADERS`) と同じ防御ヘッダを載せる。ここを省くと、CSP が
+// 実ブラウザで UI を壊していても E2E が緑のままになる (取り込んだ SVG の inline `<style>` と
+// `data:` フォント/画像が実際に効くのはこの CSP 下)。**片方を変えたら必ず両方**。
+const SECURITY_HEADERS = {
+  "X-Frame-Options": "DENY",
+  "Content-Security-Policy":
+    "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+    "font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+  "X-Content-Type-Options": "nosniff",
+  "Cross-Origin-Resource-Policy": "same-origin",
+};
+
 const server = createServer(async (req, res) => {
   try {
     let rel = decodeURIComponent((req.url || "/").split("?")[0]);
@@ -27,14 +39,17 @@ const server = createServer(async (req, res) => {
     // パストラバーサル防止: `ROOT` 配下に正規化されたパスのみ許可
     const filePath = normalize(join(ROOT, rel));
     if (!filePath.startsWith(normalize(ROOT))) {
-      res.writeHead(403).end("forbidden");
+      res.writeHead(403, SECURITY_HEADERS).end("forbidden");
       return;
     }
     const body = await readFile(filePath);
-    res.writeHead(200, { "Content-Type": MIME[extname(filePath)] || "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": MIME[extname(filePath)] || "application/octet-stream",
+      ...SECURITY_HEADERS,
+    });
     res.end(body);
   } catch {
-    res.writeHead(404).end("not found");
+    res.writeHead(404, SECURITY_HEADERS).end("not found");
   }
 });
 

@@ -18,6 +18,7 @@ import tempfile
 import threading
 import time
 import webbrowser
+from urllib.parse import quote
 
 import config
 from dictionary.store import DictionaryStore
@@ -119,8 +120,12 @@ def main() -> int:
     session = WebSession(store, UndoStack())
     server = create_server(str(config.resource_path("web")), session)
     port = server.server_address[1]
-    url = f"http://127.0.0.1:{port}/"
-    log.info("server listening on %s (frozen=%s)", url, config.is_frozen())
+    # UI へはセッショントークン付き URL を渡す。トークンを知る文脈だけが `/rpc` `/upload`
+    # `/quit` `/ping` を撃てる (`web/origin_guard.py` の G6)。**ログには素の URL を書く** —
+    # `data/logs/startup.log` はポータブル配布物の隣に残り、ポートを知りたい攻撃者が最初に
+    # 読む場所なので、そこへトークンを置いたら認可を自分で無効化することになる。
+    url = f"http://127.0.0.1:{port}/?token={quote(server.guard_token, safe='')}"
+    log.info("server listening on http://127.0.0.1:%s/ (frozen=%s)", port, config.is_frozen())
 
     threading.Thread(target=server.serve_forever, daemon=True).start()
 

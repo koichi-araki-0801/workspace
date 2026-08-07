@@ -1,10 +1,16 @@
-"""同一オリジン検査 (`app.py` の「同一オリジン検査」セクション) の迂回耐性を外形から固定する。
+"""同一オリジン検査 + セッショントークン認可 (`app.py` の同名セクション) の迂回耐性を外形から
+固定する。
 
 主張の形は「**迂回入力では 403 になり、かつ副作用が発生していない**」。ステータスだけを見ると
 「実行してから 403 を返す」実装 (`quit_event` は立ってしまう) を見逃すため、`quit_event` と
 `last_seen` を毎回突き合わせる。`/quit` は `main()` の `finally` で `msedge.exe` へ
 `proc.terminate()` を撃つ = 外部から撃たれると編集内容が消えるうえ他の Edge 窓を巻き添えに
 しうるので、ここが緩むと実害が出る。
+
+ヘッダ検査 (Host/Origin/Content-Type) を試す各ケースは**正しいトークンを添えて**送る。
+添えないと「トークンが無いから 403」でも通ってしまい、検査したつもりの次元が実際には
+効いていない退行を取りこぼすため。逆にトークンの検査は、ヘッダをすべて正規値に揃えた
+うえでトークンだけを外す/壊すことで主張する。
 
 ここのテストベクタ表は `pdf-to-svg/tests/test_origin_guard.py` と**同一仕様の複製**である
 (2 プロジェクトは並行実装で、片方を変えたら両方を変える)。`urllib` は URL から Host を
@@ -40,8 +46,10 @@ def server():
         srv.server_close()
 
 
-def _request(port, method, target, *, host=_DEFAULT, headers=(), body=None, raw_tail=None):
-    """リクエスト行とヘッダを手組みして 1 往復する。`(status, body, headers)` を返す。"""
+def _request(port, method, target, *, host=_DEFAULT, headers=(), body=None, raw_tail=None,
+             token=None):
+    """リクエスト行とヘッダを手組みして 1 往復する。`(status, body, headers)` を返す。
+    `token` を渡すと `X-Session-Token` ヘッダを載せる (`None` は無しで送る)。"""
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
     try:
         conn.putrequest(method, target, skip_host=True, skip_accept_encoding=True)
@@ -49,6 +57,8 @@ def _request(port, method, target, *, host=_DEFAULT, headers=(), body=None, raw_
             conn.putheader("Host", f"127.0.0.1:{port}")
         elif host is not None:
             conn.putheader("Host", host)
+        if token is not None:
+            conn.putheader("X-Session-Token", token)
         for name, value in headers:
             conn.putheader(name, value)
         if body is not None and not any(n.lower() == "transfer-encoding" for n, _ in headers):
@@ -64,16 +74,20 @@ def _request(port, method, target, *, host=_DEFAULT, headers=(), body=None, raw_
         conn.close()
 
 
-def _beacon(port, target, *, origin=_DEFAULT, host=_DEFAULT, extra=()):
+def _beacon(server, target, *, origin=_DEFAULT, host=_DEFAULT, extra=(), token=_DEFAULT):
     """`navigator.sendBeacon(target)` / `fetch(target, {method:'POST'})` 相当
-    (本文なし・Content-Type なし) を送る。"""
+    (本文なし・Content-Type なし) を送る。既定では**正しいトークン**を添えるので、
+    403 になったならヘッダ検査のどれかが効いたことを意味する。"""
+    port = server.server_address[1]
     headers = []
     if origin is _DEFAULT:
         headers.append(("Origin", f"http://127.0.0.1:{port}"))
     elif origin is not None:
         headers.append(("Origin", origin))
     headers.extend(extra)
-    return _request(port, "POST", target, host=host, headers=headers)
+    if token is _DEFAULT:
+        token = getattr(server, "guard_token", None)
+    return _request(port, "POST", target, host=host, headers=headers, token=token)
 
 
 # ── 正常系 (これが壊れると UI が動かない / 窓を閉じてもプロセスが残る) ──
@@ -95,7 +109,7 @@ def test_localhost_host_and_case_and_padding_pass(server):
 def test_quit_beacon_with_origin_sets_quit_event(server):
     """`main.js` の `navigator.sendBeacon('/quit')` がそのまま通ること (無改修の裏取り)。"""
     port = server.server_address[1]
-    status, _, _ = _beacon(port, "/quit")
+    status, _, _ = _beacon(server, "/quit")
     assert status == 204
     # `quit_event.set()` は 204 送信の**後**なので、応答受信直後はまだ立っていないことがある。
     # 拒否側の主張 (`is_set() is False`) は待たずに成立するが、こちらは待つ必要がある。
@@ -106,7 +120,7 @@ def test_ping_beacon_with_origin_refreshes_last_seen(server):
     """`main.js` の 10 秒毎 `fetch('/ping', {method:'POST', keepalive:true})` が通ること。"""
     port = server.server_address[1]
     server.last_seen = -1.0
-    status, _, _ = _beacon(port, "/ping")
+    status, _, _ = _beacon(server, "/ping")
     assert status == 204
     assert server.last_seen > 0.0
 
@@ -123,7 +137,7 @@ def test_ping_beacon_with_origin_refreshes_last_seen(server):
 def test_quit_rejected_without_valid_origin(server, origin):
     """「実行してから 403」ではないこと。ここが緩むとアプリを外部ページから落とせる。"""
     port = server.server_address[1]
-    status, body, _ = _beacon(port, "/quit", origin=origin)
+    status, body, _ = _beacon(server, "/quit", origin=origin)
     assert status == 403 and body == b"forbidden"
     assert server.quit_event.is_set() is False
 
@@ -131,7 +145,7 @@ def test_quit_rejected_without_valid_origin(server, origin):
 def test_quit_rejects_prefix_match_origin(server):
     """`http://127.0.0.1:<port>.evil.com` — 前方一致で判定していれば通ってしまう値。"""
     port = server.server_address[1]
-    status, _, _ = _beacon(port, "/quit", origin=f"http://127.0.0.1:{port}.evil.com")
+    status, _, _ = _beacon(server, "/quit", origin=f"http://127.0.0.1:{port}.evil.com")
     assert status == 403
     assert server.quit_event.is_set() is False
 
@@ -139,7 +153,7 @@ def test_quit_rejects_prefix_match_origin(server):
 def test_quit_rejects_duplicate_origin_headers(server):
     """正規 Origin を 2 本目に潜ませる。`get()` は先頭しか返さないので個数を見る必要がある。"""
     port = server.server_address[1]
-    status, _, _ = _beacon(port, "/quit", origin="https://evil.example",
+    status, _, _ = _beacon(server, "/quit", origin="https://evil.example",
                            extra=[("Origin", f"http://127.0.0.1:{port}")])
     assert status == 403
     assert server.quit_event.is_set() is False
@@ -149,7 +163,7 @@ def test_ping_from_foreign_origin_does_not_refresh_last_seen(server):
     """外部から `/ping` を打ち続けて idle watchdog を無効化し、ゾンビサーバを維持できないこと。"""
     port = server.server_address[1]
     server.last_seen = -1.0
-    status, _, _ = _beacon(port, "/ping", origin="https://evil.example")
+    status, _, _ = _beacon(server, "/ping", origin="https://evil.example")
     assert status == 403
     assert server.last_seen == -1.0
 
@@ -182,7 +196,7 @@ def test_get_without_origin_does_not_refresh_last_seen(server, target):
 ])
 def test_quit_rejects_simple_request_content_types(server, ctype):
     port = server.server_address[1]
-    status, _, _ = _request(port, "POST", "/quit",
+    status, _, _ = _request(port, "POST", "/quit", token=server.guard_token,
                             headers=[("Origin", f"http://127.0.0.1:{port}"),
                                      ("Content-Type", ctype)],
                             body=b"x")
@@ -193,11 +207,84 @@ def test_quit_rejects_simple_request_content_types(server, ctype):
 def test_post_without_content_type_but_with_body_is_rejected(server):
     """Content-Type 無しで通してよいのは本文の無いビーコンだけ。"""
     port = server.server_address[1]
-    status, _, _ = _request(port, "POST", "/quit",
+    status, _, _ = _request(port, "POST", "/quit", token=server.guard_token,
                             headers=[("Origin", f"http://127.0.0.1:{port}")],
                             body=b"{}")
     assert status == 403
     assert server.quit_event.is_set() is False
+
+
+# ── 認可: セッショントークン (frame 埋め込み / 同一マシンの別プロセス) ──
+#
+# ここの各ケースは Host・Origin・Content-Type をすべて正規値に揃えて送る。つまり
+# 「攻撃者ページに `<iframe>` されたアプリ自身が自分の Origin で撃った `/quit`」と
+# 「ローカルの非ブラウザプロセスがヘッダを完璧に詐称した要求」そのもので、
+# トークンだけが拒否理由になっている。
+
+
+@pytest.mark.parametrize("token", [
+    None,                                   # トークン無し (ヘッダもクエリも付けない)
+    "",                                     # 空文字
+    "wrong-token",                          # 別の値
+])
+def test_quit_without_valid_token_does_not_set_quit_event(server, token):
+    """frame に埋め込まれた本アプリの `pagehide` ビーコンを止める。Origin は完全一致するので
+    同一オリジン検査だけでは通ってしまう経路 (F17) で、ここが最後の関所になる。"""
+    status, body, _ = _beacon(server, "/quit", token=token)
+    assert status == 403 and body == b"forbidden"
+    assert server.quit_event.is_set() is False
+
+
+def test_quit_rejects_token_prefix(server):
+    """正解の先頭 N 文字。前方一致や `startswith` で比べていれば通ってしまう値。"""
+    status, _, _ = _beacon(server, "/quit", token=server.guard_token[:8])
+    assert status == 403
+    assert server.quit_event.is_set() is False
+
+
+def test_ping_without_token_does_not_refresh_last_seen(server):
+    """トークン無しの `/ping` で idle watchdog を延命できないこと (ゾンビサーバの維持を断つ)。"""
+    server.last_seen = -1.0
+    status, _, _ = _beacon(server, "/ping", token=None)
+    assert status == 403
+    assert server.last_seen == -1.0
+
+
+def test_token_is_accepted_from_query_for_sendbeacon(server):
+    """`navigator.sendBeacon('/quit?token=...')` 相当。ヘッダを付けられない API のための経路。"""
+    status, _, _ = _beacon(server, f"/quit?token={server.guard_token}", token=None)
+    assert status == 204
+    assert server.quit_event.wait(5) is True
+
+
+def test_duplicate_token_query_values_are_rejected(server):
+    """正解を 2 本目に潜ませる (どちらが真か決められない値は通さない)。"""
+    status, _, _ = _beacon(server, f"/quit?token=wrong&token={server.guard_token}", token=None)
+    assert status == 403
+    assert server.quit_event.is_set() is False
+
+
+def test_get_does_not_require_a_token(server):
+    """静的配信はトークンを要求しない。下位資産の取得にトークンは載らないうえ、GET には
+    副作用も機微データも無いという前提 (`GuardedHandler` のクラス doc) の裏取り。"""
+    port = server.server_address[1]
+    assert _request(port, "GET", "/")[0] == 200
+    assert _request(port, "GET", "/js/main.js")[0] == 200
+    # トークン付き URL (`--app=` の入口そのもの) でも `/` として配信されること。
+    assert _request(port, "GET", f"/?token={server.guard_token}")[0] == 200
+
+
+def test_token_is_never_served_to_unauthorized_clients(server):
+    """**トークンを `ui.html` へ埋めない**こと。埋めると frame に埋め込まれた本アプリ自身が
+    それを受け取り、`pagehide` の `/quit` が通ってしまう (F17 の経路がそのまま復活する)。
+    受け渡しは `--app=` の URL クエリ 1 本だけ (`main()`)。"""
+    port = server.server_address[1]
+    token = server.guard_token.encode()
+    for target in ("/", "/ui.html", "/js/main.js", "/styles.css", "/lib/leader_geom.cjs"):
+        status, body, headers = _request(port, "GET", target)
+        assert status == 200, target
+        assert token not in body, target
+        assert token not in str(headers).encode(), target
 
 
 # ── 迂回入力: Host (DNS リバインディング) ──
@@ -226,7 +313,14 @@ def test_rejects_duplicate_host_headers(server):
 
 
 def test_static_asset_rejected_on_host_mismatch(server):
-    """`<script src>` の 200/404 差でポートを当てるオラクルも塞がっていること。"""
+    """名前ベースで届いた取得 (`Host: evil.example`) は静的資産でも 403 になること。
+
+    ⚠ これは**ポート探索オラクルを塞ぐ主張ではない**: 攻撃者ページが IP リテラルを直に書いた
+    `<script src="http://127.0.0.1:<port>/js/main.js">` の `Host` は許可値そのものなので、Host
+    検査は通る。その経路を鈍らせるのは `Cross-Origin-Resource-Policy: same-origin`
+    (`test_security_headers_are_sent_on_every_response`) であり、Host 検査が担うのは
+    「攻撃者ドメイン名のまま 127.0.0.1 へ解決される」DNS リバインディングの遮断だけである。
+    """
     port = server.server_address[1]
     assert _request(port, "GET", "/js/main.js", host="evil.example")[0] == 403
     assert _request(port, "GET", "/js/main.js")[0] == 200
@@ -238,7 +332,7 @@ def test_static_asset_rejected_on_host_mismatch(server):
 def test_absolute_form_request_target_is_rejected(server):
     """`POST http://127.0.0.1:p/quit` + `Host: evil.example`。経路分岐は通るが Host は攻撃者値。"""
     port = server.server_address[1]
-    status, _, _ = _beacon(port, f"http://127.0.0.1:{port}/quit", host="evil.example")
+    status, _, _ = _beacon(server, f"http://127.0.0.1:{port}/quit", host="evil.example")
     assert status == 403
     assert server.quit_event.is_set() is False
 
@@ -246,7 +340,7 @@ def test_absolute_form_request_target_is_rejected(server):
 def test_transfer_encoding_is_rejected(server):
     """チャンク本文が未読のまま keep-alive 接続に残る食い違い (デシンク) を封じる。"""
     port = server.server_address[1]
-    status, _, _ = _request(port, "POST", "/quit",
+    status, _, _ = _request(port, "POST", "/quit", token=server.guard_token,
                             headers=[("Origin", f"http://127.0.0.1:{port}"),
                                      ("Transfer-Encoding", "chunked")],
                             raw_tail=b"0\r\n\r\n")
@@ -269,6 +363,7 @@ def test_unread_body_does_not_reset_the_connection(server):
         conn.putrequest("POST", "/quit", skip_host=True, skip_accept_encoding=True)
         conn.putheader("Host", f"127.0.0.1:{port}")
         conn.putheader("Origin", f"http://127.0.0.1:{port}")
+        conn.putheader("X-Session-Token", server.guard_token)
         conn.putheader("Transfer-Encoding", "chunked")
         conn.endheaders()
         time.sleep(0.1)  # 拒否は即座なので、これで「閉じるなら閉じ終えた」状態になる
@@ -283,8 +378,8 @@ def test_unread_body_does_not_reset_the_connection(server):
 
 def test_duplicate_content_length_is_rejected(server):
     port = server.server_address[1]
-    status, _, _ = _beacon(port, "/ping", extra=[("Content-Length", "0"),
-                                                 ("Content-Length", "0")])
+    status, _, _ = _beacon(server, "/ping", extra=[("Content-Length", "0"),
+                                                   ("Content-Length", "0")])
     assert status == 403
 
 
@@ -300,7 +395,7 @@ def test_unconfigured_server_rejects_everything():
     port = srv.server_address[1]
     try:
         assert _request(port, "GET", "/")[0] == 403
-        assert _beacon(port, "/quit")[0] == 403
+        assert _beacon(srv, "/quit")[0] == 403
         assert srv.quit_event.is_set() is False
     finally:
         srv.shutdown()
@@ -313,12 +408,76 @@ def test_no_cors_headers_are_ever_emitted(server):
     responses = [
         _request(port, "GET", "/"),
         _request(port, "GET", "/", host="evil.example"),
-        _beacon(port, "/ping"),
-        _beacon(port, "/ping", origin="https://evil.example"),
+        _beacon(server, "/ping"),
+        _beacon(server, "/ping", origin="https://evil.example"),
         _request(port, "OPTIONS", "/quit", headers=[("Origin", f"http://127.0.0.1:{port}")]),
     ]
     for _, _, headers in responses:
         assert not [k for k in headers.keys() if k.lower().startswith("access-control-")]
+
+
+def test_security_headers_are_sent_on_every_response(server):
+    """成功・404・403・204 の**すべて**に防御ヘッダが載ること。
+
+    `frame-ancestors 'none'` / `X-Frame-Options: DENY` が 1 応答でも欠けると、その URL を
+    `<iframe>` の足がかりにでき、frame 内のアプリ自身が撃つ `/quit` (F17) の入口が開く。
+    とくに拒否応答 (`GuardedHandler._reject`) は成功応答と別経路なので忘れられやすい。
+    """
+    port = server.server_address[1]
+    responses = [
+        _request(port, "GET", "/"),                              # 200 (成功 `_send`)
+        _request(port, "GET", "/does-not-exist"),                # 404 (成功経路の別コード)
+        _request(port, "GET", "/", host="evil.example"),         # 403 (`_reject`)
+        _beacon(server, "/ping"),                                # 204 (本文なし)
+    ]
+    for status, _, headers in responses:
+        assert headers.get("X-Frame-Options") == "DENY", status
+        assert headers.get("X-Content-Type-Options") == "nosniff", status
+        assert headers.get("Cross-Origin-Resource-Policy") == "same-origin", status
+        csp = headers.get("Content-Security-Policy") or ""
+        assert "frame-ancestors 'none'" in csp, status
+        assert "default-src 'self'" in csp, status
+
+
+def test_csp_opens_only_the_exceptions_the_ui_actually_needs(server):
+    """CSP の例外は「実際に要るものだけ」。`unsafe-inline` はスタイルのみ (読み込んだ SVG の
+    `<style>` に入る `@font-face`)、`data:` は画像とフォントのみ。**script へは一切開けない**
+    ことをここで固定する。**pdf-to-svg の同名テストと逐語で揃えること** (並行実装)。"""
+    port = server.server_address[1]
+    csp = (_request(port, "GET", "/")[2].get("Content-Security-Policy") or "")
+    directives = {}
+    for part in csp.split(";"):
+        tokens = part.split()
+        if tokens:
+            directives[tokens[0]] = tokens[1:]
+    assert "'unsafe-inline'" not in directives.get("default-src", [])
+    assert "'unsafe-eval'" not in directives.get("default-src", [])
+    assert "script-src" not in directives  # default-src 'self' へ落ちる = inline script 不可
+    assert directives["style-src"] == ["'self'", "'unsafe-inline'"]
+    assert directives["img-src"] == ["'self'", "data:"]
+    assert directives["font-src"] == ["'self'", "data:"]
+    assert directives["object-src"] == ["'none'"]
+    assert directives["base-uri"] == ["'none'"]
+
+
+def test_security_headers_match_pdf_to_svg(server):
+    """2 プロジェクトの `SECURITY_HEADERS` が**逐語で一致**すること (並行実装の drift 検出)。
+
+    片方だけ直す事故は実際に起きる。pdf-to-svg が同じリポジトリに無い配布形態でも落ちないよう、
+    import できないときだけスキップする。"""
+    import sys
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[2] / "pdf-to-svg" / "src"
+    if not (src / "web" / "origin_guard.py").exists():
+        pytest.skip("pdf-to-svg のソースが同居していない")
+    sys.path.insert(0, str(src))
+    try:
+        from web import origin_guard
+    finally:
+        sys.path.remove(str(src))
+    assert app.SECURITY_HEADERS == origin_guard.SECURITY_HEADERS
+    assert app.TOKEN_HEADER == origin_guard.TOKEN_HEADER
+    assert app.TOKEN_QUERY == origin_guard.TOKEN_QUERY
 
 
 def test_reject_logging_is_capped_per_reason(server, caplog):

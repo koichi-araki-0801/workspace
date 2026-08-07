@@ -47,9 +47,11 @@ import { initRail, buildRail } from "./rail.js";
   }
 
   async function uploadPdf(name, buf) {
+    // セッショントークンは `rpc.js` の `__authHeaders` が載せる (`/upload` も非安全メソッド
+    // なのでサーバが要求する)。
     var res = await fetch("/upload?name=" + encodeURIComponent(name), {
       method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
+      headers: window.__authHeaders({ "Content-Type": "application/octet-stream" }),
       body: buf,
     });
     var j = await res.json();
@@ -793,13 +795,16 @@ import { initRail, buildRail } from "./rail.js";
   function startLifecycle() {
     // 生存ハートビート: last_seen を定期更新し、開いている間は watchdog に殺させない。
     setInterval(function () {
-      fetch("/ping", { method: "POST", keepalive: true }).catch(function () {});
+      fetch("/ping", {
+        method: "POST", keepalive: true, headers: window.__authHeaders(),
+      }).catch(function () {});
     }, 10000);
     // 窓を閉じる時の終了ビーコン。beforeunload ではなく pagehide + sendBeacon が確実。
     // 最小化でも hidden になる visibilitychange は使わない (最小化でサーバを殺さないため)。
     // ビーコン不達でもハートビート途絶 watchdog がバックストップになる。
+    // `sendBeacon` はヘッダを付けられないため、トークンだけはクエリで送る (`__authUrl`)。
     window.addEventListener("pagehide", function () {
-      try { navigator.sendBeacon("/quit"); } catch (e) {}
+      try { navigator.sendBeacon(window.__authUrl("/quit")); } catch (e) {}
     });
   }
 

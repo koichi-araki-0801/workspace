@@ -1,4 +1,5 @@
-"""同一オリジン検査 (CSRF / DNS リバインディング対策) の唯一の関所。
+"""同一オリジン検査 + セッショントークン認可 (CSRF / DNS リバインディング / 同一マシンの
+別プロセス対策) の唯一の関所。
 
 127.0.0.1 に bind するだけでは外部ページからの副作用を防げない。攻撃者ページの
 `fetch(..., {mode:'no-cors'})` や `navigator.sendBeacon()` は応答を読めなくても
@@ -6,6 +7,14 @@
 さらに短 TTL DNS で攻撃者ドメインを 127.0.0.1 へ再束縛されると、ブラウザから見て同一
 オリジンになり応答まで読まれる (DNS リバインディング)。よって「どこから来たか」を
 `Host` と `Origin` で検査する必要がある。
+
+ただし `Host`/`Origin`/`Content-Type` は**ヘッダでしかない**。ブラウザは書き換えを禁じられて
+いるが、同一マシンで動く非ブラウザのプロセスは自由に詐称できる。VDI/RDS では別ユーザーの
+プロセスも 127.0.0.1 に届き、ポートは `data/logs/startup.log` と TCP テーブルから判るので、
+ヘッダ検査だけでは「開いている PDF の全文を `pageSvg`/`exportSvg` で読む」「`dictAdd` +
+`reapplyDict` で書き換える」「`/quit` で落とす」が誰にでもできる。そこで**起動ごとに
+CSPRNG で発行したセッショントークン**の完全一致を非安全メソッドへ要求する (G6)。トークンを
+知りうるのは `--app=` の URL で受け取った UI だけである (`app.py` を見よ)。
 
 **検査は `parse_request()` の 1 箇所だけに置く。** `BaseHTTPRequestHandler` は
 リクエスト行とヘッダを解析した直後に `parse_request()` を呼び、戻り値が偽なら
@@ -28,11 +37,14 @@
 """
 from __future__ import annotations
 
+import hmac
 import http.server
 import logging
+import secrets
 import socket
 import string
 import time
+from urllib.parse import parse_qs, urlsplit
 
 # ── 許可リスト (2 プロジェクトで同一) ──
 
@@ -46,6 +58,37 @@ ALLOWED_REQUEST_CONTENT_TYPES = frozenset({"application/json", "application/octe
 # Origin を要求しないメソッド。Fetch 仕様上、GET/HEAD 以外にはブラウザが必ず Origin を
 # 付けるので、非安全メソッドで Origin が無い = ブラウザ以外とみなして拒否できる。
 SAFE_METHODS = frozenset({"GET", "HEAD"})
+
+# セッショントークンの運び方 (2 プロジェクトで同一)。`fetch` はヘッダで送る。
+# `navigator.sendBeacon('/quit')` は**ヘッダを付けられない** API なので、そこだけは
+# クエリ文字列で送る。クエリを常時許すのは「ビーコンだけ別の判定を書く」= 経路ごとの
+# 分岐を作らないため (分岐は必ず片方を書き忘れる)。クエリ値がプロセス一覧やブラウザ履歴へ
+# 残る点は下の `new_session_token` の注記を見よ。
+TOKEN_HEADER = "X-Session-Token"
+TOKEN_QUERY = "token"
+
+# 全応答 (成功 `_send` と拒否 `_reject` の双方) へ載せる防御ヘッダ。**1 応答でも欠けると、
+# その URL が `<iframe>` や `<script src>` の足がかりになる**ので、送信経路を増やしたら
+# 必ず `send_security_headers()` を通すこと。
+# - `frame-ancestors 'none'` / `X-Frame-Options: DENY`: 攻撃者ページが本 UI を frame へ
+#   埋め込むのを拒む。同一オリジン検査は frame 化を防げない — frame の中身は**アプリ自身**で、
+#   その `pagehide` が撃つ `/quit` ビーコンは Origin が完全一致して検査を正当に通過する。
+# - `default-src 'self'`: 同梱資産以外を読ませない。inline `<script>` もこれで禁止になる
+#   (両アプリとも inline script を持たない。`<style>` と `style=` 属性だけを例外にする)。
+# - `style-src 'unsafe-inline'`: `index.html` の inline `<style>` と多数の `style=` 属性、
+#   および描画する SVG が `<style>` で `@font-face` を持つため。
+# - `img-src`/`font-src` の `data:`: PDF 由来の画像とサブセットフォントを data URI で
+#   埋め込んだ SVG を表示するため。
+# - `nosniff` / `Cross-Origin-Resource-Policy: same-origin`: MIME 誤解釈と、他オリジンからの
+#   no-cors 読み出し (既知パスの 200/404 差によるポート探索オラクル) を断つ。
+SECURITY_HEADERS = (
+    ("X-Frame-Options", "DENY"),
+    ("Content-Security-Policy",
+     "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+     "font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"),
+    ("X-Content-Type-Options", "nosniff"),
+    ("Cross-Origin-Resource-Policy", "same-origin"),
+)
 
 # 403 の理由コードごとにログへ出す上限。全件出すと攻撃者にログを膨らませられる
 # (`startup.log` はローテーションを持たない)。
@@ -79,11 +122,25 @@ def allowed_origins(port: int) -> frozenset[str]:
     return frozenset({f"http://127.0.0.1:{port}", f"http://localhost:{port}"})
 
 
-def configure_guard(server, port: int) -> None:
-    """サーバへ許可リストを固定する。**bind 後の実ポート**で呼ぶこと (port 0 で組むと全滅する)。
-    設定されていないサーバは `unconfigured` で全拒否になる (fail closed)。"""
+def new_session_token() -> str:
+    """この起動のセッショントークンを CSPRNG で作る (URL 安全な 32 バイト相当)。
+
+    受け渡しは `--app=` の URL クエリ 1 本に絞る (`app.py`)。**配信する HTML へ埋める案は
+    採らない**: `GET /` は安全メソッドで誰でも撃てるため、埋めた瞬間に「トークンを持たない
+    ローカルプロセス」が読み出せてしまい、守ろうとしている F11 の脅威そのものを開く。
+    残る漏えい面は「起動した `msedge.exe` のコマンドライン」と、フォールバック経路での
+    ブラウザ履歴である (Jupyter の `?token=` と同じ割り切り)。ログには書かない。
+    """
+    return secrets.token_urlsafe(32)
+
+
+def configure_guard(server, port: int, token: str) -> None:
+    """サーバへ許可リストとセッショントークンを固定する。**bind 後の実ポート**で呼ぶこと
+    (port 0 で組むと全滅する)。設定されていないサーバは `unconfigured` で全拒否になり、
+    トークンだけが空なら非安全メソッドが全拒否になる (いずれも fail closed)。"""
     server.guard_hosts = allowed_hosts(port)
     server.guard_origins = allowed_origins(port)
+    server.guard_token = token
     server.guard_reject_counts = {}
 
 
@@ -92,7 +149,9 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
     サブクラスは `do_GET` / `do_POST` を素直に書けばよく、検査は上に載る。
     **`do_GET` / `do_HEAD` に副作用を持たせないこと**: 安全メソッドは Origin 無しでも
-    通す (ブラウザが付けないため) ので、副作用を置くと CSRF が素通りする。
+    通す (ブラウザが付けないため) ので、副作用を置くと CSRF が素通りする。同じ理由で
+    **安全メソッドから機微データやセッショントークンを返さないこと**: 安全メソッドは
+    トークンも要求しない (G6) ので、返した瞬間に任意のローカルプロセスが読み出せる。
     idle watchdog 用の `last_seen` 更新もその副作用の 1 つなので、判定と同じ場所
     (`_touch_if_same_origin`) に置いて `do_*` からは触らせない。
     """
@@ -165,11 +224,38 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
             # `strict-origin-when-cross-origin` を選ぶこと。
             return "origin-missing"
 
-        # G5: 非安全メソッドの Content-Type。無い場合は本文も無いこと (`/quit` `/ping` の
-        # 空ビーコン)。ある場合はパラメータを落として完全一致。
+        # G5/G6: 非安全メソッドだけに掛かる検査。安全メソッド (静的配信) はトークンを
+        # 要求しない — 下位資産 (`app.js` / `styles.css`) の取得にトークンは載らないうえ、
+        # `do_GET` は副作用も機微データも持たないためである。逆に言えば、GET 側へ副作用や
+        # 秘密の読み出しを足した瞬間にこの前提が崩れる (`GuardedHTTPRequestHandler` の
+        # クラス doc の禁止事項)。
         if self.command not in SAFE_METHODS:
-            return self._content_type_reason()
+            return self._content_type_reason() or self._token_reason()
         return None
+
+    def _token_reason(self) -> str | None:
+        """G6: セッショントークンの完全一致。`X-Session-Token` ヘッダ、無ければクエリ
+        `?token=` を見る (`sendBeacon` はヘッダを付けられないため)。
+
+        比較は `hmac.compare_digest` の定時間比較。素朴な `==` は一致した接頭辞の長さに
+        比例して所要時間が変わり、同一マシンから何度でも試せるローカル攻撃者にとっては
+        現実的な桁数のオラクルになる。トークン未設定のサーバは全拒否 (fail closed)。
+        """
+        expected = getattr(self.server, "guard_token", None)
+        if not expected:
+            return "token"
+        supplied = self._single_header(TOKEN_HEADER)
+        if supplied is None:
+            values = parse_qs(urlsplit(self.path).query).get(TOKEN_QUERY) or ()
+            # 2 本以上は「どちらが真か」を決められない (ヘッダ重複と同じ扱いで拒否)。
+            supplied = values[0] if len(values) == 1 else None
+        if supplied is None:
+            return "token"
+        try:
+            ok = hmac.compare_digest(supplied.strip().encode("utf-8"), expected.encode("utf-8"))
+        except UnicodeError:
+            return "token"  # サロゲート等でエンコードできない値は一致しえない。
+        return None if ok else "token"
 
     def _content_type_reason(self) -> str | None:
         raw = self.headers.get_all("Content-Type")
@@ -189,6 +275,14 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         values = self.headers.get_all(name)
         return values[0] if values and len(values) == 1 else None
 
+    # ── 応答ヘッダ ──
+
+    def send_security_headers(self) -> None:
+        """`SECURITY_HEADERS` を応答へ載せる。**全応答経路から呼ぶこと** (成功も 404 も 403 も)。
+        欠けた応答が 1 本でもあれば、その URL だけを frame / 他オリジン読み出しに使える。"""
+        for name, value in SECURITY_HEADERS:
+            self.send_header(name, value)
+
     # ── 拒否応答 ──
 
     def _reject(self, reason: str) -> bool:
@@ -203,6 +297,7 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("Connection", "close")
+            self.send_security_headers()
             self.end_headers()
             self.wfile.write(body)
         except OSError:
