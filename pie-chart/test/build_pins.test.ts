@@ -11,7 +11,7 @@
 // =============================================================================
 
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,4 +101,41 @@ describe('sidecar を復活させないこと', () => {
     expect(external).not.toBeNull();
     expect(external?.[1]).not.toContain('subset-font');
   });
+});
+
+describe('ビルド入口スクリプト(scripts/*.ps1)が lockfile 無視の install をしないこと', () => {
+  // README が「ダブルクリック入口」として案内する build-exe.bat → build-exe.ps1 は、
+  // コード署名鍵を持つ端末で走る。lockfile を消してから範囲指定のまま `npm` の install を
+  // すると、レジストリへ差し込まれた新版の lifecycle script がその端末で実行される
+  // (npm は pnpm の `allowBuilds` に相当する既定の抑止を持たない)。上の sidecar ガードは
+  // build-exe.mjs 本文しか読んでおらず、運用が実際に使う .ps1 経路が検査の外に残っていた
+  // (P023/F12)— ここで scripts/ 配下の全 .ps1 へ同じ禁止語を機械強制する。
+  const ps1Files = readdirSync(join(root, 'scripts')).filter((f) => f.endsWith('.ps1'));
+  // PowerShell のコメント(`<# ... #>` ブロックと行頭 `#`)を落として実コードだけを見る。
+  const stripPsComments = (src: string): string =>
+    src
+      .replace(/<#[\s\S]*?#>/g, '')
+      .split(/\r?\n/)
+      .filter((l) => !/^\s*#/.test(l))
+      .join('\n');
+
+  it('走査対象の .ps1 が存在する(空なら検査自体が空振りしている)', () => {
+    expect(ps1Files.length).toBeGreaterThan(0);
+    expect(ps1Files).toContain('build-exe.ps1');
+  });
+
+  for (const name of ps1Files) {
+    it(`${name}: npm install / lockfile 削除を含まず、npm ci は --ignore-scripts 付き`, () => {
+      const code = stripPsComments(readFileSync(join(root, 'scripts', name), 'utf8'));
+      // `npm install` は「その時点のレジストリ最新で解決 + script 実行」の複合で、
+      // どちらの性質も署名端末では受け入れられない。
+      expect(code).not.toMatch(/npm\s+install\b/i);
+      // lockfile の削除(や再生成)は integrity 固定の無効化と等価。コミット済みを正とする。
+      expect(code).not.toMatch(/package-lock/i);
+      // npm ci を呼ぶなら lifecycle script の一律不実行までセットで。
+      for (const m of code.matchAll(/npm\s+ci\b[^\n]*/gi)) {
+        expect(m[0], `${name}: ${m[0]}`).toContain('--ignore-scripts');
+      }
+    });
+  }
 });

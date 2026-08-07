@@ -28,6 +28,7 @@ import { logger } from './logger.js';
 import { loadUser } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { docsRoutes, openapiRoutes } from './openapi/index.js';
+import { renderHostRoutes } from './render/renderHost.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { generateRoutes } from './routes/generate.routes.js';
 import { historyRoutes } from './routes/history.routes.js';
@@ -186,6 +187,11 @@ app.register(docsRoutes);
 // 緩い CSP が要るので、`docsRoutes` と同じく専用コンテキストへ閉じて登録する
 // (fastify-plugin を通さない = onSend がこのルート群だけに掛かる)。全域 CSP は動かさない。
 app.register(previewHostRoutes, { prefix: '/api' });
+
+// 他人のテンプレを nunjucks でコンパイルするためのレンダーホストページ。nunjucks は
+// コンパイラなので `'unsafe-eval'` が要り、承認者のページオリジンで走らせると申請者の JS が
+// 承認者のセッションを握る(所見 F1)。同じく専用コンテキストへ閉じて登録する。
+app.register(renderHostRoutes, { prefix: '/api' });
 
 // 本番ではビルド済み SPA を配信する(Vite がアプリを配信する dev では no-op)。
 if (hasWebDist) {

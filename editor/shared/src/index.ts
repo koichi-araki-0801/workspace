@@ -233,6 +233,8 @@ export * from './domain/user.js';
 export * from './errors.js';
 // プレビュー iframe(隔離されたビューアホストページ)と親の postMessage 契約。
 export * from './preview/hostProtocol.js';
+// Jinja 描画 iframe(隔離されたレンダーホストページ)と親の postMessage 契約。
+export * from './render/hostProtocol.js';
 // 集約別のリポジトリ契約 (web local と REST が実装)。
 export * from './repositories/AuthRepository.js';
 export * from './repositories/HistoryRepository.js';
