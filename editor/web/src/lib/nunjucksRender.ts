@@ -14,6 +14,10 @@ import {
 /**
  * 生 Jinja2 テンプレートを sample data でブラウザ上に Nunjucks (Jinja2 互換)で
  * 描画する。プレビュー専用 — 本番レンダリングではない。
+ *
+ * `autoescape` / `throwOnUndefined` の 2 設定は、隔離側(`server/src/render/renderHost.ts` の
+ * ブートスクリプト)が**同じ値で**Environment を作る根拠でもある。隔離へ移して描画結果が
+ * 変わらないことがここと向こうで揃っていることの意味なので、片方だけ変えない。
  */
 const env = new nunjucks.Environment(undefined, {
   autoescape: true,
@@ -25,6 +29,14 @@ export interface RenderResult {
   error: string | null;
 }
 
+/**
+ * ⚠ **アプリオリジンからこの関数を呼ばないこと。** nunjucks はサンドボックスではなく
+ * コンパイラで、`{{ range.constructor("…")() }}` は `new Function` へ到達する。他人が書いた
+ * テンプレをアプリのページで通すと、そのテンプレの字面が閲覧者のセッションでの JS 実行に
+ * なる(所見 F1)。呼び出し口は `lib/renderHostClient.ts` の `renderJinjaIsolated` 一本で、
+ * 実際のコンパイルは opaque オリジンの iframe が行う。この定義が残っているのは Environment
+ * 設定の出所を 1 箇所に保つため(禁止は `test/ssti.guard.test.ts` が機械検証する)。
+ */
 export function renderJinja(template: string, data: SampleData): RenderResult {
   try {
     return { html: env.renderString(template, data as object), error: null };
@@ -35,9 +47,9 @@ export function renderJinja(template: string, data: SampleData): RenderResult {
 
 /**
  * 描画済み HTML(nunjucks 適用後)を自己完結なプレビュー文書へ組み立てる: サニタイズし,
- * CSS を inline 化する。重い `renderJinja` を含まないので, Worker から受け取った描画済み
- * HTML をメインで組み立てる用途に使える(描画は Worker, 組み立てはメイン、という分割の
- * ためのシーム)。
+ * CSS を inline 化する。**コンパイルを含まない**ので、隔離 iframe が返した描画済み HTML を
+ * アプリオリジンで組み立てる用途に使える(描画は隔離側, 組み立てはこちら、という分割の
+ * シームであり、この分割が隔離の境界そのものである)。
  *
  * 加工はすべて**パース済み DOM の上**で行い、文字列に戻すのは最後の 1 回だけ
  * (`sanitizeHtml.ts` 冒頭の不変則)。以前はサニタイズ済み文字列へ `<link…>` 除去と
@@ -68,12 +80,7 @@ export function assemblePreviewDocument(
   return serializePreviewRoot(root);
 }
 
-/**
- * 自己完結なプレビュー文書を組み立てる: テンプレートを sample data で描画し,
- * ファンドごとの CSS を inline 化する(外部 `<link>` は viewer では 404 になるため)。
- */
-export function buildPreviewDocument(rawHtml: string, css: string, data: SampleData): RenderResult {
-  const rendered = renderJinja(rawHtml, data);
-  if (rendered.error) return rendered;
-  return { html: assemblePreviewDocument(rendered.html, css), error: null };
-}
+// かつてここには `buildPreviewDocument`(描画 + 組み立ての一括)があったが撤去した。
+// 「描画」を含む以上アプリオリジンでのコンパイル経路になり、`renderJinja` の禁止を
+// 素通りする抜け道になる。呼び出し側は `renderJinjaIsolated` で描画してから
+// `assemblePreviewDocument` を呼ぶ 2 段で書くこと(この分割自体が隔離の境界である)。

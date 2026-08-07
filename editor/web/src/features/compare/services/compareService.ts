@@ -14,7 +14,7 @@ import {
   type TemplateVersionMeta,
 } from '@editor/shared';
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
-import { renderJinja } from '@/lib/nunjucksRender';
+import { renderJinjaIsolated } from '@/lib/renderHostClient';
 
 /** 版レンダリング失敗時に表示する文言(原因は別途ログに記録する)。 */
 export const COMPARE_RENDER_ERROR =
@@ -73,8 +73,8 @@ export interface CompareService {
   renderVersionHtml(historyId: string): Promise<Result<RenderedVersion>>;
   /**
    * 任意のテンプレ本文(html/css)を、現行版/snapshot と同一の描画経路(`getSampleData` +
-   * `renderJinja`)でレンダリングする。承認画面が申請内容を現行版と同じ土俵で diff するために使う
-   * (見せかけ差分を出さないよう、版種を被せない素の sample を現行版と共有する)。
+   * `renderJinjaIsolated`)でレンダリングする。承認画面が申請内容を現行版と同じ土俵で diff
+   * するために使う(見せかけ差分を出さないよう、版種を被せない素の sample を現行版と共有する)。
    */
   renderTemplateBody(html: string, css: string, fundCode: string): Promise<Result<RenderedVersion>>;
 }
@@ -125,6 +125,11 @@ export function createCompareService(
     // ことをサーバが照合する(`server/src/security/templateScripts.ts`)。
     // 差分計算が読む経路は `DOMParser.parseFromString(_, 'text/html')` の inert document
     // なので、ここで script が実行されることはない。
+    //
+    // **Jinja のコンパイル自体もこのオリジンでは行わない。** nunjucks はサンドボックスでなく
+    // コンパイラで、`{{ range.constructor("…")() }}` は `new Function` へ到達する。承認者の
+    // ページで走らせると承認者のセッションのまま承認 API を叩けてしまう(所見 F1)ため、
+    // 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)へ委ねる。
     async renderVersionHtml(historyId) {
       // 「現行版」は snapshot を持たない。原本(現在のテンプレート HTML)をサンプル値で
       // 描画し、確定版と同じ「値埋め込み後」HTML を返す。描画経路を snapshot と一致させ、
@@ -135,7 +140,7 @@ export function createCompareService(
         const tpl = tplRes.value;
         const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
         if (isErr(sampleRes)) return sampleRes;
-        const rendered = renderJinja(tpl.html, sampleRes.value);
+        const rendered = await renderJinjaIsolated(tpl.html, sampleRes.value);
         if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
         return ok({ html: rendered.html, css: tpl.css });
       }
@@ -149,7 +154,7 @@ export function createCompareService(
 
       // プレビュー画面と同じレンダリング経路だが、処理はブラウザ内で完結させる。
       // block diff がこの HTML を直接パースするため、PDF 化やサーバ往復は不要。
-      const rendered = renderJinja(snap.html, sampleRes.value);
+      const rendered = await renderJinjaIsolated(snap.html, sampleRes.value);
       if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
       return ok({ html: rendered.html, css: snap.css });
     },
@@ -158,7 +163,7 @@ export function createCompareService(
       const sampleRes = await templates.getSampleData(fundCode);
       if (isErr(sampleRes)) return sampleRes;
       // baseline 経路と同じく素の sample で描画する(版種を被せない)。現行版と土俵を揃える。
-      const rendered = renderJinja(html, sampleRes.value);
+      const rendered = await renderJinjaIsolated(html, sampleRes.value);
       if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
       return ok({ html: rendered.html, css });
     },

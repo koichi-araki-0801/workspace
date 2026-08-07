@@ -143,7 +143,6 @@ export function createFallbackWorker(
     buildHtmlDiffAligned: (...a) => call('buildHtmlDiffAligned', a),
     toTemplate: (...a) => call('toTemplate', a),
     toFilled: (...a) => call('toFilled', a),
-    renderJinja: (...a) => call('renderJinja', a),
   };
   return { worker, markBroken };
 }

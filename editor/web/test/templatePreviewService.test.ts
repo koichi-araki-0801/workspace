@@ -15,6 +15,14 @@ import {
 } from '@/features/preview/services/templatePreviewService';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 
+// 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では起動しない。
+// ここで固定したいのは draft 適用・文書組み立て・PDF 送信なので、隔離の向こう側にあたる
+// nunjucks 実装を直に噛ませる(クライアントの契約は `renderHostClient.test.ts`)。
+vi.mock('@/lib/renderHostClient', async () => {
+  const { renderJinja } = await import('@/lib/nunjucksRender');
+  return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
+});
+
 const history = {
   recordPdfExport: vi.fn(async () => ok(undefined)),
 } as unknown as HistoryRepository;

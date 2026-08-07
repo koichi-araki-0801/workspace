@@ -1,8 +1,17 @@
 import { isErr, isOk } from '@editor/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { PDF_CSS_EXTERNAL_REF_MSG, PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
+
+// 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では起動しない。
+// ここで固定したいのは PDF 入力文書の組み立て(サニタイズ・外部参照の拒否)なので、隔離の
+// 向こう側にあたる nunjucks 実装を直に噛ませる。クライアントの契約は
+// `renderHostClient.test.ts` が固定する。
+vi.mock('@/lib/renderHostClient', async () => {
+  const { renderJinja } = await import('@/lib/nunjucksRender');
+  return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
+});
 
 describe('renderPdfDocument', () => {
   it('renders Jinja values and keeps the template script', async () => {

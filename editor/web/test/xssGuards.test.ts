@@ -15,11 +15,20 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ok } from '@editor/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildDiffDoc } from '@/features/compare/htmlBlockDiff';
 import { createCompareService } from '@/features/compare/services/compareService';
 import { findExternalRefsInCss, sanitizeStyleContent, styleTag } from '@/lib/sanitizeCss';
 import { appendPreviewStyle, sanitizePreviewRoot, stripExternalRefs } from '@/lib/sanitizeHtml';
+
+// 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では起動しない。
+// ここで見たいのは「描画経路が能動コンテンツを痩せさせないこと」なので、隔離の**向こう側**に
+// あたる nunjucks 実装を直に噛ませる(隔離そのものは `renderHostClient.test.ts` と
+// `ssti.guard.test.ts` が固定する)。
+vi.mock('@/lib/renderHostClient', async () => {
+  const { renderJinja } = await import('@/lib/nunjucksRender');
+  return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
+});
 
 describe('sanitizeStyleContent', () => {
   it('neutralises a </style> escape so the element cannot be closed', () => {

@@ -16,6 +16,15 @@ import {
   createCompareService,
 } from '@/features/compare/services/compareService';
 
+// 実際の描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では
+// 起動しない。ここで固定したいのはサービス側の組み立て・エラー伝播なので、隔離の
+// **向こう側**にあたる nunjucks 実装を直に噛ませる。隔離クライアント自体の契約
+// (発信元検証・保留・id 対応付け・期限)は `renderHostClient.test.ts` が固定する。
+vi.mock('@/lib/renderHostClient', async () => {
+  const { renderJinja } = await import('@/lib/nunjucksRender');
+  return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
+});
+
 const snapshot: TemplateSnapshot = {
   historyId: 'eh-1',
   templateId: 'AM01_510037_20240710_kr',

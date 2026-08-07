@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AsyncHtmlWorker } from '../src/workers';
 import { createFallbackWorker } from '../src/workers/fallback';
 
-/** 5 メソッドの既定実装を持つダミー Worker。`impl` で必要なものだけ差し替える。 */
+/** 4 メソッドの既定実装を持つダミー Worker。`impl` で必要なものだけ差し替える。 */
 function makeWorker(impl: Partial<AsyncHtmlWorker> = {}): AsyncHtmlWorker {
   return {
     // biome-ignore lint/suspicious/noExplicitAny: テスト用ダミー戻り値(型は本質でない)
@@ -15,8 +15,6 @@ function makeWorker(impl: Partial<AsyncHtmlWorker> = {}): AsyncHtmlWorker {
     buildHtmlDiffAligned: async () => ({}) as any,
     toTemplate: async () => 'tpl',
     toFilled: async () => 'filled',
-    // biome-ignore lint/suspicious/noExplicitAny: 同上
-    renderJinja: async () => ({ html: '', error: undefined }) as any,
     ...impl,
   };
 }
@@ -39,15 +37,12 @@ describe('createFallbackWorker', () => {
       buildHtmlDiffAligned: async () => ({ remote: true }) as any,
       toTemplate: async () => 'remote-tpl',
       toFilled: async () => 'remote-filled',
-      // biome-ignore lint/suspicious/noExplicitAny: ダミー
-      renderJinja: async () => ({ html: 'remote', error: undefined }) as any,
     });
     const fallback = makeWorker();
     const { worker } = createFallbackWorker(remote, fallback);
 
     expect(await worker.toFilled('x', {})).toBe('remote-filled');
     expect(await worker.toTemplate('x')).toBe('remote-tpl');
-    expect((await worker.renderJinja('x', {})).html).toBe('remote');
     expect(await worker.buildHtmlDiff('a', 'b')).toEqual({ remote: true });
     expect(await worker.buildHtmlDiffAligned('a', 'b', undefined, undefined, [])).toEqual({
       remote: true,

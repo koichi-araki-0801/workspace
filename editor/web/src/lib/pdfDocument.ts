@@ -2,7 +2,7 @@
 // pdfDocument.ts — サーバ PDF ビルドへ渡す文書(HTML+CSS)の組み立て
 // =============================================================================
 // 元は `templatePreviewService.renderPdf` の一部。結合 PDF(`mergePdfService`)が同じ
-// 「renderJinja → sanitize → format」を必要とするため共通化した。単体 PDF と結合 PDF の
+// 「隔離描画 → sanitize → format」を必要とするため共通化した。単体 PDF と結合 PDF の
 // 入力文書がここ 1 箇所で同じ扱いになることが、見た目の一致(単体で出した頁 = 結合中の頁)
 // の担保でもある。
 
@@ -17,9 +17,9 @@ import {
 } from '@editor/shared';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { formatHtml } from '@/lib/formatOutput';
+import { renderJinjaIsolated } from '@/lib/renderHostClient';
 import { findExternalRefsInCss } from '@/lib/sanitizeCss';
 import { sanitizePdfRoot, serializePreviewRoot } from '@/lib/sanitizeHtml';
-import { htmlWorker } from '@/workers';
 
 /** PDF 生成失敗時に表示する文言(原因 cause は別途ログへ記録する)。 */
 export const PDF_ERROR_MSG = 'PDFの作成に失敗しました。時間をおいて再度お試しください。';
@@ -57,7 +57,10 @@ export async function renderPdfDocument(
   sample: SampleData,
   opts?: { cropMarks?: boolean },
 ): Promise<Result<{ html: string; css: string }>> {
-  const rendered = await htmlWorker.renderJinja(html, sample);
+  // Jinja のコンパイルは opaque オリジンの iframe(`renderHostClient`)で行う。ここへ来る
+  // `html` は申請者・生成器が書いたテンプレ本文で、nunjucks は**コンパイラ**であるため
+  // アプリのオリジンで走らせるとテンプレの字面がそのまま JS 実行になる(所見 F1)。
+  const rendered = await renderJinjaIsolated(html, sample);
   if (rendered.error) return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
   // **script は落とさない**(`sanitizePdfRoot`)。テンプレの JS は開発者が生成時に埋め込む
   // 正当なコンテンツであり、守り方は除去ではなく隔離(サーバ側の egress 遮断 + 作業

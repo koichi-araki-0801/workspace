@@ -5,11 +5,7 @@
 // ような字面比較は (a) 直列化の些細な差(`data-preview-css=""`)で壊れ、(b) 攻撃者が本文に
 // 同じ字面を書くだけで満たせてしまうため、ガードとして機能しない。
 import { describe, expect, it } from 'vitest';
-import {
-  assemblePreviewDocument,
-  buildPreviewDocument,
-  renderJinja,
-} from '../src/lib/nunjucksRender';
+import { assemblePreviewDocument, renderJinja } from '../src/lib/nunjucksRender';
 
 /** 生成文書を HTML パーサへ戻す。「文字列にどう見えるか」ではなく「何になるか」を見る。 */
 function parse(html: string): Document {
@@ -41,17 +37,16 @@ describe('renderJinja', () => {
   });
 });
 
-describe('buildPreviewDocument', () => {
-  const data = { name: 'X' };
-
+// 旧 `buildPreviewDocument`(描画 + 組み立ての一括)は撤去した — 描画を含む以上アプリ
+// オリジンでのコンパイル経路になり、`renderJinja` 禁止の抜け道になるため。組み立て側の
+// 契約はここで、描画済み HTML を入力として固定する(描画は隔離 iframe が返す文字列)。
+describe('assemblePreviewDocument — 文書の正規化と CSS の inline 化', () => {
   it('injects the style tag as the last child of <head>', () => {
-    const r = buildPreviewDocument(
-      '<html><head><title>t</title></head><body>{{ name }}</body></html>',
+    const html = assemblePreviewDocument(
+      '<html><head><title>t</title></head><body>X</body></html>',
       '.a{color:red}',
-      data,
     );
-    expect(r.error).toBeNull();
-    const doc = parse(r.html);
+    const doc = parse(html);
     const style = doc.querySelector('style[data-preview-css]');
     expect(style?.parentElement?.tagName).toBe('HEAD');
     expect(style?.textContent).toMatch(/color:\s*red/);
@@ -60,50 +55,41 @@ describe('buildPreviewDocument', () => {
 
   it('normalizes a head-less document and injects the inlined CSS (body attrs/content kept)', () => {
     // サニタイズ(DOMPurify, WHOLE_DOCUMENT)が <head> を補完するため、CSS は head に入る。
-    const r = buildPreviewDocument('<body class="r">{{ name }}</body>', '.a{}', data);
-    expect(r.html).toContain('<!doctype html>');
-    const doc = parse(r.html);
+    const html = assemblePreviewDocument('<body class="r">X</body>', '.a{}');
+    expect(html).toContain('<!doctype html>');
+    const doc = parse(html);
     expect(doc.querySelector('style[data-preview-css]')?.parentElement?.tagName).toBe('HEAD');
     expect(doc.body.getAttribute('class')).toBe('r');
     expect(doc.body.textContent).toContain('X');
   });
 
   it('wraps a bare fragment in a full document', () => {
-    const r = buildPreviewDocument('{{ name }}', '.a{}', data);
-    expect(r.html).toContain('<!doctype html>');
-    const doc = parse(r.html);
+    const html = assemblePreviewDocument('X', '.a{}');
+    expect(html).toContain('<!doctype html>');
+    const doc = parse(html);
     expect(doc.querySelector('style[data-preview-css]')?.parentElement?.tagName).toBe('HEAD');
     expect(doc.body.textContent).toContain('X');
   });
 
-  it('propagates a render error without producing HTML', () => {
-    const r = buildPreviewDocument('{% if %}', '.a{}', data);
-    expect(r.error).toBeTruthy();
-    expect(r.html).toBe('');
-  });
-
   it('strips the external stylesheet <link> (CSS is inlined; the link would 404 in the viewer)', () => {
-    const r = buildPreviewDocument(
-      '<html><head><link rel="stylesheet" href="css/{{ fund.code }}.css" /></head><body>x</body></html>',
+    const html = assemblePreviewDocument(
+      '<html><head><link rel="stylesheet" href="css/110024.css" /></head><body>x</body></html>',
       '.a{color:red}',
-      { fund: { code: '110024' } },
     );
-    expect(r.error).toBeNull();
-    const doc = parse(r.html);
+    const doc = parse(html);
     // 除去しているのは後段の正規表現ではなくサニタイザの許可リスト(+ 構造の上での二重化)。
     expect(doc.querySelectorAll('link')).toHaveLength(0);
-    expect(r.html).not.toContain('css/110024.css');
+    expect(html).not.toContain('css/110024.css');
     expect(doc.querySelector('style[data-preview-css]')?.textContent).toMatch(/color:\s*red/);
   });
 
   it('strips a stylesheet link regardless of attribute order or quoting', () => {
-    const r = buildPreviewDocument(
+    const html = assemblePreviewDocument(
       `<head><link href='a.css' rel=stylesheet></head><body>y</body>`,
       '.a{}',
-      data,
     );
-    expect(parse(r.html).querySelectorAll('link')).toHaveLength(0);
-    expect(r.html).not.toContain('a.css');
+    expect(parse(html).querySelectorAll('link')).toHaveLength(0);
+    expect(html).not.toContain('a.css');
   });
 
   // テンプレの JS は正当なコンテンツなのでプレビューも PDF も **script は残す**
@@ -113,19 +99,17 @@ describe('buildPreviewDocument', () => {
   // `on*` ハンドラと `javascript:` URL は生成時の照合(`security/templateScripts.ts`)を
   // 経ていない実行面で、隔離の有無に関わらず通してはならない。
   it('script は残し、on* ハンドラと javascript: URL は落とす', () => {
-    const r = buildPreviewDocument(
+    const html = assemblePreviewDocument(
       '<html><head></head><body>' +
         '<h1>レポート</h1>' +
         '<script>window.__xss=1</script>' +
         '<img src="x" onerror="window.__xss=2">' +
         '<a href="javascript:alert(1)">link</a>' +
-        '<div style="margin-top:10mm">本文 {{ name }}</div>' +
+        '<div style="margin-top:10mm">本文 X</div>' +
         '</body></html>',
       '.a{color:red}',
-      data,
     );
-    expect(r.error).toBeNull();
-    const doc = parse(r.html);
+    const doc = parse(html);
     expect(doc.querySelectorAll('script')).toHaveLength(1);
     expect(doc.querySelector('script')?.textContent).toContain('window.__xss=1');
     expectNoEventHandlers(doc);

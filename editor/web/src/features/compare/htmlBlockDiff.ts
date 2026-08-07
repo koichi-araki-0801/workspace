@@ -4,7 +4,9 @@
 // 役割: 2 つのレンダリング済みテンプレート HTML を決定的に diff する。版の比較
 // (compare)の結果画面で使う。
 //
-// 2 版は `renderJinja` で完全な HTML へレンダリングし、ブラウザ内でパースする。
+// 2 版は隔離 iframe(`lib/renderHostClient.ts`)で完全な HTML へレンダリングしたものを
+// 受け取り、ブラウザ内でパースする。ここが触るのは**描画済み文字列**だけで、テンプレ式の
+// 評価は行わない(だから同一オリジンの inert document で読んでよい)。
 // 各ドキュメントを明示的な `page-break-before/after: always` マーカー
 // (editor が `geom.ts` 経由で書き出すものと同一)で A4 の `page` に分割し、page 内では
 // `<body>` 直下の子要素である top-level の `block` に整列する。

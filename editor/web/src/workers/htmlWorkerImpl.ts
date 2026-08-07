@@ -1,6 +1,9 @@
 // =============================================================================
 // htmlWorkerImpl.ts — Worker 内で動く重処理の実体(linkedom で DOM を供給)
 // =============================================================================
+// ⚠ Jinja の描画はここに置かない(理由は `workers/index.ts` 冒頭 — Worker は同一オリジンで
+// 隔離にならない)。ここが扱うのは**描画済み文字列**の DOM 処理だけである。
+//
 // Worker には browser の `DOMParser`/`Node` が無いため、linkedom の `parseHTML` を
 // `HtmlParser`(`lib/htmlParser.ts`)として注入する。これによりメインと同一の diff/mask
 // ロジックを 1 実装のまま共有する。Comlink シェル(`htmlWorker.ts`)が `expose` する。
@@ -16,7 +19,6 @@ import {
 import { toFilled as toFilledCore } from '@/lib/fillJinja';
 import type { HtmlParser } from '@/lib/htmlParser';
 import { type ToTemplateOptions, toTemplate as toTemplateCore } from '@/lib/jinjaMask';
-import { type RenderResult, renderJinja as renderJinjaCore } from '@/lib/nunjucksRender';
 
 // linkedom の Document を browser 互換の `Document` として供給する。diff/mask が使う DOM
 // API(`querySelectorAll`/`cloneNode`/`outerHTML`/`matches`/`classList` 等)は linkedom が
@@ -60,9 +62,6 @@ export const htmlWorkerImpl = {
   },
   toFilled(raw: string, sample: SampleData): string {
     return toFilledCore(raw, sample);
-  },
-  renderJinja(template: string, data: SampleData): RenderResult {
-    return renderJinjaCore(template, data);
   },
 };
 
