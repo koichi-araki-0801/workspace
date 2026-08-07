@@ -460,24 +460,8 @@ def test_csp_opens_only_the_exceptions_the_ui_actually_needs(server):
     assert directives["base-uri"] == ["'none'"]
 
 
-def test_security_headers_match_pdf_to_svg(server):
-    """2 プロジェクトの `SECURITY_HEADERS` が**逐語で一致**すること (並行実装の drift 検出)。
-
-    片方だけ直す事故は実際に起きる。pdf-to-svg が同じリポジトリに無い配布形態でも落ちないよう、
-    import できないときだけスキップする。"""
-    import sys
-    from pathlib import Path
-    src = Path(__file__).resolve().parents[2] / "pdf-to-svg" / "src"
-    if not (src / "web" / "origin_guard.py").exists():
-        pytest.skip("pdf-to-svg のソースが同居していない")
-    sys.path.insert(0, str(src))
-    try:
-        from web import origin_guard
-    finally:
-        sys.path.remove(str(src))
-    assert app.SECURITY_HEADERS == origin_guard.SECURITY_HEADERS
-    assert app.TOKEN_HEADER == origin_guard.TOKEN_HEADER
-    assert app.TOKEN_QUERY == origin_guard.TOKEN_QUERY
+# pdf-to-svg との drift 検出 (`SECURITY_HEADERS` / `TOKEN_*` / 資源上限 / Edge 起動引数の
+# 突き合わせ) は `test_parallel_impl_drift.py` に集約した。ここは graph-editor 単体の外形を見る。
 
 
 def test_reject_logging_is_capped_per_reason(server, caplog):

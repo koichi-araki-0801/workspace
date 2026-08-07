@@ -152,10 +152,14 @@ def data_dir() -> Path:
 
 
 def log_dir() -> Path:
-    """診断ログ (``startup.log`` / ``edge.log``) を置くフォルダ (`data_dir` 配下の ``logs/``)。
+    """自前の起動診断ログ (``startup.log``) を置くフォルダ (`data_dir` 配下の ``logs/``)。
 
     終了時に削除する作業領域 (``data/tmp/<pid>``、`app.py` の `main` 参照) とは別階層にし、
-    ログはアプリ終了後も残してポストモーテムに使える状態を保つ。"""
+    ログはアプリ終了後も残してポストモーテムに使える状態を保つ。
+
+    ここへ書くのは**本プログラムが書式を決めた 1 行ログだけ**で、Edge の verbose ログは
+    置かない (`data_dir` は可搬運用や ``%LOCALAPPDATA%`` 不在で exe 隣へ落ちうるため。
+    `app.py` の `_edge_log_path` を参照)。"""
     d = data_dir() / "logs"
     d.mkdir(parents=True, exist_ok=True)
     return d

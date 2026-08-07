@@ -163,8 +163,10 @@ REJECT_LOG_LIMIT = 3
 # クライアントは 403 ではなく接続エラーを見る。上限超はそのまま閉じる (DoS 対策を優先)。
 _DRAIN_LIMIT = 1 << 20
 
-# `_drain_body` で読み切れなかった本文を応答送信後に読み捨てる待ち時間 (秒)。相手が応答を
-# 読んで閉じれば即 EOF になるので、これは相手が黙り込んだ場合に接続を抱え続けないための上限。
+# `_drain_body` で読み切れなかった本文を応答送信後に読み捨てる**全体**の待ち時間 (秒)。
+# 相手が応答を読んで閉じれば即 EOF になるので、これは相手が黙り込んだ場合に接続を抱え
+# 続けないための上限。recv ごとに測り直すと「0.4 秒ごとに 1 バイト」を送る相手が
+# `_DRAIN_LIMIT` (1 MiB) 到達までスレッドを握り続けられるため、**期限は接続単位**で持つ。
 _LINGER_TIMEOUT = 0.5
 
 # ログへ出す詳細値の整形。攻撃者が入れた制御文字でログ行を偽装できないよう、印字可能 ASCII
@@ -397,14 +399,19 @@ class GuardedHandler(http.server.BaseHTTPRequestHandler):
         未読データを残したまま閉じると OS は RST を送り、**送信済みの 403 ごと**クライアントの
         受信バッファが捨てられる (Windows で顕在化し、クライアントは接続エラーだけを見る)。
         書き込み側だけ先に閉じて FIN を届け、相手が閉じるまで読み捨てる。`_DRAIN_LIMIT` と
-        `_LINGER_TIMEOUT` で上限を切り、拒否した相手に接続を抱えさせない。
+        `_LINGER_TIMEOUT` で上限を切り、拒否した相手に接続を抱えさせない。期限は
+        **ループ全体**に掛ける (recv ごとの期限だと少しずつ送り続ける相手を止められない)。
         """
         sock = self.connection
+        deadline = time.monotonic() + _LINGER_TIMEOUT
         try:
             sock.shutdown(socket.SHUT_WR)
-            sock.settimeout(_LINGER_TIMEOUT)
             drained = 0
             while drained < _DRAIN_LIMIT:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return
+                sock.settimeout(remaining)
                 chunk = sock.recv(65536)
                 if not chunk:
                     return
@@ -437,6 +444,21 @@ def _log_safe(value):
 
 # ── HTTP ハンドラ ──
 
+# 1 接続あたりのソケット無通信上限 (秒)。これが無いと `handle_one_request` の
+# `rfile.readline()` が**永久にブロック**し、`parse_request()` のガードにすら到達しない
+# (ガードはリクエスト行とヘッダが届いて初めて走る)。何も送らない接続を並べるだけで
+# ハンドラスレッドを恒久的に占有できてしまうので、期限を切って閉じる。
+# ローカル UI との往復は数ミリ秒なので、10 秒は正常系に十分な余裕がある。
+# ⚠ pdf-to-svg (`server.py` の同名定数) との並行実装。値ごと揃えること。
+REQUEST_TIMEOUT = 10.0
+
+# 同時に処理する接続数の上限。`ThreadingHTTPServer` は接続ごとに無制限にスレッドを
+# 起こすため、上限が無いとスレッドとスタックメモリを食い潰せる。超過分は**受け付けずに
+# 即切断**する (キューに積むと結局その接続を抱えることになる)。UI は 1 つで、
+# 同時接続は静的資産の並列取得ぶん程度しか要らない。
+# ⚠ pdf-to-svg (`server.py` の同名定数) との並行実装。値ごと揃えること。
+MAX_CONNECTIONS = 32
+
 
 class Handler(GuardedHandler):
     """`ui.html` を配信し、ウィンドウ閉鎖時の `/quit` ビーコンでサーバを止めるだけの最小ハンドラ。
@@ -444,6 +466,11 @@ class Handler(GuardedHandler):
     同一オリジン検査は基底 `GuardedHandler.parse_request()` が一手に引き受けるので、以下の
     `do_*` / `_serve_static` に検査は書かない。ここへ `do_GET` の副作用を足すと、Origin を
     要求しない安全メソッドの経路が CSRF の穴になる点にだけ注意する。"""
+
+    # ソケットの無通信上限 (`socketserver.StreamRequestHandler.setup` が `settimeout` する)。
+    # 基底の `handle_one_request` は `socket.timeout` を捕まえて接続を閉じるので、
+    # ここに値を置くだけで「何も送らない接続」がスレッドを抱え続ける形が閉じる。
+    timeout = REQUEST_TIMEOUT
 
     # ローカル単一ユーザ用途。アクセスログは出さない。
     def log_message(self, *args):
@@ -717,17 +744,55 @@ def _watch_proc(proc, log):
 # ── エントリポイント ──
 
 
-def create_server(port=0, token=None):
+class BoundedThreadingHTTPServer(http.server.ThreadingHTTPServer):
+    """同時処理数に上限を持つ `ThreadingHTTPServer`。
+
+    標準の `ThreadingMixIn` は接続ごとに無条件でスレッドを起こす。ローカル待受とはいえ
+    同一マシンの別プロセスは自由に繋げるので、上限が無いとスレッド数で押し潰せる。
+    空きが無ければ**キューへ積まず即切断**する: 積んでも接続とメモリは抱えたままで、
+    上限の意味が消えるためである。
+    ⚠ pdf-to-svg (`server.py` の同名クラス) との並行実装。
+    """
+
+    def __init__(self, *args, max_connections=None, **kwargs):
+        # 既定値は呼び出し時に読む (定義時に束縛するとテストから上限を差し替えられない)。
+        self._slots = threading.BoundedSemaphore(max_connections or MAX_CONNECTIONS)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            # スレッド生成に失敗した場合。取った枠は必ず返す (漏らすと上限が
+            # 片道で減り続け、やがて全接続を拒否する)。
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
+def create_server(port=0, token=None, max_connections=None):
     """127.0.0.1 で待ち受けるサーバを構築する (まだ serve はしない)。既定の `port=0` は空きポート。
 
     `ThreadingHTTPServer` を手組みせず**必ずこの関数を通す**こと: `configure_guard` を忘れた
-    サーバは `unconfigured` の全拒否になる (fail closed なので黙って穴が開くことはないが、
-    構築経路が複数あると設定漏れを作れる)。許可リストは bind 後の実ポートから作る。
+    サーバは `unconfigured` の全拒否になり (fail closed なので黙って穴が開くことはないが、
+    構築経路が複数あると設定漏れを作れる)、同時接続の上限 (`BoundedThreadingHTTPServer`) も
+    落ちる。許可リストは bind 後の実ポートから作る。
 
     `token` はセッショントークン。既定 (`None`) では起動ごとに新しい値を作る。固定値を
     渡してよいのはテストの使い捨てサーバだけで、本番経路 (`main()`) は既定に任せること。
-    発行後の値は `server.guard_token` から読める (`--app=` の URL へ載せる用)。"""
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    発行後の値は `server.guard_token` から読める (`--app=` の URL へ載せる用)。
+    `max_connections` の既定 (`None`) は `MAX_CONNECTIONS`。差し替えるのは上限が効くことを
+    見るテストだけで、本番経路は既定に任せる。"""
+    server = BoundedThreadingHTTPServer(("127.0.0.1", port), Handler,
+                                        max_connections=max_connections)
     server.quit_event = threading.Event()  # `/quit` ビーコン or watchdog で立てる
     server.last_seen = time.monotonic()    # 最終リクエスト時刻 (watchdog 用)
     configure_guard(server, server.server_address[1], token or _new_session_token())
