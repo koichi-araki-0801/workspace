@@ -10,9 +10,13 @@ import {
   MAX_JSON_BYTES,
   MAX_LABEL_CHARS,
   MAX_RANGE_ROWS,
+  MAX_XLSX_BYTES,
   PIE_MAX_ITEMS,
   assertItemCount,
+  assertTotalValue,
 } from '../src/limits.js';
+import { arcAngles } from '../src/layout/geometry.js';
+import { createPieLayoutConfig } from '../src/config.js';
 import { renderPdfStylePieToSvg } from '../src/svg_export/pipeline.js';
 
 /** 上限値そのものをテストで固定する(値の変更に「テストを直す」意思決定を伴わせる)。 */
@@ -21,6 +25,11 @@ describe('上限値の固定', () => {
     expect(PIE_MAX_ITEMS).toBe(32);
     expect(MAX_LABEL_CHARS).toBe(256);
     expect(MAX_RANGE_ROWS).toBe(10_000);
+  });
+  // xlsx は「圧縮後」のサイズしか見られない(exceljs が全エントリを先に展開する)。
+  // 業務入力の実サイズ(2 列 × 数十行 = 百 KB 台)に対して余裕のある 4 MiB へ下げてある。
+  it('xlsx の上限は 4 MiB(圧縮後サイズのみを見る緩和であることの固定)', () => {
+    expect(MAX_XLSX_BYTES).toBe(4 * 1024 * 1024);
   });
 });
 
@@ -63,6 +72,37 @@ describe('range の行数上限(P038)', () => {
 
   it('通常のレンジは従来どおり解釈する(回帰)', () => {
     expect(parseRange('A2:B11')).toEqual({ startRow: 2, endRow: 11, nameCol: 1, valueCol: 2 });
+  });
+});
+
+// 件数と同じ funnel で総和も見る。上限ではないが「黙って壊れた帳票が出る」経路を、
+// 上限系と同じ様式の明示エラーへ寄せている(F48)。
+describe('値の総和のオーバーフロー(F48)', () => {
+  it('総和が Infinity になる入力は 0.0% の SVG を出さずにエラーで落ちる', async () => {
+    const err = await renderPdfStylePieToSvg(
+      [
+        ['A', 1e308],
+        ['B', 1e308],
+      ],
+      {},
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toMatch(/Sum of \|value\| is not a usable number/);
+    expect(err.message).toContain('Infinity');
+  });
+
+  it('assertTotalValue は有限かつ正のみ通す', () => {
+    expect(() => assertTotalValue(1)).not.toThrow();
+    for (const bad of [Number.POSITIVE_INFINITY, Number.NaN, 0, -1]) {
+      expect(() => assertTotalValue(bad), String(bad)).toThrow(/not a usable number/);
+    }
+  });
+
+  // 幾何側の入口も同じ破綻を止める(こちらは `total <= 0` だけで Infinity を通していた)。
+  it('arcAngles は総和が Infinity なら幅ゼロのスライスを返さず投げる', () => {
+    const cfg = createPieLayoutConfig();
+    expect(() => arcAngles([1e308, 1e308], cfg)).toThrow(/finite number > 0/);
+    expect(() => arcAngles([1, 1], cfg)).not.toThrow();
   });
 });
 

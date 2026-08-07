@@ -12,6 +12,22 @@ import { LabelState } from "./label-state.js";
 
 // ── 1. SVG 読込 & セットアップ (メモリ上の `content` を直接インライン挿入) ──
 
+/** 読込を中止し「何も開いていない」状態へ倒す (理由は利用者へ表示する)。
+ *
+ *  `load` は先頭で `ed.name` / `ed.history` 等を新しいファイルへ切り替えるため、中断した場合に
+ *  キャンバスと `ed.labels` を残すと**前のファイルの図を新しいファイル名のまま保存できる**
+ *  状態になる。中断経路は必ずここを通し、表示・状態・履歴をまとめて空へ揃える。 */
+function abortLoad(ed, message) {
+  ed.dom.canvas.replaceChildren();
+  ed.svg = null;
+  ed.labels = [];
+  ed.overlay = null;
+  ed.selected = null;
+  ed.setStatus(message, "err");
+  ed.updateToolbar();
+  ed.renderList();
+}
+
 async function load(ed, item) {
   if (!item || typeof item.content !== "string") return;
   const seq = ++ed._loadSeq; // この呼び出しの世代 (後勝ち判定用)
@@ -32,12 +48,28 @@ async function load(ed, item) {
 
   // 許可リストに沿って組み直した `<svg>` をインライン挿入 (フォント込みで描画)。
   // `sanitizeSvg` は本文書の `createElementNS` で組んだ木を返すので `importNode` は不要。
-  const res = sanitizeSvg(item.content);
+  //
+  // **例外もここで受ける**: サニタイザ内部の想定外エラー (細工入力で踏ませられる) がここを
+  // 抜けると、`ed.name` を新ファイルへ切り替えた後・キャンバス差し替え前で停止し、旧ファイルの
+  // 内容が新ファイル名のまま残る。`load` は `async` なので投げても unhandled rejection として
+  // 握り潰され、利用者には「何も起きていない」ようにしか見えない。判定不能は解釈不能へ倒す。
+  let res = null;
+  try {
+    res = sanitizeSvg(item.content);
+  } catch {
+    res = null;
+  }
   if (!res) {
-    ed.dom.canvas.replaceChildren();
-    ed.setStatus(`${item.name}: SVG を解釈できませんでした`, "err");
-    ed.svg = null;
-    ed.updateToolbar();
+    abortLoad(ed, `${item.name}: SVG を解釈できませんでした (壊れているか、上限を超えています)`);
+    return;
+  }
+  // ラベル数の上限。以降の処理 (ヒット領域の生成・オーバーレイ・レール描画・履歴の
+  // スナップショット) はいずれもラベル数に比例するため、ここで拒否しないと細工 SVG 1 枚で
+  // アプリが操作不能になる。黙って切り捨てず件数を出して読込ごと中止する — 一部だけ編集
+  // できる状態にすると、保存時に残りを含めて書き出してしまうため。
+  const labelCount = res.root.querySelectorAll("#labels > g.label").length;
+  if (labelCount > CONFIG.maxLabels) {
+    abortLoad(ed, `${item.name}: ラベルが多すぎます (${labelCount} 個 / 上限 ${CONFIG.maxLabels} 個)。読み込みを中止しました`);
     return;
   }
   ed.dom.canvas.replaceChildren(res.root);
@@ -63,17 +95,23 @@ async function load(ed, item) {
   // await 中に別ファイルが読み込まれていたら後勝ち。古い継続は中断する。
   if (seq !== ed._loadSeq) return;
 
-  // 各ラベルにヒット領域を付与 + 状態構築
+  // 各ラベルにヒット領域を付与 + 状態構築。
+  // **測定 (`getBBox`) と DOM 変更を交互にしない**: ヒット矩形を 1 個挿しては次のラベルを
+  // 測る形だと、挿入のたびにレイアウトが無効化されてラベル数ぶんの強制同期レイアウトが
+  // 直列に走る。「全部測る (読み) → 全部挿す (書き)」の 2 相に分けると、レイアウトは
+  // 最初の 1 回で済む。
   ed.labels = [];
   const labelGroups = svg.querySelectorAll("#labels > g.label");
   labelGroups.forEach((g) => {
     // `<text>` を持たない `g.label` は `LabelState` が組み立てられない (以降の描画も
     // 成立しない)。細工 SVG で確実に踏めるので、例外で読込全体を落とさず読み飛ばす。
     if (!g.querySelector("text")) return;
-    const s = new LabelState(g, ed);
-    ed.labels.push(s);
-    attachHitArea(ed, s);
+    ed.labels.push(new LabelState(g, ed));
   });
+  // 読み相: DOM を 1 バイトも変更しない (ここで書くと次の `getBBox` が再レイアウトを強いる)。
+  const boxes = ed.labels.map((s) => safeGetBBox(s.text));
+  // 書き相: 測定済みの bbox から矩形を組んで挿す (この相では計測しない)。
+  ed.labels.forEach((s, i) => attachHitArea(ed, s, boxes[i]));
 
   // ハンドル用オーバーレイ `<g>` (最前面)
   const overlay = createSvgEl("g", { id: "editor-overlay", "data-editor": "1" });
@@ -100,9 +138,10 @@ async function load(ed, item) {
   }
 }
 
-/** ラベルにドラッグ用の透明ヒット矩形 (`<rect>`) を追加 */
-function attachHitArea(ed, s) {
-  const bbox = safeGetBBox(s.text);
+/** ラベルにドラッグ用の透明ヒット矩形 (`<rect>`) を追加。
+ *  `bbox` は**呼び出し側が測って渡す** — ここで `getBBox` を呼ぶと DOM 変更と計測が交互に
+ *  なり、ラベル数ぶんの強制同期レイアウトになる (`load` の読み相/書き相の分離を参照)。 */
+function attachHitArea(ed, s, bbox) {
   const pad = CONFIG.hitPadding;
   const rect = createSvgEl("rect", {
     class: "label-hit", "data-editor-hit": "1",

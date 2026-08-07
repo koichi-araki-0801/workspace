@@ -73,11 +73,12 @@ def _idle_watchdog(server):
 
 
 def _setup_logging():
-    """起動診断ログを ``data/logs/startup.log`` へ出す。
+    """起動診断ログを `config.log_dir()` の ``startup.log`` へ出す。
 
     exe は ``console=False`` (packaging/pdftosvg.spec) で stderr が無く、起動失敗が一切
-    見えないため、ポータブルな ``data/logs/`` にファイル出力して可観測性を確保する。ログの
-    用意に失敗しても起動は止めない (NullHandler へフォールバック)。"""
+    見えないため、データ置き場の ``logs/`` にファイル出力して可観測性を確保する
+    (置き場の決め方は `config.data_dir`)。ログの用意に失敗しても起動は止めない
+    (NullHandler へフォールバック)。"""
     log = logging.getLogger("pdftosvg")
     log.setLevel(logging.INFO)
     log.propagate = False
@@ -108,7 +109,7 @@ def _watch_proc(proc, log):
 
 def main() -> int:
     log = _setup_logging()
-    # 実行時に書く一時データ (PDF・JSON 一時) を exe 隣の ``data/tmp/<pid>`` に集約する。
+    # 実行時に書く一時データ (PDF・JSON 一時) をデータ置き場の ``tmp/<pid>`` に集約する。
     # `tempfile` の既定先をここへ付け替えることで `loader.py` / `rpc_methods.py` の
     # `tempfile.*` が一括で C:/``%TEMP%`` を避ける (各呼び出し側は無改修)。Edge は端末標準の
     # 既定プロファイルを使うため、ここに Edge プロファイルは置かない。終了時に丸ごと削除する。
@@ -122,7 +123,7 @@ def main() -> int:
     port = server.server_address[1]
     # UI へはセッショントークン付き URL を渡す。トークンを知る文脈だけが `/rpc` `/upload`
     # `/quit` `/ping` を撃てる (`web/origin_guard.py` の G6)。**ログには素の URL を書く** —
-    # `data/logs/startup.log` はポータブル配布物の隣に残り、ポートを知りたい攻撃者が最初に
+    # `startup.log` はアプリ終了後もデータ置き場に残り、ポートを知りたい攻撃者が最初に
     # 読む場所なので、そこへトークンを置いたら認可を自分で無効化することになる。
     url = f"http://127.0.0.1:{port}/?token={quote(server.guard_token, safe='')}"
     log.info("server listening on http://127.0.0.1:%s/ (frozen=%s)", port, config.is_frozen())

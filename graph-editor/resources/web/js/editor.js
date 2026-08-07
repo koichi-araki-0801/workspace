@@ -5,7 +5,7 @@
 import { CONFIG, WHITE, BLACK, DEFAULT_LEADER_STYLE, INSPECTOR_ACTIONS } from "./constants.js";
 import { clampPointToBox } from "./geom.js";
 import { parsePieGeometry, fallbackPieGeometry, labelBox, labelCenter, isOutsidePie, computeDefaultLeaderPts } from "./pie-rules.js";
-import { safeGetBBox } from "./utils.js";
+import { safeGetBBox, stateEquals } from "./utils.js";
 import { showToast } from "./icons.js";
 // 描画 (オーバーレイ / インスペクタ / レール) は editor-render.js、ファイル I/O (読込 /
 // 保存 bake / 開く) は editor-io.js へ分離。名前空間 import で衝突回避。
@@ -454,10 +454,13 @@ class Editor {
   async openFiles() { return io.openFiles(this); }
   async handleDrop(dt) { return io.handleDrop(this, dt); }
 
-  /** ラベルが初期状態から変更されているか (編集済みドット用) */
+  /** ラベルが初期状態から変更されているか (編集済みドット用)。
+   *  レール更新 (`syncRail`) 経由でドラッグ中の**毎フレーム・全ラベル分**呼ばれる経路なので、
+   *  スナップショットの複製も `JSON.stringify` も挟まず `STATE_FIELDS` の等値判定だけで比べる
+   *  (以前の実装は 1 フレームにつきラベル数 × 2 回の直列化を行っていた)。 */
   isLabelEdited(s) {
     if (!s) return false;
-    return JSON.stringify(s.snapshot()) !== JSON.stringify(s.initial);
+    return !stateEquals(s, s.initial);
   }
 
   // レール / 開いたファイル一覧 / クロームの描画は editor-render.js へ分離。

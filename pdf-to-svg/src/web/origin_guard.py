@@ -98,8 +98,10 @@ REJECT_LOG_LIMIT = 3
 # クライアントは 403 ではなく接続エラーを見る。上限超はそのまま閉じる (DoS 対策を優先)。
 _DRAIN_LIMIT = 1 << 20
 
-# `_drain_body` で読み切れなかった本文を応答送信後に読み捨てる待ち時間 (秒)。相手が応答を
-# 読んで閉じれば即 EOF になるので、これは相手が黙り込んだ場合に接続を抱え続けないための上限。
+# `_drain_body` で読み切れなかった本文を応答送信後に読み捨てる**全体**の待ち時間 (秒)。
+# 相手が応答を読んで閉じれば即 EOF になるので、これは相手が黙り込んだ場合に接続を抱え
+# 続けないための上限。recv ごとに測り直すと「0.4 秒ごとに 1 バイト」を送る相手が
+# `_DRAIN_LIMIT` (1 MiB) 到達までスレッドを握り続けられるため、**期限は接続単位**で持つ。
 _LINGER_TIMEOUT = 0.5
 
 # ログへ出す詳細値の整形。攻撃者が入れた制御文字でログ行を偽装できないよう、印字可能 ASCII
@@ -338,14 +340,19 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         未読データを残したまま閉じると OS は RST を送り、**送信済みの 403 ごと**クライアントの
         受信バッファが捨てられる (Windows で顕在化し、クライアントは接続エラーだけを見る)。
         書き込み側だけ先に閉じて FIN を届け、相手が閉じるまで読み捨てる。`_DRAIN_LIMIT` と
-        `_LINGER_TIMEOUT` で上限を切り、拒否した相手に接続を抱えさせない。
+        `_LINGER_TIMEOUT` で上限を切り、拒否した相手に接続を抱えさせない。期限は
+        **ループ全体**に掛ける (recv ごとの期限だと少しずつ送り続ける相手を止められない)。
         """
         sock = self.connection
+        deadline = time.monotonic() + _LINGER_TIMEOUT
         try:
             sock.shutdown(socket.SHUT_WR)
-            sock.settimeout(_LINGER_TIMEOUT)
             drained = 0
             while drained < _DRAIN_LIMIT:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return
+                sock.settimeout(remaining)
                 chunk = sock.recv(65536)
                 if not chunk:
                     return

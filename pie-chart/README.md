@@ -54,16 +54,26 @@ CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)�
 
 #### DB(SQL Server)入力の決まり
 
-- 入力は単一の SELECT 文。複文(文中 `;`)・非 SELECT(UPDATE/DELETE 等)は拒否する。
+- 入力は 1 本の読み取りクエリ。空文字・文中 `;`・SELECT/WITH 以外で始まる文は
+  `assertLooksLikeSelect` が拒否するが、これは**指定ミスを早く見つけるための形式チェックで、
+  読み取り専用の強制ではない**(`SELECT ... INTO` / `WITH ... DELETE` は形の上では通るし、
+  T-SQL は文の区切りに `;` を要求しない)。**読み取り専用は DB 側で担保する** — 接続に使う
+  Windows アカウントは対象 DB で `db_datareader` だけを持つログインにすること。
 - 列解決は Excel と同思想: `--name-col` / `--value-col` を**両方**指定すれば列名で、無指定なら
   結果セットの**先頭 2 列**を name/value とする(3 列以上で未指定はあいまいエラー)。
 - 接続先は `--db-server`(既定 env `DB_SERVER` / `localhost`)・`--db-name`(既定 env `DB_NAME`)。
   認証は **Windows 統合認証**固定(`Trusted_Connection=yes`)で資格情報は持たない。
   ODBC ドライバは既定 `ODBC Driver 17 for SQL Server`(env `DB_ODBC_DRIVER` で変更可)。
+- 接続文字列に入る値は**許可リストで検証**する: driver は既知ドライバ名の集合、server は
+  `[tcp:]host[\instance][,port]`、database は識別子の文字種、`DB_CONN_EXTRA` は
+  `Encrypt` / `TrustServerCertificate` / `ApplicationIntent` / `MultiSubnetFailover` /
+  `Connection Timeout` / `Login Timeout` のみ(値の形も個別に検査)。ODBC 接続文字列は
+  `;` 区切りの key=value 列なので、無検証だと値の `;` から `FILEDSN=\\host\share\x.dsn` の
+  ようなキーワードを注入されて統合認証のチャレンジレスポンスが外部ホストへ出る。
 - ネイティブドライバ `msnodesqlv8` は `optionalDependencies`。**遅延 require** のため、未導入でも
   他入力(sample/json/xlsx)と `tsc` は動く。DB 入力使用時のみ導入が必要。
-- 接続・SQL 依存は `src/input/db.ts` に隔離(`buildConnectionString` / `assertSelectOnly` /
-  `rowsToItems` / `loadDbItems`)。editor フェーズ2(`editor/server/src/db/pool.ts`)と同パターン。
+- 接続・SQL 依存は `src/input/db.ts` に隔離(`buildConnectionString` / `normalizeConnExtra` /
+  `assertLooksLikeSelect` / `rowsToItems` / `loadDbItems`)。editor フェーズ2(`editor/server/src/db/pool.ts`)と同パターン。
 
 ### exe 配布(Node SEA + 外部参照)
 

@@ -3,7 +3,9 @@
 // -----------------------------------------------------------------------------
 // buildFontFaceDefs: cfg.embedFont 時にフォントを subset-font で WOFF2 化 → base64 →
 // @font-face <defs> 文字列を返す。usedChars + REQUIRED_FONT_CHARS を合流。
-// 失敗時はフルフォントにフォールバック (形式はマジックバイトで判定)。
+// subset 失敗時のフルフォント fallback は dev のみ、かつ**マジックバイトがフォントと
+// 認識できたときだけ**(認識できなければ投げる。フォントでないファイルの中身が base64 で
+// 出力へ載るのを防ぐ)。
 // プロセス内キャッシュで同条件を再利用。
 // SEA(単一 exe)ではフォント woff2 も subset-font(harfbuzz wasm 依存)も **exe へ同梱**する
 // (`scripts/build-exe.mjs`)。exe 隣・上位ディレクトリの `fonts/` や `node_modules/` は
@@ -52,9 +54,10 @@ const REQUIRED_FONT_CHARS: Set<string> = (() => {
 
 /**
  * フォントのバイト列を読み込む。Node SEA(単一 exe)実行時は **exe へ同梱した SEA アセット**
- * から読む。`cfg.embedFontPath` は外部から任意の値を渡せるため basename をそのままキーに
- * するが、許可リスト外のキーは `readSeaAsset` が拒否する(= 任意ファイルの読み出しにならない)。
- * それ以外(通常の Node/tsx)は `embedFontPath` から解決した絶対パスでディスクから読む。
+ * から読む。basename をそのままキーにするが、許可リスト外のキーは `readSeaAsset` が拒否する
+ * (= 任意ファイルの読み出しにならない)。それ以外(通常の Node/tsx)は `embedFontPath` から
+ * 解決した絶対パスでディスクから読む。dev 側の防壁は `config.ts` の `assertConfigValues` で、
+ * `embedFontPath` は同梱フォント 2 ファイルの完全一致しか通らない(SEA の許可リストと同一集合)。
  */
 function loadFontBuffer(absPath: string): Buffer {
   if (isSea()) {
@@ -63,12 +66,22 @@ function loadFontBuffer(absPath: string): Buffer {
   return readFileSync(absPath);
 }
 
-/** バッファ先頭のマジックバイトから @font-face 用の mime/format を判定する。 */
-function sniffFontFormat(buf: Buffer): { mime: string; format: string } {
+/**
+ * バッファ先頭のマジックバイトから @font-face 用の mime/format を判定する。**知らない
+ * シグネチャは null**(= フォントとして解釈できなかった)を返す。既定へ落として
+ * `truetype` と名乗らせると、フォントでないファイルの全バイトが base64 で `@font-face`
+ * に載るため — 呼び出し側はこの null を「埋め込まない」判断に使う。
+ */
+function sniffFontFormat(buf: Buffer): { mime: string; format: string } | null {
   const magic = buf.toString('latin1', 0, 4);
   if (magic === 'wOF2') return { mime: 'font/woff2', format: 'woff2' };
   if (magic === 'wOFF') return { mime: 'font/woff', format: 'woff' };
-  return { mime: 'font/ttf', format: 'truetype' };
+  // sfnt 系。0x00010000=TrueType / OTTO=CFF / true,ttcf,typ1=Apple 系の別綴り。
+  if (magic === 'OTTO' || magic === 'true' || magic === 'ttcf' || magic === 'typ1')
+    return { mime: 'font/ttf', format: 'truetype' };
+  if (buf.length >= 4 && buf.readUInt32BE(0) === 0x0001_0000)
+    return { mime: 'font/ttf', format: 'truetype' };
+  return null;
 }
 
 /**
@@ -125,9 +138,20 @@ export async function buildFontFaceDefs(
     // 動かなかったこと」を配布先から見えなくする仕掛けで、偽モジュール差し込みや配布物の
     // 破損を検知不能にする。dev は `out/_baseline` の byte-diff が検知するので現行維持。
     if (isSea()) throw err;
+    // dev の fallback は「フォントとして解釈できたときだけ」。`subsetFont` が投げる主因は
+    // `fontverter` の `detectFormat`(Unrecognized font signature)= 渡されたバイト列が
+    // フォントでないことなので、そこで原本へ落とすと**フォントでないファイルの全バイトが
+    // base64 で SVG へ出る**。シグネチャ不明は SEA と同じく投げる。
+    const sniffed = sniffFontFormat(buf);
+    if (!sniffed) {
+      throw new Error(
+        `embedFontPath does not look like a font file (${absPath}); ` +
+          `subsetFont failed with: ${err.message}`,
+      );
+    }
     console.warn(`[svg_export] subsetFont failed (${err.message}); falling back to full font`);
     subsetBuf = buf;
-    ({ mime, format } = sniffFontFormat(buf));
+    ({ mime, format } = sniffed);
   }
 
   // ここは属性ではなく **CDATA 内の CSS 宣言**で、XML エスケープは無力(`"` を閉じて `;` で

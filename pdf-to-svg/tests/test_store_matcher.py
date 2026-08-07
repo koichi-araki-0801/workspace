@@ -1,6 +1,7 @@
 """`dictionary.store.DictionaryStore` の単体テスト。
 
-追加・引き当て (正規化込みの `lookup`)・`upsert`・無効化・JSON 取り込みの往復を確認する。
+追加・引き当て (正規化込みの `lookup`)・`upsert`・無効化・JSON 取り込みの往復と、
+**壊れた辞書ファイルで起動不能にならないこと** (旧 P035) を確認する。
 """
 from dictionary.store import DictionaryStore
 
@@ -47,7 +48,7 @@ def test_json_roundtrip(tmp_path):
     s.add("B", "い")
     s2 = DictionaryStore(tmp_path / "d2.json")
     n = s2.import_json(tmp_path / "d.json")
-    assert n == 2
+    assert (n.imported, n.skipped) == (2, 0)
     assert s2.lookup("A") == "あ"
     s.close()
     s2.close()
@@ -89,6 +90,64 @@ def test_legacy_json_without_joined_key(tmp_path):
     s = DictionaryStore(legacy)
     assert s.lookup("Total") == "合計"
     assert s.lookup_wrap("Total") is None  # 連結照合の対象にはならない
+    s.close()
+
+
+# ── 旧 P035: 壊れた辞書ファイルで起動不能にしない ──────────────────────────
+
+def test_broken_entry_is_skipped_instead_of_crashing_startup(tmp_path):
+    """リストに dict 以外が混ざっても `__init__` を抜けない (以前は AttributeError)。
+
+    `console=False` の exe では例外が画面に出ないため、辞書 1 要素の型崩れが
+    「何も起きず起動しない」恒久 DoS になっていた。辞書はメール・共有フォルダ経由で
+    配られる外部由来の入力なので、壊れた要素は捨てて起動を通す。
+    """
+    path = tmp_path / "d.json"
+    path.write_text(
+        '["oops", {"source": "A", "target": "\\u3042"}, 42, null,'
+        ' {"source": 5, "target": "x"}, {"source": "B", "target": 9}]',
+        encoding="utf-8",
+    )
+
+    s = DictionaryStore(path)
+
+    assert s.lookup("A") == "あ"
+    assert len(s.all()) == 1
+    # 黙って消さない: 捨てた件数を利用者へ返す経路 (`rpc_dictList` → `app.js`)。
+    assert s.load_skipped == 5
+    assert s.load_failed is False
+    s.close()
+
+
+def test_unparsable_file_is_reported_rather_than_silently_empty(tmp_path):
+    """壊れた JSON は空辞書で起動しつつ「読めなかった」を伝える (辞書消失に見せない)。"""
+    path = tmp_path / "d.json"
+    path.write_text("{ this is not json", encoding="utf-8")
+
+    s = DictionaryStore(path)
+
+    assert s.all() == []
+    assert s.load_failed is True
+    s.close()
+
+
+def test_missing_file_is_not_reported_as_a_failure(tmp_path):
+    """初回起動 (ファイル未作成) は異常ではない (通知を出さない)。"""
+    s = DictionaryStore(tmp_path / "not-created-yet.json")
+    assert s.load_failed is False and s.load_skipped == 0
+    s.close()
+
+
+def test_import_reports_skipped_broken_entries(tmp_path):
+    """取り込みでも壊れた要素は捨てて件数を返す (画面が件数を出す)。"""
+    src = tmp_path / "shared.json"
+    src.write_text('[{"source": "A", "target": "あ"}, "oops", {"target": "空"}]',
+                   encoding="utf-8")
+    s = DictionaryStore(tmp_path / "d.json")
+
+    result = s.import_json(src)
+
+    assert (result.imported, result.skipped) == (1, 2)
     s.close()
 
 

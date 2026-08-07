@@ -1,11 +1,14 @@
-"""資源上限 (P005 / P012) の退行ガード。
+"""資源上限 (P005 / P012 / P033 と F27〜F29・F42) の退行ガード。
 
 「正しい入力を正しく処理する」ではなく**「迂回入力で破綻しない」**を主張する形で書く。
+所要時間ではなく**上限が効くこと**を見る (実時間はマシン依存で脆い): 上限に当たったら
+拒否するか degrade して**必ず返る**こと、そして上限が正常系を壊していないこと。
 """
 
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import time
 import urllib.error
@@ -13,12 +16,20 @@ import urllib.request
 
 import pytest
 
+from engine import pdf_engine
 from engine.pdf_engine import (
     MAX_RASTER_PIXELS,
     MIN_RENDER_SCALE,
+    ElementBudget,
     RasterBudget,
+    _match_seqno,
+    _PageElements,
     _render_background,
+    _SeqnoIndex,
 )
+from model.document import Page
+from model.elements import Rect, TextElement
+from web import server as server_mod
 from web.server import MAX_RPC_BYTES, MAX_UPLOAD_BYTES
 
 fitz = pytest.importorskip("fitz")
@@ -175,3 +186,357 @@ def test_undo_stack_drops_the_oldest_beyond_the_depth_limit():
     for _ in range(MAX_UNDO_DEPTH):
         st.undo()
     assert st.canUndo() is False
+
+
+# ── F27: seqno 照合の索引と要素数予算 ──────────────────────────────────────
+
+def _rect(x, y, w, h) -> Rect:
+    return Rect(x, y, w, h)
+
+
+def test_seqno_index_returns_the_same_answer_as_the_linear_scan():
+    """索引化は**結果を変えない**高速化であること (同点の解決順まで含めて)。"""
+    candidates = []
+    for i in range(200):
+        candidates.append((i, _rect(10 + (i % 7) * 12, i * 4.0, 30, 9)))
+    # 完全に同じ矩形を 2 つ置き、同点は「元の並びが先」を採ることまで見る。
+    candidates.append((900, _rect(10, 40, 30, 9)))
+    queries = [_rect(10, 40, 30, 9), _rect(0, 0, 5, 5), _rect(12, 100, 20, 8),
+               _rect(-5, 380, 60, 30)]
+    index = _SeqnoIndex(candidates)
+    for q in queries:
+        assert index.match(q, -1) == _match_seqno(q, candidates, -1)
+
+
+def _count_overlap_calls(monkeypatch) -> list:
+    """`_overlap_area` の呼び出し回数を数える (= 1 クエリの実走査量)。"""
+    calls: list = []
+    original = pdf_engine._overlap_area
+
+    def counting(a, b):
+        calls.append(1)
+        return original(a, b)
+
+    monkeypatch.setattr(pdf_engine, "_overlap_area", counting)
+    return calls
+
+
+def test_seqno_index_only_scans_candidates_in_the_same_row_band(monkeypatch):
+    """1 クエリの走査量が候補数に比例しないこと (これが O(n^2) を切る本体)。"""
+    candidates = [(i, _rect(10, i * 20.0, 30, 9)) for i in range(5_000)]
+    index = _SeqnoIndex(candidates)
+    scanned = _count_overlap_calls(monkeypatch)
+    seqno = index.match(_rect(10, 4_000.0, 30, 9), -1)
+    assert seqno == 200  # 4000 / 20
+    # 5000 件の候補を持つ索引でも、見るのは同じ行バンドのごく一部だけ。
+    assert len(scanned) <= 8
+
+
+def test_seqno_index_gives_up_when_flooded_with_page_tall_candidates():
+    """バンドに載らない巨大 bbox を敷き詰められたら**照合を諦める** (回し続けない)。"""
+    big = 2_147_483_648.0
+    flood = [(i, _rect(-big, -big, big * 2, big * 2))
+             for i in range(pdf_engine._SEQNO_MAX_TALL + 1)]
+    index = _SeqnoIndex(flood)
+    assert index.degraded is True
+    # 諦めた場合は既定値 (= 抽出順のフォールバック) を返し、例外にはしない。
+    assert index.match(_rect(0, 0, 10, 10), 7) == 7
+
+
+def test_seqno_index_is_not_even_built_beyond_the_candidate_cap(monkeypatch):
+    """候補が桁違いなら索引を組まずに諦める (構築コストも候補数に比例するため)。"""
+    monkeypatch.setattr(pdf_engine, "_SEQNO_MAX_CANDIDATES", 10)
+    index = _SeqnoIndex([(i, _rect(0, i * 20.0, 10, 10)) for i in range(11)])
+    assert index.degraded is True and index.bands == {}
+    assert index.match(_rect(0, 0, 10, 10), 3) == 3
+
+
+def test_seqno_scan_limit_bounds_a_single_query(monkeypatch):
+    """同一バンドへ候補を敷き詰めても 1 クエリの走査数は上限で頭打ちになる。"""
+    candidates = [(i, _rect(0, 0, 10, 10)) for i in range(pdf_engine._SEQNO_MAX_SCAN * 3)]
+    index = _SeqnoIndex(candidates)
+    scanned = _count_overlap_calls(monkeypatch)
+    index.match(_rect(0, 0, 10, 10), -1)
+    assert len(scanned) <= pdf_engine._SEQNO_MAX_SCAN
+
+
+def test_page_element_budget_truncates_instead_of_growing_without_bound(monkeypatch):
+    """1 ページの要素数上限に当たったら切り捨て、`truncated` を立てる。"""
+    monkeypatch.setattr(pdf_engine, "MAX_PAGE_ELEMENTS", 3)
+    page = Page(index=0, width_pt=100, height_pt=100)
+    sink = _PageElements(page, ElementBudget())
+    added = [sink.add(TextElement(bbox=_rect(0, 0, 1, 1), text="x")) for _ in range(5)]
+    assert added == [True, True, True, False, False]
+    assert len(page.elements) == 3
+    assert page.truncated is True and sink.full is True
+
+
+def test_document_element_budget_stops_many_in_limit_pages():
+    """ページ上限だけでは「上限内のページを大量に並べる」形を止められない。"""
+    budget = ElementBudget(total=2)
+    first, second = Page(index=0, width_pt=1, height_pt=1), Page(index=1, width_pt=1, height_pt=1)
+    a, b = _PageElements(first, budget), _PageElements(second, budget)
+    assert a.add(TextElement(bbox=_rect(0, 0, 1, 1), text="x")) is True
+    assert b.add(TextElement(bbox=_rect(0, 0, 1, 1), text="y")) is True
+    assert b.add(TextElement(bbox=_rect(0, 0, 1, 1), text="z")) is False
+    assert second.truncated is True and first.truncated is False
+
+
+def test_extract_page_honours_the_element_budget(monkeypatch, vector_pdf):
+    """予算は `_extract_page` の実経路まで配線されている (機構だけ作って未接続にしない)。"""
+    monkeypatch.setattr(pdf_engine, "MAX_PAGE_ELEMENTS", 2)
+    doc = fitz.open(str(vector_pdf))
+    try:
+        page = pdf_engine._extract_page(doc[0], 0, RasterBudget(), ElementBudget())
+    finally:
+        doc.close()
+    assert len(page.elements) == 2
+    assert page.truncated is True
+
+
+# ── F28: 辞書取り込みの上限とバッチ化 ─────────────────────────────────────
+
+def _dict_json(count: int, prefix: str = "w") -> str:
+    return json.dumps([{"source": f"{prefix}{i}", "target": f"t{i}"} for i in range(count)])
+
+
+def test_dictionary_import_writes_the_file_once_regardless_of_entry_count(tmp_path):
+    """N 件の取り込みで保存も索引再構築も **1 回**だけ (以前は N 回 = O(N^2) 書き込み)。"""
+    from dictionary import store as store_mod
+
+    src = tmp_path / "shared.json"
+    src.write_text(_dict_json(300), encoding="utf-8")
+    s = store_mod.DictionaryStore(tmp_path / "d.json")
+    saves, rebuilds = [], []
+    original_save, original_rebuild = s._save, s._rebuild_index
+    s._save = lambda: (saves.append(1), original_save())[1]
+    s._rebuild_index = lambda: (rebuilds.append(1), original_rebuild())[1]
+
+    result = s.import_json(src)
+
+    assert result.imported == 300
+    assert len(saves) == 1 and len(rebuilds) == 1
+    assert s.lookup("w299") == "t299"
+    s.close()
+
+
+def test_dictionary_import_beyond_the_entry_cap_is_refused_without_changing_anything(tmp_path):
+    """上限超過は**何も変更せず**拒否する (途中まで書いた辞書を残さない)。"""
+    from dictionary import store as store_mod
+
+    src = tmp_path / "huge.json"
+    src.write_text(_dict_json(store_mod.MAX_DICT_ENTRIES + 1), encoding="utf-8")
+    path = tmp_path / "d.json"
+    s = store_mod.DictionaryStore(path)
+    s.add("keep", "残す")
+
+    with pytest.raises(ValueError) as ei:
+        s.import_json(src)
+
+    assert "上限" in str(ei.value)
+    assert [m.source_raw for m in s.all()] == ["keep"]
+    assert json.loads(path.read_text(encoding="utf-8"))[0]["source"] == "keep"
+    s.close()
+
+
+def test_dictionary_import_of_duplicates_is_not_counted_against_the_cap(tmp_path):
+    """同じ辞書を上限ちょうどで再取り込みしても拒否されない (重複は増えない)。"""
+    from dictionary import store as store_mod
+
+    src = tmp_path / "shared.json"
+    src.write_text(_dict_json(store_mod.MAX_DICT_ENTRIES), encoding="utf-8")
+    s = store_mod.DictionaryStore(tmp_path / "d.json")
+
+    first = s.import_json(src)
+    second = s.import_json(src)  # 2 回目も同じキーなので新規は 0 件
+
+    assert first.imported == second.imported == store_mod.MAX_DICT_ENTRIES
+    assert len(s.all()) == store_mod.MAX_DICT_ENTRIES
+    s.close()
+
+
+def test_oversized_dictionary_file_is_not_loaded_into_memory(tmp_path, monkeypatch):
+    """件数上限はパース後にしか効かない。載せる前にバイト数で足切りすること。"""
+    from dictionary import store as store_mod
+
+    monkeypatch.setattr(store_mod, "MAX_DICT_FILE_BYTES", 64)
+    path = tmp_path / "d.json"
+    path.write_text(_dict_json(50), encoding="utf-8")  # 64 バイト超
+
+    s = store_mod.DictionaryStore(path)
+
+    assert s.all() == []
+    assert s.load_failed is True  # 黙って空にせず「読めなかった」を伝える
+    with pytest.raises(ValueError):
+        s.import_json(path)
+    s.close()
+
+
+def test_dictionary_add_beyond_the_entry_cap_is_refused(tmp_path, monkeypatch):
+    """1 件ずつの追加にも同じ上限が効く (取り込み口だけ塞いでも意味がない)。"""
+    from dictionary import store as store_mod
+
+    monkeypatch.setattr(store_mod, "MAX_DICT_ENTRIES", 2)
+    s = store_mod.DictionaryStore(tmp_path / "d.json")
+    s.add("a", "あ")
+    s.add("b", "い")
+    with pytest.raises(ValueError):
+        s.add("c", "う")
+    assert len(s.all()) == 2
+    s.close()
+
+
+def test_dictionary_load_drops_entries_beyond_the_cap(tmp_path, monkeypatch):
+    """上限超過のファイルでも**起動はする** (拒否ではなく degrade + 件数通知)。"""
+    from dictionary import store as store_mod
+
+    monkeypatch.setattr(store_mod, "MAX_DICT_ENTRIES", 2)
+    path = tmp_path / "d.json"
+    path.write_text(_dict_json(5), encoding="utf-8")
+
+    s = store_mod.DictionaryStore(path)
+
+    assert len(s.all()) == 2
+    assert s.load_skipped == 3
+    s.close()
+
+
+# ── F29: 折返しグループ化の走査上限 ────────────────────────────────────────
+
+def _stacked_texts(count: int, y_step: float, font_size: float = 12.0) -> list:
+    from model.elements import TextElement as TE
+
+    return [
+        TE(bbox=Rect(10, i * y_step - font_size, 20, font_size), text=f"t{i}",
+           font_size=font_size, origin_x=10, origin_y=i * y_step)
+        for i in range(count)
+    ]
+
+
+def _count_follower_checks(monkeypatch) -> list:
+    from dictionary import apply as dict_apply
+
+    calls: list = []
+    original = dict_apply._is_wrap_follower
+
+    def counting(top, below):
+        calls.append(1)
+        return original(top, below)
+
+    monkeypatch.setattr(dict_apply, "_is_wrap_follower", counting)
+    return calls
+
+
+def test_wrap_groups_stops_scanning_once_the_vertical_gap_is_exceeded(monkeypatch):
+    """縦に離れた要素の走査は 1 要素あたり定数回で打ち切られる (以前は全要素を走査)。"""
+    from dictionary import apply as dict_apply
+
+    texts = _stacked_texts(500, y_step=100.0)  # gap 100 >> 12 * LINE_GAP_RATIO
+    checks = _count_follower_checks(monkeypatch)
+    groups = dict_apply._wrap_groups(texts)
+    assert len(groups) == 500  # どれも連結しない (結果は従来どおり)
+    # 打ち切りが効いていれば要素数の定数倍。効かなければ n^2/2 = 124,750 回。
+    assert len(checks) <= 2 * len(texts)
+
+
+def test_wrap_group_scan_is_capped_when_everything_shares_one_row_band(monkeypatch):
+    """同じ y 帯へ要素を敷き詰められても 1 要素あたりの走査数は上限で頭打ちになる。"""
+    from dictionary import apply as dict_apply
+
+    monkeypatch.setattr(dict_apply, "MAX_WRAP_SCAN", 8)
+    texts = [
+        TextElement(bbox=Rect(i * 0.001, 0, 20, 12), text=f"t{i}", font_size=12.0,
+                    origin_x=i * 0.001, origin_y=12.0)
+        for i in range(400)
+    ]
+    checks = _count_follower_checks(monkeypatch)
+    groups = dict_apply._wrap_groups(texts)
+    assert len(groups) == 400  # 同一行なので連結は起きない
+    assert len(checks) <= len(texts) * 8
+
+
+def test_wrap_groups_still_joins_a_real_wrapped_cell():
+    """上限・打ち切りを入れても本来の折返し連結は壊れていないこと。"""
+    from dictionary import apply as dict_apply
+
+    texts = _stacked_texts(3, y_step=12.0)  # gap 12 <= 12 * 1.3 → 3 行が 1 グループ
+    groups = dict_apply._wrap_groups(texts)
+    assert [len(g) for g in groups] == [3]
+
+
+# ── F42: 接続の資源上限 ────────────────────────────────────────────────────
+
+def _serve(session, token, **kwargs):
+    """`create_server` でサーバを起動して base URL を返す (呼び出し側で shutdown)。"""
+    import config
+    from web.server import create_server
+
+    server = create_server(str(config.resource_path("web")), session, token=token, **kwargs)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+@pytest.fixture()
+def session(tmp_path):
+    from dictionary.store import DictionaryStore
+    from web.rpc_methods import WebSession
+    from web.undo_stack import UndoStack
+
+    s = WebSession(DictionaryStore(tmp_path / "dict.json"), UndoStack())
+    yield s
+    s.store.close()
+
+
+def test_silent_connection_is_closed_by_the_handler_timeout(monkeypatch, session):
+    """何も送らない接続はスレッドを恒久占有できない (`parse_request` は届かない)。
+
+    ガードはリクエスト行とヘッダが揃って初めて走るので、無言の接続はガードの手前で
+    ブロックし続けていた。ハンドラ側の期限だけがこれを閉じられる。
+    """
+    monkeypatch.setattr(server_mod.Handler, "timeout", 0.5)
+    server = _serve(session, "timeout-test-token")
+    try:
+        sock = socket.create_connection(("127.0.0.1", server.server_address[1]), timeout=10)
+        sock.settimeout(10)
+        # 1 バイトも送らない。期限が効いていれば向こうから閉じる (recv が EOF を返す)。
+        assert sock.recv(1) == b""
+        sock.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_connection_cap_refuses_extra_connections(monkeypatch, session):
+    """同時接続数の上限を超えた接続は受け付けず即切断する (スレッドを積み上げない)。"""
+    monkeypatch.setattr(server_mod.Handler, "timeout", 5.0)
+    server = _serve(session, "cap-test-token", max_connections=2)
+    port = server.server_address[1]
+    hogs = []
+    try:
+        for _ in range(2):  # 無言接続で枠を 2 つとも埋める
+            s = socket.create_connection(("127.0.0.1", port), timeout=10)
+            hogs.append(s)
+        time.sleep(0.2)  # accept → ハンドラスレッド起動まで待つ
+        extra = socket.create_connection(("127.0.0.1", port), timeout=10)
+        extra.settimeout(10)
+        assert extra.recv(1) == b""  # 枠が無いので応答せず切断される
+        extra.close()
+
+        for s in hogs:  # 枠を返せば通常のリクエストがまた通る
+            s.close()
+        hogs = []
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5) as res:
+                    assert res.status == 200
+                break
+            except urllib.error.URLError:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.1)
+    finally:
+        for s in hogs:
+            s.close()
+        server.shutdown()
+        server.server_close()

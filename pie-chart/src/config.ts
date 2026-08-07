@@ -28,9 +28,17 @@ const WEIGHT_FONT: Record<string, string> = {
 };
 
 /**
+ * `embedFontPath` に受け入れるパスの許可リスト。同梱フォント 2 ファイル(`WEIGHT_FONT` の値)
+ * の**完全一致のみ**で、SEA の `SEA_ASSET_KEYS` が許す 2 つと同じ集合になる(dev と exe で
+ * 読めるフォントを揃える)。ここを「拡張子が woff2 なら可」のような述語へ緩めてはならない:
+ * 値は `svg_export/font.ts` で `readFileSync` に渡り、読めたバイト列は subset に失敗しても
+ * base64 で `@font-face` に載る = 任意ファイルの中身が出力 SVG から持ち出せる経路になる。
+ */
+const ALLOWED_EMBED_FONT_PATHS: ReadonlySet<string> = new Set(Object.values(WEIGHT_FONT));
+
+/**
  * 出力へ素通しされる設定値を許可リストで検証する。不正値は**例外**にする(既定色へ黙って
- * 落とさない) — 帳票用途では無警告の誤出力が最悪で、`input/db.ts` の `assertSelectOnly` が
- * 既に「想定外は明示的に拒否」の流儀を持つのとも一致する。
+ * 落とさない) — 帳票用途では無警告の誤出力が最悪。
  */
 /**
  * SVG 属性へそのまま出る数値フィールド(`rendering.ts` の `attr()` 引数になるもの)。
@@ -48,6 +56,7 @@ function assertConfigValues(base: {
   fontWeight: string;
   fontFamily: string;
   embedFontFamilyName: string;
+  embedFontPath: string;
   lineSpacing: number;
   textWeightStrokeRatio: number;
 }): void {
@@ -60,6 +69,13 @@ function assertConfigValues(base: {
   base.grayScale4.forEach((color, i) => assertSvgColor(`grayScale4[${i}]`, color));
   assertFontWeight('fontWeight', base.fontWeight);
   assertFontFamilyName('embedFontFamilyName', base.embedFontFamilyName);
+  // 埋込フォントのパスは**ファイルの中身が出力へ入る**唯一のフィールドなので、色やフォント名と
+  // 同じくここで許可リストに掛ける(以前はこの 1 つだけが検証から漏れていた)。
+  if (typeof base.embedFontPath !== 'string' || !ALLOWED_EMBED_FONT_PATHS.has(base.embedFontPath))
+    throw new Error(
+      `embedFontPath は同梱フォントのみ指定できます: ${JSON.stringify(base.embedFontPath)} ` +
+        `(許可: ${[...ALLOWED_EMBED_FONT_PATHS].join(', ')})。`,
+    );
   // `fontFamily` は属性側でのみ使われ escapeXml が効くので、CSS のような許可リストまでは
   // 要らない。ただし XML 不正文字が混じると SVG 全体がパース不能になるので落ちる形を弾く。
   if (typeof base.fontFamily !== 'string' || hasXmlInvalidChars(base.fontFamily))

@@ -190,6 +190,23 @@ describe("sanitizeFontFaceCss", () => {
     expect(sanitizeFontFaceCss("@font-face{@media{}}")).toBe("");
   });
 
+  it("宣言名がプロトタイプ由来の語でも、例外ではなく拒否で返す", () => {
+    // 宣言名は攻撃者が綴れる文字列で、そのまま許可表のキーになる。素のオブジェクト表だと
+    // `constructor` / `__proto__` が継承値 (`Object` / `Object.prototype`) を返し、
+    // 「未知プロパティ = 拒否」ではなく `re.test` の TypeError になっていた。例外は
+    // `sanitizeSvg` を貫いて `editor-io.js` の `load` を中断させ、キャンバスに前のファイルを
+    // 残す (= 旧内容を新ファイル名で保存できる) ので、ここは**投げないこと**まで主張する。
+    for (const prop of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf",
+      "isPrototypeOf", "propertyIsEnumerable", "toLocaleString"]) {
+      expect(() => sanitizeFontFaceCss(`@font-face{${prop}:a}`), prop).not.toThrow();
+      expect(sanitizeFontFaceCss(`@font-face{${prop}:a}`), prop).toBe("");
+      // 正当な宣言に混ぜても、ブロックごと捨てる方へ倒れること。
+      const mixed = `@font-face{src:url(data:font/woff2;base64,AAAA);${prop}:a}`;
+      expect(() => sanitizeFontFaceCss(mixed), prop).not.toThrow();
+      expect(sanitizeFontFaceCss(mixed), prop).toBe("");
+    }
+  });
+
   it("pie-chart 実出力の `@font-face` はバイト単位で受理し、再適用でも変わらない", () => {
     // 出典: `pie-chart/out/svg_js/asset_4slice_simple.svg` の `<style>` 内容
     // (base64 のみ先頭 64 文字へ短縮)。`out/` は git 未追跡なのでフィクスチャに固定する。

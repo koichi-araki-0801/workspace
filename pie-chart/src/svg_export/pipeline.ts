@@ -12,7 +12,7 @@
 // =============================================================================
 
 import { createPieLayoutConfig, makeColors } from '../config.js';
-import { assertItemCount } from '../limits.js';
+import { assertItemCount, assertTotalValue } from '../limits.js';
 import { normalizeInputItems } from '../input/load.js';
 import { layoutLabels } from '../layout/diagnostics.js';
 import {
@@ -1192,6 +1192,11 @@ export async function renderPdfStylePieToSvg(
   // 上限は「割り当ての直前」= 唯一の funnel であるここに置く。全入力経路
   // (sample / data / dataJson / xlsx / sql)がここを通るので 1 箇所で覆える。
   assertItemCount(items.length);
+  // 総和も同じ funnel で見る。件数と違い上限ではなく「割合が計算できる数か」の検査で、
+  // 各項目が有限でも総和が `Infinity` へ溢れると全項目 0.0% の SVG が黙って出る(下の
+  // `percentOf` と `layout/geometry.ts` の `arcAngles` がどちらも 0 を返すため)。
+  const totalValue = items.reduce((sum, item) => sum + Math.abs(Number(item.value)), 0);
+  assertTotalValue(totalValue);
 
   if (options.compactLabel === undefined) {
     runCompactCascade(items, cfg);
@@ -1205,9 +1210,9 @@ export async function renderPdfStylePieToSvg(
   const finalLayout: LayoutResult | null = selectFinalLayout(items, cfg, coord);
   const colors = makeColors(items.length, cfg);
   const arcs = computeArcs(items, cfg);
-  const totalValue = items.reduce((sum, item) => sum + Math.abs(Number(item.value)), 0);
-  const percentOf = (value: number) =>
-    totalValue > 0 ? (Math.abs(Number(value)) / totalValue) * 100 : 0;
+  // `totalValue` は上の funnel で有限かつ正であることが確定済み(`assertTotalValue`)なので、
+  // ここでゼロ除算の分岐は持たない。
+  const percentOf = (value: number) => (Math.abs(Number(value)) / totalValue) * 100;
 
   // ── 1. スライス本体の描画 ──
   const sliceGroups = arcs

@@ -40,7 +40,7 @@ title: PdfToSvg 仕様一覧（画面項目 / 入出力 / RPC・HTTP / テスト
 | 6 | 入力 | 書き出し範囲 | `全/現在/指定` | ページ選別 |
 | 7 | 出力 | SVGファイル | `決定的SVG` | 実<text>保持・使用グリフのみWOFF2埋込 |
 | 8 | 出力 | PNG背景 | `ラスタ（SCAN_RENDER_SCALE=2.0）` | スキャンページ背景 |
-| 9 | 設定 | config.py | `frozen exe / ソース共通` | exe 隣の data/ に辞書・ログ・作業領域 |
+| 9 | 設定 | config.py | `frozen exe / ソース共通` | データ置き場（既定 %LOCALAPPDATA%\PdfToSvg\data）に辞書・ログ・作業領域。`PDFTOSVG_DATA_DIR` で明示指定可 |
 
 # RPC・HTTP
 

@@ -79,6 +79,43 @@ describe('設定値の許可リスト(P022)', () => {
   it('既定の設定は throw しない(既定値では検証が恒等)', () => {
     expect(() => createPieLayoutConfig()).not.toThrow();
   });
+
+  // F46: `embedFontPath` だけが許可リストから漏れており、読めたファイルの中身がそのまま
+  // `@font-face` の base64 として出力 SVG へ入る経路になっていた(読み出しと持ち出しが
+  // 1 経路でつながる)。同梱フォント 2 ファイルの完全一致のみを通す。
+  it('embedFontPath は同梱フォント 2 ファイル以外を拒否する', () => {
+    for (const bad of [
+      'C:\\Users\\svc\\.ssh\\id_rsa',
+      '../../secret.woff2',
+      'fonts/BIZUDPGothic-Regular.woff2 ',
+      'fonts/../fonts/BIZUDPGothic-Regular.woff2',
+      42 as unknown as string,
+    ]) {
+      expect(() => createPieLayoutConfig({ embedFontPath: bad }), String(bad)).toThrow(
+        /embedFontPath/,
+      );
+    }
+    for (const ok of ['fonts/BIZUDPGothic-Regular.woff2', 'fonts/BIZUDPGothic-Bold.woff2']) {
+      expect(() => createPieLayoutConfig({ embedFontPath: ok }), ok).not.toThrow();
+    }
+  });
+});
+
+// F46 の第 2 層。config の検査を迂回して cfg を直に組んでも、フォントとして解釈できない
+// バイト列は埋め込まれない(以前は subset 失敗 → 原本を truetype と名乗って base64 埋込)。
+describe('埋め込みフォントの fallback(F46)', () => {
+  it('フォントでないファイルは subset 失敗時に埋め込まず投げる', async () => {
+    const { buildFontFaceDefs } = await import('../src/svg_export/font.js');
+    const cfg = { ...createPieLayoutConfig(), embedFontPath: 'README.md' };
+    await expect(buildFontFaceDefs(cfg, null)).rejects.toThrow(/does not look like a font file/);
+  });
+
+  it('同梱フォントは従来どおり @font-face を返す(回帰)', async () => {
+    const { buildFontFaceDefs } = await import('../src/svg_export/font.js');
+    const defs = await buildFontFaceDefs(createPieLayoutConfig(), null);
+    expect(defs).toContain('@font-face');
+    expect(defs).toContain('format("woff2")');
+  });
 });
 
 describe('出力側からの網羅主張', () => {

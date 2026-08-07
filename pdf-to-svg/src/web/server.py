@@ -24,11 +24,25 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from web import loader, origin_guard, rpc_methods
 from web.rpc_methods import WebSession
 
-# 受け付けるリクエスト本文の上限。`ThreadingHTTPServer` はスレッド数上限を持たないため、
-# 巨大な Content-Length を申告してゆっくり送るだけでスレッドとメモリを長時間占有できる。
+# 受け付けるリクエスト本文の上限。同時接続数 (`MAX_CONNECTIONS`) と無通信上限
+# (`REQUEST_TIMEOUT`) を入れてもなお、巨大な Content-Length を申告してゆっくり送れば
+# 1 接続でメモリを積み上げられる (時間ではなく量の上限が要る)。
 # 申告値がこれを超えたら**本文を読まずに** 413 を返す (読んでから捨てるのは DoS を防がない)。
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 MAX_RPC_BYTES = 8 * 1024 * 1024
+
+# 1 接続あたりのソケット無通信上限 (秒)。これが無いと `handle_one_request` の
+# `rfile.readline()` が**永久にブロック**し、`parse_request()` のガードにすら到達しない
+# (ガードはリクエスト行とヘッダが届いて初めて走る)。何も送らない接続を並べるだけで
+# ハンドラスレッドを恒久的に占有できてしまうので、期限を切って閉じる。
+# ローカル UI との往復は数ミリ秒なので、10 秒は正常系に十分な余裕がある。
+REQUEST_TIMEOUT = 10.0
+
+# 同時に処理する接続数の上限。`ThreadingHTTPServer` は接続ごとに無制限にスレッドを
+# 起こすため、上限が無いとスレッドとスタックメモリを食い潰せる。超過分は**受け付けずに
+# 即切断**する (キューに積むと結局その接続を抱えることになる)。UI は 1 つで、
+# 同時接続は静的資産の並列取得ぶん程度しか要らない。
+MAX_CONNECTIONS = 32
 
 # 静的配信を許す拡張子と MIME (旧 `scheme.py` の `_MIME` を踏襲)。
 _MIME = {
@@ -57,6 +71,11 @@ class Handler(origin_guard.GuardedHTTPRequestHandler):
     トークンを要求できている。ここへ `do_GET` の副作用や機微データの読み出しを足すと、
     Origin もトークンも要求しない安全メソッドの経路が穴になる点にだけ注意する。
     """
+
+    # ソケットの無通信上限 (`socketserver.StreamRequestHandler.setup` が `settimeout` する)。
+    # 基底の `handle_one_request` は `socket.timeout` を捕まえて接続を閉じるので、
+    # ここに値を置くだけで「何も送らない接続」がスレッドを抱え続ける形が閉じる。
+    timeout = REQUEST_TIMEOUT
 
     # ローカル単一ユーザ用途。アクセスログは出さない。
     def log_message(self, *args):
@@ -208,17 +227,55 @@ class Handler(origin_guard.GuardedHTTPRequestHandler):
             self._send_json({"ok": True, "data": {"total": len(session.docs)}})
 
 
+class BoundedThreadingHTTPServer(http.server.ThreadingHTTPServer):
+    """同時処理数に上限を持つ `ThreadingHTTPServer`。
+
+    標準の `ThreadingMixIn` は接続ごとに無条件でスレッドを起こす。ローカル待受とはいえ
+    同一マシンの別プロセスは自由に繋げるので、上限が無いとスレッド数で押し潰せる。
+    空きが無ければ**キューへ積まず即切断**する: 積んでも接続とメモリは抱えたままで、
+    上限の意味が消えるためである。
+    """
+
+    def __init__(self, *args, max_connections: "int | None" = None, **kwargs):
+        # 既定値は呼び出し時に読む (定義時に束縛するとテストから上限を差し替えられない)。
+        self._slots = threading.BoundedSemaphore(max_connections or MAX_CONNECTIONS)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            # スレッド生成に失敗した場合。取った枠は必ず返す (漏らすと上限が
+            # 片道で減り続け、やがて全接続を拒否する)。
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
 def create_server(web_root: str, session: WebSession, port: int = 0,
-                  token: str | None = None) -> http.server.ThreadingHTTPServer:
+                  token: str | None = None,
+                  max_connections: int | None = None) -> http.server.ThreadingHTTPServer:
     """127.0.0.1 で待ち受けるサーバを構築する (まだ serve はしない)。既定の `port=0` は
     空きポート。固定ポートが要る E2E も**この関数を通す**こと: `ThreadingHTTPServer` を
-    手組みすると `configure_guard` を忘れて `unconfigured` の全拒否になる (かつては
-    `test/e2e_server.py` が実際にその形だった)。許可リストは bind 後の実ポートから作る。
+    手組みすると `configure_guard` を忘れて `unconfigured` の全拒否になり (かつては
+    `test/e2e_server.py` が実際にその形だった)、同時接続の上限
+    (`BoundedThreadingHTTPServer`) も落ちる。許可リストは bind 後の実ポートから作る。
 
     `token` はセッショントークン。既定 (`None`) では起動ごとに新しい値を作る。固定値を
     渡してよいのはテスト・E2E の使い捨てサーバだけで、本番経路 (`app.py`) は既定に任せる。
-    発行後の値は `server.guard_token` から読める (`--app=` の URL へ載せる用)。"""
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    発行後の値は `server.guard_token` から読める (`--app=` の URL へ載せる用)。
+    `max_connections` の既定 (`None`) は `MAX_CONNECTIONS`。差し替えるのは上限が効くことを
+    見るテストだけで、本番経路は既定に任せる。"""
+    server = BoundedThreadingHTTPServer(("127.0.0.1", port), Handler,
+                                        max_connections=max_connections)
     server.web_root = os.path.abspath(web_root)
     server.session = session
     server.lock = threading.Lock()

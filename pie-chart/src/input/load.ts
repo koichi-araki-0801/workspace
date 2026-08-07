@@ -123,8 +123,9 @@ async function loadXlsxItems({
   if (!range) throw new Error('range is required (e.g. "A2:B11").');
 
   // exceljs は zip 内の全エントリを無条件展開して JS 文字列へ載せる(必要判定は展開の後)
-  // ので、展開の**前**に掛けられる防御はファイルサイズだけ。展開後サイズは残余リスク
-  // (`limits.ts` の `MAX_XLSX_BYTES` の doc を参照)。
+  // ので、展開の**前**に掛けられる防御は圧縮後のファイルサイズだけ。展開後サイズは残余
+  // リスクで、運用条件(信用できない .xlsx を開かない)と併せて初めて成立する
+  // — 前提と、上限を上げる代わりに何をすべきかは `limits.ts` の `MAX_XLSX_BYTES` の doc。
   const stat = await fsp.stat(xlsxPath);
   if (stat.size > MAX_XLSX_BYTES) {
     throw new Error(

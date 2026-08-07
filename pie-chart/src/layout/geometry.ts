@@ -166,8 +166,11 @@ export function radialFraction(cfg: PieLayoutConfig, min: number, factor: number
  */
 export function arcAngles(values: number[], cfg: PieLayoutConfig): ArcSpan[] {
   const total = values.reduce((sum, value) => sum + Number(value), 0);
-  if (total <= 0) {
-    throw new Error('sum(values) must be > 0');
+  // `Infinity`(総和のオーバーフロー)と `NaN` も弾く。`total <= 0` だけだと `Infinity` を
+  // 通してしまい、全スパンが `value / Infinity = 0` の幅ゼロスライスになる
+  // (`limits.ts` の `assertTotalValue` と同じ破綻を、こちらは幾何側の入口で止める)。
+  if (!Number.isFinite(total) || total <= 0) {
+    throw new Error(`sum(values) must be a finite number > 0 (got ${String(total)})`);
   }
   const sign = cfg.counterclock ? 1 : -1;
   let current = degToRad(cfg.startangle);

@@ -118,6 +118,9 @@ def rpc_state(s: WebSession, _args: dict) -> dict:
         "changed2": changed2,
         "changed3": changed3,
         "total": total,
+        # 要素数の資源上限に当たって抽出を打ち切ったページ数 (`engine/pdf_engine.py`)。
+        # 欠落を無言にしないための通知経路で、`app.js` の `reloadState` が出す。
+        "truncated": sum(1 for d in s.docs for pg in d.pages if pg.truncated),
     }
 
 
@@ -181,6 +184,10 @@ def _dict_payload(s: WebSession) -> dict:
             for m in s.store.all()
         ],
         "suggestJoin": s.suggest_join,
+        # 起動時に辞書ファイルから捨てた件数 / 丸ごと読めなかったか。壊れた要素を黙って
+        # 消さず利用者へ通知するための経路 (`app.js` が 1 度だけトーストで出す)。
+        "loadSkipped": s.store.load_skipped,
+        "loadFailed": s.store.load_failed,
     }
 
 
@@ -393,20 +400,25 @@ def rpc_dictJson(s: WebSession, _args: dict) -> dict:
 
 
 def rpc_dictImportJson(s: WebSession, args: dict) -> dict:
-    """JSON 文字列から辞書を取り込む (upsert)。取り込み件数と一覧を返す。"""
+    """JSON 文字列から辞書を取り込む。取り込み件数・捨てた件数と一覧を返す。
+
+    件数上限を超える取り込みは `import_json` が `ValueError` を投げ、dispatch 経由で
+    `{ok:false, error}` として利用者へ出る (黙って一部だけ取り込まない)。
+    """
     text = args.get("json") or ""
     fd, tmp = tempfile.mkstemp(suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
-        n = s.store.import_json(Path(tmp))
+        result = s.store.import_json(Path(tmp))
     finally:
         try:
             os.unlink(tmp)
         except OSError:
             pass
     payload = _dict_payload(s)
-    payload["imported"] = n
+    payload["imported"] = result.imported
+    payload["skipped"] = result.skipped
     return payload
 
 

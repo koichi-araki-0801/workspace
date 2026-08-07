@@ -562,8 +562,10 @@ def _data_dir():
 
 
 def _log_dir():
-    """診断ログ (`startup.log` / `edge.log`) を置くフォルダ (`data/logs/`、ポータブル)。
-    `data/` 直下に散らさず階層化し、アプリ終了後も残してポストモーテムに使える状態を保つ。"""
+    """自前の起動診断ログ (`startup.log`) を置くフォルダ (`data/logs/`、ポータブル)。
+    `data/` 直下に散らさず階層化し、アプリ終了後も残してポストモーテムに使える状態を保つ。
+    ここへ書くのは**本プログラムが書式を決めた 1 行ログだけ**で、Edge の verbose ログは
+    置かない (`_edge_log_path` を参照)。"""
     d = os.path.join(_data_dir(), "logs")
     os.makedirs(d, exist_ok=True)
     return d
@@ -587,6 +589,115 @@ def _setup_logging():
     except OSError:
         log.addHandler(logging.NullHandler())
     return log
+
+
+# ── Edge の verbose 診断ログ (既定 OFF・opt-in) ──
+
+# Edge 側ログを有効にする環境変数。**既定は無効**で、`--enable-logging` / `--log-file` /
+# `--v=1` はコマンドラインに載らない。
+#
+# なぜ既定で外すか: 本アプリは隔離 `--user-data-dir` を付けず端末標準の既定プロファイルで
+# 開く (VDI クラッシュ対策。`main()` のコメント参照)。Edge が未起動だった場合、起動した
+# プロセスがそのプロファイルのブラウザ本体になるため、`--v=1` は**利用者が同じ Edge で開く
+# 全ての窓・タブ**の診断 (ナビゲーション・ネットワーク周り) をアプリ終了後も書き続ける。
+# 出力先が exe の隣 (`data/logs/`) だと、共有フォルダや USB で配られた配布物にその記録が
+# 溜まり、exe を回覧すると一緒に渡ることになる (CWE-532)。
+#
+# 併せて閉じる懸念: セッショントークンは `--app=` の URL クエリで渡す (`_new_session_token`)。
+# verbose ログにはナビゲーション URL が写りうるので、既定 ON のままだと**そのトークンが
+# ディスク上のログへ落ちる**可能性が残る (実際に写るかは Edge のビルド依存で断定できない)。
+# 既定でログ自体を出さないことで、この経路を検証に頼らず構造的に閉じる。opt-in 時の出力先を
+# ユーザー専用領域に置くのも同じ理由 (配布物の隣にも他ユーザーからも見える場所へ置かない)。
+EDGE_LOG_ENV = "LABELEDITOR_EDGE_LOG"
+
+# 環境変数を「無効」とみなす値。`0` / 空 / `false` 系以外は有効扱い (診断は明示 opt-in なので、
+# 迷ったら「有効」へ倒す方が驚きが少ない)。
+_FALSY_ENV_VALUES = frozenset({"", "0", "false", "no", "off"})
+
+# opt-in 時の Edge ログの保持上限。Edge 自身はサイズ上限もローテーションも持たないため、
+# 起動時の作り直し (前回分を残さない) と終了時の末尾切り詰めで上限を強制する。
+EDGE_LOG_MAX_BYTES = 4 << 20
+
+EDGE_LOG_NAME = "edge.log"
+
+
+def _env_flag(name):
+    """環境変数を真偽として読む。未設定・空・`0`/`false`/`no`/`off` は False。"""
+    return os.environ.get(name, "").strip().lower() not in _FALSY_ENV_VALUES
+
+
+def _edge_log_path():
+    """opt-in 時の Edge ログの出力先 (ユーザー専用領域)。用意できなければ `None`。
+
+    配布物の隣 (`_log_dir()`) には置かない: 配布物は共有フォルダ・USB で回覧される前提で、
+    そこへ他人の閲覧履歴由来の診断を残すと配布のたびに持ち出されてしまう。`LOCALAPPDATA` は
+    そのユーザーのプロファイル配下で、既定 ACL で他ユーザーから読めない。
+    """
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    try:
+        d = os.path.join(base, "LabelEditor", "logs")
+        os.makedirs(d, exist_ok=True)
+    except OSError:
+        return None
+    return os.path.join(d, EDGE_LOG_NAME)
+
+
+def _prepare_edge_log(log):
+    """opt-in 時に Edge ログの出力先を用意して返す (無効なら `None`)。
+
+    前回起動分は**残さず消す** (= 起動ごとのローテーション)。Edge は追記で開くので、
+    消さないと起動のたびに無制限に伸びる。用意に失敗しても起動は止めない (ログは診断目的で、
+    無くてもアプリは成立する)。
+    """
+    if not _env_flag(EDGE_LOG_ENV):
+        return None
+    path = _edge_log_path()
+    if path is None:
+        log.warning("edge logging requested but the log directory is unavailable")
+        return None
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError as exc:
+        log.warning("edge log rotation failed: %s", exc)
+        return None
+    log.info("edge logging enabled (%s=1) -> %s", EDGE_LOG_ENV, path)
+    return path
+
+
+def _trim_edge_log(path, log):
+    """終了時の後始末: 上限を超えた分を捨て、末尾 `EDGE_LOG_MAX_BYTES` だけを残す。
+
+    セッション中の書き込みは Edge の中で起きるので上限を掛けられない。掛けられるのは
+    「起動時に作り直す」と「終了時に切り詰める」の 2 点だけで、この 2 つで
+    `EDGE_LOG_MAX_BYTES` + 1 セッション分にディスク占有を抑える。末尾を残すのは、
+    クラッシュ調査で読みたいのが直前の行だからである。
+    """
+    if not path:
+        return
+    try:
+        if os.path.getsize(path) <= EDGE_LOG_MAX_BYTES:
+            return
+        with open(path, "rb") as f:
+            f.seek(-EDGE_LOG_MAX_BYTES, os.SEEK_END)
+            tail = f.read()
+        with open(path, "wb") as f:
+            f.write(tail)
+        log.info("edge log truncated to the last %d bytes", EDGE_LOG_MAX_BYTES)
+    except OSError as exc:
+        log.warning("edge log cleanup failed: %s", exc)
+
+
+def _edge_launch_args(edge, url, log_path=None):
+    """`msedge.exe` の起動引数を組む。**フラグを増やさないこと**が要点。
+
+    隔離 `--user-data-dir` と `--disable-gpu` は VDI でレンダラごとクラッシュした実績があり
+    (設計正典の却下集)、`--enable-logging` 系は `log_path` を渡した opt-in 時にだけ付く。
+    """
+    args = [edge, f"--app={url}", "--no-first-run", "--no-default-browser-check"]
+    if log_path:
+        args += ["--enable-logging", f"--log-file={log_path}", "--v=1"]
+    return args
 
 
 def _watch_proc(proc, log):
@@ -641,24 +752,17 @@ def main():
     edge = _find_edge()
     log.info("edge: %s", edge or "(not found, falling back to default browser)")
     proc = None
+    edge_log = None
     if edge:
         # 端末標準の「管理された」既定プロファイルでアプリ窓を開く。以前は隔離 user-data-dir +
         # `--disable-gpu` (ソフトウェア描画固定) で起動していたが、VDI ではこの非標準構成だと
-        # レンダラが不安定で窓ごとクラッシュした (`edge.log`: "GetGpuDriverOverlayInfo failed to
+        # レンダラが不安定で窓ごとクラッシュした (Edge ログの "GetGpuDriverOverlayInfo failed to
         # retrieve video device"。通常の Edge ブラウジングは安定)。そこで余計なフラグを付けず、
-        # 安定動作している既定 Edge と同じ構成で開く。`--enable-logging` で `edge.log` に診断を残す。
+        # 安定動作している既定 Edge と同じ構成で開く。診断ログは既定で出さず、`LABELEDITOR_EDGE_LOG`
+        # を立てたときだけユーザー専用領域へ出す (`_prepare_edge_log`)。
+        edge_log = _prepare_edge_log(log)
         try:
-            proc = subprocess.Popen(
-                [
-                    edge,
-                    f"--app={url}",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--enable-logging",
-                    f"--log-file={os.path.join(_log_dir(), 'edge.log')}",
-                    "--v=1",
-                ],
-            )
+            proc = subprocess.Popen(_edge_launch_args(edge, url, edge_log))
             log.info("edge launched pid=%s", proc.pid)
         except OSError as exc:
             log.warning("edge launch failed: %s", exc)
@@ -685,6 +789,8 @@ def main():
         server.server_close()
         if proc is not None and proc.poll() is None:
             proc.terminate()
+        # opt-in 時のみ存在する Edge ログの後始末 (上限超過分の切り詰め)。
+        _trim_edge_log(edge_log, log)
 
 
 if __name__ == "__main__":

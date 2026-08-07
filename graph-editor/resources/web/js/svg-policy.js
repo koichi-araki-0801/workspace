@@ -199,7 +199,16 @@ const MAX_CSS_INPUT = 4 << 20;
 
 // `@font-face` 内で認識する宣言と、その値の文法。ここに無いプロパティが 1 つでも
 // あればブロックごと不受理 (= CSS 全体を捨てる)。
+//
+// **プロトタイプを持たせない** (`__proto__: null`): 素のオブジェクトリテラルだと
+// `Object.prototype` を継承するため、攻撃者が書いた宣言名がそのままキーになる本表では
+// `constructor:a` / `__proto__:a` が「未知プロパティ = 拒否」ではなく `Object` や
+// `Object.prototype` を返してしまい、続く `re.test(value)` が TypeError になる。
+// 例外は `sanitizeSvg` を貫いて `editor-io.js` の `load` まで飛び、キャンバス差し替え前に
+// 読込を中断する = 前のファイルの図が新しいファイル名のまま残る (そのまま保存すると
+// 旧内容が新ファイル名で書き出される)。参照側の `Object.hasOwn` と二重で閉じる。
 const FONT_FACE_VALUE = {
+  __proto__: null,
   "font-family": /^(?:"[\w .-]{1,64}"|'[\w .-]{1,64}'|[a-z][\w -]{0,63})(?:\s*,\s*(?:"[\w .-]{1,64}"|'[\w .-]{1,64}'|[a-z][\w -]{0,63}))*$/i,
   "font-weight": /^(?:normal|bold|bolder|lighter|[1-9][0-9]{0,2})$/i,
   "font-style": /^(?:normal|italic|oblique)$/i,
@@ -261,6 +270,9 @@ function parseFontFaceBody(body) {
       decls.push(`src:${items.join(",")};`);
       continue;
     }
+    // `prop` は攻撃者が綴れる文字列なので、表の**自前キーだけ**を引く。`Object.hasOwn` を
+    // 挟まないと `constructor` / `__proto__` が継承値を返し、`re.test` が関数でなくなる。
+    if (!Object.hasOwn(FONT_FACE_VALUE, prop)) return null;
     const re = FONT_FACE_VALUE[prop];
     if (!re || !re.test(value)) return null;
     decls.push(`${prop}:${value};`);

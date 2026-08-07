@@ -20,6 +20,41 @@ from typing import Dict, List, Optional
 
 from .normalize import normalize
 
+# 辞書エントリ数の上限。取り込みは 1 ファイルで数十万件を投げ込めるうえ、エントリ数は
+# 以後の全操作 (正規化・索引再構築・全文保存) の係数になるため、入口で頭を押さえる。
+# 実運用の辞書は数百〜数千語で、上限は 1 桁以上の余裕がある。
+MAX_DICT_ENTRIES = 20_000
+
+# 読み込む辞書ファイルの上限バイト数。件数上限は**パースした後**にしか効かないので、
+# 巨大ファイルを丸ごとメモリへ載せる段階を止めるには別途バイト数で見る必要がある
+# (`MAX_DICT_ENTRIES` 件を素直に書き出しても 2 MB 程度で、32 MiB は十分な余裕)。
+MAX_DICT_FILE_BYTES = 32 * 1024 * 1024
+
+
+def _read_text_limited(path: Path) -> str:
+    """`MAX_DICT_FILE_BYTES` を超えるファイルは**読まずに** `ValueError`。
+
+    件数上限はパースの後にしか効かないので、載せる前にバイト数で足切りする。
+    """
+    size = path.stat().st_size
+    if size > MAX_DICT_FILE_BYTES:
+        raise ValueError(
+            f"辞書ファイルが大きすぎます ({size} バイト / 上限 {MAX_DICT_FILE_BYTES} バイト)"
+        )
+    return path.read_text(encoding="utf-8")
+
+
+@dataclass
+class ImportResult:
+    """`import_json` の結果。取り込めた件数と、壊れていて捨てた件数。
+
+    捨てた件数を返すのは「黙って消さない」ため (`docs/pdf-to-svg/src/設計正典.md`
+    のセキュリティ節と同じ作法)。呼び出し側は利用者へ件数を見せること。
+    """
+
+    imported: int
+    skipped: int
+
 
 @dataclass
 class Mapping:
@@ -45,6 +80,14 @@ class DictionaryStore:
         self._mappings: List[Mapping] = []
         self._next_id = 1
         self._index: Dict[str, Mapping] = {}  # source_norm -> Mapping (enabled のみ)
+        # source_norm -> Mapping (enabled 問わず・先勝ち)。`_find_by_norm` の線形走査を
+        # 置き換える索引で、`upsert` を O(1) にするために持つ (`_index` は enabled 限定
+        # なので upsert の同一性判定には使えない)。
+        self._norm_index: Dict[str, Mapping] = {}
+        # 読み込み時に壊れていて捨てたエントリ数と、ファイルを丸ごと読めなかったか。
+        # UI が起動後に通知する (`rpc_methods._dict_payload` → `app.js`)。実体は `_load` が入れる。
+        self.load_skipped = 0
+        self.load_failed = False
         self._load()
 
     def close(self) -> None:
@@ -52,38 +95,91 @@ class DictionaryStore:
 
     # ── 読み込み / 保存 ──
     def _load(self) -> None:
-        """JSON ファイルを読み込み `_mappings` を復元する (壊れていても起動は止めない)。"""
+        """JSON ファイルを読み込み `_mappings` を復元する (壊れていても起動は止めない)。
+
+        **要素 1 個の型崩れで起動不能にしない**のが要件である。リストの中に dict 以外が
+        1 つ混じるだけで `item.get` が `AttributeError` を投げ、それが `__init__` を突き抜けて
+        `console=False` の exe を**何も表示せず起動不能**にしていた (旧 P035)。辞書はメールや
+        共有フォルダ経由で配られる = 外部由来の入力なので、壊れた要素は捨てて起動を通し、
+        捨てた件数を `load_skipped` に残して UI へ通知する (黙って消さない)。
+        """
         self._mappings = []
         self._next_id = 1
+        self.load_skipped = 0
+        self.load_failed = False
         if self.path.exists():
+            data = None
+            text = ""
             try:
-                data = json.loads(self.path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                data = []  # 壊れていても起動を止めない
-            for item in data if isinstance(data, list) else []:
-                src = item.get("source", "")
-                if not src:
+                text = _read_text_limited(self.path)
+            except (OSError, ValueError):
+                # 読めない (権限・文字コード破損・上限超過)。利用者から見れば辞書の
+                # 消失なので伝える。
+                self.load_failed = True
+            else:
+                try:
+                    data = json.loads(text)
+                except (json.JSONDecodeError, ValueError):
+                    data = None  # 壊れていても起動を止めない
+            if not isinstance(data, list):
+                # ファイルはあるのに 1 件も読めない = 辞書の消失に見える。空辞書として
+                # 黙って通さず「読めなかった」を伝える (中身が空のファイルは除く)。
+                self.load_failed = self.load_failed or text.strip() != ""
+                data = []
+            for item in data:
+                entry = self._entry_from_json(item)
+                if entry is None:
+                    self.load_skipped += 1
                     continue
+                if len(self._mappings) >= MAX_DICT_ENTRIES:
+                    # 上限超過分は読まない (読めば以後の全操作がその件数に比例して重くなる)。
+                    # 起動は通し、落とした件数だけ伝える。
+                    self.load_skipped += 1
+                    continue
+                src, target, enabled, joined = entry
                 self._mappings.append(
                     Mapping(
-                        id=self._next_id,
-                        source_raw=src,
-                        target=item.get("target", ""),
-                        enabled=bool(item.get("enabled", True)),
-                        # 旧形式 (キー無し) は非連結として読む (後方互換)
-                        joined=bool(item.get("joined", False)),
+                        id=self._next_id, source_raw=src, target=target,
+                        enabled=enabled, joined=joined,
                     )
                 )
                 self._next_id += 1
         self._rebuild_index()
 
+    @staticmethod
+    def _entry_from_json(item: object) -> "tuple[str, str, bool, bool] | None":
+        """JSON の 1 要素を `(source, target, enabled, joined)` へ検証する (不正なら None)。
+
+        `_load` と `import_json` が同じ検証を通るよう 1 箇所に置く。`source`/`target` は
+        文字列であることまで見る: 数値や null が入ると `normalize()` の `.strip()` が
+        後段で落ち、壊れる場所が読み込みから照合へずれるだけで直らないため。
+        旧形式 (`joined` キー無し) は非連結として読む (後方互換)。
+        """
+        if not isinstance(item, dict):
+            return None
+        src = item.get("source")
+        target = item.get("target", "")
+        if not isinstance(src, str) or not src.strip():
+            return None
+        if not isinstance(target, str):
+            return None
+        return src, target, bool(item.get("enabled", True)), bool(item.get("joined", False))
+
     def _rebuild_index(self) -> None:
-        """`source_norm` → `Mapping` の lookup インデックスを enabled 分のみで再構築する。"""
+        """lookup 用 (enabled のみ・後勝ち) と同一性判定用 (全件・先勝ち) の索引を作り直す。
+
+        後者 (`_norm_index`) は `_find_by_norm` の全件線形走査を置き換えるためのもので、
+        走査のままだと取り込み N 件が O(N^2) 回の `normalize` を呼んでいた (F28)。
+        """
         self._index = {}
+        self._norm_index = {}
         for m in self._mappings:
+            key = normalize(m.source_raw)
             if m.enabled:
                 # 後勝ち: 同一正規化キーが複数あれば最後の有効分を採用
-                self._index[normalize(m.source_raw)] = m
+                self._index[key] = m
+            # 先勝ち: 旧 `_find_by_norm` が「最初の一致」を返していたのに合わせる
+            self._norm_index.setdefault(key, m)
 
     def _save(self) -> None:
         """全 `_mappings` を JSON へアトミック保存する (temp → `os.replace`)。"""
@@ -107,17 +203,18 @@ class DictionaryStore:
 
     def _find_by_norm(self, source_raw: str) -> Optional[Mapping]:
         """`source_raw` の正規化キーに一致する最初の `Mapping` を返す (無ければ None)。"""
-        norm = normalize(source_raw)
-        for m in self._mappings:
-            if normalize(m.source_raw) == norm:
-                return m
-        return None
+        return self._norm_index.get(normalize(source_raw))
 
     # ── CRUD ──
     def add(
         self, source_raw: str, target: str, enabled: bool = True, joined: bool = False
     ) -> int:
-        """新規エントリを追加し採番した `id` を返す。"""
+        """新規エントリを追加し採番した `id` を返す。上限超過は `ValueError`。"""
+        if len(self._mappings) >= MAX_DICT_ENTRIES:
+            raise ValueError(
+                f"辞書の登録件数が上限 ({MAX_DICT_ENTRIES} 件) に達しています。"
+                "不要な語を削除してください。"
+            )
         m = Mapping(
             id=self._next_id, source_raw=source_raw, target=target,
             enabled=enabled, joined=joined,
@@ -171,19 +268,62 @@ class DictionaryStore:
         return m.target if (m is not None and m.joined) else None
 
     # ── JSON 入力 (共有用。実体ファイルと同形式。書き出しは rpc_dictJson が文字列で返す) ──
-    def import_json(self, path: Path) -> int:
-        """`path` の JSON を `upsert` で取り込み、取り込んだ件数を返す。"""
+    def import_json(self, path: Path) -> ImportResult:
+        """`path` の JSON をまとめて取り込み、取り込み件数と捨てた件数を返す。
+
+        **1 件ごとに `upsert` を呼ばない**のが要点である (F28)。`upsert` は 1 回ごとに
+        索引の全再構築と**辞書全文の書き直し**を行うため、N 件の取り込みが O(N^2) の
+        `normalize` 呼び出しと sum(i) バイトの書き込みになっていた。実測不要の構造で、
+        8 MiB の JSON (約 26 万件) で数時間・テラバイト級の書き込みになる。しかも
+        `/rpc` は `server.lock` を握ったまま走るのでアプリ全体が固まる。
+        よって「全件をメモリ上で適用 → `_rebuild_index` 1 回 → `_save` 1 回」に畳む。
+
+        上限 (`MAX_DICT_ENTRIES`) を超える取り込みは**何も変更せずに** `ValueError`。
+        途中まで書いた辞書を残さないため、判定は適用前に済ませる。
+        """
         try:
-            data = json.loads(Path(path).read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
+            data = json.loads(_read_text_limited(Path(path)))
+        except (json.JSONDecodeError, OSError, ValueError) as exc:
             raise ValueError(f"辞書ファイルを読み込めません: {exc}") from exc
-        count = 0
+
+        # ① 検証だけを先に回す (壊れた要素はここで捨て、件数を数える)。
+        skipped = 0
+        pending: List[tuple[str, str, bool]] = []
         for item in data if isinstance(data, list) else []:
-            if not isinstance(item, dict):
+            entry = self._entry_from_json(item)
+            if entry is None:
+                skipped += 1
                 continue
-            src = item.get("source", "").strip()
-            tgt = item.get("target", "").strip()
-            if src:
-                self.upsert(src, tgt, joined=bool(item.get("joined", False)))
-                count += 1
-        return count
+            src, target, _enabled, joined = entry
+            pending.append((src.strip(), target.strip(), joined))
+
+        # ② 適用後の件数を先に見積もって上限を判定する (新規キーだけが増える)。
+        added_keys = set()
+        for src, _t, _j in pending:
+            key = normalize(src)
+            if key not in self._norm_index:
+                added_keys.add(key)
+        if len(self._mappings) + len(added_keys) > MAX_DICT_ENTRIES:
+            raise ValueError(
+                f"辞書エントリが多すぎます (取り込み後 "
+                f"{len(self._mappings) + len(added_keys)} 件 / 上限 {MAX_DICT_ENTRIES} 件)。"
+            )
+
+        # ③ メモリ上だけで適用する (保存・索引再構築は最後に 1 回)。
+        for src, target, joined in pending:
+            key = normalize(src)
+            existing = self._norm_index.get(key)
+            if existing is not None:
+                existing.target = target
+                existing.source_raw = src
+                existing.joined = joined
+                continue
+            m = Mapping(
+                id=self._next_id, source_raw=src, target=target, joined=joined,
+            )
+            self._next_id += 1
+            self._mappings.append(m)
+            self._norm_index[key] = m
+        self._rebuild_index()
+        self._save()
+        return ImportResult(imported=len(pending), skipped=skipped)
