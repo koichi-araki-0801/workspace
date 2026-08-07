@@ -65,9 +65,13 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
 1) 【取得端末】この offline/ フォルダ一式を配置し、セットアップを実行
      offline\setup-offline.bat
    これだけで以下を全自動実行します:
-     - ソース ZIP を HTTPS 直取得 → 親フォルダ（リポジトリ直下）へ展開
+     - ソース ZIP を **pin された不変コミット**から HTTPS 直取得 → offline\pinned-release.txt
+       の sha256 と突き合わせ → 親フォルダ（リポジトリ直下）へ展開
        （実行中の offline/ 自身は上書きしません）
-     - 重量物バンドルを HTTPS 直取得 → sha256 検証 → lockfile 整合チェック → 展開
+     - 重量物バンドルを HTTPS 直取得 → pin の sha256 と突き合わせ → offline\bundle-signing.pub.xml
+       で分離署名(.sig)を検証 → 展開 → lockfile 整合チェック（bundle.key）
+       ★ 検証はすべて必須で、失敗・材料の欠落は中止（配信元に並ぶ .sha256 は同じ場所から
+         取る値なので判定には使いません）。
      - 同梱 pnpm を corepack 登録 → 依存をオフライン install → build → Playwright 配置
      - ダウンロードしたアーカイブを bk\ へ退避（同名は削除してから移動）
    「[OK] セットアップ完了。」が表示されれば完了です。
@@ -82,9 +86,11 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
        offline\setup-offline-local.bat
      前提: offline-deps-bundle.tar.gz（未展開）、もしくは展開済みの
            .pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse がリポジトリ直下（または bk\）にあること。
+           加えて offline-deps-bundle.tar.gz.sig と bundle.key（検証に必須）。
      引数:
-       offline\setup-offline-local.bat -SkipBuild   展開のみ（install/build 省略）
-       offline\setup-offline-local.bat -NoVerify    sha256 / lockfile 整合チェックを省略
+       offline\setup-offline-local.bat -SkipBuild          展開のみ（install/build 省略）
+       offline\setup-offline-local.bat -InstallTortoiseGit TortoiseGit も導入（昇格 MSI）
+     ※ 検証（pin の sha256 / 分離署名 / bundle.key）は必須で、失敗も材料の欠落も中止します。
 
 2) （任意）動作確認
        corepack pnpm run ci      ← CI 相当の一括検査（Biome / typecheck /
@@ -106,11 +112,19 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
 ------------------------------------------------------------------------------
 ■ 重量物・ソースの公開（調達側・オンライン機）
 ------------------------------------------------------------------------------
-  通常はコミット毎フック（.husky/post-commit）が自動で実行します:
+  ★ 初回だけ: 署名鍵を作る（公開担当者の端末で 1 回）
+       offline\new-bundle-signing-key.bat
+     秘密鍵は %USERPROFILE%\.offline-signing\ へ、公開鍵は offline\bundle-signing.pub.xml へ
+     出ます。公開鍵はコミットして offline/ ごと配布先へ運びます（配布先はこれだけを真正性の
+     根拠にします）。鍵が無いと重量物の公開は失敗します（署名失敗＝公開失敗）。
+
+  コミット毎フック（.husky/post-commit）が自動で行うのは **タグ移動だけ** です（-TagOnly）:
     - ローリングタグ offline-bundle-v1 を最新コミットへ移動（= Release の自動
       Source code が最新ソースに更新される）
-    - 重量物は content key（pnpm-lock.yaml + packageManager + 各 requirements.txt）に
-      差分がある時だけ再生成・再アップロード（差分が無ければ据え置き）
+    - 重量物の更新が必要（content key に差分）と判った場合は、タグも動かさずに終了します。
+      ★ コミットフックから依存解決器（pip download / pnpm install）は決して走らせません:
+        コミットに紛れた requirements.txt / lockfile の編集 1 つで外部コードの取得・実行まで
+        無人到達するためです。重量物の更新は下の手動実行で行ってください。
 
   ★ opt-in 方式（2026-07 変更）: フックは公開に使う clone で 1 回だけ
        git config offline.publish true
@@ -118,8 +132,10 @@ offline\setup-offline.bat を実行すれば、ソースコードと重量物の
      され、コミット時に skip の 1 行が表示されます（公開担当者が新しい clone へ移った
      ときは上記コマンドを再実行してください。確認: git config --get offline.publish）。
 
-  手動で実行する場合:
+  重量物を更新する（＝手動実行。依存解決器はここでだけ動く）:
        pwsh -File offline\publish-offline-bundle.ps1
+     実行後、offline\pinned-release.txt が更新されるので **忘れずにコミット**してください
+     （配布先はこの pin のコミット ID とハッシュだけを信頼します）。
   opt-in 済み環境で一時的に無効化したい場合は環境変数 OFFLINE_PUBLISH_SKIP=1 を設定。
 
   ※ 公開担当者の環境には Claude Code のローカルフック（.claude/hooks/ の
