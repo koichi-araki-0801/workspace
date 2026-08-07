@@ -53,10 +53,7 @@ describe('POST /build/project entry containment', () => {
     const { vivliostyleRoutes } = await import('../src/routes/vivliostyle.routes.js');
     app = Fastify();
     app.setErrorHandler(errorHandler);
-    // app.ts と同じく zip は Buffer のまま body に載せる。
-    app.addContentTypeParser('application/zip', { parseAs: 'buffer' }, (_req, body, done) => {
-      done(null, body);
-    });
+    // zip パーサは `vivliostyleRoutes` が自分の encapsulation 内へ登録する(本番と同じ形)。
     await app.register(vivliostyleRoutes);
     await app.ready();
 

@@ -128,10 +128,16 @@ const isTagNameChar = (c: string): boolean => !/[\s/>]/.test(c);
 /**
  * raw text 要素 `name` の終了タグ位置(`<` の index)を返す。見つからなければ -1。
  * 終端条件は仕様どおり「`</` + 名前 + 空白 / `/` / `>`」で、大文字小文字は無視する。
+ *
+ * ⚠ `lower`(= `html` 全体の小文字化コピー)は**呼び出し側が 1 回だけ作って渡す**。
+ * ここで `html.toLowerCase()` していた版は、raw text 開始タグ 1 つにつき入力全体の
+ * コピーを 1 つ作っていた。`RAW_TEXT_ELEMENTS` には `title` が入っているので
+ * `'<title></title>'` の反復が最悪形で、1MB の本文でも O(タグ数 × 長さ)=数十 GB の
+ * コピーになり、同期区間なのでイベントループが恒久停止する(= 全 API の停止)。
+ * 走査 1 回につきコピー 1 回に保つこと。
  */
-function findRawTextEnd(html: string, from: number, name: string): number {
+function findRawTextEnd(html: string, lower: string, from: number, name: string): number {
   const needle = `</${name}`;
-  const lower = html.toLowerCase();
   let i = from;
   while (i < lower.length) {
     const at = lower.indexOf(needle, i);
@@ -190,6 +196,8 @@ function parseAttrs(inner: string): ParsedAttr[] {
  */
 export function scanTags(html: string): ScanResult {
   const tags: TagSpan[] = [];
+  // 小文字化コピーは走査ごとに 1 つだけ(`findRawTextEnd` の注意書きを見よ)。
+  const lower = html.toLowerCase();
   let i = 0;
   while (i < html.length) {
     if (html[i] !== '<') {
@@ -261,7 +269,7 @@ export function scanTags(html: string): ScanResult {
     tags.push(span);
     i = end;
     if (!isEnd && RAW_TEXT_ELEMENTS.has(name)) {
-      const close = findRawTextEnd(html, i, name);
+      const close = findRawTextEnd(html, lower, i, name);
       if (close === -1) return { tags, ok: false };
       span.rawText = html.slice(i, close);
       i = close;

@@ -22,14 +22,24 @@ import { cleanupProject } from './projectInput.js';
 const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
 
 /**
- * `@vivliostyle/cli` の `build()` オプションを隔離プロセスで実行する。
+ * ワーカー枠を確保してから `fn` を走らせる。`fn` は受け取った `runBuild` で 1 回だけ組版する。
+ *
+ * ⚠ **資源の確保(temp ディレクトリ・配信ルートへの資産配置・egress ポート予約)は必ず
+ * `fn` の中で行うこと。** 枠を取る前に確保していた版は、順番待ちのあいだも
+ * 「1 ビルド 4 ポート + 展開済み資産 + temp ディレクトリ」を握り続けたため、行列に並んで
+ * いるだけで資源が枯れた。枠を取ってから確保すれば、握る資源は常に同時実行数ぶんで頭打ちになる。
+ *
  * 既定は常駐ウォームワーカープール(`buildWorkerPool`)へ委譲し、`@vivliostyle/cli` の import
  * (計測 ~11s)をプロセス使い回しで 1 度きりにする。`config.vivliostyle.build.poolSize <= 0` の
  * ときは従来の「ジョブ毎 spawn」(`runBuildWorkerSpawn`)へフォールバックする(安全弁)。
+ * ⚠ フォールバック経路には行列も同時実行上限も無い — 障害調査用の安全弁であり、
+ * 常用しない(常用するなら、ここに `buildWorkerPool` と同じ受付制御を入れること)。
  */
-function runBuildWorker(buildOptions: unknown): Promise<void> {
-  if (config.vivliostyle.build.poolSize <= 0) return runBuildWorkerSpawn(buildOptions);
-  return buildWorkerPool.run(buildOptions);
+function withBuildSlot<T>(
+  fn: (runBuild: (buildOptions: unknown) => Promise<void>) => Promise<T>,
+): Promise<T> {
+  if (config.vivliostyle.build.poolSize <= 0) return fn(runBuildWorkerSpawn);
+  return buildWorkerPool.withSlot(fn);
 }
 
 /**
@@ -101,6 +111,19 @@ interface BuildInlineInput {
  * 再現する。inline 経路はそのドロップイン置換である。
  */
 export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
+  // 外部参照の関門は**ここ**(サーバの build 入口)。ブラウザ側の検査だけだと
+  // 公開 API へ直接 POST すれば無検査で headless へ届く(`security/externalRefs.ts` 参照)。
+  // 枠の確保より前に置くのは、拒否すべき入力を行列へ並ばせないため(同期の文字列検査で、
+  // 資源は 1 つも握らない)。
+  assertNoDocumentExternalRefs(input.html, input.css ?? '', 'build.inline');
+  return withBuildSlot((runBuild) => buildInlineInSlot(input, runBuild));
+}
+
+/** 枠を確保した状態で inline ビルドを行う(資源の確保はすべてこの中)。 */
+async function buildInlineInSlot(
+  input: BuildInlineInput,
+  runBuild: (buildOptions: unknown) => Promise<void>,
+): Promise<Buffer> {
   await fs.mkdir(config.tmpDir, { recursive: true });
   const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   // ⚠ **ビルドごとに専用ディレクトリを作る。** `config.tmpDir` 直下へ書いていた頃は、
@@ -114,9 +137,6 @@ export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
   const scope = await buildScope();
 
   try {
-    // 外部参照の関門は**ここ**(サーバの build 入口)。ブラウザ側の検査だけだと
-    // 公開 API へ直接 POST すれば無検査で headless へ届く(`security/externalRefs.ts` 参照)。
-    assertNoDocumentExternalRefs(input.html, input.css ?? '', 'build.inline');
     // 配置するのは**この文書が参照している**資産だけ(`docRefs.ts` の理由を見よ)。
     const served = await stageDocAssets(dir, {
       referenced: collectDocumentAssetRefs(input.html, input.css ?? ''),
@@ -139,7 +159,7 @@ export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
       'utf8',
     );
 
-    await runBuildWorker({
+    await runBuild({
       input: htmlPath,
       // `cwd` を明示する。省略すると CLI の `entryContextDir` がサーバの作業ディレクトリ
       // (= リポジトリルート)になり、そこが `sirv` で配信対象に載る。
@@ -179,6 +199,18 @@ interface BuildProjectInput {
  * `vivliostyle.config.*` があればそれを、無ければ単一エントリファイルを使う。
  */
 export async function buildProjectPdf(input: BuildProjectInput): Promise<Buffer> {
+  return withBuildSlot((runBuild) => buildProjectInSlot(input, runBuild));
+}
+
+/**
+ * 枠を確保した状態で project ビルドを行う。`buildMergedPdf` は自前で枠を取ってから
+ * こちらを直接呼ぶ — `buildProjectPdf` を呼ぶと枠を二重に取りに行き、同時実行上限が 1 の
+ * 構成で自分自身を待つデッドロックになる。
+ */
+async function buildProjectInSlot(
+  input: BuildProjectInput,
+  runBuild: (buildOptions: unknown) => Promise<void>,
+): Promise<Buffer> {
   const pdfPath = path.join(input.dir, `__out-${Date.now()}.pdf`);
   const scope = await buildScope();
 
@@ -188,7 +220,7 @@ export async function buildProjectPdf(input: BuildProjectInput): Promise<Buffer>
     const entry = input.config
       ? { configData: input.config, cwd: input.dir }
       : { cwd: input.dir, input: input.entry };
-    await runBuildWorker({
+    await runBuild({
       ...entry,
       output: [{ path: pdfPath, format: 'pdf' }],
       ...(input.size ? { size: input.size } : {}),
@@ -213,16 +245,21 @@ export async function buildMergedPdf(input: {
   size?: string;
 }): Promise<Buffer> {
   // 結合は文書毎に実体化されるので、実体化の**前**に全文書を検査する
-  // (1 文書でも外部参照を持てば egress は成立する)。
+  // (1 文書でも外部参照を持てば egress は成立する)。枠を取る前に検査するのは inline と
+  // 同じ理由(拒否すべき入力を行列へ並ばせない)。
   for (const [i, doc] of input.documents.entries()) {
     assertNoDocumentExternalRefs(doc.html, doc.css, `build.merge[${i}]`);
   }
-  const { dir, config: mergeConfig } = await materializeMergeProject(input.documents, input.size);
-  try {
-    return await buildProjectPdf({ dir, config: mergeConfig });
-  } finally {
-    await cleanupProject(dir);
-  }
+  // 実体化(文書数ぶんのファイル書き出し)も枠の内側で行う。外に出すと、順番待ちの
+  // あいだ最大 30 文書ぶんの展開済みディレクトリが並んで残る。
+  return withBuildSlot(async (runBuild) => {
+    const { dir, config: mergeConfig } = await materializeMergeProject(input.documents, input.size);
+    try {
+      return await buildProjectInSlot({ dir, config: mergeConfig }, runBuild);
+    } finally {
+      await cleanupProject(dir);
+    }
+  });
 }
 
 /**

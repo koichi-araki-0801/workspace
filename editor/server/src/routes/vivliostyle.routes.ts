@@ -8,9 +8,11 @@
 // ワイルドカード `/preview/:id/*` に流す。Fastify は既定で末尾スラッシュを区別(`ignoreTrailingSlash`
 // が false)し、静的経路をワイルドカードより優先するため、この 2 経路で分離できる。
 //
-// zip アップロード(project モード)は `app.ts` の content-type parser が `application/zip` /
-// `application/octet-stream` を Buffer 化して `request.body` に載せる。inline(JSON)は通常の
-// JSON パーサが object を載せる。両者は `Buffer.isBuffer` で判別する。
+// zip アップロード(project モード)は `routes/zipBodyParser.ts` の content-type parser が
+// `application/zip` / `application/octet-stream` を Buffer 化して `request.body` に載せる。
+// inline(JSON)は通常の JSON パーサが object を載せる。両者は `Buffer.isBuffer` で判別する。
+// ⚠ そのパーサの登録は**この plugin の中**でしか行わない(ルートインスタンスへ戻すと
+// 全ルートへ伝播し、`bodyLimit` の効かない 64MB バッファが任意の POST で開く)。
 import { apiPaths, notFound, validation } from '@editor/shared';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
@@ -34,6 +36,7 @@ import {
   extractProjectZip,
   safeProjectEntry,
 } from '../vivliostyle/projectInput.js';
+import { registerZipBodyParser } from './zipBodyParser.js';
 
 const PREVIEW_HOST = config.vivliostyle.preview.host;
 
@@ -84,6 +87,8 @@ function projectOptions(
 }
 
 export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
+  registerZipBodyParser(app);
+
   // POST /api/build — inline(レンダリング済み HTML + CSS)→ PDF。旧 /pdf を置き換える。
   app.post<{ Body: z.infer<typeof BuildInlineRequest> }>(
     apiPaths.build,

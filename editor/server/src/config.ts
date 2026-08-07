@@ -437,6 +437,19 @@ export const config = {
         5 * 60_000,
         { integer: true },
       ),
+      /**
+       * ワーカー待ちの行列に並べる最大件数。超過は待たせずに即エラーで返す。
+       *
+       * 上限が無い版では、1 ビルドが最大 `timeoutMs`(既定 120s)掛かるあいだ、到着した
+       * リクエストが全部キューへ積まれた。しかも待っている間ずっと temp ディレクトリ・
+       * 配信ルートへ写した資産・egress の許可ポート(1 ビルド 4 個)を握るので、
+       * 「並んでいるだけ」で資源が枯れる。行列の長さは**待ち時間の上限**でもある
+       * (poolSize=2・timeout=120s・queue=8 なら最悪待ち ~8 分)。
+       */
+      maxQueue: envPositiveNumber('VIVLIO_BUILD_MAX_QUEUE', process.env.VIVLIO_BUILD_MAX_QUEUE, 8, {
+        integer: true,
+        max: 256,
+      }),
     },
   },
 

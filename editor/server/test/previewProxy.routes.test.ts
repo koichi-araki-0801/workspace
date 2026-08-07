@@ -47,13 +47,8 @@ describe('GET /api/preview/:id/* の中継許可リスト', () => {
     const { vivliostyleRoutes } = await import('../src/routes/vivliostyle.routes.js');
     app = Fastify();
     app.setErrorHandler(errorHandler);
-    // app.ts と同じく zip / octet-stream は preHandler より前に Buffer 化される。
-    // 非 GET がルートに登録されていないことを、この構成のまま確かめる。
-    app.addContentTypeParser(
-      ['application/zip', 'application/octet-stream'],
-      { parseAs: 'buffer' },
-      (_req, body, done) => done(null, body),
-    );
+    // zip / octet-stream の Buffer 化は `vivliostyleRoutes` が自分の encapsulation 内で
+    // 登録する(本番と同じ形)。非 GET がルートに登録されていないことをこの構成で確かめる。
     await app.register(vivliostyleRoutes, { prefix: '/api' });
     await app.ready();
     knownId = crypto.randomUUID();

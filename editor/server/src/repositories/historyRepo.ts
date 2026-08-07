@@ -21,44 +21,45 @@ import {
   validation,
 } from '@editor/shared';
 import { appendHistory, readHistory } from '../files/historyFiles.js';
-import {
-  commitDate,
-  commitFiles,
-  type GitCommitMeta,
-  logAll,
-  logForFile,
-  showFile,
-} from '../git/gitRepo.js';
+import { commitDate, commitFiles, logAllWithFiles, logForFile, showFile } from '../git/gitRepo.js';
 
 const TEMPLATES_PATHSPEC = 'templates';
 const templateRel = (templateId: string): string => `${TEMPLATES_PATHSPEC}/${templateId}.html`;
 const cssRel = (fundCode: string): string => `css/${fundCode}.css`;
 
-/** コミットで変更された最初の `templates/*.html`(無ければ null)。 */
-async function changedTemplateFile(hash: string): Promise<string | null> {
-  const files = await commitFiles(hash);
+/** 変更ファイル一覧から最初の `templates/*.html` を取り出す(無ければ null)。 */
+function templateFileOf(files: readonly string[]): string | null {
   const tpl = files.find((f) => f.startsWith(`${TEMPLATES_PATHSPEC}/`) && f.endsWith('.html'));
   return tpl ? tpl.slice(`${TEMPLATES_PATHSPEC}/`.length) : null;
 }
 
+/** コミットで変更された最初の `templates/*.html`(無ければ null)。 */
+async function changedTemplateFile(hash: string): Promise<string | null> {
+  return templateFileOf(await commitFiles(hash));
+}
+
 // ── git 由来: 編集履歴 / 版一覧 / スナップ ──
 
-/** 全テンプレの編集履歴(templates/ に触れた各コミット)。 */
+/**
+ * 全テンプレの編集履歴(templates/ に触れた各コミット)。
+ *
+ * ⚠ コミットごとに `git show` を呼ぶ形へ戻さないこと。`Promise.all(commits.map(...))` は
+ * 全コミットぶんの子プロセスを同一 tick で spawn するため、承認のたび伸びる履歴が
+ * そのまま 1 リクエストのプロセス数になる(各子は `maxBuffer` 64MB を持つ)。
+ * 変更ファイルは `logAllWithFiles` が同じ `git log` から取る = 子プロセスは常に 1 個。
+ */
 export async function getEditHistory(): Promise<EditHistoryEntry[]> {
-  const commits = await logAll(TEMPLATES_PATHSPEC);
-  const entries = await Promise.all(
-    commits.map(async (c: GitCommitMeta) => {
-      const fileName = await changedTemplateFile(c.hash);
-      return {
-        id: c.hash,
-        templateId: fileName ? templateIdFromFileName(fileName) : '',
-        user: c.author,
-        timestamp: c.date,
-        summary: c.subject,
-      };
-    }),
-  );
-  return entries;
+  const commits = await logAllWithFiles(TEMPLATES_PATHSPEC);
+  return commits.map((c) => {
+    const fileName = templateFileOf(c.files);
+    return {
+      id: c.hash,
+      templateId: fileName ? templateIdFromFileName(fileName) : '',
+      user: c.author,
+      timestamp: c.date,
+      summary: c.subject,
+    };
+  });
 }
 
 /** テンプレ単位の版一覧(新しい順)。historyId はコミット hash。 */

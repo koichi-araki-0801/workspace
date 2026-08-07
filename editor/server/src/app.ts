@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import type http from 'node:http';
 import type https from 'node:https';
 import path from 'node:path';
-import { apiPaths, unauthorized, validation } from '@editor/shared';
+import { apiPaths, unauthorized } from '@editor/shared';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import staticPlugin from '@fastify/static';
@@ -101,42 +101,12 @@ app.addHook('onRequest', async (request) => {
   if (!user || user.disabled) throw unauthorized('ログインが必要です');
 });
 
-// project zip アップロードのパーサ。グローバル `bodyLimit`(8mb) をバイパスし、自前で
-// `maxProjectBytes`(既定 64MB) を強制する。超過時は 413 ではなく現行と同じ `validation`(400)
-// を返すため、関数形式(`parseAs` 不使用)で `done(validation(...))` を返す。
-app.addContentTypeParser(
-  ['application/zip', 'application/octet-stream'],
-  (request, payload, done) => {
-    const limit = config.vivliostyle.build.maxProjectBytes;
-    // `done` は `Error` を期待するが、`AppError`(plain object)を渡しても setErrorHandler が
-    // `toAppError`→`statusForKind('validation')`=400 で正規化する。現行の 413 ではなく 400 を維持。
-    const tooLarge = () => validation('プロジェクトが大きすぎます') as unknown as Error;
-
-    // 申告サイズが上限超えなら受信前に断る。1 バイトも積まないので、上限ぎりぎりを詰めた
-    // 同時接続でメモリを占有される窓が消える。ここで `payload.destroy()` はしない —
-    // 送信途中のストリームを壊すと接続がリセットされ、クライアントは 400 を受け取れずに
-    // 送信エラーになる。読まずに放置し、応答の送出は Fastify に任せる。
-    const declared = Number(request.headers['content-length']);
-    if (Number.isFinite(declared) && declared > limit) {
-      done(tooLarge(), undefined);
-      return;
-    }
-
-    const chunks: Buffer[] = [];
-    let size = 0;
-    payload.on('data', (c: Buffer) => {
-      size += c.length;
-      if (size > limit) {
-        payload.destroy();
-        done(tooLarge(), undefined);
-        return;
-      }
-      chunks.push(c);
-    });
-    payload.on('end', () => done(null, Buffer.concat(chunks)));
-    payload.on('error', (err) => done(err, undefined));
-  },
-);
+// ⚠ project zip の content-type parser を**ここ(ルートインスタンス)へ戻さないこと。**
+// Fastify の encapsulation では、ルートに登録したパーサは全ルートへ伝播する。関数形式の
+// パーサは `rawBody` を経由しない = `bodyLimit` が一切効かないため、ルートに置くと
+// 「任意の POST/PUT へ `Content-Type: application/zip` を付けるだけで 64MB を積める」
+// 経路になる(しかもパーサは preHandler より前に走るのでロールガードは間に合わない)。
+// 実体は zip を受ける 2 ルートを持つ `vivliostyleRoutes` の中に閉じてある。
 
 // 中央エラーハンドラ — ルート/preHandler の throw をここで AppError 形へ正規化する。
 app.setErrorHandler(errorHandler);

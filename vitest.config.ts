@@ -69,6 +69,13 @@ export default defineConfig({
         'editor/server/src/vivliostyle/inlineDocScripts.ts',
         'editor/server/src/vivliostyle/previewManager.ts',
         'editor/server/src/vivliostyle/buildWorkerPool.ts',
+        // 段階 3(資源上限)で新設・改修した層。上限そのものと、上限を守るための
+        // 直列化・適用範囲の限定は、迂回されると単一プロセスが 1 リクエストで止まる。
+        'editor/server/src/files/atomic.ts',
+        'editor/server/src/files/fileLock.ts',
+        'editor/server/src/files/historyFiles.ts',
+        'editor/server/src/files/notesFile.ts',
+        'editor/server/src/routes/zipBodyParser.ts',
         // editor/web (UI/VM/Service/Repository 層)
         'editor/web/src/workers/fallback.ts',
         'editor/web/src/lib/jinjaMask.ts',

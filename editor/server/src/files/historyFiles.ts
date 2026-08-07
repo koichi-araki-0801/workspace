@@ -14,6 +14,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { validation } from '@editor/shared';
 import { config } from '../config.js';
 
 /** ファイル監査ログに記録する履歴の種別。 */
@@ -27,6 +28,17 @@ export const MAX_HISTORY_GENERATIONS = 3;
 export const MAX_HISTORY_TAIL_BYTES = 4 * 1024 * 1024;
 /** `readHistory` が返す既定の最大件数。 */
 export const DEFAULT_HISTORY_LIMIT = 500;
+/**
+ * 1 レコード(1 行)の上限バイト数。
+ *
+ * 読み側が末尾 `MAX_HISTORY_TAIL_BYTES` しか読まないので、**1 行がその窓より長いと
+ * それ以前の履歴が全部視界から消える**。しかも `readTail` は行の途中から始まる先頭を
+ * 捨てるので、窓を丸ごと覆う 1 行は「0 件」を返させる。読み窓に対して十分小さい上限を
+ * 追記側に置き、書式の想定(id・templateId・ISO 時刻・ログインID)から外れた巨大な
+ * レコードは記録せず入力エラーとして返す。契約側の `.max()` と二重にするのは、
+ * 契約を通らない内部呼び出しでも窓を潰させないため。
+ */
+export const MAX_HISTORY_RECORD_BYTES = 64 * 1024;
 
 const historyDir = (): string => path.join(config.logging.dir, 'history');
 const fileFor = (kind: HistoryKind): string => path.join(historyDir(), `${kind}.jsonl`);
@@ -50,11 +62,18 @@ async function rotateIfNeeded(kind: HistoryKind): Promise<void> {
   }
 }
 
-/** 1 イベントを追記する(ディレクトリは必要に応じて作成)。 */
+/**
+ * 1 イベントを追記する(ディレクトリは必要に応じて作成)。
+ * 1 行が `MAX_HISTORY_RECORD_BYTES` を超えるレコードは**書かずに拒否**する(理由は定数の説明)。
+ */
 export async function appendHistory(kind: HistoryKind, entry: unknown): Promise<void> {
+  const line = `${JSON.stringify(entry)}\n`;
+  if (Buffer.byteLength(line, 'utf8') > MAX_HISTORY_RECORD_BYTES) {
+    throw validation('履歴に記録する値が大きすぎます');
+  }
   await fs.mkdir(historyDir(), { recursive: true });
   await rotateIfNeeded(kind);
-  await fs.appendFile(fileFor(kind), `${JSON.stringify(entry)}\n`, 'utf8');
+  await fs.appendFile(fileFor(kind), line, 'utf8');
 }
 
 /**
@@ -95,18 +114,23 @@ export async function readHistory<T>(
   opts: { limit?: number; where?: (entry: T) => boolean } = {},
 ): Promise<T[]> {
   const limit = Math.max(1, Math.min(opts.limit ?? DEFAULT_HISTORY_LIMIT, DEFAULT_HISTORY_LIMIT));
-  const raw = await readTail(fileFor(kind));
-  const lines = raw.split('\n');
   const out: T[] = [];
-  // 末尾から遡る = 新しい順。上限に達したら残りは読まない。
-  for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
-    const line = lines[i];
-    if (line.length === 0) continue;
-    try {
-      const entry = JSON.parse(line) as T;
-      if (opts.where === undefined || opts.where(entry)) out.push(entry);
-    } catch {
-      // 追記の競合等で壊れた行は飛ばす。1 行の破損でフィード全体を落とさない。
+  // 現行ファイル → 旧世代の順に、上限に達するまで遡る。旧世代を読まなかった版は、
+  // ローテーションが 1 回起きただけで画面から履歴が消えた(しかも `rotateIfNeeded` は
+  // 追記側が勝手に起こすので、利用者から見ると理由が分からない)。
+  for (let gen = 0; gen <= MAX_HISTORY_GENERATIONS && out.length < limit; gen++) {
+    const file = gen === 0 ? fileFor(kind) : genFileFor(kind, gen);
+    const lines = (await readTail(file)).split('\n');
+    // 末尾から遡る = 新しい順。上限に達したら残りは読まない。
+    for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
+      const line = lines[i];
+      if (line.length === 0) continue;
+      try {
+        const entry = JSON.parse(line) as T;
+        if (opts.where === undefined || opts.where(entry)) out.push(entry);
+      } catch {
+        // 追記の競合等で壊れた行は飛ばす。1 行の破損でフィード全体を落とさない。
+      }
     }
   }
   return out;

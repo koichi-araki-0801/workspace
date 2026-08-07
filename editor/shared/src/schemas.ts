@@ -19,6 +19,22 @@ import 'zod-openapi';
 import { z } from 'zod';
 import { isValidTemplateId } from './domain/template.js';
 
+// ── 0. 資源上限 — 契約の段で本文の大きさを縛る ──
+//
+// editor は単一プロセスで、本文を同期で走査する経路(タグ走査・不変性照合・パーツ同期)が
+// 複数ある。走査の計算量を直したうえで、なお**入力そのものに天井を置く**のは、天井が無い
+// 契約は「グローバル `bodyLimit` だけが上限」= 経路ごとの上限引き上げがそのまま各走査の
+// 上限引き上げになるためである。ここの値はテンプレ実物(数百 KB)に対して十分な余裕がある。
+
+/** 1 文書ぶんの HTML の最大長(UTF-16 単位)。 */
+export const MAX_DOCUMENT_HTML_CHARS = 4 * 1024 * 1024;
+/** 1 文書ぶんの CSS の最大長(UTF-16 単位)。 */
+export const MAX_DOCUMENT_CSS_CHARS = 1024 * 1024;
+/** メモ 1 件の本文の最大長。 */
+export const MAX_NOTE_CONTENT_CHARS = 64 * 1024;
+/** メモのパーツキーの最大長(構造パスキーで、実物は数十文字)。 */
+export const MAX_NOTE_PATH_KEY_CHARS = 512;
+
 // ── 1. Template identity — テンプレート同定 ──
 
 export const TemplateStatus = z.enum(['draft', 'published']).meta({ id: 'TemplateStatus' });
@@ -227,9 +243,16 @@ export const PartHistoryEntry = z
   })
   .meta({ id: 'PartHistoryEntry' });
 
-/** (server 専用) PDF 出力の記録ボディ。 */
+/**
+ * (server 専用) PDF 出力の記録ボディ。
+ *
+ * `templateId` を素の `z.string()` にしていた版は、監査フィードの**消去装置**だった:
+ * 記録は 1 行 1 JSON の追記で、読み側は末尾 `MAX_HISTORY_TAIL_BYTES` しか読まない。
+ * つまり読み窓より長い 1 行を書くだけで、それ以前の全履歴が API の視界から落ちる
+ * (`files/historyFiles.ts` の追記側上限と対で守る)。
+ */
 export const RecordPdfExportRequest = z
-  .object({ templateId: z.string() })
+  .object({ templateId: TemplateId })
   .meta({ id: 'RecordPdfExportRequest' });
 
 /** (server 専用) パーツ変更の記録ボディ。`templateId` はパスから取る。 */
@@ -312,10 +335,10 @@ export const ReviewRequest = ReviewRequestMeta.extend({
 export const SubmitReviewBody = z
   .object({
     templateId: TemplateId,
-    html: z.string().meta({ description: '復元済みの生 Jinja2 HTML' }),
-    css: z.string(),
+    html: z.string().max(MAX_DOCUMENT_HTML_CHARS).meta({ description: '復元済みの生 Jinja2 HTML' }),
+    css: z.string().max(MAX_DOCUMENT_CSS_CHARS),
     fundCode: z.string().min(1),
-    filledHtml: z.string().optional(),
+    filledHtml: z.string().max(MAX_DOCUMENT_HTML_CHARS).optional(),
     origin: ReviewOrigin.meta({
       description: "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
     }),
@@ -513,8 +536,15 @@ export const PartNote = z
 /** (server 専用) メモ保存のボディ。`templateId` はパスから取る。`content` 空文字は削除に倒す。 */
 export const SaveNoteRequest = z
   .object({
-    pathKey: z.string().min(1).meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
-    content: z.string().meta({ description: '空文字は「メモ無し」= 削除' }),
+    pathKey: z
+      .string()
+      .min(1)
+      .max(MAX_NOTE_PATH_KEY_CHARS)
+      .meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+    content: z
+      .string()
+      .max(MAX_NOTE_CONTENT_CHARS)
+      .meta({ description: '空文字は「メモ無し」= 削除' }),
   })
   .meta({ id: 'SaveNoteRequest' });
 
@@ -551,8 +581,12 @@ export const SaveDraftRequest = z
 /** インライン build のリクエストボディ(レンダリング済み HTML + 任意 CSS → PDF)。 */
 export const BuildInlineRequest = z
   .object({
-    html: z.string().min(1).meta({ description: 'レンダリング済み(nunjucks)HTML' }),
-    css: z.string().default(''),
+    html: z
+      .string()
+      .min(1)
+      .max(MAX_DOCUMENT_HTML_CHARS)
+      .meta({ description: 'レンダリング済み(nunjucks)HTML' }),
+    css: z.string().max(MAX_DOCUMENT_CSS_CHARS).default(''),
     size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
     singleDoc: z.boolean().optional().meta({ description: '単一ドキュメント扱い' }),
   })
@@ -561,8 +595,12 @@ export const BuildInlineRequest = z
 /** 結合 build の 1 文書(レンダリング済み HTML + 任意 CSS)。 */
 export const BuildMergeDocument = z
   .object({
-    html: z.string().min(1).meta({ description: 'レンダリング済み(nunjucks)HTML' }),
-    css: z.string().default(''),
+    html: z
+      .string()
+      .min(1)
+      .max(MAX_DOCUMENT_HTML_CHARS)
+      .meta({ description: 'レンダリング済み(nunjucks)HTML' }),
+    css: z.string().max(MAX_DOCUMENT_CSS_CHARS).default(''),
   })
   .meta({ id: 'BuildMergeDocument' });
 

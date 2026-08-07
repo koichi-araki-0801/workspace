@@ -54,7 +54,19 @@ const IN_FLIGHT_TTL_MS = 60_000;
 
 /** 掃除の最短間隔。試行のたびに全走査しないための間引き。 */
 const PRUNE_INTERVAL_MS = 60_000;
-/** 保持するエントリ数のハードキャップ。超過分は呼び出しごとに最古から 1 件ずつ退避する。 */
+/**
+ * 表が満杯のときに間引きを無視して掃除する最短間隔。
+ *
+ * 満杯の間は毎回全走査してもよさそうに見えるが、それだと**満杯であること自体**が
+ * 「1 リクエストあたり O(件数)」を意味してしまい、溢れさせる側に有利な計算量になる。
+ * 掃除の目的は「期限切れで埋まった表のせいで正規利用者まで拒否され続ける」状態からの
+ * 復帰なので、秒単位の粒度で十分。
+ */
+const FORCED_PRUNE_INTERVAL_MS = 1_000;
+/**
+ * 保持するエントリ数のハードキャップ。**超過分は退避しない** — 上限に達したら
+ * 新規キーの試行を拒否する(`prune` / `beginCredentialAttempt` の注記)。
+ */
 export const LOGIN_MAX_ENTRIES = 10_000;
 /** レート制限で拒否したことを機械可読に伝えるコード(UI はこれで文言を出し分けできる)。 */
 export const LOGIN_RATE_LIMITED_CODE = 'LOGIN_RATE_LIMITED';
@@ -85,7 +97,7 @@ interface CountingState {
   firstAt: number;
 }
 
-/** 窓の中で数えている最中のキー。Map の挿入順 = 初出順なので最古退避が O(1)。 */
+/** 窓の中で数えている最中のキー。Map の挿入順 = 初出順(掃除の走査順もこれに従う)。 */
 const counting = new Map<string, CountingState>();
 /** 拒否が確定したキー → 解除時刻。counting とは別 Map にして退避順を分ける。 */
 const blocked = new Map<string, number>();
@@ -93,6 +105,7 @@ const blocked = new Map<string, number>();
 const inFlight = new Map<number, number>();
 let nextSerial = 1;
 let lastPrunedAt = 0;
+let lastForcedPruneAt = Number.NEGATIVE_INFINITY;
 
 /**
  * ログインID を長さ有界の識別子へ畳む。正規化済みの値を受け取る前提で、ここでは
@@ -104,32 +117,42 @@ function loginIdDigest(loginId: string): string {
 }
 
 /**
- * 期限切れエントリを捨て、件数が上限を超えるなら最古から退避する。
- * 退避は counting を先に、それが空のときだけ blocked を落とす。拒否中を先に捨てると、
- * 攻撃者が別ID の試行で表を溢れさせて自分のブロックを流せてしまう。
- * 全件 sort をしない: 上限超過は呼び出しごとに 1 件ずつ吸収すれば足り、sort を挟むと
- * 上限に張り付いた状態で毎リクエスト n log n を払うことになる。
+ * 期限切れエントリだけを捨てる。**生きているカウンタは絶対に退避しない。**
+ *
+ * 以前は件数上限を「最古から追い出す」で吸収していたが、追い出される entry は
+ * **窓の中で数えている最中の失敗カウンタ**である。表が上限に張り付いた状態では
+ * 呼び出しのたびに 1 件以上が落ち、落ちたキーは次の計上で 0 からやり直しになる。
+ * つまり洪水下でリミッタが**素通し(fail open)**へ倒れる — 固定長テーブルの定番の
+ * 壊れ方で、しかも表を溢れさせるのは外から自由にできる(ログインID を変えるだけ)。
+ * 上限は「退避」ではなく「**新規キーの拒否**」で守る(`beginCredentialAttempt`)。
+ *
+ * 全件 sort はしない。期限切れの掃除は `PRUNE_INTERVAL_MS` で間引くが、上限に達している
+ * ときは間引きを無視して掃除する — そこで諦めると、期限切れだけで埋まった表のせいで
+ * 正規利用者まで拒否され続ける。
  */
-function prune(now: number): void {
+function prune(now: number, force: boolean): void {
   for (const [serial, startedAt] of inFlight) {
     if (now - startedAt <= IN_FLIGHT_TTL_MS) break;
     inFlight.delete(serial);
   }
-  if (now - lastPrunedAt >= PRUNE_INTERVAL_MS) {
-    lastPrunedAt = now;
-    for (const [key, state] of counting) {
-      if (now - state.firstAt > WINDOW_MS) counting.delete(key);
-    }
-    for (const [key, until] of blocked) {
-      if (until <= now) blocked.delete(key);
-    }
+  if (force) {
+    if (now - lastForcedPruneAt < FORCED_PRUNE_INTERVAL_MS) return;
+    lastForcedPruneAt = now;
+  } else if (now - lastPrunedAt < PRUNE_INTERVAL_MS) {
+    return;
   }
-  while (counting.size + blocked.size > LOGIN_MAX_ENTRIES) {
-    const victims = counting.size > 0 ? counting : blocked;
-    const oldest = victims.keys().next();
-    if (oldest.done) break;
-    victims.delete(oldest.value);
+  lastPrunedAt = now;
+  for (const [key, state] of counting) {
+    if (now - state.firstAt > WINDOW_MS) counting.delete(key);
   }
+  for (const [key, until] of blocked) {
+    if (until <= now) blocked.delete(key);
+  }
+}
+
+/** 表が上限に達しているか(新規キーを受け入れられないか)。 */
+function tableIsFull(): boolean {
+  return counting.size + blocked.size >= LOGIN_MAX_ENTRIES;
 }
 
 /** 拒否中なら残り待ち時間(ms)、そうでなければ null。 */
@@ -189,7 +212,7 @@ export function beginCredentialAttempt(
   loginId: string,
   now: number = Date.now(),
 ): BeginResult {
-  prune(now);
+  prune(now, false);
   if (inFlight.size >= MAX_CONCURRENT_ATTEMPTS) {
     return {
       ok: false,
@@ -200,6 +223,18 @@ export function beginCredentialAttempt(
   }
   const ipKey = `${scope} ${ip ?? 'unknown'}`;
   const idKey = `${ipKey} ${loginIdDigest(loginId)}`;
+
+  // 表が満杯で、かつこの試行が**新しいキーを増やす**なら拒否する(fail closed)。
+  // 既知のキー(数えている最中 / 拒否中)はエントリを増やさないので満杯でも通す —
+  // ここで一律に断ると、表が埋まっている間は拒否中のキーの判定にすら届かなくなる。
+  if (tableIsFull()) {
+    // 満杯のときだけ間引きを無視して期限切れを掃除し、それでも空かないなら断る。
+    prune(now, true);
+    const isKnown = (k: string): boolean => counting.has(k) || blocked.has(k);
+    if (tableIsFull() && !(isKnown(ipKey) && isKnown(idKey))) {
+      return { ok: false, error: rateLimited(BLOCK_MS) };
+    }
+  }
 
   const ipBlocked = blockedFor(ipKey, now);
   if (ipBlocked !== null) return { ok: false, error: rateLimited(ipBlocked) };
@@ -250,4 +285,5 @@ export function resetLoginRateLimit(): void {
   inFlight.clear();
   nextSerial = 1;
   lastPrunedAt = 0;
+  lastForcedPruneAt = Number.NEGATIVE_INFINITY;
 }

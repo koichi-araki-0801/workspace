@@ -181,32 +181,33 @@ describe('同時実行ゲージ(第 3 段)', () => {
 
 describe('表の上限と掃除', () => {
   // 期限切れ掃除だけでは件数の上限にならない(窓の 5 分間はどれも消せない)。毎回違う
-  // ログインID を送るだけで表が伸びるため、ハードキャップと退避順を対で固定する。
-  it('caps the table size and keeps a live block while evicting', () => {
+  // ログインID を送るだけで表が伸びるため、ハードキャップが要る。
+  // ⚠ 上限の吸収を「最古から退避」でやってはならない — 退避されるのは窓の中で数えている
+  // 最中の失敗カウンタで、落ちたキーは次の計上で 0 からやり直しになる(fail open)。
+  // 上限は**新規キーの拒否**で守る。詳細は `loginRateLimit.capacity.test.ts`。
+  it('caps the table size and keeps a live block while flooded', () => {
     for (let i = 0; i < LOGIN_MAX_FAILURES + 1; i += 1) attempt('victim', T0);
     // 未認証でできる操作(違う IP・違う ID で失敗し続ける)だけで上限を溢れさせる。
     for (let i = 0; i < LOGIN_MAX_ENTRIES + 100; i += 1) {
       attempt(`flood${i}`, T0 + 1, `10.9.${(i >> 8) & 255}.${i & 255}`);
     }
-    // 退避は呼び出しごとに走るが、1 回の `begin` は IP キーと ID キーの 2 件を足しうる。
-    // よって観測値の上限は「キャップ + 2」で、件数が要求レートに比例して伸びることはない。
+    // 1 回の `begin` は IP キーと ID キーの 2 件を足しうるので観測値の上限は「キャップ + 2」。
+    // 件数が要求レートに比例して伸びることはない。
     expect(loginAttemptEntryCount()).toBeLessThanOrEqual(LOGIN_MAX_ENTRIES + 2);
     // 溢れさせた側にブロックを流させない(拒否中のエントリは最後まで残す)。
     expect(attempt('victim', T0 + 2)).toBe(false);
   });
 
-  // 上限に張り付いた状態で毎回全件 sort すると、未認証リクエスト 1 本あたりの同期時間が
-  // 件数に比例して伸びる。O(1) の最古退避で吸収していることを、粗い時間比較で固定する。
-  it('keeps the eviction cost flat once the table is saturated', () => {
-    for (let i = 0; i < LOGIN_MAX_ENTRIES; i += 1) {
+  it('溢れさせても既存キーのカウンタは巻き戻らない', () => {
+    // 閾値の 1 歩手前まで進めてから表を溢れさせる。退避方式ではここで victim の
+    // カウンタが落ち、次の試行が「1 回目」として通ってしまった。
+    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
+      expect(attempt('victim2', T0, '10.6.0.1')).toBe(true);
+    }
+    for (let i = 0; i < LOGIN_MAX_ENTRIES + 100; i += 1) {
       attempt(`seed${i}`, T0, `10.8.${(i >> 8) & 255}.${i & 255}`);
     }
-    const started = performance.now();
-    for (let i = 0; i < 5_000; i += 1) {
-      attempt(`more${i}`, T0, `10.7.${(i >> 8) & 255}.${i & 255}`);
-    }
-    // sort 方式なら 5,000 x O(n log n) で桁違いに遅くなる。閾値はゆるく取る。
-    expect(performance.now() - started).toBeLessThan(3_000);
+    expect(attempt('victim2', T0, '10.6.0.1')).toBe(false);
     expect(loginAttemptEntryCount()).toBeLessThanOrEqual(LOGIN_MAX_ENTRIES + 2);
   });
 });

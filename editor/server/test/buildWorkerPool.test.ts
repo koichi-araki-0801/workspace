@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  BUILD_QUEUE_FULL_MESSAGE,
   type BuildWorker,
   BuildWorkerPool,
   type BuildWorkerPoolOptions,
@@ -202,6 +203,95 @@ describe('BuildWorkerPool', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // ── 行列の上限と資源確保の順序(F39) ──
+  // 待機列が無制限だった版は、1 ジョブが最大 timeoutMs(既定 120s)掛かるあいだ到着した
+  // リクエストを全部並べた。しかも呼び出し側は**並ぶ前に** temp ディレクトリ・配信ルートへの
+  // 資産配置・egress の許可ポート(1 ビルド 4 個)を確保していたので、行列の長さがそのまま
+  // 資源消費だった。ここでは「上限が効くこと」と「確保が枠取得の後であること」を主張する。
+  it('待機列が上限に達したら待たせずに断る', async () => {
+    const { pool } = makePool({ poolSize: 1, maxQueue: 2 });
+    const running = pool.run('a');
+    await micro();
+    const q1 = pool.run('b');
+    const q2 = pool.run('c');
+    await micro();
+    expect(pool.queueLength()).toBe(2);
+
+    // 3 本目は行列に載らず即エラー(待たせると資源を握ったまま滞留する)。
+    await expect(pool.run('d')).rejects.toThrow(BUILD_QUEUE_FULL_MESSAGE);
+    expect(pool.queueLength()).toBe(2);
+
+    const r = [expect(q1).rejects.toThrow(), expect(q2).rejects.toThrow()];
+    const rr = expect(running).rejects.toThrow();
+    await pool.disposeAll();
+    await Promise.all([...r, rr]);
+  });
+
+  it('枠が空けば行列は進む(上限は恒久的な拒否ではない)', async () => {
+    const { pool, created } = makePool({ poolSize: 1, maxQueue: 1 });
+    const p1 = pool.run('a');
+    await micro();
+    const p2 = pool.run('b');
+    await micro();
+    await expect(pool.run('c')).rejects.toThrow(BUILD_QUEUE_FULL_MESSAGE);
+
+    created[0].finish(); // 1 本目が終わると待機者が枠を得る
+    await p1;
+    await micro();
+    expect(pool.queueLength()).toBe(0);
+    created[0].finish();
+    await p2;
+    // 行列が空いたので再び受け付けられる。
+    const p3 = pool.run('d');
+    await micro();
+    created[0].finish();
+    await p3;
+  });
+
+  it('withSlot: 準備処理は枠を取った**後**に走る', async () => {
+    const { pool, created } = makePool({ poolSize: 1, maxQueue: 4 });
+    const order: string[] = [];
+
+    const first = pool.withSlot(async (build) => {
+      order.push('prepare-1');
+      await build('a');
+      return 1;
+    });
+    await micro();
+    // 2 本目は枠が無いので待機する。この間、準備処理はまだ走っていない
+    // (= temp ディレクトリも配信ルートの資産も egress ポートも確保していない)。
+    const second = pool.withSlot(async (build) => {
+      order.push('prepare-2');
+      await build('b');
+      return 2;
+    });
+    await micro();
+    expect(order, '待機中の 2 本目は資源を 1 つも確保していない').toEqual(['prepare-1']);
+
+    created[0].finish();
+    await expect(first).resolves.toBe(1);
+    await micro();
+    expect(order).toEqual(['prepare-1', 'prepare-2']);
+    created[0].finish();
+    await expect(second).resolves.toBe(2);
+  });
+
+  it('withSlot: 準備段階で失敗しても枠は返る(プールが固まらない)', async () => {
+    const { pool, created } = makePool({ poolSize: 1, maxQueue: 4 });
+    await expect(
+      pool.withSlot(async () => {
+        throw new Error('準備失敗');
+      }),
+    ).rejects.toThrow('準備失敗');
+
+    // 枠が返っているので次のビルドはすぐ走る(待機列に積まれない)。
+    const p = pool.run('a');
+    await micro();
+    expect(pool.queueLength()).toBe(0);
+    created[0].finish();
+    await p;
   });
 
   it('disposeAll は全ワーカーを kill し、待機中ジョブを reject する', async () => {

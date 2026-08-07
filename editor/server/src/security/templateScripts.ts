@@ -442,10 +442,16 @@ function commentEnd(text: string, lt: number): number {
  * 前方一致で切っていた版は `<script>init()</scriptx>/;evil()</script>` の本文を
  * `init()` と読み、基準と一致させたまま `evil()` を確定テンプレへ通した。
  * 判定は `inlineCss.ts` の `findRawTextEnd` と同じ規則(片方だけ緩めない)。
+ *
+ * ⚠ `lower`(= `text` 全体の小文字化コピー)は**呼び出し側が 1 回だけ作って渡す**。
+ * ここで `text.toLowerCase()` していた版は script/style 1 つにつき入力全体のコピーを
+ * 作り、`collectInto` は `scanOpenTags` と `rawTextOf` の双方から呼ぶので要素あたり
+ * 概ね 2 コピーだった。`'<style></style>'` の反復を `POST /api/review-requests` に
+ * 載せるだけで、`submitReview` 冒頭の同期区間がイベントループを恒久停止させる。
+ * `inlineCss.findRawTextEnd` と同じ欠陥で、直すときは両方直すこと。
  */
-function rawTextEnd(text: string, name: string, from: number): number {
+function rawTextEnd(text: string, lower: string, name: string, from: number): number {
   const needle = `</${name}`;
-  const lower = text.toLowerCase();
   let i = from;
   while (i < lower.length) {
     const at = lower.indexOf(needle, i);
@@ -461,7 +467,7 @@ function rawTextEnd(text: string, name: string, from: number): number {
  * 開始タグだけを順に取り出す簡易走査。**HTML パーサではない**(整形式でない入力でも
  * 止まらず、拾いすぎる方へ倒れる)。終了タグ・コメント・doctype は読み飛ばす。
  */
-function* scanOpenTags(text: string): Generator<ParsedTag> {
+function* scanOpenTags(text: string, lower: string): Generator<ParsedTag> {
   const len = text.length;
   let i = 0;
   while (i < len) {
@@ -532,7 +538,7 @@ function* scanOpenTags(text: string): Generator<ParsedTag> {
     yield { at: lt, contentAt: p, name, attrs, jinja };
     // raw text 要素の内容はタグとして解釈されない。走査位置を終了タグの後ろへ進める。
     if (RAW_TEXT_ELEMENTS.has(name)) {
-      const close = rawTextEnd(text, name, p);
+      const close = rawTextEnd(text, lower, name, p);
       i = close < 0 ? len : close + name.length + 2;
     } else {
       i = p > lt ? p : lt + 1;
@@ -541,8 +547,8 @@ function* scanOpenTags(text: string): Generator<ParsedTag> {
 }
 
 /** raw text 要素の内容(終了タグが無ければ EOF まで)。終端規則は `rawTextEnd` と共有する。 */
-function rawTextOf(text: string, tag: ParsedTag): string {
-  const close = rawTextEnd(text, tag.name, tag.contentAt);
+function rawTextOf(text: string, lower: string, tag: ParsedTag): string {
+  const close = rawTextEnd(text, lower, tag.name, tag.contentAt);
   return close < 0 ? text.slice(tag.contentAt) : text.slice(tag.contentAt, close);
 }
 
@@ -615,11 +621,13 @@ interface PositionedUnit {
 
 function collectInto(html: string, out: PositionedUnit[], depth: number): void {
   const { text, payloads } = splitEncodedChips(html);
-  for (const tag of scanOpenTags(text)) {
+  // 小文字化コピーは走査 1 回につき 1 つ(`rawTextEnd` の注意書きを見よ)。
+  const lower = text.toLowerCase();
+  for (const tag of scanOpenTags(text, lower)) {
     if (tag.name === 'script') {
       // 中身まで含めて 1 単位。閉じタグを欠く断片も EOF まで拾う(パーサ差で
       // 「閉じていないから script ではない」と判断すると実行される断片を見逃す)。
-      const body = rawTextOf(text, tag);
+      const body = rawTextOf(text, lower, tag);
       out.push({
         at: tag.at,
         seq: out.length,
@@ -630,7 +638,7 @@ function collectInto(html: string, out: PositionedUnit[], depth: number): void {
     if (tag.name === 'style') {
       // 宣言の編集(色・寸法)はスタイルマネージャの正当な操作なので単位にしない。
       // 外部を引き込む面(`@import` / 非画像 `url()`)だけを固定する。
-      pushCssUnits(rawTextOf(text, tag), tag.at, out);
+      pushCssUnits(rawTextOf(text, lower, tag), tag.at, out);
       // 属性(`media` 等)も見る。`style` 自体は許可要素として扱わない代わりにここで拾う。
       for (const a of tag.attrs) {
         if (!isInertAttrName(a.name)) {
