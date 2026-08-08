@@ -1,0 +1,7 @@
+﻿# offline 配布物の pin（publish-offline-bundle.ps1 が自動生成。手で編集しない）。
+# 配布先の setup はこの値だけを真正性の根拠にする。Release に並ぶ .sha256 は配信元と同じ
+# 場所から取る値なので転送破損の検知にしか使えず、すり替えの検知には使えない（所見 F14）。
+# このファイルと bundle-signing.pub.xml は offline/ フォルダごと手渡しで配布先へ運ぶ。
+source-commit 8f9f3a6d95c3179fb7443b9a5102bd002592fd58
+source-zip-sha256 d791c543680e7f6e0baa72c68cf6bfdb1fa067725cd6772e60f9aacb2283728e
+bundle-sha256 dbd55c4c5b14349919ece9fdec89b068cdf81ae6cc55c82d7ec2f5c8b042f420

@@ -425,29 +425,49 @@ if (-not $TagOnly) {
     Write-Error '[error] gh repo view でリポジトリ名を取得できません（pin ファイルを更新できません）。'; exit 1
   }
   # ソース zip は「取得側が実際に落とすものと同じ URL」から取り、その sha256 を pin する。
+  #
+  # 取得は**認証付き**で行う。publish は必ず公開担当者の認証済み端末で走る一方、リポジトリは
+  # 平時 Private なので、未認証の curl は 404 になる（README の手順 0「取得の間だけ Public」は
+  # **取得端末**の話であって、pin を作るためだけに Public 化させるのは筋が違う）。
+  # 同じ codeload エンドポイントを叩くので、生成される zip の実体は未認証取得と同じ。
   $srcZipUrl = "https://github.com/$nameWithOwner/archive/$targetCommit.zip"
   $srcZipTmp = Join-Path $tmp 'pinned-source.zip'
   Write-Host "[info] pin 用にソース zip を取得: $srcZipUrl"
+  $ghToken = ((& gh auth token) | Select-Object -First 1)
+  if ($ghToken) { $ghToken = ([string]$ghToken).Trim() }
+  if ([string]::IsNullOrWhiteSpace($ghToken)) {
+    Write-Error '[error] gh auth token を取得できません（pin 用のソース zip を認証取得できません）。'; exit 1
+  }
   $curlCmd = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
   if ($curlCmd) {
-    & $curlCmd.Source -L --fail --retry 3 -o $srcZipTmp $srcZipUrl
+    & $curlCmd.Source -L --fail --retry 3 -H "Authorization: Bearer $ghToken" -o $srcZipTmp $srcZipUrl
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] ソース zip の取得に失敗しました（pin を更新できません）。'; exit 1 }
   } else {
     $oldPref = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
-    try { Invoke-WebRequest -Uri $srcZipUrl -OutFile $srcZipTmp -UseBasicParsing }
-    finally { $ProgressPreference = $oldPref }
+    try {
+      Invoke-WebRequest -Uri $srcZipUrl -OutFile $srcZipTmp -UseBasicParsing `
+        -Headers @{ Authorization = "Bearer $ghToken" }
+    } finally { $ProgressPreference = $oldPref }
   }
   $srcZipHash = (Get-FileHash -LiteralPath $srcZipTmp -Algorithm SHA256).Hash.ToLower()
 
-  # 重量物を更新していない回は、直前の pin の bundle-sha256 を引き継ぐ（バンドルは同一実体
-  # のままなのでハッシュも同一。ソース側だけ新しいコミットへ進める）。
+  # 重量物を更新していない回は bundle-sha256 を引き継ぐ。優先順は
+  # ①直前の pin → ②手元の `.sha256`（= 直近の publish が書いた実体）。
+  # ② を持つのは「重量物のアップロードまでは成功したが pin の生成だけ落ちた」状態からの
+  # 復旧のため。ここが pin 一択だと、テキスト 1 枚を書くために 774MB の再アップロードを
+  # 強いることになる（実際に踏んだ）。
   if (-not $bundleHash) {
     try { $bundleHash = (Get-OfflinePin -Path $PinFile).BundleSha256 }
     catch {
-      Write-Error ("[error] 重量物を更新していないため既存 pin の bundle-sha256 が要りますが、読めません: $($_.Exception.Message)`n" +
-        '  初回は -Force を付けて重量物ごと公開してください。')
-      exit 1
+      if (Test-Path -LiteralPath $Sha) {
+        $bundleHash = ((Get-Content -LiteralPath $Sha -Raw).Trim() -split '\s+')[0].ToLower()
+        Write-Host "[info] pin が無いため手元の $BundleName.sha256 から bundle-sha256 を引き継ぎます。"
+      } else {
+        Write-Error ("[error] 重量物を更新していないため既存 pin か手元の .sha256 が要りますが、どちらも読めません: $($_.Exception.Message)`n" +
+          '  初回は -Force を付けて重量物ごと公開してください。')
+        exit 1
+      }
     }
   }
 
