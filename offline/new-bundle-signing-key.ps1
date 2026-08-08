@@ -27,12 +27,19 @@
 [CmdletBinding()]
 param(
   [string]$PrivateKeyPath = (Join-Path $env:USERPROFILE '.offline-signing\bundle-signing.key.xml'),
-  [string]$PublicKeyPath = (Join-Path $PSScriptRoot 'bundle-signing.pub.xml'),
+  # 既定は本体で解決する。`param()` の既定値の中では **Windows PowerShell 5.1 の
+  # `$PSScriptRoot` が空**で、`Join-Path` が「空文字は渡せない」で即死する(実測)。
+  # 空を許す型にしておき、下で `$PSScriptRoot` が使える文脈になってから埋める。
+  [string]$PublicKeyPath = '',
   [switch]$Force
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrEmpty($PublicKeyPath)) {
+  $PublicKeyPath = Join-Path $PSScriptRoot 'bundle-signing.pub.xml'
+}
 
 . (Join-Path $PSScriptRoot 'lib\verify.ps1')
 

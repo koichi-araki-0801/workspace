@@ -1,11 +1,12 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul
-title オフライン環境セットアップ（取得＋構築）
-rem 同梱の setup-offline.ps1 を実行ポリシー Bypass で実行（引数はそのまま転送）。
-rem ソース＋重量物を Releases から HTTPS 直取得→展開→環境構築→bk 退避まで一括。
-rem ダブルクリック／コマンドのどちらでも起動可。
-rem 検証（offline\pinned-release.txt の sha256 と offline\bundle-signing.pub.xml による
-rem 分離署名）は必須で、材料の欠落・不一致はいずれも中止する。
-rem TortoiseGit も導入する場合のみ -InstallTortoiseGit を付ける（昇格 MSI のため既定は導入しない）。
+title Offline setup - fetch and build
+rem Launches setup-offline.ps1 with ExecutionPolicy Bypass (args forwarded).
+rem Fetches source + heavy bundle from Releases over HTTPS, extracts, builds.
+rem Verification (sha256 from offline\pinned-release.txt and the detached signature
+rem checked with offlineundle-signing.pub.xml) is mandatory; missing or mismatching
+rem material aborts the run. Add -InstallTortoiseGit only if you also want TortoiseGit
+rem (elevated MSI, so it is not installed by default). Details: see the .ps1 help.
+rem ASCII only on purpose: cmd garbles multi-byte rem/title lines in .bat files.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup-offline.ps1" %*
 exit /b %ERRORLEVEL%
