@@ -16,6 +16,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { validation } from '@editor/shared';
 import { config } from '../config.js';
+import { logger } from '../logger.js';
 
 /** ファイル監査ログに記録する履歴の種別。 */
 type HistoryKind = 'pdf' | 'create' | 'part';
@@ -58,7 +59,13 @@ async function rotateIfNeeded(kind: HistoryKind): Promise<void> {
   for (let gen = MAX_HISTORY_GENERATIONS; gen >= 1; gen--) {
     const from = gen === 1 ? fileFor(kind) : genFileFor(kind, gen - 1);
     await fs.rm(genFileFor(kind, gen), { force: true }).catch(() => {});
-    await fs.rename(from, genFileFor(kind, gen)).catch(() => {});
+    // 失敗しても続行するが、黙らせない: `readTail` や別クライアント(ログ置き場が
+    // ネットワーク上の場合)がファイルを開いている間、Windows の rename は共有違反に
+    // なる。無言のままだとローテーションが効かず `<kind>.jsonl` が読み窓を超えて太り、
+    // 古い履歴が画面から消えたように見える。
+    await fs.rename(from, genFileFor(kind, gen)).catch((e: unknown) => {
+      logger.warn({ err: e, from }, '履歴ログのローテーションに失敗しました(次回追記で再試行)');
+    });
   }
 }
 

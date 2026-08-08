@@ -185,6 +185,29 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
 
   await ensureRepo();
   const prev = await snapshotCurrent(fileName, fundCode);
+
+  // 復元(補償)の失敗は握りつぶさない: 復元も同じ rename なので、書込を失敗させた
+  // 共有違反(dataRoot がネットワークドライブのときは別クライアント起因でも起きる)が
+  // 続いていると復元ごと失敗し、「HTML は新版・CSS は旧版」の不整合が**黙って**確定する。
+  // 直せなかったことをエラーログと監査に残し、元の例外はそのまま呼び出し側へ返す。
+  const restoreOrReport = async (): Promise<void> => {
+    try {
+      await restoreTemplateAndCss(fileName, fundCode, prev);
+    } catch (restoreErr) {
+      logger.error(
+        { err: restoreErr, templateId },
+        '確定書込のロールバックに失敗しました(テンプレ本体と CSS が不整合の可能性。要確認)',
+      );
+      audit({
+        event: 'template.confirmedWrite',
+        outcome: 'failure',
+        actor: op.kind === 'review-approve' ? op.author : op.actor,
+        resource: { templateId, kind: op.kind },
+        detail: { rollbackFailed: true },
+      });
+    }
+  };
+
   try {
     if (op.kind === 'review-approve') {
       await writeTemplateAndCss(fileName, op.html, op.fundCode, op.css);
@@ -192,7 +215,7 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
       await writeTemplateHtml(fileName, op.html);
     }
   } catch (e) {
-    await restoreTemplateAndCss(fileName, fundCode, prev).catch(() => {});
+    await restoreOrReport();
     throw e;
   }
 
@@ -200,7 +223,7 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
     try {
       await op.afterWrite();
     } catch (e) {
-      await restoreTemplateAndCss(fileName, fundCode, prev).catch(() => {});
+      await restoreOrReport();
       throw e;
     }
   }
@@ -214,9 +237,19 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
   try {
     await withGitLock(() => commitAll(commitMessage, { name: author }));
   } catch (e) {
-    // コミット失敗(稀: ロック/ディスク)はベストエフォート。確定ファイルは作業ツリーに
-    // 残し、次回保存/手動コミットで回収する。
-    logger.warn({ err: e }, 'git コミットに失敗しました(確定ファイルは保存済み)');
+    // コミット失敗はベストエフォート(承認自体は成立させる)。確定ファイルは作業ツリーに
+    // 残り、次回保存時の `git add` で回収される。ただし「承認のたび 1 コミット」という
+    // 版管理の前提が崩れた事実は黙らせない: dataRoot がネットワークドライブ上にあると
+    // タイムアウト・他クライアントの index.lock で**恒常的に**ここへ落ちうるため、
+    // error ログ + 監査イベントで運用者が気付ける形にする(warn だと日常ノイズに沈む)。
+    logger.error({ err: e, templateId }, 'git コミットに失敗しました(確定ファイルは保存済み)');
+    audit({
+      event: 'template.confirmedWrite',
+      outcome: 'failure',
+      actor: author,
+      resource: { templateId, kind: op.kind },
+      detail: { gitCommitFailed: true },
+    });
   }
 
   audit({

@@ -9,7 +9,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { atomicWrite } from '../src/files/atomic.js';
 import { withFileLock } from '../src/files/fileLock.js';
 
@@ -54,6 +54,51 @@ describe('atomicWrite', () => {
       await withFileLock(target, () => atomicWrite(target, b));
     }
     expect(await fs.readFile(target, 'utf8')).toBe('333');
+  });
+
+  // ── rename の共有違反リトライ ──
+  // dataRoot がネットワークドライブ上にあると、別クライアント(ウイルス対策・Explorer の
+  // プレビュー・TortoiseGit)が宛先を開いた瞬間の rename が EPERM になる。プロセス内
+  // ロックでは防げない性質なので、atomicWrite 自身が短く粘る。
+
+  it('一時的な共有違反(EPERM)はリトライして書き切る', async () => {
+    const target = path.join(dir, 'retry.json');
+    const realRename = fs.rename.bind(fs);
+    let failures = 2;
+    const spy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      if (failures > 0) {
+        failures -= 1;
+        const e = new Error('EPERM: operation not permitted') as NodeJS.ErrnoException;
+        e.code = 'EPERM';
+        throw e;
+      }
+      return realRename(from, to);
+    });
+    try {
+      await atomicWrite(target, 'body');
+      expect(await fs.readFile(target, 'utf8')).toBe('body');
+      expect(spy).toHaveBeenCalledTimes(3);
+      expect((await fs.readdir(dir)).filter((f) => f.includes('.tmp-'))).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('共有違反以外(ENOENT 等)はリトライせず即座に諦め、一時ファイルも残さない', async () => {
+    const target = path.join(dir, 'fatal.json');
+    const spy = vi.spyOn(fs, 'rename').mockImplementation(async () => {
+      const e = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
+      e.code = 'ENOENT';
+      throw e;
+    });
+    try {
+      await expect(atomicWrite(target, 'body')).rejects.toThrow('ENOENT');
+      // 恒久エラーを待ちで引き延ばさない(リトライは共有違反系コードだけ)。
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect((await fs.readdir(dir)).filter((f) => f.includes('.tmp-'))).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

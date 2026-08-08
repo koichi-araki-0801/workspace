@@ -10,6 +10,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// `historyFiles` はローテーション失敗の警告に logger を使う。実 logger は import 時に
+// `LOG_DIR` 配下へ audit.log を開く副作用があり、テストの一時 LOG_DIR を afterEach で
+// 消すときに開きっぱなしのハンドルと衝突するためモックする。
+vi.mock('../src/logger.js', () => ({
+  logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+const { logger: mockedLogger } = await import('../src/logger.js');
+
 let tmpRoot: string;
 
 /** `config.logging.dir` を一時ディレクトリへ差し替えて `historyFiles` を読み直す。 */
@@ -49,6 +57,29 @@ describe('履歴 JSONL の上限', () => {
     await expect(fs.stat(historyFile('pdf', 1))).resolves.toBeTruthy();
     const cur = await fs.readFile(historyFile('pdf'), 'utf8');
     expect(cur.trim()).toBe(JSON.stringify({ at: 'after-rotate' }));
+  });
+
+  it('ローテーションの rename 失敗は追記を止めないが、警告として表に出す', async () => {
+    // ログ置き場がネットワーク上のときは他クライアントの共有違反で rename が落ちる。
+    // 黙って握りつぶすとローテーションが効かないままファイルが読み窓を超えて太る
+    // (古い履歴が消えたように見える)ため、警告ログが出ることを固定する。
+    const h = await importHistory();
+    await fs.mkdir(path.join(tmpRoot, 'history'), { recursive: true });
+    await fs.writeFile(historyFile('pdf'), 'x'.repeat(h.MAX_HISTORY_BYTES), 'utf8');
+    const spy = vi.spyOn(fs, 'rename').mockImplementation(async () => {
+      const e = new Error('EPERM: operation not permitted') as NodeJS.ErrnoException;
+      e.code = 'EPERM';
+      throw e;
+    });
+    try {
+      await h.appendHistory('pdf', { at: 'rotate-failed' });
+    } finally {
+      spy.mockRestore();
+    }
+    // 追記自体は成功している(監査ログを取りこぼす方が悪い)。
+    const cur = await fs.readFile(historyFile('pdf'), 'utf8');
+    expect(cur.endsWith(`${JSON.stringify({ at: 'rotate-failed' })}\n`)).toBe(true);
+    expect(mockedLogger.warn).toHaveBeenCalled();
   });
 
   it('壊れた行が 1 行あってもフィード全体が落ちない', async () => {

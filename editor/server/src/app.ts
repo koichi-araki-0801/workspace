@@ -197,6 +197,39 @@ if (hasWebDist) {
   });
 }
 
+// ── 置き場の健全性チェック(ネットワークドライブ) ──
+// dataRoot のネットワークドライブ配置(1 サーバ + 共有上のデータ)はサポートするが、
+// ログ・一時領域まで共有に乗ると監査ログの欠落(常時オープン + 非同期フラッシュ)や
+// ビルドのタイムアウトを招くため、そこは警告で止める。マップドライブは realpath.native
+// (GetFinalPathNameByHandle)が UNC へ解決することを利用して判定する(ベストエフォート。
+// 判定できないときは黙ってスキップし、起動は妨げない)。
+function isNetworkPath(p: string): boolean {
+  if (p.startsWith('\\\\')) return true;
+  try {
+    return fs.realpathSync.native(p).startsWith('\\\\');
+  } catch {
+    return false;
+  }
+}
+if (isNetworkPath(config.dataRoot)) {
+  logger.info(
+    `[server] dataRoot はネットワークドライブ上です: ${config.dataRoot} — ` +
+      'このサーバ 1 台だけが書き込むこと。他クライアントの TortoiseGit/Explorer が開いて' +
+      'いる間は保存・コミットが待たされることがあります',
+  );
+}
+for (const [name, dir] of [
+  ['LOG_DIR', config.logging.dir],
+  ['TMP_DIR', config.tmpDir],
+] as const) {
+  if (isNetworkPath(dir)) {
+    logger.warn(
+      `[server] ${name} がネットワークドライブ上にあります: ${dir} — 監査ログの欠落・` +
+        'PDF ビルドの遅延を招くため、ローカルディスクへ向けてください(env で変更可能)',
+    );
+  }
+}
+
 // 起動時に全セッションを失効させ、再起動をまたいだ旧セッションでの再ログイン不要化を断つ。
 // 認証なし(local)では DB 未接続なので呼ばない。失敗してもプロセスは継続するが、失効漏れ
 // は旧バグ(再起動後もログイン状態)の再発なので error で目立たせる。
