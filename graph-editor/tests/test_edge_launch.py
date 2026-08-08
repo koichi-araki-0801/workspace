@@ -12,7 +12,8 @@
 3. **フラグを増やさない**。隔離 `--user-data-dir` と `--disable-gpu` は VDI でレンダラごと
    クラッシュした実績があり (設計正典の却下集)、どの経路でも付かないこと。
 
-`import app` の副作用は `ui.html` と `lib/leader_geom.cjs` の読み込みだけ (`main()` は呼ばない)。
+`import app` に副作用は無い (同梱資産の読み込みは `main()`/初回 GET の遅延読込。
+`main()` は呼ばない)。
 """
 from __future__ import annotations
 

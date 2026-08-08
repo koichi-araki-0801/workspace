@@ -71,12 +71,30 @@ STATIC_TYPES = {
 }
 
 
-with open(resource_path("ui.html"), "rb") as _f:
-    UI_HTML = _f.read()
+# 同梱 UI 資産 (`ui.html` / `lib/leader_geom.cjs`) の配信キャッシュ。
+# **import 時には読まない** (`_load_resources` を見よ)。
+UI_HTML = None
+LEADER_GEOM = None
 
-# `ui.html` が `<script src>` で読む共有純粋関数。起動時に一度だけ読み込んで配信する。
-with open(resource_path(os.path.join("lib", "leader_geom.cjs")), "rb") as _f:
-    LEADER_GEOM = _f.read()
+
+def _load_resources():
+    """同梱 UI 資産を配信キャッシュへ読み込む (冪等。2 回目以降は何もしない)。
+
+    モジュールトップレベル (import 時) に読まないのは、配布物をネットワークドライブ・
+    共有フォルダへ置いた構成で読み込みが瞬断すると、その OSError が `_setup_logging()`
+    より前に発生し、`--windowed` の exe では**何も表示されず何も記録されずに**死ぬため
+    (pdf-to-svg は同種の読み込みをハンドラ内の try に置いている)。`main()` がログ確保後に
+    呼んで失敗を `startup.log` へ残す。`do_GET` 側の遅延読込は `main()` を通らない経路
+    (テストの使い捨てサーバ) の保険。
+    """
+    global UI_HTML, LEADER_GEOM
+    if UI_HTML is None:
+        with open(resource_path("ui.html"), "rb") as f:
+            UI_HTML = f.read()
+    if LEADER_GEOM is None:
+        # `ui.html` が `<script src>` で読む共有純粋関数。
+        with open(resource_path(os.path.join("lib", "leader_geom.cjs")), "rb") as f:
+            LEADER_GEOM = f.read()
 
 
 # ── 同一オリジン検査 + セッショントークン認可 (CSRF / frame 埋め込み / 別プロセス) ──
@@ -496,6 +514,15 @@ class Handler(GuardedHandler):
         # 経路分岐はクエリを外したパスで行う。UI へは `--app=http://127.0.0.1:p/?token=...`
         # で入るため、`self.path` を直接比較すると入口の `/` が素通りして 404 になる。
         path = urlsplit(self.path).path
+        if path in ("/", "/index.html", "/ui.html", "/lib/leader_geom.cjs"):
+            try:
+                _load_resources()  # `main()` を通らない経路 (テスト等) の遅延読込
+            except OSError:
+                # 同梱資産が読めない (破損配布・共有フォルダの瞬断)。プロセスは落とさず
+                # 応答で伝える (再試行すれば復旧後に読める)。
+                self._send(500, "同梱リソースを読み込めません".encode("utf-8"),
+                           "text/plain; charset=utf-8")
+                return
         if path in ("/", "/index.html", "/ui.html"):
             self._send(200, UI_HTML, "text/html; charset=utf-8")
         elif path == "/lib/leader_geom.cjs":
@@ -577,15 +604,85 @@ def _idle_watchdog(server):
 # ── データ/ログのフォルダ解決とロギング ──
 
 
+# 可変状態の置き場を明示指定する環境変数。可搬運用と検証で使う。指定した人が置き場の
+# 権限に責任を持つ、という意味でもある (pdf-to-svg の `PDFTOSVG_DATA_DIR` と同趣旨。
+# 環境変数**名**だけがプロジェクト固有)。
+DATA_DIR_ENV = "LABELEDITOR_DATA_DIR"
+
+# ユーザー専用領域に作るフォルダ名 (`%LOCALAPPDATA%/LabelEditor/data`)。
+_USER_DIR_NAME = "LabelEditor"
+
+
+def _is_frozen():
+    """PyInstaller でバンドルされた実行ファイルから起動されているか。"""
+    return getattr(sys, "frozen", False)
+
+
+def _app_base_dir():
+    """アプリの基準フォルダ。frozen 時は exe のある永続フォルダ、ソース実行時は本ファイルの場所。"""
+    if _is_frozen():
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _is_writable_dir(path):
+    """作成できて実際に書けるフォルダか (**実書き込みで**確かめる)。
+
+    VDI ではプロファイル配下でも書き込みが弾かれることがあり、`os.access` の申告や
+    存在確認では判定にならない。プローブファイルを作って消すところまでやる。
+    """
+    probe = os.path.join(path, ".write-probe")
+    try:
+        os.makedirs(path, exist_ok=True)
+        with open(probe, "w", encoding="utf-8"):
+            pass
+    except OSError:
+        return False
+    finally:
+        try:
+            os.remove(probe)
+        except OSError:
+            pass
+    return True
+
+
 def _data_dir():
-    """データ・診断ログを置く基準フォルダ (exe と同じ場所の `data/`、ポータブル)。
-    frozen 時は実行ファイルのある永続フォルダ、ソース実行時は本ファイルの場所を基準にする。"""
-    base = (os.path.dirname(os.path.abspath(sys.executable))
-            if getattr(sys, "frozen", False)
-            else os.path.dirname(os.path.abspath(__file__)))
-    d = os.path.join(base, "data")
-    os.makedirs(d, exist_ok=True)
-    return d
+    """データ・診断ログを置く基準フォルダ。
+
+    **配布 exe では exe の隣ではなくユーザー専用領域 (`%LOCALAPPDATA%/LabelEditor/data`)
+    を既定にする** (pdf-to-svg の F43 判断の移植)。exe を共有フォルダ・ネットワーク
+    ドライブへ置いて複数人が起動すると、exe 隣の `data/logs/startup.log` を全員が
+    開きっぱなしで共同追記して記録が混ざり・欠け、さらに「プログラムフォルダが書き込み
+    可能であること」を要件化して DLL 差し替え (CWE-427) の温床にもなるためである。
+
+    決定順: ① `LABELEDITOR_DATA_DIR` 明示指定 (作れなければ黙って別の場所へ逃げない) →
+    ② ソース実行はリポジトリ直下 `data/` (開発時の従来どおり) → ③ ユーザー専用領域
+    (書き込みの実確認付き) → ④ exe 隣 `data/` (ユーザー領域が使えない VDI の最終
+    フォールバック。この経路はプログラムフォルダの ACL 要件が効く)。
+
+    pdf-to-svg と違い「既存の可搬インストール継続」判定 (辞書実体の有無) を持たないのは、
+    graph-editor が失って困る利用者データを持たない (置くのは診断ログのみ) ため。
+    置き場が変わっても失われるのは過去の startup.log だけで、移行を壊さない。
+    """
+    explicit = os.environ.get(DATA_DIR_ENV)
+    if explicit:
+        d = os.path.expanduser(explicit)
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    portable = os.path.join(_app_base_dir(), "data")
+    if not _is_frozen():
+        os.makedirs(portable, exist_ok=True)
+        return portable
+
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+    if base:
+        candidate = os.path.join(base, _USER_DIR_NAME, "data")
+        if _is_writable_dir(candidate):
+            return candidate
+
+    os.makedirs(portable, exist_ok=True)
+    return portable
 
 
 def _log_dir():
@@ -801,6 +898,13 @@ def create_server(port=0, token=None, max_connections=None):
 
 def main():
     log = _setup_logging()
+    # 同梱資産はログ確保後に読む。import 時に読むと、失敗 (共有フォルダ配置の瞬断・破損配布)
+    # が `--windowed` の exe で何も表示されず何も記録されない起動不能になる。
+    try:
+        _load_resources()
+    except OSError as exc:
+        log.error("bundled resources unavailable: %s", exc)
+        return
     # 127.0.0.1 の空きポートで待受 (外部公開しない)。
     server = create_server()
     port = server.server_address[1]
