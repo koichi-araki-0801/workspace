@@ -14,9 +14,10 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .normalize import normalize
 
@@ -42,6 +43,24 @@ def _read_text_limited(path: Path) -> str:
             f"辞書ファイルが大きすぎます ({size} バイト / 上限 {MAX_DICT_FILE_BYTES} バイト)"
         )
     return path.read_text(encoding="utf-8")
+
+
+# `os.replace` の共有違反リトライの待ち秒列。ネットワークドライブ上の辞書は、別クライアント
+# (ウイルス対策・エクスプローラのプレビュー・バックアップ) が宛先を開いている一瞬だけ
+# rename が PermissionError になる。恒久エラー (ACL 拒否) と事前に区別できないため、
+# 短い待ちで数回だけやり直し、それでも駄目なら例外で諦める (無限に固まらせない)。
+_REPLACE_RETRY_DELAYS = (0.05, 0.1, 0.2, 0.4)
+
+
+def _replace_with_retry(src: str, dst: Path) -> None:
+    """`os.replace` を一時的な共有違反 (`PermissionError`) のリトライ付きで行う。"""
+    for delay in _REPLACE_RETRY_DELAYS:
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            time.sleep(delay)
+    os.replace(src, dst)
 
 
 @dataclass
@@ -88,6 +107,10 @@ class DictionaryStore:
         # UI が起動後に通知する (`rpc_methods._dict_payload` → `app.js`)。実体は `_load` が入れる。
         self.load_skipped = 0
         self.load_failed = False
+        # 最後にこのプロセスが読んだ/書いたときのファイル状態 (st_mtime_ns, st_size)。
+        # 共有フォルダの辞書を複数人で使うときの lost-update 検出に使う (`_save` 参照)。
+        # None は「不明」= 検査しない (ファイル不在の新規や、状態取得に失敗した直後)。
+        self._disk_state: "Tuple[int, int] | None" = None
         self._load()
 
     def close(self) -> None:
@@ -107,25 +130,35 @@ class DictionaryStore:
         self._next_id = 1
         self.load_skipped = 0
         self.load_failed = False
-        if self.path.exists():
-            data = None
-            text = ""
+        self._disk_state = None
+        # `Path.exists()` で在否を先に見ない: Windows の `exists()` はドライブ未接続・
+        # 共有瞬断系の OSError を握りつぶして False を返すため、ネットワークドライブ上の
+        # 辞書が一瞬読めないだけで「無い」と誤判定される。その後の保存が本物の辞書を
+        # 空で上書きする無音のデータ消失になるので、読みを直接試みて
+        # `FileNotFoundError` (真の不在) とそれ以外 (不明 = `load_failed`) を区別する。
+        data = None
+        text = ""
+        missing = False
+        try:
+            text = _read_text_limited(self.path)
+            st = self.path.stat()
+            self._disk_state = (st.st_mtime_ns, st.st_size)
+        except FileNotFoundError:
+            missing = True  # 真の新規。空辞書で開始してよい
+        except (OSError, ValueError):
+            # 読めない (瞬断・権限・文字コード破損・上限超過)。利用者から見れば辞書の
+            # 消失なので伝える。`_save` はこのフラグが立っている間は保存を拒む。
+            self.load_failed = True
+        else:
             try:
-                text = _read_text_limited(self.path)
-            except (OSError, ValueError):
-                # 読めない (権限・文字コード破損・上限超過)。利用者から見れば辞書の
-                # 消失なので伝える。
-                self.load_failed = True
-            else:
-                try:
-                    data = json.loads(text)
-                except (json.JSONDecodeError, ValueError):
-                    data = None  # 壊れていても起動を止めない
-            if not isinstance(data, list):
-                # ファイルはあるのに 1 件も読めない = 辞書の消失に見える。空辞書として
-                # 黙って通さず「読めなかった」を伝える (中身が空のファイルは除く)。
-                self.load_failed = self.load_failed or text.strip() != ""
-                data = []
+                data = json.loads(text)
+            except (json.JSONDecodeError, ValueError):
+                data = None  # 壊れていても起動を止めない
+        if not missing and not isinstance(data, list):
+            # ファイルはあるのに 1 件も読めない = 辞書の消失に見える。空辞書として
+            # 黙って通さず「読めなかった」を伝える (中身が空のファイルは除く)。
+            self.load_failed = self.load_failed or text.strip() != ""
+        if isinstance(data, list):
             for item in data:
                 entry = self._entry_from_json(item)
                 if entry is None:
@@ -182,24 +215,83 @@ class DictionaryStore:
             self._norm_index.setdefault(key, m)
 
     def _save(self) -> None:
-        """全 `_mappings` を JSON へアトミック保存する (temp → `os.replace`)。"""
+        """全 `_mappings` を JSON へアトミック保存する (temp → `os.replace`)。
+
+        保存は**全件の書き直し**なので、読めていない/古い状態からの保存は他の内容を
+        丸ごと消す。それを防ぐゲートが 2 つある:
+
+        - `load_failed` の間は保存しない (読めなかった辞書を空で上書きしない)。
+        - 前回読み書き時とファイル状態が変わっていたら保存しない (共有フォルダの辞書を
+          複数人で使ったときの lost-update 検出。stat とファイル差し替えの間に隙間が
+          残るベストエフォートだが、「黙って相手の追加を消す」既定よりは良い)。
+        """
+        if self.load_failed:
+            raise ValueError(
+                "辞書ファイルを読み込めていないため保存しません (保存すると読めなかった"
+                f"内容を上書きして消してしまいます)。ファイルの状態を確認してから"
+                f"アプリを再起動してください: {self.path}"
+            )
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._check_lost_update()
         data = [
             {"source": m.source_raw, "target": m.target, "enabled": m.enabled,
              "joined": m.joined}
             for m in self._mappings
         ]
         text = json.dumps(data, ensure_ascii=False, indent=2)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        # アトミック書き込み (temp → replace) で破損を防ぐ
+        # アトミック書き込み (temp → replace) で破損を防ぐ。ネットワークドライブでは
+        # 書き込みがクライアント側キャッシュに乗ったまま rename が先行しうるため、
+        # close 前に fsync してサーバまで届いた状態で差し替える。
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(text)
-            os.replace(tmp, self.path)
+                f.flush()
+                os.fsync(f.fileno())
+            _replace_with_retry(tmp, self.path)
         except BaseException:
-            if os.path.exists(tmp):
+            # 後始末の失敗で元の例外を隠さない (共有では remove 自体も失敗しうる)。
+            try:
                 os.remove(tmp)
+            except OSError:
+                pass
             raise
+        self._remember_disk_state()
+
+    def _check_lost_update(self) -> None:
+        """前回読み書き時からファイルが他者に更新されていたら `ValueError` で保存を止める。
+
+        `_disk_state` が None (状態不明) のときは検査しない: 偽陽性で保存を永久に
+        塞ぐより、稀な同時新規作成の取りこぼしを許す側へ倒す。
+        """
+        if self._disk_state is None:
+            return
+        try:
+            st = self.path.stat()
+        except FileNotFoundError:
+            # 読んだはずのファイルが消えている = 他者が削除/改名した。上書きで復活させず伝える。
+            raise ValueError(
+                "辞書ファイルが見つかりません (他の利用者が削除・移動した可能性があります)。"
+                f"アプリを再起動して状態を確認してください: {self.path}"
+            )
+        except OSError as exc:
+            raise ValueError(
+                f"辞書ファイルの状態を確認できないため保存しません: {exc}"
+            ) from exc
+        if (st.st_mtime_ns, st.st_size) != self._disk_state:
+            raise ValueError(
+                "辞書ファイルが他の利用者によって更新されています。このまま保存すると"
+                "相手の変更を消してしまうため保存しません。アプリを再起動して最新の辞書を"
+                "読み直してください。"
+            )
+
+    def _remember_disk_state(self) -> None:
+        """保存直後のファイル状態を記録する (取得できなければ「不明」= 次回は検査しない)。"""
+        try:
+            st = self.path.stat()
+            self._disk_state = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            self._disk_state = None
 
     def _find_by_norm(self, source_raw: str) -> Optional[Mapping]:
         """`source_raw` の正規化キーに一致する最初の `Mapping` を返す (無ければ None)。"""

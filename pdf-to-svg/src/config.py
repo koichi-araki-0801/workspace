@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 from pathlib import Path
 
 
@@ -93,6 +94,24 @@ def _is_writable_dir(path: Path) -> bool:
     return True
 
 
+def _portable_dictionary_present(portable: Path) -> bool:
+    """exe 隣に可搬インストールの辞書実体があるか (OSError を「無い」と混同しない)。
+
+    `Path.exists()` は Windows でドライブ未接続・共有瞬断系の OSError を握りつぶして
+    False を返す。ネットワークドライブ上の可搬インストールでそれが起きると、置き場が
+    黙ってユーザー専用領域へ切り替わり「辞書が消えた」ように見える (そのまま使い続けると
+    別の場所に第 2 の辞書が育つ)。判定不能 (ENOENT 系以外の OSError) は「在る」側へ倒し、
+    続く読み書きの失敗を見える形 (起動エラー・`load_failed` 通知) にする。
+    """
+    try:
+        (portable / "dictionary.json").stat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
 def _resolve_data_dir() -> Path:
     """可変状態フォルダを決める (`data_dir` の実体。判断理由は同関数の doc)。"""
     explicit = os.environ.get(ENV_DATA_DIR)
@@ -109,7 +128,7 @@ def _resolve_data_dir() -> Path:
         portable.mkdir(parents=True, exist_ok=True)
         return portable
 
-    if (portable / "dictionary.json").exists():
+    if _portable_dictionary_present(portable):
         # 既存の可搬インストール。ここで置き場を変えると利用者の辞書が「消えた」ように
         # 見えるため、実体がある限りそのまま使い続ける (移行を壊さない)。
         return portable
@@ -165,15 +184,35 @@ def log_dir() -> Path:
     return d
 
 
-def run_tmp_dir() -> Path:
-    """実行時の一時データ (Edge プロファイル / PDF・JSON 一時) を集約するフォルダ。
+# 実行時一時フォルダの解決結果 (プロセス内で 1 度だけ採番する。呼ぶたびに別名の
+# フォルダを作らないための記憶)。
+_resolved_run_tmp_dir: "Path | None" = None
 
-    `data_dir` 配下の ``tmp/<pid>`` を返す (作成込み)。VDI で C:/``%TEMP%`` がアクセス
-    不可でも動くよう、実行時に書く temp を自前のデータ置き場へ寄せる。``<pid>`` 分離で
-    並行起動が互いの後始末で消し合わない。`main` が終了時に丸ごと削除する。"""
-    d = data_dir() / "tmp" / str(os.getpid())
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+
+def run_tmp_dir() -> Path:
+    """実行時の一時データ (PDF・JSON 一時) を集約するフォルダ (作成込み・プロセス内で固定)。
+
+    置き場は**ローカルのユーザー専用領域を最優先**にする (``%LOCALAPPDATA%/PdfToSvg/tmp``)。
+    `data_dir` 配下は可搬運用・`PDFTOSVG_DATA_DIR` 明示指定でネットワークドライブに
+    なりうる場所で、そこへ一時データを置くとアップロード PDF の実体が SMB を往復して
+    極端に遅くなるうえ、消し損ねた機微文書が共有フォルダに残る。ユーザー専用領域が
+    使えない端末 (VDI で C:/``%TEMP%``/プロファイルが書き込み不可) だけ、従来どおり
+    `data_dir` 配下へ落とす。
+
+    フォルダ名は ``<pid>-<uuid>``: PID の一意性は 1 台の中でしか成り立たず、置き場が
+    共有フォルダのとき別マシンの別プロセスと普通に衝突する。衝突すると `main` の終了時
+    削除が**他人の稼働中の一時データ**を消すため、uuid でマシンをまたいでも一意にする
+    (pid は調査時にプロセスと突き合わせるための添え物)。`main` が終了時に丸ごと削除する。"""
+    global _resolved_run_tmp_dir
+    if _resolved_run_tmp_dir is None:
+        name = f"{os.getpid()}-{uuid.uuid4().hex}"
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if base and _is_writable_dir(Path(base) / _USER_DIR_NAME / "tmp"):
+            _resolved_run_tmp_dir = Path(base) / _USER_DIR_NAME / "tmp" / name
+        else:
+            _resolved_run_tmp_dir = data_dir() / "tmp" / name
+    _resolved_run_tmp_dir.mkdir(parents=True, exist_ok=True)
+    return _resolved_run_tmp_dir
 
 
 def dictionary_json_path() -> Path:

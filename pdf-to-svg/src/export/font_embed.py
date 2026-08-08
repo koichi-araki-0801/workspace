@@ -80,11 +80,20 @@ def _collect_usage(
 @lru_cache(maxsize=None)
 def _source_font_bytes(filename: str) -> bytes | None:
     """同梱ソースフォントのバイト列 (存在しなければ None)。複数ページ書き出しでの
-    ディスク再読込を避けるためプロセス内でキャッシュする。"""
+    ディスク再読込を避けるためプロセス内でキャッシュする。
+
+    在否を `exists()` で先に見ない: Windows の `exists()` は共有瞬断系の OSError を
+    握りつぶして False を返すため、ネットワークドライブ配置の exe では一瞬の切断が
+    「フォント無し」に化け、**埋め込みを黙って欠いた SVG** が書き出される (しかも
+    キャッシュが None を記憶してプロセスの間ずっと直らない)。真の不在
+    (`FileNotFoundError` = 同梱漏れ) だけ None とし、それ以外の OSError は投げて
+    書き出し自体を失敗させる (無音の品質劣化より見えるエラー)。例外は
+    `lru_cache` に記憶されないので、復旧後の再実行はやり直せる。"""
     path = config.font_path(filename)
-    if not path.exists():
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
         return None
-    return path.read_bytes()
 
 
 def _subset_woff2(filename: str, chars: Set[str]) -> bytes | None:

@@ -227,13 +227,21 @@ def _watch_proc(proc, log):
 
 def main() -> int:
     log = _setup_logging()
-    # 実行時に書く一時データ (PDF・JSON 一時) をデータ置き場の ``tmp/<pid>`` に集約する。
-    # `tempfile` の既定先をここへ付け替えることで `loader.py` / `rpc_methods.py` の
-    # `tempfile.*` が一括で C:/``%TEMP%`` を避ける (各呼び出し側は無改修)。Edge は端末標準の
-    # 既定プロファイルを使うため、ここに Edge プロファイルは置かない。終了時に丸ごと削除する。
-    run_tmp = config.run_tmp_dir()
-    tempfile.tempdir = str(run_tmp)
-    log.info("run tmp dir: %s", run_tmp)
+    # 実行時に書く一時データ (PDF・JSON 一時) を専用フォルダに集約する (置き場の決め方は
+    # `config.run_tmp_dir`)。`tempfile` の既定先をここへ付け替えることで `loader.py` /
+    # `rpc_methods.py` の `tempfile.*` が一括で C:/``%TEMP%`` を避ける (各呼び出し側は
+    # 無改修)。Edge は端末標準の既定プロファイルを使うため、ここに Edge プロファイルは
+    # 置かない。終了時に丸ごと削除する。
+    # 用意に失敗しても起動は止めない: exe は console=False で例外が画面に出ず、ここで
+    # 投げると (`_setup_logging` が NullHandler へ落ちた環境では記録すら無い) 無言の
+    # 起動不能になる。その場合は `tempfile` の既定 (%TEMP%) のまま続行する。
+    run_tmp = None
+    try:
+        run_tmp = config.run_tmp_dir()
+        tempfile.tempdir = str(run_tmp)
+        log.info("run tmp dir: %s", run_tmp)
+    except OSError as exc:
+        log.error("run tmp dir unavailable, keeping the default temp: %s", exc)
 
     store = DictionaryStore(config.dictionary_json_path())
     session = WebSession(store, UndoStack())
@@ -289,7 +297,8 @@ def main() -> int:
         if proc is not None and proc.poll() is None:
             proc.terminate()
         # PDF/JSON 一時をまとめて削除 (run_tmp ごと)。まだ掴まれている可能性に備え ignore_errors。
-        shutil.rmtree(run_tmp, ignore_errors=True)
+        if run_tmp is not None:
+            shutil.rmtree(run_tmp, ignore_errors=True)
         # opt-in 時のみ存在する Edge ログの後始末 (上限超過分の切り詰め)。
         _trim_edge_log(edge_log, log)
         store.close()

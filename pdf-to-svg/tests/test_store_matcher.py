@@ -1,8 +1,13 @@
 """`dictionary.store.DictionaryStore` の単体テスト。
 
 追加・引き当て (正規化込みの `lookup`)・`upsert`・無効化・JSON 取り込みの往復と、
-**壊れた辞書ファイルで起動不能にならないこと** (旧 P035) を確認する。
+**壊れた辞書ファイルで起動不能にならないこと** (旧 P035)、および
+**読めなかった/他者更新された辞書を上書きで消さないこと** (ネットワークドライブ共有
+運用のゲート) を確認する。
 """
+import pytest
+
+import dictionary.store as store_module
 from dictionary.store import DictionaryStore
 
 
@@ -148,6 +153,70 @@ def test_import_reports_skipped_broken_entries(tmp_path):
     result = s.import_json(src)
 
     assert (result.imported, result.skipped) == (1, 2)
+    s.close()
+
+
+# ── ネットワークドライブ共有運用のゲート: 読めない/古い状態からの全件上書きを止める ──
+
+def test_transient_read_failure_blocks_saving(tmp_path, monkeypatch):
+    """瞬断等で読めなかった辞書は `load_failed` を立て、保存 (全件書き直し) を拒む。
+
+    `Path.exists()` はドライブ未接続系の OSError を握りつぶして False を返すため、
+    以前は「ファイル無し」と誤判定 → 空辞書で起動 → 次の保存で本物を空上書き、という
+    無音のデータ消失経路があった。読みを直接試みて不在と不明を区別する。
+    """
+    path = tmp_path / "d.json"
+    path.write_text('[{"source": "A", "target": "\\u3042"}]', encoding="utf-8")
+
+    def deny(_path):
+        raise PermissionError(13, "share is not reachable")
+
+    monkeypatch.setattr(store_module, "_read_text_limited", deny)
+    s = DictionaryStore(path)
+    assert s.load_failed is True
+
+    with pytest.raises(ValueError, match="保存しません"):
+        s.add("B", "い")
+
+    # 本物のファイルは無傷 (空で上書きされていない)
+    assert "A" in path.read_text(encoding="utf-8")
+    s.close()
+
+
+def test_concurrent_update_by_another_user_is_not_overwritten(tmp_path):
+    """別プロセス (共有フォルダの他利用者) がファイルを更新していたら保存を拒む。
+
+    保存は全件のシリアライズなので、古い状態からの保存は相手の追加を丸ごと消す
+    (last-writer-wins)。ファイル状態 (mtime, size) の照合で検出し、相手の変更を残す。
+    """
+    path = tmp_path / "d.json"
+    s1 = DictionaryStore(path)
+    s1.add("A", "あ")
+
+    s2 = DictionaryStore(path)   # この時点の状態を記憶
+    s1.add("B", "い")            # 他利用者に相当する更新
+
+    with pytest.raises(ValueError, match="他の利用者"):
+        s2.add("C", "う")
+
+    # 相手 (s1) の追加が残っている (s2 の古い全量で上書きされていない)
+    text = path.read_text(encoding="utf-8")
+    assert "B" in text and "C" not in text
+    s1.close()
+    s2.close()
+
+
+def test_deleted_file_is_not_recreated_from_memory(tmp_path):
+    """読んだはずのファイルが消えていたら、メモリ内容での復活書き込みをしない。"""
+    path = tmp_path / "d.json"
+    s = DictionaryStore(path)
+    s.add("A", "あ")
+
+    path.unlink()  # 他利用者の削除・移動に相当
+
+    with pytest.raises(ValueError, match="見つかりません"):
+        s.add("B", "い")
+    assert not path.exists()
     s.close()
 
 

@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import config
@@ -98,3 +99,65 @@ def test_source_checkout_still_uses_the_repository_data_folder(monkeypatch, tmp_
     monkeypatch.delenv(config.ENV_DATA_DIR, raising=False)
 
     assert config._resolve_data_dir() == tmp_path / "data"
+
+
+def test_share_glitch_does_not_silently_move_the_data_dir(monkeypatch, tmp_path):
+    """可搬判定が OSError (共有瞬断) のときは可搬側に留まる (黙って置き場を変えない)。
+
+    `Path.exists()` は瞬断系 OSError を握りつぶして False を返すため、以前は
+    ネットワークドライブ上の可搬インストールが一瞬読めないだけで置き場がユーザー
+    専用領域へ切り替わり、「辞書が消えた」ように見えて別の場所に第 2 の辞書が育った。
+    判定不能は「在る」側へ倒し、失敗は後段で見える形にする。
+    """
+    exe_dir = tmp_path / "PdfToSvg"
+    exe_dir.mkdir()
+    _freeze(monkeypatch, exe_dir)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+    monkeypatch.delenv(config.ENV_DATA_DIR, raising=False)
+
+    real_stat = Path.stat
+
+    def flaky_stat(self, *args, **kwargs):
+        if self.name == "dictionary.json":
+            raise OSError(21, "device not ready")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", flaky_stat)
+
+    assert config._resolve_data_dir() == exe_dir / "data"
+
+
+# ── 実行時一時フォルダ (`run_tmp_dir`) の置き場 ──────────────────────────────
+
+def test_run_tmp_prefers_the_local_user_area(monkeypatch, tmp_path):
+    """一時データはローカルのユーザー専用領域が最優先 (data_dir が共有でも SMB を往復させない)。
+
+    フォルダ名は ``<pid>-<uuid>``: 置き場が共有フォルダになったときも別マシンの同一
+    PID と衝突せず、終了時削除が他人の稼働中一時データを消さない。
+    """
+    local = tmp_path / "LocalAppData"
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.setattr(config, "_resolved_run_tmp_dir", None)
+
+    d = config.run_tmp_dir()
+
+    assert d.parent == local / "PdfToSvg" / "tmp"
+    assert d.name.startswith(f"{os.getpid()}-")
+    assert len(d.name) > len(f"{os.getpid()}-")  # uuid 部が付いている
+    assert d.is_dir()
+    assert config.run_tmp_dir() == d  # プロセス内で固定 (呼ぶたびに別フォルダを作らない)
+
+
+def test_run_tmp_falls_back_to_the_data_dir_when_the_user_area_is_unusable(
+    monkeypatch, tmp_path
+):
+    """ユーザー領域が使えない端末 (VDI) は従来どおり data_dir 配下へ落とす = 必ず動く。"""
+    monkeypatch.setattr(config, "_resolved_run_tmp_dir", None)
+    monkeypatch.setattr(config, "_is_writable_dir", lambda path: False)
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path / "data")
+
+    d = config.run_tmp_dir()
+
+    assert d.parent == tmp_path / "data" / "tmp"
+    assert d.name.startswith(f"{os.getpid()}-")
+    assert d.is_dir()
