@@ -107,16 +107,23 @@ import { initRail, buildRail } from "./rail.js";
   }
 
   // ── 4. 読み込み ──
-  // 要素数の上限で切り捨てたページ数。同じ状態で何度も通知しないよう直前値を覚える。
-  var truncatedNoticed = 0;
+  // 資源上限による劣化の直前値 (要素の切り捨て / 背景の欠落)。同じ状態で何度も通知しない。
+  var degradedNoticed = { truncated: 0, noBackground: 0 };
   async function reloadState() {
     var st = await rpc("state");
     applyState(st);
-    // 上限に当たったページは要素が欠ける。黙って欠落させず、その事実を必ず伝える。
-    if (st.truncated && st.truncated !== truncatedNoticed) {
-      toast(st.truncated + " ページが要素数の上限を超えたため、一部の要素を読み飛ばしました");
+    // 上限で劣化したページは要素が欠ける・背景が白紙になる。黙って欠落させず必ず伝える。
+    // toast は 1 つしか出せないので、同時に起きた分は連結する (片方を捨てない)。
+    var msgs = [];
+    if (st.truncated && st.truncated !== degradedNoticed.truncated) {
+      msgs.push(st.truncated + " ページが要素数の上限を超えたため、一部の要素を読み飛ばしました");
     }
-    truncatedNoticed = st.truncated || 0;
+    if (st.noBackground && st.noBackground !== degradedNoticed.noBackground) {
+      msgs.push(st.noBackground + " ページは大きすぎて背景画像を生成できませんでした");
+    }
+    degradedNoticed.truncated = st.truncated || 0;
+    degradedNoticed.noBackground = st.noBackground || 0;
+    if (msgs.length) toast(msgs.join(" / "));
   }
 
   // File 配列を順にアップロードして状態を更新する (クリック選択・D&D 共用)。

@@ -121,6 +121,13 @@ def rpc_state(s: WebSession, _args: dict) -> dict:
         # 要素数の資源上限に当たって抽出を打ち切ったページ数 (`engine/pdf_engine.py`)。
         # 欠落を無言にしないための通知経路で、`app.js` の `reloadState` が出す。
         "truncated": sum(1 for d in s.docs for pg in d.pages if pg.truncated),
+        # 背景を生成できなかったスキャンページ数 (`engine/pdf_engine.py` の
+        # `_render_background` が `None` を返した分 = ラスタ上限・文書予算の超過)。
+        # このページは白紙同然で書き出されるので、`truncated` と同じ経路で必ず伝える。
+        # モデルに印を持たせず導出するのは、状態が 2 か所へ分かれて食い違うのを避けるため。
+        "noBackground": sum(
+            1 for d in s.docs for pg in d.pages if pg.is_scanned and pg.background is None
+        ),
     }
 
 

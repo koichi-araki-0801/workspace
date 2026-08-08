@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 import { assertNoDocumentExternalRefs } from '../security/externalRefs.js';
+import { BuildAdmissionGate } from './buildAdmission.js';
 import { buildWorkerPool } from './buildWorkerServer.js';
 import { stageDocAssets } from './docAssets.js';
 import { collectDocumentAssetRefs } from './docRefs.js';
@@ -32,14 +33,42 @@ const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
  * 既定は常駐ウォームワーカープール(`buildWorkerPool`)へ委譲し、`@vivliostyle/cli` の import
  * (計測 ~11s)をプロセス使い回しで 1 度きりにする。`config.vivliostyle.build.poolSize <= 0` の
  * ときは従来の「ジョブ毎 spawn」(`runBuildWorkerSpawn`)へフォールバックする(安全弁)。
- * ⚠ フォールバック経路には行列も同時実行上限も無い — 障害調査用の安全弁であり、
- * 常用しない(常用するなら、ここに `buildWorkerPool` と同じ受付制御を入れること)。
+ * フォールバックも `SPAWN_FALLBACK_GATE` で受付制御を受ける(`buildAdmission.ts`)。
  */
-function withBuildSlot<T>(
+export function withBuildSlot<T>(
   fn: (runBuild: (buildOptions: unknown) => Promise<void>) => Promise<T>,
 ): Promise<T> {
-  if (config.vivliostyle.build.poolSize <= 0) return fn(runBuildWorkerSpawn);
+  if (config.vivliostyle.build.poolSize <= 0) return withSpawnFallbackSlot(fn);
   return buildWorkerPool.withSlot(fn);
+}
+
+/**
+ * フォールバック経路(ジョブ毎 spawn)の受付制御。
+ *
+ * 同時実行を **1 本**に固定するのは、この経路がプールの故障を疑うときの迂回路で、常用を
+ * 想定しないため — 1 ジョブが Node + Chromium を丸ごと起こす経路を無制限に並べると、
+ * 単一プロセスのサーバがメモリごと落ちる。行列長はプール経路と同じ設定値を使う。
+ */
+const SPAWN_FALLBACK_GATE = new BuildAdmissionGate({
+  maxConcurrent: 1,
+  maxQueue: config.vivliostyle.build.maxQueue,
+});
+
+/**
+ * フォールバック経路で枠を取り `fn` を走らせる。`buildWorkerPool.withSlot` と同契約に
+ * するため、1 枠で 2 度目のビルドを始めようとしたら拒否する(枠の二重使用)。
+ */
+function withSpawnFallbackSlot<T>(
+  fn: (runBuild: (buildOptions: unknown) => Promise<void>) => Promise<T>,
+): Promise<T> {
+  return SPAWN_FALLBACK_GATE.run(() => {
+    let started = false;
+    return fn((buildOptions) => {
+      if (started) return Promise.reject(new Error(`${PDF_BUILD_FAILED}: 枠の二重使用`));
+      started = true;
+      return runBuildWorkerSpawn(buildOptions);
+    });
+  });
 }
 
 /**
@@ -209,17 +238,14 @@ interface BuildProjectInput {
 /**
  * 展開済み vivliostyle プロジェクトディレクトリから PDF をビルドする。プロジェクトの
  * `vivliostyle.config.*` があればそれを、無ければ単一エントリファイルを使う。
+ *
+ * ⚠ **枠は呼び出し側が `withBuildSlot` で取る。** この経路の入力は zip の展開結果で、
+ * 展開そのものが temp ディレクトリを握る資源確保だからである(`vivliostyle.routes.ts` の
+ * `apiPaths.buildProject`)。ここで枠を取る版だと展開は枠の外に残り、順番待ちのあいだ
+ * 展開済みディレクトリを握り続けた。`buildMergedPdf` が枠を自分で取ってからこれを呼ぶのも
+ * 同じ理由で、二重に取ると同時実行上限 1 の構成では自分自身を待つデッドロックになる。
  */
-export async function buildProjectPdf(input: BuildProjectInput): Promise<Buffer> {
-  return withBuildSlot((runBuild) => buildProjectInSlot(input, runBuild));
-}
-
-/**
- * 枠を確保した状態で project ビルドを行う。`buildMergedPdf` は自前で枠を取ってから
- * こちらを直接呼ぶ — `buildProjectPdf` を呼ぶと枠を二重に取りに行き、同時実行上限が 1 の
- * 構成で自分自身を待つデッドロックになる。
- */
-async function buildProjectInSlot(
+export async function buildProjectInSlot(
   input: BuildProjectInput,
   runBuild: (buildOptions: unknown) => Promise<void>,
 ): Promise<Buffer> {

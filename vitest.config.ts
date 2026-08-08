@@ -78,6 +78,8 @@ export default defineConfig({
         'editor/server/src/vivliostyle/inlineDocScripts.ts',
         'editor/server/src/vivliostyle/previewManager.ts',
         'editor/server/src/vivliostyle/buildWorkerPool.ts',
+        // プール非経由(`poolSize <= 0`)のフォールバックにも同じ受付制御を効かせる層。
+        'editor/server/src/vivliostyle/buildAdmission.ts',
         // 段階 3(資源上限)で新設・改修した層。上限そのものと、上限を守るための
         // 直列化・適用範囲の限定は、迂回されると単一プロセスが 1 リクエストで止まる。
         'editor/server/src/files/atomic.ts',
