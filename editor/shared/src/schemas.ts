@@ -48,7 +48,17 @@ export const TemplateStatus = z.enum(['draft', 'published']).meta({ id: 'Templat
 export const TemplateId = z
   .string()
   .refine(isValidTemplateId, { message: '不正なテンプレート id です' })
-  .meta({ id: 'TemplateId', example: 'AM01_510037_20240710_交付版' });
+  .meta({
+    id: 'TemplateId',
+    example: 'AM01_510037_20240710_交付版',
+    // 制約の実体は `refine` で、JSON Schema へは `minLength` すら書き出されない。散文で
+    // 添えないと、公開 OpenAPI 上は「ただの string」に見えて外部クライアントが素の文字列を
+    // 送れると誤解する(id を `$ref` へ寄せた際に旧 `minLength: 1` が消えたのが実例)。
+    description:
+      'ファイル名規約 `<会社コード>_<ファンドコード>_<基準日>_<版種>`(拡張子なし)。' +
+      'パス区切り・`..`・制御文字・末尾のドット/空白を含まない単一のファイル名セグメントに限る' +
+      '(判定は `isValidTemplateId`)。',
+  });
 
 /** テンプレートを識別する 4 属性(ファイル名: company_fund_date_edition.html)。 */
 export const TemplateAttributes = z
