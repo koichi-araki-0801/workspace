@@ -12,6 +12,7 @@ import { fractionToPage } from '@/components/pageNav';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
+import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
 import PartTree from './PartTree.vue';
@@ -107,6 +108,23 @@ async function goPreview() {
   router.push({ name: 'preview', params: { id: props.id }, query: created });
 }
 
+// ── 承認待ちバッジ(上部バー) ──
+// このテンプレの承認待ち申請。複数ある場合は最新(取得順の先頭)へ飛ばす。
+const pendingReviews = usePendingReviewsStore();
+const pendingReview = computed(() => pendingReviews.byTemplate[props.id]?.[0] ?? null);
+
+/** 承認待ちバッジのクリック。`fromEdit` は離脱ガードのセッション維持ホワイトリストが読む。 */
+async function goReview() {
+  const target = pendingReview.value;
+  if (!target) return;
+  await autosave.flush();
+  router.push({
+    name: 'review-detail',
+    params: { reqId: target.id },
+    query: { fromEdit: props.id },
+  });
+}
+
 // ユーザーが zoom +/- で明示的に倍率を決めたか。立っている間は resize で勝手に再フィット
 // しない(下の observer を見よ)。初期 `load` 時の自動フィットでは立てない。
 const userZoomed = ref(false);
@@ -120,6 +138,8 @@ const userZoomed = ref(false);
 // setZoom→rAF で refreshRect/refreshPageGuides も走らせる。
 let canvasResizeObserver: ResizeObserver | null = null;
 onMounted(() => {
+  // 承認待ちバッジの表示材料を取り直す(ベストエフォート。失敗してもバッジが出ないだけ)。
+  void pendingReviews.refresh();
   const el = canvasEl.value;
   if (!el) return;
   canvasResizeObserver = new ResizeObserver(() => {
@@ -222,6 +242,7 @@ const statusText = computed(() => {
       :page-count="g.pageCount.value"
       :single-page-mode="g.singlePageMode.value"
       :allow-edit="allowEdit"
+      :pending-review="pendingReview"
       @undo="undo"
       @redo="redo"
       @zoom-in="zoomIn"
@@ -234,6 +255,7 @@ const statusText = computed(() => {
       @help="helpOpen = true"
       @save="manualSave"
       @preview="goPreview"
+      @open-review="goReview"
     />
 
     <ShortcutHelpDialog v-model:open="helpOpen" />

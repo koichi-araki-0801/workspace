@@ -9,7 +9,7 @@
 import { type ApproveReviewResult, isOk, type ReviewRequest } from '@editor/shared';
 import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import AttributeBar from '@/components/AttributeBar.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
@@ -32,6 +32,7 @@ const props = defineProps<{ reqId: string }>();
 
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
 // データ取得と承認/却下アクションは composable に委譲(遷移/トーストのみ View に残す)。
 const {
   review,
@@ -75,6 +76,20 @@ const STATUS_BADGE: Record<
 
 // 既に処理済み(承認/却下)か。処理済みは閲覧のみ。pending かつ approver のみ操作可。
 const canDecide = computed(() => auth.isApprover && review.value?.status === 'pending');
+
+// 編集画面の「承認待ち」バッジ経由で来たか。`fromEdit` はフラグとしてのみ使い、戻り先の
+// テンプレ id は query を信用せず申請自身の `templateId` を使う(細工 URL で任意 id へ
+// 飛ばされない)。編集セッションは離脱ガードのホワイトリスト(`useTemplateEditor`)が維持済み。
+const cameFromEdit = computed(
+  () => typeof route.query.fromEdit === 'string' && route.query.fromEdit.length > 0,
+);
+
+/** ヘッダの戻るボタン。編集画面から来たときだけ編集へ戻す(それ以外はキュー一覧へ)。 */
+function goBack() {
+  const tplId = review.value?.templateId;
+  if (cameFromEdit.value && tplId) router.push({ name: 'editor', params: { id: tplId } });
+  else router.push({ name: 'reviews' });
+}
 
 // ── iframe ドキュメント組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差) ──
 const HIGHLIGHT_CSS = diffHighlightCss(14);
@@ -175,8 +190,8 @@ onMounted(load);
   <div class="space-y-4">
     <!-- ヘッダ -->
     <div class="flex flex-wrap items-center gap-3 border-b pb-3">
-      <Button variant="outline" size="sm" @click="router.push({ name: 'reviews' })">
-        ← 一覧へ
+      <Button variant="outline" size="sm" @click="goBack">
+        {{ cameFromEdit ? '← 編集に戻る' : '← 一覧へ' }}
       </Button>
       <span class="text-lg font-bold">確定保存の精査</span>
       <template v-if="review">

@@ -2,7 +2,7 @@
 // =============================================================================
 // EditorTopBar.vue — editor 上部バー(undo/redo / zoom / 保存状態 / プレビュー)
 // =============================================================================
-import type { TemplateAttributes } from '@editor/shared';
+import type { ReviewRequestMeta, TemplateAttributes } from '@editor/shared';
 import {
   AlertCircle,
   CheckCircle2,
@@ -44,6 +44,8 @@ const props = defineProps<{
   singlePageMode: boolean;
   /** 「編集を許可」の状態(左ペイン `PartTree` のトグルと同一 state)。 */
   allowEdit: boolean;
+  /** このテンプレの承認待ち申請(あればバッジ表示。クリックで `openReview` を emit)。 */
+  pendingReview?: ReviewRequestMeta | null;
 }>();
 
 const emit = defineEmits<{
@@ -61,6 +63,8 @@ const emit = defineEmits<{
   help: [];
   save: [];
   preview: [];
+  /** 承認待ちバッジのクリック(`EditorView` が精査画面へ遷移する)。 */
+  openReview: [];
 }>();
 
 const attrItems = (a: TemplateAttributes) => [
@@ -89,6 +93,26 @@ const attrItems = (a: TemplateAttributes) => [
         </Tooltip>
         <Tooltip v-else text="未確定の変更はありません。">
           <Badge variant="secondary" class="shrink-0 whitespace-nowrap">変更なし</Badge>
+        </Tooltip>
+        <!-- 承認待ちバッジ。申請中のテンプレを重ねて編集し始める事故の抑止も兼ねて常時表示し、
+             クリックで精査画面へ飛ぶ(セッション維持の往復 — `useTemplateEditor` の離脱ガード)。 -->
+        <Tooltip
+          v-if="pendingReview"
+          text="このテンプレートには承認待ちの申請があります。クリックで内容を確認します（編集内容は保持されます）。"
+        >
+          <button
+            type="button"
+            class="ring-focus shrink-0 rounded-md"
+            aria-label="承認待ちの申請を確認"
+            @click="emit('openReview')"
+          >
+            <Badge
+              variant="warning"
+              class="cursor-pointer whitespace-nowrap transition-colors hover:bg-warning/30"
+            >
+              承認待ち
+            </Badge>
+          </button>
         </Tooltip>
       </div>
       <!-- 属性はラベル小 + 値強調のチップに。テキスト羅列より値の判別が速い -->

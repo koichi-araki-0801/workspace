@@ -9,12 +9,14 @@ import { useRouter } from 'vue-router';
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import SearchFilters from './components/SearchFilters.vue';
 import TemplateTable from './components/TemplateTable.vue';
 
 const router = useRouter();
 const repo = useTemplateRepo();
 const history = useHistoryRepo();
+const pending = usePendingReviewsStore();
 const { run } = useAsyncResult();
 const rows = ref<TemplateMeta[]>([]);
 const versionCounts = ref<Record<string, number>>({});
@@ -39,6 +41,13 @@ async function search(q: DropdownQuery) {
 function openEditor(m: TemplateMeta) {
   router.push({ name: 'editor', params: { id: m.id } });
 }
+
+/** 「承認待ち」バッジ。1 件ならその精査画面へ直行、複数ならキューで選ばせる。 */
+function openReview(m: TemplateMeta) {
+  const list = pending.byTemplate[m.id] ?? [];
+  if (list.length === 1) router.push({ name: 'review-detail', params: { reqId: list[0].id } });
+  else router.push({ name: 'reviews' });
+}
 </script>
 
 <template>
@@ -50,7 +59,9 @@ function openEditor(m: TemplateMeta) {
       :rows="rows"
       action="edit"
       :version-counts="versionCounts"
+      :pending-reviews="pending.byTemplate"
       @action="openEditor"
+      @open-review="openReview"
     />
     <EmptyState
       v-else

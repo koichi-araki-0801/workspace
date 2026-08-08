@@ -424,7 +424,8 @@ export function useTemplateEditor(
   });
 
   // アプリ内 navigation guard。
-  //  - プレビューへの遷移(編集セッション内)は破棄しない: 履歴・Undo/Redo・draft を維持する。
+  //  - プレビュー / 承認精査(バッジ経由)への遷移(編集セッション内)は破棄しない:
+  //    履歴・Undo/Redo・draft を維持する。
   //  - メニュー等へ離脱する際は、確定保存していない変更があれば yes/no で確認し、承諾された
   //    場合は draft とセッション履歴を破棄してから移動する(キャンセルなら離脱中止)。
   onBeforeRouteLeave(async (to) => {
@@ -433,6 +434,10 @@ export function useTemplateEditor(
 
     // 同一テンプレートのプレビューへの往復はセッションを保持する。
     if (to.name === 'preview' && to.params.id === id) return true;
+    // 上部バーの「承認待ち」バッジ経由の精査画面往復も同じ扱い(`fromEdit` は `EditorView` の
+    // `goReview` だけが付ける往復マーカー)。状況確認のたびに編集を破棄させない。
+    // 通常のタブ遷移・直 URL はマーカーが無いので従来どおり下の破棄確認に当たる。
+    if (to.name === 'review-detail' && to.query.fromEdit === id) return true;
 
     if (dirty.value) {
       const discard = await confirm({

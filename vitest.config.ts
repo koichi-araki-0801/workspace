@@ -114,6 +114,7 @@ export default defineConfig({
         'editor/web/src/features/editor/partKey.ts',
         'editor/web/src/features/editor/useAutosave.ts',
         'editor/web/src/stores/editorSession.ts',
+        'editor/web/src/stores/pendingReviews.ts',
         'editor/web/src/features/compare/htmlBlockDiff.ts',
         'editor/web/src/features/compare/services/compareService.ts',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
