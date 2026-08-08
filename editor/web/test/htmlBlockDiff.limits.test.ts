@@ -10,6 +10,7 @@
 // を対にして固定する。
 import { describe, expect, it } from 'vitest';
 import {
+  buildDiffDoc,
   buildHtmlDiff,
   createLcsBudget,
   diffHighlightCss,
@@ -282,5 +283,56 @@ describe('ページ分割の資源上限(R23 / R24)', () => {
     const css = '@page { size: A4; @bottom-center { content: counter(page) } }';
     const body = '<div class="page">1</div><div class="page">2</div>';
     expect(buildHtmlDiff(doc(body), doc(body), css).pages).toHaveLength(1);
+  });
+});
+
+// ── 承認画面の完全性(再スキャン F8 / F9) ──
+// 差分ペインは「申請者が書いた本文 + 申請者が書いた CSS」を承認者に見せる面で、
+// 見えているものが本物であることが承認の前提になる。ここが崩れると、無害に見える差分を
+// 承認させて別の内容を確定領域へ入れられる(職務分掌の回避)。
+describe('差分装飾は申請者 CSS から守られる(F8)', () => {
+  const layerDecl = /<style>@layer (d[0-9a-f]{16});<\/style>/;
+
+  it('レイヤ宣言が申請者 CSS より前にある(重要宣言の逆転はレイヤ順で決まる)', () => {
+    const built = buildDiffDoc('<p>x</p>', '.applicant{color:red}', diffHighlightCss(8));
+    const declAt = built.search(layerDecl);
+    const applicantAt = built.indexOf('.applicant');
+    expect(declAt).toBeGreaterThanOrEqual(0);
+    // 後ろに置くと、申請者が自分の CSS 先頭で宣言したレイヤの方が先になり逆転が向こうへ効く。
+    expect(declAt).toBeLessThan(applicantAt);
+  });
+
+  it('ハイライト CSS はそのレイヤの中に入る', () => {
+    const built = buildDiffDoc('<p>x</p>', '', diffHighlightCss(8));
+    const name = layerDecl.exec(built)?.[1] as string;
+    expect(built).toContain(`@layer ${name}{`);
+    // 装飾は `!important` であること(通常宣言ではレイヤ順が逆転せず守りにならない)。
+    expect(diffHighlightCss(8)).toContain(`.${HL_INS}{background:rgba(22,163,74,.18)!important`);
+    // `display` は入れない(表セル等の正当なレイアウトを壊すため。守りが本体を壊さない)。
+    expect(diffHighlightCss(8)).not.toContain('display:block!important');
+  });
+
+  it('レイヤ名は文書ごとに変わる(同名レイヤへの相乗りを塞ぐ)', () => {
+    // 実ブラウザで確認した唯一の突破口が「名前を当てて同じレイヤへ高詳細度で書く」形。
+    // 名前が固定だとその 1 手で装飾を消せるため、推測不能であることが防御の一部になる。
+    const names = new Set(
+      Array.from({ length: 8 }, () => layerDecl.exec(buildDiffDoc('<p>x</p>', '', 'a{}'))?.[1]),
+    );
+    expect(names.size).toBe(8);
+  });
+});
+
+describe('差分の打ち切りは必ず申告される(F9)', () => {
+  it('上限内では truncated=false', () => {
+    const body = '<div>a</div><div>b</div>';
+    expect(buildHtmlDiff(doc(body), doc(body)).truncated).toBe(false);
+  });
+
+  it('body 直下が上限を超えたら truncated=true(捨てた分は差分に出ない)', () => {
+    const many = Array.from({ length: MAX_TOP_LEVEL_BLOCKS + 5 }, () => '<div>x</div>').join('');
+    const d = buildHtmlDiff(doc(many), doc(many));
+    // 例外にはしない(承認者が差分を見られない状態を作らない)が、黙ってもいない。
+    expect(d.pages.length).toBeGreaterThan(0);
+    expect(d.truncated).toBe(true);
   });
 });

@@ -61,6 +61,12 @@ export interface HtmlDiff {
   afterPageCount: number;
   /** どこか 1 ページでも粗い差分へ落ちたか(画面全体の注記を出すかの判断に使う)。 */
   coarse: boolean;
+  /**
+   * 資源上限で**承認者に見せられなかった領域があるか**。`coarse`(粒度を落とした)と違い、
+   * こちらは領域そのものが差分に現れない。確定書込は本文を全文書くので、承認者が見ていない
+   * 内容が本番へ入りうる — 画面は必ずこの旨を出すこと(再スキャン F9)。
+   */
+  truncated: boolean;
 }
 
 /**
@@ -87,15 +93,25 @@ export const HL_COARSE = 'cmp-coarse';
 // 版比較(`CompareResultView`)と承認プレビュー(`ReviewDiffView`)が共有する、iframe 内の
 // ハイライト CSS とドキュメント組み立て。着色ルール(`.cmp-*`)は両画面で同一で、body の
 // padding だけ画面ごとに変えるため引数化する(二重管理を避ける)。
+/**
+ * 装飾はすべて `!important` で書く — `buildDiffDoc` のカスケードレイヤによる守りは
+ * **重要宣言でしか優先順位が逆転しない**ため、通常宣言のままだと申請者 CSS に負ける。
+ *
+ * `visibility` は入れるが **`display` は入れない**。`display:block!important` を足すと
+ * `<td class="cmp-changed">` のような正当なマークアップの表レイアウトを壊す
+ * (守りが本体を壊す形)。したがって申請者が `display:none` で変更箇所ごと隠す余地は残る —
+ * これは装飾の優先度では閉じられないので、承認画面の注記(印刷時のみ効く規則がある旨)と
+ * PDF プレビューでの確認で受ける。
+ */
 export function diffHighlightCss(bodyPadding: number): string {
   return `
   body{margin:0;padding:${bodyPadding}px;background:#fff;}
-  .${HL_CHANGED}{background:rgba(220,38,38,.06)!important;box-shadow:inset 3px 0 0 #dc2626;}
-  .${HL_ADDED}{background:rgba(22,163,74,.08)!important;box-shadow:inset 3px 0 0 #16a34a;}
-  .${HL_REMOVED}{background:rgba(217,119,6,.08)!important;box-shadow:inset 3px 0 0 #d97706;}
-  .${HL_INS}{background:rgba(22,163,74,.18);color:#15803d;text-decoration:underline;border-radius:2px;}
-  .${HL_DEL}{background:rgba(220,38,38,.14);color:#b91c1c;text-decoration:underline;border-radius:2px;}
-  .${HL_COARSE}{outline:1px dashed currentColor;outline-offset:1px;}
+  .${HL_CHANGED}{background:rgba(220,38,38,.06)!important;box-shadow:inset 3px 0 0 #dc2626!important;visibility:visible!important;}
+  .${HL_ADDED}{background:rgba(22,163,74,.08)!important;box-shadow:inset 3px 0 0 #16a34a!important;visibility:visible!important;}
+  .${HL_REMOVED}{background:rgba(217,119,6,.08)!important;box-shadow:inset 3px 0 0 #d97706!important;visibility:visible!important;}
+  .${HL_INS}{background:rgba(22,163,74,.18)!important;color:#15803d!important;text-decoration:underline!important;border-radius:2px;visibility:visible!important;}
+  .${HL_DEL}{background:rgba(220,38,38,.14)!important;color:#b91c1c!important;text-decoration:underline!important;border-radius:2px;visibility:visible!important;}
+  .${HL_COARSE}{outline:1px dashed currentColor!important;outline-offset:1px;}
 `;
 }
 
@@ -112,6 +128,20 @@ export function hasCoarseDiff(...htmls: string[]): boolean {
 }
 
 /**
+ * 差分装飾を置く CSS カスケードレイヤの名前を 1 文書ぶん作る。**推測不能**であることが要件。
+ *
+ * 申請者は自分の CSS に任意のレイヤを書けるので、名前が既知だと
+ * `@layer diff { html body .cmp-ins { background:none !important } }` のように**同じレイヤへ
+ * 相乗りして**より高い詳細度で上書きできてしまう(同一レイヤ・同一重要度の中では詳細度と
+ * ソース順で決まり、レイヤの守りが働かない)。名前を知られなければこの経路が消える。
+ */
+function diffLayerName(): string {
+  const buf = new Uint8Array(8);
+  crypto.getRandomValues(buf);
+  return `d${Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
  * 断片 HTML を、版ファンド CSS + ハイライト CSS 付きの完結した srcdoc ドキュメントに包む。
  * `css` は他ユーザが書いたテンプレ由来なので `<style>` の脱出を潰してから埋める。
  *
@@ -120,9 +150,25 @@ export function hasCoarseDiff(...htmls: string[]): boolean {
  * (same-origin なし)が担う。ここで潰すのは「`</style>` で CSS 文脈を抜けて親の srcdoc
  * 構造そのものを書き換える」形だけで、これは sandbox の内側でも成立してしまう
  * (ハイライト表示を偽装して差分を隠せる)ため別途必要である。
+ *
+ * ── 差分装飾を申請者 CSS から守る(再スキャン F8)──
+ * `</style>` 脱出を潰しても、**通常のカスケード**で差分の視覚表現は消せた。申請者 CSS の
+ * `.cmp-ins{background:none!important}` が宣言順で勝ち、承認者のペインから着色と左帯が
+ * 消えてしまう(= 変更箇所が無いように見える)。
+ *
+ * 解は CSS カスケードレイヤの**重要宣言では優先順位が逆転する**性質:
+ *  - 通常宣言 … 後のレイヤが勝つ / 非レイヤ が レイヤ より強い
+ *  - **重要宣言 … 先のレイヤが勝つ / 非レイヤ が 最弱**
+ * よって差分装飾を「最初に宣言したレイヤ」に置き `!important` を付ければ、申請者が
+ * `!important` を書いても(レイヤ内・レイヤ外どちらでも)上書きできない。
+ *
+ * 順序が要件そのものなので、レイヤ宣言だけを**申請者 CSS より前**の `<style>` で行う。
+ * 後ろに置くと申請者が自分の CSS の先頭で宣言したレイヤの方が先になり、逆転が向こうへ効く。
+ * 名前は `diffLayerName` で毎回変える(同名レイヤへの相乗りを塞ぐ)。
  */
 export function buildDiffDoc(fragment: string, css: string, highlightCss: string): string {
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8" />${styleTag(css)}${styleTag(highlightCss)}</head><body>${fragment}</body></html>`;
+  const layer = diffLayerName();
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><style>@layer ${layer};</style>${styleTag(css)}${styleTag(`@layer ${layer}{${highlightCss}}`)}</head><body>${fragment}</body></html>`;
 }
 
 // ── 2. パースと page 分割 ─────────────────────────────────────────────────
@@ -138,11 +184,14 @@ function parseBody(html: string, parse: HtmlParser): HTMLElement {
  */
 export const MAX_TOP_LEVEL_BLOCKS = 5_000;
 
-function topLevelBlocks(body: HTMLElement): HTMLElement[] {
+function topLevelBlocks(body: HTMLElement): { blocks: HTMLElement[]; truncated: boolean } {
   const children = Array.from(body.children) as HTMLElement[];
+  // 打ち切ったことは**必ず戻り値で申告する**。捨てた分は差分にもページにも現れないのに、
+  // 承認が通れば確定書込は本文を全文書く — 承認者が見ていない領域が本番へ入る。
+  // 語句 LCS の degrade(`coarse`)が常に表へ出るのと同じ扱いに揃える(再スキャン F9)。
   return children.length > MAX_TOP_LEVEL_BLOCKS
-    ? children.slice(0, MAX_TOP_LEVEL_BLOCKS)
-    : children;
+    ? { blocks: children.slice(0, MAX_TOP_LEVEL_BLOCKS), truncated: true }
+    : { blocks: children, truncated: false };
 }
 
 /**
@@ -325,7 +374,10 @@ function hasBreak(
 }
 
 /** top-level の block を、明示的な page-break マーカーで page にグループ化する。 */
-function paginate(blocks: HTMLElement[], rawSels: BreakSelectors): HTMLElement[][] {
+function paginate(
+  blocks: HTMLElement[],
+  rawSels: BreakSelectors,
+): { pages: HTMLElement[][]; truncated: boolean } {
   // セレクタのコンパイルは要素ごとではなく 1 回だけ(ここが B x S の S を潰す点)。
   const sels = compileBreakSelectors(rawSels);
   const pages: HTMLElement[][] = [[]];
@@ -339,7 +391,7 @@ function paginate(blocks: HTMLElement[], rawSels: BreakSelectors): HTMLElement[]
     if (hasBreak(el, 'after', sels)) pages.push([]);
   }
   if (pages.length > 1 && pages[pages.length - 1].length === 0) pages.pop();
-  return pages;
+  return { pages, truncated: sels.before.truncated || sels.after.truncated };
 }
 
 // ── 3. ノードの整列キー ───────────────────────────────────────────────────
@@ -827,8 +879,14 @@ function diffPage(
 }
 
 /** HTML を `page-break`(インライン `style` + CSS クラス由来)で top-level page 群へ分割する。 */
-function paginateDoc(html: string, css: string | undefined, parse: HtmlParser): HTMLElement[][] {
-  return paginate(topLevelBlocks(parseBody(html, parse)), extractBreakSelectors(css));
+function paginateDoc(
+  html: string,
+  css: string | undefined,
+  parse: HtmlParser,
+): { pages: HTMLElement[][]; truncated: boolean } {
+  const top = topLevelBlocks(parseBody(html, parse));
+  const paged = paginate(top.blocks, extractBreakSelectors(css));
+  return { pages: paged.pages, truncated: top.truncated || paged.truncated };
 }
 
 /** ペア配列の各 page を diff する共通本体。`buildHtmlDiff`/`buildHtmlDiffAligned` の合流点。 */
@@ -836,6 +894,7 @@ function diffPairs(
   beforePages: HTMLElement[][],
   afterPages: HTMLElement[][],
   pairs: PagePair[],
+  truncated: boolean,
 ): HtmlDiff {
   const pages: DiffPage[] = [];
   // DP セル予算は文書ペア単位。ページごとに作り直すと「上限直下のページを並べる」形で
@@ -854,6 +913,7 @@ function diffPairs(
     beforePageCount: beforePages.length,
     afterPageCount: afterPages.length,
     coarse: pages.some((p) => p.coarse),
+    truncated,
   };
 }
 
@@ -869,15 +929,15 @@ export function buildHtmlDiff(
   cssAfter?: string,
   parse: HtmlParser = defaultHtmlParser,
 ): HtmlDiff {
-  const beforePages = paginateDoc(beforeHtml, cssBefore, parse);
-  const afterPages = paginateDoc(afterHtml, cssAfter, parse);
+  const before = paginateDoc(beforeHtml, cssBefore, parse);
+  const after = paginateDoc(afterHtml, cssAfter, parse);
   // 恒等 pairs(i↔i、範囲外側は null)で合流。出力は従来と不変。
-  const pageCount = Math.max(beforePages.length, afterPages.length);
+  const pageCount = Math.max(before.pages.length, after.pages.length);
   const pairs: PagePair[] = Array.from({ length: pageCount }, (_, i) => ({
-    before: i < beforePages.length ? i : null,
-    after: i < afterPages.length ? i : null,
+    before: i < before.pages.length ? i : null,
+    after: i < after.pages.length ? i : null,
   }));
-  return diffPairs(beforePages, afterPages, pairs);
+  return diffPairs(before.pages, after.pages, pairs, before.truncated || after.truncated);
 }
 
 /**
@@ -893,9 +953,7 @@ export function buildHtmlDiffAligned(
   pairs: PagePair[],
   parse: HtmlParser = defaultHtmlParser,
 ): HtmlDiff {
-  return diffPairs(
-    paginateDoc(beforeHtml, cssBefore, parse),
-    paginateDoc(afterHtml, cssAfter, parse),
-    pairs,
-  );
+  const before = paginateDoc(beforeHtml, cssBefore, parse);
+  const after = paginateDoc(afterHtml, cssAfter, parse);
+  return diffPairs(before.pages, after.pages, pairs, before.truncated || after.truncated);
 }

@@ -39,6 +39,12 @@ interface ReviewDiffData {
   cssBefore: string;
   /** after ペイン(申請版)のファンド CSS。 */
   cssAfter: string;
+  /**
+   * 資源上限で差分に現れなかった領域があるか。**承認者へ必ず伝える**(再スキャン F9)。
+   * 承認すると確定書込は申請本文を全文書くので、ここが真のまま承認されると
+   * 「承認者が一度も見ていない内容」が本番へ入る。
+   */
+  truncated: boolean;
 }
 
 interface ReviewDiffService {
@@ -89,7 +95,14 @@ export function createReviewDiffService(
         added: rows.filter((r) => r.status === 'added').length,
         removed: rows.filter((r) => r.status === 'removed').length,
       };
-      return ok({ review, rows, summary, cssBefore, cssAfter: after.css });
+      return ok({
+        review,
+        rows,
+        summary,
+        cssBefore,
+        cssAfter: after.css,
+        truncated: diff.truncated,
+      });
     },
   };
 }

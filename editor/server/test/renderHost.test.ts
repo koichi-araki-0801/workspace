@@ -228,6 +228,46 @@ describe('ブートスクリプトの多層防御(nunjucks サンドボックス
     }
   });
 
+  // ── nunjucks が外部の値へ触る経路(この列挙が防御の単位) ──
+  // 防御は「プロパティ参照」「グローバル参照」「フィルタ解決」の 3 経路を塞ぐ形で書かれて
+  // いる。当初は前 2 者しか包んでおらず、フィルタ解決だけが素通りしていた(再スキャン F2)。
+  // 経路が増えた/包み忘れたことをここで検出する。
+  it('フィルタ解決から Object.prototype 由来の値を引けない(再スキャン F2)', async () => {
+    const send = await bootChild();
+    (globalThis as Record<string, unknown>).__renderHostEscaped = false;
+    // `1|valueOf` は `Object.prototype.valueOf.call(context, 1)` として解決されると
+    // **Context そのもの**を返す。そこから `env` → `getFilter("constructor")`(= Object)
+    // → `Function` と辿れてしまうのが F2 の経路。起点のフィルタ解決を閉じたので落ちる。
+    const res = send({ id: 21, template: '{{ 1|valueOf }}', data: {} });
+    expect(res?.type).toBe('editor:render-error');
+
+    // 完全な脱出連鎖。`"constructor"` は**文字列引数**なので名前遮断には掛からない —
+    // だからこそ起点(フィルタ解決)を閉じる必要がある。
+    const chain =
+      '{% set c = 1|valueOf %}{% set O = c.env.getFilter("constructor") %}' +
+      '{% set F = O.getOwnPropertyDescriptor(O.getPrototypeOf(O), "constructor").value %}' +
+      '{{ F("globalThis.__renderHostEscaped=true")() }}';
+    send({ id: 22, template: chain, data: {} });
+    expect((globalThis as Record<string, unknown>).__renderHostEscaped).toBe(false);
+
+    // 継承経由で引ける他の名前も同様に「未知のフィルタ」で落ちる。
+    for (const name of ['constructor', 'toString', 'hasOwnProperty', '__defineGetter__']) {
+      expect(send({ id: 23, template: `{{ 1|${name} }}`, data: {} })?.type).toBe(
+        'editor:render-error',
+      );
+    }
+  });
+
+  it('組み込みフィルタは今までどおり使える(防御が正常系を壊していない)', async () => {
+    const send = await bootChild();
+    const res = send({
+      id: 24,
+      template: '{{ "a,b"|replace(",", " / ") }}|{{ [3,1,2]|sort|join("-") }}|{{ "x"|upper }}',
+      data: {},
+    });
+    expect(res).toEqual({ type: 'editor:render-res', id: 24, html: 'a / b|1-2-3|X' });
+  });
+
   it('親以外からのメッセージは無視する(発信元の同一性で弾く)', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/render-host/index.html' });
     const scripts = [...res.body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);

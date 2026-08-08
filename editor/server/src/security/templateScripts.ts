@@ -251,7 +251,9 @@ const INERT_ELEMENTS = new Set([
  *
  * **不変則: 読み飛ばした範囲は必ず単位化すること。** ここに載る要素は下の `collectInto` が
  * 中身を単位へ変換する専用分岐を持つ(`script` = 本文丸ごと 1 単位 / `style` = CSS の外部
- * 参照を単位化)。単位化しない要素をここへ足すと、その内側が単位抽出から**完全に消える**。
+ * 参照 **+ マークアップとしての再走査**)。単位化しない要素をここへ足すと、その内側が
+ * 単位抽出から**完全に消える**。この対応は `templateScripts.test.ts` の
+ * 「raw text 要素は必ず単位化される」節が機械検証する — 要素を足して分岐を書き忘れたら落ちる。
  *
  * 実際に `title` と `textarea` を載せていた版が破れていた: HTML の `<title>` が RCDATA
  * なのは HTML 名前空間の場合だけで、SVG の foreign content では普通の外来要素である。
@@ -259,6 +261,11 @@ const INERT_ELEMENTS = new Set([
  * 通った(`<svg><title><style>@import url(…)` も同様)。よって両者はここから外し、素の
  * マークアップとして走査する。HTML 名前空間では実行されない字面まで拾うことになるが、
  * 過剰包含は基準側にも同じだけ現れるので害にならない(ファイル冒頭の方針どおり)。
+ *
+ * **同じ理由が `style` にも当たることを、当初は見落としていた**(再スキャン F1)。
+ * `<svg><style><img src=x onerror=…>` は Chromium で onerror が発火するのに、CSS 外部参照
+ * しか単位化していなかったため単位ゼロで通った。`style` は CSS 参照の抽出が要るので
+ * ここへ残したまま、中身をマークアップとしても走査する形にしてある。
  */
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
 
@@ -414,7 +421,22 @@ interface ParsedTag {
   jinja: string[];
 }
 
-const TAG_TERMINATORS = new Set([' ', '\t', '\n', '\r', '\f', '/', '>', '=']);
+/**
+ * **タグ名**の終端文字。仕様のタグ名状態が実際に終端する文字だけを並べる。
+ *
+ * `=` を入れてはならない(再スキャン F1)。タグ名状態は空白・`/`・`>` でしか終わらず、`=` は
+ * 普通のタグ名文字なので、`<style=x>` の要素名はブラウザにとって `style=x` という**未知要素**
+ * であり、中身は raw text にならず通常マークアップとして解析される(実 Chromium で
+ * `<style=x><img src=x onerror=…>` の onerror 発火を確認)。ここに `=` があると走査器だけが
+ * 要素名を `style` と読み、`</style` まで読み飛ばして内側が単位ゼロになる。
+ *
+ * **属性名の終端は別集合**(`ATTR_NAME_TERMINATORS`)。属性名状態は `=` でも終わるため、
+ * 2 つを同じ集合で兼ねると片方が必ず間違う。
+ */
+const TAG_NAME_TERMINATORS = new Set([' ', '\t', '\n', '\r', '\f', '/', '>']);
+
+/** **属性名**の終端文字。属性名状態はタグ名と違い `=` でも終わる。 */
+const ATTR_NAME_TERMINATORS = new Set([' ', '\t', '\n', '\r', '\f', '/', '>', '=']);
 
 function isSpace(c: string): boolean {
   return c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
@@ -519,7 +541,7 @@ function* scanOpenTags(text: string, lower: string): Generator<ParsedTag> {
       continue;
     }
     let p = lt + 1;
-    while (p < len && !TAG_TERMINATORS.has(text[p] as string)) p++;
+    while (p < len && !TAG_NAME_TERMINATORS.has(text[p] as string)) p++;
     const name = text.slice(lt + 1, p).toLowerCase();
     const attrs: ParsedAttr[] = [];
     const jinja: string[] = [];
@@ -541,7 +563,7 @@ function* scanOpenTags(text: string, lower: string): Generator<ParsedTag> {
         // 下の属性名走査へ落とす — ここで走査を打ち切ると入力の残りが単位から消える。
       }
       const nameStart = p;
-      while (p < len && !TAG_TERMINATORS.has(text[p] as string)) p++;
+      while (p < len && !ATTR_NAME_TERMINATORS.has(text[p] as string)) p++;
       const attrName = text.slice(nameStart, p).toLowerCase();
       while (p < len && isSpace(text[p] as string)) p++;
       let value = '';
@@ -662,9 +684,18 @@ function collectInto(html: string, out: PositionedUnit[], depth: number): void {
       continue;
     }
     if (tag.name === 'style') {
+      const body = rawTextOf(text, lower, tag);
       // 宣言の編集(色・寸法)はスタイルマネージャの正当な操作なので単位にしない。
       // 外部を引き込む面(`@import` / 非画像 `url()`)だけを固定する。
-      pushCssUnits(rawTextOf(text, lower, tag), tag.at, out);
+      pushCssUnits(body, tag.at, out);
+      // **中身をマークアップとしても走査する。** `style` が raw text なのは HTML 名前空間の
+      // 場合だけで、SVG の foreign content(`<svg><style>`)では普通の外来要素になり、
+      // 内側の `<img src=x onerror=…>` が実要素として生きる(実 Chromium で確認)。CSS 参照の
+      // 単位化だけでは能動属性を拾えず、`</style` まで読み飛ばした範囲が単位ゼロになる。
+      // HTML 名前空間では実行されない字面まで拾うが、過剰包含は基準側にも同じだけ現れるので
+      // 害にならない(ファイル冒頭の方針どおり)。同じ理由で `title` / `textarea` は
+      // `RAW_TEXT_ELEMENTS` から外してある — `style` だけが取り残されていた(再スキャン F1)。
+      collectInto(body, out, depth);
       // 属性(`media` 等)も見る。`style` 自体は許可要素として扱わない代わりにここで拾う。
       for (const a of tag.attrs) {
         if (!isInertAttrName(a.name)) {

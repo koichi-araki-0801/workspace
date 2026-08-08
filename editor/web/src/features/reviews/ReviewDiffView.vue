@@ -40,6 +40,7 @@ const {
   summary,
   cssBefore,
   cssAfter,
+  truncated,
   loadError,
   loading,
   deciding,
@@ -224,6 +225,18 @@ onMounted(load);
           <span class="text-xs">変更なしも表示</span>
         </label>
       </div>
+
+      <!-- 資源上限で差分に出せなかった領域がある場合。粒度が粗いだけの `coarse` と違い、
+           **領域そのものが画面に現れていない**ので、控えめな注記ではなく警告として出す
+           (承認すると未確認の内容が本番へ入る。再スキャン F9)。 -->
+      <p
+        v-if="truncated"
+        class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+      >
+        この申請は分量が大きく、<strong>差分の一部を表示できていません</strong>。
+        承認すると表示されなかった箇所も含めて反映されます。内容を確認できない場合は却下し、
+        申請を分割して出し直してもらってください。
+      </p>
 
       <EmptyState
         v-if="visibleRows.length === 0"

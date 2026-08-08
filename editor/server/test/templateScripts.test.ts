@@ -394,3 +394,40 @@ describe('raw text の終了タグは直後の文字まで見る', () => {
     expect(accepted(base, same)).toBe(true);
   });
 });
+
+// ── 走査器とブラウザの解釈がずれる形(再スキャン F1) ──
+// 「読み飛ばした範囲は必ず単位化する」という不変則を、raw text 要素ごとに機械検証する。
+// F1 は `title` / `textarea` で一度学んだ事実(SVG の foreign content では raw text に
+// ならない)を `style` へ適用し忘れて生まれた。要素を足して単位化の分岐を書き忘れたら
+// ここが落ちる。
+describe('raw text 要素の内側は必ず単位化される', () => {
+  // 実 Chromium で onerror の発火を確認済みの形だけを並べる(単なる字面ではない)。
+  const 実行される形 = {
+    '<style=x> はタグ名が = で終端せず未知要素になる':
+      '<style=x><img src=x onerror="evil()"></style=x>',
+    '<svg><style> は foreign content で raw text にならない':
+      '<svg><style><img src=x onerror="evil()"></style></svg>',
+    '<svg><title> も同様': '<svg><title><img src=x onerror="evil()"></title></svg>',
+    '<svg><textarea> も同様': '<svg><textarea><img src=x onerror="evil()"></textarea></svg>',
+  };
+  const base = '<html><body><h1>基準</h1></body></html>';
+  for (const [label, payload] of Object.entries(実行される形)) {
+    it(`${label} → 単位が増えるので拒否される`, () => {
+      const evil = base.replace('</body>', `${payload}</body>`);
+      expect(collectExecutableUnits(evil)).not.toEqual(collectExecutableUnits(base));
+      expect(accepted(base, evil)).toBe(false);
+    });
+  }
+
+  it('style の CSS 外部参照の単位化は従来どおり残っている(再走査で置き換えていない)', () => {
+    const b = '<div><style>.a{color:red}</style></div>';
+    const evil = '<div><style>@import url(http://evil/x);.a{color:red}</style></div>';
+    expect(accepted(b, evil)).toBe(false);
+  });
+
+  it('CSS の宣言だけの編集は従来どおり通る(過剰包含が正当な操作を止めない)', () => {
+    const b = '<div><style>.a{color:red;width:10px}</style></div>';
+    const edited = '<div><style>.a{color:blue;width:20px}</style></div>';
+    expect(accepted(b, edited)).toBe(true);
+  });
+});
