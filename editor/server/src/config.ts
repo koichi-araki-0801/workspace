@@ -706,8 +706,19 @@ export function buildCspDirectives(
 ): Record<string, string[] | null> {
   return {
     defaultSrc: ["'self'"],
-    // `'unsafe-eval'`: プレビューの Jinja 描画に使う nunjucks が、テンプレートを実行時に
-    // JS へコンパイルする(`new Function`)。除くとプレビュー(worker 側も含む)が全滅する。
+    // `'unsafe-eval'`: **いま要るのは `lib/fillJinja.ts` の `toFilled` だけ**。
+    // かつての理由「プレビューの Jinja 描画」は失効している — その描画は opaque オリジンの
+    // レンダーホスト(`render/renderHost.ts`)へ移した(所見 F1)。残る `toFilled` は
+    // `nunjucks.compile`(= `new Function`)で式を評価し、Worker からも呼ばれる
+    // (Worker は同一オリジンで、この CSP を継承する)。
+    //
+    // ⚠ **外すなら `fillJinja` を eval 非依存にしてから。** 単に外すと `evalExpr` の
+    // `catch` が全部の式を空文字へ落とし、**新規作成テンプレの値が無言で空になる**
+    // (例外もコンソール出力も出ない)。2026-08-08 に実機で外して確かめたが、
+    // 既存テンプレは `tpl.filled` があるため `toFilled` を通らず、この経路は**再現しなかった**
+    // (`templateEditorService.loadForEdit` の `tpl.filled || toFilled(...)`)。
+    // つまり「動いたから安全」とは言えない。外す前に作成経路の実機確認か、
+    // `fillJinja` を安全な式評価器へ置き換えること。
     // inline script はハッシュ許可のみで、`'unsafe-inline'` は載せない。
     scriptSrc: ["'self'", "'unsafe-eval'", ...inlineScriptHashes],
     // GrapesJS と Vue が要素の style 属性 / 動的 `<style>` を直接書くため inline を許す。
