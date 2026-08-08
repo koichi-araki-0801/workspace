@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { buildSampleData, type FundMaster } from '@editor/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import fundMaster from '../src/api/fixtures/funds.json';
-import { toFilled } from '../src/lib/fillJinja';
+import { toFilled, toFilledWithDiagnostics } from '../src/lib/fillJinja';
 import { extractJinjaTokens, toTemplate } from '../src/lib/jinjaMask';
 import { getBodyInner } from '../src/lib/templateDoc';
 
@@ -98,6 +98,83 @@ describe('real report templates round-trip token-for-token', () => {
       expect(extractJinjaTokens(restoredBody)).toEqual(extractJinjaTokens(getBodyInner(raw)));
     });
   }
+
+  // 値差込は `jinjaExpr.ts` の許可リスト評価器で行う(`nunjucks.compile` を使わない)。
+  // 許可リストの外の式は空値へ落ちるので、**実テンプレが 1 件も外に出ていない**ことを
+  // ここで固定する。テンプレへ新しい式の形(フィルタ等)が入った瞬間にここが落ち、
+  // 「値が黙って空になる」状態でコミットされるのを防ぐ。
+  for (const [file, fund] of templates) {
+    it(`${file}: 解釈できない Jinja 式が無い`, () => {
+      const raw = readFileSync(resolve(fixtures, 'templates', file), 'utf8');
+      const { diagnostics } = toFilledWithDiagnostics(raw, buildSampleData(funds[fund], fund));
+      expect(diagnostics.unsupported).toEqual([]);
+    });
+  }
+});
+
+describe('toFilled は解釈できない式を黙って捨てない', () => {
+  it('フィルタ付きの式を診断へ挙げ、表示は空にする(画面は落とさない)', () => {
+    const { html, diagnostics } = toFilledWithDiagnostics(`<p>{{ fund.name | upper }}</p>`, sample);
+    expect(diagnostics.unsupported).toEqual(['fund.name | upper']);
+    expect(html).toContain('data-jinja='); // ソースは保持され round-trip する
+    expect(html).not.toContain('日本株式オープン');
+  });
+
+  it('同じ式がループで何度出ても診断は 1 件(種類を数える)', () => {
+    const { diagnostics } = toFilledWithDiagnostics(
+      `<tbody>{% for h in holdings %}<tr><td>{{ h.name | upper }}</td></tr>{% endfor %}</tbody>`,
+      sample,
+    );
+    expect(diagnostics.unsupported).toEqual(['h.name | upper']);
+  });
+
+  it('解釈できる式しか無ければ診断は空', () => {
+    const { diagnostics } = toFilledWithDiagnostics(
+      `<p>{{ fund.name }}{% if fund.navChange >= 0 %}<b>{{ loop.index }}</b>{% endif %}</p>`,
+      sample,
+    );
+    expect(diagnostics.unsupported).toEqual([]);
+  });
+
+  it('コンパイラ非依存: prototype 経由の式は値を返さない(SSTI の入口を塞ぐ)', () => {
+    const { html } = toFilledWithDiagnostics(`<p>{{ constructor }}</p>`, sample);
+    expect(html).not.toContain('native code');
+  });
+
+  it('条件式が解釈できなければ false 扱いにして診断へ挙げる', () => {
+    const { html, diagnostics } = toFilledWithDiagnostics(
+      `<section>{% if holdings | length %}<p class="up">U</p>{% else %}<p class="down">D</p>{% endif %}</section>`,
+      sample,
+    );
+    expect(diagnostics.unsupported).toEqual(['holdings | length']);
+    expect(html).toContain('class="down"');
+  });
+
+  it('反復対象が解釈できなければ展開せず(テンプレ行を残し)診断へ挙げる', () => {
+    const { html, diagnostics } = toFilledWithDiagnostics(
+      `<tbody>{% for h in holdings | reverse %}<tr><td>{{ h.name }}</td></tr>{% endfor %}</tbody>`,
+      sample,
+    );
+    expect(diagnostics.unsupported).toContain('holdings | reverse');
+    expect(html).not.toContain('data-jinja-loop-clone');
+    expect(html).toContain('data-jinja-open=');
+  });
+
+  it('`toFilled` は解釈できない式をコンソールへ 1 度だけ知らせる', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // 旧実装はここで**何も出さなかった**。無言の空値化へ戻っていないことを見る。
+      const raw = `<p>{{ fund.name | title }}</p>`;
+      toFilled(raw, sample);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain('[fillJinja]');
+      // 2 度目は同じ式なので黙る(ループ・再読込でログが溢れない)。
+      toFilled(raw, sample);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
 
 describe('toFilled masks opaque content so GrapesJS cannot strip/restructure it', () => {

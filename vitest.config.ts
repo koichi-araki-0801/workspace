@@ -79,6 +79,11 @@ export default defineConfig({
         // editor/web (UI/VM/Service/Repository 層)
         'editor/web/src/workers/fallback.ts',
         'editor/web/src/lib/jinjaMask.ts',
+        // 値差込の許可リスト評価器と、その唯一の利用者。全域 CSP から `'unsafe-eval'` を
+        // 落とせているのはこの 2 つが `new Function` を使わないからで、退行は「値が空に
+        // なるだけ」という無言の形で出るため、被覆を切らさない。
+        'editor/web/src/lib/jinjaExpr.ts',
+        'editor/web/src/lib/fillJinja.ts',
         'editor/web/src/lib/blockKey.ts',
         'editor/web/src/lib/appError.ts',
         'editor/web/src/lib/useAsyncResult.ts',

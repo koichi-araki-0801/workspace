@@ -706,21 +706,18 @@ export function buildCspDirectives(
 ): Record<string, string[] | null> {
   return {
     defaultSrc: ["'self'"],
-    // `'unsafe-eval'`: **いま要るのは `lib/fillJinja.ts` の `toFilled` だけ**。
-    // かつての理由「プレビューの Jinja 描画」は失効している — その描画は opaque オリジンの
-    // レンダーホスト(`render/renderHost.ts`)へ移した(所見 F1)。残る `toFilled` は
-    // `nunjucks.compile`(= `new Function`)で式を評価し、Worker からも呼ばれる
-    // (Worker は同一オリジンで、この CSP を継承する)。
+    // **アプリオリジンに eval 系の実行手段を残さない**(`'unsafe-eval'` を載せない)。
+    // Jinja のコンパイルは opaque オリジンのレンダーホスト(`render/renderHost.ts`)の中
+    // だけで行い、そこは別 CSP を持つ(所見 F1)。最後まで残っていた `'unsafe-eval'` の
+    // 利用者は `lib/fillJinja.ts` の `toFilled`(= `nunjucks.compile` = `new Function`。
+    // Worker も同一オリジンでこの CSP を継承する)だったが、`lib/jinjaExpr.ts` の
+    // 許可リスト評価器へ置き換えて依存を断った。
     //
-    // ⚠ **外すなら `fillJinja` を eval 非依存にしてから。** 単に外すと `evalExpr` の
-    // `catch` が全部の式を空文字へ落とし、**新規作成テンプレの値が無言で空になる**
-    // (例外もコンソール出力も出ない)。2026-08-08 に実機で外して確かめたが、
-    // 既存テンプレは `tpl.filled` があるため `toFilled` を通らず、この経路は**再現しなかった**
-    // (`templateEditorService.loadForEdit` の `tpl.filled || toFilled(...)`)。
-    // つまり「動いたから安全」とは言えない。外す前に作成経路の実機確認か、
-    // `fillJinja` を安全な式評価器へ置き換えること。
-    // inline script はハッシュ許可のみで、`'unsafe-inline'` は載せない。
-    scriptSrc: ["'self'", "'unsafe-eval'", ...inlineScriptHashes],
+    // ⚠ 戻さないこと。`fillJinja` へフィルタ等を足したくなっても `new Function` を呼ぶ
+    // 実装で解決しない — 解釈できない式は `toFilledWithDiagnostics` が件数で返し、実
+    // テンプレが 1 件も許可リストの外に出ていないことを `web/test/fillJinja.test.ts` が
+    // 固定する。inline script はハッシュ許可のみで、`'unsafe-inline'` は載せない。
+    scriptSrc: ["'self'", ...inlineScriptHashes],
     // GrapesJS と Vue が要素の style 属性 / 動的 `<style>` を直接書くため inline を許す。
     styleSrc: ["'self'", "'unsafe-inline'"],
     // `blob:` = プレビュー・PDF の Blob URL(`URL.createObjectURL`)、`data:` = 埋め込み画像と

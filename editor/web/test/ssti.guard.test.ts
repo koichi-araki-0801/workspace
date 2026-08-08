@@ -81,18 +81,29 @@ describe('SSTI ガード — Jinja のコンパイルはアプリオリジンで
     expect(offenders, `renderJinja を import している: ${offenders.join(', ')}`).toEqual([]);
   });
 
-  it('nunjucks を直に import してよいのは nunjucksRender / fillJinja だけ', () => {
+  it('nunjucks を直に import してよいのは nunjucksRender だけ', () => {
     // 新しい描画経路が別ファイルに生えると、隔離を経ないコンパイルが静かに復活する。
-    // `fillJinja.ts` は作成タブの値差込(自分が作ったスケルトンを自分の画面で埋める)で、
-    // 他人が書いた本文を通す経路ではないため現時点では対象外。増やすときはここを更新し、
-    // 「他人由来の本文を通さない」ことを確認すること。
-    const allowed = new Set([RENDER_JINJA_HOME, path.join(WEB_SRC, 'lib/fillJinja.ts')]);
+    // かつては `fillJinja.ts`(作成タブの値差込)も例外だったが、`jinjaExpr.ts` の許可
+    // リスト評価器へ置き換えて依存を断ったため例外は 1 つも無い。この 0 件が、全域 CSP
+    // から `'unsafe-eval'` を落とせている根拠でもある(`server/src/config.ts`)。
+    const allowed = new Set([RENDER_JINJA_HOME]);
     const offenders = ALL_SOURCES.filter((file) => {
       if (allowed.has(file)) return false;
       const code = stripComments(readFileSync(file, 'utf8'));
       return /from\s*['"]nunjucks['"]/.test(code);
     }).map((f) => path.relative(WEB_SRC, f));
     expect(offenders, `nunjucks を直接 import している: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('アプリコードは eval / new Function を自前で持たない', () => {
+    // `'unsafe-eval'` を落とした以上、呼べば CSP 違反で必ず落ちる。落ちた結果を
+    // `catch` で握られると「値が空になるだけ」で無言の退行になるため、書かせない側で
+    // 止める(`fillJinja.ts` が旧実装で嵌っていたのがまさにこの形)。
+    const offenders = ALL_SOURCES.filter((file) => {
+      const code = stripComments(readFileSync(file, 'utf8'));
+      return /\bnew\s+Function\s*\(|(?<![.\w])eval\s*\(/.test(code);
+    }).map((f) => path.relative(WEB_SRC, f));
+    expect(offenders, `eval 系を持っている: ${offenders.join(', ')}`).toEqual([]);
   });
 
   it('Worker 層は Jinja 描画を持たない(同一オリジンなので隔離にならない)', () => {

@@ -458,10 +458,13 @@ describe('buildCspDirectives', () => {
     const d = buildCspDirectives(["'sha256-abc'"]);
 
     expect(d.scriptSrc).toContain("'self'");
-    // nunjucks がテンプレートを実行時コンパイルするため eval は必須、inline は禁止のまま。
-    expect(d.scriptSrc).toContain("'unsafe-eval'");
     expect(d.scriptSrc).toContain("'sha256-abc'");
     expect(d.scriptSrc).not.toContain("'unsafe-inline'");
+    // アプリオリジンには eval 系の実行手段を残さない。最後の利用者だった
+    // `web/src/lib/fillJinja.ts` の値差込は `jinjaExpr.ts` の許可リスト評価器へ移した
+    // ため、`new Function` へ届く経路はアプリオリジンに無い(Jinja のコンパイルは
+    // opaque オリジンのレンダーホストの中だけ)。戻すと SSTI の受け皿が復活する。
+    expect(d.scriptSrc).not.toContain("'unsafe-eval'");
     // プレビューの Blob URL(iframe / 画像 / PDF)。
     expect(d.frameSrc).toContain('blob:');
     expect(d.imgSrc).toContain('blob:');
@@ -483,7 +486,8 @@ describe('buildCspDirectives', () => {
     await app.close();
 
     expect(csp).toContain("default-src 'self'");
-    expect(csp).toContain("script-src 'self' 'unsafe-eval'");
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).not.toContain('unsafe-eval');
     expect(csp).toContain('frame-src');
     expect(csp).not.toContain('upgrade-insecure-requests');
   });
