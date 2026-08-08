@@ -104,9 +104,15 @@ function syntheticCases(): Record<string, Slice[]> {
 }
 
 describe('合成入力の SVG ハッシュ固定 (サンプル外の入力分布)', () => {
-  // timeout はルート `vitest run --coverage`(pre-push CI) 併走時の実測 (~150s) を余裕込みで収める値
+  // timeout はルート `vitest run --coverage`(pre-push CI) 併走時の実測を余裕込みで収める値
   // (`final_score.test.ts` と同趣旨)。
-  it('全合成ケースの SHA256 がスナップショットと一致する', { timeout: 300_000 }, async () => {
+  //
+  // 2026-08-08 に 300s から拡大した。単独実行は ~172s だが、ルート CI は 5 プロジェクトを
+  // 並列に回すため実測で 356s / 463s まで伸び、**上限を超えて落ちた**(しかも道連れで
+  // カバレッジ収集が `Unexpected end of JSON input` になり、原因が分かりにくい形で CI が
+  // 赤くなる)。ここは配置計算そのものが重い決定的テストで、遅いこと自体は退行ではないので、
+  // 上限を並行負荷の実測に合わせる(前例: `leader_invariants` の per-sample timeout 拡大 4d5cbd4)。
+  it('全合成ケースの SHA256 がスナップショットと一致する', { timeout: 900_000 }, async () => {
     const hashes: Record<string, string> = {};
     for (const [name, items] of Object.entries(syntheticCases())) {
       const { svg } = await renderPdfStylePieToSvg(items, {});
