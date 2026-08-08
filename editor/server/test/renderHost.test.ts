@@ -9,7 +9,7 @@
 //      そのまま注入面になる)。
 //   3. nunjucks バンドルがページへ**内蔵**されていること(子にネットワーク要求をさせない)。
 //   4. 配信面が「ホストページ + バンドル」の 2 本しかなく、迂回入力で 1 バイトも出ないこと。
-// さらに、実際に配ったバイト列の中のブートスクリプトを動かし、所見 F1 の実証ペイロード
+// さらに、実際に配ったバイト列の中のブートスクリプトを動かし、既知の脱出ペイロード
 // (`{{ range.constructor("…")() }}`)が**失敗する**ことまで見る。CSP と内蔵の主張だけだと
 // 「多層防御を消しても緑」になるため、脱出そのものの遮断は独立に固定する。
 import fs from 'node:fs';
@@ -184,7 +184,7 @@ describe('ブートスクリプトの多層防御(nunjucks サンドボックス
     expect(res).toEqual({ type: 'editor:render-res', id: 1, html: '&lt;b&gt;/123' });
   });
 
-  it('所見 F1 の実証ペイロードが実行されない', async () => {
+  it('グローバル経由の脱出ペイロードが実行されない', async () => {
     const send = await bootChild();
     // 元の攻撃文字列そのもの。nunjucks 3.2.4 では `range` グローバル → `constructor`
     // (= Function)→ 呼び出しで任意 JS に到達し、承認者のセッションで承認 API を叩けた。
@@ -230,9 +230,9 @@ describe('ブートスクリプトの多層防御(nunjucks サンドボックス
 
   // ── nunjucks が外部の値へ触る経路(この列挙が防御の単位) ──
   // 防御は「プロパティ参照」「グローバル参照」「フィルタ解決」の 3 経路を塞ぐ形で書かれて
-  // いる。当初は前 2 者しか包んでおらず、フィルタ解決だけが素通りしていた(再スキャン F2)。
+  // いる。フィルタ解決は前 2 者の関門を通らないため、独立に閉じる必要がある。
   // 経路が増えた/包み忘れたことをここで検出する。
-  it('フィルタ解決から Object.prototype 由来の値を引けない(再スキャン F2)', async () => {
+  it('フィルタ解決から Object.prototype 由来の値を引けない', async () => {
     const send = await bootChild();
     (globalThis as Record<string, unknown>).__renderHostEscaped = false;
     // `1|valueOf` は `Object.prototype.valueOf.call(context, 1)` として解決されると

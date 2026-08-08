@@ -3,7 +3,7 @@
 // =============================================================================
 // 承認画面・比較画面は他人(申請者)が書いたテンプレ本文を nunjucks で描画する。nunjucks は
 // **サンドボックスではなくコンパイラ**で、`{{ range.constructor("…")() }}` は `new Function`
-// へ到達する。これを承認者のページオリジンのメインスレッドで走らせていたのが所見 F1 で、
+// へ到達する。これを承認者のページオリジンのメインスレッドで走らせてはならない —
 // 走った JS は承認者のセッション(HttpOnly cookie は同一オリジン fetch へ自動で付く)のまま
 // `/api/review-requests/:id/approve` を叩ける = 申請者が自分の申請を自分で通せる。
 //
@@ -151,7 +151,7 @@ async function nunjucksBundle(): Promise<string> {
  *
  * **塞ぐ対象は「経路の全列挙」で数える。** nunjucks がテンプレの字面から外部の値へ触る
  * 経路は 3 本あり、1 本でも数え落とすと関門をすり抜ける。当初は 1. と 2. だけを包んでおり、
- * **3. のフィルタ解決が素通りしていた**(2026-08-08 の再スキャン F2)。`{{ 1|valueOf }}` が
+ * **3. のフィルタ解決だけが素通りする形**があった。`{{ 1|valueOf }}` が
  * `Object.prototype.valueOf.call(context, 1)` として解決されて **Context そのもの**を返し、
  * そこから `context.env` → `env.getFilter("constructor")`(= `Object`)→ `Function` と辿って
  * 任意 JS が実行できた。`"constructor"` が**文字列引数**でありプロパティ参照ではないため、
@@ -165,7 +165,7 @@ async function nunjucksBundle(): Promise<string> {
  *     `a[名前]` の動的キーも同じ関門を通る。
  *  2. **グローバル参照** — `env.globals` を `Object.create(null)` へ置き換える。`globals()` が
  *     返す `range` / `cycler` / `joiner` は帳票テンプレでは使わないうえ、`range.constructor`
- *     が前回 F1 の実証経路そのものだった。**素の `{}` では足りない** — `Context.lookup` は
+ *     が実際に脱出経路になる。**素の `{}` では足りない** — `Context.lookup` は
  *     `name in this.env.globals` で引くため、Object.prototype 由来の `constructor` が
  *     そのままグローバルとして見えてしまう(だから null プロトタイプにする)。
  *  3. **フィルタ解決** — `env.filters` を own-property だけの null プロトタイプ表へ差し替える。

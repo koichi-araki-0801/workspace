@@ -19,6 +19,7 @@ import {
   HL_DEL,
   HL_INS,
   hasCoarseDiff,
+  hasPrintOnlyRules,
   MAX_COMPLEX_SELECTORS,
   MAX_LCS_CELLS,
   MAX_LCS_DIM,
@@ -286,11 +287,11 @@ describe('ページ分割の資源上限(R23 / R24)', () => {
   });
 });
 
-// ── 承認画面の完全性(再スキャン F8 / F9) ──
+// ── 承認画面の完全性 ──
 // 差分ペインは「申請者が書いた本文 + 申請者が書いた CSS」を承認者に見せる面で、
 // 見えているものが本物であることが承認の前提になる。ここが崩れると、無害に見える差分を
 // 承認させて別の内容を確定領域へ入れられる(職務分掌の回避)。
-describe('差分装飾は申請者 CSS から守られる(F8)', () => {
+describe('差分装飾は申請者 CSS から守られる', () => {
   const layerDecl = /<style>@layer (d[0-9a-f]{16});<\/style>/;
 
   it('レイヤ宣言が申請者 CSS より前にある(重要宣言の逆転はレイヤ順で決まる)', () => {
@@ -322,7 +323,7 @@ describe('差分装飾は申請者 CSS から守られる(F8)', () => {
   });
 });
 
-describe('差分の打ち切りは必ず申告される(F9)', () => {
+describe('差分の打ち切りは必ず申告される', () => {
   it('上限内では truncated=false', () => {
     const body = '<div>a</div><div>b</div>';
     expect(buildHtmlDiff(doc(body), doc(body)).truncated).toBe(false);
@@ -334,5 +335,28 @@ describe('差分の打ち切りは必ず申告される(F9)', () => {
     // 例外にはしない(承認者が差分を見られない状態を作らない)が、黙ってもいない。
     expect(d.pages.length).toBeGreaterThan(0);
     expect(d.truncated).toBe(true);
+  });
+});
+
+describe('印刷時だけ効く規則の検出', () => {
+  it('@media print だけの規則を検出する', () => {
+    expect(hasPrintOnlyRules('.x{display:none}@media print{.x{display:block}}')).toBe(true);
+  });
+
+  // CSS エスケープ(`@\6d edia print`)は実ブラウザでは `CSSMediaRule:print` として解決され、
+  // 判定に CSSOM を使う理由そのものになっている(Chromium で実測)。ただし **jsdom の cssom は
+  // エスケープを解決しない**ため、ここで assert すると製品ではなく jsdom の限界を固定して
+  // しまう。よって単体では主張しない(正規表現へ戻すと実ブラウザで迂回されることに注意)。
+
+  it('@supports / @layer の内側でも検出する', () => {
+    expect(hasPrintOnlyRules('@supports (color:red){@media print{.x{color:red}}}')).toBe(true);
+  });
+
+  it('screen にも効くもの・print と無関係なものは検出しない(誤検知しない)', () => {
+    expect(hasPrintOnlyRules('@media screen, print{.x{color:red}}')).toBe(false);
+    expect(hasPrintOnlyRules('@media all{.x{color:red}}')).toBe(false);
+    expect(hasPrintOnlyRules('@media (min-width:600px){.x{color:red}}')).toBe(false);
+    expect(hasPrintOnlyRules('.x{color:red}')).toBe(false);
+    expect(hasPrintOnlyRules('')).toBe(false);
   });
 });

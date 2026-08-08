@@ -64,7 +64,7 @@ export interface HtmlDiff {
   /**
    * 資源上限で**承認者に見せられなかった領域があるか**。`coarse`(粒度を落とした)と違い、
    * こちらは領域そのものが差分に現れない。確定書込は本文を全文書くので、承認者が見ていない
-   * 内容が本番へ入りうる — 画面は必ずこの旨を出すこと(再スキャン F9)。
+   * 内容が本番へ入りうる — 画面は必ずこの旨を出すこと。
    */
   truncated: boolean;
 }
@@ -151,7 +151,7 @@ function diffLayerName(): string {
  * 構造そのものを書き換える」形だけで、これは sandbox の内側でも成立してしまう
  * (ハイライト表示を偽装して差分を隠せる)ため別途必要である。
  *
- * ── 差分装飾を申請者 CSS から守る(再スキャン F8)──
+ * ── 差分装飾を申請者 CSS から守る ──
  * `</style>` 脱出を潰しても、**通常のカスケード**で差分の視覚表現は消せた。申請者 CSS の
  * `.cmp-ins{background:none!important}` が宣言順で勝ち、承認者のペインから着色と左帯が
  * 消えてしまう(= 変更箇所が無いように見える)。
@@ -171,6 +171,58 @@ export function buildDiffDoc(fragment: string, css: string, highlightCss: string
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><style>@layer ${layer};</style>${styleTag(css)}${styleTag(`@layer ${layer}{${highlightCss}}`)}</head><body>${fragment}</body></html>`;
 }
 
+/**
+ * 申請者 CSS に「**印刷時にだけ効く**規則」が含まれるか。承認画面へ注記を出すのに使う。
+ *
+ * なぜ要るか: 承認者が見る差分ペインは screen メディアだが、成果物(PDF)は print メディアで
+ * 組まれる。`.x{display:none}` + `@media print{.x{display:block}}` と書けば「承認者には
+ * 見えず PDF にだけ出る」内容を作れる。装飾の優先度(`buildDiffDoc` のカスケードレイヤ)は
+ * これを閉じられない — 隠されているのはこちらの装飾ではなく**本文**だからである。
+ *
+ * 判定は**正規表現ではなく CSSOM** で行う。CSS はエスケープを許すので
+ * `@\6d edia print` のような字面を正規表現は取りこぼすが、実ブラウザのパーサは同じ規則として
+ * 解く(Chromium で `CSSMediaRule:print` になることを実測済み。同じ理由で
+ * `shared/src/security/cssExternalRefs.ts` もトークナイザで判定している)。
+ * 入れ子のグループ規則(`@supports` / `@layer` の中の `@media`)まで降りる。
+ *
+ * これは**注記であって関門ではない**。取りこぼしても承認は止まらず、承認者は PDF
+ * プレビュー(vivliostyle = print 相当)で実際の見えを確認できる。
+ */
+export function hasPrintOnlyRules(css: string): boolean {
+  if (!css.trim()) return false;
+  // `media="not all"` を付けて**この文書には一切適用させず**、規則の解析結果だけを読む。
+  // 切り離した document(`createHTMLDocument`)では stylesheet が結び付かず `sheet` が
+  // null になるため、生きた document へ一時的に挿す以外に CSSOM を得る手が無い。
+  const el = document.createElement('style');
+  el.media = 'not all';
+  el.textContent = css;
+  document.head.appendChild(el);
+  try {
+    return el.sheet ? printOnlyInRules(el.sheet.cssRules) : false;
+  } finally {
+    el.remove();
+  }
+}
+
+/** メディアクエリが「print には効くが screen には効かない」= 承認者の見えと乖離するか。 */
+function divergesFromScreen(mediaText: string): boolean {
+  const t = mediaText.toLowerCase();
+  if (!/\bprint\b/.test(t)) return false;
+  // `screen, print` や `all` は承認者の画面にも効くので乖離しない。
+  return !/\bscreen\b/.test(t) && !/\ball\b/.test(t);
+}
+
+function printOnlyInRules(rules: CSSRuleList): boolean {
+  for (const rule of Array.from(rules)) {
+    const media = (rule as CSSMediaRule).media?.mediaText;
+    if (media !== undefined && divergesFromScreen(media)) return true;
+    // `@supports` / `@layer` の内側にも `@media` は書ける。
+    const nested = (rule as CSSGroupingRule).cssRules;
+    if (nested && printOnlyInRules(nested)) return true;
+  }
+  return false;
+}
+
 // ── 2. パースと page 分割 ─────────────────────────────────────────────────
 // 注入された `parse`(メイン=DOMParser / Worker=linkedom)で body を取り出す。
 function parseBody(html: string, parse: HtmlParser): HTMLElement {
@@ -188,7 +240,7 @@ function topLevelBlocks(body: HTMLElement): { blocks: HTMLElement[]; truncated: 
   const children = Array.from(body.children) as HTMLElement[];
   // 打ち切ったことは**必ず戻り値で申告する**。捨てた分は差分にもページにも現れないのに、
   // 承認が通れば確定書込は本文を全文書く — 承認者が見ていない領域が本番へ入る。
-  // 語句 LCS の degrade(`coarse`)が常に表へ出るのと同じ扱いに揃える(再スキャン F9)。
+  // 語句 LCS の degrade(`coarse`)が常に表へ出るのと同じ扱いに揃える。
   return children.length > MAX_TOP_LEVEL_BLOCKS
     ? { blocks: children.slice(0, MAX_TOP_LEVEL_BLOCKS), truncated: true }
     : { blocks: children, truncated: false };
