@@ -350,7 +350,9 @@ describe('extractProjectZip resource limits', () => {
     await expect(mod.extractProjectZip(buf)).rejects.toSatisfy(isAppError);
   });
 
-  it('rejects an over-compressed archive (zip bomb)', async () => {
+  // 9MB を実際に inflate するので、ルート CI(5 プロジェクト並列 + coverage)では既定 5s を
+  // 超えて落ちる(単独なら 1s 未満)。遅いこと自体は退行ではないので上限を実測へ合わせる。
+  it('rejects an over-compressed archive (zip bomb)', { timeout: 60_000 }, async () => {
     // 圧縮比の検査は展開後 8MB 超から効く。9MB の同一文字は deflate で数 KB に縮み、
     // 比は 100 倍を大きく超える。
     const buf = await zipOf({ 'bomb.html': 'a'.repeat(9 * 1024 * 1024) }, true);
