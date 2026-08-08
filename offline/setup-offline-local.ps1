@@ -59,6 +59,8 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Bk       = Join-Path $RepoRoot 'bk'
 Write-Host "[info] repo root: $RepoRoot"
 Write-Host "[info] mode     : 完全オフライン（取得なし・ローカル資材のみ）"
+# ネットワークドライブ上では pnpm の symlink/hardlink 構成が成立しないため開始前に止める。
+Assert-LocalRepoRoot -Path $RepoRoot
 
 # tar 解決（System32\tar.exe 優先）は共通ライブラリの Resolve-Tar を使う。
 

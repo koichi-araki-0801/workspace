@@ -67,6 +67,8 @@ $ErrorActionPreference = 'Stop'
 # offline/ の親をリポジトリ直下（ROOT）とみなす。スタンドアロン時はここへソースを展開する。
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Write-Host "[info] repo root: $RepoRoot"
+# ネットワークドライブ上では pnpm の symlink/hardlink 構成が成立しないため開始前に止める。
+Assert-LocalRepoRoot -Path $RepoRoot
 
 # tar 解決（System32\tar.exe 優先）は共通ライブラリの Resolve-Tar を使う。
 $TarExe = Resolve-Tar

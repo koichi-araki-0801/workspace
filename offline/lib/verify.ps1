@@ -223,6 +223,36 @@ function Assert-BundleSignature {
   }
 }
 
+# ── リポジトリ直下が「ローカルディスク」であることの検査 ──
+# pnpm の isolated linker は node_modules を symlink + store への hardlink で組む。
+# ネットワークドライブ (UNC / ネットワークにマップしたドライブレター) 上では、SMB
+# クライアント既定がリモート symlink を評価しない (`fsutil behavior` の SymlinkEvaluation)
+# うえ hardlink も拒否されるため、install が「成功したように見えて実行時に
+# Cannot find module で全滅」か途中失敗になる。黙って壊れた環境を作らないよう、setup 系は
+# 開始前にここで止める (fail fast)。これは利便のガードであって権限境界ではないので、
+# 判定不能はローカル扱いへ倒す。
+function Assert-LocalRepoRoot {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $isNetwork = $false
+  if ($Path -like '\\*') {
+    $isNetwork = $true
+  } else {
+    try {
+      $root = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($Path))
+      $drive = New-Object System.IO.DriveInfo($root)
+      $isNetwork = ($drive.DriveType -eq [System.IO.DriveType]::Network)
+    } catch {
+      $isNetwork = $false
+    }
+  }
+  if ($isNetwork) {
+    throw ("リポジトリがネットワークドライブ上にあります: $Path`n" +
+      '  pnpm の node_modules (symlink + hardlink) は SMB 上で成立しないため、この構成は' +
+      "サポートしない。`n  リポジトリをローカルディスクへ置いて実行し、共有へは成果物" +
+      '(exe / docs HTML / バンドル) だけをコピーすること。')
+  }
+}
+
 # ── ハッシュを「必ず突き合わせる」入口 ──
 # 期待値は offline/ 同梱の pin から渡すこと（配信元から取った .sha256 を渡さない）。
 function Assert-FileSha256 {
