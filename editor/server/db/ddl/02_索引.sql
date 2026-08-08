@@ -89,3 +89,12 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
   CREATE INDEX [IX_セッション_ログインID]
     ON [ug01].[Rep1_運報自動化_Editor_セッション] ([ログインID]);
 GO
+
+/* 掃除(@操作=N'掃除')の DELETE 述語用。失効は論理フラグなので行は単調増加し、走査対象が
+   時間とともに伸びる。有効期限の範囲検索を索引で解けるようにする。 */
+IF NOT EXISTS (SELECT 1 FROM sys.indexes
+  WHERE name = N'IX_セッション_有効期限'
+    AND object_id = OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_セッション]'))
+  CREATE INDEX [IX_セッション_有効期限]
+    ON [ug01].[Rep1_運報自動化_Editor_セッション] ([有効期限]);
+GO

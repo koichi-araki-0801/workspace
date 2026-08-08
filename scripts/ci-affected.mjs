@@ -37,14 +37,24 @@ const AREAS = {
   'graph-editor': {
     label: 'graph-editor',
     match: (p) => p.startsWith('graph-editor/'),
-    stages: ['typecheck:graph-editor', 'test:graph-editor'],
+    // pytest を含めるのは、ローカルサーバの Origin/Host 検査(CSRF・DNS リバインディング対策)を
+    // 守るテストが Python 側にしか無いため。vitest だけでは検査の退行を検出できない。
+    stages: ['typecheck:graph-editor', 'test:graph-editor', 'test:graph-editor:py'],
+  },
+  'pdf-to-svg': {
+    label: 'pdf-to-svg',
+    match: (p) => p.startsWith('pdf-to-svg/'),
+    stages: ['test:pdf-to-svg'],
   },
 };
 
 // 領域 CI を持たない無害ディレクトリ。これらだけの変更なら共有ゲート(comments/biome)のみで足りる。
-// (`docs`/`offline` は配布物、`pdf-to-svg` は現状ルート CI 非対象、`scripts`/`.github`/`.claude` は
-//  comments 検査が常時担保。)
-const BENIGN_PREFIXES = ['docs/', 'offline/', 'pdf-to-svg/', 'scripts/', '.github/', '.claude/', '.husky/'];
+// (`docs`/`offline` は配布物、`scripts`/`.github`/`.claude` は comments 検査が常時担保。)
+// `pdf-to-svg/` は 2026-08-04 にここから外した。ローカル HTTP サーバへ Origin/Host 検査を
+// 入れた際、その退行を守るテストが pytest 側にしか無いのに、この一覧に入っているせいで
+// **変更しても CI が 1 段も起動しない**状態だったため(セキュリティテスト 34 本が pre-push で
+// 一度も走っていなかった)。無害扱いにしてよいのは CI 領域を持たないディレクトリだけ。
+const BENIGN_PREFIXES = ['docs/', 'offline/', 'scripts/', '.github/', '.claude/', '.husky/'];
 
 // ── 2. 引数・ベース ref の決定 ──
 // 既定は現ブランチの upstream(= origin/<branch>)。常設ブランチ運用では push 対象の新規コミット

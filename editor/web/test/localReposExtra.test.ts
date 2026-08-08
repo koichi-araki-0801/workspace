@@ -62,6 +62,7 @@ describe('localAuthRepo session lifecycle', () => {
   it('initPassword sets a new password usable for login', async () => {
     const init = await localAuthRepo.initPassword({
       username: 'admin',
+      currentPassword: 'admin',
       newPassword: 'newpassword',
     });
     expect(isOk(init)).toBe(true);
@@ -71,13 +72,34 @@ describe('localAuthRepo session lifecycle', () => {
   });
 
   it('initPassword rejects an unknown user and a too-short password', async () => {
-    const unknown = await localAuthRepo.initPassword({ username: 'ghost', newPassword: 'abcd' });
+    const unknown = await localAuthRepo.initPassword({
+      username: 'ghost',
+      currentPassword: 'ghost',
+      newPassword: 'abcdefgh',
+    });
     expect(isErr(unknown)).toBe(true);
     if (isErr(unknown)) expect(unknown.error.kind).toBe('unauthorized');
 
-    const short = await localAuthRepo.initPassword({ username: 'admin', newPassword: 'ab' });
+    const short = await localAuthRepo.initPassword({
+      username: 'admin',
+      currentPassword: 'admin',
+      newPassword: 'ab',
+    });
     expect(isErr(short)).toBe(true);
     if (isErr(short)) expect(short.error.kind).toBe('validation');
+  });
+
+  it('initPassword refuses to change the password without the current one', async () => {
+    // 所有証明が無いまま書き換えられると、任意アカウント(admin 含む)の乗っ取りになる。
+    const wrong = await localAuthRepo.initPassword({
+      username: 'admin',
+      currentPassword: 'not-the-current-password',
+      newPassword: 'newpassword',
+    });
+    expect(isErr(wrong)).toBe(true);
+    if (isErr(wrong)) expect(wrong.error.kind).toBe('unauthorized');
+    // 失敗後も元のパスワードのまま使える(部分適用されていない)。
+    expect(isOk(await localAuthRepo.login({ username: 'admin', password: 'admin' }))).toBe(true);
   });
 });
 
@@ -117,7 +139,7 @@ describe('localUserRepo', () => {
     if (isOk(r)) expect(r.value.length).toBeGreaterThan(0);
   });
 
-  it('createUser adds a user retrievable via listUsers', async () => {
+  it('createUser issues a random temporary password, not the login id', async () => {
     const created = await localUserRepo.createUser({
       username: 'newbie',
       displayName: '新人',
@@ -126,11 +148,23 @@ describe('localUserRepo', () => {
       mustChangePassword: true,
     });
     expect(isOk(created)).toBe(true);
+    if (!isOk(created)) return;
+    const { user, temporaryPassword } = created.value;
+    expect(user.username).toBe('newbie');
+    // ログインID と同じ初期パスワードへは戻さない(ID を知る者に乗っ取られる)。
+    expect(temporaryPassword).not.toBe('newbie');
+    expect(temporaryPassword).toMatch(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$/);
+
     const list = await localUserRepo.listUsers();
     if (isOk(list)) expect(list.value.some((u) => u.username === 'newbie')).toBe(true);
+    // 払い出した平文でだけログインできる。
+    expect(
+      isOk(await localAuthRepo.login({ username: 'newbie', password: temporaryPassword })),
+    ).toBe(true);
+    expect(isErr(await localAuthRepo.login({ username: 'newbie', password: 'newbie' }))).toBe(true);
   });
 
-  it('resetUserPassword resets to the ユーザID and forces a change', async () => {
+  it('resetUserPassword issues a fresh temporary password and forces a change', async () => {
     const users = await localUserRepo.listUsers();
     if (!isOk(users)) return;
     const admin = users.value.find((u) => u.username === 'admin');
@@ -138,11 +172,28 @@ describe('localUserRepo', () => {
 
     const reset = await localUserRepo.resetUserPassword(admin.id);
     expect(isOk(reset)).toBe(true);
+    if (!isOk(reset)) return;
 
-    // 初期パスワード = ユーザID(ここでは 'admin')
-    const login = await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    // 旧パスワード(seed の 'admin')は使えず、払い出した値だけが通る。
+    expect(isErr(await localAuthRepo.login({ username: 'admin', password: 'admin' }))).toBe(true);
+    const login = await localAuthRepo.login({
+      username: 'admin',
+      password: reset.value.temporaryPassword,
+    });
     expect(isOk(login)).toBe(true);
     if (isOk(login)) expect(login.value.mustChangePassword).toBe(true);
+  });
+
+  it('never repeats a temporary password across resets', async () => {
+    const users = await localUserRepo.listUsers();
+    if (!isOk(users)) return;
+    const admin = users.value.find((u) => u.username === 'admin');
+    if (!admin) return;
+
+    const first = await localUserRepo.resetUserPassword(admin.id);
+    const second = await localUserRepo.resetUserPassword(admin.id);
+    if (!isOk(first) || !isOk(second)) return;
+    expect(first.value.temporaryPassword).not.toBe(second.value.temporaryPassword);
   });
 
   it('resetUserPassword returns not_found for an unknown id', async () => {

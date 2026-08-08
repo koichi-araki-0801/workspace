@@ -36,6 +36,8 @@ const SKIP_DIRS = new Set([
 // 正典は `offline/lib/content-key.ts` 相当の運用 (ルート `README.md` のスクリプト節を参照)。
 const BAT_PAIRING_EXCEPTIONS = new Set([
   'offline/lib/content-key.ps1',
+  'offline/lib/verify.ps1',
+  'offline/lib/git-tools.ps1',
   'scripts/lib/build-python-venv.ps1',
 ]);
 

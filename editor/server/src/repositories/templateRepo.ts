@@ -10,7 +10,6 @@ import {
   type DropdownQuery,
   type FundMaster,
   notFound,
-  parseTemplateFileName,
   type SampleData,
   type Template,
   type TemplateAttributes,
@@ -18,7 +17,6 @@ import {
   type TemplateMeta,
   type TemplateStatus,
   templateFileName,
-  templateIdFromFileName,
 } from '@editor/shared';
 import {
   asIso,
@@ -37,18 +35,15 @@ import {
   readDraft,
   writeDraft,
 } from '../files/draftFiles.js';
+import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
 import {
   listTemplateFiles,
   readFundCss,
   readTemplateHtml,
-  restoreTemplateAndCss,
-  snapshotCurrent,
   templateExists,
-  templateMtime,
-  writeTemplateAndCss,
 } from '../files/templateFiles.js';
-import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
-import { logger } from '../logger.js';
+import { applyConfirmedWrite } from './confirmedWrite.js';
+import { fileToMeta } from './templateMeta.js';
 
 function rowToMeta(r: Record<string, unknown>): TemplateMeta {
   return {
@@ -88,21 +83,6 @@ export async function getDropdownOptions(q: DropdownQuery): Promise<DropdownOpti
   };
 }
 
-/** ファイル名 + 更新時刻から `TemplateMeta` を組む(台帳は引かない)。 */
-async function fileToMeta(fileName: string): Promise<TemplateMeta | null> {
-  const attrs = parseTemplateFileName(fileName);
-  if (!attrs) return null;
-  return {
-    id: templateIdFromFileName(fileName),
-    attributes: attrs,
-    fileName,
-    // 確定状態は今後 git コミット有無で表す(phase 3)。本体ファイルが在る分は published 扱い。
-    status: 'published',
-    updatedAt: await templateMtime(fileName),
-    updatedBy: null,
-  };
-}
-
 /** dropdown query の設定済み全フィールドにメタが一致するか。 */
 function metaMatches(m: TemplateMeta, q: DropdownQuery): boolean {
   return (
@@ -113,13 +93,36 @@ function metaMatches(m: TemplateMeta, q: DropdownQuery): boolean {
   );
 }
 
-/** 既存テンプレの一覧は台帳でなく `data/templates` のファイル走査から導く。 */
+/**
+ * 既存テンプレの一覧は台帳でなく `data/templates`(確定)と `data/pending`(生成直後の
+ * 未確定実体)のファイル走査から導く。**pending も混ぜ、`status` で区別する。**
+ *
+ * 混ぜない設計は一度採ったが不成立だった: 作成タブは生成後に `/edit/:id` へ 1 回遷移する
+ * だけで、履歴タブは遷移経路を持たない。そのため一覧から外すと、生成直後にブラウザを
+ * 閉じた時点でその id へ到達する手段が UI から消え、同一属性の再生成も台帳の
+ * `UQ_台帳_属性4` に当たって復旧できない(= 作ったテンプレが行方不明になる)。
+ *
+ * 未承認の内容を扱ってはいけない画面(比較タブ・結合 PDF)は**呼び出し側**で
+ * `status === 'published'` に絞る。一覧側で落とすと上記の到達不能が再発する。
+ */
 export async function listTemplates(q: DropdownQuery): Promise<TemplateMeta[]> {
   const files = await listTemplateFiles();
-  const metas = (await Promise.all(files.map(fileToMeta))).filter(
+  const confirmed = (await Promise.all(files.map(fileToMeta))).filter(
     (m): m is TemplateMeta => m !== null,
   );
-  return metas
+  const confirmedIds = new Set(confirmed.map((m) => m.id));
+  // 承認で確定へ昇格した後も pending が消し残る場合がある(削除はベストエフォート)。
+  // 同一 id が両方に在るときは確定を採る — 一覧が二重に出るのを防ぐ。
+  const pendingIds = (await listPendingIds()).filter((id) => !confirmedIds.has(id));
+  const pending = (
+    await Promise.all(
+      pendingIds.map(async (id): Promise<TemplateMeta | null> => {
+        const meta = await fileToMeta(`${id}.html`);
+        return meta && { ...meta, status: 'draft', updatedAt: await pendingMtime(id) };
+      }),
+    )
+  ).filter((m): m is TemplateMeta => m !== null);
+  return [...confirmed, ...pending]
     .filter((m) => metaMatches(m, q))
     .sort((a, b) => a.fileName.localeCompare(b.fileName));
 }
@@ -135,16 +138,32 @@ export async function listSeriesFunds(
   return rows.map(rowToMeta);
 }
 
-/** 1 件取得。メタはファイル名規約、本体はファイル(台帳は引かない)。 */
+/**
+ * 1 件取得。メタはファイル名規約、本体はファイル(台帳は引かない)。
+ *
+ * **確定を先に見る順序が契約**である。① 確定ファイルが在れば `status:'published'`、
+ * ② 無く pending(生成直後の未確定実体)が在れば `status:'draft'`、③ どちらも無ければ 404。
+ * 逆順にすると pending を書ける者が承認済みテンプレの表示内容を差し替えられ、編集画面・
+ * 結合 PDF・比較タブが揃って汚染される。
+ */
 export async function getTemplate(id: string): Promise<Template> {
   const fileName = `${id}.html`;
   const meta = await fileToMeta(fileName);
-  if (!meta || !(await templateExists(fileName)))
-    throw notFound(`テンプレートが見つかりません: ${id}`);
-  const html = await readTemplateHtml(fileName);
-  const css = await readFundCss(meta.attributes.fundCode);
-  // 記入済みの静的コピーはサーバ側に保持しない。エディタが読み込み時に再差込する。
-  return { meta, html, css, filled: '' };
+  if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
+  if (await templateExists(fileName)) {
+    const html = await readTemplateHtml(fileName);
+    const css = await readFundCss(meta.attributes.fundCode);
+    // 記入済みの静的コピーはサーバ側に保持しない。エディタが読み込み時に再差込する。
+    return { meta, html, css, filled: '' };
+  }
+  const pending = await readPending(id);
+  if (!pending) throw notFound(`テンプレートが見つかりません: ${id}`);
+  return {
+    meta: { ...meta, status: 'draft', updatedAt: await pendingMtime(id) },
+    html: pending.html,
+    css: pending.css,
+    filled: '',
+  };
 }
 
 /** 自動保存ドラフトはファイルのみ(`data/drafts`、git 管理外)。台帳は引かない。 */
@@ -170,13 +189,12 @@ export async function discardDraft(templateId: string): Promise<void> {
 }
 
 /**
- * 確定内容を実ファイルへ反映する唯一の物理書込経路。テンプレ本体 + ファンド CSS を
- * ファイルへ書き、git に 1 コミット積む(版管理の正典)。ファイル書込失敗時は直前
- * バイト列へ復元。git コミット失敗はベストエフォート(確定ファイルは残し、次回保存か
- * 手動コミットで取り込む)。呼び出し元は承認ワークフローの `approveReview`
- * (`reviewRepo.ts`)のみ(確定保存は申請 → 承認の 2 段階ゲートに一本化)。
+ * 確定内容を実ファイルへ反映する(承認ワークフロー専用の入口)。実体は
+ * `confirmedWrite.applyConfirmedWrite` にあり、ここは呼び出し側
+ * (`reviewRepo.approveReview`)の参照を保つための薄い委譲。名前検査・ファンド帰属検査・
+ * 実行コード不変性の照合・snapshot/restore・git コミット・監査はすべてチョークポイント側。
  */
-export async function applyConfirmedSave(req: {
+export function applyConfirmedSave(req: {
   templateId: string;
   html: string;
   css: string;
@@ -184,30 +202,7 @@ export async function applyConfirmedSave(req: {
   commitMessage: string;
   author: string;
 }): Promise<TemplateMeta> {
-  const attrs = parseTemplateFileName(`${req.templateId}.html`);
-  const fileName = attrs ? templateFileName(attrs) : `${req.templateId}.html`;
-
-  await ensureRepo();
-  // ロールバック用に現在のバイト列を控えてから上書きする。
-  const prev = await snapshotCurrent(fileName, req.fundCode);
-  try {
-    await writeTemplateAndCss(fileName, req.html, req.fundCode, req.css);
-  } catch (e) {
-    await restoreTemplateAndCss(fileName, req.fundCode, prev).catch(() => {});
-    throw e;
-  }
-
-  try {
-    await withGitLock(() => commitAll(req.commitMessage, { name: req.author }));
-  } catch (e) {
-    // コミット失敗(稀: ロック/ディスク)はベストエフォート。確定ファイルは作業ツリー
-    // に残し、台帳に「未コミット版」が残る形にする(次回保存/手動コミットで回収)。
-    logger.warn({ err: e }, 'git コミットに失敗しました(確定ファイルは保存済み)');
-  }
-
-  const meta = await fileToMeta(fileName);
-  if (!meta) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
-  return meta;
+  return applyConfirmedWrite({ kind: 'review-approve', ...req });
 }
 
 /** サンプルデータ台帳 JSON からファンド固有マスタ(名称/会社)を取り出す。 */

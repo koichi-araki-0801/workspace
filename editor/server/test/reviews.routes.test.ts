@@ -32,6 +32,7 @@ process.env.GIT_REPO_DIR = tmp;
 process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
 process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.REVIEWS_DIR = path.join(tmp, 'reviews');
+process.env.PENDING_DIR = path.join(tmp, 'pending');
 
 let gitAvailable = true;
 try {
@@ -106,6 +107,24 @@ d('review workflow (HTTP routes)', () => {
       url: '/review-requests',
       headers: asUser('editor1', 'editor'),
       payload: { html: '<p>x</p>', css: '', fundCode: '611111', origin: 'edit' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  // 契約の段(`SubmitReviewBody.templateId`)を素の文字列にしていた版は、トークン内部に
+  // 空白を持つ id を承認経路へ通した。SQL Server の `=` は末尾空白を無視するので、
+  // 「ファイルは 2 つ・台帳は 1 行」の食い違いを作れた(F37)。
+  it.each([
+    'AM01 _611111_20250101_交付版',
+    'AM01_611111_20250101_交付版 ',
+    'AM01._611111_20250101_交付版',
+    '../etc/passwd',
+  ])('POST /review-requests: 規約外の templateId(%j)は 400', async (templateId) => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/review-requests',
+      headers: asUser('editor1', 'editor'),
+      payload: { templateId, html: '<p>x</p>', css: '', fundCode: '611111', origin: 'edit' },
     });
     expect(res.statusCode).toBe(400);
   });

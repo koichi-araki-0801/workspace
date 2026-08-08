@@ -28,8 +28,34 @@ export interface NewUserErrors {
   displayName?: string;
 }
 
-/** ユーザーIDの許容文字: 半角英数字とアンダースコア。 */
-const USERNAME_PATTERN = /^[a-z0-9_]+$/i;
+/**
+ * ユーザーIDの運用アルファベット: 半角英数字とアンダースコア。
+ *
+ * これは画面の入力チェックではなく**運用上の唯一の字種規約**である。サーバ側の
+ * 資格情報経路(`auth/loginId.ts` の `isOperationalLoginId`)とユーザ作成・更新の
+ * リクエスト検証(`schemas.ts` の `Username`)が同じこの 1 本を参照する。
+ *
+ * 字種を絞る理由は入力ミス防止ではない。DB の照合順序(`Japanese_CI_AS`)は
+ * ゼロウェイト文字などを無視して等価と見なすため、JS 側で照合順序を再現しない限り
+ * 「JS では別キー・DB では同一行」の組が作れてしまう。再現は原理的に無理なので、
+ * **入力域そのものを照合順序の差が出ない範囲へ狭める**ことで代える。
+ */
+export const USERNAME_PATTERN = /^[a-z0-9_]+$/i;
+
+/** ユーザーIDの最大長。DB の `ログインID NVARCHAR(64)` に由来する。 */
+export const USERNAME_MAX_LENGTH = 64;
+
+/** 運用アルファベットと長さの両方に適合する ID か(client/server 共通の判定)。 */
+export function isValidUsername(username: string): boolean {
+  return username.length <= USERNAME_MAX_LENGTH && USERNAME_PATTERN.test(username);
+}
+
+/**
+ * 資格情報の不一致で返す唯一の文言。未知 ID・無効アカウント・パスワード誤り・
+ * 運用アルファベット外の ID の**全分岐が同じ定数を参照する**ことで、コピペのずれで
+ * 文言が割れる(= 存在オラクルになる)のを防ぐ。
+ */
+export const INVALID_CREDENTIALS_MESSAGE = 'ユーザーIDまたはパスワードが違います';
 
 /** パスワード再設定時の最小長。client/server で同一基準を使うため共有定数とする。 */
 export const PASSWORD_MIN_LENGTH = 8;
@@ -45,7 +71,7 @@ export function validateNewUser(
   const errors: NewUserErrors = {};
   const username = form.username.trim();
   if (!username) errors.username = 'ユーザーIDを入力してください';
-  else if (!USERNAME_PATTERN.test(username))
+  else if (!isValidUsername(username))
     errors.username = '半角英数字とアンダースコアのみ使用できます';
   else if (existingUsernames.some((u) => u.toLowerCase() === username.toLowerCase()))
     errors.username = 'このユーザーIDは既に使われています';

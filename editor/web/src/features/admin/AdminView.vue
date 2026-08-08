@@ -3,7 +3,7 @@
 // AdminView.vue — ユーザー管理画面(追加・無効化/有効化・パスワード初期化)
 // =============================================================================
 import { canDisableUser, isErr, isOk, type User, type UserRole, validateNewUser } from '@editor/shared';
-import { Ban, CircleCheck, KeyRound, Shield, UserPlus } from '@lucide/vue';
+import { Ban, CircleCheck, Copy, KeyRound, Shield, UserPlus, X } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useUserRepo } from '@/api/repositories';
 import BackButton from '@/components/ui/BackButton.vue';
@@ -35,6 +35,23 @@ const roleOptions = (Object.keys(ROLE_LABELS) as UserRole[]).map((value) => ({
 const form = reactive({ username: '', displayName: '', role: 'editor' as UserRole });
 const errors = reactive<{ username?: string; displayName?: string }>({});
 
+/**
+ * 払い出した一時パスワードの一時表示。サーバは平文を保存しないので、この画面を閉じる/
+ * 再読み込みすると二度と取得できない(必要なら再度「パスワード初期化」で払い直す)。
+ */
+const issued = ref<{ label: string; username: string; password: string } | null>(null);
+
+async function copyIssued() {
+  if (!issued.value) return;
+  try {
+    await navigator.clipboard.writeText(issued.value.password);
+    toastSuccess('一時パスワードをコピーしました');
+  } catch {
+    // 権限拒否や非セキュアコンテキストでは API が使えない。手入力できるよう画面には残す。
+    toastError('コピーできませんでした。表示されている値を手で控えてください');
+  }
+}
+
 async function load() {
   const res = await run(() => repo.listUsers());
   if (isOk(res)) rows.value = res.value;
@@ -53,7 +70,12 @@ async function addUser() {
   // 仮パスワード運用: 新規ユーザーは有効状態で作成し、初回ログイン時のパスワード再設定を必須にする。
   const res = await run(() => repo.createUser({ ...form, disabled: false, mustChangePassword: true }));
   if (isErr(res)) return;
-  toastSuccess(`${form.displayName} を追加しました。初期パスワードはユーザーID（${form.username}）と同じです。`);
+  issued.value = {
+    label: `${form.displayName} を追加しました`,
+    username: form.username,
+    password: res.value.temporaryPassword,
+  };
+  toastSuccess(`${form.displayName} を追加しました。一時パスワードを本人へお渡しください。`);
   form.username = '';
   form.displayName = '';
   await load();
@@ -94,7 +116,12 @@ async function resetPw(u: User) {
   if (!ok) return;
   const res = await run(() => repo.resetUserPassword(u.id));
   if (isErr(res)) return;
-  toastSuccess(`${u.displayName} のパスワードを初期化しました（ユーザーID「${u.username}」と同じです）`);
+  issued.value = {
+    label: `${u.displayName} のパスワードを初期化しました`,
+    username: u.username,
+    password: res.value.temporaryPassword,
+  };
+  toastSuccess(`${u.displayName} のパスワードを初期化しました。一時パスワードを本人へお渡しください。`);
   await load();
 }
 </script>
@@ -108,6 +135,29 @@ async function resetPw(u: User) {
         <span class="text-[15px]">ユーザー管理</span>
       </div>
     </div>
+
+    <!-- 一時パスワードは払い出し直後のこの 1 回しか表示できない(サーバは平文を保持しない)。 -->
+    <Card v-if="issued" class="border-warning/40 bg-warning/10 p-4">
+      <div class="flex flex-wrap items-center gap-3">
+        <KeyRound class="h-[18px] w-[18px] text-warning-foreground" />
+        <div class="text-sm font-semibold">{{ issued.label }}</div>
+        <div class="text-sm">
+          ユーザーID <span class="mono font-semibold">{{ issued.username }}</span> の一時パスワード:
+          <span class="mono select-all rounded border bg-background px-2 py-1 font-semibold">
+            {{ issued.password }}
+          </span>
+        </div>
+        <Button size="sm" variant="outline" @click="copyIssued">
+          <Copy class="h-4 w-4" /> コピー
+        </Button>
+        <Button size="sm" variant="ghost" aria-label="閉じる" @click="issued = null">
+          <X class="h-4 w-4" />
+        </Button>
+      </div>
+      <p class="mt-2 text-xs text-muted-foreground">
+        この値は再表示できません。本人へ口頭・書面で渡し、初回ログイン時に必ず変更させてください。
+      </p>
+    </Card>
 
     <Card class="p-4">
       <h3 class="mb-3 text-sm font-semibold">ユーザー追加</h3>

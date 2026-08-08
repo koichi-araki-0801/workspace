@@ -33,6 +33,9 @@ python-wheelhouse/
 *.tar.gz.part-*
 # Release 公開時の付随生成物
 offline-deps-bundle.tar.gz.sha256
+# 分離署名。真正性の根拠は Release 側の実体と `offline/pinned-release.txt` であって、
+# 作業ツリーに残るこの控えではない（公開鍵 `offline/bundle-signing.pub.xml` は追跡する）。
+offline-deps-bundle.tar.gz.sig
 bundle.key
 _bundle_stage/
 _bundle_verify/

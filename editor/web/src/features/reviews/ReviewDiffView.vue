@@ -9,23 +9,30 @@
 import { type ApproveReviewResult, isOk, type ReviewRequest } from '@editor/shared';
 import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import AttributeBar from '@/components/AttributeBar.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { toast, toastSuccess } from '@/components/ui/toast';
-import { type BlockStatus, buildDiffDoc, diffHighlightCss } from '@/features/compare/htmlBlockDiff';
+import {
+  type BlockStatus,
+  buildDiffDoc,
+  diffHighlightCss,
+  hasCoarseDiff,
+} from '@/features/compare/htmlBlockDiff';
 import { formatDateTimeShort } from '@/lib/format';
 import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { useAuthStore } from '@/stores/auth';
+import type { ReviewPartRow } from './services/reviewDiffService';
 import { useReviewDiff } from './useReviewDiff';
 
 const props = defineProps<{ reqId: string }>();
 
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
 // データ取得と承認/却下アクションは composable に委譲(遷移/トーストのみ View に残す)。
 const {
   review,
@@ -70,14 +77,39 @@ const STATUS_BADGE: Record<
 // 既に処理済み(承認/却下)か。処理済みは閲覧のみ。pending かつ approver のみ操作可。
 const canDecide = computed(() => auth.isApprover && review.value?.status === 'pending');
 
-// ── iframe ドキュメント組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差) ──
-const HIGHLIGHT_CSS = diffHighlightCss(14);
-function buildDoc(fragment: string, css: string): string {
-  return buildDiffDoc(fragment, css, HIGHLIGHT_CSS);
+// 編集画面の「承認待ち」バッジ経由で来たか。`fromEdit` はフラグとしてのみ使い、戻り先の
+// テンプレ id は query を信用せず申請自身の `templateId` を使う(細工 URL で任意 id へ
+// 飛ばされない)。編集セッションは離脱ガードのホワイトリスト(`useTemplateEditor`)が維持済み。
+const cameFromEdit = computed(
+  () => typeof route.query.fromEdit === 'string' && route.query.fromEdit.length > 0,
+);
+
+/** ヘッダの戻るボタン。編集画面から来たときだけ編集へ戻す(それ以外はキュー一覧へ)。 */
+function goBack() {
+  const tplId = review.value?.templateId;
+  if (cameFromEdit.value && tplId) router.push({ name: 'editor', params: { id: tplId } });
+  else router.push({ name: 'reviews' });
 }
 
-// `iframe` を中身の高さに合わせ、幅変化にも追随させる(CompareResultView と共有)。
-const { fitFrame } = useIframeAutoFit();
+// ── iframe ドキュメント組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差) ──
+const HIGHLIGHT_CSS = diffHighlightCss(14);
+
+// `iframe` を中身の高さに合わせる(CompareResultView と共有)。高さは子からの postMessage
+// で受け取る — `sandbox="allow-scripts"`(same-origin なし)では親から `contentDocument` を
+// 読めないためで、読めないことがテンプレ JS を隔離したまま動かすための条件である。
+const { fitFrame, withHeightReporter } = useIframeAutoFit();
+
+function buildDoc(fragment: string, css: string): string {
+  return withHeightReporter(buildDiffDoc(fragment, css, HIGHLIGHT_CSS));
+}
+
+/**
+ * 語句単位の着色を面積上限(`MAX_LCS_CELLS`)で諦めたパーツか。`ReviewPartRow` は
+ * presentation 用の写しでフラグ列を持たないため、着色済みマークアップから判定する。
+ */
+function isCoarseRow(row: ReviewPartRow): boolean {
+  return hasCoarseDiff(row.beforeHtml, row.afterHtml);
+}
 
 async function approve() {
   const res = await approveReview(comment.value.trim() || undefined);
@@ -158,8 +190,8 @@ onMounted(load);
   <div class="space-y-4">
     <!-- ヘッダ -->
     <div class="flex flex-wrap items-center gap-3 border-b pb-3">
-      <Button variant="outline" size="sm" @click="router.push({ name: 'reviews' })">
-        ← 一覧へ
+      <Button variant="outline" size="sm" @click="goBack">
+        {{ cameFromEdit ? '← 編集に戻る' : '← 一覧へ' }}
       </Button>
       <span class="text-lg font-bold">確定保存の精査</span>
       <template v-if="review">
@@ -212,6 +244,14 @@ onMounted(load);
             <Badge :variant="STATUS_BADGE[row.status].variant">
               {{ STATUS_BADGE[row.status].label }}
             </Badge>
+            <!-- 差分自体は必ず出す。語句単位の着色だけ諦めた旨を控えめに添える。 -->
+            <span
+              v-if="isCoarseRow(row)"
+              class="text-xs text-muted-foreground"
+              title="テキストが大きいため語句単位の着色を省略し、変更前後の全文を色分けしています。"
+            >
+              この箇所は差分が大きいため簡易表示です
+            </span>
           </div>
           <div class="grid gap-3 p-3 md:grid-cols-2">
             <figure class="space-y-1">
@@ -223,8 +263,15 @@ onMounted(load);
                 （なし・新規追加）
               </div>
               <div v-else class="overflow-hidden rounded border bg-white">
+                <!-- sandbox は必須。srcdoc の中身は申請者が書いた HTML/CSS である。
+                     テンプレの JS は正当なコンテンツで、承認者は「JS が効いた実行結果」を
+                     見て承認するので**動かす**(止めると承認していない見た目が確定する)。
+                     よって `allow-scripts` を許し、`allow-same-origin` は**付けない** —
+                     両方を同時に付けると子は親オリジンの DOM へ到達でき sandbox が無効化
+                     される。高さは子からの postMessage で受ける(`useIframeAutoFit`)。 -->
                 <iframe
                   :srcdoc="buildDoc(row.beforeHtml, cssBefore)"
+                  sandbox="allow-scripts"
                   title="変更前"
                   class="block w-full"
                   style="height: 120px; border: 0"
@@ -241,8 +288,10 @@ onMounted(load);
                 （なし・削除）
               </div>
               <div v-else class="overflow-hidden rounded border bg-white">
+                <!-- sandbox の意図は「変更前」ペインと同じ(上のコメントを見よ)。 -->
                 <iframe
                   :srcdoc="buildDoc(row.afterHtml, cssAfter)"
+                  sandbox="allow-scripts"
                   title="変更後"
                   class="block w-full"
                   style="height: 120px; border: 0"

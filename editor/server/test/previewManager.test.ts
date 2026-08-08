@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  type PreviewActor,
   PreviewManager,
   type PreviewServerHandle,
   type PreviewSpec,
@@ -11,6 +12,9 @@ import {
 } from '../src/vivliostyle/previewManager.js';
 
 const TTL = 1000;
+
+/** 既定の操作主体。所有者検査そのものは `previewOwnership.test.ts` が受け持つ。 */
+const OWNER: PreviewActor = { loginId: 'editor1', isAdmin: false };
 
 function fakeHandle(port: number): PreviewServerHandle & { close: ReturnType<typeof vi.fn> } {
   return { port, close: vi.fn(async () => {}) };
@@ -34,7 +38,10 @@ function makeManager(maxSessions = 3) {
 
 async function startOne(mgr: PreviewManager): Promise<{ id: string; dir: string }> {
   const dir = await tmpDir();
-  const meta = await mgr.start({ mode: 'inline', input: 'x', workDir: dir });
+  const meta = await mgr.start(
+    { mode: 'inline', input: 'x', workDir: dir, docBase: '/vivliostyle' },
+    OWNER,
+  );
   return { id: meta.id, dir };
 }
 
@@ -62,12 +69,15 @@ describe('PreviewManager', () => {
   it('exposes session metadata and port after start', async () => {
     const { mgr } = makeManager();
     const dir = await tmpDir();
-    const meta = await mgr.start({ mode: 'inline', input: 'x', workDir: dir });
+    const meta = await mgr.start(
+      { mode: 'inline', input: 'x', workDir: dir, docBase: '/vivliostyle' },
+      OWNER,
+    );
     expect(meta.url).toBe(`/api/preview/${meta.id}/`);
     expect(meta.mode).toBe('inline');
-    expect(mgr.get(meta.id)).toEqual(meta);
-    expect(mgr.list()).toHaveLength(1);
-    expect(mgr.portOf(meta.id)).toBe(13000);
+    expect(mgr.get(meta.id, OWNER)).toEqual(meta);
+    expect(mgr.list(OWNER)).toHaveLength(1);
+    expect(mgr.resolveFor(meta.id, OWNER)).toEqual({ port: 13000, docBase: '/vivliostyle' });
     await mgr.disposeAll();
   });
 
@@ -77,7 +87,7 @@ describe('PreviewManager', () => {
 
     await vi.advanceTimersByTimeAsync(TTL);
 
-    expect(mgr.get(id)).toBeUndefined();
+    expect(mgr.get(id, OWNER)).toBeUndefined();
     expect(handles[0].close).toHaveBeenCalledOnce();
   });
 
@@ -86,9 +96,9 @@ describe('PreviewManager', () => {
     const { id, dir } = await startOne(mgr);
     expect(existsSync(dir)).toBe(true);
 
-    expect(await mgr.stop(id)).toBe(true);
+    expect(await mgr.stop(id, OWNER)).toBe(true);
 
-    expect(mgr.get(id)).toBeUndefined();
+    expect(mgr.get(id, OWNER)).toBeUndefined();
     expect(handles[0].close).toHaveBeenCalledOnce();
     expect(existsSync(dir)).toBe(false);
   });
@@ -100,10 +110,10 @@ describe('PreviewManager', () => {
     await vi.advanceTimersByTimeAsync(TTL - 1);
     expect(mgr.touch(id)).toBe(true);
     await vi.advanceTimersByTimeAsync(TTL - 1);
-    expect(mgr.get(id), 'alive: each idle gap stayed under TTL').toBeDefined();
+    expect(mgr.get(id, OWNER), 'alive: each idle gap stayed under TTL').toBeDefined();
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(mgr.get(id)).toBeUndefined();
+    expect(mgr.get(id, OWNER)).toBeUndefined();
     expect(handles[0].close).toHaveBeenCalledOnce();
   });
 
@@ -119,7 +129,7 @@ describe('PreviewManager', () => {
 
     expect(
       mgr
-        .list()
+        .list(OWNER)
         .map((m) => m.id)
         .sort(),
     ).toEqual([a.id, c.id].sort());
@@ -135,8 +145,8 @@ describe('PreviewManager', () => {
 
     await mgr.disposeAll();
 
-    expect(mgr.list()).toHaveLength(0);
+    expect(mgr.list(OWNER)).toHaveLength(0);
     expect(handles.every((h) => h.close.mock.calls.length === 1)).toBe(true);
-    expect(await mgr.stop('nope')).toBe(false);
+    expect(await mgr.stop('nope', OWNER)).toBe(false);
   });
 });

@@ -1,6 +1,8 @@
 // =============================================================================
 // users.routes.ts — ユーザ管理のルート(admin 限定)
 // =============================================================================
+// 作成(201)とリセット(200)は一時パスワードの平文を応答ボディで返す。監査ログには
+// **絶対に載せない** — 監査ログは長期保存されるため、載せた瞬間に「保存しない」前提が崩れる。
 import { apiPaths } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
@@ -20,14 +22,14 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireAuth, requireAdmin, validate(CreateUserRequest)] },
     async (request, reply) => {
       const body = request.body;
-      const user = await users.createUser(body);
+      const created = await users.createUser(body);
       audit({
         event: 'user.create',
         outcome: 'success',
         ...actorFromReq(request),
-        resource: { id: user.id, username: user.username },
+        resource: { id: created.user.id, username: created.user.username },
       });
-      return reply.code(201).send(user);
+      return reply.code(201).send(created);
     },
   );
 
@@ -44,14 +46,15 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireAuth, requireAdmin] },
     async (request, reply) => {
       const id = request.params.id;
-      await users.resetUserPassword(id);
+      // 一時パスワードを返すため 204 ではなく 200 + ボディ。管理者がその場で本人へ渡す。
+      const result = await users.resetUserPassword(id);
       audit({
         event: 'user.reset-password',
         outcome: 'success',
         ...actorFromReq(request),
         resource: { id },
       });
-      return reply.code(204).send();
+      return reply.code(200).send(result);
     },
   );
 }

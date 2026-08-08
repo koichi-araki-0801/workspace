@@ -17,10 +17,38 @@
 // (`id`, `param` ...)で拡張される。実行時の影響は無い。
 import 'zod-openapi';
 import { z } from 'zod';
+import { isValidTemplateId } from './domain/template.js';
+import { isValidUsername, USERNAME_MAX_LENGTH } from './domain/user.js';
+
+// ── 0. 資源上限 — 契約の段で本文の大きさを縛る ──
+//
+// editor は単一プロセスで、本文を同期で走査する経路(タグ走査・不変性照合・パーツ同期)が
+// 複数ある。走査の計算量を直したうえで、なお**入力そのものに天井を置く**のは、天井が無い
+// 契約は「グローバル `bodyLimit` だけが上限」= 経路ごとの上限引き上げがそのまま各走査の
+// 上限引き上げになるためである。ここの値はテンプレ実物(数百 KB)に対して十分な余裕がある。
+
+/** 1 文書ぶんの HTML の最大長(UTF-16 単位)。 */
+export const MAX_DOCUMENT_HTML_CHARS = 4 * 1024 * 1024;
+/** 1 文書ぶんの CSS の最大長(UTF-16 単位)。 */
+export const MAX_DOCUMENT_CSS_CHARS = 1024 * 1024;
+/** メモ 1 件の本文の最大長。 */
+export const MAX_NOTE_CONTENT_CHARS = 64 * 1024;
+/** メモのパーツキーの最大長(構造パスキーで、実物は数十文字)。 */
+export const MAX_NOTE_PATH_KEY_CHARS = 512;
 
 // ── 1. Template identity — テンプレート同定 ──
 
 export const TemplateStatus = z.enum(['draft', 'published']).meta({ id: 'TemplateStatus' });
+
+/**
+ * ファイル名規約に一致し、単一のファイル名セグメントとして安全なテンプレート id。
+ * ディレクトリと連結される値は契約の段でここに通す(最終的な強制は I/O 層の
+ * `assertTemplateId`。二重にするのは、契約を通らない内部経路でも守るため)。
+ */
+export const TemplateId = z
+  .string()
+  .refine(isValidTemplateId, { message: '不正なテンプレート id です' })
+  .meta({ id: 'TemplateId', example: 'AM01_510037_20240710_交付版' });
 
 /** テンプレートを識別する 4 属性(ファイル名: company_fund_date_edition.html)。 */
 export const TemplateAttributes = z
@@ -108,17 +136,63 @@ export const LoginResult = z
   })
   .meta({ id: 'LoginResult' });
 
+/**
+ * 自分自身のパスワード変更。`currentPassword` は所有証明であり省略不可 — これが無い頃は
+ * 未認証のまま任意アカウントのパスワードを書き換えられ、`admin` の乗っ取りに直結していた。
+ * 本人が現行パスワードを知らない場合の復旧は、管理者によるリセット(`usersReset`)だけが経路。
+ */
 export const PasswordInitRequest = z
   .object({
     username: z.string(),
+    currentPassword: z.string().meta({ description: '現在のパスワード(所有証明)' }),
     newPassword: z.string(),
   })
   .meta({ id: 'PasswordInitRequest' });
 
+/**
+ * 新規作成 / 管理者リセットで払い出す一時パスワード。CSPRNG 由来のランダム値で、
+ * **この応答 1 回だけ**運ばれる(サーバは平文を保存も再表示もしない)。以前はログインID を
+ * そのまま初期パスワードにしていたため、ID を知る者なら誰でも未活性アカウントへ入れた。
+ */
+export const TemporaryPassword = z.string().meta({
+  id: 'TemporaryPassword',
+  description: '払い出した一時パスワード(平文)。この応答でのみ返り、以後は再取得できない',
+});
+
+/** ユーザ作成の応答。作成されたユーザと、本人へ帯域外で渡す一時パスワードの対。 */
+export const CreatedUser = z
+  .object({
+    user: User,
+    temporaryPassword: TemporaryPassword,
+  })
+  .meta({ id: 'CreatedUser' });
+
+/** パスワードリセットの応答。新しい一時パスワードだけを返す。 */
+export const PasswordResetResult = z
+  .object({
+    temporaryPassword: TemporaryPassword,
+  })
+  .meta({ id: 'PasswordResetResult' });
+
+/**
+ * ユーザーID(ログインID)の契約。**サーバ側でも運用アルファベットを強制する。**
+ *
+ * 以前は `USERNAME_PATTERN` を web クライアントでしか見ておらず、API を直接叩けば
+ * アルファベット外の ID を持つアカウントを作れた。作られてしまうと、その ID は
+ * ログイン経路の入口検査(`auth/loginId.ts` の `isOperationalLoginId`)で必ず弾かれ、
+ * **ログインできないアカウント**になる。作成の段で断つのが正しい位置。
+ */
+export const Username = z
+  .string()
+  .min(1)
+  .max(USERNAME_MAX_LENGTH)
+  .refine(isValidUsername, { error: '半角英数字とアンダースコアのみ使用できます' })
+  .meta({ id: 'Username' });
+
 /** (server 専用) Omit<User, 'id'> — 新規ユーザ作成リクエスト。 */
 export const CreateUserRequest = z
   .object({
-    username: z.string(),
+    username: Username,
     displayName: z.string(),
     role: UserRole,
     disabled: z.boolean(),
@@ -129,7 +203,7 @@ export const CreateUserRequest = z
 /** (server 専用) Partial<Omit<User, 'id'>> — ユーザ部分更新リクエスト。 */
 export const UpdateUserRequest = z
   .object({
-    username: z.string(),
+    username: Username,
     displayName: z.string(),
     role: UserRole,
     disabled: z.boolean(),
@@ -185,9 +259,16 @@ export const PartHistoryEntry = z
   })
   .meta({ id: 'PartHistoryEntry' });
 
-/** (server 専用) PDF 出力の記録ボディ。 */
+/**
+ * (server 専用) PDF 出力の記録ボディ。
+ *
+ * `templateId` を素の `z.string()` にしていた版は、監査フィードの**消去装置**だった:
+ * 記録は 1 行 1 JSON の追記で、読み側は末尾 `MAX_HISTORY_TAIL_BYTES` しか読まない。
+ * つまり読み窓より長い 1 行を書くだけで、それ以前の全履歴が API の視界から落ちる
+ * (`files/historyFiles.ts` の追記側上限と対で守る)。
+ */
 export const RecordPdfExportRequest = z
-  .object({ templateId: z.string() })
+  .object({ templateId: TemplateId })
   .meta({ id: 'RecordPdfExportRequest' });
 
 /** (server 専用) パーツ変更の記録ボディ。`templateId` はパスから取る。 */
@@ -262,14 +343,18 @@ export const ReviewRequest = ReviewRequestMeta.extend({
   filledHtml: z.string().optional().meta({ description: '値差込済みの成果物(任意)' }),
 }).meta({ id: 'ReviewRequest' });
 
-/** 確定保存の申請ボディ。`templateId` はボディで運ぶ(POST /review-requests)。 */
+/**
+ * 確定保存の申請ボディ。`templateId` はボディで運ぶ(POST /review-requests)。
+ * `templateId` を素の文字列にしていた版は、トークン内部に空白を持つ id
+ * (`AM01 _510037_…`)を承認経路へ通していた。契約の段で `TemplateId` に通す。
+ */
 export const SubmitReviewBody = z
   .object({
-    templateId: z.string().min(1),
-    html: z.string().meta({ description: '復元済みの生 Jinja2 HTML' }),
-    css: z.string(),
+    templateId: TemplateId,
+    html: z.string().max(MAX_DOCUMENT_HTML_CHARS).meta({ description: '復元済みの生 Jinja2 HTML' }),
+    css: z.string().max(MAX_DOCUMENT_CSS_CHARS),
     fundCode: z.string().min(1),
-    filledHtml: z.string().optional(),
+    filledHtml: z.string().max(MAX_DOCUMENT_HTML_CHARS).optional(),
     origin: ReviewOrigin.meta({
       description: "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
     }),
@@ -467,8 +552,15 @@ export const PartNote = z
 /** (server 専用) メモ保存のボディ。`templateId` はパスから取る。`content` 空文字は削除に倒す。 */
 export const SaveNoteRequest = z
   .object({
-    pathKey: z.string().min(1).meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
-    content: z.string().meta({ description: '空文字は「メモ無し」= 削除' }),
+    pathKey: z
+      .string()
+      .min(1)
+      .max(MAX_NOTE_PATH_KEY_CHARS)
+      .meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+    content: z
+      .string()
+      .max(MAX_NOTE_CONTENT_CHARS)
+      .meta({ description: '空文字は「メモ無し」= 削除' }),
   })
   .meta({ id: 'SaveNoteRequest' });
 
@@ -493,7 +585,10 @@ export const GenerateResult = z.object({ template: Template }).meta({ id: 'Gener
 
 export const SaveDraftRequest = z
   .object({
-    templateId: z.string(),
+    // ファイル名規約に一致する id だけを受ける。ここが素の `z.string()` だった頃は、
+    // `../templates/<確定版>` を渡すだけで承認ゲートを迂回して確定ファイルを上書きできた
+    // (最終的な砦は I/O 層の `assertTemplateId` だが、契約の段で落として 400 を返す)。
+    templateId: TemplateId,
     html: z.string(),
     css: z.string(),
   })
@@ -502,8 +597,12 @@ export const SaveDraftRequest = z
 /** インライン build のリクエストボディ(レンダリング済み HTML + 任意 CSS → PDF)。 */
 export const BuildInlineRequest = z
   .object({
-    html: z.string().min(1).meta({ description: 'レンダリング済み(nunjucks)HTML' }),
-    css: z.string().default(''),
+    html: z
+      .string()
+      .min(1)
+      .max(MAX_DOCUMENT_HTML_CHARS)
+      .meta({ description: 'レンダリング済み(nunjucks)HTML' }),
+    css: z.string().max(MAX_DOCUMENT_CSS_CHARS).default(''),
     size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
     singleDoc: z.boolean().optional().meta({ description: '単一ドキュメント扱い' }),
   })
@@ -512,8 +611,12 @@ export const BuildInlineRequest = z
 /** 結合 build の 1 文書(レンダリング済み HTML + 任意 CSS)。 */
 export const BuildMergeDocument = z
   .object({
-    html: z.string().min(1).meta({ description: 'レンダリング済み(nunjucks)HTML' }),
-    css: z.string().default(''),
+    html: z
+      .string()
+      .min(1)
+      .max(MAX_DOCUMENT_HTML_CHARS)
+      .meta({ description: 'レンダリング済み(nunjucks)HTML' }),
+    css: z.string().max(MAX_DOCUMENT_CSS_CHARS).default(''),
   })
   .meta({ id: 'BuildMergeDocument' });
 

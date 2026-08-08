@@ -13,6 +13,10 @@
 /** PDF 生成失敗時に投げる Error の前置き(`build.ts` と同一メッセージ)。 */
 const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
 
+/** 行列が満杯で受け付けられなかったときの文言(利用者へそのまま出せる日本語)。 */
+export const BUILD_QUEUE_FULL_MESSAGE =
+  'PDF生成の順番待ちが混み合っています。しばらく待ってから再実行してください';
+
 /** timeout を build エラーと区別するための内部 sentinel。 */
 class BuildTimeoutError extends Error {}
 
@@ -39,9 +43,18 @@ export interface BuildWorkerPoolOptions {
   idleTtlMs: number;
   /** 1 ジョブの上限時間。超過でワーカーを kill しジョブを reject する。 */
   timeoutMs: number;
+  /**
+   * 待機列に並べる最大件数。超過した `run`/`withSlot` は待たずに即 reject する。
+   * 省略時は無制限**にしない** — 上限の無い行列は「待たせておけば資源を握り続けられる」
+   * 経路そのものなので、既定でも有限にする。
+   */
+  maxQueue?: number;
   /** ワーカー生成(DI)。 */
   factory: BuildWorkerFactory;
 }
+
+/** `maxQueue` 未指定時の既定。 */
+const DEFAULT_MAX_QUEUE = 8;
 
 /** プール内のワーカー 1 つ分の保持枠(アイドルタイマーを伴う)。 */
 interface Slot {
@@ -66,7 +79,50 @@ export class BuildWorkerPool {
 
   /** 1 件の PDF ビルドを実行する(旧 `runBuildWorker` と同契約)。 */
   async run(buildOptions: unknown): Promise<void> {
+    return this.withSlot((build) => build(buildOptions));
+  }
+
+  /**
+   * ワーカー枠を確保したうえで `fn` を走らせる。`fn` には「そのビルドを実行する関数」を渡す。
+   *
+   * ⚠ **資源の確保は `fn` の中で行うこと**(temp ディレクトリ・配信ルートへの資産配置・
+   * egress の許可ポート予約)。枠を取る**前**に確保していた版は、行列で待っている間ずっと
+   * それらを握り続けたため、「実行中 2 本 + 待機 N 本」ぶんの資源が同時に居座った。
+   * 枠を取ってから確保すれば、握られる資源は常に同時実行数ぶんに収まる。
+   */
+  async withSlot<T>(
+    fn: (build: (buildOptions: unknown) => Promise<void>) => Promise<T>,
+  ): Promise<T> {
     const slot = await this.acquire();
+    let released = false;
+    let started = false;
+    // 枠は「ジョブ終了時に 1 回だけ」返す。`fn` が build を呼ばずに終わる経路(準備段階の
+    // 失敗)でも必ず返さないと、枠が減ったまま戻らずプール全体が固まる。
+    const release = (healthy: boolean): void => {
+      if (released) return;
+      released = true;
+      if (healthy) this.toIdle(slot);
+      else this.discard(slot);
+    };
+    try {
+      return await fn((buildOptions) => {
+        // 1 枠 = 1 ジョブ。2 度目を許すと、返却済みの枠(= 別のジョブが使っている
+        // ワーカー)へ投げ込むことになる。
+        if (started) return Promise.reject(new Error(`${PDF_BUILD_FAILED}: 枠の二重使用`));
+        started = true;
+        return this.runOn(slot, buildOptions, release);
+      });
+    } finally {
+      release(true);
+    }
+  }
+
+  /** 確保済みの枠でビルドを 1 件走らせる(timeout 監視と枠の返却を含む)。 */
+  private async runOn(
+    slot: Slot,
+    buildOptions: unknown,
+    release: (healthy: boolean) => void,
+  ): Promise<void> {
     let timer: NodeJS.Timeout | undefined;
     try {
       const job = slot.worker.run(buildOptions);
@@ -79,15 +135,15 @@ export class BuildWorkerPool {
           timer.unref?.();
         }),
       ]);
-      this.toIdle(slot); // 成功: ワーカーは健全 → 再利用へ
+      release(true); // 成功: ワーカーは健全 → 再利用へ
     } catch (e) {
       if (e instanceof BuildTimeoutError) {
         // ハング隔離: 当該ワーカーを kill して除去し、現行と同じメッセージで reject。
-        this.discard(slot);
+        release(false);
         throw new Error(`${PDF_BUILD_FAILED}: タイムアウト(${this.opts.timeoutMs}ms)で中断`);
       }
       // build エラー or 異常終了。健全なら idle へ戻す(異常終了は既に除去済みで no-op)。
-      this.toIdle(slot);
+      release(true);
       throw e;
     } finally {
       if (timer) clearTimeout(timer);
@@ -114,7 +170,15 @@ export class BuildWorkerPool {
 
   // ── 内部 ──
 
-  /** 空きワーカーを得る: idle 再利用 → 上限未満なら新規 → 満杯なら待機。 */
+  /**
+   * 空きワーカーを得る: idle 再利用 → 上限未満なら新規 → 満杯なら待機列へ。
+   *
+   * 待機列には上限がある。無制限だった版は、1 ジョブが最大 `timeoutMs`(既定 120s)掛かる
+   * あいだ到着した全リクエストを並べ、しかも呼び出し側は並ぶ**前**に temp ディレクトリ・
+   * 資産・egress ポートを確保していたので、行列の長さがそのまま資源消費だった。
+   * 溢れた分は「あとで返す」のではなく**その場で断る**(待たせても資源を握るだけで、
+   * 待ち時間は `timeoutMs × 行列長` まで伸びる)。
+   */
   private acquire(): Promise<Slot> {
     const reused = this.idle.pop();
     if (reused) {
@@ -124,7 +188,16 @@ export class BuildWorkerPool {
     if (this.workers.size < this.opts.poolSize) {
       return Promise.resolve(this.spawn());
     }
+    const maxQueue = this.opts.maxQueue ?? DEFAULT_MAX_QUEUE;
+    if (this.waiters.length >= maxQueue) {
+      return Promise.reject(new Error(BUILD_QUEUE_FULL_MESSAGE));
+    }
     return new Promise<Slot>((resolve, reject) => this.waiters.push({ resolve, reject }));
+  }
+
+  /** 待機中の件数(上限が効いていることを外から観測するための口)。 */
+  queueLength(): number {
+    return this.waiters.length;
   }
 
   /** 新規ワーカーを起こしてプールへ登録する(異常終了 hook も張る)。 */

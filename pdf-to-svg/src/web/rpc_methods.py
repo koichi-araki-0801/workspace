@@ -12,6 +12,7 @@ import base64
 import io
 import json
 import logging
+import math
 import os
 import tempfile
 import zipfile
@@ -23,7 +24,7 @@ from dictionary.store import DictionaryStore
 from export.svg_exporter import page_to_svg
 from model import fonts
 from model.document import Document, Page
-from model.elements import DictMatch, Rect, RectElement, TextElement
+from model.elements import DictMatch, Rect, RectElement, TextElement, sanitize_color
 
 _log = logging.getLogger("pdftosvg")
 from web.commands import (
@@ -117,6 +118,9 @@ def rpc_state(s: WebSession, _args: dict) -> dict:
         "changed2": changed2,
         "changed3": changed3,
         "total": total,
+        # 要素数の資源上限に当たって抽出を打ち切ったページ数 (`engine/pdf_engine.py`)。
+        # 欠落を無言にしないための通知経路で、`app.js` の `reloadState` が出す。
+        "truncated": sum(1 for d in s.docs for pg in d.pages if pg.truncated),
     }
 
 
@@ -180,6 +184,10 @@ def _dict_payload(s: WebSession) -> dict:
             for m in s.store.all()
         ],
         "suggestJoin": s.suggest_join,
+        # 起動時に辞書ファイルから捨てた件数 / 丸ごと読めなかったか。壊れた要素を黙って
+        # 消さず利用者へ通知するための経路 (`app.js` が 1 度だけトーストで出す)。
+        "loadSkipped": s.store.load_skipped,
+        "loadFailed": s.store.load_failed,
     }
 
 
@@ -320,8 +328,13 @@ def rpc_addBorder(s: WebSession, args: dict) -> dict:
     pg = s.page(args["fileIndex"], args["pageInFile"])
     r = args["rect"]
     rect = Rect(float(r["x"]), float(r["y"]), float(r["w"]), float(r["h"]))
-    color = args.get("color") or "#000000"
+    # 外部由来の色は必ず ``sanitize_color`` を通す (入口)。出口の ``_paint`` にも同じ検証が
+    # あるのは、入口だけだと別の入口が生えたときに漏れるため。``width`` も範囲を見る —
+    # ``float()`` は ``inf`` / ``nan`` を通し、``_fmt`` がそれを書いて SVG が壊れる。
+    color = sanitize_color(args.get("color") or "#000000")
     width = float(args.get("width") or 1.0)
+    if not math.isfinite(width) or not (0 < width <= 100):
+        raise ValueError(f"width must be a finite number in (0, 100]: {width!r}")
     z = max((e.z for e in pg.elements), default=0) + 1
     el = RectElement(
         bbox=rect, z=z, rect=rect, stroke=color, fill=None, stroke_width=width
@@ -387,20 +400,25 @@ def rpc_dictJson(s: WebSession, _args: dict) -> dict:
 
 
 def rpc_dictImportJson(s: WebSession, args: dict) -> dict:
-    """JSON 文字列から辞書を取り込む (upsert)。取り込み件数と一覧を返す。"""
+    """JSON 文字列から辞書を取り込む。取り込み件数・捨てた件数と一覧を返す。
+
+    件数上限を超える取り込みは `import_json` が `ValueError` を投げ、dispatch 経由で
+    `{ok:false, error}` として利用者へ出る (黙って一部だけ取り込まない)。
+    """
     text = args.get("json") or ""
     fd, tmp = tempfile.mkstemp(suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
-        n = s.store.import_json(Path(tmp))
+        result = s.store.import_json(Path(tmp))
     finally:
         try:
             os.unlink(tmp)
         except OSError:
             pass
     payload = _dict_payload(s)
-    payload["imported"] = n
+    payload["imported"] = result.imported
+    payload["skipped"] = result.skipped
     return payload
 
 

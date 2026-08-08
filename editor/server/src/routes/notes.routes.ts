@@ -3,18 +3,17 @@
 // =============================================================================
 import { apiPaths } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
-import { requireAuth } from '../middleware/auth.js';
+import type { z } from 'zod';
+import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
+import { SaveNoteRequest } from '../openapi/schemas.js';
 import * as notes from '../repositories/noteRepo.js';
 
 const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
 
-/** メモ保存リクエスト。`content` 空文字は削除に倒す(repo 側で処理)。 */
-const SaveNoteRequest = z.object({
-  pathKey: z.string().min(1),
-  content: z.string(),
-});
+// ⚠ ここに私有のスキーマを再定義しないこと。正典は `@editor/shared/schemas` の
+// `SaveNoteRequest` で、複製していた版は上限(`pathKey`/`content` の `.max()`)が片方にしか
+// 入らず、OpenAPI が公表する契約と実際に強制される契約が食い違っていた。
 
 type NotesParams = { Params: { templateId: string } };
 
@@ -25,7 +24,7 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
 
   app.put<NotesParams & { Body: z.infer<typeof SaveNoteRequest> }>(
     apiPaths.notes,
-    { preHandler: [requireAuth, validate(SaveNoteRequest)] },
+    { preHandler: [requireAuth, requireEditor, validate(SaveNoteRequest)] },
     async (request, reply) => {
       const body = request.body;
       await notes.saveNote(request.params.templateId, body.pathKey, body.content, actor(request));

@@ -37,12 +37,15 @@
     "clean": "node scripts/clean.mjs",
     "clean:deep": "node scripts/clean.mjs --deep",
     "clean:bundles": "node scripts/clean.mjs --bundles",
-    "ci": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck && pnpm run test:coverage && pnpm run build && pnpm run test:e2e",
+    "ci": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck && pnpm run test:coverage && pnpm run test:pdf-to-svg && pnpm run test:graph-editor:py && pnpm run build && pnpm run test:e2e",
     "ci:editor": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck:editor && pnpm run test:editor && pnpm run build:editor && pnpm run e2e:editor",
     "ci:pie-chart": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck:pie-chart && pnpm run test:pie-chart",
-    "ci:graph-editor": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck:graph-editor && pnpm run test:graph-editor",
+    "ci:graph-editor": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck:graph-editor && pnpm run test:graph-editor && pnpm run test:graph-editor:py",
     "ci:affected": "node scripts/ci-affected.mjs",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "test:pdf-to-svg": "python -m pytest pdf-to-svg",
+    "test:graph-editor:py": "python -m pytest graph-editor",
+    "ci:pdf-to-svg": "pnpm run check:comments && pnpm run test:pdf-to-svg"
   },
   "lint-staged": {
     "editor/**/*.{ts,vue,css,json}": "biome check --write --no-errors-on-unmatched"

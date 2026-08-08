@@ -23,6 +23,10 @@ class Page:
     is_scanned: bool = False
     background: Optional[RasterBackground] = None
     elements: List[Element] = field(default_factory=list)
+    # 要素数の資源上限に当たって抽出を打ち切ったか (`engine/pdf_engine.py` の
+    # `MAX_PAGE_ELEMENTS` / `MAX_DOC_ELEMENTS`)。UI が「一部を読み飛ばした」と伝える
+    # ための印で、無言で欠落させないために持つ。
+    truncated: bool = False
 
     def live_elements(self) -> List[Element]:
         """削除されていない要素 (z 昇順)。"""

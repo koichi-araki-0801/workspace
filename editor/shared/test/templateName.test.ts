@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertTemplateAttributeToken,
+  assertTemplateFileName,
+  isValidFundCode,
+  isValidTemplateId,
+  isValidTemplateToken,
   parseTemplateFileName,
   TEMPLATE_FILENAME_RE,
   type TemplateAttributes,
@@ -66,5 +71,55 @@ describe('TEMPLATE_FILENAME_RE', () => {
   it('matches a valid filename and rejects an invalid one', () => {
     expect(TEMPLATE_FILENAME_RE.test(SAMPLE_FILE)).toBe(true);
     expect(TEMPLATE_FILENAME_RE.test('not-a-template.html')).toBe(false);
+  });
+});
+
+// ── セグメント検査はトークンごとに掛ける(F37)──
+// 検査を**組み立て済みファイル名**にだけ掛けていた版は `AM01 _510037_20240710_交付版.html`
+// を通した。トークン内部の末尾空白はファイル名全体の trim では消えないのに、SQL Server の
+// `=` は末尾空白を無視するので、2 つのファイルが同じ台帳行へ対応する状態を作れた。
+describe('トークン単位のパス安全性ゲート', () => {
+  const EVIL_TOKENS = [
+    'AM01 ', // 末尾空白(SQL Server の `=` が無視する)
+    ' AM01', // 先頭空白
+    'AM01.', // 末尾ドット(Windows が黙って落とす)
+    'AM01/x',
+    'AM01\\x',
+    '..',
+    'AM01:x',
+    'AM01*',
+    '',
+  ];
+
+  it.each(EVIL_TOKENS)('トークン %j は不正と判定する', (token) => {
+    expect(isValidTemplateToken(token)).toBe(false);
+    expect(() => assertTemplateAttributeToken('会社コード', token)).toThrow();
+  });
+
+  it.each(
+    EVIL_TOKENS.filter((t) => !/[/\\]/.test(t) && t !== ''),
+  )('トークン %j を含むファイル名は assertTemplateFileName が拒否する', (token) => {
+    expect(() => assertTemplateFileName(`${token}_510037_20240710_交付版.html`)).toThrow();
+    expect(isValidTemplateId(`${token}_510037_20240710_交付版`)).toBe(false);
+  });
+
+  it('版種トークンの末尾空白も拒否する(4 トークン全部を見る)', () => {
+    expect(() => assertTemplateFileName('AM01_510037_20240710_交付版 .html')).toThrow();
+    expect(isValidTemplateId('AM01_510037_20240710_交付版 ')).toBe(false);
+  });
+
+  it('正当なファイル名・id は従来どおり通る(業務を止めない)', () => {
+    expect(assertTemplateFileName('AM01_510037_20240710_交付版.html')).toBe(
+      'AM01_510037_20240710_交付版.html',
+    );
+    expect(isValidTemplateId('AM01_510037_20240710_交付版')).toBe(true);
+    expect(isValidFundCode('510037')).toBe(true);
+  });
+
+  it('fundCode の判定はトークン判定と同一(片方だけ緩まない)', () => {
+    for (const token of EVIL_TOKENS) {
+      expect(isValidFundCode(token), token).toBe(isValidTemplateToken(token));
+    }
+    expect(isValidFundCode('510_037')).toBe(false);
   });
 });

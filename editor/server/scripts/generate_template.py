@@ -28,7 +28,17 @@ def main() -> int:
             "TEMPLATES_DIR",
             os.path.join(os.path.dirname(__file__), "..", "..", "data", "templates"),
         )
-        path = os.path.join(templates_dir, based_on + ".html")
+        # 呼び出し元(`pyTemplate.ts`)も検査するが、ここでも独立に封じ込める。単独実行や
+        # 将来の別呼び出し元でも「templates ディレクトリの外は読まない」を成立させるため。
+        # basename でセグメントを 1 つに潰し、realpath で解決先が中にあることを確かめる。
+        if based_on != os.path.basename(based_on) or ".." in based_on:
+            print("invalid basedOnTemplateId", file=sys.stderr)
+            return 2
+        root = os.path.realpath(templates_dir)
+        path = os.path.realpath(os.path.join(root, based_on + ".html"))
+        if os.path.commonpath([root, path]) != root:
+            print("invalid basedOnTemplateId", file=sys.stderr)
+            return 2
         if os.path.exists(path):
             with open(path, encoding="utf-8") as f:
                 sys.stdout.write(f.read())

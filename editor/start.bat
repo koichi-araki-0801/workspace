@@ -8,16 +8,25 @@ rem    start.bat dev           development : Fastify(:24680) + Vite(:24681)
 rem    start.bat rest          REST data mode (SQL Server backend; needs login)
 rem    start.bat dev rest      development + REST
 rem    start.bat prod rest     production  + REST
-rem    start.bat rest lan      production + REST, exposed to the intranet LAN
+rem    start.bat rest lan      production + REST, exposed to the intranet LAN (HTTPS)
+rem    start.bat rest lan-plain  same but plain HTTP (opt-in, discouraged)
 rem
 rem  Args are order-free. The data mode (local|rest) sets VITE_API_MODE, which
 rem  the web app reads to pick localStorage (local, default, no DB) or the REST
 rem  repositories (rest). 'db' is an alias of 'rest'.
 rem
 rem  'lan' (prod only) binds to 0.0.0.0 so other machines can reach the app.
-rem  With a TLS cert (run scripts\setup-lan-https.bat once) it serves HTTPS;
-rem  without one it falls back to plain HTTP and drops the Secure cookie flag
-rem  (otherwise REST login cookies would be rejected by browsers).
+rem  It implies the REST data mode: REST is the mode that has logins, and the
+rem  server refuses to bind a non-loopback host without AUTH_REQUIRED=true (see
+rem  config.ts), so 'local lan' would only ever produce a failed start. Asking
+rem  for both explicitly is rejected here instead of overriding what was typed.
+rem  'lan' always asks the server for HTTPS. The cert is resolved by the server
+rem  (HTTPS_PFX > appconfig tls.pfx > server\tls\editor.pfx), so a cert placed
+rem  anywhere the documented config allows still starts as HTTPS; a missing cert
+rem  now stops the start instead of silently serving plain HTTP. Run
+rem  scripts\setup-lan-https.bat once. If plain HTTP is truly required, use
+rem  'lan-plain', which opts in via ALLOW_PLAINTEXT_LAN and drops the Secure
+rem  cookie flag (otherwise REST login cookies would be rejected by browsers).
 rem
 rem  Double-click runs production mode with local data. Stop with Ctrl+C.
 rem  ASCII only on purpose: non-ASCII here breaks cmd parsing on JP code pages.
@@ -42,16 +51,45 @@ set "APIMODE=local"
 rem Server listen port. Kept in env so the port pre-check and node agree (see config.ts).
 set "PORT=24680"
 set "LAN="
+set "LANPLAIN="
+rem Set when 'local' was typed, to tell it apart from 'local' being the default.
+set "LOCALARG="
 for %%A in (%1 %2 %3) do (
   if /I "%%A"=="dev"         set "MODE=dev"
   if /I "%%A"=="-dev"        set "MODE=dev"
   if /I "%%A"=="development" set "MODE=dev"
   if /I "%%A"=="prod"        set "MODE=prod"
   if /I "%%A"=="local"       set "APIMODE=local"
+  if /I "%%A"=="local"       set "LOCALARG=1"
   if /I "%%A"=="rest"        set "APIMODE=rest"
   if /I "%%A"=="db"          set "APIMODE=rest"
   if /I "%%A"=="lan"         set "LAN=1"
+  if /I "%%A"=="lan-plain"   set "LAN=1"
+  if /I "%%A"=="lan-plain"   set "LANPLAIN=1"
+  if /I "%%A"=="plain"       set "LAN=1"
+  if /I "%%A"=="plain"       set "LANPLAIN=1"
 )
+
+rem --- LAN exposure (prod only) ------------------------------------------------
+rem 'lan' binds the server to all interfaces so other intranet machines can reach
+rem it, and always asks for HTTPS. Deciding TLS here (by probing one hard-coded
+rem cert path) used to publish a correctly-configured deployment as plain HTTP,
+rem so cert resolution is left to config.ts alone - the single source of truth.
+rem Exposure and authentication used to be independent switches, so 'lan' alone
+rem published an editor with every auth check disabled. LAN now implies REST
+rem (the data mode that has logins and sets AUTH_REQUIRED below); an explicit
+rem 'local lan' is a contradiction and stops here rather than being overridden.
+set "SCHEME=http"
+if "%LAN%"=="1" if /I "%MODE%"=="dev" (
+  echo [start] WARN: 'lan' is ignored in dev mode - LAN exposure is prod-only.
+  set "LAN="
+)
+if "%LAN%"=="1" if "%LOCALARG%"=="1" goto :lanlocal
+if "%LAN%"=="1" if /I "%APIMODE%"=="local" (
+  echo [start] NOTE: 'lan' implies the REST backend - data mode set to rest.
+  set "APIMODE=rest"
+)
+
 rem Vite exposes process-env vars prefixed VITE_ to the client at build/dev time.
 set "VITE_API_MODE=%APIMODE%"
 rem In REST mode, turn on server-side auth enforcement + DB audit mirroring.
@@ -61,24 +99,18 @@ if /I "%APIMODE%"=="rest" (
   set "AUDIT_DB=true"
 )
 
-rem --- LAN exposure (prod only) ------------------------------------------------
-rem 'lan' binds the server to all interfaces so other intranet machines can reach
-rem it. HTTPS is opted in only when the cert exists; a plain-HTTP fallback must
-rem drop the Secure cookie flag or REST logins silently fail on other machines.
-set "SCHEME=http"
-if "%LAN%"=="1" if /I "%MODE%"=="dev" (
-  echo [start] WARN: 'lan' is ignored in dev mode - LAN exposure is prod-only.
-  set "LAN="
-)
 if "%LAN%"=="1" (
   set "HOST=0.0.0.0"
-  if exist "%~dp0server\tls\editor.pfx" (
+  if "%LANPLAIN%"=="1" (
+    echo [start] WARN: PLAINTEXT LAN. Login IDs and passwords travel unencrypted.
+    echo [start]       Do not make ALLOW_PLAINTEXT_LAN a permanent setting.
+    set "HTTPS=false"
+    set "ALLOW_PLAINTEXT_LAN=1"
+    set "COOKIE_SECURE=false"
+    set "SCHEME=http"
+  ) else (
     set "HTTPS=true"
     set "SCHEME=https"
-  ) else (
-    echo [start] WARN: TLS cert not found: editor\server\tls\editor.pfx
-    echo [start]       Serving plain HTTP. Run editor\scripts\setup-lan-https.bat once for HTTPS.
-    set "COOKIE_SECURE=false"
   )
 )
 
@@ -162,6 +194,14 @@ exit /b 1
 
 :installfail
 echo [start] ERROR: pnpm install failed.
+exit /b 1
+
+:lanlocal
+rem 'local lan' would bind 0.0.0.0 with authentication disabled; the server would
+rem refuse to start anyway (config.ts), so fail here with the fix spelled out.
+echo [start] ERROR: 'lan' cannot be combined with 'local'.
+echo [start]        LAN exposure requires the REST backend, which is what enables
+echo [start]        logins (AUTH_REQUIRED). Use:  start.bat rest lan
 exit /b 1
 
 :buildfail

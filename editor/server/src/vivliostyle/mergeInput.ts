@@ -11,7 +11,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
+import { stageDocAssets } from './docAssets.js';
+import { collectDocumentAssetRefs } from './docRefs.js';
 import { inlineCss } from './inlineCss.js';
+import { inlineDocScripts } from './inlineDocScripts.js';
+import { DEFAULT_DOC_BASE } from './previewProxy.js';
+import type { SafeProjectConfig } from './projectConfig.js';
 import { cleanupProject } from './projectInput.js';
 
 /** 結合対象の 1 文書(レンダリング済み HTML + 文書スコープの CSS)。 */
@@ -42,44 +47,59 @@ export function stripPageCounterReset(css: string): string {
 }
 
 /**
- * `entry` 配列を持つ `vivliostyle.config.cjs` のソースを生成する。値は JSON.stringify で
- * エスケープし、ファイル名由来の文字列が JS 構文を壊せないようにする。`size` は CLI
- * オプションでなく config に一元化する(CLI 側 `size` は entry 毎設定を上書きし得るため)。
+ * `entry` 配列を持つ config オブジェクトを組む。**ファイルには書かない** — CLI へは
+ * `configData` で渡すため、リポジトリから実行可能な vivliostyle config が 1 つも無くなる。
+ * `size` は CLI オプションでなく config に一元化する(CLI 側 `size` は entry 毎設定を
+ * 上書きし得るため)。
  */
-export function mergeConfigSource(entries: string[], size?: string): string {
-  const conf = { entry: entries, ...(size ? { size } : {}) };
-  return `module.exports = ${JSON.stringify(conf, null, 2)};\n`;
+export function mergeConfigObject(entries: string[], size?: string): SafeProjectConfig {
+  return {
+    entry: entries,
+    ...(size ? { size } : {}),
+    // 文書の配信 path はサーバ側で固定する(`projectConfig.parseProjectConfig` と同じ値)。
+    base: DEFAULT_DOC_BASE,
+  };
 }
 
 /**
- * 文書群を一時ディレクトリへ実体化し、config パスを返す。呼び出し側は build 完了後に
- * 必ず `cleanupProject(dir)` を呼ぶこと(このモジュールは途中失敗時のみ自前で掃除する)。
+ * 文書群を一時ディレクトリへ実体化し、CLI へ渡す config オブジェクトを返す。呼び出し側は
+ * build 完了後に必ず `cleanupProject(dir)` を呼ぶこと(このモジュールは途中失敗時のみ
+ * 自前で掃除する)。
  *
  * - 各文書は `doc-000.html` からのゼロ埋め連番で書き出す(entry 順 = 配列順を字面でも保証)。
  * - CSS は `stripPageCounterReset` + `MERGE_PAGE_COUNTER_CSS` を経て各 HTML へインライン化。
- * - config は `.cjs` 拡張子で書く。temp ディレクトリはリポジトリ(`"type":"module"`)配下に
- *   あるため `.js` だと ESM 解釈で `module.exports` が壊れる(`projectInput.ts` は package.json
- *   併置で回避しているが、自前生成の config は拡張子で確定できる)。
  */
 export async function materializeMergeProject(
   documents: MergeDocument[],
   size?: string,
-): Promise<{ dir: string; configPath: string }> {
+): Promise<{ dir: string; config: SafeProjectConfig }> {
   const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   const dir = path.join(config.tmpDir, `vivlio-merge-${stamp}`);
   await fs.mkdir(dir, { recursive: true });
 
   try {
+    // 同梱資産は文書より先に置く。`inlineCss` が `<link>`/`<script src>` を残すかどうかを
+    // 「配信ルートに実体があるか」で決めるため、集合が先に確定していないと全部落ちる。
+    // 参照集合は**全文書の和**にする(1 つの配信ルートを全文書が共有するため)。
+    const referenced = new Set<string>();
+    for (const doc of documents) {
+      for (const rel of collectDocumentAssetRefs(doc.html, doc.css)) referenced.add(rel);
+    }
+    const served = await stageDocAssets(dir, { referenced });
     const entries: string[] = [];
     for (const [i, doc] of documents.entries()) {
       const name = `doc-${String(i).padStart(3, '0')}.html`;
       const css = `${stripPageCounterReset(doc.css)}\n${MERGE_PAGE_COUNTER_CSS}`;
-      await fs.writeFile(path.join(dir, name), inlineCss(doc.html, css), 'utf8');
+      // 外部 JS のインライン展開は inline build と同条件で行う(理由は
+      // `inlineDocScripts.ts` 冒頭)。結合 PDF だけ JS が効かない、という差を作らない。
+      await fs.writeFile(
+        path.join(dir, name),
+        await inlineDocScripts(inlineCss(doc.html, css, { servedAssets: served }), dir, served),
+        'utf8',
+      );
       entries.push(name);
     }
-    const configPath = path.join(dir, 'vivliostyle.config.cjs');
-    await fs.writeFile(configPath, mergeConfigSource(entries, size), 'utf8');
-    return { dir, configPath };
+    return { dir, config: mergeConfigObject(entries, size) };
   } catch (e) {
     // 中途書き出しのディレクトリを決して漏らさない(成功時の掃除は呼び出し側の責務)。
     await cleanupProject(dir);

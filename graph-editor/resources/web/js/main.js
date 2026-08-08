@@ -39,12 +39,29 @@ if (hasFsAccess()) {
   editor.setStatus("簡易モード: 選択=ファイル選択 / 保存=ダウンロード (Edge 推奨)");
 }
 
+// ── 2. サーバ通信 (終了ビーコン / 生存ハートビート) ──
+
+// サーバは `/quit` `/ping` に**起動ごとのセッショントークン**を要求する (`app.py` の G6)。
+// 値は `app.py` が `--app=` の URL クエリでこの窓にだけ渡す。攻撃者ページが本アプリを
+// `<iframe>` に埋めても、その frame の URL にトークンは無いので下の `pagehide` ビーコンは
+// 403 になる (Origin だけでは frame 経由の自撃ちを見分けられない)。
+// クエリからは**消さない** (`history.replaceState` で除くと、窓の再読込でトークンを失う)。
+const SESSION_TOKEN = new URLSearchParams(window.location.search).get("token") || "";
+
+// `navigator.sendBeacon` はヘッダを付けられないので、そこだけクエリでトークンを送る
+// (サーバはヘッダ・クエリのどちらでも受ける)。
+const authUrl = (path) => `${path}?token=${encodeURIComponent(SESSION_TOKEN)}`;
+
 // 窓/タブを閉じたらローカルサーバへ終了を通知 (`/quit` ビーコン。常駐プロセスを残さない)。
 window.addEventListener("pagehide", () => {
-  try { navigator.sendBeacon("/quit"); } catch { /* 失敗してもプロセス監視側で終了する */ }
+  try { navigator.sendBeacon(authUrl("/quit")); } catch { /* 失敗してもプロセス監視側で終了する */ }
 });
 
 // 生存ハートビート。Edge アプリ窓ではプロセス監視で終了するが、既定ブラウザ(フォールバック)
 // 経路にはプロセスハンドルが無く、終了契機が pagehide ビーコンのみになる。ビーコン不達/タブ
 // クラッシュ時にサーバ側 watchdog が自動終了できるよう、定期的に生存を知らせる。
-setInterval(() => { fetch("/ping", { method: "POST", keepalive: true }).catch(() => { }); }, 10000);
+setInterval(() => {
+  fetch("/ping", {
+    method: "POST", keepalive: true, headers: { "X-Session-Token": SESSION_TOKEN },
+  }).catch(() => { });
+}, 10000);

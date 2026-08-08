@@ -6,14 +6,24 @@
 
 .DESCRIPTION
   この offline/ フォルダ一式だけを別端末へ配置して実行すれば、以下を全自動で行う:
-    1. ソース ZIP を HTTPS 直取得（tag アーカイブ）→ 親（リポジトリ直下）へ展開（offline/ 自身は除外）
-    2. 重量物バンドル（.pnpm-store / pnpm.tgz / ms-playwright）を HTTPS 直取得 → sha256 検証
-       → lockfile 整合チェック（bundle.key 比較）→ 直下へ展開
+    1. ソース ZIP を HTTPS 直取得（**pin された不変コミット**のアーカイブ）→ pin の sha256 と
+       突き合わせ → 親（リポジトリ直下）へ展開（offline/ 自身は除外）
+    2. 重量物バンドルを HTTPS 直取得 → pin の sha256 と突き合わせ → offline/ 同梱の公開鍵で
+       分離署名を検証 → 直下へ展開 → lockfile 整合チェック（bundle.key 比較）
     3. 同梱 pnpm を corepack 登録 → 依存をオフライン install → ビルド → Playwright を配置
     4. ダウンロードしたアーカイブ群を bk/ へ退避（同名があれば削除してから移動）
 
   従来の fetch-offline-bundle.ps1 / fetch-offline-bundle-http.ps1 / setup-offline.bat（2段運用）を
   本スクリプト 1 本へ統合したもの。取得は HTTPS 直のみ（gh 不要）。
+
+  完全性・真正性（所見 F14。**配信元から取る digest に真正性を期待しない**）:
+  取得物を差し替えられる攻撃者は、隣に並ぶ ``.sha256`` も ``bundle.key`` も同じ場所へ置ける。
+  よって配信元由来の値は転送破損の検知にしかならない。判断の根拠は、手渡しで運ばれる
+  offline/ の中身だけに置く:
+    - ``offline\pinned-release.txt`` … 取得すべきソースの**不変コミット ID**と各 sha256。
+      ローリングタグは publish のたびに指す先が動くため、タグ名は内容を何も同定しない。
+    - ``offline\bundle-signing.pub.xml`` … 重量物の分離署名（.sig）を検証する公開鍵。
+  いずれも欠けていれば**中止する**（fail closed。「無ければスキップ」はしない）。
 
   前提: 取得中のみリポジトリが Public。tar（Windows 10/11 標準）。Node.js 24+（corepack 同梱）。
 
@@ -24,10 +34,15 @@
   リポジトリ名。既定 workspace。
 
 .PARAMETER Tag
-  取得元のローリングタグ。既定 offline-bundle-v1。
+  重量物アセットの取得元ローリングタグ。既定 offline-bundle-v1。ソースの取得元には使わない
+  （ソースは pin の不変コミット ID から取る）。
 
 .PARAMETER SkipBuild
   取得・展開のみ行い、依存 install / build / Playwright 配置を省略する。
+
+.PARAMETER InstallTortoiseGit
+  TortoiseGit の MSI を ``msiexec /qn``（サイレント・昇格）で導入する。既定では導入しない
+  （黙って昇格インストールを走らせないための明示 opt-in。所見 F19）。
 
 .EXAMPLE
   pwsh -File offline/setup-offline.ps1
@@ -37,14 +52,17 @@ param(
   [string]$Owner = 'koichi-araki-0801',
   [string]$Repo  = 'workspace',
   [string]$Tag   = 'offline-bundle-v1',
-  [switch]$SkipBuild
+  [switch]$SkipBuild,
+  [switch]$InstallTortoiseGit
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# 共通ライブラリ（content-key 算出 / tar 解決）。
+# 共通ライブラリ（content-key 算出 / tar 解決 / 完全性検証）。
 . (Join-Path $PSScriptRoot 'lib\content-key.ps1')
+. (Join-Path $PSScriptRoot 'lib\verify.ps1')
+. (Join-Path $PSScriptRoot 'lib\git-tools.ps1')
 
 # offline/ の親をリポジトリ直下（ROOT）とみなす。スタンドアロン時はここへソースを展開する。
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -56,14 +74,30 @@ $TarExe = Resolve-Tar
 $BundleName = 'offline-deps-bundle.tar.gz'
 $Bundle     = Join-Path $RepoRoot $BundleName
 $Sha        = "$Bundle.sha256"
+$SigFile    = "$Bundle.sig"
 $KeyFile    = Join-Path $RepoRoot 'bundle.key'
 $AssetBase  = "https://github.com/$Owner/$Repo/releases/download/$Tag"
-$SrcZipUrl  = "https://github.com/$Owner/$Repo/archive/refs/tags/$Tag.zip"
+$PinFile    = Join-Path $PSScriptRoot 'pinned-release.txt'
+$PubKeyFile = Join-Path $PSScriptRoot 'bundle-signing.pub.xml'
+
+# ---- [0/6] offline/ 同梱の期待値を読む（無ければここで止まる） ----
+# ここが唯一の「配信元と独立した」根拠。取得の前に読むのは、pin が壊れている環境で
+# ダウンロードだけ先に走らせても意味が無いため。
+$pin = Get-OfflinePin -Path $PinFile
+Write-Host "[info] pinned source commit: $($pin.SourceCommit)"
+if (-not (Test-Path -LiteralPath $PubKeyFile)) {
+  Write-Error ("[error] 署名検証用の公開鍵がありません: $PubKeyFile`n" +
+    '  offline/ を丸ごと（pin ファイルと公開鍵ごと）持ち込んでください。')
+  exit 1
+}
+
+# ソースはローリングタグでなく pin の不変コミット ID から取る（所見 F14）。
+$SrcZipUrl = "https://github.com/$Owner/$Repo/archive/$($pin.SourceCommit).zip"
 
 # 作業用 temp（ソース ZIP の DL・展開先）
 $Work   = Join-Path ([System.IO.Path]::GetTempPath()) ("offline-setup-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Work -Force | Out-Null
-$SrcZip = Join-Path $Work "$Repo-$Tag-source.zip"
+$SrcZip = Join-Path $Work "$Repo-$($pin.SourceCommit)-source.zip"
 
 # curl.exe があればストリーミングDL（大容量を効率取得）、無ければ Invoke-WebRequest にフォールバック
 $curl = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
@@ -81,19 +115,21 @@ function Download-File([string]$url, [string]$dest) {
 }
 
 # ---- [1/6] ソース ZIP を HTTPS 直取得（gh 不要） ----
-Write-Host "[1/6] ソースコードを Release tag $Tag から HTTPS 直取得（gh 不要）..."
+Write-Host "[1/6] ソースコードを pin されたコミット $($pin.SourceCommit) から HTTPS 直取得（gh 不要）..."
 try {
   Download-File $SrcZipUrl $SrcZip
 } catch {
-  Write-Error "[error] $($_.Exception.Message)`n  リポジトリが Public 公開中か、タグ/ネットワークを確認してください。"; exit 1
+  Write-Error "[error] $($_.Exception.Message)`n  リポジトリが Public 公開中か、コミット/ネットワークを確認してください。"; exit 1
 }
+# 取得物を offline/ 同梱の期待値と突き合わせる。不一致なら中止（fail closed）。
+Assert-FileSha256 -File $SrcZip -ExpectedSha256 $pin.SourceZipSha256 -Label 'source zip'
 
 # ---- [2/6] ソースを ROOT へ展開（offline/ 自身は上書きしない） ----
 Write-Host '[2/6] ソースをリポジトリ直下へ展開（offline/ は除外）...'
 $ExtractDir = Join-Path $Work 'src'
 New-Item -ItemType Directory -Path $ExtractDir -Force | Out-Null
 Expand-Archive -Path $SrcZip -DestinationPath $ExtractDir -Force
-# GitHub の tag アーカイブは "<repo>-<tag>/" を 1 段かませる。その単一トップフォルダを取る。
+# GitHub の archive は "<repo>-<コミットID>/" を 1 段かませる。その単一トップフォルダを取る。
 $inner = Get-ChildItem -Path $ExtractDir -Directory | Select-Object -First 1
 if (-not $inner) { Write-Error '[error] ソース ZIP の展開結果が想定外です（トップフォルダなし）。'; exit 1 }
 foreach ($item in Get-ChildItem -LiteralPath $inner.FullName -Force) {
@@ -107,22 +143,23 @@ Write-Host "[3/6] 重量物バンドルを Release $Tag から HTTPS 直取得..
 try {
   Download-File "$AssetBase/$BundleName"        $Bundle
   Download-File "$AssetBase/$BundleName.sha256" $Sha
+  Download-File "$AssetBase/$BundleName.sig"    $SigFile
   Download-File "$AssetBase/bundle.key"         $KeyFile
 } catch {
   Write-Error "[error] $($_.Exception.Message)`n  リポジトリが Public 公開中か、タグ/ネットワークを確認してください。"; exit 1
 }
 if (-not (Test-Path $Bundle)) { Write-Error "[error] $BundleName が取得できませんでした。"; exit 1 }
 
-# sha256 検証
-if (Test-Path $Sha) {
-  $expected = ((Get-Content $Sha -Raw).Trim() -split '\s+')[0].ToLower()
-  $actual   = (Get-FileHash $Bundle -Algorithm SHA256).Hash.ToLower()
-  if ($expected -ne $actual) {
-    Write-Error "[error] sha256 不一致。ダウンロード破損の可能性。`n  expected: $expected`n  actual:   $actual"; exit 1
-  }
-  Write-Host "[info] sha256 OK: $actual"
-} else {
-  Write-Warning '[warn] .sha256 が見つかりません。整合性検証をスキップします。'
+# 完全性・真正性の検証（fail closed）。
+# 一緒に落とした .sha256 は**判定に使わない**: 取得物を差し替えられる攻撃者は同じ場所に
+# 対応する .sha256 も置けるため、転送破損の検知にしかならない（所見 F14）。判定に使うのは
+# 手渡しで運ばれた offline/ の pin と公開鍵だけ。
+try {
+  Assert-FileSha256 -File $Bundle -ExpectedSha256 $pin.BundleSha256 -Label 'bundle'
+  Assert-BundleSignature -File $Bundle -SignaturePath $SigFile -PublicKeyPath $PubKeyFile
+  Write-Host '[info] 分離署名 OK（offline/ 同梱の公開鍵で検証）。'
+} catch {
+  Write-Error "[error] $($_.Exception.Message)"; exit 1
 }
 
 # lockfile 整合チェックは展開後（[4/6] の後）に行う。content key の入力に
@@ -142,19 +179,22 @@ foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse'
 # lockfile 整合チェック（展開後＝git-tools\manifest.txt が在る状態でソースとバンドルの対応を測る）
 $LockFile = Join-Path $RepoRoot 'pnpm-lock.yaml'
 $PkgJson  = Join-Path $RepoRoot 'package.json'
-if ((Test-Path $KeyFile) -and (Test-Path $LockFile) -and (Test-Path $PkgJson)) {
-  # content-key は publish 側と同一ロジック（共通ライブラリ Get-LockContentKey）。
-  $packageManager = Get-PackageManagerString $PkgJson
-  $localKey = Get-LockContentKey -LockFile $LockFile -PackageManager $packageManager
-  $publishedKey = (Get-Content $KeyFile -Raw).Trim().ToLower()
-  if ($localKey -eq $publishedKey) {
-    Write-Host "[info] lockfile key 一致: $localKey"
-  } else {
-    Write-Warning "[warn] lockfile 不整合の可能性。ソースとバンドルが対応していません。`n  code (local) : $localKey`n  bundle.key   : $publishedKey`n  → --frozen-lockfile が失敗する場合はタグを揃えて取り直してください。"
-  }
-} else {
-  Write-Warning '[warn] bundle.key / pnpm-lock.yaml / package.json のいずれかが無く、lockfile 整合チェックをスキップします。'
+# pin により「ソースと重量物は publish が対にした組」であることが保証されるため、ここでの
+# 不一致は取得手順の破綻を意味する。警告で流さず中止する（続けても --frozen-lockfile が
+# 落ちるだけで、しかも原因が見えにくくなる）。
+if (-not ((Test-Path $KeyFile) -and (Test-Path $LockFile) -and (Test-Path $PkgJson))) {
+  Write-Error '[error] bundle.key / pnpm-lock.yaml / package.json のいずれかがありません（整合を確かめられません）。'; exit 1
 }
+# content-key は publish 側と同一ロジック（共通ライブラリ Get-LockContentKey）。
+$packageManager = Get-PackageManagerString $PkgJson
+$localKey = Get-LockContentKey -LockFile $LockFile -PackageManager $packageManager
+$publishedKey = (Get-Content $KeyFile -Raw).Trim().ToLower()
+if ($localKey -ne $publishedKey) {
+  Write-Error ("[error] lockfile 不整合: ソースと重量物が対応していません。`n  code (local) : $localKey" +
+    "`n  bundle.key   : $publishedKey`n  pin と Release の組み合わせを見直して取り直してください。")
+  exit 1
+}
+Write-Host "[info] lockfile key 一致: $localKey"
 
 # ---- [5/6] オフライン環境構築 ----
 if (-not $SkipBuild) {
@@ -242,55 +282,10 @@ if (-not $SkipBuild) {
   Write-Host '[5/6] -SkipBuild: 取得・展開のみ。環境構築をスキップしました。'
 }
 
-# ---- git ツール（PortableGit / TortoiseGit）の展開・導入（任意・ベストエフォート） ----
-# editor のテンプレ版管理は git CLI を使う。同梱 PortableGit を展開して PATH/GIT_BIN を通し、
-# TortoiseGit（履歴/diff の GUI）を導入する。失敗しても全体は止めない。
-$GitTools = Join-Path $RepoRoot 'git-tools'
-if (Test-Path $GitTools) {
-  Write-Host '[git] PortableGit / TortoiseGit を確認...'
-  $pgDir = Join-Path $GitTools 'portablegit'
-  $pgExe = Get-ChildItem $GitTools -Filter 'PortableGit-*-64-bit.7z.exe' -File -ErrorAction SilentlyContinue |
-    Select-Object -First 1
-  if ($pgExe -and -not (Test-Path (Join-Path $pgDir 'cmd\git.exe'))) {
-    Write-Host "[git] PortableGit を展開: $($pgExe.Name) -> portablegit\"
-    & $pgExe.FullName "-o$pgDir" -y | Out-Null
-  }
-  $gitExe = Join-Path $pgDir 'cmd\git.exe'
-  if (Test-Path $gitExe) {
-    $cmdDir = Join-Path $pgDir 'cmd'
-    if ($env:Path -notlike "*$cmdDir*") { $env:Path = "$cmdDir;$env:Path" }
-    try {
-      $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-      if ($userPath -notlike "*$cmdDir*") {
-        [Environment]::SetEnvironmentVariable('Path', "$cmdDir;$userPath", 'User')
-        Write-Host "[git] ユーザー PATH へ追加: $cmdDir（新しい端末から有効）"
-      }
-      [Environment]::SetEnvironmentVariable('GIT_BIN', $gitExe, 'User')
-      Write-Host "[git] GIT_BIN を設定: $gitExe"
-    } catch {
-      Write-Warning "[git] ユーザー環境変数の設定に失敗。手動で $cmdDir を PATH へ加えてください。"
-    }
-    Write-Host "[git] git 利用可能: $(& $gitExe --version)"
-  } else {
-    Write-Warning '[git] PortableGit の git.exe が見つかりません（展開に失敗した可能性）。'
-  }
-  $tgMsi = Get-ChildItem $GitTools -Filter 'TortoiseGit-*-64bit.msi' -File -ErrorAction SilentlyContinue |
-    Select-Object -First 1
-  if ($tgMsi) {
-    Write-Host "[git] TortoiseGit を導入（任意・失敗しても続行）: $($tgMsi.Name)"
-    try {
-      $proc = Start-Process msiexec.exe `
-        -ArgumentList @('/i', "`"$($tgMsi.FullName)`"", '/qn', '/norestart') -Wait -PassThru
-      if ($proc.ExitCode -ne 0) {
-        Write-Warning "[git] TortoiseGit の導入が未完了（ExitCode=$($proc.ExitCode)）。管理者権限で msi を実行してください。"
-      } else {
-        Write-Host '[git] TortoiseGit を導入しました。'
-      }
-    } catch {
-      Write-Warning "[git] TortoiseGit の導入に失敗。手動で $($tgMsi.Name) を実行してください。"
-    }
-  }
-}
+# ---- git ツール（PortableGit / TortoiseGit）の展開・導入 ----
+# editor のテンプレ版管理は git CLI を使う。同梱 PortableGit を展開して PATH/GIT_BIN を通す。
+# 実行するバイナリの選択・検証・PATH の扱いは共通ライブラリへ集約（両 setup で同一経路）。
+Install-GitTools -RepoRoot $RepoRoot -InstallTortoiseGit:$InstallTortoiseGit
 
 # ---- [6/6] ダウンロードしたアーカイブを bk/ へ退避（同名は削除してから移動） ----
 Write-Host '[6/6] ダウンロード物を bk/ へ退避（同名があれば削除してから移動）...'
@@ -314,7 +309,8 @@ Move-ToBk $SrcZip
 # 直下のダウンロード物は「実ディスクの列挙」で拾って退避する。
 # 記憶した変数パスへの Test-Path はビルド直後の一時的なロック等で false を返すことがあり、
 # 取りこぼしの原因になるため、Get-ChildItem の列挙結果（実体）を正として複数パスで掃き出す。
-$names = @('offline-deps-bundle.tar.gz', 'offline-deps-bundle.tar.gz.sha256', 'bundle.key')
+$names = @('offline-deps-bundle.tar.gz', 'offline-deps-bundle.tar.gz.sha256',
+  'offline-deps-bundle.tar.gz.sig', 'bundle.key')
 for ($pass = 1; $pass -le 3; $pass++) {
   $hits = Get-ChildItem -LiteralPath $RepoRoot -File -Force -ErrorAction SilentlyContinue |
     Where-Object { $names -contains $_.Name }

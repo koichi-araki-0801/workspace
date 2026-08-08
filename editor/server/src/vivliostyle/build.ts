@@ -2,27 +2,44 @@
 // build.ts — `@vivliostyle/cli` で PDF をビルドする(inline / project / merge)
 // =============================================================================
 import { execFile } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
+import { assertNoDocumentExternalRefs } from '../security/externalRefs.js';
 import { buildWorkerPool } from './buildWorkerServer.js';
+import { stageDocAssets } from './docAssets.js';
+import { collectDocumentAssetRefs } from './docRefs.js';
+import { type BuildOriginReservation, reserveBuildOrigin } from './egressGuard.js';
 import { inlineCss } from './inlineCss.js';
+import { inlineDocScripts } from './inlineDocScripts.js';
 import { type MergeDocument, materializeMergeProject } from './mergeInput.js';
 import { sharedInlineConfig } from './options.js';
+import type { SafeProjectConfig } from './projectConfig.js';
 import { cleanupProject } from './projectInput.js';
 
 /** PDF 生成失敗時に投げる Error の前置き(原因は cause として stderr/timeout を連結する)。 */
 const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
 
 /**
- * `@vivliostyle/cli` の `build()` オプションを隔離プロセスで実行する。
+ * ワーカー枠を確保してから `fn` を走らせる。`fn` は受け取った `runBuild` で 1 回だけ組版する。
+ *
+ * ⚠ **資源の確保(temp ディレクトリ・配信ルートへの資産配置・egress ポート予約)は必ず
+ * `fn` の中で行うこと。** 枠を取る前に確保していた版は、順番待ちのあいだも
+ * 「1 ビルド 4 ポート + 展開済み資産 + temp ディレクトリ」を握り続けたため、行列に並んで
+ * いるだけで資源が枯れた。枠を取ってから確保すれば、握る資源は常に同時実行数ぶんで頭打ちになる。
+ *
  * 既定は常駐ウォームワーカープール(`buildWorkerPool`)へ委譲し、`@vivliostyle/cli` の import
  * (計測 ~11s)をプロセス使い回しで 1 度きりにする。`config.vivliostyle.build.poolSize <= 0` の
  * ときは従来の「ジョブ毎 spawn」(`runBuildWorkerSpawn`)へフォールバックする(安全弁)。
+ * ⚠ フォールバック経路には行列も同時実行上限も無い — 障害調査用の安全弁であり、
+ * 常用しない(常用するなら、ここに `buildWorkerPool` と同じ受付制御を入れること)。
  */
-function runBuildWorker(buildOptions: unknown): Promise<void> {
-  if (config.vivliostyle.build.poolSize <= 0) return runBuildWorkerSpawn(buildOptions);
-  return buildWorkerPool.run(buildOptions);
+function withBuildSlot<T>(
+  fn: (runBuild: (buildOptions: unknown) => Promise<void>) => Promise<T>,
+): Promise<T> {
+  if (config.vivliostyle.build.poolSize <= 0) return fn(runBuildWorkerSpawn);
+  return buildWorkerPool.withSlot(fn);
 }
 
 /**
@@ -52,6 +69,42 @@ function runBuildWorkerSpawn(buildOptions: unknown): Promise<void> {
   });
 }
 
+/**
+ * 1 ビルド分の CLI オプション共通部を、**そのビルド専用の loopback オリジン**込みで組む。
+ *
+ * `port` を我々が決めるのが要点で、これによって `egressGuard` は「loopback の全ポート」では
+ * なく「このビルドが自分の組版に使う 1 オリジン」だけを中継できるようになる
+ * (`egressGuard.ts` 冒頭の理由を見よ)。組版ブラウザは `--disable-web-security` 付きで動く
+ * ため、他の loopback サービスへ届くこと自体が持ち出し経路になる。
+ *
+ * ⚠ `proxyServer` は `sharedInlineConfig` の既定(枠を持たない = 全遮断の共有中継)を
+ * **予約専用の中継で上書きする**。上書きを外すと全ビルドが同じ中継を共有し、判定が
+ * 「実行中の全ビルドの枠の和集合」へ戻る(= 同時実行中の他人の文書を読める)。
+ * 展開の順序を入れ替えないこと。
+ *
+ * 呼び出し側は戻り値の `release()` を**必ず `finally` で呼ぶ**こと。呼び忘れると中継が
+ * 開いたまま残り、以後もそのポートへ到達できてしまう。
+ */
+async function buildScope(): Promise<{
+  options: Record<string, unknown>;
+  reservation: BuildOriginReservation;
+}> {
+  const reservation = await reserveBuildOrigin();
+  try {
+    return {
+      options: {
+        ...(await sharedInlineConfig()),
+        port: reservation.port,
+        proxyServer: reservation.proxyServer,
+      },
+      reservation,
+    };
+  } catch (e) {
+    reservation.release();
+    throw e;
+  }
+}
+
 /** inline(レンダリング済み HTML + 任意の CSS)ビルド入力。 */
 interface BuildInlineInput {
   html: string;
@@ -70,26 +123,69 @@ interface BuildInlineInput {
  * 再現する。inline 経路はそのドロップイン置換である。
  */
 export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
-  await fs.mkdir(config.tmpDir, { recursive: true });
-  const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-  const htmlPath = path.join(config.tmpDir, `doc-${stamp}.html`);
-  const pdfPath = path.join(config.tmpDir, `doc-${stamp}.pdf`);
+  // 外部参照の関門は**ここ**(サーバの build 入口)。ブラウザ側の検査だけだと
+  // 公開 API へ直接 POST すれば無検査で headless へ届く(`security/externalRefs.ts` 参照)。
+  // 枠の確保より前に置くのは、拒否すべき入力を行列へ並ばせないため(同期の文字列検査で、
+  // 資源は 1 つも握らない)。
+  assertNoDocumentExternalRefs(input.html, input.css ?? '', 'build.inline');
+  return withBuildSlot((runBuild) => buildInlineInSlot(input, runBuild));
+}
 
-  const doc = inlineCss(input.html, input.css ?? '');
-  await fs.writeFile(htmlPath, doc, 'utf8');
+/** 枠を確保した状態で inline ビルドを行う(資源の確保はすべてこの中)。 */
+async function buildInlineInSlot(
+  input: BuildInlineInput,
+  runBuild: (buildOptions: unknown) => Promise<void>,
+): Promise<Buffer> {
+  await fs.mkdir(config.tmpDir, { recursive: true });
+  const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  // ⚠ **ビルドごとに専用ディレクトリを作る。** `config.tmpDir` 直下へ書いていた頃は、
+  // CLI の `workspaceDir`(= エントリ HTML の親)が `.tmp` そのものになり、同時に走る
+  // 他のプレビューセッションや展開済み zip まで丸ごと loopback の Vite サーバから
+  // 配信されていた。1 文書 = 1 ルートにするのが「作業ディレクトリの外へ出さない」の実体。
+  const dir = path.join(config.tmpDir, `vivlio-inline-${stamp}`);
+  await fs.mkdir(dir, { recursive: true });
+  const htmlPath = path.join(dir, 'index.html');
+  const pdfPath = path.join(dir, 'output.pdf');
+  const scope = await buildScope();
 
   try {
-    await runBuildWorker({
+    // 配置するのは**この文書が参照している**資産だけ(`docRefs.ts` の理由を見よ)。
+    const served = await stageDocAssets(dir, {
+      referenced: collectDocumentAssetRefs(input.html, input.css ?? ''),
+    });
+    // 外部 JS は `src` の解決基準がビューアページ URL になり 404 で不実行になる(しかも
+    // ビルドは成功する)。組版へ渡す直前に配信ルートの実体でインライン化して、テンプレ JS が
+    // 「黙って効かない PDF」を作らないようにする(`inlineDocScripts.ts` 冒頭)。
+    //
+    // ⚠ これは**組版入力の一時的な変形**で、保存物には一切戻らない(このディレクトリは
+    // `cleanupProject` で消える)。テンプレ JS の不変性照合(`security/templateScripts.ts`)は
+    // 申請・承認・確定反映が扱う**原文 HTML** に対して行われるため、展開が原因で正当な
+    // 保存が拒否されることはない。展開結果を保存経路へ回さないこと。
+    await fs.writeFile(
+      htmlPath,
+      await inlineDocScripts(
+        inlineCss(input.html, input.css ?? '', { servedAssets: served }),
+        dir,
+        served,
+      ),
+      'utf8',
+    );
+
+    await runBuild({
       input: htmlPath,
+      // `cwd` を明示する。省略すると CLI の `entryContextDir` がサーバの作業ディレクトリ
+      // (= リポジトリルート)になり、そこが `sirv` で配信対象に載る。
+      cwd: dir,
       output: [{ path: pdfPath, format: 'pdf' }],
       size: input.size ?? 'A4',
       ...(input.singleDoc ? { singleDoc: true } : {}),
-      ...sharedInlineConfig(),
+      ...scope.options,
     });
 
     return await fs.readFile(pdfPath);
   } finally {
-    await Promise.allSettled([fs.rm(htmlPath, { force: true }), fs.rm(pdfPath, { force: true })]);
+    scope.reservation.release();
+    await cleanupProject(dir);
   }
 }
 
@@ -97,8 +193,13 @@ export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
 interface BuildProjectInput {
   /** 展開済み vivliostyle プロジェクトを格納するディレクトリ。 */
   dir: string;
-  /** `vivliostyle.config.*` のパス(存在すれば優先エントリ)。 */
-  configPath?: string;
+  /**
+   * 許可リストで組み直した config(`projectConfig.parseProjectConfig` の出力)。CLI へは
+   * **パスではなくこのオブジェクト**を `configData` で渡す。パスを渡すと CLI 側が
+   * `locateVivliostyleConfig` でファイルを探し直し、我々のパーサとは別の JSONC パーサで
+   * 読むため、検査したバイト列と実際に効く設定が分岐する。
+   */
+  config?: SafeProjectConfig;
   /** config が無い場合に使う相対エントリファイル。 */
   entry?: string;
   size?: string;
@@ -110,24 +211,38 @@ interface BuildProjectInput {
  * `vivliostyle.config.*` があればそれを、無ければ単一エントリファイルを使う。
  */
 export async function buildProjectPdf(input: BuildProjectInput): Promise<Buffer> {
+  return withBuildSlot((runBuild) => buildProjectInSlot(input, runBuild));
+}
+
+/**
+ * 枠を確保した状態で project ビルドを行う。`buildMergedPdf` は自前で枠を取ってから
+ * こちらを直接呼ぶ — `buildProjectPdf` を呼ぶと枠を二重に取りに行き、同時実行上限が 1 の
+ * 構成で自分自身を待つデッドロックになる。
+ */
+async function buildProjectInSlot(
+  input: BuildProjectInput,
+  runBuild: (buildOptions: unknown) => Promise<void>,
+): Promise<Buffer> {
   const pdfPath = path.join(input.dir, `__out-${Date.now()}.pdf`);
+  const scope = await buildScope();
 
   try {
     // どちらの場合も `cwd` を設定し、vivliostyle がエントリをサーバの作業ディレクトリ
     // ではなく展開済みプロジェクトディレクトリ基準で解決するようにする。
-    const entry = input.configPath
-      ? { config: input.configPath, cwd: input.dir }
+    const entry = input.config
+      ? { configData: input.config, cwd: input.dir }
       : { cwd: input.dir, input: input.entry };
-    await runBuildWorker({
+    await runBuild({
       ...entry,
       output: [{ path: pdfPath, format: 'pdf' }],
       ...(input.size ? { size: input.size } : {}),
       ...(input.singleDoc ? { singleDoc: true } : {}),
-      ...sharedInlineConfig(),
+      ...scope.options,
     });
 
     return await fs.readFile(pdfPath);
   } finally {
+    scope.reservation.release();
     await fs.rm(pdfPath, { force: true });
   }
 }
@@ -141,12 +256,22 @@ export async function buildMergedPdf(input: {
   documents: MergeDocument[];
   size?: string;
 }): Promise<Buffer> {
-  const { dir, configPath } = await materializeMergeProject(input.documents, input.size);
-  try {
-    return await buildProjectPdf({ dir, configPath });
-  } finally {
-    await cleanupProject(dir);
+  // 結合は文書毎に実体化されるので、実体化の**前**に全文書を検査する
+  // (1 文書でも外部参照を持てば egress は成立する)。枠を取る前に検査するのは inline と
+  // 同じ理由(拒否すべき入力を行列へ並ばせない)。
+  for (const [i, doc] of input.documents.entries()) {
+    assertNoDocumentExternalRefs(doc.html, doc.css, `build.merge[${i}]`);
   }
+  // 実体化(文書数ぶんのファイル書き出し)も枠の内側で行う。外に出すと、順番待ちの
+  // あいだ最大 30 文書ぶんの展開済みディレクトリが並んで残る。
+  return withBuildSlot(async (runBuild) => {
+    const { dir, config: mergeConfig } = await materializeMergeProject(input.documents, input.size);
+    try {
+      return await buildProjectInSlot({ dir, config: mergeConfig }, runBuild);
+    } finally {
+      await cleanupProject(dir);
+    }
+  });
 }
 
 /**
@@ -162,6 +287,21 @@ export async function prepareInlineDoc(
   const dir = path.join(config.tmpDir, `vivlio-prev-${stamp}`);
   await fs.mkdir(dir, { recursive: true });
   const entry = path.join(dir, 'index.html');
-  await fs.writeFile(entry, inlineCss(input.html, input.css ?? ''), 'utf8');
+  assertNoDocumentExternalRefs(input.html, input.css ?? '', 'preview.inline');
+  // プレビューも配信ルートは同じ形にする(同梱資産を相対パスで引ける)。
+  //
+  // ⚠ ここは**外部クライアント向けのライブプレビュー API**(`/api/preview`)の経路で、
+  // 画面内プレビュー(`web/src/features/preview/PreviewPanel.vue` + `previewHost.ts`)とは
+  // 別物である。こちらの script は `previewProxy.CONTENT_CSP` の `script-src 'none'` で
+  // 止まったままで(中継先が我々のオリジンで返るため隔離が効かない)、外部 JS の
+  // インライン展開も行わない — 「JS を止める面」であることを CSP と揃えて据え置く。
+  const served = await stageDocAssets(dir, {
+    referenced: collectDocumentAssetRefs(input.html, input.css ?? ''),
+  });
+  await fs.writeFile(
+    entry,
+    inlineCss(input.html, input.css ?? '', { servedAssets: served }),
+    'utf8',
+  );
   return { dir, entry };
 }

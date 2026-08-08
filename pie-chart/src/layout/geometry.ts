@@ -77,12 +77,27 @@ export function visualCharEm(ch: string, cfg: PieLayoutConfig): number {
   return cfg.visualHalfwidthEm;
 }
 
+/**
+ * 1 行分の視覚 em 幅のメモ。`visualCharEm` が参照する config は `fontWeight` と
+ * `visualFullwidthEm` / `visualHalfwidthEm` の 3 つだけなので、キーはその組で足りる
+ * (config オブジェクトを WeakMap キーにすると、毎回新しい config を作る呼び出し側で
+ * 効かない)。**純関数のメモ化なので出力は 1 バイトも変わらない** — 配置カスケードの
+ * O(n^2) ループの内側から毎回呼ばれるため効果が大きく、リスクがゼロ。
+ */
+const LINE_EM_CACHE = new Map<string, number>();
+
 /** lines の中で最大の視覚 em 幅を返す。 */
 export function visualMaxEm(lines: string[], cfg: PieLayoutConfig): number {
+  const keyPrefix = `${cfg.fontWeight}\u0000${cfg.visualFullwidthEm}\u0000${cfg.visualHalfwidthEm}\u0000`;
   let maxEm = 0;
   for (const line of lines) {
-    let lineEm = 0;
-    for (const ch of line) lineEm += visualCharEm(ch, cfg);
+    const key = keyPrefix + line;
+    let lineEm = LINE_EM_CACHE.get(key);
+    if (lineEm === undefined) {
+      lineEm = 0;
+      for (const ch of line) lineEm += visualCharEm(ch, cfg);
+      LINE_EM_CACHE.set(key, lineEm);
+    }
     if (lineEm > maxEm) maxEm = lineEm;
   }
   return maxEm;
@@ -151,8 +166,11 @@ export function radialFraction(cfg: PieLayoutConfig, min: number, factor: number
  */
 export function arcAngles(values: number[], cfg: PieLayoutConfig): ArcSpan[] {
   const total = values.reduce((sum, value) => sum + Number(value), 0);
-  if (total <= 0) {
-    throw new Error('sum(values) must be > 0');
+  // `Infinity`(総和のオーバーフロー)と `NaN` も弾く。`total <= 0` だけだと `Infinity` を
+  // 通してしまい、全スパンが `value / Infinity = 0` の幅ゼロスライスになる
+  // (`limits.ts` の `assertTotalValue` と同じ破綻を、こちらは幾何側の入口で止める)。
+  if (!Number.isFinite(total) || total <= 0) {
+    throw new Error(`sum(values) must be a finite number > 0 (got ${String(total)})`);
   }
   const sign = cfg.counterclock ? 1 : -1;
   let current = degToRad(cfg.startangle);

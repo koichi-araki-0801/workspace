@@ -11,6 +11,7 @@ import json
 import threading
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import config
 from dictionary.store import DictionaryStore
@@ -74,17 +75,27 @@ def test_reapply_macro_reverts_in_one_undo(tmp_path):
     assert a.text == "A-1042" and b.text == "B-2055"
 
 
-def _post(url: str, data: bytes, ctype: str):
-    req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": ctype}, method="POST"
-    )
+# 使い捨てサーバの固定セッショントークン。本番は起動ごとの CSPRNG 値 (`create_server` の
+# 既定) で、ここは「正規 UI と同じ形で叩く」ためだけの既知値。認可そのものの主張は
+# `tests/test_origin_guard.py` が持つ。
+_TOKEN = "shell-rpc-test-token"
+
+
+def _post(url: str, data: bytes, ctype: str, origin: str | None = None):
+    """`origin` 既定は URL から組んだ正規オリジン。同一オリジン検査 (`web/origin_guard.py`)
+    が非安全メソッドに Origin とセッショントークンを要求するため、ブラウザと同じ形で付ける。"""
+    parts = urlsplit(url)
+    headers = {"Content-Type": ctype,
+               "X-Session-Token": _TOKEN,
+               "Origin": origin if origin is not None else f"{parts.scheme}://{parts.netloc}"}
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     with urllib.request.urlopen(req) as r:
         return r.status, r.read()
 
 
 def test_http_shell_smoke(tmp_path, vector_pdf):
     s = _session(tmp_path)
-    server = create_server(str(config.resource_path("web")), s)
+    server = create_server(str(config.resource_path("web")), s, token=_TOKEN)
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{port}"
@@ -123,7 +134,7 @@ def test_http_shell_smoke(tmp_path, vector_pdf):
 def test_upload_does_not_auto_apply(tmp_path, vector_pdf):
     """アップロードでは辞書を適用しない。適用は再適用 RPC (Undo 可能経路) のみ。"""
     s = _session(tmp_path)
-    server = create_server(str(config.resource_path("web")), s)
+    server = create_server(str(config.resource_path("web")), s, token=_TOKEN)
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{port}"

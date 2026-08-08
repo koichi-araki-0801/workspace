@@ -6,6 +6,9 @@ dist/
 .env.local
 # Local runtime config (copy from appconfig.example.json); may hold machine-specific paths
 appconfig.json
+# 監査ログ・作成履歴 (`config.logging.dir` の既定。actor / ip / resource を含むため
+# コミットしない)。`*.log` だけでは `logs/history/create.jsonl` が漏れる。
+logs/
 coverage/
 .vite/
 .tmp/

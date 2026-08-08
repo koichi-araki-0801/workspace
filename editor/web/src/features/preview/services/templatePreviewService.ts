@@ -21,10 +21,11 @@ import { logError } from '@/lib/appError';
 import { formatCss } from '@/lib/formatOutput';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
+import { renderJinjaIsolated } from '@/lib/renderHostClient';
 import { replaceBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
 
-// 文書組み立て(renderJinja → sanitize → format)は結合 PDF と共用のため
+// 文書組み立て(隔離描画 → sanitize → format)は結合 PDF と共用のため
 // `lib/pdfDocument.ts` へ抽出済み。文言定数は従来の import 元を保つため再エクスポートする。
 export { PDF_ERROR_MSG };
 
@@ -94,8 +95,10 @@ export function createTemplatePreviewService(
         css = formatCss(tpl.css);
       }
 
-      // 描画は Worker、サニタイズ + 文書組み立て(安価な文字列操作)はメインで行う。
-      const rendered = await htmlWorker.renderJinja(restoredHtml, sample);
+      // 描画は opaque オリジンの iframe(`renderHostClient`)、サニタイズ + 文書組み立て
+      // (コンパイルを伴わない安価な処理)はメインで行う。Worker へ載せていた頃は同一
+      // オリジンで nunjucks をコンパイルしており、隔離としては何も守っていなかった。
+      const rendered = await renderJinjaIsolated(restoredHtml, sample);
       let previewDoc = '';
       let renderError: string | null = null;
       if (rendered.error) {

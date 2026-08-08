@@ -11,6 +11,14 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 import { createMergePdfService } from '@/features/merge/services/mergePdfService';
 
+// 値埋めは `renderPdfDocument` 経由で opaque オリジンの iframe が行うため jsdom では
+// 起動しない。ここで固定したいのは順序・進捗・履歴なので、隔離の向こう側にあたる
+// nunjucks 実装を直に噛ませる(クライアントの契約は `renderHostClient.test.ts`)。
+vi.mock('@/lib/renderHostClient', async () => {
+  const { renderJinja } = await import('@/lib/nunjucksRender');
+  return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
+});
+
 /** id ごとに本文の違うテンプレを返すスタブ(版種はファンド共通サンプルへ被さる)。 */
 function templatesOf(edition = '交付版'): TemplateRepository {
   return {

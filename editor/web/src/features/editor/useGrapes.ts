@@ -6,11 +6,17 @@
 // `wireGrapesEvents` へ、zoom/フィットは `useZoomFit.ts` へ、ページ境界 guide は
 // `usePageGuides.ts` へ、選択枠 rect / メモ目印は `useCanvasMarkers.ts` へ委譲する。
 
-import grapesjs, { type Component, type Editor } from 'grapesjs';
+import grapesjs, { type Component, type Editor, type ParsedNode } from 'grapesjs';
 import { ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
+import { toast } from '@/components/ui/toast';
+import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
 import { type GrapesCallbacks, wireGrapesEvents } from './grapesEvents';
-import { jinjaChipCanvasCss, registerJinjaComponents } from './jinjaComponents';
+import {
+  JINJA_COMPONENT_TYPE_SET,
+  jinjaChipCanvasCss,
+  registerJinjaComponents,
+} from './jinjaComponents';
 import {
   clampPageIndex,
   enumeratePageEls,
@@ -336,6 +342,31 @@ export function useGrapes() {
       // 何も取得させない。layer/toolbar icon が使う FA glyph は main.ts の
       // `import 'font-awesome/...'` で代わりにローカル同梱している。
       cssIcons: '',
+      // component script 機能(`data-gjs-script` prop)を使わないので、`getHtml()` が
+      // 収集した JS を `<script>` として**連結して返す**既定を切る。これが true のままだと、
+      // prop の刈り取りを 1 箇所でも迂回された瞬間に draft → 確定テンプレ(git 管理下)へ
+      // script が恒久混入する — CSP は表示時の実行を止めるだけで、永続化は止めない。
+      // 刈り取りとは独立に効く二重防御なので、片方が破られてももう片方が残る。
+      jsInHtml: false,
+    });
+
+    // canvas へ入る HTML は他ユーザが書いた draft / テンプレ実体で、canvas の iframe は
+    // `about:blank` としてアプリのオリジンを継承する。`parse:html:root` は GrapesJS 既定の
+    // サニタイズ後・component 化前に発火する唯一の点で、ここで刈れば `load`
+    // (= `setComponents`)・part 挿入・snapshot 復帰と、HTML 文字列をパースする全経路を
+    // 1 箇所で覆える。
+    //
+    // 刈り取りは**許可リスト**で、通す `data-gjs-type` の値は `jinjaComponents` が
+    // `addType` する型と同一の配列由来にする(片方だけ更新される事故を構造的に消す)。
+    // 落とした件数は利用者へ出す — 黙って消すと「保存したら中身が減っていた」事故になる。
+    ed.on('parse:html:root', ({ root }: { root: ParsedNode }) => {
+      const report = pruneCanvasActiveContent(root, { allowedGjsTypes: JINJA_COMPONENT_TYPE_SET });
+      if (report.droppedCount === 0) return;
+      const detail = [...report.droppedElements, ...report.droppedAttrs].slice(0, 5).join(', ');
+      toast(
+        `編集キャンバスで扱えない内容を ${report.droppedCount} 件取り除きました（${detail}）。`,
+        'error',
+      );
     });
 
     registerJinjaComponents(ed);

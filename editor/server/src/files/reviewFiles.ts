@@ -16,6 +16,7 @@ import {
   unexpected,
 } from '@editor/shared';
 import { config } from '../config.js';
+import { logger } from '../logger.js';
 import { atomicWrite } from './atomic.js';
 
 /** reqId は内部生成(英数字/`-`/`_`)。パストラバーサルを弾き、ディレクトリ脱出を防ぐ。 */
@@ -73,11 +74,65 @@ export async function readReview(reqId: string): Promise<ReviewRequest | null> {
   return { ...meta, html, css, ...(filledHtml !== undefined ? { filledHtml } : {}) };
 }
 
-/** 全申請のメタ一覧(順序は呼び出し側でソート)。壊れた/読めないエントリは飛ばす。 */
+/**
+ * 一覧で走査する申請ディレクトリ数の上限。申請を削除するコードはリポジトリに無く件数は
+ * 単調増加するため、無制限に読むと承認一覧が徐々に重くなり最後は開かなくなる。
+ * 超過分は捨てる(分類 B: degrade。一覧が出ないより出るほうがよい)。
+ */
+export const MAX_REVIEW_SCAN = 5_000;
+
+/** 同時に開くメタファイル数。`Promise.all` の全件同時 open は fd を枯渇させる。 */
+const REVIEW_READ_CONCURRENCY = 8;
+
+/** 同時実行数を制限しつつ全件を写像する(結果は入力順)。 */
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const run = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next;
+      next += 1;
+      out[i] = await task(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+  return out;
+}
+
+/**
+ * 全申請のメタ一覧(順序は呼び出し側でソート)。壊れた/読めないエントリは飛ばす。
+ *
+ * 上限に当たったときの degrade は「**古いものから見えなくなる**」でなければならない。
+ * 申請ディレクトリ名は `randomUUID` 由来で時系列順ではないため、readdir 順のまま
+ * `slice` すると落ちる対象が名前の辞書順という利用者から見て無意味な軸で決まり、
+ * 承認待ちの新しい申請が消えうる。よって mtime の降順で選ぶ。
+ * 打ち切りが起きたことは警告ログに残す(一覧が全件でないことを運用者へ伝える)。
+ */
 export async function listReviewMetas(): Promise<ReviewRequestMeta[]> {
   const entries = await fs.readdir(config.reviewsDir).catch(() => [] as string[]);
-  const metas = await Promise.all(
-    entries.filter((e) => REQ_ID_PATTERN.test(e)).map((e) => readReviewMeta(e).catch(() => null)),
+  const ids = entries.filter((e) => REQ_ID_PATTERN.test(e));
+  let targets = ids;
+  if (ids.length > MAX_REVIEW_SCAN) {
+    const stamped = await mapLimit(ids, REVIEW_READ_CONCURRENCY, async (id) => ({
+      id,
+      mtime: await fs
+        .stat(path.join(config.reviewsDir, id))
+        .then((s) => s.mtimeMs)
+        .catch(() => 0),
+    }));
+    stamped.sort((a, b) => b.mtime - a.mtime);
+    targets = stamped.slice(0, MAX_REVIEW_SCAN).map((s) => s.id);
+    logger.warn(
+      { total: ids.length, scanned: MAX_REVIEW_SCAN },
+      '申請が上限件数を超えたため一覧は最新分のみを返しています(全件ではありません)',
+    );
+  }
+  const metas = await mapLimit(targets, REVIEW_READ_CONCURRENCY, (e) =>
+    readReviewMeta(e).catch(() => null),
   );
   return metas.filter((m): m is ReviewRequestMeta => m !== null);
 }

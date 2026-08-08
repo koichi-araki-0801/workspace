@@ -14,6 +14,11 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+# 保持する Undo 段数の上限。各コマンドは置換前後の要素状態を握るため、無制限に積むと
+# 長時間の編集セッションでメモリが単調増加する。超過時は最古を捨てる (分類 B: degrade。
+# 「これ以上戻れない」は編集を止めないが、上限が無いとアプリごと落ちる)。
+MAX_UNDO_DEPTH = 200
+
 
 class _Macro:
     """`beginMacro`〜`endMacro` でまとめた複合コマンド。"""
@@ -47,6 +52,7 @@ class UndoStack:
         del self._stack[self._pos:]  # redo 分岐を破棄
         self._stack.append(cmd)
         self._pos += 1
+        self._trim()
 
     def beginMacro(self) -> None:  # noqa: N802 (QUndoStack 互換。履歴ラベルは UI が無く廃止)
         self._macro = _Macro()
@@ -59,6 +65,15 @@ class UndoStack:
         del self._stack[self._pos:]
         self._stack.append(m)  # 個々の push で redo 済み
         self._pos += 1
+        self._trim()
+
+    def _trim(self) -> None:
+        """深さ上限を超えた分だけ最古を捨てる (`_pos` も同じ数だけ手前へずらす)。"""
+        excess = len(self._stack) - MAX_UNDO_DEPTH
+        if excess <= 0:
+            return
+        del self._stack[:excess]
+        self._pos = max(0, self._pos - excess)
 
     def canUndo(self) -> bool:  # noqa: N802
         return self._pos > 0

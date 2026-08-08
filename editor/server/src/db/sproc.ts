@@ -5,7 +5,8 @@
 // (`@name=?`) でバインドし、値を SQL へ文字列補間しない(インジェクション回避)。
 // SQL エラーは `server/db/sproc/*.sql` の THROW 番号規約に従って共有の `AppError`
 // 種別へ変換する:
-//   50404 → not_found, 50409 / 2627 / 2601 → conflict, 50000 → validation。
+//   50404 → not_found, 50409 / 2627 / 2601 → conflict, 50000 / 50400 → validation。
+// メッセージをユーザーへ転送するのは**自前 THROW の番号だけ**(`mapSqlError` の注記)。
 import { type AppError, conflict, notFound, unexpected, validation } from '@editor/shared';
 import { query } from './pool.js';
 
@@ -69,18 +70,42 @@ export function asNumberOrNull(v: unknown): number | null {
 
 // ── 2. エラー変換 ──
 
+/**
+ * 自前 `THROW` の番号(`server/db/sproc/*.sql` の規約)。**この集合のメッセージだけ**を
+ * ユーザーへ転送する。文言は我々が書いた日本語で、内部構造を含まないことが分かっている。
+ */
+const OWN_THROW_NUMBERS = new Set([50000, 50400, 50404, 50409]);
+
+/**
+ * SQL エラー → `AppError`。
+ *
+ * ⚠ **SQL Server のシステムエラーの生メッセージを転送しないこと。** 2627(PK/一意制約違反)
+ * と 2601(一意索引違反)は我々の `THROW` ではなくエンジンが出すもので、本文に制約名・
+ * スキーマ修飾のテーブル名・重複キーの値がそのまま入る。ゲートウェイ sproc は DML を
+ * TRY/CATCH で包まないので、実際の一意違反はここへ素通しで届く。分類(conflict)だけを
+ * 使い、文言は定型文に固定して、原文は `cause`(ログ専用)へ落とす。
+ */
 function mapSqlError(e: unknown): AppError {
   const num = sqlNumber(e);
-  const msg = sqlMessage(e);
+  // 自前 THROW 以外は、番号で分類できてもメッセージは使わない。
+  const msg = num !== undefined && OWN_THROW_NUMBERS.has(num) ? sqlMessage(e) : undefined;
   if (num === 50404) return notFound(msg ?? '対象が見つかりません');
-  if (num === 50409 || num === 2627 || num === 2601)
-    return conflict(msg ?? 'すでに存在するか、競合しています');
+  if (num === 50409) return conflict(msg ?? 'すでに存在するか、競合しています');
+  if (num === 2627 || num === 2601)
+    return conflict('すでに存在するか、競合しています', { cause: e });
   if (num === 50000 || num === 50400) return validation(msg ?? '入力が正しくありません');
   // 未知の SQL/driver 障害: 技術的詳細をユーザーへ漏らさない。
   return unexpected('データベース処理に失敗しました', { cause: e });
 }
 
-/** `msnodesqlv8` のエラー形状から SQL エラー番号を抽出する(ベストエフォート)。 */
+/**
+ * `msnodesqlv8` のエラー形状から SQL エラー番号を抽出する(ベストエフォート)。
+ *
+ * ⚠ **メッセージ本文から番号を拾うフォールバックを戻さないこと。** 本文に `50404` の
+ * ような字面が含まれるだけで転送分岐が選ばれる = 「メッセージの中身が、そのメッセージを
+ * 転送してよいかを決める」形になり、任意の DB エラー文をユーザーへ出す経路になる
+ * (利用者が入れた値がエラー本文へ載る場面は珍しくない)。番号は構造化フィールドからのみ読む。
+ */
 function sqlNumber(e: unknown): number | undefined {
   if (e && typeof e === 'object') {
     const o = e as Record<string, unknown>;
@@ -92,9 +117,7 @@ function sqlNumber(e: unknown): number | undefined {
     if (Array.isArray(arr) && arr.length > 0 && typeof arr[0]?.code === 'number')
       return arr[0].code as number;
   }
-  // フォールバック: メッセージから "...(<num>)" や "SQL error <num>" を解析する。
-  const m = sqlMessage(e)?.match(/\b(5\d{4}|2627|2601)\b/);
-  return m ? Number(m[1]) : undefined;
+  return undefined;
 }
 
 /** ODBC の "[...]" 接頭辞を剥がしてユーザーに見せて安全なメッセージを抽出する。 */

@@ -109,6 +109,7 @@ export const buildWorkerPool = new BuildWorkerPool({
   poolSize: config.vivliostyle.build.poolSize,
   idleTtlMs: config.vivliostyle.build.idleTtlMs,
   timeoutMs: config.vivliostyle.build.timeoutMs,
+  maxQueue: config.vivliostyle.build.maxQueue,
   factory: () => {
     logger.info('[pdf] ウォームワーカーを起動します(@vivliostyle/cli を読込)');
     return new ForkedBuildWorker(config.pdf.workerDaemonScript);

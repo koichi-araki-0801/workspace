@@ -37,6 +37,7 @@ import {
   textBoxBounds,
   isOtherCategory,
 } from './geometry.js';
+import { attr } from '../svg_export/values.js';
 import type { PieLayoutConfig, Scale, LayoutItemReady, Placement } from '../types.js';
 import type { Point, InsideFit, Extent } from './geometry.js';
 
@@ -181,7 +182,12 @@ export function leaderPath(
   points: Point[],
   cfg: PieLayoutConfig,
 ): string {
-  return `<path d="${pointPath(xScale, yScale, points)}" fill="none" stroke="${cfg.lineColor}" stroke-width="${cfg.leaderStrokeUnits}" stroke-linecap="round" stroke-linejoin="round" />`;
+  // 属性の出現順(`d` → `fill="none"` → `stroke` → …)は `verify/svg.ts` が前提にしている。
+  return (
+    `<path${attr('d', pointPath(xScale, yScale, points))}${attr('fill', 'none')}` +
+    `${attr('stroke', cfg.lineColor)}${attr('stroke-width', cfg.leaderStrokeUnits)}` +
+    `${attr('stroke-linecap', 'round')}${attr('stroke-linejoin', 'round')} />`
+  );
 }
 
 // =============================================================================

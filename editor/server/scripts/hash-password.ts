@@ -32,7 +32,11 @@ if (!['admin', 'approver', 'editor', 'viewer'].includes(role)) {
   process.exit(1);
 }
 
-const { hash, salt, iterations } = hashPassword(password);
+// `hashPassword` は非同期(`promisify(pbkdf2)`)。ESM の top-level await で受ける。
+// 同期版へ戻すとログイン経路がイベントループを塞ぐため、こちら側が await へ追随する。
+// このスクリプトは `tsconfig.json` の `include` (`src/**/*`) の外にあり `tsc -b` の
+// 型検査が届かない。`src/auth/password.ts` のシグネチャを変えたらここも手で追随すること。
+const { hash, salt, iterations } = await hashPassword(password);
 const publicId = randomUUID();
 const hex = (b: Buffer) => `0x${b.toString('hex').toUpperCase()}`;
 

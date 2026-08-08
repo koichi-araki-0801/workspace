@@ -11,7 +11,8 @@
 //   独立(ページ番号を含めない。ペア間でページ構成が違っても対応づくようにするため)。
 // - 置換は DOM を経由せず生テキストの span 差し替えで行う。DOM round-trip は
 //   ファイル全体を再整形してしまい、非対象パーツまで差分が出る(テンプレは成果物であり
-//   バイト保存が原則)ため。
+//   バイト保存が原則)ため。**禁止されているのは再直列化であって、境界の特定手段ではない**
+//   — 走査器は自由に差し替えてよい(`SyncPart` は元文字列上の index 対しか持たない)。
 // - do-no-harm: 転写するのは「ポリシーが `同期` で、前回同期以降 source だけが変わった」
 //   パーツに限る。初期差分・両側変更(競合)・削除・挿入位置不明はすべてスキップして
 //   理由を返し、人間の判断に委ねる。
@@ -49,25 +50,193 @@ const VOID_TAGS = new Set([
   'wbr',
 ]);
 
-// コメントとタグをひとまとめに走査する。属性値内の `>` を誤検出しないよう、引用符付き
-// 属性値はグループ 2 の交代で丸ごと読み飛ばす(Jinja の `{{ }}` が属性に居ても安全)。
-const TAG_RE = /<!--[\s\S]*?-->|<\/?([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+/**
+ * 走査を受け付ける HTML の最大長(UTF-16 単位)。グローバル `bodyLimit`(`app.ts`)と同値で、
+ * 「リクエストとして受け取れる最大」を超える走査は行わない。超過時に空配列でなく throw
+ * するのは、空配列だと `computePairSync` が「source にパーツが 1 つも無い」と誤解釈して
+ * 状態ファイルを書き換える(サイレントな状態破壊)ため。ベストエフォート層
+ * (`pairSyncService` / `noteMasterService`)の既存 catch が warn + skip へ倒す。
+ */
+export const MAX_SYNC_SCAN_BYTES = 8 * 1024 * 1024;
 
-const PART_ID_RE = /(?:^|\s)data-part-id\s*=\s*(?:"([^"]*)"|'([^']*)')/;
+/** 中身をタグとして解釈しない要素(HTML の RAWTEXT/ESCAPABLE RAWTEXT)。 */
+const RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title']);
 
-/** 開始タグの属性テキストから data-part-id の値を取り出す。無ければ null。 */
-function partIdOf(attrs: string): string | null {
-  const m = PART_ID_RE.exec(attrs);
-  if (!m) return null;
-  return m[1] ?? m[2] ?? null;
+/** タグ 1 個分の走査結果。`attrsFrom`/`attrsTo` は開始タグの属性区間(end は排他)。 */
+interface HtmlToken {
+  kind: 'start' | 'end';
+  /** 小文字化したタグ名。 */
+  name: string;
+  /** `<` の位置。 */
+  start: number;
+  /** `>` の次の位置(排他)。 */
+  end: number;
+  selfClosing: boolean;
+  attrsFrom: number;
+  attrsTo: number;
+}
+
+const isSpace = (c: string): boolean =>
+  c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
+const isNameStart = (c: string): boolean => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+const isNameChar = (c: string): boolean => isNameStart(c) || (c >= '0' && c <= '9') || c === '-';
+
+/**
+ * HTML をタグ単位に走査する。**不変則: カーソル `i` は単調非減少で、決して戻さない**
+ * — 前進は `indexOf` か 1 文字進みのみ。これが線形性の唯一の根拠であり、
+ * 「閉じ引用符が無いのでこの `<` は文字データだった」と解釈し直して巻き戻す実装を
+ * 書いた瞬間に二次計算量(旧 `TAG_RE` の ReDoS)が復活する。閉じられない引用符・
+ * 閉じられない `>` は**走査全体の打ち切り**で表現すること。
+ *
+ * コメント・doctype・処理命令はトークンを出さずに読み飛ばす。RAWTEXT 要素
+ * (`script` 等)は開始タグを出したあと、対応する終了タグまでを丸ごと飛ばす
+ * (中身にタグを見出さない = ブラウザと同じ解釈)。
+ */
+function* tokenizeHtml(html: string): Generator<HtmlToken> {
+  const n = html.length;
+  let i = 0;
+  while (i < n) {
+    const lt = html.indexOf('<', i);
+    if (lt < 0) return;
+    i = lt + 1;
+    if (html.startsWith('!--', i)) {
+      const close = html.indexOf('-->', i + 3);
+      if (close < 0) return;
+      i = close + 3;
+      continue;
+    }
+    const head = html[i];
+    if (head === '!' || head === '?') {
+      const gt = html.indexOf('>', i);
+      if (gt < 0) return;
+      i = gt + 1;
+      continue;
+    }
+    const isClose = head === '/';
+    if (isClose) i++;
+    const nameStart = i;
+    if (i < n && isNameStart(html[i])) {
+      i++;
+      while (i < n && isNameChar(html[i])) i++;
+    }
+    // タグ名にならない `<` は文字データ。`i` は既に `lt` より先なので巻き戻さない。
+    if (i === nameStart) continue;
+    const name = html.slice(nameStart, i).toLowerCase();
+    const attrsFrom = i;
+    let end = -1;
+    while (i < n) {
+      const c = html[i];
+      if (c === '"' || c === "'") {
+        const q = html.indexOf(c, i + 1);
+        if (q < 0) return; // 閉じ引用符なし = 打ち切り(戻り読み禁止)
+        i = q + 1;
+        continue;
+      }
+      if (c === '>') {
+        end = i + 1;
+        break;
+      }
+      i++;
+    }
+    if (end < 0) return; // 閉じ `>` なし = 打ち切り
+    const attrsTo = end - 1;
+    const selfClosing = attrsTo > attrsFrom && html[attrsTo - 1] === '/';
+    yield {
+      kind: isClose ? 'end' : 'start',
+      name,
+      start: lt,
+      end,
+      selfClosing,
+      attrsFrom,
+      attrsTo,
+    };
+    i = end;
+    if (isClose || selfClosing || !RAW_TEXT_TAGS.has(name)) continue;
+    // RAWTEXT: 最初に現れる `</name` で終わる(引用符を考慮して探すと二次の温床になる)。
+    let p = i;
+    let closeAt = -1;
+    while (p < n) {
+      const k = html.indexOf('</', p);
+      if (k < 0) break;
+      const after = k + 2 + name.length;
+      if (html.slice(k + 2, after).toLowerCase() === name) {
+        const c = html[after];
+        if (c === undefined || isSpace(c) || c === '/' || c === '>') {
+          closeAt = k;
+          break;
+        }
+      }
+      p = k + 2;
+    }
+    if (closeAt < 0) return;
+    const gt = html.indexOf('>', closeAt);
+    if (gt < 0) return;
+    yield {
+      kind: 'end',
+      name,
+      start: closeAt,
+      end: gt + 1,
+      selfClosing: false,
+      attrsFrom: closeAt + 2 + name.length,
+      attrsTo: gt,
+    };
+    i = gt + 1;
+  }
+}
+
+/**
+ * 開始タグの属性区間から `data-part-id` の値を取り出す。無ければ null。引用符あり・
+ * 引用符なし(`data-part-id=foo`)の双方を拾う — 旧実装(`PART_ID_RE`)は引用符付きしか
+ * 見ておらず、引用符なしのパーツが同期対象から静かに落ちていた。
+ */
+function findPartId(html: string, from: number, to: number): string | null {
+  let i = from;
+  while (i < to) {
+    while (i < to && (isSpace(html[i]) || html[i] === '/')) i++;
+    if (i >= to) return null;
+    const ns = i;
+    while (i < to && !isSpace(html[i]) && html[i] !== '=' && html[i] !== '/') i++;
+    const name = html.slice(ns, i).toLowerCase();
+    while (i < to && isSpace(html[i])) i++;
+    if (html[i] !== '=' || i >= to) {
+      if (name === 'data-part-id') return null; // 値なし属性はパーツ id として扱わない
+      continue;
+    }
+    i++;
+    while (i < to && isSpace(html[i])) i++;
+    const q = html[i];
+    let value: string;
+    if (q === '"' || q === "'") {
+      const e = html.indexOf(q, i + 1);
+      if (e < 0 || e >= to) {
+        value = html.slice(i + 1, to);
+        i = to;
+      } else {
+        value = html.slice(i + 1, e);
+        i = e + 1;
+      }
+    } else {
+      const vs = i;
+      while (i < to && !isSpace(html[i])) i++;
+      value = html.slice(vs, i);
+    }
+    if (name === 'data-part-id') return value;
+  }
+  return null;
 }
 
 /**
  * HTML から `data-part-id` 付き要素の outerHTML 範囲を文書順に抽出する。パーツはページ
  * 直下の兄弟という前提で、パーツ内部に入れ子の `data-part-id` があっても外側に内包する
  * (別パーツとして数えない)。同名タグの入れ子は深さ追跡で正しく閉じ位置を判定する。
+ *
+ * `MAX_SYNC_SCAN_BYTES` 超過は throw する(空配列を返さない理由は同定数の doc を参照)。
  */
 export function extractSyncParts(html: string): SyncPart[] {
+  if (html.length > MAX_SYNC_SCAN_BYTES)
+    throw new Error(
+      `同期対象の HTML が大きすぎます(${html.length} 文字 > 上限 ${MAX_SYNC_SCAN_BYTES})`,
+    );
   const parts: SyncPart[] = [];
   const counts = new Map<string, number>();
   const push = (partId: string, start: number, end: number): void => {
@@ -78,30 +247,27 @@ export function extractSyncParts(html: string): SyncPart[] {
 
   // 走査中のパーツ(open)が閉じるまでは新たなパーツを開始しない。
   let open: { tag: string; partId: string; start: number; depth: number } | null = null;
-  TAG_RE.lastIndex = 0;
-  for (let m = TAG_RE.exec(html); m !== null; m = TAG_RE.exec(html)) {
-    if (m[0].startsWith('<!--')) continue;
-    const tag = (m[1] ?? '').toLowerCase();
-    const isClose = m[0].startsWith('</');
-    const isSelfClose = /\/>$/.test(m[0]) || VOID_TAGS.has(tag);
+  for (const t of tokenizeHtml(html)) {
+    const isClose = t.kind === 'end';
+    const isSelfClose = t.selfClosing || VOID_TAGS.has(t.name);
 
     if (open) {
-      if (isClose && tag === open.tag) {
+      if (isClose && t.name === open.tag) {
         open.depth--;
         if (open.depth === 0) {
-          push(open.partId, open.start, m.index + m[0].length);
+          push(open.partId, open.start, t.end);
           open = null;
         }
-      } else if (!isClose && tag === open.tag && !isSelfClose) {
+      } else if (!isClose && t.name === open.tag && !isSelfClose) {
         open.depth++;
       }
       continue;
     }
     if (isClose) continue;
-    const partId = partIdOf(m[2] ?? '');
+    const partId = findPartId(html, t.attrsFrom, t.attrsTo);
     if (partId === null) continue;
-    if (isSelfClose) push(partId, m.index, m.index + m[0].length);
-    else open = { tag, partId, start: m.index, depth: 1 };
+    if (isSelfClose) push(partId, t.start, t.end);
+    else open = { tag: t.name, partId, start: t.start, depth: 1 };
   }
   return parts;
 }

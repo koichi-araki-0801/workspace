@@ -54,16 +54,26 @@ CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)�
 
 #### DB(SQL Server)入力の決まり
 
-- 入力は単一の SELECT 文。複文(文中 `;`)・非 SELECT(UPDATE/DELETE 等)は拒否する。
+- 入力は 1 本の読み取りクエリ。空文字・文中 `;`・SELECT/WITH 以外で始まる文は
+  `assertLooksLikeSelect` が拒否するが、これは**指定ミスを早く見つけるための形式チェックで、
+  読み取り専用の強制ではない**(`SELECT ... INTO` / `WITH ... DELETE` は形の上では通るし、
+  T-SQL は文の区切りに `;` を要求しない)。**読み取り専用は DB 側で担保する** — 接続に使う
+  Windows アカウントは対象 DB で `db_datareader` だけを持つログインにすること。
 - 列解決は Excel と同思想: `--name-col` / `--value-col` を**両方**指定すれば列名で、無指定なら
   結果セットの**先頭 2 列**を name/value とする(3 列以上で未指定はあいまいエラー)。
 - 接続先は `--db-server`(既定 env `DB_SERVER` / `localhost`)・`--db-name`(既定 env `DB_NAME`)。
   認証は **Windows 統合認証**固定(`Trusted_Connection=yes`)で資格情報は持たない。
   ODBC ドライバは既定 `ODBC Driver 17 for SQL Server`(env `DB_ODBC_DRIVER` で変更可)。
+- 接続文字列に入る値は**許可リストで検証**する: driver は既知ドライバ名の集合、server は
+  `[tcp:]host[\instance][,port]`、database は識別子の文字種、`DB_CONN_EXTRA` は
+  `Encrypt` / `TrustServerCertificate` / `ApplicationIntent` / `MultiSubnetFailover` /
+  `Connection Timeout` / `Login Timeout` のみ(値の形も個別に検査)。ODBC 接続文字列は
+  `;` 区切りの key=value 列なので、無検証だと値の `;` から `FILEDSN=\\host\share\x.dsn` の
+  ようなキーワードを注入されて統合認証のチャレンジレスポンスが外部ホストへ出る。
 - ネイティブドライバ `msnodesqlv8` は `optionalDependencies`。**遅延 require** のため、未導入でも
   他入力(sample/json/xlsx)と `tsc` は動く。DB 入力使用時のみ導入が必要。
-- 接続・SQL 依存は `src/input/db.ts` に隔離(`buildConnectionString` / `assertSelectOnly` /
-  `rowsToItems` / `loadDbItems`)。editor フェーズ2(`editor/server/src/db/pool.ts`)と同パターン。
+- 接続・SQL 依存は `src/input/db.ts` に隔離(`buildConnectionString` / `normalizeConnExtra` /
+  `assertLooksLikeSelect` / `rowsToItems` / `loadDbItems`)。editor フェーズ2(`editor/server/src/db/pool.ts`)と同パターン。
 
 ### exe 配布(Node SEA + 外部参照)
 
@@ -75,50 +85,80 @@ CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)�
 - **`npm run build:exe` / `pnpm run build:exe`(= `node scripts/build-exe.mjs`、開発機向け)**:
   install はせず、既存の `node_modules` でビルドのみ行う。pnpm ワークスペースの依存解決を保つ。
 
-**配布物は `dist-exe/` フォルダ一式**:
+**配布物は 4 点だけ**(フォルダをコピーせず、`pie-chart.exe` 単体でも動く):
 
 ```
 dist-exe/
-├── pie-chart.exe          — Node SEA 実行体(cli を esbuild で単一 CJS 化して inject)
-├── pie-chart-codesign.cer — 自己署名の公開証明書(配布先で信頼登録すると署名が Valid に)
-├── fonts/                 — 埋込元の woff2(BIZ UDPGothic 400/700)
-└── node_modules/          — subset-font + 依存(harfbuzzjs wasm 等)
+├── pie-chart.exe          — Node SEA 実行体(cli + subset-font + wasm + フォントを全同梱)
+├── pie-chart-codesign.cer — 署名の公開証明書(配布先で信頼登録すると署名が Valid に)
+├── OFL-BIZUDPGothic.txt   — 埋込フォントの SIL Open Font License(再配布条件)
+└── SIGNING-INFO.txt       — どの鍵で署名した配布物かの記録(thumbprint / 有効期限)
 ```
 
-- **フォントと subset-font は exe に埋め込まず外部参照する**。これにより subset-font 内の
-  `require.resolve('harfbuzzjs/hb-subset.wasm')` が実行時の Node 解決で効き、**フォントが
-  サブセットされて出力 SVG が小さくなる**(CLI/tsx 版と **byte-identical**)。フォント自体は
-  従来どおり SVG 内へ base64 で subset 埋込されるため WYSIWYG・単体表示は不変。
-- `font.ts` の `seaExeDir` / `getSubsetFont` が SEA 実行時に exe ディレクトリ基準で
-  `fonts/` と `node_modules/subset-font` を解決する(cwd 非依存)。
+- **実行に要るものはすべて exe の中に入れる**。`subset-font` とその JS 閉包は esbuild で
+  バンドルし、`harfbuzzjs/hb-subset.wasm` と `fonts/*.woff2` と OFL 本文は **SEA アセット**
+  として埋め込む。出力 SVG は CLI/tsx 版と **byte-identical**(同一の subset-font + 同一 wasm)。
+- **exe の隣や上位ディレクトリの `fonts/` `node_modules/` は一切見ない**。これは意図的な
+  設計で、外に置いたファイルは署名の外にあり誰でも書き換えられるため、そこから実行時に
+  コードを読む経路を残さない(上位ディレクトリへ偽 `subset-font` を置くだけで、別ユーザーが
+  起動した exe の中でそのコードが走ってしまう)。SEA 実行時は `src/runtime/seaRuntime.ts` が
+  ①builtin 以外のモジュール解決をすべて拒否し、②アセット参照を固定キーの許可リストに限定する。
+- **exe 版は失敗しても黙って続行しない**。フォントが読めない・subset が効かないときに
+  フルフォントへフォールバックすると、配布物が壊れていること自体が見えなくなるため、
+  SEA では例外にして落とす(dev は `out/_baseline` の byte-diff が検知するので従来どおり)。
 - 使い方は CLI と同じ: `pie-chart.exe one --sample asset_gbca_pdf_like --output-file t.svg` など。
-- ビルド依存: `esbuild` / `postject`(devDependencies)。`subset-font` 依存ツリーは build 時に
-  npm で `dist-exe/node_modules` へ隔離 install する(版は dev と一致させる)。**オフライン配布時は
-  これらをバンドルへ含める**([[offline-bundle-distribution]])。
-- DB 入力(`--sql`)はネイティブ `msnodesqlv8` を要するため exe には含めない。利用時は
-  `dist-exe/node_modules` へ `msnodesqlv8` を追加する(描画・Excel 入力は追加不要で動く)。
+  `pie-chart.exe license` で埋込フォントの OFL 本文を表示できる。
+- ビルド依存は `esbuild` / `postject`(devDependencies)のみ。ビルド中に `npm install` は
+  走らないので、**完全オフラインで exe を作れる**。
+- **DB 入力(`--sql`)は exe 版では非対応**。ネイティブ `msnodesqlv8` はバンドルできず、
+  exe の隣へ後から置く運用は上記の「署名の外のコードを読む」経路そのものになるため。
+  DB 入力が要る場合は開発版(Node + `npm run cli`)を使う。
+- ビルドは前提が崩れたら **落ちる**(黙って劣化させない): ①Node < 20.12(SEA アセット非対応)
+  ②`scripts/sidecar-pins.json` の `subset-font` 版・wasm SHA256 が実解決値と不一致
+  ③バンドル内の `require.resolve('harfbuzzjs/hb-subset.wasm')` が 1 箇所でない。
+  ②が出たら依存を上げた合図なので、`npm run batch` → `npm run batch:diff` と
+  `test/render_hash.test.ts` で埋込フォントのバイトが変わっていないかを必ず確認する。
 
-#### コード署名(自己署名)
+#### コード署名
 
-ビルド時(Windows)に `scripts/sign-exe.ps1` が exe を **自己署名(self-signed)** で SHA256 署名する。
+ビルド時(Windows)に `scripts/sign-exe.ps1` が exe を SHA256 署名する。
 
-- 専用の自己署名コード署名証明書を `CurrentUser\My` に作成(無ければ)し、`Set-AuthenticodeSignature`
-  で署名する。Windows SDK(signtool)不要・管理者権限不要。署名前に node.exe 由来の既存
-  Authenticode 署名を `build-exe.mjs` の `stripPeSignature` で除去する(postject が壊した署名が
-  残ると署名 API が「有効な Win32 アプリではない」で失敗するため)。
-- これにより exe の「デジタル署名」タブに発行元が表示され、改ざん検知が効く。ただし**自己署名の
-  ルートは未信頼**なので、配布先で公開証明書を信頼登録するまで署名状態は「未信頼」、SmartScreen も
-  警告し得る。署名そのものは付与済み。
-- 配布先で信頼させる(SmartScreen を抑止する)には、同梱の `pie-chart-codesign.cer` を
-  **信頼されたルート証明機関**と**信頼された発行元**へ取り込む(**管理者権限が必要**):
+- **署名の役割は「発行元の表示」と「AppLocker / WDAC の発行者ルール」**であって、配布物の
+  完全性検証ではない。完全性は上記の全同梱(実行されるものが 100% 署名の内側)で担保する。
+- **署名鍵はビルドが勝手に作らない**。`scripts/new-signing-cert.bat` を **1 回だけ**実行して
+  作り、表示された thumbprint を `scripts/signing.local.json`(git 管理外)へ書くか、環境変数
+  `PIECHART_SIGN_THUMBPRINT` に設定する。以前は「無ければ作る」実装だったため、ビルドした
+  端末の数だけ同名の別ルート証明書ができ、「どの `.cer` を配ったか」が追跡不能になっていた。
+- **署名に失敗したらビルドも失敗する**(未署名の配布物が黙って出来ないように)。意図的に
+  未署名で作るときだけ `node scripts/build-exe.mjs --allow-unsigned` を使う。
+- 鍵は `NonExportable`(持ち出し不可)・有効期間 **1 年**・TPM 保管が既定。タイムスタンプを
+  付けない構成では**期限切れ = 既配布 exe の署名も無効**になるので、期限の 1 か月前に
+  再発行・再署名・再配布する。オンラインの署名端末なら `signing.local.json` の
+  `timestampServer` に RFC3161 サーバを書けばタイムスタンプを付けられる。
+- **社内 PKI(AD CS)があるならそちらから発行すること。** 企業ルートの下で発行できれば
+  配布先での Root 追加登録が不要になり、「1 台の PC が持つ鍵が全端末の信頼アンカーになる」
+  構造そのものが消える。自己署名を Root へ入れる手順は最終手段で、鍵の保護と撤去手順
+  (旧鍵の棚卸し → 配布物の入れ替え → 配布先ストアから削除 → 必要なら Disallowed 登録 →
+  ビルド端末で `Remove-Item Cert:\CurrentUser\My\<旧thumbprint> -DeleteKey`)とセットで運用する。
+- 配布先で署名を Valid にする(SmartScreen を抑止する)には、同梱の `pie-chart-codesign.cer` を
+  信頼ストアへ取り込む(**管理者権限が必要**):
 
   ```bat
-  certutil -addstore Root pie-chart-codesign.cer
   certutil -addstore TrustedPublisher pie-chart-codesign.cer
+  rem 自己署名の場合のみ、加えてルートとしての登録が要る(社内 PKI 発行なら不要)
+  certutil -addstore Root pie-chart-codesign.cer
   ```
 
-  GPO で配布すれば社内一括展開も可能。正式な配布で警告を完全に無くすには公的 CA のコード署名
-  証明書(EV/OV)が必要だが、社内配布では本自己署名 + 証明書配布で十分なことが多い。
+- 署名前に node.exe 由来の既存 Authenticode 署名を `build-exe.mjs` の `stripPeSignature` で
+  除去する(postject が壊した署名が残ると署名 API が「有効な Win32 アプリではない」で失敗する)。
+
+#### 配布前チェック(必須)
+
+`scripts/verify-dist.bat` を通してから配る。次の 3 点を機械検査し、1 つでも欠ければ非ゼロ終了する。
+
+1. `dist-exe/` の中身が上記 4 点のみであること(= **sidecar が復活していない**ことの検査)
+2. exe の署名者 thumbprint が期待値と一致すること
+3. exe を空ディレクトリへ 1 個だけコピーして描画した SVG が、開発版(tsx)の出力と byte 一致すること
 
 ### 全件生成 + ビューア
 
@@ -161,13 +201,19 @@ pie-chart/
 │   │   ├── post_layout.ts      — overlap 解消 / compactify cascade /
 │   │   │                         半角カナ fallback / 視覚 viewBox nudge
 │   │   └── font.ts             — TTF → WOFF2 サブセット埋込 (async I/O + キャッシュ)
+│   ├── runtime/                — SEA(単一 exe)実行時のガード
+│   │   ├── seaRuntime.ts       — アセット許可リスト + builtin 以外のモジュール解決封鎖
+│   │   └── subsetFontFs.ts     — subset-font へだけ差し込む fs shim (wasm を SEA アセットへ)
+│   ├── types/
+│   │   └── subset-font.d.ts    — subset-font の型宣言 (公式の型が無いため)
 │   ├── verify/
 │   │   ├── svg.ts              — 自動検証 (独立オラクル)
 │   │   ├── consistency.ts      — 採点判断 ↔ emit SVG の一致検証
 │   │   └── verify/oracle_sync.ts      — オラクル複製定数の drift ガード
 │   ├── cli.ts                  — CLI (list / one / batch)
 │   └── test_batch.ts           — 83 件一括生成 + compare.html
-└── scripts/                    — build-exe.mjs / sign-exe.ps1 / gen_glyph_advance.ts
+└── scripts/                    — build-exe.mjs / sign-exe.ps1 / new-signing-cert.ps1 /
+                                verify-dist.ps1 / sidecar-pins.json / gen_glyph_advance.ts
 ```
 
 ## アーキテクチャ
@@ -289,6 +335,10 @@ SVG 出力は**完全に決定的**なので、リファクタ・コメント変
   render_hash（サンプル外合成入力の SVG ハッシュ）/ seam_snapshot（revert 完全性 +
   `PLACEMENT_SEAM_POLICY` 網羅表）/ emit_passes（emit/scoring パス列固定）。
   スナップショット更新（`-u`）は挙動変更を意図した時のみ許される。
+- **配布 exe の閉包検査**（`test/sea_packaging.test.ts`）: 既定 **skip**。exe を作ってから
+  `PIECHART_SEA_TEST=1 npx vitest run test/sea_packaging.test.ts` で有効化する。exe の隣・
+  上位ディレクトリに偽 `node_modules/subset-font` と偽 `fonts/` を置いてなお、出力が開発版と
+  byte 一致し偽モジュールが実行されないことを見る。配布前は `scripts/verify-dist.bat` も通す。
 - **デバッグ**: `PIE_CHART_DEBUG_REPAIR=1` で emit 修復パス単位の RepairVec 差分ログ、
   `PIE_CHART_STOP_AFTER_PASS=<name>` で犯人パスの二分探索（`EMIT_REPAIR_PASSES` の name を指定）。
 - **do-no-harm の採否述語（better / swapBetter 等）はパス仕様そのもの** — ヘルパーへ焼き込まず、

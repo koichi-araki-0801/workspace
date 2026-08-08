@@ -91,4 +91,121 @@ d('gitRepo', () => {
     const after = await git.commitFiles('HEAD');
     expect(after).toEqual(before);
   });
+
+  // ── 編集履歴の 1 パス取得(F6)──
+  // 旧実装は `git log`(件数上限なし)でコミット一覧を取り、各コミットへ `git show` を
+  // 投げていた。`Array#map` の async コールバックは最初の await まで同期に走るので、
+  // 全コミットぶんの子プロセス(各 maxBuffer 64MB)が同一 tick で spawn された。
+  // 承認のたびコミットが増えるので、この経路は時間とともに悪化する。
+  it('logAllWithFiles は変更ファイルを同じ log から返す(コミット毎の git show が不要)', async () => {
+    const rel = 'templates/AM01_999999_20250104_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>1 パス取得</p>', 'utf8');
+    await git.commitAll('確定保存: 1 パス取得', { name: 'tester' });
+
+    const rows = await git.logAllWithFiles('templates');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0].hash).toMatch(/^[0-9a-f]{40}$/);
+    expect(rows[0].author).toBe('tester');
+    expect(rows[0].files).toContain(rel);
+    // `git show --name-only` と同じ集合が得られる(置き換えとして等価)。
+    expect(rows[0].files).toEqual(await git.commitFiles(rows[0].hash));
+  });
+
+  it('logAllWithFiles は件数上限で打ち切る(履歴が伸びても 1 リクエストが重くならない)', async () => {
+    const rows = await git.logAllWithFiles('templates', 1);
+    expect(rows).toHaveLength(1);
+    // 上限は正典の `MAX_LOG_COMMITS` を超えて広げられない。
+    const all = await git.logAllWithFiles('templates', 10_000);
+    expect(all.length).toBeLessThanOrEqual(git.MAX_LOG_COMMITS);
+  });
+
+  // ── 承認コミットの巻き込み(F38)──
+  // `git add -A`(作業ツリー全体)は、承認を経ていない `notes/` を承認者の identity と
+  // 承認メッセージでコミットしていた。staging は許可リストで書く。
+  it('commitAll は notes/ を巻き込まない(.gitignore にも載る)', async () => {
+    fs.mkdirSync(path.join(tmp, 'notes'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'notes', 'x.json'), '{"leak":true}', 'utf8');
+    const rel = 'templates/AM01_999999_20250105_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>notes 除外</p>', 'utf8');
+
+    const hash = await git.commitAll('確定保存: notes 除外', { name: 'tester' });
+    const files = await git.commitFiles(hash);
+    expect(files).toContain(rel);
+    expect(files.some((f) => f.startsWith('notes/'))).toBe(false);
+
+    expect(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8')).toContain('/notes/');
+  });
+
+  it('commitAll は許可リスト外のディレクトリを追跡下へ入れない', async () => {
+    fs.mkdirSync(path.join(tmp, 'scratch'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'scratch', 'a.txt'), 'x', 'utf8');
+    const rel = 'templates/AM01_999999_20250106_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>許可リスト</p>', 'utf8');
+
+    const hash = await git.commitAll('確定保存: 許可リスト', { name: 'tester' });
+    const files = await git.commitFiles(hash);
+    expect(files).toEqual([rel]);
+  });
+
+  it('showFile still resolves a valid hash:path after the option guard', async () => {
+    const rel = 'templates/AM01_999999_20250103_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>guard 正常系</p>', 'utf8');
+    const hash = await git.commitAll('確定保存: guard 正常系', { name: 'tester' });
+    expect(await git.showFile(hash, rel)).toContain('guard 正常系');
+    // 短縮 hash(7 桁)も検証を通り、同じ内容を返す。
+    expect(await git.showFile(hash.slice(0, 7), rel)).toContain('guard 正常系');
+    expect(await git.commitDate(hash)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
+// ── 引数注入ガード(git 不要: 検証は git を起動する前に効く) ──
+// `execFile` 直叩きなのでシェル注入は起きないが、`-` 始まりの値は git がオプションとして
+// 読む。`git show --output=<file>` は任意ファイルを作成/切り詰められるため、リビジョン/
+// パス位置に来たユーザー入力が git へ届かないことを固定する(F30 の回帰)。
+describe('gitRepo argument guards', () => {
+  let git: typeof import('../src/git/gitRepo.js');
+  const hash = 'a'.repeat(40);
+
+  beforeAll(async () => {
+    git = await import('../src/git/gitRepo.js');
+  });
+
+  it('rejects an --output= revision without creating the target file', async () => {
+    const victim = path.join(tmp, 'pwned.html');
+    await expect(git.commitFiles(`--output=${victim}`)).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    expect(fs.existsSync(victim)).toBe(false);
+  });
+
+  it('rejects option-shaped revisions in commitDate / showFile', async () => {
+    await expect(git.commitDate('--format=%H')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(git.showFile('-deadbeef', 'templates/a.html')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    // 記号リビジョン(`HEAD~1` 等)もオブジェクトID ではないので通さない。
+    await expect(git.commitDate('HEAD~1')).rejects.toMatchObject({ kind: 'validation' });
+  });
+
+  it('rejects escaping or pathspec-magic paths', async () => {
+    await expect(git.showFile(hash, '../../etc/passwd')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    await expect(git.showFile(hash, ':(exclude)templates')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    await expect(git.logForFile('-Ppwn')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(git.logForFile('templates/../../x')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    await expect(git.logAllWithFiles('')).rejects.toMatchObject({ kind: 'validation' });
+  });
+
+  it('keeps normal repo-relative paths (including Japanese names) valid', async () => {
+    // 検証はリポジトリ未初期化でも先に効くため、正常な pathspec は空配列で返る。
+    await expect(git.logForFile('templates/AM01_510037_20240710_交付版.html')).resolves.toEqual(
+      expect.any(Array),
+    );
+    await expect(git.logAllWithFiles('templates')).resolves.toEqual(expect.any(Array));
+  });
 });

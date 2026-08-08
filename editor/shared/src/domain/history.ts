@@ -3,6 +3,18 @@
 // =============================================================================
 // サーバ側でも再利用できるよう Vue にも I/O にも依存しない。
 
+// ── git オブジェクトID の形 ──
+// 履歴 API の `historyId` は git のコミット hash そのもので、server では `git show` の
+// リビジョン引数になる。`-` で始まる値は git がオプションとして解釈するため
+// (`--output=<file>` でリポジトリ外のファイルを作成/切り詰められる)、git へ渡す前に
+// この形で弾く。短縮 hash も外部連携や手入力で来うるので 7 桁から許す。
+const GIT_OBJECT_ID_RE = /^[0-9a-f]{7,40}$/;
+
+/** `value` が git のオブジェクトID(小文字 16 進 7〜40 桁)の形か。 */
+export function isGitObjectId(value: string): boolean {
+  return GIT_OBJECT_ID_RE.test(value);
+}
+
 /** タブ別の履歴フィルタ値。 */
 export interface HistoryFilter {
   user?: string;

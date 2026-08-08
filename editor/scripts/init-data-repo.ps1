@@ -6,11 +6,13 @@
   確定保存したテンプレ(templates) とファンド別 CSS(css) を git で版管理するため、
   ワークスペースリポジトリの外に置く data リポジトリを作る(ネスト git の回避)。
   処理内容:
-    1. dataRoot 配下に templates/ css/ drafts/ を作成する。
+    1. dataRoot 配下に templates/ css/ drafts/ pending/ を作成する。
     2. 既存 editor/data/{templates,css} があれば dataRoot へコピーする(初回移行)。
     3. dataRoot が未初期化なら git init + .gitignore/.gitattributes + 初回コミット。
   サーバは環境変数 DATA_ROOT(または appconfig.json の paths.dataRoot)でこの場所を
-  参照する。drafts/ と一時ファイルは追跡しない(.gitignore)。改行は LF 固定
+  参照する。drafts/ pending/ と一時ファイルは追跡しない(.gitignore)。pending/ を
+  追跡しないのは整理ではなく防御の一部で、承認コミット(git add -A)に未承認の生成物が
+  混ざると「確定領域へは承認経路からしか書けない」不変則が崩れるため。改行は LF 固定
   (.gitattributes)で Windows でも byte が揺れないようにする。
 
 .PARAMETER DataRoot
@@ -43,7 +45,7 @@ Write-Host "dataRoot: $DataRoot"
 
 # 1. ディレクトリ構成を用意する。
 New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
-foreach ($d in 'templates', 'css', 'drafts') {
+foreach ($d in 'templates', 'css', 'drafts', 'pending') {
   New-Item -ItemType Directory -Force -Path (Join-Path $DataRoot $d) | Out-Null
 }
 
@@ -64,7 +66,7 @@ Push-Location $DataRoot
 try {
   if (-not (Test-Path (Join-Path $DataRoot '.git'))) {
     git init | Out-Null
-    Set-Content -Path '.gitignore' -Value "/drafts/`n*.tmp-*" -Encoding utf8
+    Set-Content -Path '.gitignore' -Value "/drafts/`n/reviews/`n/pending/`n*.tmp-*" -Encoding utf8
     Set-Content -Path '.gitattributes' -Value "* text=lf" -Encoding utf8
     git add -A | Out-Null
     git -c user.name=system -c user.email=system@editor.local commit -m '初期化: テンプレ版管理リポジトリ' | Out-Null

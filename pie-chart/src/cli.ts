@@ -11,6 +11,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   resolveInputData,
@@ -18,8 +19,10 @@ import {
   samples,
   type ResolveAsyncOpts,
 } from './input/load.js';
+import { installSeaGuards, isSea, readSeaAsset } from './runtime/seaRuntime.js';
 import { renderPdfStylePieToSvg } from './svg_export/pipeline.js';
 import type { PieLayoutConfig } from './types.js';
+import { assertFontWeight } from './svg_export/values.js';
 
 interface ParsedArgs {
   command: string | undefined;
@@ -52,7 +55,10 @@ function parseArgs(argv: string[]): ParsedArgs {
 function buildRenderOverrides(options: Record<string, string | boolean>): Partial<PieLayoutConfig> {
   const overrides: Partial<PieLayoutConfig> = {};
   const fw = options['font-weight'];
-  if (typeof fw === 'string') overrides.fontWeight = fw;
+  // 隣の `--stroke-ratio` が形式を検査しているのに、ここだけ `typeof` で素通ししていた。
+  // 入口と出口(`assertConfigValues`)の両方で検証する — 入口だけだと別の入口が生えたときに
+  // 漏れ、出口だけだとエラーが「SVG を書く瞬間」に出て原因が遠い。
+  if (typeof fw === 'string') overrides.fontWeight = assertFontWeight('--font-weight', fw);
   const sr = options['stroke-ratio'];
   if (typeof sr === 'string') {
     const ratio = Number(sr);
@@ -184,7 +190,25 @@ function listSamples(): void {
   Object.keys(samples).forEach((name) => console.log(name));
 }
 
+/**
+ * 埋め込みフォント(BIZ UDPGothic)の OFL 本文を出す。exe には woff2 を埋め込むので、
+ * 配布物が exe 単体だけになっても再配布条件を満たせる経路をコードに持たせておく。
+ * SEA では埋込アセットから、dev ではリポジトリの `fonts/` から読む。
+ */
+function printFontLicense(): void {
+  if (isSea()) {
+    console.log(readSeaAsset('OFL-BIZUDPGothic.txt').toString('utf8'));
+    return;
+  }
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  console.log(fs.readFileSync(path.resolve(here, '..', 'fonts', 'OFL-BIZUDPGothic.txt'), 'utf8'));
+}
+
 async function main(): Promise<void> {
+  // SEA(単一 exe)実行時の外部モジュール解決を封鎖する。引数パースより前に張ることで、
+  // どの経路を通っても exe 隣・上位ディレクトリの `node_modules` を見に行かせない
+  // (`runtime/seaRuntime.ts`)。dev では no-op。
+  installSeaGuards();
   const { command, options } = parseArgs(process.argv.slice(2));
   if (!command || command === 'help' || command === '--help') {
     console.log(
@@ -197,9 +221,11 @@ async function main(): Promise<void> {
         '  npm run cli -- one --sql "SELECT name, value FROM dbo.t" --db-name usrap --output-file out/test.svg',
         '  npm run cli -- batch --output-dir out/svg',
         '  npm run cli -- batch --input-dir data --output-dir out/svg',
+        '  npm run cli -- license',
         '',
         'DB (SQL Server) input (one):',
-        '  --sql "<SELECT ...>"     単一 SELECT 文。Windows 統合認証で接続',
+        '  --sql "<SELECT ...>"     読み取りクエリ。Windows 統合認証で接続',
+        '                           (読み取り専用は接続アカウントの権限で担保すること)',
         '  --db-server <host>       接続先サーバ (既定 env DB_SERVER / localhost)',
         '  --db-name <database>     データベース名 (既定 env DB_NAME)',
         '  --name-col / --value-col 列名で name/value を指定 (無指定なら先頭 2 列)',
@@ -214,6 +240,10 @@ async function main(): Promise<void> {
 
   if (command === 'list') {
     listSamples();
+    return;
+  }
+  if (command === 'license') {
+    printFontLicense();
     return;
   }
   if (command === 'one') {

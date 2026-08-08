@@ -9,6 +9,45 @@ import type { Editor } from 'grapesjs';
 import { DATA_JINJA_OPEN } from '@/lib/jinjaAttrs';
 
 /**
+ * canvas で通用する `data-gjs-type` の全集合。**`addType` する型と、canvas 入口の
+ * 刈り取り(`pruneCanvasActiveContent`)が通す型を同一の配列由来にする**ための正典で、
+ * 型を足したときに片方だけ更新される事故を構造的に消す。
+ *
+ * `data-gjs-type` は GrapesJS の prop チャネルの一員だが、これだけは通す必要がある —
+ * Jinja chip の型指定そのものであり、落とすと chip が汎用 component へ落ちて
+ * `editable:false` が効かず、RTE が `data-jinja` 付き span を分解して `toTemplate` の
+ * 復元が壊れる(= 編集 2 系統の round-trip が壊れる)。
+ */
+export const JINJA_COMPONENT_TYPES = [
+  'jinja-var',
+  'jinja-stmt',
+  'jinja-comment',
+  'jinja-script',
+  'jinja-math',
+] as const;
+
+export type JinjaComponentType = (typeof JINJA_COMPONENT_TYPES)[number];
+
+/** `pruneCanvasActiveContent` の `allowedGjsTypes` へ渡す照合用 Set。 */
+export const JINJA_COMPONENT_TYPE_SET: ReadonlySet<string> = new Set(JINJA_COMPONENT_TYPES);
+
+/** 型ごとの表示名と操作可否。`common` と合成して `addType` へ渡す。 */
+const JINJA_TYPE_DEFAULTS: Record<
+  JinjaComponentType,
+  { name: string; draggable: boolean; removable: boolean; copyable?: boolean }
+> = {
+  'jinja-var': { name: '差し込み（値）', draggable: true, removable: true },
+  'jinja-stmt': { name: '条件・繰り返し', draggable: false, removable: false, copyable: false },
+  'jinja-comment': { name: 'メモ', draggable: true, removable: true },
+  // mask した opaque content(`fillJinja` の `maskOpaque` が生成)。他の jinja chip と
+  // 同様 locked にして GrapesJS に逐語保存させる。source は data-opaque にあり、保存時に
+  // `jinjaMask` の `toTemplate` が復元する。
+  // jinja-script: <script>。jinja-math: MathJax(TeX)と MathML の <math>。
+  'jinja-script': { name: 'スクリプト', draggable: true, removable: true, copyable: false },
+  'jinja-math': { name: '数式', draggable: true, removable: true, copyable: false },
+};
+
+/**
  * locked な Jinja chip の `Component` type 群を登録する。chip は `toEditable` が
  * `<span data-gjs-type="jinja-var|stmt|comment" data-jinja="…">` として生成する。
  * GrapesJS は `data-gjs-type` から type を自動割当する。ここでは非編集にし、
@@ -26,56 +65,8 @@ export function registerJinjaComponents(editor: Editor): void {
     attributes: {},
   };
 
-  dc.addType('jinja-var', {
-    model: {
-      defaults: {
-        ...common,
-        name: '差し込み（値）',
-        draggable: true,
-        removable: true,
-      },
-    },
-  });
-
-  dc.addType('jinja-stmt', {
-    model: {
-      defaults: {
-        ...common,
-        name: '条件・繰り返し',
-        draggable: false,
-        removable: false,
-        copyable: false,
-      },
-    },
-  });
-
-  dc.addType('jinja-comment', {
-    model: {
-      defaults: {
-        ...common,
-        name: 'メモ',
-        draggable: true,
-        removable: true,
-      },
-    },
-  });
-
-  // mask した opaque content(`fillJinja` の `maskOpaque` が生成)。他の jinja chip と
-  // 同様 locked にして GrapesJS に逐語保存させる。source は data-opaque にあり、保存時に
-  // `jinjaMask` の `toTemplate` が復元する。
-  // jinja-script: <script>。jinja-math: MathJax(TeX)と MathML の <math>。
-  for (const type of ['jinja-script', 'jinja-math'] as const) {
-    dc.addType(type, {
-      model: {
-        defaults: {
-          ...common,
-          name: type === 'jinja-math' ? '数式' : 'スクリプト',
-          draggable: true,
-          removable: true,
-          copyable: false,
-        },
-      },
-    });
+  for (const type of JINJA_COMPONENT_TYPES) {
+    dc.addType(type, { model: { defaults: { ...common, ...JINJA_TYPE_DEFAULTS[type] } } });
   }
 }
 

@@ -62,12 +62,12 @@ class LabelState {
 
   snapshot() {
     const snap = {};
-    for (const [k, copy] of Object.entries(STATE_FIELDS)) snap[k] = copy(this[k]);
+    for (const [k, f] of Object.entries(STATE_FIELDS)) snap[k] = f.copy(this[k]);
     return snap;
   }
 
   apply(snap) {
-    for (const [k, copy] of Object.entries(STATE_FIELDS)) this[k] = copy(snap[k]);
+    for (const [k, f] of Object.entries(STATE_FIELDS)) this[k] = f.copy(snap[k]);
   }
 
   /** ヒット矩形を text と同じ transform へ追従させる */

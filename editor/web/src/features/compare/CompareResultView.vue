@@ -220,14 +220,17 @@ const afterSel = selModel('after');
 // (挿入=緑下線 / 削除=赤下線。打消線は使わず色で挿入・削除を分ける)。語句級は要素級と
 // 入れ子になっても潰れないよう前景寄りの強調にしている。
 const HIGHLIGHT_CSS = diffHighlightCss(18);
+
+// `iframe` を中身の高さに合わせる(承認プレビューと共有)。高さは子からの postMessage で
+// 受け取る — `sandbox="allow-scripts"`(same-origin なし)では親から `contentDocument` を
+// 読めないためで、読めないことがテンプレ JS を隔離したまま動かすための条件である。
+const { fitFrame, withHeightReporter } = useIframeAutoFit();
+
 const buildDoc = (fragment: string, css: string): string =>
-  buildDiffDoc(fragment, css, HIGHLIGHT_CSS);
+  withHeightReporter(buildDiffDoc(fragment, css, HIGHLIGHT_CSS));
 
 const beforeDoc = computed(() => buildDoc(page.value?.beforeHtml ?? '', props.cssBefore));
 const afterDoc = computed(() => buildDoc(page.value?.afterHtml ?? '', props.cssAfter));
-
-// `iframe` を中身の高さに合わせ、幅変化にも追随させる(承認プレビューと共有)。
-const { fitFrame } = useIframeAutoFit();
 </script>
 
 <template>
@@ -400,6 +403,15 @@ const { fitFrame } = useIframeAutoFit();
         <span v-else class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
           変更なし
         </span>
+        <!-- 語句単位 LCS を面積上限(`MAX_LCS_CELLS`)で打ち切ったページ。差分自体は出るが
+             変更前後の全文が塊で着色されるため、粒度が違うことだけ控えめに伝える。 -->
+        <span
+          v-if="page.coarse"
+          class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+          title="テキストが大きいため語句単位の着色を省略し、変更前後の全文を色分けしています。"
+        >
+          この箇所は差分が大きいため簡易表示です
+        </span>
       </div>
 
       <div class="grid gap-3 md:grid-cols-2">
@@ -408,8 +420,14 @@ const { fitFrame } = useIframeAutoFit();
             比較元・{{ beforeFile }}・{{ formatDateTimeShort(before.timestamp) }}・{{ before.user }}
           </figcaption>
           <div class="overflow-hidden rounded border bg-white">
+            <!-- sandbox は必須。srcdoc の中身は他ユーザが書いたテンプレ HTML/CSS である。
+                 テンプレの JS は正当なコンテンツなので**動かす**(比較で「JS が効いていない
+                 見た目」を突き合わせても意味が無い)。よって `allow-scripts` を許し、
+                 `allow-same-origin` は**付けない** — 両方を同時に付けると子は親オリジンの
+                 DOM へ到達でき sandbox が無効化される。高さは子からの postMessage で受ける。 -->
             <iframe
               :srcdoc="beforeDoc"
+              sandbox="allow-scripts"
               title="比較元"
               class="block w-full"
               style="height: 600px; border: 0"
@@ -422,8 +440,10 @@ const { fitFrame } = useIframeAutoFit();
             比較先・{{ afterFile }}・{{ formatDateTimeShort(after.timestamp) }}・{{ after.user }}
           </figcaption>
           <div class="overflow-hidden rounded border bg-white">
+            <!-- sandbox の意図は「比較元」ペインと同じ(上のコメントを見よ)。 -->
             <iframe
               :srcdoc="afterDoc"
+              sandbox="allow-scripts"
               title="比較先"
               class="block w-full"
               style="height: 600px; border: 0"

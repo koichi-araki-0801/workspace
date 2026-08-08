@@ -36,7 +36,9 @@ const candidates = computed(() => {
 async function search(q: DropdownQuery) {
   const result = await run(() => repo.listTemplates(q));
   if (isErr(result)) return;
-  rows.value = result.value;
+  // 結合 PDF は確定済みだけを綴じる。`listTemplates` は編集タブが生成直後のテンプレへ
+  // 到達できるよう pending(`status:'draft'`)も返すので、絞り込みは呼び出し側で行う。
+  rows.value = result.value.filter((m) => m.status === 'published');
   searched.value = true;
 }
 

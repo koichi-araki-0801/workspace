@@ -47,9 +47,11 @@ import { initRail, buildRail } from "./rail.js";
   }
 
   async function uploadPdf(name, buf) {
+    // セッショントークンは `rpc.js` の `__authHeaders` が載せる (`/upload` も非安全メソッド
+    // なのでサーバが要求する)。
     var res = await fetch("/upload?name=" + encodeURIComponent(name), {
       method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
+      headers: window.__authHeaders({ "Content-Type": "application/octet-stream" }),
       body: buf,
     });
     var j = await res.json();
@@ -105,7 +107,17 @@ import { initRail, buildRail } from "./rail.js";
   }
 
   // ── 4. 読み込み ──
-  async function reloadState() { applyState(await rpc("state")); }
+  // 要素数の上限で切り捨てたページ数。同じ状態で何度も通知しないよう直前値を覚える。
+  var truncatedNoticed = 0;
+  async function reloadState() {
+    var st = await rpc("state");
+    applyState(st);
+    // 上限に当たったページは要素が欠ける。黙って欠落させず、その事実を必ず伝える。
+    if (st.truncated && st.truncated !== truncatedNoticed) {
+      toast(st.truncated + " ページが要素数の上限を超えたため、一部の要素を読み飛ばしました");
+    }
+    truncatedNoticed = st.truncated || 0;
+  }
 
   // File 配列を順にアップロードして状態を更新する (クリック選択・D&D 共用)。
   async function addFiles(files) {
@@ -400,8 +412,17 @@ import { initRail, buildRail } from "./rail.js";
   // (joined) として送り、一括適用の連結照合の対象を決める。#dict-src を手編集
   // したら連結由来は外す (連結文字列でなくなるため)。
   var pendingJoined = false;
+  // 辞書ファイルの読み込み異常を通知したかの記憶。起動後 1 度だけ出す
+  // (`loadDict` は辞書ペインを開くたびに走るので、毎回出すと邪魔になる)。
+  var dictLoadNoticeShown = false;
   async function loadDict() {
     dictState = await rpc("dictList");
+    // 壊れた要素は黙って消さない: 起動時に捨てた件数・読めなかった事実を利用者へ返す。
+    if (!dictLoadNoticeShown) {
+      dictLoadNoticeShown = true;
+      if (dictState.loadFailed) toast("辞書ファイルを読み込めませんでした。空の辞書で開始します");
+      else if (dictState.loadSkipped) toast("辞書ファイルの " + dictState.loadSkipped + " 件を読み飛ばしました（形式が不正）");
+    }
     renderDict();
   }
   function renderDict() {
@@ -657,7 +678,13 @@ import { initRail, buildRail } from "./rail.js";
     document.getElementById("dict-add").addEventListener("click", async function () {
       var src = document.getElementById("dict-src"); var tgt = document.getElementById("dict-tgt");
       if (!src.value.trim()) return;
-      dictState = await rpc("dictAdd", { source: src.value, target: tgt.value, joined: pendingJoined });
+      try {
+        dictState = await rpc("dictAdd", { source: src.value, target: tgt.value, joined: pendingJoined });
+      } catch (e) {
+        // 件数上限に達した等。握り潰すと「押しても増えない」になるので理由を出す。
+        toast(String((e && e.message) || "用語を追加できませんでした"));
+        return;
+      }
       pendingJoined = false;
       src.value = ""; tgt.value = ""; renderDict();
     });
@@ -698,9 +725,20 @@ import { initRail, buildRail } from "./rail.js";
       var f = await pickOneFile("JSON", "application/json", ".json");
       if (!f) return;
       var text = await f.text();
-      var r = await rpc("dictImportJson", { json: text });
+      var r;
+      try {
+        r = await rpc("dictImportJson", { json: text });
+      } catch (e) {
+        // 件数上限超過・読み込み失敗はサーバが理由付きで拒否する。握り潰すと
+        // 「押しても何も起きない」になるので、必ず理由を出す。
+        toast(String((e && e.message) || "辞書を読み込めませんでした"));
+        return;
+      }
       dictState = r; renderDict();
-      setHint("辞書を読み込みました（" + (r.imported || 0) + " 件）");
+      // 捨てた件数も必ず出す (取り込み件数だけ見せると、壊れた要素が黙って消える)。
+      var msg = "辞書を読み込みました（" + (r.imported || 0) + " 件";
+      if (r.skipped) msg += "、" + r.skipped + " 件は形式が不正のため読み飛ばし";
+      setHint(msg + "）");
     });
   }
 
@@ -793,13 +831,16 @@ import { initRail, buildRail } from "./rail.js";
   function startLifecycle() {
     // 生存ハートビート: last_seen を定期更新し、開いている間は watchdog に殺させない。
     setInterval(function () {
-      fetch("/ping", { method: "POST", keepalive: true }).catch(function () {});
+      fetch("/ping", {
+        method: "POST", keepalive: true, headers: window.__authHeaders(),
+      }).catch(function () {});
     }, 10000);
     // 窓を閉じる時の終了ビーコン。beforeunload ではなく pagehide + sendBeacon が確実。
     // 最小化でも hidden になる visibilitychange は使わない (最小化でサーバを殺さないため)。
     // ビーコン不達でもハートビート途絶 watchdog がバックストップになる。
+    // `sendBeacon` はヘッダを付けられないため、トークンだけはクエリで送る (`__authUrl`)。
     window.addEventListener("pagehide", function () {
-      try { navigator.sendBeacon("/quit"); } catch (e) {}
+      try { navigator.sendBeacon(window.__authUrl("/quit")); } catch (e) {}
     });
   }
 

@@ -13,7 +13,12 @@ interface AuthService {
   login(username: string, password: string): Promise<Result<LoginResult>>;
   logout(): Promise<Result<void>>;
   me(): Promise<Result<User | null>>;
-  initPassword(username: string, newPassword: string): Promise<Result<void>>;
+  /** 自分自身のパスワード変更。`currentPassword` は所有証明で、サーバも必ず検証する。 */
+  initPassword(
+    username: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<Result<void>>;
 }
 
 function createAuthService(repo: AuthRepository): AuthService {
@@ -21,7 +26,8 @@ function createAuthService(repo: AuthRepository): AuthService {
     login: (username, password) => repo.login({ username, password }),
     logout: () => repo.logout(),
     me: () => repo.me(),
-    initPassword: (username, newPassword) => repo.initPassword({ username, newPassword }),
+    initPassword: (username, currentPassword, newPassword) =>
+      repo.initPassword({ username, currentPassword, newPassword }),
   };
 }
 

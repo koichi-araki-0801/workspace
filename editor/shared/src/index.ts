@@ -48,6 +48,15 @@ export type LoginResult = z.infer<typeof sch.LoginResult>;
 
 export type PasswordInitRequest = z.infer<typeof sch.PasswordInitRequest>;
 
+/**
+ * ユーザ作成の応答。`temporaryPassword` は払い出しの 1 回だけ運ばれる平文で、管理者が
+ * 画面で読み取り本人へ帯域外(口頭・紙)で渡す。保存も再表示もできない。
+ */
+export type CreatedUser = z.infer<typeof sch.CreatedUser>;
+
+/** 管理者によるパスワードリセットの応答。新しい一時パスワードのみを運ぶ。 */
+export type PasswordResetResult = z.infer<typeof sch.PasswordResetResult>;
+
 // ── 4. Domain: history (履歴タブに表示する3種) ──
 
 export type EditHistoryEntry = z.infer<typeof sch.EditHistoryEntry>;
@@ -222,6 +231,10 @@ export * from './domain/sampleData.js';
 export * from './domain/template.js';
 export * from './domain/user.js';
 export * from './errors.js';
+// プレビュー iframe(隔離されたビューアホストページ)と親の postMessage 契約。
+export * from './preview/hostProtocol.js';
+// Jinja 描画 iframe(隔離されたレンダーホストページ)と親の postMessage 契約。
+export * from './render/hostProtocol.js';
 // 集約別のリポジトリ契約 (web local と REST が実装)。
 export * from './repositories/AuthRepository.js';
 export * from './repositories/HistoryRepository.js';
@@ -231,3 +244,9 @@ export * from './repositories/ReviewRepository.js';
 export * from './repositories/TemplateRepository.js';
 export * from './repositories/UserRepository.js';
 export * from './result.js';
+// CSS の外部参照検出。関門はサーバ(build 入口)に置き、web は同じ関数を早期表示に使う。
+export * from './security/cssExternalRefs.js';
+// HTML 属性値の正規化(文字参照の復号 + URL パーサ相当の空白除去)。判定の手前で必ず通す。
+export * from './security/htmlEntities.js';
+// HTML 属性の外部参照検出。同梱資産への相対参照は通し、オリジン外の絶対参照だけを拒む。
+export * from './security/htmlExternalRefs.js';

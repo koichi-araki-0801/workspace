@@ -1,10 +1,17 @@
 // =============================================================================
 // workers/index.ts — メインから使う HTML Worker のプロキシ
 // =============================================================================
-// 本番ブラウザでは重い diff/mask/render を Worker(linkedom)へオフロードしメインスレッド
+// 本番ブラウザでは重い diff/mask を Worker(linkedom)へオフロードしメインスレッド
 // を解放する。Worker 非対応環境(vitest/jsdom・SSR・古ブラウザ)では browser/jsdom の
 // `DOMParser` を使うメインスレッド実行へフォールバックする。どちらも同じ非同期 API
 // (`AsyncHtmlWorker`)を満たすので、呼び出し側は常に `await` で扱える。
+//
+// ⚠ **Jinja の描画(`renderJinja`)はここへ戻さない。** Worker はアプリと**同一オリジン**で
+// 動き、cookie 付きの `fetch` がそのまま通る = 他人が書いたテンプレを nunjucks
+// (サンドボックスではなく**コンパイラ**)へ通す場所としては何も守っていない。Worker が
+// 与えるのは「メインスレッドを塞がない」だけで、所見 F1 の脅威とは無関係だった。描画は
+// opaque オリジンの iframe(`lib/renderHostClient.ts`)が担う。ここに残す diff/mask は
+// **描画済み文字列**に対する処理で、テンプレ式の評価を伴わない。
 import { type SampleData, unexpected } from '@editor/shared';
 import * as Comlink from 'comlink';
 import {
@@ -16,7 +23,6 @@ import {
 import { logError } from '@/lib/appError';
 import { toFilled as toFilledCore } from '@/lib/fillJinja';
 import { type ToTemplateOptions, toTemplate as toTemplateCore } from '@/lib/jinjaMask';
-import { type RenderResult, renderJinja as renderJinjaCore } from '@/lib/nunjucksRender';
 import { createFallbackWorker } from './fallback';
 import type { HtmlWorkerApi } from './htmlWorkerImpl';
 
@@ -37,7 +43,6 @@ export interface AsyncHtmlWorker {
   ): Promise<HtmlDiff>;
   toTemplate(editable: string, opts?: ToTemplateOptions): Promise<string>;
   toFilled(raw: string, sample: SampleData): Promise<string>;
-  renderJinja(template: string, data: SampleData): Promise<RenderResult>;
 }
 
 // Worker が無い環境では browser/jsdom の DOMParser でメイン実行(core 関数は既定パーサを使う)。
@@ -53,9 +58,6 @@ const mainThreadFallback: AsyncHtmlWorker = {
   },
   async toFilled(raw, sample) {
     return toFilledCore(raw, sample);
-  },
-  async renderJinja(template, data) {
-    return renderJinjaCore(template, data);
   },
 };
 

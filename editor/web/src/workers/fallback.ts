@@ -9,10 +9,23 @@ import { isAppError, unexpected } from '@editor/shared';
 import { logError } from '@/lib/appError';
 import type { AsyncHtmlWorker } from './index';
 
-// Worker 呼び出しがこの時間内に解決しなければ「不達」とみなして main-thread へ落とす上限。
-// 重処理(400 ページ級の diff/mask)でも数秒で済むため十分な余裕。これを超えるのは
-// チャンク読込失敗や Comlink ハンドシェイク不成立など、Worker が事実上死んでいる場合。
-const WORKER_CALL_TIMEOUT_MS = 30_000;
+/**
+ * Worker 呼び出しの打ち切り時間。**一度でも応答が返った後**のタイムアウトは main-thread への
+ * 救済ではなくエラーにするので(下記 `call` の doc を参照)、救済を失う代わりに待ち時間を
+ * 長く取る。重処理(400 ページ級の diff/mask)でも数秒で済むため 120 秒は十分な余裕。
+ */
+export const WORKER_CALL_TIMEOUT_MS = 120_000;
+
+/**
+ * **初回応答が返る前**の打ち切り時間。この時間帯のハングは重処理ではなく
+ * 「Worker が事実上死んでいる」(チャンクが読めない / Comlink ハンドシェイク不成立)の徴候で、
+ * `worker.onerror` は発火しない — 動的 import の reject もハンドシェイク不成立も error
+ * イベントを起こさないため、ここが唯一の検知経路になる。オフライン配布バンドルで
+ * 「プレビューが白紙のまま進まない」が起きた当の環境なので、**恒久フォールバックの契機として
+ * 残す**(120 秒待たせてから失敗にすると元の不具合が再発する)。
+ * 初回は 1 回しか起きないので「同じ重処理を 2 回走らせる増幅器」にはならない。
+ */
+export const WORKER_HANDSHAKE_TIMEOUT_MS = 30_000;
 
 /** タイムアウト起因の失敗を実行時エラーと区別するための機械可読コード。 */
 const WORKER_TIMEOUT_CODE = 'WORKER_TIMEOUT';
@@ -55,21 +68,26 @@ interface FallbackWorker {
  *
  * Worker は重処理でメインを塞がないための最適化であり、読めない/壊れた環境
  * (オフライン配信で worker チャンクが解決できない等)では描画の正しさを優先して
- * main-thread 実行へ落とす。実行時エラー・`markBroken`・初回応答前のタイムアウトは
- * 「Worker が事実上死んでいる」ため以降は即フォールバックして無駄な待ちを避ける(恒久化)。
- * 例外は「一度でも RPC が正常応答した後のタイムアウト」: チャンクは読めており単に処理が
- * 重い(低速マシン + 大規模ドキュメント)だけの可能性が高いので、当該呼び出しのみ
- * フォールバックし、次回は remote を再試行する(恒久化すると以降の全処理が main-thread で
- * 走り、エディタ操作のたびに UI が固まる)。
+ * main-thread 実行へ落とす。**フォールバックは恒久障害に限る** — 実行時エラー・
+ * `markBroken`・Worker 不達がそれで、以降は即フォールバックして無駄な待ちを避ける。
+ *
+ * タイムアウトの扱いは**初回応答の前後で分ける**:
+ * - 初回応答前(`WORKER_HANDSHAKE_TIMEOUT_MS`)= Worker が事実上死んでいる徴候。
+ *   `onerror` が発火しない不達(チャンク解決失敗・ハンドシェイク不成立)を捕まえる唯一の
+ *   経路なので、従来どおり main-thread へ恒久フォールバックする。
+ * - 初回応答後(`WORKER_CALL_TIMEOUT_MS`)= 単に重い。main でやり直すと同じ重処理を
+ *   メインスレッドで走らせ UI フリーズまで被害を広げる増幅器になるので、**エラーとして
+ *   呼び出し側へ返す**。
  */
 export function createFallbackWorker(
   remote: AsyncHtmlWorker,
   fallback: AsyncHtmlWorker,
   timeoutMs = WORKER_CALL_TIMEOUT_MS,
+  handshakeTimeoutMs = WORKER_HANDSHAKE_TIMEOUT_MS,
 ): FallbackWorker {
   // Worker が不達/エラーと判明したら true。以降は main-thread へ恒久フォールバックする。
   let workerBroken = false;
-  // 一度でも remote RPC が正常応答したか(= チャンク読込と Comlink ハンドシェイクは成立済み)。
+  // Worker から一度でも応答が返ったか。タイムアウトの扱いを分ける唯一の判定材料。
   let hasSucceeded = false;
   // Worker の error イベント発火を in-flight 呼び出しへ即時伝える reject シグナル。
   let markBroken!: (reason: unknown) => void;
@@ -91,19 +109,24 @@ export function createFallbackWorker(
     const fallbackFn = fallback[method] as (...a: unknown[]) => Promise<unknown>;
     if (workerBroken) return fallbackFn(...args) as ReturnType<AsyncHtmlWorker[K]>;
     const remoteFn = remote[method] as (...a: unknown[]) => Promise<unknown>;
+    const limitMs = hasSucceeded ? timeoutMs : handshakeTimeoutMs;
     const result = (async () => {
       try {
         const v = await Promise.race([
-          withTimeout(remoteFn(...args), timeoutMs, String(method)),
+          withTimeout(remoteFn(...args), limitMs, String(method)),
           brokenSignal,
         ]);
         hasSucceeded = true;
         return v;
       } catch (e) {
-        // 成功実績のある Worker のタイムアウトは「重い処理」の可能性が高く、恒久化しない
-        // (今回だけ main-thread で救済し、次回は remote を再試行する)。それ以外は恒久化。
-        const transientTimeout = hasSucceeded && isAppError(e) && e.code === WORKER_TIMEOUT_CODE;
-        if (!transientTimeout) workerBroken = true;
+        // 初回応答後のタイムアウトは「重すぎる」の徴候であって Worker の恒久障害ではない。
+        // main でやり直すと同じ重処理をメインスレッドで走らせることになるので、再 throw する。
+        // 初回応答前のタイムアウトは Worker 不達なので下の恒久フォールバックへ落とす。
+        if (hasSucceeded && isAppError(e) && e.code === WORKER_TIMEOUT_CODE) {
+          logError(e);
+          throw e;
+        }
+        workerBroken = true;
         logError(
           unexpected(`html worker call failed; falling back to main thread: ${String(method)}`, {
             cause: e,
@@ -120,7 +143,6 @@ export function createFallbackWorker(
     buildHtmlDiffAligned: (...a) => call('buildHtmlDiffAligned', a),
     toTemplate: (...a) => call('toTemplate', a),
     toFilled: (...a) => call('toFilled', a),
-    renderJinja: (...a) => call('renderJinja', a),
   };
   return { worker, markBroken };
 }

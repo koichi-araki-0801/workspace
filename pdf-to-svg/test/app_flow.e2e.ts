@@ -10,9 +10,14 @@ import { readFileSync } from "node:fs";
 
 const FIXTURE = new URL("./fixtures/sample.pdf", import.meta.url).pathname.replace(/^\/(\w:)/, "$1");
 
+// サーバは `/rpc` `/upload` 等にセッショントークンを要求する (`web/origin_guard.py` の G6)。
+// 本番は起動ごとの CSPRNG 値を `--app=` の URL で渡すので、E2E も同じ経路 (URL クエリ) で
+// 渡す。値は `test/e2e_server.py` の `TOKEN` と一致させること。
+const TOKEN = "e2e-fixed-session-token";
+
 test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し", async ({ page }) => {
   test.setTimeout(120_000);
-  await page.goto("/");
+  await page.goto(`/?token=${TOKEN}`);
 
   // ── 1. PDF を選ぶ (動的 `<input type=file>` は filechooser イベントで受ける) ──
   const [chooser] = await Promise.all([

@@ -60,8 +60,19 @@ pnpm test        # ルート集約の vitest（projects で全 workspace を一�
 pnpm test:coverage  # カバレッジ付き（include 列挙＝テスト済みのみ・全指標 85% 閾値）
 pnpm typecheck   # 全 workspace の型チェック（shared 先行ビルド込み）
 pnpm knip        # 未使用 export / 依存の検出（knip.json）
-pnpm ci          # CI 集約（check:comments → check:ci → typecheck → test:coverage → build → test:e2e）
+pnpm ci          # CI 集約（下記の全段）
 ```
+
+`pnpm ci` の内訳は `check:comments → check:ci → typecheck → test:coverage →
+test:pdf-to-svg → test:graph-editor:py → build → test:e2e`。Python の 2 段は
+2026-08-04 に追加した（ローカル HTTP サーバの Origin/Host 検査を守るテストが pytest 側に
+しか無く、それまで pre-push で一度も走っていなかったため）。`ci:affected` の領域判定にも
+`pdf-to-svg` を足してある。
+
+カバレッジ include は「テスト済みのファイルだけを列挙する」方針で、正典は
+ルート `vitest.config.ts`。**セキュリティ上の関門（許可リスト・認可テーブル・
+egress 遮断・不変性チェック）は、テストの有無に関わらず include へ入れる** —
+閾値の外に置くと退行を検出できないため。
 
 ## LAN 公開（社内ネットワークの他端末から使う）
 

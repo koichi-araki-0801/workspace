@@ -28,6 +28,16 @@ COLUMN_OVERLAP_RATIO = 0.5  # 同一列とみなす bbox 横方向オーバー�
 LINE_GAP_RATIO = 1.3
 FONT_SIZE_TOL = 0.5         # 同一スタイルとみなす font_size 許容差(pt)
 
+# `_wrap_groups` の走査上限。要素は y 昇順に並ぶので通常は「縦ギャップが上限を超えた」
+# 時点で打ち切れるが、**同じ y 帯へ大量の要素を並べる**細工ページでは打ち切りが効かず
+# 全要素 x 全要素の走査に戻る (1 ページ 10 万 span で約 5e9 回)。そこで 1 要素あたりの
+# 走査数を切り、超えたら**折返し探索を諦める** (グループ化の精度が落ちるだけで、置換も
+# 描画も成立する = degrade)。実ページで折返しの相手は数百要素以内に必ず現れる。
+MAX_WRAP_SCAN = 1024
+# 並べ替えキーが `round(origin_y, 1)` なので、走査順の `origin_y` は最大 0.1 だけ前後
+# しうる。打ち切り判定にはこの分を足し、**本当の追随候補を切り落とさない**側へ倒す。
+_GAP_SORT_EPS = 0.1
+
 
 @dataclass
 class Replacement:
@@ -104,23 +114,49 @@ def _wrap_groups(texts: List[TextElement]) -> List[List[TextElement]]:
     """縦に折り返された同一列・同一スタイルの要素を上→下のグループに束ねる。
 
     単独行は要素 1 個のグループになる (= 連結対象外)。
+
+    走査量の上限が要点である。以前は要素ごとに `ordered[i + 1:]` を**毎回スライスして
+    全部見て**いたため、ページ内テキスト要素数 n に対して n^2/2 回の判定 + 同数のリスト
+    コピーになっていた。n は PDF 作成者が決める値で上限が無く、再適用ボタンは
+    `server.lock` を握ったまま走るのでアプリ全体が固まる。対策は 3 つ:
+    ①スライスをやめて添字で回す ②y 昇順である性質を使い、縦ギャップが上限を超えた
+    時点で打ち切る ③それでも効かない「同じ y 帯に大量の要素」は `MAX_WRAP_SCAN` で
+    諦める。①②は結果が変わらない純粋な高速化で、劣化しうるのは③だけである。
+
+    打ち切りの上限には**残り候補の最大 font_size** を使う。追随判定
+    (`_is_wrap_follower`) の許容ギャップが `max(cur, u)` の font_size 基準であるため、
+    残りに存在しうる最大サイズで押さえれば追随候補を取りこぼさない。
     """
     ordered = sorted(texts, key=lambda t: (round(t.origin_y, 1), t.origin_x))
-    used: set = set()
+    n = len(ordered)
+    if n == 0:
+        return []
+    # suffix_max_font[j] = ordered[j:] の最大 font_size (打ち切り上限の材料)。
+    suffix_max_font = [0.0] * (n + 1)
+    for j in range(n - 1, -1, -1):
+        suffix_max_font[j] = max(ordered[j].font_size, suffix_max_font[j + 1])
+
+    used = [False] * n
     groups: List[List[TextElement]] = []
-    for i, t in enumerate(ordered):
-        if id(t) in used:
+    for i in range(n):
+        if used[i]:
             continue
-        group = [t]
-        used.add(id(t))
-        cur = t
-        for u in ordered[i + 1:]:
-            if id(u) in used:
-                continue
-            if _is_wrap_follower(cur, u):
+        cur = ordered[i]
+        group = [cur]
+        used[i] = True
+        j = i + 1
+        scanned = 0
+        while j < n and scanned < MAX_WRAP_SCAN:
+            u = ordered[j]
+            limit = max(cur.font_size, suffix_max_font[j]) * LINE_GAP_RATIO
+            if u.origin_y - cur.origin_y > limit + _GAP_SORT_EPS:
+                break  # 以降はさらに下 = どれも追随になりえない
+            scanned += 1
+            if not used[j] and _is_wrap_follower(cur, u):
                 group.append(u)
-                used.add(id(u))
+                used[j] = True
                 cur = u
+            j += 1
         groups.append(group)
     return groups
 

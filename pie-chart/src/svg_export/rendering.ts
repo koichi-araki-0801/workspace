@@ -121,15 +121,10 @@ export function computeArcs(items: LayoutItem[], cfg: PieLayoutConfig): Arc[] {
 // 3. text fragment + escapeXml
 // =============================================================================
 
-/** SVG 属性に安全に埋め込めるよう XML 特殊文字をエスケープ。 */
-export function escapeXml(value: unknown): string {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;');
-}
+// `escapeXml` の実体は `values.ts`(属性直列化と値の許可リストの一元化点)。従来の
+// import 元を壊さないためここから再 export する。
+export { attr, escapeXml } from './values.js';
+import { attr, escapeXml } from './values.js';
 
 /**
  * 名前(長体)圧縮の指定。textFragment に渡すと名前部分のみ横圧縮する。
@@ -178,16 +173,27 @@ export function textFragment(
   // faux-bold: 塗りと同色の stroke を載せ字画を太らせる (`textWeightStrokeRatio` > 0 のときのみ)。
   // stroke 色は fill (= cfg.textColor; 暗スライスは白が渡る) と同色なので両ケースで自動一致する。
   // 0 (既定) のときは属性を一切足さず純フォント出力 (= 従来と同一)。advance は不変。
+  // 属性は必ず `attr()` 経由で組む(素のテンプレートリテラルで `="${v}"` と書くと、
+  // そこが次の注入点になる)。**出現順は 1 つも変えないこと** — `verify/svg.ts` の
+  // 正規表現が並び順に依存し、`out/_baseline` との byte-diff も順序で落ちる。
   const strokeAttr =
     cfg.textWeightStrokeRatio > 0
-      ? ` stroke="${cfg.textColor}" stroke-width="${(cfg.fontSizeUnits * cfg.textWeightStrokeRatio).toFixed(4)}" paint-order="stroke" stroke-linejoin="round"`
+      ? attr('stroke', cfg.textColor) +
+        attr('stroke-width', (cfg.fontSizeUnits * cfg.textWeightStrokeRatio).toFixed(4)) +
+        attr('paint-order', 'stroke') +
+        attr('stroke-linejoin', 'round')
       : '';
-  const open = `<text x="${xScale(x)}" y="${yScale(y)}" text-anchor="${options.anchor}" dominant-baseline="${baseline}" font-size="${cfg.fontSizeUnits}" font-family="${escapeXml(cfg.fontFamily)}" font-weight="${cfg.fontWeight}" fill="${cfg.textColor}"${strokeAttr} text-rendering="geometricPrecision">`;
+  const open =
+    `<text${attr('x', xScale(x))}${attr('y', yScale(y))}${attr('text-anchor', options.anchor)}` +
+    `${attr('dominant-baseline', baseline)}${attr('font-size', cfg.fontSizeUnits)}` +
+    `${attr('font-family', cfg.fontFamily)}${attr('font-weight', cfg.fontWeight)}` +
+    `${attr('fill', cfg.textColor)}${strokeAttr}${attr('text-rendering', 'geometricPrecision')}>`;
   if (!condense || sx >= 1) {
     const tspans = lines
       .map(
         (line, index) =>
-          `<tspan x="${xScale(x)}" dy="${index === 0 ? firstDy : `${cfg.lineSpacing}em`}">${escapeXml(line)}</tspan>`,
+          `<tspan${attr('x', xScale(x))}` +
+          `${attr('dy', index === 0 ? firstDy : `${cfg.lineSpacing}em`)}>${escapeXml(line)}</tspan>`,
       )
       .join('');
     return `${open}${tspans}</text>`;
@@ -195,18 +201,23 @@ export function textFragment(
   // 名前のみ横圧縮: 名前の原寸送り幅(px) = visualMaxEm([name]) × fontSizeUnits。目標 = ×sx。
   const px = xScale(x);
   const nameLen = (visualMaxEm([condense.name], cfg) * cfg.fontSizeUnits * sx).toFixed(2);
-  const nameTspan = `<tspan x="${px}" dy="${firstDy}" textLength="${nameLen}" lengthAdjust="spacingAndGlyphs">${escapeXml(condense.name)}</tspan>`;
+  const nameTspan =
+    `<tspan${attr('x', px)}${attr('dy', firstDy)}${attr('textLength', nameLen)}` +
+    `${attr('lengthAdjust', 'spacingAndGlyphs')}>${escapeXml(condense.name)}</tspan>`;
   let tspans: string;
   if (n >= 2) {
     // 2 行: 上行=名前(圧縮)、以降=原寸。
     // 横圧縮(textLength)は行位置(dy)を持つ tspan へ同居させると Chromium で後続行の
     // 行送りが壊れ重なる/消える。外側 tspan は行位置のみ・内側 tspan で圧縮し隔離する。
     const nameTspanTwo =
-      `<tspan x="${px}" dy="${firstDy}"><tspan textLength="${nameLen}" ` +
-      `lengthAdjust="spacingAndGlyphs">${escapeXml(condense.name)}</tspan></tspan>`;
+      `<tspan${attr('x', px)}${attr('dy', firstDy)}><tspan${attr('textLength', nameLen)}` +
+      `${attr('lengthAdjust', 'spacingAndGlyphs')}>${escapeXml(condense.name)}</tspan></tspan>`;
     const rest = lines
       .slice(1)
-      .map((line) => `<tspan x="${px}" dy="${cfg.lineSpacing}em">${escapeXml(line)}</tspan>`)
+      .map(
+        (line) =>
+          `<tspan${attr('x', px)}${attr('dy', `${cfg.lineSpacing}em`)}>${escapeXml(line)}</tspan>`,
+      )
       .join('');
     tspans = nameTspanTwo + rest;
   } else {

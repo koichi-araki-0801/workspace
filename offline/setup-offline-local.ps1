@@ -13,17 +13,28 @@
 
   資材はリポジトリ直下、無ければ bk\ も探索する。処理内容:
     1. ローカル資材の探索（.tar.gz もしくは展開済みディレクトリ）
-    2. （資材があれば）sha256 検証 + lockfile 整合チェック（警告のみ）
+    2. 検証（**すべて致命**）: offline\pinned-release.txt の sha256 と突き合わせ、offline\
+       bundle-signing.pub.xml で分離署名 .sig を検証し、展開後に bundle.key を突き合わせる
     3. 未展開なら .tar.gz を直下へ展開（.pnpm-store / pnpm.tgz / ms-playwright）
     4. 同梱 pnpm を corepack 登録 → クリーン → オフライン install → build → Playwright 配置
 
   ★ 本スクリプトは外部へ通信しない（DL なし）。資材が無ければエラーで止める。
 
+  完全性・真正性（所見 F34 / F14）: 期待値は資材の隣に落ちている ``.sha256`` ではなく、
+  手渡しで運ばれる ``offline\pinned-release.txt`` から取る（資材を差し替えられる者は隣の
+  sidecar も差し替えられるため、あれは転送破損の検知にしかならない）。検証材料の欠落は
+  警告ではなく**エラー**で止める。
+
 .PARAMETER SkipBuild
   展開のみ行い、install / build / Playwright 配置を省略する。
 
-.PARAMETER NoVerify
-  sha256 / lockfile 整合チェックを省略する。
+.PARAMETER DangerouslySkipVerification
+  非常口。sha256 / 署名 / lockfile 整合の検証をすべて省略する。検証材料が壊れて手元の資材が
+  正しいと判っている場合の一時退避用で、通常運用では使わない（.bat の案内にも載せない）。
+
+.PARAMETER InstallTortoiseGit
+  TortoiseGit の MSI を ``msiexec /qn``（サイレント・昇格）で導入する。既定では導入しない
+  （黙って昇格インストールを走らせないための明示 opt-in。所見 F19）。
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File offline\setup-offline-local.ps1
@@ -31,14 +42,17 @@
 [CmdletBinding()]
 param(
   [switch]$SkipBuild,
-  [switch]$NoVerify
+  [switch]$DangerouslySkipVerification,
+  [switch]$InstallTortoiseGit
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# 共通ライブラリ（content-key 算出 / tar 解決）。
+# 共通ライブラリ（content-key 算出 / tar 解決 / 完全性検証 / git ツール導入）。
 . (Join-Path $PSScriptRoot 'lib\content-key.ps1')
+. (Join-Path $PSScriptRoot 'lib\verify.ps1')
+. (Join-Path $PSScriptRoot 'lib\git-tools.ps1')
 
 # offline/ の親をリポジトリ直下（ROOT）とみなす。
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -84,31 +98,38 @@ if ($ExtractedOk) {
   exit 1
 }
 
-# ---- [2/4] 検証（資材があれば。警告のみ） ----
-if (-not $NoVerify) {
-  Write-Host '[2/4] 検証（sha256 / lockfile 整合）...'
+# ---- [2/4] 検証（すべて致命。材料が欠けていても止まる） ----
+$PinFile    = Join-Path $PSScriptRoot 'pinned-release.txt'
+$PubKeyFile = Join-Path $PSScriptRoot 'bundle-signing.pub.xml'
+if (-not $DangerouslySkipVerification) {
+  Write-Host '[2/4] 検証（pin の sha256 / 分離署名）...'
 
-  # sha256（.tar.gz とその .sha256 が両方ある時だけ）
+  # 期待値は手渡しで運ばれた offline/ の pin から取る。資材の隣の .sha256 は「資材を差し
+  # 替えられる者が同じ場所へ置ける値」なので判定には使わない（所見 F34 / F14）。
   if ($Bundle) {
-    $Sha = "$Bundle.sha256"
-    if (-not (Test-Path -LiteralPath $Sha)) { $Sha = Find-Local "$BundleName.sha256" }
-    if ($Sha -and (Test-Path -LiteralPath $Sha)) {
-      $expected = ((Get-Content $Sha -Raw).Trim() -split '\s+')[0].ToLower()
-      $actual   = (Get-FileHash $Bundle -Algorithm SHA256).Hash.ToLower()
-      if ($expected -ne $actual) {
-        Write-Error "[error] sha256 不一致。バンドル破損の可能性。`n  expected: $expected`n  actual:   $actual"; exit 1
-      }
-      Write-Host "[info] sha256 OK: $actual"
-    } else {
-      Write-Warning '[warn] .sha256 が無いため整合性検証をスキップ。'
+    $pin = Get-OfflinePin -Path $PinFile
+    Assert-FileSha256 -File $Bundle -ExpectedSha256 $pin.BundleSha256 -Label 'bundle'
+    # 分離署名は資材の隣（無ければ bk\）から探す。欠落は警告でなくエラー。
+    $SigPath = "$Bundle.sig"
+    if (-not (Test-Path -LiteralPath $SigPath)) { $SigPath = Find-Local "$BundleName.sig" }
+    if (-not $SigPath) {
+      Write-Error ("[error] 分離署名 $BundleName.sig がありません（リポジトリ直下 / bk\ を確認）。`n" +
+        '  署名の無い重量物は受け入れません。')
+      exit 1
     }
+    Assert-BundleSignature -File $Bundle -SignaturePath $SigPath -PublicKeyPath $PubKeyFile
+    Write-Host '[info] 分離署名 OK（offline/ 同梱の公開鍵で検証）。'
+  } else {
+    # 展開済み資材のみの再実行。バンドル実体が無いので突き合わせる対象が無く、ここでは
+    # 何もしない（下の [3.5/4] の bundle.key 照合は展開の有無に関わらず致命で行う）。
+    Write-Host '[info] 展開済み資材のみのため、バンドル実体の検証対象はありません。'
   }
 
   # lockfile 整合（bundle.key 比較）は展開後に行う。content key の入力に
   # git-tools\manifest.txt（バンドル同梱・gitignore 対象でソースに無い）が含まれるため、
   # 展開前に測ると manifest を欠いて publish 側と必ずズレる。下の [3.5/4] へ遅延させる。
 } else {
-  Write-Host '[2/4] -NoVerify: 検証をスキップ。'
+  Write-Warning '[2/4] -DangerouslySkipVerification: 検証をすべて省略します（通常運用では使わないでください）。'
 }
 
 # ---- [3/4] 展開（未展開のときだけ） ----
@@ -131,22 +152,26 @@ if ($ExtractedOk) {
 # ---- [3.5/4] lockfile 整合チェック（展開後＝git-tools\manifest.txt が在る状態で測る） ----
 # content-key は publish / setup と同一ロジック（共通ライブラリ Get-LockContentKey）。manifest が
 # content key 入力に含まれるため、展開後に比較しないと publish 側とズレる（上の [2/4] 参照）。
-if (-not $NoVerify) {
+if (-not $DangerouslySkipVerification) {
   $KeyFile  = Find-Local 'bundle.key'
   $LockFile = Join-Path $RepoRoot 'pnpm-lock.yaml'
   $PkgJson  = Join-Path $RepoRoot 'package.json'
-  if ($KeyFile -and (Test-Path $LockFile) -and (Test-Path $PkgJson)) {
-    $packageManager = Get-PackageManagerString $PkgJson
-    $localKey = Get-LockContentKey -LockFile $LockFile -PackageManager $packageManager
-    $publishedKey = (Get-Content $KeyFile -Raw).Trim().ToLower()
-    if ($localKey -eq $publishedKey) {
-      Write-Host "[info] lockfile key 一致: $localKey"
-    } else {
-      Write-Warning "[warn] lockfile 不整合の可能性。資材とソースが対応していません。`n  code (local) : $localKey`n  bundle.key   : $publishedKey`n  → --frozen-lockfile が失敗する場合は同一タグの資材で揃え直してください。"
-    }
-  } else {
-    Write-Warning '[warn] bundle.key / pnpm-lock.yaml / package.json のいずれかが無く、lockfile 整合チェックをスキップ。'
+  # 材料の欠落も不一致も致命にする（所見 F34）。ここを警告で流すと「ソースと資材が
+  # 対応していない環境」がそのままビルドへ進み、原因の見えない失敗になる。
+  if (-not ($KeyFile -and (Test-Path $LockFile) -and (Test-Path $PkgJson))) {
+    Write-Error ('[error] bundle.key / pnpm-lock.yaml / package.json のいずれかがありません（整合を確かめられません）。' +
+      "`n  bundle.key はバンドルと同じ場所（リポジトリ直下 / bk\）へ置いてください。")
+    exit 1
   }
+  $packageManager = Get-PackageManagerString $PkgJson
+  $localKey = Get-LockContentKey -LockFile $LockFile -PackageManager $packageManager
+  $publishedKey = (Get-Content $KeyFile -Raw).Trim().ToLower()
+  if ($localKey -ne $publishedKey) {
+    Write-Error ("[error] lockfile 不整合: 資材とソースが対応していません。`n  code (local) : $localKey" +
+      "`n  bundle.key   : $publishedKey`n  同一リリースの資材とソースで揃え直してください。")
+    exit 1
+  }
+  Write-Host "[info] lockfile key 一致: $localKey"
 }
 
 # ---- [4/4] オフライン環境構築 ----
@@ -235,56 +260,11 @@ if ($SkipBuild) {
   } finally { Pop-Location }
 }
 
-# ---- git ツール（PortableGit / TortoiseGit）の展開・導入（任意・ベストエフォート） ----
+# ---- git ツール（PortableGit / TortoiseGit）の展開・導入 ----
 # editor のテンプレ版管理は git CLI を使う。air-gapped 環境向けに同梱した PortableGit を
-# 展開して PATH へ通し、TortoiseGit（履歴/diff の GUI）を導入する。失敗しても全体は止めない。
-$GitTools = Join-Path $RepoRoot 'git-tools'
-if (Test-Path $GitTools) {
-  Write-Host '[git] PortableGit / TortoiseGit を確認...'
-  $pgDir = Join-Path $GitTools 'portablegit'
-  $pgExe = Get-ChildItem $GitTools -Filter 'PortableGit-*-64-bit.7z.exe' -File -ErrorAction SilentlyContinue |
-    Select-Object -First 1
-  if ($pgExe -and -not (Test-Path (Join-Path $pgDir 'cmd\git.exe'))) {
-    Write-Host "[git] PortableGit を展開: $($pgExe.Name) -> portablegit\"
-    & $pgExe.FullName "-o$pgDir" -y | Out-Null
-  }
-  $gitExe = Join-Path $pgDir 'cmd\git.exe'
-  if (Test-Path $gitExe) {
-    $cmdDir = Join-Path $pgDir 'cmd'
-    if ($env:Path -notlike "*$cmdDir*") { $env:Path = "$cmdDir;$env:Path" }
-    try {
-      $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-      if ($userPath -notlike "*$cmdDir*") {
-        [Environment]::SetEnvironmentVariable('Path', "$cmdDir;$userPath", 'User')
-        Write-Host "[git] ユーザー PATH へ追加: $cmdDir（新しい端末から有効）"
-      }
-      # editor サーバは GIT_BIN を最優先で使う（PATH 反映の遅延に依存しない）。
-      [Environment]::SetEnvironmentVariable('GIT_BIN', $gitExe, 'User')
-      Write-Host "[git] GIT_BIN を設定: $gitExe"
-    } catch {
-      Write-Warning "[git] ユーザー環境変数の設定に失敗。手動で $cmdDir を PATH へ加えてください。"
-    }
-    Write-Host "[git] git 利用可能: $(& $gitExe --version)"
-  } else {
-    Write-Warning '[git] PortableGit の git.exe が見つかりません（展開に失敗した可能性）。'
-  }
-  $tgMsi = Get-ChildItem $GitTools -Filter 'TortoiseGit-*-64bit.msi' -File -ErrorAction SilentlyContinue |
-    Select-Object -First 1
-  if ($tgMsi) {
-    Write-Host "[git] TortoiseGit を導入（任意・失敗しても続行）: $($tgMsi.Name)"
-    try {
-      $proc = Start-Process msiexec.exe `
-        -ArgumentList @('/i', "`"$($tgMsi.FullName)`"", '/qn', '/norestart') -Wait -PassThru
-      if ($proc.ExitCode -ne 0) {
-        Write-Warning "[git] TortoiseGit の導入が未完了（ExitCode=$($proc.ExitCode)）。管理者権限で msi を実行してください。"
-      } else {
-        Write-Host '[git] TortoiseGit を導入しました。'
-      }
-    } catch {
-      Write-Warning "[git] TortoiseGit の導入に失敗。手動で $($tgMsi.Name) を実行してください。"
-    }
-  }
-}
+# 展開して PATH/GIT_BIN を通す。実行するバイナリの選択・検証・PATH の扱いは共通ライブラリへ
+# 集約（setup-offline.ps1 と同一経路。片方だけ直る事故＝所見 F19 の再発を防ぐ）。
+Install-GitTools -RepoRoot $RepoRoot -InstallTortoiseGit:$InstallTortoiseGit
 
 Write-Host ''
 if ($SkipBuild) {

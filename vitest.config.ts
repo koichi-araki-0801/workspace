@@ -27,7 +27,34 @@ export default defineConfig({
         'editor/shared/src/domain/template.ts',
         'editor/shared/src/domain/user.ts',
         'editor/shared/src/domain/history.ts',
+        'editor/shared/src/security/cssExternalRefs.ts',
+        'editor/shared/src/security/htmlExternalRefs.ts',
+        'editor/shared/src/security/htmlEntities.ts',
         // editor/server (vivliostyle は pure layer のみ。build.ts 等は browser+socket 依存で対象外)
+        'editor/server/src/auth/password.ts',
+        'editor/server/src/auth/loginRateLimit.ts',
+        // セキュリティ修正で新設した層。確定書き込みの関所とテンプレ JS の不変性チェックは
+        // 迂回されると他の防御が全部無意味になるため、閾値の対象へ入れる。
+        'editor/server/src/security/templateScripts.ts',
+        'editor/server/src/repositories/confirmedWrite.ts',
+        'editor/server/src/repositories/templateMeta.ts',
+        'editor/server/src/files/pendingFiles.ts',
+        'editor/server/src/vivliostyle/projectConfig.ts',
+        // 段階 2 の新設層。認可テーブル・資格情報の正規化・応答時間フロアは、
+        // 迂回されると認証全体が骨抜きになるため閾値の対象へ入れる。
+        'editor/server/src/auth/loginId.ts',
+        'editor/server/src/auth/timing.ts',
+        'editor/server/src/routes/routeGuards.ts',
+        'editor/server/src/middleware/auth.ts',
+        'editor/server/src/security/externalRefs.ts',
+        // 隔離の完結で新設。配信ルートへ写す許可リストと egress 遮断の実体で、
+        // どちらも「サニタイズを外した代わりの守り」なので閾値の対象へ入れる。
+        'editor/server/src/vivliostyle/docAssets.ts',
+        'editor/server/src/vivliostyle/docRefs.ts',
+        'editor/server/src/vivliostyle/egressGuard.ts',
+        'editor/server/src/git/gitRepo.ts',
+        'editor/server/src/openapi/docsRoutes.ts',
+        'editor/server/src/vivliostyle/previewProxy.ts',
         'editor/server/src/generate/pyTemplate.ts',
         'editor/server/src/sync/partSync.ts',
         'editor/server/src/sync/noteMasterService.ts',
@@ -36,8 +63,19 @@ export default defineConfig({
         'editor/server/src/vivliostyle/projectInput.ts',
         'editor/server/src/vivliostyle/inlineCss.ts',
         'editor/server/src/vivliostyle/mergeInput.ts',
+        // プレビュー隔離 iframe(opaque オリジン)の配信面と PDF 側の script 対称化。
+        // 経路専用 CSP と資産解決は迂回されるとテンプレ資産が未認証露出するため対象へ入れる。
+        'editor/server/src/vivliostyle/previewHost.ts',
+        'editor/server/src/vivliostyle/inlineDocScripts.ts',
         'editor/server/src/vivliostyle/previewManager.ts',
         'editor/server/src/vivliostyle/buildWorkerPool.ts',
+        // 段階 3(資源上限)で新設・改修した層。上限そのものと、上限を守るための
+        // 直列化・適用範囲の限定は、迂回されると単一プロセスが 1 リクエストで止まる。
+        'editor/server/src/files/atomic.ts',
+        'editor/server/src/files/fileLock.ts',
+        'editor/server/src/files/historyFiles.ts',
+        'editor/server/src/files/notesFile.ts',
+        'editor/server/src/routes/zipBodyParser.ts',
         // editor/web (UI/VM/Service/Repository 層)
         'editor/web/src/workers/fallback.ts',
         'editor/web/src/lib/jinjaMask.ts',
@@ -56,6 +94,14 @@ export default defineConfig({
         'editor/web/src/lib/templateDoc.ts',
         'editor/web/src/lib/usePagedList.ts',
         'editor/web/src/lib/nunjucksRender.ts',
+        'editor/web/src/lib/sanitizeCss.ts',
+        'editor/web/src/lib/sanitizeHtml.ts',
+        // プレビュー文書の自己完結化(子の要求ゼロ化)と postMessage クライアント。
+        'editor/web/src/lib/previewSelfContain.ts',
+        'editor/web/src/features/preview/PreviewPanel.vue',
+        // Jinja コンパイルを opaque オリジンへ追い出す親側クライアント(所見 F1)。
+        // 発信元検証・保留・id 対応付けのどれが欠けても隔離が骨抜きになるため対象へ入れる。
+        'editor/web/src/lib/renderHostClient.ts',
         'editor/web/src/lib/cropMarks.ts',
         'editor/web/src/lib/formatOutput.ts',
         'editor/web/src/lib/useCascadingSelect.ts',
@@ -68,6 +114,7 @@ export default defineConfig({
         'editor/web/src/features/editor/partKey.ts',
         'editor/web/src/features/editor/useAutosave.ts',
         'editor/web/src/stores/editorSession.ts',
+        'editor/web/src/stores/pendingReviews.ts',
         'editor/web/src/features/compare/htmlBlockDiff.ts',
         'editor/web/src/features/compare/services/compareService.ts',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
@@ -93,11 +140,19 @@ export default defineConfig({
         'pie-chart/src/config.ts',
         'pie-chart/src/glyph_advance.ts',
         'pie-chart/src/data.ts',
+        'pie-chart/src/limits.ts',
+        'pie-chart/src/svg_export/values.ts',
         // graph-editor (ui.html と共有する純粋関数のみ)
         'graph-editor/resources/web/lib/leader_geom.cjs',
+        // 未信頼 SVG の許可リスト。denylist へ退行すると読み込み即実行に戻るため閾値で守る。
+        'graph-editor/resources/web/js/svg-policy.js',
+        // SEA 実行時のモジュール解決。上位ディレクトリ遡りが復活すると任意コード実行になる。
+        'pie-chart/src/runtime/seaRuntime.ts',
+        'pie-chart/src/runtime/subsetFontFs.ts',
       ],
-      // auth.ts はフェーズ2(DBセッション/SQL Server依存)で未テスト・未デプロイのため対象外。
-      exclude: ['editor/server/src/middleware/auth.ts'],
+      // 2026-08-05: `middleware/auth.ts` の exclude を解除した。viewer ロール強制と
+      // `要パスワード変更` の関門がここに集約されたため、閾値の外へ置くと退行を検出できない。
+      exclude: [],
       thresholds: {
         statements: 85,
         branches: 85,

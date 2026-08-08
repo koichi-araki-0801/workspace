@@ -12,27 +12,36 @@ import fs from 'node:fs';
 import type http from 'node:http';
 import type https from 'node:https';
 import path from 'node:path';
-import { apiPaths, validation } from '@editor/shared';
+import { apiPaths, unauthorized } from '@editor/shared';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import staticPlugin from '@fastify/static';
-import ScalarApiReference from '@scalar/fastify-api-reference';
 import Fastify, { type FastifyHttpOptions } from 'fastify';
-import { invalidateAllSessions } from './auth/session.js';
-import { config } from './config.js';
+import { invalidateAllSessions, purgeExpiredSessions } from './auth/session.js';
+import {
+  buildCspDirectives,
+  config,
+  inlineScriptCspHashes,
+  isPreAuthBufferedRequest,
+  preAuthGateUrl,
+} from './config.js';
 import { logger } from './logger.js';
+import { loadUser } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { getOpenApiDocument, openapiRoutes } from './openapi/index.js';
+import { docsRoutes, openapiRoutes } from './openapi/index.js';
+import { renderHostRoutes } from './render/renderHost.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { generateRoutes } from './routes/generate.routes.js';
 import { historyRoutes } from './routes/history.routes.js';
 import { notesRoutes } from './routes/notes.routes.js';
 import { partsRoutes } from './routes/parts.routes.js';
 import { reviewsRoutes } from './routes/reviews.routes.js';
+import { assertRoutePolicy } from './routes/routeGuards.js';
 import { templatesRoutes } from './routes/templates.routes.js';
 import { usersRoutes } from './routes/users.routes.js';
 import { vivliostyleRoutes } from './routes/vivliostyle.routes.js';
 import { buildWorkerPool } from './vivliostyle/buildWorkerServer.js';
+import { previewHostRoutes } from './vivliostyle/previewHost.js';
 import { previewManager } from './vivliostyle/previewServer.js';
 
 const serverOptions: FastifyHttpOptions<http.Server> = {
@@ -68,36 +77,63 @@ const app = Fastify(serverOptions);
 // `requireAuth` が解決して埋めるユーザ。型は `middleware/auth.ts` の module augmentation を参照。
 app.decorateRequest('user', undefined);
 
-// project zip アップロードのパーサ。グローバル `bodyLimit`(8mb) をバイパスし、自前で
-// `maxProjectBytes`(既定 64MB) を強制する。超過時は 413 ではなく現行と同じ `validation`(400)
-// を返すため、関数形式(`parseAs` 不使用)で `done(validation(...))` を返す。
-app.addContentTypeParser(
-  ['application/zip', 'application/octet-stream'],
-  (_request, payload, done) => {
-    const limit = config.vivliostyle.build.maxProjectBytes;
-    const chunks: Buffer[] = [];
-    let size = 0;
-    payload.on('data', (c: Buffer) => {
-      size += c.length;
-      if (size > limit) {
-        payload.destroy();
-        // `done` は `Error` を期待するが、`AppError`(plain object)を渡しても setErrorHandler が
-        // `toAppError`→`statusForKind('validation')`=400 で正規化する。現行の 413 ではなく 400 を維持。
-        done(validation('プロジェクトが大きすぎます') as unknown as Error, undefined);
-        return;
-      }
-      chunks.push(c);
-    });
-    payload.on('end', () => done(null, Buffer.concat(chunks)));
-    payload.on('error', (err) => done(err, undefined));
-  },
-);
+// ルートごとの必要ロールの網羅検査。**API ルートの register より前**に張る必要がある
+// (`onRoute` は張った後の登録しか見ないため、後ろに置くと検査漏れが静かに生まれる)。
+// 新しいルートを足したら `routes/routeGuards.ts` の `ROUTE_POLICY` を更新すること。
+// 忘れるとここで起動が落ちる = 付け忘れが本番まで届かない。
+app.addHook('onRoute', assertRoutePolicy);
+
+// 未認証のアップロードを body 解析の前に切る認証ゲート。Fastify のライフサイクルは
+// onRequest → parsing → preHandler の順で、zip パーサ(下)もルート単位の `bodyLimit` 引き上げも
+// preHandler の `requireAuth` より先に効く。つまり `requireAuth` だけでは「認証前に
+// 最大 64MB(zip)/ 32MB(merge JSON)をリクエストごとにメモリへ積む」経路が残り、多重接続で
+// プロセスを枯渇させられる。ここで 401 にすればボディは 1 バイトも積まない。判定条件は
+// `isPreAuthBufferedRequest`(content-type + 上限を上げた path)。対象ルートは元々
+// `requireAuth` 付きなので、正規のクライアントから見た応答は 401 のまま変わらない。認証を
+// 課さないローカルモード(`requireAuth=false`)は従来どおり素通しする。
+app.addHook('onRequest', async (request) => {
+  if (!config.requireAuth) return;
+  // 照合は**ルーティング結果の登録パターン**で行う(`request.url` は生の request target で、
+  // percent-encoding も dot セグメントも解かれていない)。選び方は `preAuthGateUrl` に閉じる。
+  const gateUrl = preAuthGateUrl(request);
+  if (!isPreAuthBufferedRequest(request.method, gateUrl, request.headers['content-type'])) return;
+  const user = await loadUser(request);
+  if (!user || user.disabled) throw unauthorized('ログインが必要です');
+});
+
+// ⚠ project zip の content-type parser を**ここ(ルートインスタンス)へ戻さないこと。**
+// Fastify の encapsulation では、ルートに登録したパーサは全ルートへ伝播する。関数形式の
+// パーサは `rawBody` を経由しない = `bodyLimit` が一切効かないため、ルートに置くと
+// 「任意の POST/PUT へ `Content-Type: application/zip` を付けるだけで 64MB を積める」
+// 経路になる(しかもパーサは preHandler より前に走るのでロールガードは間に合わない)。
+// 実体は zip を受ける 2 ルートを持つ `vivliostyleRoutes` の中に閉じてある。
 
 // 中央エラーハンドラ — ルート/preHandler の throw をここで AppError 形へ正規化する。
 app.setErrorHandler(errorHandler);
 
+// サーバ起動ごとに変わる epoch。配信する index.html に注入し、クライアントは前回値と
+// 突き合わせて「同一サーバ起動中のみログイン有効」を判定する(local モードの再起動検知。
+// REST は DB セッション失効が権威的だが、両モードでシェルを確実に作り直すために共有する)。
+const APP_EPOCH = String(Date.now());
+
+// SPA シェル: 起動時に epoch を埋め込んだ index.html をメモリ保持する(dev は Vite が
+// 配信するので dist が無く空文字)。読み込みが helmet 登録より前なのは、CSP の
+// script ハッシュを「実際に配信する文字列」から算出する必要があるため。
+const hasWebDist = fs.existsSync(config.webDist);
+const indexHtml = hasWebDist
+  ? fs
+      .readFileSync(path.join(config.webDist, 'index.html'), 'utf8')
+      .replaceAll('%APP_EPOCH%', APP_EPOCH)
+  : '';
+
 app.register(helmet, {
-  contentSecurityPolicy: false, // SPA + blob preview のため。本番では締める(tighten)
+  // CSP は無効化しない。preview のリバースプロキシ(`/api/preview/:id/*`)は利用者が入れた
+  // HTML/JS をアプリと同一オリジンで返すため、CSP を切ると被害者のセッションで任意
+  // スクリプトが動く(承認 API の代理実行まで届く)。方針の中身は `config.buildCspDirectives`。
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: buildCspDirectives(inlineScriptCspHashes(indexHtml)),
+  },
 });
 app.register(cookie); // reply.setCookie / reply.clearCookie を提供する
 
@@ -116,19 +152,22 @@ app.register(notesRoutes, { prefix: '/api' });
 app.register(usersRoutes, { prefix: '/api' });
 
 // API リファレンス UI(/api/docs)。標準 JS バンドルはプラグインがローカル配信するため
-// オフライン(air-gapped)でも動作する。spec は生成済みの OpenAPI ドキュメントを直接渡す。
-app.register(ScalarApiReference, {
-  routePrefix: '/api/docs',
-  configuration: { content: getOpenApiDocument() },
-});
+// オフライン(air-gapped)でも動作する。Scalar のインライン起動 script はグローバル CSP の
+// ハッシュ許可に載らないため、専用 CSP ごと `docsRoutes` に閉じてある。
+app.register(docsRoutes);
 
-// サーバ起動ごとに変わる epoch。配信する index.html に注入し、クライアントは前回値と
-// 突き合わせて「同一サーバ起動中のみログイン有効」を判定する(local モードの再起動検知。
-// REST は DB セッション失効が権威的だが、両モードでシェルを確実に作り直すために共有する)。
-const APP_EPOCH = String(Date.now());
+// 画面内プレビューのビューアホストページ。テンプレの inline JS を動かすために全域 CSP より
+// 緩い CSP が要るので、`docsRoutes` と同じく専用コンテキストへ閉じて登録する
+// (fastify-plugin を通さない = onSend がこのルート群だけに掛かる)。全域 CSP は動かさない。
+app.register(previewHostRoutes, { prefix: '/api' });
+
+// 他人のテンプレを nunjucks でコンパイルするためのレンダーホストページ。nunjucks は
+// コンパイラなので `'unsafe-eval'` が要り、承認者のページオリジンで走らせると申請者の JS が
+// 承認者のセッションを握る(所見 F1)。同じく専用コンテキストへ閉じて登録する。
+app.register(renderHostRoutes, { prefix: '/api' });
 
 // 本番ではビルド済み SPA を配信する(Vite がアプリを配信する dev では no-op)。
-if (fs.existsSync(config.webDist)) {
+if (hasWebDist) {
   // ハッシュ付きアセット(`assets/`)は内容ハッシュ済みなので長期 immutable で配る。
   // `wildcard: false` で実在ファイルのみを配信し、非ファイル(SPA ルート)は notFound へ落とす
   // (= 下の setNotFoundHandler が epoch 入り index.html を返す)。`index: false` で `/` も同様。
@@ -144,14 +183,9 @@ if (fs.existsSync(config.webDist)) {
     },
   });
 
-  // SPA シェル: 起動時に epoch を埋め込んだ index.html をメモリ保持し、認証状態の更新が
-  // 確実に反映されるよう `no-store` で返す(ブラウザが旧 epoch のシェルを返すのを防ぐ)。
-  const indexHtml = fs
-    .readFileSync(path.join(config.webDist, 'index.html'), 'utf8')
-    .replaceAll('%APP_EPOCH%', APP_EPOCH);
-
   // catch-all。未知の `/api/*` は 404 JSON(Express の `^(?!\/api).*` catch-all が /api を除外し
-  // 既定 404 を返していたのと同じ)。それ以外は SPA シェルを返す。
+  // 既定 404 を返していたのと同じ)。それ以外は SPA シェル(上でメモリ保持した `indexHtml`)を
+  // 返す。認証状態の更新が確実に反映されるよう `no-store`(ブラウザの旧 epoch シェル再利用防止)。
   app.setNotFoundHandler((request, reply) => {
     if (request.url.startsWith('/api')) {
       return reply.code(404).send({ kind: 'not_found', message: '対象が見つかりません' });
@@ -176,6 +210,17 @@ if (config.requireAuth) {
       '[server] 起動時の全セッション失効に失敗 — 旧セッションが残存する恐れ',
     );
   }
+  // 失効は論理フラグなので行は消えない。起動時と 6 時間ごとに保持期間切れを物理削除する。
+  // `unref` でこのタイマーがプロセスを生かし続けないようにする。
+  const purge = async (): Promise<void> => {
+    try {
+      await purgeExpiredSessions();
+    } catch (e) {
+      logger.warn({ err: e }, '[server] 期限切れセッションの掃除に失敗しました');
+    }
+  };
+  await purge();
+  setInterval(() => void purge(), 6 * 3_600_000).unref();
 }
 
 // listen。host は既定 127.0.0.1(同一マシン限定・従来挙動)で、社内 LAN へ公開するときだけ

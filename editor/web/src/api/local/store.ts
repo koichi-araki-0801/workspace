@@ -235,7 +235,14 @@ export function allMetas(): TemplateMeta[] {
       id,
       attributes: attrs,
       fileName,
-      status: saved?.status ?? (htmlOverride[id] ? 'published' : 'draft'),
+      // `status` の意味は rest 実装と揃える: 配信済みテンプレ(= fixture が在る)が
+      // `published`、fixture が無く override だけで存在する = 作成タブが生成しただけの
+      // 未確定テンプレが `draft`(rest の pending 相当)。
+      //
+      // 以前は「override が在れば published」で、意味が逆だった(未編集の fixture が
+      // 全部 draft になる)。比較タブ・結合 PDF は `status === 'published'` で承認前を
+      // 除くため、ここが逆だと local モードで候補が 1 件も出ない。
+      status: saved?.status ?? (fixtureTemplates[fileName] ? 'published' : 'draft'),
       updatedAt: saved?.updatedAt ?? null,
       updatedBy: saved?.updatedBy ?? null,
     });

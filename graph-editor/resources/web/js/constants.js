@@ -15,6 +15,11 @@ const CONFIG = {
   handleScreenRadius: 5,   // ハンドルの見かけ半径 (ズームで割って一定化)
   pieRadiusRatio: 0.35,    // slice から半径を推定できない時のフォールバック係数
   historyLimit: 100,       // Undo 履歴の保持上限
+  // 1 ファイルで扱うラベル数の上限。超過は読み込みごと拒否する (`editor-io.js` の `load`)。
+  // ヒット領域の生成・オーバーレイ・レール描画・履歴スナップショットがどれもラベル数に
+  // 比例するため、上限が無いと細工 SVG 1 枚で操作不能になる。pie-chart の実出力は数十個
+  // 規模なので、2 桁の余裕を見てもここで切れる。
+  maxLabels: 500,
   hitPadding: 3,           // ヒット矩形の bbox からの余白
   zoomMin: 0.4,
   zoomMax: 3,

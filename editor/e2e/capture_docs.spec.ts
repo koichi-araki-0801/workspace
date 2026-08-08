@@ -29,18 +29,38 @@ async function login(page: Page, user: string, pass: string) {
   await page.waitForTimeout(800);
 }
 
+/**
+ * プレビューの組版完了を待つ。ページ要素は隔離 iframe(`sandbox="allow-scripts"`・
+ * same-origin なし)の中に出るため、トップ文書の locator では永久に 0 件になる。
+ * Playwright は sandbox 付きフレームの中も frameLocator で辿れる。
+ *
+ * `:visible` で絞るのは、見開き表示で vivliostyle が左右 1 対のページ容器を作り、
+ * **本文が入らない側(`data-vivliostyle-page-side="right"` の空きスロット)が hidden のまま
+ * DOM 先頭に来る**ため。素の `.first()` はそれを掴んで可視化を待ち続け timeout する。
+ */
+async function waitForPreviewPage(page: Page) {
+  await page
+    .frameLocator('iframe[title="プレビュー"]')
+    .locator('[data-vivliostyle-page-container]:visible')
+    .first()
+    .waitFor({ state: 'visible', timeout: 60_000 });
+}
+
 test('capture editor screens', async ({ page }) => {
   // ① ログイン画面（入力前のきれいな状態）
   await page.goto('/login');
   await page.locator('#u').waitFor();
   await page.screenshot({ path: IMG('login.png') });
 
-  // ①b パスワード初期設定画面（初回ログイン時に出る画面。public ルートを直接開く）
-  await page.goto('/password-init?username=editor');
-  await page.locator('#n').waitFor();
-  await page.screenshot({ path: IMG('password-init.png') });
-
   await login(page, 'admin', 'admin');
+
+  // ①b パスワード変更画面。ログイン後にしか出せない（未認証だと現行パスワードを示せず、
+  // フォーム自体が出ない仕様）。撮影後は編集タブへ戻して以降の導線を元の順序に保つ。
+  await page.goto('/password-init');
+  await page.locator('#c').waitFor();
+  await page.screenshot({ path: IMG('password-init.png') });
+  await page.goto('/edit');
+  await page.waitForTimeout(600);
 
   // ② 編集タブ（属性ドロップダウンが見える）
   await page.screenshot({ path: IMG('edit-tab.png') });
@@ -98,8 +118,10 @@ test('capture editor screens', async ({ page }) => {
   // `@vivliostyle/core` は loadDocument 後も非同期にページを組版するため, 固定待ちでは
   // 本文が空(灰色)のまま撮れることがある。viewer が `viewport` に出力するページ要素
   // (`data-vivliostyle-page-container`)の出現を待ってから撮る。
+  // 組版は opaque オリジンの隔離 iframe(`PreviewPanel.vue`)の中で走るため、待ち受けは
+  // トップ文書ではなく `frameLocator` 越しに行う(トップで待つと 0 件のまま timeout する)。
   await page.goto(`/preview/${encodeURIComponent(SEED_ID)}`);
-  await page.locator('[data-vivliostyle-page-container]').first().waitFor({ state: 'visible' });
+  await waitForPreviewPage(page);
   await page.waitForTimeout(500); // 組版確定後の微小な再レイアウトを吸収する
   await page.screenshot({ path: IMG('preview.png') });
 });
@@ -110,7 +132,7 @@ test('capture review screens (申請 → 承認キュー → 精査)', async ({ 
   // (変更前｜変更後) のレイアウトが写る状態で撮る。
   await login(page, 'admin', 'admin');
   await page.goto(`/preview/${encodeURIComponent(SEED_ID)}`);
-  await page.locator('[data-vivliostyle-page-container]').first().waitFor({ state: 'visible' });
+  await waitForPreviewPage(page);
   await page.getByRole('button', { name: '確定保存を申請' }).click();
   await page.getByRole('button', { name: '申請する' }).click();
   await page.waitForTimeout(1000);

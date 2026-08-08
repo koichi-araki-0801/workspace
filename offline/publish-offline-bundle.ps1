@@ -20,8 +20,18 @@
   よってこの1キーで4点すべての変化を覆える。Release 側に bundle.key（このハッシュ）を保存し、
   現在キーと一致したら重量物は据え置く（タグ移動と説明更新のみ）。
 
-  → コミット毎フック（.husky/post-commit）から呼ぶことで「ソースは毎コミット更新、
-     重量物は lockfile 等が変わった時だけ更新」が自動で成立する。
+  コミット毎フック（.husky/post-commit）からは **-TagOnly で**呼ぶ。フックが行うのは
+  タグ移動（＝ソース更新）だけで、重量物の再生成（pip download / pnpm install という
+  依存解決器の実行）はフックから決して走らせない — コミットに紛れた requirements.txt /
+  lockfile の編集 1 つで外部コードの取得・実行まで無人到達するため（所見 F20）。
+  他人の PR をマージしてコミットするだけで成立するので、フック経路は依存解決器を持たない。
+  重量物の更新は公開担当者が本スクリプトを引数なしで**明示実行**して行う。
+
+  真正性の根拠（所見 F14）: 重量物には RSA-SHA256 の分離署名（<bundle>.sig）を添え、
+  ソースの不変コミット ID と各 sha256 を offline\pinned-release.txt へ書き出す。この pin と
+  公開鍵 offline\bundle-signing.pub.xml は offline/ フォルダごと手渡しで配布先へ運ばれる。
+  Release へ並べる .sha256 は**配信元と同じ場所から取る値**なので転送破損の検知にしかならず、
+  すり替えの検知にはならない（配布先はこの sidecar を信頼しない）。
 
 .PARAMETER Tag
   公開先のローリングタグ。既定 offline-bundle-v1。
@@ -33,6 +43,17 @@
   重量物の再生成（pnpm install / corepack pack / playwright install）を省略し、
   既存のディスク上の成果物をそのまま固めてアップロードする（重量物更新が必要な場合のみ有効）。
 
+.PARAMETER TagOnly
+  タグ移動（ソース更新）だけを行う。依存解決器（pip download / pnpm install / playwright
+  install）も重量物のアップロードも一切行わず、変更検知で重量物の更新が必要と判明した場合は
+  **タグも動かさずに終了**する（旧バンドル×新ソースの不整合ペアを配らないため）。
+  post-commit フック専用。
+
+.PARAMETER SigningKey
+  分離署名に使う RSA 秘密鍵（XML 形式）のパス。既定
+  %USERPROFILE%\.offline-signing\bundle-signing.key.xml。鍵が無ければ重量物の公開は
+  失敗する（署名失敗＝公開失敗。鍵の新規作成は offline\new-bundle-signing-key.bat）。
+
 .EXAMPLE
   pwsh -File offline/publish-offline-bundle.ps1
 #>
@@ -40,14 +61,17 @@
 param(
   [string]$Tag = 'offline-bundle-v1',
   [switch]$Force,
-  [switch]$SkipRegen
+  [switch]$SkipRegen,
+  [switch]$TagOnly,
+  [string]$SigningKey = (Join-Path $env:USERPROFILE '.offline-signing\bundle-signing.key.xml')
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ---- 共通ライブラリ（content-key 算出 / tar 解決） ----
+# ---- 共通ライブラリ（content-key 算出 / tar 解決 / 完全性検証） ----
 . (Join-Path $PSScriptRoot 'lib\content-key.ps1')
+. (Join-Path $PSScriptRoot 'lib\verify.ps1')
 
 # ---- リポジトリルートへ（offline/ の親） ----
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -105,6 +129,18 @@ Write-Host "[info] published key: $(if ($publishedKey) { $publishedKey } else { 
 # 重量物を更新するか: 強制 / Release 未作成（初回）/ キー不一致 のいずれか。
 # 一致時はソース更新（タグ移動＋説明更新）だけ行い、重量物の再生成・再アップロードは省く。
 $bundleChanged = $Force -or (-not $releaseExists) -or ($publishedKey -ne $currentKey)
+
+# -TagOnly（post-commit フック経路）は依存解決器を一切起動しない。重量物の更新が要ると
+# 判明した時点で**タグも動かさずに**終了する: ここでタグだけ進めると「新ソース（新
+# lockfile / 新 requirements）× 旧重量物」の不整合ペアを配ることになるため。
+# 公開担当者は表示に従って引数なしの明示実行へ切り替える（所見 F20）。
+if ($TagOnly -and $bundleChanged) {
+  Write-Host '[skip] 重量物の更新が必要ですが -TagOnly のため何もしません（タグも動かしません）。'
+  Write-Host '       依存解決器（pip download / pnpm install）はコミットフックからは実行しません。'
+  Write-Host '       公開担当者は offline\publish-offline-bundle.bat を引数なしで実行してください。'
+  Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+  exit 0
+}
 if ($bundleChanged) {
   Write-Host '[info] 重量物を更新します（-Force / 初回 / 変更検知）。'
 } else {
@@ -123,8 +159,29 @@ $NativePb   = Join-Path $RepoRoot 'native-prebuilds'
 $BundleName = 'offline-deps-bundle.tar.gz'
 $Bundle     = Join-Path $RepoRoot $BundleName
 $Sha        = "$Bundle.sha256"
+$SigFile    = "$Bundle.sig"
 $KeyFile    = Join-Path $RepoRoot 'bundle.key'
+$PinFile    = Join-Path $PSScriptRoot 'pinned-release.txt'
+$PubKeyFile = Join-Path $PSScriptRoot 'bundle-signing.pub.xml'
 $sizeMB     = $null
+$bundleHash = $null
+
+# 署名鍵は重い再生成の**前**に確認する（署名できない状態で 1 時間かけて固めない）。
+# 署名失敗＝公開失敗（fail closed）。鍵の作成は offline\new-bundle-signing-key.bat。
+$signingKeyXml = $null
+if ($bundleChanged) {
+  if (-not (Test-Path -LiteralPath $SigningKey)) {
+    Write-Error ("[error] 署名鍵がありません: $SigningKey`n" +
+      '  offline\new-bundle-signing-key.bat を 1 回実行して鍵ペアを作成してください（署名の無い重量物は公開しません）。')
+    exit 1
+  }
+  if (-not (Test-Path -LiteralPath $PubKeyFile)) {
+    Write-Error ("[error] 公開鍵が offline/ にありません: $PubKeyFile`n" +
+      '  配布先はこのファイルだけを真正性の根拠にするため、コミットして offline/ ごと運ぶ必要があります。')
+    exit 1
+  }
+  $signingKeyXml = Get-Content -LiteralPath $SigningKey -Raw
+}
 
 if ($bundleChanged) {
   $TarExe = Resolve-Tar
@@ -204,9 +261,26 @@ if ($bundleChanged) {
       'docs\_build\requirements.txt') |
       ForEach-Object { Join-Path $RepoRoot $_ } | Where-Object { Test-Path -LiteralPath $_ }
     if (-not $pyReqs) { Write-Error '[error] requirements.txt が見つかりません（pdf-to-svg / graph-editor / docs）。'; exit 1 }
+    # requirements の許可リスト検査（所見 F20）。pip は requirements ファイル内のオプション行
+    # （`--extra-index-url` / `--find-links` / `-e` 等）と直 URL 参照を尊重するため、この 1 行を
+    # 混ぜるだけで解決先を攻撃者のインデックスへ差し替えられる。純粋な requirement specifier
+    # 以外は一切通さない（許可リスト。危険オプションの列挙＝ブロックリストにはしない）。
+    $reqViolations = @()
+    foreach ($r in $pyReqs) { $reqViolations += (Test-OfflineRequirementsFile -Path $r) }
+    if ($reqViolations.Count -gt 0) {
+      Write-Error ("[error] requirements.txt に許可しない行があります:`n  " + ($reqViolations -join "`n  "))
+      exit 1
+    }
     Remove-Item $Wheelhouse -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Path $Wheelhouse | Out-Null
-    $dlArgs = @('-m', 'pip', 'download', '-d', $Wheelhouse)
+    # `--index-url` を明示して解決先を PyPI 本体へ固定し、`--only-binary=:all:` で sdist を
+    # 排除する（sdist は取得しただけでビルド＝setup.py の実行に至る経路を開く）。
+    # `--no-input` はプロンプト待ちでフックが固まるのを防ぐ。
+    # なお `--no-deps` / `--require-hashes` は入れていない: 現行の requirements.txt は版も
+    # ハッシュも固定していないため、入れると wheelhouse が推移依存を欠いて配布先の
+    # オフライン install が壊れる。requirements の pin + hash 化は別作業（積み残し）。
+    $dlArgs = @('-m', 'pip', 'download', '--no-input', '--disable-pip-version-check',
+      '--index-url', 'https://pypi.org/simple', '--only-binary=:all:', '-d', $Wheelhouse)
     foreach ($r in $pyReqs) { $dlArgs += @('-r', $r) }
     & $pyExe @dlArgs
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] pip download に失敗しました。'; exit 1 }
@@ -242,10 +316,19 @@ if ($bundleChanged) {
     Write-Error '[error] アセットが 2GB（Release 上限）を超えました。分割が必要です。'; exit 1
   }
 
-  # 整合性ハッシュとキーを書き出し
+  # 整合性ハッシュとキーを書き出し。この .sha256 は配信元と同じ場所に並ぶため転送破損の
+  # 検知にしか使えない（すり替えの検知には使えない）。真正性は下の分離署名と
+  # offline\pinned-release.txt が担う。
   $bundleHash = (Get-FileHash $Bundle -Algorithm SHA256).Hash.ToLower()
   "$bundleHash  $BundleName" | Set-Content -Path $Sha -Encoding ascii -NoNewline
   $currentKey | Set-Content -Path $KeyFile -Encoding ascii -NoNewline
+
+  Write-Host '[info] 重量物へ分離署名（RSA-SHA256）を付与します...'
+  $sigB64 = New-DetachedSignatureBase64 -File $Bundle -PrivateKeyXml $signingKeyXml
+  $sigB64 | Set-Content -Path $SigFile -Encoding ascii -NoNewline
+  # 自分の公開鍵で即座に検証し、鍵の取り違え・書き出し失敗をここで落とす（fail closed）。
+  Assert-BundleSignature -File $Bundle -SignaturePath $SigFile -PublicKeyPath $PubKeyFile
+  Write-Host '[info] 署名 OK。'
 }
 
 # ---- Release 説明（notes） ----
@@ -271,6 +354,13 @@ $notes = @"
 content key (sha256 of pnpm-lock.yaml + packageManager): ``$currentKey``
 重量物に変更が無い限り再アップロードされません（``publish-offline-bundle.ps1`` が自動判定）。
 ソース（自動 Source code）はコミット毎にタグ移動で更新されます。
+
+## 完全性・真正性
+重量物には分離署名 ``offline-deps-bundle.tar.gz.sig``（RSA-SHA256 / base64）を添えています。
+検証に使う公開鍵と、取得すべきソースの**不変コミット ID**・各 sha256 は、リポジトリの
+``offline/bundle-signing.pub.xml`` / ``offline/pinned-release.txt`` にあります（この 2 つは
+offline/ フォルダごと手渡しで運ぶ前提）。**ここに並ぶ .sha256 は配信元と同じ場所にあるため、
+転送破損の検知にしか使えません**（すり替えの検知には使えないので、setup は信頼しません）。
 "@
 $notesFile = Join-Path $tmp 'notes.md'
 $notes | Set-Content -Path $notesFile -Encoding utf8
@@ -299,7 +389,7 @@ function Move-RollingTag {
 function Publish-Assets {
   if (-not $bundleChanged) { return }
   Write-Host '[info] アセットをアップロード（--clobber で差し替え）...'
-  & gh release upload $Tag $Bundle $Sha $KeyFile --clobber
+  & gh release upload $Tag $Bundle $Sha $KeyFile $SigFile --clobber
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] gh release upload に失敗しました。'; exit 1 }
 }
 
@@ -321,9 +411,85 @@ if (-not $releaseExists) {
   Move-RollingTag
 }
 
+# ---- pin ファイル（offline\pinned-release.txt）の更新 ----
+# 配布先はローリングタグではなく**この pin の不変コミット ID**からソースを取り、pin の
+# sha256 と突き合わせる（所見 F14）。タグ名は publish のたびに指す先が動くため、「タグで
+# 取れた」ことは内容を何も同定しない。
+# -TagOnly（post-commit フック）では書かない: フック経路で作業ツリーへ書き出すと、直後の
+# コミットに巻き込まれるか dirty のまま残る。pin の更新は明示実行の公開に紐づける。
+if (-not $TagOnly) {
+  # gh の出力は複数行になりうるため 1 行目だけを取る（配列のまま Trim すると型が崩れる）。
+  $nameWithOwner = ((& gh repo view --json nameWithOwner -q .nameWithOwner) | Select-Object -First 1)
+  if ($nameWithOwner) { $nameWithOwner = ([string]$nameWithOwner).Trim() }
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($nameWithOwner)) {
+    Write-Error '[error] gh repo view でリポジトリ名を取得できません（pin ファイルを更新できません）。'; exit 1
+  }
+  # ソース zip は「取得側が実際に落とすものと同じ URL」から取り、その sha256 を pin する。
+  #
+  # 取得は**認証付き**で行う。publish は必ず公開担当者の認証済み端末で走る一方、リポジトリは
+  # 平時 Private なので、未認証の curl は 404 になる（README の手順 0「取得の間だけ Public」は
+  # **取得端末**の話であって、pin を作るためだけに Public 化させるのは筋が違う）。
+  # 同じ codeload エンドポイントを叩くので、生成される zip の実体は未認証取得と同じ。
+  $srcZipUrl = "https://github.com/$nameWithOwner/archive/$targetCommit.zip"
+  $srcZipTmp = Join-Path $tmp 'pinned-source.zip'
+  Write-Host "[info] pin 用にソース zip を取得: $srcZipUrl"
+  $ghToken = ((& gh auth token) | Select-Object -First 1)
+  if ($ghToken) { $ghToken = ([string]$ghToken).Trim() }
+  if ([string]::IsNullOrWhiteSpace($ghToken)) {
+    Write-Error '[error] gh auth token を取得できません（pin 用のソース zip を認証取得できません）。'; exit 1
+  }
+  $curlCmd = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
+  if ($curlCmd) {
+    & $curlCmd.Source -L --fail --retry 3 -H "Authorization: Bearer $ghToken" -o $srcZipTmp $srcZipUrl
+    if ($LASTEXITCODE -ne 0) { Write-Error '[error] ソース zip の取得に失敗しました（pin を更新できません）。'; exit 1 }
+  } else {
+    $oldPref = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+      Invoke-WebRequest -Uri $srcZipUrl -OutFile $srcZipTmp -UseBasicParsing `
+        -Headers @{ Authorization = "Bearer $ghToken" }
+    } finally { $ProgressPreference = $oldPref }
+  }
+  $srcZipHash = (Get-FileHash -LiteralPath $srcZipTmp -Algorithm SHA256).Hash.ToLower()
+
+  # 重量物を更新していない回は bundle-sha256 を引き継ぐ。優先順は
+  # ①直前の pin → ②手元の `.sha256`（= 直近の publish が書いた実体）。
+  # ② を持つのは「重量物のアップロードまでは成功したが pin の生成だけ落ちた」状態からの
+  # 復旧のため。ここが pin 一択だと、テキスト 1 枚を書くために 774MB の再アップロードを
+  # 強いることになる（実際に踏んだ）。
+  if (-not $bundleHash) {
+    try { $bundleHash = (Get-OfflinePin -Path $PinFile).BundleSha256 }
+    catch {
+      if (Test-Path -LiteralPath $Sha) {
+        $bundleHash = ((Get-Content -LiteralPath $Sha -Raw).Trim() -split '\s+')[0].ToLower()
+        Write-Host "[info] pin が無いため手元の $BundleName.sha256 から bundle-sha256 を引き継ぎます。"
+      } else {
+        Write-Error ("[error] 重量物を更新していないため既存 pin か手元の .sha256 が要りますが、どちらも読めません: $($_.Exception.Message)`n" +
+          '  初回は -Force を付けて重量物ごと公開してください。')
+        exit 1
+      }
+    }
+  }
+
+  $pinText = @"
+# offline 配布物の pin（publish-offline-bundle.ps1 が自動生成。手で編集しない）。
+# 配布先の setup はこの値だけを真正性の根拠にする。Release に並ぶ .sha256 は配信元と同じ
+# 場所から取る値なので転送破損の検知にしか使えず、すり替えの検知には使えない（所見 F14）。
+# このファイルと bundle-signing.pub.xml は offline/ フォルダごと手渡しで配布先へ運ぶ。
+source-commit $targetCommit
+source-zip-sha256 $srcZipHash
+bundle-sha256 $bundleHash
+"@
+  $pinText | Set-Content -LiteralPath $PinFile -Encoding utf8
+  Write-Host "[info] pin を更新: $PinFile（source-commit=$targetCommit）"
+  Write-Host '       ※ この pin ファイルを git へコミットしてください（offline/ ごと配布先へ運ぶ前提）。'
+}
+
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 if ($bundleChanged) {
-  Write-Host "[OK] 公開完了: $Tag に $BundleName (${sizeMB}MB) / $BundleName.sha256 / bundle.key を反映し、タグを最新ソースへ移動しました。"
+  Write-Host "[OK] 公開完了: $Tag に $BundleName (${sizeMB}MB) / .sha256 / .sig / bundle.key を反映し、タグを最新ソースへ移動しました。"
+} elseif ($TagOnly) {
+  Write-Host "[OK] タグのみ更新（-TagOnly）: $Tag を最新コミットへ移動しました（依存解決器は実行していません）。"
 } else {
   Write-Host "[OK] ソースのみ更新: タグ $Tag を最新コミットへ移動しました（重量物は据え置き）。"
 }

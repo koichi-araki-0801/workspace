@@ -1,0 +1,5 @@
+{
+  "//": "exe へ同梱する依存の固定値。scripts/build-exe.mjs のアサート B と test/build_pins.test.ts が実解決値と突き合わせる。ここが動く = 埋込フォントのサブセット結果(= SVG バイト)が変わりうるので、更新時は必ず npm run batch -> npm run batch:diff と test/render_hash.test.ts を確認する。",
+  "subsetFont": "2.5.0",
+  "hbSubsetWasmSha256": "3a5d246b0e4c0017084775e9f2c7fce96e45d09b1a354fd9e2e440c88fb9890d"
+}
