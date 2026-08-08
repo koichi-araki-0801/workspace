@@ -15,6 +15,15 @@ export default defineConfig({
       'pie-chart/vitest.config.ts',
       'graph-editor/vitest.config.ts',
     ],
+    // 集約実行の並列度を明示的に絞る(2026-08-08)。既定はコア数ぶんの fork を**プロジェクトごとに**
+    // 立てるため、5 プロジェクト × カバレッジ計装が 8GB 級の実機を食い潰し、次の 3 つが同時に起きた:
+    //   1. `Error: Worker exited unexpectedly` — 全テスト通過後に fork が落ち、終了コードだけ 1 になる
+    //   2. `SyntaxError: Unexpected end of JSON input` — 落ちた fork のカバレッジ断片を読んで収集が失敗
+    //   3. 個々のテストの実測が 2〜3 倍へ伸び、既定 5s / 300s の上限を超える
+    // どれも「テストは正しいのに CI が赤い」形なので、本物の失敗と区別できなくなるのが実害。
+    // 速度より完走性を採る — pre-push が唯一の CI ゲートで、落ちると push そのものが止まるため。
+    maxWorkers: 4,
+    minWorkers: 1,
     coverage: {
       provider: 'v8',
       // 各パッケージの旧 include を root 相対へ前置して結合。新規テスト追加時はここを広げる。
