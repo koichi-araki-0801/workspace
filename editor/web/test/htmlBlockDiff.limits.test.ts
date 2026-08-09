@@ -329,7 +329,12 @@ describe('差分の打ち切りは必ず申告される', () => {
     expect(buildHtmlDiff(doc(body), doc(body)).truncated).toBe(false);
   });
 
-  it('body 直下が上限を超えたら truncated=true(捨てた分は差分に出ない)', () => {
+  // 上限いっぱいのブロックを実際に diff するので、ルート CI(5 プロジェクト並列 + coverage)
+  // では既定 5s を超えて落ちる(単独なら 1s 未満)。遅いこと自体は退行ではないので上限を
+  // 実測へ合わせる。
+  it('body 直下が上限を超えたら truncated=true(捨てた分は差分に出ない)', {
+    timeout: 60_000,
+  }, () => {
     const many = Array.from({ length: MAX_TOP_LEVEL_BLOCKS + 5 }, () => '<div>x</div>').join('');
     const d = buildHtmlDiff(doc(many), doc(many));
     // 例外にはしない(承認者が差分を見られない状態を作らない)が、黙ってもいない。
