@@ -160,7 +160,7 @@ export function useGrapes() {
     canMoveDown.value = i < parent.components().length - 1;
   }
 
-  // break 収集 / guide 算出は usePageGuides.ts、メモ目印は useCanvasMarkers.ts へ分離。
+  // break 収集 / guide 算出は usePageGuides.ts、メモ目印は useCanvasMarkers.ts が担う。
 
   /** page-view style に現在の可視制御 CSS を流し込む(他ページを `display:none` に)。 */
   function applyPageVisibility(): void {
@@ -421,7 +421,7 @@ export function useGrapes() {
     return ed;
   }
 
-  // setZoom / updateScrollMode / fitToView は useZoomFit.ts へ分離。
+  // setZoom / updateScrollMode / fitToView は useZoomFit.ts が担う。
 
   /**
    * content/構成が変わった後の「全部測り直す」正典。  /**
@@ -549,10 +549,10 @@ export function useGrapes() {
    * `wrapper.components()` から `.page` Component を毎回ライブに filter し、
    * `currentPageIndex` 番目(範囲外は末尾フォールバック、`clampPageIndex` と整合)を返す。
    *
-   * 以前は `pageEls`(生 DOM キャッシュ)との `getEl() === pageEl` 同一性照合だったが、
+   * `pageEls`(生 DOM キャッシュ)との `getEl() === pageEl` 同一性照合にはしない。
    * GrapesJS の `getEl()` は描画済みでないと有効でなく、`load`/再レイアウト/`fireChange` の
    * 再描画で `pageEls` が detach すると照合が外れて undefined を返し、`insertPart` が
-   * wrapper 直下 append にフォールバック → 孤立要素が全ページ重複する不具合があった。
+   * wrapper 直下 append にフォールバック → 孤立要素が全ページ重複する。
    * Component を class で直接引くことで stale な生 DOM 参照に依存しない。
    * (`components()` のイテレーション順は DOM 子順と一致するため index 参照してよい。)
    */

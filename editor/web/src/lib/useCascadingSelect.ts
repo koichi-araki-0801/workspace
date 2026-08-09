@@ -23,8 +23,7 @@ interface CascadingConfig<Q extends object, O, L> {
 /**
  * 連動ドロップダウンの共通ふるまい: query/options/list を保持し, upper level が
  * 変わると(index 駆動で)下位 level を clear し, 再 fetch する — 統一された
- * loading + error 処理付き。テンプレート検索と parts catalog が利用する(以前は
- * 各々で二度 hand-roll していた)。
+ * loading + error 処理付き。テンプレート検索と parts catalog が利用する。
  */
 export function useCascadingSelect<Q extends object, O, L = unknown>(
   config: CascadingConfig<Q, O, L>,

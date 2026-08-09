@@ -2,8 +2,8 @@
 // pathGuards.test.ts — ファイル I/O 層のパス封じ込め
 // =============================================================================
 // `templateId` / `fundCode` は request 由来のままディレクトリへ連結される。検査を呼び出し側に
-// 委ねていた頃は、`../templates/<確定版>` を渡すだけで承認ゲートを迂回して確定ファイルを
-// 上書き・読み出し・削除できた。ここで守るのは「I/O 層に入った不正な名前は、必ず例外か
+// 委ねると、`../templates/<確定版>` を渡すだけで承認ゲートを迂回して確定ファイルを
+// 上書き・読み出し・削除できてしまう。ここで守るのは「I/O 層に入った不正な名前は、必ず例外か
 // 空振りになり、管理ディレクトリの外へは 1 バイトも触れない」こと。
 import fs from 'node:fs';
 import os from 'node:os';
@@ -95,8 +95,8 @@ describe('files/*.ts のパス封じ込め', () => {
     expect(strayFiles()).toEqual([]);
   });
 
-  // 確定書込は `templateFiles` から export されなくなり、`applyConfirmedWrite` だけが
-  // 持つ。トラバーサル拒否がチョークポイント移設後も生きていることをここで固定する。
+  // 確定書込は `templateFiles` からは export されず、`applyConfirmedWrite` だけが
+  // 持つ。トラバーサル拒否がこのチョークポイントでも生きていることをここで固定する。
   it.each(ESCAPES)('applyConfirmedWrite rejects a traversal template id (%s)', async (id) => {
     await expect(
       confirmedWrite.applyConfirmedWrite({

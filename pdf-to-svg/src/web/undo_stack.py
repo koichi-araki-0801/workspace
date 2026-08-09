@@ -54,7 +54,7 @@ class UndoStack:
         self._pos += 1
         self._trim()
 
-    def beginMacro(self) -> None:  # noqa: N802 (QUndoStack 互換。履歴ラベルは UI が無く廃止)
+    def beginMacro(self) -> None:  # noqa: N802 (QUndoStack 互換 API 名。履歴ラベルは UI が無く受けない)
         self._macro = _Macro()
 
     def endMacro(self) -> None:  # noqa: N802

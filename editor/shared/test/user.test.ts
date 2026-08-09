@@ -74,8 +74,8 @@ describe('isValidUsername', () => {
   });
 });
 
-// 以前は `USERNAME_PATTERN` を web クライアントでしか見ておらず、API を直接叩けば
-// 域外 ID のアカウントを作れた(= 作った瞬間ログイン不能なアカウントになる)。
+// `USERNAME_PATTERN` を web クライアントでしか見ないと、API を直接叩けば
+// 域外 ID のアカウントを作れる(= 作った瞬間ログイン不能なアカウントになる)。
 describe('CreateUserRequest / UpdateUserRequest のユーザーID 検証', () => {
   const base = {
     displayName: '太郎',

@@ -1,5 +1,5 @@
 // =============================================================================
-// http.ts — フェーズ 2 リポジトリの REST トランスポート(`apiFetch` と `attemptRest`)
+// http.ts — rest リポジトリの REST トランスポート(`apiFetch` と `attemptRest`)
 // =============================================================================
 // 役割: `apiFetch` は same-origin の `/api` を叩き、session cookie を送り
 // (`credentials: 'include'`)、HTTP 失敗を共有 {@link AppError} へ写す。サーバの構造化

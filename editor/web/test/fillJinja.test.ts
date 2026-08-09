@@ -163,7 +163,7 @@ describe('toFilled は解釈できない式を黙って捨てない', () => {
   it('`toFilled` は解釈できない式をコンソールへ 1 度だけ知らせる', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      // 旧実装はここで**何も出さなかった**。無言の空値化へ戻っていないことを見る。
+      // 無言の空値化(ここで**何も出さない**形)へ戻っていないことを見る。
       const raw = `<p>{{ fund.name | title }}</p>`;
       toFilled(raw, sample);
       expect(warn).toHaveBeenCalledTimes(1);

@@ -232,7 +232,7 @@ export function textFragment(
 // -----------------------------------------------------------------------------
 // 幅は visualTextWidthUnits (= visualMaxEm × fontSizeUnits) に一本化。配置 bbox
 // (estimateVerifyTextExtent, charWidthFactor=1.0) も同じ実描画幅に揃っており、見切れ
-// 検出と配置で同一の幅を用いる。視覚 em の実体は svg_geom 側 (layout からも参照する
+// 検出と配置で同一の幅を用いる。視覚 em の実体は `geometry.ts` 側 (layout からも参照する
 // ため低レイヤに配置)。
 // =============================================================================
 

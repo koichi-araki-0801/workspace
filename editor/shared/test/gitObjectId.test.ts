@@ -3,7 +3,7 @@
 // =============================================================================
 // server は `historyId` をそのまま `git show` のリビジョン引数にする。`-` 始まりの値が
 // 通ると git がオプション(`--output=<file>` 等)として解釈するため、その形が確実に
-// 落ちることを固定する(F30 の回帰)。
+// 落ちることを固定する(オプション注入の回帰)。
 import { describe, expect, it } from 'vitest';
 import { isGitObjectId } from '../src/domain/history';
 

@@ -2,7 +2,7 @@
 // historyRepo.ts — 履歴集約のサーバ(REST)実装
 // =============================================================================
 // 版一覧/スナップ/編集履歴は git(コミット履歴)が正典で、git log/show から導く。
-// PDF出力/作成/パーツ変更は DB(旧 SP.history)を廃し、ファイル監査ログ
+// PDF出力/作成/パーツ変更は DB には置かず、ファイル監査ログ
 // (`logs/history/*.jsonl`)へ記録/参照する。
 import { randomUUID } from 'node:crypto';
 import {

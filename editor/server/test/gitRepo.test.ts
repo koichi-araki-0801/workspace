@@ -92,10 +92,10 @@ d('gitRepo', () => {
     expect(after).toEqual(before);
   });
 
-  // ── 編集履歴の 1 パス取得(F6)──
-  // 旧実装は `git log`(件数上限なし)でコミット一覧を取り、各コミットへ `git show` を
-  // 投げていた。`Array#map` の async コールバックは最初の await まで同期に走るので、
-  // 全コミットぶんの子プロセス(各 maxBuffer 64MB)が同一 tick で spawn された。
+  // ── 編集履歴の 1 パス取得 ──
+  // `git log`(件数上限なし)でコミット一覧を取り、各コミットへ `git show` を
+  // 投げる形にすると、`Array#map` の async コールバックは最初の await まで同期に走るので、
+  // 全コミットぶんの子プロセス(各 maxBuffer 64MB)が同一 tick で spawn される。
   // 承認のたびコミットが増えるので、この経路は時間とともに悪化する。
   it('logAllWithFiles は変更ファイルを同じ log から返す(コミット毎の git show が不要)', async () => {
     const rel = 'templates/AM01_999999_20250104_交付版.html';
@@ -119,9 +119,9 @@ d('gitRepo', () => {
     expect(all.length).toBeLessThanOrEqual(git.MAX_LOG_COMMITS);
   });
 
-  // ── 承認コミットの巻き込み(F38)──
+  // ── 承認コミットの巻き込み ──
   // `git add -A`(作業ツリー全体)は、承認を経ていない `notes/` を承認者の identity と
-  // 承認メッセージでコミットしていた。staging は許可リストで書く。
+  // 承認メッセージでコミットしてしまう。staging は許可リストで書く。
   it('commitAll は notes/ を巻き込まない(.gitignore にも載る)', async () => {
     fs.mkdirSync(path.join(tmp, 'notes'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'notes', 'x.json'), '{"leak":true}', 'utf8');
@@ -161,7 +161,7 @@ d('gitRepo', () => {
 // ── 引数注入ガード(git 不要: 検証は git を起動する前に効く) ──
 // `execFile` 直叩きなのでシェル注入は起きないが、`-` 始まりの値は git がオプションとして
 // 読む。`git show --output=<file>` は任意ファイルを作成/切り詰められるため、リビジョン/
-// パス位置に来たユーザー入力が git へ届かないことを固定する(F30 の回帰)。
+// パス位置に来たユーザー入力が git へ届かないことを固定する(オプション注入の回帰)。
 describe('gitRepo argument guards', () => {
   let git: typeof import('../src/git/gitRepo.js');
   const hash = 'a'.repeat(40);

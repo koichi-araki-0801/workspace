@@ -5,9 +5,9 @@
 // これはデータ系ルートをローカルモードで開放するための**意図的な**設計なので、黙って
 // 通るのではなく「通ることが契約」としてここで固定する。
 //
-// 一方、資格情報を書き換える経路は同じ区分に属さない。以前の本人一致検査は
-// `if (request.user && request.user.username !== body.username)` で、`request.user` を
-// 埋めない構成では条件式ごと消え、**未認証で任意アカウントのパスワードを書き換えられた**。
+// 一方、資格情報を書き換える経路は同じ区分に属さない。本人一致検査を
+// `if (request.user && request.user.username !== body.username)` で書くと、`request.user` を
+// 埋めない構成では条件式ごと消え、**未認証で任意アカウントのパスワードを書き換えられる**。
 // `requireIdentifiedUser` は `config` を見ないので、この構成でも 401 になる。
 // `AUTH_REQUIRED` を立てないのが本ファイルの主眼なので、他のテストと同居させない。
 import fs from 'node:fs';

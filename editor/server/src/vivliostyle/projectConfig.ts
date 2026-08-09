@@ -2,13 +2,13 @@
 // projectConfig.ts — アップロード config を「CLI へ渡してよいオブジェクト」へ作り直す
 // =============================================================================
 // **CLI へ config ファイルのパスを渡さない。** 渡すのはここで許可リストにより組み直した
-// プレーンオブジェクト(`configData`)だけである。これが本改修の中心で、効く理由は 4 つ:
+// プレーンオブジェクト(`configData`)だけである。これが本設計の中心で、効く理由は 4 つ:
 //
 //   1. CLI 側でファイル探索が起きない。`vivliostyle.config.JS` のような大小文字違いを
 //      `locateVivliostyleConfig` が拾って `import()` する経路が、探さないので消える。
-//   2. **同じバイト列を 2 つのパーサが読む**構造が消える。以前は我々が `JSON.parse` し、
-//      CLI は JSONC で読み直していたため、検査側だけが脱落する形(コメント入り config で
-//      検査を silently skip)が成立していた。乖離しうる第 2 のパーサを消すのが正しい直し方で、
+//   2. **同じバイト列を 2 つのパーサが読む**構造が消える。パスを渡すと我々が `JSON.parse` し
+//      CLI が JSONC で読み直す形になり、検査側だけが脱落する形(コメント入り config で
+//      検査を silently skip)が成立する。乖離しうる第 2 のパーサを消すのが正しい直し方で、
 //      「CLI と同じ JSONC で読む」は採らない — パーサが 2 つある限り版差でまた割れる。
 //   3. 未知フィールドが CLI へ届かない。`server.proxy`(上流 Vite を踏み台にした SSRF)・
 //      `pdfPostprocess`(docker / press-ready 起動)・`static`(任意ディレクトリ配信)は
@@ -113,8 +113,8 @@ function assertContainedPath(root: string, value: unknown, label: string): strin
 
 /**
  * `theme` の 1 要素を検証する。CLI の `parseTheme` が **file 分岐**を取ることが確定する形に
- * 揃えるのが目的で、これが R7(theme 指定子 → npm パッケージ → arborist の postinstall 実行)
- * を閉じる唯一の実効的な防壁である。`NPM_CONFIG_IGNORE_SCRIPTS` は arborist を直接
+ * 揃えるのが目的で、これが「theme 指定子 → npm パッケージ → arborist の postinstall 実行」
+ * の経路を閉じる唯一の実効的な防壁である。`NPM_CONFIG_IGNORE_SCRIPTS` は arborist を直接
  * `new` する経路には届かない no-op なので、対策として数えてはならない。
  *
  * `.css` 判定で**大小文字を畳まない**のが罠。CLI 側は `stylePath.endsWith(".css")` と
@@ -229,8 +229,8 @@ export function parseProjectConfig(
   try {
     parsed = JSON.parse(body);
   } catch {
-    // **fail-closed。** 以前は parse 失敗を黙って素通ししていたが、CLI 側は JSONC で読めて
-    // しまうため「検査だけが脱落した config」が CLI へ渡っていた。
+    // **fail-closed。** parse 失敗を黙って素通しすると、CLI 側は JSONC で読めて
+    // しまうため「検査だけが脱落した config」が CLI へ渡る。
     throw validation(
       'vivliostyle.config.json を JSON として読めません(コメントや末尾カンマは使えません)',
     );

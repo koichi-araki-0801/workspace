@@ -2,8 +2,8 @@
 // jinjaExpr.test.ts — 許可リスト評価器の意味を固定する
 // =============================================================================
 // `fillJinja` から `nunjucks.compile`(= `new Function`)を外し、全域 CSP から
-// `'unsafe-eval'` を落とすための置き換え。旧実装との出力一致は開発時に使い捨ての
-// 差分スクリプトで確認した(実テンプレ 13 x サンプル 22 = 286 組が byte 一致)が、
+// `'unsafe-eval'` を落とすための置き換え。nunjucks 版との出力一致は開発時に使い捨ての
+// 差分スクリプトで確認済み(実テンプレ 13 x サンプル 22 = 286 組が byte 一致)だが、
 // **恒久の保証はここ**で、式の形ごとに期待値を固定する。
 //
 // 併せて、nunjucks と**意図的に異なる**点(own property のみを引く = prototype 経由の
@@ -116,7 +116,7 @@ describe('evaluateJinjaExpr — 許可リストの外は必ず throw(無言で�
 
 describe('evaluateJinjaExpr — prototype には届かない(nunjucks との意図的な差)', () => {
   // nunjucks の `contextOrFrameLookup` / `memberLookup` は素の `obj[key]` で、
-  // `{{ range.constructor("…")() }}` が `new Function` へ到達する経路そのものだった。
+  // `{{ range.constructor("…")() }}` が `new Function` へ到達する経路そのものになる。
   // ここでは own property だけを引くので、呼び出し構文を封じる前に値が取れない。
   const cases = [
     'constructor',

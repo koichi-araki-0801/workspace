@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Markdown 原稿 → 閲覧用 HTML 集約レンダラ。
 
-docs ビルドの唯一の成果物系統（旧 `md2docx`=Word / `md2xlsx`=Excel を統合・廃止）。原稿を
+docs ビルドの唯一の成果物系統。原稿を
 **読者別に 1 プロジェクト = 2 枚**のライトモード HTML へ集約する:
 
   - `<proj>_手引き.html`（audience=guide、読者=オペレータ/利用者）… 操作手順書
@@ -17,8 +17,8 @@ docs ビルドの唯一の成果物系統（旧 `md2docx`=Word / `md2xlsx`=Excel
     組む（下記 render 節）。依存は `docs/_build/requirements.txt`・オフライン時は同梱
     `python-wheelhouse` から導入する。
   - 画像は `docs/<project>/images/*.png` を base64 data-URI でインライン（1 枚で自己完結）。
-  - **ライトモード固定**（`prefers-color-scheme` は使わない）。配色トークンは旧 Word 版デザイン
-    システム（ACCENT #1F5C99 / INK #20242C / MUTED #606874 ほか）と 1:1。
+  - **ライトモード固定**（`prefers-color-scheme` は使わない）。配色は docs 共通のデザイン
+    トークン（ACCENT #1F5C99 / INK #20242C / MUTED #606874 ほか）に固定。
   - Mermaid: `docs/_build/vendor/mermaid.min.js`（git 管理外・オフライン重量物バンドル同梱）を
     HTML へインラインしクライアント描画（ライトテーマ固定・flowchart は直角ステップ）。vendor 未配置
     時は `<pre class="mermaid">` を整形コードとして表示し警告を積む。
@@ -38,7 +38,7 @@ import re
 import frontmatter
 from markdown_it import MarkdownIt
 
-# ── デザイントークン（旧 Word 版 md2docx / md2xlsx と共通・ライト固定）──
+# ── デザイントークン（docs 共通・ライト固定）──
 CSS_TOKENS = {
     "accent": "#1F5C99",   # 見出しバー・表ヘッダ・番号バッジ・縦バー
     "ink": "#20242C",      # 本文・見出し文字
@@ -54,7 +54,7 @@ CSS_TOKENS = {
 }
 # callout-NOTE の中立地 #EFF1F4 は CALLOUT_STYLE["NOTE"] が持つ（トークン化しない）。
 # callout の `[!TAG]` → 地色 / 枠色。意味で色を分ける: WARN=赤 / INFO=青(情報) /
-# NOTE=中立グレー(補足) / TIP=金。INFO と NOTE は旧同色で判別不能だったため NOTE を中立化した。
+# NOTE=中立グレー(補足) / TIP=金。NOTE を中立グレーにするのは INFO と同系色だと判別不能になるため。
 CALLOUT_STYLE = {
     "WARN": ("#FDECEC", "#E4A9A9"),
     "INFO": ("#EAF2FB", "#B9D3EE"),
@@ -81,13 +81,12 @@ _ORDER = [("操作手順書", 10), ("利用手引き", 10), ("設計正典", 15)
           ("デプロイ運用手順書", 30), ("仕様一覧", 50)]
 
 
-# ── front-matter / インライン（旧 md2docx から移植）──
+# ── front-matter / インライン ──
 def parse_frontmatter(text: str):
     """先頭 `---` ブロックを front-matter として解釈し、`(meta, body)` を返す。
 
     PyYAML ベースの `python-frontmatter` で読む。改訂履歴 `rev` は原稿側で YAML の
-    ブロックシーケンス（`rev:` + `- 版 | 日付 | 内容`）として書き、複数版を list で受ける
-    （旧・同一キー複数行を手で list 蓄積していた独自処理を廃止し標準 YAML へ寄せた）。
+    ブロックシーケンス（`rev:` + `- 版 | 日付 | 内容`）として書き、複数版を list で受ける。
     """
     post = frontmatter.loads(text)
     return dict(post.metadata), post.content
@@ -126,7 +125,7 @@ def _image_data_uri(img_dir: pathlib.Path, name: str):
 # ブロック解釈（見出し・リスト・表・段落・blockquote・フェンス）は markdown-it-py へ委譲し、docs
 # 固有の描画（見出しの階層シフト + id/TOC・mermaid フェンス・callout・base64 画像図）だけを自前で
 # 組む。`html:False` で本文へ生 HTML は通さない。インラインは `emphasis`/`backticks`/`escape` の
-# 規則を**無効化**し、`` `code` `` と `**bold**` の 2 種だけを旧来の素朴な `inline_html` で処理する。
+# 規則を**無効化**し、`` `code` `` と `**bold**` の 2 種だけを素朴な自前 `inline_html` で処理する。
 # 理由: (1) CommonMark の強調 flanking は CJK 句読点隣接の `**「x」**` を bold 化せず literal `**`
 # が残る、(2) escape 規則はコード span 内の Windows パス `` `C:\Users\<name>` `` の `\<` を食う。
 # 原稿は素の Markdown リンク `[..](..)` や `*em*` を使わず、画像はすべて `![..]`。
@@ -137,7 +136,7 @@ _INLINE_RE = re.compile(r"`([^`]+)`|\*\*([^*]+?)\*\*")
 
 def _strip_comments(body: str) -> str:
     """行頭 HTML コメント（`<!--` 開始〜`-->`）を出力から除く。コードフェンス内は保持する
-    （コード例に現れる `<!-- -->` を消さないため。旧実装のフェンス優先処理と等価）。"""
+    （コード例に現れる `<!-- -->` を消さないため）。"""
     lines = body.split("\n")
     out, i, n, infence = [], 0, len(lines), False
     while i < n:
@@ -181,8 +180,8 @@ _BLOCK_CLOSE = {"bullet_list_close": "</ul>", "ordered_list_close": "</ol>",
 def _render_inline(children, env) -> str:
     """インライン子トークン列 → HTML。emphasis/backticks 無効のため現れるのは text/softbreak/image。
 
-    画像を含まない通常インラインは「全体を空白連結 → `inline_html`」で処理する。旧実装が段落を
-    空白連結してから装飾を当てていたのと一致させ、`**bold**` が軟改行をまたぐ場合も 1 度で拾う。
+    画像を含まない通常インラインは「全体を空白連結 → `inline_html`」で処理する。段落全体を
+    空白連結してから装飾を当てることで、`**bold**` が軟改行をまたぐ場合も 1 度で拾う。
     """
     children = children or []
     if not any(c.type == "image" for c in children):
@@ -204,7 +203,7 @@ def _render_inline(children, env) -> str:
 
 
 def _inline_text(inline_token) -> str:
-    """インライントークンの素テキスト（TOC 見出し用。`code`/**bold** マーカーは旧同様そのまま）。"""
+    """インライントークンの素テキスト（TOC 見出し用。`code`/**bold** マーカーはそのまま残す）。"""
     return "".join(c.content for c in (inline_token.children or [])
                    if c.type == "text")
 
@@ -452,7 +451,7 @@ figcaption::before {{ content:"図 " counter(fig) "　"; font-weight:700; }}
 /* mermaid（未描画時は整形コードとして見せる） */
 pre.mermaid {{ background:var(--card); border:1px solid var(--hair); border-radius:6px;
   padding:16px; text-align:center; overflow-x:auto; line-height:1.4; }}
-/* 手引き冊子の最上位番号手順 = 作業ステップカード（旧 Word 案3 カード型の後継・署名要素）。
+/* 手引き冊子の最上位番号手順 = 作業ステップカード（本 docs の署名要素）。
    ネストした番号/箇条書きは通常表示のまま */
 .book-guide section.doc > ol {{ list-style:none; padding-left:0; counter-reset:step; }}
 .book-guide section.doc > ol > li {{ counter-increment:step; position:relative;
@@ -597,7 +596,7 @@ def _page(book_title: str, body_class: str, nav_html: str, main_html: str,
 
 
 def _build_guide_book(book_title, srcs, img_dir, out_path, warnings):
-    """guide 冊子（操作手順書）。原稿ごとの表紙 h1 + 本文の従来構成。"""
+    """guide 冊子（操作手順書）。原稿ごとの表紙 h1 + 本文の構成。"""
     sections, nav = [], []
     has_mermaid = False
     for di, (src, meta, body) in enumerate(srcs):

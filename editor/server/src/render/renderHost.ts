@@ -150,11 +150,11 @@ async function nunjucksBundle(): Promise<string> {
  * ただし脱出そのものは安く塞げるので塞ぐ。
  *
  * **塞ぐ対象は「経路の全列挙」で数える。** nunjucks がテンプレの字面から外部の値へ触る
- * 経路は 3 本あり、1 本でも数え落とすと関門をすり抜ける。当初は 1. と 2. だけを包んでおり、
- * **3. のフィルタ解決だけが素通りする形**があった。`{{ 1|valueOf }}` が
+ * 経路は 3 本あり、1 本でも数え落とすと関門をすり抜ける。1. と 2. だけを包むと
+ * **3. のフィルタ解決だけが素通りする形**が残る。`{{ 1|valueOf }}` が
  * `Object.prototype.valueOf.call(context, 1)` として解決されて **Context そのもの**を返し、
  * そこから `context.env` → `env.getFilter("constructor")`(= `Object`)→ `Function` と辿って
- * 任意 JS が実行できた。`"constructor"` が**文字列引数**でありプロパティ参照ではないため、
+ * 任意 JS が実行できる。`"constructor"` が**文字列引数**でありプロパティ参照ではないため、
  * 1. の名前遮断には掛からない。経路の列挙は `renderHost.test.ts` が固定する。
  *
  *  1. **プロパティ参照** — `runtime.memberLookup` / `runtime.contextOrFrameLookup` を包み、

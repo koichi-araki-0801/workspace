@@ -1,10 +1,10 @@
 // =============================================================================
-// zipBodyParser.test.ts — zip 本文パーサの適用範囲(F22)
+// zipBodyParser.test.ts — zip 本文パーサの適用範囲
 // =============================================================================
 // 関数形式の content-type parser は Fastify の `rawBody` を経由しないので `bodyLimit` が
-// **一切効かない**。それをルートインスタンスへ登録していた版は、encapsulation の伝播と
+// **一切効かない**。それをルートインスタンスへ登録すると、encapsulation の伝播と
 // 相まって「任意の POST/PUT に `Content-Type: application/zip` を付ければ `maxProjectBytes`
-// (既定 64MB)を積める」状態だった。パーサは preHandler より先に走るのでロールガードは
+// (既定 64MB)を積める」状態になる。パーサは preHandler より先に走るのでロールガードは
 // 1 バイトも防げない。
 //
 // 主張するのは「**適用範囲が閉じていること**」と「**上限が効くこと**」:
@@ -31,7 +31,7 @@ describe('許可リスト', () => {
   });
 
   it('登録パターン以外(生 URL の綴り差・非文字列)は通さない', () => {
-    // 生の request target で照合していた版は percent-encoding で判定を外せた。
+    // 生の request target で照合すると percent-encoding で判定を外せてしまう。
     // ここへ渡すのは常に `request.routeOptions.url`(復号済みの登録パターン)である。
     expect(isZipBodyRoute(allowed, '/api/build/%70roject')).toBe(false);
     expect(isZipBodyRoute(allowed, undefined)).toBe(false);

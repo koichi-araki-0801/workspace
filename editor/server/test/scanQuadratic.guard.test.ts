@@ -3,7 +3,7 @@
 // =============================================================================
 // `inlineCss.findRawTextEnd` と `security/templateScripts.rawTextEnd` は、raw text 要素の
 // 終了タグを大小文字無視で探すために入力全体の小文字化コピーを使う。これを**関数の中**で
-// 作っていた版は、raw text 開始タグ 1 つにつき入力全体を 1 回コピーしていた:
+// 作ると、raw text 開始タグ 1 つにつき入力全体を 1 回コピーすることになる:
 //   - `inlineCss` の `RAW_TEXT_ELEMENTS` には `title` が入るので `<title></title>` の反復が
 //     最悪形(15 バイト/回)。1MB の本文で ~70,000 回の全長コピーになる。
 //   - `templateScripts` は `scanOpenTags` と `rawTextOf` の双方から呼ぶので要素あたり 2 コピー。
@@ -26,7 +26,7 @@ const read = (rel: string): string => fs.readFileSync(path.join(srcDir, rel), 'u
 
 /**
  * コメントを落としたソース。数えたいのは**実行されるコピー**なので、同じ字面を含む
- * 解説文(「ここで `html.toLowerCase()` していた版は…」)は数から外す。
+ * 解説文(「ここで `html.toLowerCase()` すると…」)は数から外す。
  */
 const code = (rel: string): string =>
   read(rel)

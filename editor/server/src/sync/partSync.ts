@@ -85,8 +85,8 @@ const isNameChar = (c: string): boolean => isNameStart(c) || (c >= '0' && c <= '
  * HTML をタグ単位に走査する。**不変則: カーソル `i` は単調非減少で、決して戻さない**
  * — 前進は `indexOf` か 1 文字進みのみ。これが線形性の唯一の根拠であり、
  * 「閉じ引用符が無いのでこの `<` は文字データだった」と解釈し直して巻き戻す実装を
- * 書いた瞬間に二次計算量(旧 `TAG_RE` の ReDoS)が復活する。閉じられない引用符・
- * 閉じられない `>` は**走査全体の打ち切り**で表現すること。
+ * 書いた瞬間に二次計算量(バックトラック型正規表現の ReDoS と同型)が復活する。
+ * 閉じられない引用符・閉じられない `>` は**走査全体の打ち切り**で表現すること。
  *
  * コメント・doctype・処理命令はトークンを出さずに読み飛ばす。RAWTEXT 要素
  * (`script` 等)は開始タグを出したあと、対応する終了タグまでを丸ごと飛ばす
@@ -186,8 +186,8 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
 
 /**
  * 開始タグの属性区間から `data-part-id` の値を取り出す。無ければ null。引用符あり・
- * 引用符なし(`data-part-id=foo`)の双方を拾う — 旧実装(`PART_ID_RE`)は引用符付きしか
- * 見ておらず、引用符なしのパーツが同期対象から静かに落ちていた。
+ * 引用符なし(`data-part-id=foo`)の双方を拾う — 引用符付きしか見ない判定では、
+ * 引用符なしのパーツが同期対象から静かに落ちる。
  */
 function findPartId(html: string, from: number, to: number): string | null {
   let i = from;

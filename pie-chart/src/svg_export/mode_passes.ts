@@ -62,7 +62,7 @@ import { applyOutsideLeaderAngularOrder, countDefects } from './emit_repair.js';
 import type { DefectCounts, SeamSnap } from './emit_repair.js';
 
 // twoLineLeftStackMode の左列ラベルを円縁 (rim) からどれだけ外側へ離すかの mid-angle 放射係数。
-// 1.0 で円ハグ (旧)。参考 PDF はラベルと円の間に ~0.3R の隙間を空け、リーダー線が長い斜め線として
+// 1.0 で円ハグ。参考 PDF はラベルと円の間に ~0.3R の隙間を空け、リーダー線が長い斜め線として
 // 明確に見える。anchor は rim のまま (この係数は box 位置のみに効く) なので、リーダーは rim→box の
 // 長い斜め直線になる。円侵入は起きないため verify/スコアラへの影響はない。
 const TWO_LINE_LEFT_OUT_FACTOR = 1.28;
@@ -75,7 +75,7 @@ const TOP_SEAM_ESCAPE_HALF_WIDTH_DEG = 32;
 const RESTACK_DROP_STEPS = 8;
 
 // leader 折れ線の幾何プリミティブ (`computeDrawnLeader` / `isRedundantUpperLeftSmallLeader` /
-// `resolveLeaderCrossings` / `distPointToSegment`) と型 `Pt` / `Coord` は `./leader_geometry.js` へ分離した。
+// `resolveLeaderCrossings` / `distPointToSegment`) と型 `Pt` / `Coord` は `leader_geometry.ts` 側。
 /** `leftStackMode` の左列とみなす placement (side=left・baseline=bottom・非 inside・x<0)。 */
 export function isLeftStackMember(p: Placement): boolean {
   return p.item.side === 'left' && p.baseline === 'bottom' && !p.insideSlice && p.x < 0;

@@ -55,7 +55,7 @@ function displayValue(value: unknown): string {
 </script>
 
 <template>
-  <!-- `open-on-focus`/`open-on-click`: 旧 `Select` と同じく入力欄クリックで全候補を開く
+  <!-- `open-on-focus`/`open-on-click`: `Select` と同じく入力欄クリックで全候補を開く
        (Combobox 既定は false で, タイプかトグル押下まで開かない)。`ignore-filter` で reka
        既定の部分一致を切り, `filtered` の前方一致だけを描画する。 -->
   <ComboboxRoot

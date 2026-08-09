@@ -202,7 +202,7 @@ describe('複数 URL 属性は分解して全部見る', () => {
   });
 });
 
-// ── 列挙漏れだった URL 属性(F35)──
+// ── 列挙漏れになりやすい URL 属性 ──
 // 属性の数え上げは必ず漏れる。漏れを塞ぐこと自体は必要だが、**強制点は egressGuard** で
 // あることを忘れないこと(`htmlExternalRefs.ts` 冒頭)。ここは 400 で早期に返す層。
 describe('列挙漏れだった取得系属性', () => {
@@ -264,7 +264,7 @@ describe('meta http-equiv=refresh の content', () => {
   });
 });
 
-// ── バックスラッシュの scheme 相対(F24)──
+// ── バックスラッシュの scheme 相対 ──
 // WHATWG URL パーサは特殊スキームの base に対し `\` を `/` と同一視する。
 describe('バックスラッシュで書いた scheme 相対', () => {
   it.each([

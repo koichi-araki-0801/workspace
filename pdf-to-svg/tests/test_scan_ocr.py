@@ -1,4 +1,4 @@
-"""スキャン判定 (`is_scanned`)・背景画像の SVG 埋め込みの単体テスト (OCR は廃止)。
+"""スキャン判定 (`is_scanned`)・背景画像の SVG 埋め込みの単体テスト (OCR は行わない)。
 
 `load_document` がページをスキャン扱いし `background` を持つこと、`page_to_svg` が
 背景を base64 PNG の `<image>` として埋め込むことを確認する。

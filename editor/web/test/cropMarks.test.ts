@@ -44,8 +44,8 @@ describe('withCropMarks', () => {
     expect(CROP_MARKS_CSS).toMatch(/marks:\s*crop cross/);
   });
 
-  // 旧実装は `</head>` を文字列で探して割り込んでいた。属性値に字面を置くと、アプリが
-  // 組み立てた <style> が属性値の内側へ落ち、続く字面が属性トークン列として再解釈された。
+  // `</head>` を文字列で探して割り込む形だと、属性値に字面を置くだけで、アプリが
+  // 組み立てた <style> が属性値の内側へ落ち、続く字面が属性トークン列として再解釈される。
   it('属性値に埋めた </head> の字面で <style> が属性の内側へ落ちない', () => {
     const evil = '<html><head><title data-x="</head>">t</title></head><body>b</body></html>';
     const out = withCropMarks(evil, true);

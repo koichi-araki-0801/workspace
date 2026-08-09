@@ -395,10 +395,10 @@ function topBandSonohokaRight(
  * clusterTopBandBottomRight) で共有する、箱を **pie キャップより完全に上** へ持ち上げる
  * draft ビルダ。
  *
- * 旧実装は箱上端 (baseline=bottom の textY) を pieRadius + 小クリアランスに置いたが、箱下端
+ * 箱上端 (baseline=bottom の textY) を pieRadius + 小クリアランスに置く形だと、箱下端
  * (= textY − 高さ) が円の y 域 (|y| < pieRadius) に入るため、後段 pie クリアランスクランプが
  * 「右側ラベルの下限 textX」を insidePieR まで押し上げ、ラベルが右へ大きく飛んで水平 leader が
- * チャート上部を横断していた (参考 PDF は短い縦/斜め leader)。
+ * チャート上部を横断する (参考 PDF は短い縦/斜め leader)。
  *
  * 本ビルダは箱下端を pieRadius + クリアランスへ揃え (= 箱全体が円の上)、pieClampXLimits が null を
  * 返すようにして横押し出しを無効化する。labelX オフセットも控えめ (radialFraction(0.12,1.5)) にし、

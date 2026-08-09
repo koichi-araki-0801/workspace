@@ -13,7 +13,8 @@ import {
 
 // ── 1. 純粋ユーティリティ (状態を持たない) ──
 
-// `parsePath` / `buildPath` / `parseTranslate` は `leader_geom.cjs` へ移設 (冒頭で分割代入)。
+// `parsePath` / `buildPath` / `parseTranslate` は `leader_geom.cjs` が実装し `geom.js` が
+// 再エクスポートする。
 
 /** 文字列を HTML 属性/テキストへ埋める際のエスケープ。
  *  新しく動的な値を画面へ出す時は、まず `textContent` / `setAttribute` を検討すること。
@@ -43,7 +44,7 @@ function safeGetBBox(el, fallback = { x: 0, y: 0, width: 0, height: 0 }) {
   }
 }
 
-// `normColor` は `leader_geom.cjs` へ移設 (冒頭で分割代入)。
+// `normColor` は `leader_geom.cjs` が実装し `geom.js` が再エクスポートする。
 
 // ── 2. 未信頼 SVG の取り込み (構成的 allowlist) ──
 // 読み込んだ SVG は `<img>` でも sandbox iframe でもなく**アプリ origin の生 DOM へ
@@ -175,9 +176,9 @@ const SVG_PICKER_TYPES = [{ description: "SVG ファイル", accept: { "image/sv
 // すべてこれを参照するため、項目追加はここ 1 箇所で済む。
 //
 // `equals` を持つ理由: 「編集済みか」の判定 (`editor.js` の `isLabelEdited`) は
-// レール描画から**ドラッグ中の毎フレーム・全ラベル分**呼ばれる。以前は
-// `JSON.stringify(snapshot()) !== JSON.stringify(initial)` で、1 フレームあたり
-// ラベル数 × 2 回の直列化と、その分のスナップショット複製を行っていた。等値判定を
+// レール描画から**ドラッグ中の毎フレーム・全ラベル分**呼ばれる。
+// `JSON.stringify(snapshot()) !== JSON.stringify(initial)` で比べると 1 フレームあたり
+// ラベル数 × 2 回の直列化と、その分のスナップショット複製が要る。等値判定を
 // フィールドごとに持てば、複製も文字列化もせずに比較だけで済む。
 const STATE_FIELDS = {
   textTx: { copy: (v) => ({ ...v }), equals: (a, b) => a.x === b.x && a.y === b.y },

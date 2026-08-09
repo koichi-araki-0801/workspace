@@ -90,7 +90,7 @@ function projectOptions(
 export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   registerZipBodyParser(app);
 
-  // POST /api/build — inline(レンダリング済み HTML + CSS)→ PDF。旧 /pdf を置き換える。
+  // POST /api/build — inline(レンダリング済み HTML + CSS)→ PDF。
   app.post<{ Body: z.infer<typeof BuildInlineRequest> }>(
     apiPaths.build,
     { preHandler: [requireAuth, validate(BuildInlineRequest)] },
@@ -175,7 +175,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // GET /api/preview — 稼働中のプレビューセッション一覧(メタデータのみ・自分の分だけ)。
-  // 全件返していた頃は、id を列挙してプロキシ経由で他人の作業を読めた(IDOR の足場)。
+  // 全件返すと、id を列挙してプロキシ経由で他人の作業を読める(IDOR の足場)。
   app.get(apiPaths.preview, { preHandler: requireAuth }, async (request) => {
     return previewManager.list(actorOf(request));
   });

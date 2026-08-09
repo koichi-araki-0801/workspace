@@ -1,8 +1,8 @@
 // =============================================================================
 // session.test.ts — Cookie ヘッダからのセッション id 抽出(fail-closed)
 // =============================================================================
-// 以前は Cookie ヘッダの**全**エントリへ `decodeURIComponent` を try/catch 無しで掛けて
-// いたため、editor と無関係な壊れた cookie が 1 個混ざるだけで全 API が 500 になった。
+// Cookie ヘッダの**全**エントリへ `decodeURIComponent` を try/catch 無しで掛けると、
+// editor と無関係な壊れた cookie が 1 個混ざるだけで全 API が 500 になる。
 // ここで主張するのは「攻撃者が送り込める入力で例外にならない・DB まで降りない」こと。
 import fs from 'node:fs';
 import os from 'node:os';

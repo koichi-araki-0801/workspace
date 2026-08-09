@@ -1,8 +1,8 @@
 // =============================================================================
 // output_escaping.test.ts — 設定値の素通し(P022 / P039 / P043)の退行ガード
 // =============================================================================
-// 以前は「エスケープすべき属性」を列挙する形で、同じ 1 行の中で `font-family` は escape され
-// `fill` は素通し、という非対称があった。`--font-weight '400" onload="alert(1)'` で全 `<text>`
+// 「エスケープすべき属性」を列挙する形だと、同じ 1 行の中で `font-family` は escape され
+// `fill` は素通し、という非対称が生まれる。`--font-weight '400" onload="alert(1)'` で全 `<text>`
 // に onload が付くことが実測されている。**「迂回入力で throw すること」を主張する形**で書く。
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -102,7 +102,8 @@ describe('設定値の許可リスト(P022)', () => {
 });
 
 // F46 の第 2 層。config の検査を迂回して cfg を直に組んでも、フォントとして解釈できない
-// バイト列は埋め込まれない(以前は subset 失敗 → 原本を truetype と名乗って base64 埋込)。
+// バイト列は埋め込まれない(subset 失敗時に原本を truetype と名乗って base64 埋込する
+// fallback へ倒さない)。
 describe('埋め込みフォントの fallback(F46)', () => {
   it('フォントでないファイルは subset 失敗時に埋め込まず投げる', async () => {
     const { buildFontFaceDefs } = await import('../src/svg_export/font.js');

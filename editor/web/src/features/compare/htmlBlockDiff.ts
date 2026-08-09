@@ -272,14 +272,14 @@ function declHasBreak(decls: string, which: 'before' | 'after'): boolean {
  * `el.matches(selector)` で top-level block 側を判定するために使う。
  *
  * 正規表現 `/([^{}]+)\{([^{}]*)\}/g` は波括弧を含まない入力に対して開始位置ごとに末尾まで
- * 舐め直す二次で、実測 160KB = 13 秒・800KB で 5 分超だった。**カーソル単調前進**の走査へ
- * 置き換える — 前進は `indexOf` か 1 文字進みだけで、決して戻さない(戻す実装を書いた
+ * 舐め直す二次になる(実測 160KB = 13 秒・800KB で 5 分超)。**カーソル単調前進**の走査で
+ * 書く — 前進は `indexOf` か 1 文字進みだけで、決して戻さない(戻す実装を書いた
  * 瞬間に二次が復活する)。閉じない `{` は入力末尾で打ち切る(例外にしない)。
  *
  * `@media` / `@supports` / `@layer` / `@container` は**条件付きグループ規則**で中身は通常の
- * スタイル規則なので、深さを 1 段下げて同じループで収集する。旧実装(二次の正規表現
- * `/([^{}]+)\{([^{}]*)\}/g`)は `@media print { .p { page-break-after: always } }` に対し
- * `['.p', …]` を返していたので、読み飛ばすと承認画面のページ分割が変わる(= 差分の
+ * スタイル規則なので、深さを 1 段下げて同じループで収集する。
+ * `@media print { .p { page-break-after: always } }` の `.p` も改ページ対象で、
+ * 読み飛ばすと承認画面のページ分割が変わる(= 差分の
  * ページ対応が変わる)。`@page` / `@font-face` / `@keyframes` は中身が宣言かマージン
  * ボックスなので従来どおりブロックごと飛ばす。
  */
@@ -295,7 +295,7 @@ function extractBreakSelectors(css: string | undefined): BreakSelectors {
     const open = lower.indexOf('{', i);
     if (open < 0) break;
     // グループ規則の閉じ `}` を跨いだ位置から読み始めることがあるので、prelude は最後の
-    // `}` より後ろだけを採る(旧実装の `[^{}]+` と同じ範囲になる)。
+    // `}` より後ろだけを採る(素朴な `[^{}]+` 抽出と同じ範囲になる)。
     const rawPrelude = lower.slice(i, open);
     const afterBrace = rawPrelude.lastIndexOf('}');
     const prelude = (afterBrace < 0 ? rawPrelude : rawPrelude.slice(afterBrace + 1)).trim();

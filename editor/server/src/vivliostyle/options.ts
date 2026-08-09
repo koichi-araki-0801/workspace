@@ -56,8 +56,7 @@ const EGRESS_BYPASS_HOSTS = '127.0.0.1,localhost,[::1]';
  *
  * 設定済みブラウザ(自動検出したシステム Edge / オフライン)を固定し、実行時に Chromium を
  * ダウンロードしようとしないようにする。puppeteer は Windows のバックスラッシュ区切りの
- * `executableBrowser` パスを解決できないため、スラッシュへ正規化する
- * (旧 `pdf/vivliostyle.ts` からここへ移設)。
+ * `executableBrowser` パスを解決できないため、スラッシュへ正規化する。
  *
  * egress 遮断の中継(`startEgressGuard`)をここで起動して待つので **async**。起動に失敗
  * したら throw して build ごと落とす — 遮断無しで組版へ進む縮退は作らない(fail closed)。

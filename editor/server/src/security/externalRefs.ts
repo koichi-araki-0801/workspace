@@ -7,10 +7,10 @@
 //   - 属性セレクタ + 背景画像で 1 文字ずつ URL へ載せる帳票内容の持ち出し
 // が 1 リクエストで成立する。
 //
-// **関門はここ(サーバの build 入口)に置く。** 以前はブラウザの `web/src/lib/pdfDocument.ts`
-// だけが検査しており、公開 API `POST /api/build` `/api/build/project` `/api/build/merge` へ
-// 直接 POST すれば無検査で headless へ届いた。守るべき境界ではなく迂回できる側へ関門を
-// 置いた形で、A1 でやった「経路を閉じずヘッダだけ足す」と同型である。web 側の検査は
+// **関門はここ(サーバの build 入口)に置く。** 検査がブラウザの `web/src/lib/pdfDocument.ts`
+// だけにあると、公開 API `POST /api/build` `/api/build/project` `/api/build/merge` へ
+// 直接 POST すれば無検査で headless へ届く。守るべき境界ではなく迂回できる側へ関門を
+// 置く形(「経路を閉じずヘッダだけ足す」と同型)になる。web 側の検査は
 // 早期フィードバックとして残すが、判定関数は `@editor/shared` の 1 つを共有する。
 //
 // 検査対象は 3 面ある。1 つでも欠けるとそこが迂回路になる:
@@ -90,12 +90,12 @@ const NESTED_UNPARSABLE_REF = '<iframe srcdoc="(解析不能)">';
 function collectHtmlRefs(html: string, out: string[], depth: number): void {
   const scan = scanTags(html);
   if (!scan.ok) {
-    // 解析を諦めた入力でも **諦める前に読めたタグは必ず検査する**。捨てていた版は、
-    // 末尾に閉じないタグを 1 つ置くだけで手前の全タグが検査から消えた。
+    // 解析を諦めた入力でも **諦める前に読めたタグは必ず検査する**。捨てると、
+    // 末尾に閉じないタグを 1 つ置くだけで手前の全タグが検査から消える。
     collectFromTags(scan.tags, out, depth);
     out.push(...findExternalRefsInCss(html));
     // 入れ子は fail closed。CSS 走査は引用符なし属性値を 1 つも見ないので、
-    // `<iframe srcdoc="<img src=https://evil/x><b">` が零件で通っていた(実測)。
+    // `<iframe srcdoc="<img src=https://evil/x><b">` が零件で通る(実測)。
     if (depth > 0) out.push(NESTED_UNPARSABLE_REF);
     return;
   }

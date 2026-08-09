@@ -561,7 +561,7 @@ export function applyVisualViewBoxNudge(textPlacements: Placement[], cfg: PieLay
     else if (bboxTop < -cfg.pieRadius) closestPieY = bboxTop;
     else closestPieY = Math.abs(bboxTop) < Math.abs(bboxBottom) ? bboxTop : bboxBottom;
     // 実効クリアランス (viewBox 収まりキャップ)。狙い値のままだと、幅広ラベルの見切れ解消 shift が
-    // pie 側で早く頭打ちになり、旧クリアランスなら回収できた見切れが残る。
+    // pie 側で早く頭打ちになり、下限 (`pieLabelClearanceMin`) なら回収できた見切れが残る。
     const pieClearance = pieClearanceWithinViewBox(
       cfg,
       Math.abs(closestPieY) < cfg.pieRadius ? pieYAtX(closestPieY, cfg) : 0,
@@ -653,9 +653,9 @@ export function applyFinalCondenseToFit(textPlacements: Placement[], cfg: PieLay
 
 /**
  * 長体 (nameScaleX < 1) になった外側ラベルを「キャンバスに収まる範囲で原寸へ向けて」緩和し、
- * ラベルごとにギリギリ収まる最大サイズ (上限 sx=1 = デフォルトの大きさ) にする。旧来の
- * 「1 つでも長体なら全ラベルを統一圧縮」方針の置き換えで、収まるラベルは原寸のまま・
- * はみ出すラベルだけ必要最小限の長体に落ち着く。
+ * ラベルごとにギリギリ収まる最大サイズ (上限 sx=1 = デフォルトの大きさ) にする。
+ * 「1 つでも長体なら全ラベルを統一圧縮」だと収まるラベルまで縮むため、収まるラベルは
+ * 原寸のまま・はみ出すラベルだけ必要最小限の長体に落ち着く形を採る。
  *
  * 候補へラウンドロビンで +0.025 ずつ与える (逐次貪欲だと配列先頭が共有空間を独占するため)。
  * 1 ステップの採用条件 (満たさなければ revert):

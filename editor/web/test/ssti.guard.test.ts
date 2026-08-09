@@ -1,11 +1,11 @@
 // =============================================================================
 // ssti.guard.test.ts — 「アプリオリジンで Jinja をコンパイルしない」ガード
 // =============================================================================
-// 所見 F1: `compareService` が申請者の書いたテンプレ本文を承認者のページオリジンの
-// メインスレッドで nunjucks コンパイルしていた。nunjucks はサンドボックスではなく
+// `compareService` が申請者の書いたテンプレ本文を承認者のページオリジンの
+// メインスレッドで nunjucks コンパイルする形は許されない。nunjucks はサンドボックスではなく
 // **コンパイラ**で、`{{ range.constructor("…")() }}` は `new Function` へ到達する。走った JS は
 // 承認者のセッション(HttpOnly cookie は同一オリジン fetch へ自動で付く)のまま承認 API を
-// 叩けるため、editor 1 ロールで職務分掌が破れていた。
+// 叩けるため、editor 1 ロールで職務分掌が破れる。
 //
 // 直したのは「どこでコンパイルするか」であって、入力の検査ではない。ゆえに守るべき不変則は
 // 個々の入力に対する挙動ではなく**呼び出しの形**で、それはソース走査でしか固定できない:
@@ -54,7 +54,7 @@ const WORKER_FILES = [
   path.join(WEB_SRC, 'workers/fallback.ts'),
 ];
 
-/** 隔離描画を通さねばならない経路(F1 の実体 + PDF 系)。 */
+/** 隔離描画を通さねばならない経路(承認・比較画面 + PDF 系)。 */
 const ISOLATED_CALLERS = [
   path.join(WEB_SRC, 'features/compare/services/compareService.ts'),
   path.join(WEB_SRC, 'features/preview/services/templatePreviewService.ts'),
@@ -83,8 +83,8 @@ describe('SSTI ガード — Jinja のコンパイルはアプリオリジンで
 
   it('nunjucks を直に import してよいのは nunjucksRender だけ', () => {
     // 新しい描画経路が別ファイルに生えると、隔離を経ないコンパイルが静かに復活する。
-    // かつては `fillJinja.ts`(作成タブの値差込)も例外だったが、`jinjaExpr.ts` の許可
-    // リスト評価器へ置き換えて依存を断ったため例外は 1 つも無い。この 0 件が、全域 CSP
+    // `fillJinja.ts`(作成タブの値差込)も `jinjaExpr.ts` の許可リスト評価器で実装して
+    // おり、例外は 1 つも無い。この 0 件が、全域 CSP
     // から `'unsafe-eval'` を落とせている根拠でもある(`server/src/config.ts`)。
     const allowed = new Set([RENDER_JINJA_HOME]);
     const offenders = ALL_SOURCES.filter((file) => {
@@ -98,7 +98,7 @@ describe('SSTI ガード — Jinja のコンパイルはアプリオリジンで
   it('アプリコードは eval / new Function を自前で持たない', () => {
     // `'unsafe-eval'` を落とした以上、呼べば CSP 違反で必ず落ちる。落ちた結果を
     // `catch` で握られると「値が空になるだけ」で無言の退行になるため、書かせない側で
-    // 止める(`fillJinja.ts` が旧実装で嵌っていたのがまさにこの形)。
+    // 止める(値を黙って空にする `catch` がまさにこの形 — `fillJinja.ts` を見よ)。
     const offenders = ALL_SOURCES.filter((file) => {
       const code = stripComments(readFileSync(file, 'utf8'));
       return /\bnew\s+Function\s*\(|(?<![.\w])eval\s*\(/.test(code);

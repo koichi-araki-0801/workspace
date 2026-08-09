@@ -10,7 +10,7 @@
 //     ODBC 接続文字列は `;` 区切りの key=value 列で、値の中の `;` はそのまま新しい
 //     キーワードの開始になる(`FILEDSN=\\attacker\share\a.dsn` の注入で統合認証の
 //     チャレンジレスポンスが外へ出る)。
-//   - 列解決は xlsx_loader と同じ思想: `nameColumn`/`valueColumn` 指定時は列名で、
+//   - 列解決は `load.ts` の xlsx 経路と同じ思想: `nameColumn`/`valueColumn` 指定時は列名で、
 //     無指定時は結果セットの先頭 2 列を name/value とみなす(3 列以上はあいまいなので拒否)。
 //   - name 空欄・value 数値変換不可は明示エラー、name/value とも空の行はスキップ。
 // 接続は editor フェーズ2(`editor/server/src/db/pool.ts`)と同じ msnodesqlv8 +
@@ -199,7 +199,7 @@ export function assertLooksLikeSelect(query: string): void {
 
 // ── 3. 結果セットの解決と読み出し ──────────────────────────────────────────
 
-/** 数値として読めなければ null(カンマ区切りは許容)。xlsx_loader と同じ流儀。 */
+/** 数値として読めなければ null(カンマ区切りは許容)。`load.ts` の xlsx 経路と同じ流儀。 */
 function toNumber(v: unknown): number | null {
   if (v == null || v === '') return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
@@ -209,7 +209,7 @@ function toNumber(v: unknown): number | null {
 
 /**
  * 結果セット(行オブジェクト配列)から name/value 2 列を解決し `[name, value][]` を返す。
- * 戻り値は data.ts の `normalizeInputItems` で `{name, value}` に整形される。
+ * 戻り値は `load.ts` の `normalizeInputItems` で `{name, value}` に整形される。
  */
 export function rowsToItems(
   rows: Record<string, unknown>[],

@@ -34,9 +34,9 @@ interface ExtractedProject {
 }
 
 // ── 展開して残すファイルの許可リスト ──
-// 以前は「実行可能な config のファイル名」を数え上げて拒否していた。数え上げは漏れる:
+// 「実行可能な config のファイル名」を数え上げて拒否する方式は漏れる:
 // 別ツールの config(`vite.config.js`)、同じ名前の別綴り(`vivliostyle.config.JS`)、
-// 名前では判別できない中身(theme 指定子)で 3 通りに破られた。**数え上げが漏れるのではなく、
+// 名前では判別できない中身(theme 指定子)の 3 通りで破られる。**数え上げが漏れるのではなく、
 // 数え上げるという設計が漏れる。** よって「書き出す拡張子を数える」方式へ反転する。
 //
 // 判定は 3 分類で、既定は reject:
@@ -457,8 +457,8 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
     if (!existsSync(pkg)) await fs.writeFile(pkg, '{}\n', 'utf8');
 
     const configPaths = await findConfigFiles(dir);
-    // 2 件以上は 400。以前は BFS 順の最初の 1 件を黙って採っていたため、深い所に別の
-    // config を隠して「どちらが効くか」を人間に判らなくできた。曖昧なら拒否へ倒す。
+    // 2 件以上は 400。BFS 順の最初の 1 件を黙って採ると、深い所に別の
+    // config を隠して「どちらが効くか」を人間に判らなくできる。曖昧なら拒否へ倒す。
     if (configPaths.length > 1) {
       throw validation('vivliostyle.config.json が複数あります。1 つにしてください');
     }

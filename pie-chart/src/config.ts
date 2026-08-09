@@ -1,5 +1,5 @@
 // =============================================================================
-// config.ts — レイアウト/描画パラメータ集約 (graph/config.js の TS 移植)
+// config.ts — レイアウト/描画パラメータ集約
 // -----------------------------------------------------------------------------
 // 1 viewBox unit = 1px 固定。pie 直径は `pieHeightRatio` × `svgHeightPx`(高さの 70% 固定)で、
 // 半径は `fontSize` 非依存。上下余白 `marginCapPx` は (svgHeightPx - 直径)/2 で逆算する。
@@ -70,7 +70,7 @@ function assertConfigValues(base: {
   assertFontWeight('fontWeight', base.fontWeight);
   assertFontFamilyName('embedFontFamilyName', base.embedFontFamilyName);
   // 埋込フォントのパスは**ファイルの中身が出力へ入る**唯一のフィールドなので、色やフォント名と
-  // 同じくここで許可リストに掛ける(以前はこの 1 つだけが検証から漏れていた)。
+  // 同じくここで許可リストに掛ける(ここから漏れると唯一の未検証入口になる)。
   if (typeof base.embedFontPath !== 'string' || !ALLOWED_EMBED_FONT_PATHS.has(base.embedFontPath))
     throw new Error(
       `embedFontPath は同梱フォントのみ指定できます: ${JSON.stringify(base.embedFontPath)} ` +
@@ -163,17 +163,17 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     insideSliceClearance: 0.04,
     insideSliceAngularClearanceDeg: 3,
     // 円とラベル bbox の狙いギャップ (pieRadius 比)。0.05 では円に張り付いて窮屈に見えるため
-    // 0.08 へ広げた (意図的な出力変更、baseline 更新済み)。0.09 以上は「その他」の垂直 leader に
+    // 0.08。0.09 以上は「その他」の垂直 leader に
     // 2px 超の水平ドリフトが出て leader_invariants の独立オラクルに抵触するため、これが上限。
     // 実効値はラベルごとに「viewBox に収まる範囲」でのみ本値まで広がる
-    // (`layout/geometry.ts` の `pieClearanceWithinViewBox`)。幅広ラベルは `pieLabelClearanceMin` へ縮み、
-    // 旧既定 0.05 と同位置に留まる = クリアランス拡大が見切れを新設しない。
+    // (`layout/geometry.ts` の `pieClearanceWithinViewBox`)。幅広ラベルは `pieLabelClearanceMin`
+    // (0.05) へ縮む = クリアランス拡大が見切れを新設しない。
     // 消費点の `Math.max(cfg.pieLabelClearance, radialFraction(...))` の floor は既定スケールで
     // 0.012〜0.0144 と本値より十分小さく素通しなので、円からの距離の実効レバーは本値のみ。
-    // 回転採用時は `index.ts` の `adoptRotatedWithClearancePush` が本値へ push を加算する。
+    // 回転採用時は `pipeline.ts` の `adoptRotatedWithClearancePush` が本値へ push を加算する。
     pieLabelClearance: 0.08,
-    // 実効クリアランスの下限 = 旧既定値。viewBox に収まらない幅広ラベルはここまで円へ寄せてよい
-    // (旧挙動と同位置)。これ未満へ縮めると旧 baseline より円に近づく退行になるため下げない。
+    // 実効クリアランスの下限。viewBox に収まらない幅広ラベルはここまで円へ寄せてよい。
+    // これ未満へ縮めるとラベルが円に近づき `out/_baseline` と乖離する退行になるため下げない。
     pieLabelClearanceMin: 0.05,
     darkSliceTextColor: '#ffffff',
     darkSliceFillIndexMin: 2,

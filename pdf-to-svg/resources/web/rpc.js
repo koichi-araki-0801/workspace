@@ -34,7 +34,7 @@
   };
 
   window.__rpcReady = Promise.resolve();
-  window.onProgress = function () {}; // 進捗はフロントがローカル表示 (サーバ push 廃止)。
+  window.onProgress = function () {}; // 進捗はフロントがローカル表示 (サーバからの push は無い)。
 
   window.rpc = async function (method, args) {
     var res = await fetch("/rpc", {

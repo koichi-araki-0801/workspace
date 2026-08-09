@@ -19,7 +19,7 @@ const parseText = (text: string) => parseProjectConfig(text, ROOT, isFile);
 
 describe('parse そのもの', () => {
   it('JSONC は 400(パーサを 1 つに絞ったので、コメント入りは単に読めない)', () => {
-    // 以前は我々が JSON.parse に失敗すると黙って素通しし、CLI 側は JSONC で読めていた。
+    // JSON.parse の失敗を黙って素通しすると、CLI 側は JSONC で読めてしまう。
     // 同じバイト列を 2 つのパーサが読む構造こそが根で、第 2 のパーサを消すのが直し方。
     expect(() => parseText('{"entry":"a.md" /* c */}')).toThrow();
     expect(() => parseText('// x\n{"entry":"a.md"}')).toThrow();
@@ -107,7 +107,7 @@ describe('theme', () => {
 
   it.each([
     // 大小文字を畳んではいけない。CLI 側は `endsWith(".css")` で区別するため、畳んで通すと
-    // file 分岐に入らず npa → arborist の postinstall へ落ちる(R7 の本体)。
+    // file 分岐に入らず npa → arborist の postinstall へ落ちる。
     'theme.CSS',
     '../outside.css',
     'http://evil.example/x.css',

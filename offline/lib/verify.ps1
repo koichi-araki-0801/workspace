@@ -2,7 +2,7 @@
 # publish / setup / setup-local から dot-source して使う（`content-key.ps1` と同じ運用）。
 # 日本語コメントを含むため UTF-8 BOM 必須（cp932 環境で文字化けさせない）。
 #
-# 設計方針（セキュリティ所見 F14/F19/F20 対応）:
+# 設計方針:
 #   - 「配信元（GitHub Releases）から取る digest」に真正性を期待しない。バンドルを差し替え
 #     られる攻撃者は対応する .sha256 も並べて置けるため、あの sidecar は転送破損の検知にしか
 #     ならない。真正性の根拠は (a) 手渡しで運ばれる offline/ 同梱の pinned 値と、(b) offline/

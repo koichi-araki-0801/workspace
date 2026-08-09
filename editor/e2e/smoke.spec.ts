@@ -25,13 +25,13 @@ test('demo login lands the user on the edit tab', async ({ page }) => {
   await expect(page).toHaveURL(/\/edit/);
 });
 
-// プレビュー可視化の退行ガード。表を含む帳票の直接遷移はかつて 5/5 で「組版が loading の
-// まま止まりページが永久 hidden」になった — 真因はホストページ CSP の connect-src に
-// data: が無く、@vivliostyle/core が表セル・脚注用の内蔵 user-agent.xml を
-// `data:application/xml,…` の XHR で読む経路が塞がれて文書ロードが中断していたため
+// プレビュー可視化の退行ガード。ホストページ CSP の connect-src に data: が無いと、
+// 表を含む帳票の直接遷移は 5/5 の再現率(実測)で「組版が loading のまま止まり
+// ページが永久 hidden」になる — @vivliostyle/core が表セル・脚注用の内蔵 user-agent.xml を
+// `data:application/xml,…` の XHR で読む経路が塞がれて文書ロードが中断するため
 // (previewHost.ts の PREVIEW_HOST_CSP コメントを見よ)。seed テンプレは表を含むので、
 // この直行導線が green であること自体が data: 許可の退行検知になる。マウント直後の
-// リサイズ連打は当時の再現プローブの形の踏襲で、resize 起因の退行(core の resize
+// リサイズ連打は再現プローブの形をそのまま使い、resize 起因の退行(core の resize
 // 再レンダ・COMPLETE 前の setOptions)もまとめて網に掛ける。
 test('direct preview navigation survives early viewport resizes', async ({ page }) => {
   test.setTimeout(120_000);

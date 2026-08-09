@@ -26,13 +26,13 @@ const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
  * ワーカー枠を確保してから `fn` を走らせる。`fn` は受け取った `runBuild` で 1 回だけ組版する。
  *
  * ⚠ **資源の確保(temp ディレクトリ・配信ルートへの資産配置・egress ポート予約)は必ず
- * `fn` の中で行うこと。** 枠を取る前に確保していた版は、順番待ちのあいだも
- * 「1 ビルド 4 ポート + 展開済み資産 + temp ディレクトリ」を握り続けたため、行列に並んで
- * いるだけで資源が枯れた。枠を取ってから確保すれば、握る資源は常に同時実行数ぶんで頭打ちになる。
+ * `fn` の中で行うこと。** 枠を取る前に確保すると、順番待ちのあいだも
+ * 「1 ビルド 4 ポート + 展開済み資産 + temp ディレクトリ」を握り続け、行列に並んで
+ * いるだけで資源が枯れる。枠を取ってから確保すれば、握る資源は常に同時実行数ぶんで頭打ちになる。
  *
  * 既定は常駐ウォームワーカープール(`buildWorkerPool`)へ委譲し、`@vivliostyle/cli` の import
  * (計測 ~11s)をプロセス使い回しで 1 度きりにする。`config.vivliostyle.build.poolSize <= 0` の
- * ときは従来の「ジョブ毎 spawn」(`runBuildWorkerSpawn`)へフォールバックする(安全弁)。
+ * ときは「ジョブ毎 spawn」(`runBuildWorkerSpawn`)へフォールバックする(安全弁)。
  * フォールバックも `SPAWN_FALLBACK_GATE` で受付制御を受ける(`buildAdmission.ts`)。
  */
 export function withBuildSlot<T>(
@@ -72,7 +72,7 @@ function withSpawnFallbackSlot<T>(
 }
 
 /**
- * 従来方式: ビルドのたびに worker を spawn する(フォールバック)。in-process 実行はサーバを
+ * フォールバック方式: ビルドのたびに worker を spawn する。in-process 実行はサーバを
  * ハングさせるため(`pdf-build-worker.mjs` 冒頭の解説参照)`child_process` へ分離し、
  * `config.vivliostyle.build.timeoutMs` の timeout を必ず効かせる。timeout(kill)/非 0 exit は
  * Error を reject し、上位(`auditedRethrow`)経由で 5xx を返す。
@@ -148,8 +148,8 @@ interface BuildInlineInput {
  * レンダリング済み HTML(+ 任意の CSS)から `@vivliostyle/cli` で PDF を生成する。
  * CSS は vivliostyle へ渡す前に HTML へインライン展開する。
  *
- * `{html, css}` のみ(size は 'A4' 既定)の場合、旧 `htmlToPdf` 呼び出しをバイト単位で
- * 再現する。inline 経路はそのドロップイン置換である。
+ * `{html, css}` のみ(size は 'A4' 既定)の単純入力は最小構成の CLI 呼び出しへ落とし、
+ * 追加オプション無しの出力と一致させる(単純入力のドロップイン互換)。
  */
 export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
   // 外部参照の関門は**ここ**(サーバの build 入口)。ブラウザ側の検査だけだと

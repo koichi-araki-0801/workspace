@@ -3,9 +3,9 @@
 // =============================================================================
 // 承認画面・比較画面・PDF 経路は、**他人が書いた**テンプレ本文を nunjucks で描画する。
 // nunjucks はサンドボックスではなく**コンパイラ**で、`{{ range.constructor("…")() }}` は
-// `new Function` へ到達する。これをアプリのページオリジンのメインスレッドで走らせていたのが
-// 所見 F1 で、走った JS は承認者のセッション(HttpOnly cookie は同一オリジン fetch へ自動で
-// 付く)のまま `/api/review-requests/:id/approve` を叩ける = 申請者が自分の申請を自分で通せた。
+// `new Function` へ到達する。これをアプリのページオリジンのメインスレッドで走らせると、
+// 走った JS は承認者のセッション(HttpOnly cookie は同一オリジン fetch へ自動で
+// 付く)のまま `/api/review-requests/:id/approve` を叩ける = 申請者が自分の申請を自分で通せる。
 //
 // 直し方は「コンパイルを止める」ではなく「**コンパイルする場所を移す**」。移した先は
 // サーバ配信のレンダーホストページ(`server/src/render/renderHost.ts`)で、ここはその親側。
@@ -14,9 +14,9 @@
 // `connect-src 'none'` まで閉じてあり、仮に nunjucks の脱出を許しても**持ち出し口が無い**。
 //
 // ── Worker ではなく iframe である理由 ──
-// 以前この描画は Web Worker(`workers/`)へ載っていたが、Worker は**同一オリジン**で動く。
-// cookie 付きの `fetch` がそのまま通るため、隔離としては何も守っていない。守れるのは
-// 「メインスレッドを塞がない」ことだけで、それは今回の脅威とは無関係である。
+// この描画を Web Worker(`workers/`)へ載せても隔離にはならない — Worker は**同一オリジン**で
+// 動く。cookie 付きの `fetch` がそのまま通るため、隔離としては何も守っていない。守れるのは
+// 「メインスレッドを塞がない」ことだけで、それはこの脅威とは無関係である。
 //
 // ── オリジン検証の作法(`PreviewPanel.vue` と同一・重要) ──
 // 親 → 子の `postMessage` は `targetOrigin` に `'*'` を使うしかない(opaque オリジンの子に
@@ -242,7 +242,7 @@ let sharedClient: RenderHostClient | null = null;
 
 /**
  * 生 Jinja HTML を opaque オリジンの iframe で描画する。**アプリオリジンで nunjucks を
- * コンパイルする経路の唯一の置き換え先**で、戻り値は従来の `renderJinja` と同じ
+ * コンパイルする経路の唯一の置き換え先**で、戻り値は `renderJinja` と同じ
  * `RenderResult` — 呼び出し側の分岐は変わらない。
  */
 export function renderJinjaIsolated(template: string, data: SampleData): Promise<RenderResult> {

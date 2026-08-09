@@ -1,8 +1,8 @@
 // =============================================================================
 // externalRefs.test.ts — build 入口の外部参照ゲート(サーバ側が関門であること)
 // =============================================================================
-// 以前は検査がブラウザの `web/src/lib/pdfDocument.ts` にしか無く、公開 API へ直接 POST すれば
-// 無検査で headless ブラウザへ届いた。よって本テストの重心は「**UI を経由しない経路**が
+// 検査がブラウザの `web/src/lib/pdfDocument.ts` にしか無いと、公開 API へ直接 POST すれば
+// 無検査で headless ブラウザへ届く。よって本テストの重心は「**UI を経由しない経路**が
 // 4xx になる」ことの主張に置く。純関数の単体だけでは、この退行はまた見逃される。
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -245,10 +245,10 @@ describe('findDocumentExternalRefs — 実体参照・制御文字・srcdoc で�
   });
 });
 
-// ── 入れ子 srcdoc の fail-open(F25)──
-// トップレベルは `scanTags` が諦めたら `UNPARSABLE_CODE` で拒む(fail closed)。一方
-// 入れ子は CSS 走査へ**降格**し、しかも失敗前に解析済みのタグを捨てていた。CSS 走査は
-// 引用符なし属性値を 1 つも見ないので、下記は零件で通っていた。
+// ── 入れ子 srcdoc の fail-open ──
+// トップレベルは `scanTags` が諦めたら `UNPARSABLE_CODE` で拒む(fail closed)。入れ子を
+// CSS 走査へ**降格**し、失敗前に解析済みのタグを捨てる形にすると、CSS 走査は
+// 引用符なし属性値を 1 つも見ないので、下記が零件で通ってしまう。
 describe('入れ子 srcdoc が走査不能なら fail closed', () => {
   it('srcdoc の中に閉じないタグを置いても零件で通らない', () => {
     const html = '<iframe srcdoc="<img src=https://evil.example/x><b"></iframe>';
@@ -274,7 +274,7 @@ describe('入れ子 srcdoc が走査不能なら fail closed', () => {
   });
 });
 
-// ── 検査器そのものの穴(F8 / F24 / F35)が build 入口まで届いていることの主張 ──
+// ── 検査器そのものの穴(文字列終端・正規化・列挙漏れ)が build 入口まで届いていることの主張 ──
 // 純関数側の単体は shared 側にあるが、「上流のゲートが静かに素通しになる」ことの実害は
 // この入口で測るのが正しい。
 describe('検査器の終端・正規化の穴が build 入口を素通りしない', () => {

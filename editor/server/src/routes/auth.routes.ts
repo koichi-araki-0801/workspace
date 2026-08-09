@@ -116,12 +116,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // パスワード変更は「自分のパスワードを、現行パスワードを示して変える」操作に限定する。
-  // 以前は未認証・所有証明なしで任意アカウントを書き換えられ、`admin` 乗っ取りが成立していた。
+  // 未認証・所有証明なしで任意アカウントを書き換えられる形は `admin` 乗っ取りに直結する。
   // 本人が現行パスワードを忘れた場合の復旧は管理者リセット(`users.routes.ts`)だけが経路。
   //
-  // `requireIdentifiedUser` は `config.requireAuth` を見ない。以前の本人一致検査は
-  // `if (request.user && ...)` の形で、`AUTH_REQUIRED` が false の配備では条件式ごと
-  // 消えて未認証で任意アカウントを書き換えられた(fail-open)。ガードの発火条件を設定値へ
+  // `requireIdentifiedUser` は `config.requireAuth` を見ない。本人一致検査を
+  // `if (request.user && ...)` の形にすると、`AUTH_REQUIRED` が false の配備では条件式ごと
+  // 消えて未認証で任意アカウントを書き換えられる(fail-open)。ガードの発火条件を設定値へ
   // 従属させないこと。
   app.post<{ Body: z.infer<typeof PasswordInitRequest> }>(
     apiPaths.authInitPassword,

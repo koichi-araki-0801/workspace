@@ -53,7 +53,7 @@ export const localRepositories: Repositories = {
 };
 
 /**
- * フェーズ 2 の REST 配線。インタフェースは同一で、実体は Express/SQL Server API。
+ * REST 配線。インタフェースは local と同一で、実体は SQL Server backend の API。
  * `main.ts` が VITE_API_MODE=rest のとき本セットを採用する(既定は上の local セット)。
  */
 export const restRepositories: Repositories = {

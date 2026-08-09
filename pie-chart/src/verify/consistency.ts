@@ -9,7 +9,7 @@
 // で数えた値) と、emit された SVG から抽出した leader 点列を **同一述語** (pathsCross /
 // distPointToSegment, 本体から import) で数えた値を突き合わせる。leader crossings / 円内貫通(pie)
 // は selection が直接依存するメトリクスなので厳密一致をアサートする。clips は幅オラクル共有
-// (verify_svg の assertOracleSync) と npm run verify が emit SVG 上で担保するため情報出力のみ。
+// (`oracle_sync.ts` の `assertOracleSync`) と npm run verify が emit SVG 上で担保するため情報出力のみ。
 //   実行: npm run verify:consistency
 // =============================================================================
 
@@ -32,7 +32,7 @@ function parseLeaders(svg: string): Pt[][] {
   return leaders;
 }
 
-/** 最初のスライス path "M cx,cy L.. A r,.." から円の中心・半径を取る (verify_svg.parsePieGeometry と同式)。 */
+/** 最初のスライス path "M cx,cy L.. A r,.." から円の中心・半径を取る (`svg.ts` の `parsePieGeometry` と同式)。 */
 function parsePie(svg: string): { cx: number; cy: number; r: number } | null {
   const m = svg.match(/<path d="M([\d.\-]+),([\d.\-]+) L[\d.\-]+,[\d.\-]+ A([\d.\-]+),/);
   if (!m) return null;

@@ -65,7 +65,7 @@ describe('ラベル長の上限(P037)', () => {
 
 describe('range の行数上限(P038)', () => {
   it('A1:B99999999 は列幅検査を通っても行数で弾かれる', () => {
-    // 旧実装は列幅 2 だけを見ていたため、数億行の Row/Cell 実体化が素通りしていた。
+    // 列幅 2 だけを見る検査だと、数億行の Row/Cell 実体化が素通りする。
     expect(() => parseRange('A1:B99999999')).toThrow(/PIE_MAX_RANGE_ROWS/);
     expect(() => parseRange(`A1:B${MAX_RANGE_ROWS}`)).not.toThrow();
   });

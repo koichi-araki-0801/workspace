@@ -119,7 +119,7 @@ def test_single_line_header_still_matches(tmp_path):
 
 
 def test_body_stack_joined(tmp_path):
-    """ヘッダでない本文セルの複数行 (1 文の折返し) も連結照合する (ヘッダ限定は廃止)。"""
+    """ヘッダでない本文セルの複数行 (1 文の折返し) も連結照合する (ヘッダに限定しない)。"""
     # top band (200*0.25=50) より下・非太字 → ヘッダ検出されないが連結対象。
     a = _text("商品", x=50, oy=120)
     b = _text("名称", x=50, oy=132)

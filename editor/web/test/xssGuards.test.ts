@@ -189,7 +189,7 @@ describe('buildDiffDoc', () => {
     const doc = new DOMParser().parseFromString(src, 'text/html');
     expect(doc.querySelector('script')).toBeNull();
     // `<style>` は 3 つ = ①レイヤ宣言 ②申請者 CSS ③レイヤ内のハイライト CSS。
-    // 順序そのものが F8 の守り(重要宣言はレイヤ順が逆転する)なので件数と並びを固定する。
+    // 順序そのものが守り(重要宣言はレイヤ順が逆転する)なので件数と並びを固定する。
     const styles = [...doc.querySelectorAll('style')];
     expect(styles).toHaveLength(3);
     expect(styles[0].textContent).toMatch(/^@layer d[0-9a-f]{16};$/);

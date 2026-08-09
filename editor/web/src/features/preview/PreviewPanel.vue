@@ -73,7 +73,7 @@ const hostReady = ref(false);
  * 区別できないため、時間で切ってフォールバック表示へ倒す。
  */
 const HOST_BOOT_TIMEOUT_MS = 15_000;
-/** 組版が終わらない場合のローダー強制解除(旧実装の `RENDER_LOADER_FAILSAFE_MS` と同値)。 */
+/** 組版が終わらない場合のローダー強制解除。 */
 const RENDER_LOADER_FAILSAFE_MS = 30_000;
 let bootTimer: ReturnType<typeof setTimeout> | null = null;
 let loaderFailsafe: ReturnType<typeof setTimeout> | null = null;
@@ -142,7 +142,7 @@ function sendDoc() {
       postToHost({ type: PREVIEW_MSG_DOC, html });
     });
   // 子が COMPLETE へ到達しない非同期失敗への保険。組版自体は継続しうるので、
-  // フォールバックへは倒さずローダーだけ解除する(旧実装と同じ扱い)。
+  // フォールバックへは倒さずローダーだけ解除する。
   loaderFailsafe = setTimeout(() => {
     loaderFailsafe = null;
     if (!rendering.value) return;

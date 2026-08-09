@@ -33,7 +33,7 @@ async function importConfigWithEnv(env: Record<string, string | undefined>): Pro
 
 const importConfig = () => importConfigWithEnv({});
 
-// --- 危険な既定値の禁止(F36) ------------------------------------------------
+// --- 危険な既定値の禁止 ------------------------------------------------------
 
 describe('isLoopbackHost', () => {
   it('treats loopback spellings as same-machine only', async () => {
@@ -72,8 +72,8 @@ describe('assertSafeExposure', () => {
     );
   });
 
-  // R46: 旧 `assertAuthRequiredWhenExposed` は requireAuth が真なら 1 行目で return し、
-  // TLS の有無を一切見なかった。同一 LAN からログイン資格情報が平文で読める構成が通った。
+  // requireAuth が真なら早期 return して TLS の有無を見ない判定は、同一 LAN から
+  // ログイン資格情報が平文で読める構成を通してしまう。認証と TLS は独立に検査する。
   it('rejects an exposed bind without TLS even when authentication is on', async () => {
     const { assertSafeExposure } = await importConfig();
     expect(() => assertSafeExposure({ ...safe, host: '0.0.0.0', tlsEnabled: false })).toThrow(
@@ -84,7 +84,7 @@ describe('assertSafeExposure', () => {
     ).not.toThrow();
   });
 
-  // R65: preview listener は Fastify の preHandler の外側で、認証を掛ける手段が無い。
+  // preview listener は Fastify の preHandler の外側で、認証を掛ける手段が無い。
   // 免除(opt-in)を設けないのが要点 — 用意すれば必ず誤用される。
   it('rejects a non-loopback preview host unconditionally', async () => {
     const { assertSafeExposure } = await importConfig();
@@ -128,8 +128,8 @@ describe('assertSafeExposure', () => {
   });
 });
 
-// R62: 旧 `envBool` は `=== 'true'` 以外をすべて false へ倒したため、`AUTH_REQUIRED=1` と
-// 書いた運用者は認証が無効のまま起動していた。未知の値は既定へ倒さず起動を中止する。
+// `=== 'true'` 以外をすべて false へ倒す真偽値解釈だと、`AUTH_REQUIRED=1` と
+// 書いた運用者は認証が無効のまま起動してしまう。未知の値は既定へ倒さず起動を中止する。
 describe('真偽値 env の許可トークン集合', () => {
   it('accepts every documented true spelling for AUTH_REQUIRED', async () => {
     for (const raw of ['1', 'true', 'TRUE', ' true ', 'yes', 'on']) {
@@ -159,14 +159,14 @@ describe('真偽値 env の許可トークン集合', () => {
     await expect(importConfigWithEnv({ COOKIE_SECURE: 'ture' })).rejects.toThrow(/COOKIE_SECURE/);
   });
 
-  // HTTPS=1 は「TLS 有効」— 旧実装はこれを false にして平文で起動していた。
+  // HTTPS=1 は「TLS 有効」— `=== 'true'` だけの解釈はこれを false にして平文で起動してしまう。
   it('turns TLS on for HTTPS=1 (the old parser silently served plaintext)', async () => {
     const mod = await importConfigWithEnv({ HTTPS: '1', COOKIE_SECURE: 'true' });
     expect(mod.config.tls.enabled).toBe(true);
   });
 });
 
-// R63: 資源上限が素の `Number()` のままだと `'three'` が NaN になり、
+// 資源上限が素の `Number()` のままだと `'three'` が NaN になり、
 // `size >= NaN` が常に false = 上限が黙って消える。
 describe('数値 env の形式検証', () => {
   it('never lets a resource limit become NaN', async () => {
@@ -202,7 +202,7 @@ describe('startup assertion (config module evaluation)', () => {
     ).rejects.toThrow(/AUTH_REQUIRED=true/);
   });
 
-  // TLS 必須化(R46)により、認証だけでは足りない。証明書か明示の平文 opt-in が要る。
+  // TLS 必須化により、認証だけでは足りない。証明書か明示の平文 opt-in が要る。
   it('refuses to load with HOST=0.0.0.0 and AUTH_REQUIRED but no TLS', async () => {
     await expect(
       importConfigWithEnv({ HOST: '0.0.0.0', AUTH_REQUIRED: 'true', HTTPS: undefined }),
@@ -231,7 +231,7 @@ describe('startup assertion (config module evaluation)', () => {
     expect(mod.allowPlaintextLan).toBe(true);
   });
 
-  // R65 の起動時経路: HOST は既定 loopback でも preview listener だけ公開できてしまった。
+  // 起動時経路: HOST が既定 loopback のままでも、preview listener だけの公開は許さない。
   it('refuses to load when VIVLIO_PREVIEW_HOST is exposed', async () => {
     await expect(importConfigWithEnv({ VIVLIO_PREVIEW_HOST: '0.0.0.0' })).rejects.toThrow(
       /VIVLIO_PREVIEW_HOST/,
@@ -245,7 +245,7 @@ describe('startup assertion (config module evaluation)', () => {
   });
 });
 
-// --- 認証前バッファ(F32) ----------------------------------------------------
+// --- 認証前バッファ -----------------------------------------------------------
 
 describe('isBufferedUploadContentType', () => {
   it('matches the zip/octet-stream parser regardless of parameters and case', async () => {
@@ -263,8 +263,8 @@ describe('isBufferedUploadContentType', () => {
   });
 });
 
-// content-type だけを見ていた頃は、`application/json` へ変えるだけで `POST /api/build/merge` の
-// 32MB を未認証で積めた(ルート単位の `bodyLimit` 引き上げは preHandler より先に効く)。
+// content-type だけを見る判定では、`application/json` へ変えるだけで `POST /api/build/merge` の
+// 32MB を未認証で積める(ルート単位の `bodyLimit` 引き上げは preHandler より先に効く)。
 describe('isPreAuthBufferedRequest', () => {
   it('gates the zip parser and the routes that raise the body limit', async () => {
     const { isPreAuthBufferedRequest } = await importConfig();
@@ -289,7 +289,7 @@ describe('isPreAuthBufferedRequest', () => {
     expect(isPreAuthBufferedRequest(undefined, undefined, undefined)).toBe(false);
   });
 
-  // ── 生の request target を渡してはならない(F7)──
+  // ── 生の request target を渡してはならない ──
   // find-my-way は percent-encoding を解いてから照合するのに、この関数は解かない。
   // よって**生 target を渡すと素通りする**。渡すべきは `request.routeOptions.url`。
   it('生の request target(percent-encoded / absolute-form)は照合に当たらない', async () => {
@@ -307,8 +307,8 @@ describe('isPreAuthBufferedRequest', () => {
 
 // ゲートが**実際にルーティングされたパターン**で判定していることを、Fastify を通して主張する。
 // URL の選択は `app.ts` が使うのと同じ `preAuthGateUrl` を呼ぶ(式を写すと、呼び出し側だけの
-// 退行を検出できない)。生 target で照合していた版は `POST /api/build/%6Derge` がここを外し、
-// 未認証のままルートの `bodyLimit`(32MB)いっぱいを積めた。
+// 退行を検出できない)。生 target で照合すると `POST /api/build/%6Derge` がここを外し、
+// 未認証のままルートの `bodyLimit`(32MB)いっぱいを積める。
 describe('onRequest ゲートはルーティング結果で照合する', () => {
   /** merge ルートを `/api` prefix つきで持つ最小構成。ゲート発火を配列へ記録する。 */
   async function buildProbe(): Promise<{
@@ -424,7 +424,7 @@ describe('認証失敗の時間フロア', () => {
   });
 });
 
-// --- CSP(F34) ---------------------------------------------------------------
+// --- CSP ----------------------------------------------------------------------
 
 describe('inlineScriptCspHashes', () => {
   it('hashes each inline script body and skips external/empty ones', async () => {

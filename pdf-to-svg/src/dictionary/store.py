@@ -99,9 +99,9 @@ class DictionaryStore:
         self._mappings: List[Mapping] = []
         self._next_id = 1
         self._index: Dict[str, Mapping] = {}  # source_norm -> Mapping (enabled のみ)
-        # source_norm -> Mapping (enabled 問わず・先勝ち)。`_find_by_norm` の線形走査を
-        # 置き換える索引で、`upsert` を O(1) にするために持つ (`_index` は enabled 限定
-        # なので upsert の同一性判定には使えない)。
+        # source_norm -> Mapping (enabled 問わず・先勝ち)。`_find_by_norm` が引く索引で、
+        # `upsert` を O(1) にするために持つ (`_index` は enabled 限定なので upsert の
+        # 同一性判定には使えない)。
         self._norm_index: Dict[str, Mapping] = {}
         # 読み込み時に壊れていて捨てたエントリ数と、ファイルを丸ごと読めなかったか。
         # UI が起動後に通知する (`rpc_methods._dict_payload` → `app.js`)。実体は `_load` が入れる。
@@ -121,8 +121,8 @@ class DictionaryStore:
         """JSON ファイルを読み込み `_mappings` を復元する (壊れていても起動は止めない)。
 
         **要素 1 個の型崩れで起動不能にしない**のが要件である。リストの中に dict 以外が
-        1 つ混じるだけで `item.get` が `AttributeError` を投げ、それが `__init__` を突き抜けて
-        `console=False` の exe を**何も表示せず起動不能**にしていた (旧 P035)。辞書はメールや
+        1 つ混じるだけで `item.get` が `AttributeError` を投げ、それが `__init__` を突き抜けると
+        `console=False` の exe は**何も表示されず起動不能**になる。辞書はメールや
         共有フォルダ経由で配られる = 外部由来の入力なので、壊れた要素は捨てて起動を通し、
         捨てた件数を `load_skipped` に残して UI へ通知する (黙って消さない)。
         """
@@ -201,8 +201,8 @@ class DictionaryStore:
     def _rebuild_index(self) -> None:
         """lookup 用 (enabled のみ・後勝ち) と同一性判定用 (全件・先勝ち) の索引を作り直す。
 
-        後者 (`_norm_index`) は `_find_by_norm` の全件線形走査を置き換えるためのもので、
-        走査のままだと取り込み N 件が O(N^2) 回の `normalize` を呼んでいた (F28)。
+        後者 (`_norm_index`) は `_find_by_norm` が引く索引で、全件線形走査だと
+        取り込み N 件が O(N^2) 回の `normalize` を呼ぶことになる (F28)。
         """
         self._index = {}
         self._norm_index = {}
@@ -211,7 +211,7 @@ class DictionaryStore:
             if m.enabled:
                 # 後勝ち: 同一正規化キーが複数あれば最後の有効分を採用
                 self._index[key] = m
-            # 先勝ち: 旧 `_find_by_norm` が「最初の一致」を返していたのに合わせる
+            # 先勝ち: `_find_by_norm` は同一正規化キーの「最初の一致」を返す契約
             self._norm_index.setdefault(key, m)
 
     def _save(self) -> None:
@@ -365,7 +365,7 @@ class DictionaryStore:
 
         **1 件ごとに `upsert` を呼ばない**のが要点である (F28)。`upsert` は 1 回ごとに
         索引の全再構築と**辞書全文の書き直し**を行うため、N 件の取り込みが O(N^2) の
-        `normalize` 呼び出しと sum(i) バイトの書き込みになっていた。実測不要の構造で、
+        `normalize` 呼び出しと sum(i) バイトの書き込みになる。実測不要の構造で、
         8 MiB の JSON (約 26 万件) で数時間・テラバイト級の書き込みになる。しかも
         `/rpc` は `server.lock` を握ったまま走るのでアプリ全体が固まる。
         よって「全件をメモリ上で適用 → `_rebuild_index` 1 回 → `_save` 1 回」に畳む。

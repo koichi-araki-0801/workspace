@@ -51,8 +51,8 @@ function isBenignResizeObserverError(message: unknown): boolean {
   return typeof message === 'string' && message.includes('ResizeObserver loop');
 }
 
-// データソース: `VITE_API_MODE=rest` なら REST(フェーズ2 SQL Server backend),
-// それ以外は local fixtures + localStorage 一式(フェーズ1, 既定)。
+// データソース: `VITE_API_MODE=rest` なら REST(SQL Server backend),
+// それ以外は local fixtures + localStorage 一式(既定)。
 const useRest = import.meta.env.VITE_API_MODE === 'rest';
 const repositories = useRest ? restRepositories : localRepositories;
 

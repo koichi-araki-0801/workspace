@@ -26,7 +26,7 @@ import { replaceBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
 
 // 文書組み立て(隔離描画 → sanitize → format)は結合 PDF と共用のため
-// `lib/pdfDocument.ts` へ抽出済み。文言定数は従来の import 元を保つため再エクスポートする。
+// `lib/pdfDocument.ts` が持つ。文言定数は既存の import 元を保つため再エクスポートする。
 export { PDF_ERROR_MSG };
 
 const RENDER_ERROR_MSG = 'プレビューを表示できませんでした。テンプレートの内容をご確認ください。';

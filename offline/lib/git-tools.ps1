@@ -2,7 +2,7 @@
 # setup-offline.ps1 / setup-offline-local.ps1 から dot-source して使う。
 # 日本語コメントを含むため UTF-8 BOM 必須（cp932 環境で文字化けさせない）。
 #
-# 両 setup が同じ処理を写経していたため、片方だけ直る事故（所見 F19 はまさにそれ）が起きた。
+# 同じ処理を両 setup へ写経すると「片方だけ直る」事故が起きる。
 # 実行判断を伴う処理はこの 1 か所に集約し、両者が同じコードを通るようにする。
 
 . (Join-Path $PSScriptRoot 'verify.ps1')
@@ -10,7 +10,7 @@
 # ── 同梱 git ツールの展開・導入 ──
 # git-tools/ は .gitignore 対象（＝`git status` にも diff にも現れない）で、そこから拾った
 # バイナリを無検証で実行するのは「無レビューのコード実行」そのもの。台帳 manifest.txt の
-# 正確なファイル名でエントリを選び、sha256 が一致した実体だけを実行する（所見 F19）。
+# 正確なファイル名でエントリを選び、sha256 が一致した実体だけを実行する。
 # 台帳が無い場合は**何も実行せずに戻る**（検証できないものは動かさない）。
 # sha256 不一致は改ざんの兆候として throw し、呼び出し元（$ErrorActionPreference='Stop'）で
 # セットアップ全体を止める。
@@ -47,7 +47,7 @@ function Install-GitTools {
   if (Test-Path -LiteralPath $gitExe) {
     $cmdDir = Join-Path $pgDir 'cmd'
     # PATH へは**追記（append）**する。プロジェクト配下のディレクトリを PATH 先頭へ置くと
-    # System32 より先に解決され、そこへ書ける者が `git` そのものを差し替えられる（所見 F32）。
+    # System32 より先に解決され、そこへ書ける者が `git` そのものを差し替えられる。
     # 追記なら既存の正規 git が優先され、無い環境でのみ同梱 git が使われる。
     if ($env:Path -notlike "*$cmdDir*") { $env:Path = "$env:Path;$cmdDir" }
     try {
@@ -71,7 +71,7 @@ function Install-GitTools {
 
   # ---- TortoiseGit（MSI のサイレント昇格インストール） ----
   # `/qn` は UAC の同意画面すら出さずに管理者権限で MSI を走らせる。既定で黙って実行せず、
-  # 明示 opt-in（-InstallTortoiseGit）の下でだけ行う（所見 F19）。
+  # 明示 opt-in（-InstallTortoiseGit）の下でだけ行う。
   $tgEntry = $entries | Where-Object { $_.Name -eq 'TortoiseGit' } | Select-Object -First 1
   if (-not $tgEntry) { return }
   if (-not $InstallTortoiseGit) {

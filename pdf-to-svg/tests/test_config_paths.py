@@ -104,9 +104,9 @@ def test_source_checkout_still_uses_the_repository_data_folder(monkeypatch, tmp_
 def test_share_glitch_does_not_silently_move_the_data_dir(monkeypatch, tmp_path):
     """可搬判定が OSError (共有瞬断) のときは可搬側に留まる (黙って置き場を変えない)。
 
-    `Path.exists()` は瞬断系 OSError を握りつぶして False を返すため、以前は
+    `Path.exists()` は瞬断系 OSError を握りつぶして False を返すため、それを信じると
     ネットワークドライブ上の可搬インストールが一瞬読めないだけで置き場がユーザー
-    専用領域へ切り替わり、「辞書が消えた」ように見えて別の場所に第 2 の辞書が育った。
+    専用領域へ切り替わり、「辞書が消えた」ように見えて別の場所に第 2 の辞書が育つ。
     判定不能は「在る」側へ倒し、失敗は後段で見える形にする。
     """
     exe_dir = tmp_path / "PdfToSvg"

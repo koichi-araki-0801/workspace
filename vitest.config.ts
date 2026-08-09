@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
 // ワークスペース全体の Vitest エントリ。各パッケージの設定(environment/alias/globals)は
 // 個別 config に残し、ここでは `projects` で集約して `vitest run` 一発で全プロジェクトを
 // 各環境(web=jsdom / 他=node)で実行する。coverage は Vitest の仕様上ラン全体で 1 つしか
-// 持てないため、従来パッケージ別だった include/閾値をここへ一本化し、閾値は全指標 85% に統一する。
+// 持てないため、include/閾値はパッケージ別でなくここへ一本化し、閾値は全指標 85% に統一する。
 // 「テスト対象のみゲート」方針(cf. editor 各 vitest.config の include 方針)は include 列挙で維持。
 export default defineConfig({
   test: {
@@ -15,7 +15,7 @@ export default defineConfig({
       'pie-chart/vitest.config.ts',
       'graph-editor/vitest.config.ts',
     ],
-    // 集約実行の並列度を明示的に絞る(2026-08-08)。既定はコア数ぶんの fork を**プロジェクトごとに**
+    // 集約実行の並列度を明示的に絞る。既定はコア数ぶんの fork を**プロジェクトごとに**
     // 立てるため、5 プロジェクト × カバレッジ計装が 8GB 級の実機を食い潰し、次の 3 つが同時に起きた:
     //   1. `Error: Worker exited unexpectedly` — 全テスト通過後に fork が落ち、終了コードだけ 1 になる
     //   2. `SyntaxError: Unexpected end of JSON input` — 落ちた fork のカバレッジ断片を読んで収集が失敗
@@ -26,7 +26,7 @@ export default defineConfig({
     minWorkers: 1,
     coverage: {
       provider: 'v8',
-      // 各パッケージの旧 include を root 相対へ前置して結合。新規テスト追加時はここを広げる。
+      // 各パッケージの include を root 相対へ前置して結合。新規テスト追加時はここを広げる。
       include: [
         // editor/shared
         'editor/shared/src/index.ts',
@@ -115,7 +115,7 @@ export default defineConfig({
         // プレビュー文書の自己完結化(子の要求ゼロ化)と postMessage クライアント。
         'editor/web/src/lib/previewSelfContain.ts',
         'editor/web/src/features/preview/PreviewPanel.vue',
-        // Jinja コンパイルを opaque オリジンへ追い出す親側クライアント(所見 F1)。
+        // Jinja コンパイルを opaque オリジンへ追い出す親側クライアント。
         // 発信元検証・保留・id 対応付けのどれが欠けても隔離が骨抜きになるため対象へ入れる。
         'editor/web/src/lib/renderHostClient.ts',
         'editor/web/src/lib/cropMarks.ts',
@@ -166,8 +166,8 @@ export default defineConfig({
         'pie-chart/src/runtime/seaRuntime.ts',
         'pie-chart/src/runtime/subsetFontFs.ts',
       ],
-      // 2026-08-05: `middleware/auth.ts` の exclude を解除した。viewer ロール強制と
-      // `要パスワード変更` の関門がここに集約されたため、閾値の外へ置くと退行を検出できない。
+      // `middleware/auth.ts` を exclude しないこと。viewer ロール強制と
+      // `要パスワード変更` の関門がここに集約されており、閾値の外へ置くと退行を検出できない。
       exclude: [],
       thresholds: {
         statements: 85,

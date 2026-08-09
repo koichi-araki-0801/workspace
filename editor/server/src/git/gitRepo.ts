@@ -364,8 +364,8 @@ export interface GitCommitWithFiles extends GitCommitMeta {
 /**
  * 指定 pathspec に触れたコミットを、**変更ファイル込み**で新しい順に返す(件数上限つき)。
  *
- * 呼び出し側が「コミット一覧を取ってから 1 件ずつ `git show`」をしていた版は、承認のたび
- * 増えるコミット数ぶんの子プロセスを**同一 tick で spawn** していた(`Array#map` の
+ * 呼び出し側が「コミット一覧を取ってから 1 件ずつ `git show`」をする形だと、承認のたび
+ * 増えるコミット数ぶんの子プロセスを**同一 tick で spawn** することになる(`Array#map` の
  * async コールバックは最初の `await` まで同期に走る)。各子は `maxBuffer` 64MB を持つので、
  * 履歴が伸びるほど 1 リクエストの資源消費が線形に増える。`--name-only` を同じ `git log` へ
  * 畳めば子プロセスは常に 1 個で済み、`-n` で入力側も有界になる。

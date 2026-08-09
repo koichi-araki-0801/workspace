@@ -1,9 +1,9 @@
 // =============================================================================
 // confirmedWrite.ts — 確定テンプレ実体へ書き込む唯一のモジュール(チョークポイント)
 // =============================================================================
-// `templatesDir` / `cssDir` へバイト列を書けるのはこのファイルだけである。以前は
-// `files/templateFiles.ts` が素の export で書込関数を持ち、承認ゲートを通らない 2 つの
-// 呼び出し元(`routes/generate.routes.ts` / `sync/pairSyncService.ts`)が直接叩けていた。
+// `templatesDir` / `cssDir` へバイト列を書けるのはこのファイルだけである。書込関数を
+// `files/templateFiles.ts` の素の export に置くと、承認ゲートを通らない 2 つの
+// 呼び出し元(`routes/generate.routes.ts` / `sync/pairSyncService.ts`)が直接叩ける。
 // 「唯一の関所」を doc comment ではなくモジュール境界で強制するのが本ファイルの役割で、
 // `atomicWrite` と `templatePath`/`cssPath` の組み合わせを持つファイルがここ 1 つで
 // あることは `test/confirmedWrite.guard.test.ts` が機械検査する。

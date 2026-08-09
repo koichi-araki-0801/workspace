@@ -13,8 +13,8 @@ import { config } from '../config.js';
 import { atomicWrite } from './atomic.js';
 
 // `templateId` は request 由来のまま渡ってくる(body の `templateId` / URL の `:id`)。
-// ディレクトリと連結する前にここで必ず検査する — 検査を呼び出し側へ委ねていた頃は、
-// `../templates/<確定版>` を渡すだけで承認ゲートを迂回して確定ファイルを上書きできた。
+// ディレクトリと連結する前にここで必ず検査する — 検査を呼び出し側へ委ねると、
+// `../templates/<確定版>` を渡すだけで承認ゲートを迂回して確定ファイルを上書きできてしまう。
 const htmlName = (templateId: string): string => `${assertTemplateId(templateId)}.html`;
 const cssName = (templateId: string): string => `${assertTemplateId(templateId)}.css`;
 

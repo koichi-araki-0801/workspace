@@ -1,9 +1,9 @@
 // =============================================================================
 // svg_export/leader_geometry.ts — leader 折れ線の幾何プリミティブ
 // -----------------------------------------------------------------------------
-// placement から「実際に描画される leader パス」を計算する純幾何層 (`pipeline.ts` から
-// 切り出し)。cascade / repair / scoring など上位の配置ロジックはこれらを一方向に呼ぶだけで、
-// 本モジュールは `svg_geom` / 型のみに依存する (上位への逆依存なし = 循環なし)。
+// placement から「実際に描画される leader パス」を計算する純幾何層。
+// cascade / repair / scoring など上位の配置ロジックはこれらを一方向に呼ぶだけで、
+// 本モジュールは `geometry.ts` / 型のみに依存する (上位への逆依存なし = 循環なし)。
 // =============================================================================
 
 import {
@@ -220,7 +220,7 @@ export function computeDrawnLeader(
           perLineHeight,
         );
       } else {
-        // 箱下端が円の y 域に入る旧経路: 水平区間が x=0 をパイ上で跨ぐため box 上端
+        // 箱下端が円の y 域に入る場合: 水平区間が x=0 をパイ上で跨ぐため box 上端
         // (最大 pie-y) へ接続し、区間を pie-y > pieRadius に保ってキャップ貫通を避ける。
         endpoint.y = Math.max(finalBox.top, capClearY);
       }
@@ -231,12 +231,12 @@ export function computeDrawnLeader(
       placement.baseline === 'top' &&
       (finalBox.top + finalBox.bottom) / 2 < placement.leaderAnchor.y
     ) {
-      // オーストラリア型 (lowerLeftDropLeader): 円下のドロップ配置 2 行ラベル。従来は
-      // leaderAttachTargetY で上行中央 Y へ寄せ truncate が右縁で接触 (= 右上接続) していた。
-      // 接続点をラベル上縁の水平中央へ寄せる (斜めの円弦リルート経路は不変)。endpoint を
+      // オーストラリア型 (lowerLeftDropLeader): 円下のドロップ配置 2 行ラベル。
+      // leaderAttachTargetY で上行中央 Y へ寄せると truncate が右縁で接触 (= 右上接続) する
+      // ため、接続点をラベル上縁の水平中央へ寄せる (斜めの円弦リルート経路は不変)。endpoint を
       // 「上縁の中央・cornerGap だけ上 (box 外)」に置くと、後段の chord リルート (W bend) →
       // truncate は線分を box 内へ延ばさず endpoint を返すため、中央上縁に cornerGap の
-      // 隙間を空けて接続する。接触点は元の右縁より円から遠い中央寄りへ動くだけなので
+      // 隙間を空けて接続する。接触点は右縁接続より円から遠い中央寄りへ動くだけなので
       // 円貫通/交差は悪化しない。
       endpoint.x = (finalBox.left + finalBox.right) / 2;
       endpoint.y = finalBox.top + cfg.cornerGap; // 論理 y-up: top の少し上 (box 外)

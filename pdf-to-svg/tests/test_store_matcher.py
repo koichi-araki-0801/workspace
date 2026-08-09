@@ -1,7 +1,7 @@
 """`dictionary.store.DictionaryStore` の単体テスト。
 
 追加・引き当て (正規化込みの `lookup`)・`upsert`・無効化・JSON 取り込みの往復と、
-**壊れた辞書ファイルで起動不能にならないこと** (旧 P035)、および
+**壊れた辞書ファイルで起動不能にならないこと**、および
 **読めなかった/他者更新された辞書を上書きで消さないこと** (ネットワークドライブ共有
 運用のゲート) を確認する。
 """
@@ -98,13 +98,13 @@ def test_legacy_json_without_joined_key(tmp_path):
     s.close()
 
 
-# ── 旧 P035: 壊れた辞書ファイルで起動不能にしない ──────────────────────────
+# ── 壊れた辞書ファイルで起動不能にしない ──────────────────────────────────
 
 def test_broken_entry_is_skipped_instead_of_crashing_startup(tmp_path):
-    """リストに dict 以外が混ざっても `__init__` を抜けない (以前は AttributeError)。
+    """リストに dict 以外が混ざっても `__init__` を例外 (AttributeError) で抜けない。
 
-    `console=False` の exe では例外が画面に出ないため、辞書 1 要素の型崩れが
-    「何も起きず起動しない」恒久 DoS になっていた。辞書はメール・共有フォルダ経由で
+    `console=False` の exe では例外が画面に出ないため、例外を抜けさせると辞書 1 要素の
+    型崩れが「何も起きず起動しない」恒久 DoS になる。辞書はメール・共有フォルダ経由で
     配られる外部由来の入力なので、壊れた要素は捨てて起動を通す。
     """
     path = tmp_path / "d.json"
@@ -162,8 +162,8 @@ def test_transient_read_failure_blocks_saving(tmp_path, monkeypatch):
     """瞬断等で読めなかった辞書は `load_failed` を立て、保存 (全件書き直し) を拒む。
 
     `Path.exists()` はドライブ未接続系の OSError を握りつぶして False を返すため、
-    以前は「ファイル無し」と誤判定 → 空辞書で起動 → 次の保存で本物を空上書き、という
-    無音のデータ消失経路があった。読みを直接試みて不在と不明を区別する。
+    それを信じると「ファイル無し」と誤判定 → 空辞書で起動 → 次の保存で本物を空上書き、
+    という無音のデータ消失になる。読みを直接試みて不在と不明を区別する。
     """
     path = tmp_path / "d.json"
     path.write_text('[{"source": "A", "target": "\\u3042"}]', encoding="utf-8")

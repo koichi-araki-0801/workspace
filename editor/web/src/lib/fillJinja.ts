@@ -22,7 +22,7 @@
 //   `new Function` を使わない)。アプリオリジンの CSP から `'unsafe-eval'` を落とせる
 //   ようにするためで、`toFilled` は Worker からも呼ばれる(Worker は同一オリジンで
 //   CSP を継承する)。解釈できない式は**握り潰さず数え**、`toFilledWithDiagnostics`
-//   が呼び出し側へ返す — 旧実装の「例外を catch して黙って空文字」を残さない。
+//   が呼び出し側へ返す — 「例外を catch して黙って空文字」の形を残さない。
 import type { SampleData } from '@editor/shared';
 import {
   DATA_JINJA,
@@ -221,9 +221,9 @@ const warned = new Set<string>();
 
 /**
  * `toFilledWithDiagnostics` の薄い包み。解釈できない式があってもユーザー向けの挙動は
- * 変えない(空値になるだけで画面は落ちない)が、**無言にはしない** — 旧実装は
- * `catch` で全部を空文字へ落として例外もコンソール出力も残さなかったため、CSP で
- * コンパイルが落ちても「値が消えた」以外の手掛かりが無かった。
+ * 変えない(空値になるだけで画面は落ちない)が、**無言にはしない** —
+ * `catch` で全部を空文字へ落とすと例外もコンソール出力も残らず、CSP で
+ * コンパイルが落ちても「値が消えた」以外の手掛かりが無くなる。
  */
 export function toFilled(raw: string, sample: SampleData): string {
   const { html, diagnostics } = toFilledWithDiagnostics(raw, sample);

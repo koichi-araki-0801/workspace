@@ -237,7 +237,7 @@ describe('ブートスクリプトの多層防御(nunjucks サンドボックス
     (globalThis as Record<string, unknown>).__renderHostEscaped = false;
     // `1|valueOf` は `Object.prototype.valueOf.call(context, 1)` として解決されると
     // **Context そのもの**を返す。そこから `env` → `getFilter("constructor")`(= Object)
-    // → `Function` と辿れてしまうのが F2 の経路。起点のフィルタ解決を閉じたので落ちる。
+    // → `Function` と辿れてしまう。起点のフィルタ解決を閉じてあるので落ちる。
     const res = send({ id: 21, template: '{{ 1|valueOf }}', data: {} });
     expect(res?.type).toBe('editor:render-error');
 

@@ -132,8 +132,8 @@ describe('previewSecurityHeaders', () => {
     expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
   });
 
-  // 以前は `/@` と `/node_modules/` を「ビューア側」に列挙して緩い CSP を与えていた。
-  // それらは転送されなくなったので、viewer プロファイルが当たるのはビューア配下だけ。
+  // `/@` や `/node_modules/` を「ビューア側」に列挙すると緩い CSP を与えてしまう。
+  // それらはそもそも転送されないので、viewer プロファイルが当たるのはビューア配下だけ。
   it('viewer プロファイルが当たるのはビューア配下だけ', () => {
     for (const p of ['/', '/vivliostyle/index.html', '/vivliostyle/index.html?x=1']) {
       expect(previewSecurityHeaders(fp(p))['content-security-policy'], p).toContain(
@@ -214,9 +214,9 @@ describe('proxyToPreview', () => {
   });
 
   it('リクエストは常に end される(消費済みストリームを pipe しない)', async () => {
-    // 以前は非 GET で `req.pipe(upstream)` していた。Fastify の content-type parser が
+    // 非 GET を `req.pipe(upstream)` で流す形は、Fastify の content-type parser が
     // 先にボディを Buffer 化するため 1 バイトも流れず `end()` も呼ばれず、上流が宙吊りに
-    // なってソケットとメモリが滞留した。今はルートが GET/HEAD しか登録しないうえ、
+    // なってソケットとメモリが滞留する。ルートが GET/HEAD しか登録しないうえ、
     // proxy 側も常に end する。
     const upstream = await listen((req, res) => {
       req.resume();

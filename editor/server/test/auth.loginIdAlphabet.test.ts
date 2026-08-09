@@ -46,7 +46,7 @@ vi.mock('../src/auth/session.js', () => ({
 
 /**
  * 運用アルファベット外の入力。正規形(NFKC + 小文字化)を通しても ASCII 英数字 + `_` に
- * ならないものを並べる。先頭 2 つが F16 の核心 — DB では `admin` と**同じ行**に当たる。
+ * ならないものを並べる。先頭 2 つが核心 — DB では `admin` と**同じ行**に当たる。
  */
 const OUT_OF_ALPHABET = [
   'ad​min', // ZERO WIDTH SPACE: 照合順序は無視するが NFKC は残す = 同一行・別キー

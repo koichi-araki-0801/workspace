@@ -128,8 +128,8 @@ const ENV_FALSE_TOKENS: ReadonlySet<string> = new Set(['0', 'false', 'no', 'off'
  * boolean の env 変数を**許可トークン集合**で parse する。未設定なら `undefined`
  * (既定値へのフォールバックは呼び出し側の `??` が担う)。集合外は throw する。
  *
- * 旧実装は `=== 'true'` の 1 つだけを真とし、それ以外を**すべて false へ倒していた**ため、
- * `AUTH_REQUIRED=1` と書いた運用者は認証が無効のまま起動していた(fail-open)。未知の値を
+ * `=== 'true'` の 1 つだけを真とし、それ以外を**すべて false へ倒す**解釈だと、
+ * `AUTH_REQUIRED=1` と書いた運用者は認証が無効のまま起動してしまう(fail-open)。未知の値を
  * 既定へ倒す案は「静かな降格」が残るので採らない — 誤記は起動中止で運用者に届ける。
  */
 function envFlag(name: string, envVal: string | undefined): boolean | undefined {
@@ -232,7 +232,7 @@ export const config = {
   }),
 
   /**
-   * listen ホスト。既定は loopback のみ(=同一マシン限定)で従来挙動を維持する。
+   * listen ホスト。既定は loopback のみ(=同一マシン限定)。
    * 社内 LAN へ公開するときだけ `HOST=0.0.0.0` を明示する(`start.bat lan` が設定)。
    */
   host: process.env.HOST ?? file.host ?? '127.0.0.1',
@@ -360,7 +360,7 @@ export const config = {
     /**
      * 常駐 PDF ビルドワーカー(plain ESM)。`@vivliostyle/cli` を 1 回だけ import して常駐し、
      * IPC でビルドジョブを処理してプロセス(= module load)を使い回す(`buildWorkerPool.ts` 参照)。
-     * `workerScript`(1 ジョブ毎に spawn する従来版)はフォールバックとして残す。
+     * `workerScript`(1 ジョブ毎に spawn する版)はフォールバックとして残す。
      */
     workerDaemonScript: resolvePath(
       process.env.VIVLIO_BUILD_WORKER_DAEMON,
@@ -423,7 +423,7 @@ export const config = {
       /**
        * 常駐 PDF ビルドワーカープールの最大プロセス数(`buildWorkerPool.ts`)。各ワーカーは
        * `@vivliostyle/cli` を読込済みで保持し import コスト(計測 ~11s)を 1 度きりにする。
-       * `0` で従来の「ジョブ毎 spawn」へフォールバックする(安全弁)。
+       * `0` で「ジョブ毎 spawn」へフォールバックする(安全弁)。
        */
       poolSize: envNumber('VIVLIO_BUILD_POOL', process.env.VIVLIO_BUILD_POOL, 2, {
         integer: true,
@@ -567,8 +567,8 @@ export interface ExposureOptions {
 
 /**
  * 外部から到達できる待受構成のうち、安全でない組み合わせを起動前に落とす(fail closed)。
- * 旧 `assertAuthRequiredWhenExposed` は「公開 × 認証オフ」という**組を 1 つ列挙して拒む**
- * 形で、列挙の外(TLS 無し・preview listener の公開・Secure 属性の矛盾)が素通りしていた。
+ * 「公開 × 認証オフ」という**組を 1 つだけ列挙して拒む**形にすると、列挙の外
+ * (TLS 無し・preview listener の公開・Secure 属性の矛盾)が素通りする。
  *
  * 判定は 4 つ:
  * 1. 公開 かつ 認証オフ → 拒否。無資格でテンプレの読み書きも承認も通る。
@@ -654,14 +654,14 @@ export function preAuthGateUrl(request: {
  * 認証より前に本文を積んでしまうリクエストか(`app.ts` の `onRequest` ゲートの判定)。
  *
  * Fastify のライフサイクルは onRequest → parsing → preHandler で、`requireAuth` は
- * preHandler。つまり本文の解析は常に認証より先に終わる。content-type だけを見ていた頃は
- * `application/json` へ変えるだけで `POST /api/build/merge` の 32MB を未認証で積めたため、
+ * preHandler。つまり本文の解析は常に認証より先に終わる。content-type だけを見る判定では
+ * `application/json` へ変えるだけで `POST /api/build/merge` の 32MB を未認証で積めるため、
  * 「上限を引き上げたルート」も path で見る。
  *
  * ⚠ `routedUrl` に渡すのは**生の request target ではなく `request.routeOptions.url`**
- * (Fastify が実際にルーティングした登録パターン)である。生の target で照合していた版は、
+ * (Fastify が実際にルーティングした登録パターン)である。生の target で照合すると、
  * find-my-way が percent-encoding を解いてから照合する一方こちらは解かないため、
- * `POST /api/build/%6Derge` がゲートを外して未認証のまま 32MB を積めた(absolute-form・
+ * `POST /api/build/%6Derge` がゲートを外して未認証のまま 32MB を積める(absolute-form・
  * dot セグメントも同じ)。登録パターンで照合すればその差が**構造的に**消える。
  * 選び方は `preAuthGateUrl` に閉じてあるので、呼び出し側は必ずそれを通すこと。
  */
@@ -708,10 +708,9 @@ export function buildCspDirectives(
     defaultSrc: ["'self'"],
     // **アプリオリジンに eval 系の実行手段を残さない**(`'unsafe-eval'` を載せない)。
     // Jinja のコンパイルは opaque オリジンのレンダーホスト(`render/renderHost.ts`)の中
-    // だけで行い、そこは別 CSP を持つ(所見 F1)。最後まで残っていた `'unsafe-eval'` の
-    // 利用者は `lib/fillJinja.ts` の `toFilled`(= `nunjucks.compile` = `new Function`。
-    // Worker も同一オリジンでこの CSP を継承する)だったが、`lib/jinjaExpr.ts` の
-    // 許可リスト評価器へ置き換えて依存を断った。
+    // だけで行い、そこは別 CSP を持つ。`lib/fillJinja.ts` の `toFilled`(作成タブの値差込。
+    // Worker も同一オリジンでこの CSP を継承する)は `lib/jinjaExpr.ts` の許可リスト評価器で
+    // 実装し、`nunjucks.compile`(= `new Function`)への依存を持たない。
     //
     // ⚠ 戻さないこと。`fillJinja` へフィルタ等を足したくなっても `new Function` を呼ぶ
     // 実装で解決しない — 解釈できない式は `toFilledWithDiagnostics` が件数で返し、実

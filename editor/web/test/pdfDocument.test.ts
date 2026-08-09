@@ -23,9 +23,9 @@ describe('renderPdfDocument', () => {
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       expect(res.value.html).toContain('ファンドA');
-      // テンプレの JS は正当なコンテンツ(列幅自動調整など)。ここで除去していた頃は
+      // テンプレの JS は正当なコンテンツ(列幅自動調整など)。ここで除去すると
       // PDF でインライン script が 1 つも効かず(実測で、残すと出力 PDF が変わる)、
-      // 承認者は「JS が効いていない見た目」を承認することになっていた。
+      // 承認者は「JS が効いていない見た目」を承認することになる。
       expect(res.value.html).toContain('fitColumns()');
       expect(res.value.css).toBe('.c{}');
     }
@@ -48,8 +48,8 @@ describe('renderPdfDocument', () => {
   // ⚠ ここで `<link>` が残るのは「サニタイザが落とさない」だけの話で、**当たる CSS が
   // 2 枚になる訳ではない**。CSS の適用元を 1 つに保つ判断はサーバ側にあり、
   // `vivliostyle/inlineCss.ts` がリクエストに `css` がある限り stylesheet の `<link>` を
-  // 落とす(= プレビューと同じ 1 枚)。両方当てていた版では、下書きで削除した規則が
-  // ディスクの旧 per-fund CSS から復活し、プレビューと PDF が食い違った。
+  // 落とす(= プレビューと同じ 1 枚)。両方当てると、下書きで削除した規則が
+  // ディスクの旧 per-fund CSS から復活し、プレビューと PDF が食い違う。
   it('同梱資産への相対参照(link / script src)は残す', async () => {
     const html =
       '<html><head><link rel="stylesheet" href="css/510037.css">' +

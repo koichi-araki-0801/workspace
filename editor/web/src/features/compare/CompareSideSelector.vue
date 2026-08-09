@@ -28,8 +28,7 @@ const templateId = ref<string | undefined>(undefined);
 const selectedMeta = ref<TemplateMeta | null>(null);
 const versions = ref<TemplateVersionMeta[]>([]);
 const historyId = ref<string | undefined>(undefined);
-// 一度でも絞り込み/検索したか。未検索のうちは候補を出さず検索を促す
-// (初期マウントで全件を出していた挙動を廃止)。
+// 一度でも絞り込み/検索したか。未検索のうちは候補を出さず検索を促す。
 const searched = ref(false);
 
 // 候補テンプレートを「テンプレート × 版」に平坦化し、版ごとの行としてテーブルへ渡す。
@@ -94,11 +93,11 @@ watch(historyId, emitChange);
       @restore="refreshCandidates"
     >
       <!-- 版種の右で「比較する版」を直接選ばせる。操作(選択)と表示を同じ位置にまとめる
-           ため、旧・読み取り専用インジケータを廃しドロップダウン本体をここへ移設した。 -->
+           ため、ドロップダウン本体をここに置く。 -->
       <template #field-trailing>
         <FormField width="xl">
           <Label>比較する版</Label>
-          <!-- テンプレート未選択時は版が無いので非活性。placeholder が旧「未選択」を兼ねる。 -->
+          <!-- テンプレート未選択時は版が無いので非活性。placeholder が「未選択」表示を兼ねる。 -->
           <Select v-model="historyId" :options="versionOptions" :disabled="!templateId" placeholder="版を選択" />
         </FormField>
       </template>
@@ -109,7 +108,7 @@ watch(historyId, emitChange);
       :selected-id="historyId"
       @select="selectVersion"
     />
-    <!-- 未検索のうちは候補を出さず、絞り込みを促す (初期全量表示の廃止)。 -->
+    <!-- 未検索のうちは候補を出さず、絞り込みを促す。 -->
     <p v-else class="rounded-lg border border-dashed bg-card px-4 py-8 text-center text-[13px] text-muted-foreground">
       委託会社・ファンド・基準日・版種で絞り込み、検索してください。
     </p>

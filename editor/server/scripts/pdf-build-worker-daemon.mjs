@@ -2,7 +2,7 @@
 // pdf-build-worker-daemon.mjs — 常駐 PDF ビルドワーカー(IPC ループ)
 // =============================================================================
 // `pdf-build-worker.mjs`(1 ジョブ毎に spawn する版)の常駐版。`@vivliostyle/cli` の import は
-// 計測で ~11s かかり、従来はビルドのたびに払っていた。本 worker は import を *起動時に 1 回だけ*
+// 計測で ~11s かかり、spawn 版はビルドのたびに払う。本 worker は import を *起動時に 1 回だけ*
 // 行って常駐し、親(`buildWorkerPool.ts`)から IPC で届くジョブを 1 件ずつ処理してプロセス
 // (= 読込済みモジュール)を使い回す。in-process ハング回避のための「別プロセス分離」は維持し、
 // ハングは親側の timeout → SIGKILL で隔離する(本 worker は素直に build を待つだけ)。
@@ -12,7 +12,7 @@
 // `build()` は 1 度に 1 件のみ(単一プロセス/ブラウザで並行実行しない前提。親が直列化する)。
 import { existsSync } from 'node:fs';
 
-// 起動時に 1 度だけ import する(ここが従来「毎回」払っていた重コスト)。
+// 起動時に 1 度だけ import する(spawn 版がジョブ毎に払う重コストはここ)。
 const { build } = await import('@vivliostyle/cli');
 
 process.on('message', async (msg) => {

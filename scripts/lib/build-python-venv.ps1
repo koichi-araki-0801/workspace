@@ -30,7 +30,7 @@ function Resolve-PythonLauncher {
 #   $ProjectDir       … プロジェクトのルート(.venv-build と requirements の基準)。
 #   $RequirementsPath … pip に渡す requirements.txt の絶対パス。
 #   $WheelhouseDir    … オフライン wheel 置き場。存在すれば --no-index でここから install。
-#   -Clean            … 既存 venv を作り直す(旧 build.bat の `clean` 引数に対応)。
+#   -Clean            … 既存 venv を作り直す。
 #
 # 端末のグローバル Python には無関係なライブラリが多数入っており、そのままビルドすると
 # PyInstaller が拾って exe に余計な依存が混入する。専用 venv は既定でシステムの

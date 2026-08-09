@@ -1,9 +1,9 @@
 // =============================================================================
-// historyFiles.rotation.test.ts — 履歴 JSONL の上限・ローテーション(R40 / R41)
+// historyFiles.rotation.test.ts — 履歴 JSONL の上限・ローテーション
 // =============================================================================
-// 旧実装はサイズ上限も世代管理も保持期限も持たず、読み取りは「ファイル全体を 1 文字列に
-// して split → JSON.parse」だった。行が 1 つでも壊れると当該フィードが恒久 500 になり、
-// Node の文字列上限を超えると履歴が消えたように見えた。**迂回入力(壊れた行・巨大
+// サイズ上限も世代管理も保持期限も無く、読み取りを「ファイル全体を 1 文字列に
+// して split → JSON.parse」にすると、行が 1 つ壊れるだけで当該フィードが恒久 500 になり、
+// Node の文字列上限を超えると履歴が消えたように見える。**迂回入力(壊れた行・巨大
 // ファイル)で破綻しないこと**を主張する形で書く。
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -85,8 +85,8 @@ describe('履歴 JSONL の上限', () => {
   it('壊れた行が 1 行あってもフィード全体が落ちない', async () => {
     const h = await importHistory();
     await fs.mkdir(path.join(tmpRoot, 'history'), { recursive: true });
-    // 追記の競合で途中まで書かれた行を模す。旧実装はここで JSON.parse が throw し、
-    // ルートが恒久 500 になっていた。
+    // 追記の競合で途中まで書かれた行を模す。全体を一括 parse する形はここで
+    // JSON.parse が throw し、ルートが恒久 500 になる。
     await fs.writeFile(
       historyFile('part'),
       `${JSON.stringify({ n: 1 })}\n{"n": 2\n${JSON.stringify({ n: 3 })}\n`,

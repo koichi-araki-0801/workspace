@@ -1,8 +1,9 @@
 // =============================================================================
 // buildWorkerPool.ts — 常駐 PDF ビルドワーカーのプール(cli 非依存・DI)
 // =============================================================================
-// `@vivliostyle/cli` の import は計測で ~11s。従来は `build.ts` がビルド毎に worker を spawn し
-// 毎回これを払っていた。本プールは `@vivliostyle/cli` を読込済みのワーカープロセスを常駐させ、
+// `@vivliostyle/cli` の import は計測で ~11s あり、ビルド毎に worker を spawn する方式
+// (`build.ts` のフォールバック)は毎回これを払う。
+// 本プールは `@vivliostyle/cli` を読込済みのワーカープロセスを常駐させ、
 // ジョブを使い回して import コストを 1 度きりにする。設計は `previewManager.ts` を範に取り、
 // Map/Set 管理・アイドル TTL(`arm`/`unref`)・`disposeAll`・ワーカー生成の DI でブラウザ非依存に
 // テストできるようにする。実プロセス版(`ForkedBuildWorker`)は `buildWorkerServer.ts` 側。
@@ -77,7 +78,7 @@ export class BuildWorkerPool {
     this.opts = opts;
   }
 
-  /** 1 件の PDF ビルドを実行する(旧 `runBuildWorker` と同契約)。 */
+  /** 1 件の PDF ビルドを実行する(spawn 方式の `runBuildWorkerSpawn` と同契約)。 */
   async run(buildOptions: unknown): Promise<void> {
     return this.withSlot((build) => build(buildOptions));
   }
@@ -86,8 +87,8 @@ export class BuildWorkerPool {
    * ワーカー枠を確保したうえで `fn` を走らせる。`fn` には「そのビルドを実行する関数」を渡す。
    *
    * ⚠ **資源の確保は `fn` の中で行うこと**(temp ディレクトリ・配信ルートへの資産配置・
-   * egress の許可ポート予約)。枠を取る**前**に確保していた版は、行列で待っている間ずっと
-   * それらを握り続けたため、「実行中 2 本 + 待機 N 本」ぶんの資源が同時に居座った。
+   * egress の許可ポート予約)。枠を取る**前**に確保すると、行列で待っている間ずっと
+   * それらを握り続け、「実行中 2 本 + 待機 N 本」ぶんの資源が同時に居座る。
    * 枠を取ってから確保すれば、握られる資源は常に同時実行数ぶんに収まる。
    */
   async withSlot<T>(
@@ -173,9 +174,9 @@ export class BuildWorkerPool {
   /**
    * 空きワーカーを得る: idle 再利用 → 上限未満なら新規 → 満杯なら待機列へ。
    *
-   * 待機列には上限がある。無制限だった版は、1 ジョブが最大 `timeoutMs`(既定 120s)掛かる
-   * あいだ到着した全リクエストを並べ、しかも呼び出し側は並ぶ**前**に temp ディレクトリ・
-   * 資産・egress ポートを確保していたので、行列の長さがそのまま資源消費だった。
+   * 待機列には上限がある。無制限だと、1 ジョブが最大 `timeoutMs`(既定 120s)掛かる
+   * あいだ到着した全リクエストが並び、呼び出し側は並ぶ**前**に temp ディレクトリ・
+   * 資産・egress ポートを確保するので、行列の長さがそのまま資源消費になる。
    * 溢れた分は「あとで返す」のではなく**その場で断る**(待たせても資源を握るだけで、
    * 待ち時間は `timeoutMs × 行列長` まで伸びる)。
    */

@@ -1,8 +1,8 @@
 """SVG 出力の属性エスケープと色の許可リスト (P004) の退行ガード。
 
-以前は同じファイルの中で ``PathElement.d`` は ``quoteattr``、テキストは ``escape`` を
-通っているのに**色だけ**が素の f-string で、``rpc_addBorder`` の ``color`` へ
-``#000"/><script>alert(1)</script><rect stroke="#000`` を渡すと注入が成立した。
+``PathElement.d`` は ``quoteattr``、テキストは ``escape`` を通っているのに**色だけ**が
+素の f-string、という 1 箇所の取りこぼしがあると、``rpc_addBorder`` の ``color`` へ
+``#000"/><script>alert(1)</script><rect stroke="#000`` を渡す注入が成立する。
 書き出した SVG は社内回覧される成果物なので、守るべきは表示面ではなく生成点である。
 
 「迂回入力で失敗すること」を主張する形で書く。

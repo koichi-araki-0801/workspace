@@ -301,7 +301,7 @@ def _dict_json(count: int, prefix: str = "w") -> str:
 
 
 def test_dictionary_import_writes_the_file_once_regardless_of_entry_count(tmp_path):
-    """N 件の取り込みで保存も索引再構築も **1 回**だけ (以前は N 回 = O(N^2) 書き込み)。"""
+    """N 件の取り込みで保存も索引再構築も **1 回**だけ (1 件ごとだと N 回 = O(N^2) 書き込み)。"""
     from dictionary import store as store_mod
 
     src = tmp_path / "shared.json"
@@ -428,7 +428,7 @@ def _count_follower_checks(monkeypatch) -> list:
 
 
 def test_wrap_groups_stops_scanning_once_the_vertical_gap_is_exceeded(monkeypatch):
-    """縦に離れた要素の走査は 1 要素あたり定数回で打ち切られる (以前は全要素を走査)。"""
+    """縦に離れた要素の走査は 1 要素あたり定数回で打ち切られる (打ち切りが無いと全要素走査)。"""
     from dictionary import apply as dict_apply
 
     texts = _stacked_texts(500, y_step=100.0)  # gap 100 >> 12 * LINE_GAP_RATIO

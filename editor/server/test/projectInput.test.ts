@@ -223,8 +223,8 @@ describe('extractProjectZip', () => {
   });
 
   it('rejects a zip that carries two configs (ambiguity falls to reject)', async () => {
-    // 以前は BFS 順の最初の 1 件を黙って採っていたため、深い所に別の config を隠して
-    // 「どちらが効くか」を人間に判らなくできた。
+    // BFS 順の最初の 1 件を黙って採ると、深い所に別の config を隠して
+    // 「どちらが効くか」を人間に判らなくできる。
     const buf = await zipOf({
       'vivliostyle.config.json': '{"entry":"index.html"}',
       'deep/vivliostyle.config.json': '{"entry":"index.html"}',
@@ -233,7 +233,7 @@ describe('extractProjectZip', () => {
     await expect(extractProjectZip(buf)).rejects.toSatisfy(isAppError);
   });
 
-  // 以前は「実行可能な config のファイル名」を数え上げて拒否していた。今は**拡張子の
+  // 「実行可能な config のファイル名」の数え上げは漏れる。現行は**拡張子の
   // 許可リスト**に載らないので落ちる — 別ツールの config も未知の実行面も同じ理由で落ちる。
   it.each([
     'vivliostyle.config.js',

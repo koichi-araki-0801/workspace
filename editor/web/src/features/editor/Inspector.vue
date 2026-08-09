@@ -5,10 +5,9 @@
 /**
  * 右ペイン: 選択パーツのプロパティを「編集可能」に提示し、修正履歴を併載するパネル。
  *
- * 以前は read-only インスペクタ + 中央 canvas の浮動ツールバー(`PartToolbar.vue`)に
- * 編集 UI が分散していた。本コンポーネントへ集約し、サイズ・配置 / 余白 / 改ページ /
- * 修正履歴を「折りたたみ式セクション」(タブにしない)として縦積み表示する。
- * 幾何の編集ロジック(数値 clamp・配置・改ページ)は撤去した `PartToolbar` から移植。
+ * 編集 UI はここへ集約し、サイズ・配置 / 余白 / 改ページ / 修正履歴を
+ * 「折りたたみ式セクション」(タブにしない)として縦積み表示する。
+ * 幾何の編集ロジック(数値 clamp・配置・改ページ)も本コンポーネントが持つ。
  *
  * 折りたたみの初期状態は「編集許可」(`editMode` = `useTemplateEditor.ts` の `allowEdit`)に
  * 連動: 許可 ON で編集セクションのみ展開し履歴は畳む、OFF で逆(閲覧時は履歴を主役)。連動は
@@ -63,7 +62,7 @@ const props = defineProps<{
 }>();
 
 // 編集操作は `useTemplateEditor.ts` のハンドラ(`applyGeom` / `moveSelected` /
-// `resetGeom` / `deletePart`)へそのまま委譲する。`PartToolbar` と同形の emit に揃える。
+// `resetGeom` / `deletePart`)へそのまま委譲する。
 const emit = defineEmits<{
   apply: [Partial<LayoutGeom>];
   move: [-1 | 1];
@@ -133,7 +132,7 @@ watch(
 );
 
 // ── 2. 数値ミラー(幅 / 上下余白) ──
-// ライブな幾何と同期しつつ、入力中の文字列を保持する(移植元: `PartToolbar.vue`)。
+// ライブな幾何と同期しつつ、入力中の文字列を保持する。
 const num = reactive({ widthPct: '100', marginTop: '0', marginBottom: '0' });
 watch(
   () => props.geom,
@@ -220,8 +219,8 @@ function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) 
 }
 
 // ── 4. Button 化した独自コンパクトボタンの共通クラス ──
-// 旧 scoped `.seg` / `.act` / `.pb-toggle` を Tailwind で再現する。ghost variant の
-// hover 文字色変化と基底の `[&_svg]:size-4` は打ち消し、見た目を移行前と揃える。
+// セグメント / アクション / 改ページトグルの各ボタンを Tailwind ユーティリティで組む。
+// ghost variant の hover 文字色変化と基底の `[&_svg]:size-4` は打ち消す。
 const SEG_CLASS =
   'h-7 w-auto min-w-[30px] rounded-[7px] p-0 text-foreground/80 hover:text-foreground/80 [&_svg]:size-[15px]';
 const ON_CLASS = 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground';

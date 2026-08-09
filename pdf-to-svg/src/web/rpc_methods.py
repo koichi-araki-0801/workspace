@@ -78,7 +78,7 @@ def _human_size(n: int) -> str:
 
 def _file_size_str(doc: Document) -> str:
     # アップロード経由では実パスが無いので loader が付与した byte_size を使う。
-    # 旧来の実パス読み込みでも getsize でフォールバックする。
+    # 実パス読み込みの doc は getsize でフォールバックする。
     n = getattr(doc, "byte_size", None)
     if n is None:
         try:

@@ -106,7 +106,7 @@ export function createCompareService(
       for (const meta of metasRes.value.filter((m) => m.status === 'published')) {
         // 各候補に版リスト(現行版込み)を持たせ、テーブル側で版ごとの行へ平坦化できるようにする。
         // 確定版が無くても原本「現行版」が 1 件あるので、未編集の配信テンプレート
-        // (例: 高金利ソブリン)も比較対象に出せる。status 絞り込みは廃止。
+        // (例: 高金利ソブリン)も比較対象に出せる(版リスト側は status で絞らない)。
         const versRes = await versionsWithBaseline(meta.id);
         if (isErr(versRes)) return versRes;
         candidates.push({ meta, versions: versRes.value, versionCount: versRes.value.length });
@@ -128,7 +128,7 @@ export function createCompareService(
     //
     // **Jinja のコンパイル自体もこのオリジンでは行わない。** nunjucks はサンドボックスでなく
     // コンパイラで、`{{ range.constructor("…")() }}` は `new Function` へ到達する。承認者の
-    // ページで走らせると承認者のセッションのまま承認 API を叩けてしまう(所見 F1)ため、
+    // ページで走らせると承認者のセッションのまま承認 API を叩けてしまうため、
     // 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)へ委ねる。
     async renderVersionHtml(historyId) {
       // 「現行版」は snapshot を持たない。原本(現在のテンプレート HTML)をサンプル値で

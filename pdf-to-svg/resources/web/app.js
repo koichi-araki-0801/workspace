@@ -1,9 +1,9 @@
 // =============================================================================
 // app.js — PdfToSvg フロントエンド (4 ステップ状態機械の本体)
 // =============================================================================
-// 役割: モックの 4 ステップ状態機械を踏襲しつつ、データ・ページ描画・編集・書き出しを
+// 役割: 4 ステップ状態機械として、データ・ページ描画・編集・書き出しを
 // Python バックエンド (`window.rpc`) に接続する。状態に依存しない純粋ヘルパは
-// `dom.js` / `geometry.js` へ分離 (type="module" で読込)。
+// `dom.js` / `geometry.js` が持つ (type="module" で読込)。
 import { esc, svg } from "./dom.js";
 import { clientToPage, parseSpec } from "./geometry.js";
 import {
@@ -20,7 +20,7 @@ import { initRail, buildRail } from "./rail.js";
 
   var app = document.getElementById("app");
 
-  // ── 1. アイコン ── (icons.js へ分離)
+  // ── 1. アイコン ── (icons.js が担う)
 
   // ── 2. 状態 ──
   // 可変状態は state.js の `S` に集約 (導出・遷移関数も同居)。ここは表示定数のみ。
@@ -227,7 +227,7 @@ import { initRail, buildRail } from "./rail.js";
     if (withSelect) { drawSelBoxes(host); }
   }
 
-  // ── 8. 左: ページ一覧 → rail.js へ分離 (buildRail/wireRail。initRail で render/tryNext を注入) ──
+  // ── 8. 左: ページ一覧 — rail.js の buildRail/wireRail が担う (initRail で render/tryNext を注入) ──
 
     function renderSummary(id, arr) {
     var c = counts(arr);

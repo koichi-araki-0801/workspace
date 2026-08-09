@@ -84,9 +84,9 @@ function isSafeFileNameSegment(s: string): boolean {
  * 安全か。`_` を弾くのはトークン区切りだから(正当な値には現れない)。
  *
  * **セグメント検査は組み立て済みファイル名ではなくトークンごとに掛ける。** 全体にだけ
- * 掛けていた版は `AM01 _510037_20240710_交付版.html` を通していた — トークン内部の末尾空白は
+ * 掛けると `AM01 _510037_20240710_交付版.html` が通る — トークン内部の末尾空白は
  * ファイル名全体の trim では消えないのに、SQL Server の `=` は末尾空白を無視するので
- * 「ファイルは 2 つ・台帳は 1 行」の食い違いを作れた。
+ * 「ファイルは 2 つ・台帳は 1 行」の食い違いを作れる。
  */
 export function isValidTemplateToken(token: string): boolean {
   return isSafeFileNameSegment(token) && !token.includes('_');

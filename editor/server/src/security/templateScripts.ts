@@ -7,7 +7,7 @@
 // 承認者は実行結果しか見ない運用のため、この照合が実効的な防壁になる。
 //
 // **抽出は許可リストで書く。危険物の数え上げ(denylist)にしない。**
-// 初版は script 要素 / `on*` 属性 / 生の `javascript:` の 3 形態だけを数えており、
+// script 要素 / `on*` 属性 / 生の `javascript:` の 3 形態だけを数える方式では、
 // `<iframe srcdoc="&lt;script&gt;…">`・`<iframe src="data:text/html;base64,…">`・
 // `<svg><animate to="javascript&#58;…">`・`<meta http-equiv=refresh>`・
 // `<style>@import url(…)</style>` がいずれも素通りした(実測)。列挙は必ず漏れる。
@@ -264,7 +264,7 @@ const INERT_ELEMENTS = new Set([
  *
  * **同じ理由が `style` にも当たる。**
  * `<svg><style><img src=x onerror=…>` は Chromium で onerror が発火するのに、CSS 外部参照
- * しか単位化していなかったため単位ゼロで通った。`style` は CSS 参照の抽出が要るので
+ * しか単位化しないと単位ゼロで通ってしまう。`style` は CSS 参照の抽出が要るので
  * ここへ残したまま、中身をマークアップとしても走査する形にしてある。
  */
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
@@ -449,10 +449,10 @@ const TAG_LIKE_LT_RE = /<[a-zA-Z!/?]/;
  * タグ内の Jinja 断片を読み飛ばす。読めたら閉じ位置を、**読み飛ばして良いと言えなければ
  * `-1`** を返す(呼び出し側は `-1` を「普通の属性名文字」として扱い、走査を止めない)。
  *
- * ⚠ ここが `-1` を返したとき、呼び出し側が入力の残り全部を捨てていた版は
- * **不変性ゲートそのものの迂回路**だった。`{{` が閉じない・そもそも Jinja 開始でない
+ * ⚠ ここが `-1` を返したとき、呼び出し側が入力の残り全部を捨てる形は
+ * **不変性ゲートそのものの迂回路**になる。`{{` が閉じない・そもそも Jinja 開始でない
  * (`<div {>`)だけで `scanOpenTags` が以降を走査せず、単位列が基準と完全一致したまま
- * `<script>` を足せた(実測: 7 文字の `<div {>` を挟むだけで申請・承認を通る)。
+ * `<script>` を足せる(実測: 7 文字の `<div {>` を挟むだけで申請・承認を通る)。
  * ブラウザは `{` を普通の属性名文字として読み、タグは最初の `>` で閉じて後続の
  * `<script>` を実行する。よって「閉じない = 読み飛ばさない」が正しい向きである。
  *
@@ -476,14 +476,14 @@ function jinjaEnd(text: string, at: number): number {
  *
  * `</script` の前方一致だけでは足りない。HTML のトークナイザは終了タグ名の直後が
  * 空白 / `/` / `>` のときにだけ終了タグとみなすので、`</scriptx>` は**本文の一部**である。
- * 前方一致で切っていた版は `<script>init()</scriptx>/;evil()</script>` の本文を
- * `init()` と読み、基準と一致させたまま `evil()` を確定テンプレへ通した。
+ * 前方一致で切ると `<script>init()</scriptx>/;evil()</script>` の本文を
+ * `init()` と読み、基準と一致させたまま `evil()` を確定テンプレへ通してしまう。
  * 判定は `inlineCss.ts` の `findRawTextEnd` と同じ規則(片方だけ緩めない)。
  *
  * ⚠ `lower`(= `text` 全体の小文字化コピー)は**呼び出し側が 1 回だけ作って渡す**。
- * ここで `text.toLowerCase()` していた版は script/style 1 つにつき入力全体のコピーを
+ * ここで `text.toLowerCase()` すると script/style 1 つにつき入力全体のコピーを
  * 作り、`collectInto` は `scanOpenTags` と `rawTextOf` の双方から呼ぶので要素あたり
- * 概ね 2 コピーだった。`'<style></style>'` の反復を `POST /api/review-requests` に
+ * 概ね 2 コピーになる。`'<style></style>'` の反復を `POST /api/review-requests` に
  * 載せるだけで、`submitReview` 冒頭の同期区間がイベントループを恒久停止させる。
  * `inlineCss.findRawTextEnd` と同じ欠陥で、直すときは両方直すこと。
  */
