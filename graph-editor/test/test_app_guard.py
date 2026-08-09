@@ -12,7 +12,7 @@
 効いていない退行を取りこぼすため。逆にトークンの検査は、ヘッダをすべて正規値に揃えた
 うえでトークンだけを外す/壊すことで主張する。
 
-ここのテストベクタ表は `pdf-to-svg/tests/test_origin_guard.py` と**同一仕様の複製**である
+ここのテストベクタ表は `pdf-to-svg/test/test_origin_guard.py` と**同一仕様の複製**である
 (2 プロジェクトは並行実装で、片方を変えたら両方を変える)。`urllib` は URL から Host を
 強制するので `Host: evil.example` を送れない。`http.client` の `putrequest(skip_host=True)`
 で任意のリクエスト行・ヘッダを手組みする。

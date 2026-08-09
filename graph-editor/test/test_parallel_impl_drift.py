@@ -12,7 +12,7 @@ verbose ログ既定 OFF は graph-editor にだけ入った。申し送りで�
 判定表・接続の資源上限・Edge 起動引数まで比較対象を広げてある。**新しい共有の決めごとを
 足したら、この表にも足すこと。**
 
-同じ主張を pdf-to-svg 側 (`tests/test_parallel_impl_drift.py`) にも置いてある。CI は
+同じ主張を pdf-to-svg 側 (`test/test_parallel_impl_drift.py`) にも置いてある。CI は
 `pnpm run ci:pdf-to-svg` / `ci:graph-editor` のように片側だけ走ることがあり、検査が片側に
 しか無いと「変えた側の CI では落ちない」= 今回の drift がそのまま再発するためで、この複製は
 意図的である。

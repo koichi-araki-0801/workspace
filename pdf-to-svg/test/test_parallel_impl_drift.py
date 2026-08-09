@@ -10,7 +10,7 @@ verbose ログ既定 OFF は graph-editor にだけ入った。申し送りで�
 「揃え忘れ」ではなく「揃えるか、揃えない理由を書いてこの表を直すか」の二択になる。
 **新しい共有の決めごとを足したら、この表にも足すこと。**
 
-同じ主張を graph-editor 側 (`tests/test_parallel_impl_drift.py`) にも置いてある。CI は
+同じ主張を graph-editor 側 (`test/test_parallel_impl_drift.py`) にも置いてある。CI は
 `pnpm run ci:pdf-to-svg` / `ci:graph-editor` のように片側だけ走ることがあり、検査が片側に
 しか無いと「変えた側の CI では落ちない」= 今回の drift がそのまま再発するためで、この複製は
 意図的である。

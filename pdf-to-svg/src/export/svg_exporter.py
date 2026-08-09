@@ -163,10 +163,10 @@ def _attr(name: str, value) -> str:
     **SVG 属性はこの関数経由でのみ書く**。f-string で属性を直接組む箇所を残すと、
     そこが次の注入点になる (色だけがエスケープ漏れしていた実績がそれ)。列挙ではなく
     構造で守るという反転で、漏れは「この関数を使っていない箇所」として機械検出できる
-    (``tests/test_export_escaping.py``)。
+    (``test/test_export_escaping.py``)。
 
     出力バイトの不変則: ``quoteattr`` は ``"`` を含まない値へ ``"..."`` を付けるだけ
-    なので、既存出力と 1 バイトも変わらない (``tests/test_pipeline.py`` が固定)。
+    なので、既存出力と 1 バイトも変わらない (``test/test_pipeline.py`` が固定)。
     """
     return f"{name}={quoteattr(str(value))}"
 

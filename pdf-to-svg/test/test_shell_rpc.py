@@ -77,7 +77,7 @@ def test_reapply_macro_reverts_in_one_undo(tmp_path):
 
 # 使い捨てサーバの固定セッショントークン。本番は起動ごとの CSPRNG 値 (`create_server` の
 # 既定) で、ここは「正規 UI と同じ形で叩く」ためだけの既知値。認可そのものの主張は
-# `tests/test_origin_guard.py` が持つ。
+# `test/test_origin_guard.py` が持つ。
 _TOKEN = "shell-rpc-test-token"
 
 

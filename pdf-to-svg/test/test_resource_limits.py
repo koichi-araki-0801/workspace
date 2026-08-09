@@ -101,7 +101,7 @@ def test_a4_at_the_default_scale_is_untouched():
 # ── P012: リクエスト本文の上限 ─────────────────────────────────────────────
 
 # 使い捨てサーバの固定セッショントークン (本番は起動ごとの CSPRNG 値)。認可の主張は
-# `tests/test_origin_guard.py` が持ち、ここは資源上限だけを見る。
+# `test/test_origin_guard.py` が持ち、ここは資源上限だけを見る。
 _TOKEN = "resource-limits-test-token"
 
 

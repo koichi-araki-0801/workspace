@@ -130,8 +130,8 @@ def _load_resources():
 # (graph-editor は実行時依存ゼロ・単一 `app.py` が設計前提のため共有モジュールを持てない。
 # `resources/web/lib/leader_geom.cjs` と pie-chart の関係と同じ運用)。判定順・理由コード・
 # 許可リストの中身は逐語で揃えてあり、**片方を変えたら必ず両方を変える**こと。テストベクタも
-# 両プロジェクトへ複製している (`tests/test_app_guard.py` と
-# `pdf-to-svg/tests/test_origin_guard.py`)。
+# 両プロジェクトへ複製している (`test/test_app_guard.py` と
+# `pdf-to-svg/test/test_origin_guard.py`)。
 
 # 非安全メソッドで許す Content-Type。どちらも CORS セーフリスト外なので、クロスオリジンから
 # 送るにはプリフライトが要る。本サーバは `do_OPTIONS` を持たず ACAO も出さないため、
