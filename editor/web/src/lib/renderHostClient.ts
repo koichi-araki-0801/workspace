@@ -234,18 +234,23 @@ export function createRenderHostClient(opts?: {
 }
 
 /**
- * アプリ全体で 1 つだけ共有するクライアント。iframe を画面ごとに作らないのは、起動コスト
- * (ページ + nunjucks バンドル)を毎回払わないためで、**隔離の粒度が緩むことはない** —
- * 子は 1 要求 1 応答で状態を持たず、前の要求の副作用は次の要求へ持ち越されない。
- */
-let sharedClient: RenderHostClient | null = null;
-
-/**
  * 生 Jinja HTML を opaque オリジンの iframe で描画する。**アプリオリジンで nunjucks を
  * コンパイルする経路の唯一の置き換え先**で、戻り値は `renderJinja` と同じ
  * `RenderResult` — 呼び出し側の分岐は変わらない。
+ *
+ * ── フレームは要求ごとに作って捨てる ──
+ * 隔離の単位は iframe ではなく **realm**(その中の JS が触れる状態の全体)である。フレームを
+ * 使い回すと、ある要求で走った JS が `env` などの realm 上の状態を書き換え、**以後の全要求の
+ * 応答を偽装**できる。承認画面は申請者の本文を描画してから現行版のベースラインを描画する
+ * ので、これは「差分の『変更前』側を申請者が決められる」＝職務分掌の回避に直結する。
+ * ブートスクリプトの多層防御は脱出を塞ぐが、**塞ぎ切れなかったときに被害が 1 要求で
+ * 止まる**形にしておく価値は別にある。
+ *
+ * 費用は実測した(Chromium・ローカル配信・91 KiB のホストページ): 作り直しを含めて
+ * 1 要求あたり中央 11 ms / 最大 38 ms、共有時の描画のみは中央 1 ms。差は 10 ms 程度で、
+ * 承認画面は 1 画面あたり数回しか描画しないため体感に影響しない。**隔離の強さを取る。**
  */
 export function renderJinjaIsolated(template: string, data: SampleData): Promise<RenderResult> {
-  sharedClient ??= createRenderHostClient();
-  return sharedClient.render(template, data);
+  const client = createRenderHostClient();
+  return client.render(template, data).finally(() => client.dispose());
 }
