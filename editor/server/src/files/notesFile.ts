@@ -17,8 +17,15 @@ const notesDir = (): string => path.join(config.dataRoot, 'notes');
 
 /**
  * メモファイル 1 本の上限バイト数。読み側は `JSON.parse` で全体を 1 度に構造化するので、
- * サイズを見ずに読むと「書いた本人以外も含めた全 GET が同じ時間だけ止まる」。上限を
- * 超えたファイルは壊れているとみなし、空として扱う(読み取り経路は落とさない)。
+ * サイズを見ずに読むと「書いた本人以外も含めた全 GET が同じ時間だけ止まる」。
+ *
+ * **この上限は書き込み側でも強制する**(`writeNotes`)。件数上限だけでは守れない —
+ * `MAX_NOTES_PER_TEMPLATE`(1000)× 1 件あたり `MAX_NOTE_CONTENT_CHARS`(64KiB)は
+ * 最大 64MiB で、この上限の 16 倍になる。件数を守っていてもサイズは超えられる。
+ *
+ * 読み側の扱いは経路で分ける(`readNotes` / `readNotesStrict`)。読み取りは degrade して
+ * 空を返してよいが、**読み-改変-書きの入力にしてはならない** — 「読めない」を「空」と
+ * 取り違えたまま書き戻すと、全メモが 1 件へ潰れる。
  */
 export const MAX_NOTES_FILE_BYTES = 4 * 1024 * 1024;
 
@@ -37,31 +44,81 @@ function fileFor(templateId: string): string {
 type NoteMap = Record<string, PartNote>;
 
 /**
- * 指定版インスタンスの全メモ(pathKey → PartNote)。ファイルが無ければ空。
- * サイズが `MAX_NOTES_FILE_BYTES` を超えるファイルは読まずに空を返す(理由は定数の説明)。
+ * 読み取りの結果。**「メモが無い」と「読めなかった」を呼び出し側が区別できる**ようにする。
+ *
+ * 区別が要るのは書き込み経路のため。`saveNote` は「全体を読む → 1 件差し替える → 全体を
+ * 書く」なので、読めなかったのに空と受け取ると**残りの全メモを消して書き戻す**。
  */
-export async function readNotes(templateId: string): Promise<NoteMap> {
+interface NotesReadResult {
+  notes: NoteMap;
+  /** 実体は在るが読めなかった(サイズ超過・壊れた JSON)。`notes` は空。 */
+  unreadable: boolean;
+}
+
+async function readNotesResult(templateId: string): Promise<NotesReadResult> {
   const file = fileFor(templateId);
   const size = await fs
     .stat(file)
     .then((s) => s.size)
     .catch(() => -1);
-  if (size < 0 || size > MAX_NOTES_FILE_BYTES) return {};
+  // ファイルが無い = 素直に「メモが無い」。ここだけは degrade ではない。
+  if (size < 0) return { notes: {}, unreadable: false };
+  if (size > MAX_NOTES_FILE_BYTES) return { notes: {}, unreadable: true };
   const raw = await fs.readFile(file, 'utf8').catch(() => '');
-  if (!raw) return {};
+  if (!raw) return { notes: {}, unreadable: false };
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return parsed !== null && typeof parsed === 'object' ? (parsed as NoteMap) : {};
+    if (parsed !== null && typeof parsed === 'object')
+      return { notes: parsed as NoteMap, unreadable: false };
+    return { notes: {}, unreadable: true };
   } catch {
     // 壊れたメモファイルで編集画面ごと落とさない(メモは注釈で、本体は git 側が正典)。
-    return {};
+    return { notes: {}, unreadable: true };
   }
 }
 
-/** 指定版インスタンスのメモ一式を書き出す(ディレクトリは必要に応じて作成)。 */
+/**
+ * 指定版インスタンスの全メモ(pathKey → PartNote)。**表示用**。
+ * 読めない実体(サイズ超過・壊れた JSON)は空として扱い、画面を落とさない。
+ * **この戻り値を書き戻しの入力にしてはならない**(`readNotesStrict` を使う)。
+ */
+export async function readNotes(templateId: string): Promise<NoteMap> {
+  return (await readNotesResult(templateId)).notes;
+}
+
+/**
+ * 読み-改変-書きのための読み取り。読めない実体は**空ではなく例外**にする。
+ *
+ * degrade(空を返す)は読み取りを守るための仕組みで、書き込みの入力にすると破壊になる。
+ * 「読めない」まま書き戻せば残りの全メモが消え、メモは git 管理外なので復元できない。
+ */
+export async function readNotesStrict(templateId: string): Promise<NoteMap> {
+  const res = await readNotesResult(templateId);
+  if (res.unreadable)
+    throw validation(
+      'このテンプレートのメモファイルを読み取れないため保存できません' +
+        '(サイズ超過または破損)。既存のメモを失わないよう、保存を中止しました。',
+    );
+  return res.notes;
+}
+
+/**
+ * 指定版インスタンスのメモ一式を書き出す(ディレクトリは必要に応じて作成)。
+ *
+ * **サイズ上限はここで強制する。** 件数上限は「1 件の大きさ」を縛らないので、
+ * 件数を守ったまま読み取り不能なファイルを作れてしまう(そして次の保存で全件が消える)。
+ * 上限は書いた結果のバイト数で見る — 申告値や件数からの見積もりではなく実測で判定する。
+ */
 export async function writeNotes(templateId: string, notes: NoteMap): Promise<void> {
+  const body = `${JSON.stringify(notes, null, 2)}\n`;
+  const bytes = Buffer.byteLength(body, 'utf8');
+  if (bytes > MAX_NOTES_FILE_BYTES)
+    throw validation(
+      `このテンプレートのメモが上限(${Math.floor(MAX_NOTES_FILE_BYTES / 1024 / 1024)}MB)を` +
+        '超えるため保存できません。不要なメモを削除してください。',
+    );
   await fs.mkdir(notesDir(), { recursive: true });
-  await atomicWrite(fileFor(templateId), `${JSON.stringify(notes, null, 2)}\n`);
+  await atomicWrite(fileFor(templateId), body);
 }
 
 /**

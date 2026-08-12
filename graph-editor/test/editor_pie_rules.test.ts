@@ -78,3 +78,29 @@ describe("computeDefaultLeaderPts", () => {
     expect(a).toEqual({ x: 100, y: 0 });
   });
 });
+
+// ── 計算量の上限(ReDoS) ──
+// `d` は `sanitizeAttrValue` が 1 MiB まで意図的に通すため、数値パターンが曖昧だと
+// 長い数字列 1 本で最初のラベル操作が固まる(読込は「除去 0 件」で正常に終わるので、
+// 利用者には何が起きたか分からない)。
+describe("parsePieGeometry は入力長に対して線形", () => {
+  it("正当な d は今までどおり解釈できる", () => {
+    expect(parsePieGeometry("M 10,20 A 5,5 0 0 1 1,2")).toEqual({ cx: 10, cy: 20, r: 5 });
+    expect(parsePieGeometry("M-1.5,.5A2,2 0 0 1 1,2")).toEqual({ cx: -1.5, cy: 0.5, r: 2 });
+  });
+
+  it("長い数字列でも所要が二乗で伸びない", () => {
+    const measure = (n: number) => {
+      const d = `M${"1".repeat(n)}`;
+      const t0 = performance.now();
+      parsePieGeometry(d);
+      return performance.now() - t0;
+    };
+    measure(50_000);
+    const small = measure(50_000);
+    const large = measure(800_000);
+    // 二次だと 16 倍の入力で 256 倍。線形なら 16 倍程度に収まる。
+    expect(large).toBeLessThan(Math.max(50, small * 100));
+    expect(large).toBeLessThan(1000);
+  });
+});

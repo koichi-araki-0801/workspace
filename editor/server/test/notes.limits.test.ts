@@ -102,4 +102,62 @@ describe('同時保存で更新が消えない', () => {
     const map = await files.readNotes(TPL);
     expect(Object.keys(map).sort()).toEqual(['a', 'b', 'c']);
   });
+
+  // ── degrade を書き込みの入力にしない ──
+  // 「読めないときは空を返す」は読み取りを守るための degrade だが、読み-改変-書きの
+  // 入力にすると**破壊**になる。メモは git 管理外なので消えたら復元できず、監査も残らない。
+  it('読めないメモファイルがあるとき保存は拒否され、既存の内容が保たれる', async () => {
+    const { files, repo } = await importNotes();
+    const tplId = 'AM01_510037_20240710_交付版';
+    const file = path.join(tmpRoot, 'notes', `${tplId}.json`);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    // 上限を超える実体を直に置く(修正前の版が書いたファイル、という想定)。
+    const big = 'x'.repeat(files.MAX_NOTES_FILE_BYTES + 1);
+    await fs.writeFile(file, big, 'utf8');
+
+    await expect(repo.saveNote(tplId, 'p1', '新しいメモ', 'editor1')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    // 中身は 1 バイトも変わっていない(全件が 1 件へ潰れていない)。
+    expect((await fs.readFile(file, 'utf8')).length).toBe(big.length);
+  });
+
+  it('壊れた JSON でも保存は拒否される(表示は空でも書き戻さない)', async () => {
+    const { files, repo } = await importNotes();
+    const tplId = 'AM01_510037_20240710_交付版';
+    const file = path.join(tmpRoot, 'notes', `${tplId}.json`);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, '{ this is not json', 'utf8');
+
+    // 表示経路は落とさない(degrade はそのまま)。
+    expect(await files.readNotes(tplId)).toEqual({});
+    // 書き込み経路は拒否する。
+    await expect(repo.saveNote(tplId, 'p1', 'x', 'editor1')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    expect(await fs.readFile(file, 'utf8')).toBe('{ this is not json');
+  });
+
+  // ── 件数上限はサイズ上限を守れない ──
+  it('件数上限内でもサイズ上限を超える書き込みは拒否される', async () => {
+    const { files } = await importNotes();
+    const tplId = 'AM01_510037_20240710_交付版';
+    // 1 件 64KiB × 70 件 ≒ 4.4MiB。件数上限 1000 の 7% でファイル上限を超える
+    // (1000 × 64KiB = 64MiB は 4MiB の 16 倍で、件数だけではサイズを縛れない)。
+    const map: Record<string, unknown> = {};
+    for (let i = 0; i < 70; i++)
+      map[`p${i}`] = {
+        templateId: tplId,
+        pathKey: `p${i}`,
+        content: 'あ'.repeat(20_000),
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        updatedBy: 'editor1',
+      };
+    expect(Object.keys(map).length).toBeLessThan(files.MAX_NOTES_PER_TEMPLATE);
+    await expect(
+      files.writeNotes(tplId, map as Parameters<typeof files.writeNotes>[1]),
+    ).rejects.toMatchObject({ kind: 'validation' });
+    // 実体を作らせない(次の保存で全件が消える状態を最初から作らない)。
+    await expect(fs.stat(path.join(tmpRoot, 'notes', `${tplId}.json`))).rejects.toBeTruthy();
+  });
 });

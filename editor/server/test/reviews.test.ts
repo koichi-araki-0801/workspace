@@ -187,4 +187,33 @@ d('review workflow (reviewRepo)', () => {
     expect(fileExists).toBe(after.status === 'approved');
     expect(['approved', 'rejected']).toContain(after.status);
   });
+
+  // ── 未処理申請の件数上限 ──
+  // 申請の作成は editor 1 ロールで撃て、1 件ごとに dataRoot へ書く。上限が無いと 1 人で
+  // 領域を埋められ、`reviewsDir` は templates / `.git` と同じボリュームなので枯渇は
+  // `atomicWrite` と `commitAll` の失敗 = 承認フローの停止に直結する。
+  it('未処理が上限に達したら新規申請を断る(決着済みは数えない)', async () => {
+    const files = await import('../src/files/reviewFiles.js');
+    const pending = await files.countPendingReviews();
+    // 上限ぶんの pending を作るのは重いので、上限そのものを一時的に現在値まで下げて
+    // 「上限に達している状態」を作る(判定の入力は件数だけなので等価)。
+    const spy = vi.spyOn(files, 'MAX_PENDING_REVIEWS', 'get').mockReturnValue(pending);
+    try {
+      await expect(
+        submit('AM01_121212_20250101_交付版', '121212', '<p>上限テスト</p>'),
+      ).rejects.toMatchObject({ kind: 'validation' });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('決着済みの申請は未処理件数に数えない(承認が進めばまた申請できる)', async () => {
+    const files = await import('../src/files/reviewFiles.js');
+    const before = await files.countPendingReviews();
+    const meta = await submit('AM01_131313_20250101_交付版', '131313', '<p>数え方</p>');
+    expect(await files.countPendingReviews()).toBe(before + 1);
+    await reviews.rejectReview(meta.id, { comment: '理由' }, approver);
+    // 却下しても実体は残るが、行列(= 攻撃者が伸ばせる量)からは外れる。
+    expect(await files.countPendingReviews()).toBe(before);
+  });
 });

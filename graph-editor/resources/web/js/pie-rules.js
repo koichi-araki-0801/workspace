@@ -7,8 +7,13 @@
 
 /** slice パスの d ("M cx,cy … A r,…") から円中心・半径を推定する。楔形でなければ null */
 function parsePieGeometry(d) {
-  const m = (d || "").match(/M\s*(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)/);
-  const a = (d || "").match(/A\s*(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)/);
+  // 数値は `\d*` と `\d+` が重なる形 (`-?\d*\.?\d+`) にしない。重なると 1 つの数字列に
+  // 対して複数の分割が同じ位置へ到達し、非マッチ時に長さの二乗で試行が増える。`d` は
+  // `sanitizeAttrValue` が 1 MiB まで意図的に通すので、そこへ長い数字列を 1 本置くだけで
+  // 最初のラベル操作が固まる。整数部ありと小数点始まりを**排他**に書けば線形になる。
+  const NUM = /-?(?:\d+(?:\.\d+)?|\.\d+)/.source;
+  const m = (d || "").match(new RegExp(`M\\s*(${NUM})[ ,]+(${NUM})`));
+  const a = (d || "").match(new RegExp(`A\\s*(${NUM})[ ,]+(${NUM})`));
   if (!m || !a) return null;
   return { cx: parseFloat(m[1]), cy: parseFloat(m[2]), r: parseFloat(a[1]) };
 }
