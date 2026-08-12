@@ -30,6 +30,7 @@ from web import origin_guard
 from web.rpc_methods import WebSession
 from web.server import Handler, create_server
 from web.undo_stack import UndoStack
+import socket
 
 # 「Host ヘッダを省略する」を `None` と区別するための番兵。
 _DEFAULT = object()
@@ -543,3 +544,59 @@ def test_reject_logging_is_capped_per_reason(server, caplog):
     assert len(lines) == origin_guard.REJECT_LOG_LIMIT
     # 攻撃者の入れた値をそのままログへ出さない (制御文字での行偽装を防ぐ整形が効いている)。
     assert all("\n" not in r.getMessage() for r in lines)
+
+def _raw_head(port, request_bytes):
+    """生ソケットで 1 往復し、応答ヘッダ部だけを小文字で返す。
+
+    `http.client` はリクエスト行の長さを自前で検証してしまうため、414 を出させるには
+    生で送る必要がある。
+    """
+    with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
+        sock.sendall(request_bytes)
+        chunks = []
+        while b"\r\n\r\n" not in b"".join(chunks):
+            got = sock.recv(4096)
+            if not got:
+                break
+            chunks.append(got)
+    return b"".join(chunks).split(b"\r\n\r\n", 1)[0].decode("latin-1")
+
+
+def test_security_headers_are_sent_on_base_class_responses(server):
+    """基底クラスが直接返す応答にも防御ヘッダが載ること。
+
+    `_send` / `_reject` を明示的に通らない応答が 2 種ある:
+      - `HEAD` に `do_HEAD` が無いときの **501**
+      - リクエスト行が長すぎるときの **414** (`parse_request()` より前で返るので
+        同一オリジン検査すら通らない)
+    どちらも `send_error()` 経由で、明示呼び出し方式では防御ヘッダ無しで出ていた。
+    ヘッダが欠けると `Cross-Origin-Resource-Policy` が効かず、クロスオリジンの
+    `fetch(..., {method:'HEAD', mode:'no-cors'})` が resolve する = 「このポートでこの
+    アプリが動いている」を確定できる (ポート探索オラクル)。付与は `end_headers()` の
+    override 1 箇所へ集約してあるので、送信経路を足しても付け忘れは起きない。
+    """
+    port = server.server_address[1]
+
+    status, _, headers = _request(port, "HEAD", "/")
+    assert status == 501
+    assert headers.get("X-Frame-Options") == "DENY"
+    assert headers.get("X-Content-Type-Options") == "nosniff"
+    assert headers.get("Cross-Origin-Resource-Policy") == "same-origin"
+    assert "frame-ancestors 'none'" in (headers.get("Content-Security-Policy") or "")
+
+    head = _raw_head(port, b"GET /" + b"a" * 70000 + b" HTTP/1.1\r\n\r\n").lower()
+    assert " 414 " in head.split("\r\n", 1)[0]
+    assert "x-frame-options: deny" in head
+    assert "cross-origin-resource-policy: same-origin" in head
+    assert "frame-ancestors 'none'" in head
+
+
+def test_security_headers_are_not_duplicated(server):
+    """1 応答につき 1 回だけ載ること (`end_headers()` の二重付与ガード)。"""
+    port = server.server_address[1]
+    head = _raw_head(
+        port,
+        b"GET / HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nConnection: close\r\n\r\n" % port,
+    ).lower()
+    assert head.count("x-frame-options:") == 1
+    assert head.count("cross-origin-resource-policy:") == 1

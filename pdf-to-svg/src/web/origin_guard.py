@@ -69,7 +69,7 @@ TOKEN_QUERY = "token"
 
 # 全応答 (成功 `_send` と拒否 `_reject` の双方) へ載せる防御ヘッダ。**1 応答でも欠けると、
 # その URL が `<iframe>` や `<script src>` の足がかりになる**ので、送信経路を増やしたら
-# 必ず `send_security_headers()` を通すこと。
+# 付与は `end_headers()` の override 1 箇所に集約してある (呼び出し側は意識しない)。
 # - `frame-ancestors 'none'` / `X-Frame-Options: DENY`: 攻撃者ページが本 UI を frame へ
 #   埋め込むのを拒む。同一オリジン検査は frame 化を防げない — frame の中身は**アプリ自身**で、
 #   その `pagehide` が撃つ `/quit` ビーコンは Origin が完全一致して検査を正当に通過する。
@@ -280,10 +280,33 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     # ── 応答ヘッダ ──
 
     def send_security_headers(self) -> None:
-        """`SECURITY_HEADERS` を応答へ載せる。**全応答経路から呼ぶこと** (成功も 404 も 403 も)。
-        欠けた応答が 1 本でもあれば、その URL だけを frame / 他オリジン読み出しに使える。"""
+        """`SECURITY_HEADERS` を応答へ載せる。**呼び出し側は意識しなくてよい** —
+        `end_headers()` の override がすべての応答へ自動で載せる (下記)。"""
         for name, value in SECURITY_HEADERS:
             self.send_header(name, value)
+
+    def end_headers(self) -> None:
+        """全応答の共通出口。ここで `SECURITY_HEADERS` を載せる。
+
+        規約 (「全応答経路から呼ぶこと」) ではなく**構造**で強制する。明示呼び出し方式では
+        自分で書いた経路 (`_send` / `_reject`) しか覆えず、基底クラスが直接返す応答
+        — `HEAD` に `do_HEAD` が無いときの **501**、リクエスト行が長すぎるときの **414**、
+        その他 `send_error()` 全般 — が素通りしていた。ヘッダの無い応答が 1 本でもあれば、
+        `Cross-Origin-Resource-Policy` が効かず「このポートでこのアプリが動いている」を
+        クロスオリジンから確定できる (ポート探索オラクル)。
+
+        二重付与を避けるため 1 応答につき 1 回だけ載せる。`send_response_only()` が
+        新しい応答の開始点なので、そこでフラグを戻す。
+        """
+        if not getattr(self, "_sec_headers_done", False):
+            self._sec_headers_done = True
+            self.send_security_headers()
+        super().end_headers()
+
+    def send_response_only(self, code, message=None):  # type: ignore[override]
+        """応答の開始点。`end_headers()` の二重付与ガードをここで戻す。"""
+        self._sec_headers_done = False
+        super().send_response_only(code, message)
 
     # ── 拒否応答 ──
 
@@ -299,7 +322,6 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("Connection", "close")
-            self.send_security_headers()
             self.end_headers()
             self.wfile.write(body)
         except OSError:

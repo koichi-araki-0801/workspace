@@ -6,6 +6,7 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { apiPaths } from '@editor/shared';
@@ -548,6 +549,64 @@ export function isLoopbackHost(host: string): boolean {
   return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
 }
 
+/**
+ * `Host` ヘッダとして受け入れるホスト名の集合。**DNS リバインディングの壁**である。
+ *
+ * 攻撃者ページは自分のドメインの DNS を後から `127.0.0.1` へ向け替えられる。ブラウザは
+ * 「まだ attacker.example と同一オリジン」と考えたまま要求を出すので、SameSite も CORS も
+ * 効かない。唯一食い違うのが `Host` ヘッダで、ブラウザはこれを攻撃者ドメインのまま送る。
+ * したがって「自分が名乗られるはずのない名前で来た要求」を落とせば経路ごと消える。
+ *
+ * 効きどころは**認証を課さない配備**(既定の local モード)である。そこでは実質「loopback に
+ * 到達できること」だけが認可条件で、下書きの読み書きから `POST /api/generate` の子プロセス
+ * 起動まで到達される。認証オンの配備ではリバインディング先のオリジンに cookie が付かない
+ * ので 401 で止まるが、層は薄いより厚い方がよい。
+ *
+ * 判定は**ホスト名だけ**で行い、ポートは見ない。攻撃者が選べるのは名前であってポートでは
+ * ないうえ、`Host` はポートを省略できる形(既定ポート)があり、port 込みの完全一致は
+ * 正当な要求を落とす側の誤りを生むため(pdf-to-svg / graph-editor が port 込みで比べるのは、
+ * あちらが loopback 固定 + 起動ごとの動的ポートで、名前だけでは絞りが効かないから)。
+ *
+ * 既定の作り方:
+ *  - loopback へ bind: `localhost` / `127.0.0.1` 系 / `::1` のみ。
+ *  - 非 loopback(LAN 公開)へ bind: 上記に加えて**この機械が実際に持っている名前とアドレス**
+ *    (`os.hostname()` と各 NIC の非内部アドレス)。攻撃者ドメインはここに入らない。
+ * `ALLOWED_HOSTS`(カンマ区切り)で明示的に足せる(リバースプロキシ経由など)。
+ */
+export function resolveAllowedHosts(opts: {
+  host: string;
+  extra?: string;
+  hostname: string;
+  addresses: string[];
+}): Set<string> {
+  const norm = (h: string) => h.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+  const out = new Set(['localhost', '127.0.0.1', '::1', '::ffff:127.0.0.1']);
+  if (!isLoopbackHost(opts.host)) {
+    // LAN 公開時のみ、この機械の実体名・実アドレスを足す(利用者がブラウザに打つ値)。
+    if (opts.hostname) out.add(norm(opts.hostname));
+    for (const a of opts.addresses) out.add(norm(a));
+    // `0.0.0.0` / `::` は bind の指定であって名乗る名前ではないので足さない。
+    if (!/^(?:0\.0\.0\.0|::)$/.test(norm(opts.host))) out.add(norm(opts.host));
+  }
+  for (const h of (opts.extra ?? '').split(',')) {
+    const v = norm(h);
+    if (v) out.add(v);
+  }
+  return out;
+}
+
+/**
+ * `Host` ヘッダ値が許可集合に載っているか。ポートは落として名前だけで比べる。
+ * 値が無い / 複数ある形は落とす(HTTP/1.1 では必須で、重複は前段との食い違いを作れる)。
+ */
+export function isAllowedHost(value: string | string[] | undefined, allowed: Set<string>): boolean {
+  if (typeof value !== 'string' || value === '') return false;
+  const v = value.trim().toLowerCase();
+  // `[::1]:24680` と `host:24680` と `host` の 3 形。IPv6 リテラルは括弧で括られる。
+  const name = v.startsWith('[') ? v.slice(1, v.indexOf(']')) : v.split(':')[0];
+  return allowed.has(name);
+}
+
 /** `assertSafeExposure` の入力。判定に要る設定値をすべて明示的に受け取る。 */
 export interface ExposureOptions {
   host: string;
@@ -744,6 +803,20 @@ export function buildCspDirectives(
  */
 export const allowPlaintextLan =
   envFlag('ALLOW_PLAINTEXT_LAN', process.env.ALLOW_PLAINTEXT_LAN) ?? false;
+
+/**
+ * `Host` ヘッダの許可集合。`app.ts` の入口フックが参照する。
+ * 解決は起動時 1 回だけ(NIC の列挙をリクエストごとに行わない)。
+ */
+export const allowedHosts = resolveAllowedHosts({
+  host: config.host,
+  extra: process.env.ALLOWED_HOSTS,
+  hostname: os.hostname(),
+  addresses: Object.values(os.networkInterfaces())
+    .flat()
+    .filter((n): n is os.NetworkInterfaceInfo => !!n && !n.internal)
+    .map((n) => n.address),
+});
 
 // 危険な待受構成(認証オフ / TLS 無し / preview の公開 / Secure の矛盾)は起動前に落とす。
 // 値の解決直後に評価するので、`app.ts` が listen する前 — import 時点で失敗する。

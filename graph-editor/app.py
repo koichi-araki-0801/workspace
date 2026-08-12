@@ -153,7 +153,7 @@ TOKEN_QUERY = "token"
 
 # 全応答 (成功 `_send` と拒否 `_reject` の双方) へ載せる防御ヘッダ。**1 応答でも欠けると、
 # その URL が `<iframe>` や `<script src>` の足がかりになる**ので、送信経路を増やしたら
-# 必ず `_send_security_headers()` を通すこと。
+# 付与は `end_headers()` の override 1 箇所に集約してある (呼び出し側は意識しない)。
 # - `frame-ancestors 'none'` / `X-Frame-Options: DENY`: 上記の frame 埋め込み経路を拒む。
 # - `default-src 'self'`: 同梱資産以外を読ませない。inline `<script>` もこれで禁止になる
 #   (`ui.html` は inline script を持たない。`<style>` と `style=` 属性だけを例外にする)。
@@ -359,10 +359,33 @@ class GuardedHandler(http.server.BaseHTTPRequestHandler):
         return values[0] if values and len(values) == 1 else None
 
     def _send_security_headers(self):
-        """`SECURITY_HEADERS` を応答へ載せる。**全応答経路から呼ぶこと** (成功も 404 も 403 も)。
-        欠けた応答が 1 本でもあれば、その URL だけを frame / 他オリジン読み出しに使える。"""
+        """`SECURITY_HEADERS` を応答へ載せる。**呼び出し側は意識しなくてよい** —
+        `end_headers()` の override がすべての応答へ自動で載せる (下記)。"""
         for name, value in SECURITY_HEADERS:
             self.send_header(name, value)
+
+    def end_headers(self):
+        """全応答の共通出口。ここで `SECURITY_HEADERS` を載せる。
+
+        規約 (「全応答経路から呼ぶこと」) ではなく**構造**で強制する。明示呼び出し方式では
+        自分で書いた経路 (`_send` / `_reject`) しか覆えず、基底クラスが直接返す応答
+        — `HEAD` に `do_HEAD` が無いときの **501**、リクエスト行が長すぎるときの **414**、
+        その他 `send_error()` 全般 — が素通りしていた。ヘッダの無い応答が 1 本でもあれば、
+        `Cross-Origin-Resource-Policy` が効かず「このポートでこのアプリが動いている」を
+        クロスオリジンから確定できる (ポート探索オラクル)。
+
+        二重付与を避けるため 1 応答につき 1 回だけ載せる。`send_response_only()` が
+        新しい応答の開始点なので、そこでフラグを戻す。
+        """
+        if not getattr(self, "_sec_headers_done", False):
+            self._sec_headers_done = True
+            self._send_security_headers()
+        super().end_headers()
+
+    def send_response_only(self, code, message=None):
+        """応答の開始点。`end_headers()` の二重付与ガードをここで戻す。"""
+        self._sec_headers_done = False
+        super().send_response_only(code, message)
 
     def _reject(self, reason):
         """本文を読み捨ててから 403 を返し、接続を閉じる。常に `False` を返す
@@ -376,7 +399,6 @@ class GuardedHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("Connection", "close")
-            self._send_security_headers()
             self.end_headers()
             self.wfile.write(body)
         except OSError:
@@ -499,10 +521,8 @@ class Handler(GuardedHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        # frame 化・他オリジン読み出し・MIME 誤解釈を断つ防御ヘッダ。成功応答も 404 も
-        # ここを通るので、`_send` 以外の送信経路を足すときは基底の `_reject` と同じく
-        # `_send_security_headers()` を必ず呼ぶこと。
-        self._send_security_headers()
+        # 防御ヘッダ (`SECURITY_HEADERS`) は `end_headers()` の override が載せるので、
+        # 送信経路を足しても付け忘れは起きない。
         self.end_headers()
         if body:
             self.wfile.write(body)

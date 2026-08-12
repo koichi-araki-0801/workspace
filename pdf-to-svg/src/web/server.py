@@ -91,8 +91,6 @@ class Handler(origin_guard.GuardedHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         # frame 化・他オリジン読み出し・MIME 誤解釈を断つ防御ヘッダ。成功応答も 404 も
         # ここを通るので、`_send` 以外の送信経路を足すときは基底の `_reject` と同じく
-        # `send_security_headers()` を必ず呼ぶこと (`web/origin_guard.py`)。
-        self.send_security_headers()
         self.end_headers()
         if body:
             self.wfile.write(body)

@@ -74,6 +74,31 @@ def test_security_headers_and_token_transport_match():
     assert origin_guard.TOKEN_QUERY == other.TOKEN_QUERY
 
 
+def test_security_headers_are_attached_at_end_headers_on_both_sides():
+    """付与の**やり方**まで一致すること (値の一致だけでは足りない)。
+
+    値が同じでも「どこで載せるか」が違えば、片側だけ抜ける応答が生まれる。実際、両側とも
+    自分で書いた送信経路 (`_send` / `_reject`) からの明示呼び出しだった頃は、基底クラスが
+    直接返す応答 (`HEAD` → 501、長すぎるリクエスト行 → 414、その他 `send_error()`) に
+    ヘッダが載っていなかった。**両側に同じ穴があったので値の照合では検出できない** —
+    このテストはその形の drift を狙う。
+
+    主張は「`end_headers()` を override して 1 応答 1 回だけ載せる」形であること。
+    """
+    other = _graph_editor_app()
+    # クラス名は両側で揃っていない(pdf-to-svg=`GuardedHTTPRequestHandler` /
+    # graph-editor=`GuardedHandler`)。揃えるべきは名前ではなく**付与のやり方**なので、
+    # それぞれの基底ハンドラを名指しで取る。
+    for mod, handler in (
+        (origin_guard, origin_guard.GuardedHTTPRequestHandler),
+        (other, other.GuardedHandler),
+    ):
+        # 基底のままではない = override している。
+        assert "end_headers" in vars(handler), mod.__name__
+        # 二重付与ガードのために応答の開始点も押さえている。
+        assert "send_response_only" in vars(handler), mod.__name__
+
+
 def test_guard_decision_table_matches():
     """判定表 (許可 Content-Type・Origin 不要メソッド) とログ・読み捨ての上限が一致すること。"""
     other = _graph_editor_app()

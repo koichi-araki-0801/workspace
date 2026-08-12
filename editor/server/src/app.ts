@@ -19,9 +19,11 @@ import staticPlugin from '@fastify/static';
 import Fastify, { type FastifyHttpOptions } from 'fastify';
 import { invalidateAllSessions, purgeExpiredSessions } from './auth/session.js';
 import {
+  allowedHosts,
   buildCspDirectives,
   config,
   inlineScriptCspHashes,
+  isAllowedHost,
   isPreAuthBufferedRequest,
   preAuthGateUrl,
 } from './config.js';
@@ -82,6 +84,27 @@ app.decorateRequest('user', undefined);
 // 新しいルートを足したら `routes/routeGuards.ts` の `ROUTE_POLICY` を更新すること。
 // 忘れるとここで起動が落ちる = 付け忘れが本番まで届かない。
 app.addHook('onRoute', assertRoutePolicy);
+
+// `Host` ヘッダの検査。**すべてのフックより前**に置く(ここを通った後の判定は、要求が
+// こちらのオリジン宛だという前提で書かれている)。
+//
+// 塞ぐのは DNS リバインディング。攻撃者ページは自分のドメインの DNS を後から `127.0.0.1`
+// へ向け替えられ、ブラウザは「まだ attacker.example と同一オリジン」と考えたまま要求を
+// 出すので SameSite も CORS も効かない。唯一食い違うのが `Host` で、ブラウザはこれを
+// 攻撃者ドメインのまま送る。
+//
+// 効きどころは認証を課さない配備(既定の local モード)で、そこでは実質「loopback に到達
+// できること」だけが認可条件になっている。`config.requireAuth` を見て出し分けては**ならない**
+// — 設定 1 つでガードが消える形は認証系ガードで避けている作法と同じ。
+//
+// 同一リポジトリの pdf-to-svg(`src/web/origin_guard.py`)と graph-editor(`app.py`)は同じ
+// 理由で Host を完全一致集合で検査している。判定の実体は `config.isAllowedHost`。
+app.addHook('onRequest', async (request, reply) => {
+  if (isAllowedHost(request.headers.host, allowedHosts)) return;
+  // 本文は 1 バイトも返さない(存在オラクルにしない)。ログには名乗られた値を残す。
+  request.log.warn({ host: request.headers.host }, 'rejected: host-mismatch');
+  await reply.code(403).send();
+});
 
 // 未認証のアップロードを body 解析の前に切る認証ゲート。Fastify のライフサイクルは
 // onRequest → parsing → preHandler の順で、zip パーサ(下)もルート単位の `bodyLimit` 引き上げも
