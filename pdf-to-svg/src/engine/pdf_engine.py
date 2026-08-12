@@ -161,8 +161,9 @@ def _extract_page(
     )
 
     if scanned:
-        # `None` = ラスタ化を省略した (上限超過)。背景無しのまま返し、UI は
-        # 「このページは背景を生成できなかった」を出せる (無言で欠落させない)。
+        # `None` = ラスタ化を省略した (上限超過)。背景無しのまま返し、`web/rpc_methods.py` の
+        # `rpc_state` が `noBackground` として数え `app.js` がトーストで伝える
+        # (`Page.truncated` と同じ通知経路。無言で欠落させない)。
         p.background = _render_background(page, budget)
         return p
 
@@ -179,8 +180,8 @@ def _extract_page(
         if kind in ("fill-image", "fill-shade")
     ]
 
-    # 候補は行バンド索引に載せる。以前は span 1 個ごとに候補**全件**を線形走査していて、
-    # どちらも PDF 作成者が決める件数なので O(n^2) が素通りしていた (1 ページ 10 万 span で
+    # 候補は行バンド索引に載せる。span 1 個ごとに候補**全件**を線形走査すると、
+    # どちらも PDF 作成者が決める件数なので O(n^2) が素通りする (1 ページ 10 万 span で
     # 約 1e10 回 = 事実上終わらない。`upload_lock` を握ったままなので以後どのファイルも
     # 開けなくなる)。索引は結果を変えず、当たらない候補を見ないだけである。
     text_index = _SeqnoIndex(text_seqnos)
@@ -354,7 +355,7 @@ def _render_background(
 
     ページ寸法は攻撃者が書ける値なので、**確保の直前**に目標ピクセル数を見て倍率を
     下げる。`MIN_RENDER_SCALE` まで下げても上限を超えるページ、および文書全体の予算を
-    使い切った以降のページは背景を作らず ``None`` を返す (呼び出し側が UI へ通知する)。
+    使い切った以降のページは背景を作らず ``None`` を返す (通知経路は `_extract_page` の注記)。
     """
     r = page.rect
     scale = SCAN_RENDER_SCALE

@@ -4,7 +4,7 @@
 // =============================================================================
 // 4 段の連動プルダウンで小分類まで選ぶと対象パーツが 1 件に確定し、下部にその視覚
 // プレビューを出して「追加」ボタンで canvas へ挿入する。小分類が同名で複数該当する
-// ときだけコンパクトな選択リストを挟む。名称検索は廃止した(分類で十分絞れるため)。
+// ときだけコンパクトな選択リストを挟む。名称検索は持たない(分類で十分絞れるため)。
 import type { PartCatalogItem, PartClassificationOptions, PartClassificationQuery } from '@editor/shared';
 import { Inbox, Loader2, Plus } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';

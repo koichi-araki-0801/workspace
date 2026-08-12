@@ -7,7 +7,7 @@
 // 承認者は実行結果しか見ない運用のため、この照合が実効的な防壁になる。
 //
 // **抽出は許可リストで書く。危険物の数え上げ(denylist)にしない。**
-// 初版は script 要素 / `on*` 属性 / 生の `javascript:` の 3 形態だけを数えており、
+// script 要素 / `on*` 属性 / 生の `javascript:` の 3 形態だけを数える方式では、
 // `<iframe srcdoc="&lt;script&gt;…">`・`<iframe src="data:text/html;base64,…">`・
 // `<svg><animate to="javascript&#58;…">`・`<meta http-equiv=refresh>`・
 // `<style>@import url(…)</style>` がいずれも素通りした(実測)。列挙は必ず漏れる。
@@ -21,6 +21,26 @@
 // 単位は生の文字列ではなく**正規化した射影**(タグ名 + 属性名 = 復号済み値を名前順)にする。
 // 生テキストで比べると、GrapesJS の再直列化で属性順や引用符が動いただけで正当な保存が
 // 拒否される(誤検知は運用を止め、結果として検査ごと外される圧力になる)。
+//
+// ── 仕様準拠パーサへ置き換えない理由(試作して実測した)──
+// 走査器は手書きで、HTML 仕様の木構築を実装していない。これを parse5 のような仕様準拠
+// パーサへ置き換える案を実際に試作して差分を採ったが、**この成果物に対しては退行**だった。
+//
+// 検査対象は帳票の**描画前 Jinja テンプレ**であって HTML 文書ではない。仕様準拠パーサは
+// 「その字面を HTML として読んだらどうなるか」に忠実だが、実行されるのは Jinja 描画後の
+// 文書で、包みの方が条件分岐で消える。`{% if false %}<textarea>{% endif %}<script>…` は
+// 字面上 raw text の内側だが描画後は素の `<script>` で、試作は単位ゼロで通した。同型が
+// コメント・`<title>` でも成立する。加えて木構築は要素を**捨てる/移す**ので、チップ復号後の
+// 断片(`<tr onclick=…>` 等)が文書文脈を持たず丸ごと消えた。
+// 「script を足したのに単位へ現れない」形を数えた実測は 19 形中 手書き 2 / parse5 12。
+// 残る手書きの 2 形(属性値の引用符が閉じない・重複属性)はブラウザも同じく実行しない。
+//
+// 逆に試作が捕まえて手書きが取りこぼしていた形(タグ内 Jinja の読み飛ばしで走査を打ち切る
+// 迂回路)は**本ファイル側を直した**(`jinjaEnd` の注意書き)。つまり得られた価値は
+// 「差分テストで穴を見つけること」であって「パーサへ寄せること」ではない。
+// 再提案する場合は `test/templateScripts.test.ts` の
+// 「描画前テンプレ特有の隠し方」を先に読むこと。
+// なお `parse5` は現状 server の依存に無く、追加はオフライン重量物バンドルの再生成を伴う。
 
 import { decodeHtmlEntities, findExternalRefsInCss, forbidden } from '@editor/shared';
 
@@ -231,7 +251,9 @@ const INERT_ELEMENTS = new Set([
  *
  * **不変則: 読み飛ばした範囲は必ず単位化すること。** ここに載る要素は下の `collectInto` が
  * 中身を単位へ変換する専用分岐を持つ(`script` = 本文丸ごと 1 単位 / `style` = CSS の外部
- * 参照を単位化)。単位化しない要素をここへ足すと、その内側が単位抽出から**完全に消える**。
+ * 参照 **+ マークアップとしての再走査**)。単位化しない要素をここへ足すと、その内側が
+ * 単位抽出から**完全に消える**。この対応は `templateScripts.test.ts` の
+ * 「raw text 要素は必ず単位化される」節が機械検証する — 要素を足して分岐を書き忘れたら落ちる。
  *
  * 実際に `title` と `textarea` を載せていた版が破れていた: HTML の `<title>` が RCDATA
  * なのは HTML 名前空間の場合だけで、SVG の foreign content では普通の外来要素である。
@@ -239,6 +261,11 @@ const INERT_ELEMENTS = new Set([
  * 通った(`<svg><title><style>@import url(…)` も同様)。よって両者はここから外し、素の
  * マークアップとして走査する。HTML 名前空間では実行されない字面まで拾うことになるが、
  * 過剰包含は基準側にも同じだけ現れるので害にならない(ファイル冒頭の方針どおり)。
+ *
+ * **同じ理由が `style` にも当たる。**
+ * `<svg><style><img src=x onerror=…>` は Chromium で onerror が発火するのに、CSS 外部参照
+ * しか単位化しないと単位ゼロで通ってしまう。`style` は CSS 参照の抽出が要るので
+ * ここへ残したまま、中身をマークアップとしても走査する形にしてある。
  */
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
 
@@ -394,44 +421,54 @@ interface ParsedTag {
   jinja: string[];
 }
 
-const TAG_TERMINATORS = new Set([' ', '\t', '\n', '\r', '\f', '/', '>', '=']);
+/**
+ * **タグ名**の終端文字。仕様のタグ名状態が実際に終端する文字だけを並べる。
+ *
+ * `=` を入れてはならない。タグ名状態は空白・`/`・`>` でしか終わらず、`=` は
+ * 普通のタグ名文字なので、`<style=x>` の要素名はブラウザにとって `style=x` という**未知要素**
+ * であり、中身は raw text にならず通常マークアップとして解析される(実 Chromium で
+ * `<style=x><img src=x onerror=…>` の onerror 発火を確認)。ここに `=` があると走査器だけが
+ * 要素名を `style` と読み、`</style` まで読み飛ばして内側が単位ゼロになる。
+ *
+ * **属性名の終端は別集合**(`ATTR_NAME_TERMINATORS`)。属性名状態は `=` でも終わるため、
+ * 2 つを同じ集合で兼ねると片方が必ず間違う。
+ */
+const TAG_NAME_TERMINATORS = new Set([' ', '\t', '\n', '\r', '\f', '/', '>']);
+
+/** **属性名**の終端文字。属性名状態はタグ名と違い `=` でも終わる。 */
+const ATTR_NAME_TERMINATORS = new Set([' ', '\t', '\n', '\r', '\f', '/', '>', '=']);
 
 function isSpace(c: string): boolean {
   return c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
 }
 
-/** タグ内の Jinja 断片を読み飛ばす。読めたら閉じ位置を、閉じていなければ `-1` を返す。 */
+/** 「タグの開始に見える `<`」の字面。読み飛ばし幅がこれを跨がないよう縛るのに使う。 */
+const TAG_LIKE_LT_RE = /<[a-zA-Z!/?]/;
+
+/**
+ * タグ内の Jinja 断片を読み飛ばす。読めたら閉じ位置を、**読み飛ばして良いと言えなければ
+ * `-1`** を返す(呼び出し側は `-1` を「普通の属性名文字」として扱い、走査を止めない)。
+ *
+ * ⚠ ここが `-1` を返したとき、呼び出し側が入力の残り全部を捨てる形は
+ * **不変性ゲートそのものの迂回路**になる。`{{` が閉じない・そもそも Jinja 開始でない
+ * (`<div {>`)だけで `scanOpenTags` が以降を走査せず、単位列が基準と完全一致したまま
+ * `<script>` を足せる(実測: 7 文字の `<div {>` を挟むだけで申請・承認を通る)。
+ * ブラウザは `{` を普通の属性名文字として読み、タグは最初の `>` で閉じて後続の
+ * `<script>` を実行する。よって「閉じない = 読み飛ばさない」が正しい向きである。
+ *
+ * 閉じていても**タグらしい `<` を跨ぐ断片は読み飛ばさない**。`}}` を文書のずっと後ろに
+ * 置けば、その間の `<script>` が丸ごと 1 つの Jinja 断片として単位から消せてしまう
+ * (`<div {{ >` … `<script>evil()</script>` … `}}`)。ブラウザはタグを `>` で閉じるので
+ * この読み飛ばしは字面の上でも誤り。`{% if a > b %}` のような正当な断片は `<` を含まない
+ * ので影響を受けない。
+ */
 function jinjaEnd(text: string, at: number): number {
   const open = text.slice(at, at + 2);
   const close = open === '{{' ? '}}' : open === '{%' ? '%}' : open === '{#' ? '#}' : null;
   if (close === null) return -1;
   const e = text.indexOf(close, at + 2);
-  return e < 0 ? -1 : e + 2;
-}
-
-/**
- * `<!--` で始まるコメントの終端(終端記号の直後)を返す。
- *
- * HTML のコメントは `-->` **と `--!>` の両方**で終わり、`<!-->` / `<!--->` は開いた直後に
- * 閉じる(abrupt closing)。`-->` だけを見ていた版は `<!-- a --!><script>…</script>-->` を
- * 「コメント 1 個」と読み、中の `<script>` を単位ゼロで申請・承認へ通した(ブラウザは
- * `--!>` でコメントを閉じるので、確定テンプレでは実行される)。
- *
- * ⚠ 本ファイルの走査器は手書きで、仕様準拠パーサではない。本筋は基準側・提出側の両方を
- * 仕様準拠パーサで DOM 化して実行面を列挙することだが、ここは申請ゲートの中核で
- * 「単位列が動く = 正当な保存が止まる」ため、今回は既知の乖離(コメント終端・終了タグの
- * 直後文字)を塞ぐに留める。パーサ化は別途評価する。
- */
-function commentEnd(text: string, lt: number): number {
-  // `<!-->` / `<!--->` は開始直後に閉じる。
-  if (text.startsWith('<!-->', lt)) return lt + 5;
-  if (text.startsWith('<!--->', lt)) return lt + 6;
-  const a = text.indexOf('-->', lt + 4);
-  const b = text.indexOf('--!>', lt + 4);
-  if (a < 0 && b < 0) return -1;
-  if (a < 0) return b + 4;
-  if (b < 0) return a + 3;
-  return a < b ? a + 3 : b + 4;
+  if (e < 0) return -1;
+  return TAG_LIKE_LT_RE.test(text.slice(at + 2, e)) ? -1 : e + 2;
 }
 
 /**
@@ -439,14 +476,14 @@ function commentEnd(text: string, lt: number): number {
  *
  * `</script` の前方一致だけでは足りない。HTML のトークナイザは終了タグ名の直後が
  * 空白 / `/` / `>` のときにだけ終了タグとみなすので、`</scriptx>` は**本文の一部**である。
- * 前方一致で切っていた版は `<script>init()</scriptx>/;evil()</script>` の本文を
- * `init()` と読み、基準と一致させたまま `evil()` を確定テンプレへ通した。
+ * 前方一致で切ると `<script>init()</scriptx>/;evil()</script>` の本文を
+ * `init()` と読み、基準と一致させたまま `evil()` を確定テンプレへ通してしまう。
  * 判定は `inlineCss.ts` の `findRawTextEnd` と同じ規則(片方だけ緩めない)。
  *
  * ⚠ `lower`(= `text` 全体の小文字化コピー)は**呼び出し側が 1 回だけ作って渡す**。
- * ここで `text.toLowerCase()` していた版は script/style 1 つにつき入力全体のコピーを
+ * ここで `text.toLowerCase()` すると script/style 1 つにつき入力全体のコピーを
  * 作り、`collectInto` は `scanOpenTags` と `rawTextOf` の双方から呼ぶので要素あたり
- * 概ね 2 コピーだった。`'<style></style>'` の反復を `POST /api/review-requests` に
+ * 概ね 2 コピーになる。`'<style></style>'` の反復を `POST /api/review-requests` に
  * 載せるだけで、`submitReview` 冒頭の同期区間がイベントループを恒久停止させる。
  * `inlineCss.findRawTextEnd` と同じ欠陥で、直すときは両方直すこと。
  */
@@ -476,11 +513,22 @@ function* scanOpenTags(text: string, lower: string): Generator<ParsedTag> {
     const next = text[lt + 1] ?? '';
     if (next === '!') {
       if (text.startsWith('<!--', lt)) {
-        // コメントは `-->` / `--!>` まで(`commentEnd`)。閉じないコメントは読み飛ばさず
-        // **中身を走査する**(fail closed) — 閉じないコメントを 1 つ置くだけで以降の
-        // 実行面が単位から消える形を作らないため。過剰包含は基準側にも同じだけ現れる。
-        const end = commentEnd(text, lt);
-        i = end > lt ? end : lt + 4;
+        // コメントは**読み飛ばさず中身を走査する**(fail closed)。
+        //
+        // 終端規則を仕様どおりに実装しても足りない。検査対象は描画前の Jinja テンプレで、
+        // コメント記号自体を Jinja が出し分けられるためである:
+        // `{% if false %}<!--{% endif %}<script>…</script>{% if false %}-->{% endif %}` は
+        // 字面ではコメント 1 個だが、描画後は素の `<script>` になって実行される。
+        // 終端を数える限りこの形は必ず素通りする(実測。仕様準拠パーサでも同じく通る
+        // — ファイル冒頭「仕様準拠パーサへ置き換えない理由」)。
+        // 過剰包含の代償は小さい: 散文のコメントは走査しても単位を 1 つも作らない
+        // (実コーパス 19 ファイルで単位数は不変)。単位が出るのはコメント内に
+        // 実行面の字面がある場合だけで、それは基準側にも同じだけ現れる。
+        //
+        // 旧版は `-->` だけを終端とみなし、`<!-- a --!><script>…</script>-->` の中身を
+        // 単位ゼロで申請・承認へ通していた(ブラウザは `--!>` で閉じるので実行される)。
+        // 走査してしまえばこの種の終端差そのものが効かなくなる。
+        i = lt + 4;
         continue;
       }
       // doctype 等の markup declaration は `>` まで。
@@ -493,7 +541,7 @@ function* scanOpenTags(text: string, lower: string): Generator<ParsedTag> {
       continue;
     }
     let p = lt + 1;
-    while (p < len && !TAG_TERMINATORS.has(text[p] as string)) p++;
+    while (p < len && !TAG_NAME_TERMINATORS.has(text[p] as string)) p++;
     const name = text.slice(lt + 1, p).toLowerCase();
     const attrs: ParsedAttr[] = [];
     const jinja: string[] = [];
@@ -506,16 +554,16 @@ function* scanOpenTags(text: string, lower: string): Generator<ParsedTag> {
       }
       if (text[p] === '{') {
         const e = jinjaEnd(text, p);
-        if (e < 0) {
-          p = len;
-          break;
+        if (e > 0) {
+          jinja.push(text.slice(p, e));
+          p = e;
+          continue;
         }
-        jinja.push(text.slice(p, e));
-        p = e;
-        continue;
+        // 読み飛ばして良い断片ではない。`{` はブラウザ同様「普通の属性名文字」として
+        // 下の属性名走査へ落とす — ここで走査を打ち切ると入力の残りが単位から消える。
       }
       const nameStart = p;
-      while (p < len && !TAG_TERMINATORS.has(text[p] as string)) p++;
+      while (p < len && !ATTR_NAME_TERMINATORS.has(text[p] as string)) p++;
       const attrName = text.slice(nameStart, p).toLowerCase();
       while (p < len && isSpace(text[p] as string)) p++;
       let value = '';
@@ -636,9 +684,18 @@ function collectInto(html: string, out: PositionedUnit[], depth: number): void {
       continue;
     }
     if (tag.name === 'style') {
+      const body = rawTextOf(text, lower, tag);
       // 宣言の編集(色・寸法)はスタイルマネージャの正当な操作なので単位にしない。
       // 外部を引き込む面(`@import` / 非画像 `url()`)だけを固定する。
-      pushCssUnits(rawTextOf(text, lower, tag), tag.at, out);
+      pushCssUnits(body, tag.at, out);
+      // **中身をマークアップとしても走査する。** `style` が raw text なのは HTML 名前空間の
+      // 場合だけで、SVG の foreign content(`<svg><style>`)では普通の外来要素になり、
+      // 内側の `<img src=x onerror=…>` が実要素として生きる(実 Chromium で確認)。CSS 参照の
+      // 単位化だけでは能動属性を拾えず、`</style` まで読み飛ばした範囲が単位ゼロになる。
+      // HTML 名前空間では実行されない字面まで拾うが、過剰包含は基準側にも同じだけ現れるので
+      // 害にならない(ファイル冒頭の方針どおり)。同じ理由で `title` / `textarea` は
+      // `RAW_TEXT_ELEMENTS` から外してある。
+      collectInto(body, out, depth);
       // 属性(`media` 等)も見る。`style` 自体は許可要素として扱わない代わりにここで拾う。
       for (const a of tag.attrs) {
         if (!isInertAttrName(a.name)) {

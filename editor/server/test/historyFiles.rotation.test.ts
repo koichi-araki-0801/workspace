@@ -1,14 +1,22 @@
 // =============================================================================
-// historyFiles.rotation.test.ts — 履歴 JSONL の上限・ローテーション(R40 / R41)
+// historyFiles.rotation.test.ts — 履歴 JSONL の上限・ローテーション
 // =============================================================================
-// 旧実装はサイズ上限も世代管理も保持期限も持たず、読み取りは「ファイル全体を 1 文字列に
-// して split → JSON.parse」だった。行が 1 つでも壊れると当該フィードが恒久 500 になり、
-// Node の文字列上限を超えると履歴が消えたように見えた。**迂回入力(壊れた行・巨大
+// サイズ上限も世代管理も保持期限も無く、読み取りを「ファイル全体を 1 文字列に
+// して split → JSON.parse」にすると、行が 1 つ壊れるだけで当該フィードが恒久 500 になり、
+// Node の文字列上限を超えると履歴が消えたように見える。**迂回入力(壊れた行・巨大
 // ファイル)で破綻しないこと**を主張する形で書く。
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// `historyFiles` はローテーション失敗の警告に logger を使う。実 logger は import 時に
+// `LOG_DIR` 配下へ audit.log を開く副作用があり、テストの一時 LOG_DIR を afterEach で
+// 消すときに開きっぱなしのハンドルと衝突するためモックする。
+vi.mock('../src/logger.js', () => ({
+  logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+const { logger: mockedLogger } = await import('../src/logger.js');
 
 let tmpRoot: string;
 
@@ -51,11 +59,34 @@ describe('履歴 JSONL の上限', () => {
     expect(cur.trim()).toBe(JSON.stringify({ at: 'after-rotate' }));
   });
 
+  it('ローテーションの rename 失敗は追記を止めないが、警告として表に出す', async () => {
+    // ログ置き場がネットワーク上のときは他クライアントの共有違反で rename が落ちる。
+    // 黙って握りつぶすとローテーションが効かないままファイルが読み窓を超えて太る
+    // (古い履歴が消えたように見える)ため、警告ログが出ることを固定する。
+    const h = await importHistory();
+    await fs.mkdir(path.join(tmpRoot, 'history'), { recursive: true });
+    await fs.writeFile(historyFile('pdf'), 'x'.repeat(h.MAX_HISTORY_BYTES), 'utf8');
+    const spy = vi.spyOn(fs, 'rename').mockImplementation(async () => {
+      const e = new Error('EPERM: operation not permitted') as NodeJS.ErrnoException;
+      e.code = 'EPERM';
+      throw e;
+    });
+    try {
+      await h.appendHistory('pdf', { at: 'rotate-failed' });
+    } finally {
+      spy.mockRestore();
+    }
+    // 追記自体は成功している(監査ログを取りこぼす方が悪い)。
+    const cur = await fs.readFile(historyFile('pdf'), 'utf8');
+    expect(cur.endsWith(`${JSON.stringify({ at: 'rotate-failed' })}\n`)).toBe(true);
+    expect(mockedLogger.warn).toHaveBeenCalled();
+  });
+
   it('壊れた行が 1 行あってもフィード全体が落ちない', async () => {
     const h = await importHistory();
     await fs.mkdir(path.join(tmpRoot, 'history'), { recursive: true });
-    // 追記の競合で途中まで書かれた行を模す。旧実装はここで JSON.parse が throw し、
-    // ルートが恒久 500 になっていた。
+    // 追記の競合で途中まで書かれた行を模す。全体を一括 parse する形はここで
+    // JSON.parse が throw し、ルートが恒久 500 になる。
     await fs.writeFile(
       historyFile('part'),
       `${JSON.stringify({ n: 1 })}\n{"n": 2\n${JSON.stringify({ n: 3 })}\n`,

@@ -118,8 +118,8 @@ test("読込を中断しても前のファイルの図・状態がキャンバ�
 });
 
 test("@font-face の宣言名がプロトタイプ由来の語でも読込は完走する", async ({ page }) => {
-  // `constructor` / `__proto__` は素のオブジェクト表では継承値を返すため、以前は
-  // `re.test` が TypeError になり読込が無言で止まった (キャンバスは前のファイルのまま)。
+  // `constructor` / `__proto__` は素のオブジェクト表では継承値を返すため、自前キーだけを
+  // 見ないと `re.test` が TypeError になり読込が無言で止まる (キャンバスは前のファイルのまま)。
   const style = "<style>@font-face{constructor:a;__proto__:b}</style>";
   await loadAndInspect(page, "first.svg", svgWithLabels(3));
   const r = await loadAndInspect(page, "crafted.svg", svgWithLabels(2, style));

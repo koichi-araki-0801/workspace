@@ -13,10 +13,9 @@
     3. 同梱 pnpm を corepack 登録 → 依存をオフライン install → ビルド → Playwright を配置
     4. ダウンロードしたアーカイブ群を bk/ へ退避（同名があれば削除してから移動）
 
-  従来の fetch-offline-bundle.ps1 / fetch-offline-bundle-http.ps1 / setup-offline.bat（2段運用）を
-  本スクリプト 1 本へ統合したもの。取得は HTTPS 直のみ（gh 不要）。
+  取得から展開・build までを本スクリプト 1 本で行う。取得は HTTPS 直のみ（gh 不要）。
 
-  完全性・真正性（所見 F14。**配信元から取る digest に真正性を期待しない**）:
+  完全性・真正性（**配信元から取る digest に真正性を期待しない**）:
   取得物を差し替えられる攻撃者は、隣に並ぶ ``.sha256`` も ``bundle.key`` も同じ場所へ置ける。
   よって配信元由来の値は転送破損の検知にしかならない。判断の根拠は、手渡しで運ばれる
   offline/ の中身だけに置く:
@@ -42,7 +41,7 @@
 
 .PARAMETER InstallTortoiseGit
   TortoiseGit の MSI を ``msiexec /qn``（サイレント・昇格）で導入する。既定では導入しない
-  （黙って昇格インストールを走らせないための明示 opt-in。所見 F19）。
+  （黙って昇格インストールを走らせないための明示 opt-in）。
 
 .EXAMPLE
   pwsh -File offline/setup-offline.ps1
@@ -67,6 +66,8 @@ $ErrorActionPreference = 'Stop'
 # offline/ の親をリポジトリ直下（ROOT）とみなす。スタンドアロン時はここへソースを展開する。
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Write-Host "[info] repo root: $RepoRoot"
+# ネットワークドライブ上では pnpm の symlink/hardlink 構成が成立しないため開始前に止める。
+Assert-LocalRepoRoot -Path $RepoRoot
 
 # tar 解決（System32\tar.exe 優先）は共通ライブラリの Resolve-Tar を使う。
 $TarExe = Resolve-Tar
@@ -91,7 +92,7 @@ if (-not (Test-Path -LiteralPath $PubKeyFile)) {
   exit 1
 }
 
-# ソースはローリングタグでなく pin の不変コミット ID から取る（所見 F14）。
+# ソースはローリングタグでなく pin の不変コミット ID から取る。
 $SrcZipUrl = "https://github.com/$Owner/$Repo/archive/$($pin.SourceCommit).zip"
 
 # 作業用 temp（ソース ZIP の DL・展開先）
@@ -152,7 +153,7 @@ if (-not (Test-Path $Bundle)) { Write-Error "[error] $BundleName が取得でき
 
 # 完全性・真正性の検証（fail closed）。
 # 一緒に落とした .sha256 は**判定に使わない**: 取得物を差し替えられる攻撃者は同じ場所に
-# 対応する .sha256 も置けるため、転送破損の検知にしかならない（所見 F14）。判定に使うのは
+# 対応する .sha256 も置けるため、転送破損の検知にしかならない。判定に使うのは
 # 手渡しで運ばれた offline/ の pin と公開鍵だけ。
 try {
   Assert-FileSha256 -File $Bundle -ExpectedSha256 $pin.BundleSha256 -Label 'bundle'
@@ -223,7 +224,7 @@ if (-not $SkipBuild) {
     }
     # tsbuildinfo は dist の外に残るため個別に消す。特に editor\shared / editor\server の分が
     # 残ると `tsc -b` が「最新」と誤認して shared の dist を再生成せず、build が
-    # 「Cannot find module '@editor/shared'」で全滅する（2026-08 実測）。
+    # 「Cannot find module '@editor/shared'」で全滅する（実測）。
     foreach ($f in @('editor\web\tsconfig.tsbuildinfo', 'editor\shared\tsconfig.tsbuildinfo',
         'editor\server\tsconfig.tsbuildinfo')) {
       $tsbi = Join-Path $RepoRoot $f

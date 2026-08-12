@@ -102,7 +102,7 @@ const optionsByField: Record<Field, () => Option[]> = {
 };
 
 // コード系フィールドは入力で前方一致フィルタする `Combobox` にする。基準日/版種は
-// 候補が少なく入力の旨味が薄いので従来の `Select` のまま。
+// 候補が少なく入力の旨味が薄いので `Select` のまま。
 const COMBO_FIELDS: Field[] = ['companyCode', 'fundCode'];
 
 // カスケード非活性: 左隣のフィールドが未選択なら、この段はまだ選べない。
@@ -120,7 +120,7 @@ function fieldDisabled(f: Field): boolean {
         {{ labels[f] }}
         <span v-if="props.requiredFields.includes(f)" class="text-destructive">*</span>
       </Label>
-      <!-- コード系は入力で前方一致フィルタする `Combobox`、それ以外は従来の `Select`。
+      <!-- コード系は入力で前方一致フィルタする `Combobox`、それ以外は `Select`。
            props/イベントは両者同一なので、カスケードの配線(onLevelChange)は不変。 -->
       <Combobox
         v-if="COMBO_FIELDS.includes(f)"

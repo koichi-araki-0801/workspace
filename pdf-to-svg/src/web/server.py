@@ -44,7 +44,7 @@ REQUEST_TIMEOUT = 10.0
 # 同時接続は静的資産の並列取得ぶん程度しか要らない。
 MAX_CONNECTIONS = 32
 
-# 静的配信を許す拡張子と MIME (旧 `scheme.py` の `_MIME` を踏襲)。
+# 静的配信を許す拡張子と MIME。
 _MIME = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -211,14 +211,14 @@ class Handler(origin_guard.GuardedHTTPRequestHandler):
         try:
             session = self.server.session
             # 解析は**ロックの外**で行う。構築中の Document はまだ誰からも見えない純ローカル
-            # 値なので共有状態を触らず、その間 `/rpc` が応答できる (以前は解析の間ずっと
-            # アプリ全体が無反応だった)。アップロード同士は `upload_lock` で直列化する。
+            # 値なので共有状態を触らず、その間 `/rpc` が応答できる (ロック内で解析すると
+            # その間アプリ全体が無反応になる)。アップロード同士は `upload_lock` で直列化する。
             with self.server.upload_lock:
                 doc = loader.load_document_bytes(name, data)
                 with self.server.lock:
-                    # 履歴のリセットは解析が成功してから。以前は解析の**前**にクリアして
-                    # いたため、読み込みに失敗すると「読めなかったのに Undo 履歴だけ
-                    # 消えている」状態になっていた。
+                    # 履歴のリセットは解析が成功してから。解析の**前**にクリアすると、
+                    # 読み込みに失敗したとき「読めなかったのに Undo 履歴だけ消えている」
+                    # 状態になる。
                     session.undo.clear()
                     session.docs.append(doc)
         except Exception as exc:  # noqa: BLE001

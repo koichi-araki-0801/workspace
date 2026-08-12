@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 import { assertNoDocumentExternalRefs } from '../security/externalRefs.js';
+import { BuildAdmissionGate } from './buildAdmission.js';
 import { buildWorkerPool } from './buildWorkerServer.js';
 import { stageDocAssets } from './docAssets.js';
 import { collectDocumentAssetRefs } from './docRefs.js';
@@ -25,25 +26,53 @@ const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
  * ワーカー枠を確保してから `fn` を走らせる。`fn` は受け取った `runBuild` で 1 回だけ組版する。
  *
  * ⚠ **資源の確保(temp ディレクトリ・配信ルートへの資産配置・egress ポート予約)は必ず
- * `fn` の中で行うこと。** 枠を取る前に確保していた版は、順番待ちのあいだも
- * 「1 ビルド 4 ポート + 展開済み資産 + temp ディレクトリ」を握り続けたため、行列に並んで
- * いるだけで資源が枯れた。枠を取ってから確保すれば、握る資源は常に同時実行数ぶんで頭打ちになる。
+ * `fn` の中で行うこと。** 枠を取る前に確保すると、順番待ちのあいだも
+ * 「1 ビルド 4 ポート + 展開済み資産 + temp ディレクトリ」を握り続け、行列に並んで
+ * いるだけで資源が枯れる。枠を取ってから確保すれば、握る資源は常に同時実行数ぶんで頭打ちになる。
  *
  * 既定は常駐ウォームワーカープール(`buildWorkerPool`)へ委譲し、`@vivliostyle/cli` の import
  * (計測 ~11s)をプロセス使い回しで 1 度きりにする。`config.vivliostyle.build.poolSize <= 0` の
- * ときは従来の「ジョブ毎 spawn」(`runBuildWorkerSpawn`)へフォールバックする(安全弁)。
- * ⚠ フォールバック経路には行列も同時実行上限も無い — 障害調査用の安全弁であり、
- * 常用しない(常用するなら、ここに `buildWorkerPool` と同じ受付制御を入れること)。
+ * ときは「ジョブ毎 spawn」(`runBuildWorkerSpawn`)へフォールバックする(安全弁)。
+ * フォールバックも `SPAWN_FALLBACK_GATE` で受付制御を受ける(`buildAdmission.ts`)。
  */
-function withBuildSlot<T>(
+export function withBuildSlot<T>(
   fn: (runBuild: (buildOptions: unknown) => Promise<void>) => Promise<T>,
 ): Promise<T> {
-  if (config.vivliostyle.build.poolSize <= 0) return fn(runBuildWorkerSpawn);
+  if (config.vivliostyle.build.poolSize <= 0) return withSpawnFallbackSlot(fn);
   return buildWorkerPool.withSlot(fn);
 }
 
 /**
- * 従来方式: ビルドのたびに worker を spawn する(フォールバック)。in-process 実行はサーバを
+ * フォールバック経路(ジョブ毎 spawn)の受付制御。
+ *
+ * 同時実行を **1 本**に固定するのは、この経路がプールの故障を疑うときの迂回路で、常用を
+ * 想定しないため — 1 ジョブが Node + Chromium を丸ごと起こす経路を無制限に並べると、
+ * 単一プロセスのサーバがメモリごと落ちる。行列長はプール経路と同じ設定値を使う。
+ */
+const SPAWN_FALLBACK_GATE = new BuildAdmissionGate({
+  maxConcurrent: 1,
+  maxQueue: config.vivliostyle.build.maxQueue,
+});
+
+/**
+ * フォールバック経路で枠を取り `fn` を走らせる。`buildWorkerPool.withSlot` と同契約に
+ * するため、1 枠で 2 度目のビルドを始めようとしたら拒否する(枠の二重使用)。
+ */
+function withSpawnFallbackSlot<T>(
+  fn: (runBuild: (buildOptions: unknown) => Promise<void>) => Promise<T>,
+): Promise<T> {
+  return SPAWN_FALLBACK_GATE.run(() => {
+    let started = false;
+    return fn((buildOptions) => {
+      if (started) return Promise.reject(new Error(`${PDF_BUILD_FAILED}: 枠の二重使用`));
+      started = true;
+      return runBuildWorkerSpawn(buildOptions);
+    });
+  });
+}
+
+/**
+ * フォールバック方式: ビルドのたびに worker を spawn する。in-process 実行はサーバを
  * ハングさせるため(`pdf-build-worker.mjs` 冒頭の解説参照)`child_process` へ分離し、
  * `config.vivliostyle.build.timeoutMs` の timeout を必ず効かせる。timeout(kill)/非 0 exit は
  * Error を reject し、上位(`auditedRethrow`)経由で 5xx を返す。
@@ -119,8 +148,8 @@ interface BuildInlineInput {
  * レンダリング済み HTML(+ 任意の CSS)から `@vivliostyle/cli` で PDF を生成する。
  * CSS は vivliostyle へ渡す前に HTML へインライン展開する。
  *
- * `{html, css}` のみ(size は 'A4' 既定)の場合、旧 `htmlToPdf` 呼び出しをバイト単位で
- * 再現する。inline 経路はそのドロップイン置換である。
+ * `{html, css}` のみ(size は 'A4' 既定)の単純入力は最小構成の CLI 呼び出しへ落とし、
+ * 追加オプション無しの出力と一致させる(単純入力のドロップイン互換)。
  */
 export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
   // 外部参照の関門は**ここ**(サーバの build 入口)。ブラウザ側の検査だけだと
@@ -209,17 +238,14 @@ interface BuildProjectInput {
 /**
  * 展開済み vivliostyle プロジェクトディレクトリから PDF をビルドする。プロジェクトの
  * `vivliostyle.config.*` があればそれを、無ければ単一エントリファイルを使う。
+ *
+ * ⚠ **枠は呼び出し側が `withBuildSlot` で取る。** この経路の入力は zip の展開結果で、
+ * 展開そのものが temp ディレクトリを握る資源確保だからである(`vivliostyle.routes.ts` の
+ * `apiPaths.buildProject`)。ここで枠を取る版だと展開は枠の外に残り、順番待ちのあいだ
+ * 展開済みディレクトリを握り続けた。`buildMergedPdf` が枠を自分で取ってからこれを呼ぶのも
+ * 同じ理由で、二重に取ると同時実行上限 1 の構成では自分自身を待つデッドロックになる。
  */
-export async function buildProjectPdf(input: BuildProjectInput): Promise<Buffer> {
-  return withBuildSlot((runBuild) => buildProjectInSlot(input, runBuild));
-}
-
-/**
- * 枠を確保した状態で project ビルドを行う。`buildMergedPdf` は自前で枠を取ってから
- * こちらを直接呼ぶ — `buildProjectPdf` を呼ぶと枠を二重に取りに行き、同時実行上限が 1 の
- * 構成で自分自身を待つデッドロックになる。
- */
-async function buildProjectInSlot(
+export async function buildProjectInSlot(
   input: BuildProjectInput,
   runBuild: (buildOptions: unknown) => Promise<void>,
 ): Promise<Buffer> {

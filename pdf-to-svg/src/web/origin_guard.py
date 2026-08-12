@@ -33,7 +33,7 @@ CSPRNG で発行したセッショントークン**の完全一致を非安全�
 並行実装**である (graph-editor は実行時依存ゼロ・単一 `app.py` が設計前提のため共有
 モジュールを持てない)。判定順・理由コード・許可リストの中身は逐語で揃えてあり、
 **片方を変えたら必ず両方を変える**こと。テストベクタも両プロジェクトへ複製している
-(`tests/test_origin_guard.py` と `graph-editor/tests/test_app_guard.py`)。
+(`test/test_origin_guard.py` と `graph-editor/test/test_app_guard.py`)。
 """
 from __future__ import annotations
 

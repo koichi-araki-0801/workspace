@@ -6,8 +6,8 @@
 // から呼ばれる。フル `ci`(coverage 閾値ゲート込み)は手動 `pnpm run ci` と GitHub Actions が
 // 担うため、ここでは速度優先で coverage 無しのテストのみ走らせる。
 //
-// なぜ affected か: 常設ブランチは重量物含め広大で、pie-chart の 1 ファイル変更でも従来は
-// editor の build/e2e まで毎回フル実行され push が遅かった。push 前段で「触った領域」へ絞る。
+// なぜ affected か: 常設ブランチは重量物含め広大で、常にフル実行だと pie-chart の 1 ファイル
+// 変更でも editor の build/e2e まで毎回走って push が遅い。push 前段で「触った領域」へ絞る。
 //
 // 安全側の判断:
 //   - 領域に紐付かないルート直下の共有変更(package.json / lockfile / 各種 config)を検出したら
@@ -50,10 +50,10 @@ const AREAS = {
 
 // 領域 CI を持たない無害ディレクトリ。これらだけの変更なら共有ゲート(comments/biome)のみで足りる。
 // (`docs`/`offline` は配布物、`scripts`/`.github`/`.claude` は comments 検査が常時担保。)
-// `pdf-to-svg/` は 2026-08-04 にここから外した。ローカル HTTP サーバへ Origin/Host 検査を
-// 入れた際、その退行を守るテストが pytest 側にしか無いのに、この一覧に入っているせいで
-// **変更しても CI が 1 段も起動しない**状態だったため(セキュリティテスト 34 本が pre-push で
-// 一度も走っていなかった)。無害扱いにしてよいのは CI 領域を持たないディレクトリだけ。
+// `pdf-to-svg/` はここへ含めない。ローカル HTTP サーバの Origin/Host 検査の退行を守るテストが
+// pytest 側にしか無く、この一覧に入れると**変更しても CI が 1 段も起動しない**
+// (pre-push でセキュリティテストが一度も走らない)。無害扱いにしてよいのは
+// CI 領域を持たないディレクトリだけ。
 const BENIGN_PREFIXES = ['docs/', 'offline/', 'scripts/', '.github/', '.claude/', '.husky/'];
 
 // ── 2. 引数・ベース ref の決定 ──

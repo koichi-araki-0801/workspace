@@ -181,9 +181,10 @@ function parseTexts(svg: string): TextInfo[] {
   return out;
 }
 
-// verify/svg.ts の bbox 推定 (textBBox) を忠実に複製する。幅は本体 svg_geom.visualCharEm の実 glyph
-// advance テーブルを直接引き、行高は config.lineHeightFactor。これにより本テストの "label inside pie"
-// 判定が verify_svg と一致する (粗い em 近似だと 3/9 時付近のラベルで縦伸長を過大評価し誤検知する)。
+// `svg.ts` の bbox 推定 (`textBBox`) を忠実に複製する。幅は本体 `geometry.ts` の `visualCharEm` の
+// 実 glyph advance テーブルを直接引き、行高は config.lineHeightFactor。これにより本テストの
+// "label inside pie" 判定が `svg.ts` と一致する (粗い em 近似だと 3/9 時付近のラベルで縦伸長を
+// 過大評価し誤検知する)。
 const PIE_TEST_CFG = createPieLayoutConfig();
 function visualLineUnits(text: string): number {
   let sum = 0;
@@ -210,7 +211,7 @@ function textBoxPx(t: TextInfo): { left: number; right: number; top: number; bot
         : (visualLineUnits(name) * sx + visualLineUnits(rest)) * charWidth;
   }
   const left = t.anchor === 'start' ? t.x : t.anchor === 'end' ? t.x - totalW : t.x - totalW / 2;
-  // verify_svg と同じく text-after-edge のみ上端を totalH 引き上げ、他 (before-edge / middle) は top=y。
+  // `svg.ts` と同じく text-after-edge のみ上端を totalH 引き上げ、他 (before-edge / middle) は top=y。
   const top = t.baseline === 'text-after-edge' ? t.y - totalH : t.y;
   return { left, right: left + totalW, top, bottom: top + totalH };
 }
@@ -239,7 +240,7 @@ function minLeaderGap(leaders: { name: string; points: Pt[] }[]): number {
   return min;
 }
 
-// ラベル box の円内侵入 (verify_svg の "label inside pie") は全サンプルで 0 であること。
+// ラベル box の円内侵入 (`svg.ts` の "label inside pie") は全サンプルで 0 であること。
 // 回帰元: stress_top_cluster_8 の "F" が draft より大きい |y| へ動き、cascade の nudge を静的
 // minTextX が円内へ引き戻していた (24px 侵入)。enforceFinalPieClearance が現在 y で円外へ逃がす。
 // 左右ラベル (anchor=end/start) の円中心向き縁はちょうど text x で SVG から正確に取れるため、
@@ -266,7 +267,7 @@ describe('ラベル box の円内侵入なし (label inside pie / 全サンプ�
         const b = textBoxPx(t);
         const nx = Math.max(b.left, Math.min(b.right, pie.cx));
         const ny = Math.max(b.top, Math.min(b.bottom, pie.cy));
-        // verify_svg.bboxIntrudesPie と同じ tolerance 2px。
+        // `svg.ts` の `bboxIntrudesPie` と同じ tolerance 2px。
         const intrusion = pie.r - Math.hypot(nx - pie.cx, ny - pie.cy);
         if (intrusion > 2) {
           offenders.push(`${name}: "${t.name}" (${intrusion.toFixed(0)}px)`);
@@ -391,7 +392,7 @@ describe('左拡張帯の上部その他: スライス中心軸の真上に垂�
       expect(Math.abs(sonohoka!.x - xs[0]), 'text x とアンカー x の乖離(px)').toBeLessThanOrEqual(
         2,
       );
-      // 中心より左 (midAngle>90°) かつ左隅 (旧 118px) より大きく右にある。
+      // 中心より左 (midAngle>90°) かつ左隅 (退行形の張り付き位置 ~118px) より大きく右にある。
       expect(sonohoka!.x).toBeLessThan(pie.cx);
       expect(sonohoka!.x).toBeGreaterThan(pie.cx - pie.r);
     });
@@ -399,10 +400,10 @@ describe('左拡張帯の上部その他: スライス中心軸の真上に垂�
 });
 
 // コア帯 (90°±18°) の上部「その他」を右上へ逃がす際、箱を pie キャップより完全に上へ持ち上げて
-// (topRightLiftedRimDraft) pie の横押し出しを無効化し、短い leader で結ぶ。修正前は箱下端が円の
-// y 域に入り pie クリアランスが textX を右へ大きく押し出して 100〜184px の水平 leader が
-// チャート上部を横断していた。box 下端が pie キャップ (cy - r) より上 (pixel y が小) であること、
-// leader の水平ドリフトが短いことを固定する。
+// (topRightLiftedRimDraft) pie の横押し出しを無効化し、短い leader で結ぶ。持ち上げが崩れると
+// 箱下端が円の y 域に入り、pie クリアランスが textX を右へ大きく押し出して 100〜184px の水平
+// leader がチャート上部を横断する (実測済みの退行形)。box 下端が pie キャップ (cy - r) より上
+// (pixel y が小) であること、leader の水平ドリフトが短いことを固定する。
 describe('コア帯の上部その他: pie キャップ上へ持ち上げ短い leader で右上配置', () => {
   const LIFT_SAMPLES = [
     'pdf_510037_05_global_reit_idx_country', // その他 7.1%
@@ -428,7 +429,7 @@ describe('コア帯の上部その他: pie キャップ上へ持ち上げ短い 
         );
 
         // box が pie キャップ上にあることが本質的不変条件 (上の assert)。leader 水平ドリフトは
-        // その帰結なので、チャート上部を横断する旧実装 (最大 ~180px) を捕える緩い上限のみ課す。
+        // その帰結なので、チャート上部を横断する退行形 (実測 最大 ~180px) を捕える緩い上限のみ課す。
         const leader = leaders.find((l) => l.name.startsWith('その他'));
         expect(leader, 'その他に leader が描かれる').toBeTruthy();
         const xs = leader!.points.map((p) => p.x);
@@ -499,7 +500,7 @@ describe('左列ラベルの縦順序 == スライス角度順 (back-to-back 対
     const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
     const pie = parsePieRobust(svg);
     const leaders = parseLeaders(svg);
-    // 各ラベルの引出アンカー = leader 折れ線で円中心に最も近い端点 (verify_svg と同基準)。
+    // 各ラベルの引出アンカー = leader 折れ線で円中心に最も近い端点 (`svg.ts` と同基準)。
     const anchorYOf = (name: string): number | null => {
       const l = leaders.find((x) => x.name === name);
       if (!l) return null;

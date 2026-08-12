@@ -2,9 +2,9 @@
 // inlineCss.test.ts — CSS の inline 展開が「タグの境界」を誤らないことのガード
 // =============================================================================
 // この関数の入力は `/api/build`・`/api/build/merge`・`/api/preview` のリクエスト本文
-// そのもので、出力は **CSP の無い headless ブラウザ**が開く。旧実装は `<link` から次の
-// `>` までを 1 タグとみなしていたため、属性値の中から始まった span がその要素のタグ終端を
-// 食い、除去後に残ったテキストが属性トークン列として再解釈された。以下は「その迂回入力で
+// そのもので、出力は **CSP の無い headless ブラウザ**が開く。`<link` から次の
+// `>` までを 1 タグとみなす切り出しでは、属性値の中から始まった span がその要素のタグ終端を
+// 食い、除去後に残ったテキストが属性トークン列として再解釈される。以下は「その迂回入力で
 // 失敗すること」を主張する。
 import { describe, expect, it } from 'vitest';
 import { inlineCss, scanTags } from '../src/vivliostyle/inlineCss.js';
@@ -276,8 +276,8 @@ describe('inlineCss', () => {
     expect(inlineCss('<body>x</body>', css)).toContain(css);
   });
 
-  // 二次バックトラックの回帰テスト: `>` を一切含まない入力は、旧実装だと `<link` の
-  // 出現ごとに末尾まで舐め直してイベントループを塞いだ。走査器は最初のタグで `>` を
+  // 二次バックトラックの回帰テスト: `>` を一切含まない入力は、素朴な切り出しだと `<link` の
+  // 出現ごとに末尾まで舐め直してイベントループを塞ぐ。走査器は最初のタグで `>` を
   // 見つけられず即座に打ち切る。
   it('handles pathological link-heavy input in linear time', () => {
     const html = '<link '.repeat(200_000);
@@ -287,8 +287,8 @@ describe('inlineCss', () => {
   });
 
   it('属性値に埋めた <link rel=stylesheet> の字面でタグ終端を食わない', () => {
-    // 旧実装: `<link` から次の `>` までを削ったため `<img>` のタグ終端まで消え、
-    // 残った `Z" onerror=alert(1)` が属性トークン列として再解釈された。
+    // `<link` から次の `>` までを削る形だと `<img>` のタグ終端まで消え、
+    // 残った `Z" onerror=alert(1)` が属性トークン列として再解釈される。
     const html =
       '<html><head></head><body>' +
       '<img src="/nope.png" alt="<link rel=stylesheet">Z" onerror=alert(1) <b>t</b>' +

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """全プロジェクトの原稿（`docs/<project>/src/`）を閲覧用 HTML へ一括生成する。
 
-出力は **HTML 一本化**（旧 Word .docx / Excel .xlsx は廃止）。原稿を読者別に振り分け、
+出力は **HTML のみ**。原稿を読者別に振り分け、
 1 プロジェクトにつき最大 2 枚のライトモード HTML を生成する（`md2html.build_project`）:
 
   - `docs/<proj>/<proj>_手引き.html` … audience=guide（操作手順書。読者=オペレータ/利用者）

@@ -14,9 +14,10 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .normalize import normalize
 
@@ -42,6 +43,24 @@ def _read_text_limited(path: Path) -> str:
             f"辞書ファイルが大きすぎます ({size} バイト / 上限 {MAX_DICT_FILE_BYTES} バイト)"
         )
     return path.read_text(encoding="utf-8")
+
+
+# `os.replace` の共有違反リトライの待ち秒列。ネットワークドライブ上の辞書は、別クライアント
+# (ウイルス対策・エクスプローラのプレビュー・バックアップ) が宛先を開いている一瞬だけ
+# rename が PermissionError になる。恒久エラー (ACL 拒否) と事前に区別できないため、
+# 短い待ちで数回だけやり直し、それでも駄目なら例外で諦める (無限に固まらせない)。
+_REPLACE_RETRY_DELAYS = (0.05, 0.1, 0.2, 0.4)
+
+
+def _replace_with_retry(src: str, dst: Path) -> None:
+    """`os.replace` を一時的な共有違反 (`PermissionError`) のリトライ付きで行う。"""
+    for delay in _REPLACE_RETRY_DELAYS:
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            time.sleep(delay)
+    os.replace(src, dst)
 
 
 @dataclass
@@ -80,14 +99,18 @@ class DictionaryStore:
         self._mappings: List[Mapping] = []
         self._next_id = 1
         self._index: Dict[str, Mapping] = {}  # source_norm -> Mapping (enabled のみ)
-        # source_norm -> Mapping (enabled 問わず・先勝ち)。`_find_by_norm` の線形走査を
-        # 置き換える索引で、`upsert` を O(1) にするために持つ (`_index` は enabled 限定
-        # なので upsert の同一性判定には使えない)。
+        # source_norm -> Mapping (enabled 問わず・先勝ち)。`_find_by_norm` が引く索引で、
+        # `upsert` を O(1) にするために持つ (`_index` は enabled 限定なので upsert の
+        # 同一性判定には使えない)。
         self._norm_index: Dict[str, Mapping] = {}
         # 読み込み時に壊れていて捨てたエントリ数と、ファイルを丸ごと読めなかったか。
         # UI が起動後に通知する (`rpc_methods._dict_payload` → `app.js`)。実体は `_load` が入れる。
         self.load_skipped = 0
         self.load_failed = False
+        # 最後にこのプロセスが読んだ/書いたときのファイル状態 (st_mtime_ns, st_size)。
+        # 共有フォルダの辞書を複数人で使うときの lost-update 検出に使う (`_save` 参照)。
+        # None は「不明」= 検査しない (ファイル不在の新規や、状態取得に失敗した直後)。
+        self._disk_state: "Tuple[int, int] | None" = None
         self._load()
 
     def close(self) -> None:
@@ -98,8 +121,8 @@ class DictionaryStore:
         """JSON ファイルを読み込み `_mappings` を復元する (壊れていても起動は止めない)。
 
         **要素 1 個の型崩れで起動不能にしない**のが要件である。リストの中に dict 以外が
-        1 つ混じるだけで `item.get` が `AttributeError` を投げ、それが `__init__` を突き抜けて
-        `console=False` の exe を**何も表示せず起動不能**にしていた (旧 P035)。辞書はメールや
+        1 つ混じるだけで `item.get` が `AttributeError` を投げ、それが `__init__` を突き抜けると
+        `console=False` の exe は**何も表示されず起動不能**になる。辞書はメールや
         共有フォルダ経由で配られる = 外部由来の入力なので、壊れた要素は捨てて起動を通し、
         捨てた件数を `load_skipped` に残して UI へ通知する (黙って消さない)。
         """
@@ -107,25 +130,35 @@ class DictionaryStore:
         self._next_id = 1
         self.load_skipped = 0
         self.load_failed = False
-        if self.path.exists():
-            data = None
-            text = ""
+        self._disk_state = None
+        # `Path.exists()` で在否を先に見ない: Windows の `exists()` はドライブ未接続・
+        # 共有瞬断系の OSError を握りつぶして False を返すため、ネットワークドライブ上の
+        # 辞書が一瞬読めないだけで「無い」と誤判定される。その後の保存が本物の辞書を
+        # 空で上書きする無音のデータ消失になるので、読みを直接試みて
+        # `FileNotFoundError` (真の不在) とそれ以外 (不明 = `load_failed`) を区別する。
+        data = None
+        text = ""
+        missing = False
+        try:
+            text = _read_text_limited(self.path)
+            st = self.path.stat()
+            self._disk_state = (st.st_mtime_ns, st.st_size)
+        except FileNotFoundError:
+            missing = True  # 真の新規。空辞書で開始してよい
+        except (OSError, ValueError):
+            # 読めない (瞬断・権限・文字コード破損・上限超過)。利用者から見れば辞書の
+            # 消失なので伝える。`_save` はこのフラグが立っている間は保存を拒む。
+            self.load_failed = True
+        else:
             try:
-                text = _read_text_limited(self.path)
-            except (OSError, ValueError):
-                # 読めない (権限・文字コード破損・上限超過)。利用者から見れば辞書の
-                # 消失なので伝える。
-                self.load_failed = True
-            else:
-                try:
-                    data = json.loads(text)
-                except (json.JSONDecodeError, ValueError):
-                    data = None  # 壊れていても起動を止めない
-            if not isinstance(data, list):
-                # ファイルはあるのに 1 件も読めない = 辞書の消失に見える。空辞書として
-                # 黙って通さず「読めなかった」を伝える (中身が空のファイルは除く)。
-                self.load_failed = self.load_failed or text.strip() != ""
-                data = []
+                data = json.loads(text)
+            except (json.JSONDecodeError, ValueError):
+                data = None  # 壊れていても起動を止めない
+        if not missing and not isinstance(data, list):
+            # ファイルはあるのに 1 件も読めない = 辞書の消失に見える。空辞書として
+            # 黙って通さず「読めなかった」を伝える (中身が空のファイルは除く)。
+            self.load_failed = self.load_failed or text.strip() != ""
+        if isinstance(data, list):
             for item in data:
                 entry = self._entry_from_json(item)
                 if entry is None:
@@ -168,8 +201,8 @@ class DictionaryStore:
     def _rebuild_index(self) -> None:
         """lookup 用 (enabled のみ・後勝ち) と同一性判定用 (全件・先勝ち) の索引を作り直す。
 
-        後者 (`_norm_index`) は `_find_by_norm` の全件線形走査を置き換えるためのもので、
-        走査のままだと取り込み N 件が O(N^2) 回の `normalize` を呼んでいた (F28)。
+        後者 (`_norm_index`) は `_find_by_norm` が引く索引で、全件線形走査だと
+        取り込み N 件が O(N^2) 回の `normalize` を呼ぶことになる (F28)。
         """
         self._index = {}
         self._norm_index = {}
@@ -178,28 +211,87 @@ class DictionaryStore:
             if m.enabled:
                 # 後勝ち: 同一正規化キーが複数あれば最後の有効分を採用
                 self._index[key] = m
-            # 先勝ち: 旧 `_find_by_norm` が「最初の一致」を返していたのに合わせる
+            # 先勝ち: `_find_by_norm` は同一正規化キーの「最初の一致」を返す契約
             self._norm_index.setdefault(key, m)
 
     def _save(self) -> None:
-        """全 `_mappings` を JSON へアトミック保存する (temp → `os.replace`)。"""
+        """全 `_mappings` を JSON へアトミック保存する (temp → `os.replace`)。
+
+        保存は**全件の書き直し**なので、読めていない/古い状態からの保存は他の内容を
+        丸ごと消す。それを防ぐゲートが 2 つある:
+
+        - `load_failed` の間は保存しない (読めなかった辞書を空で上書きしない)。
+        - 前回読み書き時とファイル状態が変わっていたら保存しない (共有フォルダの辞書を
+          複数人で使ったときの lost-update 検出。stat とファイル差し替えの間に隙間が
+          残るベストエフォートだが、「黙って相手の追加を消す」既定よりは良い)。
+        """
+        if self.load_failed:
+            raise ValueError(
+                "辞書ファイルを読み込めていないため保存しません (保存すると読めなかった"
+                f"内容を上書きして消してしまいます)。ファイルの状態を確認してから"
+                f"アプリを再起動してください: {self.path}"
+            )
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._check_lost_update()
         data = [
             {"source": m.source_raw, "target": m.target, "enabled": m.enabled,
              "joined": m.joined}
             for m in self._mappings
         ]
         text = json.dumps(data, ensure_ascii=False, indent=2)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        # アトミック書き込み (temp → replace) で破損を防ぐ
+        # アトミック書き込み (temp → replace) で破損を防ぐ。ネットワークドライブでは
+        # 書き込みがクライアント側キャッシュに乗ったまま rename が先行しうるため、
+        # close 前に fsync してサーバまで届いた状態で差し替える。
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(text)
-            os.replace(tmp, self.path)
+                f.flush()
+                os.fsync(f.fileno())
+            _replace_with_retry(tmp, self.path)
         except BaseException:
-            if os.path.exists(tmp):
+            # 後始末の失敗で元の例外を隠さない (共有では remove 自体も失敗しうる)。
+            try:
                 os.remove(tmp)
+            except OSError:
+                pass
             raise
+        self._remember_disk_state()
+
+    def _check_lost_update(self) -> None:
+        """前回読み書き時からファイルが他者に更新されていたら `ValueError` で保存を止める。
+
+        `_disk_state` が None (状態不明) のときは検査しない: 偽陽性で保存を永久に
+        塞ぐより、稀な同時新規作成の取りこぼしを許す側へ倒す。
+        """
+        if self._disk_state is None:
+            return
+        try:
+            st = self.path.stat()
+        except FileNotFoundError:
+            # 読んだはずのファイルが消えている = 他者が削除/改名した。上書きで復活させず伝える。
+            raise ValueError(
+                "辞書ファイルが見つかりません (他の利用者が削除・移動した可能性があります)。"
+                f"アプリを再起動して状態を確認してください: {self.path}"
+            )
+        except OSError as exc:
+            raise ValueError(
+                f"辞書ファイルの状態を確認できないため保存しません: {exc}"
+            ) from exc
+        if (st.st_mtime_ns, st.st_size) != self._disk_state:
+            raise ValueError(
+                "辞書ファイルが他の利用者によって更新されています。このまま保存すると"
+                "相手の変更を消してしまうため保存しません。アプリを再起動して最新の辞書を"
+                "読み直してください。"
+            )
+
+    def _remember_disk_state(self) -> None:
+        """保存直後のファイル状態を記録する (取得できなければ「不明」= 次回は検査しない)。"""
+        try:
+            st = self.path.stat()
+            self._disk_state = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            self._disk_state = None
 
     def _find_by_norm(self, source_raw: str) -> Optional[Mapping]:
         """`source_raw` の正規化キーに一致する最初の `Mapping` を返す (無ければ None)。"""
@@ -273,7 +365,7 @@ class DictionaryStore:
 
         **1 件ごとに `upsert` を呼ばない**のが要点である (F28)。`upsert` は 1 回ごとに
         索引の全再構築と**辞書全文の書き直し**を行うため、N 件の取り込みが O(N^2) の
-        `normalize` 呼び出しと sum(i) バイトの書き込みになっていた。実測不要の構造で、
+        `normalize` 呼び出しと sum(i) バイトの書き込みになる。実測不要の構造で、
         8 MiB の JSON (約 26 万件) で数時間・テラバイト級の書き込みになる。しかも
         `/rpc` は `server.lock` を握ったまま走るのでアプリ全体が固まる。
         よって「全件をメモリ上で適用 → `_rebuild_index` 1 回 → `_save` 1 回」に畳む。

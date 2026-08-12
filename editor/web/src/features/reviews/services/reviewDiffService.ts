@@ -7,7 +7,7 @@
 // 現行版・申請版とも `compareService` の素の sample 描画に揃え、見せかけ差分を避ける。
 import { isErr, ok, type Result, type ReviewRepository, type ReviewRequest } from '@editor/shared';
 import { useReviewRepo } from '@/api/repositories';
-import type { BlockStatus } from '@/features/compare/htmlBlockDiff';
+import { type BlockStatus, hasPrintOnlyRules } from '@/features/compare/htmlBlockDiff';
 import { type CompareService, useCompareService } from '@/features/compare/services/compareService';
 import { htmlWorker } from '@/workers';
 
@@ -39,6 +39,17 @@ interface ReviewDiffData {
   cssBefore: string;
   /** after ペイン(申請版)のファンド CSS。 */
   cssAfter: string;
+  /**
+   * 資源上限で差分に現れなかった領域があるか。**承認者へ必ず伝える**。
+   * 承認すると確定書込は申請本文を全文書くので、ここが真のまま承認されると
+   * 「承認者が一度も見ていない内容」が本番へ入る。
+   */
+  truncated: boolean;
+  /**
+   * 申請 CSS に印刷時だけ効く規則があるか。承認者の見え(screen)と成果物(print)が
+   * 乖離しうるので注記を出す。関門ではない。
+   */
+  printOnlyCss: boolean;
 }
 
 interface ReviewDiffService {
@@ -89,7 +100,15 @@ export function createReviewDiffService(
         added: rows.filter((r) => r.status === 'added').length,
         removed: rows.filter((r) => r.status === 'removed').length,
       };
-      return ok({ review, rows, summary, cssBefore, cssAfter: after.css });
+      return ok({
+        review,
+        rows,
+        summary,
+        cssBefore,
+        cssAfter: after.css,
+        truncated: diff.truncated,
+        printOnlyCss: hasPrintOnlyRules(after.css),
+      });
     },
   };
 }

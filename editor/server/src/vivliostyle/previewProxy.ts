@@ -5,9 +5,9 @@
 //
 // 上流は素の Vite dev サーバなので、`/@fs/<絶対パス>`(`serveRawFsMiddleware`)・`/@id/`・
 // `/__open-in-editor?file=`(サーバ上のエディタプロセスを起動する)・`/node_modules/` が
-// 全部生きている。2026-08 版はここへ「危険な接頭辞を CSP プロファイル表へ並べる」対策を
-// 入れたが、あれは**応答ヘッダの選択表**であって転送の可否表ではなく、しかも `/@` を
-// 「ビューア側」に列挙していたため任意ファイル読み出し経路へ**より緩い** CSP を与えていた。
+// 全部生きている。「危険な接頭辞を CSP プロファイル表へ並べる」だけの対策は
+// **応答ヘッダの選択表**であって転送の可否表ではなく、`/@` を「ビューア側」に列挙すると
+// 任意ファイル読み出し経路へ**より緩い** CSP を与えることになる。
 // ヘッダを足しても経路は閉じない。閉じるのは許可リストである。
 //
 // 中継してよいのはプレビュー表示に実際に必要な 2 系統だけ:
@@ -191,9 +191,9 @@ function pickRequestHeaders(req: IncomingMessage, host: string): Record<string, 
  * `request.raw` / `reply.raw` を渡す(Fastify による応答送出を抑止し、ここで応答を完全所有する)。
  *
  * ルートは GET / HEAD しか登録しないので、常に `upstream.end()` でリクエストを閉じる。
- * 以前は非 GET で `req.pipe(upstream)` していたが、`app.ts` の content-type parser が
+ * 非 GET を `req.pipe(upstream)` で流す形は成立しない — `app.ts` の content-type parser が
  * preHandler より前にボディを Buffer 化するため `request.raw` は消費済みで、1 バイトも
- * 流れず `end()` も呼ばれずに**上流が宙吊りになった**。将来 POST が本当に必要になったら
+ * 流れず `end()` も呼ばれずに**上流が宙吊りになる**。将来 POST が本当に必要になったら
  * 「メソッドを足す」のではなく、当該ルートへ raw stream を温存する
  * `addContentTypeParser` を入れるところから設計し直すこと。
  */

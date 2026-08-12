@@ -10,13 +10,13 @@ verbose ログ既定 OFF は graph-editor にだけ入った。申し送りで�
 「揃え忘れ」ではなく「揃えるか、揃えない理由を書いてこの表を直すか」の二択になる。
 **新しい共有の決めごとを足したら、この表にも足すこと。**
 
-同じ主張を graph-editor 側 (`tests/test_parallel_impl_drift.py`) にも置いてある。CI は
+同じ主張を graph-editor 側 (`test/test_parallel_impl_drift.py`) にも置いてある。CI は
 `pnpm run ci:pdf-to-svg` / `ci:graph-editor` のように片側だけ走ることがあり、検査が片側に
 しか無いと「変えた側の CI では落ちない」= 今回の drift がそのまま再発するためで、この複製は
 意図的である。
 
 graph-editor は実行時依存ゼロ (標準ライブラリのみ) なので、相手側の読み込みに追加の依存は
-要らない。読み込みの副作用は `ui.html` と `lib/leader_geom.cjs` の読み込みだけ。
+要らない (同梱資産の読み込みは `main()`/初回 GET の遅延読込で、import に副作用は無い)。
 """
 from __future__ import annotations
 
@@ -136,3 +136,41 @@ def test_edge_launch_args_match_and_carry_no_logging_flags_by_default():
     assert ours.EDGE_LOG_NAME == other.EDGE_LOG_NAME
     assert ours._FALSY_ENV_VALUES == other._FALSY_ENV_VALUES
     assert ours.EDGE_LOG_ENV != other.EDGE_LOG_ENV
+
+
+# ── 可変状態の置き場 (F43) ──
+
+
+def test_mutable_state_stays_out_of_the_program_directory(monkeypatch, tmp_path):
+    """可変状態の置き場の決定 (F43) が両実装で揃っていること。
+
+    exe を共有フォルダ・ネットワークドライブへ置く配布で可変状態 (診断ログ等) を exe 隣へ
+    書くと、複数人の同時起動が `startup.log` を共同追記して記録が混ざるうえ、プログラム
+    フォルダの書き込み可能要件が DLL 差し替え (CWE-427) の温床になる。両実装とも frozen 時は
+    ユーザー専用領域 (`%LOCALAPPDATA%/<App>/data`) を最優先し、書けない端末だけ exe 隣へ
+    落とす。graph-editor に可搬インストール継続マーカー (pdf-to-svg の `dictionary.json`
+    判定) が無いのは、失って困る利用者データを持たない (診断ログのみ) ための**意図した差分**。
+    """
+    import config
+
+    other = _graph_editor_app()
+    local = tmp_path / "LocalAppData"
+    exe_dir = tmp_path / "exe"
+    exe_dir.mkdir()
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.delenv(config.ENV_DATA_DIR, raising=False)
+    monkeypatch.delenv(other.DATA_DIR_ENV, raising=False)
+
+    monkeypatch.setattr(config, "is_frozen", lambda: True)
+    monkeypatch.setattr(config, "app_base_dir", lambda: exe_dir)
+    assert config._resolve_data_dir() == local / "PdfToSvg" / "data"
+
+    monkeypatch.setattr(other, "_is_frozen", lambda: True)
+    monkeypatch.setattr(other, "_app_base_dir", lambda: str(exe_dir))
+    assert Path(other._data_dir()) == local / "LabelEditor" / "data"
+
+    # 明示指定の環境変数は**名前だけ**がプロジェクト固有 (Edge ログ env と同じ運用)。
+    assert config.ENV_DATA_DIR != other.DATA_DIR_ENV
+    # どちらも exe 隣には何も作っていない (ユーザー領域が使える限り触らない)。
+    assert not (exe_dir / "data").exists()

@@ -223,8 +223,8 @@ describe('extractProjectZip', () => {
   });
 
   it('rejects a zip that carries two configs (ambiguity falls to reject)', async () => {
-    // 以前は BFS 順の最初の 1 件を黙って採っていたため、深い所に別の config を隠して
-    // 「どちらが効くか」を人間に判らなくできた。
+    // BFS 順の最初の 1 件を黙って採ると、深い所に別の config を隠して
+    // 「どちらが効くか」を人間に判らなくできる。
     const buf = await zipOf({
       'vivliostyle.config.json': '{"entry":"index.html"}',
       'deep/vivliostyle.config.json': '{"entry":"index.html"}',
@@ -233,7 +233,7 @@ describe('extractProjectZip', () => {
     await expect(extractProjectZip(buf)).rejects.toSatisfy(isAppError);
   });
 
-  // 以前は「実行可能な config のファイル名」を数え上げて拒否していた。今は**拡張子の
+  // 「実行可能な config のファイル名」の数え上げは漏れる。現行は**拡張子の
   // 許可リスト**に載らないので落ちる — 別ツールの config も未知の実行面も同じ理由で落ちる。
   it.each([
     'vivliostyle.config.js',
@@ -350,7 +350,9 @@ describe('extractProjectZip resource limits', () => {
     await expect(mod.extractProjectZip(buf)).rejects.toSatisfy(isAppError);
   });
 
-  it('rejects an over-compressed archive (zip bomb)', async () => {
+  // 9MB を実際に inflate するので、ルート CI(5 プロジェクト並列 + coverage)では既定 5s を
+  // 超えて落ちる(単独なら 1s 未満)。遅いこと自体は退行ではないので上限を実測へ合わせる。
+  it('rejects an over-compressed archive (zip bomb)', { timeout: 60_000 }, async () => {
     // 圧縮比の検査は展開後 8MB 超から効く。9MB の同一文字は deflate で数 KB に縮み、
     // 比は 100 倍を大きく超える。
     const buf = await zipOf({ 'bomb.html': 'a'.repeat(9 * 1024 * 1024) }, true);

@@ -90,7 +90,7 @@ app.addHook('onRoute', assertRoutePolicy);
 // プロセスを枯渇させられる。ここで 401 にすればボディは 1 バイトも積まない。判定条件は
 // `isPreAuthBufferedRequest`(content-type + 上限を上げた path)。対象ルートは元々
 // `requireAuth` 付きなので、正規のクライアントから見た応答は 401 のまま変わらない。認証を
-// 課さないローカルモード(`requireAuth=false`)は従来どおり素通しする。
+// 課さないローカルモード(`requireAuth=false`)は素通しする。
 app.addHook('onRequest', async (request) => {
   if (!config.requireAuth) return;
   // 照合は**ルーティング結果の登録パターン**で行う(`request.url` は生の request target で、
@@ -163,7 +163,7 @@ app.register(previewHostRoutes, { prefix: '/api' });
 
 // 他人のテンプレを nunjucks でコンパイルするためのレンダーホストページ。nunjucks は
 // コンパイラなので `'unsafe-eval'` が要り、承認者のページオリジンで走らせると申請者の JS が
-// 承認者のセッションを握る(所見 F1)。同じく専用コンテキストへ閉じて登録する。
+// 承認者のセッションを握る。同じく専用コンテキストへ閉じて登録する。
 app.register(renderHostRoutes, { prefix: '/api' });
 
 // 本番ではビルド済み SPA を配信する(Vite がアプリを配信する dev では no-op)。
@@ -197,9 +197,42 @@ if (hasWebDist) {
   });
 }
 
+// ── 置き場の健全性チェック(ネットワークドライブ) ──
+// dataRoot のネットワークドライブ配置(1 サーバ + 共有上のデータ)はサポートするが、
+// ログ・一時領域まで共有に乗ると監査ログの欠落(常時オープン + 非同期フラッシュ)や
+// ビルドのタイムアウトを招くため、そこは警告で止める。マップドライブは realpath.native
+// (GetFinalPathNameByHandle)が UNC へ解決することを利用して判定する(ベストエフォート。
+// 判定できないときは黙ってスキップし、起動は妨げない)。
+function isNetworkPath(p: string): boolean {
+  if (p.startsWith('\\\\')) return true;
+  try {
+    return fs.realpathSync.native(p).startsWith('\\\\');
+  } catch {
+    return false;
+  }
+}
+if (isNetworkPath(config.dataRoot)) {
+  logger.info(
+    `[server] dataRoot はネットワークドライブ上です: ${config.dataRoot} — ` +
+      'このサーバ 1 台だけが書き込むこと。他クライアントの TortoiseGit/Explorer が開いて' +
+      'いる間は保存・コミットが待たされることがあります',
+  );
+}
+for (const [name, dir] of [
+  ['LOG_DIR', config.logging.dir],
+  ['TMP_DIR', config.tmpDir],
+] as const) {
+  if (isNetworkPath(dir)) {
+    logger.warn(
+      `[server] ${name} がネットワークドライブ上にあります: ${dir} — 監査ログの欠落・` +
+        'PDF ビルドの遅延を招くため、ローカルディスクへ向けてください(env で変更可能)',
+    );
+  }
+}
+
 // 起動時に全セッションを失効させ、再起動をまたいだ旧セッションでの再ログイン不要化を断つ。
 // 認証なし(local)では DB 未接続なので呼ばない。失敗してもプロセスは継続するが、失効漏れ
-// は旧バグ(再起動後もログイン状態)の再発なので error で目立たせる。
+// は「再起動後もログイン状態が残る」形へ戻る退行なので error で目立たせる。
 if (config.requireAuth) {
   try {
     await invalidateAllSessions();
@@ -223,7 +256,7 @@ if (config.requireAuth) {
   setInterval(() => void purge(), 6 * 3_600_000).unref();
 }
 
-// listen。host は既定 127.0.0.1(同一マシン限定・従来挙動)で、社内 LAN へ公開するときだけ
+// listen。host は既定 127.0.0.1(同一マシン限定)で、社内 LAN へ公開するときだけ
 // `HOST=0.0.0.0`(start.bat lan が設定)で全 IF にバインドする。preview サーバは loopback のまま
 // ここ経由のプロキシでのみ外へ出るため、公開されるのは本ポートだけで認証も効く。
 // listen の失敗(`EADDRINUSE` 等)は reject で届くため、原因を明示してから exit(1) する。

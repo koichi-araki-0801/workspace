@@ -2,20 +2,21 @@
 // historyFiles.ts — PDF出力/作成/パーツ変更の履歴(ファイル監査ログ)
 // =============================================================================
 // 版/スナップ/編集履歴は git(コミット履歴)が正典。一方 PDF出力・作成・パーツ変更は
-// DB(旧 SP.history)を廃し、`logs/history/<種別>.jsonl` の追記専用ログへ寄せる
+// DB には置かず、`logs/history/<種別>.jsonl` の追記専用ログへ寄せる
 // (監査ログがファイル正典である方針と同じ)。1 行 1 イベントの JSON Lines。
 //
 // 資源上限の方針(分類 B: degrade。例外にしない):
 // - 追記側は世代ローテーションで 1 ファイルの上限を保つ。無制限に太ると読み側が
 //   ファイル全体を 1 文字列にできなくなり、履歴が「消えたように見える」状態になる。
 // - 読み側は**末尾だけ**を読む。全体読み + `split` + `JSON.parse` は入力サイズに比例した
-//   停止時間になり、しかも壊れた 1 行でフィード全体が恒久 500 になっていた。
+//   停止時間になり、しかも壊れた 1 行でフィード全体が恒久 500 になる。
 //   行単位の parse 失敗はスキップする(1 行の破損で監査画面を落とさない)。
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { validation } from '@editor/shared';
 import { config } from '../config.js';
+import { logger } from '../logger.js';
 
 /** ファイル監査ログに記録する履歴の種別。 */
 type HistoryKind = 'pdf' | 'create' | 'part';
@@ -58,7 +59,13 @@ async function rotateIfNeeded(kind: HistoryKind): Promise<void> {
   for (let gen = MAX_HISTORY_GENERATIONS; gen >= 1; gen--) {
     const from = gen === 1 ? fileFor(kind) : genFileFor(kind, gen - 1);
     await fs.rm(genFileFor(kind, gen), { force: true }).catch(() => {});
-    await fs.rename(from, genFileFor(kind, gen)).catch(() => {});
+    // 失敗しても続行するが、黙らせない: `readTail` や別クライアント(ログ置き場が
+    // ネットワーク上の場合)がファイルを開いている間、Windows の rename は共有違反に
+    // なる。無言のままだとローテーションが効かず `<kind>.jsonl` が読み窓を超えて太り、
+    // 古い履歴が画面から消えたように見える。
+    await fs.rename(from, genFileFor(kind, gen)).catch((e: unknown) => {
+      logger.warn({ err: e, from }, '履歴ログのローテーションに失敗しました(次回追記で再試行)');
+    });
   }
 }
 

@@ -3,7 +3,7 @@
 // =============================================================================
 // `GET /snapshots/:historyId` と `GET /templates/:templateId/versions` のパラメータは
 // そのまま git の引数(リビジョン / pathspec)になる。`-` 始まりの値を git はオプションとして
-// 読むため、境界で 400 に落ちることを HTTP 経路ごと固定する(F30 の回帰)。正常系は実 git の
+// 読むため、境界で 400 に落ちることを HTTP 経路ごと固定する(オプション注入の回帰)。正常系は実 git の
 // 一時リポジトリで確認するので、git が無い環境ではその describe だけスキップする。
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';

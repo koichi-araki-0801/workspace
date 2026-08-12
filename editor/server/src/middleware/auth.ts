@@ -32,7 +32,7 @@ export async function loadUser(req: FastifyRequest): Promise<User | null> {
 /**
  * `要パスワード変更` のセッションでも通す経路。パスワード変更そのものと、変更画面が必ず使う
  * 「自分は誰か」「やめる」の 3 つに限る。ここを増やすと、初期パスワードのままのセッションで
- * 触れる API が増える = F16/F21 の再来になるので、追加は設計判断として扱うこと
+ * 触れる API が増える = 強制変更を迂回して業務操作が通る穴になるので、追加は設計判断として扱うこと
  * (`server/test/mustChangePassword.test.ts` が「例外は 3 経路のみ」を固定している)。
  */
 export const PASSWORD_CHANGE_ALLOWED_PATHS: readonly string[] = [
@@ -81,11 +81,11 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
 /**
  * `config.requireAuth` を**参照しない**唯一のガード。ローカルモードでも 401 にする。
  *
- * 資格情報を書き換えるルート(パスワード変更)の本人確認は、以前
- * `if (request.user && request.user.username !== body.username)` の形で書かれていた。
+ * 資格情報を書き換えるルート(パスワード変更)の本人確認を
+ * `if (request.user && request.user.username !== body.username)` の形で書いてはならない。
  * `requireAuth` はローカルモードで `request.user` を埋めないまま素通りするため、
  * `AUTH_REQUIRED` が false の配備ではこの条件式ごと消え、未認証で任意アカウントの
- * パスワードを書き換えられた。**ガードの発火条件を設定値に従属させない**のがここの仕様で、
+ * パスワードを書き換えられる。**ガードの発火条件を設定値に従属させない**のがここの仕様で、
  * ローカルモードにサーバ側アカウントは存在しないのだから 401 が正しい応答である。
  */
 export async function requireIdentifiedUser(
@@ -105,8 +105,8 @@ export async function requireAdmin(request: FastifyRequest, _reply: FastifyReply
 /**
  * `requireAuth` の後に実行する前提。編集者以上(`editor` / `approver` / `admin`)を強制する。
  *
- * `viewer` は**閲覧のみ**のロールで、以前は台帳(`ユーザー.ロール`)の上にしか存在せず、
- * 下書き上書き・削除・メモ書き・履歴追記・承認申請の投入まで全部通れた。変更系ルートは
+ * `viewer` は**閲覧のみ**のロールで、台帳(`ユーザー.ロール`)の上にあるだけでは
+ * 下書き上書き・削除・メモ書き・履歴追記・承認申請の投入まで全部通れる。変更系ルートは
  * 必ずこのガードを通すこと。適用の網羅は `routes/routeGuards.ts` の `ROUTE_POLICY` が
  * 正典で、表に無いルートはサーバ起動時に落ちる(付け忘れが本番まで届かない)。
  */

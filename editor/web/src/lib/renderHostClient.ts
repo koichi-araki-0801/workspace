@@ -3,9 +3,9 @@
 // =============================================================================
 // 承認画面・比較画面・PDF 経路は、**他人が書いた**テンプレ本文を nunjucks で描画する。
 // nunjucks はサンドボックスではなく**コンパイラ**で、`{{ range.constructor("…")() }}` は
-// `new Function` へ到達する。これをアプリのページオリジンのメインスレッドで走らせていたのが
-// 所見 F1 で、走った JS は承認者のセッション(HttpOnly cookie は同一オリジン fetch へ自動で
-// 付く)のまま `/api/review-requests/:id/approve` を叩ける = 申請者が自分の申請を自分で通せた。
+// `new Function` へ到達する。これをアプリのページオリジンのメインスレッドで走らせると、
+// 走った JS は承認者のセッション(HttpOnly cookie は同一オリジン fetch へ自動で
+// 付く)のまま `/api/review-requests/:id/approve` を叩ける = 申請者が自分の申請を自分で通せる。
 //
 // 直し方は「コンパイルを止める」ではなく「**コンパイルする場所を移す**」。移した先は
 // サーバ配信のレンダーホストページ(`server/src/render/renderHost.ts`)で、ここはその親側。
@@ -14,9 +14,9 @@
 // `connect-src 'none'` まで閉じてあり、仮に nunjucks の脱出を許しても**持ち出し口が無い**。
 //
 // ── Worker ではなく iframe である理由 ──
-// 以前この描画は Web Worker(`workers/`)へ載っていたが、Worker は**同一オリジン**で動く。
-// cookie 付きの `fetch` がそのまま通るため、隔離としては何も守っていない。守れるのは
-// 「メインスレッドを塞がない」ことだけで、それは今回の脅威とは無関係である。
+// この描画を Web Worker(`workers/`)へ載せても隔離にはならない — Worker は**同一オリジン**で
+// 動く。cookie 付きの `fetch` がそのまま通るため、隔離としては何も守っていない。守れるのは
+// 「メインスレッドを塞がない」ことだけで、それはこの脅威とは無関係である。
 //
 // ── オリジン検証の作法(`PreviewPanel.vue` と同一・重要) ──
 // 親 → 子の `postMessage` は `targetOrigin` に `'*'` を使うしかない(opaque オリジンの子に
@@ -234,18 +234,23 @@ export function createRenderHostClient(opts?: {
 }
 
 /**
- * アプリ全体で 1 つだけ共有するクライアント。iframe を画面ごとに作らないのは、起動コスト
- * (ページ + nunjucks バンドル)を毎回払わないためで、**隔離の粒度が緩むことはない** —
- * 子は 1 要求 1 応答で状態を持たず、前の要求の副作用は次の要求へ持ち越されない。
- */
-let sharedClient: RenderHostClient | null = null;
-
-/**
  * 生 Jinja HTML を opaque オリジンの iframe で描画する。**アプリオリジンで nunjucks を
- * コンパイルする経路の唯一の置き換え先**で、戻り値は従来の `renderJinja` と同じ
+ * コンパイルする経路の唯一の置き換え先**で、戻り値は `renderJinja` と同じ
  * `RenderResult` — 呼び出し側の分岐は変わらない。
+ *
+ * ── フレームは要求ごとに作って捨てる ──
+ * 隔離の単位は iframe ではなく **realm**(その中の JS が触れる状態の全体)である。フレームを
+ * 使い回すと、ある要求で走った JS が `env` などの realm 上の状態を書き換え、**以後の全要求の
+ * 応答を偽装**できる。承認画面は申請者の本文を描画してから現行版のベースラインを描画する
+ * ので、これは「差分の『変更前』側を申請者が決められる」＝職務分掌の回避に直結する。
+ * ブートスクリプトの多層防御は脱出を塞ぐが、**塞ぎ切れなかったときに被害が 1 要求で
+ * 止まる**形にしておく価値は別にある。
+ *
+ * 費用は実測した(Chromium・ローカル配信・91 KiB のホストページ): 作り直しを含めて
+ * 1 要求あたり中央 11 ms / 最大 38 ms、共有時の描画のみは中央 1 ms。差は 10 ms 程度で、
+ * 承認画面は 1 画面あたり数回しか描画しないため体感に影響しない。**隔離の強さを取る。**
  */
 export function renderJinjaIsolated(template: string, data: SampleData): Promise<RenderResult> {
-  sharedClient ??= createRenderHostClient();
-  return sharedClient.render(template, data);
+  const client = createRenderHostClient();
+  return client.render(template, data).finally(() => client.dispose());
 }

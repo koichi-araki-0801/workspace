@@ -15,8 +15,8 @@ dist/
 # 辞書・設定 (ポータブルデータ。開発実行時に生成)
 data/
 
-# テスト用サンプル PDF (conftest が自動生成)
-tests/fixtures/*.pdf
+# テスト用サンプル PDF (conftest が自動生成。追跡済みの sample.pdf は E2E 用で対象外)
+test/fixtures/*_sample.pdf
 
 # OS
 Thumbs.db

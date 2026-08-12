@@ -5,8 +5,8 @@
 //   - `logError` は全失敗を観測可能にする(DEV のみでなく常にログ出力する)。
 //   - `toUserMessage` は安全なユーザー向け文面を取り出す。
 //
-// `AppError.message` は表示しても安全な文面として書かれているため, この層は
-// かつての "user-facing" 文字列ホワイトリストをもう必要としない。
+// `AppError.message` は表示しても安全な文面として書かれているため, この層に
+// "user-facing" 文字列ホワイトリストは要らない。
 
 import { isAppError } from '@editor/shared';
 

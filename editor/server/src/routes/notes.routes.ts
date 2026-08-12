@@ -12,8 +12,8 @@ import * as notes from '../repositories/noteRepo.js';
 const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
 
 // ⚠ ここに私有のスキーマを再定義しないこと。正典は `@editor/shared/schemas` の
-// `SaveNoteRequest` で、複製していた版は上限(`pathKey`/`content` の `.max()`)が片方にしか
-// 入らず、OpenAPI が公表する契約と実際に強制される契約が食い違っていた。
+// `SaveNoteRequest` で、複製すると上限(`pathKey`/`content` の `.max()`)が片方にしか
+// 入らず、OpenAPI が公表する契約と実際に強制される契約が食い違う。
 
 type NotesParams = { Params: { templateId: string } };
 

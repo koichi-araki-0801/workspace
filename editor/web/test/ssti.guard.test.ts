@@ -1,11 +1,11 @@
 // =============================================================================
 // ssti.guard.test.ts — 「アプリオリジンで Jinja をコンパイルしない」ガード
 // =============================================================================
-// 所見 F1: `compareService` が申請者の書いたテンプレ本文を承認者のページオリジンの
-// メインスレッドで nunjucks コンパイルしていた。nunjucks はサンドボックスではなく
+// `compareService` が申請者の書いたテンプレ本文を承認者のページオリジンの
+// メインスレッドで nunjucks コンパイルする形は許されない。nunjucks はサンドボックスではなく
 // **コンパイラ**で、`{{ range.constructor("…")() }}` は `new Function` へ到達する。走った JS は
 // 承認者のセッション(HttpOnly cookie は同一オリジン fetch へ自動で付く)のまま承認 API を
-// 叩けるため、editor 1 ロールで職務分掌が破れていた。
+// 叩けるため、editor 1 ロールで職務分掌が破れる。
 //
 // 直したのは「どこでコンパイルするか」であって、入力の検査ではない。ゆえに守るべき不変則は
 // 個々の入力に対する挙動ではなく**呼び出しの形**で、それはソース走査でしか固定できない:
@@ -54,7 +54,7 @@ const WORKER_FILES = [
   path.join(WEB_SRC, 'workers/fallback.ts'),
 ];
 
-/** 隔離描画を通さねばならない経路(F1 の実体 + PDF 系)。 */
+/** 隔離描画を通さねばならない経路(承認・比較画面 + PDF 系)。 */
 const ISOLATED_CALLERS = [
   path.join(WEB_SRC, 'features/compare/services/compareService.ts'),
   path.join(WEB_SRC, 'features/preview/services/templatePreviewService.ts'),
@@ -81,18 +81,29 @@ describe('SSTI ガード — Jinja のコンパイルはアプリオリジンで
     expect(offenders, `renderJinja を import している: ${offenders.join(', ')}`).toEqual([]);
   });
 
-  it('nunjucks を直に import してよいのは nunjucksRender / fillJinja だけ', () => {
+  it('nunjucks を直に import してよいのは nunjucksRender だけ', () => {
     // 新しい描画経路が別ファイルに生えると、隔離を経ないコンパイルが静かに復活する。
-    // `fillJinja.ts` は作成タブの値差込(自分が作ったスケルトンを自分の画面で埋める)で、
-    // 他人が書いた本文を通す経路ではないため現時点では対象外。増やすときはここを更新し、
-    // 「他人由来の本文を通さない」ことを確認すること。
-    const allowed = new Set([RENDER_JINJA_HOME, path.join(WEB_SRC, 'lib/fillJinja.ts')]);
+    // `fillJinja.ts`(作成タブの値差込)も `jinjaExpr.ts` の許可リスト評価器で実装して
+    // おり、例外は 1 つも無い。この 0 件が、全域 CSP
+    // から `'unsafe-eval'` を落とせている根拠でもある(`server/src/config.ts`)。
+    const allowed = new Set([RENDER_JINJA_HOME]);
     const offenders = ALL_SOURCES.filter((file) => {
       if (allowed.has(file)) return false;
       const code = stripComments(readFileSync(file, 'utf8'));
       return /from\s*['"]nunjucks['"]/.test(code);
     }).map((f) => path.relative(WEB_SRC, f));
     expect(offenders, `nunjucks を直接 import している: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('アプリコードは eval / new Function を自前で持たない', () => {
+    // `'unsafe-eval'` を落とした以上、呼べば CSP 違反で必ず落ちる。落ちた結果を
+    // `catch` で握られると「値が空になるだけ」で無言の退行になるため、書かせない側で
+    // 止める(値を黙って空にする `catch` がまさにこの形 — `fillJinja.ts` を見よ)。
+    const offenders = ALL_SOURCES.filter((file) => {
+      const code = stripComments(readFileSync(file, 'utf8'));
+      return /\bnew\s+Function\s*\(|(?<![.\w])eval\s*\(/.test(code);
+    }).map((f) => path.relative(WEB_SRC, f));
+    expect(offenders, `eval 系を持っている: ${offenders.join(', ')}`).toEqual([]);
   });
 
   it('Worker 層は Jinja 描画を持たない(同一オリジンなので隔離にならない)', () => {

@@ -9,7 +9,7 @@
 //      そのまま注入面になる)。
 //   3. nunjucks バンドルがページへ**内蔵**されていること(子にネットワーク要求をさせない)。
 //   4. 配信面が「ホストページ + バンドル」の 2 本しかなく、迂回入力で 1 バイトも出ないこと。
-// さらに、実際に配ったバイト列の中のブートスクリプトを動かし、所見 F1 の実証ペイロード
+// さらに、実際に配ったバイト列の中のブートスクリプトを動かし、既知の脱出ペイロード
 // (`{{ range.constructor("…")() }}`)が**失敗する**ことまで見る。CSP と内蔵の主張だけだと
 // 「多層防御を消しても緑」になるため、脱出そのものの遮断は独立に固定する。
 import fs from 'node:fs';
@@ -184,7 +184,7 @@ describe('ブートスクリプトの多層防御(nunjucks サンドボックス
     expect(res).toEqual({ type: 'editor:render-res', id: 1, html: '&lt;b&gt;/123' });
   });
 
-  it('所見 F1 の実証ペイロードが実行されない', async () => {
+  it('グローバル経由の脱出ペイロードが実行されない', async () => {
     const send = await bootChild();
     // 元の攻撃文字列そのもの。nunjucks 3.2.4 では `range` グローバル → `constructor`
     // (= Function)→ 呼び出しで任意 JS に到達し、承認者のセッションで承認 API を叩けた。
@@ -226,6 +226,46 @@ describe('ブートスクリプトの多層防御(nunjucks サンドボックス
       // 出力にも中身を漏らさない(例外か空文字のどちらかで、コードは 1 度も走らない)。
       if (res?.type === 'editor:render-res') expect(res.html).not.toContain('function');
     }
+  });
+
+  // ── nunjucks が外部の値へ触る経路(この列挙が防御の単位) ──
+  // 防御は「プロパティ参照」「グローバル参照」「フィルタ解決」の 3 経路を塞ぐ形で書かれて
+  // いる。フィルタ解決は前 2 者の関門を通らないため、独立に閉じる必要がある。
+  // 経路が増えた/包み忘れたことをここで検出する。
+  it('フィルタ解決から Object.prototype 由来の値を引けない', async () => {
+    const send = await bootChild();
+    (globalThis as Record<string, unknown>).__renderHostEscaped = false;
+    // `1|valueOf` は `Object.prototype.valueOf.call(context, 1)` として解決されると
+    // **Context そのもの**を返す。そこから `env` → `getFilter("constructor")`(= Object)
+    // → `Function` と辿れてしまう。起点のフィルタ解決を閉じてあるので落ちる。
+    const res = send({ id: 21, template: '{{ 1|valueOf }}', data: {} });
+    expect(res?.type).toBe('editor:render-error');
+
+    // 完全な脱出連鎖。`"constructor"` は**文字列引数**なので名前遮断には掛からない —
+    // だからこそ起点(フィルタ解決)を閉じる必要がある。
+    const chain =
+      '{% set c = 1|valueOf %}{% set O = c.env.getFilter("constructor") %}' +
+      '{% set F = O.getOwnPropertyDescriptor(O.getPrototypeOf(O), "constructor").value %}' +
+      '{{ F("globalThis.__renderHostEscaped=true")() }}';
+    send({ id: 22, template: chain, data: {} });
+    expect((globalThis as Record<string, unknown>).__renderHostEscaped).toBe(false);
+
+    // 継承経由で引ける他の名前も同様に「未知のフィルタ」で落ちる。
+    for (const name of ['constructor', 'toString', 'hasOwnProperty', '__defineGetter__']) {
+      expect(send({ id: 23, template: `{{ 1|${name} }}`, data: {} })?.type).toBe(
+        'editor:render-error',
+      );
+    }
+  });
+
+  it('組み込みフィルタは今までどおり使える(防御が正常系を壊していない)', async () => {
+    const send = await bootChild();
+    const res = send({
+      id: 24,
+      template: '{{ "a,b"|replace(",", " / ") }}|{{ [3,1,2]|sort|join("-") }}|{{ "x"|upper }}',
+      data: {},
+    });
+    expect(res).toEqual({ type: 'editor:render-res', id: 24, html: 'a / b|1-2-3|X' });
   });
 
   it('親以外からのメッセージは無視する(発信元の同一性で弾く)', async () => {

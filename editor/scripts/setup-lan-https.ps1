@@ -45,6 +45,27 @@ $pfxPath = Join-Path $tlsDir 'editor.pfx'
 $passPath = Join-Path $tlsDir 'editor.pfx.pass'
 $cerPath = Join-Path $tlsDir 'editor-lan.cer'
 
+# 出力先がネットワーク上 (UNC / ネットワークにマップしたドライブ) なら拒否する。
+# 「PFX(秘密鍵) と平文パスフレーズの併置」という割り切り (.DESCRIPTION 2.) は、出力先が
+# サーバ機のローカルディスクでその機の利用者しか読めないことを前提に成立している。
+# 共有フォルダへ置くと、共有の読み取り権を持つ全員が TLS 秘密鍵を持ち出せる。
+function Test-NetworkPath([string]$path) {
+  if ($path -like '\\*') { return $true }
+  try {
+    $root = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($path))
+    $drive = New-Object System.IO.DriveInfo($root)
+    return $drive.DriveType -eq [System.IO.DriveType]::Network
+  } catch {
+    return $false
+  }
+}
+if (Test-NetworkPath $tlsDir) {
+  Write-Host "[NG] 出力先がネットワークドライブ上です: $tlsDir"
+  Write-Host '     PFX(秘密鍵) と平文パスフレーズを共有フォルダへ置くことになるため生成を中止しました。'
+  Write-Host '     editor はサーバ機のローカルディスクに配置し、そこで本スクリプトを実行してください。'
+  exit 1
+}
+
 if ((Test-Path $pfxPath) -and -not $Force) {
   Write-Host "既に $pfxPath が存在します。作り直す場合は -Force を付けて再実行してください。"
   exit 1

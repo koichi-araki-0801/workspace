@@ -1,5 +1,5 @@
 // =============================================================================
-// usePageGuides.ts — ページ境界 guide の算出(useGrapes から分離)
+// usePageGuides.ts — ページ境界 guide の算出
 // =============================================================================
 // 役割: canvas document から page break 要素を拾って cache し(`recomputeBreakEls`)、
 // scroll/zoom 時はその cache を再測位して guide 線の座標列を出す(`refreshPageGuides`)。

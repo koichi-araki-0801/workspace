@@ -3,5 +3,5 @@
 # `[project]` (配布パッケージ定義) を書かない。pytest は開発時だけ端末の Python で入れる
 # (`python -m pip install pytest`)。pdf-to-svg 側と同じく `python -m pytest` で走る。
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["test"]
 pythonpath = ["."]

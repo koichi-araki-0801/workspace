@@ -23,11 +23,11 @@
   コミット毎フック（.husky/post-commit）からは **-TagOnly で**呼ぶ。フックが行うのは
   タグ移動（＝ソース更新）だけで、重量物の再生成（pip download / pnpm install という
   依存解決器の実行）はフックから決して走らせない — コミットに紛れた requirements.txt /
-  lockfile の編集 1 つで外部コードの取得・実行まで無人到達するため（所見 F20）。
+  lockfile の編集 1 つで外部コードの取得・実行まで無人到達するため。
   他人の PR をマージしてコミットするだけで成立するので、フック経路は依存解決器を持たない。
   重量物の更新は公開担当者が本スクリプトを引数なしで**明示実行**して行う。
 
-  真正性の根拠（所見 F14）: 重量物には RSA-SHA256 の分離署名（<bundle>.sig）を添え、
+  真正性の根拠: 重量物には RSA-SHA256 の分離署名（<bundle>.sig）を添え、
   ソースの不変コミット ID と各 sha256 を offline\pinned-release.txt へ書き出す。この pin と
   公開鍵 offline\bundle-signing.pub.xml は offline/ フォルダごと手渡しで配布先へ運ばれる。
   Release へ並べる .sha256 は**配信元と同じ場所から取る値**なので転送破損の検知にしかならず、
@@ -133,7 +133,7 @@ $bundleChanged = $Force -or (-not $releaseExists) -or ($publishedKey -ne $curren
 # -TagOnly（post-commit フック経路）は依存解決器を一切起動しない。重量物の更新が要ると
 # 判明した時点で**タグも動かさずに**終了する: ここでタグだけ進めると「新ソース（新
 # lockfile / 新 requirements）× 旧重量物」の不整合ペアを配ることになるため。
-# 公開担当者は表示に従って引数なしの明示実行へ切り替える（所見 F20）。
+# 公開担当者は表示に従って引数なしの明示実行へ切り替える。
 if ($TagOnly -and $bundleChanged) {
   Write-Host '[skip] 重量物の更新が必要ですが -TagOnly のため何もしません（タグも動かしません）。'
   Write-Host '       依存解決器（pip download / pnpm install）はコミットフックからは実行しません。'
@@ -261,7 +261,7 @@ if ($bundleChanged) {
       'docs\_build\requirements.txt') |
       ForEach-Object { Join-Path $RepoRoot $_ } | Where-Object { Test-Path -LiteralPath $_ }
     if (-not $pyReqs) { Write-Error '[error] requirements.txt が見つかりません（pdf-to-svg / graph-editor / docs）。'; exit 1 }
-    # requirements の許可リスト検査（所見 F20）。pip は requirements ファイル内のオプション行
+    # requirements の許可リスト検査。pip は requirements ファイル内のオプション行
     # （`--extra-index-url` / `--find-links` / `-e` 等）と直 URL 参照を尊重するため、この 1 行を
     # 混ぜるだけで解決先を攻撃者のインデックスへ差し替えられる。純粋な requirement specifier
     # 以外は一切通さない（許可リスト。危険オプションの列挙＝ブロックリストにはしない）。
@@ -385,7 +385,7 @@ function Move-RollingTag {
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] タグの移動 (git push) に失敗しました。'; exit 1 }
 }
 
-# 重量物アセット（更新時のみ）を Release へ差し替える。L243 から関数化し両分岐で共有する。
+# 重量物アセット（更新時のみ）を Release へ差し替える（新規・既存の両分岐で共有）。
 function Publish-Assets {
   if (-not $bundleChanged) { return }
   Write-Host '[info] アセットをアップロード（--clobber で差し替え）...'
@@ -413,7 +413,7 @@ if (-not $releaseExists) {
 
 # ---- pin ファイル（offline\pinned-release.txt）の更新 ----
 # 配布先はローリングタグではなく**この pin の不変コミット ID**からソースを取り、pin の
-# sha256 と突き合わせる（所見 F14）。タグ名は publish のたびに指す先が動くため、「タグで
+# sha256 と突き合わせる。タグ名は publish のたびに指す先が動くため、「タグで
 # 取れた」ことは内容を何も同定しない。
 # -TagOnly（post-commit フック）では書かない: フック経路で作業ツリーへ書き出すと、直後の
 # コミットに巻き込まれるか dirty のまま残る。pin の更新は明示実行の公開に紐づける。

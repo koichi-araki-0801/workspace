@@ -272,7 +272,7 @@ export function logicalYAtViewBoxYPx(coord: Coord, yPx: number): number {
 
 // leader メトリクス層 (pathsCross / realLeaderPaths / countLeaderCrossings /
 // countLeaderThroughLabels / box*Max / projectBoxesToPixels / oobLeaderCount / angularStacks /
-// countAngularDiscordantPairs) は ./leader_geometry.js へ分離した。
+// countAngularDiscordantPairs) は `leader_geometry.ts` 側。
 
 /**
  * 同一側 (left/right) の外側 leader が交差するとき、交差ペアを縦に引き離してから既存の box ベース
@@ -882,7 +882,7 @@ function relaxStructuralCondense(
       // (b) pie 非侵入: 実描画 ink (行 sub-box) は狙いクリアランス (pieRadius + pieClearance) を維持し、
       //     union box は verify の label-inside-pie 境界 (pieRadius − 2px = `bboxIntrudesPie` tolerance と
       //     同境界, verify/svg.ts) を割らない。2 行ラベルの「% 短行脇の空隅」だけがクリアランス帯へ入れる
-      //     (ink は従来どおり外)。1 行ラベルは行 = union box なので旧判定 (d ≥ pieRadius + clearance) と等価。
+      //     (ink は従来どおり外)。1 行ラベルは行 = union box なので単純判定 (d ≥ pieRadius + clearance) と等価。
       if (ok) {
         const d = distToPie(box);
         const linesClearPie = placementLineBoxes(p, cfg).every(
@@ -1008,7 +1008,7 @@ function unsqueezeCondensedByShiftTowardPie(
       closestPieY = Math.abs(fullBox.top) < Math.abs(fullBox.bottom) ? fullBox.top : fullBox.bottom;
     const pieSideCapped = Math.abs(closestPieY) < cfg.pieRadius;
     // 実効クリアランス (viewBox 収まりキャップ、full 幅基準)。狙い値のままだと幅広ラベルの
-    // pie 側キャップが早く頭打ちになり、旧クリアランスなら解けた長体が残る。
+    // pie 側キャップが早く頭打ちになり、下限 (`pieLabelClearanceMin`) なら解けた長体が残る。
     const pieClearance = pieClearanceWithinViewBox(
       cfg,
       pieSideCapped ? pieYAtX(closestPieY, cfg) : 0,
@@ -1023,7 +1023,7 @@ function unsqueezeCondensedByShiftTowardPie(
         shift = Math.min(shift, Math.max(0, maxBboxRight - fullBox.right));
       }
       if (shift > 0) {
-        p.maxTextX = undefined; // 旧右寄せ上限を外す (pie キャップは上の shift 計算で担保済み)
+        p.maxTextX = undefined; // 既存の右寄せ上限を外す (pie キャップは上の shift 計算で担保済み)
         p.x += shift;
         p.maxTextX = before.maxTextX;
       }

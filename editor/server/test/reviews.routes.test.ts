@@ -111,9 +111,9 @@ d('review workflow (HTTP routes)', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  // 契約の段(`SubmitReviewBody.templateId`)を素の文字列にしていた版は、トークン内部に
-  // 空白を持つ id を承認経路へ通した。SQL Server の `=` は末尾空白を無視するので、
-  // 「ファイルは 2 つ・台帳は 1 行」の食い違いを作れた(F37)。
+  // 契約の段(`SubmitReviewBody.templateId`)を素の文字列にすると、トークン内部に
+  // 空白を持つ id が承認経路へ通る。SQL Server の `=` は末尾空白を無視するので、
+  // 「ファイルは 2 つ・台帳は 1 行」の食い違いを作れる。
   it.each([
     'AM01 _611111_20250101_交付版',
     'AM01_611111_20250101_交付版 ',

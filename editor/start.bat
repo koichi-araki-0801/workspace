@@ -33,9 +33,16 @@ rem  ASCII only on purpose: non-ASCII here breaks cmd parsing on JP code pages.
 rem ============================================================================
 setlocal
 rem Drive the pnpm workspace from the repo root (one level up: editor/ -> root).
-cd /d "%~dp0\.."
+rem pushd instead of `cd /d`: cmd.exe cannot use a UNC path as the current
+rem directory (it silently falls back to C:\Windows and everything below runs
+rem against the wrong tree). pushd auto-maps UNC to a temporary drive letter.
+pushd "%~dp0.." || (
+  echo [start] ERROR: cannot enter repo root "%~dp0..".
+  exit /b 1
+)
 rem Repo root absolute path, used to scope the port pre-check/cleanup to THIS repo.
-set "REPO_ROOT=%CD%"
+rem Derived from %~dp0 (not %CD%) so it never inherits a wrong working directory.
+for %%I in ("%~dp0..") do set "REPO_ROOT=%%~fI"
 
 rem --- process-identity patterns (single source for :portcheck and :cleanup) --
 rem A listener is "ours" only when its command line runs our entry (server prod
@@ -181,8 +188,12 @@ rem Same run-in-job watchdog wrapper as dev so an X-button close kills the serve
 rem Run node with the absolute entry path instead of `pnpm --filter server run start`:
 rem the path in the command line is what lets :portcheck/:cleanup identify a stale
 rem server as ours (repo-scoped match); pnpm's child shows only `node dist/app.js`.
-rem cwd must stay editor\server (config resolves data dirs from it), hence the cd.
-cd /d "%~dp0server"
+rem cwd must stay editor\server (config resolves data dirs from it). pushd, not
+rem `cd /d`: UNC-safe (auto-maps a drive letter; cd would fall back to C:\Windows).
+pushd "%~dp0server" || (
+  echo [start] ERROR: cannot enter "%~dp0server".
+  exit /b 1
+)
 call "%~dp0scripts\run-in-job.bat" node "%~dp0server\dist\app.js"
 if errorlevel 1 goto :serverfail
 goto :end

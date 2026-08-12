@@ -9,7 +9,7 @@
 // ⚠ **Jinja の描画(`renderJinja`)はここへ戻さない。** Worker はアプリと**同一オリジン**で
 // 動き、cookie 付きの `fetch` がそのまま通る = 他人が書いたテンプレを nunjucks
 // (サンドボックスではなく**コンパイラ**)へ通す場所としては何も守っていない。Worker が
-// 与えるのは「メインスレッドを塞がない」だけで、所見 F1 の脅威とは無関係だった。描画は
+// 与えるのは「メインスレッドを塞がない」だけで、この脅威とは無関係である。描画は
 // opaque オリジンの iframe(`lib/renderHostClient.ts`)が担う。ここに残す diff/mask は
 // **描画済み文字列**に対する処理で、テンプレ式の評価を伴わない。
 import { type SampleData, unexpected } from '@editor/shared';

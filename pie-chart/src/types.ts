@@ -57,7 +57,7 @@ export interface LayoutItem {
   forceFlipToRight?: boolean;
   forceHorizontalLowerLeftDrop?: boolean;
 
-  // 左上スタック メタ (assignUpperLeftMetadata / svg_geom)
+  // 左上スタック メタ (`diagnostics.ts` の `assignUpperLeftMetadata` が設定)
   upperLeftRank?: number;
   upperLeftCount?: number;
   upperLeftSmallDense?: boolean;
@@ -107,20 +107,22 @@ export interface LayoutItem {
 
   // 「1強(≥90%)+極小トップ2枚」型 (例 manulife_country) で、上左に並ぶ極小スライスを rim 配置
   // (leaderless)で確定させず rank 9 (`buildOutsideLeaderDraft`) 起点へ強制し leader を引かせる印。
-  // `layout/diagnostics.ts` の `markForcedTopSliverLeader` が双方に立て、`index.ts` の `runCascadeOnce` が参照する。
+  // `diagnostics.ts` の `markTopBandSlivers` (ルール表の `apply`) が立て、`pipeline.ts` の
+  // `runCascadeOnce` が参照する。
   forceOutsideLeader?: boolean;
 
   // 9時直近の幅広・長名 上左ラベルが、長体下限でも viewBox 左端を見切れる構成 (例
   // world_bond_idx_currency「オフショア人民元」) で立てる印。`layout/diagnostics.ts` の `markClippedUpperLeftLongDrop`
-  // が当該 1 ラベルに付与し、`index.ts` の `runCascadeOnce` が rank 9 起点 (`buildLowerLeftDropLeaderDraft`)
+  // が当該 1 ラベルに付与し、`pipeline.ts` の `runCascadeOnce` が rank 9 起点 (`buildLowerLeftDropLeaderDraft`)
   // へ送る。円が横へ逃げ帯が広い下left (水平軸下) へ 2 行のまま配置し、slice rim から斜めリーダーで
   // 接続する (参考PDF「オーストラリア」配置)。`forceHorizontalLowerLeftDrop` (内側 X クランプ解放) と
   // `twoLineLeftColumn` (condense/relax を viewBox 基準に) を併せて立てる。
   lowerLeftDropLeader?: boolean;
 
   // 「1強(80–90%) + 上左に極小1枚 + 上中央を『その他』が占有」型 (例 world_bond_idx_asset) の
-  // 孤立極小スライス印。`forceOutsideLeader` と併せて `layout/diagnostics.ts` の `markLoneTopSliverLeader` が立てる。
-  // この印が立つチャートでは `index.ts` の `cascadeWithSonohokaPick` が『その他』を右上へ確定させ
+  // 孤立極小スライス印。`forceOutsideLeader` と併せて `diagnostics.ts` の `markTopBandSlivers`
+  // (ルール `loneRadialWithSonohoka`) が立てる。
+  // この印が立つチャートでは `pipeline.ts` の `cascadeWithSonohokaPick` が『その他』を右上へ確定させ
   // (右逃がし)、極小の up-and-over leader が『その他』の中央 box を貫く suppression を回避する。
   loneTopSliverLeader?: boolean;
 
@@ -232,7 +234,7 @@ export interface LayoutResult {
 }
 
 /**
- * カスケード (`finalizePlacement`) → 後処理 (`post_layout`) → SVG 出力 (`index.ts`) 間で
+ * カスケード (`finalizePlacement`) → 後処理 (`post_layout`) → SVG 出力 (`pipeline.ts`) 間で
  * 受け渡すテキスト配置情報。引出線端点・bbox 上下限・各種フラグを保持する。
  */
 export interface Placement {
@@ -268,7 +270,7 @@ export interface Placement {
   condenseNamePortionOnly?: boolean;
   /**
    * 名前を語中で 2 行へ割ったラベルを表すフラグ (lines = [名前前半, 名前後半+" "+%])。語割れ 2 行は
-   * pie-chart 全体で廃止したため **現在はどこからも立てない** (常に false/未設定)。2 行救済は名前を割らない
+   * pie-chart 全体で不採用のため **現在はどこからも立てない** (常に false/未設定)。2 行救済は名前を割らない
    * 標準 `[名前, %]` 形 (`toTwoLineNamePlacement` / `overrideOverflowPreferOneLine`) のみ。フラグ自体は
    * 幅算定 (`placementExtent`) / emit (`condense.name`) の後方互換のため型に残置する。
    */

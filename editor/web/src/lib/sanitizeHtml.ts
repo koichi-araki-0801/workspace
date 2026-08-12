@@ -26,8 +26,8 @@ import { sanitizeStyleContent } from './sanitizeCss';
  * DOMPurify へ渡す共通設定を毎回新しく作る(DOMPurify は Config を破壊的に読むため使い回さない)。
  *
  * **`<script>` は残す。** テンプレの JS は開発者が生成時に埋め込む正当なコンテンツで、
- * 承認者は「JS が効いた実行結果」を見て承認する。落としていた頃はプレビューだけ JS が
- * 効かず、PDF・承認画面と見た目が食い違っていた。守り方は除去ではなく隔離で、プレビューは
+ * 承認者は「JS が効いた実行結果」を見て承認する。落とすとプレビューだけ JS が
+ * 効かず、PDF・承認画面と見た目が食い違う。守り方は除去ではなく隔離で、プレビューは
  * `PreviewPanel.vue` が opaque オリジンの iframe(`sandbox="allow-scripts"`・same-origin
  * なし)の中で組版する — アプリのオリジン・cookie・API には届かない。変更されていないことは
  * サーバの `security/templateScripts.ts` が照合する。
@@ -62,7 +62,7 @@ function previewPurifyConfig(): PurifyConfig {
  *      (列幅自動調整など)、サニタイズで削る対象ではない。変更されていないことはサーバの
  *      `security/templateScripts.ts` が照合して保証し、実行の危険は隔離(egress 遮断・
  *      作業ディレクトリ封じ込め)で受ける。
- *      ここを落としていた頃は、テンプレ JS が PDF で 1 つも効かなかった(実測で、残すと
+ *      ここを落とすとテンプレ JS が PDF で 1 つも効かなくなる(実測で、残すと
  *      **インライン script は組版時に実行される** = 出力 PDF が変わる)。外部 `src` の
  *      script は現行 vivliostyle では解決先がずれて動かない(`pdfDocument.ts` の該当コメント)。
  *   2. `<link>` を残す — テンプレは per-fund CSS・共通フォントを相対パスで参照し、その実体を
@@ -71,15 +71,15 @@ function previewPurifyConfig(): PurifyConfig {
  *      解決済みの `css` を必ず載せるので、サーバの `inlineCss` が stylesheet の `<link>` を
  *      落とし、当たる CSS はリクエスト側だけになる(= プレビューと同じ 1 枚)。ここで
  *      `<link>` を残しているのは `rel="preload"` のような**取得を伴う非 stylesheet の用途**を
- *      殺さないためで、「ディスクの CSS も当てる」ためではない。両方当てていた版では、
- *      下書きで削除した規則がディスク側の旧 CSS から復活し、プレビューと PDF が食い違った。
+ *      殺さないためで、「ディスクの CSS も当てる」ためではない。両方当てると、
+ *      下書きで削除した規則がディスク側の旧 CSS から復活し、プレビューと PDF が食い違う。
  *
  * `<base>` と `<meta>` は落としたままにする。`<base>` は相対 URL の解決先を丸ごと別
  * オリジンへ向け替えられ(= 1 と 2 の前提そのものを壊す)、`<meta http-equiv>` は
  * 宣言的リフレッシュで遷移を起こす。
  *
  * プレビュー経路(`assemblePreviewDocument` → `previewPurifyConfig`)との差は `<link>` の
- * 扱いだけになった。プレビューも隔離 iframe 化(`PreviewPanel.vue`)に伴い script を残す。
+ * 扱いだけ。プレビューも隔離 iframe(`PreviewPanel.vue`)の中で動かすため script を残す。
  */
 function pdfPurifyConfig(): PurifyConfig {
   return {
@@ -196,9 +196,9 @@ export function sanitizePdfRoot(html: string): Element {
 // DOM を直接触る。つまり canvas へ入った要素はアプリと同一オリジンで動く。draft HTML は
 // 「保存できる誰か」が書けるため、ここは**許可リスト**でなければならない。
 //
-// **危険物を列挙する形(denylist)へ戻さないこと。** 旧実装の
-// `FORBIDDEN_TAGS`(iframe/object/embed/frame/frameset)+ `on*` + `javascript:` の 3 判定は
-// GrapesJS の **prop チャネル**を 1 つも見ていなかった: `data-gjs-` で始まる属性は
+// **危険物を列挙する形(denylist)へ戻さないこと。** 要素名の列挙
+// (iframe/object/embed/frame/frameset)+ `on*` + `javascript:` の 3 判定では
+// GrapesJS の **prop チャネル**に 1 つも届かない: `data-gjs-` で始まる属性は
 // 「属性」ではなく component の **prop** として model に載る(`grapes.mjs` の
 // `parseNodeAttr`)ため、`data-gjs-attributes='{"onerror":"…"}'` は `on*` 判定を素通りして
 // `setAttribute` され、`data-gjs-type="iframe"` はタグ名が `<span>` のままなので要素名の
@@ -496,7 +496,7 @@ function isAllowedUrlValue(value: string): boolean {
   const normalized = [...value].filter((c) => c > ' ').join('');
   if (normalized === '') return true;
   // Jinja トークンを含む値は描画時に実値へ置き換わる。ここで「トークンで始まるなら
-  // 無条件で通す」としていた版は `{{''}}javascript:alert(1)` を通した(実測)。トークンを
+  // 無条件で通す」とすると `{{''}}javascript:alert(1)` が通る(実測)。トークンを
   // 空へ潰してから判定し、残りが危険なスキームを名乗るなら落とす
   // (サーバ側の `security/templateScripts.ts` の `isInertUrl` と同じ形)。
   const stripped = normalized.replace(/\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g, '');

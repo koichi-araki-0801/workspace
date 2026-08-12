@@ -4,7 +4,7 @@
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-// 純粋関数 (`parsePath` 等) は `geom.js` へ分離し、各モジュールが import する。
+// 純粋関数 (`parsePath` 等) は `geom.js` が持ち、各モジュールが import する。
 
 // 文字色の正規値 (生成側: 通常=`#111111` / inside=`#ffffff`)。比較・既定値に使う。
 const WHITE = "#ffffff";

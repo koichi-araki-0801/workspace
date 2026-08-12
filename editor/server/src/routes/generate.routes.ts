@@ -4,8 +4,8 @@
 // REST モードでは生成結果を**未確定(pending)領域**へ置き、台帳へ登録(status=draft)、作成
 // 履歴フィードへ記録する。Python ステップ自体は変更しない。
 //
-// **確定ディレクトリ(templatesDir)へは書かない。** 以前はここが `writeTemplateAndCss` を
-// 直呼びしていたため、任意ロールの認証済みユーザが承認を経ない確定テンプレ実体を作れた。
+// **確定ディレクトリ(templatesDir)へは書かない。** ここが確定書込を直呼びすると、
+// 任意ロールの認証済みユーザが承認を経ない確定テンプレ実体を作れてしまう。
 // 確定実体はペア同期の転写先条件・結合 PDF・比較タブの入力であり、さらに実行コード不変性
 // (`security/templateScripts.ts`)の**基準そのもの**でもあるため、生成が確定領域へ書けると
 // 基準を差し替えて任意の JS を承認へ通せる。よって本ルートは `pendingFiles.ts` にしか
@@ -34,9 +34,8 @@ import { registerGenerated } from '../repositories/templateRepo.js';
 import { applyNoteMasterToHtml } from '../sync/noteMasterService.js';
 
 // トークン単位の検査はここに私有の複製を置かず `@editor/shared` の
-// `assertTemplateAttributeToken` 1 本を呼ぶ。かつては同じ判定をこのファイルのローカル関数
-// として持っていたが、`assertTemplateFileName` 側がファイル名全体しか見ていなかったため、
-// 「生成は締まっているのに確定書込(`confirmedWrite.ts`)は緩い」という非対称ができていた。
+// `assertTemplateAttributeToken` 1 本を呼ぶ。同じ判定を呼び出し元ごとの私有複製で持つと、
+// 「生成は締まっているのに確定書込(`confirmedWrite.ts`)は緩い」のような非対称ができる。
 
 export async function generateRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: z.infer<typeof GenerateRequest> }>(
@@ -58,9 +57,9 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
           const fileName = templateFileName(attributes);
           const id = templateIdFromFileName(fileName);
 
-          // 同一属性の確定テンプレが既にあるなら生成では触らない。以前は `atomicWrite` が
-          // 存在検査なしに上書きしていたため、baseDate がサーバ現在日と一致する確定
-          // テンプレを黙って壊せた。続きは編集タブ(承認フロー)から行う。
+          // 同一属性の確定テンプレが既にあるなら生成では触らない。存在検査なしに
+          // 上書きすると、baseDate がサーバ現在日と一致する確定テンプレを黙って
+          // 壊せてしまう。続きは編集タブ(承認フロー)から行う。
           if (await templateExists(fileName)) {
             throw conflict(
               `同じ属性のテンプレートが既にあります: ${id}。編集タブから開いてください`,

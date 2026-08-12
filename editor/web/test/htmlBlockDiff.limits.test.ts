@@ -1,5 +1,5 @@
 // =============================================================================
-// htmlBlockDiff.limits.test.ts — 語句 LCS の資源上限とフォールバック(F18)
+// htmlBlockDiff.limits.test.ts — 語句 LCS の資源上限とフォールバック
 // =============================================================================
 // 語句 diff の DP は `(n+1) x (m+1)` の密行列を確保する。テキストノードの中身は他ユーザ
 // (申請者)が書いた本文で、`tokenize` は CJK を 1 文字 1 トークンに刻むため、上限が無いと
@@ -10,6 +10,7 @@
 // を対にして固定する。
 import { describe, expect, it } from 'vitest';
 import {
+  buildDiffDoc,
   buildHtmlDiff,
   createLcsBudget,
   diffHighlightCss,
@@ -18,6 +19,7 @@ import {
   HL_DEL,
   HL_INS,
   hasCoarseDiff,
+  hasPrintOnlyRules,
   MAX_COMPLEX_SELECTORS,
   MAX_LCS_CELLS,
   MAX_LCS_DIM,
@@ -180,12 +182,12 @@ describe('hasCoarseDiff(承認画面の行判定)', () => {
 });
 
 // =============================================================================
-// ページ分割側の上限(R23 / R24)
+// ページ分割側の上限
 // =============================================================================
 // 承認画面のページ分割は、申請者が書いた CSS と HTML の両方を無加工で受け取る。
-// 旧実装は ① CSS ルール抽出の正規表現 `/([^{}]+)\{([^{}]*)\}/g` が波括弧を含まない入力で
-// 二次(実測 160KB=13 秒)、② セレクタ照合が「直下要素数 x セレクタ数」の総当たりで
-// linkedom がコール毎にセレクタをコンパイル(B=S=20,000 で数百〜数千秒)だった。
+// 上限が無いと ① CSS ルール抽出の正規表現 `/([^{}]+)\{([^{}]*)\}/g` は波括弧を含まない
+// 入力で二次(実測 160KB=13 秒)になり、② セレクタ照合を「直下要素数 x セレクタ数」の
+// 総当たりにすると linkedom がコール毎にセレクタをコンパイルする(B=S=20,000 で数百〜数千秒)。
 // **迂回入力で二次にならないこと**を比で主張する(絶対時間はマシン差に弱い)。
 
 /** 実行時間を測る(比で主張するので絶対値は使わない)。 */
@@ -212,7 +214,7 @@ describe('ページ分割の資源上限(R23 / R24)', () => {
   // 単体実行では 0.5 秒前後で終わるが、フルスイートは 100 本超のテストファイルを並列に
   // 走らせるため CPU 競合で数倍に伸びる。既定 5 秒のままだと「実装が線形か」ではなく
   // 「その時のマシン負荷」を測ることになるので、重い 2 本には明示タイムアウトを与える。
-  // 上限そのものは緩めない — 旧実装(二次)は同じ入力で数百〜数千秒かかる。
+  // 上限そのものは緩めない — 二次の実装は同じ入力で数百〜数千秒かかる。
   const HEAVY_TIMEOUT_MS = 120_000;
 
   it(
@@ -256,7 +258,7 @@ describe('ページ分割の資源上限(R23 / R24)', () => {
     expect(res.pages).toHaveLength(3);
   });
 
-  // 旧実装(二次の正規表現 `/([^{}]+)\{([^{}]*)\}/g`)は `@media` の中の規則も拾っていた。
+  // `@media` の中の規則も改ページ対象である。
   // 条件付きグループ規則を読み飛ばすと承認画面のページ対応が変わる = 差分の正しさが変わる。
   it('条件付きグループ規則(@media / @supports / @layer)の中の改ページを拾う', () => {
     const body = '<div class="page">1</div><div class="page">2</div>';
@@ -282,5 +284,84 @@ describe('ページ分割の資源上限(R23 / R24)', () => {
     const css = '@page { size: A4; @bottom-center { content: counter(page) } }';
     const body = '<div class="page">1</div><div class="page">2</div>';
     expect(buildHtmlDiff(doc(body), doc(body), css).pages).toHaveLength(1);
+  });
+});
+
+// ── 承認画面の完全性 ──
+// 差分ペインは「申請者が書いた本文 + 申請者が書いた CSS」を承認者に見せる面で、
+// 見えているものが本物であることが承認の前提になる。ここが崩れると、無害に見える差分を
+// 承認させて別の内容を確定領域へ入れられる(職務分掌の回避)。
+describe('差分装飾は申請者 CSS から守られる', () => {
+  const layerDecl = /<style>@layer (d[0-9a-f]{16});<\/style>/;
+
+  it('レイヤ宣言が申請者 CSS より前にある(重要宣言の逆転はレイヤ順で決まる)', () => {
+    const built = buildDiffDoc('<p>x</p>', '.applicant{color:red}', diffHighlightCss(8));
+    const declAt = built.search(layerDecl);
+    const applicantAt = built.indexOf('.applicant');
+    expect(declAt).toBeGreaterThanOrEqual(0);
+    // 後ろに置くと、申請者が自分の CSS 先頭で宣言したレイヤの方が先になり逆転が向こうへ効く。
+    expect(declAt).toBeLessThan(applicantAt);
+  });
+
+  it('ハイライト CSS はそのレイヤの中に入る', () => {
+    const built = buildDiffDoc('<p>x</p>', '', diffHighlightCss(8));
+    const name = layerDecl.exec(built)?.[1] as string;
+    expect(built).toContain(`@layer ${name}{`);
+    // 装飾は `!important` であること(通常宣言ではレイヤ順が逆転せず守りにならない)。
+    expect(diffHighlightCss(8)).toContain(`.${HL_INS}{background:rgba(22,163,74,.18)!important`);
+    // `display` は入れない(表セル等の正当なレイアウトを壊すため。守りが本体を壊さない)。
+    expect(diffHighlightCss(8)).not.toContain('display:block!important');
+  });
+
+  it('レイヤ名は文書ごとに変わる(同名レイヤへの相乗りを塞ぐ)', () => {
+    // 実ブラウザで確認した唯一の突破口が「名前を当てて同じレイヤへ高詳細度で書く」形。
+    // 名前が固定だとその 1 手で装飾を消せるため、推測不能であることが防御の一部になる。
+    const names = new Set(
+      Array.from({ length: 8 }, () => layerDecl.exec(buildDiffDoc('<p>x</p>', '', 'a{}'))?.[1]),
+    );
+    expect(names.size).toBe(8);
+  });
+});
+
+describe('差分の打ち切りは必ず申告される', () => {
+  it('上限内では truncated=false', () => {
+    const body = '<div>a</div><div>b</div>';
+    expect(buildHtmlDiff(doc(body), doc(body)).truncated).toBe(false);
+  });
+
+  // 上限いっぱいのブロックを実際に diff するので、ルート CI(5 プロジェクト並列 + coverage)
+  // では既定 5s を超えて落ちる(単独なら 1s 未満)。遅いこと自体は退行ではないので上限を
+  // 実測へ合わせる。
+  it('body 直下が上限を超えたら truncated=true(捨てた分は差分に出ない)', {
+    timeout: 60_000,
+  }, () => {
+    const many = Array.from({ length: MAX_TOP_LEVEL_BLOCKS + 5 }, () => '<div>x</div>').join('');
+    const d = buildHtmlDiff(doc(many), doc(many));
+    // 例外にはしない(承認者が差分を見られない状態を作らない)が、黙ってもいない。
+    expect(d.pages.length).toBeGreaterThan(0);
+    expect(d.truncated).toBe(true);
+  });
+});
+
+describe('印刷時だけ効く規則の検出', () => {
+  it('@media print だけの規則を検出する', () => {
+    expect(hasPrintOnlyRules('.x{display:none}@media print{.x{display:block}}')).toBe(true);
+  });
+
+  // CSS エスケープ(`@\6d edia print`)は実ブラウザでは `CSSMediaRule:print` として解決され、
+  // 判定に CSSOM を使う理由そのものになっている(Chromium で実測)。ただし **jsdom の cssom は
+  // エスケープを解決しない**ため、ここで assert すると製品ではなく jsdom の限界を固定して
+  // しまう。よって単体では主張しない(正規表現へ戻すと実ブラウザで迂回されることに注意)。
+
+  it('@supports / @layer の内側でも検出する', () => {
+    expect(hasPrintOnlyRules('@supports (color:red){@media print{.x{color:red}}}')).toBe(true);
+  });
+
+  it('screen にも効くもの・print と無関係なものは検出しない(誤検知しない)', () => {
+    expect(hasPrintOnlyRules('@media screen, print{.x{color:red}}')).toBe(false);
+    expect(hasPrintOnlyRules('@media all{.x{color:red}}')).toBe(false);
+    expect(hasPrintOnlyRules('@media (min-width:600px){.x{color:red}}')).toBe(false);
+    expect(hasPrintOnlyRules('.x{color:red}')).toBe(false);
+    expect(hasPrintOnlyRules('')).toBe(false);
   });
 });

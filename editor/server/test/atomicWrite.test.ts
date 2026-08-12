@@ -1,15 +1,15 @@
 // =============================================================================
-// atomicWrite.test.ts — 一時ファイル名の衝突と、ファイル単位の直列化(F40)
+// atomicWrite.test.ts — 一時ファイル名の衝突と、ファイル単位の直列化
 // =============================================================================
-// 一時名が `pid + ミリ秒` だった版は、サーバが単一プロセス(pid が定数)なので同一
-// ミリ秒に走った 2 つの書き込みが**同じ一時パス**を切り詰めモードで開いた。結果は
+// 一時名を `pid + ミリ秒` にすると、サーバが単一プロセス(pid が定数)なので同一
+// ミリ秒に走った 2 つの書き込みが**同じ一時パス**を切り詰めモードで開く。結果は
 // 「混ざったバイト列」か「後続の rename が ENOENT で 500」のどちらか。
 // ここでは名前が毎回変わること(= 衝突しないこと)と、`withFileLock` が同一キーの
 // 実行を重ねないことを主張する。
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { atomicWrite } from '../src/files/atomic.js';
 import { withFileLock } from '../src/files/fileLock.js';
 
@@ -24,8 +24,8 @@ afterEach(async () => {
 
 describe('atomicWrite', () => {
   it('同一ミリ秒に別々の書き手が動いても一時ファイルを共有しない', async () => {
-    // 一時名が `pid + ミリ秒` だけだった版は、この 20 本が同じ一時パスを切り詰めモードで
-    // 開き、内容が混ざったうえ後続の rename が ENOENT で落ちた。宛先が別なので、
+    // 一時名が `pid + ミリ秒` だけだと、この 20 本が同じ一時パスを切り詰めモードで
+    // 開き、内容が混ざったうえ後続の rename が ENOENT で落ちる。宛先が別なので、
     // 一時名さえ一意なら全部成功して各々の全文が残る。
     const bodies = Array.from({ length: 20 }, (_, i) => `${'v'.repeat(1000)}-${i}`);
     await Promise.all(bodies.map((b, i) => atomicWrite(path.join(dir, `x${i}.json`), b)));
@@ -54,6 +54,51 @@ describe('atomicWrite', () => {
       await withFileLock(target, () => atomicWrite(target, b));
     }
     expect(await fs.readFile(target, 'utf8')).toBe('333');
+  });
+
+  // ── rename の共有違反リトライ ──
+  // dataRoot がネットワークドライブ上にあると、別クライアント(ウイルス対策・Explorer の
+  // プレビュー・TortoiseGit)が宛先を開いた瞬間の rename が EPERM になる。プロセス内
+  // ロックでは防げない性質なので、atomicWrite 自身が短く粘る。
+
+  it('一時的な共有違反(EPERM)はリトライして書き切る', async () => {
+    const target = path.join(dir, 'retry.json');
+    const realRename = fs.rename.bind(fs);
+    let failures = 2;
+    const spy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      if (failures > 0) {
+        failures -= 1;
+        const e = new Error('EPERM: operation not permitted') as NodeJS.ErrnoException;
+        e.code = 'EPERM';
+        throw e;
+      }
+      return realRename(from, to);
+    });
+    try {
+      await atomicWrite(target, 'body');
+      expect(await fs.readFile(target, 'utf8')).toBe('body');
+      expect(spy).toHaveBeenCalledTimes(3);
+      expect((await fs.readdir(dir)).filter((f) => f.includes('.tmp-'))).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('共有違反以外(ENOENT 等)はリトライせず即座に諦め、一時ファイルも残さない', async () => {
+    const target = path.join(dir, 'fatal.json');
+    const spy = vi.spyOn(fs, 'rename').mockImplementation(async () => {
+      const e = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
+      e.code = 'ENOENT';
+      throw e;
+    });
+    try {
+      await expect(atomicWrite(target, 'body')).rejects.toThrow('ENOENT');
+      // 恒久エラーを待ちで引き延ばさない(リトライは共有違反系コードだけ)。
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect((await fs.readdir(dir)).filter((f) => f.includes('.tmp-'))).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

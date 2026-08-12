@@ -16,9 +16,9 @@ const LF = String.fromCharCode(0x0a);
 const CR = String.fromCharCode(0x0d);
 const FF = String.fromCharCode(0x0c);
 
-// ── F8: 引用符文字列は改行でも終端する(CSS Syntax 4.3.5 の bad-string-token)──
-// 引用符と EOF でしか終端しない版は、1 行未終端の引用符から先の**スタイルシート全体**を
-// 「文字列の中身」として飲み込み、検査が 0 件を返した。ブラウザはその宣言だけを捨てて
+// ── 引用符文字列は改行でも終端する(CSS Syntax 4.3.5 の bad-string-token)──
+// 引用符と EOF でしか終端しない実装は、1 行未終端の引用符から先の**スタイルシート全体**を
+// 「文字列の中身」として飲み込み、検査が 0 件を返す。ブラウザはその宣言だけを捨てて
 // 次の `;`/`}` から再開するので、飲み込まれた規則は実際には適用される。
 describe('未終端の引用符(改行終端)で以降が検査から消えない', () => {
   it.each([
@@ -57,9 +57,9 @@ describe('未終端の引用符(改行終端)で以降が検査から消えな�
   });
 });
 
-// ── F24: `\` は特殊スキームの base に対して `/` と同一視される ──
+// ── `\` は特殊スキームの base に対して `/` と同一視される ──
 // WHATWG URL パーサは http(s) 等の base に対し `\` を `/` として扱うので、下記はすべて
-// `http://evil.example/x` へ解決される。`startsWith('//')` だけを見ていた版は全部素通しした。
+// `http://evil.example/x` へ解決される。`startsWith('//')` だけを見る判定は全部素通しする。
 describe('バックスラッシュで書いた scheme 相対 URL', () => {
   it.each([
     '\\\\evil.example/x',

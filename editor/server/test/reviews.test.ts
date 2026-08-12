@@ -69,7 +69,11 @@ d('review workflow (reviewRepo)', () => {
     });
   });
 
-  it('approve writes the template file, commits, and marks the request approved', async () => {
+  // 実際に git コミットまで走らせるので、ルート CI(5 プロジェクト並列 + coverage)では
+  // 既定 5s を超えて落ちる(単独なら 1s 未満)。上限を実測へ合わせる。
+  it('approve writes the template file, commits, and marks the request approved', {
+    timeout: 60_000,
+  }, async () => {
     const tplId = 'AM01_333333_20250101_交付版';
     const meta = await submit(tplId, '333333', '<p>{{ fund.name }} 反映済</p>');
     const tplMeta = await reviews.approveReview(meta.id, { comment: 'ok' }, approver);

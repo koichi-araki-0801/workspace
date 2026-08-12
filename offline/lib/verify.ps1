@@ -2,7 +2,7 @@
 # publish / setup / setup-local から dot-source して使う（`content-key.ps1` と同じ運用）。
 # 日本語コメントを含むため UTF-8 BOM 必須（cp932 環境で文字化けさせない）。
 #
-# 設計方針（セキュリティ所見 F14/F19/F20 対応）:
+# 設計方針:
 #   - 「配信元（GitHub Releases）から取る digest」に真正性を期待しない。バンドルを差し替え
 #     られる攻撃者は対応する .sha256 も並べて置けるため、あの sidecar は転送破損の検知にしか
 #     ならない。真正性の根拠は (a) 手渡しで運ばれる offline/ 同梱の pinned 値と、(b) offline/
@@ -220,6 +220,36 @@ function Assert-BundleSignature {
   if (-not (Test-DetachedSignature -File $File -SignatureBase64 $sig -PublicKeyXml $pub)) {
     throw ("分離署名の検証に失敗: $File`n" +
       '  改ざん・すり替え、または公開鍵と署名鍵の不一致。処理を中止する。')
+  }
+}
+
+# ── リポジトリ直下が「ローカルディスク」であることの検査 ──
+# pnpm の isolated linker は node_modules を symlink + store への hardlink で組む。
+# ネットワークドライブ (UNC / ネットワークにマップしたドライブレター) 上では、SMB
+# クライアント既定がリモート symlink を評価しない (`fsutil behavior` の SymlinkEvaluation)
+# うえ hardlink も拒否されるため、install が「成功したように見えて実行時に
+# Cannot find module で全滅」か途中失敗になる。黙って壊れた環境を作らないよう、setup 系は
+# 開始前にここで止める (fail fast)。これは利便のガードであって権限境界ではないので、
+# 判定不能はローカル扱いへ倒す。
+function Assert-LocalRepoRoot {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $isNetwork = $false
+  if ($Path -like '\\*') {
+    $isNetwork = $true
+  } else {
+    try {
+      $root = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($Path))
+      $drive = New-Object System.IO.DriveInfo($root)
+      $isNetwork = ($drive.DriveType -eq [System.IO.DriveType]::Network)
+    } catch {
+      $isNetwork = $false
+    }
+  }
+  if ($isNetwork) {
+    throw ("リポジトリがネットワークドライブ上にあります: $Path`n" +
+      '  pnpm の node_modules (symlink + hardlink) は SMB 上で成立しないため、この構成は' +
+      "サポートしない。`n  リポジトリをローカルディスクへ置いて実行し、共有へは成果物" +
+      '(exe / docs HTML / バンドル) だけをコピーすること。')
   }
 }
 

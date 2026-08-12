@@ -1,7 +1,7 @@
-// `extractSyncParts` の走査器が線形であること(R4)の退行ガード。旧 `TAG_RE` は
+// `extractSyncParts` の走査器が線形であることの退行ガード。比較対象の `LEGACY_TAG_RE` は
 // 否定文字クラスが `<` を除外しておらず、閉じ `>` を持たない `<a ` の連続に対して
-// 開始位置ごとに末尾まで舐め直す二次計算量だった。承認 1 回でイベントループを数時間
-// 止められたため、**「正しい入力を正しく処理する」ではなく「迂回入力で破綻しない」**を
+// 開始位置ごとに末尾まで舐め直す二次計算量になる。承認 1 回でイベントループを数時間
+// 止められるため、**「正しい入力を正しく処理する」ではなく「迂回入力で破綻しない」**を
 // 主張する形で書く。
 import { describe, expect, it } from 'vitest';
 import { extractSyncParts, MAX_SYNC_SCAN_BYTES } from '../src/sync/partSync.js';
@@ -39,8 +39,8 @@ describe('extractSyncParts の線形性(R4)', () => {
   });
 
   it('style の中身は走査対象にならない(承認者から見えない位置に隠せない)', () => {
-    // R4 のペイロードは `<style>` の CSS コメント内に置けたため、差分にもプレビューにも
-    // PDF にも現れなかった。RAWTEXT を飛ばすことで「そもそもタグとして読まれない」。
+    // この種のペイロードは `<style>` の CSS コメント内に置け、差分にもプレビューにも
+    // PDF にも現れない。RAWTEXT を飛ばすことで「そもそもタグとして読まれない」。
     const payload = `<style>/* ${'<a '.repeat(50_000)} */ .x{}</style>`;
     const ghost = `<style><section data-part-id="ghost">x</section></style>`;
     const html = `<div>${payload}${ghost}<p data-part-id="real">R</p></div>`;

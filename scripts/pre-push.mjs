@@ -7,10 +7,10 @@
 //
 // なぜ: リリース更新は post-commit の `offline/publish-offline-bundle.ps1` が
 // `git push origin +HEAD:refs/tags/offline-bundle-v1` でタグを動かす。この push でも
-// pre-push が発火するため、従来は `ci:affected`(フル CI)が走り、しかも commit フック内の
-// `GIT_AUTHOR_NAME` 漏れで `gitRepo.test` が落ちてタグ push が中断していた。タグは既に
+// pre-push が発火するため、素通しにすると `ci:affected`(フル CI)が走り、しかも commit フック内の
+// `GIT_AUTHOR_NAME` 漏れで `gitRepo.test` が落ちてタグ push が中断する。タグは既に
 // CI 済みコミットへのポインタなので、タグのみの push では CI を省く。ブランチ push の
-// ゲートは従来どおり維持する。
+// ゲートはそのまま維持する。
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -43,7 +43,7 @@ if (remoteRefs.length === 0 || tagOnly) {
   process.exit(0);
 }
 
-// ── 3. ブランチを含む push は従来どおり affected CI を実行 ──
+// ── 3. ブランチを含む push は affected CI を実行 ──
 runAffectedCi();
 
 // ── 4. ユーティリティ ──

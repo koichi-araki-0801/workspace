@@ -153,7 +153,7 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
       // 二重の安全策: locked 時は `Component` を editable:false にしてあるので RTE は
       // 有効化されないはずだが、万一発火した場合は編集中 `Component` の view の
       // `disableEditing()` で確実に止める(`core:component-edit` という command は GrapesJS に
-      // 無く、旧 `stopCommand` は no-op だった)。
+      // 無く、`stopCommand` で止めようとしても no-op になる)。
       try {
         const editingView = ed.getEditing()?.getView() as
           | { disableEditing?: () => void }
@@ -186,7 +186,7 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   ed.on('component:add', fireChange);
   ed.on('component:remove', fireChange);
   // inline style 変更(`Component` 由来)。GrapesJS の正規 event は `component:styleUpdate`
-  // (旧 `style:update` は存在せず dead listener だった)。
+  // (`style:update` という event は存在せず、購読しても dead listener になる)。
   ed.on('component:styleUpdate', fireChange);
 
   // native な drag-to-reorder: 開始時に undo 用 snapshot、終了時に history を記録する

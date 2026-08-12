@@ -1,5 +1,5 @@
 // =============================================================================
-// verify/svg.ts — 生成済み SVG の自動検証 (graph/verify_svg.js の TS 移植)
+// verify/svg.ts — 生成済み SVG の自動検証
 // -----------------------------------------------------------------------------
 // チェック項目:
 //   1. ラベル数 == スライス数
@@ -73,7 +73,7 @@ interface ViewBox {
   height: number;
 }
 
-// 文字幅は本体 (svg_geom.visualCharEm) の実 glyph advance テーブルをそのまま使う。verify が
+// 文字幅は本体 (`geometry.ts` の `visualCharEm`) の実 glyph advance テーブルをそのまま使う。verify が
 // 独自に幅モデルを複製すると本体と乖離し得るため、幅分類はオラクル(本体)を直接引く。数値定数
 // (charWidthFactor 等) は `verify/oracle_sync.ts` に集約し assertOracleSync で照合する。
 const oracleCfg = createPieLayoutConfig();

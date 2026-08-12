@@ -2,7 +2,7 @@
 // vivliostyleRoutes.entry.test.ts — `?entry=` の封じ込め(HTTP 経路)
 // =============================================================================
 // `reviews.routes.test.ts` と同じ流儀で、最小の Fastify に `vivliostyleRoutes` だけを載せて
-// `app.inject()` で叩く。PDF ビルドは実行せず、`buildProjectPdf` に渡った `entry` を捕まえて
+// `app.inject()` で叩く。PDF ビルドは実行せず、`buildProjectInSlot` に渡った `entry` を捕まえて
 // 「展開ディレクトリ配下の絶対パスに解決されているか」「不正値は CLI へ届かないか」を見る。
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -22,11 +22,24 @@ const TEST_TMP_DIR = path.join(
 );
 process.env.TMP_DIR = TEST_TMP_DIR;
 
-/** `buildProjectPdf` へ渡った引数(最後の 1 回)。実 CLI は起動しない。 */
+/** `buildProjectInSlot` へ渡った引数(最後の 1 回)。実 CLI は起動しない。 */
 const calls: { dir: string; entry?: string }[] = [];
 
+/** zip の展開が**枠の内側**で起きたか(展開が `withBuildSlot` の外へ戻ると false になる)。 */
+let insideSlot = false;
+
 vi.mock('../src/vivliostyle/build.js', () => ({
-  buildProjectPdf: async (input: { dir: string; entry?: string }) => {
+  // 本番の `withBuildSlot` は行列と同時実行上限を持つが、ここで見たいのは
+  // 「ルータが枠を取ってから展開する」形なので、枠取りは素通しに置き換える。
+  withBuildSlot: async (fn: (run: (o: unknown) => Promise<void>) => Promise<Buffer>) => {
+    insideSlot = true;
+    try {
+      return await fn(async () => {});
+    } finally {
+      insideSlot = false;
+    }
+  },
+  buildProjectInSlot: async (input: { dir: string; entry?: string }) => {
     calls.push(input);
     return Buffer.from('%PDF-1.4 fake');
   },
@@ -34,6 +47,22 @@ vi.mock('../src/vivliostyle/build.js', () => ({
   buildMergedPdf: async () => Buffer.from('%PDF-1.4 fake'),
   prepareInlineDoc: async () => ({ dir: '', entry: '' }),
 }));
+
+/** `extractProjectZip` を呼んだ時点で枠の内側だったか(呼び出しごとに 1 件)。 */
+const extractedInsideSlot: boolean[] = [];
+
+// 展開は本物を使う(展開ディレクトリの残骸検査が実体を要る)。呼ばれた**時点**が
+// 枠の内側かどうかだけを覗くために薄く包む。
+vi.mock('../src/vivliostyle/projectInput.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/vivliostyle/projectInput.js')>();
+  return {
+    ...actual,
+    extractProjectZip: async (zip: Buffer) => {
+      extractedInsideSlot.push(insideSlot);
+      return actual.extractProjectZip(zip);
+    },
+  };
+});
 
 const { config } = await import('../src/config.js');
 
@@ -67,6 +96,7 @@ describe('POST /build/project entry containment', () => {
   });
   beforeEach(() => {
     calls.length = 0;
+    extractedInsideSlot.length = 0;
   });
 
   const post = (query: string) =>
@@ -81,6 +111,13 @@ describe('POST /build/project entry containment', () => {
   // 他ファイルの `vivlio-*` を拾って「たまに落ちる」テストへ静かに退化する。ここで固定する。
   it('runs against an isolated tmp dir so leftover checks cannot see other test files', () => {
     expect(config.tmpDir).toBe(TEST_TMP_DIR);
+  });
+
+  // 展開を枠の外へ戻すと、順番待ちの本数ぶんの展開ディレクトリが同時に居座る
+  // (行列の長さがそのままディスク消費になる)。展開が枠の内側であることを固定する。
+  it('extracts the zip only after a build slot has been acquired', async () => {
+    expect((await post('')).statusCode).toBe(200);
+    expect(extractedInsideSlot).toEqual([true]);
   });
 
   it('resolves a relative entry into the extracted directory', async () => {

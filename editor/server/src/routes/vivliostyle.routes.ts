@@ -24,8 +24,9 @@ import { BuildInlineRequest, BuildMergeRequest } from '../openapi/schemas.js';
 import {
   buildInlinePdf,
   buildMergedPdf,
-  buildProjectPdf,
+  buildProjectInSlot,
   prepareInlineDoc,
+  withBuildSlot,
 } from '../vivliostyle/build.js';
 import type { PreviewActor } from '../vivliostyle/previewManager.js';
 import { UUID_RE } from '../vivliostyle/previewManager.js';
@@ -89,7 +90,7 @@ function projectOptions(
 export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   registerZipBodyParser(app);
 
-  // POST /api/build — inline(レンダリング済み HTML + CSS)→ PDF。旧 /pdf を置き換える。
+  // POST /api/build — inline(レンダリング済み HTML + CSS)→ PDF。
   app.post<{ Body: z.infer<typeof BuildInlineRequest> }>(
     apiPaths.build,
     { preHandler: [requireAuth, validate(BuildInlineRequest)] },
@@ -111,32 +112,40 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireAuth, requireEditor] },
     async (request, reply) => {
       const zip = request.body;
-      const project = await extractProjectZip(zip);
-      const detail = { mode: 'project', files: project.fileCount, bytes: zip.length };
-      try {
-        // `entry` 検証も try の内側に置く。外に出すと 400 の時だけ展開ディレクトリが残る。
-        const opts = projectOptions(request, project.dir);
-        const pdf = await auditedRethrow(
-          request,
-          'pdf.export',
-          () =>
-            buildProjectPdf({
-              dir: project.dir,
-              config: project.config,
-              entry: opts.entry,
-              size: opts.size,
-              singleDoc: opts.singleDoc,
-            }),
-          {
-            success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
-            failure: () => ({ detail }),
-            failureMessage: 'PDF generation failed',
-          },
-        );
-        sendPdf(reply, pdf);
-      } finally {
-        await cleanupProject(project.dir);
-      }
+      // ⚠ zip の展開は**枠を取ってから**行う(`withBuildSlot` の内側)。枠の外で展開していた
+      // 版は、順番待ちのあいだずっと展開済みディレクトリを握ったので、行列の長さがそのまま
+      // ディスク消費だった(inline / merge の資源確保を枠の内側へ寄せたのと同じ理由)。
+      const pdf = await withBuildSlot(async (runBuild) => {
+        const project = await extractProjectZip(zip);
+        const detail = { mode: 'project', files: project.fileCount, bytes: zip.length };
+        try {
+          // `entry` 検証も try の内側に置く。外に出すと 400 の時だけ展開ディレクトリが残る。
+          const opts = projectOptions(request, project.dir);
+          return await auditedRethrow(
+            request,
+            'pdf.export',
+            () =>
+              buildProjectInSlot(
+                {
+                  dir: project.dir,
+                  config: project.config,
+                  entry: opts.entry,
+                  size: opts.size,
+                  singleDoc: opts.singleDoc,
+                },
+                runBuild,
+              ),
+            {
+              success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
+              failure: () => ({ detail }),
+              failureMessage: 'PDF generation failed',
+            },
+          );
+        } finally {
+          await cleanupProject(project.dir);
+        }
+      });
+      sendPdf(reply, pdf);
     },
   );
 
@@ -166,7 +175,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // GET /api/preview — 稼働中のプレビューセッション一覧(メタデータのみ・自分の分だけ)。
-  // 全件返していた頃は、id を列挙してプロキシ経由で他人の作業を読めた(IDOR の足場)。
+  // 全件返すと、id を列挙してプロキシ経由で他人の作業を読める(IDOR の足場)。
   app.get(apiPaths.preview, { preHandler: requireAuth }, async (request) => {
     return previewManager.list(actorOf(request));
   });

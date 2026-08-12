@@ -1,5 +1,5 @@
 // =============================================================================
-// input/load.ts — 入力データの取得と正規化 (旧 data.ts + xlsx_loader.ts + db_loader.ts)
+// input/load.ts — 入力データの取得と正規化
 // -----------------------------------------------------------------------------
 // 入力ソースは 5 系統:
 //   - sample        : samples.json 内の名前指定
@@ -111,7 +111,7 @@ interface LoadXlsxOpts {
 
 /**
  * Excel ファイルから [name, value][] を読み出す。
- * 戻り値は data.ts の normalizeInputItems で {name, value} 形式に整形される。
+ * 戻り値は本ファイルの `normalizeInputItems` で {name, value} 形式に整形される。
  */
 async function loadXlsxItems({
   path: xlsxPath,

@@ -1,5 +1,5 @@
 // =============================================================================
-// layout/geometry.ts — ラベル配置に使う純粋幾何ヘルパー群 (graph/svg_geom.js の TS 移植)
+// layout/geometry.ts — ラベル配置に使う純粋幾何ヘルパー群
 // -----------------------------------------------------------------------------
 // SVG 文字列の生成や xScale/yScale 等の座標変換は含まない(それらは svg_export
 // 側の責務)。引出線の屈曲点・ラベルの押し出し点・bbox 計算など数学的な操作のみ。
@@ -47,8 +47,8 @@ export function pxToLogical(cfg: PieLayoutConfig, px: number): number {
   return px / (cfg.mmPerUnit * cfg.svgUnitsPerMm);
 }
 
-// 生成物 2 表 (glyph_advance/weight_{400,700}.ts) をウェイトキーで束ねる。旧 glyph_advance.ts の
-// GLYPH_ADVANCE_BY_WEIGHT と同形で、visualCharEm が cfg.fontWeight で引き分ける。
+// 生成物 2 表 (glyph_advance/weight_{400,700}.ts) をウェイトキーで束ねる。
+// visualCharEm が cfg.fontWeight で引き分ける。
 const GLYPH_ADVANCE_BY_WEIGHT: Record<string, ReadonlyMap<number, number>> = {
   '400': GLYPH_ADVANCE_400,
   '700': GLYPH_ADVANCE_700,
@@ -60,7 +60,7 @@ const GLYPH_ADVANCE_BY_WEIGHT: Record<string, ReadonlyMap<number, number>> = {
  * テーブルは非 1.0 em の codepoint のみ収録 (漢字は実測一律 1.0)。未収録 codepoint は従来の
  * レンジ heuristic にフォールバック: 全角 (漢字/仮名/全角形) は full(1.0)・それ以外
  * (ASCII/半角カナ) は half(0.5)。テーブルは scripts/gen_glyph_advance.ts が生成。
- * emit の textLength・verify_svg も同テーブルに揃う。
+ * emit の textLength・`verify/svg.ts` も同テーブルに揃う。
  */
 export function visualCharEm(ch: string, cfg: PieLayoutConfig): number {
   const c = ch.codePointAt(0)!;
@@ -116,7 +116,7 @@ export function visualTextWidthUnits(lines: string[], cfg: PieLayoutConfig): num
  * 名前を横圧縮 (長体 nameScaleX) した場合のラベル実描画幅 (論理単位)。% は常に原寸。
  * - 2 行: 上行=名前(圧縮)・下行=% → 幅 = max(名前em×sx, %em) × unit
  * - 1 行: "名前 %" → 幅 = (名前em×sx + " %"em) × unit
- * verify_svg.textBBox もこの式に揃える (data-name-scale-x から sx を読む)。
+ * `verify/svg.ts` の `textBBox` もこの式に揃える (data-name-scale-x から sx を読む)。
  */
 export function scaledLabelWidthUnits(
   name: string,
@@ -306,7 +306,7 @@ function getUpperLeftRanks(item: LayoutItem): { count: number; rank: number; out
 }
 
 /**
- * verify_svg の bbox 推定に合わせたラベル高さ(論理単位)。
+ * `verify/svg.ts` の bbox 推定に合わせたラベル高さ(論理単位)。
  */
 export function labelHeightUnits(textLines: number, cfg: PieLayoutConfig): number {
   const heightMm = textLines * cfg.lineHeightFactor * cfg.fontSizeMm * cfg.textRenderScale;
@@ -599,7 +599,7 @@ export function getLabelLines(item: LayoutItem, cfg: PieLayoutConfig): LabelLine
 }
 
 /**
- * verify_svg の bbox 推定と完全一致する論理単位の bbox。
+ * `verify/svg.ts` の bbox 推定と完全一致する論理単位の bbox。
  */
 export function estimateVerifyTextExtent(
   item: LayoutItem,
@@ -734,7 +734,7 @@ export function textBoxBounds(
 }
 
 /**
- * placement の現在位置から verify_svg と同じ bbox を計算する。
+ * placement の現在位置から `verify/svg.ts` と同じ bbox を計算する。
  */
 /**
  * placement の実描画 extent (論理単位)。行数は placement.lines.length、名前長体は
@@ -915,7 +915,7 @@ export function boxOverlapAmount(a: BBox, b: BBox): { x: number; y: number } {
 
 /**
  * ラベルごとの実効 pie クリアランス。`pieLabelClearance` (狙い値) は「箱が viewBox 左右端に
- * 収まる範囲」でのみ適用し、幅広ラベルは `pieLabelClearanceMin` (旧既定値) まで縮める。
+ * 収まる範囲」でのみ適用し、幅広ラベルは `pieLabelClearanceMin` まで縮める。
  *
  * 背景: クリアランスを一律に広げると、既に viewBox 端に張り付いた幅広ラベルが外へ押し出されて
  * 見切れが増え、さらに横可動域の減少で emit 後段の 2 行復帰 (`applyVerticalDeclipFallback` の

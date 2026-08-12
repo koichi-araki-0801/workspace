@@ -23,6 +23,10 @@ export function useReviewDiff(reqId: () => string) {
   const summary = ref<ReviewChangeSummary>({ total: 0, changed: 0, added: 0, removed: 0 });
   const cssBefore = ref('');
   const cssAfter = ref('');
+  /** 資源上限で差分に出せなかった領域があるか(承認者へ必ず見せる)。 */
+  const truncated = ref(false);
+  /** 申請 CSS に印刷時だけ効く規則があるか(承認者の見えと成果物が乖離する)。 */
+  const printOnlyCss = ref(false);
   const loadError = ref(false);
 
   /** 申請を読み、現行版と diff してパーツ行・集計・CSS を状態へ載せる。失敗は loadError に倒す。 */
@@ -38,6 +42,8 @@ export function useReviewDiff(reqId: () => string) {
     summary.value = res.value.summary;
     cssBefore.value = res.value.cssBefore;
     cssAfter.value = res.value.cssAfter;
+    truncated.value = res.value.truncated;
+    printOnlyCss.value = res.value.printOnlyCss;
   }
 
   /** 承認(実ファイル反映)。反映後メタ + 並行性警告を Result で返す(遷移/トーストは View)。 */
@@ -56,6 +62,8 @@ export function useReviewDiff(reqId: () => string) {
     summary,
     cssBefore,
     cssAfter,
+    truncated,
+    printOnlyCss,
     loadError,
     loading,
     deciding,

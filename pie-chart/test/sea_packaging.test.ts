@@ -90,7 +90,7 @@ describe.skipIf(!enabled)('配布 exe の閉包(PIECHART_SEA_TEST=1 のときだ
       );
       writeFileSync(join(pkgDir, 'index.js'), HOSTILE_INDEX);
     }
-    // 旧実装が読んでいた exe 隣の fonts/ にも別物を置く。
+    // sidecar 解決へ戻ると読んでしまう exe 隣の fonts/ にも別物を置く。
     mkdirSync(join(exeDir, 'fonts'), { recursive: true });
     writeFileSync(join(exeDir, 'fonts', 'BIZUDPGothic-Regular.woff2'), 'NOT-A-FONT');
 

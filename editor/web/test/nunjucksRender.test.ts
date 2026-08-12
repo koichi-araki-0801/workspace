@@ -37,7 +37,7 @@ describe('renderJinja', () => {
   });
 });
 
-// 旧 `buildPreviewDocument`(描画 + 組み立ての一括)は撤去した — 描画を含む以上アプリ
+// `buildPreviewDocument`(描画 + 組み立ての一括)は置かない — 描画を含む以上アプリ
 // オリジンでのコンパイル経路になり、`renderJinja` 禁止の抜け道になるため。組み立て側の
 // 契約はここで、描画済み HTML を入力として固定する(描画は隔離 iframe が返す文字列)。
 describe('assemblePreviewDocument — 文書の正規化と CSS の inline 化', () => {
@@ -122,13 +122,13 @@ describe('assemblePreviewDocument — 文書の正規化と CSS の inline 化',
   });
 });
 
-// ここが本丸。旧実装はサニタイズ**後**の文字列へ `<link…>` 除去と `</head>` 挿入を正規表現で
-// 当てていたため、属性値に置いた字面がタグ終端を食って `on*` が live な属性として復活した。
+// ここが本丸。サニタイズ**後**の文字列へ `<link…>` 除去と `</head>` 挿入を正規表現で
+// 当てると、属性値に置いた字面がタグ終端を食って `on*` が live な属性として復活する。
 // 以下はすべて「その迂回入力で失敗すること」を主張する。
 describe('assemblePreviewDocument — サニタイズ後の復活を許さない', () => {
   it('属性値に埋めた <link rel=stylesheet> の字面で on* が復活しない', () => {
-    // 旧実装: `[^>]*` が `>` を越えないぶん <img> 自身のタグ終端を食い、
-    // 残った `Z" onerror=alert(1)` が属性トークン列として再解釈された。
+    // 正規表現の `[^>]*` は引用符を見ないため <img> 自身のタグ終端を食い、
+    // 残った `Z" onerror=alert(1)` が属性トークン列として再解釈される。
     // `src` は 404 を返すパスなので、復活すればユーザー操作ゼロで発火する。
     const evil = '<img src="/nope.png" alt="<link rel=stylesheet">Z" onerror=alert(1) <b>t</b>';
     const doc = parse(assemblePreviewDocument(evil, '.a{}'));
@@ -137,8 +137,8 @@ describe('assemblePreviewDocument — サニタイズ後の復活を許さない
   });
 
   it('属性値に埋めた </head> の字面で <style> が属性の内側へ落ちない', () => {
-    // 旧実装: `</head>` の初出が属性値の中だと、信頼済みの <style> がその属性値へ落ち、
-    // CSS の字面(`" onload=…`)が属性トークン列として再解釈された。
+    // 文字列探索だと `</head>` の初出が属性値の中のとき、信頼済みの <style> がその属性値へ落ち、
+    // CSS の字面(`" onload=…`)が属性トークン列として再解釈される。
     const evil = '<html><head><title data-x="</head>">t</title></head><body>b</body></html>';
     const doc = parse(assemblePreviewDocument(evil, 'body{}" onload=alert(1) x="'));
     const style = doc.querySelector('style[data-preview-css]');

@@ -59,7 +59,7 @@ export async function renderPdfDocument(
 ): Promise<Result<{ html: string; css: string }>> {
   // Jinja のコンパイルは opaque オリジンの iframe(`renderHostClient`)で行う。ここへ来る
   // `html` は申請者・生成器が書いたテンプレ本文で、nunjucks は**コンパイラ**であるため
-  // アプリのオリジンで走らせるとテンプレの字面がそのまま JS 実行になる(所見 F1)。
+  // アプリのオリジンで走らせるとテンプレの字面がそのまま JS 実行になる。
   const rendered = await renderJinjaIsolated(html, sample);
   if (rendered.error) return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
   // **script は落とさない**(`sanitizePdfRoot`)。テンプレの JS は開発者が生成時に埋め込む
@@ -82,8 +82,8 @@ export async function renderPdfDocument(
   const pdfCss = opts?.cropMarks ? `${css}\n${CROP_MARKS_CSS}` : css;
   // ここの検査は**早期フィードバック専用**であって関門ではない。関門はサーバの build 入口
   // (`server/src/security/externalRefs.ts`)にあり、判定関数は `@editor/shared` の 1 つを共有する。
-  // ブラウザ側を唯一の関門にしていた版は、公開 API `POST /api/build` へ直接 POST すれば
-  // 無検査で headless へ届いた(UI を経由しない経路が関門を迂回する形)。
+  // ブラウザ側を唯一の関門にすると、公開 API `POST /api/build` へ直接 POST すれば
+  // 無検査で headless へ届く(UI を経由しない経路が関門を迂回する形)。
   const refs = [...findExternalRefsInCss(pdfCss), ...findExternalRefsInDom(root)];
   if (refs.length > 0) {
     return err(conflict(PDF_CSS_EXTERNAL_REF_MSG, { cause: refs.slice(0, 5).join(', ') }));

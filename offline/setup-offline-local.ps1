@@ -20,7 +20,7 @@
 
   ★ 本スクリプトは外部へ通信しない（DL なし）。資材が無ければエラーで止める。
 
-  完全性・真正性（所見 F34 / F14）: 期待値は資材の隣に落ちている ``.sha256`` ではなく、
+  完全性・真正性: 期待値は資材の隣に落ちている ``.sha256`` ではなく、
   手渡しで運ばれる ``offline\pinned-release.txt`` から取る（資材を差し替えられる者は隣の
   sidecar も差し替えられるため、あれは転送破損の検知にしかならない）。検証材料の欠落は
   警告ではなく**エラー**で止める。
@@ -34,7 +34,7 @@
 
 .PARAMETER InstallTortoiseGit
   TortoiseGit の MSI を ``msiexec /qn``（サイレント・昇格）で導入する。既定では導入しない
-  （黙って昇格インストールを走らせないための明示 opt-in。所見 F19）。
+  （黙って昇格インストールを走らせないための明示 opt-in）。
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File offline\setup-offline-local.ps1
@@ -59,6 +59,8 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Bk       = Join-Path $RepoRoot 'bk'
 Write-Host "[info] repo root: $RepoRoot"
 Write-Host "[info] mode     : 完全オフライン（取得なし・ローカル資材のみ）"
+# ネットワークドライブ上では pnpm の symlink/hardlink 構成が成立しないため開始前に止める。
+Assert-LocalRepoRoot -Path $RepoRoot
 
 # tar 解決（System32\tar.exe 優先）は共通ライブラリの Resolve-Tar を使う。
 
@@ -105,7 +107,7 @@ if (-not $DangerouslySkipVerification) {
   Write-Host '[2/4] 検証（pin の sha256 / 分離署名）...'
 
   # 期待値は手渡しで運ばれた offline/ の pin から取る。資材の隣の .sha256 は「資材を差し
-  # 替えられる者が同じ場所へ置ける値」なので判定には使わない（所見 F34 / F14）。
+  # 替えられる者が同じ場所へ置ける値」なので判定には使わない。
   if ($Bundle) {
     $pin = Get-OfflinePin -Path $PinFile
     Assert-FileSha256 -File $Bundle -ExpectedSha256 $pin.BundleSha256 -Label 'bundle'
@@ -156,7 +158,7 @@ if (-not $DangerouslySkipVerification) {
   $KeyFile  = Find-Local 'bundle.key'
   $LockFile = Join-Path $RepoRoot 'pnpm-lock.yaml'
   $PkgJson  = Join-Path $RepoRoot 'package.json'
-  # 材料の欠落も不一致も致命にする（所見 F34）。ここを警告で流すと「ソースと資材が
+  # 材料の欠落も不一致も致命にする。ここを警告で流すと「ソースと資材が
   # 対応していない環境」がそのままビルドへ進み、原因の見えない失敗になる。
   if (-not ($KeyFile -and (Test-Path $LockFile) -and (Test-Path $PkgJson))) {
     Write-Error ('[error] bundle.key / pnpm-lock.yaml / package.json のいずれかがありません（整合を確かめられません）。' +
@@ -203,7 +205,7 @@ if ($SkipBuild) {
     }
     # tsbuildinfo は dist の外に残るため個別に消す。特に editor\shared / editor\server の分が
     # 残ると `tsc -b` が「最新」と誤認して shared の dist を再生成せず、build が
-    # 「Cannot find module '@editor/shared'」で全滅する（2026-08 実測）。
+    # 「Cannot find module '@editor/shared'」で全滅する（実測）。
     foreach ($f in @('editor\web\tsconfig.tsbuildinfo', 'editor\shared\tsconfig.tsbuildinfo',
         'editor\server\tsconfig.tsbuildinfo')) {
       $tsbi = Join-Path $RepoRoot $f
@@ -263,7 +265,7 @@ if ($SkipBuild) {
 # ---- git ツール（PortableGit / TortoiseGit）の展開・導入 ----
 # editor のテンプレ版管理は git CLI を使う。air-gapped 環境向けに同梱した PortableGit を
 # 展開して PATH/GIT_BIN を通す。実行するバイナリの選択・検証・PATH の扱いは共通ライブラリへ
-# 集約（setup-offline.ps1 と同一経路。片方だけ直る事故＝所見 F19 の再発を防ぐ）。
+# 集約（setup-offline.ps1 と同一経路。「片方だけ直る」事故を防ぐ）。
 Install-GitTools -RepoRoot $RepoRoot -InstallTortoiseGit:$InstallTortoiseGit
 
 Write-Host ''

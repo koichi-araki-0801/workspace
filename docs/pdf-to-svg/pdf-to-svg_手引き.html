@@ -107,7 +107,7 @@ figcaption::before { content:"図 " counter(fig) "　"; font-weight:700; }
 /* mermaid（未描画時は整形コードとして見せる） */
 pre.mermaid { background:var(--card); border:1px solid var(--hair); border-radius:6px;
   padding:16px; text-align:center; overflow-x:auto; line-height:1.4; }
-/* 手引き冊子の最上位番号手順 = 作業ステップカード（旧 Word 案3 カード型の後継・署名要素）。
+/* 手引き冊子の最上位番号手順 = 作業ステップカード（本 docs の署名要素）。
    ネストした番号/箇条書きは通常表示のまま */
 .book-guide section.doc > ol { list-style:none; padding-left:0; counter-reset:step; }
 .book-guide section.doc > ol > li { counter-increment:step; position:relative;

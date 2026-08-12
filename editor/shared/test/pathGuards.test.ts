@@ -38,7 +38,7 @@ describe('isValidTemplateId', () => {
   });
 
   it('rejects an id whose token hides a path separator', () => {
-    // `[^_]+` 時代はこの形が 4 トークンとして通り、ディレクトリを 1 段脱出できた。
+    // トークンを `[^_]+` で切る判定ではこの形が 4 トークンとして通り、ディレクトリを 1 段脱出できる。
     expect(isValidTemplateId('AM01_510037_20240710_../../evil')).toBe(false);
     expect(isValidTemplateId('AM01_510037_20240710_..\\evil')).toBe(false);
   });

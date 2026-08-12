@@ -4,7 +4,7 @@
 // REST 契約(リクエスト/レスポンスのワイヤ形式)の単一正典。`api-paths.ts`(パスの正典)と
 // 対をなす。server はこれを実行時リクエスト検証(`validate`/`validateQuery`)と OpenAPI
 // 生成(`document.ts` の `createDocument`)の両方に使い、`index.ts` の 1:1 対応する
-// TypeScript 型は `z.infer` でここから導出される(手書き二重定義は S7 で廃止)。
+// TypeScript 型は `z.infer` でここから導出される(手書き二重定義は置かない)。
 //
 // 各スキーマは Zod 4 ネイティブの `.meta({ id })` を持ち、再利用可能な
 // `#/components/schemas/<id>` として出力され、使用箇所すべてで `$ref` 参照される。
@@ -48,7 +48,17 @@ export const TemplateStatus = z.enum(['draft', 'published']).meta({ id: 'Templat
 export const TemplateId = z
   .string()
   .refine(isValidTemplateId, { message: '不正なテンプレート id です' })
-  .meta({ id: 'TemplateId', example: 'AM01_510037_20240710_交付版' });
+  .meta({
+    id: 'TemplateId',
+    example: 'AM01_510037_20240710_交付版',
+    // 制約の実体は `refine` で、JSON Schema へは `minLength` すら書き出されない。散文で
+    // 添えないと、公開 OpenAPI 上は「ただの string」に見えて外部クライアントが素の文字列を
+    // 送れると誤解する(`$ref` へ寄せると `minLength` のような字面上の制約は消える)。
+    description:
+      'ファイル名規約 `<会社コード>_<ファンドコード>_<基準日>_<版種>`(拡張子なし)。' +
+      'パス区切り・`..`・制御文字・末尾のドット/空白を含まない単一のファイル名セグメントに限る' +
+      '(判定は `isValidTemplateId`)。',
+  });
 
 /** テンプレートを識別する 4 属性(ファイル名: company_fund_date_edition.html)。 */
 export const TemplateAttributes = z
@@ -137,8 +147,8 @@ export const LoginResult = z
   .meta({ id: 'LoginResult' });
 
 /**
- * 自分自身のパスワード変更。`currentPassword` は所有証明であり省略不可 — これが無い頃は
- * 未認証のまま任意アカウントのパスワードを書き換えられ、`admin` の乗っ取りに直結していた。
+ * 自分自身のパスワード変更。`currentPassword` は所有証明であり省略不可 — これが無いと
+ * 未認証のまま任意アカウントのパスワードを書き換えられ、`admin` の乗っ取りに直結する。
  * 本人が現行パスワードを知らない場合の復旧は、管理者によるリセット(`usersReset`)だけが経路。
  */
 export const PasswordInitRequest = z
@@ -151,8 +161,8 @@ export const PasswordInitRequest = z
 
 /**
  * 新規作成 / 管理者リセットで払い出す一時パスワード。CSPRNG 由来のランダム値で、
- * **この応答 1 回だけ**運ばれる(サーバは平文を保存も再表示もしない)。以前はログインID を
- * そのまま初期パスワードにしていたため、ID を知る者なら誰でも未活性アカウントへ入れた。
+ * **この応答 1 回だけ**運ばれる(サーバは平文を保存も再表示もしない)。ログインID を
+ * そのまま初期パスワードにする形は、ID を知る者なら誰でも未活性アカウントへ入れてしまう。
  */
 export const TemporaryPassword = z.string().meta({
   id: 'TemporaryPassword',
@@ -177,8 +187,8 @@ export const PasswordResetResult = z
 /**
  * ユーザーID(ログインID)の契約。**サーバ側でも運用アルファベットを強制する。**
  *
- * 以前は `USERNAME_PATTERN` を web クライアントでしか見ておらず、API を直接叩けば
- * アルファベット外の ID を持つアカウントを作れた。作られてしまうと、その ID は
+ * `USERNAME_PATTERN` を web クライアントでしか見ないと、API を直接叩けば
+ * アルファベット外の ID を持つアカウントを作れる。作られてしまうと、その ID は
  * ログイン経路の入口検査(`auth/loginId.ts` の `isOperationalLoginId`)で必ず弾かれ、
  * **ログインできないアカウント**になる。作成の段で断つのが正しい位置。
  */
@@ -262,7 +272,7 @@ export const PartHistoryEntry = z
 /**
  * (server 専用) PDF 出力の記録ボディ。
  *
- * `templateId` を素の `z.string()` にしていた版は、監査フィードの**消去装置**だった:
+ * `templateId` を素の `z.string()` にすると、監査フィードの**消去装置**になる:
  * 記録は 1 行 1 JSON の追記で、読み側は末尾 `MAX_HISTORY_TAIL_BYTES` しか読まない。
  * つまり読み窓より長い 1 行を書くだけで、それ以前の全履歴が API の視界から落ちる
  * (`files/historyFiles.ts` の追記側上限と対で守る)。
@@ -345,8 +355,8 @@ export const ReviewRequest = ReviewRequestMeta.extend({
 
 /**
  * 確定保存の申請ボディ。`templateId` はボディで運ぶ(POST /review-requests)。
- * `templateId` を素の文字列にしていた版は、トークン内部に空白を持つ id
- * (`AM01 _510037_…`)を承認経路へ通していた。契約の段で `TemplateId` に通す。
+ * `templateId` を素の文字列にすると、トークン内部に空白を持つ id
+ * (`AM01 _510037_…`)が承認経路へ通ってしまう。契約の段で `TemplateId` に通す。
  */
 export const SubmitReviewBody = z
   .object({

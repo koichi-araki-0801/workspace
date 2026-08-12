@@ -1,9 +1,9 @@
-"""新シェル (HTTP + 文字列ベース I/O) の RPC を検証する。
+"""シェル (HTTP + 文字列ベース I/O) の RPC を検証する。
 
 - `exportSvg`: 書き出し用 SVG 文字列 (annotate なし) と推奨ファイル名を返す
 - `dictJson` / `dictImportJson`: 文字列ベースの辞書入出力 (ブラウザ FSA が保存/読込)
 - `reapplyDict` + `UndoStack`: マクロが 1 回の undo で戻る (実 `UndoStack` で end-to-end)
-- HTTP smoke: ローカルサーバを立て /、/rpc、/upload を `urllib` で叩く (旧 `smoke_web.py` 置換)
+- HTTP smoke: ローカルサーバを立て /、/rpc、/upload を `urllib` で叩く
 """
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ def test_reapply_macro_reverts_in_one_undo(tmp_path):
 
 # 使い捨てサーバの固定セッショントークン。本番は起動ごとの CSPRNG 値 (`create_server` の
 # 既定) で、ここは「正規 UI と同じ形で叩く」ためだけの既知値。認可そのものの主張は
-# `tests/test_origin_guard.py` が持つ。
+# `test/test_origin_guard.py` が持つ。
 _TOKEN = "shell-rpc-test-token"
 
 

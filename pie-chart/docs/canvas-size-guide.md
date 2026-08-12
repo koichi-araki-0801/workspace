@@ -110,18 +110,18 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}) 
       幅変更で左ラベルの 2 行化境界が動く。
 - [ ] **dominant outside-edge 判定** — `src/svg_export/index.ts:152` 付近。
       canvasXlim でなく実 `svgWidthPx` 基準なので、幅変更で 1 強ラベルの rim 配置が変わる。
-- [ ] **横方向ラベル spread** — `src/layout.ts` の X スケール群。縦横比でラベルの左右広がりが変わる。
+- [ ] **横方向ラベル spread** — `src/layout/` 配下の X スケール群。縦横比でラベルの左右広がりが変わる。
 - [ ] **fontSize の崖**（既知）— 26→warn0 / 27→3 / 28→7。
       キャンバスを縮めると同じ `fontSize` でも見切れ警告が増えうる。
       `labelRadius`/`minGap` を単独で動かしても効きにくく、寸法・fontSize 連動の
       `gapScale` / `geometryScale` / `radialFraction()` 経由で効く点に注意。
 - [ ] **全件チェックを必ず実行**（単一サンプル確認で済ませない）:
       ```
-      node test_batch.js
-      node verify_svg.js
+      npm run batch
+      npm run verify
       ```
       verify は実 viewBox を読んで見切れ・leader 交差を検出するので、寸法変更後も整合する。
 
 ### 参考: 直接の寸法依存ではないが関連する箇所
-- `verify_svg.ts` の自前定数（`CHAR_WIDTH_FACTOR=1.0` 等）は `config.ts` と一致必須で、起動時にドリフト検出される。キャンバス寸法そのものではないが、フォント幅モデルを変えるならここも揃える。
+- `verify/oracle_sync.ts` の複製定数（`CHAR_WIDTH_FACTOR=1.0` 等）は `config.ts` と一致必須で、起動時にドリフト検出される。キャンバス寸法そのものではないが、フォント幅モデルを変えるならここも揃える。
 - `test_batch.ts` の A4 プレビュー（210mm 固定、aspect-ratio は config から算出）は表示用のみ。出力 SVG 自体には影響しない。

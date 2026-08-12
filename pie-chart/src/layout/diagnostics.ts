@@ -906,10 +906,10 @@ function markUpperLeftStackRimY(
 
 /**
  * 上左 (mid>90) の top-band 帯 (90°±TOP_BAND_HALF_WIDTH_DEG)・非「その他」スライバを抽出する共通
- * フィルタ。markForcedTopSliverLeader / markForcedTopSliverEscapeRight / markLoneTopSliverLeader が
- * 共有する (以前は各関数に同一フィルタが重複していた)。size: "small"=isSmall / "tiny"=isTiny。
+ * フィルタ。`markTopBandSlivers` (ルール表 `TOP_BAND_SLIVER_RULES` のスライバ収集と witness) が
+ * 使う。size: "small"=isSmall / "tiny"=isTiny。
  * long: "exclude"=!isLong (既定の leader 対象。isLong=undefined も含む) / "require"=isLong
- * (長名スライバの存在判定用)。truthiness は元の && チェーンと完全一致させてある。
+ * (長名スライバの存在判定用)。truthiness は && チェーン相当の評価に固定してある。
  */
 function topBandLeftSlivers(
   items: LayoutItemReady[],
@@ -1071,16 +1071,14 @@ function markClippedUpperLeftLongDrop(
 
 /**
  * 「1強スライス + 上左 top-band に極小スライバ」型チャートで、極小スライバに leader を引かせる/
- * 右上へ逃がすフラグを立てる 4 構成をテーブル駆動で判定する。元は独立 4 マーカー
- * (`markForcedTopSliverLeader` / `markForcedTopSliverEscapeRight` / `markLoneTopSliverLeader` /
- * `markDominantTopSliverWithOther`) で、共通骨格 (denseCluster 除外 → dominant 帯 → 総数 →
- * top-band スライバ収集 → 枚数 → witness → フラグ付与) をルール表 `TOP_BAND_SLIVER_RULES` へ
- * 集約したもの。
+ * 右上へ逃がすフラグを立てる 4 構成をテーブル駆動で判定する。共通骨格 (denseCluster 除外 →
+ * dominant 帯 → 総数 → top-band スライバ収集 → 枚数 → witness → フラグ付与) をルール表
+ * `TOP_BAND_SLIVER_RULES` が持つ。
  *
  * 各構成は 1〜2 サンプルの狭い形状にだけ発火する (各ルールの `example`)。ゲートの数値
  * (dominant 帯 / 総数 / スライバ枚数 / witness) が構成を分離しており、緩めると隣の構成を回帰させる
- * — テーブルは緩和ではなく「どの形状にどの配置」の一覧化。全ルールを順に評価する (元の 4 関数を順に
- * 呼ぶのと等価。ゲートは排他的なので実際は 1 つだけ発火する)。
+ * — テーブルは緩和ではなく「どの形状にどの配置」の一覧化。全ルールを順に評価する
+ * (ゲートは排他的なので実際は 1 つだけ発火する)。
  *
  * `apply` の配置差 (フラグの組合せ → 下流 leader 形状):
  *  - `nearFarSplit`: near を右上 L 字 (`topBandSmallRight`)・far を左上放射 (`forceOutsideLeader` のみ)。
@@ -1101,8 +1099,9 @@ interface TopBandSliverRule {
   readonly apply: (slivers: LayoutItemReady[]) => void;
 }
 
-// near (12時最寄り) を右上 L 字・far (12時最遠) を左上放射へ振り分ける。
-// 元 `markForcedTopSliverLeader`。1 行化の過剰長体を避けるため witness 側で長名を除外済み。
+// near (12時最寄り) を右上 L 字・far (12時最遠) を左上放射へ振り分ける
+// (`mark_flags.test.ts` は `markForcedTopSliverLeader` の名で参照する構成)。
+// 1 行化の過剰長体を避けるため witness 側で長名を除外済み。
 const nearFarSplit = (slivers: LayoutItemReady[]): void => {
   let near = slivers[0];
   let far = slivers[0];

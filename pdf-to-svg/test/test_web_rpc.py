@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from dictionary.store import DictionaryStore
-from model.document import Document, Page
+from model.document import Document, Page, RasterBackground
 from model.elements import DictMatch, LineElement, Rect, TextElement
 from web import rpc_methods
 from web.rpc_methods import WebSession
@@ -81,6 +81,26 @@ def test_state(session):
     assert st["files"][0]["pages"] == 1
     assert st["changed2"] == [True]   # dict_match のあるページは要確認
     assert st["changed3"] == [True]   # トリミングは全ページ対象
+
+
+def test_state_counts_scanned_pages_that_lost_their_background(session):
+    """背景を作れなかったスキャンページは件数で表に出す (無言で白紙にしない)。
+
+    ベクターページも `background is None` だが劣化ではないので数に入らない
+    (`_make_doc` の 1 ページ目がその対照)。
+    """
+    doc = session.docs[0]
+    doc.pages.append(Page(index=1, width_pt=200.0, height_pt=300.0, is_scanned=True))
+    doc.pages.append(
+        Page(
+            index=2, width_pt=200.0, height_pt=300.0, is_scanned=True,
+            background=RasterBackground(png_bytes=b"\x89PNG", rect=Rect(0, 0, 200, 300)),
+        )
+    )
+    st = rpc_methods.dispatch(session, "state", {})
+    assert st["noBackground"] == 1
+    # 通知経路は `truncated` と同じ。こちらは劣化なしなので 0 のまま。
+    assert st["truncated"] == 0
 
 
 def test_page_svg_has_data_el(session):

@@ -17,9 +17,10 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { isGitObjectId, validation } from '@editor/shared';
-import { config } from '../config.js';
+import { config, envPositiveNumber } from '../config.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -84,23 +85,56 @@ interface GitAuthor {
  * 上限が無いと、応答しない git(ネットワークドライブ上の dataRoot・`.git/index.lock` の
  * 待ち・巨大リポジトリ)がリクエストごとに 1 プロセスを残し続ける。timeout だけでは
  * 既定の SIGTERM を無視する子が残るので `killSignal` も明示する。
+ *
+ * dataRoot がネットワークドライブ上にあると index 更新の lstat が 1 件 1 往復になり、
+ * テンプレ数によっては既定 30 秒では足りない。その配備では env `GIT_TIMEOUT_MS` で
+ * 引き上げる(打ち間違いで上限が黙って消えないよう `envPositiveNumber` を通す)。
  */
-const GIT_TIMEOUT_MS = 30_000;
+const GIT_TIMEOUT_MS = envPositiveNumber('GIT_TIMEOUT_MS', process.env.GIT_TIMEOUT_MS, 30_000, {
+  integer: true,
+});
+
+/**
+ * `.git/index.lock` 競合のリトライ待ち(ms)。プロセス内の競合は `withGitLock` が直列化
+ * するが、dataRoot をネットワークドライブに置いて他クライアントが TortoiseGit 等で同じ
+ * リポジトリを開く運用では、**別マシンのプロセス**が index.lock を握る。これはプロセス内
+ * ロックでは防げないため、lock 起因の失敗だけ短く粘る(合計 ~3 秒。それでも駄目なら
+ * 例外で諦め、呼び出し側のベストエフォート処理に任せる)。
+ */
+const INDEX_LOCK_RETRY_DELAYS_MS = [200, 400, 800, 1600];
+
+/** git の失敗が `.git/index.lock` の競合か(stderr の定型文で判定)。 */
+function isIndexLockError(e: unknown): boolean {
+  const err = e as { stderr?: string; message?: string };
+  return `${err?.stderr ?? ''}${err?.message ?? ''}`.includes('index.lock');
+}
 
 /**
  * `git <COMMON_ARGS> <args>` を gitRepoDir で実行し stdout を返す。
  * `env` を渡すと spawn 環境を差し替える(identity を環境変数で確定する commit で使う)。
+ * index.lock 競合だけはリトライする(失敗した git コマンドは効果を残さないため安全)。
  */
 async function git(args: string[], opts?: { env?: NodeJS.ProcessEnv }): Promise<string> {
-  const { stdout } = await execFileAsync(GIT_BIN, [...COMMON_ARGS, ...args], {
-    cwd: config.gitRepoDir,
-    maxBuffer: 64 * 1024 * 1024,
-    encoding: 'utf8',
-    env: opts?.env,
-    timeout: GIT_TIMEOUT_MS,
-    killSignal: 'SIGKILL',
-  });
-  return stdout;
+  const run = async (): Promise<string> => {
+    const { stdout } = await execFileAsync(GIT_BIN, [...COMMON_ARGS, ...args], {
+      cwd: config.gitRepoDir,
+      maxBuffer: 64 * 1024 * 1024,
+      encoding: 'utf8',
+      env: opts?.env,
+      timeout: GIT_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+    });
+    return stdout;
+  };
+  for (const ms of INDEX_LOCK_RETRY_DELAYS_MS) {
+    try {
+      return await run();
+    } catch (e) {
+      if (!isIndexLockError(e)) throw e;
+      await delay(ms);
+    }
+  }
+  return run();
 }
 
 // ── コミット直列化(index.lock 競合対策) ──
@@ -187,6 +221,20 @@ async function ensureGitignore(): Promise<void> {
 }
 
 /**
+ * `core.longpaths` をリポジトリローカルで有効にする(冪等)。
+ *
+ * dataRoot が UNC/ネットワークドライブ上にあるとプレフィックスぶんパスが伸び、日本語
+ * テンプレ名(ファイル名は最長 200 文字を許容)と合わせて MAX_PATH(260)を超えると
+ * git が `Filename too long` で止まる。設定済みなら書かない — `ensureRepo` は承認の
+ * たび呼ばれるので、共有上の `.git/config` を毎回書き換えない。
+ */
+async function ensureLongPaths(): Promise<void> {
+  const current = await git(['config', '--get', 'core.longpaths']).catch(() => '');
+  if (current.trim() === 'true') return;
+  await git(['config', 'core.longpaths', 'true']);
+}
+
+/**
  * リポジトリを必要に応じて初期化する(lazy)。未初期化なら init + .gitignore/
  * .gitattributes 配置 + 既存 templates/css を初回コミット(author=system)。
  * 初期化済みでも .gitignore は冪等に補修する(`/reviews/` の後付け対応)。
@@ -195,10 +243,12 @@ export async function ensureRepo(): Promise<void> {
   await fs.mkdir(config.gitRepoDir, { recursive: true });
   if (await isRepo()) {
     await ensureGitignore();
+    await ensureLongPaths();
     return;
   }
   await git(['init']);
   await ensureGitignore();
+  await ensureLongPaths();
   await fs.writeFile(
     path.join(config.gitRepoDir, '.gitattributes'),
     // Windows でも byte が揺れないよう改行を LF 固定にする。
@@ -314,8 +364,8 @@ export interface GitCommitWithFiles extends GitCommitMeta {
 /**
  * 指定 pathspec に触れたコミットを、**変更ファイル込み**で新しい順に返す(件数上限つき)。
  *
- * 呼び出し側が「コミット一覧を取ってから 1 件ずつ `git show`」をしていた版は、承認のたび
- * 増えるコミット数ぶんの子プロセスを**同一 tick で spawn** していた(`Array#map` の
+ * 呼び出し側が「コミット一覧を取ってから 1 件ずつ `git show`」をする形だと、承認のたび
+ * 増えるコミット数ぶんの子プロセスを**同一 tick で spawn** することになる(`Array#map` の
  * async コールバックは最初の `await` まで同期に走る)。各子は `maxBuffer` 64MB を持つので、
  * 履歴が伸びるほど 1 リクエストの資源消費が線形に増える。`--name-only` を同じ `git log` へ
  * 畳めば子プロセスは常に 1 個で済み、`-n` で入力側も有界になる。

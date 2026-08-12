@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildHtmlDiff, type DiffOp, diffTokens, tokenize } from '@/features/compare/htmlBlockDiff';
 
-// ── トリムを行わない素朴な full DP 版(A-3 以前の挙動)。パリティの基準実装。 ──
+// ── トリムを行わない素朴な full DP 版。パリティの基準実装。 ──
 function oldDiffTokens(a: string[], b: string[]): DiffOp[] {
   const n = a.length;
   const m = b.length;

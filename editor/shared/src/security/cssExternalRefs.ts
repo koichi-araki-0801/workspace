@@ -128,8 +128,8 @@ function isCssNewline(c: string): boolean {
  * 引用符文字列を 1 つ読み、エスケープ解決後の中身と次位置(閉じ引用符の次)を返す。
  *
  * **改行でも終端する**(CSS Syntax Level 3 §4.3.5 の bad-string-token)。ここを引用符と EOF
- * だけで終端していた版は、1 行未終端の引用符を置くだけで**以降のスタイルシート全体が
- * 検査から消えた** — ブラウザはその宣言だけを捨てて次の `;`/`}` から再開するので、
+ * だけで終端すると、1 行未終端の引用符を置くだけで**以降のスタイルシート全体が
+ * 検査から消える** — ブラウザはその宣言だけを捨てて次の `;`/`}` から再開するので、
  * 検査器だけが残り全部を「文字列の中身」と見なす形になる(外部参照ゲートの 400 と
  * `templateScripts.ts` の `pushCssUnits` が同時に無効化される)。
  * 終端時の `next` は**改行の位置**を指す(消費しない) — 呼び出し側の `walkCss` が
@@ -192,8 +192,8 @@ function readUrlToken(css: string, at: number): { value: string; next: number } 
  *
  * 判定前に `\` を `/` へ畳む。WHATWG URL パーサは**特殊スキーム**(http/https/file 等)の
  * base に対して `\` を `/` と同一視するため、`\\host/x` `/\host/x` `\/host/x` はいずれも
- * `http://host/x` へ解決される。畳まずに `startsWith('//')` だけを見ていた版は、この 3 形と
- * CSS エスケープ表記(`\5c\5c host/x`)を「相対参照」として通していた。
+ * `http://host/x` へ解決される。畳まずに `startsWith('//')` だけを見ると、この 3 形と
+ * CSS エスケープ表記(`\5c\5c host/x`)を「相対参照」として通してしまう。
  */
 export function isSelfContainedUrl(url: string): boolean {
   const v = url.trim().replace(/\\/g, '/');

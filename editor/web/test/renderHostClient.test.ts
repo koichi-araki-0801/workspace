@@ -231,7 +231,6 @@ describe('renderHostClient — フレームの生成', () => {
 
   // 既定の `mount` が置くフレームの属性は隔離そのもの。`allow-same-origin` が付いた瞬間に
   // sandbox は無効化と等価になり、子の JS が親オリジンの DOM と cookie へ到達する。
-  // ここは共有シングルトン(`renderJinjaIsolated`)を触るので、この describe の最後に置く。
   it('既定のフレームは allow-scripts のみ・ホストページを src に持つ', async () => {
     const p = renderJinjaIsolated('<p>{{ x }}</p>', {});
     const f = document.querySelector('iframe');
@@ -241,5 +240,39 @@ describe('renderHostClient — フレームの生成', () => {
     // jsdom はホストページを取りに行かないので READY は来ない = 既定の boot 期限で error。
     await vi.advanceTimersByTimeAsync(15_000);
     expect((await p).error).toBeTruthy();
+  });
+
+  // ── realm を要求ごとに閉じる ──
+  // 隔離の単位は iframe ではなく realm。使い回すと、ある要求で走った JS が realm 上の状態を
+  // 書き換えて以後の応答を偽装できる。承認画面は申請者の本文 → 現行版の順に描画するため、
+  // これは差分の「変更前」側を申請者が決められることに直結する。
+  it('要求ごとにフレームを作り、終わったら必ず捨てる', async () => {
+    expect(document.querySelectorAll('iframe')).toHaveLength(0);
+
+    const first = renderJinjaIsolated('<p>a</p>', {});
+    const frameA = document.querySelector('iframe');
+    expect(frameA).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(15_000);
+    await first;
+    // 応答後にフレームが残っていると realm が次の要求へ持ち越される。
+    expect(document.querySelectorAll('iframe')).toHaveLength(0);
+
+    const second = renderJinjaIsolated('<p>b</p>', {});
+    const frameB = document.querySelector('iframe');
+    expect(frameB).not.toBe(frameA);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await second;
+    expect(document.querySelectorAll('iframe')).toHaveLength(0);
+  });
+
+  it('並行する要求は互いに別のフレームを使う', async () => {
+    const both = Promise.all([
+      renderJinjaIsolated('<p>a</p>', {}),
+      renderJinjaIsolated('<p>b</p>', {}),
+    ]);
+    expect(document.querySelectorAll('iframe')).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await both;
+    expect(document.querySelectorAll('iframe')).toHaveLength(0);
   });
 });

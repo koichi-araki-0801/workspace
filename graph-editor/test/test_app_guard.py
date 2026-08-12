@@ -12,13 +12,13 @@
 効いていない退行を取りこぼすため。逆にトークンの検査は、ヘッダをすべて正規値に揃えた
 うえでトークンだけを外す/壊すことで主張する。
 
-ここのテストベクタ表は `pdf-to-svg/tests/test_origin_guard.py` と**同一仕様の複製**である
+ここのテストベクタ表は `pdf-to-svg/test/test_origin_guard.py` と**同一仕様の複製**である
 (2 プロジェクトは並行実装で、片方を変えたら両方を変える)。`urllib` は URL から Host を
 強制するので `Host: evil.example` を送れない。`http.client` の `putrequest(skip_host=True)`
 で任意のリクエスト行・ヘッダを手組みする。
 
-`import app` の副作用は `ui.html` と `lib/leader_geom.cjs` の読み込みだけで Edge は起動しない
-(`main()` を呼ばない)。
+`import app` に副作用は無く Edge も起動しない (同梱資産の読み込みは `main()`/初回 GET の
+遅延読込。`main()` を呼ばない)。
 """
 from __future__ import annotations
 

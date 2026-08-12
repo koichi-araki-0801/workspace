@@ -40,6 +40,8 @@ const {
   summary,
   cssBefore,
   cssAfter,
+  truncated,
+  printOnlyCss,
   loadError,
   loading,
   deciding,
@@ -224,6 +226,29 @@ onMounted(load);
           <span class="text-xs">変更なしも表示</span>
         </label>
       </div>
+
+      <!-- 資源上限で差分に出せなかった領域がある場合。粒度が粗いだけの `coarse` と違い、
+           **領域そのものが画面に現れていない**ので、控えめな注記ではなく警告として出す
+           (承認すると未確認の内容が本番へ入る)。 -->
+      <p
+        v-if="truncated"
+        class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+      >
+        この申請は分量が大きく、<strong>差分の一部を表示できていません</strong>。
+        承認すると表示されなかった箇所も含めて反映されます。内容を確認できない場合は却下し、
+        申請を分割して出し直してもらってください。
+      </p>
+
+      <!-- 承認者の画面(screen)と成果物(print)で見えが変わりうる場合。差分ペインの装飾は
+           カスケードレイヤで守られているが、**本文**を印刷時だけ出す形はそれでは閉じられない。
+           実際の見えは PDF プレビューで確認できるので、そちらへ誘導する。 -->
+      <p
+        v-if="printOnlyCss"
+        class="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900"
+      >
+        この申請の CSS には<strong>印刷時にだけ適用される規則</strong>があります。
+        この画面の見えと PDF の仕上がりが異なる場合があるため、PDF プレビューでも確認してください。
+      </p>
 
       <EmptyState
         v-if="visibleRows.length === 0"

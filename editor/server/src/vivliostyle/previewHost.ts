@@ -177,7 +177,7 @@ const BOOT_SCRIPT = `(function(){
   var MSG_READY=${JSON.stringify(PREVIEW_MSG_READY)};
   var MSG_STATE=${JSON.stringify(PREVIEW_MSG_STATE)};
   var MSG_ERROR=${JSON.stringify(PREVIEW_MSG_ERROR)};
-  // ズームの範囲/刻み/フィット余白は編集画面(useGrapes.ts)とプレビュー旧実装に合わせる。
+  // ズームの範囲/刻み/フィット余白は編集画面(useGrapes.ts)に合わせる。
   var ZOOM_MIN=0.4, ZOOM_MAX=1.4, ZOOM_STEP=0.1, FIT_MARGIN=32;
   var V=window.Vivliostyle, viewer=null, blobUrl=null, errTimer=null;
   var currentPage=1, pageCount=0, atFirst=true, atLast=false, zoom=1, userZoomed=false, ready=false;
@@ -229,8 +229,8 @@ const BOOT_SCRIPT = `(function(){
       if(!html){sendState();return;}
       blobUrl=URL.createObjectURL(new Blob([html],{type:'text/html'}));
       // renderAllPages: 総ページ数と現在位置を推定値でなく実レイアウトの整数で得る。
-      // autoResize は**切る**。iframe 化でペインの伸縮が子 window の resize になり(旧実装は
-      // 本体 document 描画で window resize は稀だった)、core の resize 再レンダ(全ページ
+      // autoResize は**切る**。iframe 化でペインの伸縮が子 window の resize になり、
+      // core の resize 再レンダ(全ページ
       // 破棄 + 再組版)を親レイアウトの確定のたびに踏む。この経路は途中キャンセルと
       // sizeIsGood() の早期 return の組で「loading のまま・全ページ hidden」に置き去りに
       // しうる形をしており(bundle 原文の静的確認。resize() は readyState を復元せずに早期

@@ -182,14 +182,18 @@ describe('プレビュー文書の DOM 組み立てプリミティブ', () => {
 describe('buildDiffDoc', () => {
   it('does not let attacker CSS close the style element', () => {
     const src = buildDiffDoc('<p>body</p>', 'x{}</style><script>alert(1)</script>', '.hl{}');
-    // 生成文書に残る `</style>` は、こちらが閉じた分だけであるべき(style 要素は 2 つ)。
-    expect(src.match(/<\/style>/gi)?.length).toBe(2);
+    // 生成文書に残る `</style>` は、こちらが閉じた分だけであるべき(style 要素は 3 つ)。
+    expect(src.match(/<\/style>/gi)?.length).toBe(3);
     // 実際にパースして確かめる。`<script>` の字面はスタイル本文として残るが、それは
     // 「閉じられなかったので CSS の一部のまま」という意味であって、要素にはならない。
     const doc = new DOMParser().parseFromString(src, 'text/html');
     expect(doc.querySelector('script')).toBeNull();
-    expect(doc.querySelectorAll('style')).toHaveLength(2);
-    expect(doc.querySelector('style')?.textContent).toContain('<script>alert(1)</script>');
+    // `<style>` は 3 つ = ①レイヤ宣言 ②申請者 CSS ③レイヤ内のハイライト CSS。
+    // 順序そのものが守り(重要宣言はレイヤ順が逆転する)なので件数と並びを固定する。
+    const styles = [...doc.querySelectorAll('style')];
+    expect(styles).toHaveLength(3);
+    expect(styles[0].textContent).toMatch(/^@layer d[0-9a-f]{16};$/);
+    expect(styles[1].textContent).toContain('<script>alert(1)</script>');
   });
 
   // `buildDiffDoc` は「自分で用意した器へ、既に安全化した素材を詰める」= *包む*だけなので
@@ -198,7 +202,7 @@ describe('buildDiffDoc', () => {
   it('fragment に </head> や <link rel=stylesheet> の字面があっても文書構造が壊れない', () => {
     const src = buildDiffDoc('<p title="</head><link rel=stylesheet>">x</p>', 'a{}', '.hl{}');
     const doc = new DOMParser().parseFromString(src, 'text/html');
-    expect(doc.head.querySelectorAll('style')).toHaveLength(2);
+    expect(doc.head.querySelectorAll('style')).toHaveLength(3);
     expect(doc.head.querySelectorAll('link')).toHaveLength(0);
     expect(doc.querySelector('body > p')?.textContent).toBe('x');
   });

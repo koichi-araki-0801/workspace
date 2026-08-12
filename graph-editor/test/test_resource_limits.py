@@ -8,7 +8,7 @@
 **何も送らない接続はガードの手前でブロックし続ける**。ここを閉じられるのはハンドラ側の
 期限と受け入れ枠だけで、認可のテスト (`test_app_guard.py`) では捕まえられない。
 
-pdf-to-svg の `tests/test_resource_limits.py`「F42: 接続の資源上限」節と**同一仕様の複製**
+pdf-to-svg の `test/test_resource_limits.py`「F42: 接続の資源上限」節と**同一仕様の複製**
 である (並行実装)。2 実装の値が揃っていることは `test_parallel_impl_drift.py` が検証する。
 """
 from __future__ import annotations

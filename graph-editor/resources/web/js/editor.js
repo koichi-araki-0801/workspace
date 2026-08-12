@@ -8,7 +8,7 @@ import { parsePieGeometry, fallbackPieGeometry, labelBox, labelCenter, isOutside
 import { safeGetBBox, stateEquals } from "./utils.js";
 import { showToast } from "./icons.js";
 // 描画 (オーバーレイ / インスペクタ / レール) は editor-render.js、ファイル I/O (読込 /
-// 保存 bake / 開く) は editor-io.js へ分離。名前空間 import で衝突回避。
+// 保存 bake / 開く) は editor-io.js が担う。名前空間 import で衝突回避。
 import * as render from "./editor-render.js";
 import * as io from "./editor-io.js";
 import { bindEvents as bindEditorEvents } from "./editor-events.js";
@@ -310,7 +310,7 @@ class Editor {
     this.dom.btnSave.disabled = !this.svg;
   }
 
-  // ── 7. オーバーレイ (ハンドル) 描画 → editor-render.js の `syncOverlay` へ分離 ──
+  // ── 7. オーバーレイ (ハンドル) 描画 — editor-render.js の `syncOverlay` が担う ──
 
   // ── 8. ドラッグ操作 ──
 
@@ -391,7 +391,7 @@ class Editor {
     return c && c !== "none" ? c : "var(--sunk)";
   }
 
-  // インスペクタ本体の描画/配線は editor-render.js の `renderInspector` へ分離。
+  // インスペクタ本体の描画/配線は editor-render.js の `renderInspector` が担う。
 
   inspectorAction(act) {
     const s = this.selected;
@@ -412,7 +412,7 @@ class Editor {
     this.markDirty({ dom: true, overlay: true, inspector: true });
   }
 
-  // ── 10. SVG 読込 & セットアップ → editor-io.js へ分離 (委譲) ──
+  // ── 10. SVG 読込 & セットアップ — editor-io.js へ委譲 ──
 
   async load(item) { return io.load(this, item); }
 
@@ -442,14 +442,14 @@ class Editor {
     this.flushNow();
   }
 
-  // ── 12. 保存 (bake → ダウンロード) → editor-io.js へ分離 (委譲) ──
+  // ── 12. 保存 (bake → ダウンロード) — editor-io.js へ委譲 ──
 
   async save() { return io.save(this); }
   // E2E 検証用フック (`window.__editor` 経由で bake 結果を検査する)。本番の保存経路は
   // `io.save` がモジュール内の bakeSvg を直接呼ぶため、このラッパを通らない。
   bakeSvg() { return io.bakeSvg(this); }
 
-  // ── 13. ファイル選択 / ドロップ (開く) → editor-io.js へ分離 (委譲) ──
+  // ── 13. ファイル選択 / ドロップ (開く) — editor-io.js へ委譲 ──
 
   async openFiles() { return io.openFiles(this); }
   async handleDrop(dt) { return io.handleDrop(this, dt); }
@@ -457,19 +457,19 @@ class Editor {
   /** ラベルが初期状態から変更されているか (編集済みドット用)。
    *  レール更新 (`syncRail`) 経由でドラッグ中の**毎フレーム・全ラベル分**呼ばれる経路なので、
    *  スナップショットの複製も `JSON.stringify` も挟まず `STATE_FIELDS` の等値判定だけで比べる
-   *  (以前の実装は 1 フレームにつきラベル数 × 2 回の直列化を行っていた)。 */
+   *  (直列化で比べると 1 フレームにつきラベル数 × 2 回の直列化になる)。 */
   isLabelEdited(s) {
     if (!s) return false;
     return !stateEquals(s, s.initial);
   }
 
-  // レール / 開いたファイル一覧 / クロームの描画は editor-render.js へ分離。
-  // 既存呼び出し元 (load / save / openFiles / goPhase) 向けの薄い委譲のみ残す。
+  // レール / 開いたファイル一覧 / クロームの描画は editor-render.js が担う。
+  // 呼び出し元 (load / save / openFiles / goPhase) 向けの薄い委譲のみ置く。
   updateChrome() { render.updateChrome(this); }
   renderList() { render.buildRail(this); render.renderOpenList(this); render.updateChrome(this); }
   highlightActiveInList() { render.buildRail(this); render.updateChrome(this); }
 
-  // ── 14. イベント配線 → editor-events.js へ分離 (委譲) ──
+  // ── 14. イベント配線 — editor-events.js へ委譲 ──
 
   bindEvents() { bindEditorEvents(this); }
 }

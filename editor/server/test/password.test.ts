@@ -3,7 +3,7 @@
 // =============================================================================
 // 守る不変則は 2 つ。(1) KDF は Promise を返す = 呼び出し側が await を落とすと型で落ちる
 // (同期版はイベントループを塞ぐため復活させない)。(2) 一時パスワードは推測不能で、
-// ログインID から導出されない — 導出していた頃は ID を知る者が未活性アカウントへ入れた。
+// ログインID から導出されない — 導出すると ID を知る者が未活性アカウントへ入れてしまう。
 import { describe, expect, it } from 'vitest';
 import { generateTemporaryPassword, hashPassword, verifyPassword } from '../src/auth/password.js';
 

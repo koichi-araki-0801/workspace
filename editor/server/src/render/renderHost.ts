@@ -3,7 +3,7 @@
 // =============================================================================
 // 承認画面・比較画面は他人(申請者)が書いたテンプレ本文を nunjucks で描画する。nunjucks は
 // **サンドボックスではなくコンパイラ**で、`{{ range.constructor("…")() }}` は `new Function`
-// へ到達する。これを承認者のページオリジンのメインスレッドで走らせていたのが所見 F1 で、
+// へ到達する。これを承認者のページオリジンのメインスレッドで走らせてはならない —
 // 走った JS は承認者のセッション(HttpOnly cookie は同一オリジン fetch へ自動で付く)のまま
 // `/api/review-requests/:id/approve` を叩ける = 申請者が自分の申請を自分で通せる。
 //
@@ -147,19 +147,34 @@ async function nunjucksBundle(): Promise<string> {
  *
  * ── 多層防御: なぜ隔離だけで終わらせないのか ──
  * 主防御は opaque オリジン + `connect-src 'none'` で、これは「脱出しても何もできない」形。
- * ただし脱出そのものは安く塞げるので塞ぐ。塞ぎ方は nunjucks の実装に沿って 2 点:
- *  - `runtime.memberLookup` / `runtime.contextOrFrameLookup` を包み、`constructor` /
- *    `__proto__` / `prototype` のプロパティ参照を `undefined` にする。コンパイル済み
- *    テンプレートは `Template.render` が渡す **runtime モジュールそのもの**を経由して
- *    これらを呼ぶ(`src/environment.js` の `rootRenderFunc(env, ctx, frame, globalRuntime, cb)`)
- *    ので、モジュール上の関数を差し替えれば全テンプレートに効く。`a.constructor` も
- *    `a[名前]` の動的キーも同じ関門を通る。
- *  - `env.globals` を `Object.create(null)` へ置き換える。`globals()` が返す `range` /
- *    `cycler` / `joiner` は帳票テンプレでは使わないうえ、`range.constructor` が F1 の
- *    実証経路そのものだった。**素の `{}` では足りない** — `Context.lookup` は
- *    `name in this.env.globals` で引くため、Object.prototype 由来の `constructor` が
- *    そのままグローバルとして見えてしまう(だから null プロトタイプにする)。
- * どちらも帳票テンプレの正当な構文(変数・`for`・`if`・フィルタ)には触れない。
+ * ただし脱出そのものは安く塞げるので塞ぐ。
+ *
+ * **塞ぐ対象は「経路の全列挙」で数える。** nunjucks がテンプレの字面から外部の値へ触る
+ * 経路は 3 本あり、1 本でも数え落とすと関門をすり抜ける。1. と 2. だけを包むと
+ * **3. のフィルタ解決だけが素通りする形**が残る。`{{ 1|valueOf }}` が
+ * `Object.prototype.valueOf.call(context, 1)` として解決されて **Context そのもの**を返し、
+ * そこから `context.env` → `env.getFilter("constructor")`(= `Object`)→ `Function` と辿って
+ * 任意 JS が実行できる。`"constructor"` が**文字列引数**でありプロパティ参照ではないため、
+ * 1. の名前遮断には掛からない。経路の列挙は `renderHost.test.ts` が固定する。
+ *
+ *  1. **プロパティ参照** — `runtime.memberLookup` / `runtime.contextOrFrameLookup` を包み、
+ *     `constructor` / `__proto__` / `prototype` を `undefined` にする。コンパイル済み
+ *     テンプレートは `Template.render` が渡す **runtime モジュールそのもの**を経由して
+ *     これらを呼ぶ(`src/environment.js` の `rootRenderFunc(env, ctx, frame, globalRuntime, cb)`)
+ *     ので、モジュール上の関数を差し替えれば全テンプレートに効く。`a.constructor` も
+ *     `a[名前]` の動的キーも同じ関門を通る。
+ *  2. **グローバル参照** — `env.globals` を `Object.create(null)` へ置き換える。`globals()` が
+ *     返す `range` / `cycler` / `joiner` は帳票テンプレでは使わないうえ、`range.constructor`
+ *     が実際に脱出経路になる。**素の `{}` では足りない** — `Context.lookup` は
+ *     `name in this.env.globals` で引くため、Object.prototype 由来の `constructor` が
+ *     そのままグローバルとして見えてしまう(だから null プロトタイプにする)。
+ *  3. **フィルタ解決** — `env.filters` を own-property だけの null プロトタイプ表へ差し替える。
+ *     `environment.js` の `this.filters = {}` は素のオブジェクトリテラルで、`getFilter` は
+ *     継承プロパティも引くため `valueOf` / `constructor` などが**フィルタとして解決できて
+ *     しまう**。フィルタ適用は `compileFilter` が `env.getFilter(名前).call(...)` を吐く経路で
+ *     1. の関門を**通らない**ので、ここを別に閉じる必要がある。
+ * どれも帳票テンプレの正当な構文(変数・`for`・`if`・フィルタ)には触れない
+ * (`replace` / `sort` / `join` / `upper` / `string` / `length` の不変を実測で確認済み)。
  */
 const BOOT_SCRIPT = `(function(){
   var MSG_READY=${JSON.stringify(RENDER_MSG_READY)};
@@ -187,6 +202,13 @@ const BOOT_SCRIPT = `(function(){
   };
   var env=new NJ.Environment(undefined,{autoescape:true,throwOnUndefined:false});
   env.globals=Object.create(null);
+  // フィルタ解決の関門(上記 3.)。組み込みフィルタを own-property だけの null プロトタイプ表へ
+  // 移し替える。継承を断つので getFilter('valueOf') は「未知のフィルタ」として落ちる。
+  // (この文字列はテンプレートリテラルの中なので、コメントにもバッククォートを書けない)
+  var ownFilters=Object.create(null);
+  var names=Object.getOwnPropertyNames(env.filters);
+  for(var i=0;i<names.length;i++)ownFilters[names[i]]=env.filters[names[i]];
+  env.filters=ownFilters;
   // 親からのメッセージだけを受ける。子から見た parent は 1 つしかないので、これで発信元は
   // 一意に決まる(逆向きの検証は親が event.source の同一性で行う)。
   window.addEventListener('message',function(e){

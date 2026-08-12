@@ -7,8 +7,8 @@
 // 12 万回反復ぶん占有し、ログインの連打だけでサーバ全体が止まる(`auth/password.ts`)。
 // 試行回数そのものの制限はルート側(`auth.routes.ts` + `auth/loginRateLimit.ts`)の責務。
 //
-// ★ 失敗応答から「その ID が存在するか」を読ませない。以前は未知 ID と無効アカウントで
-// **文言が違い**、しかもどちらも KDF より前で return していた。文言を揃えるだけでは
+// ★ 失敗応答から「その ID が存在するか」を読ませない。未知 ID と無効アカウントで
+// **文言が違う**形や KDF より前の早期 return は存在オラクルになる。文言を揃えるだけでは
 // 足りない(応答時間が second channel として残る)ので、
 //   1. 文言は共有定数 `INVALID_CREDENTIALS_MESSAGE`(`@editor/shared`)の 1 箇所参照へ統一し、
 //   2. 判定を溜めて `verifyPassword` の後で 1 回だけ throw し、

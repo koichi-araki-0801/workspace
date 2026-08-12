@@ -78,7 +78,7 @@ def _human_size(n: int) -> str:
 
 def _file_size_str(doc: Document) -> str:
     # アップロード経由では実パスが無いので loader が付与した byte_size を使う。
-    # 旧来の実パス読み込みでも getsize でフォールバックする。
+    # 実パス読み込みの doc は getsize でフォールバックする。
     n = getattr(doc, "byte_size", None)
     if n is None:
         try:
@@ -121,6 +121,13 @@ def rpc_state(s: WebSession, _args: dict) -> dict:
         # 要素数の資源上限に当たって抽出を打ち切ったページ数 (`engine/pdf_engine.py`)。
         # 欠落を無言にしないための通知経路で、`app.js` の `reloadState` が出す。
         "truncated": sum(1 for d in s.docs for pg in d.pages if pg.truncated),
+        # 背景を生成できなかったスキャンページ数 (`engine/pdf_engine.py` の
+        # `_render_background` が `None` を返した分 = ラスタ上限・文書予算の超過)。
+        # このページは白紙同然で書き出されるので、`truncated` と同じ経路で必ず伝える。
+        # モデルに印を持たせず導出するのは、状態が 2 か所へ分かれて食い違うのを避けるため。
+        "noBackground": sum(
+            1 for d in s.docs for pg in d.pages if pg.is_scanned and pg.background is None
+        ),
     }
 
 

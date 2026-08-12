@@ -235,8 +235,8 @@ describe('pruneCanvasActiveContent — 要素と属性の許可リスト', () =>
     expect(link.attributes).toEqual({ href: '{{ fund.url }}', title: 'javascript: の解説' });
   });
 
-  // 「Jinja トークンで始まるなら無条件で通す」としていた版は、トークンを前置するだけで
-  // 危険なスキームを通した。テンプレは描画されてから使われるので、描画後の href は
+  // 「Jinja トークンで始まるなら無条件で通す」とすると、トークンを前置するだけで
+  // 危険なスキームが通る。テンプレは描画されてから使われるので、描画後の href は
   // `javascript:alert(1)` になる。トークンを空へ潰した残りでも判定する。
   it.each([
     "{{''}}javascript:alert(1)",

@@ -737,9 +737,9 @@ function cascadeWithSonohokaPick(
   //
   // clips (viewBox 見切れ=soft WARN) は hard と同格には扱わない: 幅モデルを実 glyph advance に統一して
   // placementBox の clips が実描画と一致するので比較材料には使うが、「右上が hard (交差/円内) を厳密に
-  // 減らす」なら clips が増えても右上を採る (hard > soft)。clips<= を必須にする旧条件は、左上が交差を
+  // 減らす」なら clips が増えても右上を採る (hard > soft)。clips<= を必須にすると、左上が交差を
   // 抱える構成 (例 currency_usd_heavy_9: その他を左へ置くと スイスフラン leader の根本に接触=交差) で、
-  // 右上が 1px 見切れるだけで右上を却下し交差側を選んでいた。soft 見切れ増を受け入れ確実に分離する。
+  // 右上が 1px 見切れるだけで右上を却下し交差側を選ぶ。soft 見切れ増を受け入れ確実に分離する。
   const rightNotWorse =
     rightIssues.crossings <= leftIssues.crossings &&
     rightIssues.pie <= leftIssues.pie &&
