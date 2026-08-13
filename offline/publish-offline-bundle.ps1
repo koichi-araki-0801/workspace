@@ -440,7 +440,11 @@ if (-not $TagOnly) {
   }
   $curlCmd = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
   if ($curlCmd) {
-    & $curlCmd.Source -L --fail --retry 3 -H "Authorization: Bearer $ghToken" -o $srcZipTmp $srcZipUrl
+    # トークンは**コマンドライン引数に載せない**。プロセスのコマンドラインは同一ユーザーの
+    # 他プロセスから読める（本リポジトリ自身が `editor\start.bat` で `Win32_Process.CommandLine`
+    # を読んでいるのが実例）。curl の `-H @-` は標準入力からヘッダ 1 行を読むので、値が
+    # プロセス間で見える場所を通らない（下の `Invoke-WebRequest` 分岐は元から露出しない）。
+    "Authorization: Bearer $ghToken" | & $curlCmd.Source -L --fail --retry 3 -H '@-' -o $srcZipTmp $srcZipUrl
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] ソース zip の取得に失敗しました（pin を更新できません）。'; exit 1 }
   } else {
     $oldPref = $ProgressPreference

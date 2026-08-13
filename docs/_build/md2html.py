@@ -101,7 +101,19 @@ def audience_of(src: pathlib.Path, meta: dict | None) -> str:
 
 
 def esc(s: str) -> str:
+    """要素の**内容**へ埋める文字列のエスケープ。属性値には使わない(`esc_attr` を使う)。"""
     return html.escape(str(s), quote=False)
+
+
+def esc_attr(s: str) -> str:
+    """属性値へ埋める文字列のエスケープ。引用符も落とす。
+
+    `esc` は `quote=False` なので二重引用符を通す。`alt="{esc(...)}"` のように属性文脈へ
+    使うと、原稿の 1 行で属性を閉じて `onerror=` を持ち込める。生成器は
+    `MarkdownIt(..., {"html": False})` で本文中の生 HTML を禁じているので、属性文脈での
+    取りこぼしがその宣言の唯一の穴になる。**属性値はこちらを通す。**
+    """
+    return html.escape(str(s), quote=True)
 
 
 def _mermaid_escape(src: str) -> str:
@@ -214,7 +226,7 @@ def _img_html(tok, env) -> str:
     cap = tok.content or ""
     uri = _image_data_uri(env["img_dir"], name)
     if uri:
-        return f'<img alt="{esc(cap)}" src="{uri}">'
+        return f'<img alt="{esc_attr(cap)}" src="{uri}">'
     env["warnings"].append(f'{env["src_name"]}: 画像未取得 {name}')
     return f'<div class="img-missing">画像未取得: {esc(name)}</div>'
 

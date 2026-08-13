@@ -24,11 +24,51 @@ function Read-Utf8Lines {
 
 # ── requirements.txt の許可リスト検査 ──
 # pip は requirements ファイル内のオプション行（`--extra-index-url` / `--find-links` /
-# `-e` 等）と直 URL 参照（`pkg @ https://...`）を尊重するため、requirements の編集 1 つで
-# 解決先そのものを攻撃者のインデックスへ差し替えられる。純粋な requirement specifier 以外を
-# 一切拒否する（許可リスト方式。危険オプションの列挙＝ブロックリストにはしない）。
-# 戻り値: 違反の説明文字列の配列（空なら合格）。
+# `-e` 等）・直 URL 参照（`pkg @ https://...`）・**ベアなローカルパス**
+# （`./downloads/numpy-1.9.2-cp34-none-win32.whl` は pip 公式ドキュメントに載る正式な形）を
+# すべて requirement として受け取る。編集 1 行で解決先そのものを差し替えられるため、
+# ここは**受け入れる形だけを書く**（危険物の列挙にしない）。
+#
+# 拒否条件を並べる方式は、書いた本人が思いつかなかった形を必ず通す。実際、先頭ハイフンと
+# `://` を含む行だけを弾く実装だったとき、リポジトリへコミットした wheel への相対パスが
+# 素通りし、それが `pip download` で wheelhouse へ入り、公開担当者の鍵で署名されて
+# 正規バンドルになる経路が開いていた（setup 側の pin 照合・署名検証は「publish が固めた
+# ものと同一か」しか見ないので、入口が緩いと全部素通りする）。
+#
+# 受け入れるのは「名前 + 省略可能なバージョン指定子」だけ。extras / 環境マーカ / URL /
+# パス / ハッシュ指定はすべて不可。実際の 3 ファイルはこの形に収まっている
+# （足したくなったら、その形が解決先を動かせないことを確かめてからここへ書くこと）。
+$script:RequirementNameRe = '[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?'
+$script:RequirementSpecRe = '(?:==|>=|<=|~=|!=|>|<)\s*[A-Za-z0-9][A-Za-z0-9.*+!-]*'
+
+function Test-OfflineRequirementLine {
+  <#
+    .SYNOPSIS
+      requirements の 1 行が「名前 + 省略可能なバージョン指定子」だけかを判定する。
+  #>
+  param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Line)
+  # 行内コメント（` #` 以降）は pip も無視するので落としてから見る。
+  $t = ($Line -replace '\s+#.*$', '').Trim()
+  if ($t.Length -eq 0) { return $true }
+  $spec = "^$($script:RequirementNameRe)(?:\s*$($script:RequirementSpecRe))*$"
+  if ($t -notmatch $spec) { return $false }
+  # PEP 508 の名前はドットを許すため、`evil.whl` は「名前」として文法を通る。しかし pip は
+  # **拡張子でアーカイブと判定**し（`is_archive_file`）、パス/URL として解決しにいく。
+  # つまり文法上の名前判定だけでは、リポジトリへ置いたファイルを指させてしまう。
+  # ここは拡張子の列挙になるが、列挙しているのは「pip がアーカイブと見なす綴り」であって
+  # 危険物ではない（pip 側の判定表と対になる集合で、こちらが漏らしても pip が別解釈を
+  # する余地は無い）。
+  if ($t -match '(?i)\.(?:whl|zip|tar|tgz|tbz2|txz|egg|gz|bz2|xz)$') { return $false }
+  return $true
+}
+
 function Test-OfflineRequirementsFile {
+  <#
+    .SYNOPSIS
+      requirements.txt が許可した形だけで構成されているかを検査する。
+    .OUTPUTS
+      違反の説明文字列の配列（空なら合格）。
+  #>
   param([Parameter(Mandatory = $true)][string]$Path)
   $violations = @()
   $lineNo = 0
@@ -36,15 +76,29 @@ function Test-OfflineRequirementsFile {
     $lineNo++
     $t = $line.Trim()
     if ($t.Length -eq 0 -or $t.StartsWith('#')) { continue }
-    if ($t.StartsWith('-')) {
-      $violations += "${Path}:${lineNo}: オプション行は許可しない: $t"
-      continue
-    }
-    if ($t -match '://') {
-      $violations += "${Path}:${lineNo}: 直 URL 参照は許可しない: $t"
+    if (-not (Test-OfflineRequirementLine -Line $line)) {
+      $violations += "${Path}:${lineNo}: 名前とバージョン指定子だけを書けます: $t"
     }
   }
   , @($violations)
+}
+
+function Assert-OfflineRequirementsFile {
+  <#
+    .SYNOPSIS
+      検査に落ちたら停止する。**pip へ渡すすべての入口から呼ぶこと。**
+    .DESCRIPTION
+      ガードが publish 経路にしか無かった頃は、同じ requirements を pip へ渡す入口が他に
+      3 つあり（docs のビルド 2 経路・隔離 venv の 2 経路）、どれも検査を通らなかった。
+      `--no-index` は requirements 内の `--find-links <URL>` や直 URL 参照を止めないので、
+      「オフラインだから安全」も成立しない。
+  #>
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $violations = Test-OfflineRequirementsFile -Path $Path
+  if ($violations.Count -gt 0) {
+    foreach ($v in $violations) { Write-Error "[requirements] $v" }
+    throw "requirements の形式検査に失敗しました: $Path"
+  }
 }
 
 # ── git-tools/manifest.txt のパーサ ──
