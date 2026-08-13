@@ -66,6 +66,35 @@ const CALL_TIMEOUT_MSG = 'テンプレートの描画が時間内に完了しま
 /** 子が理由を伴わない失敗を返したときの文言(`error` が空文字・非文字列の場合)。 */
 const UNKNOWN_ERROR_MSG = 'テンプレートの描画に失敗しました。';
 
+/** 差し込みデータを子へ渡せる形にできなかったときの文言。 */
+const DATA_NOT_TRANSFERABLE_MSG = '差し込みデータを描画環境へ渡せませんでした。';
+
+/** 要求そのものを送れなかったときの文言(送信は同期に失敗しうる)。 */
+const POST_FAILED_MSG = 'テンプレートの描画環境へ要求を送れませんでした。';
+
+/**
+ * 差し込みデータを **structured clone 可能な素の値**へ落とす。
+ *
+ * `postMessage` の引数は structured clone アルゴリズムを通るが、**Proxy は複製できない**。
+ * 画面が持つ状態は Vue の `ref` / `reactive` で包まれており、`sample.value` は Proxy なので
+ * そのまま渡すと `DataCloneError` になる(実測: `ref({...}).value` と `reactive({...})` は
+ * 複製不可、`toRaw` した値は可)。呼び出し側に「生の値を渡すこと」を課すと、境界を知らない
+ * 新しい呼び出し元が同じ罠を踏む — **境界の要件は境界で満たす。**
+ *
+ * `toRaw` を使わないのは、Vue 依存をこの層へ持ち込まないためと、入れ子の Proxy を 1 段しか
+ * 剥がせないため。JSON 往復なら Proxy を読み抜いて素の値へ実体化でき、差し込みデータは
+ * API 由来の JSON なので往復で失うものが無い。
+ */
+function toTransferableData(data: unknown): { ok: true; value: unknown } | { ok: false } {
+  try {
+    // `undefined` は JSON にならないが、差し込みデータとしては「無い」と同義でよい。
+    return { ok: true, value: data === undefined ? null : JSON.parse(JSON.stringify(data)) };
+  } catch {
+    // 循環参照・`toJSON` の例外など。ここで落とせば 30 秒待たずに理由を返せる。
+    return { ok: false };
+  }
+}
+
 export interface RenderHostClient {
   /** 生 Jinja HTML を隔離 iframe で描画する。失敗も `RenderResult.error` で返る。 */
   render(template: string, data: unknown): Promise<RenderResult>;
@@ -154,10 +183,23 @@ export function createRenderHostClient(opts?: {
     for (const id of Array.from(pending.keys())) settle(id, { html: '', error: broken });
   }
 
+  /**
+   * 送信。失敗したら**その場で**要求を畳む。
+   *
+   * `postMessage` は複製できない値を渡すと**同期例外**(`DataCloneError`)を投げる。捕まえずに
+   * いると要求は送られていないのに待ち合わせだけが残り、利用者は 30 秒待たされたうえで
+   * 「時間をおいて再度お試しください」という無関係な文言を受け取る(何度試しても同じ)。
+   * 送れなかったことは送った直後に分かるので、待たずに理由を返す。
+   */
   function post(req: RenderHostRequest): void {
-    // `targetOrigin` は `'*'` 固定(上記「オリジン検証の作法」)。運ぶのは親が既に持っている
-    // テンプレ本文と sample data だけで、子へ渡すことで新たに漏れる秘密は無い。
-    frame?.contentWindow?.postMessage({ type: RENDER_MSG_REQ, ...req }, '*');
+    try {
+      // `targetOrigin` は `'*'` 固定(上記「オリジン検証の作法」)。運ぶのは親が既に持っている
+      // テンプレ本文と sample data だけで、子へ渡すことで新たに漏れる秘密は無い。
+      frame?.contentWindow?.postMessage({ type: RENDER_MSG_REQ, ...req }, '*');
+    } catch (cause) {
+      logError(unexpected('render host postMessage failed', { cause }));
+      settle(req.id, { html: '', error: POST_FAILED_MSG });
+    }
   }
 
   function onMessage(e: MessageEvent): void {
@@ -203,10 +245,17 @@ export function createRenderHostClient(opts?: {
   return {
     render(template, data) {
       if (broken !== null) return Promise.resolve({ html: '', error: broken });
+      // 送る前に複製可能な形へ落とす。ここで落ちる値(循環参照など)は送っても
+      // `DataCloneError` になるだけなので、待たずに理由を返す。
+      const payload = toTransferableData(data);
+      if (!payload.ok) {
+        logError(unexpected('render host data is not transferable'));
+        return Promise.resolve({ html: '', error: DATA_NOT_TRANSFERABLE_MSG });
+      }
       ensureFrame();
       if (broken !== null) return Promise.resolve({ html: '', error: broken });
       const id = ++nextId;
-      const req: RenderHostRequest = { id, template, data };
+      const req: RenderHostRequest = { id, template, data: payload.value };
       return new Promise<RenderResult>((resolve) => {
         const timer = setTimeout(() => {
           pending.delete(id);
