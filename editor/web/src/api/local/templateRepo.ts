@@ -292,7 +292,7 @@ export const localTemplateRepo: TemplateRepository = {
     }),
 
   // パーツ別共通ダミー(`sampleCommon`)に funds.json のファンド固有値だけ被せて返す。
-  // 版種(ファイル名由来)はテンプレを開く文脈で `applyEdition` が上書きする。
+  // 版種・基準日(ファイル名由来)はテンプレを開く文脈で `applyTemplateAttributes` が上書きする。
   getSampleData: (fundCode: string) =>
     attempt(() => delay(buildSampleData(fundMaster[fundCode], fundCode))),
 

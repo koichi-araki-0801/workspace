@@ -38,9 +38,17 @@ import { b64encode, htmlEscape, TOKEN_RE, tokenKind } from './jinjaMask';
 
 type Ctx = JinjaCtx;
 
-/** `toFilled` 1 回ぶんの診断。解釈できなかった式を出現順・重複排除で持つ。 */
+/** `toFilled` 1 回ぶんの診断。問題の式を出現順・重複排除で持つ。 */
 export interface FillDiagnostics {
+  /** 許可リスト評価器が解釈できなかった式(フィルタ等)。 */
   readonly unsupported: readonly string[];
+  /**
+   * undefined/null に解決された `{{ expr }}`(サンプルデータにキーが無い等)。評価器は
+   * 未定義キーを例外にせず undefined を返すため、`unsupported` には載らない — だが表示は
+   * 同じ「黙って空」になるので、別軸で数えて表に出す。存在確認に使う `{% if %}` の条件は
+   * undefined が正当な値なので対象外(可視テキストの穴だけを数える)。
+   */
+  readonly missing: readonly string[];
 }
 
 /**
@@ -50,6 +58,7 @@ export interface FillDiagnostics {
 class Filler {
   /** Set を使うのは同じ式がループ展開で何度も現れるため(件数でなく種類を数える)。 */
   readonly unsupported = new Set<string>();
+  readonly missing = new Set<string>();
 
   private fail(expr: string): void {
     this.unsupported.add(expr);
@@ -58,7 +67,9 @@ class Filler {
   /** `{{ expr }}` の可視テキスト。 */
   expr(expr: string, ctx: Ctx): string {
     try {
-      return stringifyJinjaValue(evaluateJinjaExpr(expr, ctx));
+      const v = evaluateJinjaExpr(expr, ctx);
+      if (v === undefined || v === null) this.missing.add(expr);
+      return stringifyJinjaValue(v);
     } catch {
       this.fail(expr);
       return '';
@@ -213,7 +224,7 @@ export function toFilledWithDiagnostics(
   s = expandLoops(s, ctx, f);
   s = collapseIfs(s, ctx, f);
   s = fillInline(s, ctx, f);
-  return { html: s, diagnostics: { unsupported: [...f.unsupported] } };
+  return { html: s, diagnostics: { unsupported: [...f.unsupported], missing: [...f.missing] } };
 }
 
 /** 既に警告した式(同じ式をループ展開や再読込のたびに何度も出さないため)。 */
@@ -231,6 +242,11 @@ export function toFilled(raw: string, sample: SampleData): string {
   if (fresh.length > 0) {
     for (const e of fresh) warned.add(e);
     console.warn('[fillJinja] 解釈できない Jinja 式のため値を空にしました:', fresh);
+  }
+  const freshMissing = diagnostics.missing.filter((e) => !warned.has(e));
+  if (freshMissing.length > 0) {
+    for (const e of freshMissing) warned.add(e);
+    console.warn('[fillJinja] サンプルデータに値が無く空になった式:', freshMissing);
   }
   return html;
 }

@@ -59,6 +59,17 @@ export function templatePairKey(a: TemplateAttributes): string {
   return `${a.companyCode}_${a.fundCode}_${a.baseDate}`;
 }
 
+/**
+ * ファイル名規約の基準日(yyyymmdd)を帳票の表示形式 `YYYY年M月D日` へ整える(書式は
+ * `sampleCommon.report` の他の日付と統一)。8 桁数字でない値は規約外の残存資産でありうる
+ * ため壊さずそのまま返す — これは表示用の整形であって検証ゲートではない。
+ */
+export function formatBaseDate(baseDate: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})$/.exec(baseDate);
+  if (!m) return baseDate;
+  return `${m[1]}年${Number(m[2])}月${Number(m[3])}日`;
+}
+
 // ── パス安全性のゲート ──
 // templateId / fundCode はリクエスト由来のまま `path.join` でディレクトリへ連結される
 // (`server/src/files/*`)。連結する側ごとに検査すると必ず取りこぼすので、ここで純関数として

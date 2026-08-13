@@ -34,6 +34,10 @@ export default defineConfig({
         'editor/shared/src/result.ts',
         'editor/shared/src/errors.ts',
         'editor/shared/src/domain/template.ts',
+        // サンプルデータの合成と属性の被せ方。退行は「基準日が黙って空」の無言の形で
+        // 出るため(実際に起きた)、被覆を切らさない。
+        'editor/shared/src/domain/sampleData.ts',
+        'editor/shared/src/domain/sampleCommon.ts',
         'editor/shared/src/domain/user.ts',
         'editor/shared/src/domain/history.ts',
         'editor/shared/src/security/cssExternalRefs.ts',

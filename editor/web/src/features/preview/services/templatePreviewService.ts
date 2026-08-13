@@ -3,7 +3,7 @@
 // =============================================================================
 import {
   apiPaths,
-  applyEdition,
+  applyTemplateAttributes,
   conflict,
   err,
   type HistoryRepository,
@@ -70,8 +70,8 @@ export function createTemplatePreviewService(
 
       const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
       if (isErr(sampleRes)) return sampleRes;
-      // 版種(ファイル名由来)を被せる。getSampleData はファンド単位で版種を持たない。
-      const sample = applyEdition(sampleRes.value, tpl.meta.attributes.editionType);
+      // 版種・基準日(ファイル名由来)を被せる。getSampleData はファンド単位で属性を持たない。
+      const sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
 
       const draftRes = await templates.getDraft(id);
       if (isErr(draftRes)) return draftRes;

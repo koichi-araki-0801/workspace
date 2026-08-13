@@ -229,7 +229,7 @@ function parseFundMaster(json: string | null): FundMaster | undefined {
 /**
  * プレビュー文脈のサンプルデータ。本体はパーツ別共通ダミー(`sampleCommon`)で、
  * DB の台帳からはファンド固有の名称/会社だけを解決して被せる。版種(ファイル名由来)は
- * テンプレを開く web 側(`applyEdition`)で上書きする。
+ * テンプレを開く web 側(`applyTemplateAttributes`)で上書きする。
  */
 export async function getSampleData(fundCode: string): Promise<SampleData> {
   const row = firstRow(await callSproc(SP.sample, '取得', [p('ファンドコード', fundCode)]));
