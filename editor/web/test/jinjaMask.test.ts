@@ -97,4 +97,15 @@ describe('full document round-trip', () => {
     expect(restored.toLowerCase()).toContain('<!doctype html>');
     expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));
   });
+
+  // `<html>` ラッパ無しの `<body>…</body>` は GrapesJS の `getHtml()` が返す draft の形で、
+  // `toTemplate` の正式な入力形の 1 つ(プレビュー/申請が autosave 済み draft を復元する経路)。
+  // `asFragment` はこの形でも本文(body inner)を返すことを契約として固定する。
+  it('restores the body inner from a `<body>`-wrapped fragment', () => {
+    const raw = '<div class="page"><p>基準価額 {{ fund.nav }} 円</p></div>';
+    const wrapped = `<body id="wrapper">${toEditable(raw)}</body>`;
+    const restored = toTemplate(wrapped, { asFragment: true });
+    expect(restored).toContain('{{ fund.nav }}');
+    expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));
+  });
 });

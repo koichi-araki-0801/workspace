@@ -368,6 +368,15 @@ describe('useGrapes の canvas 投入経路', () => {
     expect(g.getBodyHtml()).not.toMatch(/data-gjs-script/i);
   });
 
+  it('getBodyHtml は `<body>` ラッパ付きで返す(draft の保存形状の固定)', () => {
+    // autosave はこの返り値をそのまま draft に保存する。復元側(`toTemplate` の linkedom 経路)は
+    // 「`<html>` 無し・`<body>` 始まり」を正式な入力形として扱うので、上流の形状が変わったら
+    // このテストで気づき、`htmlWorkerImpl.ts` の `linkedomParse` の分岐と突き合わせること。
+    g.load('<div class="page"><p>本文</p></div>', '');
+    expect(g.getBodyHtml()).toMatch(/^\s*<body[\s>]/i);
+    expect(g.getBodyHtml()).not.toMatch(/<html/i);
+  });
+
   it('同じ経路で通常のレポート本文は保たれる', () => {
     // 表・Jinja chip・パーツ ID はレポート本文と保存 round-trip の要。刈り取りが構造や
     // `data-*` を巻き込んでいないことを、同じ `load` 経路で確かめる。

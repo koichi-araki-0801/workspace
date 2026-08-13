@@ -23,11 +23,22 @@ import { type ToTemplateOptions, toTemplate as toTemplateCore } from '@/lib/jinj
 // linkedom の Document を browser 互換の `Document` として供給する。diff/mask が使う DOM
 // API(`querySelectorAll`/`cloneNode`/`outerHTML`/`matches`/`classList` 等)は linkedom が
 // 実装済み。型は構造的に異なるため明示キャストする。
-// `<body>` を持たない断片(GrapesJS の body inner = `toTemplate` の通常入力)は、linkedom が
-// body に取り込まず空になるため、完全文書にラップしてから渡す(browser の DOMParser は
-// 断片を body へ入れるのでこの差を吸収する)。
+//
+// linkedom の `parseHTML` は HTML 仕様の tree construction 補正を行わないため、完全文書で
+// ない入力はブラウザの `DOMParser` と同じ木にならない。入力の形ごとにラップして差を吸収する:
+// - 完全文書(`<html>` か doctype を持つ)はそのまま。
+// - `<body>` ラッパ断片(GrapesJS の `getHtml()` が返す draft の形)は **`<html>` でだけ**包む。
+//   素通しすると中身が `doc.body` の外に置かれ本文が空になり、`<html><body>` の二重ラップは
+//   `body.innerHTML` に `<body>` の入れ子が残る。どちらも不可で、`<html>` 単独ラップだけが
+//   ブラウザと同じ「入力の `<body>` が文書の body になる」木を与える。
+// - それ以外の断片(body inner)は `<body>` ごと包む(browser の DOMParser は断片を body へ
+//   入れるのでこの差を吸収する)。
 const linkedomParse: HtmlParser = (html) => {
-  const full = /<body[\s>]/i.test(html) ? html : `<!doctype html><html><body>${html}</body></html>`;
+  const full = /<html[\s>]|^\s*<!doctype/i.test(html)
+    ? html
+    : /<body[\s>]/i.test(html)
+      ? `<!doctype html><html>${html}</html>`
+      : `<!doctype html><html><body>${html}</body></html>`;
   return parseHTML(full).document as unknown as Document;
 };
 
