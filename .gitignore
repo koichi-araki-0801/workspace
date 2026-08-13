@@ -18,6 +18,9 @@ __pycache__/
 .claude/
 CLAUDE.md
 pie-chart/.claude/
+# code-review-graph（MCP）のグラフ DB と MCP 設定（絶対パスを含むマシン固有）
+.code-review-graph/
+.mcp.json
 # vivliostyle / playwright artifacts
 playwright-report/
 test-results/
