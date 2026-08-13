@@ -84,6 +84,8 @@ export function useGrapes() {
   const editing = ref(false);
   /** canvas の read-only フラグ(!allowEdit のミラー)。選択は可だが RTE/drag をブロック。 */
   let locked = false;
+  /** `setEditable` の一括 set 適用中フラグ(dirty 抑制用 — `setEditable` のコメントを見よ)。 */
+  let applyingLockState = false;
   /** component/style 変更ごとに加算され、呼び出し側が幾何を再計算できるようにする。 */
   const revision = ref(0);
   const canMoveUp = ref(false);
@@ -391,6 +393,7 @@ export function useGrapes() {
       onCanvasLoad,
       toInfo,
       isLocked: () => locked,
+      isApplyingLockState: () => applyingLockState,
       canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}`,
       callbacks,
     });
@@ -464,13 +467,22 @@ export function useGrapes() {
     locked = !on;
     const ed = editor.value;
     if (!ed) return;
-    ed.getWrapper()?.onAll((c) => {
-      const type = String(c.get('type') ?? '');
-      if (type.startsWith('jinja-')) return; // jinja の locked 挙動は保つ
-      c.set('editable', on);
-      c.set('draggable', on);
-      c.set('selectable', true);
-    });
+    // `editable`/`draggable` はモデルの見た目状態で、`getHtml()` の出力(保存内容)には
+    // 現れない。だが一括 set は `component:update` を全ノード分発火させ、そのまま
+    // dirty/autosave へ流れると**無編集の draft** が生成される(以後プレビュー/申請が
+    // draft 経路に入る)。適用中フラグで `fireChange` に濾させる(同期ループなので確実)。
+    applyingLockState = true;
+    try {
+      ed.getWrapper()?.onAll((c) => {
+        const type = String(c.get('type') ?? '');
+        if (type.startsWith('jinja-')) return; // jinja の locked 挙動は保つ
+        c.set('editable', on);
+        c.set('draggable', on);
+        c.set('selectable', true);
+      });
+    } finally {
+      applyingLockState = false;
+    }
   }
 
   /**

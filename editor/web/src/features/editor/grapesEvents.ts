@@ -56,6 +56,13 @@ export interface GrapesEventDeps {
   toInfo: (comp: Component) => SelectedInfo;
   /** canvas の read-only フラグ getter(選択は可だが RTE をブロック)。 */
   isLocked: () => boolean;
+  /**
+   * 編集可否の一括切替(`setEditable`)を適用中かの getter。切替は全 `Component` へ
+   * `editable`/`draggable` を set して回るため `component:update` を大量に発火させるが、
+   * これらはモデルの見た目状態で保存内容(`getHtml()`)を変えない。dirty/autosave へ
+   * 流すと無編集の draft が生成されるので、`fireChange` がこの間 `callbacks.change` を止める。
+   */
+  isApplyingLockState?: () => boolean;
   /** load 時に canvas document へ注入する jinja + A4 の合成スタイル。 */
   canvasCss: string;
   callbacks: GrapesCallbacks;
@@ -144,6 +151,9 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     refreshMove();
     // content/style が page break やページ数を増減した可能性 — 重い再走査は次フレームへ集約。
     scheduleHeavyRecompute();
+    // 編集可否切替中の component:update は内容変更ではない(`isApplyingLockState` の doc を
+    // 見よ)。dirty/autosave へは流さず、幾何の追随(上の即時部)だけ行う。
+    if (deps.isApplyingLockState?.()) return;
     callbacks.change?.();
   };
   // inline text 編集(RTE): 開始(undo snapshot 用)と終了(実際に内容が変わったか)を
