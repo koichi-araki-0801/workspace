@@ -18,9 +18,12 @@ const TEST_TMP_DIR = path.join(
 );
 process.env.TMP_DIR = TEST_TMP_DIR;
 
-const { findDocumentExternalRefs, assertNoDocumentExternalRefs, EXTERNAL_REF_CODE } = await import(
-  '../src/security/externalRefs.js'
-);
+const {
+  findDocumentExternalRefs,
+  assertNoDocumentExternalRefs,
+  assertNoMarkdownExternalRefs,
+  EXTERNAL_REF_CODE,
+} = await import('../src/security/externalRefs.js');
 const { MERGE_PAGE_COUNTER_CSS } = await import('../src/vivliostyle/mergeInput.js');
 
 describe('findDocumentExternalRefs — 検査面の網羅', () => {
@@ -307,5 +310,78 @@ describe('検査器の終端・正規化の穴が build 入口を素通りしな
   ])('%s は 400 の対象になる', (_label, html, css) => {
     expect(findDocumentExternalRefs(html, css)).not.toEqual([]);
     expect(() => assertNoDocumentExternalRefs(html, css, 'test')).toThrow();
+  });
+});
+
+// ── 展開を許す形式は必ず検査する ──
+// `projectInput.ts` の `ALLOWED_EXTENSIONS` のうち「参照を書ける形式」を覆えていないと、
+// そこが検査ゲートの外側になる。`.md` は vivliostyle が原稿として組版し、`.svg` は
+// `<image href>` / `<use href>` / `<style>` を持つ。
+describe('markdown と SVG の外部参照', () => {
+  it('markdown の画像・リンク・参照定義の絶対 URL を拒む(タグが無く HTML 走査では拾えない)', () => {
+    for (const md of [
+      '![logo](https://evil.example/x.png)',
+      '[link](http://evil.example/)',
+      '![logo]\n\n[logo]: https://evil.example/x.png',
+      '![logo](<https://evil.example/x.png>)',
+    ])
+      expect(() => assertNoMarkdownExternalRefs(md, 'project:doc.md'), md).toThrow();
+  });
+
+  it('markdown 内の生 HTML も同じ基準で見る', () => {
+    expect(() =>
+      assertNoMarkdownExternalRefs(
+        '本文\n\n<img src="https://evil.example/x.png">',
+        'project:doc.md',
+      ),
+    ).toThrow();
+  });
+
+  it('同梱資産への相対参照は通す(組版に必要な正当な形)', () => {
+    assertNoMarkdownExternalRefs('![z](images/z.png)', 'project:doc.md');
+    assertNoMarkdownExternalRefs('[a](./other.md)', 'project:doc.md');
+    assertNoMarkdownExternalRefs('文章だけ', 'project:doc.md');
+  });
+
+  it('SVG は文書として検査される(タグ構造なので HTML 走査が効く)', () => {
+    expect(() =>
+      assertNoDocumentExternalRefs(
+        '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/x.png"/></svg>',
+        '',
+        'project:a.svg',
+      ),
+    ).toThrow();
+  });
+});
+
+// ── raw text として読み飛ばした範囲も検査する ──
+// 走査器は `title` / `textarea` / `noscript` を常に raw text として飛ばすが、HTML 名前空間の
+// 外ではそうではない。`<svg><title>` は foreign content で、内側の `<img>` は実要素になる。
+describe('raw text の内側の外部参照', () => {
+  it('<svg><title> の内側の絶対 URL を拾う', () => {
+    expect(() =>
+      assertNoDocumentExternalRefs(
+        '<svg><title><img src="https://evil.example/x.png"></title></svg>',
+        '',
+        'doc',
+      ),
+    ).toThrow();
+  });
+
+  it('<noscript> / <textarea> の内側も同様', () => {
+    for (const html of [
+      '<noscript><img src="https://evil.example/x.png"></noscript>',
+      '<svg><textarea><image href="https://evil.example/x.png"></textarea></svg>',
+    ])
+      expect(() => assertNoDocumentExternalRefs(html, '', 'doc'), html).toThrow();
+  });
+
+  it('script の中身は参照として数えない(JS であってマークアップではない)', () => {
+    // 字面の一致を参照として数えると誤検知になる。実行面の固定は `templateScripts` の担当。
+    assertNoDocumentExternalRefs(
+      '<script>var url = "https://example.com/api";</script>',
+      '',
+      'doc',
+    );
   });
 });

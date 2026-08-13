@@ -33,6 +33,7 @@ import {
   decodeHtmlEntities,
   findExternalRefsInCss,
   findExternalRefsInTag,
+  isSelfContainedUrl,
   nestedHtmlAttrsFor,
   validation,
 } from '@editor/shared';
@@ -111,6 +112,18 @@ function collectFromTags(
   for (const tag of tags) {
     if (tag.name === 'style' && tag.rawText !== undefined) {
       out.push(...findExternalRefsInCss(tag.rawText));
+    } else if (
+      tag.rawText !== undefined &&
+      tag.name !== 'script' &&
+      depth < MAX_NESTED_HTML_DEPTH
+    ) {
+      // `title` / `textarea` / `noscript` の中身。走査器はこれらを常に raw text として
+      // 読み飛ばすが、**HTML 名前空間の外ではそうではない** — `<svg><title>` は foreign
+      // content で普通の外来要素になり、内側の `<img src=https://…>` は実要素として
+      // 取得しにいく。読み飛ばした範囲を検査しないと、そこが外部参照ゲートの死角になる。
+      // `script` を除くのは、中身が JS であってマークアップではないため(字面の一致を
+      // 参照として数えると誤検知が出る。実行面の固定は `templateScripts` の担当)。
+      collectHtmlRefs(tag.rawText, out, depth + 1);
     }
     // 属性値は走査器が切り出したものを使う。原文への正規表現で拾うと
     // `data-style="…"` や他属性の値の中の字面まで拾って誤検知になる。
@@ -152,9 +165,61 @@ export function assertNoDocumentExternalRefs(html: string, css: string, where: s
   });
 }
 
-/** 展開済みプロジェクトで中身を検査する拡張子(CSS を書ける面はこの 2 系統だけ)。 */
+/**
+ * 展開済みプロジェクトで中身を検査する拡張子。
+ *
+ * **`projectInput.ts` の `ALLOWED_EXTENSIONS` のうち「参照を書ける形式」を全部覆うこと。**
+ * 展開を許すのに検査しない形式があると、そこが検査ゲートの外側になる。実際 `.md` と
+ * `.svg` が展開だけ許されて検査されておらず、vivliostyle は `.md` を原稿として組版するため
+ * markdown 標準の画像 1 行で絶対 URL を無検査で通せた。
+ */
 const CSS_FILE_EXT = new Set(['.css']);
-const DOC_FILE_EXT = new Set(['.html', '.htm', '.xhtml', '.xht']);
+/** タグ構造で書かれた文書。SVG も `<image href>` / `<use href>` / `<style>` を持つ。 */
+const DOC_FILE_EXT = new Set(['.html', '.htm', '.xhtml', '.xht', '.svg']);
+/** vivliostyle が原稿として組版する markdown。 */
+const MARKDOWN_FILE_EXT = new Set(['.md', '.markdown']);
+
+/**
+ * markdown の参照先(画像・リンク・参照定義)を集める。
+ *
+ * markdown は HTML のタグ走査では拾えない — `![alt](http://evil/x.png)` にタグは無い。
+ * vivliostyle は `.md` を HTML へ変換して組版するので、変換後に残る参照をここで先に見る。
+ * 生 HTML ブロックも書けるため、この関数の結果と HTML 走査の結果を**両方**使う。
+ *
+ * 判定基準は他の面と同じ `isSelfContainedUrl` 1 つに揃える(相対参照 = 同梱資産は通す)。
+ */
+function findMarkdownExternalRefs(md: string): string[] {
+  const out: string[] = [];
+  // インラインの `](dest)` と、参照定義の `[label]: dest`。dest は空白かカッコで終わる。
+  const inline = /\]\(\s*<?([^)\s>]+)>?/g;
+  const refDef = /^[ \t]{0,3}\[[^\]]*\]:[ \t]*<?([^\s>]+)>?/gm;
+  for (const re of [inline, refDef]) {
+    re.lastIndex = 0;
+    for (let m = re.exec(md); m !== null; m = re.exec(md)) {
+      const dest = decodeHtmlEntities(m[1]);
+      if (!isSelfContainedUrl(dest)) out.push(dest);
+    }
+  }
+  return out;
+}
+
+/** markdown 原稿の外部参照を拒む(生 HTML ブロックも同時に見る)。 */
+export function assertNoMarkdownExternalRefs(md: string, where: string): void {
+  const refs = findMarkdownExternalRefs(md);
+  if (refs.length > 0)
+    throw validation(EXTERNAL_REF_MESSAGE, {
+      code: EXTERNAL_REF_CODE,
+      cause: { where, refs: refs.slice(0, MAX_REPORTED_REFS), total: refs.length },
+    });
+  // markdown 内の生 HTML は HTML として検査する。走査できない字面は markdown では
+  // 珍しくない(`<` を素で書ける)ので、ここでは参照だけを見て未走査には倒さない。
+  const htmlRefs = findDocumentExternalRefs(md, '');
+  if (htmlRefs.length > 0)
+    throw validation(EXTERNAL_REF_MESSAGE, {
+      code: EXTERNAL_REF_CODE,
+      cause: { where, refs: htmlRefs.slice(0, MAX_REPORTED_REFS), total: htmlRefs.length },
+    });
+}
 
 /**
  * 展開済み vivliostyle プロジェクト配下の CSS / HTML を再帰的に検査する。
@@ -183,7 +248,8 @@ export async function assertProjectDirHasNoExternalRefs(dir: string): Promise<vo
       }
       const ext = path.extname(entry.name).toLowerCase();
       const isCss = CSS_FILE_EXT.has(ext);
-      if (!isCss && !DOC_FILE_EXT.has(ext)) continue;
+      const isMarkdown = MARKDOWN_FILE_EXT.has(ext);
+      if (!isCss && !isMarkdown && !DOC_FILE_EXT.has(ext)) continue;
       let text = '';
       try {
         text = await fs.readFile(full, 'utf8');
@@ -192,6 +258,7 @@ export async function assertProjectDirHasNoExternalRefs(dir: string): Promise<vo
       }
       const rel = path.relative(dir, full).split(path.sep).join('/');
       if (isCss) assertNoDocumentExternalRefs('', text, `project:${rel}`);
+      else if (isMarkdown) assertNoMarkdownExternalRefs(text, `project:${rel}`);
       else assertNoDocumentExternalRefs(text, '', `project:${rel}`);
     }
   }
