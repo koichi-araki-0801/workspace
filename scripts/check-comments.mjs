@@ -86,8 +86,9 @@ for (const f of allFiles) {
     errors.push(`${r}: 非 ASCII を含む .ps1 に UTF-8 BOM が無い (cp932 文字化け回避のため必須)`);
   }
 
-  // 同名 .bat ランチャの併設 (dot-source ライブラリは例外)。
-  if (!BAT_PAIRING_EXCEPTIONS.has(r)) {
+  // 同名 .bat ランチャの併設 (dot-source ライブラリと Pester テストは例外: どちらも
+  // 単体の入口ではなく、前者は dot-source、後者は Invoke-Pester から呼ばれる)。
+  if (!BAT_PAIRING_EXCEPTIONS.has(r) && !r.endsWith('.Tests.ps1')) {
     const bat = `${f.slice(0, -4)}.bat`;
     if (!allFiles.includes(bat)) {
       errors.push(`${r}: 同名 .bat ランチャが無い (.ps1 には .bat を併設する)`);

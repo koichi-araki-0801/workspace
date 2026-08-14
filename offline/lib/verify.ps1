@@ -55,10 +55,14 @@ function Test-OfflineRequirementLine {
   # PEP 508 の名前はドットを許すため、`evil.whl` は「名前」として文法を通る。しかし pip は
   # **拡張子でアーカイブと判定**し（`is_archive_file`）、パス/URL として解決しにいく。
   # つまり文法上の名前判定だけでは、リポジトリへ置いたファイルを指させてしまう。
-  # ここは拡張子の列挙になるが、列挙しているのは「pip がアーカイブと見なす綴り」であって
-  # 危険物ではない（pip 側の判定表と対になる集合で、こちらが漏らしても pip が別解釈を
-  # する余地は無い）。
-  if ($t -match '(?i)\.(?:whl|zip|tar|tgz|tbz2|txz|egg|gz|bz2|xz)$') { return $false }
+  # 列挙は pip がアーカイブと見なす綴りの**全集合**でなければならない（pip の判定表と対に
+  # なる集合で、こちらが漏らすと pip が別解釈で解決してしまう）。tar 系の別綴り
+  # （tbz / tlz / tar.lz = 末尾 lz / tar.lzma = 末尾 lzma）まで含めて網羅する。
+  if ($t -match '(?i)\.(?:whl|zip|tar|tgz|tbz2|tbz|txz|tlz|egg|gz|bz2|xz|lz|lzma)$') { return $false }
+  # パス区切りを含む行はローカルパス参照（`./downloads/foo.whl` 等）なので拒否する。
+  # 拡張子網羅と二重で、リポジトリ内ファイルを指す形を確実に落とす（ベアな名前は index /
+  # wheelhouse からしか解決されず、解決先を差し替えられない）。
+  if ($t -match '[\\/]') { return $false }
   return $true
 }
 
@@ -321,4 +325,71 @@ function Assert-FileSha256 {
       "`n  actual:        $actual`n  取得物が期待したリリースのものでない。処理を中止する。")
   }
   Write-Host "[info] sha256 OK ($Label): $actual"
+}
+
+# ── 検証済み receipt（展開済み資材のみで再実行するときのゲート） ──
+# 署名検証を通ったバンドルから展開したツリーにだけ書く小さな記録。バンドル実体を伴わない
+# 再実行（展開済みのみ）で「このツリーは正規リリースの署名済みバンドルから展開された」ことを
+# 示し、install / build へ進む前に必須化する。これが無い展開済みツリー（検証を一度も経て
+# いない野良の資材）は fail closed で止める。
+#
+# 主防御は receipt ではなく「バンドル実体があるなら $ExtractedOk でも必ず検証して再展開する」
+# 側にある（検証したバイト列＝実際に使うバイト列を一致させる）。receipt は「検証を経ていない
+# 展開済みツリーが無検証で素通りする」経路を塞ぐための最小のフラグで、ツリーへ書き込める
+# 攻撃者が receipt ごと差し替える攻撃までは防げない（air-gapped の setup 機に秘密鍵は無く、
+# receipt を暗号的に封緘できないため）。記録する値は pin の bundle-sha256 で、別リリースの
+# 展開済みツリーを取り違えて使うことは防ぐ。
+$script:VerifyReceiptName = '.offline-verify-receipt'
+
+function New-VerificationReceipt {
+  <#
+    .SYNOPSIS
+      検証済みバンドルの sha256 を receipt として書く。**署名検証成功後にだけ呼ぶこと。**
+  #>
+  param(
+    [Parameter(Mandatory = $true)][string]$Directory,
+    [Parameter(Mandatory = $true)][string]$BundleSha256
+  )
+  $path = Join-Path $Directory $script:VerifyReceiptName
+  $content = "bundle-sha256 $($BundleSha256.Trim().ToLower())"
+  $enc = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($path, $content, $enc)
+}
+
+function Test-VerificationReceipt {
+  <#
+    .SYNOPSIS
+      receipt が存在し、記録された bundle-sha256 が期待値（pin）と一致するかを返す。
+      欠落・読み取り不能・形式不正・不一致はすべて $false（fail closed）。
+  #>
+  param(
+    [Parameter(Mandatory = $true)][string]$Directory,
+    [Parameter(Mandatory = $true)][string]$ExpectedBundleSha256
+  )
+  $path = Join-Path $Directory $script:VerifyReceiptName
+  if (-not (Test-Path -LiteralPath $path)) { return $false }
+  try {
+    $text = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)
+  } catch {
+    return $false
+  }
+  $recorded = $null
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line.Trim() -match '^bundle-sha256\s+([0-9a-fA-F]{64})$') { $recorded = $Matches[1].ToLower() }
+  }
+  if (-not $recorded) { return $false }
+  ($recorded -eq $ExpectedBundleSha256.Trim().ToLower())
+}
+
+function Remove-VerificationReceipt {
+  <#
+    .SYNOPSIS
+      receipt を消す。-DangerouslySkipVerification 経路で呼び、次回以降の再検証を強制する。
+      receipt が無くても失敗しない。
+  #>
+  param([Parameter(Mandatory = $true)][string]$Directory)
+  $path = Join-Path $Directory $script:VerifyReceiptName
+  if (Test-Path -LiteralPath $path) {
+    Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+  }
 }

@@ -30,6 +30,12 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# pip receives a requirements file below (download and install). The allowlist guard
+# (single implementation in offline/lib/verify.ps1) must run before every pip entry point:
+# a single requirements line can otherwise redirect pip's resolution target
+# (URL / local path / archive), and --no-index does not stop in-file --find-links.
+. (Join-Path $PSScriptRoot '..\..\..\offline\lib\verify.ps1')
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 if (-not $Requirements) { $Requirements = Join-Path $repoRoot 'server\scripts\requirements.txt' }
 if (-not $Wheelhouse) { $Wheelhouse = Join-Path $repoRoot 'wheelhouse' }
@@ -37,6 +43,9 @@ if (-not $Wheelhouse) { $Wheelhouse = Join-Path $repoRoot 'wheelhouse' }
 if (-not (Test-Path $Requirements)) {
   throw "requirements.txt not found at $Requirements. Create it from the real generator's deps first."
 }
+
+# Guard the requirements file before either pip download or pip install (see note above).
+Assert-OfflineRequirementsFile -Path $Requirements
 
 switch ($Mode) {
   'download' {

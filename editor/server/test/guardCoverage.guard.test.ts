@@ -108,6 +108,7 @@ describe('requirements を pip へ渡す入口は全部が検査を通る', () =
       ...sourceFiles(path.join(REPO, 'offline'), ['.ps1']),
       ...sourceFiles(path.join(REPO, 'scripts'), ['.ps1', '.bat']),
       ...sourceFiles(path.join(REPO, 'docs', '_build'), ['.bat', '.ps1']),
+      ...sourceFiles(path.join(REPO, 'editor', 'scripts'), ['.ps1', '.bat']),
     ];
     const callers = scripts.filter((f) => /-r\s+["'$]?[^\s]*[Rr]equirements/.test(read(f)));
     expect(callers.length).toBeGreaterThan(0);
