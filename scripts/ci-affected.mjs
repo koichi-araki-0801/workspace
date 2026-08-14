@@ -46,15 +46,29 @@ const AREAS = {
     match: (p) => p.startsWith('pdf-to-svg/'),
     stages: ['test:pdf-to-svg'],
   },
+  offline: {
+    label: 'offline',
+    match: (p) => p.startsWith('offline/'),
+    stages: ['ci:offline'],
+  },
+  '.claude': {
+    label: '.claude',
+    match: (p) => p.startsWith('.claude/'),
+    stages: ['check:claude-hooks'],
+  },
 };
 
 // 領域 CI を持たない無害ディレクトリ。これらだけの変更なら共有ゲート(comments/biome)のみで足りる。
-// (`docs`/`offline` は配布物、`scripts`/`.github`/`.claude` は comments 検査が常時担保。)
+// (`scripts`/`.github`/`.husky` は comments 検査が常時担保。)
 // `pdf-to-svg/` はここへ含めない。ローカル HTTP サーバの Origin/Host 検査の退行を守るテストが
 // pytest 側にしか無く、この一覧に入れると**変更しても CI が 1 段も起動しない**
 // (pre-push でセキュリティテストが一度も走らない)。無害扱いにしてよいのは
 // CI 領域を持たないディレクトリだけ。
-const BENIGN_PREFIXES = ['docs/', 'offline/', 'scripts/', '.github/', '.claude/', '.husky/'];
+// `offline/`・`.claude/` も同じ理由でここへ含めない: 署名検証・requirements 許可リストの
+// 実装本体(offline/lib/verify.ps1)・フック(.claude/hooks/*.cjs)には固有の検査があり、
+// 無害入りしていた期間はその検査が 1 段も起動しなかった(comments 検査は .ps1 の BOM/併設と
+// .cjs のコメント規約しか見ず、実装のロジックは見ない)。
+const BENIGN_PREFIXES = ['docs/', 'scripts/', '.github/', '.husky/'];
 
 // ── 2. 引数・ベース ref の決定 ──
 // 既定は現ブランチの upstream(= origin/<branch>)。常設ブランチ運用では push 対象の新規コミット
