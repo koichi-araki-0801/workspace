@@ -339,6 +339,32 @@ onMounted(load);
               この箇所は差分が大きいため簡易表示です
             </span>
           </div>
+
+          <!-- 本文テキストの語句差分。**親アプリの DOM に、エスケープして描く** — 下の
+               着色プレビューは申請者 CSS を載せた iframe なので、申請者は自分の要素へ
+               display/opacity/transform/font-size/@media 等を当てて変更を隠せる。ここは
+               textContent 由来で CSS の影響を受けないため、隠された変更もそのまま現れる。
+               これが承認判断の正典で、iframe プレビューは見た目確認の補助。 -->
+          <div v-if="r.row.textOps.length" class="border-b px-4 py-2">
+            <div class="mb-1 text-xs font-medium text-muted-foreground">
+              本文の変更（申請者のスタイルに影響されない照合。確定・保存される差分）
+            </div>
+            <p class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
+              <template v-for="(op, i) in r.row.textOps" :key="i">
+                <del
+                  v-if="op.type === 'del'"
+                  class="rounded-sm bg-red-100 text-red-800 line-through"
+                  >{{ op.text }}</del
+                >
+                <ins
+                  v-else-if="op.type === 'ins'"
+                  class="rounded-sm bg-green-100 text-green-800 no-underline"
+                  >{{ op.text }}</ins
+                >
+                <span v-else>{{ op.text }}</span>
+              </template>
+            </p>
+          </div>
           <div class="grid gap-3 p-3 md:grid-cols-2">
             <figure class="space-y-1">
               <figcaption class="text-xs text-muted-foreground">変更前(現行版)</figcaption>

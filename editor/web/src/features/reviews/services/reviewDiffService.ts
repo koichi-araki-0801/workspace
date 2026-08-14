@@ -7,7 +7,14 @@
 // 現行版・申請版とも `compareService` の素の sample 描画に揃え、見せかけ差分を避ける。
 import { isErr, ok, type Result, type ReviewRepository, type ReviewRequest } from '@editor/shared';
 import { useReviewRepo } from '@/api/repositories';
-import { type BlockStatus, hasPrintOnlyRules } from '@/features/compare/htmlBlockDiff';
+import {
+  type BlockStatus,
+  createLcsBudget,
+  type DiffOp,
+  diffTokens,
+  hasPrintOnlyRules,
+  tokenize,
+} from '@/features/compare/htmlBlockDiff';
 import { type CompareService, useCompareService } from '@/features/compare/services/compareService';
 import { htmlWorker } from '@/workers';
 
@@ -21,6 +28,16 @@ export interface ReviewPartRow {
   beforeHtml: string;
   /** このパーツだけの着色済み変更後 HTML(removed では空)。 */
   afterHtml: string;
+  /**
+   * 申請者スタイルの影響を受けない**本文テキストの語句差分**。承認画面はこれを親アプリの
+   * DOM に(エスケープした上で)描く。着色済みプレビューは申請者 CSS を載せた sandbox
+   * iframe で描くため、申請者は装飾クラスでなく自分の要素の selector に未保護プロパティ
+   * (`display` / `opacity` / `transform` / `font-size` / `-webkit-text-fill-color` 等)を当てて
+   * 変更箇所を隠せる(装飾の `!important` 保護は列挙済みプロパティしか守れず、`@media screen`
+   * でも回避できる)。`textContent` は CSS を無視するので、この語句差分には隠された変更も
+   * 現れる。空配列 = このパーツは差分表示の対象外(status が `same`)。
+   */
+  textOps: DiffOp[];
 }
 
 /** パーツ行の集計(承認画面ヘッダの件数表示用)。 */
@@ -63,6 +80,22 @@ interface ReviewDiffData {
 /** CSS の実質的な差分判定。空白差(整形・改行)は差分と見なさない。 */
 function normalizeCssForCompare(css: string): string {
   return css.replace(/\s+/g, ' ').trim();
+}
+
+/** 着色済みマークアップから**表示テキスト**を取り出す。`textContent` は CSS を無視するので、
+ *  `display:none` や `@media` で隠された本文もここには現れる(申請者スタイルで隠せない)。 */
+function htmlToText(html: string): string {
+  if (!html.trim()) return '';
+  return new DOMParser().parseFromString(html, 'text/html').body.textContent ?? '';
+}
+
+/** 変更前後の本文テキストの語句差分。承認画面が申請者 CSS の影響を受けずに描く照合の正典。 */
+function textWordOps(beforeHtml: string, afterHtml: string): DiffOp[] {
+  return diffTokens(
+    tokenize(htmlToText(beforeHtml)),
+    tokenize(htmlToText(afterHtml)),
+    createLcsBudget(),
+  ).ops;
 }
 
 /**
@@ -126,6 +159,8 @@ export function createReviewDiffService(
           status: b.status,
           beforeHtml: b.beforeHtml,
           afterHtml: b.afterHtml,
+          // 変更のあるパーツだけ本文語句差分を作る(same は表示対象外なので空)。
+          textOps: b.status === 'same' ? [] : textWordOps(b.beforeHtml, b.afterHtml),
         })),
       );
       const summary: ReviewChangeSummary = {

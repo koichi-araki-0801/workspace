@@ -186,6 +186,57 @@ describe('reviewDiffService.buildDiff', () => {
     expect(res.value.printOnlyCss).toBe(false);
   });
 
+  it('本文語句差分(textOps)は申請者 CSS で隠した変更も拾う(textContent 由来)', async () => {
+    // 変更後の "90" を display:none で隠しても、textContent には残るので textOps に現れる。
+    buildHtmlDiff.mockResolvedValue({
+      pages: [
+        {
+          index: 0,
+          changed: true,
+          changedBlockCount: 1,
+          beforeHtml: '',
+          afterHtml: '',
+          blocks: [
+            {
+              key: 'k0',
+              label: 'ページ1・パーツ1',
+              status: 'changed',
+              beforeHtml: '<p>手数料は<span>10</span>%</p>',
+              afterHtml: '<p>手数料は<span style="display:none">90</span>%</p>',
+            },
+          ],
+        },
+      ],
+      changedPageCount: 1,
+      beforePageCount: 1,
+      afterPageCount: 1,
+    });
+    const { service } = makeService({});
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const ops = res.value.rows[0].textOps;
+    const insText = ops
+      .filter((o) => o.type === 'ins')
+      .map((o) => o.text)
+      .join('');
+    const delText = ops
+      .filter((o) => o.type === 'del')
+      .map((o) => o.text)
+      .join('');
+    expect(insText).toContain('90'); // 隠された変更後の値も拾える
+    expect(delText).toContain('10');
+  });
+
+  it('same パーツは textOps を作らない(空)', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'same' }]));
+    const { service } = makeService({});
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.rows[0].textOps).toEqual([]);
+  });
+
   it('getReview のエラーはそのまま伝播する', async () => {
     const { service } = makeService({ getReview: err(notFound('no request')) });
     const res = await service.buildDiff('req-x');
