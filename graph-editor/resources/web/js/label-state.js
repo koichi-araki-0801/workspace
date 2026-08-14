@@ -45,7 +45,11 @@ class LabelState {
     // 行間 (em): 既存 `tspan` の 0 でない `dy` から検出。無ければ既定。
     let ls = CONFIG.defaultLineSpacing;
     for (const t of tspans) {
-      const m = (t.getAttribute("dy") || "").match(/(-?\d*\.?\d+)\s*em/);
+      const dy = (t.getAttribute("dy") || "").trim();
+      // 数値トークンは重なりのない形にする (`\d*\.?\d+` は省略可能な数字列と必須の数字列が
+      // 重なり、`em` に至れない長い数字列で開始位置ごとに二次バックトラックする)。加えて
+      // trim 済み値の先頭へアンカーして全開始位置での再試行も消す (入力は未信頼 SVG の dy)。
+      const m = dy.match(/^(-?\d+(?:\.\d+)?|-?\.\d+)\s*em/);
       if (m) { const v = Math.abs(parseFloat(m[1])); if (v > 0.01) { ls = v; break; } }
     }
     this.lineSpacing = ls;
