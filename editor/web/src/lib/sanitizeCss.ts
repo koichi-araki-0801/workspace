@@ -10,7 +10,8 @@
 // `content:"</style><script>…"` と書くだけで style 要素を閉じ、スクリプトを注入できる。
 // HTML 側は DOMPurify(`sanitizeHtml.ts`)が見るが、CSS 文字列はそこを通らないため、
 // `<style>` へ差し込む直前にここで潰す。
-//
+import { findExternalRefsInCss, isSelfContainedUrl } from '@editor/shared';
+
 // 置換は「`</` の `/` を CSS のエスケープ `\/` にする」だけに留める。CSS 文字列の中では
 // `\/` は `/` と同義なので見た目・意味とも変わらず、HTML パーサからは `</style` に
 // 一致しなくなる(= 要素が閉じない)。正当な CSS がこの並びを必要とすることはない。
@@ -35,4 +36,21 @@ export function styleTag(css: string, attrs = ''): string {
 // ── CSS の外部参照検出 ──────────────────────────────────
 // 実体は `@editor/shared` の `security/cssExternalRefs.ts`。サーバの build 入口と web が
 // **同一の関数**を使うことが要件で、片方だけを直す退行を構造で防ぐ。
-export { findExternalRefsInCss, isSelfContainedUrl } from '@editor/shared';
+export { findExternalRefsInCss, isSelfContainedUrl };
+
+/** 利用者へ見せる参照の最大件数。全部並べると入力の反射になるので頭だけ出す。 */
+const MAX_REPORTED_REFS = 5;
+
+/**
+ * CSS に外部参照があればその要約(先頭数件)を、無ければ `null` を返す。
+ *
+ * 判定は shared のトークナイザ 1 本に委ね、ここは**表示の整形だけ**を持つ。拒否側の文言は
+ * 経路ごとに違うため、共有するのは「何が引っかかったか」の一行に限る。
+ */
+export function summarizeExternalCssRefs(css: string): string | null {
+  const refs = findExternalRefsInCss(css);
+  if (refs.length === 0) return null;
+  const head = refs.slice(0, MAX_REPORTED_REFS).join(', ');
+  const rest = refs.length - MAX_REPORTED_REFS;
+  return rest > 0 ? `${head} ほか${rest}件` : head;
+}
