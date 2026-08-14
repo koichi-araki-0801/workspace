@@ -188,7 +188,11 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
       let meta: Awaited<ReturnType<typeof previewManager.start>>;
       if (Buffer.isBuffer(request.body)) {
         const zip = request.body;
-        const project = await extractProjectZip(zip);
+        // zip 展開は受付ゲートの内側で行う(build 経路と同じ規律)。枠の外で展開すると、
+        // 順番待ちのあいだ展開済みディレクトリと本文バッファを握り、同時要求の数だけ
+        // 作業領域が積み上がる。展開が済めば枠は返し、セッション寿命は previewManager が
+        // 別に管理する(起動中の枠は `PreviewManager` の reservations が上限で押さえる)。
+        const project = await withBuildSlot(async () => extractProjectZip(zip));
         // `previewManager.start` は起動失敗時に `workDir` を掃除するが、その手前で弾く
         // `entry` 検証は自分で後始末する(展開ディレクトリを残さない)。
         let opts: ReturnType<typeof projectOptions>;
