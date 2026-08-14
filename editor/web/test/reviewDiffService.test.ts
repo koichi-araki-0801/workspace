@@ -15,6 +15,14 @@ vi.mock('@/workers', () => ({
   htmlWorker: { buildHtmlDiff: (...a: unknown[]) => buildHtmlDiff(...a) },
 }));
 
+// 本文語句差分の LCS 予算共有をテストしやすくするため、予算を小さく固定する
+// (`diffTokens` / `tokenize` は実物のまま)。値は下の各小テキストのテスト(数十セル)には
+// 影響せず、予算共有テストの 2 ブロック(各 ~19000 セル)でだけ効く大きさにしてある。
+vi.mock('@/features/compare/htmlBlockDiff', async (orig) => {
+  const actual = await orig<typeof import('@/features/compare/htmlBlockDiff')>();
+  return { ...actual, createLcsBudget: () => ({ remaining: 20_000 }) };
+});
+
 /** テスト用の申請(本体込み)。origin を差し替えて 2 系統を作る。 */
 function review(origin: 'edit' | 'create'): ReviewRequest {
   return {
@@ -226,6 +234,43 @@ describe('reviewDiffService.buildDiff', () => {
       .join('');
     expect(insText).toContain('90'); // 隠された変更後の値も拾える
     expect(delText).toContain('10');
+  });
+
+  it('本文語句差分の LCS 予算は文書単位で共有される(F2 の DoS 回避)', async () => {
+    // 各ブロック単独では語句差分できる大きさだが、合算で文書予算(モック 20000)を超えるよう
+    // 2 ブロックを組む。予算を共有していれば 2 ブロック目は粗い差分(coarse=del+ins の 2 op)へ
+    // 落ちる。ブロックごとに予算を切っていれば両方語句単位になり、この主張は破れる。
+    const words = (seed: string) => Array.from({ length: 70 }, (_, i) => `${seed}${i}`).join(' ');
+    const mkBlock = (i: number) => ({
+      key: `k${i}`,
+      label: `ページ1・パーツ${i + 1}`,
+      status: 'changed',
+      beforeHtml: `<p>${words(`a${i}`)}</p>`,
+      afterHtml: `<p>${words(`b${i}`)}</p>`,
+    });
+    buildHtmlDiff.mockResolvedValue({
+      pages: [
+        {
+          index: 0,
+          changed: true,
+          changedBlockCount: 2,
+          beforeHtml: '',
+          afterHtml: '',
+          blocks: [mkBlock(0), mkBlock(1)],
+        },
+      ],
+      changedPageCount: 1,
+      beforePageCount: 1,
+      afterPageCount: 1,
+    });
+    const { service } = makeService({});
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const isCoarse = (ops: { type: string }[]) =>
+      ops.length === 2 && ops.every((o) => o.type !== 'same');
+    expect(isCoarse(res.value.rows[0].textOps)).toBe(false); // 1 つ目は語句単位
+    expect(isCoarse(res.value.rows[1].textOps)).toBe(true); // 予算を使い切り 2 つ目は粗い差分
   });
 
   it('same パーツは textOps を作らない(空)', async () => {

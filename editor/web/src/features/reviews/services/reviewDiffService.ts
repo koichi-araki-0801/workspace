@@ -13,6 +13,7 @@ import {
   type DiffOp,
   diffTokens,
   hasPrintOnlyRules,
+  type LcsBudget,
   tokenize,
 } from '@/features/compare/htmlBlockDiff';
 import { type CompareService, useCompareService } from '@/features/compare/services/compareService';
@@ -89,13 +90,14 @@ function htmlToText(html: string): string {
   return new DOMParser().parseFromString(html, 'text/html').body.textContent ?? '';
 }
 
-/** 変更前後の本文テキストの語句差分。承認画面が申請者 CSS の影響を受けずに描く照合の正典。 */
-function textWordOps(beforeHtml: string, afterHtml: string): DiffOp[] {
-  return diffTokens(
-    tokenize(htmlToText(beforeHtml)),
-    tokenize(htmlToText(afterHtml)),
-    createLcsBudget(),
-  ).ops;
+/**
+ * 変更前後の本文テキストの語句差分。承認画面が申請者 CSS の影響を受けずに描く照合の正典。
+ * `budget` は**文書 1 件ぶんを 1 つだけ**渡す(呼び出しごとに新規確保しない) — ブロックごとに
+ * 予算を切ると、worker 側の文書単位セル上限(`MAX_LCS_TOTAL_CELLS`)をメインスレッド経路で
+ * 回避でき、変更ブロックを多数含む申請 1 件で承認者タブを固められる。
+ */
+function textWordOps(beforeHtml: string, afterHtml: string, budget: LcsBudget): DiffOp[] {
+  return diffTokens(tokenize(htmlToText(beforeHtml)), tokenize(htmlToText(afterHtml)), budget).ops;
 }
 
 /**
@@ -152,6 +154,9 @@ export function createReviewDiffService(
       }
 
       const diff = await htmlWorker.buildHtmlDiff(beforeHtml, after.html, cssBefore, after.css);
+      // 本文語句差分の LCS 予算は**文書 1 件で 1 つ**(worker の `diffPairs` と同じ規律)。
+      // 全パーツで使い切る形にして、ブロック数で計算量を青天井にできないようにする。
+      const textBudget = createLcsBudget();
       const rows: ReviewPartRow[] = diff.pages.flatMap((p) =>
         p.blocks.map((b) => ({
           key: b.key,
@@ -160,7 +165,7 @@ export function createReviewDiffService(
           beforeHtml: b.beforeHtml,
           afterHtml: b.afterHtml,
           // 変更のあるパーツだけ本文語句差分を作る(same は表示対象外なので空)。
-          textOps: b.status === 'same' ? [] : textWordOps(b.beforeHtml, b.afterHtml),
+          textOps: b.status === 'same' ? [] : textWordOps(b.beforeHtml, b.afterHtml, textBudget),
         })),
       );
       const summary: ReviewChangeSummary = {

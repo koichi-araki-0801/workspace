@@ -28,6 +28,20 @@ describe('buildHtmlDiff', () => {
     expect(diff.pages[0].beforeHtml).not.toContain(HL_DEL);
   });
 
+  it('body 直下の地の文もパーツとして拾う(要素だけを内容としない)', () => {
+    // `<body>` 直下のテキストノードが要素で包まれていなくても、変更が差分に現れること。
+    const before = '<body>手数料は10%<div id="k">x</div></body>';
+    const after = '<body>手数料は90%<div id="k">x</div></body>';
+    const diff = buildHtmlDiff(before, after);
+    expect(diff.changedPageCount).toBe(1);
+    expect(diff.pages[0].changedBlockCount).toBeGreaterThan(0);
+    const afterMarkup = diff.pages
+      .flatMap((p) => p.blocks)
+      .map((b) => b.afterHtml)
+      .join('');
+    expect(afterMarkup).toContain('90'); // 地の文の変更後の値が差分に現れる
+  });
+
   it('flags a changed block and highlights the changed words per pane', () => {
     const before = doc('<p id="a">old</p>');
     const after = doc('<p id="a">new</p>');

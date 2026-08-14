@@ -55,7 +55,10 @@ def main(argv=None):
         for svg in targets:
             w, h = _svg_size(svg)
             out = svg.with_suffix(".png")
-            shot.capture(browser, svg.resolve().as_uri(), w, h, out, selector="svg")
+            # 図版は自己完結（外部参照を持たない）。file:/data: 以外の取得は allowlist で
+            # 止める（SVG 内の http(s) 外部参照による保守者マシンからの SSRF 面を閉じる）。
+            shot.capture(browser, svg.resolve().as_uri(), w, h, out, selector="svg",
+                         allowed_schemes=("file", "data"))
             print(f"  [ok] {out.relative_to(DOCS)}")
     return 0
 
