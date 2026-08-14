@@ -134,6 +134,58 @@ describe('reviewDiffService.buildDiff', () => {
     expect(res.value.summary.removed).toBe(1);
   });
 
+  it('CSS だけ変わった申請(HTML 差分なし)でも cssChanged を立てる', async () => {
+    // HTML 差分は全 same(changed/added/removed は 0)。それでも共有 CSS は変わっている。
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'same' }]));
+    const { service } = makeService({
+      renderTemplateBody: ok({ html: '<after>', css: '.shared{color:red}' }),
+      renderVersionHtml: ok({ html: '<before>', css: '.shared{color:blue}' }),
+    });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.summary.changed).toBe(0);
+    expect(res.value.cssChanged).toBe(true);
+  });
+
+  it('CSS が空白差だけなら cssChanged は false', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'same' }]));
+    const { service } = makeService({
+      renderTemplateBody: ok({ html: '<after>', css: '.shared{color:red}' }),
+      renderVersionHtml: ok({ html: '<before>', css: '  .shared{color:red}\n' }),
+    });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.cssChanged).toBe(false);
+  });
+
+  it('申請 HTML 内のインライン <style> の印刷専用規則も printOnlyCss に数える', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'changed' }]));
+    // ファンド CSS(after.css)には印刷専用規則が無いが、本文の <style> にはある。
+    const { service } = makeService({
+      renderTemplateBody: ok({
+        html: '<div><style>.x{display:none}@media print{.x{display:block}}</style><p class="x">秘</p></div>',
+        css: '.after{}',
+      }),
+    });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.printOnlyCss).toBe(true);
+  });
+
+  it('印刷専用規則がどこにも無ければ printOnlyCss は false', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'changed' }]));
+    const { service } = makeService({
+      renderTemplateBody: ok({ html: '<div><style>.x{color:red}</style></div>', css: '.after{}' }),
+    });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.printOnlyCss).toBe(false);
+  });
+
   it('getReview のエラーはそのまま伝播する', async () => {
     const { service } = makeService({ getReview: err(notFound('no request')) });
     const res = await service.buildDiff('req-x');

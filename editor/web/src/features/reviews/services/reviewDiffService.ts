@@ -46,10 +46,44 @@ interface ReviewDiffData {
    */
   truncated: boolean;
   /**
-   * 申請 CSS に印刷時だけ効く規則があるか。承認者の見え(screen)と成果物(print)が
-   * 乖離しうるので注記を出す。関門ではない。
+   * ファンド共通 CSS が現行版と変わっているか。パーツ(HTML)差分が 0 でも per-fund CSS は
+   * 承認で `writeTemplateAndCss` により上書きされ、以後そのファンドの全テンプレ・全 PDF に
+   * 効く。HTML 差分だけを見て「変更なし」と表示すると、承認者が見ていない CSS 変更が
+   * そのまま本番へ入る。承認画面はこのフラグが真なら「変更なし」を出さず、CSS 差分を見せる。
+   */
+  cssChanged: boolean;
+  /**
+   * 申請で適用され得る全スタイルシート(ファンド CSS + 申請 HTML 内のインライン `<style>`)に
+   * 印刷時だけ効く規則があるか。承認者の見え(screen)と成果物(print)が乖離しうるので注記を
+   * 出す。関門ではない。
    */
   printOnlyCss: boolean;
+}
+
+/** CSS の実質的な差分判定。空白差(整形・改行)は差分と見なさない。 */
+function normalizeCssForCompare(css: string): string {
+  return css.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * 承認ペインで実際に適用され得る全スタイルシートのテキストを 1 本に集める。
+ * ファンド CSS に加え、申請 HTML 内のインライン `<style>`(能動コンテンツとして意図的に
+ * 残される)も対象にする。印刷差異検査は `srcdoc` へ埋めるのと同じ文字列から計算しないと、
+ * 「検査はファンド CSS だけ、実際に効くのは本文の `<style>` も」というズレで素通りする。
+ */
+function collectPaneStyleText(afterHtml: string, fundCss: string): string {
+  const parts: string[] = [];
+  if (fundCss.trim()) parts.push(fundCss);
+  try {
+    const doc = new DOMParser().parseFromString(afterHtml, 'text/html');
+    for (const el of Array.from(doc.querySelectorAll('style'))) {
+      const t = el.textContent ?? '';
+      if (t.trim()) parts.push(t);
+    }
+  } catch {
+    // パースできない場合でもファンド CSS 側の検査は生かす(黙って false に倒さない)。
+  }
+  return parts.join('\n');
 }
 
 interface ReviewDiffService {
@@ -107,7 +141,8 @@ export function createReviewDiffService(
         cssBefore,
         cssAfter: after.css,
         truncated: diff.truncated,
-        printOnlyCss: hasPrintOnlyRules(after.css),
+        cssChanged: normalizeCssForCompare(cssBefore) !== normalizeCssForCompare(after.css),
+        printOnlyCss: hasPrintOnlyRules(collectPaneStyleText(after.html, after.css)),
       });
     },
   };

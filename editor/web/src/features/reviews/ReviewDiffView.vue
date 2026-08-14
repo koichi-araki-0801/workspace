@@ -41,6 +41,7 @@ const {
   cssBefore,
   cssAfter,
   truncated,
+  cssChanged,
   printOnlyCss,
   loadError,
   loading,
@@ -54,6 +55,36 @@ const {
 const showUnchanged = ref(false);
 const visibleRows = computed(() =>
   showUnchanged.value ? rows.value : rows.value.filter((r) => r.status !== 'same'),
+);
+
+/**
+ * 一度に描画するパーツ行数の上限。各行は申請者制御の CSS(最大 1 MiB)を丸ごとインライン
+ * した iframe を 2 つ作るため、上限が無いと 1 件の申請(数千の小 top-level block を全て
+ * 変更にした形)で承認者のブラウザを固められる。上限超過は描画せず、その旨を画面へ出す
+ * (承認者は分割再申請を求められる)。
+ */
+const MAX_RENDERED_ROWS = 200;
+const cappedRows = computed(() => visibleRows.value.slice(0, MAX_RENDERED_ROWS));
+const hiddenRowCount = computed(() => Math.max(0, visibleRows.value.length - MAX_RENDERED_ROWS));
+
+/**
+ * 各行の `srcdoc` を**データ依存の computed で 1 度だけ**組み立てる。`buildDoc` は
+ * `buildDiffDoc` がカスケードレイヤ名を毎回乱数生成する非冪等関数なので、テンプレートで
+ * 直接呼ぶと(メモ欄への 1 文字入力など)無関係な再描画のたびに全 `srcdoc` 文字列が変わり、
+ * Vue が全 iframe を作り直す。ここで一度だけ組み立てて安定参照にすると、行データか CSS が
+ * 変わったときにしか iframe が再構築されない。
+ */
+interface RenderedRow {
+  row: ReviewPartRow;
+  beforeDoc: string;
+  afterDoc: string;
+}
+const renderedRows = computed<RenderedRow[]>(() =>
+  cappedRows.value.map((row) => ({
+    row,
+    beforeDoc: row.status === 'added' ? '' : buildDoc(row.beforeHtml, cssBefore.value),
+    afterDoc: row.status === 'removed' ? '' : buildDoc(row.afterHtml, cssAfter.value),
+  })),
 );
 
 const comment = ref('');
@@ -250,8 +281,33 @@ onMounted(load);
         この画面の見えと PDF の仕上がりが異なる場合があるため、PDF プレビューでも確認してください。
       </p>
 
+      <!-- ファンド共通 CSS の変更。HTML 差分が 0 でも承認で per-fund CSS は上書きされ、以後
+           そのファンドの全テンプレート・全 PDF に効く。「承認者に見せていないバイト列を承認で
+           書かない」ため、変更があれば必ず変更前後を提示する(HTML 差分の有無に依らず出す)。 -->
+      <details
+        v-if="cssChanged"
+        open
+        class="rounded-md border border-violet-300 bg-violet-50 px-3 py-2 text-sm text-violet-900"
+      >
+        <summary class="cursor-pointer font-medium">
+          ファンド共通 CSS が変更されています（承認するとこのファンドの全テンプレート・全 PDF に反映されます）
+        </summary>
+        <div class="mt-2 grid gap-3 md:grid-cols-2">
+          <figure class="min-w-0 space-y-1">
+            <figcaption class="text-xs">変更前(現行版)</figcaption>
+            <pre class="max-h-64 overflow-auto rounded border bg-white p-2 text-xs text-foreground"><code>{{ cssBefore }}</code></pre>
+          </figure>
+          <figure class="min-w-0 space-y-1">
+            <figcaption class="text-xs">変更後(申請版)</figcaption>
+            <pre class="max-h-64 overflow-auto rounded border bg-white p-2 text-xs text-foreground"><code>{{ cssAfter }}</code></pre>
+          </figure>
+        </div>
+      </details>
+
+      <!-- 「変更なし」の空状態は CSS も同一のときだけ出す(CSS が変わっていれば上の CSS 差分が
+           一級の変更なので、HTML パーツ差分が 0 でも「差分なし」とは言わない)。 -->
       <EmptyState
-        v-if="visibleRows.length === 0"
+        v-if="visibleRows.length === 0 && !cssChanged"
         :icon="ClipboardCheck"
         title="表示できる差分がありません"
         :hint="
@@ -261,17 +317,22 @@ onMounted(load);
         "
       />
 
-      <!-- パーツ行リスト(パーツ = 1 行・変更前 | 変更後) -->
-      <ul v-else class="space-y-3">
-        <li v-for="row in visibleRows" :key="row.key" class="rounded-[12px] border bg-card shadow-sm">
+      <!-- パーツ行リスト(パーツ = 1 行・変更前 | 変更後)。行は `renderedRows`(cap 済み・
+           srcdoc は 1 度だけ組み立て済み)を回す。 -->
+      <ul v-else-if="renderedRows.length" class="space-y-3">
+        <li
+          v-for="r in renderedRows"
+          :key="r.row.key"
+          class="rounded-[12px] border bg-card shadow-sm"
+        >
           <div class="flex items-center gap-2 border-b px-4 py-2">
-            <span class="text-sm font-bold">{{ row.label }}</span>
-            <Badge :variant="STATUS_BADGE[row.status].variant">
-              {{ STATUS_BADGE[row.status].label }}
+            <span class="text-sm font-bold">{{ r.row.label }}</span>
+            <Badge :variant="STATUS_BADGE[r.row.status].variant">
+              {{ STATUS_BADGE[r.row.status].label }}
             </Badge>
             <!-- 差分自体は必ず出す。語句単位の着色だけ諦めた旨を控えめに添える。 -->
             <span
-              v-if="isCoarseRow(row)"
+              v-if="isCoarseRow(r.row)"
               class="text-xs text-muted-foreground"
               title="テキストが大きいため語句単位の着色を省略し、変更前後の全文を色分けしています。"
             >
@@ -282,7 +343,7 @@ onMounted(load);
             <figure class="space-y-1">
               <figcaption class="text-xs text-muted-foreground">変更前(現行版)</figcaption>
               <div
-                v-if="row.status === 'added'"
+                v-if="r.row.status === 'added'"
                 class="grid place-items-center rounded border border-dashed bg-muted/30 py-8 text-xs text-muted-foreground"
               >
                 （なし・新規追加）
@@ -295,7 +356,7 @@ onMounted(load);
                      両方を同時に付けると子は親オリジンの DOM へ到達でき sandbox が無効化
                      される。高さは子からの postMessage で受ける(`useIframeAutoFit`)。 -->
                 <iframe
-                  :srcdoc="buildDoc(row.beforeHtml, cssBefore)"
+                  :srcdoc="r.beforeDoc"
                   sandbox="allow-scripts"
                   title="変更前"
                   class="block w-full"
@@ -307,7 +368,7 @@ onMounted(load);
             <figure class="space-y-1">
               <figcaption class="text-xs text-muted-foreground">変更後(申請版)</figcaption>
               <div
-                v-if="row.status === 'removed'"
+                v-if="r.row.status === 'removed'"
                 class="grid place-items-center rounded border border-dashed bg-muted/30 py-8 text-xs text-muted-foreground"
               >
                 （なし・削除）
@@ -315,7 +376,7 @@ onMounted(load);
               <div v-else class="overflow-hidden rounded border bg-white">
                 <!-- sandbox の意図は「変更前」ペインと同じ(上のコメントを見よ)。 -->
                 <iframe
-                  :srcdoc="buildDoc(row.afterHtml, cssAfter)"
+                  :srcdoc="r.afterDoc"
                   sandbox="allow-scripts"
                   title="変更後"
                   class="block w-full"
@@ -327,6 +388,16 @@ onMounted(load);
           </div>
         </li>
       </ul>
+
+      <!-- 上限で描画を打ち切ったパーツがある場合。承認者は残りを確認できないので、分割
+           再申請を促す(打ち切りは黙って隠さない)。 -->
+      <p
+        v-if="hiddenRowCount > 0"
+        class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+      >
+        変更パーツが多すぎるため、<strong>残り {{ hiddenRowCount }} 件を表示していません</strong>。
+        全体を確認するには申請を分割して出し直してもらってください。
+      </p>
 
       <!-- 承認/却下(精査者のみ・pending のみ) -->
       <div v-if="canDecide" class="space-y-2 rounded-[12px] border bg-muted/30 p-4">
