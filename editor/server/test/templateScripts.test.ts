@@ -17,6 +17,36 @@ import {
 
 const CTX = { templateId: 'AM01_510037_20240710_交付版', where: 'test' };
 
+describe('走査の作業量が入力長に対して線形に収まる(DoS)', () => {
+  // いずれも二次だった実装では数分〜停止に達した形。線形化と byte 予算で必ず返ることを
+  // 主張する(タイムアウトすれば回帰として赤くなる)。件数の主張はしない — 返ることが要件。
+  it('閉じない `{{` の連なりを持つ URL 属性を舐め続けない(isInertUrl の線形 strip)', () => {
+    const html = `<a href="${'{'.repeat(500_000)}">`;
+    expect(Array.isArray(collectExecutableUnits(html))).toBe(true);
+  });
+  it('閉じない `<style>` の反復を残り全体として再走査し続けない(depth + 予算)', () => {
+    const html = '<style>'.repeat(100_000);
+    expect(Array.isArray(collectExecutableUnits(html))).toBe(true);
+  });
+  it('タグ内の `{{` 反復で閉じ記号を末尾まで探し続けない(jinjaEnd の予算)', () => {
+    const html = `<div ${'{{ '.repeat(200_000)}>`;
+    expect(Array.isArray(collectExecutableUnits(html))).toBe(true);
+  });
+});
+
+describe('線形 Jinja strip は隠れた活性スキームを取り逃がさない', () => {
+  // `href="{{''}}javascript:…"` はトークンを剥がすと活性になる。剥がしを線形化しても
+  // この判定(単位化される = 基準と異なれば拒否)が保たれることを固定する。
+  it('先頭の閉じるトークンの後ろに javascript: があれば単位化する', () => {
+    const units = collectExecutableUnits(`<a href="{{''}}javascript:alert(1)">`);
+    expect(units.some((u) => u.startsWith('url:'))).toBe(true);
+  });
+  it('トークン展開後も相対 URL のままなら単位化しない', () => {
+    const units = collectExecutableUnits(`<a href="{{ x }}/foo/bar">`);
+    expect(units.some((u) => u.startsWith('url:'))).toBe(false);
+  });
+});
+
 /** 不変性照合の結果を boolean で得る(AppError であることも同時に確かめる)。 */
 function accepted(baseline: string, submitted: string): boolean {
   try {

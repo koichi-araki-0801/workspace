@@ -69,6 +69,20 @@ const ENCODED_ATTR_RE = new RegExp(
 // 展開しきれなかった入力は基準側と一致しないので拒否側に倒れる)。
 const MAX_DECODE_DEPTH = 4;
 
+/**
+ * 走査に費やしてよい総バイト数の予算。入力サイズ上限(申請本文の契約上限 4 MiB)だけでは、
+ * 閉じない `{{` や `<style>` の反復が開始位置ごとに末尾まで舐め直す二次爆発を止められない
+ * (4 MiB 未満の入力で数百 GB 規模の走査になりうる)。走査系はこの予算を減算し、尽きたら
+ * 走査を打ち切る。打ち切られた入力は単位列が基準と一致しないので申請は拒否側へ倒れる
+ * (fail closed)。正当なテンプレの走査コスト(入力長の数倍)を十分上回る値にしてある。
+ */
+const MAX_SCAN_BYTES = 64 * 1024 * 1024;
+
+/** 走査中に共有する可変の作業量予算。`collectExecutableUnits` が 1 回作って配る。 */
+interface ScanBudget {
+  remaining: number;
+}
+
 function decodeBase64(value: string): string | null {
   const compact = value.replace(/\s+/g, '');
   if (compact === '') return '';
@@ -462,11 +476,13 @@ const TAG_LIKE_LT_RE = /<[a-zA-Z!/?]/;
  * この読み飛ばしは字面の上でも誤り。`{% if a > b %}` のような正当な断片は `<` を含まない
  * ので影響を受けない。
  */
-function jinjaEnd(text: string, at: number): number {
+function jinjaEnd(text: string, at: number, budget: ScanBudget): number {
   const open = text.slice(at, at + 2);
   const close = open === '{{' ? '}}' : open === '{%' ? '%}' : open === '{#' ? '#}' : null;
   if (close === null) return -1;
   const e = text.indexOf(close, at + 2);
+  // 閉じ記号を探して走った距離を予算から引く(閉じない `{{` が末尾まで舐める分をここで数える)。
+  budget.remaining -= (e < 0 ? text.length : e) - at;
   if (e < 0) return -1;
   return TAG_LIKE_LT_RE.test(text.slice(at + 2, e)) ? -1 : e + 2;
 }
@@ -487,12 +503,22 @@ function jinjaEnd(text: string, at: number): number {
  * 載せるだけで、`submitReview` 冒頭の同期区間がイベントループを恒久停止させる。
  * `inlineCss.findRawTextEnd` と同じ欠陥で、直すときは両方直すこと。
  */
-function rawTextEnd(text: string, lower: string, name: string, from: number): number {
+function rawTextEnd(
+  text: string,
+  lower: string,
+  name: string,
+  from: number,
+  budget: ScanBudget,
+): number {
   const needle = `</${name}`;
   let i = from;
   while (i < lower.length) {
     const at = lower.indexOf(needle, i);
-    if (at === -1) return -1;
+    if (at === -1) {
+      budget.remaining -= lower.length - i; // 終了タグを探して末尾まで舐めた分を数える
+      return -1;
+    }
+    budget.remaining -= at - i + needle.length;
     const after = text[at + needle.length];
     if (after === undefined || isSpace(after) || after === '/' || after === '>') return at;
     i = at + needle.length;
@@ -504,10 +530,11 @@ function rawTextEnd(text: string, lower: string, name: string, from: number): nu
  * 開始タグだけを順に取り出す簡易走査。**HTML パーサではない**(整形式でない入力でも
  * 止まらず、拾いすぎる方へ倒れる)。終了タグ・コメント・doctype は読み飛ばす。
  */
-function* scanOpenTags(text: string, lower: string): Generator<ParsedTag> {
+function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generator<ParsedTag> {
   const len = text.length;
   let i = 0;
   while (i < len) {
+    if (budget.remaining <= 0) return; // 作業量予算が尽きたら走査を止める(fail closed)
     const lt = text.indexOf('<', i);
     if (lt < 0) return;
     const next = text[lt + 1] ?? '';
@@ -546,6 +573,7 @@ function* scanOpenTags(text: string, lower: string): Generator<ParsedTag> {
     const attrs: ParsedAttr[] = [];
     const jinja: string[] = [];
     while (p < len) {
+      if (budget.remaining <= 0) break; // 1 タグ内で多数の `{{` を舐める形も予算で止める
       while (p < len && (isSpace(text[p] as string) || text[p] === '/')) p++;
       if (p >= len) break;
       if (text[p] === '>') {
@@ -553,7 +581,7 @@ function* scanOpenTags(text: string, lower: string): Generator<ParsedTag> {
         break;
       }
       if (text[p] === '{') {
-        const e = jinjaEnd(text, p);
+        const e = jinjaEnd(text, p, budget);
         if (e > 0) {
           jinja.push(text.slice(p, e));
           p = e;
@@ -586,7 +614,7 @@ function* scanOpenTags(text: string, lower: string): Generator<ParsedTag> {
     yield { at: lt, contentAt: p, name, attrs, jinja };
     // raw text 要素の内容はタグとして解釈されない。走査位置を終了タグの後ろへ進める。
     if (RAW_TEXT_ELEMENTS.has(name)) {
-      const close = rawTextEnd(text, lower, name, p);
+      const close = rawTextEnd(text, lower, name, p, budget);
       i = close < 0 ? len : close + name.length + 2;
     } else {
       i = p > lt ? p : lt + 1;
@@ -595,8 +623,8 @@ function* scanOpenTags(text: string, lower: string): Generator<ParsedTag> {
 }
 
 /** raw text 要素の内容(終了タグが無ければ EOF まで)。終端規則は `rawTextEnd` と共有する。 */
-function rawTextOf(text: string, lower: string, tag: ParsedTag): string {
-  const close = rawTextEnd(text, lower, tag.name, tag.contentAt);
+function rawTextOf(text: string, lower: string, tag: ParsedTag, budget: ScanBudget): string {
+  const close = rawTextEnd(text, lower, tag.name, tag.contentAt, budget);
   return close < 0 ? text.slice(tag.contentAt) : text.slice(tag.contentAt, close);
 }
 
@@ -617,8 +645,31 @@ function isInertAttrName(name: string): boolean {
   return INERT_ATTRS.has(name) || INERT_ATTR_PREFIXES.some((p) => name.startsWith(p));
 }
 
-/** Jinja のトークン(描画時に任意の文字列へ展開される部分)。 */
-const JINJA_TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
+/**
+ * Jinja のトークン(`{{...}}` / `{%...%}` / `{#...#}`)を**単調前進の 1 パス**で取り除く。
+ *
+ * 以前は global + lazy な正規表現 `replace` を使っていたが、閉じない `{{` の連なり
+ * (`href="{{{{…"` の最大 4 MiB)では開始位置ごとに末尾まで舐め直す二次になった。ここは
+ * URL 値のスキーム判定のためにトークンを剥がすだけなので、閉じるトークンは丸ごと飛ばし、
+ * 閉じないトークンは以降を落とす(閉じない `{{` の先に活性スキームは現れないので安全側)。
+ */
+function stripJinjaTokens(s: string): string {
+  let out = '';
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    if (s[i] === '{' && (s[i + 1] === '{' || s[i + 1] === '%' || s[i + 1] === '#')) {
+      const close = s[i + 1] === '{' ? '}}' : s[i + 1] === '%' ? '%}' : '#}';
+      const e = s.indexOf(close, i + 2);
+      if (e < 0) break; // 閉じないトークン: 以降は捨てる
+      i = e + 2; // 閉じるトークンは丸ごと飛ばす(indexOf は前進のみ = 全体で線形)
+      continue;
+    }
+    out += s[i];
+    i++;
+  }
+  return out;
+}
 
 /** 字面のスキームだけを見る素の判定。`isInertUrl` の内側でのみ使う。 */
 function isInertUrlLiteral(decoded: string): boolean {
@@ -643,7 +694,7 @@ function isInertUrlLiteral(decoded: string): boolean {
 function isInertUrl(value: string): boolean {
   const decoded = decodeEntities(value);
   if (!isInertUrlLiteral(decoded)) return false;
-  const stripped = decoded.replace(JINJA_TOKEN_RE, '');
+  const stripped = stripJinjaTokens(decoded);
   return stripped === decoded || isInertUrlLiteral(stripped);
 }
 
@@ -667,15 +718,20 @@ interface PositionedUnit {
   unit: string;
 }
 
-function collectInto(html: string, out: PositionedUnit[], depth: number): void {
+function collectInto(html: string, out: PositionedUnit[], depth: number, budget: ScanBudget): void {
+  // depth は「チップ復号の入れ子」と「<style> 本文の再走査」の両方を数える。閉じない
+  // `<style>` の反復は残り全体を本文として同じ深さで再走査させるため、深さでも止める
+  // (byte 予算と二段で、総走査バイト数・スタック深さの双方を入力長に対して線形に保つ)。
+  if (depth > MAX_DECODE_DEPTH || budget.remaining <= 0) return;
   const { text, payloads } = splitEncodedChips(html);
-  // 小文字化コピーは走査 1 回につき 1 つ(`rawTextEnd` の注意書きを見よ)。
+  // 小文字化コピーは走査 1 回につき 1 つ(`rawTextEnd` の注意書きを見よ)。予算からも引く。
   const lower = text.toLowerCase();
-  for (const tag of scanOpenTags(text, lower)) {
+  budget.remaining -= text.length;
+  for (const tag of scanOpenTags(text, lower, budget)) {
     if (tag.name === 'script') {
       // 中身まで含めて 1 単位。閉じタグを欠く断片も EOF まで拾う(パーサ差で
       // 「閉じていないから script ではない」と判断すると実行される断片を見逃す)。
-      const body = rawTextOf(text, lower, tag);
+      const body = rawTextOf(text, lower, tag, budget);
       out.push({
         at: tag.at,
         seq: out.length,
@@ -684,7 +740,7 @@ function collectInto(html: string, out: PositionedUnit[], depth: number): void {
       continue;
     }
     if (tag.name === 'style') {
-      const body = rawTextOf(text, lower, tag);
+      const body = rawTextOf(text, lower, tag, budget);
       // 宣言の編集(色・寸法)はスタイルマネージャの正当な操作なので単位にしない。
       // 外部を引き込む面(`@import` / 非画像 `url()`)だけを固定する。
       pushCssUnits(body, tag.at, out);
@@ -695,7 +751,9 @@ function collectInto(html: string, out: PositionedUnit[], depth: number): void {
       // HTML 名前空間では実行されない字面まで拾うが、過剰包含は基準側にも同じだけ現れるので
       // 害にならない(ファイル冒頭の方針どおり)。同じ理由で `title` / `textarea` は
       // `RAW_TEXT_ELEMENTS` から外してある。
-      collectInto(body, out, depth);
+      // ⚠ 深さを 1 段下げて再走査する。閉じない `<style>` は本文＝残り全体になり、その中の
+      // `<style>` がまた残り全体を本文にする…と同じ深さで再帰して二次爆発したため。
+      collectInto(body, out, depth + 1, budget);
       // 属性(`media` 等)も見る。`style` 自体は許可要素として扱わない代わりにここで拾う。
       for (const a of tag.attrs) {
         if (!isInertAttrName(a.name)) {
@@ -744,8 +802,9 @@ function collectInto(html: string, out: PositionedUnit[], depth: number): void {
   }
   if (depth >= MAX_DECODE_DEPTH) return;
   for (const p of payloads) {
+    if (budget.remaining <= 0) return;
     const nested: PositionedUnit[] = [];
-    collectInto(p.decoded, nested, depth + 1);
+    collectInto(p.decoded, nested, depth + 1, budget);
     for (const n of nested) out.push({ at: p.at, seq: out.length, unit: n.unit });
   }
 }
@@ -756,7 +815,7 @@ function collectInto(html: string, out: PositionedUnit[], depth: number): void {
  */
 export function collectExecutableUnits(html: string): string[] {
   const out: PositionedUnit[] = [];
-  collectInto(html, out, 0);
+  collectInto(html, out, 0, { remaining: MAX_SCAN_BYTES });
   return out.sort((a, b) => a.at - b.at || a.seq - b.seq).map((u) => u.unit);
 }
 
