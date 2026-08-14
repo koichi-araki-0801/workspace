@@ -51,12 +51,10 @@ const AREAS = {
     match: (p) => p.startsWith('offline/'),
     stages: ['ci:offline'],
   },
-  '.claude': {
-    label: '.claude',
-    match: (p) => p.startsWith('.claude/'),
-    stages: ['check:claude-hooks'],
-  },
 };
+// `.claude/` は領域として持たない: `.gitignore` で git 追跡外のため、変更が `git diff` に
+// 現れず領域発火の判定材料にならない。代わりに `check:claude-hooks` を下の共有ゲートへ
+// 無条件実行として組み込み、diff に関わらず毎回検査する。
 
 // 領域 CI を持たない無害ディレクトリ。これらだけの変更なら共有ゲート(comments/biome)のみで足りる。
 // (`scripts`/`.github`/`.husky` は comments 検査が常時担保。)
@@ -64,10 +62,9 @@ const AREAS = {
 // pytest 側にしか無く、この一覧に入れると**変更しても CI が 1 段も起動しない**
 // (pre-push でセキュリティテストが一度も走らない)。無害扱いにしてよいのは
 // CI 領域を持たないディレクトリだけ。
-// `offline/`・`.claude/` も同じ理由でここへ含めない: 署名検証・requirements 許可リストの
-// 実装本体(offline/lib/verify.ps1)・フック(.claude/hooks/*.cjs)には固有の検査があり、
-// 無害入りしていた期間はその検査が 1 段も起動しなかった(comments 検査は .ps1 の BOM/併設と
-// .cjs のコメント規約しか見ず、実装のロジックは見ない)。
+// `offline/` も同じ理由でここへ含めない: 署名検証・requirements 許可リストの実装本体
+// (offline/lib/verify.ps1)には固有の検査があり、無害入りしていた期間はその検査が
+// 1 段も起動しなかった(comments 検査は .ps1 の BOM/併設しか見ず、実装のロジックは見ない)。
 const BENIGN_PREFIXES = ['docs/', 'scripts/', '.github/', '.husky/'];
 
 // ── 2. 引数・ベース ref の決定 ──
@@ -121,6 +118,9 @@ function runPnpm(script) {
 
 function runFullCi(reason) {
   console.log(`\n[ci:affected] ${reason} → フル \`ci\` を実行します。`);
+  // `ci`(package.json)は check:claude-hooks を含まない。diff に関わらず常時検査する
+  // 対象なので、フル CI へ委譲するこの経路でも取りこぼさないよう先に単独で走らせる。
+  runPnpm('check:claude-hooks');
   runPnpm('ci');
   if (!DRY) console.log('\n[ci:affected] フル ci 完了。');
   process.exit(0);
@@ -165,7 +165,10 @@ console.log(`[ci:affected] 実行領域: ${selected.size ? [...selected].map((a)
 console.log(`[ci:affected] スキップ領域: ${skipped.length ? skipped.map((a) => AREAS[a].label).join(', ') : '(なし)'}`);
 
 // 共有ゲートは領域の有無に関わらず 1 回だけ実行(comments は .ps1/.md 等も検査するため常時必要)。
+// claude-hooks も同列: `.claude/` は git 追跡外で diff に現れないため領域発火の対象にできず、
+// diff の中身に関わらず常時検査する側に置くしかない。
 runPnpm('check:comments');
+runPnpm('check:claude-hooks');
 runPnpm('check:ci');
 
 if (selected.size === 0) {
