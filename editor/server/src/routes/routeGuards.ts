@@ -17,7 +17,13 @@
 // ような表記ゆれは、導出していれば構造的に起こらない。
 import { apiPaths, PREVIEW_HOST_BASE, RENDER_HOST_BASE } from '@editor/shared';
 import type { RouteOptions } from 'fastify';
-import { requireAdmin, requireApprover, requireAuth, requireEditor } from '../middleware/auth.js';
+import {
+  requireAdmin,
+  requireApprover,
+  requireAuth,
+  requireEditor,
+  requireIdentifiedUser,
+} from '../middleware/auth.js';
 
 /** 必要ロール。`auth` = ログイン済みなら誰でも(= viewer も可)。 */
 export type GuardLevel = 'public' | 'auth' | 'editor' | 'approver' | 'admin';
@@ -132,6 +138,23 @@ const REQUIRED_GUARD: Readonly<Record<Exclude<GuardLevel, 'public' | 'auth'>, un
 };
 
 /**
+ * ローカルモード(`AUTH_REQUIRED` 未設定)でも施錠されねばならないルート。
+ *
+ * role ガード(`requireAdmin` 等)は `config.requireAuth` を見て素通りするため、フラグ未設定の
+ * 既定 local 配備では検査ごと消える。資格情報・ユーザー台帳を操作する面は、フラグを見ない
+ * `requireIdentifiedUser` を重ねて 401 にしなければならない(local にサーバ側アカウントは
+ * 無いので 401 が正しい応答)。ここに載せたルートに `requireIdentifiedUser` が無ければ
+ * **サーバ起動時に落ちる** — 「表にはガードがあるが local では効かない」形を届かせない。
+ */
+const LOCAL_MODE_ENFORCED: ReadonlySet<string> = new Set([
+  `POST ${api(apiPaths.authInitPassword)}`,
+  `GET ${api(apiPaths.users)}`,
+  `POST ${api(apiPaths.users)}`,
+  `PATCH ${api(apiPaths.userById)}`,
+  `POST ${api(apiPaths.userResetPassword)}`,
+]);
+
+/**
  * `/api/docs` は Scalar プラグインが自前でルートを生やす外部依存で、登録される URL 集合が
  * 我々の管理下に無い。ここだけは表の対象外にする(この 1 件が唯一の例外で、増やすときは
  * 「そのルート集合を我々が書いていないこと」を条件にする)。
@@ -194,6 +217,12 @@ export function assertRoutePolicy(routeOptions: RouteOptions): void {
     const guard = declared === 'public' || declared === 'auth' ? null : REQUIRED_GUARD[declared];
     if (guard && !preHandlers.includes(guard)) {
       throw new Error(`[routeGuards] ${key} に '${declared}' のガードが付いていません`);
+    }
+    if (LOCAL_MODE_ENFORCED.has(key) && !preHandlers.includes(requireIdentifiedUser)) {
+      throw new Error(
+        `[routeGuards] ${key} は local モード(AUTH_REQUIRED 未設定)でも施錠が必要です — ` +
+          'requireIdentifiedUser を preHandler に重ねてください(role ガードだけでは素通りします)',
+      );
     }
     if (
       MUTATION_METHODS.includes(method) &&

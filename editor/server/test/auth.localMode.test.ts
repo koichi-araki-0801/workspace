@@ -29,6 +29,21 @@ vi.mock('../src/repositories/authRepo.js', () => ({
   initPassword: (...args: unknown[]) => initPassword(...(args as [])),
 }));
 
+// ユーザー管理ルートが local モードで台帳へ到達しないことを固定するため、repo は spy にする。
+const listUsers = vi.fn(async () => []);
+const createUser = vi.fn(async () => ({
+  user: { id: 'u', username: 'x' },
+  temporaryPassword: 't',
+}));
+const updateUser = vi.fn(async () => ({ id: 'u', username: 'x' }));
+const resetUserPassword = vi.fn(async () => ({ temporaryPassword: 't' }));
+vi.mock('../src/repositories/userRepo.js', () => ({
+  listUsers: (...a: unknown[]) => listUsers(...(a as [])),
+  createUser: (...a: unknown[]) => createUser(...(a as [])),
+  updateUser: (...a: unknown[]) => updateUser(...(a as [])),
+  resetUserPassword: (...a: unknown[]) => resetUserPassword(...(a as [])),
+}));
+
 vi.mock('../src/auth/session.js', () => ({
   cookieOptions: {},
   createSession: vi.fn(async () => 'sid'),
@@ -51,10 +66,12 @@ describe('ローカルモード(認証を課さない構成)', () => {
     guards = await import('../src/middleware/auth.js');
     const { errorHandler } = await import('../src/middleware/errorHandler.js');
     const { authRoutes } = await import('../src/routes/auth.routes.js');
+    const { usersRoutes } = await import('../src/routes/users.routes.js');
     app = Fastify();
     app.decorateRequest('user', undefined);
     app.setErrorHandler(errorHandler);
     await app.register(authRoutes);
+    await app.register(usersRoutes);
     await app.ready();
   });
 
@@ -83,5 +100,24 @@ describe('ローカルモード(認証を課さない構成)', () => {
     });
     expect(res.statusCode).toBe(401);
     expect(initPassword).not.toHaveBeenCalled();
+  });
+
+  // ★ ユーザー台帳を操作する 4 ルートも、role ガードが素通りする local モードで 401 にする
+  // (`requireIdentifiedUser` の重ね掛け)。台帳へは一切到達させない。
+  it('refuses the user-management routes and never reaches the ledger', async () => {
+    const calls: Array<{ method: 'GET' | 'POST' | 'PATCH'; url: string; payload?: unknown }> = [
+      { method: 'GET', url: '/users' },
+      { method: 'POST', url: '/users', payload: { username: 'x', role: 'editor' } },
+      { method: 'PATCH', url: '/users/u1', payload: { role: 'admin' } },
+      { method: 'POST', url: '/users/u1/reset-password' },
+    ];
+    for (const { method, url, payload } of calls) {
+      const res = await app.inject({ method, url, ...(payload ? { payload } : {}) });
+      expect(res.statusCode, `${method} ${url}`).toBe(401);
+    }
+    expect(listUsers).not.toHaveBeenCalled();
+    expect(createUser).not.toHaveBeenCalled();
+    expect(updateUser).not.toHaveBeenCalled();
+    expect(resetUserPassword).not.toHaveBeenCalled();
   });
 });
