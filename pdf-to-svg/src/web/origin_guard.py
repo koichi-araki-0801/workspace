@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hmac
 import http.server
+import io
 import logging
 import secrets
 import socket
@@ -104,6 +105,33 @@ _DRAIN_LIMIT = 1 << 20
 # `_DRAIN_LIMIT` (1 MiB) 到達までスレッドを握り続けられるため、**期限は接続単位**で持つ。
 _LINGER_TIMEOUT = 0.5
 
+# 1 要求あたりの実時間の絶対上限 (秒)。`Handler.timeout` (= `REQUEST_TIMEOUT`) は **recv ごとに
+# 再武装される無通信上限**なので、「N 秒ごとに 1 バイト」を送り続ける相手は 1 要求を無限に
+# 引き延ばして 1 スレッドを恒久占有できる (リクエスト行は改行が来るまで終わらず、`readline` の
+# バイト上限 65537 に達するまで日単位で握れる)。要求の読み取りは `_DeadlineSocketIO` が
+# **要求単位の絶対期限**で縛り、各 recv の手前で残り時間へタイムアウトを張り直す
+# (`_linger_close` と同じ「期限は per-recv でなく単位ごと」の規約)。正常系の往復は数ミリ秒。
+MAX_REQUEST_SECONDS = 30.0
+
+
+class _DeadlineSocketIO(socket.SocketIO):
+    """`rfile` の下地。各 `readinto` の手前でソケットタイムアウトを「この要求の絶対期限までの
+    残り」へ張り直す。`BufferedReader` の内部読み取りはすべて `readinto` を通るので、改行を
+    送らずにドリップして `readline` を無限に引き延ばす形もここで閉じる。素の per-recv
+    タイムアウトは recv ごとに再武装されるため、これが無いと期限が効かない。"""
+
+    def __init__(self, sock, handler):
+        super().__init__(sock, "rb")
+        self._handler = handler
+
+    def readinto(self, b):
+        remaining = self._handler._request_deadline - time.monotonic()
+        if remaining <= 0:
+            raise socket.timeout("request deadline exceeded")
+        cap = self._handler.timeout or MAX_REQUEST_SECONDS
+        self._sock.settimeout(min(cap, remaining))
+        return super().readinto(b)
+
 # ログへ出す詳細値の整形。攻撃者が入れた制御文字でログ行を偽装できないよう、印字可能 ASCII
 # 以外は落として短く切る。
 _LOG_SAFE_CHARS = frozenset(string.ascii_letters + string.digits + "-._:[]/")
@@ -157,6 +185,19 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     idle watchdog 用の `last_seen` 更新もその副作用の 1 つなので、判定と同じ場所
     (`_touch_if_same_origin`) に置いて `do_*` からは触らせない。
     """
+
+    def setup(self) -> None:
+        # `rfile` を要求期限つきの下地から作り直す。素の `makefile` 済み `rfile` は per-recv
+        # タイムアウトしか持たないため、ドリップに弱い (`_DeadlineSocketIO` / `MAX_REQUEST_SECONDS`)。
+        super().setup()
+        self._request_deadline = time.monotonic() + MAX_REQUEST_SECONDS
+        size = self.rbufsize if self.rbufsize and self.rbufsize > 0 else io.DEFAULT_BUFFER_SIZE
+        self.rfile = io.BufferedReader(_DeadlineSocketIO(self.connection, self), size)
+
+    def handle_one_request(self) -> None:
+        # keep-alive で接続が再利用される場合、各要求を独立に上限で縛る (要求ごとに期限を引き直す)。
+        self._request_deadline = time.monotonic() + MAX_REQUEST_SECONDS
+        super().handle_one_request()
 
     def parse_request(self) -> bool:
         # `super()` の解析後 (self.command / self.path / self.headers が揃った直後) かつ

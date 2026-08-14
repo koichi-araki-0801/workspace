@@ -105,6 +105,9 @@ def test_connection_resource_limits_match():
     assert app.REQUEST_TIMEOUT == server.REQUEST_TIMEOUT
     assert app.MAX_CONNECTIONS == server.MAX_CONNECTIONS
     assert app._LINGER_TIMEOUT == guard._LINGER_TIMEOUT
+    # 要求単位の絶対期限。per-recv タイムアウトを接続 (要求) 単位へ引き上げた本体で、
+    # 片側だけ緩めると「ドリップに弱いのは片方だけ」の drift が黙って成立する。
+    assert app.MAX_REQUEST_SECONDS == guard.MAX_REQUEST_SECONDS
     # 定数を宣言しただけで配線し忘れる形 (`timeout` 未設定) をここで落とす。
     assert app.Handler.timeout == server.Handler.timeout == app.REQUEST_TIMEOUT
 
