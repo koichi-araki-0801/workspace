@@ -4,6 +4,11 @@
 // pie-chart はオペレータが手元で回す CLI なので、上限超過は degrade でも既定への
 // フォールバックでもなく**明示エラー**にする(黙って数時間回るのが最悪の壊れ方)。
 // メッセージに「上限値・実際の値・上げ方」が入っていることまで固定する。
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { normalizeInputItems, parseRange, resolveInputData } from '../src/input/load.js';
 import {
@@ -13,11 +18,14 @@ import {
   MAX_XLSX_BYTES,
   PIE_MAX_ITEMS,
   assertItemCount,
+  assertLabelXmlSafe,
   assertTotalValue,
 } from '../src/limits.js';
 import { arcAngles } from '../src/layout/geometry.js';
 import { createPieLayoutConfig } from '../src/config.js';
 import { renderPdfStylePieToSvg } from '../src/svg_export/pipeline.js';
+
+const root = resolve(fileURLToPath(import.meta.url), '..', '..');
 
 /** 上限値そのものをテストで固定する(値の変更に「テストを直す」意思決定を伴わせる)。 */
 describe('上限値の固定', () => {
@@ -110,5 +118,67 @@ describe('dataJson の長さ上限', () => {
   it('上限超過は JSON.parse の前に弾く', () => {
     const huge = `[${'"x",'.repeat(1)}]`.padEnd(MAX_JSON_BYTES + 1, ' ');
     expect(() => resolveInputData({ dataJson: huge })).toThrow(/PIE_MAX_JSON_BYTES/);
+  });
+});
+
+// xlsx / dataJson と同じ funnel 思想を `--data-file` にも適用する(F: --data-file だけが
+// MAX_JSON_BYTES の外にあった)。CLI 経由の検査なので実プロセスで確認する
+// (sea_packaging.test.ts と同じ tsx 起動の型)。
+describe('--data-file の長さ上限', () => {
+  it('上限超過の一時 JSON ファイルは明示エラーで拒否される', () => {
+    const work = mkdtempSync(join(tmpdir(), 'piechart-data-file-'));
+    try {
+      const huge = `[${'"x",'.repeat(1)}]`.padEnd(MAX_JSON_BYTES + 1, ' ');
+      const dataFile = join(work, 'huge.json');
+      writeFileSync(dataFile, huge, 'utf-8');
+      const outputFile = join(work, 'out.svg');
+      let stderr = '';
+      let failed = false;
+      try {
+        execFileSync(
+          process.execPath,
+          [
+            join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+            join(root, 'src', 'cli.ts'),
+            'one',
+            '--data-file',
+            dataFile,
+            '--output-file',
+            outputFile,
+          ],
+          { cwd: root, stdio: 'pipe', encoding: 'utf8' },
+        );
+      } catch (err) {
+        failed = true;
+        stderr = String((err as { stderr?: string }).stderr ?? '');
+      }
+      expect(failed).toBe(true);
+      expect(stderr).toMatch(/PIE_MAX_JSON_BYTES/);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+});
+
+// XML 1.0 不正文字は escapeXml の除去に任せず入口で fail-close する(P039)。除去に任せると
+// 「入力と違う文字列が黙って帳票に出る」無警告の誤出力になる。制御文字はコード内で
+// String.fromCharCode/fromCodePoint から組み立てる(生の制御文字をソースへ直書きしない)。
+describe('ラベル名の XML 1.0 不正文字(F: 入口 fail-close)', () => {
+  const bell = String.fromCharCode(7);
+  const tab = String.fromCharCode(9);
+  const nl = String.fromCharCode(10);
+  const surrogatePairChar = String.fromCodePoint(0x29e3d);
+
+  it('制御文字を含む名前は throw する', () => {
+    expect(() => assertLabelXmlSafe(`a${bell}b`)).toThrow(/invalid in XML output/);
+  });
+
+  it('正当なサロゲートペア・タブ・改行は通る', () => {
+    expect(() => assertLabelXmlSafe(surrogatePairChar)).not.toThrow();
+    expect(() => assertLabelXmlSafe(`a${tab}b${nl}c`)).not.toThrow();
+  });
+
+  it('normalizeInputItems 経由でも throw する(全入力経路の共通入口)', () => {
+    expect(() => normalizeInputItems([[`a${bell}b`, 1]])).toThrow(/invalid in XML output/);
   });
 });

@@ -19,6 +19,7 @@ import {
   samples,
   type ResolveAsyncOpts,
 } from './input/load.js';
+import { MAX_JSON_BYTES } from './limits.js';
 import { installSeaGuards, isSea, readSeaAsset } from './runtime/seaRuntime.js';
 import { renderPdfStylePieToSvg } from './svg_export/pipeline.js';
 import type { PieLayoutConfig } from './types.js';
@@ -72,6 +73,15 @@ function buildRenderOverrides(options: Record<string, string | boolean>): Partia
 
 function readJsonFile(filePath: string): unknown {
   const raw = fs.readFileSync(filePath, 'utf-8');
+  // xlsx / dataJson と同じ funnel 思想: JSON.parse の前に byte 長を見る
+  // (`--data-file` はファイルなので `.length`(文字数)でなく実際の byte 数を見る)。
+  const byteLength = Buffer.byteLength(raw, 'utf-8');
+  if (byteLength > MAX_JSON_BYTES) {
+    throw new Error(
+      `--data-file "${filePath}" is ${byteLength} bytes (limit ${MAX_JSON_BYTES}). ` +
+        'Raise the limit with PIE_MAX_JSON_BYTES=<n> if this input is expected.',
+    );
+  }
   try {
     return JSON.parse(raw);
   } catch (err: any) {

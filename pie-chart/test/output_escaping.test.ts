@@ -4,7 +4,7 @@
 // 「エスケープすべき属性」を列挙する形だと、同じ 1 行の中で `font-family` は escape され
 // `fill` は素通し、という非対称が生まれる。`--font-weight '400" onload="alert(1)'` で全 `<text>`
 // に onload が付くことが実測されている。**「迂回入力で throw すること」を主張する形**で書く。
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -28,8 +28,8 @@ describe('設定値の許可リスト(P022)', () => {
     ).rejects.toThrow(/font-weight/);
   });
 
-  // `$` は既定で末尾改行の直前にも一致するので、正規表現 `/^\d{3}$/` は `'400\n'` を通す。
-  // Set の完全一致で書いていることを固定する。
+  // 完全一致の Set は受理集合が仕様として閉じていることを構造で示せる(正規表現は読み手が
+  // 受理範囲を再導出する必要がある)。Set の完全一致で書いていることを固定する。
   it('末尾に改行や空白が付いた font-weight を拒否する', () => {
     for (const bad of ['400\n', '400 ', ' 400', '400;']) {
       expect(() => createPieLayoutConfig({ fontWeight: bad }), bad).toThrow(/font-weight/);
@@ -142,17 +142,34 @@ describe('出力側からの網羅主張', () => {
 // 列挙(「この属性もエスケープする」)の漏れを「`attr()` を使っていない箇所」として検出する。
 describe('属性を書く手段は attr() 1 つだけ(ソース走査)', () => {
   const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/svg_export');
+  // 個別ファイルのハードコードだと新規ファイルが検査から漏れる。build_pins.test.ts の
+  // .ps1 走査と同じ形で svg_export/ 配下の .ts を全走査する。
+  const srcFiles = readdirSync(srcDir).filter((f) => f.endsWith('.ts'));
 
-  it.each([
-    'rendering.ts',
-    'font.ts',
-    'pipeline.ts',
-  ])('%s にテンプレートリテラルで組んだ属性が残っていない', (name) => {
-    const text = readFileSync(path.join(srcDir, name), 'utf8');
-    // ` name="${...}"` の形(= attr() を通さずに属性を組んでいる箇所)。
-    const offenders = text.match(/[\w:-]+="\$\{[^}]*\}/g) ?? [];
-    expect(offenders, `attr() を通さずに属性を組んでいる: ${offenders.join(' / ')}`).toEqual([]);
+  // 走査で引っかかる正当行(コード例のコメント等)は行内容の完全一致でのみ除外する。
+  // 「コメント行なら除外」のような緩い述語にすると、本物の breakout をコメント化して
+  // 隠す迂回を通してしまう。
+  const ALLOWED_OFFENDER_LINES: ReadonlySet<string> = new Set([
+    ' * — テンプレートリテラルで `x="${v}"` と組む箇所を残すと、そこが次の注入点になる。',
+  ]);
+
+  it('走査対象の .ts が存在する(空なら検査自体が空振りしている)', () => {
+    expect(srcFiles.length).toBeGreaterThan(0);
+    expect(srcFiles).toEqual(expect.arrayContaining(['rendering.ts', 'font.ts', 'pipeline.ts']));
   });
+
+  for (const name of srcFiles) {
+    it(`${name} にテンプレートリテラルで組んだ属性が残っていない`, () => {
+      const lines = readFileSync(path.join(srcDir, name), 'utf8').split(/\r?\n/);
+      // `[^}]*` はネストした `${...}` の中に `}` が現れると早期に閉じてしまうが、
+      // attr() 迂回の検出という検査意図では 1 段の breakout を見つけられれば十分なので
+      // 今回はこの限界を据え置く。
+      const offenders = lines.filter(
+        (line) => /[\w:-]+="\$\{[^}]*\}/.test(line) && !ALLOWED_OFFENDER_LINES.has(line),
+      );
+      expect(offenders, `attr() を通さずに属性を組んでいる: ${offenders.join(' / ')}`).toEqual([]);
+    });
+  }
 });
 
 describe('XML 1.0 不正文字の除去(P039)', () => {
@@ -166,9 +183,13 @@ describe('XML 1.0 不正文字の除去(P039)', () => {
     expect(escapeXml('a\tb\nc')).toBe('a\tb\nc');
   });
 
-  it('制御文字を含む名前でも出力 SVG に不正文字が現れない', async () => {
-    const { svg } = await renderPdfStylePieToSvg([['ベル\u0007入り', 100]], {});
-    expect(svg).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/);
+  // 入口(`normalizeInputItems` の `checkName`)が fail-close するので、除去されて別の
+  // 文字列が黙って出力される経路はもう無い。escapeXml 自身の除去挙動(上記)は出力段の
+  // 最終防衛線としてそのまま残す。
+  it('制御文字を含む名前は入口で明示エラーになる', async () => {
+    await expect(renderPdfStylePieToSvg([['ベル入り', 100]], {})).rejects.toThrow(
+      /invalid in XML output/,
+    );
   });
 });
 

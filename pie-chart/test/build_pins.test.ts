@@ -103,14 +103,19 @@ describe('sidecar を復活させないこと', () => {
   });
 });
 
-describe('ビルド入口スクリプト(scripts/*.ps1)が lockfile 無視の install をしないこと', () => {
+describe('ビルド入口スクリプト(scripts/*.ps1 / *.bat)が lockfile 無視の install をしないこと', () => {
   // README が「ダブルクリック入口」として案内する build-exe.bat → build-exe.ps1 は、
   // コード署名鍵を持つ端末で走る。lockfile を消してから範囲指定のまま `npm` の install を
   // すると、レジストリへ差し込まれた新版の lifecycle script がその端末で実行される
   // (npm は pnpm の `allowBuilds` に相当する既定の抑止を持たない)。上の sidecar ガードは
   // build-exe.mjs 本文しか読んでおらず、運用が実際に使う .ps1 経路が検査の外に残っていた
-  // (P023/F12)— ここで scripts/ 配下の全 .ps1 へ同じ禁止語を機械強制する。
+  // (P023/F12)— ここで scripts/ 配下の全 .ps1 / .bat へ同じ禁止語を機械強制する
+  // (.bat は現状 .ps1 ランチャの薄いラッパのみだが、直接 npm を書く変種が今後増えても
+  // 同じ検査に自動で乗る)。
+  // 禁止語 denylist には限界がある(`npm i` のような変種は通る)。主防御はここではなく
+  // `verify-dist.ps1` の配布物閉包検査で、本検査はビルド端末側の入口を狭める補助。
   const ps1Files = readdirSync(join(root, 'scripts')).filter((f) => f.endsWith('.ps1'));
+  const batFiles = readdirSync(join(root, 'scripts')).filter((f) => f.endsWith('.bat'));
   // PowerShell のコメント(`<# ... #>` ブロックと行頭 `#`)を落として実コードだけを見る。
   const stripPsComments = (src: string): string =>
     src
@@ -118,24 +123,47 @@ describe('ビルド入口スクリプト(scripts/*.ps1)が lockfile 無視の in
       .split(/\r?\n/)
       .filter((l) => !/^\s*#/.test(l))
       .join('\n');
+  // バッチのコメント(行頭 `rem`(大小区別なし)と `::`)を落として実コードだけを見る。
+  const stripBatComments = (src: string): string =>
+    src
+      .split(/\r?\n/)
+      .filter((l) => !/^\s*(rem\b|::)/i.test(l))
+      .join('\n');
 
-  it('走査対象の .ps1 が存在する(空なら検査自体が空振りしている)', () => {
+  it('走査対象の .ps1 / .bat が存在する(空なら検査自体が空振りしている)', () => {
     expect(ps1Files.length).toBeGreaterThan(0);
     expect(ps1Files).toContain('build-exe.ps1');
+    expect(batFiles.length).toBeGreaterThan(0);
+    expect(batFiles).toContain('build-exe.bat');
   });
+
+  const checkNoUnsafeInstall = (name: string, code: string): void => {
+    // `npm install` は「その時点のレジストリ最新で解決 + script 実行」の複合で、
+    // どちらの性質も署名端末では受け入れられない。
+    expect(code).not.toMatch(/npm\s+install\b/i);
+    // lockfile の削除(や再生成)は integrity 固定の無効化と等価。コミット済みを正とする。
+    expect(code).not.toMatch(/package-lock/i);
+    // npm ci を呼ぶなら lifecycle script の一律不実行までセットで。
+    for (const m of code.matchAll(/npm\s+ci\b[^\n]*/gi)) {
+      expect(m[0], `${name}: ${m[0]}`).toContain('--ignore-scripts');
+    }
+  };
 
   for (const name of ps1Files) {
     it(`${name}: npm install / lockfile 削除を含まず、npm ci は --ignore-scripts 付き`, () => {
-      const code = stripPsComments(readFileSync(join(root, 'scripts', name), 'utf8'));
-      // `npm install` は「その時点のレジストリ最新で解決 + script 実行」の複合で、
-      // どちらの性質も署名端末では受け入れられない。
-      expect(code).not.toMatch(/npm\s+install\b/i);
-      // lockfile の削除(や再生成)は integrity 固定の無効化と等価。コミット済みを正とする。
-      expect(code).not.toMatch(/package-lock/i);
-      // npm ci を呼ぶなら lifecycle script の一律不実行までセットで。
-      for (const m of code.matchAll(/npm\s+ci\b[^\n]*/gi)) {
-        expect(m[0], `${name}: ${m[0]}`).toContain('--ignore-scripts');
-      }
+      checkNoUnsafeInstall(
+        name,
+        stripPsComments(readFileSync(join(root, 'scripts', name), 'utf8')),
+      );
+    });
+  }
+
+  for (const name of batFiles) {
+    it(`${name}: npm install / lockfile 削除を含まず、npm ci は --ignore-scripts 付き`, () => {
+      checkNoUnsafeInstall(
+        name,
+        stripBatComments(readFileSync(join(root, 'scripts', name), 'utf8')),
+      );
     });
   }
 });
