@@ -221,7 +221,7 @@ export function normalizeInputItems(rawItems: unknown): Item[] {
         `Label is ${name.length} characters (limit ${MAX_LABEL_CHARS}). ` +
           'Shorten it, or raise the limit with PIE_MAX_LABEL_CHARS=<n>.',
       );
-    // 全 5 入力経路 + normalizeInputItems 直叩きをここ 1 箇所で覆う(P039 の入口 fail-close)。
+    // 全 5 入力経路 + normalizeInputItems 直叩きをここ 1 箇所で覆う。
     assertLabelXmlSafe(name);
     return name;
   };

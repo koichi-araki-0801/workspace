@@ -160,13 +160,23 @@ describe('属性を書く手段は attr() 1 つだけ(ソース走査)', () => {
 
   for (const name of srcFiles) {
     it(`${name} にテンプレートリテラルで組んだ属性が残っていない`, () => {
-      const lines = readFileSync(path.join(srcDir, name), 'utf8').split(/\r?\n/);
-      // `[^}]*` はネストした `${...}` の中に `}` が現れると早期に閉じてしまうが、
-      // attr() 迂回の検出という検査意図では 1 段の breakout を見つけられれば十分なので
-      // 今回はこの限界を据え置く。
-      const offenders = lines.filter(
-        (line) => /[\w:-]+="\$\{[^}]*\}/.test(line) && !ALLOWED_OFFENDER_LINES.has(line),
-      );
+      const text = readFileSync(path.join(srcDir, name), 'utf8');
+      // 行単位でなく全文へ正規表現を当てる。`[^}]*` は改行も含むので、属性を複数行に
+      // 折り返した breakout(`x="${\n...\n}"` のような形)も拾える。ネストした `${...}` の
+      // 中に `}` が現れると早期に閉じてしまうが、attr() 迂回の検出という検査意図では
+      // 1 段の breakout を見つけられれば十分なので今回はこの限界を据え置く。
+      const offenders = [...text.matchAll(/[\w:-]+="\$\{[^}]*\}/g)]
+        .filter((match) => {
+          // マッチの開始位置が属する行を求め、その行がまるごと許可リストに載っているかで
+          // 除外を判定する(マッチ文字列自体でなく行内容の完全一致にすることで、正当な
+          // コメント例だけを通し、複数行の実コードは素通りさせない)。
+          const start = match.index ?? 0;
+          const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+          const lineEndRaw = text.indexOf('\n', start);
+          const lineEnd = lineEndRaw === -1 ? text.length : lineEndRaw;
+          return !ALLOWED_OFFENDER_LINES.has(text.slice(lineStart, lineEnd));
+        })
+        .map((match) => match[0]);
       expect(offenders, `attr() を通さずに属性を組んでいる: ${offenders.join(' / ')}`).toEqual([]);
     });
   }
