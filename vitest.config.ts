@@ -52,6 +52,7 @@ export default defineConfig({
         'editor/server/src/repositories/confirmedWrite.ts',
         'editor/server/src/repositories/templateMeta.ts',
         'editor/server/src/files/pendingFiles.ts',
+        'editor/server/src/files/syncFiles.ts',
         'editor/server/src/vivliostyle/projectConfig.ts',
         // 段階 2 の新設層。認可テーブル・資格情報の正規化・応答時間フロアは、
         // 迂回されると認証全体が骨抜きになるため閾値の対象へ入れる。

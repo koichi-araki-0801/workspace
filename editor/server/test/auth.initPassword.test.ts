@@ -63,7 +63,10 @@ describe('POST /auth/init-password の施錠', () => {
     app = Fastify();
     app.decorateRequest('user', undefined);
     app.setErrorHandler(errorHandler);
-    await app.register(authRoutes);
+    // 本番(`app.ts`)は `/api` prefix で register する。prefix なしのままだと
+    // `middleware/auth.ts` の完全一致判定(`/api${p}`)がここでは常に不一致になり、
+    // 「初期パスワードのままでも変更経路だけは通る」を実配線と違う形で検証してしまう。
+    await app.register(authRoutes, { prefix: '/api' });
     await app.ready();
   });
 
@@ -80,7 +83,7 @@ describe('POST /auth/init-password の施錠', () => {
   it('rejects an unauthenticated request (401) and never reaches the repository', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/init-password',
+      url: '/api/auth/init-password',
       payload: { username: 'admin', ...BODY },
     });
     expect(res.statusCode).toBe(401);
@@ -90,7 +93,7 @@ describe('POST /auth/init-password の施錠', () => {
   it('forbids changing another account (403) even with a valid session', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/init-password',
+      url: '/api/auth/init-password',
       headers: { cookie: 'editor.sid=editor' },
       payload: { username: 'admin', ...BODY },
     });
@@ -104,7 +107,7 @@ describe('POST /auth/init-password の施錠', () => {
   it('targets the session owner, not the username in the body', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/init-password',
+      url: '/api/auth/init-password',
       headers: { cookie: 'editor.sid=editor' },
       payload: { username: 'EDITOR  ', ...BODY },
     });
@@ -119,7 +122,7 @@ describe('POST /auth/init-password の施錠', () => {
   it('accepts the session owner changing their own password', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/init-password',
+      url: '/api/auth/init-password',
       headers: { cookie: 'editor.sid=editor' },
       payload: { username: 'editor', ...BODY },
     });
@@ -130,7 +133,7 @@ describe('POST /auth/init-password の施錠', () => {
   it('still lets a must-change-password session change its own password', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/init-password',
+      url: '/api/auth/init-password',
       headers: { cookie: 'editor.sid=must:editor' },
       payload: { username: 'must:editor', ...BODY },
     });
@@ -141,7 +144,7 @@ describe('POST /auth/init-password の施錠', () => {
   it('rejects a body without the current password (400)', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/auth/init-password',
+      url: '/api/auth/init-password',
       headers: { cookie: 'editor.sid=editor' },
       payload: { username: 'editor', newPassword: 'new-password' },
     });
@@ -158,7 +161,7 @@ describe('POST /auth/init-password の施錠', () => {
     const send = () =>
       app.inject({
         method: 'POST',
-        url: '/auth/init-password',
+        url: '/api/auth/init-password',
         headers: { cookie: 'editor.sid=editor' },
         payload: { username: 'editor', ...BODY },
       });
