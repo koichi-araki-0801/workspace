@@ -258,6 +258,30 @@ describe('ブートスクリプトの多層防御(nunjucks サンドボックス
     }
   });
 
+  // テスト解決はフィルタ解決と同型の 4 本目の経路。`getTest` も継承プロパティを引くため、
+  // 表を継承ごと持ったままだと `Object.prototype` の値がテストとして解決できてしまう。
+  // 現行の nunjucks は `compileIs` が `=== true` を付けるので参照は漏れないが、防御を
+  // その codegen の細部へ依存させない。
+  it('テスト解決から Object.prototype 由来の値を引けない', async () => {
+    const send = await bootChild();
+    for (const name of ['valueOf', 'constructor', 'toString', 'hasOwnProperty']) {
+      expect(
+        send({ id: 31, template: `{% if 1 is ${name} %}x{% endif %}`, data: {} })?.type,
+        `テストとして解決できてしまう: ${name}`,
+      ).toBe('editor:render-error');
+    }
+  });
+
+  it('組込みのテストは今までどおり使える(防御が正常系を壊していない)', async () => {
+    const send = await bootChild();
+    const res = send({
+      id: 32,
+      template: '{% if x is defined %}D{% endif %}{% if y is undefined %}U{% endif %}',
+      data: { x: 1 },
+    });
+    expect(res).toEqual({ type: 'editor:render-res', id: 32, html: 'DU' });
+  });
+
   it('組み込みフィルタは今までどおり使える(防御が正常系を壊していない)', async () => {
     const send = await bootChild();
     const res = send({

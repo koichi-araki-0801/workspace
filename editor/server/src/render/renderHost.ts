@@ -150,7 +150,7 @@ async function nunjucksBundle(): Promise<string> {
  * ただし脱出そのものは安く塞げるので塞ぐ。
  *
  * **塞ぐ対象は「経路の全列挙」で数える。** nunjucks がテンプレの字面から外部の値へ触る
- * 経路は 3 本あり、1 本でも数え落とすと関門をすり抜ける。1. と 2. だけを包むと
+ * 経路は 4 本あり、1 本でも数え落とすと関門をすり抜ける。1. と 2. だけを包むと
  * **3. のフィルタ解決だけが素通りする形**が残る。`{{ 1|valueOf }}` が
  * `Object.prototype.valueOf.call(context, 1)` として解決されて **Context そのもの**を返し、
  * そこから `context.env` → `env.getFilter("constructor")`(= `Object`)→ `Function` と辿って
@@ -173,7 +173,11 @@ async function nunjucksBundle(): Promise<string> {
  *     継承プロパティも引くため `valueOf` / `constructor` などが**フィルタとして解決できて
  *     しまう**。フィルタ適用は `compileFilter` が `env.getFilter(名前).call(...)` を吐く経路で
  *     1. の関門を**通らない**ので、ここを別に閉じる必要がある。
- * どれも帳票テンプレの正当な構文(変数・`for`・`if`・フィルタ)には触れない
+ *  4. **テスト解決** — `env.tests` を同じく own-property だけの null プロトタイプ表にする。
+ *     `getTest` も継承プロパティを引くため `{% if x is valueOf %}` が Object.prototype へ
+ *     届く。現行版は `compileIs` が `=== true` を付けるので値そのものは漏れないが、防御を
+ *     その codegen の細部へ依存させない(3. と同型の経路をそちらだけ閉じる形にしない)。
+ * どれも帳票テンプレの正当な構文(変数・`for`・`if`・フィルタ・テスト)には触れない
  * (`replace` / `sort` / `join` / `upper` / `string` / `length` の不変を実測で確認済み)。
  */
 const BOOT_SCRIPT = `(function(){
@@ -209,6 +213,11 @@ const BOOT_SCRIPT = `(function(){
   var names=Object.getOwnPropertyNames(env.filters);
   for(var i=0;i<names.length;i++)ownFilters[names[i]]=env.filters[names[i]];
   env.filters=ownFilters;
+  // テスト解決の関門(上記 4.)。getTest も継承プロパティを引くので、同じ形で継承を断つ。
+  var ownTests=Object.create(null);
+  var tnames=Object.getOwnPropertyNames(env.tests);
+  for(var j=0;j<tnames.length;j++)ownTests[tnames[j]]=env.tests[tnames[j]];
+  env.tests=ownTests;
   // 親からのメッセージだけを受ける。子から見た parent は 1 つしかないので、これで発信元は
   // 一意に決まる(逆向きの検証は親が event.source の同一性で行う)。
   window.addEventListener('message',function(e){

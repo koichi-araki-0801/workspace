@@ -89,14 +89,16 @@ describe('展開を許す形式は外部参照の検査を持つ', () => {
 });
 
 describe('nunjucks が外部の値へ触る経路は全部包む', () => {
-  // 隔離ホストの多層防御は「プロパティ参照」「グローバル参照」「フィルタ解決」の 3 経路。
-  // 当初は前 2 者しか包んでおらず、フィルタ解決だけが素通りしていた。
-  it('3 経路それぞれの遮断がブートスクリプトに在る', () => {
+  // 隔離ホストの多層防御は「プロパティ参照」「グローバル参照」「フィルタ解決」「テスト解決」
+  // の 4 経路。当初は前 2 者しか包んでおらず、フィルタ解決だけが素通りしていた。テスト解決は
+  // フィルタ解決と同型で、`getTest` も継承プロパティを引く。
+  it('4 経路それぞれの遮断がブートスクリプトに在る', () => {
     const src = read(path.join(SERVER_SRC, 'render', 'renderHost.ts'));
     expect(src).toContain('RT.memberLookup=');
     expect(src).toContain('RT.contextOrFrameLookup=');
     expect(src).toContain('env.globals=Object.create(null)');
     expect(src).toContain('env.filters=ownFilters');
+    expect(src).toContain('env.tests=ownTests');
   });
 });
 
