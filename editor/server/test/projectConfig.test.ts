@@ -185,6 +185,38 @@ describe('その他のフィールド', () => {
     expect(() => parse({ entry: 'a.md', copyAsset: { extra: [] } })).toThrow();
   });
 
+  // glob は「危ない形を数え上げる」のでは閉じない。ブレース展開・否定・extglob・文字クラスは
+  // どれも `..` や絶対パスを持たないまま参照先を広げる形なので、許可した文字だけで書けることを
+  // 要求する側に倒す(数え上げた 5 形の外側が残らない)。
+  it.each([
+    ['ブレース展開で .. を持ち込む形', 'a/{..,x}/b'],
+    ['ブレース展開そのもの', 'assets/{a,b}/**'],
+    ['先頭の否定', '!assets/**'],
+    ['extglob の否定', 'assets/!(x)/**'],
+    ['文字クラス', 'assets/[a-z]*.png'],
+    ['空セグメント', 'a//b'],
+    ['先頭スラッシュ', '/etc/**'],
+    ['末尾スラッシュ', 'assets/'],
+    ['親ディレクトリ', '../**'],
+    ['セグメント途中の ..', 'a/../b'],
+    ['ドライブレター', 'C:/x/**'],
+    ['URI', 'http://evil.example/**'],
+  ])('copyAsset.includes の %s は 400', (_label, glob) => {
+    expect(() => parse({ entry: 'a.md', copyAsset: { includes: [glob] } })).toThrow();
+  });
+
+  it.each([
+    'assets/**',
+    '**/*.png',
+    '画像/*.webp',
+    'a/b-c_d.png',
+    '*.css',
+  ])('copyAsset.includes の正当な相対 glob %s は通る', (glob) => {
+    expect(parse({ entry: 'a.md', copyAsset: { includes: [glob] } }).copyAsset).toEqual({
+      includes: [glob],
+    });
+  });
+
   it('自由文字列は長さ上限を持つ', () => {
     expect(() => parse({ entry: 'a.md', title: 'x'.repeat(2000) })).toThrow();
     expect(parse({ entry: 'a.md', title: '報告書', size: 'A4' }).title).toBe('報告書');

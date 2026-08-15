@@ -180,17 +180,23 @@ function assertEntry(
   });
 }
 
-/** glob は展開ルート相対の相対表現だけを許す(`..`・絶対・ドライブレター・URI を拒否)。 */
+/**
+ * glob の 1 セグメントとして受理する形。**危ない形の数え上げではなく、書ける文字を数える**
+ * 側で書く — 否定リストは `..`・絶対・ドライブレター・URI の 4 形を塞いでも、ブレース展開
+ * `{..,x}`・否定 `!`・extglob `!(x)`・文字クラス `[a-z]` がその外側に残る。これらはどれも
+ * 禁じた字面を持たないまま参照先を展開ルートの外や意図しない集合へ広げる。
+ *
+ * `**` は単独セグメントのときだけ許す(`a**b` のような形は glob 実装ごとに解釈が割れる)。
+ * ドットだけのセグメント(`.` / `..`)を拒むのが遡上の遮断で、空セグメントを拒むことで
+ * 先頭・末尾の `/` と `a//b` が同時に落ちる。日本語のファイル名は `\p{L}\p{N}` が通す。
+ */
+const GLOB_SEGMENT_RE = /^(?:\*\*|(?!\.+$)[\p{L}\p{N}_.\-*?]+)$/u;
+
+/** glob は展開ルート相対の相対表現だけを許す(セグメント単位の許可リストで判定する)。 */
 function assertGlob(value: unknown, label: string): string {
   const text = assertText(value, label);
-  const normalized = text.replace(/\\/g, '/');
-  if (
-    normalized.startsWith('/') ||
-    /^[a-zA-Z]:/.test(normalized) ||
-    normalized.split('/').includes('..') ||
-    URI_SCHEME_RE.test(text) ||
-    text.includes('\0')
-  ) {
+  const segments = text.replace(/\\/g, '/').split('/');
+  if (!segments.every((segment) => GLOB_SEGMENT_RE.test(segment))) {
     throw validation(`${label} に指定できない値です: ${text}`);
   }
   return text;
