@@ -18,13 +18,13 @@ title: PdfToSvg 仕様一覧（画面項目 / 入出力 / RPC・HTTP / テスト
 | 7 | 2. 用語置換 | 置換後 | `#dict-tgt` | 辞書追加フォーム |
 | 8 | 2. 用語置換 | クリック取り込みで折返しを連結 | `#chk-suggest-join` | suggest_join フラグ（既定 OFF。ON で連結取り込み・連結由来を記録） |
 | 9 | 2. 用語置換 | このページのみ再適用 | `#btn-reapply-page` | 主ボタン（既定）。表示中ページへ辞書適用（ヘッダ・本文を問わず全文） |
-| 10 | 2. 用語置換 | 全ファイル再適用 | `#btn-reapply` | 明示選択で辞書変更を全PDFへ |
-| 11 | 2. 用語置換 | 辞書 入出力 | `#btn-dict-export / import` | JSON 入出力（連結由来 joined を保持） |
+| 10 | 2. 用語置換 | 全ファイルに再適用 | `#btn-reapply` | 明示選択で辞書変更を全PDFへ |
+| 11 | 2. 用語置換 | JSON書き出し / JSON読み込み | `#btn-dict-export / import` | 辞書の JSON 入出力（連結由来 joined を保持） |
 | 12 | 3. 削除・枠線 | ツール | `選択 / 範囲削除 / 枠線` | 編集モード切替 |
 | 13 | 3. 削除・枠線 | 枠線色 | `#border-color` | カラーピッカー |
 | 14 | 3. 削除・枠線 | 枠線幅 | `#border-width` | 0.5〜20 pt |
 | 15 | 3. 削除・枠線 | 削除 | `#btn-deletesel` | 選択要素削除 |
-| 16 | 4. 書き出し | 書き出し範囲 | `radio` | 全/現在/スキップ除く/ページ指定 |
+| 16 | 4. 書き出し | 書き出す範囲 | `ボタン群（排他）` | 表示中のページのみ / 全ページ / スキップを除く / ページを指定 |
 | 17 | 4. 書き出し | SVGに書き出す | `button` | ファイル名は <元名>_pN.svg |
 | 18 | トップバー | Undo/Redo | `Ctrl+Z / Ctrl+Y` | 操作の取消/やり直し |
 
@@ -37,7 +37,7 @@ title: PdfToSvg 仕様一覧（画面項目 / 入出力 / RPC・HTTP / テスト
 | 3 | 入力 | フォント | `同梱フォント自動解決` | BIZ UDPゴシック / Noto Serif JP |
 | 4 | 入力 | suggest_join | `bool（既定 false）` | クリック取り込みで折返し 2 行を連結するか |
 | 5 | 入力 | 枠線色/幅 | `hex / 0.5〜20pt` | 枠線追加 |
-| 6 | 入力 | 書き出し範囲 | `全/現在/指定` | ページ選別 |
+| 6 | 入力 | 書き出す範囲 | `表示中のページのみ / 全ページ / スキップを除く / ページを指定` | ページ選別 |
 | 7 | 出力 | SVGファイル | `決定的SVG` | 実<text>保持・使用グリフのみWOFF2埋込 |
 | 8 | 出力 | PNG背景 | `ラスタ（SCAN_RENDER_SCALE=2.0）` | スキャンページ背景 |
 | 9 | 設定 | config.py | `frozen exe / ソース共通` | データ置き場（既定 %LOCALAPPDATA%\PdfToSvg\data）に辞書・ログ・作業領域。`PDFTOSVG_DATA_DIR` で明示指定可 |
@@ -48,7 +48,7 @@ title: PdfToSvg 仕様一覧（画面項目 / 入出力 / RPC・HTTP / テスト
 |:--:|:--:|---|---|
 | 1 | HTTP | `GET /` | 静的配信（resources/web） |
 | 2 | HTTP | `POST /rpc` | JSON-RPC ディスパッチ |
-| 3 | HTTP | `POST /upload` | PDF 読み込み（バイト列。辞書は適用しない — 適用は再適用 RPC のみ） |
+| 3 | HTTP | `POST /upload` | PDF 読み込み（バイト列。辞書は適用しない。適用は再適用 RPC のみ） |
 | 4 | HTTP | `POST /quit` | 終了ビーコン |
 | 5 | HTTP | `POST /ping` | ハートビート |
 | 6 | RPC | `state` | ファイル/ページ/置換当たり等の状態取得 |
@@ -56,19 +56,21 @@ title: PdfToSvg 仕様一覧（画面項目 / 入出力 / RPC・HTTP / テスト
 | 8 | RPC | `planPage` | 置換予定の算出 |
 | 9 | RPC | `removedList` | 削除要素一覧 |
 | 10 | RPC | `dictList / dictAdd / dictDelete` | 辞書 参照 / 追加 / 削除 |
-| 11 | RPC | `reapplyDict / reapplyDictPage` | 辞書の全ファイル / 単一ページ再適用（連結照合は joined エントリのみ） |
-| 12 | RPC | `dictJson / dictImportJson` | 辞書JSONの文字列受け渡し（ファイル保存/読込はブラウザ側） |
-| 13 | RPC | `setSuggestJoin` | クリック取り込み連結フラグ更新 |
-| 14 | RPC | `applyDelete / deleteRegion / addBorder` | 削除 / 範囲削除 / 枠線（Undoへpush） |
-| 15 | RPC | `undo / redo` | 操作の取消 / やり直し |
-| 16 | RPC | `exportSvg` | 範囲指定で SVG 書き出し |
-| 17 | RPC | `removeFile` | 選択ファイルを一覧から除去 |
+| 11 | RPC | `dictSuggest` | ページ上の文字クリックから「元の語」候補を返す（suggest_join ON なら折返し行を連結） |
+| 12 | RPC | `reapplyDict / reapplyDictPage` | 辞書の全ファイル / 単一ページ再適用（連結照合は joined エントリのみ） |
+| 13 | RPC | `dictJson / dictImportJson` | 辞書JSONの文字列受け渡し（ファイル保存/読込はブラウザ側） |
+| 14 | RPC | `setSuggestJoin` | クリック取り込み連結フラグ更新 |
+| 15 | RPC | `applyDelete / deleteRegion / addBorder` | 削除 / 範囲削除 / 枠線（Undoへpush） |
+| 16 | RPC | `undo / redo` | 操作の取消 / やり直し |
+| 17 | RPC | `exportSvg` | 範囲指定で SVG 書き出し |
+| 18 | RPC | `zipEntries` | 複数 SVG を ZIP 1 本にまとめて base64 で返す |
+| 19 | RPC | `removeFile` | 選択ファイルを一覧から除去 |
 
 # テスト仕様
 
 | No | テスト | テスト観点 | 期待結果 | 結果 |
 |:--:|---|---|---|:--:|
-| 1 | `test_pipeline.py` | 抽出→辞書→クロップ→SVG・ペイント順序・textLength | E2E が一致 | 未 |
+| 1 | `test_pipeline.py` | 抽出→辞書→SVG・ペイント順序・textLength | E2E が一致 | 未 |
 | 2 | `test_web_rpc.py` | RPC の状態変更（削除/編集/Undo・FakeUndo） | 状態遷移が正しい | 未 |
 | 3 | `test_fonts.py` | フォント名マッピング・ウェイト・幅オーバーフロー | フォント解決が正しい | 未 |
 | 4 | `test_undo_stack.py` | マクロ化Undo（複数コマンド1ステップ） | Undo が一括で戻る | 未 |
