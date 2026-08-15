@@ -10,7 +10,7 @@
 import type { PartHistoryEntry } from '@editor/shared';
 import { defineStore } from 'pinia';
 import { reactive } from 'vue';
-import { K } from '@/api/local/store';
+import { K } from '@/lib/storageKeys';
 
 /** Undo/Redo 用の不透明スナップショット(editor の capture と一致: body HTML + CSS)。 */
 export interface EditorSnapshot {
