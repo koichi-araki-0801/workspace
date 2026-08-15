@@ -102,6 +102,7 @@ export default defineConfig({
         'editor/web/src/lib/fillJinja.ts',
         'editor/web/src/lib/blockKey.ts',
         'editor/web/src/lib/appError.ts',
+        'editor/web/src/lib/globalErrors.ts',
         'editor/web/src/lib/useAsyncResult.ts',
         'editor/web/src/lib/format.ts',
         'editor/web/src/lib/labels.ts',
