@@ -56,6 +56,7 @@ function Test-NetworkPath([string]$path) {
     $drive = New-Object System.IO.DriveInfo($root)
     return $drive.DriveType -eq [System.IO.DriveType]::Network
   } catch {
+    # 判定不能はローカル扱いへ倒す(offline/lib/verify.ps1 の同名判断と同じ)。
     return $false
   }
 }
@@ -71,11 +72,33 @@ if ((Test-Path $pfxPath) -and -not $Force) {
   exit 1
 }
 
-# SAN を組み立てる。IP 直打ちでの利用が主のため、LAN の IPv4 を全て ipaddress エントリで
-# 含める(ループバックと APIPA 169.254.* は除外)。
+# SAN を組み立てる。IP 直打ちでの利用が主のため、LAN の IPv4 のうち RFC1918 プライベート範囲
+# (10.0.0.0/8・172.16.0.0/12・192.168.0.0/16) に一致するものだけを ipaddress エントリで
+# 含める。VPN 仮想アダプタやグローバル IP まで含めると、その IP が SAN に焼き込まれた cer を
+# クライアントの信頼ルートへ登録する運用と噛み合わない。判定はオクテットの数値比較で行う
+# (-like '172.16.*' の文字列前方一致は 172.160.x.x を誤って許可するため使わない)。
+function Test-PrivateIPv4([string]$ipText) {
+  try {
+    $addr = [System.Net.IPAddress]::Parse($ipText)
+    if ($addr.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) { return $false }
+    $o = $addr.GetAddressBytes()
+    if ($o[0] -eq 10) { return $true }
+    if ($o[0] -eq 172 -and $o[1] -ge 16 -and $o[1] -le 31) { return $true }
+    if ($o[0] -eq 192 -and $o[1] -eq 168) { return $true }
+    return $false
+  } catch {
+    # 判定不能な値は SAN へ含めない(許可リストの外へ倒す)。
+    return $false
+  }
+}
+
 $ips = @(Get-NetIPAddress -AddressFamily IPv4 |
-    Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254.*' } |
-    Select-Object -ExpandProperty IPAddress)
+    Select-Object -ExpandProperty IPAddress |
+    Where-Object { Test-PrivateIPv4 $_ })
+
+if ($ips.Count -eq 0) {
+  Write-Host '[NOTICE] LAN のプライベート IPv4 (RFC1918) が見つかりませんでした。SAN はホスト名のみで発行します。'
+}
 $sanParts = @('dns=localhost', "dns=$env:COMPUTERNAME") + ($ips | ForEach-Object { "ipaddress=$_" })
 $san = '2.5.29.17={text}' + ($sanParts -join '&')
 Write-Host "SAN: $($sanParts -join ', ')"

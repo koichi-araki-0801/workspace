@@ -69,7 +69,11 @@ try {
         $me, 'FullControl', 'Allow')))
   Set-Acl -LiteralPath $PrivateKeyPath -AclObject $acl
 } catch {
-  Write-Warning "[warn] 秘密鍵の ACL 設定に失敗しました。手動で権限を絞ってください: $PrivateKeyPath"
+  # 権限を絞れなかった秘密鍵を「作成成功」として残さない(継承 ACL のままだと他ユーザーが
+  # 読める可能性がある)。生成した鍵ファイルを消してから中断する(fail closed)。
+  Remove-Item -LiteralPath $PrivateKeyPath -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $PublicKeyPath -Force -ErrorAction SilentlyContinue
+  throw "秘密鍵の ACL 設定に失敗したため、権限を絞れないまま残さないよう生成した鍵ファイル($PrivateKeyPath・$PublicKeyPath)を削除しました。権限設定に失敗した原因(下記)を解消してから再実行してください: $($_.Exception.Message)"
 }
 
 Write-Host "[OK] 秘密鍵: $PrivateKeyPath（バックアップは各自で。リポジトリへは絶対に入れない）"
