@@ -25,16 +25,16 @@
 
   <!-- Edge アプリ窓 -->
   <rect class="box" x="390" y="60" width="460" height="250" rx="8"/>
-  <text class="title" x="420" y="100">Edge アプリ窓（<tspan class="mono">ui.html</tspan>）</text>
+  <text class="title" x="420" y="100">Edge アプリ窓（<tspan class="mono">ui.html</tspan> + js/ 13 モジュール）</text>
   <text class="item" x="420" y="140">・ラベル <tspan class="mono">&lt;text&gt;</tspan> / 引出線 <tspan class="mono">&lt;path&gt;</tspan> をドラッグ編集</text>
-  <text class="item" x="420" y="174">・実フォントのまま正確に表示（DOM 挿入のみ）</text>
+  <text class="item" x="420" y="174">・未信頼 SVG は <tspan class="mono">svg-policy.js</tspan> の許可リストで濾す</text>
   <rect class="panel" x="420" y="212" width="400" height="72" rx="6"/>
   <text class="item mono" x="620" y="242" text-anchor="middle">lib/leader_geom.cjs</text>
   <text class="small" x="620" y="268" text-anchor="middle">引出線幾何の DOM 非依存な純粋関数（UMD）</text>
 
   <!-- app.py -->
   <rect class="box" x="390" y="350" width="460" height="70" rx="8"/>
-  <text class="item" x="620" y="380" text-anchor="middle"><tspan class="mono">app.py</tspan> ― 標準ライブラリ HTTP サーバ（127.0.0.1）</text>
+  <text class="item" x="620" y="380" text-anchor="middle"><tspan class="mono">app.py</tspan>　標準ライブラリ HTTP サーバ（127.0.0.1）</text>
   <text class="small" x="620" y="405" text-anchor="middle">UI を配信し既定 Edge を --app で起動（実行時の外部依存なし）</text>
 
   <!-- 出力 -->
@@ -50,6 +50,7 @@
   <line class="edge" x1="620" y1="348" x2="620" y2="316"/>
   <text class="small" x="645" y="338">配信</text>
   <line class="dep" x1="824" y1="248" x2="985" y2="395"/>
-  <text class="small" x="1010" y="390">pie-chart 側 vitest と</text>
-  <text class="small" x="1010" y="412">同一実装を共有</text>
+  <text class="small" x="1010" y="380">graph-editor の vitest と</text>
+  <text class="small" x="1010" y="400">同一実装を共有</text>
+  <text class="small" x="1010" y="420">（pie-chart とは並行実装）</text>
 </svg>

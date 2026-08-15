@@ -26,49 +26,49 @@
 
   <rect class="panel" x="445" y="40" width="310" height="90" rx="8"/>
   <text class="name" x="600" y="76" text-anchor="middle">Excel（.xlsx）</text>
-  <text class="small mono" x="600" y="104" text-anchor="middle">xlsx_loader.ts / exceljs</text>
+  <text class="small mono" x="600" y="104" text-anchor="middle">input/load.ts / exceljs</text>
 
   <rect class="panel" x="830" y="40" width="310" height="90" rx="8"/>
   <text class="name" x="985" y="76" text-anchor="middle">DB（SQL Server）</text>
-  <text class="small mono" x="985" y="104" text-anchor="middle">db_loader.ts / msnodesqlv8</text>
+  <text class="small mono" x="985" y="104" text-anchor="middle">input/db.ts / msnodesqlv8</text>
 
-  <!-- data.ts -->
+  <!-- 正規化 -->
   <rect class="box" x="340" y="180" width="520" height="72" rx="8"/>
-  <text class="item" x="600" y="210" text-anchor="middle"><tspan class="mono" font-weight="bold">data.ts</tspan> ― normalizeInputItems / resolveInputData</text>
-  <text class="small" x="600" y="236" text-anchor="middle">→ Item[] {name, value} へ正規化</text>
+  <text class="item" x="600" y="210" text-anchor="middle"><tspan class="mono" font-weight="bold">input/load.ts</tspan>　resolveInputData / normalizeInputItems</text>
+  <text class="small" x="600" y="236" text-anchor="middle">→ Item[] {name, value} へ正規化（値降順の整列は pipeline 側）</text>
 
   <!-- レンダラ本体 -->
   <rect class="box" x="100" y="300" width="1000" height="230" rx="8"/>
-  <text class="head" x="130" y="336"><tspan class="mono">renderPdfStylePieToSvg</tspan>（svg_export/index.ts）― 最終アセンブリ・ヘアピン省略・交差検査</text>
+  <text class="head" x="130" y="336"><tspan class="mono">renderPdfStylePieToSvg</tspan>（svg_export/pipeline.ts）　カスケード配置・候補選択・emit 修復</text>
 
   <rect class="sub" x="130" y="360" width="300" height="64" rx="6"/>
   <text class="name mono" x="150" y="386">config.ts</text>
   <text class="small" x="150" y="410">寸法・スケール・配色</text>
 
   <rect class="sub" x="450" y="360" width="300" height="64" rx="6"/>
-  <text class="name mono" x="470" y="386">layout.ts</text>
-  <text class="small" x="470" y="410">論理座標でラベル位置決定</text>
+  <text class="name mono" x="470" y="386">layout/diagnostics.ts</text>
+  <text class="small" x="470" y="410">モード判定・per-item マーカー</text>
 
   <rect class="sub" x="770" y="360" width="300" height="64" rx="6"/>
-  <text class="name mono" x="790" y="386">rendering.ts</text>
-  <text class="small" x="790" y="410">座標変換・スライス / テキスト生成</text>
+  <text class="name mono" x="790" y="386">layout/placement.ts</text>
+  <text class="small" x="790" y="410">角度ゾーン別配置 10 種 + leader path</text>
 
   <rect class="sub" x="130" y="444" width="300" height="64" rx="6"/>
-  <text class="name mono" x="150" y="470">label_placement.ts</text>
-  <text class="small" x="150" y="494">経路選択 10 種 + 引出線 path</text>
+  <text class="name mono" x="150" y="470">svg_export/mode_passes.ts</text>
+  <text class="small" x="150" y="494">左列 / top-band / 右上逃がし</text>
 
   <rect class="sub" x="450" y="444" width="300" height="64" rx="6"/>
-  <text class="name mono" x="470" y="470">post_layout.ts</text>
-  <text class="small" x="470" y="494">重なり解消・compact cascade</text>
+  <text class="name mono" x="470" y="470">svg_export/emit_repair.ts</text>
+  <text class="small" x="470" y="494">修復パス列・採点・do-no-harm</text>
 
   <rect class="sub" x="770" y="444" width="300" height="64" rx="6"/>
-  <text class="name mono" x="790" y="470">font.ts</text>
-  <text class="small" x="790" y="494">WOFF2 サブセット埋込（subset-font）</text>
+  <text class="name mono" x="790" y="470">rendering.ts / font.ts</text>
+  <text class="small" x="790" y="494">SVG 文字列生成・WOFF2 サブセット埋込</text>
 
   <!-- 出力 -->
-  <rect class="panel" x="340" y="580" width="520" height="72" rx="8"/>
+  <rect class="panel" x="290" y="580" width="620" height="72" rx="8"/>
   <text class="name" x="600" y="610" text-anchor="middle">決定的 SVG（同一入力 → 同一バイト列）</text>
-  <text class="small" x="600" y="636" text-anchor="middle">out/svg_js ― 87 サンプルの回帰検証（verify_svg.ts）</text>
+  <text class="small" x="600" y="636" text-anchor="middle">out/svg_js　83 サンプルを out/_baseline と byte 比較・verify/svg.ts で独立検証</text>
 
   <!-- エッジ -->
   <line class="edge" x1="215" y1="132" x2="450" y2="174"/>
@@ -77,5 +77,5 @@
   <line class="edge" x1="600" y1="254" x2="600" y2="294"/>
   <line class="edge" x1="600" y1="532" x2="600" y2="574"/>
 
-  <text class="small" x="600" y="672" text-anchor="middle">外部依存（exceljs / msnodesqlv8 / subset-font）は端の層に隔離 ― レンダリング層は依存ゼロ</text>
+  <text class="small" x="600" y="672" text-anchor="middle">外部依存（exceljs / msnodesqlv8 / subset-font）は端の層に隔離。レンダリング層は依存ゼロ</text>
 </svg>

@@ -34,7 +34,7 @@
 
   <rect class="box" x="70" y="346" width="440" height="72" rx="8"/>
   <text class="name mono" x="100" y="376">dictionary</text>
-  <text class="desc" x="100" y="402">NFKC 正規化・ヘッダ検出・置換の自動適用</text>
+  <text class="desc" x="100" y="402">NFKC 正規化照合・折返し連結・明示操作で適用（Undo 可）</text>
 
   <rect class="box" x="70" y="448" width="440" height="72" rx="8"/>
   <text class="name mono" x="100" y="478">export</text>
@@ -50,19 +50,19 @@
   <line class="edge" x1="290" y1="522" x2="290" y2="544"/>
 
   <!-- Web サーバと Edge アプリ窓 -->
-  <rect class="box" x="620" y="244" width="260" height="176" rx="8"/>
+  <rect class="box" x="600" y="244" width="300" height="176" rx="8"/>
   <text class="name mono" x="750" y="290" text-anchor="middle">web.server</text>
   <text class="item" x="750" y="322" text-anchor="middle">127.0.0.1 ローカル HTTP</text>
   <text class="item mono" x="750" y="352" text-anchor="middle">/rpc・/upload・/quit・/ping</text>
-  <text class="small" x="750" y="382" text-anchor="middle">コマンド + Undo スタック</text>
+  <text class="small" x="750" y="382" text-anchor="middle">同一オリジン検査・コマンド + Undo スタック</text>
 
-  <rect class="box" x="950" y="244" width="200" height="176" rx="8"/>
-  <text class="name" x="1050" y="300" text-anchor="middle">Edge アプリ窓</text>
-  <text class="item mono" x="1050" y="336" text-anchor="middle">resources/web</text>
-  <text class="small" x="1050" y="366" text-anchor="middle">UI（index.html / app.js）</text>
+  <rect class="box" x="970" y="244" width="200" height="176" rx="8"/>
+  <text class="name" x="1070" y="300" text-anchor="middle">Edge アプリ窓</text>
+  <text class="item mono" x="1070" y="336" text-anchor="middle">resources/web</text>
+  <text class="small" x="1070" y="366" text-anchor="middle">index.html + JS 7 本</text>
 
-  <line class="edge2" x1="518" y1="304" x2="612" y2="304"/>
-  <line class="edge2" x1="888" y1="332" x2="942" y2="332"/>
+  <line class="edge2" x1="518" y1="304" x2="592" y2="304"/>
+  <line class="edge2" x1="908" y1="332" x2="962" y2="332"/>
 
-  <text class="note" x="70" y="660">設計原則「モデルが真実」: 編集は /rpc からコマンドを Undo スタックへ push してモデルを更新し、SVG はモデルから直接書き出す（GUI 非依存でテスト可能）。</text>
+  <text class="note" x="70" y="660">設計原則「モデルが真実」: 編集は /rpc からコマンドを Undo スタックへ push してモデルを更新し、SVG はモデルから直接書き出す。</text>
 </svg>
