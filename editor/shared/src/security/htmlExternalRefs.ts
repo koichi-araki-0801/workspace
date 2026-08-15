@@ -36,9 +36,12 @@ import { normalizeHtmlUrlValue } from './htmlEntities.js';
  * ⚠ **この表(= 本ゲート全体)は best-effort である。** 属性の数え上げは必ず漏れる
  * (実測で漏れていた例: SVG `<script href>` / `<script xlink:href>`、
  * `<link rel=preload imagesrcset>`、`<meta http-equiv=refresh content="0;url=…">`)。
- * 漏れを致命傷にしないための**強制点は `server/src/vivliostyle/egressGuard.ts`** で、
- * 組版ブラウザはそのビルドが押さえたオリジンの外へ出られない。ここは「早期に 400 で
- * 拒んで運用者へ理由を返す」層であって、最後の砦ではない。
+ * 漏れを致命傷にしないための強制点は**経路ごとに別**である。PDF ビルドは
+ * `server/src/vivliostyle/egressGuard.ts`(組版ブラウザはそのビルドが押さえたオリジンの外へ
+ * 出られない)、ブラウザ表示経路は各経路の CSP(`vivliostyle/previewHost.ts` のホストページ
+ * CSP / `config.buildCspDirectives` / `previewProxy.CONTENT_CSP`)が受け持つ。
+ * ここは「早期に 400 で拒んで運用者へ理由を返す」層であって、最後の砦ではない。
+ * ⚠ 表示経路の砦は CSP なので、**CSP を緩める変更はこの表の漏れをそのまま実害にする**。
  */
 const FETCH_URL_ATTRS: ReadonlyMap<string, readonly string[]> = new Map([
   // `imagesrcset` は `<link rel=preload as=image>` が実際に取得を起こす URL 列。

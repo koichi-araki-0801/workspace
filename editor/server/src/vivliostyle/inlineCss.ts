@@ -72,6 +72,9 @@ const RAW_TEXT_ELEMENTS = new Set([
  * 落とす(相対参照を許す設計の土台そのものを動かせてしまう)。`<meta http-equiv>` は
  * 宣言的リフレッシュで遷移を起こせるので同様。
  *
+ * ⚠ **zip project 経路(`POST /api/build/project`)はここを通らない。** `<base>` の一次関門は
+ * `security/externalRefs.ts` の 400 側(タグの存在だけで拒む)で、この除去は二重化として残す。
+ *
  * **`link` と `script` はここに入れない。** テンプレは per-fund CSS・共通フォント・
  * テンプレ JS を相対パスで参照し、その実体は `docAssets.ts` が配信ルートへ置く。
  * 要素名で落とすと同梱資産まで道連れになるため、判定は
