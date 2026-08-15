@@ -10,7 +10,7 @@
 //   - 警告のみ (exit 0): `.ts/.js` 系のファイル先頭装飾ボックスヘッダの有無
 //     (移行途中のブロックを避けるため段階導入。移行完了後にハード化する)
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,6 +18,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // ── 1. 走査対象 — 重量物/生成物/ベンダを除外 ──
 // `node_modules` や `.venv-build` 等は自作コードでないため検査しない。
+// 装飾ボックスヘッダ警告 (§4) の走査でのみ使う。ハード失敗になる `.ps1` 検査 (§3) は
+// `dist`/`out`/`build`/`coverage` も除外せず別走査する (下記 `isPs1SkipDir` 参照)。
 const SKIP_DIRS = new Set([
   'node_modules',
   '.git',
@@ -31,6 +33,17 @@ const SKIP_DIRS = new Set([
   'out',
   'build',
 ]);
+
+// `.ps1` ハード検査 (BOM・`.bat` 併設) 専用の除外。PyInstaller 等が `build/`・`dist/` に
+// 生成物を作る構成があり、そこへ将来 `.ps1` が同梱された瞬間に無検査になるのを避けるため、
+// `dist`/`out`/`build`/`coverage` は除外しない。除外するのは自作コードでない領域のみ
+// (`.venv*` は前方一致で venv バリエーションをまとめて除く)。
+const isPs1SkipDir = (name) =>
+  name === 'node_modules' ||
+  name === '.git' ||
+  name.startsWith('.venv') ||
+  name === 'ms-playwright' ||
+  name === 'python-wheelhouse';
 
 // `.ps1`↔`.bat` 併設の例外: dot-source 専用ライブラリは単体起動しないため `.bat` 不要。
 // 正典は `offline/lib/content-key.ts` 相当の運用 (ルート `README.md` のスクリプト節を参照)。
@@ -56,6 +69,7 @@ const BOX_HEADER_ROOTS = [
 const TSJS_EXT = new Set(['.ts', '.tsx', '.js', '.cjs', '.mjs']);
 
 // ── 2. ファイル収集 ──
+// 装飾ボックスヘッダ警告 (§4) 用。SKIP_DIRS で dist/out/build/coverage も除外する。
 function walk(dir, acc) {
   for (const name of readdirSync(dir)) {
     if (SKIP_DIRS.has(name)) continue;
@@ -66,16 +80,28 @@ function walk(dir, acc) {
   }
 }
 
+// `.ps1` ハード検査 (§3) 専用。dist/out/build/coverage を降りる別走査 (`.ps1` だけ収集)。
+function walkPs1(dir, acc) {
+  for (const name of readdirSync(dir)) {
+    if (isPs1SkipDir(name)) continue;
+    const full = join(dir, name);
+    const st = statSync(full);
+    if (st.isDirectory()) walkPs1(full, acc);
+    else if (extname(name) === '.ps1') acc.push(full);
+  }
+}
+
 const allFiles = [];
 walk(ROOT, allFiles);
+const ps1Files = [];
+walkPs1(ROOT, ps1Files);
 const rel = (f) => relative(ROOT, f).replace(/\\/g, '/');
 
 const errors = [];
 const warnings = [];
 
 // ── 3. PowerShell 検査 (.ps1: BOM + .bat 併設) ──
-for (const f of allFiles) {
-  if (extname(f) !== '.ps1') continue;
+for (const f of ps1Files) {
   const r = rel(f);
   const buf = readFileSync(f);
 
@@ -88,9 +114,10 @@ for (const f of allFiles) {
 
   // 同名 .bat ランチャの併設 (dot-source ライブラリと Pester テストは例外: どちらも
   // 単体の入口ではなく、前者は dot-source、後者は Invoke-Pester から呼ばれる)。
+  // `.bat` 自体は walkPs1 が収集しないため、存在確認は `existsSync` で行う。
   if (!BAT_PAIRING_EXCEPTIONS.has(r) && !r.endsWith('.Tests.ps1')) {
     const bat = `${f.slice(0, -4)}.bat`;
-    if (!allFiles.includes(bat)) {
+    if (!existsSync(bat)) {
       errors.push(`${r}: 同名 .bat ランチャが無い (.ps1 には .bat を併設する)`);
     }
   }

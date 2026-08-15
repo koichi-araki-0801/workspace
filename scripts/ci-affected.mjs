@@ -166,10 +166,13 @@ console.log(`[ci:affected] スキップ領域: ${skipped.length ? skipped.map((a
 
 // 共有ゲートは領域の有無に関わらず 1 回だけ実行(comments は .ps1/.md 等も検査するため常時必要)。
 // claude-hooks も同列: `.claude/` は git 追跡外で diff に現れないため領域発火の対象にできず、
-// diff の中身に関わらず常時検査する側に置くしかない。
+// diff の中身に関わらず常時検査する側に置くしかない。test:scripts も同列: `scripts/` は
+// 領域を持たず BENIGN_PREFIXES 止まりのため、`scripts/clean.test.mjs` は他の領域と紐付けず
+// ここで常時実行する。
 runPnpm('check:comments');
 runPnpm('check:claude-hooks');
 runPnpm('check:ci');
+runPnpm('test:scripts');
 
 if (selected.size === 0) {
   console.log('\n[ci:affected] 変更領域なし。共有ゲートのみで完了。');
