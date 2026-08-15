@@ -134,6 +134,7 @@ export default defineConfig({
         'editor/web/src/features/editor/usePartEditHistory.ts',
         'editor/web/src/features/editor/usePartNote.ts',
         'editor/web/src/features/editor/partKey.ts',
+        'editor/web/src/features/editor/partPreviewDoc.ts',
         'editor/web/src/features/editor/useAutosave.ts',
         'editor/web/src/stores/editorSession.ts',
         'editor/web/src/stores/pendingReviews.ts',
