@@ -133,9 +133,14 @@ function opaqueChip(source: string, kind: 'script' | 'math', label: string): str
   return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_OPAQUE}="${b64encode(source)}" ${DATA_OPAQUE_KIND}="${kind}">${label}</span>`;
 }
 
+// opaque mask の生成正規表現。`jinjaMask.ts` の `toTemplate` が data-opaque 復元段で
+// 「復号値が生成 1 単位と完全一致するか」を検査する際にも同じ定数を使う — 生成と検査が
+// 別々の正規表現に分かれると、片側だけ緩めても round-trip テストが気付けないため。
+export const OPAQUE_SCRIPT_RE = /<script\b[\s\S]*?<\/script>/gi;
+export const OPAQUE_MATH_RE = /<math\b[\s\S]*?<\/math>/gi;
 // MathJax が受理する TeX 区切り: $$…$$ / \(…\) / \[…\]。(単独の `$` はマッチさせ
 // ない — レポート本文の通貨表記と衝突するため。)
-const MATH_TEX_RE = /\$\$[\s\S]*?\$\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g;
+export const MATH_TEX_RE = /\$\$[\s\S]*?\$\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g;
 
 /**
  * 構造パスの前に, GrapesJS と相性の悪い / math コンテンツを opaque chip へ mask
@@ -146,8 +151,8 @@ const MATH_TEX_RE = /\$\$[\s\S]*?\$\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g;
  */
 function maskOpaque(html: string): string {
   let s = html;
-  s = s.replace(/<script\b[\s\S]*?<\/script>/gi, (m) => opaqueChip(m, 'script', 'JS'));
-  s = s.replace(/<math\b[\s\S]*?<\/math>/gi, (m) => opaqueChip(m, 'math', '∑'));
+  s = s.replace(OPAQUE_SCRIPT_RE, (m) => opaqueChip(m, 'script', 'JS'));
+  s = s.replace(OPAQUE_MATH_RE, (m) => opaqueChip(m, 'math', '∑'));
   s = s.replace(MATH_TEX_RE, (m) => opaqueChip(m, 'math', '∑'));
   return s;
 }
@@ -195,8 +200,10 @@ function expandLoops(html: string, ctx: Ctx, f: Filler): string {
 }
 
 // `{% if c %}A{% else %}B{% endif %}` (else は任意)。Non-greedy: nesting なしを
-// 前提とし, レポートテンプレートの単一要素 branch に合致する。
-const IF_RE = /\{%\s*if\s+([\s\S]*?)%\}([\s\S]*?)(?:\{%\s*else\s*%\}([\s\S]*?))?\{%\s*endif\s*%\}/g;
+// 前提とし, レポートテンプレートの単一要素 branch に合致する。`jinjaMask.ts` の
+// `toTemplate` が data-jinja-block 復元段の形状検査でも同じ定数を使う(生成と検査の共有)。
+export const IF_RE =
+  /\{%\s*if\s+([\s\S]*?)%\}([\s\S]*?)(?:\{%\s*else\s*%\}([\s\S]*?))?\{%\s*endif\s*%\}/g;
 
 function collapseIfs(html: string, ctx: Ctx, f: Filler): string {
   return html.replace(IF_RE, (whole, cond: string, trueB: string, elseB: string | undefined) => {

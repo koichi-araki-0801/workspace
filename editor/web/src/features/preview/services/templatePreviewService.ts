@@ -14,6 +14,7 @@ import {
   type Template,
   type TemplateRepository,
   unexpected,
+  validation,
 } from '@editor/shared';
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { apiUrl } from '@/api/rest/http';
@@ -82,10 +83,17 @@ export function createTemplatePreviewService(
       if (draft) {
         // Jinja 復元(DOM 重処理)は Worker(linkedom)で実行しメインを塞がない。`pretty` で
         // 復元 HTML を整形し、確定保存される `data/templates` が git に読める形になる。
-        const restoredBody = await htmlWorker.toTemplate(draft.html, {
-          asFragment: true,
-          pretty: true,
-        });
+        // `toTemplate` は復元マスクの形状検査に失敗すると throw する(canvas 入口を素通りした
+        // 攻撃形 draft の検出)。comlink 越しでも promise reject で届くので Result へ写す。
+        let restoredBody: string;
+        try {
+          restoredBody = await htmlWorker.toTemplate(draft.html, {
+            asFragment: true,
+            pretty: true,
+          });
+        } catch (e) {
+          return err(validation(RENDER_ERROR_MSG, { cause: e }));
+        }
         restoredHtml = replaceBodyInner(tpl.html, restoredBody);
         css = formatCss(draft.css);
       } else {

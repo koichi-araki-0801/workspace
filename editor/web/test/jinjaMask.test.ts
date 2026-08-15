@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractJinjaTokens, toEditable, toTemplate } from '../src/lib/jinjaMask';
+import { b64encode, extractJinjaTokens, toEditable, toTemplate } from '../src/lib/jinjaMask';
 import { renderJinja } from '../src/lib/nunjucksRender';
 
 const cases: Record<string, string> = {
@@ -79,6 +79,72 @@ describe('jinja data attribute names stay stable', () => {
   it('canvas CSS still targets [data-jinja-open]', async () => {
     const { jinjaChipCanvasCss } = await import('../src/features/editor/jinjaComponents');
     expect(jinjaChipCanvasCss).toContain('[data-jinja-open]');
+  });
+});
+
+describe('toTemplate は復元マスクの中身を検査して復号を限定する', () => {
+  // toTemplate の最終段は placeholder を base64 復号して HTML へ生文字列で差し込む
+  // (「サニタイズが最後に喋る」唯一の例外)。canvas 入口は data-* 属性値を無検査で通すため、
+  // ここで各チャネルの形状を検査しないと data-jinja/data-opaque に任意 HTML を注入して
+  // 保存テンプレへ書き戻せる。復号は「この toTemplate が発行した placeholder」かつ
+  // 「生成元の形状に一致」する場合に限る。違反は黙って残さず throw する。
+
+  it('data-jinja に Jinja トークンでない base64(script)を仕込むと throw する', () => {
+    const enc = b64encode('<script>alert(1)</script>');
+    const editable = `<p><span data-gjs-type="jinja-var" data-jinja="${enc}">x</span></p>`;
+    expect(() => toTemplate(editable)).toThrow();
+  });
+
+  it('data-jinja にトークン + タグ外 HTML の混入(タグ注入)を throw する', () => {
+    // 単一トークン風に見せて `}}` の後ろへ HTML を継ぎ足す形。単一トークン検査で弾く。
+    const enc = b64encode('{{ x }}<img src=x onerror=alert(1)>{{ y }}');
+    const editable = `<p><span data-jinja="${enc}">x</span></p>`;
+    expect(() => toTemplate(editable)).toThrow();
+  });
+
+  it('data-opaque に script/math/TeX いずれでもない HTML を仕込むと throw する', () => {
+    const enc = b64encode('<img src=x onerror=alert(1)>');
+    const editable = `<p><span data-opaque="${enc}" data-opaque-kind="script">JS</span></p>`;
+    expect(() => toTemplate(editable)).toThrow();
+  });
+
+  it('data-opaque に「単一 script」を装った script + タグ外 HTML を throw する', () => {
+    const enc = b64encode('<script>ok()</script><img src=x onerror=alert(1)><script>e()</script>');
+    const editable = `<p><span data-opaque="${enc}" data-opaque-kind="script">JS</span></p>`;
+    expect(() => toTemplate(editable)).toThrow();
+  });
+
+  it('data-jinja-block に if ブロックでない base64 を仕込むと throw する', () => {
+    const enc = b64encode('<div onclick=alert(1)>x</div>');
+    const editable = `<div data-jinja-block="${enc}">x</div>`;
+    expect(() => toTemplate(editable)).toThrow();
+  });
+
+  it('data-jinja-open に stmt トークンでない base64 を仕込むと throw する', () => {
+    const openEnc = b64encode('<img src=x onerror=alert(1)>');
+    const closeEnc = b64encode('{% endfor %}');
+    const editable = `<ul><li data-jinja-open="${openEnc}" data-jinja-close="${closeEnc}">x</li></ul>`;
+    expect(() => toTemplate(editable)).toThrow();
+  });
+
+  it('テキストへ私用領域文字で偽 placeholder を直書きすると復号されず throw する', () => {
+    // U+E000/U+E001 は HTML serialization をエスケープされずに通過する。この toTemplate が
+    // 発行していない placeholder は issued set に無く、復号せず違反にする。
+    const enc = b64encode('<script>alert(1)</script>');
+    const editable = `<p>${String.fromCharCode(0xe000)}${enc}${String.fromCharCode(0xe001)}</p>`;
+    expect(() => toTemplate(editable)).toThrow();
+  });
+
+  it('不正 base64(復号不能)を data-jinja に仕込むと throw する', () => {
+    const editable = `<p><span data-jinja="@@@not-base64@@@">x</span></p>`;
+    expect(() => toTemplate(editable)).toThrow();
+  });
+
+  it('正規の data-opaque(単一 script)は throw せず復元する', () => {
+    const enc = b64encode('<script>doWidth();</script>');
+    const editable = `<p><span data-opaque="${enc}" data-opaque-kind="script">JS</span></p>`;
+    const restored = toTemplate(editable, { asFragment: true });
+    expect(restored).toContain('<script>doWidth();</script>');
   });
 });
 
