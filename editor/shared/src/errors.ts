@@ -5,14 +5,24 @@
 // `AppError` へ変換し `Err` に入れて返す。`message` は常にユーザー表示しても安全で、
 // 技術的詳細は `cause` に入れてログ専用とする。
 
-export type AppErrorKind =
-  | 'not_found'
-  | 'validation'
-  | 'unauthorized'
-  | 'forbidden'
-  | 'conflict'
-  | 'network'
-  | 'unexpected';
+// 許可される kind の正典。`schemas.ts` の `z.enum` と REST 応答の照合(`web/src/api/rest/http.ts`)
+// がここから読む — 3 箇所へ手書き複製すると 1 つだけ更新漏れて未知 kind を通す穴になる。
+export const APP_ERROR_KINDS = [
+  'not_found',
+  'validation',
+  'unauthorized',
+  'forbidden',
+  'conflict',
+  'network',
+  'unexpected',
+] as const;
+
+export type AppErrorKind = (typeof APP_ERROR_KINDS)[number];
+
+/** `v` が既知の `AppErrorKind` か。外部由来(REST 応答等)の文字列を信用する前に通す。 */
+export function isAppErrorKind(v: unknown): v is AppErrorKind {
+  return typeof v === 'string' && (APP_ERROR_KINDS as readonly string[]).includes(v);
+}
 
 export interface AppError {
   kind: AppErrorKind;
