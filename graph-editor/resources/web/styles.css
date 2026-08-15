@@ -161,7 +161,7 @@ button.step { border: 0; background: transparent; font-family: var(--font-ui); }
 
 /* 編集オーバーレイ（SVG 内へ注入） */
 #canvas .label-hit { fill: transparent; cursor: pointer; }
-#canvas g.label.is-selected .label-hit { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; fill: oklch(0.585 0.105 240 / 0.08); }
+#canvas g.label[data-editor-sel] .label-hit { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; fill: oklch(0.585 0.105 240 / 0.08); }
 #canvas g.label:hover .label-hit { fill: oklch(0.585 0.105 240 / 0.06); }
 
 /* 浮かぶページナビ / ズーム */

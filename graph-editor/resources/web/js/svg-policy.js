@@ -75,9 +75,13 @@ const ALLOWED_ATTRS = new Set([
   "type",
 ]);
 
-// `data-` 接頭辞は原則許可するが、この 2 つはエディタ専有名。入力から持ち込まれると
+// `data-` 接頭辞は原則許可するが、この 3 つはエディタ専有名。入力から持ち込まれると
 // `bakeSvg` が保存時に無条件削除するため「開けたのに保存すると消える」不整合になる。
-const RESERVED_DATA_ATTRS = new Set(["data-editor", "data-editor-hit"]);
+// `data-editor-sel`(選択マーカー) を予約に含めるのは列挙漏れ対策でもある: `class` は
+// 値無検査で通す許可属性のため、`is-selected` のような素のクラス名では出口
+// `sanitizeSvg` の検知網に掛からない。予約 `data-*` にしておけば、`bakeSvg` の除去列挙が
+// 将来漏れても出口検査が `removedCount>0` で必ず保存を止める。
+const RESERVED_DATA_ATTRS = new Set(["data-editor", "data-editor-hit", "data-editor-sel"]);
 
 /** 要素を出力へ通してよいか。名前空間と綴りの**両方**が一致した時だけ true。
  *  仮に `foreignObject` を許可集合へ足しても、その中の XHTML `<iframe>` は名前空間が

@@ -76,7 +76,8 @@ test("保存 bake: transform 焼き込み・編集用要素の除去・元サイ
   // 編集専用要素・クラスが残らない
   expect(out).not.toContain("data-editor");
   expect(out).not.toContain("label-hit");
-  expect(out).not.toContain("is-selected");
+  // Beta が選択状態のまま bake しても選択マーカー(予約 data-editor-sel)が残らない
+  expect(out).not.toContain("data-editor-sel");
   expect(out).not.toContain("editor-overlay");
   // Alpha: x=529+30 / y=68+20 に焼き込まれ transform は残らない
   expect(out).toContain('x="559"');

@@ -300,6 +300,62 @@ test("pie-chart 実出力は 1 件も削られず、フォント・data-* ・tex
   expect(r.leaderPaths).toBeGreaterThan(0);
 });
 
+// ── 5. bakeSvg の覆いの穴 2 つ (選択マーカーの予約 data-* 化 / 出口検査の try/catch) ──
+
+test("選択マーカーが列挙漏れで残っても、予約 data-editor-sel を出口 sanitizeSvg が検知する", async ({ page }) => {
+  // `bakeSvg` の除去列挙 (`[data-editor-sel]` の属性除去) が将来漏れても、選択マーカーが
+  // 予約 `data-*` である限り出口検査は必ず `removed>0` に倒れて保存を止める、という
+  // 安全網そのものを主張する (`class="is-selected"` のような素のクラス名は `class` が
+  // 値無検査の許可属性なので、この網に掛からなかった)。
+  const svg = svgWith(``).replace(
+    `<g class="label" data-name="Alpha" data-percent="50">`,
+    `<g class="label" data-name="Alpha" data-percent="50" data-editor-sel="1">`,
+  );
+  const counts = await sanitizeCounts(page, svg);
+  expect(counts.ok).toBe(true);
+  expect(counts.removed).toBeGreaterThan(0);
+});
+
+test("sanitizeSvg が例外を投げても save は保存を中止し、ダウンロードを起こさない", async ({ page }) => {
+  // 入口 (:56-65 付近) は既に明示 try/catch 済みだが、出口 `sanitizeSvg(out)` は
+  // 未対応だと例外が unhandled rejection になり「保存ボタンを押しても何も起きない」
+  // 無言失敗になる。`/js/utils.js` の `sanitizeSvg` を例外を投げる版へ差し替え、
+  // save がステータス表示のうえ return し、ダウンロードが起きないことを確かめる。
+  // 例外は `window.__throwSanitize` フラグが立っている時だけ投げる — `load` も同じ
+  // `sanitizeSvg` を通るため、無条件に投げると読込自体が (これも中断 = 意図どおり)
+  // 落ちてしまい、保存経路だけを狙って検証できない。
+  await page.route("**/js/utils.js", async (route) => {
+    const res = await route.fetch();
+    const body = await res.text();
+    const patched = body.replace(
+      "function sanitizeSvg(svgText) {",
+      'function sanitizeSvg(svgText) { if (window.__throwSanitize) throw new Error("boom-test");',
+    );
+    expect(patched).not.toBe(body); // 置換が実際に効いたことの前提 (壊れたら誤検証を防ぐ)
+    await route.fulfill({ response: res, body: patched });
+  });
+  await page.goto("/ui.html");
+  await page.waitForFunction(() => !!window.__editor);
+  await page.evaluate((s) => window.__editor.load({ name: "throwtest", id: 1, content: s }), PIE_SAMPLE);
+  await page.waitForFunction(() => window.__editor.labels && window.__editor.labels.length >= 4);
+
+  let downloadFired = false;
+  page.once("download", () => {
+    downloadFired = true;
+  });
+  await page.evaluate(() => {
+    (window as unknown as { __throwSanitize: boolean }).__throwSanitize = true;
+  });
+  await page.evaluate(() => window.__editor.save());
+  await page.waitForTimeout(200);
+
+  const status = await page.evaluate(
+    () => (document.querySelector(".footer .skip-note") as HTMLElement)?.textContent,
+  );
+  expect(status).toContain("保存を中止しました");
+  expect(downloadFired).toBe(false);
+});
+
 test("往復: 保存出力を再度開いても除去 0・ラベル数一致・transform が焼き込まれている", async ({ page }) => {
   await page.evaluate((s) => window.__editor.load({ name: "pie", id: 1, content: s }), PIE_SAMPLE);
   await page.waitForFunction(() => window.__editor.labels && window.__editor.labels.length >= 4);
