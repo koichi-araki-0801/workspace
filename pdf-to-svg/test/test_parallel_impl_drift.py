@@ -21,6 +21,7 @@ graph-editor は実行時依存ゼロ (標準ライブラリのみ) なので、
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +30,7 @@ import pytest
 from web import origin_guard, server
 
 GRAPH_EDITOR_DIR = Path(__file__).resolve().parents[2] / "graph-editor"
+PDF_TO_SVG_DIR = Path(__file__).resolve().parents[1]
 
 # graph-editor 側の `app.py` を読み込むときの別名。こちらにも `src/app.py` があり、素の
 # `app` で読むと**どちらか一方が他方を上書きする**ため、必ず別名で読む。
@@ -58,6 +60,51 @@ def _graph_editor_app():
         return module
     finally:
         sys.path.remove(str(GRAPH_EDITOR_DIR))
+
+
+def _js_escape_map(js_path: Path, func_name: str) -> dict:
+    """`func_name` 関数の本体から HTML エスケープの置換表 (1 文字 → 置換後文字列) を抽出する。
+
+    JS を実行せずソーステキストを読むだけなので、`function` 宣言と内側のアロー関数呼び出しの
+    どちらでも (= 体裁が両側で違っても) 実際に使われる置換ペアだけを比較できる。波括弧の対応を
+    数えて関数本体を切り出し、その中の `"x": "y"` 形の対だけを拾う。
+    """
+    text = js_path.read_text(encoding="utf-8")
+    start = text.index(f"function {func_name}(")
+    body_start = text.index("{", start)
+    depth = 0
+    body_end = None
+    for i in range(body_start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                body_end = i
+                break
+    assert body_end is not None, f"{func_name} の閉じ括弧が見つからない"
+    body = text[body_start:body_end]
+    pairs = re.findall(r'''(["'])(.)\1\s*:\s*(["'])((?:\\.|[^"'\\])*)\3''', body)
+    return {key: value for _q1, key, _q2, value in pairs}
+
+
+# ── HTML エスケープ (JS 並行実装) ──
+
+
+def test_html_escape_map_matches():
+    """pdf-to-svg `dom.js` の `esc` と graph-editor `utils.js` の `escapeHtml` が
+    同じ置換表を持つこと。
+
+    `'` の抜けは (属性が二重引用符で書かれる限り) 表示上の破綻を起こさないが、片方だけ
+    抜けたまま気付かれない形こそが並行実装の drift そのものなので、逐語比較で機械的に塞ぐ。
+    """
+    if not GRAPH_EDITOR_DIR.exists():
+        pytest.skip("graph-editor のソースが同居していない")
+    pdf_map = _js_escape_map(PDF_TO_SVG_DIR / "resources" / "web" / "dom.js", "esc")
+    ge_map = _js_escape_map(
+        GRAPH_EDITOR_DIR / "resources" / "web" / "js" / "utils.js", "escapeHtml")
+    assert pdf_map == ge_map
+    assert pdf_map == {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}
 
 
 # ── 認可・防御ヘッダ ──
@@ -162,7 +209,9 @@ def test_edge_launch_args_match_and_carry_no_logging_flags_by_default():
     # ログの保持上限・ファイル名・環境変数の読み方も同一 (環境変数**名**だけがプロジェクト固有)。
     assert ours.EDGE_LOG_MAX_BYTES == other.EDGE_LOG_MAX_BYTES
     assert ours.EDGE_LOG_NAME == other.EDGE_LOG_NAME
-    assert ours._FALSY_ENV_VALUES == other._FALSY_ENV_VALUES
+    # 有効判定の許可集合 (真値リテラル)。片側だけ広げると、片方の配布物だけ未知の綴りで
+    # 診断ログ (= トークン漏えい面) が開いてしまう。
+    assert ours._TRUTHY_ENV_VALUES == other._TRUTHY_ENV_VALUES
     assert ours.EDGE_LOG_ENV != other.EDGE_LOG_ENV
 
 

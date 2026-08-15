@@ -116,9 +116,11 @@ def _setup_logging():
 # 構造・既定・後始末は逐語で揃える。片方を変えたら必ず両方を変えること。
 EDGE_LOG_ENV = "PDFTOSVG_EDGE_LOG"
 
-# 環境変数を「無効」とみなす値。`0` / 空 / `false` 系以外は有効扱い (診断は明示 opt-in なので、
-# 迷ったら「有効」へ倒す方が驚きが少ない)。
-_FALSY_ENV_VALUES = frozenset({"", "0", "false", "no", "off"})
+# 環境変数を「有効」とみなす値の許可集合 (小文字畳み後の完全一致)。有効側は診断ログを開く
+# 方向 = セッショントークンがディスクへ落ちる面を開く方向なので、未知の綴り・空文字は
+# 「無効」へ倒す (fail-close)。否定リストで判定すると、想定外の値がそのまま「有効」に
+# 転がり込む。
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 
 # opt-in 時の Edge ログの保持上限。Edge 自身はサイズ上限もローテーションも持たないため、
 # 起動時の作り直し (前回分を残さない) と終了時の末尾切り詰めで上限を強制する。
@@ -133,8 +135,8 @@ _EDGE_LOG_USER_DIR_NAME = "PdfToSvg"
 
 
 def _env_flag(name: str) -> bool:
-    """環境変数を真偽として読む。未設定・空・`0`/`false`/`no`/`off` は False。"""
-    return os.environ.get(name, "").strip().lower() not in _FALSY_ENV_VALUES
+    """環境変数を真偽として読む。`_TRUTHY_ENV_VALUES` の完全一致 (小文字畳み後) だけが True。"""
+    return os.environ.get(name, "").lower() in _TRUTHY_ENV_VALUES
 
 
 def _edge_log_path() -> "str | None":

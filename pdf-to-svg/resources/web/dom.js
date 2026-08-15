@@ -15,9 +15,11 @@ export function svg(p, w, sw) {
   );
 }
 
-// HTML 属性/本文へ埋め込む際の最小エスケープ。
+// HTML 属性/本文へ埋め込む際の最小エスケープ。graph-editor `utils.js` の `escapeHtml`
+// と置換表を逐語一致させる(並行実装。片方を変えたら両方)。一致は
+// `test_parallel_impl_drift.py` が機械検証する。
 export function esc(s) {
-  return String(s).replace(/[&<>"]/g, function (c) {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
   });
 }

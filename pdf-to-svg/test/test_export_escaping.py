@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from export.svg_exporter import page_to_svg
+from export.svg_exporter import _mime, page_to_svg
 from model.document import Page
 from model.elements import (
     LineElement,
@@ -87,6 +87,18 @@ def test_text_content_is_escaped_not_dropped():
     svg = page_to_svg(_page(text))
     assert "<script" not in svg
     assert "&lt;script&gt;" in svg
+
+
+def test_mime_unknown_ext_falls_to_octet_stream():
+    """未知拡張子は PDF 由来の ext をそのまま MIME に仕立てず `application/octet-stream` へ倒す。
+
+    既知拡張子の出力は不変であること (`test_pipeline.py` が退行網) と対で、固定表の外は
+    fail-close することをここで固定する。
+    """
+    assert _mime("svg+xml") == "application/octet-stream"
+    assert _mime("html") == "application/octet-stream"
+    assert _mime("png") == "image/png"
+    assert _mime("JPG") == "image/jpeg"
 
 
 def test_no_attribute_is_built_with_a_raw_f_string():
