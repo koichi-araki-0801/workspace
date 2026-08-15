@@ -1,9 +1,9 @@
 // =============================================================================
-// output_escaping.test.ts — 設定値の素通し(P022 / P039 / P043)の退行ガード
+// output_escaping.test.ts — 設定値の素通しの退行ガード
 // =============================================================================
 // 「エスケープすべき属性」を列挙する形だと、同じ 1 行の中で `font-family` は escape され
 // `fill` は素通し、という非対称が生まれる。`--font-weight '400" onload="alert(1)'` で全 `<text>`
-// に onload が付くことが実測されている。**「迂回入力で throw すること」を主張する形**で書く。
+// に onload が付く。**「迂回入力で throw すること」を主張する形**で書く。
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +21,7 @@ const ITEMS: Array<[string, number]> = [
 /** 属性を閉じて新しい属性を足す典型的な breakout 値。 */
 const BREAKOUT = '#111" onload="alert(1)';
 
-describe('設定値の許可リスト(P022)', () => {
+describe('設定値の許可リスト', () => {
   it('font-weight の属性 breakout を拒否する', async () => {
     await expect(
       renderPdfStylePieToSvg(ITEMS, { fontWeight: '400" onload="alert(1)' }),
@@ -80,9 +80,9 @@ describe('設定値の許可リスト(P022)', () => {
     expect(() => createPieLayoutConfig()).not.toThrow();
   });
 
-  // F46: `embedFontPath` だけが許可リストから漏れており、読めたファイルの中身がそのまま
-  // `@font-face` の base64 として出力 SVG へ入る経路になっていた(読み出しと持ち出しが
-  // 1 経路でつながる)。同梱フォント 2 ファイルの完全一致のみを通す。
+  // `embedFontPath` は設定値のうち唯一「読めたファイルの中身がそのまま `@font-face` の
+  // base64 として出力 SVG へ入る」フィールドで、許可リストから漏れると読み出しと持ち出しが
+  // 1 経路でつながる。同梱フォント 2 ファイルの完全一致のみを通す。
   it('embedFontPath は同梱フォント 2 ファイル以外を拒否する', () => {
     for (const bad of [
       'C:\\Users\\svc\\.ssh\\id_rsa',
@@ -101,10 +101,10 @@ describe('設定値の許可リスト(P022)', () => {
   });
 });
 
-// F46 の第 2 層。config の検査を迂回して cfg を直に組んでも、フォントとして解釈できない
+// 第 2 層。config の検査を迂回して cfg を直に組んでも、フォントとして解釈できない
 // バイト列は埋め込まれない(subset 失敗時に原本を truetype と名乗って base64 埋込する
 // fallback へ倒さない)。
-describe('埋め込みフォントの fallback(F46)', () => {
+describe('埋め込みフォントの fallback', () => {
   it('フォントでないファイルは subset 失敗時に埋め込まず投げる', async () => {
     const { buildFontFaceDefs } = await import('../src/svg_export/font.js');
     const cfg = { ...createPieLayoutConfig(), embedFontPath: 'README.md' };
@@ -182,7 +182,7 @@ describe('属性を書く手段は attr() 1 つだけ(ソース走査)', () => {
   }
 });
 
-describe('XML 1.0 不正文字の除去(P039)', () => {
+describe('XML 1.0 不正文字の除去', () => {
   it('制御文字と孤立サロゲートを落とす', () => {
     expect(escapeXml('ok\u0007bell')).toBe('okbell');
     expect(escapeXml('a\u0000b\u001Fc')).toBe('abc');

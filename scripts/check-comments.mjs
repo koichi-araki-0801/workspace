@@ -6,7 +6,8 @@
 // で実行し、CI 集約 `ci` からも呼ぶ。
 //
 // 検査項目:
-//   - ハード失敗 (exit 1): 非 ASCII を含む `.ps1` の UTF-8 BOM、`.ps1`↔`.bat` 併設
+//   - ハード失敗 (exit 1): 非 ASCII を含む `.ps1` の UTF-8 BOM、`.ps1`↔`.bat` 併設、
+//     コメント・テスト名・docs 原稿に残るレビュー所見番号 (英字 1 文字 + 番号の識別子)
 //   - 警告のみ (exit 0): `.ts/.js` 系のファイル先頭装飾ボックスヘッダの有無
 //     (移行途中のブロックを避けるため段階導入。移行完了後にハード化する)
 
@@ -32,7 +33,15 @@ const SKIP_DIRS = new Set([
   'coverage',
   'out',
   'build',
+  'vendor',
+  'git-tools',
+  '.claude-security-run',
+  '.code-review-graph',
 ]);
+
+// セキュリティ監査の作業ディレクトリ (`CLAUDE-SECURITY-<日付>`) は所見番号を主題とする
+// 資料の置き場なので、名前の前方一致で除外する (走査対象は自作コードだけ)。
+const isSkipDir = (name) => SKIP_DIRS.has(name) || name.startsWith('CLAUDE-SECURITY-');
 
 // `.ps1` ハード検査 (BOM・`.bat` 併設) 専用の除外。PyInstaller 等が `build/`・`dist/` に
 // 生成物を作る構成があり、そこへ将来 `.ps1` が同梱された瞬間に無検査になるのを避けるため、
@@ -72,7 +81,7 @@ const TSJS_EXT = new Set(['.ts', '.tsx', '.js', '.cjs', '.mjs']);
 // 装飾ボックスヘッダ警告 (§4) 用。SKIP_DIRS で dist/out/build/coverage も除外する。
 function walk(dir, acc) {
   for (const name of readdirSync(dir)) {
-    if (SKIP_DIRS.has(name)) continue;
+    if (isSkipDir(name)) continue;
     const full = join(dir, name);
     const st = statSync(full);
     if (st.isDirectory()) walk(full, acc);
@@ -157,7 +166,127 @@ for (const f of allFiles) {
   }
 }
 
-// ── 5. 結果出力 ──
+// ── 5. レビュー所見番号の残存 (ハード失敗) ──
+// 規約「過去の経緯を書かない」のうち機械判定できる形 = 監査所見の識別子 (「所見」+
+// 番号、英字 F/P/R + 番号、root + 英字番号、run + 番号) を、コメント行・テスト名・docs
+// 原稿から締め出す。番号は監査資料 (`CLAUDE-SECURITY-*`) の中でしか意味を持たず、コードを
+// 読む人には解決できない参照になるため。ガード段の命名 (英字 G + 番号。`origin_guard.py` /
+// `app.py`) は現役の識別子なので対象に含めない。誤検知が出たら allowlist を足すのではなく
+// 文面を直す。
+
+// コメント行 (行コメント + ブロックコメント内) と `describe`/`it`/`test` の名前だけを見る。
+// コード本体の識別子・テストデータ (ファンドコード等) には掛けない。
+const FINDING_ID_CODE = [
+  /所見\s*[A-Z]?\d/u,
+  /(?<![A-Za-z0-9_])[FPR]\d{1,3}(?![A-Za-z0-9_.])/u,
+  /root A\d/u,
+  /旧 P\d{3}/u,
+  /前回 R\d/u,
+  /(?<![A-Za-z0-9_])run \d(?![A-Za-z0-9_])/u,
+];
+// docs 原稿は mermaid のノード ID (英字 + 番号) やファンクションキー名を含むため、番号単独
+// では見ず所見参照の言い回しだけを拾う。
+const FINDING_ID_DOCS = [
+  /所見\s*[A-Z]?\d/u,
+  /旧 P\d{3}/u,
+  /前回 R\d/u,
+  /(?<![A-Za-z0-9_])[FPR]\d{1,3}\s*(の|と同じ|と同一)\s*(判断|経路|脅威|仕様|主張|実害|再発)/u,
+];
+const TEST_NAME_RE = /(?<![A-Za-z0-9_.])(?:describe|it|test)(?:\.\w+)*\(\s*(['"`])((?:\\.|(?!\1).)*)\1/gu;
+
+// 拡張子ごとの行コメント接頭辞とブロックコメントの開閉。ブロック内の行は全部コメント行。
+const COMMENT_SYNTAX = {
+  ts: { line: ['//'], block: [['/*', '*/'], ['<!--', '-->']] },
+  py: { line: ['#'], block: [['"""', '"""'], ["'''", "'''"]] },
+  ps1: { line: ['#'], block: [['<#', '#>']] },
+  sh: { line: ['#'], block: [] },
+  sql: { line: ['--'], block: [['/*', '*/']] },
+};
+const EXT_SYNTAX = {
+  '.ts': 'ts', '.tsx': 'ts', '.js': 'ts', '.cjs': 'ts', '.mjs': 'ts', '.vue': 'ts',
+  '.py': 'py', '.ps1': 'ps1', '.psm1': 'ps1', '.sh': 'sh', '.sql': 'sql',
+};
+const isTestFile = (r) => /(\.test\.|\.e2e\.|\.spec\.|\/test_[^/]*\.py$)/.test(r);
+
+// コメント行を列挙する。ブロックコメントは「開始トークンで始まる行から終了トークンを
+// 含む行まで」を単位にする (行の途中で始まるブロックは開始行を含めて追う)。
+function commentLines(text, syntax) {
+  const out = [];
+  let open = null; // 現在開いているブロックの終了トークン
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const t = raw.trim();
+    if (open) {
+      out.push([i + 1, raw]);
+      if (t.includes(open)) open = null;
+      continue;
+    }
+    if (syntax.line.some((p) => t.startsWith(p)) || t.startsWith('*')) {
+      out.push([i + 1, raw]);
+      continue;
+    }
+    // 行末コメント (`code  # 説明`)。文字列中の `#`/`//` を拾う誤検知は、所見番号の形が
+    // 文字列に現れないこと (URL・色コードは英字+数字の並びが違う) で実用上避けられる。
+    const trailing = syntax.line
+      .map((p) => raw.indexOf(` ${p}`))
+      .filter((at) => at >= 0)
+      .sort((a, b) => a - b)[0];
+    if (trailing !== undefined) {
+      out.push([i + 1, raw.slice(trailing)]);
+      continue;
+    }
+    for (const [start, end] of syntax.block) {
+      const at = raw.indexOf(start);
+      if (at < 0) continue;
+      out.push([i + 1, raw]);
+      // 同じ行で閉じていなければブロックを開いたまま次行へ
+      if (!raw.slice(at + start.length).includes(end)) open = end;
+      break;
+    }
+  }
+  return out;
+}
+
+function checkFindingIds(r, text, syntaxKey, patterns) {
+  const syntax = COMMENT_SYNTAX[syntaxKey];
+  for (const [ln, line] of commentLines(text, syntax)) {
+    const hit = patterns.find((re) => re.test(line));
+    if (hit) errors.push(`${r}:${ln}: コメントにレビュー所見番号が残っている (${hit}) — 現在形の理由へ書き換える`);
+  }
+  if (isTestFile(r)) {
+    let m;
+    TEST_NAME_RE.lastIndex = 0;
+    while ((m = TEST_NAME_RE.exec(text)) !== null) {
+      const hit = patterns.find((re) => re.test(m[2]));
+      if (!hit) continue;
+      const ln = text.slice(0, m.index).split(/\r?\n/).length;
+      errors.push(`${r}:${ln}: テスト名にレビュー所見番号が残っている (${hit}) — 番号を外し内容で名付ける`);
+    }
+  }
+}
+
+for (const f of allFiles) {
+  const r = rel(f);
+  if (r.startsWith('docs/_samples/')) continue; // PDF 抽出サンプルの生テキスト
+  const ext = extname(f);
+  const isHusky = r.startsWith('.husky/') && ext === '';
+  const key = isHusky ? 'sh' : EXT_SYNTAX[ext];
+  if (key) {
+    if (r.endsWith('.d.ts')) continue;
+    checkFindingIds(r, readFileSync(f, 'utf8'), key, FINDING_ID_CODE);
+    continue;
+  }
+  if (ext === '.md' && /^docs\/[^/]+\/src\//.test(r)) {
+    const text = readFileSync(f, 'utf8');
+    text.split(/\r?\n/).forEach((line, i) => {
+      const hit = FINDING_ID_DOCS.find((re) => re.test(line));
+      if (hit) errors.push(`${r}:${i + 1}: docs 原稿にレビュー所見番号が残っている (${hit}) — 番号を消し内容で書く`);
+    });
+  }
+}
+
+// ── 6. 結果出力 ──
 for (const w of warnings) console.warn(`WARN  ${w}`);
 for (const e of errors) console.error(`ERROR ${e}`);
 

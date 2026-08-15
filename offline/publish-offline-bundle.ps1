@@ -476,7 +476,7 @@ if (-not $TagOnly) {
   $pinText = @"
 # offline 配布物の pin（publish-offline-bundle.ps1 が自動生成。手で編集しない）。
 # 配布先の setup はこの値だけを真正性の根拠にする。Release に並ぶ .sha256 は配信元と同じ
-# 場所から取る値なので転送破損の検知にしか使えず、すり替えの検知には使えない（所見 F14）。
+# 場所から取る値なので転送破損の検知にしか使えず、すり替えの検知には使えない。
 # このファイルと bundle-signing.pub.xml は offline/ フォルダごと手渡しで配布先へ運ぶ。
 source-commit $targetCommit
 source-zip-sha256 $srcZipHash

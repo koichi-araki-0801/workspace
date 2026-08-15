@@ -1,4 +1,4 @@
-"""SVG 出力の属性エスケープと色の許可リスト (P004) の退行ガード。
+"""SVG 出力の属性エスケープと色の許可リストの退行ガード。
 
 ``PathElement.d`` は ``quoteattr``、テキストは ``escape`` を通っているのに**色だけ**が
 素の f-string、という 1 箇所の取りこぼしがあると、``rpc_addBorder`` の ``color`` へ
@@ -25,7 +25,7 @@ from model.elements import (
     sanitize_color,
 )
 
-# 実測された PoC。属性を閉じて要素を差し込む形。
+# 属性を閉じて要素を差し込む形。
 BREAKOUT = '#000"/><script>alert(document.domain)</script><rect stroke="#000'
 
 

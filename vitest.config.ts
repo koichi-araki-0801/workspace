@@ -54,7 +54,7 @@ export default defineConfig({
         'editor/server/src/files/pendingFiles.ts',
         'editor/server/src/files/syncFiles.ts',
         'editor/server/src/vivliostyle/projectConfig.ts',
-        // 段階 2 の新設層。認可テーブル・資格情報の正規化・応答時間フロアは、
+        // 認証・認可の層。認可テーブル・資格情報の正規化・応答時間フロアは、
         // 迂回されると認証全体が骨抜きになるため閾値の対象へ入れる。
         'editor/server/src/auth/loginId.ts',
         'editor/server/src/auth/timing.ts',
@@ -85,7 +85,7 @@ export default defineConfig({
         'editor/server/src/vivliostyle/buildWorkerPool.ts',
         // プール非経由(`poolSize <= 0`)のフォールバックにも同じ受付制御を効かせる層。
         'editor/server/src/vivliostyle/buildAdmission.ts',
-        // 段階 3(資源上限)で新設・改修した層。上限そのものと、上限を守るための
+        // 資源上限の層。上限そのものと、上限を守るための
         // 直列化・適用範囲の限定は、迂回されると単一プロセスが 1 リクエストで止まる。
         'editor/server/src/files/atomic.ts',
         'editor/server/src/files/fileLock.ts',

@@ -4,7 +4,7 @@ PyInstaller でバンドルした場合 (`sys._MEIPASS` / `sys.executable`) と�
 双方でリソース/データのパスを正しく解決する。
 
 データ (辞書・設定・ログ・一時領域) の置き場は `data_dir()` を見よ。**配布 exe では
-ユーザー専用領域を既定**とし、可変状態をプログラムフォルダから出す (F43 の判断理由も同関数)。
+ユーザー専用領域を既定**とし、可変状態をプログラムフォルダから出す (判断理由も同関数)。
 """
 from __future__ import annotations
 
@@ -149,7 +149,7 @@ def _resolve_data_dir() -> Path:
 def data_dir() -> Path:
     """辞書・設定・ログ・一時領域を置くフォルダ。
 
-    **判断 (F43): 配布 exe では exe の隣ではなくユーザー専用領域
+    **判断: 配布 exe では exe の隣ではなくユーザー専用領域
     (``%LOCALAPPDATA%/PdfToSvg/data``) を既定にする。** onedir 配布は exe の隣に
     CPython のランタイム DLL と PyMuPDF のネイティブモジュールを置く。可変状態を
     そこへ書くと「プログラムフォルダが書き込み可能でなければ動かない」性質になり、

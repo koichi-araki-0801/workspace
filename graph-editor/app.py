@@ -384,7 +384,7 @@ class GuardedHandler(http.server.BaseHTTPRequestHandler):
         規約 (「全応答経路から呼ぶこと」) ではなく**構造**で強制する。明示呼び出し方式では
         自分で書いた経路 (`_send` / `_reject`) しか覆えず、基底クラスが直接返す応答
         — `HEAD` に `do_HEAD` が無いときの **501**、リクエスト行が長すぎるときの **414**、
-        その他 `send_error()` 全般 — が素通りしていた。ヘッダの無い応答が 1 本でもあれば、
+        その他 `send_error()` 全般 — が素通りになる。ヘッダの無い応答が 1 本でもあれば、
         `Cross-Origin-Resource-Policy` が効かず「このポートでこのアプリが動いている」を
         クロスオリジンから確定できる (ポート探索オラクル)。
 
@@ -713,7 +713,7 @@ def _data_dir():
     """データ・診断ログを置く基準フォルダ。
 
     **配布 exe では exe の隣ではなくユーザー専用領域 (`%LOCALAPPDATA%/LabelEditor/data`)
-    を既定にする** (pdf-to-svg の F43 と同じ判断)。exe を共有フォルダ・ネットワーク
+    を既定にする** (pdf-to-svg と同じ判断)。exe を共有フォルダ・ネットワーク
     ドライブへ置いて複数人が起動すると、exe 隣の `data/logs/startup.log` を全員が
     開きっぱなしで共同追記して記録が混ざり・欠け、さらに「プログラムフォルダが書き込み
     可能であること」を要件化して DLL 差し替え (CWE-427) の温床にもなるためである。
@@ -880,8 +880,8 @@ def _trim_edge_log(path, log):
 def _edge_launch_args(edge, url, log_path=None):
     """`msedge.exe` の起動引数を組む。**フラグを増やさないこと**が要点。
 
-    隔離 `--user-data-dir` と `--disable-gpu` は VDI でレンダラごとクラッシュした実績があり
-    (設計正典の却下集)、`--enable-logging` 系は `log_path` を渡した opt-in 時にだけ付く。
+    隔離 `--user-data-dir` と `--disable-gpu` は付けない (設計正典の却下集)。`--enable-logging`
+    系は `log_path` を渡した opt-in 時にだけ付く。
     """
     args = [edge, f"--app={url}", "--no-first-run", "--no-default-browser-check"]
     if log_path:
@@ -989,10 +989,9 @@ def main():
     edge_log = None
     if edge:
         # 端末標準の「管理された」既定プロファイルでアプリ窓を開く。隔離 `--user-data-dir` や
-        # `--disable-gpu` (ソフトウェア描画固定) を付けると、VDI では非標準構成でレンダラが
-        # 不安定になり窓ごとクラッシュする (実測。Edge ログに "GetGpuDriverOverlayInfo failed to
-        # retrieve video device"。通常の Edge ブラウジングは安定)。余計なフラグを付けず、
-        # 安定動作している既定 Edge と同じ構成で `--app=` のみで開く。診断ログは既定で出さず、
+        # `--disable-gpu` (ソフトウェア描画固定) は付けない (VDI では非標準構成でレンダラが
+        # 不安定になる。設計正典の却下集)。余計なフラグを付けず、既定 Edge と同じ構成で
+        # `--app=` のみで開く。診断ログは既定で出さず、
         # `LABELEDITOR_EDGE_LOG` を立てたときだけユーザー専用領域へ出す (`_prepare_edge_log`)。
         edge_log = _prepare_edge_log(log)
         try:

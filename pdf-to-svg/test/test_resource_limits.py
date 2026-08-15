@@ -1,4 +1,4 @@
-"""資源上限 (P005 / P012 / P033 と F27〜F29・F42) の退行ガード。
+"""資源上限の退行ガード。
 
 「正しい入力を正しく処理する」ではなく**「迂回入力で破綻しない」**を主張する形で書く。
 所要時間ではなく**上限が効くこと**を見る (実時間はマシン依存で脆い): 上限に当たったら
@@ -43,7 +43,7 @@ def _page_of(width_pt: float, height_pt: float):
     return doc
 
 
-# ── P005: ラスタ化のピクセル予算 ────────────────────────────────────────────
+# ── ラスタ化のピクセル予算 ────────────────────────────────────────────
 
 def test_huge_mediabox_is_rendered_within_the_pixel_budget():
     """20000x20000 pt の PDF は実体 3.6KB で 4.8 GB を確保し 36〜42 秒かかっていた。
@@ -99,7 +99,7 @@ def test_a4_at_the_default_scale_is_untouched():
     assert MIN_RENDER_SCALE < 1.0  # 縮小の下限は 1.0 未満 (縮小が起きうる形)
 
 
-# ── P012: リクエスト本文の上限 ─────────────────────────────────────────────
+# ── リクエスト本文の上限 ─────────────────────────────────────────────
 
 # 使い捨てサーバの固定セッショントークン (本番は起動ごとの CSPRNG 値)。認可の主張は
 # `test/test_origin_guard.py` が持ち、ここは資源上限だけを見る。
@@ -165,7 +165,7 @@ def test_normal_rpc_still_works(running_server):
     assert payload["ok"] is True
 
 
-# ── P033: Undo スタックの深さ上限 ──────────────────────────────────────────
+# ── Undo スタックの深さ上限 ──────────────────────────────────────────
 
 def test_undo_stack_drops_the_oldest_beyond_the_depth_limit():
     """各コマンドは置換前後の要素状態を握るので、無制限に積むとメモリが単調増加する。"""
@@ -189,7 +189,7 @@ def test_undo_stack_drops_the_oldest_beyond_the_depth_limit():
     assert st.canUndo() is False
 
 
-# ── F27: seqno 照合の索引と要素数予算 ──────────────────────────────────────
+# ── seqno 照合の索引と要素数予算 ──────────────────────────────────────
 
 def _rect(x, y, w, h) -> Rect:
     return Rect(x, y, w, h)
@@ -295,7 +295,7 @@ def test_extract_page_honours_the_element_budget(monkeypatch, vector_pdf):
     assert page.truncated is True
 
 
-# ── F28: 辞書取り込みの上限とバッチ化 ─────────────────────────────────────
+# ── 辞書取り込みの上限とバッチ化 ─────────────────────────────────────
 
 def _dict_json(count: int, prefix: str = "w") -> str:
     return json.dumps([{"source": f"{prefix}{i}", "target": f"t{i}"} for i in range(count)])
@@ -402,7 +402,7 @@ def test_dictionary_load_drops_entries_beyond_the_cap(tmp_path, monkeypatch):
     s.close()
 
 
-# ── F29: 折返しグループ化の走査上限 ────────────────────────────────────────
+# ── 折返しグループ化の走査上限 ────────────────────────────────────────
 
 def _stacked_texts(count: int, y_step: float, font_size: float = 12.0) -> list:
     from model.elements import TextElement as TE
@@ -465,7 +465,7 @@ def test_wrap_groups_still_joins_a_real_wrapped_cell():
     assert [len(g) for g in groups] == [3]
 
 
-# ── F42: 接続の資源上限 ────────────────────────────────────────────────────
+# ── 接続の資源上限 ────────────────────────────────────────────────────
 
 def _serve(session, token, **kwargs):
     """`create_server` でサーバを起動して base URL を返す (呼び出し側で shutdown)。"""

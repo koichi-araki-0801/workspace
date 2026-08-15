@@ -4,7 +4,7 @@
 // 読み込んだ SVG はアプリ origin の生 DOM へインライン挿入される (`getBBox` の実測が
 // 要るため)。したがって「危険物が実行されないこと」は実ブラウザでしか主張できない。
 //
-// 本ファイルは**過去に実行が確認された迂回入力を並べ、それが失敗すること**を主張する。
+// 本ファイルは**denylist では止まらない迂回入力を並べ、それが失敗すること**を主張する。
 // 個別の要素名・属性名を数える形にはしない (次の別名で無力化されるため)。代わりに
 // 「出力ツリーに名前空間つき属性が 1 つも無い」「ELEMENT / TEXT 以外のノードが無い」
 // のような**不変条件**を主張する。
@@ -87,9 +87,9 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => !!window.__editor);
 });
 
-// ── 1. 過去に実行が確認された 4 経路 ──
+// ── 1. denylist では止まらない 4 経路 ──
 
-test("P002: foreignObject の XHTML iframe が取り込まれず srcdoc も走らない", async ({ page }) => {
+test("foreignObject の XHTML iframe が取り込まれず srcdoc も走らない", async ({ page }) => {
   const svg = svgWith(
     `<foreignObject x="0" y="0" width="300" height="200">` +
       `<iframe xmlns="http://www.w3.org/1999/xhtml" ` +
@@ -108,7 +108,7 @@ test("P002: foreignObject の XHTML iframe が取り込まれず srcdoc も走�
   expect(await page.evaluate(() => document.querySelectorAll("#canvas iframe").length)).toBe(0);
 });
 
-test("P010: animate による href 差し替えが要素ごと落ちる", async ({ page }) => {
+test("animate による href 差し替えが要素ごと落ちる", async ({ page }) => {
   const svg = svgWith(
     `<a href="#safe"><rect id="bait" x="10" y="10" width="80" height="80" fill="#000000"/>` +
       `<animate attributeName="href" values="javascript:window.__c3=1" fill="freeze" dur="0.1s"/></a>`,
@@ -124,7 +124,7 @@ test("P010: animate による href 差し替えが要素ごと落ちる", async 
   expect(await page.evaluate(() => window.__c3)).toBeUndefined();
 });
 
-test("P011: 別プレフィックスの xlink も制御文字入りスキームも、名前空間つき属性ごと落ちる", async ({ page }) => {
+test("別プレフィックスの xlink も制御文字入りスキームも、名前空間つき属性ごと落ちる", async ({ page }) => {
   const svg = svgWith(
     // (a) 任意プレフィックスでの xlink 宣言 — 文字列比較では無限に別名を作れる。
     `<g xl:href="javascript:window.__c3=1"><rect x="0" y="0" width="10" height="10" fill="#000000"/></g>` +
@@ -144,7 +144,7 @@ test("P011: 別プレフィックスの xlink も制御文字入りスキーム�
   expect(await page.evaluate(() => window.__c3)).toBeUndefined();
 });
 
-test("P025: 外部 URL を参照する image / @import / @font-face でも外部リクエストが飛ばない", async ({ page }) => {
+test("外部 URL を参照する image / @import / @font-face でも外部リクエストが飛ばない", async ({ page }) => {
   const external: string[] = [];
   page.on("request", (req) => {
     const u = req.url();
@@ -167,9 +167,9 @@ test("P025: 外部 URL を参照する image / @import / @font-face でも外部
   expect(external).toEqual([]);
 });
 
-// ── 2. インスペクタ (P001) ──
+// ── 2. インスペクタ ──
 
-test("P001: スライスの fill から属性を閉じても、インスペクタへ要素を注入できない", async ({ page }) => {
+test("スライスの fill から属性を閉じても、インスペクタへ要素を注入できない", async ({ page }) => {
   const evilFill = "#fff&quot;&gt;&lt;img src=x onerror=&quot;window.__x1=1&quot;&gt;";
   const svg = svgWith("", "", evilFill);
   await page.evaluate((s) => window.__editor.load({ name: "p001", id: 1, content: s }), svg);
@@ -201,7 +201,7 @@ test("P001: スライスの fill から属性を閉じても、インスペク�
   expect(r.name).toBe("Alpha 50%");
 });
 
-test("P001: 正当な fill はこれまでどおり swatch に反映される", async ({ page }) => {
+test("正当な fill はこれまでどおり swatch に反映される", async ({ page }) => {
   await page.evaluate((s) => window.__editor.load({ name: "ok", id: 1, content: s }), svgWith("", "", "#4e79a7"));
   await page.waitForFunction(() => window.__editor.labels && window.__editor.labels.length >= 1);
   await page.evaluate(() => {

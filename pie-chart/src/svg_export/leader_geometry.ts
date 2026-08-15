@@ -297,7 +297,7 @@ export function computeDrawnLeader(
       // 接続は「アンカー x で縦降下 → 近縁へ後退する水平尾」になり、縦区間が自ラベルを貫き
       // 水平尾がラベルの伸長方向と逆へ伸びて見える。接続を**書き出し側の縦縁・縦中央**
       // (start=左縁の 9 時 / end=右縁の 3 時、cornerGap だけ縁の外) へ切替え、下の bend ロジック
-      // (`sideEdgeAttach`) が近縁外側 x で縦に降ろす横優先 L 字にする (ユーザー選定の形)。
+      // (`sideEdgeAttach`) が近縁外側 x で縦に降ろす横優先 L 字にする。
       // 発火は Pass 1e (do-no-harm 採用) のみで、通常の側辺ラベル (アンカー x が box 外) は不変。
       allowSideEdgeCenter &&
       placement.anchor !== 'middle' &&
@@ -646,7 +646,7 @@ export function computeDrawnLeader(
 
 /**
  * 上左 ([90°,135°]) の小スライスが引く「短い」leader か。短い = ラベルが自スライスのすぐ外側に
- * あり、線が無くても接続が自明 (ユーザー指摘: REIT 国別の シンガポール 3.5%)。本判定は emit 最終段
+ * あり、線が無くても接続が自明 (例: REIT 国別の シンガポール 3.5%)。本判定は emit 最終段
  * (Pass 2.6) だけで使い、`computeDrawnLeader` / 採点には載せない。これにより leader 線を消すだけで
  * レイアウト選択や他 leader の交差解決には一切影響しない (ラベル位置は不変)。閾値 (≈0.5·R) で
  * 「その他」級の右逃がし leader (≈1.2·R) や遠方へ逃がした leader は残す。述語 (`isSmall` / `midAngle`>90 /
@@ -676,7 +676,7 @@ export function isRedundantUpperLeftSmallLeader(
 /**
  * 1 強 (≥`REDUNDANT_RIM_LEADER_DOMINANT_MIN_PCT`%) スライスの `dominantOutsideEdge` rim ラベル
  * (`buildOutsideRimDraft` 由来、draft では `skipLeader=true` を意図) が引く「冗長な短い」leader か。
- * 短い = ラベルが自スライス外縁に隣接し線が無くても接続が自明 (ユーザー指摘: アメリカ・ドル58%)。
+ * 短い = ラベルが自スライス外縁に隣接し線が無くても接続が自明 (例: アメリカ・ドル58%)。
  * `ALWAYS_DRAW_OUTSIDE_LEADERS` 下では `computeDrawnLeader` が rim ラベルにも一律 leader を描くため、
  * emit 最終段でこの述語により線のみ削る。閾値は `computeDrawnLeader` の `dominantOutsideLeaderGap`
  * (= `radialFraction(cfg, 0.3, 2.8)`、行 54・行 239) と同基準。これより遠くへ逃げた rim ラベルは leader を

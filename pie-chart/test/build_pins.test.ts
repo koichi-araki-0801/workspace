@@ -90,7 +90,7 @@ describe('sidecar を復活させないこと', () => {
 
   it('ビルドが dist-exe へ fonts/ や node_modules/ を作らない', () => {
     // 配布物に sidecar が居ると、署名の外にある書き換え可能なファイルを実行時に読む経路が
-    // 戻る(root A4 / P008)。ビルドスクリプトに install / ディレクトリコピーを足させない。
+    // 戻る。ビルドスクリプトに install / ディレクトリコピーを足させない。
     expect(buildCode).not.toMatch(/npm install/);
     expect(buildCode).not.toMatch(/cpSync\s*\(/);
     expect(buildCode).not.toMatch(/execSync\s*\(/);
@@ -108,10 +108,9 @@ describe('ビルド入口スクリプト(scripts/*.ps1 / *.bat)が lockfile 無�
   // コード署名鍵を持つ端末で走る。lockfile を消してから範囲指定のまま `npm` の install を
   // すると、レジストリへ差し込まれた新版の lifecycle script がその端末で実行される
   // (npm は pnpm の `allowBuilds` に相当する既定の抑止を持たない)。上の sidecar ガードは
-  // build-exe.mjs 本文しか読んでおらず、運用が実際に使う .ps1 経路が検査の外に残っていた
-  // (P023/F12)— ここで scripts/ 配下の全 .ps1 / .bat へ同じ禁止語を機械強制する
-  // (.bat は現状 .ps1 ランチャの薄いラッパのみだが、直接 npm を書く変種が今後増えても
-  // 同じ検査に自動で乗る)。
+  // build-exe.mjs 本文しか読まないので、運用が実際に使う .ps1 経路が検査の外に残らないよう
+  // scripts/ 配下の全 .ps1 / .bat へ同じ禁止語を機械強制する(.bat は現状 .ps1 ランチャの
+  // 薄いラッパのみだが、直接 npm を書く変種が今後増えても同じ検査に自動で乗る)。
   // 禁止語 denylist には限界がある(`npm i` のような変種は通る)。主防御はここではなく
   // `verify-dist.ps1` の配布物閉包検査で、本検査はビルド端末側の入口を狭める補助。
   const ps1Files = readdirSync(join(root, 'scripts')).filter((f) => f.endsWith('.ps1'));

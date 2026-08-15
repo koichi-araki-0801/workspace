@@ -8,13 +8,13 @@ verbose ログ既定 OFF は graph-editor にだけ入った。申し送りで�
 
 主張の形は**「同じ名前の定数が両方にあり、値が一致する」**。片方を変えれば必ず落ちるので、
 「揃え忘れ」ではなく「揃えるか、揃えない理由を書いてこの表を直すか」の二択になる。
-以前は `SECURITY_HEADERS` と `TOKEN_*` しか見ておらず上記 2 件を丸ごと取りこぼしたため、
-判定表・接続の資源上限・Edge 起動引数まで比較対象を広げてある。**新しい共有の決めごとを
+`SECURITY_HEADERS` と `TOKEN_*` だけでは上記 2 件を取りこぼすため、判定表・接続の資源上限・
+Edge 起動引数まで比較対象に含める。**新しい共有の決めごとを
 足したら、この表にも足すこと。**
 
 同じ主張を pdf-to-svg 側 (`test/test_parallel_impl_drift.py`) にも置いてある。CI は
 `pnpm run ci:pdf-to-svg` / `ci:graph-editor` のように片側だけ走ることがあり、検査が片側に
-しか無いと「変えた側の CI では落ちない」= 今回の drift がそのまま再発するためで、この複製は
+しか無いと「変えた側の CI では落ちない」= drift を検出できないためで、この複製は
 意図的である。
 
 `import app` に副作用は無い (同梱資産の読み込みは `main()`/初回 GET の遅延読込。
@@ -169,8 +169,8 @@ def test_edge_launch_args_match_and_carry_no_logging_flags_by_default():
     verbose ログは `--app=` の URL (= セッショントークン) を書き込みうるうえ、既定プロファイル
     で開く設計上その記録は利用者の Edge セッション全体に及ぶ。既定 OFF が片側だけになると、
     その片側だけがトークンをディスクへ落とす可能性を抱え続ける。
-    `--user-data-dir` / `--disable-gpu` は VDI クラッシュの実績があり (両正典の却下集)、
-    どちらのプロジェクトでもどの経路でも付かないことを併せて固定する。
+    `--user-data-dir` / `--disable-gpu` は付けない (両正典の却下集)。どちらのプロジェクトでも
+    どの経路でも付かないことを併せて固定する。
     """
     other = _pdf_to_svg("app", alias="pdftosvg_app")
     url = "http://127.0.0.1:5179/?token=SECRET-TOKEN"
@@ -195,11 +195,11 @@ def test_edge_launch_args_match_and_carry_no_logging_flags_by_default():
     assert app.EDGE_LOG_ENV != other.EDGE_LOG_ENV
 
 
-# ── 可変状態の置き場 (F43) ──
+# ── 可変状態の置き場 ──
 
 
 def test_mutable_state_stays_out_of_the_program_directory(monkeypatch, tmp_path):
-    """可変状態の置き場の決定 (F43) が両実装で揃っていること。
+    """可変状態の置き場の決定が両実装で揃っていること。
 
     exe を共有フォルダ・ネットワークドライブへ置く配布で可変状態 (診断ログ等) を exe 隣へ
     書くと、複数人の同時起動が `startup.log` を共同追記して記録が混ざるうえ、プログラム

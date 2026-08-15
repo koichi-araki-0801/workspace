@@ -230,7 +230,7 @@ def test_post_without_content_type_but_with_body_is_rejected(server):
 ])
 def test_quit_without_valid_token_does_not_set_quit_event(server, token):
     """frame に埋め込まれた本アプリの `pagehide` ビーコンを止める。Origin は完全一致するので
-    同一オリジン検査だけでは通ってしまう経路 (F17) で、ここが最後の関所になる。"""
+    同一オリジン検査だけでは通ってしまう経路で、ここが最後の関所になる。"""
     status, body, _ = _beacon(server, "/quit", token=token)
     assert status == 403 and body == b"forbidden"
     assert server.quit_event.is_set() is False
@@ -277,7 +277,7 @@ def test_get_does_not_require_a_token(server):
 
 def test_token_is_never_served_to_unauthorized_clients(server):
     """**トークンを `ui.html` へ埋めない**こと。埋めると frame に埋め込まれた本アプリ自身が
-    それを受け取り、`pagehide` の `/quit` が通ってしまう (F17 の経路がそのまま復活する)。
+    それを受け取り、`pagehide` の `/quit` が通ってしまう (frame 埋め込みの経路がそのまま復活する)。
     受け渡しは `--app=` の URL クエリ 1 本だけ (`main()`)。"""
     port = server.server_address[1]
     token = server.guard_token.encode()
@@ -355,8 +355,8 @@ def test_unread_body_does_not_reset_the_connection(server):
     `_drain_body` は `Transfer-Encoding` を読めないのでこの経路へ落ちる。
 
     上の `test_transfer_encoding_is_rejected` は本文の続きが届くのとサーバが閉じるのの
-    競争になっていて、この退行を取りこぼす (pdf-to-svg 側の実測で 3 回に 1 回ほど接続エラー
-    側へ倒れた)。ここでは 403 を送り終えた頃合いに続きを送りつけ、確定的に踏ませる。
+    競争になっていて、この退行を取りこぼしうる。ここでは 403 を送り終えた頃合いに続きを
+    送りつけ、確定的に踏ませる。
     """
     port = server.server_address[1]
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
@@ -421,7 +421,7 @@ def test_security_headers_are_sent_on_every_response(server):
     """成功・404・403・204 の**すべて**に防御ヘッダが載ること。
 
     `frame-ancestors 'none'` / `X-Frame-Options: DENY` が 1 応答でも欠けると、その URL を
-    `<iframe>` の足がかりにでき、frame 内のアプリ自身が撃つ `/quit` (F17) の入口が開く。
+    `<iframe>` の足がかりにでき、frame 内のアプリ自身が撃つ `/quit` の入口が開く。
     とくに拒否応答 (`GuardedHandler._reject`) は成功応答と別経路なので忘れられやすい。
     """
     port = server.server_address[1]

@@ -46,7 +46,7 @@ describe('buildConnectionString', () => {
     expect(() => buildConnectionString({ query: 'select 1' })).toThrow(/database is required/);
   });
 
-  // ここからが F45 の主張: 接続文字列は `;` 区切りの key=value 列なので、値に `;` を通すと
+  // ここからが本題: 接続文字列は `;` 区切りの key=value 列なので、値に `;` を通すと
   // 新しいキーワードの開始になる (FILEDSN で統合認証のチャレンジレスポンスが外部へ出る)。
   it('server へのキーワード注入を拒否する', () => {
     for (const bad of [
@@ -144,7 +144,7 @@ describe('assertLooksLikeSelect', () => {
   it('空クエリは投げる', () => {
     expect(() => assertLooksLikeSelect('   ;  ')).toThrow(/empty/);
   });
-  // F13: 形式チェックは読み取り専用の**強制ではない**。以下は素通りする — この事実を
+  // 形式チェックは読み取り専用の**強制ではない**。以下は素通りする — この事実を
   // テストで固定しておかないと、呼び出し側が再び「ガードがあるから安全」と読んでしまう。
   // 書き込みを止めるのは接続アカウントの権限 (db_datareader) であって本関数ではない。
   it('書き込みになりうる形が素通りすることを明示する (境界ではない証拠)', () => {

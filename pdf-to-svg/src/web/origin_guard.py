@@ -51,7 +51,7 @@ from urllib.parse import parse_qs, urlsplit
 
 # 非安全メソッドで許す Content-Type。どちらも CORS セーフリスト外なので、クロスオリジンから
 # 送るにはプリフライトが要る。本サーバは `do_OPTIONS` を持たず ACAO も出さないため、
-# プリフライトは必ず失敗する。P003 の PoC (`text/plain;charset=UTF-8` の simple request) は
+# プリフライトは必ず失敗する。`text/plain;charset=UTF-8` の simple request は
 # Origin 検査とは独立にここで閉じる。値は現行クライアントが実際に送っているものの写しで、
 # 「サーバに合わせてクライアントを直す」のではなく「実態を許可リストとして固定する」向き。
 ALLOWED_REQUEST_CONTENT_TYPES = frozenset({"application/json", "application/octet-stream"})
@@ -157,7 +157,7 @@ def new_session_token() -> str:
 
     受け渡しは `--app=` の URL クエリ 1 本に絞る (`app.py`)。**配信する HTML へ埋める案は
     採らない**: `GET /` は安全メソッドで誰でも撃てるため、埋めた瞬間に「トークンを持たない
-    ローカルプロセス」が読み出せてしまい、守ろうとしている F11 の脅威そのものを開く。
+    ローカルプロセス」が読み出せてしまい、守ろうとしている脅威 (同一マシンの別ユーザー) そのものを開く。
     残る漏えい面は「起動した `msedge.exe` のコマンドライン」と、フォールバック経路での
     ブラウザ履歴である (Jupyter の `?token=` と同じ割り切り)。ログには書かない。
     """
@@ -332,7 +332,7 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         規約 (「全応答経路から呼ぶこと」) ではなく**構造**で強制する。明示呼び出し方式では
         自分で書いた経路 (`_send` / `_reject`) しか覆えず、基底クラスが直接返す応答
         — `HEAD` に `do_HEAD` が無いときの **501**、リクエスト行が長すぎるときの **414**、
-        その他 `send_error()` 全般 — が素通りしていた。ヘッダの無い応答が 1 本でもあれば、
+        その他 `send_error()` 全般 — が素通りになる。ヘッダの無い応答が 1 本でもあれば、
         `Cross-Origin-Resource-Policy` が効かず「このポートでこのアプリが動いている」を
         クロスオリジンから確定できる (ポート探索オラクル)。
 

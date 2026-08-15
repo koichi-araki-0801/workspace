@@ -12,7 +12,7 @@ verbose ログ既定 OFF は graph-editor にだけ入った。申し送りで�
 
 同じ主張を graph-editor 側 (`test/test_parallel_impl_drift.py`) にも置いてある。CI は
 `pnpm run ci:pdf-to-svg` / `ci:graph-editor` のように片側だけ走ることがあり、検査が片側に
-しか無いと「変えた側の CI では落ちない」= 今回の drift がそのまま再発するためで、この複製は
+しか無いと「変えた側の CI では落ちない」= drift を検出できないためで、この複製は
 意図的である。
 
 graph-editor は実行時依存ゼロ (標準ライブラリのみ) なので、相手側の読み込みに追加の依存は
@@ -187,8 +187,8 @@ def test_edge_launch_args_match_and_carry_no_logging_flags_by_default():
     verbose ログは `--app=` の URL (= セッショントークン) を書き込みうるうえ、既定プロファイル
     で開く設計上その記録は利用者の Edge セッション全体に及ぶ。既定 OFF が片側だけになると、
     その片側だけがトークンをディスクへ落とす可能性を抱え続ける。
-    `--user-data-dir` / `--disable-gpu` は VDI クラッシュの実績があり (両正典の却下集)、
-    どちらのプロジェクトでもどの経路でも付かないことを併せて固定する。
+    `--user-data-dir` / `--disable-gpu` は付けない (両正典の却下集)。どちらのプロジェクトでも
+    どの経路でも付かないことを併せて固定する。
     """
     import app as ours
 
@@ -215,11 +215,11 @@ def test_edge_launch_args_match_and_carry_no_logging_flags_by_default():
     assert ours.EDGE_LOG_ENV != other.EDGE_LOG_ENV
 
 
-# ── 可変状態の置き場 (F43) ──
+# ── 可変状態の置き場 ──
 
 
 def test_mutable_state_stays_out_of_the_program_directory(monkeypatch, tmp_path):
-    """可変状態の置き場の決定 (F43) が両実装で揃っていること。
+    """可変状態の置き場の決定が両実装で揃っていること。
 
     exe を共有フォルダ・ネットワークドライブへ置く配布で可変状態 (診断ログ等) を exe 隣へ
     書くと、複数人の同時起動が `startup.log` を共同追記して記録が混ざるうえ、プログラム

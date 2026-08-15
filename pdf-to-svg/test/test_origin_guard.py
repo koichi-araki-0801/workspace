@@ -167,7 +167,7 @@ def test_rpc_rejects_duplicate_origin_headers(server):
 
 
 @pytest.mark.parametrize("ctype", [
-    "text/plain;charset=UTF-8",             # P003 の PoC そのもの
+    "text/plain;charset=UTF-8",             # プリフライト無しで送れる simple request
     "application/x-www-form-urlencoded",    # <form> 送信
     "multipart/form-data; boundary=x",      # <form enctype>
     "application/json+evil",                # 許可値の前方一致狙い
@@ -281,7 +281,7 @@ def test_get_does_not_require_a_token(server):
 
 def test_token_is_never_served_to_unauthorized_clients(server):
     """**トークンを配信物へ埋めない**こと。埋めた瞬間に `GET /` を撃てる任意のローカル
-    プロセスが読み出せ、F11 の脅威 (同一マシンの別ユーザー) がそのまま復活する。
+    プロセスが読み出せ、同一マシンの別ユーザーという脅威がそのまま復活する。
     受け渡しは `--app=` の URL クエリ 1 本だけ (`app.py`)。"""
     port = server.server_address[1]
     token = server.guard_token.encode()
@@ -361,8 +361,8 @@ def test_unread_body_does_not_reset_the_connection(server):
     `_drain_body` は `Transfer-Encoding` を読めないのでこの経路へ落ちる。
 
     上の `test_transfer_encoding_is_rejected` は本文の続きが届くのとサーバが閉じるのの
-    競争になっていて、この退行を取りこぼす (実測で 3 回に 1 回ほど接続エラー側へ倒れた)。
-    ここでは 403 を送り終えた頃合いに続きを送りつけ、確定的に踏ませる。
+    競争になっていて、この退行を取りこぼしうる。ここでは 403 を送り終えた頃合いに続きを
+    送りつけ、確定的に踏ませる。
     """
     port = server.server_address[1]
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
@@ -454,7 +454,7 @@ def test_upload_without_origin_is_rejected_before_parsing(server):
 
 def test_unconfigured_server_rejects_everything(tmp_path):
     """`ThreadingHTTPServer` を素で組んで `configure_guard` を忘れた場合は全拒否 (fail open しない)。
-    `test/e2e_server.py` がかつてこの形だったので、回帰として固定する。"""
+    テスト用の使い捨てサーバで生まれやすい形なので、回帰として固定する。"""
     session = WebSession(DictionaryStore(tmp_path / "dict.json"), UndoStack())
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     srv.web_root = str(config.resource_path("web"))

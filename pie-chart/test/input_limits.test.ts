@@ -1,5 +1,5 @@
 // =============================================================================
-// input_limits.test.ts — 資源上限(P021 / P037 / P038)の退行ガード
+// input_limits.test.ts — 資源上限の退行ガード
 // =============================================================================
 // pie-chart はオペレータが手元で回す CLI なので、上限超過は degrade でも既定への
 // フォールバックでもなく**明示エラー**にする(黙って数時間回るのが最悪の壊れ方)。
@@ -44,7 +44,7 @@ describe('上限値の固定', () => {
 const itemsOf = (n: number): Array<[string, number]> =>
   Array.from({ length: n }, (_, i) => [`項目${i}`, n - i] as [string, number]);
 
-describe('項目数の上限(P021)', () => {
+describe('項目数の上限', () => {
   it('上限超過は上限値・件数・上げ方を含むエラーになる', async () => {
     const err = await renderPdfStylePieToSvg(itemsOf(PIE_MAX_ITEMS + 1), {}).catch((e) => e);
     expect(err).toBeInstanceOf(Error);
@@ -62,7 +62,7 @@ describe('項目数の上限(P021)', () => {
   });
 });
 
-describe('ラベル長の上限(P037)', () => {
+describe('ラベル長の上限', () => {
   it('上限超過は切り詰めずエラーにする(黙って出力が変わるのを避ける)', () => {
     const long = 'あ'.repeat(MAX_LABEL_CHARS + 1);
     expect(() => normalizeInputItems([[long, 1]])).toThrow(/PIE_MAX_LABEL_CHARS/);
@@ -71,7 +71,7 @@ describe('ラベル長の上限(P037)', () => {
   });
 });
 
-describe('range の行数上限(P038)', () => {
+describe('range の行数上限', () => {
   it('A1:B99999999 は列幅検査を通っても行数で弾かれる', () => {
     // 列幅 2 だけを見る検査だと、数億行の Row/Cell 実体化が素通りする。
     expect(() => parseRange('A1:B99999999')).toThrow(/PIE_MAX_RANGE_ROWS/);
@@ -84,8 +84,8 @@ describe('range の行数上限(P038)', () => {
 });
 
 // 件数と同じ funnel で総和も見る。上限ではないが「黙って壊れた帳票が出る」経路を、
-// 上限系と同じ様式の明示エラーへ寄せている(F48)。
-describe('値の総和のオーバーフロー(F48)', () => {
+// 上限系と同じ様式の明示エラーへ寄せている。
+describe('値の総和のオーバーフロー', () => {
   it('総和が Infinity になる入力は 0.0% の SVG を出さずにエラーで落ちる', async () => {
     const err = await renderPdfStylePieToSvg(
       [
@@ -106,7 +106,7 @@ describe('値の総和のオーバーフロー(F48)', () => {
     }
   });
 
-  // 幾何側の入口も同じ破綻を止める(こちらは `total <= 0` だけで Infinity を通していた)。
+  // 幾何側の入口も同じ破綻を止める(`total <= 0` だけの検査では Infinity が通る)。
   it('arcAngles は総和が Infinity なら幅ゼロのスライスを返さず投げる', () => {
     const cfg = createPieLayoutConfig();
     expect(() => arcAngles([1e308, 1e308], cfg)).toThrow(/finite number > 0/);
