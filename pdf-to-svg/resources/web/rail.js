@@ -56,7 +56,7 @@ function buildRail(navId) {
     var fileSel = selectable.length > 0 && selectable.every(function (i) { return sel[i]; });
     html += '<div class="pl-file' + (isColl ? " collapsed" : "") + '">' +
       '<span class="ck' + (fileSel ? " on" : "") + '" data-fileck="' + fi + '">' + (fileSel ? ckMark : "") + "</span>" +
-      '<span class="fname" data-fcoll="' + fi + '">' + svg(fileIcon, 13).replace("<svg", '<svg class="fic"') + esc(f.name) + "</span>" +
+      '<span class="fname" data-fcoll="' + fi + '">' + svg(fileIcon, 13, undefined, "fic") + esc(f.name) + "</span>" +
       '<span class="fcount">' + idxs.length + "</span>" +
       '<span class="fchev" data-fcoll="' + fi + '">' + svg(chevD, 15) + "</span></div>";
     if (!isColl) {
