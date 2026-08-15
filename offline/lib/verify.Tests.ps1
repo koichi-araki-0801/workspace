@@ -1,6 +1,5 @@
 ﻿# Pester テスト: offline 配布物の検証ライブラリ（verify.ps1）。
-# 実行: pwsh/PowerShell から `Invoke-Pester offline/lib/verify.Tests.ps1`
-# ※ CI（Node ベース pnpm ci）には未統合。offline のセキュリティ修正時に手動で回す。
+# 実行: pwsh/PowerShell から `Invoke-Pester offline/lib/verify.Tests.ps1`（`pnpm run ci:offline` 経由でも走る）。
 # 日本語コメントを含むため UTF-8 BOM 必須（cp932 環境で文字化けさせない）。
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -58,6 +57,12 @@ Describe 'Get-OfflineRequirementsFiles' {
     foreach ($f in (Get-OfflineRequirementsFiles -RepoRoot $repoRoot)) {
       (Test-OfflineRequirementsFile -Path $f).Count | Should Be 0
     }
+  }
+
+  It 'git 経路とファイルシステム経路が同じ結果になる（フォールバックの正しさの担保）' {
+    $viaGit = @(Get-OfflineRequirementsFilesViaGit -RepoRoot $repoRoot) | Sort-Object
+    $viaFileSystem = @(Get-OfflineRequirementsFilesViaFileSystem -RepoRoot $repoRoot) | Sort-Object
+    ($viaFileSystem -join "`n") | Should Be ($viaGit -join "`n")
   }
 }
 

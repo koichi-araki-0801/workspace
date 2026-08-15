@@ -27,26 +27,41 @@
 # requirements.txt をハードコード列挙すると、新規追加時に片方だけ更新を忘れる drift が
 # 起きる。列挙をここへ一本化し、両方がこの関数を呼ぶ。既定は `git ls-files`（追跡ファイル
 # 限定 — node_modules や python-wheelhouse 等の生成物・重量物置き場を構造的に除外できる）。
-# git が使えない環境向けに Get-ChildItem -Recurse + 除外リストへフォールバックする
-# （両経路とも結果はリポジトリルートからの相対パス昇順で揃える）。
-function Get-OfflineRequirementsFiles {
+# git が使えない環境向けに Get-ChildItem -Recurse + 除外リストへフォールバックする。
+# 2 経路は Get-OfflineRequirementsFilesViaGit / ...ViaFileSystem として個別に呼べる形へ分け、
+# 「同じ結果になる」ことを verify.Tests.ps1 が両方を直接呼んで突き合わせる。
+
+# git ls-files 経路。git が使えない、または RepoRoot が git 管理外なら $null を返し、
+# 呼び出し元（Get-OfflineRequirementsFiles）にフォールバックを促す。
+function Get-OfflineRequirementsFilesViaGit {
+  param([Parameter(Mandatory = $true)][string]$RepoRoot)
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $null }
+  $repoFull = (Resolve-Path -LiteralPath $RepoRoot).ProviderPath
+  $out = & git -C $repoFull ls-files -- '*requirements.txt' 2>$null
+  if ($LASTEXITCODE -ne 0) { return $null }
+  , @($out | ForEach-Object { Join-Path $repoFull ($_ -replace '/', '\') } | Sort-Object -Unique)
+}
+
+# フォールバック経路。node_modules / .git / .venv* / python-wheelhouse を除外して
+# requirements.txt をファイル名で再帰探索する。
+function Get-OfflineRequirementsFilesViaFileSystem {
   param([Parameter(Mandatory = $true)][string]$RepoRoot)
   $repoFull = (Resolve-Path -LiteralPath $RepoRoot).ProviderPath
-  $relSlash = $null
-  if (Get-Command git -ErrorAction SilentlyContinue) {
-    $out = & git -C $repoFull ls-files -- '*requirements.txt' 2>$null
-    if ($LASTEXITCODE -eq 0) { $relSlash = @($out) }
-  }
-  if ($null -eq $relSlash) {
-    $excludedDirs = @('node_modules', '.git', 'python-wheelhouse')
-    $relSlash = Get-ChildItem -LiteralPath $repoFull -Recurse -File -Filter 'requirements.txt' -Force -ErrorAction SilentlyContinue |
-      Where-Object {
-        $parts = ($_.FullName.Substring($repoFull.Length).TrimStart('\', '/')) -split '[\\/]'
-        -not ($parts | Where-Object { $excludedDirs -contains $_ -or $_ -like '.venv*' })
-      } |
-      ForEach-Object { ($_.FullName.Substring($repoFull.Length).TrimStart('\', '/')) -replace '\\', '/' }
-  }
-  , @($relSlash | Sort-Object -Unique | ForEach-Object { Join-Path $repoFull ($_ -replace '/', '\') })
+  $excludedDirs = @('node_modules', '.git', 'python-wheelhouse')
+  $found = Get-ChildItem -LiteralPath $repoFull -Recurse -File -Filter 'requirements.txt' -Force -ErrorAction SilentlyContinue |
+    Where-Object {
+      $parts = ($_.FullName.Substring($repoFull.Length).TrimStart('\', '/')) -split '[\\/]'
+      -not ($parts | Where-Object { $excludedDirs -contains $_ -or $_ -like '.venv*' })
+    } |
+    ForEach-Object { $_.FullName }
+  , @($found | Sort-Object -Unique)
+}
+
+function Get-OfflineRequirementsFiles {
+  param([Parameter(Mandatory = $true)][string]$RepoRoot)
+  $viaGit = Get-OfflineRequirementsFilesViaGit -RepoRoot $RepoRoot
+  if ($null -ne $viaGit) { return , $viaGit }
+  Get-OfflineRequirementsFilesViaFileSystem -RepoRoot $RepoRoot
 }
 
 function Get-LockContentKey {
