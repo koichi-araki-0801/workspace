@@ -287,8 +287,9 @@ export function assertNoJsonExternalRefs(text: string, where: string): void {
   try {
     refs = findJsonExternalRefs(text);
   } catch {
-    // 読める JSON なら走査は必ず完走する(値を舐めるだけ)。ここへ来るのは parse 失敗だけで、
-    // 中身を検査できない以上は通さない。どのファイルかを添え直すためにここで投げ直す。
+    // parse 失敗と走査の想定外例外(深い入れ子での RangeError 等)をまとめて 400 へ倒す
+    // (fail closed)。理由が何であれ「中身を検査できなかった」ことに変わりはなく、
+    // 検査できないファイルを通す分岐を作らない。どのファイルかはここで添え直す。
     throw validation(JSON_UNPARSABLE_MESSAGE, { code: UNPARSABLE_CODE, cause: { where } });
   }
   if (refs.length === 0) return;

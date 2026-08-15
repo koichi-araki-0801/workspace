@@ -201,6 +201,9 @@ describe('その他のフィールド', () => {
     ['セグメント途中の ..', 'a/../b'],
     ['ドライブレター', 'C:/x/**'],
     ['URI', 'http://evil.example/**'],
+    // 旧実装は NUL を明示的に拒んでいた。許可文字集合に無いので同じく落ちる(暗黙化した
+    // 挙動をテストで固定しておく)。
+    ['NUL', 'a\u0000b'],
   ])('copyAsset.includes の %s は 400', (_label, glob) => {
     expect(() => parse({ entry: 'a.md', copyAsset: { includes: [glob] } })).toThrow();
   });
@@ -211,6 +214,12 @@ describe('その他のフィールド', () => {
     '画像/*.webp',
     'a/b-c_d.png',
     '*.css',
+    // 空白はブレース展開・遡上・URI・文字クラスのどの脅威にも寄与しない。落とすと
+    // 空白入りのディレクトリ名を 400 にするだけになる(半角・全角の両方)。
+    'assets/my folder/**',
+    '資料　別紙/**',
+    // 区切りはバックスラッシュでもよい(判定前に `/` へ正規化する)。返すのは原文。
+    'assets\\**',
   ])('copyAsset.includes の正当な相対 glob %s は通る', (glob) => {
     expect(parse({ entry: 'a.md', copyAsset: { includes: [glob] } }).copyAsset).toEqual({
       includes: [glob],
