@@ -27,3 +27,24 @@ def test_scheme_allowlist_normalizes_case():
     allowed = frozenset({"file", "data"})
     assert shot._is_scheme_allowed("HTTP://evil.example/x", allowed) is False
     assert shot._is_scheme_allowed("FILE:///x", allowed) is True
+
+
+def test_page_context_requires_allowed_schemes():
+    """`allowed_schemes` は必須引数。渡し忘れは呼び出し時点で `TypeError` になる
+    （実行して初めて気付く「意図せぬ素通し」を防ぐ）。"""
+    try:
+        shot.page_context(browser=None, width=100, height=100)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("allowed_schemes 省略で TypeError にならなかった")
+
+
+def test_capture_requires_allowed_schemes():
+    try:
+        shot.capture(browser=None, url="about:blank", width=100, height=100,
+                     out=pathlib.Path("unused.png"))
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("allowed_schemes 省略で TypeError にならなかった")

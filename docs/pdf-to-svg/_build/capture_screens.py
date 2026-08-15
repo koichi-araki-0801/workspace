@@ -68,8 +68,10 @@ def main():
     server, url = start_server()
     print("server:", url)
     try:
+        # ローカル HTTP サーバ（start_server）の実画面を撮影するため http: の取得が要る。
+        # allowed_schemes=None を明示し、意図的な素通しであることを示す。
         with shot_helper.chromium() as browser, \
-                shot_helper.page_context(browser, 1280, 880) as page:
+                shot_helper.page_context(browser, 1280, 880, allowed_schemes=None) as page:
             # File System Access API を消し、隠し <input type=file> フォールバックへ。
             page.add_init_script(
                 "delete window.showOpenFilePicker;"

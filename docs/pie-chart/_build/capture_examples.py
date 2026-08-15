@@ -40,10 +40,13 @@ def main() -> int:
     IMAGES.mkdir(parents=True, exist_ok=True)
     with shot.chromium() as browser:
         # ---- 生成 SVG 例 (600x450 の viewBox 実寸で切り出し) ----
+        # 自己完結な図版・ビューアを file: で開くため、外部参照（SSRF 面）は
+        # allowlist で止める（svg2png.py と同じ集合）。
         for src, dst in SAMPLES:
             shot.capture(
                 browser, (OUT_DIR / "svg_js" / src).resolve().as_uri(),
                 600, 450, IMAGES / dst, selector="svg",
+                allowed_schemes=("file", "data"),
             )
             print("  saved", dst)
 
@@ -51,6 +54,7 @@ def main() -> int:
         shot.capture(
             browser, (OUT_DIR / "compare.html").resolve().as_uri(),
             1280, 880, IMAGES / "viewer.png",
+            allowed_schemes=("file", "data"),
         )
         print("  saved viewer.png")
     print("done.")

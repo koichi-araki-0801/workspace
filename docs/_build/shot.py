@@ -41,15 +41,17 @@ def chromium():
 
 
 @contextlib.contextmanager
-def page_context(browser, width: int, height: int, allowed_schemes=None):
+def page_context(browser, width: int, height: int, *, allowed_schemes):
     """規約解像度の new_context 済み page を yield する（goto は呼び出し側。
     `add_init_script` などナビゲーション前の仕込みを挟めるようにするため）。
 
-    `allowed_schemes` を渡すと、そのスキーム集合に**含まれない全リクエストを abort** する
-    （通すものだけ通す allowlist）。自己完結な図版（外部参照を持たない SVG）を `file:` で
-    描くとき `("file", "data")` を渡せば、SVG 内の `http(s)` 外部参照（保守者マシンからの
-    SSRF 面）を Chromium が取りに行くのを止められる。`None` のときは従来どおり素通し
-    （ローカルサーバのスクショ撮影など、意図した取得がある経路向け）。"""
+    `allowed_schemes` は**必須引数**（既定値を持たない）。渡し忘れと「意図的な素通し」を
+    字面で区別するため、素通しを選ぶ側は明示的に `None` を渡す。スキーム集合を渡すと、
+    そのスキーム集合に**含まれない全リクエストを abort** する（通すものだけ通す
+    allowlist）。自己完結な図版（外部参照を持たない SVG）を `file:` で描くとき
+    `("file", "data")` を渡せば、SVG 内の `http(s)` 外部参照（保守者マシンからの SSRF 面）を
+    Chromium が取りに行くのを止められる。`None` を渡すと素通し（ローカルサーバのスクショ
+    撮影など、意図した取得がある経路向け）。"""
     ctx = browser.new_context(
         viewport={"width": width, "height": height},
         device_scale_factor=DEVICE_SCALE_FACTOR,
@@ -69,10 +71,11 @@ def page_context(browser, width: int, height: int, allowed_schemes=None):
 
 
 def capture(browser, url: str, width: int, height: int,
-            out: pathlib.Path, selector: str | None = None, allowed_schemes=None) -> None:
+            out: pathlib.Path, selector: str | None = None, *, allowed_schemes) -> None:
     """`url` を開き networkidle まで待って `out` へ PNG 撮影する一発ヘルパ。
     `selector` 指定時は要素単位（SVG 実寸ぴったりに切り出し、viewport の余白が混ざらない）。
-    `allowed_schemes` は `page_context` と同じ（許可スキーム以外の取得を止める allowlist）。"""
+    `allowed_schemes` は `page_context` と同じ**必須引数**（許可スキーム以外の取得を止める
+    allowlist。素通しは `None` を明示で渡す）。"""
     with page_context(browser, width, height, allowed_schemes=allowed_schemes) as page:
         page.goto(url)
         page.wait_for_load_state("networkidle")
