@@ -7,8 +7,9 @@
 # packageManager 文字列を連結してから SHA256 を測る。publish / setup 双方で同一値になる。
 # pnpm-lock.yaml は機械生成でコメントを持たないため、この CR 除去バイト列をそのまま使う。
 #
-# さらに、Python 依存（`pdf-to-svg\requirements.txt` / `graph-editor\requirements.txt` /
-# `docs\_build\requirements.txt`）と、同梱物の manifest（git-tools の `git-tools\manifest.txt`、
+# さらに、Python 依存（リポジトリが追跡する全 requirements.txt。列挙は
+# `Get-OfflineRequirementsFiles` へ一本化 — ハードコード列挙だと新規追加時に検知が
+# 空振りする drift を生む）と、同梱物の manifest（git-tools の `git-tools\manifest.txt`、
 # docs mermaid の `docs\_build\vendor\manifest.txt`、msnodesqlv8 prebuild の
 # `native-prebuilds\manifest.txt`）も折り込む。requirements は重量物バンドルへ
 # 同梱する `python-wheelhouse` の内容を、manifest は同梱する git / TortoiseGit / mermaid.min.js /
@@ -16,10 +17,38 @@
 # 変われば重量物バンドルの再生成・再配布が要る。1 キーで pnpm 依存・pnpm 本体・Playwright・
 # Python wheel・git ツールすべての変化を覆える。
 #
-# ただしこれら 3 つは人間が編集する「コメント付きテキスト manifest」であり、コメント規約
+# ただしこれらは人間が編集する「コメント付きテキスト manifest」であり、コメント規約
 # （コメントのみの変更は成果物に影響させない。cf. pie-chart の byte-diff 不変）と整合させるため、
 # 行コメント（先頭が `#`）と空行を除いた**有意行のみ**を折り込む。これにより requirements.txt の
 # コメント一行を直しただけで content key が反転し、wheelhouse 再生成が空振りする誤検知を防ぐ。
+
+# ── requirements.txt の列挙（追跡ファイル全件をグロブ走査） ──
+# publish（pip download 対象・許可リスト検査）と content-key（この関数）が別々に
+# requirements.txt をハードコード列挙すると、新規追加時に片方だけ更新を忘れる drift が
+# 起きる。列挙をここへ一本化し、両方がこの関数を呼ぶ。既定は `git ls-files`（追跡ファイル
+# 限定 — node_modules や python-wheelhouse 等の生成物・重量物置き場を構造的に除外できる）。
+# git が使えない環境向けに Get-ChildItem -Recurse + 除外リストへフォールバックする
+# （両経路とも結果はリポジトリルートからの相対パス昇順で揃える）。
+function Get-OfflineRequirementsFiles {
+  param([Parameter(Mandatory = $true)][string]$RepoRoot)
+  $repoFull = (Resolve-Path -LiteralPath $RepoRoot).ProviderPath
+  $relSlash = $null
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    $out = & git -C $repoFull ls-files -- '*requirements.txt' 2>$null
+    if ($LASTEXITCODE -eq 0) { $relSlash = @($out) }
+  }
+  if ($null -eq $relSlash) {
+    $excludedDirs = @('node_modules', '.git', 'python-wheelhouse')
+    $relSlash = Get-ChildItem -LiteralPath $repoFull -Recurse -File -Filter 'requirements.txt' -Force -ErrorAction SilentlyContinue |
+      Where-Object {
+        $parts = ($_.FullName.Substring($repoFull.Length).TrimStart('\', '/')) -split '[\\/]'
+        -not ($parts | Where-Object { $excludedDirs -contains $_ -or $_ -like '.venv*' })
+      } |
+      ForEach-Object { ($_.FullName.Substring($repoFull.Length).TrimStart('\', '/')) -replace '\\', '/' }
+  }
+  , @($relSlash | Sort-Object -Unique | ForEach-Object { Join-Path $repoFull ($_ -replace '/', '\') })
+}
+
 function Get-LockContentKey {
   param(
     [Parameter(Mandatory = $true)][string]$LockFile,
@@ -56,11 +85,13 @@ function Get-LockContentKey {
   }
   $acc = & $readNoCr $LockFile
   $acc.AddRange([System.Text.Encoding]::UTF8.GetBytes($PackageManager))
-  # requirements.txt と git-tools の manifest は lockfile の親（= リポジトリ直下）からの
-  # 相対で探し、存在するものだけ有意行で折り込む。
+  # requirements.txt はリポジトリ追跡ファイルを走査して折り込む。git-tools 等の manifest は
+  # lockfile の親（= リポジトリ直下）からの相対で探し、存在するものだけ有意行で折り込む。
   $repoRoot = Split-Path -Parent $LockFile
-  foreach ($rel in @('pdf-to-svg\requirements.txt', 'graph-editor\requirements.txt',
-      'docs\_build\requirements.txt', 'docs\_build\vendor\manifest.txt', 'git-tools\manifest.txt',
+  foreach ($rp in (Get-OfflineRequirementsFiles -RepoRoot $repoRoot)) {
+    if (Test-Path -LiteralPath $rp) { $acc.AddRange((& $readSignificant $rp)) }
+  }
+  foreach ($rel in @('docs\_build\vendor\manifest.txt', 'git-tools\manifest.txt',
       'native-prebuilds\manifest.txt')) {
     $rp = Join-Path $repoRoot $rel
     if (Test-Path -LiteralPath $rp) { $acc.AddRange((& $readSignificant $rp)) }

@@ -4,6 +4,8 @@
 # 日本語コメントを含むため UTF-8 BOM 必須（cp932 環境で文字化けさせない）。
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = (Resolve-Path (Join-Path (Join-Path $here '..') '..')).ProviderPath
+. (Join-Path $here 'content-key.ps1')
 . (Join-Path $here 'verify.ps1')
 
 Describe 'Test-OfflineRequirementLine' {
@@ -39,6 +41,22 @@ Describe 'Test-OfflineRequirementLine' {
       Test-OfflineRequirementLine -Line 'pkg @ https://evil/pkg.tar.gz' | Should Be $false
       Test-OfflineRequirementLine -Line '--find-links https://evil/' | Should Be $false
       Test-OfflineRequirementLine -Line '-e .' | Should Be $false
+    }
+  }
+}
+
+Describe 'Get-OfflineRequirementsFiles' {
+  It 'リポジトリ追跡中の全 requirements.txt を含む（git ls-files との突き合わせ）' {
+    $expected = @(& git -C $repoRoot ls-files -- '*requirements.txt') |
+      ForEach-Object { Join-Path $repoRoot ($_ -replace '/', '\') } |
+      Sort-Object
+    $actual = @(Get-OfflineRequirementsFiles -RepoRoot $repoRoot) | Sort-Object
+    ($actual -join "`n") | Should Be ($expected -join "`n")
+  }
+
+  It '走査結果の各ファイルが Test-OfflineRequirementsFile を通る' {
+    foreach ($f in (Get-OfflineRequirementsFiles -RepoRoot $repoRoot)) {
+      (Test-OfflineRequirementsFile -Path $f).Count | Should Be 0
     }
   }
 }
