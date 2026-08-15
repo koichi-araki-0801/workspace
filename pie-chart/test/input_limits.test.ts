@@ -121,9 +121,8 @@ describe('dataJson の長さ上限', () => {
   });
 });
 
-// xlsx / dataJson と同じ funnel 思想を `--data-file` にも適用する(F: --data-file だけが
-// MAX_JSON_BYTES の外にあった)。CLI 経由の検査なので実プロセスで確認する
-// (sea_packaging.test.ts と同じ tsx 起動の型)。
+// xlsx / dataJson と同じ funnel 思想を `--data-file` にも適用する。CLI 経由の検査なので
+// 実プロセスで確認する(sea_packaging.test.ts と同じ tsx 起動の型)。
 describe('--data-file の長さ上限', () => {
   it('上限超過の一時 JSON ファイルは明示エラーで拒否される', () => {
     const work = mkdtempSync(join(tmpdir(), 'piechart-data-file-'));
@@ -160,10 +159,10 @@ describe('--data-file の長さ上限', () => {
   });
 });
 
-// XML 1.0 不正文字は escapeXml の除去に任せず入口で fail-close する(P039)。除去に任せると
+// XML 1.0 不正文字は escapeXml の除去に任せず入口で fail-close する。除去に任せると
 // 「入力と違う文字列が黙って帳票に出る」無警告の誤出力になる。制御文字はコード内で
 // String.fromCharCode/fromCodePoint から組み立てる(生の制御文字をソースへ直書きしない)。
-describe('ラベル名の XML 1.0 不正文字(F: 入口 fail-close)', () => {
+describe('ラベル名の XML 1.0 不正文字', () => {
   const bell = String.fromCharCode(7);
   const tab = String.fromCharCode(9);
   const nl = String.fromCharCode(10);

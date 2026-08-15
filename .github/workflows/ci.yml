@@ -70,7 +70,7 @@ jobs:
         run: |
           python -m pytest pdf-to-svg
           python -m pytest graph-editor
-          python -m pytest docs/_build/test_shot.py
+          python -m pytest docs/_build
 
       - name: Build
         run: pnpm run build
