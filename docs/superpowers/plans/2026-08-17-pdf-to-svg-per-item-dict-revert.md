@@ -1,10 +1,10 @@
-# PdfToSvg 辞書置換の箇所単位 戻し / 単件適用 / 恒久除外 — 実装プラン
+# PdfToSvg 辞書置換の箇所単位 戻し / 単件適用 — 実装プラン
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 確認一覧（手順 2）から辞書置換を 1 箇所ずつ戻す・1 箇所だけ置換する・「今後も置換しない」を指定できるようにする。
+**Goal:** 確認一覧（手順 2）から辞書置換を 1 箇所ずつ戻す・1 箇所だけ置換する。同じ語が複数あっても番号マーカーで場所が分かる。
 
-**Architecture:** 置換前状態を要素自身（`TextElement.dict_revert`）に持たせ、Undo 可能な `RevertDictMatchCommand` で戻す。「今後も置換しない」は `TextElement.dict_skip` フラグで、`plan_replacements` が既定で除外する。RPC 3 本（`revertDictMatch` / `applyDictMatch` / `setDictSkip`）と `planPage` の拡張（`state` / `skip`）で UI に繋ぐ。
+**Architecture:** 置換前状態を要素自身（`TextElement.dict_revert`）に持たせ、Undo 可能な `RevertDictMatchCommand` で戻す。戻しはその場限り（再適用でまた当たる）。RPC 2 本（`revertDictMatch` / `applyDictMatch`）と `planPage` の拡張（`state`）で UI に繋ぎ、UI は行番号と SVG 内の番号マーカー・ホバー強調で場所を示す。
 
 **Tech Stack:** Python 3（標準ライブラリ・dataclass）、pytest、素の JS（ES module）、Playwright（e2e）。
 
@@ -14,14 +14,14 @@
 
 - 作業ディレクトリは `pdf-to-svg/`。pytest は `pdf-to-svg/` 直下で `python -m pytest`（`test/` の `test_*.py`）。
 - コメント規約は `docs/コメント規約.md`（なぜを書く・日本語散文 + 英語ドメイン用語・経緯や所見番号は書かない）。
-- `dict_skip` は文書メモリ内のみ（辞書 JSON・書き出し SVG に残さない）。Undo 対象外。
+- 番号マーカーは表示用 DOM にだけ挿入し、書き出し SVG（`exportSvg`）には入れない。
 - Undo スタック（`web/undo_stack.py`）の構造は変更しない。
 - `/rpc` の JSON はそのまま `innerHTML` に入れない（`esc()` を通す）。既存 `renderConfirm` の書き方に従う。
 - コミットメッセージは既存の流儀（`feat(pdf-to-svg): …` の日本語）。コミット後は auto-push フックが動く。
 
 ---
 
-### Task 1: モデル `DictRevertInfo` / `dict_revert` / `dict_skip` と `ReplaceTextCommand` の復元情報書き込み
+### Task 1: モデル `DictRevertInfo` / `dict_revert` と `ReplaceTextCommand` の復元情報書き込み
 
 **Files:**
 - Modify: `pdf-to-svg/src/model/elements.py:105-140`
@@ -31,7 +31,7 @@
 **Interfaces:**
 - Produces:
   - `model.elements.DictRevertInfo(text: str, bbox: Rect, wrap_align: Optional[str], origin_y: float, extra_ids: List[int])`
-  - `TextElement.dict_revert: Optional[DictRevertInfo] = None`, `TextElement.dict_skip: bool = False`
+  - `TextElement.dict_revert: Optional[DictRevertInfo] = None`
   - `ReplaceTextCommand.__init__(..., extras: Optional[List[TextElement]] = None)`（末尾に追加。既存呼び出しは無改変で動く）
 
 - [ ] **Step 1: 失敗するテストを書く**
@@ -78,7 +78,7 @@ def test_replace_command_records_extras_for_wrapped_group():
 
 def test_text_element_defaults():
     el = _text("x", 0, 10)
-    assert el.dict_revert is None and el.dict_skip is False
+    assert el.dict_revert is None
 ```
 
 - [ ] **Step 2: 失敗を確認**
@@ -112,8 +112,6 @@ class DictRevertInfo:
 ```python
     # 置換が当たっている間だけ持つ復元情報 (箇所単位の「戻す」用)。None = 未置換。
     dict_revert: Optional[DictRevertInfo] = None
-    # 「今後も置換しない」(確認一覧のチェック)。再適用の候補から外す。文書のメモリ内でのみ有効。
-    dict_skip: bool = False
 ```
 
 `from typing import List, Optional` が無ければ追加。
@@ -187,7 +185,7 @@ Expected: PASS（既存テストも緑のまま）
 
 ```bash
 git add pdf-to-svg/src/model/elements.py pdf-to-svg/src/web/commands.py pdf-to-svg/test/test_dict_revert.py
-git commit -m "feat(pdf-to-svg): 辞書置換の復元情報 dict_revert と除外フラグ dict_skip をモデルへ追加"
+git commit -m "feat(pdf-to-svg): 辞書置換の復元情報 dict_revert をモデルへ追加"
 ```
 
 ---
@@ -302,50 +300,19 @@ git commit -m "feat(pdf-to-svg): 辞書置換を 1 箇所だけ戻す RevertDict
 
 ---
 
-### Task 3: `plan_replacements` の `dict_skip` 除外と `include_skipped`、`apply_replacement` の `dict_revert`
+### Task 3: `apply_replacement`（バッチ用ヘルパ）も `dict_revert` を書く
 
 **Files:**
-- Modify: `pdf-to-svg/src/dictionary/apply.py:245-304`
+- Modify: `pdf-to-svg/src/dictionary/apply.py:292-304`（`apply_replacement`）
 - Modify: `pdf-to-svg/test/test_wrap_header.py`（末尾に追記）
 
 **Interfaces:**
-- Produces: `dict_apply.plan_replacements(page, store, include_skipped: bool = False) -> List[Replacement]`
+- Consumes: Task 1 の `DictRevertInfo`
+- Produces: `auto_apply` / `apply_replacement` を通った要素も `dict_revert` を持つ（Command 経路と同じ状態）
 
 - [ ] **Step 1: 失敗するテストを書く**（`test_wrap_header.py` 末尾）
 
 ```python
-def test_plan_skips_dict_skip_elements_unless_included(tmp_path):
-    """`dict_skip` の要素は既定で候補から外れ、`include_skipped=True` でだけ並ぶ。"""
-    a = _text("Item", x=10, oy=20)
-    b = _text("Item", x=100, oy=20)
-    b.dict_skip = True
-    pg = _page([a, b])
-    store = DictionaryStore(tmp_path / "d.json")
-    store.add("Item", "品目")
-
-    plans = dict_apply.plan_replacements(pg, store)
-    assert [p.element for p in plans] == [a]
-    plans_all = dict_apply.plan_replacements(pg, store, include_skipped=True)
-    assert [p.element for p in plans_all] == [a, b]
-    store.close()
-
-
-def test_plan_skips_wrapped_group_when_top_is_dict_skip(tmp_path):
-    """折返しグループは先頭要素の `dict_skip` でグループごと外れる (2 行目は単独照合もされない)。"""
-    top = _text("商品", x=50, oy=40)
-    bottom = _text("名称", x=50, oy=52)
-    top.dict_skip = True
-    pg = _page([top, bottom])
-    store = DictionaryStore(tmp_path / "d.json")
-    store.add("商品名称", "Product", joined=True)
-    store.add("名称", "Name")
-
-    assert dict_apply.plan_replacements(pg, store) == []
-    plans_all = dict_apply.plan_replacements(pg, store, include_skipped=True)
-    assert len(plans_all) == 1 and plans_all[0].element is top
-    store.close()
-
-
 def test_apply_replacement_writes_dict_revert(tmp_path):
     """バッチ用 `apply_replacement` も Command と同じく復元情報を残す。"""
     top = _text("商品", x=50, oy=40)
@@ -356,109 +323,55 @@ def test_apply_replacement_writes_dict_revert(tmp_path):
     dict_apply.auto_apply(pg, store)
     assert top.dict_revert is not None
     assert top.dict_revert.text == "商品" and top.dict_revert.extra_ids == [bottom.id]
+    assert top.dict_revert.origin_y == 40 and top.dict_revert.wrap_align is None
     store.close()
 ```
 
 - [ ] **Step 2: 失敗を確認**
 
-Run: `cd pdf-to-svg && python -m pytest test/test_wrap_header.py -v -k "dict_skip or dict_revert"`
-Expected: FAIL（`include_skipped` 未対応の TypeError / 候補数不一致 / `dict_revert is None`）
+Run: `cd pdf-to-svg && python -m pytest test/test_wrap_header.py -v -k dict_revert`
+Expected: FAIL — `assert None is not None`
 
 - [ ] **Step 3: 実装**
-
-`plan_replacements` を次のように変更:
-
-```python
-def plan_replacements(
-    page: Page, store: DictionaryStore, include_skipped: bool = False
-) -> List[Replacement]:
-    """辞書に一致する置換案を列挙する (実際の書き換えはしない)。ヘッダ・本文を問わない。
-
-    `dict_skip` (確認一覧の「今後も置換しない」) の要素は既定で外す。折返しグループは
-    先頭要素の `dict_skip` でグループごと外す (2 行目以降も単独照合へ落とさない)。
-    `include_skipped=True` は確認一覧の表示用で、除外中の候補も並べる。
-    """
-    plans: List[Replacement] = []
-    texts = _text_elements(page)
-    consumed: set = set()
-
-    # 折返し連結照合 (要素単位より優先)。一致は連結由来エントリのみ (`_lookup_joined`
-    # 参照)。連結で一致しなければグループは解放され、
-    # 各行が従来どおり単独照合される (後方互換)。
-    for group in _wrap_groups(texts):
-        if len(group) < 2:
-            continue
-        hit = _lookup_joined(store, group)
-        if hit is None:
-            continue
-        source, target = hit
-        top = group[0]
-        if target != top.text and (include_skipped or not top.dict_skip):
-            # 折返しは結合テキストをグループ全体の合成領域へ据え直す。縦は下揃え
-            # (最終行のベースライン) 固定、横は元の折返し行の揃えを検出して踏襲する。
-            box = _merged_bbox(group)
-            plans.append(
-                Replacement(
-                    top, source, target, extras=group[1:], new_bbox=box,
-                    align=_detect_wrap_align(group), baseline_y=group[-1].origin_y,
-                    warning=_overflow_warning(target, top.font_size, box.w),
-                )
-            )
-        for t in group:
-            consumed.add(id(t))
-
-    for el in texts:
-        if id(el) in consumed or (el.dict_skip and not include_skipped):
-            continue
-        target = store.lookup(el.text)
-        if target is not None and target != el.text:
-            plans.append(
-                Replacement(
-                    el, el.text, target,
-                    warning=_overflow_warning(target, el.font_size, el.bbox.w),
-                )
-            )
-    return plans
-```
 
 `apply_replacement` の先頭（`rep.element.text = rep.target` の前）に追加:
 
 ```python
+    # 箇所単位の「戻す」が復元に使う置換前状態 (`ReplaceTextCommand` と同じ内容)。
     rep.element.dict_revert = DictRevertInfo(
         text=rep.element.text, bbox=rep.element.bbox, wrap_align=rep.element.wrap_align,
         origin_y=rep.element.origin_y, extra_ids=[e.id for e in rep.extras],
     )
 ```
 
-import に `DictRevertInfo` を追加（`from model.elements import DictMatch, DictRevertInfo, ...`）。
+import を `from model.elements import DictMatch, DictRevertInfo, ...` に。
 
 - [ ] **Step 4: 通ることを確認**
 
-Run: `cd pdf-to-svg && python -m pytest test/test_wrap_header.py test/test_store_matcher.py test/test_pipeline.py -v`
+Run: `cd pdf-to-svg && python -m pytest test/test_wrap_header.py test/test_store_matcher.py test/test_pipeline.py -q`
 Expected: PASS
 
 - [ ] **Step 5: コミット**
 
 ```bash
 git add pdf-to-svg/src/dictionary/apply.py pdf-to-svg/test/test_wrap_header.py
-git commit -m "feat(pdf-to-svg): 置換計画が dict_skip を除外し、表示用に include_skipped を受ける"
+git commit -m "feat(pdf-to-svg): バッチ用 apply_replacement も dict_revert を残す"
 ```
 
 ---
 
-### Task 4: RPC — `revertDictMatch` / `applyDictMatch` / `setDictSkip`、`planPage` の `state`/`skip`、`changed2`
+### Task 4: RPC — `revertDictMatch` / `applyDictMatch`、`planPage` の `state`、`changed2`
 
 **Files:**
 - Modify: `pdf-to-svg/src/web/rpc_methods.py:64-68, 143-160, 252-294, 433-455`
 - Modify: `pdf-to-svg/test/test_web_rpc.py`（末尾に追記）
 
 **Interfaces:**
-- Consumes: Task 2 `RevertDictMatchCommand`、Task 3 `plan_replacements(..., include_skipped=True)`
+- Consumes: Task 2 `RevertDictMatchCommand`
 - Produces（JSON）:
-  - `planPage` → `{"changes": [{elId, source, target, loc, warning, state: "applied"|"pending", skip: bool}, ...]}`（要素の出現順）
+  - `planPage` → `{"changes": [{elId, source, target, loc, warning, state: "applied"|"pending"}, ...]}`（要素の出現順）
   - `revertDictMatch {fileIndex, pageInFile, elId}` → `{"reverted": bool}`
   - `applyDictMatch {fileIndex, pageInFile, elId}` → `{"count": int, "warnings": int}`
-  - `setDictSkip {fileIndex, pageInFile, elId, value}` → `{"skip": bool}`
 
 - [ ] **Step 1: 失敗するテストを書く**（`test_web_rpc.py` 末尾）
 
@@ -478,7 +391,7 @@ def test_revert_dict_match_single_and_plan_page_states(session):
     assert body.text == "A-1042" and body.dict_match is None and body.dict_revert is None
     plan = rpc_methods.dispatch(session, "planPage", {"fileIndex": 0, "pageInFile": 0})
     rows = {c["elId"]: c for c in plan["changes"]}
-    assert rows[body.id]["state"] == "pending" and rows[body.id]["skip"] is False
+    assert rows[body.id]["state"] == "pending"
     assert rows[body.id]["source"] == "A-1042" and rows[body.id]["target"] == "ボルト"
     # 戻した後もページは「要確認」のまま (一覧から消えない)
     assert rpc_methods.dispatch(session, "state", {})["changed2"] == [True]
@@ -491,6 +404,9 @@ def test_revert_dict_match_single_and_plan_page_states(session):
     r = rpc_methods.dispatch(session, "revertDictMatch",
                              {"fileIndex": 0, "pageInFile": 0, "elId": body.id})
     assert r["reverted"] is False
+    # 戻しはその場限り: 次の再適用でまた置換される
+    r = rpc_methods.dispatch(session, "reapplyDictPage", {"fileIndex": 0, "pageInFile": 0})
+    assert r["count"] == 1 and body.text == "ボルト"
 
 
 def test_revert_dict_match_wrapped_group(tmp_path):
@@ -525,28 +441,6 @@ def test_apply_dict_match_applies_only_one_element(session):
     assert r["count"] == 0
 
 
-def test_set_dict_skip_excludes_from_reapply_but_stays_listed(session):
-    """「今後も置換しない」は再適用から外れるが、planPage には pending + skip で並ぶ。"""
-    body = session.page(0, 0).elements[1]
-    rpc_methods.dispatch(session, "dictAdd", {"source": "A-1042", "target": "ボルト"})
-    r = rpc_methods.dispatch(session, "setDictSkip",
-                             {"fileIndex": 0, "pageInFile": 0, "elId": body.id, "value": True})
-    assert r["skip"] is True and body.dict_skip is True
-    r = rpc_methods.dispatch(session, "reapplyDictPage", {"fileIndex": 0, "pageInFile": 0})
-    assert r["count"] == 0 and body.text == "A-1042"
-    plan = rpc_methods.dispatch(session, "planPage", {"fileIndex": 0, "pageInFile": 0})
-    rows = {c["elId"]: c for c in plan["changes"]}
-    assert rows[body.id]["state"] == "pending" and rows[body.id]["skip"] is True
-    # 明示の単件置換は skip に関わらず効く
-    rpc_methods.dispatch(session, "applyDictMatch",
-                         {"fileIndex": 0, "pageInFile": 0, "elId": body.id})
-    assert body.text == "ボルト"
-    # OFF に戻せる
-    r = rpc_methods.dispatch(session, "setDictSkip",
-                             {"fileIndex": 0, "pageInFile": 0, "elId": body.id, "value": False})
-    assert r["skip"] is False and body.dict_skip is False
-
-
 def test_state_changed2_true_for_pending_candidates(session):
     """未適用の候補しか無いページも要確認 (戻した箇所を一覧から消さない)。"""
     hdr = session.page(0, 0).elements[0]
@@ -557,7 +451,7 @@ def test_state_changed2_true_for_pending_candidates(session):
 
 - [ ] **Step 2: 失敗を確認**
 
-Run: `cd pdf-to-svg && python -m pytest test/test_web_rpc.py -v -k "revert or apply_dict_match or dict_skip or pending"`
+Run: `cd pdf-to-svg && python -m pytest test/test_web_rpc.py -v -k "revert or apply_dict_match or pending"`
 Expected: FAIL — `KeyError: 'revertDictMatch'` 等
 
 - [ ] **Step 3: 実装**
@@ -571,27 +465,25 @@ Expected: FAIL — `KeyError: 'revertDictMatch'` 等
 ```python
 def _page_has_replacements(page: Page, store: DictionaryStore) -> bool:
     """手順 2 で「要確認」にするか。置換済みが 1 件でもあるか、未適用の候補 (戻した箇所・
-    除外中の箇所) が残るページ。候補も数えるのは、箇所単位で戻したページが一覧から
+    まだ当てていない箇所) が残るページ。候補も数えるのは、箇所単位で戻したページが一覧から
     消えて再び置換できなくなるのを避けるため。"""
     if any(
         isinstance(e, TextElement) and not e.deleted and e.dict_match is not None
         for e in page.elements
     ):
         return True
-    return bool(dict_apply.plan_replacements(page, store, include_skipped=True))
+    return bool(dict_apply.plan_replacements(page, store))
 ```
 
 (c) `rpc_planPage` を置き換え:
 
 ```python
 def rpc_planPage(s: WebSession, args: dict) -> dict:
-    """確認一覧の行。置換済み (`applied`) と未適用の候補 (`pending` = 戻した箇所・
-    「今後も置換しない」の箇所) を要素の出現順に混ぜて返す。"""
+    """確認一覧の行。置換済み (`applied`) と未適用の候補 (`pending` = 戻した箇所・まだ
+    当てていない箇所) を要素の出現順に混ぜて返す。UI はこの順で通し番号を振り、ページ上の
+    番号マーカーと対応させる。"""
     pg = s.page(args["fileIndex"], args["pageInFile"])
-    pending = {
-        rep.element.id: rep
-        for rep in dict_apply.plan_replacements(pg, s.store, include_skipped=True)
-    }
+    pending = {rep.element.id: rep for rep in dict_apply.plan_replacements(pg, s.store)}
     changes = []
     for el in pg.elements:
         if not isinstance(el, TextElement) or el.deleted:
@@ -607,7 +499,6 @@ def rpc_planPage(s: WebSession, args: dict) -> dict:
                     # 置換語が収め先の箱幅を超え圧縮表示される恐れ (簡易推定)。
                     "warning": fonts.is_width_overflow(el.text, el.font_size, el.bbox.w),
                     "state": "applied",
-                    "skip": el.dict_skip,
                 }
             )
         elif el.id in pending:
@@ -620,7 +511,6 @@ def rpc_planPage(s: WebSession, args: dict) -> dict:
                     "loc": loc,
                     "warning": rep.warning is not None,
                     "state": "pending",
-                    "skip": el.dict_skip,
                 }
             )
     return {"changes": changes}
@@ -639,7 +529,8 @@ def _find_text_element(pg: Page, el_id: int) -> Optional[TextElement]:
 
 
 def rpc_revertDictMatch(s: WebSession, args: dict) -> dict:
-    """辞書置換を 1 箇所だけ置換前へ戻す (Undo 可)。復元情報が無ければ no-op。"""
+    """辞書置換を 1 箇所だけ置換前へ戻す (Undo 可)。復元情報が無ければ no-op。
+    戻しはその場限りで、次の再適用ではまた置換される (恒久除外のフラグは持たない)。"""
     pg = s.page(int(args["fileIndex"]), int(args["pageInFile"]))
     el = _find_text_element(pg, int(args["elId"]))
     if el is None or el.dict_revert is None:
@@ -651,34 +542,20 @@ def rpc_revertDictMatch(s: WebSession, args: dict) -> dict:
 
 
 def rpc_applyDictMatch(s: WebSession, args: dict) -> dict:
-    """指定要素 1 件だけ辞書を当てる (Undo 可・1 マクロ)。明示操作なので `dict_skip` でも当てる。"""
+    """指定要素 1 件だけ辞書を当てる (Undo 可・1 マクロ)。候補でなければ no-op。"""
     pg = s.page(int(args["fileIndex"]), int(args["pageInFile"]))
     el_id = int(args["elId"])
-    plans = [
-        rep for rep in dict_apply.plan_replacements(pg, s.store, include_skipped=True)
-        if rep.element.id == el_id
-    ]
+    plans = [rep for rep in dict_apply.plan_replacements(pg, s.store) if rep.element.id == el_id]
     return _apply_plans(s, plans)
-
-
-def rpc_setDictSkip(s: WebSession, args: dict) -> dict:
-    """「今後も置換しない」を書く。Undo 対象外の単純フラグ (文書のメモリ内でのみ有効)。"""
-    pg = s.page(int(args["fileIndex"]), int(args["pageInFile"]))
-    el = _find_text_element(pg, int(args["elId"]))
-    if el is None:
-        return {"skip": False}
-    el.dict_skip = bool(args.get("value", False))
-    return {"skip": el.dict_skip}
 ```
 
-`rpc_dictSuggest` 内の同形の `next(...)` 検索も `_find_text_element` に置き換えてよい（重複の集約）。
+`rpc_dictSuggest` 内の同形の `next(...)` 検索も `_find_text_element` に置き換える（重複の集約）。
 
 (f) `HANDLERS` に追加:
 
 ```python
     "revertDictMatch": rpc_revertDictMatch,
     "applyDictMatch": rpc_applyDictMatch,
-    "setDictSkip": rpc_setDictSkip,
 ```
 
 - [ ] **Step 4: 通ることを確認**
@@ -690,55 +567,47 @@ Expected: 全件 PASS（`test_shell_rpc.py` の実 UndoStack 経路も含む）
 
 ```bash
 git add pdf-to-svg/src/web/rpc_methods.py pdf-to-svg/test/test_web_rpc.py
-git commit -m "feat(pdf-to-svg): 箇所単位の戻し / 単件置換 / 除外の RPC と planPage の state・skip を追加"
+git commit -m "feat(pdf-to-svg): 箇所単位の戻し / 単件置換の RPC と planPage の state を追加"
 ```
 
 ---
 
-### Task 5: UI — 確認一覧の「戻す」「置換」「今後も置換しない」
+### Task 5: UI — 確認一覧の「戻す」「置換」・番号マーカー・ホバー強調
 
 **Files:**
-- Modify: `pdf-to-svg/resources/web/app.js:241-268`（`renderConfirm`）
+- Modify: `pdf-to-svg/resources/web/app.js:241-290`（`renderConfirm` / `flashElement` 付近）
 - Modify: `pdf-to-svg/resources/web/styles.css:485-500`
 - Modify: `pdf-to-svg/test/app_flow.e2e.ts:36-45`
 
 **Interfaces:**
-- Consumes: Task 4 の `planPage` 行（`state` / `skip`）、`revertDictMatch` / `applyDictMatch` / `setDictSkip`
+- Consumes: Task 4 の `planPage` 行（`state`）、`revertDictMatch` / `applyDictMatch`
+- Produces: `.change-row .num` / `.act-revert` / `.act-apply` / `.state`、SVG 内 `g[data-editor-marks]`
 
 - [ ] **Step 1: e2e に失敗する期待を書く**（`app_flow.e2e.ts` の `#doc-master` の `売上高` 確認の直後）
 
 ```ts
   // 箇所単位: 一覧の「戻す」で 1 件だけ置換前へ → 行は未置換 (置換ボタン) になる → 「置換」で再び当たる
   await page.click('[data-tab="confirm"]');
-  const row = page.locator("#confirm-dyn .change-row").first();
-  await row.locator(".act-revert").click();
+  const rows = page.locator("#confirm-dyn .change-row");
+  await expect(rows.first().locator(".num")).toHaveText("1");
+  // 番号マーカーは一覧の行数と同数だけページ上に描かれる
+  await expect(page.locator("#doc-master svg [data-editor-marks] > g")).toHaveCount(await rows.count());
+  await rows.first().locator(".act-revert").click();
   await expect(page.locator("#doc-master")).toContainText("Revenue", { timeout: 15_000 });
   await expect(page.locator("#confirm-dyn")).toContainText("未置換 1 件");
   await page.locator("#confirm-dyn .change-row").first().locator(".act-apply").click();
   await expect(page.locator("#doc-master")).toContainText("売上高", { timeout: 15_000 });
-  // 「今後も置換しない」ON → 戻す → 全ファイル再適用でも当たらない
-  await page.locator("#confirm-dyn .change-row").first().locator(".act-skip").check();
-  await page.locator("#confirm-dyn .change-row").first().locator(".act-revert").click();
-  await expect(page.locator("#doc-master")).toContainText("Revenue", { timeout: 15_000 });
-  await page.click('[data-tab="dict"]');
-  await page.click("#btn-reapply");
-  await page.click('[data-tab="confirm"]');
-  await expect(page.locator("#doc-master")).toContainText("Revenue");
-  await page.locator("#confirm-dyn .change-row").first().locator(".act-skip").uncheck();
-  await page.locator("#confirm-dyn .change-row").first().locator(".act-apply").click();
-  await expect(page.locator("#doc-master")).toContainText("売上高", { timeout: 15_000 });
+  await expect(page.locator("#confirm-dyn")).not.toContainText("未置換");
 ```
-
-`[data-tab="confirm"]` は手順 2 の確認タブの `data-tab` 値。実際の値は `resources/web/index.html` の手順 2 のタブ定義（`data-tab="dict"` の隣）で確認し、異なれば読み替える。
 
 - [ ] **Step 2: 失敗を確認**
 
 Run: `cd pdf-to-svg && pnpm exec playwright test test/app_flow.e2e.ts`
-Expected: FAIL — `.act-revert` が見つからない
+Expected: FAIL — `.num` が見つからない
 
-- [ ] **Step 3: `renderConfirm` を実装**
+- [ ] **Step 3: `renderConfirm` を実装し、マーカー・ホバー強調のヘルパを追加**
 
-`app.js` の `renderConfirm` を次に置き換える（`svg` / `esc` / `chevD` / `checkD` / `rpc` / `invalidate` / `reloadState` / `render` / `flashElement` / `noChangeNote` は既存）:
+`app.js` の `renderConfirm` を次に置き換え、`flashElement` の隣に `highlightElement` / `drawChangeMarkers` を追加する（`svg` / `esc` / `chevD` / `checkD` / `rpc` / `invalidate` / `reloadState` / `render` / `flashElement` / `noChangeNote` は既存）:
 
 ```js
   // ── 9. 確認ペイン (手順2) ──
@@ -748,6 +617,7 @@ Expected: FAIL — `.act-revert` が見つからない
     if (!S.changed2[S.page]) {
       ed2.classList.add("nochange");
       el.innerHTML = noChangeNote("このページに置換はありません");
+      drawChangeMarkers([]);
       return;
     }
     ed2.classList.remove("nochange");
@@ -757,32 +627,36 @@ Expected: FAIL — `.act-revert` が見つからない
     if (token !== S.PAGES[S.page].fileIndex + ":" + S.PAGES[S.page].pageInFile) return; // ページが変わった
     var applied = data.changes.filter(function (c) { return c.state === "applied"; }).length;
     var pending = data.changes.length - applied;
-    var rows = data.changes.map(function (ch) {
-      var warn = ch.warning ? '<span class="warn" title="置換語が元の幅より長く、圧縮表示される可能性があります">幅超過</span>' : "";
+    var rows = data.changes.map(function (ch, i) {
       var isApplied = ch.state === "applied";
-      // 置換済み行は「戻す」、未置換行 (戻した箇所・除外中の箇所) は「置換」。
+      var warn = ch.warning ? '<span class="warn" title="置換語が元の幅より長く、圧縮表示される可能性があります">幅超過</span>' : "";
+      var badge = isApplied ? "" : '<span class="state">未置換</span>';
+      // 置換済み行は「戻す」、未置換行 (戻した箇所・まだ当てていない箇所) は「置換」。
       var act = isApplied
         ? '<button type="button" class="row-btn act-revert" title="この箇所だけ置換前に戻す">戻す</button>'
         : '<button type="button" class="row-btn act-apply" title="この箇所だけ置換する">置換</button>';
-      var skip = '<label class="row-skip" title="再適用してもこの箇所は置き換えない"><input type="checkbox" class="act-skip"' +
-        (ch.skip ? " checked" : "") + ">今後も置換しない</label>";
-      return '<div class="change-row' + (isApplied ? "" : " pending") + '" data-el="' + ch.elId + '"><span class="loc">' + esc(ch.loc) +
+      return '<div class="change-row' + (isApplied ? "" : " pending") + '" data-el="' + ch.elId + '">' +
+        '<span class="num">' + (i + 1) + '</span><span class="loc">' + esc(ch.loc) +
         '</span><span class="pair"><span class="from">' + esc(ch.source) + "</span>" +
-        svg('<path d="M4 12h15M13 6l6 6-6 6"/>', 15) + '<span class="to">' + esc(ch.target) + "</span></span>" + warn +
-        '<span class="acts">' + skip + act + "</span></div>";
+        svg('<path d="M4 12h15M13 6l6 6-6 6"/>', 15) + '<span class="to">' + esc(ch.target) + "</span></span>" +
+        warn + badge + act + "</div>";
     }).join("");
-    var head = "このページで " + applied + " 件を置換" + (pending ? "（未置換 " + pending + " 件）" : "");
     el.innerHTML =
-      '<div class="confirm-banner"><span class="ic">' + svg('<path d="' + checkD + '"/>', 22, 2.2) + '</span><div><div class="t">' + head +
-      '</div><div class="s">表ヘッダ等の用語を辞書で置換しました。箇所ごとに戻す・置換できます</div></div></div>' +
-      '<div style="display:flex;flex-direction:column;min-height:0;flex:1;"><div class="field-label">変更の一覧（クリックで該当箇所へ）</div><div class="change-list">' +
+      '<div class="confirm-banner"><span class="ic">' + svg('<path d="' + checkD + '"/>', 22, 2.2) + '</span><div><div class="t">このページで ' +
+      applied + ' 件を置換</div>' + (pending ? '<div class="t sub">未置換 ' + pending + ' 件</div>' : "") +
+      '<div class="s">番号はページ上のマーカーと対応します</div></div></div>' +
+      '<div style="display:flex;flex-direction:column;min-height:0;flex:1;"><div class="field-label">変更の一覧（行に乗せると該当箇所を強調）</div><div class="change-list">' +
       rows + "</div></div>";
+    drawChangeMarkers(data.changes);
     el.querySelectorAll(".change-row[data-el]").forEach(function (row) {
       var elId = row.dataset.el;
       row.addEventListener("click", function () { flashElement("doc-master", elId); });
+      row.addEventListener("mouseenter", function () { highlightElement("doc-master", elId, true); });
+      row.addEventListener("mouseleave", function () { highlightElement("doc-master", elId, false); });
       var args = { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, elId: elId };
       // 置換の有無が変わると SVG も一覧も変わるので、再適用ボタンと同じく再生成→再描画する。
       async function after() {
+        highlightElement("doc-master", elId, false);
         invalidate(pg.fileIndex, pg.pageInFile);
         await reloadState();
         render();
@@ -795,37 +669,90 @@ Expected: FAIL — `.act-revert` が見つからない
       if (apply) apply.addEventListener("click", async function (e) {
         e.stopPropagation(); await rpc("applyDictMatch", args); await after();
       });
-      var skipBox = row.querySelector(".act-skip");
-      skipBox.addEventListener("change", async function () {
-        await rpc("setDictSkip", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, elId: elId, value: skipBox.checked });
-      });
-      // チェック・ラベルのクリックで行のフラッシュ (該当箇所へ) を起こさない
-      row.querySelector(".row-skip").addEventListener("click", function (e) { e.stopPropagation(); });
     });
   }
+
+  // 一覧の行に乗せている間だけ該当要素を枠で示す (`flashElement` の持続版)。
+  function highlightElement(hostId, elId, on) {
+    var host = document.getElementById(hostId);
+    if (!host) return;
+    var old = host.querySelector('.sel-box[data-hl="' + elId + '"]');
+    if (old) old.remove();
+    if (!on) return;
+    var svgEl = host.querySelector("svg"); if (!svgEl) return;
+    var target = svgEl.querySelector('[data-el="' + elId + '"]'); if (!target) return;
+    var hb = host.getBoundingClientRect(); var tb = target.getBoundingClientRect();
+    var box = document.createElement("div");
+    box.className = "sel-box"; box.dataset.hl = elId;
+    box.style.left = (tb.left - hb.left - 3) + "px"; box.style.top = (tb.top - hb.top - 3) + "px";
+    box.style.width = (tb.width + 6) + "px"; box.style.height = (tb.height + 6) + "px";
+    host.appendChild(box);
+  }
+
+  // 一覧の通し番号をページ上の該当要素の左上へ描く。SVG 座標系 (getBBox) に置くので
+  // ズームに追随し、表示用 DOM にだけ入る (書き出しはサーバ側 exportSvg で別生成)。
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  function drawChangeMarkers(changes) {
+    var host = document.getElementById("doc-master");
+    var svgEl = host && host.querySelector("svg");
+    if (!svgEl) return;
+    var old = svgEl.querySelector("[data-editor-marks]");
+    if (old) old.remove();
+    if (!changes.length) return;
+    var vb = svgEl.viewBox.baseVal;
+    var r = Math.max(4, Math.min(vb.width, vb.height) * 0.012); // ページ寸法に対する相対サイズ
+    var g = document.createElementNS(SVG_NS, "g");
+    g.setAttribute("data-editor-marks", "");
+    g.setAttribute("font-family", "BIZ UDPGothic, Yu Gothic UI, sans-serif");
+    g.setAttribute("font-weight", "700");
+    g.setAttribute("font-size", String(r * 1.3));
+    g.setAttribute("pointer-events", "none");
+    changes.forEach(function (ch, i) {
+      var t = svgEl.querySelector('[data-el="' + ch.elId + '"]'); if (!t) return;
+      var bb = t.getBBox();
+      var m = document.createElementNS(SVG_NS, "g");
+      var c = document.createElementNS(SVG_NS, "circle");
+      c.setAttribute("cx", bb.x); c.setAttribute("cy", bb.y); c.setAttribute("r", r);
+      c.setAttribute("fill", ch.state === "applied" ? "oklch(0.585 0.105 240)" : "oklch(0.68 0.010 262)");
+      var tx = document.createElementNS(SVG_NS, "text");
+      tx.setAttribute("x", bb.x); tx.setAttribute("y", bb.y + r * 0.45);
+      tx.setAttribute("text-anchor", "middle"); tx.setAttribute("fill", "#fff");
+      tx.textContent = String(i + 1);
+      m.appendChild(c); m.appendChild(tx); g.appendChild(m);
+    });
+    svgEl.appendChild(g);
+  }
 ```
+
+`renderConfirm` は SVG 描画後に呼ばれる前提（現行どおり）。ページ SVG を差し替える描画関数（`render` 内で `#doc-master` に `svg` を入れる箇所）が `renderConfirm` より後に走る経路があれば、その直後にも `drawChangeMarkers` を呼び直せるよう `S.lastChanges` に `data.changes` を保存し、SVG 挿入直後に `drawChangeMarkers(S.lastChanges || [])` を呼ぶ（該当箇所は `app.js` の「── 14. 描画 ──」節で `doc-master` に innerHTML を入れる場所）。
 
 - [ ] **Step 4: スタイルを追加**（`styles.css` の `.change-row .warn` の直後）
 
 ```css
-.change-row .acts { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
-.change-row .row-btn { font: inherit; font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer; }
+.change-row { flex-wrap: wrap; row-gap: 8px; }
+.change-row .num { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; flex: none; font-family: var(--font-round); }
+.change-row .loc { width: auto; }
+.change-row .row-btn { margin-left: auto; font: inherit; font-size: 11.5px; font-weight: 700; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer; }
 .change-row .row-btn:hover { border-color: var(--border-strong); background: var(--paper); }
-.change-row .row-skip { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+.change-row .act-apply { border-color: var(--accent-line); color: var(--accent-ink); background: var(--accent-soft); }
+.change-row .state { font-size: 10px; font-weight: 700; color: var(--faint); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+.change-row.pending { background: var(--sunk); border-style: dashed; }
+.change-row.pending .num { background: var(--faint); }
 .change-row.pending .from { text-decoration: none; color: var(--ink); }
 .change-row.pending .to { color: var(--faint); font-weight: 400; }
+.confirm-banner .t.sub { font-size: 12.5px; color: var(--muted); }
 ```
 
 - [ ] **Step 5: 単体・e2e を通す**
 
 Run: `cd pdf-to-svg && python -m pytest -q && pnpm exec playwright test test/app_flow.e2e.ts`
-Expected: PASS。失敗するなら `data-tab` の値と `.change-row` の DOM を `resources/web/index.html` で確認して e2e のセレクタを合わせる（実装側の挙動は変えない）。
+Expected: PASS。失敗するなら `.change-row` の DOM を `resources/web/index.html` / 実装で確認して e2e のセレクタを合わせる（実装側の挙動は変えない）。
 
 - [ ] **Step 6: コミット**
 
 ```bash
 git add pdf-to-svg/resources/web/app.js pdf-to-svg/resources/web/styles.css pdf-to-svg/test/app_flow.e2e.ts
-git commit -m "feat(pdf-to-svg): 確認一覧に箇所単位の「戻す」「置換」「今後も置換しない」を追加"
+git commit -m "feat(pdf-to-svg): 確認一覧に箇所単位の「戻す」「置換」と番号マーカー・ホバー強調を追加"
 ```
 
 ---
@@ -843,15 +770,14 @@ git commit -m "feat(pdf-to-svg): 確認一覧に箇所単位の「戻す」「�
 ```markdown
 ### 4.2 置き換えを 1 か所だけ戻す / 当てる
 
-確認一覧（左の「確認」欄）の各行には次の操作があります。
+確認一覧（左の「確認」欄）の各行には、ページ上の同じ番号のマーカーが対応しています。同じ言葉が何度も出てくるページでも、番号を見れば「どこの置き換えか」が分かります。行にマウスを乗せると、その箇所がページ上で枠で強調されます。
 
 | 操作 | 内容 |
 |---|---|
 | **戻す** | その 1 か所だけを置き換え前の言葉に戻します（Undo で取り消せます）。戻した行は「未置換」として一覧に残ります。 |
 | **置換** | 未置換の行を、その 1 か所だけ置き換えます。 |
-| **今後も置換しない** | チェックを付けると、「再適用」を押してもその箇所は置き換えません（既定はチェックなし）。チェックは PDF を開いている間だけ有効で、辞書ファイルには保存されません。 |
 
-> [!INFO] 「今後も置換しない」にチェックを付けても、置き換え済みの箇所はすぐには戻りません。戻したいときは「戻す」も押してください。
+> [!INFO] 「戻す」で戻した箇所は、次に「再適用」を押すとまた置き換わります。戻したままにしたいときは、再適用のあとにもう一度「戻す」を押してください。
 ```
 
 - [ ] **Step 2: 仕様一覧に追記**
@@ -860,27 +786,26 @@ UI 表（`#btn-reapply` の行の下）:
 
 ```markdown
 | 11 | 2. 用語置換 | 戻す / 置換 | `.change-row .act-revert` / `.act-apply` | 確認一覧の行ごとに 1 箇所だけ置換前へ戻す / 1 箇所だけ置換する（Undo 可） |
-| 12 | 2. 用語置換 | 今後も置換しない | `.change-row .act-skip` | 再適用の候補から除外（既定 OFF・文書のメモリ内のみ・Undo 対象外） |
+| 12 | 2. 用語置換 | 番号マーカー | `#doc-master svg [data-editor-marks]` | 一覧の通し番号をページ上の該当箇所へ描く（表示用のみ・書き出しには含めない）。行ホバーで枠強調 |
 ```
 
 RPC 表（`reapplyDict / reapplyDictPage` の行の下）:
 
 ```markdown
-| 13 | RPC | `revertDictMatch` | 指定要素の置換を 1 箇所だけ戻す（`dict_revert` から復元、`RevertDictMatchCommand`） |
-| 14 | RPC | `applyDictMatch` | 指定要素 1 件だけ辞書を当てる（1 マクロ・`dict_skip` でも当てる） |
-| 15 | RPC | `setDictSkip` | 「今後も置換しない」フラグの設定 |
+| 13 | RPC | `revertDictMatch` | 指定要素の置換を 1 箇所だけ戻す（`dict_revert` から復元、`RevertDictMatchCommand`。次の再適用ではまた置換される） |
+| 14 | RPC | `applyDictMatch` | 指定要素 1 件だけ辞書を当てる（1 マクロ） |
 ```
 
-既存の番号と重複するなら以降を振り直す。`planPage` の行があれば `state`（applied/pending）と `skip` を返す旨を追記。
+既存の番号と重複するなら以降を振り直す。`planPage` の行があれば `state`（applied/pending）を返す旨を追記。
 
 - [ ] **Step 3: 設計書に追記**（辞書適用の節）
 
 ```markdown
-#### 箇所単位の戻し・単件適用・除外
+#### 箇所単位の戻し・単件適用
 
-置換の適用時、`ReplaceTextCommand`（バッチ用の `apply_replacement` も同様）は置換前の状態を要素自身の `TextElement.dict_revert`（`DictRevertInfo`: text / bbox / wrap_align / origin_y / 畳んだ後続行の id）へ書く。置換コマンドは Undo マクロの中に埋まっていて個別には辿れず、Undo 深さ上限で捨てられもするため、復元元は要素が持つ。`revertDictMatch` は `RevertDictMatchCommand` を Undo スタックへ push し、`dict_revert` から復元して後続行を再表示する（戻し自体も Undo/Redo に乗る）。`applyDictMatch` は `plan_replacements` の候補から 1 件だけを `_apply_plans` に渡す。
+置換の適用時、`ReplaceTextCommand`（バッチ用の `apply_replacement` も同様）は置換前の状態を要素自身の `TextElement.dict_revert`（`DictRevertInfo`: text / bbox / wrap_align / origin_y / 畳んだ後続行の id）へ書く。置換コマンドは Undo マクロの中に埋まっていて個別には辿れず、Undo 深さ上限で捨てられもするため、復元元は要素が持つ。`revertDictMatch` は `RevertDictMatchCommand` を Undo スタックへ push し、`dict_revert` から復元して後続行を再表示する（戻し自体も Undo/Redo に乗る）。戻しはその場限りで、恒久除外のフラグは持たない（戻した箇所は次の再適用でまた置換される）。`applyDictMatch` は `plan_replacements` の候補から 1 件だけを `_apply_plans` に渡す。
 
-「今後も置換しない」は `TextElement.dict_skip`（Undo 対象外・文書のメモリ内のみ）で、`plan_replacements` が既定で候補から外す（折返しグループは先頭要素で判定しグループごと外す）。確認一覧（`planPage`）は `include_skipped=True` の候補も `pending` 行として並べ、`state` の `changed2` も候補があるページを要確認にする（戻したページが一覧から消えないため）。
+確認一覧（`planPage`）は置換済み（`applied`）と未適用の候補（`pending`）を要素の出現順に混ぜて返し、`state` の `changed2` も候補があるページを要確認にする（戻したページが一覧から消えないため）。UI はこの順で通し番号を振り、表示中の SVG に `g[data-editor-marks]` として番号マーカーを描く（SVG 座標系なのでズームに追随。表示用 DOM のみで、書き出し SVG はサーバの `exportSvg` が別に生成するため混入しない）。
 ```
 
 - [ ] **Step 4: HTML を再生成し、差分を確認**
@@ -897,7 +822,7 @@ Expected: PASS
 
 ```bash
 git add docs/pdf-to-svg
-git commit -m "docs(pdf-to-svg): 辞書置換の箇所単位の戻し・単件適用・除外を手引き・仕様一覧・設計書へ反映"
+git commit -m "docs(pdf-to-svg): 辞書置換の箇所単位の戻し・単件適用と番号マーカーを手引き・仕様一覧・設計書へ反映"
 ```
 
 ---
@@ -905,5 +830,5 @@ git commit -m "docs(pdf-to-svg): 辞書置換の箇所単位の戻し・単件�
 ## Self-Review
 
 - Spec 2.1 → Task 1 / 2.2 → Task 3 / 2.3 → Task 1・2 / 2.4 → Task 4 / 2.5 → Task 5 / 2.6 → Task 6 / 3 テスト → Task 1〜5。
-- 名称の一貫性: `DictRevertInfo` / `dict_revert` / `dict_skip` / `RevertDictMatchCommand` / `revertDictMatch` / `applyDictMatch` / `setDictSkip` / `include_skipped` / `.act-revert` / `.act-apply` / `.act-skip` を全タスクで同一に使用。
+- 名称の一貫性: `DictRevertInfo` / `dict_revert` / `RevertDictMatchCommand` / `revertDictMatch` / `applyDictMatch` / `.num` / `.act-revert` / `.act-apply` / `.state` / `data-editor-marks` / `highlightElement` / `drawChangeMarkers` を全タスクで同一に使用。
 - `ReplaceTextCommand.extras` は Task 1 で追加、Task 4 の `_apply_plans` が渡す。Task 2 の折返しテストは `_apply_plans` を経由しないため `bottom.deleted = True` を手で立てている（意図的）。
