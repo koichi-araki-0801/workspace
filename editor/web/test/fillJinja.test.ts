@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { buildSampleData, type FundMaster, parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
@@ -123,11 +123,16 @@ describe('real report templates round-trip token-for-token', () => {
 // 書きぶりが分岐しており、fixture だけを検査すると後者だけが参照するキー
 // (`report.baseDate` / `fund.navChange` で実際に起きた)の欠落が素通りする。
 // 参照キーがサンプルデータで満たされることを、全系統に対して固定する。
+// `editor/data/templates` は dataRoot 方式のローカル専用実データで git 管理外(.gitignore)
+// のため、用意されていない環境(CI 等)ではこの系統だけスキップする。
 describe('data/templates と生成スケルトンの参照キーがサンプルで満たされる', () => {
   const funds = fundMaster as Record<string, FundMaster>;
   const dataTemplates = resolve(__dirname, '../../data/templates');
+  const dataTemplateFiles = existsSync(dataTemplates)
+    ? readdirSync(dataTemplates).filter((f) => f.endsWith('.html'))
+    : [];
 
-  for (const file of readdirSync(dataTemplates).filter((f) => f.endsWith('.html'))) {
+  for (const file of dataTemplateFiles) {
     it(`${file}: 解釈できない/未定義の Jinja 式が無い`, () => {
       const raw = readFileSync(resolve(dataTemplates, file), 'utf8');
       const attrs = parseTemplateFileName(file);
