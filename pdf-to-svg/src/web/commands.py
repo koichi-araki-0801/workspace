@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from model.document import Page
-from model.elements import DictMatch, Element, Rect, TextElement
+from model.elements import DictMatch, DictRevertInfo, Element, Rect, TextElement
 
 
 class DeleteCommand:
@@ -52,6 +52,7 @@ class ReplaceTextCommand:
         new_bbox: Optional[Rect] = None,
         wrap_align: Optional[str] = None,
         baseline_y: Optional[float] = None,
+        extras: Optional[List[TextElement]] = None,
     ):
         self.el = el
         self.new_text = new_text
@@ -66,6 +67,12 @@ class ReplaceTextCommand:
         self.old_bbox = el.bbox
         self.old_wrap_align = el.wrap_align
         self.old_origin_y = el.origin_y
+        self.old_revert = el.dict_revert
+        # 箇所単位の「戻す」が復元に使う置換前状態。後続行 (extras) は id で持つ。
+        self.revert_info = DictRevertInfo(
+            text=el.text, bbox=el.bbox, wrap_align=el.wrap_align, origin_y=el.origin_y,
+            extra_ids=[e.id for e in (extras or [])],
+        )
 
     def redo(self) -> None:
         self.el.text = self.new_text
@@ -77,6 +84,7 @@ class ReplaceTextCommand:
             self.el.wrap_align = self.wrap_align
         if self.baseline_y is not None:  # 折返し畳み込みは下揃え (最終行のベースライン)
             self.el.origin_y = self.baseline_y
+        self.el.dict_revert = self.revert_info
 
     def undo(self) -> None:
         self.el.text = self.old_text
@@ -84,3 +92,4 @@ class ReplaceTextCommand:
         self.el.bbox = self.old_bbox
         self.el.wrap_align = self.old_wrap_align
         self.el.origin_y = self.old_origin_y
+        self.el.dict_revert = self.old_revert

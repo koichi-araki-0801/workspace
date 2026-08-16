@@ -8,7 +8,7 @@ from __future__ import annotations
 import itertools
 import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import List, Optional
 
 # 要素 ID 採番 (プロセス内で一意であれば十分)
 _id_counter = itertools.count(1)
@@ -111,6 +111,22 @@ class DictMatch:
 
 
 @dataclass
+class DictRevertInfo:
+    """辞書置換を 1 箇所だけ戻すための置換前状態。
+
+    置換コマンドは Undo マクロの中に埋まっていて個別には辿れず、Undo 深さ上限で
+    捨てられもするため、復元元は要素自身が持つ。`extra_ids` は折返し畳み込みで
+    論理削除した後続行の id (戻すときに再表示する)。
+    """
+
+    text: str
+    bbox: Rect
+    wrap_align: Optional[str]
+    origin_y: float
+    extra_ids: List[int] = field(default_factory=list)
+
+
+@dataclass
 class Element:
     """全要素の基底。"""
 
@@ -139,6 +155,8 @@ class TextElement(Element):
     # 設定時は SVG 出力が bbox (折返しグループの合成領域) の左/中央/右へ anchor し、
     # 縦は origin_y (最終行のベースラインへ据え直し済み) の下揃えで描く。
     wrap_align: Optional[str] = None
+    # 置換が当たっている間だけ持つ復元情報 (箇所単位の「戻す」用)。None = 未置換。
+    dict_revert: Optional[DictRevertInfo] = None
 
     def __post_init__(self) -> None:
         if not self.original_text:
