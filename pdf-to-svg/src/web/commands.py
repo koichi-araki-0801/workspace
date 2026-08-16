@@ -93,3 +93,45 @@ class ReplaceTextCommand:
         self.el.wrap_align = self.old_wrap_align
         self.el.origin_y = self.old_origin_y
         self.el.dict_revert = self.old_revert
+
+
+class RevertDictMatchCommand:
+    """辞書置換を 1 箇所だけ置換前へ戻す (Undo 可)。
+
+    復元元は要素の `dict_revert` (`ReplaceTextCommand` が書く)。`extras` は折返し
+    畳み込みで論理削除した後続行で、戻すときに再表示し、undo で再び畳む。
+    """
+
+    def __init__(self, el: TextElement, extras: List[TextElement]):
+        self.el = el
+        self.extras = list(extras)
+        info = el.dict_revert
+        if info is None:
+            raise ValueError("dict_revert が無い要素は戻せない")
+        self.info = info
+        # undo (= 置換状態へ戻す) 用に現在値を握る
+        self.cur_text = el.text
+        self.cur_match = el.dict_match
+        self.cur_bbox = el.bbox
+        self.cur_wrap_align = el.wrap_align
+        self.cur_origin_y = el.origin_y
+
+    def redo(self) -> None:
+        self.el.text = self.info.text
+        self.el.bbox = self.info.bbox
+        self.el.wrap_align = self.info.wrap_align
+        self.el.origin_y = self.info.origin_y
+        self.el.dict_match = None
+        self.el.dict_revert = None
+        for ex in self.extras:
+            ex.deleted = False
+
+    def undo(self) -> None:
+        self.el.text = self.cur_text
+        self.el.bbox = self.cur_bbox
+        self.el.wrap_align = self.cur_wrap_align
+        self.el.origin_y = self.cur_origin_y
+        self.el.dict_match = self.cur_match
+        self.el.dict_revert = self.info
+        for ex in self.extras:
+            ex.deleted = True
