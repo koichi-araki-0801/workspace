@@ -256,3 +256,32 @@ def test_apply_replacement_writes_dict_revert(tmp_path):
     assert top.dict_revert.text == "商品" and top.dict_revert.extra_ids == [bottom.id]
     assert top.dict_revert.origin_y == 40 and top.dict_revert.wrap_align is None
     store.close()
+
+
+def test_has_replacement_candidate_true_for_page_with_hit(tmp_path):
+    """`state` RPC 用の軽量判定: 辞書に一致する要素が 1 件でもあれば True。"""
+    el = _text("Qty", x=50, oy=40)
+    pg = _page([el])
+    store = DictionaryStore(tmp_path / "d.json")
+    store.add("Qty", "数量")
+    assert dict_apply.has_replacement_candidate(pg, store) is True
+    store.close()
+
+
+def test_has_replacement_candidate_false_for_empty_store(tmp_path):
+    """辞書が空なら、置換対象になりうる要素があっても走査せず False を返す。"""
+    el = _text("Qty", x=50, oy=40)
+    pg = _page([el])
+    store = DictionaryStore(tmp_path / "d.json")
+    assert dict_apply.has_replacement_candidate(pg, store) is False
+    store.close()
+
+
+def test_has_replacement_candidate_false_for_no_hits(tmp_path):
+    """辞書に登録があってもページ内のどの要素とも一致しなければ False。"""
+    el = _text("Qty", x=50, oy=40)
+    pg = _page([el])
+    store = DictionaryStore(tmp_path / "d.json")
+    store.add("Amount", "金額")
+    assert dict_apply.has_replacement_candidate(pg, store) is False
+    store.close()

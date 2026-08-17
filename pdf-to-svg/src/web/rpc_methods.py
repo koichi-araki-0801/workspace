@@ -71,7 +71,7 @@ def _page_has_replacements(page: Page, store: DictionaryStore) -> bool:
         for e in page.elements
     ):
         return True
-    return bool(dict_apply.plan_replacements(page, store))
+    return dict_apply.has_replacement_candidate(page, store)
 
 
 def _human_size(n: int) -> str:
