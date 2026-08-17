@@ -13,20 +13,22 @@ title: PdfToSvg 仕様一覧（画面項目 / 入出力 / RPC・HTTP / テスト
 | 2 | 1. PDF選択 | ファイルリスト | `list（削除可）` | 選択PDF一覧 |
 | 3 | 1. PDF選択 | 次へ | `button` | 1件以上で有効化 |
 | 4 | 2. 用語置換 | ページプレビュー | `SVG表示（ズーム）` | 中央キャンバス |
-| 5 | 2. 用語置換 | 確認タブ | `置換一覧` | クリックでハイライト・幅超過警告 |
+| 5 | 2. 用語置換 | 確認タブ | `置換一覧` | クリックでハイライト・幅超過警告。行ごとに番号マーカーと対応（No.12）、戻す/置換ボタンで箇所単位に取消・適用（No.11） |
 | 6 | 2. 用語置換 | 元の語 | `#dict-src` | 辞書追加フォーム |
 | 7 | 2. 用語置換 | 置換後 | `#dict-tgt` | 辞書追加フォーム |
 | 8 | 2. 用語置換 | クリック取り込みで折返しを連結 | `#chk-suggest-join` | suggest_join フラグ（既定 OFF。ON で連結取り込み・連結由来を記録） |
 | 9 | 2. 用語置換 | このページのみ再適用 | `#btn-reapply-page` | 主ボタン（既定）。表示中ページへ辞書適用（ヘッダ・本文を問わず全文） |
 | 10 | 2. 用語置換 | 全ファイルに再適用 | `#btn-reapply` | 明示選択で辞書変更を全PDFへ |
-| 11 | 2. 用語置換 | JSON書き出し / JSON読み込み | `#btn-dict-export / import` | 辞書の JSON 入出力（連結由来 joined を保持） |
-| 12 | 3. 削除・枠線 | ツール | `選択 / 範囲削除 / 枠線` | 編集モード切替 |
-| 13 | 3. 削除・枠線 | 枠線色 | `#border-color` | カラーピッカー |
-| 14 | 3. 削除・枠線 | 枠線幅 | `#border-width` | 0.5〜20 pt |
-| 15 | 3. 削除・枠線 | 削除 | `#btn-deletesel` | 選択要素削除 |
-| 16 | 4. 書き出し | 書き出す範囲 | `ボタン群（排他）` | 表示中のページのみ / 全ページ / スキップを除く / ページを指定 |
-| 17 | 4. 書き出し | SVGに書き出す | `button` | ファイル名は <元名>_pN.svg |
-| 18 | トップバー | Undo/Redo | `Ctrl+Z / Ctrl+Y` | 操作の取消/やり直し |
+| 11 | 2. 用語置換 | 戻す / 置換 | `.change-row .act-revert` / `.act-apply` | 確認一覧の行ごとに 1 箇所だけ置換前へ戻す / 1 箇所だけ置換する（Undo 可） |
+| 12 | 2. 用語置換 | 番号マーカー | `#doc-master svg [data-editor-marks]` | 一覧の通し番号をページ上の該当箇所へ描く（表示用のみ・書き出しには含めない）。行ホバーで枠強調 |
+| 13 | 2. 用語置換 | JSON書き出し / JSON読み込み | `#btn-dict-export / import` | 辞書の JSON 入出力（連結由来 joined を保持） |
+| 14 | 3. 削除・枠線 | ツール | `選択 / 範囲削除 / 枠線` | 編集モード切替 |
+| 15 | 3. 削除・枠線 | 枠線色 | `#border-color` | カラーピッカー |
+| 16 | 3. 削除・枠線 | 枠線幅 | `#border-width` | 0.5〜20 pt |
+| 17 | 3. 削除・枠線 | 削除 | `#btn-deletesel` | 選択要素削除 |
+| 18 | 4. 書き出し | 書き出す範囲 | `ボタン群（排他）` | 表示中のページのみ / 全ページ / スキップを除く / ページを指定 |
+| 19 | 4. 書き出し | SVGに書き出す | `button` | ファイル名は <元名>_pN.svg |
+| 20 | トップバー | Undo/Redo | `Ctrl+Z / Ctrl+Y` | 操作の取消/やり直し |
 
 # 入出力定義
 
@@ -53,18 +55,20 @@ title: PdfToSvg 仕様一覧（画面項目 / 入出力 / RPC・HTTP / テスト
 | 5 | HTTP | `POST /ping` | ハートビート |
 | 6 | RPC | `state` | ファイル/ページ/置換当たり等の状態取得 |
 | 7 | RPC | `pageSvg` | ページSVG取得（annotate 付き） |
-| 8 | RPC | `planPage` | 置換予定の算出 |
+| 8 | RPC | `planPage` | 置換予定の算出。確認一覧の行を出現順に返し、各行に `state`（applied/pending）を含める |
 | 9 | RPC | `removedList` | 削除要素一覧 |
 | 10 | RPC | `dictList / dictAdd / dictDelete` | 辞書 参照 / 追加 / 削除 |
 | 11 | RPC | `dictSuggest` | ページ上の文字クリックから「元の語」候補を返す（suggest_join ON なら折返し行を連結） |
 | 12 | RPC | `reapplyDict / reapplyDictPage` | 辞書の全ファイル / 単一ページ再適用（連結照合は joined エントリのみ） |
-| 13 | RPC | `dictJson / dictImportJson` | 辞書JSONの文字列受け渡し（ファイル保存/読込はブラウザ側） |
-| 14 | RPC | `setSuggestJoin` | クリック取り込み連結フラグ更新 |
-| 15 | RPC | `applyDelete / deleteRegion / addBorder` | 削除 / 範囲削除 / 枠線（Undoへpush） |
-| 16 | RPC | `undo / redo` | 操作の取消 / やり直し |
-| 17 | RPC | `exportSvg` | 範囲指定で SVG 書き出し |
-| 18 | RPC | `zipEntries` | 複数 SVG を ZIP 1 本にまとめて base64 で返す |
-| 19 | RPC | `removeFile` | 選択ファイルを一覧から除去 |
+| 13 | RPC | `revertDictMatch` | 指定要素の置換を 1 箇所だけ戻す（`dict_revert` から復元、`RevertDictMatchCommand`。次の再適用ではまた置換される） |
+| 14 | RPC | `applyDictMatch` | 指定要素 1 件だけ辞書を当てる（1 マクロ） |
+| 15 | RPC | `dictJson / dictImportJson` | 辞書JSONの文字列受け渡し（ファイル保存/読込はブラウザ側） |
+| 16 | RPC | `setSuggestJoin` | クリック取り込み連結フラグ更新 |
+| 17 | RPC | `applyDelete / deleteRegion / addBorder` | 削除 / 範囲削除 / 枠線（Undoへpush） |
+| 18 | RPC | `undo / redo` | 操作の取消 / やり直し |
+| 19 | RPC | `exportSvg` | 範囲指定で SVG 書き出し |
+| 20 | RPC | `zipEntries` | 複数 SVG を ZIP 1 本にまとめて base64 で返す |
+| 21 | RPC | `removeFile` | 選択ファイルを一覧から除去 |
 
 # テスト仕様
 
