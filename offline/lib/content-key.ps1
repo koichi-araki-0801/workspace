@@ -60,7 +60,12 @@ function Get-OfflineRequirementsFilesViaFileSystem {
 function Get-OfflineRequirementsFiles {
   param([Parameter(Mandatory = $true)][string]$RepoRoot)
   $viaGit = Get-OfflineRequirementsFilesViaGit -RepoRoot $RepoRoot
-  if ($null -ne $viaGit) { return , $viaGit }
+  # $viaGit は代入で受けた時点で既に配列 (呼び出し先の `, @(...)` が単数要素の
+  # スカラー化を防いでいる)。ここで再度 `,` を足すと、pipe 経由の呼び出し
+  # （`Get-OfflineRequirementsFiles | Where-Object {...}`）で配列がもう1段
+  # 入れ子のまま出力され、要素1個＝全パスをまとめた配列として渡ってしまう
+  # （`foreach` 経由の呼び出しは巻き込まれず正しく展開されるため長らく発覚しなかった）。
+  if ($null -ne $viaGit) { return $viaGit }
   Get-OfflineRequirementsFilesViaFileSystem -RepoRoot $RepoRoot
 }
 
