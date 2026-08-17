@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple
 
 from model import fonts
 from model.document import Page
-from model.elements import DictMatch, Rect, TextElement
+from model.elements import DictMatch, DictRevertInfo, Rect, TextElement
 from dictionary.store import DictionaryStore
 
 TOP_BAND_RATIO = 0.25  # ページ上端からこの割合内の最初の行をヘッダ候補とする
@@ -291,6 +291,11 @@ def plan_replacements(page: Page, store: DictionaryStore) -> List[Replacement]:
 
 def apply_replacement(rep: Replacement) -> None:
     """置換案をモデルへ反映 (初期自動適用用。Undo が要る場面では Command を使う)。"""
+    # 箇所単位の「戻す」が復元に使う置換前状態 (`ReplaceTextCommand` と同じ内容)。
+    rep.element.dict_revert = DictRevertInfo(
+        text=rep.element.text, bbox=rep.element.bbox, wrap_align=rep.element.wrap_align,
+        origin_y=rep.element.origin_y, extra_ids=[e.id for e in rep.extras],
+    )
     rep.element.text = rep.target
     rep.element.dict_match = DictMatch(source=rep.source, target=rep.target)
     if rep.new_bbox is not None:  # 折返し畳み込み: 合成領域へ据え直す
