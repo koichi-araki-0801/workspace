@@ -69,3 +69,23 @@ def test_revert_command_restores_wrapped_group():
     assert bottom.deleted is False
     stack.undo()
     assert top.text == "Product" and top.bbox == Rect(50, 28, 20, 24) and bottom.deleted is True
+
+
+def test_revert_command_undo_restores_extra_not_deleted_before_revert():
+    """戻す前に削除されていなかった extra は、戻しの取り消し (undo) 後も削除状態のまま
+    にならない (redo が実測せず一律 True へ戻すと、削除していない後続行が消えてしまう)。"""
+    top = _text("商品", 50, 40)
+    bottom = _text("名称", 50, 52)
+    top.dict_revert = DictRevertInfo(
+        text="商品", bbox=Rect(50, 28, 20, 12), wrap_align=None, origin_y=40,
+        extra_ids=[bottom.id],
+    )
+    top.text = "Product"
+    top.dict_match = DictMatch(source="商品名称", target="Product")
+    # bottom はこの置換で削除されていない (呼び出し元の実測どおりに扱われるべき)。
+    assert bottom.deleted is False
+    stack = UndoStack()
+    stack.push(RevertDictMatchCommand(top, [bottom]))
+    assert bottom.deleted is False  # redo は元の状態のまま
+    stack.undo()
+    assert bottom.deleted is False  # undo も実測値 (False) へ戻す。強制 True にしない

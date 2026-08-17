@@ -115,6 +115,11 @@ class RevertDictMatchCommand:
         self.cur_bbox = el.bbox
         self.cur_wrap_align = el.wrap_align
         self.cur_origin_y = el.origin_y
+        # extras は「折返し畳み込みで削除された後続行」が典型だが、それを redo が
+        # 前提してよいとは限らない (extras の由来は呼び出し元の `dict_revert.extra_ids`
+        # で、この要素自身が置換の一部として削除したとは限らない)。実測値を控え、
+        # undo では強制 True ではなくここへ戻す。
+        self.extra_was_deleted = [e.deleted for e in self.extras]
 
     def redo(self) -> None:
         self.el.text = self.info.text
@@ -133,5 +138,5 @@ class RevertDictMatchCommand:
         self.el.origin_y = self.cur_origin_y
         self.el.dict_match = self.cur_match
         self.el.dict_revert = self.info
-        for ex in self.extras:
-            ex.deleted = True
+        for ex, was_deleted in zip(self.extras, self.extra_was_deleted):
+            ex.deleted = was_deleted
