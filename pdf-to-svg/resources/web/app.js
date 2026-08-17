@@ -12,7 +12,7 @@ import {
   applyState, nextPending, firstPending, advancePhase,
   exportPageList, expCount, zipName,
 } from "./state.js";
-import { fileIcon, xIcon, chevD, checkD, ckMark } from "./icons.js";
+import { fileIcon, xIcon, checkD, ckMark } from "./icons.js";
 import { initRail, buildRail } from "./rail.js";
 
 (function () {
@@ -245,6 +245,8 @@ import { initRail, buildRail } from "./rail.js";
     if (!S.changed2[S.page]) {
       ed2.classList.add("nochange");
       el.innerHTML = noChangeNote("このページに置換はありません");
+      S.lastChanges = [];
+      drawChangeMarkers([]);
       return;
     }
     ed2.classList.remove("nochange");
@@ -252,19 +254,51 @@ import { initRail, buildRail } from "./rail.js";
     var token = pg.fileIndex + ":" + pg.pageInFile;
     var data = await rpc("planPage", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
     if (token !== S.PAGES[S.page].fileIndex + ":" + S.PAGES[S.page].pageInFile) return; // ページが変わった
-    var rows = data.changes.map(function (ch) {
+    var applied = data.changes.filter(function (c) { return c.state === "applied"; }).length;
+    var pending = data.changes.length - applied;
+    var rows = data.changes.map(function (ch, i) {
+      var isApplied = ch.state === "applied";
       var warn = ch.warning ? '<span class="warn" title="置換語が元の幅より長く、圧縮表示される可能性があります">幅超過</span>' : "";
-      return '<div class="change-row" data-el="' + ch.elId + '"><span class="loc">' + esc(ch.loc) + '</span><span class="pair"><span class="from">' +
-        esc(ch.source) + "</span>" + svg('<path d="M4 12h15M13 6l6 6-6 6"/>', 15) + '<span class="to">' + esc(ch.target) + "</span></span>" + warn +
-        svg(chevD, 16).replace("currentColor", "var(--faint)") + "</div>";
+      var badge = isApplied ? "" : '<span class="state">未置換</span>';
+      // 置換済み行は「戻す」、未置換行 (戻した箇所・まだ当てていない箇所) は「置換」。
+      var act = isApplied
+        ? '<button type="button" class="row-btn act-revert" title="この箇所だけ置換前に戻す">戻す</button>'
+        : '<button type="button" class="row-btn act-apply" title="この箇所だけ置換する">置換</button>';
+      return '<div class="change-row' + (isApplied ? "" : " pending") + '" data-el="' + ch.elId + '">' +
+        '<span class="num">' + (i + 1) + '</span><span class="loc">' + esc(ch.loc) +
+        '</span><span class="pair"><span class="from">' + esc(ch.source) + "</span>" +
+        svg('<path d="M4 12h15M13 6l6 6-6 6"/>', 15) + '<span class="to">' + esc(ch.target) + "</span></span>" +
+        warn + badge + act + "</div>";
     }).join("");
     el.innerHTML =
       '<div class="confirm-banner"><span class="ic">' + svg('<path d="' + checkD + '"/>', 22, 2.2) + '</span><div><div class="t">このページで ' +
-      data.changes.length + ' 件を置換</div><div class="s">表ヘッダ等の用語を辞書で置換しました</div></div></div>' +
-      '<div style="display:flex;flex-direction:column;min-height:0;flex:1;"><div class="field-label">変更の一覧（クリックで該当箇所へ）</div><div class="change-list">' +
+      applied + ' 件を置換</div>' + (pending ? '<div class="t sub">未置換 ' + pending + ' 件</div>' : "") +
+      '<div class="s">番号はページ上のマーカーと対応します</div></div></div>' +
+      '<div style="display:flex;flex-direction:column;min-height:0;flex:1;"><div class="field-label">変更の一覧（行に乗せると該当箇所を強調）</div><div class="change-list">' +
       rows + "</div></div>";
+    S.lastChanges = data.changes;
+    drawChangeMarkers(S.lastChanges);
     el.querySelectorAll(".change-row[data-el]").forEach(function (row) {
-      row.addEventListener("click", function () { flashElement("doc-master", row.dataset.el); });
+      var elId = row.dataset.el;
+      row.addEventListener("click", function () { flashElement("doc-master", elId); });
+      row.addEventListener("mouseenter", function () { highlightElement("doc-master", elId, true); });
+      row.addEventListener("mouseleave", function () { highlightElement("doc-master", elId, false); });
+      var args = { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, elId: elId };
+      // 置換の有無が変わると SVG も一覧も変わるので、再適用ボタンと同じく再生成→再描画する。
+      async function after() {
+        highlightElement("doc-master", elId, false);
+        invalidate(pg.fileIndex, pg.pageInFile);
+        await reloadState();
+        render();
+      }
+      var revert = row.querySelector(".act-revert");
+      if (revert) revert.addEventListener("click", async function (e) {
+        e.stopPropagation(); await rpc("revertDictMatch", args); await after();
+      });
+      var apply = row.querySelector(".act-apply");
+      if (apply) apply.addEventListener("click", async function (e) {
+        e.stopPropagation(); await rpc("applyDictMatch", args); await after();
+      });
     });
   }
   function noChangeNote(msg) {
@@ -284,6 +318,57 @@ import { initRail, buildRail } from "./rail.js";
     box.style.transition = "opacity .9s ease"; host.appendChild(box);
     setTimeout(function () { box.style.opacity = "0"; }, 350);
     setTimeout(function () { box.remove(); }, 1300);
+  }
+
+  // 一覧の行に乗せている間だけ該当要素を枠で示す (`flashElement` の持続版)。
+  function highlightElement(hostId, elId, on) {
+    var host = document.getElementById(hostId);
+    if (!host) return;
+    var old = host.querySelector('.sel-box[data-hl="' + elId + '"]');
+    if (old) old.remove();
+    if (!on) return;
+    var svgEl = host.querySelector("svg"); if (!svgEl) return;
+    var target = svgEl.querySelector('[data-el="' + elId + '"]'); if (!target) return;
+    var hb = host.getBoundingClientRect(); var tb = target.getBoundingClientRect();
+    var box = document.createElement("div");
+    box.className = "sel-box"; box.dataset.hl = elId;
+    box.style.left = (tb.left - hb.left - 3) + "px"; box.style.top = (tb.top - hb.top - 3) + "px";
+    box.style.width = (tb.width + 6) + "px"; box.style.height = (tb.height + 6) + "px";
+    host.appendChild(box);
+  }
+
+  // 一覧の通し番号をページ上の該当要素の左上へ描く。SVG 座標系 (getBBox) に置くので
+  // ズームに追随し、表示用 DOM にだけ入る (書き出しはサーバ側 exportSvg で別生成)。
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  function drawChangeMarkers(changes) {
+    var host = document.getElementById("doc-master");
+    var svgEl = host && host.querySelector("svg");
+    if (!svgEl) return;
+    var old = svgEl.querySelector("[data-editor-marks]");
+    if (old) old.remove();
+    if (!changes.length) return;
+    var vb = svgEl.viewBox.baseVal;
+    var r = Math.max(4, Math.min(vb.width, vb.height) * 0.012); // ページ寸法に対する相対サイズ
+    var g = document.createElementNS(SVG_NS, "g");
+    g.setAttribute("data-editor-marks", "");
+    g.setAttribute("font-family", "BIZ UDPGothic, Yu Gothic UI, sans-serif");
+    g.setAttribute("font-weight", "700");
+    g.setAttribute("font-size", String(r * 1.3));
+    g.setAttribute("pointer-events", "none");
+    changes.forEach(function (ch, i) {
+      var t = svgEl.querySelector('[data-el="' + ch.elId + '"]'); if (!t) return;
+      var bb = t.getBBox();
+      var m = document.createElementNS(SVG_NS, "g");
+      var c = document.createElementNS(SVG_NS, "circle");
+      c.setAttribute("cx", bb.x); c.setAttribute("cy", bb.y); c.setAttribute("r", r);
+      c.setAttribute("fill", ch.state === "applied" ? "oklch(0.585 0.105 240)" : "oklch(0.68 0.010 262)");
+      var tx = document.createElementNS(SVG_NS, "text");
+      tx.setAttribute("x", bb.x); tx.setAttribute("y", bb.y + r * 0.45);
+      tx.setAttribute("text-anchor", "middle"); tx.setAttribute("fill", "#fff");
+      tx.textContent = String(i + 1);
+      m.appendChild(c); m.appendChild(tx); g.appendChild(m);
+    });
+    svgEl.appendChild(g);
   }
 
   // ── 10. 削除ペイン (手順3) ──
@@ -546,7 +631,10 @@ import { initRail, buildRail } from "./rail.js";
     if (S.phase === 2 && S.TOTAL) {
       buildRail("pagenav"); renderSummary("sum-2", S.status2); renderPageAct();
       document.getElementById("pgnav-2").innerHTML = pageLabel();
-      mountPage(document.getElementById("doc-master"), app.querySelector('[data-screen="2"] .editor'), false).then(wireConfirmPick);
+      mountPage(document.getElementById("doc-master"), app.querySelector('[data-screen="2"] .editor'), false).then(function () {
+        wireConfirmPick();
+        drawChangeMarkers(S.lastChanges || []);
+      });
       renderConfirm();
       updateZoomLabel();
     }

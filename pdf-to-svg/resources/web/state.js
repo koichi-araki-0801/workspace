@@ -31,6 +31,7 @@ var S = {
   borderWidth: 1,       // 枠線ツールの太さ (pt)
   expMode: "all",       // 書き出しモード: page/all/noskip/spec
   expFile: 0,           // spec モードの対象ファイル
+  lastChanges: [],       // 直近の `planPage` 結果 (`renderConfirm` と SVG 差替え後の再描画で共有)
 };
 
 // ── 2. 純粋ヘルパ (S 非依存) ──
