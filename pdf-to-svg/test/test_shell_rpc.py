@@ -144,9 +144,10 @@ def test_upload_does_not_auto_apply(tmp_path, vector_pdf):
         pdf = Path(vector_pdf).read_bytes()
         _, body = _post(base + "/upload?name=sample.pdf", pdf, "application/octet-stream")
         assert json.loads(body)["ok"] is True
-        # 自動適用されないので「要確認」もゼロ、SVG には原文が残る
+        # 自動適用はされない (SVG には原文が残る) が、未適用の候補が残るので
+        # 「要確認」には上がる (箇所単位で戻した後もページが一覧から消えないのと同じ理由)。
         st = rpc_methods.dispatch(s, "state", {})
-        assert st["changed2"] == [False]
+        assert st["changed2"] == [True]
         svg = rpc_methods.dispatch(s, "exportSvg", {"fileIndex": 0, "pageInFile": 0})["svg"]
         assert "Header A" in svg and "見出し" not in svg
         # 明示の再適用では従来どおり置換される
