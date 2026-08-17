@@ -59,6 +59,52 @@ describe("applyState", () => {
     applyState({ files: [{ name: "a.pdf", pages: 1 }], pages: [{ fileIndex: 0, pageInFile: 0 }], total: 1, changed2: [false], changed3: [false] });
     expect(S.page).toBe(0);
   });
+
+  it("同一ページ列の再取得は確認状態 (reviewed/skipped/pending) を保持する", () => {
+    S.status2 = ["reviewed", "skipped", "pending", "pending", "none"];
+    applyState({
+      files: [{ name: "a.pdf", pages: 2 }, { name: "b.pdf", pages: 3 }],
+      pages: [
+        { fileIndex: 0, pageInFile: 0 }, { fileIndex: 0, pageInFile: 1 },
+        { fileIndex: 1, pageInFile: 0 }, { fileIndex: 1, pageInFile: 1 }, { fileIndex: 1, pageInFile: 2 },
+      ],
+      total: 5,
+      changed2: [true, true, true, true, false],
+      changed3: [false, false, false, false, false],
+    });
+    expect(S.status2).toEqual(["reviewed", "skipped", "pending", "pending", "none"]);
+  });
+
+  it("changed2 が false→true になったページは pending、true→false は none へ倒す", () => {
+    S.status2 = ["reviewed", "none", "pending", "pending", "none"];
+    applyState({
+      files: [{ name: "a.pdf", pages: 2 }, { name: "b.pdf", pages: 3 }],
+      pages: [
+        { fileIndex: 0, pageInFile: 0 }, { fileIndex: 0, pageInFile: 1 },
+        { fileIndex: 1, pageInFile: 0 }, { fileIndex: 1, pageInFile: 1 }, { fileIndex: 1, pageInFile: 2 },
+      ],
+      total: 5,
+      changed2: [false, true, true, true, false], // index0: true→false / index1: false→true
+      changed3: [false, false, false, false, false],
+    });
+    expect(S.status2[0]).toBe("none");   // 変更が無くなった → none
+    expect(S.status2[1]).toBe("pending"); // 新たに変更あり → pending
+    expect(S.status2[2]).toBe("pending"); // 元々 pending のまま
+  });
+
+  it("ページ列が異なる (ファイル追加・削除) ときは initStatus で作り直す", () => {
+    S.status2 = ["reviewed", "skipped"];
+    applyState({
+      files: [{ name: "c.pdf", pages: 3 }],
+      pages: [
+        { fileIndex: 0, pageInFile: 0 }, { fileIndex: 0, pageInFile: 1 }, { fileIndex: 0, pageInFile: 2 },
+      ],
+      total: 3,
+      changed2: [true, false, true],
+      changed3: [false, false, false],
+    });
+    expect(S.status2).toEqual(["pending", "none", "pending"]);
+  });
 });
 
 describe("導出 (phase 別の別名参照と選択集合)", () => {
