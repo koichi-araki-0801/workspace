@@ -510,7 +510,7 @@
 .change-row.pending .from { text-decoration: none; color: var(--ink); }
 .change-row.pending .to { color: var(--faint); font-weight: 400; }
 .confirm-banner .t.sub { font-size: 12.5px; color: var(--muted); }
-.change-list { display: flex; flex-direction: column; gap: 8px; overflow: hidden; flex: 1; }
+.change-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; overflow-x: hidden; flex: 1; }
 
 .tally { display: flex; gap: 10px; }
 .tally .cell { flex:1; background: var(--paper); border:1px solid var(--border); border-radius: var(--r-md); padding: 11px 12px; }
