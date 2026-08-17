@@ -8,6 +8,7 @@ import {
   notesAtCapacity,
   notesCapacityError,
   readNotes,
+  readNotesStrict,
   withNotesLock,
   writeNotes,
 } from '../files/notesFile.js';
@@ -33,7 +34,9 @@ export async function saveNote(
   loginId: string,
 ): Promise<void> {
   await withNotesLock(templateId, async () => {
-    const map = await readNotes(templateId);
+    // 読み-改変-書きの入力なので strict 版で読む。degrade(空)を受け取って書き戻すと
+    // 残りの全メモを消してしまう。
+    const map = await readNotesStrict(templateId);
     if (content.trim() === '') {
       delete map[pathKey];
     } else {

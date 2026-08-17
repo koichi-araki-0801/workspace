@@ -17,6 +17,7 @@ exe ビルド:  scripts\build.bat   (PyInstaller --onefile, 同梱の `ui.html` 
 
 import hmac
 import http.server
+import io
 import logging
 import os
 import secrets
@@ -153,7 +154,7 @@ TOKEN_QUERY = "token"
 
 # 全応答 (成功 `_send` と拒否 `_reject` の双方) へ載せる防御ヘッダ。**1 応答でも欠けると、
 # その URL が `<iframe>` や `<script src>` の足がかりになる**ので、送信経路を増やしたら
-# 必ず `_send_security_headers()` を通すこと。
+# 付与は `end_headers()` の override 1 箇所に集約してある (呼び出し側は意識しない)。
 # - `frame-ancestors 'none'` / `X-Frame-Options: DENY`: 上記の frame 埋め込み経路を拒む。
 # - `default-src 'self'`: 同梱資産以外を読ませない。inline `<script>` もこれで禁止になる
 #   (`ui.html` は inline script を持たない。`<style>` と `style=` 属性だけを例外にする)。
@@ -239,6 +240,19 @@ class GuardedHandler(http.server.BaseHTTPRequestHandler):
     idle watchdog 用の `last_seen` 更新もその副作用の 1 つなので、判定と同じ場所
     (`_touch_if_same_origin`) に置いて `do_*` からは触らせない。
     """
+
+    def setup(self):
+        # `rfile` を要求期限つきの下地から作り直す。素の `makefile` 済み `rfile` は per-recv
+        # タイムアウトしか持たないため、ドリップに弱い (`_DeadlineSocketIO` / `MAX_REQUEST_SECONDS`)。
+        super().setup()
+        self._request_deadline = time.monotonic() + MAX_REQUEST_SECONDS
+        size = self.rbufsize if self.rbufsize and self.rbufsize > 0 else io.DEFAULT_BUFFER_SIZE
+        self.rfile = io.BufferedReader(_DeadlineSocketIO(self.connection, self), size)
+
+    def handle_one_request(self):
+        # keep-alive で接続が再利用される場合、各要求を独立に上限で縛る (要求ごとに期限を引き直す)。
+        self._request_deadline = time.monotonic() + MAX_REQUEST_SECONDS
+        super().handle_one_request()
 
     def parse_request(self):
         # `super()` の解析後 (self.command / self.path / self.headers が揃った直後) かつ
@@ -359,10 +373,33 @@ class GuardedHandler(http.server.BaseHTTPRequestHandler):
         return values[0] if values and len(values) == 1 else None
 
     def _send_security_headers(self):
-        """`SECURITY_HEADERS` を応答へ載せる。**全応答経路から呼ぶこと** (成功も 404 も 403 も)。
-        欠けた応答が 1 本でもあれば、その URL だけを frame / 他オリジン読み出しに使える。"""
+        """`SECURITY_HEADERS` を応答へ載せる。**呼び出し側は意識しなくてよい** —
+        `end_headers()` の override がすべての応答へ自動で載せる (下記)。"""
         for name, value in SECURITY_HEADERS:
             self.send_header(name, value)
+
+    def end_headers(self):
+        """全応答の共通出口。ここで `SECURITY_HEADERS` を載せる。
+
+        規約 (「全応答経路から呼ぶこと」) ではなく**構造**で強制する。明示呼び出し方式では
+        自分で書いた経路 (`_send` / `_reject`) しか覆えず、基底クラスが直接返す応答
+        — `HEAD` に `do_HEAD` が無いときの **501**、リクエスト行が長すぎるときの **414**、
+        その他 `send_error()` 全般 — が素通りになる。ヘッダの無い応答が 1 本でもあれば、
+        `Cross-Origin-Resource-Policy` が効かず「このポートでこのアプリが動いている」を
+        クロスオリジンから確定できる (ポート探索オラクル)。
+
+        二重付与を避けるため 1 応答につき 1 回だけ載せる。`send_response_only()` が
+        新しい応答の開始点なので、そこでフラグを戻す。
+        """
+        if not getattr(self, "_sec_headers_done", False):
+            self._sec_headers_done = True
+            self._send_security_headers()
+        super().end_headers()
+
+    def send_response_only(self, code, message=None):
+        """応答の開始点。`end_headers()` の二重付与ガードをここで戻す。"""
+        self._sec_headers_done = False
+        super().send_response_only(code, message)
 
     def _reject(self, reason):
         """本文を読み捨ててから 403 を返し、接続を閉じる。常に `False` を返す
@@ -376,7 +413,6 @@ class GuardedHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("Connection", "close")
-            self._send_security_headers()
             self.end_headers()
             self.wfile.write(body)
         except OSError:
@@ -477,6 +513,35 @@ REQUEST_TIMEOUT = 10.0
 # ⚠ pdf-to-svg (`server.py` の同名定数) との並行実装。値ごと揃えること。
 MAX_CONNECTIONS = 32
 
+# 1 要求あたりの実時間の絶対上限 (秒)。`Handler.timeout` (= `REQUEST_TIMEOUT`) は **recv ごとに
+# 再武装される無通信上限**なので、「N 秒ごとに 1 バイト」を送り続ける相手は 1 要求を無限に
+# 引き延ばして 1 スレッドを恒久占有できる (リクエスト行は改行が来るまで終わらず、`readline` の
+# バイト上限 65537 に達するまで日単位で握れる)。要求の読み取りは `_DeadlineSocketIO` が
+# **要求単位の絶対期限**で縛り、各 recv の手前で残り時間へタイムアウトを張り直す
+# (`_linger_close` と同じ「期限は per-recv でなく単位ごと」の規約)。正常系の往復は数ミリ秒。
+# ⚠ pdf-to-svg (`origin_guard.py` の同名定数) との並行実装。値ごと揃えること。
+MAX_REQUEST_SECONDS = 30.0
+
+
+class _DeadlineSocketIO(socket.SocketIO):
+    """`rfile` の下地。各 `readinto` の手前でソケットタイムアウトを「この要求の絶対期限までの
+    残り」へ張り直す。`BufferedReader` の内部読み取りはすべて `readinto` を通るので、改行を
+    送らずにドリップして `readline` を無限に引き延ばす形もここで閉じる。素の per-recv
+    タイムアウトは recv ごとに再武装されるため、これが無いと期限が効かない。
+    ⚠ pdf-to-svg (`origin_guard.py`) との並行実装。"""
+
+    def __init__(self, sock, handler):
+        super().__init__(sock, "rb")
+        self._handler = handler
+
+    def readinto(self, b):
+        remaining = self._handler._request_deadline - time.monotonic()
+        if remaining <= 0:
+            raise socket.timeout("request deadline exceeded")
+        cap = self._handler.timeout or MAX_REQUEST_SECONDS
+        self._sock.settimeout(min(cap, remaining))
+        return super().readinto(b)
+
 
 class Handler(GuardedHandler):
     """`ui.html` を配信し、ウィンドウ閉鎖時の `/quit` ビーコンでサーバを止めるだけの最小ハンドラ。
@@ -499,10 +564,8 @@ class Handler(GuardedHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        # frame 化・他オリジン読み出し・MIME 誤解釈を断つ防御ヘッダ。成功応答も 404 も
-        # ここを通るので、`_send` 以外の送信経路を足すときは基底の `_reject` と同じく
-        # `_send_security_headers()` を必ず呼ぶこと。
-        self._send_security_headers()
+        # 防御ヘッダ (`SECURITY_HEADERS`) は `end_headers()` の override が載せるので、
+        # 送信経路を足しても付け忘れは起きない。
         self.end_headers()
         if body:
             self.wfile.write(body)
@@ -650,7 +713,7 @@ def _data_dir():
     """データ・診断ログを置く基準フォルダ。
 
     **配布 exe では exe の隣ではなくユーザー専用領域 (`%LOCALAPPDATA%/LabelEditor/data`)
-    を既定にする** (pdf-to-svg の F43 と同じ判断)。exe を共有フォルダ・ネットワーク
+    を既定にする** (pdf-to-svg と同じ判断)。exe を共有フォルダ・ネットワーク
     ドライブへ置いて複数人が起動すると、exe 隣の `data/logs/startup.log` を全員が
     開きっぱなしで共同追記して記録が混ざり・欠け、さらに「プログラムフォルダが書き込み
     可能であること」を要件化して DLL 差し替え (CWE-427) の温床にもなるためである。
@@ -734,9 +797,11 @@ def _setup_logging():
 # ユーザー専用領域に置くのも同じ理由 (配布物の隣にも他ユーザーからも見える場所へ置かない)。
 EDGE_LOG_ENV = "LABELEDITOR_EDGE_LOG"
 
-# 環境変数を「無効」とみなす値。`0` / 空 / `false` 系以外は有効扱い (診断は明示 opt-in なので、
-# 迷ったら「有効」へ倒す方が驚きが少ない)。
-_FALSY_ENV_VALUES = frozenset({"", "0", "false", "no", "off"})
+# 環境変数を「有効」とみなす値の許可集合 (小文字畳み後の完全一致)。有効側は診断ログを開く
+# 方向 = セッショントークンがディスクへ落ちる面を開く方向なので、未知の綴り・空文字は
+# 「無効」へ倒す (fail-close)。否定リストで判定すると、想定外の値がそのまま「有効」に
+# 転がり込む。
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 
 # opt-in 時の Edge ログの保持上限。Edge 自身はサイズ上限もローテーションも持たないため、
 # 起動時の作り直し (前回分を残さない) と終了時の末尾切り詰めで上限を強制する。
@@ -746,8 +811,8 @@ EDGE_LOG_NAME = "edge.log"
 
 
 def _env_flag(name):
-    """環境変数を真偽として読む。未設定・空・`0`/`false`/`no`/`off` は False。"""
-    return os.environ.get(name, "").strip().lower() not in _FALSY_ENV_VALUES
+    """環境変数を真偽として読む。`_TRUTHY_ENV_VALUES` の完全一致 (小文字畳み後) だけが True。"""
+    return os.environ.get(name, "").lower() in _TRUTHY_ENV_VALUES
 
 
 def _edge_log_path():
@@ -815,8 +880,8 @@ def _trim_edge_log(path, log):
 def _edge_launch_args(edge, url, log_path=None):
     """`msedge.exe` の起動引数を組む。**フラグを増やさないこと**が要点。
 
-    隔離 `--user-data-dir` と `--disable-gpu` は VDI でレンダラごとクラッシュした実績があり
-    (設計正典の却下集)、`--enable-logging` 系は `log_path` を渡した opt-in 時にだけ付く。
+    隔離 `--user-data-dir` と `--disable-gpu` は付けない (設計正典の却下集)。`--enable-logging`
+    系は `log_path` を渡した opt-in 時にだけ付く。
     """
     args = [edge, f"--app={url}", "--no-first-run", "--no-default-browser-check"]
     if log_path:
@@ -924,10 +989,9 @@ def main():
     edge_log = None
     if edge:
         # 端末標準の「管理された」既定プロファイルでアプリ窓を開く。隔離 `--user-data-dir` や
-        # `--disable-gpu` (ソフトウェア描画固定) を付けると、VDI では非標準構成でレンダラが
-        # 不安定になり窓ごとクラッシュする (実測。Edge ログに "GetGpuDriverOverlayInfo failed to
-        # retrieve video device"。通常の Edge ブラウジングは安定)。余計なフラグを付けず、
-        # 安定動作している既定 Edge と同じ構成で `--app=` のみで開く。診断ログは既定で出さず、
+        # `--disable-gpu` (ソフトウェア描画固定) は付けない (VDI では非標準構成でレンダラが
+        # 不安定になる。設計正典の却下集)。余計なフラグを付けず、既定 Edge と同じ構成で
+        # `--app=` のみで開く。診断ログは既定で出さず、
         # `LABELEDITOR_EDGE_LOG` を立てたときだけユーザー専用領域へ出す (`_prepare_edge_log`)。
         edge_log = _prepare_edge_log(log)
         try:

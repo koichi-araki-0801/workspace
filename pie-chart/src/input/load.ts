@@ -19,7 +19,13 @@ import ExcelJS from 'exceljs';
 import { loadDbItems } from './db.js';
 import samplesData from '../../samples.json' with { type: 'json' };
 import type { Item, Samples } from '../types.js';
-import { MAX_JSON_BYTES, MAX_LABEL_CHARS, MAX_RANGE_ROWS, MAX_XLSX_BYTES } from '../limits.js';
+import {
+  MAX_JSON_BYTES,
+  MAX_LABEL_CHARS,
+  MAX_RANGE_ROWS,
+  MAX_XLSX_BYTES,
+  assertLabelXmlSafe,
+} from '../limits.js';
 // ── 1. Excel(.xlsx) 入力 ────────────────────────────────────────────────────────────
 // 仕様: range は必ず 2 列固定 (左=name / 右=value)。ヘッダ行は範囲に含めない。空行はスキップ、
 // name 空欄・value 数値変換不可はエラー。
@@ -215,6 +221,8 @@ export function normalizeInputItems(rawItems: unknown): Item[] {
         `Label is ${name.length} characters (limit ${MAX_LABEL_CHARS}). ` +
           'Shorten it, or raise the limit with PIE_MAX_LABEL_CHARS=<n>.',
       );
+    // 全 5 入力経路 + normalizeInputItems 直叩きをここ 1 箇所で覆う。
+    assertLabelXmlSafe(name);
     return name;
   };
   return rawItems.map((item: unknown): Item => {

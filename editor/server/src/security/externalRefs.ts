@@ -13,7 +13,7 @@
 // 置く形(「経路を閉じずヘッダだけ足す」と同型)になる。web 側の検査は
 // 早期フィードバックとして残すが、判定関数は `@editor/shared` の 1 つを共有する。
 //
-// 検査対象は 3 面ある。1 つでも欠けるとそこが迂回路になる:
+// 検査対象は 4 面ある。1 つでも欠けるとそこが迂回路になる:
 //   1. リクエストの `css`(そのまま `<style>` へ入る)
 //   2. HTML 中の `<style>` ブロック(DOMPurify は `<style>` の中身を逐語保存する)
 //   3. HTML の `style="…"` 属性(インライン宣言も `url()` を取れる)
@@ -33,6 +33,7 @@ import {
   decodeHtmlEntities,
   findExternalRefsInCss,
   findExternalRefsInTag,
+  isSelfContainedUrl,
   nestedHtmlAttrsFor,
   validation,
 } from '@editor/shared';
@@ -53,6 +54,15 @@ export const UNPARSABLE_MESSAGE =
   'HTMLのタグが閉じていないためPDFを作成できません。' +
   '閉じていないタグ・コメント・<style>/<script> を閉じてから送信してください。';
 export const UNPARSABLE_CODE = 'DOCUMENT_UNPARSABLE';
+
+/**
+ * JSON として読めないファイルを拒んだときの文言。コードは HTML と同じ
+ * `UNPARSABLE_CODE` を使う — クライアントから見た意味は「中身を検査できないので受け取れない」
+ * で同じであり、コードを増やすと外部契約が理由なく太る。
+ */
+export const JSON_UNPARSABLE_MESSAGE =
+  'JSONファイルを読めないためPDFを作成できません。' +
+  '構文を確認してから送信してください(検査できないファイルは受け取れません)。';
 
 /** 応答へ載せる参照の最大件数。全部返すと入力の反射になるので頭だけ返す。 */
 const MAX_REPORTED_REFS = 5;
@@ -111,6 +121,18 @@ function collectFromTags(
   for (const tag of tags) {
     if (tag.name === 'style' && tag.rawText !== undefined) {
       out.push(...findExternalRefsInCss(tag.rawText));
+    } else if (
+      tag.rawText !== undefined &&
+      tag.name !== 'script' &&
+      depth < MAX_NESTED_HTML_DEPTH
+    ) {
+      // `title` / `textarea` / `noscript` の中身。走査器はこれらを常に raw text として
+      // 読み飛ばすが、**HTML 名前空間の外ではそうではない** — `<svg><title>` は foreign
+      // content で普通の外来要素になり、内側の `<img src=https://…>` は実要素として
+      // 取得しにいく。読み飛ばした範囲を検査しないと、そこが外部参照ゲートの死角になる。
+      // `script` を除くのは、中身が JS であってマークアップではないため(字面の一致を
+      // 参照として数えると誤検知が出る。実行面の固定は `templateScripts` の担当)。
+      collectHtmlRefs(tag.rawText, out, depth + 1);
     }
     // 属性値は走査器が切り出したものを使う。原文への正規表現で拾うと
     // `data-style="…"` や他属性の値の中の字面まで拾って誤検知になる。
@@ -120,6 +142,11 @@ function collectFromTags(
       if (a.name === 'style') out.push(...findExternalRefsInCss(decodeHtmlEntities(a.value)));
     }
     if (tag.isEnd) continue;
+    // `<base>` は **URL の形を見ずに**拒む。相対 href でも「相対参照は同梱資産を指す」という
+    // 前提そのものを別オリジンへ移せるので、値の検査では守れない。inline 経路では
+    // `inlineCss` が要素ごと落とすが、zip project 経路(`POST /api/build/project`)はそこを
+    // 通らないため、除去に頼ると防御が egressGuard 単独へ落ちる。
+    if (tag.name === 'base') out.push('<base>');
     // 取得系属性の絶対 URL。相対参照(同梱資産)は `isSelfContainedUrl` が通す。
     out.push(...findExternalRefsInTag(tag.name, tag.attrs));
     // `srcdoc` は URL ではなく HTML 文書。URL として検査すると必ず「相対参照」と判定され、
@@ -152,9 +179,167 @@ export function assertNoDocumentExternalRefs(html: string, css: string, where: s
   });
 }
 
-/** 展開済みプロジェクトで中身を検査する拡張子(CSS を書ける面はこの 2 系統だけ)。 */
-const CSS_FILE_EXT = new Set(['.css']);
-const DOC_FILE_EXT = new Set(['.html', '.htm', '.xhtml', '.xht']);
+/** 展開済みファイルの検査のしかた。`inert` = バイナリ資産で参照を書けない。 */
+export type InspectionKind = 'css' | 'doc' | 'markdown' | 'json' | 'inert';
+
+/**
+ * 展開を許す拡張子ごとの検査のしかた。
+ *
+ * **`projectInput.ts` の `ALLOWED_EXTENSIONS` の全キーに分類を与えること。** 「検査する集合」を
+ * 別に並べる形だと、展開だけ許されて検査されない形式が静かに生まれる(実際 `.md` と `.svg` が
+ * そうで、vivliostyle は `.md` を原稿として組版するため markdown 標準の画像 1 行で絶対 URL を
+ * 無検査で通せた)。分類を必須にすれば、拡張子を足すときに「これはどう検査するか」を必ず
+ * 決めることになる。一致は `externalRefs.test.ts` が機械で要求する。
+ *
+ * `doc` はタグ構造で書かれた文書(SVG も `<image href>` / `<use href>` / `<style>` を持つ)。
+ * `json` は publication manifest と source map で、どちらも原稿・資産の場所を値として持つ。
+ */
+export const EXT_INSPECTION: Readonly<Record<string, InspectionKind>> = {
+  '.html': 'doc',
+  '.htm': 'doc',
+  '.xhtml': 'doc',
+  '.xht': 'doc',
+  '.svg': 'doc',
+  '.md': 'markdown',
+  '.markdown': 'markdown',
+  '.css': 'css',
+  '.css.map': 'json',
+  '.json': 'json',
+  '.png': 'inert',
+  '.jpg': 'inert',
+  '.jpeg': 'inert',
+  '.gif': 'inert',
+  '.webp': 'inert',
+  '.apng': 'inert',
+  '.ttf': 'inert',
+  '.otf': 'inert',
+  '.woff': 'inert',
+  '.woff2': 'inert',
+};
+
+/**
+ * ファイル名の分類。判定は `projectInput.ts` の展開可否と**同じ物差し**(小文字化した
+ * basename の末尾一致)で行う。`path.extname` を使う版は `.css.map` を `.map` と読んで
+ * 分類不能にしていた = 展開は許すのに検査しないファイルが 1 種類あった。
+ * 末尾一致が複数当たる場合は長い方を採る(`x.css.map` を `.css` と読まない)。
+ */
+function inspectionFor(name: string): InspectionKind | undefined {
+  const base = name.toLowerCase().split(/[/\\]/).pop() ?? '';
+  let kind: InspectionKind | undefined;
+  let matched = 0;
+  for (const [ext, value] of Object.entries(EXT_INSPECTION)) {
+    if (base.endsWith(ext) && ext.length > matched) {
+      kind = value;
+      matched = ext.length;
+    }
+  }
+  return kind;
+}
+
+/**
+ * JSON-LD の文脈として**値の完全一致**でだけ許す URL。publication manifest はこれを書かないと
+ * 仕様上成立しないので、拒むと正当なプロジェクトが必ず 400 になる。前方一致で緩めては
+ * ならない(`https://schema.org.evil.example/` が通る)。
+ */
+const ALLOWED_JSON_CONTEXT_URLS = new Set([
+  'https://schema.org',
+  'https://www.w3.org/ns/pub-context',
+]);
+
+/**
+ * JSON(publication manifest / source map)の中の外部参照を集める。
+ *
+ * vivliostyle は publication manifest を読んで原稿と資産の場所を決めるので、HTML にも CSS にも
+ * 1 バイト書かずにここだけで外部から取りに行かせられる。どのキーが URL を取るかの列挙は
+ * 版で変わるうえ必ず漏れるため、**全文字列値**を他の面と同じ `isSelfContainedUrl` で見る。
+ * 過剰包含側(URL でない文字列が scheme の形をしていたら報告する)へ倒れるのは意図どおりで、
+ * 見落とし側へは倒れない。
+ */
+export function findJsonExternalRefs(text: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw validation(JSON_UNPARSABLE_MESSAGE, { code: UNPARSABLE_CODE });
+  }
+  const out: string[] = [];
+  const walk = (value: unknown): void => {
+    if (typeof value === 'string') {
+      if (ALLOWED_JSON_CONTEXT_URLS.has(value.trim())) return;
+      if (!isSelfContainedUrl(value)) out.push(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    if (value !== null && typeof value === 'object') {
+      for (const item of Object.values(value)) walk(item);
+    }
+  };
+  walk(parsed);
+  return out;
+}
+
+/** JSON の外部参照を拒む(読めない JSON は検査不能なので fail closed で 400)。 */
+export function assertNoJsonExternalRefs(text: string, where: string): void {
+  let refs: string[];
+  try {
+    refs = findJsonExternalRefs(text);
+  } catch {
+    // parse 失敗と走査の想定外例外(深い入れ子での RangeError 等)をまとめて 400 へ倒す
+    // (fail closed)。理由が何であれ「中身を検査できなかった」ことに変わりはなく、
+    // 検査できないファイルを通す分岐を作らない。どのファイルかはここで添え直す。
+    throw validation(JSON_UNPARSABLE_MESSAGE, { code: UNPARSABLE_CODE, cause: { where } });
+  }
+  if (refs.length === 0) return;
+  throw validation(EXTERNAL_REF_MESSAGE, {
+    code: EXTERNAL_REF_CODE,
+    cause: { where, refs: refs.slice(0, MAX_REPORTED_REFS), total: refs.length },
+  });
+}
+
+/**
+ * markdown の参照先(画像・リンク・参照定義)を集める。
+ *
+ * markdown は HTML のタグ走査では拾えない — `![alt](http://evil/x.png)` にタグは無い。
+ * vivliostyle は `.md` を HTML へ変換して組版するので、変換後に残る参照をここで先に見る。
+ * 生 HTML ブロックも書けるため、この関数の結果と HTML 走査の結果を**両方**使う。
+ *
+ * 判定基準は他の面と同じ `isSelfContainedUrl` 1 つに揃える(相対参照 = 同梱資産は通す)。
+ */
+function findMarkdownExternalRefs(md: string): string[] {
+  const out: string[] = [];
+  // インラインの `](dest)` と、参照定義の `[label]: dest`。dest は空白かカッコで終わる。
+  const inline = /\]\(\s*<?([^)\s>]+)>?/g;
+  const refDef = /^[ \t]{0,3}\[[^\]]*\]:[ \t]*<?([^\s>]+)>?/gm;
+  for (const re of [inline, refDef]) {
+    re.lastIndex = 0;
+    for (let m = re.exec(md); m !== null; m = re.exec(md)) {
+      const dest = decodeHtmlEntities(m[1]);
+      if (!isSelfContainedUrl(dest)) out.push(dest);
+    }
+  }
+  return out;
+}
+
+/** markdown 原稿の外部参照を拒む(生 HTML ブロックも同時に見る)。 */
+export function assertNoMarkdownExternalRefs(md: string, where: string): void {
+  const refs = findMarkdownExternalRefs(md);
+  if (refs.length > 0)
+    throw validation(EXTERNAL_REF_MESSAGE, {
+      code: EXTERNAL_REF_CODE,
+      cause: { where, refs: refs.slice(0, MAX_REPORTED_REFS), total: refs.length },
+    });
+  // markdown 内の生 HTML は HTML として検査する。走査できない字面は markdown では
+  // 珍しくない(`<` を素で書ける)ので、ここでは参照だけを見て未走査には倒さない。
+  const htmlRefs = findDocumentExternalRefs(md, '');
+  if (htmlRefs.length > 0)
+    throw validation(EXTERNAL_REF_MESSAGE, {
+      code: EXTERNAL_REF_CODE,
+      cause: { where, refs: htmlRefs.slice(0, MAX_REPORTED_REFS), total: htmlRefs.length },
+    });
+}
 
 /**
  * 展開済み vivliostyle プロジェクト配下の CSS / HTML を再帰的に検査する。
@@ -181,18 +366,19 @@ export async function assertProjectDirHasNoExternalRefs(dir: string): Promise<vo
         stack.push(full);
         continue;
       }
-      const ext = path.extname(entry.name).toLowerCase();
-      const isCss = CSS_FILE_EXT.has(ext);
-      if (!isCss && !DOC_FILE_EXT.has(ext)) continue;
+      const kind = inspectionFor(entry.name);
+      if (kind === undefined || kind === 'inert') continue;
       let text = '';
       try {
         text = await fs.readFile(full, 'utf8');
       } catch {
         continue;
       }
-      const rel = path.relative(dir, full).split(path.sep).join('/');
-      if (isCss) assertNoDocumentExternalRefs('', text, `project:${rel}`);
-      else assertNoDocumentExternalRefs(text, '', `project:${rel}`);
+      const where = `project:${path.relative(dir, full).split(path.sep).join('/')}`;
+      if (kind === 'css') assertNoDocumentExternalRefs('', text, where);
+      else if (kind === 'markdown') assertNoMarkdownExternalRefs(text, where);
+      else if (kind === 'json') assertNoJsonExternalRefs(text, where);
+      else assertNoDocumentExternalRefs(text, '', where);
     }
   }
 }

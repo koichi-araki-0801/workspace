@@ -202,7 +202,7 @@ class DictionaryStore:
         """lookup 用 (enabled のみ・後勝ち) と同一性判定用 (全件・先勝ち) の索引を作り直す。
 
         後者 (`_norm_index`) は `_find_by_norm` が引く索引で、全件線形走査だと
-        取り込み N 件が O(N^2) 回の `normalize` を呼ぶことになる (F28)。
+        取り込み N 件が O(N^2) 回の `normalize` を呼ぶことになる。
         """
         self._index = {}
         self._norm_index = {}
@@ -363,7 +363,7 @@ class DictionaryStore:
     def import_json(self, path: Path) -> ImportResult:
         """`path` の JSON をまとめて取り込み、取り込み件数と捨てた件数を返す。
 
-        **1 件ごとに `upsert` を呼ばない**のが要点である (F28)。`upsert` は 1 回ごとに
+        **1 件ごとに `upsert` を呼ばない**のが要点である。`upsert` は 1 回ごとに
         索引の全再構築と**辞書全文の書き直し**を行うため、N 件の取り込みが O(N^2) の
         `normalize` 呼び出しと sum(i) バイトの書き込みになる。実測不要の構造で、
         8 MiB の JSON (約 26 万件) で数時間・テラバイト級の書き込みになる。しかも

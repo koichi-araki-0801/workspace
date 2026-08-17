@@ -156,7 +156,7 @@ let guardsInstalled = false;
 /**
  * SEA 実行時のガードを張る。dev(非 SEA)では**何もしない**。`cli.ts` の `main()` 冒頭
  * (引数パースより前)で 1 回だけ呼ぶ。失敗は握りつぶさず投げる: ガード無しで動くと
- * P008 の経路が開いたまま「動いているように見える」状態になるため。
+ * sidecar 読み込みの経路が開いたまま「動いているように見える」状態になるため。
  */
 export function installSeaGuards(): void {
   if (guardsInstalled || !isSea()) return;

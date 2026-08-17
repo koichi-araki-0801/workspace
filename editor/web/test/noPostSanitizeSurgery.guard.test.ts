@@ -26,6 +26,7 @@ const GUARDED = [
   path.join(WEB_SRC, 'lib/cropMarks.ts'),
   path.join(WEB_SRC, 'lib/pdfDocument.ts'),
   path.join(WEB_SRC, 'lib/sanitizeHtml.ts'),
+  path.join(WEB_SRC, 'lib/templateDoc.ts'),
   path.join(WEB_SRC, 'lib/previewSelfContain.ts'),
   path.join(WEB_SRC, 'features/compare/htmlBlockDiff.ts'),
   path.join(SERVER_SRC, 'vivliostyle/inlineCss.ts'),

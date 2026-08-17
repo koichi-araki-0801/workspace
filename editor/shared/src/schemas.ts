@@ -19,6 +19,7 @@ import 'zod-openapi';
 import { z } from 'zod';
 import { isValidTemplateId } from './domain/template.js';
 import { isValidUsername, USERNAME_MAX_LENGTH } from './domain/user.js';
+import { APP_ERROR_KINDS } from './errors.js';
 
 // ── 0. 資源上限 — 契約の段で本文の大きさを縛る ──
 //
@@ -664,17 +665,7 @@ export const PreviewSessionList = z.array(PreviewSession).meta({ id: 'PreviewSes
 
 export const HealthResult = z.object({ ok: z.literal(true) }).meta({ id: 'HealthResult' });
 
-export const AppErrorKind = z
-  .enum([
-    'not_found',
-    'validation',
-    'unauthorized',
-    'forbidden',
-    'conflict',
-    'network',
-    'unexpected',
-  ])
-  .meta({ id: 'AppErrorKind' });
+export const AppErrorKind = z.enum(APP_ERROR_KINDS).meta({ id: 'AppErrorKind' });
 
 /**
  * 標準のエラーレスポンスボディ。shared の `AppError`(`errors.ts`)から `cause` を除いた

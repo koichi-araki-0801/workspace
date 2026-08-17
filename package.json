@@ -33,11 +33,13 @@
     "check": "biome check --write .",
     "check:ci": "biome ci .",
     "check:comments": "node scripts/check-comments.mjs",
+    "check:claude-hooks": "node scripts/check-claude-hooks.mjs",
+    "test:scripts": "node --test scripts/clean.test.mjs",
     "knip": "knip",
     "clean": "node scripts/clean.mjs",
     "clean:deep": "node scripts/clean.mjs --deep",
     "clean:bundles": "node scripts/clean.mjs --bundles",
-    "ci": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck && pnpm run test:coverage && pnpm run test:pdf-to-svg && pnpm run test:graph-editor:py && pnpm run build && pnpm run test:e2e",
+    "ci": "pnpm run check:comments && pnpm run check:claude-hooks && pnpm run check:ci && pnpm run test:scripts && pnpm run typecheck && pnpm run test:coverage && pnpm run test:pdf-to-svg && pnpm run test:graph-editor:py && pnpm run build && pnpm run test:e2e",
     "ci:editor": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck:editor && pnpm run test:editor && pnpm run build:editor && pnpm run e2e:editor",
     "ci:pie-chart": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck:pie-chart && pnpm run test:pie-chart",
     "ci:graph-editor": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck:graph-editor && pnpm run test:graph-editor && pnpm run test:graph-editor:py",
@@ -45,7 +47,8 @@
     "prepare": "husky || true",
     "test:pdf-to-svg": "python -m pytest pdf-to-svg",
     "test:graph-editor:py": "python -m pytest graph-editor",
-    "ci:pdf-to-svg": "pnpm run check:comments && pnpm run test:pdf-to-svg"
+    "ci:pdf-to-svg": "pnpm run check:comments && pnpm run test:pdf-to-svg",
+    "ci:offline": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$m = Get-Module -ListAvailable Pester | Sort-Object Version -Descending | Select-Object -First 1; if (-not $m) { Write-Error 'Pester module が見つかりません。Install-Module Pester -Force -SkipPublisherCheck で導入してください。'; exit 1 }; Import-Module Pester -RequiredVersion $m.Version -Force; if ($m.Version.Major -ge 5) { $c = New-PesterConfiguration; $c.Run.Path = 'offline/lib/verify.Tests.ps1'; $c.Run.Exit = $true; $c.CI = $true; Invoke-Pester -Configuration $c } else { Invoke-Pester -Script offline/lib/verify.Tests.ps1 -EnableExit } \""
   },
   "lint-staged": {
     "editor/**/*.{ts,vue,css,json}": "biome check --write --no-errors-on-unmatched"

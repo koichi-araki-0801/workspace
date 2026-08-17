@@ -1,4 +1,4 @@
-"""資源上限 (P005 / P012 / P033 と F27〜F29・F42) の退行ガード。
+"""資源上限の退行ガード。
 
 「正しい入力を正しく処理する」ではなく**「迂回入力で破綻しない」**を主張する形で書く。
 所要時間ではなく**上限が効くこと**を見る (実時間はマシン依存で脆い): 上限に当たったら
@@ -29,6 +29,7 @@ from engine.pdf_engine import (
 )
 from model.document import Page
 from model.elements import Rect, TextElement
+from web import origin_guard
 from web import server as server_mod
 from web.server import MAX_RPC_BYTES, MAX_UPLOAD_BYTES
 
@@ -42,7 +43,7 @@ def _page_of(width_pt: float, height_pt: float):
     return doc
 
 
-# ── P005: ラスタ化のピクセル予算 ────────────────────────────────────────────
+# ── ラスタ化のピクセル予算 ────────────────────────────────────────────
 
 def test_huge_mediabox_is_rendered_within_the_pixel_budget():
     """20000x20000 pt の PDF は実体 3.6KB で 4.8 GB を確保し 36〜42 秒かかっていた。
@@ -98,7 +99,7 @@ def test_a4_at_the_default_scale_is_untouched():
     assert MIN_RENDER_SCALE < 1.0  # 縮小の下限は 1.0 未満 (縮小が起きうる形)
 
 
-# ── P012: リクエスト本文の上限 ─────────────────────────────────────────────
+# ── リクエスト本文の上限 ─────────────────────────────────────────────
 
 # 使い捨てサーバの固定セッショントークン (本番は起動ごとの CSPRNG 値)。認可の主張は
 # `test/test_origin_guard.py` が持ち、ここは資源上限だけを見る。
@@ -164,7 +165,7 @@ def test_normal_rpc_still_works(running_server):
     assert payload["ok"] is True
 
 
-# ── P033: Undo スタックの深さ上限 ──────────────────────────────────────────
+# ── Undo スタックの深さ上限 ──────────────────────────────────────────
 
 def test_undo_stack_drops_the_oldest_beyond_the_depth_limit():
     """各コマンドは置換前後の要素状態を握るので、無制限に積むとメモリが単調増加する。"""
@@ -188,7 +189,7 @@ def test_undo_stack_drops_the_oldest_beyond_the_depth_limit():
     assert st.canUndo() is False
 
 
-# ── F27: seqno 照合の索引と要素数予算 ──────────────────────────────────────
+# ── seqno 照合の索引と要素数予算 ──────────────────────────────────────
 
 def _rect(x, y, w, h) -> Rect:
     return Rect(x, y, w, h)
@@ -294,7 +295,7 @@ def test_extract_page_honours_the_element_budget(monkeypatch, vector_pdf):
     assert page.truncated is True
 
 
-# ── F28: 辞書取り込みの上限とバッチ化 ─────────────────────────────────────
+# ── 辞書取り込みの上限とバッチ化 ─────────────────────────────────────
 
 def _dict_json(count: int, prefix: str = "w") -> str:
     return json.dumps([{"source": f"{prefix}{i}", "target": f"t{i}"} for i in range(count)])
@@ -401,7 +402,7 @@ def test_dictionary_load_drops_entries_beyond_the_cap(tmp_path, monkeypatch):
     s.close()
 
 
-# ── F29: 折返しグループ化の走査上限 ────────────────────────────────────────
+# ── 折返しグループ化の走査上限 ────────────────────────────────────────
 
 def _stacked_texts(count: int, y_step: float, font_size: float = 12.0) -> list:
     from model.elements import TextElement as TE
@@ -464,7 +465,7 @@ def test_wrap_groups_still_joins_a_real_wrapped_cell():
     assert [len(g) for g in groups] == [3]
 
 
-# ── F42: 接続の資源上限 ────────────────────────────────────────────────────
+# ── 接続の資源上限 ────────────────────────────────────────────────────
 
 def _serve(session, token, **kwargs):
     """`create_server` でサーバを起動して base URL を返す (呼び出し側で shutdown)。"""
@@ -501,6 +502,45 @@ def test_silent_connection_is_closed_by_the_handler_timeout(monkeypatch, session
         # 1 バイトも送らない。期限が効いていれば向こうから閉じる (recv が EOF を返す)。
         assert sock.recv(1) == b""
         sock.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_dripping_connection_is_closed_by_the_request_deadline(monkeypatch, session):
+    """改行を送らずに少しずつ送り続ける接続も、**要求単位の絶対期限**で閉じられる。
+
+    per-recv の `timeout` は recv ごとに再武装されるので、per-recv より短い間隔で 1 バイトずつ
+    送り続ければ `readline` を無限に引き延ばして 1 スレッドを恒久占有できた。`MAX_REQUEST_SECONDS`
+    はこれを閉じる。ここでは per-recv を十分長く (5s)、期限を短く (1s) して、閉じているのが
+    期限であることを主張する。
+    """
+    monkeypatch.setattr(server_mod.Handler, "timeout", 5.0)
+    monkeypatch.setattr(origin_guard, "MAX_REQUEST_SECONDS", 1.0)
+    server = _serve(session, "drip-test-token")
+    try:
+        sock = socket.create_connection(("127.0.0.1", server.server_address[1]), timeout=10)
+        sock.settimeout(0.3)
+        start = time.monotonic()
+        closed_by_server = False
+        wall = start + 6.0  # 安全弁 (期限が効かなければここまで回り続けて False で落ちる)
+        while time.monotonic() < wall:
+            try:
+                sock.sendall(b"a")  # 改行なし = リクエスト行は完成しない
+            except OSError:
+                closed_by_server = True
+                break
+            try:
+                if sock.recv(1) == b"":  # 向こう (サーバ) が閉じた
+                    closed_by_server = True
+                    break
+            except socket.timeout:
+                pass  # まだ開いている。次のドリップへ。
+            time.sleep(0.15)  # per-recv (5s) には遠く及ばない間隔
+        sock.close()
+        assert closed_by_server, "ドリップ接続が期限で閉じられていない"
+        # 期限 (1s) + 余裕。per-recv (5s) にはまだ達していないので、閉じたのは期限である。
+        assert time.monotonic() - start < 4.0
     finally:
         server.shutdown()
         server.server_close()

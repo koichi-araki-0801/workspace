@@ -119,3 +119,48 @@ describe('wireGrapesEvents — fireChange の重い再計測 coalescing', () => 
     expect(spies.recomputeLayout).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('wireGrapesEvents — 編集可否切替中の dirty 抑制', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // `setEditable` は全 Component へ `editable`/`draggable` を set して回り、保存内容の
+  // 変わらない `component:update` を大量発火させる。change(dirty/autosave)へ流すと
+  // 「編集を許可を触っただけで未確定 + 無編集 draft 生成」になるため、適用中は
+  // change だけを止め、幾何の追随(revision/rect)は生かす — が確認したい不変条件。
+  it('isApplyingLockState 中の component:update は change を呼ばず revision は進む', () => {
+    stubRaf();
+    const ed = makeFakeEditor();
+    const spies = { change: vi.fn() };
+    const revision = ref(0);
+    let applying = false;
+    const deps = {
+      selected: ref(null),
+      selectedRect: ref(null),
+      revision,
+      zoom: ref(1),
+      refreshRect: vi.fn(),
+      refreshMove: vi.fn(),
+      refreshPageGuides: vi.fn(),
+      recomputeLayout: vi.fn(),
+      fitToView: vi.fn(),
+      onCanvasLoad: vi.fn(),
+      toInfo: vi.fn(),
+      isLocked: () => false,
+      isApplyingLockState: () => applying,
+      canvasCss: '',
+      callbacks: { change: spies.change },
+    } as unknown as GrapesEventDeps;
+    wireGrapesEvents(ed, deps);
+
+    applying = true;
+    ed.emit('component:update');
+    ed.emit('component:update');
+    expect(spies.change).not.toHaveBeenCalled();
+    expect(revision.value).toBe(2);
+
+    // 切替適用が終われば通常の変更は従来どおり dirty へ届く。
+    applying = false;
+    ed.emit('component:update');
+    expect(spies.change).toHaveBeenCalledTimes(1);
+  });
+});

@@ -237,13 +237,29 @@ function parseBody(html: string, parse: HtmlParser): HTMLElement {
 export const MAX_TOP_LEVEL_BLOCKS = 5_000;
 
 function topLevelBlocks(body: HTMLElement): { blocks: HTMLElement[]; truncated: boolean } {
-  const children = Array.from(body.children) as HTMLElement[];
+  // `body.children`(要素のみ)ではなく `body.childNodes` を走る。**要素だけを内容とみなす**と、
+  // `<body>` 直下の地の文(テキストノード)がどのパーツにも現れず、打ち切り警告も立たないまま
+  // 確定書込へ verbatim で通る(承認者が見ていない可視本文の承認)。ノード種を数え上げず、
+  // 「内容を持つ子はすべてパーツ」で拾う: 非空テキストノードは合成 `span` で包み、以降の
+  // 要素ベースのパイプライン(整列・着色・差分・textContent)へ載せる(包みは差分表示上の
+  // 見た目だけで、確定される本文=`review.html` は変わらない)。空白のみのノードは従来どおり無視。
+  const doc = body.ownerDocument;
+  const all: HTMLElement[] = [];
+  for (const node of Array.from(body.childNodes)) {
+    if (isElement(node)) {
+      all.push(node);
+    } else if (isText(node) && (node.textContent ?? '').trim() !== '') {
+      const span = doc.createElement('span');
+      span.textContent = node.textContent;
+      all.push(span);
+    }
+  }
   // 打ち切ったことは**必ず戻り値で申告する**。捨てた分は差分にもページにも現れないのに、
   // 承認が通れば確定書込は本文を全文書く — 承認者が見ていない領域が本番へ入る。
   // 語句 LCS の degrade(`coarse`)が常に表へ出るのと同じ扱いに揃える。
-  return children.length > MAX_TOP_LEVEL_BLOCKS
-    ? { blocks: children.slice(0, MAX_TOP_LEVEL_BLOCKS), truncated: true }
-    : { blocks: children, truncated: false };
+  return all.length > MAX_TOP_LEVEL_BLOCKS
+    ? { blocks: all.slice(0, MAX_TOP_LEVEL_BLOCKS), truncated: true }
+    : { blocks: all, truncated: false };
 }
 
 /**

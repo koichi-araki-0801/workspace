@@ -133,7 +133,9 @@ export function useTemplateEditor(
   } = useSnapshotHistory(
     () => ({ html: g.getBodyHtml(), css: g.getCss() }),
     (s) => {
-      g.load(s.html, s.css);
+      // snapshot は localStorage ミラー由来でもありうる。CSS 拒否で canvas が入れ替わって
+      // いないのに autosave すると、汚染 snapshot 側の内容で draft を壊す。
+      if (!g.load(s.html, s.css)) return;
       // load() は既定フラグで component を再構築する — lock state を再適用する。
       g.setEditable(allowEdit.value);
       autosave.trigger();
@@ -330,7 +332,12 @@ export function useTemplateEditor(
     const layers = layersEl.value;
     if (!canvas || !layers) return;
     g.init({ canvas, layers });
-    g.load(res.value.editableBody, res.value.css);
+    // service の入口ガードを通っていれば false にはならないが、拒否された場合は空の
+    // エディタ枠を残さず一覧へ戻す(不正 id と同じ後始末)。トーストは load が出している。
+    if (!g.load(res.value.editableBody, res.value.css)) {
+      router.replace({ name: 'edit' });
+      return;
+    }
     // 差し込み値ハイライトは作成経路(`?created=1`)でのみ出す。編集経路(query なし)は実値編集
     // なので出さない。設計正典.md「編集 2 系統」を参照。
     g.setVarsHighlight(route.query.created === '1');

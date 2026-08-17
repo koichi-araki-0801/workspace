@@ -14,7 +14,7 @@
 // 配布物は **exe 1 個 + .cer + OFL ライセンス + SIGNING-INFO.txt** の 4 点だけで、
 // `fonts/` や `node_modules/` の sidecar は作らない。sidecar を置くと、署名の外にある
 // 書き込み可能なファイルを実行時に読むことになり、上位ディレクトリへ偽 `subset-font` を
-// 置くだけで別ユーザーの exe 内でコードが走る(root A4 / P008)。実行されるものは
+// 置くだけで別ユーザーの exe 内でコードが走る。実行されるものは
 // すべて exe の中 = Authenticode 署名の内側に入れる。SEA 側の受け口は
 // `src/runtime/seaRuntime.ts`(アセット許可リスト・モジュール解決封鎖)。
 //
@@ -282,7 +282,7 @@ copyFileSync(join(root, 'fonts', 'OFL-BIZUDPGothic.txt'), join(distDir, 'OFL-BIZ
 // 7. 署名(Windows のみ・既定は失敗したらビルドも失敗) --------------------------
 // postject 注入後が exe への最終変更なので、署名はこの直後に行う(以降 exe は不変)。
 // 署名鍵の thumbprint は **明示指定が必須**。ビルドが証明書を暗黙生成すると、端末ごとに
-// 同名の別ルート証明書が増えて「どの .cer を配ったか」が追跡不能になる(root A4 / P006)。
+// 同名の別ルート証明書が増えて「どの .cer を配ったか」が追跡不能になる。
 if (process.platform === 'win32') {
   const certOut = join(distDir, 'pie-chart-codesign.cer');
   const local = existsSync(signingLocalPath)

@@ -21,6 +21,7 @@
 //   serialization-safe な placeholder として出力し, 最後の文字列パスで decode する。
 //   これにより式中の `<`, `>`, `&` 等が serializer に HTML エスケープされない。
 
+import { IF_RE, MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE } from './fillJinja';
 import { formatHtml } from './formatOutput';
 import { defaultHtmlParser, type HtmlParser } from './htmlParser';
 import {
@@ -117,6 +118,46 @@ export interface ToTemplateOptions {
   pretty?: boolean;
 }
 
+/** 不正 base64(`atob` が throw する攻撃入力)を検査対象から外し、違反として計上するため。 */
+function tryB64decode(b: string): string | null {
+  try {
+    return b64decode(b);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 復号値が「ちょうど 1 つの Jinja トークンそのもの」か。生成側と同じ `TOKEN_RE` で抽出し、
+ * 全体を 1 トークンが過不足なく覆うことを要求する(chip/open/close の生成は 1 トークンしか
+ * 作らない)。`}}` の後ろへ HTML を継ぎ足す形は 2 トークン以上に割れて弾かれる。
+ */
+function isSingleJinjaToken(dec: string, kind?: 'stmt'): boolean {
+  const toks = extractJinjaTokens(dec);
+  if (toks.length !== 1 || toks[0] !== dec) return false;
+  return kind === undefined || tokenKind(dec) === kind;
+}
+
+/**
+ * 復号値が `re`(生成側の抽出正規表現)の 1 マッチだけで全体を覆うか。opaque/if ブロックの
+ * ように内部に HTML を含む形でも、生成 1 単位を超える連結や、タグの外への HTML 混入
+ * (`</script>` の後ろへ `<img onerror>` 等)を弾く。
+ */
+function isSoleFullMatch(dec: string, re: RegExp): boolean {
+  const g = re.global ? re : new RegExp(re.source, `${re.flags}g`);
+  const m = dec.match(g);
+  return m !== null && m.length === 1 && m[0] === dec;
+}
+
+/** 復号値が opaque mask の生成 3 形(単一の script / math / TeX)のいずれかに完全一致するか。 */
+function isOpaqueShape(dec: string): boolean {
+  return (
+    isSoleFullMatch(dec, OPAQUE_SCRIPT_RE) ||
+    isSoleFullMatch(dec, OPAQUE_MATH_RE) ||
+    isSoleFullMatch(dec, MATH_TEX_RE)
+  );
+}
+
 export function toTemplate(
   editable: string,
   opts: ToTemplateOptions = {},
@@ -124,7 +165,16 @@ export function toTemplate(
 ): string {
   const hadDoctype = /^\s*<!doctype/i.test(editable);
   const doc = parse(editable);
-  const ph = (enc: string) => doc.createTextNode(`${PH_START}${enc}${PH_END}`);
+  // 発行集合: この呼び出しが実際に生成した placeholder の enc だけを最終段で復号する。
+  // canvas 入口を素通りした偽 placeholder(editable テキストへ U+E000/U+E001 直書き)を
+  // 復号しないための鍵。`ph` の生成と復号の許可を 1 箇所に束ねる。
+  const issued = new Set<string>();
+  const ph = (enc: string) => {
+    issued.add(enc);
+    return doc.createTextNode(`${PH_START}${enc}${PH_END}`);
+  };
+  // チャネル別形状検査の違反。1 件でもあれば復元せず throw する(黙って残す/削るをしない)。
+  const violations: string[] = [];
 
   // 0. `fillJinja.ts` の `toFilled` が生成した loop clone を破棄する: 展開した
   //    `{% for %}` の先頭(テンプレート)行だけが data-jinja-open/close を運ぶ。
@@ -133,37 +183,65 @@ export function toTemplate(
     el.remove();
   });
 
-  // 1. chip span -> placeholder テキストへ復元する
+  // 1. chip span -> placeholder テキストへ復元する。復号値は単一 Jinja トークンに限る
+  //    (`wrapInlineTokens`/`fillInline` の生成形)。
   doc.querySelectorAll(`[${DATA_JINJA}]`).forEach((el) => {
     const enc = el.getAttribute(DATA_JINJA);
     if (enc === null) return;
+    const dec = tryB64decode(enc);
+    if (dec === null || !isSingleJinjaToken(dec)) {
+      violations.push(DATA_JINJA);
+      return;
+    }
     el.replaceWith(ph(enc));
   });
 
   // 1b. opaque mask されたコンテンツを復元する — `<script>`, MathML `<math>`, TeX
   //     数式(`fillJinja.ts` の `toFilled` がこれらを inert chip として GrapesJS から
-  //     隠す。verbatim ソースは data-opaque に入る)。
+  //     隠す。verbatim ソースは data-opaque に入る)。復号値は `maskOpaque` の生成 3 形に限る。
+  //     ⚠ script の *中身* はここでは検査しない — テンプレ JS は正当なコンテンツで、改変検出は
+  //     確定保存側 server `templateScripts` の不変性ゲートが担う。ここが担うのは「script 以外の
+  //     HTML を opaque チャネルへ混ぜない」ことだけ。
   doc.querySelectorAll(`[${DATA_OPAQUE}]`).forEach((el) => {
     const enc = el.getAttribute(DATA_OPAQUE);
     if (enc === null) return;
+    const dec = tryB64decode(enc);
+    if (dec === null || !isOpaqueShape(dec)) {
+      violations.push(DATA_OPAQUE);
+      return;
+    }
     el.replaceWith(ph(enc));
   });
 
   // 1c. collapse 済みの `{% if %}…{% endif %}` を復元する(`fillJinja.ts` の
   //     `toFilled` は表示用に taken branch のみを残し, ブロック全体を
-  //     data-jinja-block に保持する)。
+  //     data-jinja-block に保持する)。復号値は `collapseIfs` の生成形(単一 if ブロック)に限る。
   doc.querySelectorAll(`[${DATA_JINJA_BLOCK}]`).forEach((el) => {
     const enc = el.getAttribute(DATA_JINJA_BLOCK);
     if (enc === null) return;
+    const dec = tryB64decode(enc);
+    if (dec === null || !isSoleFullMatch(dec, IF_RE)) {
+      violations.push(DATA_JINJA_BLOCK);
+      return;
+    }
     el.replaceWith(ph(enc));
   });
 
-  // 2. absorb したブロック文を, その要素の前後へ復元する
+  // 2. absorb したブロック文を, その要素の前後へ復元する。open/close は単一 stmt トークンに限る
+  //    (`absorbBlocks`/`expandLoops` の生成形。HTML は含められない)。
   doc.querySelectorAll(`[${DATA_JINJA_OPEN}]`).forEach((el) => {
     const open = el.getAttribute(DATA_JINJA_OPEN);
     const close = el.getAttribute(DATA_JINJA_CLOSE);
     el.removeAttribute(DATA_JINJA_OPEN);
     el.removeAttribute(DATA_JINJA_CLOSE);
+    const openDec = open === null ? null : tryB64decode(open);
+    const closeDec = close === null ? null : tryB64decode(close);
+    const openOk = open === null || (openDec !== null && isSingleJinjaToken(openDec, 'stmt'));
+    const closeOk = close === null || (closeDec !== null && isSingleJinjaToken(closeDec, 'stmt'));
+    if (!openOk || !closeOk) {
+      violations.push(DATA_JINJA_OPEN);
+      return;
+    }
     if (open !== null) el.parentNode?.insertBefore(ph(open), el);
     if (close !== null) el.parentNode?.insertBefore(ph(close), el.nextSibling);
   });
@@ -174,8 +252,21 @@ export function toTemplate(
   const serializedRaw = opts.asFragment ? doc.body.innerHTML : doc.documentElement.outerHTML;
   const serialized = opts.pretty ? formatHtml(serializedRaw) : serializedRaw;
 
-  // 3. placeholder を生文字列置換で decode する(HTML エスケープなし)
-  let out = serialized.replace(PH_RE, (_m, enc: string) => b64decode(enc));
+  // 3. placeholder を生文字列置換で decode する(HTML エスケープなし)。復号は `ph` が発行した
+  //    enc に限り、未知 placeholder(偽装)は復号せず違反にする。
+  let out = serialized.replace(PH_RE, (_m, enc: string) => {
+    if (!issued.has(enc)) {
+      violations.push('placeholder');
+      return '';
+    }
+    return b64decode(enc);
+  });
+
+  if (violations.length > 0) {
+    throw new Error(
+      `toTemplate: 復元できない Jinja マスクを検出しました (${violations.join(', ')})`,
+    );
+  }
   if (!opts.asFragment && hadDoctype) out = `<!doctype html>\n${out}`;
   return out;
 }

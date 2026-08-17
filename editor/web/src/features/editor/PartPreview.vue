@@ -16,6 +16,7 @@ import { Eye } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 // レポートの正テーマ(全ファンド共通)。クラスの見た目はこの 1 枚で確定する。
 import reportCss from '@/api/fixtures/css/510037.css?raw';
+import { buildPartPreviewDoc } from '@/features/editor/partPreviewDoc';
 import { onFrameHeight, withHeightReporter } from '@/lib/useIframeAutoFit';
 
 const props = defineProps<{ content: string | null }>();
@@ -33,12 +34,7 @@ const contentHeight = ref(200);
 const srcdoc = computed(() =>
   // 計測スクリプトを末尾に付ける。パーツ HTML も他者が書いたコンテンツなので
   // `sandbox="allow-scripts"`(same-origin なし)で開き、親からは中を読まない。
-  withHeightReporter(
-    `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><style>${reportCss}` +
-      // body 直書きで余白を詰め、パーツ単体が枠いっぱいに見えるようにする。
-      `\nbody{margin:0;padding:10px;width:${CANVAS_WIDTH}px;box-sizing:border-box}` +
-      `</style></head><body>${props.content ?? ''}</body></html>`,
-  ),
+  withHeightReporter(buildPartPreviewDoc(props.content ?? '', reportCss, CANVAS_WIDTH)),
 );
 
 // ステージ幅の変化(ペイン幅変更など)に追従して scale を測り直す。

@@ -41,6 +41,19 @@ test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し",
   await expect(page.locator("#nav-hint")).toContainText("要確認 1");
   await expect(page.locator("#doc-master")).toContainText("売上高", { timeout: 15_000 });
 
+  // 箇所単位: 一覧の「戻す」で 1 件だけ置換前へ → 行は未置換 (置換ボタン) になる → 「置換」で再び当たる
+  await page.click('[data-tab="confirm"]');
+  const rows = page.locator("#confirm-dyn .change-row");
+  await expect(rows.first().locator(".num")).toHaveText("1");
+  // 番号マーカーは一覧の行数と同数だけページ上に描かれる
+  await expect(page.locator("#doc-master svg [data-editor-marks] > g")).toHaveCount(await rows.count());
+  await rows.first().locator(".act-revert").click();
+  await expect(page.locator("#doc-master")).toContainText("Revenue", { timeout: 15_000 });
+  await expect(page.locator("#confirm-dyn")).toContainText("未置換 1 件");
+  await page.locator("#confirm-dyn .change-row").first().locator(".act-apply").click();
+  await expect(page.locator("#doc-master")).toContainText("売上高", { timeout: 15_000 });
+  await expect(page.locator("#confirm-dyn")).not.toContainText("未置換");
+
   // ── 3. 不要範囲を削除: 要素クリック選択 → 削除 → Undo → 再削除 ──
   await page.click('[data-screen="2"] [data-skipall]'); // 未確認をまとめてスキップ → 手順3 へ
   await expect(page.locator('[data-screen="3"]')).toHaveClass(/on/);

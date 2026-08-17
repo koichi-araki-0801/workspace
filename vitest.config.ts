@@ -34,6 +34,10 @@ export default defineConfig({
         'editor/shared/src/result.ts',
         'editor/shared/src/errors.ts',
         'editor/shared/src/domain/template.ts',
+        // サンプルデータの合成と属性の被せ方。退行は「基準日が黙って空」の無言の形で
+        // 出るため(実際に起きた)、被覆を切らさない。
+        'editor/shared/src/domain/sampleData.ts',
+        'editor/shared/src/domain/sampleCommon.ts',
         'editor/shared/src/domain/user.ts',
         'editor/shared/src/domain/history.ts',
         'editor/shared/src/security/cssExternalRefs.ts',
@@ -48,8 +52,9 @@ export default defineConfig({
         'editor/server/src/repositories/confirmedWrite.ts',
         'editor/server/src/repositories/templateMeta.ts',
         'editor/server/src/files/pendingFiles.ts',
+        'editor/server/src/files/syncFiles.ts',
         'editor/server/src/vivliostyle/projectConfig.ts',
-        // 段階 2 の新設層。認可テーブル・資格情報の正規化・応答時間フロアは、
+        // 認証・認可の層。認可テーブル・資格情報の正規化・応答時間フロアは、
         // 迂回されると認証全体が骨抜きになるため閾値の対象へ入れる。
         'editor/server/src/auth/loginId.ts',
         'editor/server/src/auth/timing.ts',
@@ -80,7 +85,7 @@ export default defineConfig({
         'editor/server/src/vivliostyle/buildWorkerPool.ts',
         // プール非経由(`poolSize <= 0`)のフォールバックにも同じ受付制御を効かせる層。
         'editor/server/src/vivliostyle/buildAdmission.ts',
-        // 段階 3(資源上限)で新設・改修した層。上限そのものと、上限を守るための
+        // 資源上限の層。上限そのものと、上限を守るための
         // 直列化・適用範囲の限定は、迂回されると単一プロセスが 1 リクエストで止まる。
         'editor/server/src/files/atomic.ts',
         'editor/server/src/files/fileLock.ts',
@@ -97,6 +102,7 @@ export default defineConfig({
         'editor/web/src/lib/fillJinja.ts',
         'editor/web/src/lib/blockKey.ts',
         'editor/web/src/lib/appError.ts',
+        'editor/web/src/lib/globalErrors.ts',
         'editor/web/src/lib/useAsyncResult.ts',
         'editor/web/src/lib/format.ts',
         'editor/web/src/lib/labels.ts',
@@ -128,6 +134,7 @@ export default defineConfig({
         'editor/web/src/features/editor/usePartEditHistory.ts',
         'editor/web/src/features/editor/usePartNote.ts',
         'editor/web/src/features/editor/partKey.ts',
+        'editor/web/src/features/editor/partPreviewDoc.ts',
         'editor/web/src/features/editor/useAutosave.ts',
         'editor/web/src/stores/editorSession.ts',
         'editor/web/src/stores/pendingReviews.ts',
@@ -142,6 +149,7 @@ export default defineConfig({
         'editor/web/src/api/local/partRepo.ts',
         'editor/web/src/api/local/noteRepo.ts',
         'editor/web/src/api/local/reviewRepo.ts',
+        'editor/web/src/api/rest/http.ts',
         // editor/web (ui プリミティブ層。headless 一元化リファクタでテスト追加済みの分)
         'editor/web/src/components/ui/confirm.ts',
         'editor/web/src/components/ui/overlays.ts',

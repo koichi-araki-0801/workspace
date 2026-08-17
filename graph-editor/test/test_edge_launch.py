@@ -145,9 +145,24 @@ def test_cleanup_survives_a_missing_file(log, user_area):
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [("1", True), ("true", True), ("yes", True), ("on", True), ("diag", True),
-     ("0", False), ("false", False), ("no", False), ("off", False), ("", False), ("   ", False)],
+    [("1", True), ("true", True), ("yes", True), ("on", True),
+     ("0", False), ("false", False), ("no", False), ("off", False), ("diag", False),
+     ("", False), ("   ", False)],
 )
 def test_env_flag_truthiness(monkeypatch, value, expected):
+    monkeypatch.setenv("LABELEDITOR_TEST_FLAG", value)
+    assert app._env_flag("LABELEDITOR_TEST_FLAG") is expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        # 許可集合外・空文字は無効 (fail-close)。末尾空白は畳まない (小文字化のみ)。
+        ("disabled", False), ("2", False), ("TRUE ", False), ("", False),
+        # 許可集合は小文字畳み後の完全一致。
+        ("1", True), ("true", True), ("ON", True),
+    ],
+)
+def test_env_flag_unknown_value_is_off(monkeypatch, value, expected):
     monkeypatch.setenv("LABELEDITOR_TEST_FLAG", value)
     assert app._env_flag("LABELEDITOR_TEST_FLAG") is expected

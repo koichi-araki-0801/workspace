@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { buildSampleData, type FundMaster } from '@editor/shared';
+import { buildSampleData, type FundMaster, parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import fundMaster from '../src/api/fixtures/funds.json';
+import { defaultSkeleton } from '../src/api/local/store';
 import { toFilled, toFilledWithDiagnostics } from '../src/lib/fillJinja';
 import { extractJinjaTokens, toTemplate } from '../src/lib/jinjaMask';
 import { getBodyInner } from '../src/lib/templateDoc';
@@ -102,14 +103,58 @@ describe('real report templates round-trip token-for-token', () => {
   // 値差込は `jinjaExpr.ts` の許可リスト評価器で行う(`nunjucks.compile` を使わない)。
   // 許可リストの外の式は空値へ落ちるので、**実テンプレが 1 件も外に出ていない**ことを
   // ここで固定する。テンプレへ新しい式の形(フィルタ等)が入った瞬間にここが落ち、
-  // 「値が黙って空になる」状態でコミットされるのを防ぐ。
+  // 「値が黙って空になる」状態でコミットされるのを防ぐ。未定義キー(`missing`)も同罪 —
+  // 評価器は例外にしないため `unsupported` に載らず、表示だけが黙って空になる。
   for (const [file, fund] of templates) {
-    it(`${file}: 解釈できない Jinja 式が無い`, () => {
+    it(`${file}: 解釈できない/未定義の Jinja 式が無い`, () => {
       const raw = readFileSync(resolve(fixtures, 'templates', file), 'utf8');
-      const { diagnostics } = toFilledWithDiagnostics(raw, buildSampleData(funds[fund], fund));
+      const attrs = parseTemplateFileName(file);
+      const { diagnostics } = toFilledWithDiagnostics(
+        raw,
+        buildSampleData(funds[fund], fund, attrs ?? undefined),
+      );
       expect(diagnostics.unsupported).toEqual([]);
+      expect(diagnostics.missing).toEqual([]);
     });
   }
+});
+
+// fixture テンプレ(上)と REST 検証データ(`editor/data/templates`)・生成スケルトンは
+// 書きぶりが分岐しており、fixture だけを検査すると後者だけが参照するキー
+// (`report.baseDate` / `fund.navChange` で実際に起きた)の欠落が素通りする。
+// 参照キーがサンプルデータで満たされることを、全系統に対して固定する。
+// `editor/data/templates` は dataRoot 方式のローカル専用実データで git 管理外(.gitignore)
+// のため、用意されていない環境(CI 等)ではこの系統だけスキップする。
+describe('data/templates と生成スケルトンの参照キーがサンプルで満たされる', () => {
+  const funds = fundMaster as Record<string, FundMaster>;
+  const dataTemplates = resolve(__dirname, '../../data/templates');
+  const dataTemplateFiles = existsSync(dataTemplates)
+    ? readdirSync(dataTemplates).filter((f) => f.endsWith('.html'))
+    : [];
+
+  for (const file of dataTemplateFiles) {
+    it(`${file}: 解釈できない/未定義の Jinja 式が無い`, () => {
+      const raw = readFileSync(resolve(dataTemplates, file), 'utf8');
+      const attrs = parseTemplateFileName(file);
+      expect(attrs).not.toBeNull();
+      if (!attrs) return;
+      const { diagnostics } = toFilledWithDiagnostics(
+        raw,
+        buildSampleData(funds[attrs.fundCode], attrs.fundCode, attrs),
+      );
+      expect(diagnostics.unsupported).toEqual([]);
+      expect(diagnostics.missing).toEqual([]);
+    });
+  }
+
+  it('defaultSkeleton(local の新規作成雛形): 解釈できない/未定義の Jinja 式が無い', () => {
+    const { diagnostics } = toFilledWithDiagnostics(
+      defaultSkeleton(),
+      buildSampleData(undefined, '000000', { editionType: '交付版', baseDate: '20260101' }),
+    );
+    expect(diagnostics.unsupported).toEqual([]);
+    expect(diagnostics.missing).toEqual([]);
+  });
 });
 
 describe('toFilled は解釈できない式を黙って捨てない', () => {
@@ -134,6 +179,24 @@ describe('toFilled は解釈できない式を黙って捨てない', () => {
       sample,
     );
     expect(diagnostics.unsupported).toEqual([]);
+  });
+
+  it('サンプルに無いキーの {{ expr }} は missing に載る(表示は空・画面は落とさない)', () => {
+    const { html, diagnostics } = toFilledWithDiagnostics(
+      `<p>{{ report.noSuchKey }} 円</p>`,
+      sample,
+    );
+    expect(diagnostics.missing).toEqual(['report.noSuchKey']);
+    expect(diagnostics.unsupported).toEqual([]);
+    expect(html).toContain('data-jinja='); // ソースは保持され round-trip する
+  });
+
+  it('{% if %} の条件は undefined が正当な値なので missing に数えない', () => {
+    const { diagnostics } = toFilledWithDiagnostics(
+      `<section>{% if report.noSuchKey %}<p>A</p>{% else %}<p>B</p>{% endif %}</section>`,
+      sample,
+    );
+    expect(diagnostics.missing).toEqual([]);
   });
 
   it('コンパイラ非依存: prototype 経由の式は値を返さない(SSTI の入口を塞ぐ)', () => {

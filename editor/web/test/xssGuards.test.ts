@@ -18,7 +18,12 @@ import { ok } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDiffDoc } from '@/features/compare/htmlBlockDiff';
 import { createCompareService } from '@/features/compare/services/compareService';
-import { findExternalRefsInCss, sanitizeStyleContent, styleTag } from '@/lib/sanitizeCss';
+import {
+  findExternalRefsInCss,
+  sanitizeStyleContent,
+  styleTag,
+  summarizeExternalCssRefs,
+} from '@/lib/sanitizeCss';
 import { appendPreviewStyle, sanitizePreviewRoot, stripExternalRefs } from '@/lib/sanitizeHtml';
 
 // 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では起動しない。
@@ -117,6 +122,18 @@ describe('findExternalRefsInCss', () => {
     ['@\\-webkit-keyframes x{}', false],
   ])('トークナイザの端の入力を取りこぼさない: %j', (css, expectFound) => {
     expect(findExternalRefsInCss(css).length > 0).toBe(expectFound);
+  });
+
+  it('summarizeExternalCssRefs は参照なしで null、あれば先頭 5 件 + 残件数を返す', () => {
+    expect(summarizeExternalCssRefs('.a{background:url(img/a.png)}')).toBeNull();
+    const many = Array.from(
+      { length: 7 },
+      (_, i) => `.a${i}{background:url(http://evil.example/${i}.png)}`,
+    ).join('');
+    const summary = summarizeExternalCssRefs(many);
+    expect(summary).toContain('http://evil.example/0.png');
+    expect(summary).not.toContain('http://evil.example/5.png');
+    expect(summary).toContain('ほか2件');
   });
 
   it('現行の全ファンド CSS が誤検出ゼロで通る', () => {

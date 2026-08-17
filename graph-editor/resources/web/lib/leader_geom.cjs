@@ -45,7 +45,12 @@
   /** transform 文字列から translate(dx,dy) を取り出す。無ければ {x:0,y:0}。 */
   function parseTranslate(transform) {
     if (!transform) return { x: 0, y: 0 };
-    const m = transform.match(/translate\(\s*(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)\s*\)/);
+    // 数値トークンは重なりのない形にする (`\d*\.?\d+` は省略可能な数字列と必須の数字列が
+    // 重なり、閉じ括弧に至れない未信頼 SVG の transform で二次バックトラックする)。捕捉する
+    // 座標は不変 ( `-?\d+(?:\.\d+)?|-?\.\d+` は `-?\d*\.?\d+` と同じ数値集合を採る)。
+    const m = transform.match(
+      /translate\(\s*(-?\d+(?:\.\d+)?|-?\.\d+)[ ,]+(-?\d+(?:\.\d+)?|-?\.\d+)\s*\)/,
+    );
     return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : { x: 0, y: 0 };
   }
 

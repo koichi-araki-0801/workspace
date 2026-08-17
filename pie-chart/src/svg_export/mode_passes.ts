@@ -354,8 +354,8 @@ export function applyLeftStackClusterEvenSpread(
     }
     p.origTextX = p.x;
     p.origTextY = p.y;
-    // leader は**書き出し側の縦縁・縦中央**へ接続する (ユーザー指定の見せ方)。既定の行中央シードだと
-    // 長い斜め leader が truncate で上縁の角に刺さって見える (ユーロ/先物/B の指摘)。実接続は
+    // leader は**書き出し側の縦縁・縦中央**へ接続する。既定の行中央シードだと長い斜め leader が
+    // truncate で上縁の角に刺さって見える (例: ユーロ/先物/B)。実接続は
     // `computeDrawnLeader` の `sideCenterLeader` 分岐が行う (endpoint シードはアンカー側の保険)。
     p.sideCenterLeader = true;
     {
@@ -559,7 +559,7 @@ const LEFT_STACK_ALIGN_MIN_GAP_FRACTION = 0.25;
  * 余白へ広げる機構が無く、小スライス連続チャート (例 currency 系 10 スライス) では隣接箱が接触
  * したまま余白が残る。等間隔で縦全域へ展開する案は中段ラベルをスライスから引き離し、rim 沿いの
  * 長い近平行 leader (所属が読めない) を作ったためボツ — ラベルが自スライスの正面へ並べば leader
- * は短い放射スタブになり、間隔の粗密より判読性が勝る (ユーザー選定)。
+ * は短い放射スタブになり、間隔の粗密より判読性が勝る。
  *
  * 手順: 箱中心の縦順 (上→下。p.y は baseline 向き混在で視覚順と食い違い得る) に、目標中心 =
  * 自スライス rim 高さから始め、隣接ペアの必要間隔 (箱高 + floor) と上下端を反復投影で満たす。
@@ -1655,7 +1655,7 @@ export function reorderTopBandLeftClusterByAngle(
     () => {
       // 角度順 (上→下 = sin 降順) に並べ、最上段を天井 (viewBox 上端) へアンカーして上から詰める。
       // 中央寄せだと下段に大きな空きが残るため、上端基準でタイトに積む。間隔は上ラベルの実 box 高 +
-      // クラスタ専用の小ギャップ (scaledMinGap より狭く詰める=ユーザー指摘「もう少し上に詰めて」)。
+      // クラスタ専用の小ギャップ (scaledMinGap より狭く詰める)。
       // ラベルを上げると box 下端が上がり rim ハグがパイへ近づく → リーダーが短く接続が締まる。
       const byAngle = [...cluster].sort(
         (a, b) =>

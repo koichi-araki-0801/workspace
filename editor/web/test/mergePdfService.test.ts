@@ -68,7 +68,7 @@ describe('MergePdfService.renderMergedPdf', () => {
     // 配列順 = 選択順(id 昇順などに並び替えない)。
     expect(body.documents[0].html).toContain('doc-t2');
     expect(body.documents[1].html).toContain('doc-t1');
-    // 版種は applyEdition で差し込まれる。
+    // 版種は applyTemplateAttributes で差し込まれる。
     expect(body.documents[0].html).toContain('交付版');
     // 履歴は各テンプレへ記録される。
     expect(recordPdfExport).toHaveBeenCalledTimes(2);

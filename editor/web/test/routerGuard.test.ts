@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { RouteLocationNormalized } from 'vue-router';
-import { type AuthGuardState, authGuard, routes } from '@/router';
+import { type AuthGuardState, authGuard } from '@/router';
 
-// 「URL 直遷移禁止」の CI 担保(§4)。guard の挙動と、ルート表の不変条件(public は login と
-// password-init だけ)を検証する。ルート表テストは将来 `/edit/:id` 等に誤って public が付く
-// 回帰を検出する。
+// 「URL 直遷移禁止」の CI 担保(§4)。guard の挙動を検証する。ルート表の access 宣言網羅・
+// name→access 対応の不変条件は routePolicy.guard.test.ts へ移した(重複回避)。
 
 function auth(over: Partial<AuthGuardState> = {}): AuthGuardState {
   return {
@@ -34,7 +33,7 @@ describe('authGuard', () => {
       to('edit', '/edit'),
       to('compare', '/compare'),
       to('history', '/history'),
-      to('admin', '/admin', { admin: true }),
+      to('admin', '/admin', { access: 'admin' }),
     ];
     for (const r of protectedRoutes) {
       expect(await authGuard(r, auth())).toEqual({
@@ -45,10 +44,18 @@ describe('authGuard', () => {
   });
 
   it('public ルートは未認証でも通す', async () => {
-    expect(await authGuard(to('login', '/login', { public: true }), auth())).toBe(true);
-    expect(await authGuard(to('password-init', '/password-init', { public: true }), auth())).toBe(
-      true,
-    );
+    expect(await authGuard(to('login', '/login', { access: 'public' }), auth())).toBe(true);
+    expect(
+      await authGuard(to('password-init', '/password-init', { access: 'public' }), auth()),
+    ).toBe(true);
+  });
+
+  it('access 未宣言は fail closed で auth 扱いになる(付け忘れ対策)', async () => {
+    expect(await authGuard(to('edit', '/edit'), auth())).toEqual({
+      name: 'login',
+      query: { redirect: '/edit' },
+    });
+    expect(await authGuard(to('edit', '/edit'), auth({ isAuthenticated: true }))).toBe(true);
   });
 
   it('認証済みユーザーは保護ルートを通す', async () => {
@@ -57,7 +64,7 @@ describe('authGuard', () => {
 
   it('非 admin は admin ルートから edit へ戻す', async () => {
     const res = await authGuard(
-      to('admin', '/admin', { admin: true }),
+      to('admin', '/admin', { access: 'admin' }),
       auth({ isAuthenticated: true, isAdmin: false }),
     );
     expect(res).toEqual({ name: 'edit' });
@@ -65,7 +72,7 @@ describe('authGuard', () => {
 
   it('admin は admin ルートを通す', async () => {
     const res = await authGuard(
-      to('admin', '/admin', { admin: true }),
+      to('admin', '/admin', { access: 'admin' }),
       auth({ isAuthenticated: true, isAdmin: true }),
     );
     expect(res).toBe(true);
@@ -84,7 +91,7 @@ describe('authGuard', () => {
 
   it('初回PW変更が未了でも password-init 自身へは入れる', async () => {
     const res = await authGuard(
-      to('password-init', '/password-init', { public: true }),
+      to('password-init', '/password-init', { access: 'public' }),
       auth({ isAuthenticated: true, mustChangePassword: true, user: { username: 'editor' } }),
     );
     expect(res).toBe(true);
@@ -97,30 +104,5 @@ describe('authGuard', () => {
     };
     await authGuard(to('edit', '/edit'), auth({ ready: false, bootstrap }));
     expect(called).toBe(true);
-  });
-});
-
-interface RouteLike {
-  name?: string | symbol;
-  meta?: { public?: boolean; admin?: boolean };
-  children?: RouteLike[];
-}
-
-function flatten(rs: RouteLike[]): RouteLike[] {
-  return rs.flatMap((r) => [r, ...(r.children ? flatten(r.children) : [])]);
-}
-
-describe('routes invariants', () => {
-  it('public は login と password-init だけ(deep-link バイパス防止)', () => {
-    const publicNames = flatten(routes as unknown as RouteLike[])
-      .filter((r) => r.meta?.public)
-      .map((r) => r.name)
-      .sort();
-    expect(publicNames).toEqual(['login', 'password-init']);
-  });
-
-  it('admin ルートは admin 専用フラグを持つ', () => {
-    const admin = flatten(routes as unknown as RouteLike[]).find((r) => r.name === 'admin');
-    expect(admin?.meta?.admin).toBe(true);
   });
 });

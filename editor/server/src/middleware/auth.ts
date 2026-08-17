@@ -43,12 +43,15 @@ export const PASSWORD_CHANGE_ALLOWED_PATHS: readonly string[] = [
 
 /**
  * 現在のリクエストが上記 3 経路のいずれかか。ルートは `/api` prefix 付きで登録されるため、
- * 正典 `apiPaths`(prefix 無し)とは後方一致で突き合わせる。`routeOptions.url` は
- * 「登録時のパターン」なので、query や動的セグメントの中身に影響されない。
+ * 正典 `apiPaths`(prefix 無し)とは `/api${p}` を組み立てて完全一致で突き合わせる
+ * (`routes/routeGuards.ts` の `api()` と同じ合成)。`endsWith` の後方一致は
+ * `/api/evil/auth/me` のような偽装パスまで免除対象にしてしまうため使わない。
+ * `routeOptions.url` は「登録時のパターン」なので、query や動的セグメントの中身に
+ * 影響されない。
  */
 function isPasswordChangeAllowed(request: FastifyRequest): boolean {
   const url = request.routeOptions?.url ?? request.url.split('?')[0];
-  return PASSWORD_CHANGE_ALLOWED_PATHS.some((p) => url === p || url.endsWith(p));
+  return PASSWORD_CHANGE_ALLOWED_PATHS.some((p) => url === `/api${p}`);
 }
 
 /**

@@ -18,9 +18,18 @@ const TEST_TMP_DIR = path.join(
 );
 process.env.TMP_DIR = TEST_TMP_DIR;
 
-const { findDocumentExternalRefs, assertNoDocumentExternalRefs, EXTERNAL_REF_CODE } = await import(
-  '../src/security/externalRefs.js'
-);
+const {
+  findDocumentExternalRefs,
+  assertNoDocumentExternalRefs,
+  assertNoMarkdownExternalRefs,
+  assertNoJsonExternalRefs,
+  assertProjectDirHasNoExternalRefs,
+  findJsonExternalRefs,
+  EXT_INSPECTION,
+  EXTERNAL_REF_CODE,
+  UNPARSABLE_CODE,
+} = await import('../src/security/externalRefs.js');
+const { ALLOWED_EXTENSIONS } = await import('../src/vivliostyle/projectInput.js');
 const { MERGE_PAGE_COUNTER_CSS } = await import('../src/vivliostyle/mergeInput.js');
 
 describe('findDocumentExternalRefs — 検査面の網羅', () => {
@@ -187,6 +196,25 @@ describe('POST /build 系 — UI を経由しない経路が拒否される', ()
     expect(res.json().code).toBe(EXTERNAL_REF_CODE);
   });
 
+  // zip 経路は `inlineCss` の `<base>` 除去を通らない。除去に頼ると防御が egressGuard 単独に
+  // 落ちるので、展開直後の検査で 400 にする。
+  it('POST /build/project は zip 同梱の .html に置いた <base> を拒む', async () => {
+    const z = new JSZip();
+    z.file(
+      'index.html',
+      '<html><head><base href="https://evil.example/"></head><body>x</body></html>',
+    );
+    const zip = await z.generateAsync({ type: 'nodebuffer' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/build/project',
+      headers: { 'content-type': 'application/zip' },
+      payload: zip,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe(EXTERNAL_REF_CODE);
+  });
+
   it('POST /build/project は zip 同梱の .css に置いた外部参照を拒む', async () => {
     const z = new JSZip();
     z.file('index.html', '<p>x</p>');
@@ -307,5 +335,217 @@ describe('検査器の終端・正規化の穴が build 入口を素通りしな
   ])('%s は 400 の対象になる', (_label, html, css) => {
     expect(findDocumentExternalRefs(html, css)).not.toEqual([]);
     expect(() => assertNoDocumentExternalRefs(html, css, 'test')).toThrow();
+  });
+});
+
+// ── 展開を許す形式は必ず検査する ──
+// `projectInput.ts` の `ALLOWED_EXTENSIONS` のうち「参照を書ける形式」を覆えていないと、
+// そこが検査ゲートの外側になる。`.md` は vivliostyle が原稿として組版し、`.svg` は
+// `<image href>` / `<use href>` / `<style>` を持つ。
+describe('markdown と SVG の外部参照', () => {
+  it('markdown の画像・リンク・参照定義の絶対 URL を拒む(タグが無く HTML 走査では拾えない)', () => {
+    for (const md of [
+      '![logo](https://evil.example/x.png)',
+      '[link](http://evil.example/)',
+      '![logo]\n\n[logo]: https://evil.example/x.png',
+      '![logo](<https://evil.example/x.png>)',
+    ])
+      expect(() => assertNoMarkdownExternalRefs(md, 'project:doc.md'), md).toThrow();
+  });
+
+  it('markdown 内の生 HTML も同じ基準で見る', () => {
+    expect(() =>
+      assertNoMarkdownExternalRefs(
+        '本文\n\n<img src="https://evil.example/x.png">',
+        'project:doc.md',
+      ),
+    ).toThrow();
+  });
+
+  it('同梱資産への相対参照は通す(組版に必要な正当な形)', () => {
+    assertNoMarkdownExternalRefs('![z](images/z.png)', 'project:doc.md');
+    assertNoMarkdownExternalRefs('[a](./other.md)', 'project:doc.md');
+    assertNoMarkdownExternalRefs('文章だけ', 'project:doc.md');
+  });
+
+  it('SVG は文書として検査される(タグ構造なので HTML 走査が効く)', () => {
+    expect(() =>
+      assertNoDocumentExternalRefs(
+        '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/x.png"/></svg>',
+        '',
+        'project:a.svg',
+      ),
+    ).toThrow();
+  });
+});
+
+// ── raw text として読み飛ばした範囲も検査する ──
+// 走査器は `title` / `textarea` / `noscript` を常に raw text として飛ばすが、HTML 名前空間の
+// 外ではそうではない。`<svg><title>` は foreign content で、内側の `<img>` は実要素になる。
+describe('raw text の内側の外部参照', () => {
+  it('<svg><title> の内側の絶対 URL を拾う', () => {
+    expect(() =>
+      assertNoDocumentExternalRefs(
+        '<svg><title><img src="https://evil.example/x.png"></title></svg>',
+        '',
+        'doc',
+      ),
+    ).toThrow();
+  });
+
+  it('<noscript> / <textarea> の内側も同様', () => {
+    for (const html of [
+      '<noscript><img src="https://evil.example/x.png"></noscript>',
+      '<svg><textarea><image href="https://evil.example/x.png"></textarea></svg>',
+    ])
+      expect(() => assertNoDocumentExternalRefs(html, '', 'doc'), html).toThrow();
+  });
+
+  it('script の中身は参照として数えない(JS であってマークアップではない)', () => {
+    // 字面の一致を参照として数えると誤検知になる。実行面の固定は `templateScripts` の担当。
+    assertNoDocumentExternalRefs(
+      '<script>var url = "https://example.com/api";</script>',
+      '',
+      'doc',
+    );
+  });
+});
+
+// ── 検査対象は「展開を許す拡張子」から導出する ──
+// 2 つの集合を人手で並べていると、片方だけ増えた拡張子が検査ゲートの外側に落ちる
+// (`.md` / `.svg` が実際にそうだった)。分類表が全キーを覆っていることを機械で要求する。
+describe('EXT_INSPECTION は ALLOWED_EXTENSIONS の全キーに分類を与える', () => {
+  it('キー集合の差が両方向とも空', () => {
+    const allowed = [...ALLOWED_EXTENSIONS].sort();
+    const classified = Object.keys(EXT_INSPECTION).sort();
+    expect(classified).toEqual(allowed);
+  });
+
+  it('参照を書ける形式は inert になっていない', () => {
+    for (const ext of ['.html', '.htm', '.xhtml', '.xht', '.svg', '.md', '.markdown', '.css']) {
+      expect(EXT_INSPECTION[ext], ext).not.toBe('inert');
+    }
+    // `.json`(publication manifest)と `.css.map` は JSON として中身を見る。
+    expect(EXT_INSPECTION['.json']).toBe('json');
+    expect(EXT_INSPECTION['.css.map']).toBe('json');
+  });
+});
+
+// ── JSON(publication manifest / source map)──
+// vivliostyle は publication manifest を読んで原稿・資産の場所を決める。ここに絶対 URL を
+// 書けば、HTML にも CSS にも 1 バイトも書かずに外部から取りに行かせられる。
+describe('JSON の外部参照', () => {
+  it('publication manifest の readingOrder に絶対 URL を書けない', () => {
+    const manifest = JSON.stringify({
+      '@context': ['https://schema.org', 'https://www.w3.org/ns/pub-context'],
+      readingOrder: ['index.html', 'https://evil.example/x.html'],
+    });
+    expect(findJsonExternalRefs(manifest)).not.toEqual([]);
+    expect(() => assertNoJsonExternalRefs(manifest, 'project:publication.json')).toThrow();
+  });
+
+  it('JSON-LD の必須 @context は完全一致で通す(正当な manifest を 400 にしない)', () => {
+    const manifest = JSON.stringify({
+      '@context': ['https://schema.org', 'https://www.w3.org/ns/pub-context'],
+      type: 'Book',
+      name: '報告書',
+      readingOrder: ['index.html', 'sub/a.html'],
+      resources: [{ url: 'img/logo.png' }],
+    });
+    expect(findJsonExternalRefs(manifest)).toEqual([]);
+    assertNoJsonExternalRefs(manifest, 'project:publication.json');
+  });
+
+  it('@context に似せた別 URL は通らない(前方一致で緩めない)', () => {
+    for (const ctx of ['https://schema.org.evil.example/', 'https://schema.org/x']) {
+      expect(findJsonExternalRefs(JSON.stringify({ '@context': ctx })), ctx).not.toEqual([]);
+    }
+  });
+
+  it('JSON として読めないファイルは fail closed で 400', () => {
+    try {
+      assertNoJsonExternalRefs('{"a":', 'project:x.json');
+      throw new Error('should have thrown');
+    } catch (e) {
+      expect((e as { code?: string }).code).toBe(UNPARSABLE_CODE);
+    }
+  });
+});
+
+// ── `<base>` は URL の形を見ずに拒む ──
+// 相対解決の土台を丸ごと外部へ移せるので、相対 href でも拒む。zip project 経路は
+// `inlineCss` の除去を通らないため、ここが一次関門になる。
+describe('<base> は形を問わず外部参照として拒む', () => {
+  it.each([
+    ['絶対 URL', '<base href="https://evil.example/">'],
+    ['相対 href', '<base href="css/x.css">'],
+    ['href 無し', '<base target="_blank">'],
+    ['大文字', '<BASE HREF="css/x.css">'],
+    ['タグ名直後のスラッシュ', '<base/href="css/x.css">'],
+  ])('%s は拒む', (_label, tag) => {
+    const html = `<html><head>${tag}</head><body>x</body></html>`;
+    expect(findDocumentExternalRefs(html, '')).not.toEqual([]);
+    expect(() => assertNoDocumentExternalRefs(html, '', 'doc')).toThrow();
+  });
+
+  it('`</base>` 単体(終了タグ)では拒まない', () => {
+    expect(findDocumentExternalRefs('<html><body>x</body></html>', '')).toEqual([]);
+  });
+});
+
+// ── 展開ディレクトリ全体の検査(zip 経路の唯一の関所)──
+describe('assertProjectDirHasNoExternalRefs — 分類は小文字 basename の末尾一致', () => {
+  const dirs: string[] = [];
+  const makeDir = async (files: Record<string, string>): Promise<string> => {
+    const dir = path.join(TEST_TMP_DIR, `proj-${crypto.randomBytes(4).toString('hex')}`);
+    for (const [name, body] of Object.entries(files)) {
+      await fs.mkdir(path.dirname(path.join(dir, name)), { recursive: true });
+      await fs.writeFile(path.join(dir, name), body, 'utf8');
+    }
+    dirs.push(dir);
+    return dir;
+  };
+  afterAll(async () => {
+    for (const d of dirs) await fs.rm(d, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it('.css.map の中の絶対 URL を拾う(extname では .map になり分類から漏れていた)', async () => {
+    const dir = await makeDir({
+      'style.css.map': JSON.stringify({ sources: ['https://evil.example/a.css'] }),
+    });
+    await expect(assertProjectDirHasNoExternalRefs(dir)).rejects.toMatchObject({
+      code: EXTERNAL_REF_CODE,
+    });
+  });
+
+  it('publication.json の絶対 URL を拾う', async () => {
+    const dir = await makeDir({
+      'publication.json': JSON.stringify({ readingOrder: ['http://evil.example/x.html'] }),
+    });
+    await expect(assertProjectDirHasNoExternalRefs(dir)).rejects.toMatchObject({
+      code: EXTERNAL_REF_CODE,
+    });
+  });
+
+  it('<base> 入りの .html を拒む', async () => {
+    const dir = await makeDir({ 'index.html': '<html><head><base href="x/"></head></html>' });
+    await expect(assertProjectDirHasNoExternalRefs(dir)).rejects.toMatchObject({
+      code: EXTERNAL_REF_CODE,
+    });
+  });
+
+  it('同梱資産だけの正当なプロジェクトは通る(業務を止めない)', async () => {
+    const dir = await makeDir({
+      'index.html':
+        '<html><head><link rel=stylesheet href="css/a.css"></head><body>x</body></html>',
+      'css/a.css': '.a{background:url(../img/logo.png)}',
+      'doc.md': '![z](images/z.png)',
+      'publication.json': JSON.stringify({
+        '@context': ['https://schema.org', 'https://www.w3.org/ns/pub-context'],
+        readingOrder: ['index.html'],
+      }),
+      'style.css.map': JSON.stringify({ sources: ['a.css'], names: [] }),
+    });
+    await assertProjectDirHasNoExternalRefs(dir);
   });
 });

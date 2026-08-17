@@ -14,8 +14,8 @@
 //
 // 関連: 置き場/コマンド一覧は `README.md`、再生成物の正典は `.gitignore`。
 
-import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { existsSync, lstatSync, readdirSync, rmSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -27,10 +27,22 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // 照合は**小文字へ畳んでから** (`isNever*`): Windows のファイルシステムは大文字小文字を
 // 保持するだけで区別せず、ネットワークドライブ経由では `Data` のような別ケーシングが
 // 返ることがある。厳密一致だと除外が外れて `--yes` がテンプレ実体を消しうる。
+// `NEVER_REL` は**固定文字列**で持つ (`rel()` へは渡さない): `rel()` は `path.relative` で
+// 絶対パスを前提とするため、相対文字列を渡すと cwd 基準で解決されてしまい、cwd が ROOT 以外
+// (例: `cd editor && node ../scripts/clean.mjs`) だとここの 3 領域が丸ごと外れる。
 const NEVER = new Set(['.git', '.claude', '.github', '.husky', '.vscode']);
-const NEVER_REL = new Set([rel('editor/data'), rel('git-tools'), rel('native-prebuilds')]);
+const NEVER_REL = new Set(['editor/data', 'git-tools', 'native-prebuilds']);
 const isNeverName = (name) => NEVER.has(name.toLowerCase());
 const isNeverRel = (r) => NEVER_REL.has(r.toLowerCase());
+// 完全一致だけでなく配下も保護する (削除直前の二重チェック用。走査時の除外は親ディレクトリ
+// で止まるため isNeverRel の完全一致だけで足りるが、ここは万一の取りこぼしに備えた保険)。
+const isUnderNeverRel = (r) => {
+  const rl = r.toLowerCase();
+  for (const n of NEVER_REL) {
+    if (rl === n || rl.startsWith(`${n}/`)) return true;
+  }
+  return false;
+};
 
 // ── 2. ティア別の固定削除リスト ──
 // light: 再生成が軽い生成物。`pnpm run build` / `test` ですぐ戻る。
@@ -180,13 +192,19 @@ if (wantDeep) {
   console.log('\n⚠ deep: 次回 `pnpm install` (オフライン機は offline/setup-offline-local) が必要です。');
 }
 for (const { r } of rows) {
-  rmSync(join(ROOT, r), { recursive: true, force: true });
+  const abs = assertDeletable(r);
+  rmSync(abs, { recursive: true, force: true });
   console.log(`  削除: ${r}`);
 }
 console.log(`\n完了。${fmt(total)} を解放しました。`);
 
 // ── 6. ユーティリティ ──
 function rel(absPath) {
+  // 相対パスを渡すと `path.relative` が cwd 基準で解決し NEVER_REL 照合が壊れるため、
+  // 呼び出し側の取り違えをここで弾く (再発防止)。
+  if (!isAbsolute(absPath)) {
+    throw new Error(`rel(): 絶対パスが必要 (受け取った値: ${absPath})`);
+  }
   return relative(ROOT, absPath).split('\\').join('/');
 }
 
@@ -195,16 +213,34 @@ function extOf(name) {
   return i < 0 ? '' : name.slice(i);
 }
 
+// 削除直前の最終ガード (収集時の除外に続く二重化)。ROOT 配下でない/ROOT 自体/保護領域の
+// いずれかなら実削除せず例外で止める。
+function assertDeletable(r) {
+  const abs = resolve(ROOT, r);
+  const rootLower = ROOT.toLowerCase();
+  const absLower = abs.toLowerCase();
+  if (absLower === rootLower || !absLower.startsWith(`${rootLower}${sep.toLowerCase()}`)) {
+    throw new Error(`削除中止: ROOT 配下ではありません (${r})`);
+  }
+  if (isUnderNeverRel(r)) {
+    throw new Error(`削除中止: 保護領域です (${r})`);
+  }
+  return abs;
+}
+
 // 容量。大容量ディレクトリは du を回さず -1 (表示は `(大容量)`)。空ディレクトリの 0 と区別する。
+// `lstatSync` を使う (シンボリックリンクは辿らない): リンクループでのハングと、リンク先の
+// 容量をこのディレクトリの容量として誤計上することの両方を避ける。
 function sizeOf(absPath) {
   const base = absPath.split(/[\\/]/).pop();
   if (HEAVY.has(base)) return -1;
   let st;
   try {
-    st = statSync(absPath);
+    st = lstatSync(absPath);
   } catch {
     return 0;
   }
+  if (st.isSymbolicLink()) return 0;
   if (!st.isDirectory()) return st.size;
   let sum = 0;
   let kids;

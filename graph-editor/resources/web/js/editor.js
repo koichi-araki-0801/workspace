@@ -373,9 +373,11 @@ class Editor {
 
   selectLabel(s) {
     if (this.selected === s) return;
-    if (this.selected) this.selected.g.classList.remove("is-selected");
+    // 予約 `data-editor-sel`(class ではなく)を使う: `class` は出口 `sanitizeSvg` が
+    // 値無検査で通す許可属性なので、素のクラス名だと列挙漏れが検知網の外へ出る。
+    if (this.selected) this.selected.g.removeAttribute("data-editor-sel");
     this.selected = s;
-    if (s) s.g.classList.add("is-selected");
+    if (s) s.g.setAttribute("data-editor-sel", "1");
     this.markDirty({ overlay: true, inspector: true });
     this.flushNow();
   }

@@ -10,6 +10,7 @@ import grapesjs, { type Component, type Editor, type ParsedNode } from 'grapesjs
 import { ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
+import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
 import { type GrapesCallbacks, wireGrapesEvents } from './grapesEvents';
 import {
@@ -84,6 +85,8 @@ export function useGrapes() {
   const editing = ref(false);
   /** canvas の read-only フラグ(!allowEdit のミラー)。選択は可だが RTE/drag をブロック。 */
   let locked = false;
+  /** `setEditable` の一括 set 適用中フラグ(dirty 抑制用 — `setEditable` のコメントを見よ)。 */
+  let applyingLockState = false;
   /** component/style 変更ごとに加算され、呼び出し側が幾何を再計算できるようにする。 */
   const revision = ref(0);
   const canMoveUp = ref(false);
@@ -391,6 +394,7 @@ export function useGrapes() {
       onCanvasLoad,
       toInfo,
       isLocked: () => locked,
+      isApplyingLockState: () => applyingLockState,
       canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}`,
       callbacks,
     });
@@ -464,13 +468,22 @@ export function useGrapes() {
     locked = !on;
     const ed = editor.value;
     if (!ed) return;
-    ed.getWrapper()?.onAll((c) => {
-      const type = String(c.get('type') ?? '');
-      if (type.startsWith('jinja-')) return; // jinja の locked 挙動は保つ
-      c.set('editable', on);
-      c.set('draggable', on);
-      c.set('selectable', true);
-    });
+    // `editable`/`draggable` はモデルの見た目状態で、`getHtml()` の出力(保存内容)には
+    // 現れない。だが一括 set は `component:update` を全ノード分発火させ、そのまま
+    // dirty/autosave へ流れると**無編集の draft** が生成される(以後プレビュー/申請が
+    // draft 経路に入る)。適用中フラグで `fireChange` に濾させる(同期ループなので確実)。
+    applyingLockState = true;
+    try {
+      ed.getWrapper()?.onAll((c) => {
+        const type = String(c.get('type') ?? '');
+        if (type.startsWith('jinja-')) return; // jinja の locked 挙動は保つ
+        c.set('editable', on);
+        c.set('draggable', on);
+        c.set('selectable', true);
+      });
+    } finally {
+      applyingLockState = false;
+    }
   }
 
   /**
@@ -605,9 +618,22 @@ export function useGrapes() {
     editor.value?.Canvas.getBody()?.classList.toggle('jinja-vars-highlight', on);
   }
 
-  function load(bodyEditableHtml: string, css: string): void {
+  /**
+   * canvas を HTML + CSS で入れ替える。読み込めたら `true`、外部参照 CSS を拒んだら `false`。
+   *
+   * CSS 検査はここが最終防衛線で、service の入口ガード(`templateEditorService.loadForEdit`)を
+   * 通らない経路(snapshot 復元など)も覆う。判定は shared のトークナイザ 1 本を共有する。
+   * hit したときは `setComponents` も `setStyle` も呼ばない — CSS だけ落として開くと、
+   * 直後の autosave が draft の CSS を空で上書きしてしまう(「拒む」が「削る」に化ける)。
+   */
+  function load(bodyEditableHtml: string, css: string): boolean {
     const ed = editor.value;
-    if (!ed) return;
+    if (!ed) return false;
+    const refs = summarizeExternalCssRefs(css);
+    if (refs !== null) {
+      toast(`CSSに外部参照が含まれるため読み込みを中止しました（${refs}）。`, 'error');
+      return false;
+    }
     ed.setComponents(bodyEditableHtml);
     ed.setStyle(css);
     // setComponents/setStyle 直後は iframe DOM が未描画で、`component:add` の `fireChange`
@@ -619,6 +645,7 @@ export function useGrapes() {
       // load で iframe body が差し替わるため、保持中のハイライト状態を再適用する。
       setVarsHighlight(varsHighlight);
     });
+    return true;
   }
 
   function getBodyHtml(): string {

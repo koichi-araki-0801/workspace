@@ -242,3 +242,46 @@ def test_joined_candidate_single_line():
 def _detect(pg):
     dict_apply.detect_headers(pg)
     return pg
+
+
+def test_apply_replacement_writes_dict_revert(tmp_path):
+    """バッチ用 `apply_replacement` も Command と同じく復元情報を残す。"""
+    top = _text("商品", x=50, oy=40)
+    bottom = _text("名称", x=50, oy=52)
+    pg = _page([top, bottom])
+    store = DictionaryStore(tmp_path / "d.json")
+    store.add("商品名称", "Product", joined=True)
+    dict_apply.auto_apply(pg, store)
+    assert top.dict_revert is not None
+    assert top.dict_revert.text == "商品" and top.dict_revert.extra_ids == [bottom.id]
+    assert top.dict_revert.origin_y == 40 and top.dict_revert.wrap_align is None
+    store.close()
+
+
+def test_has_replacement_candidate_true_for_page_with_hit(tmp_path):
+    """`state` RPC 用の軽量判定: 辞書に一致する要素が 1 件でもあれば True。"""
+    el = _text("Qty", x=50, oy=40)
+    pg = _page([el])
+    store = DictionaryStore(tmp_path / "d.json")
+    store.add("Qty", "数量")
+    assert dict_apply.has_replacement_candidate(pg, store) is True
+    store.close()
+
+
+def test_has_replacement_candidate_false_for_empty_store(tmp_path):
+    """辞書が空なら、置換対象になりうる要素があっても走査せず False を返す。"""
+    el = _text("Qty", x=50, oy=40)
+    pg = _page([el])
+    store = DictionaryStore(tmp_path / "d.json")
+    assert dict_apply.has_replacement_candidate(pg, store) is False
+    store.close()
+
+
+def test_has_replacement_candidate_false_for_no_hits(tmp_path):
+    """辞書に登録があってもページ内のどの要素とも一致しなければ False。"""
+    el = _text("Qty", x=50, oy=40)
+    pg = _page([el])
+    store = DictionaryStore(tmp_path / "d.json")
+    store.add("Amount", "金額")
+    assert dict_apply.has_replacement_candidate(pg, store) is False
+    store.close()

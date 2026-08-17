@@ -8,7 +8,7 @@
        pie-chart.exe / *.cer / OFL-BIZUDPGothic.txt / SIGNING-INFO.txt 以外の
        ファイルもディレクトリも許さない。これは **sidecar が復活していないことの機械検査**
        である。exe の隣に fonts\ や node_modules\ が居ると、署名の外にある書き換え可能な
-       ファイルを実行時に読む経路が戻ってしまう(root A4 / P008)。
+       ファイルを実行時に読む経路が戻ってしまう。
     2. exe の Authenticode 署名が付いており、署名者の thumbprint が期待値と一致すること。
        自己署名では検査端末のストア次第で Status が Valid / UnknownError のどちらにもなるので、
        この 2 値のみを許す(HashMismatch / NotSigned は失敗)。

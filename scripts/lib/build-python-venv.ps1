@@ -73,6 +73,12 @@ function Initialize-BuildVenv {
     if ($LASTEXITCODE -ne 0) { throw 'ビルド venv の作成に失敗しました。' }
   }
 
+  # requirements の形式検査。**pip へ渡すすべての入口で行う**(検査が publish 経路にしか
+  # 無かった頃は、ここと docs のビルドが素通りだった)。`--no-index` は requirements 内の
+  # `--find-links <URL>` や直 URL 参照を止めないので、オフラインでも省略できない。
+  . (Join-Path $PSScriptRoot '..\..\offline\lib\verify.ps1')
+  Assert-OfflineRequirementsFile -Path $RequirementsPath
+
   # 依存インストール(オフライン優先: 同梱 wheelhouse から毎回 install)。
   # wheelhouse があればネット不要でそこから入れる。無ければ通常 pip install へフォールバック。
   Write-Host '============================================'

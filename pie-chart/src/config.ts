@@ -76,8 +76,10 @@ function assertConfigValues(base: {
       `embedFontPath は同梱フォントのみ指定できます: ${JSON.stringify(base.embedFontPath)} ` +
         `(許可: ${[...ALLOWED_EMBED_FONT_PATHS].join(', ')})。`,
     );
-  // `fontFamily` は属性側でのみ使われ escapeXml が効くので、CSS のような許可リストまでは
-  // 要らない。ただし XML 不正文字が混じると SVG 全体がパース不能になるので落ちる形を弾く。
+  // `fontFamily` だけが特別なのではない — 出力 SVG へ入る外部由来の文字列はすべて同じ
+  // 検査を掛ける(ラベル名は `limits.ts` の `assertLabelXmlSafe` が同じ hasXmlInvalidChars で
+  // 入口を塞いでいる)。ここは属性側でのみ使われ escapeXml が効くので許可リストまでは要らないが、
+  // XML 不正文字が混じると除去されて別の文字列が出力される(黙って値が変わる)ので落とす。
   if (typeof base.fontFamily !== 'string' || hasXmlInvalidChars(base.fontFamily))
     throw new Error('fontFamily に XML として出力できない文字が含まれています。');
   // 属性へ直接出る数値。`renderPdfStylePieToSvg(items, overrides)` は型を守らない
@@ -119,6 +121,10 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     embedFont: true,
     embedFontPath: 'fonts/BIZUDPGothic-Regular.woff2',
     embedFontFamilyName: 'BIZ UDPGothic',
+    // 関数そのものを overrides で差し替えられる = 呼び出し元が JS を書ける信頼境界の内側
+    // なので、戻り値へ assertLabelXmlSafe 相当の入口検査は掛けない(掛けても呼び出し元は
+    // 検査を素通りする値でなく直接不正な SVG を書く関数を渡せばよいだけで防御にならない)。
+    // 出力段の escapeXml が最終防衛線として不正文字を除去する。
     percentFormat: (value: number) =>
       value < 0 ? `△${(-value).toFixed(1)}%` : `${value.toFixed(1)}%`,
     lineSpacing: 1.1,

@@ -43,7 +43,10 @@ export const MERGE_PAGE_COUNTER_CSS = `@page {
  * 消える。現行テンプレ CSS にこの種の宣言は無く、将来の混入への予防線として許容する。
  */
 export function stripPageCounterReset(css: string): string {
-  return css.replace(/counter-(?:reset|set)\s*:[^;{}]*\bpage\b[^;{}]*;?/gi, '');
+  // 宣言全体を 1 つの `[^;{}]*` で捕まえてから `\bpage\b` を別途判定する。`\bpage\b` の
+  // 前後に `[^;{}]*` を 2 つ置く書き方は、`page` を含まない長い宣言値で開始位置ごとに
+  // 舐め直す二次バックトラックになる(外部由来 CSS では入力長で任意に伸ばせる)。
+  return css.replace(/counter-(?:reset|set)\s*:[^;{}]*;?/gi, (m) => (/\bpage\b/.test(m) ? '' : m));
 }
 
 /**

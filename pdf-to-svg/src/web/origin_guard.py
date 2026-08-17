@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hmac
 import http.server
+import io
 import logging
 import secrets
 import socket
@@ -50,7 +51,7 @@ from urllib.parse import parse_qs, urlsplit
 
 # 非安全メソッドで許す Content-Type。どちらも CORS セーフリスト外なので、クロスオリジンから
 # 送るにはプリフライトが要る。本サーバは `do_OPTIONS` を持たず ACAO も出さないため、
-# プリフライトは必ず失敗する。P003 の PoC (`text/plain;charset=UTF-8` の simple request) は
+# プリフライトは必ず失敗する。`text/plain;charset=UTF-8` の simple request は
 # Origin 検査とは独立にここで閉じる。値は現行クライアントが実際に送っているものの写しで、
 # 「サーバに合わせてクライアントを直す」のではなく「実態を許可リストとして固定する」向き。
 ALLOWED_REQUEST_CONTENT_TYPES = frozenset({"application/json", "application/octet-stream"})
@@ -69,7 +70,7 @@ TOKEN_QUERY = "token"
 
 # 全応答 (成功 `_send` と拒否 `_reject` の双方) へ載せる防御ヘッダ。**1 応答でも欠けると、
 # その URL が `<iframe>` や `<script src>` の足がかりになる**ので、送信経路を増やしたら
-# 必ず `send_security_headers()` を通すこと。
+# 付与は `end_headers()` の override 1 箇所に集約してある (呼び出し側は意識しない)。
 # - `frame-ancestors 'none'` / `X-Frame-Options: DENY`: 攻撃者ページが本 UI を frame へ
 #   埋め込むのを拒む。同一オリジン検査は frame 化を防げない — frame の中身は**アプリ自身**で、
 #   その `pagehide` が撃つ `/quit` ビーコンは Origin が完全一致して検査を正当に通過する。
@@ -104,6 +105,33 @@ _DRAIN_LIMIT = 1 << 20
 # `_DRAIN_LIMIT` (1 MiB) 到達までスレッドを握り続けられるため、**期限は接続単位**で持つ。
 _LINGER_TIMEOUT = 0.5
 
+# 1 要求あたりの実時間の絶対上限 (秒)。`Handler.timeout` (= `REQUEST_TIMEOUT`) は **recv ごとに
+# 再武装される無通信上限**なので、「N 秒ごとに 1 バイト」を送り続ける相手は 1 要求を無限に
+# 引き延ばして 1 スレッドを恒久占有できる (リクエスト行は改行が来るまで終わらず、`readline` の
+# バイト上限 65537 に達するまで日単位で握れる)。要求の読み取りは `_DeadlineSocketIO` が
+# **要求単位の絶対期限**で縛り、各 recv の手前で残り時間へタイムアウトを張り直す
+# (`_linger_close` と同じ「期限は per-recv でなく単位ごと」の規約)。正常系の往復は数ミリ秒。
+MAX_REQUEST_SECONDS = 30.0
+
+
+class _DeadlineSocketIO(socket.SocketIO):
+    """`rfile` の下地。各 `readinto` の手前でソケットタイムアウトを「この要求の絶対期限までの
+    残り」へ張り直す。`BufferedReader` の内部読み取りはすべて `readinto` を通るので、改行を
+    送らずにドリップして `readline` を無限に引き延ばす形もここで閉じる。素の per-recv
+    タイムアウトは recv ごとに再武装されるため、これが無いと期限が効かない。"""
+
+    def __init__(self, sock, handler):
+        super().__init__(sock, "rb")
+        self._handler = handler
+
+    def readinto(self, b):
+        remaining = self._handler._request_deadline - time.monotonic()
+        if remaining <= 0:
+            raise socket.timeout("request deadline exceeded")
+        cap = self._handler.timeout or MAX_REQUEST_SECONDS
+        self._sock.settimeout(min(cap, remaining))
+        return super().readinto(b)
+
 # ログへ出す詳細値の整形。攻撃者が入れた制御文字でログ行を偽装できないよう、印字可能 ASCII
 # 以外は落として短く切る。
 _LOG_SAFE_CHARS = frozenset(string.ascii_letters + string.digits + "-._:[]/")
@@ -129,7 +157,7 @@ def new_session_token() -> str:
 
     受け渡しは `--app=` の URL クエリ 1 本に絞る (`app.py`)。**配信する HTML へ埋める案は
     採らない**: `GET /` は安全メソッドで誰でも撃てるため、埋めた瞬間に「トークンを持たない
-    ローカルプロセス」が読み出せてしまい、守ろうとしている F11 の脅威そのものを開く。
+    ローカルプロセス」が読み出せてしまい、守ろうとしている脅威 (同一マシンの別ユーザー) そのものを開く。
     残る漏えい面は「起動した `msedge.exe` のコマンドライン」と、フォールバック経路での
     ブラウザ履歴である (Jupyter の `?token=` と同じ割り切り)。ログには書かない。
     """
@@ -157,6 +185,19 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     idle watchdog 用の `last_seen` 更新もその副作用の 1 つなので、判定と同じ場所
     (`_touch_if_same_origin`) に置いて `do_*` からは触らせない。
     """
+
+    def setup(self) -> None:
+        # `rfile` を要求期限つきの下地から作り直す。素の `makefile` 済み `rfile` は per-recv
+        # タイムアウトしか持たないため、ドリップに弱い (`_DeadlineSocketIO` / `MAX_REQUEST_SECONDS`)。
+        super().setup()
+        self._request_deadline = time.monotonic() + MAX_REQUEST_SECONDS
+        size = self.rbufsize if self.rbufsize and self.rbufsize > 0 else io.DEFAULT_BUFFER_SIZE
+        self.rfile = io.BufferedReader(_DeadlineSocketIO(self.connection, self), size)
+
+    def handle_one_request(self) -> None:
+        # keep-alive で接続が再利用される場合、各要求を独立に上限で縛る (要求ごとに期限を引き直す)。
+        self._request_deadline = time.monotonic() + MAX_REQUEST_SECONDS
+        super().handle_one_request()
 
     def parse_request(self) -> bool:
         # `super()` の解析後 (self.command / self.path / self.headers が揃った直後) かつ
@@ -280,10 +321,33 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     # ── 応答ヘッダ ──
 
     def send_security_headers(self) -> None:
-        """`SECURITY_HEADERS` を応答へ載せる。**全応答経路から呼ぶこと** (成功も 404 も 403 も)。
-        欠けた応答が 1 本でもあれば、その URL だけを frame / 他オリジン読み出しに使える。"""
+        """`SECURITY_HEADERS` を応答へ載せる。**呼び出し側は意識しなくてよい** —
+        `end_headers()` の override がすべての応答へ自動で載せる (下記)。"""
         for name, value in SECURITY_HEADERS:
             self.send_header(name, value)
+
+    def end_headers(self) -> None:
+        """全応答の共通出口。ここで `SECURITY_HEADERS` を載せる。
+
+        規約 (「全応答経路から呼ぶこと」) ではなく**構造**で強制する。明示呼び出し方式では
+        自分で書いた経路 (`_send` / `_reject`) しか覆えず、基底クラスが直接返す応答
+        — `HEAD` に `do_HEAD` が無いときの **501**、リクエスト行が長すぎるときの **414**、
+        その他 `send_error()` 全般 — が素通りになる。ヘッダの無い応答が 1 本でもあれば、
+        `Cross-Origin-Resource-Policy` が効かず「このポートでこのアプリが動いている」を
+        クロスオリジンから確定できる (ポート探索オラクル)。
+
+        二重付与を避けるため 1 応答につき 1 回だけ載せる。`send_response_only()` が
+        新しい応答の開始点なので、そこでフラグを戻す。
+        """
+        if not getattr(self, "_sec_headers_done", False):
+            self._sec_headers_done = True
+            self.send_security_headers()
+        super().end_headers()
+
+    def send_response_only(self, code, message=None):  # type: ignore[override]
+        """応答の開始点。`end_headers()` の二重付与ガードをここで戻す。"""
+        self._sec_headers_done = False
+        super().send_response_only(code, message)
 
     # ── 拒否応答 ──
 
@@ -299,7 +363,6 @@ class GuardedHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("Connection", "close")
-            self.send_security_headers()
             self.end_headers()
             self.wfile.write(body)
         except OSError:

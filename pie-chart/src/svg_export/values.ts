@@ -244,8 +244,8 @@ export function assertSvgColor(label: string, value: unknown): string {
 }
 
 /**
- * `font-weight` の受理集合。**正規表現でなく完全一致の Set で書く** — JS の `$` は
- * 既定で末尾改行の直前にも一致するため `/^\d{3}$/` は `'400\n'` を通す。
+ * `font-weight` の受理集合。**正規表現でなく完全一致の Set で書く** — Set は受理集合が
+ * 仕様として閉じていることを構造で示せる(正規表現は読み手が受理範囲を再導出する必要がある)。
  */
 const FONT_WEIGHTS: ReadonlySet<string> = new Set([
   '100',

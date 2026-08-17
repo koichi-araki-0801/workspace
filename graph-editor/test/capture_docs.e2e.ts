@@ -53,7 +53,7 @@ async function loadAndSelect(page: import("@playwright/test").Page) {
 /** 選択中ラベル (ハンドル込み) の周囲を切り出す clip 矩形を求める。 */
 async function selectedClip(page: import("@playwright/test").Page) {
 	const box = await page.evaluate(() => {
-		const g = document.querySelector("g.label.is-selected");
+		const g = document.querySelector("g.label[data-editor-sel]");
 		const r = (g as SVGGElement).getBoundingClientRect();
 		return { x: r.x, y: r.y, width: r.width, height: r.height };
 	});

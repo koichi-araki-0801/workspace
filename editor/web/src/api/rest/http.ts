@@ -5,7 +5,13 @@
 // (`credentials: 'include'`)、HTTP 失敗を共有 {@link AppError} へ写す。サーバの構造化
 // ボディ `{ kind, message, code }` を優先し、無ければステータスコードへフォールバック
 // する。`attemptRest`(throw→Result シーム)は local repos の `attempt` を再 export する。
-import { type AppError, type AppErrorKind, appError, network } from '@editor/shared';
+import {
+  type AppError,
+  type AppErrorKind,
+  appError,
+  isAppErrorKind,
+  network,
+} from '@editor/shared';
 
 // throw→Result シームは local と REST で同一なので、REST は local の `attempt` を再利用
 // する(既存 import を保つため `attemptRest` として再 export)。
@@ -50,8 +56,8 @@ async function toError(res: Response): Promise<AppError> {
   } catch {
     body = undefined;
   }
-  if (body && typeof body.kind === 'string' && typeof body.message === 'string') {
-    return appError(body.kind as AppErrorKind, body.message, {
+  if (body && isAppErrorKind(body.kind) && typeof body.message === 'string') {
+    return appError(body.kind, body.message, {
       code: typeof body.code === 'string' ? body.code : undefined,
     });
   }

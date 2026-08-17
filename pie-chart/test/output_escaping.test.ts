@@ -1,10 +1,10 @@
 // =============================================================================
-// output_escaping.test.ts — 設定値の素通し(P022 / P039 / P043)の退行ガード
+// output_escaping.test.ts — 設定値の素通しの退行ガード
 // =============================================================================
 // 「エスケープすべき属性」を列挙する形だと、同じ 1 行の中で `font-family` は escape され
 // `fill` は素通し、という非対称が生まれる。`--font-weight '400" onload="alert(1)'` で全 `<text>`
-// に onload が付くことが実測されている。**「迂回入力で throw すること」を主張する形**で書く。
-import { readFileSync } from 'node:fs';
+// に onload が付く。**「迂回入力で throw すること」を主張する形**で書く。
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -21,15 +21,15 @@ const ITEMS: Array<[string, number]> = [
 /** 属性を閉じて新しい属性を足す典型的な breakout 値。 */
 const BREAKOUT = '#111" onload="alert(1)';
 
-describe('設定値の許可リスト(P022)', () => {
+describe('設定値の許可リスト', () => {
   it('font-weight の属性 breakout を拒否する', async () => {
     await expect(
       renderPdfStylePieToSvg(ITEMS, { fontWeight: '400" onload="alert(1)' }),
     ).rejects.toThrow(/font-weight/);
   });
 
-  // `$` は既定で末尾改行の直前にも一致するので、正規表現 `/^\d{3}$/` は `'400\n'` を通す。
-  // Set の完全一致で書いていることを固定する。
+  // 完全一致の Set は受理集合が仕様として閉じていることを構造で示せる(正規表現は読み手が
+  // 受理範囲を再導出する必要がある)。Set の完全一致で書いていることを固定する。
   it('末尾に改行や空白が付いた font-weight を拒否する', () => {
     for (const bad of ['400\n', '400 ', ' 400', '400;']) {
       expect(() => createPieLayoutConfig({ fontWeight: bad }), bad).toThrow(/font-weight/);
@@ -80,9 +80,9 @@ describe('設定値の許可リスト(P022)', () => {
     expect(() => createPieLayoutConfig()).not.toThrow();
   });
 
-  // F46: `embedFontPath` だけが許可リストから漏れており、読めたファイルの中身がそのまま
-  // `@font-face` の base64 として出力 SVG へ入る経路になっていた(読み出しと持ち出しが
-  // 1 経路でつながる)。同梱フォント 2 ファイルの完全一致のみを通す。
+  // `embedFontPath` は設定値のうち唯一「読めたファイルの中身がそのまま `@font-face` の
+  // base64 として出力 SVG へ入る」フィールドで、許可リストから漏れると読み出しと持ち出しが
+  // 1 経路でつながる。同梱フォント 2 ファイルの完全一致のみを通す。
   it('embedFontPath は同梱フォント 2 ファイル以外を拒否する', () => {
     for (const bad of [
       'C:\\Users\\svc\\.ssh\\id_rsa',
@@ -101,10 +101,10 @@ describe('設定値の許可リスト(P022)', () => {
   });
 });
 
-// F46 の第 2 層。config の検査を迂回して cfg を直に組んでも、フォントとして解釈できない
+// 第 2 層。config の検査を迂回して cfg を直に組んでも、フォントとして解釈できない
 // バイト列は埋め込まれない(subset 失敗時に原本を truetype と名乗って base64 埋込する
 // fallback へ倒さない)。
-describe('埋め込みフォントの fallback(F46)', () => {
+describe('埋め込みフォントの fallback', () => {
   it('フォントでないファイルは subset 失敗時に埋め込まず投げる', async () => {
     const { buildFontFaceDefs } = await import('../src/svg_export/font.js');
     const cfg = { ...createPieLayoutConfig(), embedFontPath: 'README.md' };
@@ -142,20 +142,47 @@ describe('出力側からの網羅主張', () => {
 // 列挙(「この属性もエスケープする」)の漏れを「`attr()` を使っていない箇所」として検出する。
 describe('属性を書く手段は attr() 1 つだけ(ソース走査)', () => {
   const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/svg_export');
+  // 個別ファイルのハードコードだと新規ファイルが検査から漏れる。build_pins.test.ts の
+  // .ps1 走査と同じ形で svg_export/ 配下の .ts を全走査する。
+  const srcFiles = readdirSync(srcDir).filter((f) => f.endsWith('.ts'));
 
-  it.each([
-    'rendering.ts',
-    'font.ts',
-    'pipeline.ts',
-  ])('%s にテンプレートリテラルで組んだ属性が残っていない', (name) => {
-    const text = readFileSync(path.join(srcDir, name), 'utf8');
-    // ` name="${...}"` の形(= attr() を通さずに属性を組んでいる箇所)。
-    const offenders = text.match(/[\w:-]+="\$\{[^}]*\}/g) ?? [];
-    expect(offenders, `attr() を通さずに属性を組んでいる: ${offenders.join(' / ')}`).toEqual([]);
+  // 走査で引っかかる正当行(コード例のコメント等)は行内容の完全一致でのみ除外する。
+  // 「コメント行なら除外」のような緩い述語にすると、本物の breakout をコメント化して
+  // 隠す迂回を通してしまう。
+  const ALLOWED_OFFENDER_LINES: ReadonlySet<string> = new Set([
+    ' * — テンプレートリテラルで `x="${v}"` と組む箇所を残すと、そこが次の注入点になる。',
+  ]);
+
+  it('走査対象の .ts が存在する(空なら検査自体が空振りしている)', () => {
+    expect(srcFiles.length).toBeGreaterThan(0);
+    expect(srcFiles).toEqual(expect.arrayContaining(['rendering.ts', 'font.ts', 'pipeline.ts']));
   });
+
+  for (const name of srcFiles) {
+    it(`${name} にテンプレートリテラルで組んだ属性が残っていない`, () => {
+      const text = readFileSync(path.join(srcDir, name), 'utf8');
+      // 行単位でなく全文へ正規表現を当てる。`[^}]*` は改行も含むので、属性を複数行に
+      // 折り返した breakout(`x="${\n...\n}"` のような形)も拾える。ネストした `${...}` の
+      // 中に `}` が現れると早期に閉じてしまうが、attr() 迂回の検出という検査意図では
+      // 1 段の breakout を見つけられれば十分なので今回はこの限界を据え置く。
+      const offenders = [...text.matchAll(/[\w:-]+="\$\{[^}]*\}/g)]
+        .filter((match) => {
+          // マッチの開始位置が属する行を求め、その行がまるごと許可リストに載っているかで
+          // 除外を判定する(マッチ文字列自体でなく行内容の完全一致にすることで、正当な
+          // コメント例だけを通し、複数行の実コードは素通りさせない)。
+          const start = match.index ?? 0;
+          const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+          const lineEndRaw = text.indexOf('\n', start);
+          const lineEnd = lineEndRaw === -1 ? text.length : lineEndRaw;
+          return !ALLOWED_OFFENDER_LINES.has(text.slice(lineStart, lineEnd));
+        })
+        .map((match) => match[0]);
+      expect(offenders, `attr() を通さずに属性を組んでいる: ${offenders.join(' / ')}`).toEqual([]);
+    });
+  }
 });
 
-describe('XML 1.0 不正文字の除去(P039)', () => {
+describe('XML 1.0 不正文字の除去', () => {
   it('制御文字と孤立サロゲートを落とす', () => {
     expect(escapeXml('ok\u0007bell')).toBe('okbell');
     expect(escapeXml('a\u0000b\u001Fc')).toBe('abc');
@@ -166,9 +193,13 @@ describe('XML 1.0 不正文字の除去(P039)', () => {
     expect(escapeXml('a\tb\nc')).toBe('a\tb\nc');
   });
 
-  it('制御文字を含む名前でも出力 SVG に不正文字が現れない', async () => {
-    const { svg } = await renderPdfStylePieToSvg([['ベル\u0007入り', 100]], {});
-    expect(svg).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/);
+  // 入口(`normalizeInputItems` の `checkName`)が fail-close するので、除去されて別の
+  // 文字列が黙って出力される経路はもう無い。escapeXml 自身の除去挙動(上記)は出力段の
+  // 最終防衛線としてそのまま残す。
+  it('制御文字を含む名前は入口で明示エラーになる', async () => {
+    await expect(renderPdfStylePieToSvg([['ベル入り', 100]], {})).rejects.toThrow(
+      /invalid in XML output/,
+    );
   });
 });
 

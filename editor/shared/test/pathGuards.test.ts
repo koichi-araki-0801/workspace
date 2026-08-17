@@ -3,9 +3,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertFundCode,
+  assertPairKey,
   assertTemplateFileName,
   assertTemplateId,
   isValidFundCode,
+  isValidPairKey,
   isValidTemplateId,
   parseTemplateFileName,
   TEMPLATE_FILENAME_RE,
@@ -71,6 +73,18 @@ describe('isValidFundCode', () => {
     }
   });
 
+  it('rejects Windows reserved device names, with or without an extension', () => {
+    for (const name of ['CON', 'nul', 'COM1', 'aux.css', 'PRN', 'lpt1.html', 'Nul.HTML']) {
+      expect(isValidFundCode(name)).toBe(false);
+    }
+  });
+
+  it('does not over-reject names that merely start with a reserved prefix', () => {
+    for (const name of ['CONSOLE', 'COM10', 'PRINTER', 'AUXILIARY']) {
+      expect(isValidFundCode(name)).toBe(true);
+    }
+  });
+
   it('rejects every traversal payload', () => {
     for (const payload of TRAVERSAL_PAYLOADS) {
       expect(isValidFundCode(payload)).toBe(false);
@@ -115,6 +129,36 @@ describe('assertTemplateFileName', () => {
 
   it('rejects a traversal disguised as a template filename', () => {
     expect(() => assertTemplateFileName('../../evil.html')).toThrowError(
+      expect.objectContaining({ kind: 'validation' }),
+    );
+  });
+});
+
+describe('assertPairKey', () => {
+  const VALID_PAIR_KEY = 'AM01_510037_20240710';
+
+  it('accepts the canonical company_fund_baseDate form', () => {
+    expect(isValidPairKey(VALID_PAIR_KEY)).toBe(true);
+    expect(assertPairKey(VALID_PAIR_KEY)).toBe(VALID_PAIR_KEY);
+  });
+
+  it('rejects every traversal payload', () => {
+    for (const payload of TRAVERSAL_PAYLOADS) {
+      expect(isValidPairKey(payload)).toBe(false);
+    }
+  });
+
+  it('rejects a key with too few or too many tokens', () => {
+    expect(isValidPairKey('AM01_510037')).toBe(false);
+    expect(isValidPairKey('AM01_510037_20240710_交付版')).toBe(false);
+  });
+
+  it('rejects a key with an empty token', () => {
+    expect(isValidPairKey('AM01__20240710')).toBe(false);
+  });
+
+  it('assertPairKey throws a validation AppError carrying the offending value', () => {
+    expect(() => assertPairKey('../../evil')).toThrowError(
       expect.objectContaining({ kind: 'validation' }),
     );
   });

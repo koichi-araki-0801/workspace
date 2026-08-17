@@ -46,15 +46,26 @@ const AREAS = {
     match: (p) => p.startsWith('pdf-to-svg/'),
     stages: ['test:pdf-to-svg'],
   },
+  offline: {
+    label: 'offline',
+    match: (p) => p.startsWith('offline/'),
+    stages: ['ci:offline'],
+  },
 };
+// `.claude/` は領域として持たない: `.gitignore` で git 追跡外のため、変更が `git diff` に
+// 現れず領域発火の判定材料にならない。代わりに `check:claude-hooks` を下の共有ゲートへ
+// 無条件実行として組み込み、diff に関わらず毎回検査する。
 
 // 領域 CI を持たない無害ディレクトリ。これらだけの変更なら共有ゲート(comments/biome)のみで足りる。
-// (`docs`/`offline` は配布物、`scripts`/`.github`/`.claude` は comments 検査が常時担保。)
+// (`scripts`/`.github`/`.husky` は comments 検査が常時担保。)
 // `pdf-to-svg/` はここへ含めない。ローカル HTTP サーバの Origin/Host 検査の退行を守るテストが
 // pytest 側にしか無く、この一覧に入れると**変更しても CI が 1 段も起動しない**
 // (pre-push でセキュリティテストが一度も走らない)。無害扱いにしてよいのは
 // CI 領域を持たないディレクトリだけ。
-const BENIGN_PREFIXES = ['docs/', 'offline/', 'scripts/', '.github/', '.claude/', '.husky/'];
+// `offline/` も同じ理由でここへ含めない: 署名検証・requirements 許可リストの実装本体
+// (offline/lib/verify.ps1)には固有の検査があり、無害入りしていた期間はその検査が
+// 1 段も起動しなかった(comments 検査は .ps1 の BOM/併設しか見ず、実装のロジックは見ない)。
+const BENIGN_PREFIXES = ['docs/', 'scripts/', '.github/', '.husky/'];
 
 // ── 2. 引数・ベース ref の決定 ──
 // 既定は現ブランチの upstream(= origin/<branch>)。常設ブランチ運用では push 対象の新規コミット
@@ -107,6 +118,9 @@ function runPnpm(script) {
 
 function runFullCi(reason) {
   console.log(`\n[ci:affected] ${reason} → フル \`ci\` を実行します。`);
+  // `ci`(package.json)は check:claude-hooks を含まない。diff に関わらず常時検査する
+  // 対象なので、フル CI へ委譲するこの経路でも取りこぼさないよう先に単独で走らせる。
+  runPnpm('check:claude-hooks');
   runPnpm('ci');
   if (!DRY) console.log('\n[ci:affected] フル ci 完了。');
   process.exit(0);
@@ -151,8 +165,14 @@ console.log(`[ci:affected] 実行領域: ${selected.size ? [...selected].map((a)
 console.log(`[ci:affected] スキップ領域: ${skipped.length ? skipped.map((a) => AREAS[a].label).join(', ') : '(なし)'}`);
 
 // 共有ゲートは領域の有無に関わらず 1 回だけ実行(comments は .ps1/.md 等も検査するため常時必要)。
+// claude-hooks も同列: `.claude/` は git 追跡外で diff に現れないため領域発火の対象にできず、
+// diff の中身に関わらず常時検査する側に置くしかない。test:scripts も同列: `scripts/` は
+// 領域を持たず BENIGN_PREFIXES 止まりのため、`scripts/clean.test.mjs` は他の領域と紐付けず
+// ここで常時実行する。
 runPnpm('check:comments');
+runPnpm('check:claude-hooks');
 runPnpm('check:ci');
+runPnpm('test:scripts');
 
 if (selected.size === 0) {
   console.log('\n[ci:affected] 変更領域なし。共有ゲートのみで完了。');

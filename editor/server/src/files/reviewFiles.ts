@@ -81,6 +81,28 @@ export async function readReview(reqId: string): Promise<ReviewRequest | null> {
  */
 export const MAX_REVIEW_SCAN = 5_000;
 
+/**
+ * **未処理(pending)**申請の同時保持数の上限。申請の作成は editor 1 ロールでいくらでも
+ * 撃てるうえ、1 件あたり最大でボディ上限ぶんのバイト列を `reviewsDir` へ書く。上限が無いと
+ * 1 人で dataRoot を膨らませられ、`reviewsDir` は templates / `.git` と同じボリュームに
+ * あるので、枯渇は `atomicWrite` と `commitAll` の失敗 = **承認フローの停止**へ直結する。
+ *
+ * 数える対象を pending に限るのは、決着済み(approved/rejected)の件数は**承認者の操作
+ * ぶんしか増えない**ため。攻撃者が伸ばせるのは pending だけで、そこを縛れば増加は止まる。
+ * 逆に総数で縛ると、決着済みが積もった時点で新規申請が恒久的に通らなくなる
+ * (削除経路を持たない以上、自ら作る停止状態のほうが害が大きい)。
+ *
+ * 値は「人が処理する行列」の現実的な上限。500 件の未処理は運用としては既に破綻しており、
+ * ここに達したら資源ではなく運用を直すべき状態である。
+ */
+export const MAX_PENDING_REVIEWS = 500;
+
+/** 未処理申請の件数。上限判定に使う(一覧と同じ走査上限が掛かる)。 */
+export async function countPendingReviews(): Promise<number> {
+  const metas = await listReviewMetas();
+  return metas.filter((m) => m.status === 'pending').length;
+}
+
 /** 同時に開くメタファイル数。`Promise.all` の全件同時 open は fd を枯渇させる。 */
 const REVIEW_READ_CONCURRENCY = 8;
 

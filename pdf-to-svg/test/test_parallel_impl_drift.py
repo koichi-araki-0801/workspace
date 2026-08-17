@@ -12,7 +12,7 @@ verbose ログ既定 OFF は graph-editor にだけ入った。申し送りで�
 
 同じ主張を graph-editor 側 (`test/test_parallel_impl_drift.py`) にも置いてある。CI は
 `pnpm run ci:pdf-to-svg` / `ci:graph-editor` のように片側だけ走ることがあり、検査が片側に
-しか無いと「変えた側の CI では落ちない」= 今回の drift がそのまま再発するためで、この複製は
+しか無いと「変えた側の CI では落ちない」= drift を検出できないためで、この複製は
 意図的である。
 
 graph-editor は実行時依存ゼロ (標準ライブラリのみ) なので、相手側の読み込みに追加の依存は
@@ -21,6 +21,7 @@ graph-editor は実行時依存ゼロ (標準ライブラリのみ) なので、
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +30,7 @@ import pytest
 from web import origin_guard, server
 
 GRAPH_EDITOR_DIR = Path(__file__).resolve().parents[2] / "graph-editor"
+PDF_TO_SVG_DIR = Path(__file__).resolve().parents[1]
 
 # graph-editor 側の `app.py` を読み込むときの別名。こちらにも `src/app.py` があり、素の
 # `app` で読むと**どちらか一方が他方を上書きする**ため、必ず別名で読む。
@@ -60,6 +62,51 @@ def _graph_editor_app():
         sys.path.remove(str(GRAPH_EDITOR_DIR))
 
 
+def _js_escape_map(js_path: Path, func_name: str) -> dict:
+    """`func_name` 関数の本体から HTML エスケープの置換表 (1 文字 → 置換後文字列) を抽出する。
+
+    JS を実行せずソーステキストを読むだけなので、`function` 宣言と内側のアロー関数呼び出しの
+    どちらでも (= 体裁が両側で違っても) 実際に使われる置換ペアだけを比較できる。波括弧の対応を
+    数えて関数本体を切り出し、その中の `"x": "y"` 形の対だけを拾う。
+    """
+    text = js_path.read_text(encoding="utf-8")
+    start = text.index(f"function {func_name}(")
+    body_start = text.index("{", start)
+    depth = 0
+    body_end = None
+    for i in range(body_start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                body_end = i
+                break
+    assert body_end is not None, f"{func_name} の閉じ括弧が見つからない"
+    body = text[body_start:body_end]
+    pairs = re.findall(r'''(["'])(.)\1\s*:\s*(["'])((?:\\.|[^"'\\])*)\3''', body)
+    return {key: value for _q1, key, _q2, value in pairs}
+
+
+# ── HTML エスケープ (JS 並行実装) ──
+
+
+def test_html_escape_map_matches():
+    """pdf-to-svg `dom.js` の `esc` と graph-editor `utils.js` の `escapeHtml` が
+    同じ置換表を持つこと。
+
+    `'` の抜けは (属性が二重引用符で書かれる限り) 表示上の破綻を起こさないが、片方だけ
+    抜けたまま気付かれない形こそが並行実装の drift そのものなので、逐語比較で機械的に塞ぐ。
+    """
+    if not GRAPH_EDITOR_DIR.exists():
+        pytest.skip("graph-editor のソースが同居していない")
+    pdf_map = _js_escape_map(PDF_TO_SVG_DIR / "resources" / "web" / "dom.js", "esc")
+    ge_map = _js_escape_map(
+        GRAPH_EDITOR_DIR / "resources" / "web" / "js" / "utils.js", "escapeHtml")
+    assert pdf_map == ge_map
+    assert pdf_map == {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}
+
+
 # ── 認可・防御ヘッダ ──
 
 
@@ -72,6 +119,31 @@ def test_security_headers_and_token_transport_match():
     assert origin_guard.SECURITY_HEADERS == other.SECURITY_HEADERS
     assert origin_guard.TOKEN_HEADER == other.TOKEN_HEADER
     assert origin_guard.TOKEN_QUERY == other.TOKEN_QUERY
+
+
+def test_security_headers_are_attached_at_end_headers_on_both_sides():
+    """付与の**やり方**まで一致すること (値の一致だけでは足りない)。
+
+    値が同じでも「どこで載せるか」が違えば、片側だけ抜ける応答が生まれる。実際、両側とも
+    自分で書いた送信経路 (`_send` / `_reject`) からの明示呼び出しだった頃は、基底クラスが
+    直接返す応答 (`HEAD` → 501、長すぎるリクエスト行 → 414、その他 `send_error()`) に
+    ヘッダが載っていなかった。**両側に同じ穴があったので値の照合では検出できない** —
+    このテストはその形の drift を狙う。
+
+    主張は「`end_headers()` を override して 1 応答 1 回だけ載せる」形であること。
+    """
+    other = _graph_editor_app()
+    # クラス名は両側で揃っていない(pdf-to-svg=`GuardedHTTPRequestHandler` /
+    # graph-editor=`GuardedHandler`)。揃えるべきは名前ではなく**付与のやり方**なので、
+    # それぞれの基底ハンドラを名指しで取る。
+    for mod, handler in (
+        (origin_guard, origin_guard.GuardedHTTPRequestHandler),
+        (other, other.GuardedHandler),
+    ):
+        # 基底のままではない = override している。
+        assert "end_headers" in vars(handler), mod.__name__
+        # 二重付与ガードのために応答の開始点も押さえている。
+        assert "send_response_only" in vars(handler), mod.__name__
 
 
 def test_guard_decision_table_matches():
@@ -99,6 +171,9 @@ def test_connection_resource_limits_match():
     assert server.REQUEST_TIMEOUT == other.REQUEST_TIMEOUT
     assert server.MAX_CONNECTIONS == other.MAX_CONNECTIONS
     assert origin_guard._LINGER_TIMEOUT == other._LINGER_TIMEOUT
+    # 要求単位の絶対期限。per-recv タイムアウトを接続 (要求) 単位へ引き上げた本体で、
+    # 片側だけ緩めると「ドリップに弱いのは片方だけ」の drift が黙って成立する。
+    assert origin_guard.MAX_REQUEST_SECONDS == other.MAX_REQUEST_SECONDS
     # 定数を宣言しただけで配線し忘れる形 (`timeout` 未設定) をここで落とす。
     assert server.Handler.timeout == other.Handler.timeout == server.REQUEST_TIMEOUT
 
@@ -112,8 +187,8 @@ def test_edge_launch_args_match_and_carry_no_logging_flags_by_default():
     verbose ログは `--app=` の URL (= セッショントークン) を書き込みうるうえ、既定プロファイル
     で開く設計上その記録は利用者の Edge セッション全体に及ぶ。既定 OFF が片側だけになると、
     その片側だけがトークンをディスクへ落とす可能性を抱え続ける。
-    `--user-data-dir` / `--disable-gpu` は VDI クラッシュの実績があり (両正典の却下集)、
-    どちらのプロジェクトでもどの経路でも付かないことを併せて固定する。
+    `--user-data-dir` / `--disable-gpu` は付けない (両正典の却下集)。どちらのプロジェクトでも
+    どの経路でも付かないことを併せて固定する。
     """
     import app as ours
 
@@ -134,15 +209,17 @@ def test_edge_launch_args_match_and_carry_no_logging_flags_by_default():
     # ログの保持上限・ファイル名・環境変数の読み方も同一 (環境変数**名**だけがプロジェクト固有)。
     assert ours.EDGE_LOG_MAX_BYTES == other.EDGE_LOG_MAX_BYTES
     assert ours.EDGE_LOG_NAME == other.EDGE_LOG_NAME
-    assert ours._FALSY_ENV_VALUES == other._FALSY_ENV_VALUES
+    # 有効判定の許可集合 (真値リテラル)。片側だけ広げると、片方の配布物だけ未知の綴りで
+    # 診断ログ (= トークン漏えい面) が開いてしまう。
+    assert ours._TRUTHY_ENV_VALUES == other._TRUTHY_ENV_VALUES
     assert ours.EDGE_LOG_ENV != other.EDGE_LOG_ENV
 
 
-# ── 可変状態の置き場 (F43) ──
+# ── 可変状態の置き場 ──
 
 
 def test_mutable_state_stays_out_of_the_program_directory(monkeypatch, tmp_path):
-    """可変状態の置き場の決定 (F43) が両実装で揃っていること。
+    """可変状態の置き場の決定が両実装で揃っていること。
 
     exe を共有フォルダ・ネットワークドライブへ置く配布で可変状態 (診断ログ等) を exe 隣へ
     書くと、複数人の同時起動が `startup.log` を共同追記して記録が混ざるうえ、プログラム

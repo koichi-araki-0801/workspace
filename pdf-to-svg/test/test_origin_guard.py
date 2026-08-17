@@ -30,6 +30,7 @@ from web import origin_guard
 from web.rpc_methods import WebSession
 from web.server import Handler, create_server
 from web.undo_stack import UndoStack
+import socket
 
 # 「Host ヘッダを省略する」を `None` と区別するための番兵。
 _DEFAULT = object()
@@ -166,7 +167,7 @@ def test_rpc_rejects_duplicate_origin_headers(server):
 
 
 @pytest.mark.parametrize("ctype", [
-    "text/plain;charset=UTF-8",             # P003 の PoC そのもの
+    "text/plain;charset=UTF-8",             # プリフライト無しで送れる simple request
     "application/x-www-form-urlencoded",    # <form> 送信
     "multipart/form-data; boundary=x",      # <form enctype>
     "application/json+evil",                # 許可値の前方一致狙い
@@ -280,7 +281,7 @@ def test_get_does_not_require_a_token(server):
 
 def test_token_is_never_served_to_unauthorized_clients(server):
     """**トークンを配信物へ埋めない**こと。埋めた瞬間に `GET /` を撃てる任意のローカル
-    プロセスが読み出せ、F11 の脅威 (同一マシンの別ユーザー) がそのまま復活する。
+    プロセスが読み出せ、同一マシンの別ユーザーという脅威がそのまま復活する。
     受け渡しは `--app=` の URL クエリ 1 本だけ (`app.py`)。"""
     port = server.server_address[1]
     token = server.guard_token.encode()
@@ -360,8 +361,8 @@ def test_unread_body_does_not_reset_the_connection(server):
     `_drain_body` は `Transfer-Encoding` を読めないのでこの経路へ落ちる。
 
     上の `test_transfer_encoding_is_rejected` は本文の続きが届くのとサーバが閉じるのの
-    競争になっていて、この退行を取りこぼす (実測で 3 回に 1 回ほど接続エラー側へ倒れた)。
-    ここでは 403 を送り終えた頃合いに続きを送りつけ、確定的に踏ませる。
+    競争になっていて、この退行を取りこぼしうる。ここでは 403 を送り終えた頃合いに続きを
+    送りつけ、確定的に踏ませる。
     """
     port = server.server_address[1]
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
@@ -453,7 +454,7 @@ def test_upload_without_origin_is_rejected_before_parsing(server):
 
 def test_unconfigured_server_rejects_everything(tmp_path):
     """`ThreadingHTTPServer` を素で組んで `configure_guard` を忘れた場合は全拒否 (fail open しない)。
-    `test/e2e_server.py` がかつてこの形だったので、回帰として固定する。"""
+    テスト用の使い捨てサーバで生まれやすい形なので、回帰として固定する。"""
     session = WebSession(DictionaryStore(tmp_path / "dict.json"), UndoStack())
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     srv.web_root = str(config.resource_path("web"))
@@ -543,3 +544,59 @@ def test_reject_logging_is_capped_per_reason(server, caplog):
     assert len(lines) == origin_guard.REJECT_LOG_LIMIT
     # 攻撃者の入れた値をそのままログへ出さない (制御文字での行偽装を防ぐ整形が効いている)。
     assert all("\n" not in r.getMessage() for r in lines)
+
+def _raw_head(port, request_bytes):
+    """生ソケットで 1 往復し、応答ヘッダ部だけを小文字で返す。
+
+    `http.client` はリクエスト行の長さを自前で検証してしまうため、414 を出させるには
+    生で送る必要がある。
+    """
+    with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
+        sock.sendall(request_bytes)
+        chunks = []
+        while b"\r\n\r\n" not in b"".join(chunks):
+            got = sock.recv(4096)
+            if not got:
+                break
+            chunks.append(got)
+    return b"".join(chunks).split(b"\r\n\r\n", 1)[0].decode("latin-1")
+
+
+def test_security_headers_are_sent_on_base_class_responses(server):
+    """基底クラスが直接返す応答にも防御ヘッダが載ること。
+
+    `_send` / `_reject` を明示的に通らない応答が 2 種ある:
+      - `HEAD` に `do_HEAD` が無いときの **501**
+      - リクエスト行が長すぎるときの **414** (`parse_request()` より前で返るので
+        同一オリジン検査すら通らない)
+    どちらも `send_error()` 経由で、明示呼び出し方式では防御ヘッダ無しで出ていた。
+    ヘッダが欠けると `Cross-Origin-Resource-Policy` が効かず、クロスオリジンの
+    `fetch(..., {method:'HEAD', mode:'no-cors'})` が resolve する = 「このポートでこの
+    アプリが動いている」を確定できる (ポート探索オラクル)。付与は `end_headers()` の
+    override 1 箇所へ集約してあるので、送信経路を足しても付け忘れは起きない。
+    """
+    port = server.server_address[1]
+
+    status, _, headers = _request(port, "HEAD", "/")
+    assert status == 501
+    assert headers.get("X-Frame-Options") == "DENY"
+    assert headers.get("X-Content-Type-Options") == "nosniff"
+    assert headers.get("Cross-Origin-Resource-Policy") == "same-origin"
+    assert "frame-ancestors 'none'" in (headers.get("Content-Security-Policy") or "")
+
+    head = _raw_head(port, b"GET /" + b"a" * 70000 + b" HTTP/1.1\r\n\r\n").lower()
+    assert " 414 " in head.split("\r\n", 1)[0]
+    assert "x-frame-options: deny" in head
+    assert "cross-origin-resource-policy: same-origin" in head
+    assert "frame-ancestors 'none'" in head
+
+
+def test_security_headers_are_not_duplicated(server):
+    """1 応答につき 1 回だけ載ること (`end_headers()` の二重付与ガード)。"""
+    port = server.server_address[1]
+    head = _raw_head(
+        port,
+        b"GET / HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nConnection: close\r\n\r\n" % port,
+    ).lower()
+    assert head.count("x-frame-options:") == 1
+    assert head.count("cross-origin-resource-policy:") == 1

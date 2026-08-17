@@ -119,6 +119,12 @@ interface PreviewManagerOptions {
 export class PreviewManager {
   private readonly sessions = new Map<string, Session>();
   private readonly opts: PreviewManagerOptions;
+  /**
+   * 起動中(await starter 中でまだ sessions へ載っていない)の start の数。容量判定は
+   * `sessions.size + reservations` で行う。これが無いと、size チェックと starter 起動の間の
+   * await をまたいで並行 start が全員「まだ空き」を読み、上限を超えて Vite サーバを起動できる。
+   */
+  private reservations = 0;
 
   constructor(opts: PreviewManagerOptions) {
     // `maxSessions` が NaN だと `size >= NaN` が常に false になり eviction が一切
@@ -135,7 +141,17 @@ export class PreviewManager {
 
   /** プレビューを開始する。容量到達時は least-recently-used セッションを退避する。 */
   async start(spec: PreviewSpec, owner: PreviewActor): Promise<PreviewSessionMeta> {
-    if (this.sessions.size >= this.opts.maxSessions) await this.evictOldest();
+    // 枠は starter を await する前に**同期で**確保する。容量判定と starter 起動の間に await を
+    // 挟むと、その間に来た並行 start が全員「まだ空き」を読み、上限を超えて Vite サーバを
+    // 起動できる(check-then-act)。in-flight の起動数 `reservations` を size と合算して見る。
+    if (this.sessions.size + this.reservations >= this.opts.maxSessions) await this.evictOldest();
+    if (this.sessions.size + this.reservations >= this.opts.maxSessions) {
+      // 退避しても空かない = 全枠が in-flight 起動で埋まっている。これ以上は起動しない
+      // (受け取った temp ディレクトリは破棄する)。
+      await cleanupProject(spec.workDir);
+      throw new Error('[previewManager] プレビュー枠が一杯です。時間をおいて再試行してください。');
+    }
+    this.reservations++;
 
     let handle: PreviewServerHandle;
     try {
@@ -144,6 +160,10 @@ export class PreviewManager {
       // サーバが起動しなかった。受け取った temp ディレクトリを破棄する。
       await cleanupProject(spec.workDir);
       throw e;
+    } finally {
+      // 成否に関わらず予約は解放する。成功時はこの直後(await を挟まず)に sessions へ移すので
+      // 枠が二重計上されることはない。
+      this.reservations--;
     }
 
     const id = crypto.randomUUID();

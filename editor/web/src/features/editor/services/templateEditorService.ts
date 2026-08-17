@@ -2,7 +2,8 @@
 // templateEditorService.ts — editor の template 読込・draft 保存・履歴 service
 // =============================================================================
 import {
-  applyEdition,
+  applyTemplateAttributes,
+  err,
   isErr,
   ok,
   type PairSyncStatus,
@@ -13,8 +14,10 @@ import {
   type SampleData,
   type Template,
   type TemplateRepository,
+  validation,
 } from '@editor/shared';
 import { usePartRepo, useTemplateRepo } from '@/api/repositories';
+import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { getBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
 
@@ -65,9 +68,9 @@ export function createTemplateEditorService(
       let sample: SampleData = {};
       try {
         const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
-        // 版種(ファイル名由来)を被せる。getSampleData はファンド単位で版種を持たない。
+        // 版種・基準日(ファイル名由来)を被せる。getSampleData はファンド単位で属性を持たない。
         if (!isErr(sampleRes))
-          sample = applyEdition(sampleRes.value, tpl.meta.attributes.editionType);
+          sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
       } catch {
         /* sample は空のままにする */
       }
@@ -80,6 +83,23 @@ export function createTemplateEditorService(
       const filledBody = tpl.filled || (await htmlWorker.toFilled(tpl.html, sample));
       const editableBody = draft ? draft.html : getBodyInner(filledBody);
       const css = draft ? draft.css : tpl.css;
+
+      // canvas の iframe は `about:blank` でアプリのオリジンを継承するため、CSS に外部参照が
+      // 残っていると編集画面を開いただけでアプリのオリジンから外向き GET が出る(属性
+      // セレクタ + `url()` で本文断片の持ち出しにも使える)。**削らずに拒む** — 削る実装は
+      // CSS のエスケープで必ず迂回されるうえ、CSS 抜きで開くと autosave が draft の CSS を
+      // 空で上書きしてしまう。
+      const refs = summarizeExternalCssRefs(css);
+      if (refs !== null) {
+        return err(
+          validation(
+            `CSSに外部参照が含まれるため編集画面を開けません(${refs})。` +
+              (draft
+                ? '下書きを破棄すると開けるようになります。'
+                : 'フォントや画像は同梱資産への相対パス(css/… fonts/…)で指定してください。'),
+          ),
+        );
+      }
 
       let fundName = tpl.meta.fileName.replace(/\.html$/, '');
       const fund = sample.fund as { name?: string } | undefined;

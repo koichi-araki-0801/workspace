@@ -20,11 +20,30 @@ export const logger = pino({
     : {}),
 });
 
+/**
+ * 監査ログの出力先。`sync: false` なので書き込みは非同期で、失敗は**ストリームの
+ * `error` イベント**として届く。
+ *
+ * ここに購読者を置かないと、Node は未処理の `error` を uncaught exception へ昇格させて
+ * **プロセスごと落とす**。監査ログが書けない理由(ディスク満杯・権限・出力先ごと消えた)は
+ * どれもサービスを止めるほどではなく、止めれば「ログが書けない」が「業務が止まる」に
+ * 化ける。よって落とさず、アプリロガー(stdout)へ出して**気付ける形**にする
+ * (黙って捨てない — 監査証跡の欠落そのものは重大なので、運用が検知できる必要がある)。
+ */
+const auditDestination = pino.destination({
+  dest: path.join(config.logging.dir, 'audit.log'),
+  mkdir: true,
+  sync: false,
+});
+auditDestination.on('error', (err: unknown) => {
+  logger.error(
+    { type: 'audit.write_failed', err: err instanceof Error ? err.message : String(err) },
+    '監査ログを書き込めませんでした(証跡が欠落しています)',
+  );
+});
+
 /** 永続的な監査証跡 -> logs/audit.log(1 行 1 JSON レコード)。 */
-const auditFileLogger = pino(
-  { level: 'info', base: undefined },
-  pino.destination({ dest: path.join(config.logging.dir, 'audit.log'), mkdir: true, sync: false }),
-);
+const auditFileLogger = pino({ level: 'info', base: undefined }, auditDestination);
 
 export interface AuditEvent {
   /** ドット区切りのイベント名。例 'template.save'。 */

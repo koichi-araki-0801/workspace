@@ -23,6 +23,9 @@ export const sampleCommon: SampleData = {
     nickname: 'サンプル愛称',
     category: '追加型投信／内外／資産複合',
     nav: '12,345',
+    // 前日比。テンプレは `{% if fund.navChange >= 0 %}` の大小比較で符号分岐するため、
+    // 本定数で唯一の number にする(文字列だと比較が常に false 側へ落ちる)。
+    navChange: 58,
     netAssets: '123,456',
     returnRate: '12.3',
     distribution: '100',

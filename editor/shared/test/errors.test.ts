@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  APP_ERROR_KINDS,
   appError,
   conflict,
   DEFAULT_ERROR_MESSAGE,
   isAppError,
+  isAppErrorKind,
   notFound,
   toAppError,
   unauthorized,
@@ -54,5 +56,19 @@ describe('toAppError', () => {
 
   it('defaults the kind to unexpected', () => {
     expect(toAppError('weird').kind).toBe('unexpected');
+  });
+});
+
+describe('isAppErrorKind', () => {
+  it('accepts every listed kind', () => {
+    for (const kind of APP_ERROR_KINDS) expect(isAppErrorKind(kind)).toBe(true);
+  });
+
+  it('rejects unknown strings and non-strings', () => {
+    expect(isAppErrorKind('__proto__')).toBe(false);
+    expect(isAppErrorKind('')).toBe(false);
+    expect(isAppErrorKind(123)).toBe(false);
+    expect(isAppErrorKind(null)).toBe(false);
+    expect(isAppErrorKind(undefined)).toBe(false);
   });
 });

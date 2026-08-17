@@ -25,6 +25,8 @@ export function useReviewDiff(reqId: () => string) {
   const cssAfter = ref('');
   /** 資源上限で差分に出せなかった領域があるか(承認者へ必ず見せる)。 */
   const truncated = ref(false);
+  /** ファンド共通 CSS が現行版と変わっているか(HTML 差分 0 でも承認で上書きされる)。 */
+  const cssChanged = ref(false);
   /** 申請 CSS に印刷時だけ効く規則があるか(承認者の見えと成果物が乖離する)。 */
   const printOnlyCss = ref(false);
   const loadError = ref(false);
@@ -43,6 +45,7 @@ export function useReviewDiff(reqId: () => string) {
     cssBefore.value = res.value.cssBefore;
     cssAfter.value = res.value.cssAfter;
     truncated.value = res.value.truncated;
+    cssChanged.value = res.value.cssChanged;
     printOnlyCss.value = res.value.printOnlyCss;
   }
 
@@ -63,6 +66,7 @@ export function useReviewDiff(reqId: () => string) {
     cssBefore,
     cssAfter,
     truncated,
+    cssChanged,
     printOnlyCss,
     loadError,
     loading,

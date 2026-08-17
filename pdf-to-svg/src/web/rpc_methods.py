@@ -31,6 +31,7 @@ from web.commands import (
     AddElementCommand,
     DeleteCommand,
     ReplaceTextCommand,
+    RevertDictMatchCommand,
 )
 
 
@@ -61,11 +62,16 @@ class WebSession:
 
 # ---- 状態のスナップショット ----
 
-def _page_has_replacements(page: Page) -> bool:
-    return any(
+def _page_has_replacements(page: Page, store: DictionaryStore) -> bool:
+    """手順 2 で「要確認」にするか。置換済みが 1 件でもあるか、未適用の候補 (戻した箇所・
+    まだ当てていない箇所) が残るページ。候補も数えるのは、箇所単位で戻したページが一覧から
+    消えて再び置換できなくなるのを避けるため。"""
+    if any(
         isinstance(e, TextElement) and not e.deleted and e.dict_match is not None
         for e in page.elements
-    )
+    ):
+        return True
+    return dict_apply.has_replacement_candidate(page, store)
 
 
 def _human_size(n: int) -> str:
@@ -106,7 +112,7 @@ def rpc_state(s: WebSession, _args: dict) -> dict:
         for pi, pg in enumerate(d.pages):
             pages.append({"fileIndex": fi, "pageInFile": pi})
             # 手順2: 辞書置換が当たったページは「要確認」。
-            changed2.append(_page_has_replacements(pg))
+            changed2.append(_page_has_replacements(pg, s.store))
             # 手順3: トリミングは全ページが対象 (各ページを見て確認/スキップ)。
             changed3.append(True)
     total = len(pages)
@@ -141,18 +147,38 @@ def rpc_pageSvg(s: WebSession, args: dict) -> dict:
 
 
 def rpc_planPage(s: WebSession, args: dict) -> dict:
+    """確認一覧の行。置換済み (`applied`) と未適用の候補 (`pending` = 戻した箇所・まだ
+    当てていない箇所) を要素の出現順に混ぜて返す。UI はこの順で通し番号を振り、ページ上の
+    番号マーカーと対応させる。"""
     pg = s.page(args["fileIndex"], args["pageInFile"])
+    pending = {rep.element.id: rep for rep in dict_apply.plan_replacements(pg, s.store)}
     changes = []
     for el in pg.elements:
-        if isinstance(el, TextElement) and not el.deleted and el.dict_match is not None:
+        if not isinstance(el, TextElement) or el.deleted:
+            continue
+        loc = "ヘッダ" if el.is_header else "本文"
+        if el.dict_match is not None:
             changes.append(
                 {
                     "elId": el.id,
                     "source": el.dict_match.source,
                     "target": el.dict_match.target,
-                    "loc": "ヘッダ" if el.is_header else "本文",
+                    "loc": loc,
                     # 置換語が収め先の箱幅を超え圧縮表示される恐れ (簡易推定)。
                     "warning": fonts.is_width_overflow(el.text, el.font_size, el.bbox.w),
+                    "state": "applied",
+                }
+            )
+        elif el.id in pending:
+            rep = pending[el.id]
+            changes.append(
+                {
+                    "elId": el.id,
+                    "source": rep.source,
+                    "target": rep.target,
+                    "loc": loc,
+                    "warning": rep.warning is not None,
+                    "state": "pending",
                 }
             )
     return {"changes": changes}
@@ -227,15 +253,7 @@ def rpc_dictSuggest(s: WebSession, args: dict) -> dict:
     対象が無ければ空文字 (クライアントはクリック行の textContent にフォールバック)。
     """
     pg = s.page(int(args["fileIndex"]), int(args["pageInFile"]))
-    el_id = int(args["elId"])
-    el = next(
-        (
-            e
-            for e in pg.elements
-            if e.id == el_id and isinstance(e, TextElement) and not e.deleted
-        ),
-        None,
-    )
+    el = _find_text_element(pg, int(args["elId"]))
     if el is None:
         return {"source": "", "joined": False}
     source, joined = dict_apply.joined_candidate(pg, el, join_wrapped=s.suggest_join)
@@ -263,6 +281,7 @@ def _apply_plans(s: WebSession, plans) -> dict:
                 new_bbox=rep.new_bbox,
                 wrap_align=rep.align,
                 baseline_y=rep.baseline_y,
+                extras=rep.extras,
             )
         )
         if rep.extras:  # 折返しヘッダの 2 行目以降を描画から除外
@@ -288,6 +307,34 @@ def rpc_reapplyDictPage(s: WebSession, args: dict) -> dict:
     pg = s.page(int(args["fileIndex"]), int(args["pageInFile"]))
     dict_apply.detect_headers(pg)  # 確認一覧の「ヘッダ/本文」表示 (loc) 用
     plans = dict_apply.plan_replacements(pg, s.store)
+    return _apply_plans(s, plans)
+
+
+def _find_text_element(pg: Page, el_id: int) -> Optional[TextElement]:
+    return next(
+        (e for e in pg.elements if e.id == el_id and isinstance(e, TextElement) and not e.deleted),
+        None,
+    )
+
+
+def rpc_revertDictMatch(s: WebSession, args: dict) -> dict:
+    """辞書置換を 1 箇所だけ置換前へ戻す (Undo 可)。復元情報が無ければ no-op。
+    戻しはその場限りで、次の再適用ではまた置換される (恒久除外のフラグは持たない)。"""
+    pg = s.page(int(args["fileIndex"]), int(args["pageInFile"]))
+    el = _find_text_element(pg, int(args["elId"]))
+    if el is None or el.dict_revert is None:
+        return {"reverted": False}
+    ids = set(el.dict_revert.extra_ids)
+    extras = [e for e in pg.elements if e.id in ids and isinstance(e, TextElement)]
+    s.undo.push(RevertDictMatchCommand(el, extras))
+    return {"reverted": True}
+
+
+def rpc_applyDictMatch(s: WebSession, args: dict) -> dict:
+    """指定要素 1 件だけ辞書を当てる (Undo 可・1 マクロ)。候補でなければ no-op。"""
+    pg = s.page(int(args["fileIndex"]), int(args["pageInFile"]))
+    el_id = int(args["elId"])
+    plans = [rep for rep in dict_apply.plan_replacements(pg, s.store) if rep.element.id == el_id]
     return _apply_plans(s, plans)
 
 
@@ -446,6 +493,8 @@ HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "setSuggestJoin": rpc_setSuggestJoin,
     "reapplyDict": rpc_reapplyDict,
     "reapplyDictPage": rpc_reapplyDictPage,
+    "revertDictMatch": rpc_revertDictMatch,
+    "applyDictMatch": rpc_applyDictMatch,
     "applyDelete": rpc_applyDelete,
     "deleteRegion": rpc_deleteRegion,
     "removeFile": rpc_removeFile,

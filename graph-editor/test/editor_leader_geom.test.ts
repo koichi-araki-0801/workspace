@@ -77,6 +77,18 @@ describe("parseTranslate", () => {
     expect(parseTranslate(null)).toEqual({ x: 0, y: 0 });
     expect(parseTranslate("rotate(10)")).toEqual({ x: 0, y: 0 });
   });
+  it("先頭ドット数値も従来どおり読む(数値集合の不変)", () => {
+    expect(parseTranslate("translate(.5,-.25)")).toEqual({ x: 0.5, y: -0.25 });
+  });
+  it("閉じ括弧に至れない巨大な transform でも即座に返る(ReDoS 回帰)", () => {
+    // `\d*\.?\d+` の二段量化子は、区切りはあるが閉じ括弧に至れない 2 つの長い数字列で
+    // 二次バックトラックした。重なりのない形なら入力長に比例して即返る。
+    const run = "9".repeat(50000);
+    const evil = `translate(${run} ${run}x`;
+    const t0 = Date.now();
+    expect(parseTranslate(evil)).toEqual({ x: 0, y: 0 });
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
 });
 
 describe("normColor", () => {

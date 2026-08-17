@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple
 
 from model import fonts
 from model.document import Page
-from model.elements import DictMatch, Rect, TextElement
+from model.elements import DictMatch, DictRevertInfo, Rect, TextElement
 from dictionary.store import DictionaryStore
 
 TOP_BAND_RATIO = 0.25  # ページ上端からこの割合内の最初の行をヘッダ候補とする
@@ -244,9 +244,13 @@ def joined_candidate(
     return element.text.strip(), False
 
 
-def plan_replacements(page: Page, store: DictionaryStore) -> List[Replacement]:
-    """辞書に一致する置換案を列挙する (実際の書き換えはしない)。ヘッダ・本文を問わない。"""
-    plans: List[Replacement] = []
+def _iter_replacements(page: Page, store: DictionaryStore):
+    """辞書に一致する置換案を出現順に生成する (`plan_replacements` の生成器版)。
+
+    `has_replacement_candidate` が `next(..., None)` で最初の 1 件だけ取り出して
+    打ち切れるよう、判定ロジック本体をここへ集約する
+    (`plan_replacements` は全件を消費してリスト化するだけの薄いラッパ)。
+    """
     texts = _text_elements(page)
     consumed: set = set()
 
@@ -265,12 +269,10 @@ def plan_replacements(page: Page, store: DictionaryStore) -> List[Replacement]:
             # 折返しは結合テキストをグループ全体の合成領域へ据え直す。縦は下揃え
             # (最終行のベースライン) 固定、横は元の折返し行の揃えを検出して踏襲する。
             box = _merged_bbox(group)
-            plans.append(
-                Replacement(
-                    top, source, target, extras=group[1:], new_bbox=box,
-                    align=_detect_wrap_align(group), baseline_y=group[-1].origin_y,
-                    warning=_overflow_warning(target, top.font_size, box.w),
-                )
+            yield Replacement(
+                top, source, target, extras=group[1:], new_bbox=box,
+                align=_detect_wrap_align(group), baseline_y=group[-1].origin_y,
+                warning=_overflow_warning(target, top.font_size, box.w),
             )
         for t in group:
             consumed.add(id(t))
@@ -280,17 +282,36 @@ def plan_replacements(page: Page, store: DictionaryStore) -> List[Replacement]:
             continue
         target = store.lookup(el.text)
         if target is not None and target != el.text:
-            plans.append(
-                Replacement(
-                    el, el.text, target,
-                    warning=_overflow_warning(target, el.font_size, el.bbox.w),
-                )
+            yield Replacement(
+                el, el.text, target,
+                warning=_overflow_warning(target, el.font_size, el.bbox.w),
             )
-    return plans
+
+
+def plan_replacements(page: Page, store: DictionaryStore) -> List[Replacement]:
+    """辞書に一致する置換案を列挙する (実際の書き換えはしない)。ヘッダ・本文を問わない。"""
+    return list(_iter_replacements(page, store))
+
+
+def has_replacement_candidate(page: Page, store: DictionaryStore) -> bool:
+    """置換候補が 1 件でもあるかだけを判定する (`plan_replacements` の軽量版)。
+
+    `state` RPC はページ単位で毎回呼ばれるホット経路で、全件の置換計画を作る必要は
+    無く「1 件でもあるか」だけが要る。`_iter_replacements` を最初の 1 件で打ち切り、
+    辞書が空なら (`store.all()` が空) ページの走査自体を省く。
+    """
+    if not store.all():
+        return False
+    return next(_iter_replacements(page, store), None) is not None
 
 
 def apply_replacement(rep: Replacement) -> None:
     """置換案をモデルへ反映 (初期自動適用用。Undo が要る場面では Command を使う)。"""
+    # 箇所単位の「戻す」が復元に使う置換前状態 (`ReplaceTextCommand` と同じ内容)。
+    rep.element.dict_revert = DictRevertInfo(
+        text=rep.element.text, bbox=rep.element.bbox, wrap_align=rep.element.wrap_align,
+        origin_y=rep.element.origin_y, extra_ids=[e.id for e in rep.extras],
+    )
     rep.element.text = rep.target
     rep.element.dict_match = DictMatch(source=rep.source, target=rep.target)
     if rep.new_bbox is not None:  # 折返し畳み込み: 合成領域へ据え直す

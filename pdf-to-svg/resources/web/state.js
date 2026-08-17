@@ -31,6 +31,7 @@ var S = {
   borderWidth: 1,       // 枠線ツールの太さ (pt)
   expMode: "all",       // 書き出しモード: page/all/noskip/spec
   expFile: 0,           // spec モードの対象ファイル
+  lastChanges: [],       // 直近の `planPage` 結果 (`renderConfirm` と SVG 差替え後の再描画で共有)
 };
 
 // ── 2. 純粋ヘルパ (S 非依存) ──
@@ -60,11 +61,48 @@ function clearSel() { var s = selSet(); Object.keys(s).forEach(function (k) { de
 
 // ── 4. 状態遷移 ──
 
-/** サーバの `state` RPC 結果を取り込み、派生列 (status/FILE_START) とキャッシュを組み直す */
+// 旧 status 配列とページ列が「同一ページ列に対する再取得」かを判定する。箇所単位の
+// 戻す/置換は 1 要素だけ変えて `state` を取り直すため、ファイル追加・削除が絡まない
+// 限りページ列自体は変わらない。この判定を通ったときだけ確認状態 (reviewed/skipped)
+// を引き継ぐ (`mergeStatus` 参照)。
+function samePageList(oldPages, newPages) {
+  if (oldPages.length !== newPages.length) return false;
+  return oldPages.every(function (pg, i) {
+    return pg.fileIndex === newPages[i].fileIndex && pg.pageInFile === newPages[i].pageInFile;
+  });
+}
+
+// 再取得後の changed 列と旧 status 列から新 status 列を組む。ページ列が同一のときに
+// 使う (`applyState` 参照)。changed が立った (= 要確認になった) ページは pending へ、
+// 落ちた (= 変更が無くなった) ページは none へ倒し、それ以外は reviewed/skipped/pending
+// をそのまま引き継ぐ。
+function mergeStatus(changed, oldStatus) {
+  return changed.map(function (isChanged, i) {
+    var old = oldStatus[i];
+    if (!isChanged) return "none";
+    return old === "none" ? "pending" : old;
+  });
+}
+
+/** サーバの `state` RPC 結果を取り込み、派生列 (status/FILE_START) とキャッシュを組み直す。
+ *
+ * status2/status3 (reviewed/skipped の確認進捗) は、箇所単位の戻す/置換のたびに
+ * `reloadState` 経由で毎回呼ばれるようになったため、ページ列が変わっていなければ
+ * 引き継ぐ (`mergeStatus`)。ファイル追加・削除でページ列自体が変わったときは
+ * 従来どおり `initStatus` で作り直す。
+ */
 function applyState(st) {
+  var oldPages = S.PAGES, oldStatus2 = S.status2, oldStatus3 = S.status3;
+  var samePages = samePageList(oldPages, st.pages)
+    && oldStatus2.length === st.pages.length && oldStatus3.length === st.pages.length;
   S.FILES = st.files; S.PAGES = st.pages; S.TOTAL = st.total;
   S.changed2 = st.changed2; S.changed3 = st.changed3;
-  S.status2 = initStatus(S.changed2); S.status3 = initStatus(S.changed3);
+  if (samePages) {
+    S.status2 = mergeStatus(S.changed2, oldStatus2);
+    S.status3 = mergeStatus(S.changed3, oldStatus3);
+  } else {
+    S.status2 = initStatus(S.changed2); S.status3 = initStatus(S.changed3);
+  }
   S.FILE_START = []; var s = 0;
   S.FILES.forEach(function (f, i) { S.FILE_START[i] = s; s += f.pages; });
   S.svgCache = {}; S.elSel = {};

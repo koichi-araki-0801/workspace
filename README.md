@@ -60,6 +60,10 @@ editor / pie-chart / pdf-to-svg / graph-editor などを束ねる pnpm モノレ
 Python ビルドの venv 準備は共有ライブラリ `scripts/lib/build-python-venv.ps1` に集約してあり、
 `pdf-to-svg` / `graph-editor` の `scripts/build.ps1` が dot-source して使う。
 
+`docs/<project>/src/` に置いた Markdown 原稿は、**既定で**手引き/設計いずれかの冊子に掲載されます
+（除外はファイル名に「設計正典」を含むものだけ）。社内限定で冊子に載せたくない下書き・メモは
+`src/` 以外の場所に置いてください。
+
 ## フォント資産の対応（同一書体の 2 形式管理）
 
 BIZ UDPGothic は 2 プロジェクトが**形式要件の違いから別形式で同梱**している。統合はしない

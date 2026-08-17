@@ -368,6 +368,25 @@ describe('useGrapes の canvas 投入経路', () => {
     expect(g.getBodyHtml()).not.toMatch(/data-gjs-script/i);
   });
 
+  it('getBodyHtml は `<body>` ラッパ付きで返す(draft の保存形状の固定)', () => {
+    // autosave はこの返り値をそのまま draft に保存する。復元側(`toTemplate` の linkedom 経路)は
+    // 「`<html>` 無し・`<body>` 始まり」を正式な入力形として扱うので、上流の形状が変わったら
+    // このテストで気づき、`htmlWorkerImpl.ts` の `linkedomParse` の分岐と突き合わせること。
+    g.load('<div class="page"><p>本文</p></div>', '');
+    expect(g.getBodyHtml()).toMatch(/^\s*<body[\s>]/i);
+    expect(g.getBodyHtml()).not.toMatch(/<html/i);
+  });
+
+  it('外部参照 CSS は setStyle 前に拒否され canvas モデルが空のまま', () => {
+    // canvas は「CSS 抜きで開く」形にはしない — `getCss()` が空になった状態で autosave が
+    // 走ると draft の CSS を空で上書きしてしまう。読込ごと中止して呼び出し側へ false を返す。
+    const ok = g.load('<div class="page"><p>本文</p></div>', '@import "http://evil.example/x";');
+    expect(ok).toBe(false);
+    // `getCss()` は GrapesJS 既定の下地だけ(= 投入した CSS はモデルに入っていない)。
+    expect(g.getCss()).not.toContain('@import');
+    expect(g.getBodyHtml()).not.toContain('本文');
+  });
+
   it('同じ経路で通常のレポート本文は保たれる', () => {
     // 表・Jinja chip・パーツ ID はレポート本文と保存 round-trip の要。刈り取りが構造や
     // `data-*` を巻き込んでいないことを、同じ `load` 経路で確かめる。

@@ -12,7 +12,9 @@
 //
 // メッセージ種別は**リテラルで**書く。定数を import すると親子で同時に改名しても気付けず、
 // ここで固定したいのは「線上を流れる実際の文字列」だからである。
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { isReactive, reactive, ref } from 'vue';
 import {
   createRenderHostClient,
   type RenderHostClient,
@@ -274,5 +276,62 @@ describe('renderHostClient — フレームの生成', () => {
     await vi.advanceTimersByTimeAsync(15_000);
     await both;
     expect(document.querySelectorAll('iframe')).toHaveLength(0);
+  });
+});
+
+// ── 差し込みデータは複製可能な形にして送る ──
+// `postMessage` は structured clone を通るが **Proxy は複製できない**。画面の状態は Vue の
+// `ref` / `reactive` で包まれているため、`sample.value` をそのまま渡すと `DataCloneError` に
+// なる。しかもそれは同期例外なので、捕まえないと「要求は送られていないのに待ち合わせだけが
+// 残る」= 利用者は期限いっぱい待たされて無関係な文言を受け取る。実際に PDF 出力がこの形で
+// 壊れていた(プレビューは素の値を使うため動いていて、差が見えにくかった)。
+describe('renderHostClient — 差し込みデータの受け渡し', () => {
+  it('Vue の ref を渡しても素の値になって届き、描画できる', async () => {
+    const plain = { fund: { code: '510037', name: 'テスト' }, rows: [{ a: 1 }] };
+    const p = client.render('<p>{{ fund.name }}</p>', ref(plain).value);
+    const post = vi.spyOn(childWindow(), 'postMessage');
+    deliver({ type: MSG_READY }, childWindow());
+
+    const req = sentRequests(post)[0];
+    expect(req.data).toEqual(plain);
+    // **Proxy でないこと**が要件。実ブラウザの postMessage は Proxy を複製できず同期例外を
+    // 投げる(jsdom は複製しないので、値の一致だけでは proxy と素の値を区別できない)。
+    expect(isReactive(req.data)).toBe(false);
+
+    deliver({ type: MSG_RES, id: req.id, html: '<p>テスト</p>' }, childWindow());
+    expect((await p).html).toBe('<p>テスト</p>');
+  });
+
+  it('reactive() を直に渡しても同じ', async () => {
+    const p = client.render('<p>x</p>', reactive({ fund: { code: 'x' } }));
+    const post = vi.spyOn(childWindow(), 'postMessage');
+    deliver({ type: MSG_READY }, childWindow());
+
+    const req = sentRequests(post)[0];
+    expect(req.data).toEqual({ fund: { code: 'x' } });
+    expect(isReactive(req.data)).toBe(false);
+    deliver({ type: MSG_RES, id: req.id, html: 'ok' }, childWindow());
+    expect((await p).html).toBe('ok');
+  });
+
+  it('循環参照は期限を待たずに理由を返す(30 秒待たせない)', async () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    // 期限を 1 度も進めずに解決する = 待たされていない。
+    const res = await client.render('<p>x</p>', cyclic);
+    expect(res.html).toBe('');
+    expect(res.error).toContain('差し込みデータ');
+  });
+
+  it('送信そのものが失敗したら、その場で理由を返す', async () => {
+    const p = client.render('<p>x</p>', { a: 1 });
+    vi.spyOn(childWindow(), 'postMessage').mockImplementation(() => {
+      throw new DOMException('could not be cloned', 'DataCloneError');
+    });
+    deliver({ type: MSG_READY }, childWindow());
+
+    const res = await p;
+    expect(res.html).toBe('');
+    expect(res.error).toContain('要求を送れませんでした');
   });
 });

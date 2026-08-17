@@ -8,7 +8,7 @@
 **何も送らない接続はガードの手前でブロックし続ける**。ここを閉じられるのはハンドラ側の
 期限と受け入れ枠だけで、認可のテスト (`test_app_guard.py`) では捕まえられない。
 
-pdf-to-svg の `test/test_resource_limits.py`「F42: 接続の資源上限」節と**同一仕様の複製**
+pdf-to-svg の `test/test_resource_limits.py`「接続の資源上限」節と**同一仕様の複製**
 である (並行実装)。2 実装の値が揃っていることは `test_parallel_impl_drift.py` が検証する。
 """
 from __future__ import annotations
@@ -39,6 +39,45 @@ def test_silent_connection_is_closed_by_the_handler_timeout(monkeypatch):
         # 1 バイトも送らない。期限が効いていれば向こうから閉じる (recv が EOF を返す)。
         assert sock.recv(1) == b""
         sock.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_dripping_connection_is_closed_by_the_request_deadline(monkeypatch):
+    """改行を送らずに少しずつ送り続ける接続も、**要求単位の絶対期限**で閉じられる。
+
+    per-recv の `timeout` は recv ごとに再武装されるので、per-recv より短い間隔で 1 バイトずつ
+    送り続ければ `readline` を無限に引き延ばして 1 スレッドを恒久占有できた。`MAX_REQUEST_SECONDS`
+    はこれを閉じる。per-recv を十分長く (5s)、期限を短く (1s) して、閉じているのが期限であること
+    を主張する (pdf-to-svg 側と同一挙動)。
+    """
+    monkeypatch.setattr(app.Handler, "timeout", 5.0)
+    monkeypatch.setattr(app, "MAX_REQUEST_SECONDS", 1.0)
+    server = _serve()
+    try:
+        sock = socket.create_connection(("127.0.0.1", server.server_address[1]), timeout=10)
+        sock.settimeout(0.3)
+        start = time.monotonic()
+        closed_by_server = False
+        wall = start + 6.0  # 安全弁 (期限が効かなければここまで回り続けて False で落ちる)
+        while time.monotonic() < wall:
+            try:
+                sock.sendall(b"a")  # 改行なし = リクエスト行は完成しない
+            except OSError:
+                closed_by_server = True
+                break
+            try:
+                if sock.recv(1) == b"":  # 向こう (サーバ) が閉じた
+                    closed_by_server = True
+                    break
+            except socket.timeout:
+                pass  # まだ開いている。次のドリップへ。
+            time.sleep(0.15)  # per-recv (5s) には遠く及ばない間隔
+        sock.close()
+        assert closed_by_server, "ドリップ接続が期限で閉じられていない"
+        # 期限 (1s) + 余裕。per-recv (5s) にはまだ達していないので、閉じたのは期限である。
+        assert time.monotonic() - start < 4.0
     finally:
         server.shutdown()
         server.server_close()

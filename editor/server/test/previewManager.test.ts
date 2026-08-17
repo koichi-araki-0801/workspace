@@ -138,6 +138,47 @@ describe('PreviewManager', () => {
     await mgr.disposeAll();
   });
 
+  it('並行 start は上限を超えて Vite サーバを同時起動しない(check-then-act の解消)', async () => {
+    // starter を「解放するまでブロック」にして in-flight を溜め、同時起動のピークを測る。
+    let concurrent = 0;
+    let peak = 0;
+    const releases: Array<() => void> = [];
+    let port = 15000;
+    const starter = vi.fn(async (_spec: PreviewSpec) => {
+      concurrent++;
+      peak = Math.max(peak, concurrent);
+      await new Promise<void>((resolve) => {
+        releases.push(() => {
+          concurrent--;
+          resolve();
+        });
+      });
+      return fakeHandle(port++);
+    });
+    const mgr = new PreviewManager({ idleTtlMs: TTL, maxSessions: 2, host: '127.0.0.1', starter });
+
+    const dirs = await Promise.all(Array.from({ length: 5 }, () => tmpDir()));
+    // 5 本を同時に投げる。上限 2 を超える分は「枠が一杯」で reject される想定。
+    const starts = dirs.map((d) =>
+      mgr
+        .start({ mode: 'inline', input: 'x', workDir: d, docBase: '/vivliostyle' }, OWNER)
+        .then(() => 'ok' as const)
+        .catch(() => 'rejected' as const),
+    );
+
+    // in-flight が出そろうまでマイクロタスクを回す。
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(peak).toBeLessThanOrEqual(2);
+
+    // ブロック中の starter を解放して全 start を決着させる。
+    for (const release of releases) release();
+    const outcomes = await Promise.all(starts);
+    expect(outcomes.filter((o) => o === 'ok').length).toBeLessThanOrEqual(2);
+    expect(mgr.list(OWNER).length).toBeLessThanOrEqual(2);
+    await mgr.disposeAll();
+  });
+
   it('disposeAll stops everything; stop() returns false for unknown ids', async () => {
     const { mgr, handles } = makeManager();
     await startOne(mgr);

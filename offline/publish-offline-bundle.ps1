@@ -16,7 +16,7 @@
   共通ライブラリ Get-LockContentKey に集約（content-key.ps1）。
   .pnpm-store は pnpm-lock.yaml が、pnpm.tgz は packageManager が、ms-playwright は
   lockfile 内に解決された @playwright/test 版（=chromium revision）が、python-wheelhouse は
-  pdf-to-svg / graph-editor の requirements.txt が、それぞれ規定する。
+  リポジトリ追跡中の全 requirements.txt（`Get-OfflineRequirementsFiles`）が、それぞれ規定する。
   よってこの1キーで4点すべての変化を覆える。Release 側に bundle.key（このハッシュ）を保存し、
   現在キーと一致したら重量物は据え置く（タグ移動と説明更新のみ）。
 
@@ -250,17 +250,15 @@ if ($bundleChanged) {
 
     Write-Host '[4/4] Python 依存の wheel を python-wheelhouse へ収集（pip download）...'
     # pdf-to-svg / graph-editor の scripts\build.bat と docs\_build\build_all.bat は、この
-    # python-wheelhouse から --no-index でオフライン install する。全 requirements.txt の和を
-    # 1 ディレクトリへ収集する。
+    # python-wheelhouse から --no-index でオフライン install する。リポジトリ追跡中の全
+    # requirements.txt（`Get-OfflineRequirementsFiles`）の和を 1 ディレクトリへ収集する。
     $pyExe = $null
     foreach ($cand in @('py', 'python')) {
       if (Get-Command $cand -ErrorAction SilentlyContinue) { $pyExe = $cand; break }
     }
     if (-not $pyExe) { Write-Error '[error] Python が見つかりません（wheel 収集に必要）。'; exit 1 }
-    $pyReqs = @('pdf-to-svg\requirements.txt', 'graph-editor\requirements.txt',
-      'docs\_build\requirements.txt') |
-      ForEach-Object { Join-Path $RepoRoot $_ } | Where-Object { Test-Path -LiteralPath $_ }
-    if (-not $pyReqs) { Write-Error '[error] requirements.txt が見つかりません（pdf-to-svg / graph-editor / docs）。'; exit 1 }
+    $pyReqs = @(Get-OfflineRequirementsFiles -RepoRoot $RepoRoot | Where-Object { Test-Path -LiteralPath $_ })
+    if (-not $pyReqs) { Write-Error '[error] requirements.txt が見つかりません。'; exit 1 }
     # requirements の許可リスト検査。pip は requirements ファイル内のオプション行
     # （`--extra-index-url` / `--find-links` / `-e` 等）と直 URL 参照を尊重するため、この 1 行を
     # 混ぜるだけで解決先を攻撃者のインデックスへ差し替えられる。純粋な requirement specifier
@@ -440,7 +438,11 @@ if (-not $TagOnly) {
   }
   $curlCmd = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
   if ($curlCmd) {
-    & $curlCmd.Source -L --fail --retry 3 -H "Authorization: Bearer $ghToken" -o $srcZipTmp $srcZipUrl
+    # トークンは**コマンドライン引数に載せない**。プロセスのコマンドラインは同一ユーザーの
+    # 他プロセスから読める（本リポジトリ自身が `editor\start.bat` で `Win32_Process.CommandLine`
+    # を読んでいるのが実例）。curl の `-H @-` は標準入力からヘッダ 1 行を読むので、値が
+    # プロセス間で見える場所を通らない（下の `Invoke-WebRequest` 分岐は元から露出しない）。
+    "Authorization: Bearer $ghToken" | & $curlCmd.Source -L --fail --retry 3 -H '@-' -o $srcZipTmp $srcZipUrl
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] ソース zip の取得に失敗しました（pin を更新できません）。'; exit 1 }
   } else {
     $oldPref = $ProgressPreference
@@ -474,7 +476,7 @@ if (-not $TagOnly) {
   $pinText = @"
 # offline 配布物の pin（publish-offline-bundle.ps1 が自動生成。手で編集しない）。
 # 配布先の setup はこの値だけを真正性の根拠にする。Release に並ぶ .sha256 は配信元と同じ
-# 場所から取る値なので転送破損の検知にしか使えず、すり替えの検知には使えない（所見 F14）。
+# 場所から取る値なので転送破損の検知にしか使えず、すり替えの検知には使えない。
 # このファイルと bundle-signing.pub.xml は offline/ フォルダごと手渡しで配布先へ運ぶ。
 source-commit $targetCommit
 source-zip-sha256 $srcZipHash

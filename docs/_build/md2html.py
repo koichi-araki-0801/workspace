@@ -101,7 +101,19 @@ def audience_of(src: pathlib.Path, meta: dict | None) -> str:
 
 
 def esc(s: str) -> str:
+    """要素の**内容**へ埋める文字列のエスケープ。属性値には使わない(`esc_attr` を使う)。"""
     return html.escape(str(s), quote=False)
+
+
+def esc_attr(s: str) -> str:
+    """属性値へ埋める文字列のエスケープ。引用符も落とす。
+
+    `esc` は `quote=False` なので二重引用符を通す。`alt="{esc(...)}"` のように属性文脈へ
+    使うと、原稿の 1 行で属性を閉じて `onerror=` を持ち込める。生成器は
+    `MarkdownIt(..., {"html": False})` で本文中の生 HTML を禁じているので、属性文脈での
+    取りこぼしがその宣言の唯一の穴になる。**属性値はこちらを通す。**
+    """
+    return html.escape(str(s), quote=True)
 
 
 def _mermaid_escape(src: str) -> str:
@@ -134,22 +146,45 @@ _MD = MarkdownIt("commonmark", {"html": False}).enable("table").disable(
 _INLINE_RE = re.compile(r"`([^`]+)`|\*\*([^*]+?)\*\*")
 
 
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
 def _strip_comments(body: str) -> str:
-    """行頭 HTML コメント（`<!--` 開始〜`-->`）を出力から除く。コードフェンス内は保持する
-    （コード例に現れる `<!-- -->` を消さないため）。"""
+    """コードフェンス外の HTML コメント（`<!-- … -->`）を出力から除く。
+
+    フェンスは ``` と ~~~ の両方を検出し、フェンス内（コード例に現れる `<!-- -->`）は保持
+    する。フェンス外は行頭に限らず**行中**のコメントも対象で、複数行にまたがるコメントも
+    1 つとして除去する（フェンス外の連続行をまとめて正規表現に掛けるため）。**閉じていない
+    コメント**（対応する `-->` が見つからない）は除去しない — `<!--` 以降はそのまま本文として
+    残り、後段のインライン処理でエスケープされ読者にリテラル表示される。
+    """
     lines = body.split("\n")
-    out, i, n, infence = [], 0, len(lines), False
-    while i < n:
-        s = lines[i].strip()
-        if s.startswith("```"):
-            infence = not infence
-            out.append(lines[i]); i += 1; continue
-        if not infence and s.startswith("<!--"):
-            while i < n and "-->" not in lines[i]:
-                i += 1
-            i += 1  # 終端行 `-->` も消費
+    out: list[str] = []
+    buf: list[str] = []
+    infence = False
+    fence_marker = ""
+
+    def flush_buf():
+        if buf:
+            out.append(_COMMENT_RE.sub("", "\n".join(buf)))
+            buf.clear()
+
+    for line in lines:
+        s = line.strip()
+        if not infence and (s.startswith("```") or s.startswith("~~~")):
+            flush_buf()
+            infence, fence_marker = True, s[:3]
+            out.append(line)
             continue
-        out.append(lines[i]); i += 1
+        if infence and s.startswith(fence_marker):
+            infence = False
+            out.append(line)
+            continue
+        if infence:
+            out.append(line)
+        else:
+            buf.append(line)
+    flush_buf()
     return "\n".join(out)
 
 
@@ -214,7 +249,7 @@ def _img_html(tok, env) -> str:
     cap = tok.content or ""
     uri = _image_data_uri(env["img_dir"], name)
     if uri:
-        return f'<img alt="{esc(cap)}" src="{uri}">'
+        return f'<img alt="{esc_attr(cap)}" src="{uri}">'
     env["warnings"].append(f'{env["src_name"]}: 画像未取得 {name}')
     return f'<div class="img-missing">画像未取得: {esc(name)}</div>'
 
@@ -485,11 +520,17 @@ nav.toc a.now {{ color:var(--accent); font-weight:700; background:#fff; border-r
 """
 
 
+# HTML パーサの script 終端検出は大小文字非依存（`</SCRIPT>` も終端になる）。`re.sub` で
+# `</` に script が続く箇所だけ `<\/` へ変換し、`\\/` は JS 上 `/` と等価なので挙動は不変。
+_SCRIPT_CLOSE_RE = re.compile(r"</(?=script)", re.IGNORECASE)
+
+
 def _mermaid_script(has_mermaid: bool) -> str:
     """vendor の mermaid.min.js があればインラインしライトテーマで初期化。無ければ空。
 
-    インライン時は `</script` を `<\\/script` へ置換する（JS 文字列/正規表現内で `\\/` は `/` と
-    等価なので挙動不変のまま、HTML パーサによる script 早期終端を防ぐ）。
+    インライン時は `</script`（大小文字非依存）を `<\\/script` へ置換する（JS 文字列/正規表現内で
+    `\\/` は `/` と等価なので挙動不変のまま、HTML パーサによる script 早期終端を防ぐ。終端検出は
+    HTML パーサ自体が大小文字非依存のため `</SCRIPT` 等の表記も塞ぐ必要がある）。
 
     レイアウトは **ELK**（`layout:'elk'`）を使う。ELK の直交ルーティングは矢印終点の向きが自然で
     不要な直角ジグザグが出ないため。ELK バンドル（`VENDOR_ELK`）を先にインラインして
@@ -498,10 +539,10 @@ def _mermaid_script(has_mermaid: bool) -> str:
     """
     if not has_mermaid or not VENDOR_MERMAID.exists():
         return ""
-    js = VENDOR_MERMAID.read_text(encoding="utf-8").replace("</script", "<\\/script")
+    js = _SCRIPT_CLOSE_RE.sub("<\\/", VENDOR_MERMAID.read_text(encoding="utf-8"))
     use_elk = VENDOR_ELK.exists()
     if use_elk:
-        elk = VENDOR_ELK.read_text(encoding="utf-8").replace("</script", "<\\/script")
+        elk = _SCRIPT_CLOSE_RE.sub("<\\/", VENDOR_ELK.read_text(encoding="utf-8"))
         reg = (f"<script>{elk}</script>\n"
                "<script>if(window.mermaidLayoutElk)"
                "mermaid.registerLayoutLoaders(window.mermaidLayoutElk);</script>\n")
@@ -620,8 +661,13 @@ def _build_spec_book(book_title, srcs, img_dir, out_path, warnings):
 
     主文書（設計書.md）の front-matter を冊子ヘッダに使い、従文書は h2 章として溶かす:
     設計書本文 → そのまま各章 / デプロイ運用手順書・仕様一覧 → 後半章。従文書の内部見出しは
-    +2 シフト（h4 頭打ち）。設計正典.md は本冊子には**含めない**（CLAUDE.md へ @import される
-    正典のためファイルは残すが、読者向け冊子からは除外する）。
+    +2 シフト（h4 頭打ち）。
+
+    掲載既定は「`discover_srcs` が拾う `docs/<project>/src/*.md` は全件、既定で冊子に載る」
+    （`build_project` 参照）。除外はファイル名に「設計正典」を含むものだけの**部分一致**判定
+    （下記 `if`）で、これは CLAUDE.md へ @import される正典のためファイルは残しつつ読者向け
+    冊子からだけ外す例外。front-matter による掲載可否の切替（`publish` 等）は持たない —
+    社内限定で冊子に載せたくない原稿は `src/` 以外の場所へ置くこと。
     """
     pidx = next((i for i, t in enumerate(srcs) if "設計書" in t[0].name), 0)
     pmeta = srcs[pidx][1]

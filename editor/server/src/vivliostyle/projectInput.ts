@@ -57,8 +57,12 @@ interface ExtractedProject {
  * 当てるので、外部 `.js` を展開段でも落とすのは配信段の決定を前倒しにするだけである。
  * ⚠ **build 経路には CSP が無い**ので、ここで落ちるのは外部ファイルとしての `.js` だけで、
  * `.html` 内のインライン script は組版時に実行される(下の展開処理の注記を見よ)。
+ *
+ * ここへ 1 つ足したら `security/externalRefs.ts` の `EXT_INSPECTION` にも分類が要る
+ * (集合を人手で並べていると、片方だけ増えた拡張子が検査ゲートの外側に落ちる)。export して
+ * いるのはその一致を機械で要求するためで、判定側から参照させるためではない。
  */
-const ALLOWED_EXTENSIONS: ReadonlySet<string> = new Set([
+export const ALLOWED_EXTENSIONS: ReadonlySet<string> = new Set([
   '.html',
   '.htm',
   '.xhtml',

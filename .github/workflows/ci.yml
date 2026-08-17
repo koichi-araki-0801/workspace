@@ -13,6 +13,10 @@ permissions:
 # アクションは可変タグでなく**コミット SHA で pin** する。`@v5` のようなタグは指す先が
 # 動くため、上流のタグ移動 1 つで CI ランナー上の任意コード実行に到達する。版は末尾の
 # コメントで残し、更新時は SHA とコメントの両方を書き換える。
+#
+# offline/ の Pester テスト(`pnpm run ci:offline`)はここでは実行しない: Windows ランナーへの
+# 切替が要り、この job は ubuntu-latest 前提のため。ローカルの `ci:affected`(offline/ 変更時に
+# 発火)で担保する。
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -38,6 +42,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Comment convention check
+        run: pnpm run check:comments
+
       - name: Lint & format check (Biome)
         run: pnpm run check:ci
 
@@ -46,6 +53,24 @@ jobs:
 
       - name: Test (with coverage thresholds)
         run: pnpm run test:coverage
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install Python test dependencies
+        run: pip install pytest -r pdf-to-svg/requirements.txt -r graph-editor/requirements.txt -r docs/_build/requirements.txt
+
+      # pdf-to-svg/test と graph-editor/test は同名モジュール(test_edge_launch.py 等)を含み、
+      # 前者だけ `__init__.py` を持つパッケージのため、1 回の `pytest` 呼び出しへまとめると
+      # import file mismatch で衝突する。ローカルの `pnpm run test:pdf-to-svg` /
+      # `test:graph-editor:py` と同じく対象ごとに個別実行する。
+      - name: Test (pytest - pdf-to-svg / graph-editor / docs)
+        run: |
+          python -m pytest pdf-to-svg
+          python -m pytest graph-editor
+          python -m pytest docs/_build
 
       - name: Build
         run: pnpm run build

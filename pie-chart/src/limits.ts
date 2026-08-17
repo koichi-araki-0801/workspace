@@ -9,6 +9,8 @@
 //
 // `config.ts` は `createPieLayoutConfig` の描画設定で意味が違うため混ぜない。
 
+import { hasXmlInvalidChars } from './svg_export/values.js';
+
 /**
  * 数値の env 上書き。10 進表記に一致しない値・0 以下は**エラー**にする — 素の `Number()`
  * は `'64MB'` を NaN にし、`n > NaN` が常に false = 上限が黙って消える経路になる。
@@ -92,3 +94,29 @@ export const MAX_XLSX_BYTES = envPositiveInt('PIE_MAX_XLSX_BYTES', 4 * 1024 * 10
 
 /** `--data-json` の文字列長上限。 */
 export const MAX_JSON_BYTES = envPositiveInt('PIE_MAX_JSON_BYTES', 8 * 1024 * 1024);
+
+/**
+ * ラベル名が XML 1.0 として出力できる文字だけで構成されていることを検査する。
+ * `escapeXml` は不正文字を落としてから特殊文字をエスケープするが、それは出力側の最終防衛線
+ * であって入口ではない — 黙って落とすと「入力した名前と違う文字列が帳票に出る」という
+ * 無警告の誤出力になる(上限系と同じ「明示エラーが最悪の壊れ方を避ける」思想)。判定は
+ * `svg_export/values.ts` の `hasXmlInvalidChars` を再利用し、除去ロジックを重複させない。
+ */
+export function assertLabelXmlSafe(name: string): void {
+  if (!hasXmlInvalidChars(name)) return;
+  // 位置は正規表現の再実装でなく hasXmlInvalidChars の 1 文字ずつの再適用で求める
+  // (判定ロジックを 2 箇所に持たない)。for..of はサロゲートペアを 1 コードポイントとして
+  // 扱うため、孤立サロゲートだけを 1 コード単位として検出できる。
+  let index = 0;
+  for (const ch of name) {
+    if (hasXmlInvalidChars(ch)) break;
+    index += ch.length;
+  }
+  const codePoint = name.codePointAt(index);
+  const codePointHex =
+    codePoint === undefined ? '?' : codePoint.toString(16).toUpperCase().padStart(4, '0');
+  throw new Error(
+    `Label ${JSON.stringify(name)} has a character invalid in XML output at position ${index} ` +
+      `(code point U+${codePointHex}). Remove or replace it in the source data.`,
+  );
+}

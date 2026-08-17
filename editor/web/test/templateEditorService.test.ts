@@ -108,6 +108,68 @@ describe('TemplateEditorService.loadForEdit', () => {
   });
 });
 
+describe('TemplateEditorService.loadForEdit — CSS 外部参照の入口ガード', () => {
+  // canvas iframe は `about:blank` でアプリのオリジンを継承するため、`@import` や
+  // `url(https://…)` が生き残ると承認者のオリジンから外向き GET が出る。
+  function svcFor(opts: { tplCss?: string; draftCss?: string }) {
+    const draft: TemplateDraft | null =
+      opts.draftCss === undefined
+        ? null
+        : {
+            templateId: 't1',
+            html: '<p>draft body</p>',
+            css: opts.draftCss,
+            savedAt: '',
+            savedBy: '',
+          };
+    const templates = {
+      getTemplate: vi.fn(async () => ok({ ...tpl, css: opts.tplCss ?? '.from-file{}' })),
+      getDraft: vi.fn(async () => ok(draft)),
+    } as unknown as TemplateRepository;
+    const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
+    return createTemplateEditorService(templates, parts);
+  }
+
+  it('draft の CSS に @import があると開けない(下書き破棄の案内付き)', async () => {
+    const res = await svcFor({ draftCss: '@import "http://evil.example/x.css";' }).loadForEdit(
+      't1',
+    );
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) {
+      expect(res.error.kind).toBe('validation');
+      expect(res.error.message).toContain('@import');
+      expect(res.error.message).toContain('下書きを破棄');
+    }
+  });
+
+  it('テンプレ CSS の絶対 URL url() で開けない(draft 由来ではないので案内は付かない)', async () => {
+    const res = await svcFor({
+      tplCss: '.a{background:url(https://evil.example/leak.png)}',
+    }).loadForEdit('t1');
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) {
+      expect(res.error.kind).toBe('validation');
+      expect(res.error.message).toContain('https://evil.example/leak.png');
+      expect(res.error.message).not.toContain('下書きを破棄');
+    }
+  });
+
+  it('エスケープ表記 url(\\68ttp://…) も拒否される(共有トークナイザ経由)', async () => {
+    const res = await svcFor({
+      tplCss: '.a{background:url(\\68ttp://evil.example/x)}',
+    }).loadForEdit('t1');
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) expect(res.error.kind).toBe('validation');
+  });
+
+  it('外部参照の無い CSS は従来どおり開ける', async () => {
+    const res = await svcFor({
+      tplCss: '@media print{.a{background:url(data:image/png;base64,AAAA)}}',
+    }).loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+  });
+});
+
 describe('TemplateEditorService.saveDraft / listPartHistory', () => {
   it('delegates saveDraft to the template repository', async () => {
     const saveDraft = vi.fn(async () => ok(undefined));

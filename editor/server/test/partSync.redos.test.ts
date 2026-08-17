@@ -22,7 +22,7 @@ const measure = (fn: () => void): number => {
   return performance.now() - t0;
 };
 
-describe('extractSyncParts の線形性(R4)', () => {
+describe('extractSyncParts の線形性', () => {
   it('閉じ > を持たないタグの連続に対して入力長の 4 倍で 4 倍以下の時間しか掛からない', () => {
     // 二次なら長さ 4 倍で約 16 倍。線形なら約 4 倍。マシン差に強い「比」で主張する。
     const t1 = measure(() => extractSyncParts('<a '.repeat(10_000)));

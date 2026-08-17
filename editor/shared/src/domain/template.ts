@@ -59,6 +59,17 @@ export function templatePairKey(a: TemplateAttributes): string {
   return `${a.companyCode}_${a.fundCode}_${a.baseDate}`;
 }
 
+/**
+ * ファイル名規約の基準日(yyyymmdd)を帳票の表示形式 `YYYY年M月D日` へ整える(書式は
+ * `sampleCommon.report` の他の日付と統一)。8 桁数字でない値は規約外の残存資産でありうる
+ * ため壊さずそのまま返す — これは表示用の整形であって検証ゲートではない。
+ */
+export function formatBaseDate(baseDate: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})$/.exec(baseDate);
+  if (!m) return baseDate;
+  return `${m[1]}年${Number(m[2])}月${Number(m[3])}日`;
+}
+
 // ── パス安全性のゲート ──
 // templateId / fundCode はリクエスト由来のまま `path.join` でディレクトリへ連結される
 // (`server/src/files/*`)。連結する側ごとに検査すると必ず取りこぼすので、ここで純関数として
@@ -76,6 +87,8 @@ function isSafeFileNameSegment(s: string): boolean {
   if (s.includes('..')) return false;
   // 末尾のドット/空白は Windows が黙って落とすため、検査をすり抜けた別名になりうる。
   if (s !== s.trim() || s.endsWith('.')) return false;
+  // Windows の予約デバイス名は拡張子付き(`CON.html`)でもデバイスとして扱われる。
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(s)) return false;
   return true;
 }
 
@@ -109,6 +122,23 @@ export function isValidTemplateId(templateId: string): boolean {
  */
 export function isValidFundCode(fundCode: string): boolean {
   return isValidTemplateToken(fundCode);
+}
+
+/**
+ * ペアキー(`templatePairKey` の形 = `companyCode_fundCode_baseDate`)が全体・トークン単位
+ * ともに安全か。`syncFiles.ts` が `sync/<pairKey>.json` へ連結する前の検査に使う。
+ */
+export function isValidPairKey(pairKey: string): boolean {
+  const tokens = pairKey.split('_');
+  return tokens.length === 3 && tokens.every(isValidTemplateToken);
+}
+
+/** `isValidPairKey` に通らなければ `validation` を投げ、通れば入力をそのまま返す。 */
+export function assertPairKey(pairKey: string): string {
+  if (!isValidPairKey(pairKey)) {
+    throw validation(`不正な同期キーです: ${pairKey}`);
+  }
+  return pairKey;
 }
 
 /** `isValidTemplateId` に通らなければ `validation` を投げ、通れば入力をそのまま返す。 */

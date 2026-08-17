@@ -218,3 +218,46 @@ describe("sanitizeFontFaceCss", () => {
     expect(out).not.toContain("@import");
   });
 });
+
+// ── 計算量の上限(ReDoS) ──
+// 資源上限は「入力の大きさ」と「処理の計算量」の 2 軸で持つ必要がある。入力長
+// (`MAX_SVG_INPUT_CHARS` 8MiB)・ノード数・ラベル数の上限はどれも大きさの上限で、
+// 100 バイト未満の入力で刺さる指数バックトラックは止められない。しかもサニタイザが
+// メインスレッドで固まると、規定の失敗の仕方(読込ごと拒否 + 件数通知)にすらならず、
+// `/ping` 途絶で 60 秒後にサーバが自ら終了する = 守るためのコードが守る対象を殺す。
+describe("@font-face の値検証は入力長に対して線形", () => {
+  /** 受理される `src`(許可されるのは `data:` のフォントだけ)。ここは検証の対象外。 */
+  const SRC = 'src:url(data:font/woff2;base64,AAAA) format("woff2")';
+
+  /** 非マッチが確定する最悪形。区切りごとに解析の分岐が増える形を狙う。 */
+  const evil = (n: number) => `${Array(n).fill("a ").join(",")},!`;
+
+  it("正当な font-family は今までどおり通る", () => {
+    for (const ok of [
+      "Arial",
+      "sans-serif",
+      '"BIZ UDPGothic"',
+      "'Noto Serif JP'",
+      "Times New Roman",
+      'Arial, "BIZ UDPGothic", sans-serif',
+      "Helvetica Neue, Arial, sans-serif",
+    ])
+      expect(sanitizeFontFaceCss(`@font-face{font-family:${ok};${SRC}}`), ok).not.toBe("");
+  });
+
+  it("区切りを 16 倍にしても所要は跳ね上がらない", () => {
+    // 指数バックトラックだと 28 → 448 で天文学的に伸びる(修正前は 85 バイトで 6.5 秒)。
+    const measure = (n: number) => {
+      const css = `@font-face{font-family:${evil(n)};${SRC}}`;
+      const t0 = performance.now();
+      sanitizeFontFaceCss(css);
+      return performance.now() - t0;
+    };
+    measure(28); // ウォームアップ(JIT の初回コストを測らない)
+    const small = measure(28);
+    const large = measure(448);
+    // 線形なら概ね 16 倍。定数項に埋もれるので上限は緩く取り、桁が変わらないことを見る。
+    expect(large).toBeLessThan(Math.max(50, small * 200));
+    expect(large).toBeLessThan(1000);
+  });
+});

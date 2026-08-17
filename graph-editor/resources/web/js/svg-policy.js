@@ -75,9 +75,13 @@ const ALLOWED_ATTRS = new Set([
   "type",
 ]);
 
-// `data-` 接頭辞は原則許可するが、この 2 つはエディタ専有名。入力から持ち込まれると
+// `data-` 接頭辞は原則許可するが、この 3 つはエディタ専有名。入力から持ち込まれると
 // `bakeSvg` が保存時に無条件削除するため「開けたのに保存すると消える」不整合になる。
-const RESERVED_DATA_ATTRS = new Set(["data-editor", "data-editor-hit"]);
+// `data-editor-sel`(選択マーカー) を予約に含めるのは列挙漏れ対策でもある: `class` は
+// 値無検査で通す許可属性のため、`is-selected` のような素のクラス名では出口
+// `sanitizeSvg` の検知網に掛からない。予約 `data-*` にしておけば、`bakeSvg` の除去列挙が
+// 将来漏れても出口検査が `removedCount>0` で必ず保存を止める。
+const RESERVED_DATA_ATTRS = new Set(["data-editor", "data-editor-hit", "data-editor-sel"]);
 
 /** 要素を出力へ通してよいか。名前空間と綴りの**両方**が一致した時だけ true。
  *  仮に `foreignObject` を許可集合へ足しても、その中の XHTML `<iframe>` は名前空間が
@@ -209,7 +213,14 @@ const MAX_CSS_INPUT = 4 << 20;
 // 旧内容が新ファイル名で書き出される)。参照側の `Object.hasOwn` と二重で閉じる。
 const FONT_FACE_VALUE = {
   __proto__: null,
-  "font-family": /^(?:"[\w .-]{1,64}"|'[\w .-]{1,64}'|[a-z][\w -]{0,63})(?:\s*,\s*(?:"[\w .-]{1,64}"|'[\w .-]{1,64}'|[a-z][\w -]{0,63}))*$/i,
+  // 引用符なしのファミリ名は**語の連なり**として書く。`[\w -]` のように文字クラスへ空白を
+  // 含めると、区切りの `\s*` と同じ空白に一致して 1 区切りあたり 2 通りの解析が生まれ、
+  // 非マッチ入力で 2^n の指数バックトラックになる (85 バイトで 6.5 秒を実測)。
+  // 空白の直後に必ず語を要求すれば、区切り直前の空白を名前側が食えないので曖昧さが消える。
+  // 入力長ではなく**計算量**の上限であり、`MAX_SVG_INPUT_CHARS` などの大きさの上限では
+  // 代替できない (100 バイト未満の入力で刺さる)。
+  "font-family":
+    /^(?:"[\w .-]{1,64}"|'[\w .-]{1,64}'|[a-z][\w-]{0,63}(?: {1,4}[\w-]{1,64}){0,7})(?:\s*,\s*(?:"[\w .-]{1,64}"|'[\w .-]{1,64}'|[a-z][\w-]{0,63}(?: {1,4}[\w-]{1,64}){0,7}))*$/i,
   "font-weight": /^(?:normal|bold|bolder|lighter|[1-9][0-9]{0,2})$/i,
   "font-style": /^(?:normal|italic|oblique)$/i,
   "font-display": /^(?:auto|block|swap|fallback|optional)$/i,

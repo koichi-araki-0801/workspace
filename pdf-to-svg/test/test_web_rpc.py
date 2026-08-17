@@ -297,3 +297,76 @@ def test_reapply_dict_page_scopes_to_one_page(session):
     # undo で対象ページのみ戻る
     rpc_methods.dispatch(session, "undo", {})
     assert session.page(1, 0).elements[1].text == "A-1042"
+
+
+def test_revert_dict_match_single_and_plan_page_states(session):
+    """1 件だけ戻す: 要素は置換前へ、planPage は pending 行として並べ続ける。"""
+    rpc_methods.dispatch(session, "dictAdd", {"source": "A-1042", "target": "ボルト"})
+    rpc_methods.dispatch(session, "reapplyDictPage", {"fileIndex": 0, "pageInFile": 0})
+    body = session.page(0, 0).elements[1]
+    assert body.text == "ボルト"
+    plan = rpc_methods.dispatch(session, "planPage", {"fileIndex": 0, "pageInFile": 0})
+    assert [c["state"] for c in plan["changes"]] == ["applied", "applied"]
+
+    r = rpc_methods.dispatch(session, "revertDictMatch",
+                             {"fileIndex": 0, "pageInFile": 0, "elId": body.id})
+    assert r["reverted"] is True
+    assert body.text == "A-1042" and body.dict_match is None and body.dict_revert is None
+    plan = rpc_methods.dispatch(session, "planPage", {"fileIndex": 0, "pageInFile": 0})
+    rows = {c["elId"]: c for c in plan["changes"]}
+    assert rows[body.id]["state"] == "pending"
+    assert rows[body.id]["source"] == "A-1042" and rows[body.id]["target"] == "ボルト"
+    # 戻した後もページは「要確認」のまま (一覧から消えない)
+    assert rpc_methods.dispatch(session, "state", {})["changed2"] == [True]
+    # 戻しは Undo/Redo に乗る
+    rpc_methods.dispatch(session, "undo", {})
+    assert body.text == "ボルト"
+    rpc_methods.dispatch(session, "redo", {})
+    assert body.text == "A-1042"
+    # 復元情報が無い要素は no-op
+    r = rpc_methods.dispatch(session, "revertDictMatch",
+                             {"fileIndex": 0, "pageInFile": 0, "elId": body.id})
+    assert r["reverted"] is False
+    # 戻しはその場限り: 次の再適用でまた置換される
+    r = rpc_methods.dispatch(session, "reapplyDictPage", {"fileIndex": 0, "pageInFile": 0})
+    assert r["count"] == 1 and body.text == "ボルト"
+
+
+def test_revert_dict_match_wrapped_group(tmp_path):
+    """折返し畳み込みを戻すと 2 行目が再表示され、合成領域・ベースラインも元へ戻る。"""
+    s, top, bottom = _wrapped_pair_session(tmp_path)
+    rpc_methods.dispatch(s, "dictAdd", {"source": "商品名称", "target": "Product", "joined": True})
+    rpc_methods.dispatch(s, "reapplyDictPage", {"fileIndex": 0, "pageInFile": 0})
+    assert top.text == "Product" and bottom.deleted is True
+    rpc_methods.dispatch(s, "revertDictMatch", {"fileIndex": 0, "pageInFile": 0, "elId": top.id})
+    assert top.text == "商品" and bottom.deleted is False
+    assert (top.bbox.x, top.bbox.y, top.bbox.w, top.bbox.h) == (50.0, 28.0, 20.0, 12.0)
+    assert top.origin_y == 40 and top.wrap_align is None
+
+
+def test_apply_dict_match_applies_only_one_element(session):
+    """applyDictMatch は指定要素だけを置換する (他の候補は未置換のまま)。"""
+    session.page(0, 0).elements.append(
+        TextElement(bbox=Rect(10, 60, 60, 12), text="A-1042", origin_x=10, origin_y=70)
+    )
+    body, other = session.page(0, 0).elements[1], session.page(0, 0).elements[3]
+    rpc_methods.dispatch(session, "dictAdd", {"source": "A-1042", "target": "ボルト"})
+    r = rpc_methods.dispatch(session, "applyDictMatch",
+                             {"fileIndex": 0, "pageInFile": 0, "elId": other.id})
+    assert r["count"] == 1
+    assert other.text == "ボルト" and body.text == "A-1042"
+    plan = rpc_methods.dispatch(session, "planPage", {"fileIndex": 0, "pageInFile": 0})
+    rows = {c["elId"]: c for c in plan["changes"]}
+    assert rows[body.id]["state"] == "pending" and rows[other.id]["state"] == "applied"
+    # 候補でない要素は no-op
+    r = rpc_methods.dispatch(session, "applyDictMatch",
+                             {"fileIndex": 0, "pageInFile": 0, "elId": 999999})
+    assert r["count"] == 0
+
+
+def test_state_changed2_true_for_pending_candidates(session):
+    """未適用の候補しか無いページも要確認 (戻した箇所を一覧から消さない)。"""
+    hdr = session.page(0, 0).elements[0]
+    hdr.dict_match = None  # 置換済みを消し、候補だけの状態にする
+    rpc_methods.dispatch(session, "dictAdd", {"source": "A-1042", "target": "ボルト"})
+    assert rpc_methods.dispatch(session, "state", {})["changed2"] == [True]

@@ -21,9 +21,12 @@ import {
   templateFileName,
   toReviewMeta,
   unexpected,
+  validation,
 } from '@editor/shared';
 import {
+  countPendingReviews,
   listReviewMetas,
+  MAX_PENDING_REVIEWS,
   readReview,
   updateReviewMeta,
   writeReview,
@@ -85,6 +88,14 @@ export async function submitReview(
     templateId: req.templateId,
     where: 'review-submit',
   });
+  // 未処理申請の件数上限。作成は editor 1 ロールで撃て、1 件ごとに dataRoot へ書くので、
+  // 上限が無いと 1 人で領域を埋めて承認フローごと止められる(`reviewsDir` は templates /
+  // `.git` と同じボリューム)。判定は書き込みの前に置く — 通してから消すのでは遅い。
+  if ((await countPendingReviews()) >= MAX_PENDING_REVIEWS)
+    throw validation(
+      `未処理の確定保存申請が上限(${MAX_PENDING_REVIEWS} 件)に達しています。` +
+        '精査者が既存の申請を処理してから、あらためて申請してください。',
+    );
   const review: ReviewRequest = {
     id: randomUUID(),
     templateId: req.templateId,

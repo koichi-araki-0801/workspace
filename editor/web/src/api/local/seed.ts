@@ -46,19 +46,15 @@ const SEED: SeedTemplate[] = [
         historyId: 'seed-510037kr-2',
         timestamp: '2024-07-09T10:05:00',
         mark: '第2版',
-        edits: [
-          ['{{ fund.nav }}', '12,310'],
-          ['+{{ fund.navChange }}', '+35'],
-        ],
+        // 置換対象は fixture テンプレの原文。`fund.navChange` は fixture テンプレが参照して
+        // いないので置換ペアに載せない(ヒット 0 の死んだルールになる)。
+        edits: [['{{ fund.nav }}', '12,310']],
       },
       {
         historyId: 'seed-510037kr-1',
         timestamp: '2024-07-08T14:30:00',
         user: '編集太郎',
-        edits: [
-          ['{{ fund.nav }}', '12,180'],
-          ['+{{ fund.navChange }}', '+12'],
-        ],
+        edits: [['{{ fund.nav }}', '12,180']],
       },
     ],
   },

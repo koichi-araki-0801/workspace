@@ -1445,7 +1445,7 @@ export async function renderPdfStylePieToSvg(
     // country_12_europe_heavy デンマーク)。発火は defect 述語そのもの (`qualifiesSideEdgeCenterAttach`:
     // アンカー x が自 box 水平範囲内。own-box 貫通判定は `leaderCrossesBox` の 2px pad で 1px 未満の
     // かすめを取り逃がすため使わない)。allowSideEdgeCenter=true で書き出し側の縦縁 (start=左縁の
-    // 9 時 / end=右縁の 3 時) の縦中央へ近縁外側 x の横優先 L 字で接続する形 (ユーザー選定) を試し、
+    // 9 時 / end=右縁の 3 時) の縦中央へ近縁外側 x の横優先 L 字で接続する形を試し、
     // 自 box を貫かない場合のみ採用する。do-no-harm は Pass 1c/1d と同一セット (他 leader との
     // 交差関係不変・他ラベル box 非貫通・円食い込み非悪化)。scorer / realLeaderPaths は既定 false の
     // ままなので採点・レイアウト選択は不変 (ラベル位置は動かない)。

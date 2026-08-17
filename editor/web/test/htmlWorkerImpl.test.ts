@@ -72,4 +72,30 @@ describe('htmlWorkerImpl linkedom parity', () => {
     const viaLinkedom = htmlWorkerImpl.toTemplate(editable, { asFragment: true });
     expect(viaLinkedom).toEqual(viaJsdom);
   });
+
+  it('toTemplate: `<body>` ラッパ断片(draft の実形状)でも本文を失わない', () => {
+    // GrapesJS の `getHtml()` は `<html>` ラッパ無しの `<body …>…</body>` を返し、autosave が
+    // その形のまま draft に保存する。linkedom はこの入力を素通しすると中身を `doc.body` の
+    // 外へ置くため、`asFragment`(= `doc.body.innerHTML`)が空文字になる。
+    const editable =
+      '<body id="wrapper" class="page-root">' +
+      '<div class="page"><h2>基準価額</h2><p><span data-gjs-type="jinja-var" data-jinja="' +
+      btoa('{{ fund.nav }}') +
+      '">12,345</span> 円</p></div>' +
+      '</body>';
+    const viaJsdom = toTemplate(editable, { asFragment: true });
+    const viaLinkedom = htmlWorkerImpl.toTemplate(editable, { asFragment: true });
+    expect(viaLinkedom).toContain('{{ fund.nav }}');
+    expect(viaLinkedom).toEqual(viaJsdom);
+  });
+
+  it('buildHtmlDiff: `<body>` ラッパ断片どうしでも本文を失わない', () => {
+    const wrap = (inner: string) => `<body class="page-root">${inner}</body>`;
+    const before = wrap(page(0, '<p>変更前の本文</p>'));
+    const after = wrap(page(0, '<p>変更後の本文</p>'));
+    const viaJsdom = buildHtmlDiff(before, after, css, css);
+    const viaLinkedom = htmlWorkerImpl.buildHtmlDiff(before, after, css, css);
+    expect(viaLinkedom.changedPageCount).toBe(1);
+    expect(stripTbody(viaLinkedom)).toEqual(stripTbody(viaJsdom));
+  });
 });

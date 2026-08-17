@@ -197,7 +197,7 @@ function measure(fn: () => void): number {
   return performance.now() - t0;
 }
 
-describe('ページ分割の資源上限(R23 / R24)', () => {
+describe('ページ分割の資源上限', () => {
   it('上限を定数として固定する', () => {
     expect(MAX_COMPLEX_SELECTORS).toBe(32);
     expect(MAX_TOP_LEVEL_BLOCKS).toBe(5_000);

@@ -4,7 +4,7 @@
 // 読み込んだ SVG はアプリ origin の生 DOM へインライン挿入される (`getBBox` の実測が
 // 要るため)。したがって「危険物が実行されないこと」は実ブラウザでしか主張できない。
 //
-// 本ファイルは**過去に実行が確認された迂回入力を並べ、それが失敗すること**を主張する。
+// 本ファイルは**denylist では止まらない迂回入力を並べ、それが失敗すること**を主張する。
 // 個別の要素名・属性名を数える形にはしない (次の別名で無力化されるため)。代わりに
 // 「出力ツリーに名前空間つき属性が 1 つも無い」「ELEMENT / TEXT 以外のノードが無い」
 // のような**不変条件**を主張する。
@@ -87,9 +87,9 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => !!window.__editor);
 });
 
-// ── 1. 過去に実行が確認された 4 経路 ──
+// ── 1. denylist では止まらない 4 経路 ──
 
-test("P002: foreignObject の XHTML iframe が取り込まれず srcdoc も走らない", async ({ page }) => {
+test("foreignObject の XHTML iframe が取り込まれず srcdoc も走らない", async ({ page }) => {
   const svg = svgWith(
     `<foreignObject x="0" y="0" width="300" height="200">` +
       `<iframe xmlns="http://www.w3.org/1999/xhtml" ` +
@@ -108,7 +108,7 @@ test("P002: foreignObject の XHTML iframe が取り込まれず srcdoc も走�
   expect(await page.evaluate(() => document.querySelectorAll("#canvas iframe").length)).toBe(0);
 });
 
-test("P010: animate による href 差し替えが要素ごと落ちる", async ({ page }) => {
+test("animate による href 差し替えが要素ごと落ちる", async ({ page }) => {
   const svg = svgWith(
     `<a href="#safe"><rect id="bait" x="10" y="10" width="80" height="80" fill="#000000"/>` +
       `<animate attributeName="href" values="javascript:window.__c3=1" fill="freeze" dur="0.1s"/></a>`,
@@ -124,7 +124,7 @@ test("P010: animate による href 差し替えが要素ごと落ちる", async 
   expect(await page.evaluate(() => window.__c3)).toBeUndefined();
 });
 
-test("P011: 別プレフィックスの xlink も制御文字入りスキームも、名前空間つき属性ごと落ちる", async ({ page }) => {
+test("別プレフィックスの xlink も制御文字入りスキームも、名前空間つき属性ごと落ちる", async ({ page }) => {
   const svg = svgWith(
     // (a) 任意プレフィックスでの xlink 宣言 — 文字列比較では無限に別名を作れる。
     `<g xl:href="javascript:window.__c3=1"><rect x="0" y="0" width="10" height="10" fill="#000000"/></g>` +
@@ -144,7 +144,7 @@ test("P011: 別プレフィックスの xlink も制御文字入りスキーム�
   expect(await page.evaluate(() => window.__c3)).toBeUndefined();
 });
 
-test("P025: 外部 URL を参照する image / @import / @font-face でも外部リクエストが飛ばない", async ({ page }) => {
+test("外部 URL を参照する image / @import / @font-face でも外部リクエストが飛ばない", async ({ page }) => {
   const external: string[] = [];
   page.on("request", (req) => {
     const u = req.url();
@@ -167,9 +167,9 @@ test("P025: 外部 URL を参照する image / @import / @font-face でも外部
   expect(external).toEqual([]);
 });
 
-// ── 2. インスペクタ (P001) ──
+// ── 2. インスペクタ ──
 
-test("P001: スライスの fill から属性を閉じても、インスペクタへ要素を注入できない", async ({ page }) => {
+test("スライスの fill から属性を閉じても、インスペクタへ要素を注入できない", async ({ page }) => {
   const evilFill = "#fff&quot;&gt;&lt;img src=x onerror=&quot;window.__x1=1&quot;&gt;";
   const svg = svgWith("", "", evilFill);
   await page.evaluate((s) => window.__editor.load({ name: "p001", id: 1, content: s }), svg);
@@ -201,7 +201,7 @@ test("P001: スライスの fill から属性を閉じても、インスペク�
   expect(r.name).toBe("Alpha 50%");
 });
 
-test("P001: 正当な fill はこれまでどおり swatch に反映される", async ({ page }) => {
+test("正当な fill はこれまでどおり swatch に反映される", async ({ page }) => {
   await page.evaluate((s) => window.__editor.load({ name: "ok", id: 1, content: s }), svgWith("", "", "#4e79a7"));
   await page.waitForFunction(() => window.__editor.labels && window.__editor.labels.length >= 1);
   await page.evaluate(() => {
@@ -298,6 +298,62 @@ test("pie-chart 実出力は 1 件も削られず、フォント・data-* ・tex
   expect(r.dataNames.every((n) => !!n)).toBe(true);
   expect(r.slicePathFill).toMatch(/^#[0-9a-f]{6}$/i);
   expect(r.leaderPaths).toBeGreaterThan(0);
+});
+
+// ── 5. bakeSvg の覆いの穴 2 つ (選択マーカーの予約 data-* 化 / 出口検査の try/catch) ──
+
+test("選択マーカーが列挙漏れで残っても、予約 data-editor-sel を出口 sanitizeSvg が検知する", async ({ page }) => {
+  // `bakeSvg` の除去列挙 (`[data-editor-sel]` の属性除去) が将来漏れても、選択マーカーが
+  // 予約 `data-*` である限り出口検査は必ず `removed>0` に倒れて保存を止める、という
+  // 安全網そのものを主張する (`class="is-selected"` のような素のクラス名は `class` が
+  // 値無検査の許可属性なので、この網に掛からなかった)。
+  const svg = svgWith(``).replace(
+    `<g class="label" data-name="Alpha" data-percent="50">`,
+    `<g class="label" data-name="Alpha" data-percent="50" data-editor-sel="1">`,
+  );
+  const counts = await sanitizeCounts(page, svg);
+  expect(counts.ok).toBe(true);
+  expect(counts.removed).toBeGreaterThan(0);
+});
+
+test("sanitizeSvg が例外を投げても save は保存を中止し、ダウンロードを起こさない", async ({ page }) => {
+  // 入口 (:56-65 付近) は既に明示 try/catch 済みだが、出口 `sanitizeSvg(out)` は
+  // 未対応だと例外が unhandled rejection になり「保存ボタンを押しても何も起きない」
+  // 無言失敗になる。`/js/utils.js` の `sanitizeSvg` を例外を投げる版へ差し替え、
+  // save がステータス表示のうえ return し、ダウンロードが起きないことを確かめる。
+  // 例外は `window.__throwSanitize` フラグが立っている時だけ投げる — `load` も同じ
+  // `sanitizeSvg` を通るため、無条件に投げると読込自体が (これも中断 = 意図どおり)
+  // 落ちてしまい、保存経路だけを狙って検証できない。
+  await page.route("**/js/utils.js", async (route) => {
+    const res = await route.fetch();
+    const body = await res.text();
+    const patched = body.replace(
+      "function sanitizeSvg(svgText) {",
+      'function sanitizeSvg(svgText) { if (window.__throwSanitize) throw new Error("boom-test");',
+    );
+    expect(patched).not.toBe(body); // 置換が実際に効いたことの前提 (壊れたら誤検証を防ぐ)
+    await route.fulfill({ response: res, body: patched });
+  });
+  await page.goto("/ui.html");
+  await page.waitForFunction(() => !!window.__editor);
+  await page.evaluate((s) => window.__editor.load({ name: "throwtest", id: 1, content: s }), PIE_SAMPLE);
+  await page.waitForFunction(() => window.__editor.labels && window.__editor.labels.length >= 4);
+
+  let downloadFired = false;
+  page.once("download", () => {
+    downloadFired = true;
+  });
+  await page.evaluate(() => {
+    (window as unknown as { __throwSanitize: boolean }).__throwSanitize = true;
+  });
+  await page.evaluate(() => window.__editor.save());
+  await page.waitForTimeout(200);
+
+  const status = await page.evaluate(
+    () => (document.querySelector(".footer .skip-note") as HTMLElement)?.textContent,
+  );
+  expect(status).toContain("保存を中止しました");
+  expect(downloadFired).toBe(false);
 });
 
 test("往復: 保存出力を再度開いても除去 0・ラベル数一致・transform が焼き込まれている", async ({ page }) => {

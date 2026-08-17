@@ -167,7 +167,14 @@ async function save(ed) {
   // 落ちるなら保存を中止する。取り込み時に許可外が残っていない限り除去件数は 0 に
   // なるはずで、0 でなければ入口の実装が壊れた合図 (下流の閲覧者へ能動コンテンツを
   // 持ち出す事故を、入口の穴に依存せず出口で止める)。
-  const check = sanitizeSvg(out);
+  // 例外は `null` 扱いにする (入口側の読込中断 `abortLoad` と同じ倒し方) — try/catch を
+  // 欠くと例外は unhandled rejection になり、保存ボタンを押しても何も起きない無言失敗になる。
+  let check = null;
+  try {
+    check = sanitizeSvg(out);
+  } catch {
+    check = null;
+  }
   if (!check || removedCount(check.removed) > 0) {
     ed.setStatus("保存を中止しました: 出力に許可されていない内容が含まれています", "err");
     return;
@@ -221,8 +228,10 @@ function bakeSvg(ed) {
 
   // エディタ専用要素を除去
   clone.querySelectorAll("[data-editor], [data-editor-hit]").forEach((el) => el.remove());
-  // 選択ハイライト等の編集専用クラスを除去
-  clone.querySelectorAll(".is-selected").forEach((el) => el.classList.remove("is-selected"));
+  // 選択マーカー(予約 `data-editor-sel`)を除去。この除去列挙が漏れても、予約 `data-*`
+  // である以上は出口 `sanitizeSvg` の `removedCount>0` が必ず保存を止める(svg-policy.js
+  // 参照)ので、ここでの除去は性能上の先回りに過ぎない。
+  clone.querySelectorAll("[data-editor-sel]").forEach((el) => el.removeAttribute("data-editor-sel"));
 
   // 表示用に付けた width/height (ズーム) を元サイズへ戻す
   clone.setAttribute("width", `${ed.baseW}px`);

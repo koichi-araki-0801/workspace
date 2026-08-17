@@ -492,3 +492,65 @@ describe('buildCspDirectives', () => {
     expect(csp).not.toContain('upgrade-insecure-requests');
   });
 });
+
+// ── Host ヘッダの許可集合(DNS リバインディングの壁) ──
+// 攻撃者ページは自分のドメインの DNS を後から 127.0.0.1 へ向け替えられる。ブラウザは
+// 同一オリジンだと考えたまま要求を出すので SameSite も CORS も効かず、唯一食い違うのが
+// `Host`。効きどころは認証を課さない配備(既定の local モード)で、そこでは実質
+// 「loopback に到達できること」だけが認可条件になっている。
+describe('resolveAllowedHosts / isAllowedHost', () => {
+  const LAN = { hostname: 'desk-01', addresses: ['192.168.1.10', 'fe80::1'] };
+
+  it('loopback bind では loopback 名しか許さない(この機械の LAN 名は入れない)', async () => {
+    const { resolveAllowedHosts } = await import('../src/config.js');
+    const allowed = resolveAllowedHosts({ host: '127.0.0.1', ...LAN });
+    expect([...allowed].sort()).toEqual(['127.0.0.1', '::1', '::ffff:127.0.0.1', 'localhost']);
+  });
+
+  it('LAN 公開では「この機械が実際に持つ名前とアドレス」だけを足す', async () => {
+    const { resolveAllowedHosts } = await import('../src/config.js');
+    const allowed = resolveAllowedHosts({ host: '0.0.0.0', ...LAN });
+    expect(allowed.has('desk-01')).toBe(true);
+    expect(allowed.has('192.168.1.10')).toBe(true);
+    // bind の指定であって名乗る名前ではないものは足さない。
+    expect(allowed.has('0.0.0.0')).toBe(false);
+    // 攻撃者ドメインは当然入らない。
+    expect(allowed.has('attacker.example')).toBe(false);
+  });
+
+  it('ALLOWED_HOSTS で明示的に足せる(リバースプロキシ経由など)', async () => {
+    const { resolveAllowedHosts } = await import('../src/config.js');
+    const allowed = resolveAllowedHosts({
+      host: '127.0.0.1',
+      extra: 'editor.example, EDITOR2.example ',
+      ...LAN,
+    });
+    expect(allowed.has('editor.example')).toBe(true);
+    expect(allowed.has('editor2.example')).toBe(true);
+  });
+
+  it('判定はホスト名だけで、ポートの有無・IPv6 リテラル・大小文字を吸収する', async () => {
+    const { isAllowedHost } = await import('../src/config.js');
+    const allowed = new Set(['localhost', '127.0.0.1', '::1', 'desk-01']);
+    for (const ok of [
+      'localhost',
+      'localhost:24680',
+      'LocalHost:24680',
+      '127.0.0.1:24680',
+      '[::1]:24680',
+      'desk-01:24680',
+    ])
+      expect(isAllowedHost(ok, allowed), ok).toBe(true);
+    for (const ng of [
+      'attacker.example',
+      'attacker.example:24680',
+      'localhost.attacker.example',
+      'attackerlocalhost',
+      '',
+      undefined,
+      // 重複ヘッダは配列で届く。前段との食い違いを作れるので落とす。
+      ['localhost', 'attacker.example'],
+    ])
+      expect(isAllowedHost(ng as string | undefined, allowed), String(ng)).toBe(false);
+  });
+});

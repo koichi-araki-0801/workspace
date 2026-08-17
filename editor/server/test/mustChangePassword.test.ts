@@ -82,4 +82,14 @@ describe('requireAuth と 要パスワード変更', () => {
     } as unknown as FastifyRequest;
     await expect(requireAuth(request, reply)).resolves.toBeUndefined();
   });
+
+  it('rejects a path that merely ends with an exempt route (403, not exempted)', async () => {
+    // 旧実装の `endsWith` 判定は `/api/evil/auth/me` を `/auth/me` の後方一致で通してしまう。
+    await expect(
+      requireAuth(reqFor('must:admin', '/api/evil/auth/me'), reply),
+    ).rejects.toMatchObject({
+      kind: 'forbidden',
+      code: 'PASSWORD_CHANGE_REQUIRED',
+    });
+  });
 });

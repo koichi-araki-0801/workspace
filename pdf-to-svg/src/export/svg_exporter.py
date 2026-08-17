@@ -28,11 +28,24 @@ def _fmt(v: float) -> str:
     return f"{v:.3f}".rstrip("0").rstrip(".")
 
 
+# 既知拡張子だけの固定表 (`web/server.py` の `_MIME` と同型)。PDF から抽出した画像の ext は
+# PyMuPDF の申告値をそのまま使っているため、任意拡張子から MIME を組み立てると
+# `data:image/svg+xml;base64,...` 等の任意 MIME を作らせる入口になる。
+_IMAGE_MIME = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "bmp": "image/bmp",
+    "tiff": "image/tiff",
+}
+
+
 def _mime(ext: str) -> str:
-    ext = ext.lower()
-    if ext in ("jpg", "jpeg"):
-        return "image/jpeg"
-    return f"image/{ext}"
+    # 未知拡張子は `application/octet-stream` へ倒す (fail-close)。data URI の中身を
+    # ブラウザが画像としてスニッフしないため、埋め込み画像相当には見えなくなる。
+    return _IMAGE_MIME.get(ext.lower(), "application/octet-stream")
 
 
 def page_to_svg(page: Page, *, annotate: bool = False) -> str:

@@ -51,6 +51,7 @@ CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)�
 - 空行はスキップ、name 空欄や value 数値変換不可は明示エラー。
 - 数式セルは結果値、リッチテキスト/ハイパーリンクも展開して取り込む。
 - exceljs 依存は `src/input/load.ts` の xlsx 節に隔離(`parseRange` / `loadXlsxItems`)。
+- 制御文字など XML に載らない文字を含む name セルは明示エラーになる(切り詰めや除去はしない)。
 
 #### DB(SQL Server)入力の決まり
 
@@ -72,6 +73,7 @@ CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)�
   ようなキーワードを注入されて統合認証のチャレンジレスポンスが外部ホストへ出る。
 - ネイティブドライバ `msnodesqlv8` は `optionalDependencies`。**遅延 require** のため、未導入でも
   他入力(sample/json/xlsx)と `tsc` は動く。DB 入力使用時のみ導入が必要。
+- 制御文字など XML に載らない文字を含む name 列も明示エラーになる(切り詰めや除去はしない)。
 - 接続・SQL 依存は `src/input/db.ts` に隔離(`buildConnectionString` / `normalizeConnExtra` /
   `assertLooksLikeSelect` / `rowsToItems` / `loadDbItems`)。editor フェーズ2(`editor/server/src/db/pool.ts`)と同パターン。
 

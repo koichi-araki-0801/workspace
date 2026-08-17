@@ -7,15 +7,18 @@
 .DESCRIPTION
   setup-offline.ps1 が「取得（HTTPS DL）＋展開＋構築」を行うのに対し、本スクリプトは
   取得を一切行わず、以下のローカル資材が既に存在する前提で「展開＋構築」だけを行う:
-    - offline-deps-bundle.tar.gz（未展開ならこれを展開）
-      もしくは展開済みの .pnpm-store / pnpm.tgz / ms-playwright（あれば展開を省略）
-    - （任意）offline-deps-bundle.tar.gz.sha256 / bundle.key（あれば検証に使う）
+    - offline-deps-bundle.tar.gz（+ .sig。あればこれを検証して展開する）
+      もしくは展開済みの .pnpm-store / pnpm.tgz / ms-playwright 一式 + 検証済み receipt
+      （過去に署名検証を通した記録。receipt が無い展開済み資材は受け入れない）
+    - bundle.key（ソースと資材の対応チェックに使う。真正性の根拠ではない）
 
   資材はリポジトリ直下、無ければ bk\ も探索する。処理内容:
     1. ローカル資材の探索（.tar.gz もしくは展開済みディレクトリ）
-    2. 検証（**すべて致命**）: offline\pinned-release.txt の sha256 と突き合わせ、offline\
-       bundle-signing.pub.xml で分離署名 .sig を検証し、展開後に bundle.key を突き合わせる
-    3. 未展開なら .tar.gz を直下へ展開（.pnpm-store / pnpm.tgz / ms-playwright）
+    2. 検証（**すべて致命**）: バンドル実体があれば offline\pinned-release.txt の sha256 と
+       突き合わせ、offline\bundle-signing.pub.xml で分離署名 .sig を検証する。バンドルが無く
+       展開済みのみの再実行は、過去の署名検証を示す receipt を必須にする（無ければ中止）。
+    3. バンドル実体があるなら、展開済みツリーが在っても必ず再展開して receipt を記録する
+       （検証したバイト列＝実際に使うバイト列を一致させる）。展開後に bundle.key を突き合わせる
     4. 同梱 pnpm を corepack 登録 → クリーン → オフライン install → build → Playwright 配置
 
   ★ 本スクリプトは外部へ通信しない（DL なし）。資材が無ければエラーで止める。
@@ -100,47 +103,19 @@ if ($ExtractedOk) {
   exit 1
 }
 
-# ---- [2/4] 検証（すべて致命。材料が欠けていても止まる） ----
+# ---- [2/4] 検証 + [3/4] 展開（すべて致命。材料が欠けていても止まる） ----
+# 主防御: バンドル実体があるなら、展開済みツリーが在っても必ず検証してから再展開する
+# （検証したバイト列＝実際に使うバイト列を一致させる）。展開済みツリーを信用して展開を
+# 省くと、「検証したのはバンドル、install/build が使うのは差し替え済みの別物」という穴が
+# 開く。バンドルが無く展開済みのみの再実行には、過去に署名検証を通した receipt を必須に
+# する（receipt が無い野良の展開済み資材は fail closed で止める）。
 $PinFile    = Join-Path $PSScriptRoot 'pinned-release.txt'
 $PubKeyFile = Join-Path $PSScriptRoot 'bundle-signing.pub.xml'
-if (-not $DangerouslySkipVerification) {
-  Write-Host '[2/4] 検証（pin の sha256 / 分離署名）...'
 
-  # 期待値は手渡しで運ばれた offline/ の pin から取る。資材の隣の .sha256 は「資材を差し
-  # 替えられる者が同じ場所へ置ける値」なので判定には使わない。
-  if ($Bundle) {
-    $pin = Get-OfflinePin -Path $PinFile
-    Assert-FileSha256 -File $Bundle -ExpectedSha256 $pin.BundleSha256 -Label 'bundle'
-    # 分離署名は資材の隣（無ければ bk\）から探す。欠落は警告でなくエラー。
-    $SigPath = "$Bundle.sig"
-    if (-not (Test-Path -LiteralPath $SigPath)) { $SigPath = Find-Local "$BundleName.sig" }
-    if (-not $SigPath) {
-      Write-Error ("[error] 分離署名 $BundleName.sig がありません（リポジトリ直下 / bk\ を確認）。`n" +
-        '  署名の無い重量物は受け入れません。')
-      exit 1
-    }
-    Assert-BundleSignature -File $Bundle -SignaturePath $SigPath -PublicKeyPath $PubKeyFile
-    Write-Host '[info] 分離署名 OK（offline/ 同梱の公開鍵で検証）。'
-  } else {
-    # 展開済み資材のみの再実行。バンドル実体が無いので突き合わせる対象が無く、ここでは
-    # 何もしない（下の [3.5/4] の bundle.key 照合は展開の有無に関わらず致命で行う）。
-    Write-Host '[info] 展開済み資材のみのため、バンドル実体の検証対象はありません。'
-  }
-
-  # lockfile 整合（bundle.key 比較）は展開後に行う。content key の入力に
-  # git-tools\manifest.txt（バンドル同梱・gitignore 対象でソースに無い）が含まれるため、
-  # 展開前に測ると manifest を欠いて publish 側と必ずズレる。下の [3.5/4] へ遅延させる。
-} else {
-  Write-Warning '[2/4] -DangerouslySkipVerification: 検証をすべて省略します（通常運用では使わないでください）。'
-}
-
-# ---- [3/4] 展開（未展開のときだけ） ----
-if ($ExtractedOk) {
-  Write-Host '[3/4] 展開済みのため展開をスキップ。'
-} else {
-  Write-Host '[3/4] バンドルを直下へ展開（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse）...'
+# バンドル展開の共通処理（展開 → 必須成果物の存在確認）。
+function Expand-Bundle([string]$BundlePath) {
   $TarExe = Resolve-Tar
-  & $TarExe -xzf $Bundle -C $RepoRoot
+  & $TarExe -xzf $BundlePath -C $RepoRoot
   if ($LASTEXITCODE -ne 0) { Write-Error '[error] 展開に失敗しました。'; exit 1 }
   foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse', 'git-tools',
       'docs\_build\vendor\mermaid.min.js', 'docs\_build\vendor\mermaid-layout-elk.min.js',
@@ -149,6 +124,55 @@ if ($ExtractedOk) {
       Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1
     }
   }
+}
+
+if ($DangerouslySkipVerification) {
+  Write-Warning '[2/4] -DangerouslySkipVerification: 検証をすべて省略します（通常運用では使わないでください）。'
+  # 非常口を通った証跡は残さない。receipt を消して次回の通常実行で必ず再検証させる。
+  Remove-VerificationReceipt -Directory $RepoRoot
+  if ($ExtractedOk) {
+    Write-Host '[3/4] 展開済みのため展開をスキップ（無検証）。'
+  } else {
+    Write-Host '[3/4] バンドルを直下へ展開（無検証）...'
+    Expand-Bundle $Bundle
+  }
+} elseif ($Bundle) {
+  # 期待値は手渡しで運ばれた offline/ の pin から取る。資材の隣の .sha256 は「資材を差し
+  # 替えられる者が同じ場所へ置ける値」なので判定には使わない。
+  Write-Host '[2/4] 検証（pin の sha256 / 分離署名）...'
+  $pin = Get-OfflinePin -Path $PinFile
+  Assert-FileSha256 -File $Bundle -ExpectedSha256 $pin.BundleSha256 -Label 'bundle'
+  # 分離署名は資材の隣（無ければ bk\）から探す。欠落は警告でなくエラー。
+  $SigPath = "$Bundle.sig"
+  if (-not (Test-Path -LiteralPath $SigPath)) { $SigPath = Find-Local "$BundleName.sig" }
+  if (-not $SigPath) {
+    Write-Error ("[error] 分離署名 $BundleName.sig がありません（リポジトリ直下 / bk\ を確認）。`n" +
+      '  署名の無い重量物は受け入れません。')
+    exit 1
+  }
+  Assert-BundleSignature -File $Bundle -SignaturePath $SigPath -PublicKeyPath $PubKeyFile
+  Write-Host '[info] 分離署名 OK（offline/ 同梱の公開鍵で検証）。'
+
+  # 主防御: 検証済みバンドルから必ず展開する（$ExtractedOk でも再展開。上のブロック説明参照）。
+  Write-Host '[3/4] 検証済みバンドルを直下へ展開（既存の展開済みツリーがあっても再展開）...'
+  Expand-Bundle $Bundle
+  # 検証と展開を通ったツリーにだけ receipt を書く（次回バンドル無しの再実行のゲート）。
+  New-VerificationReceipt -Directory $RepoRoot -BundleSha256 $pin.BundleSha256
+} else {
+  # バンドル実体が無く展開済みのみ。過去に署名検証を通した receipt を必須にする。
+  Write-Host '[2/4] 検証（展開済み資材の receipt 照合）...'
+  $pin = Get-OfflinePin -Path $PinFile
+  if (-not (Test-VerificationReceipt -Directory $RepoRoot -ExpectedBundleSha256 $pin.BundleSha256)) {
+    Write-Error @"
+[error] 展開済み資材のみでの再実行には、過去に署名検証を通した記録（receipt）が必要です。
+  この作業ツリーには検証済み receipt が無い（または pin と一致しません）。資材が正規リリースの
+  署名済みバンドルから展開されたことを確認できないため、install / build へは進みません。
+  対処: 署名付き $BundleName（と $BundleName.sig）をリポジトリ直下（または bk\）へ置いて再実行してください。
+"@
+    exit 1
+  }
+  Write-Host '[info] receipt OK（過去に署名検証を通した資材）。'
+  Write-Host '[3/4] 展開済みのため展開をスキップ。'
 }
 
 # ---- [3.5/4] lockfile 整合チェック（展開後＝git-tools\manifest.txt が在る状態で測る） ----

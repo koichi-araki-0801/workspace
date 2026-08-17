@@ -27,6 +27,7 @@ process.env.TEMPLATES_DIR = path.join(root, 'data', 'templates');
 process.env.CSS_DIR = path.join(root, 'data', 'css');
 process.env.DRAFTS_DIR = path.join(root, 'data', 'drafts');
 process.env.PENDING_DIR = path.join(root, 'data', 'pending');
+process.env.SYNC_DIR = path.join(root, 'data', 'sync');
 
 const OUTSIDE = path.join(root, 'outside');
 const VALID_ID = 'AM01_510037_20240710_交付版';
@@ -41,6 +42,22 @@ const ESCAPES = [
   'C:\\Windows\\Temp\\pwned',
 ];
 
+/** pairKey として渡される脱出狙いの入力。3 トークンへ整形した形も混ぜて `assertPairKey` の
+ * トークン単位の検査が効くことを確かめる。 */
+const ESCAPE_PAIR_KEYS = [
+  '../outside/pwned',
+  '..\\..\\outside\\pwned',
+  'AM01_../../outside_pwned',
+  'AM01_510037_../../outside/pwned',
+  '/etc/passwd',
+  'C:\\Windows\\Temp\\pwned',
+];
+
+/** 管理ディレクトリ外に作られたファイルを列挙する(空であるべき)。複数の describe から使う。 */
+function strayFiles(): string[] {
+  return fs.readdirSync(OUTSIDE);
+}
+
 describe('files/*.ts のパス封じ込め', () => {
   let draftFiles: typeof import('../src/files/draftFiles.js');
   let templateFiles: typeof import('../src/files/templateFiles.js');
@@ -54,15 +71,6 @@ describe('files/*.ts のパス封じ込め', () => {
     pendingFiles = await import('../src/files/pendingFiles.js');
     confirmedWrite = await import('../src/repositories/confirmedWrite.js');
   });
-
-  afterAll(() => {
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-
-  /** 管理ディレクトリ外に作られたファイルを列挙する(空であるべき)。 */
-  function strayFiles(): string[] {
-    return fs.readdirSync(OUTSIDE);
-  }
 
   it.each(ESCAPES)('writeDraft rejects a traversal id (%s)', async (id) => {
     await expect(draftFiles.writeDraft(id, '<p>pwned</p>', '')).rejects.toSatisfy(isAppError);
@@ -176,4 +184,37 @@ describe('files/*.ts のパス封じ込め', () => {
     expect(fs.existsSync(path.join(root, 'data', 'css', '510037.css'))).toBe(true);
     expect(strayFiles()).toEqual([]);
   });
+});
+
+describe('files/syncFiles.ts のパス封じ込め', () => {
+  let syncFiles: typeof import('../src/files/syncFiles.js');
+
+  beforeAll(async () => {
+    syncFiles = await import('../src/files/syncFiles.js');
+  });
+
+  it.each(ESCAPE_PAIR_KEYS)('readSyncState rejects a traversal pairKey (%s)', async (pairKey) => {
+    await expect(syncFiles.readSyncState(pairKey)).rejects.toSatisfy(isAppError);
+    expect(strayFiles()).toEqual([]);
+  });
+
+  it.each(ESCAPE_PAIR_KEYS)('writeSyncState rejects a traversal pairKey (%s)', async (pairKey) => {
+    await expect(
+      syncFiles.writeSyncState({ pairKey, parts: {}, updatedAt: new Date().toISOString() }),
+    ).rejects.toSatisfy(isAppError);
+    expect(strayFiles()).toEqual([]);
+  });
+
+  it('readSyncState/writeSyncState accept a valid pairKey and stay inside syncDir', async () => {
+    const pairKey = 'AM01_510037_20240710';
+    const state = await syncFiles.readSyncState(pairKey);
+    expect(state.pairKey).toBe(pairKey);
+    await syncFiles.writeSyncState({ ...state, updatedAt: new Date().toISOString() });
+    expect(fs.existsSync(path.join(root, 'data', 'sync', `${pairKey}.json`))).toBe(true);
+    expect(strayFiles()).toEqual([]);
+  });
+});
+
+afterAll(() => {
+  fs.rmSync(root, { recursive: true, force: true });
 });
