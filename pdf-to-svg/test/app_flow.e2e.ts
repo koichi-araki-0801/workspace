@@ -35,6 +35,8 @@ test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し",
   await page.fill("#dict-tgt", "売上高");
   await page.click("#dict-add");
   await expect(page.locator("#dict-count")).toContainText("1");
+  // 辞書に語を足しただけで、その語に当たるページは「要確認」に上がる (再適用の前でも)
+  await expect(page.locator("#nav-hint")).toContainText("要確認 1");
   await page.click("#btn-reapply");
   // 「N 件置換」ヒントは直後の render() が状態行で上書きするため文言では見ない。
   // 置換の成立は「要確認 1 (changed 化)」とページ表示 (書き出しと同一経路) で確認する。

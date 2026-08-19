@@ -532,6 +532,9 @@ import { initRail, buildRail } from "./rail.js";
     document.getElementById("dict-rows").querySelectorAll("[data-del]").forEach(function (b) {
       b.addEventListener("click", async function () {
         dictState = await rpc("dictDelete", { id: +b.dataset.del }); renderDict();
+        // 削除した語に当たっていたページは「要確認」から降りる。state を取り直さないと
+        // 案内バーが消えた語の件数を数え続ける。
+        await reloadState(); render();
       });
     });
     var chkJoin = document.getElementById("chk-suggest-join");
@@ -786,6 +789,9 @@ import { initRail, buildRail } from "./rail.js";
       }
       pendingJoined = false;
       src.value = ""; tgt.value = ""; renderDict();
+      // 登録した語に当たるページは「要確認」へ上がる。他の辞書操作 (再適用・戻す) と同じく
+      // state を取り直さないと、確認済みのページに新語が当たっても案内バーが気付かない。
+      await reloadState(); render();
     });
     // 元の語を手編集したら連結由来を外す (取り込んだ連結文字列ではなくなるため)
     document.getElementById("dict-src").addEventListener("input", function () {
