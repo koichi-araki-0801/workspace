@@ -19,6 +19,18 @@ test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し",
   test.setTimeout(120_000);
   await page.goto(`/?token=${TOKEN}`);
 
+  // ショートカットの発火を数えるため `rpc` を包む。押下ハンドラは同期に `rpc` を呼ぶので、
+  // 押した直後に記録を見れば発火の有無が確定する。
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__rpcLog = [];
+    const orig = w.rpc;
+    w.rpc = function (method: string, args: unknown) { w.__rpcLog.push(method); return orig(method, args); };
+  });
+  // ファイルを 1 つも読み込んでいない間は文書のショートカットを撃たない
+  await page.keyboard.press("Control+z");
+  expect(await page.evaluate(() => (window as any).__rpcLog)).toEqual([]);
+
   // ── 1. PDF を選ぶ (動的 `<input type=file>` は filechooser イベントで受ける) ──
   const [chooser] = await Promise.all([
     page.waitForEvent("filechooser"),
@@ -55,6 +67,15 @@ test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し",
   await page.locator("#confirm-dyn .change-row").first().locator(".act-apply").click();
   await expect(page.locator("#doc-master")).toContainText("売上高", { timeout: 15_000 });
   await expect(page.locator("#confirm-dyn")).not.toContainText("未置換");
+
+  // 入力欄でのショートカットは文書の Undo を撃たない。辞書の語を打ち直そうと Ctrl+Z した
+  // だけで直前の置換が消えると、消えたことに気付けないため。
+  await page.click('[data-tab="dict"]');
+  await page.click("#dict-src");
+  await page.evaluate(() => { (window as any).__rpcLog.length = 0; });
+  await page.press("#dict-src", "Control+z");
+  await page.press("#dict-src", "Control+y");
+  expect(await page.evaluate(() => (window as any).__rpcLog)).toEqual([]);
 
   // ── 3. 不要範囲を削除: 要素クリック選択 → 削除 → Undo → 再削除 ──
   await page.click('[data-screen="2"] [data-skipall]'); // 未確認をまとめてスキップ → 手順3 へ

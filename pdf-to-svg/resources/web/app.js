@@ -856,6 +856,14 @@ import { initRail, buildRail } from "./rail.js";
     });
   }
 
+  // 文字入力中の要素か。入力欄では Ctrl+Z が「打った文字を戻す」意味になるため、
+  // 文書側のショートカットはそちらへ譲る。
+  function isTextEntry(target) {
+    if (!target || !target.tagName) return false;
+    var tag = target.tagName.toLowerCase();
+    return tag === "input" || tag === "textarea" || !!target.isContentEditable;
+  }
+
   /** 書き出し範囲・実行・ショートカット・進捗 */
   function wireExportPane() {
     app.querySelectorAll(".segment [data-mode]").forEach(function (b) {
@@ -864,10 +872,16 @@ import { initRail, buildRail } from "./rail.js";
     document.getElementById("exp-file").addEventListener("change", function () { S.expFile = +this.value; refreshExport(); });
     document.getElementById("exp-spec").addEventListener("input", refreshExport);
     document.getElementById("btn-export").addEventListener("click", doExport);
-    // ショートカット
+    // ショートカット。ページが 1 つも無い間は後処理が現在ページを前提にできないので撃たず、
+    // 入力欄でのキー操作はブラウザ標準の取り消しへ譲る。押さえた時だけ既定動作を止める。
     window.addEventListener("keydown", function (e) {
-      if (e.ctrlKey && e.key.toLowerCase() === "z") { rpc("undo").then(afterUndoRedo); }
-      else if (e.ctrlKey && (e.key.toLowerCase() === "y")) { rpc("redo").then(afterUndoRedo); }
+      if (!e.ctrlKey) return;
+      var key = e.key.toLowerCase();
+      if (key !== "z" && key !== "y") return;
+      if (isTextEntry(e.target)) return;
+      if (!S.TOTAL || !S.PAGES[S.page]) return;
+      e.preventDefault();
+      rpc(key === "z" ? "undo" : "redo").then(afterUndoRedo);
     });
     // 進捗
     window.onProgress(function (msg) { setHint(esc(msg)); });
