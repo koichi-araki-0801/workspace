@@ -125,3 +125,52 @@ test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し",
   expect(svgText).toContain("売上高");   // 置換が成果物へ反映されている
   expect(svgText).not.toContain("DeleteMe"); // 削除が成果物へ反映されている
 });
+
+
+test("ページ切替: 遅れて届いた旧ページの取得結果が現ページの操作を壊さない", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto(`/?token=${TOKEN}`);
+
+  // サーバのセッションはテスト間で共有されるため、先に読み込み済みの文書を空にする
+  await page.evaluate(async () => {
+    const w = window as any;
+    for (let i = 0; i < 20; i++) {
+      const st = await w.rpc("state");
+      if (!st.files.length) return;
+      await w.rpc("removeFile", { fileIndex: 0 });
+    }
+  });
+
+  // 同じ PDF を 2 つ読み込み、ページ切替のある状態を作る
+  for (let i = 0; i < 2; i++) {
+    const [chooser] = await Promise.all([
+      page.waitForEvent("filechooser"),
+      page.click("#btn-pick"),
+    ]);
+    await chooser.setFiles(FIXTURE);
+    await expect(page.locator("#filelist-count")).toContainText(`${i + 1} ファイル`, { timeout: 30_000 });
+  }
+
+  await page.click("#btn-next");
+  await page.click('[data-screen="2"] [data-skipall]');
+  await expect(page.locator('[data-screen="3"]')).toHaveClass(/on/);
+  await expect(page.locator("#trim-stage svg")).toBeVisible({ timeout: 30_000 });
+
+  // 2 ページ目の取得をわざと遅らせ、届く前に 1 ページ目へ戻る
+  await page.evaluate(() => {
+    const w = window as any;
+    const orig = w.rpc;
+    w.rpc = async function (method: string, args: unknown) {
+      const r = await orig(method, args);
+      if (method === "pageSvg") await new Promise((done) => setTimeout(done, 1500));
+      return r;
+    };
+  });
+  await page.locator('#pagenav-3 .pg-row2[data-g="1"]').click();
+  await page.locator('#pagenav-3 .pg-row2[data-g="0"]').click();
+  await page.waitForTimeout(2500); // 遅らせた 2 ページ目の応答が届くまで待つ
+
+  // 遅れて届いた分でクリック配線が二重にならない (1 回のクリックで 1 件だけ選択される)
+  await page.locator('#trim-stage svg [data-el]', { hasText: "DeleteMe" }).click();
+  await expect(page.locator("#trim-stage .sel-box")).toHaveCount(1);
+});

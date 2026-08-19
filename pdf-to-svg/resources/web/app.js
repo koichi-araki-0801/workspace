@@ -203,14 +203,25 @@ import { initRail, buildRail } from "./rail.js";
     updateZoomLabel();
   }
 
+  // mountPage の呼び出し通番。同じページを続けて開くと時刻だけでは token が衝突しうるため、
+  // 呼び出しごとに必ず変わる値で「最後の呼び出しだけが描く」を保証する。
+  var mountSeq = 0;
+
   // host に現在ページの SVG を載せる。token で古い await を破棄。
   // SVG 取得は失敗・遅延し得るため、無言でプレースホルダのまま固まらせず
   // エラーを画面に出す (この描画が唯一ページを表示する経路のため)。
-  async function mountPage(host, editorEl, withSelect) {
+  // `onMounted` は描いた時だけ呼ぶ (クリック配線の注入点)。破棄した呼び出しから呼ぶと、
+  // 現ページの SVG へ同じリスナーが二重に付き、クリックが往復して選択できなくなる。
+  async function mountPage(host, editorEl, withSelect, onMounted) {
     var pg = S.PAGES[S.page];
-    var token = pg.fileIndex + ":" + pg.pageInFile + ":" + Date.now();
+    var token = pg.fileIndex + ":" + pg.pageInFile + ":" + (++mountSeq);
     host.dataset.token = token;
     var data;
+    if (!S.svgCache[pg.fileIndex + ":" + pg.pageInFile]) {
+      // 取得中に旧ページの SVG を残すと、その上でクリック選択や範囲削除ができてしまう。
+      host.classList.add("empty");
+      host.innerHTML = '<span class="page-loading">ページを読み込んでいます…</span>';
+    }
     try {
       data = await ensureSvg(pg.fileIndex, pg.pageInFile);
     } catch (e) {
@@ -225,6 +236,7 @@ import { initRail, buildRail } from "./rail.js";
     var svgEl = host.querySelector("svg");
     if (svgEl) scalePage(svgEl, data.width, data.height, editorEl);
     if (withSelect) { drawSelBoxes(host); }
+    if (onMounted) onMounted();
   }
 
   // ── 8. 左: ページ一覧 — rail.js の buildRail/wireRail が担う (initRail で render/tryNext を注入) ──
@@ -647,7 +659,7 @@ import { initRail, buildRail } from "./rail.js";
     if (S.phase === 2 && S.TOTAL) {
       buildRail("pagenav"); renderSummary("sum-2", S.status2); renderPageAct();
       document.getElementById("pgnav-2").innerHTML = pageLabel();
-      mountPage(document.getElementById("doc-master"), app.querySelector('[data-screen="2"] .editor'), false).then(function () {
+      mountPage(document.getElementById("doc-master"), app.querySelector('[data-screen="2"] .editor'), false, function () {
         wireConfirmPick();
         drawChangeMarkers(S.lastChanges || []);
       });
@@ -663,7 +675,7 @@ import { initRail, buildRail } from "./rail.js";
       ed3.classList.toggle("tool-border", S.tool === "border");
       var bo = document.getElementById("border-opts");
       if (bo) bo.hidden = S.tool !== "border";
-      mountPage(document.getElementById("trim-stage"), ed3, true).then(wireTrimStage);
+      mountPage(document.getElementById("trim-stage"), ed3, true, wireTrimStage);
       renderTrim();
       updateZoomLabel();
     }
