@@ -109,6 +109,13 @@ function applyState(st) {
   if (S.page >= S.TOTAL) S.page = 0;
 }
 
+/** ページ SVG のキャッシュを全ページ分捨てる。
+ *
+ * Undo/Redo は現在ページ以外への編集も巻き戻すため、現在ページだけ作り直すと
+ * 他ページが古い SVG のまま残る。
+ */
+function invalidateAll() { S.svgCache = {}; }
+
 /** 現在ページの次の「要確認」ページ (現在位置から一巡)。無ければ -1 */
 function nextPending(arr) {
   for (var i = S.page + 1; i < S.TOTAL; i++) if (arr[i] === "pending") return i;
@@ -159,6 +166,6 @@ function zipName(list) {
 export {
   S, counts, pass, initStatus,
   statusArr, changedArr, selSet, pkey, curElSel, statusOfCur, selKeys, selCount, clearSel,
-  applyState, nextPending, firstPending, advancePhase,
+  applyState, invalidateAll, nextPending, firstPending, advancePhase,
   exportPageList, expCount, zipName,
 };

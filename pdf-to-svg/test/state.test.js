@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   S, counts, pass, initStatus,
   statusArr, changedArr, selSet, pkey, curElSel, statusOfCur, selKeys, selCount, clearSel,
-  applyState, nextPending, firstPending, advancePhase,
+  applyState, invalidateAll, nextPending, firstPending, advancePhase,
   exportPageList, expCount, zipName,
 } from "../resources/web/state.js";
 
@@ -104,6 +104,14 @@ describe("applyState", () => {
       changed3: [false, false, false],
     });
     expect(S.status2).toEqual(["pending", "none", "pending"]);
+  });
+});
+
+describe("invalidateAll", () => {
+  it("全ページの SVG キャッシュを捨てる", () => {
+    S.svgCache = { "0:0": { svg: "<svg/>" }, "1:2": { svg: "<svg/>" } };
+    invalidateAll();
+    expect(S.svgCache).toEqual({});
   });
 });
 

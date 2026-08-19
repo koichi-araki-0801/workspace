@@ -9,7 +9,7 @@ import { clientToPage, parseSpec } from "./geometry.js";
 import {
   S, counts, pass, initStatus,
   statusArr, changedArr, selSet, pkey, curElSel, statusOfCur, selKeys, selCount, clearSel,
-  applyState, nextPending, firstPending, advancePhase,
+  applyState, invalidateAll, nextPending, firstPending, advancePhase,
   exportPageList, expCount, zipName,
 } from "./state.js";
 import { fileIcon, xIcon, checkD, ckMark } from "./icons.js";
@@ -479,6 +479,15 @@ import { initRail, buildRail } from "./rail.js";
     render();
   }
 
+  // Undo/Redo は現在ページ以外の編集も巻き戻す (別ページで削除してからページを移った後など)。
+  // 現在ページだけ作り直す `afterEdit` では他ページが古い SVG のまま残り、置換の有無が
+  // 変わった分も案内バーに反映されないので、キャッシュを全ページ分捨てて state も取り直す。
+  async function afterUndoRedo() {
+    invalidateAll();
+    await reloadState();
+    render();
+  }
+
   // ── 12. ページ単位アクション ──
   function pageActHTML() {
     var st = statusOfCur();
@@ -736,8 +745,8 @@ import { initRail, buildRail } from "./rail.js";
   function wireNav() {
     document.getElementById("btn-back").addEventListener("click", back);
     document.getElementById("btn-next").addEventListener("click", tryNext);
-    document.getElementById("btn-undo").addEventListener("click", async function () { await rpc("undo"); await afterEdit(); });
-    document.getElementById("btn-redo").addEventListener("click", async function () { await rpc("redo"); await afterEdit(); });
+    document.getElementById("btn-undo").addEventListener("click", async function () { await rpc("undo"); await afterUndoRedo(); });
+    document.getElementById("btn-redo").addEventListener("click", async function () { await rpc("redo"); await afterUndoRedo(); });
     document.getElementById("guard-back").addEventListener("click", function () { S.guarding = false; S.page = firstPending(statusArr()); render(); });
     document.getElementById("guard-skip").addEventListener("click", function () {
       var arr = statusArr(); for (var i = 0; i < S.TOTAL; i++) if (arr[i] === "pending") arr[i] = "skipped"; advancePhase(); render();
@@ -857,8 +866,8 @@ import { initRail, buildRail } from "./rail.js";
     document.getElementById("btn-export").addEventListener("click", doExport);
     // ショートカット
     window.addEventListener("keydown", function (e) {
-      if (e.ctrlKey && e.key.toLowerCase() === "z") { rpc("undo").then(afterEdit); }
-      else if (e.ctrlKey && (e.key.toLowerCase() === "y")) { rpc("redo").then(afterEdit); }
+      if (e.ctrlKey && e.key.toLowerCase() === "z") { rpc("undo").then(afterUndoRedo); }
+      else if (e.ctrlKey && (e.key.toLowerCase() === "y")) { rpc("redo").then(afterUndoRedo); }
     });
     // 進捗
     window.onProgress(function (msg) { setHint(esc(msg)); });
