@@ -273,7 +273,16 @@ import { initRail, buildRail } from "./rail.js";
     ed2.classList.remove("nochange");
     var pg = S.PAGES[S.page];
     var token = pg.fileIndex + ":" + pg.pageInFile;
-    var data = await rpc("planPage", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
+    var data;
+    try {
+      data = await rpc("planPage", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
+    } catch (e) {
+      if (token !== S.PAGES[S.page].fileIndex + ":" + S.PAGES[S.page].pageInFile) return; // ページが変わった
+      S.lastChanges = [];
+      drawChangeMarkers([]);
+      renderPaneError(el, "変更の一覧を取得できませんでした: " + String((e && e.message) || e));
+      return;
+    }
     if (token !== S.PAGES[S.page].fileIndex + ":" + S.PAGES[S.page].pageInFile) return; // ページが変わった
     var applied = data.changes.filter(function (c) { return c.state === "applied"; }).length;
     var pending = data.changes.length - applied;
@@ -322,6 +331,15 @@ import { initRail, buildRail } from "./rail.js";
       });
     });
   }
+  // ペインの取得が失敗したときの表示。旧ページの行 (とそのクリック結線) を残すと、
+  // 今見ているページと無関係な要素を操作できてしまうため、必ず中身ごと置き換える。
+  function renderPaneError(el, msg) {
+    el.innerHTML = '<div class="empty-note" style="flex:1"><div class="et">' + esc(msg) +
+      '</div><button type="button" class="btn ghost" data-retry="1">再試行</button></div>';
+    var btn = el.querySelector("[data-retry]");
+    if (btn) btn.addEventListener("click", function () { render(); });
+  }
+
   function noChangeNote(msg) {
     return '<div class="empty-note"><div class="ei">' + svg('<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>', 24) +
       '</div><div class="et">' + esc(msg) + "</div></div>";
@@ -399,7 +417,14 @@ import { initRail, buildRail } from "./rail.js";
     ed3.classList.remove("nochange");
     var pg = S.PAGES[S.page];
     var token = pg.fileIndex + ":" + pg.pageInFile;
-    var data = await rpc("removedList", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
+    var data;
+    try {
+      data = await rpc("removedList", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
+    } catch (e) {
+      if (token !== S.PAGES[S.page].fileIndex + ":" + S.PAGES[S.page].pageInFile) return; // ページが変わった
+      renderPaneError(el, "削除した要素の一覧を取得できませんでした: " + String((e && e.message) || e));
+      return;
+    }
     if (token !== S.PAGES[S.page].fileIndex + ":" + S.PAGES[S.page].pageInFile) return; // ページが変わった
     var n = data.removed.length;
     var head = '<div class="field-label">このページで削除した要素（' + n + "）</div>";

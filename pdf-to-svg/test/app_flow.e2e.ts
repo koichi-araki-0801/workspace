@@ -200,3 +200,53 @@ test("読み込みが途中で失敗しても、成功した分は取り込ん�
   // 成功した分は取り込まれている
   await expect(page.locator("#filelist-count")).toContainText("1 ファイル");
 });
+
+test("一覧の取得に失敗したら旧ページの行を残さず、再試行の導線を出す", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto(`/?token=${TOKEN}`);
+  await resetSession(page);
+
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.click("#btn-pick"),
+  ]);
+  await chooser.setFiles(FIXTURE);
+  await expect(page.locator("#filelist-count")).toContainText("1 ファイル", { timeout: 30_000 });
+
+  // 変更の一覧を出すために辞書へ 1 語入れる
+  await page.click("#btn-next");
+  await page.click('[data-tab="dict"]');
+  await page.fill("#dict-src", "Revenue");
+  await page.fill("#dict-tgt", "売上高");
+  await page.click("#dict-add");
+  await page.click('[data-tab="confirm"]');
+  await expect(page.locator("#confirm-dyn .change-row")).toHaveCount(1);
+
+  // 指定した RPC だけを失敗させる差し替え
+  const breakRpc = (method: string) => page.evaluate((m) => {
+    const w = window as any;
+    w.__origRpc = w.__origRpc || w.rpc;
+    w.rpc = function (name: string, args: unknown) {
+      if (name === m) return Promise.reject(new Error("取得テスト失敗"));
+      return w.__origRpc(name, args);
+    };
+  }, method);
+  const healRpc = () => page.evaluate(() => { const w = window as any; w.rpc = w.__origRpc; });
+
+  await breakRpc("planPage");
+  await page.locator('#pagenav .pg-row2[data-g="0"]').click();
+  await expect(page.locator("#confirm-dyn")).toContainText("取得できませんでした");
+  await expect(page.locator("#confirm-dyn .change-row")).toHaveCount(0);
+  await healRpc();
+  await page.click("#confirm-dyn [data-retry]");
+  await expect(page.locator("#confirm-dyn .change-row")).toHaveCount(1);
+
+  await page.click('[data-screen="2"] [data-skipall]');
+  await expect(page.locator("#trim-dyn")).toContainText("削除した要素（0）");
+  await breakRpc("removedList");
+  await page.locator('#pagenav-3 .pg-row2[data-g="0"]').click();
+  await expect(page.locator("#trim-dyn")).toContainText("取得できませんでした");
+  await healRpc();
+  await page.click("#trim-dyn [data-retry]");
+  await expect(page.locator("#trim-dyn")).toContainText("削除した要素（0）");
+});
