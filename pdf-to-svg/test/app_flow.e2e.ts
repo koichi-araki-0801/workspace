@@ -100,6 +100,21 @@ test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し",
   // ── 4. SVG に書き出す (1 ページ → 単一 SVG ダウンロード) ──
   await page.click('[data-screen="3"] [data-skipall]');
   await expect(page.locator("#btn-export")).toBeVisible();
+
+  // 書き出しの失敗は握り潰さず通知し、ボタンを押せる状態へ戻す
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__origRpc = w.rpc;
+    w.rpc = function (method: string, args: unknown) {
+      if (method === "exportSvg") return Promise.reject(new Error("書き出し失敗テスト"));
+      return w.__origRpc(method, args);
+    };
+  });
+  await page.click("#btn-export");
+  await expect(page.locator("#toast")).toContainText("書き出し失敗テスト");
+  await expect(page.locator("#btn-export")).toBeEnabled();
+  await page.evaluate(() => { const w = window as any; w.rpc = w.__origRpc; });
+
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.click("#btn-export"),

@@ -152,6 +152,26 @@ function expCount(specValue, parseSpecFn) {
   return S.expMode === "page" ? (S.TOTAL ? 1 : 0) : exportPageList(specValue, parseSpecFn).length;
 }
 
+/** 項目列を送信サイズ予算で塊へ分ける。`sizeOf` は 1 件のバイト数を返す関数。
+ *
+ * ZIP 集約 (`zipEntries`) は SVG 本文をまるごと 1 リクエストで送るため、サーバの
+ * RPC 本文上限を超えると書き出しごと失敗する。予算に収まる塊へ分けて ZIP を複数本に
+ * する。1 件だけで予算を超える項目はその 1 件だけの塊にする (黙って落とすより、
+ * 上限超過の失敗として利用者へ返すほうが取りこぼしに気付ける)。
+ */
+function chunkBySize(items, sizeOf, budget) {
+  var chunks = [];
+  var cur = [];
+  var sum = 0;
+  items.forEach(function (it) {
+    var n = sizeOf(it);
+    if (cur.length && sum + n > budget) { chunks.push(cur); cur = []; sum = 0; }
+    cur.push(it); sum += n;
+  });
+  if (cur.length) chunks.push(cur);
+  return chunks;
+}
+
 /** ZIP のファイル名。対象が 1 PDF ならその名前を継ぎ、複数ファイル混在なら汎用名にする */
 function zipName(list) {
   var fis = {};
@@ -167,5 +187,5 @@ export {
   S, counts, pass, initStatus,
   statusArr, changedArr, selSet, pkey, curElSel, statusOfCur, selKeys, selCount, clearSel,
   applyState, invalidateAll, nextPending, firstPending, advancePhase,
-  exportPageList, expCount, zipName,
+  exportPageList, expCount, zipName, chunkBySize,
 };

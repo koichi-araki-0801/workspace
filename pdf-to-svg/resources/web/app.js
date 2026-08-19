@@ -10,7 +10,7 @@ import {
   S, counts, pass, initStatus,
   statusArr, changedArr, selSet, pkey, curElSel, statusOfCur, selKeys, selCount, clearSel,
   applyState, invalidateAll, nextPending, firstPending, advancePhase,
-  exportPageList, expCount, zipName,
+  exportPageList, expCount, zipName, chunkBySize,
 } from "./state.js";
 import { fileIcon, xIcon, checkD, ckMark } from "./icons.js";
 import { initRail, buildRail } from "./rail.js";
@@ -907,25 +907,36 @@ import { initRail, buildRail } from "./rail.js";
     document.getElementById("exp-num").textContent = expCount(expSpecValue(), parseSpec);
   }
 
+  // ZIP 集約 1 リクエストの送信バイト予算。サーバの RPC 本文上限 (8 MiB) の 9 割を使い、
+  // 残りは JSON の外枠 (メソッド名・引数キー) の余白に充てる。
+  var ZIP_REQUEST_BUDGET = Math.floor(8 * 1024 * 1024 * 0.9);
+  var _utf8 = new TextEncoder();
+  // 1 entry が JSON 本文に占めるバイト数。SVG は引用符が多くエスケープで膨らむので、
+  // 文字数ではなく直列化後の実バイト数で数える (区切りのカンマ分を 1 足す)。
+  function entryRequestBytes(e) { return _utf8.encode(JSON.stringify(e)).length + 1; }
+
+  // 複数 ZIP に分かれたときの各本の名前 (`sample_svg.zip` → `sample_svg_1.zip`)。
+  function zipPartName(base, index) { return base.replace(/\.zip$/i, "") + "_" + index + ".zip"; }
+
   async function doExport() {
-    if (S.expMode === "page") {
-      var pg = S.PAGES[S.page] || { fileIndex: 0, pageInFile: 0 };
-      var one = await rpc("exportSvg", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
-      var ok = await saveTextFile(one.name, one.svg, "SVG", "image/svg+xml", ".svg");
-      if (!ok) return;
-      setHint('<b style="color:var(--good-ink)">1個のSVGを書き出しました。</b>');
-      toast("1個のSVGを書き出しました");
-      return;
-    }
-    var list = exportPageList(expSpecValue(), parseSpec);
-    if (!list.length) { setHint("書き出す対象のページがありません。"); return; }
-    // 変換中はボタンを止め、総数が既知の i/N を進捗バーでも示す (フッター文字だけでは
-    // 固まったように見える)。SVG 変換はページごとに `exportSvg` を呼んで進捗を刻む。
     var btn = document.getElementById("btn-export");
     var prog = document.getElementById("exp-progress");
-    if (btn) btn.disabled = true;
-    if (prog) { prog.hidden = false; prog.max = list.length; prog.value = 0; }
     try {
+      if (S.expMode === "page") {
+        var pg = S.PAGES[S.page] || { fileIndex: 0, pageInFile: 0 };
+        var one = await rpc("exportSvg", { fileIndex: pg.fileIndex, pageInFile: pg.pageInFile });
+        var ok = await saveTextFile(one.name, one.svg, "SVG", "image/svg+xml", ".svg");
+        if (!ok) return;
+        setHint('<b style="color:var(--good-ink)">1個のSVGを書き出しました。</b>');
+        toast("1個のSVGを書き出しました");
+        return;
+      }
+      var list = exportPageList(expSpecValue(), parseSpec);
+      if (!list.length) { setHint("書き出す対象のページがありません。"); return; }
+      // 変換中はボタンを止め、総数が既知の i/N を進捗バーでも示す (フッター文字だけでは
+      // 固まったように見える)。SVG 変換はページごとに `exportSvg` を呼んで進捗を刻む。
+      if (btn) btn.disabled = true;
+      if (prog) { prog.hidden = false; prog.max = list.length; prog.value = 0; }
       var entries = [];
       for (var i = 0; i < list.length; i++) {
         setHint("書き出し中 " + (i + 1) + "/" + list.length);
@@ -939,13 +950,27 @@ import { initRail, buildRail } from "./rail.js";
         toast("1個のSVGを書き出しました");
         return;
       }
-      // 複数ページは ZIP 1 本へ集約する — N 個の個別ダウンロード (Edge の連続 DL 確認に
+      // 複数ページは ZIP へ集約する — N 個の個別ダウンロード (Edge の連続 DL 確認に
       // 阻まれ、ダウンロードフォルダも散らかる) を避ける。集約はサーバ側 `zipEntries`。
-      setHint("ZIP にまとめています…");
-      var z = await rpc("zipEntries", { entries: entries });
-      downloadBlob(zipName(list), b64ToBytes(z.zipBase64), "application/zip");
-      setHint('<b style="color:var(--good-ink)">' + z.count + "個のSVGを ZIP で書き出しました。</b>");
-      toast(z.count + "個のSVGを ZIP 1 ファイルで書き出しました");
+      // 1 リクエストの本文上限を超える量は複数本へ分ける (1 本に詰めると書き出しごと失敗する)。
+      var chunks = chunkBySize(entries, entryRequestBytes, ZIP_REQUEST_BUDGET);
+      var base = zipName(list);
+      var total = 0;
+      for (var c = 0; c < chunks.length; c++) {
+        setHint(chunks.length === 1 ? "ZIP にまとめています…"
+          : "ZIP にまとめています… " + (c + 1) + "/" + chunks.length);
+        var z = await rpc("zipEntries", { entries: chunks[c] });
+        downloadBlob(chunks.length === 1 ? base : zipPartName(base, c + 1),
+          b64ToBytes(z.zipBase64), "application/zip");
+        total += z.count;
+      }
+      var suffix = chunks.length === 1 ? " ZIP で書き出しました。" : " ZIP " + chunks.length + " 本に分けて書き出しました。";
+      setHint('<b style="color:var(--good-ink)">' + total + "個のSVGを" + suffix + "</b>");
+      toast(total + "個のSVGを" + (chunks.length === 1 ? " ZIP 1 ファイルで" : " ZIP " + chunks.length + " ファイルに分けて") + "書き出しました");
+    } catch (e) {
+      // 失敗を握り潰すと「押しても何も起きない」になる。理由を出して再試行できる状態へ戻す。
+      toast(String((e && e.message) || "書き出しに失敗しました"));
+      setHint("書き出しに失敗しました。内容を確認して、もう一度お試しください。");
     } finally {
       if (btn) btn.disabled = false;
       if (prog) prog.hidden = true;

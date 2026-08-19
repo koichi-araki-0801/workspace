@@ -9,7 +9,7 @@ import {
   S, counts, pass, initStatus,
   statusArr, changedArr, selSet, pkey, curElSel, statusOfCur, selKeys, selCount, clearSel,
   applyState, invalidateAll, nextPending, firstPending, advancePhase,
-  exportPageList, expCount, zipName,
+  exportPageList, expCount, zipName, chunkBySize,
 } from "../resources/web/state.js";
 
 function reset() {
@@ -198,5 +198,20 @@ describe("書き出し範囲", () => {
   it("zipName は単一ファイル由来なら元名を継ぎ、混在なら汎用名", () => {
     expect(zipName([{ fileIndex: 0 }, { fileIndex: 0 }])).toBe("a_svg.zip");
     expect(zipName([{ fileIndex: 0 }, { fileIndex: 1 }])).toBe("svg_export.zip");
+  });
+});
+
+describe("ZIP 送信の分割", () => {
+  const size = (e) => e.n;
+  it("予算に収まる塊へ順に分ける", () => {
+    expect(chunkBySize([{ n: 4 }, { n: 4 }, { n: 3 }, { n: 2 }], size, 8))
+      .toEqual([[{ n: 4 }, { n: 4 }], [{ n: 3 }, { n: 2 }]]);
+  });
+  it("単独で予算を超える 1 件はその 1 件だけの塊にする (落とさない)", () => {
+    expect(chunkBySize([{ n: 1 }, { n: 99 }, { n: 1 }], size, 8))
+      .toEqual([[{ n: 1 }], [{ n: 99 }], [{ n: 1 }]]);
+  });
+  it("空なら塊も無い", () => {
+    expect(chunkBySize([], size, 8)).toEqual([]);
   });
 });
