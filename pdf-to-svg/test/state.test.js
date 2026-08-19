@@ -105,6 +105,33 @@ describe("applyState", () => {
     });
     expect(S.status2).toEqual(["pending", "none", "pending"]);
   });
+
+  it("ページ列が変わったらレール選択とファイル折り畳みも捨てる", () => {
+    S.selFor[2] = { 0: true, 3: true };
+    S.collapsed["2:1"] = true;
+    applyState({
+      files: [{ name: "a.pdf", pages: 2 }],
+      pages: [{ fileIndex: 0, pageInFile: 0 }, { fileIndex: 0, pageInFile: 1 }],
+      total: 2, changed2: [true, false], changed3: [false, false],
+    });
+    expect(S.selFor).toEqual({ 2: {}, 3: {} });
+    expect(S.collapsed).toEqual({});
+  });
+
+  it("同一ページ列の再取得では選択と折り畳みを保つ", () => {
+    S.selFor[2] = { 0: true };
+    S.collapsed["2:1"] = true;
+    applyState({
+      files: [{ name: "a.pdf", pages: 2 }, { name: "b.pdf", pages: 3 }],
+      pages: [
+        { fileIndex: 0, pageInFile: 0 }, { fileIndex: 0, pageInFile: 1 },
+        { fileIndex: 1, pageInFile: 0 }, { fileIndex: 1, pageInFile: 1 }, { fileIndex: 1, pageInFile: 2 },
+      ],
+      total: 5, changed2: [true, false, true, true, false], changed3: [false, false, false, false, false],
+    });
+    expect(S.selFor[2]).toEqual({ 0: true });
+    expect(S.collapsed).toEqual({ "2:1": true });
+  });
 });
 
 describe("invalidateAll", () => {

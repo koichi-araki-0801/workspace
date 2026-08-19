@@ -102,6 +102,9 @@ function applyState(st) {
     S.status3 = mergeStatus(S.changed3, oldStatus3);
   } else {
     S.status2 = initStatus(S.changed2); S.status3 = initStatus(S.changed3);
+    // レール選択は通しページ index、折り畳みは fileIndex をキーにするため、ページ列が
+    // 変わると別のページ・別のファイルを指す。持ち越すと意図しないページを一括操作する。
+    S.selFor = { 2: {}, 3: {} }; S.collapsed = {};
   }
   S.FILE_START = []; var s = 0;
   S.FILES.forEach(function (f, i) { S.FILE_START[i] = s; s += f.pages; });
