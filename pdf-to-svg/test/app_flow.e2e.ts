@@ -5,7 +5,8 @@
 // (辞書追加・再適用) → 要素削除と Undo → SVG 書き出し、を実ブラウザ + 実 RPC で通し、
 // 書き出した SVG の中身 (置換済み・削除済み) まで検証する。
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
 
 const FIXTURE = new URL("./fixtures/sample.pdf", import.meta.url).pathname.replace(/^\/(\w:)/, "$1");
@@ -15,9 +16,23 @@ const FIXTURE = new URL("./fixtures/sample.pdf", import.meta.url).pathname.repla
 // 渡す。値は `test/e2e_server.py` の `TOKEN` と一致させること。
 const TOKEN = "e2e-fixed-session-token";
 
+// サーバのセッション (開いている文書・Undo) はテスト間で共有される。各テストは自分が
+// 前提とするファイル構成を作れるよう、先に読み込み済みの文書を空にする。
+async function resetSession(page: Page) {
+  await page.evaluate(async () => {
+    const w = window as any;
+    for (let i = 0; i < 20; i++) {
+      const st = await w.rpc("state");
+      if (!st.files.length) return;
+      await w.rpc("removeFile", { fileIndex: 0 });
+    }
+  });
+}
+
 test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し", async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto(`/?token=${TOKEN}`);
+  await resetSession(page);
 
   // ショートカットの発火を数えるため `rpc` を包む。押下ハンドラは同期に `rpc` を呼ぶので、
   // 押した直後に記録を見れば発火の有無が確定する。
@@ -131,15 +146,7 @@ test("ページ切替: 遅れて届いた旧ページの取得結果が現ペー
   test.setTimeout(120_000);
   await page.goto(`/?token=${TOKEN}`);
 
-  // サーバのセッションはテスト間で共有されるため、先に読み込み済みの文書を空にする
-  await page.evaluate(async () => {
-    const w = window as any;
-    for (let i = 0; i < 20; i++) {
-      const st = await w.rpc("state");
-      if (!st.files.length) return;
-      await w.rpc("removeFile", { fileIndex: 0 });
-    }
-  });
+  await resetSession(page);
 
   // 同じ PDF を 2 つ読み込み、ページ切替のある状態を作る
   for (let i = 0; i < 2; i++) {
@@ -173,4 +180,23 @@ test("ページ切替: 遅れて届いた旧ページの取得結果が現ペー
   // 遅れて届いた分でクリック配線が二重にならない (1 回のクリックで 1 件だけ選択される)
   await page.locator('#trim-stage svg [data-el]', { hasText: "DeleteMe" }).click();
   await expect(page.locator("#trim-stage .sel-box")).toHaveCount(1);
+});
+
+test("読み込みが途中で失敗しても、成功した分は取り込んで理由を知らせる", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto(`/?token=${TOKEN}`);
+  await resetSession(page);
+
+  // 2 つ目が壊れた PDF。握り潰すと「選んだのに増えない」になるので理由を出す。
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.click("#btn-pick"),
+  ]);
+  await chooser.setFiles([
+    { name: "sample.pdf", mimeType: "application/pdf", buffer: readFileSync(FIXTURE) },
+    { name: "broken.pdf", mimeType: "application/pdf", buffer: Buffer.from("not a pdf") },
+  ]);
+  await expect(page.locator("#toast")).toContainText("broken.pdf", { timeout: 30_000 });
+  // 成功した分は取り込まれている
+  await expect(page.locator("#filelist-count")).toContainText("1 ファイル");
 });

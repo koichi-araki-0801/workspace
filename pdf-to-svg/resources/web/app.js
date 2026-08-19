@@ -127,12 +127,21 @@ import { initRail, buildRail } from "./rail.js";
   }
 
   // File 配列を順にアップロードして状態を更新する (クリック選択・D&D 共用)。
+  // 途中で失敗しても、そこまでに取り込めた分は必ず画面へ反映する。失敗を投げっぱなしに
+  // すると読み込み中の表示のまま止まり、成功した分も一覧に出ず理由も届かない。
   async function addFiles(files) {
     if (!files || !files.length) { render(); return; }
-    for (var i = 0; i < files.length; i++) {
-      setHint("読み込み中 " + (i + 1) + "/" + files.length + ": " + esc(files[i].name));
-      var buf = await files[i].arrayBuffer();
-      await uploadPdf(files[i].name, buf);
+    var failed = null;
+    try {
+      for (var i = 0; i < files.length; i++) {
+        setHint("読み込み中 " + (i + 1) + "/" + files.length + ": " + esc(files[i].name));
+        var buf = await files[i].arrayBuffer();
+        failed = files[i].name;
+        await uploadPdf(files[i].name, buf);
+        failed = null;
+      }
+    } catch (e) {
+      toast("「" + failed + "」を読み込めませんでした: " + String((e && e.message) || e));
     }
     await reloadState();
     renderFileCards();
