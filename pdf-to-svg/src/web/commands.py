@@ -103,7 +103,11 @@ class ReplaceTextCommand:
             self.el.wrap_align = self.wrap_align
         if self.baseline_y is not None:  # 折返し畳み込みは下揃え (最終行のベースライン)
             self.el.origin_y = self.baseline_y
-        self.el.dict_revert = self.revert_info
+        # 既に復元情報があるなら上書きしない。A→B→C と辞書が連鎖したとき、上書きすると
+        # 戻し先が中間の置換結果 B になり、原文 A にも畳み込んだ後続行にも戻れなくなる。
+        # 「戻す」は常に最初の原文まで一段で戻す。
+        if self.el.dict_revert is None:
+            self.el.dict_revert = self.revert_info
 
     def undo(self) -> None:
         self.el.text = self.old_text

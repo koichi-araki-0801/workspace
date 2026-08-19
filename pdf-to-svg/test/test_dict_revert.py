@@ -89,3 +89,28 @@ def test_revert_command_undo_restores_extra_not_deleted_before_revert():
     assert bottom.deleted is False  # redo は元の状態のまま
     stack.undo()
     assert bottom.deleted is False  # undo も実測値 (False) へ戻す。強制 True にしない
+
+
+def test_chained_replace_keeps_the_first_revert_info():
+    """A→B→C と辞書が連鎖しても、戻しは最初の原文まで一段で戻り畳み込み行も再表示する。
+
+    再置換で `dict_revert` を上書きすると、戻し先が中間の置換結果になり、原文にも
+    畳み込んだ後続行にも二度と戻れなくなる。
+    """
+    top = _text("商品", 50, 40)
+    bottom = _text("名称", 50, 52)
+    stack = UndoStack()
+    stack.push(ReplaceTextCommand(
+        top, "Product", DictMatch(source="商品名称", target="Product"),
+        new_bbox=Rect(50, 28, 20, 24), wrap_align="left", baseline_y=52.0, extras=[bottom],
+    ))
+    bottom.deleted = True  # `_apply_plans` は extras を DeleteCommand で別途畳む
+    # 置換済みのテキストへさらに別の語が当たる (Product → 製品)
+    stack.push(ReplaceTextCommand(top, "製品", DictMatch(source="Product", target="製品")))
+    assert top.dict_revert.text == "商品"
+    assert top.dict_revert.extra_ids == [bottom.id]
+
+    stack.push(RevertDictMatchCommand(top, [bottom]))
+    assert top.text == "商品" and top.dict_match is None and top.dict_revert is None
+    assert top.bbox == Rect(50, 28, 20, 12) and top.origin_y == 40
+    assert bottom.deleted is False
