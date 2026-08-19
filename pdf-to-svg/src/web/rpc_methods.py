@@ -31,6 +31,7 @@ from web.commands import (
     AddElementCommand,
     DeleteCommand,
     ReplaceTextCommand,
+    RestoreCommand,
     RevertDictMatchCommand,
 )
 
@@ -195,9 +196,15 @@ _KIND_LABEL = {
 
 def rpc_removedList(s: WebSession, args: dict) -> dict:
     pg = s.page(args["fileIndex"], args["pageInFile"])
+    # 辞書の折返し畳み込みで隠した後続行は利用者が削除したものではない。ここで戻せると
+    # 連結済みテキストの下に旧 2 行目が再表示され、箇所単位の戻し (dict_revert) と食い違う。
+    folded = set()
+    for el in pg.elements:
+        if isinstance(el, TextElement) and not el.deleted and el.dict_revert is not None:
+            folded.update(el.dict_revert.extra_ids)
     removed = []
     for el in pg.elements:
-        if not el.deleted:
+        if not el.deleted or el.id in folded:
             continue
         label = _KIND_LABEL.get(el.kind, "要素")
         if isinstance(el, TextElement):
@@ -349,6 +356,20 @@ def rpc_applyDelete(s: WebSession, args: dict) -> dict:
     return {}
 
 
+def rpc_restoreElements(s: WebSession, args: dict) -> dict:
+    """削除一覧の行ごとの「戻す」。指定要素だけを再表示する (Undo 可)。
+
+    グローバルな ``undo`` は直近 1 件しか戻せず、複数回に分けて削除した後や別ページで
+    削除した後に押すと無関係な操作を取り消す。要素 id で対象を固定する。
+    """
+    pg = s.page(args["fileIndex"], args["pageInFile"])
+    ids = set(int(i) for i in args.get("elIds", []))
+    els = [e for e in pg.elements if e.id in ids and e.deleted]
+    if els:
+        s.undo.push(RestoreCommand(els))
+    return {}
+
+
 def _bbox_hits(bbox: Rect, rect: Rect) -> bool:
     """要素 bbox が矩形 rect に重なるか。ゼロ寸法 (罫線/点) は内包判定で拾う。"""
     if bbox.w == 0 and bbox.h == 0:
@@ -496,6 +517,7 @@ HANDLERS: Dict[str, Callable[[WebSession, dict], dict]] = {
     "revertDictMatch": rpc_revertDictMatch,
     "applyDictMatch": rpc_applyDictMatch,
     "applyDelete": rpc_applyDelete,
+    "restoreElements": rpc_restoreElements,
     "deleteRegion": rpc_deleteRegion,
     "removeFile": rpc_removeFile,
     "addBorder": rpc_addBorder,

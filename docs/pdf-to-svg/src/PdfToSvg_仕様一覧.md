@@ -64,7 +64,7 @@ title: PdfToSvg 仕様一覧（画面項目 / 入出力 / RPC・HTTP / テスト
 | 14 | RPC | `applyDictMatch` | 指定要素 1 件だけ辞書を当てる（1 マクロ） |
 | 15 | RPC | `dictJson / dictImportJson` | 辞書JSONの文字列受け渡し（ファイル保存/読込はブラウザ側） |
 | 16 | RPC | `setSuggestJoin` | クリック取り込み連結フラグ更新 |
-| 17 | RPC | `applyDelete / deleteRegion / addBorder` | 削除 / 範囲削除 / 枠線（Undoへpush） |
+| 17 | RPC | `applyDelete / deleteRegion / restoreElements / addBorder` | 削除 / 範囲削除 / 削除一覧の行ごとの戻し / 枠線（Undoへpush） |
 | 18 | RPC | `undo / redo` | 操作の取消 / やり直し |
 | 19 | RPC | `exportSvg` | 範囲指定で SVG 書き出し |
 | 20 | RPC | `zipEntries` | 複数 SVG を ZIP 1 本にまとめて base64 で返す |

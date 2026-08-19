@@ -393,7 +393,11 @@ import { initRail, buildRail } from "./rail.js";
     el.innerHTML = head + '<div class="change-list">' + rows + "</div>";
     el.querySelectorAll("[data-restore]").forEach(function (b) {
       b.addEventListener("click", async function () {
-        await rpc("undo"); // 直近の削除を取り消す簡易対応
+        // 行の要素だけを戻す。全体の undo は直近 1 件しか戻せず、複数回に分けて削除した
+        // 後や別ページで削除した後に押すと無関係な操作を取り消してしまう。
+        await rpc("restoreElements", {
+          fileIndex: pg.fileIndex, pageInFile: pg.pageInFile, elIds: [+b.dataset.restore],
+        });
         await afterEdit();
       });
     });

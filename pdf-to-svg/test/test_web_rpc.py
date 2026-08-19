@@ -139,6 +139,49 @@ def test_apply_delete_and_removed_list(session):
     assert target.deleted is False
 
 
+def test_restore_elements_restores_only_the_requested_element(session):
+    page = session.page(0, 0)
+    hdr, body = page.elements[0], page.elements[1]
+    # 2 回に分けて削除する (直近 1 件の undo では body しか戻らない状況を作る)
+    rpc_methods.dispatch(session, "applyDelete",
+                         {"fileIndex": 0, "pageInFile": 0, "elIds": [hdr.id]})
+    rpc_methods.dispatch(session, "applyDelete",
+                         {"fileIndex": 0, "pageInFile": 0, "elIds": [body.id]})
+    assert hdr.deleted and body.deleted
+    # 古い方 (hdr) だけを戻す
+    rpc_methods.dispatch(session, "restoreElements",
+                         {"fileIndex": 0, "pageInFile": 0, "elIds": [hdr.id]})
+    assert hdr.deleted is False
+    assert body.deleted is True  # 直近の削除は取り消されていない
+    removed = rpc_methods.dispatch(session, "removedList", {"fileIndex": 0, "pageInFile": 0})
+    assert [r["elId"] for r in removed["removed"]] == [body.id]
+    # 戻しは Undo に乗る
+    rpc_methods.dispatch(session, "undo", {})
+    assert hdr.deleted is True
+
+
+def test_restore_elements_ignores_live_or_unknown_ids(session):
+    page = session.page(0, 0)
+    body = page.elements[1]
+    before = len(session.undo._stack)
+    rpc_methods.dispatch(session, "restoreElements",
+                         {"fileIndex": 0, "pageInFile": 0, "elIds": [body.id, 99999]})
+    assert body.deleted is False
+    assert len(session.undo._stack) == before  # 対象なしなら履歴を積まない
+
+
+def test_removed_list_hides_lines_folded_by_dict_wrap(session):
+    """辞書の折返し畳み込みで論理削除した後続行は「削除した要素」ではないので一覧に出さない。"""
+    from model.elements import DictRevertInfo
+    page = session.page(0, 0)
+    hdr, body = page.elements[0], page.elements[1]
+    body.deleted = True
+    hdr.dict_revert = DictRevertInfo(text="Item", bbox=hdr.bbox, wrap_align=None,
+                                     origin_y=hdr.origin_y, extra_ids=[body.id])
+    removed = rpc_methods.dispatch(session, "removedList", {"fileIndex": 0, "pageInFile": 0})
+    assert removed["removed"] == []
+
+
 def test_delete_region(session):
     page = session.page(0, 0)
     body = page.elements[1]  # bbox(10,40,60,12)

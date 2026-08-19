@@ -70,3 +70,17 @@ def test_new_push_truncates_redo_branch():
     assert log[-1] == "-c"
     s.undo()
     assert log[-1] == "-a"  # b はスキップされている
+
+
+def test_restore_command_is_mirror_of_delete_command():
+    from model.elements import Rect, TextElement
+    from web.commands import RestoreCommand
+    el = TextElement(bbox=Rect(0, 0, 10, 10), text="x", origin_x=0, origin_y=10)
+    el.deleted = True
+    stack = UndoStack()
+    stack.push(RestoreCommand([el]))
+    assert el.deleted is False
+    stack.undo()
+    assert el.deleted is True
+    stack.redo()
+    assert el.deleted is False

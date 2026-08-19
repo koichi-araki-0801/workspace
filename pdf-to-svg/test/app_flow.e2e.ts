@@ -67,6 +67,13 @@ test("4 ステップ通し: 取込 → 置換 → 削除/Undo → 書き出し",
   await page.click("#btn-deletesel");
   await expect(page.locator("#trim-dyn")).toContainText("削除した要素（1）");
 
+  // 行ごとの「戻す」は直近の undo ではなく、その要素だけを戻す
+  await page.locator("#trim-dyn [data-restore]").first().click();
+  await expect(page.locator("#trim-dyn")).toContainText("削除した要素（0）");
+  await page.locator('#trim-stage svg [data-el]', { hasText: "DeleteMe" }).click();
+  await page.click("#btn-deletesel");
+  await expect(page.locator("#trim-dyn")).toContainText("削除した要素（1）");
+
   // ── 4. SVG に書き出す (1 ページ → 単一 SVG ダウンロード) ──
   await page.click('[data-screen="3"] [data-skipall]');
   await expect(page.locator("#btn-export")).toBeVisible();

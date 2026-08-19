@@ -26,6 +26,25 @@ class DeleteCommand:
             el.deleted = False
 
 
+class RestoreCommand:
+    """論理削除した要素を再表示する (``DeleteCommand`` の鏡像)。
+
+    削除一覧の行ごとの「戻す」が使う。全体の Undo と違い、指定した要素だけを対象に
+    するので、後から別の要素を削除していても巻き込まない。
+    """
+
+    def __init__(self, elements: List[Element]):
+        self.elements = list(elements)
+
+    def redo(self) -> None:
+        for el in self.elements:
+            el.deleted = False
+
+    def undo(self) -> None:
+        for el in self.elements:
+            el.deleted = True
+
+
 class AddElementCommand:
     """要素を 1 つページに追加する (枠線など)。``DeleteCommand`` と対称で、
     redo で可視化・undo で非表示にする (要素はリストに残し ``deleted`` で制御)。"""
