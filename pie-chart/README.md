@@ -325,7 +325,12 @@ SVG 出力は**完全に決定的**なので、リファクタ・コメント変
 
 - **byte-diff**: `npm run batch` → `npm run batch:diff`。`scripts/batch_diff.mjs` が
   `out/svg_js` ⇔ `out/_baseline` を SHA256 で全件比較し、差分があれば非 0 exit +
-  ファイル名を列挙する。
+  ファイル名を列挙する。列挙は 3 種で、内容の相違だけでなく **baseline に無い出力（追加）**と
+  **出力に無い baseline（欠落）**も差分として扱う。
+- **`npm run batch` は毎回 `out/svg_js` の SVG を消してから生成し、1 件でも生成に失敗すると
+  非 0 で終わる**。前回の出力が残っていると、レンダーに失敗したサンプルの古い SVG が
+  baseline と一致して byte-diff が OK を返してしまうため（「生成できなかった」が「差分が無い」
+  と同じ結果に見える状態を作らない）。
 - **baseline の初回作成 / 更新**: `out/_baseline` はローカル生成物（git 管理外）で clone 直後は
   存在しない。**必ずコミット済みのクリーンな状態で** `npm run batch` → `npm run baseline:accept`
   を 1 回実行して基準を作る。出力変更を意図した確定時も同じコマンドで更新する

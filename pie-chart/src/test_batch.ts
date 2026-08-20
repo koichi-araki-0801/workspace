@@ -116,6 +116,13 @@ async function main(): Promise<void> {
 
   const jsDir = path.join(outRoot, 'svg_js');
   fs.mkdirSync(jsDir, { recursive: true });
+  // 生成前に既存 SVG を消す。残しておくと、レンダーに失敗したサンプルや samples.json から
+  // 消えたサンプルの**前回の出力**がそのまま残り、後続の `batch:diff` が baseline と一致する
+  // ものとして OK を返す。byte-diff は「今のコードが出したバイト列」を見るための装置なので、
+  // 出力ディレクトリは毎回この実行の生成物だけを含む状態にする。
+  for (const f of fs.readdirSync(jsDir)) {
+    if (f.endsWith('.svg')) fs.rmSync(path.join(jsDir, f));
+  }
 
   const jsResults: Record<string, RenderResultStatus> = {};
   const jsSampleEntries = Object.entries(jsSamples);
@@ -149,6 +156,14 @@ async function main(): Promise<void> {
   console.log('\n=== Summary ===');
   console.log(`SVG: ${jsOk}/${jsSampleEntries.length} OK${jsErr ? `  (${jsErr} errors)` : ''}`);
   console.log(`Viewer: ${htmlPath}`);
+
+  // 1 件でも生成に失敗したら非 0 で終える。compare.html は失敗も表示するので書き出してから
+  // 落とす。ここが 0 のままだと `npm run batch && npm run batch:diff` の連結で失敗が握り潰され、
+  // 「生成できなかった」が「差分が無い」と同じ結果に見える。
+  if (jsErr > 0) {
+    console.error(`[batch] ${jsErr} 件の生成に失敗しました`);
+    process.exitCode = 1;
+  }
 }
 
 main().catch((err: any) => {
