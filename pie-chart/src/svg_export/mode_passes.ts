@@ -702,9 +702,9 @@ export function alignLeftStackToAnchors(
  * cascade が 2 行ラベルを中段以下に置いてしまった場合でも、その下の 1 行ラベルを
  * すぐ下にタイトに引き上げる。
  *
- * Y 計算は pie 座標 (Y 大 = 視覚的上、baseline=top で text 下方向に伸びる規約):
- *  - baseline=top: text の上端が p.y。次の top は p.y − labelHeight − gap
- *  - baseline=bottom: text の下端が p.y。これは内側等で稀なので、cascade の y を維持
+ * Y 計算は pie 座標 (Y 大 = 視覚的上)。baseline=top は SVG `text-after-edge` で、p.y は text の
+ * **下端** (占有は [p.y, p.y + h])。次ラベルの下端 = 現ラベルの下端 − gap − 次ラベルの高さ。
+ *  - baseline=bottom: text の上端が p.y。これは内側等で稀なので、cascade の y を維持
  *
  * 占有範囲が広がる方向 (= 下方向) に動くため、クラスタ外ラベル (日本 inside / 右側など)
  * と衝突する可能性は低い (日本は内側、右側は別 X)。Y 変更後は clampPlacement で範囲内
@@ -782,24 +782,27 @@ export function applyTopBandClusterReorder(
     }
   };
 
-  // baseline=top 規約: y は text 上端 (pie 座標で上ほど y 大)。次ラベルの上端 = 現上端 − (現高 + minGap)。
-  // baseline=bottom (内側等) の場合は y を中央扱いとし、heightで上下に伸びる近似で同様処理。
-  let currentTop = topY;
+  // baseline=top 規約 (pushUpToClearPie / geometry.ts と同じ): p.y は text の下端 (pie 座標で
+  // 最小 y) で、ラベル i の占有は [p.y, p.y + h_i]。次ラベルの上端 = 現ラベルの下端 − minGap
+  // なので、次ラベルの p.y (= 下端) は「現下端 − minGap − 次ラベルの高さ」になる。前ラベルの
+  // 高さを引くと、高さの違うラベルが隣り合ったとき間隔が prevH + minGap − curH になり、
+  // 背の高いラベルが直前のラベルへ食い込む。
+  // baseline=bottom (内側等) の場合は y を中央扱いとし、height で上下に伸びる近似で同様処理。
+  const heightOf = (p: Placement): number =>
+    p.measured?.height ?? cfg.fontSizeUnits * cfg.lineHeightFactor;
+  let currentBottom = topY;
   for (let i = 0; i < sorted.length; i += 1) {
     const p = sorted[i];
     if (i === 0) {
-      p.y = currentTop;
+      p.y = currentBottom;
     } else {
-      // 前ラベルの底面 = currentTop − prevHeight。次ラベルの top = 底面 − minGap。
-      const prev = sorted[i - 1];
-      const prevH = prev.measured?.height ?? cfg.fontSizeUnits * cfg.lineHeightFactor;
-      currentTop = currentTop - prevH - minGap;
-      p.y = currentTop;
+      currentBottom = currentBottom - minGap - heightOf(p);
+      p.y = currentBottom;
     }
     pushUpToClearPie(p);
     clampPlacement(p);
     // p.y が pie 侵入回避で上方向に動いた場合、次ラベルの起点も追随させる
-    currentTop = p.y;
+    currentBottom = p.y;
   }
 
   // rim 最上部起点の積みは、右上へ逃げた forceTopRight メンバー (clampPlacement が viewBox
@@ -863,8 +866,9 @@ export function applyTopBandClusterReorder(
   // (= cosA より大きい |x|) へ横にずらして低い Y を許す。
   if (bottom.length > 0) {
     const lastNonBottom = sorted[sorted.length - 1];
-    const lastH = lastNonBottom.measured?.height ?? cfg.fontSizeUnits * cfg.lineHeightFactor;
-    const lastBottomY = lastNonBottom.y - lastH;
+    // baseline=top 規約では最下段ラベルの底面はそのまま `y`。ここから高さを引くと 1 ラベル分
+    // 余計に下がる。
+    const lastBottomY = lastNonBottom.y;
     // クラスタ分離 gap は minGap の 0.5 倍 (= ~14 SVG px)。bottom メンバーを「最下段ラベル
     // のちょい下」に置く意図。minGap*2 だと隙間が空きすぎて視覚的に切り離されすぎる。
     const extraGap = minGap * 0.5;
@@ -886,7 +890,7 @@ export function applyTopBandClusterReorder(
         const shift = bboxRight - requiredRight;
         p.x -= shift;
       }
-      p.y = lastBottomY - extraGap;
+      p.y = lastBottomY - extraGap - heightOf(p);
       pushUpToClearPie(p);
       clampPlacement(p);
     }
