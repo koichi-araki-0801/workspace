@@ -59,14 +59,14 @@ function Get-OfflineRequirementsFilesViaFileSystem {
 
 function Get-OfflineRequirementsFiles {
   param([Parameter(Mandatory = $true)][string]$RepoRoot)
+  # 呼び出し先は単数要素のスカラー化を防ぐため `, @(...)` で返す。それを変数で受けてから
+  # `return` すると外側の 1 段だけ剥がれて 1 パス = 1 要素で流れる。関数呼び出しを
+  # bare statement で素通しすると内側の配列がそのまま 1 要素として出力へ透過し、pipe 経由の
+  # 消費側で「要素 1 個 = 全パスの配列」に潰れる (git 経路・ファイルシステム経路とも同じ)。
   $viaGit = Get-OfflineRequirementsFilesViaGit -RepoRoot $RepoRoot
-  # $viaGit は代入で受けた時点で既に配列 (呼び出し先の `, @(...)` が単数要素の
-  # スカラー化を防いでいる)。ここで再度 `,` を足すと、pipe 経由の呼び出し
-  # （`Get-OfflineRequirementsFiles | Where-Object {...}`）で配列がもう1段
-  # 入れ子のまま出力され、要素1個＝全パスをまとめた配列として渡ってしまう
-  # （`foreach` 経由の呼び出しは巻き込まれず正しく展開されるため長らく発覚しなかった）。
   if ($null -ne $viaGit) { return $viaGit }
-  Get-OfflineRequirementsFilesViaFileSystem -RepoRoot $RepoRoot
+  $viaFileSystem = Get-OfflineRequirementsFilesViaFileSystem -RepoRoot $RepoRoot
+  return $viaFileSystem
 }
 
 function Get-LockContentKey {

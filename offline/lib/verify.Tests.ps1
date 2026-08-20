@@ -64,6 +64,23 @@ Describe 'Get-OfflineRequirementsFiles' {
     $viaFileSystem = @(Get-OfflineRequirementsFilesViaFileSystem -RepoRoot $repoRoot) | Sort-Object
     ($viaFileSystem -join "`n") | Should Be ($viaGit -join "`n")
   }
+
+  # 期待値は「変数で受ける」経路から採る。`, @(...)` の外側 1 段は代入でのみ剥がれるため、
+  # 関数呼び出しを直接 `@(...)` で包むと常に 1 になり、pipe 経由の潰れを検出できない。
+  It 'pipe 経由でも 1 パス = 1 要素で流れる（git 経路）' {
+    $expected = Get-OfflineRequirementsFilesViaGit -RepoRoot $repoRoot
+    @($expected).Count | Should BeGreaterThan 0
+    $piped = @(Get-OfflineRequirementsFiles -RepoRoot $repoRoot | Where-Object { $_ -is [string] })
+    $piped.Count | Should Be @($expected).Count
+  }
+
+  It 'pipe 経由でも 1 パス = 1 要素で流れる（git 失敗時のファイルシステム経路）' {
+    Mock Get-OfflineRequirementsFilesViaGit { $null }
+    $expected = Get-OfflineRequirementsFilesViaFileSystem -RepoRoot $repoRoot
+    @($expected).Count | Should BeGreaterThan 0
+    $piped = @(Get-OfflineRequirementsFiles -RepoRoot $repoRoot | Where-Object { $_ -is [string] })
+    $piped.Count | Should Be @($expected).Count
+  }
 }
 
 Describe 'Verification receipt（検証済みフラグ）' {
