@@ -20,6 +20,10 @@ const SEED_ID = 'AM01_510037_20240710_交付版';
 test.use({ viewport: { width: 1440, height: 900 } });
 
 async function login(page: Page, user: string, pass: string) {
+  // 認証済みのままログイン画面へ行くと guard がアプリへ戻す。別ユーザーで入り直す撮影
+  // フローがあるので、セッションだけ捨ててから入る(申請などの localStorage は残す)。
+  await page.goto('/');
+  await page.evaluate(() => localStorage.removeItem('editor:session'));
   await page.goto('/login');
   await page.locator('#u').waitFor();
   await page.locator('#u').fill(user);
