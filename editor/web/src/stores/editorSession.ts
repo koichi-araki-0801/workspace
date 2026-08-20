@@ -10,7 +10,7 @@
 import type { PartHistoryEntry } from '@editor/shared';
 import { defineStore } from 'pinia';
 import { reactive } from 'vue';
-import { K } from '@/lib/storageKeys';
+import { undoStacksKey } from '@/lib/storageKeys';
 
 /** Undo/Redo 用の不透明スナップショット(editor の capture と一致: body HTML + CSS)。 */
 export interface EditorSnapshot {
@@ -40,7 +40,7 @@ const UNDO_PERSIST_CAP = 20;
 /** Undo 永続ミラーを読む(壊れていれば空)。 */
 function readUndoMap(): UndoMap {
   try {
-    return JSON.parse(localStorage.getItem(K.undoStacks) ?? '{}') as UndoMap;
+    return JSON.parse(localStorage.getItem(undoStacksKey()) ?? '{}') as UndoMap;
   } catch {
     return {};
   }
@@ -49,7 +49,7 @@ function readUndoMap(): UndoMap {
 /** Undo 永続ミラーを書く。quota 等で失敗しても throw せず false を返す(編集を止めない)。 */
 function writeUndoMap(map: UndoMap): boolean {
   try {
-    localStorage.setItem(K.undoStacks, JSON.stringify(map));
+    localStorage.setItem(undoStacksKey(), JSON.stringify(map));
     return true;
   } catch {
     return false;

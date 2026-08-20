@@ -1,11 +1,11 @@
 import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { K } from '@/api/local/store';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setUndoUserScope, undoStacksKey } from '@/lib/storageKeys';
 import { type EditorSnapshot, useEditorSessionStore } from '@/stores/editorSession';
 
 /** localStorage の Undo 永続ミラーを読む(テスト用)。 */
 function readUndoMap(): Record<string, { past: EditorSnapshot[]; future: EditorSnapshot[] }> {
-  return JSON.parse(localStorage.getItem(K.undoStacks) ?? '{}');
+  return JSON.parse(localStorage.getItem(undoStacksKey()) ?? '{}');
 }
 
 describe('useEditorSessionStore', () => {
@@ -119,5 +119,46 @@ describe('useEditorSessionStore', () => {
     } finally {
       Storage.prototype.setItem = original;
     }
+  });
+});
+
+// 共有端末では Undo ミラーが localStorage に残る。ユーザーを跨いで復元されると、前の
+// 利用者の編集内容が次の利用者の画面へ出るため、キーは利用者ごとに分ける。
+describe('Undo ミラーのユーザー分離', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    setUndoUserScope(null);
+  });
+
+  it('local は単一利用者前提の固定スコープを使う', () => {
+    setUndoUserScope('alice');
+    expect(undoStacksKey()).toBe('editor:session:undo:local');
+  });
+
+  it('rest はログイン ID ごとに別キーで、他ユーザーの内容へ到達しない', () => {
+    vi.stubEnv('VITE_API_MODE', 'rest');
+    setUndoUserScope('alice');
+    const keyA = undoStacksKey();
+    const s = useEditorSessionStore().ensure('t1');
+    s.undoPast.push({ html: '<p>alice</p>', css: '' });
+    useEditorSessionStore().persist('t1');
+    expect(localStorage.getItem(keyA)).toContain('alice');
+
+    setUndoUserScope('bob');
+    expect(undoStacksKey()).not.toBe(keyA);
+    // 別ユーザーでの再マウント(= 新しい Pinia)でも A の内容は hydrate されない。
+    setActivePinia(createPinia());
+    expect(useEditorSessionStore().ensure('t1').undoPast).toEqual([]);
+  });
+
+  it('rest で未ログインなら anonymous スコープへ隔離する', () => {
+    vi.stubEnv('VITE_API_MODE', 'rest');
+    setUndoUserScope(null);
+    expect(undoStacksKey()).toBe('editor:session:undo:anonymous');
   });
 });

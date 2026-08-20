@@ -14,6 +14,7 @@ import { computed, ref } from 'vue';
 import { useAuthService } from '@/features/auth/services/authService';
 import { currentAppEpoch, restartEnded } from '@/lib/appEpoch';
 import { logError } from '@/lib/appError';
+import { LEGACY_UNDO_STACKS_KEY, setUndoUserScope, undoStacksKey } from '@/lib/storageKeys';
 
 /** メッセージ判定専用マーカー(認証強制は repo epoch / REST 全失効が担う。これは表示用)。 */
 const AUTH_EPOCH_KEY = 'editor:authEpoch';
@@ -34,6 +35,7 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await auth.me();
     if (isOk(res)) user.value = res.value;
     else logError(res.error);
+    setUndoUserScope(user.value?.username ?? null);
     // 認証済みならマーカーを現 epoch へ更新。未認証かつ epoch が変わっていれば再起動切断。
     const prev = localStorage.getItem(AUTH_EPOCH_KEY);
     if (user.value) {
@@ -50,6 +52,7 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await auth.login(username, password);
     if (isOk(res)) {
       user.value = res.value.user;
+      setUndoUserScope(user.value.username);
       localStorage.setItem(AUTH_EPOCH_KEY, currentAppEpoch());
       sessionEndedReason.value = null;
     }
@@ -60,6 +63,11 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await auth.logout();
     if (!isOk(res)) logError(res.error);
     user.value = null;
+    // Undo ミラーは端末に残るため、現行キーと旧形式キーを消してから scope を落とす
+    // (残すと次の利用者の画面へ前の利用者の編集内容が復元されうる)。
+    localStorage.removeItem(undoStacksKey());
+    localStorage.removeItem(LEGACY_UNDO_STACKS_KEY);
+    setUndoUserScope(null);
     // 手動ログアウトは「再起動切断」ではない。マーカーと理由を消す。
     localStorage.removeItem(AUTH_EPOCH_KEY);
     sessionEndedReason.value = null;
