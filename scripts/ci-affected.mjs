@@ -32,24 +32,39 @@ const AREAS = {
   'pie-chart': {
     label: 'pie-chart',
     match: (p) => p.startsWith('pie-chart/'),
-    stages: ['typecheck:pie-chart', 'test:pie-chart'],
+    // batch + batch:diff を含めるのは、SVG 出力のバイト不変が pie-chart の鉄則であり、
+    // vitest には出力バイトを見る検査が無いため(baseline との SHA256 比較はこの 2 段が唯一)。
+    // 83 サンプルのレンダで実測 30 秒台と、領域 CI へ載せて許容できる範囲に収まる。
+    stages: ['typecheck:pie-chart', 'test:pie-chart', 'pie-chart:batch', 'pie-chart:batch:diff'],
   },
   'graph-editor': {
     label: 'graph-editor',
     match: (p) => p.startsWith('graph-editor/'),
     // pytest を含めるのは、ローカルサーバの Origin/Host 検査(CSRF・DNS リバインディング対策)を
     // 守るテストが Python 側にしか無いため。vitest だけでは検査の退行を検出できない。
-    stages: ['typecheck:graph-editor', 'test:graph-editor', 'test:graph-editor:py'],
+    // e2e を含めるのは、leader 端点の不変条件(ラベル外枠上)が実ブラウザの `getBBox` を
+    // 要求し、vitest の純粋関数テストでは踏めない経路だから。
+    stages: ['typecheck:graph-editor', 'test:graph-editor', 'test:graph-editor:py', 'e2e:graph-editor'],
   },
   'pdf-to-svg': {
     label: 'pdf-to-svg',
     match: (p) => p.startsWith('pdf-to-svg/'),
-    stages: ['test:pdf-to-svg'],
+    // pytest だけでは `resources/web/` の素の JS(state.js の状態遷移・UI 配線)が
+    // 一段も走らない。vitest と Playwright e2e を並べて、Python 側とブラウザ側の
+    // 双方を領域発火の対象にする。
+    stages: ['test:pdf-to-svg', 'test:pdf-to-svg:js', 'e2e:pdf-to-svg'],
   },
   offline: {
     label: 'offline',
     match: (p) => p.startsWith('offline/'),
     stages: ['ci:offline'],
+  },
+  docs: {
+    label: 'docs (_build エンジン)',
+    // 原稿(`docs/<project>/`)は下の BENIGN_PREFIXES へ落ちる。ここで拾うのは HTML 生成
+    // エンジン側だけで、front-matter 解釈やトークン walker の退行は pytest でしか出ない。
+    match: (p) => p.startsWith('docs/_build/'),
+    stages: ['test:docs'],
   },
 };
 // `.claude/` は領域として持たない: `.gitignore` で git 追跡外のため、変更が `git diff` に
@@ -58,6 +73,8 @@ const AREAS = {
 
 // 領域 CI を持たない無害ディレクトリ。これらだけの変更なら共有ゲート(comments/biome)のみで足りる。
 // (`scripts`/`.github`/`.husky` は comments 検査が常時担保。)
+// `docs/` を残すのは原稿(`docs/<project>/src/*.md`・生成 HTML・画像)のためで、生成エンジン
+// (`docs/_build/`)は上の `docs` 領域が先に拾う(領域判定は BENIGN 判定より先に走る)。
 // `pdf-to-svg/` はここへ含めない。ローカル HTTP サーバの Origin/Host 検査の退行を守るテストが
 // pytest 側にしか無く、この一覧に入れると**変更しても CI が 1 段も起動しない**
 // (pre-push でセキュリティテストが一度も走らない)。無害扱いにしてよいのは
@@ -118,10 +135,12 @@ function runPnpm(script) {
 
 function runFullCi(reason) {
   console.log(`\n[ci:affected] ${reason} → フル \`ci\` を実行します。`);
-  // `ci`(package.json)は check:claude-hooks を含まない。diff に関わらず常時検査する
-  // 対象なので、フル CI へ委譲するこの経路でも取りこぼさないよう先に単独で走らせる。
-  runPnpm('check:claude-hooks');
   runPnpm('ci');
+  // `ci`(package.json)は GitHub Actions(ubuntu)とも共用のため、Windows 限定の Pester
+  // (`ci:offline`)を含められない。ローカルの pre-push が唯一の Pester ゲートなので、フル CI へ
+  // 倒れる経路でも取りこぼさないよう続けて走らせる(offline/ の変更と共有ファイルの変更が同じ
+  // push に混ざると、領域別の発火だけでは Pester が一度も走らない)。
+  runPnpm('ci:offline');
   if (!DRY) console.log('\n[ci:affected] フル ci 完了。');
   process.exit(0);
 }
