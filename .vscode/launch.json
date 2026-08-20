@@ -8,7 +8,7 @@
 			"name": "server (tsx)",
 			"cwd": "${workspaceFolder}/editor/server",
 			"runtimeExecutable": "pnpm",
-			"runtimeArgs": ["exec", "tsx", "src/app.ts"],
+			"runtimeArgs": ["exec", "tsx", "src/index.ts"],
 			"console": "integratedTerminal",
 			"autoAttachChildProcesses": true,
 			"skipFiles": ["<node_internals>/**"]

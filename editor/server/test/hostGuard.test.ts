@@ -9,11 +9,8 @@
 // 到達できること」だけが認可条件になっている。したがってここでは認証オフの構成で
 // 「素通りしないこと」を主張する — 認証オンで 401 になるのは別の層の効果であり、
 // この層の検証にならない。
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 process.env.AUTH_REQUIRED = 'false';
 
@@ -80,47 +77,83 @@ describe('Host ヘッダの検査', () => {
   });
 });
 
-// ── 再構築形の限界と、それを埋める配線の検査 ──
+// ── 実配線(`buildApp()`)への統合テスト ──
 //
 // 上の describe が主張しているのは「`isAllowedHost` + 403 という**形**が正しく振る舞う」
-// ことであって、「実 `app.ts` がその形で配線されている」ことではない。実 `app.ts` を
-// そのまま inject へ載せる統合形は**採れない**: このモジュールはトップレベルで
-// `app.listen()` まで走らせ、TLS 設定不備や `EADDRINUSE` で `process.exit(1)` を呼び、
-// シグナルハンドラと worker pool も掴む(import しただけでテストランナーごと落ちうる)。
-// 統合形にするには `app.ts` を `buildApp()` 工場へ割る本体側のリファクタが要るので、
-// ここでは代わりに**配線そのものをソースで固定する**。再構築形が見られない
-// 「フックの順序」と「本文を返さないこと」は、この検査だけが押さえている。
-const APP_SOURCE = readFileSync(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/app.ts'),
-  'utf8',
-);
+// ことであって、「実 `app.ts` がその形で配線されている」ことではない。`app.ts` は
+// `buildApp()` 工場になり、listen もシグナル処理も `index.ts` 側にあるので、ここでは
+// **本番と同じインスタンス**を `inject()` で叩く(再構築形が原理的に見られない「フックの
+// 順序」と「実ルートでも本文を返さないこと」は、この describe だけが押さえている)。
+describe('実 app.ts の Host 検査(buildApp の実配線)', () => {
+  it('loopback 名は実ルートへ通り、攻撃者ドメインは本文ゼロの 403 になる', async () => {
+    const { buildApp } = await import('../src/app.js');
+    app = buildApp();
+    const ok = await app.inject({
+      method: 'GET',
+      url: '/api/health',
+      headers: { host: 'localhost' },
+    });
+    expect(ok.statusCode).toBe(200);
 
-/** 最初に登録される `onRequest` フックの**本体だけ**を切り出す(後続フックの doc は含めない)。 */
-function firstOnRequestHook(): string {
-  const start = APP_SOURCE.indexOf("addHook('onRequest'");
-  expect(start).toBeGreaterThan(0);
-  const end = APP_SOURCE.indexOf('\n});', start);
-  expect(end).toBeGreaterThan(start);
-  return APP_SOURCE.slice(start, end);
-}
-
-describe('実 app.ts の Host 検査の配線', () => {
-  it('同じ判定関数で検査している(再構築形と実体が食い違わない)', () => {
-    expect(APP_SOURCE).toContain('isAllowedHost(request.headers.host, allowedHosts)');
+    for (const host of ['attacker.example', 'localhost.attacker.example', '127.0.0.1.attacker']) {
+      const res = await app.inject({ method: 'GET', url: '/api/health', headers: { host } });
+      expect(res.statusCode, host).toBe(403);
+      expect(res.body, host).toBe('');
+    }
   });
 
-  it('Host 検査が最初の onRequest フックである', () => {
-    // 「ここを通った後の判定は、要求がこちらのオリジン宛だという前提で書かれている」
-    // (`app.ts` のコメント)。後ろへずらすと、認証前ゲート等が攻撃者ドメイン宛の要求を
-    // 先に処理してしまう。順序は再構築形では原理的に見えないので、ここで押さえる。
-    expect(firstOnRequestHook()).toContain('isAllowedHost');
+  it('ルートに当たらない要求も入口で落ちる(検査はルーティングより前)', async () => {
+    const { buildApp } = await import('../src/app.js');
+    app = buildApp();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/no-such-route',
+      headers: { host: 'attacker.example' },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toBe('');
   });
 
-  it('拒否応答は本文を持たない(存在オラクルにしない)', () => {
-    expect(firstOnRequestHook()).toContain('reply.code(403).send()');
+  it('認証オフの配備でも 403 になる(設定 1 つでガードが消える形にしていない)', async () => {
+    // この層の効きどころは認証を課さない local モード。上の 2 ケースは
+    // `AUTH_REQUIRED=false` のまま走っているので、その事実がここで主張になる。
+    const { config: loaded } = await import('../src/config.js');
+    expect(loaded.requireAuth).toBe(false);
   });
 
-  it('`config.requireAuth` で出し分けていない(設定 1 つでガードが消える形にしない)', () => {
-    expect(firstOnRequestHook()).not.toContain('requireAuth');
+  it('認証オンの配備では認証前ゲートより先に効く(フックの順序)', async () => {
+    // 認証前ゲート(`onRequest`)は zip の content-type を見て未認証を 401 にする。攻撃者
+    // ドメイン宛でそれが 401 になるなら Host 検査は後ろにある。403 であることが「Host 検査が
+    // 先頭のフック」であることの実測になる。
+    const previous = process.env.AUTH_REQUIRED;
+    process.env.AUTH_REQUIRED = 'true';
+    vi.resetModules();
+    try {
+      const { buildApp } = await import('../src/app.js');
+      app = buildApp();
+      const zip = { 'content-type': 'application/zip' };
+      const blocked = await app.inject({
+        method: 'POST',
+        url: '/api/build/project',
+        headers: { ...zip, host: 'attacker.example' },
+        payload: Buffer.from('PK'),
+      });
+      expect(blocked.statusCode).toBe(403);
+      expect(blocked.body).toBe('');
+
+      // 認証前ゲート自体は生きていること(上の 403 が「ゲート不在」ではないことの対照)。
+      const unauth = await app.inject({
+        method: 'POST',
+        url: '/api/build/project',
+        headers: { ...zip, host: 'localhost' },
+        payload: Buffer.from('PK'),
+      });
+      expect(unauth.statusCode).toBe(401);
+    } finally {
+      if (previous === undefined) delete process.env.AUTH_REQUIRED;
+      else process.env.AUTH_REQUIRED = previous;
+      vi.resetModules();
+    }
   });
 });

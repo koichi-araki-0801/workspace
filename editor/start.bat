@@ -46,10 +46,10 @@ for %%I in ("%~dp0..") do set "REPO_ROOT=%%~fI"
 
 rem --- process-identity patterns (single source for :portcheck and :cleanup) --
 rem A listener is "ours" only when its command line runs our entry (server prod
-rem dist\app.js / dev src/app.ts under tsx / vite) AND mentions this repo's path
-rem (%REPO_ROOT%). Without the path check, a generic `tsx watch src/app.ts` from an
+rem dist\index.js / dev src/index.ts under tsx / vite) AND mentions this repo's path
+rem (%REPO_ROOT%). Without the path check, a generic `tsx watch src/index.ts` from an
 rem unrelated repo that happens to hold our port would be tree-killed by mistake.
-set "SRV_PAT=(dist[\\/]app\.js)|(src[\\/]app\.ts)"
+set "SRV_PAT=(dist[\\/]index\.js)|(src[\\/]index\.ts)"
 set "VITE_PAT=vite[\\/]bin[\\/]vite\.js"
 
 rem --- mode (build prod/dev) and data mode (local/rest), order-free -----------
@@ -187,14 +187,14 @@ echo.
 rem Same run-in-job watchdog wrapper as dev so an X-button close kills the server tree.
 rem Run node with the absolute entry path instead of `pnpm --filter server run start`:
 rem the path in the command line is what lets :portcheck/:cleanup identify a stale
-rem server as ours (repo-scoped match); pnpm's child shows only `node dist/app.js`.
+rem server as ours (repo-scoped match); pnpm's child shows only `node dist/index.js`.
 rem cwd must stay editor\server (config resolves data dirs from it). pushd, not
 rem `cd /d`: UNC-safe (auto-maps a drive letter; cd would fall back to C:\Windows).
 pushd "%~dp0server" || (
   echo [start] ERROR: cannot enter "%~dp0server".
   exit /b 1
 )
-call "%~dp0scripts\run-in-job.bat" node "%~dp0server\dist\app.js"
+call "%~dp0scripts\run-in-job.bat" node "%~dp0server\dist\index.js"
 if errorlevel 1 goto :serverfail
 goto :end
 
@@ -247,7 +247,7 @@ rem 1 when an unrelated process holds it. Detection is delegated to PowerShell
 rem (Get-NetTCPConnection / Win32_Process), available on Windows 10+. A process
 rem is treated as "ours" when its command line matches SRV_PAT AND contains this
 rem repo's path (REPO_ROOT) - see the pattern block at the top. The dev
-rem supervisor (its parent: `tsx watch src/app.ts`) is stopped too, otherwise
+rem supervisor (its parent: `tsx watch src/index.ts`) is stopped too, otherwise
 rem tsx would respawn the child and re-grab the port. We never auto-stop an
 rem unrelated process: a foreign holder aborts with its PID printed.
 rem
