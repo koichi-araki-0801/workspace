@@ -125,3 +125,166 @@ Describe 'Verification receipt（検証済みフラグ）' {
     Test-VerificationReceipt -Directory $script:dir -ExpectedBundleSha256 $script:sha | Should Be $false
   }
 }
+
+Describe 'Assert-FileSha256（pin との突き合わせ）' {
+  BeforeEach {
+    $script:file = Join-Path $TestDrive ('sha-' + [guid]::NewGuid().ToString('N') + '.bin')
+    Set-Content -LiteralPath $script:file -Value 'bundle payload' -Encoding Ascii
+    $script:hash = (Get-FileHash -LiteralPath $script:file -Algorithm SHA256).Hash
+  }
+
+  It '期待値と一致すれば通す' {
+    { Assert-FileSha256 -File $script:file -ExpectedSha256 $script:hash -Label 'bundle' } | Should Not Throw
+  }
+
+  It '期待値の大文字小文字は問わない（pin は小文字、Get-FileHash は大文字を返す）' {
+    { Assert-FileSha256 -File $script:file -ExpectedSha256 ($script:hash.ToLower()) -Label 'bundle' } | Should Not Throw
+  }
+
+  It '中身が 1 バイトでも変われば停止する（fail closed）' {
+    Add-Content -LiteralPath $script:file -Value 'x'
+    { Assert-FileSha256 -File $script:file -ExpectedSha256 $script:hash -Label 'bundle' } | Should Throw
+  }
+
+  It '別リリースの期待値では停止する' {
+    { Assert-FileSha256 -File $script:file -ExpectedSha256 ('a' * 64) -Label 'bundle' } | Should Throw
+  }
+}
+
+Describe 'Test-PinnedCommitId' {
+  It '40 桁 16 進の完全 SHA-1 を受け付ける' {
+    Test-PinnedCommitId (('0123456789abcdef' * 3).Substring(0, 40)) | Should Be $true
+  }
+
+  It '短縮 id を拒否する（内容を一意に同定しない）' {
+    Test-PinnedCommitId '0123456' | Should Be $false
+  }
+
+  It 'ローリングタグ名を拒否する（タグは publish のたびに指す先が動く）' {
+    Test-PinnedCommitId 'offline-bundle-v1' | Should Be $false
+  }
+
+  It '41 桁以上・空文字を拒否する' {
+    Test-PinnedCommitId ('a' * 41) | Should Be $false
+    Test-PinnedCommitId '' | Should Be $false
+  }
+
+  It '大文字 16 進も受け付ける（判定は -match で大小無視。小文字化は Get-OfflinePin が担う）' {
+    Test-PinnedCommitId ('A' * 40) | Should Be $true
+  }
+}
+
+Describe 'Get-OfflinePin（手渡しで運ばれる期待値の読み取り）' {
+  BeforeEach {
+    $script:pinPath = Join-Path $TestDrive ('pin-' + [guid]::NewGuid().ToString('N') + '.txt')
+    $script:commit = ('0123456789abcdef' * 3).Substring(0, 40)
+    $script:zipSha = ('a' * 64)
+    $script:bundleSha = ('b' * 64)
+    $script:validLines = @(
+      '# publish が書き出す期待値（コメント行と空行は無視される）',
+      '',
+      "source-commit $script:commit",
+      "source-zip-sha256 $script:zipSha",
+      "bundle-sha256 $script:bundleSha")
+  }
+
+  It '3 キーが揃っていれば読み取れる' {
+    Set-Content -LiteralPath $script:pinPath -Value $script:validLines -Encoding UTF8
+    $pin = Get-OfflinePin -Path $script:pinPath
+    $pin.SourceCommit | Should Be $script:commit
+    $pin.SourceZipSha256 | Should Be $script:zipSha
+    $pin.BundleSha256 | Should Be $script:bundleSha
+  }
+
+  It 'pin ファイルが無ければ停止する（配信元と独立した根拠が消えるため）' {
+    { Get-OfflinePin -Path (Join-Path $TestDrive 'no-such-pin.txt') } | Should Throw
+  }
+
+  It 'キーが 1 つでも欠ければ停止する' {
+    Set-Content -LiteralPath $script:pinPath -Value $script:validLines[0..3] -Encoding UTF8
+    { Get-OfflinePin -Path $script:pinPath } | Should Throw
+  }
+
+  It 'source-commit をタグ名へ書き換えられたら停止する（pin の改ざん）' {
+    $lines = $script:validLines
+    $lines[2] = 'source-commit offline-bundle-v1'
+    Set-Content -LiteralPath $script:pinPath -Value $lines -Encoding UTF8
+    { Get-OfflinePin -Path $script:pinPath } | Should Throw
+  }
+
+  It 'sha256 の桁が欠けていたら停止する（fail closed）' {
+    $lines = $script:validLines
+    $lines[4] = 'bundle-sha256 ' + ('b' * 63)
+    Set-Content -LiteralPath $script:pinPath -Value $lines -Encoding UTF8
+    { Get-OfflinePin -Path $script:pinPath } | Should Throw
+  }
+}
+
+Describe '分離署名の検証（Test-DetachedSignature / Assert-BundleSignature）' {
+  # 3072bit の鍵生成は 1 回だけにする（It ごとに作ると実行時間が跳ねる）。テスト用の鍵は
+  # `New-OfflineSigningKeyPair` が返す XML そのもので、配布運用の公開鍵ファイルと同じ形。
+  $keys = New-OfflineSigningKeyPair
+  $otherKeys = New-OfflineSigningKeyPair
+  $signedFile = Join-Path $TestDrive 'bundle.zip'
+  Set-Content -LiteralPath $signedFile -Value 'bundle payload' -Encoding Ascii
+  $signature = New-DetachedSignatureBase64 -File $signedFile -PrivateKeyXml $keys.PrivateXml
+
+  It '対応する公開鍵で検証が通る' {
+    Test-DetachedSignature -File $signedFile -SignatureBase64 $signature -PublicKeyXml $keys.PublicXml |
+      Should Be $true
+  }
+
+  It '別の鍵ペアの公開鍵では通らない（署名鍵の同一性を見ている）' {
+    Test-DetachedSignature -File $signedFile -SignatureBase64 $signature -PublicKeyXml $otherKeys.PublicXml |
+      Should Be $false
+  }
+
+  It '署名後にファイルが変わったら通らない' {
+    $tampered = Join-Path $TestDrive 'tampered.zip'
+    Set-Content -LiteralPath $tampered -Value 'bundle payload!' -Encoding Ascii
+    Test-DetachedSignature -File $tampered -SignatureBase64 $signature -PublicKeyXml $keys.PublicXml |
+      Should Be $false
+  }
+
+  It '署名・公開鍵の形式不正は例外でなく検証失敗へ倒す（fail closed）' {
+    Test-DetachedSignature -File $signedFile -SignatureBase64 'not-base64!!' -PublicKeyXml $keys.PublicXml |
+      Should Be $false
+    Test-DetachedSignature -File $signedFile -SignatureBase64 $signature -PublicKeyXml '<not-a-key/>' |
+      Should Be $false
+  }
+
+  Context 'Assert-BundleSignature（呼び出し側にスキップを書かせない入口）' {
+    BeforeEach {
+      $script:dir = Join-Path $TestDrive ('sig-' + [guid]::NewGuid().ToString('N'))
+      New-Item -ItemType Directory -Path $script:dir -Force | Out-Null
+      $script:pubPath = Join-Path $script:dir 'public.xml'
+      $script:sigPath = Join-Path $script:dir 'bundle.zip.sig'
+      Set-Content -LiteralPath $script:pubPath -Value $keys.PublicXml -Encoding UTF8
+      Set-Content -LiteralPath $script:sigPath -Value $signature -Encoding UTF8
+    }
+
+    It '正しい組み合わせなら通す' {
+      { Assert-BundleSignature -File $signedFile -SignaturePath $script:sigPath -PublicKeyPath $script:pubPath } |
+        Should Not Throw
+    }
+
+    It '公開鍵が無ければ停止する（「鍵が無ければスキップ」を許さない）' {
+      Remove-Item -LiteralPath $script:pubPath -Force
+      { Assert-BundleSignature -File $signedFile -SignaturePath $script:sigPath -PublicKeyPath $script:pubPath } |
+        Should Throw
+    }
+
+    It '.sig が無ければ停止する（署名の無い重量物は受け入れない）' {
+      Remove-Item -LiteralPath $script:sigPath -Force
+      { Assert-BundleSignature -File $signedFile -SignaturePath $script:sigPath -PublicKeyPath $script:pubPath } |
+        Should Throw
+    }
+
+    It '別の鍵で署名されていたら停止する（すり替えの検知）' {
+      $otherSig = New-DetachedSignatureBase64 -File $signedFile -PrivateKeyXml $otherKeys.PrivateXml
+      Set-Content -LiteralPath $script:sigPath -Value $otherSig -Encoding UTF8
+      { Assert-BundleSignature -File $signedFile -SignaturePath $script:sigPath -PublicKeyPath $script:pubPath } |
+        Should Throw
+    }
+  }
+}
