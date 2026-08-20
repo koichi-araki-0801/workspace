@@ -16,9 +16,15 @@ import { LabelState } from "./label-state.js";
  *
  *  `load` は先頭で `ed.name` / `ed.history` 等を新しいファイルへ切り替えるため、中断した場合に
  *  キャンバスと `ed.labels` を残すと**前のファイルの図を新しいファイル名のまま保存できる**
- *  状態になる。中断経路は必ずここを通し、表示・状態・履歴をまとめて空へ揃える。 */
+ *  状態になる。中断経路は必ずここを通し、表示・状態・履歴をまとめて空へ揃える。
+ *
+ *  表示上のアイデンティティ (`name` / `currentId`) も戻す。残すと「何も開いていないのに
+ *  編集中のファイルがある」表示になり、レールの編集中マークとトップバーのファイル名が
+ *  読めなかったファイルを指し続ける。 */
 function abortLoad(ed, message) {
   ed.dom.canvas.replaceChildren();
+  ed.name = null;
+  ed.currentId = null;
   ed.svg = null;
   ed.labels = [];
   ed.overlay = null;

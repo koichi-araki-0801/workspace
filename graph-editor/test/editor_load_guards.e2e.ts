@@ -52,6 +52,7 @@ async function loadAndInspect(page: import("@playwright/test").Page, name: strin
     const canvas = document.querySelector("#canvas");
     return {
       name: ed.name,
+      currentId: ed.currentId,
       labels: ed.labels.length,
       hasSvg: !!ed.svg,
       canvasSvgCount: canvas ? canvas.querySelectorAll("svg").length : -1,
@@ -109,7 +110,10 @@ test("読込を中断しても前のファイルの図・状態がキャンバ�
   // 2 枚目は拒否される入力。名前だけ切り替わって図が残ると、保存時に 1 枚目の内容が
   // 2 枚目のファイル名で書き出される。
   const second = await loadAndInspect(page, "second.svg", svgWithLabels(2, NODE_FLOOD));
-  expect(second.name).toBe("second.svg");
+  // 表示上のアイデンティティ (ファイル名 / アイテム id) も空へ戻す。残すと「開いていない
+  // のに編集中のファイルがある」状態になり、レールの編集中マークも取り残される。
+  expect(second.name).toBeNull();
+  expect(second.currentId).toBeNull();
   expect(second.hasSvg).toBe(false);
   expect(second.canvasSvgCount).toBe(0);
   expect(second.canvasLabelCount).toBe(0);
@@ -130,4 +134,23 @@ test("@font-face の宣言名がプロトタイプ由来の語でも読込は完
   expect(r.canvasLabelCount).toBe(2);
   // 認識できない `<style>` は落ちるので、除去件数が利用者へ出る。
   expect(r.status).toContain("除去");
+});
+
+test("読込を中断したらレールの「編集中」マークが残らない", async ({ page }) => {
+  const marks = await page.evaluate(async ({ ok, bad }) => {
+    const ed = window.__editor;
+    ed.items = [
+      { name: "first.svg", id: 1, content: ok, edited: false },
+      { name: "second.svg", id: 2, content: bad, edited: false },
+    ];
+    ed._itemSeq = 2;
+    await ed.load(ed.items[0]);
+    const before = document.querySelectorAll("#fileList .fileitem .rdot").length;
+    await ed.load(ed.items[1]);
+    return { before, after: document.querySelectorAll("#fileList .fileitem .rdot").length };
+  }, { ok: svgWithLabels(3), bad: svgWithLabels(2, NODE_FLOOD) });
+
+  // 読めているうちは 1 件だけ「編集中」。中断後は開いているファイルが無いので 0 件。
+  expect(marks.before).toBe(1);
+  expect(marks.after).toBe(0);
 });
