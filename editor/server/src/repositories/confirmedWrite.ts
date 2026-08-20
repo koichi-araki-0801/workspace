@@ -64,39 +64,55 @@ async function writeTemplateHtml(fileName: string, html: string): Promise<void> 
   await atomicWrite(htmlPath, html);
 }
 
+/**
+ * 書込前の 1 ファイルの状態。`absent`(元から無かった)を `unknown`(読めなかった)と
+ * **区別する**のが要点で、混ぜると新規作成が途中で失敗したときに補償できない — 承認を
+ * 通していない実体が確定ディレクトリに残り、そのまま一覧に載る。
+ */
+type FileSnapshot = { state: 'content'; text: string } | { state: 'absent' } | { state: 'unknown' };
+
 interface Snapshot {
-  html: string | null;
-  css: string | null;
+  html: FileSnapshot;
+  css: FileSnapshot;
 }
 
-/** ロールバックできるよう、現在のバイト列を読む(存在しない/規約外は null)。 */
+/** ロールバックできるよう、現在の状態(内容 / 不存在 / 不明)を読む。 */
 async function snapshotCurrent(fileName: string, fundCode: string | null): Promise<Snapshot> {
-  const read = async (resolve: () => string): Promise<string | null> => {
+  const read = async (resolve: () => string): Promise<FileSnapshot> => {
     let p: string;
     try {
       p = resolve();
     } catch {
-      return null;
+      // 規約外の名前は解決できない = そもそも書けないので、補償の対象にしない。
+      return { state: 'unknown' };
     }
-    return fs
-      .readFile(p, 'utf8')
-      .then((s) => s as string | null)
-      .catch(() => null);
+    try {
+      return { state: 'content', text: await fs.readFile(p, 'utf8') };
+    } catch (e) {
+      // ENOENT だけが「元から無かった」。他の読み取り失敗(権限・共有違反)は内容が
+      // 分からないだけなので、消しにいかず手を触れない側へ倒す。
+      const code = (e as NodeJS.ErrnoException).code;
+      return code === 'ENOENT' ? { state: 'absent' } : { state: 'unknown' };
+    }
   };
   return {
     html: await read(() => templatePath(fileName)),
-    css: fundCode === null ? null : await read(() => cssPath(fundCode)),
+    css: fundCode === null ? { state: 'unknown' } : await read(() => cssPath(fundCode)),
   };
 }
 
-/** 先に読んだバイト列を復元する(書込失敗時の補償 = compensation)。 */
+/** 先に読んだ状態へ復元する(書込失敗時の補償 = compensation)。 */
 async function restoreTemplateAndCss(
   fileName: string,
   fundCode: string | null,
   prev: Snapshot,
 ): Promise<void> {
-  if (prev.html !== null) await atomicWrite(templatePath(fileName), prev.html);
-  if (prev.css !== null && fundCode !== null) await atomicWrite(cssPath(fundCode), prev.css);
+  const restore = async (snap: FileSnapshot, resolve: () => string): Promise<void> => {
+    if (snap.state === 'content') await atomicWrite(resolve(), snap.text);
+    else if (snap.state === 'absent') await fs.rm(resolve(), { force: true });
+  };
+  await restore(prev.html, () => templatePath(fileName));
+  if (fundCode !== null) await restore(prev.css, () => cssPath(fundCode));
 }
 
 // ── 2. 公開 API ──
