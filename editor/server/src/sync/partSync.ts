@@ -366,6 +366,29 @@ function canonicalParts(parts: Record<string, PairPartState>): string {
   );
 }
 
+/** 重複 id をスキップした理由(呼び出し側の報告文とテストが参照する)。 */
+const DUPLICATE_ID_REASON = '重複 id(同一 partId が複数出現・位置対応が不確実)';
+
+/**
+ * いずれかの版で同一 partId が 2 回以上出現する partId の集合。
+ *
+ * パーツキー `partId#n` の n は「同一 partId の文書内出現順」でしかないため、先頭の 1 件が
+ * 消えると後続が繰り上がり、別のパーツどうしが対応づく。転写は生テキストの span 置換なので、
+ * その誤対応はそのまま本文の取り違えになる。#n を安定させる手段は文書内に無いので、
+ * 重複する partId は同期対象から外して人間へ返す(安全側)。
+ */
+function duplicatedPartIds(...groups: readonly (readonly SyncPart[])[]): Set<string> {
+  const dup = new Set<string>();
+  for (const parts of groups) {
+    const seen = new Set<string>();
+    for (const p of parts) {
+      if (seen.has(p.partId)) dup.add(p.partId);
+      else seen.add(p.partId);
+    }
+  }
+  return dup;
+}
+
 /**
  * ペア同期の本体。source(承認直後のテンプレ)の変更を target(ペア)へ転写した結果と、
  * 更新後の同期状態を返す。入力は破壊しない。判定はパーツキー単位で:
@@ -388,6 +411,15 @@ export function computePairSync(input: PairSyncComputeInput): PairSyncComputeRes
 
   const applied: string[] = [];
   const skipped: { partKey: string; reason: string }[] = [];
+  // どちらかの版で重複する partId は位置対応が立たないので、丸ごと同期対象外にする。
+  const duplicated = duplicatedPartIds(srcParts, tgtParts);
+  const reportedDuplicates = new Set<string>();
+  /** 重複 id の報告は partId ごとに 1 回だけ出す(出現数ぶん並べても判断材料が増えない)。 */
+  const reportDuplicate = (partId: string, partKey: string): void => {
+    if (reportedDuplicates.has(partId)) return;
+    reportedDuplicates.add(partId);
+    skipped.push({ partKey, reason: DUPLICATE_ID_REASON });
+  };
   const ops: EditOp[] = [];
   const newParts: Record<string, PairPartState> = {};
   let seq = 0;
@@ -404,6 +436,13 @@ export function computePairSync(input: PairSyncComputeInput): PairSyncComputeRes
     const prev = input.state.parts[key];
     const tgt = tgtMap.get(key);
     const policy = policyOf(src.partId);
+
+    if (duplicated.has(src.partId)) {
+      reportDuplicate(src.partId, key);
+      if (prev) newParts[key] = prev;
+      if (tgt) insertAnchor = tgt.end;
+      continue;
+    }
 
     // 版固有宣言・非同期は転写もベースラインも取らない(意図的な独立メンテ)。
     if (policy === '非同期') {
@@ -473,7 +512,8 @@ export function computePairSync(input: PairSyncComputeInput): PairSyncComputeRes
     if (srcMap.has(tgt.key)) continue;
     const prev = input.state.parts[tgt.key];
     const policy = policyOf(tgt.partId);
-    if (policy === '同期' && prev?.lastSynced)
+    if (duplicated.has(tgt.partId)) reportDuplicate(tgt.partId, tgt.key);
+    else if (policy === '同期' && prev?.lastSynced)
       skipped.push({ partKey: tgt.key, reason: 'ソース側で削除(削除は自動同期しない)' });
     if (prev) newParts[tgt.key] = prev;
   }

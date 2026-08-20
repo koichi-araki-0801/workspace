@@ -199,3 +199,44 @@ describe('computePairSync: ポリシーと状態管理', () => {
     expect(r.stateChanged).toBe(true);
   });
 });
+
+describe('同一 partId の複数出現', () => {
+  // 位置キー `partId#n` は「同一 partId の文書内出現順」でしかないため、先頭の 1 件が
+  // 消えると 2 件目が #1 へ繰り上がり、別のパーツどうしが対応づく。転写は生テキストの
+  // span 置換なので、その誤対応はそのまま本文の取り違えになる。安全側へ倒して同期対象外
+  // にすることを固定する。
+  it('target で 2 回出る partId は source で 1 回になっても転写しない', () => {
+    const both = doc(part('a', '1'), part('a', '2'));
+    const state = baselineOf(both, { a: '同期' });
+    // source から先頭の a を消す。位置キーだけで対応づけると「a#1 が 2 に変わった」と
+    // 読めてしまい、target の 1 件目が 2 件目の内容で潰れる。
+    const src = doc(part('a', '2'));
+    const r = run({ sourceHtml: src, targetHtml: both, state }, { a: '同期' });
+
+    expect(r.changed).toBe(false);
+    expect(r.targetHtml).toBe(both);
+    expect(r.applied).toEqual([]);
+    expect(r.skipped.some((s) => s.reason.includes('重複 id'))).toBe(true);
+  });
+
+  it('source で 2 回出る partId は target が 1 件でも転写しない', () => {
+    const src = doc(part('a', '1'), part('a', '2'));
+    const tgt = doc(part('a', '1'));
+    const r = run({ sourceHtml: src, targetHtml: tgt }, { a: '同期' });
+
+    expect(r.changed).toBe(false);
+    expect(r.applied).toEqual([]);
+    expect(r.skipped.some((s) => s.reason.includes('重複 id'))).toBe(true);
+  });
+
+  it('重複していない他のパーツの転写は妨げない', () => {
+    const both = doc(part('a', '1'), part('a', '2'), part('b', 'B'));
+    const state = baselineOf(both, { a: '同期', b: '同期' });
+    const src = doc(part('a', '1'), part('a', '2'), part('b', 'B2'));
+    const r = run({ sourceHtml: src, targetHtml: both, state }, { a: '同期', b: '同期' });
+
+    expect(r.applied).toEqual(['b#1']);
+    expect(r.targetHtml).toContain('B2');
+    expect(r.targetHtml).toContain(part('a', '1'));
+  });
+});
