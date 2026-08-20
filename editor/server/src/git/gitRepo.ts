@@ -415,16 +415,29 @@ export async function commitFiles(hash: string): Promise<string[]> {
 }
 
 /**
- * あるコミット時点のファイル内容。存在しなければ空文字。
+ * git が「そのツリーにそのパスは無い」と言ったことを示す stderr の定型文。前者は素の不在、
+ * 後者は作業ツリーにだけ在る場合(git は同じ「無い」をこの言い回しで返す)。
+ */
+const PATH_ABSENT_MARKERS = ['does not exist in', 'exists on disk, but not in'];
+
+/**
+ * あるコミット時点のファイル内容。**そのコミットにパスが無い場合だけ**空文字を返す。
  * 検証は try の外に置く: 不正な引数は「そのコミットに無い」ではなく入力の誤りなので、
  * 空文字へ丸めず `validation` として呼び出し元(= HTTP 400)へ返す。
+ *
+ * 実行そのものの失敗(リポジトリ不在・タイムアウト・共有違反)まで空文字へ倒さないのは、
+ * 承認画面の差分がそれを「変更前は空だった」と読み、全文が追加されたかのように見えるため
+ * — 見えている差分が正しいことは承認判断の前提であり、黙って劣化させない。
  */
 export async function showFile(hash: string, relPath: string): Promise<string> {
   const rev = `${checkRevision(hash)}:${checkRelPath(relPath)}`;
   try {
     return await git(['show', '--end-of-options', rev]);
-  } catch {
-    return '';
+  } catch (e) {
+    const err = e as { stderr?: string; message?: string };
+    const text = `${err?.stderr ?? ''}${err?.message ?? ''}`;
+    if (PATH_ABSENT_MARKERS.some((m) => text.includes(m))) return '';
+    throw e;
   }
 }
 

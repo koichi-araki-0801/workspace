@@ -228,7 +228,9 @@ async function finalizeApprovedMeta(
   }
   throw unexpected(
     `承認結果の保存に失敗しました: ${reqId}。実ファイル反映と git コミットは完了済みのため、` +
-      `再承認せず data/reviews/${reqId}/meta.json の status を手動で approved に更新してください`,
+      `再承認せず data/reviews/${reqId}/meta.json の status を手動で approved に更新してください` +
+      '(この失敗で承認処理は中断するため、ペア自動同期と注記マスタ書き戻しは実行されて' +
+      'いません。必要なら手動で反映してください)',
     { cause: lastCause, code: 'REVIEW_META_UPDATE_FAILED' },
   );
 }

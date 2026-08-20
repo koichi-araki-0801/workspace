@@ -96,8 +96,11 @@ async function readTail(file: string): Promise<string> {
     const length = size - start;
     if (length === 0) return '';
     const buf = Buffer.alloc(length);
-    await handle.read(buf, 0, length, start);
-    const text = buf.toString('utf8');
+    // 実際に読めたバイト数で切る。`read` は要求より少なく返しうる(追記中のファイルが
+    // stat 後に切り詰められた場合など)ので、`buf` 全体を文字列化すると末尾の未書込領域が
+    // NUL の並びとして混ざり、その行の JSON.parse が黙って落ちる = 履歴が欠ける。
+    const { bytesRead } = await handle.read(buf, 0, length, start);
+    const text = buf.subarray(0, bytesRead).toString('utf8');
     if (start === 0) return text;
     const nl = text.indexOf('\n');
     return nl < 0 ? '' : text.slice(nl + 1);

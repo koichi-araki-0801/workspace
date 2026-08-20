@@ -72,10 +72,20 @@ export function templateExists(fileName: string): Promise<boolean> {
     .catch(() => false);
 }
 
+/**
+ * テンプレート本体を読む。`readFundCss` と同方針で、**規約外の名前(解決できない)と
+ * ENOENT(まだ確定していないテンプレ)だけを空文字へ倒し、解決できたパスのそれ以外の
+ * 読み取り失敗は例外にする。** 読んだ値は実行コード不変性の基準
+ * (`confirmedWrite.baselineTemplateHtml`)やペア同期の入力になるため、EACCES / EBUSY /
+ * EISDIR を `''` へ倒すと「本文が空」を前提に後段が進む。
+ */
 export function readTemplateHtml(fileName: string): Promise<string> {
   const p = templatePathOrNull(fileName);
   if (!p) return Promise.resolve('');
-  return fs.readFile(p, 'utf8').catch(() => '');
+  return fs.readFile(p, 'utf8').catch((e: NodeJS.ErrnoException) => {
+    if (e?.code === 'ENOENT') return '';
+    throw e;
+  });
 }
 /**
  * ファンド共有 CSS を読む。**規約外の名前(解決できない)だけを空文字へ倒し、解決できた
