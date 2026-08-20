@@ -16,12 +16,15 @@ import EmptyState from '@/components/ui/EmptyState.vue';
 import Skeleton from '@/components/ui/Skeleton.vue';
 import { formatDateTimeShort } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { useLatest } from '@/lib/useLatest';
 import { useAuthStore } from '@/stores/auth';
 
 const reviews = useReviewRepo();
 const auth = useAuthStore();
 const router = useRouter();
 const { loading, run } = useAsyncResult();
+// 状態フィルタを続けて切り替えると前の一覧が後から届く。反映は最新の要求分だけに絞る。
+const latestLoad = useLatest();
 
 const items = ref<ReviewRequestMeta[]>([]);
 
@@ -49,12 +52,13 @@ const STATUS_META: Record<
 };
 
 async function load() {
+  const isLatest = latestLoad.begin();
   const res = await run(() =>
     reviews.listReviews(
       statusFilter.value === 'all' ? {} : { status: statusFilter.value },
     ),
   );
-  if (!isErr(res)) items.value = res.value;
+  if (!isErr(res) && isLatest()) items.value = res.value;
 }
 
 function setFilter(v: ReviewStatus | 'all') {

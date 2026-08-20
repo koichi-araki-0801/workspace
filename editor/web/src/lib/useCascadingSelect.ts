@@ -4,6 +4,7 @@
 import { isErr, ok, type Result } from '@editor/shared';
 import { onMounted, type Ref, reactive, ref } from 'vue';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { useLatest } from '@/lib/useLatest';
 
 interface CascadingConfig<Q extends object, O, L> {
   /** 依存順(upper → lower)の level キー。 */
@@ -29,18 +30,23 @@ export function useCascadingSelect<Q extends object, O, L = unknown>(
   config: CascadingConfig<Q, O, L>,
 ) {
   const { run, loading } = useAsyncResult();
+  // 上位 level を続けて変えると前の refresh の応答が後から届く。反映は最新分だけに絞る。
+  const latest = useLatest();
   const query = reactive({}) as Q;
   const options = ref(config.emptyOptions) as Ref<O>;
   const list = ref([]) as Ref<L[]>;
 
   async function refresh(): Promise<void> {
+    const isLatest = latest.begin();
     await run(async () => {
       const optRes = await config.fetchOptions({ ...query });
       if (isErr(optRes)) return optRes;
+      if (!isLatest()) return ok(undefined);
       options.value = optRes.value;
       if (config.fetchList) {
         const listRes = await config.fetchList({ ...query });
         if (isErr(listRes)) return listRes;
+        if (!isLatest()) return ok(undefined);
         list.value = listRes.value;
       }
       return ok(undefined);

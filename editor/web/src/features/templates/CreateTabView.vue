@@ -11,6 +11,7 @@ import Checkbox from '@/components/ui/Checkbox.vue';
 import Step from '@/components/ui/Step.vue';
 import { toastError, toastSuccess } from '@/components/ui/toast';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { useLatest } from '@/lib/useLatest';
 import { cn } from '@/lib/utils';
 import SearchFilters from './components/SearchFilters.vue';
 import TemplateTable from './components/TemplateTable.vue';
@@ -28,6 +29,9 @@ const seriesRows = ref<TemplateMeta[]>([]);
 const isSeriesFund = ref(false);
 // 償還ファンドとして作成するか (⑦・モック)。
 const isRedemption = ref(false);
+// 属性を素早く変えると前の属性の応答が後から届く。反映は最新の要求分だけに絞る。
+const latestResolve = useLatest();
+const latestSeries = useLatest();
 
 const canCreate = computed(
   () => !!liveQuery.companyCode && !!liveQuery.fundCode && !!liveQuery.editionType,
@@ -65,8 +69,15 @@ watch(
     isSeriesFund.value = false;
     const { companyCode, fundCode, editionType } = liveQuery;
     if (!companyCode || !fundCode || !editionType) return;
+    const isLatest = latestResolve.begin();
     const res = await templates.resolveFund(companyCode, fundCode, editionType);
-    if (!isErr(res)) isSeriesFund.value = res.value.isSeriesFund;
+    if (!isLatest()) return; // 属性を変え直した後に届いた旧応答は捨てる
+    if (isErr(res)) {
+      // 解決できないと「シリーズから作成」カードが黙って消えるだけになるため明示する。
+      toastError(res.error.message);
+      return;
+    }
+    isSeriesFund.value = res.value.isSeriesFund;
   },
 );
 
@@ -97,8 +108,9 @@ watch(
 async function loadSeries() {
   const { companyCode, fundCode, editionType } = liveQuery;
   if (!companyCode || !fundCode || !editionType) return;
+  const isLatest = latestSeries.begin();
   const res = await run(() => templates.listSeriesFunds(companyCode, fundCode, editionType));
-  if (isErr(res)) return;
+  if (isErr(res) || !isLatest()) return;
   seriesRows.value = res.value;
 }
 

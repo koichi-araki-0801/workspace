@@ -9,6 +9,7 @@ import { useRouter } from 'vue-router';
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { useLatest } from '@/lib/useLatest';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import SearchFilters from './components/SearchFilters.vue';
 import TemplateTable from './components/TemplateTable.vue';
@@ -18,13 +19,16 @@ const repo = useTemplateRepo();
 const history = useHistoryRepo();
 const pending = usePendingReviewsStore();
 const { run } = useAsyncResult();
+// 条件を素早く変えると前の検索の応答が後から届く。表示は最新の検索のものだけへ絞る。
+const latestSearch = useLatest();
 const rows = ref<TemplateMeta[]>([]);
 const versionCounts = ref<Record<string, number>>({});
 const searched = ref(false);
 
 async function search(q: DropdownQuery) {
+  const isLatest = latestSearch.begin();
   const result = await run(() => repo.listTemplates(q));
-  if (isErr(result)) return;
+  if (isErr(result) || !isLatest()) return;
   rows.value = result.value;
   searched.value = true;
   // 版数 (確定保存回数) を各テンプレについて集計する (比較画面と同じ計数)。
@@ -35,6 +39,7 @@ async function search(q: DropdownQuery) {
       counts[m.id] = isErr(vers) ? 0 : vers.value.length;
     }),
   );
+  if (!isLatest()) return;
   versionCounts.value = counts;
 }
 
