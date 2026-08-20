@@ -54,6 +54,23 @@ describe('normalizeInputItems', () => {
       /Non-numeric value for "C"/,
     );
   });
+  it('値の欠落 (null / 空文字 / 空白のみ) は 0 と見なさず項目名付きで投げる', () => {
+    // `Number(null)` も `Number('')` も `Number('   ')` も 0 なので、欠落した値が
+    // 「0.0% のスライス」として無警告で帳票へ載る。xlsx / DB 経路が空欄を明示エラーに
+    // するのと揃える。
+    expect(() => normalizeInputItems([{ name: '株式', value: null }])).toThrow(
+      /Non-numeric value for "株式"/,
+    );
+    expect(() => normalizeInputItems([['債券', '']])).toThrow(/Non-numeric value for "債券"/);
+    expect(() => normalizeInputItems([['現金', '   ']])).toThrow(/Non-numeric value for "現金"/);
+    expect(() => normalizeInputItems([{ name: 'REIT', value: undefined }])).toThrow(
+      /Non-numeric value for "REIT"/,
+    );
+  });
+  it('明示された 0 は従来どおり受理する', () => {
+    expect(normalizeInputItems([['A', 0]])).toEqual([{ name: 'A', value: 0 }]);
+    expect(normalizeInputItems([['B', '0']])).toEqual([{ name: 'B', value: 0 }]);
+  });
   it('数値文字列と空白付き数値は従来どおり通す', () => {
     expect(normalizeInputItems([['A', ' 3.5 ']])).toEqual([{ name: 'A', value: 3.5 }]);
     expect(normalizeInputItems([['B', 0]])).toEqual([{ name: 'B', value: 0 }]);

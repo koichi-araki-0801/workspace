@@ -47,6 +47,8 @@ describe('cellAsNumber', () => {
   it('空・数値以外は null', () => {
     expect(cellAsNumber({ value: null })).toBeNull();
     expect(cellAsNumber({ value: '' })).toBeNull();
+    // 空白だけのセルは「読めない値」であって 0 ではない(`Number('   ')` は 0 になる)。
+    expect(cellAsNumber({ value: '   ' })).toBeNull();
     expect(cellAsNumber({ value: 'abc' })).toBeNull();
     expect(cellAsNumber({ value: Number.NaN })).toBeNull();
   });

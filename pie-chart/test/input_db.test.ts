@@ -186,6 +186,9 @@ describe('rowsToItems', () => {
       ]),
     ).toEqual([['A', 1]]);
   });
+  it('空白だけの value は 0 と見なさず投げる (xlsx / JSON 経路と同じ規則)', () => {
+    expect(() => rowsToItems([{ n: 'A', v: '   ' }])).toThrow(/Non-numeric value at row 1/);
+  });
   it('行が無ければ投げる', () => {
     expect(() => rowsToItems([])).toThrow(/no rows/);
   });

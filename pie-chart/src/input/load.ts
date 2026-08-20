@@ -107,13 +107,15 @@ const GROUPED_NUMBER_RE = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
  * 数値として読めなければ null を返す。カンマは**桁区切りとして成立する位置にある時だけ**
  * 許容する。全カンマを無条件に除去すると `1,23`(小数点にカンマを使う locale の 1.23)が
  * 123 に、`1,2,3` が 123 になり、100 倍の値が無警告で帳票へ載る。読めない値は null にして
- * 呼び出し側の明示エラー(`Non-numeric value at row N`)へ倒す。
+ * 呼び出し側の明示エラー(`Non-numeric value at row N`)へ倒す。空白だけのセルも「読めない値」
+ * — `Number('   ')` は 0 なので、素通しすると値の欠落が 0.0% のスライスとして帳票に載る。
  */
 export function cellAsNumber(cell: { value: unknown }): number | null {
   const v = unwrapCellValue(cell.value);
   if (v == null || v === '') return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   const text = String(v).trim();
+  if (text === '') return null;
   const normalized = GROUPED_NUMBER_RE.test(text) ? text.replace(/,/g, '') : text;
   if (normalized.includes(',')) return null;
   const n = Number(normalized);
@@ -239,7 +241,12 @@ export function normalizeInputItems(rawItems: unknown): Item[] {
   // 数値化できない値を `Number()` の結果 (NaN) のまま通すと、配置計算は総和 NaN・角度 NaN で
   // 走り切り、全項目 0.0%・幅ゼロスライスの SVG が例外なしで出る。xlsx 経路 (`loadXlsxItems`)
   // と同じく、読めない値はここで明示エラーにする(分類: 明示エラー)。
+  // 値の**欠落**(null / undefined / 空文字 / 空白のみ)は NaN にならず 0 になるので、
+  // `Number()` の前に落とす — 素通しすると「0.0% のスライス」として無警告で帳票に載り、
+  // 明示された `0` と区別が付かなくなる(明示の `0` は従来どおり受理する)。
   const checkValue = (name: string, raw: unknown): number => {
+    if (raw == null || (typeof raw === 'string' && raw.trim() === ''))
+      throw new Error(`Non-numeric value for "${name}" (got ${JSON.stringify(raw)}).`);
     const value = Number(raw);
     if (!Number.isFinite(value))
       throw new Error(`Non-numeric value for "${name}" (got ${JSON.stringify(raw)}).`);

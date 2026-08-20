@@ -212,6 +212,7 @@ function toNumber(v: unknown): number | null {
   if (v == null || v === '') return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   const text = String(v).trim();
+  if (text === '') return null;
   const normalized = GROUPED_NUMBER_RE.test(text) ? text.replace(/,/g, '') : text;
   if (normalized.includes(',')) return null;
   const n = Number(normalized);
