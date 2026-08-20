@@ -36,7 +36,7 @@
     "check:ci": "biome ci .",
     "check:comments": "node scripts/check-comments.mjs",
     "check:claude-hooks": "node scripts/check-claude-hooks.mjs",
-    "test:scripts": "node --test scripts/clean.test.mjs scripts/ci-affected.test.mjs",
+    "test:scripts": "node --test scripts/clean.test.mjs scripts/ci-affected.test.mjs scripts/pre-push.test.mjs",
     "knip": "knip",
     "clean": "node scripts/clean.mjs",
     "clean:deep": "node scripts/clean.mjs --deep",
