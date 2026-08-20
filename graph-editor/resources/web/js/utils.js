@@ -192,6 +192,9 @@ const STATE_FIELDS = {
   fill: { copy: (v) => v, equals: (a, b) => a === b },
   lineCount: { copy: (v) => v, equals: (a, b) => a === b },    // 1 | 2 (1行化/2行化)
   nameScaleX: { copy: (v) => v, equals: (a, b) => a === b },   // 名前の横圧縮率 (長体)。1=圧縮なし
+  // 自動 leader (位置駆動で生成・円内で除去) か手動 leader かの区別。`leaderPts` と対で
+  // 復元しないと、Undo 後に自動分が消せなくなる / 手動分が位置ルールに上書きされる。
+  _auto: { copy: (v) => v, equals: (a, b) => a === b },
 };
 
 /** 状態を持つ側 (`LabelState` 実体でも `snapshot()` の結果でもよい) 同士を

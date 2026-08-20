@@ -360,10 +360,13 @@ class Editor {
     evt.preventDefault();
     evt.stopPropagation();
     this.selectLabel(s);
-    s._auto = false; // 手動で頂点を動かしたら以後は位置駆動で上書きしない
     const ptStart = { ...s.leaderPts[index] };
 
     this.onDrag(evt, (dx, dy) => {
+      // 手動で頂点を動かしたら以後は位置駆動で上書きしない。実際に動いてから印を付けるのは、
+      // `onDrag` が初回移動で `pushHistory` するため (pointerdown だけで確定すると、触れた
+      // だけの自動 leader が無履歴で手動へ落ち、Undo でも戻せず位置ルールから外れる)。
+      s._auto = false;
       s.leaderPts[index] = { x: ptStart.x + dx, y: ptStart.y + dy };
       this.markDirty({ dom: true, overlay: true });
     });

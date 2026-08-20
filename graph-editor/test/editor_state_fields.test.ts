@@ -32,6 +32,7 @@ function baseState() {
     fill: "#111111",
     lineCount: 1,
     nameScaleX: 1,
+    _auto: false,
   };
 }
 
@@ -52,6 +53,7 @@ const VARIANTS: Array<[string, any]> = [
   ["fill", mutate({ fill: "#ffffff" })],
   ["lineCount", mutate({ lineCount: 2 })],
   ["nameScaleX", mutate({ nameScaleX: 0.85 })],
+  ["_auto (自動 leader か)", mutate({ _auto: true })],
 ];
 
 describe("stateEquals", () => {
@@ -85,6 +87,13 @@ describe("stateEquals", () => {
     expect(stateEquals(a, snapshot(b))).toBe(true);
     expect(stateEquals(a, snapshot(baseState()))).toBe(false);
     expect(stateEquals(baseState(), snapshot(a))).toBe(false);
+  });
+
+  it("_auto は STATE_FIELDS に含まれ、snapshot/apply で往復する", () => {
+    expect(Object.keys(STATE_FIELDS)).toContain("_auto");
+    const snap = snapshot(mutate({ _auto: true }));
+    expect(snap._auto).toBe(true);
+    expect(stateEquals(mutate({ _auto: true }), snapshot(baseState()))).toBe(false);
   });
 
   it("全フィールドに等値判定がある (項目追加時の付け忘れを落とす)", () => {
