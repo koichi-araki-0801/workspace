@@ -225,13 +225,24 @@ export function normalizeInputItems(rawItems: unknown): Item[] {
     assertLabelXmlSafe(name);
     return name;
   };
+  // 数値化できない値を `Number()` の結果 (NaN) のまま通すと、配置計算は総和 NaN・角度 NaN で
+  // 走り切り、全項目 0.0%・幅ゼロスライスの SVG が例外なしで出る。xlsx 経路 (`loadXlsxItems`)
+  // と同じく、読めない値はここで明示エラーにする(分類: 明示エラー)。
+  const checkValue = (name: string, raw: unknown): number => {
+    const value = Number(raw);
+    if (!Number.isFinite(value))
+      throw new Error(`Non-numeric value for "${name}" (got ${JSON.stringify(raw)}).`);
+    return value;
+  };
   return rawItems.map((item: unknown): Item => {
     if (Array.isArray(item) && item.length >= 2) {
-      return { name: checkName(String(item[0])), value: Number(item[1]) };
+      const name = checkName(String(item[0]));
+      return { name, value: checkValue(name, item[1]) };
     }
     if (typeof item === 'object' && item !== null && 'name' in item && 'value' in item) {
       const obj = item as { name: unknown; value: unknown };
-      return { name: checkName(String(obj.name)), value: Number(obj.value) };
+      const name = checkName(String(obj.name));
+      return { name, value: checkValue(name, obj.value) };
     }
     throw new Error('Each item must be {name, value} or [name, value].');
   });

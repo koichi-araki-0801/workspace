@@ -39,6 +39,25 @@ describe('normalizeInputItems', () => {
     expect(() => normalizeInputItems([42])).toThrow(/Each item/);
     expect(() => normalizeInputItems([{ foo: 1 }])).toThrow(/Each item/);
   });
+  it('数値として読めない value は項目名付きで投げる', () => {
+    expect(() => normalizeInputItems([{ name: '株式', value: 'abc' }])).toThrow(
+      /Non-numeric value for "株式"/,
+    );
+    expect(() => normalizeInputItems([['債券', 'abc']])).toThrow(/Non-numeric value for "債券"/);
+  });
+  it('非有限の value (Infinity / NaN) も投げる', () => {
+    expect(() => normalizeInputItems([{ name: 'A', value: Number.POSITIVE_INFINITY }])).toThrow(
+      /Non-numeric value for "A"/,
+    );
+    expect(() => normalizeInputItems([['B', Number.NaN]])).toThrow(/Non-numeric value for "B"/);
+    expect(() => normalizeInputItems([['C', Number.NEGATIVE_INFINITY]])).toThrow(
+      /Non-numeric value for "C"/,
+    );
+  });
+  it('数値文字列と空白付き数値は従来どおり通す', () => {
+    expect(normalizeInputItems([['A', ' 3.5 ']])).toEqual([{ name: 'A', value: 3.5 }]);
+    expect(normalizeInputItems([['B', 0]])).toEqual([{ name: 'B', value: 0 }]);
+  });
 });
 
 describe('resolveInputData', () => {
