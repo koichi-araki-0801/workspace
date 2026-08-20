@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import inspect
+import os
 import re
 import sys
 from pathlib import Path
@@ -34,6 +36,9 @@ import pytest
 GRAPH_EDITOR_DIR = Path(__file__).resolve().parents[1]
 PDF_TO_SVG_DIR = Path(__file__).resolve().parents[2] / "pdf-to-svg"
 PDF_TO_SVG_SRC = PDF_TO_SVG_DIR / "src"
+
+# 依存欠けで drift 検査を降りるための明示的なスイッチ。既定では降りない (下の `_pdf_to_svg`)。
+ALLOW_MISSING_DEPS_ENV = "DRIFT_ALLOW_MISSING_DEPS"
 
 
 def _pdf_to_svg(dotted: str, alias: str | None = None):
@@ -63,7 +68,16 @@ def _pdf_to_svg(dotted: str, alias: str | None = None):
             raise
         return module
     except ImportError as exc:  # 相手側の依存 (PyMuPDF 等) が入っていない環境
-        pytest.skip(f"pdf-to-svg を import できない: {exc}")
+        # 依存欠けを黙って skip すると、**drift 検査そのものが緑のまま消える**。ソースが
+        # 同居している以上、import できないのは環境整備の不足であって検査を諦める理由には
+        # ならないので、既定では失敗させる。相手側の依存を入れられない環境だけが環境変数で
+        # 明示的に降りられる (降りたことは skip の理由として画面に出る)。
+        if os.environ.get(ALLOW_MISSING_DEPS_ENV) == "1":
+            pytest.skip(f"{ALLOW_MISSING_DEPS_ENV}=1 のため drift 検査を降りる: {exc}")
+        pytest.fail(
+            f"pdf-to-svg を import できないため drift を検査できない: {exc}\n"
+            f"  pdf-to-svg の依存を入れて再実行するか、{ALLOW_MISSING_DEPS_ENV}=1 で"
+            "明示的に降りること (黙って skip はしない)。")
     finally:
         sys.path.remove(str(PDF_TO_SVG_SRC))
 
@@ -125,6 +139,48 @@ def test_security_headers_and_token_transport_match():
     assert app.SECURITY_HEADERS == guard.SECURITY_HEADERS
     assert app.TOKEN_HEADER == guard.TOKEN_HEADER
     assert app.TOKEN_QUERY == guard.TOKEN_QUERY
+
+
+def test_security_headers_are_attached_at_end_headers_on_both_sides():
+    """付与の**やり方**まで一致すること (値の一致だけでは足りない)。
+
+    値が同じでも「どこで載せるか」が違えば、片側だけ抜ける応答が生まれる。実際、両側とも
+    自分で書いた送信経路 (`_send` / `_reject`) からの明示呼び出しだった頃は、基底クラスが
+    直接返す応答 (`HEAD` → 501、長すぎるリクエスト行 → 414、その他 `send_error()`) に
+    ヘッダが載っていなかった。**両側に同じ穴があったので値の照合では検出できない** —
+    このテストはその形の drift を狙う。
+
+    主張は「`end_headers()` を override して 1 応答 1 回だけ載せる」形であること。
+    """
+    guard = _pdf_to_svg("web.origin_guard")
+    # クラス名は両側で揃っていない(graph-editor=`GuardedHandler` /
+    # pdf-to-svg=`GuardedHTTPRequestHandler`)。揃えるべきは名前ではなく**付与のやり方**なので、
+    # それぞれの基底ハンドラを名指しで取る。
+    for mod, handler in (
+        (app, app.GuardedHandler),
+        (guard, guard.GuardedHTTPRequestHandler),
+    ):
+        # 基底のままではない = override している。
+        assert "end_headers" in vars(handler), mod.__name__
+        # 二重付与ガードのために応答の開始点も押さえている。
+        assert "send_response_only" in vars(handler), mod.__name__
+
+
+def test_session_token_is_minted_and_compared_the_same_way():
+    """セッショントークンの**作り方と突き合わせ方**が一致すること。
+
+    値ではなく手段の一致を見る。片側だけ `secrets.token_urlsafe(16)` へ縮めたり、
+    `hmac.compare_digest` を素の `==` へ戻したりしても、`TOKEN_HEADER` / `TOKEN_QUERY` の
+    照合(運び方の検査)は通ってしまう。前者は総当たりの現実味を、後者は一致した接頭辞の
+    長さに比例する所要時間のオラクルを、片側にだけ作る。
+    """
+    guard = _pdf_to_svg("web.origin_guard")
+    for mint in (app._new_session_token, guard.new_session_token):
+        assert "secrets.token_urlsafe(32)" in inspect.getsource(mint)
+        # 32 バイトの URL 安全表現は 43 文字。桁数でも実物を押さえる。
+        assert len(mint()) >= 43
+    for reason in (app.GuardedHandler._token_reason, guard.GuardedHTTPRequestHandler._token_reason):
+        assert "hmac.compare_digest" in inspect.getsource(reason)
 
 
 def test_guard_decision_table_matches():

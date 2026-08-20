@@ -107,7 +107,10 @@ def test_no_attribute_is_built_with_a_raw_f_string():
     列挙 (「この属性もエスケープする」) は必ず漏れる。属性を書く手段を ``_attr``/``quoteattr``
     経由に絞ったので、漏れは「f-string 等で ``name="{...}"`` と生の値を差し込んでいる箇所」
     として検出できる。``src/export/`` 配下を**ファイル名のハードコード列挙をせず glob で
-    全 .py 走査**する: 新しいファイルを足しても検査対象から漏れない。
+    全 .py 走査**する: 新しいファイルを足しても検査対象から漏れない。走査は
+    ``**/*.py`` の再帰で行う — 直下だけを見る ``*.py`` では、出力の組み立てを
+    サブパッケージへ切り出した瞬間に検査から外れる (「ファイル名を列挙しない」ことの
+    目的は、置き場所を変えても網から出られないことにある)。
 
     検出正規表現の限界: 構文的な f-string 解析ではなく文字列パターンの走査であり、
     ``.format()`` や ``%`` 演算子での同種の組み立て、複数行にまたがる f-string、
@@ -120,11 +123,16 @@ def test_no_attribute_is_built_with_a_raw_f_string():
     # (``_attr`` 自身の定義は ``={quoteattr(...)}`` の形でこの正規表現に掛からない)。
     ALLOWED_LINES: set[str] = set()
 
+    scanned = [p for p in sorted(export_dir.glob("**/*.py")) if "__pycache__" not in p.parts]
+    # 0 件走査で「常に緑」になるのを防ぐ(パス変更・パッケージ移動の検知)。
+    assert len(scanned) >= 3, f"走査対象が見つからない: {export_dir}"
+
     offenders = []
-    for path in sorted(export_dir.glob("*.py")):
+    for path in scanned:
+        rel = path.relative_to(export_dir).as_posix()
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if line.strip() in ALLOWED_LINES:
                 continue
             if pattern.search(line):
-                offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+                offenders.append(f"{rel}:{lineno}: {line.strip()}")
     assert offenders == [], f"f-string で属性を組んでいる箇所が残っている: {offenders}"

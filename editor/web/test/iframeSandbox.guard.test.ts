@@ -19,27 +19,70 @@ import { describe, expect, it } from 'vitest';
 
 const SRC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src');
 
-function vueFiles(dir: string): string[] {
+// 走査は `.vue` だけでなく `.ts` も対象にする。iframe は画面のテンプレートだけでなく
+// `document.createElement('iframe')` でも生えるためで、実際に隔離レンダーホスト
+// (`lib/renderHostClient.ts`)はそちらの形で作っている。`.vue` しか見ない版では、
+// 隔離の本体が 1 行も検査されていなかった。
+function sourceFiles(dir: string): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     const full = path.join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...vueFiles(full));
-    else if (name.endsWith('.vue')) out.push(full);
+    if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
+    else if (name.endsWith('.vue') || name.endsWith('.ts')) out.push(full);
   }
   return out;
 }
+
+/**
+ * 字面の走査はコメントを外してから行う。`.ts` の doc コメントには説明として
+ * `<iframe srcdoc>` のような字面が現れ、素で走査すると「属性の無い iframe」として誤検出する
+ * (`lib/useIframeAutoFit.ts` で実際に起きた)。行番号は報告に使うので、コメントは
+ * 削除ではなく**空白へ潰して行の数を保つ**。
+ */
+function stripComments(file: string, source: string): string {
+  const blank = (m: string) => m.replace(/[^\n]/g, ' ');
+  let s = file.endsWith('.vue') ? source.replace(/<!--[\s\S]*?-->/g, blank) : source;
+  s = s.replace(/\/\*[\s\S]*?\*\//g, blank);
+  // `https://` の `//` をコメント開始と誤らないよう、直前が `:` の場合は対象外にする。
+  s = s.replace(
+    /(^|[^:])\/\/.*$/gm,
+    (m, head: string) => head + ' '.repeat(m.length - head.length),
+  );
+  return s;
+}
+
+const SOURCES = sourceFiles(SRC_DIR).map((full) => {
+  const file = path.relative(SRC_DIR, full).replace(/\\/g, '/');
+  return { file, source: stripComments(file, readFileSync(full, 'utf8')) };
+});
 
 /** `<iframe ...>` の開始タグを属性文字列ごと拾う(自己終了・通常終了の双方)。 */
 function iframeTags(source: string): string[] {
   return [...source.matchAll(/<iframe\b[^>]*>/g)].map((m) => m[0]);
 }
 
-const FRAMES = vueFiles(SRC_DIR).flatMap((file) =>
-  iframeTags(readFileSync(file, 'utf8')).map((tag) => ({
-    file: path.relative(SRC_DIR, file).replace(/\\/g, '/'),
-    tag,
-  })),
+const FRAMES = SOURCES.flatMap(({ file, source }) =>
+  iframeTags(source).map((tag) => ({ file, tag })),
 );
+
+// `createElement('iframe')` で作る iframe は、属性が後続の `setAttribute` で付く。
+// 生成行から続くこの行数ぶんを「同じ組み立て」と見なして sandbox の有無を判定する。
+// 許可リストで実装を名指しするのではなく、**付け方の作法**(生成の直後に付ける)を要求する
+// 形にしてある。離れた場所で付ける実装は検査を通らず落ちるが、それは避けるべき書き方でもある。
+const CREATION_WINDOW_LINES = 25;
+
+/** 生成箇所と、その直後の窓に現れた `sandbox` の値(付いていなければ null)。 */
+const CREATED_FRAMES = SOURCES.flatMap(({ file, source }) => {
+  const lines = source.split('\n');
+  const out: Array<{ file: string; line: number; sandbox: string | null }> = [];
+  lines.forEach((line, i) => {
+    if (!/createElement\(\s*['"`]iframe['"`]\s*\)/.test(line)) return;
+    const window = lines.slice(i, i + CREATION_WINDOW_LINES).join('\n');
+    const m = window.match(/setAttribute\(\s*['"`]sandbox['"`]\s*,\s*['"`]([^'"`]*)['"`]/);
+    out.push({ file, line: i + 1, sandbox: m ? m[1] : null });
+  });
+  return out;
+});
 
 describe('srcdoc iframe の sandbox ガード', () => {
   it('走査対象の iframe を実際に見つけている(セルフテスト)', () => {
@@ -75,9 +118,32 @@ describe('srcdoc iframe の sandbox ガード', () => {
     // 「高さが合わないから same-origin を足す」退行の入口になる。
     // メンバアクセス(`.contentDocument`)だけを見る。コメント中のバッククォート表記
     // (規約上、識別子は必ずバッククォートで囲む)を誤検出しないため。
-    const offenders = vueFiles(SRC_DIR)
-      .filter((file) => /\.contentDocument\b/.test(readFileSync(file, 'utf8')))
-      .map((file) => path.relative(SRC_DIR, file).replace(/\\/g, '/'));
+    const offenders = SOURCES.filter(({ source }) => /\.contentDocument\b/.test(source)).map(
+      ({ file }) => file,
+    );
     expect(offenders, `contentDocument を読む画面: ${offenders.join(', ')}`).toEqual([]);
+  });
+});
+
+describe('createElement で作る iframe の sandbox ガード', () => {
+  it('走査対象の生成箇所を実際に見つけている(セルフテスト)', () => {
+    // 0 件だと以下が素通りして「常に緑」になる。隔離レンダーホストが最低 1 箇所ある。
+    expect(CREATED_FRAMES.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('生成の直後に sandbox を付けている', () => {
+    const missing = CREATED_FRAMES.filter((f) => f.sandbox === null).map(
+      (f) => `${f.file}:${f.line}`,
+    );
+    expect(missing, `sandbox の無い iframe 生成: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('allow-scripts と allow-same-origin を同時に許す生成が無い', () => {
+    // タグ側と同じ本丸。隔離ホストは opaque オリジンであることが前提で、`allow-same-origin`
+    // を足した瞬間に子はアプリオリジンの DOM へ到達でき、隔離が無効化と等価になる。
+    const both = CREATED_FRAMES.filter(
+      (f) => f.sandbox?.includes('allow-scripts') && f.sandbox.includes('allow-same-origin'),
+    ).map((f) => `${f.file}:${f.line}`);
+    expect(both, `sandbox が無効化された iframe 生成: ${both.join(', ')}`).toEqual([]);
   });
 });

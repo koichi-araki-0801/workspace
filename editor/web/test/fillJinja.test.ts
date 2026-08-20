@@ -77,17 +77,27 @@ describe('toFilled substitutes values for display', () => {
 
 describe('real report templates round-trip token-for-token', () => {
   const fixtures = resolve(__dirname, '../src/api/fixtures');
-  const templates: ReadonlyArray<readonly [string, string]> = [
-    ['AM01_510037_20240710_交付版.html', '510037'],
-    ['AM01_510037_20240710_全体版.html', '510037'],
-    ['AM01_510155_20240710_交付版.html', '510155'],
-    ['AM01_510003_20250710_全体版.html', '510003'],
-    ['AM01_110024_20251117_交付版.html', '110024'],
-    ['AM01_110024_20251117_全体版.html', '110024'],
-    ['AM01_510124_20251020_交付版.html', '510124'],
-    ['AM01_510124_20251020_全体版.html', '510124'],
-  ];
+  // 固定列挙ではなくディレクトリ走査で拾う。列挙方式では fixture を 1 枚足したときに
+  // 「新しいテンプレだけ検査されない」形で無言に漏れ、しかも緑のままになる。
+  // 検査から外したいものが出たら、理由を添えてこの除外集合へ書く(現時点で除外は無い)。
+  const EXCLUDED_TEMPLATES = new Set<string>();
+  const templates: ReadonlyArray<readonly [string, string]> = readdirSync(
+    resolve(fixtures, 'templates'),
+  )
+    .filter((f) => f.endsWith('.html') && !EXCLUDED_TEMPLATES.has(f))
+    .sort()
+    .map((file) => {
+      const attrs = parseTemplateFileName(file);
+      if (!attrs) throw new Error(`テンプレ名から属性を取れない fixture: ${file}`);
+      return [file, attrs.fundCode] as const;
+    });
   const funds = fundMaster as Record<string, FundMaster>;
+
+  it('走査でテンプレ fixture を実際に見つけている(セルフテスト)', () => {
+    // 0 件だと以下の `for` が 1 件も it を生まず「常に緑」になるため、下限を固定する。
+    expect(templates.length).toBeGreaterThanOrEqual(8);
+  });
+
   for (const [file, fund] of templates) {
     it(file, () => {
       const raw = readFileSync(resolve(fixtures, 'templates', file), 'utf8');

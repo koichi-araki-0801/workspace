@@ -11,26 +11,73 @@
 //   (I)  サニタイズが最後に喋る — 出力バイトを決めるのはサニタイザとその直列化。
 //   (II) 「探す・切る」は DOM の上でだけ。文字列でよいのは*包む*(定数の連結)だけ。
 //   (III) 直列化器は raw text をエスケープしない — `<style>` へ入れる値は事前に中和する。
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const EDITOR_ROOT = path.resolve(HERE, '../..');
 const WEB_SRC = path.resolve(HERE, '../src');
 const SERVER_SRC = path.resolve(HERE, '../../server/src');
 
-/** 文書の組み立て・加工を担うファイル。ここへ文字列手術が生えたら即座に穴になる。 */
-const GUARDED = [
-  path.join(WEB_SRC, 'lib/nunjucksRender.ts'),
-  path.join(WEB_SRC, 'lib/cropMarks.ts'),
-  path.join(WEB_SRC, 'lib/pdfDocument.ts'),
-  path.join(WEB_SRC, 'lib/sanitizeHtml.ts'),
-  path.join(WEB_SRC, 'lib/templateDoc.ts'),
-  path.join(WEB_SRC, 'lib/previewSelfContain.ts'),
-  path.join(WEB_SRC, 'features/compare/htmlBlockDiff.ts'),
-  path.join(SERVER_SRC, 'vivliostyle/inlineCss.ts'),
-  path.join(SERVER_SRC, 'vivliostyle/inlineDocScripts.ts'),
+/**
+ * 文書の組み立て・加工が住むディレクトリ。ファイル名の固定列挙をやめたのは、ここへ加工の
+ * ファイルを 1 つ足したときに列挙へ書き忘れると「新しいファイルだけ検査されない」形で
+ * 無言に漏れ、しかも緑のままになるため(このガード自体が「次に 1 行足したら落ちる」ことを
+ * 目的にしているので、対象の取りこぼしは目的の否定になる)。
+ */
+const SCAN_DIRS = [
+  path.join(WEB_SRC, 'lib'),
+  path.join(WEB_SRC, 'features/compare'),
+  path.join(SERVER_SRC, 'vivliostyle'),
+];
+
+/**
+ * 除外。**「引っかかったから外す」ではなく、外してよい理由を書けるものだけ**をここへ置く。
+ * キーは `editor/` からの相対パス。
+ */
+const EXCLUDED = new Map<string, string>([
+  [
+    'web/src/lib/jinjaMask.ts',
+    '1 文字のエスケープ(`<` → `&lt;`)であり、タグを探して切る形ではない',
+  ],
+  [
+    'server/src/vivliostyle/previewHost.ts',
+    '定数ホストページを inline してよいかを fail closed で判定するだけで、文字列を書き換えない',
+  ],
+]);
+
+/** 走査対象の `.ts` を再帰列挙し、`editor/` 相対キーとの対で返す。 */
+function scanTargets(): Array<{ key: string; file: string }> {
+  const out: Array<{ key: string; file: string }> = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (name.endsWith('.ts')) {
+        const key = path.relative(EDITOR_ROOT, full).replace(/\\/g, '/');
+        if (!EXCLUDED.has(key)) out.push({ key, file: full });
+      }
+    }
+  };
+  for (const dir of SCAN_DIRS) walk(dir);
+  return out.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+const GUARDED = scanTargets();
+
+/** 走査が本来の中心を外していないことを固定する(除外の書きすぎ・パス変更の検知)。 */
+const MUST_BE_SCANNED = [
+  'web/src/lib/nunjucksRender.ts',
+  'web/src/lib/cropMarks.ts',
+  'web/src/lib/pdfDocument.ts',
+  'web/src/lib/sanitizeHtml.ts',
+  'web/src/lib/templateDoc.ts',
+  'web/src/lib/previewSelfContain.ts',
+  'web/src/features/compare/htmlBlockDiff.ts',
+  'server/src/vivliostyle/inlineCss.ts',
+  'server/src/vivliostyle/inlineDocScripts.ts',
 ];
 
 /**
@@ -49,13 +96,20 @@ const SURGERY_PATTERNS: Array<[string, RegExp]> = [
 describe('サニタイズ後段の文字列手術ガード', () => {
   it('走査対象のファイルを実際に読めている(セルフテスト)', () => {
     // 読めていないと以下が素通りして「常に緑」になる。
-    for (const file of GUARDED) expect(readFileSync(file, 'utf8').length).toBeGreaterThan(200);
+    expect(GUARDED.length).toBeGreaterThanOrEqual(MUST_BE_SCANNED.length);
+    for (const { file } of GUARDED) expect(readFileSync(file, 'utf8').length).toBeGreaterThan(80);
   });
 
-  it.each(GUARDED)('%s に HTML の切り貼りが無い', (file) => {
+  it('中心となる加工ファイルが走査から漏れていない(除外の書きすぎ検知)', () => {
+    const keys = new Set(GUARDED.map((g) => g.key));
+    const missing = MUST_BE_SCANNED.filter((k) => !keys.has(k));
+    expect(missing, `走査から漏れたファイル: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it.each(GUARDED.map((g) => [g.key, g.file]))('%s に HTML の切り貼りが無い', (key, file) => {
     const source = readFileSync(file, 'utf8');
     const hits = SURGERY_PATTERNS.filter(([, re]) => re.test(source)).map(([label]) => label);
-    expect(hits, `${path.basename(file)} に文字列手術: ${hits.join(', ')}`).toEqual([]);
+    expect(hits, `${key} に文字列手術: ${hits.join(', ')}`).toEqual([]);
   });
 
   it('プレビュー文書の組み立てが DOM 経路のままである', () => {

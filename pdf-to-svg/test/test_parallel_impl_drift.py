@@ -21,6 +21,7 @@ graph-editor は実行時依存ゼロ (標準ライブラリのみ) なので、
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import re
 import sys
 from pathlib import Path
@@ -144,6 +145,26 @@ def test_security_headers_are_attached_at_end_headers_on_both_sides():
         assert "end_headers" in vars(handler), mod.__name__
         # 二重付与ガードのために応答の開始点も押さえている。
         assert "send_response_only" in vars(handler), mod.__name__
+
+
+def test_session_token_is_minted_and_compared_the_same_way():
+    """セッショントークンの**作り方と突き合わせ方**が一致すること。
+
+    値ではなく手段の一致を見る。片側だけ `secrets.token_urlsafe(16)` へ縮めたり、
+    `hmac.compare_digest` を素の `==` へ戻したりしても、`TOKEN_HEADER` / `TOKEN_QUERY` の
+    照合(運び方の検査)は通ってしまう。前者は総当たりの現実味を、後者は一致した接頭辞の
+    長さに比例する所要時間のオラクルを、片側にだけ作る。
+    """
+    other = _graph_editor_app()
+    for mint in (origin_guard.new_session_token, other._new_session_token):
+        assert "secrets.token_urlsafe(32)" in inspect.getsource(mint)
+        # 32 バイトの URL 安全表現は 43 文字。桁数でも実物を押さえる。
+        assert len(mint()) >= 43
+    for reason in (
+        origin_guard.GuardedHTTPRequestHandler._token_reason,
+        other.GuardedHandler._token_reason,
+    ):
+        assert "hmac.compare_digest" in inspect.getsource(reason)
 
 
 def test_guard_decision_table_matches():
