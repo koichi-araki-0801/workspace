@@ -27,13 +27,15 @@ export function useAutosave(save: () => Promise<Result<void>>, debounceMs = 800)
   let timer: ReturnType<typeof setTimeout> | null = null;
   // 前回の保存開始以降に `trigger` が来たか(= 保存すべき変更があるか)。
   let unsaved = false;
+  // 進行中の保存。並行呼び出しの合流点であり、`settled` が待つ対象でもある。
+  let inFlight: Promise<void> | null = null;
 
-  async function flush() {
+  async function flush(): Promise<void> {
+    // 進行中の保存があれば同じ Promise を返す(手動 flush と debounce 発火の二重保存を防ぐ)。
+    if (inFlight) return inFlight;
     // 保存すべき変更が無い flush は何もしない。手動 flush は画面遷移のたびに呼ばれるため、
-    // 素通しすると何も編集していないのに draft が生成される。保存中(`saving`)だけは、
-    // 離脱ガードが「進行中の保存を待つ」目的で呼ぶので通す。
-    if (!pending.value && !unsaved && state.value !== 'saving') return;
-    // 手動 flush(保存ボタン/離脱時)と debounce 発火が重複して二重保存しないよう、
+    // 素通しすると何も編集していないのに draft が生成される。
+    if (!pending.value && !unsaved) return;
     // 待機中のタイマーはここで確定させる。
     if (timer) {
       clearTimeout(timer);
@@ -42,15 +44,38 @@ export function useAutosave(save: () => Promise<Result<void>>, debounceMs = 800)
     pending.value = false;
     unsaved = false;
     state.value = 'saving';
-    try {
-      const res = await save();
-      if (isErr(res)) throw res.error;
-      state.value = 'saved';
-      lastSavedAt.value = new Date();
-    } catch (e) {
-      logError(toAppError(e));
-      state.value = 'error';
+    inFlight = (async () => {
+      try {
+        const res = await save();
+        if (isErr(res)) throw res.error;
+        state.value = 'saved';
+        lastSavedAt.value = new Date();
+      } catch (e) {
+        logError(toAppError(e));
+        state.value = 'error';
+      } finally {
+        inFlight = null;
+      }
+    })();
+    return inFlight;
+  }
+
+  /**
+   * 予約中の debounce を捨て、未保存の変更も「保存しない」と決める。draft を破棄する側が
+   * 呼ぶ — 破棄の直後に予約分が発火すると、破棄したはずの draft が書き戻るため。
+   */
+  function cancel(): void {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
     }
+    pending.value = false;
+    unsaved = false;
+  }
+
+  /** 進行中の保存の完了を待つ(保存中でなければ即時解決)。 */
+  function settled(): Promise<void> {
+    return inFlight ?? Promise.resolve();
   }
 
   function trigger() {
@@ -64,5 +89,5 @@ export function useAutosave(save: () => Promise<Result<void>>, debounceMs = 800)
     if (timer) clearTimeout(timer);
   });
 
-  return { state, lastSavedAt, pending, trigger, flush };
+  return { state, lastSavedAt, pending, trigger, flush, cancel, settled };
 }

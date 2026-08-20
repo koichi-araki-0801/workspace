@@ -141,6 +141,74 @@ describe('useAutosave', () => {
     expect(save).toHaveBeenCalledTimes(2);
   });
 
+  // draft 破棄と autosave の競合: 破棄の直前に予約済み debounce が発火すると、破棄した
+  // はずの draft がすぐ書き戻る。破棄側は `cancel` で予約を捨て `settled` で進行中を待つ。
+  it('cancel() は予約中の debounce を捨てて save を飛ばさない', async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async () => ok(undefined));
+    const { api } = host(save, 800);
+
+    api.trigger();
+    api.cancel();
+    expect(api.pending.value).toBe(false);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('cancel() の後の flush() も保存しない', async () => {
+    const save = vi.fn(async () => ok(undefined));
+    const { api } = host(save, 800);
+    api.trigger();
+    api.cancel();
+    await api.flush();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('flush() の並行呼び出しは同じ保存 1 回に合流する', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const save = vi.fn(async () => {
+      await gate;
+      return ok(undefined);
+    });
+    const { api } = host(save, 800);
+
+    api.trigger();
+    const a = api.flush();
+    const b = api.flush();
+    expect(save).toHaveBeenCalledTimes(1);
+    release();
+    await Promise.all([a, b]);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('settled() は進行中の保存の完了を待つ(保存中でなければ即時解決)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const save = vi.fn(async () => {
+      await gate;
+      return ok(undefined);
+    });
+    const { api } = host(save, 800);
+
+    await api.settled(); // 保存中でない
+    api.trigger();
+    const p = api.flush();
+    let done = false;
+    const waited = api.settled().then(() => {
+      done = true;
+    });
+    await Promise.resolve();
+    expect(done).toBe(false);
+    release();
+    await Promise.all([p, waited]);
+    expect(done).toBe(true);
+  });
+
   it('clears a pending timer on unmount', async () => {
     vi.useFakeTimers();
     const save = vi.fn(async () => ok(undefined));

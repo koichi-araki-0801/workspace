@@ -449,7 +449,7 @@ export function useTemplateEditor(
   //  - メニュー等へ離脱する際は、確定保存していない変更があれば yes/no で確認し、承諾された
   //    場合は draft とセッション履歴を破棄してから移動する(キャンセルなら離脱中止)。
   onBeforeRouteLeave(async (to) => {
-    if (autosave.state.value === 'saving') await autosave.flush();
+    await autosave.settled(); // 進行中の保存を待ってから離脱判定へ入る
     await note.flush(); // メモの保留分を確定してから離脱する(メモは破棄対象外で常に保持)
 
     // 同一テンプレートのプレビューへの往復はセッションを保持する。
@@ -468,6 +468,10 @@ export function useTemplateEditor(
         variant: 'destructive',
       });
       if (!discard) return false; // 離脱中止: 編集画面に留まる
+      // 破棄の直後に予約分・進行中の保存が着地すると draft が書き戻る。予約を捨て、
+      // 進行中があれば着地を待ってから削除する。
+      autosave.cancel();
+      await autosave.settled();
       const res = await service.discardDraft(id);
       if (isErr(res)) logError(res.error); // 破棄失敗は log のみ(移動は止めない)
     }
