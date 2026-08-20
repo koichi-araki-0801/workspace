@@ -25,8 +25,14 @@ export function useAutosave(save: () => Promise<Result<void>>, debounceMs = 800)
   // (state は待機中も 'idle'/'saved' のままなので state だけでは検知できない)。
   const pending = ref(false);
   let timer: ReturnType<typeof setTimeout> | null = null;
+  // 前回の保存開始以降に `trigger` が来たか(= 保存すべき変更があるか)。
+  let unsaved = false;
 
   async function flush() {
+    // 保存すべき変更が無い flush は何もしない。手動 flush は画面遷移のたびに呼ばれるため、
+    // 素通しすると何も編集していないのに draft が生成される。保存中(`saving`)だけは、
+    // 離脱ガードが「進行中の保存を待つ」目的で呼ぶので通す。
+    if (!pending.value && !unsaved && state.value !== 'saving') return;
     // 手動 flush(保存ボタン/離脱時)と debounce 発火が重複して二重保存しないよう、
     // 待機中のタイマーはここで確定させる。
     if (timer) {
@@ -34,6 +40,7 @@ export function useAutosave(save: () => Promise<Result<void>>, debounceMs = 800)
       timer = null;
     }
     pending.value = false;
+    unsaved = false;
     state.value = 'saving';
     try {
       const res = await save();
@@ -48,6 +55,7 @@ export function useAutosave(save: () => Promise<Result<void>>, debounceMs = 800)
 
   function trigger() {
     pending.value = true;
+    unsaved = true;
     if (timer) clearTimeout(timer);
     timer = setTimeout(flush, debounceMs);
   }
