@@ -22,6 +22,7 @@
 
 import { createRequire } from 'node:module';
 
+import { MAX_DB_ROWS } from '../limits.js';
 import { isSea } from '../runtime/seaRuntime.js';
 
 // 通常の ESM(tsx)では `require` が無いので createRequire で作る。SEA(esbuild の cjs
@@ -218,6 +219,14 @@ export function rowsToItems(
 ): Array<[string, number]> {
   if (rows.length === 0) {
     throw new Error('Query returned no rows.');
+  }
+  // 行 → 項目の変換に入る前に行数で切る(理由と射程は `limits.ts` の `MAX_DB_ROWS`)。
+  if (rows.length > MAX_DB_ROWS) {
+    throw new Error(
+      `Query returned ${rows.length} rows (limit ${MAX_DB_ROWS}). ` +
+        'Aggregate in SQL (GROUP BY / TOP) so the query returns one row per slice, ' +
+        'or raise the limit with PIE_MAX_DB_ROWS=<n>.',
+    );
   }
   const cols = Object.keys(rows[0]);
 

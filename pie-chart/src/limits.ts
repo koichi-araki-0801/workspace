@@ -96,6 +96,19 @@ export const MAX_XLSX_BYTES = envPositiveInt('PIE_MAX_XLSX_BYTES', 4 * 1024 * 10
 export const MAX_JSON_BYTES = envPositiveInt('PIE_MAX_JSON_BYTES', 8 * 1024 * 1024);
 
 /**
+ * `--sql` の結果セットが持てる行数。`MAX_RANGE_ROWS` と同水準で、意味も同じ
+ * 「指定そのものの正気度を見る」— 集計を忘れた SELECT が明細を数十万行返すと、行 → 項目の
+ * 変換とそれに続く `Object.keys` / 文字列化で待たされたうえ、最後に `PIE_MAX_ITEMS` で
+ * 落ちる。どこで落ちたか分かるよう、行の変換に入る前に行数で切る。
+ *
+ * これは**結果セットが手元に来た後**の上限である。msnodesqlv8 の one-shot API は全行を
+ * 溜めてからコールバックへ渡すので、フェッチそのものを途中で止める術はドライバ側の
+ * ストリーミング API に移らない限り無い。巨大な明細を DB から引かせないことは
+ * `SELECT TOP` や集計を書くクエリ側の責務で、本上限はその指定ミスを早く見せる装置。
+ */
+export const MAX_DB_ROWS = envPositiveInt('PIE_MAX_DB_ROWS', 10_000);
+
+/**
  * ラベル名が XML 1.0 として出力できる文字だけで構成されていることを検査する。
  * `escapeXml` は不正文字を落としてから特殊文字をエスケープするが、それは出力側の最終防衛線
  * であって入口ではない — 黙って落とすと「入力した名前と違う文字列が帳票に出る」という

@@ -5,6 +5,7 @@ import {
   normalizeConnExtra,
   rowsToItems,
 } from '../src/input/db.js';
+import { MAX_DB_ROWS } from '../src/limits.js';
 
 describe('buildConnectionString', () => {
   const saved = { ...process.env };
@@ -209,5 +210,17 @@ describe('rowsToItems', () => {
   });
   it('全行が空ならエラー (使える行ゼロ)', () => {
     expect(() => rowsToItems([{ n: '', v: '' }])).toThrow(/No usable data rows/);
+  });
+  it('行数が MAX_DB_ROWS を超えたら列解決より前に投げる', () => {
+    const rows = Array.from({ length: MAX_DB_ROWS + 1 }, (_, i) => ({ n: `A${i}`, v: 1 }));
+    expect(() => rowsToItems(rows)).toThrow(
+      new RegExp(`returned ${MAX_DB_ROWS + 1} rows \\(limit ${MAX_DB_ROWS}\\)`),
+    );
+    // 上げ方をメッセージに含める(`limits.ts` の様式)
+    expect(() => rowsToItems(rows)).toThrow(/PIE_MAX_DB_ROWS/);
+  });
+  it('上限ちょうどの行数は通す', () => {
+    const rows = Array.from({ length: MAX_DB_ROWS }, (_, i) => ({ n: `A${i}`, v: 1 }));
+    expect(rowsToItems(rows)).toHaveLength(MAX_DB_ROWS);
   });
 });
