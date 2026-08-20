@@ -1212,6 +1212,12 @@ export async function renderPdfStylePieToSvg(
   const arcs = computeArcs(items, cfg);
   // `totalValue` は上の funnel で有限かつ正であることが確定済み(`assertTotalValue`)なので、
   // ここでゼロ除算の分岐は持たない。
+  //
+  // これは `data-percent` 属性の値であり、**ラベルに表示される文字列とは意味が異なる**。
+  // `data-percent` = スライスが円周に占める割合(|value| の総和比。常に非負)で、円弧の
+  // 角度と一対一に対応する。表示文字列 `item.percentText` は `cfg.percentFormat` が
+  // `signedValue` を整形したもので、符号を持ち(負値は `△x.x%`)、総和比ではなく元データの
+  // 値そのもの。両者は一致しないことがあるので、下流で片方をもう片方の代わりに読まないこと。
   const percentOf = (value: number) => (Math.abs(Number(value)) / totalValue) * 100;
 
   // ── 1. スライス本体の描画 ──

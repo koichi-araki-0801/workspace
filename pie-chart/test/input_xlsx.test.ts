@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseRange } from '../src/input/load.js';
+import { cellAsNumber, parseRange } from '../src/input/load.js';
 
 describe('parseRange', () => {
   it('"A2:B11" を分解する (左=name, 右=value)', () => {
@@ -21,5 +21,33 @@ describe('parseRange', () => {
   it('2 列でなければ投げる', () => {
     expect(() => parseRange('A2:C11')).toThrow(/exactly 2 columns/);
     expect(() => parseRange('A2:A11')).toThrow(/exactly 2 columns/);
+  });
+});
+
+describe('cellAsNumber', () => {
+  it('素の数値・数値文字列をそのまま読む', () => {
+    expect(cellAsNumber({ value: 12.5 })).toBe(12.5);
+    expect(cellAsNumber({ value: ' 3.5 ' })).toBe(3.5);
+    expect(cellAsNumber({ value: '-42' })).toBe(-42);
+  });
+  it('桁区切り位置のカンマは許容する', () => {
+    expect(cellAsNumber({ value: '1,234' })).toBe(1234);
+    expect(cellAsNumber({ value: '1,234,567.89' })).toBe(1234567.89);
+    expect(cellAsNumber({ value: '-1,000' })).toBe(-1000);
+  });
+  it('桁区切りとして成立しないカンマは null (誤読を避ける)', () => {
+    // 3 桁区切りでない位置のカンマは、数値ではなく別の記法(例: 小数点にカンマを使う locale)
+    // の可能性が高い。黙って除去すると 1,23 が 123 になり 100 倍の値が帳票へ出る。
+    expect(cellAsNumber({ value: '1,23' })).toBeNull();
+    expect(cellAsNumber({ value: '1,2,3' })).toBeNull();
+    expect(cellAsNumber({ value: '12,3456' })).toBeNull();
+    expect(cellAsNumber({ value: ',123' })).toBeNull();
+    expect(cellAsNumber({ value: '1,234,' })).toBeNull();
+  });
+  it('空・数値以外は null', () => {
+    expect(cellAsNumber({ value: null })).toBeNull();
+    expect(cellAsNumber({ value: '' })).toBeNull();
+    expect(cellAsNumber({ value: 'abc' })).toBeNull();
+    expect(cellAsNumber({ value: Number.NaN })).toBeNull();
   });
 });

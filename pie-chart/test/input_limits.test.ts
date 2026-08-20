@@ -119,6 +119,12 @@ describe('dataJson の長さ上限', () => {
     const huge = `[${'"x",'.repeat(1)}]`.padEnd(MAX_JSON_BYTES + 1, ' ');
     expect(() => resolveInputData({ dataJson: huge })).toThrow(/PIE_MAX_JSON_BYTES/);
   });
+  it('判定は文字数でなく byte 数 (多バイト文字で上限をすり抜けない)', () => {
+    // 「あ」は UTF-8 で 3 byte・UTF-16 で 1 コード単位。文字数判定だと上限の 3 倍近くまで通る。
+    const multibyte = `[${'"あ",'.repeat(1)}]`.padEnd(Math.ceil(MAX_JSON_BYTES / 2) + 1, 'あ');
+    expect(multibyte.length).toBeLessThanOrEqual(MAX_JSON_BYTES);
+    expect(() => resolveInputData({ dataJson: multibyte })).toThrow(/PIE_MAX_JSON_BYTES/);
+  });
 });
 
 // xlsx / dataJson と同じ funnel 思想を `--data-file` にも適用する。CLI 経由の検査なので

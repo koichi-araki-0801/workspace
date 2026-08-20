@@ -200,11 +200,21 @@ export function assertLooksLikeSelect(query: string): void {
 
 // ── 3. 結果セットの解決と読み出し ──────────────────────────────────────────
 
-/** 数値として読めなければ null(カンマ区切りは許容)。`load.ts` の xlsx 経路と同じ流儀。 */
+/**
+ * 数値として読めなければ null。`load.ts` の `cellAsNumber`(xlsx 経路)と同じ規則で、
+ * カンマは桁区切りとして成立する位置にある時だけ許容する。判定を共有しないのは
+ * `load.ts` が本ファイルを import しており、逆向きの import が循環になるため。
+ * 規則を変えるときは両方を揃える。
+ */
+const GROUPED_NUMBER_RE = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
+
 function toNumber(v: unknown): number | null {
   if (v == null || v === '') return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  const n = Number(String(v).replace(/,/g, ''));
+  const text = String(v).trim();
+  const normalized = GROUPED_NUMBER_RE.test(text) ? text.replace(/,/g, '') : text;
+  if (normalized.includes(',')) return null;
+  const n = Number(normalized);
   return Number.isFinite(n) ? n : null;
 }
 

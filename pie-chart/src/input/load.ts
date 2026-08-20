@@ -100,12 +100,23 @@ function cellAsText(cell: { value: unknown }): string {
   return String(v).trim();
 }
 
-/** 数値として読めなければ null を返す(カンマ区切りは許容)。 */
-function cellAsNumber(cell: { value: unknown }): number | null {
+/** 桁区切りとして成立するカンマ入り数値(`1,234` / `-1,234,567.89`)。 */
+const GROUPED_NUMBER_RE = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
+
+/**
+ * 数値として読めなければ null を返す。カンマは**桁区切りとして成立する位置にある時だけ**
+ * 許容する。全カンマを無条件に除去すると `1,23`(小数点にカンマを使う locale の 1.23)が
+ * 123 に、`1,2,3` が 123 になり、100 倍の値が無警告で帳票へ載る。読めない値は null にして
+ * 呼び出し側の明示エラー(`Non-numeric value at row N`)へ倒す。
+ */
+export function cellAsNumber(cell: { value: unknown }): number | null {
   const v = unwrapCellValue(cell.value);
   if (v == null || v === '') return null;
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  const n = Number(String(v).replace(/,/g, ''));
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const text = String(v).trim();
+  const normalized = GROUPED_NUMBER_RE.test(text) ? text.replace(/,/g, '') : text;
+  if (normalized.includes(',')) return null;
+  const n = Number(normalized);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -263,9 +274,13 @@ export function resolveInputData({ sample, data, dataJson }: ResolveSyncOpts): I
     return normalizeInputItems(data);
   }
   if (dataJson) {
-    if (dataJson.length > MAX_JSON_BYTES)
+    // 上限の単位は byte なので byte で測る(`readJsonFile` と同じ)。`String.length` は UTF-16
+    // コード単位数で、日本語だけの JSON は実バイト数の約 1/3 にしか見えず、上限が名前どおりに
+    // 効かない。
+    const byteLength = Buffer.byteLength(dataJson, 'utf-8');
+    if (byteLength > MAX_JSON_BYTES)
       throw new Error(
-        `dataJson is ${dataJson.length} characters (limit ${MAX_JSON_BYTES}). ` +
+        `dataJson is ${byteLength} bytes (limit ${MAX_JSON_BYTES}). ` +
           'Raise the limit with PIE_MAX_JSON_BYTES=<n> if this input is expected.',
       );
     return normalizeInputItems(JSON.parse(dataJson));

@@ -224,3 +224,13 @@ describe('rowsToItems', () => {
     expect(rowsToItems(rows)).toHaveLength(MAX_DB_ROWS);
   });
 });
+
+describe('rowsToItems の数値解釈 (load.ts の cellAsNumber と同規則)', () => {
+  it('桁区切り位置のカンマは許容する', () => {
+    expect(rowsToItems([{ n: 'X', v: '1,234,567.5' }])).toEqual([['X', 1234567.5]]);
+  });
+  it('桁区切りとして成立しないカンマは明示エラー', () => {
+    expect(() => rowsToItems([{ n: 'X', v: '1,23' }])).toThrow(/Non-numeric value/);
+    expect(() => rowsToItems([{ n: 'X', v: '1,2,3' }])).toThrow(/Non-numeric value/);
+  });
+});

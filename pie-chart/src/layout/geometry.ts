@@ -86,6 +86,14 @@ export function visualCharEm(ch: string, cfg: PieLayoutConfig): number {
  */
 const LINE_EM_CACHE = new Map<string, number>();
 
+/**
+ * メモの上限件数。キーは行文字列そのものなので、`batch` のように 1 プロセスで多数の
+ * チャートを描くと無制限に伸びる(83 サンプルで約 600 件)。1 枚の作業集合は
+ * 「項目数 × 行の作り方」で高々数百件なので、この上限なら追い出しが同一チャートの
+ * 描画中に起きることはなく、上限に当たっても再計算コストは元の 1 回分に戻るだけ。
+ */
+const LINE_EM_CACHE_LIMIT = 10_000;
+
 /** lines の中で最大の視覚 em 幅を返す。 */
 export function visualMaxEm(lines: string[], cfg: PieLayoutConfig): number {
   const keyPrefix = `${cfg.fontWeight}\u0000${cfg.visualFullwidthEm}\u0000${cfg.visualHalfwidthEm}\u0000`;
@@ -96,6 +104,12 @@ export function visualMaxEm(lines: string[], cfg: PieLayoutConfig): number {
     if (lineEm === undefined) {
       lineEm = 0;
       for (const ch of line) lineEm += visualCharEm(ch, cfg);
+      // 上限に達したら最古のキーから捨てる。値は入力に対する純関数なので、どのキーが
+      // 残っているかは戻り値に影響しない(= 追い出し順は出力の決定性と無関係)。
+      if (LINE_EM_CACHE.size >= LINE_EM_CACHE_LIMIT) {
+        const oldest = LINE_EM_CACHE.keys().next();
+        if (!oldest.done) LINE_EM_CACHE.delete(oldest.value);
+      }
       LINE_EM_CACHE.set(key, lineEm);
     }
     if (lineEm > maxEm) maxEm = lineEm;

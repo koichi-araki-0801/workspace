@@ -48,6 +48,48 @@ function parseArgs(argv: string[]): ParsedArgs {
   return { command, options };
 }
 
+/** `one` / `batch` 共通の描画フラグ。 */
+const RENDER_FLAGS = ['font-weight', 'stroke-ratio'] as const;
+
+/**
+ * コマンドごとに受け付けるフラグの一覧。綴り違い(`--out-file` / `--datajson` 等)は
+ * `parseArgs` が黙って未使用の option として捨てるため、指定したつもりの設定が効かないまま
+ * SVG が書かれる。既定へ落ちたことを利用者へ見せるための警告表であって、実行は止めない
+ * (止めると将来のフラグ追加が古い呼び出しスクリプトを壊す)。
+ */
+const KNOWN_FLAGS: Record<string, readonly string[]> = {
+  one: [
+    'output-file',
+    'sample',
+    'data-file',
+    'data-json',
+    'xlsx',
+    'sheet',
+    'range',
+    'sql',
+    'db-server',
+    'db-name',
+    'name-col',
+    'value-col',
+    ...RENDER_FLAGS,
+  ],
+  batch: ['output-dir', 'input-dir', 'samples', ...RENDER_FLAGS],
+  list: [],
+  license: [],
+};
+
+/** 認識できないフラグを stderr へ警告する(コマンド未知の場合は表が無いので何もしない)。 */
+function warnUnknownFlags(command: string, options: Record<string, string | boolean>): void {
+  const known = KNOWN_FLAGS[command];
+  if (known === undefined) return;
+  const unknown = Object.keys(options).filter((key) => !known.includes(key));
+  if (unknown.length === 0) return;
+  console.warn(
+    `[pie-chart] ${command} が知らないフラグを無視しました: ${unknown.map((k) => `--${k}`).join(', ')}` +
+      `${known.length > 0 ? ` (使えるのは ${known.map((k) => `--${k}`).join(' / ')})` : ''}`,
+  );
+}
+
 /**
  * 描画オーバーライドを CLI フラグから組み立てる。
  *   --font-weight <400|700>  … ウェイト切替 (config が対応フォントを自動選択)
@@ -247,6 +289,8 @@ async function main(): Promise<void> {
     );
     return;
   }
+
+  warnUnknownFlags(command, options);
 
   if (command === 'list') {
     listSamples();
