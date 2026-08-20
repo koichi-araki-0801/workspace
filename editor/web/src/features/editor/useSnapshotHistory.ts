@@ -77,7 +77,8 @@ export function useSnapshotHistory<T>(
   function redo(): void {
     if (!future.length) return;
     past.push(capture());
-    applySnap(future.shift() as T);
+    // 末尾から取り出す: `undo` が future へ push するので、末尾が直近に取り消した state。
+    applySnap(future.pop() as T);
   }
 
   /**

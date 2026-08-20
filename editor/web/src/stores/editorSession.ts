@@ -92,8 +92,8 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
     const sess = sessions[templateId];
     if (!sess) return;
     const past = sess.undoPast.slice(-UNDO_PERSIST_CAP);
-    // future[0] が次の redo 対象なので前方を残す。
-    const future = sess.undoFuture.slice(0, UNDO_PERSIST_CAP);
+    // future の末尾が次の redo 対象(`useSnapshotHistory` の redo は pop)なので後方を残す。
+    const future = sess.undoFuture.slice(-UNDO_PERSIST_CAP);
     const map = readUndoMap();
     delete map[templateId]; // 削除→再追加でキー順の末尾=最近使用に置く(LRU 用)。
     map[templateId] = { past, future };
@@ -110,7 +110,7 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
       depth = Math.floor(depth / 2);
       map[templateId] = {
         past: past.slice(-depth),
-        future: future.slice(0, depth),
+        future: future.slice(-depth),
       };
       if (writeUndoMap(map)) return;
     }

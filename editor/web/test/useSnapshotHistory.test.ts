@@ -150,6 +150,40 @@ describe('useSnapshotHistory', () => {
     expect(future).toEqual(['b']); // redo 用に外部 future へ退避される
   });
 
+  // redo は「直近に undo した分」から戻す(LIFO)。future を先頭から取り出すと、
+  // undo を 2 回以上重ねた時に戻る順序が逆転する。
+  it('redo replays undone steps in reverse order (LIFO)', () => {
+    const box = { state: 'a' };
+    const past: string[] = [];
+    const future: string[] = [];
+    const h = useSnapshotHistory(
+      () => box.state,
+      (s) => {
+        box.state = s;
+      },
+      100,
+      { past, future },
+    );
+    h.pushUndo(); // snapshot 'a'
+    box.state = 'b';
+    h.pushUndo(); // snapshot 'b'
+    box.state = 'c';
+
+    h.undo();
+    expect(box.state).toBe('b');
+    h.undo();
+    expect(box.state).toBe('a');
+
+    h.redo();
+    expect(box.state).toBe('b'); // 直近に取り消した 'b' から戻る
+    expect(past).toEqual(['a']);
+    h.redo();
+    expect(box.state).toBe('c');
+    expect(past).toEqual(['a', 'b']);
+    expect(future).toEqual([]);
+    expect(h.canRedo.value).toBe(false);
+  });
+
   it('restores canUndo/canRedo flags from pre-populated external stacks', () => {
     const box = { state: 'b' };
     // 再マウントを模す: past に既存スナップショットがある状態で生成する。

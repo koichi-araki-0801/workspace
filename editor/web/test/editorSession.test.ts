@@ -83,6 +83,18 @@ describe('useEditorSessionStore', () => {
     expect(map.t1.past[19]).toEqual({ html: 'h29', css: '' }); // 末尾=最新を残す
   });
 
+  it('persist() keeps the newest redo entries (future tail = next redo target)', () => {
+    const store = useEditorSessionStore();
+    const s = store.ensure('t1');
+    for (let i = 0; i < 30; i++) s.undoFuture.push({ html: `f${i}`, css: '' });
+    store.persist('t1');
+
+    const map = readUndoMap();
+    expect(map.t1.future).toHaveLength(20);
+    // `useSnapshotHistory` の redo は future の末尾から取り出すため、末尾側を残す。
+    expect(map.t1.future[19]).toEqual({ html: 'f29', css: '' });
+  });
+
   it('clear() also removes the persisted undo mirror', () => {
     const store = useEditorSessionStore();
     const s = store.ensure('t1');
