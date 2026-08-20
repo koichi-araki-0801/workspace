@@ -120,6 +120,25 @@ function resolvePath(envVal: string | undefined, fileVal: string | undefined, de
   return toPath(envVal ?? fileVal ?? def);
 }
 
+/**
+ * テンプレ実体(templates/css/drafts)を置く data ルート。git 版管理の対象でもある
+ * (`gitRepoDir`)。ネスト git を避けるため既定は **ワークスペースリポジトリ外**
+ * (repoRoot=editor の 2 つ上、例 `C:\Users\<user>\editor-data`)。env `DATA_ROOT`
+ * または `appconfig.json` の `paths.dataRoot` で上書きする。移設は init-data-repo
+ * スクリプトが行う(既存 editor/data からの移動)。
+ */
+const dataRoot = resolvePath(process.env.DATA_ROOT, file.paths?.dataRoot, '../../editor-data');
+
+/**
+ * dataRoot 配下の置き場を解決する(env 優先、次に file、最後に `dataRoot/<sub>`)。
+ * 既定を repoRoot 相対の固定文字列にすると、`DATA_ROOT` だけを移した運用で置き場が
+ * 元の場所に取り残され、テンプレ実体と git リポジトリが別々の木を指す。
+ */
+function resolveDataPath(envVal: string | undefined, fileVal: string | undefined, sub: string) {
+  const explicit = envVal ?? fileVal;
+  return explicit === undefined ? path.join(dataRoot, sub) : toPath(explicit);
+}
+
 /** 真値として受理するトークン(trim + 小文字化して比較)。 */
 const ENV_TRUE_TOKENS: ReadonlySet<string> = new Set(['1', 'true', 'yes', 'on']);
 /** 偽値として受理するトークン。 */
@@ -261,22 +280,12 @@ export const config = {
     },
   },
 
-  /**
-   * テンプレ実体(templates/css/drafts)を置く data ルート。git 版管理の対象でもある
-   * (`gitRepoDir`)。ネスト git を避けるため既定は **ワークスペースリポジトリ外**
-   * (repoRoot=editor の 2 つ上、例 `C:\Users\<user>\editor-data`)。env `DATA_ROOT`
-   * または `appconfig.json` の `paths.dataRoot` で上書きする。移設は init-data-repo
-   * スクリプトが行う(既存 editor/data からの移動)。
-   */
-  dataRoot: resolvePath(process.env.DATA_ROOT, file.paths?.dataRoot, '../../editor-data'),
+  /** テンプレ実体を置く data ルート(解決は上の `dataRoot` を参照)。 */
+  dataRoot,
   /** Jinja2 template ファイルを置くディレクトリ(ファイル名規約)。既定は dataRoot 配下。 */
-  templatesDir: resolvePath(
-    process.env.TEMPLATES_DIR,
-    file.paths?.templatesDir,
-    '../../editor-data/templates',
-  ),
+  templatesDir: resolveDataPath(process.env.TEMPLATES_DIR, file.paths?.templatesDir, 'templates'),
   /** ファンド別(per-fund)共有 CSS ファイルを置くディレクトリ。 */
-  cssDir: resolvePath(process.env.CSS_DIR, file.paths?.cssDir, '../../editor-data/css'),
+  cssDir: resolveDataPath(process.env.CSS_DIR, file.paths?.cssDir, 'css'),
   /**
    * **全ファンド共通**の同梱資産(`fonts/` と `js/`)を置くディレクトリ。テンプレはこれらを
    * `fonts/…` `js/…` の相対パスで参照し、PDF ビルド / プレビューの配信ルートへ
@@ -286,9 +295,9 @@ export const config = {
    * ⚠ この配下は **headless ブラウザが読む配信ルートへ写される**。任意のファイルを置く
    * 場所ではなく、写す対象は `docAssets.ts` の拡張子許可リストで絞る。
    */
-  assetsDir: resolvePath(process.env.ASSETS_DIR, file.paths?.assetsDir, '../../editor-data/assets'),
+  assetsDir: resolveDataPath(process.env.ASSETS_DIR, file.paths?.assetsDir, 'assets'),
   /** 自動保存(autosave)ドラフトの作業コピー(template ごとに html/css。git 管理外)。 */
-  draftsDir: resolvePath(process.env.DRAFTS_DIR, file.paths?.draftsDir, '../../editor-data/drafts'),
+  draftsDir: resolveDataPath(process.env.DRAFTS_DIR, file.paths?.draftsDir, 'drafts'),
   /**
    * 新規生成テンプレの未確定(pending)実体(`pending/<id>.{html,css}`)。`POST /api/generate` は
    * ここにだけ書き、確定ディレクトリ(templatesDir)へは触らない — 生成が確定ファイルを
@@ -296,28 +305,20 @@ export const config = {
    * を差し替えられる。git 管理**外**にするのも同じ理由で、`commitAll` の `git add -A` が
    * 未承認の内容を承認コミットへ巻き込まないため。
    */
-  pendingDir: resolvePath(
-    process.env.PENDING_DIR,
-    file.paths?.pendingDir,
-    '../../editor-data/pending',
-  ),
+  pendingDir: resolveDataPath(process.env.PENDING_DIR, file.paths?.pendingDir, 'pending'),
   /**
    * 確定保存の承認待ち申請(`data/reviews/<reqId>/`。git 管理外)。承認時に実ファイル
    * (templates/css)へ反映するまでの中間保管。`ensureRepo` が `/reviews/` を .gitignore する。
    */
-  reviewsDir: resolvePath(
-    process.env.REVIEWS_DIR,
-    file.paths?.reviewsDir,
-    '../../editor-data/reviews',
-  ),
+  reviewsDir: resolveDataPath(process.env.REVIEWS_DIR, file.paths?.reviewsDir, 'reviews'),
   /**
    * 交付版⇄全体版 パーツ自動同期の実行状態(`sync/<pairKey>.json` = lastSynced/競合記録)。
    * テンプレ実体と同じコミットへ入れて履歴を揃えるため git 管理**内**(drafts/reviews と違い
    * .gitignore しない)。ポリシー(同期既定)は DB のパーツカタログ列で、ここには持たない。
    */
-  syncDir: resolvePath(process.env.SYNC_DIR, file.paths?.syncDir, '../../editor-data/sync'),
+  syncDir: resolveDataPath(process.env.SYNC_DIR, file.paths?.syncDir, 'sync'),
   /** テンプレ版管理の git リポジトリ(= dataRoot)。確定保存ごとに 1 コミット。 */
-  gitRepoDir: resolvePath(process.env.GIT_REPO_DIR, file.paths?.dataRoot, '../../editor-data'),
+  gitRepoDir: process.env.GIT_REPO_DIR === undefined ? dataRoot : toPath(process.env.GIT_REPO_DIR),
 
   /** 本番で配信するビルド済み web SPA。 */
   webDist: resolvePath(process.env.WEB_DIR, file.paths?.webDist, 'web/dist'),
