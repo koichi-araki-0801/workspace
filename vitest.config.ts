@@ -53,6 +53,12 @@ export default defineConfig({
         'editor/server/src/repositories/templateMeta.ts',
         'editor/server/src/files/pendingFiles.ts',
         'editor/server/src/files/syncFiles.ts',
+        // テンプレ実体のパス解決と下書きの入出力。`assertTemplateId` / `assertFundCode` を
+        // 連結の唯一の場所で強制する層なので、被覆を切らすと関所の退行を検出できない。
+        'editor/server/src/files/draftFiles.ts',
+        'editor/server/src/files/templateFiles.ts',
+        // 設定の一元解決。危険な既定値での起動拒否と DATA_ROOT 起点の派生がここに集約されている。
+        'editor/server/src/config.ts',
         'editor/server/src/vivliostyle/projectConfig.ts',
         // 認証・認可の層。認可テーブル・資格情報の正規化・応答時間フロアは、
         // 迂回されると認証全体が骨抜きになるため閾値の対象へ入れる。
@@ -127,6 +133,11 @@ export default defineConfig({
         'editor/web/src/lib/cropMarks.ts',
         'editor/web/src/lib/formatOutput.ts',
         'editor/web/src/lib/useCascadingSelect.ts',
+        // 後着の旧世代応答を捨てる世代ガードと、その利用側が読むクエリ正規化・
+        // セッション期限判定。いずれも退行が「たまに古い値が出る」無言の形になる。
+        'editor/web/src/lib/useLatest.ts',
+        'editor/web/src/lib/routeQuery.ts',
+        'editor/web/src/lib/sessionExpiry.ts',
         'editor/web/src/lib/useIframeAutoFit.ts',
         'editor/web/src/features/editor/geom.ts',
         'editor/web/src/features/editor/pageView.ts',
@@ -160,10 +171,11 @@ export default defineConfig({
         'editor/web/src/components/ui/StepperInput.vue',
         'editor/web/src/components/ui/BackButton.vue',
         // pie-chart (layout.ts / label_placement.ts / svg_export/* は verify_* が担当し対象外)
-        'pie-chart/src/svg_geom.ts',
         'pie-chart/src/config.ts',
-        'pie-chart/src/glyph_advance.ts',
-        'pie-chart/src/data.ts',
+        // 旧 `svg_geom.ts` / `data.ts` / `glyph_advance.ts` の後継。純粋幾何と入力の正規化で、
+        // 上限・数値解釈の退行はどちらも「例外なく壊れた SVG が出る」形になる。
+        'pie-chart/src/layout/geometry.ts',
+        'pie-chart/src/input/load.ts',
         'pie-chart/src/limits.ts',
         'pie-chart/src/svg_export/values.ts',
         // graph-editor (ui.html と共有する純粋関数のみ)
