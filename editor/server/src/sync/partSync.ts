@@ -281,7 +281,7 @@ export function extractSyncParts(html: string): SyncPart[] {
  */
 export interface PairPartState {
   lastSynced?: string;
-  conflict?: { kind: '初期差分' | '両側変更'; detectedAt: string };
+  conflict?: { kind: '初期差分' | '両側変更' | 'ペア側先行'; detectedAt: string };
 }
 
 /** ペア 1 組の同期状態(`sync/<pairKey>.json` の中身。I/O は `syncFiles.ts`)。 */
@@ -478,8 +478,16 @@ export function computePairSync(input: PairSyncComputeInput): PairSyncComputeRes
       } else if (prev?.lastSynced === hs) {
         // source 側は前回同期から不変。target が先行して変わっており、この方向の承認では
         // 触らない(target 側の承認時に逆方向の同期が拾う)。
+        //
+        // 転写しないだけでなく**状態へ痕跡を残す**: 記録しないと編集画面のバナー
+        // (`getPairSyncStatus`)に出ず、承認直後の summary を見逃した時点で誰も気付けない
+        // まま固定される。`lastSynced` は据え置き(進めると次回に両側変更を見落とす)。
+        // 逆方向の承認で転写が走れば `{ lastSynced }` で上書きされ、この記録は消える。
         skipped.push({ partKey: key, reason: 'ペア側が先行変更(逆方向の承認時に同期)' });
-        newParts[key] = prev;
+        newParts[key] = {
+          lastSynced: prev.lastSynced,
+          conflict: prev.conflict ?? { kind: 'ペア側先行', detectedAt: input.now },
+        };
       } else if (!prev?.lastSynced) {
         skipped.push({ partKey: key, reason: '初期差分(一致履歴なし・要判断)' });
         newParts[key] = { conflict: prev?.conflict ?? { kind: '初期差分', detectedAt: input.now } };

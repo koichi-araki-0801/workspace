@@ -408,8 +408,9 @@ export const NoteMasterReflectSummary = z
 
 /**
  * ペア同期の現況(編集画面のバナー・要判断表示用の軽量ビュー)。未解決競合 = 自動同期を
- * 停止して人間の判断を待っているパーツ。競合の解消は「両版の内容を一致させる」ことで
- * 次回承認時に自動で消える(専用の解消 API は持たない)。
+ * 停止して人間の判断を待っているパーツ。競合の解消は「両版の内容を一致させる」か
+ * 「先行変更した側を承認して逆方向の転写を走らせる」ことで次回承認時に自動で消える
+ * (専用の解消 API は持たない)。
  */
 export const PairSyncStatus = z
   .object({
@@ -422,7 +423,7 @@ export const PairSyncStatus = z
       .array(
         z.object({
           partKey: z.string(),
-          kind: z.enum(['初期差分', '両側変更']),
+          kind: z.enum(['初期差分', '両側変更', 'ペア側先行']),
           detectedAt: z.string(),
         }),
       )

@@ -240,3 +240,53 @@ describe('同一 partId の複数出現', () => {
     expect(r.targetHtml).toContain(part('a', '1'));
   });
 });
+
+describe('ペア側先行変更の記録と解消', () => {
+  // 「ペア側が先行変更」は逆方向の承認を待つ状態だが、状態ファイルへ痕跡を残さないと
+  // 編集画面のバナー(`getPairSyncStatus`)に現れず、承認直後の summary を見逃した時点で
+  // 誰も気付けないまま固定される。競合として記録し、逆方向の承認で消えることを固定する。
+  const before = doc(part('a', 'A'));
+  const targetChanged = doc(part('a', 'T'));
+
+  it('先行変更を競合として記録し、lastSynced は進めない', () => {
+    const state = baselineOf(before, { a: '同期' });
+    const r = run({ sourceHtml: before, targetHtml: targetChanged, state }, { a: '同期' });
+
+    expect(r.changed).toBe(false);
+    expect(r.state.parts['a#1'].conflict?.kind).toBe('ペア側先行');
+    expect(r.state.parts['a#1'].lastSynced).toBe(state.parts['a#1'].lastSynced);
+    expect(r.stateChanged).toBe(true);
+  });
+
+  it('同じ状況で再度承認しても検出時刻を上書きしない(状態は動かない)', () => {
+    const state = baselineOf(before, { a: '同期' });
+    const first = run({ sourceHtml: before, targetHtml: targetChanged, state }, { a: '同期' });
+    const again = run(
+      {
+        sourceHtml: before,
+        targetHtml: targetChanged,
+        state: first.state,
+        now: '2026-09-09T00:00:00.000Z',
+      },
+      { a: '同期' },
+    );
+
+    expect(again.state.parts['a#1'].conflict?.detectedAt).toBe(
+      first.state.parts['a#1'].conflict?.detectedAt,
+    );
+    expect(again.stateChanged).toBe(false);
+  });
+
+  it('ペア側の承認(逆方向の同期)で競合が解消される', () => {
+    const state = baselineOf(before, { a: '同期' });
+    const flagged = run({ sourceHtml: before, targetHtml: targetChanged, state }, { a: '同期' });
+    // 逆方向 = 先行変更した側が承認され、そちらが source になる。
+    const reverse = run(
+      { sourceHtml: targetChanged, targetHtml: before, state: flagged.state },
+      { a: '同期' },
+    );
+
+    expect(reverse.applied).toEqual(['a#1']);
+    expect(reverse.state.parts['a#1'].conflict).toBeUndefined();
+  });
+});
