@@ -74,8 +74,10 @@ const INSPECTOR_ACTIONS = {
                   } },
   bendRemove:   { guard: (s) => s.leaderPts.length >= 3,
                   run: (e, s) => { s.leaderPts = [s.leaderPts[0], s.leaderPts[s.leaderPts.length - 1]]; s._auto = false; } },
-  lines1:       { guard: (s) => s.lineCount !== 1, run: (e, s) => { s.lineCount = 1; } },
-  lines2:       { guard: (s) => s.lineCount !== 2, run: (e, s) => { s.lineCount = 2; } },
+  // `resnapLeader`: 実行後にラベルの外枠が変わる操作の印。`inspectorAction` が `flushNow`
+  // で寸法を確定させてから leader 末尾端点を外枠上へ引き戻す。
+  lines1:       { guard: (s) => s.lineCount !== 1, run: (e, s) => { s.lineCount = 1; }, resnapLeader: true },
+  lines2:       { guard: (s) => s.lineCount !== 2, run: (e, s) => { s.lineCount = 2; }, resnapLeader: true },
   insideOn:     { guard: (s) => s.fill !== WHITE, run: (e, s) => { s.fill = WHITE; } },
   insideOff:    { guard: (s) => s.fill === WHITE,
                   // 元が白文字なら黒へ、それ以外は元の色へ戻す (元色が無ければ黒)

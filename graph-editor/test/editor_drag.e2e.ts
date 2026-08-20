@@ -142,3 +142,52 @@ test("円外で自動生成された引出線端点も外枠上、円内へ戻�
   expect(result.back.len).toBe(0);
   expect(result.back.visible).toBe(false);
 });
+
+test("行数・長体でラベル寸法が変わっても引出線端点は外枠上へ戻る", async ({ page }) => {
+  // Alpha は円外・leader 付きのラベル。行数 (1⇄2) と長体はラベルの外枠を変えるので、
+  // 端点をそのままにすると外枠から外れる (枠の内側に浮く / 遠くへ取り残される)。
+  const samples: Sample[] = await page.evaluate(() => {
+    const ed = window.__editor;
+    const s = ed.labels.find((l: any) => l.name === "Alpha");
+    ed.selectLabel(s);
+    const sample = () => {
+      ed.flushNow();
+      const b = s.text.getBBox();
+      const box = {
+        left: b.x + s.textTx.x,
+        top: b.y + s.textTx.y,
+        right: b.x + s.textTx.x + b.width,
+        bottom: b.y + s.textTx.y + b.height,
+      };
+      return {
+        box,
+        pts: s.leaderPts.map((p: any) => ({ x: p.x, y: p.y })),
+        leaderVisible: s.leaderVisible,
+        dAttr: s.path ? s.path.getAttribute("d") : null,
+      };
+    };
+    const out: Sample[] = [];
+    ed.inspectorAction("lines2");
+    out.push(sample());
+    ed.setNameScaleX(s, 0.6);
+    out.push(sample());
+    ed.inspectorAction("lines1");
+    out.push(sample());
+    return out;
+  });
+
+  expect(samples.length).toBe(3);
+  for (const smp of samples) {
+    expect(smp.pts.length).toBeGreaterThanOrEqual(2);
+    const endpoint = smp.pts[smp.pts.length - 1];
+    const prev = smp.pts[smp.pts.length - 2];
+    expect(onFrame(endpoint, smp.box), `endpoint ${JSON.stringify(endpoint)} not on frame ${JSON.stringify(smp.box)}`).toBe(true);
+    const expected = clamp(prev, smp.box);
+    expect(endpoint.x).toBeCloseTo(expected.x, 1);
+    expect(endpoint.y).toBeCloseTo(expected.y, 1);
+    // DOM のパス末尾も同じ端点 (描画まで結線されている)
+    const nums = (smp.dAttr as string).match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)!.map(Number);
+    expect(nums[nums.length - 2]).toBeCloseTo(endpoint.x, 1);
+    expect(nums[nums.length - 1]).toBeCloseTo(endpoint.y, 1);
+  }
+});

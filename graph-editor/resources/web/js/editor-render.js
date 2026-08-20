@@ -235,6 +235,11 @@ function buildInspector(ed) {
       if (valEl) valEl.textContent = `${Math.round(v * 100)}%`;
       ed.markDirty({ dom: true });
     });
+    // 確定 (`change`) で外枠の変化を leader 端点へ反映する。ドラッグ中の毎 `input` で
+    // 測ると 1 操作あたり数十回の強制同期レイアウトになるので、終わりに 1 度だけ。
+    range.addEventListener("change", () => {
+      if (ed.selected) ed.setNameScaleX(ed.selected, parseFloat(range.value));
+    });
   }
   ed.dom.inspectorBody.replaceChildren(box);
   drawIcons(ed.dom.inspectorBody);

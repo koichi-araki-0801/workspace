@@ -405,6 +405,29 @@ class Editor {
     this.pushHistory();
     a.run(this, s);
     this.markDirty({ dom: true, overlay: true, inspector: true });
+    if (a.resnapLeader) this.resnapLeaderToFrame(s);
+  }
+
+  /** ラベルの外枠が変わった後に leader 末尾端点を外枠上へ引き戻す。
+   *  端点が外枠上にある不変条件は行数・長体の変更でも保たれなければならない (放っておくと
+   *  枠の内側へ浮く / 縮んだ枠から取り残される)。`flushNow` を先に呼ぶのは、`tspan` の
+   *  組み直しが保留のままだと旧寸法を測ってしまうため。 */
+  resnapLeaderToFrame(s) {
+    if (!s || s.leaderPts.length < 2) return;
+    this.flushNow();
+    const bbox = safeGetBBox(s.text, null);
+    if (!bbox) return;
+    this.snapEndpointToFrame(s, bbox);
+    this.markDirty({ dom: true, overlay: true });
+  }
+
+  /** 名前の長体率 (横圧縮) を確定し、変わった外枠へ leader 端点を引き戻す。
+   *  スライダのドラッグ中 (`input`) はライブ反映だけにして、確定 (`change`) でここを通す。 */
+  setNameScaleX(s, v) {
+    if (!s) return;
+    s.nameScaleX = v;
+    this.markDirty({ dom: true });
+    this.resnapLeaderToFrame(s);
   }
 
   /** 選択ラベルを微少移動する。`coalesceHistory` が真なら履歴を積まず直前の 1 手へまとめる
