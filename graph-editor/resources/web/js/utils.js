@@ -214,7 +214,39 @@ function stateEquals(a, b) {
   return true;
 }
 
+// ── 4. ラベルの表示文字列 ──
+
+/** `<text>` の `tspan` 列から「パーセント行として実際に表示されている文字列」を取り出す。
+ *
+ *  `data-percent` の値から `${v}%` を組み直さないのは、生成側のこの属性が総和比の絶対値で、
+ *  表示文字列と一致しないため (符号付きの `△0.8%`、丸めの結果 総和が 100 を超える `100.8%`)。
+ *  行数や長体を変えると `label-state.js` の `rebuildTextContent` が `tspan` を組み直すので、
+ *  そこで属性から作り直すと画面の数値が別物へ書き換わる。`data-percent` は表示文字列を
+ *  読み取れなかった時の保険としてのみ使う。
+ *
+ *  @param {Array<{hasX: boolean, text: string}>} tspans 描画順の `tspan` (行頭が `hasX`)
+ *  @param {string} name ラベル名 (`data-name`)。1 行構成では表示文字列の接頭辞になる
+ *  @param {string|null|undefined} percentAttr `data-percent` の生値
+ *  @returns {string} パーセント行の表示文字列 (前後の空白は落とす)
+ */
+function extractPercentText(tspans, name, percentAttr) {
+  // 行頭 (`x` 指定) が 2 つ以上あれば 2 行構成。最後の行頭以降がパーセント行で、長体で挟まる
+  // 内側 `tspan` は `x` を持たないので同じ行に属する。
+  let lastRow = -1;
+  let rowCount = 0;
+  for (let i = 0; i < tspans.length; i++) {
+    if (tspans[i].hasX) { lastRow = i; rowCount++; }
+  }
+  if (rowCount >= 2) return tspans.slice(lastRow).map((t) => t.text).join("").trim();
+
+  // 1 行構成は名前とパーセントが同一チャンクに流し込まれているので、名前の分を落とす。
+  const whole = tspans.map((t) => t.text).join("").trim();
+  if (name && whole.startsWith(name)) return whole.slice(name.length).trim();
+  const attr = percentAttr == null ? "" : String(percentAttr).trim();
+  return attr === "" ? "" : `${attr}%`;
+}
+
 export {
   escapeHtml, round, createSvgEl, safeGetBBox, sanitizeSvg, removedCount, hasFsAccess,
-  SVG_PICKER_TYPES, STATE_FIELDS, stateEquals, MAX_SVG_NODES,
+  SVG_PICKER_TYPES, STATE_FIELDS, stateEquals, extractPercentText, MAX_SVG_NODES,
 };

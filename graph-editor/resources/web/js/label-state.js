@@ -4,7 +4,7 @@
 
 import { CONFIG, WHITE } from "./constants.js";
 import { parseTranslate, parsePath, buildPath, normColor } from "./geom.js";
-import { createSvgEl, safeGetBBox, STATE_FIELDS } from "./utils.js";
+import { createSvgEl, extractPercentText, safeGetBBox, STATE_FIELDS } from "./utils.js";
 
 // ── 1. ラベル状態 (1 ラベル分の状態と実 DOM 同期) ──
 
@@ -29,12 +29,15 @@ class LabelState {
     this.originalFill = text.getAttribute("fill");
     this.fill = this.originalFill;
     // 行数 / 長体 / 名前・パーセント文字列を SVG から復元 (1行化・2行化・長体の編集に使う)。
-    // 文字内容は `data-*` 属性を優先し、無ければ実 `tspan` から拾う (pie-chart 以外の SVG への保険)。
+    // パーセントは**実際に表示されている文字列**を保持する (理由は `utils.js` の
+    // `extractPercentText`)。行数や長体を変えると `rebuildTextContent` が `tspan` を組み直すが、
+    // その時に使う文字列は読込時のこれで、`data-percent` から作り直さない。
     const tspans = [...text.querySelectorAll("tspan")];
-    const pctAttr = g.getAttribute("data-percent");
-    this.percentText = pctAttr != null && pctAttr !== ""
-      ? `${pctAttr}%`
-      : (tspans.length ? tspans[tspans.length - 1].textContent.trim() : "");
+    this.percentText = extractPercentText(
+      tspans.map((t) => ({ hasX: t.hasAttribute("x"), text: t.textContent })),
+      this.name,
+      g.getAttribute("data-percent"),
+    );
     const lc = parseInt(g.getAttribute("data-line-count"), 10);
     // `data-line-count` 優先。無ければ `x` 指定を持つ `tspan` 数 (=行頭の数) で推定。
     this.lineCount = lc === 2 ? 2 : lc === 1 ? 1
