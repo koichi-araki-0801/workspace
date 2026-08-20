@@ -79,6 +79,14 @@ export async function submitReview(
 ): Promise<ReviewRequestMeta> {
   const attrs = parseTemplateFileName(`${req.templateId}.html`);
   if (!attrs) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
+  // 帰属検査は承認側(`applyConfirmedWrite`)と同条件で入口にも置く。CSS はファンド単位の
+  // 共有ファイルなので不一致を通すと「承認できない申請」がキューに積まれるだけで、
+  // 申請時に取る現行版ハッシュ(`baseHash`)も別ファンドの CSS を混ぜた値になる。
+  if (attrs.fundCode !== req.fundCode) {
+    throw validation(
+      `ファンドコードがテンプレート id と一致しません: ${req.fundCode} (id=${req.templateId})`,
+    );
+  }
   // 実行コード面は生成時に確定し、以後どの経路でも変えられない。最後の関所は承認側の
   // `applyConfirmedWrite` だが、申請の入口でも同じ照合を掛ける — 通してしまうと精査者の
   // キューに「承認できない申請」が積まれ、承認者は実行結果しか見ないため差分にも気付けない。

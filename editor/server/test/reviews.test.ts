@@ -216,4 +216,12 @@ d('review workflow (reviewRepo)', () => {
     // 却下しても実体は残るが、行列(= 攻撃者が伸ばせる量)からは外れる。
     expect(await files.countPendingReviews()).toBe(before);
   });
+  it('申告 fundCode がテンプレート id と食い違う申請は入口で弾く', async () => {
+    // CSS はファンド単位の共有ファイル。承認時の `applyConfirmedWrite` は同じ条件で
+    // 拒否するので、通しても承認できない申請がキューに積まれるだけになる。申請時に
+    // 読む現行版ハッシュ(`baseHash`)も別ファンドの CSS を混ぜた値になる。
+    await expect(
+      submit('AM01_444444_20250101_交付版', '999999', '<p>不一致</p>'),
+    ).rejects.toMatchObject({ kind: 'validation' });
+  });
 });
