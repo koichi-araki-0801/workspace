@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
 import { localReviewRepo } from '@/api/local/reviewRepo';
 import { localTemplateRepo } from '@/api/local/templateRepo';
+import { K } from '@/lib/storageKeys';
 
 beforeEach(() => localStorage.clear());
 
@@ -103,5 +104,46 @@ describe('localReviewRepo round-trip', () => {
 
     const after = await localTemplateRepo.getTemplate(target.id);
     if (isOk(before) && isOk(after)) expect(after.value.html).toBe(before.value.html);
+  });
+
+  // 反映と申請の状態遷移は同一 tx。別々だと「本文は公開済みなのに申請は承認待ち」が残り、
+  // 同じ申請をもう一度承認できてしまう。
+  it('申請の書込に失敗したら本文反映ごと巻き戻る', async () => {
+    await loginAdmin();
+    const target = await firstTemplate();
+    if (!target) return;
+    const before = await localTemplateRepo.getTemplate(target.id);
+
+    const submitted = await localReviewRepo.submitReview({
+      templateId: target.id,
+      html: '<p>巻き戻る本文</p>',
+      css: '.z{}',
+      fundCode: target.attributes.fundCode,
+      origin: 'edit',
+    });
+    if (!isOk(submitted)) throw new Error('submit failed');
+
+    // 申請キーへの書込だけを 1 度失敗させる(ロールバックの復元書込は通す)。
+    const original = Storage.prototype.setItem;
+    let failed = false;
+    Storage.prototype.setItem = function patched(key: string, value: string) {
+      if (key === K.reviews && !failed) {
+        failed = true;
+        throw new DOMException('quota', 'QuotaExceededError');
+      }
+      return original.call(this, key, value);
+    };
+    try {
+      const approved = await localReviewRepo.approveReview(submitted.value.id, {});
+      expect(isOk(approved)).toBe(false);
+    } finally {
+      Storage.prototype.setItem = original;
+    }
+
+    // 本文は元のまま、申請も承認待ちのまま。
+    const after = await localTemplateRepo.getTemplate(target.id);
+    if (isOk(before) && isOk(after)) expect(after.value.html).toBe(before.value.html);
+    const pending = await localReviewRepo.listReviews({ status: 'pending' });
+    if (isOk(pending)) expect(pending.value.map((r) => r.id)).toEqual([submitted.value.id]);
   });
 });

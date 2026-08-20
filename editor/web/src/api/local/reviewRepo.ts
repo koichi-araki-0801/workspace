@@ -101,23 +101,32 @@ export const localReviewRepo: ReviewRepository = {
         !isErr(cur) &&
         review.baseHash !== contentKey(cur.value.html, cur.value.css);
       // 実反映は既存の confirmSaveLocal 経路を再利用する(履歴/snapshot/instance も同時に積む)。
-      const applied = await confirmSaveLocal({
-        templateId: review.templateId,
-        html: review.html,
-        css: review.css,
-        fundCode: review.fundCode,
-        filledHtml: review.filledHtml,
-      });
-      if (isErr(applied)) throw applied.error;
       const who = currentUser()?.displayName ?? '不明';
-      reviews[reqId] = {
-        ...review,
-        status: 'approved',
-        reviewedBy: who,
-        reviewedAt: now(),
-        comment: decision.comment ?? null,
-      };
-      write(K.reviews, reviews);
+      // 申請の処理済み化を反映と同一 tx に載せる。別々に書くと、反映後に申請の書込だけが
+      // 失敗した場合に「本文は公開済みなのに申請は承認待ち」が残り、二重承認できてしまう。
+      const applied = await confirmSaveLocal(
+        {
+          templateId: review.templateId,
+          html: review.html,
+          css: review.css,
+          fundCode: review.fundCode,
+          filledHtml: review.filledHtml,
+        },
+        {
+          keys: [K.reviews],
+          commit: () => {
+            reviews[reqId] = {
+              ...review,
+              status: 'approved',
+              reviewedBy: who,
+              reviewedAt: now(),
+              comment: decision.comment ?? null,
+            };
+            write(K.reviews, reviews);
+          },
+        },
+      );
+      if (isErr(applied)) throw applied.error;
       const result: ApproveReviewResult = { meta: applied.value, staleWarning };
       return result;
     }),

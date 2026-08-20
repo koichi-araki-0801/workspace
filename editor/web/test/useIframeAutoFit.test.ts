@@ -17,7 +17,12 @@ afterEach(() => vi.restoreAllMocks());
 /** `contentWindow` と `style` だけを持つ疑似 iframe を @load イベント化する。 */
 function fakeFrame() {
   const contentWindow = {} as Window;
-  const iframe = { contentWindow, style: { height: '' } as { height: string } };
+  const iframe = {
+    contentWindow,
+    style: { height: '' } as { height: string },
+    // DOM 接続の有無。外れた iframe は帳簿から落とす(実要素の `isConnected` に対応)。
+    isConnected: true,
+  };
   return { iframe, contentWindow, event: { target: iframe } as unknown as Event };
 }
 
@@ -50,6 +55,28 @@ describe('useIframeAutoFit', () => {
     api.fitFrame(event);
     postHeight(contentWindow, height(120));
     expect(iframe.style.height).toBe('124px');
+  });
+
+  // v-for で iframe が入れ替わる画面では、外れた分を帳簿に持ち続けると要素ごと解放されない。
+  it('DOM から外れた iframe には反映せず、帳簿からも落とす', () => {
+    const { api } = mountHost();
+    const gone = fakeFrame();
+    const alive = fakeFrame();
+    api.fitFrame(gone.event);
+    api.fitFrame(alive.event);
+
+    gone.iframe.isConnected = false;
+    postHeight(gone.contentWindow, height(120));
+    expect(gone.iframe.style.height).toBe('');
+
+    // 帳簿から落ちたので、再接続しても登録し直すまでは反映されない。
+    gone.iframe.isConnected = true;
+    postHeight(gone.contentWindow, height(120));
+    expect(gone.iframe.style.height).toBe('');
+
+    // 生きているフレームは従来どおり反映される。
+    postHeight(alive.contentWindow, height(200));
+    expect(alive.iframe.style.height).toBe('204px');
   });
 
   it('別フレームからの通知は反映しない(origin では判別できないので source で照合する)', () => {

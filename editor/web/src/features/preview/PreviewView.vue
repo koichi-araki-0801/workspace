@@ -218,11 +218,12 @@ async function exportPdf() {
           <Crop class="h-4 w-4" /> トンボ
         </Button>
       </Tooltip>
-      <Button variant="outline" size="sm" :disabled="exporting" @click="exportPdf">
+      <!-- 読込に失敗した状態では本文が空のまま。押させると空の PDF を出してしまう。 -->
+      <Button variant="outline" size="sm" :disabled="exporting || loadFailed" @click="exportPdf">
         <Loader2 v-if="exporting" class="h-4 w-4 animate-spin" />
         <FileDown v-else class="h-4 w-4" /> PDF出力
       </Button>
-      <Button size="sm" :disabled="submitting" @click="submitForReview">
+      <Button size="sm" :disabled="submitting || loadFailed" @click="submitForReview">
         <Loader2 v-if="submitting" class="h-4 w-4 animate-spin" />
         <Send v-else class="h-4 w-4" /> 確定保存を申請
       </Button>

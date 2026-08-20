@@ -120,18 +120,35 @@ function clearDraft(templateId: string): void {
   write(K.drafts, drafts);
 }
 
+/** 確定反映と同一 tx でコミットしたい呼び出し元の書込(承認ワークフローの申請状態)。 */
+interface ConfirmSaveExtra {
+  /** ロールバック対象へ加える localStorage キー。 */
+  keys: readonly string[];
+  /** tx 内で実行する同期の書込。 */
+  commit: () => void;
+}
+
 /**
  * 確定内容の実反映(local 版)。承認ワークフローの `approveReview`(`reviewRepo.ts`)だけが
  * 呼ぶ内部経路で、Repository 契約には公開しない(確定保存は申請 → 承認の 2 段階ゲートに
  * 一本化。REST 側の対応物は server の `applyConfirmedSave`)。
  */
-export const confirmSaveLocal = (req: ConfirmSaveRequest) =>
+export const confirmSaveLocal = (req: ConfirmSaveRequest, extra?: ConfirmSaveExtra) =>
   attempt(() =>
     // 全 write を一括コミットする: 途中失敗(例: quota)は触れた全キーを保存前状態へ
     // ロールバックし、ストアが half-published で残らないようにする。`notFound` ガードも
     // tx 内にあるため、meta 欠落時はその上の write も巻き戻る。
     tx(
-      [K.htmlOverride, K.cssOverride, META_KEY, K.editHist, K.snapshots, K.instances, K.drafts],
+      [
+        K.htmlOverride,
+        K.cssOverride,
+        META_KEY,
+        K.editHist,
+        K.snapshots,
+        K.instances,
+        K.drafts,
+        ...(extra?.keys ?? []),
+      ],
       () => {
         const who = currentUser()?.displayName ?? '不明';
         const historyId = uid('eh');
@@ -143,6 +160,7 @@ export const confirmSaveLocal = (req: ConfirmSaveRequest) =>
         freezeSnapshot(req, historyId, timestamp);
         putInstance(req, who);
         clearDraft(req.templateId);
+        extra?.commit();
 
         const meta = allMetas().find((m) => m.id === req.templateId);
         if (!meta) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);

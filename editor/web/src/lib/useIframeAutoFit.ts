@@ -89,13 +89,21 @@ export function useIframeAutoFit(): IframeAutoFit {
 
   const stop = onFrameHeight((source, height) => {
     for (const f of frames) {
+      // DOM から外れた iframe は帳簿から落とす。パーツ一覧のように v-for で iframe が
+      // 入れ替わる画面では、外れた分を持ち続けると要素ごと解放されず積み上がる。
+      if (f.isConnected === false) {
+        frames.delete(f);
+        continue;
+      }
       if (f.contentWindow === source) f.style.height = `${height + 4}px`;
     }
   });
 
   function fitFrame(e: Event): void {
     const f = e.target as HTMLIFrameElement;
-    if (f) frames.add(f);
+    if (!f) return;
+    for (const known of frames) if (known.isConnected === false) frames.delete(known);
+    frames.add(f);
   }
 
   onBeforeUnmount(() => {
