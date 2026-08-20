@@ -214,17 +214,19 @@ export function useTemplateEditor(
   // メモを持つパーツ集合が変わるたび、canvas のセル風マーカーを更新する。
   watch(note.notedKeys, (keys) => g.setNoteKeys(keys), { immediate: true });
 
-  /** 選択ブロックへ幾何変更を適用する(inline style として書き込む)。 */
+  /**
+   * 選択ブロックへ幾何変更を適用する(inline style として書き込む)。値が動かない適用は
+   * 手前で捨てる — `pushUndo` は future を消すため、無変更でも積むと Redo が失われる。
+   */
   function applyGeom(patch: Partial<LayoutGeom>, record = true) {
     const cur = selectedGeom.value;
     if (!cur) return;
-    if (record) pushUndo();
     const after = { ...cur, ...patch };
+    const label = geomChangeLabel(cur, after);
+    if (!label) return;
+    if (record) pushUndo();
     g.patchSelectedStyle(geomToStyle(after));
-    if (record) {
-      const label = geomChangeLabel(cur, after);
-      if (label) recordChange(label);
-    }
+    if (record) recordChange(label);
   }
 
   /** 幾何 diff の history エントリを 1 件記録する(ハンドル drag 後に使う)。 */

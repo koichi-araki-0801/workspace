@@ -521,20 +521,33 @@ export function useGrapes() {
     editor.value?.getSelected()?.remove();
   }
 
+  /** inline style マップ 2 つが同じ property 集合・同じ値かを判定する。 */
+  function sameStyleMap(a: Record<string, string>, b: Record<string, string>): boolean {
+    const ak = Object.keys(a);
+    if (ak.length !== Object.keys(b).length) return false;
+    return ak.every((k) => a[k] === b[k]);
+  }
+
   /** 現在の選択の inline style マップ(未選択時は空)。 */
   function selectedStyle(): Record<string, string> {
     return (editor.value?.getSelected()?.getStyle() ?? {}) as Record<string, string>;
   }
 
-  /** 選択へ inline-style パッチを適用する(`''` 値は該当プロパティを除去)。 */
+  /**
+   * 選択へ inline-style パッチを適用する(`''` 値は該当プロパティを除去)。結果が現在の
+   * style と同一なら何もしない — `callbacks.change` は autosave の起点なので、値の動かない
+   * 適用まで通すと編集していないのに draft が生成される。
+   */
   function patchSelectedStyle(patch: Record<string, string>): void {
     const comp = editor.value?.getSelected();
     if (!comp) return;
-    const next: Record<string, string> = { ...(comp.getStyle() as Record<string, string>) };
+    const cur = comp.getStyle() as Record<string, string>;
+    const next: Record<string, string> = { ...cur };
     for (const [k, v] of Object.entries(patch)) {
       if (v === '') delete next[k];
       else next[k] = v;
     }
+    if (sameStyleMap(cur, next)) return;
     comp.setStyle(next);
     // プログラム経由の setStyle は StyleManager の 'style:update' を emit しないため、
     // listener(autosave)への通知と派生 state の更新を自前で行う。`refreshRect` は即時

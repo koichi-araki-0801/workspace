@@ -192,12 +192,15 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
   if (Number.isNaN(n)) n = props.geom[key];
   n = key === 'widthPct' ? clampWidthPct(n) : clampMarginMm(n);
   num[key] = String(n);
+  // 値が動いていない確定(入力欄を focus して blur しただけ)では emit しない。emit すると
+  // 編集していないのに draft が生成され、`pushUndo` で Redo スタックまで消える。
   if (key === 'widthPct') {
-    emit('apply', {
-      widthPct: n,
-      align: n >= WIDTH_PCT_MAX ? 'stretch' : props.geom.align === 'stretch' ? 'left' : props.geom.align,
-    });
+    const align: Align =
+      n >= WIDTH_PCT_MAX ? 'stretch' : props.geom.align === 'stretch' ? 'left' : props.geom.align;
+    if (n === props.geom.widthPct && align === props.geom.align) return;
+    emit('apply', { widthPct: n, align });
   } else {
+    if (n === props.geom[key]) return;
     emit('apply', { [key]: n } as Partial<LayoutGeom>);
   }
 }
