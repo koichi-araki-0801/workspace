@@ -22,6 +22,8 @@ const props = withDefaults(
     versionCounts?: Record<string, number>;
     /** テンプレ id → 承認待ち申請。渡された時だけ「申請」列を表示する(編集タブ用)。 */
     pendingReviews?: Record<string, ReviewRequestMeta[]>;
+    /** action ボタンを無効化する(作成処理の進行中に連打で二重作成させないため)。 */
+    actionDisabled?: boolean;
   }>(),
   { action: 'edit', showBaseDate: true },
 );
@@ -90,7 +92,7 @@ const emptyColspan = computed(
             <span v-else class="text-muted-foreground">—</span>
           </TableCell>
           <TableCell class="text-center">
-            <Button size="sm" :variant="actionVm.variant" @click="emit('action', vm.raw)">
+            <Button size="sm" :variant="actionVm.variant" :disabled="actionDisabled" @click="emit('action', vm.raw)">
               <component :is="actionVm.icon" class="h-4 w-4" />
               {{ actionVm.label }}
             </Button>

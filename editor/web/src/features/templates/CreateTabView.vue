@@ -136,6 +136,7 @@ function createNew() {
 }
 
 function createFromSeries(m: TemplateMeta) {
+  if (creating.value) return; // 連打で同じファンドのテンプレを二重作成させない
   // 「基にする」だけが候補テンプレ。作成されるのは Step1 で選んだファンド。
   const { companyCode, fundCode, editionType } = liveQuery;
   if (!companyCode || !fundCode || !editionType) {
@@ -235,7 +236,7 @@ function createFromSeries(m: TemplateMeta) {
           >
             該当するシリーズファンドが見つかりませんでした。
           </div>
-          <TemplateTable v-else :rows="seriesRows" action="create" @action="createFromSeries" />
+          <TemplateTable v-else :rows="seriesRows" action="create" :action-disabled="creating" @action="createFromSeries" />
         </div>
       </Step>
     </div>

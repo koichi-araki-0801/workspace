@@ -33,6 +33,8 @@ const roleOptions = (Object.keys(ROLE_LABELS) as UserRole[]).map((value) => ({
   label: ROLE_LABELS[value],
 }));
 const form = reactive({ username: '', displayName: '', role: 'editor' as UserRole });
+// 追加処理の進行中。連打すると同じ入力で 2 人分作られ、後着の一時パスワードだけが残る。
+const adding = ref(false);
 const errors = reactive<{ username?: string; displayName?: string }>({});
 
 /**
@@ -66,19 +68,26 @@ function validate(): boolean {
 }
 
 async function addUser() {
-  if (!validate()) return;
-  // 仮パスワード運用: 新規ユーザーは有効状態で作成し、初回ログイン時のパスワード再設定を必須にする。
-  const res = await run(() => repo.createUser({ ...form, disabled: false, mustChangePassword: true }));
-  if (isErr(res)) return;
-  issued.value = {
-    label: `${form.displayName} を追加しました`,
-    username: form.username,
-    password: res.value.temporaryPassword,
-  };
-  toastSuccess(`${form.displayName} を追加しました。一時パスワードを本人へお渡しください。`);
-  form.username = '';
-  form.displayName = '';
-  await load();
+  if (adding.value || !validate()) return;
+  adding.value = true;
+  try {
+    // 仮パスワード運用: 新規ユーザーは有効状態で作成し、初回ログイン時のパスワード再設定を必須にする。
+    const res = await run(() =>
+      repo.createUser({ ...form, disabled: false, mustChangePassword: true }),
+    );
+    if (isErr(res)) return;
+    issued.value = {
+      label: `${form.displayName} を追加しました`,
+      username: form.username,
+      password: res.value.temporaryPassword,
+    };
+    toastSuccess(`${form.displayName} を追加しました。一時パスワードを本人へお渡しください。`);
+    form.username = '';
+    form.displayName = '';
+    await load();
+  } finally {
+    adding.value = false;
+  }
 }
 
 async function toggleDisabled(u: User) {
@@ -188,7 +197,7 @@ async function resetPw(u: User) {
           <Label for="new-role">権限</Label>
           <Select v-model="form.role" :options="roleOptions" />
         </FormField>
-        <Button class="mt-6" @click="addUser"><UserPlus class="h-4 w-4" /> 追加</Button>
+        <Button class="mt-6" :disabled="adding" @click="addUser"><UserPlus class="h-4 w-4" /> 追加</Button>
       </div>
     </Card>
 
