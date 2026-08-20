@@ -28,6 +28,23 @@ function abortLoad(ed, message) {
   ed.renderList();
 }
 
+/** ファイル切替 (レール / ファイルカード) の関所。切替先が別ファイルで、未保存の調整が
+ *  残っていれば確認を挟む。`load` は `history` / `redoStack` ごと作り直すため、切替えた後は
+ *  Undo でも調整を取り戻せない。文言と作法は `editor-events.js` の全体リセットに合わせる。
+ *
+ *  @returns {Promise<boolean>} 実際に読み込んだか (キャンセルなら false) */
+async function switchTo(ed, item) {
+  if (!item) return false;
+  if (item.id !== ed.currentId && ed.labels.some((s) => ed.isLabelEdited(s))) {
+    const ok = window.confirm(
+      `「${ed.name}」の調整は保存されていません。破棄して「${item.name}」を開きます。よろしいですか？`,
+    );
+    if (!ok) return false;
+  }
+  await load(ed, item);
+  return true;
+}
+
 async function load(ed, item) {
   if (!item || typeof item.content !== "string") return;
   const seq = ++ed._loadSeq; // この呼び出しの世代 (後勝ち判定用)
@@ -358,4 +375,4 @@ function pickFilesFallback() {
   });
 }
 
-export { load, save, bakeSvg, openFiles, handleDrop };
+export { load, switchTo, save, bakeSvg, openFiles, handleDrop };

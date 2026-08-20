@@ -420,6 +420,9 @@ class Editor {
   // ── 10. SVG 読込 & セットアップ — editor-io.js へ委譲 ──
 
   async load(item) { return io.load(this, item); }
+  /** レール / ファイルカードからの切替 (未保存の調整があれば確認する)。実装は
+   *  `editor-io.js` の `switchTo`。戻り値は実際に読み込んだか。 */
+  async switchTo(item) { return io.switchTo(this, item); }
 
   // ── 11. ズーム ──
 

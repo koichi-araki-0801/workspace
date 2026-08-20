@@ -263,7 +263,7 @@ function buildRail(ed) {
     item.innerHTML = `<span class="rp"></span><span class="rn">${escapeHtml(it.name.replace(/\.svg$/i, ""))}</span>${status}`;
     item.addEventListener("click", (e) => {
       if (e.target.closest(".lblrow")) return;
-      if (it.id !== ed.currentId) ed.load(it);
+      if (it.id !== ed.currentId) ed.switchTo(it);
     });
     list.appendChild(item);
     // 選択中ファイルの直下にラベル一覧 (`.lblsub`)
@@ -299,7 +299,7 @@ function renderOpenList(ed) {
       `<div class="fic"><i data-ic="file"></i></div>` +
       `<div class="fmeta"><div class="fname">${escapeHtml(it.name)}</div><div class="fsub">${it.edited ? "保存済み" : "未保存"}</div></div>` +
       (it.edited ? '<span class="rok"><i data-ic="check"></i></span>' : "");
-    card.addEventListener("click", async () => { await ed.load(it); ed.goPhase(2); });
+    card.addEventListener("click", async () => { if (await ed.switchTo(it)) ed.goPhase(2); });
     el.appendChild(card);
   }
   drawIcons(el);

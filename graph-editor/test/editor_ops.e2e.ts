@@ -138,3 +138,62 @@ test("インスペクタの実クリックで leader 追加・曲げ点・行数
   await page.click('[data-act="resetOne"]');
   expect(await state()).toMatchObject({ pts: 0, visible: false, lineCount: 1, fill: "#111111" });
 });
+
+test("未保存の調整があるファイルからレールで切替えると確認し、キャンセルで編集を保つ", async ({ page }) => {
+  // レール (手順2 の左一覧) に 2 ファイルを載せ、1 つ目を開いた状態にする。
+  await page.evaluate(async (svg) => {
+    const ed = window.__editor;
+    ed.items = [
+      { name: "first.svg", id: 1, content: svg, edited: false },
+      { name: "second.svg", id: 2, content: svg, edited: false },
+    ];
+    ed._itemSeq = 2;
+    await ed.load(ed.items[0]);
+    ed.renderList();
+  }, SVG);
+
+  // 1 つ目を編集する (`load` は履歴ごと作り直すので、切替えると Undo でも戻せない)。
+  await page.evaluate(() => {
+    const ed = window.__editor;
+    ed.selectLabel(ed.labels.find((l: any) => l.name === "Alpha"));
+    ed.nudge(25, 15);
+  });
+  const alphaTx = () =>
+    page.evaluate(() => {
+      const s = window.__editor.labels.find((l: any) => l.name === "Alpha");
+      return { ...s.textTx, id: window.__editor.currentId };
+    });
+  expect(await alphaTx()).toEqual({ x: 25, y: 15, id: 1 });
+
+  // キャンセル: 確認ダイアログが出て、切替は起きず編集も残る。
+  let seen = "";
+  page.once("dialog", async (d) => { seen = d.message(); await d.dismiss(); });
+  await page.click('.fileitem[data-id="2"]');
+  expect(seen).toContain("second.svg");
+  expect(await alphaTx()).toEqual({ x: 25, y: 15, id: 1 });
+
+  // 承諾: 切替が起きて、新しいファイルは未編集の状態で開く。
+  page.once("dialog", async (d) => { await d.accept(); });
+  await page.click('.fileitem[data-id="2"]');
+  await page.waitForFunction(() => window.__editor.currentId === 2);
+  expect(await alphaTx()).toEqual({ x: 0, y: 0, id: 2 });
+});
+
+test("未保存の調整が無ければファイル切替に確認を挟まない", async ({ page }) => {
+  await page.evaluate(async (svg) => {
+    const ed = window.__editor;
+    ed.items = [
+      { name: "first.svg", id: 1, content: svg, edited: false },
+      { name: "second.svg", id: 2, content: svg, edited: false },
+    ];
+    ed._itemSeq = 2;
+    await ed.load(ed.items[0]);
+    ed.renderList();
+  }, SVG);
+
+  let dialogs = 0;
+  page.on("dialog", async (d) => { dialogs++; await d.dismiss(); });
+  await page.click('.fileitem[data-id="2"]');
+  await page.waitForFunction(() => window.__editor.currentId === 2);
+  expect(dialogs).toBe(0);
+});
