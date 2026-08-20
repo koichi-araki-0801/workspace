@@ -53,8 +53,8 @@ async function onCompare() {
   rendering.value = true;
   try {
     const [ra, rb] = await Promise.all([
-      run(() => compare.renderVersionHtml(a.version.historyId)),
-      run(() => compare.renderVersionHtml(b.version.historyId)),
+      run(() => compare.renderVersionHtml(a.version.historyId, a.version.templateId)),
+      run(() => compare.renderVersionHtml(b.version.historyId, b.version.templateId)),
     ]);
     // `run` が toast 表示済みだが、toast(3〜8 秒)を見逃すと「押しても無反応」に見えるため、
     // 本文の常設エラーにも同じ失敗を載せる(catch 経路の Worker 失敗と表示位置を揃える)。

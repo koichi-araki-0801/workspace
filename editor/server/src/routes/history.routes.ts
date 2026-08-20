@@ -45,13 +45,15 @@ export async function historyRoutes(app: FastifyInstance): Promise<void> {
   // `:historyId` はそのまま `git show` のリビジョン引数になる。`-` 始まりの値を git は
   // オプションとして読む(`--output=<file>` で任意ファイルを破壊できる)ため、リポジトリ層へ
   // 渡す前に境界で弾く。同じ検査は `historyRepo`/`gitRepo` にも置く(多層防御)。
-  app.get<{ Params: { historyId: string } }>(
+  app.get<{ Params: { historyId: string }; Querystring: { templateId?: string } }>(
     apiPaths.snapshotById,
     { preHandler: requireAuth },
     async (request) => {
       const { historyId } = request.params;
       if (!isGitObjectId(historyId)) throw validation(`版の指定が不正です: ${historyId}`);
-      return history.getSnapshot(historyId);
+      // `templateId` はどのテンプレの版かの指定(1 コミットが複数テンプレを含む場合に要る)。
+      // 検査は連結する側(`historyRepo`)の `assertTemplateId` が行う。
+      return history.getSnapshot(historyId, request.query.templateId);
     },
   );
 }

@@ -1673,6 +1673,15 @@
               "type": "string"
             },
             "required": true
+          },
+          {
+            "in": "query",
+            "name": "templateId",
+            "schema": {
+              "description": "その版のどのテンプレを取り出すか(複数含む版では必須)",
+              "type": "string"
+            },
+            "description": "その版のどのテンプレを取り出すか(複数含む版では必須)"
           }
         ],
         "responses": {

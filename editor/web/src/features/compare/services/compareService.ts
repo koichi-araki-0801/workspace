@@ -69,8 +69,11 @@ export interface CompareService {
   listCandidates(query: DropdownQuery): Promise<Result<CompareCandidate[]>>;
   /** テンプレートの確定版(snapshot 付き)を新しい順で返す。 */
   listVersions(templateId: string): Promise<Result<TemplateVersionMeta[]>>;
-  /** 1 版の snapshot を HTML へレンダリングする(クライアント側、サーバ往復なし)。 */
-  renderVersionHtml(historyId: string): Promise<Result<RenderedVersion>>;
+  /**
+   * 1 版の snapshot を HTML へレンダリングする(クライアント側、サーバ往復なし)。
+   * `templateId` はどのテンプレの版かの指定で、1 コミットが複数テンプレを含む版で要る。
+   */
+  renderVersionHtml(historyId: string, templateId?: string): Promise<Result<RenderedVersion>>;
   /**
    * 任意のテンプレ本文(html/css)を、現行版/snapshot と同一の描画経路(`getSampleData` +
    * `renderJinjaIsolated`)でレンダリングする。承認画面が申請内容を現行版と同じ土俵で diff
@@ -130,7 +133,7 @@ export function createCompareService(
     // コンパイラで、`{{ range.constructor("…")() }}` は `new Function` へ到達する。承認者の
     // ページで走らせると承認者のセッションのまま承認 API を叩けてしまうため、
     // 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)へ委ねる。
-    async renderVersionHtml(historyId) {
+    async renderVersionHtml(historyId, templateId) {
       // 「現行版」は snapshot を持たない。原本(現在のテンプレート HTML)をサンプル値で
       // 描画し、確定版と同じ「値埋め込み後」HTML を返す。描画経路を snapshot と一致させ、
       // 原本 <-> 確定版の比較で見せかけの差分が出ないようにする。
@@ -145,7 +148,7 @@ export function createCompareService(
         return ok({ html: rendered.html, css: tpl.css });
       }
 
-      const snapRes = await history.getSnapshot(historyId);
+      const snapRes = await history.getSnapshot(historyId, templateId);
       if (isErr(snapRes)) return snapRes;
       const snap = snapRes.value;
 

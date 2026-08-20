@@ -535,7 +535,15 @@ export function buildOpenApiDocument() {
           tags: ['history'],
           summary: '確定スナップショット(凍結された HTML/CSS)を取得',
           operationId: 'getSnapshot',
-          requestParams: { path: z.object({ historyId: z.string() }) },
+          requestParams: {
+            path: z.object({ historyId: z.string() }),
+            query: z.object({
+              templateId: z
+                .string()
+                .optional()
+                .meta({ description: 'その版のどのテンプレを取り出すか(複数含む版では必須)' }),
+            }),
+          },
           responses: {
             '200': json('スナップショット', s.TemplateSnapshot),
             ...ERR_401,

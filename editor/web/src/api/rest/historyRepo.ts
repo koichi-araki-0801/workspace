@@ -28,6 +28,10 @@ export const restHistoryRepo: HistoryRepository = {
       apiFetch<TemplateVersionMeta[]>(buildPath(apiPaths.templateVersions, { templateId })),
     ),
 
-  getSnapshot: (historyId: string) =>
-    attemptRest(() => apiFetch<TemplateSnapshot>(buildPath(apiPaths.snapshotById, { historyId }))),
+  getSnapshot: (historyId: string, templateId?: string) =>
+    attemptRest(() =>
+      apiFetch<TemplateSnapshot>(buildPath(apiPaths.snapshotById, { historyId }), {
+        query: { templateId },
+      }),
+    ),
 };

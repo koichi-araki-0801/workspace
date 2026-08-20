@@ -47,11 +47,16 @@ export const localHistoryRepo: HistoryRepository = {
       return delay(versions);
     }),
 
-  getSnapshot: (historyId: string) =>
+  // local の snapshot は履歴 id 単位で 1 件なので対象が曖昧にならない。`templateId` は
+  // 指定があれば照合にだけ使う(rest と同じく別テンプレの内容を返さないため)。
+  getSnapshot: (historyId: string, templateId?: string) =>
     attempt(() => {
       const snapshots = read<Record<string, TemplateSnapshot>>(K.snapshots, {});
       const snap = snapshots[historyId];
       if (!snap) throw notFound(`この版の比較データがありません: ${historyId}`);
+      if (templateId !== undefined && snap.templateId !== templateId) {
+        throw notFound(`この版に ${templateId} の変更は含まれていません: ${historyId}`);
+      }
       return delay(snap);
     }),
 };

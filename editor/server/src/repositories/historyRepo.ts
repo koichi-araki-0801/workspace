@@ -27,15 +27,39 @@ const TEMPLATES_PATHSPEC = 'templates';
 const templateRel = (templateId: string): string => `${TEMPLATES_PATHSPEC}/${templateId}.html`;
 const cssRel = (fundCode: string): string => `css/${fundCode}.css`;
 
-/** 変更ファイル一覧から最初の `templates/*.html` を取り出す(無ければ null)。 */
-function templateFileOf(files: readonly string[]): string | null {
-  const tpl = files.find((f) => f.startsWith(`${TEMPLATES_PATHSPEC}/`) && f.endsWith('.html'));
-  return tpl ? tpl.slice(`${TEMPLATES_PATHSPEC}/`.length) : null;
+/**
+ * 変更ファイル一覧から `templates/*.html` を**すべて**取り出す。
+ *
+ * 確定コミットは `git add -A` で作るため、承認とペア転写のように 2 つ以上のテンプレが
+ * 同じコミットへ入りうる。先頭 1 件だけを見ると、版一覧が同じ hash を返す別テンプレへ
+ * 先頭テンプレの内容を配ってしまう(誤帰属)。
+ */
+function templateFilesOf(files: readonly string[]): string[] {
+  return files
+    .filter((f) => f.startsWith(`${TEMPLATES_PATHSPEC}/`) && f.endsWith('.html'))
+    .map((f) => f.slice(`${TEMPLATES_PATHSPEC}/`.length));
 }
 
-/** コミットで変更された最初の `templates/*.html`(無ければ null)。 */
-async function changedTemplateFile(hash: string): Promise<string | null> {
-  return templateFileOf(await commitFiles(hash));
+/** コミットが触れたテンプレのうち、スナップショットの対象 1 件を決める。 */
+function pickTemplateFile(
+  historyId: string,
+  fileNames: readonly string[],
+  templateId: string | undefined,
+): string {
+  if (templateId !== undefined) {
+    // `templateId` は URL 由来。ファイル名規約を通してから照合する(`..` 等の混入を断つ)。
+    const want = `${assertTemplateId(templateId)}.html`;
+    const hit = fileNames.find((f) => f === want);
+    if (!hit) throw notFound(`この版に ${templateId} の変更は含まれていません: ${historyId}`);
+    return hit;
+  }
+  if (fileNames.length === 0) throw notFound(`この版の比較データがありません: ${historyId}`);
+  if (fileNames.length > 1) {
+    throw validation(
+      `この版は複数のテンプレートを含みます。templateId を指定してください: ${historyId}`,
+    );
+  }
+  return fileNames[0];
 }
 
 // ── git 由来: 編集履歴 / 版一覧 / スナップ ──
@@ -50,15 +74,13 @@ async function changedTemplateFile(hash: string): Promise<string | null> {
  */
 export async function getEditHistory(): Promise<EditHistoryEntry[]> {
   const commits = await logAllWithFiles(TEMPLATES_PATHSPEC);
-  return commits.map((c) => {
-    const fileName = templateFileOf(c.files);
-    return {
-      id: c.hash,
-      templateId: fileName ? templateIdFromFileName(fileName) : '',
-      user: c.author,
-      timestamp: c.date,
-      summary: c.subject,
-    };
+  return commits.flatMap((c) => {
+    const base = { id: c.hash, user: c.author, timestamp: c.date, summary: c.subject };
+    const fileNames = templateFilesOf(c.files);
+    // 触れたテンプレごとに 1 行を出す。1 行へ畳むと、同じコミットで変わった他のテンプレは
+    // 履歴に現れないまま先頭テンプレの編集として記録される。
+    if (fileNames.length === 0) return [{ ...base, templateId: '' }];
+    return fileNames.map((f) => ({ ...base, templateId: templateIdFromFileName(f) }));
   });
 }
 
@@ -76,27 +98,36 @@ export async function listVersions(templateId: string): Promise<TemplateVersionM
   }));
 }
 
-/** 版スナップショット(本体は git show でコミット時点を取り出す)。 */
-export async function getSnapshot(historyId: string): Promise<TemplateSnapshot> {
+/**
+ * 版スナップショット(本体は git show でコミット時点を取り出す)。
+ *
+ * `templateId` は「このコミットのどのテンプレの版か」を決める。1 コミットが複数の
+ * テンプレに触れていると hash だけでは対象が決まらないため、指定が無く候補が 2 つ以上
+ * あるときは**先頭で代用せずエラー**にする(黙って別テンプレの内容を配らない)。
+ */
+export async function getSnapshot(
+  historyId: string,
+  templateId?: string,
+): Promise<TemplateSnapshot> {
   // `historyId` は URL 由来で `git show` のリビジョン引数になる。`-` 始まりの値は git が
   // オプションとして解釈するため(`--output=<file>` で任意ファイルを破壊できる)、git を
   // 呼ぶ前にオブジェクトID 形式で弾く。git 呼び出し側の多層防御は `gitRepo.ts` の検証節。
   if (!isGitObjectId(historyId)) throw validation(`版の指定が不正です: ${historyId}`);
-  const fileName = await changedTemplateFile(historyId);
-  if (!fileName) throw notFound(`この版の比較データがありません: ${historyId}`);
+  const fileNames = templateFilesOf(await commitFiles(historyId));
+  const fileName = pickTemplateFile(historyId, fileNames, templateId);
   const attrs = parseTemplateFileName(fileName);
   if (!attrs) throw notFound(`版のファイル名を解釈できません: ${historyId}`);
-  const templateId = templateIdFromFileName(fileName);
+  const resolvedId = templateIdFromFileName(fileName);
   // html/css/日時は互いに独立した git read(`withGitLock` 非経由 = 並列安全)。
   // 逐次 await だと 3 プロセスの起動待ちが直列化するため Promise.all でまとめる。
   const [html, css, timestamp] = await Promise.all([
-    showFile(historyId, templateRel(templateId)),
+    showFile(historyId, templateRel(resolvedId)),
     showFile(historyId, cssRel(attrs.fundCode)),
     commitDate(historyId),
   ]);
   return {
     historyId,
-    templateId,
+    templateId: resolvedId,
     html,
     css,
     fundCode: attrs.fundCode,

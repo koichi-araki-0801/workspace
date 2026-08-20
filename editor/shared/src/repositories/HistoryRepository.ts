@@ -22,6 +22,12 @@ export interface HistoryRepository {
    * 比較画面のバージョン選択で使う。
    */
   listVersions(templateId: string): Promise<Result<TemplateVersionMeta[]>>;
-  /** 1 件の編集履歴に対して捕捉した、凍結済み HTML/CSS の snapshot。 */
-  getSnapshot(historyId: string): Promise<Result<TemplateSnapshot>>;
+  /**
+   * 1 件の編集履歴に対して捕捉した、凍結済み HTML/CSS の snapshot。
+   *
+   * `templateId` は「その版のどのテンプレか」を決める。1 コミットが複数のテンプレに
+   * 触れているとき hash だけでは対象が定まらないため、版一覧から開く呼び出しは必ず
+   * 渡すこと(省略した場合、対象が 1 つに絞れなければエラーになる)。
+   */
+  getSnapshot(historyId: string, templateId?: string): Promise<Result<TemplateSnapshot>>;
 }
