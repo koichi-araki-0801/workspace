@@ -150,9 +150,11 @@ function Resolve-VerifiedManifestFile {
 # ソースの取得先はローリングタグでなく不変のコミット ID へ pin する。タグ名（例:
 # offline-bundle-v1）は publish のたびに指す先が動くため、「タグで取れた」ことは内容を
 # 何も同定しない。40 桁 16 進の完全 SHA-1 のみを受け付ける。
+# 大小は区別する（`-cmatch`）: pin の正典は `Get-OfflinePin` が小文字化した値で、
+# 大文字を受理する入口を残すと「同じ commit を指す表記が 2 通りある」状態になる。
 function Test-PinnedCommitId {
   param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$CommitId)
-  $CommitId -match '^[0-9a-f]{40}$'
+  $CommitId -cmatch '^[0-9a-f]{40}$'
 }
 
 # ── pin ファイル（offline/pinned-release.txt）の読み取り ──

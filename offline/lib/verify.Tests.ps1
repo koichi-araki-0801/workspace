@@ -169,8 +169,9 @@ Describe 'Test-PinnedCommitId' {
     Test-PinnedCommitId '' | Should Be $false
   }
 
-  It '大文字 16 進も受け付ける（判定は -match で大小無視。小文字化は Get-OfflinePin が担う）' {
-    Test-PinnedCommitId ('A' * 40) | Should Be $true
+  It '大文字 16 進を拒否する（pin の正典は Get-OfflinePin が書く小文字）' {
+    Test-PinnedCommitId ('A' * 40) | Should Be $false
+    Test-PinnedCommitId ((('0123456789abcdef' * 3).Substring(0, 39)) + 'F') | Should Be $false
   }
 }
 
