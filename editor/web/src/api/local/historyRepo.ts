@@ -36,9 +36,9 @@ export const localHistoryRepo: HistoryRepository = {
       const snapshots = read<Record<string, TemplateSnapshot>>(K.snapshots, {});
       // `editHist` は既に新しい順。当該テンプレートかつ snapshot を持つ entry だけ残す。
       const versions: TemplateVersionMeta[] = read<EditHistoryEntry[]>(K.editHist, [])
-        .filter((e) => e.templateId === templateId && snapshots[e.id])
+        .filter((e) => e.templateId === templateId && snapshots[e.historyId])
         .map((e) => ({
-          historyId: e.id,
+          historyId: e.historyId,
           templateId: e.templateId,
           timestamp: e.timestamp,
           user: e.user,

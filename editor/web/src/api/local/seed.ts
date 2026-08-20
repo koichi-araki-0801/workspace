@@ -5,7 +5,12 @@
 // (`META_KEY`)は通常 `confirmSaveLocal` が実行時にのみ生成する。空ストアでは比較対象が
 // 無いため、複数の確定版を持つテンプレートを数件 seed する。ガード付きで一度だけ
 // 実行し、既存のユーザーデータは決して上書きしない。
-import type { EditHistoryEntry, TemplateMeta, TemplateSnapshot } from '@editor/shared';
+import {
+  type EditHistoryEntry,
+  editHistoryRowId,
+  type TemplateMeta,
+  type TemplateSnapshot,
+} from '@editor/shared';
 import { fixtureCss, fixtureTemplates, K, META_KEY, read, write } from './store';
 
 const SEED_KEY = 'editor:seed:compare';
@@ -101,7 +106,8 @@ export function seedCompareFixtures(): void {
     for (const v of t.versions) {
       // 新しい順 → push で `editHist` を新しい順に保つ(`SEED` は既に整列済み)。
       editHist.push({
-        id: v.historyId,
+        id: editHistoryRowId(v.historyId, t.templateId),
+        historyId: v.historyId,
         templateId: t.templateId,
         user: v.user ?? SEED_USER,
         timestamp: v.timestamp,

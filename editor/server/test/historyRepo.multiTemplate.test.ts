@@ -68,4 +68,16 @@ d('複数テンプレを含む版のスナップショット', () => {
     const entries = await history.getEditHistory();
     expect(entries.map((e) => e.templateId).sort()).toEqual([FIRST, SECOND].sort());
   });
+
+  it('行 id はテンプレごとに一意で、コミット参照は historyId が持つ', async () => {
+    // 行 id が hash のままだと、同じコミットの 2 行が同じキーになる(一覧の `:key` が衝突し、
+    // 行の再利用で別テンプレの内容が表示されうる)。コミットを指す値は `historyId` に分ける。
+    const entries = await history.getEditHistory();
+    const ids = entries.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const e of entries) {
+      expect(e.historyId).toBe(hash);
+      expect(e.id).toBe(`${hash}:${e.templateId}`);
+    }
+  });
 });

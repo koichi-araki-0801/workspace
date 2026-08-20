@@ -7,6 +7,7 @@ import {
   type CreateHistoryEntry,
   type DropdownQuery,
   type EditHistoryEntry,
+  editHistoryRowId,
   type GenerateRequest,
   isErr,
   notFound,
@@ -74,7 +75,8 @@ function appendEditHistory(
 ): void {
   const editHist = read<EditHistoryEntry[]>(K.editHist, []);
   editHist.unshift({
-    id: historyId,
+    id: editHistoryRowId(historyId, req.templateId),
+    historyId,
     templateId: req.templateId,
     user: who,
     timestamp,

@@ -119,7 +119,12 @@ describe('confirmSaveLocal version snapshots', () => {
     expect(entry).toBeDefined();
     if (!entry) return;
 
-    const snap = await localHistoryRepo.getSnapshot(entry.id);
+    // 行 id は一覧の :key 用で、コミット(版)を指すのは `historyId`。local と rest で
+    // 同じ形を返すことを固定する(片方だけ hash のままだと画面の参照先が食い違う)。
+    expect(entry.historyId).toBeTruthy();
+    expect(entry.id).toBe(`${entry.historyId}:${entry.templateId}`);
+
+    const snap = await localHistoryRepo.getSnapshot(entry.historyId);
     expect(isOk(snap)).toBe(true);
     if (isOk(snap)) {
       expect(snap.value.html).toBe('<p>v1</p>');
@@ -130,7 +135,7 @@ describe('confirmSaveLocal version snapshots', () => {
     const versions = await localHistoryRepo.listVersions(target.id);
     expect(isOk(versions)).toBe(true);
     if (isOk(versions)) {
-      expect(versions.value.some((v) => v.historyId === entry.id)).toBe(true);
+      expect(versions.value.some((v) => v.historyId === entry.historyId)).toBe(true);
     }
   });
 

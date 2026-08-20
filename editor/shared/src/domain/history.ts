@@ -15,6 +15,17 @@ export function isGitObjectId(value: string): boolean {
   return GIT_OBJECT_ID_RE.test(value);
 }
 
+/**
+ * 編集履歴 1 行の id。確定コミットは `git add -A` で作るため 1 コミットが複数テンプレを
+ * 含みうる。コミット hash をそのまま行 id にすると同じコミットの行が同じキーになり、
+ * 一覧の `:key` が衝突する。コミットを指す値は `historyId` が持ち、行 id は
+ * `<historyId>:<templateId>` で一意にする。server(git 由来)と web の local 実装が同じ
+ * 綴りを使うよう、組み立てはここ 1 箇所に置く。
+ */
+export function editHistoryRowId(historyId: string, templateId: string): string {
+  return `${historyId}:${templateId}`;
+}
+
 /** タブ別の履歴フィルタ値。 */
 export interface HistoryFilter {
   user?: string;

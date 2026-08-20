@@ -3638,7 +3638,12 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "一覧の行 id。`<historyId>:<templateId>` で行ごとに一意"
+          },
+          "historyId": {
+            "type": "string",
+            "description": "版(コミット)の識別子。snapshot 取得・版比較はこちらを使う"
           },
           "templateId": {
             "type": "string"
@@ -3656,6 +3661,7 @@
         },
         "required": [
           "id",
+          "historyId",
           "templateId",
           "user",
           "timestamp",
@@ -3720,7 +3726,7 @@
         "properties": {
           "historyId": {
             "type": "string",
-            "description": "EditHistoryEntry.id。読み込む snapshot を識別"
+            "description": "EditHistoryEntry.historyId。読み込む snapshot を識別"
           },
           "templateId": {
             "type": "string"
@@ -3749,7 +3755,7 @@
         "properties": {
           "historyId": {
             "type": "string",
-            "description": "対応する EditHistoryEntry.id"
+            "description": "対応する `EditHistoryEntry.historyId`"
           },
           "templateId": {
             "type": "string"

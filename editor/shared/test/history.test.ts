@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchFilter, uniq } from '../src/domain/history';
+import { editHistoryRowId, matchFilter, uniq } from '../src/domain/history';
 
 const entry = (user: string, timestamp: string) => ({ user, timestamp });
 
@@ -31,5 +31,20 @@ describe('matchFilter', () => {
   it('filters by keyword against haystacks, case-insensitively', () => {
     expect(matchFilter(e, { keyword: 'ABC' }, ['xyzABCdef'])).toBe(true);
     expect(matchFilter(e, { keyword: 'nope' }, ['xyzABCdef'])).toBe(false);
+  });
+});
+
+describe('editHistoryRowId', () => {
+  it('同一コミットの複数テンプレでも行ごとに違う id になる', () => {
+    const hash = 'a'.repeat(40);
+    const first = editHistoryRowId(hash, 'AM01_999999_20250101_交付版');
+    const second = editHistoryRowId(hash, 'AM01_999999_20250101_全体版');
+    expect(first).not.toBe(second);
+    expect(first.startsWith(`${hash}:`)).toBe(true);
+  });
+
+  it('テンプレを特定できないコミットでもコミットごとに一意', () => {
+    const hash = 'b'.repeat(40);
+    expect(editHistoryRowId(hash, '')).toBe(`${hash}:`);
   });
 });

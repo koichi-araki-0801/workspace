@@ -9,6 +9,7 @@ import {
   assertTemplateId,
   type CreateHistoryEntry,
   type EditHistoryEntry,
+  editHistoryRowId,
   isGitObjectId,
   notFound,
   type PartHistoryEntry,
@@ -75,12 +76,17 @@ function pickTemplateFile(
 export async function getEditHistory(): Promise<EditHistoryEntry[]> {
   const commits = await logAllWithFiles(TEMPLATES_PATHSPEC);
   return commits.flatMap((c) => {
-    const base = { id: c.hash, user: c.author, timestamp: c.date, summary: c.subject };
+    const base = { historyId: c.hash, user: c.author, timestamp: c.date, summary: c.subject };
+    const row = (templateId: string) => ({
+      ...base,
+      id: editHistoryRowId(c.hash, templateId),
+      templateId,
+    });
     const fileNames = templateFilesOf(c.files);
     // 触れたテンプレごとに 1 行を出す。1 行へ畳むと、同じコミットで変わった他のテンプレは
     // 履歴に現れないまま先頭テンプレの編集として記録される。
-    if (fileNames.length === 0) return [{ ...base, templateId: '' }];
-    return fileNames.map((f) => ({ ...base, templateId: templateIdFromFileName(f) }));
+    if (fileNames.length === 0) return [row('')];
+    return fileNames.map((f) => row(templateIdFromFileName(f)));
   });
 }
 

@@ -73,7 +73,7 @@ export type PartHistoryEntry = z.infer<typeof sch.PartHistoryEntry>;
 
 /**
  * テンプレート内容を 1 回の確定保存時点で凍結したコピー。属する編集履歴エントリ
- * (`historyId` = `EditHistoryEntry.id`)をキーにする。
+ * (`historyId` = `EditHistoryEntry.historyId`)をキーにする。
  */
 export type TemplateSnapshot = z.infer<typeof sch.TemplateSnapshot>;
 

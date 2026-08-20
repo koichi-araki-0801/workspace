@@ -227,7 +227,10 @@ export const UpdateUserRequest = z
 
 export const EditHistoryEntry = z
   .object({
-    id: z.string(),
+    id: z.string().meta({ description: '一覧の行 id。`<historyId>:<templateId>` で行ごとに一意' }),
+    historyId: z
+      .string()
+      .meta({ description: '版(コミット)の識別子。snapshot 取得・版比較はこちらを使う' }),
     templateId: z.string(),
     user: z.string(),
     timestamp: z.string(),
@@ -298,7 +301,7 @@ export const RecordPartChangeRequest = z
  */
 export const TemplateSnapshot = z
   .object({
-    historyId: z.string().meta({ description: '対応する EditHistoryEntry.id' }),
+    historyId: z.string().meta({ description: '対応する `EditHistoryEntry.historyId`' }),
     templateId: z.string(),
     html: z.string().meta({ description: '確定時点の生 Jinja2 HTML ソース(タグ保持)' }),
     css: z.string().meta({ description: '確定時点の CSS' }),
@@ -310,7 +313,9 @@ export const TemplateSnapshot = z
 /** 比較画面のバージョン選択用の軽量な一覧行。 */
 export const TemplateVersionMeta = z
   .object({
-    historyId: z.string().meta({ description: 'EditHistoryEntry.id。読み込む snapshot を識別' }),
+    historyId: z
+      .string()
+      .meta({ description: 'EditHistoryEntry.historyId。読み込む snapshot を識別' }),
     templateId: z.string(),
     timestamp: z.string(),
     user: z.string(),
