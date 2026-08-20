@@ -36,6 +36,7 @@ import pathlib
 import re
 
 import frontmatter
+import yaml
 from markdown_it import MarkdownIt
 
 # ── デザイントークン（docs 共通・ライト固定）──
@@ -82,19 +83,26 @@ _ORDER = [("操作手順書", 10), ("利用手引き", 10), ("設計正典", 15)
 
 
 # ── front-matter / インライン ──
-def parse_frontmatter(text: str):
+def parse_frontmatter(text: str, src_name: str = ""):
     """先頭 `---` ブロックを front-matter として解釈し、`(meta, body)` を返す。
 
     PyYAML ベースの `python-frontmatter` で読む。改訂履歴 `rev` は原稿側で YAML の
     ブロックシーケンス（`rev:` + `- 版 | 日付 | 内容`）として書き、複数版を list で受ける。
+    YAML が壊れていれば失敗のまま止める（黙って冊子を出さない）が、複数原稿を束ねる
+    ビルドではどの原稿かが分からないと直せないので、ファイル名を付けて投げ直す。
     """
-    post = frontmatter.loads(text)
+    try:
+        post = frontmatter.loads(text)
+    except yaml.YAMLError as e:
+        raise ValueError(f"{src_name}: front-matter の YAML が不正です: {e}") from e
     return dict(post.metadata), post.content
 
 
 def audience_of(src: pathlib.Path, meta: dict | None) -> str:
     """原稿の読者区分を返す（'guide' | 'spec'）。front-matter `audience` 優先、無指定は名前推定。"""
-    aud = ((meta or {}).get("audience") or "").strip().lower()
+    # YAML は `yes` / `on` を bool にする。文字列以外は指定なしと同じ扱いで名前推定へ倒す。
+    raw = (meta or {}).get("audience")
+    aud = raw.strip().lower() if isinstance(raw, str) else ""
     if aud in ("guide", "spec"):
         return aud
     return "guide" if ("操作手順書" in src.name or "利用手引き" in src.name) else "spec"
@@ -716,7 +724,7 @@ def build_project(proj_dir: pathlib.Path, warnings=None):
     grouped = {"guide": [], "spec": []}
     for src in discover_srcs(proj_dir):
         text = src.read_text(encoding="utf-8")
-        meta, body = parse_frontmatter(text)
+        meta, body = parse_frontmatter(text, src.name)
         grouped[audience_of(src, meta)].append((src, meta, body))
 
     built = []

@@ -44,3 +44,17 @@ def test_script_close_re_is_case_insensitive():
     assert "</SCRIPT>" not in out
     assert "</script>" not in out
     assert out == 'document.write("<\\/SCRIPT>"); document.write("<\\/script>");'
+
+
+def test_parse_frontmatter_names_the_source_on_invalid_yaml():
+    import pytest
+    bad = "---\ntitle: [unclosed\n---\nbody\n"
+    with pytest.raises(ValueError, match=r"^設計書\.md: front-matter"):
+        md2html.parse_frontmatter(bad, src_name="設計書.md")
+
+
+def test_audience_of_tolerates_yaml_bool_value(tmp_path):
+    src = tmp_path / "設計書.md"
+    # YAML は `yes` を bool にする。文字列として扱えず落ちるのではなく名前推定へ倒す
+    assert md2html.audience_of(src, {"audience": True}) == "spec"
+    assert md2html.audience_of(tmp_path / "操作手順書.md", {"audience": True}) == "guide"
