@@ -19,7 +19,8 @@ interface GeomHandleDeps {
   /** 現在の canvas zoom(余白は zoom 非依存の mm で測る)。 */
   zoom: Ref<number>;
   /** undo を 1 ステップ積む(drag 開始時に 1 度だけ呼ぶ)。 */
-  pushUndo: () => void;
+  /** drag 開始時の snapshot を保留する(確定/破棄は `recordGeomDiff` 側が決める)。 */
+  beginUndo: () => void;
   /** 幾何パッチを適用する。`record=false` でライブ drag、true で history を記録。 */
   applyGeom: (patch: Partial<LayoutGeom>, record?: boolean) => void;
   /** drag 後の幾何 diff を history へ 1 件記録する。 */
@@ -31,11 +32,12 @@ interface GeomHandleDeps {
  *
  * 'width'/'width-left' はブロック幅を resize する(左側は delta を反転させ、ハンドルが
  * カーソルに追従するようにする)。'mt'/'mb' は上/下の余白を調整する。drag は
- * ライブに(記録なしで)適用し、1 ジェスチャにつき undo 1 件 + history 1 件を記録する。
+ * ライブに(記録なしで)適用し、幾何が動いた場合だけ 1 ジェスチャにつき undo 1 件 +
+ * history 1 件を記録する。
  * window listener は drag 中だけ attach する。
  */
 export function useGeomHandles(deps: GeomHandleDeps) {
-  const { selectedGeom, selectedRect, zoom, pushUndo, applyGeom, recordGeomDiff } = deps;
+  const { selectedGeom, selectedRect, zoom, beginUndo, applyGeom, recordGeomDiff } = deps;
 
   const activeHandle = ref<HandleKind | null>(null);
   let drag: { kind: HandleKind; x: number; y: number; geom: LayoutGeom; fullW: number } | null =
@@ -47,7 +49,8 @@ export function useGeomHandles(deps: GeomHandleDeps) {
     if (!g0 || !r) return;
     e.preventDefault();
     e.stopPropagation();
-    pushUndo(); // drag 1 回につき undo 1 ステップ
+    // drag 1 回につき undo 1 ステップ。幾何が動かなければ `recordGeomDiff` が保留を捨てる。
+    beginUndo();
     activeHandle.value = kind;
     drag = {
       kind,

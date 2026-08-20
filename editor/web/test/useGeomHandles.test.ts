@@ -8,29 +8,29 @@ function setup(geom: LayoutGeom = { ...DEFAULT_GEOM, widthPct: 50, align: 'left'
   const selectedGeom = computed(() => geom);
   const selectedRect = ref<SelectedRect | null>({ left: 100, top: 50, width: 200, height: 80 });
   const zoom = ref(1);
-  const pushUndo = vi.fn();
+  const beginUndo = vi.fn();
   const applyGeom = vi.fn();
   const recordGeomDiff = vi.fn();
   const api = useGeomHandles({
     selectedGeom,
     selectedRect,
     zoom,
-    pushUndo,
+    beginUndo,
     applyGeom,
     recordGeomDiff,
   });
-  return { api, pushUndo, applyGeom, recordGeomDiff };
+  return { api, beginUndo, applyGeom, recordGeomDiff };
 }
 
 const mouse = (type: string, x: number, y: number) =>
   new MouseEvent(type, { clientX: x, clientY: y, bubbles: true });
 
 describe('useGeomHandles', () => {
-  it('width drag: pushes one undo, live-applies width without recording, logs diff on mouseup', () => {
-    const { api, pushUndo, applyGeom, recordGeomDiff } = setup();
+  it('width drag: begins one undo, live-applies width without recording, logs diff on mouseup', () => {
+    const { api, beginUndo, applyGeom, recordGeomDiff } = setup();
     // fullW = width / (widthPct/100) = 200 / 0.5 = 400px for 100%.
     api.startHandle('width', mouse('mousedown', 300, 90));
-    expect(pushUndo).toHaveBeenCalledTimes(1);
+    expect(beginUndo).toHaveBeenCalledTimes(1);
 
     window.dispatchEvent(mouse('mousemove', 500, 90)); // +200px → +50% → 100%
     expect(applyGeom).toHaveBeenLastCalledWith(

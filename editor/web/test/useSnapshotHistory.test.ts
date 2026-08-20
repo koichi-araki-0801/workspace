@@ -104,12 +104,54 @@ describe('useSnapshotHistory', () => {
     expect(h.canUndo.value).toBe(false);
   });
 
-  it('discardLast drops the last snapshot without restoring', () => {
+  // ジェスチャ(テキスト編集 / drag)は開始時点では変更が起きるか分からない。開始時に past へ
+  // 積むと future が消え、無変更で終わっても Redo が失われるため、開始は capture だけに留める。
+  it('beginUndo は past も future も動かさない', () => {
+    const box = { state: 'a' };
+    const past: string[] = [];
+    const future: string[] = ['z'];
+    const h = useSnapshotHistory(
+      () => box.state,
+      (s) => {
+        box.state = s;
+      },
+      100,
+      { past, future },
+    );
+    h.beginUndo();
+    expect(past).toEqual([]);
+    expect(future).toEqual(['z']);
+    expect(h.canUndo.value).toBe(false);
+    expect(h.canRedo.value).toBe(true);
+  });
+
+  it('commitUndo で開始時点の snapshot を past へ積み future を捨てる', () => {
     const { box, h } = setup();
-    h.pushUndo(); // speculative snapshot of 'a'
+    h.beginUndo(); // snapshot 'a'
     box.state = 'b';
-    h.discardLast();
-    expect(box.state).toBe('b'); // unchanged — no restore
+    h.commitUndo();
+    expect(h.canUndo.value).toBe(true);
+    h.undo();
+    expect(box.state).toBe('a');
+  });
+
+  it('cancelUndo は past も future も動かさない(無変更で終わったジェスチャ)', () => {
+    const { box, h } = setup();
+    h.pushUndo(); // snapshot 'a'
+    box.state = 'b';
+    h.undo(); // state='a'、future=['b']
+    expect(h.canRedo.value).toBe(true);
+
+    h.beginUndo(); // ジェスチャ開始(結果的に無変更)
+    h.cancelUndo();
+    expect(h.canRedo.value).toBe(true);
+    h.redo();
+    expect(box.state).toBe('b');
+  });
+
+  it('commitUndo は beginUndo なしでは何もしない', () => {
+    const { h } = setup();
+    h.commitUndo();
     expect(h.canUndo.value).toBe(false);
   });
 

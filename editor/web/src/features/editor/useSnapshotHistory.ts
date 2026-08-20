@@ -21,7 +21,12 @@ import { ref } from 'vue';
  * 維持する `editorSession` ストアがこれを使い、再マウント時に既存スタックから復元する。
  * 未指定なら従来どおりローカル配列で開始する。
  *
- * `init.onChange` を渡すと、スタックを変化させる操作(push/undo/redo/discardLast)のたびに
+ * ジェスチャ(inline text 編集 / ハンドル drag)は開始時点では変更が起きるか分からないので、
+ * `beginUndo` で開始時の snapshot を保留し、実際に変更があった時だけ `commitUndo` で past へ
+ * 積む(無変更なら `cancelUndo`)。開始時に積むと `future` が消え、無変更で終えても Redo が
+ * 失われるため、この 2 段構えにする。変更が確実な操作は `pushUndo` で即座に積んでよい。
+ *
+ * `init.onChange` を渡すと、スタックを変化させる操作(push/undo/redo/commit)のたびに
  * 呼ぶ。`editorSession` ストアがこれで localStorage への永続ミラーを debounce 更新し、
  * リロード後も Undo/Redo を復元できるようにする。初期化時(フラグ復元)には発火しない。
  */
@@ -37,6 +42,8 @@ export function useSnapshotHistory<T>(
   const canUndo = ref(false);
   const canRedo = ref(false);
   let applying = false;
+  // `beginUndo` が保留している開始時 snapshot。`T` 自体が null をとりうるのでラップして持つ。
+  let pending: { snap: T } | null = null;
   // 外部スタックを渡された場合、既存エントリに合わせてフラグを初期化する
   // (再マウント時に Undo/Redo ボタンの活性を復元するため)。初期化中は onChange を抑止する。
   let started = false;
@@ -49,13 +56,40 @@ export function useSnapshotHistory<T>(
     if (started) onChange?.();
   }
 
-  /** 変更前の state を capture する。記録対象の変更の直前に呼ぶ。 */
-  function pushUndo(): void {
-    if (applying) return;
-    past.push(capture());
+  /** snapshot を past へ積み、redo 分岐(`future`)を捨てる。 */
+  function pushSnapshot(snap: T): void {
+    past.push(snap);
     if (past.length > max) past.shift();
     future.length = 0;
     updateFlags();
+  }
+
+  /** 変更前の state を capture して即座に積む。変更が確実な操作の直前に呼ぶ。 */
+  function pushUndo(): void {
+    if (applying) return;
+    pushSnapshot(capture());
+  }
+
+  /**
+   * ジェスチャ開始時の state を保留 capture する。past / future はまだ動かさないので、
+   * 無変更で終わっても Redo は残る。`commitUndo` / `cancelUndo` と対で使う。
+   */
+  function beginUndo(): void {
+    if (applying) return;
+    pending = { snap: capture() };
+  }
+
+  /** 保留中の開始時 snapshot を past へ積む(変更が実際に起きたときだけ呼ぶ)。 */
+  function commitUndo(): void {
+    if (!pending) return;
+    const { snap } = pending;
+    pending = null;
+    pushSnapshot(snap);
+  }
+
+  /** 保留中の開始時 snapshot を捨てる(ジェスチャが無変更で終わったとき)。 */
+  function cancelUndo(): void {
+    pending = null;
   }
 
   function applySnap(snap: T): void {
@@ -82,16 +116,6 @@ export function useSnapshotHistory<T>(
   }
 
   /**
-   * 直近の `pushUndo` snapshot を捨てる。変更を見込んで snapshot を取った(例: text
-   * 編集 / drag 開始)が結果的に no-op だった場合に使い、空のステップを undo stack に
-   * 残さないようにする。
-   */
-  function discardLast(): void {
-    past.pop();
-    updateFlags();
-  }
-
-  /**
    * 現在の undo スタック深さ。「元に戻す」トースト(`useTemplateEditor.ts`)が、操作時点の
    * 深さと押下時点の深さを比べて「その後に別の編集が積まれていないか」を判定するのに使う
    * (別の編集ごと巻き戻す事故を防ぐ)。
@@ -100,5 +124,5 @@ export function useSnapshotHistory<T>(
     return past.length;
   }
 
-  return { canUndo, canRedo, pushUndo, undo, redo, discardLast, depth };
+  return { canUndo, canRedo, pushUndo, beginUndo, commitUndo, cancelUndo, undo, redo, depth };
 }

@@ -49,7 +49,7 @@ const {
   canRedo,
   undo,
   redo,
-  pushUndo,
+  beginUndo,
   applyGeom,
   recordGeomDiff,
   resetGeom,
@@ -64,7 +64,7 @@ const { startHandle, dragLabel } = useGeomHandles({
   selectedGeom,
   selectedRect: g.selectedRect,
   zoom: g.zoom,
-  pushUndo,
+  beginUndo,
   applyGeom,
   recordGeomDiff,
 });

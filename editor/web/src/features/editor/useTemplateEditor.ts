@@ -126,9 +126,11 @@ export function useTemplateEditor(
     canUndo,
     canRedo,
     pushUndo,
+    beginUndo,
+    commitUndo,
+    cancelUndo,
     undo,
     redo,
-    discardLast,
     depth: undoDepth,
   } = useSnapshotHistory(
     () => ({ html: g.getBodyHtml(), css: g.getCss() }),
@@ -229,12 +231,19 @@ export function useTemplateEditor(
     if (record) recordChange(label);
   }
 
-  /** 幾何 diff の history エントリを 1 件記録する(ハンドル drag 後に使う)。 */
+  /**
+   * ハンドル drag 1 ジェスチャ分の後始末。幾何が動いていれば `beginUndo` の保留 snapshot を
+   * 確定して history へ 1 件記録し、動いていなければ保留を捨てる(Redo を残す)。
+   */
   function recordGeomDiff(before: LayoutGeom) {
     const after = selectedGeom.value;
-    if (!after) return;
-    const label = geomChangeLabel(before, after);
-    if (label) recordChange(label);
+    const label = after ? geomChangeLabel(before, after) : null;
+    if (!label) {
+      cancelUndo();
+      return;
+    }
+    commitUndo();
+    recordChange(label);
   }
 
   /**
@@ -375,22 +384,24 @@ export function useTemplateEditor(
       lockGuideShown = true;
       toast('編集はロックされています。上部バーまたは左パネルの「編集を許可」をオンにしてください');
     });
-    // inline text 編集: 開始で snapshot、終了時は内容が変わった場合だけ残す
-    g.onTextEditStart(() => pushUndo());
+    // inline text 編集: 開始で snapshot を保留し、内容が変わった場合だけ undo へ確定する
+    g.onTextEditStart(() => beginUndo());
     g.onTextEditEnd((changed) => {
       if (changed) {
+        commitUndo();
         recordChange('テキストを編集');
       } else {
-        discardLast();
+        cancelUndo();
       }
     });
-    // canvas の drag-to-reorder: 開始で snapshot、順序が変わった時だけ記録する
-    g.onReorderStart(() => pushUndo());
+    // canvas の drag-to-reorder: 開始で snapshot を保留し、順序が変わった時だけ確定する
+    g.onReorderStart(() => beginUndo());
     g.onReorderEnd((moved) => {
       if (moved) {
+        commitUndo();
         recordChange('順序を変更');
       } else {
-        discardLast();
+        cancelUndo();
       }
     });
   });
@@ -486,7 +497,7 @@ export function useTemplateEditor(
     canRedo,
     undo,
     redo,
-    pushUndo,
+    beginUndo,
     applyGeom,
     recordGeomDiff,
     resetGeom,
