@@ -12,6 +12,7 @@ import {
   isAppErrorKind,
   network,
 } from '@editor/shared';
+import { notifyUnauthorized } from '@/lib/sessionExpiry';
 
 // throw→Result シームは local と REST で同一なので、REST は local の `attempt` を再利用
 // する(既存 import を保つため `attemptRest` として再 export)。
@@ -90,6 +91,8 @@ export async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promis
   } catch (e) {
     throw network(KIND_MESSAGE.network, { cause: e });
   }
+  // セッション切れは呼び出し元へ返すだけでは画面が認証済みのまま残る(`sessionExpiry.ts`)。
+  if (res.status === 401) notifyUnauthorized();
   if (!res.ok) throw await toError(res);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

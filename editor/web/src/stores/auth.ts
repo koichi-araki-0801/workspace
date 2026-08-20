@@ -14,6 +14,7 @@ import { computed, ref } from 'vue';
 import { useAuthService } from '@/features/auth/services/authService';
 import { currentAppEpoch, restartEnded } from '@/lib/appEpoch';
 import { logError } from '@/lib/appError';
+import { armUnauthorizedNotice } from '@/lib/sessionExpiry';
 import { LEGACY_UNDO_STACKS_KEY, setUndoUserScope, undoStacksKey } from '@/lib/storageKeys';
 
 /** メッセージ判定専用マーカー(認証強制は repo epoch / REST 全失効が担う。これは表示用)。 */
@@ -53,10 +54,20 @@ export const useAuthStore = defineStore('auth', () => {
     if (isOk(res)) {
       user.value = res.value.user;
       setUndoUserScope(user.value.username);
+      armUnauthorizedNotice(); // 次のセッション切れをまた 1 回通知できるようにする
       localStorage.setItem(AUTH_EPOCH_KEY, currentAppEpoch());
       sessionEndedReason.value = null;
     }
     return map(res, (r) => r.mustChangePassword);
+  }
+
+  /**
+   * サーバ側セッションが失われていた(401)ことを受けての state リセット。ログアウト API は
+   * 叩かない(既に無効なセッションで、呼んでも 401 が増えるだけ)。
+   */
+  function reset(): void {
+    user.value = null;
+    setUndoUserScope(null);
   }
 
   async function logout(): Promise<void> {
@@ -88,6 +99,7 @@ export const useAuthStore = defineStore('auth', () => {
     bootstrap,
     login,
     logout,
+    reset,
     isAuthenticated,
     isAdmin,
     isApprover,

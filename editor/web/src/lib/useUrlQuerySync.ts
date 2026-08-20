@@ -2,13 +2,8 @@
 // useUrlQuerySync.ts — 絞り込み query を URL クエリへ双方向同期する
 // =============================================================================
 import { type Ref, watch } from 'vue';
-import {
-  type LocationQuery,
-  type LocationQueryValue,
-  type Router,
-  useRoute,
-  useRouter,
-} from 'vue-router';
+import { type LocationQuery, type Router, useRoute, useRouter } from 'vue-router';
+import { firstQueryString } from '@/lib/routeQuery';
 
 /** query 本体とは別に同期したいスカラ(例: 一覧の自由文検索テキスト)。 */
 interface ExtraScalar {
@@ -58,12 +53,6 @@ function scheduleWrite(router: Router, patch: QueryPatch): void {
   });
 }
 
-/** 配列(複数値)になり得る query 値から最初の文字列だけを採る。 */
-function firstString(v: LocationQueryValue | LocationQueryValue[] | undefined): string | undefined {
-  const raw = Array.isArray(v) ? v[0] : v;
-  return raw == null ? undefined : raw;
-}
-
 /**
  * `useCascadingSelect` の `reactive` query を URL クエリへ双方向同期し, 戻る/進む/リロードで
  * 絞り込みを復元する。setup で同期的に hydrate する(=`onMounted(refresh)` より前に効くため,
@@ -82,14 +71,14 @@ export function useUrlQuerySync<Q extends object>(
   // ── hydrate(setup 同期) — URL の prefix キーを query/extra へ流し込む ──
   let hydrated = false;
   for (const key of config.keys) {
-    const raw = firstString(route.query[prefix + key]);
+    const raw = firstQueryString(route.query[prefix + key]);
     if (raw != null) {
       bag[key] = raw;
       hydrated = true;
     }
   }
   for (const e of config.extra ?? []) {
-    const raw = firstString(route.query[prefix + e.key]);
+    const raw = firstQueryString(route.query[prefix + e.key]);
     if (raw != null) {
       e.ref.value = raw;
       hydrated = true;

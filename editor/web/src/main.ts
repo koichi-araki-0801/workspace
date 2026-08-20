@@ -8,8 +8,10 @@ import { seedCompareFixtures } from './api/local/seed';
 import { migrateStore } from './api/local/store';
 import { localRepositories, REPOS_KEY, restRepositories } from './api/repositories';
 import { handleWindowError, reportGlobalError } from './lib/globalErrors';
+import { setUnauthorizedHandler } from './lib/sessionExpiry';
 import { initTheme } from './lib/theme';
 import { router } from './router';
+import { useAuthStore } from './stores/auth';
 // Self-hosted な webfont(Google Fonts CDN を使わない)。@fontsource は @font-face
 // + woff2 を同梱するため, Vite が same-origin かつオフライン可能な配信用に bundle する。
 import '@fontsource-variable/noto-sans-jp/index.css';
@@ -41,4 +43,17 @@ window.addEventListener('error', handleWindowError);
 app.provide(REPOS_KEY, repositories);
 app.use(createPinia());
 app.use(router);
+
+// セッション切れ(401)の受け口。REST 経路でしか起きない(local は localStorage 完結)。
+// 画面が認証済みのまま静かに失敗し続けるのを避け、auth state を落としてログイン画面へ
+// 退避する。着地後に戻れるよう、離脱時のパスを `redirect` に載せる。
+if (useRest) {
+  setUnauthorizedHandler(() => {
+    useAuthStore().reset();
+    const current = router.currentRoute.value;
+    if (current.name === 'login') return;
+    void router.replace({ name: 'login', query: { redirect: current.fullPath } });
+  });
+}
+
 app.mount('#app');

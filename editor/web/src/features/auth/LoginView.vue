@@ -13,6 +13,7 @@ import Label from '@/components/ui/Label.vue';
 import ThemeToggle from '@/components/ui/ThemeToggle.vue';
 import { toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
+import { safeRedirectPath } from '@/lib/routeQuery';
 import { useAuthStore } from '@/stores/auth';
 
 const auth = useAuthStore();
@@ -40,7 +41,7 @@ async function submit() {
     toastError(res.error.message);
     return;
   }
-  const redirect = (route.query.redirect as string) || '/';
+  const redirect = safeRedirectPath(route.query.redirect) ?? '/';
   if (res.value) {
     // `mustChangePassword`: 初期化画面へ強制遷移。redirect を引き継ぎ、初期化後にアプリへ着地させる。
     router.push({ name: 'password-init', query: { username: username.value, redirect } });

@@ -18,6 +18,7 @@ import ThemeToggle from '@/components/ui/ThemeToggle.vue';
 import { toastError, toastSuccess } from '@/components/ui/toast';
 import { useAuthService } from '@/features/auth/services/authService';
 import { logError } from '@/lib/appError';
+import { safeRedirectPath } from '@/lib/routeQuery';
 import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
@@ -69,8 +70,8 @@ async function submit() {
   toastSuccess('パスワードを変更しました');
   // セッションは確立済みなのでそのままアプリへ進む(`mustChangePassword` は再取得で下りる)。
   await auth.bootstrap();
-  const redirect = (route.query.redirect as string) || '';
-  router.push(redirect || { name: 'edit' });
+  const redirect = safeRedirectPath(route.query.redirect);
+  router.push(redirect ?? { name: 'edit' });
 }
 </script>
 

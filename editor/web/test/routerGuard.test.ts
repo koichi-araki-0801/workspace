@@ -26,6 +26,27 @@ function to(
 }
 
 describe('authGuard', () => {
+  // 認証済みのままログイン画面に居座らせない(戻る操作・ブックマークでの再表示)。
+  it('認証済みでログイン画面へ来たらアプリへ戻す', async () => {
+    const to_ = to('login', '/login', { access: 'public' });
+    expect(await authGuard(to_, auth({ isAuthenticated: true }))).toEqual({ name: 'edit' });
+  });
+
+  it('未認証ならログイン画面はそのまま通す', async () => {
+    expect(await authGuard(to('login', '/login', { access: 'public' }), auth())).toBe(true);
+  });
+
+  it('パスワード初期化が未了なら、ログイン画面からも初期化画面へ送る', async () => {
+    const state = auth({
+      isAuthenticated: true,
+      mustChangePassword: true,
+      user: { username: 'u1' },
+    });
+    expect(await authGuard(to('login', '/login', { access: 'public' }), state)).toMatchObject({
+      name: 'password-init',
+    });
+  });
+
   it('未認証なら保護ルートを login へ送る(redirect 付き)', async () => {
     const protectedRoutes = [
       to('editor', '/edit/abc'),
