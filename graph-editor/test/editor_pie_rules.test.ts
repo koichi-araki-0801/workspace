@@ -25,6 +25,16 @@ describe("parsePieGeometry", () => {
     expect(parsePieGeometry("M0,0 L10,10 Z")).toBeNull();
     expect(parsePieGeometry("")).toBeNull();
   });
+  it("L の無い全円パス (100% 単一スライス) は null", () => {
+    // 全円は `M` が中心ではなく天頂のリム点なので、そのまま中心として読むと円が半径 1 つ
+    // 分ずれる。`sliceMidAnchor` の楔形ガードと同じ判定で退避し、既定円へ倒す。
+    expect(parsePieGeometry(
+      "M300,67.49999999999994 A157.5,157.5 0 1 1 300,382.5 A157.5,157.5 0 1 1 300,67.49999999999994 Z",
+    )).toBeNull();
+  });
+  it("L が A より後ろにしか無いパスも null (楔形の並びでない)", () => {
+    expect(parsePieGeometry("M300,67.5 A157.5,157.5 0 1 1 300,382.5 L300,225 Z")).toBeNull();
+  });
 });
 
 describe("fallbackPieGeometry", () => {
@@ -85,13 +95,14 @@ describe("computeDefaultLeaderPts", () => {
 // 利用者には何が起きたか分からない)。
 describe("parsePieGeometry は入力長に対して線形", () => {
   it("正当な d は今までどおり解釈できる", () => {
-    expect(parsePieGeometry("M 10,20 A 5,5 0 0 1 1,2")).toEqual({ cx: 10, cy: 20, r: 5 });
-    expect(parsePieGeometry("M-1.5,.5A2,2 0 0 1 1,2")).toEqual({ cx: -1.5, cy: 0.5, r: 2 });
+    expect(parsePieGeometry("M 10,20 L0,0 A 5,5 0 0 1 1,2")).toEqual({ cx: 10, cy: 20, r: 5 });
+    expect(parsePieGeometry("M-1.5,.5L0,0A2,2 0 0 1 1,2")).toEqual({ cx: -1.5, cy: 0.5, r: 2 });
   });
 
   it("長い数字列でも所要が二乗で伸びない", () => {
     const measure = (n: number) => {
-      const d = `M${"1".repeat(n)}`;
+      // 楔形ガードを通したうえで座標の取り出しへ届かせる (途中で切ると数値パターンを測れない)。
+      const d = `M${"1".repeat(n)} L0,0 A2,2 0 0 1 1,2`;
       const t0 = performance.now();
       parsePieGeometry(d);
       return performance.now() - t0;

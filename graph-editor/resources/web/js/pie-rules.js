@@ -5,15 +5,23 @@
 // 触れず、呼び出し側が測った bbox / スライス d 文字列を入力に取る。vitest
 // (`test/editor_pie_rules.test.ts`) が node 単体で同一実装を検証する。
 
-/** slice パスの d ("M cx,cy … A r,…") から円中心・半径を推定する。楔形でなければ null */
+/** slice パスの d ("M cx,cy L… A r,…") から円中心・半径を推定する。楔形でなければ null。
+ *
+ *  楔形 (`M` 中心 → `L` 始点 → `A` 終点) に限るのは、`M` の座標を円中心として読むため。
+ *  100% 単一スライスは `L` を持たない全円 (`M` 天頂 + `A` 2 連) で、`M` はリム上の点だから
+ *  そのまま中心にすると円が半径 1 つ分ずれる。判定は `editor.js` の `sliceMidAnchor` と同形。 */
 function parsePieGeometry(d) {
   // 数値は `\d*` と `\d+` が重なる形 (`-?\d*\.?\d+`) にしない。重なると 1 つの数字列に
   // 対して複数の分割が同じ位置へ到達し、非マッチ時に長さの二乗で試行が増える。`d` は
   // `sanitizeAttrValue` が 1 MiB まで意図的に通すので、そこへ長い数字列を 1 本置くだけで
   // 最初のラベル操作が固まる。整数部ありと小数点始まりを**排他**に書けば線形になる。
   const NUM = /-?(?:\d+(?:\.\d+)?|\.\d+)/.source;
-  const m = (d || "").match(new RegExp(`M\\s*(${NUM})[ ,]+(${NUM})`));
-  const a = (d || "").match(new RegExp(`A\\s*(${NUM})[ ,]+(${NUM})`));
+  const src = d || "";
+  // `[^A-Za-z]*` は `L` / `A` と文字集合が交わらないので、貪欲に取っても候補は 1 通りに
+  // 決まる (下の NUM と同じく、非マッチ時の試行が長さの二乗へ膨らまない形)。
+  if (!/M[^A-Za-z]*L[^A-Za-z]*A/.test(src)) return null;
+  const m = src.match(new RegExp(`M\\s*(${NUM})[ ,]+(${NUM})`));
+  const a = src.match(new RegExp(`A\\s*(${NUM})[ ,]+(${NUM})`));
   if (!m || !a) return null;
   return { cx: parseFloat(m[1]), cy: parseFloat(m[2]), r: parseFloat(a[1]) };
 }
