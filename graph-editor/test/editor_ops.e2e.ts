@@ -197,3 +197,45 @@ test("未保存の調整が無ければファイル切替に確認を挟まな�
   await page.waitForFunction(() => window.__editor.currentId === 2);
   expect(dialogs).toBe(0);
 });
+
+test("ショートカットは手順とフォーカスで受理を絞り、矢印のリピートは履歴を積み増さない", async ({ page }) => {
+  const hist = () => page.evaluate(() => window.__editor.history.length);
+  const tx = () =>
+    page.evaluate(() => {
+      const s = window.__editor.labels.find((l: any) => l.name === "Alpha");
+      return { ...s.textTx };
+    });
+
+  await page.evaluate(() => {
+    const ed = window.__editor;
+    ed.selectLabel(ed.labels.find((l: any) => l.name === "Alpha"));
+    ed.nudge(30, 20);
+  });
+  expect(await tx()).toEqual({ x: 30, y: 20 });
+
+  // 手順 1 (開く画面) では文書の Undo を受け付けない。キャンバスが見えないまま
+  // 状態だけ動くのを防ぐため。
+  await page.evaluate(() => window.__editor.goPhase(1));
+  await page.keyboard.press("Control+z");
+  expect(await tx()).toEqual({ x: 30, y: 20 });
+
+  // 手順 2 へ戻せば効く。
+  await page.evaluate(() => window.__editor.goPhase(2));
+  await page.keyboard.press("Control+z");
+  expect(await tx()).toEqual({ x: 0, y: 0 });
+
+  // 矢印キーのリピート: 1 回目だけ履歴へ積み、押しっぱなしの分はまとめて 1 回で戻る。
+  const before = await hist();
+  await page.evaluate(() => {
+    const fire = (repeat: boolean) =>
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", repeat, bubbles: true }));
+    fire(false);
+    fire(true);
+    fire(true);
+    fire(true);
+  });
+  expect(await tx()).toEqual({ x: 4, y: 0 });
+  expect(await hist()).toBe(before + 1);
+  await page.keyboard.press("Control+z");
+  expect(await tx()).toEqual({ x: 0, y: 0 });
+});

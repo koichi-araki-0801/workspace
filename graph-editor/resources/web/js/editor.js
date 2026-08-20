@@ -407,10 +407,13 @@ class Editor {
     this.markDirty({ dom: true, overlay: true, inspector: true });
   }
 
-  nudge(dx, dy) {
+  /** 選択ラベルを微少移動する。`coalesceHistory` が真なら履歴を積まず直前の 1 手へまとめる
+   *  (矢印キーの押しっぱなし用。リピート 1 発ごとに積むと `historyLimit` を数秒で使い切り、
+   *  それ以前の操作が戻せなくなる)。 */
+  nudge(dx, dy, coalesceHistory = false) {
     const s = this.selected;
     if (!s) return;
-    this.pushHistory();
+    if (!coalesceHistory) this.pushHistory();
     s.textTx = { x: s.textTx.x + dx, y: s.textTx.y + dy };
     // 端点を外枠へ再スナップ。円周を跨いだ場合の自動生成/削除も内包。
     this.followLeaderAfterMove(s, safeGetBBox(s.text, null));

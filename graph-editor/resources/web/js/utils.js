@@ -246,7 +246,32 @@ function extractPercentText(tspans, name, percentAttr) {
   return attr === "" ? "" : `${attr}%`;
 }
 
+// ── 5. キーボードショートカットの受理判定 ──
+
+/** ショートカットを受け付けてよい状況か。`editor-events.js` の配線の**先頭**で使う関門で、
+ *  DOM から切り離して検証できるよう純粋関数にしてある。
+ *
+ *  - 入力欄 (`input` / `textarea` / `select` / contenteditable) にフォーカスがある間は
+ *    どの範囲も受理しない。そのコントロール自身の取り消しや文字入力を横取りするため。
+ *  - 文書に紐づく操作 (Undo/Redo・選択解除・矢印ナッジ) は編集画面 (手順 2) だけで受理する。
+ *    他の手順ではキャンバスが見えないので、効いたかどうか分からないまま状態が動く。
+ *  - 保存は保存画面 (手順 3) でも、開くはどの手順でも受理する。その手順の主目的そのもの。
+ *
+ *  @param {{tagName?: string, isContentEditable?: boolean}|null|undefined} active フォーカス要素
+ *  @param {number} phase ウィザードの手順 (1=開く / 2=調整 / 3=保存)
+ *  @param {"document"|"save"|"open"} scope ショートカットの適用範囲
+ *  @returns {boolean} 受理してよいか
+ */
+function acceptsShortcut(active, phase, scope) {
+  const tag = active && active.tagName ? String(active.tagName).toUpperCase() : "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+  if (active && active.isContentEditable) return false;
+  if (scope === "open") return true;
+  if (scope === "save") return phase >= 2;
+  return phase === 2;
+}
+
 export {
   escapeHtml, round, createSvgEl, safeGetBBox, sanitizeSvg, removedCount, hasFsAccess,
-  SVG_PICKER_TYPES, STATE_FIELDS, stateEquals, extractPercentText, MAX_SVG_NODES,
+  SVG_PICKER_TYPES, STATE_FIELDS, stateEquals, extractPercentText, acceptsShortcut, MAX_SVG_NODES,
 };

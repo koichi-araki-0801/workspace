@@ -6,6 +6,7 @@
 // 動的要素 (ハンドル / インスペクタ / レール行) の配線は各描画時に editor-render.js が行う。
 
 import { CONFIG } from "./constants.js";
+import { acceptsShortcut } from "./utils.js";
 
 /** 起動時の一括配線の入口 (`main.js` → `Editor.bindEvents` から呼ばれる) */
 function bindEvents(ed) {
@@ -69,40 +70,51 @@ function wireWizard(ed) {
 
 function wireKeyboard(ed) {
   window.addEventListener("keydown", (e) => {
-    // Redo: Ctrl+Y / Ctrl+Shift+Z
-    if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
+    // 受理条件は `utils.js` の `acceptsShortcut` に集約する。判定を各ショートカットの中へ
+    // 散らすと、足すたびにガードを書き忘れる (現に矢印だけがフォーカスを見ていた)。
+    const active = document.activeElement;
+    const ctrl = e.ctrlKey || e.metaKey;
+    const k = e.key.toLowerCase();
+
+    if (ctrl && k === "o") {
+      if (!acceptsShortcut(active, ed.phase, "open")) return;
       e.preventDefault();
-      ed.redo();
+      ed.openFiles();
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-      e.preventDefault();
-      ed.undo();
-      return;
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+    if (ctrl && k === "s") {
+      if (!acceptsShortcut(active, ed.phase, "save")) return;
       e.preventDefault();
       ed.save();
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
+
+    // ここから下は文書に紐づく操作。
+    if (!acceptsShortcut(active, ed.phase, "document")) return;
+
+    // Redo: Ctrl+Y / Ctrl+Shift+Z
+    if (ctrl && (k === "y" || (e.shiftKey && k === "z"))) {
       e.preventDefault();
-      ed.openFiles();
+      ed.redo();
+      return;
+    }
+    if (ctrl && k === "z") {
+      e.preventDefault();
+      ed.undo();
       return;
     }
     if (e.key === "Escape") {
       ed.selectLabel(null);
       return;
     }
-    // 入力欄/スライダ(長体)にフォーカス中は矢印をそのコントロールに委ね、ラベル移動はしない
-    const ae = document.activeElement;
-    if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return;
     if (!ed.selected) return;
     const step = e.shiftKey ? CONFIG.nudgeStepFast : CONFIG.nudgeStep;
     const map = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
     if (map[e.key]) {
       e.preventDefault();
-      ed.nudge(map[e.key][0], map[e.key][1]);
+      // 押しっぱなし (`repeat`) の分は履歴を積まない。1 発ごとに積むと `historyLimit` を
+      // 数秒で使い切り、それ以前の操作が戻せなくなる。
+      ed.nudge(map[e.key][0], map[e.key][1], e.repeat);
     }
   });
 }
