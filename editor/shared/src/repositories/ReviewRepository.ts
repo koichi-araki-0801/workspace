@@ -40,4 +40,9 @@ export interface ReviewRepository {
   ): Promise<Result<ApproveReviewResult>>;
   /** 却下する(approver|admin のみ)。理由は `decision.comment`。 */
   rejectReview(reqId: string, decision: ReviewDecisionRequest): Promise<Result<ReviewRequestMeta>>;
+  /**
+   * 保留する(approver|admin のみ)。判断を保留して後で戻る・他者へ相談するための状態で、
+   * 承認/差し戻しは pending と held のどちらからでも行える(保留解除の専用操作は無い)。
+   */
+  holdReview(reqId: string, decision: ReviewDecisionRequest): Promise<Result<ReviewRequestMeta>>;
 }

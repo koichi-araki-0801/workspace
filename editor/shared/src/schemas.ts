@@ -326,13 +326,25 @@ export const TemplateVersionMeta = z
 // ── 5b. Review workflow — 確定保存の精査者承認 ──
 
 export const ReviewStatus = z
-  .enum(['pending', 'approved', 'rejected'])
+  .enum(['pending', 'approved', 'rejected', 'held'])
   .meta({ id: 'ReviewStatus' });
 
 export const ReviewOrigin = z.enum(['edit', 'create']).meta({
   id: 'ReviewOrigin',
   description: '編集タブ(既存編集) / 作成タブ(新規) 由来。2 系統の区別を申請に保持する',
 });
+
+/**
+ * 申請時に申請者ブラウザが計算した変更概要(パーツ数と業務名)。一覧の先出し表示専用の
+ * **参考情報**で、承認判断には使わない — 承認は精査画面がその場で計算する実差分に基づく。
+ * 申請者由来の自己申告値であることを消費側は前提にする(改竄されても表示が変わるだけ)。
+ */
+export const ReviewChangedSummary = z
+  .object({
+    count: z.number().int().min(0),
+    names: z.array(z.string().max(200)).max(50),
+  })
+  .meta({ id: 'ReviewChangedSummary' });
 
 /** 確定保存申請のメタ(本体 html/css を除く軽量行)。一覧・承認キューに使う。 */
 export const ReviewRequestMeta = z
@@ -349,6 +361,12 @@ export const ReviewRequestMeta = z
     reviewedAt: z.string().nullable(),
     comment: z.string().nullable().meta({ description: '却下理由 / 承認メモ。無ければ null' }),
     baseHash: z.string().nullable().meta({ description: '申請時点の現行版コンテンツキー' }),
+    // 保留(held)の記録。レガシー申請の meta.json には無いため、消費側は undefined も
+    // null と同様に「保留情報なし」として扱う(truthy 判定)。
+    heldBy: z.string().nullable().optional().meta({ description: '保留した承認者。無ければ null' }),
+    heldAt: z.string().nullable().optional(),
+    holdComment: z.string().nullable().optional().meta({ description: '保留メモ' }),
+    changedSummary: ReviewChangedSummary.nullable().optional(),
   })
   .meta({ id: 'ReviewRequestMeta' });
 
@@ -373,6 +391,9 @@ export const SubmitReviewBody = z
     filledHtml: z.string().max(MAX_DOCUMENT_HTML_CHARS).optional(),
     origin: ReviewOrigin.meta({
       description: "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
+    }),
+    changedSummary: ReviewChangedSummary.optional().meta({
+      description: '申請者側で計算した変更概要(参考表示用の自己申告)',
     }),
   })
   .meta({ id: 'SubmitReviewBody' });
