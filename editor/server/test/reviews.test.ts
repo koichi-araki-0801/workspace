@@ -224,4 +224,54 @@ d('review workflow (reviewRepo)', () => {
       submit('AM01_444444_20250101_交付版', '999999', '<p>不一致</p>'),
     ).rejects.toMatchObject({ kind: 'validation' });
   });
+
+  describe('holdReview(保留)', () => {
+    it('pending を held にし、保留者・日時・メモを記録する', async () => {
+      const meta = await submit('AM01_141414_20250101_交付版', '141414', '<p>保留対象</p>');
+      const held = await reviews.holdReview(meta.id, { comment: '出所確認中' }, approver);
+      expect(held.status).toBe('held');
+      expect(held.heldBy).toBe(approver.username);
+      expect(held.holdComment).toBe('出所確認中');
+      expect(held.heldAt).toBeTruthy();
+    });
+
+    it('held から承認できる', async () => {
+      const meta = await submit('AM01_151515_20250101_交付版', '151515', '<p>保留→承認</p>');
+      await reviews.holdReview(meta.id, {}, approver);
+      const result = await reviews.approveReview(meta.id, {}, approver);
+      expect(result.meta).toBeTruthy();
+    });
+
+    it('held から差し戻し(reject)できる', async () => {
+      const meta = await submit('AM01_161616_20250101_交付版', '161616', '<p>保留→却下</p>');
+      await reviews.holdReview(meta.id, {}, approver);
+      const rejected = await reviews.rejectReview(meta.id, { comment: '理由' }, approver);
+      expect(rejected.status).toBe('rejected');
+    });
+
+    it('approved/rejected の申請は保留できない(409)', async () => {
+      const meta = await submit('AM01_171717_20250101_交付版', '171717', '<p>決着済み</p>');
+      await reviews.rejectReview(meta.id, { comment: '理由' }, approver);
+      await expect(reviews.holdReview(meta.id, {}, approver)).rejects.toMatchObject({
+        kind: 'conflict',
+      });
+    });
+
+    it('held の再保留はメモ更新として通る', async () => {
+      const meta = await submit('AM01_181818_20250101_交付版', '181818', '<p>再保留</p>');
+      await reviews.holdReview(meta.id, { comment: '1回目' }, approver);
+      const again = await reviews.holdReview(meta.id, { comment: '2回目' }, approver);
+      expect(again.holdComment).toBe('2回目');
+    });
+  });
+
+  describe('未処理上限は pending+held の合算', () => {
+    it('countPendingReviews は held も数える', async () => {
+      const files = await import('../src/files/reviewFiles.js');
+      const before = await files.countPendingReviews();
+      const meta = await submit('AM01_191919_20250101_交付版', '191919', '<p>合算対象</p>');
+      await reviews.holdReview(meta.id, {}, approver);
+      expect(await files.countPendingReviews()).toBe(before + 1);
+    });
+  });
 });

@@ -97,10 +97,13 @@ export const MAX_REVIEW_SCAN = 5_000;
  */
 export const MAX_PENDING_REVIEWS = 500;
 
-/** 未処理申請の件数。上限判定に使う(一覧と同じ走査上限が掛かる)。 */
+/**
+ * 未処理申請の件数。上限判定に使う(一覧と同じ走査上限が掛かる)。保留(held)も数える —
+ * 保留は決着ではなく、除外すると保留を経由して上限(MAX_PENDING_REVIEWS)を回避できる。
+ */
 export async function countPendingReviews(): Promise<number> {
   const metas = await listReviewMetas();
-  return metas.filter((m) => m.status === 'pending').length;
+  return metas.filter((m) => m.status === 'pending' || m.status === 'held').length;
 }
 
 /** 同時に開くメタファイル数。`Promise.all` の全件同時 open は fd を枯渇させる。 */

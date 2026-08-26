@@ -72,6 +72,15 @@ function canSeeAll(actor: ReviewActor): boolean {
   return actor.role === 'approver' || actor.role === 'admin';
 }
 
+/**
+ * 承認・差し戻し・保留が受け付ける現在状態の検査。保留(held)は「判断を後回しにした
+ * pending」であり、決着(approved/rejected)済みだけを 409 で拒む。
+ */
+function assertUndecided(review: ReviewRequest): void {
+  if (review.status === 'approved' || review.status === 'rejected')
+    throw conflict(`この申請は既に${review.status === 'approved' ? '承認' : '差し戻し'}済みです`);
+}
+
 /** 確定保存を申請する(pending 作成・実ファイル非更新)。 */
 export async function submitReview(
   req: SubmitReviewRequest,
@@ -117,6 +126,7 @@ export async function submitReview(
     reviewedAt: null,
     comment: null,
     baseHash: await currentBaseHash(req.templateId, req.fundCode),
+    ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
     html: req.html,
     css: req.css,
     ...(req.filledHtml !== undefined ? { filledHtml: req.filledHtml } : {}),
@@ -162,8 +172,7 @@ export async function approveReview(
   return withReviewLock(async () => {
     const review = await readReview(reqId);
     if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
-    if (review.status !== 'pending')
-      throw conflict(`この申請は既に${review.status === 'approved' ? '承認' : '却下'}済みです`);
+    assertUndecided(review);
     if (review.submittedBy === actor.username && actor.role !== 'admin')
       throw forbidden('自分の申請は承認できません(職務分掌)');
 
@@ -244,13 +253,35 @@ export async function rejectReview(
   return withReviewLock(async () => {
     const review = await readReview(reqId);
     if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
-    if (review.status !== 'pending')
-      throw conflict(`この申請は既に${review.status === 'approved' ? '承認' : '却下'}済みです`);
+    assertUndecided(review);
     return updateReviewMeta(reqId, {
       status: 'rejected',
       reviewedBy: actor.username,
       reviewedAt: new Date().toISOString(),
       comment: decision.comment ?? null,
+    });
+  });
+}
+
+/**
+ * 保留する(approver|admin のみ。ルートで施錠済み)。実ファイルは更新しない。
+ * 自己申請の保留は許す(承認と違い実反映を伴わず、職務分掌の対象でない)。
+ * held の再保留はメモ更新として通す。
+ */
+export async function holdReview(
+  reqId: string,
+  decision: ReviewDecisionRequest,
+  actor: ReviewActor,
+): Promise<ReviewRequestMeta> {
+  return withReviewLock(async () => {
+    const review = await readReview(reqId);
+    if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
+    assertUndecided(review);
+    return updateReviewMeta(reqId, {
+      status: 'held',
+      heldBy: actor.username,
+      heldAt: new Date().toISOString(),
+      holdComment: decision.comment ?? null,
     });
   });
 }
