@@ -5,8 +5,15 @@
 // 直下 top-level block)ごとの着色済み前後 HTML を「行」として返す。diff 計算は版比較
 // (`CompareView`)と完全共有(`htmlWorker.buildHtmlDiff` + `htmlBlockDiff` の `DiffBlock`)。
 // 現行版・申請版とも `compareService` の素の sample 描画に揃え、見せかけ差分を避ける。
-import { isErr, ok, type Result, type ReviewRepository, type ReviewRequest } from '@editor/shared';
-import { useReviewRepo } from '@/api/repositories';
+import {
+  isErr,
+  ok,
+  type PartRepository,
+  type Result,
+  type ReviewRepository,
+  type ReviewRequest,
+} from '@editor/shared';
+import { usePartRepo, useReviewRepo } from '@/api/repositories';
 import {
   type BlockStatus,
   createLcsBudget,
@@ -18,11 +25,16 @@ import {
 } from '@/features/compare/htmlBlockDiff';
 import { type CompareService, useCompareService } from '@/features/compare/services/compareService';
 import { htmlWorker } from '@/workers';
+import { businessLabel, loadPartNameMap } from './partNames';
 
 /** 承認画面の 1 パーツ行(= `DiffBlock` を presentation 用に写したもの)。 */
 export interface ReviewPartRow {
   key: string;
-  /** 「ページN・パーツM」(`partLabelMap` と同採番)。 */
+  /**
+   * 表示ラベル。パーツカタログの業務名へ突合できれば「<業務名>（N ページ目）」、
+   * できなければ現行の機械採番「ページN・パーツM」(`partLabelMap` と同採番、`partNames.ts`
+   * の `businessLabel` フォールバック)。
+   */
   label: string;
   status: BlockStatus;
   /** このパーツだけの着色済み変更前 HTML(added では空)。 */
@@ -129,6 +141,7 @@ interface ReviewDiffService {
 export function createReviewDiffService(
   reviews: ReviewRepository,
   compare: CompareService,
+  parts: PartRepository,
 ): ReviewDiffService {
   return {
     async buildDiff(reqId) {
@@ -154,13 +167,15 @@ export function createReviewDiffService(
       }
 
       const diff = await htmlWorker.buildHtmlDiff(beforeHtml, after.html, cssBefore, after.css);
+      // パーツカタログの業務名突合はベストエフォート(取得失敗は空 Map へ degrade)。
+      const nameById = await loadPartNameMap(parts);
       // 本文語句差分の LCS 予算は**文書 1 件で 1 つ**(worker の `diffPairs` と同じ規律)。
       // 全パーツで使い切る形にして、ブロック数で計算量を青天井にできないようにする。
       const textBudget = createLcsBudget();
       const rows: ReviewPartRow[] = diff.pages.flatMap((p) =>
         p.blocks.map((b) => ({
           key: b.key,
-          label: b.label,
+          label: businessLabel(b.key, b.label, nameById),
           status: b.status,
           beforeHtml: b.beforeHtml,
           afterHtml: b.afterHtml,
@@ -189,4 +204,4 @@ export function createReviewDiffService(
 }
 
 export const useReviewDiffService = (): ReviewDiffService =>
-  createReviewDiffService(useReviewRepo(), useCompareService());
+  createReviewDiffService(useReviewRepo(), useCompareService(), usePartRepo());

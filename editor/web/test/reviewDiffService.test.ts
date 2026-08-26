@@ -89,7 +89,11 @@ function makeService(over: {
       .fn()
       .mockResolvedValue(over.renderVersionHtml ?? ok({ html: '<before>', css: '.before{}' })),
   } as unknown as CompareService;
-  return { service: createReviewDiffService(reviews, compare), reviews, compare };
+  // パーツカタログ突合はこのテストの主眼ではないため、常に空(= 全行フォールバック表記)にする。
+  const parts = {
+    listParts: vi.fn().mockResolvedValue(ok([])),
+  } as unknown as Parameters<typeof createReviewDiffService>[2];
+  return { service: createReviewDiffService(reviews, compare, parts), reviews, compare, parts };
 }
 
 beforeEach(() => {
