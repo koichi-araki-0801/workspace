@@ -263,6 +263,15 @@ d('review workflow (reviewRepo)', () => {
       const again = await reviews.holdReview(meta.id, { comment: '2回目' }, approver);
       expect(again.holdComment).toBe('2回目');
     });
+
+    // 保留は承認と違い実ファイルへ反映しない(判断を後回しにするだけ)ため、自己申請でも
+    // 職務分掌の対象にしない意図的な設計判断。approveReview の自己承認拒否が習慣で
+    // holdReview へコピーされた退行を検出する。
+    it('自己申請の保留は許可される(職務分掌の対象外)', async () => {
+      const meta = await submit('AM01_202020_20250101_交付版', '202020', '<p>自己保留</p>');
+      const held = await reviews.holdReview(meta.id, {}, submitter);
+      expect(held.status).toBe('held');
+    });
   });
 
   describe('未処理上限は pending+held の合算', () => {
