@@ -45,4 +45,12 @@ export const restReviewRepo: ReviewRepository = {
         body: decision,
       }),
     ),
+
+  holdReview: (reqId: string, decision: ReviewDecisionRequest) =>
+    attemptRest(() =>
+      apiFetch<ReviewRequestMeta>(buildPath(apiPaths.reviewRequestHold, { reqId }), {
+        method: 'POST',
+        body: decision,
+      }),
+    ),
 };

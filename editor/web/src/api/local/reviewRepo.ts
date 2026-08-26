@@ -60,6 +60,7 @@ export const localReviewRepo: ReviewRepository = {
         html: req.html,
         css: req.css,
         ...(req.filledHtml !== undefined ? { filledHtml: req.filledHtml } : {}),
+        ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
       };
       const reviews = readReviews();
       reviews[review.id] = review;
@@ -92,7 +93,8 @@ export const localReviewRepo: ReviewRepository = {
       const reviews = readReviews();
       const review = reviews[reqId];
       if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
-      if (review.status !== 'pending') throw conflict('この申請は既に処理済みです');
+      if (review.status === 'approved' || review.status === 'rejected')
+        throw conflict('この申請は既に処理済みです');
       // 反映前に現行版を再計測し、申請時点の baseHash と食い違えば警告する(申請後に別の確定が
       // 割り込んだ = 上書き注意)。ブロックはしない。baseHash 未記録の申請は警告しない。
       const cur = await localTemplateRepo.getTemplate(review.templateId);
@@ -136,7 +138,8 @@ export const localReviewRepo: ReviewRepository = {
       const reviews = readReviews();
       const review = reviews[reqId];
       if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
-      if (review.status !== 'pending') throw conflict('この申請は既に処理済みです');
+      if (review.status === 'approved' || review.status === 'rejected')
+        throw conflict('この申請は既に処理済みです');
       const who = currentUser()?.displayName ?? '不明';
       const next: ReviewRequest = {
         ...review,
@@ -144,6 +147,26 @@ export const localReviewRepo: ReviewRepository = {
         reviewedBy: who,
         reviewedAt: now(),
         comment: decision.comment ?? null,
+      };
+      reviews[reqId] = next;
+      write(K.reviews, reviews);
+      return delay(toReviewMeta(next));
+    }),
+
+  holdReview: (reqId: string, decision: ReviewDecisionRequest) =>
+    attempt(() => {
+      const reviews = readReviews();
+      const review = reviews[reqId];
+      if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
+      if (review.status === 'approved' || review.status === 'rejected')
+        throw conflict('この申請は既に処理済みです');
+      const who = currentUser()?.displayName ?? '不明';
+      const next: ReviewRequest = {
+        ...review,
+        status: 'held',
+        heldBy: who,
+        heldAt: now(),
+        holdComment: decision.comment ?? null,
       };
       reviews[reqId] = next;
       write(K.reviews, reviews);

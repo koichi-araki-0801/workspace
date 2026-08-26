@@ -160,6 +160,7 @@ export default defineConfig({
         'editor/web/src/api/local/partRepo.ts',
         'editor/web/src/api/local/noteRepo.ts',
         'editor/web/src/api/local/reviewRepo.ts',
+        'editor/web/src/api/rest/reviewRepo.ts',
         'editor/web/src/api/rest/http.ts',
         // editor/web (ui プリミティブ層。headless 一元化リファクタでテスト追加済みの分)
         'editor/web/src/components/ui/confirm.ts',
