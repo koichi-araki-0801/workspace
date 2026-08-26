@@ -153,6 +153,7 @@ export default defineConfig({
         'editor/web/src/features/compare/services/compareService.ts',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
         'editor/web/src/features/reviews/services/partNames.ts',
+        'editor/web/src/features/reviews/services/changedSummary.ts',
         'editor/web/src/features/reviews/useReviewDiff.ts',
         'editor/web/src/api/local/authRepo.ts',
         'editor/web/src/api/local/templateRepo.ts',

@@ -88,6 +88,12 @@ export type TemplateVersionMeta = z.infer<typeof sch.TemplateVersionMeta>;
 
 export type ReviewStatus = z.infer<typeof sch.ReviewStatus>;
 
+/**
+ * 申請時に申請者ブラウザが計算した変更概要(パーツ数と業務名)。一覧の先出し表示専用の
+ * 参考情報で、承認判断には使わない(承認は精査画面がその場で計算する実差分に基づく)。
+ */
+export type ReviewChangedSummary = z.infer<typeof sch.ReviewChangedSummary>;
+
 /** 確定保存申請のメタデータ(本文 html/css を除く軽量行)。一覧・承認キューに使う。 */
 export type ReviewRequestMeta = z.infer<typeof sch.ReviewRequestMeta>;
 

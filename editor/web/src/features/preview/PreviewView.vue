@@ -18,6 +18,7 @@ import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
+import { useChangedSummaryService } from '@/features/reviews/services/changedSummary';
 import { withCropMarks } from '@/lib/cropMarks';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
@@ -29,6 +30,7 @@ const props = defineProps<{ id: string }>();
 
 const preview = useTemplatePreviewService();
 const reviews = useReviewRepo();
+const changedSummaryService = useChangedSummaryService();
 const route = useRoute();
 const sessionStore = useEditorSessionStore();
 const template = ref<Template | null>(null);
@@ -104,6 +106,14 @@ async function submitForReview() {
     confirmLabel: '申請する',
   });
   if (!proceed) return;
+  // 一覧の先出し表示用の変更概要(ベストエフォート・失敗は null で申請は続行)。
+  const changedSummary = await changedSummaryService.computeChangedSummary({
+    templateId: props.id,
+    html: restoredHtml.value,
+    css: css.value,
+    fundCode: fundCode.value,
+    origin: origin.value,
+  });
   const submitted = await runSubmit(() =>
     reviews.submitReview({
       templateId: props.id,
@@ -113,6 +123,7 @@ async function submitForReview() {
       // レンダリング済みドキュメントを、申請の記入済みレポートインスタンスとして保持する。
       filledHtml: previewDoc.value,
       origin: origin.value,
+      ...(changedSummary ? { changedSummary } : {}),
     }),
   );
   if (isOk(submitted)) {
