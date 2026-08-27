@@ -50,8 +50,15 @@ export const PREVIEW_MSG_STATE = 'editor:preview-state';
 /** 子 → 親: 組版の失敗通知(親はフォールバック表示へ倒す)。 */
 export const PREVIEW_MSG_ERROR = 'editor:preview-error';
 
-/** 親から子へ送れる操作。`goToPage` だけが引数(1 起点のページ番号)を取る。 */
-export type PreviewCommand = 'prevPage' | 'nextPage' | 'goToPage' | 'zoomIn' | 'zoomOut' | 'fit';
+/** 親から子へ送れる操作。`goToPage` はページ番号、`gotoAnchor` は要素 id を引数に取る。 */
+export type PreviewCommand =
+  | 'prevPage'
+  | 'nextPage'
+  | 'goToPage'
+  | 'zoomIn'
+  | 'zoomOut'
+  | 'fit'
+  | 'gotoAnchor';
 
 /** 子が通知する状態。親のツールバー表示に必要な値だけを運ぶ。 */
 export interface PreviewHostState {

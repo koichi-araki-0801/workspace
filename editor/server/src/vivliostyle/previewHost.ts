@@ -166,7 +166,7 @@ async function viewerBundle(): Promise<string> {
  *     blob URL は opaque オリジンから読めない(実測: `URL scheme "blob" is not supported`)
  *     ので、blob 化は必ず子側で行う。
  *  2. `nav` / `readystatechange` を購読して状態を親へ返す。
- *  3. ページ送り・ズーム命令を受ける。
+ *  3. ページ送り・ズーム・変更箇所ジャンプ(`gotoAnchor`)命令を受ける。
  *  4. **フィット計算を子で完結させる**。iframe は親のコンテナを 100% で埋めるので、
  *     `window.innerWidth/Height` がそのままコンテナ寸法になる。往復通信が要らないぶん
  *     リサイズ追随が親子の往復に律速されない。
@@ -262,7 +262,7 @@ const BOOT_SCRIPT = `(function(){
       sendState();
     }catch(e){post(MSG_ERROR,{message:String(e&&e.message||e)});}
   }
-  function command(cmd,page){
+  function command(cmd,page,anchor){
     if(!viewer)return;
     try{
       if(cmd==='prevPage'){if(!atFirst&&currentPage>1)viewer.navigateToPage(V.Navigation.PREVIOUS);}
@@ -276,6 +276,20 @@ const BOOT_SCRIPT = `(function(){
       else if(cmd==='zoomIn')setZoom(zoom+ZOOM_STEP);
       else if(cmd==='zoomOut')setZoom(zoom-ZOOM_STEP);
       else if(cmd==='fit'){userZoomed=false;applyFit();}
+      else if(cmd==='gotoAnchor'){
+        // 精査画面の変更箇所ジャンプ。id は文書内の要素 id(review-anchor-<n>)で、
+        // navigateToInternalUrl は core の通常のページ内リンク(<a href="#id">)移動と
+        // 同じ経路(moveTo→opfView.navigateTo)を辿るため、その要素が属するページへ
+        // 遷移する。ここだけ内側 try/catch で個別に囲み、外側の catch(MSG_ERROR
+        // 送出→親が簡易表示へ倒す)に載せない。id 不一致・該当要素なし等の失敗は
+        // 黙って何もしない(親はマーカー+手動ページ送りのフォールバックを持つ。
+        // このコマンド 1 つの失敗でプレビュー全体を操作不能へ倒さない)。
+        try{
+          if(typeof anchor==='string'&&/^[A-Za-z0-9_-]+$/.test(anchor)){
+            viewer.navigateToInternalUrl('#'+anchor);
+          }
+        }catch(e){/* 移動失敗は無視(操作不能へ倒さない) */}
+      }
     }catch(e){post(MSG_ERROR,{message:String(e&&e.message||e)});}
   }
   // 親からのメッセージだけを受ける。子から見た parent は 1 つしかないので、これで
@@ -285,7 +299,7 @@ const BOOT_SCRIPT = `(function(){
     var d=e.data;
     if(!d||typeof d.type!=='string')return;
     if(d.type===MSG_DOC)load(typeof d.html==='string'?d.html:'');
-    else if(d.type===MSG_CMD)command(d.cmd,d.page);
+    else if(d.type===MSG_CMD)command(d.cmd,d.page,d.anchor);
   });
   // ブラウザズーム/ペイン幅の変化に追随する。iframe がコンテナを 100% で埋めるので、
   // ここで測る window 寸法がそのまま利用可能領域になる(親との往復は不要)。

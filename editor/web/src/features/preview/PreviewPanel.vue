@@ -205,7 +205,7 @@ const send = (cmd: PreviewCommand, page?: number) => {
   postToHost({ type: PREVIEW_MSG_CMD, cmd, ...(page === undefined ? {} : { page }) });
 };
 
-// `defineExpose` の 6 メソッドは親(`PreviewView`)の契約。中身が postMessage になっても
+// `defineExpose` の 7 メソッドは親(`PreviewView`)の契約。中身が postMessage になっても
 // 形は変えない(親は無改修で成立する)。現在ページ等は自前で進めず、子の `nav` 通知で反映する。
 function prevPage() {
   send('prevPage');
@@ -224,6 +224,11 @@ function zoomOut() {
 }
 function fit() {
   send('fit');
+}
+/** 精査画面の変更箇所ジャンプ。`id` は `buildCompareDocs` が付与する `review-anchor-<n>`。 */
+function gotoAnchor(id: string) {
+  if (useFallback.value) return;
+  postToHost({ type: PREVIEW_MSG_CMD, cmd: 'gotoAnchor', anchor: id });
 }
 
 watch(
@@ -249,7 +254,7 @@ onBeforeUnmount(() => {
   loaderFailsafe = clearTimer(loaderFailsafe);
 });
 
-defineExpose({ prevPage, nextPage, goToPage, zoomIn, zoomOut, fit });
+defineExpose({ prevPage, nextPage, goToPage, zoomIn, zoomOut, fit, gotoAnchor });
 </script>
 
 <template>

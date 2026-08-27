@@ -157,6 +157,27 @@ describe('PreviewPanel — postMessage クライアント', () => {
     wrapper.unmount();
   });
 
+  it('gotoAnchor は cmd と anchor を子へ送る', async () => {
+    const wrapper = mount(PreviewPanel, { props: { html: '<p>doc</p>' }, attachTo: document.body });
+    const win = frameWindow(wrapper);
+    const post = vi.spyOn(win, 'postMessage');
+    deliver({ type: 'editor:preview-ready' }, win);
+    await flushPromises();
+    post.mockClear();
+
+    const vm = wrapper.vm as unknown as { gotoAnchor: (id: string) => void };
+    vm.gotoAnchor('review-anchor-2');
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'editor:preview-cmd',
+        cmd: 'gotoAnchor',
+        anchor: 'review-anchor-2',
+      }),
+      '*',
+    );
+    wrapper.unmount();
+  });
+
   it('簡易表示へ倒れた後は、文書変更が fallback iframe の srcdoc に反映される', async () => {
     const wrapper = mount(PreviewPanel, { props: { html: '<p>doc</p>' }, attachTo: document.body });
     const win = frameWindow(wrapper);
