@@ -152,6 +152,7 @@ export default defineConfig({
         'editor/web/src/features/compare/htmlBlockDiff.ts',
         'editor/web/src/features/compare/services/compareService.ts',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
+        'editor/web/src/features/reviews/services/reviewCompareDocs.ts',
         'editor/web/src/features/reviews/services/partNames.ts',
         'editor/web/src/features/reviews/services/changedSummary.ts',
         'editor/web/src/features/reviews/useReviewDiff.ts',
