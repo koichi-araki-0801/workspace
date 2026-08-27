@@ -132,8 +132,7 @@ test('capture editor screens', async ({ page }) => {
 
 test('capture review screens (申請 → 承認キュー → 精査)', async ({ page }) => {
   // admin で申請を 1 件作る（editor は初回 PW 変更が挟まるため admin で代用）。
-  // 無編集の申請なので精査画面は「変更なしも表示」を入れて、パーツ行
-  // (変更前｜変更後) のレイアウトが写る状態で撮る。
+  // 無編集の申請でも精査画面の既定タブ（見た目で比較）は前後の組版を並べて表示できる。
   await login(page, 'admin', 'admin');
   await page.goto(`/preview/${encodeURIComponent(SEED_ID)}`);
   await waitForPreviewPage(page);
@@ -147,10 +146,23 @@ test('capture review screens (申請 → 承認キュー → 精査)', async ({ 
   await page.waitForTimeout(800);
   await page.screenshot({ path: IMG('reviews-list.png') });
 
-  // 精査画面（変更前｜変更後のパーツ行）
-  await page.getByRole('button', { name: '精査する' }).first().click();
-  await page.waitForTimeout(2000); // diff 計算と srcdoc iframe の描画を待つ
-  await page.getByText('変更なしも表示').click();
-  await page.waitForTimeout(1200);
+  // 精査画面（既定タブ = 見た目で比較。修正前｜修正後を PreviewPanel 2 面で並べる）
+  await page.getByRole('button', { name: '内容を確認する' }).first().click();
+  await page.waitForTimeout(1500); // diff 計算(useReviewDiff)を待つ
+  // PreviewPanel は前後 2 面とも title="プレビュー" の iframe を持つため、frameLocator は
+  // .first()/.nth(1) で明示的に区別する(waitForPreviewPage は単面前提のためここでは使わない)。
+  await page
+    .frameLocator('iframe[title="プレビュー"]')
+    .first()
+    .locator('[data-vivliostyle-page-container]:visible')
+    .first()
+    .waitFor({ state: 'visible', timeout: 60_000 });
+  await page
+    .frameLocator('iframe[title="プレビュー"]')
+    .nth(1)
+    .locator('[data-vivliostyle-page-container]:visible')
+    .first()
+    .waitFor({ state: 'visible', timeout: 60_000 });
+  await page.waitForTimeout(500); // 組版確定後の微小な再レイアウトを吸収する
   await page.screenshot({ path: IMG('review-diff.png') });
 });
