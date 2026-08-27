@@ -26,16 +26,23 @@ const { loading, run } = useAsyncResult();
 // 状態フィルタを続けて切り替えると前の一覧が後から届く。反映は最新の要求分だけに絞る。
 const latestLoad = useLatest();
 
-const items = ref<ReviewRequestMeta[]>([]);
+// 取得は全状態を 1 回で(サマリ 4 箱の件数もここから出すため)。絞り込みは client 側。
+const all = ref<ReviewRequestMeta[]>([]);
 
-// 状態フィルタ。既定は「承認待ち」(精査者の主作業)。
-const STATUS_FILTERS: { label: string; value: ReviewStatus | 'all' }[] = [
+// サマリ箱 = フィルタ兼用。既定は「承認待ち」(精査者の主作業)。同じ箱の再クリックで
+// 絞り込みを解除する('all' へトグル。「すべて」専用の箱は置かない)。
+const SUMMARY_FILTERS: { label: string; value: ReviewStatus }[] = [
   { label: '承認待ち', value: 'pending' },
-  { label: '承認済', value: 'approved' },
-  { label: '却下', value: 'rejected' },
-  { label: 'すべて', value: 'all' },
+  { label: '保留中', value: 'held' },
+  { label: '承認済み', value: 'approved' },
+  { label: '差し戻し', value: 'rejected' },
 ];
 const statusFilter = ref<ReviewStatus | 'all'>('pending');
+const countOf = (s: ReviewStatus) => all.value.filter((m) => m.status === s).length;
+
+const items = computed(() =>
+  statusFilter.value === 'all' ? all.value : all.value.filter((m) => m.status === statusFilter.value),
+);
 
 const ORIGIN_LABEL: Record<ReviewRequestMeta['origin'], string> = {
   edit: '編集',
@@ -44,27 +51,22 @@ const ORIGIN_LABEL: Record<ReviewRequestMeta['origin'], string> = {
 
 const STATUS_META: Record<
   ReviewStatus,
-  { label: string; variant: 'warning' | 'success' | 'destructive' }
+  { label: string; variant: 'warning' | 'success' | 'destructive' | 'secondary' }
 > = {
   pending: { label: '承認待ち', variant: 'warning' },
-  held: { label: '保留', variant: 'warning' },
+  held: { label: '保留中', variant: 'secondary' },
   approved: { label: '承認済', variant: 'success' },
   rejected: { label: '却下', variant: 'destructive' },
 };
 
 async function load() {
   const isLatest = latestLoad.begin();
-  const res = await run(() =>
-    reviews.listReviews(
-      statusFilter.value === 'all' ? {} : { status: statusFilter.value },
-    ),
-  );
-  if (!isErr(res) && isLatest()) items.value = res.value;
+  const res = await run(() => reviews.listReviews({}));
+  if (!isErr(res) && isLatest()) all.value = res.value;
 }
 
-function setFilter(v: ReviewStatus | 'all') {
-  statusFilter.value = v;
-  void load();
+function toggleFilter(v: ReviewStatus) {
+  statusFilter.value = statusFilter.value === v ? 'all' : v;
 }
 
 function openDetail(reqId: string) {
@@ -83,7 +85,7 @@ onMounted(load);
       <p class="mt-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
         <Info class="h-3.5 w-3.5 shrink-0" />
         <span v-if="auth.isApprover">
-          編集者からの確定保存申請を精査し、承認すると本番テンプレートへ反映されます。
+          編集者からの確定保存申請を確認し、承認すると本番テンプレートへ反映されます。
         </span>
         <span v-else>
           申請した確定保存は精査者(承認者)の承認後に本番テンプレートへ反映されます。
@@ -91,17 +93,20 @@ onMounted(load);
       </p>
     </div>
 
-    <!-- 状態フィルタ -->
-    <div class="flex flex-wrap items-center gap-1.5">
-      <Button
-        v-for="f in STATUS_FILTERS"
+    <!-- サマリ 4 箱 = フィルタ兼用。同じ箱の再クリックで絞り込みを解除する。 -->
+    <div class="flex flex-wrap gap-3">
+      <button
+        v-for="f in SUMMARY_FILTERS"
         :key="f.value"
-        :variant="statusFilter === f.value ? 'default' : 'outline'"
-        size="sm"
-        @click="setFilter(f.value)"
+        type="button"
+        data-summary-box
+        class="min-w-[110px] rounded-lg border px-4 py-2 text-center"
+        :class="statusFilter === f.value ? 'border-primary bg-primary/5' : 'border-border bg-card'"
+        @click="toggleFilter(f.value)"
       >
-        {{ f.label }}
-      </Button>
+        <span class="block text-xl font-bold">{{ countOf(f.value) }}</span>
+        <span class="text-xs text-muted-foreground">{{ f.label }}</span>
+      </button>
     </div>
 
     <!-- ロード中は申請カードと同構成のスケルトン(完了時のレイアウトシフトを防ぐ)。 -->
@@ -136,16 +141,39 @@ onMounted(load);
         </Badge>
         <Badge variant="secondary" class="shrink-0">{{ ORIGIN_LABEL[r.origin] }}</Badge>
         <AttributeBar :attributes="r.attributes" class="min-w-0 flex-1" />
+        <div class="w-full pl-1 text-xs text-muted-foreground">
+          <span v-if="r.changedSummary">
+            変更 {{ r.changedSummary.count }} か所
+            <template v-if="r.changedSummary.names.length">
+              （{{ r.changedSummary.names.join('・') }}）
+            </template>
+          </span>
+          <span v-if="r.status === 'held' && r.holdComment" class="block">
+            保留メモ: {{ r.holdComment }}
+          </span>
+        </div>
         <div class="flex shrink-0 flex-col items-end text-xs text-muted-foreground">
           <span>申請: {{ r.submittedBy }}・{{ formatDateTimeShort(r.submittedAt) }}</span>
           <span v-if="r.reviewedBy">
-            {{ r.status === 'approved' ? '承認' : '却下' }}: {{ r.reviewedBy }}・{{
+            {{ r.status === 'approved' ? '承認' : '差し戻し' }}: {{ r.reviewedBy }}・{{
               formatDateTimeShort(r.reviewedAt)
             }}
           </span>
         </div>
-        <Button size="sm" :variant="r.status === 'pending' && auth.isApprover ? 'default' : 'outline'" @click="openDetail(r.id)">
-          {{ r.status === 'pending' && auth.isApprover ? '精査する' : '内容を見る' }}
+        <Button
+          size="sm"
+          :variant="(r.status === 'pending' || r.status === 'held') && auth.isApprover ? 'default' : 'outline'"
+          @click="openDetail(r.id)"
+        >
+          {{
+            !auth.isApprover
+              ? '内容を見る'
+              : r.status === 'held'
+                ? '確認を再開する'
+                : r.status === 'pending'
+                  ? '内容を確認する'
+                  : '内容を見る'
+          }}
         </Button>
       </li>
     </ul>
