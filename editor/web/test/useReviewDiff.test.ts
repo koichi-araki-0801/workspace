@@ -11,12 +11,17 @@ import { useReviewDiff } from '@/features/reviews/useReviewDiff';
 const buildDiff = vi.fn();
 const approveReviewFn = vi.fn();
 const rejectReviewFn = vi.fn();
+const holdReviewFn = vi.fn();
 
 vi.mock('@/features/reviews/services/reviewDiffService', () => ({
   useReviewDiffService: () => ({ buildDiff }),
 }));
 vi.mock('@/api/repositories', () => ({
-  useReviewRepo: () => ({ approveReview: approveReviewFn, rejectReview: rejectReviewFn }),
+  useReviewRepo: () => ({
+    approveReview: approveReviewFn,
+    rejectReview: rejectReviewFn,
+    holdReview: holdReviewFn,
+  }),
 }));
 
 const diffData = {
@@ -25,12 +30,16 @@ const diffData = {
   summary: { total: 1, changed: 1, added: 0, removed: 0 },
   cssBefore: '.b{}',
   cssAfter: '.a{}',
+  beforeBodyHtml: '<p>before</p>',
+  afterBodyHtml: '<p>after</p>',
+  changedPageIndexes: [0],
 };
 
 beforeEach(() => {
   buildDiff.mockReset();
   approveReviewFn.mockReset();
   rejectReviewFn.mockReset();
+  holdReviewFn.mockReset();
 });
 
 describe('useReviewDiff', () => {
@@ -45,6 +54,9 @@ describe('useReviewDiff', () => {
     expect(d.summary.value.changed).toBe(1);
     expect(d.cssBefore.value).toBe('.b{}');
     expect(d.cssAfter.value).toBe('.a{}');
+    expect(d.beforeBodyHtml.value).toBe('<p>before</p>');
+    expect(d.afterBodyHtml.value).toBe('<p>after</p>');
+    expect(d.changedPageIndexes.value).toEqual([0]);
     expect(d.loadError.value).toBe(false);
     expect(d.loading.value).toBe(false);
   });
@@ -73,5 +85,14 @@ describe('useReviewDiff', () => {
     await d.reject('NG');
 
     expect(rejectReviewFn).toHaveBeenCalledWith('r1', { comment: 'NG' });
+  });
+
+  it('hold は reqId とコメントで repo を呼ぶ(コメント省略可)', async () => {
+    holdReviewFn.mockResolvedValue(ok({ id: 'r1', status: 'held' }));
+    const d = useReviewDiff(() => 'r1');
+    const res = await d.hold();
+
+    expect(holdReviewFn).toHaveBeenCalledWith('r1', { comment: undefined });
+    expect(res.ok).toBe(true);
   });
 });

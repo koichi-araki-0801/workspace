@@ -23,6 +23,12 @@ export function useReviewDiff(reqId: () => string) {
   const summary = ref<ReviewChangeSummary>({ total: 0, changed: 0, added: 0, removed: 0 });
   const cssBefore = ref('');
   const cssAfter = ref('');
+  /** 見た目比較(`ReviewVisualCompare`)へ渡す before/after の本文全体 HTML。 */
+  const beforeBodyHtml = ref('');
+  const afterBodyHtml = ref('');
+  /** 変更のあったページの index(0 始まり。`diff.pages` 由来)。見た目比較のマーカー対象。 */
+  const changedPageIndexes = ref<number[]>([]);
+
   /** 資源上限で差分に出せなかった領域があるか(承認者へ必ず見せる)。 */
   const truncated = ref(false);
   /** ファンド共通 CSS が現行版と変わっているか(HTML 差分 0 でも承認で上書きされる)。 */
@@ -44,6 +50,9 @@ export function useReviewDiff(reqId: () => string) {
     summary.value = res.value.summary;
     cssBefore.value = res.value.cssBefore;
     cssAfter.value = res.value.cssAfter;
+    beforeBodyHtml.value = res.value.beforeBodyHtml;
+    afterBodyHtml.value = res.value.afterBodyHtml;
+    changedPageIndexes.value = res.value.changedPageIndexes;
     truncated.value = res.value.truncated;
     cssChanged.value = res.value.cssChanged;
     printOnlyCss.value = res.value.printOnlyCss;
@@ -59,12 +68,20 @@ export function useReviewDiff(reqId: () => string) {
     return runDecide(() => reviews.rejectReview(reqId(), { comment }));
   }
 
+  /** 保留(実ファイル非更新)。判断を後回しにして一覧へ戻るための遷移。 */
+  function hold(comment?: string): Promise<Result<ReviewRequestMeta>> {
+    return runDecide(() => reviews.holdReview(reqId(), { comment }));
+  }
+
   return {
     review,
     rows,
     summary,
     cssBefore,
     cssAfter,
+    beforeBodyHtml,
+    afterBodyHtml,
+    changedPageIndexes,
     truncated,
     cssChanged,
     printOnlyCss,
@@ -74,5 +91,6 @@ export function useReviewDiff(reqId: () => string) {
     load,
     approve,
     reject,
+    hold,
   };
 }

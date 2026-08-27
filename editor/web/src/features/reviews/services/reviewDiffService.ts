@@ -69,6 +69,15 @@ interface ReviewDiffData {
   cssBefore: string;
   /** after ペイン(申請版)のファンド CSS。 */
   cssAfter: string;
+  /** before(現行版)の本文全体 HTML。見た目比較(`ReviewVisualCompare`)の左面に渡す。 */
+  beforeBodyHtml: string;
+  /** after(申請版)の本文全体 HTML。見た目比較(`ReviewVisualCompare`)の右面に渡す。 */
+  afterBodyHtml: string;
+  /**
+   * 変更のあったページの index(0 始まり。`buildHtmlDiff` の `diff.pages` 由来)。
+   * 見た目比較(`ReviewVisualCompare`)がマーカー・アンカーを付けるページの集合になる。
+   */
+  changedPageIndexes: number[];
   /**
    * 資源上限で差分に現れなかった領域があるか。**承認者へ必ず伝える**。
    * 承認すると確定書込は申請本文を全文書くので、ここが真のまま承認されると
@@ -195,6 +204,9 @@ export function createReviewDiffService(
         summary,
         cssBefore,
         cssAfter: after.css,
+        beforeBodyHtml: beforeHtml,
+        afterBodyHtml: after.html,
+        changedPageIndexes: diff.pages.filter((p) => p.changed).map((p) => p.index),
         truncated: diff.truncated,
         cssChanged: normalizeCssForCompare(cssBefore) !== normalizeCssForCompare(after.css),
         printOnlyCss: hasPrintOnlyRules(collectPaneStyleText(after.html, after.css)),

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // =============================================================================
-// ReviewDiffView.vue — 確定保存申請の精査画面(パーツ単位の前後プレビュー + 承認/却下)
+// ReviewDiffView.vue — 確定保存申請の精査画面(見た目比較主体 + 通知集約 + 承認/差し戻し/保留)
 // =============================================================================
-// 版比較のページ左右並列ではなく、パーツ(= `.page` 直下 top-level block)= 1 行の縦リストで
-// 「変更前 | 変更後」を並べる。差分・着色は既存の block diff エンジン(`htmlBlockDiff`)を
-// 流用(`reviewDiffService` が組み立て)。承認は approver|admin のみで、承認時にサーバが
-// 実ファイル + git へ反映する(`reviewRepo.ts`)。
+// 主表示は「修正前｜修正後」の左右組版比較(`ReviewVisualCompare`)。事務担当者の主観点は
+// 「最終の見た目がどうなるか」であり、パーツ単位の縦リストは「文字の変更を一覧で見る」タブへ
+// 退避する(既存の block diff エンジン `htmlBlockDiff` をそのまま流用、`reviewDiffService` が
+// 組み立て)。技術語彙の警告 4 種は `ReviewNoticeBar` の 1 行へ集約する。承認は approver|admin
+// のみで、承認時にサーバが実ファイル + git へ反映する(`reviewRepo.ts`)。
 import { type ApproveReviewResult, isOk, type ReviewRequest } from '@editor/shared';
 import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -22,9 +23,12 @@ import {
   diffHighlightCss,
   hasCoarseDiff,
 } from '@/features/compare/htmlBlockDiff';
+import { useTemplatePreviewService } from '@/features/preview/services/templatePreviewService';
 import { formatDateTimeShort } from '@/lib/format';
 import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { useAuthStore } from '@/stores/auth';
+import ReviewNoticeBar from './ReviewNoticeBar.vue';
+import ReviewVisualCompare from './ReviewVisualCompare.vue';
 import type { ReviewPartRow } from './services/reviewDiffService';
 import { useReviewDiff } from './useReviewDiff';
 
@@ -33,13 +37,17 @@ const props = defineProps<{ reqId: string }>();
 const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
-// データ取得と承認/却下アクションは composable に委譲(遷移/トーストのみ View に残す)。
+const preview = useTemplatePreviewService();
+// データ取得と承認/却下/保留アクションは composable に委譲(遷移/トーストのみ View に残す)。
 const {
   review,
   rows,
   summary,
   cssBefore,
   cssAfter,
+  beforeBodyHtml,
+  afterBodyHtml,
+  changedPageIndexes,
   truncated,
   cssChanged,
   printOnlyCss,
@@ -49,13 +57,23 @@ const {
   load,
   approve: approveReview,
   reject: rejectReview,
+  hold,
 } = useReviewDiff(() => props.reqId);
+
+// 表示タブ。既定は見た目比較(事務担当者の主観点は「最終の見た目がどうなるか」)。
+const activeTab = ref<'visual' | 'text'>('visual');
 
 // 既定は変更パーツのみ。トグルで「変更なし」も表示できる。
 const showUnchanged = ref(false);
 const visibleRows = computed(() =>
   showUnchanged.value ? rows.value : rows.value.filter((r) => r.status !== 'same'),
 );
+
+/** 変更要約 1 行(実差分由来。changedSummary 自己申告とは独立)。 */
+const changedNames = computed(() => {
+  const names = [...new Set(rows.value.filter((r) => r.status !== 'same').map((r) => r.label))];
+  return names.slice(0, 5);
+});
 
 /**
  * 一度に描画するパーツ行数の上限。各行は申請者制御の CSS(最大 1 MiB)を丸ごとインライン
@@ -88,7 +106,7 @@ const renderedRows = computed<RenderedRow[]>(() =>
 );
 
 const comment = ref('');
-// 空理由で「却下」を押した場合のインラインエラー。入力が始まったら消す。
+// 空理由で「差し戻す」を押した場合のインラインエラー。入力が始まったら消す。
 const rejectError = ref(false);
 const commentEl = ref<HTMLTextAreaElement | null>(null);
 watch(comment, (v) => {
@@ -107,8 +125,19 @@ const STATUS_BADGE: Record<
   same: { label: '変更なし', variant: 'secondary' },
 };
 
-// 既に処理済み(承認/却下)か。処理済みは閲覧のみ。pending かつ approver のみ操作可。
-const canDecide = computed(() => auth.isApprover && review.value?.status === 'pending');
+/** 「処理済み or 閲覧のみ」表示の状態ラベル。pending は別分岐(`canDecide`)なのでここには来ない。 */
+const DECIDED_STATUS_LABEL: Record<'approved' | 'rejected' | 'held', string> = {
+  approved: '承認済',
+  rejected: '差し戻し済',
+  held: '保留中',
+};
+
+// pending/held は精査者が操作できる。処理済み(承認/差し戻し)は閲覧のみ。
+const canDecide = computed(
+  () =>
+    auth.isApprover &&
+    (review.value?.status === 'pending' || review.value?.status === 'held'),
+);
 
 // 編集画面の「承認待ち」バッジ経由で来たか。`fromEdit` はフラグとしてのみ使い、戻り先の
 // テンプレ id は query を信用せず申請自身の `templateId` を使う(細工 URL で任意 id へ
@@ -137,8 +166,9 @@ function buildDoc(fragment: string, css: string): string {
 }
 
 /**
- * 語句単位の着色を面積上限(`MAX_LCS_CELLS`)で諦めたパーツか。`ReviewPartRow` は
- * presentation 用の写しでフラグ列を持たないため、着色済みマークアップから判定する。
+ * 変更箇所の色分けを面積上限(`MAX_LCS_CELLS`)で諦め、全文まとめての色分けに落ちたパーツか。
+ * `ReviewPartRow` は presentation 用の写しでフラグ列を持たないため、着色済みマークアップから
+ * 判定する。
  */
 function isCoarseRow(row: ReviewPartRow): boolean {
   return hasCoarseDiff(row.beforeHtml, row.afterHtml);
@@ -203,7 +233,7 @@ function notifyNoteMasterResult(noteMaster: ApproveReviewResult['noteMaster']): 
 }
 
 async function reject() {
-  // 却下は申請者への差し戻し — 理由が残らないと編集者が直しようがないため必須にする。
+  // 差し戻しは申請者への差し戻し — 理由が残らないと編集者が直しようがないため必須にする。
   if (!comment.value.trim()) {
     rejectError.value = true;
     commentEl.value?.focus();
@@ -211,9 +241,37 @@ async function reject() {
   }
   const res = await rejectReview(comment.value.trim());
   if (isOk(res)) {
-    toastSuccess('却下しました');
+    toastSuccess('差し戻しました');
     router.push({ name: 'reviews' });
   }
+}
+
+/** 保留(実ファイル非更新)。判断を後回しにして一覧へ戻る。 */
+async function holdRequest() {
+  const res = await hold(comment.value.trim() || undefined);
+  if (isOk(res)) {
+    toastSuccess('保留しました（一覧の「保留中」から確認を再開できます）');
+    router.push({ name: 'reviews' });
+  }
+}
+
+/**
+ * 通知バーの「PDF を開いて確認」— 修正後 1 文書を既存の PDF 出力経路(`PreviewView` の
+ * `exportPdf` と同じ `templatePreviewService.renderPdf`)で開く。対象は申請の記入済み
+ * インスタンス(`review.filledHtml`)、無ければ diff 由来の申請版本文(`afterBodyHtml` +
+ * `cssAfter`)。いずれも Jinja は既に解決済みのため `sample` は空でよい。新しい PDF
+ * 生成経路・独自 fetch はここでは作らない。
+ */
+async function openPdf() {
+  if (!review.value) return;
+  const html = review.value.filledHtml ?? afterBodyHtml.value;
+  const res = await preview.renderPdf(html, cssAfter.value, {}, false);
+  if (!isOk(res)) {
+    toast('PDFの作成に失敗しました。時間をおいて再度お試しください。', 'error');
+    return;
+  }
+  const url = URL.createObjectURL(res.value);
+  window.open(url, '_blank');
 }
 
 onMounted(load);
@@ -226,7 +284,7 @@ onMounted(load);
       <Button variant="outline" size="sm" @click="goBack">
         {{ cameFromEdit ? '← 編集に戻る' : '← 一覧へ' }}
       </Button>
-      <span class="text-lg font-bold">確定保存の精査</span>
+      <span class="text-lg font-bold">申請内容の確認</span>
       <template v-if="review">
         <Badge variant="secondary">{{ ORIGIN_LABEL[review.origin] }}</Badge>
         <AttributeBar :attributes="review.attributes" class="min-w-0 flex-1" />
@@ -244,207 +302,204 @@ onMounted(load);
     </p>
 
     <template v-else-if="review">
-      <!-- 集計 + 表示トグル -->
-      <div class="flex flex-wrap items-center gap-3">
-        <span class="text-sm font-medium">
-          変更パーツ {{ summary.changed + summary.added + summary.removed }} 件
-          <span class="text-muted-foreground">
-            （変更{{ summary.changed }} / 追加{{ summary.added }} / 削除{{ summary.removed }}）
-          </span>
-        </span>
-        <label class="ml-auto flex cursor-pointer items-center gap-1.5">
-          <Checkbox v-model="showUnchanged" />
-          <span class="text-xs">変更なしも表示</span>
-        </label>
-      </div>
-
-      <!-- 資源上限で差分に出せなかった領域がある場合。粒度が粗いだけの `coarse` と違い、
-           **領域そのものが画面に現れていない**ので、控えめな注記ではなく警告として出す
-           (承認すると未確認の内容が本番へ入る)。 -->
-      <p
-        v-if="truncated"
-        class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
-      >
-        この申請は分量が大きく、<strong>差分の一部を表示できていません</strong>。
-        承認すると表示されなかった箇所も含めて反映されます。内容を確認できない場合は却下し、
-        申請を分割して出し直してもらってください。
+      <!-- 変更要約 1 行(実差分由来)。 -->
+      <p class="text-sm">
+        変更されたのは
+        <strong>{{ summary.changed + summary.added + summary.removed }} か所</strong>
+        <template v-if="changedNames.length">
+          : <span class="font-medium text-accent-foreground">{{ changedNames.join('、') }}</span>
+        </template>
       </p>
 
-      <!-- 承認者の画面(screen)と成果物(print)で見えが変わりうる場合。差分ペインの装飾は
-           カスケードレイヤで守られているが、**本文**を印刷時だけ出す形はそれでは閉じられない。
-           実際の見えは PDF プレビューで確認できるので、そちらへ誘導する。 -->
-      <p
-        v-if="printOnlyCss"
-        class="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900"
-      >
-        この申請の CSS には<strong>印刷時にだけ適用される規則</strong>があります。
-        この画面の見えと PDF の仕上がりが異なる場合があるため、PDF プレビューでも確認してください。
-      </p>
-
-      <!-- ファンド共通 CSS の変更。HTML 差分が 0 でも承認で per-fund CSS は上書きされ、以後
-           そのファンドの全テンプレート・全 PDF に効く。「承認者に見せていないバイト列を承認で
-           書かない」ため、変更があれば必ず変更前後を提示する(HTML 差分の有無に依らず出す)。 -->
-      <details
-        v-if="cssChanged"
-        open
-        class="rounded-md border border-violet-300 bg-violet-50 px-3 py-2 text-sm text-violet-900"
-      >
-        <summary class="cursor-pointer font-medium">
-          ファンド共通 CSS が変更されています（承認するとこのファンドの全テンプレート・全 PDF に反映されます）
-        </summary>
-        <div class="mt-2 grid gap-3 md:grid-cols-2">
-          <figure class="min-w-0 space-y-1">
-            <figcaption class="text-xs">変更前(現行版)</figcaption>
-            <pre class="max-h-64 overflow-auto rounded border bg-white p-2 text-xs text-foreground"><code>{{ cssBefore }}</code></pre>
-          </figure>
-          <figure class="min-w-0 space-y-1">
-            <figcaption class="text-xs">変更後(申請版)</figcaption>
-            <pre class="max-h-64 overflow-auto rounded border bg-white p-2 text-xs text-foreground"><code>{{ cssAfter }}</code></pre>
-          </figure>
-        </div>
-      </details>
-
-      <!-- 「変更なし」の空状態は CSS も同一のときだけ出す(CSS が変わっていれば上の CSS 差分が
-           一級の変更なので、HTML パーツ差分が 0 でも「差分なし」とは言わない)。 -->
-      <EmptyState
-        v-if="visibleRows.length === 0 && !cssChanged"
-        :icon="ClipboardCheck"
-        title="表示できる差分がありません"
-        :hint="
-          showUnchanged
-            ? 'このテンプレートにはパーツがありません。'
-            : '現行版と差分がありません（変更なし）。'
-        "
+      <!-- 技術的警告 4 種(truncated / printOnlyCss / cssChanged / 行打ち切り)は 1 行へ集約。 -->
+      <ReviewNoticeBar
+        :css-changed="cssChanged"
+        :css-before="cssBefore"
+        :css-after="cssAfter"
+        :print-only-css="printOnlyCss"
+        :truncated="truncated"
+        :hidden-row-count="hiddenRowCount"
+        @open-pdf="openPdf"
       />
 
-      <!-- パーツ行リスト(パーツ = 1 行・変更前 | 変更後)。行は `renderedRows`(cap 済み・
-           srcdoc は 1 度だけ組み立て済み)を回す。 -->
-      <ul v-else-if="renderedRows.length" class="space-y-3">
-        <li
-          v-for="r in renderedRows"
-          :key="r.row.key"
-          class="rounded-[12px] border bg-card shadow-sm"
+      <!-- タブ切替: 見た目比較(既定) / 文字の変更を一覧で見る -->
+      <div class="flex items-center gap-1.5">
+        <Button
+          :variant="activeTab === 'visual' ? 'default' : 'outline'"
+          size="sm"
+          @click="activeTab = 'visual'"
         >
-          <div class="flex items-center gap-2 border-b px-4 py-2">
-            <span class="text-sm font-bold">{{ r.row.label }}</span>
-            <Badge :variant="STATUS_BADGE[r.row.status].variant">
-              {{ STATUS_BADGE[r.row.status].label }}
-            </Badge>
-            <!-- 差分自体は必ず出す。語句単位の着色だけ諦めた旨を控えめに添える。 -->
-            <span
-              v-if="isCoarseRow(r.row)"
-              class="text-xs text-muted-foreground"
-              title="テキストが大きいため語句単位の着色を省略し、変更前後の全文を色分けしています。"
-            >
-              この箇所は差分が大きいため簡易表示です
+          見た目で比較
+        </Button>
+        <Button
+          :variant="activeTab === 'text' ? 'default' : 'outline'"
+          size="sm"
+          @click="activeTab = 'text'"
+        >
+          文字の変更を一覧で見る
+        </Button>
+      </div>
+
+      <ReviewVisualCompare
+        v-if="activeTab === 'visual'"
+        :before-html="beforeBodyHtml"
+        :after-html="afterBodyHtml"
+        :css-before="cssBefore"
+        :css-after="cssAfter"
+        :changed-page-indexes="changedPageIndexes"
+        :is-create="review.origin === 'create'"
+      />
+
+      <template v-else>
+        <!-- 表示トグル -->
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="text-sm font-medium">
+            変更パーツ {{ summary.changed + summary.added + summary.removed }} 件
+            <span class="text-muted-foreground">
+              （変更{{ summary.changed }} / 追加{{ summary.added }} / 削除{{ summary.removed }}）
             </span>
-          </div>
+          </span>
+          <label class="ml-auto flex cursor-pointer items-center gap-1.5">
+            <Checkbox v-model="showUnchanged" />
+            <span class="text-xs">変更なしも表示</span>
+          </label>
+        </div>
 
-          <!-- 本文テキストの語句差分。**親アプリの DOM に、エスケープして描く** — 下の
-               着色プレビューは申請者 CSS を載せた iframe なので、申請者は自分の要素へ
-               display/opacity/transform/font-size/@media 等を当てて変更を隠せる。ここは
-               textContent 由来で CSS の影響を受けないため、隠された変更もそのまま現れる。
-               これが承認判断の正典で、iframe プレビューは見た目確認の補助。 -->
-          <div v-if="r.row.textOps.length" class="border-b px-4 py-2">
-            <div class="mb-1 text-xs font-medium text-muted-foreground">
-              本文の変更（申請者のスタイルに影響されない照合。確定・保存される差分）
+        <!-- 「変更なし」の空状態は CSS も同一のときだけ出す(CSS が変わっていれば通知バーが
+             一級の変更として伝えるので、HTML パーツ差分が 0 でも「差分なし」とは言わない)。 -->
+        <EmptyState
+          v-if="visibleRows.length === 0 && !cssChanged"
+          :icon="ClipboardCheck"
+          title="表示できる差分がありません"
+          :hint="
+            showUnchanged
+              ? 'このテンプレートにはパーツがありません。'
+              : '現行版と差分がありません（変更なし）。'
+          "
+        />
+
+        <!-- パーツ行リスト(パーツ = 1 行・変更前 | 変更後)。行は `renderedRows`(cap 済み・
+             srcdoc は 1 度だけ組み立て済み)を回す。 -->
+        <ul v-else-if="renderedRows.length" class="space-y-3">
+          <li
+            v-for="r in renderedRows"
+            :key="r.row.key"
+            class="rounded-[12px] border bg-card shadow-sm"
+          >
+            <div class="flex items-center gap-2 border-b px-4 py-2">
+              <span class="text-sm font-bold">{{ r.row.label }}</span>
+              <Badge :variant="STATUS_BADGE[r.row.status].variant">
+                {{ STATUS_BADGE[r.row.status].label }}
+              </Badge>
+              <!-- 差分自体は必ず出す。着色を諦めた旨だけ控えめに添える。 -->
+              <span
+                v-if="isCoarseRow(r.row)"
+                class="text-xs text-muted-foreground"
+                title="この箇所は変更が大きいため、変わった文字ごとの色分けはせず全文を並べています。"
+              >
+                この箇所は変更が大きいため、変わった文字の色付けはせず全文を並べています
+              </span>
             </div>
-            <p class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
-              <template v-for="(op, i) in r.row.textOps" :key="i">
-                <del
-                  v-if="op.type === 'del'"
-                  class="rounded-sm bg-red-100 text-red-800 line-through"
-                  >{{ op.text }}</del
-                >
-                <ins
-                  v-else-if="op.type === 'ins'"
-                  class="rounded-sm bg-green-100 text-green-800 no-underline"
-                  >{{ op.text }}</ins
-                >
-                <span v-else>{{ op.text }}</span>
-              </template>
-            </p>
-          </div>
-          <div class="grid gap-3 p-3 md:grid-cols-2">
-            <figure class="space-y-1">
-              <figcaption class="text-xs text-muted-foreground">変更前(現行版)</figcaption>
-              <div
-                v-if="r.row.status === 'added'"
-                class="grid place-items-center rounded border border-dashed bg-muted/30 py-8 text-xs text-muted-foreground"
-              >
-                （なし・新規追加）
-              </div>
-              <div v-else class="overflow-hidden rounded border bg-white">
-                <!-- sandbox は必須。srcdoc の中身は申請者が書いた HTML/CSS である。
-                     テンプレの JS は正当なコンテンツで、承認者は「JS が効いた実行結果」を
-                     見て承認するので**動かす**(止めると承認していない見た目が確定する)。
-                     よって `allow-scripts` を許し、`allow-same-origin` は**付けない** —
-                     両方を同時に付けると子は親オリジンの DOM へ到達でき sandbox が無効化
-                     される。高さは子からの postMessage で受ける(`useIframeAutoFit`)。 -->
-                <iframe
-                  :srcdoc="r.beforeDoc"
-                  sandbox="allow-scripts"
-                  title="変更前"
-                  class="block w-full"
-                  style="height: 120px; border: 0"
-                  @load="fitFrame"
-                />
-              </div>
-            </figure>
-            <figure class="space-y-1">
-              <figcaption class="text-xs text-muted-foreground">変更後(申請版)</figcaption>
-              <div
-                v-if="r.row.status === 'removed'"
-                class="grid place-items-center rounded border border-dashed bg-muted/30 py-8 text-xs text-muted-foreground"
-              >
-                （なし・削除）
-              </div>
-              <div v-else class="overflow-hidden rounded border bg-white">
-                <!-- sandbox の意図は「変更前」ペインと同じ(上のコメントを見よ)。 -->
-                <iframe
-                  :srcdoc="r.afterDoc"
-                  sandbox="allow-scripts"
-                  title="変更後"
-                  class="block w-full"
-                  style="height: 120px; border: 0"
-                  @load="fitFrame"
-                />
-              </div>
-            </figure>
-          </div>
-        </li>
-      </ul>
 
-      <!-- 上限で描画を打ち切ったパーツがある場合。承認者は残りを確認できないので、分割
-           再申請を促す(打ち切りは黙って隠さない)。 -->
-      <p
-        v-if="hiddenRowCount > 0"
-        class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
-      >
-        変更パーツが多すぎるため、<strong>残り {{ hiddenRowCount }} 件を表示していません</strong>。
-        全体を確認するには申請を分割して出し直してもらってください。
-      </p>
+            <!-- 本文テキストの語句差分。**親アプリの DOM に、エスケープして描く** — 下の
+                 着色プレビューは申請者 CSS を載せた iframe なので、申請者は自分の要素へ
+                 display/opacity/transform/font-size/@media 等を当てて変更を隠せる。ここは
+                 textContent 由来で CSS の影響を受けないため、隠された変更もそのまま現れる。
+                 これが承認判断の正典で、iframe プレビューは見た目確認の補助。 -->
+            <div v-if="r.row.textOps.length" class="border-b px-4 py-2">
+              <div class="mb-1 text-xs font-medium text-muted-foreground">
+                本文の変更（申請者のスタイルに影響されない照合。確定・保存される差分）
+              </div>
+              <p class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
+                <template v-for="(op, i) in r.row.textOps" :key="i">
+                  <del
+                    v-if="op.type === 'del'"
+                    class="rounded-sm bg-red-100 text-red-800 line-through"
+                    >{{ op.text }}</del
+                  >
+                  <ins
+                    v-else-if="op.type === 'ins'"
+                    class="rounded-sm bg-green-100 text-green-800 no-underline"
+                    >{{ op.text }}</ins
+                  >
+                  <span v-else>{{ op.text }}</span>
+                </template>
+              </p>
+            </div>
+            <div class="grid gap-3 p-3 md:grid-cols-2">
+              <figure class="space-y-1">
+                <figcaption class="text-xs text-muted-foreground">変更前(現行版)</figcaption>
+                <div
+                  v-if="r.row.status === 'added'"
+                  class="grid place-items-center rounded border border-dashed bg-muted/30 py-8 text-xs text-muted-foreground"
+                >
+                  （なし・新規追加）
+                </div>
+                <div v-else class="overflow-hidden rounded border bg-white">
+                  <!-- sandbox は必須。srcdoc の中身は申請者が書いた HTML/CSS である。
+                       テンプレの JS は正当なコンテンツで、承認者は「JS が効いた実行結果」を
+                       見て承認するので**動かす**(止めると承認していない見た目が確定する)。
+                       よって `allow-scripts` は許すが、同一オリジン相当の権限は**付けない** —
+                       両方を同時に付けると子は親オリジンの DOM へ到達でき sandbox が無効化
+                       される。高さは子からの postMessage で受ける(`useIframeAutoFit`)。 -->
+                  <iframe
+                    :srcdoc="r.beforeDoc"
+                    sandbox="allow-scripts"
+                    title="変更前"
+                    class="block w-full"
+                    style="height: 120px; border: 0"
+                    @load="fitFrame"
+                  />
+                </div>
+              </figure>
+              <figure class="space-y-1">
+                <figcaption class="text-xs text-muted-foreground">変更後(申請版)</figcaption>
+                <div
+                  v-if="r.row.status === 'removed'"
+                  class="grid place-items-center rounded border border-dashed bg-muted/30 py-8 text-xs text-muted-foreground"
+                >
+                  （なし・削除）
+                </div>
+                <div v-else class="overflow-hidden rounded border bg-white">
+                  <!-- sandbox の意図は「変更前」ペインと同じ(上のコメントを見よ)。 -->
+                  <iframe
+                    :srcdoc="r.afterDoc"
+                    sandbox="allow-scripts"
+                    title="変更後"
+                    class="block w-full"
+                    style="height: 120px; border: 0"
+                    @load="fitFrame"
+                  />
+                </div>
+              </figure>
+            </div>
+          </li>
+        </ul>
+      </template>
 
-      <!-- 承認/却下(精査者のみ・pending のみ) -->
+      <!-- 承認/差し戻し/保留(精査者のみ・pending/held のみ) -->
       <div v-if="canDecide" class="space-y-2 rounded-[12px] border bg-muted/30 p-4">
-        <label class="text-sm font-medium" for="review-comment">理由・メモ（却下時は必須）</label>
+        <label class="text-sm font-medium" for="review-comment">
+          コメント（差し戻し時は必須。保留時はメモとして残ります）
+        </label>
         <textarea
           id="review-comment"
           ref="commentEl"
           v-model="comment"
           rows="2"
-          placeholder="承認メモ、または却下理由を入力します。"
+          placeholder="承認メモ、または差し戻し理由を入力します。"
           :aria-invalid="rejectError || undefined"
           class="w-full rounded-md border bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           :class="rejectError ? 'border-destructive' : 'border-input'"
         />
         <p v-if="rejectError" role="alert" class="text-xs text-destructive">
-          却下には理由の入力が必要です。
+          差し戻しには理由の入力が必要です。
         </p>
         <div class="flex items-center justify-end gap-2">
+          <Button variant="outline" :disabled="deciding" @click="holdRequest">保留する</Button>
           <Button variant="outline" :disabled="deciding" @click="reject">
             <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
-            <X v-else class="h-4 w-4" /> 却下
+            <X v-else class="h-4 w-4" /> 差し戻す
           </Button>
           <Button :disabled="deciding" @click="approve">
             <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
@@ -459,7 +514,9 @@ onMounted(load);
         class="rounded-[12px] border bg-muted/30 p-4 text-sm"
       >
         この申請は
-        <span class="font-medium">{{ review.status === 'approved' ? '承認済' : '却下済' }}</span>
+        <span class="font-medium">
+          {{ DECIDED_STATUS_LABEL[review.status as 'approved' | 'rejected' | 'held'] }}
+        </span>
         です（{{ review.reviewedBy }}・{{ formatDateTimeShort(review.reviewedAt) }}）。
         <span v-if="review.comment" class="block text-muted-foreground">メモ: {{ review.comment }}</span>
       </div>
