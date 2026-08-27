@@ -55,8 +55,8 @@ const STATUS_META: Record<
 > = {
   pending: { label: '承認待ち', variant: 'warning' },
   held: { label: '保留中', variant: 'secondary' },
-  approved: { label: '承認済', variant: 'success' },
-  rejected: { label: '却下', variant: 'destructive' },
+  approved: { label: '承認済み', variant: 'success' },
+  rejected: { label: '差し戻し', variant: 'destructive' },
 };
 
 async function load() {

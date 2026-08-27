@@ -101,6 +101,52 @@ describe('buildCompareDocs', () => {
     expect(layer(a)).not.toBe(layer(b));
   });
 
+  it('期待ページ数と実際の .page 数が一致する場合は通常通りマークする', () => {
+    const { afterDoc, anchors } = buildCompareDocs({
+      beforeHtml: '<div class="page">page1</div><div class="page">page2</div>',
+      afterHtml: '<div class="page">page1</div><div class="page">page2-changed</div>',
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([1]),
+      beforeExpectedPageCount: 2,
+      afterExpectedPageCount: 2,
+      marker: true,
+    });
+    expect(afterDoc).toContain('data-review-marker');
+    expect(anchors).toEqual(['review-anchor-2']);
+  });
+
+  it('期待ページ数と実際の .page 数が不一致(page-break 欠落等)ならその面を無印へdegrade', () => {
+    // page-break が効かず 2 ページ分の内容が 1 個の .page に潰れたケースを想定。
+    // changedPageIndexes=[0] をそのまま適用すると、本来無関係な合成 1 ページを
+    // 「変更ページ」として誤ってマークしてしまうため、不一致面は無印にする。
+    const { beforeDoc, afterDoc, anchors } = buildCompareDocs({
+      beforeHtml: '<div class="page">page1+page2 collapsed</div>',
+      afterHtml: '<div class="page">page1+page2-changed collapsed</div>',
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([1]),
+      beforeExpectedPageCount: 2,
+      afterExpectedPageCount: 2,
+      marker: true,
+    });
+    expect(beforeDoc).not.toContain('data-review-marker');
+    expect(afterDoc).not.toContain('data-review-marker');
+    expect(anchors).toEqual([]);
+  });
+
+  it('期待ページ数が省略された場合は従来通り検査しない', () => {
+    const { afterDoc } = buildCompareDocs({
+      beforeHtml: '<div class="page">page1</div>',
+      afterHtml: '<div class="page">page1-changed</div>',
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([0]),
+      marker: true,
+    });
+    expect(afterDoc).toContain('data-review-marker');
+  });
+
   it('.page が無い文書はマーカー無し・anchors 空にdegrade', () => {
     const { beforeDoc, afterDoc, anchors } = buildCompareDocs({
       beforeHtml: '<div>no page</div>',

@@ -28,6 +28,12 @@ export function useReviewDiff(reqId: () => string) {
   const afterBodyHtml = ref('');
   /** 変更のあったページの index(0 始まり。`diff.pages` 由来)。見た目比較のマーカー対象。 */
   const changedPageIndexes = ref<number[]>([]);
+  /**
+   * diff が数えた before/after 各面の期待ページ数。見た目比較(`buildCompareDocs`)の
+   * ページ数不一致 degrade へ渡す(load 未完了時は undefined = 検査しない)。
+   */
+  const beforePageCount = ref<number | undefined>(undefined);
+  const afterPageCount = ref<number | undefined>(undefined);
 
   /** 資源上限で差分に出せなかった領域があるか(承認者へ必ず見せる)。 */
   const truncated = ref(false);
@@ -53,6 +59,8 @@ export function useReviewDiff(reqId: () => string) {
     beforeBodyHtml.value = res.value.beforeBodyHtml;
     afterBodyHtml.value = res.value.afterBodyHtml;
     changedPageIndexes.value = res.value.changedPageIndexes;
+    beforePageCount.value = res.value.beforePageCount;
+    afterPageCount.value = res.value.afterPageCount;
     truncated.value = res.value.truncated;
     cssChanged.value = res.value.cssChanged;
     printOnlyCss.value = res.value.printOnlyCss;
@@ -82,6 +90,8 @@ export function useReviewDiff(reqId: () => string) {
     beforeBodyHtml,
     afterBodyHtml,
     changedPageIndexes,
+    beforePageCount,
+    afterPageCount,
     truncated,
     cssChanged,
     printOnlyCss,

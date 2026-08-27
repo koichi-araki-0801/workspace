@@ -20,6 +20,13 @@ const props = defineProps<{
   cssAfter: string;
   /** 変更ページの index 集合(0 始まり。`buildHtmlDiff` の `diff.pages` の index 由来)。 */
   changedPageIndexes: number[];
+  /**
+   * diff が数えた before/after 各面の期待ページ数(`HtmlDiff.beforePageCount`/`afterPageCount`)。
+   * `buildCompareDocs` が文書内の実際の `.page` 数と突き合わせ、不一致なら誤マーク防止のため
+   * その面を無印へ degrade する(未取得時は undefined = 検査しない)。
+   */
+  beforePageCount?: number;
+  afterPageCount?: number;
   isCreate: boolean;
 }>();
 
@@ -34,6 +41,8 @@ const docs = computed(() =>
     cssBefore: props.cssBefore,
     cssAfter: props.cssAfter,
     changedPageIndexes: new Set(props.changedPageIndexes),
+    beforeExpectedPageCount: props.beforePageCount,
+    afterExpectedPageCount: props.afterPageCount,
     marker: showMarker.value,
   }),
 );

@@ -79,6 +79,14 @@ interface ReviewDiffData {
    */
   changedPageIndexes: number[];
   /**
+   * diff 計算(`buildHtmlDiff`)が数えた before/after 各面の期待ページ数
+   * (`HtmlDiff.beforePageCount`/`afterPageCount`)。見た目比較(`buildCompareDocs`)が
+   * 文書内の実際の `.page` 数と突き合わせ、不一致(CSS の page-break 欠落等でページ分割が
+   * 潰れた場合)なら誤ったページへのマーカー誘導を避けるため無印へ degrade する。
+   */
+  beforePageCount: number;
+  afterPageCount: number;
+  /**
    * 資源上限で差分に現れなかった領域があるか。**承認者へ必ず伝える**。
    * 承認すると確定書込は申請本文を全文書くので、ここが真のまま承認されると
    * 「承認者が一度も見ていない内容」が本番へ入る。
@@ -207,6 +215,8 @@ export function createReviewDiffService(
         beforeBodyHtml: beforeHtml,
         afterBodyHtml: after.html,
         changedPageIndexes: diff.pages.filter((p) => p.changed).map((p) => p.index),
+        beforePageCount: diff.beforePageCount,
+        afterPageCount: diff.afterPageCount,
         truncated: diff.truncated,
         cssChanged: normalizeCssForCompare(cssBefore) !== normalizeCssForCompare(after.css),
         printOnlyCss: hasPrintOnlyRules(collectPaneStyleText(after.html, after.css)),

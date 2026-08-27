@@ -12,6 +12,7 @@ const noneProps = {
   printOnlyCss: false,
   truncated: false,
   hiddenRowCount: 0,
+  pdfGenerating: false,
 };
 
 describe('ReviewNoticeBar', () => {
@@ -48,6 +49,14 @@ describe('ReviewNoticeBar', () => {
     const w = mount(ReviewNoticeBar, { props: { ...noneProps, printOnlyCss: true } });
     await w.find('[data-open-pdf]').trigger('click');
     expect(w.emitted('openPdf')).toHaveLength(1);
+  });
+
+  it('PDF 生成中は導線ボタンを disabled にする', () => {
+    const w = mount(ReviewNoticeBar, {
+      props: { ...noneProps, printOnlyCss: true, pdfGenerating: true },
+    });
+    const btn = w.find('[data-open-pdf]');
+    expect(btn.attributes('disabled')).toBeDefined();
   });
 
   it('一覧打ち切り(hiddenRowCount)は分割再申請の依頼文で出す', () => {

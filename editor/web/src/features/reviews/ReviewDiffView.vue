@@ -48,6 +48,8 @@ const {
   beforeBodyHtml,
   afterBodyHtml,
   changedPageIndexes,
+  beforePageCount,
+  afterPageCount,
   truncated,
   cssChanged,
   printOnlyCss,
@@ -125,11 +127,13 @@ const STATUS_BADGE: Record<
   same: { label: '変更なし', variant: 'secondary' },
 };
 
-/** 「処理済み or 閲覧のみ」表示の状態ラベル。pending は別分岐(`canDecide`)なのでここには来ない。 */
-const DECIDED_STATUS_LABEL: Record<'approved' | 'rejected' | 'held', string> = {
-  approved: '承認済',
+/**
+ * 「処理済み(閲覧のみ)」表示の状態ラベル。pending は別分岐(`canDecide`)、held は
+ * 保留情報(`heldBy`/`heldAt`/`holdComment`)専用の分岐を持つため、ここには来ない。
+ */
+const DECIDED_STATUS_LABEL: Record<'approved' | 'rejected', string> = {
+  approved: '承認済み',
   rejected: '差し戻し済',
-  held: '保留中',
 };
 
 // pending/held は精査者が操作できる。処理済み(承認/差し戻し)は閲覧のみ。
@@ -255,26 +259,56 @@ async function holdRequest() {
   }
 }
 
+// 通知バーの「PDF を開いて確認」の生成中フラグ。ボタンを disabled にして多重クリックを防ぐ
+// (`PreviewView` の `exporting` と同じパターン)。
+const pdfGenerating = ref(false);
+
 /**
  * 通知バーの「PDF を開いて確認」— 修正後 1 文書を既存の PDF 出力経路(`PreviewView` の
  * `exportPdf` と同じ `templatePreviewService.renderPdf`)で開く。対象は申請の記入済み
  * インスタンス(`review.filledHtml`)、無ければ diff 由来の申請版本文(`afterBodyHtml` +
  * `cssAfter`)。いずれも Jinja は既に解決済みのため `sample` は空でよい。新しい PDF
  * 生成経路・独自 fetch はここでは作らない。
+ *
+ * ダウンロードは `PreviewView.exportPdf` と同じアンカー download 方式を使う
+ * (`window.open` は PDF 生成待ちの非同期処理を挟んだ後の呼び出しになり、ユーザ操作からの
+ * transient activation が失効してポップアップブロックされうる)。生成した Blob URL は
+ * クリック後に revoke してリークさせない。
  */
 async function openPdf() {
   if (!review.value) return;
-  const html = review.value.filledHtml ?? afterBodyHtml.value;
-  const res = await preview.renderPdf(html, cssAfter.value, {}, false);
-  if (!isOk(res)) {
-    toast('PDFの作成に失敗しました。時間をおいて再度お試しください。', 'error');
-    return;
+  pdfGenerating.value = true;
+  try {
+    const html = review.value.filledHtml ?? afterBodyHtml.value;
+    const res = await preview.renderPdf(html, cssAfter.value, {}, false);
+    if (!isOk(res)) {
+      toast('PDFの作成に失敗しました。時間をおいて再度お試しください。', 'error');
+      return;
+    }
+    const url = URL.createObjectURL(res.value);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${review.value.templateId}.pdf`;
+    // DOM に載せてから click する(未接続 anchor の click を無視するブラウザ対策)。
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toastSuccess('PDFのダウンロードを開始しました');
+  } finally {
+    pdfGenerating.value = false;
   }
-  const url = URL.createObjectURL(res.value);
-  window.open(url, '_blank');
 }
 
-onMounted(load);
+onMounted(async () => {
+  await load();
+  // 保留中申請の再表示時、コメント欄を空のまま「保留する」を押すと server が
+  // `holdComment: null` で既存メモを上書きしてしまう。承認者が既存メモを見た上で
+  // 編集/保持できるよう、held かつメモがあればコメント欄へプリフィルする。
+  if (review.value?.status === 'held' && review.value.holdComment) {
+    comment.value = review.value.holdComment;
+  }
+});
 </script>
 
 <template>
@@ -319,6 +353,7 @@ onMounted(load);
         :print-only-css="printOnlyCss"
         :truncated="truncated"
         :hidden-row-count="hiddenRowCount"
+        :pdf-generating="pdfGenerating"
         @open-pdf="openPdf"
       />
 
@@ -347,6 +382,8 @@ onMounted(load);
         :css-before="cssBefore"
         :css-after="cssAfter"
         :changed-page-indexes="changedPageIndexes"
+        :before-page-count="beforePageCount"
+        :after-page-count="afterPageCount"
         :is-create="review.origin === 'create'"
       />
 
@@ -508,14 +545,29 @@ onMounted(load);
         </div>
       </div>
 
-      <!-- 処理済み or 閲覧のみ -->
+      <!-- 保留中(非承認者の閲覧、または「保留中」を再表示できる状態にない場合)。
+           held は reviewedBy/reviewedAt を持たない(保留は独自フィールド heldBy/heldAt を使う)
+           ため、下の「処理済み」分岐と共有すると「保留中 です（null・null）」の壊れた
+           表示になる(レガシー申請の meta.json には無く undefined もありうるため truthy
+           ガードで各フィールドを出す)。 -->
+      <div v-else-if="review.status === 'held'" class="rounded-[12px] border bg-muted/30 p-4 text-sm">
+        この申請は <span class="font-medium">保留中</span> です<template v-if="review.heldBy"
+          >（{{ review.heldBy }}<template v-if="review.heldAt"
+            >・{{ formatDateTimeShort(review.heldAt) }}</template
+          >）</template
+        >。
+        <span v-if="review.holdComment" class="block text-muted-foreground">
+          保留メモ: {{ review.holdComment }}
+        </span>
+      </div>
+      <!-- 処理済み(承認/差し戻し)or 閲覧のみ -->
       <div
         v-else-if="review.status !== 'pending'"
         class="rounded-[12px] border bg-muted/30 p-4 text-sm"
       >
         この申請は
         <span class="font-medium">
-          {{ DECIDED_STATUS_LABEL[review.status as 'approved' | 'rejected' | 'held'] }}
+          {{ DECIDED_STATUS_LABEL[review.status as 'approved' | 'rejected'] }}
         </span>
         です（{{ review.reviewedBy }}・{{ formatDateTimeShort(review.reviewedAt) }}）。
         <span v-if="review.comment" class="block text-muted-foreground">メモ: {{ review.comment }}</span>

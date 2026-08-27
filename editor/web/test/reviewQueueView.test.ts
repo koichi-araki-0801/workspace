@@ -113,4 +113,25 @@ describe('ReviewQueueView', () => {
     expect(w.text()).not.toContain('精査する');
     expect(w.text()).toContain('内容を確認する');
   });
+
+  it('ステータス表示は「却下」でなく「差し戻し」「承認済み」で統一する', async () => {
+    const metas = [
+      meta({
+        id: 'a',
+        status: 'approved',
+        reviewedBy: 'approver1',
+        reviewedAt: '2026-08-27T01:00:00.000Z',
+      }),
+      meta({
+        id: 'b',
+        status: 'rejected',
+        reviewedBy: 'approver1',
+        reviewedAt: '2026-08-27T01:00:00.000Z',
+      }),
+    ];
+    const w = await mountQueue(metas);
+    expect(w.text()).not.toContain('却下');
+    expect(w.text()).toContain('承認済み');
+    expect(w.text()).toContain('差し戻し');
+  });
 });

@@ -22,6 +22,13 @@ export interface CompareDocsInput {
   cssAfter: string;
   /** 変更ページの index 集合(0 始まり。`buildHtmlDiff` の `diff.pages` の index 由来)。 */
   changedPageIndexes: ReadonlySet<number>;
+  /**
+   * diff 計算(`buildHtmlDiff`)が数えた before/after 各面の期待ページ数
+   * (`HtmlDiff.beforePageCount`/`afterPageCount`)。省略時は下記の不一致検査をしない
+   * (既存呼び出し元 = 呼び出しテストとの互換のため optional)。
+   */
+  beforeExpectedPageCount?: number;
+  afterExpectedPageCount?: number;
   /** 黄マーカーを描くか。false でも位置ジャンプ用のアンカー id は付ける。 */
   marker: boolean;
 }
@@ -37,11 +44,20 @@ export interface CompareDocs {
 function annotatePages(
   html: string,
   changedPageIndexes: ReadonlySet<number>,
+  expectedPageCount?: number,
 ): { html: string; anchorByIndex: Map<number, string> } {
   const anchorByIndex = new Map<number, string>();
   if (!html.trim()) return { html, anchorByIndex };
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const pages = Array.from(doc.querySelectorAll('.page'));
+  // diff 側が数えたページ数(`beforePageCount`/`afterPageCount`)と、この文書が実際に持つ
+  // `.page` 要素数が食い違う場合(CSS の page-break 欠落等でページ分割が潰れた場合)、
+  // index の対応が崩れ「無関係なページ」を変更ページとして誤ってマークしてしまう。
+  // 既存の「.page が 1 つも無い→無印」degrade と同じ考えで、この面のマーク・アンカーを
+  // 安全側(空)へ倒す。
+  if (expectedPageCount !== undefined && pages.length !== expectedPageCount) {
+    return { html, anchorByIndex };
+  }
   pages.forEach((el, i) => {
     if (!changedPageIndexes.has(i)) return;
     el.setAttribute('data-review-marker', '');
@@ -78,8 +94,16 @@ function wrapDoc(bodyHtml: string, css: string, marker: boolean): string {
 }
 
 export function buildCompareDocs(input: CompareDocsInput): CompareDocs {
-  const before = annotatePages(input.beforeHtml, input.changedPageIndexes);
-  const after = annotatePages(input.afterHtml, input.changedPageIndexes);
+  const before = annotatePages(
+    input.beforeHtml,
+    input.changedPageIndexes,
+    input.beforeExpectedPageCount,
+  );
+  const after = annotatePages(
+    input.afterHtml,
+    input.changedPageIndexes,
+    input.afterExpectedPageCount,
+  );
   // ページ index の昇順。after 優先、after に無い index は before から拾う。
   const indexes = [
     ...new Set([...after.anchorByIndex.keys(), ...before.anchorByIndex.keys()]),

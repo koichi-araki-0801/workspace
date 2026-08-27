@@ -18,6 +18,8 @@ const props = defineProps<{
   printOnlyCss: boolean;
   truncated: boolean;
   hiddenRowCount: number;
+  /** PDF 生成中か。多重クリック防止のためリンクボタンを disabled にする。 */
+  pdfGenerating: boolean;
 }>();
 
 const emit = defineEmits<{ openPdf: [] }>();
@@ -69,8 +71,14 @@ const count = computed(
         <p class="mt-1 text-xs text-amber-800">
           一部の書式は PDF にしたときだけ反映されます。右の「修正後」は PDF と同じ仕組みで
           表示していますが、心配な場合は
-          <button type="button" data-open-pdf class="underline" @click="emit('openPdf')">
-            PDF を開いて確認
+          <button
+            type="button"
+            data-open-pdf
+            class="underline disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="pdfGenerating"
+            @click="emit('openPdf')"
+          >
+            {{ pdfGenerating ? 'PDFを作成中…' : 'PDF を開いて確認' }}
           </button>
           してください。
         </p>
