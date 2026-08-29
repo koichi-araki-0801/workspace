@@ -1,0 +1,259 @@
+// =============================================================================
+// fillJinja.ts — 生 Jinja2 テンプレートを編集キャンバス用の "filled" HTML へ変換
+// =============================================================================
+// 役割:
+//   生 Jinja2 テンプレートを, エディタキャンバスが表示する "filled"(値入り)編集
+//   形態へレンダリングする。Jinja の値を差し込む(編集画面が値の入った文書として
+//   読める)一方で, 元の `{{ }}` / `{% %}` ソースを verbatim に保持するため,
+//   保存時に `jinjaMask.ts` の `toTemplate` が厳密な Jinja テンプレートを復元できる。
+//
+//   `jinjaMask.ts` の `toEditable` の「値を持つ」兄弟であり, どちらも GrapesJS へ
+//   渡され, どちらも `toTemplate` で無損失に round-trip する。差異:
+//     - inline `{{ expr }}` chip は *評価値* を表示する(token テキストではない)。
+//     - `{% for %}` ループは sample 要素ごとに 1 行の filled 行へ展開する。先頭行は
+//       `{% for %}`/`{% endfor %}` マーカ(data-jinja-open/close)を保持し, 残りは
+//       data-jinja-loop-clone を付けて復元時に破棄する。
+//     - 単一要素の `{% if %}…{% endif %}` は表示用に taken branch のみを残し,
+//       ブロック全体を data-jinja-block に保持する。
+//     - `<script>` ブロックは inert なマーカへ mask し(GrapesJS は読み込み時に実
+//       script を除去する), 保存時に verbatim 復元する。
+//
+//   値の評価は `jinjaExpr.ts` の許可リスト評価器で行う(`nunjucks.compile` =
+//   `new Function` を使わない)。アプリオリジンの CSP から `'unsafe-eval'` を落とせる
+//   ようにするためで、`toFilled` は Worker からも呼ばれる(Worker は同一オリジンで
+//   CSP を継承する)。解釈できない式は**握り潰さず数え**、`toFilledWithDiagnostics`
+//   が呼び出し側へ返す — 「例外を catch して黙って空文字」の形を残さない。
+import type { SampleData } from '@editor/shared';
+import {
+  DATA_JINJA,
+  DATA_JINJA_BLOCK,
+  DATA_JINJA_CLOSE,
+  DATA_JINJA_LOOP_CLONE,
+  DATA_JINJA_OPEN,
+  DATA_OPAQUE,
+  DATA_OPAQUE_KIND,
+} from './jinjaAttrs';
+import { evaluateJinjaExpr, type JinjaCtx, stringifyJinjaValue } from './jinjaExpr';
+import { b64encode, htmlEscape, TOKEN_RE, tokenKind } from './jinjaMask';
+
+type Ctx = JinjaCtx;
+
+/** `toFilled` 1 回ぶんの診断。問題の式を出現順・重複排除で持つ。 */
+export interface FillDiagnostics {
+  /** 許可リスト評価器が解釈できなかった式(フィルタ等)。 */
+  readonly unsupported: readonly string[];
+  /**
+   * undefined/null に解決された `{{ expr }}`(サンプルデータにキーが無い等)。評価器は
+   * 未定義キーを例外にせず undefined を返すため、`unsupported` には載らない — だが表示は
+   * 同じ「黙って空」になるので、別軸で数えて表に出す。存在確認に使う `{% if %}` の条件は
+   * undefined が正当な値なので対象外(可視テキストの穴だけを数える)。
+   */
+  readonly missing: readonly string[];
+}
+
+/**
+ * 1 回の `toFilled` に紐づく評価器。解釈できない式を空値へ落とすのは従来どおり
+ * (画面を落とさない)だが、落としたことを必ず記録する。
+ */
+class Filler {
+  /** Set を使うのは同じ式がループ展開で何度も現れるため(件数でなく種類を数える)。 */
+  readonly unsupported = new Set<string>();
+  readonly missing = new Set<string>();
+
+  private fail(expr: string): void {
+    this.unsupported.add(expr);
+  }
+
+  /** `{{ expr }}` の可視テキスト。 */
+  expr(expr: string, ctx: Ctx): string {
+    try {
+      const v = evaluateJinjaExpr(expr, ctx);
+      if (v === undefined || v === null) this.missing.add(expr);
+      return stringifyJinjaValue(v);
+    } catch {
+      this.fail(expr);
+      return '';
+    }
+  }
+
+  /** `{% if cond %}` の分岐判定。nunjucks も JS の真偽値化をそのまま使う。 */
+  cond(cond: string, ctx: Ctx): boolean {
+    try {
+      return Boolean(evaluateJinjaExpr(cond, ctx));
+    } catch {
+      this.fail(cond);
+      return false;
+    }
+  }
+
+  /** `{% for v in iter %}` の反復対象。配列でなければ空(ループは展開しない)。 */
+  array(expr: string, ctx: Ctx): unknown[] {
+    try {
+      const v = evaluateJinjaExpr(expr, ctx);
+      return Array.isArray(v) ? v : [];
+    } catch {
+      this.fail(expr);
+      return [];
+    }
+  }
+}
+
+/** 要素の開始 `<tag` 直後に追加属性を挿入する。 */
+function insertAttrs(element: string, attrs: string): string {
+  return element.replace(/^(<[a-zA-Z][\w-]*)/, `$1 ${attrs}`);
+}
+
+/**
+ * *テキスト中*(タグ内ではない)の各 Jinja token を locked chip として包む。
+ * `jinjaMask.ts` の `wrapInlineTokens` を写したもの。`{{ var }}` chip の可視ラベル
+ * だけが `ctx` に対して評価した値で, `{% %}` / `{# #}` token はリテラルソースを
+ * ラベルとして保持する。厳密なソース token は常に data-jinja に入るため, ラベルに
+ * 関わらず `toTemplate` が復元する。
+ */
+function fillInline(html: string, ctx: Ctx, f: Filler): string {
+  return html
+    .split(/(<[^>]*>)/)
+    .map((part) => {
+      if (part.startsWith('<')) return part; // タグ — 属性内 Jinja は verbatim に round-trip
+      return part.replace(TOKEN_RE, (token) => {
+        const kind = tokenKind(token);
+        const visible = kind === 'var' ? f.expr(token.slice(2, -2).trim(), ctx) : token;
+        return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_JINJA}="${b64encode(token)}">${htmlEscape(visible)}</span>`;
+      });
+    })
+    .join('');
+}
+
+/**
+ * verbatim ソース(base64)を運ぶ locked かつ opaque な chip。`kind` は component の
+ * 種別/スタイルを選び, キャンバスの live-render 層が dispatch できるようにする:
+ * `script` → 実行, `math` → MathJax (TeX)で組版 または MathML を描画。
+ */
+function opaqueChip(source: string, kind: 'script' | 'math', label: string): string {
+  return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_OPAQUE}="${b64encode(source)}" ${DATA_OPAQUE_KIND}="${kind}">${label}</span>`;
+}
+
+// opaque mask の生成正規表現。`jinjaMask.ts` の `toTemplate` が data-opaque 復元段で
+// 「復号値が生成 1 単位と完全一致するか」を検査する際にも同じ定数を使う — 生成と検査が
+// 別々の正規表現に分かれると、片側だけ緩めても round-trip テストが気付けないため。
+export const OPAQUE_SCRIPT_RE = /<script\b[\s\S]*?<\/script>/gi;
+export const OPAQUE_MATH_RE = /<math\b[\s\S]*?<\/math>/gi;
+// MathJax が受理する TeX 区切り: $$…$$ / \(…\) / \[…\]。(単独の `$` はマッチさせ
+// ない — レポート本文の通貨表記と衝突するため。)
+export const MATH_TEX_RE = /\$\$[\s\S]*?\$\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g;
+
+/**
+ * 構造パスの前に, GrapesJS と相性の悪い / math コンテンツを opaque chip へ mask
+ * する。GrapesJS が `<script>` を除去したり MathML を再構成したりできず, テキスト
+ * 編集が数式を分断できないようにするため。MathJax (TeX)も MathML も mask する。
+ * 順序が重要: 要素(script, 次に `<math>`)を TeX より先に処理し, script/MathML の
+ * body が TeX として再走査されないようにする。
+ */
+function maskOpaque(html: string): string {
+  let s = html;
+  s = s.replace(OPAQUE_SCRIPT_RE, (m) => opaqueChip(m, 'script', 'JS'));
+  s = s.replace(OPAQUE_MATH_RE, (m) => opaqueChip(m, 'math', '∑'));
+  s = s.replace(MATH_TEX_RE, (m) => opaqueChip(m, 'math', '∑'));
+  return s;
+}
+
+// `{% for v in iter %}<el>…</el>{% endfor %}` — body は nested statement を持たない
+// 単一要素(`jinjaMask.ts` の `absorbBlocks` が受理するのと同じ形)。
+const FOR_RE = new RegExp(
+  '(\\{%\\s*for\\s+(\\w+)\\s+in\\s+([\\s\\S]*?)%\\})' + // 1 open, 2 var, 3 iterable
+    '\\s*(<([a-zA-Z][\\w-]*)\\b(?:[^>]*>)(?:(?!\\{%)[\\s\\S])*?<\\/\\5>)\\s*' + // 4 element, 5 tag
+    '(\\{%\\s*endfor\\s*%\\})', // 6 close
+  'g',
+);
+
+function expandLoops(html: string, ctx: Ctx, f: Filler): string {
+  return html.replace(
+    FOR_RE,
+    (_m, open: string, varName: string, iter: string, element: string, _tag, close: string) => {
+      const items = f.array(iter.trim(), ctx);
+      const tplRow = insertAttrs(
+        element,
+        `${DATA_JINJA_OPEN}="${b64encode(open)}" ${DATA_JINJA_CLOSE}="${b64encode(close)}"`,
+      );
+      // iterable が空: ループが生き残るよう(未 fill の)テンプレート行を残す。
+      if (items.length === 0) return fillInline(tplRow, ctx, f);
+      return items
+        .map((item, i) => {
+          const loopCtx: Ctx = {
+            ...ctx,
+            [varName]: item,
+            loop: {
+              index: i + 1,
+              index0: i,
+              first: i === 0,
+              last: i === items.length - 1,
+              length: items.length,
+            },
+          };
+          // 先頭行が for/endfor マーカを運ぶ。clone は表示専用。
+          const row = i === 0 ? tplRow : insertAttrs(element, DATA_JINJA_LOOP_CLONE);
+          return fillInline(row, loopCtx, f);
+        })
+        .join('\n');
+    },
+  );
+}
+
+// `{% if c %}A{% else %}B{% endif %}` (else は任意)。Non-greedy: nesting なしを
+// 前提とし, レポートテンプレートの単一要素 branch に合致する。`jinjaMask.ts` の
+// `toTemplate` が data-jinja-block 復元段の形状検査でも同じ定数を使う(生成と検査の共有)。
+export const IF_RE =
+  /\{%\s*if\s+([\s\S]*?)%\}([\s\S]*?)(?:\{%\s*else\s*%\}([\s\S]*?))?\{%\s*endif\s*%\}/g;
+
+function collapseIfs(html: string, ctx: Ctx, f: Filler): string {
+  return html.replace(IF_RE, (whole, cond: string, trueB: string, elseB: string | undefined) => {
+    const taken = (f.cond(cond.trim(), ctx) ? trueB : (elseB ?? '')).trim();
+    const el = taken.match(/^<([a-zA-Z][\w-]*)\b[^>]*>[\s\S]*<\/\1>$/);
+    // marker を運べるのは単一要素 branch のみ。それ以外は生ブロックを残し,
+    // `jinjaMask.ts` の inline chip に処理させる(なお round-trip する)。
+    if (!el) return whole;
+    return fillInline(insertAttrs(taken, `${DATA_JINJA_BLOCK}="${b64encode(whole)}"`), ctx, f);
+  });
+}
+
+/**
+ * 生 Jinja2(全文または fragment) -> filled で GrapesJS-safe かつ round-trip 可能な HTML。
+ * 併せて、許可リストの外で解釈できなかった式を返す(0 件であることをテストが主張する)。
+ */
+export function toFilledWithDiagnostics(
+  raw: string,
+  sample: SampleData,
+): { html: string; diagnostics: FillDiagnostics } {
+  const f = new Filler();
+  const ctx = sample as Ctx;
+  let s = raw;
+  s = maskOpaque(s);
+  s = expandLoops(s, ctx, f);
+  s = collapseIfs(s, ctx, f);
+  s = fillInline(s, ctx, f);
+  return { html: s, diagnostics: { unsupported: [...f.unsupported], missing: [...f.missing] } };
+}
+
+/** 既に警告した式(同じ式をループ展開や再読込のたびに何度も出さないため)。 */
+const warned = new Set<string>();
+
+/**
+ * `toFilledWithDiagnostics` の薄い包み。解釈できない式があってもユーザー向けの挙動は
+ * 変えない(空値になるだけで画面は落ちない)が、**無言にはしない** —
+ * `catch` で全部を空文字へ落とすと例外もコンソール出力も残らず、CSP で
+ * コンパイルが落ちても「値が消えた」以外の手掛かりが無くなる。
+ */
+export function toFilled(raw: string, sample: SampleData): string {
+  const { html, diagnostics } = toFilledWithDiagnostics(raw, sample);
+  const fresh = diagnostics.unsupported.filter((e) => !warned.has(e));
+  if (fresh.length > 0) {
+    for (const e of fresh) warned.add(e);
+    console.warn('[fillJinja] 解釈できない Jinja 式のため値を空にしました:', fresh);
+  }
+  const freshMissing = diagnostics.missing.filter((e) => !warned.has(e));
+  if (freshMissing.length > 0) {
+    for (const e of freshMissing) warned.add(e);
+    console.warn('[fillJinja] サンプルデータに値が無く空になった式:', freshMissing);
+  }
+  return html;
+}

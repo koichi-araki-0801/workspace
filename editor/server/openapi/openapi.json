@@ -1,0 +1,4098 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "editor API",
+    "version": "0.1.0",
+    "description": "Jinja2 テンプレート GUI 編集アプリのバックエンド API。\n\n`@editor/shared` の Repository 契約(Template / Auth / User / History / Part)を REST として設計したもの。一部は Phase 2 の設計(ハンドラ未実装)。"
+  },
+  "servers": [
+    {
+      "url": "/api",
+      "description": "同一オリジン (server が SPA も配信)"
+    }
+  ],
+  "tags": [
+    {
+      "name": "system",
+      "description": "ヘルスチェック等"
+    },
+    {
+      "name": "auth",
+      "description": "認証・セッション"
+    },
+    {
+      "name": "templates",
+      "description": "テンプレートの探索・生成・下書き・確定保存"
+    },
+    {
+      "name": "parts",
+      "description": "パーツカタログ(エディタ左ペイン)"
+    },
+    {
+      "name": "notes",
+      "description": "パーツ単位の作業メモ(版インスタンス単位)"
+    },
+    {
+      "name": "reviews",
+      "description": "確定保存の精査者承認ワークフロー"
+    },
+    {
+      "name": "history",
+      "description": "編集 / PDF / 作成 履歴とバージョン比較"
+    },
+    {
+      "name": "vivliostyle",
+      "description": "vivliostyle build (PDF) / preview (ライブ)"
+    },
+    {
+      "name": "users",
+      "description": "ユーザ管理(admin 限定)"
+    }
+  ],
+  "security": [
+    {
+      "sessionCookie": []
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "ヘルスチェック",
+        "operationId": "getHealth",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "ログイン",
+        "operationId": "login",
+        "security": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ログイン成功(セッション cookie を Set-Cookie)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "資格情報が不正 (kind=unauthorized。存在有無は区別しない)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "レート制限で拒否 (kind=forbidden)。`code` は総当たり検出時 LOGIN_RATE_LIMITED、同時実行の上限超過時 LOGIN_BUSY。前者は (IP, ログインID) または IP 単位の窓を超えた場合で、message に待ち秒数を含む。後者は即時再試行してよい",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "ログアウト",
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "ログアウト完了"
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "現在のユーザを取得",
+        "operationId": "getMe",
+        "responses": {
+          "200": {
+            "description": "現在のユーザ(未ログイン時は null)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/User"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/init-password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "パスワード変更(本人・現行パスワードによる所有証明が必要)",
+        "operationId": "initPassword",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordInitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "変更完了(他端末のセッションは失効)"
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "本人以外を指定した、またはレート制限で拒否 (kind=forbidden)。後者の `code` は login と同じ LOGIN_RATE_LIMITED / LOGIN_BUSY",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/options": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "カスケードドロップダウンの候補を取得",
+        "operationId": "getDropdownOptions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "companyCode",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "fundCode",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "baseDate",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "editionType",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "各属性の候補",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DropdownOptions"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "テンプレート一覧(属性で絞り込み)",
+        "operationId": "listTemplates",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "companyCode",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "fundCode",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "baseDate",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "editionType",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "テンプレート meta の配列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateMeta"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/series": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "系列ファンドのテンプレート一覧",
+        "operationId": "listSeriesFunds",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "companyCode",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "fundCode",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "editionType",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "系列ファンドの meta 配列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateMeta"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/{id}": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "テンプレート(meta + html + css)を取得",
+        "operationId": "getTemplate",
+        "description": "確定テンプレを先に見る。無い場合だけ生成直後の未確定(pending)実体を `status: \"draft\"` で返す。順序が逆だと pending を書ける者が確定テンプレの表示内容を差し替えられるため、確定優先は契約である。",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "テンプレート",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Template"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/{id}/sync-status": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "交付版⇄全体版 ペア同期の現況(未解決競合の一覧)",
+        "operationId": "getTemplateSyncStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ペア同期の現況",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairSyncStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/{id}/draft": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "常時オートセーブの下書きを取得",
+        "operationId": "getDraft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "下書き(無ければ null)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TemplateDraft"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "下書きを保存(オートセーブ)",
+        "operationId": "saveDraft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveDraftRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "保存完了"
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "下書きを破棄(確定保存せずメニューへ戻る時)",
+        "operationId": "discardDraft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "破棄完了(冪等)"
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/generate": {
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "新規テンプレートを生成(Python ジェネレータ)",
+        "operationId": "generate",
+        "description": "生成物は**未確定(pending)領域**に置かれ、確定テンプレのディレクトリには書かれない。直後は `GET /templates/{id}` が `status: \"draft\"` で返り、`GET /templates` の一覧には現れない(一覧は承認済みの確定テンプレのみ)。確定への昇格は承認(`POST /review-requests` → `.../approve`)だけが行う。会社コード・ファンドコード・版種は 1 トークンとして安全な文字列に限る(`/` `` `_` `..` 制御文字・前後空白・末尾ドットは 400)。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "生成結果(meta.status は draft)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "同じ属性の確定テンプレートが既にある (kind=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "サーバ内部エラー (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/funds/{fundCode}/sample-data": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "プレビュー用サンプルデータ(fundCode ごと)",
+        "operationId": "getSampleData",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fundCode",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "サンプルデータ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SampleData"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/parts/classification-options": {
+      "get": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "パーツ分類のカスケード候補",
+        "operationId": "getPartClassificationOptions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "majorClass",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "middleClass",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "minorClass",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "各段階の候補",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartClassificationOptions"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/parts": {
+      "get": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "パーツ一覧(分類で絞り込み)",
+        "operationId": "listParts",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "majorClass",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "middleClass",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "minorClass",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "パーツの配列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PartCatalogItem"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/{templateId}/part-history": {
+      "get": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "パーツ単位の編集履歴(版インスタンス単位の全件)",
+        "operationId": "listPartHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "パーツ履歴の配列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PartHistoryEntry"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "パーツ単位の編集を記録",
+        "operationId": "recordPartChange",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPartChangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "記録完了"
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/{templateId}/notes": {
+      "get": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "パーツ単位メモを取得(版インスタンス単位の全件)",
+        "operationId": "listNotes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "メモの配列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PartNote"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "パーツ単位メモを保存(content 空文字は削除)",
+        "operationId": "saveNote",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveNoteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "保存完了"
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/review-requests": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "承認キュー一覧(approver|admin は全件、editor は自分の申請のみ)",
+        "operationId": "listReviews",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "$ref": "#/components/schemas/ReviewStatus"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "申請メタの配列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewRequestMeta"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "確定保存を申請(pending 作成・実ファイル非更新)",
+        "operationId": "submitReview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitReviewBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "作成された申請メタ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRequestMeta"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/review-requests/{reqId}": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "申請詳細(本体込み・承認画面のプレビュー用)",
+        "operationId": "getReview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reqId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "申請(本体込み)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRequest"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/review-requests/{reqId}/approve": {
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "承認して実ファイルへ反映 + git commit(精査者限定)",
+        "operationId": "approveReview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reqId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewDecisionBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "反映後のテンプレート meta + 並行性警告",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApproveReviewResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "権限不足 (admin 限定など)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "競合 (kind=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "サーバ内部エラー (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/review-requests/{reqId}/reject": {
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "却下(精査者限定・実ファイル非更新)",
+        "operationId": "rejectReview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reqId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewDecisionBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "却下後の申請メタ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRequestMeta"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "権限不足 (admin 限定など)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "競合 (kind=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/review-requests/{reqId}/hold": {
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "保留(精査者限定・実ファイル非更新)",
+        "operationId": "holdReview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reqId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewDecisionBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "保留後の申請メタ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRequestMeta"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "権限不足 (admin 限定など)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "競合 (kind=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/history/edit": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "編集履歴フィード",
+        "operationId": "getEditHistory",
+        "responses": {
+          "200": {
+            "description": "編集履歴",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EditHistoryEntry"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/history/pdf": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "PDF 出力履歴フィード",
+        "operationId": "getPdfHistory",
+        "responses": {
+          "200": {
+            "description": "PDF 履歴",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PdfHistoryEntry"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "history"
+        ],
+        "summary": "PDF 出力を記録",
+        "operationId": "recordPdfExport",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPdfExportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "記録完了"
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/history/create": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "作成履歴フィード",
+        "operationId": "getCreateHistory",
+        "responses": {
+          "200": {
+            "description": "作成履歴",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CreateHistoryEntry"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/{templateId}/versions": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "スナップショットを持つ確定バージョン一覧(新しい順)",
+        "operationId": "listVersions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "バージョン meta の配列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateVersionMeta"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snapshots/{historyId}": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "確定スナップショット(凍結された HTML/CSS)を取得",
+        "operationId": "getSnapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "historyId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "templateId",
+            "schema": {
+              "description": "その版のどのテンプレを取り出すか(複数含む版では必須)",
+              "type": "string"
+            },
+            "description": "その版のどのテンプレを取り出すか(複数含む版では必須)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "スナップショット",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateSnapshot"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/build": {
+      "post": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "インライン HTML+CSS から PDF を生成",
+        "operationId": "buildInline",
+        "description": "\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは **body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<script src=\"js/x.js\">` は相対 URL の解決基準がずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildInlineRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PDF バイナリ",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "PDF バイナリ"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "サーバ内部エラー (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/build/project": {
+      "post": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "vivliostyle プロジェクト(zip)から PDF を生成",
+        "operationId": "buildProject",
+        "description": "リクエストボディに project zip を `application/zip` で送信する。**受理は許可リスト方式**で、1 エントリでも条件を外れた時点で zip 全体が 400 になる(該当エントリだけ無視する挙動ではない)。\n\n**展開して残せる拡張子**(小文字化した basename の末尾一致): `.html` `.htm` `.xhtml` `.xht` `.md` `.markdown` `.css` `.css.map` `.png` `.jpg` `.jpeg` `.svg` `.gif` `.webp` `.apng` `.ttf` `.otf` `.woff` `.woff2` `.json`。これ以外(`.js` `.mjs` `.cjs` `.ts` を含む)は 400。設定を `vivliostyle.config.js` 等で送っても「無視される」のではなく**拒否される**。\n\n**黙って捨てる OS ノイズ**(400 にはしない): `__MACOSX/**`・`.DS_Store`・`Thumbs.db`・`desktop.ini`・`._` で始まる名前。\n\n**拒否する npm 成果物**: `node_modules/` を含むパス・`package.json`・`package-lock.json`・`.npmrc`。\n\n**config は `vivliostyle.config.json` ちょうど 1 件**(名前は大小文字を無視して照合)。2 件以上あれば 400。無ければ単一エントリを既定として使う。内容は**厳密な JSON** のみで、コメント・末尾カンマ(JSONC)や配列(複数タスク)は 400。\n\n**受理するトップレベルキー**: `entry` `entryContext` `theme` `cover` `toc` `title` `author` `language` `readingProgression` `size` `copyAsset`。これ以外はキー名を挙げて 400 になる(`output` `workspaceDir` `vfm` `image` `timeout` `viewer` `server` `static` `pdfPostprocess` など vivliostyle CLI の正規フィールドも含む)。`base` は専用メッセージで 400 — 文書の配信先はサーバが固定する。\n\n**`theme` の制約**: 展開ルート内に実在する `.css` ファイルへの相対パスのみ。拡張子の判定は**大小文字を区別**する(`.CSS` は不可)。npm パッケージ指定子・`{specifier, import}` 形は不可。`entry` 要素ごとの `theme` にも同じ制約が掛かる。\n\n**400 応答**はすべて `kind=validation` で、`message` は日本語 1 文。拡張子違反は「取り込めるのは <許可拡張子一覧> だけです」、キー違反は「vivliostyle.config.json に指定できないキーがあります: <キー名>」のように**違反した対象を名指しする**(どのファイル・どのキーで落ちたかが応答から判る)。展開時の資源上限(ファイル数・展開後サイズ・圧縮比・目録サイズ)超過も 400 で、上限値を message に含める。413 になるのは**リクエスト本文そのもの**がサーバの `bodyLimit` を超えた場合だけ(fastify が返す)。\n\n任意クエリ: `entry`, `size`, `singleDoc`。\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは **body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<script src=\"js/x.js\">` は相対 URL の解決基準がずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
+        "requestBody": {
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "string",
+                "format": "binary",
+                "description": "PDF バイナリ"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PDF バイナリ",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "PDF バイナリ"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "プロジェクトが大きすぎる (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "サーバ内部エラー (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/build/merge": {
+      "post": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "複数のレンダリング済み文書を 1 つの PDF へ結合",
+        "operationId": "buildMerge",
+        "description": "`documents` の配列順に連結し、全体で通しページ番号を振った 1 つの PDF を返す。\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは **body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<script src=\"js/x.js\">` は相対 URL の解決基準がずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildMergeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PDF バイナリ",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "PDF バイナリ"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "リクエストが大きすぎる (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "サーバ内部エラー (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preview": {
+      "get": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "稼働中のプレビューセッション一覧(自分が作成した分のみ)",
+        "operationId": "listPreviews",
+        "description": "セッションは作成した利用者に紐づく。admin 以外は自分が作成したセッションだけが返る。",
+        "responses": {
+          "200": {
+            "description": "セッション一覧",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewSessionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "ライブプレビューを起動 (inline JSON または project zip)",
+        "operationId": "startPreview",
+        "description": "inline は `application/json` (BuildInlineRequest)、project は `application/zip`。返却 `url` (`/api/preview/{id}/`) を同一オリジンで開くと vivliostyle ビューアが表示される。\n\nzip 経路の受入条件は `POST /build/project` と**同一**である(同じ展開・検証を通る):\n\nリクエストボディに project zip を `application/zip` で送信する。**受理は許可リスト方式**で、1 エントリでも条件を外れた時点で zip 全体が 400 になる(該当エントリだけ無視する挙動ではない)。\n\n**展開して残せる拡張子**(小文字化した basename の末尾一致): `.html` `.htm` `.xhtml` `.xht` `.md` `.markdown` `.css` `.css.map` `.png` `.jpg` `.jpeg` `.svg` `.gif` `.webp` `.apng` `.ttf` `.otf` `.woff` `.woff2` `.json`。これ以外(`.js` `.mjs` `.cjs` `.ts` を含む)は 400。設定を `vivliostyle.config.js` 等で送っても「無視される」のではなく**拒否される**。\n\n**黙って捨てる OS ノイズ**(400 にはしない): `__MACOSX/**`・`.DS_Store`・`Thumbs.db`・`desktop.ini`・`._` で始まる名前。\n\n**拒否する npm 成果物**: `node_modules/` を含むパス・`package.json`・`package-lock.json`・`.npmrc`。\n\n**config は `vivliostyle.config.json` ちょうど 1 件**(名前は大小文字を無視して照合)。2 件以上あれば 400。無ければ単一エントリを既定として使う。内容は**厳密な JSON** のみで、コメント・末尾カンマ(JSONC)や配列(複数タスク)は 400。\n\n**受理するトップレベルキー**: `entry` `entryContext` `theme` `cover` `toc` `title` `author` `language` `readingProgression` `size` `copyAsset`。これ以外はキー名を挙げて 400 になる(`output` `workspaceDir` `vfm` `image` `timeout` `viewer` `server` `static` `pdfPostprocess` など vivliostyle CLI の正規フィールドも含む)。`base` は専用メッセージで 400 — 文書の配信先はサーバが固定する。\n\n**`theme` の制約**: 展開ルート内に実在する `.css` ファイルへの相対パスのみ。拡張子の判定は**大小文字を区別**する(`.CSS` は不可)。npm パッケージ指定子・`{specifier, import}` 形は不可。`entry` 要素ごとの `theme` にも同じ制約が掛かる。\n\n**400 応答**はすべて `kind=validation` で、`message` は日本語 1 文。拡張子違反は「取り込めるのは <許可拡張子一覧> だけです」、キー違反は「vivliostyle.config.json に指定できないキーがあります: <キー名>」のように**違反した対象を名指しする**(どのファイル・どのキーで落ちたかが応答から判る)。展開時の資源上限(ファイル数・展開後サイズ・圧縮比・目録サイズ)超過も 400 で、上限値を message に含める。413 になるのは**リクエスト本文そのもの**がサーバの `bodyLimit` を超えた場合だけ(fastify が返す)。\n\n",
+        "responses": {
+          "201": {
+            "description": "起動したセッション",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "サーバ内部エラー (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preview/{id}": {
+      "get": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "プレビューセッションのメタを取得",
+        "operationId": "getPreview",
+        "description": "他人が作成したセッションは 404(存在を漏らさないため 403 にしない)。",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "セッション",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "プレビューセッションを停止",
+        "operationId": "stopPreview",
+        "description": "他人が作成したセッションは 404(停止も作業ディレクトリ削除も起きない)。",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "停止完了"
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preview/{id}/{path}": {
+      "get": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "プレビュー資産の中継(リバースプロキシ)",
+        "operationId": "proxyPreviewAsset",
+        "description": "プレビューセッションのビューアと文書を同一オリジンで配信する中継。**GET / HEAD のみ**を受け付ける(他メソッドは 404)。中継されるのは次の 2 系統だけで、それ以外はすべて 404 になり上流へは到達しない:`/__vivliostyle-viewer/**`(ビューアアプリ資産)と、**サーバが固定する** `/vivliostyle/**`(文書の配信先)。この配信先は `vivliostyle.config.json` の `base` では変えられない(`base` の指定自体が 400 になる)。したがって Vite の内部エンドポイント(`/@fs`・`/@id`・`/node_modules`・`/__open-in-editor`)は利用できない。percent-encoding で偽装した形も、生と復号後の双方で照合するため通らない。他人が作成したセッションの id を指定した場合も 404。",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "上流プレビューサーバの応答をそのまま返す"
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "セッションが無い / 他人のセッション / 配信対象外のパス (kind=not_found)。配信対象外のパスと存在しないセッションは区別しない。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "プレビューサーバに接続できない (kind=network)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "ユーザ一覧(admin 限定)",
+        "operationId": "listUsers",
+        "responses": {
+          "200": {
+            "description": "ユーザの配列",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "権限不足 (admin 限定など)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "ユーザ作成(admin 限定)",
+        "operationId": "createUser",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "作成されたユーザと一時パスワード",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedUser"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "権限不足 (admin 限定など)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "競合 (kind=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/{id}": {
+      "patch": {
+        "tags": [
+          "users"
+        ],
+        "summary": "ユーザ部分更新(admin 限定)",
+        "operationId": "updateUser",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新後のユーザ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "権限不足 (admin 限定など)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/{id}/reset-password": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "パスワードをリセット(admin 限定)",
+        "operationId": "resetUserPassword",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "新しい一時パスワード",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordResetResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "権限不足 (admin 限定など)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "PasswordInitRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "currentPassword": {
+            "type": "string",
+            "description": "現在のパスワード(所有証明)"
+          },
+          "newPassword": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "currentPassword",
+          "newPassword"
+        ]
+      },
+      "SaveDraftRequest": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "html": {
+            "type": "string"
+          },
+          "css": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "templateId",
+          "html",
+          "css"
+        ]
+      },
+      "TemplateId": {
+        "type": "string",
+        "example": "AM01_510037_20240710_交付版",
+        "description": "ファイル名規約 `<会社コード>_<ファンドコード>_<基準日>_<版種>`(拡張子なし)。パス区切り・`..`・制御文字・末尾のドット/空白を含まない単一のファイル名セグメントに限る(判定は `isValidTemplateId`)。"
+      },
+      "GenerateRequest": {
+        "type": "object",
+        "properties": {
+          "companyCode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fundCode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "editionType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "basedOnTemplateId": {
+            "description": "シリーズファンドのテンプレから生成する場合の元テンプレ ID",
+            "type": "string"
+          },
+          "isRedemption": {
+            "description": "償還ファンドとして作成(特定パーツを償還用へ置換。現状はモック実装)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "companyCode",
+          "fundCode",
+          "editionType"
+        ]
+      },
+      "RecordPartChangeRequest": {
+        "type": "object",
+        "properties": {
+          "partKey": {
+            "type": "string",
+            "minLength": 1,
+            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+          },
+          "change": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "partKey",
+          "change"
+        ]
+      },
+      "SaveNoteRequest": {
+        "type": "object",
+        "properties": {
+          "pathKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 65536,
+            "description": "空文字は「メモ無し」= 削除"
+          }
+        },
+        "required": [
+          "pathKey",
+          "content"
+        ]
+      },
+      "ReviewStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "approved",
+          "rejected",
+          "held"
+        ]
+      },
+      "SubmitReviewBody": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "$ref": "#/components/schemas/TemplateId"
+          },
+          "html": {
+            "type": "string",
+            "maxLength": 4194304,
+            "description": "復元済みの生 Jinja2 HTML"
+          },
+          "css": {
+            "type": "string",
+            "maxLength": 1048576
+          },
+          "fundCode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "filledHtml": {
+            "type": "string",
+            "maxLength": 4194304
+          },
+          "origin": {
+            "description": "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
+            "$ref": "#/components/schemas/ReviewOrigin"
+          },
+          "changedSummary": {
+            "description": "申請者側で計算した変更概要(参考表示用の自己申告)",
+            "$ref": "#/components/schemas/ReviewChangedSummary"
+          }
+        },
+        "required": [
+          "templateId",
+          "html",
+          "css",
+          "fundCode",
+          "origin"
+        ]
+      },
+      "ReviewOrigin": {
+        "type": "string",
+        "enum": [
+          "edit",
+          "create"
+        ],
+        "description": "編集タブ(既存編集) / 作成タブ(新規) 由来。2 系統の区別を申請に保持する"
+      },
+      "ReviewChangedSummary": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "names": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        },
+        "required": [
+          "count",
+          "names"
+        ]
+      },
+      "ReviewDecisionBody": {
+        "type": "object",
+        "properties": {
+          "comment": {
+            "description": "却下理由 / 承認メモ",
+            "type": "string"
+          }
+        }
+      },
+      "RecordPdfExportRequest": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "$ref": "#/components/schemas/TemplateId"
+          }
+        },
+        "required": [
+          "templateId"
+        ]
+      },
+      "BuildInlineRequest": {
+        "type": "object",
+        "properties": {
+          "html": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4194304,
+            "description": "レンダリング済み(nunjucks)HTML"
+          },
+          "css": {
+            "default": "",
+            "type": "string",
+            "maxLength": 1048576
+          },
+          "size": {
+            "description": "ページサイズ (既定 A4)",
+            "example": "A4",
+            "type": "string"
+          },
+          "singleDoc": {
+            "description": "単一ドキュメント扱い",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "html"
+        ]
+      },
+      "BuildMergeRequest": {
+        "type": "object",
+        "properties": {
+          "documents": {
+            "minItems": 1,
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BuildMergeDocument"
+            },
+            "description": "結合する文書。配列順に連結し通しページ番号を振る"
+          },
+          "size": {
+            "description": "ページサイズ (既定 A4)",
+            "example": "A4",
+            "type": "string"
+          }
+        },
+        "required": [
+          "documents"
+        ]
+      },
+      "BuildMergeDocument": {
+        "type": "object",
+        "properties": {
+          "html": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4194304,
+            "description": "レンダリング済み(nunjucks)HTML"
+          },
+          "css": {
+            "default": "",
+            "type": "string",
+            "maxLength": 1048576
+          }
+        },
+        "required": [
+          "html"
+        ]
+      },
+      "CreateUserRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "$ref": "#/components/schemas/Username"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "mustChangePassword": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "username",
+          "displayName",
+          "role",
+          "disabled",
+          "mustChangePassword"
+        ]
+      },
+      "Username": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "UserRole": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "approver",
+          "editor",
+          "viewer"
+        ],
+        "description": "admin = 全権 / approver = 精査者(確定保存の承認) / editor = 編集者(申請のみ) / viewer = 閲覧"
+      },
+      "UpdateUserRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "$ref": "#/components/schemas/Username"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "mustChangePassword": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HealthResult": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false
+      },
+      "LoginResult": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "description": "true の場合、クライアントはパスワード初期化画面へ遷移する"
+          }
+        },
+        "required": [
+          "user",
+          "mustChangePassword"
+        ],
+        "additionalProperties": false
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "description": "次回ログイン時にパスワード初期化を強制"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "displayName",
+          "role",
+          "disabled",
+          "mustChangePassword"
+        ],
+        "additionalProperties": false
+      },
+      "AppError": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/AppErrorKind"
+          },
+          "message": {
+            "type": "string",
+            "description": "ユーザ向け(JP)。常に表示して安全"
+          },
+          "code": {
+            "description": "機械可読コード 例: 'USER_DISABLED'",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "AppErrorKind": {
+        "type": "string",
+        "enum": [
+          "not_found",
+          "validation",
+          "unauthorized",
+          "forbidden",
+          "conflict",
+          "network",
+          "unexpected"
+        ]
+      },
+      "DropdownOptions": {
+        "type": "object",
+        "properties": {
+          "companyCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fundCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "baseDates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "editionTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "companyCodes",
+          "fundCodes",
+          "baseDates",
+          "editionTypes"
+        ],
+        "additionalProperties": false
+      },
+      "TemplateMeta": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ファイル名(拡張子なし)由来の安定 ID"
+          },
+          "attributes": {
+            "$ref": "#/components/schemas/TemplateAttributes"
+          },
+          "fileName": {
+            "type": "string",
+            "example": "AM01_510037_20240710_kr.html"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TemplateStatus"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "最終確定保存の ISO タイムスタンプ"
+          },
+          "updatedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "attributes",
+          "fileName",
+          "status",
+          "updatedAt",
+          "updatedBy"
+        ],
+        "additionalProperties": false
+      },
+      "TemplateAttributes": {
+        "type": "object",
+        "properties": {
+          "companyCode": {
+            "type": "string",
+            "description": "委託会社コード"
+          },
+          "fundCode": {
+            "type": "string",
+            "description": "ファンドコード"
+          },
+          "baseDate": {
+            "type": "string",
+            "description": "基準日 (yyyymmdd)",
+            "example": "20240710"
+          },
+          "editionType": {
+            "type": "string",
+            "description": "版種"
+          }
+        },
+        "required": [
+          "companyCode",
+          "fundCode",
+          "baseDate",
+          "editionType"
+        ],
+        "additionalProperties": false
+      },
+      "TemplateStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "published"
+        ]
+      },
+      "Template": {
+        "type": "object",
+        "properties": {
+          "meta": {
+            "$ref": "#/components/schemas/TemplateMeta"
+          },
+          "html": {
+            "type": "string",
+            "description": "Jinja2 生 HTML(タグ保持)"
+          },
+          "css": {
+            "type": "string",
+            "description": "fundCode ごとの共有 CSS"
+          },
+          "filled": {
+            "type": "string",
+            "description": "エディタキャンバス用に事前描画した filled HTML(Jinja 値を差し込みつつ元ソースを保持)。静的な fill が無ければ空で、エディタは都度描画にフォールバックする"
+          }
+        },
+        "required": [
+          "meta",
+          "html",
+          "css",
+          "filled"
+        ],
+        "additionalProperties": false
+      },
+      "PairSyncStatus": {
+        "type": "object",
+        "properties": {
+          "pairTemplateId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ペアのテンプレート ID。版種がペア対象外なら null"
+          },
+          "pairExists": {
+            "type": "boolean",
+            "description": "ペア実体(ファイル)が存在するか"
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partKey": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "初期差分",
+                    "両側変更",
+                    "ペア側先行"
+                  ]
+                },
+                "detectedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "partKey",
+                "kind",
+                "detectedAt"
+              ],
+              "additionalProperties": false
+            },
+            "description": "未解決競合(自動同期停止中)のパーツ一覧"
+          }
+        },
+        "required": [
+          "pairTemplateId",
+          "pairExists",
+          "conflicts"
+        ],
+        "additionalProperties": false
+      },
+      "TemplateDraft": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string"
+          },
+          "html": {
+            "type": "string"
+          },
+          "css": {
+            "type": "string"
+          },
+          "savedAt": {
+            "type": "string"
+          },
+          "savedBy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "templateId",
+          "html",
+          "css",
+          "savedAt",
+          "savedBy"
+        ],
+        "additionalProperties": false
+      },
+      "GenerateResult": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "$ref": "#/components/schemas/Template"
+          }
+        },
+        "required": [
+          "template"
+        ],
+        "additionalProperties": false
+      },
+      "SampleData": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {},
+        "description": "プレビュー用サンプルデータ(任意の JSON)"
+      },
+      "PartClassificationOptions": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "majorClasses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "middleClasses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "minorClasses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "categories",
+          "majorClasses",
+          "middleClasses",
+          "minorClasses"
+        ],
+        "additionalProperties": false
+      },
+      "PartCatalogItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "安定したパーツ ID(SQL 主キー相当)。挿入したコンポーネントの data-part-id にも使う"
+          },
+          "classification": {
+            "$ref": "#/components/schemas/PartClassification"
+          },
+          "name": {
+            "type": "string",
+            "description": "名称(利用者向け)"
+          },
+          "description": {
+            "type": "string",
+            "description": "説明(利用者向け)"
+          },
+          "usageNotes": {
+            "type": "string",
+            "description": "使用上の注意"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updatedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content": {
+            "type": "string",
+            "description": "キャンバスに挿入する GrapesJS 用 HTML 断片"
+          },
+          "syncDefault": {
+            "description": "交付版⇄全体版 自動同期の既定。null/欠落 = 未判断(同期しない)",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartSyncDefault"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "masterReflectDefault": {
+            "description": "注記マスタ書き戻しの既定。null/欠落 = 未判断(反映しない)",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartMasterReflectDefault"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "classification",
+          "name",
+          "description",
+          "usageNotes",
+          "updatedAt",
+          "updatedBy",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "PartClassification": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "カテゴリ(最上位)"
+          },
+          "majorClass": {
+            "type": "string",
+            "description": "大分類"
+          },
+          "middleClass": {
+            "type": "string",
+            "description": "中分類"
+          },
+          "minorClass": {
+            "type": "string",
+            "description": "小分類"
+          }
+        },
+        "required": [
+          "category",
+          "majorClass",
+          "middleClass",
+          "minorClass"
+        ],
+        "additionalProperties": false
+      },
+      "PartSyncDefault": {
+        "type": "string",
+        "enum": [
+          "同期",
+          "非同期",
+          "交付版のみ",
+          "全体版のみ"
+        ]
+      },
+      "PartMasterReflectDefault": {
+        "type": "string",
+        "enum": [
+          "反映",
+          "非反映"
+        ]
+      },
+      "PartHistoryEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "templateId": {
+            "type": "string"
+          },
+          "partKey": {
+            "type": "string",
+            "description": "版を跨いで安定なパーツ構造パスキー(pageAnchor/partAnchor)。GrapesJS のコンポーネントid は再採番され不安定なため構造キーで紐づける"
+          },
+          "user": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "change": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "templateId",
+          "partKey",
+          "user",
+          "timestamp",
+          "change"
+        ],
+        "additionalProperties": false
+      },
+      "PartNote": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string",
+            "description": "版インスタンス ID(= TemplateMeta.id)"
+          },
+          "pathKey": {
+            "type": "string",
+            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+          },
+          "content": {
+            "type": "string",
+            "description": "メモ本文(空文字はメモ無し)"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "templateId",
+          "pathKey",
+          "content",
+          "updatedAt",
+          "updatedBy"
+        ],
+        "additionalProperties": false
+      },
+      "ReviewRequestMeta": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "templateId": {
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/components/schemas/TemplateAttributes"
+          },
+          "fundCode": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ReviewOrigin"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "submittedBy": {
+            "type": "string"
+          },
+          "submittedAt": {
+            "type": "string"
+          },
+          "reviewedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "承認/却下したユーザ。pending は null"
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "却下理由 / 承認メモ。無ければ null"
+          },
+          "baseHash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "申請時点の現行版コンテンツキー"
+          },
+          "heldBy": {
+            "description": "保留した承認者。無ければ null",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "heldAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "holdComment": {
+            "description": "保留メモ",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "changedSummary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewChangedSummaryOutput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "templateId",
+          "attributes",
+          "fundCode",
+          "origin",
+          "status",
+          "submittedBy",
+          "submittedAt",
+          "reviewedBy",
+          "reviewedAt",
+          "comment",
+          "baseHash"
+        ],
+        "additionalProperties": false
+      },
+      "ReviewRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "templateId": {
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/components/schemas/TemplateAttributes"
+          },
+          "fundCode": {
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ReviewOrigin"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "submittedBy": {
+            "type": "string"
+          },
+          "submittedAt": {
+            "type": "string"
+          },
+          "reviewedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "承認/却下したユーザ。pending は null"
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "却下理由 / 承認メモ。無ければ null"
+          },
+          "baseHash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "申請時点の現行版コンテンツキー"
+          },
+          "heldBy": {
+            "description": "保留した承認者。無ければ null",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "heldAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "holdComment": {
+            "description": "保留メモ",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "changedSummary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewChangedSummaryOutput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "html": {
+            "type": "string",
+            "description": "確定保存しようとしている生 Jinja2 HTML"
+          },
+          "css": {
+            "type": "string"
+          },
+          "filledHtml": {
+            "description": "値差込済みの成果物(任意)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "templateId",
+          "attributes",
+          "fundCode",
+          "origin",
+          "status",
+          "submittedBy",
+          "submittedAt",
+          "reviewedBy",
+          "reviewedAt",
+          "comment",
+          "baseHash",
+          "html",
+          "css"
+        ],
+        "additionalProperties": false
+      },
+      "ApproveReviewResult": {
+        "type": "object",
+        "properties": {
+          "meta": {
+            "$ref": "#/components/schemas/TemplateMeta"
+          },
+          "staleWarning": {
+            "type": "boolean",
+            "description": "申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)"
+          },
+          "sync": {
+            "description": "ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PairSyncSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "noteMaster": {
+            "description": "注記マスタ書き戻しの結果。テンプレ ID 解決不能なら null/欠落",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NoteMasterReflectSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "meta",
+          "staleWarning"
+        ],
+        "additionalProperties": false
+      },
+      "PairSyncSummary": {
+        "type": "object",
+        "properties": {
+          "pairTemplateId": {
+            "type": "string",
+            "description": "同期先(ペア)のテンプレート ID"
+          },
+          "applied": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "転写したパーツキー(partId#n)"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partKey": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "partKey",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "description": "転写しなかったパーツと理由(競合・初期差分・未判断など)"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "同期処理自体の失敗理由。正常時は null"
+          }
+        },
+        "required": [
+          "pairTemplateId",
+          "applied",
+          "skipped",
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "NoteMasterReflectSummary": {
+        "type": "object",
+        "properties": {
+          "updated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "注記マスタへ書き戻したパーツ ID"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "書き戻し自体の失敗理由。正常時は null"
+          }
+        },
+        "required": [
+          "updated",
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "EditHistoryEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "一覧の行 id。`<historyId>:<templateId>` で行ごとに一意"
+          },
+          "historyId": {
+            "type": "string",
+            "description": "版(コミット)の識別子。snapshot 取得・版比較はこちらを使う"
+          },
+          "templateId": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string",
+            "description": "変更内容の人間可読サマリ"
+          }
+        },
+        "required": [
+          "id",
+          "historyId",
+          "templateId",
+          "user",
+          "timestamp",
+          "summary"
+        ],
+        "additionalProperties": false
+      },
+      "PdfHistoryEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "templateId": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "templateId",
+          "user",
+          "timestamp"
+        ],
+        "additionalProperties": false
+      },
+      "CreateHistoryEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/components/schemas/TemplateAttributes"
+          },
+          "user": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "basedOnTemplateId": {
+            "description": "系列ファンドの元テンプレ ID",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "attributes",
+          "user",
+          "timestamp"
+        ],
+        "additionalProperties": false
+      },
+      "TemplateVersionMeta": {
+        "type": "object",
+        "properties": {
+          "historyId": {
+            "type": "string",
+            "description": "EditHistoryEntry.historyId。読み込む snapshot を識別"
+          },
+          "templateId": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "historyId",
+          "templateId",
+          "timestamp",
+          "user",
+          "summary"
+        ],
+        "additionalProperties": false
+      },
+      "TemplateSnapshot": {
+        "type": "object",
+        "properties": {
+          "historyId": {
+            "type": "string",
+            "description": "対応する `EditHistoryEntry.historyId`"
+          },
+          "templateId": {
+            "type": "string"
+          },
+          "html": {
+            "type": "string",
+            "description": "確定時点の生 Jinja2 HTML ソース(タグ保持)"
+          },
+          "css": {
+            "type": "string",
+            "description": "確定時点の CSS"
+          },
+          "fundCode": {
+            "type": "string",
+            "description": "再描画用のサンプルデータ取得に使う"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "historyId",
+          "templateId",
+          "html",
+          "css",
+          "fundCode",
+          "timestamp"
+        ],
+        "additionalProperties": false
+      },
+      "PreviewSessionList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/PreviewSession"
+        }
+      },
+      "PreviewSession": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "プレビューセッション ID"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "inline",
+              "project"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "作成時刻 (ISO)"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "アイドル失効予定時刻 (ISO)"
+          },
+          "url": {
+            "type": "string",
+            "description": "同一オリジンのプレビュー URL",
+            "example": "/api/preview/{id}/"
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "createdAt",
+          "expiresAt",
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "CreatedUser": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "temporaryPassword": {
+            "$ref": "#/components/schemas/TemporaryPassword"
+          }
+        },
+        "required": [
+          "user",
+          "temporaryPassword"
+        ],
+        "additionalProperties": false
+      },
+      "TemporaryPassword": {
+        "type": "string",
+        "description": "払い出した一時パスワード(平文)。この応答でのみ返り、以後は再取得できない"
+      },
+      "PasswordResetResult": {
+        "type": "object",
+        "properties": {
+          "temporaryPassword": {
+            "$ref": "#/components/schemas/TemporaryPassword"
+          }
+        },
+        "required": [
+          "temporaryPassword"
+        ],
+        "additionalProperties": false
+      },
+      "ReviewChangedSummaryOutput": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "names": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        },
+        "required": [
+          "count",
+          "names"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "editor.sid",
+        "description": "ログイン時に発行されるセッション cookie。"
+      }
+    }
+  }
+}

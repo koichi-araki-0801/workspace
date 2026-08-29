@@ -1,0 +1,277 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is([data-theme="dark"] *));
+
+/* RET design tokens — 社内ツール群(python-tools リポジトリの pdf-to-svg / graph-editor)と
+   共通のテーマに統一。
+   暖色ニュートラルの生成り地 + やわらかな青。OKLCH 完成色（裸チャンネルではない）。
+   tokens are full colors → 参照は var(--x)、半透明は color-mix(in oklab, …)。 */
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.985 0.004 85);
+  --foreground: oklch(0.34 0.012 262);
+  --card: oklch(0.998 0.003 85);
+  --card-foreground: oklch(0.34 0.012 262);
+  --popover: oklch(0.998 0.003 85);
+  --popover-foreground: oklch(0.34 0.012 262);
+
+  --primary: oklch(0.585 0.105 240);
+  --primary-hover: oklch(0.46 0.11 244);
+  --primary-soft: oklch(0.945 0.03 240);
+  --primary-foreground: oklch(0.99 0.003 85);
+
+  --secondary: oklch(0.965 0.005 85);
+  --secondary-foreground: oklch(0.34 0.012 262);
+  --muted: oklch(0.965 0.005 85);
+  --muted-foreground: oklch(0.54 0.012 262);
+  --accent: oklch(0.948 0.006 85);
+  --accent-foreground: oklch(0.34 0.012 262);
+  --destructive: oklch(0.55 0.18 27);
+  --destructive-hover: oklch(0.48 0.18 27);
+  --destructive-foreground: oklch(0.99 0.003 85);
+  --success: oklch(0.585 0.085 158);
+  --success-foreground: oklch(0.99 0.003 85);
+  /* `--warning-foreground` は solid な warning 背景用ではなく、`bg-warning/15` 等の
+     ティント面や card 上のテキスト用(dark 側の同名コメントを見よ)。 */
+  --warning: oklch(0.72 0.12 80);
+  --warning-foreground: oklch(0.33 0.06 70);
+  /* エディタ/プレビューの用紙下地(A4 ページの外周)。`EditorView.vue` の canvas と
+     `PreviewPanel.vue`(Vivliostyle viewport の #aaaaaa 上書き)で共用し、二重定義を防ぐ。 */
+  --canvas-backdrop: hsl(220 16% 91%);
+  --border: oklch(0.915 0.006 85);
+  --input: oklch(0.86 0.008 85);
+  --ring: oklch(0.585 0.105 240);
+
+  --shadow-sm: 0 1px 2px oklch(0.5 0.02 262 / 0.06);
+  --shadow-md: 0 1px 2px oklch(0.5 0.02 262 / 0.06), 0 8px 24px oklch(0.5 0.02 262 / 0.07);
+  --shadow-lg: 0 12px 36px oklch(0.4 0.03 262 / 0.16);
+
+  /* 共通テーマと同じ丸ゴシック系（見出し等で利用可） */
+  --font-round: "BIZ UDPGothic", "BIZ UDGothic", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+
+  /* density-driven (toggle via [data-density]) */
+  --row-h: 38px;
+  --field-gap: 18px;
+  --section-pad: 22px;
+}
+
+[data-density="compact"] {
+  --row-h: 32px;
+  --field-gap: 12px;
+  --section-pad: 16px;
+}
+[data-density="comfy"] {
+  --row-h: 44px;
+  --field-gap: 24px;
+  --section-pad: 28px;
+}
+
+/* Dark mode — 共通テーマ（ライト専用）に基準が無いため、同じ青灰 (hue 262) 言語で
+   設計したダーク版。やわらかな青アクセントは明度を上げて維持。tokens are full colors. */
+[data-theme="dark"] {
+  --background: oklch(0.2 0.008 262);
+  --foreground: oklch(0.92 0.006 85);
+  --card: oklch(0.235 0.008 262);
+  --card-foreground: oklch(0.92 0.006 85);
+  --popover: oklch(0.255 0.009 262);
+  --popover-foreground: oklch(0.92 0.006 85);
+
+  --primary: oklch(0.66 0.11 240);
+  --primary-hover: oklch(0.72 0.11 240);
+  --primary-soft: oklch(0.34 0.05 245);
+  --primary-foreground: oklch(0.98 0.003 85);
+
+  --secondary: oklch(0.27 0.008 262);
+  --secondary-foreground: oklch(0.9 0.006 85);
+  --muted: oklch(0.27 0.008 262);
+  --muted-foreground: oklch(0.66 0.01 262);
+  --accent: oklch(0.3 0.009 262);
+  --accent-foreground: oklch(0.92 0.006 85);
+
+  --destructive: oklch(0.62 0.17 25);
+  --destructive-hover: oklch(0.56 0.17 25);
+  --destructive-foreground: oklch(0.98 0.003 85);
+  --success: oklch(0.66 0.09 158);
+  --success-foreground: oklch(0.16 0.01 262);
+  /* `--warning-foreground` は solid な warning 背景用ではなく、`bg-warning/15` 等の
+     ティント面や card 上のテキスト用(Badge warning / Inspector「自動入力」)。暗地での
+     可読性を確保するため warning 本体より明るく・低彩度に振る。 */
+  --warning: oklch(0.78 0.11 82);
+  --warning-foreground: oklch(0.87 0.09 85);
+  --canvas-backdrop: hsl(222 18% 18%);
+  --border: oklch(0.32 0.01 262);
+  --input: oklch(0.38 0.011 262);
+  --ring: oklch(0.66 0.11 240);
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.4);
+  --shadow-md: 0 4px 14px -3px oklch(0 0 0 / 0.5), 0 2px 6px -3px oklch(0 0 0 / 0.4);
+  --shadow-lg: 0 18px 44px -12px oklch(0 0 0 / 0.62);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-canvas-backdrop: var(--canvas-backdrop);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family:
+      "Noto Sans JP Variable", "Noto Sans JP", system-ui, "Segoe UI", "Hiragino Kaku Gothic ProN",
+      "Meiryo", sans-serif;
+    font-feature-settings: "palt" 1;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  html {
+    color-scheme: light;
+  }
+  html[data-theme="dark"] {
+    color-scheme: dark;
+  }
+}
+
+/* 等幅（ID・日時・コード）。約物詰めは無効化して桁を揃える。 */
+.mono {
+  font-family:
+    "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  font-feature-settings: normal;
+}
+
+/* focus-visible リング（プロトタイプ .ring-focus 相当） */
+.ring-focus:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-background),
+    0 0 0 4px color-mix(in oklab, var(--color-ring) 55%, transparent);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-primary) 18%, transparent);
+}
+
+/* subtle entrances — prefers-reduced-motion で無効化 */
+@keyframes ret-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ret-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.enter {
+  animation: ret-fade-up 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.enter-fade {
+  animation: ret-fade-in 0.25s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .enter,
+  .enter-fade {
+    animation: none;
+  }
+}
+
+/* GrapeJS: 標準の左パネル/上部ツールバーは未使用（panels.defaults=[]）。
+   予約スペースを 0 にしてキャンバスを中央ペインいっぱいに広げる。 */
+.gjs-editor {
+  --gjs-left-width: 0px;
+  --gjs-canvas-top: 0px;
+}
+/* Hide GrapesJS' own badge + component toolbar; layout edits live in the
+   right-pane `Inspector.vue`. Keep the selection outline, tinted to primary. */
+.gjs-badge,
+.gjs-toolbar {
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS の標準 UI を隠すため上書きが必要 */
+  display: none !important;
+}
+.gjs-comp-selected {
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS の選択枠を上書きするため必要 */
+  outline: 2px solid var(--primary) !important;
+  outline-offset: 1px;
+}
+.gjs-cv-canvas {
+  background: transparent;
+}
+/* Constrain the canvas iframe to A4 width so only the page body shows as white
+   and the surrounding gray (<main>) reads as the page backdrop. Width is set
+   inline by GrapesJS, hence !important. Height is driven by the device
+   `height:'auto'` set in `useGrapes.ts` init: GrapesJS sizes the iframe to the
+   body's real height (A4 `min-height:297mm`, longer for multi-page) via a
+   ResizeObserver, so the iframe never scrolls internally — do not pin a fixed
+   height here. */
+/* ページ(A4 ~1123px)の縦配置は「収まるか超えるか」で出し分ける。横は常時中央(left/right:0)。
+   既定 = 超える時: 上揃え(top:0 / bottom:auto / margin-top のみ)。`scrollableCanvas:true` で
+   `.gjs-cv-canvas` が overflow:auto になり、全高が正のスクロール域に入って上端・下端へ到達できる。
+   中央寄せ(下の `.ret-canvas-fits`)のままだと over-tall 要素が負マージンで canvas 上端より上へ
+   はみ出し、overflow でクリップされ到達不能になるため、超過時は上揃えにする。判定 class は
+   `useGrapes.ts` の `updateScrollMode` が `<div ref=canvasEl>` へ付与する。 */
+.gjs-frame-wrapper {
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS がインライン幅を設定するため上書きが必要 */
+  width: 210mm !important;
+  left: 0;
+  right: 0;
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン top を上書きし上揃えするため必要 */
+  top: 0 !important;
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン bottom を上書きし上揃えするため必要 */
+  bottom: auto !important;
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン余白を上書きするため必要 */
+  margin: 28px auto 0 !important; /* 28px = FIT_MARGIN(56)/2: 上の余白を従来の中央寄せと揃える */
+}
+/* 収まる時: 従来どおり縦中央寄せ。zoom は canvas 中央原点 scale なので、収まっている限り中央が
+   自然(クリップしない)。`getElementPos` の `getViewportDelta`(center 原点前提)とも整合する。 */
+.ret-canvas-fits .gjs-frame-wrapper {
+  /* biome-ignore lint/complexity/noImportantStyles: 上の上揃えを打ち消し垂直中央寄せへ戻すため必要 */
+  bottom: 0 !important;
+  /* biome-ignore lint/complexity/noImportantStyles: 上の margin-top のみ指定を打ち消し上下対称の中央寄せへ戻すため必要 */
+  margin: auto !important;
+}
+.gjs-frame {
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS がインライン幅を設定するため上書きが必要 */
+  width: 100% !important;
+  background: transparent;
+}

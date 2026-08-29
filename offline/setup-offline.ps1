@@ -1,0 +1,340 @@
+﻿#requires -Version 5.1
+<#
+.SYNOPSIS
+  別端末（Windows x64）で、ソースコードと重量物を GitHub Releases から「gh CLI 不要」で
+  自動取得し、完全オフライン動作する開発環境を一括構築する（スタンドアロン・ブートストラップ）。
+
+.DESCRIPTION
+  この offline/ フォルダ一式だけを別端末へ配置して実行すれば、以下を全自動で行う:
+    1. ソース ZIP を HTTPS 直取得（**pin された不変コミット**のアーカイブ）→ pin の sha256 と
+       突き合わせ → 親（リポジトリ直下）へ展開（offline/ 自身は除外）
+    2. 重量物バンドルを HTTPS 直取得 → pin の sha256 と突き合わせ → offline/ 同梱の公開鍵で
+       分離署名を検証 → 直下へ展開 → lockfile 整合チェック（bundle.key 比較）
+    3. 同梱 pnpm を corepack 登録 → 依存をオフライン install → ビルド → Playwright を配置
+    4. ダウンロードしたアーカイブ群を bk/ へ退避（同名があれば削除してから移動）
+
+  取得から展開・build までを本スクリプト 1 本で行う。取得は HTTPS 直のみ（gh 不要）。
+
+  完全性・真正性（**配信元から取る digest に真正性を期待しない**）:
+  取得物を差し替えられる攻撃者は、隣に並ぶ ``.sha256`` も ``bundle.key`` も同じ場所へ置ける。
+  よって配信元由来の値は転送破損の検知にしかならない。判断の根拠は、手渡しで運ばれる
+  offline/ の中身だけに置く:
+    - ``offline\pinned-release.txt`` … 取得すべきソースの**不変コミット ID**と各 sha256。
+      ローリングタグは publish のたびに指す先が動くため、タグ名は内容を何も同定しない。
+    - ``offline\bundle-signing.pub.xml`` … 重量物の分離署名（.sig）を検証する公開鍵。
+  いずれも欠けていれば**中止する**（fail closed。「無ければスキップ」はしない）。
+
+  前提: 取得中のみリポジトリが Public。tar（Windows 10/11 標準）。Node.js 24+（corepack 同梱）。
+
+.PARAMETER Owner
+  GitHub オーナー名。既定 koichi-araki-0801。
+
+.PARAMETER Repo
+  リポジトリ名。既定 workspace。
+
+.PARAMETER Tag
+  重量物アセットの取得元ローリングタグ。既定 offline-bundle-v1。ソースの取得元には使わない
+  （ソースは pin の不変コミット ID から取る）。
+
+.PARAMETER SkipBuild
+  取得・展開のみ行い、依存 install / build / Playwright 配置を省略する。
+
+.PARAMETER InstallTortoiseGit
+  TortoiseGit の MSI を ``msiexec /qn``（サイレント・昇格）で導入する。既定では導入しない
+  （黙って昇格インストールを走らせないための明示 opt-in）。
+
+.EXAMPLE
+  pwsh -File offline/setup-offline.ps1
+#>
+[CmdletBinding()]
+param(
+  [string]$Owner = 'koichi-araki-0801',
+  [string]$Repo  = 'workspace',
+  [string]$Tag   = 'offline-bundle-v1',
+  [switch]$SkipBuild,
+  [switch]$InstallTortoiseGit
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+# 共通ライブラリ（content-key 算出 / tar 解決 / 完全性検証）。
+. (Join-Path $PSScriptRoot 'lib\content-key.ps1')
+. (Join-Path $PSScriptRoot 'lib\verify.ps1')
+. (Join-Path $PSScriptRoot 'lib\git-tools.ps1')
+
+# offline/ の親をリポジトリ直下（ROOT）とみなす。スタンドアロン時はここへソースを展開する。
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+Write-Host "[info] repo root: $RepoRoot"
+# ネットワークドライブ上では pnpm の symlink/hardlink 構成が成立しないため開始前に止める。
+Assert-LocalRepoRoot -Path $RepoRoot
+
+# tar 解決（System32\tar.exe 優先）は共通ライブラリの Resolve-Tar を使う。
+$TarExe = Resolve-Tar
+
+$BundleName = 'offline-deps-bundle.tar.gz'
+$Bundle     = Join-Path $RepoRoot $BundleName
+$Sha        = "$Bundle.sha256"
+$SigFile    = "$Bundle.sig"
+$KeyFile    = Join-Path $RepoRoot 'bundle.key'
+$AssetBase  = "https://github.com/$Owner/$Repo/releases/download/$Tag"
+$PinFile    = Join-Path $PSScriptRoot 'pinned-release.txt'
+$PubKeyFile = Join-Path $PSScriptRoot 'bundle-signing.pub.xml'
+
+# ---- [0/6] offline/ 同梱の期待値を読む（無ければここで止まる） ----
+# ここが唯一の「配信元と独立した」根拠。取得の前に読むのは、pin が壊れている環境で
+# ダウンロードだけ先に走らせても意味が無いため。
+$pin = Get-OfflinePin -Path $PinFile
+Write-Host "[info] pinned source commit: $($pin.SourceCommit)"
+if (-not (Test-Path -LiteralPath $PubKeyFile)) {
+  Write-Error ("[error] 署名検証用の公開鍵がありません: $PubKeyFile`n" +
+    '  offline/ を丸ごと（pin ファイルと公開鍵ごと）持ち込んでください。')
+  exit 1
+}
+
+# ソースはローリングタグでなく pin の不変コミット ID から取る。
+$SrcZipUrl = "https://github.com/$Owner/$Repo/archive/$($pin.SourceCommit).zip"
+
+# 作業用 temp（ソース ZIP の DL・展開先）
+$Work   = Join-Path ([System.IO.Path]::GetTempPath()) ("offline-setup-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $Work -Force | Out-Null
+$SrcZip = Join-Path $Work "$Repo-$($pin.SourceCommit)-source.zip"
+
+# curl.exe があればストリーミングDL（大容量を効率取得）、無ければ Invoke-WebRequest にフォールバック
+$curl = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
+function Download-File([string]$url, [string]$dest) {
+  Write-Host "       <- $url"
+  if ($curl) {
+    & $curl.Source -L --fail --retry 3 -o $dest $url
+    if ($LASTEXITCODE -ne 0) { throw "ダウンロードに失敗: $url" }
+  } else {
+    $old = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'   # PS5.1 の進捗描画は大容量で極端に遅い
+    try { Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing }
+    finally { $ProgressPreference = $old }
+  }
+}
+
+# ---- [1/6] ソース ZIP を HTTPS 直取得（gh 不要） ----
+Write-Host "[1/6] ソースコードを pin されたコミット $($pin.SourceCommit) から HTTPS 直取得（gh 不要）..."
+try {
+  Download-File $SrcZipUrl $SrcZip
+} catch {
+  Write-Error "[error] $($_.Exception.Message)`n  リポジトリが Public 公開中か、コミット/ネットワークを確認してください。"; exit 1
+}
+# 取得物を offline/ 同梱の期待値と突き合わせる。不一致なら中止（fail closed）。
+Assert-FileSha256 -File $SrcZip -ExpectedSha256 $pin.SourceZipSha256 -Label 'source zip'
+
+# ---- [2/6] ソースを ROOT へ展開（offline/ 自身は上書きしない） ----
+Write-Host '[2/6] ソースをリポジトリ直下へ展開（offline/ は除外）...'
+$ExtractDir = Join-Path $Work 'src'
+New-Item -ItemType Directory -Path $ExtractDir -Force | Out-Null
+Expand-Archive -Path $SrcZip -DestinationPath $ExtractDir -Force
+# GitHub の archive は "<repo>-<コミットID>/" を 1 段かませる。その単一トップフォルダを取る。
+$inner = Get-ChildItem -Path $ExtractDir -Directory | Select-Object -First 1
+if (-not $inner) { Write-Error '[error] ソース ZIP の展開結果が想定外です（トップフォルダなし）。'; exit 1 }
+foreach ($item in Get-ChildItem -LiteralPath $inner.FullName -Force) {
+  # 実行中の offline/（このスクリプト自身を含む）は上書きしない。中身は同一なので除外で問題なし。
+  if ($item.Name -ieq 'offline') { continue }
+  Copy-Item -LiteralPath $item.FullName -Destination $RepoRoot -Recurse -Force
+}
+
+# ---- [3/6] 重量物バンドルを HTTPS 直取得 ----
+Write-Host "[3/6] 重量物バンドルを Release $Tag から HTTPS 直取得..."
+try {
+  Download-File "$AssetBase/$BundleName"        $Bundle
+  Download-File "$AssetBase/$BundleName.sha256" $Sha
+  Download-File "$AssetBase/$BundleName.sig"    $SigFile
+  Download-File "$AssetBase/bundle.key"         $KeyFile
+} catch {
+  Write-Error "[error] $($_.Exception.Message)`n  リポジトリが Public 公開中か、タグ/ネットワークを確認してください。"; exit 1
+}
+if (-not (Test-Path $Bundle)) { Write-Error "[error] $BundleName が取得できませんでした。"; exit 1 }
+
+# 完全性・真正性の検証（fail closed）。
+# 一緒に落とした .sha256 は**判定に使わない**: 取得物を差し替えられる攻撃者は同じ場所に
+# 対応する .sha256 も置けるため、転送破損の検知にしかならない。判定に使うのは
+# 手渡しで運ばれた offline/ の pin と公開鍵だけ。
+try {
+  Assert-FileSha256 -File $Bundle -ExpectedSha256 $pin.BundleSha256 -Label 'bundle'
+  Assert-BundleSignature -File $Bundle -SignaturePath $SigFile -PublicKeyPath $PubKeyFile
+  Write-Host '[info] 分離署名 OK（offline/ 同梱の公開鍵で検証）。'
+} catch {
+  Write-Error "[error] $($_.Exception.Message)"; exit 1
+}
+
+# lockfile 整合チェックは展開後（[4/6] の後）に行う。content key の入力に
+# git-tools\manifest.txt（バンドル同梱・gitignore 対象でソース ZIP に無い）が含まれるため、
+# 展開前に測ると manifest を欠いて publish 側と必ずズレる。
+
+# ---- [4/6] 重量物を ROOT へ展開 ----
+Write-Host '[4/6] 重量物を直下へ展開（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse / git-tools）...'
+& $TarExe -xzf $Bundle -C $RepoRoot
+if ($LASTEXITCODE -ne 0) { Write-Error '[error] 展開に失敗しました。'; exit 1 }
+foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse', 'git-tools',
+    'docs\_build\vendor\mermaid.min.js', 'docs\_build\vendor\mermaid-layout-elk.min.js',
+    'native-prebuilds\manifest.txt')) {
+  if (-not (Test-Path (Join-Path $RepoRoot $p))) { Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1 }
+}
+
+# lockfile 整合チェック（展開後＝git-tools\manifest.txt が在る状態でソースとバンドルの対応を測る）
+$LockFile = Join-Path $RepoRoot 'pnpm-lock.yaml'
+$PkgJson  = Join-Path $RepoRoot 'package.json'
+# pin により「ソースと重量物は publish が対にした組」であることが保証されるため、ここでの
+# 不一致は取得手順の破綻を意味する。警告で流さず中止する（続けても --frozen-lockfile が
+# 落ちるだけで、しかも原因が見えにくくなる）。
+if (-not ((Test-Path $KeyFile) -and (Test-Path $LockFile) -and (Test-Path $PkgJson))) {
+  Write-Error '[error] bundle.key / pnpm-lock.yaml / package.json のいずれかがありません（整合を確かめられません）。'; exit 1
+}
+# content-key は publish 側と同一ロジック（共通ライブラリ Get-LockContentKey）。
+$packageManager = Get-PackageManagerString $PkgJson
+$localKey = Get-LockContentKey -LockFile $LockFile -PackageManager $packageManager
+$publishedKey = (Get-Content $KeyFile -Raw).Trim().ToLower()
+if ($localKey -ne $publishedKey) {
+  Write-Error ("[error] lockfile 不整合: ソースと重量物が対応していません。`n  code (local) : $localKey" +
+    "`n  bundle.key   : $publishedKey`n  pin と Release の組み合わせを見直して取り直してください。")
+  exit 1
+}
+Write-Host "[info] lockfile key 一致: $localKey"
+
+# ---- [5/6] オフライン環境構築 ----
+if (-not $SkipBuild) {
+  if (-not (Get-Command 'corepack' -ErrorAction SilentlyContinue)) {
+    Write-Error '[error] corepack が見つかりません。Node.js 24+ をインストールしてください。'; exit 1
+  }
+  $env:COREPACK_ENABLE_DOWNLOAD_PROMPT = '0'   # 同梱 pnpm を使う。DL プロンプト抑止
+  $env:CI = 'true'                             # 対話確認の抑止
+  Push-Location $RepoRoot
+  try {
+    Write-Host '[5/6] 環境構築: 同梱 pnpm を corepack 登録 → クリーン → オフライン install → build → Playwright 配置...'
+
+    & corepack install -g (Join-Path $RepoRoot 'pnpm.tgz')
+    if ($LASTEXITCODE -ne 0) { Write-Error '[error] corepack install に失敗しました（Node.js 24+ を確認）。'; exit 1 }
+
+    # node_modules / dist を一掃し、毎回ストアからクリーンインストール（重量物は温存）。
+    $purge = @(
+      'node_modules',
+      'editor\shared\node_modules', 'editor\server\node_modules', 'editor\web\node_modules',
+      'pie-chart\node_modules',
+      'editor\shared\dist', 'editor\server\dist', 'editor\web\dist'
+    )
+    foreach ($d in $purge) {
+      $full = Join-Path $RepoRoot $d
+      if (Test-Path $full) { Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    # tsbuildinfo は dist の外に残るため個別に消す。特に editor\shared / editor\server の分が
+    # 残ると `tsc -b` が「最新」と誤認して shared の dist を再生成せず、build が
+    # 「Cannot find module '@editor/shared'」で全滅する（実測）。
+    foreach ($f in @('editor\web\tsconfig.tsbuildinfo', 'editor\shared\tsconfig.tsbuildinfo',
+        'editor\server\tsconfig.tsbuildinfo')) {
+      $tsbi = Join-Path $RepoRoot $f
+      if (Test-Path $tsbi) { Remove-Item -LiteralPath $tsbi -Force -ErrorAction SilentlyContinue }
+    }
+
+    & corepack pnpm install --offline --frozen-lockfile --store-dir (Join-Path $RepoRoot '.pnpm-store')
+    if ($LASTEXITCODE -ne 0) { Write-Error '[error] オフライン install に失敗しました。'; exit 1 }
+
+    # msnodesqlv8 のネイティブ .node を配置する。npm tarball / .pnpm-store にバイナリは入らず
+    # install スクリプトも allowBuilds で封止しているため、同梱の公式 prebuild を install 後の
+    # .pnpm 実体へ展開する（editor/server と pie-chart は同実体への symlink 参照＝1 箇所で両方に
+    # 効く。install 前だと purge/再構成で消える）。REST/DB 入力を使わない構成では無くても動くため
+    # 失敗は警告止まりで setup を続行する。
+    $pbTar = Get-ChildItem (Join-Path $RepoRoot 'native-prebuilds\msnodesqlv8-*.tar.gz') -ErrorAction SilentlyContinue | Select-Object -First 1
+    $pbPkg = Get-ChildItem (Join-Path $RepoRoot 'node_modules\.pnpm\msnodesqlv8@*\node_modules\msnodesqlv8') -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($pbTar -and $pbPkg) {
+      # lockfile の版だけ上げて prebuild の差し替えを忘れる事故の検知（native-prebuilds\manifest.txt 参照）。
+      $instVer = (Get-Content (Join-Path $pbPkg.FullName 'package.json') -Raw | ConvertFrom-Json).version
+      if ($pbTar.Name -notlike "*v$instVer*") {
+        Write-Warning "[warn] msnodesqlv8 の install 版($instVer)と prebuild($($pbTar.Name))の版が不一致。native-prebuilds の差し替えが必要です。"
+      }
+      & (Resolve-Tar) -xzf $pbTar.FullName -C $pbPkg.FullName
+      if ($LASTEXITCODE -ne 0) {
+        Write-Warning '[warn] msnodesqlv8 prebuild の展開に失敗（editor REST / pie-chart DB 入力は使用不可）。'
+      } else {
+        # ABI 不一致・破損はロードで露見するため require で疎通確認する（editor/server から解決）。
+        # EAP=Stop のため stderr リダイレクトは使わず、node 側 try/catch で exit code のみ返す。
+        Push-Location (Join-Path $RepoRoot 'editor\server')
+        & node -e "try{require('msnodesqlv8');process.exit(0)}catch(e){process.exit(1)}"
+        $reqOk = ($LASTEXITCODE -eq 0)
+        Pop-Location
+        if ($reqOk) { Write-Host '[info] msnodesqlv8 ネイティブ .node を配置（require OK）。' }
+        else { Write-Warning '[warn] msnodesqlv8 の require に失敗。Node の ABI（24.x=137）と prebuild の対応を確認してください。' }
+      }
+    } else {
+      Write-Warning '[warn] msnodesqlv8 prebuild または install 先が見つからず、ネイティブ .node を配置できませんでした（editor REST / pie-chart DB 入力は使用不可）。'
+    }
+
+    & corepack pnpm build
+    if ($LASTEXITCODE -ne 0) { Write-Error '[error] build に失敗しました。'; exit 1 }
+
+    # %LOCALAPPDATA% はユーザー毎に解決されるため、ユーザー名が違っても Playwright が発見できる。
+    $msSrc = Join-Path $RepoRoot 'ms-playwright'
+    $msDst = Join-Path $env:LOCALAPPDATA 'ms-playwright'
+    if (Test-Path $msSrc) {
+      & xcopy /E /I /Y /Q $msSrc $msDst | Out-Null
+      if ($LASTEXITCODE -ne 0) {
+        Write-Warning "[warn] ms-playwright のコピーに失敗。E2E 時は $msSrc を $msDst へ手動コピーしてください。"
+      } else {
+        Write-Host "       -> $msDst"
+      }
+    }
+  } finally { Pop-Location }
+} else {
+  Write-Host '[5/6] -SkipBuild: 取得・展開のみ。環境構築をスキップしました。'
+}
+
+# ---- git ツール（PortableGit / TortoiseGit）の展開・導入 ----
+# editor のテンプレ版管理は git CLI を使う。同梱 PortableGit を展開して PATH/GIT_BIN を通す。
+# 実行するバイナリの選択・検証・PATH の扱いは共通ライブラリへ集約（両 setup で同一経路）。
+Install-GitTools -RepoRoot $RepoRoot -InstallTortoiseGit:$InstallTortoiseGit
+
+# ---- [6/6] ダウンロードしたアーカイブを bk/ へ退避（同名は削除してから移動） ----
+Write-Host '[6/6] ダウンロード物を bk/ へ退避（同名があれば削除してから移動）...'
+$Bk = Join-Path $RepoRoot 'bk'
+New-Item -ItemType Directory -Path $Bk -Force | Out-Null
+function Move-ToBk([string]$src) {
+  if (-not (Test-Path -LiteralPath $src)) { return }
+  $dst = Join-Path $Bk (Split-Path $src -Leaf)
+  if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force -ErrorAction SilentlyContinue }
+  # 一時的なファイルロック（AV スキャン等）に備え、軽くリトライしてから移す。
+  for ($i = 1; $i -le 3; $i++) {
+    try { Move-Item -LiteralPath $src -Destination $dst -Force; break }
+    catch { if ($i -eq 3) { throw }; Start-Sleep -Milliseconds 400 }
+  }
+  Write-Host "       -> bk\$(Split-Path $src -Leaf)"
+}
+
+# ソース ZIP（temp ディレクトリ側）を退避。
+Move-ToBk $SrcZip
+
+# 直下のダウンロード物は「実ディスクの列挙」で拾って退避する。
+# 記憶した変数パスへの Test-Path はビルド直後の一時的なロック等で false を返すことがあり、
+# 取りこぼしの原因になるため、Get-ChildItem の列挙結果（実体）を正として複数パスで掃き出す。
+$names = @('offline-deps-bundle.tar.gz', 'offline-deps-bundle.tar.gz.sha256',
+  'offline-deps-bundle.tar.gz.sig', 'bundle.key')
+for ($pass = 1; $pass -le 3; $pass++) {
+  $hits = Get-ChildItem -LiteralPath $RepoRoot -File -Force -ErrorAction SilentlyContinue |
+    Where-Object { $names -contains $_.Name }
+  if (-not $hits) { break }
+  foreach ($fi in $hits) { Move-ToBk $fi.FullName }
+  Start-Sleep -Milliseconds 300
+}
+$remain = Get-ChildItem -LiteralPath $RepoRoot -File -Force -ErrorAction SilentlyContinue |
+  Where-Object { $names -contains $_.Name }
+if ($remain) { Write-Warning "[warn] bk へ退避できなかったファイルがあります: $(($remain.Name) -join ', ')" }
+
+Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
+
+Write-Host ''
+if ($SkipBuild) {
+  Write-Host '[OK] 取得・展開完了（build はスキップ）。'
+} else {
+  Write-Host '[OK] セットアップ完了。'
+  Write-Host '  - 型チェック: corepack pnpm typecheck'
+  Write-Host '  - テスト:     corepack pnpm test'
+  Write-Host '  - E2E:        corepack pnpm test:e2e'
+  Write-Host '  - 開発サーバ: corepack pnpm dev'
+  Write-Host '  ( corepack enable を一度実行すれば、以後は pnpm だけで実行可能 )'
+  Write-Host ''
+  Write-Host '  PDF 出力はシステムの Microsoft Edge を自動使用します（追加ブラウザ不要）。'
+}

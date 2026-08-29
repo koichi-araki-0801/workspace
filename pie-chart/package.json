@@ -1,0 +1,40 @@
+{
+  "name": "pie-chart",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "cli": "tsx src/cli.ts",
+    "batch": "tsx src/test_batch.ts",
+    "batch:diff": "node scripts/batch_diff.mjs",
+    "baseline:accept": "node scripts/baseline_accept.mjs",
+    "verify": "tsx src/verify/svg.ts",
+    "verify:consistency": "tsx src/verify/consistency.ts",
+    "gen:widths": "tsx scripts/gen_glyph_advance.ts",
+    "build:exe": "node scripts/build-exe.mjs"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "subset-font": "^2.6.0"
+  },
+  "optionalDependencies": {
+    "msnodesqlv8": "^4.5.0"
+  },
+  "//overrides": "npm 経路(pnpm の無い旧 Node20 系の単独環境)専用の vite 固定。vite@8/rolldown は Node>=20.19 要求で 20.16 が EBADENGINE になるため ^6(rollup ベース)へ。pnpm はルート overrides のみ見るので開発機(pnpm/Node24)は vite@8 維持。理由詳細は README「セットアップ」。",
+  "overrides": {
+    "vite": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@vitest/coverage-v8": "^4.1.11",
+    "esbuild": "^0.28.2",
+    "fontverter": "^2.0.0",
+    "postject": "1.0.0-alpha.6",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
+  }
+}

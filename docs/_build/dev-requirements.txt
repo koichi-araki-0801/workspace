@@ -1,0 +1,5 @@
+# docs ビルドの開発時依存（テスト実行用）。実行時依存は requirements.txt が正典。
+# pdf-to-svg / graph-editor の分離（python-tools リポジトリへ移動）以前は、それらの
+# dev-requirements.txt が同梱する pytest を CI が副作用として供給していた。分離後も
+# `python -m pytest docs/_build` が単独で成立するよう、ここで明示的に固定する。
+pytest==9.1.1

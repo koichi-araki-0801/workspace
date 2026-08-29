@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.local
+# Local runtime config (copy from appconfig.example.json); may hold machine-specific paths
+appconfig.json
+# 監査ログ・作成履歴 (`config.logging.dir` の既定。actor / ip / resource を含むため
+# コミットしない)。`*.log` だけでは `logs/history/create.jsonl` が漏れる。
+logs/
+coverage/
+.vite/
+.tmp/
+tmp/
+*.tsbuildinfo
+# vivliostyle / playwright artifacts
+playwright-report/
+test-results/
+# LAN 公開用 TLS 証明書(setup-lan-https.ps1 が生成。秘密鍵を含むためコミットしない)
+server/tls/

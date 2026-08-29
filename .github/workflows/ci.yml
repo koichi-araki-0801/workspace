@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 既定の GITHUB_TOKEN は読み取りだけに絞る。この job は検査しかしないため書き込み権限は不要で、
+# 依存やアクションの侵害でトークンが悪用されても push / release へは届かない。
+permissions:
+  contents: read
+
+# アクションは可変タグでなく**コミット SHA で pin** する。`@v5` のようなタグは指す先が
+# 動くため、上流のタグ移動 1 つで CI ランナー上の任意コード実行に到達する。版は末尾の
+# コメントで残し、更新時は SHA とコメントの両方を書き換える。
+#
+# offline/ の Pester テスト(`pnpm run ci:offline`)はここでは実行しない: Windows ランナーへの
+# 切替が要り、この job は ubuntu-latest 前提のため。ローカルの `ci:affected`(offline/ 変更時に
+# 発火)で担保する。
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # この job は remote へ git しない。既定では checkout が認証情報を
+          # .git/config へ残すため、後続ステップ（依存のビルドスクリプト等）から
+          # トークンを使われないよう明示的に無効化する。
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          standalone: true
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint & format check (Biome)
+        run: pnpm run check:ci
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test (with coverage thresholds)
+        run: pnpm run test:coverage
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Comment convention check
+        run: python scripts/check-comments.py
+
+      - name: Install Python test dependencies
+        run: pip install -r docs/_build/requirements.txt -r docs/_build/dev-requirements.txt
+
+      - name: Test (pytest - docs)
+        run: python -m pytest docs/_build
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E (Playwright)
+        run: pnpm run test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

@@ -1,0 +1,28 @@
+# 要望6: コミット毎に Releases の「ソースコード（自動 Source code）」を最新へ更新する。
+# publish-offline-bundle.ps1 -TagOnly がローリングタグを HEAD へ移動する（=ソース更新）。
+# 重量物（バンドル）はここでは触らない。content key に差分があり再生成が要ると判った場合は、
+# タグも動かさずに終了して公開担当者の明示実行へ委ねる（理由は下の -TagOnly 節）。
+#
+# opt-in 方式: GitHub（gh / Releases）は公開担当者のオンライン環境限定の運用のため、
+# 公開に使う clone で `git config offline.publish true` を 1 回実行した環境でのみ走る。
+# 新規 clone・オフライン運用環境では既定でスキップされる（skip は 1 行表示する —
+# 無音にすると公開担当者が新しい clone へ移った際にリリース更新が黙って止まるため）。
+#
+# ベストエフォート（コミットはブロックしない）: gh 未認証・オフライン・タグ push 失敗でも
+# コミット自体は成立させる。opt-in 済み環境で一時停止したい場合は OFFLINE_PUBLISH_SKIP=1。
+#
+# -TagOnly は必須（外さないこと）: コミットフックから依存解決器（pip download / pnpm install /
+# playwright install）を自動起動すると、コミットに紛れた requirements.txt / lockfile の編集 1 つで
+# 外部コードの取得・実行まで無人到達する（他人の PR をマージしてコミットするだけで
+# 成立する）。フックはタグ移動だけを行い、重量物の再生成は公開担当者が
+# offline/publish-offline-bundle.bat を明示実行して行う。
+# -TagOnly 側は重量物の更新が必要と判明した時点で「タグも動かさず」に終了する（新ソース×旧
+# 重量物の不整合ペアを配らないため）。
+if [ "${OFFLINE_PUBLISH_SKIP:-}" = "1" ]; then
+  exit 0
+fi
+if [ "$(git config --bool --get offline.publish 2>/dev/null)" != "true" ]; then
+  echo "[offline-publish] skip: opt-in 未設定（公開担当者のみ: git config offline.publish true）"
+  exit 0
+fi
+powershell -NoProfile -ExecutionPolicy Bypass -File "offline/publish-offline-bundle.ps1" -TagOnly || true

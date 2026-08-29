@@ -1,0 +1,13 @@
+node_modules/
+dist/
+# exe ビルドの中間物(esbuild bundle / SEA blob)と成果物(単一 exe)。重量物のため対象外。
+build/
+dist-exe/
+# 生成物 (SVG/PNG/HTML/フォント等) は一括で無視。重量物はコミット対象外。
+out/
+*.log
+.DS_Store
+.claude/
+# 署名鍵の thumbprint など端末固有の署名設定。鍵そのものではないが、配布物と鍵の対応は
+# 端末ごとに違うのでリポジトリでは共有しない(scripts/new-signing-cert.ps1 が案内する)。
+scripts/signing.local.json

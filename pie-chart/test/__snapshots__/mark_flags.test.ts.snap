@@ -1,0 +1,2427 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`mark*** 系マーカーの発火対応表 (layoutLabels 直後) > 全サンプルの発火表がスナップショットと一致する 1`] = `
+{
+  "asset_11_mixed": {
+    "diag": [
+      "manyItems",
+      "ultraDenseItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "オプション": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "コモディティ": [
+        "denseSideOutsidePush",
+      ],
+      "先物": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "未収収益": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "為替予約": [
+        "denseSideOutsidePush",
+      ],
+      "現金": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "短期金融資産": [
+        "denseSideOutsidePush",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "asset_12_long_and_tiny": {
+    "diag": [
+      "manyItems",
+      "ultraDenseItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "longLabelDense",
+      "lowerGapIsTight",
+      "upperLeftLongDense",
+      "upperRightLongDense",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他資産": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "preferOneLineCascade",
+      ],
+      "差入保証金": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+      ],
+      "店頭オプション": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "denseSideOutsidePush",
+      ],
+      "店頭デリバティブ": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "lowerLeftDropLeader",
+        "denseSideOutsidePush",
+      ],
+      "店頭先渡契約": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "denseSideOutsidePush",
+      ],
+      "未収収益関連": [
+        "denseSideOutsidePush",
+      ],
+      "為替ヘッジ付資産": [
+        "denseSideOutsidePush",
+      ],
+      "短期金融商品": [
+        "denseSideOutsidePush",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+      "upper_right_long_dense",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "asset_2slice_split": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "国内債券": [
+        "bisectedSecondSliceNoLeader",
+      ],
+      "国内株式": [
+        "bisectedDominantCenter",
+      ],
+    },
+    "modeTags": [],
+  },
+  "asset_4slice_simple": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "asset_balanced_6": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "useStackRimY",
+      ],
+      "短期金融資産": [
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "asset_balanced_8": {
+    "diag": [
+      "oneSideDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "REIT": [
+        "bottomCenterBelow",
+      ],
+      "その他": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "オプション": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "先物": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "asset_domestic_equity_pdf": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "国内投資信託証券": [
+        "useStackRimY",
+      ],
+      "国内株式先物": [
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "asset_foreign_bond_pdf": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "asset_foreign_equity_pdf": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "useStackRimY",
+      ],
+      "外国株式先物": [
+        "useStackRimY",
+        "forceOutsideLeader",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+    ],
+  },
+  "asset_gbca_pdf_like": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "longLabelDense",
+      "lowerGapIsTight",
+      "upperLeftLongDense",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "債券先物(アメリカ)": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "債券先物(ドイツ)": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+        "lowerLeftDropLeader",
+      ],
+      "債券先物(日本)": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "短期金融資産等": [
+        "flipToRight",
+        "topBandSmallRight",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "asset_gold_hedged_pdf_like": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "asset_jreit_pdf": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "asset_long_labels_9": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "topSmallDense",
+      "longLabelDense",
+      "lowerGapIsTight",
+      "upperLeftLongDense",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他資産": [
+        "upperLeftLongDense",
+        "useStackRimY",
+      ],
+      "店頭デリバティブ": [
+        "upperLeftLongDense",
+        "useStackRimY",
+      ],
+      "未収収益関連": [
+        "upperLeftLongDense",
+        "useStackRimY",
+      ],
+      "為替ヘッジ付資産": [
+        "upperLeftLongDense",
+        "useStackRimY",
+        "lowerLeftDropLeader",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+    ],
+  },
+  "asset_lower_tight_10": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "オプション": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "コモディティ": [
+        "denseSideOutsidePush",
+      ],
+      "先物": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "未収収益": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "現金": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "短期金融資産": [
+        "denseSideOutsidePush",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "asset_many_small_12": {
+    "diag": [
+      "manyItems",
+      "ultraDenseItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "オプション": [
+        "denseSideOutsidePush",
+      ],
+      "保証金": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "先物": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "未収収益": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "未払費用": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "現金": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "短期金融資産": [
+        "denseSideOutsidePush",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "asset_mixed_10": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "コモディティ": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "海外リート": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "asset_mixed_9": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "topSmallDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "flipToRight",
+      ],
+      "コモディティ": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "ヘッジファンド": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "海外リート": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "asset_top_heavy_7": {
+    "diag": [
+      "oneSideDense",
+      "topSmallDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "flipToRight",
+      ],
+      "コモディティ": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "先物": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "短期金融資産": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "country_12_europe_heavy": {
+    "diag": [
+      "manyItems",
+      "ultraDenseItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "イタリア": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "オランダ": [
+        "denseSideOutsidePush",
+      ],
+      "スイス": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "スウェーデン": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "スペイン": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "デンマーク": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "ノルウェー": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "ベルギー": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "country_balanced_6": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "useStackRimY",
+      ],
+      "フランス": [
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "country_balanced_7": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "カナダ": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "フランス": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "country_emerging_mix_10": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "lowerGapIsTight",
+      "twoLineLeftStackMode",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "flipToRight",
+      ],
+      "ブラジル": [
+        "upperLeftSmallDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "メキシコ": [
+        "upperLeftSmallDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "南アフリカ": [
+        "upperLeftSmallDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "two_line_left_stack",
+      "upperLeftTriad",
+    ],
+  },
+  "country_europe_heavy_8": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "country_foreign_equity_pdf": {
+    "diag": [
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "アメリカ": [
+        "singleDominantInside",
+      ],
+      "イギリス": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "カナダ": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "スイス": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "フランス": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+    },
+    "modeTags": [
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "country_long_labels_9": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他地域": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "オランダ王国": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "スイス連邦": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "ドイツ連邦共和国": [
+        "flipToLeft",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "country_many_small_10": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "オランダ": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "カナダ": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "スイス": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "ドイツ": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "フランス": [
+        "denseSideOutsidePush",
+      ],
+      "英国": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "豪州": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "country_right_dense_9": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "useStackRimY",
+      ],
+      "カナダ": [
+        "useStackRimY",
+      ],
+      "スイス": [
+        "useStackRimY",
+      ],
+      "豪州": [
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "country_upper_left_dense_8": {
+    "diag": [
+      "oneSideDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "イタリア": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "スペイン": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "currency_2currency_usd": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "bisectedSecondSliceNoLeader",
+      ],
+      "米ドル": [
+        "bisectedDominantCenter",
+      ],
+    },
+    "modeTags": [],
+  },
+  "currency_balanced_5": {
+    "diag": [
+      "topSmallDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "flipToRight",
+      ],
+      "イギリスポンド": [
+        "useStackRimY",
+      ],
+      "ユーロ": [
+        "useStackRimY",
+      ],
+      "円": [
+        "singleDominantInside",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "currency_balanced_7": {
+    "diag": [
+      "oneSideDense",
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "flipToRight",
+      ],
+      "イギリスポンド": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "カナダドル": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "豪ドル": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "currency_europe_heavy_8": {
+    "diag": [
+      "oneSideDense",
+      "lowerGapIsTight",
+      "upperLeftLongDense",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "デンマーククローネ": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "ノルウェークローネ": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+        "lowerLeftDropLeader",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "lower_gap_tight",
+      "upper_left_long_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "currency_foreign_equity_pdf": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "イギリスポンド": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "カナダドル": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "スイスフラン": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "ユーロ": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "米ドル": [
+        "singleDominantInside",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "currency_gbca_pdf": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "イギリスポンド": [
+        "useStackRimY",
+      ],
+      "ユーロ": [
+        "flipToRight",
+        "topBandSmallRight",
+      ],
+      "米ドル": [
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+    ],
+  },
+  "currency_long_labels_8": {
+    "diag": [
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "upperLeftLongDense",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他通貨": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "preferOneLineCascade",
+      ],
+      "イギリスポンド": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "denseSideOutsidePush",
+      ],
+      "オーストラリアドル": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+      ],
+      "カナダドル": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "denseSideOutsidePush",
+      ],
+      "スイスフラン": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+      ],
+      "ユーロ": [
+        "denseSideOutsidePush",
+      ],
+      "米ドル": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_long_dense",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "currency_low_diff_10": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "イギリスポンド": [
+        "denseSideOutsidePush",
+      ],
+      "カナダドル": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "シンガポールドル": [
+        "upperLeftSmallDense",
+      ],
+      "スイスフラン": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "ユーロ": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "豪ドル": [
+        "denseSideOutsidePush",
+      ],
+      "香港ドル": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "currency_many_small_10": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "topTinyDense",
+      "longLabelDense",
+      "lowerGapIsTight",
+      "upperLeftLongDense",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "preferOneLineCascade",
+      ],
+      "イギリスポンド": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "denseSideOutsidePush",
+      ],
+      "カナダドル": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "denseSideOutsidePush",
+      ],
+      "スイスフラン": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+      ],
+      "スウェーデンクローナ": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+      ],
+      "ノルウェークローネ": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+      ],
+      "ユーロ": [
+        "denseSideOutsidePush",
+      ],
+      "豪ドル": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "currency_usd_heavy_9": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "イギリスポンド": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "カナダドル": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "スイスフラン": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "ユーロ": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "円": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "米ドル": [
+        "singleDominantInside",
+      ],
+      "豪ドル": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "香港ドル": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "currency_usd_hedged_pdf_like": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "eleven_tiny_cluster": {
+    "diag": [
+      "manyItems",
+      "ultraDenseItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "D": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "E": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "F": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "G": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "H": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "I": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "J": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "K": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "page16_asset_allocation": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "投資信託証券": [
+        "bisectedDominantCenter",
+      ],
+      "親投資信託証券": [
+        "bisectedSecondSliceNoLeader",
+      ],
+    },
+    "modeTags": [],
+  },
+  "page16_country_allocation": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "アイルランド": [
+        "flipToRight",
+      ],
+      "ケイマン諸島": [
+        "useStackRimY",
+      ],
+      "ジャージー": [
+        "flipToRight",
+        "topBandSmallRight",
+      ],
+      "ルクセンブルク": [
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+    ],
+  },
+  "pdf_510037_01_fund_asset": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "投資信託証券": [
+        "bisectedDominantCenter",
+      ],
+      "親投資信託証券": [
+        "lowerLeftDropLeader",
+        "bisectedSecondSliceNoLeader",
+      ],
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_01_fund_asset_20240710": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "投資信託証券": [
+        "bisectedDominantCenter",
+      ],
+      "親投資信託証券": [
+        "lowerLeftDropLeader",
+        "bisectedSecondSliceNoLeader",
+      ],
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_01_fund_country": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+      "topBandClusterMode",
+    ],
+    "items": {
+      "アイルランド": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "clusterTopBand",
+      ],
+      "ケイマン諸島": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "clusterTopBand",
+      ],
+      "ジャージー": [
+        "flipToRight",
+        "clusterTopBand",
+        "clusterTopBandBottom",
+      ],
+      "ルクセンブルク": [
+        "upperLeftSmallDense",
+        "clusterTopBand",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+      "top_band_cluster",
+    ],
+  },
+  "pdf_510037_01_fund_country_20240710": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "ケイマン諸島": [
+        "useStackRimY",
+      ],
+      "ジャージー": [
+        "flipToRight",
+        "topBandSmallRight",
+        "forceOutsideLeader",
+      ],
+      "ルクセンブルク": [
+        "useStackRimY",
+      ],
+      "日本": [
+        "flipToLeft",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+    ],
+  },
+  "pdf_510037_01_fund_currency": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "pdf_510037_02_world_bond_idx_asset": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "flipToRight",
+      ],
+      "外国債券先物": [
+        "useStackRimY",
+        "forceOutsideLeader",
+        "loneTopSliverLeader",
+      ],
+      "外国投資信託証券": [
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "pdf_510037_02_world_bond_idx_asset_20240426": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "useStackRimY",
+      ],
+      "外国投資信託証券": [
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_02_world_bond_idx_country": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "lowerGapIsTight",
+      "twoLineLeftStackMode",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "フランス": [
+        "bottomCenterBelow",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "two_line_left_stack",
+    ],
+  },
+  "pdf_510037_02_world_bond_idx_country_20240426": {
+    "diag": [
+      "oneSideDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "フランス": [
+        "bottomCenterBelow",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "pdf_510037_02_world_bond_idx_currency": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftLongDense",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "flipToRight",
+      ],
+      "イギリスポンド": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "オフショア人民元": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+        "lowerLeftDropLeader",
+      ],
+      "カナダドル": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "lower_gap_tight",
+      "upper_left_long_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "pdf_510037_02_world_bond_idx_currency_20240426": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftLongDense",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "flipToRight",
+      ],
+      "イギリスポンド": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "オフショア人民元": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+        "lowerLeftDropLeader",
+      ],
+      "カナダドル": [
+        "upperLeftLongDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "米ドル": [
+        "singleDominantInside",
+      ],
+    },
+    "modeTags": [
+      "lower_gap_tight",
+      "upper_left_long_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "pdf_510037_03_jp_equity_idx_asset": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "pdf_510037_03_jp_equity_idx_asset_20240529": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "flipToRight",
+      ],
+      "国内株式先物": [
+        "forceOutsideLeader",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+    ],
+  },
+  "pdf_510037_04_manulife_asset": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "pdf_510037_04_manulife_country": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "フランス": [
+        "forceOutsideLeader",
+      ],
+      "米国": [
+        "flipToRight",
+        "topBandSmallRight",
+        "forceOutsideLeader",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "pdf_510037_05_global_reit_idx_asset": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "pdf_510037_05_global_reit_idx_country": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "flipToRight",
+      ],
+      "アメリカ": [
+        "singleDominantInside",
+      ],
+      "イギリス": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "オーストラリア": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "シンガポール": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "pdf_510037_05_global_reit_idx_currency": {
+    "diag": [
+      "topSmallDense",
+      "topTinyDense",
+      "longLabelDense",
+      "lowerGapIsTight",
+      "upperLeftLongDense",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "preferOneLineCascade",
+      ],
+      "イギリスポンド": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "denseSideOutsidePush",
+      ],
+      "オーストラリアドル": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "lowerLeftDropLeader",
+        "denseSideOutsidePush",
+      ],
+      "シンガポールドル": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+      ],
+      "ユーロ": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "preferOneLineCascade",
+      ],
+      "米ドル": [
+        "singleDominantInside",
+      ],
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "pdf_510037_06_gold_asset": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "pdf_510037_06_gold_currency": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "pdf_510037_07_fidelity_foreign_bond_asset": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [],
+  },
+  "pdf_510037_07_fidelity_foreign_bond_country": {
+    "diag": [
+      "oneSideDense",
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "flipToRight",
+      ],
+      "アイルランド": [
+        "upperLeftSmallDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "アメリカ": [
+        "singleDominantInside",
+      ],
+      "オランダ": [
+        "upperLeftSmallDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "中国": [
+        "upperLeftSmallDense",
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "pdf_510037_07_fidelity_foreign_bond_currency": {
+    "diag": [
+      "oneSideDense",
+      "topSmallDense",
+      "topTinyDense",
+      "longLabelDense",
+      "lowerGapIsTight",
+      "upperLeftLongDense",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "preferOneLineCascade",
+      ],
+      "アメリカ・ドル": [
+        "singleDominantInside",
+      ],
+      "イギリス・ポンド": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "denseSideOutsidePush",
+      ],
+      "オフショア・人民元": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "denseSideOutsidePush",
+      ],
+      "ニュージーランド・ドル": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+      ],
+      "ユーロ": [
+        "denseSideOutsidePush",
+      ],
+      "韓国・ウォン": [
+        "upperLeftSmallDense",
+        "upperLeftLongDense",
+        "preferOneLineCascade",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "stress_balanced_3": {
+    "diag": [
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "A": [
+        "singleDominantInside",
+      ],
+    },
+    "modeTags": [],
+  },
+  "stress_balanced_5": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "stress_bottom_cluster_8": {
+    "diag": [
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "twoLineLeftStackMode",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "E": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "F": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "G": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "H": [
+        "flipToRight",
+        "topBandSmallRight",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "two_line_left_stack",
+      "upperLeftTriad",
+    ],
+  },
+  "stress_bottom_small_multi_8": {
+    "diag": [
+      "oneSideDense",
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "twoLineLeftStackMode",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "E": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "F": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "G": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "H": [
+        "flipToRight",
+        "topBandSmallRight",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "two_line_left_stack",
+      "upperLeftTriad",
+    ],
+  },
+  "stress_left_heavy_8": {
+    "diag": [
+      "oneSideDense",
+      "oneSideVeryDense",
+      "lowerGapIsTight",
+      "twoLineLeftStackMode",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "useStackRimY",
+      ],
+      "ドイツ": [
+        "upperLeftSmallDense",
+        "useStackRimY",
+      ],
+      "フランス": [
+        "upperLeftSmallDense",
+        "useStackRimY",
+      ],
+      "米国": [
+        "singleDominantInside",
+      ],
+      "英国": [
+        "upperLeftSmallDense",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "two_line_left_stack",
+    ],
+  },
+  "stress_one_dominant_9": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "REIT": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "その他": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "コモディティ": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "国内債": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "外国債": [
+        "denseSideOutsidePush",
+      ],
+      "外国株": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "大型株": [
+        "singleDominantInside",
+      ],
+      "新興国株": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "短期金融資産": [
+        "upperLeftSmallDense",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "stress_right_cluster_8": {
+    "diag": [
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "A": [
+        "singleDominantInside",
+      ],
+      "B": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "C": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "D": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "E": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "F": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "G": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "H": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "stress_top_cluster_8": {
+    "diag": [
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "topTinyDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "B": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "C": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "D": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "E": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "F": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "G": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "H": [
+        "flipToRight",
+      ],
+    },
+    "modeTags": [
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "stress_uniform_12": {
+    "diag": [
+      "manyItems",
+      "ultraDenseItems",
+      "oneSideDense",
+      "lowerGapIsTight",
+      "twoLineLeftStackMode",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "J": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "K": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "L": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "lower_gap_tight",
+      "two_line_left_stack",
+      "upperLeftTriad",
+    ],
+  },
+  "stress_uniform_2": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "A": [
+        "bisectedDominantCenter",
+      ],
+      "B": [
+        "bisectedSecondSliceNoLeader",
+      ],
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "stress_uniform_3": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "B": [
+        "bottomCenterBelow",
+      ],
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "stress_uniform_4": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "stress_uniform_6": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "stress_uniform_8": {
+    "diag": [
+      "lowerGapIsTight",
+      "upperLeftTriadEligible",
+    ],
+    "items": {},
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "ten_elements_balanced": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "lowerGapIsTight",
+      "twoLineLeftStackMode",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "REIT": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "その他": [
+        "flipToRight",
+      ],
+      "コモディティ": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+      "短期金融資産": [
+        "upperLeftTriad",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "two_line_left_stack",
+      "upperLeftTriad",
+    ],
+  },
+  "ten_elements_long_upper_left": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "longLabelDense",
+      "lowerGapIsTight",
+      "upperLeftLongDense",
+      "twoLineLeftStackMode",
+      "upperLeftTriadEligible",
+    ],
+    "items": {
+      "その他資産": [
+        "upperLeftLongDense",
+        "useStackRimY",
+      ],
+      "オプション取引": [
+        "upperLeftLongDense",
+        "useStackRimY",
+      ],
+      "店頭デリバティブ": [
+        "upperLeftLongDense",
+        "useStackRimY",
+      ],
+      "未収収益関連": [
+        "upperLeftLongDense",
+        "useStackRimY",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+      "two_line_left_stack",
+    ],
+  },
+  "ten_elements_one_side_dense": {
+    "diag": [
+      "manyItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "その他": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "イタリア": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "オランダ": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "スペイン": [
+        "upperLeftSmallDense",
+        "denseSideOutsidePush",
+      ],
+      "ドイツ": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "フランス": [
+        "denseSideOutsidePush",
+      ],
+      "ベルギー": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "英国": [
+        "flipToLeft",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "twelve_evenish": {
+    "diag": [
+      "manyItems",
+      "ultraDenseItems",
+      "oneSideDense",
+      "oneSideVeryDense",
+      "topSmallDense",
+      "lowerGapIsTight",
+      "leftStackMode",
+    ],
+    "items": {
+      "E": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "F": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "G": [
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "H": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "I": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "J": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+        "denseSideOutsidePush",
+      ],
+      "K": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+      "L": [
+        "upperLeftSmallDense",
+        "preferOneLineCascade",
+      ],
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+}
+`;

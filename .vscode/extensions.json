@@ -1,0 +1,18 @@
+{
+	// ワークスペースを開いた際にインストールを推奨する拡張。
+	"recommendations": [
+		"biomejs.biome",
+		"Vue.volar",
+		"bradlc.vscode-tailwindcss",
+		"charliermarsh.ruff",
+		"ms-python.python",
+		"ms-python.vscode-pylance",
+		"ms-vscode.powershell",
+		"vitest.explorer"
+	],
+	// Biome と競合するため推奨しない(明示的に無効化)。
+	"unwantedRecommendations": [
+		"esbenp.prettier-vscode",
+		"dbaeumer.vscode-eslint"
+	]
+}

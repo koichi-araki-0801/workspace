@@ -1,0 +1,57 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.local
+# Local runtime config (copy from appconfig.example.json); may hold machine-specific paths
+appconfig.json
+coverage/
+.vite/
+.tmp/
+tmp/
+*.tsbuildinfo
+# Python バイトコードキャッシュ（コミット対象外）
+__pycache__/
+*.pyc
+# ローカル開発支援ツールの設定・作業ファイル（マシン固有。リポジトリでは共有しない）
+.claude/
+CLAUDE.md
+pie-chart/.claude/
+# code-review-graph（MCP）のグラフ DB と MCP 設定（絶対パスを含むマシン固有）
+.code-review-graph/
+.mcp.json
+# vivliostyle / playwright artifacts
+playwright-report/
+test-results/
+# pnpm
+
+# オフラインバンドル生成物（コミット対象外。重量物は GitHub Releases へ）
+.pnpm-store/
+pnpm.tgz
+ms-playwright/
+# Python ビルド依存の wheel（pip download で生成し重量物バンドルへ同梱）
+python-wheelhouse/
+*.tar.gz
+*.tar.gz.part-*
+# Release 公開時の付随生成物
+offline-deps-bundle.tar.gz.sha256
+# 分離署名。真正性の根拠は Release 側の実体と `offline/pinned-release.txt` であって、
+# 作業ツリーに残るこの控えではない（公開鍵 `offline/bundle-signing.pub.xml` は追跡する）。
+offline-deps-bundle.tar.gz.sig
+bundle.key
+_bundle_stage/
+_bundle_verify/
+# オフライン環境構築後、ダウンロード物（ソースZIP/バンドル/sha256/key）の退避先
+bk/
+# editor のテンプレ実体(templates/css/drafts)はワークスペース外の dataRoot で git 版管理する
+editor/data/
+# git/TortoiseGit の同梱バイナリ（重量物。content key 差分で再配布）
+git-tools/
+# docs の Mermaid ランタイムと ELK レイアウト（計 ~4.3MB。git に入れず重量物バンドルへ同梱し
+# setup が vendor へ展開。版は docs/_build/vendor/manifest.txt が規定し content key に折り込まれる）
+docs/_build/vendor/mermaid.min.js
+docs/_build/vendor/mermaid-layout-elk.min.js
+# msnodesqlv8 の公式 prebuild（.node 入り tar.gz。npm tarball に入らないため重量物バンドルへ同梱し
+# setup が node_modules の .pnpm 実体へ展開。版は native-prebuilds/manifest.txt が規定し content key に折り込まれる）
+native-prebuilds/*.tar.gz

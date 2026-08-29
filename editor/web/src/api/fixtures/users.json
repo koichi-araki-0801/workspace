@@ -1,0 +1,29 @@
+[
+  {
+    "id": "u-admin",
+    "username": "admin",
+    "displayName": "管理者",
+    "role": "admin",
+    "disabled": false,
+    "mustChangePassword": false,
+    "password": "admin"
+  },
+  {
+    "id": "u-approver",
+    "username": "approver",
+    "displayName": "精査花子",
+    "role": "approver",
+    "disabled": false,
+    "mustChangePassword": false,
+    "password": "approver"
+  },
+  {
+    "id": "u-editor",
+    "username": "editor",
+    "displayName": "編集太郎",
+    "role": "editor",
+    "disabled": false,
+    "mustChangePassword": true,
+    "password": "editor"
+  }
+]

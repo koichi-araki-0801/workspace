@@ -1,0 +1,43 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			// editor/server を tsx で起動(watch 無し→主プロセスに直接アタッチしてブレーク可)。
+			"type": "node",
+			"request": "launch",
+			"name": "server (tsx)",
+			"cwd": "${workspaceFolder}/editor/server",
+			"runtimeExecutable": "pnpm",
+			"runtimeArgs": ["exec", "tsx", "src/index.ts"],
+			"console": "integratedTerminal",
+			"autoAttachChildProcesses": true,
+			"skipFiles": ["<node_internals>/**"]
+		},
+		{
+			// Vite dev サーバ(:24681)へ Edge で接続。事前に `dev` タスクで server+web 起動が必要。
+			"type": "msedge",
+			"request": "launch",
+			"name": "web (Edge :24681)",
+			"url": "http://localhost:24681",
+			"webRoot": "${workspaceFolder}/editor/web/src",
+			"preLaunchTask": "dev (server + web)"
+		},
+		{
+			"type": "node",
+			"request": "launch",
+			"name": "pie-chart: CLI (tsx)",
+			"cwd": "${workspaceFolder}/pie-chart",
+			"runtimeExecutable": "pnpm",
+			"runtimeArgs": ["exec", "tsx", "src/cli.ts"],
+			"console": "integratedTerminal",
+			"skipFiles": ["<node_internals>/**"]
+		},
+		{
+			"type": "debugpy",
+			"request": "launch",
+			"name": "Python: current file",
+			"program": "${file}",
+			"console": "integratedTerminal"
+		}
+	]
+}

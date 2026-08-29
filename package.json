@@ -1,0 +1,63 @@
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.18.0+sha512.33d83c77da82f49fba836925c6f1b841181ec3132b670639bd012f7075f5c7cf634c5f870147c19aae7478fac01df09d8892e880454896edd23ee9b33757563c",
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=11"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @editor/shared run build && pnpm --parallel --filter server --filter web run dev",
+    "dev:web": "pnpm --filter web run dev",
+    "dev:server": "pnpm --filter server run dev",
+    "build": "tsc -b editor/server && pnpm --filter web run build",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test -c editor/playwright.config.ts",
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "typecheck": "tsc -b editor/server && pnpm --filter web --filter pie-chart run typecheck",
+    "typecheck:editor": "tsc -b editor/server && pnpm --filter web run typecheck",
+    "typecheck:pie-chart": "pnpm --filter pie-chart run typecheck",
+    "test:editor": "vitest run --project shared --project server --project web",
+    "test:pie-chart": "vitest run --project pie-chart",
+    "build:editor": "tsc -b editor/server && pnpm --filter web run build",
+    "e2e:editor": "playwright test -c editor/playwright.config.ts",
+    "pie-chart:cli": "pnpm --filter pie-chart run cli",
+    "pie-chart:check": "pnpm --filter pie-chart run check",
+    "pie-chart:batch": "pnpm --filter pie-chart run batch",
+    "pie-chart:batch:diff": "pnpm --filter pie-chart run batch:diff",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "check": "biome check --write .",
+    "check:ci": "biome ci .",
+    "check:comments": "py -3.13 scripts/check-comments.py",
+    "check:claude-hooks": "node scripts/check-claude-hooks.mjs",
+    "test:scripts": "node --test scripts/clean.test.mjs scripts/ci-affected.test.mjs scripts/pre-push.test.mjs",
+    "knip": "knip",
+    "clean": "node scripts/clean.mjs",
+    "clean:deep": "node scripts/clean.mjs --deep",
+    "clean:bundles": "node scripts/clean.mjs --bundles",
+    "ci": "pnpm run check:comments && pnpm run check:claude-hooks && pnpm run check:ci && pnpm run test:scripts && pnpm run typecheck && pnpm run test:coverage && pnpm run build && pnpm run test:e2e",
+    "ci:editor": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck:editor && pnpm run test:editor && pnpm run build:editor && pnpm run e2e:editor",
+    "ci:pie-chart": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck:pie-chart && pnpm run test:pie-chart",
+    "ci:affected": "node scripts/ci-affected.mjs",
+    "prepare": "husky || true",
+    "test:docs": "python -m pytest docs/_build",
+    "ci:offline": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$m = Get-Module -ListAvailable Pester | Sort-Object Version -Descending | Select-Object -First 1; if (-not $m) { Write-Error 'Pester module が見つかりません。Install-Module Pester -Force -SkipPublisherCheck で導入してください。'; exit 1 }; Import-Module Pester -RequiredVersion $m.Version -Force; if ($m.Version.Major -ge 5) { $c = New-PesterConfiguration; $c.Run.Path = 'offline/lib/verify.Tests.ps1'; $c.Run.Exit = $true; $c.CI = $true; Invoke-Pester -Configuration $c } else { Invoke-Pester -Script offline/lib/verify.Tests.ps1 -EnableExit } \""
+  },
+  "lint-staged": {
+    "editor/**/*.{ts,vue,css,json}": "biome check --write --no-errors-on-unmatched"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@playwright/test": "^1.62.1",
+    "@vitest/coverage-v8": "^4.1.11",
+    "husky": "^9.1.7",
+    "knip": "^5.88.1",
+    "lint-staged": "^17.4.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
+  }
+}

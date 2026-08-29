@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "lib": ["ES2022"],
+    // `server` から project reference で参照される leaf。`tsc -b` が依存順・差分ビルドを担うため
+    // composite 必須(declaration:true は既存)。`*.tsbuildinfo` は .gitignore 済み。
+    "composite": true
+  },
+  "include": ["src/**/*"]
+}

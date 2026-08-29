@@ -1,0 +1,1118 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`emit 後 finalScore / modeTags のゴールデン表 > 全サンプルの finalScore と modeTags がスナップショットと一致する 1`] = `
+{
+  "asset_11_mixed": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "asset_12_long_and_tiny": {
+    "finalScore": {
+      "clips": 2,
+      "crossings": 0,
+      "pie": 0,
+      "total": 2,
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+      "upper_right_long_dense",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "asset_2slice_split": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "asset_4slice_simple": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "asset_balanced_6": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "asset_balanced_8": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "asset_domestic_equity_pdf": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "asset_foreign_bond_pdf": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "asset_foreign_equity_pdf": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+    ],
+  },
+  "asset_gbca_pdf_like": {
+    "finalScore": {
+      "clips": 3,
+      "crossings": 0,
+      "pie": 0,
+      "total": 3,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+    ],
+  },
+  "asset_gold_hedged_pdf_like": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "asset_jreit_pdf": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "asset_long_labels_9": {
+    "finalScore": {
+      "clips": 1,
+      "crossings": 0,
+      "pie": 0,
+      "total": 1,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+    ],
+  },
+  "asset_lower_tight_10": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "asset_many_small_12": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "asset_mixed_10": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "asset_mixed_9": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "asset_top_heavy_7": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "country_12_europe_heavy": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "country_balanced_6": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "country_balanced_7": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "country_emerging_mix_10": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "two_line_left_stack",
+      "upperLeftTriad",
+    ],
+  },
+  "country_europe_heavy_8": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "country_foreign_equity_pdf": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "country_long_labels_9": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "country_many_small_10": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "country_right_dense_9": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "country_upper_left_dense_8": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "currency_2currency_usd": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "currency_balanced_5": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "currency_balanced_7": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "currency_europe_heavy_8": {
+    "finalScore": {
+      "clips": 1,
+      "crossings": 0,
+      "pie": 0,
+      "total": 1,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "lower_gap_tight",
+      "upper_left_long_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "currency_foreign_equity_pdf": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "currency_gbca_pdf": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+    ],
+  },
+  "currency_long_labels_8": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_long_dense",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "currency_low_diff_10": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "currency_many_small_10": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "currency_usd_heavy_9": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "currency_usd_hedged_pdf_like": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "eleven_tiny_cluster": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "page16_asset_allocation": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "page16_country_allocation": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+    ],
+  },
+  "pdf_510037_01_fund_asset": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_01_fund_asset_20240710": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_01_fund_country": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+      "top_band_cluster",
+    ],
+  },
+  "pdf_510037_01_fund_country_20240710": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+    ],
+  },
+  "pdf_510037_01_fund_currency": {
+    "finalScore": null,
+    "modeTags": [],
+  },
+  "pdf_510037_02_world_bond_idx_asset": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "pdf_510037_02_world_bond_idx_asset_20240426": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_02_world_bond_idx_country": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "two_line_left_stack",
+    ],
+  },
+  "pdf_510037_02_world_bond_idx_country_20240426": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "pdf_510037_02_world_bond_idx_currency": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+      "upper_left_long_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "pdf_510037_02_world_bond_idx_currency_20240426": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+      "upper_left_long_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "pdf_510037_03_jp_equity_idx_asset": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_03_jp_equity_idx_asset_20240529": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+    ],
+  },
+  "pdf_510037_04_manulife_asset": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_04_manulife_country": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+    ],
+  },
+  "pdf_510037_05_global_reit_idx_asset": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_05_global_reit_idx_country": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+      "upperLeftTriad",
+    ],
+  },
+  "pdf_510037_05_global_reit_idx_currency": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "pdf_510037_06_gold_asset": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_06_gold_currency": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_07_fidelity_foreign_bond_asset": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "pdf_510037_07_fidelity_foreign_bond_country": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "upperLeftTriad",
+    ],
+  },
+  "pdf_510037_07_fidelity_foreign_bond_currency": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "stress_balanced_3": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [],
+  },
+  "stress_balanced_5": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "stress_bottom_cluster_8": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "two_line_left_stack",
+      "upperLeftTriad",
+    ],
+  },
+  "stress_bottom_small_multi_8": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "two_line_left_stack",
+      "upperLeftTriad",
+    ],
+  },
+  "stress_left_heavy_8": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "one_side_very_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "two_line_left_stack",
+    ],
+  },
+  "stress_one_dominant_9": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "stress_right_cluster_8": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "stress_top_cluster_8": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "top_tiny_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "stress_uniform_12": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "lower_gap_tight",
+      "two_line_left_stack",
+      "upperLeftTriad",
+    ],
+  },
+  "stress_uniform_2": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "stress_uniform_3": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "stress_uniform_4": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "stress_uniform_6": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "stress_uniform_8": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "lower_gap_tight",
+    ],
+  },
+  "ten_elements_balanced": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "two_line_left_stack",
+      "upperLeftTriad",
+    ],
+  },
+  "ten_elements_long_upper_left": {
+    "finalScore": {
+      "clips": 1,
+      "crossings": 0,
+      "pie": 0,
+      "total": 1,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "long_label_dense",
+      "upper_left_long_dense",
+      "two_line_left_stack",
+    ],
+  },
+  "ten_elements_one_side_dense": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+  "twelve_evenish": {
+    "finalScore": {
+      "clips": 0,
+      "crossings": 0,
+      "pie": 0,
+      "total": 0,
+    },
+    "modeTags": [
+      "many_items",
+      "ultra_dense_items",
+      "one_side_dense",
+      "one_side_very_dense",
+      "top_small_dense",
+      "lower_gap_tight",
+      "upper_left_small_dense",
+      "left_stack",
+    ],
+  },
+}
+`;
