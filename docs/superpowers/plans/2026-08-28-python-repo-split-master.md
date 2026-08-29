@@ -19,7 +19,7 @@
 | 2. pdf-to-svg テスト移植(単体 34 + E2E 4。ハーネス基盤の確立) | step 1-2 の一部 | `2026-08-28-phase2-pdf-to-svg-tests.md` | **完了(2026-08-28)** |
 | 3. graph-editor テスト移植(単体 75 + E2E 34 + capture 5 + CDP カバレッジゲート) | step 1-2 の残り | `2026-08-28-phase3-graph-editor-tests.md` | **完了(2026-08-29)** |
 | 4. 新リポ作成 + 基盤(snapshot・setup_dev・hooks・check-comments.py・offline Python 版・署名鍵) | step 3-4 | `2026-08-29-phase4-new-repo.md` | **完了(2026-08-29)** |
-| 5. monorepo 除去 + Node 依存更新 + 履歴初期化 + 後始末 | step 5-8 | (フェーズ 5 開始時に作成) | 未 |
+| 5. monorepo 除去 + Node 依存更新 + 履歴初期化 + 後始末 | step 5-8 | `2026-08-30-phase5-monorepo-removal.md` | **完了(2026-08-30)** |
 
 **フェーズ完了ゲート(各フェーズの exit 条件):**
 
