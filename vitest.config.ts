@@ -112,6 +112,7 @@ export default defineConfig({
         'editor/web/src/lib/format.ts',
         'editor/web/src/lib/labels.ts',
         'editor/web/src/features/templates/viewmodels/templateVm.ts',
+        'editor/web/src/features/templates/components/searchGuard.ts',
         'editor/web/src/features/templates/services/templateCreationService.ts',
         'editor/web/src/features/editor/services/templateEditorService.ts',
         'editor/web/src/features/preview/services/templatePreviewService.ts',

@@ -42,6 +42,12 @@ interface PreviewLoad {
   previewDoc: string;
   /** ユーザー向けレンダリングエラー。正常にレンダリングできた場合は null。 */
   renderError: string | null;
+  /**
+   * 自動保存された draft が存在するか。画面が「変更なし」を出す判断にだけ使う。
+   * 申請の可否はこれで決めない — 差分の有無は精査画面がその場で計算するのが正で、
+   * ここで止めると「差分計算が劣化しただけ」のときに正当な申請まで塞ぐ。
+   */
+  hasDraft: boolean;
 }
 
 interface TemplatePreviewService {
@@ -115,7 +121,15 @@ export function createTemplatePreviewService(
       } else {
         previewDoc = assemblePreviewDocument(rendered.html, css);
       }
-      return ok({ template: tpl, sample, restoredHtml, css, previewDoc, renderError });
+      return ok({
+        template: tpl,
+        sample,
+        restoredHtml,
+        css,
+        previewDoc,
+        renderError,
+        hasDraft: !!draft,
+      });
     },
 
     async renderPdf(html, css, sample, cropMarks) {

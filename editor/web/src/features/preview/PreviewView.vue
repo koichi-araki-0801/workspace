@@ -14,6 +14,7 @@ import AttributeBar from '@/components/AttributeBar.vue';
 import PageNav from '@/components/PageNav.vue';
 import PageRail from '@/components/PageRail.vue';
 import BackButton from '@/components/ui/BackButton.vue';
+import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
 import { Tooltip } from '@/components/ui/overlays';
@@ -39,6 +40,8 @@ const restoredHtml = ref('');
 const css = ref('');
 const previewDoc = ref('');
 const renderError = ref<string | null>(null);
+// 自動保存された draft の有無。上部バーの「変更なし」バッジにだけ使う。
+const hasDraft = ref(false);
 // トンボ(トリムマーク)の ON/OFF。画面内トグルのみで保持し, 初期は ON。表示用の `displayDoc`
 // と PDF 出力(`exportPdf`)の双方へ効かせる。ベースの `previewDoc`(トンボ無し)は保持し,
 // 申請の記入済みインスタンス(`filledHtml`)には一時設定を混入させない。
@@ -88,6 +91,7 @@ onMounted(async () => {
   css.value = v.css;
   previewDoc.value = v.previewDoc;
   renderError.value = v.renderError;
+  hasDraft.value = v.hasDraft;
 });
 
 // 編集タブ(query なし) / 作成タブ(`?created=1`)の区別。申請に保持し 2 系統を保つ。
@@ -163,6 +167,13 @@ async function exportPdf() {
       <div class="h-[26px] w-px shrink-0 bg-border" />
       <AttributeBar v-if="template" :attributes="template.meta.attributes" class="flex-1" />
       <span v-else class="flex-1" />
+
+      <!-- 未確定の編集があるか。編集画面(`EditorTopBar`)と同じ語で示し、編集していない
+           テンプレをそのまま申請しかけていることに、申請ボタンを押す前に気づけるようにする。
+           申請自体は止めない(差分の有無を最終的に判断するのは精査画面)。 -->
+      <Tooltip v-if="template && !hasDraft" text="未確定の変更はありません。">
+        <Badge variant="secondary" class="shrink-0 whitespace-nowrap">変更なし</Badge>
+      </Tooltip>
 
       <!-- zoom -->
       <div class="flex shrink-0 items-center gap-1.5">

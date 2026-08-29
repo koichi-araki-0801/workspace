@@ -65,6 +65,8 @@ describe('TemplatePreviewService.loadForPreview', () => {
       expect(res.value.previewDoc).toContain('hello');
       expect(res.value.previewDoc).toContain('data-preview-css');
       expect(res.value.restoredHtml).toBe(tpl.html);
+      // 画面が「変更なし」を出せるよう、draft の有無をそのまま伝える。
+      expect(res.value.hasDraft).toBe(false);
     }
   });
 
@@ -89,6 +91,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
       // css は整形されて返る(`.from-draft {}`)。draft 由来であることを確認する。
       expect(res.value.css).toContain('.from-draft');
       expect(res.value.restoredHtml).toContain('draft');
+      expect(res.value.hasDraft).toBe(true);
     }
   });
 

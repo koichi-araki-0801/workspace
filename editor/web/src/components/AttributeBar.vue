@@ -16,10 +16,12 @@ const items: Array<{ key: keyof TemplateAttributes; label: string }> = [
 </script>
 
 <template>
-  <div class="flex flex-wrap gap-x-6 gap-y-1 rounded-lg border bg-muted/40 px-4 py-2">
-    <div v-for="it in items" :key="it.key" class="flex flex-col">
+  <!-- `min-w-0` + 各列の `truncate`: 幅が足りないときはファンド名を省略して 1 行に収める。
+       これが無いと長いファンド名が縮まず、上部バーが 3 行へ折り返して縦に伸びる。 -->
+  <div class="flex min-w-0 flex-wrap gap-x-6 gap-y-1 rounded-lg border bg-muted/40 px-4 py-2">
+    <div v-for="it in items" :key="it.key" class="flex min-w-0 flex-col">
       <span class="text-xs text-muted-foreground">{{ it.label }}</span>
-      <span class="text-sm text-foreground">
+      <span class="truncate text-sm text-foreground">
         <!-- fundCode 列だけコード＋解決名の共有部品へ委譲(名前解決の配線を二重に持たない) -->
         <FundCodeName v-if="it.key === 'fundCode'" :code="attributes.fundCode" />
         <span v-else class="mono font-medium">{{ attributes[it.key] }}</span>
