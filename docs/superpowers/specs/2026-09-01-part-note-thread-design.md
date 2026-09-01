@@ -100,7 +100,9 @@ PartNote>`）と判定し、投稿 1 件へ変換して返す。変換後の `id
 ## 4. API（`shared/src/api-paths.ts` / `server/src/routes/notes.routes.ts`）
 
 - `GET /api/templates/:templateId/notes` — 自版とペア版をマージした `PartNoteEntry[]`。
-  並びは `createdAt` 昇順、同値なら `templateId` → `id` で安定化する。
+  並びは `createdAt` 昇順のみ。同値は安定ソートにより連結前の順（自版=挿入順、自版→ペア版）を
+  保つ（`templateId` → `id` を追加のタイブレークにすると、`id` が乱数 UUID のため同時刻の
+  連投で挿入順が崩れる）。
 - `POST /api/templates/:templateId/notes` — 追加。body は `AddNoteRequest`。201 で作成した
   エントリを返す。
 - `PATCH /api/templates/:templateId/notes/:entryId` — 本文の編集。body は `UpdateNoteRequest`。

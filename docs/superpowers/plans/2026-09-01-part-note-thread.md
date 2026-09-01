@@ -502,7 +502,7 @@ git commit -m "feat(editor): メモファイルを投稿配列形式にし旧形
 **Interfaces:**
 - Consumes: Task 2 の `readNotes` / `readNotesStrict` / `writeNotes` / `withNotesLock` / `entriesAtCapacity` / `entriesCapacityError` / `notesAtCapacity` / `notesCapacityError`、shared の `pairedTemplateId`
 - Produces:
-  - `listNotes(templateId): Promise<PartNoteEntry[]>` — 自版 + ペア版、`createdAt` 昇順（同値は `templateId` → `id`）
+  - `listNotes(templateId): Promise<PartNoteEntry[]>` — 自版 + ペア版、`createdAt` 昇順のみ（同値は安定ソートで連結前の順を保つ）
   - `addNote(templateId, pathKey, content, loginId): Promise<PartNoteEntry>`
   - `updateNote(templateId, entryId, content, loginId): Promise<PartNoteEntry>`
   - `deleteNote(templateId, entryId): Promise<void>`
@@ -701,20 +701,17 @@ function flatten(templateId: string, map: NoteEntriesMap): PartNoteEntry[] {
 /**
  * 自版とペア版(交付版⇄全体版)をマージしたスレッド。
  *
- * 並びは `createdAt` の昇順。同時刻の投稿で並びが揺れないよう、`templateId` → `id` を
- * 第 2・第 3 のキーにして安定させる(表示順が読むたびに変わると差分が読めない)。
+ * 並びは `createdAt` の昇順のみで比較する。`Array.prototype.sort` は安定ソートなので、
+ * 同時刻の投稿は連結前の順(自版=挿入順、自版→ペア版)がそのまま保たれる。`templateId` →
+ * `id` を追加のタイブレークにすると、`id` は乱数 UUID で挿入順と無関係なため、同一ミリ秒の
+ * 連投で並びが id 順に化ける(実装時に発覚し撤回)。
  * ペアの実体が無い場合や版種がペア対象外の場合は、自版だけが返る。
  */
 export async function listNotes(templateId: string): Promise<PartNoteEntry[]> {
   const paired = pairedTemplateId(templateId);
   const own = flatten(templateId, await readNotes(templateId));
   const other = paired ? flatten(paired, await readNotes(paired)) : [];
-  return [...own, ...other].sort(
-    (a, b) =>
-      a.createdAt.localeCompare(b.createdAt) ||
-      a.templateId.localeCompare(b.templateId) ||
-      a.id.localeCompare(b.id),
-  );
+  return [...own, ...other].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 /**
@@ -1201,13 +1198,10 @@ export const localNoteRepo: NoteRepository = {
       const all = read<NoteStore>(K.notes, {});
       const paired = pairedTemplateId(templateId);
       const merged = [...flatten(all, templateId), ...(paired ? flatten(all, paired) : [])];
-      // server 実装と同じ並び(作成日時 → 版 → ID)。同時刻でも読むたびに順が変わらない。
-      merged.sort(
-        (a, b) =>
-          a.createdAt.localeCompare(b.createdAt) ||
-          a.templateId.localeCompare(b.templateId) ||
-          a.id.localeCompare(b.id),
-      );
+      // server 実装と同じ並び(作成日時のみで比較する安定ソート)。同時刻でも連結前の順が
+      // 保たれるので読むたびに順が変わらない(`templateId` → `id` のタイブレークは、`id` が
+      // 乱数 UUID で挿入順と無関係なため撤回)。
+      merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       return delay(merged);
     }),
 

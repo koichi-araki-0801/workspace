@@ -39,7 +39,7 @@ interface CanvasMarkersContext {
 export function useCanvasMarkers(ctx: CanvasMarkersContext) {
   /** overlay 用に保持する選択要素の画面 rect(canvas 相対, zoom 考慮)。 */
   const selectedRect = ref<SelectedRect | null>(null);
-  /** 版を跨ぐメモを持つパーツの構造キー集合(外部 = `usePartNote` から `setNoteKeys` で注入)。 */
+  /** メモを持つパーツの構造キー集合(外部 = `usePartNote` から `setNoteKeys` で注入)。 */
   const noteKeys = ref<Set<string>>(new Set());
   /** メモ目印の overlay 位置(`refreshNoteMarkers` が現在ページのパーツから算出)。 */
   const noteMarkers = ref<NoteMarker[]>([]);
