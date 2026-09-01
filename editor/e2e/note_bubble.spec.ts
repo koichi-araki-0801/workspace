@@ -16,9 +16,15 @@ const SEED_ID = 'AM01_510037_20240710_交付版';
 test.use({ viewport: { width: 1440, height: 900 } });
 
 async function login(page: Page): Promise<void> {
-  await page.goto('/');
+  // `waitUntil: 'commit'` は `canvas.spec.ts` の `openEditor` と同じ理由: 既定の 'load' は
+  // 全サブリソースを待つので、SPA が起動時に出す認証確認や router のリダイレクトが割り込むと
+  // `net::ERR_ABORTED` で goto 自体が落ちる。さらに、その遷移が終わる前に `evaluate` を投げると
+  // 実行コンテキストごと壊れるため、URL が落ち着くまで待ってから localStorage を触る
+  // (どちらも 4 並列の pre-push CI で実際に踏んだ)。
+  await page.goto('/', { waitUntil: 'commit' });
+  await page.waitForURL(/\/(login|edit|reviews)/);
   await page.evaluate(() => localStorage.removeItem('editor:session'));
-  await page.goto('/login');
+  await page.goto('/login', { waitUntil: 'commit' });
   await page.locator('#u').waitFor();
   await page.locator('#u').fill('admin');
   await page.locator('#p').fill('admin');
