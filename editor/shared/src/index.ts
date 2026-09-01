@@ -168,7 +168,12 @@ export type AddNoteRequest = z.infer<typeof sch.AddNoteRequest>;
 
 export type UpdateNoteRequest = z.infer<typeof sch.UpdateNoteRequest>;
 
-export { MAX_NOTE_ENTRIES_PER_PART } from './schemas.js';
+export {
+  MAX_NOTE_CONTENT_CHARS,
+  MAX_NOTE_ENTRIES_PER_PART,
+  MAX_NOTE_PATH_KEY_CHARS,
+  MAX_NOTES_PER_TEMPLATE,
+} from './schemas.js';
 
 /** カスケード問い合わせ: 既知の分類を入力、残りの候補を出力。 */
 export type PartClassificationQuery = z.infer<typeof sch.PartClassificationQuery>;

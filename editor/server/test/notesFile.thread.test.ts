@@ -71,7 +71,7 @@ describe('旧形式の遅延変換', () => {
     const map = await files.readNotes(TPL);
     expect(map[KEY]).toHaveLength(1);
     expect(map[KEY][0]).toMatchObject({
-      id: 'legacy',
+      id: `legacy:${KEY}`,
       content: '旧メモ',
       createdAt: '2026-08-01T00:00:00.000Z',
       createdBy: '旧編集者',
@@ -84,6 +84,47 @@ describe('旧形式の遅延変換', () => {
     const a = await files.readNotes(TPL);
     const b = await files.readNotes(TPL);
     expect(a[KEY][0].id).toBe(b[KEY][0].id);
+  });
+
+  it('複数 pathKey を持つ旧形式ファイルでは各パーツが異なる ID になる', async () => {
+    // 固定値 `legacy` 単体へ戻す退行が起きると、ここが同じ ID になって検出できる
+    // (`repositories/noteRepo.ts` の `locate` はファイル内の全 pathKey を横断して ID 一致を
+    // 探すため、ID が衝突すると編集・削除が別パーツへ誤爆する。実害は noteRepo.test.ts の
+    // 「旧形式ファイル(複数 pathKey)での id 衝突を防ぐ」で確認する)。
+    const KEY2 = '.page#1/cover#2';
+    const files = await importNotesFile();
+    await writeRaw({
+      [KEY]: { content: 'パーツ1', updatedAt: 'x', updatedBy: 'u' },
+      [KEY2]: { content: 'パーツ2', updatedAt: 'x', updatedBy: 'u' },
+    });
+    const map = await files.readNotes(TPL);
+    expect(map[KEY][0].id).not.toBe(map[KEY2][0].id);
+    expect(map[KEY][0].id).toBe(`legacy:${KEY}`);
+    expect(map[KEY2][0].id).toBe(`legacy:${KEY2}`);
+  });
+});
+
+describe('壊れた投稿要素の耐性', () => {
+  it('id/content が欠けた要素は静かに落とし、locate を TypeError で落とさない', async () => {
+    const files = await importNotesFile();
+    await writeRaw({
+      [KEY]: [
+        {
+          id: 'ok1',
+          content: '正常',
+          createdAt: 'x',
+          createdBy: 'u',
+          updatedAt: null,
+          updatedBy: null,
+        },
+        null,
+        { content: 'id 欠如' },
+        { id: 'no-content' },
+      ],
+    });
+    const map = await files.readNotes(TPL);
+    expect(map[KEY]).toHaveLength(1);
+    expect(map[KEY][0]).toMatchObject({ id: 'ok1', content: '正常' });
   });
 });
 

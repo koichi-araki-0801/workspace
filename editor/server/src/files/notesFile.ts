@@ -12,6 +12,7 @@ import path from 'node:path';
 import {
   assertTemplateId,
   MAX_NOTE_ENTRIES_PER_PART,
+  MAX_NOTES_PER_TEMPLATE,
   type PartNoteEntry,
   validation,
 } from '@editor/shared';
@@ -59,8 +60,9 @@ export type NoteEntriesMap = Record<string, StoredNoteEntry[]>;
 /**
  * 読み取りの結果。**「メモが無い」と「読めなかった」を呼び出し側が区別できる**ようにする。
  *
- * 区別が要るのは書き込み経路のため。`saveNote` は「全体を読む → 1 件差し替える → 全体を
- * 書く」なので、読めなかったのに空と受け取ると**残りの全メモを消して書き戻す**。
+ * 区別が要るのは書き込み経路のため。`repositories/noteRepo.ts` の `addNote`/`updateNote`/
+ * `deleteNote` はいずれも「全体を読む → 1 件差し替える → 全体を書く」なので、読めなかったのに
+ * 空と受け取ると**残りの全メモを消して書き戻す**。
  */
 interface NotesReadResult {
   notes: NoteEntriesMap;
@@ -69,17 +71,39 @@ interface NotesReadResult {
 }
 
 /**
+ * 配列要素が投稿として最低限の形をしているか(`id` と `content` が string であること)。
+ *
+ * 壊れた要素(`null`・`content` 欠如)を弾かないと、`repositories/noteRepo.ts` の `locate` が
+ * `.id` 参照で例外を投げ、保存の関所であるはずの `validation`(400)ではなく素の TypeError
+ * (500)が返る。フルスキーマ検証は別レイヤ(REST 契約の Zod)の役目なので、ここは壊れた要素を
+ * 静かに落とすだけの最小限に絞る(他フィールドの型までは見ない)。
+ */
+function looksLikeStoredNoteEntry(v: unknown): v is StoredNoteEntry {
+  return (
+    v !== null &&
+    typeof v === 'object' &&
+    typeof (v as { id?: unknown }).id === 'string' &&
+    typeof (v as { content?: unknown }).content === 'string'
+  );
+}
+
+/**
  * 旧形式(`pathKey` → メモ 1 件)を投稿 1 件の配列へ変換する。
  *
- * 変換後の ID を固定値 `legacy` にするのは、読むたびに ID が変わると編集・削除の宛先が
- * 安定しないため。旧形式は 1 パーツにつき 1 件しか持てないので、この値で衝突しない。
- * 一括移行はしない — 次の書き込みで新形式として保存され、自然に移りきる。
+ * 変換後の ID を `` `legacy:${key}` ``(`key` = そのメモが属する `pathKey`)にするのは、
+ * 読むたびに ID が変わると編集・削除の宛先が安定しないため。固定値 `legacy` 単体だと、
+ * `repositories/noteRepo.ts` の `locate` は**ファイル内の全 `pathKey` を横断**して ID 一致を
+ * 探すので、旧形式ファイルが 2 パーツ以上を持つ場合に全パーツが同じ ID を名乗ってしまい、
+ * 先に見つかったパーツ(= 別パーツ)が編集・削除の宛先になる(所在特定はファイル単位で一意な
+ * ID を前提にしている)。`pathKey` を連結すれば旧形式(1 パーツにつき 1 件)の制約と合わせて
+ * ファイル内で一意になる。一括移行はしない — 次の書き込みで新形式として保存され、自然に
+ * 移りきる。
  */
 function normalizeStored(parsed: Record<string, unknown>): NoteEntriesMap {
   const out: NoteEntriesMap = {};
   for (const [key, value] of Object.entries(parsed)) {
     if (Array.isArray(value)) {
-      out[key] = value as StoredNoteEntry[];
+      out[key] = value.filter(looksLikeStoredNoteEntry);
       continue;
     }
     if (value === null || typeof value !== 'object') continue;
@@ -87,7 +111,7 @@ function normalizeStored(parsed: Record<string, unknown>): NoteEntriesMap {
     if (typeof legacy.content !== 'string') continue;
     out[key] = [
       {
-        id: 'legacy',
+        id: `legacy:${key}`,
         content: legacy.content,
         createdAt: typeof legacy.updatedAt === 'string' ? legacy.updatedAt : '',
         createdBy: typeof legacy.updatedBy === 'string' ? legacy.updatedBy : '',
@@ -176,8 +200,9 @@ export function withNotesLock<T>(templateId: string, fn: () => Promise<T>): Prom
   return withFileLock(fileFor(templateId), fn);
 }
 
-/** メモ 1 ファイルが保持できる件数の上限(パーツ数の実物は 1 版あたり数十)。 */
-export const MAX_NOTES_PER_TEMPLATE = 1000;
+// `MAX_NOTES_PER_TEMPLATE` は shared 正典を再輸出する(web の local 実装と値を共有するため
+// shared へ移した。既存の import 元(本モジュール経由)を壊さないための再輸出)。
+export { MAX_NOTES_PER_TEMPLATE };
 
 /** 件数上限に達しているか(新規キーの追加可否の判定に使う)。 */
 export function notesAtCapacity(notes: NoteEntriesMap, pathKey: string): boolean {

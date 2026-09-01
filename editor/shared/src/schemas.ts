@@ -38,6 +38,13 @@ export const MAX_NOTE_CONTENT_CHARS = 64 * 1024;
 export const MAX_NOTE_PATH_KEY_CHARS = 512;
 /** 1 パーツが保持できる投稿数の上限。件数上限だけではファイル上限を守れないため両方持つ。 */
 export const MAX_NOTE_ENTRIES_PER_PART = 200;
+/**
+ * メモ 1 ファイル(1 版インスタンス)が保持できる `pathKey` の件数上限(パーツ数の実物は
+ * 1 版あたり数十)。web の local 実装(`api/local/noteRepo.ts`)と server 実装
+ * (`server/src/files/notesFile.ts`)の双方が同じ値を強制する必要があるため shared に置く —
+ * 複製すると片方だけが追随しない値の乖離を構造的に作る。
+ */
+export const MAX_NOTES_PER_TEMPLATE = 1000;
 
 // ── 1. Template identity — テンプレート同定 ──
 
@@ -591,7 +598,7 @@ export const PartClassificationQuery = z.object({
  */
 export const PartNoteEntry = z
   .object({
-    id: z.string().meta({ description: '投稿 ID(UUID。旧形式からの変換分は legacy)' }),
+    id: z.string().meta({ description: '投稿 ID(UUID。旧形式からの変換分は `legacy:<pathKey>`)' }),
     templateId: z.string().meta({ description: '投稿が属する版インスタンス ID' }),
     pathKey: z.string().meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
     content: z.string().meta({ description: '投稿本文' }),

@@ -206,6 +206,67 @@ describe('投稿数の上限', () => {
   });
 });
 
+describe('旧形式ファイル(複数 pathKey)での id 衝突を防ぐ', () => {
+  // 旧形式(`pathKey` → メモ 1 件)の変換 ID を固定値 `legacy` にすると、`locate` はファイル内の
+  // 全 pathKey を横断して ID 一致を探すため、2 パーツ以上を持つ旧形式ファイルでは全パーツが
+  // 同じ ID を名乗ってしまい、削除・編集が先頭に見つかった別パーツへ誤爆する(データ損失)。
+  // ここでは 2 つの異なる pathKey を持つ旧形式ファイルを直接書き、片方の削除・編集がもう片方に
+  // 波及しないことを主張する。
+  const KEY2 = '.page#1/cover#2';
+
+  async function writeLegacyFile(): Promise<void> {
+    const notesPath = path.join(tmpRoot, 'notes', `${KOUFU}.json`);
+    await fs.mkdir(path.dirname(notesPath), { recursive: true });
+    await fs.writeFile(
+      notesPath,
+      JSON.stringify({
+        [KEY]: {
+          content: 'パーツ1の旧メモ',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+          updatedBy: 'u1',
+        },
+        [KEY2]: {
+          content: 'パーツ2の旧メモ',
+          updatedAt: '2026-08-01T00:00:00.000Z',
+          updatedBy: 'u2',
+        },
+      }),
+      'utf8',
+    );
+  }
+
+  it('一方のパーツの投稿を削除しても、もう一方のパーツの投稿は残る', async () => {
+    const { repo, files } = await importRepo();
+    await writeLegacyFile();
+
+    const before = await repo.listNotes(KOUFU);
+    const target = before.find((e) => e.pathKey === KEY);
+    if (!target) throw new Error('セットアップ失敗: パーツ1の投稿が見つからない');
+
+    await repo.deleteNote(KOUFU, target.id);
+
+    const after = await files.readNotes(KOUFU);
+    expect(after[KEY]).toBeUndefined();
+    expect(after[KEY2]).toHaveLength(1);
+    expect(after[KEY2][0].content).toBe('パーツ2の旧メモ');
+  });
+
+  it('一方のパーツの投稿を編集しても、もう一方のパーツの投稿は変わらない', async () => {
+    const { repo, files } = await importRepo();
+    await writeLegacyFile();
+
+    const before = await repo.listNotes(KOUFU);
+    const target = before.find((e) => e.pathKey === KEY);
+    if (!target) throw new Error('セットアップ失敗: パーツ1の投稿が見つからない');
+
+    await repo.updateNote(KOUFU, target.id, 'パーツ1の修正後', 'editor1');
+
+    const after = await files.readNotes(KOUFU);
+    expect(after[KEY][0].content).toBe('パーツ1の修正後');
+    expect(after[KEY2][0].content).toBe('パーツ2の旧メモ');
+  });
+});
+
 describe('同時追加で投稿が消えない', () => {
   it('同一テンプレへの並行 addNote が全て残る', async () => {
     const { repo } = await importRepo();
