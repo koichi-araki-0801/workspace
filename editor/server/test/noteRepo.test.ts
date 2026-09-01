@@ -235,35 +235,41 @@ describe('旧形式ファイル(複数 pathKey)での id 衝突を防ぐ', () =>
     );
   }
 
-  it('一方のパーツの投稿を削除しても、もう一方のパーツの投稿は残る', async () => {
+  // 対象は必ず「2 つ目」の pathKey(KEY2)にする。`locate` は `Object.entries(map)` を
+  // 挿入順に走査して最初の ID 一致を返すため、旧実装(変換 ID が全件固定値 `legacy`)でも
+  // ファイルに最初に書いた pathKey(KEY)を狙えば `locate` が KEY 自身の投稿へ一致し、
+  // 偶然正しい宛先に当たって退行を検出できない。再現したい事故は「後ろの pathKey の投稿を
+  // 消したら前の pathKey の投稿が消えた」なので、2 つ目を狙わないと主張にならない。
+
+  it('2 つ目のパーツの投稿を削除しても、1 つ目のパーツの投稿は元のまま残る', async () => {
     const { repo, files } = await importRepo();
     await writeLegacyFile();
 
     const before = await repo.listNotes(KOUFU);
-    const target = before.find((e) => e.pathKey === KEY);
-    if (!target) throw new Error('セットアップ失敗: パーツ1の投稿が見つからない');
+    const target = before.find((e) => e.pathKey === KEY2);
+    if (!target) throw new Error('セットアップ失敗: パーツ2の投稿が見つからない');
 
     await repo.deleteNote(KOUFU, target.id);
 
     const after = await files.readNotes(KOUFU);
-    expect(after[KEY]).toBeUndefined();
-    expect(after[KEY2]).toHaveLength(1);
-    expect(after[KEY2][0].content).toBe('パーツ2の旧メモ');
+    expect(after[KEY2]).toBeUndefined();
+    expect(after[KEY]).toHaveLength(1);
+    expect(after[KEY][0].content).toBe('パーツ1の旧メモ');
   });
 
-  it('一方のパーツの投稿を編集しても、もう一方のパーツの投稿は変わらない', async () => {
+  it('2 つ目のパーツの投稿を編集しても、1 つ目のパーツの投稿は元のまま変わらない', async () => {
     const { repo, files } = await importRepo();
     await writeLegacyFile();
 
     const before = await repo.listNotes(KOUFU);
-    const target = before.find((e) => e.pathKey === KEY);
-    if (!target) throw new Error('セットアップ失敗: パーツ1の投稿が見つからない');
+    const target = before.find((e) => e.pathKey === KEY2);
+    if (!target) throw new Error('セットアップ失敗: パーツ2の投稿が見つからない');
 
-    await repo.updateNote(KOUFU, target.id, 'パーツ1の修正後', 'editor1');
+    await repo.updateNote(KOUFU, target.id, 'パーツ2の修正後', 'editor1');
 
     const after = await files.readNotes(KOUFU);
-    expect(after[KEY][0].content).toBe('パーツ1の修正後');
-    expect(after[KEY2][0].content).toBe('パーツ2の旧メモ');
+    expect(after[KEY2][0].content).toBe('パーツ2の修正後');
+    expect(after[KEY][0].content).toBe('パーツ1の旧メモ');
   });
 });
 
