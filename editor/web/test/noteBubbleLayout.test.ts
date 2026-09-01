@@ -77,10 +77,8 @@ describe('場所が足りないとき', () => {
     });
     expect(a.side).toBe('left');
     expect(a.overlap).toBe(true);
-    // overlap 分岐(side='left' 側)の clamp を固定する。直前のテストが overlap 分岐の
-    // side='right' 側を固定しているので、この 2 件で overlap 分岐の左右対称性が揃う。
-    // (非 overlap の `left` 分岐は `part.left > container.width` でしか通らず実質到達不能
-    // なので、その分岐の clamp ではない)
+    // overlap 分岐(side='left' 側)でも、算出した位置がコンテナ内に収まることを確認する
+    // 回帰テスト(直前のテストは side='right' 側で同じ不変条件を確認している)。
     expect(a.left).toBeGreaterThanOrEqual(0);
     expect(a.left + BUBBLE.width).toBeLessThanOrEqual(CONTAINER.width);
   });
