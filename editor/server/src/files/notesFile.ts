@@ -1,14 +1,20 @@
 // =============================================================================
-// notesFile.ts — パーツ単位メモのファイル永続化(版インスタンス単位の JSON)
+// notesFile.ts — パーツ単位メモ(追記型スレッド)のファイル永続化
 // =============================================================================
 // 役割: メモは版インスタンス単位で `dataRoot/notes/<templateId>.json` に
-// `Record<pathKey, PartNote>` で保持する(別の基準日/版種の版へは引き継がない)。本体テキストは
-// atomic write で半端読みを防ぐ。git 版管理対象のテンプレ本体とは別物で、メモは注釈として
-// data ルート配下に置くだけ(コミットは伴わない)。
+// `Record<pathKey, 投稿配列>` で保持する。投稿は書かれた版のファイルへ入り、交付版⇄全体版の
+// ペアをまたぐマージは読み取り側(`repositories/noteRepo.ts`)が行う。本体テキストは atomic
+// write で半端読みを防ぐ。git 版管理対象のテンプレ本体とは別物で、メモは注釈として data
+// ルート配下に置くだけ(コミットは伴わない)。
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { assertTemplateId, type PartNote, validation } from '@editor/shared';
+import {
+  assertTemplateId,
+  MAX_NOTE_ENTRIES_PER_PART,
+  type PartNoteEntry,
+  validation,
+} from '@editor/shared';
 import { config } from '../config.js';
 import { atomicWrite } from './atomic.js';
 import { withFileLock } from './fileLock.js';
@@ -41,7 +47,14 @@ function fileFor(templateId: string): string {
   return path.join(notesDir(), `${assertTemplateId(templateId)}.json`);
 }
 
-type NoteMap = Record<string, PartNote>;
+/**
+ * ファイルに保存する投稿 1 件。`templateId` と `pathKey` はファイル名とキーから自明なので
+ * 持たない(同じ事実を 2 箇所で持つと片方だけがずれる)。API 応答へ載せるときに補う。
+ */
+export type StoredNoteEntry = Omit<PartNoteEntry, 'templateId' | 'pathKey'>;
+
+/** 1 版インスタンスのメモ一式(パーツ構造キー → 投稿の配列。配列は作成日時の昇順)。 */
+export type NoteEntriesMap = Record<string, StoredNoteEntry[]>;
 
 /**
  * 読み取りの結果。**「メモが無い」と「読めなかった」を呼び出し側が区別できる**ようにする。
@@ -50,9 +63,40 @@ type NoteMap = Record<string, PartNote>;
  * 書く」なので、読めなかったのに空と受け取ると**残りの全メモを消して書き戻す**。
  */
 interface NotesReadResult {
-  notes: NoteMap;
+  notes: NoteEntriesMap;
   /** 実体は在るが読めなかった(サイズ超過・壊れた JSON)。`notes` は空。 */
   unreadable: boolean;
+}
+
+/**
+ * 旧形式(`pathKey` → メモ 1 件)を投稿 1 件の配列へ変換する。
+ *
+ * 変換後の ID を固定値 `legacy` にするのは、読むたびに ID が変わると編集・削除の宛先が
+ * 安定しないため。旧形式は 1 パーツにつき 1 件しか持てないので、この値で衝突しない。
+ * 一括移行はしない — 次の書き込みで新形式として保存され、自然に移りきる。
+ */
+function normalizeStored(parsed: Record<string, unknown>): NoteEntriesMap {
+  const out: NoteEntriesMap = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (Array.isArray(value)) {
+      out[key] = value as StoredNoteEntry[];
+      continue;
+    }
+    if (value === null || typeof value !== 'object') continue;
+    const legacy = value as { content?: unknown; updatedAt?: unknown; updatedBy?: unknown };
+    if (typeof legacy.content !== 'string') continue;
+    out[key] = [
+      {
+        id: 'legacy',
+        content: legacy.content,
+        createdAt: typeof legacy.updatedAt === 'string' ? legacy.updatedAt : '',
+        createdBy: typeof legacy.updatedBy === 'string' ? legacy.updatedBy : '',
+        updatedAt: null,
+        updatedBy: null,
+      },
+    ];
+  }
+  return out;
 }
 
 async function readNotesResult(templateId: string): Promise<NotesReadResult> {
@@ -69,7 +113,7 @@ async function readNotesResult(templateId: string): Promise<NotesReadResult> {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (parsed !== null && typeof parsed === 'object')
-      return { notes: parsed as NoteMap, unreadable: false };
+      return { notes: normalizeStored(parsed as Record<string, unknown>), unreadable: false };
     return { notes: {}, unreadable: true };
   } catch {
     // 壊れたメモファイルで編集画面ごと落とさない(メモは注釈で、本体は git 側が正典)。
@@ -78,11 +122,11 @@ async function readNotesResult(templateId: string): Promise<NotesReadResult> {
 }
 
 /**
- * 指定版インスタンスの全メモ(pathKey → PartNote)。**表示用**。
+ * 指定版インスタンスの全メモ(pathKey → StoredNoteEntry[])。**表示用**。
  * 読めない実体(サイズ超過・壊れた JSON)は空として扱い、画面を落とさない。
  * **この戻り値を書き戻しの入力にしてはならない**(`readNotesStrict` を使う)。
  */
-export async function readNotes(templateId: string): Promise<NoteMap> {
+export async function readNotes(templateId: string): Promise<NoteEntriesMap> {
   return (await readNotesResult(templateId)).notes;
 }
 
@@ -92,7 +136,7 @@ export async function readNotes(templateId: string): Promise<NoteMap> {
  * degrade(空を返す)は読み取りを守るための仕組みで、書き込みの入力にすると破壊になる。
  * 「読めない」まま書き戻せば残りの全メモが消え、メモは git 管理外なので復元できない。
  */
-export async function readNotesStrict(templateId: string): Promise<NoteMap> {
+export async function readNotesStrict(templateId: string): Promise<NoteEntriesMap> {
   const res = await readNotesResult(templateId);
   if (res.unreadable)
     throw validation(
@@ -109,7 +153,7 @@ export async function readNotesStrict(templateId: string): Promise<NoteMap> {
  * 件数を守ったまま読み取り不能なファイルを作れてしまう(そして次の保存で全件が消える)。
  * 上限は書いた結果のバイト数で見る — 申告値や件数からの見積もりではなく実測で判定する。
  */
-export async function writeNotes(templateId: string, notes: NoteMap): Promise<void> {
+export async function writeNotes(templateId: string, notes: NoteEntriesMap): Promise<void> {
   const body = `${JSON.stringify(notes, null, 2)}\n`;
   const bytes = Buffer.byteLength(body, 'utf8');
   if (bytes > MAX_NOTES_FILE_BYTES)
@@ -136,11 +180,28 @@ export function withNotesLock<T>(templateId: string, fn: () => Promise<T>): Prom
 export const MAX_NOTES_PER_TEMPLATE = 1000;
 
 /** 件数上限に達しているか(新規キーの追加可否の判定に使う)。 */
-export function notesAtCapacity(notes: NoteMap, pathKey: string): boolean {
+export function notesAtCapacity(notes: NoteEntriesMap, pathKey: string): boolean {
   return !(pathKey in notes) && Object.keys(notes).length >= MAX_NOTES_PER_TEMPLATE;
 }
 
 /** 上限超過時に返す文言(ルート・repo で同じ案内にする)。 */
 export function notesCapacityError(): never {
   throw validation(`このテンプレートのメモは上限(${MAX_NOTES_PER_TEMPLATE} 件)に達しています`);
+}
+
+/**
+ * 1 パーツの投稿数が上限に達しているか。件数上限(`MAX_NOTES_PER_TEMPLATE`)は `pathKey` の
+ * 数しか縛らないので、これが無いと 1 パーツだけでファイル上限(`MAX_NOTES_FILE_BYTES`)へ
+ * 到達でき、そのテンプレの全メモが保存不能になる。
+ */
+export function entriesAtCapacity(entries: readonly StoredNoteEntry[]): boolean {
+  return entries.length >= MAX_NOTE_ENTRIES_PER_PART;
+}
+
+/** 投稿数の上限超過時に返す文言。 */
+export function entriesCapacityError(): never {
+  throw validation(
+    `このパーツのメモは上限(${MAX_NOTE_ENTRIES_PER_PART} 件)に達しています。` +
+      '不要なメモを削除してください。',
+  );
 }
