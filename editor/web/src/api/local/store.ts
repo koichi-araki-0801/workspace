@@ -17,7 +17,7 @@ import {
   unexpected,
 } from '@editor/shared';
 import { currentAppEpoch } from '@/lib/appEpoch';
-import { K, LEGACY_UNDO_STACKS_KEY, undoStacksKey } from '@/lib/storageKeys';
+import { K, LEGACY_NOTES_KEY, LEGACY_UNDO_STACKS_KEY, undoStacksKey } from '@/lib/storageKeys';
 import fundMasterJson from '../fixtures/funds.json';
 
 // キー定数の実体は `@/lib/storageKeys`(モード非依存コードが `api/local/**` 一式を import する
@@ -157,6 +157,7 @@ const WORKING_KEYS = [
   K.createHist,
   K.partHist,
   K.notes, // メモ単位を fundCode→templateId へ変更。旧形式は非可逆なので bump で一掃する
+  LEGACY_NOTES_KEY, // `:v2`(スレッド化)より前の旧キー。移行時に一覧から漏れていた孤立データ
   LEGACY_UNDO_STACKS_KEY,
   undoStacksKey(),
   K.reviews,

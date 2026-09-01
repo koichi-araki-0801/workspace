@@ -5,7 +5,14 @@
 // `Record<templateId, Record<pathKey, PartNoteEntry[]>>` で保持する。読み取りは交付版⇄
 // 全体版のペアをマージし、書き込みは投稿が属する版へ向ける(REST 実装と同じ挙動)。
 // 版種の対応表は shared の `pairedTemplateId` を使う — web 側へ複製すると片方だけがずれる。
+// 資源上限も REST(server の Zod 契約 + `files/notesFile.ts`)と同じ 4 定数を shared から
+// 引いて強制する。ここが素通しだと、local(オフライン/デモビルド)だけ本物の server が拒否する
+// 操作を許してしまい、offline ビルドが実物と異なる挙動を利用者に学習させる。
 import {
+  MAX_NOTE_CONTENT_CHARS,
+  MAX_NOTE_ENTRIES_PER_PART,
+  MAX_NOTE_PATH_KEY_CHARS,
+  MAX_NOTES_PER_TEMPLATE,
   type NoteRepository,
   type PartNoteEntry,
   pairedTemplateId,
@@ -15,6 +22,33 @@ import { attempt } from './attempt';
 import { currentUser, delay, K, now, read, write } from './store';
 
 type NoteStore = Record<string, Record<string, PartNoteEntry[]>>;
+
+/** 本文の長さ上限。add/update 共通(REST の `AddNoteRequest`/`UpdateNoteRequest` と同じ)。 */
+function assertContentLength(content: string): void {
+  if (content.length > MAX_NOTE_CONTENT_CHARS) {
+    throw validation(`メモの本文は${MAX_NOTE_CONTENT_CHARS}文字までです`);
+  }
+}
+
+/** パーツキーの長さ上限。pathKey は追加時にしか受け取らないので add でのみ検査する。 */
+function assertPathKeyLength(pathKey: string): void {
+  if (pathKey.length > MAX_NOTE_PATH_KEY_CHARS) {
+    throw validation(`パーツキーが上限(${MAX_NOTE_PATH_KEY_CHARS}文字)を超えています`);
+  }
+}
+
+/**
+ * 1 パーツの投稿数が上限に達しているか。上限が効くのは追加だけ — 編集・削除まで止めると
+ * 「上限に達したパーツのメモを消せない」という詰みを作る(`files/notesFile.ts` と同じ方針)。
+ */
+function entriesAtCapacity(entries: readonly PartNoteEntry[]): boolean {
+  return entries.length >= MAX_NOTE_ENTRIES_PER_PART;
+}
+
+/** 1 版インスタンス(pathKey の件数)が上限に達しているか。新規キーの追加可否にのみ使う。 */
+function notesAtCapacity(tpl: Record<string, PartNoteEntry[]>, pathKey: string): boolean {
+  return !(pathKey in tpl) && Object.keys(tpl).length >= MAX_NOTES_PER_TEMPLATE;
+}
 
 /** 1 版インスタンス分の投稿を平坦化する。 */
 function flatten(all: NoteStore, templateId: string): PartNoteEntry[] {
@@ -53,8 +87,21 @@ export const localNoteRepo: NoteRepository = {
   addNote: (templateId: string, pathKey: string, content: string) =>
     attempt(() => {
       if (content === '') throw validation('メモの本文を入力してください');
+      assertContentLength(content);
+      assertPathKeyLength(pathKey);
       const all = read<NoteStore>(K.notes, {});
       const tpl = all[templateId] ?? {};
+      if (notesAtCapacity(tpl, pathKey)) {
+        throw validation(
+          `このテンプレートのメモは上限(${MAX_NOTES_PER_TEMPLATE} 件)に達しています`,
+        );
+      }
+      if (entriesAtCapacity(tpl[pathKey] ?? [])) {
+        throw validation(
+          `このパーツのメモは上限(${MAX_NOTE_ENTRIES_PER_PART} 件)に達しています。` +
+            '不要なメモを削除してください。',
+        );
+      }
       const entry: PartNoteEntry = {
         id: crypto.randomUUID(),
         templateId,
@@ -74,6 +121,7 @@ export const localNoteRepo: NoteRepository = {
   updateNote: (templateId: string, entryId: string, content: string) =>
     attempt(() => {
       if (content === '') throw validation('メモの本文を入力してください');
+      assertContentLength(content);
       const all = read<NoteStore>(K.notes, {});
       const { pathKey, index } = locate(all, templateId, entryId);
       const updated: PartNoteEntry = {

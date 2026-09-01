@@ -1,6 +1,14 @@
-import { isOk } from '@editor/shared';
+import {
+  isOk,
+  MAX_NOTE_CONTENT_CHARS,
+  MAX_NOTE_ENTRIES_PER_PART,
+  MAX_NOTE_PATH_KEY_CHARS,
+  MAX_NOTES_PER_TEMPLATE,
+  type PartNoteEntry,
+} from '@editor/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localNoteRepo } from '@/api/local/noteRepo';
+import { K } from '@/api/local/store';
 
 beforeEach(() => localStorage.clear());
 
@@ -79,5 +87,79 @@ describe('localNoteRepo', () => {
     }
     const list = await localNoteRepo.listNotes(KOUFU);
     expect(isOk(list) && list.value.map((e) => e.content)).toEqual(['1 件目', '2 件目', '3 件目']);
+  });
+});
+
+describe('資源上限(REST と同じ 4 定数を local でも強制する)', () => {
+  // REST 側は Zod 契約(`AddNoteRequest`/`UpdateNoteRequest`)と server 実装
+  // (`files/notesFile.ts`)がこれらを強制するが、local はチェックが無く 201 件目や 64KiB 超の
+  // 本文がそのまま通っていた(offline/デモビルドだけ本物が拒否する操作を許してしまう)。
+
+  it('本文が上限を超える追加は拒否する', async () => {
+    const res = await localNoteRepo.addNote(KOUFU, KEY, 'x'.repeat(MAX_NOTE_CONTENT_CHARS + 1));
+    expect(isOk(res)).toBe(false);
+  });
+
+  it('本文が上限を超える編集は拒否する', async () => {
+    const id = await add(KOUFU, '初版');
+    const res = await localNoteRepo.updateNote(KOUFU, id, 'x'.repeat(MAX_NOTE_CONTENT_CHARS + 1));
+    expect(isOk(res)).toBe(false);
+  });
+
+  it('パーツキーが上限を超える追加は拒否する', async () => {
+    const longKey = 'x'.repeat(MAX_NOTE_PATH_KEY_CHARS + 1);
+    const res = await localNoteRepo.addNote(KOUFU, longKey, '本文');
+    expect(isOk(res)).toBe(false);
+  });
+
+  it('1 パーツの投稿数が上限に達したら追加を拒否し、編集・削除は通す(上限は詰みを作らない)', async () => {
+    // 1000 回 addNote を呼ぶ代わりに、上限ちょうどの状態を localStorage へ直接書いて再現する。
+    const entries: PartNoteEntry[] = Array.from({ length: MAX_NOTE_ENTRIES_PER_PART }, (_, i) => ({
+      id: `e${i}`,
+      templateId: KOUFU,
+      pathKey: KEY,
+      content: `メモ${i}`,
+      createdAt: `2026-09-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+      createdBy: 'u',
+      updatedAt: null,
+      updatedBy: null,
+    }));
+    localStorage.setItem(K.notes, JSON.stringify({ [KOUFU]: { [KEY]: entries } }));
+
+    const addRes = await localNoteRepo.addNote(KOUFU, KEY, 'あふれる');
+    expect(isOk(addRes)).toBe(false);
+
+    const updateRes = await localNoteRepo.updateNote(KOUFU, 'e0', '更新');
+    expect(isOk(updateRes) && updateRes.value.content).toBe('更新');
+
+    const deleteRes = await localNoteRepo.deleteNote(KOUFU, 'e1');
+    expect(isOk(deleteRes)).toBe(true);
+  });
+
+  it('pathKey が上限件数に達したテンプレートへの新規キー追加を拒否する(既存キーへの追加は通す)', async () => {
+    // 1000 パーツぶんの状態を localStorage へ直接書いて再現する(ループで 1000 回 API を
+    // 呼ぶと遅く、意図も読み取りにくい)。
+    const tpl: Record<string, PartNoteEntry[]> = {};
+    for (let i = 0; i < MAX_NOTES_PER_TEMPLATE; i++) {
+      tpl[`p${i}`] = [
+        {
+          id: `id${i}`,
+          templateId: KOUFU,
+          pathKey: `p${i}`,
+          content: 'x',
+          createdAt: '2026-09-01T00:00:00.000Z',
+          createdBy: 'u',
+          updatedAt: null,
+          updatedBy: null,
+        },
+      ];
+    }
+    localStorage.setItem(K.notes, JSON.stringify({ [KOUFU]: tpl }));
+
+    const newKeyRes = await localNoteRepo.addNote(KOUFU, '新規パーツ', '本文');
+    expect(isOk(newKeyRes)).toBe(false);
+
+    const existingKeyRes = await localNoteRepo.addNote(KOUFU, 'p0', '追記');
+    expect(isOk(existingKeyRes)).toBe(true);
   });
 });

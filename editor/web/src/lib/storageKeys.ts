@@ -30,6 +30,15 @@ export const K = {
   reviews: 'editor:reviews',
 } as const;
 
+/**
+ * `:v2` 形式化(スレッド化)より前の旧メモキー。`WORKING_KEYS`(`api/local/store.ts`)には
+ * 現行の `K.notes` しか無く、`:v2` へ改称した際にこの旧キーが一覧から漏れたため、既存の
+ * ブラウザではスキーマ bump を経ても `editor:notes` の古い 1 パーツ 1 件形式の値が消えずに
+ * 残る(内容を読む経路が無いだけの孤立データ)。`LEGACY_UNDO_STACKS_KEY` と同じ扱いで、
+ * 後片付け(スキーマ bump)でのみ参照する。
+ */
+export const LEGACY_NOTES_KEY = 'editor:notes';
+
 // ── Undo/Redo 永続ミラーのキー ──
 // 値は `Record<templateId, {past, future}>`。クライアント編集の関心事で揮発性が高く、
 // `WORKING_KEYS` に含めて bump で破棄してよい。キーにはユーザーを含める — 共有端末では
