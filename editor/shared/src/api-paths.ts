@@ -38,8 +38,9 @@ export const apiPaths = {
   partClassificationOptions: '/parts/classification-options',
   parts: '/parts',
   partHistory: '/templates/:templateId/part-history',
-  // notes (注: 現状 OpenAPI document には未記載。定数は server/web で共有する)
+  // notes (パーツ単位メモ。投稿の追加/編集/削除は entryId 付きパス)
   notes: '/templates/:templateId/notes',
+  noteEntry: '/templates/:templateId/notes/:entryId',
   // history
   historyEdit: '/history/edit',
   historyPdf: '/history/pdf',

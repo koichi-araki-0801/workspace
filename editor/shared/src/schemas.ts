@@ -36,6 +36,8 @@ export const MAX_DOCUMENT_CSS_CHARS = 1024 * 1024;
 export const MAX_NOTE_CONTENT_CHARS = 64 * 1024;
 /** メモのパーツキーの最大長(構造パスキーで、実物は数十文字)。 */
 export const MAX_NOTE_PATH_KEY_CHARS = 512;
+/** 1 パーツが保持できる投稿数の上限。件数上限だけではファイル上限を守れないため両方持つ。 */
+export const MAX_NOTE_ENTRIES_PER_PART = 200;
 
 // ── 1. Template identity — テンプレート同定 ──
 
@@ -583,34 +585,41 @@ export const PartClassificationQuery = z.object({
 });
 
 /**
- * パーツ単位の作業メモ(版インスタンス = templateId 単位)。パーツ構造パスキー(`pathKey`)に
- * メモ本文を紐づけ、別の基準日/版種の版へは引き継がない(版ごとに独立)。キー算出は web の
- * `partKey.ts` の `partPathKeyFor`。
+ * パーツ単位メモの投稿 1 件。メモは追記型のスレッドで、投稿は書かれた版インスタンスの
+ * ファイルへ入る。表示は交付版と全体版のペアをマージした 1 本のスレッドになる。
+ * `templateId` は投稿が属する版（編集・削除の宛先）。キー算出は web の `partKey.ts`。
  */
-export const PartNote = z
+export const PartNoteEntry = z
   .object({
-    templateId: z.string().meta({ description: '版インスタンス ID(= TemplateMeta.id)' }),
+    id: z.string().meta({ description: '投稿 ID(UUID。旧形式からの変換分は legacy)' }),
+    templateId: z.string().meta({ description: '投稿が属する版インスタンス ID' }),
     pathKey: z.string().meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
-    content: z.string().meta({ description: 'メモ本文(空文字はメモ無し)' }),
-    updatedAt: z.string(),
-    updatedBy: z.string(),
+    content: z.string().meta({ description: '投稿本文' }),
+    createdAt: z.string(),
+    createdBy: z.string(),
+    updatedAt: z.string().nullable().meta({ description: '編集された場合のみ' }),
+    updatedBy: z.string().nullable(),
   })
-  .meta({ id: 'PartNote' });
+  .meta({ id: 'PartNoteEntry' });
 
-/** (server 専用) メモ保存のボディ。`templateId` はパスから取る。`content` 空文字は削除に倒す。 */
-export const SaveNoteRequest = z
+/** (server 専用) 投稿の追加。`templateId` はパスから取る。空文字の本文は受け付けない。 */
+export const AddNoteRequest = z
   .object({
     pathKey: z
       .string()
       .min(1)
       .max(MAX_NOTE_PATH_KEY_CHARS)
       .meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
-    content: z
-      .string()
-      .max(MAX_NOTE_CONTENT_CHARS)
-      .meta({ description: '空文字は「メモ無し」= 削除' }),
+    content: z.string().min(1).max(MAX_NOTE_CONTENT_CHARS).meta({ description: '投稿本文' }),
   })
-  .meta({ id: 'SaveNoteRequest' });
+  .meta({ id: 'AddNoteRequest' });
+
+/** (server 専用) 投稿本文の編集。削除は DELETE で明示するため、空文字は受け付けない。 */
+export const UpdateNoteRequest = z
+  .object({
+    content: z.string().min(1).max(MAX_NOTE_CONTENT_CHARS).meta({ description: '投稿本文' }),
+  })
+  .meta({ id: 'UpdateNoteRequest' });
 
 /** 作成タブ: 属性をサーバ側で解決し、Python ツール経由で生成する。 */
 export const GenerateRequest = z
