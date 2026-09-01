@@ -64,15 +64,10 @@ SQL Server 2022 Express LocalDB / Python 3.13
 - **10 分を超えるコマンドはユーザーに `!` 実行を依頼する。** 背景実行の上限（10 分）を超えるため、
   `pnpm run ci`（13〜15 分）と `setup-offline.bat`（回線次第で 20〜40 分）はエージェントが
   直接実行しない。
-- **Public 窓は最短で閉じる。** Phase 6 の取得中だけ Public にし、完了後ただちに Private へ戻して
-  `gh repo view --json visibility` で復帰を確認する。
-
-## 現時点で判明している要対処事項
-
-- **リポジトリ `koichi-araki-0801/workspace` が PUBLIC のままである**（2026-09-01 確認）。
-  フェーズ 5 の実測記録は「PRIVATE 復帰確認済み」としているが現状と食い違う。Phase 0 で
-  ユーザーに意図を確認し、意図しない公開であれば検証と独立に Private へ戻す
-  （その場合 Phase 6 で改めて窓を開ける）。
+- **リポジトリは Public 運用（2026-09-01 にユーザーが意図的な公開であることを確認）。**
+  フェーズ 5 の実測記録にある「一時 Public 窓 → PRIVATE 復帰」の運用は現在当てはまらない。
+  本計画では可視性を変更しない。Phase 6 の `setup-offline.bat` は Public のまま無認証で
+  取得できるため、窓の開閉操作そのものが不要になる。
 
 ---
 
@@ -87,14 +82,11 @@ SQL Server 2022 Express LocalDB / Python 3.13
 - Produces: pin の `source-commit`（Phase 1 のソース export と Phase 6 の取得対象が共有する）
 - Produces: 検証フォルダのパス（以降の全 Phase が使う）
 
-- [ ] **Step 1: リポジトリ可視性の意図をユーザーに確認する**
+- [x] **Step 1: リポジトリ可視性の意図をユーザーに確認する**
 
-現在 PUBLIC である事実を伝え、次のどちらかを選んでもらう。
-
-- 意図しない公開 → 直ちに Private へ戻す（`gh repo edit --visibility private --accept-visibility-change-consequences`）。Phase 6 で改めて窓を開ける。
-- 検証まで開けておく → Phase 6 の窓が不要になる。ただし Phase 7 で必ず Private へ戻す。
-
-判断を本計画のこの行に追記してから次へ進む。
+**結果（2026-09-01）: 意図的な Public 運用**。よって本計画では可視性を変更しない。
+Phase 6 Step 1（Public 化）と Step 5（Private 復帰）、Phase 7 Step 1（Private 最終確認）は
+不要になったため、それぞれ「現状の確認のみ」へ縮退させた。
 
 - [ ] **Step 2: 前提ツールの存在を確認する**
 
@@ -572,10 +564,9 @@ corepack pnpm run test:docs
 - Consumes: Phase 0 で配置した素の `offline/` フォルダ、GitHub Releases の重量物
 - Produces: 残項目①の消化（配布先の初回体験が完走することの実証）
 
-- [ ] **Step 1: リポジトリを Public にする（Phase 0 Step 1 で Private へ戻した場合のみ）**
+- [ ] **Step 1: 取得可能な可視性であることを確認する**
 
-GitHub → Settings → 最下部 Danger Zone → "Change repository visibility" → Public。
-**ユーザーの手作業**。取得が終わるまでの間だけ開ける。
+Public 運用（Phase 0 Step 1 の判断）なので窓の開閉は行わない。取得前に現状だけ確認する。
 
 ```powershell
 gh repo view --json visibility     # PUBLIC であることを確認してから次へ
@@ -604,15 +595,9 @@ gh repo view --json visibility     # PUBLIC であることを確認してから
 - [ ] **Step 4: DL が停滞したら中断してユーザーへ報告する**
 
 PowerShell 版のダウンロードには timeout が無い（既知の弱点）。10 分以上進捗が無ければ Ctrl+C で
-中断し、**Public 窓を先に閉じてから**再開を検討する。窓を開けたまま止まった状態を放置しない。
+中断し、停滞した段（ソース zip か重量物か）を記録してから再開を検討する。
 
-- [ ] **Step 5: リポジトリを Private へ戻す（ユーザーの手作業）**
-
-```powershell
-gh repo view --json visibility     # PRIVATE になったことを確認する
-```
-
-Phase 0 Step 1 で「検証まで開けておく」を選んだ場合も、ここで必ず閉じる。
+- [x] **Step 5: （不要）可視性を戻す操作** — Public 運用のため実施しない。
 
 - [ ] **Step 6: 展開されたソースが pin と一致することを確認する**
 
@@ -644,13 +629,13 @@ corepack pnpm run test:pie-chart
 - Modify: `docs/superpowers/plans/2026-09-01-offline-e2e-verification.md`（本ファイル末尾に実測記録）
 - Modify: メモリ `repo-split-progress.md`（残項目の状態更新）
 
-- [ ] **Step 1: リポジトリが Private であることを最終確認する**
+- [ ] **Step 1: 可視性が検証開始時と変わっていないことを確認する**
 
 ```powershell
 gh repo view --json nameWithOwner,visibility
 ```
 
-期待: `"visibility":"PRIVATE"`。PUBLIC のままなら、他のすべてに優先して閉じる。
+期待: `"visibility":"PUBLIC"`（Phase 0 Step 1 の判断どおり）。検証の途中で誰も変えていないことの確認。
 
 - [ ] **Step 2: 残項目②（配布先端末の有無）をユーザーに確認する**
 
