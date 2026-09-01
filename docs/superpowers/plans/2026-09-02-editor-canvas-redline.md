@@ -19,7 +19,7 @@
 - 全コマンドはリポジトリルート `C:\Users\caads\workspace` から実行する。単体テストは `pnpm exec vitest run <path>`（ルート `vitest.config.ts` の projects 経由。web は jsdom）。
 - コミットメッセージは日本語の Conventional Commits（例: `feat(editor): …`）。末尾に次の 1 行を必ず付ける:
   `Claude-Session: https://claude.ai/code/session_01NS7sXef8dsEyg8qNYRtcYv`
-- 作業ツリーに本件と無関係の未コミット変更がある（`editor/web/src/features/reviews/ReviewQueueView.vue` / `editor/web/test/reviewQueueView.test.ts` / `docs/editor/images/*.png` / `docs/editor/editor_手引き.html`）。**これらは `git add` しない**。各タスクで対象ファイルだけを明示的に add する。
+- 作業ツリーに本件と無関係の未コミット変更が残ることがある（e2e の `capture_docs.spec.ts` が再撮影する `docs/editor/images/*.png` など）。**これらは `git add` しない**。各タスクで対象ファイルだけを明示的に add する。
 - GrapesJS の事実（変更不可の前提）: live view の要素には自動 `id` と `data-gjs-type` が必ず付く。`Component.get('attributes')` には明示属性しか無い。パーサは「子がテキスト 1 つだけの要素」を `type:'text'` + `components: {type:'textnode', content}`（**配列でなくオブジェクト**）にする。`classes` は文字列配列。RTE は開始時（`onActive`）に `el.innerHTML` を読み、終了時に変化があれば `resetFromString` でモデルへ再取込する。
 
 ---
