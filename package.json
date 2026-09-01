@@ -44,7 +44,7 @@
     "ci:pie-chart": "pnpm run check:comments && pnpm run check:ci && pnpm run typecheck:pie-chart && pnpm run test:pie-chart",
     "ci:affected": "node scripts/ci-affected.mjs",
     "prepare": "husky || true",
-    "test:docs": "python -m pytest docs/_build",
+    "test:docs": "py -3.13 -m pytest docs/_build",
     "ci:offline": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$m = Get-Module -ListAvailable Pester | Sort-Object Version -Descending | Select-Object -First 1; if (-not $m) { Write-Error 'Pester module が見つかりません。Install-Module Pester -Force -SkipPublisherCheck で導入してください。'; exit 1 }; Import-Module Pester -RequiredVersion $m.Version -Force; if ($m.Version.Major -ge 5) { $c = New-PesterConfiguration; $c.Run.Path = 'offline/lib/verify.Tests.ps1'; $c.Run.Exit = $true; $c.CI = $true; Invoke-Pester -Configuration $c } else { Invoke-Pester -Script offline/lib/verify.Tests.ps1 -EnableExit } \""
   },
   "lint-staged": {
