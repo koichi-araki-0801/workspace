@@ -11,7 +11,7 @@
 
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const IMG = (name: string) => resolve(here, '../../docs/editor/images', name);
@@ -41,6 +41,25 @@ async function login(page: Page, user: string, pass: string) {
  */
 async function waitForLoaded(page: Page) {
   await expect(page.locator('.animate-pulse')).toHaveCount(0, { timeout: 15_000 });
+}
+
+/**
+ * 要素の寸法が落ち着くまで待ち、その boundingBox を返す。可視化を待つだけでは足りない:
+ * canvas のフォントが載る前は行の高さが確定せず、その寸法で `clip` を取ると**内容が
+ * 途中で切れた**画像になる(CI の並列実行下で実際に起きた。単独実行では再現しない)。
+ * 連続 2 回同じ寸法になったところを確定と見なす。
+ */
+async function waitForStableBox(page: Page, locator: Locator, timeout = 20_000) {
+  const deadline = Date.now() + timeout;
+  let previous = '';
+  while (Date.now() < deadline) {
+    const box = await locator.boundingBox();
+    const key = box ? `${Math.round(box.width)}x${Math.round(box.height)}` : '';
+    if (key && key === previous) return box;
+    previous = key;
+    await page.waitForTimeout(300);
+  }
+  return locator.boundingBox();
 }
 
 /**
@@ -120,11 +139,12 @@ test('capture editor screens', async ({ page }) => {
   const frame = page.frameLocator('iframe.gjs-frame');
   const block = frame.locator('.page > *').nth(2);
   // キャンバスの描画が終わる前に掴むと、ブロックが最終寸法になっておらず clip が
-  // 小さく切れる(内容の欠けた画像がそのまま手引きへ載る)。可視化まで待ってから選ぶ。
+  // 小さく切れる(内容の欠けた画像がそのまま手引きへ載る)。可視化と寸法の確定を待つ。
   await block.waitFor({ state: 'visible', timeout: 30_000 });
+  await waitForStableBox(page, block);
   await block.click();
   await page.waitForTimeout(600);
-  const box = await block.boundingBox();
+  const box = await waitForStableBox(page, block);
   const pad = 70;
   await page.screenshot({
     path: IMG('editor-handles.png'),
