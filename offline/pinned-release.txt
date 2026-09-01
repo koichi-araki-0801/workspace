@@ -2,6 +2,6 @@
 # 配布先の setup はこの値だけを真正性の根拠にする。Release に並ぶ .sha256 は配信元と同じ
 # 場所から取る値なので転送破損の検知にしか使えず、すり替えの検知には使えない。
 # このファイルと bundle-signing.pub.xml は offline/ フォルダごと手渡しで配布先へ運ぶ。
-source-commit ecc9aa5e8014c80f68c41ee3578fd77c79f687be
-source-zip-sha256 5dcf32b7b72f9cddb63f4130e733daa7e09b5bb33947259c8682bfda93703509
+source-commit 6d70d5d5e346d43c40199b370a181284b2c1aa2b
+source-zip-sha256 0912d7e3d616ddfb399a2287a930882f4376a67fdb9cb74f824590e6fb509b2e
 bundle-sha256 1fd1095cb1369a8ac424f30fce7aa7e02827d9cee119fc524fb8ec1379c28198
