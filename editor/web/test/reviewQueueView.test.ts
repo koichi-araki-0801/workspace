@@ -134,4 +134,24 @@ describe('ReviewQueueView', () => {
     expect(w.text()).toContain('承認済み');
     expect(w.text()).toContain('差し戻し');
   });
+
+  // カードは `flex-wrap` の 1 行で、全幅(`w-full`)の子はそこで行を折り返す。折り返す子より
+  // 後ろに置いた要素は次の行へ送られるため、補足行は必ず最後に置く(前に置くと申請者情報と
+  // ボタンが 3 行目へ落ちる)。
+  it('全幅の補足行はカードの最後の子に置く', async () => {
+    const metas = [
+      meta({ id: 'a', status: 'pending', changedSummary: { count: 2, names: ['運用実績の表'] } }),
+    ];
+    const w = await mountQueue(metas);
+    const children = Array.from(w.findAll('li')[0].element.children);
+    const fullWidth = children.findIndex((el) => el.classList.contains('w-full'));
+    expect(fullWidth).toBe(children.length - 1);
+  });
+
+  it('変更概要も保留メモも無いカードは空の補足行を描画しない', async () => {
+    const metas = [meta({ id: 'a', status: 'pending' })];
+    const w = await mountQueue(metas);
+    const children = Array.from(w.findAll('li')[0].element.children);
+    expect(children.some((el) => el.classList.contains('w-full'))).toBe(false);
+  });
 });
