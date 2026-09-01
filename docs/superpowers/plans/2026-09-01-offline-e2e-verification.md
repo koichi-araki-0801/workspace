@@ -218,6 +218,24 @@ Get-ChildItem C:\Users\caads\offline-verify\full\workspace  | Select-Object Name
 `package.json` / `pnpm-lock.yaml` / `offline-deps-bundle.tar.gz` / `.sig` / `bundle.key` などが
 並ぶ。`full\workspace` は `offline` **のみ**。
 
+- [ ] **Step 12: setup が書き換えるユーザー環境変数の現在値を控える**
+
+`offline\lib\git-tools.ps1` は PortableGit を展開したあと、ユーザー環境変数 `GIT_BIN` を
+**上書き**し、User PATH へ PortableGit の `cmd` ディレクトリを**追記**する。検証フォルダで
+setup を走らせると両者が検証フォルダ側を指すため、Phase 7 でフォルダを削除すると
+存在しないパスを指したまま残り、現ワークスペースの editor（確定保存のたびに git を呼ぶ）が
+壊れる。復元できるよう現在値を記録する。
+
+**記録した現在値（2026-09-01）:**
+- `GIT_BIN`（User）= `C:\Users\caads\workspace\git-tools\portablegit\cmd\git.exe`
+- User PATH に含まれる git 関連エントリ = `C:\Users\caads\workspace\git-tools\portablegit\cmd`
+- `git` の解決先 = `C:\Program Files\Git\cmd\git.exe`（システム側が優先されている）
+
+```powershell
+[Environment]::GetEnvironmentVariable('GIT_BIN','User')
+([Environment]::GetEnvironmentVariable('Path','User') -split ';') | Where-Object { $_ -match 'git' }
+```
+
 ---
 
 ## Phase 1: 完全オフライン構築（local）
@@ -668,7 +686,29 @@ git -C C:\Users\caads\workspace commit -m "docs: オフライン構築・実動�
 `repo-split-progress.md` の「残項目 2 件」を実際の状態へ更新する
 （①が完了したならその旨、②の回答内容）。
 
-- [ ] **Step 7: 検証フォルダの扱いをユーザーに確認する**
+- [ ] **Step 7: ユーザー環境変数を検証前の値へ戻す**
+
+Phase 0 Step 12 で控えた値へ戻す。**検証フォルダを削除する前に必ず実行する**（順序を逆にすると、
+壊れた状態のまま気づかない）。
+
+```powershell
+[Environment]::SetEnvironmentVariable('GIT_BIN','C:\Users\caads\workspace\git-tools\portablegit\cmd\git.exe','User')
+$p = ([Environment]::GetEnvironmentVariable('Path','User') -split ';' |
+  Where-Object { $_ -and $_ -notlike 'C:\Users\caads\offline-verify\*' }) -join ';'
+[Environment]::SetEnvironmentVariable('Path',$p,'User')
+```
+
+確認:
+
+```powershell
+[Environment]::GetEnvironmentVariable('GIT_BIN','User')     # workspace 側を指すこと
+([Environment]::GetEnvironmentVariable('Path','User') -split ';') | Where-Object { $_ -match 'offline-verify' }
+```
+
+期待: `GIT_BIN` が `C:\Users\caads\workspace\git-tools\...` に戻り、PATH に `offline-verify` を
+含むエントリが 1 件も残らない。
+
+- [ ] **Step 8: 検証フォルダの扱いをユーザーに確認する**
 
 `C:\Users\caads\offline-verify\` は約 10GB を占める。次のいずれかを選んでもらう。
 
