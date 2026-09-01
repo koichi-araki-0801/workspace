@@ -443,9 +443,19 @@ if (-not $TagOnly) {
   if ($curlCmd) {
     # トークンは**コマンドライン引数に載せない**。プロセスのコマンドラインは同一ユーザーの
     # 他プロセスから読める（本リポジトリ自身が `editor\start.bat` で `Win32_Process.CommandLine`
-    # を読んでいるのが実例）。curl の `-H @-` は標準入力からヘッダ 1 行を読むので、値が
-    # プロセス間で見える場所を通らない（下の `Invoke-WebRequest` 分岐は元から露出しない）。
-    "Authorization: Bearer $ghToken" | & $curlCmd.Source -L --fail --retry 3 -H '@-' -o $srcZipTmp $srcZipUrl
+    # を読んでいるのが実例）。curl はヘッダを `-H @<file>` でファイルからも読めるので、作業用
+    # 一時ディレクトリへ書いて渡し、finally で必ず消す。標準入力を使う `-H '@-'` は Windows
+    # PowerShell から渡すとヘッダが curl へ届かず、GitHub が 400 を返す
+    # （下の `Invoke-WebRequest` 分岐は元から露出しない）。
+    $hdrFile = Join-Path $tmp 'auth-header.txt'
+    try {
+      # 改行は LF 固定。BOM を付けるとヘッダ名の先頭が壊れる。
+      [System.IO.File]::WriteAllText($hdrFile, "Authorization: Bearer $ghToken`n",
+        (New-Object System.Text.UTF8Encoding $false))
+      & $curlCmd.Source -L --fail --retry 3 -H "@$hdrFile" -o $srcZipTmp $srcZipUrl
+    } finally {
+      if (Test-Path -LiteralPath $hdrFile) { Remove-Item -LiteralPath $hdrFile -Force }
+    }
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] ソース zip の取得に失敗しました（pin を更新できません）。'; exit 1 }
   } else {
     $oldPref = $ProgressPreference
