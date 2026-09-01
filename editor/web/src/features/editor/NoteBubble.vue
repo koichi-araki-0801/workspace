@@ -119,7 +119,9 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
 
 <style scoped>
 /* 吹き出しは overlay 層(非スクロール)に絶対配置する。位置は `noteBubbleLayout` が決める。
-   幅は固定 px でズーム非依存 — メモは注釈であり、帳票と一緒に拡大縮小させない。 */
+   幅は固定 px でズーム非依存 — メモは注釈であり、帳票と一緒に拡大縮小させない。常にページへ
+   重ねて出す(`noteBubbleLayout` の設計コメントを見よ)ので、下に透ける帳票の文字と混ざらない
+   よう背景は不透明(`var(--card)` はアルファ無し)、輪郭は影で強めに立てる。 */
 .note-bubble {
   position: absolute;
   z-index: 5;
@@ -127,7 +129,28 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--card);
-  box-shadow: 0 4px 14px rgb(0 0 0 / 32%);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+}
+
+/* 吹き出しの尾(どちら側から出たかを示す小さな三角)。`side` に応じて角を反転する。 */
+.note-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+.note-bubble-right::after {
+  right: 16px;
+}
+
+.note-bubble-left::after {
+  left: 16px;
 }
 
 .note-bubble-head {

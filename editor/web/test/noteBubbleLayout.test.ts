@@ -1,8 +1,8 @@
 // =============================================================================
-// noteBubbleLayout.test.ts — メモ吹き出しの左右判定・重ね・縦クランプ
+// noteBubbleLayout.test.ts — メモ吹き出しの左右判定・縦クランプ
 // =============================================================================
-// 吹き出しは「リーダー線が帳票を横切る量が少ない側」へ出し、その反対へページを寄せて
-// 場所を作る。寄せても幅が足りなければページに重ねる(ページの大きさは変えない)。
+// 吹き出しは常にページへ重ねて出す(表計算ソフトのセルコメントと同じ挙動)。左右は
+// 「吹き出しが帳票の上に重なる量が少ない側」で選ぶだけで、場所を空ける処理は持たない。
 import { describe, expect, it } from 'vitest';
 import { computeBubbleAnchor, sameBubbleAnchor } from '@/features/editor/noteBubbleLayout';
 
@@ -41,44 +41,30 @@ describe('左右の判定', () => {
   });
 });
 
-describe('場所が足りないとき', () => {
-  it('寄せれば入るなら重ねない', () => {
-    const a = computeBubbleAnchor({
-      part: { left: 150, top: 100, width: 556, height: 80 },
-      page: { left: 150, width: 556 },
-      container: CONTAINER,
-      bubble: BUBBLE,
-    });
-    // 856 - 556 = 300 >= 244 なので、ページを左端へ寄せれば収まる。
-    expect(a.overlap).toBe(false);
-  });
-
-  it('ページがコンテナ幅に近いときは重ねる', () => {
+describe('重ねる位置の収まり', () => {
+  it('右側はコンテナ内に収まる', () => {
     const a = computeBubbleAnchor({
       part: { left: 20, top: 100, width: 820, height: 80 },
       page: { left: 20, width: 820 },
       container: CONTAINER,
       bubble: BUBBLE,
     });
-    // 856 - 820 = 36 < 244。ページは縮めないので吹き出しを重ねる。
-    expect(a.overlap).toBe(true);
-    // 重ねる位置はコンテナ内に収まる。
+    expect(a.side).toBe('right');
     expect(a.left).toBeGreaterThanOrEqual(0);
     expect(a.left + BUBBLE.width).toBeLessThanOrEqual(CONTAINER.width);
   });
 
-  it('左側で重ねるときもコンテナ内に収まる', () => {
+  it('左側もコンテナ内に収まる', () => {
+    // パーツをページ左端に寄せて side='left' にする。
     const a = computeBubbleAnchor({
-      // パーツをページ左端に寄せて side='left' にしつつ、ページ自体は幅いっぱいで重ねを起こす。
       part: { left: 20, top: 100, width: 100, height: 80 },
       page: { left: 20, width: 820 },
       container: CONTAINER,
       bubble: BUBBLE,
     });
     expect(a.side).toBe('left');
-    expect(a.overlap).toBe(true);
-    // overlap 分岐(side='left' 側)でも、算出した位置がコンテナ内に収まることを確認する
-    // 回帰テスト(直前のテストは side='right' 側で同じ不変条件を確認している)。
+    // side='left' 分岐でも算出した位置がコンテナ内に収まることを確認する回帰テスト
+    // (直前のテストは side='right' 側で同じ不変条件を確認している)。
     expect(a.left).toBeGreaterThanOrEqual(0);
     expect(a.left + BUBBLE.width).toBeLessThanOrEqual(CONTAINER.width);
   });
@@ -106,18 +92,6 @@ describe('縦の収まり', () => {
     expect(a.top + BUBBLE.height).toBeLessThanOrEqual(CONTAINER.height);
     expect(a.top).toBeGreaterThanOrEqual(0);
   });
-
-  it('リーダーはパーツの縦中心から引く', () => {
-    const a = computeBubbleAnchor({
-      part: { left: 400, top: 100, width: 150, height: 80 },
-      page: { left: 150, width: 556 },
-      container: CONTAINER,
-      bubble: BUBBLE,
-    });
-    expect(a.leader.top).toBe(140);
-    expect(a.leader.left).toBe(550);
-    expect(a.leader.width).toBeGreaterThan(0);
-  });
 });
 
 describe('sameBubbleAnchor(参照ではなく値で比較)', () => {
@@ -144,12 +118,6 @@ describe('sameBubbleAnchor(参照ではなく値で比較)', () => {
   it('side だけ違うものは false', () => {
     const a = base();
     const b = { ...base(), side: 'left' as const };
-    expect(sameBubbleAnchor(a, b)).toBe(false);
-  });
-
-  it('leader.width だけ違うものは false', () => {
-    const a = base();
-    const b = { ...base(), leader: { ...base().leader, width: base().leader.width + 1 } };
     expect(sameBubbleAnchor(a, b)).toBe(false);
   });
 

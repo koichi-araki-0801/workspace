@@ -1,19 +1,29 @@
 // =============================================================================
 // noteBubbleLayout.ts — メモ吹き出しの配置計算(純関数)
 // =============================================================================
-// 役割: 選択パーツ・ページ・canvas コンテナ・吹き出しの寸法から、吹き出しを出す側と
-// 座標・リーダー線を決める。DOM も Vue も触らない純関数なので、分岐(左右・重ね・縦
-// クランプ)を単体テストで固定できる。座標系は overlay 層(canvas コンテナ相対、
-// `getElementPos({noScroll:true})` と同じ)。
+// 役割: 選択パーツ・ページ・canvas コンテナ・吹き出しの寸法から、吹き出しを出す側と座標を
+// 決める。DOM も Vue も触らない純関数なので、分岐(左右・縦クランプ)を単体テストで固定できる。
+// 座標系は overlay 層(canvas コンテナ相対、`getElementPos({noScroll:true})` と同じ)。
 //
-// ⚠ ページの大きさ・倍率はここでは決めない。吹き出しの都合で本体の見えを変えないのが
-// 前提で、足りないときは重ねる(`overlap`)。
+// 吹き出しは常にページへ重ねて出す(表計算ソフトのセルコメントと同じ挙動)。左右どちらへ
+// 出すかだけをパーツの位置から選び、場所を空ける処理は持たない。
+//
+// ⚠ かつては吹き出しと反対側へページを寄せて場所を作る設計だったが、実機確認で原理的に
+// 効かないと判明し廃止した(却下理由は `docs/editor/src/設計正典.md` の却下済み設計を見よ)。
+// 要点: `.gjs-frame-wrapper`(ページ)は `width: 210mm !important`(= 794px)固定で、zoom は
+// `transform: scale()` で掛かる。つまりレイアウト上の占有幅は表示倍率に関わらず常に 794px で、
+// canvas コンテナ幅(~856px)との差である「寄せて空けられる余白」も常に ~62px しか無い
+// (中央寄せの margin を 0 にしても、動くのはその半分の ~31px)。一方で場所の判定は
+// `getElementPos` が返す**視覚幅**(倍率で縮んだ後の幅。例: 67% 表示なら 531px)で行っていた
+// ため、判定は「余白は十分」と誤って結論し、実際には吹き出しがページへ重なって描画される
+// 乖離が生じていた。ページの大きさ・倍率を変えずに余白を作る方法は無いので、常に重ねる方式へ
+// 単純化した。
 
 /** 配置計算の入力(すべて overlay 層の px)。 */
 export interface BubbleAnchorInput {
   /** 選択パーツの矩形。 */
   part: { left: number; top: number; width: number; height: number };
-  /** ページ(帳票)の水平位置と幅。 */
+  /** ページ(帳票)の水平位置と幅。吹き出しをどちら側へ出すかの判定にのみ使う。 */
   page: { left: number; width: number };
   /** canvas コンテナの内寸。 */
   container: { width: number; height: number };
@@ -21,22 +31,16 @@ export interface BubbleAnchorInput {
   bubble: { width: number; height: number };
 }
 
-/** 配置計算の結果。 */
+/** 配置計算の結果。吹き出しは常にページへ重ねて置く。 */
 export interface BubbleAnchor {
-  /** 吹き出しを出す側。ページはこの反対側へ寄せる。 */
+  /** 吹き出しを出す側。 */
   side: 'left' | 'right';
-  /** 寄せても幅が足りず、ページに重ねる必要があるか。 */
-  overlap: boolean;
   left: number;
   top: number;
-  /** パーツと吹き出しを結ぶ水平線(重ねる場合は幅 0)。 */
-  leader: { left: number; top: number; width: number };
 }
 
 /** 吹き出しとコンテナ端の間に残す余白。 */
 const EDGE_GAP = 12;
-/** パーツと吹き出しの間隔(リーダー線の長さ)。 */
-const LEADER_GAP = 24;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -45,13 +49,12 @@ function clamp(value: number, min: number, max: number): number {
 /**
  * 吹き出しの配置を決める。
  *
- * 左右は「リーダー線が帳票の上を横切る量が少ない側」で選ぶ。パーツ右端からページ右端まで
+ * 左右は「吹き出しが帳票の上に重なる量が少ない側」で選ぶ。パーツ右端からページ右端まで
  * (`gapRight`)と、ページ左端からパーツ左端まで(`gapLeft`)を比べ、同値なら右へ出す
  * (ページ幅いっぱいのパーツは常にこの経路。実運用のパーツはほぼこれに当たる)。
  *
- * 場所は「吹き出しと反対側へページを寄せる」ことで作るので、判定に使う空きはページを
- * 端まで寄せたときの最大値 = `container.width - page.width` になる。これが吹き出しの幅に
- * 満たないときだけ `overlap` を立てる。
+ * 位置はパーツの内側へ寄せて置く(右なら吹き出しの右端をパーツ右端に、左なら吹き出しの左端を
+ * パーツ左端に合わせる)。縦はパーツ上端に合わせ、上下ともコンテナ内へクランプする。
  */
 export function computeBubbleAnchor(input: BubbleAnchorInput): BubbleAnchor {
   const { part, page, container, bubble } = input;
@@ -59,58 +62,19 @@ export function computeBubbleAnchor(input: BubbleAnchorInput): BubbleAnchor {
   const partRight = part.left + part.width;
   const side: 'left' | 'right' = pageRight - partRight <= part.left - page.left ? 'right' : 'left';
 
-  // ページを端まで寄せたときに空く幅。ページは縮めないので、これが上限。
-  const room = container.width - page.width;
-  const overlap = room < bubble.width + EDGE_GAP;
-
   const top = clamp(
     part.top,
     EDGE_GAP,
     Math.max(EDGE_GAP, container.height - bubble.height - EDGE_GAP),
   );
-  const centerY = part.top + part.height / 2;
-
-  if (overlap) {
-    // 重ねるときはパーツの内側へ寄せて置き、リーダーは引かない(距離が無く意味を持たない)。
-    const left = clamp(
-      side === 'right' ? partRight - bubble.width : part.left,
-      EDGE_GAP,
-      Math.max(EDGE_GAP, container.width - bubble.width - EDGE_GAP),
-    );
-    return { side, overlap, left, top, leader: { left, top: centerY, width: 0 } };
-  }
-
-  if (side === 'right') {
-    const left = clamp(
-      partRight + LEADER_GAP,
-      EDGE_GAP,
-      Math.max(EDGE_GAP, container.width - bubble.width - EDGE_GAP),
-    );
-    return {
-      side,
-      overlap,
-      left,
-      top,
-      leader: { left: partRight, top: centerY, width: Math.max(0, left - partRight) },
-    };
-  }
 
   const left = clamp(
-    part.left - LEADER_GAP - bubble.width,
+    side === 'right' ? partRight - bubble.width : part.left,
     EDGE_GAP,
     Math.max(EDGE_GAP, container.width - bubble.width - EDGE_GAP),
   );
-  return {
-    side,
-    overlap,
-    left,
-    top,
-    leader: {
-      left: left + bubble.width,
-      top: centerY,
-      width: Math.max(0, part.left - (left + bubble.width)),
-    },
-  };
+
+  return { side, left, top };
 }
 
 /**
@@ -125,13 +89,5 @@ export function computeBubbleAnchor(input: BubbleAnchorInput): BubbleAnchor {
 export function sameBubbleAnchor(a: BubbleAnchor | null, b: BubbleAnchor | null): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
-  return (
-    a.side === b.side &&
-    a.overlap === b.overlap &&
-    a.left === b.left &&
-    a.top === b.top &&
-    a.leader.left === b.leader.left &&
-    a.leader.top === b.leader.top &&
-    a.leader.width === b.leader.width
-  );
+  return a.side === b.side && a.left === b.left && a.top === b.top;
 }

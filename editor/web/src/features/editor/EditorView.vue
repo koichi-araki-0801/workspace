@@ -110,37 +110,6 @@ watch(
   { immediate: true },
 );
 
-// 吹き出しを開いている間だけページを反対側へ寄せる(重ねる場合は寄せても意味が無いので
-// 付けない)。class の付け外しは `updateScrollMode` と同じく canvas コンテナに対して行う。
-watch(
-  () => g.bubbleAnchor.value,
-  (anchor) => {
-    const el = canvasEl.value;
-    if (!el) return;
-    const shift = anchor && !anchor.overlap && noteEntries.value.length > 0;
-    const wantRight = shift === true && anchor?.side === 'right';
-    const wantLeft = shift === true && anchor?.side === 'left';
-    // 実際に class が変わるかを先に見ておく。`useCanvasMarkers.refreshBubbleAnchor` は
-    // 値が同じ限り `bubbleAnchor` の参照を保つが、値が変わって(例: 高さの再計測)side/overlap
-    // は変わらない場合もこの watcher は再発火する。そのたびに rAF → 再計測を回すと、
-    // 「class は動いていないのに毎回測り直す」無駄になる — 動いたときだけ測り直す。
-    const changed =
-      el.classList.contains('ret-note-side-right') !== wantRight ||
-      el.classList.contains('ret-note-side-left') !== wantLeft;
-    el.classList.toggle('ret-note-side-right', wantRight);
-    el.classList.toggle('ret-note-side-left', wantLeft);
-    if (!changed) return;
-    // class の付け外しでページの水平位置が変わるので、直後に overlay 一式(選択枠・guide・
-    // メモ目印は `refreshPageGuides` が cascade で測り直す)+ 吹き出しの実寸を測り直す
-    // (`setZoom` と同じ手順)。
-    requestAnimationFrame(() => {
-      g.refreshRect();
-      g.refreshPageGuides();
-      measureBubble();
-    });
-  },
-);
-
 // ページ境界の overlay guide: 既定 ON、上部バーから切替える。
 const showPageGuides = ref(true);
 
@@ -405,18 +374,9 @@ const statusText = computed(() => {
             <StickyNote class="h-3 w-3" />
           </div>
 
-          <!-- メモ吹き出し(選択パーツのスレッド)。リーダー線でパーツと結ぶ。
-               ページは反対側へ寄るが、大きさ・倍率は変えない(`noteBubbleLayout` を見よ)。 -->
+          <!-- メモ吹き出し(選択パーツのスレッド)。表計算ソフトのセルコメントと同じく常に
+               ページへ重ねて出す。大きさ・倍率は変えない(`noteBubbleLayout` を見よ)。 -->
           <template v-if="g.bubbleAnchor.value && noteEntries.length > 0 && !bubbleClosed">
-            <div
-              v-if="g.bubbleAnchor.value.leader.width > 0"
-              class="note-leader"
-              :style="{
-                left: `${g.bubbleAnchor.value.leader.left}px`,
-                top: `${g.bubbleAnchor.value.leader.top}px`,
-                width: `${g.bubbleAnchor.value.leader.width}px`,
-              }"
-            />
             <NoteBubble
               ref="noteBubbleEl"
               :entries="noteEntries"
@@ -589,15 +549,6 @@ const statusText = computed(() => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   pointer-events: none;
   z-index: 24;
-}
-
-/* メモ吹き出しとパーツを結ぶ水平線。overlay 層に描くので canvas のズームに追従しない
-   (位置だけが `noteBubbleLayout` の計算で追従する)。 */
-.note-leader {
-  position: absolute;
-  height: 1px;
-  background: var(--primary);
-  opacity: 0.55;
 }
 
 /* drag grip on the selected block — large, obvious grab target for reorder */

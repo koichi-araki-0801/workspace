@@ -18,7 +18,7 @@
 - カバレッジは include 列挙方式・全指標 85% 閾値。テストを書いたファイルはルート `vitest.config.ts` の include へ追加する。
 - 変更系ルートは `editor/server/src/routes/routeGuards.ts` の `ROUTE_POLICY` へ必ず登録する（未登録ルートはサーバ起動時に落ちる）。
 - メモ機能の 2 系統原則（編集タブ/作成タブ）には手を触れない。`web/test/twoSystems.guard.test.ts` は緑のまま保つ。
-- ページ（帳票 HTML 本体）の描画サイズ・倍率は変更しない。吹き出しのためにズームを下げたり canvas 描画領域を狭めたりしない。動かしてよいのはキャンバス内でのページの左右位置だけ。
+- ページ（帳票 HTML 本体）の描画サイズ・倍率は変更しない。吹き出しのためにズームを下げたり canvas 描画領域を狭めたりしない。~~動かしてよいのはキャンバス内でのページの左右位置だけ。~~ **（Task 10 で撤回）** ページの水平位置も動かさない。吹き出しは常にページへ重ねる（理由は Task 10 を見よ）。
 - 上限値: `MAX_NOTE_CONTENT_CHARS` = 64KiB（既存）、`MAX_NOTE_PATH_KEY_CHARS` = 512（既存）、`MAX_NOTES_FILE_BYTES` = 4MiB（既存）、`MAX_NOTES_PER_TEMPLATE` = 1000（既存）、`MAX_NOTE_ENTRIES_PER_PART` = 200（新設）。
 - テスト実行は `pnpm vitest run <path>`、プロジェクト指定は `--project shared|server|web`。
 
@@ -1659,6 +1659,11 @@ git commit -m "feat(editor): メモの composable をスレッド操作へ作り
 
 ### Task 7: 吹き出しの配置計算
 
+> **改訂（Task 10）**: 本タスクが導入した「寄せて場所を作り、足りなければ重ねる」設計
+> （`overlap` 判定・`leader` 線）は実機確認で原理的に成立しないと判明し撤回した。以下は
+> 実装当時の記録として残すが、`BubbleAnchor` の現行の形・実装は Task 10 の節と
+> `editor/web/src/features/editor/noteBubbleLayout.ts` を見よ。
+
 **Files:**
 - Create: `editor/web/src/features/editor/noteBubbleLayout.ts`
 - Modify: `editor/web/src/features/editor/useCanvasMarkers.ts`
@@ -1992,6 +1997,11 @@ git commit -m "feat(editor): メモ吹き出しの配置計算を純関数で用
 ---
 
 ### Task 8: 吹き出しの UI と右ペインの追加欄
+
+> **改訂（Task 10）**: 本タスクの Step 4「ページの左右寄せを CSS で用意する」
+> （`.ret-note-side-right` / `.ret-note-side-left` と `EditorView.vue` の切替 watcher）は
+> Task 10 で撤去した。リーダー線（`.note-leader`）も撤去し、`NoteBubble.vue` は常に重ねる
+> 位置へ小さな尾（`::after`）を付けるよう改めた。理由は Task 10 の節を見よ。
 
 **Files:**
 - Create: `editor/web/src/features/editor/NoteBubble.vue`
@@ -2506,6 +2516,11 @@ Expected: PASS（全指標 85% 以上）
   中核原則）。動かしてよいのはページの水平位置だけ。
 ```
 
+> **改訂（Task 10）**: 上 2 つの引用ブロックのうち「メモの表示は～」の項と「吹き出しの場所を
+> 作るため～」の項は、実機確認で寄せが原理的に効かないと判明したことを受けて Task 10 で
+> さらに書き換えている。ここに引用したのは Task 9 実行当時の記述であり、現行の記述は
+> `docs/editor/src/設計正典.md` を見よ（Task 10 の節に改訂理由をまとめてある）。
+
 - [ ] **Step 4: 設計書のメモの節を更新する**
 
 `docs/editor/src/設計書.md` でメモ機能を説明している箇所を、スレッド化・ペア共有・吹き出し
@@ -2534,3 +2549,61 @@ pnpm exec biome check --write editor/web/src
 git add editor/web/src/features/editor/partKey.ts editor/web/src/features/editor/useCanvasMarkers.ts vitest.config.ts docs/editor
 git commit -m "docs(editor): メモのスレッド化とペア共有を設計正典へ反映する"
 ```
+
+---
+
+### Task 10（追加タスク）: 寄せ機構の撤去と「常に重ねる」への単純化
+
+Task 9 完了後、コントローラが一時 e2e spec で実画面を確認したところ、Task 7/8 が実装した
+「吹き出しと反対側へページを寄せて場所を作り、寄せても幅が足りないときだけ重ねる」設計が
+**原理的に成立しない**ことが判明した。
+
+**原因:** `.gjs-frame-wrapper`（ページ）は `width: 210mm !important`（= 794px）固定で、zoom は
+`transform: scale()` で掛かる。つまりレイアウト上の占有幅は表示倍率に関わらず常に 794px
+（視覚上の見た目だけが縮む）。canvas コンテナ幅は ~856px なので、レイアウト上の余白は常に
+~62px しか無く、`margin-left: 0` で寄せても実際に動くのはその半分の ~31px（実測: `frameWrapMargin`
+"28px 62.3125px 0px 0px" → 寄せても "28px 31px 0px 0px" 相当）。一方
+`computeBubbleAnchor` は `getElementPos` が返す**視覚幅**（例: 67% 表示なら 531px）で
+`room = container.width - page.width` を計算していたため、`room = 856 - 531 = 325` のように
+「余白は十分」と誤って判定し `overlap: false` を返す。しかし実際にページが動けるのは
+レイアウト幅ベースの ~31px だけなので、判定と無関係に吹き出しはページへ重なって描画されて
+いた。ズームを下げるほど視覚幅は縮むがレイアウト幅は 794px のまま変わらないため、この乖離は
+常に生じる（**チューニングでは直らない**）。
+
+**ユーザー判断:** 寄せをやめ、吹き出しは常にページへ重ねる（表計算ソフトのセルコメントと同じ
+挙動）。左右どちらへ出すかの判定（`gapRight`/`gapLeft` の比較）だけを残す。
+
+**Files:**
+- Modify: `editor/web/src/features/editor/noteBubbleLayout.ts`（`overlap`/`leader` を削除し、
+  常に重ねる位置だけを返す純関数へ縮小。モジュール doc コメントを現行設計 + 却下理由へ
+  書き換え）
+- Modify: `editor/web/src/assets/index.css`（`.ret-note-side-right` / `.ret-note-side-left`
+  ルールとそのコメントを削除）
+- Modify: `editor/web/src/features/editor/EditorView.vue`（ページの左右寄せ class を切り替える
+  watcher と、それが駆動していた rAF 再計測を削除。リーダー線の要素・CSS も削除。選択変更・
+  スレッド内容変更をトリガにした再計測は温存）
+- Modify: `editor/web/src/features/editor/NoteBubble.vue`（縮小後の `BubbleAnchor` に合わせる。
+  `side` に応じた小さな尾を `::after` で付け、常時重なる背景として不透明な背景色と影を保つ）
+- Modify: `editor/web/test/noteBubbleLayout.test.ts`（`overlap`/`leader` に関するテストを削除し、
+  常に重ねる契約へ改訂）
+- Modify: `docs/editor/src/設計正典.md`（中核原則の吹き出しの項を改訂 + 却下済み設計へ
+  「ページを寄せて場所を作る」の却下理由を追加）
+- Modify: `docs/superpowers/specs/2026-09-01-part-note-thread-design.md`（配置の節を改訂）
+- Modify: 本ファイル（Task 7/8/9 の該当箇所へ改訂の注記を追加、本節を追加）
+
+**Interfaces（変更後）:**
+- `interface BubbleAnchorInput { part: {left,top,width,height}; page: {left,width}; container: {width,height}; bubble: {width,height} }`（変更なし。`page` は左右判定にのみ使う）
+- `interface BubbleAnchor { side: 'left' | 'right'; left: number; top: number }`（`overlap` /
+  `leader` を削除）
+- `computeBubbleAnchor(input: BubbleAnchorInput): BubbleAnchor` / `sameBubbleAnchor(a, b): boolean`
+  （縮小した形で比較）
+
+**確認したこと:**
+- `pnpm run check:comments`: PASS
+- `pnpm typecheck:editor`: PASS
+- `pnpm vitest run --project web`: 962 tests passed
+- `pnpm vitest run`（全体）: 2497 passed / 4 skipped
+
+**やらなかったこと（意図的）:** スクリーンショットの再撮影・`build_all.py` の再実行はしない
+（レビュー後にコントローラが行う）。ページの大きさ・倍率を変える経路は追加していない
+（この機能の不変則を維持）。
