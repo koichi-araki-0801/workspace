@@ -16,20 +16,6 @@ import { currentUser, delay, K, now, read, write } from './store';
 
 type NoteStore = Record<string, Record<string, PartNoteEntry[]>>;
 
-// `now()` はミリ秒精度で、`addNote` が同一ミリ秒内に連続実行されると値が衝突しうる(実測:
-// テスト環境で高頻度に発生)。一覧の並びは createdAt → templateId → id の順で決まり、
-// 同一 templateId 内で衝突すると乱数 id の比較に落ちて作成順を保てなくなるため、直近の
-// 発行値以下なら 1ms 繰り上げて単調増加を保証する(server 側の比較関数はそのまま — 差は
-// createdAt の発行方法だけで、並び替えロジック自体は複製しない)。
-let lastCreatedAt = '';
-function issueCreatedAt(): string {
-  const t = now();
-  const next =
-    t > lastCreatedAt ? t : new Date(new Date(lastCreatedAt).getTime() + 1).toISOString();
-  lastCreatedAt = next;
-  return next;
-}
-
 /** 1 版インスタンス分の投稿を平坦化する。 */
 function flatten(all: NoteStore, templateId: string): PartNoteEntry[] {
   return Object.values(all[templateId] ?? {}).flat();
@@ -54,13 +40,13 @@ export const localNoteRepo: NoteRepository = {
       const all = read<NoteStore>(K.notes, {});
       const paired = pairedTemplateId(templateId);
       const merged = [...flatten(all, templateId), ...(paired ? flatten(all, paired) : [])];
-      // server 実装と同じ並び(作成日時 → 版 → ID)。同時刻でも読むたびに順が変わらない。
-      merged.sort(
-        (a, b) =>
-          a.createdAt.localeCompare(b.createdAt) ||
-          a.templateId.localeCompare(b.templateId) ||
-          a.id.localeCompare(b.id),
-      );
+      // server 実装と同じ並び(作成日時のみで比較する)。`Array.prototype.sort` は ES2019
+      // 以降 安定ソートなので、同値のときは連結前の順(同一版内は配列 = 挿入順、版をまたぐ
+      // 場合は自版 → ペア版)がそのまま保たれる — これで「同時刻でも読むたびに順が変わら
+      // ない」を満たせる。以前は templateId → id を追加のタイブレークにしていたが、id は
+      // 乱数 UUID で挿入順と無関係なため、同一ミリ秒の連投で並びが崩れる実測不具合があった
+      // (2 件以上を同一 templateId へ短時間に追加すると id 順に化けていた)。
+      merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       return delay(merged);
     }),
 
@@ -74,7 +60,7 @@ export const localNoteRepo: NoteRepository = {
         templateId,
         pathKey,
         content,
-        createdAt: issueCreatedAt(),
+        createdAt: now(),
         createdBy: currentUser()?.displayName ?? '不明',
         updatedAt: null,
         updatedBy: null,

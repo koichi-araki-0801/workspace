@@ -69,6 +69,78 @@ describe('ペア版種のマージ', () => {
   });
 });
 
+describe('createdAt が同値のときの安定性', () => {
+  it('同一 createdAt の投稿は書き込み順(配列順)で返る', async () => {
+    const { repo, files } = await importRepo();
+    const t = '2026-09-01T00:00:00.000Z';
+    await files.writeNotes(KOUFU, {
+      [KEY]: [
+        {
+          id: 'e1',
+          content: '1 件目',
+          createdAt: t,
+          createdBy: 'editor1',
+          updatedAt: null,
+          updatedBy: null,
+        },
+        {
+          id: 'e2',
+          content: '2 件目',
+          createdAt: t,
+          createdBy: 'editor1',
+          updatedAt: null,
+          updatedBy: null,
+        },
+        {
+          id: 'e3',
+          content: '3 件目',
+          createdAt: t,
+          createdBy: 'editor1',
+          updatedAt: null,
+          updatedBy: null,
+        },
+      ],
+    });
+
+    const thread = await repo.listNotes(KOUFU);
+    // id は乱数 UUID 相当で挿入順と無関係なため、id 順(e1<e2<e3 に見える並び)へ逃げずに
+    // 配列順そのものが保たれることを主張する(タイブレークを持たないことの検証)。
+    expect(thread.map((e) => e.content)).toEqual(['1 件目', '2 件目', '3 件目']);
+  });
+
+  it('ペアをまたぐ同一 createdAt でも自版 → ペア版の順になる', async () => {
+    const { repo, files } = await importRepo();
+    const t = '2026-09-01T00:00:00.000Z';
+    await files.writeNotes(KOUFU, {
+      [KEY]: [
+        {
+          id: 'k1',
+          content: '交付版',
+          createdAt: t,
+          createdBy: 'editor1',
+          updatedAt: null,
+          updatedBy: null,
+        },
+      ],
+    });
+    await files.writeNotes(ZENTAI, {
+      [KEY]: [
+        {
+          id: 'z1',
+          content: '全体版',
+          createdAt: t,
+          createdBy: 'editor2',
+          updatedAt: null,
+          updatedBy: null,
+        },
+      ],
+    });
+
+    const thread = await repo.listNotes(KOUFU);
+    expect(thread.map((e) => e.content)).toEqual(['交付版', '全体版']);
+  });
+});
+
 describe('編集と削除の宛先', () => {
   it('ペア側の投稿を編集してもこちらの版のファイルは変わらない', async () => {
     const { repo, files } = await importRepo();

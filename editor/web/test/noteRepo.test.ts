@@ -1,5 +1,5 @@
 import { isOk } from '@editor/shared';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localNoteRepo } from '@/api/local/noteRepo';
 
 beforeEach(() => localStorage.clear());
@@ -55,5 +55,21 @@ describe('localNoteRepo', () => {
   it('空文字の本文は追加できない(削除は deleteNote で明示する)', async () => {
     const res = await localNoteRepo.addNote(KOUFU, KEY, '');
     expect(isOk(res)).toBe(false);
+  });
+
+  it('作成日時が同じでも投稿順を保つ(安定ソートで挿入順に委ねる)', async () => {
+    // 時刻を固定して createdAt を意図的に衝突させる。id は乱数 UUID で挿入順と無関係な
+    // ため、時刻だけの比較で挿入順(配列順)が保たれることを確認する回帰テスト。
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-01T00:00:00.000Z'));
+    try {
+      await add(KOUFU, '1 件目');
+      await add(KOUFU, '2 件目');
+      await add(KOUFU, '3 件目');
+    } finally {
+      vi.useRealTimers();
+    }
+    const list = await localNoteRepo.listNotes(KOUFU);
+    expect(isOk(list) && list.value.map((e) => e.content)).toEqual(['1 件目', '2 件目', '3 件目']);
   });
 });

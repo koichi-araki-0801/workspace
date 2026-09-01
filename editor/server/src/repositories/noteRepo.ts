@@ -34,20 +34,19 @@ function flatten(templateId: string, map: NoteEntriesMap): PartNoteEntry[] {
 /**
  * 自版とペア版(交付版⇄全体版)をマージしたスレッド。
  *
- * 並びは `createdAt` の昇順。同時刻の投稿で並びが揺れないよう、`templateId` → `id` を
- * 第 2・第 3 のキーにして安定させる(表示順が読むたびに変わると差分が読めない)。
+ * 並びは `createdAt` の昇順のみで比較する。`Array.prototype.sort` は ES2019 以降 安定
+ * ソートなので、同時刻の投稿は連結前の順(`own` は各パーツの配列 = 挿入順、`own → other`
+ * は自版 → ペア版の順)がそのまま保たれ、表示順が読むたびに変わることはない。以前は
+ * `templateId` → `id` を追加のタイブレークにしていたが、`id` は乱数 UUID で挿入順と
+ * 無関係なため、同一ミリ秒の連続投稿(高頻度の連投で実際に起こりうる)で並びが id 順に
+ * 化ける実測不具合があった。タイブレークを増やすほど安定するわけではない。
  * ペアの実体が無い場合や版種がペア対象外の場合は、自版だけが返る。
  */
 export async function listNotes(templateId: string): Promise<PartNoteEntry[]> {
   const paired = pairedTemplateId(templateId);
   const own = flatten(templateId, await readNotes(templateId));
   const other = paired ? flatten(paired, await readNotes(paired)) : [];
-  return [...own, ...other].sort(
-    (a, b) =>
-      a.createdAt.localeCompare(b.createdAt) ||
-      a.templateId.localeCompare(b.templateId) ||
-      a.id.localeCompare(b.id),
-  );
+  return [...own, ...other].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 /**
