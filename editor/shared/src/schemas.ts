@@ -587,7 +587,7 @@ export const PartClassificationQuery = z.object({
 /**
  * パーツ単位メモの投稿 1 件。メモは追記型のスレッドで、投稿は書かれた版インスタンスの
  * ファイルへ入る。表示は交付版と全体版のペアをマージした 1 本のスレッドになる。
- * `templateId` は投稿が属する版（編集・削除の宛先）。キー算出は web の `partKey.ts`。
+ * `templateId` は投稿が属する版(編集・削除の宛先)。キー算出は web の `partKey.ts`。
  */
 export const PartNoteEntry = z
   .object({

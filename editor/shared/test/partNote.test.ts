@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  AddNoteRequest,
-  apiPaths,
-  buildPath,
-  MAX_NOTE_ENTRIES_PER_PART,
-  PartNoteEntry,
-  UpdateNoteRequest,
-} from '../src/index.js';
+import { apiPaths, buildPath, MAX_NOTE_ENTRIES_PER_PART } from '../src/index.js';
+import { AddNoteRequest, PartNoteEntry, UpdateNoteRequest } from '../src/schemas.js';
 
 describe('PartNoteEntry', () => {
   it('投稿 1 件の形を受理する(未編集は updatedAt/updatedBy が null)', () => {
