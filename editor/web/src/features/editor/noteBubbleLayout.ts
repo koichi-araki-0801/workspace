@@ -112,3 +112,26 @@ export function computeBubbleAnchor(input: BubbleAnchorInput): BubbleAnchor {
     },
   };
 }
+
+/**
+ * 2 つの `BubbleAnchor`(null も可)が値として等しいか判定する。
+ *
+ * `computeBubbleAnchor` は呼ばれるたびに新しいオブジェクトを返すため、中身が同じでも
+ * 参照だけが変わる。呼び出し側(`useCanvasMarkers.refreshBubbleAnchor`)がこの関数で
+ * 「本当に変わったときだけ ref へ代入する」を保証しないと、Vue の変更検知(`Object.is`)は
+ * 参照差だけで「変わった」と判定し、それを見ている watcher(位置の再計測 → 再代入)が
+ * 自己再発火して無限ループになる(吹き出し表示中ずっと毎フレーム再計測が走る形)。
+ */
+export function sameBubbleAnchor(a: BubbleAnchor | null, b: BubbleAnchor | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return (
+    a.side === b.side &&
+    a.overlap === b.overlap &&
+    a.left === b.left &&
+    a.top === b.top &&
+    a.leader.left === b.leader.left &&
+    a.leader.top === b.leader.top &&
+    a.leader.width === b.leader.width
+  );
+}

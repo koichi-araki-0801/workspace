@@ -10,7 +10,7 @@ import type { Editor } from 'grapesjs';
 import { type Ref, ref, type ShallowRef } from 'vue';
 import { logError } from '@/lib/appError';
 import type { SelectedRect } from './grapesEvents';
-import { type BubbleAnchor, computeBubbleAnchor } from './noteBubbleLayout';
+import { type BubbleAnchor, computeBubbleAnchor, sameBubbleAnchor } from './noteBubbleLayout';
 import { partEls, partPathKeyFor } from './partKey';
 
 /**
@@ -111,6 +111,11 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
    * 選択パーツに紐づく吹き出しの配置を測り直す。ページ矩形は canvas body の
    * `getElementPos` で取り、コンテナ内寸は overlay 層の実寸を使う。吹き出しの実寸は
    * 描画後に呼び出し側が測って渡す(中身の件数で高さが変わるため)。
+   *
+   * 計算結果が現在の `bubbleAnchor.value` と値として同じなら代入しない(参照を保つ)。
+   * ここで素通しに代入すると、`bubbleAnchor` を watch している側(`EditorView.vue` の
+   * ページ左右寄せ)が参照差だけで再発火し、その中で呼ぶ再計測がまたここへ戻ってくる
+   * 自己ループになる(`sameBubbleAnchor` のコメントを見よ)。
    */
   function refreshBubbleAnchor(bubble: { width: number; height: number } | null): void {
     const ed = ctx.editor.value;
@@ -119,21 +124,22 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
     const body = ed?.Canvas.getBody();
     const containerEl = ctx.getContainer();
     if (!ed || !el || !body || !containerEl || !bubble) {
-      bubbleAnchor.value = null;
+      if (!sameBubbleAnchor(bubbleAnchor.value, null)) bubbleAnchor.value = null;
       return;
     }
     try {
       const part = ed.Canvas.getElementPos(el, { noScroll: true });
       const page = ed.Canvas.getElementPos(body, { noScroll: true });
-      bubbleAnchor.value = computeBubbleAnchor({
+      const next = computeBubbleAnchor({
         part: { left: part.left, top: part.top, width: part.width, height: part.height },
         page: { left: page.left, width: page.width },
         container: { width: containerEl.clientWidth, height: containerEl.clientHeight },
         bubble,
       });
+      if (!sameBubbleAnchor(bubbleAnchor.value, next)) bubbleAnchor.value = next;
     } catch (e) {
       logError(toAppError(e));
-      bubbleAnchor.value = null;
+      if (!sameBubbleAnchor(bubbleAnchor.value, null)) bubbleAnchor.value = null;
     }
   }
 

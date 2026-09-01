@@ -118,8 +118,18 @@ watch(
     const el = canvasEl.value;
     if (!el) return;
     const shift = anchor && !anchor.overlap && noteEntries.value.length > 0;
-    el.classList.toggle('ret-note-side-right', shift === true && anchor?.side === 'right');
-    el.classList.toggle('ret-note-side-left', shift === true && anchor?.side === 'left');
+    const wantRight = shift === true && anchor?.side === 'right';
+    const wantLeft = shift === true && anchor?.side === 'left';
+    // 実際に class が変わるかを先に見ておく。`useCanvasMarkers.refreshBubbleAnchor` は
+    // 値が同じ限り `bubbleAnchor` の参照を保つが、値が変わって(例: 高さの再計測)side/overlap
+    // は変わらない場合もこの watcher は再発火する。そのたびに rAF → 再計測を回すと、
+    // 「class は動いていないのに毎回測り直す」無駄になる — 動いたときだけ測り直す。
+    const changed =
+      el.classList.contains('ret-note-side-right') !== wantRight ||
+      el.classList.contains('ret-note-side-left') !== wantLeft;
+    el.classList.toggle('ret-note-side-right', wantRight);
+    el.classList.toggle('ret-note-side-left', wantLeft);
+    if (!changed) return;
     // class の付け外しでページの水平位置が変わるので、直後に overlay 一式(選択枠・guide・
     // メモ目印は `refreshPageGuides` が cascade で測り直す)+ 吹き出しの実寸を測り直す
     // (`setZoom` と同じ手順)。

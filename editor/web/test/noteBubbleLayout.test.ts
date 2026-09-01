@@ -4,7 +4,7 @@
 // 吹き出しは「リーダー線が帳票を横切る量が少ない側」へ出し、その反対へページを寄せて
 // 場所を作る。寄せても幅が足りなければページに重ねる(ページの大きさは変えない)。
 import { describe, expect, it } from 'vitest';
-import { computeBubbleAnchor } from '@/features/editor/noteBubbleLayout';
+import { computeBubbleAnchor, sameBubbleAnchor } from '@/features/editor/noteBubbleLayout';
 
 const BUBBLE = { width: 244, height: 300 };
 const CONTAINER = { width: 856, height: 700 };
@@ -116,5 +116,49 @@ describe('縦の収まり', () => {
     expect(a.leader.top).toBe(140);
     expect(a.leader.left).toBe(550);
     expect(a.leader.width).toBeGreaterThan(0);
+  });
+});
+
+describe('sameBubbleAnchor(参照ではなく値で比較)', () => {
+  // `refreshBubbleAnchor` が「値が同じなら代入しない」を保証するための核となる関数。
+  // ここが壊れると、参照が変わるだけで watcher の再発火 → 再計測が連鎖する退行が戻る。
+  const base = () =>
+    computeBubbleAnchor({
+      part: { left: 400, top: 100, width: 150, height: 80 },
+      page: { left: 150, width: 556 },
+      container: CONTAINER,
+      bubble: BUBBLE,
+    });
+
+  it('同じ値の別オブジェクト同士は true', () => {
+    expect(sameBubbleAnchor(base(), base())).toBe(true);
+  });
+
+  it('left だけ違うものは false', () => {
+    const a = base();
+    const b = { ...base(), left: base().left + 1 };
+    expect(sameBubbleAnchor(a, b)).toBe(false);
+  });
+
+  it('side だけ違うものは false', () => {
+    const a = base();
+    const b = { ...base(), side: 'left' as const };
+    expect(sameBubbleAnchor(a, b)).toBe(false);
+  });
+
+  it('leader.width だけ違うものは false', () => {
+    const a = base();
+    const b = { ...base(), leader: { ...base().leader, width: base().leader.width + 1 } };
+    expect(sameBubbleAnchor(a, b)).toBe(false);
+  });
+
+  it('null と null は true', () => {
+    expect(sameBubbleAnchor(null, null)).toBe(true);
+  });
+
+  it('null と値は false(両方向)', () => {
+    const a = base();
+    expect(sameBubbleAnchor(null, a)).toBe(false);
+    expect(sameBubbleAnchor(a, null)).toBe(false);
   });
 });
