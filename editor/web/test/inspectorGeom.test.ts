@@ -24,7 +24,7 @@ function mountInspector(geom: LayoutGeom) {
             part: null,
             geom,
             history: [],
-            note: '',
+            noteCount: 0,
             canNote: false,
             editMode: true,
             canUp: false,

@@ -275,3 +275,15 @@
   width: 100% !important;
   background: transparent;
 }
+/* メモ吹き出しを開いている間だけ、吹き出しと反対側へページを寄せて場所を作る。
+   動かすのは水平位置だけで、幅・倍率は変えない(ページの見えは PDF の見えと一致している
+   必要があり、注釈の都合で本体を縮めない)。class は `EditorView.vue` が付ける。 */
+.ret-note-side-right .gjs-frame-wrapper {
+  /* biome-ignore lint/complexity/noImportantStyles: 上の中央寄せ margin を打ち消すため必要 */
+  margin-left: 0 !important;
+}
+
+.ret-note-side-left .gjs-frame-wrapper {
+  /* biome-ignore lint/complexity/noImportantStyles: 上の中央寄せ margin を打ち消すため必要 */
+  margin-right: 0 !important;
+}

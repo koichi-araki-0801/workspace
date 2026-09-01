@@ -5,7 +5,7 @@
 // 役割: `useTemplateEditor.ts` / `useGeomHandles.ts` を束ね、canvas 上に選択 overlay
 // (ページ境界 guide / ドラッグハンドル / move grip)を描く presentational なルート。
 import { GripVertical, PanelLeft, PanelRight, StickyNote, TriangleAlert } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import PageRail from '@/components/PageRail.vue';
 import { fractionToPage } from '@/components/pageNav';
@@ -15,6 +15,7 @@ import { toastSuccess } from '@/components/ui/toast';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
+import NoteBubble from './NoteBubble.vue';
 import PartTree from './PartTree.vue';
 import ShortcutHelpDialog from './ShortcutHelpDialog.vue';
 import { useEditorShortcuts } from './useEditorShortcuts';
@@ -38,9 +39,11 @@ const {
   partLabels,
   selectedPart,
   selectedGeom,
-  noteText,
+  noteEntries,
   canNote,
-  setNote,
+  addNote,
+  updateNote,
+  removeNote,
   allowAdd,
   allowEdit,
   dirty,
@@ -70,6 +73,63 @@ const { startHandle, dragLabel } = useGeomHandles({
 });
 
 const rect = computed(() => g.selectedRect.value);
+
+// ── メモ吹き出し(選択パーツのスレッド) ──
+const noteBubbleEl = useTemplateRef<InstanceType<typeof NoteBubble>>('noteBubbleEl');
+
+// 吹き出しの ✕ で閉じた状態。選択が変わったら開き直す(閉じたままだと次のパーツの
+// メモが出ず、「メモが消えた」ように見える)。
+const bubbleClosed = ref(false);
+watch(
+  () => g.selected.value,
+  () => {
+    bubbleClosed.value = false;
+  },
+);
+
+/** 吹き出しの実寸を測り直し `refreshBubbleAnchor` へ渡す(描画されていなければ null で解除)。 */
+function measureBubble(): void {
+  const el = noteBubbleEl.value?.$el as HTMLElement | null | undefined;
+  g.refreshBubbleAnchor(el ? { width: el.offsetWidth, height: el.offsetHeight } : null);
+}
+
+// スレッド(選択パーツの切替 / 追加・編集・削除)が変わるたびに実寸を測り直す。前パーツの
+// 高さのまま数フレーム居座らないよう、まず幅 244・高さ 0 の見積もりで仮置きし(この時点で
+// クランプ済みの概算位置が付く)、DOM 更新後に実寸で測り直す。以後の zoom/layout 再計算は
+// `useGrapes.ts` の `lastBubbleSize` キャッシュがこの実寸のまま追従させる。
+watch(
+  noteEntries,
+  () => {
+    if (noteEntries.value.length === 0) {
+      g.refreshBubbleAnchor(null);
+      return;
+    }
+    g.refreshBubbleAnchor({ width: 244, height: 0 });
+    void nextTick(measureBubble);
+  },
+  { immediate: true },
+);
+
+// 吹き出しを開いている間だけページを反対側へ寄せる(重ねる場合は寄せても意味が無いので
+// 付けない)。class の付け外しは `updateScrollMode` と同じく canvas コンテナに対して行う。
+watch(
+  () => g.bubbleAnchor.value,
+  (anchor) => {
+    const el = canvasEl.value;
+    if (!el) return;
+    const shift = anchor && !anchor.overlap && noteEntries.value.length > 0;
+    el.classList.toggle('ret-note-side-right', shift === true && anchor?.side === 'right');
+    el.classList.toggle('ret-note-side-left', shift === true && anchor?.side === 'left');
+    // class の付け外しでページの水平位置が変わるので、直後に overlay 一式(選択枠・guide・
+    // メモ目印は `refreshPageGuides` が cascade で測り直す)+ 吹き出しの実寸を測り直す
+    // (`setZoom` と同じ手順)。
+    requestAnimationFrame(() => {
+      g.refreshRect();
+      g.refreshPageGuides();
+      measureBubble();
+    });
+  },
+);
 
 // ページ境界の overlay guide: 既定 ON、上部バーから切替える。
 const showPageGuides = ref(true);
@@ -335,6 +395,28 @@ const statusText = computed(() => {
             <StickyNote class="h-3 w-3" />
           </div>
 
+          <!-- メモ吹き出し(選択パーツのスレッド)。リーダー線でパーツと結ぶ。
+               ページは反対側へ寄るが、大きさ・倍率は変えない(`noteBubbleLayout` を見よ)。 -->
+          <template v-if="g.bubbleAnchor.value && noteEntries.length > 0 && !bubbleClosed">
+            <div
+              v-if="g.bubbleAnchor.value.leader.width > 0"
+              class="note-leader"
+              :style="{
+                left: `${g.bubbleAnchor.value.leader.left}px`,
+                top: `${g.bubbleAnchor.value.leader.top}px`,
+                width: `${g.bubbleAnchor.value.leader.width}px`,
+              }"
+            />
+            <NoteBubble
+              ref="noteBubbleEl"
+              :entries="noteEntries"
+              :anchor="g.bubbleAnchor.value"
+              @update="updateNote"
+              @remove="removeNote"
+              @close="bubbleClosed = true"
+            />
+          </template>
+
           <!-- 編集の affordance(ドラッグハンドル)は編集許可時のみ -->
           <template v-if="rect && selectedGeom && allowEdit">
             <!-- drag grip: 選択ブロックを兄弟内で並べ替える -->
@@ -422,7 +504,7 @@ const statusText = computed(() => {
         :geom="selectedGeom"
         :history="displayHistory"
         :part-labels="partLabels"
-        :note="noteText"
+        :note-count="noteEntries.length"
         :can-note="canNote"
         :edit-mode="allowEdit"
         :can-up="g.canMoveUp.value"
@@ -431,7 +513,7 @@ const statusText = computed(() => {
         @move="moveSelected($event)"
         @reset="resetGeom"
         @del="deletePart"
-        @update-note="setNote"
+        @add-note="addNote"
         @collapse="rightCollapsed = true"
       />
     </div>
@@ -497,6 +579,15 @@ const statusText = computed(() => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   pointer-events: none;
   z-index: 24;
+}
+
+/* メモ吹き出しとパーツを結ぶ水平線。overlay 層に描くので canvas のズームに追従しない
+   (位置だけが `noteBubbleLayout` の計算で追従する)。 */
+.note-leader {
+  position: absolute;
+  height: 1px;
+  background: var(--primary);
+  opacity: 0.55;
 }
 
 /* drag grip on the selected block — large, obvious grab target for reorder */
