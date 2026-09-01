@@ -157,7 +157,17 @@ export function useGrapes() {
     lastBubbleSize = bubble;
     refreshBubbleAnchorNow();
   }
-  const guides = usePageGuides({ editor, afterGuides: markers.refreshNoteMarkers });
+  /**
+   * guide 再計測(`refreshPageGuides`)と同じ契機でメモ目印・吹き出しの両方を測り直す。
+   * `afterGuides` はページ送り・外側/iframe 内 scroll・zoom・レイアウト再計算など
+   * `refreshPageGuides` を呼ぶ全経路から届くため、ここへ集約すれば「印は更新するが吹き出しは
+   * 更新しない」経路を個々の呼び出し元へ足して回らずに塞げる(呼び忘れを構造的に防ぐ)。
+   */
+  function refreshOverlayMarkers(): void {
+    markers.refreshNoteMarkers();
+    refreshBubbleAnchorNow();
+  }
+  const guides = usePageGuides({ editor, afterGuides: refreshOverlayMarkers });
   const { pageGuides, recomputeBreakEls, refreshPageGuides } = guides;
   const zoomFit = useZoomFit({
     editor,
@@ -165,7 +175,6 @@ export function useGrapes() {
     afterZoom: () => {
       refreshRect();
       refreshPageGuides();
-      refreshBubbleAnchorNow();
     },
   });
   const { zoom, setZoom, fitToView, updateScrollMode } = zoomFit;
@@ -468,7 +477,6 @@ export function useGrapes() {
     refreshPageGuides();
     recomputePages();
     updateScrollMode();
-    refreshBubbleAnchorNow();
   }
 
   /**

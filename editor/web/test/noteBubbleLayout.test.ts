@@ -66,9 +66,35 @@ describe('場所が足りないとき', () => {
     expect(a.left).toBeGreaterThanOrEqual(0);
     expect(a.left + BUBBLE.width).toBeLessThanOrEqual(CONTAINER.width);
   });
+
+  it('左側で重ねるときもコンテナ内に収まる', () => {
+    const a = computeBubbleAnchor({
+      // パーツをページ左端に寄せて side='left' にしつつ、ページ自体は幅いっぱいで重ねを起こす。
+      part: { left: 20, top: 100, width: 100, height: 80 },
+      page: { left: 20, width: 820 },
+      container: CONTAINER,
+      bubble: BUBBLE,
+    });
+    expect(a.side).toBe('left');
+    expect(a.overlap).toBe(true);
+    // 右分岐と対称の clamp なので、左側で重ねてもコンテナ右端を越えない。
+    expect(a.left).toBeGreaterThanOrEqual(0);
+    expect(a.left + BUBBLE.width).toBeLessThanOrEqual(CONTAINER.width);
+  });
 });
 
 describe('縦の収まり', () => {
+  it('クランプが効かない通常時は top がパーツ上端と一致する', () => {
+    const a = computeBubbleAnchor({
+      part: { left: 400, top: 100, width: 150, height: 80 },
+      page: { left: 150, width: 556 },
+      container: CONTAINER,
+      bubble: BUBBLE,
+    });
+    // 範囲内チェックだけだと top を常に 0 で返す実装でも通ってしまうため、値そのものを固定する。
+    expect(a.top).toBe(100);
+  });
+
   it('下がはみ出すときは上へクランプする', () => {
     const a = computeBubbleAnchor({
       part: { left: 400, top: 650, width: 150, height: 80 },

@@ -95,7 +95,11 @@ export function computeBubbleAnchor(input: BubbleAnchorInput): BubbleAnchor {
     };
   }
 
-  const left = clamp(part.left - LEADER_GAP - bubble.width, EDGE_GAP, container.width);
+  const left = clamp(
+    part.left - LEADER_GAP - bubble.width,
+    EDGE_GAP,
+    Math.max(EDGE_GAP, container.width - bubble.width - EDGE_GAP),
+  );
   return {
     side,
     overlap,
