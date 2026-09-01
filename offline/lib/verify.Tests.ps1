@@ -78,6 +78,33 @@ Describe 'Get-OfflineRequirementsFiles' {
     ($found | Split-Path -Leaf | Sort-Object) -join "`n" | Should Be "dev-requirements.txt`nrequirements.txt"
   }
 
+  # 配布先が置かれうる 2 条件。他のケースはすべて RepoRoot = リポジトリのルートで実行しており、
+  # 「git 経路とファイルシステム経路が呼び分けられる条件」そのものを再現していなかった。
+  # 判定は `$null -eq` で行う（`Should BeNullOrEmpty` は空配列と null を区別できず、
+  # フォールバックが働かない退行をそのまま通してしまう）。
+  It 'git 管理外の RepoRoot では null を返す（stderr で呼び出し元を止めない）' {
+    $dir = Join-Path $TestDrive ('nogit-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    Set-Content -Path (Join-Path $dir 'requirements.txt') -Value 'pkg==1.0' -Encoding utf8
+    # setup スクリプトと同じ条件。native コマンドの stderr は Stop のもとで
+    # NativeCommandError になり、呼び出し元ごと停止する。
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Stop'
+    try { $result = Get-OfflineRequirementsFilesViaGit -RepoRoot $dir }
+    finally { $ErrorActionPreference = $prev }
+    ($null -eq $result) | Should Be $true
+  }
+
+  It '別リポジトリ配下の RepoRoot では null を返す（ls-files が exit 0 / 0 件でも空配列にしない）' {
+    $outer = Join-Path $TestDrive ('outer-' + [guid]::NewGuid().ToString('N'))
+    $inner = Join-Path $outer 'inner'
+    New-Item -ItemType Directory -Path $inner -Force | Out-Null
+    & git -C $outer init --quiet 2>$null | Out-Null
+    Set-Content -Path (Join-Path $inner 'requirements.txt') -Value 'pkg==1.0' -Encoding utf8
+    $result = Get-OfflineRequirementsFilesViaGit -RepoRoot $inner
+    ($null -eq $result) | Should Be $true
+  }
+
   # 期待値は「変数で受ける」経路から採る。`, @(...)` の外側 1 段は代入でのみ剥がれるため、
   # 関数呼び出しを直接 `@(...)` で包むと常に 1 になり、pipe 経由の潰れを検出できない。
   It 'pipe 経由でも 1 パス = 1 要素で流れる（git 経路）' {
