@@ -170,10 +170,10 @@ export function useTemplateEditor(
     { history: sess.partHistory, nextSeq: () => ++sess.seq },
   );
 
-  // ── パーツ単位メモ(版インスタンス単位) ──
-  // メモは templateId(委託会社/ファンドコード/基準日/版種を内包)単位で、版内で安定な構造
-  // キー(`partKey.ts`)で保持する。別の基準日/版種の版へは引き継がない。編集は即時ローカル
-  // 反映 + debounce 永続化。
+  // ── パーツ単位メモ(追記型スレッド) ──
+  // メモは追記型スレッドで、投稿は書かれた版インスタンスのファイルへ入る。表示は交付版⇄
+  // 全体版のペアをマージした 1 本のスレッド(基準日をまたぐ繰り越しはしない)。パーツの
+  // 同定は版内で安定な構造キー(`partKey.ts`)で行う。
   const noteRepo = useNoteRepo();
 
   /** canvas のルート要素(GrapesJS wrapper、無ければ body)。パーツ列挙/キー解決の基準。 */
@@ -209,7 +209,6 @@ export function useTemplateEditor(
       void g.revision.value;
       return currentNoteKey();
     },
-    () => auth.user?.displayName ?? '編集者',
     noteRepo,
   );
 
@@ -436,7 +435,6 @@ export function useTemplateEditor(
   onBeforeUnmount(() => {
     window.removeEventListener('beforeunload', beforeUnload);
     document.removeEventListener('visibilitychange', onVisibilityChange);
-    void note.flush(); // 保留中のメモ保存を取りこぼさない(プレビュー往復の再マウント含む)
     // 保留中の Undo 永続ミラーを確定する(プレビュー往復の再マウント/リロード前)。
     if (persistTimer) clearTimeout(persistTimer);
     persistUndo();
@@ -450,7 +448,6 @@ export function useTemplateEditor(
   //    場合は draft とセッション履歴を破棄してから移動する(キャンセルなら離脱中止)。
   onBeforeRouteLeave(async (to) => {
     await autosave.settled(); // 進行中の保存を待ってから離脱判定へ入る
-    await note.flush(); // メモの保留分を確定してから離脱する(メモは破棄対象外で常に保持)
 
     // 同一テンプレートのプレビューへの往復はセッションを保持する。
     if (to.name === 'preview' && to.params.id === id) return true;
@@ -490,9 +487,11 @@ export function useTemplateEditor(
     partLabels,
     selectedPart,
     selectedGeom,
-    noteText: note.currentNote,
+    noteEntries: note.entries,
     canNote: note.canNote,
-    setNote: note.setCurrent,
+    addNote: note.add,
+    updateNote: note.update,
+    removeNote: note.remove,
     allowAdd,
     allowEdit,
     dirty,
