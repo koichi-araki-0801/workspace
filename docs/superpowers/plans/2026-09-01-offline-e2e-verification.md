@@ -765,6 +765,126 @@ $p = ([Environment]::GetEnvironmentVariable('Path','User') -split ';' |
 
 ---
 
-## 実測記録
+## 実測記録（2026-09-01・Phase 1 で中断）
 
-（Phase 7 Step 4 でここへ記入する）
+### 実施範囲
+
+- **Phase 0: 完了**（pin 更新・検証フォルダ構築）。
+- **Phase 1: 未完了**。オフライン構築が完走しない不具合を 2 つ踏んだため、ユーザーの判断で
+  検証を中断し、修正を別タスクへ切り出した。
+- **Phase 2〜7: 未実施**。
+
+中断の判断理由: 発見した不具合が「検証対象の一部」ではなく「検証の前提条件」だった。
+`setup-offline-local` が完走しない限り Phase 2 以降は 1 つも実行できない。
+
+### Phase 0 の結果
+
+- pin を `4fcad7f` → `77145719173f6603fcf74e06b50a38111e0d3d84` へ更新（手動。理由は発見 2）。
+  ソース zip は 19,702,971 bytes、sha256 =
+  `7bb0e922283c882990fc7e5a4383cffcb4d209003e5552edf1d4eb8e9b00ac29`。
+- 重量物は content key 一致（`92b80d97de4e9f27b3e954d547a757afbd7ea7d4480e06f2093b3c60d0c3154f`）で
+  再アップロードなし。タグ移動と Release 説明の更新は完了。
+- 重量物の実測: bundle 1,109,350,471 bytes、展開後 `.pnpm-store` 863MB /
+  `ms-playwright` 1.4GB / `git-tools` 481MB / `python-wheelhouse` 2MB。
+- 検証フォルダは `C:\Users\Public\offline-verify\`（当初 `C:\Users\caads\offline-verify\` に
+  置いたが発見 1 のため移動）。
+
+### Phase 1 で通過した検証段
+
+以下は**正しく動作した**。fail closed の設計自体は機能しており、いずれの不具合でも
+「壊れた状態で先へ進む」ことはなかった。
+
+- pin の `bundle-sha256` と実体の突き合わせ（`1fd1095c…` 一致）
+- `bundle-signing.pub.xml` による分離署名 `.sig` の RSA 検証
+- `bundle.key` と content key の照合（＝これが発見 1 を検出した）
+
+### 発見 1: 展開先が別の git リポジトリ配下だと content key が乖離する
+
+- **症状**: `[error] lockfile 不整合: 資材とソースが対応していません。`
+  code (local) = `da022e56…` / bundle.key = `92b80d97…`。
+- **原因**: `offline/lib/content-key.ps1` の `Get-OfflineRequirementsFilesViaGit` は
+  `git ls-files` の終了コードだけを見て `$LASTEXITCODE -ne 0` のときに `$null` を返す。
+  展開先が別リポジトリの配下にあると git は**その親リポジトリ**を見て **exit 0 / 0 件**を返すため、
+  関数は `$null` ではなく**空配列**を返す。呼び出し元 `Get-OfflineRequirementsFiles` は
+  `$null -ne $viaGit` で判定しているのでファイルシステム経路へフォールバックせず、
+  `requirements.txt` が content key に 1 件も折り込まれない。
+- **確認した事実**: `C:\Users\caads\.git` が存在し、
+  `git -C C:\Users\caads\offline-verify\local\workspace rev-parse --show-toplevel` は
+  `C:/Users/caads` を exit 0 で返す。同フォルダで `ls-files` は exit 0 / 0 件。
+- **切り分けの経過**: `pnpm-lock.yaml` は CR 除去後のバイト列が完全一致（sha `77a0d90f…`、
+  9939 行・差分 0 行）、`requirements.txt` / 各 `manifest.txt` の有意行もすべて一致。
+  累積ハッシュを段階ごとに取ったところ、検証フォルダ側だけ requirements の折り込み段が
+  丸ごと現れないことで確定した。
+- **影響**: 配布先のホームが git 管理下（dotfiles 管理など）だと、オフライン構築が必ず失敗する。
+- **修正案**: `git -C $RepoRoot rev-parse --show-toplevel` を先に呼び、正規化した戻り値が
+  `$RepoRoot` 自身と一致するときだけ `ls-files` を使う。一致しなければ `$null` を返して
+  ファイルシステム経路へ落とす。
+
+### 発見 2: publish の pin 生成が `-H '@-'` で必ず失敗する
+
+- **症状**: `curl: (22) The requested URL returned error: 400` →
+  `[error] ソース zip の取得に失敗しました（pin を更新できません）。`
+- **原因**: `offline/publish-offline-bundle.ps1` は認証ヘッダを標準入力から渡すため
+  `curl.exe -H '@-'` を使うが、この環境（Windows PowerShell 5.1 + curl 8.21.0）では
+  stdin からの読み取りが機能していない。
+- **切り分け**（`https://api.github.com/rate_limit` への応答コード）:
+  ヘッダ無し = 200 / **stdin `-H '@-'` = 400** / インライン `-H '…'` = 401 /
+  一時ファイル `-H "@file"` = 401（LF・CRLF いずれも）。401 は「ヘッダが正しく届いて
+  ダミートークンが拒否された」状態で、これが期待される挙動。
+- **影響**: pin の更新が常に失敗する。フェーズ 5 の実測記録にある「pin 生成段で停滞」も
+  同じ箇所で、症状が違うだけの同一原因と見てよい。
+- **修正案**: ヘッダを一時ファイルへ LF 改行で書き、`-H "@$path"` で渡す（`finally` で削除）。
+  コマンドライン引数には載らないため、`docs/editor/src/設計正典.md` の
+  「アクセストークンをコマンドライン引数へ載せない」という要件を満たしたまま直せる。
+  インライン `-H` へ戻す案は採らない。
+
+### 発見 3: git 管理外の展開先では NativeCommandError で停止する
+
+- **症状**: `git.exe : fatal: not a git repository (or any of the parent directories): .git`
+  が `content-key.ps1:40` を発生場所として送出され、setup が `[3/4]` の直後で終了する。
+- **原因**: `setup-offline-local.ps1` は `$ErrorActionPreference = 'Stop'` を設定している。
+  ネイティブコマンドの stderr は PowerShell で `NativeCommandError` になるため、
+  `2>$null` を付けても `Stop` のもとではスクリプトごと停止する。
+- **影響**: 発見 1 を避けて git 管理外の場所（＝配布先として正しい置き方）へ展開すると、
+  今度はこちらで落ちる。**発見 1 と合わせて、`setup-offline-local` は「リポジトリのルート自身」
+  でしか完走しない**。つまり開発機でしか通らない。
+- **修正案**: git 呼び出しの区間だけ `$ErrorActionPreference` を `'Continue'` へ退避するか、
+  `git` の呼び出しを stderr ごと捨てられる形（`cmd /c … 2>nul` など）に包む。
+  発見 1 の修正（`rev-parse` の一致確認）と同じ関数を触るので、まとめて直すのが自然。
+
+### なぜ既存テストで検出できなかったか
+
+`offline/lib/verify.Tests.ps1` の `Describe 'Get-OfflineRequirementsFiles'` は、すべての
+ケースを `$repoRoot`（＝リポジトリのルート）で実行している。git 経路とファイルシステム経路が
+「同じ結果になる」ことは検証しているが、**両経路が呼び分けられる条件そのもの**
+（リポジトリ外・別リポジトリ配下）を再現していない。修正時は次の 2 条件を足すこと。
+
+- `RepoRoot` が git 管理外 → `ViaGit` が `$null` を返し、`Get-OfflineRequirementsFiles` が
+  ファイルシステム経路の結果を返す（かつ例外を投げない）。
+- `RepoRoot` が別リポジトリの配下 → 同上（`ls-files` が exit 0 / 0 件でも空配列を返さない）。
+
+### 修正が content key に与える影響
+
+発見 1・3 の修正はいずれも「開発機（リポジトリのルート）での戻り値」を変えない。したがって
+現行の `bundle.key`（`92b80d97…`）とは互換で、**重量物の再生成・再アップロードは不要**。
+修正コミット後は pin の更新（発見 2 の手動手順、または発見 2 の修正後に publish 再実行）だけ
+行えばよい。
+
+### 中断時点の環境
+
+- 検証フォルダ `C:\Users\Public\offline-verify\` は残置。`local\workspace` にソース一式と
+  展開済みの重量物、`full\workspace` に `offline/` のみ。修正後の再開で再利用できる。
+- **ユーザー環境変数は未変更**。setup は git-tools の導入段（`[4/4]`）まで到達していないため、
+  `GIT_BIN` は `C:\Users\caads\workspace\git-tools\portablegit\cmd\git.exe` のまま、
+  User PATH にも `offline-verify` を含むエントリは無い。Phase 7 Step 7 の復元は不要。
+- リポジトリの可視性は PUBLIC のまま（Phase 0 Step 1 の判断どおり変更していない）。
+
+### 再開手順
+
+1. 発見 1・3 を `offline/lib/content-key.ps1` で修正し、`verify.Tests.ps1` に上記 2 条件を足す
+   （`pnpm run ci:offline` で Pester を回す）。
+2. 発見 2 を `offline/publish-offline-bundle.ps1` で修正する。
+3. pin を更新する（修正後なら `publish-offline-bundle.ps1` の通常実行で完結するはず）。
+4. `C:\Users\Public\offline-verify\{local,full}\workspace\offline\` へ修正後の `offline/` を
+   再配置し、`local\workspace` のソースも新しい pin のコミットから取り直す。
+5. 本計画の Phase 1 から再開する。
