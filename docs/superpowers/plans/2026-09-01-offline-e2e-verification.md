@@ -765,17 +765,16 @@ $p = ([Environment]::GetEnvironmentVariable('Path','User') -split ';' |
 
 ---
 
-## 実測記録（2026-09-01・Phase 1 で中断）
+## 実測記録（2026-09-01）
 
 ### 実施範囲
 
 - **Phase 0: 完了**（pin 更新・検証フォルダ構築）。
-- **Phase 1: 未完了**。オフライン構築が完走しない不具合を 2 つ踏んだため、ユーザーの判断で
-  検証を中断し、修正を別タスクへ切り出した。
-- **Phase 2〜7: 未実施**。
-
-中断の判断理由: 発見した不具合が「検証対象の一部」ではなく「検証の前提条件」だった。
-`setup-offline-local` が完走しない限り Phase 2 以降は 1 つも実行できない。
+- **Phase 1: 1 回目は不具合で停止 → 修正後の 2 回目で完走**。オフライン構築が完走しない
+  不具合を 2 つ踏んだ時点で一度中断し、修正を済ませてから再実行した。
+  中断を挟んだ理由は、発見した不具合が「検証対象の一部」ではなく「検証の前提条件」
+  だったため。`setup-offline-local` が完走しない限り Phase 2 以降は 1 つも実行できない。
+- **Phase 2 以降**: 下記の該当節に記録する。
 
 ### Phase 0 の結果
 
@@ -876,21 +875,242 @@ $p = ([Environment]::GetEnvironmentVariable('Path','User') -split ';' |
 再配布は不要。リポジトリ分離プロジェクトの残項目②はこれで完了とする。残項目①は上記の
 不具合の修正後に再開する。
 
-### 中断時点の環境
+### Phase 1（再実行）の結果: 完走
 
-- 検証フォルダ `C:\Users\Public\offline-verify\` は残置。`local\workspace` にソース一式と
-  展開済みの重量物、`full\workspace` に `offline/` のみ。修正後の再開で再利用できる。
-- **ユーザー環境変数は未変更**。setup は git-tools の導入段（`[4/4]`）まで到達していないため、
-  `GIT_BIN` は `C:\Users\caads\workspace\git-tools\portablegit\cmd\git.exe` のまま、
-  User PATH にも `offline-verify` を含むエントリは無い。Phase 7 Step 7 の復元は不要。
+修正後のソースと `offline/` を検証フォルダへ再配置し、`setup-offline-local.ps1` を再実行して
+`[OK] 完全オフライン構築 完了。` まで到達した。**git 管理外の展開先で完走したのは今回が初めて**で、
+修正 3 件が実地で効いたことの確認になっている。
+
+通過した各段:
+
+- pin の `bundle-sha256` 突き合わせ / 分離署名の RSA 検証（1 回目と同じく通過）
+- **`[info] lockfile key 一致: 92b80d97…`**（1 回目はここで停止していた）
+- オフライン install: 1042 packages・reused 1041（`.pnpm-store` から解決。ダウンロード 0）
+- `[info] msnodesqlv8 ネイティブ .node を配置（require OK）。`
+  実体 = `node_modules\.pnpm\msnodesqlv8@4.5.0\node_modules\msnodesqlv8\build\Release\sqlserverv8.node`
+- build: `editor\shared\dist` と `editor\web\dist` が生成
+- PortableGit の展開と導入（`git version 2.54.0.windows.1`）。TortoiseGit は既定どおり未導入
+
+想定内の差異:
+
+- `husky || true` が `.git can't be found` を出す。配布先のツリーは zip 展開で `.git` を持たない
+  ため正常。`|| true` で握られており構築は止まらない。
+- build の stderr にチャンクサイズ警告（500kB 超）が出る。既存の警告で、この検証で新しく
+  生じたものではない。
+
+### Phase 2 の結果: 8 段すべて緑
+
+`corepack pnpm run ci` を 1 回で通過。既知の負荷フレーク（hostGuard タイムアウト・E2E smoke・
+coverage の一時ファイル ENOENT・`0xC0000142`）は 1 つも出ず、リトライは不要だった。
+
+- `check:comments` — 0 error / 0 warning（走査 720 files。現ワークスペースの 1342 files との差は
+  git 管理外のファイルが配布ツリーに無いため）
+- `check:claude-hooks` — `.claude/hooks が無いためスキップします。`（配布先では正常な分岐）
+- `check:ci`（Biome） — 503 files / No fixes applied
+- `test:scripts` / `typecheck` — エラーなし
+- `test:coverage` — Test Files 187 passed | 1 skipped、Tests 2454 passed | 4 skipped
+- `build` — 成功
+- `test:e2e` — 10 passed（30.0s）。`smoke` / `canvas` / `capture_docs` の 3 spec。
+  `canvas.spec.ts` の「編集 2 系統: 編集タブはハイライト無し / 作成経路 (`?created=1`) は有り」も
+  この中で通っている。
+
+補足: ログに `error: "PDF generation failed"` などの文字列が出るが、これはエラー処理の分岐を
+検証するテストが用意している文言であり、実際の失敗ではない。
+
+### Phase 3 の結果: local モードの画面確認
+
+`editor\start.bat dev local` を起動し（Fastify `/api/health` が `{"ok":true}`、Vite が 200）、
+ブラウザで一巡した。
+
+**編集 2 系統の不変条件**（設計正典「中核原則」）を両経路で実測した。
+
+| 経路 | URL | body の `jinja-vars-highlight` | chip の背景 |
+|---|---|---|---|
+| 編集 | `/edit/:id` | **無し** | 背景なし |
+| 作成 | `/edit/:id?created=1` | **有り** | `rgba(245, 158, 11, 0.16)` |
+
+素の `.jinja-chip.jinja-var` に背景が直書きされておらず、body のクラス経由で出し分けられている
+ことを computed style で確認した（過去の `aa9bd65` 退行の再来なし）。編集経路の本文には
+per-fund の実値（「コア投資戦略ファンド（切替型）」「基準価額 12,345 円」
+「純資産総額 123,456 百万円」）が入っており、`42938a0` の退行（全ファンド共通ダミー化）も
+起きていない。
+
+**プレビュー**（設計正典「画面内プレビュー」）:
+
+- iframe の src が `http://localhost:24681/api/preview-host/index.html`（サーバ配信のホストページ）
+- `sandbox="allow-scripts"` で `allow-same-origin` が**無い**（opaque オリジン）
+- 組版が完走し、ページナビが 1〜4 を表示。**loading のまま止まる既知症状は出なかった**
+  （CSP の `connect-src` から `data:` が落ちたときの症状）
+
+**PDF 出力**: `POST /api/build` に inline HTML + CSS を投げ、`application/pdf` /
+31,888 bytes / 先頭 5 バイト `%PDF-` を得た（初回のため worker 起動込みで約 40 秒）。
+
+想定内の差異と注意点:
+
+- 検証環境の web は現ワークスペースと**同じオリジン**（`localhost:24681`）を使うため、
+  ブラウザの localStorage を共有する。既存の `editor:pw` により `editor` ユーザーのパスワードが
+  変更済みで、fixtures の `editor/editor` ではログインできなかった（`admin/admin` で入った）。
+  同じ理由で以前の下書き（`editor:html`）が編集画面へ復元される。**local モードの検証結果を
+  読むときはこの共有を勘定に入れること**。消すと現ワークスペース側の作業データも失われるため、
+  今回は消さずに進めた。
+- 検索フォームは条件が揃うまで検索を実行しない（`58fb84a` の修正どおりの挙動）。今回は
+  テンプレート ID で `/edit/:id` を直接開いた。
+- バックグラウンドのタブでは `Page.captureScreenshot` が 30 秒でタイムアウトする。
+  確認は `get_page_text` と `javascript_tool` で行った。
+
+### Phase 4 の結果: rest モード（LocalDB + 認証 + 承認 + git）
+
+LocalDB を起動し、`DB_SERVER=(localdb)\MSSQLLocalDB` を渡して `start.bat dev rest` で立ち上げた。
+
+- **msnodesqlv8 のネイティブモジュールが実際に動いた**。`POST /api/auth/login` が 200 を返し、
+  SQL Server 由来のユーザー（`id` が UUID。fixtures の `u-admin` ではない）が返る。
+  Phase 1 の prebuild 配置が机上でなく実地で効いていることの確認になる。
+- テンプレートの取得（`GET /api/templates/:id`）が dataRoot のファイルから成立。編集画面も
+  ハイライト無しで開き、rest 経路でも 2 系統の不変条件が保たれている。
+- **申請 → 承認 → git コミット**が成立した。`editor` で申請し `admin` が承認すると、dataRoot に
+  `確定保存(承認): AM01_510037_20240710_kr 申請=editor 承認=admin`（Author: admin /
+  `Co-Authored-By: editor`）のコミットが載り、`templates/` の該当ファイルが更新された。
+- **自己承認は拒否された**。`editor` が自分の申請を承認しようとすると 403
+  `{"kind":"forbidden","message":"精査者(承認者)権限が必要です"}`。なお `admin` は
+  自分の申請を承認できるが、これは仕様どおり（`reviewRepo.ts` の
+  「自己承認は既定で拒否し、admin のみ例外とする」）。
+
+UI 操作についての注記: CDP 経由の `type` がこのアプリのフォームへ値を届けられず（Vue の
+ref が更新されない）、申請・承認は API を直接叩いて確認した。画面側の同等の経路は Phase 2 の
+E2E（`capture_docs.spec.ts` の「申請 → 承認キュー → 精査」）が覆っている。
+
+#### インシデント: 検証サーバが現ワークスペースの実データへ書き込んだ
+
+**起きたこと**: 最初の rest 起動で、承認が現ワークスペースの `C:\Users\caads\editor-data`
+に適用された。テンプレート 1 ファイルの 1 行が書き換わり、承認コミット `8f7d9fe` が載った。
+
+**原因**: この端末にはユーザー環境変数 `DATA_ROOT = C:\Users\caads\editor-data` が設定されており
+（2026-08 の検証時のもの）、`server/src/config.ts` の `resolvePath` は env を既定パスより
+優先する。検証フォルダ側の editor を起動しても、dataRoot は実データを指したままだった。
+
+**復旧**: `git revert 8f7d9fe`（→ `e466ab2`）で内容を戻した。現ワークスペースの editor-data は
+作業ツリー clean・内容も元どおりで、以後の Phase では一切書き込んでいない。
+
+**再発防止**: 検証用ランチャ（`run-editor-local.bat` / `run-editor-rest.bat`）で
+`set DATA_ROOT=C:\Users\Public\offline-verify\local\editor-data` を明示した。効いていることは、
+検証用 dataRoot にだけ入れた目印（`VERIFY-DATAROOT-MARKER`）が API 経由で見えることで確認した。
+
+**この計画の欠陥だった点**: Phase 0 Step 12 で `GIT_BIN` は退避したのに、まったく同じ性質
+（ユーザー環境変数が既定を上書きし、検証対象を実データへ向ける）を持つ `DATA_ROOT` を
+数えていなかった。**環境変数は「setup が書くもの」だけでなく「アプリが読むもの」も列挙する**。
+
+### Phase 5 の結果: pie-chart と docs
+
+- **pie-chart**: `batch` が 83/83 OK（32 秒）、`batch:diff` が
+  **「全 83 件が baseline と byte 一致」**。別環境でオフライン構築しても SVG 出力の決定性が
+  保たれることの確認。
+- **docs**: `build_all` が 4 冊（editor / pie-chart の手引き・設計）を 6 秒で生成。依存は
+  `python-wheelhouse` から `--no-index` で導入でき、オフライン経路が成立している。
+  `pytest docs/_build` は 12 passed。
+- 生成 HTML の自己完結性を確認: mermaid をインライン保持、画像は `data:image/png;base64`、
+  `src="http(s)://"` の外部参照は **0 件**。
+
+### Phase 6 の結果: full E2E が完走（残項目①の消化）
+
+`offline/` フォルダだけを置いた素のディレクトリで `setup-offline.ps1` を実行し、6 段すべてを
+通過した。**これがリポジトリ分離プロジェクトの残項目①**で、これまで一度も実施されていなかった。
+
+1. ソース zip を pin の不変コミット `ecc9aa5e…` から HTTPS 直取得 →
+   sha256 `5dcf32b7…` が pin と一致
+2. 親（`full\workspace`）へ展開。実行中の `offline/` 自身は上書きされない
+3. 重量物バンドルを Release から取得 → sha256 `1fd1095c…` が pin と一致 → 分離署名の検証を通過
+4. 展開 → **`[info] lockfile key 一致: 92b80d97…`**
+5. corepack 登録 → オフライン install → build → `msnodesqlv8 ネイティブ .node を配置（require OK）`
+   → PortableGit 導入（`git version 2.54.0.windows.1`）
+6. ダウンロードしたアーカイブを `bk/` へ退避
+
+full 側での最小の動作確認:
+
+- `pnpm run typecheck` — exit 0（8 秒）
+- `pnpm run test:pie-chart` — Test Files 21 passed | 1 skipped、Tests 318 passed | 4 skipped（131 秒）
+
+**この経路は修正前には成立しなかった**。zip 展開したツリーは git 管理外なので、発見 1・3 の
+どちらか（あるいは両方）で必ず止まっていた。full E2E が通ったこと自体が修正の妥当性の裏づけになる。
+
+### 未修正の発見（別タスクとして起票する）
+
+Phase 1 で見つかった 3 件は修正済み。以下の 2 件は本計画では直していない。
+
+#### 発見 4: 却下理由がサーバで必須になっていない
+
+- **症状**: `POST /api/review-requests/:reqId/reject` に空のボディを送ると 200 で差し戻しが成立する。
+- **実装**: `ReviewDecisionBody` の `comment` は `z.string().optional()`、`reviewRepo.rejectReview` も
+  有無を検査していない。理由の強制は画面側の制約に留まる。
+- **設計正典との関係**: `docs/editor/src/設計正典.md` は確定保存の関所の性質として
+  「自己承認拒否・**却下理由必須**・監査ログ」を挙げている。自己承認拒否は実際に効いていた
+  （403 を実測）が、却下理由必須はサーバで強制されていない。
+- **影響**: API を直接叩けば理由を残さず差し戻せる。権限昇格ではないが、「なぜ差し戻されたか」が
+  監査ログに残らない経路がある。
+- **修正案**: 却下時のみ `comment` を必須にする（承認時のメモは任意のまま）。スキーマを
+  分けるか、`rejectReview` の入口で検査する。
+
+#### 発見 5: docs のビルドとテストが `python` を直接呼ぶ
+
+- **症状**: `docs\_build\build_all.bat` が `exit 9009`（コマンド未検出）で即座に失敗する。
+  出力は「Python Python」で、これは Microsoft Store の python スタブの応答。
+- **原因**: `build_all.bat` は `python -m pip` と `python build_all.py` を呼ぶ。この端末では
+  `python` が `C:\Users\caads\AppData\Local\Microsoft\WindowsApps\python.exe`（Store スタブ）に
+  解決され、実体は `py` ランチャ経由でしか使えない。`package.json` の `test:docs`
+  （`python -m pytest docs/_build`）も同じ。
+- **対比**: `check:comments` は `py -3.13 scripts/check-comments.py` と書かれており動く。
+  同じリポジトリの中で呼び方が揃っていない。
+- **確認**: `py -3.13` で同じ手順を踏むと成功する（wheelhouse からの `--no-index` 導入も
+  build_all も pytest も通った）。**壊れているのは Python 環境ではなく起動の仕方**。
+- **影響**: 配布先が `py` ランチャだけを持つ標準的な Windows 環境だと docs をビルドできない。
+- **修正案**: `python` の解決可否を見て `py -3.13` へフォールバックする（`check-comments` と
+  同じ呼び方へ揃える）。CLAUDE.md と README の手順記述も併せて直す。
+
+### 最終状態
+
+- **検証フォルダ** `C:\Users\Public\offline-verify\` は残置（ユーザー判断）。
+  `local\workspace`（完全オフライン経路）と `full\workspace`（取得込み経路）の両方が構築済みで、
+  次回の検証で再利用できる。
+- **ユーザー環境変数は復元済み**。setup は local / full の両方で `GIT_BIN` と User PATH を
+  書き換えたため、Phase 0 Step 12 に控えた値へ戻した。
+  - `GIT_BIN` = `C:\Users\caads\workspace\git-tools\portablegit\cmd\git.exe`
+  - User PATH から `C:\Users\Public\offline-verify\` 配下の 2 エントリを除去（残留なしを確認）
+  - `DATA_ROOT`（= `C:\Users\caads\editor-data`）は**ユーザー判断により変更していない**。
+    検証側はランチャの `set DATA_ROOT=…` で上書きする方式を採る。
+- **現ワークスペースの editor-data** は作業ツリー clean・内容も検証前と同一
+  （インシデントの `8f7d9fe` は `e466ab2` で revert 済み）。
 - リポジトリの可視性は PUBLIC のまま（Phase 0 Step 1 の判断どおり変更していない）。
+- **残項目②**（配布先端末の有無）は「配布済み端末なし」で完了。**残項目①**（full E2E）は
+  Phase 6 の完走で消化。リポジトリ分離プロジェクトの残項目は 2 件とも閉じた。
 
-### 再開手順
+### 修正の実施（同日・ユーザー判断により同一セッションで実施）
 
-1. 発見 1・3 を `offline/lib/content-key.ps1` で修正し、`verify.Tests.ps1` に上記 2 条件を足す
-   （`pnpm run ci:offline` で Pester を回す）。
+発見 3 件はいずれも修正済み。TDD で進め、追加した 2 件のテストが赤いことを確認してから実装した。
+
+- `c7aff72` — 発見 1・3 の修正（`offline/lib/content-key.ps1`）。
+  `Get-OfflineRequirementsFilesViaGit` が `rev-parse --show-toplevel` で `RepoRoot` 自身が
+  リポジトリのルートであることを確かめてから `ls-files` を使うようにし、git を呼ぶ区間の
+  `$ErrorActionPreference` を退避する。テストは `verify.Tests.ps1` に「git 管理外」
+  「別リポジトリ配下」の 2 条件を追加（判定は `$null -eq`。`BeNullOrEmpty` は空配列と
+  区別できずフォールバックの退行を通してしまう）。
+- `ecc9aa5` — 発見 2 の修正（`offline/publish-offline-bundle.ps1`）。認証ヘッダを作業用一時
+  ディレクトリへ LF で書き `-H "@<file>"` で渡す。トークンはコマンドライン引数に載らないまま。
+- `31c33d2` — pin をスクリプトの実行結果で更新（`source-commit` = `ecc9aa5`、
+  `source-zip-sha256` = `5dcf32b7…`）。
+
+**検証結果:**
+
+- `pnpm run ci:offline`（Pester）: 45 passed / 0 failed。
+- content key は開発機・git 管理外の展開先の**どちらでも** `92b80d97…` になり、
+  Release の `bundle.key` と一致。重量物の再生成は不要と確認。
+- `publish-offline-bundle.ps1` を通常実行して完走。pin の生成まで手動介入なしで通った
+  （修正前は必ず 400 で失敗していた段）。
+- `pnpm run check:comments`: 0 error / 0 warning。
+
+### 再開手順（実施済み）
+
+1. 発見 1・3 を `offline/lib/content-key.ps1` で修正し、`verify.Tests.ps1` に 2 条件を足す。
 2. 発見 2 を `offline/publish-offline-bundle.ps1` で修正する。
-3. pin を更新する（修正後なら `publish-offline-bundle.ps1` の通常実行で完結するはず）。
+3. pin を更新する（`publish-offline-bundle.ps1` の通常実行で完結した）。
 4. `C:\Users\Public\offline-verify\{local,full}\workspace\offline\` へ修正後の `offline/` を
    再配置し、`local\workspace` のソースも新しい pin のコミットから取り直す。
 5. 本計画の Phase 1 から再開する。
