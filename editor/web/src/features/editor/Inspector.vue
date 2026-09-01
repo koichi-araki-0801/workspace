@@ -52,8 +52,8 @@ const props = defineProps<{
   history: PartHistoryEntry[];
   /** 全パーツ横断表示(未選択時)で各履歴行のパーツを示すラベル(`partKey` → `ページN・パーツM`)。 */
   partLabels?: Map<string, string>;
-  /** 選択パーツの版を跨ぐメモ本文(`usePartNote`)。 */
-  note: string;
+  /** 選択パーツのメモ件数(バッジ表示用)。本文はキャンバスの吹き出しが受け持つ。 */
+  noteCount: number;
   /** 選択がメモ対象キーへ解決できるか(不能なら入力を無効化)。 */
   canNote: boolean;
   editMode: boolean;
@@ -68,7 +68,7 @@ const emit = defineEmits<{
   move: [-1 | 1];
   reset: [];
   del: [];
-  'update-note': [string];
+  'add-note': [string];
   collapse: [];
 }>();
 
@@ -145,19 +145,24 @@ watch(
   { immediate: true, deep: true },
 );
 
-// ── 2b. メモ(版を跨ぐパーツ単位)のミラー ──
-// 入力中の文字列をローカル保持しつつ props.note(ストア値)と同期する。入力ごとに親へ
-// emit し、永続化は `usePartNote` 側で debounce される。
-const noteText = ref(props.note);
+// ── 2b. メモの追加 ──
+// 既存のメモはキャンバスの吹き出しが表示する。ここは追加の入口だけを持つ(メモが 0 件の
+// パーツへ最初の 1 件を書く動線でもある)。送信後は入力を空へ戻す。
+const noteDraft = ref('');
+function submitNote(): void {
+  const text = noteDraft.value.trim();
+  if (text === '') return;
+  emit('add-note', noteDraft.value);
+  noteDraft.value = '';
+}
+// 選択パーツが変わったら下書きを破棄する(残すと、パーツ A で書きかけた文面のまま
+// パーツ B で「追加」を押して B へ書き込んでしまう)。
 watch(
-  () => props.note,
-  (v) => {
-    if (v !== noteText.value) noteText.value = v;
+  () => props.selected?.id,
+  () => {
+    noteDraft.value = '';
   },
 );
-function onNoteInput() {
-  emit('update-note', noteText.value);
-}
 
 // ── 3. 編集ハンドラ ──
 const canAlign = () => !!props.geom && props.geom.widthPct < 100;
@@ -388,22 +393,29 @@ const PB_CLASS =
           </template>
         </InspectorSection>
 
-        <!-- ── メモ(会社・ファンド・基準日・版 単位) ── -->
-        <InspectorSection v-model:open="open.memo" label="メモ" :icon="StickyNote" class="border-b" body-class="px-4 pb-3.5">
+        <!-- ── メモの追加(表示は canvas の吹き出し) ── -->
+        <InspectorSection v-model:open="open.memo" label="メモを追加" :icon="StickyNote" class="border-b" body-class="px-4 pb-3.5">
           <template #badge>
             <span class="flex-1" />
-            <Badge v-if="note" variant="secondary" class="h-[18px] py-0 text-[10.5px]">記入あり</Badge>
+            <Badge variant="secondary" class="h-[18px] py-0 text-[10.5px]">{{ noteCount }} 件</Badge>
           </template>
           <textarea
-            v-model="noteText"
+            v-model="noteDraft"
             :disabled="!canNote"
             class="memo-area"
-            rows="4"
-            placeholder="このパーツへのメモ（会社・ファンド・基準日・版ごと）"
-            @input="onNoteInput"
+            rows="3"
+            placeholder="このパーツへのメモを書く…"
+            @keydown.ctrl.enter="submitNote"
           />
-          <p class="mt-1 text-[11px] text-muted-foreground">
-            このパーツへのメモを、会社・ファンド・基準日・版（版種）単位で保存します。
+          <div class="mt-1.5 flex items-center">
+            <span class="text-[10.5px] text-muted-foreground">Ctrl + Enter で追加</span>
+            <span class="flex-1" />
+            <Button size="sm" :disabled="!canNote || noteDraft.trim() === ''" @click="submitNote">
+              追加
+            </Button>
+          </div>
+          <p class="mt-1.5 text-[11px] text-muted-foreground">
+            既存のメモはキャンバスの吹き出しに表示します。交付版と全体版で共有します（基準日ごとに独立）。
           </p>
         </InspectorSection>
 
@@ -488,7 +500,7 @@ const PB_CLASS =
   font-size: 12.5px;
 }
 
-/* メモ入力(版を跨ぐパーツ単位)。固定 UI スケールで常に読める(キャンバスズーム非依存) */
+/* メモ追加の入力欄。固定 UI スケールで常に読める(キャンバスズーム非依存) */
 .memo-area {
   width: 100%;
   min-height: 84px;

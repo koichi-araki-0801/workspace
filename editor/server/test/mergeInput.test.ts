@@ -93,17 +93,22 @@ describe('materializeMergeProject', () => {
   });
 
   it('cleans up the directory when a write fails mid-way', async () => {
+    // `tmpDir` は他のテストや同時に走る PDF ビルドとも共有する。そこにある
+    // `vivlio-merge-*` を一律に見ると、他の主体が残した 1 つで以後ずっと赤くなるため、
+    // **このテストの前後で増えた分**だけを検査する。
+    const listMergeDirs = async () =>
+      (await fs.readdir(config.tmpDir).catch(() => [])).filter((n) =>
+        n.startsWith('vivlio-merge-'),
+      );
+    const before = new Set(await listMergeDirs());
     const spy = vi.spyOn(fs, 'writeFile').mockRejectedValueOnce(new Error('disk full'));
     await expect(materializeMergeProject([{ html: '<p>x</p>', css: '' }])).rejects.toThrow(
       'disk full',
     );
     spy.mockRestore();
     // 失敗時に vivlio-merge-* の残骸が tmpDir に残らない。
-    const leftovers = (await fs.readdir(config.tmpDir).catch(() => [])).filter((n) =>
-      n.startsWith('vivlio-merge-'),
-    );
-    for (const n of leftovers) {
-      // 並行テストの他ディレクトリを巻き込まないため、中身が空であることまでは断定しない。
+    const added = (await listMergeDirs()).filter((n) => !before.has(n));
+    for (const n of added) {
       expect(existsSync(path.join(config.tmpDir, n, 'doc-000.html'))).toBe(false);
     }
   });

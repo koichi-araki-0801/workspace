@@ -96,6 +96,7 @@ export default defineConfig({
         'editor/server/src/files/fileLock.ts',
         'editor/server/src/files/historyFiles.ts',
         'editor/server/src/files/notesFile.ts',
+        'editor/server/src/repositories/noteRepo.ts',
         'editor/server/src/routes/zipBodyParser.ts',
         // editor/web (UI/VM/Service/Repository 層)
         'editor/web/src/workers/fallback.ts',
@@ -112,6 +113,7 @@ export default defineConfig({
         'editor/web/src/lib/format.ts',
         'editor/web/src/lib/labels.ts',
         'editor/web/src/features/templates/viewmodels/templateVm.ts',
+        'editor/web/src/features/templates/components/searchGuard.ts',
         'editor/web/src/features/templates/services/templateCreationService.ts',
         'editor/web/src/features/editor/services/templateEditorService.ts',
         'editor/web/src/features/preview/services/templatePreviewService.ts',
@@ -144,6 +146,7 @@ export default defineConfig({
         'editor/web/src/features/editor/usePartEditHistory.ts',
         'editor/web/src/features/editor/usePartNote.ts',
         'editor/web/src/features/editor/partKey.ts',
+        'editor/web/src/features/editor/noteBubbleLayout.ts',
         'editor/web/src/features/editor/partPreviewDoc.ts',
         'editor/web/src/features/editor/useAutosave.ts',
         'editor/web/src/stores/editorSession.ts',

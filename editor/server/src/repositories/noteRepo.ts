@@ -1,54 +1,130 @@
 // =============================================================================
-// noteRepo.ts — パーツ単位メモ(版インスタンス単位)のサーバ(REST)実装
+// noteRepo.ts — パーツ単位メモ(追記型スレッド)のサーバ実装
 // =============================================================================
-// 役割: メモを版インスタンス単位の JSON ファイル(`notesFile.ts`)へ読み書きする。空文字 content
-// は削除に倒す(`NoteRepository` 契約と同じ)。ルートは本モジュールを呼んで結果を返すだけ。
-import type { PartNote } from '@editor/shared';
+// 役割: 投稿の追加・編集・削除を版インスタンス単位の JSON ファイル(`notesFile.ts`)へ
+// 反映し、読み取りでは交付版⇄全体版のペアをマージして 1 本のスレッドとして返す。
+// ルートは本モジュールを呼んで結果を返すだけ。
+import { randomUUID } from 'node:crypto';
+import { type PartNoteEntry, pairedTemplateId, validation } from '@editor/shared';
 import {
+  entriesAtCapacity,
+  entriesCapacityError,
+  type NoteEntriesMap,
   notesAtCapacity,
   notesCapacityError,
   readNotes,
   readNotesStrict,
+  type StoredNoteEntry,
   withNotesLock,
   writeNotes,
 } from '../files/notesFile.js';
 
-/** 指定版インスタンスの全メモ。 */
-export async function listNotes(templateId: string): Promise<PartNote[]> {
-  const map = await readNotes(templateId);
-  return Object.values(map);
+/** ファイル上の投稿へ、ファイル名とキーから自明な属性を補って API の形にする。 */
+function toEntry(templateId: string, pathKey: string, stored: StoredNoteEntry): PartNoteEntry {
+  return { ...stored, templateId, pathKey };
+}
+
+/** 1 版インスタンス分の全投稿を平坦化する(pathKey を各投稿へ補う)。 */
+function flatten(templateId: string, map: NoteEntriesMap): PartNoteEntry[] {
+  return Object.entries(map).flatMap(([pathKey, entries]) =>
+    entries.map((e) => toEntry(templateId, pathKey, e)),
+  );
 }
 
 /**
- * 1 パーツのメモを保存する。`content` が空文字なら削除に倒す。
+ * 自版とペア版(交付版⇄全体版)をマージしたスレッド。
  *
- * 読み-改変-書きの全体を 1 版インスタンス単位のロックで包む。包まなかった版は、
- * 同一テンプレへの同時保存が互いの更新を消し(後勝ち)、`atomicWrite` の rename 競合で
- * 片方が 500 になっていた。件数上限は**新規キーのときだけ**見る — 既存メモの更新と
- * 削除は、上限に達していても必ず通す(でないと上限が「メモを消せない」状態を作る)。
+ * 並びは `createdAt` の昇順のみで比較する。`Array.prototype.sort` は ES2019 以降 安定
+ * ソートなので、同時刻の投稿は連結前の順(`own` は各パーツの配列 = 挿入順、`own → other`
+ * は自版 → ペア版の順)がそのまま保たれ、表示順が読むたびに変わることはない。以前は
+ * `templateId` → `id` を追加のタイブレークにしていたが、`id` は乱数 UUID で挿入順と
+ * 無関係なため、同一ミリ秒の連続投稿(高頻度の連投で実際に起こりうる)で並びが id 順に
+ * 化ける実測不具合があった。タイブレークを増やすほど安定するわけではない。
+ * ペアの実体が無い場合や版種がペア対象外の場合は、自版だけが返る。
  */
-export async function saveNote(
+export async function listNotes(templateId: string): Promise<PartNoteEntry[]> {
+  const paired = pairedTemplateId(templateId);
+  const own = flatten(templateId, await readNotes(templateId));
+  const other = paired ? flatten(paired, await readNotes(paired)) : [];
+  return [...own, ...other].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/**
+ * 投稿を追加する。読み-改変-書きは版インスタンス単位のロックで包む(包まないと同時追加が
+ * 互いの投稿を消し、`atomicWrite` の rename 競合で片方が 500 になる)。
+ *
+ * 上限は 2 段。`pathKey` の件数(新規キーのときだけ見る)と、1 パーツの投稿数。
+ */
+export async function addNote(
   templateId: string,
   pathKey: string,
   content: string,
   loginId: string,
-): Promise<void> {
-  await withNotesLock(templateId, async () => {
-    // 読み-改変-書きの入力なので strict 版で読む。degrade(空)を受け取って書き戻すと
-    // 残りの全メモを消してしまう。
+): Promise<PartNoteEntry> {
+  return withNotesLock(templateId, async () => {
     const map = await readNotesStrict(templateId);
-    if (content.trim() === '') {
-      delete map[pathKey];
-    } else {
-      if (notesAtCapacity(map, pathKey)) notesCapacityError();
-      map[pathKey] = {
-        templateId,
-        pathKey,
-        content,
-        updatedAt: new Date().toISOString(),
-        updatedBy: loginId,
-      };
-    }
+    if (notesAtCapacity(map, pathKey)) notesCapacityError();
+    const entries = map[pathKey] ?? [];
+    if (entriesAtCapacity(entries)) entriesCapacityError();
+    const stored: StoredNoteEntry = {
+      id: randomUUID(),
+      content,
+      createdAt: new Date().toISOString(),
+      createdBy: loginId,
+      updatedAt: null,
+      updatedBy: null,
+    };
+    map[pathKey] = [...entries, stored];
+    await writeNotes(templateId, map);
+    return toEntry(templateId, pathKey, stored);
+  });
+}
+
+/**
+ * 投稿 ID から所在(パーツキーと配列内位置)を引く。`entryId` は UUID なので `pathKey` を
+ * 併せて受け取らない — 宛先を 2 つ受けると、食い違ったときの挙動を決める必要が出る。
+ */
+function locate(map: NoteEntriesMap, entryId: string): { pathKey: string; index: number } {
+  for (const [pathKey, entries] of Object.entries(map)) {
+    const index = entries.findIndex((e) => e.id === entryId);
+    if (index >= 0) return { pathKey, index };
+  }
+  throw validation('対象のメモが見つかりません(すでに削除された可能性があります)');
+}
+
+/**
+ * 投稿本文を編集する。上限に達していても編集は必ず通す(上限が「直せない」状態を作らない)。
+ * 誰の投稿でも編集できる(共同作業を前提とし、所有者による制限は設けない)。
+ */
+export async function updateNote(
+  templateId: string,
+  entryId: string,
+  content: string,
+  loginId: string,
+): Promise<PartNoteEntry> {
+  return withNotesLock(templateId, async () => {
+    const map = await readNotesStrict(templateId);
+    const { pathKey, index } = locate(map, entryId);
+    const updated: StoredNoteEntry = {
+      ...map[pathKey][index],
+      content,
+      updatedAt: new Date().toISOString(),
+      updatedBy: loginId,
+    };
+    map[pathKey] = map[pathKey].map((e, i) => (i === index ? updated : e));
+    await writeNotes(templateId, map);
+    return toEntry(templateId, pathKey, updated);
+  });
+}
+
+/** 投稿を削除する。パーツの投稿が空になったらキーごと畳む(空配列を残さない)。 */
+export async function deleteNote(templateId: string, entryId: string): Promise<void> {
+  await withNotesLock(templateId, async () => {
+    const map = await readNotesStrict(templateId);
+    const { pathKey, index } = locate(map, entryId);
+    const rest = map[pathKey].filter((_, i) => i !== index);
+    if (rest.length === 0) delete map[pathKey];
+    else map[pathKey] = rest;
     await writeNotes(templateId, map);
   });
 }

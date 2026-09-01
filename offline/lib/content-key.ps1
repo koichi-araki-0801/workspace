@@ -31,14 +31,32 @@
 # 2 経路は Get-OfflineRequirementsFilesViaGit / ...ViaFileSystem として個別に呼べる形へ分け、
 # 「同じ結果になる」ことを verify.Tests.ps1 が両方を直接呼んで突き合わせる。
 
-# git ls-files 経路。git が使えない、または RepoRoot が git 管理外なら $null を返し、
-# 呼び出し元（Get-OfflineRequirementsFiles）にフォールバックを促す。
+# git ls-files 経路。次のいずれかなら `$null` を返し、呼び出し元（`Get-OfflineRequirementsFiles`）に
+# フォールバックを促す: git が使えない / `RepoRoot` が git 管理外 / `RepoRoot` が**別リポジトリの配下**。
+# 3 つ目を落とすと、展開先がたまたま他のリポジトリの中にあるとき `ls-files` はその親リポジトリを
+# 見て exit 0 かつ 0 件を返す。すると `$null` ではなく空配列が返り、呼び出し元は「git 経路が
+# 成功した」と読んでフォールバックしないため、requirements.txt が content key から丸ごと落ちて
+# 配布先の setup が「lockfile 不整合」で必ず止まる。よって終了コードだけでなく、
+# `rev-parse --show-toplevel` が `RepoRoot` 自身を指すことまで確かめる。
+# ネイティブコマンドの stderr は `$ErrorActionPreference='Stop'` のもとで NativeCommandError に
+# なり、`2>$null` を付けても呼び出し元ごと停止する（setup スクリプトは Stop で走る）。
+# git を呼ぶ区間だけ設定を緩め、finally で必ず戻す。
 function Get-OfflineRequirementsFilesViaGit {
   param([Parameter(Mandatory = $true)][string]$RepoRoot)
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $null }
   $repoFull = (Resolve-Path -LiteralPath $RepoRoot).ProviderPath
-  $out = & git -C $repoFull ls-files -- '*requirements.txt' 2>$null
-  if ($LASTEXITCODE -ne 0) { return $null }
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $top = & git -C $repoFull rev-parse --show-toplevel 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $top) { return $null }
+    # git は POSIX 形式のパスを返すので区切りを揃えてから比較する（比較は大小文字を無視）。
+    $topRaw = ([string]($top | Select-Object -First 1)).Trim() -replace '/', '\'
+    $topFull = [System.IO.Path]::GetFullPath($topRaw)
+    if ($topFull.TrimEnd('\') -ine $repoFull.TrimEnd('\')) { return $null }
+    $out = & git -C $repoFull ls-files -- '*requirements.txt' 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+  } finally { $ErrorActionPreference = $prevEap }
   , @($out | ForEach-Object { Join-Path $repoFull ($_ -replace '/', '\') } | Sort-Object -Unique)
 }
 

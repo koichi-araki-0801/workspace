@@ -158,12 +158,22 @@ export type PartSyncDefault = z.infer<typeof sch.PartSyncDefault>;
 export type PartMasterReflectDefault = z.infer<typeof sch.PartMasterReflectDefault>;
 
 /**
- * パーツ単位の作業メモ(版インスタンス単位)。`templateId`(= 委託会社/ファンドコード/基準日/
- * 版種の4属性を内包する版インスタンス)配下で、パーツ構造パスキー(`pathKey`)にメモ本文を
- * 紐づける。別の基準日/版種の版へは引き継がない(版ごとに独立)。キー算出は `web` の
- * `partKey.ts` の `partPathKeyFor`。
+ * パーツ単位メモの投稿 1 件。メモは追記型スレッドで、交付版と全体版のペア
+ * (`pairedTemplateId`)で 1 本のスレッドを共有する。基準日をまたぐ繰り越しはしない。
+ * キー算出は `web` の `partKey.ts` の `partPathKeyFor`。
  */
-export type PartNote = z.infer<typeof sch.PartNote>;
+export type PartNoteEntry = z.infer<typeof sch.PartNoteEntry>;
+
+export type AddNoteRequest = z.infer<typeof sch.AddNoteRequest>;
+
+export type UpdateNoteRequest = z.infer<typeof sch.UpdateNoteRequest>;
+
+export {
+  MAX_NOTE_CONTENT_CHARS,
+  MAX_NOTE_ENTRIES_PER_PART,
+  MAX_NOTE_PATH_KEY_CHARS,
+  MAX_NOTES_PER_TEMPLATE,
+} from './schemas.js';
 
 /** カスケード問い合わせ: 既知の分類を入力、残りの候補を出力。 */
 export type PartClassificationQuery = z.infer<typeof sch.PartClassificationQuery>;

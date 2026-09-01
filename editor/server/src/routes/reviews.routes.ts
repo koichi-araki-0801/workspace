@@ -10,7 +10,12 @@ import type { z } from 'zod';
 import { auditedRethrow } from '../logger.js';
 import { requireApprover, requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
-import { ReviewDecisionBody, ReviewListQuery, SubmitReviewBody } from '../openapi/schemas.js';
+import {
+  ReviewDecisionBody,
+  ReviewListQuery,
+  ReviewRejectBody,
+  SubmitReviewBody,
+} from '../openapi/schemas.js';
 import * as reviews from '../repositories/reviewRepo.js';
 
 /** 操作主体を request.user から導く。local モード(user 未設定)は全件可視の system 扱い。 */
@@ -76,10 +81,10 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // 却下(精査者限定)。実ファイルは更新しない。
-  app.post<ReqIdParams & { Body: z.infer<typeof ReviewDecisionBody> }>(
+  // 却下(精査者限定)。実ファイルは更新しない。理由は必須(`ReviewRejectBody`)。
+  app.post<ReqIdParams & { Body: z.infer<typeof ReviewRejectBody> }>(
     apiPaths.reviewRequestReject,
-    { preHandler: [requireAuth, requireApprover, validate(ReviewDecisionBody)] },
+    { preHandler: [requireAuth, requireApprover, validate(ReviewRejectBody)] },
     async (request) => {
       const reqId = request.params.reqId;
       return auditedRethrow(

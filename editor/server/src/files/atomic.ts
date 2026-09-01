@@ -59,7 +59,8 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
  *
  * ⚠ これは**破損しないこと**の保証であって、**更新が消えないこと**の保証ではない。
  * 読み-改変-書きをする呼び出し側は、別途 `files/fileLock.ts` の `withFileLock` で
- * 対象ごとに直列化すること(例: `repositories/noteRepo.saveNote`)。
+ * 対象ごとに直列化すること(例: `repositories/noteRepo.ts` の `addNote`/`updateNote`/
+ * `deleteNote`。いずれも `files/notesFile.ts` の `withNotesLock` 経由)。
  */
 export async function atomicWrite(filePath: string, content: string): Promise<void> {
   const tmp = `${filePath}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`;

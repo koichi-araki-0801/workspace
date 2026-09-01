@@ -6,6 +6,7 @@
 // 上限引き上げになる。ここで主張するのは**速さではなく「上限が効くこと」**である。
 import { describe, expect, it } from 'vitest';
 import {
+  AddNoteRequest,
   BuildInlineRequest,
   BuildMergeDocument,
   MAX_DOCUMENT_CSS_CHARS,
@@ -13,7 +14,6 @@ import {
   MAX_NOTE_CONTENT_CHARS,
   MAX_NOTE_PATH_KEY_CHARS,
   RecordPdfExportRequest,
-  SaveNoteRequest,
   SubmitReviewBody,
 } from '../src/schemas.js';
 
@@ -93,15 +93,15 @@ describe('PDF 監査記録の templateId', () => {
   });
 });
 
-describe('メモ保存の上限', () => {
+describe('メモ追加の上限', () => {
   it('pathKey / content とも上限を超えると落ちる', () => {
-    expect(SaveNoteRequest.safeParse({ pathKey: 'p0/p1', content: 'メモ' }).success).toBe(true);
+    expect(AddNoteRequest.safeParse({ pathKey: 'p0/p1', content: 'メモ' }).success).toBe(true);
     expect(
-      SaveNoteRequest.safeParse({ pathKey: chars(MAX_NOTE_PATH_KEY_CHARS + 1), content: '' })
+      AddNoteRequest.safeParse({ pathKey: chars(MAX_NOTE_PATH_KEY_CHARS + 1), content: 'x' })
         .success,
     ).toBe(false);
     expect(
-      SaveNoteRequest.safeParse({ pathKey: 'p0', content: chars(MAX_NOTE_CONTENT_CHARS + 1) })
+      AddNoteRequest.safeParse({ pathKey: 'p0', content: chars(MAX_NOTE_CONTENT_CHARS + 1) })
         .success,
     ).toBe(false);
   });

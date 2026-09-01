@@ -15,6 +15,7 @@ import Select from '@/components/ui/Select.vue';
 import { useCascadingSelect } from '@/lib/useCascadingSelect';
 import { useFundNames } from '@/lib/useFundNames';
 import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
+import { canSubmitSearch } from './searchGuard';
 
 type Field = 'companyCode' | 'fundCode' | 'baseDate' | 'editionType';
 
@@ -111,6 +112,10 @@ function fieldDisabled(f: Field): boolean {
   if (idx === 0) return false; // 先頭 (委託会社) は常に活性
   return !query[props.fields[idx - 1]];
 }
+
+// 検索ボタンの活性。条件が空のまま押しても結果も案内も出ないので、押せないことを
+// 見た目で示す (判定は `searchGuard.ts`)。
+const canSearch = computed(() => canSubmitSearch(query, props.fields, props.requiredFields));
 </script>
 
 <template>
@@ -144,7 +149,7 @@ function fieldDisabled(f: Field): boolean {
     <!-- `stackActions` 時は `basis-full` でボタン群だけ次行へ折り返す。 -->
     <div class="flex items-center gap-2" :class="props.stackActions ? 'basis-full' : ''">
       <Loader2 v-if="loading" class="h-4 w-4 animate-spin text-muted-foreground" />
-      <Button v-if="!props.hideSearch" @click="emit('search', { ...query })">
+      <Button v-if="!props.hideSearch" :disabled="!canSearch" @click="emit('search', { ...query })">
         <Search class="h-4 w-4" /> {{ props.searchLabel }}
       </Button>
       <Button variant="outline" @click="reset">

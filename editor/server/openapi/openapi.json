@@ -1019,7 +1019,7 @@
         "tags": [
           "notes"
         ],
-        "summary": "パーツ単位メモを取得(版インスタンス単位の全件)",
+        "summary": "パーツ単位メモを取得(交付版と全体版をマージしたスレッド)",
         "operationId": "listNotes",
         "parameters": [
           {
@@ -1033,13 +1033,13 @@
         ],
         "responses": {
           "200": {
-            "description": "メモの配列",
+            "description": "投稿の配列(作成日時の昇順)",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/PartNote"
+                    "$ref": "#/components/schemas/PartNoteEntry"
                   }
                 }
               }
@@ -1067,12 +1067,12 @@
           }
         }
       },
-      "put": {
+      "post": {
         "tags": [
           "notes"
         ],
-        "summary": "パーツ単位メモを保存(content 空文字は削除)",
-        "operationId": "saveNote",
+        "summary": "パーツ単位メモへ投稿を追加",
+        "operationId": "addNote",
         "parameters": [
           {
             "in": "path",
@@ -1087,14 +1087,139 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SaveNoteRequest"
+                "$ref": "#/components/schemas/AddNoteRequest"
               }
             }
           }
         },
         "responses": {
+          "201": {
+            "description": "追加した投稿",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartNoteEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/{templateId}/notes/{entryId}": {
+      "patch": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "メモの投稿本文を編集",
+        "operationId": "updateNote",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "entryId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNoteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新後の投稿",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartNoteEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "notes"
+        ],
+        "summary": "メモの投稿を削除",
+        "operationId": "deleteNote",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "entryId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
           "204": {
-            "description": "保存完了"
+            "description": "削除完了"
           },
           "400": {
             "description": "リクエスト検証エラー (kind=validation)",
@@ -1392,7 +1517,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ReviewDecisionBody"
+                "$ref": "#/components/schemas/ReviewRejectBody"
               }
             }
           }
@@ -2621,7 +2746,7 @@
           "change"
         ]
       },
-      "SaveNoteRequest": {
+      "AddNoteRequest": {
         "type": "object",
         "properties": {
           "pathKey": {
@@ -2632,12 +2757,27 @@
           },
           "content": {
             "type": "string",
+            "minLength": 1,
             "maxLength": 65536,
-            "description": "空文字は「メモ無し」= 削除"
+            "description": "投稿本文"
           }
         },
         "required": [
           "pathKey",
+          "content"
+        ]
+      },
+      "UpdateNoteRequest": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536,
+            "description": "投稿本文"
+          }
+        },
+        "required": [
           "content"
         ]
       },
@@ -2724,10 +2864,23 @@
         "type": "object",
         "properties": {
           "comment": {
-            "description": "却下理由 / 承認メモ",
+            "description": "承認メモ / 保留メモ(任意)",
             "type": "string"
           }
         }
+      },
+      "ReviewRejectBody": {
+        "type": "object",
+        "properties": {
+          "comment": {
+            "type": "string",
+            "minLength": 1,
+            "description": "却下理由(必須)"
+          }
+        },
+        "required": [
+          "comment"
+        ]
       },
       "RecordPdfExportRequest": {
         "type": "object",
@@ -3412,12 +3565,16 @@
         ],
         "additionalProperties": false
       },
-      "PartNote": {
+      "PartNoteEntry": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string",
+            "description": "投稿 ID(UUID。旧形式からの変換分は `legacy:<pathKey>`)"
+          },
           "templateId": {
             "type": "string",
-            "description": "版インスタンス ID(= TemplateMeta.id)"
+            "description": "投稿が属する版インスタンス ID"
           },
           "pathKey": {
             "type": "string",
@@ -3425,19 +3582,43 @@
           },
           "content": {
             "type": "string",
-            "description": "メモ本文(空文字はメモ無し)"
+            "description": "投稿本文"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
           },
           "updatedAt": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "編集された場合のみ"
           },
           "updatedBy": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
+          "id",
           "templateId",
           "pathKey",
           "content",
+          "createdAt",
+          "createdBy",
           "updatedAt",
           "updatedBy"
         ],

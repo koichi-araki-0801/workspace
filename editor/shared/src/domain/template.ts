@@ -36,11 +36,22 @@ export function templateIdFromFileName(fileName: string): string {
 // 承認直後にパーツ単位の自動同期(server の `sync/partSync.ts`)を掛ける。版種は自由文字列の
 // ままだが(旧 `kr`/`zr` 等の残存資産を壊さない)、ペアとして扱うのは下表の 2 値に限る。
 
-/** 自動同期のペアとみなす版種の相互対応。ここに無い版種はペア無し(同期対象外)。 */
-export const EDITION_SYNC_PAIRS: Readonly<Record<string, string>> = {
-  交付版: '全体版',
-  全体版: '交付版',
-};
+/**
+ * 自動同期のペアとみなす版種の相互対応。ここに無い版種はペア無し(同期対象外)。
+ *
+ * `Object.create(null)` で組む(null プロトタイプ)。プレーンなオブジェクトリテラルだと
+ * `EDITION_SYNC_PAIRS[attrs.editionType]` は `Object.prototype` の継承キー(`constructor` /
+ * `toString` 等)も解決してしまい、`pairedTemplateId` はリクエスト由来の `templateId`
+ * (`GET /templates/:templateId/notes` 経由)から `editionType` を素通しでここへ渡す入口の
+ * 1 つ — 本ファイルが持つ「利用者入力で引く表は null プロトタイプにする」という不変則の対象。
+ */
+export const EDITION_SYNC_PAIRS: Readonly<Record<string, string>> = Object.assign(
+  Object.create(null),
+  {
+    交付版: '全体版',
+    全体版: '交付版',
+  },
+);
 
 /**
  * テンプレート ID から同期ペアの ID を導く。版種がペア対象外・ID が規約外なら null。

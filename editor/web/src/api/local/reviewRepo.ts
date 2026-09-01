@@ -18,6 +18,7 @@ import {
   type ReviewRequest,
   type SubmitReviewRequest,
   toReviewMeta,
+  validation,
 } from '@editor/shared';
 import { attempt } from './attempt';
 import { currentUser, delay, K, now, read, uid, write } from './store';
@@ -135,6 +136,10 @@ export const localReviewRepo: ReviewRepository = {
 
   rejectReview: (reqId: string, decision: ReviewDecisionRequest) =>
     attempt(() => {
+      // 却下理由は必須。rest 実装(サーバの `ReviewRejectBody`)と判定を揃えないと、
+      // 同じ操作が local では通り rest では 400 になる。
+      const comment = decision.comment?.trim() ?? '';
+      if (!comment) throw validation('差し戻しには理由が必要です');
       const reviews = readReviews();
       const review = reviews[reqId];
       if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
@@ -146,7 +151,7 @@ export const localReviewRepo: ReviewRepository = {
         status: 'rejected',
         reviewedBy: who,
         reviewedAt: now(),
-        comment: decision.comment ?? null,
+        comment,
       };
       reviews[reqId] = next;
       write(K.reviews, reviews);

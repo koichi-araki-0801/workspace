@@ -40,7 +40,7 @@ describe('atomicWrite', () => {
     const bodies = Array.from({ length: 20 }, (_, i) => `${'v'.repeat(1000)}-${i}`);
     // 同一宛先の rename は OS 側の理由(Windows の共有違反等)で失敗しうる。ここで
     // 主張するのは「失敗しても壊れない」ことで、成功させたい呼び出し側は
-    // `withFileLock` で直列化する(`noteRepo.saveNote`)。
+    // `withFileLock` で直列化する(`noteRepo.ts` の `addNote`/`updateNote`/`deleteNote`)。
     await Promise.allSettled(bodies.map((b) => atomicWrite(target, b)));
 
     // 残った内容は「いずれかの書き込みの全文」でなければならない(混ざっていない)。

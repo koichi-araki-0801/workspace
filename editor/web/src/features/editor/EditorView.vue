@@ -5,7 +5,7 @@
 // 役割: `useTemplateEditor.ts` / `useGeomHandles.ts` を束ね、canvas 上に選択 overlay
 // (ページ境界 guide / ドラッグハンドル / move grip)を描く presentational なルート。
 import { GripVertical, PanelLeft, PanelRight, StickyNote, TriangleAlert } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import PageRail from '@/components/PageRail.vue';
 import { fractionToPage } from '@/components/pageNav';
@@ -15,6 +15,7 @@ import { toastSuccess } from '@/components/ui/toast';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
+import NoteBubble from './NoteBubble.vue';
 import PartTree from './PartTree.vue';
 import ShortcutHelpDialog from './ShortcutHelpDialog.vue';
 import { useEditorShortcuts } from './useEditorShortcuts';
@@ -38,9 +39,11 @@ const {
   partLabels,
   selectedPart,
   selectedGeom,
-  noteText,
+  noteEntries,
   canNote,
-  setNote,
+  addNote,
+  updateNote,
+  removeNote,
   allowAdd,
   allowEdit,
   dirty,
@@ -70,6 +73,52 @@ const { startHandle, dragLabel } = useGeomHandles({
 });
 
 const rect = computed(() => g.selectedRect.value);
+
+// ── メモ吹き出し(選択パーツのスレッド) ──
+const noteBubbleEl = useTemplateRef<InstanceType<typeof NoteBubble>>('noteBubbleEl');
+
+// 吹き出しの ✕ で閉じた状態。選択が変わったら開き直す(閉じたままだと次のパーツの
+// メモが出ず、「メモが消えた」ように見える)。
+const bubbleClosed = ref(false);
+watch(
+  () => g.selected.value,
+  () => {
+    bubbleClosed.value = false;
+  },
+);
+
+// 閉じたまま投稿が増えたときも開き直す(閉じている間にメモを追加すると、件数バッジだけが
+// 増えて本文がどこにも出ない = 「追加したのに反映されていない」ように見える)。減少(削除)
+// では開かない — 削除は吹き出しを開いた状態で行う操作なので、この経路には来ない。
+watch(
+  () => noteEntries.value.length,
+  (n, prev) => {
+    if (n > (prev ?? 0)) bubbleClosed.value = false;
+  },
+);
+
+/** 吹き出しの実寸を測り直し `refreshBubbleAnchor` へ渡す(描画されていなければ null で解除)。 */
+function measureBubble(): void {
+  const el = noteBubbleEl.value?.$el as HTMLElement | null | undefined;
+  g.refreshBubbleAnchor(el ? { width: el.offsetWidth, height: el.offsetHeight } : null);
+}
+
+// スレッド(選択パーツの切替 / 追加・編集・削除)が変わるたびに実寸を測り直す。前パーツの
+// 高さのまま数フレーム居座らないよう、まず幅 244・高さ 0 の見積もりで仮置きし(この時点で
+// クランプ済みの概算位置が付く)、DOM 更新後に実寸で測り直す。以後の zoom/layout 再計算は
+// `useGrapes.ts` の `lastBubbleSize` キャッシュがこの実寸のまま追従させる。
+watch(
+  noteEntries,
+  () => {
+    if (noteEntries.value.length === 0) {
+      g.refreshBubbleAnchor(null);
+      return;
+    }
+    g.refreshBubbleAnchor({ width: 244, height: 0 });
+    void nextTick(measureBubble);
+  },
+  { immediate: true },
+);
 
 // ページ境界の overlay guide: 既定 ON、上部バーから切替える。
 const showPageGuides = ref(true);
@@ -335,6 +384,19 @@ const statusText = computed(() => {
             <StickyNote class="h-3 w-3" />
           </div>
 
+          <!-- メモ吹き出し(選択パーツのスレッド)。表計算ソフトのセルコメントと同じく常に
+               ページへ重ねて出す。大きさ・倍率は変えない(`noteBubbleLayout` を見よ)。 -->
+          <template v-if="g.bubbleAnchor.value && noteEntries.length > 0 && !bubbleClosed">
+            <NoteBubble
+              ref="noteBubbleEl"
+              :entries="noteEntries"
+              :anchor="g.bubbleAnchor.value"
+              @update="updateNote"
+              @remove="removeNote"
+              @close="bubbleClosed = true"
+            />
+          </template>
+
           <!-- 編集の affordance(ドラッグハンドル)は編集許可時のみ -->
           <template v-if="rect && selectedGeom && allowEdit">
             <!-- drag grip: 選択ブロックを兄弟内で並べ替える -->
@@ -422,7 +484,7 @@ const statusText = computed(() => {
         :geom="selectedGeom"
         :history="displayHistory"
         :part-labels="partLabels"
-        :note="noteText"
+        :note-count="noteEntries.length"
         :can-note="canNote"
         :edit-mode="allowEdit"
         :can-up="g.canMoveUp.value"
@@ -431,7 +493,7 @@ const statusText = computed(() => {
         @move="moveSelected($event)"
         @reset="resetGeom"
         @del="deletePart"
-        @update-note="setNote"
+        @add-note="addNote"
         @collapse="rightCollapsed = true"
       />
     </div>

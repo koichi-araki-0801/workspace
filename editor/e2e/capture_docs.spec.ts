@@ -11,7 +11,7 @@
 
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const IMG = (name: string) => resolve(here, '../../docs/editor/images', name);
@@ -22,15 +22,50 @@ test.use({ viewport: { width: 1440, height: 900 } });
 async function login(page: Page, user: string, pass: string) {
   // 認証済みのままログイン画面へ行くと guard がアプリへ戻す。別ユーザーで入り直す撮影
   // フローがあるので、セッションだけ捨ててから入る(申請などの localStorage は残す)。
-  await page.goto('/');
+  // `waitUntil: 'commit'` は `canvas.spec.ts` の `openEditor` と同じ理由: 既定の 'load' は
+  // 全サブリソースを待つので、SPA が起動時に出す認証確認や router のリダイレクトが割り込むと
+  // `net::ERR_ABORTED` で goto 自体が落ちる。さらに、その遷移が終わる前に `evaluate` を投げると
+  // 実行コンテキストごと壊れるため、URL が落ち着くまで待ってから localStorage を触る
+  // (どちらも 4 並列の pre-push CI で実際に踏んだ)。
+  await page.goto('/', { waitUntil: 'commit' });
+  await page.waitForURL(/\/(login|edit|reviews)/);
   await page.evaluate(() => localStorage.removeItem('editor:session'));
-  await page.goto('/login');
+  await page.goto('/login', { waitUntil: 'commit' });
   await page.locator('#u').waitFor();
   await page.locator('#u').fill(user);
   await page.locator('#p').fill(pass);
   await page.getByRole('button', { name: 'ログイン' }).click();
   await page.waitForURL(/\/(edit|reviews)/);
   await page.waitForTimeout(800);
+}
+
+/**
+ * ロード中のスケルトンが消えるまで待つ。固定時間の待ちだけでは、データ取得が間に合わず
+ * **プレースホルダのまま**撮れることがある(履歴タブで実際に起き、読み込み中の画面が
+ * 手引き HTML へ base64 で埋め込まれた)。撮影は緑のまま通るので CI では検出できない。
+ * `animate-pulse` を持つのは `Skeleton.vue` だけなので、0 件 = 実データの描画完了。
+ */
+async function waitForLoaded(page: Page) {
+  await expect(page.locator('.animate-pulse')).toHaveCount(0, { timeout: 15_000 });
+}
+
+/**
+ * 要素の寸法が落ち着くまで待ち、その boundingBox を返す。可視化を待つだけでは足りない:
+ * canvas のフォントが載る前は行の高さが確定せず、その寸法で `clip` を取ると**内容が
+ * 途中で切れた**画像になる(CI の並列実行下で実際に起きた。単独実行では再現しない)。
+ * 連続 2 回同じ寸法になったところを確定と見なす。
+ */
+async function waitForStableBox(page: Page, locator: Locator, timeout = 20_000) {
+  const deadline = Date.now() + timeout;
+  let previous = '';
+  while (Date.now() < deadline) {
+    const box = await locator.boundingBox();
+    const key = box ? `${Math.round(box.width)}x${Math.round(box.height)}` : '';
+    if (key && key === previous) return box;
+    previous = key;
+    await page.waitForTimeout(300);
+  }
+  return locator.boundingBox();
 }
 
 /**
@@ -65,6 +100,7 @@ test('capture editor screens', async ({ page }) => {
   await page.screenshot({ path: IMG('password-init.png') });
   await page.goto('/edit');
   await page.waitForTimeout(600);
+  await waitForLoaded(page);
 
   // ② 編集タブ（属性ドロップダウンが見える）
   await page.screenshot({ path: IMG('edit-tab.png') });
@@ -72,17 +108,23 @@ test('capture editor screens', async ({ page }) => {
   // ②b テンプレート作成タブ
   await page.getByRole('link', { name: 'テンプレート作成' }).click();
   await page.waitForTimeout(600);
+  await waitForLoaded(page);
   await page.screenshot({ path: IMG('create-tab.png') });
 
   // ②c 比較タブ / 履歴タブ / 管理者画面
+  // 固定待ちはタブ遷移のアニメーションを吸収するためのもので、データの到着は保証しない。
+  // 一覧を持つ画面は `waitForLoaded` でスケルトンの消滅まで待ってから撮る。
   await page.getByRole('link', { name: '比較' }).click();
   await page.waitForTimeout(600);
+  await waitForLoaded(page);
   await page.screenshot({ path: IMG('compare-tab.png') });
   await page.getByRole('link', { name: '履歴' }).click();
   await page.waitForTimeout(600);
+  await waitForLoaded(page);
   await page.screenshot({ path: IMG('history-tab.png') });
   await page.getByRole('link', { name: '管理者' }).click();
   await page.waitForTimeout(600);
+  await waitForLoaded(page);
   await page.screenshot({ path: IMG('admin-users.png') });
 
   // ③ 編集画面（seed テンプレを直接開く）
@@ -102,9 +144,13 @@ test('capture editor screens', async ({ page }) => {
   await page.waitForTimeout(400);
   const frame = page.frameLocator('iframe.gjs-frame');
   const block = frame.locator('.page > *').nth(2);
+  // キャンバスの描画が終わる前に掴むと、ブロックが最終寸法になっておらず clip が
+  // 小さく切れる(内容の欠けた画像がそのまま手引きへ載る)。可視化と寸法の確定を待つ。
+  await block.waitFor({ state: 'visible', timeout: 30_000 });
+  await waitForStableBox(page, block);
   await block.click();
   await page.waitForTimeout(600);
-  const box = await block.boundingBox();
+  const box = await waitForStableBox(page, block);
   const pad = 70;
   await page.screenshot({
     path: IMG('editor-handles.png'),
@@ -144,6 +190,7 @@ test('capture review screens (申請 → 承認キュー → 精査)', async ({ 
   await login(page, 'approver', 'approver');
   await page.getByRole('link', { name: '承認' }).click();
   await page.waitForTimeout(800);
+  await waitForLoaded(page);
   await page.screenshot({ path: IMG('reviews-list.png') });
 
   // 精査画面（既定タブ = 見た目で比較。修正前｜修正後を PreviewPanel 2 面で並べる）

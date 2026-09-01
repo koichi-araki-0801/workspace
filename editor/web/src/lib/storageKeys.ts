@@ -20,15 +20,24 @@ export const K = {
   sessionEpoch: 'editor:session:epoch',
   userOverride: 'editor:users',
   passwords: 'editor:pw',
-  // パーツ単位メモ(版インスタンス単位)。`Record<templateId, Record<pathKey, PartNote>>`。
-  // templateId(委託会社/ファンドコード/基準日/版種を内包)単位で、別の基準日/版種の版へは
-  // 引き継がない。版(構造)に依存する working-state なので `WORKING_KEYS` に含め、スキーマ
-  // bump(版種リネーム等)で破棄する。
-  notes: 'editor:notes',
+  // パーツ単位メモ(追記型スレッド)。`Record<templateId, Record<pathKey, PartNoteEntry[]>>`。
+  // 交付版⇄全体版で 1 本のスレッドを共有し、基準日をまたぐ繰り越しはしない。版(構造)に
+  // 依存する working-state なので `WORKING_KEYS` に含め、スキーマ bump で破棄する。
+  // `:v2` はスレッド化での形式変更(旧 `editor:notes` は 1 パーツ 1 件だった)。
+  notes: 'editor:notes:v2',
   // 確定保存の承認待ち申請(オフラインデモ用ミラー)。`Record<reqId, ReviewRequest>`。
   // 版(構造)依存の working-state なので bump で破棄してよい。
   reviews: 'editor:reviews',
 } as const;
+
+/**
+ * `:v2` 形式化(スレッド化)より前の旧メモキー。`WORKING_KEYS`(`api/local/store.ts`)には
+ * 現行の `K.notes` しか無く、`:v2` へ改称した際にこの旧キーが一覧から漏れたため、既存の
+ * ブラウザではスキーマ bump を経ても `editor:notes` の古い 1 パーツ 1 件形式の値が消えずに
+ * 残る(内容を読む経路が無いだけの孤立データ)。`LEGACY_UNDO_STACKS_KEY` と同じ扱いで、
+ * 後片付け(スキーマ bump)でのみ参照する。
+ */
+export const LEGACY_NOTES_KEY = 'editor:notes';
 
 // ── Undo/Redo 永続ミラーのキー ──
 // 値は `Record<templateId, {past, future}>`。クライアント編集の関心事で揮発性が高く、

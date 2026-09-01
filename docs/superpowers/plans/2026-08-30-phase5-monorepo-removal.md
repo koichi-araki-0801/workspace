@@ -462,12 +462,32 @@ patch 保全 + bundle 後 drop(適用しない既定)・publish pin 段の gho �
 
 ---
 
-## 実測記録(実行時に追記)
+## 実測記録(2026-08-30 実行)
 
-- Task 2-5 除去後の `pnpm run ci` 所要: (T2-T5)
-- Node 依存更新の採用/見送り一覧: (T6)
-- stash 処置(patch 保全 + drop)と bundle サイズ・検証結果: (T7)
-- force push 後の明示 publish: バンドルサイズ・所要・pin 復旧手順の要否・Public 窓: (T8)
-- setup-offline 新 pin 完走の確認: (T8)
-- 配布済み環境の有無: (T8)
-- 想定外の差異: (発生時)
+- Task 2-5 除去後の `pnpm run ci`: 全緑(約 13〜15 分/回)。既知の負荷フレーク
+  (hostGuard タイムアウト・e2e smoke・coverage 一時ファイル ENOENT・0xC0000142)が
+  散発したが、いずれも単独実行 green 確認のうえリトライで解消。
+- Node 依存更新(T6): レンジ内マイナー/パッチを全採用(vitest 4.1.11・vite 8.2.2・
+  fastify 5.12.1・@playwright/test 1.62.1 ほか)。subset-font 2.6.0 採用
+  (SVG 83/83 byte 一致・wasm sha 不変・sidecar-pins 更新)。完全固定 =
+  @biomejs/biome 2.4.16(2.5.11 は新規 lint 21 errors)・@vivliostyle/cli 11.0.0 /
+  core 2.43.1(11.0.4 以降は egress proxy 契約テストが赤)。メジャー見送り 8 件
+  (typescript 7・js-beautify 2・pinia 4・zod-openapi 6・msnodesqlv8 5・
+  @types/node 26・@fastify/static 10・jsdom 30/knip 6)。
+- T7: untracked 保全(gist 2 本 → repo-archives)・stash は全量 patch 保全
+  (3,617 行)+ drop で適用なし(base が 246 コミット前・後続実装に追い越し済み)。
+  bundle = 84,487,340 bytes・clone + git log 参照検証 OK。
+- T8: orphan 初期コミット `4fcad7f`(BOM なし・update-ref 方式)→ 常設・main・タグの
+  3 ref を force push(全 ref 一致確認)。明示 publish は tar 1,109,350,471 bytes
+  (約 1.03GB)のアセット 4 点差し替えとタグ移動まで完走したが、pin 生成段のソース
+  zip 取得が停滞しプロセス消滅(PS 版ダウンロードに timeout 無し — 既知の弱点)。
+  計画の復旧手順どおり一時 Public 窓(約 30 秒・PRIVATE 復帰確認済み)で codeload
+  から取得し pin を手動更新(コミット 2570c82)。
+- setup 検証: verify.ps1 の実関数で検証連鎖 4/4 通過(pin source-commit = 新ルート /
+  bundle sha256 一致 / RSA 署名 OK / source zip sha256 一致)+ Release bundle.key =
+  現 content-key 一致。setup-offline.bat の full E2E(無認証取得 = 一時 Public 窓)は
+  自動実行の権限制約で未実施 — 必要なら手動 1 回(README-offline.txt の手順)で足りる。
+- 配布済み環境の有無: 本フェーズ時点で配布済み端末の記録なし(要ユーザー確認 —
+  存在する場合は新しい offline/ フォルダ一式を再配布すること)。
+- 想定外の差異: @playwright/test 1.62 化で chromium_headless_shell の再導入が必要
+  だった(playwright install 実施・オフライン同梱分は publish が再収集済み)。
