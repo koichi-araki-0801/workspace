@@ -1392,7 +1392,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ReviewDecisionBody"
+                "$ref": "#/components/schemas/ReviewRejectBody"
               }
             }
           }
@@ -2724,10 +2724,23 @@
         "type": "object",
         "properties": {
           "comment": {
-            "description": "却下理由 / 承認メモ",
+            "description": "承認メモ / 保留メモ(任意)",
             "type": "string"
           }
         }
+      },
+      "ReviewRejectBody": {
+        "type": "object",
+        "properties": {
+          "comment": {
+            "type": "string",
+            "minLength": 1,
+            "description": "却下理由(必須)"
+          }
+        },
+        "required": [
+          "comment"
+        ]
       },
       "RecordPdfExportRequest": {
         "type": "object",

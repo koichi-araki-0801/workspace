@@ -275,4 +275,43 @@ d('review workflow (HTTP routes)', () => {
     expect(res.json().status).toBe('rejected');
     expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
   });
+
+  // 却下だけは理由を要求する。差し戻された申請者に何を直せばよいか伝わらないと
+  // 申請のやり直しが当てずっぽうになり、監査ログにも判断の根拠が残らない。
+  // 画面側で入力を必須にするだけでは、API を直接叩く経路が素通りする。
+  it('POST reject: 理由が無ければ 400 で拒否し、申請を未決のまま残す', async () => {
+    const tplId = 'AM01_667777_20250101_交付版';
+    const sub = await submit(asUser('editor1', 'editor'), tplId, '<p>理由なしの却下</p>');
+    const reqId = sub.json().id;
+    // 空ボディ・空文字・空白のみは、いずれも「理由を書いた」ことにならない。
+    for (const payload of [{}, { comment: '' }, { comment: '   ' }]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/review-requests/${reqId}/reject`,
+        headers: asUser('approver1', 'approver'),
+        payload,
+      });
+      expect(res.statusCode).toBe(400);
+    }
+    const after = await app.inject({
+      method: 'GET',
+      url: `/review-requests/${reqId}`,
+      headers: asUser('approver1', 'approver'),
+    });
+    expect(after.json().status).toBe('pending');
+  });
+
+  // 必須にするのは却下理由だけ。承認メモまで必須にすると、通すだけの承認で
+  // 意味のない文字列を書かせることになる。
+  it('POST approve: メモが無くても通る', async () => {
+    const tplId = 'AM01_668888_20250101_交付版';
+    const sub = await submit(asUser('editor1', 'editor'), tplId, '<p>メモなしの承認</p>');
+    const res = await app.inject({
+      method: 'POST',
+      url: `/review-requests/${sub.json().id}/approve`,
+      headers: asUser('approver1', 'approver'),
+      payload: {},
+    });
+    expect(res.statusCode).toBe(200);
+  });
 });

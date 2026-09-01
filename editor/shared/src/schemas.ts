@@ -400,8 +400,18 @@ export const SubmitReviewBody = z
 
 /** 承認/却下のボディ(任意の理由/メモ)。 */
 export const ReviewDecisionBody = z
-  .object({ comment: z.string().optional().meta({ description: '却下理由 / 承認メモ' }) })
+  .object({ comment: z.string().optional().meta({ description: '承認メモ / 保留メモ(任意)' }) })
   .meta({ id: 'ReviewDecisionBody' });
+
+/**
+ * 却下の決定。`comment` だけは必須にする(空白のみも受け付けない)。差し戻された申請者にとって
+ * ここが「何を直せばよいか」を知る唯一の欄であり、監査ログに残る判断の根拠でもある。
+ * 画面側で入力を必須にするだけでは、API を直接叩く経路が素通りする。
+ * 承認・保留のメモを必須にはしない(通すだけの承認で無意味な文字列を書かせることになる)。
+ */
+export const ReviewRejectBody = z
+  .object({ comment: z.string().trim().min(1).meta({ description: '却下理由(必須)' }) })
+  .meta({ id: 'ReviewRejectBody' });
 
 /** (server 専用) 承認キューの絞り込みクエリ。 */
 export const ReviewListQuery = z.object({ status: ReviewStatus.optional() });

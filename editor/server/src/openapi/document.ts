@@ -473,7 +473,7 @@ export function buildOpenApiDocument() {
           summary: '却下(精査者限定・実ファイル非更新)',
           operationId: 'rejectReview',
           requestParams: { path: z.object({ reqId: z.string() }) },
-          requestBody: { content: { 'application/json': { schema: s.ReviewDecisionBody } } },
+          requestBody: { content: { 'application/json': { schema: s.ReviewRejectBody } } },
           responses: {
             '200': json('却下後の申請メタ', s.ReviewRequestMeta),
             ...ERR_400,
