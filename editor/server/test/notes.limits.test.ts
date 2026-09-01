@@ -63,7 +63,7 @@ describe('ファイルサイズの上限', () => {
 });
 
 describe('マップの件数上限', () => {
-  it('上限に達したら新規キーは拒否し、既存キーの追加と削除は通す', async () => {
+  it('上限に達したら新規キーは拒否し、既存キーへの追加・更新・削除は通す', async () => {
     const { files, repo } = await importNotes();
     const full: Record<string, unknown> = {};
     for (let i = 0; i < files.MAX_NOTES_PER_TEMPLATE; i++) {
@@ -84,13 +84,19 @@ describe('マップの件数上限', () => {
     await expect(repo.addNote(TPL, 'brand-new', 'メモ', 'tester')).rejects.toMatchObject({
       kind: 'validation',
     });
-    // 既存キーへの追加・削除は上限に関係なく通る(上限が「消せない」状態を作らない)。
+    // 既存キーへの追加・更新・削除は上限に関係なく通る(上限が「消せない・直せない」状態を
+    // 作らない)。追加(addNote)と更新(updateNote)は別経路(updateNote は locate 経由で
+    // 上限判定を一切通らない)なので、両方を別々に固定する。
     await expect(repo.addNote(TPL, 'p0', '追記', 'tester')).resolves.toMatchObject({
       content: '追記',
+    });
+    await expect(repo.updateNote(TPL, 'e0', '更新', 'tester')).resolves.toMatchObject({
+      content: '更新',
     });
     await expect(repo.deleteNote(TPL, 'e1')).resolves.toBeUndefined();
     const after = await files.readNotes(TPL);
     expect(after.p0).toHaveLength(2);
+    expect(after.p0[0].content).toBe('更新');
     expect(after.p1).toBeUndefined();
   });
 });
