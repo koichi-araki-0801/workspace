@@ -87,6 +87,16 @@ watch(
   },
 );
 
+// 閉じたまま投稿が増えたときも開き直す(閉じている間にメモを追加すると、件数バッジだけが
+// 増えて本文がどこにも出ない = 「追加したのに反映されていない」ように見える)。減少(削除)
+// では開かない — 削除は吹き出しを開いた状態で行う操作なので、この経路には来ない。
+watch(
+  () => noteEntries.value.length,
+  (n, prev) => {
+    if (n > (prev ?? 0)) bubbleClosed.value = false;
+  },
+);
+
 /** 吹き出しの実寸を測り直し `refreshBubbleAnchor` へ渡す(描画されていなければ null で解除)。 */
 function measureBubble(): void {
   const el = noteBubbleEl.value?.$el as HTMLElement | null | undefined;

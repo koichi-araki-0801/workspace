@@ -155,6 +155,14 @@ function submitNote(): void {
   emit('add-note', noteDraft.value);
   noteDraft.value = '';
 }
+// 選択パーツが変わったら下書きを破棄する(残すと、パーツ A で書きかけた文面のまま
+// パーツ B で「追加」を押して B へ書き込んでしまう)。
+watch(
+  () => props.selected?.id,
+  () => {
+    noteDraft.value = '';
+  },
+);
 
 // ── 3. 編集ハンドラ ──
 const canAlign = () => !!props.geom && props.geom.widthPct < 100;

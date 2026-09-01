@@ -23,18 +23,28 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-// 編集中の投稿 ID と入力中の本文。1 度に 1 件だけ編集する。
-const editingId = ref<string | null>(null);
+// 編集中の投稿の識別子と入力中の本文。1 度に 1 件だけ編集する。
+//
+// キー・比較は `id` 単体ではなく `templateId/id` の対で行う。旧形式ファイルの遅延変換
+// (`server/src/files/notesFile.ts` の `normalizeStored`)は `legacy:<pathKey>` を id に
+// 使うため、ファイル(= 版インスタンス)が違えば同じ pathKey を持つ投稿が同じ id を名乗り
+// うる(交付版⇄全体版のペアをマージした本スレッドは複数ファイル由来の投稿を同時に表示する)。
+// id だけで一意性を仮定すると、2 件を同時に編集モードへ開いてしまう。
+function entryKey(entry: PartNoteEntry): string {
+  return `${entry.templateId}/${entry.id}`;
+}
+
+const editingKey = ref<string | null>(null);
 const draft = ref('');
 
 function startEdit(entry: PartNoteEntry): void {
-  editingId.value = entry.id;
+  editingKey.value = entryKey(entry);
   draft.value = entry.content;
 }
 
 function commitEdit(entry: PartNoteEntry): void {
   if (draft.value.trim() !== '') emit('update', entry, draft.value);
-  editingId.value = null;
+  editingKey.value = null;
 }
 
 /** 投稿がどの版種で書かれたかを id から解く(保存はしない — 同じ事実を 2 箇所に持たない)。 */
@@ -81,7 +91,7 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
     </div>
 
     <div class="note-bubble-body">
-      <div v-for="e in entries" :key="e.id" class="note-entry">
+      <div v-for="e in entries" :key="entryKey(e)" class="note-entry">
         <div class="note-entry-head">
           <span class="note-entry-who">{{ e.createdBy }}</span>
           <span>{{ formatAt(e.createdAt) }}</span>
@@ -101,11 +111,11 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
           </Button>
         </div>
 
-        <template v-if="editingId === e.id">
+        <template v-if="editingKey === entryKey(e)">
           <textarea v-model="draft" class="note-entry-input" rows="3" />
           <div class="mt-1.5 flex gap-1.5">
             <Button size="sm" @click="commitEdit(e)">保存</Button>
-            <Button size="sm" variant="outline" @click="editingId = null">取消</Button>
+            <Button size="sm" variant="outline" @click="editingKey = null">取消</Button>
           </div>
         </template>
         <div v-else class="note-entry-body">
