@@ -70,7 +70,9 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
 
   // notes
   [`GET ${api(apiPaths.notes)}`]: 'auth',
-  [`PUT ${api(apiPaths.notes)}`]: 'editor',
+  [`POST ${api(apiPaths.notes)}`]: 'editor',
+  [`PATCH ${api(apiPaths.noteEntry)}`]: 'editor',
+  [`DELETE ${api(apiPaths.noteEntry)}`]: 'editor',
 
   // history
   [`GET ${api(apiPaths.historyEdit)}`]: 'auth',

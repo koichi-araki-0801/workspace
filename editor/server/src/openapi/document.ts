@@ -399,22 +399,39 @@ export function buildOpenApiDocument() {
       [toOpenApiPath(apiPaths.notes)]: {
         get: {
           tags: ['notes'],
-          summary: 'パーツ単位メモを取得(版インスタンス単位の全件)',
+          summary: 'パーツ単位メモを取得(交付版と全体版をマージしたスレッド)',
           operationId: 'listNotes',
           requestParams: { path: z.object({ templateId: z.string() }) },
           responses: {
-            '200': json('メモの配列', z.array(s.PartNote)),
+            '200': json('投稿の配列(作成日時の昇順)', z.array(s.PartNoteEntry)),
             ...ERR_401,
             ...ERR_404,
           },
         },
-        put: {
+        post: {
           tags: ['notes'],
-          summary: 'パーツ単位メモを保存(content 空文字は削除)',
-          operationId: 'saveNote',
+          summary: 'パーツ単位メモへ投稿を追加',
+          operationId: 'addNote',
           requestParams: { path: z.object({ templateId: z.string() }) },
-          requestBody: { content: { 'application/json': { schema: s.SaveNoteRequest } } },
-          responses: { '204': noContent('保存完了'), ...ERR_400, ...ERR_401 },
+          requestBody: { content: { 'application/json': { schema: s.AddNoteRequest } } },
+          responses: { '201': json('追加した投稿', s.PartNoteEntry), ...ERR_400, ...ERR_401 },
+        },
+      },
+      [toOpenApiPath(apiPaths.noteEntry)]: {
+        patch: {
+          tags: ['notes'],
+          summary: 'メモの投稿本文を編集',
+          operationId: 'updateNote',
+          requestParams: { path: z.object({ templateId: z.string(), entryId: z.string() }) },
+          requestBody: { content: { 'application/json': { schema: s.UpdateNoteRequest } } },
+          responses: { '200': json('更新後の投稿', s.PartNoteEntry), ...ERR_400, ...ERR_401 },
+        },
+        delete: {
+          tags: ['notes'],
+          summary: 'メモの投稿を削除',
+          operationId: 'deleteNote',
+          requestParams: { path: z.object({ templateId: z.string(), entryId: z.string() }) },
+          responses: { '204': noContent('削除完了'), ...ERR_400, ...ERR_401 },
         },
       },
 
