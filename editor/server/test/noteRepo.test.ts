@@ -73,10 +73,13 @@ describe('createdAt が同値のときの安定性', () => {
   it('同一 createdAt の投稿は書き込み順(配列順)で返る', async () => {
     const { repo, files } = await importRepo();
     const t = '2026-09-01T00:00:00.000Z';
+    // id は挿入順(配列順)と辞書順がわざと食い違うようにしてある(z1 → m2 → a3 の順に
+    // 書き込むが、辞書順は a3 < m2 < z1 で逆順)。id を tiebreak に使う実装が復活すると
+    // 結果が辞書順(3 件目, 2 件目, 1 件目)へ入れ替わり、このテストが落ちる。
     await files.writeNotes(KOUFU, {
       [KEY]: [
         {
-          id: 'e1',
+          id: 'z1',
           content: '1 件目',
           createdAt: t,
           createdBy: 'editor1',
@@ -84,7 +87,7 @@ describe('createdAt が同値のときの安定性', () => {
           updatedBy: null,
         },
         {
-          id: 'e2',
+          id: 'm2',
           content: '2 件目',
           createdAt: t,
           createdBy: 'editor1',
@@ -92,7 +95,7 @@ describe('createdAt が同値のときの安定性', () => {
           updatedBy: null,
         },
         {
-          id: 'e3',
+          id: 'a3',
           content: '3 件目',
           createdAt: t,
           createdBy: 'editor1',
@@ -103,8 +106,7 @@ describe('createdAt が同値のときの安定性', () => {
     });
 
     const thread = await repo.listNotes(KOUFU);
-    // id は乱数 UUID 相当で挿入順と無関係なため、id 順(e1<e2<e3 に見える並び)へ逃げずに
-    // 配列順そのものが保たれることを主張する(タイブレークを持たないことの検証)。
+    // 書き込んだ配列順そのものを主張する(集合ではなく順序を見る)。
     expect(thread.map((e) => e.content)).toEqual(['1 件目', '2 件目', '3 件目']);
   });
 
@@ -136,8 +138,12 @@ describe('createdAt が同値のときの安定性', () => {
       ],
     });
 
-    const thread = await repo.listNotes(KOUFU);
-    expect(thread.map((e) => e.content)).toEqual(['交付版', '全体版']);
+    // 自版として「全体版」側を問い合わせる。期待順は自版 → ペア版 = [全体版, 交付版]。
+    // templateId を tiebreak に使う実装が復活すると、"交付版" < "全体版" の文字コード順で
+    // 交付版が先に来てしまい(自版がどちらでも辞書順は固定なので、自版=交付版側で問い合わせる
+    // と辞書順と期待順が一致してしまい判定にならない)、このテストが落ちる。
+    const thread = await repo.listNotes(ZENTAI);
+    expect(thread.map((e) => e.content)).toEqual(['全体版', '交付版']);
   });
 });
 
