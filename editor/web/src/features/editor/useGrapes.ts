@@ -135,8 +135,28 @@ export function useGrapes() {
 
   // ── 分離 composable(選択枠/メモ目印 → guide → zoom の順に依存を注ぐ)。ローカルへ
   //    同名で分配し、既存の呼び出し側(grapesEvents 配線・ページ送り・return)を無改修に保つ ──
-  const markers = useCanvasMarkers({ editor, pageEls, currentPageIndex, singlePageMode });
-  const { selectedRect, noteMarkers, refreshRect, setNoteKeys } = markers;
+  const markers = useCanvasMarkers({
+    editor,
+    pageEls,
+    currentPageIndex,
+    singlePageMode,
+    getContainer: () => containerEl,
+  });
+  const { selectedRect, noteMarkers, bubbleAnchor, refreshRect, setNoteKeys } = markers;
+  /** 直近に呼び出し側が渡した吹き出しの実寸(zoom/layout recompute/選択変更の内部再計測で使う)。 */
+  let lastBubbleSize: { width: number; height: number } | null = null;
+  /** 保持中の実寸のまま吹き出し配置を測り直す(zoom/layout recompute/選択変更から呼ぶ)。 */
+  function refreshBubbleAnchorNow(): void {
+    markers.refreshBubbleAnchor(lastBubbleSize);
+  }
+  /**
+   * 吹き出しの配置を測り直す(公開 API)。渡された実寸を保持しておくので、以後の
+   * zoom/layout recompute/選択変更による内部再計測でも同じ実寸のまま位置が追従する。
+   */
+  function refreshBubbleAnchor(bubble: { width: number; height: number } | null): void {
+    lastBubbleSize = bubble;
+    refreshBubbleAnchorNow();
+  }
   const guides = usePageGuides({ editor, afterGuides: markers.refreshNoteMarkers });
   const { pageGuides, recomputeBreakEls, refreshPageGuides } = guides;
   const zoomFit = useZoomFit({
@@ -145,6 +165,7 @@ export function useGrapes() {
     afterZoom: () => {
       refreshRect();
       refreshPageGuides();
+      refreshBubbleAnchorNow();
     },
   });
   const { zoom, setZoom, fitToView, updateScrollMode } = zoomFit;
@@ -401,6 +422,13 @@ export function useGrapes() {
 
     editor.value = ed;
 
+    // 選択変更でも吹き出し位置を測り直す(zoom/layout recompute と並ぶ 3 つ目の再計測経路)。
+    // `wireGrapesEvents` 側の `component:selected`/`component:deselected` とは別に、同じ
+    // event へ追加 listener を張る形(GrapesJS の event emitter は複数購読を許す)。
+    ed.on('component:selected component:deselected', () => {
+      refreshBubbleAnchorNow();
+    });
+
     // 外側スクロール(`.gjs-cv-canvas`)に overlay を追従させる。grapesjs.init は canvas DOM を
     // 同期描画するので、この時点で querySelector は要素を返す。scroll は連続発火するため rAF で
     // 1 フレーム 1 回へスロットルし、`refreshRect`(選択枠/ハンドル) と `refreshPageGuides`
@@ -440,6 +468,7 @@ export function useGrapes() {
     refreshPageGuides();
     recomputePages();
     updateScrollMode();
+    refreshBubbleAnchorNow();
   }
 
   /**
@@ -715,7 +744,9 @@ export function useGrapes() {
     canDragSelected,
     pageGuides,
     noteMarkers,
+    bubbleAnchor,
     setNoteKeys,
+    refreshBubbleAnchor,
     pageCount,
     currentPageIndex,
     singlePageMode,

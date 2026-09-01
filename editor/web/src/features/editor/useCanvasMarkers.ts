@@ -1,8 +1,8 @@
 // =============================================================================
 // useCanvasMarkers.ts — 選択枠 rect とメモ目印の overlay 計測
 // =============================================================================
-// 役割: 選択要素の画面 rect(浮動ツールバー / ハンドル用)と、版を跨ぐメモを持つ
-// パーツの目印位置を、canvas 相対 / zoom 考慮(`noScroll:true` の viewport 相対)で測る。
+// 役割: 選択要素の画面 rect(浮動ツールバー / ハンドル用)と、メモを持つパーツの目印位置を、
+// canvas 相対 / zoom 考慮(`noScroll:true` の viewport 相対)で測る。
 // ページ表示状態(pageEls / currentPageIndex / singlePageMode)は `ctx` の ref を読む。
 
 import { toAppError } from '@editor/shared';
@@ -10,10 +10,11 @@ import type { Editor } from 'grapesjs';
 import { type Ref, ref, type ShallowRef } from 'vue';
 import { logError } from '@/lib/appError';
 import type { SelectedRect } from './grapesEvents';
+import { type BubbleAnchor, computeBubbleAnchor } from './noteBubbleLayout';
 import { partEls, partPathKeyFor } from './partKey';
 
 /**
- * 版を跨ぐメモを持つパーツの目印(canvas 相対 / zoom 考慮の座標、`SelectedRect` と同様)。
+ * メモを持つパーツの目印(canvas 相対 / zoom 考慮の座標、`SelectedRect` と同様)。
  * エクセルのセルコメント風に、パーツ右上隅へ固定 px の小バッジを重畳する。位置のみ
  * パーツへ追従し、バッジ自体のサイズはズーム非依存(`refreshNoteMarkers` を見よ)。
  * `useTemplateEditor` の推論戻り値型が参照するため export が必要(TS4058 回避)。 @public
@@ -31,6 +32,8 @@ interface CanvasMarkersContext {
   pageEls: ShallowRef<HTMLElement[]>;
   currentPageIndex: Ref<number>;
   singlePageMode: Ref<boolean>;
+  /** 吹き出し配置の基準になる canvas コンテナ(`useZoomFit` と同じ getter を渡す)。 */
+  getContainer: () => HTMLElement | undefined;
 }
 
 export function useCanvasMarkers(ctx: CanvasMarkersContext) {
@@ -40,6 +43,8 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
   const noteKeys = ref<Set<string>>(new Set());
   /** メモ目印の overlay 位置(`refreshNoteMarkers` が現在ページのパーツから算出)。 */
   const noteMarkers = ref<NoteMarker[]>([]);
+  /** 吹き出しの配置(選択パーツが無い / 吹き出しを閉じている間は null)。 */
+  const bubbleAnchor = ref<BubbleAnchor | null>(null);
 
   /** 選択要素の画面上 rect を再計算する(浮動ツールバー / ハンドル用)。 */
   function refreshRect(): void {
@@ -102,5 +107,43 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
     refreshNoteMarkers();
   }
 
-  return { selectedRect, noteMarkers, refreshRect, refreshNoteMarkers, setNoteKeys };
+  /**
+   * 選択パーツに紐づく吹き出しの配置を測り直す。ページ矩形は canvas body の
+   * `getElementPos` で取り、コンテナ内寸は overlay 層の実寸を使う。吹き出しの実寸は
+   * 描画後に呼び出し側が測って渡す(中身の件数で高さが変わるため)。
+   */
+  function refreshBubbleAnchor(bubble: { width: number; height: number } | null): void {
+    const ed = ctx.editor.value;
+    const comp = ed?.getSelected();
+    const el = comp?.getEl?.();
+    const body = ed?.Canvas.getBody();
+    const containerEl = ctx.getContainer();
+    if (!ed || !el || !body || !containerEl || !bubble) {
+      bubbleAnchor.value = null;
+      return;
+    }
+    try {
+      const part = ed.Canvas.getElementPos(el, { noScroll: true });
+      const page = ed.Canvas.getElementPos(body, { noScroll: true });
+      bubbleAnchor.value = computeBubbleAnchor({
+        part: { left: part.left, top: part.top, width: part.width, height: part.height },
+        page: { left: page.left, width: page.width },
+        container: { width: containerEl.clientWidth, height: containerEl.clientHeight },
+        bubble,
+      });
+    } catch (e) {
+      logError(toAppError(e));
+      bubbleAnchor.value = null;
+    }
+  }
+
+  return {
+    selectedRect,
+    noteMarkers,
+    bubbleAnchor,
+    refreshRect,
+    refreshNoteMarkers,
+    refreshBubbleAnchor,
+    setNoteKeys,
+  };
 }
