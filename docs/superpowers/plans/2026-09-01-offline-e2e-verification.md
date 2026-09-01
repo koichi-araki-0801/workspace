@@ -53,17 +53,35 @@ SQL Server 2022 Express LocalDB / Python 3.13
 
 - **現ワークスペースを壊さない。** `C:\Users\caads\workspace` および
   `C:\Users\caads\editor-data` へは、Phase 0 の pin 更新コミットと Phase 7 の記録コミットを除いて
-  一切書き込まない。検証フォルダは `C:\Users\caads\offline-verify\` 配下に閉じる。
+  一切書き込まない。検証フォルダは `C:\Users\Public\offline-verify\` 配下に閉じる。
 - **検証フォルダはローカルドライブ限定。** `Assert-LocalRepoRoot` がネットワークドライブを
   拒否する（pnpm の symlink / hardlink 構成が成立しないため）。
+- **検証フォルダは他の git リポジトリの配下に置かない。** `C:\Users\caads\.git` が存在するため、
+  当初の配置（`C:\Users\caads\offline-verify\...`）では `git -C <展開先> ls-files` が**そのリポジトリ**を
+  見て exit 0 / 0 件を返し、`Get-OfflineRequirementsFilesViaGit` が null ではなく空配列を返す。
+  結果 requirements.txt が content key に折り込まれず、setup が lockfile 不整合で必ず中止する
+  （Phase 1 で実測）。配置は `C:\Users\Public\offline-verify\` とする。スクリプト側の修正は
+  Phase 7 で起票する。
 - **ポート 24680 / 24681 は同時に 1 プロセスのみ。** 検証サーバを起動する前に、現ワークスペース側の
   dev サーバ・rest サーバが動いていないことを確認する。稼働中のまま Playwright を走らせると
   E2E が誤接続して落ちる（2026-08-02 実績）。
 - **不具合を見つけても本計画では直さない。** 発見はすべて Phase 7 の記録へ集約し、修正は
   別タスクとして切る。検証の途中で実装を触ると、何を検証した結果なのかが失われる。
-- **10 分を超えるコマンドはユーザーに `!` 実行を依頼する。** 背景実行の上限（10 分）を超えるため、
-  `pnpm run ci`（13〜15 分）と `setup-offline.bat`（回線次第で 20〜40 分）はエージェントが
-  直接実行しない。
+- **10 分を超えるコマンドはデタッチ起動 + Monitor で回す。** エージェントの背景実行は 10 分で
+  打ち切られる（Phase 1 で実測。展開の途中で kill された）。長い工程は次の形で起動し、
+  ツールの寿命から切り離す。ユーザーに `!` 実行を頼むのは、対話入力や昇格が要る場合に限る。
+
+```powershell
+$log = 'C:\Users\Public\offline-verify\<name>.log'
+$p = Start-Process -FilePath 'powershell.exe' `
+  -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','<script.ps1>' `
+  -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -WindowStyle Hidden
+$p.Id
+```
+
+  そのうえで Monitor（`timeout_ms` は最大 3600000）にログの節目と当該 PID の生存を追わせる。
+  監視の grep は成功マーカーだけでなく失敗マーカーも含める（沈黙は成功ではない）。
+  対象が `.bat` の場合も、中身は `powershell -File <同名 .ps1>` なので直接 `.ps1` を起動してよい。
 - **リポジトリは Public 運用（2026-09-01 にユーザーが意図的な公開であることを確認）。**
   フェーズ 5 の実測記録にある「一時 Public 窓 → PRIVATE 復帰」の運用は現在当てはまらない。
   本計画では可視性を変更しない。Phase 6 の `setup-offline.bat` は Public のまま無認証で
@@ -75,8 +93,8 @@ SQL Server 2022 Express LocalDB / Python 3.13
 
 **Files:**
 - Modify: `offline/pinned-release.txt`（publish が自動更新。手で編集しない）
-- Create: `C:\Users\caads\offline-verify\local\workspace\`（検証用ツリー）
-- Create: `C:\Users\caads\offline-verify\full\workspace\offline\`（full 用の素のフォルダ）
+- Create: `C:\Users\Public\offline-verify\local\workspace\`（検証用ツリー）
+- Create: `C:\Users\Public\offline-verify\full\workspace\offline\`（full 用の素のフォルダ）
 
 **Interfaces:**
 - Produces: pin の `source-commit`（Phase 1 のソース export と Phase 6 の取得対象が共有する）
@@ -170,7 +188,7 @@ Get-Content C:\Users\caads\workspace\offline\pinned-release.txt
 - [ ] **Step 8: 検証フォルダを作り、local 用のソースを配置する**
 
 ```powershell
-$V = 'C:\Users\caads\offline-verify'
+$V = 'C:\Users\Public\offline-verify'
 New-Item -ItemType Directory -Force -Path "$V\local\workspace","$V\full\workspace" | Out-Null
 
 # pin が指すコミットのツリーをそのまま取り出す（作業ツリーの汚れを持ち込まない）。
@@ -187,7 +205,7 @@ pin ファイルは `<PINNED_SHA>` の**後**のコミットで更新されて�
 上書きする。
 
 ```powershell
-$V = 'C:\Users\caads\offline-verify'
+$V = 'C:\Users\Public\offline-verify'
 Copy-Item -Recurse -Force C:\Users\caads\workspace\offline "$V\local\workspace\"
 Copy-Item -Recurse -Force C:\Users\caads\workspace\offline "$V\full\workspace\"
 ```
@@ -197,7 +215,7 @@ Copy-Item -Recurse -Force C:\Users\caads\workspace\offline "$V\full\workspace\"
 - [ ] **Step 10: local 用の重量物資材をコピーする**
 
 ```powershell
-$V = 'C:\Users\caads\offline-verify'
+$V = 'C:\Users\Public\offline-verify'
 Copy-Item -Force C:\Users\caads\workspace\offline-deps-bundle.tar.gz     "$V\local\workspace\"
 Copy-Item -Force C:\Users\caads\workspace\offline-deps-bundle.tar.gz.sig "$V\local\workspace\"
 Copy-Item -Force C:\Users\caads\workspace\bundle.key                     "$V\local\workspace\"
@@ -210,8 +228,8 @@ Copy-Item -Force C:\Users\caads\workspace\bundle.key                     "$V\loc
 - [ ] **Step 11: 配置結果を確認する**
 
 ```powershell
-Get-ChildItem C:\Users\caads\offline-verify\local\workspace | Select-Object Name
-Get-ChildItem C:\Users\caads\offline-verify\full\workspace  | Select-Object Name
+Get-ChildItem C:\Users\Public\offline-verify\local\workspace | Select-Object Name
+Get-ChildItem C:\Users\Public\offline-verify\full\workspace  | Select-Object Name
 ```
 
 期待: `local\workspace` に `offline` / `editor` / `pie-chart` / `docs` / `scripts` /
@@ -241,19 +259,25 @@ setup を走らせると両者が検証フォルダ側を指すため、Phase 7 
 ## Phase 1: 完全オフライン構築（local）
 
 **Files:**
-- Execute: `C:\Users\caads\offline-verify\local\workspace\offline\setup-offline-local.bat`
+- Execute: `C:\Users\Public\offline-verify\local\workspace\offline\setup-offline-local.bat`
 
 **Interfaces:**
 - Consumes: Phase 0 で配置したソース・`offline/`・重量物資材
 - Produces: 依存導入済み・build 済みのツリー（Phase 2〜5 が使う）
 
-- [ ] **Step 1: setup を実行する（ユーザーに `!` 実行を依頼）**
+- [ ] **Step 1: setup をデタッチ起動する**
 
-所要 10〜20 分。依頼する文面:
+所要 10〜20 分。Global Constraints のデタッチ起動を使う。
 
+```powershell
+$log = 'C:\Users\Public\offline-verify\setup-local.log'
+$p = Start-Process -FilePath 'powershell.exe' `
+  -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','C:\Users\Public\offline-verify\local\workspace\offline\setup-offline-local.ps1' `
+  -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -WindowStyle Hidden
+$p.Id
 ```
-! cd C:\Users\caads\offline-verify\local\workspace && offline\setup-offline-local.bat
-```
+
+Monitor でログの `[N/4]` / `[OK]` / `[error]` と当該 PID の生存を追う。
 
 - [ ] **Step 2: 検証段の出力を確認する**
 
@@ -268,7 +292,7 @@ setup を走らせると両者が検証フォルダ側を指すため、Phase 7 
 期待: 最終行に `[OK] セットアップ完了。`
 
 ```powershell
-$W = 'C:\Users\caads\offline-verify\local\workspace'
+$W = 'C:\Users\Public\offline-verify\local\workspace'
 Get-ChildItem $W | Select-Object Name              # .pnpm-store / ms-playwright / git-tools / node_modules / bk
 Test-Path "$W\editor\web\dist"                     # build 成果物: True
 Get-ChildItem "$W\native-prebuilds"                # msnodesqlv8 prebuild が展開されている
@@ -277,7 +301,7 @@ Get-ChildItem "$W\native-prebuilds"                # msnodesqlv8 prebuild が展
 - [ ] **Step 4: msnodesqlv8 のネイティブモジュールが配置されたことを確認する**
 
 ```powershell
-Get-ChildItem -Recurse -Filter '*.node' C:\Users\caads\offline-verify\local\workspace\node_modules\.pnpm |
+Get-ChildItem -Recurse -Filter '*.node' C:\Users\Public\offline-verify\local\workspace\node_modules\.pnpm |
   Where-Object { $_.FullName -like '*msnodesqlv8*' } | Select-Object FullName
 ```
 
@@ -299,13 +323,20 @@ Phase 1 の所要時間・出力の要点・想定外の差異を、Phase 7 の�
 - Consumes: Phase 1 で構築したツリー
 - Produces: 8 段すべての合否（Phase 3 以降の前提）
 
-- [ ] **Step 1: CI を実行する（ユーザーに `!` 実行を依頼）**
+- [ ] **Step 1: CI をデタッチ起動する**
 
-所要 13〜15 分。背景実行の 10 分上限を超えるため、必ずユーザーに依頼する。
+所要 13〜15 分。
 
+```powershell
+$log = 'C:\Users\Public\offline-verify\ci.log'
+$p = Start-Process -FilePath 'cmd.exe' `
+  -ArgumentList '/c','cd /d C:\Users\Public\offline-verify\local\workspace && corepack pnpm run ci' `
+  -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -WindowStyle Hidden
+$p.Id
 ```
-! cd C:\Users\caads\offline-verify\local\workspace && corepack pnpm run ci
-```
+
+Monitor は成功・失敗の両方を拾う（沈黙は成功ではない）。拾う語:
+`Test Files|Tests |passed|failed|FAIL|ERR_|error TS|✓|✗`。
 
 - [ ] **Step 2: 段ごとの結果を確認する**
 
@@ -325,7 +356,7 @@ Phase 1 の所要時間・出力の要点・想定外の差異を、Phase 7 の�
 単独実行の例:
 
 ```powershell
-cd C:\Users\caads\offline-verify\local\workspace
+cd C:\Users\Public\offline-verify\local\workspace
 corepack pnpm exec vitest run --project server -t hostGuard
 corepack pnpm exec playwright test -c editor/playwright.config.ts e2e/smoke.spec.ts
 ```
@@ -356,15 +387,15 @@ typecheck / build が落ちた場合はオフライン構築そのものが不�
 
 **Interfaces:**
 - Consumes: Phase 1 のビルド済みツリー
-- Produces: `C:\Users\caads\offline-verify\local\editor-data\`（Phase 4 も使う）
+- Produces: `C:\Users\Public\offline-verify\local\editor-data\`（Phase 4 も使う）
 
 - [ ] **Step 1: data リポジトリを初期化する**
 
-`dataRoot` の既定は「editor の 2 つ上」＝ `C:\Users\caads\offline-verify\local\editor-data` で、
+`dataRoot` の既定は「editor の 2 つ上」＝ `C:\Users\Public\offline-verify\local\editor-data` で、
 既存の `C:\Users\caads\editor-data` とは別物になる。
 
 ```powershell
-cd C:\Users\caads\offline-verify\local\workspace\editor
+cd C:\Users\Public\offline-verify\local\workspace\editor
 scripts\init-data-repo.bat
 ```
 
@@ -372,13 +403,19 @@ scripts\init-data-repo.bat
 git リポジトリとして初期化される。
 
 ```powershell
-git -C C:\Users\caads\offline-verify\local\editor-data log --oneline -1
+git -C C:\Users\Public\offline-verify\local\editor-data log --oneline -1
 ```
 
-- [ ] **Step 2: dev サーバを起動する（ユーザーに `!` 実行を依頼。常駐するため)**
+- [ ] **Step 2: dev サーバをデタッチ起動する**
 
-```
-! cd C:\Users\caads\offline-verify\local\workspace\editor && start.bat dev local
+常駐プロセスなので必ずデタッチで起動し、PID を控えて Phase 3 Step 8 で止める。
+
+```powershell
+$log = 'C:\Users\Public\offline-verify\editor-local.log'
+$p = Start-Process -FilePath 'cmd.exe' `
+  -ArgumentList '/c','cd /d C:\Users\Public\offline-verify\local\workspace\editor && start.bat dev local' `
+  -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -WindowStyle Hidden
+$p.Id
 ```
 
 期待: Fastify が :24680、Vite が :24681 で待ち受ける。
@@ -452,7 +489,7 @@ sqllocaldb info MSSQLLocalDB
 - [ ] **Step 2: rest モードで起動する（ユーザーに `!` 実行を依頼。常駐するため）**
 
 ```
-! cd C:\Users\caads\offline-verify\local\workspace\editor && powershell -NoProfile -Command "$env:DB_SERVER='(localdb)\MSSQLLocalDB'; .\start.bat dev rest"
+! cd C:\Users\Public\offline-verify\local\workspace\editor && powershell -NoProfile -Command "$env:DB_SERVER='(localdb)\MSSQLLocalDB'; .\start.bat dev rest"
 ```
 
 期待: 起動時に msnodesqlv8 のロードで落ちない（Phase 1 Step 4 の prebuild 配置が効いている）。
@@ -486,8 +523,8 @@ sqllocaldb info MSSQLLocalDB
 - [ ] **Step 7: git コミットが載ったことを確認する**
 
 ```powershell
-git -C C:\Users\caads\offline-verify\local\editor-data log --oneline -3
-git -C C:\Users\caads\offline-verify\local\editor-data show --stat HEAD
+git -C C:\Users\Public\offline-verify\local\editor-data log --oneline -3
+git -C C:\Users\Public\offline-verify\local\editor-data show --stat HEAD
 ```
 
 期待: 承認によるコミットが 1 件増えており、変更対象が `templates/` 配下の該当ファイルに
@@ -522,7 +559,7 @@ Ctrl+C。ポート解放を確認する（Phase 3 Step 8 と同じコマンド�
 
 ```powershell
 $src = 'C:\Users\caads\workspace\pie-chart\out\_baseline'
-$dst = 'C:\Users\caads\offline-verify\local\workspace\pie-chart\out'
+$dst = 'C:\Users\Public\offline-verify\local\workspace\pie-chart\out'
 New-Item -ItemType Directory -Force -Path $dst | Out-Null
 Copy-Item -Recurse -Force $src $dst
 (Get-ChildItem "$dst\_baseline").Count      # 83 であること
@@ -531,7 +568,7 @@ Copy-Item -Recurse -Force $src $dst
 - [ ] **Step 2: batch を実行して SVG を生成する**
 
 ```powershell
-cd C:\Users\caads\offline-verify\local\workspace
+cd C:\Users\Public\offline-verify\local\workspace
 corepack pnpm run pie-chart:batch
 ```
 
@@ -547,7 +584,7 @@ corepack pnpm run pie-chart:batch:diff
 - [ ] **Step 4: docs をビルドする**
 
 ```powershell
-cd C:\Users\caads\offline-verify\local\workspace
+cd C:\Users\Public\offline-verify\local\workspace
 docs\_build\build_all.bat
 ```
 
@@ -565,7 +602,7 @@ docs\_build\build_all.bat
 - [ ] **Step 6: docs のテストを実行する**
 
 ```powershell
-cd C:\Users\caads\offline-verify\local\workspace
+cd C:\Users\Public\offline-verify\local\workspace
 corepack pnpm run test:docs
 ```
 
@@ -576,7 +613,7 @@ corepack pnpm run test:docs
 ## Phase 6: full E2E（`setup-offline.bat` / 取得込み）
 
 **Files:**
-- Execute: `C:\Users\caads\offline-verify\full\workspace\offline\setup-offline.bat`
+- Execute: `C:\Users\Public\offline-verify\full\workspace\offline\setup-offline.bat`
 
 **Interfaces:**
 - Consumes: Phase 0 で配置した素の `offline/` フォルダ、GitHub Releases の重量物
@@ -595,7 +632,7 @@ gh repo view --json visibility     # PUBLIC であることを確認してから
 所要 20〜40 分（1.1GB + ソース zip の DL を含む。回線次第）。
 
 ```
-! cd C:\Users\caads\offline-verify\full\workspace && offline\setup-offline.bat
+! cd C:\Users\Public\offline-verify\full\workspace && offline\setup-offline.bat
 ```
 
 - [ ] **Step 3: 6 段の進行を確認する**
@@ -620,7 +657,7 @@ PowerShell 版のダウンロードには timeout が無い（既知の弱点）
 - [ ] **Step 6: 展開されたソースが pin と一致することを確認する**
 
 ```powershell
-$W = 'C:\Users\caads\offline-verify\full\workspace'
+$W = 'C:\Users\Public\offline-verify\full\workspace'
 Get-ChildItem $W | Select-Object Name
 Get-Content "$W\offline\pinned-release.txt" | Select-String '^source-commit '
 ```
@@ -632,7 +669,7 @@ Get-Content "$W\offline\pinned-release.txt" | Select-String '^source-commit '
 CI 全体は local 側で済んでいるので、ここでは構築の完全性だけを見る。
 
 ```powershell
-cd C:\Users\caads\offline-verify\full\workspace
+cd C:\Users\Public\offline-verify\full\workspace
 corepack pnpm run typecheck
 corepack pnpm run test:pie-chart
 ```
@@ -694,7 +731,7 @@ Phase 0 Step 12 で控えた値へ戻す。**検証フォルダを削除する�
 ```powershell
 [Environment]::SetEnvironmentVariable('GIT_BIN','C:\Users\caads\workspace\git-tools\portablegit\cmd\git.exe','User')
 $p = ([Environment]::GetEnvironmentVariable('Path','User') -split ';' |
-  Where-Object { $_ -and $_ -notlike 'C:\Users\caads\offline-verify\*' }) -join ';'
+  Where-Object { $_ -and $_ -notlike 'C:\Users\Public\offline-verify\*' }) -join ';'
 [Environment]::SetEnvironmentVariable('Path',$p,'User')
 ```
 
@@ -710,9 +747,9 @@ $p = ([Environment]::GetEnvironmentVariable('Path','User') -split ';' |
 
 - [ ] **Step 8: 検証フォルダの扱いをユーザーに確認する**
 
-`C:\Users\caads\offline-verify\` は約 10GB を占める。次のいずれかを選んでもらう。
+`C:\Users\Public\offline-verify\` は約 10GB を占める。次のいずれかを選んでもらう。
 
-- 削除する: `Remove-Item -Recurse -Force C:\Users\caads\offline-verify`
+- 削除する: `Remove-Item -Recurse -Force C:\Users\Public\offline-verify`
 - 残す: 次回の検証で `setup-offline-local.bat` の再実行（receipt 経路）を試せる
 
 ---
