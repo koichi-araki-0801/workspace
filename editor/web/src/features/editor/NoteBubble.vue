@@ -134,7 +134,12 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
    よう背景は不透明(`var(--card)` はアルファ無し)、輪郭は影で強めに立てる。 */
 .note-bubble {
   position: absolute;
-  z-index: 5;
+  /* overlay 層は `pointer-events: none` で、操作を受ける要素だけが復帰させる約束
+     (`EditorView.vue` のハンドル類と同じ)。これが無いとクリックが吹き出しを素通りして
+     canvas の iframe に当たり、閉じる・編集・削除のどれも押せない。 */
+  pointer-events: auto;
+  /* 同じ overlay 層のハンドル・ページ境界ガイド(z-index 22-26)より前に出す。 */
+  z-index: 28;
   width: 244px;
   border-radius: 8px;
   border: 1px solid var(--border);
