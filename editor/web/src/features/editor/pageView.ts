@@ -5,6 +5,8 @@
 // 切り出したもの。ページ要素の列挙・可視制御 CSS の生成・index クランプを純粋関数にして
 // vitest で全分岐を直接検証できるようにする(実レイアウトに依存しない)。
 
+import { REDLINE_ATTR } from './redline/redlineApply';
+
 /** 生 DOM へ付ける現在ページ判定用のマーカー属性。Component モデルには載せない。 */
 export const PV_ATTR = 'data-pv-idx';
 
@@ -75,6 +77,11 @@ export function isBreakValue(v: string | undefined): boolean {
  */
 export function strayDirectChildren(root: HTMLElement): HTMLElement[] {
   return Array.from(root.children).filter(
-    (el): el is HTMLElement => el instanceof HTMLElement && !el.classList.contains('page'),
+    (el): el is HTMLElement =>
+      el instanceof HTMLElement &&
+      !el.classList.contains('page') &&
+      // 赤入れの削除要素は生 DOM だけの表示物で、モデルにも保存出力にも無い。孤立要素として
+      // `PV_ATTR` を付けると、装飾の有無でページ表示の制御対象が揺れる。
+      !el.hasAttribute(REDLINE_ATTR),
   );
 }

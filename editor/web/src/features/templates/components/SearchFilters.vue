@@ -120,7 +120,7 @@ const canSearch = computed(() => canSubmitSearch(query, props.fields, props.requ
 
 <template>
   <FilterBar :bare="props.bare">
-    <FormField v-for="f in props.fields" :key="f" width="lg">
+    <FormField v-for="f in props.fields" :key="f" width="2xl">
       <Label>
         {{ labels[f] }}
         <span v-if="props.requiredFields.includes(f)" class="text-destructive">*</span>

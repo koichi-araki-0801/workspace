@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Rows3,
   Save,
+  Strikethrough,
   Undo2,
 } from '@lucide/vue';
 import PageNav from '@/components/PageNav.vue';
@@ -38,6 +39,10 @@ const props = defineProps<{
   canUndo: boolean;
   canRedo: boolean;
   showPageGuides: boolean;
+  /** 確定版からの変更箇所を赤入れ(旧文言の取り消し線)で表示しているか。 */
+  showRedline: boolean;
+  /** 赤入れの基準(確定版)があるか。作成経路では無いのでボタンを出さない。 */
+  redlineAvailable: boolean;
   /** 1 始まりで表示する現在ページ番号。 */
   currentPage: number;
   pageCount: number;
@@ -56,6 +61,7 @@ const emit = defineEmits<{
   /** ズーム%クリック / ⌘0: 全体フィットへ戻す。 */
   zoomReset: [];
   togglePageGuides: [];
+  toggleRedline: [];
   /** ページ番号ジャンプ(1 起点)。`EditorView` で `g.goToPage(n - 1)` へ。 */
   go: [page: number];
   toggleSinglePage: [];
@@ -77,13 +83,16 @@ const attrItems = (a: TemplateAttributes) => [
 
 <template>
   <header
-    class="z-30 flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b bg-card px-4 py-1.5 shadow-sm print:hidden"
+    class="z-30 flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b bg-card px-4 py-1.5 shadow-sm print:hidden"
   >
     <!-- ── 左ゾーン: 一覧へ戻る + 文書情報(タイトル / 属性チップ) ── -->
     <BackButton :fallback="{ name: 'edit' }" aria-label="一覧へ戻る" />
     <div class="h-[26px] w-px shrink-0 bg-border" />
 
-    <div class="flex min-w-0 flex-col">
+    <!-- 幅の上限を持たせるのは折り返しの抑止。`flex-wrap` の行送りは shrink より先に効くため、
+         左ゾーンが伸びると縮む代わりにヘッダが折り返し、右端のプレビューだけが 2 行目へ落ちる。
+         上限は属性チップ 1 行分(実測 418px)で、長いファンド名は truncate へ回す。 -->
+    <div class="flex min-w-0 max-w-[420px] flex-col">
       <div class="flex min-w-0 items-center gap-2">
         <span class="truncate text-[15px] font-bold">{{ fundName }}</span>
         <!-- 確定状態のバッジ。下書きは常時自動保存されるが「確定保存」は preview 画面で行うため、
@@ -230,6 +239,23 @@ const attrItems = (a: TemplateAttributes) => [
           <Rows3 class="h-[17px] w-[17px]" />
         </Button>
       </Tooltip>
+
+      <!-- 確定版からの変更箇所の赤入れ。旧文言をインラインで挿すため行送りが PDF とずれる —
+           OFF で流れを戻せる。作成経路は確定版が無いので出さない。 -->
+      <Tooltip
+        v-if="redlineAvailable"
+        :text="showRedline ? '変更箇所の赤入れを隠す' : '変更箇所を赤入れで表示（旧文言に取り消し線）'"
+      >
+        <Button
+          variant="ghost"
+          size="icon"
+          :aria-label="showRedline ? '変更箇所の赤入れを隠す' : '変更箇所を赤入れで表示'"
+          :class="showRedline ? 'text-primary' : ''"
+          @click="emit('toggleRedline')"
+        >
+          <Strikethrough class="h-[17px] w-[17px]" />
+        </Button>
+      </Tooltip>
     </div>
 
     <!-- ── 右ゾーン: 保存状態 + アクション(保存 / プレビュー) ── -->
@@ -238,13 +264,18 @@ const attrItems = (a: TemplateAttributes) => [
       :class="saveState === 'error' ? 'text-destructive' : 'text-muted-foreground'"
       role="status"
       aria-live="polite"
+      :title="statusText"
     >
       <Loader2 v-if="saveState === 'saving'" class="h-[15px] w-[15px] animate-spin" />
       <CheckCircle2 v-else-if="saveState === 'saved'" class="h-[15px] w-[15px] text-success" />
       <AlertCircle v-else-if="saveState === 'error'" class="h-[15px] w-[15px]" />
       <Save v-else class="h-[15px] w-[15px]" />
-      <!-- 保存失敗だけは狭幅でも文言を出す — アイコンのみでは失敗を見逃しうるため。 -->
-      <span :class="saveState === 'error' ? 'inline' : 'hidden md:inline'">{{ statusText }}</span>
+      <!-- 保存失敗だけは狭幅でも文言を出す — アイコンのみでは失敗を見逃しうるため。
+           正常時の閾値が 2xl(1536px)と高いのはヘッダを 1 行に保つため。この行の 1 行分の
+           余裕は約 60px しかなく、「HH:MM に自動保存」(117px)を出すとヘッダが折り返して
+           右端の「プレビュー」が 2 行目へ落ちる。隠しても状態はアイコンが示し、全文は
+           この span の親が `title` で見せる。 -->
+      <span :class="saveState === 'error' ? 'inline' : 'hidden 2xl:inline'">{{ statusText }}</span>
     </span>
 
     <Button

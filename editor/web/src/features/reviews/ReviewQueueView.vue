@@ -141,17 +141,6 @@ onMounted(load);
         </Badge>
         <Badge variant="secondary" class="shrink-0">{{ ORIGIN_LABEL[r.origin] }}</Badge>
         <AttributeBar :attributes="r.attributes" class="min-w-0 flex-1" />
-        <div class="w-full pl-1 text-xs text-muted-foreground">
-          <span v-if="r.changedSummary">
-            変更 {{ r.changedSummary.count }} か所
-            <template v-if="r.changedSummary.names.length">
-              （{{ r.changedSummary.names.join('・') }}）
-            </template>
-          </span>
-          <span v-if="r.status === 'held' && r.holdComment" class="block">
-            保留メモ: {{ r.holdComment }}
-          </span>
-        </div>
         <div class="flex shrink-0 flex-col items-end text-xs text-muted-foreground">
           <span>申請: {{ r.submittedBy }}・{{ formatDateTimeShort(r.submittedAt) }}</span>
           <span v-if="r.reviewedBy">
@@ -175,6 +164,25 @@ onMounted(load);
                   : '内容を見る'
           }}
         </Button>
+        <!--
+          全幅(`w-full`)の補足行はここで行を折り返すため、カードの最後に置く。前へ置くと
+          後続の申請者情報とボタンが折り返しの向こう側(3 行目)へ送られる。中身が無いときは
+          描画しない(空の全幅ブロックが余白だけの行を作るため)。
+        -->
+        <div
+          v-if="r.changedSummary || (r.status === 'held' && r.holdComment)"
+          class="w-full pl-1 text-xs text-muted-foreground"
+        >
+          <span v-if="r.changedSummary">
+            変更 {{ r.changedSummary.count }} か所
+            <template v-if="r.changedSummary.names.length">
+              （{{ r.changedSummary.names.join('・') }}）
+            </template>
+          </span>
+          <span v-if="r.status === 'held' && r.holdComment" class="block">
+            保留メモ: {{ r.holdComment }}
+          </span>
+        </div>
       </li>
     </ul>
   </div>

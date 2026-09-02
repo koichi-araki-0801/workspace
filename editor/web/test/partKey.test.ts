@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { partEls, partLabelMap, partPathKeyFor } from '@/features/editor/partKey';
-import { occurrenceKey, rawKey } from '@/lib/blockKey';
+import { occurrenceKey, rawKey, rawKeyFromParts } from '@/lib/blockKey';
 
 /** innerHTML から canvas wrapper 相当の root 要素を作る(jsdom)。 */
 function root(html: string): HTMLElement {
@@ -21,6 +21,19 @@ describe('blockKey.rawKey', () => {
     expect(rawKey(q(root('<div id="x" class="c">'), 'div'))).toBe('x');
     expect(rawKey(q(root('<div class="c d">'), 'div'))).toBe('.c');
     expect(rawKey(q(root('<section>'), 'section'))).toBe('section');
+  });
+});
+
+describe('blockKey.rawKeyFromParts', () => {
+  it('rawKey(el) と同じ優先順で、要素を持たずにキーを作る', () => {
+    expect(rawKeyFromParts({ partId: 'cover', id: 'x', firstClass: 'c', tag: 'div' })).toBe(
+      'cover',
+    );
+    expect(rawKeyFromParts({ id: 'x', firstClass: 'c', tag: 'div' })).toBe('x');
+    expect(rawKeyFromParts({ firstClass: 'c', tag: 'div' })).toBe('.c');
+    expect(rawKeyFromParts({ tag: 'SECTION' })).toBe('section');
+    // 空文字・null は「無し」として次の候補へ落ちる
+    expect(rawKeyFromParts({ partId: '', id: null, firstClass: '', tag: 'p' })).toBe('p');
   });
 });
 
@@ -111,5 +124,21 @@ describe('partLabelMap — 全パーツの人間向けラベル', () => {
     const map = partLabelMap(r);
     expect(map.get('body#1/solo#1')).toBe('ページ1・パーツ1');
     expect(map.get('body#1/p#1')).toBe('ページ1・パーツ2');
+  });
+});
+
+describe('partEls — 赤入れ装飾はパーツとして数えない', () => {
+  it('[data-redline] の兄弟が挿入されてもパーツ採番とキーが変わらない', () => {
+    const plain = root('<div class="page"><p class="a">A</p><p class="b">B</p></div>');
+    const withDel = root(
+      '<div class="page"><p class="a">A</p><del data-redline="" class="redline-block"><p class="x">gone</p></del><p class="b">B</p></div>',
+    );
+    const pagePlain = q(plain, '.page');
+    const pageDel = q(withDel, '.page');
+    expect(partEls(pageDel).map((e) => e.className)).toEqual(
+      partEls(pagePlain).map((e) => e.className),
+    );
+    expect(partPathKeyFor(q(withDel, '.b'), withDel)).toBe(partPathKeyFor(q(plain, '.b'), plain));
+    expect([...partLabelMap(withDel).values()]).toEqual([...partLabelMap(plain).values()]);
   });
 });

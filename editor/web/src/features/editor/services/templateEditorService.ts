@@ -26,6 +26,8 @@ interface EditorLoad {
   template: Template;
   /** 編集可能(Jinja-mask 済み)形式の body HTML — draft 由来、または新規に mask したもの。 */
   editableBody: string;
+  /** 確定版の値埋め込み本文。赤入れの基準。draft 有無に関わらず解決する。 */
+  confirmedBody: string;
   css: string;
   /** canvas 選択を docs へ解決するための catalog parts。 */
   parts: PartCatalogItem[];
@@ -81,7 +83,8 @@ export function createTemplateEditorService(
       // 値差込(filled)生成は Worker(nunjucks)で実行しメインを塞がない。静的 filled が
       // あればそれを優先する。
       const filledBody = tpl.filled || (await htmlWorker.toFilled(tpl.html, sample));
-      const editableBody = draft ? draft.html : getBodyInner(filledBody);
+      const confirmedBody = getBodyInner(filledBody);
+      const editableBody = draft ? draft.html : confirmedBody;
       const css = draft ? draft.css : tpl.css;
 
       // canvas の iframe は `about:blank` でアプリのオリジンを継承するため、CSS に外部参照が
@@ -108,6 +111,7 @@ export function createTemplateEditorService(
       return ok({
         template: tpl,
         editableBody,
+        confirmedBody,
         css,
         parts: partsRes.value,
         fundName,

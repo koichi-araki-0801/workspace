@@ -13,6 +13,7 @@
 // 更新のように構造が同一な版替えでは確実に一致する。
 
 import { occurrenceKey } from '@/lib/blockKey';
+import { REDLINE_ATTR } from './redline/redlineApply';
 
 /**
  * canvas root(GrapesJS wrapper か body)直下の `.page` 要素列。1 件も無ければ root 自身を
@@ -25,9 +26,15 @@ function pageEls(root: HTMLElement): HTMLElement[] {
   return pages.length > 0 ? pages : [root];
 }
 
-/** page 直下の top-level block(= パーツ)列。要素ノードのみ。 */
+/**
+ * page 直下の top-level block(= パーツ)列。要素ノードのみ。赤入れ表示が挿す削除要素
+ * （`[data-redline]`。生 DOM だけに在りモデルには無い）は除く — 数えるとメモの構造キーと
+ * 「ページN・パーツM」の採番が表示の ON/OFF で変わってしまう。
+ */
 export function partEls(pageEl: HTMLElement): HTMLElement[] {
-  return Array.from(pageEl.children).filter((el): el is HTMLElement => el instanceof HTMLElement);
+  return Array.from(pageEl.children).filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && !el.hasAttribute(REDLINE_ATTR),
+  );
 }
 
 /** 選択要素から、属する page とその直下のパーツ要素を解決する。 */

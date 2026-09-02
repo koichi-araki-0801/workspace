@@ -7,14 +7,28 @@
 // 優先順で要素のアンカーを決め、兄弟内の重複は出現順 `#n` で一意化する。HTML 構造のみに
 // 依存するため、版種/基準日が変わっても同じ構造の要素なら一致する。
 
+/**
+ * 要素を持たずにアンカーを決める版。編集キャンバスの赤入れ（`features/editor/redline/`）は
+ * GrapesJS のモデル木と定義木を整列させるため、DOM 要素ではなく属性の断片からキーを作る
+ * 必要がある。規則は `rawKey` と 1 か所で共有する（片方だけ変わると版を跨ぐ対応づけが崩れる）。
+ */
+export function rawKeyFromParts(p: {
+  partId?: string | null;
+  id?: string | null;
+  firstClass?: string | null;
+  tag: string;
+}): string {
+  return p.partId || p.id || (p.firstClass ? `.${p.firstClass}` : '') || p.tag.toLowerCase();
+}
+
 /** element のアンカー: catalog part id → element id → 先頭 class → tag 名 の順で決める。 */
 export function rawKey(el: HTMLElement): string {
-  return (
-    el.getAttribute('data-part-id') ||
-    el.id ||
-    (el.classList[0] ? `.${el.classList[0]}` : '') ||
-    el.tagName.toLowerCase()
-  );
+  return rawKeyFromParts({
+    partId: el.getAttribute('data-part-id'),
+    id: el.id,
+    firstClass: el.classList[0] ?? null,
+    tag: el.tagName,
+  });
 }
 
 /** 兄弟 `siblings` の中で `el` が同 `rawKey` の何番目か(1 始まり)を付した一意キー。 */

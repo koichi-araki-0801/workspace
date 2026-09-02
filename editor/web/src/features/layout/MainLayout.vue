@@ -61,9 +61,13 @@ function goAdmin() {
 </script>
 
 <template>
+  <!-- ヘッダ・タブ・本文の 3 か所は同じ最大幅で揃える。1320px は絞り込みバーの要件から
+       決まる: 項目名つき placeholder が収まる列幅(240px)で、比較画面の最大構成である
+       5 列(240px×4 + 「比較する版」220px + 間隔 48px = 1228px)を 1 行に並べるのに要る幅。
+       狭めると 5 列目が次行へ落ち、編集画面では操作ボタンだけが次行へ落ちる。 -->
   <div class="min-h-screen bg-muted/40">
     <header class="border-b bg-card print:hidden">
-      <div class="mx-auto flex h-14 max-w-[1180px] items-center gap-4 px-5">
+      <div class="mx-auto flex h-14 max-w-[1400px] items-center gap-4 px-5">
         <div class="flex shrink-0 items-baseline gap-2 font-bold text-primary">
           <FileText class="h-5 w-5 self-center" />
           <span class="text-base tracking-[0.1em]">RET</span>
@@ -88,7 +92,7 @@ function goAdmin() {
         </div>
       </div>
       <nav class="border-t">
-        <div class="mx-auto flex max-w-[1180px] items-center gap-1 overflow-x-auto px-5 py-2">
+        <div class="mx-auto flex max-w-[1400px] items-center gap-1 overflow-x-auto px-5 py-2">
           <template v-for="(t, i) in tabs" :key="t.name">
             <!-- グループの境目に細い縦線(装飾のみ)。 -->
             <div
@@ -127,7 +131,7 @@ function goAdmin() {
         </div>
       </nav>
     </header>
-    <main class="mx-auto max-w-[1180px] px-5 pb-16 pt-6">
+    <main class="mx-auto max-w-[1400px] px-5 pb-16 pt-6">
       <RouterView />
     </main>
   </div>

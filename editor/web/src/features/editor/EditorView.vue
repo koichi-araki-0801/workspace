@@ -47,6 +47,9 @@ const {
   allowAdd,
   allowEdit,
   dirty,
+  redlineEnabled,
+  redlineAvailable,
+  toggleRedline,
   autosave,
   canUndo,
   canRedo,
@@ -287,6 +290,8 @@ const statusText = computed(() => {
       :can-undo="canUndo"
       :can-redo="canRedo"
       :show-page-guides="showPageGuides"
+      :show-redline="redlineEnabled"
+      :redline-available="redlineAvailable"
       :current-page="g.currentPageIndex.value + 1"
       :page-count="g.pageCount.value"
       :single-page-mode="g.singlePageMode.value"
@@ -298,6 +303,7 @@ const statusText = computed(() => {
       @zoom-out="zoomOut"
       @zoom-reset="zoomReset"
       @toggle-page-guides="showPageGuides = !showPageGuides"
+      @toggle-redline="toggleRedline"
       @go="g.goToPage($event - 1)"
       @toggle-single-page="g.setSinglePageMode(!g.singlePageMode.value)"
       @toggle-edit="allowEdit = !allowEdit"

@@ -6,7 +6,12 @@
 // `wireGrapesEvents` へ、zoom/フィットは `useZoomFit.ts` へ、ページ境界 guide は
 // `usePageGuides.ts` へ、選択枠 rect / メモ目印は `useCanvasMarkers.ts` へ委譲する。
 
-import grapesjs, { type Component, type Editor, type ParsedNode } from 'grapesjs';
+import grapesjs, {
+  type Component,
+  type ComponentDefinition,
+  type Editor,
+  type ParsedNode,
+} from 'grapesjs';
 import { ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
@@ -25,12 +30,21 @@ import {
   pageViewCss,
   strayDirectChildren,
 } from './pageView';
+import { redlineCanvasCss } from './redline/redlineCss';
 import { useCanvasMarkers } from './useCanvasMarkers';
 import { usePageGuides } from './usePageGuides';
 import { useZoomFit } from './useZoomFit';
 
 // 分離前からの import 元互換(zoom 定数の正典は `useZoomFit`)。
 export { ZOOM_STEP } from './useZoomFit';
+
+/**
+ * `parse:html:root` の刈り取りトーストを黙らせる間だけ立つフラグ(`parseHtmlQuiet`)。
+ * 刈り取り自体は止めない — 赤入れの基準は canvas と同じ正規化を通してこそ形が比較できる。
+ * 抑止するのは利用者向けのトーストだけで、基準のパースは load 直後に本文と同じ HTML を
+ * もう一度通すため、抑止しないと同じ通知が二重に出て 2 通目は宛先の無い警告になる。
+ */
+let quietParse = false;
 
 /** `useGrapes` の推論戻り値型が参照するため export が必要(TS4058 回避)。 @public */
 export interface GrapesContainers {
@@ -394,7 +408,7 @@ export function useGrapes() {
     // 落とした件数は利用者へ出す — 黙って消すと「保存したら中身が減っていた」事故になる。
     ed.on('parse:html:root', ({ root }: { root: ParsedNode }) => {
       const report = pruneCanvasActiveContent(root, { allowedGjsTypes: JINJA_COMPONENT_TYPE_SET });
-      if (report.droppedCount === 0) return;
+      if (quietParse || report.droppedCount === 0) return;
       const detail = [...report.droppedElements, ...report.droppedAttrs].slice(0, 5).join(', ');
       toast(
         `編集キャンバスで扱えない内容を ${report.droppedCount} 件取り除きました（${detail}）。`,
@@ -425,7 +439,7 @@ export function useGrapes() {
       toInfo,
       isLocked: () => locked,
       isApplyingLockState: () => applyingLockState,
-      canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}`,
+      canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}\n${redlineCanvasCss}`,
       callbacks,
     });
 
@@ -698,6 +712,25 @@ export function useGrapes() {
     return true;
   }
 
+  /**
+   * canvas と同じ正規化(`parse:html:root` の刈り取り)を通して HTML を定義木へ変換する。
+   * 赤入れの基準づくり用で、刈り取りは通常どおり行い、利用者向けのトーストだけ抑止する
+   * (`quietParse` を見よ)。
+   */
+  function parseHtmlQuiet(html: string): ComponentDefinition[] {
+    const ed = editor.value;
+    if (!ed) return [];
+    quietParse = true;
+    try {
+      // `parseHtml` は単一定義と配列のどちらも返しうる。呼び出し側を素直にするため配列へ揃える。
+      const parsed = ed.Parser.parseHtml(html).html;
+      if (!parsed) return [];
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } finally {
+      quietParse = false;
+    }
+  }
+
   function getBodyHtml(): string {
     return editor.value?.getHtml() ?? '';
   }
@@ -764,6 +797,7 @@ export function useGrapes() {
     init,
     load,
     setVarsHighlight,
+    parseHtmlQuiet,
     insertPart,
     getBodyHtml,
     getCss,

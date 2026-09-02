@@ -28,6 +28,7 @@ rev:
 | 13 | 編集 | テンプレートID | `templateId` | `string` | ○ | 下書き保存（PUT /templates/:id/draft）対象 |
 | 14 | 編集 | HTML | `html` | `string` | ○ | GrapesJS 本文。確定保存はファイル保存 |
 | 15 | 編集 | CSS | `css` | `string` | ○ | 本文スタイル |
+| 16 | 編集 | 変更箇所の赤入れ表示 | `showRedline` | `boolean` |  | 既定 ON。確定版と draft の差分を canvas の生 DOM に取り消し線で表示（保存・申請・PDF には載らない）。作成経路では非表示 |
 
 # 入出力定義（REST API）
 
@@ -192,6 +193,7 @@ sproc ファイルは `server/db/sproc/` の 7 本（`audit` / `noteMaster` / `p
 | 11 | DB | DDL/索引/制約の適用 | apply.ps1 を 2 回実行（冪等性確認） | エラー無し・テーブル 7 / 索引 / CHECK 制約が仕様どおり | 済 |  |
 | 12 | DB | sproc ゲートウェイ疎通 | 7 sproc の代表 @操作 を EXEC | 結果セット返却・THROW 50404/50409/50000 が仕様どおり | 済 |  |
 | 13 | DB | REST 縦貫 + 監査ミラー | rest モードで login〜API〜logout | セッション作成/失効・監査ログが DB に記録 | 済 |  |
+| 14 | 編集（E2E） | 赤入れ表示 | 文言を置換 → トグル OFF/ON → パーツ選択 → autosave | 旧文言が `del[data-redline]` で出る／OFF で消える／選択パーツの装飾が外れる／draft に `data-redline` が無い | 済 |  |
 
 > 検証環境（2026-08-02）: SQL Server 2022 Express LocalDB + ODBC Driver 17 + msnodesqlv8 4.5.0
 > （Node 24 prebuild）。本番ターゲット SQL Server 2012 上での再検証は未実施
