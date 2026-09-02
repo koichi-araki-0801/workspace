@@ -62,6 +62,9 @@
 ### 4.1 `redlineTree.ts` — 平坦ツリーと 2 つのアダプタ
 
 ```ts
+/** live 側のノード解決子。基準側は常に null を返す。 */
+type NodeResolver = () => Node | null;
+
 interface RedlineNode {
   kind: 'el' | 'text';
   /** 兄弟内で一意な整列キー。要素は `rawKey#n`、テキストは `#text#n`。 */
@@ -69,10 +72,10 @@ interface RedlineNode {
   tag?: string;
   text?: string;
   children: RedlineNode[];
-  /** live 側のみ。GrapesJS の Component への参照。 */
-  ref?: Component;
-  /** 基準側のみ。removed 表示用に自前直列化した HTML。 */
-  html?: string;
+  /** live 側: canvas DOM 上の対応ノード（要素または Text）。基準側は null。 */
+  node: NodeResolver;
+  /** 基準側のみ: 削除要素をキャンバスへ描くための定義（`ComponentDefinition`）。 */
+  def?: ComponentDefinition;
 }
 ```
 
@@ -93,29 +96,40 @@ interface RedlineNode {
 
 ```ts
 type RedlineOp =
-  | { kind: 'delText'; textRef: Component; ops: DiffOp[] }
-  | { kind: 'insText'; textRef: Component; ops: DiffOp[] }
-  | { kind: 'addedEl'; ref: Component }
-  | { kind: 'removedEl'; parentRef: Component; beforeRef: Component | null; html: string };
+  | { kind: 'delText'; node: NodeResolver; ops: DiffOp[] }
+  | { kind: 'insText'; node: NodeResolver; ops: DiffOp[] }
+  | { kind: 'addedEl'; node: NodeResolver }
+  | {
+      kind: 'removedEl';
+      /** 挿入先の親（null = ルート）。 */
+      parent: NodeResolver | null;
+      /** この live ノードの直前へ挿す。null = 親の末尾。 */
+      before: NodeResolver | null;
+      /** 削除されたのがテキストなら inline、要素なら block。 */
+      inline: boolean;
+      def?: ComponentDefinition;
+      text?: string;
+    };
 
 function diffRedline(base: RedlineNode[], live: RedlineNode[], budget: LcsBudget): RedlineOp[];
 ```
 
 - 再帰整列は `htmlBlockDiff.diffElement` と同じ思想: 同キーの対は降りる、live のみは
-  `addedEl`、基準のみは `removedEl`、テキスト対は `tokenize` + `diffTokens` で語句差分を取り
-  `del` が 1 つでもあれば `delText`、`ins` が 1 つでもあれば `insText` を出す。同じスロットで
-  種別（要素 / テキスト）や tag が違う場合は `removedEl` + `addedEl` として扱う。
+  `addedEl`（テキストなら `insText`）、基準のみは `removedEl`、テキスト対は `tokenize` +
+  `diffTokens` で語句差分を取り `del` が 1 つでもあれば `delText`、`ins` が 1 つでもあれば
+  `insText` を出す。同じスロットで種別（要素 / テキスト）や tag が違う場合は `removedEl` +
+  （`addedEl` または `insText`）として扱う。
 - `removedEl` の挿入位置は「基準側で直後にあった兄弟のうち、live 側にも存在する最初の
-  もの」を `beforeRef` とする。無ければ末尾（`null`）。
+  もの」の live ノード解決子を `before` とする。無ければ末尾（`null`）。
 - 粗い差分（`coarse`）は全文 del + ins の形で返す。取り消し線は出るので要件は満たす。
   精査画面と同じ DP セル予算を 1 回の計算で共有する。
 - テキスト同一判定は空白の折り畳み比較（`htmlBlockDiff.collapse` 相当）。
 
 ### 4.3 `redlineApply.ts` — DOM への適用と除去
 
-- `applyRedline(doc, ops)`:
-  - `delText`: 対象 textnode の live Text ノード（`textRef.getEl()`）を ops の順にたどり、
-    `same` / `ins` の文字数ぶん進んだ位置で `splitText` し、そこへ削除語句ごとの
+- `applyRedline(rootEl, ops)`:
+  - `delText`: 対象 textnode の live Text ノード（`node()`）を ops の順にたどり、`same` /
+    `ins` の文字数ぶん進んだ位置で `splitText` し、そこへ削除語句ごとの
     `<del data-redline contenteditable="false">旧語句</del>` を割り込ませる（旧文言は新文言の
     直前に出る）。分割後も先頭の断片は GrapesJS の textnode view が持つ `el` のままなので、
     view とモデルの対応は崩れない。除去時（`clearRedline` / `clearRedlineWithin`）は `del` を
@@ -127,15 +141,17 @@ function diffRedline(base: RedlineNode[], live: RedlineNode[], budget: LcsBudget
     着色は補助であり、要件は旧文言の取り消し線）。
   - `addedEl`: live 要素に `data-redline-added` 属性を付ける（属性は生 DOM のみ。モデルの
     `attributes` には触らない）。
-  - `removedEl`: `<del data-redline class="redline-block">` に基準側の HTML を入れ、
-    `parentRef.getEl()` の `beforeRef.getEl()` の前（または末尾）へ挿入する。
-- `clearRedline(root)`: `[data-redline]` を全て除去し、`[data-redline-added]` 属性を外し、
+  - `removedEl`: `<del data-redline>` を作り（`inline` なら文字列のまま、要素削除なら
+    `class="redline-block"` を付ける）、テキスト削除は `text` をそのまま `textContent` へ、
+    要素削除は `renderDefinition(def, doc)` で `createElement` / `setAttribute` /
+    `createTextNode` により DOM を組んで中へ入れる（`id` / `contenteditable` / `on*` /
+    `data-gjs-*` は写さない。文字列連結や `innerHTML` を経由しないので、本文や属性値に
+    HTML の字面が入っていても文字列のまま出る）。`parent()`（無ければ `rootEl`）の
+    `before()` の前（無ければ末尾）へ挿入する。
+- `clearRedline(rootEl)`: `[data-redline]` を全て除去し、`[data-redline-added]` 属性を外し、
   `CSS.highlights.delete('redline-ins')` を呼ぶ。分割した Text があれば `normalize()` で戻す。
-- `clearRedlineWithin(el)`: 上記を `el` の配下だけに限定する（選択パーツ用）。
-- `serializeDefinition(def)`: removed 表示用の HTML 直列化。属性値と本文をエスケープする。
-  対象は他ユーザが書いた本文なので、`on*` 属性や `<script>` の字面が入っていても文字列の
-  まま出る形にする（`textContent` へ入れる / `setAttribute` を使い、`innerHTML` へ生文字列を
-  流さない）。
+- `clearRedlineWithin(el)`: 上記を `el` の配下だけに限定する（選択パーツ用。挿入語句の
+  CSS Highlight は要素を跨がず表示だけの存在なので残す）。
 
 ### 4.4 `redlineCss.ts` — キャンバスへ注入する CSS
 
@@ -179,8 +195,10 @@ body:not(.redline-on) [data-redline] { display: none; }
     `lastContent` を読む時点で装飾は無い。
   - `component:drag:start`: 全装飾を除去する。Sorter がモデル無し要素を踏まない。
   - RTE 中（`editing`）と drag 中は再計算を抑止し、終了時に再計算する。
-- `partKey.partEls` と `pageView` の列挙から `[data-redline]` を除外する。これによりメモの
-  構造キーとページ数が装飾の有無で変わらない。
+  - 再計算は選択中のパーツを常に素のままにし（`clearPartOf(ed.getSelected())`）、選択解除で
+    再計算が装飾を戻す。
+- `partKey.partEls` から `[data-redline]` を除外する（`pageView.enumeratePageEls` は `.page`
+  だけを拾うので変更不要）。これによりメモの構造キーが装飾の有無で変わらない。
 - 保存経路（`getHtml` / snapshot / 申請 / PDF）には一切触らない。
 
 ## 5. データフロー
@@ -237,9 +255,10 @@ sequenceDiagram
   同一結果になる。jinja chip は要素として保持される。自動 id がキーに混入しない。
   同キーの兄弟に `#n` が付く。
 - `redlineDiff.test.ts`: 語句の del / ins、要素の added / removed、同キーの再帰、`#text#n`、
-  coarse フォールバック、変更なし → 空配列、種別違い → removed + added、`beforeRef` の解決。
+  coarse フォールバック、変更なし → 空配列、種別違い → removed + （added または insText）、
+  `before` の解決。
 - `redlineApply.test.ts`: `del` の挿入位置と属性、`clearRedline` で `innerHTML` が完全復元、
-  `clearRedlineWithin` の局所性、`serializeDefinition` のエスケープ（`<img onerror>` の字面が
+  `clearRedlineWithin` の局所性、`renderDefinition` によるエスケープ（`<img onerror>` の字面が
   テキストのまま出る）、`CSS.highlights` 不在で例外が出ない。
 - `partKey.test.ts` へ追記: `[data-redline]` の兄弟がパーツ採番に影響しない。
 
