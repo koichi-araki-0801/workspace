@@ -31,13 +31,20 @@ async function login(page: Page) {
 }
 
 /**
- * ヘッダの子要素が何行に分かれているか。判定に上端でなく**中心の y**を使うのは、
- * 右ゾーンを押しやるスペーサー(`<span class="flex-1" />`)が高さゼロで、上端だと
+ * 編集画面の上部バー(`EditorTopBar.vue`)。アプリヘッダ(`MainLayout.vue`)も `header` 要素
+ * なので、素の `header` では先頭のアプリヘッダを掴んで別要素を測ってしまう。上部バーだけが
+ * 持つ「一覧へ戻る」で選ぶ。
+ */
+const TOP_BAR = 'header:has([aria-label="一覧へ戻る"])';
+
+/**
+ * `selector` が指す要素の子要素が何行に分かれているか。判定に上端でなく**中心の y**を
+ * 使うのは、右ゾーンを押しやるスペーサー(`<span class="flex-1" />`)が高さゼロで、上端だと
  * 同じ行にいても他の要素と 20px 以上ずれるため。
  */
-async function headerRows(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const header = document.querySelector('header');
+async function headerRows(page: Page, selector: string): Promise<number> {
+  return page.evaluate((sel) => {
+    const header = document.querySelector(sel);
     if (!header) return -1;
     const centers = Array.from(header.children).map((c) => {
       const r = c.getBoundingClientRect();
@@ -45,7 +52,7 @@ async function headerRows(page: Page): Promise<number> {
     });
     const base = Math.min(...centers);
     return new Set(centers.map((y) => Math.round((y - base) / 20))).size;
-  });
+  }, selector);
 }
 
 async function openLongNameEditor(page: Page) {
@@ -58,18 +65,21 @@ test('1440px: 長いファンド名でもヘッダが 1 行に収まる', async 
   await page.setViewportSize({ width: 1440, height: 900 });
   await openLongNameEditor(page);
   // この幅では保存状態の文言は出ない(アイコンのみ)。出すと必ず溢れる。
-  await expect(page.locator('header [role="status"] span').last()).toBeHidden();
-  expect(await headerRows(page)).toBe(1);
+  await expect(page.locator(`${TOP_BAR} [role="status"] span`).last()).toBeHidden();
+  expect(await headerRows(page, TOP_BAR)).toBe(1);
 });
 
 test('1600px: 保存状態の文言が出る幅でもヘッダが 1 行に収まる', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await openLongNameEditor(page);
-  await expect(page.locator('header [role="status"] span').last()).toBeVisible();
-  await page.evaluate((status) => {
-    const label = document.querySelector('header [role="status"] span:last-child');
-    if (label) label.textContent = status;
-  }, LONGEST_STATUS);
-  await expect(page.locator('header [role="status"]')).toContainText(LONGEST_STATUS);
-  expect(await headerRows(page)).toBe(1);
+  await expect(page.locator(`${TOP_BAR} [role="status"] span`).last()).toBeVisible();
+  await page.evaluate(
+    ([sel, status]) => {
+      const label = document.querySelector(`${sel} [role="status"] span:last-child`);
+      if (label) label.textContent = status;
+    },
+    [TOP_BAR, LONGEST_STATUS] as const,
+  );
+  await expect(page.locator(`${TOP_BAR} [role="status"]`)).toContainText(LONGEST_STATUS);
+  expect(await headerRows(page, TOP_BAR)).toBe(1);
 });
