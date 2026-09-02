@@ -83,3 +83,58 @@ test('1600px: 保存状態の文言が出る幅でもヘッダが 1 行に収ま
   await expect(page.locator(`${TOP_BAR} [role="status"]`)).toContainText(LONGEST_STATUS);
   expect(await headerRows(page, TOP_BAR)).toBe(1);
 });
+
+/**
+ * アプリヘッダ(`MainLayout.vue`)の 1 行。ロゴ・タブ群・右端(管理者/テーマ/ユーザー)は
+ * 同じ行の直接の子なので、その親の行を測る。
+ */
+const APP_HEADER_ROW = 'header:has(nav) > div';
+
+/** 要素の縦中心 y。ロゴとタブが同じ行にあるかの判定に使う。 */
+async function centerY(page: Page, selector: string): Promise<number> {
+  return page.evaluate((sel) => {
+    const r = document.querySelector(sel)?.getBoundingClientRect();
+    return r ? r.top + r.height / 2 : -1;
+  }, selector);
+}
+
+for (const width of [1440, 1600, 1920]) {
+  test(`${width}px: アプリヘッダ(ロゴ + タブ + 右端)が 1 行に収まり、横に溢れない`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await openLongNameEditor(page);
+    // ロゴは副文言まで出す(落として幅を稼がない)
+    await expect(page.getByText('Report Edit Tool')).toBeVisible();
+    await expect(page.getByRole('link', { name: '履歴' })).toBeVisible();
+    // ロゴとタブが同じ行にある(2 段ヘッダなら約 50px ずれる)
+    const logoY = await centerY(page, 'header:has(nav) span.tracking-\\[0\\.1em\\]');
+    const tabY = await centerY(page, 'header nav a[aria-current="page"]');
+    expect(Math.abs(logoY - tabY)).toBeLessThanOrEqual(2);
+    expect(await headerRows(page, APP_HEADER_ROW)).toBe(1);
+    const overflow = await page.evaluate((sel) => {
+      const row = document.querySelector(sel);
+      return row ? row.scrollWidth - row.clientWidth : -1;
+    }, APP_HEADER_ROW);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+}
+
+test('1920px: 本文の最大幅は 1760px(編集 3 ペインの固定幅 584px + ページ 794px の要件)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await openLongNameEditor(page);
+  const widths = await page.evaluate((sel) => {
+    const bar = document.querySelector(sel);
+    const main = document.querySelector('main');
+    return {
+      bar: bar?.getBoundingClientRect().width ?? -1,
+      main: main?.getBoundingClientRect().width ?? -2,
+    };
+  }, TOP_BAR);
+  expect(Math.round(widths.main)).toBe(1760);
+  // 上部バーは main の全幅を使う(flush で左右の余白が無い)
+  expect(Math.abs(widths.bar - widths.main)).toBeLessThanOrEqual(1);
+  expect(await headerRows(page, TOP_BAR)).toBe(1);
+});

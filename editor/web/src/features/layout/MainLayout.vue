@@ -72,13 +72,20 @@ function goAdmin() {
 </script>
 
 <template>
-  <!-- ヘッダ・タブ・本文の 3 か所は同じ最大幅で揃える。1320px は絞り込みバーの要件から
-       決まる: 項目名つき placeholder が収まる列幅(240px)で、比較画面の最大構成である
-       5 列(240px×4 + 「比較する版」220px + 間隔 48px = 1228px)を 1 行に並べるのに要る幅。
-       狭めると 5 列目が次行へ落ち、編集画面では操作ボタンだけが次行へ落ちる。 -->
+  <!-- ヘッダ帯と本文は同じ最大幅で揃える。1760px は編集画面の要件から決まる: 左ペイン 272px +
+       右ペイン 312px = 584px が固定で、内容幅がページ実体 794px + 余白を収めるには 1500px 強
+       要る。1400px 枠だと canvas が 776px でページより狭く、上部バーも折り返す(実測)。
+       下限は絞り込みバーの要件 1400px: 項目名つき placeholder が収まる列幅(240px)で、比較画面の
+       最大構成である 5 列(240px×4 + 「比較する版」220px + 間隔 48px = 1228px)を 1 行に並べる
+       のに要る幅。狭めると 5 列目が次行へ落ち、編集画面では操作ボタンだけが次行へ落ちる。 -->
   <div class="flex h-screen flex-col bg-muted/40">
+    <!-- ヘッダ帯は 1 行 56px。編集・プレビューがこの帯の下に展開されるため、帯を 2 段
+         (ロゴ行 + タブ行)にすると canvas の高さを 46px 余分に失う。ロゴ(副文言まで)・
+         タブ群・右端(管理者/テーマ/ユーザー)を同じ行に置き、ゾーン間は `gap-8` と `ml-auto`
+         で十分に空ける。1760px 枠で約 1205px を使う。それより狭い画面では行ごと横スクロール
+         (要素を隠さない)。 -->
     <header class="shrink-0 border-b bg-card print:hidden">
-      <div class="mx-auto flex h-14 max-w-[1400px] items-center gap-4 px-5">
+      <div class="mx-auto flex h-14 max-w-[1760px] items-center gap-8 overflow-x-auto px-5">
         <div class="flex shrink-0 items-baseline gap-2 font-bold text-primary">
           <FileText class="h-5 w-5 self-center" />
           <span class="text-base tracking-[0.1em]">RET</span>
@@ -86,24 +93,7 @@ function goAdmin() {
             Report Edit Tool
           </span>
         </div>
-        <div class="ml-auto flex items-center gap-2.5">
-          <RouterLink v-if="auth.isAdmin" :to="{ name: 'admin' }">
-            <Button variant="outline" size="sm">
-              <Shield class="h-4 w-4" /> 管理者
-            </Button>
-          </RouterLink>
-          <ThemeToggle />
-          <UserMenu
-            v-if="auth.user"
-            :user="auth.user"
-            :is-admin="auth.isAdmin"
-            @admin="goAdmin"
-            @logout="logout"
-          />
-        </div>
-      </div>
-      <nav class="border-t">
-        <div class="mx-auto flex max-w-[1400px] items-center gap-1 overflow-x-auto px-5 py-2">
+        <nav class="flex shrink-0 items-center gap-1">
           <template v-for="(t, i) in tabs" :key="t.name">
             <!-- グループの境目に細い縦線(装飾のみ)。 -->
             <div
@@ -139,15 +129,30 @@ function goAdmin() {
               </span>
             </RouterLink>
           </template>
+        </nav>
+        <div class="ml-auto flex shrink-0 items-center gap-2.5">
+          <RouterLink v-if="auth.isAdmin" :to="{ name: 'admin' }">
+            <Button variant="outline" size="sm">
+              <Shield class="h-4 w-4" /> 管理者
+            </Button>
+          </RouterLink>
+          <ThemeToggle />
+          <UserMenu
+            v-if="auth.user"
+            :user="auth.user"
+            :is-admin="auth.isAdmin"
+            @admin="goAdmin"
+            @logout="logout"
+          />
         </div>
-      </nav>
+      </div>
     </header>
     <!-- 本文だけがスクロールする(ヘッダ帯は常に固定)。編集・プレビュー(`flush`)は余白を
          持たず残りの高さを全部使う。`min-h-0` が無いと flex 子の最小高さが内容高になり
          はみ出す。 -->
     <main
       :class="
-        cn('mx-auto min-h-0 w-full max-w-[1400px] flex-1 overflow-auto', !flush && 'px-5 pb-16 pt-6')
+        cn('mx-auto min-h-0 w-full max-w-[1760px] flex-1 overflow-auto', !flush && 'px-5 pb-16 pt-6')
       "
     >
       <RouterView />
