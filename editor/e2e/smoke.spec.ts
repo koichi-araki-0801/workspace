@@ -110,6 +110,9 @@ test('preview shows the edited body after an autosaved draft exists', async ({ p
   await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
     timeout: 15_000,
   });
+  // dirty な編集画面は閉じる前の警告(`beforeunload`)を出す。Playwright の既定 dismiss は
+  // 「ページに留まる」なので、accept してプレビューへ進める。
+  page.on('dialog', (d) => void d.accept());
   await page.goto(`/preview/${id}`, { waitUntil: 'commit' });
   const preview = page.frameLocator('iframe[title="プレビュー"]');
   await expect(preview.getByText('E2E追記').first()).toBeVisible({ timeout: 60_000 });

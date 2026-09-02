@@ -7,6 +7,13 @@ import { expect, type Page, test } from '@playwright/test';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
+// 編集後に reload するテストがある。dirty な編集画面は閉じる前の警告(`beforeunload`)を出し、
+// Playwright はリスナ無しのダイアログを dismiss(= ページに留まる)するため、reload が止まる。
+// 警告は accept して進める(ここで検証したいのは警告でなく、その後の復元・破棄の挙動)。
+test.beforeEach(({ page }) => {
+  page.on('dialog', (d) => void d.accept());
+});
+
 async function login(page: Page) {
   await page.goto('/', { waitUntil: 'commit' });
   await page.waitForURL(/\/(login|edit|reviews)/);
@@ -96,4 +103,87 @@ test('一覧を見ていた状態から他タブへ行って「編集」タブ�
   await expect(page).toHaveURL(/\/history$/);
   await page.getByRole('link', { name: '編集' }).click();
   await expect(page).toHaveURL(/\/edit$/);
+});
+
+/**
+ * 編集を許可して地の段落へ 1 語追記し、autosave の完了を待つ。RTE の活性化は dblclick だが、
+ * Playwright の合成ダブルクリックは選択後に出る GrapesJS のオーバーレイに 2 打目を吸われて
+ * 発火しない(実測)ので、canvas 文書へ直接 dblclick を配送する(`smoke.spec.ts` と同じ)。
+ */
+async function appendAndAutosave(page: Page, text: string) {
+  const frame = page.frameLocator('iframe.gjs-frame');
+  await page.getByText('編集を許可', { exact: true }).click();
+  await expect(page.getByText('編集中', { exact: true })).toBeVisible({ timeout: 10_000 });
+  await frame.getByText('受益者のみなさまへ').first().click();
+  await page.evaluate(() => {
+    const doc = document.querySelector<HTMLIFrameElement>('iframe.gjs-frame')?.contentDocument;
+    const p = [...(doc?.querySelectorAll('p') ?? [])].find((e) =>
+      (e.textContent ?? '').includes('受益者のみなさまへ'),
+    );
+    p?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  });
+  const editing = frame.locator('[contenteditable="true"]').first();
+  await expect(editing).toBeVisible({ timeout: 10_000 });
+  await editing.evaluate((el, t) => {
+    el.append(t);
+    el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  }, text);
+  await frame
+    .locator('.page')
+    .first()
+    .click({ position: { x: 5, y: 5 } });
+  await expect(frame.getByText(text).first()).toBeVisible({ timeout: 10_000 });
+  // 文言は 2xl 未満で隠れるので、全文を持つ title で autosave 完了を待つ
+  await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
+    timeout: 15_000,
+  });
+}
+
+test('未確定の編集があっても他タブへ行ける(破棄確認は出ない)し、戻ると編集が残っている', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await login(page);
+  await openEditor(page);
+  await appendAndAutosave(page, 'E2Eタブ往復');
+
+  await page.getByRole('link', { name: '比較' }).click();
+  await expect(page).toHaveURL(/\/compare$/);
+  await expect(page.getByText('保存していない変更があります')).toHaveCount(0);
+
+  await page.getByRole('link', { name: '編集' }).click();
+  const frame = page.frameLocator('iframe.gjs-frame');
+  await expect(frame.getByText('E2Eタブ往復').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('未確定', { exact: true })).toBeVisible();
+});
+
+test('リロードでは編集が残る(同じタブ = 同じセッション)', async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page);
+  await openEditor(page);
+  await appendAndAutosave(page, 'E2Eリロード');
+  await page.reload({ waitUntil: 'commit' });
+  const frame = page.frameLocator('iframe.gjs-frame');
+  await expect(frame.getByText('E2Eリロード').first()).toBeVisible({ timeout: 30_000 });
+});
+
+test('タブを閉じた後(セッショントークンが消えた後)に開き直すと、未確定の編集は破棄される', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await login(page);
+  await openEditor(page);
+  await appendAndAutosave(page, 'E2E破棄');
+  // ブラウザタブを閉じて開き直す = sessionStorage が消えて localStorage は残る
+  await page.evaluate(() => sessionStorage.clear());
+  await page.reload({ waitUntil: 'commit' });
+  const frame = page.frameLocator('iframe.gjs-frame');
+  await frame.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
+  await expect(frame.getByText('E2E破棄')).toHaveCount(0);
+  await expect(page.getByText('変更なし', { exact: true })).toBeVisible();
+  // 下書きの実体(local モードは localStorage の `editor:drafts`)も消えている
+  const leftover = await page.evaluate(() =>
+    (localStorage.getItem('editor:drafts') ?? '').includes('E2E破棄'),
+  );
+  expect(leftover).toBe(false);
 });

@@ -4,8 +4,8 @@
 // 役割: 編集画面の「修正履歴」と Undo/Redo スタックを `EditorView.vue` の外へ持ち上げ、
 // `templateId` をキーに保持する。Pinia ストアはシングルトンのため、`/edit/:id` ⇄
 // `/preview/:id` の往復で `EditorView` がアンマウント/再マウントされても state が生存し、
-// プレビューから戻った時に履歴と Undo/Redo がそのまま継続する。セッションは「メニューへの
-// 破棄」または「確定保存」で終了し、その時 `clear` で破棄する。
+// プレビューから戻った時に履歴と Undo/Redo がそのまま継続する。タブ遷移でも破棄しない
+// (編集セッションはブラウザタブの寿命)。セッションは「確定保存」で終了し、その時 `clear` で破棄する。
 
 import type { PartHistoryEntry } from '@editor/shared';
 import { defineStore } from 'pinia';

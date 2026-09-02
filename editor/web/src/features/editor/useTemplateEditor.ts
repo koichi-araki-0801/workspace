@@ -16,7 +16,6 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useNoteRepo } from '@/api/repositories';
-import { confirm } from '@/components/ui/confirm';
 import { toast, toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
 import { useAuthStore } from '@/stores/auth';
@@ -437,12 +436,13 @@ export function useTemplateEditor(
     }
   });
 
-  // 未保存分が失われうる間は、離脱(tab を閉じる / reload)前に警告する。debounce 待機中
-  // (`pending`)は state が idle/saved のままでも直近の編集が未保存なので含める。dirty 単独では
-  // 警告しない — draft は autosave 済みで、次回オープン時に復元されるため。
+  // 閉じる / reload の前に警告する条件は「未確定の編集がある」(`dirty`)、または autosave が
+  // 未保存の窓にある(debounce 待ち・保存中・失敗)。編集セッションはブラウザタブの寿命で、
+  // 閉じると次回オープン時に draft が破棄されるため、autosave 済みでも dirty なら警告する。
+  // reload は同じセッションなので実際には残るが、ブラウザは閉じると reload を区別しない。
   function beforeUnload(e: BeforeUnloadEvent) {
     const st = autosave.state.value;
-    if (autosave.pending.value || st === 'saving' || st === 'error') {
+    if (dirty.value || autosave.pending.value || st === 'saving' || st === 'error') {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -464,39 +464,13 @@ export function useTemplateEditor(
     g.destroy();
   });
 
-  // アプリ内 navigation guard。
-  //  - プレビュー / 承認精査(バッジ経由)への遷移(編集セッション内)は破棄しない:
-  //    履歴・Undo/Redo・draft を維持する。
-  //  - メニュー等へ離脱する際は、確定保存していない変更があれば yes/no で確認し、承諾された
-  //    場合は draft とセッション履歴を破棄してから移動する(キャンセルなら離脱中止)。
-  onBeforeRouteLeave(async (to) => {
-    await autosave.settled(); // 進行中の保存を待ってから離脱判定へ入る
-
-    // 同一テンプレートのプレビューへの往復はセッションを保持する。
-    if (to.name === 'preview' && to.params.id === id) return true;
-    // 上部バーの「承認待ち」バッジ経由の精査画面往復も同じ扱い(`fromEdit` は `EditorView` の
-    // `goReview` だけが付ける往復マーカー)。状況確認のたびに編集を破棄させない。
-    // 通常のタブ遷移・直 URL はマーカーが無いので従来どおり下の破棄確認に当たる。
-    if (to.name === 'review-detail' && to.query.fromEdit === id) return true;
-
-    if (dirty.value) {
-      const discard = await confirm({
-        title: '保存していない変更があります',
-        description: '確定保存していない編集内容は破棄されます。よろしいですか？',
-        confirmLabel: '破棄して戻る',
-        cancelLabel: '編集に戻る',
-        variant: 'destructive',
-      });
-      if (!discard) return false; // 離脱中止: 編集画面に留まる
-      // 破棄の直後に予約分・進行中の保存が着地すると draft が書き戻る。予約を捨て、
-      // 進行中があれば着地を待ってから削除する。
-      autosave.cancel();
-      await autosave.settled();
-      const res = await service.discardDraft(id);
-      if (isErr(res)) logError(res.error); // 破棄失敗は log のみ(移動は止めない)
-    }
-    // 破棄を確定、または変更なし: セッション履歴/Undo/Redo を後始末して移動する。
-    sessionStore.clear(id);
+  // アプリ内 navigation guard。編集セッションはブラウザタブの寿命なので、タブ遷移・
+  // プレビュー往復・精査画面往復のどれでも破棄しない(draft は autosave 済み、履歴と
+  // Undo/Redo は `editorSession` ストアが templateId 単位で保持する)。進行中の保存だけは
+  // 待ってから離れる — 離脱直後に着地した保存が、次の画面で読んだ内容より古い draft を
+  // 書き戻さないため。閉じたタブが残した draft の破棄は `loadForEdit` が次回オープン時に行う。
+  onBeforeRouteLeave(async () => {
+    await autosave.settled();
     return true;
   });
 
