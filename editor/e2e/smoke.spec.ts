@@ -103,9 +103,13 @@ test('preview shows the edited body after an autosaved draft exists', async ({ p
   // プレビュー復元の退行ではない — 切り分けのための中間アサーション)。
   await expect(frame.getByText('E2E追記').first()).toBeVisible({ timeout: 10_000 });
 
-  // autosave(debounce)の完了を表示で待ってからプレビューへ。draft が無いと本テストは
-  // 上の直行テストと同じ経路になり、退行を検知できない。
-  await expect(page.getByText(/に自動保存/)).toBeVisible({ timeout: 15_000 });
+  // autosave(debounce)の完了を保存状態の表示で待ってからプレビューへ。draft が無いと
+  // 本テストは上の直行テストと同じ経路になり、退行を検知できない。文言そのものは 2xl 未満の
+  // 幅では隠れる(`EditorTopBar.vue` — ヘッダを 1 行に保つため)ので、待つのは可視ではなく
+  // 全文を持つ `title` 属性にする。
+  await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
+    timeout: 15_000,
+  });
   await page.goto(`/preview/${id}`, { waitUntil: 'commit' });
   const preview = page.frameLocator('iframe[title="プレビュー"]');
   await expect(preview.getByText('E2E追記').first()).toBeVisible({ timeout: 60_000 });
