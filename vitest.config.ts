@@ -157,6 +157,9 @@ export default defineConfig({
         'editor/web/src/features/editor/useAutosave.ts',
         'editor/web/src/stores/editorSession.ts',
         'editor/web/src/stores/pendingReviews.ts',
+        // 編集・プレビュー画面のタブ内展開。タブ点灯の写像と直前画面の記憶は、退行が
+        // 「別のタブが点く / 一覧へ落ちる」という UI 上の無言の形で出るため被覆に入れる。
+        'editor/web/src/features/layout/tabOf.ts',
         'editor/web/src/features/compare/htmlBlockDiff.ts',
         'editor/web/src/features/compare/services/compareService.ts',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
