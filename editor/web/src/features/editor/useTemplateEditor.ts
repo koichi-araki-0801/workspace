@@ -108,7 +108,13 @@ export function useTemplateEditor(
   });
 
   // 確定版からの変更箇所の赤入れ(旧文言の取り消し線)。基準は load 後に `setBaseline` で入れる。
-  const redline = useRedline({ editor: g.editor, revision: g.revision, editing: g.editing, dirty });
+  const redline = useRedline({
+    editor: g.editor,
+    revision: g.revision,
+    editing: g.editing,
+    dirty,
+    parseHtml: g.parseHtmlQuiet,
+  });
 
   // ── 1. undo / redo (snapshot 方式) ──
   // GrapesJS の UndoManager はプログラム経由の style 書き込みを確実には追えないため、
@@ -357,8 +363,11 @@ export function useTemplateEditor(
     g.setVarsHighlight(route.query.created === '1');
     // locked 状態で開始する(allowEdit の既定は false)。
     g.setEditable(allowEdit.value);
-    // 赤入れの基準は確定版(`filled`)。作成経路(`?created=1`)は確定版が無いので機能を出さない。
-    redline.setBaseline(route.query.created === '1' ? undefined : res.value.template.filled);
+    // 赤入れの基準は確定版の値埋め込み本文(`loadForEdit` が `filled` または `toFilled` で
+    // 解決する)。REST の `getTemplate` は `filled` を常に空で返すため、`template.filled` を
+    // 直に読むと本番では基準が無く機能が黙って死ぬ。作成経路(`?created=1`)は確定版そのものが
+    // 無いので機能を出さない。
+    redline.setBaseline(route.query.created === '1' ? undefined : res.value.confirmedBody);
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
     // `refreshPageGuides`→`refreshNoteMarkers` が位置を測り直す。
     void note.reload();

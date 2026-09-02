@@ -1,7 +1,7 @@
 // =============================================================================
 // useRedline.ts — 編集キャンバスの赤入れ表示（確定版からの変更箇所）の composable
 // =============================================================================
-// 役割: 基準（確定版 `Template.filled`）を 1 回だけ定義木に写して保持し、canvas の変更のたびに
+// 役割: 基準（確定版の値埋め込み本文）を 1 回だけ定義木に写して保持し、canvas の変更のたびに
 // live のモデル木と比べて装飾を置き直す。装飾は生 DOM だけに置く（`redlineApply.ts`）。
 //
 // RTE（インライン文字編集）は開始時に `el.innerHTML` を読み、終了時に変わっていればモデルへ
@@ -10,8 +10,8 @@
 // 並べ替え（Sorter）はドロップ先の DOM 子要素からモデルを引くので、drag 開始で全装飾を外す。
 
 import { toAppError } from '@editor/shared';
-import type { Component, Editor } from 'grapesjs';
-import { type Ref, ref, type ShallowRef, watch } from 'vue';
+import type { Component, ComponentDefinition, Editor } from 'grapesjs';
+import { onUnmounted, type Ref, ref, type ShallowRef, watch } from 'vue';
 import { createLcsBudget } from '@/features/compare/htmlBlockDiff';
 import { logError } from '@/lib/appError';
 import { getBodyInner } from '@/lib/templateDoc';
@@ -29,6 +29,13 @@ interface RedlineDeps {
   editing: Ref<boolean>;
   /** draft が確定版と違う可能性があるか。false なら差分を計算せず装飾を外すだけ。 */
   dirty: Ref<boolean>;
+  /**
+   * 基準 HTML を canvas と同じ正規化で定義木へ変換する(`useGrapes.parseHtmlQuiet`)。
+   * 刈り取りは canvas と同じに揃える必要がある — 揃えないと基準と live の形が食い違い、
+   * 差分が全面 add/remove へ化ける。抑止するのは刈り取りの結果を伝えるトーストだけで、
+   * 本文の読み込みで既に同じ通知が出ているため、基準づくりで二重に出すと誤解を招く。
+   */
+  parseHtml: (html: string) => ComponentDefinition[];
 }
 
 export function useRedline(deps: RedlineDeps) {
@@ -55,8 +62,9 @@ export function useRedline(deps: RedlineDeps) {
   }
 
   /**
-   * 基準を確保する。編集経路（`?created=1` でない）で `Template.filled` を渡す。作成経路や
-   * filled が無い版では undefined を渡し、機能ごと無効にする（トグルも出ない）。
+   * 基準を確保する。編集経路（`?created=1` でない）で確定版の値埋め込み本文（`loadForEdit` が
+   * 解決する `confirmedBody`）を渡す。作成経路では undefined を渡し、機能ごと無効にする
+   * （トグルも出ない）。
    */
   function setBaseline(filledHtml: string | undefined): void {
     const ed = deps.editor.value;
@@ -69,8 +77,7 @@ export function useRedline(deps: RedlineDeps) {
     // パースが失敗しても編集セッションを道連れにしない。以後 `g.onChange` 等の登録が続くため、
     // ここで投げると autosave・undo 記録・並べ替えまで丸ごと止まる。
     try {
-      const parsed = ed.Parser.parseHtml(getBodyInner(filledHtml)).html;
-      baseline = fromDefinitions(parsed);
+      baseline = fromDefinitions(deps.parseHtml(getBodyInner(filledHtml)));
       available.value = baseline.length > 0;
     } catch (e) {
       logError(toAppError(e));
@@ -113,6 +120,8 @@ export function useRedline(deps: RedlineDeps) {
     clearRedline(root);
     if (!enabled.value || !deps.dirty.value) return;
     try {
+      // `rootEl()` が非 null を返した時点で wrapper の存在は確定している(型は
+      // `ComponentWrapper | undefined`)。
       const live = fromComponents(ed.getWrapper() as Component);
       applyRedline(root, diffRedline(baseline, live, createLcsBudget()));
       clearPartOf(ed.getSelected());
@@ -160,6 +169,10 @@ export function useRedline(deps: RedlineDeps) {
 
   watch(deps.revision, schedule);
   watch(deps.dirty, schedule);
+  // 画面離脱後に debounce が発火しても、参照先の canvas は既に破棄されている。
+  onUnmounted(() => {
+    if (timer) clearTimeout(timer);
+  });
 
   return {
     enabled,

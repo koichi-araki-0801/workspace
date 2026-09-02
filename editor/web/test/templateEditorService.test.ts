@@ -11,6 +11,8 @@ import {
 } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { createTemplateEditorService } from '@/features/editor/services/templateEditorService';
+import { toFilled } from '@/lib/fillJinja';
+import { getBodyInner } from '@/lib/templateDoc';
 
 const tpl: Template = {
   meta: {
@@ -105,6 +107,56 @@ describe('TemplateEditorService.loadForEdit', () => {
     const res = await svc.loadForEdit('t1');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) expect(res.value.fundName).toBe('t1');
+  });
+});
+
+describe('TemplateEditorService.loadForEdit — 赤入れの基準となる確定版本文', () => {
+  // `confirmedBody` は編集キャンバスの赤入れ表示の基準。REST の `getTemplate` は `filled` を
+  // 常に空で返すため、静的 filled の有無・draft の有無に関わらず解決できることを固定する。
+  it('静的 filled が空でも toFilled で解決した本文を返す', async () => {
+    const { templates, parts } = repos({ draft: null });
+    const svc = createTemplateEditorService(templates, parts);
+    const res = await svc.loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.confirmedBody).toBe(getBodyInner(toFilled(tpl.html, {})));
+      // draft が無いときの編集本文と同一の源(確定版)から出ている。
+      expect(res.value.confirmedBody).toBe(res.value.editableBody);
+    }
+  });
+
+  it('静的 filled があればその body 内部を使う', async () => {
+    const filled = '<html><body><p>確定版の本文</p></body></html>';
+    const templates = {
+      getTemplate: vi.fn(async () => ok({ ...tpl, filled })),
+      getDraft: vi.fn(async () => ok(null)),
+    } as unknown as TemplateRepository;
+    const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
+    const res = await createTemplateEditorService(templates, parts).loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.confirmedBody).toBe('<p>確定版の本文</p>');
+  });
+
+  it('draft があっても確定版本文は確定版から解決する', async () => {
+    const filled = '<html><body><p>確定版の本文</p></body></html>';
+    const draft: TemplateDraft = {
+      templateId: 't1',
+      html: '<p>draft body</p>',
+      css: '.from-draft{}',
+      savedAt: '',
+      savedBy: '',
+    };
+    const templates = {
+      getTemplate: vi.fn(async () => ok({ ...tpl, filled })),
+      getDraft: vi.fn(async () => ok(draft)),
+    } as unknown as TemplateRepository;
+    const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
+    const res = await createTemplateEditorService(templates, parts).loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.editableBody).toBe('<p>draft body</p>');
+      expect(res.value.confirmedBody).toBe('<p>確定版の本文</p>');
+    }
   });
 });
 

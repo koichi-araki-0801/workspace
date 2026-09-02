@@ -7,6 +7,7 @@ import {
   pageViewCss,
   strayDirectChildren,
 } from '@/features/editor/pageView';
+import { REDLINE_ATTR } from '@/features/editor/redline/redlineApply';
 
 // pageView の純粋関数(ページ列挙 / 可視制御 CSS / index クランプ)を DOM 構築のみで検証する。
 // 実レイアウト(getComputedStyle/getBoundingClientRect)に依存しないため jsdom で全分岐を直接叩ける。
@@ -70,6 +71,14 @@ describe('strayDirectChildren', () => {
 
   it('wrapper 直下が .page のみ(正常時)なら空配列', () => {
     const root = makeBody([{ cls: 'page' }, { cls: 'page' }]);
+    expect(strayDirectChildren(root)).toEqual([]);
+  });
+
+  it('赤入れの削除要素(data-redline)は孤立要素として返さない', () => {
+    // 装飾は生 DOM だけの表示物で、`recomputePages` の防御的措置(`PV_ATTR` 付与)の対象外。
+    const root = makeBody([{ cls: 'page' }, { tag: 'del' }, { cls: 'page' }]);
+    const del = root.children[1] as HTMLElement;
+    del.setAttribute(REDLINE_ATTR, '');
     expect(strayDirectChildren(root)).toEqual([]);
   });
 

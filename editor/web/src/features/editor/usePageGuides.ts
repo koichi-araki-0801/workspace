@@ -10,6 +10,10 @@ import type { Editor } from 'grapesjs';
 import { ref, type ShallowRef } from 'vue';
 import { logError } from '@/lib/appError';
 import { isBreakValue } from './pageView';
+import { REDLINE_ATTR } from './redline/redlineApply';
+
+/** 赤入れの削除要素(生 DOM だけの表示物)とその配下を走査から外すためのセレクタ。 */
+const REDLINE_SELECTOR = `[${REDLINE_ATTR}]`;
 
 /**
  * A4 sheet 上に描く 1 本のページ境界 guide(canvas 相対 / zoom 考慮の座標、
@@ -60,6 +64,9 @@ export function usePageGuides(ctx: PageGuidesContext) {
     }
     const out: { el: HTMLElement; edge: 'before' | 'after' }[] = [];
     for (const el of Array.from(body.querySelectorAll<HTMLElement>('*'))) {
+      // 削除要素の複製が持つ改ページ指定を数えると guide とページ数が食い違う。装飾は表示だけの
+      // 存在で、保存内容にも PDF にも無い。
+      if (el.closest(REDLINE_SELECTOR)) continue;
       const cs = win.getComputedStyle(el);
       if (isBreakValue(cs.breakBefore || cs.pageBreakBefore)) out.push({ el, edge: 'before' });
       if (isBreakValue(cs.breakAfter || cs.pageBreakAfter)) out.push({ el, edge: 'after' });
