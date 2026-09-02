@@ -63,11 +63,20 @@ export function useRedline(deps: RedlineDeps) {
     if (!ed || !filledHtml) {
       baseline = null;
       available.value = false;
+      applyBodyClass();
       return;
     }
-    const parsed = ed.Parser.parseHtml(getBodyInner(filledHtml)).html;
-    baseline = fromDefinitions(parsed);
-    available.value = baseline.length > 0;
+    // パースが失敗しても編集セッションを道連れにしない。以後 `g.onChange` 等の登録が続くため、
+    // ここで投げると autosave・undo 記録・並べ替えまで丸ごと止まる。
+    try {
+      const parsed = ed.Parser.parseHtml(getBodyInner(filledHtml)).html;
+      baseline = fromDefinitions(parsed);
+      available.value = baseline.length > 0;
+    } catch (e) {
+      logError(toAppError(e));
+      baseline = null;
+      available.value = false;
+    }
     applyBodyClass();
     schedule();
   }
@@ -76,7 +85,8 @@ export function useRedline(deps: RedlineDeps) {
   function clearPartOf(comp: Component | undefined): void {
     const el = comp?.getEl();
     const root = rootEl();
-    if (!el || !root) return;
+    // `el` が `root` 自身、または `root` の子孫でない場合は登り続けると `<html>` まで届く。
+    if (!el || !root || el === root || !root.contains(el)) return;
     let part: HTMLElement = el;
     while (
       part.parentElement &&
@@ -97,8 +107,11 @@ export function useRedline(deps: RedlineDeps) {
     const root = rootEl();
     applyBodyClass();
     if (!ed || !root || !baseline) return;
+    // RTE 中 / drag 中は DOM に触らない — `clearRedline` の `normalize()` が contenteditable の
+    // caret を乱す、または Sorter が読む子要素構成を変えてしまうため。
+    if (deps.editing.value || dragging) return;
     clearRedline(root);
-    if (!enabled.value || !deps.dirty.value || deps.editing.value || dragging) return;
+    if (!enabled.value || !deps.dirty.value) return;
     try {
       const live = fromComponents(ed.getWrapper() as Component);
       applyRedline(root, diffRedline(baseline, live, createLcsBudget()));
