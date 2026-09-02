@@ -21,6 +21,7 @@ import {
   setUndoUserScope,
   undoStacksKey,
 } from '@/lib/storageKeys';
+import { useTabMemoryStore } from '@/stores/tabMemory';
 
 /** メッセージ判定専用マーカー(認証強制は repo epoch / REST 全失効が担う。これは表示用)。 */
 const AUTH_EPOCH_KEY = 'editor:authEpoch';
@@ -53,6 +54,15 @@ export const useAuthStore = defineStore('auth', () => {
     ready.value = true;
   }
 
+  /**
+   * タブごとの「直前に見ていた画面」を捨てる。共有端末で、前の利用者が最後に編集していた
+   * テンプレートへ次の利用者がタブ押下だけで飛ばされないようにするため(Undo ミラーを
+   * 利用者ごとのキーへ分けたのと同じ理由)。
+   */
+  function forgetTabMemory(): void {
+    useTabMemoryStore().clear();
+  }
+
   /** 成功時は ok(mustChangePassword), 失敗時は err(AppError) へ解決する。 */
   async function login(username: string, password: string): Promise<Result<boolean>> {
     const res = await auth.login(username, password);
@@ -73,6 +83,7 @@ export const useAuthStore = defineStore('auth', () => {
   function reset(): void {
     user.value = null;
     setUndoUserScope(null);
+    forgetTabMemory();
   }
 
   async function logout(): Promise<void> {
@@ -87,6 +98,7 @@ export const useAuthStore = defineStore('auth', () => {
     // 「同じセッション」と誤判定されることは無い(トークンが違う)が、キーを残さない。
     localStorage.removeItem(draftOwnerKey());
     setUndoUserScope(null);
+    forgetTabMemory();
     // 手動ログアウトは「再起動切断」ではない。マーカーと理由を消す。
     localStorage.removeItem(AUTH_EPOCH_KEY);
     sessionEndedReason.value = null;

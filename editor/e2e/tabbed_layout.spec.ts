@@ -186,4 +186,6 @@ test('タブを閉じた後(セッショントークンが消えた後)に開き
     (localStorage.getItem('editor:drafts') ?? '').includes('E2E破棄'),
   );
   expect(leftover).toBe(false);
+  // Undo で破棄した本文が戻らない(ミラーから復元した Undo スタックも捨てている)。
+  await expect(page.getByRole('button', { name: '元に戻す' })).toBeDisabled();
 });

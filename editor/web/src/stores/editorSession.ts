@@ -117,6 +117,20 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
     // ここまで来たら保存は諦める(throw しない)。
   }
 
+  /**
+   * Undo/Redo スタックだけを空にする。別タブが残した下書きを破棄して確定版から開いたとき
+   * (`loadForEdit` の `discardedStaleDraft`)に呼ぶ — 残すと Undo 1 回で破棄したはずの本文が
+   * 戻り、autosave がそれを下書きとして書き戻してしまうため。`useSnapshotHistory` が配列を
+   * 参照で握っているので、差し替えずに in-place で空にする。修正履歴と採番はセッションの
+   * 記録なので保つ。
+   */
+  function reset(templateId: string): void {
+    const sess = ensure(templateId);
+    sess.undoPast.length = 0;
+    sess.undoFuture.length = 0;
+    persist(templateId); // 永続ミラーも空にする(リロードで再び hydrate されないように)
+  }
+
   /** 編集セッションを破棄する(メニュー復帰での破棄 / 確定保存後)。永続ミラーも消す。 */
   function clear(templateId: string): void {
     delete sessions[templateId];
@@ -127,5 +141,5 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
     }
   }
 
-  return { sessions, ensure, persist, clear };
+  return { sessions, ensure, persist, reset, clear };
 });

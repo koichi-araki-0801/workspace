@@ -124,5 +124,25 @@ export function useSnapshotHistory<T>(
     return past.length;
   }
 
-  return { canUndo, canRedo, pushUndo, beginUndo, commitUndo, cancelUndo, undo, redo, depth };
+  /**
+   * 外部から渡されたスタック配列を呼び出し側が直接空にした後、ボタンの活性を追随させる。
+   * フラグは push/undo/redo でしか更新されないため、これが無いと「押せるのに何も戻らない
+   * Undo ボタン」が残る(別タブの下書きを破棄した直後 — `useTemplateEditor.ts` を見よ)。
+   */
+  function syncFlags(): void {
+    updateFlags();
+  }
+
+  return {
+    canUndo,
+    canRedo,
+    pushUndo,
+    beginUndo,
+    commitUndo,
+    cancelUndo,
+    undo,
+    redo,
+    depth,
+    syncFlags,
+  };
 }

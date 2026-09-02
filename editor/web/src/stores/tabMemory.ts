@@ -25,5 +25,14 @@ export const useTabMemoryStore = defineStore('tabMemory', () => {
     return paths[tab];
   }
 
-  return { paths, remember, pathFor };
+  /**
+   * 全タブの記憶を捨てる。ログアウト時に呼ぶ — 共有端末で、前の利用者が最後に編集していた
+   * テンプレートへ次の利用者がタブ押下だけで飛ばされないようにするため(Undo ミラーを
+   * 利用者ごとのキーへ分けたのと同じ理由)。
+   */
+  function clear(): void {
+    for (const key of Object.keys(paths)) delete paths[key as TabName];
+  }
+
+  return { paths, remember, pathFor, clear };
 });

@@ -14,6 +14,7 @@ import {
   PDF_ERROR_MSG,
 } from '@/features/preview/services/templatePreviewService';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
+import type { DraftOwner } from '@/lib/draftOwner';
 
 // 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では起動しない。
 // ここで固定したいのは draft 適用・文書組み立て・PDF 送信なので、隔離の向こう側にあたる
@@ -26,6 +27,22 @@ vi.mock('@/lib/renderHostClient', async () => {
 const history = {
   recordPdfExport: vi.fn(async () => ok(undefined)),
 } as unknown as HistoryRepository;
+
+/** 下書きの所属のフェイク。`belongs` で「同じセッションか」を固定する(編集経路と同じ形)。 */
+function ownerOf(belongs: boolean): DraftOwner {
+  return { claim: vi.fn(), release: vi.fn(), belongsToSession: vi.fn(() => belongs) };
+}
+
+/** draft を返す repository のフェイク(本文は `html`)。 */
+function draftRepos(html: string): TemplateRepository {
+  return {
+    getTemplate: vi.fn(async () => ok(tpl)),
+    getSampleData: vi.fn(async () => ok({})),
+    getDraft: vi.fn(async () =>
+      ok({ templateId: 't1', html, css: '.from-draft{}', savedAt: '', savedBy: '' }),
+    ),
+  } as unknown as TemplateRepository;
+}
 
 const tpl: Template = {
   meta: {
@@ -71,20 +88,8 @@ describe('TemplatePreviewService.loadForPreview', () => {
   });
 
   it('restores the draft body when an autosaved draft exists', async () => {
-    const templates = {
-      getTemplate: vi.fn(async () => ok(tpl)),
-      getSampleData: vi.fn(async () => ok({})),
-      getDraft: vi.fn(async () =>
-        ok({
-          templateId: 't1',
-          html: '<p>draft</p>',
-          css: '.from-draft{}',
-          savedAt: '',
-          savedBy: '',
-        }),
-      ),
-    } as unknown as TemplateRepository;
-    const svc = createTemplatePreviewService(templates, history);
+    const templates = draftRepos('<p>draft</p>');
+    const svc = createTemplatePreviewService(templates, history, ownerOf(true));
     const res = await svc.loadForPreview('t1');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
@@ -113,7 +118,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
         }),
       ),
     } as unknown as TemplateRepository;
-    const svc = createTemplatePreviewService(templates, history);
+    const svc = createTemplatePreviewService(templates, history, ownerOf(true));
     const res = await svc.loadForPreview('t1');
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.kind).toBe('validation');
@@ -129,6 +134,32 @@ describe('TemplatePreviewService.loadForPreview', () => {
     const res = await svc.loadForPreview('t1');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) expect(res.value.renderError).not.toBeNull();
+  });
+
+  it('別セッションの下書きは採用しない(確定版でプレビューする)', async () => {
+    // 編集経路と同じ判定。ブックマーク・直 URL で編集画面を経由せず来ても、別タブの
+    // 下書きを申請本文にしない。破棄そのものは編集経路(`loadForEdit`)に任せる。
+    const templates = draftRepos('<p>stale draft</p>');
+    const svc = createTemplatePreviewService(templates, history, ownerOf(false));
+    const res = await svc.loadForPreview('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.restoredHtml).toBe(tpl.html);
+      expect(res.value.restoredHtml).not.toContain('stale draft');
+      expect(res.value.css).toContain('.from-file');
+      expect(res.value.hasDraft).toBe(false); // 「変更なし」表示も確定版に揃える
+    }
+  });
+
+  it('同セッションの下書きは採用する', async () => {
+    const templates = draftRepos('<p>mine</p>');
+    const svc = createTemplatePreviewService(templates, history, ownerOf(true));
+    const res = await svc.loadForPreview('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.restoredHtml).toContain('mine');
+      expect(res.value.hasDraft).toBe(true);
+    }
   });
 });
 

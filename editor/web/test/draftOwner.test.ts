@@ -21,9 +21,27 @@ describe('draftOwner', () => {
   });
 
   it('claim した下書きは同じセッションのものとして扱う', () => {
+    localStorage.setItem(draftOwnerKey(), '{}'); // 移行の猶予を消しておく(下記参照)
     expect(draftOwner.belongsToSession('t1')).toBe(false); // 記録なし = 別セッション扱い
     draftOwner.claim('t1');
     expect(draftOwner.belongsToSession('t1')).toBe(true);
+  });
+
+  it('所属キー自体が無ければ猶予として引き継ぐ(旧ビルドからの移行直後)', () => {
+    // 旧ビルドは所属を記録しない。ここで破棄側へ倒すと、デプロイ後の最初のリロードで
+    // 作業中の下書きが一斉に消える。猶予は 1 回限り(claim でキーが生まれる)。
+    expect(localStorage.getItem(draftOwnerKey())).toBeNull();
+    expect(draftOwner.belongsToSession('t1')).toBe(true);
+    expect(JSON.parse(localStorage.getItem(draftOwnerKey()) ?? '{}')).toEqual({
+      t1: sessionToken(),
+    });
+    // キーが生まれた後は通常判定 — 記録の無い別テンプレは別セッション扱いへ戻る。
+    expect(draftOwner.belongsToSession('t2')).toBe(false);
+  });
+
+  it('所属キーはあるが記録が無ければ別セッション扱い', () => {
+    localStorage.setItem(draftOwnerKey(), '{}');
+    expect(draftOwner.belongsToSession('t1')).toBe(false);
   });
 
   it('タブを閉じた後(sessionStorage が消えた後)は別セッション扱いになる', () => {

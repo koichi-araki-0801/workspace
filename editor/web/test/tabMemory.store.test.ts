@@ -29,6 +29,15 @@ describe('useTabMemoryStore', () => {
     expect(store.pathFor('edit')).toBeUndefined();
   });
 
+  it('clear() で全タブの記憶を捨てる(ログアウト時の後始末)', () => {
+    const store = useTabMemoryStore();
+    store.remember({ name: 'editor', query: {}, fullPath: '/edit/t1' });
+    store.remember({ name: 'compare', query: {}, fullPath: '/compare' });
+    store.clear();
+    expect(Object.keys(store.paths)).toHaveLength(0);
+    expect(store.pathFor('edit')).toBeUndefined();
+  });
+
   it('タブを持たない画面は何も覚えない', () => {
     const store = useTabMemoryStore();
     store.remember({ name: 'admin', query: {}, fullPath: '/admin' });

@@ -65,6 +65,7 @@ describe('TemplateEditorService.loadForEdit', () => {
       // body masked to editable form (Jinja preserved as a locked chip)
       expect(res.value.editableBody).toContain('jinja');
       expect(res.value.hasDraft).toBe(false); // draft 無し → dirty 初期値 false
+      expect(res.value.discardedStaleDraft).toBe(false); // 破棄していない
     }
   });
 
@@ -142,6 +143,8 @@ describe('TemplateEditorService.loadForEdit — 下書きの所属セッショ�
       expect(res.value.editableBody).not.toContain('stale draft');
       expect(res.value.css).toBe('.from-file{}');
       expect(res.value.hasDraft).toBe(false); // 確定版から開くので dirty ではない
+      // Undo ミラーの後始末(`sessionStore.reset`)を呼ぶ側へ、破棄した事実を伝える。
+      expect(res.value.discardedStaleDraft).toBe(true);
     }
     expect(templates.discardDraft).toHaveBeenCalledWith('t1');
     expect(owner.release).toHaveBeenCalledWith('t1');

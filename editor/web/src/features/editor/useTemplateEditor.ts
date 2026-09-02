@@ -141,6 +141,7 @@ export function useTemplateEditor(
     undo,
     redo,
     depth: undoDepth,
+    syncFlags: syncUndoFlags,
   } = useSnapshotHistory(
     () => ({ html: g.getBodyHtml(), css: g.getCss() }),
     (s) => {
@@ -345,6 +346,12 @@ export function useTemplateEditor(
     fundName.value = res.value.fundName;
     // 前回セッションの未確定 draft が残っていれば、最初から dirty 扱いにする。
     dirty.value = res.value.hasDraft;
+    // 別タブの下書きを破棄して確定版から開いたときは、ミラーから復元した Undo も捨てる。
+    // 残すと Undo 1 回で破棄したはずの本文が戻り、autosave で下書きとして書き戻る。
+    if (res.value.discardedStaleDraft) {
+      sessionStore.reset(id);
+      syncUndoFlags(); // 空にした配列へボタンの活性を追随させる
+    }
     for (const p of res.value.parts) partsById.set(p.id, p);
 
     const canvas = canvasEl.value;

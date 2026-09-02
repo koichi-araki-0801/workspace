@@ -78,7 +78,7 @@ function goAdmin() {
        下限は絞り込みバーの要件 1400px: 項目名つき placeholder が収まる列幅(240px)で、比較画面の
        最大構成である 5 列(240px×4 + 「比較する版」220px + 間隔 48px = 1228px)を 1 行に並べる
        のに要る幅。狭めると 5 列目が次行へ落ち、編集画面では操作ボタンだけが次行へ落ちる。 -->
-  <div class="flex h-screen flex-col bg-muted/40">
+  <div class="flex h-screen flex-col overflow-hidden bg-muted/40">
     <!-- ヘッダ帯は 1 行 56px。編集・プレビューがこの帯の下に展開されるため、帯を 2 段
          (ロゴ行 + タブ行)にすると canvas の高さを 46px 余分に失う。ロゴ(副文言まで)・
          タブ群・右端(管理者/テーマ/ユーザー)を同じ行に置き、ゾーン間は `gap-8` と `ml-auto`

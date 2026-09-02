@@ -37,6 +37,8 @@ interface EditorLoad {
   fundName: string;
   /** 未確定の draft が既に存在したか(前回セッションの編集途中)。dirty 初期化に使う。 */
   hasDraft: boolean;
+  /** 別セッションの下書きを破棄して確定版から開いたか。Undo スタックの後始末に使う。 */
+  discardedStaleDraft: boolean;
 }
 
 interface TemplateEditorService {
@@ -67,6 +69,7 @@ export function createTemplateEditorService(
 
       const tpl = tplRes.value;
       let draft = draftRes.value;
+      let discardedStaleDraft = false;
       // 編集セッションはブラウザタブの寿命。別のタブ(閉じたタブ・別端末)が残した下書きは
       // ここで破棄して確定版から開く(設計正典「編集セッションの生存規則」)。破棄要求の失敗は
       // 下書きを採用しない形で吸収する — 古い下書きを黙って復元するより確定版から開く方が
@@ -75,6 +78,7 @@ export function createTemplateEditorService(
         const dropped = await templates.discardDraft(id);
         if (isOk(dropped)) owner.release(id);
         draft = null;
+        discardedStaleDraft = true;
       }
 
       // sample data は値の差込と editor タイトルの両方を駆動する。ここでの失敗が
@@ -128,6 +132,7 @@ export function createTemplateEditorService(
         parts: partsRes.value,
         fundName,
         hasDraft: !!draft,
+        discardedStaleDraft,
       });
     },
 
