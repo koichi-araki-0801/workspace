@@ -279,7 +279,7 @@ const statusText = computed(() => {
 </script>
 
 <template>
-  <div class="flex h-screen flex-col bg-background">
+  <div class="flex h-full min-h-0 flex-col bg-background">
     <EditorTopBar
       :fund-name="fundName"
       :attributes="template?.meta.attributes"

@@ -159,7 +159,7 @@ async function exportPdf() {
 </script>
 
 <template>
-  <div class="flex h-screen flex-col bg-background">
+  <div class="flex h-full min-h-0 flex-col bg-background">
     <header
       class="z-30 flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-3.5 gap-y-2 border-b bg-card px-4 py-1.5 shadow-sm print:hidden"
     >

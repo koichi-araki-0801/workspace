@@ -12,23 +12,26 @@ import {
   Pencil,
   Shield,
 } from '@lucide/vue';
-import { computed, onMounted, watch } from 'vue';
-import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
+import { type Component, computed, onMounted, watch } from 'vue';
+import { type RouteLocationRaw, RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';
 import ThemeToggle from '@/components/ui/ThemeToggle.vue';
 import UserMenu from '@/components/ui/UserMenu.vue';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
+import { useTabMemoryStore } from '@/stores/tabMemory';
+import { type TabName, tabOf } from './tabOf';
 
 const auth = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 const pending = usePendingReviewsStore();
+const memory = useTabMemoryStore();
 
 // タブは作業フロー順(作業系 → 承認 → 出力/参照ツール → 履歴)。`group` の境目に区切り線を
 // 挟み、日常操作(編集・作成)とワークフロー(承認)・ツール類の別を一目で分ける。
-const tabs = [
+const tabs: { name: TabName; label: string; icon: Component; group: number }[] = [
   { name: 'edit', label: '編集', icon: Pencil, group: 1 },
   { name: 'create', label: 'テンプレート作成', icon: FilePlus2, group: 1 },
   { name: 'reviews', label: auth.isApprover ? '承認' : '申請状況', icon: ClipboardCheck, group: 2 },
@@ -45,10 +48,18 @@ watch(
   () => void pending.refresh(),
 );
 
-// 承認待ち画面はサブ詳細(`review-detail`)でもタブを点灯させる。
-const activeName = computed(() =>
-  route.name === 'review-detail' ? 'reviews' : route.name,
-);
+// 点灯すべきタブ(review-detail 等の特例は tabOf が持つ)。
+const activeTab = computed(() => tabOf(route));
+
+// 編集・プレビューは本文の余白を持たない(残りの高さを全部使う)。
+const flush = computed(() => route.meta.flush === true);
+
+// タブごとに「直前に見ていた画面」を覚え、タブを押したときそこへ戻す。記憶が無ければ
+// タブの既定画面。`immediate` は初期表示の画面も覚えるため。
+watch(() => route.fullPath, () => memory.remember(route), { immediate: true });
+function tabTarget(name: TabName): RouteLocationRaw {
+  return memory.pathFor(name) ?? { name };
+}
 
 async function logout() {
   await auth.logout();
@@ -65,8 +76,8 @@ function goAdmin() {
        決まる: 項目名つき placeholder が収まる列幅(240px)で、比較画面の最大構成である
        5 列(240px×4 + 「比較する版」220px + 間隔 48px = 1228px)を 1 行に並べるのに要る幅。
        狭めると 5 列目が次行へ落ち、編集画面では操作ボタンだけが次行へ落ちる。 -->
-  <div class="min-h-screen bg-muted/40">
-    <header class="border-b bg-card print:hidden">
+  <div class="flex h-screen flex-col bg-muted/40">
+    <header class="shrink-0 border-b bg-card print:hidden">
       <div class="mx-auto flex h-14 max-w-[1400px] items-center gap-4 px-5">
         <div class="flex shrink-0 items-baseline gap-2 font-bold text-primary">
           <FileText class="h-5 w-5 self-center" />
@@ -101,8 +112,8 @@ function goAdmin() {
               aria-hidden="true"
             />
             <RouterLink
-              :to="{ name: t.name }"
-              :aria-current="activeName === t.name ? 'page' : undefined"
+              :to="tabTarget(t.name)"
+              :aria-current="activeTab === t.name ? 'page' : undefined"
               :aria-label="
                 t.name === 'reviews' && pending.count > 0
                   ? `${t.label}（未処理 ${pending.count} 件）`
@@ -111,7 +122,7 @@ function goAdmin() {
               :class="
                 cn(
                   'ring-focus flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-[13.5px] font-semibold transition-colors',
-                  activeName === t.name
+                  activeTab === t.name
                     ? 'bg-primary-soft text-primary'
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                 )
@@ -131,7 +142,14 @@ function goAdmin() {
         </div>
       </nav>
     </header>
-    <main class="mx-auto max-w-[1400px] px-5 pb-16 pt-6">
+    <!-- 本文だけがスクロールする(ヘッダ帯は常に固定)。編集・プレビュー(`flush`)は余白を
+         持たず残りの高さを全部使う。`min-h-0` が無いと flex 子の最小高さが内容高になり
+         はみ出す。 -->
+    <main
+      :class="
+        cn('mx-auto min-h-0 w-full max-w-[1400px] flex-1 overflow-auto', !flush && 'px-5 pb-16 pt-6')
+      "
+    >
       <RouterView />
     </main>
   </div>

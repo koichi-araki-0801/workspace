@@ -84,21 +84,23 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/features/admin/AdminView.vue'),
         meta: { access: 'admin' },
       },
+      // 編集・プレビューはタブの下に展開する(アプリヘッダとタブを常に見せる)。`flush` は
+      // `MainLayout` が本文の余白を落とす合図で、この 2 画面は残りの高さを全部使う。
+      {
+        path: 'edit/:id',
+        name: 'editor',
+        component: () => import('@/features/editor/EditorView.vue'),
+        props: true,
+        meta: { access: 'auth', flush: true },
+      },
+      {
+        path: 'preview/:id',
+        name: 'preview',
+        component: () => import('@/features/preview/PreviewView.vue'),
+        props: true,
+        meta: { access: 'auth', flush: true },
+      },
     ],
-  },
-  {
-    path: '/edit/:id',
-    name: 'editor',
-    component: () => import('@/features/editor/EditorView.vue'),
-    props: true,
-    meta: { access: 'auth' },
-  },
-  {
-    path: '/preview/:id',
-    name: 'preview',
-    component: () => import('@/features/preview/PreviewView.vue'),
-    props: true,
-    meta: { access: 'auth' },
   },
   { path: '/:pathMatch(.*)*', redirect: { name: 'edit' } },
 ];
