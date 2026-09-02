@@ -120,21 +120,18 @@ const canSearch = computed(() => canSubmitSearch(query, props.fields, props.requ
 
 <template>
   <FilterBar :bare="props.bare">
-    <FormField v-for="f in props.fields" :key="f" width="lg">
+    <FormField v-for="f in props.fields" :key="f" width="2xl">
       <Label>
         {{ labels[f] }}
         <span v-if="props.requiredFields.includes(f)" class="text-destructive">*</span>
       </Label>
       <!-- コード系は入力で前方一致フィルタする `Combobox`、それ以外は `Select`。
-           props/イベントは両者同一なので、カスケードの配線(onLevelChange)は不変。
-           placeholder に項目名を入れないのは幅の都合 — フィールドは `width="lg"`
-           (min 190px)で入力欄は 153px しかなく、「委託会社コードを入力/選択」は 193px 必要で
-           見切れる。項目名は上の `Label` が持っているので重複でもある。 -->
+           props/イベントは両者同一なので、カスケードの配線(onLevelChange)は不変。 -->
       <Combobox
         v-if="COMBO_FIELDS.includes(f)"
         v-model="query[f]"
         :options="optionsByField[f]()"
-        placeholder="コードを入力/選択"
+        :placeholder="`${labels[f]}を入力/選択`"
         :disabled="loading || fieldDisabled(f)"
         @update:model-value="onLevelChange(f)"
       />
