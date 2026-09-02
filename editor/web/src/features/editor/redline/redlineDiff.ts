@@ -53,6 +53,11 @@ function removedOp(
     : { kind: 'removedEl', parent, before, inline: false, def: b.def };
 }
 
+/** live にだけあるテキストは着色手段が無い（挿入語句として全文をハイライトする）。 */
+function insertedTextOp(l: RedlineNode): RedlineOp {
+  return { kind: 'insText', node: l.node, ops: [{ type: 'ins', text: l.text ?? '' }] };
+}
+
 /**
  * 基準側で `index` より後にある兄弟のうち、live にも存在する最初のものの live ノードを返す。
  * 削除要素は「基準でその直前にあった位置」へ置きたいので、次に残っている兄弟の前に挿す。
@@ -82,9 +87,7 @@ function diffChildren(
   for (const l of live) {
     const b = baseByKey.get(l.key);
     if (!b) {
-      if (l.kind === 'el') out.push({ kind: 'addedEl', node: l.node });
-      // live にだけあるテキストは着色手段が無い（挿入語句として全文をハイライトする）。
-      else out.push({ kind: 'insText', node: l.node, ops: [{ type: 'ins', text: l.text ?? '' }] });
+      out.push(l.kind === 'el' ? { kind: 'addedEl', node: l.node } : insertedTextOp(l));
       continue;
     }
     if (b.kind === 'text' && l.kind === 'text') {
@@ -92,9 +95,10 @@ function diffChildren(
     } else if (b.kind === 'el' && l.kind === 'el' && b.tag === l.tag) {
       diffChildren(b.children, l.children, l.node, budget, out);
     } else {
-      // 同じスロットだが種別 / tag が違う → 削除 + 追加。
+      // 同じスロットだが種別 / tag が違う → 削除 + 追加。追加側は live の種別で出し分ける
+      // （live-only 分岐と同じ判断のため `insertedTextOp` を共有し、drift を防ぐ）。
       out.push(removedOp(b, parent, l.node));
-      if (l.kind === 'el') out.push({ kind: 'addedEl', node: l.node });
+      out.push(l.kind === 'el' ? { kind: 'addedEl', node: l.node } : insertedTextOp(l));
     }
   }
 

@@ -117,6 +117,37 @@ describe('diffRedline', () => {
     expect(ops.map((o) => o.kind).sort()).toEqual(['addedEl', 'removedEl']);
   });
 
+  it('live にだけあるテキストは insText になる（要素の追加とは独立に出る）', () => {
+    const newText = ref();
+    const base = [el('p#1', [tx('#text#1', 'a')])];
+    const live = [
+      el('p#1', [tx('#text#1', 'a', ref()), el('b#1', [], ref()), tx('#text#2', 'new', newText)]),
+    ];
+    const ops = diffRedline(base, live, createLcsBudget());
+    const insTexts = ops.filter((o) => o.kind === 'insText');
+    expect(insTexts).toHaveLength(1);
+    const ins = insTexts[0];
+    expect(ins.kind === 'insText' && ins.node()).toBe(newText());
+    expect(ins.kind === 'insText' && ins.ops).toEqual([{ type: 'ins', text: 'new' }]);
+    expect(ops.filter((o) => o.kind === 'addedEl')).toHaveLength(1);
+  });
+
+  it('同キーで種別が el→text に変わった場合は removedEl(block) + insText になる', () => {
+    const newText = ref();
+    const ops = diffRedline(
+      [el('x#1', [], NIL, 'p')],
+      [tx('x#1', 'now text', newText)],
+      createLcsBudget(),
+    );
+    const removed = ops.find((o) => o.kind === 'removedEl');
+    expect(removed && removed.kind === 'removedEl' && removed.inline).toBe(false);
+    expect(removed && removed.kind === 'removedEl' && removed.def).toEqual({ tagName: 'p' });
+    expect(removed && removed.kind === 'removedEl' && removed.before?.()).toBe(newText());
+    const ins = ops.find((o) => o.kind === 'insText');
+    expect(ins && ins.kind === 'insText' && ins.node()).toBe(newText());
+    expect(ins && ins.kind === 'insText' && ins.ops).toEqual([{ type: 'ins', text: 'now text' }]);
+  });
+
   it('基準にだけあるテキストは inline の removedEl になる', () => {
     const ops = diffRedline(
       [el('p#1', [tx('#text#1', 'a'), el('b#1'), tx('#text#2', 'tail')])],
