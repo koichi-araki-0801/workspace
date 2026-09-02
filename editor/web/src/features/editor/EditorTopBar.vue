@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Rows3,
   Save,
+  Strikethrough,
   Undo2,
 } from '@lucide/vue';
 import PageNav from '@/components/PageNav.vue';
@@ -38,6 +39,10 @@ const props = defineProps<{
   canUndo: boolean;
   canRedo: boolean;
   showPageGuides: boolean;
+  /** 確定版からの変更箇所を赤入れ(旧文言の取り消し線)で表示しているか。 */
+  showRedline: boolean;
+  /** 赤入れの基準(確定版)があるか。作成経路では無いのでボタンを出さない。 */
+  redlineAvailable: boolean;
   /** 1 始まりで表示する現在ページ番号。 */
   currentPage: number;
   pageCount: number;
@@ -56,6 +61,7 @@ const emit = defineEmits<{
   /** ズーム%クリック / ⌘0: 全体フィットへ戻す。 */
   zoomReset: [];
   togglePageGuides: [];
+  toggleRedline: [];
   /** ページ番号ジャンプ(1 起点)。`EditorView` で `g.goToPage(n - 1)` へ。 */
   go: [page: number];
   toggleSinglePage: [];
@@ -231,6 +237,23 @@ const attrItems = (a: TemplateAttributes) => [
           @click="emit('togglePageGuides')"
         >
           <Rows3 class="h-[17px] w-[17px]" />
+        </Button>
+      </Tooltip>
+
+      <!-- 確定版からの変更箇所の赤入れ。旧文言をインラインで挿すため行送りが PDF とずれる —
+           OFF で流れを戻せる。作成経路は確定版が無いので出さない。 -->
+      <Tooltip
+        v-if="redlineAvailable"
+        :text="showRedline ? '変更箇所の赤入れを隠す' : '変更箇所を赤入れで表示（旧文言に取り消し線）'"
+      >
+        <Button
+          variant="ghost"
+          size="icon"
+          :aria-label="showRedline ? '変更箇所の赤入れを隠す' : '変更箇所を赤入れで表示'"
+          :class="showRedline ? 'text-primary' : ''"
+          @click="emit('toggleRedline')"
+        >
+          <Strikethrough class="h-[17px] w-[17px]" />
         </Button>
       </Tooltip>
     </div>
