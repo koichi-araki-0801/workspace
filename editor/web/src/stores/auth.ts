@@ -15,7 +15,12 @@ import { useAuthService } from '@/features/auth/services/authService';
 import { currentAppEpoch, restartEnded } from '@/lib/appEpoch';
 import { logError } from '@/lib/appError';
 import { armUnauthorizedNotice } from '@/lib/sessionExpiry';
-import { LEGACY_UNDO_STACKS_KEY, setUndoUserScope, undoStacksKey } from '@/lib/storageKeys';
+import {
+  draftOwnerKey,
+  LEGACY_UNDO_STACKS_KEY,
+  setUndoUserScope,
+  undoStacksKey,
+} from '@/lib/storageKeys';
 
 /** メッセージ判定専用マーカー(認証強制は repo epoch / REST 全失効が担う。これは表示用)。 */
 const AUTH_EPOCH_KEY = 'editor:authEpoch';
@@ -78,6 +83,9 @@ export const useAuthStore = defineStore('auth', () => {
     // (残すと次の利用者の画面へ前の利用者の編集内容が復元されうる)。
     localStorage.removeItem(undoStacksKey());
     localStorage.removeItem(LEGACY_UNDO_STACKS_KEY);
+    // 下書きの所属も端末に残る。次の利用者のセッションで前の利用者の下書きが
+    // 「同じセッション」と誤判定されることは無い(トークンが違う)が、キーを残さない。
+    localStorage.removeItem(draftOwnerKey());
     setUndoUserScope(null);
     // 手動ログアウトは「再起動切断」ではない。マーカーと理由を消す。
     localStorage.removeItem(AUTH_EPOCH_KEY);

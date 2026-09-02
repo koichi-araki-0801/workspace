@@ -161,6 +161,8 @@ export default defineConfig({
         // 「別のタブが点く / 一覧へ落ちる」という UI 上の無言の形で出るため被覆に入れる。
         'editor/web/src/features/layout/tabOf.ts',
         'editor/web/src/stores/tabMemory.ts',
+        // 下書きの所属判定。退行は「閉じたはずの下書きが黙って復元される」形で出る。
+        'editor/web/src/lib/draftOwner.ts',
         'editor/web/src/features/compare/htmlBlockDiff.ts',
         'editor/web/src/features/compare/services/compareService.ts',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
