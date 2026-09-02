@@ -146,6 +146,12 @@ export default defineConfig({
         'editor/web/src/features/editor/usePartEditHistory.ts',
         'editor/web/src/features/editor/usePartNote.ts',
         'editor/web/src/features/editor/partKey.ts',
+        // 編集キャンバスの赤入れ（旧文言の取り消し線）。装飾が draft に混入しないことは
+        // 「モデルに載せない」設計で担保しており、この 4 ファイルの純粋部分を被覆に入れる。
+        'editor/web/src/features/editor/redline/redlineTree.ts',
+        'editor/web/src/features/editor/redline/redlineDiff.ts',
+        'editor/web/src/features/editor/redline/redlineApply.ts',
+        'editor/web/src/features/editor/redline/redlineCss.ts',
         'editor/web/src/features/editor/noteBubbleLayout.ts',
         'editor/web/src/features/editor/partPreviewDoc.ts',
         'editor/web/src/features/editor/useAutosave.ts',

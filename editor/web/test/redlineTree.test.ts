@@ -61,6 +61,42 @@ describe('fromDefinitions', () => {
     expect(t[0].node()).toBeNull();
     expect(t[0].def).toBeDefined();
   });
+
+  it('tagName 省略時は div として扱う', () => {
+    const t = fromDefinitions([{ components: textDef('hi') }]);
+    expect(t[0]).toMatchObject({ key: 'div#1', tag: 'div' });
+  });
+
+  it('id 属性があればキーの優先順位で class や tag より先に使う', () => {
+    const t = fromDefinitions([
+      { tagName: 'p', classes: ['lead'], attributes: { id: 'myid' }, components: textDef('x') },
+    ]);
+    expect(t[0].key).toBe('myid#1');
+  });
+
+  it('classes の要素が name を持たないオブジェクトなら先頭 class 無しとして扱う', () => {
+    const t = fromDefinitions([{ tagName: 'span', classes: [{}] as unknown as string[] }]);
+    expect(t[0].key).toBe('span#1');
+  });
+
+  it('text 型で content が空文字の要素は子を作らない', () => {
+    const t = fromDefinitions([{ tagName: 'p', type: 'text', content: '' }]);
+    expect(t[0].children).toEqual([]);
+  });
+
+  it('textnode の content が文字列でなければ空白扱いで除く', () => {
+    const t = fromDefinitions([{ tagName: 'div', components: [{ type: 'textnode' }] }]);
+    expect(t[0].children).toEqual([]);
+  });
+
+  it('defs が配列でなく単体の定義でもそのまま 1 件として扱う', () => {
+    const t = fromDefinitions({ tagName: 'p', components: textDef('hi') });
+    expect(t.map((n) => n.children[0].text)).toEqual(['hi']);
+  });
+
+  it('defs が undefined なら空配列を返す', () => {
+    expect(fromDefinitions(undefined)).toEqual([]);
+  });
 });
 
 /** GrapesJS Component の最小フェイク（読むメソッドだけ）。 */
@@ -134,6 +170,30 @@ describe('fromComponents', () => {
     });
     expect(fromComponents(root)[0].children).toEqual([]);
   });
+
+  it('content が無い textnode は空白扱いで除く', () => {
+    const root = fakeComp({ children: [fakeComp({ type: 'textnode' })] });
+    expect(fromComponents(root)).toEqual([]);
+  });
+
+  it('本文がある textnode で el が無ければ node は null を返す', () => {
+    const root = fakeComp({ children: [fakeComp({ type: 'textnode', content: 'hi' })] });
+    const t = fromComponents(root);
+    expect(t[0].text).toBe('hi');
+    expect(t[0].node()).toBeNull();
+  });
+
+  it('el が無い要素の node は null を返す', () => {
+    const root = fakeComp({ children: [fakeComp({ tagName: 'p' })] });
+    expect(fromComponents(root)[0].node()).toBeNull();
+  });
+
+  it('content だけの Component で親 el が無ければテキスト子の node も null を返す', () => {
+    const root = fakeComp({
+      children: [fakeComp({ tagName: 'p', type: 'text', content: 'body' })],
+    });
+    expect(fromComponents(root)[0].children[0].node()).toBeNull();
+  });
 });
 
 describe('renderDefinition', () => {
@@ -174,5 +234,33 @@ describe('renderDefinition', () => {
     const el = node as HTMLElement;
     expect(el.tagName).toBe('DIV');
     expect(el.childNodes).toHaveLength(0);
+  });
+
+  it('tagName 省略時は div 要素になる', () => {
+    const node = renderDefinition({ components: [] }, document);
+    expect((node as HTMLElement).tagName).toBe('DIV');
+  });
+
+  it('textnode の content が文字列でなければ空文字のテキストノードになる', () => {
+    const node = renderDefinition({ type: 'textnode' }, document);
+    expect(node.textContent).toBe('');
+  });
+
+  it('属性値が真偽値 true なら空文字列属性として出す', () => {
+    const node = renderDefinition({ tagName: 'input', attributes: { disabled: true } }, document);
+    expect((node as HTMLElement).getAttribute('disabled')).toBe('');
+  });
+
+  it('classes が name を持つ/持たないオブジェクト混在でも文字列へ正規化する', () => {
+    const node = renderDefinition(
+      { tagName: 'div', classes: [{ name: 'y' }, {}] as unknown as string[] },
+      document,
+    );
+    expect((node as HTMLElement).className).toBe('y');
+  });
+
+  it('type:text で子が無く content だけの定義は本文をテキスト子として組む', () => {
+    const node = renderDefinition({ tagName: 'p', type: 'text', content: 'body' }, document);
+    expect((node as HTMLElement).textContent).toBe('body');
   });
 });
