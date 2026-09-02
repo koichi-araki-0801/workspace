@@ -126,3 +126,19 @@ describe('partLabelMap — 全パーツの人間向けラベル', () => {
     expect(map.get('body#1/p#1')).toBe('ページ1・パーツ2');
   });
 });
+
+describe('partEls — 赤入れ装飾はパーツとして数えない', () => {
+  it('[data-redline] の兄弟が挿入されてもパーツ採番とキーが変わらない', () => {
+    const plain = root('<div class="page"><p class="a">A</p><p class="b">B</p></div>');
+    const withDel = root(
+      '<div class="page"><p class="a">A</p><del data-redline="" class="redline-block"><p class="x">gone</p></del><p class="b">B</p></div>',
+    );
+    const pagePlain = q(plain, '.page');
+    const pageDel = q(withDel, '.page');
+    expect(partEls(pageDel).map((e) => e.className)).toEqual(
+      partEls(pagePlain).map((e) => e.className),
+    );
+    expect(partPathKeyFor(q(withDel, '.b'), withDel)).toBe(partPathKeyFor(q(plain, '.b'), plain));
+    expect([...partLabelMap(withDel).values()]).toEqual([...partLabelMap(plain).values()]);
+  });
+});
