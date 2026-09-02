@@ -34,6 +34,18 @@ function isBlankText(s: string | undefined): boolean {
   return (s ?? '').trim() === '';
 }
 
+/**
+ * `content` は任意の component type が使う汎用フィールドで、`text` 型以外では非テキストの
+ * markup を保持しうる（仕様 §4.1）。子を持たない `type:'text'` の要素に限り、その `content` を
+ * 1 個のテキスト子として正規化してよい。基準側・live 側・削除要素の描画の 3 箇所で使うので、
+ * `type` の絞り込みをここ 1 か所へ集約する（他の型を text 扱いする回帰を防ぐ）。
+ */
+function textOnlyContent(type: unknown, content: unknown): string | null {
+  if (type !== 'text') return null;
+  if (typeof content !== 'string' || content === '' || isBlankText(content)) return null;
+  return content;
+}
+
 /** 同一親の子に、基底キーの出現順 `#n` を付けて一意化する（`htmlBlockDiff.keyedUnits` と同規則）。 */
 function assignKeys(nodes: { base: string; node: Omit<RedlineNode, 'key'> }[]): RedlineNode[] {
   const seen = new Map<string, number>();
@@ -81,9 +93,10 @@ function defToNode(
   // 潰れる grapesjs 側の型の癖があるため、ここだけ明示キャストで本来の型に戻す。
   const tag = ((def.tagName as string | undefined) || 'div').toLowerCase();
   let kids = childDefs(def);
-  // 子を持たず `content` だけの text 要素は、その content を 1 個のテキスト子として扱う。
-  if (kids.length === 0 && typeof def.content === 'string' && def.content !== '') {
-    kids = [{ type: 'textnode', content: def.content }];
+  if (kids.length === 0) {
+    // 子を持たず `content` だけの `type:'text'` 要素は、その content を 1 個のテキスト子として扱う。
+    const text = textOnlyContent(def.type, def.content);
+    if (text !== null) kids = [{ type: 'textnode', content: text }];
   }
   return {
     base: elKey(def.attributes as Record<string, unknown> | undefined, def.classes, tag),
@@ -125,15 +138,15 @@ function compToNode(comp: Component): { base: string; node: Omit<RedlineNode, 'k
   const tag = String(comp.get('tagName') || 'div').toLowerCase();
   const kids = compChildren(comp);
   let children: RedlineNode[];
-  const content = comp.get('content');
-  if (kids.length === 0 && typeof content === 'string' && content !== '' && !isBlankText(content)) {
-    // 子 Component を持たず `content` だけの text。DOM では要素の最初の子 Text がその本文。
+  const text = kids.length === 0 ? textOnlyContent(type, comp.get('content')) : null;
+  if (text !== null) {
+    // 子 Component を持たず `content` だけの `type:'text'`。DOM では要素の最初の子 Text がその本文。
     children = assignKeys([
       {
         base: '#text',
         node: {
           kind: 'text',
-          text: content,
+          text,
           children: [],
           node: () => {
             const first = comp.getEl()?.firstChild ?? null;
@@ -196,8 +209,9 @@ export function renderDefinition(def: ComponentDefinition, doc: Document): Node 
   const cls = classes.filter(Boolean).join(' ');
   if (cls) el.setAttribute('class', cls);
   let kids = childDefs(def);
-  if (kids.length === 0 && typeof def.content === 'string' && def.content !== '') {
-    kids = [{ type: 'textnode', content: def.content }];
+  if (kids.length === 0) {
+    const text = textOnlyContent(def.type, def.content);
+    if (text !== null) kids = [{ type: 'textnode', content: text }];
   }
   for (const k of kids) el.appendChild(renderDefinition(k, doc));
   return el;

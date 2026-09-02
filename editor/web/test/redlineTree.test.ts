@@ -41,6 +41,11 @@ describe('fromDefinitions', () => {
     expect(t[0].children[0]).toMatchObject({ kind: 'text', key: '#text#1', text: 'body' });
   });
 
+  it('text 型以外は子が無く content があっても正規化しない（content は汎用フィールド）', () => {
+    const t = fromDefinitions([{ tagName: 'div', type: 'default', content: '<b>x</b>' }]);
+    expect(t[0].children).toEqual([]);
+  });
+
   it('jinja chip は要素として保持し、classes が {name} 形式でも先頭 class を読む', () => {
     const t = fromDefinitions([
       {
@@ -120,6 +125,15 @@ describe('fromComponents', () => {
     });
     expect(fromComponents(root).map((n) => n.key)).toEqual(['hr#1']);
   });
+
+  it('text 型以外は子が無く content があっても正規化しない（content は汎用フィールド）', () => {
+    const div = document.createElement('div');
+    div.textContent = 'x';
+    const root = fakeComp({
+      children: [fakeComp({ tagName: 'div', type: 'default', content: 'x', el: div })],
+    });
+    expect(fromComponents(root)[0].children).toEqual([]);
+  });
 });
 
 describe('renderDefinition', () => {
@@ -150,5 +164,15 @@ describe('renderDefinition', () => {
     expect(el.firstChild?.nodeType).toBe(Node.TEXT_NODE);
     expect(el.textContent).toBe('<img src=x onerror=alert(1)>');
     expect(el.querySelector('br')).not.toBeNull();
+  });
+
+  it('text 型以外は子が無く content があっても正規化しない（空の要素になる）', () => {
+    const node = renderDefinition(
+      { tagName: 'div', type: 'default', content: '<b>x</b>' },
+      document,
+    );
+    const el = node as HTMLElement;
+    expect(el.tagName).toBe('DIV');
+    expect(el.childNodes).toHaveLength(0);
   });
 });
