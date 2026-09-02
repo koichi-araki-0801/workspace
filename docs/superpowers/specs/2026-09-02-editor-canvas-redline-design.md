@@ -13,8 +13,9 @@
 
 - **編集キャンバス（GrapesJS）上で**、確定版からの変更箇所を赤入れ表示する。旧文言は
   取り消し線付きで新文言の直前にインライン表示し、追加・削除された要素は枠色で示す。
-- **基準は現行の確定版**（`Template.filled`）。承認されると確定版が新文言になり、draft も
-  消えるため、赤入れは自然に消える。draft を破棄した場合も同様に消える。
+- **基準は現行の確定版の値埋め込み本文**（`loadForEdit` が
+  `tpl.filled || toFilled(tpl.html, sample)` で解決する `confirmedBody`）。承認されると確定版が
+  新文言になり、draft も消えるため、赤入れは自然に消える。draft を破棄した場合も同様に消える。
 - 表示期間は「draft が確定版と異なる間は常時」（申請前・申請中・保留・却下後を問わない）。
 - 旧文言は**保存しない**。表示のたびに draft と確定版の差分を計算し、表示層にだけ置く。
   ファイル・ペア同期・テンプレ JS の不変性検査・PDF・注記マスタのどれにも影響させない。
@@ -182,12 +183,14 @@ body:not(.redline-on) [data-redline] { display: none; }
 
 - 状態: `enabled`（既定 `true`）、`available`（編集経路かつ基準あり）。`?created=1` の作成
   経路は基準が無いため `available=false` とし、トグルも出さない。
-- 基準の確保: `useTemplateEditor.load` 完了後に 1 回だけ
-  `ed.Parser.parseHtml(getBodyInner(template.filled)).html` を作って保持する。`filled` が空の
-  場合（静的 filled 無し）は `available=false`。この `Parser.parseHtml` 呼び出しは try/catch で
-  包み、パースが失敗した場合も編集セッションを道連れにせず、`baseline=null`／
-  `available=false` にして `logError` するだけに留める（後続の autosave・undo の配線を
-  止めない）。
+- 基準の確保: `useTemplateEditor.load` 完了後に 1 回だけ、`loadForEdit` が解決した確定版の
+  値埋め込み本文（`confirmedBody`。`tpl.filled` が空なら `toFilled` で作る）を
+  `getBodyInner` → `useGrapes.parseHtmlQuiet` に通して定義木を作り保持する。`parseHtmlQuiet` は
+  canvas と同じ `parse:html:root` の刈り取りを通し、利用者向けのトーストだけ抑止する
+  （本文の読み込みで同じ通知が既に出ているため、基準づくりで二重に出さない）。この
+  パース呼び出しは try/catch で包み、パースが失敗した場合も編集セッションを道連れにせず、
+  `baseline=null`／`available=false` にして `logError` するだけに留める（後続の autosave・
+  undo の配線を止めない）。
 - 再計算の契機: `revision` の変化を 300 ms debounce / `rte:disable`（内容が変わったとき）/
   `component:drag:end` / undo・redo・snapshot 復元（`load`）の後。手順は
   `clearRedline → fromComponents → diffRedline → applyRedline`。`dirty === false`（draft 無し）
@@ -211,7 +214,7 @@ sequenceDiagram
   participant E as useTemplateEditor
   participant R as useRedline
   participant G as GrapesJS
-  E->>R: load 完了(template.filled, 編集経路)
+  E->>R: load 完了(confirmedBody, 編集経路)
   R->>G: Parser.parseHtml(基準HTML)
   G-->>R: 定義木(基準)
   Note over R: baseline を保持(1 回)
@@ -226,7 +229,7 @@ sequenceDiagram
 ```
 
 承認の完結後はサーバが draft を削除するので、次回の load で `dirty=false` となり装飾は
-出ない。他者の承認で確定版が先に進んだ場合は、次回 load 時の新しい `filled` が基準になる
+出ない。他者の承認で確定版が先に進んだ場合は、次回 load 時の新しい確定版本文が基準になる
 （`baseHash` の陳腐化は既存の精査画面バナーが伝える）。
 
 ## 6. UI
