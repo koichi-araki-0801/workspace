@@ -184,7 +184,10 @@ body:not(.redline-on) [data-redline] { display: none; }
   経路は基準が無いため `available=false` とし、トグルも出さない。
 - 基準の確保: `useTemplateEditor.load` 完了後に 1 回だけ
   `ed.Parser.parseHtml(getBodyInner(template.filled)).html` を作って保持する。`filled` が空の
-  場合（静的 filled 無し）は `available=false`。
+  場合（静的 filled 無し）は `available=false`。この `Parser.parseHtml` 呼び出しは try/catch で
+  包み、パースが失敗した場合も編集セッションを道連れにせず、`baseline=null`／
+  `available=false` にして `logError` するだけに留める（後続の autosave・undo の配線を
+  止めない）。
 - 再計算の契機: `revision` の変化を 300 ms debounce / `rte:disable`（内容が変わったとき）/
   `component:drag:end` / undo・redo・snapshot 復元（`load`）の後。手順は
   `clearRedline → fromComponents → diffRedline → applyRedline`。`dirty === false`（draft 無し）
