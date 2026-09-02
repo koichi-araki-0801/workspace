@@ -25,6 +25,7 @@ import {
   pageViewCss,
   strayDirectChildren,
 } from './pageView';
+import { redlineCanvasCss } from './redline/redlineCss';
 import { useCanvasMarkers } from './useCanvasMarkers';
 import { usePageGuides } from './usePageGuides';
 import { useZoomFit } from './useZoomFit';
@@ -425,7 +426,7 @@ export function useGrapes() {
       toInfo,
       isLocked: () => locked,
       isApplyingLockState: () => applyingLockState,
-      canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}`,
+      canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}\n${redlineCanvasCss}`,
       callbacks,
     });
 

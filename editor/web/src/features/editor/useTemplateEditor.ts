@@ -23,6 +23,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { partLabelMap, partPathKeyFor } from './partKey';
+import { useRedline } from './redline/useRedline';
 import { useTemplateEditorService } from './services/templateEditorService';
 import { useAutosave } from './useAutosave';
 import { useGrapes } from './useGrapes';
@@ -105,6 +106,9 @@ export function useTemplateEditor(
     if (!template.value) return ok(undefined);
     return service.saveDraft(id, g.getBodyHtml(), g.getCss());
   });
+
+  // 確定版からの変更箇所の赤入れ(旧文言の取り消し線)。基準は load 後に `setBaseline` で入れる。
+  const redline = useRedline({ editor: g.editor, revision: g.revision, editing: g.editing, dirty });
 
   // ── 1. undo / redo (snapshot 方式) ──
   // GrapesJS の UndoManager はプログラム経由の style 書き込みを確実には追えないため、
@@ -353,6 +357,8 @@ export function useTemplateEditor(
     g.setVarsHighlight(route.query.created === '1');
     // locked 状態で開始する(allowEdit の既定は false)。
     g.setEditable(allowEdit.value);
+    // 赤入れの基準は確定版(`filled`)。作成経路(`?created=1`)は確定版が無いので機能を出さない。
+    redline.setBaseline(route.query.created === '1' ? undefined : res.value.template.filled);
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
     // `refreshPageGuides`→`refreshNoteMarkers` が位置を測り直す。
     void note.reload();
@@ -386,6 +392,7 @@ export function useTemplateEditor(
     // inline text 編集: 開始で snapshot を保留し、内容が変わった場合だけ undo へ確定する
     g.onTextEditStart(() => beginUndo());
     g.onTextEditEnd((changed) => {
+      redline.schedule();
       if (changed) {
         commitUndo();
         recordChange('テキストを編集');
@@ -394,8 +401,12 @@ export function useTemplateEditor(
       }
     });
     // canvas の drag-to-reorder: 開始で snapshot を保留し、順序が変わった時だけ確定する
-    g.onReorderStart(() => beginUndo());
+    g.onReorderStart(() => {
+      beginUndo();
+      redline.onDragStart();
+    });
     g.onReorderEnd((moved) => {
+      redline.onDragEnd();
       if (moved) {
         commitUndo();
         recordChange('順序を変更');
@@ -403,6 +414,9 @@ export function useTemplateEditor(
         cancelUndo();
       }
     });
+    // 選択のたびに選択パーツの装飾を外す。RTE が開始時に読む `innerHTML` に旧文言を残さない
+    // ため、Vue の flush を待たず同期で処理する(click は dblclick に先行する)。
+    watch(g.selected, () => redline.onSelected(g.editor.value?.getSelected()), { flush: 'sync' });
   });
 
   // autosave の失敗はステータス行だけでは見逃しうる(狭幅ではアイコンのみになる)ため、
@@ -508,5 +522,8 @@ export function useTemplateEditor(
     deletePart,
     onPartSelect,
     onPartInsert,
+    redlineEnabled: redline.enabled,
+    redlineAvailable: redline.available,
+    toggleRedline: redline.toggle,
   };
 }
