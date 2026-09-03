@@ -2,10 +2,9 @@
 // notesFile.ts — パーツ単位メモ(追記型スレッド)のファイル永続化
 // =============================================================================
 // 役割: メモは版インスタンス単位で `dataRoot/notes/<templateId>.json` に
-// `Record<pathKey, 投稿配列>` で保持する。投稿は書かれた版のファイルへ入り、交付版⇄全体版の
-// ペアをまたぐマージは読み取り側(`repositories/noteRepo.ts`)が行う。本体テキストは atomic
-// write で半端読みを防ぐ。git 版管理対象のテンプレ本体とは別物で、メモは注釈として data
-// ルート配下に置くだけ(コミットは伴わない)。
+// `Record<pathKey, 投稿配列>` で保持する。投稿は書かれた版のファイルへ入る。本体テキストは
+// atomic write で半端読みを防ぐ。git 版管理対象のテンプレ本体とは別物で、メモは注釈として
+// data ルート配下に置くだけ(コミットは伴わない)。
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -13,6 +12,8 @@ import {
   assertTemplateId,
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTES_PER_TEMPLATE,
+  type NoteKind,
+  type NoteStatus,
   type PartNoteEntry,
   validation,
 } from '@editor/shared';
@@ -78,13 +79,47 @@ interface NotesReadResult {
  * (500)が返る。フルスキーマ検証は別レイヤ(REST 契約の Zod)の役目なので、ここは壊れた要素を
  * 静かに落とすだけの最小限に絞る(他フィールドの型までは見ない)。
  */
-function looksLikeStoredNoteEntry(v: unknown): v is StoredNoteEntry {
+function looksLikeStoredNoteEntry(
+  v: unknown,
+): v is Record<string, unknown> & { id: string; content: string } {
   return (
     v !== null &&
     typeof v === 'object' &&
     typeof (v as { id?: unknown }).id === 'string' &&
     typeof (v as { content?: unknown }).content === 'string'
   );
+}
+
+const NOTE_STATUSES: ReadonlySet<string> = new Set<NoteStatus>(['open', 'resolved']);
+const NOTE_KINDS: ReadonlySet<string> = new Set<NoteKind>(['note', 'fix-request', 'question']);
+
+/**
+ * 保存済みの投稿へコメント属性の既定値を補う。属性を持たない投稿(以前の形式)は
+ * 「未対応の親投稿・種別メモ」として読む。列挙の外の値も既定値へ戻す — ここで例外にすると
+ * 1 要素の破損でテンプレの全コメントが読めなくなる(コメントは注釈で、本体は git 側が正典)。
+ * 補完は読み取り時だけで、次の書き込みで新形式として保存され自然に移りきる。
+ */
+function withCommentDefaults(
+  raw: Record<string, unknown> & { id: string; content: string },
+): StoredNoteEntry {
+  const status =
+    typeof raw.status === 'string' && NOTE_STATUSES.has(raw.status)
+      ? (raw.status as NoteStatus)
+      : 'open';
+  const kind =
+    typeof raw.kind === 'string' && NOTE_KINDS.has(raw.kind) ? (raw.kind as NoteKind) : 'note';
+  const replyTo = typeof raw.replyTo === 'string' && raw.replyTo !== '' ? raw.replyTo : null;
+  return {
+    id: raw.id,
+    content: raw.content,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
+    createdBy: typeof raw.createdBy === 'string' ? raw.createdBy : '',
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : null,
+    updatedBy: typeof raw.updatedBy === 'string' ? raw.updatedBy : null,
+    status,
+    replyTo,
+    kind,
+  };
 }
 
 /**
@@ -103,21 +138,21 @@ function normalizeStored(parsed: Record<string, unknown>): NoteEntriesMap {
   const out: NoteEntriesMap = {};
   for (const [key, value] of Object.entries(parsed)) {
     if (Array.isArray(value)) {
-      out[key] = value.filter(looksLikeStoredNoteEntry);
+      out[key] = value.filter(looksLikeStoredNoteEntry).map(withCommentDefaults);
       continue;
     }
     if (value === null || typeof value !== 'object') continue;
     const legacy = value as { content?: unknown; updatedAt?: unknown; updatedBy?: unknown };
     if (typeof legacy.content !== 'string') continue;
     out[key] = [
-      {
+      withCommentDefaults({
         id: `legacy:${key}`,
         content: legacy.content,
         createdAt: typeof legacy.updatedAt === 'string' ? legacy.updatedAt : '',
         createdBy: typeof legacy.updatedBy === 'string' ? legacy.updatedBy : '',
         updatedAt: null,
         updatedBy: null,
-      },
+      }),
     ];
   }
   return out;

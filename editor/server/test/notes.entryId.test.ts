@@ -37,6 +37,9 @@ const updateNote = vi.fn(async (templateId: string, entryId: string, _content: s
   createdBy: '',
   updatedAt: null,
   updatedBy: null,
+  status: 'open' as const,
+  replyTo: null,
+  kind: 'note' as const,
 }));
 const deleteNote = vi.fn(async () => {});
 

@@ -75,6 +75,9 @@ describe('マップの件数上限', () => {
           createdBy: 'tester',
           updatedAt: null,
           updatedBy: null,
+          status: 'open',
+          replyTo: null,
+          kind: 'note',
         },
       ];
     }
@@ -165,6 +168,9 @@ describe('同時保存で更新が消えない', () => {
           createdBy: 'editor1',
           updatedAt: null,
           updatedBy: null,
+          status: 'open',
+          replyTo: null,
+          kind: 'note',
         },
       ];
     expect(Object.keys(map).length).toBeLessThan(files.MAX_NOTES_PER_TEMPLATE);
