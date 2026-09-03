@@ -28,4 +28,15 @@ describe('本文の検証', () => {
     expect(AddNoteRequest.safeParse({ pathKey: 'p', content: '' }).success).toBe(false);
     expect(UpdateNoteRequest.safeParse({ content: '' }).success).toBe(false);
   });
+
+  it('追加は返信先と種別を受け、種別の既定は note', () => {
+    const parsed = AddNoteRequest.parse({ pathKey: 'p', content: 'x', replyTo: 'p1' });
+    expect(parsed.kind).toBe('note');
+    expect(parsed.replyTo).toBe('p1');
+  });
+
+  it('更新は本文か状態のどちらかが要る', () => {
+    expect(UpdateNoteRequest.safeParse({}).success).toBe(false);
+    expect(UpdateNoteRequest.safeParse({ status: 'resolved' }).success).toBe(true);
+  });
 });

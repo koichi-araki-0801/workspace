@@ -1033,7 +1033,7 @@
         ],
         "responses": {
           "200": {
-            "description": "投稿の配列(作成日時の昇順)",
+            "description": "投稿の配列(作成日時の昇順。親投稿と返信が混在し、返信は replyTo で親を指す)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1162,7 +1162,7 @@
         },
         "responses": {
           "200": {
-            "description": "更新後の投稿",
+            "description": "更新後の投稿(状態の変更は返信にも伝播する)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2760,6 +2760,23 @@
             "minLength": 1,
             "maxLength": 65536,
             "description": "投稿本文"
+          },
+          "replyTo": {
+            "default": null,
+            "description": "返信先の親投稿 ID。null なら親投稿として追加する",
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "default": "note",
+            "$ref": "#/components/schemas/NoteKind"
           }
         },
         "required": [
@@ -2767,18 +2784,33 @@
           "content"
         ]
       },
+      "NoteKind": {
+        "type": "string",
+        "enum": [
+          "note",
+          "fix-request",
+          "question"
+        ]
+      },
       "UpdateNoteRequest": {
         "type": "object",
         "properties": {
           "content": {
+            "description": "投稿本文",
             "type": "string",
             "minLength": 1,
-            "maxLength": 65536,
-            "description": "投稿本文"
+            "maxLength": 65536
+          },
+          "status": {
+            "$ref": "#/components/schemas/NoteStatus"
           }
-        },
-        "required": [
-          "content"
+        }
+      },
+      "NoteStatus": {
+        "type": "string",
+        "enum": [
+          "open",
+          "resolved"
         ]
       },
       "ReviewStatus": {
@@ -3599,7 +3631,7 @@
                 "type": "null"
               }
             ],
-            "description": "編集された場合のみ"
+            "description": "本文が編集された場合のみ"
           },
           "updatedBy": {
             "anyOf": [
@@ -3610,6 +3642,25 @@
                 "type": "null"
               }
             ]
+          },
+          "status": {
+            "description": "未対応 / 解決済み。返信は親と同じ値",
+            "$ref": "#/components/schemas/NoteStatus"
+          },
+          "replyTo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "親投稿の ID。null なら親(スレッドの起点)"
+          },
+          "kind": {
+            "description": "種別",
+            "$ref": "#/components/schemas/NoteKind"
           }
         },
         "required": [
@@ -3620,7 +3671,10 @@
           "createdAt",
           "createdBy",
           "updatedAt",
-          "updatedBy"
+          "updatedBy",
+          "status",
+          "replyTo",
+          "kind"
         ],
         "additionalProperties": false
       },

@@ -403,7 +403,10 @@ export function buildOpenApiDocument() {
           operationId: 'listNotes',
           requestParams: { path: z.object({ templateId: z.string() }) },
           responses: {
-            '200': json('投稿の配列(作成日時の昇順)', z.array(s.PartNoteEntry)),
+            '200': json(
+              '投稿の配列(作成日時の昇順。親投稿と返信が混在し、返信は replyTo で親を指す)',
+              z.array(s.PartNoteEntry),
+            ),
             ...ERR_401,
             ...ERR_404,
           },
@@ -424,7 +427,11 @@ export function buildOpenApiDocument() {
           operationId: 'updateNote',
           requestParams: { path: z.object({ templateId: z.string(), entryId: z.string() }) },
           requestBody: { content: { 'application/json': { schema: s.UpdateNoteRequest } } },
-          responses: { '200': json('更新後の投稿', s.PartNoteEntry), ...ERR_400, ...ERR_401 },
+          responses: {
+            '200': json('更新後の投稿(状態の変更は返信にも伝播する)', s.PartNoteEntry),
+            ...ERR_400,
+            ...ERR_401,
+          },
         },
         delete: {
           tags: ['notes'],
