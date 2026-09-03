@@ -9,7 +9,12 @@
 // のみで、承認時にサーバが実ファイル + git へ反映する(`reviewRepo.ts`)。
 // 承認タブ(`ReviewTabView.vue`)のアコーディオン 1 区画として置かれるので、ヘッダと画面遷移は
 // 持たず、決着は `decided` で親へ知らせる。
-import { type ApproveReviewResult, isOk, type ReviewRequestMeta } from '@editor/shared';
+import {
+  type ApproveReviewResult,
+  isOk,
+  type ReviewRequestMeta,
+  toReviewMeta,
+} from '@editor/shared';
 import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
@@ -177,7 +182,9 @@ async function approve() {
     notifySyncResult(res.value.sync);
     notifyNoteMasterResult(res.value.noteMaster);
     await load();
-    if (review.value) emit('decided', review.value);
+    // `review` は本体(html/css/filledHtml)を持つ `ReviewRequest`。一覧の親(`ReviewTabView`)
+    // はメタだけを保持するので、本体を持ち越さないよう剥がしてから渡す。
+    if (review.value) emit('decided', toReviewMeta(review.value));
   }
 }
 
@@ -231,7 +238,7 @@ async function reject() {
   if (isOk(res)) {
     toastSuccess('差し戻しました');
     await load();
-    if (review.value) emit('decided', review.value);
+    if (review.value) emit('decided', toReviewMeta(review.value));
   }
 }
 

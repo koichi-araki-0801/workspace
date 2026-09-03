@@ -7,7 +7,7 @@
 // 展開した区画だけが `ReviewDetail`(組版 iframe 2 面)を持ち、同時展開は `reviewAccordion`
 // の上限に従う。各区画の右にコメントパネルを置き、行クリックで見た目比較の該当ページへ送る。
 // 決着しても画面に留まり、区画が決着済み表示へ変わる(次の申請へ続けて進める)。見出しと
-// 説明文は精査者/編集者でロールが違う(旧 `ReviewQueueView` の分岐を踏襲)。
+// 説明文は承認する側(精査者)と自分の申請を追う側(編集者)で読者が違うため、ロールで分ける。
 import { isErr, isOk, type ReviewRequestMeta, type ReviewStatus } from '@editor/shared';
 import { ChevronDown, ChevronRight, ClipboardCheck, Info } from '@lucide/vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
@@ -42,7 +42,7 @@ const pending = usePendingReviewsStore();
 const { loading, run } = useAsyncResult();
 const latestLoad = useLatest();
 
-/** 見出し・説明文は旧 `ReviewQueueView` と同じくロールで分ける(精査者=承認する側 / 編集者=自分の申請を追う側)。 */
+/** 見出し・説明文は読者のロールで分ける(精査者=承認する側 / 編集者=自分の申請を追う側)。 */
 const heading = computed(() => (auth.isApprover ? '承認' : '申請状況'));
 const description = computed(() =>
   auth.isApprover
@@ -58,9 +58,10 @@ const selectedKey = ref<string | null>(null);
 const expanded = ref<string[]>([]);
 watch(targetId, () => {
   // 同じルートで template だけが変わると画面は再マウントされない。前テンプレートの選択
-  // パーツ・展開状態を持ち越さないよう、下の読み込み系 watch より先にリセットする。
+  // パーツ・展開状態・絞り込みを持ち越さないよう、下の読み込み系 watch より先にリセットする。
   selectedKey.value = null;
   expanded.value = [];
+  statusFilter.value = 'pending';
 });
 
 // ── 2. 申請一覧(全状態を 1 回で取り、対象テンプレートで絞る) ──
@@ -130,13 +131,15 @@ watch(targetId, () => void comments.reload(), { immediate: true });
 /** パーツの表示ラベルとページ index。確定版の本文から `reviewPartMaps.ts` の規則で作る。 */
 const partLabels = ref<Map<string, string>>(new Map());
 const partPages = ref<Map<string, number>>(new Map());
+const latestLoadParts = useLatest();
 async function loadParts() {
+  const isLatest = latestLoadParts.begin();
   partLabels.value = new Map();
   partPages.value = new Map();
   const id = targetId.value;
   if (!id) return;
   const tpl = await templates.getTemplate(id);
-  if (!isOk(tpl)) return;
+  if (!isLatest() || !isOk(tpl)) return;
   // `filled`(per-fund 実値埋め込み済み)は local 専用で、rest では常に ''(server の
   // `templateRepo.ts` が値埋め込み済みファイル取得を未実装のため)を返す本番値。パーツ構造
   // しか要らないので値の有無を区別する `??` でなく、空文字も拾う `||` で `html` へ落とす。
@@ -146,7 +149,10 @@ async function loadParts() {
 }
 watch(targetId, loadParts, { immediate: true });
 
+/** コメント一覧の行から選択・ページ送りする。削除済みパーツ(現行構造に無いキー)は無視する
+ * (削除済みパーツ宛に新規投稿させない — `partLabels` に無い = 宛先の選択肢からも外れている)。 */
 function focusPart(reqId: string, key: string) {
+  if (!partLabels.value.has(key)) return;
   selectedKey.value = key;
   const page = partPages.value.get(key);
   if (page !== undefined) detailRefs[reqId]?.gotoPage(page);

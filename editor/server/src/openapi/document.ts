@@ -446,7 +446,7 @@ export function buildOpenApiDocument() {
       [toOpenApiPath(apiPaths.reviewRequests)]: {
         get: {
           tags: ['reviews'],
-          summary: '承認キュー一覧(approver|admin は全件、editor は自分の申請のみ)',
+          summary: '申請一覧(approver|admin は全件、editor は自分の申請のみ)',
           operationId: 'listReviews',
           requestParams: { query: s.ReviewListQuery },
           responses: { '200': json('申請メタの配列', z.array(s.ReviewRequestMeta)), ...ERR_401 },

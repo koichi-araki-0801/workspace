@@ -46,7 +46,7 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // 承認キュー一覧。approver|admin は全件、editor は自分の申請のみ(`reviewRepo` が絞る)。
+  // 申請一覧。approver|admin は全件、editor は自分の申請のみ(`reviewRepo` が絞る)。
   // status は `validateQuery` で検証済み(不正値は 400)。
   app.get<{ Querystring: z.infer<typeof ReviewListQuery> }>(
     apiPaths.reviewRequests,

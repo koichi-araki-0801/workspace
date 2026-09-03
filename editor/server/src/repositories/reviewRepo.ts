@@ -134,7 +134,7 @@ export async function submitReview(
   return toReviewMeta(review);
 }
 
-/** 申請一覧(承認キュー)。状態で絞り込み、ロールで可視範囲を絞る。新しい順。 */
+/** 申請一覧。状態で絞り込み、ロールで可視範囲を絞る。新しい順。 */
 export async function listReviews(
   filter: { status?: ReviewStatus },
   actor: ReviewActor,

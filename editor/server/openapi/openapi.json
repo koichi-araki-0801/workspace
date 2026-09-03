@@ -1249,7 +1249,7 @@
         "tags": [
           "reviews"
         ],
-        "summary": "承認キュー一覧(approver|admin は全件、editor は自分の申請のみ)",
+        "summary": "申請一覧(approver|admin は全件、editor は自分の申請のみ)",
         "operationId": "listReviews",
         "parameters": [
           {
