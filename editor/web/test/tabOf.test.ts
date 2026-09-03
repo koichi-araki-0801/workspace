@@ -23,8 +23,9 @@ describe('tabOf', () => {
     expect(tabOf({ name: 'editor', query: { created: 'true' } })).toBe('edit');
   });
 
-  it('精査画面は「承認」に属する', () => {
-    expect(tabOf({ name: 'review-detail', query: {} })).toBe('reviews');
+  it('承認タブは自分の名前に写る(単件の精査画面は無い)', () => {
+    expect(tabOf({ name: 'reviews', query: { template: 'x' } })).toBe('reviews');
+    expect(tabOf({ name: 'review-detail', query: {} })).toBeNull();
   });
 
   it('タブを持たない画面は null', () => {

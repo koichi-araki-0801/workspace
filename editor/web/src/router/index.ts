@@ -56,14 +56,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: 'reviews',
         name: 'reviews',
-        component: () => import('@/features/reviews/ReviewQueueView.vue'),
-        meta: { access: 'auth' },
-      },
-      {
-        path: 'reviews/:reqId',
-        name: 'review-detail',
-        component: () => import('@/features/reviews/ReviewDiffView.vue'),
-        props: true,
+        component: () => import('@/features/reviews/ReviewTabView.vue'),
         meta: { access: 'auth' },
       },
       {

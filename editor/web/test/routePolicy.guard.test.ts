@@ -49,7 +49,6 @@ describe('router 認可宣言の網羅性', () => {
       create: 'auth',
       compare: 'auth',
       reviews: 'auth',
-      'review-detail': 'auth',
       history: 'auth',
       merge: 'auth',
       admin: 'admin',

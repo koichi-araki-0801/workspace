@@ -48,7 +48,7 @@ watch(
   () => void pending.refresh(),
 );
 
-// 点灯すべきタブ(review-detail 等の特例は tabOf が持つ)。
+// 点灯すべきタブ(編集・プレビューの作成経路分岐は tabOf が持つ)。
 const activeTab = computed(() => tabOf(route));
 
 // 編集・プレビューは本文の余白を持たない(残りの高さを全部使う)。

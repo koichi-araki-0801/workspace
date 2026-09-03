@@ -25,7 +25,7 @@ export interface TabRouteLike {
  * ルートを上部ナビのタブへ写す。編集・プレビュー画面は作成経路(`?created=1`)なら
  * 「テンプレート作成」、でなければ「編集」に属する。経路判定の根拠は 2 系統の原則どおり
  * `route.query.created === '1'` だけで、ここはそれを表示上のタブ点灯へ写すだけ(値の差込や
- * ハイライトの出し分けには関与しない — 設計正典「編集 2 系統」)。精査画面は「承認」に属する。
+ * ハイライトの出し分けには関与しない — 設計正典「編集 2 系統」)。
  * タブを持たない画面(管理者・ログインなど)は null。
  * タブ点灯とタブ復帰の記録キー(`stores/tabMemory.ts`)の両方がこの関数を使い、判定を
  * 2 か所に書かない。
@@ -35,6 +35,5 @@ export function tabOf(route: TabRouteLike): TabName | null {
   if (name === 'editor' || name === 'preview') {
     return route.query.created === '1' ? 'create' : 'edit';
   }
-  if (name === 'review-detail') return 'reviews';
   return name !== null && TAB_NAMES.has(name) ? (name as TabName) : null;
 }

@@ -209,16 +209,11 @@ async function goPreview() {
 const pendingReviews = usePendingReviewsStore();
 const pendingReview = computed(() => pendingReviews.byTemplate[props.id]?.[0] ?? null);
 
-/** 承認待ちバッジのクリック。`fromEdit` は離脱ガードのセッション維持ホワイトリストが読む。 */
+/** 承認待ちバッジのクリック。承認タブをこのテンプレートで開く。 */
 async function goReview() {
-  const target = pendingReview.value;
-  if (!target) return;
+  if (!pendingReview.value) return;
   await autosave.flush();
-  router.push({
-    name: 'review-detail',
-    params: { reqId: target.id },
-    query: { fromEdit: props.id },
-  });
+  router.push({ name: 'reviews', query: { template: props.id } });
 }
 
 // ユーザーが zoom +/- で明示的に倍率を決めたか。立っている間は resize で勝手に再フィット

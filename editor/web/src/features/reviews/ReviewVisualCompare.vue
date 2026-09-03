@@ -33,7 +33,7 @@ const props = defineProps<{
 const showMarker = ref(true);
 
 // マーカーのレイヤ名は乱数だが、docs は入力とトグルにのみ依存する computed で組む
-// (`ReviewDiffView` の renderedRows と同じ規律 — 無関係な再描画で全再組版を起こさない)。
+// (`ReviewDetail` の renderedRows と同じ規律 — 無関係な再描画で全再組版を起こさない)。
 const docs = computed(() =>
   buildCompareDocs({
     beforeHtml: props.beforeHtml,
