@@ -203,3 +203,90 @@ describe('削除', () => {
     expect((await repo.listNotes(KOUFU)).map((e) => e.id)).toEqual([p.id]);
   });
 });
+
+describe('存在しない投稿への操作', () => {
+  it('updateNote は validation で拒否する', async () => {
+    const { repo } = await importRepo();
+    await expect(
+      repo.updateNote(KOUFU, 'nope', { content: '更新' }, 'editor1'),
+    ).rejects.toMatchObject({ kind: 'validation' });
+  });
+
+  it('deleteNote は validation で拒否する', async () => {
+    const { repo } = await importRepo();
+    await expect(repo.deleteNote(KOUFU, 'nope')).rejects.toMatchObject({ kind: 'validation' });
+  });
+});
+
+describe('件数上限に達したパーツの更新・削除(上限は詰みを作らない)', () => {
+  async function seedAtCapacity(files: typeof import('../src/files/notesFile.js')): Promise<void> {
+    const entries = Array.from({ length: MAX_NOTE_ENTRIES_PER_PART }, (_, i) => ({
+      id: `e${i}`,
+      content: `メモ${i}`,
+      createdAt: `2026-09-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+      createdBy: 'editor1',
+      updatedAt: null,
+      updatedBy: null,
+      status: 'open' as const,
+      replyTo: null,
+      kind: 'note' as const,
+    }));
+    await files.writeNotes(KOUFU, { [KEY]: entries });
+  }
+
+  it('追加は拒否するが、既存投稿の編集は通す', async () => {
+    const { repo, files } = await importRepo();
+    await seedAtCapacity(files);
+    await expect(repo.addNote(KOUFU, KEY, 'あふれる', 'editor1', PARENT)).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    const updated = await repo.updateNote(KOUFU, 'e0', { content: '更新' }, 'editor1');
+    expect(updated.content).toBe('更新');
+  });
+
+  it('追加は拒否するが、既存投稿の削除は通す', async () => {
+    const { repo, files } = await importRepo();
+    await seedAtCapacity(files);
+    await repo.deleteNote(KOUFU, 'e1');
+    expect((await repo.listNotes(KOUFU)).find((e) => e.id === 'e1')).toBeUndefined();
+  });
+});
+
+describe('旧形式ファイル(複数 pathKey)での id 衝突を防ぐ', () => {
+  // `normalizeStored`(files/notesFile.ts)は旧形式(pathKey → メモ 1 件)の投稿 ID を
+  // `legacy:<pathKey>` にする。固定値 `legacy` 単体へ戻す退行が起きると、本 repo の `locate`
+  // (ファイル内の全 pathKey を横断して ID 一致を探す)が同じ ID を複数 pathKey で見つけ、
+  // 編集・削除が別パーツへ誤爆する。関連する変換自体の主張は
+  // `notesFile.thread.test.ts`「複数 pathKey を持つ旧形式ファイルでは各パーツが異なる ID になる」
+  // が持ち、ここでは repo 層の編集・削除がパーツを跨がないことを主張する。
+  async function writeLegacyFile(): Promise<void> {
+    const notesDir = path.join(tmpRoot, 'notes');
+    await fs.mkdir(notesDir, { recursive: true });
+    await fs.writeFile(
+      path.join(notesDir, `${KOUFU}.json`),
+      JSON.stringify({
+        [KEY]: { content: 'パーツ1', updatedAt: 'x', updatedBy: 'u' },
+        [OTHER_KEY]: { content: 'パーツ2', updatedAt: 'x', updatedBy: 'u' },
+      }),
+      'utf8',
+    );
+  }
+
+  it('片方の legacy id を削除しても、もう一方のパーツの投稿は残る', async () => {
+    const { repo } = await importRepo();
+    await writeLegacyFile();
+    await repo.deleteNote(KOUFU, `legacy:${OTHER_KEY}`);
+    const remaining = await repo.listNotes(KOUFU);
+    expect(remaining.map((e) => e.pathKey)).toEqual([KEY]);
+    expect(remaining[0].content).toBe('パーツ1');
+  });
+
+  it('片方の legacy id を編集しても、もう一方のパーツの投稿は変わらない', async () => {
+    const { repo } = await importRepo();
+    await writeLegacyFile();
+    await repo.updateNote(KOUFU, `legacy:${KEY}`, { content: '直した' }, 'editor1');
+    const all = await repo.listNotes(KOUFU);
+    expect(all.find((e) => e.pathKey === KEY)?.content).toBe('直した');
+    expect(all.find((e) => e.pathKey === OTHER_KEY)?.content).toBe('パーツ2');
+  });
+});

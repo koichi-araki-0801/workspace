@@ -93,7 +93,7 @@ describe('旧形式の遅延変換', () => {
     // 固定値 `legacy` 単体へ戻す退行が起きると、ここが同じ ID になって検出できる
     // (`repositories/noteRepo.ts` の `locate` はファイル内の全 pathKey を横断して ID 一致を
     // 探すため、ID が衝突すると編集・削除が別パーツへ誤爆する。実害は noteRepo.test.ts の
-    // 「旧形式ファイル(複数 pathKey)での id 衝突を防ぐ」で確認する)。
+    // describe('旧形式ファイル(複数 pathKey)での id 衝突を防ぐ') で確認する)。
     const KEY2 = '.page#1/cover#2';
     const files = await importNotesFile();
     await writeRaw({
