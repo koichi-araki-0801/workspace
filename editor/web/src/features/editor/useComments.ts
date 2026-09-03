@@ -1,5 +1,5 @@
 // =============================================================================
-// usePartNote.ts — パーツ単位メモ(追記型スレッド)の読込/追加/編集/削除 composable
+// useComments.ts — パーツ単位コメント(1 段の入れ子スレッド)の読込/追加/返信/解決/編集/削除 composable
 // =============================================================================
 // 役割: 現在の版インスタンスのスレッド(版に閉じ、ペアや他版とは共有しない)を保持し、選択中
 // パーツ(版内で安定な構造パスキー)の投稿列を提示する。追加・編集・削除はいずれも明示操作なので、
@@ -15,6 +15,7 @@ import {
 } from '@editor/shared';
 import { computed, ref } from 'vue';
 import { logError } from '@/lib/appError';
+import { openKeysOf } from './comments/commentFilter';
 
 /**
  * パーツ単位コメント(1 段の入れ子スレッド)。`templateId` 配下の全投稿を保持し、選択中
@@ -25,7 +26,7 @@ import { logError } from '@/lib/appError';
  * @param currentKey  選択中パーツの構造キーの getter(解決不能なら null)
  * @param repo        コメントの永続化先(`NoteRepository`)
  */
-export function usePartNote(
+export function useComments(
   templateId: () => string,
   currentKey: () => string | null,
   repo: NoteRepository,
@@ -35,6 +36,9 @@ export function usePartNote(
 
   /** 投稿を持つ pathKey 集合(canvas のマーカー描画を駆動する)。 */
   const notedKeys = computed<Set<string>>(() => new Set(all.value.map((e) => e.pathKey)));
+
+  /** 未対応の親投稿を持つ pathKey 集合(マーカーの色分け)。 */
+  const openKeys = computed<Set<string>>(() => openKeysOf(all.value));
 
   /** 現在の選択パーツのスレッド(リポジトリが決めた並びをそのまま保つ)。 */
   const entries = computed<PartNoteEntry[]>(() => {
@@ -122,5 +126,17 @@ export function usePartNote(
     await reload();
   }
 
-  return { entries, notedKeys, canNote, reload, add, reply, setStatus, update, remove };
+  return {
+    all,
+    entries,
+    notedKeys,
+    openKeys,
+    canNote,
+    reload,
+    add,
+    reply,
+    setStatus,
+    update,
+    remove,
+  };
 }

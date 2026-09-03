@@ -144,7 +144,7 @@ export default defineConfig({
         'editor/web/src/features/editor/pageView.ts',
         'editor/web/src/features/editor/useSnapshotHistory.ts',
         'editor/web/src/features/editor/usePartEditHistory.ts',
-        'editor/web/src/features/editor/usePartNote.ts',
+        'editor/web/src/features/editor/useComments.ts',
         'editor/web/src/features/editor/comments/commentFilter.ts',
         'editor/web/src/features/editor/partKey.ts',
         // 編集キャンバスの赤入れ（旧文言の取り消し線）。装飾が draft に混入しないことは

@@ -1,7 +1,7 @@
 import { err, type NoteRepository, ok, type PartNoteEntry, unexpected } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import { ref } from 'vue';
-import { usePartNote } from '@/features/editor/usePartNote';
+import { useComments } from '@/features/editor/useComments';
 
 const COVER = '.page#1/cover#1';
 const SUMMARY = '.page#1/.summary#1';
@@ -50,11 +50,11 @@ function makeRepo() {
   return { repo, store };
 }
 
-describe('usePartNote', () => {
+describe('useComments', () => {
   it('追加した投稿がスレッドとマーカーへ反映される', async () => {
     const { repo, store } = makeRepo();
     const key = ref<string | null>(COVER);
-    const note = usePartNote(
+    const note = useComments(
       () => TPL,
       () => key.value,
       repo,
@@ -72,7 +72,7 @@ describe('usePartNote', () => {
   it('選択を切り替えるとそのパーツのスレッドを見せる', async () => {
     const { repo } = makeRepo();
     const key = ref<string | null>(COVER);
-    const note = usePartNote(
+    const note = useComments(
       () => TPL,
       () => key.value,
       repo,
@@ -87,7 +87,7 @@ describe('usePartNote', () => {
 
   it('投稿を編集・削除できる', async () => {
     const { repo, store } = makeRepo();
-    const note = usePartNote(
+    const note = useComments(
       () => TPL,
       () => COVER,
       repo,
@@ -112,7 +112,7 @@ describe('usePartNote', () => {
         return repo.updateNote(templateId, entryId, content);
       },
     };
-    const note = usePartNote(
+    const note = useComments(
       () => TPL,
       () => COVER,
       spy,
@@ -130,7 +130,7 @@ describe('usePartNote', () => {
       updateNote: async () => err(unexpected('boom')),
       deleteNote: async () => err(unexpected('boom')),
     };
-    const note = usePartNote(
+    const note = useComments(
       () => TPL,
       () => COVER,
       repo,
@@ -142,7 +142,7 @@ describe('usePartNote', () => {
 
   it('選択キーが解決できないときは追加しない', async () => {
     const { repo, store } = makeRepo();
-    const note = usePartNote(
+    const note = useComments(
       () => TPL,
       () => null,
       repo,
@@ -155,7 +155,7 @@ describe('usePartNote', () => {
 
   it('版インスタンス未選択の reload は空のまま(repo を呼ばない)', async () => {
     const { repo } = makeRepo();
-    const note = usePartNote(
+    const note = useComments(
       () => '',
       () => COVER,
       repo,
@@ -166,7 +166,7 @@ describe('usePartNote', () => {
 
   it('空文字の本文は編集を送らない', async () => {
     const { repo, store } = makeRepo();
-    const note = usePartNote(
+    const note = useComments(
       () => TPL,
       () => COVER,
       repo,
@@ -196,7 +196,7 @@ describe('usePartNote', () => {
       updateNote: async () => err(unexpected('boom')),
       deleteNote: async () => err(unexpected('boom')),
     };
-    const note = usePartNote(
+    const note = useComments(
       () => TPL,
       () => COVER,
       errRepo,
@@ -212,7 +212,7 @@ describe('usePartNote', () => {
   it('reply は選択パーツの親へ返信を積み、setStatus は親の状態を切り替える', async () => {
     const { repo, store } = makeRepo();
     const key = ref<string | null>(COVER);
-    const note = usePartNote(
+    const note = useComments(
       () => TPL,
       () => key.value,
       repo,
@@ -230,7 +230,7 @@ describe('usePartNote', () => {
 
   it('本文が空の返信は送らない', async () => {
     const { repo, store } = makeRepo();
-    const note = usePartNote(
+    const note = useComments(
       () => TPL,
       () => COVER,
       repo,
@@ -238,5 +238,22 @@ describe('usePartNote', () => {
     await note.add('親');
     await note.reply(note.entries.value[0], '   ');
     expect(store).toHaveLength(1);
+  });
+
+  it('all は版の全投稿、openKeys は未対応の親を持つパーツだけ', async () => {
+    const { repo } = makeRepo();
+    const key = ref<string | null>(COVER);
+    const c = useComments(
+      () => TPL,
+      () => key.value,
+      repo,
+    );
+    await c.add('表紙');
+    key.value = SUMMARY;
+    await c.add('要約');
+    await c.setStatus(c.entries.value[0], 'resolved');
+    expect(c.all.value).toHaveLength(2);
+    expect([...c.notedKeys.value]).toEqual([COVER, SUMMARY]);
+    expect([...c.openKeys.value]).toEqual([COVER]);
   });
 });

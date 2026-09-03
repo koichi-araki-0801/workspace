@@ -25,9 +25,9 @@ import { partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
 import { useTemplateEditorService } from './services/templateEditorService';
 import { useAutosave } from './useAutosave';
+import { useComments } from './useComments';
 import { useGrapes } from './useGrapes';
 import { usePartEditHistory } from './usePartEditHistory';
-import { usePartNote } from './usePartNote';
 import { useSnapshotHistory } from './useSnapshotHistory';
 
 /**
@@ -210,7 +210,7 @@ export function useTemplateEditor(
     return root ? partLabelMap(root) : new Map();
   });
 
-  const note = usePartNote(
+  const note = useComments(
     () => template.value?.meta.id ?? '',
     () => {
       // 選択/編集で再評価させるため reactive 値を読む(computed の依存に含める)。
