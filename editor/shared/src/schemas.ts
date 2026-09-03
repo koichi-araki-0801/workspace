@@ -335,7 +335,7 @@ export const TemplateVersionMeta = z
 // ── 5b. Review workflow — 確定保存の精査者承認 ──
 
 export const ReviewStatus = z
-  .enum(['pending', 'approved', 'rejected', 'held'])
+  .enum(['pending', 'approved', 'rejected'])
   .meta({ id: 'ReviewStatus' });
 
 export const ReviewOrigin = z.enum(['edit', 'create']).meta({
@@ -370,11 +370,6 @@ export const ReviewRequestMeta = z
     reviewedAt: z.string().nullable(),
     comment: z.string().nullable().meta({ description: '却下理由 / 承認メモ。無ければ null' }),
     baseHash: z.string().nullable().meta({ description: '申請時点の現行版コンテンツキー' }),
-    // 保留(held)の記録。レガシー申請の meta.json には無いため、消費側は undefined も
-    // null と同様に「保留情報なし」として扱う(truthy 判定)。
-    heldBy: z.string().nullable().optional().meta({ description: '保留した承認者。無ければ null' }),
-    heldAt: z.string().nullable().optional(),
-    holdComment: z.string().nullable().optional().meta({ description: '保留メモ' }),
     changedSummary: ReviewChangedSummary.nullable().optional(),
   })
   .meta({ id: 'ReviewRequestMeta' });
