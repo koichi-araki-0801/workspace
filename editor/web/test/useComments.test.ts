@@ -143,6 +143,18 @@ describe('useComments', () => {
     expect(note.notedKeys.value.size).toBe(0);
   });
 
+  it('第 3 引数の pathKey を渡すと currentKey() を無視してその宛先へ投稿する(承認タブは区画ごとに宛先を持つため)', async () => {
+    const { repo, store } = makeRepo();
+    const note = useComments(
+      () => TPL,
+      () => COVER,
+      repo,
+    );
+    await note.add('本文', {}, SUMMARY);
+    expect(store).toHaveLength(1);
+    expect(store[0].pathKey).toBe(SUMMARY);
+  });
+
   it('選択キーが解決できないときは追加しない', async () => {
     const { repo, store } = makeRepo();
     const note = useComments(

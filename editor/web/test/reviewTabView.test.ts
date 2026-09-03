@@ -4,16 +4,41 @@
 // 組版 iframe を持つ `ReviewDetail` と `CommentPanel` は render 関数の stub にし、一覧の状態機械と
 // 宛先の受け渡しだけを固定する(実描画は e2e `review_tab.spec.ts` が覆う)。stub からも `focus` を
 // emit し、stub 化で通らなくなる `focusPart` / `goEdit` の経路を通す。
-import { ok, type ReviewRequestMeta, type Template } from '@editor/shared';
+import { ok, type PartNoteEntry, type ReviewRequestMeta, type Template } from '@editor/shared';
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, reactive } from 'vue';
 import ReviewTabView from '@/features/reviews/ReviewTabView.vue';
 
+const TPL = 'AM01_510037_20240710_交付版';
+const COVER = '.page#1/h1#1';
+
+/** `PartNoteEntry` の全項目を埋める fixture(`as` は使わない)。 */
+function noteEntry(patch: Partial<PartNoteEntry> = {}): PartNoteEntry {
+  return {
+    id: 'n1',
+    templateId: TPL,
+    pathKey: COVER,
+    content: '',
+    createdAt: '2026-09-03T00:00:00.000Z',
+    createdBy: 'editor1',
+    updatedAt: null,
+    updatedBy: null,
+    status: 'open',
+    replyTo: null,
+    kind: 'note',
+    ...patch,
+  };
+}
+
 const listReviewsFn = vi.fn();
 const getTemplateFn = vi.fn();
 const getSampleDataFn = vi.fn();
 const listNotesFn = vi.fn();
+const addNoteFn = vi.fn(
+  async (templateId: string, pathKey: string, content: string, opts: Partial<PartNoteEntry> = {}) =>
+    ok(noteEntry({ templateId, pathKey, content, ...opts })),
+);
 const push = vi.fn();
 const refresh = vi.fn();
 const gotoPage = vi.fn();
@@ -24,7 +49,7 @@ const editPath = { value: undefined as string | undefined };
 vi.mock('@/api/repositories', () => ({
   useReviewRepo: () => ({ listReviews: listReviewsFn }),
   useTemplateRepo: () => ({ getTemplate: getTemplateFn, getSampleData: getSampleDataFn }),
-  useNoteRepo: () => ({ listNotes: listNotesFn }),
+  useNoteRepo: () => ({ listNotes: listNotesFn, addNote: addNoteFn }),
 }));
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ push }) }));
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }));
@@ -33,14 +58,12 @@ vi.mock('@/stores/tabMemory', () => ({
 }));
 vi.mock('@/stores/pendingReviews', () => ({ usePendingReviewsStore: () => ({ refresh }) }));
 
-const TPL = 'AM01_510037_20240710_交付版';
 const ATTRS = {
   companyCode: 'AM01',
   fundCode: '510037',
   baseDate: '20240710',
   editionType: '交付版',
 };
-const COVER = '.page#1/h1#1';
 
 function meta(patch: Partial<ReviewRequestMeta>): ReviewRequestMeta {
   return {
@@ -89,13 +112,16 @@ const ReviewDetailStub = defineComponent({
   },
 });
 
-/** `CommentPanel` の代役。ボタン 1 つで `focus` を emit する。 */
+/** `CommentPanel` の代役。ボタン 1 つで `focus` を、もう 1 つで `add` を emit する。 */
 const CommentPanelStub = defineComponent({
   name: 'CommentPanel',
   props: ['entries', 'selectedKey', 'canAdd', 'partLabels', 'compact'],
-  emits: ['focus'],
+  emits: ['focus', 'add'],
   setup(_, { emit }) {
-    return () => h('button', { 'data-stub-focus': '', onClick: () => emit('focus', COVER) });
+    return () => [
+      h('button', { 'data-stub-focus': '', onClick: () => emit('focus', COVER) }),
+      h('button', { 'data-stub-add': '', onClick: () => emit('add', '本文', 'note') }),
+    ];
   },
 });
 
@@ -104,6 +130,7 @@ beforeEach(() => {
   getTemplateFn.mockReset().mockResolvedValue(ok(template()));
   getSampleDataFn.mockReset().mockResolvedValue(ok({}));
   listNotesFn.mockReset().mockResolvedValue(ok([]));
+  addNoteFn.mockClear();
   push.mockClear();
   refresh.mockClear();
   gotoPage.mockClear();
@@ -256,5 +283,39 @@ describe('コメントの宛先', () => {
     );
     const w = await mountTab([meta({ id: 'a' })]);
     expect(w.findAll('select[aria-label="コメントの宛先パーツ"] option')).toHaveLength(1 + 3);
+  });
+});
+
+describe('宛先の区画別化(表示中の宛先へ投稿する)', () => {
+  it('2 区画を同時展開して片方の宛先を選んでも、もう片方は「宛先を選ぶ」のまま', async () => {
+    route.query = { template: TPL };
+    const w = await mountTab([meta({ id: 'a' }), meta({ id: 'b' })]);
+    await w.findAll('[data-review-toggle]')[1].trigger('click');
+    const selects = w.findAll('select[aria-label="コメントの宛先パーツ"]');
+    expect(selects).toHaveLength(2);
+    await selects[0].setValue(COVER);
+    // `<option :value="null">` は `value` 属性が除去されるため、`element.value` は `''` でなく
+    // 「宛先を選ぶ」になる。`selectedIndex === 0` で先頭の未選択肢のままであることを検査する
+    // (`''` を期待すると「モデル値が undefined で選択が全滅した壊れた状態」も通してしまう)。
+    expect((selects[1].element as HTMLSelectElement).selectedIndex).toBe(0);
+  });
+
+  it('1 区画目で選んだ宛先へ 1 区画目の追加が投稿される(区画をまたいで直近操作を見ない)', async () => {
+    route.query = { template: TPL };
+    const w = await mountTab([meta({ id: 'a' }), meta({ id: 'b' })]);
+    await w.findAll('[data-review-toggle]')[1].trigger('click');
+    const selects = w.findAll('select[aria-label="コメントの宛先パーツ"]');
+    await selects[0].setValue(COVER);
+    await w.findAll('[data-stub-add]')[0].trigger('click');
+    await flushPromises();
+    expect(addNoteFn).toHaveBeenCalledWith(TPL, COVER, '本文', { kind: 'note' });
+  });
+
+  it('宛先が未選択なら追加を押しても投稿しない(composable が null キーで早期 return する)', async () => {
+    route.query = { template: TPL };
+    const w = await mountTab([meta({ id: 'a' })]);
+    await w.find('[data-stub-add]').trigger('click');
+    await flushPromises();
+    expect(addNoteFn).not.toHaveBeenCalled();
   });
 });

@@ -53,13 +53,16 @@ const description = computed(() =>
 // ── 1. 対象テンプレート ──
 const targetId = computed(() => resolveReviewTarget(route.query, memory.pathFor('edit')));
 
-// 選択中パーツ(コメント宛先)とアコーディオンの展開状態。
-const selectedKey = ref<string | null>(null);
+// 選択中パーツ(コメント宛先。区画〈申請 id〉ごとに持つ — 2 区画を同時展開しても互いに
+// 干渉しない。「直近に操作した区画」で解決すると、A で本文を打ち B の select を触ってから
+// A の追加を押すと B 宛に投稿される〈表示と結果がずれる〉ので、投稿先は必ず呼び出し側
+// 〈区画〉が明示する)とアコーディオンの展開状態。
+const selectedKey = reactive<Record<string, string | null>>({});
 const expanded = ref<string[]>([]);
 watch(targetId, () => {
   // 同じルートで template だけが変わると画面は再マウントされない。前テンプレートの選択
   // パーツ・展開状態・絞り込みを持ち越さないよう、下の読み込み系 watch より先にリセットする。
-  selectedKey.value = null;
+  for (const k of Object.keys(selectedKey)) delete selectedKey[k];
   expanded.value = [];
   statusFilter.value = 'pending';
 });
@@ -117,6 +120,19 @@ function toggle(id: string) {
 }
 const detailRefs = reactive<Record<string, InstanceType<typeof ReviewDetail> | undefined>>({});
 
+// 区画(申請)ごとのコメント宛先キーを `null` で初期化する。`<select v-model>` はモデル値が
+// `undefined` だと「宛先を選ぶ」(value=null)を選択済みとして表せず選択が全滅する
+// (`looseEqual(null, undefined)` が外れて `selectedIndex = -1` になり、閉じた select から
+// 「宛先を選ぶ」の見た目が消える)。`items` computed より後(TDZ 回避)、既存の
+// `watch(items)`(アコーディオン)の隣に置く。
+watch(
+  items,
+  (list) => {
+    for (const m of list) if (!(m.id in selectedKey)) selectedKey[m.id] = null;
+  },
+  { immediate: true },
+);
+
 /** 決着した申請を一覧へ写す(要約箱の件数もここで動く)。承認待ちバッジも取り直す。 */
 function onDecided(meta: ReviewRequestMeta) {
   all.value = all.value.map((m) => (m.id === meta.id ? meta : m));
@@ -125,7 +141,10 @@ function onDecided(meta: ReviewRequestMeta) {
 const allDone = computed(() => targetId.value !== null && mine.value.length > 0 && countOf('pending') === 0);
 
 // ── 4. コメント(対象テンプレートの全投稿。宛先パーツは区画内のセレクトで選ぶ) ──
-const comments = useComments(() => targetId.value ?? '', () => selectedKey.value, noteRepo);
+// 承認タブは区画(申請)ごとに宛先を持ち、投稿先は呼び出し側(区画)が明示する(`comments.add`
+// の第 3 引数)。`currentKey` は「今開いている 1 つの選択」という編集タブ向けの概念で、
+// 複数区画が同時展開されうる承認タブには対応しないため常に `null` を返す。
+const comments = useComments(() => targetId.value ?? '', () => null, noteRepo);
 watch(targetId, () => void comments.reload(), { immediate: true });
 
 /** パーツの表示ラベルとページ index。確定版の本文から `reviewPartMaps.ts` の規則で作る。 */
@@ -153,7 +172,7 @@ watch(targetId, loadParts, { immediate: true });
  * (削除済みパーツ宛に新規投稿させない — `partLabels` に無い = 宛先の選択肢からも外れている)。 */
 function focusPart(reqId: string, key: string) {
   if (!partLabels.value.has(key)) return;
-  selectedKey.value = key;
+  selectedKey[reqId] = key;
   const page = partPages.value.get(key);
   if (page !== undefined) detailRefs[reqId]?.gotoPage(page);
 }
@@ -265,18 +284,18 @@ function goEdit() {
               <div class="flex items-center gap-2 border-b px-3 py-2 text-[12.5px] font-bold">
                 コメント
                 <span class="flex-1" />
-                <select v-model="selectedKey" class="max-w-[170px] rounded border bg-background px-1.5 py-0.5 text-[11px] font-normal" aria-label="コメントの宛先パーツ">
+                <select v-model="selectedKey[m.id]" class="max-w-[170px] rounded border bg-background px-1.5 py-0.5 text-[11px] font-normal" aria-label="コメントの宛先パーツ">
                   <option :value="null">宛先を選ぶ</option>
                   <option v-for="[key, label] in [...partLabels.entries()]" :key="key" :value="key">{{ label }}</option>
                 </select>
               </div>
               <CommentPanel
                 :entries="comments.all.value"
-                :selected-key="selectedKey"
-                :can-add="selectedKey !== null"
+                :selected-key="selectedKey[m.id] ?? null"
+                :can-add="(selectedKey[m.id] ?? null) !== null"
                 :part-labels="partLabels"
                 compact
-                @add="(content, kind) => comments.add(content, { kind })"
+                @add="(content, kind) => comments.add(content, { kind }, selectedKey[m.id] ?? undefined)"
                 @reply="comments.reply"
                 @set-status="comments.setStatus"
                 @update="comments.update"
