@@ -72,6 +72,20 @@ function nextAnchor() {
   beforePanel.value?.gotoAnchor(id);
   afterPanel.value?.gotoAnchor(id);
 }
+
+/**
+ * 指定ページ(0 始まり)へ両面を送る。承認タブのコメント一覧が「行クリックで該当ページへ」
+ * に使う。アンカーはページ単位(`buildCompareDocs` が `.page` に付ける)なので、パーツ単位の
+ * 精度は持たない — ページが見えれば承認者はパーツを目で追える。
+ */
+function gotoPage(index: number): void {
+  const id = docs.value.anchors[index];
+  if (!id) return;
+  anchorIndex.value = index;
+  beforePanel.value?.gotoAnchor(id);
+  afterPanel.value?.gotoAnchor(id);
+}
+defineExpose({ gotoPage });
 </script>
 
 <template>
