@@ -21,7 +21,7 @@ import { logError } from '@/lib/appError';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
-import { partLabelMap, partPathKeyFor } from './partKey';
+import { partEls, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
 import { useTemplateEditorService } from './services/templateEditorService';
 import { useAutosave } from './useAutosave';
@@ -220,6 +220,42 @@ export function useTemplateEditor(
     },
     noteRepo,
   );
+
+  /** 選択パーツのキー(右ペインのコメント一覧へ渡す。選択・編集で再評価)。 */
+  const currentNoteKeyRef = computed<string | null>(() => {
+    void g.selected.value;
+    void g.revision.value;
+    return currentNoteKey();
+  });
+
+  /**
+   * コメント一覧の行から、そのパーツを canvas 上で選択して見えるようにする。
+   * pathKey は版内で安定な構造キーなので、現在ページ列から同じキーの要素を探して選ぶ。
+   * 1 ページ表示中は当該ページへ送ってから選ぶ(非表示ページの要素は `getElementPos` が 0 を
+   * 返し、選択枠が崩れる)。要素 → component の解決は GrapesJS が live 要素へ付ける id を
+   * `Components.getById` で引く。見つからなければ何もしない(コメントは残り、行は押せる)。
+   */
+  function selectPartByKey(key: string): void {
+    const ed = g.editor.value;
+    const root = canvasRoot();
+    if (!ed || !root) return;
+    // canvas root 直下の `.page` 要素列を列挙する(`partKey.ts` private `pageEls` と同等ロジック)。
+    // 1 件も無ければ root 自身をページ扱いにする。
+    const pageList = Array.from(root.children).filter(
+      (el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('page'),
+    );
+    const pages = pageList.length > 0 ? pageList : [root];
+    for (let pi = 0; pi < pages.length; pi += 1) {
+      for (const part of partEls(pages[pi])) {
+        if (partPathKeyFor(part, root) !== key) continue;
+        if (g.singlePageMode.value) g.goToPage(pi);
+        const comp = part.id ? ed.Components.getById(part.id) : undefined;
+        if (comp) ed.select(comp);
+        part.scrollIntoView({ block: 'center' });
+        return;
+      }
+    }
+  }
 
   // メモを持つパーツ集合が変わるたび、canvas のセル風マーカーを更新する。
   watch(note.notedKeys, (keys) => g.setNoteKeys(keys), { immediate: true });
@@ -495,6 +531,12 @@ export function useTemplateEditor(
     addNote: note.add,
     updateNote: note.update,
     removeNote: note.remove,
+    allNotes: note.all,
+    openNoteKeys: note.openKeys,
+    currentNoteKey: currentNoteKeyRef,
+    replyNote: note.reply,
+    setNoteStatus: note.setStatus,
+    selectPartByKey,
     allowAdd,
     allowEdit,
     dirty,
