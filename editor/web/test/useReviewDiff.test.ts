@@ -11,7 +11,6 @@ import { useReviewDiff } from '@/features/reviews/useReviewDiff';
 const buildDiff = vi.fn();
 const approveReviewFn = vi.fn();
 const rejectReviewFn = vi.fn();
-const holdReviewFn = vi.fn();
 
 vi.mock('@/features/reviews/services/reviewDiffService', () => ({
   useReviewDiffService: () => ({ buildDiff }),
@@ -20,7 +19,6 @@ vi.mock('@/api/repositories', () => ({
   useReviewRepo: () => ({
     approveReview: approveReviewFn,
     rejectReview: rejectReviewFn,
-    holdReview: holdReviewFn,
   }),
 }));
 
@@ -39,7 +37,6 @@ beforeEach(() => {
   buildDiff.mockReset();
   approveReviewFn.mockReset();
   rejectReviewFn.mockReset();
-  holdReviewFn.mockReset();
 });
 
 describe('useReviewDiff', () => {
@@ -85,14 +82,5 @@ describe('useReviewDiff', () => {
     await d.reject('NG');
 
     expect(rejectReviewFn).toHaveBeenCalledWith('r1', { comment: 'NG' });
-  });
-
-  it('hold は reqId とコメントで repo を呼ぶ(コメント省略可)', async () => {
-    holdReviewFn.mockResolvedValue(ok({ id: 'r1', status: 'held' }));
-    const d = useReviewDiff(() => 'r1');
-    const res = await d.hold();
-
-    expect(holdReviewFn).toHaveBeenCalledWith('r1', { comment: undefined });
-    expect(res.ok).toBe(true);
   });
 });

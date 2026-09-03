@@ -76,11 +76,6 @@ export function useReviewDiff(reqId: () => string) {
     return runDecide(() => reviews.rejectReview(reqId(), { comment }));
   }
 
-  /** 保留(実ファイル非更新)。判断を後回しにして一覧へ戻るための遷移。 */
-  function hold(comment?: string): Promise<Result<ReviewRequestMeta>> {
-    return runDecide(() => reviews.holdReview(reqId(), { comment }));
-  }
-
   return {
     review,
     rows,
@@ -101,6 +96,5 @@ export function useReviewDiff(reqId: () => string) {
     load,
     approve,
     reject,
-    hold,
   };
 }
