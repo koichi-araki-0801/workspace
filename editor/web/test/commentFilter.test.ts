@@ -4,7 +4,9 @@ import {
   authorsOf,
   DEFAULT_COMMENT_FILTER,
   filterThreads,
+  formatCommentAt,
   openKeysOf,
+  openThreadCount,
   threadsOf,
 } from '@/features/editor/comments/commentFilter';
 
@@ -159,5 +161,23 @@ describe('authorsOf / openKeysOf', () => {
       entry({ id: 'q-r', pathKey: SUMMARY, replyTo: 'q', status: 'open' }),
     ]);
     expect([...keys]).toEqual([SUMMARY]);
+  });
+});
+
+describe('openThreadCount', () => {
+  it('未対応の親投稿だけを数える(返信・パーツ数は数えない)', () => {
+    const count = openThreadCount([
+      entry({ id: 'p1', status: 'open' }),
+      entry({ id: 'p1-r', replyTo: 'p1', status: 'open' }),
+      entry({ id: 'p2', pathKey: SUMMARY, status: 'open' }),
+      entry({ id: 'p3', status: 'resolved' }),
+    ]);
+    expect(count).toBe(2);
+  });
+});
+
+describe('formatCommentAt', () => {
+  it('ISO 日時を月/日 時:分へ整形する', () => {
+    expect(formatCommentAt('2026-09-01T09:05:00.000Z')).toMatch(/^\d{2}\/\d{2} \d{2}:\d{2}$/);
   });
 });

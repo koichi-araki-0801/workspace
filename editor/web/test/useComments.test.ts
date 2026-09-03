@@ -256,4 +256,22 @@ describe('useComments', () => {
     expect([...c.notedKeys.value]).toEqual([COVER, SUMMARY]);
     expect([...c.openKeys.value]).toEqual([COVER]);
   });
+
+  it('openCount は未対応の親投稿数(返信・パーツ数ではない)', async () => {
+    const { repo } = makeRepo();
+    const key = ref<string | null>(COVER);
+    const c = useComments(
+      () => TPL,
+      () => key.value,
+      repo,
+    );
+    await c.add('表紙の親1');
+    await c.reply(c.entries.value[0], '表紙への返信');
+    key.value = SUMMARY;
+    await c.add('要約の親');
+    expect(c.openCount.value).toBe(2);
+
+    await c.setStatus(c.entries.value[0], 'resolved');
+    expect(c.openCount.value).toBe(1);
+  });
 });
