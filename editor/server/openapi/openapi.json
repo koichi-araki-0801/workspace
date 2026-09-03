@@ -1019,7 +1019,7 @@
         "tags": [
           "notes"
         ],
-        "summary": "パーツ単位メモを取得(交付版と全体版をマージしたスレッド)",
+        "summary": "パーツ単位コメントを取得(版インスタンスごとに独立。親投稿と返信が混在)",
         "operationId": "listNotes",
         "parameters": [
           {
@@ -1071,7 +1071,7 @@
         "tags": [
           "notes"
         ],
-        "summary": "パーツ単位メモへ投稿を追加",
+        "summary": "パーツ単位コメントへ投稿を追加",
         "operationId": "addNote",
         "parameters": [
           {
@@ -1131,7 +1131,7 @@
         "tags": [
           "notes"
         ],
-        "summary": "メモの投稿本文を編集",
+        "summary": "投稿の本文・状態を更新",
         "operationId": "updateNote",
         "parameters": [
           {
@@ -1197,7 +1197,7 @@
         "tags": [
           "notes"
         ],
-        "summary": "メモの投稿を削除",
+        "summary": "コメントの投稿を削除",
         "operationId": "deleteNote",
         "parameters": [
           {

@@ -28,8 +28,8 @@ const emit = defineEmits<{
 // キー・比較は `id` 単体ではなく `templateId/id` の対で行う。旧形式ファイルの遅延変換
 // (`server/src/files/notesFile.ts` の `normalizeStored`)は `legacy:<pathKey>` を id に
 // 使うため、ファイル(= 版インスタンス)が違えば同じ pathKey を持つ投稿が同じ id を名乗り
-// うる(交付版⇄全体版のペアをマージした本スレッドは複数ファイル由来の投稿を同時に表示する)。
-// id だけで一意性を仮定すると、2 件を同時に編集モードへ開いてしまう。
+// うる。表示は今は自版のスレッドに閉じているが、`templateId` を含めておけば他ファイル由来の
+// 投稿が並ぶ表示に変わっても id 衝突で 2 件を同時に編集モードへ開くことはない。
 function entryKey(entry: PartNoteEntry): string {
   return `${entry.templateId}/${entry.id}`;
 }

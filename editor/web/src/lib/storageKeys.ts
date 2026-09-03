@@ -20,8 +20,8 @@ export const K = {
   sessionEpoch: 'editor:session:epoch',
   userOverride: 'editor:users',
   passwords: 'editor:pw',
-  // パーツ単位メモ(追記型スレッド)。`Record<templateId, Record<pathKey, PartNoteEntry[]>>`。
-  // 交付版⇄全体版で 1 本のスレッドを共有し、基準日をまたぐ繰り越しはしない。版(構造)に
+  // パーツ単位コメント(追記型スレッド)。`Record<templateId, Record<pathKey, PartNoteEntry[]>>`。
+  // 読み書きとも版インスタンス(templateId)に閉じ、ペアや他版とは共有しない。版(構造)に
   // 依存する working-state なので `WORKING_KEYS` に含め、スキーマ bump で破棄する。
   // `:v2` はスレッド化での形式変更(旧 `editor:notes` は 1 パーツ 1 件だった)。
   notes: 'editor:notes:v2',

@@ -399,7 +399,7 @@ export function buildOpenApiDocument() {
       [toOpenApiPath(apiPaths.notes)]: {
         get: {
           tags: ['notes'],
-          summary: 'パーツ単位メモを取得(交付版と全体版をマージしたスレッド)',
+          summary: 'パーツ単位コメントを取得(版インスタンスごとに独立。親投稿と返信が混在)',
           operationId: 'listNotes',
           requestParams: { path: z.object({ templateId: z.string() }) },
           responses: {
@@ -413,7 +413,7 @@ export function buildOpenApiDocument() {
         },
         post: {
           tags: ['notes'],
-          summary: 'パーツ単位メモへ投稿を追加',
+          summary: 'パーツ単位コメントへ投稿を追加',
           operationId: 'addNote',
           requestParams: { path: z.object({ templateId: z.string() }) },
           requestBody: { content: { 'application/json': { schema: s.AddNoteRequest } } },
@@ -423,7 +423,7 @@ export function buildOpenApiDocument() {
       [toOpenApiPath(apiPaths.noteEntry)]: {
         patch: {
           tags: ['notes'],
-          summary: 'メモの投稿本文を編集',
+          summary: '投稿の本文・状態を更新',
           operationId: 'updateNote',
           requestParams: { path: z.object({ templateId: z.string(), entryId: z.string() }) },
           requestBody: { content: { 'application/json': { schema: s.UpdateNoteRequest } } },
@@ -435,7 +435,7 @@ export function buildOpenApiDocument() {
         },
         delete: {
           tags: ['notes'],
-          summary: 'メモの投稿を削除',
+          summary: 'コメントの投稿を削除',
           operationId: 'deleteNote',
           requestParams: { path: z.object({ templateId: z.string(), entryId: z.string() }) },
           responses: { '204': noContent('削除完了'), ...ERR_400, ...ERR_401 },
