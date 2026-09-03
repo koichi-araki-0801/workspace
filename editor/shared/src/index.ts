@@ -158,11 +158,13 @@ export type PartSyncDefault = z.infer<typeof sch.PartSyncDefault>;
 export type PartMasterReflectDefault = z.infer<typeof sch.PartMasterReflectDefault>;
 
 /**
- * パーツ単位メモの投稿 1 件。メモは追記型スレッドで、交付版と全体版のペア
- * (`pairedTemplateId`)で 1 本のスレッドを共有する。基準日をまたぐ繰り越しはしない。
+ * パーツ単位コメントの投稿 1 件。コメントは親投稿とその返信(1 段)から成るスレッドで、
+ * 版インスタンスごとに独立する(交付版と全体版で共有しない)。基準日をまたぐ繰り越しもしない。
  * キー算出は `web` の `partKey.ts` の `partPathKeyFor`。
  */
 export type PartNoteEntry = z.infer<typeof sch.PartNoteEntry>;
+export type NoteStatus = z.infer<typeof sch.NoteStatus>;
+export type NoteKind = z.infer<typeof sch.NoteKind>;
 
 export type AddNoteRequest = z.infer<typeof sch.AddNoteRequest>;
 
