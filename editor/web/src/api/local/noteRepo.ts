@@ -1,21 +1,23 @@
 // =============================================================================
-// noteRepo.ts — パーツ単位メモ(追記型スレッド)の local 実装(localStorage)
+// noteRepo.ts — パーツ単位コメント(1 段の入れ子スレッド)の local 実装(localStorage)
 // =============================================================================
 // 役割: `NoteRepository` の local 実装。`editor:notes:v2` に
-// `Record<templateId, Record<pathKey, PartNoteEntry[]>>` で保持する。読み取りは交付版⇄
-// 全体版のペアをマージし、書き込みは投稿が属する版へ向ける(REST 実装と同じ挙動)。
-// 版種の対応表は shared の `pairedTemplateId` を使う — web 側へ複製すると片方だけがずれる。
+// `Record<templateId, Record<pathKey, PartNoteEntry[]>>` で保持する。読み書きとも投稿が属する
+// 版インスタンスに閉じ、交付版⇄全体版のペアでも共有しない(REST 実装と同じ挙動)。
 // 資源上限も REST(server の Zod 契約 + `files/notesFile.ts`)と同じ 4 定数を shared から
 // 引いて強制する。ここが素通しだと、local(オフライン/デモビルド)だけ本物の server が拒否する
 // 操作を許してしまい、offline ビルドが実物と異なる挙動を利用者に学習させる。
+// 返信・状態の規則(親は同じパーツ・入れ子は 1 段・状態は親だけ・親削除で返信も消える)も
+// server の `repositories/noteRepo.ts` と同じにする。
 import {
+  type AddNoteOptions,
   MAX_NOTE_CONTENT_CHARS,
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTE_PATH_KEY_CHARS,
   MAX_NOTES_PER_TEMPLATE,
+  type NotePatch,
   type NoteRepository,
   type PartNoteEntry,
-  pairedTemplateId,
   validation,
 } from '@editor/shared';
 import { attempt } from './attempt';
@@ -26,7 +28,7 @@ type NoteStore = Record<string, Record<string, PartNoteEntry[]>>;
 /** 本文の長さ上限。add/update 共通(REST の `AddNoteRequest`/`UpdateNoteRequest` と同じ)。 */
 function assertContentLength(content: string): void {
   if (content.length > MAX_NOTE_CONTENT_CHARS) {
-    throw validation(`メモの本文は${MAX_NOTE_CONTENT_CHARS}文字までです`);
+    throw validation(`コメントの本文は${MAX_NOTE_CONTENT_CHARS}文字までです`);
   }
 }
 
@@ -38,8 +40,9 @@ function assertPathKeyLength(pathKey: string): void {
 }
 
 /**
- * 1 パーツの投稿数が上限に達しているか。上限が効くのは追加だけ — 編集・削除まで止めると
- * 「上限に達したパーツのメモを消せない」という詰みを作る(`files/notesFile.ts` と同じ方針)。
+ * 1 パーツの投稿数が上限に達しているか(返信を含む)。上限が効くのは追加だけ — 編集・削除
+ * まで止めると「上限に達したパーツのコメントを消せない」という詰みを作る
+ * (`files/notesFile.ts` と同じ方針)。
  */
 function entriesAtCapacity(entries: readonly PartNoteEntry[]): boolean {
   return entries.length >= MAX_NOTE_ENTRIES_PER_PART;
@@ -50,12 +53,7 @@ function notesAtCapacity(tpl: Record<string, PartNoteEntry[]>, pathKey: string):
   return !(pathKey in tpl) && Object.keys(tpl).length >= MAX_NOTES_PER_TEMPLATE;
 }
 
-/** 1 版インスタンス分の投稿を平坦化する。 */
-function flatten(all: NoteStore, templateId: string): PartNoteEntry[] {
-  return Object.values(all[templateId] ?? {}).flat();
-}
-
-/** 投稿 ID から所在(版・パーツキー・位置)を引く。 */
+/** 投稿 ID から所在(パーツキー・位置)を引く。 */
 function locate(
   all: NoteStore,
   templateId: string,
@@ -65,43 +63,49 @@ function locate(
     const index = entries.findIndex((e) => e.id === entryId);
     if (index >= 0) return { pathKey, index };
   }
-  throw validation('対象のメモが見つかりません(すでに削除された可能性があります)');
+  throw validation('対象のコメントが見つかりません(すでに削除された可能性があります)');
+}
+
+/** 返信先の親を同じパーツから引く(server の `requireParent` と同じ 3 条件)。 */
+function requireParent(entries: readonly PartNoteEntry[], replyTo: string): PartNoteEntry {
+  const parent = entries.find((e) => e.id === replyTo);
+  if (!parent)
+    throw validation('返信先のコメントが見つかりません(すでに削除された可能性があります)');
+  if (parent.replyTo !== null) throw validation('返信への返信はできません');
+  return parent;
 }
 
 export const localNoteRepo: NoteRepository = {
   listNotes: (templateId: string) =>
     attempt(() => {
       const all = read<NoteStore>(K.notes, {});
-      const paired = pairedTemplateId(templateId);
-      const merged = [...flatten(all, templateId), ...(paired ? flatten(all, paired) : [])];
-      // server 実装と同じ並び(作成日時のみで比較する)。`Array.prototype.sort` は ES2019
-      // 以降 安定ソートなので、同値のときは連結前の順(同一版内は配列 = 挿入順、版をまたぐ
-      // 場合は自版 → ペア版)がそのまま保たれる — これで「同時刻でも読むたびに順が変わら
-      // ない」を満たせる。以前は templateId → id を追加のタイブレークにしていたが、id は
-      // 乱数 UUID で挿入順と無関係なため、同一ミリ秒の連投で並びが崩れる実測不具合があった
-      // (2 件以上を同一 templateId へ短時間に追加すると id 順に化けていた)。
-      merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-      return delay(merged);
+      const own = Object.values(all[templateId] ?? {}).flat();
+      // server 実装と同じ並び(作成日時のみで比較する)。安定ソートなので同値は挿入順のまま。
+      own.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return delay(own);
     }),
 
-  addNote: (templateId: string, pathKey: string, content: string) =>
+  addNote: (templateId: string, pathKey: string, content: string, opts: AddNoteOptions = {}) =>
     attempt(() => {
-      if (content === '') throw validation('メモの本文を入力してください');
+      if (content === '') throw validation('コメントの本文を入力してください');
       assertContentLength(content);
       assertPathKeyLength(pathKey);
       const all = read<NoteStore>(K.notes, {});
       const tpl = all[templateId] ?? {};
       if (notesAtCapacity(tpl, pathKey)) {
         throw validation(
-          `このテンプレートのメモは上限(${MAX_NOTES_PER_TEMPLATE} 件)に達しています`,
+          `このテンプレートのコメントは上限(${MAX_NOTES_PER_TEMPLATE} 件)に達しています`,
         );
       }
-      if (entriesAtCapacity(tpl[pathKey] ?? [])) {
+      const entries = tpl[pathKey] ?? [];
+      if (entriesAtCapacity(entries)) {
         throw validation(
-          `このパーツのメモは上限(${MAX_NOTE_ENTRIES_PER_PART} 件)に達しています。` +
-            '不要なメモを削除してください。',
+          `このパーツのコメントは上限(${MAX_NOTE_ENTRIES_PER_PART} 件)に達しています。` +
+            '不要なコメントを削除してください。',
         );
       }
+      const replyTo = opts.replyTo ?? null;
+      const parent = replyTo === null ? null : requireParent(entries, replyTo);
       const entry: PartNoteEntry = {
         id: crypto.randomUUID(),
         templateId,
@@ -111,28 +115,46 @@ export const localNoteRepo: NoteRepository = {
         createdBy: currentUser()?.displayName ?? '不明',
         updatedAt: null,
         updatedBy: null,
+        status: parent ? parent.status : 'open',
+        replyTo: parent ? parent.id : null,
+        kind: opts.kind ?? 'note',
       };
-      tpl[pathKey] = [...(tpl[pathKey] ?? []), entry];
+      tpl[pathKey] = [...entries, entry];
       all[templateId] = tpl;
       write(K.notes, all);
       return entry;
     }),
 
-  updateNote: (templateId: string, entryId: string, content: string) =>
+  updateNote: (templateId: string, entryId: string, patch: NotePatch) =>
     attempt(() => {
-      if (content === '') throw validation('メモの本文を入力してください');
-      assertContentLength(content);
+      if (patch.content === undefined && patch.status === undefined)
+        throw validation('本文か状態のどちらかを指定してください');
+      if (patch.content !== undefined) {
+        if (patch.content === '') throw validation('コメントの本文を入力してください');
+        assertContentLength(patch.content);
+      }
       const all = read<NoteStore>(K.notes, {});
       const { pathKey, index } = locate(all, templateId, entryId);
+      const target = all[templateId][pathKey][index];
+      if (patch.status !== undefined && target.replyTo !== null)
+        throw validation('状態は親のコメントでだけ切り替えられます');
       const updated: PartNoteEntry = {
-        ...all[templateId][pathKey][index],
-        content,
-        updatedAt: now(),
-        updatedBy: currentUser()?.displayName ?? '不明',
+        ...target,
+        ...(patch.content !== undefined
+          ? {
+              content: patch.content,
+              updatedAt: now(),
+              updatedBy: currentUser()?.displayName ?? '不明',
+            }
+          : {}),
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
       };
-      all[templateId][pathKey] = all[templateId][pathKey].map((e, i) =>
-        i === index ? updated : e,
-      );
+      all[templateId][pathKey] = all[templateId][pathKey].map((e) => {
+        if (e.id === entryId) return updated;
+        if (patch.status !== undefined && e.replyTo === entryId)
+          return { ...e, status: patch.status };
+        return e;
+      });
       write(K.notes, all);
       return updated;
     }),
@@ -140,8 +162,10 @@ export const localNoteRepo: NoteRepository = {
   deleteNote: (templateId: string, entryId: string) =>
     attempt(() => {
       const all = read<NoteStore>(K.notes, {});
-      const { pathKey, index } = locate(all, templateId, entryId);
-      const rest = all[templateId][pathKey].filter((_, i) => i !== index);
+      const { pathKey } = locate(all, templateId, entryId);
+      const rest = all[templateId][pathKey].filter(
+        (e) => e.id !== entryId && e.replyTo !== entryId,
+      );
       // 空になったキー・版はエントリごと畳む(空オブジェクトを残さない)。
       if (rest.length === 0) delete all[templateId][pathKey];
       else all[templateId][pathKey] = rest;
