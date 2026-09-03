@@ -1,4 +1,4 @@
-# editor コメント機能・承認タブ 品質強化 Implementation Plan(改訂 5)
+# editor コメント機能・承認タブ 品質強化 Implementation Plan(改訂 6・反対目線レビュー収束)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -346,7 +346,8 @@ div クリック + `@click.stop` の二重構造は作らない(ハンドラ無�
   (`AttributeBar: true` の stub は `<attribute-bar-stub>` を描くので `div` 不在の検査は stub 越しでも
   意味を持つ: `stubs` から `AttributeBar` を外し `FundCodeName: true` だけにして実体を描かせる)。
 - [ ] **Step 2: 実装** — `AttributeBar.vue`: `inline` が真のときルートと各列を `span`
-  (`inline-flex`)で描く(why: `button` の内容モデルは phrasing content に限られる)。`ReviewTabView.vue`:
+  (`inline-flex`)で描く。各列は現行どおり「ラベル上・値下」の縦 2 段(`inline-flex flex-col`)を保ち、
+  見た目を変えない(why: `button` の内容モデルは phrasing content に限られる)。`ReviewTabView.vue`:
   `<AttributeBar inline …>`、`<button … :aria-expanded="expanded.includes(m.id)">` の先頭に
   `<span class="sr-only">開閉</span>`。
 - [ ] **Step 3: e2e** — `review_tab.spec.ts` を実行(セレクタ互換の確認)。
@@ -374,7 +375,9 @@ div クリック + `@click.stop` の二重構造は作らない(ハンドラ無�
     (`<option :value="null">` は `value` 属性が除去されるため `element.value` は `''` でなく `'宛先を選ぶ'`。
     `''` を期待すると「モデル値が `undefined` で選択が全滅した壊れた状態」を追認してしまう)。
     `CommentPanelStub` に `add` emit も足し、1 区画目の `add` が `addNote` を 1 区画目の宛先で呼ぶ
-    (`useNoteRepo` モックに `addNote: vi.fn(async () => ok(entry))` を追加)。
+    (`useNoteRepo` モックに `addNote: vi.fn(async (templateId, pathKey, content, opts) => ok(noteEntry({ templateId, pathKey, content, ...opts })))`
+    を追加。`noteEntry` は `PartNoteEntry` の全項目を埋める fixture 関数をテスト内に定義する — `as` 禁止。
+    Task 4 (a) で使う `err` / `unexpected` と併せて `@editor/shared` からの import を足す)。
 - [ ] **Step 2: 実装**
   - `useComments.add(content, opts = {}, pathKey?: string)`: `pathKey ?? currentKey()` を宛先にする。why:
     承認タブは区画(申請)ごとに宛先を持ち、表示中の宛先へ投稿する(2 区画目の呼び出し元が実在する)。
@@ -423,7 +426,8 @@ div クリック + `@click.stop` の二重構造は作らない(ハンドラ無�
     `ReviewDetail` の mount テストは置かない方針(自己レビュー参照)なので、この 2 段の準備待ちには単体網を
     置かず、`ReviewVisualCompare` 側の保留は `reviewCompareDocs` 相当の純粋部分を持たないため e2e
     `review_tab.spec.ts` の「行クリック → 該当ページ表示」で覆う(Task 8 でケースを 1 本足す:
-    区画を開いた直後にコメント行を押し、`afterState`/`beforeState` の準備後に両面のページ番号が動く)。
+    区画を開いた直後にコメント行を押し、`afterState`/`beforeState` の準備後にページ番号表示
+    (after 面由来の 1 つ)が該当ページになる)。
 - [ ] **Step 2: 実装**
   - `CommentPanel`: 到達不能行は emit しない + `aria-disabled` + title。
   - `ReviewVisualCompare`: `pendingPageIndex = ref<number | null>(null)` を持ち、`gotoPage(index)` の
@@ -521,9 +525,18 @@ div クリック + `@click.stop` の二重構造は作らない(ハンドラ無�
 - [ ] **Step 1: 置換 → `--repeat-each=3` で安定確認**
 - [ ] **Step 2: 準備待ちの e2e を 1 本足す**(Task 4 の 2 段の保留は単体網が無いのでここで覆う):
   申請の区画を開いた**直後**に(組版完了を待たずに)コメント列の行を押す → 両面の
-  `[data-vivliostyle-page-container]` が出た後、`ReviewVisualCompare` のページ番号表示が該当ページに
-  なっていること。行を押す前提としてコメントを 1 件作る必要があるので、`submitOnce` の前に編集画面で
-  2 ページ目のパーツへコメントを付けておく(`comment_panel.spec.ts` の `addComment` ヘルパを流用)。
+  `[data-vivliostyle-page-container]` が出た後、ページ番号表示が該当ページになっていること。
+  ロケータ: 展開区画内の `iframe[title="プレビュー"]` は 2 枚あるので `frameLocator(...)` は必ず
+  `.first()` / `.nth(1)` で 1 枚に絞る(素の frameLocator は strict mode 違反)。ページ番号は
+  `ReviewVisualCompare.vue` の `<span>{{ afterState.currentPage }} / {{ pageCount }} ページ（左右連動）</span>`
+  なので `section.getByText(/^2 \/ \d+ ページ（左右連動）$/)` で待つ(表示は after 面由来の 1 つだけ)。
+  「開いた直後」は Playwright の速度次第で既に準備済みのこともあり、その場合は即送信経路を通る —
+  どちらの経路でも結果アサーションは有効(保留経路だけを決定的に検査する手段は無い旨をコメントに)。
+  行を押す前提としてコメントを 1 件作る必要があるので、`submitOnce` の前に編集画面
+  (`/edit/<id>` → `[data-pane-tab="comments"]` → canvas 待ち)で **2 ページ目のパーツ**へコメントを
+  付けておく。`comment_panel.spec.ts` の `addComment` は file-local なので**コピー**して使う。
+  `.page > *` は全ページ横断の通し index で、seed テンプレは 1 ページ目に 6 パーツあるため
+  2 ページ目の先頭は `nth(6)`(実行時に `.page` の数と各ページの子数を数えて確認する)。
   文字差分タブへ切り替えてから行を押す変種も 1 ケース(タブが見た目比較へ戻ることを確認)。
 - [ ] **Step 3: コミット** `test(editor): 承認タブ e2e の固定待ちを要素待ちへ置き換え、行クリックの準備待ちを固定する`
 
