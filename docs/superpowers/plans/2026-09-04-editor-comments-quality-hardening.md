@@ -1,4 +1,4 @@
-# editor コメント機能・承認タブ 品質強化 Implementation Plan(改訂 3)
+# editor コメント機能・承認タブ 品質強化 Implementation Plan(改訂 4)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -368,14 +368,21 @@ div クリック + `@click.stop` の二重構造は作らない(ハンドラ無�
 - [ ] **Step 1: 失敗するテストを書く**
   - `useComments.test.ts`: `add('本文', {}, SUMMARY)` は `currentKey()` が `COVER` でも `SUMMARY` 宛に
     `addNote` を呼ぶ。第 3 引数省略時は従来どおり `currentKey()`。
-  - `reviewTabView.test.ts`: 2 件展開し、1 区画目の select を選んでも 2 区画目の select は `''`(未選択)の
-    まま。`CommentPanelStub` に `add` emit も足し、1 区画目の `add` が `addNote` を 1 区画目の宛先で呼ぶ
+  - `reviewTabView.test.ts`: 2 件展開し、1 区画目の select を選んでも 2 区画目の select は先頭の
+    「宛先を選ぶ」が選択されたまま —
+    `expect((w.findAll('select[aria-label="コメントの宛先パーツ"]')[1].element as HTMLSelectElement).selectedIndex).toBe(0)`
+    (`<option :value="null">` は `value` 属性が除去されるため `element.value` は `''` でなく `'宛先を選ぶ'`。
+    `''` を期待すると「モデル値が `undefined` で選択が全滅した壊れた状態」を追認してしまう)。
+    `CommentPanelStub` に `add` emit も足し、1 区画目の `add` が `addNote` を 1 区画目の宛先で呼ぶ
     (`useNoteRepo` モックに `addNote: vi.fn(async () => ok(entry))` を追加)。
 - [ ] **Step 2: 実装**
   - `useComments.add(content, opts = {}, pathKey?: string)`: `pathKey ?? currentKey()` を宛先にする。why:
     承認タブは区画(申請)ごとに宛先を持ち、表示中の宛先へ投稿する(2 区画目の呼び出し元が実在する)。
     `reply/update/remove/setStatus` は `entry` 由来なので変更なし。
   - `ReviewTabView.vue`: `selectedKey` を `reactive<Record<string, string | null>>({})`(reqId → key)に。
+    **区画のキーは `null` で初期化する**: `watch(items, (list) => { for (const m of list) if (!(m.id in selectedKey)) selectedKey[m.id] = null; }, { immediate: true })`。
+    未初期化(`undefined`)のままだと Vue の `setSelected` が `looseEqual(null, undefined)` で外れて
+    `selectedIndex = -1` になり、閉じた select から「宛先を選ぶ」が消える(可視文言の退行)。
     select の `v-model="selectedKey[m.id]"`、`:selected-key="selectedKey[m.id] ?? null"`、
     `:can-add="(selectedKey[m.id] ?? null) !== null"`、`@add="(content, kind) => comments.add(content, { kind }, selectedKey[m.id] ?? undefined)"`、
     `focusPart(m.id, key)` は `selectedKey[m.id] = key` + ページ送り。`targetId` 変化時は全キーを消す。
@@ -392,27 +399,40 @@ div クリック + `@click.stop` の二重構造は作らない(ハンドラ無�
 - 影響: `editor/web/src/features/editor/EditorView.vue`(到達不能行で `focus` が来なくなる。無害)
 
 現状の沈黙: ①確定版に無いパーツ(`focusPart` が return)②文字差分タブ表示中(`ReviewDetail.gotoPage`
-が return)③確定版の構造が引けない(`partLabels` が空)とき全行が無反応。加えて、タブを見た目比較へ
+が return)③確定版の構造が引けない(`partLabels` が空)とき全行が無反応 ④`ReviewDetail` が `loading` 中は
+`ReviewVisualCompare` が未マウント(`ReviewDetail.vue` の `v-if="loading"` / `v-else-if="review"`)で、
+区画を開いた直後に行を押すと `visualRef` が無く要求ごと落ちる。加えて、タブを見た目比較へ
 切り替えた**直後**は `PreviewPanel` が未準備(`gotoAnchor` はキューを持たず即 postMessage、子は viewer
-未準備で捨てる)なので、切替してすぐ送っても別の沈黙になる → 準備待ちが必須。
+未準備で捨てる)なので、切替してすぐ送っても別の沈黙になる → 準備待ちは `ReviewDetail`(マウント待ち)と
+`ReviewVisualCompare`(組版待ち)の 2 段で持つ。
 
 - [ ] **Step 1: 失敗するテストを書く**
   - `commentPanel.test.ts`: `partLabels` に無いキーの行は `aria-disabled="true"` と
-    title「この版の構造には無いパーツです」を持ち、クリックしても `focus` を emit しない。
-  - `reviewTabView.test.ts`: `getTemplate` が失敗(`err`)のとき、区画のコメント列に
+    title「削除済みパーツ(この版の構造にありません)」を持ち(既存の表示語「削除済みパーツ」に揃える。
+    同じ状態を別の言葉で呼ばない)、クリックしても `focus` を emit しない。既存テスト「行のクリックで
+    focus(pathKey) を emit する」の行は `partLabels` に在るキーなので従来どおり emit する。
+  - `reviewTabView.test.ts`: (a) `getTemplate` が失敗(`err`)のとき、区画のコメント列に
     「このテンプレートの確定版がまだ無いため、パーツ宛のコメントは付けられません」が出て select が
-    `disabled`。
+    `disabled`。(b) `getTemplate` が未解決(手動解決の Promise)の間は文言が**出ず**、select は `disabled`。
+    (c) 区画を開いた直後(`ReviewDetail` stub が `loading` 相当で `gotoPage` を持たない状態を模す:
+    stub の `expose` を 1 tick 遅らせる)に `focus` しても、準備後に `gotoPage` が 1 回呼ばれる。
 - [ ] **Step 2: 実装**
   - `CommentPanel`: 到達不能行は emit しない + `aria-disabled` + title。
   - `ReviewVisualCompare`: `pendingPageIndex = ref<number | null>(null)` を持ち、`gotoPage(index)` は
-    `afterState.value.pageCount > 0`(before 単面のときは `beforeState`)なら即送信、でなければ保留。
-    `watch([afterState, beforeState])` で `pageCount > 0` になった時に保留分を 1 回だけ送る。
-  - `ReviewDetail.gotoPage`: `activeTab.value = 'visual'` にしてから `nextTick` 後に委譲(`nextTick` は
-    `v-if` のマウント待ちで、組版の準備待ちは `ReviewVisualCompare` 側が担う旨をコメントに)。
-    `defineExpose` のコメントも「見た目比較へ切り替えて該当ページへ送る」に直す。
-  - `ReviewTabView`: 判定は `partLabels.size === 0`(`m.origin` は見ない — `partLabels` はテンプレ単位)。
-    該当時は select を `disabled`、`can-add` を false、コメント列上部に上記 1 行。why に「宛先は確定版の
-    構造から作るため、申請側にだけ在る追加パーツにも宛てられない」を書く。
+    `afterState.value.pageCount > 0` なら即送信、でなければ保留。判定は常に `afterState` —
+    単面表示(`isCreate`)で残るのは **after 面**(`v-if="!isCreate"` が付くのは before の figure)なので、
+    「before 単面」は存在しない。`watch(afterState)` で `pageCount > 0` になった時に保留分を 1 回だけ送る。
+    `PreviewPanel` が fallback へ倒れた場合は `pageCount` が 0 のままなので保留は捨てる(コメントに明記)。
+  - `ReviewDetail.gotoPage`: `activeTab.value = 'visual'` にし、`visualRef` が無ければ `pendingIndex` に
+    保留して `watch(visualRef)`(マウント時)で 1 回 flush、在れば `nextTick` 後に委譲。組版の準備待ちは
+    `ReviewVisualCompare` 側が担う旨をコメントに。`defineExpose` のコメントも「見た目比較へ切り替えて
+    該当ページへ送る」に直す。
+  - `ReviewTabView`: `partsLoaded = ref(false)` を足し、`loadParts` の最新判定を通過した時点で true
+    (`targetId` 変化時に false へ戻す)。判定は `partsLoaded && partLabels.size === 0`(`m.origin` は
+    見ない — `partLabels` はテンプレ単位。読み込み中に真になると正常なテンプレでも文言が一瞬出る)。
+    該当時は select を `disabled`、`can-add` を false、コメント列上部に上記 1 行。読み込み中は select を
+    `disabled` にして文言は出さない。why に「宛先は確定版の構造から作るため、申請側にだけ在る追加パーツ
+    にも宛てられない」を書く。
 - [ ] **Step 3: コミット** `fix(editor): 承認タブでコメント行の移動が効かない条件を明示し見た目比較の準備を待って送る`
 
 ---
@@ -480,7 +500,7 @@ div クリック + `@click.stop` の二重構造は作らない(ハンドラ無�
 | 箇所 | 扱い |
 |---|---|
 | 承認タブクリック後 800ms / toggle 後 500ms / 差し戻し後 1000ms | 削除(直後の `expect` が自動リトライ) |
-| `login` の 800ms | ログイン後の着地をロケータ待ちへ: `tabbed_layout.spec.ts` と同じアプリヘッダのタブ群セレクタ |
+| `login` の 800ms | ログイン後の着地をロケータ待ちへ: `await page.locator('header nav a').first().waitFor()`(`MainLayout.vue` の `nav` はロール非依存で全ロールに出る。`tabbed_layout.spec.ts` の `login` には待ちが無いので流用元は無い) |
 | `submitOnce` の 1000ms | `await expect(page.getByRole('status').filter({ hasText: '確定保存を申請しました' })).toBeVisible()`(`PreviewView.vue` の `toastSuccess`、`Toaster.vue` は `role="status"`。`submitOnce` は冒頭で `goto` するので前回の toast は残らない) |
 | `/edit/:id` 後の 2000ms | `frameLocator('iframe.gjs-frame').locator('.page').first()` の可視待ちへ。GrapesJS 初期化完了を待つ意図をコメントに残す |
 
