@@ -15,8 +15,10 @@ import {
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTE_PATH_KEY_CHARS,
   MAX_NOTES_PER_TEMPLATE,
+  type NoteKind,
   type NotePatch,
   type NoteRepository,
+  type NoteStatus,
   type PartNoteEntry,
   validation,
 } from '@editor/shared';
@@ -24,6 +26,38 @@ import { attempt } from './attempt';
 import { currentUser, delay, K, now, read, write } from './store';
 
 type NoteStore = Record<string, Record<string, PartNoteEntry[]>>;
+
+const NOTE_STATUSES: ReadonlySet<string> = new Set<NoteStatus>(['open', 'resolved']);
+const NOTE_KINDS: ReadonlySet<string> = new Set<NoteKind>(['note', 'fix-request', 'question']);
+
+/**
+ * `status`/`replyTo`/`kind` を持たない旧データ(`editor:notes:v2` 導入前に書かれた投稿)へ
+ * 既定値を補う。server の `files/notesFile.ts` の `withCommentDefaults` と同じ規則
+ * (status は 'open'、kind は 'note'、replyTo は非空文字列でなければ null)。補わないと
+ * `parent.replyTo !== null` が `undefined !== null` で真になり、旧投稿への返信・解決が
+ * 常に拒否される。列挙の外の値も既定へ戻す(1 件の破損で読み取り全体を落とさない)。
+ */
+function withCommentDefaults(raw: PartNoteEntry): PartNoteEntry {
+  const status =
+    typeof raw.status === 'string' && NOTE_STATUSES.has(raw.status) ? raw.status : 'open';
+  const kind = typeof raw.kind === 'string' && NOTE_KINDS.has(raw.kind) ? raw.kind : 'note';
+  const replyTo = typeof raw.replyTo === 'string' && raw.replyTo !== '' ? raw.replyTo : null;
+  return { ...raw, status, replyTo, kind };
+}
+
+/** `K.notes` を読み、全投稿へコメント属性の既定値を補って返す(読み取りの唯一の入口)。 */
+function readStore(): NoteStore {
+  const all = read<NoteStore>(K.notes, {});
+  const out: NoteStore = {};
+  for (const [templateId, tpl] of Object.entries(all)) {
+    const outTpl: Record<string, PartNoteEntry[]> = {};
+    for (const [pathKey, entries] of Object.entries(tpl)) {
+      outTpl[pathKey] = entries.map(withCommentDefaults);
+    }
+    out[templateId] = outTpl;
+  }
+  return out;
+}
 
 /** 本文の長さ上限。add/update 共通(REST の `AddNoteRequest`/`UpdateNoteRequest` と同じ)。 */
 function assertContentLength(content: string): void {
@@ -78,7 +112,7 @@ function requireParent(entries: readonly PartNoteEntry[], replyTo: string): Part
 export const localNoteRepo: NoteRepository = {
   listNotes: (templateId: string) =>
     attempt(() => {
-      const all = read<NoteStore>(K.notes, {});
+      const all = readStore();
       const own = Object.values(all[templateId] ?? {}).flat();
       // server 実装と同じ並び(作成日時のみで比較する)。安定ソートなので同値は挿入順のまま。
       own.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -90,7 +124,7 @@ export const localNoteRepo: NoteRepository = {
       if (content === '') throw validation('コメントの本文を入力してください');
       assertContentLength(content);
       assertPathKeyLength(pathKey);
-      const all = read<NoteStore>(K.notes, {});
+      const all = readStore();
       const tpl = all[templateId] ?? {};
       if (notesAtCapacity(tpl, pathKey)) {
         throw validation(
@@ -133,7 +167,7 @@ export const localNoteRepo: NoteRepository = {
         if (patch.content === '') throw validation('コメントの本文を入力してください');
         assertContentLength(patch.content);
       }
-      const all = read<NoteStore>(K.notes, {});
+      const all = readStore();
       const { pathKey, index } = locate(all, templateId, entryId);
       const target = all[templateId][pathKey][index];
       if (patch.status !== undefined && target.replyTo !== null)
@@ -161,7 +195,7 @@ export const localNoteRepo: NoteRepository = {
 
   deleteNote: (templateId: string, entryId: string) =>
     attempt(() => {
-      const all = read<NoteStore>(K.notes, {});
+      const all = readStore();
       const { pathKey } = locate(all, templateId, entryId);
       const rest = all[templateId][pathKey].filter(
         (e) => e.id !== entryId && e.replyTo !== entryId,

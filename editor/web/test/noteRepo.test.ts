@@ -216,3 +216,60 @@ describe('資源上限(REST と同じ 4 定数を local でも強制する)', ()
     expect(isOk(existingKeyRes)).toBe(true);
   });
 });
+
+describe('読み取り時の既定値補完(旧データに status/replyTo/kind が無い場合)', () => {
+  // `editor:notes:v2` 導入前の投稿は 3 属性を持たない。補わないと
+  // `parent.replyTo !== null` が `undefined !== null` で真になり、返信・解決が常に拒否される。
+
+  function seedLegacyEntry(id: string): void {
+    const legacy = {
+      id,
+      templateId: KOUFU,
+      pathKey: KEY,
+      content: '旧投稿',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdBy: 'u',
+      updatedAt: null,
+      updatedBy: null,
+      // status/replyTo/kind を意図的に持たせない(旧形式の再現)。
+    };
+    localStorage.setItem(K.notes, JSON.stringify({ [KOUFU]: { [KEY]: [legacy] } }));
+  }
+
+  it('3 属性を持たない投稿は open / null / note で一覧に出る', async () => {
+    seedLegacyEntry('legacy1');
+    const list = await localNoteRepo.listNotes(KOUFU);
+    expect(isOk(list) && list.value).toEqual([
+      expect.objectContaining({ id: 'legacy1', status: 'open', replyTo: null, kind: 'note' }),
+    ]);
+  });
+
+  it('旧投稿(親)へ返信でき、解決できる', async () => {
+    seedLegacyEntry('legacy1');
+    const r = await localNoteRepo.addNote(KOUFU, KEY, '返信', { replyTo: 'legacy1' });
+    expect(isOk(r) && r.value).toMatchObject({ replyTo: 'legacy1', status: 'open' });
+    const res = await localNoteRepo.updateNote(KOUFU, 'legacy1', { status: 'resolved' });
+    expect(isOk(res) && res.value.status).toBe('resolved');
+  });
+
+  it('列挙外の status/kind と空文字の replyTo は既定値へ落ちる', async () => {
+    const invalid = {
+      id: 'bad1',
+      templateId: KOUFU,
+      pathKey: KEY,
+      content: '不正値',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdBy: 'u',
+      updatedAt: null,
+      updatedBy: null,
+      status: 'archived',
+      replyTo: '',
+      kind: 'unknown',
+    };
+    localStorage.setItem(K.notes, JSON.stringify({ [KOUFU]: { [KEY]: [invalid] } }));
+    const list = await localNoteRepo.listNotes(KOUFU);
+    expect(isOk(list) && list.value).toEqual([
+      expect.objectContaining({ id: 'bad1', status: 'open', replyTo: null, kind: 'note' }),
+    ]);
+  });
+});
