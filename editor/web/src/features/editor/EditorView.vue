@@ -13,6 +13,7 @@ import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
+import CommentPanel from './comments/CommentPanel.vue';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
 import NoteBubble from './NoteBubble.vue';
@@ -44,6 +45,12 @@ const {
   addNote,
   updateNote,
   removeNote,
+  allNotes,
+  openNoteKeys,
+  currentNoteKey,
+  replyNote,
+  setNoteStatus,
+  selectPartByKey,
   allowAdd,
   allowEdit,
   dirty,
@@ -76,6 +83,16 @@ const { startHandle, dragLabel } = useGeomHandles({
 });
 
 const rect = computed(() => g.selectedRect.value);
+
+// ── 右ペインの表示(プロパティ / コメント)。編集セッションをまたいで保持しない(画面ごと) ──
+const paneTab = ref<'props' | 'comments'>('props');
+const openCommentCount = computed(() => openNoteKeys.value.size);
+
+/** コメント一覧の行 → そのパーツを選択して見せる。吹き出しも開き直す。 */
+function focusPart(key: string): void {
+  selectPartByKey(key);
+  bubbleClosed.value = false;
+}
 
 // ── メモ吹き出し(選択パーツのスレッド) ──
 const noteBubbleEl = useTemplateRef<InstanceType<typeof NoteBubble>>('noteBubbleEl');
@@ -384,7 +401,8 @@ const statusText = computed(() => {
             v-for="m in g.noteMarkers.value"
             :key="m.key"
             class="note-marker"
-            title="メモあり"
+            :class="openNoteKeys.has(m.key) ? '' : 'note-marker-resolved'"
+            :title="openNoteKeys.has(m.key) ? '未対応のコメントあり' : 'コメントあり(解決済み)'"
             :style="{ left: `${m.left}px`, top: `${m.top}px` }"
           >
             <StickyNote class="h-3 w-3" />
@@ -399,6 +417,8 @@ const statusText = computed(() => {
               :anchor="g.bubbleAnchor.value"
               @update="updateNote"
               @remove="removeNote"
+              @reply="replyNote"
+              @set-status="setNoteStatus"
               @close="bubbleClosed = true"
             />
           </template>
@@ -490,8 +510,8 @@ const statusText = computed(() => {
         :geom="selectedGeom"
         :history="displayHistory"
         :part-labels="partLabels"
-        :note-count="noteEntries.length"
-        :can-note="canNote"
+        :pane-tab="paneTab"
+        :comment-count="openCommentCount"
         :edit-mode="allowEdit"
         :can-up="g.canMoveUp.value"
         :can-down="g.canMoveDown.value"
@@ -499,9 +519,24 @@ const statusText = computed(() => {
         @move="moveSelected($event)"
         @reset="resetGeom"
         @del="deletePart"
-        @add-note="addNote"
+        @pane-tab="paneTab = $event"
         @collapse="rightCollapsed = true"
-      />
+      >
+        <template #comments>
+          <CommentPanel
+            :entries="allNotes"
+            :selected-key="currentNoteKey"
+            :can-add="canNote"
+            :part-labels="partLabels"
+            @add="(content, kind) => addNote(content, { kind })"
+            @reply="replyNote"
+            @set-status="setNoteStatus"
+            @update="updateNote"
+            @remove="removeNote"
+            @focus="focusPart"
+          />
+        </template>
+      </Inspector>
     </div>
   </div>
 </template>

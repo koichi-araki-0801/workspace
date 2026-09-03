@@ -25,16 +25,16 @@ import {
   Eye,
   FileText,
   History,
+  MessageSquare,
   PanelRight,
   PanelRightClose,
   RotateCcw,
   SplitSquareVertical,
-  StickyNote,
   Table,
   Trash2,
   TrendingUp,
 } from '@lucide/vue';
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, reactive, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
@@ -52,10 +52,10 @@ const props = defineProps<{
   history: PartHistoryEntry[];
   /** 全パーツ横断表示(未選択時)で各履歴行のパーツを示すラベル(`partKey` → `ページN・パーツM`)。 */
   partLabels?: Map<string, string>;
-  /** 選択パーツのメモ件数(バッジ表示用)。本文はキャンバスの吹き出しが受け持つ。 */
-  noteCount: number;
-  /** 選択がメモ対象キーへ解決できるか(不能なら入力を無効化)。 */
-  canNote: boolean;
+  /** 右ペインの表示(プロパティ / コメント)。切替の状態は `EditorView` が持つ。 */
+  paneTab: 'props' | 'comments';
+  /** 未対応コメントの件数(切替タブのバッジ)。 */
+  commentCount: number;
   editMode: boolean;
   canUp: boolean;
   canDown: boolean;
@@ -68,7 +68,7 @@ const emit = defineEmits<{
   move: [-1 | 1];
   reset: [];
   del: [];
-  'add-note': [string];
+  'pane-tab': ['props' | 'comments'];
   collapse: [];
 }>();
 
@@ -118,8 +118,7 @@ function partLabelOf(partKey: string): string {
 
 // ── 1. 折りたたみ状態 ──
 // 既定は「閲覧」相当(編集セクションを畳み履歴を開く)。`editMode` 連動で切り替える。
-// `memo` は editMode 連動の対象外(注釈なので閲覧/編集どちらでも開いておく既定)。
-const open = reactive({ size: false, margin: false, pagebreak: false, memo: true, history: true });
+const open = reactive({ size: false, margin: false, pagebreak: false, history: true });
 watch(
   () => props.editMode,
   (on) => {
@@ -143,25 +142,6 @@ watch(
     num.marginBottom = String(g.marginBottom);
   },
   { immediate: true, deep: true },
-);
-
-// ── 2b. メモの追加 ──
-// 既存のメモはキャンバスの吹き出しが表示する。ここは追加の入口だけを持つ(メモが 0 件の
-// パーツへ最初の 1 件を書く動線でもある)。送信後は入力を空へ戻す。
-const noteDraft = ref('');
-function submitNote(): void {
-  const text = noteDraft.value.trim();
-  if (text === '') return;
-  emit('add-note', noteDraft.value);
-  noteDraft.value = '';
-}
-// 選択パーツが変わったら下書きを破棄する(残すと、パーツ A で書きかけた文面のまま
-// パーツ B で「追加」を押して B へ書き込んでしまう)。
-watch(
-  () => props.selected?.id,
-  () => {
-    noteDraft.value = '';
-  },
 );
 
 // ── 3. 編集ハンドラ ──
@@ -240,10 +220,28 @@ const PB_CLASS =
 
 <template>
   <aside class="flex w-[312px] shrink-0 flex-col overflow-hidden border-l bg-card">
-    <div class="flex h-[46px] shrink-0 items-center gap-2 border-b px-4 text-[12.5px] font-bold">
-      <span>プロパティ</span>
+    <div class="flex h-[46px] shrink-0 items-center gap-1 border-b px-2 text-[12.5px] font-bold">
+      <button
+        type="button"
+        class="pane-tab"
+        :class="paneTab === 'props' ? 'pane-tab-active' : ''"
+        data-pane-tab="props"
+        @click="emit('pane-tab', 'props')"
+      >
+        プロパティ
+      </button>
+      <button
+        type="button"
+        class="pane-tab"
+        :class="paneTab === 'comments' ? 'pane-tab-active' : ''"
+        data-pane-tab="comments"
+        @click="emit('pane-tab', 'comments')"
+      >
+        <MessageSquare class="h-3.5 w-3.5" /> コメント
+        <Badge v-if="commentCount > 0" variant="warning" class="h-[16px] py-0 text-[9.5px]">{{ commentCount }}</Badge>
+      </button>
       <span class="flex-1" />
-      <Badge v-if="selected && !editMode" variant="secondary" class="h-[19px] gap-1 py-0">
+      <Badge v-if="paneTab === 'props' && selected && !editMode" variant="secondary" class="h-[19px] gap-1 py-0">
         <Eye class="h-[11px] w-[11px]" /> 表示のみ
       </Badge>
       <Tooltip text="右パネルを畳む">
@@ -259,9 +257,11 @@ const PB_CLASS =
       </Tooltip>
     </div>
 
+    <slot v-if="paneTab === 'comments'" name="comments" />
+
     <!-- 未選択 -->
     <div
-      v-if="!selected || !geom"
+      v-else-if="!selected || !geom"
       class="grid flex-1 place-items-center px-6 text-center text-muted-foreground"
     >
       <div>
@@ -393,32 +393,6 @@ const PB_CLASS =
           </template>
         </InspectorSection>
 
-        <!-- ── メモの追加(表示は canvas の吹き出し) ── -->
-        <InspectorSection v-model:open="open.memo" label="メモを追加" :icon="StickyNote" class="border-b" body-class="px-4 pb-3.5">
-          <template #badge>
-            <span class="flex-1" />
-            <Badge variant="secondary" class="h-[18px] py-0 text-[10.5px]">{{ noteCount }} 件</Badge>
-          </template>
-          <textarea
-            v-model="noteDraft"
-            :disabled="!canNote"
-            class="memo-area"
-            rows="3"
-            placeholder="このパーツへのメモを書く…"
-            @keydown.ctrl.enter="submitNote"
-          />
-          <div class="mt-1.5 flex items-center">
-            <span class="text-[10.5px] text-muted-foreground">Ctrl + Enter で追加</span>
-            <span class="flex-1" />
-            <Button size="sm" :disabled="!canNote || noteDraft.trim() === ''" @click="submitNote">
-              追加
-            </Button>
-          </div>
-          <p class="mt-1.5 text-[11px] text-muted-foreground">
-            既存のメモはキャンバスの吹き出しに表示します（この版だけのメモです）。
-          </p>
-        </InspectorSection>
-
         <!-- ── 修正履歴 ── -->
         <InspectorSection
           v-model:open="open.history"
@@ -500,29 +474,6 @@ const PB_CLASS =
   font-size: 12.5px;
 }
 
-/* メモ追加の入力欄。固定 UI スケールで常に読める(キャンバスズーム非依存) */
-.memo-area {
-  width: 100%;
-  min-height: 84px;
-  resize: vertical;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--muted);
-  padding: 8px 10px;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--foreground);
-  outline: none;
-}
-.memo-area:focus {
-  border-color: var(--primary);
-  background: var(--background);
-}
-.memo-area:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 /* 表示のみモードの改ページ状態(読み取り専用・トグル不可) */
 .pb-readonly {
   display: flex;
@@ -540,4 +491,19 @@ const PB_CLASS =
   letter-spacing: 0.04em;
 }
 
+.pane-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+}
+.pane-tab:hover {
+  background: var(--muted);
+}
+.pane-tab-active {
+  color: var(--foreground);
+  background: var(--primary-soft);
+}
 </style>
