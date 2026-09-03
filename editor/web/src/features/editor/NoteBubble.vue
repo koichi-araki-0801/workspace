@@ -5,11 +5,12 @@
 // 役割: 選択パーツの投稿列を表示し、その場での編集と削除を受ける。追加は右ペインに一本化
 // しているのでここには置かない(入口を 2 つ持つと、どちらで書いたかで挙動が違うように
 // 見える)。位置は `noteBubbleLayout.ts` が決めた値をそのまま使う。
-import { type PartNoteEntry, parseTemplateFileName } from '@editor/shared';
-import { Pencil, StickyNote, Trash2, X } from '@lucide/vue';
-import { ref } from 'vue';
+import type { NoteStatus, PartNoteEntry } from '@editor/shared';
+import { Check, MessageSquareReply, Pencil, RotateCcw, StickyNote, Trash2, X } from '@lucide/vue';
+import { computed, ref } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
+import { KIND_LABEL, threadsOf } from './comments/commentFilter';
 import type { BubbleAnchor } from './noteBubbleLayout';
 
 const props = defineProps<{
@@ -20,6 +21,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   update: [PartNoteEntry, string];
   remove: [PartNoteEntry];
+  reply: [PartNoteEntry, string];
+  'set-status': [PartNoteEntry, NoteStatus];
   close: [];
 }>();
 
@@ -34,8 +37,11 @@ function entryKey(entry: PartNoteEntry): string {
   return `${entry.templateId}/${entry.id}`;
 }
 
+const threads = computed(() => threadsOf(props.entries));
 const editingKey = ref<string | null>(null);
 const draft = ref('');
+const replyingKey = ref<string | null>(null);
+const replyDraft = ref('');
 
 function startEdit(entry: PartNoteEntry): void {
   editingKey.value = entryKey(entry);
@@ -47,9 +53,14 @@ function commitEdit(entry: PartNoteEntry): void {
   editingKey.value = null;
 }
 
-/** 投稿がどの版種で書かれたかを id から解く(保存はしない — 同じ事実を 2 箇所に持たない)。 */
-function editionOf(entry: PartNoteEntry): string {
-  return parseTemplateFileName(`${entry.templateId}.html`)?.editionType ?? '';
+function startReply(parent: PartNoteEntry): void {
+  replyingKey.value = entryKey(parent);
+  replyDraft.value = '';
+}
+
+function commitReply(parent: PartNoteEntry): void {
+  if (replyDraft.value.trim() !== '') emit('reply', parent, replyDraft.value);
+  replyingKey.value = null;
 }
 
 /** 表示用の日時(年は省く。同一基準日のスレッドなので月日と時刻で足りる)。 */
@@ -64,9 +75,13 @@ function formatAt(iso: string): string {
 }
 
 async function requestRemove(entry: PartNoteEntry): Promise<void> {
+  const threadForEntry = threads.value.find((t) => entryKey(t.parent) === entryKey(entry));
+  const isParent = threadForEntry?.parent === entry;
+  const hasReplies = !!(isParent && threadForEntry?.replies.length);
+
   const ok = await confirm({
-    title: 'このメモを削除しますか？',
-    description: '削除したメモは元に戻せません。',
+    title: 'このコメントを削除しますか？',
+    description: `削除したコメントは元に戻せません。${hasReplies ? '返信も一緒に削除されます。' : ''}`,
     confirmLabel: '削除する',
     variant: 'destructive',
   });
@@ -82,46 +97,93 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
   >
     <div class="note-bubble-head">
       <StickyNote class="h-3.5 w-3.5" />
-      <span>メモ</span>
+      <span>コメント</span>
       <span class="flex-1" />
-      <span class="note-bubble-count">{{ entries.length }}</span>
-      <Button variant="ghost" size="iconSm" aria-label="メモを閉じる" @click="emit('close')">
+      <span class="note-bubble-count">{{ threads.length }}</span>
+      <Button variant="ghost" size="iconSm" aria-label="コメントを閉じる" @click="emit('close')">
         <X class="h-3.5 w-3.5" />
       </Button>
     </div>
 
     <div class="note-bubble-body">
-      <div v-for="e in entries" :key="entryKey(e)" class="note-entry">
+      <div
+        v-for="t in threads"
+        :key="entryKey(t.parent)"
+        class="note-entry"
+        :class="t.parent.status === 'resolved' ? 'note-entry-resolved' : ''"
+        data-note-parent
+      >
         <div class="note-entry-head">
-          <span class="note-entry-who">{{ e.createdBy }}</span>
-          <span>{{ formatAt(e.createdAt) }}</span>
-          <span v-if="editionOf(e)" class="note-entry-edition">{{ editionOf(e) }}</span>
+          <span class="note-entry-kind">{{ KIND_LABEL[t.parent.kind] }}</span>
+          <span class="note-entry-who">{{ t.parent.createdBy }}</span>
+          <span>{{ formatAt(t.parent.createdAt) }}</span>
           <span class="flex-1" />
-          <Button variant="ghost" size="iconSm" aria-label="このメモを編集" @click="startEdit(e)">
-            <Pencil class="h-3 w-3" />
-          </Button>
           <Button
             variant="ghost"
             size="iconSm"
-            class="text-destructive"
-            aria-label="このメモを削除"
-            @click="requestRemove(e)"
+            :aria-label="t.parent.status === 'open' ? '解決にする' : '未対応に戻す'"
+            :title="t.parent.status === 'open' ? '解決にする' : '未対応に戻す'"
+            @click="emit('set-status', t.parent, t.parent.status === 'open' ? 'resolved' : 'open')"
           >
+            <Check v-if="t.parent.status === 'open'" class="h-3 w-3" />
+            <RotateCcw v-else class="h-3 w-3" />
+          </Button>
+          <Button variant="ghost" size="iconSm" aria-label="返信する" title="返信する" @click="startReply(t.parent)">
+            <MessageSquareReply class="h-3 w-3" />
+          </Button>
+          <Button variant="ghost" size="iconSm" aria-label="このコメントを編集" @click="startEdit(t.parent)">
+            <Pencil class="h-3 w-3" />
+          </Button>
+          <Button variant="ghost" size="iconSm" class="text-destructive" aria-label="このコメントを削除" @click="requestRemove(t.parent)">
             <Trash2 class="h-3 w-3" />
           </Button>
         </div>
 
-        <template v-if="editingKey === entryKey(e)">
+        <template v-if="editingKey === entryKey(t.parent)">
           <textarea v-model="draft" class="note-entry-input" rows="3" />
           <div class="mt-1.5 flex gap-1.5">
-            <Button size="sm" @click="commitEdit(e)">保存</Button>
+            <Button size="sm" @click="commitEdit(t.parent)">保存</Button>
             <Button size="sm" variant="outline" @click="editingKey = null">取消</Button>
           </div>
         </template>
         <div v-else class="note-entry-body">
-          {{ e.content }}
-          <span v-if="e.updatedAt" class="note-entry-edited">(編集済み)</span>
+          {{ t.parent.content }}
+          <span v-if="t.parent.updatedAt" class="note-entry-edited">(編集済み)</span>
+          <span v-if="t.parent.status === 'resolved'" class="note-entry-edited">・解決済み</span>
         </div>
+
+        <div v-for="r in t.replies" :key="entryKey(r)" class="note-reply" data-note-reply>
+          <div class="note-entry-head">
+            <span class="note-entry-who">{{ r.createdBy }}</span>
+            <span>{{ formatAt(r.createdAt) }}</span>
+            <span class="flex-1" />
+            <Button variant="ghost" size="iconSm" aria-label="この返信を編集" @click="startEdit(r)">
+              <Pencil class="h-3 w-3" />
+            </Button>
+            <Button variant="ghost" size="iconSm" class="text-destructive" aria-label="この返信を削除" @click="requestRemove(r)">
+              <Trash2 class="h-3 w-3" />
+            </Button>
+          </div>
+          <template v-if="editingKey === entryKey(r)">
+            <textarea v-model="draft" class="note-entry-input" rows="2" />
+            <div class="mt-1.5 flex gap-1.5">
+              <Button size="sm" @click="commitEdit(r)">保存</Button>
+              <Button size="sm" variant="outline" @click="editingKey = null">取消</Button>
+            </div>
+          </template>
+          <div v-else class="note-entry-body">
+            {{ r.content }}
+            <span v-if="r.updatedAt" class="note-entry-edited">(編集済み)</span>
+          </div>
+        </div>
+
+        <template v-if="replyingKey === entryKey(t.parent)">
+          <textarea v-model="replyDraft" class="note-entry-input mt-1.5" rows="2" placeholder="返信を書く…" data-bubble-reply />
+          <div class="mt-1.5 flex gap-1.5">
+            <Button size="sm" @click="commitReply(t.parent)">返信</Button>
+            <Button size="sm" variant="outline" @click="replyingKey = null">取消</Button>
+          </div>
+        </template>
       </div>
     </div>
   </div>
@@ -209,11 +271,11 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
   color: var(--foreground);
 }
 
-.note-entry-edition {
+.note-entry-kind {
   padding: 0 5px;
   border-radius: 3px;
-  background: var(--primary-soft);
-  color: var(--primary);
+  background: var(--warning);
+  color: #fff;
   font-size: 9.5px;
   font-weight: 700;
 }
@@ -224,6 +286,21 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.note-entry-resolved .note-entry-kind {
+  background: var(--secondary);
+  color: var(--muted-foreground);
+}
+
+.note-entry-resolved .note-entry-body {
+  color: var(--muted-foreground);
+}
+
+.note-reply {
+  margin: 6px 0 0 10px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
 }
 
 .note-entry-edited {
