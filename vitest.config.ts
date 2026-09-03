@@ -146,6 +146,7 @@ export default defineConfig({
         'editor/web/src/features/editor/usePartEditHistory.ts',
         'editor/web/src/features/editor/useComments.ts',
         'editor/web/src/features/editor/comments/commentFilter.ts',
+        'editor/web/src/features/editor/comments/CommentPanel.vue',
         'editor/web/src/features/editor/partKey.ts',
         // 編集キャンバスの赤入れ（旧文言の取り消し線）。装飾が draft に混入しないことは
         // 「モデルに載せない」設計で担保しており、この 4 ファイルの純粋部分を被覆に入れる。
