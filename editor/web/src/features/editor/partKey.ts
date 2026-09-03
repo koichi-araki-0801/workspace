@@ -98,3 +98,17 @@ export function partLabelMap(root: HTMLElement): Map<string, string> {
   });
   return map;
 }
+
+/**
+ * canvas 全パーツの安定キー → そのパーツが属するページの index(0 始まり)。承認画面の
+ * コメント一覧が「行クリックで見た目比較の該当ページへ送る」ために使う。キーの作り方は
+ * `partLabelMap` と同じ(`partKeyOf`)なので、両者のキー集合は必ず一致する。
+ */
+export function partPageIndexMap(root: HTMLElement): Map<string, number> {
+  const map = new Map<string, number>();
+  const pages = pageEls(root);
+  pages.forEach((page, pi) => {
+    for (const part of partEls(page)) map.set(partKeyOf(page, part, pages, root), pi);
+  });
+  return map;
+}
