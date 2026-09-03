@@ -76,12 +76,14 @@ function nextAnchor() {
 /**
  * 指定ページ(0 始まり)へ両面を送る。承認タブのコメント一覧が「行クリックで該当ページへ」
  * に使う。アンカーはページ単位(`buildCompareDocs` が `.page` に付ける)なので、パーツ単位の
- * 精度は持たない — ページが見えれば承認者はパーツを目で追える。
+ * 精度は持たない — ページが見えれば承認者はパーツを目で追える。コメントは変更の有無に
+ * 関わらず全パーツへ付けられるため、変更ページのみの `anchors`(「次の変更箇所へ」用、
+ * `anchorIndex` はその巡回カーソル)ではなく全ページの `pageAnchors` を引く。ここでの移動は
+ * 「次の変更箇所へ」の巡回とは独立の操作なので `anchorIndex` は触らない。
  */
 function gotoPage(index: number): void {
-  const id = docs.value.anchors[index];
+  const id = docs.value.pageAnchors[index];
   if (!id) return;
-  anchorIndex.value = index;
   beforePanel.value?.gotoAnchor(id);
   afterPanel.value?.gotoAnchor(id);
 }

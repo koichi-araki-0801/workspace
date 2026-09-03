@@ -19,7 +19,6 @@ import Button from '@/components/ui/Button.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import Skeleton from '@/components/ui/Skeleton.vue';
 import CommentPanel from '@/features/editor/comments/CommentPanel.vue';
-import { partLabelMap, partPageIndexMap } from '@/features/editor/partKey';
 import { useComments } from '@/features/editor/useComments';
 import { formatDateTimeShort } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
@@ -30,6 +29,7 @@ import { useTabMemoryStore } from '@/stores/tabMemory';
 import ReviewDetail from './ReviewDetail.vue';
 import { resolveReviewTarget } from './resolveReviewTarget';
 import { toggleExpanded } from './reviewAccordion';
+import { partMapsFromHtml } from './reviewPartMaps';
 
 const route = useRoute();
 const router = useRouter();
@@ -127,7 +127,7 @@ const allDone = computed(() => targetId.value !== null && mine.value.length > 0 
 const comments = useComments(() => targetId.value ?? '', () => selectedKey.value, noteRepo);
 watch(targetId, () => void comments.reload(), { immediate: true });
 
-/** パーツの表示ラベルとページ index。確定版の本文から `partKey.ts` と同じ規則で作る。 */
+/** パーツの表示ラベルとページ index。確定版の本文から `reviewPartMaps.ts` の規則で作る。 */
 const partLabels = ref<Map<string, string>>(new Map());
 const partPages = ref<Map<string, number>>(new Map());
 async function loadParts() {
@@ -137,9 +137,12 @@ async function loadParts() {
   if (!id) return;
   const tpl = await templates.getTemplate(id);
   if (!isOk(tpl)) return;
-  const body = new DOMParser().parseFromString(tpl.value.filled, 'text/html').body;
-  partLabels.value = partLabelMap(body);
-  partPages.value = partPageIndexMap(body);
+  // `filled`(per-fund 実値埋め込み済み)は local 専用で、rest では常に ''(server の
+  // `templateRepo.ts` が値埋め込み済みファイル取得を未実装のため)を返す本番値。パーツ構造
+  // しか要らないので値の有無を区別する `??` でなく、空文字も拾う `||` で `html` へ落とす。
+  const maps = partMapsFromHtml(tpl.value.filled || tpl.value.html);
+  partLabels.value = maps.labels;
+  partPages.value = maps.pages;
 }
 watch(targetId, loadParts, { immediate: true });
 
