@@ -6,7 +6,17 @@
 // しているのでここには置かない(入口を 2 つ持つと、どちらで書いたかで挙動が違うように
 // 見える)。位置は `noteBubbleLayout.ts` が決めた値をそのまま使う。
 import type { NoteStatus, PartNoteEntry } from '@editor/shared';
-import { Check, MessageSquareReply, Pencil, RotateCcw, StickyNote, Trash2, X } from '@lucide/vue';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  MessageSquareReply,
+  Pencil,
+  RotateCcw,
+  StickyNote,
+  Trash2,
+  X,
+} from '@lucide/vue';
 import { computed, ref } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
@@ -42,6 +52,29 @@ const editingKey = ref<string | null>(null);
 const draft = ref('');
 const replyingKey = ref<string | null>(null);
 const replyDraft = ref('');
+
+// 解決済みスレッドは既定で本文を畳む(レビューで済んだものを目に入れない・押せば読める)。
+// 開閉は親投稿ごとに憶える。「解決にする」を押した瞬間に自動で畳むと押した本人が本文を
+// 見失うため、`expandedKeys` は解決操作からは触らない — 表示可否は現在の status からその都度
+// 導出する(`isCollapsed`)ので、未対応へ戻せば自然に開いた状態へ戻る。
+const expandedKeys = ref<Set<string>>(new Set());
+
+function isCollapsed(t: { parent: PartNoteEntry }): boolean {
+  return t.parent.status === 'resolved' && !expandedKeys.value.has(entryKey(t.parent));
+}
+
+function toggleExpand(parent: PartNoteEntry): void {
+  const key = entryKey(parent);
+  const next = new Set(expandedKeys.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedKeys.value = next;
+}
+
+/** 畳んだ行に出す 1 行要約(本文の先頭行のみ。折り返しは `truncate` に任せる)。 */
+function summaryOf(content: string): string {
+  return content.split('\n', 1)[0];
+}
 
 function startEdit(entry: PartNoteEntry): void {
   editingKey.value = entryKey(entry);
@@ -114,6 +147,21 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
         data-note-parent
       >
         <div class="note-entry-head">
+          <!-- 折りたたみ切替は解決済みスレッドにのみ出す(未対応は畳む対象が無い)。頭行の
+               残りのボタン群は畳んだ状態でも常に押せる — レビューが済んだ投稿を一覧性優先で
+               隠しつつ、状態を戻す・読み直す操作の入口までは塞がない。 -->
+          <Button
+            v-if="t.parent.status === 'resolved'"
+            variant="ghost"
+            size="iconSm"
+            :aria-label="isCollapsed(t) ? '開く' : '閉じる'"
+            :title="isCollapsed(t) ? '開く' : '閉じる'"
+            data-note-collapse
+            @click="toggleExpand(t.parent)"
+          >
+            <ChevronRight v-if="isCollapsed(t)" class="h-3 w-3" />
+            <ChevronDown v-else class="h-3 w-3" />
+          </Button>
           <span class="note-entry-kind">{{ KIND_LABEL[t.parent.kind] }}</span>
           <span class="note-entry-who">{{ t.parent.createdBy }}</span>
           <span>{{ formatAt(t.parent.createdAt) }}</span>
@@ -139,50 +187,61 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
           </Button>
         </div>
 
-        <template v-if="editingKey === entryKey(t.parent)">
-          <textarea v-model="draft" class="note-entry-input" rows="3" />
-          <div class="mt-1.5 flex gap-1.5">
-            <Button size="sm" @click="commitEdit(t.parent)">保存</Button>
-            <Button size="sm" variant="outline" @click="editingKey = null">取消</Button>
-          </div>
-        </template>
-        <div v-else class="note-entry-body">
-          {{ t.parent.content }}
-          <span v-if="t.parent.updatedAt" class="note-entry-edited">(編集済み)</span>
-          <span v-if="t.parent.status === 'resolved'" class="note-entry-edited">・解決済み</span>
+        <!-- 畳んだ状態(解決済み + 未展開)は要約 1 行だけ出す。編集・返信の入力中は入力欄を
+             隠さないよう、その間だけ展開時と同じ表示に戻す。 -->
+        <div
+          v-if="isCollapsed(t) && editingKey !== entryKey(t.parent) && replyingKey !== entryKey(t.parent)"
+          class="note-entry-summary truncate"
+        >
+          {{ summaryOf(t.parent.content) }}
+          <span v-if="t.replies.length > 0" class="note-entry-edited">・返信 {{ t.replies.length }}</span>
         </div>
-
-        <div v-for="r in t.replies" :key="entryKey(r)" class="note-reply" data-note-reply>
-          <div class="note-entry-head">
-            <span class="note-entry-who">{{ r.createdBy }}</span>
-            <span>{{ formatAt(r.createdAt) }}</span>
-            <span class="flex-1" />
-            <Button variant="ghost" size="iconSm" aria-label="この返信を編集" @click="startEdit(r)">
-              <Pencil class="h-3 w-3" />
-            </Button>
-            <Button variant="ghost" size="iconSm" class="text-destructive" aria-label="この返信を削除" @click="requestRemove(r)">
-              <Trash2 class="h-3 w-3" />
-            </Button>
-          </div>
-          <template v-if="editingKey === entryKey(r)">
-            <textarea v-model="draft" class="note-entry-input" rows="2" />
+        <template v-else>
+          <template v-if="editingKey === entryKey(t.parent)">
+            <textarea v-model="draft" class="note-entry-input" rows="3" />
             <div class="mt-1.5 flex gap-1.5">
-              <Button size="sm" @click="commitEdit(r)">保存</Button>
+              <Button size="sm" @click="commitEdit(t.parent)">保存</Button>
               <Button size="sm" variant="outline" @click="editingKey = null">取消</Button>
             </div>
           </template>
           <div v-else class="note-entry-body">
-            {{ r.content }}
-            <span v-if="r.updatedAt" class="note-entry-edited">(編集済み)</span>
+            {{ t.parent.content }}
+            <span v-if="t.parent.updatedAt" class="note-entry-edited">(編集済み)</span>
+            <span v-if="t.parent.status === 'resolved'" class="note-entry-edited">・解決済み</span>
           </div>
-        </div>
 
-        <template v-if="replyingKey === entryKey(t.parent)">
-          <textarea v-model="replyDraft" class="note-entry-input mt-1.5" rows="2" placeholder="返信を書く…" data-bubble-reply />
-          <div class="mt-1.5 flex gap-1.5">
-            <Button size="sm" @click="commitReply(t.parent)">返信</Button>
-            <Button size="sm" variant="outline" @click="replyingKey = null">取消</Button>
+          <div v-for="r in t.replies" :key="entryKey(r)" class="note-reply" data-note-reply>
+            <div class="note-entry-head">
+              <span class="note-entry-who">{{ r.createdBy }}</span>
+              <span>{{ formatAt(r.createdAt) }}</span>
+              <span class="flex-1" />
+              <Button variant="ghost" size="iconSm" aria-label="この返信を編集" @click="startEdit(r)">
+                <Pencil class="h-3 w-3" />
+              </Button>
+              <Button variant="ghost" size="iconSm" class="text-destructive" aria-label="この返信を削除" @click="requestRemove(r)">
+                <Trash2 class="h-3 w-3" />
+              </Button>
+            </div>
+            <template v-if="editingKey === entryKey(r)">
+              <textarea v-model="draft" class="note-entry-input" rows="2" />
+              <div class="mt-1.5 flex gap-1.5">
+                <Button size="sm" @click="commitEdit(r)">保存</Button>
+                <Button size="sm" variant="outline" @click="editingKey = null">取消</Button>
+              </div>
+            </template>
+            <div v-else class="note-entry-body">
+              {{ r.content }}
+              <span v-if="r.updatedAt" class="note-entry-edited">(編集済み)</span>
+            </div>
           </div>
+
+          <template v-if="replyingKey === entryKey(t.parent)">
+            <textarea v-model="replyDraft" class="note-entry-input mt-1.5" rows="2" placeholder="返信を書く…" data-bubble-reply />
+            <div class="mt-1.5 flex gap-1.5">
+              <Button size="sm" @click="commitReply(t.parent)">返信</Button>
+              <Button size="sm" variant="outline" @click="replyingKey = null">取消</Button>
+            </div>
+          </template>
         </template>
       </div>
     </div>
@@ -294,6 +353,14 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
 }
 
 .note-entry-resolved .note-entry-body {
+  color: var(--muted-foreground);
+}
+
+/* 畳んだ解決済みスレッドの要約行。`.note-bubble` 幅 244px の中で 1 行に収めるため
+   `truncate`(テンプレート側)で省略する。 */
+.note-entry-summary {
+  margin-top: 1px;
+  font-size: 11px;
   color: var(--muted-foreground);
 }
 
