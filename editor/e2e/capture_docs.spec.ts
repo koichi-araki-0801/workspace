@@ -6,7 +6,7 @@
 // `playwright.config.ts` の webServer が Vite dev(:24681, ローカル/ localStorage モード)
 // を自動起動する。ログイン後はセッションが localStorage に乗るので、編集/プレビューは
 // seed テンプレ(AM01_510037_20240710_交付版)へ直接遷移して撮る。
-// 承認系(reviews-list/review-diff)は「admin で申請 → approver で精査」を同一
+// 承認系(reviews-list/review-diff)は「admin で申請 → approver で承認タブを開く」を同一
 // コンテキスト(localStorage 共有)内で通しで再現する。
 
 import { dirname, resolve } from 'node:path';
@@ -176,7 +176,7 @@ test('capture editor screens', async ({ page }) => {
   await page.screenshot({ path: IMG('preview.png') });
 });
 
-test('capture review screens (申請 → 承認キュー → 精査)', async ({ page }) => {
+test('capture review screens (申請 → 承認タブ → 精査)', async ({ page }) => {
   // admin で申請を 1 件作る（editor は初回 PW 変更が挟まるため admin で代用）。
   // 無編集の申請でも精査画面の既定タブ（見た目で比較）は前後の組版を並べて表示できる。
   await login(page, 'admin', 'admin');
@@ -186,18 +186,14 @@ test('capture review screens (申請 → 承認キュー → 精査)', async ({ 
   await page.getByRole('button', { name: '申請する' }).click();
   await page.waitForTimeout(1000);
 
-  // approver で入り直して承認キューを撮る（同一 localStorage なので申請が見える）
+  // approver で入り直し、承認タブを対象テンプレートで開く(編集タブで開いたテンプレートの
+  // 申請を縦に並べる画面。先頭 1 件は既定で展開される)
   await login(page, 'approver', 'approver');
-  await page.getByRole('link', { name: '承認' }).click();
+  await page.goto(`/reviews?template=${encodeURIComponent(SEED_ID)}`);
   await page.waitForTimeout(800);
   await waitForLoaded(page);
-  await page.screenshot({ path: IMG('reviews-list.png') });
-
-  // 精査画面（既定タブ = 見た目で比較。修正前｜修正後を PreviewPanel 2 面で並べる）
-  await page.getByRole('button', { name: '内容を確認する' }).first().click();
-  await page.waitForTimeout(1500); // diff 計算(useReviewDiff)を待つ
-  // PreviewPanel は前後 2 面とも title="プレビュー" の iframe を持つため、frameLocator は
-  // .first()/.nth(1) で明示的に区別する(waitForPreviewPage は単面前提のためここでは使わない)。
+  await page.locator('[data-review-item]').first().waitFor();
+  // 展開区画の組版(前後 2 面)を待ってから、要約箱と区画ヘッダが入る全体を撮る
   await page
     .frameLocator('iframe[title="プレビュー"]')
     .first()
@@ -210,6 +206,10 @@ test('capture review screens (申請 → 承認キュー → 精査)', async ({ 
     .locator('[data-vivliostyle-page-container]:visible')
     .first()
     .waitFor({ state: 'visible', timeout: 60_000 });
-  await page.waitForTimeout(500); // 組版確定後の微小な再レイアウトを吸収する
-  await page.screenshot({ path: IMG('review-diff.png') });
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: IMG('reviews-list.png') });
+
+  // 展開区画(見た目比較 + コメントパネル)を切り出して撮る
+  const section = page.locator('[data-review-item]').first();
+  await section.screenshot({ path: IMG('review-diff.png') });
 });
