@@ -46,7 +46,7 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // 承認キュー一覧。approver|admin は全件、editor は自分の申請のみ(`reviewRepo` が絞る)。
+  // 申請一覧。approver|admin は全件、editor は自分の申請のみ(`reviewRepo` が絞る)。
   // status は `validateQuery` で検証済み(不正値は 400)。
   app.get<{ Querystring: z.infer<typeof ReviewListQuery> }>(
     apiPaths.reviewRequests,
@@ -95,25 +95,6 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
           success: (meta) => ({ resource: { reqId, templateId: meta.templateId } }),
           failure: () => ({ resource: { reqId } }),
           failureMessage: 'reject failed',
-        },
-      );
-    },
-  );
-
-  // 保留(精査者限定)。実ファイルは更新しない。判断を保留して後で戻るための状態遷移。
-  app.post<ReqIdParams & { Body: z.infer<typeof ReviewDecisionBody> }>(
-    apiPaths.reviewRequestHold,
-    { preHandler: [requireAuth, requireApprover, validate(ReviewDecisionBody)] },
-    async (request) => {
-      const reqId = request.params.reqId;
-      return auditedRethrow(
-        request,
-        'review.hold',
-        () => reviews.holdReview(reqId, request.body, actor(request)),
-        {
-          success: (meta) => ({ resource: { reqId, templateId: meta.templateId } }),
-          failure: () => ({ resource: { reqId } }),
-          failureMessage: 'hold failed',
         },
       );
     },

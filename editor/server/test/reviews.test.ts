@@ -225,62 +225,36 @@ d('review workflow (reviewRepo)', () => {
     ).rejects.toMatchObject({ kind: 'validation' });
   });
 
-  describe('holdReview(保留)', () => {
-    it('pending を held にし、保留者・日時・メモを記録する', async () => {
-      const meta = await submit('AM01_141414_20250101_交付版', '141414', '<p>保留対象</p>');
-      const held = await reviews.holdReview(meta.id, { comment: '出所確認中' }, approver);
-      expect(held.status).toBe('held');
-      expect(held.heldBy).toBe(approver.username);
-      expect(held.holdComment).toBe('出所確認中');
-      expect(held.heldAt).toBeTruthy();
+  describe('旧 held 申請の読み取り', () => {
+    it('meta.json の status が held なら pending として読み、保留フィールドは落とす', async () => {
+      const meta = await submit('AM01_141414_20250101_交付版', '141414', '<p>旧保留</p>');
+      const files = await import('../src/files/reviewFiles.js');
+      const metaPath = path.join(tmp, 'reviews', meta.id, 'meta.json');
+      const raw = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as Record<string, unknown>;
+      fs.writeFileSync(
+        metaPath,
+        JSON.stringify({
+          ...raw,
+          status: 'held',
+          heldBy: 'approver1',
+          heldAt: '2026-09-01T00:00:00.000Z',
+          holdComment: '確認中',
+        }),
+      );
+      const read = await files.readReview(meta.id);
+      expect(read?.status).toBe('pending');
+      expect(read && 'heldBy' in read).toBe(false);
+      expect((await files.listReviewMetas()).find((m) => m.id === meta.id)?.status).toBe('pending');
+      expect(await files.countPendingReviews()).toBeGreaterThanOrEqual(1);
     });
 
-    it('held から承認できる', async () => {
-      const meta = await submit('AM01_151515_20250101_交付版', '151515', '<p>保留→承認</p>');
-      await reviews.holdReview(meta.id, {}, approver);
+    it('旧 held の申請はそのまま承認・差し戻しできる', async () => {
+      const meta = await submit('AM01_151515_20250101_交付版', '151515', '<p>旧保留→承認</p>');
+      const metaPath = path.join(tmp, 'reviews', meta.id, 'meta.json');
+      const raw = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as Record<string, unknown>;
+      fs.writeFileSync(metaPath, JSON.stringify({ ...raw, status: 'held' }));
       const result = await reviews.approveReview(meta.id, {}, approver);
       expect(result.meta).toBeTruthy();
-    });
-
-    it('held から差し戻し(reject)できる', async () => {
-      const meta = await submit('AM01_161616_20250101_交付版', '161616', '<p>保留→却下</p>');
-      await reviews.holdReview(meta.id, {}, approver);
-      const rejected = await reviews.rejectReview(meta.id, { comment: '理由' }, approver);
-      expect(rejected.status).toBe('rejected');
-    });
-
-    it('approved/rejected の申請は保留できない(409)', async () => {
-      const meta = await submit('AM01_171717_20250101_交付版', '171717', '<p>決着済み</p>');
-      await reviews.rejectReview(meta.id, { comment: '理由' }, approver);
-      await expect(reviews.holdReview(meta.id, {}, approver)).rejects.toMatchObject({
-        kind: 'conflict',
-      });
-    });
-
-    it('held の再保留はメモ更新として通る', async () => {
-      const meta = await submit('AM01_181818_20250101_交付版', '181818', '<p>再保留</p>');
-      await reviews.holdReview(meta.id, { comment: '1回目' }, approver);
-      const again = await reviews.holdReview(meta.id, { comment: '2回目' }, approver);
-      expect(again.holdComment).toBe('2回目');
-    });
-
-    // 保留は承認と違い実ファイルへ反映しない(判断を後回しにするだけ)ため、自己申請でも
-    // 職務分掌の対象にしない意図的な設計判断。approveReview の自己承認拒否が習慣で
-    // holdReview へコピーされた退行を検出する。
-    it('自己申請の保留は許可される(職務分掌の対象外)', async () => {
-      const meta = await submit('AM01_202020_20250101_交付版', '202020', '<p>自己保留</p>');
-      const held = await reviews.holdReview(meta.id, {}, submitter);
-      expect(held.status).toBe('held');
-    });
-  });
-
-  describe('未処理上限は pending+held の合算', () => {
-    it('countPendingReviews は held も数える', async () => {
-      const files = await import('../src/files/reviewFiles.js');
-      const before = await files.countPendingReviews();
-      const meta = await submit('AM01_191919_20250101_交付版', '191919', '<p>合算対象</p>');
-      await reviews.holdReview(meta.id, {}, approver);
-      expect(await files.countPendingReviews()).toBe(before + 1);
     });
   });
 });

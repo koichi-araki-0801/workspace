@@ -162,4 +162,60 @@ describe('buildCompareDocs', () => {
     expect(afterDoc).not.toContain('data-review-marker');
     expect(anchors).toEqual([]);
   });
+
+  it('pageAnchors は全ページ分(index=ページ index)で、anchors は変更ページのみに留まる', () => {
+    const { pageAnchors, anchors } = buildCompareDocs({
+      beforeHtml:
+        '<div class="page">page1</div><div class="page">page2</div><div class="page">page3</div>',
+      afterHtml:
+        '<div class="page">page1</div><div class="page">page2-changed</div><div class="page">page3</div>',
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([1]),
+      marker: true,
+    });
+    expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2', 'review-anchor-3']);
+    expect(anchors).toEqual(['review-anchor-2']);
+  });
+
+  it('変更のないページ(コメント宛先)も pageAnchors から id が引ける', () => {
+    const { pageAnchors } = buildCompareDocs({
+      beforeHtml: '<div class="page">page1</div><div class="page">page2</div>',
+      afterHtml: '<div class="page">page1</div><div class="page">page2-changed</div>',
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([1]),
+      marker: true,
+    });
+    expect(pageAnchors[0]).toBe('review-anchor-1');
+  });
+
+  it('両面とも期待ページ数不一致(degrade)なら anchors・pageAnchors とも空(present だが無印)', () => {
+    const { pageAnchors, anchors } = buildCompareDocs({
+      beforeHtml: '<div class="page">page1+page2 collapsed</div>',
+      afterHtml: '<div class="page">page1+page2-changed collapsed</div>',
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([1]),
+      beforeExpectedPageCount: 2,
+      afterExpectedPageCount: 2,
+      marker: true,
+    });
+    expect(anchors).toEqual([]);
+    expect(pageAnchors).toEqual([]);
+  });
+
+  it('after のみ期待ページ数不一致なら pageAnchors は before から補われる', () => {
+    const { pageAnchors } = buildCompareDocs({
+      beforeHtml: '<div class="page">page1</div><div class="page">page2</div>',
+      afterHtml: '<div class="page">page1+page2 collapsed</div>',
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([1]),
+      beforeExpectedPageCount: 2,
+      afterExpectedPageCount: 2,
+      marker: true,
+    });
+    expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2']);
+  });
 });

@@ -47,11 +47,9 @@ function openEditor(m: TemplateMeta) {
   router.push({ name: 'editor', params: { id: m.id } });
 }
 
-/** 「承認待ち」バッジ。1 件ならその精査画面へ直行、複数ならキューで選ばせる。 */
+/** 「承認待ち」バッジ。承認タブをそのテンプレートで開く(件数に関わらず同じ導線)。 */
 function openReview(m: TemplateMeta) {
-  const list = pending.byTemplate[m.id] ?? [];
-  if (list.length === 1) router.push({ name: 'review-detail', params: { reqId: list[0].id } });
-  else router.push({ name: 'reviews' });
+  router.push({ name: 'reviews', query: { template: m.id } });
 }
 </script>
 

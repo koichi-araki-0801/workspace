@@ -4,8 +4,8 @@
 // 役割: 編集画面の「修正履歴」と Undo/Redo スタックを `EditorView.vue` の外へ持ち上げ、
 // `templateId` をキーに保持する。Pinia ストアはシングルトンのため、`/edit/:id` ⇄
 // `/preview/:id` の往復で `EditorView` がアンマウント/再マウントされても state が生存し、
-// プレビューから戻った時に履歴と Undo/Redo がそのまま継続する。セッションは「メニューへの
-// 破棄」または「確定保存」で終了し、その時 `clear` で破棄する。
+// プレビューから戻った時に履歴と Undo/Redo がそのまま継続する。タブ遷移でも破棄しない
+// (編集セッションはブラウザタブの寿命)。セッションは「確定保存」で終了し、その時 `clear` で破棄する。
 
 import type { PartHistoryEntry } from '@editor/shared';
 import { defineStore } from 'pinia';
@@ -117,6 +117,20 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
     // ここまで来たら保存は諦める(throw しない)。
   }
 
+  /**
+   * Undo/Redo スタックだけを空にする。別タブが残した下書きを破棄して確定版から開いたとき
+   * (`loadForEdit` の `discardedStaleDraft`)に呼ぶ — 残すと Undo 1 回で破棄したはずの本文が
+   * 戻り、autosave がそれを下書きとして書き戻してしまうため。`useSnapshotHistory` が配列を
+   * 参照で握っているので、差し替えずに in-place で空にする。修正履歴と採番はセッションの
+   * 記録なので保つ。
+   */
+  function reset(templateId: string): void {
+    const sess = ensure(templateId);
+    sess.undoPast.length = 0;
+    sess.undoFuture.length = 0;
+    persist(templateId); // 永続ミラーも空にする(リロードで再び hydrate されないように)
+  }
+
   /** 編集セッションを破棄する(メニュー復帰での破棄 / 確定保存後)。永続ミラーも消す。 */
   function clear(templateId: string): void {
     delete sessions[templateId];
@@ -127,5 +141,5 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
     }
   }
 
-  return { sessions, ensure, persist, clear };
+  return { sessions, ensure, persist, reset, clear };
 });

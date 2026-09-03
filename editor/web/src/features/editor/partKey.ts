@@ -5,8 +5,8 @@
 // top-level block)を版を跨いで一意に指す構造パスキーを作る。キーは `pageAnchor/partAnchor`
 // で、各アンカーは `@/lib/blockKey` の `rawKey`(data-part-id→id→class→tag)+ 兄弟内の
 // 出現順。HTML 構造のみに依存するため、版種/基準日が変わっても同じ構造のパーツなら一致する
-// (版比較 `htmlBlockDiff.ts` のブロック整列と同思想)。メモはこのキーでパーツを指し、
-// 交付版⇄全体版のペアで 1 本のスレッドを共有する(基準日をまたぐ繰り越しはしない)。
+// (版比較 `htmlBlockDiff.ts` のブロック整列と同思想)。コメントはこのキーでパーツを指す
+// (スレッドは版インスタンス単位で、ペアや他版とは共有しない)。
 //
 // 限界: ページの追加/削除でページの並びがずれた場合や、catalog 由来でないパーツ(安定な
 // `data-part-id` を持たない)では best-effort になる(compare の位置整列と同程度)。基準日
@@ -18,8 +18,11 @@ import { REDLINE_ATTR } from './redline/redlineApply';
 /**
  * canvas root(GrapesJS wrapper か body)直下の `.page` 要素列。1 件も無ければ root 自身を
  * 1 ページ扱いにする(`pageView.ts` の `enumeratePageEls` と同方針の純粋 DOM 版)。
+ * `useTemplateEditor.ts` の `selectPartByKey`(選択側の列挙)もこの関数を使う — キー計算
+ * (`partPathKeyFor`)と選択側で列挙ロジックが分岐すると、両者が違うページを指してキーの
+ * 対応がずれる。
  */
-function pageEls(root: HTMLElement): HTMLElement[] {
+export function pageEls(root: HTMLElement): HTMLElement[] {
   const pages = Array.from(root.children).filter(
     (el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('page'),
   );
@@ -92,6 +95,20 @@ export function partLabelMap(root: HTMLElement): Map<string, string> {
     partEls(page).forEach((part, qi) => {
       map.set(partKeyOf(page, part, pages, root), `ページ${pi + 1}・パーツ${qi + 1}`);
     });
+  });
+  return map;
+}
+
+/**
+ * canvas 全パーツの安定キー → そのパーツが属するページの index(0 始まり)。承認画面の
+ * コメント一覧が「行クリックで見た目比較の該当ページへ送る」ために使う。キーの作り方は
+ * `partLabelMap` と同じ(`partKeyOf`)なので、両者のキー集合は必ず一致する。
+ */
+export function partPageIndexMap(root: HTMLElement): Map<string, number> {
+  const map = new Map<string, number>();
+  const pages = pageEls(root);
+  pages.forEach((page, pi) => {
+    for (const part of partEls(page)) map.set(partKeyOf(page, part, pages, root), pi);
   });
   return map;
 }

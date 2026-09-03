@@ -1,12 +1,13 @@
 // =============================================================================
-// noteRepo.test.ts — メモのペア共有(交付版⇄全体版)と投稿の追加・編集・削除
+// noteRepo.test.ts — コメントの版インスタンス独立・返信・解決・連鎖削除
 // =============================================================================
-// メモは版インスタンス単位のファイルに保存しつつ、読み取りでペアの版をマージして 1 本の
-// スレッドとして返す。ここで主張するのは、マージの範囲と順序・書き込みが投稿の属する版
-// だけを変えること・上限が追加のみを止めること。
+// コメントは版インスタンス単位のファイルに保存し、他の版(交付版⇄全体版のペアを含む)とは
+// 共有しない。ここで主張するのは、読み取りが自版に閉じること・返信が同じパーツの親投稿にだけ
+// 付くこと・状態の切替が親にだけ許され返信へ伝播すること・親の削除が返信を道連れにすること。
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { MAX_NOTE_ENTRIES_PER_PART } from '@editor/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tmpRoot: string;
@@ -25,8 +26,9 @@ async function importRepo(): Promise<{
 
 const KOUFU = 'AM01_510037_20240710_交付版';
 const ZENTAI = 'AM01_510037_20240710_全体版';
-const LONE = 'AM01_510037_20240710_kr';
 const KEY = '.page#1/cover#1';
+const OTHER_KEY = '.page#1/.summary#1';
+const PARENT = { replyTo: null, kind: 'note' as const };
 
 beforeEach(async () => {
   tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'editor-note-repo-'));
@@ -37,250 +39,254 @@ afterEach(async () => {
   await fs.rm(tmpRoot, { recursive: true, force: true });
 });
 
-describe('ペア版種のマージ', () => {
-  it('交付版から読むと全体版の投稿も同じスレッドに並ぶ(作成日時の昇順)', async () => {
+describe('版インスタンスの独立', () => {
+  it('交付版から読んでも全体版の投稿は混ざらない', async () => {
     const { repo } = await importRepo();
-    await repo.addNote(KOUFU, KEY, '交付版の 1 件目', 'editor1');
-    await repo.addNote(ZENTAI, KEY, '全体版の 1 件目', 'editor2');
-    await repo.addNote(KOUFU, KEY, '交付版の 2 件目', 'editor1');
+    await repo.addNote(KOUFU, KEY, '交付版', 'editor1', PARENT);
+    await repo.addNote(ZENTAI, KEY, '全体版', 'editor2', PARENT);
+    expect((await repo.listNotes(KOUFU)).map((e) => e.content)).toEqual(['交付版']);
+    expect((await repo.listNotes(ZENTAI)).map((e) => e.content)).toEqual(['全体版']);
+  });
 
-    const thread = await repo.listNotes(KOUFU);
-    expect(thread.map((e) => e.content)).toEqual([
-      '交付版の 1 件目',
-      '全体版の 1 件目',
-      '交付版の 2 件目',
+  it('作成日時の昇順で返し、同一 createdAt は書き込み順を保つ', async () => {
+    const { repo, files } = await importRepo();
+    const t = '2026-09-01T00:00:00.000Z';
+    const stored = (id: string, content: string) => ({
+      id,
+      content,
+      createdAt: t,
+      createdBy: 'editor1',
+      updatedAt: null,
+      updatedBy: null,
+      status: 'open' as const,
+      replyTo: null,
+      kind: 'note' as const,
+    });
+    await files.writeNotes(KOUFU, {
+      [KEY]: [stored('z1', '1 件目'), stored('m2', '2 件目'), stored('a3', '3 件目')],
+    });
+    expect((await repo.listNotes(KOUFU)).map((e) => e.content)).toEqual([
+      '1 件目',
+      '2 件目',
+      '3 件目',
     ]);
-    // 版種が分かるよう、投稿は自分が属する版の id を持つ。
-    expect(thread.map((e) => e.templateId)).toEqual([KOUFU, ZENTAI, KOUFU]);
-  });
-
-  it('全体版から読んでも同じ並びになる', async () => {
-    const { repo } = await importRepo();
-    await repo.addNote(KOUFU, KEY, 'A', 'editor1');
-    await repo.addNote(ZENTAI, KEY, 'B', 'editor2');
-    expect((await repo.listNotes(ZENTAI)).map((e) => e.content)).toEqual(['A', 'B']);
-  });
-
-  it('ペア対象外の版種は自版のみを返す', async () => {
-    const { repo } = await importRepo();
-    await repo.addNote(KOUFU, KEY, '交付版', 'editor1');
-    await repo.addNote(LONE, KEY, '旧版種', 'editor1');
-    expect((await repo.listNotes(LONE)).map((e) => e.content)).toEqual(['旧版種']);
   });
 });
 
-describe('createdAt が同値のときの安定性', () => {
-  it('同一 createdAt の投稿は書き込み順(配列順)で返る', async () => {
-    const { repo, files } = await importRepo();
-    const t = '2026-09-01T00:00:00.000Z';
-    // id は挿入順(配列順)と辞書順がわざと食い違うようにしてある(z1 → m2 → a3 の順に
-    // 書き込むが、辞書順は a3 < m2 < z1 で逆順)。id を tiebreak に使う実装が復活すると
-    // 結果が辞書順(3 件目, 2 件目, 1 件目)へ入れ替わり、このテストが落ちる。
-    await files.writeNotes(KOUFU, {
-      [KEY]: [
-        {
-          id: 'z1',
-          content: '1 件目',
-          createdAt: t,
-          createdBy: 'editor1',
-          updatedAt: null,
-          updatedBy: null,
-        },
-        {
-          id: 'm2',
-          content: '2 件目',
-          createdAt: t,
-          createdBy: 'editor1',
-          updatedAt: null,
-          updatedBy: null,
-        },
-        {
-          id: 'a3',
-          content: '3 件目',
-          createdAt: t,
-          createdBy: 'editor1',
-          updatedAt: null,
-          updatedBy: null,
-        },
-      ],
-    });
-
-    const thread = await repo.listNotes(KOUFU);
-    // 書き込んだ配列順そのものを主張する(集合ではなく順序を見る)。
-    expect(thread.map((e) => e.content)).toEqual(['1 件目', '2 件目', '3 件目']);
-  });
-
-  it('ペアをまたぐ同一 createdAt でも自版 → ペア版の順になる', async () => {
-    const { repo, files } = await importRepo();
-    const t = '2026-09-01T00:00:00.000Z';
-    await files.writeNotes(KOUFU, {
-      [KEY]: [
-        {
-          id: 'k1',
-          content: '交付版',
-          createdAt: t,
-          createdBy: 'editor1',
-          updatedAt: null,
-          updatedBy: null,
-        },
-      ],
-    });
-    await files.writeNotes(ZENTAI, {
-      [KEY]: [
-        {
-          id: 'z1',
-          content: '全体版',
-          createdAt: t,
-          createdBy: 'editor2',
-          updatedAt: null,
-          updatedBy: null,
-        },
-      ],
-    });
-
-    // 自版として「全体版」側を問い合わせる。期待順は自版 → ペア版 = [全体版, 交付版]。
-    // templateId を tiebreak に使う実装が復活すると、"交付版" < "全体版" の文字コード順で
-    // 交付版が先に来てしまい(自版がどちらでも辞書順は固定なので、自版=交付版側で問い合わせる
-    // と辞書順と期待順が一致してしまい判定にならない)、このテストが落ちる。
-    const thread = await repo.listNotes(ZENTAI);
-    expect(thread.map((e) => e.content)).toEqual(['全体版', '交付版']);
-  });
-});
-
-describe('編集と削除の宛先', () => {
-  it('ペア側の投稿を編集してもこちらの版のファイルは変わらない', async () => {
-    const { repo, files } = await importRepo();
-    await repo.addNote(KOUFU, KEY, '交付版', 'editor1');
-    const zentai = await repo.addNote(ZENTAI, KEY, '全体版', 'editor2');
-
-    await repo.updateNote(ZENTAI, zentai.id, '全体版(修正)', 'editor3');
-
-    expect((await files.readNotes(KOUFU))[KEY][0].content).toBe('交付版');
-    const updated = (await files.readNotes(ZENTAI))[KEY][0];
-    expect(updated.content).toBe('全体版(修正)');
-    expect(updated.updatedBy).toBe('editor3');
-  });
-
-  it('削除は指定した版の投稿だけを消す', async () => {
-    const { repo, files } = await importRepo();
-    const koufu = await repo.addNote(KOUFU, KEY, '交付版', 'editor1');
-    await repo.addNote(ZENTAI, KEY, '全体版', 'editor2');
-
-    await repo.deleteNote(KOUFU, koufu.id);
-
-    expect((await files.readNotes(KOUFU))[KEY]).toBeUndefined();
-    expect((await files.readNotes(ZENTAI))[KEY]).toHaveLength(1);
-  });
-
-  it('存在しない投稿 ID は validation エラーにする', async () => {
+describe('追加', () => {
+  it('親投稿は open / replyTo null / 指定した種別で保存される', async () => {
     const { repo } = await importRepo();
-    await expect(repo.updateNote(KOUFU, 'no-such-id', 'x', 'editor1')).rejects.toMatchObject({
+    const e = await repo.addNote(KOUFU, KEY, '修正して', 'editor1', {
+      replyTo: null,
+      kind: 'fix-request',
+    });
+    expect(e).toMatchObject({
+      status: 'open',
+      replyTo: null,
+      kind: 'fix-request',
+      templateId: KOUFU,
+      pathKey: KEY,
+    });
+  });
+
+  it('返信は親の状態を引き継ぐ', async () => {
+    const { repo } = await importRepo();
+    const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
+    await repo.updateNote(KOUFU, p.id, { status: 'resolved' }, 'editor1');
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    expect(r).toMatchObject({ replyTo: p.id, status: 'resolved' });
+  });
+
+  it('存在しない親への返信は拒否する', async () => {
+    const { repo } = await importRepo();
+    await expect(
+      repo.addNote(KOUFU, KEY, '返信', 'editor1', { replyTo: 'nope', kind: 'note' }),
+    ).rejects.toMatchObject({
       kind: 'validation',
     });
-    await expect(repo.deleteNote(KOUFU, 'no-such-id')).rejects.toMatchObject({
+  });
+
+  it('別パーツの投稿を親にした返信は拒否する', async () => {
+    const { repo } = await importRepo();
+    const p = await repo.addNote(KOUFU, OTHER_KEY, '別パーツ', 'editor1', PARENT);
+    await expect(
+      repo.addNote(KOUFU, KEY, '返信', 'editor1', { replyTo: p.id, kind: 'note' }),
+    ).rejects.toMatchObject({
+      kind: 'validation',
+    });
+  });
+
+  it('返信への返信は拒否する(入れ子は 1 段)', async () => {
+    const { repo } = await importRepo();
+    const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    await expect(
+      repo.addNote(KOUFU, KEY, '孫', 'editor1', { replyTo: r.id, kind: 'note' }),
+    ).rejects.toMatchObject({
+      kind: 'validation',
+    });
+  });
+
+  it('1 パーツの投稿数上限は返信を含めて数える', async () => {
+    const { repo } = await importRepo();
+    const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
+    // 親 1 件 + 返信 (上限 - 1) 件で上限に達する。次の親投稿は拒否される。
+    for (let i = 1; i < MAX_NOTE_ENTRIES_PER_PART; i += 1) {
+      await repo.addNote(KOUFU, KEY, `返信 ${i}`, 'editor1', { replyTo: p.id, kind: 'note' });
+    }
+    await expect(repo.addNote(KOUFU, KEY, '上限超え', 'editor1', PARENT)).rejects.toMatchObject({
       kind: 'validation',
     });
   });
 });
 
-describe('投稿数の上限', () => {
-  it('上限に達したら追加は拒否し、編集と削除は通す', async () => {
+describe('更新', () => {
+  it('本文の更新は updatedAt/updatedBy を刻み、状態だけの更新は刻まない', async () => {
+    const { repo } = await importRepo();
+    const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
+    const edited = await repo.updateNote(KOUFU, p.id, { content: '直した' }, 'editor2');
+    expect(edited.content).toBe('直した');
+    expect(edited.updatedBy).toBe('editor2');
+    const resolved = await repo.updateNote(KOUFU, p.id, { status: 'resolved' }, 'editor3');
+    expect(resolved.status).toBe('resolved');
+    expect(resolved.updatedBy).toBe('editor2');
+  });
+
+  it('親の状態切替は返信へ伝播する', async () => {
+    const { repo } = await importRepo();
+    const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    await repo.updateNote(KOUFU, p.id, { status: 'resolved' }, 'editor1');
+    const all = await repo.listNotes(KOUFU);
+    expect(all.find((e) => e.id === r.id)?.status).toBe('resolved');
+    await repo.updateNote(KOUFU, p.id, { status: 'open' }, 'editor1');
+    expect((await repo.listNotes(KOUFU)).every((e) => e.status === 'open')).toBe(true);
+  });
+
+  it('返信への状態指定は拒否する', async () => {
+    const { repo } = await importRepo();
+    const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    await expect(
+      repo.updateNote(KOUFU, r.id, { status: 'resolved' }, 'editor1'),
+    ).rejects.toMatchObject({
+      kind: 'validation',
+    });
+  });
+
+  it('返信の本文は編集できる', async () => {
+    const { repo } = await importRepo();
+    const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    expect((await repo.updateNote(KOUFU, r.id, { content: '直した返信' }, 'editor2')).content).toBe(
+      '直した返信',
+    );
+  });
+});
+
+describe('削除', () => {
+  it('親を削除すると返信も消え、パーツが空になればキーごと畳む', async () => {
     const { repo, files } = await importRepo();
-    const entries = Array.from({ length: 200 }, (_, i) => ({
+    const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
+    await repo.addNote(KOUFU, KEY, '返信 1', 'editor2', { replyTo: p.id, kind: 'note' });
+    await repo.addNote(KOUFU, KEY, '返信 2', 'editor2', { replyTo: p.id, kind: 'note' });
+    await repo.deleteNote(KOUFU, p.id);
+    expect(await repo.listNotes(KOUFU)).toEqual([]);
+    expect(await files.readNotes(KOUFU)).toEqual({});
+  });
+
+  it('返信だけを削除しても親は残る', async () => {
+    const { repo } = await importRepo();
+    const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    await repo.deleteNote(KOUFU, r.id);
+    expect((await repo.listNotes(KOUFU)).map((e) => e.id)).toEqual([p.id]);
+  });
+});
+
+describe('存在しない投稿への操作', () => {
+  it('updateNote は validation で拒否する', async () => {
+    const { repo } = await importRepo();
+    await expect(
+      repo.updateNote(KOUFU, 'nope', { content: '更新' }, 'editor1'),
+    ).rejects.toMatchObject({ kind: 'validation' });
+  });
+
+  it('deleteNote は validation で拒否する', async () => {
+    const { repo } = await importRepo();
+    await expect(repo.deleteNote(KOUFU, 'nope')).rejects.toMatchObject({ kind: 'validation' });
+  });
+});
+
+describe('件数上限に達したパーツの更新・削除(上限は詰みを作らない)', () => {
+  async function seedAtCapacity(files: typeof import('../src/files/notesFile.js')): Promise<void> {
+    const entries = Array.from({ length: MAX_NOTE_ENTRIES_PER_PART }, (_, i) => ({
       id: `e${i}`,
       content: `メモ${i}`,
       createdAt: `2026-09-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
       createdBy: 'editor1',
       updatedAt: null,
       updatedBy: null,
+      status: 'open' as const,
+      replyTo: null,
+      kind: 'note' as const,
     }));
     await files.writeNotes(KOUFU, { [KEY]: entries });
+  }
 
-    await expect(repo.addNote(KOUFU, KEY, 'あふれる', 'editor1')).rejects.toMatchObject({
+  it('追加は拒否するが、既存投稿の編集は通す', async () => {
+    const { repo, files } = await importRepo();
+    await seedAtCapacity(files);
+    await expect(repo.addNote(KOUFU, KEY, 'あふれる', 'editor1', PARENT)).rejects.toMatchObject({
       kind: 'validation',
     });
-    await expect(repo.updateNote(KOUFU, 'e0', '更新', 'editor1')).resolves.toMatchObject({
-      content: '更新',
-    });
-    await expect(repo.deleteNote(KOUFU, 'e1')).resolves.toBeUndefined();
+    const updated = await repo.updateNote(KOUFU, 'e0', { content: '更新' }, 'editor1');
+    expect(updated.content).toBe('更新');
+  });
+
+  it('追加は拒否するが、既存投稿の削除は通す', async () => {
+    const { repo, files } = await importRepo();
+    await seedAtCapacity(files);
+    await repo.deleteNote(KOUFU, 'e1');
+    expect((await repo.listNotes(KOUFU)).find((e) => e.id === 'e1')).toBeUndefined();
   });
 });
 
 describe('旧形式ファイル(複数 pathKey)での id 衝突を防ぐ', () => {
-  // 旧形式(`pathKey` → メモ 1 件)の変換 ID を固定値 `legacy` にすると、`locate` はファイル内の
-  // 全 pathKey を横断して ID 一致を探すため、2 パーツ以上を持つ旧形式ファイルでは全パーツが
-  // 同じ ID を名乗ってしまい、削除・編集が先頭に見つかった別パーツへ誤爆する(データ損失)。
-  // ここでは 2 つの異なる pathKey を持つ旧形式ファイルを直接書き、片方の削除・編集がもう片方に
-  // 波及しないことを主張する。
-  const KEY2 = '.page#1/cover#2';
-
+  // `normalizeStored`(files/notesFile.ts)は旧形式(pathKey → メモ 1 件)の投稿 ID を
+  // `legacy:<pathKey>` にする。固定値 `legacy` 単体へ戻す退行が起きると、本 repo の `locate`
+  // (ファイル内の全 pathKey を横断して ID 一致を探す)が同じ ID を複数 pathKey で見つけ、
+  // 編集・削除が別パーツへ誤爆する。関連する変換自体の主張は
+  // `notesFile.thread.test.ts`「複数 pathKey を持つ旧形式ファイルでは各パーツが異なる ID になる」
+  // が持ち、ここでは repo 層の編集・削除がパーツを跨がないことを主張する。
   async function writeLegacyFile(): Promise<void> {
-    const notesPath = path.join(tmpRoot, 'notes', `${KOUFU}.json`);
-    await fs.mkdir(path.dirname(notesPath), { recursive: true });
+    const notesDir = path.join(tmpRoot, 'notes');
+    await fs.mkdir(notesDir, { recursive: true });
     await fs.writeFile(
-      notesPath,
+      path.join(notesDir, `${KOUFU}.json`),
       JSON.stringify({
-        [KEY]: {
-          content: 'パーツ1の旧メモ',
-          updatedAt: '2026-08-01T00:00:00.000Z',
-          updatedBy: 'u1',
-        },
-        [KEY2]: {
-          content: 'パーツ2の旧メモ',
-          updatedAt: '2026-08-01T00:00:00.000Z',
-          updatedBy: 'u2',
-        },
+        [KEY]: { content: 'パーツ1', updatedAt: 'x', updatedBy: 'u' },
+        [OTHER_KEY]: { content: 'パーツ2', updatedAt: 'x', updatedBy: 'u' },
       }),
       'utf8',
     );
   }
 
-  // 対象は必ず「2 つ目」の pathKey(KEY2)にする。`locate` は `Object.entries(map)` を
-  // 挿入順に走査して最初の ID 一致を返すため、旧実装(変換 ID が全件固定値 `legacy`)でも
-  // ファイルに最初に書いた pathKey(KEY)を狙えば `locate` が KEY 自身の投稿へ一致し、
-  // 偶然正しい宛先に当たって退行を検出できない。再現したい事故は「後ろの pathKey の投稿を
-  // 消したら前の pathKey の投稿が消えた」なので、2 つ目を狙わないと主張にならない。
-
-  it('2 つ目のパーツの投稿を削除しても、1 つ目のパーツの投稿は元のまま残る', async () => {
-    const { repo, files } = await importRepo();
-    await writeLegacyFile();
-
-    const before = await repo.listNotes(KOUFU);
-    const target = before.find((e) => e.pathKey === KEY2);
-    if (!target) throw new Error('セットアップ失敗: パーツ2の投稿が見つからない');
-
-    await repo.deleteNote(KOUFU, target.id);
-
-    const after = await files.readNotes(KOUFU);
-    expect(after[KEY2]).toBeUndefined();
-    expect(after[KEY]).toHaveLength(1);
-    expect(after[KEY][0].content).toBe('パーツ1の旧メモ');
-  });
-
-  it('2 つ目のパーツの投稿を編集しても、1 つ目のパーツの投稿は元のまま変わらない', async () => {
-    const { repo, files } = await importRepo();
-    await writeLegacyFile();
-
-    const before = await repo.listNotes(KOUFU);
-    const target = before.find((e) => e.pathKey === KEY2);
-    if (!target) throw new Error('セットアップ失敗: パーツ2の投稿が見つからない');
-
-    await repo.updateNote(KOUFU, target.id, 'パーツ2の修正後', 'editor1');
-
-    const after = await files.readNotes(KOUFU);
-    expect(after[KEY2][0].content).toBe('パーツ2の修正後');
-    expect(after[KEY][0].content).toBe('パーツ1の旧メモ');
-  });
-});
-
-describe('同時追加で投稿が消えない', () => {
-  it('同一テンプレへの並行 addNote が全て残る', async () => {
+  it('片方の legacy id を削除しても、もう一方のパーツの投稿は残る', async () => {
     const { repo } = await importRepo();
-    await Promise.all([
-      repo.addNote(KOUFU, KEY, 'A', 'u1'),
-      repo.addNote(KOUFU, KEY, 'B', 'u2'),
-      repo.addNote(KOUFU, KEY, 'C', 'u3'),
-    ]);
-    expect((await repo.listNotes(KOUFU)).map((e) => e.content).sort()).toEqual(['A', 'B', 'C']);
+    await writeLegacyFile();
+    await repo.deleteNote(KOUFU, `legacy:${OTHER_KEY}`);
+    const remaining = await repo.listNotes(KOUFU);
+    expect(remaining.map((e) => e.pathKey)).toEqual([KEY]);
+    expect(remaining[0].content).toBe('パーツ1');
+  });
+
+  it('片方の legacy id を編集しても、もう一方のパーツの投稿は変わらない', async () => {
+    const { repo } = await importRepo();
+    await writeLegacyFile();
+    await repo.updateNote(KOUFU, `legacy:${KEY}`, { content: '直した' }, 'editor1');
+    const all = await repo.listNotes(KOUFU);
+    expect(all.find((e) => e.pathKey === KEY)?.content).toBe('直した');
+    expect(all.find((e) => e.pathKey === OTHER_KEY)?.content).toBe('パーツ2');
   });
 });

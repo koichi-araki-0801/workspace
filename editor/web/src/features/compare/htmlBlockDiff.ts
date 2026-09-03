@@ -90,7 +90,7 @@ export const HL_DEL = 'cmp-del';
 // 語句級のうち、面積上限で語句 LCS を諦めた「全文まるごと」の塊に併記する印。
 export const HL_COARSE = 'cmp-coarse';
 
-// 版比較(`CompareResultView`)と承認プレビュー(`ReviewDiffView`)が共有する、iframe 内の
+// 版比較(`CompareResultView`)と承認プレビュー(`ReviewDetail`)が共有する、iframe 内の
 // ハイライト CSS とドキュメント組み立て。着色ルール(`.cmp-*`)は両画面で同一で、body の
 // padding だけ画面ごとに変えるため引数化する(二重管理を避ける)。
 /**

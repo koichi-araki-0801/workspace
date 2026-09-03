@@ -33,7 +33,7 @@ const props = defineProps<{
 const showMarker = ref(true);
 
 // マーカーのレイヤ名は乱数だが、docs は入力とトグルにのみ依存する computed で組む
-// (`ReviewDiffView` の renderedRows と同じ規律 — 無関係な再描画で全再組版を起こさない)。
+// (`ReviewDetail` の renderedRows と同じ規律 — 無関係な再描画で全再組版を起こさない)。
 const docs = computed(() =>
   buildCompareDocs({
     beforeHtml: props.beforeHtml,
@@ -72,6 +72,22 @@ function nextAnchor() {
   beforePanel.value?.gotoAnchor(id);
   afterPanel.value?.gotoAnchor(id);
 }
+
+/**
+ * 指定ページ(0 始まり)へ両面を送る。承認タブのコメント一覧が「行クリックで該当ページへ」
+ * に使う。アンカーはページ単位(`buildCompareDocs` が `.page` に付ける)なので、パーツ単位の
+ * 精度は持たない — ページが見えれば承認者はパーツを目で追える。コメントは変更の有無に
+ * 関わらず全パーツへ付けられるため、変更ページのみの `anchors`(「次の変更箇所へ」用、
+ * `anchorIndex` はその巡回カーソル)ではなく全ページの `pageAnchors` を引く。ここでの移動は
+ * 「次の変更箇所へ」の巡回とは独立の操作なので `anchorIndex` は触らない。
+ */
+function gotoPage(index: number): void {
+  const id = docs.value.pageAnchors[index];
+  if (!id) return;
+  beforePanel.value?.gotoAnchor(id);
+  afterPanel.value?.gotoAnchor(id);
+}
+defineExpose({ gotoPage });
 </script>
 
 <template>

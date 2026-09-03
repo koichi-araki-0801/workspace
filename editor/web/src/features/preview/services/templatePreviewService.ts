@@ -19,6 +19,7 @@ import {
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { apiUrl } from '@/api/rest/http';
 import { logError } from '@/lib/appError';
+import { type DraftOwner, draftOwner } from '@/lib/draftOwner';
 import { formatCss } from '@/lib/formatOutput';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
@@ -68,6 +69,7 @@ interface TemplatePreviewService {
 export function createTemplatePreviewService(
   templates: TemplateRepository,
   history: HistoryRepository,
+  owner: DraftOwner = draftOwner,
 ): TemplatePreviewService {
   return {
     async loadForPreview(id) {
@@ -82,7 +84,10 @@ export function createTemplatePreviewService(
 
       const draftRes = await templates.getDraft(id);
       if (isErr(draftRes)) return draftRes;
-      const draft = draftRes.value;
+      // 編集経路(`loadForEdit`)と同じ所属判定を通す。ブックマークや直 URL で編集画面を
+      // 経由せずここへ来ても、別タブが残した下書きを申請本文にしないため。破棄そのものは
+      // 編集経路に任せ、ここでは採用しない(確定版でプレビューする)だけに留める。
+      const draft = draftRes.value && owner.belongsToSession(id) ? draftRes.value : null;
 
       let restoredHtml: string;
       let css: string;

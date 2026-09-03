@@ -399,18 +399,21 @@ export function buildOpenApiDocument() {
       [toOpenApiPath(apiPaths.notes)]: {
         get: {
           tags: ['notes'],
-          summary: 'パーツ単位メモを取得(交付版と全体版をマージしたスレッド)',
+          summary: 'パーツ単位コメントを取得(版インスタンスごとに独立。親投稿と返信が混在)',
           operationId: 'listNotes',
           requestParams: { path: z.object({ templateId: z.string() }) },
           responses: {
-            '200': json('投稿の配列(作成日時の昇順)', z.array(s.PartNoteEntry)),
+            '200': json(
+              '投稿の配列(作成日時の昇順。親投稿と返信が混在し、返信は replyTo で親を指す)',
+              z.array(s.PartNoteEntry),
+            ),
             ...ERR_401,
             ...ERR_404,
           },
         },
         post: {
           tags: ['notes'],
-          summary: 'パーツ単位メモへ投稿を追加',
+          summary: 'パーツ単位コメントへ投稿を追加',
           operationId: 'addNote',
           requestParams: { path: z.object({ templateId: z.string() }) },
           requestBody: { content: { 'application/json': { schema: s.AddNoteRequest } } },
@@ -420,15 +423,19 @@ export function buildOpenApiDocument() {
       [toOpenApiPath(apiPaths.noteEntry)]: {
         patch: {
           tags: ['notes'],
-          summary: 'メモの投稿本文を編集',
+          summary: '投稿の本文・状態を更新',
           operationId: 'updateNote',
           requestParams: { path: z.object({ templateId: z.string(), entryId: z.string() }) },
           requestBody: { content: { 'application/json': { schema: s.UpdateNoteRequest } } },
-          responses: { '200': json('更新後の投稿', s.PartNoteEntry), ...ERR_400, ...ERR_401 },
+          responses: {
+            '200': json('更新後の投稿(状態の変更は返信にも伝播する)', s.PartNoteEntry),
+            ...ERR_400,
+            ...ERR_401,
+          },
         },
         delete: {
           tags: ['notes'],
-          summary: 'メモの投稿を削除',
+          summary: 'コメントの投稿を削除',
           operationId: 'deleteNote',
           requestParams: { path: z.object({ templateId: z.string(), entryId: z.string() }) },
           responses: { '204': noContent('削除完了'), ...ERR_400, ...ERR_401 },
@@ -439,7 +446,7 @@ export function buildOpenApiDocument() {
       [toOpenApiPath(apiPaths.reviewRequests)]: {
         get: {
           tags: ['reviews'],
-          summary: '承認キュー一覧(approver|admin は全件、editor は自分の申請のみ)',
+          summary: '申請一覧(approver|admin は全件、editor は自分の申請のみ)',
           operationId: 'listReviews',
           requestParams: { query: s.ReviewListQuery },
           responses: { '200': json('申請メタの配列', z.array(s.ReviewRequestMeta)), ...ERR_401 },
@@ -493,23 +500,6 @@ export function buildOpenApiDocument() {
           requestBody: { content: { 'application/json': { schema: s.ReviewRejectBody } } },
           responses: {
             '200': json('却下後の申請メタ', s.ReviewRequestMeta),
-            ...ERR_400,
-            ...ERR_401,
-            ...ERR_403,
-            ...ERR_404,
-            ...ERR_409,
-          },
-        },
-      },
-      [toOpenApiPath(apiPaths.reviewRequestHold)]: {
-        post: {
-          tags: ['reviews'],
-          summary: '保留(精査者限定・実ファイル非更新)',
-          operationId: 'holdReview',
-          requestParams: { path: z.object({ reqId: z.string() }) },
-          requestBody: { content: { 'application/json': { schema: s.ReviewDecisionBody } } },
-          responses: {
-            '200': json('保留後の申請メタ', s.ReviewRequestMeta),
             ...ERR_400,
             ...ERR_401,
             ...ERR_403,

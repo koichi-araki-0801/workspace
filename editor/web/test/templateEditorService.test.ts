@@ -2,6 +2,7 @@ import {
   err,
   isErr,
   isOk,
+  network,
   notFound,
   ok,
   type PartRepository,
@@ -11,6 +12,7 @@ import {
 } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { createTemplateEditorService } from '@/features/editor/services/templateEditorService';
+import type { DraftOwner } from '@/lib/draftOwner';
 import { toFilled } from '@/lib/fillJinja';
 import { getBodyInner } from '@/lib/templateDoc';
 
@@ -32,12 +34,24 @@ function repos(opts: { draft?: TemplateDraft | null; templateErr?: boolean }) {
     getTemplate: vi.fn(async () => (opts.templateErr ? err(notFound('no')) : ok(tpl))),
     listParts: vi.fn(async () => ok([])),
     getDraft: vi.fn(async () => ok(opts.draft ?? null)),
-  } as unknown as TemplateRepository;
+    saveDraft: vi.fn(async () => ok(undefined)),
+    discardDraft: vi.fn(async () => ok(undefined)),
+  } as unknown as TemplateRepository & {
+    saveDraft: ReturnType<typeof vi.fn>;
+    discardDraft: ReturnType<typeof vi.fn>;
+  };
   const parts = {
     listParts: vi.fn(async () => ok([])),
     listPartHistory: vi.fn(async () => ok([])),
   } as unknown as PartRepository;
   return { templates, parts };
+}
+
+/** 下書きの所属のフェイク。`belongs` で「同じセッションか」を固定する。 */
+function ownerOf(
+  belongs: boolean,
+): DraftOwner & { claim: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> } {
+  return { claim: vi.fn(), release: vi.fn(), belongsToSession: vi.fn(() => belongs) };
 }
 
 describe('TemplateEditorService.loadForEdit', () => {
@@ -51,6 +65,7 @@ describe('TemplateEditorService.loadForEdit', () => {
       // body masked to editable form (Jinja preserved as a locked chip)
       expect(res.value.editableBody).toContain('jinja');
       expect(res.value.hasDraft).toBe(false); // draft 無し → dirty 初期値 false
+      expect(res.value.discardedStaleDraft).toBe(false); // 破棄していない
     }
   });
 
@@ -63,7 +78,7 @@ describe('TemplateEditorService.loadForEdit', () => {
       savedBy: '',
     };
     const { templates, parts } = repos({ draft });
-    const svc = createTemplateEditorService(templates, parts);
+    const svc = createTemplateEditorService(templates, parts, ownerOf(true));
     const res = await svc.loadForEdit('t1');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
@@ -110,6 +125,74 @@ describe('TemplateEditorService.loadForEdit', () => {
   });
 });
 
+describe('TemplateEditorService.loadForEdit — 下書きの所属セッション', () => {
+  it('別セッションが残した下書きは破棄して確定版から開く', async () => {
+    const draft: TemplateDraft = {
+      templateId: 't1',
+      html: '<p>stale draft</p>',
+      css: '.from-draft{}',
+      savedAt: '',
+      savedBy: '',
+    };
+    const { templates, parts } = repos({ draft });
+    const owner = ownerOf(false);
+    const svc = createTemplateEditorService(templates, parts, owner);
+    const res = await svc.loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.editableBody).not.toContain('stale draft');
+      expect(res.value.css).toBe('.from-file{}');
+      expect(res.value.hasDraft).toBe(false); // 確定版から開くので dirty ではない
+      // Undo ミラーの後始末(`sessionStore.reset`)を呼ぶ側へ、破棄した事実を伝える。
+      expect(res.value.discardedStaleDraft).toBe(true);
+    }
+    expect(templates.discardDraft).toHaveBeenCalledWith('t1');
+    expect(owner.release).toHaveBeenCalledWith('t1');
+  });
+
+  it('下書きが無ければ所属判定を呼ばない(破棄要求も出さない)', async () => {
+    const { templates, parts } = repos({ draft: null });
+    const owner = ownerOf(false);
+    await createTemplateEditorService(templates, parts, owner).loadForEdit('t1');
+    expect(templates.discardDraft).not.toHaveBeenCalled();
+  });
+
+  it('下書きの破棄に失敗しても確定版から開く(古い下書きを黙って復元しない)', async () => {
+    const draft: TemplateDraft = {
+      templateId: 't1',
+      html: '<p>stale draft</p>',
+      css: '.from-draft{}',
+      savedAt: '',
+      savedBy: '',
+    };
+    const { templates, parts } = repos({ draft });
+    templates.discardDraft.mockResolvedValueOnce(err(network('down')));
+    const res = await createTemplateEditorService(templates, parts, ownerOf(false)).loadForEdit(
+      't1',
+    );
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.hasDraft).toBe(false);
+  });
+
+  it('saveDraft は成功時に所属を記録し、discardDraft は成功時に記録を消す', async () => {
+    const { templates, parts } = repos({ draft: null });
+    const owner = ownerOf(true);
+    const svc = createTemplateEditorService(templates, parts, owner);
+    await svc.saveDraft('t1', '<p>x</p>', '');
+    expect(owner.claim).toHaveBeenCalledWith('t1');
+    await svc.discardDraft('t1');
+    expect(owner.release).toHaveBeenCalledWith('t1');
+  });
+
+  it('saveDraft が失敗したら所属を記録しない', async () => {
+    const { templates, parts } = repos({ draft: null });
+    templates.saveDraft.mockResolvedValueOnce(err(network('down')));
+    const owner = ownerOf(true);
+    await createTemplateEditorService(templates, parts, owner).saveDraft('t1', '<p>x</p>', '');
+    expect(owner.claim).not.toHaveBeenCalled();
+  });
+});
+
 describe('TemplateEditorService.loadForEdit — 赤入れの基準となる確定版本文', () => {
   // `confirmedBody` は編集キャンバスの赤入れ表示の基準。REST の `getTemplate` は `filled` を
   // 常に空で返すため、静的 filled の有無・draft の有無に関わらず解決できることを固定する。
@@ -151,7 +234,9 @@ describe('TemplateEditorService.loadForEdit — 赤入れの基準となる確�
       getDraft: vi.fn(async () => ok(draft)),
     } as unknown as TemplateRepository;
     const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
-    const res = await createTemplateEditorService(templates, parts).loadForEdit('t1');
+    const res = await createTemplateEditorService(templates, parts, ownerOf(true)).loadForEdit(
+      't1',
+    );
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       expect(res.value.editableBody).toBe('<p>draft body</p>');
@@ -179,7 +264,7 @@ describe('TemplateEditorService.loadForEdit — CSS 外部参照の入口ガー�
       getDraft: vi.fn(async () => ok(draft)),
     } as unknown as TemplateRepository;
     const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
-    return createTemplateEditorService(templates, parts);
+    return createTemplateEditorService(templates, parts, ownerOf(true));
   }
 
   it('draft の CSS に @import があると開けない(下書き破棄の案内付き)', async () => {

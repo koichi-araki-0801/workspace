@@ -73,8 +73,7 @@ function canSeeAll(actor: ReviewActor): boolean {
 }
 
 /**
- * 承認・差し戻し・保留が受け付ける現在状態の検査。保留(held)は「判断を後回しにした
- * pending」であり、決着(approved/rejected)済みだけを 409 で拒む。
+ * 承認・差し戻しが受け付ける現在状態の検査。決着(approved/rejected)済みを 409 で拒む。
  */
 function assertUndecided(review: ReviewRequest): void {
   if (review.status === 'approved' || review.status === 'rejected')
@@ -135,7 +134,7 @@ export async function submitReview(
   return toReviewMeta(review);
 }
 
-/** 申請一覧(承認キュー)。状態で絞り込み、ロールで可視範囲を絞る。新しい順。 */
+/** 申請一覧。状態で絞り込み、ロールで可視範囲を絞る。新しい順。 */
 export async function listReviews(
   filter: { status?: ReviewStatus },
   actor: ReviewActor,
@@ -259,29 +258,6 @@ export async function rejectReview(
       reviewedBy: actor.username,
       reviewedAt: new Date().toISOString(),
       comment: decision.comment ?? null,
-    });
-  });
-}
-
-/**
- * 保留する(approver|admin のみ。ルートで施錠済み)。実ファイルは更新しない。
- * 自己申請の保留は許す(承認と違い実反映を伴わず、職務分掌の対象でない)。
- * held の再保留はメモ更新として通す。
- */
-export async function holdReview(
-  reqId: string,
-  decision: ReviewDecisionRequest,
-  actor: ReviewActor,
-): Promise<ReviewRequestMeta> {
-  return withReviewLock(async () => {
-    const review = await readReview(reqId);
-    if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
-    assertUndecided(review);
-    return updateReviewMeta(reqId, {
-      status: 'held',
-      heldBy: actor.username,
-      heldAt: new Date().toISOString(),
-      holdComment: decision.comment ?? null,
     });
   });
 }

@@ -5,6 +5,7 @@ import {
   applyTemplateAttributes,
   err,
   isErr,
+  isOk,
   ok,
   type PairSyncStatus,
   type PartCatalogItem,
@@ -17,6 +18,7 @@ import {
   validation,
 } from '@editor/shared';
 import { usePartRepo, useTemplateRepo } from '@/api/repositories';
+import { type DraftOwner, draftOwner } from '@/lib/draftOwner';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { getBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
@@ -35,12 +37,14 @@ interface EditorLoad {
   fundName: string;
   /** 未確定の draft が既に存在したか(前回セッションの編集途中)。dirty 初期化に使う。 */
   hasDraft: boolean;
+  /** 別セッションの下書きを破棄して確定版から開いたか。Undo スタックの後始末に使う。 */
+  discardedStaleDraft: boolean;
 }
 
 interface TemplateEditorService {
   loadForEdit(id: string): Promise<Result<EditorLoad>>;
   saveDraft(id: string, html: string, css: string): Promise<Result<void>>;
-  /** 確定保存せずメニューへ戻る際に未確定 draft を破棄する。 */
+  /** 未確定 draft を破棄する(所属の記録も消す)。 */
   discardDraft(id: string): Promise<Result<void>>;
   listPartHistory(templateId: string): Promise<Result<PartHistoryEntry[]>>;
   recordPartChange(templateId: string, partKey: string, change: string): Promise<Result<void>>;
@@ -51,6 +55,7 @@ interface TemplateEditorService {
 export function createTemplateEditorService(
   templates: TemplateRepository,
   parts: PartRepository,
+  owner: DraftOwner = draftOwner,
 ): TemplateEditorService {
   return {
     async loadForEdit(id) {
@@ -63,7 +68,18 @@ export function createTemplateEditorService(
       if (isErr(draftRes)) return draftRes;
 
       const tpl = tplRes.value;
-      const draft = draftRes.value;
+      let draft = draftRes.value;
+      let discardedStaleDraft = false;
+      // 編集セッションはブラウザタブの寿命。別のタブ(閉じたタブ・別端末)が残した下書きは
+      // ここで破棄して確定版から開く(設計正典「編集セッションの生存規則」)。破棄要求の失敗は
+      // 下書きを採用しない形で吸収する — 古い下書きを黙って復元するより確定版から開く方が
+      // 規則に沿い、残った実体は次の autosave が上書きする。
+      if (draft && !owner.belongsToSession(id)) {
+        const dropped = await templates.discardDraft(id);
+        if (isOk(dropped)) owner.release(id);
+        draft = null;
+        discardedStaleDraft = true;
+      }
 
       // sample data は値の差込と editor タイトルの両方を駆動する。ここでの失敗が
       // load をブロックしてはならない(差込は空値になるだけ)。
@@ -116,12 +132,21 @@ export function createTemplateEditorService(
         parts: partsRes.value,
         fundName,
         hasDraft: !!draft,
+        discardedStaleDraft,
       });
     },
 
-    saveDraft: (id, html, css) => templates.saveDraft({ templateId: id, html, css }),
+    async saveDraft(id, html, css) {
+      const res = await templates.saveDraft({ templateId: id, html, css });
+      if (isOk(res)) owner.claim(id);
+      return res;
+    },
 
-    discardDraft: (id) => templates.discardDraft(id),
+    async discardDraft(id) {
+      const res = await templates.discardDraft(id);
+      if (isOk(res)) owner.release(id);
+      return res;
+    },
 
     listPartHistory: (templateId) => parts.listPartHistory(templateId),
 

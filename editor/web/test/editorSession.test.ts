@@ -106,6 +106,32 @@ describe('useEditorSessionStore', () => {
     expect(readUndoMap().t1).toBeUndefined();
   });
 
+  it('reset() は Undo スタックを in-place で空にし、ミラーも空にする', () => {
+    // 別タブが残した下書きを破棄して確定版から開いたときの後始末。`useSnapshotHistory` が
+    // 配列を参照で握っているため、差し替えではなく in-place で空にする必要がある。
+    const store = useEditorSessionStore();
+    const s = store.ensure('t1');
+    const past = s.undoPast;
+    const future = s.undoFuture;
+    past.push({ html: '<p>stale</p>', css: '.a{}' });
+    future.push({ html: '<p>redo</p>', css: '.b{}' });
+    s.partHistory = { k1: [] };
+    s.seq = 7;
+    store.persist('t1');
+    expect(readUndoMap().t1.past).toHaveLength(1);
+
+    store.reset('t1');
+    // 先に取った参照そのものが空になっている(配列を差し替えていない)。
+    expect(past).toEqual([]);
+    expect(future).toEqual([]);
+    expect(store.ensure('t1').undoPast).toBe(past);
+    // 修正履歴と採番は残す(Undo だけを捨てる)。
+    expect(s.partHistory).toEqual({ k1: [] });
+    expect(s.seq).toBe(7);
+    // ミラーも空になっている(リロードで再び hydrate されない)。
+    expect(readUndoMap().t1).toEqual({ past: [], future: [] });
+  });
+
   it('persist() never throws when localStorage.setItem fails (best-effort)', () => {
     const store = useEditorSessionStore();
     const s = store.ensure('t1');

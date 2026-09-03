@@ -15,7 +15,6 @@ beforeEach(() => localStorage.clear());
 const KEY = '.page#1/cover#1';
 const KOUFU = 'AM01_510037_20240710_交付版';
 const ZENTAI = 'AM01_510037_20240710_全体版';
-const LONE = 'AM01_510037_20240710_kr';
 
 async function add(templateId: string, content: string): Promise<string> {
   const res = await localNoteRepo.addNote(templateId, KEY, content);
@@ -31,23 +30,69 @@ describe('localNoteRepo', () => {
     expect(isOk(list) && list.value.map((e) => e.content)).toEqual(['1 件目', '2 件目']);
   });
 
-  it('交付版と全体版で 1 本のスレッドを共有する', async () => {
+  it('交付版と全体版は別々のスレッドを持つ(共有しない)', async () => {
     await add(KOUFU, '交付版');
     await add(ZENTAI, '全体版');
-    const list = await localNoteRepo.listNotes(KOUFU);
-    expect(isOk(list) && list.value.map((e) => e.templateId)).toEqual([KOUFU, ZENTAI]);
+    const k = await localNoteRepo.listNotes(KOUFU);
+    const z = await localNoteRepo.listNotes(ZENTAI);
+    expect(isOk(k) && k.value.map((e) => e.content)).toEqual(['交付版']);
+    expect(isOk(z) && z.value.map((e) => e.content)).toEqual(['全体版']);
   });
 
-  it('ペア対象外の版種は自版のみを返す', async () => {
-    await add(KOUFU, '交付版');
-    await add(LONE, '旧版種');
-    const list = await localNoteRepo.listNotes(LONE);
-    expect(isOk(list) && list.value.map((e) => e.content)).toEqual(['旧版種']);
+  it('追加は open / 親 / 指定した種別で保存される', async () => {
+    const res = await localNoteRepo.addNote(KOUFU, KEY, '質問', { kind: 'question' });
+    expect(isOk(res) && res.value).toMatchObject({
+      status: 'open',
+      replyTo: null,
+      kind: 'question',
+    });
+  });
+
+  it('返信は同じパーツの親にだけ付き、親の状態を引き継ぐ', async () => {
+    const parentId = await add(KOUFU, '親');
+    await localNoteRepo.updateNote(KOUFU, parentId, { status: 'resolved' });
+    const r = await localNoteRepo.addNote(KOUFU, KEY, '返信', { replyTo: parentId });
+    expect(isOk(r) && r.value).toMatchObject({ replyTo: parentId, status: 'resolved' });
+    const orphan = await localNoteRepo.addNote(KOUFU, KEY, '迷子', { replyTo: 'nope' });
+    expect(isOk(orphan)).toBe(false);
+    const grand = await localNoteRepo.addNote(KOUFU, KEY, '孫', {
+      replyTo: isOk(r) ? r.value.id : '',
+    });
+    expect(isOk(grand)).toBe(false);
+  });
+
+  it('親の状態切替は返信へ伝播し、返信への状態指定は拒否する', async () => {
+    const parentId = await add(KOUFU, '親');
+    const r = await localNoteRepo.addNote(KOUFU, KEY, '返信', { replyTo: parentId });
+    const replyId = isOk(r) ? r.value.id : '';
+    await localNoteRepo.updateNote(KOUFU, parentId, { status: 'resolved' });
+    const list = await localNoteRepo.listNotes(KOUFU);
+    expect(isOk(list) && list.value.every((e) => e.status === 'resolved')).toBe(true);
+    expect(isOk(await localNoteRepo.updateNote(KOUFU, replyId, { status: 'open' }))).toBe(false);
+  });
+
+  it('状態だけの更新は updatedAt を刻まない', async () => {
+    const parentId = await add(KOUFU, '親');
+    const res = await localNoteRepo.updateNote(KOUFU, parentId, { status: 'resolved' });
+    expect(isOk(res) && res.value.updatedAt).toBeNull();
+  });
+
+  it('本文も状態も無い更新は拒否する', async () => {
+    const parentId = await add(KOUFU, '親');
+    expect(isOk(await localNoteRepo.updateNote(KOUFU, parentId, {}))).toBe(false);
+  });
+
+  it('親の削除は返信を道連れにする', async () => {
+    const parentId = await add(KOUFU, '親');
+    await localNoteRepo.addNote(KOUFU, KEY, '返信', { replyTo: parentId });
+    await localNoteRepo.deleteNote(KOUFU, parentId);
+    const list = await localNoteRepo.listNotes(KOUFU);
+    expect(isOk(list) && list.value).toEqual([]);
   });
 
   it('投稿を編集できる(誰の投稿でも編集できる)', async () => {
     const id = await add(KOUFU, '初版');
-    await localNoteRepo.updateNote(KOUFU, id, '改訂');
+    await localNoteRepo.updateNote(KOUFU, id, { content: '改訂' });
     const list = await localNoteRepo.listNotes(KOUFU);
     expect(isOk(list) && list.value[0].content).toBe('改訂');
     expect(isOk(list) && list.value[0].updatedAt).not.toBeNull();
@@ -102,7 +147,9 @@ describe('資源上限(REST と同じ 4 定数を local でも強制する)', ()
 
   it('本文が上限を超える編集は拒否する', async () => {
     const id = await add(KOUFU, '初版');
-    const res = await localNoteRepo.updateNote(KOUFU, id, 'x'.repeat(MAX_NOTE_CONTENT_CHARS + 1));
+    const res = await localNoteRepo.updateNote(KOUFU, id, {
+      content: 'x'.repeat(MAX_NOTE_CONTENT_CHARS + 1),
+    });
     expect(isOk(res)).toBe(false);
   });
 
@@ -123,13 +170,16 @@ describe('資源上限(REST と同じ 4 定数を local でも強制する)', ()
       createdBy: 'u',
       updatedAt: null,
       updatedBy: null,
+      status: 'open',
+      replyTo: null,
+      kind: 'note',
     }));
     localStorage.setItem(K.notes, JSON.stringify({ [KOUFU]: { [KEY]: entries } }));
 
     const addRes = await localNoteRepo.addNote(KOUFU, KEY, 'あふれる');
     expect(isOk(addRes)).toBe(false);
 
-    const updateRes = await localNoteRepo.updateNote(KOUFU, 'e0', '更新');
+    const updateRes = await localNoteRepo.updateNote(KOUFU, 'e0', { content: '更新' });
     expect(isOk(updateRes) && updateRes.value.content).toBe('更新');
 
     const deleteRes = await localNoteRepo.deleteNote(KOUFU, 'e1');
@@ -151,6 +201,9 @@ describe('資源上限(REST と同じ 4 定数を local でも強制する)', ()
           createdBy: 'u',
           updatedAt: null,
           updatedBy: null,
+          status: 'open',
+          replyTo: null,
+          kind: 'note',
         },
       ];
     }
@@ -161,5 +214,62 @@ describe('資源上限(REST と同じ 4 定数を local でも強制する)', ()
 
     const existingKeyRes = await localNoteRepo.addNote(KOUFU, 'p0', '追記');
     expect(isOk(existingKeyRes)).toBe(true);
+  });
+});
+
+describe('読み取り時の既定値補完(旧データに status/replyTo/kind が無い場合)', () => {
+  // `editor:notes:v2` 導入前の投稿は 3 属性を持たない。補わないと
+  // `parent.replyTo !== null` が `undefined !== null` で真になり、返信・解決が常に拒否される。
+
+  function seedLegacyEntry(id: string): void {
+    const legacy = {
+      id,
+      templateId: KOUFU,
+      pathKey: KEY,
+      content: '旧投稿',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdBy: 'u',
+      updatedAt: null,
+      updatedBy: null,
+      // status/replyTo/kind を意図的に持たせない(旧形式の再現)。
+    };
+    localStorage.setItem(K.notes, JSON.stringify({ [KOUFU]: { [KEY]: [legacy] } }));
+  }
+
+  it('3 属性を持たない投稿は open / null / note で一覧に出る', async () => {
+    seedLegacyEntry('legacy1');
+    const list = await localNoteRepo.listNotes(KOUFU);
+    expect(isOk(list) && list.value).toEqual([
+      expect.objectContaining({ id: 'legacy1', status: 'open', replyTo: null, kind: 'note' }),
+    ]);
+  });
+
+  it('旧投稿(親)へ返信でき、解決できる', async () => {
+    seedLegacyEntry('legacy1');
+    const r = await localNoteRepo.addNote(KOUFU, KEY, '返信', { replyTo: 'legacy1' });
+    expect(isOk(r) && r.value).toMatchObject({ replyTo: 'legacy1', status: 'open' });
+    const res = await localNoteRepo.updateNote(KOUFU, 'legacy1', { status: 'resolved' });
+    expect(isOk(res) && res.value.status).toBe('resolved');
+  });
+
+  it('列挙外の status/kind と空文字の replyTo は既定値へ落ちる', async () => {
+    const invalid = {
+      id: 'bad1',
+      templateId: KOUFU,
+      pathKey: KEY,
+      content: '不正値',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdBy: 'u',
+      updatedAt: null,
+      updatedBy: null,
+      status: 'archived',
+      replyTo: '',
+      kind: 'unknown',
+    };
+    localStorage.setItem(K.notes, JSON.stringify({ [KOUFU]: { [KEY]: [invalid] } }));
+    const list = await localNoteRepo.listNotes(KOUFU);
+    expect(isOk(list) && list.value).toEqual([
+      expect.objectContaining({ id: 'bad1', status: 'open', replyTo: null, kind: 'note' }),
+    ]);
   });
 });

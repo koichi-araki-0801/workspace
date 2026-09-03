@@ -1,17 +1,22 @@
 <script setup lang="ts">
 // =============================================================================
-// ReviewDiffView.vue — 確定保存申請の精査画面(見た目比較主体 + 通知集約 + 承認/差し戻し/保留)
+// ReviewDetail.vue — 申請 1 件の精査(見た目比較主体 + 通知集約 + 承認/差し戻し)
 // =============================================================================
 // 主表示は「修正前｜修正後」の左右組版比較(`ReviewVisualCompare`)。事務担当者の主観点は
 // 「最終の見た目がどうなるか」であり、パーツ単位の縦リストは「文字の変更を一覧で見る」タブへ
 // 退避する(既存の block diff エンジン `htmlBlockDiff` をそのまま流用、`reviewDiffService` が
 // 組み立て)。技術語彙の警告 4 種は `ReviewNoticeBar` の 1 行へ集約する。承認は approver|admin
 // のみで、承認時にサーバが実ファイル + git へ反映する(`reviewRepo.ts`)。
-import { type ApproveReviewResult, isOk, type ReviewRequest } from '@editor/shared';
+// 承認タブ(`ReviewTabView.vue`)のアコーディオン 1 区画として置かれるので、ヘッダと画面遷移は
+// 持たず、決着は `decided` で親へ知らせる。
+import {
+  type ApproveReviewResult,
+  isOk,
+  type ReviewRequestMeta,
+  toReviewMeta,
+} from '@editor/shared';
 import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import AttributeBar from '@/components/AttributeBar.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
@@ -33,12 +38,11 @@ import type { ReviewPartRow } from './services/reviewDiffService';
 import { useReviewDiff } from './useReviewDiff';
 
 const props = defineProps<{ reqId: string }>();
+const emit = defineEmits<{ decided: [meta: ReviewRequestMeta] }>();
 
 const auth = useAuthStore();
-const router = useRouter();
-const route = useRoute();
 const preview = useTemplatePreviewService();
-// データ取得と承認/却下/保留アクションは composable に委譲(遷移/トーストのみ View に残す)。
+// データ取得と承認/却下アクションは composable に委譲(トーストのみ View に残す)。
 const {
   review,
   rows,
@@ -59,7 +63,6 @@ const {
   load,
   approve: approveReview,
   reject: rejectReview,
-  hold,
 } = useReviewDiff(() => props.reqId);
 
 // 表示タブ。既定は見た目比較(事務担当者の主観点は「最終の見た目がどうなるか」)。
@@ -115,8 +118,6 @@ watch(comment, (v) => {
   if (v.trim()) rejectError.value = false;
 });
 
-const ORIGIN_LABEL: Record<ReviewRequest['origin'], string> = { edit: '編集', create: '新規作成' };
-
 const STATUS_BADGE: Record<
   BlockStatus,
   { label: string; variant: 'warning' | 'success' | 'destructive' | 'secondary' }
@@ -127,35 +128,22 @@ const STATUS_BADGE: Record<
   same: { label: '変更なし', variant: 'secondary' },
 };
 
-/**
- * 「処理済み(閲覧のみ)」表示の状態ラベル。pending は別分岐(`canDecide`)、held は
- * 保留情報(`heldBy`/`heldAt`/`holdComment`)専用の分岐を持つため、ここには来ない。
- */
+/** 「処理済み(閲覧のみ)」表示の状態ラベル。pending は別分岐(`canDecide`)。 */
 const DECIDED_STATUS_LABEL: Record<'approved' | 'rejected', string> = {
   approved: '承認済み',
   rejected: '差し戻し済',
 };
 
-// pending/held は精査者が操作できる。処理済み(承認/差し戻し)は閲覧のみ。
-const canDecide = computed(
-  () =>
-    auth.isApprover &&
-    (review.value?.status === 'pending' || review.value?.status === 'held'),
-);
+// pending は精査者が操作できる。処理済み(承認/差し戻し)は閲覧のみ。
+const canDecide = computed(() => auth.isApprover && review.value?.status === 'pending');
 
-// 編集画面の「承認待ち」バッジ経由で来たか。`fromEdit` はフラグとしてのみ使い、戻り先の
-// テンプレ id は query を信用せず申請自身の `templateId` を使う(細工 URL で任意 id へ
-// 飛ばされない)。編集セッションは離脱ガードのホワイトリスト(`useTemplateEditor`)が維持済み。
-const cameFromEdit = computed(
-  () => typeof route.query.fromEdit === 'string' && route.query.fromEdit.length > 0,
-);
-
-/** ヘッダの戻るボタン。編集画面から来たときだけ編集へ戻す(それ以外はキュー一覧へ)。 */
-function goBack() {
-  const tplId = review.value?.templateId;
-  if (cameFromEdit.value && tplId) router.push({ name: 'editor', params: { id: tplId } });
-  else router.push({ name: 'reviews' });
+const visualRef = ref<InstanceType<typeof ReviewVisualCompare>>();
+/** 見た目比較の該当ページへ送る(text タブ表示中は何もしない — 行リストにページの概念が無い)。 */
+function gotoPage(index: number): void {
+  if (activeTab.value !== 'visual') return;
+  visualRef.value?.gotoPage(index);
 }
+defineExpose({ gotoPage });
 
 // ── iframe ドキュメント組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差) ──
 const HIGHLIGHT_CSS = diffHighlightCss(14);
@@ -193,7 +181,10 @@ async function approve() {
     }
     notifySyncResult(res.value.sync);
     notifyNoteMasterResult(res.value.noteMaster);
-    router.push({ name: 'reviews' });
+    await load();
+    // `review` は本体(html/css/filledHtml)を持つ `ReviewRequest`。一覧の親(`ReviewTabView`)
+    // はメタだけを保持するので、本体を持ち越さないよう剥がしてから渡す。
+    if (review.value) emit('decided', toReviewMeta(review.value));
   }
 }
 
@@ -246,16 +237,8 @@ async function reject() {
   const res = await rejectReview(comment.value.trim());
   if (isOk(res)) {
     toastSuccess('差し戻しました');
-    router.push({ name: 'reviews' });
-  }
-}
-
-/** 保留(実ファイル非更新)。判断を後回しにして一覧へ戻る。 */
-async function holdRequest() {
-  const res = await hold(comment.value.trim() || undefined);
-  if (isOk(res)) {
-    toastSuccess('保留しました（一覧の「保留中」から確認を再開できます）');
-    router.push({ name: 'reviews' });
+    await load();
+    if (review.value) emit('decided', toReviewMeta(review.value));
   }
 }
 
@@ -302,32 +285,11 @@ async function openPdf() {
 
 onMounted(async () => {
   await load();
-  // 保留中申請の再表示時、コメント欄を空のまま「保留する」を押すと server が
-  // `holdComment: null` で既存メモを上書きしてしまう。承認者が既存メモを見た上で
-  // 編集/保持できるよう、held かつメモがあればコメント欄へプリフィルする。
-  if (review.value?.status === 'held' && review.value.holdComment) {
-    comment.value = review.value.holdComment;
-  }
 });
 </script>
 
 <template>
   <div class="space-y-4">
-    <!-- ヘッダ -->
-    <div class="flex flex-wrap items-center gap-3 border-b pb-3">
-      <Button variant="outline" size="sm" @click="goBack">
-        {{ cameFromEdit ? '← 編集に戻る' : '← 一覧へ' }}
-      </Button>
-      <span class="text-lg font-bold">申請内容の確認</span>
-      <template v-if="review">
-        <Badge variant="secondary">{{ ORIGIN_LABEL[review.origin] }}</Badge>
-        <AttributeBar :attributes="review.attributes" class="min-w-0 flex-1" />
-        <span class="text-xs text-muted-foreground">
-          申請: {{ review.submittedBy }}・{{ formatDateTimeShort(review.submittedAt) }}
-        </span>
-      </template>
-    </div>
-
     <p v-if="loading" class="flex items-center gap-2 text-sm text-muted-foreground">
       <Loader2 class="h-4 w-4 animate-spin" /> 前後プレビューを生成中…
     </p>
@@ -377,6 +339,7 @@ onMounted(async () => {
 
       <ReviewVisualCompare
         v-if="activeTab === 'visual'"
+        ref="visualRef"
         :before-html="beforeBodyHtml"
         :after-html="afterBodyHtml"
         :css-before="cssBefore"
@@ -514,17 +477,17 @@ onMounted(async () => {
         </ul>
       </template>
 
-      <!-- 承認/差し戻し/保留(精査者のみ・pending/held のみ) -->
+      <!-- 承認/差し戻し(精査者のみ・pending のみ) -->
       <div v-if="canDecide" class="space-y-2 rounded-[12px] border bg-muted/30 p-4">
-        <label class="text-sm font-medium" for="review-comment">
-          コメント（差し戻し時は必須。保留時はメモとして残ります）
+        <label class="text-sm font-medium" :for="`review-comment-${reqId}`">
+          差し戻し理由（差し戻すときは必須です）
         </label>
         <textarea
-          id="review-comment"
+          :id="`review-comment-${reqId}`"
           ref="commentEl"
           v-model="comment"
           rows="2"
-          placeholder="承認メモ、または差し戻し理由を入力します。"
+          placeholder="差し戻し理由を入力します。"
           :aria-invalid="rejectError || undefined"
           class="w-full rounded-md border bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           :class="rejectError ? 'border-destructive' : 'border-input'"
@@ -533,7 +496,6 @@ onMounted(async () => {
           差し戻しには理由の入力が必要です。
         </p>
         <div class="flex items-center justify-end gap-2">
-          <Button variant="outline" :disabled="deciding" @click="holdRequest">保留する</Button>
           <Button variant="outline" :disabled="deciding" @click="reject">
             <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
             <X v-else class="h-4 w-4" /> 差し戻す
@@ -545,21 +507,6 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- 保留中(非承認者の閲覧、または「保留中」を再表示できる状態にない場合)。
-           held は reviewedBy/reviewedAt を持たない(保留は独自フィールド heldBy/heldAt を使う)
-           ため、下の「処理済み」分岐と共有すると「保留中 です（null・null）」の壊れた
-           表示になる(レガシー申請の meta.json には無く undefined もありうるため truthy
-           ガードで各フィールドを出す)。 -->
-      <div v-else-if="review.status === 'held'" class="rounded-[12px] border bg-muted/30 p-4 text-sm">
-        この申請は <span class="font-medium">保留中</span> です<template v-if="review.heldBy"
-          >（{{ review.heldBy }}<template v-if="review.heldAt"
-            >・{{ formatDateTimeShort(review.heldAt) }}</template
-          >）</template
-        >。
-        <span v-if="review.holdComment" class="block text-muted-foreground">
-          保留メモ: {{ review.holdComment }}
-        </span>
-      </div>
       <!-- 処理済み(承認/差し戻し)or 閲覧のみ -->
       <div
         v-else-if="review.status !== 'pending'"
@@ -570,7 +517,9 @@ onMounted(async () => {
           {{ DECIDED_STATUS_LABEL[review.status as 'approved' | 'rejected'] }}
         </span>
         です（{{ review.reviewedBy }}・{{ formatDateTimeShort(review.reviewedAt) }}）。
-        <span v-if="review.comment" class="block text-muted-foreground">メモ: {{ review.comment }}</span>
+        <span v-if="review.comment && review.status === 'rejected'" class="block text-muted-foreground">
+          差し戻し理由: {{ review.comment }}
+        </span>
       </div>
       <p v-else class="text-sm text-muted-foreground">
         承認操作には精査者(承認者)権限が必要です。

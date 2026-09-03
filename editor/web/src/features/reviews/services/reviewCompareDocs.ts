@@ -36,18 +36,25 @@ export interface CompareDocsInput {
 export interface CompareDocs {
   beforeDoc: string;
   afterDoc: string;
-  /** after 文書内の出現順のアンカー id(「次の変更箇所へ」の巡回に使う)。 */
+  /** after 文書内の出現順の**変更ページのみ**のアンカー id(「次の変更箇所へ」の巡回に使う)。 */
   anchors: string[];
+  /**
+   * 全ページのアンカー id(index = ページ index、0 始まり)。承認タブのコメント一覧が
+   * 「行クリックで該当ページへ」に使う(コメントは変更の有無に関わらず全パーツに付けられる
+   * ため、変更ページだけの `anchors` では添字が合わない)。degrade でページ数不一致になった
+   * 面は空配列。
+   */
+  pageAnchors: string[];
 }
 
-/** 文書内の `.page` 要素を出現順に数え、変更ページへ印とアンカー id を付ける。 */
+/** 文書内の `.page` 要素を出現順に数え、変更ページへ印を、全ページへアンカー id を付ける。 */
 function annotatePages(
   html: string,
   changedPageIndexes: ReadonlySet<number>,
   expectedPageCount?: number,
-): { html: string; anchorByIndex: Map<number, string> } {
+): { html: string; anchorByIndex: Map<number, string>; pageIds: string[] } {
   const anchorByIndex = new Map<number, string>();
-  if (!html.trim()) return { html, anchorByIndex };
+  if (!html.trim()) return { html, anchorByIndex, pageIds: [] };
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const pages = Array.from(doc.querySelectorAll('.page'));
   // diff 側が数えたページ数(`beforePageCount`/`afterPageCount`)と、この文書が実際に持つ
@@ -56,16 +63,19 @@ function annotatePages(
   // 既存の「.page が 1 つも無い→無印」degrade と同じ考えで、この面のマーク・アンカーを
   // 安全側(空)へ倒す。
   if (expectedPageCount !== undefined && pages.length !== expectedPageCount) {
-    return { html, anchorByIndex };
+    return { html, anchorByIndex, pageIds: [] };
   }
-  pages.forEach((el, i) => {
-    if (!changedPageIndexes.has(i)) return;
-    el.setAttribute('data-review-marker', '');
-    // 既存 id は差分キーの一部でありうるため上書きしない(未設定のときだけ振る)。
+  const pageIds = pages.map((el, i) => {
+    // 既存 id は差分キーの一部でありうるため上書きしない(未設定のときだけ振る)。全ページに
+    // 付ける(コメント一覧のページジャンプは変更の有無を問わない)。
     if (!el.id) el.id = `review-anchor-${i + 1}`;
-    anchorByIndex.set(i, el.id);
+    if (changedPageIndexes.has(i)) {
+      el.setAttribute('data-review-marker', '');
+      anchorByIndex.set(i, el.id);
+    }
+    return el.id;
   });
-  return { html: doc.body.innerHTML, anchorByIndex };
+  return { html: doc.body.innerHTML, anchorByIndex, pageIds };
 }
 
 /** マーカー装飾。レイヤ名は文書ごとに CSPRNG で変え、申請者 CSS からの同名上書きを防ぐ。 */
@@ -114,9 +124,13 @@ export function buildCompareDocs(input: CompareDocsInput): CompareDocs {
   // .page が 1 つも無い文書はマーカー無しへ degrade（マークもジャンプも出ない）。
   const hasPages = after.anchorByIndex.size > 0 || before.anchorByIndex.size > 0;
   const markerEnabled = input.marker && hasPages;
+  // 全ページのジャンプ先は after 優先(修正後の構成が最終形)、after が空(内容自体が空・
+  // ページ無し・期待ページ数不一致で degrade)なら before から拾う。
+  const pageAnchors = after.pageIds.length > 0 ? after.pageIds : before.pageIds;
   return {
     beforeDoc: wrapDoc(before.html, input.cssBefore, markerEnabled),
     afterDoc: wrapDoc(after.html, input.cssAfter, markerEnabled),
     anchors,
+    pageAnchors,
   };
 }

@@ -1,5 +1,5 @@
 // =============================================================================
-// notes.routes.ts — パーツ単位メモ(追記型スレッド)の取得・追加・編集・削除
+// notes.routes.ts — パーツ単位コメント(1 段の入れ子スレッド)の取得・追加・更新・削除
 // =============================================================================
 import { apiPaths } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
@@ -33,6 +33,7 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
         body.pathKey,
         body.content,
         actor(request),
+        { replyTo: body.replyTo, kind: body.kind },
       );
       return reply.code(201).send(entry);
     },
@@ -43,7 +44,8 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireAuth, requireEditor, validate(UpdateNoteRequest)] },
     async (request) => {
       const { templateId, entryId } = request.params;
-      return notes.updateNote(templateId, entryId, request.body.content, actor(request));
+      const { content, status } = request.body;
+      return notes.updateNote(templateId, entryId, { content, status }, actor(request));
     },
   );
 

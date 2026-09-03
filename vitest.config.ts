@@ -144,7 +144,9 @@ export default defineConfig({
         'editor/web/src/features/editor/pageView.ts',
         'editor/web/src/features/editor/useSnapshotHistory.ts',
         'editor/web/src/features/editor/usePartEditHistory.ts',
-        'editor/web/src/features/editor/usePartNote.ts',
+        'editor/web/src/features/editor/useComments.ts',
+        'editor/web/src/features/editor/comments/commentFilter.ts',
+        'editor/web/src/features/editor/comments/CommentPanel.vue',
         'editor/web/src/features/editor/partKey.ts',
         // 編集キャンバスの赤入れ（旧文言の取り消し線）。装飾が draft に混入しないことは
         // 「モデルに載せない」設計で担保しており、この 4 ファイルの純粋部分を被覆に入れる。
@@ -157,15 +159,23 @@ export default defineConfig({
         'editor/web/src/features/editor/useAutosave.ts',
         'editor/web/src/stores/editorSession.ts',
         'editor/web/src/stores/pendingReviews.ts',
+        // 編集・プレビュー画面のタブ内展開。タブ点灯の写像と直前画面の記憶は、退行が
+        // 「別のタブが点く / 一覧へ落ちる」という UI 上の無言の形で出るため被覆に入れる。
+        'editor/web/src/features/layout/tabOf.ts',
+        'editor/web/src/stores/tabMemory.ts',
+        // 下書きの所属判定。退行は「閉じたはずの下書きが黙って復元される」形で出る。
+        'editor/web/src/lib/draftOwner.ts',
         'editor/web/src/features/compare/htmlBlockDiff.ts',
         'editor/web/src/features/compare/services/compareService.ts',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
         'editor/web/src/features/reviews/services/reviewCompareDocs.ts',
+        'editor/web/src/features/reviews/reviewPartMaps.ts',
         'editor/web/src/features/reviews/services/partNames.ts',
         'editor/web/src/features/reviews/services/changedSummary.ts',
+        'editor/web/src/features/reviews/resolveReviewTarget.ts',
+        'editor/web/src/features/reviews/reviewAccordion.ts',
         'editor/web/src/features/reviews/useReviewDiff.ts',
         'editor/web/src/features/reviews/ReviewNoticeBar.vue',
-        'editor/web/src/features/reviews/ReviewQueueView.vue',
         'editor/web/src/api/local/authRepo.ts',
         'editor/web/src/api/local/templateRepo.ts',
         'editor/web/src/api/local/userRepo.ts',

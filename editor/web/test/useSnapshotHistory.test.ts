@@ -244,4 +244,24 @@ describe('useSnapshotHistory', () => {
     h.undo();
     expect(box.state).toBe('a');
   });
+  it('syncFlags() は外部スタックを直接空にした後の活性を追随させる', () => {
+    // 別タブの下書きを破棄したとき、`editorSession` ストアが渡した配列を in-place で空に
+    // する。フラグは操作時にしか更新されないので、明示的に追随させないと「押せるのに
+    // 何も戻らない Undo ボタン」が残る。
+    const box = { state: 'b' };
+    const past = ['a'];
+    const future: string[] = [];
+    const h = useSnapshotHistory(
+      () => box.state,
+      (s) => {
+        box.state = s;
+      },
+      100,
+      { past, future },
+    );
+    expect(h.canUndo.value).toBe(true);
+    past.length = 0;
+    h.syncFlags();
+    expect(h.canUndo.value).toBe(false);
+  });
 });

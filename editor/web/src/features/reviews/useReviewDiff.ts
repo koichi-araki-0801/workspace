@@ -1,7 +1,7 @@
 // =============================================================================
 // useReviewDiff.ts — 承認画面のデータ取得と承認/却下アクションの composable
 // =============================================================================
-// `ReviewDiffView` が抱えていた「申請を読み現行版と diff して状態に載せる」「承認/却下を
+// `ReviewDetail` が抱えていた「申請を読み現行版と diff して状態に載せる」「承認/却下を
 // repo へ投げる」ロジックを View から切り出す(他 feature が service/composable へ委譲するのと
 // 揃える)。トースト/画面遷移といった presentation は View 側に残し、ここは状態と Result を返す。
 import type { ApproveReviewResult, Result, ReviewRequest, ReviewRequestMeta } from '@editor/shared';
@@ -76,11 +76,6 @@ export function useReviewDiff(reqId: () => string) {
     return runDecide(() => reviews.rejectReview(reqId(), { comment }));
   }
 
-  /** 保留(実ファイル非更新)。判断を後回しにして一覧へ戻るための遷移。 */
-  function hold(comment?: string): Promise<Result<ReviewRequestMeta>> {
-    return runDecide(() => reviews.holdReview(reqId(), { comment }));
-  }
-
   return {
     review,
     rows,
@@ -101,6 +96,5 @@ export function useReviewDiff(reqId: () => string) {
     load,
     approve,
     reject,
-    hold,
   };
 }

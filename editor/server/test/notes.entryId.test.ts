@@ -28,16 +28,26 @@ const listNotes = vi.fn(async () => []);
 const addNote = vi.fn(async () => {
   throw new Error('unused in this test');
 });
-const updateNote = vi.fn(async (templateId: string, entryId: string, _content: string) => ({
-  id: entryId,
-  templateId,
-  pathKey: '',
-  content: 'x',
-  createdAt: '',
-  createdBy: '',
-  updatedAt: null,
-  updatedBy: null,
-}));
+const updateNote = vi.fn(
+  async (
+    templateId: string,
+    entryId: string,
+    _patch: { content?: string; status?: string },
+    _loginId: string,
+  ) => ({
+    id: entryId,
+    templateId,
+    pathKey: '',
+    content: 'x',
+    createdAt: '',
+    createdBy: '',
+    updatedAt: null,
+    updatedBy: null,
+    status: 'open' as const,
+    replyTo: null,
+    kind: 'note' as const,
+  }),
+);
 const deleteNote = vi.fn(async () => {});
 
 vi.mock('../src/repositories/noteRepo.js', () => ({
@@ -89,6 +99,11 @@ describe('legacy id(`/`・`#` を含む)の PATCH/DELETE 往復', () => {
     });
     const res = await app.inject({ method: 'PATCH', url, payload: { content: 'x' } });
     expect(res.statusCode).toBe(200);
-    expect(updateNote).toHaveBeenCalledWith(TEMPLATE_ID, LEGACY_ENTRY_ID, 'x', 'system');
+    expect(updateNote).toHaveBeenCalledWith(
+      TEMPLATE_ID,
+      LEGACY_ENTRY_ID,
+      { content: 'x', status: undefined },
+      'system',
+    );
   });
 });

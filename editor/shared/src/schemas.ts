@@ -335,7 +335,7 @@ export const TemplateVersionMeta = z
 // ── 5b. Review workflow — 確定保存の精査者承認 ──
 
 export const ReviewStatus = z
-  .enum(['pending', 'approved', 'rejected', 'held'])
+  .enum(['pending', 'approved', 'rejected'])
   .meta({ id: 'ReviewStatus' });
 
 export const ReviewOrigin = z.enum(['edit', 'create']).meta({
@@ -370,11 +370,6 @@ export const ReviewRequestMeta = z
     reviewedAt: z.string().nullable(),
     comment: z.string().nullable().meta({ description: '却下理由 / 承認メモ。無ければ null' }),
     baseHash: z.string().nullable().meta({ description: '申請時点の現行版コンテンツキー' }),
-    // 保留(held)の記録。レガシー申請の meta.json には無いため、消費側は undefined も
-    // null と同様に「保留情報なし」として扱う(truthy 判定)。
-    heldBy: z.string().nullable().optional().meta({ description: '保留した承認者。無ければ null' }),
-    heldAt: z.string().nullable().optional(),
-    holdComment: z.string().nullable().optional().meta({ description: '保留メモ' }),
     changedSummary: ReviewChangedSummary.nullable().optional(),
   })
   .meta({ id: 'ReviewRequestMeta' });
@@ -591,9 +586,15 @@ export const PartClassificationQuery = z.object({
   minorClass: z.string().optional(),
 });
 
+/** コメントの状態。返信は親と同じ値を持ち、切り替えは親投稿にだけ許す。 */
+export const NoteStatus = z.enum(['open', 'resolved']).meta({ id: 'NoteStatus' });
+
+/** コメントの種別。表示ラベルは「メモ」「修正依頼」「質問」。 */
+export const NoteKind = z.enum(['note', 'fix-request', 'question']).meta({ id: 'NoteKind' });
+
 /**
- * パーツ単位メモの投稿 1 件。メモは追記型のスレッドで、投稿は書かれた版インスタンスの
- * ファイルへ入る。表示は交付版と全体版のペアをマージした 1 本のスレッドになる。
+ * パーツ単位コメントの投稿 1 件。コメントは 1 段の入れ子を持つスレッドで、投稿は書かれた
+ * 版インスタンスのファイルへ入る(交付版⇄全体版で共有しない)。
  * `templateId` は投稿が属する版(編集・削除の宛先)。キー算出は web の `partKey.ts`。
  */
 export const PartNoteEntry = z
@@ -604,12 +605,21 @@ export const PartNoteEntry = z
     content: z.string().meta({ description: '投稿本文' }),
     createdAt: z.string(),
     createdBy: z.string(),
-    updatedAt: z.string().nullable().meta({ description: '編集された場合のみ' }),
+    updatedAt: z.string().nullable().meta({ description: '本文が編集された場合のみ' }),
     updatedBy: z.string().nullable(),
+    status: NoteStatus.meta({ description: '未対応 / 解決済み。返信は親と同じ値' }),
+    replyTo: z
+      .string()
+      .nullable()
+      .meta({ description: '親投稿の ID。null なら親(スレッドの起点)' }),
+    kind: NoteKind.meta({ description: '種別' }),
   })
   .meta({ id: 'PartNoteEntry' });
 
-/** (server 専用) 投稿の追加。`templateId` はパスから取る。空文字の本文は受け付けない。 */
+/**
+ * (server 専用) 投稿の追加。`templateId` はパスから取る。空文字の本文は受け付けない。
+ * `replyTo` は同じパーツの親投稿を指す(親の検証はサーバの `noteRepo` が行う)。
+ */
 export const AddNoteRequest = z
   .object({
     pathKey: z
@@ -618,13 +628,33 @@ export const AddNoteRequest = z
       .max(MAX_NOTE_PATH_KEY_CHARS)
       .meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
     content: z.string().min(1).max(MAX_NOTE_CONTENT_CHARS).meta({ description: '投稿本文' }),
+    replyTo: z
+      .string()
+      .min(1)
+      .nullable()
+      .default(null)
+      .meta({ description: '返信先の親投稿 ID。null なら親投稿として追加する' }),
+    kind: NoteKind.default('note'),
   })
   .meta({ id: 'AddNoteRequest' });
 
-/** (server 専用) 投稿本文の編集。削除は DELETE で明示するため、空文字は受け付けない。 */
+/**
+ * (server 専用) 投稿の部分更新。本文と状態のどちらか一方以上を指定する。削除は DELETE で
+ * 明示するため、本文の空文字は受け付けない。状態は親投稿にだけ指定できる(返信への指定は
+ * サーバが拒否する)。
+ */
 export const UpdateNoteRequest = z
   .object({
-    content: z.string().min(1).max(MAX_NOTE_CONTENT_CHARS).meta({ description: '投稿本文' }),
+    content: z
+      .string()
+      .min(1)
+      .max(MAX_NOTE_CONTENT_CHARS)
+      .optional()
+      .meta({ description: '投稿本文' }),
+    status: NoteStatus.optional(),
+  })
+  .refine((b) => b.content !== undefined || b.status !== undefined, {
+    message: '本文か状態のどちらかを指定してください',
   })
   .meta({ id: 'UpdateNoteRequest' });
 

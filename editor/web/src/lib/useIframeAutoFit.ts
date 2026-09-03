@@ -1,7 +1,7 @@
 // =============================================================================
 // useIframeAutoFit.ts — srcdoc iframe を中身の高さに合わせる composable(postMessage 経由)
 // =============================================================================
-// 版比較(`CompareResultView`)・承認プレビュー(`ReviewDiffView`)・パーツプレビュー
+// 版比較(`CompareResultView`)・承認プレビュー(`ReviewDetail`)・パーツプレビュー
 // (`PartPreview`)は、`<iframe srcdoc>` を中身の高さへ合わせるという同じ処理を持つ。
 //
 // **高さの取得は `contentDocument` の直接読み取りではなく子からの postMessage で行う。**

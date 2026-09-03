@@ -47,6 +47,9 @@ describe('新形式の read/write', () => {
           createdBy: 'editor1',
           updatedAt: null,
           updatedBy: null,
+          status: 'open',
+          replyTo: null,
+          kind: 'note',
         },
       ],
     });
@@ -90,7 +93,7 @@ describe('旧形式の遅延変換', () => {
     // 固定値 `legacy` 単体へ戻す退行が起きると、ここが同じ ID になって検出できる
     // (`repositories/noteRepo.ts` の `locate` はファイル内の全 pathKey を横断して ID 一致を
     // 探すため、ID が衝突すると編集・削除が別パーツへ誤爆する。実害は noteRepo.test.ts の
-    // 「旧形式ファイル(複数 pathKey)での id 衝突を防ぐ」で確認する)。
+    // describe('旧形式ファイル(複数 pathKey)での id 衝突を防ぐ') で確認する)。
     const KEY2 = '.page#1/cover#2';
     const files = await importNotesFile();
     await writeRaw({
@@ -128,6 +131,76 @@ describe('壊れた投稿要素の耐性', () => {
   });
 });
 
+describe('コメント属性の既定値補完', () => {
+  it('3 フィールドを持たない投稿は open / null / note として読む', async () => {
+    const files = await importNotesFile();
+    const dir = path.join(tmpRoot, 'notes');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, `${TPL}.json`),
+      JSON.stringify({
+        [KEY]: [
+          {
+            id: 'e1',
+            content: '旧い投稿',
+            createdAt: '2026-09-01T00:00:00.000Z',
+            createdBy: 'editor1',
+            updatedAt: null,
+            updatedBy: null,
+          },
+        ],
+      }),
+    );
+    const notes = await files.readNotes(TPL);
+    expect(notes[KEY][0]).toMatchObject({ status: 'open', replyTo: null, kind: 'note' });
+  });
+
+  it('列挙の外の値は既定値へ戻す(壊れた値で画面を落とさない)', async () => {
+    const files = await importNotesFile();
+    const dir = path.join(tmpRoot, 'notes');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, `${TPL}.json`),
+      JSON.stringify({
+        [KEY]: [
+          {
+            id: 'e1',
+            content: 'x',
+            createdAt: '',
+            createdBy: '',
+            updatedAt: null,
+            updatedBy: null,
+            status: 'closed',
+            replyTo: 42,
+            kind: 'todo',
+          },
+        ],
+      }),
+    );
+    const notes = await files.readNotes(TPL);
+    expect(notes[KEY][0]).toMatchObject({ status: 'open', replyTo: null, kind: 'note' });
+  });
+
+  it('旧形式(1 パーツ 1 件)の変換分も 3 フィールドを持つ', async () => {
+    const files = await importNotesFile();
+    const dir = path.join(tmpRoot, 'notes');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, `${TPL}.json`),
+      JSON.stringify({
+        [KEY]: { content: '旧形式', updatedAt: '2026-09-01T00:00:00.000Z', updatedBy: 'e' },
+      }),
+    );
+    const notes = await files.readNotes(TPL);
+    expect(notes[KEY][0]).toMatchObject({
+      id: `legacy:${KEY}`,
+      status: 'open',
+      replyTo: null,
+      kind: 'note',
+    });
+  });
+});
+
 describe('1 パーツあたりの投稿数上限', () => {
   it('上限に達した配列を判定できる', async () => {
     const files = await importNotesFile();
@@ -138,6 +211,9 @@ describe('1 パーツあたりの投稿数上限', () => {
       createdBy: 'u',
       updatedAt: null,
       updatedBy: null,
+      status: 'open' as const,
+      replyTo: null,
+      kind: 'note' as const,
     }));
     expect(files.entriesAtCapacity(full)).toBe(true);
     expect(files.entriesAtCapacity(full.slice(0, 199))).toBe(false);

@@ -25,28 +25,24 @@ const baseMeta = {
 };
 
 describe('ReviewStatus', () => {
-  it('held を受理する', () => {
-    expect(ReviewStatus.parse('held')).toBe('held');
+  it('pending / approved / rejected の 3 値だけを受理する', () => {
+    expect(ReviewStatus.parse('pending')).toBe('pending');
+    expect(ReviewStatus.safeParse('held').success).toBe(false);
   });
 });
 
 describe('ReviewRequestMeta', () => {
-  it('保留フィールドと変更概要を保持する', () => {
+  it('変更概要を保持し、保留フィールドは契約に無い', () => {
     const meta = ReviewRequestMeta.parse({
       ...baseMeta,
-      status: 'held',
-      heldBy: 'approver1',
-      heldAt: '2026-08-27T01:00:00.000Z',
-      holdComment: '数値の出所を確認中',
       changedSummary: { count: 2, names: ['運用実績の表', 'ご挨拶文'] },
     });
-    expect(meta.heldBy).toBe('approver1');
     expect(meta.changedSummary?.names).toHaveLength(2);
+    expect('heldBy' in ReviewRequestMeta.shape).toBe(false);
   });
 
   it('レガシー meta(新フィールド無し)も受理する', () => {
     const meta = ReviewRequestMeta.parse(baseMeta);
-    expect(meta.heldBy ?? null).toBeNull();
     expect(meta.changedSummary ?? null).toBeNull();
   });
 });

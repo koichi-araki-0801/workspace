@@ -20,8 +20,8 @@ export const K = {
   sessionEpoch: 'editor:session:epoch',
   userOverride: 'editor:users',
   passwords: 'editor:pw',
-  // パーツ単位メモ(追記型スレッド)。`Record<templateId, Record<pathKey, PartNoteEntry[]>>`。
-  // 交付版⇄全体版で 1 本のスレッドを共有し、基準日をまたぐ繰り越しはしない。版(構造)に
+  // パーツ単位コメント(追記型スレッド)。`Record<templateId, Record<pathKey, PartNoteEntry[]>>`。
+  // 読み書きとも版インスタンス(templateId)に閉じ、ペアや他版とは共有しない。版(構造)に
   // 依存する working-state なので `WORKING_KEYS` に含め、スキーマ bump で破棄する。
   // `:v2` はスレッド化での形式変更(旧 `editor:notes` は 1 パーツ 1 件だった)。
   notes: 'editor:notes:v2',
@@ -46,6 +46,10 @@ export const LEGACY_NOTES_KEY = 'editor:notes';
 // local は単一利用者前提の固定スコープを使う。
 
 const UNDO_STACKS_PREFIX = 'editor:session:undo';
+// 下書きの所属セッション。値は `Record<templateId, sessionToken>`(`lib/draftOwner.ts`)。
+// 編集セッションはブラウザタブの寿命で、別タブが残した下書きは次回オープン時に破棄する。
+// Undo ミラーと同じ理由でユーザー別に分ける。
+const DRAFT_OWNER_PREFIX = 'editor:draft:owner';
 const LOCAL_UNDO_SCOPE = 'local';
 const ANONYMOUS_UNDO_SCOPE = 'anonymous';
 
@@ -55,18 +59,26 @@ export const LEGACY_UNDO_STACKS_KEY = UNDO_STACKS_PREFIX;
 let undoLoginId: string | null = null;
 
 /**
- * Undo ミラーのユーザースコープを設定する。`stores/auth.ts` が bootstrap / login /
- * logout で呼ぶ(ストアを跨いで参照し合わないための受け渡し点)。
+ * Undo ミラーと下書き所属のユーザースコープを設定する。`stores/auth.ts` が bootstrap /
+ * login / logout で呼ぶ(ストアを跨いで参照し合わないための受け渡し点)。
  */
 export function setUndoUserScope(loginId: string | null): void {
   undoLoginId = loginId;
 }
 
+/** 現在のユーザーのスコープ。rest はログイン ID、local は単一利用者前提の固定値。 */
+function userScope(): string {
+  return import.meta.env.VITE_API_MODE === 'rest'
+    ? (undoLoginId ?? ANONYMOUS_UNDO_SCOPE)
+    : LOCAL_UNDO_SCOPE;
+}
+
 /** 現在のユーザー向け Undo ミラーキー。 */
 export function undoStacksKey(): string {
-  const scope =
-    import.meta.env.VITE_API_MODE === 'rest'
-      ? (undoLoginId ?? ANONYMOUS_UNDO_SCOPE)
-      : LOCAL_UNDO_SCOPE;
-  return `${UNDO_STACKS_PREFIX}:${scope}`;
+  return `${UNDO_STACKS_PREFIX}:${userScope()}`;
+}
+
+/** 現在のユーザー向け下書き所属キー。 */
+export function draftOwnerKey(): string {
+  return `${DRAFT_OWNER_PREFIX}:${userScope()}`;
 }

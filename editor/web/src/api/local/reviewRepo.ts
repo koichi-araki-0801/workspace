@@ -32,8 +32,21 @@ function contentKey(html: string, css: string): string {
   return (h >>> 0).toString(16);
 }
 
+/**
+ * 保存済みの申請を読む。旧いデータに残る保留(`held`)は `pending` へ正規化し、保留の
+ * 3 フィールドは落とす(server の `reviewFiles.readReviewMeta` と同じ規則)。
+ */
 function readReviews(): Record<string, ReviewRequest> {
-  return read<Record<string, ReviewRequest>>(K.reviews, {});
+  const raw = read<Record<string, Record<string, unknown>>>(K.reviews, {});
+  const out: Record<string, ReviewRequest> = {};
+  for (const [id, r] of Object.entries(raw)) {
+    const { heldBy: _heldBy, heldAt: _heldAt, holdComment: _holdComment, ...rest } = r;
+    out[id] = {
+      ...rest,
+      status: rest.status === 'held' ? 'pending' : rest.status,
+    } as ReviewRequest;
+  }
+  return out;
 }
 
 export const localReviewRepo: ReviewRepository = {
@@ -152,26 +165,6 @@ export const localReviewRepo: ReviewRepository = {
         reviewedBy: who,
         reviewedAt: now(),
         comment,
-      };
-      reviews[reqId] = next;
-      write(K.reviews, reviews);
-      return delay(toReviewMeta(next));
-    }),
-
-  holdReview: (reqId: string, decision: ReviewDecisionRequest) =>
-    attempt(() => {
-      const reviews = readReviews();
-      const review = reviews[reqId];
-      if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
-      if (review.status === 'approved' || review.status === 'rejected')
-        throw conflict('この申請は既に処理済みです');
-      const who = currentUser()?.displayName ?? '不明';
-      const next: ReviewRequest = {
-        ...review,
-        status: 'held',
-        heldBy: who,
-        heldAt: now(),
-        holdComment: decision.comment ?? null,
       };
       reviews[reqId] = next;
       write(K.reviews, reviews);

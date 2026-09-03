@@ -2,6 +2,7 @@ import { isOk } from '@editor/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
 import { localReviewRepo } from '@/api/local/reviewRepo';
+import { K } from '@/api/local/store';
 import { localTemplateRepo } from '@/api/local/templateRepo';
 
 beforeEach(() => localStorage.clear());
@@ -19,12 +20,11 @@ async function loginAdmin(): Promise<void> {
   expect(isOk(r)).toBe(true);
 }
 
-describe('localReviewRepo.holdReview', () => {
-  it('pending を held にし、held から承認できる', async () => {
+describe('localReviewRepo の旧 held 申請', () => {
+  it('localStorage に held で残る申請は pending として読み、そのまま承認できる', async () => {
     await loginAdmin();
     const target = await firstTemplate();
     if (!target) return;
-
     const submitted = await localReviewRepo.submitReview({
       templateId: target.id,
       fundCode: target.attributes.fundCode,
@@ -35,13 +35,22 @@ describe('localReviewRepo.holdReview', () => {
     expect(isOk(submitted)).toBe(true);
     if (!isOk(submitted)) return;
 
-    const held = await localReviewRepo.holdReview(submitted.value.id, { comment: 'メモ' });
-    expect(isOk(held)).toBe(true);
-    if (!isOk(held)) return;
-    expect(held.value.status).toBe('held');
-    expect(held.value.holdComment).toBe('メモ');
+    const all = JSON.parse(localStorage.getItem(K.reviews) ?? '{}') as Record<
+      string,
+      Record<string, unknown>
+    >;
+    all[submitted.value.id] = {
+      ...all[submitted.value.id],
+      status: 'held',
+      heldBy: 'x',
+      holdComment: 'メモ',
+    };
+    localStorage.setItem(K.reviews, JSON.stringify(all));
 
-    // held からの承認
+    const list = await localReviewRepo.listReviews({});
+    expect(isOk(list) && list.value.find((m) => m.id === submitted.value.id)?.status).toBe(
+      'pending',
+    );
     const approved = await localReviewRepo.approveReview(submitted.value.id, {});
     expect(isOk(approved)).toBe(true);
   });

@@ -29,7 +29,7 @@ export interface ReviewListFilter {
 export interface ReviewRepository {
   /** 確定保存を申請する(pending 作成・実ファイル非更新)。 */
   submitReview(req: SubmitReviewRequest): Promise<Result<ReviewRequestMeta>>;
-  /** 申請一覧(承認キュー)。状態で絞り込める。 */
+  /** 申請一覧。状態で絞り込める。 */
   listReviews(filter?: ReviewListFilter): Promise<Result<ReviewRequestMeta[]>>;
   /** 申請 1 件を本体込みで取得する(承認画面のプレビュー用)。 */
   getReview(reqId: string): Promise<Result<ReviewRequest>>;
@@ -38,11 +38,6 @@ export interface ReviewRepository {
     reqId: string,
     decision: ReviewDecisionRequest,
   ): Promise<Result<ApproveReviewResult>>;
-  /** 却下する(approver|admin のみ)。理由は `decision.comment`。 */
+  /** 差し戻す(approver|admin のみ)。理由は `decision.comment`(必須)。 */
   rejectReview(reqId: string, decision: ReviewDecisionRequest): Promise<Result<ReviewRequestMeta>>;
-  /**
-   * 保留する(approver|admin のみ)。判断を保留して後で戻る・他者へ相談するための状態で、
-   * 承認/差し戻しは pending と held のどちらからでも行える(保留解除の専用操作は無い)。
-   */
-  holdReview(reqId: string, decision: ReviewDecisionRequest): Promise<Result<ReviewRequestMeta>>;
 }
