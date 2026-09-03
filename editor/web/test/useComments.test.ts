@@ -8,11 +8,14 @@ const SUMMARY = '.page#1/.summary#1';
 const TPL = 'AM01_510037_20240710_交付版';
 
 /** インメモリの fake NoteRepository(`store` を直接覗いて永続化を検証する)。 */
-function makeRepo() {
+function makeRepo(opts?: { listNotes?: () => Promise<PartNoteEntry[]> }) {
   const store: PartNoteEntry[] = [];
   let seq = 0;
   const repo: NoteRepository = {
-    listNotes: async () => ok([...store]),
+    listNotes: async () => {
+      const result = opts?.listNotes ? await opts.listNotes() : [...store];
+      return ok(result);
+    },
     addNote: async (templateId, pathKey, content, opts = {}) => {
       const entry: PartNoteEntry = {
         id: `e${++seq}`,
@@ -273,5 +276,76 @@ describe('useComments', () => {
 
     await c.setStatus(c.entries.value[0], 'resolved');
     expect(c.openCount.value).toBe(1);
+  });
+
+  it('二重の reload で先発が後から解決してもその結果は適用しない', async () => {
+    let resolve1: (notes: PartNoteEntry[]) => void;
+    let resolve2: (notes: PartNoteEntry[]) => void;
+    const promise1 = new Promise<PartNoteEntry[]>((r) => {
+      resolve1 = r;
+    });
+    const promise2 = new Promise<PartNoteEntry[]>((r) => {
+      resolve2 = r;
+    });
+    let callCount = 0;
+
+    const { repo } = makeRepo({
+      listNotes: async () => {
+        callCount++;
+        return callCount === 1 ? promise1 : promise2;
+      },
+    });
+    const note = useComments(
+      () => TPL,
+      () => COVER,
+      repo,
+    );
+
+    // 先発 reload を打つ
+    const p1 = note.reload();
+    // 後発 reload を打つ
+    const p2 = note.reload();
+
+    // 後発が先に解決
+    resolve2?.([{ id: 'e2', content: '後発', pathKey: COVER, kind: 'note' } as PartNoteEntry]);
+    await p2;
+    expect(note.all.value.map((e) => e.content)).toEqual(['後発']);
+
+    // 先発が遅れて解決
+    resolve1?.([{ id: 'e1', content: '先発', pathKey: COVER, kind: 'note' } as PartNoteEntry]);
+    await p1;
+    // 先発の結果は無視される
+    expect(note.all.value.map((e) => e.content)).toEqual(['後発']);
+  });
+
+  it('reload 中に templateId が空になった後、旧応答が解決しても結果は反映しない', async () => {
+    let resolve1: (notes: PartNoteEntry[]) => void;
+    const promise1 = new Promise<PartNoteEntry[]>((r) => {
+      resolve1 = r;
+    });
+
+    const { repo } = makeRepo({
+      listNotes: async () => promise1,
+    });
+    const tid = ref(TPL);
+    const note = useComments(
+      () => tid.value,
+      () => COVER,
+      repo,
+    );
+
+    // 版を指定して reload 開始
+    const p1 = note.reload();
+    // 版を空にする
+    tid.value = '';
+    // reload を呼ぶ（早期 return で `all = []` になる）
+    await note.reload();
+    expect(note.all.value).toEqual([]);
+
+    // 旧応答が遅れて解決
+    resolve1?.([{ id: 'e1', content: '旧応答', pathKey: COVER, kind: 'note' } as PartNoteEntry]);
+    await p1;
+    // 結果は反映されない
+    expect(note.all.value).toEqual([]);
   });
 });

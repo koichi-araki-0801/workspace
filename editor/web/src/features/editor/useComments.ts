@@ -15,6 +15,7 @@ import {
 } from '@editor/shared';
 import { computed, ref } from 'vue';
 import { logError } from '@/lib/appError';
+import { useLatest } from '@/lib/useLatest';
 import { openKeysOf, openThreadCount } from './comments/commentFilter';
 
 /**
@@ -33,6 +34,10 @@ export function useComments(
 ) {
   // 現在の版インスタンスの全投稿(他版とは共有しない)。`reload` で満たし、各操作の後に差分を反映する。
   const all = ref<PartNoteEntry[]>([]);
+
+  // 対象テンプレートの高速切替で古い版の投稿が一覧へ残る、または空 id へ戻った後に旧応答が復活する
+  // ことを防ぐ世代ガード。
+  const latest = useLatest();
 
   /** 投稿を持つ pathKey 集合(canvas のマーカー描画を駆動する)。 */
   const notedKeys = computed<Set<string>>(() => new Set(all.value.map((e) => e.pathKey)));
@@ -54,12 +59,14 @@ export function useComments(
 
   /** 現在の版インスタンスの全投稿を読み込み直す(テンプレ読込時と各操作の後に呼ぶ)。 */
   async function reload(): Promise<void> {
+    const isLatest = latest.begin();
     const tid = templateId();
     if (!tid) {
       all.value = [];
       return;
     }
     const res = await repo.listNotes(tid);
+    if (!isLatest()) return;
     if (isErr(res)) {
       logError(res.error);
       return;
