@@ -1519,15 +1519,16 @@ git commit -m "test(editor): コメント一覧と吹き出しの返信・解決
 右ペインの「コメント」タブ、種別の選択(メモ / 修正依頼 / 質問)、検索と絞り込み、行クリックで
 パーツへ移動、吹き出しの「返信する」「解決にする」。「交付版と全体版で共有」の記述は削る。
 
-- [ ] **Step 3: docs を再生成してコミット**
+- [ ] **Step 3: 原稿だけコミットする(HTML 再生成は今は行わない)**
+
+`build_all.py` の実行は計画 3 Task 7(スクリーンショット再撮影)まで意図的に見送る —
+このタスクは文章のみの変更で、直後に画像も変わる Task 7 の再撮影とまとめて 1 回で
+`build_all.py` を回すほうが無駄がない。
 
 ```bash
-py -3.13 docs/_build/build_all.py --project editor
-git add docs/editor/src/設計正典.md docs/editor/src/操作手順書.md docs/editor/editor_手引き.html docs/editor/editor_設計.html
+git add docs/editor/src/設計正典.md docs/editor/src/操作手順書.md
 git commit -m "docs(editor): コメント一覧と吹き出しの操作を設計正典と手引きへ写す"
 ```
-
-(スクリーンショットの再撮影は計画 3 の最後にまとめて行う。ここでは文章だけ。)
 
 ---
 
