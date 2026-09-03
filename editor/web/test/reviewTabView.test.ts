@@ -119,7 +119,6 @@ async function mountTab(metas: ReviewRequestMeta[]) {
       stubs: {
         ReviewDetail: ReviewDetailStub,
         CommentPanel: CommentPanelStub,
-        AttributeBar: true,
         FundCodeName: true,
       },
     },
@@ -192,10 +191,16 @@ describe('アコーディオン', () => {
     const w = await mountTab([meta({ id: 'a' }), meta({ id: 'b' }), meta({ id: 'c' })]);
     const expandedCount = () => w.findAll('[data-stub-detail]').length;
     expect(expandedCount()).toBe(1);
+    // `button` の内容モデルは phrasing content に限られる(`div` は不可)。`AttributeBar` は
+    // `inline` 指定で `span` ルートを描くので、行ヘッダの内側に `div` が残っていないことを検査する。
+    expect(w.find('[data-review-toggle] div').exists()).toBe(false);
     await w.findAll('[data-review-toggle]')[1].trigger('click');
     await w.findAll('[data-review-toggle]')[2].trigger('click');
     expect(expandedCount()).toBe(2);
     expect(w.find('[data-review-item="a"] [data-stub-detail]').exists()).toBe(false);
+    // 1 件目(a)は最古として閉じ、3 件目(c)は開いたまま — `aria-expanded` が実際の展開状態と一致する。
+    expect(w.findAll('[data-review-toggle]')[0].attributes('aria-expanded')).toBe('false');
+    expect(w.findAll('[data-review-toggle]')[2].attributes('aria-expanded')).toBe('true');
   });
 
   it('絞り込みを切り替えると見えない id を捨て、可視の先頭を開き直す', async () => {

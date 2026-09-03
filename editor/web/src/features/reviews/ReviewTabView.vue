@@ -226,17 +226,21 @@ function goEdit() {
       <!-- アコーディオン -->
       <ul v-else class="space-y-3" data-review-list>
         <li v-for="m in items" :key="m.id" class="rounded-[12px] border bg-card shadow-sm" :data-review-item="m.id">
+          <!-- `data-review-toggle` は phrasing content のみ(button の内容モデル制約)。
+               `AttributeBar` は `inline` 指定でルート・各列を `span` で描かせる。 -->
           <button
             type="button"
             class="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left"
             data-review-toggle
+            :aria-expanded="expanded.includes(m.id)"
             @click="toggle(m.id)"
           >
+            <span class="sr-only">開閉</span>
             <ChevronDown v-if="expanded.includes(m.id)" class="h-4 w-4 shrink-0" />
             <ChevronRight v-else class="h-4 w-4 shrink-0" />
             <Badge :variant="STATUS_META[m.status].variant">{{ STATUS_META[m.status].label }}</Badge>
             <Badge variant="secondary">{{ ORIGIN_LABEL[m.origin] }}</Badge>
-            <AttributeBar :attributes="m.attributes" class="min-w-0 flex-1" />
+            <AttributeBar inline :attributes="m.attributes" class="min-w-0 flex-1" />
             <span class="text-xs text-muted-foreground">
               申請: {{ m.submittedBy }}・{{ formatDateTimeShort(m.submittedAt) }}
             </span>
