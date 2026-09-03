@@ -15,7 +15,7 @@ import {
 } from '@editor/shared';
 import { computed, ref } from 'vue';
 import { logError } from '@/lib/appError';
-import { openKeysOf } from './comments/commentFilter';
+import { openKeysOf, openThreadCount } from './comments/commentFilter';
 
 /**
  * パーツ単位コメント(1 段の入れ子スレッド)。`templateId` 配下の全投稿を保持し、選択中
@@ -39,6 +39,9 @@ export function useComments(
 
   /** 未対応の親投稿を持つ pathKey 集合(マーカーの色分け)。 */
   const openKeys = computed<Set<string>>(() => openKeysOf(all.value));
+
+  /** 未対応の**親投稿**の件数(タブバッジ用。パーツ数ではなくスレッド数を数える)。 */
+  const openCount = computed<number>(() => openThreadCount(all.value));
 
   /** 現在の選択パーツのスレッド(リポジトリが決めた並びをそのまま保つ)。 */
   const entries = computed<PartNoteEntry[]>(() => {
@@ -131,6 +134,7 @@ export function useComments(
     entries,
     notedKeys,
     openKeys,
+    openCount,
     canNote,
     reload,
     add,

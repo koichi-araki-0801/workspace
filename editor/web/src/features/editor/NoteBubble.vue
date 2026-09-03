@@ -20,7 +20,7 @@ import {
 import { computed, ref } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
-import { KIND_LABEL, threadsOf } from './comments/commentFilter';
+import { formatCommentAt, KIND_LABEL, threadsOf } from './comments/commentFilter';
 import type { BubbleAnchor } from './noteBubbleLayout';
 
 const props = defineProps<{
@@ -107,25 +107,18 @@ function commitReply(parent: PartNoteEntry): void {
   replyingKey.value = null;
 }
 
-/** 表示用の日時(年は省く。同一基準日のスレッドなので月日と時刻で足りる)。 */
-function formatAt(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
-  return `${mm}/${dd} ${hh}:${mi}`;
-}
-
 async function requestRemove(entry: PartNoteEntry): Promise<void> {
-  const threadForEntry = threads.value.find((t) => entryKey(t.parent) === entryKey(entry));
-  const isParent = threadForEntry?.parent === entry;
-  const hasReplies = !!(isParent && threadForEntry?.replies.length);
+  // 親か返信かは `replyTo` を直接見れば分かる。スレッド一覧から探すのは、親を消す確認文言に
+  // 「返信も一緒に削除されます」を足すかどうか(返信の有無)を知るためだけに限る。
+  const isParent = entry.replyTo === null;
+  const hasReplies =
+    isParent && (threads.value.find((t) => t.parent.id === entry.id)?.replies.length ?? 0) > 0;
 
   const ok = await confirm({
-    title: 'このコメントを削除しますか？',
-    description: `削除したコメントは元に戻せません。${hasReplies ? '返信も一緒に削除されます。' : ''}`,
+    title: isParent ? 'このコメントを削除しますか？' : 'この返信を削除しますか？',
+    description: isParent
+      ? `削除したコメントは元に戻せません。${hasReplies ? '返信も一緒に削除されます。' : ''}`
+      : '削除した返信は元に戻せません。',
     confirmLabel: '削除する',
     variant: 'destructive',
   });
@@ -158,13 +151,12 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
         data-note-parent
       >
         <div class="note-entry-head">
-          <!-- 折りたたみ切替は解決済みスレッドにのみ出す(未対応は畳む対象が無い)。頭行の
-               残りのボタン群は畳んだ状態でも常に押せる — レビューが済んだ投稿を一覧性優先で
-               隠しつつ、状態を戻す・読み直す操作の入口までは塞がない。 -->
+          <!-- 折りたたみ切替は解決済みスレッドにのみ出す(未対応は畳む対象が無い)。 -->
           <Button
             v-if="t.parent.status === 'resolved'"
             variant="ghost"
             size="iconSm"
+            class="shrink-0"
             :aria-label="isCollapsed(t) ? '開く' : '閉じる'"
             :title="isCollapsed(t) ? '開く' : '閉じる'"
             data-note-collapse
@@ -173,10 +165,16 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
             <ChevronRight v-if="isCollapsed(t)" class="h-3 w-3" />
             <ChevronDown v-else class="h-3 w-3" />
           </Button>
-          <span class="note-entry-kind">{{ KIND_LABEL[t.parent.kind] }}</span>
-          <span class="note-entry-who">{{ t.parent.createdBy }}</span>
-          <span>{{ formatAt(t.parent.createdAt) }}</span>
-          <span class="flex-1" />
+          <span class="note-entry-kind shrink-0">{{ KIND_LABEL[t.parent.kind] }}</span>
+          <span class="note-entry-who min-w-0 truncate">{{ t.parent.createdBy }}</span>
+          <span class="shrink-0">{{ formatCommentAt(t.parent.createdAt) }}</span>
+        </div>
+
+        <!-- 頭行の下の操作列(解決切替・返信・編集・削除)。畳んだ状態でも常に押せる —
+             レビューが済んだ投稿を一覧性優先で隠しつつ、状態を戻す・読み直す操作の入口までは
+             塞がない。頭行(チップ+氏名+時刻+ボタン最大 5 個)は固定幅 244px の内容幅
+             226px に収まらないため、ボタン列を別行にして頭行はチップ・氏名・時刻だけにする。 -->
+        <div class="note-entry-actions">
           <Button
             variant="ghost"
             size="iconSm"
@@ -220,13 +218,19 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
 
           <div v-for="r in t.replies" :key="entryKey(r)" class="note-reply" data-note-reply>
             <div class="note-entry-head">
-              <span class="note-entry-who">{{ r.createdBy }}</span>
-              <span>{{ formatAt(r.createdAt) }}</span>
+              <span class="note-entry-who min-w-0 truncate">{{ r.createdBy }}</span>
+              <span class="shrink-0">{{ formatCommentAt(r.createdAt) }}</span>
               <span class="flex-1" />
-              <Button variant="ghost" size="iconSm" aria-label="この返信を編集" @click="startEdit(r)">
+              <Button variant="ghost" size="iconSm" class="shrink-0" aria-label="この返信を編集" @click="startEdit(r)">
                 <Pencil class="h-3 w-3" />
               </Button>
-              <Button variant="ghost" size="iconSm" class="text-destructive" aria-label="この返信を削除" @click="requestRemove(r)">
+              <Button
+                variant="ghost"
+                size="iconSm"
+                class="shrink-0 text-destructive"
+                aria-label="この返信を削除"
+                @click="requestRemove(r)"
+              >
                 <Trash2 class="h-3 w-3" />
               </Button>
             </div>
@@ -332,12 +336,26 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
   color: var(--muted-foreground);
 }
 
+/* 頭行の下の操作列(解決切替・返信・編集・削除)。244px 幅の頭行にチップ・氏名・時刻・
+   ボタン最大 4 個を同居させると圧縮されるため別行にし、右詰めで並べる。 */
+.note-entry-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 2px;
+}
+
 .note-entry-who {
   font-size: 11.5px;
   font-weight: 700;
   color: var(--foreground);
 }
 
+/* 種別チップの色は状態で切り替える(既定は未対応 = 琥珀)。解決済みへの切替は
+   `.note-entry-resolved .note-entry-kind`(祖先 `.note-entry` のクラスからの子孫セレクタ)が
+   受け持つ — `CommentPanel.vue` の Badge variant 切替と同じ「未対応 = warning / 解決済み =
+   secondary」を、こちらは CSS のカスケードで表す。 */
 .note-entry-kind {
   padding: 0 5px;
   border-radius: 3px;

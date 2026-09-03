@@ -18,9 +18,15 @@ import {
   type CommentThread,
   DEFAULT_COMMENT_FILTER,
   filterThreads,
+  formatCommentAt,
   KIND_LABEL,
+  openThreadCount,
   threadsOf,
 } from './commentFilter';
+
+/** 削除済みパーツ(カタログ・部品ツリーから消えた `pathKey`)の表示ラベル。`Inspector.vue` の
+ * `partLabelOf` と同じ文言に揃える(同じ意味の状態を画面ごとに違う言葉で言わない)。 */
+const DELETED_PART_LABEL = '削除済みパーツ';
 
 const props = withDefaults(
   defineProps<{
@@ -58,10 +64,15 @@ const partOrder = computed(() => new Map([...props.partLabels.keys()].map((k, i)
 const visible = computed<CommentThread[]>(() =>
   filterThreads(threads.value, filter, { selectedKey: props.selectedKey, partOrder: partOrder.value }),
 );
-const openCount = computed(() => threads.value.filter((t) => t.parent.status === 'open').length);
+const openCount = computed(() => openThreadCount(props.entries));
 
 function partLabel(key: string): string {
-  return props.partLabels.get(key) ?? key;
+  return props.partLabels.get(key) ?? DELETED_PART_LABEL;
+}
+
+/** 行の宛先パーツが削除済みか(スタイルを控えめにし、クリックを実質無害な no-op にする)。 */
+function isDeletedPart(key: string): boolean {
+  return !props.partLabels.has(key);
 }
 
 // ── 2. 新規投稿(選択パーツ宛。入口はここだけ) ──
@@ -82,13 +93,21 @@ watch(
 );
 
 // ── 3. 行の展開(返信・解決・編集・削除) ──
+// キーは `id` 単体ではなく `templateId/id` の対で持つ(`NoteBubble.vue` の `entryKey` と同じ
+// 理由。旧形式ファイルの遅延変換が `legacy:<pathKey>` を id に使うため、版が違えば同じ id を
+// 名乗りうる)。
+function entryKey(entry: PartNoteEntry): string {
+  return `${entry.templateId}/${entry.id}`;
+}
+
 const expandedId = ref<string | null>(null);
 const replyDraft = ref('');
 const editingId = ref<string | null>(null);
 const editDraft = ref('');
 
 function toggle(t: CommentThread): void {
-  expandedId.value = expandedId.value === t.parent.id ? null : t.parent.id;
+  const key = entryKey(t.parent);
+  expandedId.value = expandedId.value === key ? null : key;
   replyDraft.value = '';
   editingId.value = null;
 }
@@ -98,7 +117,7 @@ function submitReply(t: CommentThread): void {
   replyDraft.value = '';
 }
 function startEdit(e: PartNoteEntry): void {
-  editingId.value = e.id;
+  editingId.value = entryKey(e);
   editDraft.value = e.content;
 }
 function commitEdit(e: PartNoteEntry): void {
@@ -114,16 +133,6 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
     variant: 'destructive',
   });
   if (ok) emit('remove', e);
-}
-
-function formatAt(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
-  return `${mm}/${dd} ${hh}:${mi}`;
 }
 </script>
 
@@ -200,11 +209,16 @@ function formatAt(iso: string): string {
       <ul v-else>
         <li
           v-for="t in visible"
-          :key="`${t.parent.templateId}/${t.parent.id}`"
+          :key="entryKey(t.parent)"
           data-comment-row
           :data-path-key="t.parent.pathKey"
-          class="cursor-pointer border-b px-3 py-2 hover:bg-muted/40"
-          :class="t.parent.pathKey === selectedKey ? 'bg-primary-soft/40' : ''"
+          class="border-b px-3 py-2"
+          :class="[
+            isDeletedPart(t.parent.pathKey)
+              ? 'cursor-default text-muted-foreground'
+              : 'cursor-pointer hover:bg-muted/40',
+            t.parent.pathKey === selectedKey ? 'bg-primary-soft/40' : '',
+          ]"
           @click="emit('focus', t.parent.pathKey)"
         >
           <div class="flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
@@ -213,21 +227,21 @@ function formatAt(iso: string): string {
             </Badge>
             <span class="truncate">{{ partLabel(t.parent.pathKey) }}</span>
             <span class="flex-1" />
-            <span>{{ formatAt(t.lastAt) }}</span>
+            <span>{{ formatCommentAt(t.lastAt) }}</span>
             <button
               type="button"
               data-expand
               class="rounded p-0.5 hover:bg-muted"
-              :aria-label="expandedId === t.parent.id ? '閉じる' : '開く'"
+              :aria-label="expandedId === entryKey(t.parent) ? '閉じる' : '開く'"
               @click.stop="toggle(t)"
             >
-              <ChevronDown v-if="expandedId === t.parent.id" class="h-3.5 w-3.5" />
+              <ChevronDown v-if="expandedId === entryKey(t.parent)" class="h-3.5 w-3.5" />
               <ChevronRight v-else class="h-3.5 w-3.5" />
             </button>
           </div>
           <div class="mt-0.5 flex items-baseline gap-1.5 text-[12px]">
             <span class="shrink-0 font-bold">{{ t.parent.createdBy }}</span>
-            <span :class="expandedId === t.parent.id ? 'whitespace-pre-wrap break-words' : 'truncate'" class="min-w-0">
+            <span :class="expandedId === entryKey(t.parent) ? 'whitespace-pre-wrap break-words' : 'truncate'" class="min-w-0">
               {{ t.parent.content }}
             </span>
           </div>
@@ -237,7 +251,7 @@ function formatAt(iso: string): string {
           </div>
 
           <!-- 展開: 返信一覧・返信入力・解決/編集/削除 -->
-          <div v-if="expandedId === t.parent.id" class="mt-2 space-y-2" @click.stop>
+          <div v-if="expandedId === entryKey(t.parent)" class="mt-2 space-y-2" @click.stop>
             <div class="flex items-center gap-1">
               <Button
                 size="sm"
@@ -257,7 +271,7 @@ function formatAt(iso: string): string {
                 <Trash2 class="h-3 w-3" />
               </Button>
             </div>
-            <template v-if="editingId === t.parent.id">
+            <template v-if="editingId === entryKey(t.parent)">
               <textarea v-model="editDraft" class="comment-area" rows="3" />
               <div class="flex gap-1.5">
                 <Button size="sm" @click="commitEdit(t.parent)">保存</Button>
@@ -265,10 +279,10 @@ function formatAt(iso: string): string {
               </div>
             </template>
 
-            <div v-for="r in t.replies" :key="`${r.templateId}/${r.id}`" class="ml-3 border-l-2 pl-2">
+            <div v-for="r in t.replies" :key="entryKey(r)" class="ml-3 border-l-2 pl-2">
               <div class="flex items-center gap-1 text-[10.5px] text-muted-foreground">
                 <span class="font-bold text-foreground">{{ r.createdBy }}</span>
-                <span>{{ formatAt(r.createdAt) }}</span>
+                <span>{{ formatCommentAt(r.createdAt) }}</span>
                 <span class="flex-1" />
                 <Button variant="ghost" size="iconSm" aria-label="この返信を編集" @click="startEdit(r)">
                   <Pencil class="h-3 w-3" />
@@ -277,7 +291,7 @@ function formatAt(iso: string): string {
                   <Trash2 class="h-3 w-3" />
                 </Button>
               </div>
-              <template v-if="editingId === r.id">
+              <template v-if="editingId === entryKey(r)">
                 <textarea v-model="editDraft" class="comment-area" rows="2" />
                 <div class="mt-1 flex gap-1.5">
                   <Button size="sm" @click="commitEdit(r)">保存</Button>

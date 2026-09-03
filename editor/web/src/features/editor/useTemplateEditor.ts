@@ -528,6 +528,7 @@ export function useTemplateEditor(
     removeNote: note.remove,
     allNotes: note.all,
     openNoteKeys: note.openKeys,
+    openNoteCount: note.openCount,
     currentNoteKey: currentNoteKeyRef,
     replyNote: note.reply,
     setNoteStatus: note.setStatus,

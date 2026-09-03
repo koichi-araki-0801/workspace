@@ -84,6 +84,22 @@ export function openKeysOf(entries: readonly PartNoteEntry[]): Set<string> {
   );
 }
 
+/** 未対応の**親投稿**の件数(タブバッジに使う。返信・パーツ数は数えない)。 */
+export function openThreadCount(entries: readonly PartNoteEntry[]): number {
+  return entries.filter((e) => e.replyTo === null && e.status === 'open').length;
+}
+
+/** 表示用の日時(年は省く。同一基準日のスレッドなので月日と時刻で足りる)。 */
+export function formatCommentAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${mm}/${dd} ${hh}:${mi}`;
+}
+
 function matchesQuery(t: CommentThread, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (q === '') return true;

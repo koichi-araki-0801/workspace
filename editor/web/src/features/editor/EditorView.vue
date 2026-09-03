@@ -47,6 +47,7 @@ const {
   removeNote,
   allNotes,
   openNoteKeys,
+  openNoteCount,
   currentNoteKey,
   replyNote,
   setNoteStatus,
@@ -86,7 +87,9 @@ const rect = computed(() => g.selectedRect.value);
 
 // ── 右ペインの表示(プロパティ / コメント)。編集セッションをまたいで保持しない(画面ごと) ──
 const paneTab = ref<'props' | 'comments'>('props');
-const openCommentCount = computed(() => openNoteKeys.value.size);
+// バッジは未対応の**親投稿**の件数(仕様 §4.3)。パーツ数(`openNoteKeys.size`)ではない
+// — 1 パーツに複数スレッドがあれば両者は食い違う。
+const openCommentCount = computed(() => openNoteCount.value);
 
 /** コメント一覧の行 → そのパーツを選択して見せる。吹き出しも開き直す。 */
 function focusPart(key: string): void {
@@ -122,6 +125,30 @@ function measureBubble(): void {
   const el = noteBubbleEl.value?.$el as HTMLElement | null | undefined;
   g.refreshBubbleAnchor(el ? { width: el.offsetWidth, height: el.offsetHeight } : null);
 }
+
+// 折りたたみ/展開・返信欄・編集用テキストエリアの開閉は `noteEntries` を変えずに吹き出しの
+// 高さだけを変える。下の watch(noteEntries) は投稿の増減にしか反応しないため、これらの操作
+// では anchor の下端クランプが実寸とずれたまま古い値で居座り、吹き出しが overlay 層(非
+// スクロール)の下へはみ出しうる。吹き出し要素そのものの実寸変化を ResizeObserver で直接
+// 観測して測り直す。要素は v-if で着脱するので、テンプレート ref の変化を watch して
+// 都度つなぎ直す(jsdom には ResizeObserver が無いのでガードする)。
+let bubbleResizeObserver: ResizeObserver | null = null;
+watch(
+  noteBubbleEl,
+  (instance) => {
+    bubbleResizeObserver?.disconnect();
+    bubbleResizeObserver = null;
+    const el = instance?.$el as HTMLElement | null | undefined;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    bubbleResizeObserver = new ResizeObserver(() => measureBubble());
+    bubbleResizeObserver.observe(el);
+  },
+  { immediate: true },
+);
+onBeforeUnmount(() => {
+  bubbleResizeObserver?.disconnect();
+  bubbleResizeObserver = null;
+});
 
 // スレッド(選択パーツの切替 / 追加・編集・削除)が変わるたびに実寸を測り直す。前パーツの
 // 高さのまま数フレーム居座らないよう、まず幅 244・高さ 0 の見積もりで仮置きし(この時点で
@@ -396,7 +423,8 @@ const statusText = computed(() => {
 
           <!-- メモ有りパーツの目印(エクセルのセルコメント風)。閲覧/編集どちらでも表示し、
                位置のみパーツへ追従、バッジは固定 px(ズーム非依存)。クリックは奪わない
-               (pointer-events なし) — パーツ自体をクリックすれば右ペインにメモが出る。 -->
+               (pointer-events なし) — パーツをクリックするとキャンバスの吹き出しにそのスレッド
+               が出る(一覧は右ペインの「コメント」)。 -->
           <div
             v-for="m in g.noteMarkers.value"
             :key="m.key"
@@ -592,8 +620,10 @@ const statusText = computed(() => {
   height: 18px;
   transform: translate(-100%, 0);
   border-radius: 4px 4px 4px 0;
-  /* 琥珀はテーマの warning トークンへ統一。アイコン/枠の白はテーマ非依存で固定 —
-     マーカーは常に白い A4 紙面上に重なるため、ダークテーマでも白が正しい対比になる。 */
+  /* 琥珀・灰色ともテーマトークンではなく固定値を使う。アイコン/枠の白も同じ理由でテーマ
+     非依存 — マーカーは常に白い A4 紙面上に重なるため、ダークテーマでも同じ配色が正しい
+     対比になる(テーマの `--muted-foreground` はダークテーマで明るい色に化けて紙面上で
+     読めなくなる)。 */
   color: #fff;
   background: var(--warning);
   border: 1.5px solid #fff;
@@ -603,7 +633,7 @@ const statusText = computed(() => {
 }
 /* 全部解決済みのパーツは灰色で残す(「見た」ことは分かるが、次に見るべき場所ではない)。 */
 .note-marker-resolved {
-  background: var(--muted-foreground);
+  background: #9aa0a6;
 }
 
 /* drag grip on the selected block — large, obvious grab target for reorder */
