@@ -272,7 +272,7 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
               </Button>
             </div>
             <template v-if="editingId === entryKey(t.parent)">
-              <textarea v-model="editDraft" class="comment-area" rows="3" />
+              <textarea v-model="editDraft" class="comment-area" rows="3" aria-label="コメント本文の編集" />
               <div class="flex gap-1.5">
                 <Button size="sm" @click="commitEdit(t.parent)">保存</Button>
                 <Button size="sm" variant="outline" @click="editingId = null">取消</Button>
@@ -292,7 +292,7 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
                 </Button>
               </div>
               <template v-if="editingId === entryKey(r)">
-                <textarea v-model="editDraft" class="comment-area" rows="2" />
+                <textarea v-model="editDraft" class="comment-area" rows="2" aria-label="返信本文の編集" />
                 <div class="mt-1 flex gap-1.5">
                   <Button size="sm" @click="commitEdit(r)">保存</Button>
                   <Button size="sm" variant="outline" @click="editingId = null">取消</Button>

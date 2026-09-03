@@ -249,4 +249,11 @@ describe('CommentPanel', () => {
     await flushPromises();
     expect(w.emitted('remove')?.[1]).toEqual([entries[0]]);
   });
+
+  it('編集を開くと textarea に aria-label が付く', async () => {
+    const w = mountPanel();
+    await w.find('[data-comment-row] [data-expand]').trigger('click');
+    await w.find('button[aria-label="このコメントを編集"]').trigger('click');
+    expect(w.find('textarea[aria-label="コメント本文の編集"]').exists()).toBe(true);
+  });
 });
