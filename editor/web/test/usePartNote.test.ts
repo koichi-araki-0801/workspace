@@ -150,6 +150,63 @@ describe('usePartNote', () => {
     await note.add('無視される');
     expect(store).toHaveLength(0);
     expect(note.canNote.value).toBe(false);
+    expect(note.entries.value).toEqual([]);
+  });
+
+  it('版インスタンス未選択の reload は空のまま(repo を呼ばない)', async () => {
+    const { repo } = makeRepo();
+    const note = usePartNote(
+      () => '',
+      () => COVER,
+      repo,
+    );
+    await note.reload();
+    expect(note.entries.value).toEqual([]);
+  });
+
+  it('空文字の本文は編集を送らない', async () => {
+    const { repo, store } = makeRepo();
+    const note = usePartNote(
+      () => TPL,
+      () => COVER,
+      repo,
+    );
+    await note.add('初版');
+    await note.update(note.entries.value[0], '   ');
+    expect(store[0].content).toBe('初版');
+  });
+
+  it('add/reply/setStatus/update/remove はリポジトリのエラーを飲み込み、reload しない', async () => {
+    const parent: PartNoteEntry = {
+      id: 'p1',
+      templateId: TPL,
+      pathKey: COVER,
+      content: '親',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      createdBy: '編集者',
+      updatedAt: null,
+      updatedBy: null,
+      status: 'open',
+      replyTo: null,
+      kind: 'note',
+    };
+    const errRepo: NoteRepository = {
+      listNotes: async () => err(unexpected('boom')),
+      addNote: async () => err(unexpected('boom')),
+      updateNote: async () => err(unexpected('boom')),
+      deleteNote: async () => err(unexpected('boom')),
+    };
+    const note = usePartNote(
+      () => TPL,
+      () => COVER,
+      errRepo,
+    );
+    await expect(note.add('本文')).resolves.toBeUndefined();
+    await expect(note.reply(parent, '返信')).resolves.toBeUndefined();
+    await expect(note.setStatus(parent, 'resolved')).resolves.toBeUndefined();
+    await expect(note.update(parent, '編集')).resolves.toBeUndefined();
+    await expect(note.remove(parent)).resolves.toBeUndefined();
+    expect(note.entries.value).toEqual([]);
   });
 
   it('reply は選択パーツの親へ返信を積み、setStatus は親の状態を切り替える', async () => {
