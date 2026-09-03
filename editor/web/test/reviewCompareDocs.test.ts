@@ -218,4 +218,21 @@ describe('buildCompareDocs', () => {
     });
     expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2']);
   });
+
+  it('前後でページ数が違うが縮退しない場合は pageAnchors を両側から補う', () => {
+    // before: 3 ページ、after: 2 ページ、いずれも期待ページ数と一致(縮退なし)
+    // → pageAnchors.length === 3、indexes 0-1 は after から、index 2 は before から
+    const { pageAnchors } = buildCompareDocs({
+      beforeHtml:
+        '<div class="page">page1</div><div class="page">page2</div><div class="page">page3</div>',
+      afterHtml: '<div class="page">page1</div><div class="page">page2</div>',
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([1]),
+      beforeExpectedPageCount: 3,
+      afterExpectedPageCount: 2,
+      marker: true,
+    });
+    expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2', 'review-anchor-3']);
+  });
 });
