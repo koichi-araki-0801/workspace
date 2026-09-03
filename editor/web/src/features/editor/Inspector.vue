@@ -415,7 +415,7 @@ const PB_CLASS =
             </Button>
           </div>
           <p class="mt-1.5 text-[11px] text-muted-foreground">
-            既存のメモはキャンバスの吹き出しに表示します。交付版と全体版で共有します（基準日ごとに独立）。
+            既存のメモはキャンバスの吹き出しに表示します（この版だけのメモです）。
           </p>
         </InspectorSection>
 

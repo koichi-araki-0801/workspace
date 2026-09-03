@@ -13,7 +13,7 @@ function makeRepo() {
   let seq = 0;
   const repo: NoteRepository = {
     listNotes: async () => ok([...store]),
-    addNote: async (templateId, pathKey, content) => {
+    addNote: async (templateId, pathKey, content, opts = {}) => {
       const entry: PartNoteEntry = {
         id: `e${++seq}`,
         templateId,
@@ -23,13 +23,22 @@ function makeRepo() {
         createdBy: '編集者',
         updatedAt: null,
         updatedBy: null,
+        status: 'open',
+        replyTo: opts.replyTo ?? null,
+        kind: opts.kind ?? 'note',
       };
       store.push(entry);
       return ok(entry);
     },
-    updateNote: async (_templateId, entryId, content) => {
+    updateNote: async (_templateId, entryId, patch) => {
       const i = store.findIndex((e) => e.id === entryId);
-      store[i] = { ...store[i], content, updatedAt: 'x', updatedBy: '編集者' };
+      store[i] = {
+        ...store[i],
+        ...(patch.content !== undefined
+          ? { content: patch.content, updatedAt: 'x', updatedBy: '編集者' }
+          : {}),
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
+      };
       return ok(store[i]);
     },
     deleteNote: async (_templateId, entryId) => {
@@ -141,5 +150,36 @@ describe('usePartNote', () => {
     await note.add('無視される');
     expect(store).toHaveLength(0);
     expect(note.canNote.value).toBe(false);
+  });
+
+  it('reply は選択パーツの親へ返信を積み、setStatus は親の状態を切り替える', async () => {
+    const { repo, store } = makeRepo();
+    const key = ref<string | null>(COVER);
+    const note = usePartNote(
+      () => TPL,
+      () => key.value,
+      repo,
+    );
+    await note.add('親', { kind: 'question' });
+    const parent = note.entries.value[0];
+    expect(parent.kind).toBe('question');
+
+    await note.reply(parent, '返信');
+    expect(note.entries.value.map((e) => e.replyTo)).toEqual([null, parent.id]);
+
+    await note.setStatus(parent, 'resolved');
+    expect(store.find((e) => e.id === parent.id)?.status).toBe('resolved');
+  });
+
+  it('本文が空の返信は送らない', async () => {
+    const { repo, store } = makeRepo();
+    const note = usePartNote(
+      () => TPL,
+      () => COVER,
+      repo,
+    );
+    await note.add('親');
+    await note.reply(note.entries.value[0], '   ');
+    expect(store).toHaveLength(1);
   });
 });
