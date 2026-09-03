@@ -355,7 +355,7 @@ export const ReviewChangedSummary = z
   })
   .meta({ id: 'ReviewChangedSummary' });
 
-/** 確定保存申請のメタ(本体 html/css を除く軽量行)。一覧・承認キューに使う。 */
+/** 確定保存申請のメタ(本体 html/css を除く軽量行)。申請一覧の表示に使う。 */
 export const ReviewRequestMeta = z
   .object({
     id: z.string(),
@@ -417,7 +417,7 @@ export const ReviewRejectBody = z
   .object({ comment: z.string().trim().min(1).meta({ description: '却下理由(必須)' }) })
   .meta({ id: 'ReviewRejectBody' });
 
-/** (server 専用) 承認キューの絞り込みクエリ。 */
+/** (server 専用) 申請一覧の絞り込みクエリ。 */
 export const ReviewListQuery = z.object({ status: ReviewStatus.optional() });
 
 /**

@@ -94,7 +94,7 @@ export type ReviewStatus = z.infer<typeof sch.ReviewStatus>;
  */
 export type ReviewChangedSummary = z.infer<typeof sch.ReviewChangedSummary>;
 
-/** 確定保存申請のメタデータ(本文 html/css を除く軽量行)。一覧・承認キューに使う。 */
+/** 確定保存申請のメタデータ(本文 html/css を除く軽量行)。申請一覧の表示に使う。 */
 export type ReviewRequestMeta = z.infer<typeof sch.ReviewRequestMeta>;
 
 /** 申請の本体込み(承認画面のプレビュー・承認反映に使う)。 */
