@@ -63,6 +63,17 @@ function isCollapsed(t: { parent: PartNoteEntry }): boolean {
   return t.parent.status === 'resolved' && !expandedKeys.value.has(entryKey(t.parent));
 }
 
+// 入力中の欄を折りたたみで隠さない — `editingKey` は親だけでなく返信の編集でも立つため、
+// 親キー単体との比較では返信編集中の見落としが起きる。
+function hasActiveInput(t: { parent: PartNoteEntry; replies: PartNoteEntry[] }): boolean {
+  const k = entryKey(t.parent);
+  return (
+    editingKey.value === k ||
+    replyingKey.value === k ||
+    t.replies.some((r) => editingKey.value === entryKey(r))
+  );
+}
+
 function toggleExpand(parent: PartNoteEntry): void {
   const key = entryKey(parent);
   const next = new Set(expandedKeys.value);
@@ -187,12 +198,9 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
           </Button>
         </div>
 
-        <!-- 畳んだ状態(解決済み + 未展開)は要約 1 行だけ出す。編集・返信の入力中は入力欄を
-             隠さないよう、その間だけ展開時と同じ表示に戻す。 -->
-        <div
-          v-if="isCollapsed(t) && editingKey !== entryKey(t.parent) && replyingKey !== entryKey(t.parent)"
-          class="note-entry-summary truncate"
-        >
+        <!-- 畳んだ状態(解決済み + 未展開)は要約 1 行だけ出す。親の編集・返信・どの返信の
+             編集であっても入力中は入力欄を隠さないよう、その間だけ展開時と同じ表示に戻す。 -->
+        <div v-if="isCollapsed(t) && !hasActiveInput(t)" class="note-entry-summary truncate">
           {{ summaryOf(t.parent.content) }}
           <span v-if="t.replies.length > 0" class="note-entry-edited">・返信 {{ t.replies.length }}</span>
         </div>
