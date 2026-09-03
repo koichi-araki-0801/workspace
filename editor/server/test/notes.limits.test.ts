@@ -84,16 +84,20 @@ describe('マップの件数上限', () => {
     await fs.mkdir(path.join(tmpRoot, 'notes'), { recursive: true });
     await fs.writeFile(notesPath(), JSON.stringify(full), 'utf8');
 
-    await expect(repo.addNote(TPL, 'brand-new', 'メモ', 'tester')).rejects.toMatchObject({
+    await expect(
+      repo.addNote(TPL, 'brand-new', 'メモ', 'tester', { replyTo: null, kind: 'note' }),
+    ).rejects.toMatchObject({
       kind: 'validation',
     });
     // 既存キーへの追加・更新・削除は上限に関係なく通る(上限が「消せない・直せない」状態を
     // 作らない)。追加(addNote)と更新(updateNote)は別経路(updateNote は locate 経由で
     // 上限判定を一切通らない)なので、両方を別々に固定する。
-    await expect(repo.addNote(TPL, 'p0', '追記', 'tester')).resolves.toMatchObject({
+    await expect(
+      repo.addNote(TPL, 'p0', '追記', 'tester', { replyTo: null, kind: 'note' }),
+    ).resolves.toMatchObject({
       content: '追記',
     });
-    await expect(repo.updateNote(TPL, 'e0', '更新', 'tester')).resolves.toMatchObject({
+    await expect(repo.updateNote(TPL, 'e0', { content: '更新' }, 'tester')).resolves.toMatchObject({
       content: '更新',
     });
     await expect(repo.deleteNote(TPL, 'e1')).resolves.toBeUndefined();
@@ -109,9 +113,9 @@ describe('同時保存で更新が消えない', () => {
     const { files, repo } = await importNotes();
     // 直列化が無いと、両者が同じ「空のマップ」を読んで書き戻すので後勝ちで片方が消える。
     await Promise.all([
-      repo.addNote(TPL, 'a', 'A', 'u1'),
-      repo.addNote(TPL, 'b', 'B', 'u2'),
-      repo.addNote(TPL, 'c', 'C', 'u3'),
+      repo.addNote(TPL, 'a', 'A', 'u1', { replyTo: null, kind: 'note' }),
+      repo.addNote(TPL, 'b', 'B', 'u2', { replyTo: null, kind: 'note' }),
+      repo.addNote(TPL, 'c', 'C', 'u3', { replyTo: null, kind: 'note' }),
     ]);
     const map = await files.readNotes(TPL);
     expect(Object.keys(map).sort()).toEqual(['a', 'b', 'c']);
@@ -129,7 +133,9 @@ describe('同時保存で更新が消えない', () => {
     const big = 'x'.repeat(files.MAX_NOTES_FILE_BYTES + 1);
     await fs.writeFile(file, big, 'utf8');
 
-    await expect(repo.addNote(tplId, 'p1', '新しいメモ', 'editor1')).rejects.toMatchObject({
+    await expect(
+      repo.addNote(tplId, 'p1', '新しいメモ', 'editor1', { replyTo: null, kind: 'note' }),
+    ).rejects.toMatchObject({
       kind: 'validation',
     });
     // 中身は 1 バイトも変わっていない(全件が 1 件へ潰れていない)。
@@ -146,7 +152,9 @@ describe('同時保存で更新が消えない', () => {
     // 表示経路は落とさない(degrade はそのまま)。
     expect(await files.readNotes(tplId)).toEqual({});
     // 書き込み経路は拒否する。
-    await expect(repo.addNote(tplId, 'p1', 'x', 'editor1')).rejects.toMatchObject({
+    await expect(
+      repo.addNote(tplId, 'p1', 'x', 'editor1', { replyTo: null, kind: 'note' }),
+    ).rejects.toMatchObject({
       kind: 'validation',
     });
     expect(await fs.readFile(file, 'utf8')).toBe('{ this is not json');

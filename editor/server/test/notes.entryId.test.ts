@@ -28,19 +28,21 @@ const listNotes = vi.fn(async () => []);
 const addNote = vi.fn(async () => {
   throw new Error('unused in this test');
 });
-const updateNote = vi.fn(async (templateId: string, entryId: string, _content: string) => ({
-  id: entryId,
-  templateId,
-  pathKey: '',
-  content: 'x',
-  createdAt: '',
-  createdBy: '',
-  updatedAt: null,
-  updatedBy: null,
-  status: 'open' as const,
-  replyTo: null,
-  kind: 'note' as const,
-}));
+const updateNote = vi.fn(
+  async (templateId: string, entryId: string, _content: string, _loginId: string) => ({
+    id: entryId,
+    templateId,
+    pathKey: '',
+    content: 'x',
+    createdAt: '',
+    createdBy: '',
+    updatedAt: null,
+    updatedBy: null,
+    status: 'open' as const,
+    replyTo: null,
+    kind: 'note' as const,
+  }),
+);
 const deleteNote = vi.fn(async () => {});
 
 vi.mock('../src/repositories/noteRepo.js', () => ({
