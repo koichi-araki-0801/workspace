@@ -21,7 +21,7 @@ import { logError } from '@/lib/appError';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
-import { partEls, partLabelMap, partPathKeyFor } from './partKey';
+import { pageEls, partEls, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
 import { useTemplateEditorService } from './services/templateEditorService';
 import { useAutosave } from './useAutosave';
@@ -239,12 +239,7 @@ export function useTemplateEditor(
     const ed = g.editor.value;
     const root = canvasRoot();
     if (!ed || !root) return;
-    // canvas root 直下の `.page` 要素列を列挙する(`partKey.ts` private `pageEls` と同等ロジック)。
-    // 1 件も無ければ root 自身をページ扱いにする。
-    const pageList = Array.from(root.children).filter(
-      (el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('page'),
-    );
-    const pages = pageList.length > 0 ? pageList : [root];
+    const pages = pageEls(root);
     for (let pi = 0; pi < pages.length; pi += 1) {
       for (const part of partEls(pages[pi])) {
         if (partPathKeyFor(part, root) !== key) continue;

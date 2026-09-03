@@ -18,8 +18,11 @@ import { REDLINE_ATTR } from './redline/redlineApply';
 /**
  * canvas root(GrapesJS wrapper か body)直下の `.page` 要素列。1 件も無ければ root 自身を
  * 1 ページ扱いにする(`pageView.ts` の `enumeratePageEls` と同方針の純粋 DOM 版)。
+ * `useTemplateEditor.ts` の `selectPartByKey`(選択側の列挙)もこの関数を使う — キー計算
+ * (`partPathKeyFor`)と選択側で列挙ロジックが分岐すると、両者が違うページを指してキーの
+ * 対応がずれる。
  */
-function pageEls(root: HTMLElement): HTMLElement[] {
+export function pageEls(root: HTMLElement): HTMLElement[] {
   const pages = Array.from(root.children).filter(
     (el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('page'),
   );
