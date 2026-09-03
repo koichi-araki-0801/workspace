@@ -6,7 +6,8 @@
 // 申請は状態の要約箱(承認待ち / 承認済み / 却下)で絞り、新しい順にアコーディオンで並べる。
 // 展開した区画だけが `ReviewDetail`(組版 iframe 2 面)を持ち、同時展開は `reviewAccordion`
 // の上限に従う。各区画の右にコメントパネルを置き、行クリックで見た目比較の該当ページへ送る。
-// 決着しても画面に留まり、区画が決着済み表示へ変わる(次の申請へ続けて進める)。
+// 決着しても画面に留まり、区画が決着済み表示へ変わる(次の申請へ続けて進める)。見出しと
+// 説明文は精査者/編集者でロールが違う(旧 `ReviewQueueView` の分岐を踏襲)。
 import { isErr, isOk, type ReviewRequestMeta, type ReviewStatus } from '@editor/shared';
 import { ChevronDown, ChevronRight, ClipboardCheck, Info } from '@lucide/vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
@@ -23,6 +24,7 @@ import { useComments } from '@/features/editor/useComments';
 import { formatDateTimeShort } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useLatest } from '@/lib/useLatest';
+import { useAuthStore } from '@/stores/auth';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import { useTabMemoryStore } from '@/stores/tabMemory';
 import ReviewDetail from './ReviewDetail.vue';
@@ -34,13 +36,32 @@ const router = useRouter();
 const reviews = useReviewRepo();
 const templates = useTemplateRepo();
 const noteRepo = useNoteRepo();
+const auth = useAuthStore();
 const memory = useTabMemoryStore();
 const pending = usePendingReviewsStore();
 const { loading, run } = useAsyncResult();
 const latestLoad = useLatest();
 
+/** 見出し・説明文は旧 `ReviewQueueView` と同じくロールで分ける(精査者=承認する側 / 編集者=自分の申請を追う側)。 */
+const heading = computed(() => (auth.isApprover ? '承認' : '申請状況'));
+const description = computed(() =>
+  auth.isApprover
+    ? '編集タブで開いているテンプレートの申請を、1 件ずつ確認して承認・差し戻しします。'
+    : '編集タブで開いているテンプレートについて、自分が出した申請の状況を確認します。',
+);
+
 // ── 1. 対象テンプレート ──
 const targetId = computed(() => resolveReviewTarget(route.query, memory.pathFor('edit')));
+
+// 選択中パーツ(コメント宛先)とアコーディオンの展開状態。
+const selectedKey = ref<string | null>(null);
+const expanded = ref<string[]>([]);
+watch(targetId, () => {
+  // 同じルートで template だけが変わると画面は再マウントされない。前テンプレートの選択
+  // パーツ・展開状態を持ち越さないよう、下の読み込み系 watch より先にリセットする。
+  selectedKey.value = null;
+  expanded.value = [];
+});
 
 // ── 2. 申請一覧(全状態を 1 回で取り、対象テンプレートで絞る) ──
 const all = ref<ReviewRequestMeta[]>([]);
@@ -62,10 +83,12 @@ function toggleFilter(v: ReviewStatus) {
   statusFilter.value = statusFilter.value === v ? 'all' : v;
 }
 
+// 行バッジ・決着状態行の文言は「却下」でなく「差し戻し」で統一する(要約箱ラベルのみ
+// 「却下」を残す — 短い箱ラベルとしての指定)。
 const STATUS_META: Record<ReviewStatus, { label: string; variant: 'warning' | 'success' | 'destructive' }> = {
   pending: { label: '承認待ち', variant: 'warning' },
   approved: { label: '承認済み', variant: 'success' },
-  rejected: { label: '却下', variant: 'destructive' },
+  rejected: { label: '差し戻し', variant: 'destructive' },
 };
 const ORIGIN_LABEL: Record<ReviewRequestMeta['origin'], string> = { edit: '編集', create: '新規作成' };
 
@@ -78,10 +101,12 @@ onMounted(load);
 watch(targetId, load);
 
 // ── 3. アコーディオン(既定は先頭 1 件を開く) ──
-const expanded = ref<string[]>([]);
 watch(
   items,
   (list) => {
+    // フィルタ切替で見えなくなった id が同時展開の枠を食わないようにする。
+    const visible = new Set(list.map((m) => m.id));
+    expanded.value = expanded.value.filter((id) => visible.has(id));
     if (expanded.value.length === 0 && list.length > 0) expanded.value = [list[0].id];
   },
   { immediate: true },
@@ -99,7 +124,6 @@ function onDecided(meta: ReviewRequestMeta) {
 const allDone = computed(() => targetId.value !== null && mine.value.length > 0 && countOf('pending') === 0);
 
 // ── 4. コメント(対象テンプレートの全投稿。宛先パーツは区画内のセレクトで選ぶ) ──
-const selectedKey = ref<string | null>(null);
 const comments = useComments(() => targetId.value ?? '', () => selectedKey.value, noteRepo);
 watch(targetId, () => void comments.reload(), { immediate: true });
 
@@ -134,10 +158,10 @@ function goEdit() {
 <template>
   <div class="space-y-4">
     <div class="flex flex-wrap items-center gap-3">
-      <h2 class="text-lg font-bold">承認</h2>
+      <h2 class="text-lg font-bold">{{ heading }}</h2>
       <p class="flex items-center gap-1.5 text-[13px] text-muted-foreground">
         <Info class="h-3.5 w-3.5 shrink-0" />
-        編集タブで開いているテンプレートの申請を、1 件ずつ確認して承認・差し戻しします。
+        {{ description }}
       </p>
     </div>
 
@@ -168,6 +192,7 @@ function goEdit() {
           class="rounded-[12px] border bg-card px-4 py-3 text-left shadow-sm transition-colors"
           :class="statusFilter === f.value ? 'ring-2 ring-ring' : 'hover:bg-muted/40'"
           :data-summary="f.value"
+          :aria-pressed="statusFilter === f.value"
           @click="toggleFilter(f.value)"
         >
           <div class="text-[12px] text-muted-foreground">{{ f.label }}</div>
