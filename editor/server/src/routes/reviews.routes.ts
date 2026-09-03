@@ -99,23 +99,4 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
       );
     },
   );
-
-  // 保留(精査者限定)。実ファイルは更新しない。判断を保留して後で戻るための状態遷移。
-  app.post<ReqIdParams & { Body: z.infer<typeof ReviewDecisionBody> }>(
-    apiPaths.reviewRequestHold,
-    { preHandler: [requireAuth, requireApprover, validate(ReviewDecisionBody)] },
-    async (request) => {
-      const reqId = request.params.reqId;
-      return auditedRethrow(
-        request,
-        'review.hold',
-        () => reviews.holdReview(reqId, request.body, actor(request)),
-        {
-          success: (meta) => ({ resource: { reqId, templateId: meta.templateId } }),
-          failure: () => ({ resource: { reqId } }),
-          failureMessage: 'hold failed',
-        },
-      );
-    },
-  );
 }

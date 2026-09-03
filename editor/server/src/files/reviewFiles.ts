@@ -43,11 +43,22 @@ export async function writeReview(req: ReviewRequest): Promise<void> {
   await atomicWrite(metaPath(req.id), JSON.stringify(toReviewMeta(req), null, 2));
 }
 
-/** 申請メタを読む。無ければ null(モジュール内部ヘルパ)。 */
+/**
+ * 申請メタを読む。無ければ null(モジュール内部ヘルパ)。
+ *
+ * 旧い meta.json には保留(`held`)の状態と `heldBy` / `heldAt` / `holdComment` が残っている
+ * ことがある。保留は撤去したので、読み取りで `pending` に正規化し保留の 3 フィールドは
+ * 落とす。書き戻しはしない — 次の決着(承認 / 差し戻し)で新しい meta が書かれ自然に消える。
+ */
 async function readReviewMeta(reqId: string): Promise<ReviewRequestMeta | null> {
   const raw = await fs.readFile(metaPath(reqId), 'utf8').catch(() => null);
   if (raw === null) return null;
-  return JSON.parse(raw) as ReviewRequestMeta;
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  delete parsed.heldBy;
+  delete parsed.heldAt;
+  delete parsed.holdComment;
+  const status = parsed.status === 'held' ? 'pending' : parsed.status;
+  return { ...parsed, status } as ReviewRequestMeta;
 }
 
 /**
@@ -98,12 +109,11 @@ export const MAX_REVIEW_SCAN = 5_000;
 export const MAX_PENDING_REVIEWS = 500;
 
 /**
- * 未処理申請の件数。上限判定に使う(一覧と同じ走査上限が掛かる)。保留(held)も数える —
- * 保留は決着ではなく、除外すると保留を経由して上限(MAX_PENDING_REVIEWS)を回避できる。
+ * 未処理申請の件数。上限判定に使う(一覧と同じ走査上限が掛かる)。
  */
 export async function countPendingReviews(): Promise<number> {
   const metas = await listReviewMetas();
-  return metas.filter((m) => m.status === 'pending' || m.status === 'held').length;
+  return metas.filter((m) => m.status === 'pending').length;
 }
 
 /** 同時に開くメタファイル数。`Promise.all` の全件同時 open は fd を枯渇させる。 */

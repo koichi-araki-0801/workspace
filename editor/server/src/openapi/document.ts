@@ -508,23 +508,6 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      [toOpenApiPath(apiPaths.reviewRequestHold)]: {
-        post: {
-          tags: ['reviews'],
-          summary: '保留(精査者限定・実ファイル非更新)',
-          operationId: 'holdReview',
-          requestParams: { path: z.object({ reqId: z.string() }) },
-          requestBody: { content: { 'application/json': { schema: s.ReviewDecisionBody } } },
-          responses: {
-            '200': json('保留後の申請メタ', s.ReviewRequestMeta),
-            ...ERR_400,
-            ...ERR_401,
-            ...ERR_403,
-            ...ERR_404,
-            ...ERR_409,
-          },
-        },
-      },
 
       // ── 6. history ──
       '/history/edit': {

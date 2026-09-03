@@ -1586,96 +1586,6 @@
         }
       }
     },
-    "/review-requests/{reqId}/hold": {
-      "post": {
-        "tags": [
-          "reviews"
-        ],
-        "summary": "保留(精査者限定・実ファイル非更新)",
-        "operationId": "holdReview",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "reqId",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReviewDecisionBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "保留後の申請メタ",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReviewRequestMeta"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "リクエスト検証エラー (kind=validation)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "未認証 (kind=unauthorized)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "権限不足 (admin 限定など)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "対象が存在しない (kind=not_found)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "競合 (kind=conflict)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/history/edit": {
       "get": {
         "tags": [
@@ -2818,8 +2728,7 @@
         "enum": [
           "pending",
           "approved",
-          "rejected",
-          "held"
+          "rejected"
         ]
       },
       "SubmitReviewBody": {
@@ -3748,38 +3657,6 @@
             ],
             "description": "申請時点の現行版コンテンツキー"
           },
-          "heldBy": {
-            "description": "保留した承認者。無ければ null",
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "heldAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "holdComment": {
-            "description": "保留メモ",
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "changedSummary": {
             "anyOf": [
               {
@@ -3876,38 +3753,6 @@
               }
             ],
             "description": "申請時点の現行版コンテンツキー"
-          },
-          "heldBy": {
-            "description": "保留した承認者。無ければ null",
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "heldAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "holdComment": {
-            "description": "保留メモ",
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "changedSummary": {
             "anyOf": [
