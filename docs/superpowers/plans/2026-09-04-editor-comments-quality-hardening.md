@@ -1,4 +1,4 @@
-# editor コメント機能・承認タブ 品質強化 Implementation Plan(改訂 4)
+# editor コメント機能・承認タブ 品質強化 Implementation Plan(改訂 5)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -381,6 +381,8 @@ div クリック + `@click.stop` の二重構造は作らない(ハンドラ無�
     `reply/update/remove/setStatus` は `entry` 由来なので変更なし。
   - `ReviewTabView.vue`: `selectedKey` を `reactive<Record<string, string | null>>({})`(reqId → key)に。
     **区画のキーは `null` で初期化する**: `watch(items, (list) => { for (const m of list) if (!(m.id in selectedKey)) selectedKey[m.id] = null; }, { immediate: true })`。
+    この `watch` は `items`(computed)の定義より**後**、§3 アコーディオンの既存 `watch(items)` の隣に置く
+    (`selectedKey` の宣言位置に置くと `items` が TDZ で ReferenceError)。
     未初期化(`undefined`)のままだと Vue の `setSelected` が `looseEqual(null, undefined)` で外れて
     `selectedIndex = -1` になり、閉じた select から「宛先を選ぶ」が消える(可視文言の退行)。
     select の `v-model="selectedKey[m.id]"`、`:selected-key="selectedKey[m.id] ?? null"`、
@@ -411,24 +413,36 @@ div クリック + `@click.stop` の二重構造は作らない(ハンドラ無�
     title「削除済みパーツ(この版の構造にありません)」を持ち(既存の表示語「削除済みパーツ」に揃える。
     同じ状態を別の言葉で呼ばない)、クリックしても `focus` を emit しない。既存テスト「行のクリックで
     focus(pathKey) を emit する」の行は `partLabels` に在るキーなので従来どおり emit する。
-  - `reviewTabView.test.ts`: (a) `getTemplate` が失敗(`err`)のとき、区画のコメント列に
-    「このテンプレートの確定版がまだ無いため、パーツ宛のコメントは付けられません」が出て select が
-    `disabled`。(b) `getTemplate` が未解決(手動解決の Promise)の間は文言が**出ず**、select は `disabled`。
-    (c) 区画を開いた直後(`ReviewDetail` stub が `loading` 相当で `gotoPage` を持たない状態を模す:
-    stub の `expose` を 1 tick 遅らせる)に `focus` しても、準備後に `gotoPage` が 1 回呼ばれる。
+  - `reviewTabView.test.ts`: (a) `getTemplate` が失敗(`unexpected('読み取り失敗')` を `err` で返す。
+    `as` は使わない)のとき、区画のコメント列に「このテンプレートの確定版がまだ無いため、パーツ宛の
+    コメントは付けられません」が出て select が `disabled`。(b) `getTemplate` が未解決(手動解決の
+    Promise)の間は文言が**出ず**、select は `disabled`。
+  - 「区画を開いた直後の準備待ち」は `ReviewDetail` の内部状態(`pendingIndex` / `watch(visualRef)`)で、
+    `ReviewTabView` のテストでは `ReviewDetail` を stub 化するため観測できない(関数 ref は `setRef` 時に
+    公開インスタンスを確定するので、stub 側の `expose` を遅らせても親の参照は更新されない)。
+    `ReviewDetail` の mount テストは置かない方針(自己レビュー参照)なので、この 2 段の準備待ちには単体網を
+    置かず、`ReviewVisualCompare` 側の保留は `reviewCompareDocs` 相当の純粋部分を持たないため e2e
+    `review_tab.spec.ts` の「行クリック → 該当ページ表示」で覆う(Task 8 でケースを 1 本足す:
+    区画を開いた直後にコメント行を押し、`afterState`/`beforeState` の準備後に両面のページ番号が動く)。
 - [ ] **Step 2: 実装**
   - `CommentPanel`: 到達不能行は emit しない + `aria-disabled` + title。
-  - `ReviewVisualCompare`: `pendingPageIndex = ref<number | null>(null)` を持ち、`gotoPage(index)` は
-    `afterState.value.pageCount > 0` なら即送信、でなければ保留。判定は常に `afterState` —
-    単面表示(`isCreate`)で残るのは **after 面**(`v-if="!isCreate"` が付くのは before の figure)なので、
-    「before 単面」は存在しない。`watch(afterState)` で `pageCount > 0` になった時に保留分を 1 回だけ送る。
-    `PreviewPanel` が fallback へ倒れた場合は `pageCount` が 0 のままなので保留は捨てる(コメントに明記)。
+  - `ReviewVisualCompare`: `pendingPageIndex = ref<number | null>(null)` を持ち、`gotoPage(index)` の
+    即送信条件は `afterState.pageCount > 0 && (isCreate || beforeState.pageCount > 0)`。単面表示
+    (`isCreate`)で残るのは **after 面**(`v-if="!isCreate"` が付くのは before の figure)なので before は
+    見ない。2 面では**両方が準備できるまで保留**する — `gotoPage` は左右へ同じ id を送るため、片面だけ
+    送ると左右のページがずれ、ページ番号表示は `afterState` 由来の 1 つしか無いので承認者に「前後で
+    内容が違う」と誤読させる。flush は `watch([afterState, beforeState])` で 1 回だけ、後から呼ばれた
+    `gotoPage` が保留を上書きする(最新勝ち)。`PreviewPanel` が fallback へ倒れた場合は `pageCount` が
+    0 のままで永久に flush されない(破棄処理は無く、次のクリックで上書きされるだけ。コメントに実態を書く)。
   - `ReviewDetail.gotoPage`: `activeTab.value = 'visual'` にし、`visualRef` が無ければ `pendingIndex` に
-    保留して `watch(visualRef)`(マウント時)で 1 回 flush、在れば `nextTick` 後に委譲。組版の準備待ちは
-    `ReviewVisualCompare` 側が担う旨をコメントに。`defineExpose` のコメントも「見た目比較へ切り替えて
-    該当ページへ送る」に直す。
-  - `ReviewTabView`: `partsLoaded = ref(false)` を足し、`loadParts` の最新判定を通過した時点で true
-    (`targetId` 変化時に false へ戻す)。判定は `partsLoaded && partLabels.size === 0`(`m.origin` は
+    保留して `watch(visualRef, …, { flush: 'post' })`(マウント後に子の `gotoPage` が呼べる)で 1 回
+    flush して `pendingIndex = null` に戻す、在れば `nextTick` 後に委譲。組版の準備待ちは
+    `ReviewVisualCompare` 側が担う旨、および単体網が無いぶん「flush 後は必ず `null` へ戻す・`watch` は
+    1 回だけ送る」をコメントで明示する。`defineExpose` のコメントも「見た目比較へ切り替えて該当ページへ
+    送る」に直す。
+  - `ReviewTabView`: `partsLoaded = ref(false)` を足す。`loadParts` の現行
+    `if (!isLatest() || !isOk(tpl)) return;` を `if (!isLatest()) return; partsLoaded.value = true; if (!isOk(tpl)) return;`
+    の順に分割する(取得失敗でも「確定版がまだ無い」文言を出すため。`targetId` 変化時に false へ戻す)。判定は `partsLoaded && partLabels.size === 0`(`m.origin` は
     見ない — `partLabels` はテンプレ単位。読み込み中に真になると正常なテンプレでも文言が一瞬出る)。
     該当時は select を `disabled`、`can-add` を false、コメント列上部に上記 1 行。読み込み中は select を
     `disabled` にして文言は出さない。why に「宛先は確定版の構造から作るため、申請側にだけ在る追加パーツ
@@ -504,7 +518,14 @@ div クリック + `@click.stop` の二重構造は作らない(ハンドラ無�
 | `submitOnce` の 1000ms | `await expect(page.getByRole('status').filter({ hasText: '確定保存を申請しました' })).toBeVisible()`(`PreviewView.vue` の `toastSuccess`、`Toaster.vue` は `role="status"`。`submitOnce` は冒頭で `goto` するので前回の toast は残らない) |
 | `/edit/:id` 後の 2000ms | `frameLocator('iframe.gjs-frame').locator('.page').first()` の可視待ちへ。GrapesJS 初期化完了を待つ意図をコメントに残す |
 
-- [ ] **Step 1: 置換 → `--repeat-each=3` で安定確認 → コミット** `test(editor): 承認タブ e2e の固定待ちを要素待ちへ置き換える`
+- [ ] **Step 1: 置換 → `--repeat-each=3` で安定確認**
+- [ ] **Step 2: 準備待ちの e2e を 1 本足す**(Task 4 の 2 段の保留は単体網が無いのでここで覆う):
+  申請の区画を開いた**直後**に(組版完了を待たずに)コメント列の行を押す → 両面の
+  `[data-vivliostyle-page-container]` が出た後、`ReviewVisualCompare` のページ番号表示が該当ページに
+  なっていること。行を押す前提としてコメントを 1 件作る必要があるので、`submitOnce` の前に編集画面で
+  2 ページ目のパーツへコメントを付けておく(`comment_panel.spec.ts` の `addComment` ヘルパを流用)。
+  文字差分タブへ切り替えてから行を押す変種も 1 ケース(タブが見た目比較へ戻ることを確認)。
+- [ ] **Step 3: コミット** `test(editor): 承認タブ e2e の固定待ちを要素待ちへ置き換え、行クリックの準備待ちを固定する`
 
 ---
 
