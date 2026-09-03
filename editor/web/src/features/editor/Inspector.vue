@@ -257,7 +257,9 @@ const PB_CLASS =
       </Tooltip>
     </div>
 
-    <slot v-if="paneTab === 'comments'" name="comments" />
+    <div v-if="paneTab === 'comments'" class="flex min-h-0 flex-1 flex-col">
+      <slot name="comments" />
+    </div>
 
     <!-- 未選択 -->
     <div

@@ -601,6 +601,10 @@ const statusText = computed(() => {
   pointer-events: none;
   z-index: 24;
 }
+/* 全部解決済みのパーツは灰色で残す(「見た」ことは分かるが、次に見るべき場所ではない)。 */
+.note-marker-resolved {
+  background: var(--muted-foreground);
+}
 
 /* drag grip on the selected block — large, obvious grab target for reorder */
 .pg-move {
