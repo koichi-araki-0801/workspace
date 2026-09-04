@@ -4,7 +4,14 @@
 // 組版 iframe を持つ `ReviewDetail` と `CommentPanel` は render 関数の stub にし、一覧の状態機械と
 // 宛先の受け渡しだけを固定する(実描画は e2e `review_tab.spec.ts` が覆う)。stub からも `focus` を
 // emit し、stub 化で通らなくなる `focusPart` / `goEdit` の経路を通す。
-import { ok, type PartNoteEntry, type ReviewRequestMeta, type Template } from '@editor/shared';
+import {
+  err,
+  ok,
+  type PartNoteEntry,
+  type ReviewRequestMeta,
+  type Template,
+  unexpected,
+} from '@editor/shared';
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, reactive } from 'vue';
@@ -283,6 +290,30 @@ describe('コメントの宛先', () => {
     );
     const w = await mountTab([meta({ id: 'a' })]);
     expect(w.findAll('select[aria-label="コメントの宛先パーツ"] option')).toHaveLength(1 + 3);
+  });
+});
+
+describe('確定版の構造が引けないときの案内', () => {
+  it('getTemplate が失敗すると案内文言が出て select が disabled になる', async () => {
+    route.query = { template: TPL };
+    getTemplateFn.mockResolvedValue(err(unexpected('読み取り失敗')));
+    const w = await mountTab([meta({ id: 'a' })]);
+    expect(w.text()).toContain(
+      'このテンプレートの確定版がまだ無いため、パーツ宛のコメントは付けられません',
+    );
+    expect(
+      (w.find('select[aria-label="コメントの宛先パーツ"]').element as HTMLSelectElement).disabled,
+    ).toBe(true);
+  });
+
+  it('getTemplate が未解決の間は案内文言が出ず、select だけ disabled になる', async () => {
+    route.query = { template: TPL };
+    getTemplateFn.mockReturnValue(new Promise(() => {}));
+    const w = await mountTab([meta({ id: 'a' })]);
+    expect(w.text()).not.toContain('確定版がまだ無いため');
+    expect(
+      (w.find('select[aria-label="コメントの宛先パーツ"]').element as HTMLSelectElement).disabled,
+    ).toBe(true);
   });
 });
 

@@ -150,15 +150,23 @@ watch(targetId, () => void comments.reload(), { immediate: true });
 /** パーツの表示ラベルとページ index。確定版の本文から `reviewPartMaps.ts` の規則で作る。 */
 const partLabels = ref<Map<string, string>>(new Map());
 const partPages = ref<Map<string, number>>(new Map());
+/** `getTemplate` の応答有無に関わらず読み込みが確定したか。取得失敗でも true にする
+ * (下の `partsUnavailable` が「確定版がまだ無い」文言を出すのに、成功/失敗を区別せず
+ * 「読み込みが終わったのに空」であることだけを使うため)。`targetId` が変わるたびに
+ * `loadParts` の先頭で false へ戻す。 */
+const partsLoaded = ref(false);
 const latestLoadParts = useLatest();
 async function loadParts() {
   const isLatest = latestLoadParts.begin();
   partLabels.value = new Map();
   partPages.value = new Map();
+  partsLoaded.value = false;
   const id = targetId.value;
   if (!id) return;
   const tpl = await templates.getTemplate(id);
-  if (!isLatest() || !isOk(tpl)) return;
+  if (!isLatest()) return;
+  partsLoaded.value = true;
+  if (!isOk(tpl)) return;
   // `filled`(per-fund 実値埋め込み済み)は local 専用で、rest では常に ''(server の
   // `templateRepo.ts` が値埋め込み済みファイル取得を未実装のため)を返す本番値。パーツ構造
   // しか要らないので値の有無を区別する `??` でなく、空文字も拾う `||` で `html` へ落とす。
@@ -167,6 +175,13 @@ async function loadParts() {
   partPages.value = maps.pages;
 }
 watch(targetId, loadParts, { immediate: true });
+
+/** 確定版の構造が引けない(取得失敗、または構造はあってもパーツ 0 件)。読み込み中
+ * (`!partsLoaded`)はここに含めない — 正常なテンプレでも読み込み中は一瞬 `partLabels.size
+ * === 0` になり、含めると文言が一瞬だけ出てしまう。`m.origin`(区画=申請ごとの由来)は
+ * 見ない — `partLabels` はテンプレ単位の状態で申請単位ではない。宛先は確定版の構造から
+ * 作るため、申請側にだけ在る追加パーツ(新規追加ブロック等)にも宛てられない。 */
+const partsUnavailable = computed(() => partsLoaded.value && partLabels.value.size === 0);
 
 /** コメント一覧の行から選択・ページ送りする。削除済みパーツ(現行構造に無いキー)は無視する
  * (削除済みパーツ宛に新規投稿させない — `partLabels` に無い = 宛先の選択肢からも外れている)。 */
@@ -284,15 +299,23 @@ function goEdit() {
               <div class="flex items-center gap-2 border-b px-3 py-2 text-[12.5px] font-bold">
                 コメント
                 <span class="flex-1" />
-                <select v-model="selectedKey[m.id]" class="max-w-[170px] rounded border bg-background px-1.5 py-0.5 text-[11px] font-normal" aria-label="コメントの宛先パーツ">
+                <select
+                  v-model="selectedKey[m.id]"
+                  class="max-w-[170px] rounded border bg-background px-1.5 py-0.5 text-[11px] font-normal"
+                  aria-label="コメントの宛先パーツ"
+                  :disabled="!partsLoaded || partsUnavailable"
+                >
                   <option :value="null">宛先を選ぶ</option>
                   <option v-for="[key, label] in [...partLabels.entries()]" :key="key" :value="key">{{ label }}</option>
                 </select>
               </div>
+              <p v-if="partsUnavailable" class="border-b px-3 py-2 text-[11.5px] text-muted-foreground">
+                このテンプレートの確定版がまだ無いため、パーツ宛のコメントは付けられません
+              </p>
               <CommentPanel
                 :entries="comments.all.value"
                 :selected-key="selectedKey[m.id] ?? null"
-                :can-add="(selectedKey[m.id] ?? null) !== null"
+                :can-add="!partsUnavailable && (selectedKey[m.id] ?? null) !== null"
                 :part-labels="partLabels"
                 compact
                 @add="(content, kind) => comments.add(content, { kind }, selectedKey[m.id] ?? undefined)"
