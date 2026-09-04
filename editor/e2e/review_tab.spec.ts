@@ -88,9 +88,9 @@ test('対象が無ければ誘導し、編集タブで開いたテンプレー�
  * canvas でパーツを選択し、右ペインのコメント欄から 1 件付ける
  * (`comment_panel.spec.ts` の `addComment` と同じ操作列)。右ペインを「コメント」タブへ
  * 切り替えるのは呼び出し側の責務(このファイルでは 1 回だけ切り替える)。
- * `partKey.ts` の `canvasRawKey` 導入(事象 B の修正)により、canvas 側のパーツ選択で計算する
- * pathKey は確定版の生 HTML を静的パースする側(`ReviewTabView` の `partLabels`)と一致する
- * ようになったため、通常の追加経路で付けたコメントがそのまま承認タブから到達できる。
+ * canvas 側のパーツ選択で計算する pathKey(`partKey.ts` の `canvasRawKey`)は確定版の生 HTML を
+ * 静的パースする側(`ReviewTabView` の `partLabels`)と一致するので、通常の追加経路で付けた
+ * コメントがそのまま承認タブから到達できる。
  */
 async function addCanvasComment(page: Page, part: Locator, content: string): Promise<void> {
   await part.waitFor({ state: 'visible', timeout: 30_000 });

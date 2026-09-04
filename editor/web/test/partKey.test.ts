@@ -160,16 +160,17 @@ describe('canvasRawKey — canvas 側は id をモデルの明示属性から読
   });
 });
 
-describe('canvasRawKey — 承認タブ(静的パース)とのキー集合一致(事象 B の再発防止網)', () => {
+describe('canvasRawKey — 承認タブ(静的パース)とのキー集合一致', () => {
   it('canvas 側に自動 id が付いていても、静的パース側と同じキー集合になる', () => {
     // data-part-id を持たないテンプレート(seed テンプレートと同条件)を模す。
     const html =
       '<div class="page"><table class="summary"></table><h1 class="t">A</h1></div>' +
       '<div class="page"><p class="lead">B</p></div>';
-    // canvas 側は GrapesJS が全要素へ揮発性の id(ccid)を付けて回る。モデル側の明示属性は
+    // canvas 側は GrapesJS が全要素へ揮発性の id(ccid)を付けて回る(`.page` も例外でない。
+    // ページ側のキーにも自動 id が混ざらないことを同時に固定する)。モデル側の明示属性は
     // どの要素も持たない(= 静的パース側と同じく class/tag へ落ちるべき)。
     const canvasHtml = html.replace(
-      /<(table|h1|p)( class="[^"]+")?>/g,
+      /<(div|table|h1|p)( class="[^"]+")?>/g,
       (_m, tag, cls) => `<${tag}${cls ?? ''} id="i${tag}">`,
     );
     const canvasRoot = root(canvasHtml);
