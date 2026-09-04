@@ -123,7 +123,8 @@ listNotes(templateId)
 
 ### 4.4 composable(`usePartNote.ts` → `useComments.ts`)
 
-`all` を保持し `entries`(選択パーツ)と `notedKeys` を導く構造は同じ。`add(content, opts)`、
+`all` を保持し `entries`(選択パーツ)と `notedKeys` を導く構造は同じ。`add(content, opts, pathKey?)`
+(`pathKey` 省略時は選択パーツ。承認タブは区画ごとの宛先を明示して渡す)、
 `reply(parent, content)`、`setStatus(parent, status)`、`update`、`remove` を持つ。
 `reply` は `add` の `replyTo` 指定に薄く包んだもの。
 
@@ -187,8 +188,10 @@ listNotes(templateId)
 ### 5.4 コメントパネル
 
 展開したセクションの右側に 4.1 と同じ `CommentPanel.vue` を置く(対象テンプレートの
-コメント。承認者も追加・返信・解決できる)。行のクリックは見た目比較の該当パーツへ
-`gotoAnchor`(`shared/src/preview/hostProtocol.ts` の既存命令)で移動する。吹き出しは出さない
+コメント。承認者も追加・返信・解決できる。ただし確定版の構造を読めないテンプレートでは
+宛先を選べないため追加だけは不可にし、その旨を表示する)。行のクリックは見た目比較の
+該当パーツが属する**ページ**へ `gotoAnchor`(`shared/src/preview/hostProtocol.ts` の既存命令)で
+移動する(アンカーはページ単位。確定版に無いパーツの行は不活性)。吹き出しは出さない
 (承認画面は opaque iframe で DOM に触れないため、スレッドの表示・操作はパネル内で完結
 させる。パネル内の行を開くと返信一覧と返信入力欄が展開する)。
 

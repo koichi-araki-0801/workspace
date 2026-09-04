@@ -350,6 +350,7 @@ onMounted(async () => {
       <div class="flex items-center gap-1.5">
         <Button
           :variant="activeTab === 'visual' ? 'default' : 'outline'"
+          :aria-pressed="activeTab === 'visual'"
           size="sm"
           @click="activeTab = 'visual'"
         >
@@ -357,6 +358,7 @@ onMounted(async () => {
         </Button>
         <Button
           :variant="activeTab === 'text' ? 'default' : 'outline'"
+          :aria-pressed="activeTab === 'text'"
           size="sm"
           @click="activeTab = 'text'"
         >
