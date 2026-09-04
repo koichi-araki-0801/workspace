@@ -6,13 +6,16 @@
 // で、各アンカーは `@/lib/blockKey` の `rawKey`(data-part-id→id→class→tag)+ 兄弟内の
 // 出現順。HTML 構造のみに依存するため、版種/基準日が変わっても同じ構造のパーツなら一致する
 // (版比較 `htmlBlockDiff.ts` のブロック整列と同思想)。コメントはこのキーでパーツを指す
-// (スレッドは版インスタンス単位で、ペアや他版とは共有しない)。
+// (スレッドは版インスタンス単位で、ペアや他版とは共有しない)。`id` は既定で DOM の `id` を
+// 読むが、canvas のライブ要素は GrapesJS が自動 `id` を付けて回るため、canvas 側の呼び出しは
+// `canvasRawKey` をアンカー関数として渡し、モデルの明示属性から `id` を読み替える。
 //
 // 限界: ページの追加/削除でページの並びがずれた場合や、catalog 由来でないパーツ(安定な
 // `data-part-id` を持たない)では best-effort になる(compare の位置整列と同程度)。基準日
 // 更新のように構造が同一な版替えでは確実に一致する。
 
-import { occurrenceKey } from '@/lib/blockKey';
+import type { Editor } from 'grapesjs';
+import { occurrenceKey, type RawKeyOf, rawKey, rawKeyFromParts } from '@/lib/blockKey';
 import { REDLINE_ATTR } from './redline/redlineApply';
 
 /**
@@ -65,9 +68,10 @@ function partKeyOf(
   part: HTMLElement,
   pages: readonly HTMLElement[],
   root: HTMLElement,
+  keyOf: RawKeyOf,
 ): string {
-  const pageKey = pages[0] === root ? 'body#1' : occurrenceKey(page, pages);
-  const partKey = occurrenceKey(part, partEls(page));
+  const pageKey = pages[0] === root ? 'body#1' : occurrenceKey(page, pages, keyOf);
+  const partKey = occurrenceKey(part, partEls(page), keyOf);
   return `${pageKey}/${partKey}`;
 }
 
@@ -76,10 +80,14 @@ function partKeyOf(
  * 同一パーツ内のどの子要素を選んでも、囲う top-level block の同一キーに解決される
  * (= 紐付け単位は「パーツ」)。
  */
-export function partPathKeyFor(el: HTMLElement, root: HTMLElement): string | null {
+export function partPathKeyFor(
+  el: HTMLElement,
+  root: HTMLElement,
+  keyOf: RawKeyOf = rawKey,
+): string | null {
   const r = resolvePart(el, root);
   if (!r) return null;
-  return partKeyOf(r.page, r.part, pageEls(root), root);
+  return partKeyOf(r.page, r.part, pageEls(root), root, keyOf);
 }
 
 /**
@@ -88,12 +96,12 @@ export function partPathKeyFor(el: HTMLElement, root: HTMLElement): string | nul
  * 子の通し番号ではないため、ここで現 DOM を順に列挙して通し番号 `p`/`q` を採番する。キーは
  * `partPathKeyFor` と同じ `partKeyOf` で作るので、選択時に解決されるキーと必ず一致する。
  */
-export function partLabelMap(root: HTMLElement): Map<string, string> {
+export function partLabelMap(root: HTMLElement, keyOf: RawKeyOf = rawKey): Map<string, string> {
   const map = new Map<string, string>();
   const pages = pageEls(root);
   pages.forEach((page, pi) => {
     partEls(page).forEach((part, qi) => {
-      map.set(partKeyOf(page, part, pages, root), `ページ${pi + 1}・パーツ${qi + 1}`);
+      map.set(partKeyOf(page, part, pages, root, keyOf), `ページ${pi + 1}・パーツ${qi + 1}`);
     });
   });
   return map;
@@ -104,11 +112,32 @@ export function partLabelMap(root: HTMLElement): Map<string, string> {
  * コメント一覧が「行クリックで見た目比較の該当ページへ送る」ために使う。キーの作り方は
  * `partLabelMap` と同じ(`partKeyOf`)なので、両者のキー集合は必ず一致する。
  */
-export function partPageIndexMap(root: HTMLElement): Map<string, number> {
+export function partPageIndexMap(root: HTMLElement, keyOf: RawKeyOf = rawKey): Map<string, number> {
   const map = new Map<string, number>();
   const pages = pageEls(root);
   pages.forEach((page, pi) => {
-    for (const part of partEls(page)) map.set(partKeyOf(page, part, pages, root), pi);
+    for (const part of partEls(page)) map.set(partKeyOf(page, part, pages, root, keyOf), pi);
   });
   return map;
+}
+
+/**
+ * 編集 canvas 用のアンカー関数。GrapesJS はライブ要素すべてに自動 `id`(ccid)を付けるが、
+ * それは `getHtml()` に残らず、確定版 HTML を静的に読む側(承認タブ・compare)のキーには
+ * 現れない。canvas 側だけ DOM の `id` を信じるとテンプレートに `data-part-id` も明示 `id` も
+ * 無いパーツ宛のコメントが他所で一つも引けなくなるため、`id` はモデルの明示属性から取る
+ * (モデルの `attributes` には明示属性しか無い。`redline/redlineTree.ts` と同じ前提)。
+ * 要素 → component は `Components.getById`(`selectPartByKey` と同じ経路)で解決する。
+ */
+export function canvasRawKey(ed: Editor): RawKeyOf {
+  return (el) => {
+    const comp = el.id ? ed.Components.getById(el.id) : undefined;
+    const attrs = comp?.get('attributes') as Record<string, unknown> | undefined;
+    return rawKeyFromParts({
+      partId: el.getAttribute('data-part-id'),
+      id: typeof attrs?.id === 'string' ? attrs.id : null,
+      firstClass: el.classList[0] ?? null,
+      tag: el.tagName,
+    });
+  };
 }

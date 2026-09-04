@@ -284,9 +284,15 @@ const BOOT_SCRIPT = `(function(){
         // 送出→親が簡易表示へ倒す)に載せない。id 不一致・該当要素なし等の失敗は
         // 黙って何もしない(親はマーカー+手動ページ送りのフォールバックを持つ。
         // このコマンド 1 つの失敗でプレビュー全体を操作不能へ倒さない)。
+        // フラグメントだけの href(例: '#review-anchor-2')は渡さない。core の navigateTo は
+        // それを「変換済みフラグメント」(documentURLTransformer が読み込み URL と id を
+        // 合成した形)として復号しようとし、素の id は spine 上の path と解釈されて
+        // 見つからず何も起きない(実測: 対象を示すログは出るがページは動かない)。ページ内
+        // リンクのクリックは a.href(絶対 URL)を渡すのでこの経路を踏まない — 読み込んだ
+        // 文書の URL(blobUrl)を前置して同じ形の絶対 URL にする。
         try{
-          if(typeof anchor==='string'&&/^[A-Za-z0-9_-]+$/.test(anchor)){
-            viewer.navigateToInternalUrl('#'+anchor);
+          if(blobUrl&&typeof anchor==='string'&&/^[A-Za-z0-9_-]+$/.test(anchor)){
+            viewer.navigateToInternalUrl(blobUrl+'#'+anchor);
           }
         }catch(e){/* 移動失敗は無視(操作不能へ倒さない) */}
       }

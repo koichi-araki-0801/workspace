@@ -21,7 +21,13 @@ export function rawKeyFromParts(p: {
   return p.partId || p.id || (p.firstClass ? `.${p.firstClass}` : '') || p.tag.toLowerCase();
 }
 
-/** element のアンカー: catalog part id → element id → 先頭 class → tag 名 の順で決める。 */
+/**
+ * element のアンカー: catalog part id → element id → 先頭 class → tag 名 の順で決める。
+ * `id` は静的パース(確定版 HTML を `DOMParser` で読む承認タブ・compare)の DOM `id` を指す。
+ * canvas のライブ要素は GrapesJS が全要素へ自動 `id`(ccid)を付け、それは `getHtml()` に
+ * 残らないため、canvas 側では `id` をこの関数でなく `canvasRawKey`(`features/editor/partKey.ts`)
+ * で読み替える(モデルの明示属性から取る)。
+ */
 export function rawKey(el: HTMLElement): string {
   return rawKeyFromParts({
     partId: el.getAttribute('data-part-id'),
@@ -31,12 +37,19 @@ export function rawKey(el: HTMLElement): string {
   });
 }
 
-/** 兄弟 `siblings` の中で `el` が同 `rawKey` の何番目か(1 始まり)を付した一意キー。 */
-export function occurrenceKey(el: HTMLElement, siblings: readonly HTMLElement[]): string {
-  const base = rawKey(el);
+/** 要素からアンカー文字列を作る関数の型。canvas 側は自動 id を除いた版を差し込む。 */
+export type RawKeyOf = (el: HTMLElement) => string;
+
+/** 兄弟 `siblings` の中で `el` が同アンカーの何番目か(1 始まり)を付した一意キー。 */
+export function occurrenceKey(
+  el: HTMLElement,
+  siblings: readonly HTMLElement[],
+  keyOf: RawKeyOf = rawKey,
+): string {
+  const base = keyOf(el);
   let n = 0;
   for (const s of siblings) {
-    if (rawKey(s) === base) {
+    if (keyOf(s) === base) {
       n += 1;
       if (s === el) break;
     }

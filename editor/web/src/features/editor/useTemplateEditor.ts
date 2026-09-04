@@ -21,7 +21,7 @@ import { logError } from '@/lib/appError';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
-import { pageEls, partEls, partLabelMap, partPathKeyFor } from './partKey';
+import { canvasRawKey, pageEls, partEls, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
 import { useTemplateEditorService } from './services/templateEditorService';
 import { useAutosave } from './useAutosave';
@@ -196,8 +196,8 @@ export function useTemplateEditor(
     const ed = g.editor.value;
     const el = ed?.getSelected()?.getEl?.() as HTMLElement | undefined;
     const root = canvasRoot();
-    if (!el || !root) return null;
-    return partPathKeyFor(el, root);
+    if (!ed || !el || !root) return null;
+    return partPathKeyFor(el, root, canvasRawKey(ed));
   }
 
   /**
@@ -206,8 +206,9 @@ export function useTemplateEditor(
    */
   const partLabels = computed<Map<string, string>>(() => {
     void g.revision.value;
+    const ed = g.editor.value;
     const root = canvasRoot();
-    return root ? partLabelMap(root) : new Map();
+    return ed && root ? partLabelMap(root, canvasRawKey(ed)) : new Map();
   });
 
   const note = useComments(
@@ -240,9 +241,10 @@ export function useTemplateEditor(
     const root = canvasRoot();
     if (!ed || !root) return;
     const pages = pageEls(root);
+    const keyOf = canvasRawKey(ed);
     for (let pi = 0; pi < pages.length; pi += 1) {
       for (const part of partEls(pages[pi])) {
-        if (partPathKeyFor(part, root) !== key) continue;
+        if (partPathKeyFor(part, root, keyOf) !== key) continue;
         if (g.singlePageMode.value) g.goToPage(pi);
         const comp = part.id ? ed.Components.getById(part.id) : undefined;
         if (comp) ed.select(comp);
