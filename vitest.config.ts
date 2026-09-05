@@ -174,6 +174,7 @@ export default defineConfig({
         'editor/web/src/features/reviews/services/changedSummary.ts',
         'editor/web/src/features/reviews/resolveReviewTarget.ts',
         'editor/web/src/features/reviews/reviewAccordion.ts',
+        'editor/web/src/features/reviews/ReviewTabView.vue',
         'editor/web/src/features/reviews/useReviewDiff.ts',
         'editor/web/src/features/reviews/ReviewNoticeBar.vue',
         'editor/web/src/api/local/authRepo.ts',

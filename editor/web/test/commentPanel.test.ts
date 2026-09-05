@@ -142,6 +142,21 @@ describe('CommentPanel', () => {
     expect(row?.classes()).toContain('text-muted-foreground');
   });
 
+  it('削除済みパーツの行は aria-disabled と title を持ち、クリックしても focus を emit しない', async () => {
+    const deleted = entry({
+      id: 'd',
+      pathKey: 'gone-key',
+      content: '消えたパーツへのコメント',
+      createdAt: '2026-09-01T00:00:04.000Z',
+    });
+    const w = mountPanel({ entries: [...entries, deleted] });
+    const row = w.findAll('[data-comment-row]').find((r) => r.text().includes('消えたパーツ'));
+    expect(row?.attributes('aria-disabled')).toBe('true');
+    expect(row?.attributes('title')).toBe('削除済みパーツ(この版の構造にありません)');
+    await row?.trigger('click');
+    expect(w.emitted('focus')).toBeUndefined();
+  });
+
   it('本文が空、または canAdd が false なら Ctrl+Enter でも追加を送らない', async () => {
     const w = mountPanel();
     const ta = w.find('textarea[data-add-content]');
@@ -248,5 +263,12 @@ describe('CommentPanel', () => {
     resolveConfirm(true);
     await flushPromises();
     expect(w.emitted('remove')?.[1]).toEqual([entries[0]]);
+  });
+
+  it('編集を開くと textarea に aria-label が付く', async () => {
+    const w = mountPanel();
+    await w.find('[data-comment-row] [data-expand]').trigger('click');
+    await w.find('button[aria-label="このコメントを編集"]').trigger('click');
+    expect(w.find('textarea[aria-label="コメント本文の編集"]').exists()).toBe(true);
   });
 });

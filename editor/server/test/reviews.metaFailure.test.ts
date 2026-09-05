@@ -95,7 +95,7 @@ d('review approve — meta 更新の部分失敗', () => {
     // 実ファイル反映と git commit は完了済み(エラーメッセージの前提)であること。
     const written = fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8');
     expect(written).toContain('恒常失敗');
-    // meta は pending のまま残る(承認キューに可視 = 手動復旧の手掛かり)。
+    // meta は pending のまま残る(申請一覧に表示 = 手動復旧の手掛かり)。
     const after = await reviews.getReview(meta.id, approver);
     expect(after.status).toBe('pending');
   });

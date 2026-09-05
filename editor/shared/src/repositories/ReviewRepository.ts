@@ -16,7 +16,7 @@ import type {
 } from '../index.js';
 import type { Result } from '../result.js';
 
-/** 承認キューの絞り込み(状態)。未指定は全件。 */
+/** 申請一覧の絞り込み(状態)。未指定は全件。 */
 export interface ReviewListFilter {
   status?: ReviewStatus;
 }

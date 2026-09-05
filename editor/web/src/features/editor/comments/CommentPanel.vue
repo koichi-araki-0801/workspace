@@ -28,6 +28,10 @@ import {
  * `partLabelOf` と同じ文言に揃える(同じ意味の状態を画面ごとに違う言葉で言わない)。 */
 const DELETED_PART_LABEL = '削除済みパーツ';
 
+/** 削除済みパーツ行の `title`。行クリックしても宛先へ移動できない理由を伝える(表示ラベルと
+ * 同じ「削除済みパーツ」を使い、別の言葉で同じ状態を呼ばない)。 */
+const DELETED_PART_TITLE = '削除済みパーツ(この版の構造にありません)';
+
 const props = withDefaults(
   defineProps<{
     entries: PartNoteEntry[];
@@ -73,6 +77,13 @@ function partLabel(key: string): string {
 /** 行の宛先パーツが削除済みか(スタイルを控えめにし、クリックを実質無害な no-op にする)。 */
 function isDeletedPart(key: string): boolean {
   return !props.partLabels.has(key);
+}
+
+/** 行クリックの委譲。削除済みパーツは確定版の構造に無く移動先が無いため `focus` を emit
+ * しない(`ReviewTabView.focusPart` 側の早期 return に重ねて、ここでも到達不能を明示する)。 */
+function onRowClick(key: string): void {
+  if (isDeletedPart(key)) return;
+  emit('focus', key);
 }
 
 // ── 2. 新規投稿(選択パーツ宛。入口はここだけ) ──
@@ -219,7 +230,9 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
               : 'cursor-pointer hover:bg-muted/40',
             t.parent.pathKey === selectedKey ? 'bg-primary-soft/40' : '',
           ]"
-          @click="emit('focus', t.parent.pathKey)"
+          :aria-disabled="isDeletedPart(t.parent.pathKey) || undefined"
+          :title="isDeletedPart(t.parent.pathKey) ? DELETED_PART_TITLE : undefined"
+          @click="onRowClick(t.parent.pathKey)"
         >
           <div class="flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
             <Badge :variant="t.parent.status === 'open' ? 'warning' : 'secondary'" class="h-[16px] py-0 text-[9.5px]">
@@ -272,7 +285,7 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
               </Button>
             </div>
             <template v-if="editingId === entryKey(t.parent)">
-              <textarea v-model="editDraft" class="comment-area" rows="3" />
+              <textarea v-model="editDraft" class="comment-area" rows="3" aria-label="コメント本文の編集" />
               <div class="flex gap-1.5">
                 <Button size="sm" @click="commitEdit(t.parent)">保存</Button>
                 <Button size="sm" variant="outline" @click="editingId = null">取消</Button>
@@ -292,7 +305,7 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
                 </Button>
               </div>
               <template v-if="editingId === entryKey(r)">
-                <textarea v-model="editDraft" class="comment-area" rows="2" />
+                <textarea v-model="editDraft" class="comment-area" rows="2" aria-label="返信本文の編集" />
                 <div class="mt-1 flex gap-1.5">
                   <Button size="sm" @click="commitEdit(r)">保存</Button>
                   <Button size="sm" variant="outline" @click="editingId = null">取消</Button>

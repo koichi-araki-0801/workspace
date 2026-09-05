@@ -124,9 +124,15 @@ export function buildCompareDocs(input: CompareDocsInput): CompareDocs {
   // .page が 1 つも無い文書はマーカー無しへ degrade（マークもジャンプも出ない）。
   const hasPages = after.anchorByIndex.size > 0 || before.anchorByIndex.size > 0;
   const markerEnabled = input.marker && hasPages;
-  // 全ページのジャンプ先は after 優先(修正後の構成が最終形)、after が空(内容自体が空・
-  // ページ無し・期待ページ数不一致で degrade)なら before から拾う。
-  const pageAnchors = after.pageIds.length > 0 ? after.pageIds : before.pageIds;
+  // 全ページのジャンプ先は各 index で after 優先、無ければ before から拾う。
+  // 著者由来 id は保持される：同じ index で片側だけ著者 id のとき、after[i]
+  // は before パネルでは解決されず何も起きない。previewHost のアンカー検査
+  // /^[A-Za-z0-9_-]+$/ に合わない著者 id は無視される。after の行数を超える
+  // index は before パネルだけが移動する。
+  const pageAnchors = Array.from(
+    { length: Math.max(after.pageIds.length, before.pageIds.length) },
+    (_, i) => after.pageIds[i] ?? before.pageIds[i] ?? '',
+  ).filter((id) => id !== '');
   return {
     beforeDoc: wrapDoc(before.html, input.cssBefore, markerEnabled),
     afterDoc: wrapDoc(after.html, input.cssAfter, markerEnabled),

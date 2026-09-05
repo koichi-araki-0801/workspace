@@ -16,7 +16,7 @@ import {
   toReviewMeta,
 } from '@editor/shared';
 import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
@@ -138,11 +138,38 @@ const DECIDED_STATUS_LABEL: Record<'approved' | 'rejected', string> = {
 const canDecide = computed(() => auth.isApprover && review.value?.status === 'pending');
 
 const visualRef = ref<InstanceType<typeof ReviewVisualCompare>>();
-/** 見た目比較の該当ページへ送る(text タブ表示中は何もしない — 行リストにページの概念が無い)。 */
+
+/**
+ * 区画を開いた直後に `gotoPage` が呼ばれたときの待機 index。この区画は `loading` 中
+ * `ReviewVisualCompare` を(`v-if="loading"` / `v-else-if="review"` で)まだマウントしておらず
+ * `visualRef` が無い。ここへ積んで下の `watch(visualRef, …)` に委ね、マウント後に 1 回だけ
+ * flush して `null` に戻す。組版そのものの準備待ち(`PreviewPanel` が描画を終えるまで)は
+ * `ReviewVisualCompare` 側の `pendingPageIndex` が担うため、ここでは関知しない。
+ */
+const pendingIndex = ref<number | null>(null);
+
+/** 見た目比較へ切り替えて該当ページへ送る。`visualRef` が無ければ `pendingIndex` へ積んで待つ
+ * (詳細は同 ref のコメント)。 */
 function gotoPage(index: number): void {
-  if (activeTab.value !== 'visual') return;
-  visualRef.value?.gotoPage(index);
+  activeTab.value = 'visual';
+  if (!visualRef.value) {
+    pendingIndex.value = index;
+    return;
+  }
+  void nextTick(() => visualRef.value?.gotoPage(index));
 }
+// マウント後(`flush: 'post'`)にだけ子の `gotoPage` を呼べる。1 回 flush したら必ず
+// `pendingIndex` を `null` に戻し、以後の再マウントで同じ index を送り直さないようにする。
+watch(
+  visualRef,
+  (v) => {
+    if (!v || pendingIndex.value === null) return;
+    const index = pendingIndex.value;
+    pendingIndex.value = null;
+    v.gotoPage(index);
+  },
+  { flush: 'post' },
+);
 defineExpose({ gotoPage });
 
 // ── iframe ドキュメント組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差) ──
@@ -323,6 +350,7 @@ onMounted(async () => {
       <div class="flex items-center gap-1.5">
         <Button
           :variant="activeTab === 'visual' ? 'default' : 'outline'"
+          :aria-pressed="activeTab === 'visual'"
           size="sm"
           @click="activeTab = 'visual'"
         >
@@ -330,6 +358,7 @@ onMounted(async () => {
         </Button>
         <Button
           :variant="activeTab === 'text' ? 'default' : 'outline'"
+          :aria-pressed="activeTab === 'text'"
           size="sm"
           @click="activeTab = 'text'"
         >

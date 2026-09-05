@@ -15,6 +15,7 @@ import {
 } from '@editor/shared';
 import { computed, ref } from 'vue';
 import { logError } from '@/lib/appError';
+import { useLatest } from '@/lib/useLatest';
 import { openKeysOf, openThreadCount } from './comments/commentFilter';
 
 /**
@@ -33,6 +34,10 @@ export function useComments(
 ) {
   // 現在の版インスタンスの全投稿(他版とは共有しない)。`reload` で満たし、各操作の後に差分を反映する。
   const all = ref<PartNoteEntry[]>([]);
+
+  // 対象テンプレートの高速切替で古い版の投稿が一覧へ残る、または空 id へ戻った後に旧応答が復活する
+  // ことを防ぐ世代ガード。
+  const latest = useLatest();
 
   /** 投稿を持つ pathKey 集合(canvas のマーカー描画を駆動する)。 */
   const notedKeys = computed<Set<string>>(() => new Set(all.value.map((e) => e.pathKey)));
@@ -54,12 +59,14 @@ export function useComments(
 
   /** 現在の版インスタンスの全投稿を読み込み直す(テンプレ読込時と各操作の後に呼ぶ)。 */
   async function reload(): Promise<void> {
+    const isLatest = latest.begin();
     const tid = templateId();
     if (!tid) {
       all.value = [];
       return;
     }
     const res = await repo.listNotes(tid);
+    if (!isLatest()) return;
     if (isErr(res)) {
       logError(res.error);
       return;
@@ -67,9 +74,14 @@ export function useComments(
     all.value = res.value;
   }
 
-  /** 選択パーツへ親投稿を追加する。空文字はリポジトリが拒否するのでここでも送らない。 */
-  async function add(content: string, opts: AddNoteOptions = {}): Promise<void> {
-    const key = currentKey();
+  /**
+   * 親投稿を追加する。宛先は第 3 引数 `pathKey` を優先し、省略時のみ `currentKey()` を使う
+   * (承認タブは区画〈申請〉ごとに宛先を持ち、呼び出し側が表示中の宛先を明示する。
+   * 「直近に操作した区画」に頼ると、別区画の select を触ってからこちらの追加を押したときに
+   * 表示と投稿先がずれるため)。空文字はリポジトリが拒否するのでここでも送らない。
+   */
+  async function add(content: string, opts: AddNoteOptions = {}, pathKey?: string): Promise<void> {
+    const key = pathKey ?? currentKey();
     const tid = templateId();
     if (!key || !tid || content.trim() === '') return;
     const res = await repo.addNote(tid, key, content, opts);

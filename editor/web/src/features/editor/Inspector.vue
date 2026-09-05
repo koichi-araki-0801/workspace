@@ -226,6 +226,7 @@ const PB_CLASS =
         class="pane-tab"
         :class="paneTab === 'props' ? 'pane-tab-active' : ''"
         data-pane-tab="props"
+        :aria-pressed="paneTab === 'props'"
         @click="emit('pane-tab', 'props')"
       >
         プロパティ
@@ -235,6 +236,7 @@ const PB_CLASS =
         class="pane-tab"
         :class="paneTab === 'comments' ? 'pane-tab-active' : ''"
         data-pane-tab="comments"
+        :aria-pressed="paneTab === 'comments'"
         @click="emit('pane-tab', 'comments')"
       >
         <MessageSquare class="h-3.5 w-3.5" /> コメント

@@ -7,7 +7,7 @@
 // 確認できる — 完全性要件)。新規作成申請(isCreate)は前面が存在しないため単面表示。
 // 文書の組み立て(マーカー・アンカー)は `reviewCompareDocs.ts` に委譲する。
 import { ChevronLeft, ChevronRight, MapPin } from '@lucide/vue';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import PreviewPanel from '@/features/preview/PreviewPanel.vue';
@@ -74,19 +74,57 @@ function nextAnchor() {
 }
 
 /**
- * 指定ページ(0 始まり)へ両面を送る。承認タブのコメント一覧が「行クリックで該当ページへ」
- * に使う。アンカーはページ単位(`buildCompareDocs` が `.page` に付ける)なので、パーツ単位の
- * 精度は持たない — ページが見えれば承認者はパーツを目で追える。コメントは変更の有無に
- * 関わらず全パーツへ付けられるため、変更ページのみの `anchors`(「次の変更箇所へ」用、
- * `anchorIndex` はその巡回カーソル)ではなく全ページの `pageAnchors` を引く。ここでの移動は
- * 「次の変更箇所へ」の巡回とは独立の操作なので `anchorIndex` は触らない。
+ * `gotoPage` の即送信条件。単面表示(`isCreate`)で残るのは after 面だけ(`v-if="!isCreate"`
+ * が付くのは before の figure)なので before の準備は見ない。2 面表示では両方の組版が
+ * 終わる(`pageCount > 0`)まで待つ。
  */
-function gotoPage(index: number): void {
+function panelsReady(): boolean {
+  return afterState.value.pageCount > 0 && (props.isCreate || beforeState.value.pageCount > 0);
+}
+
+function sendGotoPage(index: number): void {
   const id = docs.value.pageAnchors[index];
   if (!id) return;
   beforePanel.value?.gotoAnchor(id);
   afterPanel.value?.gotoAnchor(id);
 }
+
+/**
+ * 組版が未準備(`panelsReady` が false)の間に呼ばれた `gotoPage` の index。区画を開いた
+ * 直後は `PreviewPanel` がまだ組版を終えていないため、ここへ積んで下の
+ * `watch([afterState, beforeState])` に委ねる。片面だけ準備できた状態で送ると `gotoAnchor`
+ * は左右へ同じ id を送る関係上ページがずれ、ページ番号表示は `afterState` 由来の 1 つしか
+ * 無いため承認者に「前後で内容が違う」と誤読させる — それを避けるため両面が揃うまで待つ。
+ * 保留中に再度呼ばれたら最新の index で上書きする(最新勝ち)。`PreviewPanel` が iframe
+ * フォールバックへ倒れた場合は `pageCount` が 0 のまま変わらないため、この保留は永久に
+ * flush されない(破棄処理は無く、次のクリックで上書きされるだけ)。
+ */
+const pendingPageIndex = ref<number | null>(null);
+
+/**
+ * 指定ページ(0 始まり)へ両面を送る。承認タブのコメント一覧が「行クリックで該当ページへ」
+ * に使う。アンカーはページ単位(`buildCompareDocs` が `.page` に付ける)なので、パーツ単位の
+ * 精度は持たない — ページが見えれば承認者はパーツを目で追える。コメントは変更の有無に
+ * 関わらず全パーツへ付けられるため、変更ページのみの `anchors`(「次の変更箇所へ」用、
+ * `anchorIndex` はその巡回カーソル)ではなく全ページの `pageAnchors` を引く。ここでの移動は
+ * 「次の変更箇所へ」の巡回とは独立の操作なので `anchorIndex` は触らない。組版が未準備の間は
+ * `pendingPageIndex` に保留する(詳細は同 ref のコメント)。
+ */
+function gotoPage(index: number): void {
+  if (!panelsReady()) {
+    pendingPageIndex.value = index;
+    return;
+  }
+  sendGotoPage(index);
+}
+
+watch([afterState, beforeState], () => {
+  if (pendingPageIndex.value === null || !panelsReady()) return;
+  const index = pendingPageIndex.value;
+  pendingPageIndex.value = null;
+  sendGotoPage(index);
+});
+
 defineExpose({ gotoPage });
 </script>
 

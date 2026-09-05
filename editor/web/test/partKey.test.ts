@@ -1,5 +1,7 @@
+import type { Editor } from 'grapesjs';
 import { describe, expect, it } from 'vitest';
-import { partEls, partLabelMap, partPathKeyFor } from '@/features/editor/partKey';
+import { canvasRawKey, partEls, partLabelMap, partPathKeyFor } from '@/features/editor/partKey';
+import { partMapsFromHtml } from '@/features/reviews/reviewPartMaps';
 import { occurrenceKey, rawKey, rawKeyFromParts } from '@/lib/blockKey';
 
 /** innerHTML から canvas wrapper 相当の root 要素を作る(jsdom)。 */
@@ -124,6 +126,58 @@ describe('partLabelMap — 全パーツの人間向けラベル', () => {
     const map = partLabelMap(r);
     expect(map.get('body#1/solo#1')).toBe('ページ1・パーツ1');
     expect(map.get('body#1/p#1')).toBe('ページ1・パーツ2');
+  });
+});
+
+describe('canvasRawKey — canvas 側は id をモデルの明示属性から読む', () => {
+  /** `Components.getById` だけを持つ最小の `Editor` 相当。 */
+  function fakeEditor(attrsById: Record<string, Record<string, unknown>>): Editor {
+    return {
+      Components: { getById: (id: string) => ({ get: () => attrsById[id] }) },
+    } as unknown as Editor;
+  }
+
+  it('モデル属性に id が無ければ GrapesJS の自動 id を無視し、class/tag へ落ちる', () => {
+    const r = root('<p class="lead" id="i1">A</p><p class="lead" id="i2">B</p>');
+    const els = Array.from(r.children) as HTMLElement[];
+    const keyOf = canvasRawKey(fakeEditor({ i1: {}, i2: {} }));
+    expect(occurrenceKey(els[0], els, keyOf)).toBe('.lead#1');
+    expect(occurrenceKey(els[1], els, keyOf)).toBe('.lead#2');
+  });
+
+  it('モデル属性に明示 id があれば、その id をキーへ残す', () => {
+    const r = root('<p class="lead" id="i1">A</p>');
+    const el = q(r, 'p');
+    const keyOf = canvasRawKey(fakeEditor({ i1: { id: 'summary' } }));
+    expect(occurrenceKey(el, [el], keyOf)).toBe('summary#1');
+  });
+
+  it('data-part-id は明示 id より優先する', () => {
+    const r = root('<p class="lead" id="i1" data-part-id="cover">A</p>');
+    const el = q(r, 'p');
+    const keyOf = canvasRawKey(fakeEditor({ i1: { id: 'summary' } }));
+    expect(keyOf(el)).toBe('cover');
+  });
+});
+
+describe('canvasRawKey — 承認タブ(静的パース)とのキー集合一致', () => {
+  it('canvas 側に自動 id が付いていても、静的パース側と同じキー集合になる', () => {
+    // data-part-id を持たないテンプレート(seed テンプレートと同条件)を模す。
+    const html =
+      '<div class="page"><table class="summary"></table><h1 class="t">A</h1></div>' +
+      '<div class="page"><p class="lead">B</p></div>';
+    // canvas 側は GrapesJS が全要素へ揮発性の id(ccid)を付けて回る(`.page` も例外でない。
+    // ページ側のキーにも自動 id が混ざらないことを同時に固定する)。モデル側の明示属性は
+    // どの要素も持たない(= 静的パース側と同じく class/tag へ落ちるべき)。
+    const canvasHtml = html.replace(
+      /<(div|table|h1|p)( class="[^"]+")?>/g,
+      (_m, tag, cls) => `<${tag}${cls ?? ''} id="i${tag}">`,
+    );
+    const canvasRoot = root(canvasHtml);
+    const ed = { Components: { getById: () => ({ get: () => undefined }) } } as unknown as Editor;
+    const canvasKeys = [...partLabelMap(canvasRoot, canvasRawKey(ed)).keys()].sort();
+    const staticKeys = [...partMapsFromHtml(html).labels.keys()].sort();
+    expect(canvasKeys).toEqual(staticKeys);
   });
 });
 
