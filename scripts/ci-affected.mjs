@@ -27,6 +27,8 @@ const AREAS = {
   editor: {
     label: 'editor (shared+server+web)',
     match: (p) => p.startsWith('editor/'),
+    // `test:editor` は shared / server / web-dom(jsdom)/ web-node の 4 project を選ぶ
+    // (web の dom/node 分割は `editor/web/vitest.dom.config.ts` を参照)。
     stages: ['typecheck:editor', 'test:editor', 'build:editor', 'e2e:editor'],
   },
   'pie-chart': {

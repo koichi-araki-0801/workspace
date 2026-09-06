@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 
 // ワークスペース全体の Vitest エントリ。各パッケージの設定(environment/alias/globals)は
 // 個別 config に残し、ここでは `projects` で集約して `vitest run` 一発で全プロジェクトを
-// 各環境(web=jsdom / 他=node)で実行する。coverage は Vitest の仕様上ラン全体で 1 つしか
+// 各環境(web-dom=jsdom / 他=node)で実行する。coverage は Vitest の仕様上ラン全体で 1 つしか
 // 持てないため、include/閾値はパッケージ別でなくここへ一本化し、閾値は全指標 85% に統一する。
 // 「テスト対象のみゲート」方針(cf. editor 各 vitest.config の include 方針)は include 列挙で維持。
 export default defineConfig({
@@ -11,7 +11,11 @@ export default defineConfig({
     projects: [
       'editor/shared/vitest.config.ts',
       'editor/server/vitest.config.ts',
-      'editor/web/vite.config.ts',
+      // web は dom(jsdom)/ node の 2 leaf を**直接**列挙する。`editor/web/vitest.config.ts`(薄い
+      // root。`pnpm --filter web test` 用)を列挙すると、参照 config 内の `test.projects` は無視されて
+      // 全ファイルが node で走る。分割の理由は `vitest.dom.config.ts` のコメントを参照。
+      'editor/web/vitest.dom.config.ts',
+      'editor/web/vitest.node.config.ts',
       'pie-chart/vitest.config.ts',
     ],
     // 集約実行の並列度を明示的に絞る。既定はコア数ぶんの fork を**プロジェクトごとに**

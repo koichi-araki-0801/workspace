@@ -56,7 +56,7 @@ Windows では `editor/start.bat` をダブルクリックでも起動できま�
 
 ```bash
 pnpm build       # tsc -b editor/server（shared→server）後に web をビルド
-pnpm test        # ルート集約の vitest（projects で全 workspace を一括実行）
+pnpm test        # ルート集約の vitest（projects で全 workspace を一括実行。web は web-dom / web-node の 2 project）
 pnpm test:coverage  # カバレッジ付き（include 列挙＝テスト済みのみ・全指標 85% 閾値）
 pnpm typecheck   # 全 workspace の型チェック（shared 先行ビルド込み）
 pnpm knip        # 未使用 export / 依存の検出（knip.json）
@@ -71,6 +71,13 @@ typecheck → test:coverage → build → test:e2e`（pdf-to-svg / graph-editor 
 ルート `vitest.config.ts`。**セキュリティ上の関門（許可リスト・認可テーブル・
 egress 遮断・不変性チェック）は、テストの有無に関わらず include へ入れる** —
 閾値の外に置くと退行を検出できないため。
+
+web のテストは vitest の project が 2 つある。`test/**/*.dom.test.ts` は **`web-dom`（jsdom）**、
+それ以外の `test/**/*.test.ts` は **`web-node`（node）** で走る。jsdom の起動はファイルごとに
+約 1.5 秒かかるため、`document` / `window` / `localStorage` に触れるテストだけを `.dom.test.ts` に
+する（node 側で `... is not defined` の ReferenceError が出たら改名して移す）。両方を選ぶときは
+`vitest run --project "web-*"`。`pnpm --filter web test <name>` は `web/vitest.config.ts`（薄い
+root）経由で両 project を束ねる。設定の実体は `web/vitest.dom.config.ts` / `web/vitest.node.config.ts`。
 
 ## LAN 公開（社内ネットワークの他端末から使う）
 

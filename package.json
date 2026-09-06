@@ -20,7 +20,7 @@
     "typecheck": "tsc -b editor/server && pnpm --filter web --filter pie-chart run typecheck",
     "typecheck:editor": "tsc -b editor/server && pnpm --filter web run typecheck",
     "typecheck:pie-chart": "pnpm --filter pie-chart run typecheck",
-    "test:editor": "vitest run --project shared --project server --project web",
+    "test:editor": "vitest run --project shared --project server --project \"web-*\"",
     "test:pie-chart": "vitest run --project pie-chart",
     "build:editor": "tsc -b editor/server && pnpm --filter web run build",
     "e2e:editor": "playwright test -c editor/playwright.config.ts",
