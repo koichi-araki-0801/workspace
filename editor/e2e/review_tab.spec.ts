@@ -4,7 +4,7 @@
 // 対象の決め方(?template= → 編集タブの直前画面 → 空状態)、要約箱 3 つの件数、同時展開の上限、
 // 決着後に同じ画面へ留まることを実機で固定する。
 import { expect, type Locator, type Page, test } from '@playwright/test';
-import { login, openEditor, submitOnce } from './helpers';
+import { login, openEditor, selectPart, submitOnce } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -53,7 +53,7 @@ test('対象が無ければ誘導し、編集タブで開いたテンプレー�
  */
 async function addCanvasComment(page: Page, part: Locator, content: string): Promise<void> {
   await part.waitFor({ state: 'visible', timeout: 30_000 });
-  await part.click();
+  await selectPart(page.frameLocator('iframe.gjs-frame'), part);
   const input = page.getByPlaceholder('このパーツへのコメントを書く');
   await expect(input).toBeEnabled();
   await input.fill(content);

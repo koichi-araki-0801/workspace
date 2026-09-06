@@ -9,24 +9,12 @@
 //
 // 併せて、右ペインの下書きが別パーツへ持ち越されないこと(別パーツにメモが付く事故)と、
 // 閉じた吹き出しが投稿の追加で開き直すこと(件数だけ増えて何も見えない事故)も固定する。
-import { expect, type FrameLocator, type Locator, test } from '@playwright/test';
-import { expectSelectedPart, login, openEditor } from './helpers';
+import { expect, test } from '@playwright/test';
+import { expectSelectedPart, login, openEditor, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
 test.use({ viewport: { width: 1440, height: 900 } });
-
-/**
- * canvas を開いた直後の最初のクリックは、`.page` の可視化(スタイル注入)と GrapesJS の
- * 選択配線が非同期のため、選択されずに終わることがある(`.gjs-selected` が付かない)。
- * 固定待ちでは配線完了のタイミングを保証できないため、選択が付くまでクリックを再試行する。
- */
-async function selectPart(frame: FrameLocator, part: Locator): Promise<void> {
-  await expect(async () => {
-    await part.click();
-    await expect(frame.locator('.gjs-selected')).toBeVisible({ timeout: 1_000 });
-  }).toPass({ timeout: 15_000 });
-}
 
 test('メモ吹き出しは閉じる・編集・削除を実際に受け付ける', async ({ page }) => {
   const errors: string[] = [];
@@ -56,6 +44,8 @@ test('メモ吹き出しは閉じる・編集・削除を実際に受け付け�
   await expect(draft).toHaveValue('');
 
   // 閉じた吹き出しは、投稿を足したら開き直す(件数だけ増えて何も見えない状態を作らない)。
+  // この canvas では直前に選択操作(`selectPart`)が済んでおり GrapesJS の選択配線は
+  // 既に確立しているため、`selectPart` の再試行クリックは不要で単純な待ちで足りる。
   await partA.click();
   await expectSelectedPart(frame);
   await bubble.getByRole('button', { name: 'コメントを閉じる' }).click();

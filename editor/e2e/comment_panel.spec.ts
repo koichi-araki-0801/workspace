@@ -4,7 +4,7 @@
 // 一覧は右ペイン(overlay 層の外)にあるので pointer-events の罠は無いが、行クリックが
 // GrapesJS の選択と 1 ページ表示のページ送りまで届くかは実機でしか分からない。ここで押さえる。
 import { expect, type Page, test } from '@playwright/test';
-import { login, openEditor } from './helpers';
+import { login, openEditor, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -14,7 +14,7 @@ async function addComment(page: Page, partIndex: number, text: string): Promise<
   const frame = page.frameLocator('iframe.gjs-frame');
   const part = frame.locator('.page > *').nth(partIndex);
   await part.waitFor({ state: 'visible', timeout: 30_000 });
-  await part.click();
+  await selectPart(frame, part);
   // 選択が右ペインへ反映されると入力欄が有効になる(未選択時は disabled)。
   await expect(page.getByPlaceholder('このパーツへのコメントを書く')).toBeEnabled();
   await page.getByPlaceholder('このパーツへのコメントを書く').fill(text);

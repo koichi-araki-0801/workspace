@@ -99,6 +99,19 @@ export async function expectSelectedPart(frame: FrameLocator): Promise<void> {
 }
 
 /**
+ * canvas でパーツをクリックし、選択状態になるまで再試行する。`.page` の可視化(スタイル注入)と
+ * GrapesJS の選択配線が非同期のため、canvas を開いた直後の最初のクリックは選択されずに
+ * 終わることがある(`.gjs-selected` が付かない)。`expectSelectedPart` の単純な待ちでは
+ * クリック自体をやり直せないため、選択が付くまでクリックごと再試行する。
+ */
+export async function selectPart(frame: FrameLocator, part: Locator): Promise<void> {
+  await expect(async () => {
+    await part.click();
+    await expect(frame.locator('.gjs-selected')).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+}
+
+/**
  * プレビュー画面から確定保存を申請する(`review_tab.spec.ts` と `capture_docs.spec.ts` の
  * 重複実装を集約)。トースト「確定保存を申請しました」の出現を申請完了の合図にする。
  */
