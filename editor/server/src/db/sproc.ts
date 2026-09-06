@@ -1,8 +1,11 @@
 // =============================================================================
 // sproc.ts — ゲートウェイ sproc 呼び出し + SQL エラー→`AppError` 変換 + 行値変換
 // =============================================================================
-// 各 repository は `callSproc(SP.x, '操作', [...])` を呼ぶ。パラメータは位置指定
-// (`@name=?`) でバインドし、値を SQL へ文字列補間しない(インジェクション回避)。
+// 各 repository は注入された `SprocClient` の `callSproc(SP.x, '操作', [...])` を呼ぶ。
+// パラメータは位置指定(`@name=?`)でバインドし、値を SQL へ文字列補間しない
+// (インジェクション回避)。実行面は `QueryFn` 1 本に閉じており、本番は `pool.query`、
+// テストと rest e2e は in-memory フェイクを渡す。`mapSqlError` を通る経路が 1 本に
+// なるので、フェイク側は生 SQL エラー相当(`number` 付き)を throw すればよい。
 // SQL エラーは `server/db/sproc/*.sql` の THROW 番号規約に従って共有の `AppError`
 // 種別へ変換する:
 //   50404 → not_found, 50409 / 2627 / 2601 → conflict, 50000 / 50400 → validation。
@@ -15,24 +18,44 @@ export interface Param {
   value: unknown;
 }
 
+/** 結果セットの 1 行。列名は SQL 側の日本語物理名がそのまま来る。 */
+export type Row = Record<string, unknown>;
+
+/** sproc の実行面。差し替え点はここ 1 つに限る。 */
+export type QueryFn = (sql: string, values: unknown[]) => Promise<Row[]>;
+
+/** repository が受け取る sproc 呼び出し口。 */
+export interface SprocClient {
+  callSproc<T = Row>(proc: string, 操作: string, params?: Param[]): Promise<T[]>;
+}
+
 /** パラメータ要素を作る。`undefined` は `callSproc` が SQL NULL へ正規化する。 */
 export const p = (name: string, value: unknown): Param => ({ name, value: value ?? null });
 
-/** ゲートウェイ sproc を `@操作` を先頭にして呼び、結果セットの行を返す。 */
-export async function callSproc<T = Record<string, unknown>>(
-  proc: string,
-  操作: string,
-  params: Param[] = [],
-): Promise<T[]> {
-  const all: Param[] = [{ name: '操作', value: 操作 }, ...params];
-  const assigns = all.map((x) => `@${x.name}=?`).join(', ');
-  const values = all.map((x) => x.value ?? null);
-  try {
-    return (await query(`EXEC ${proc} ${assigns}`, values)) as T[];
-  } catch (e) {
-    throw mapSqlError(e);
-  }
+/** 実行面から sproc 呼び出し口を組む。`@操作` を先頭にして呼び、結果セットの行を返す。 */
+export function createSprocClient(query: QueryFn): SprocClient {
+  return {
+    async callSproc<T = Row>(proc: string, 操作: string, params: Param[] = []): Promise<T[]> {
+      const all: Param[] = [{ name: '操作', value: 操作 }, ...params];
+      const assigns = all.map((x) => `@${x.name}=?`).join(', ');
+      const values = all.map((x) => x.value ?? null);
+      try {
+        return (await query(`EXEC ${proc} ${assigns}`, values)) as T[];
+      } catch (e) {
+        throw mapSqlError(e);
+      }
+    },
+  };
 }
+
+/**
+ * 本番の実行面。`pool.query` は最初の呼び出しでプールを開くので、ここでは接続を張らない
+ * (`local` モードはネイティブドライバを require しないまま起動できる)。
+ */
+export const realSproc: SprocClient = createSprocClient((sql, values) => query(sql, values));
+
+/** 注入をまだ受けていない呼び出し元のための別名。注入面が揃った時点で削除する。 */
+export const callSproc: SprocClient['callSproc'] = realSproc.callSproc;
 
 /** 先頭行、無ければ null(単一行取得ヘルパ)。 */
 export function firstRow<T>(rows: T[]): T | null {
