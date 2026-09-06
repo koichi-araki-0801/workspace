@@ -13,6 +13,8 @@
 //   - 領域に紐付かないルート直下の共有変更(package.json / lockfile / 各種 config)を検出したら
 //     フル `ci` にフォールバックする(影響範囲が読めないため取りこぼさない)。
 //   - 何が走り何をスキップしたかを冒頭に出力する(silent に絞ったように見せない)。
+//   - README / `.gitignore` だけの変更は領域 CI を起こさない(`BENIGN_FILES`)。`scripts/` /
+//     `.husky/` は段を持たない領域 `ci-machinery` として出力に名前を出す。
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
@@ -23,7 +25,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // ── 1. 領域定義 — トップレベルディレクトリ単位 ──
 // editor(shared+server+web)は密結合のため 1 領域。各領域の CI ステージを順に並べる。
 // `pnpm run <script>` をそのまま呼ぶので、定義の正典はルート `package.json` の scripts 側。
-const AREAS = {
+export const AREAS = {
   editor: {
     label: 'editor (shared+server+web)',
     match: (p) => p.startsWith('editor/'),
@@ -51,20 +53,71 @@ const AREAS = {
     match: (p) => p.startsWith('docs/_build/'),
     stages: ['test:docs'],
   },
+  'ci-machinery': {
+    label: 'CI 機構 (共有ゲートのみ)',
+    // `scripts/` と `.husky/` は固有の段を持たない。`check:comments` と `test:scripts`
+    // (`ci-affected.test.mjs` を含む)は共有ゲートとして毎回走っており、フル `ci` が足す
+    // coverage / build / e2e は `scripts/` の正しさと無関係なのでフル fallback へは回さない。
+    // stages を空にした領域として持つのは、出力に領域名を出して「静かに何も走らなかった」
+    // 状態を作らないため。
+    match: (p) => p.startsWith('scripts/') || p.startsWith('.husky/'),
+    stages: [],
+  },
 };
 // `.claude/` は領域として持たない: `.gitignore` で git 追跡外のため、変更が `git diff` に
 // 現れず領域発火の判定材料にならない。代わりに `check:claude-hooks` を下の共有ゲートへ
 // 無条件実行として組み込み、diff に関わらず毎回検査する。
 
-// 領域 CI を持たない無害ディレクトリ。これらだけの変更なら共有ゲート(comments/biome)のみで足りる。
-// (`scripts`/`.github`/`.husky` は comments 検査が常時担保。)
+// 単独で変わっても領域 CI を要しないファイル(完全一致)。**領域判定より先に**評価する:
+// `editor/README.md` は editor 領域の `match` にも当たるが、README だけの修正で editor の
+// typecheck / vitest / build / e2e を走らせない。`.gitattributes` は含めない(eol の前提が
+// 変わると Biome の整形結果が全域で動きうるので、フル fallback に倒す)。
+export const BENIGN_FILES = new Set(['README.md', 'editor/README.md', 'pie-chart/README.md', '.gitignore']);
+
+// 領域 CI を持たない無害ディレクトリ(前方一致)。これらだけの変更なら共有ゲート
+// (comments/biome/test:scripts)のみで足りる。
 // `docs/` を残すのは原稿(`docs/<project>/src/*.md`・生成 HTML・画像)のためで、生成エンジン
-// (`docs/_build/`)は上の `docs` 領域が先に拾う(領域判定は BENIGN 判定より先に走る)。
+// (`docs/_build/`)は上の `docs` 領域が先に拾う(領域判定は BENIGN_PREFIXES より先に走る)。
 // 無害扱いにしてよいのは CI 領域を持たないディレクトリだけ。
 // `offline/` はここへ含めない: 署名検証・requirements 許可リストの実装本体
-// (offline/lib/verify.ps1)には固有の検査があり、無害入りしていた期間はその検査が
-// 1 段も起動しなかった(comments 検査は .ps1 の BOM/併設しか見ず、実装のロジックは見ない)。
-const BENIGN_PREFIXES = ['docs/', 'scripts/', '.github/', '.husky/'];
+// (offline/lib/verify.ps1)には固有の検査があり、無害入りしていると 1 段も起動しない
+// (comments 検査は .ps1 の BOM/併設しか見ず、実装のロジックは見ない)。
+// `scripts/` / `.husky/` は上の `ci-machinery` 領域が拾う(ここに置くと出力に現れない)。
+export const BENIGN_PREFIXES = ['docs/', '.github/'];
+
+/**
+ * 変更パスの配列から実行計画の材料を決める。`areas` は `AREAS` の定義順(= 実行順)。
+ * どの判定にも当たらないパスを見つけた時点で `fullCi` に理由を入れて返す(以降のパスは
+ * 見ない。影響範囲が読めない変更が 1 つでもあればフル `ci` なので、続きを見る意味が無い)。
+ * git を呼ばない純関数で、`ci-affected.test.mjs` がここを直接固定する。
+ */
+export function classifyChanges(paths) {
+  const selected = new Set();
+  const benign = [];
+  for (const p of paths) {
+    if (BENIGN_FILES.has(p)) {
+      benign.push(p);
+      continue;
+    }
+    const area = Object.keys(AREAS).find((k) => AREAS[k].match(p));
+    if (area) {
+      selected.add(area);
+      continue;
+    }
+    if (BENIGN_PREFIXES.some((pre) => p.startsWith(pre))) {
+      benign.push(p);
+      continue;
+    }
+    // 例: package.json / pnpm-lock.yaml / pnpm-workspace.yaml / vitest.config.ts / tsconfig* /
+    //     biome.* / .nvmrc / .gitattributes 等。影響範囲が全域に及び得るため安全側に倒す。
+    return {
+      areas: Object.keys(AREAS).filter((a) => selected.has(a)),
+      benign,
+      fullCi: `領域に紐付かない共有変更を検出 (${p})`,
+    };
+  }
+  return { areas: Object.keys(AREAS).filter((a) => selected.has(a)), benign, fullCi: null };
+}
 
 // ── 2. 引数・ベース ref の決定 ──
 // 既定は現ブランチの upstream(= origin/<branch>)。常設ブランチ運用では push 対象の新規コミット
@@ -128,61 +181,58 @@ function runFullCi(reason) {
 }
 
 // ── 4. メイン ──
-if (argv.includes('--all')) runFullCi('--all 指定');
+// 直接起動時のみ実行する。テストは `classifyChanges` を import するだけで git に触れない。
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}
 
-const base = resolveBase();
-if (!base) runFullCi('ベース ref を解決できませんでした');
+function main() {
+  if (argv.includes('--all')) runFullCi('--all 指定');
 
-const diffRange = `${base}...HEAD`;
-// `-c core.quotePath=false`: 非 ASCII パスの八進エスケープ＋引用符付き出力(`"docs/…\346…"`)を無効化し、
-// UTF-8 リテラルで受け取る。これが無いと `p.startsWith('docs/')` 等の BENIGN 判定が外れ、docs だけの
-// 変更でも不要にフル `ci` へフォールバックしてしまう。
-const out = git(['-c', 'core.quotePath=false', 'diff', '--name-only', diffRange], { allowFail: true });
-if (out === null) runFullCi(`git diff ${diffRange} に失敗しました`);
+  const base = resolveBase();
+  if (!base) runFullCi('ベース ref を解決できませんでした');
 
-const changed = out.split('\n').filter(Boolean);
-console.log(`[ci:affected] ベース: ${base}  (${diffRange})`);
-console.log(`[ci:affected] 変更ファイル数: ${changed.length}`);
-console.log('[ci:affected] 注: coverage 85% ゲートはフル `pnpm run ci` でのみ検査します (affected/領域別は速度優先で対象外)');
+  const diffRange = `${base}...HEAD`;
+  // `-c core.quotePath=false`: 非 ASCII パスの八進エスケープ＋引用符付き出力(`"docs/…\346…"`)を
+  // 無効化し、UTF-8 リテラルで受け取る。これが無いと `p.startsWith('docs/')` 等の BENIGN 判定が
+  // 外れ、docs だけの変更でも不要にフル `ci` へフォールバックしてしまう。
+  const out = git(['-c', 'core.quotePath=false', 'diff', '--name-only', diffRange], { allowFail: true });
+  if (out === null) runFullCi(`git diff ${diffRange} に失敗しました`);
 
-// 領域マッピング。無害でも領域でもないルート直下/共有変更を見つけたらフル CI へ。
-const selected = new Set();
-for (const p of changed) {
-  const area = Object.keys(AREAS).find((k) => AREAS[k].match(p));
-  if (area) {
-    selected.add(area);
-    continue;
+  const changed = out.split('\n').filter(Boolean);
+  console.log(`[ci:affected] ベース: ${base}  (${diffRange})`);
+  console.log(`[ci:affected] 変更ファイル数: ${changed.length}`);
+  console.log('[ci:affected] 注: coverage 85% ゲートはフル `pnpm run ci` でのみ検査します (affected/領域別は速度優先で対象外)');
+
+  // 領域マッピング。無害でも領域でもないルート直下/共有変更を見つけたらフル CI へ。
+  const { areas, benign, fullCi } = classifyChanges(changed);
+  if (fullCi) runFullCi(fullCi);
+
+  // ── 5. 実行計画の可視化と実行 ──
+  const selected = new Set(areas);
+  const skipped = Object.keys(AREAS).filter((a) => !selected.has(a));
+  console.log(`[ci:affected] 実行領域: ${areas.length ? areas.map((a) => AREAS[a].label).join(', ') : '(なし)'}`);
+  console.log(`[ci:affected] スキップ領域: ${skipped.length ? skipped.map((a) => AREAS[a].label).join(', ') : '(なし)'}`);
+  if (benign.length) console.log(`[ci:affected] 領域 CI 不要の変更: ${benign.length} 件 (${benign.join(', ')})`);
+
+  // 共有ゲートは領域の有無に関わらず 1 回だけ実行(comments は .ps1/.md 等も検査するため常時必要)。
+  // claude-hooks も同列: `.claude/` は git 追跡外で diff に現れないため領域発火の対象にできず、
+  // diff の中身に関わらず常時検査する側に置くしかない。test:scripts も同列: `scripts/` の
+  // `ci-machinery` 領域は段を持たず、`scripts/*.test.mjs` はここで常時実行する。
+  runPnpm('check:comments');
+  runPnpm('check:claude-hooks');
+  runPnpm('check:ci');
+  runPnpm('test:scripts');
+
+  if (areas.length === 0) {
+    console.log('\n[ci:affected] 変更領域なし。共有ゲートのみで完了。');
+    process.exit(0);
   }
-  if (BENIGN_PREFIXES.some((pre) => p.startsWith(pre))) continue;
-  // 例: package.json / pnpm-lock.yaml / pnpm-workspace.yaml / vitest.config.ts / tsconfig* /
-  //     biome.* / .nvmrc 等。影響範囲が全域に及び得るため安全側に倒す。
-  runFullCi(`領域に紐付かない共有変更を検出 (${p})`);
+
+  // 領域ごとに typecheck → test →(editor のみ)build → e2e。順序は AREAS の stages 定義どおり。
+  for (const area of areas) {
+    for (const stage of AREAS[area].stages) runPnpm(stage);
+  }
+
+  console.log('\n[ci:affected] 完了。');
 }
-
-// ── 5. 実行計画の可視化と実行 ──
-const allAreas = Object.keys(AREAS);
-const skipped = allAreas.filter((a) => !selected.has(a));
-console.log(`[ci:affected] 実行領域: ${selected.size ? [...selected].map((a) => AREAS[a].label).join(', ') : '(なし)'}`);
-console.log(`[ci:affected] スキップ領域: ${skipped.length ? skipped.map((a) => AREAS[a].label).join(', ') : '(なし)'}`);
-
-// 共有ゲートは領域の有無に関わらず 1 回だけ実行(comments は .ps1/.md 等も検査するため常時必要)。
-// claude-hooks も同列: `.claude/` は git 追跡外で diff に現れないため領域発火の対象にできず、
-// diff の中身に関わらず常時検査する側に置くしかない。test:scripts も同列: `scripts/` は
-// 領域を持たず BENIGN_PREFIXES 止まりのため、`scripts/clean.test.mjs` は他の領域と紐付けず
-// ここで常時実行する。
-runPnpm('check:comments');
-runPnpm('check:claude-hooks');
-runPnpm('check:ci');
-runPnpm('test:scripts');
-
-if (selected.size === 0) {
-  console.log('\n[ci:affected] 変更領域なし。共有ゲートのみで完了。');
-  process.exit(0);
-}
-
-// 領域ごとに typecheck → test →(editor のみ)build → e2e。順序は AREAS の stages 定義どおり。
-for (const area of allAreas.filter((a) => selected.has(a))) {
-  for (const stage of AREAS[area].stages) runPnpm(stage);
-}
-
-console.log('\n[ci:affected] 完了。');

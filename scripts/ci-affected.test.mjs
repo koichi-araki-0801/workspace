@@ -19,6 +19,8 @@ import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { classifyChanges } from './ci-affected.mjs';
+
 const REAL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(REAL_ROOT, 'scripts', 'ci-affected.mjs');
 
@@ -84,6 +86,23 @@ function planForChanges(paths) {
   }
 }
 
+// dry-run の標準出力をそのまま返す。実行計画(`planFor`)には現れない「領域名の表示」を見る
+// テスト用(`ci-machinery` は stages が空なので計画には 1 行も出ない)。
+function dryRunOutput(paths) {
+  const { root, base } = buildFixtureRepo(paths);
+  try {
+    const res = spawnSync(
+      process.execPath,
+      [join(root, 'scripts', 'ci-affected.mjs'), '--dry-run', '--base', base],
+      { cwd: root, encoding: 'utf8' },
+    );
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    return res.stdout;
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 test('--all のフル CI 計画は ci と ci:offline の 2 段', () => {
   // `ci` は GitHub Actions (ubuntu) と共用で Windows 限定の Pester を含められないため、
   // フル CI へ倒れる経路では `ci:offline` を続けて走らせる必要がある。
@@ -139,4 +158,52 @@ test('複数領域の変更は領域定義の順に連結される', () => {
     'pie-chart:batch:diff',
     'ci:offline',
   ]);
+});
+
+// ── 領域判定の純関数(git を経由しない) ──
+// `classifyChanges` は「何が走るか」を決める唯一の関数で、上の dry-run テストは
+// それを実行計画の形で見ている。ここでは判定そのものを直接固定する。
+
+test('classifyChanges: scripts/ だけの変更は ci-machinery 領域(段は無し)', () => {
+  assert.deepEqual(classifyChanges(['scripts/x.mjs']), {
+    areas: ['ci-machinery'],
+    benign: [],
+    fullCi: null,
+  });
+});
+
+test('classifyChanges: README だけの editor 変更は領域を発火しない', () => {
+  // `editor/README.md` は editor 領域の `match` にも当たるが、BENIGN_FILES を領域判定より
+  // 先に評価するので editor の typecheck / vitest / build / e2e は走らない。
+  assert.deepEqual(classifyChanges(['editor/README.md']), {
+    areas: [],
+    benign: ['editor/README.md'],
+    fullCi: null,
+  });
+});
+
+test('classifyChanges: .gitattributes はフル CI へ倒れる', () => {
+  // eol の前提は Biome の整形結果を全域で変えうるため、無害ファイルに含めない。
+  const r = classifyChanges(['.gitattributes']);
+  assert.equal(r.areas.length, 0);
+  assert.match(r.fullCi, /\.gitattributes/);
+});
+
+test('classifyChanges: ルート README と editor ソースの同時変更は editor 領域だけ', () => {
+  assert.deepEqual(classifyChanges(['README.md', 'editor/web/src/x.ts']), {
+    areas: ['editor'],
+    benign: ['README.md'],
+    fullCi: null,
+  });
+});
+
+test('scripts/ だけの変更は共有ゲートのみで、領域名は ci-machinery と表示される', () => {
+  assert.deepEqual(planForChanges(['scripts/x.mjs']), SHARED_GATES);
+  const out = dryRunOutput(['scripts/x.mjs']);
+  assert.match(out, /実行領域: CI 機構 \(共有ゲートのみ\)/);
+  assert.doesNotMatch(out, /変更領域なし/);
+});
+
+test('editor/README.md だけの変更は共有ゲートのみ', () => {
+  assert.deepEqual(planForChanges(['editor/README.md']), SHARED_GATES);
 });
