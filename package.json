@@ -24,6 +24,7 @@
     "test:pie-chart": "vitest run --project pie-chart",
     "build:editor": "pnpm run build",
     "e2e:editor": "playwright test -c editor/playwright.config.ts --project chromium --project docs",
+    "e2e:rest": "node scripts/check-ports.mjs 24690 24691 && playwright test -c editor/playwright.config.ts --project rest",
     "pie-chart:cli": "pnpm --filter pie-chart run cli",
     "pie-chart:check": "pnpm --filter pie-chart run check",
     "pie-chart:batch": "pnpm --filter pie-chart run batch",
