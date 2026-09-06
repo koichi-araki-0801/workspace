@@ -78,7 +78,7 @@ BIZ UDPGothic は pie-chart が埋込サイズ優先の WOFF2 形式
 | `pnpm run knip` | 未使用 export / 依存の検出（`knip.json`） |
 | `pnpm run clean` | ルート直下の再生成物を掃除（既定はドライラン。実削除は `-- --yes`。`scripts/clean.mjs`） |
 | `pnpm run clean:deep` / `clean:bundles` | `node_modules` 等 / 大容量バンドルも対象に含める |
-| `pnpm run ci` | CI 集約（全領域＋coverage 85% 閾値ゲート） |
+| `pnpm run ci` | CI 集約（全領域＋coverage 85% 閾値ゲート＋pie-chart の SVG byte 比較。clone 直後は下記「フル `ci` の前提」を先に） |
 | `pnpm run ci:affected` | 変更領域だけ CI を実行（`scripts/ci-affected.mjs`。**pre-push で実行**） |
 | `pnpm run ci:editor` / `ci:pie-chart` | 領域別 CI を手動実行 |
 
@@ -98,3 +98,21 @@ CI は領域（`editor` = shared+server+web / `pie-chart`）単位で分割で�
 > **注意:** 領域別 / affected run は速度優先で **coverage 85% 閾値ゲートを通さない**
 > （vitest の coverage はラン全体で 1 つしか持てず、領域だけ走らせると他領域が 0% 扱いで落ちるため）。
 > 85% ゲートはフル `pnpm run ci` と GitHub Actions（`test:coverage`）が担保する。pre-push 後の GHA で必ず掛かる。
+
+#### フル `ci` の前提（clone 直後に 1 回）
+
+`pnpm run ci` は `pie-chart:batch` → `pie-chart:batch:diff` を含み、`pie-chart/out/_baseline`
+（ローカル生成物・git 管理外）と SVG を byte 比較する。clone 直後はこの基準が無く、
+`batch:diff` は「基準が無い」ことを差分として扱い**必ず落ちる**（無ければ空として通す設計にすると、
+基準の作り忘れが以後の退行を検出できない状態と区別できなくなる）。最初のフル `ci` の前に、
+**コミット済みのクリーンな作業ツリー**で基準を 1 回作る:
+
+```
+pnpm run pie-chart:batch
+pnpm --filter pie-chart run baseline:accept
+```
+
+以後、出力変更を意図した確定時だけ同じ 2 コマンドで基準を更新する。詳細と注意（未検証の変更を
+基準に凍結しない）は `pie-chart/README.md` の「検証」節が正典。GitHub Actions では `out/_baseline`
+を持てないため、この 2 段は GH の job に含めない（`scripts/ci-affected.test.mjs` の免除リスト）。
+`pnpm run ci:affected`（pre-push）は pie-chart 領域に触れたときだけこの 2 段を走らせる。
