@@ -281,6 +281,12 @@ export function logicalYAtViewBoxYPx(coord: Coord, yPx: number): number {
 // leader メトリクス層 (pathsCross / realLeaderPaths / countLeaderCrossings /
 // countLeaderThroughLabels / box*Max / projectBoxesToPixels / oobLeaderCount / angularStacks /
 // countAngularDiscordantPairs) は `leader_geometry.ts` 側。
+// 採点は幾何を 1 回作って配る: `collectLeaderGeometry` で作った `LeaderGeometry` を
+// `replaceLeaderGeometryAt` で 1 ラベル分だけ差し替え、`countLeaderCrossingsFrom` /
+// `countLeaderThroughLabelsFrom` / `boxOverlapMaxOf` / `boxPieIntrusionMaxOf` /
+// `boxViewOverflowOf` / `boxViewOverflowMaxOf` / `oobLeaderCountFrom` /
+// `countAngularDiscordantPairsFrom` の `...From` / `...Of` 系がその 1 個の幾何を読む
+// (再計算しない)。
 
 /**
  * 同一側 (left/right) の外側 leader が交差するとき、交差ペアを縦に引き離してから既存の box ベース
@@ -1449,7 +1455,7 @@ export const PLACEMENT_SEAM_POLICY: Record<keyof Placement, 'snapshot' | 'static
   nameScaleX: 'snapshot',
   condenseNamePortionOnly: 'snapshot',
   item: 'static', // 入力スライスへの参照。seam 系パスは item を書き換えない
-  measured: 'static', // 実測キャッシュ。読み手 (`placementExtent`) が都度再計算する
+  measured: 'static', // 実測キャッシュ。`placementExtent` はこのフィールドを読まない (extent は lines / nameScaleX / nameSplit / item と cfg だけで決まる)
   leaderAnchor: 'static', // スライス rim 上のアンカー。seam 系パスは読み取りのみ
   upperLeftHairpinCheck: 'static', // cascade 確定時に決まり、以後不変
   insideSlice: 'static', // 内側/外側の別は seam 系パスで変わらない (候補フィルタで除外済み)

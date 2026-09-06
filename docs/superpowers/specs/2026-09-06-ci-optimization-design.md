@@ -21,7 +21,7 @@
 | build:editor | 13s | |
 | e2e(35 件、4 workers) | 72s | 合計 262s、並列効率 91%。server / vite は暖機状態 |
 | `pnpm run ci`(cold・全段の壁時計) | 383s | dev サーバ未起動・並走負荷なし。段の合算(約 6.5 分)との差は e2e の webServer 起動と coverage の集計 |
-| `pnpm run ci`(cold、計画 A 完了後) | 236s | 並走負荷なし。A1 の基準値 383s から 147s 短縮。段構成が変わっている(`test:docs`・`pie-chart:batch`・`pie-chart:batch:diff` を追加、`test:e2e` は `chromium` project のみ 33 件 + 事前ポート確認)ため、段ごとの直接比較はできない |
+| `pnpm run ci`(cold、計画 A 完了後) | 236s | 並走負荷なし。A1 の基準値 383s から 147s 短縮。段構成が変わっている(`test:docs`・`pie-chart:batch`・`pie-chart:batch:diff` を追加、`test:e2e` は `chromium` project のみ 33 件 + 事前ポート確認)ため、段ごとの直接比較はできない。計測時点は 7ef431f。以後の A8(long timeout 60s)は再計測していない |
 
 段の合算は約 6.5 分。cold(dev サーバ未起動)で 1 本通した壁時計は上表の最終行(計画 A の最初の
 タスクで計測。10 章)。
@@ -452,7 +452,7 @@ vitest 4.1.11 は、参照 config 内の `test.projects` を**無視する**(レ
   このラッパの自己時間が約 24 秒を占めていた。つまり `profile:synthetic` の絶対秒数は実際の
   描画時間を約 3 倍水増しして見せており、受入条件の判定には使えない(段階間の相対比較の
   道具としては引き続き使える)。受入条件は CI が実際に通す経路(vitest)で判定するのが妥当
-  であり、この経路では 3.8 秒 ≤ 5 秒を満たすため、2 章の受入条件は**達成している**。これを
+  であり、この経路では実測 3.5〜5.2 秒(ラン間の幅あり)で、受入条件 5 秒は**境界上、概ね達成**。これを
   受けて A8(`render_hash_long.test.ts` のケース単位 timeout を 60 秒へ縮める対応)を適用した。
 - pie-chart の配置計算高速化(2 章)は `gen_long_12_other` を(`profile:synthetic` 計測で)
   47.7 秒 → 38.5 秒 → 26.1 秒 → 24.5 秒まで縮めている(同じ入力の CI 経路 vitest 計測では

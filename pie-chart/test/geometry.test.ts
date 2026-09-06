@@ -482,6 +482,36 @@ describe('placementExtent / placementBox', () => {
     const ext = placementExtent(makePlacement({ lines: ['AB 50%'] }), cfg);
     expect(ext.height).toBeCloseTo(labelHeightUnits(1, cfg));
   });
+
+  // メモ (`EXTENT_MEMO`) の無効化契約: 参照一致で再利用してよい条件と、してはいけない条件を
+  // 固定する。無効化条件を緩めると古い extent を返し続け、逆に強めると毎回再計算になり
+  // メモの意味が無くなる。
+  it('lines を新しい配列へ差し替えると別内容の extent を返す', () => {
+    // nameSplit: true で lines[0]/[1] 自体が幅の元になる形にする (通常の 2 行は
+    // item.name/percentText から幅を作るため、lines の文字数を変えても幅は動かない)。
+    const p = makePlacement({ nameSplit: true, lines: ['AB', '50%'] });
+    const before = placementExtent(p, cfg);
+    p.lines = ['非常に長い名前です', '50%'];
+    const after = placementExtent(p, cfg);
+    expect(after.width).not.toBeCloseTo(before.width);
+  });
+
+  it('文字寸法を変えた浅いコピー cfg では別の extent を返す', () => {
+    const p = makePlacement();
+    const before = placementExtent(p, cfg);
+    const widerCfg = { ...cfg, charWidthFactor: cfg.charWidthFactor * 2 };
+    const after = placementExtent(p, widerCfg);
+    expect(after.width).not.toBeCloseTo(before.width);
+  });
+
+  it('返した Extent を書き換えても次回呼び出しには影響しない', () => {
+    const p = makePlacement();
+    const ext = placementExtent(p, cfg);
+    const originalWidth = ext.width;
+    ext.width = 0;
+    const again = placementExtent(p, cfg);
+    expect(again.width).toBeCloseTo(originalWidth);
+  });
 });
 
 // ---------------------------------------------------------------------------

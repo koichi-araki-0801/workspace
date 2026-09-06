@@ -22,7 +22,7 @@ const LONG_CASES = Object.entries(syntheticCases()).filter(([name]) =>
 
 describe('合成入力の SVG ハッシュ固定 (配置計算が重いケース)', () => {
   // timeout はルート `vitest run --coverage` (4 project 並列) 併走時の実測を余裕込みで収める値
-  // (`render_hash.test.ts` と同じ判断・同じ値)。単独では 1 ケース約 4 秒で、カバレッジ実行の
+  // (`render_hash.test.ts` と同じ判断・同じ値)。単独では 1 ケース約 4〜5 秒で、カバレッジ実行の
   // オーバーヘッドと並列負荷を掛け合わせても 60 秒には十分な余裕がある。
   it.each(LONG_CASES)(
     '%s の SHA256 が定数表と一致する',
