@@ -84,7 +84,10 @@ describe('Host ヘッダの検査', () => {
 // `buildApp()` 工場になり、listen もシグナル処理も `index.ts` 側にあるので、ここでは
 // **本番と同じインスタンス**を `inject()` で叩く(再構築形が原理的に見られない「フックの
 // 順序」と「実ルートでも本文を返さないこと」は、この describe だけが押さえている)。
-describe('実 app.ts の Host 検査(buildApp の実配線)', () => {
+// 実 `app.ts` の dynamic import は全ルート登録と web dist の探索を伴い、ルート CI
+// (4 project 並列 + coverage) では既定 5s を超えて落ちることがある(単独なら 1s 前後)。
+// 遅いこと自体は退行ではないので、上限は `projectInput.test.ts` と同じく実測へ合わせる。
+describe('実 app.ts の Host 検査(buildApp の実配線)', { timeout: 60_000 }, () => {
   it('loopback 名は実ルートへ通り、攻撃者ドメインは本文ゼロの 403 になる', async () => {
     const { buildApp } = await import('../src/app.js');
     app = buildApp();
