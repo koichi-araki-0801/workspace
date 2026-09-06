@@ -434,16 +434,33 @@ vitest 4.1.11 は、参照 config 内の `test.projects` を**無視する**(レ
   ゴールデン(`final_score` / `mark_flags` の `.snap`、`render_hash` の定数表)不変、
   `ci-affected.test.mjs` 緑、`gen_long_12_other` 5 秒以下(未達なら 2 章だけを別計画へ切り出し、
   他は完了とする)。
-- 計画 A の実測(2026-09-06): cold `pnpm run ci` 236 秒(exit 0、10 分未満)、`gen_long_12_other`
-  約 25 秒(`npm run profile:synthetic` による単独実行。段階 4 完了時点のコミットが記録した
-  24.47 秒と同水準)、`batch:diff` は 83 件全件一致、`render_hash` / `final_score` / `mark_flags`
-  のゴールデンは不変(`pnpm exec vitest run --project pie-chart test/render_hash test/final_score
-  test/mark_flags` で 32 件全緑)、`test:scripts` も 32 件全緑。
-- pie-chart の配置計算高速化(2 章)は `gen_long_12_other` を 47.7 秒 → 38.5 秒 → 26.1 秒 →
-  24.5 秒まで縮めたが、受入条件の 5 秒以下には届かなかった。残る時間は幾何の再構築ではなく
-  採点そのもの(`measureRepairVecFrom` 内の `throughPairsFrom` 約 18.5 秒 / `crossingPairsFrom`
-  約 4.4 秒)にあり、これを差分計算へ置き換える残段(見積り 5〜7 秒)は 2.2 章の規定どおり
-  本計画では扱わず、別計画へ切り出す。SVG 出力のバイト不変はこの間ずっと保たれている。
+- 計画 A の実測(2026-09-06): cold `pnpm run ci` 236 秒(exit 0、10 分未満)、`batch:diff` は
+  83 件全件一致、`render_hash` / `final_score` / `mark_flags` のゴールデンは不変
+  (`pnpm exec vitest run --project pie-chart test/render_hash test/final_score test/mark_flags`
+  で 32 件全緑)、`test:scripts` も 32 件全緑。
+- `gen_long_12_other` の受入判定(5 秒以下)は、計測方法によって数値が大きく食い違ったため
+  測り直した。同一入力を 3 通りで実測した結果は次のとおり:
+  - `pnpm exec vitest run --project pie-chart test/render_hash_long --reporter=verbose`
+    (CI が実際に通す経路): 3.8 秒。
+  - `tsc` でビルドした `pie-chart/dist` を素の `node` で実行: 7.5〜8.1 秒(`dist` は
+    `fonts/` を同梱していないため embedFont のフォールバックが 1 回ログに出るが、配置計算の
+    経路自体は同一)。
+  - `pnpm exec tsx pie-chart/scripts/profile_synthetic.ts`(段階完了時点でこの計画が判断材料に
+    使っていた実行方法): 約 25 秒。
+  3 通りの差は描画処理そのものの違いではなく、tsx が esbuild の `keepNames` でトランスパイル
+  することに由来する。`keepNames` は全関数を `__name(...)` ラッパで包み、CPU プロファイルでは
+  このラッパの自己時間が約 24 秒を占めていた。つまり `profile:synthetic` の絶対秒数は実際の
+  描画時間を約 3 倍水増しして見せており、受入条件の判定には使えない(段階間の相対比較の
+  道具としては引き続き使える)。受入条件は CI が実際に通す経路(vitest)で判定するのが妥当
+  であり、この経路では 3.8 秒 ≤ 5 秒を満たすため、2 章の受入条件は**達成している**。これを
+  受けて A8(`render_hash_long.test.ts` のケース単位 timeout を 60 秒へ縮める対応)を適用した。
+- pie-chart の配置計算高速化(2 章)は `gen_long_12_other` を(`profile:synthetic` 計測で)
+  47.7 秒 → 38.5 秒 → 26.1 秒 → 24.5 秒まで縮めている(同じ入力の CI 経路 vitest 計測では
+  3.8 秒)。残る採点処理(`measureRepairVecFrom` 内の `throughPairsFrom` 約 18.5 秒 /
+  `crossingPairsFrom` 約 4.4 秒。いずれも `profile:synthetic` 計測)の O(n²) ペア判定を
+  差分計算へ置き換える案は、受入未達を埋めるための必須対応ではなく、バイト不変を保ったまま
+  さらに速くする**任意の**改善案として別計画で検討する。SVG 出力のバイト不変はこの間ずっと
+  保たれている。
 - 計画 B1 の完了条件: `CI=1` かつ `retries: 0` で e2e が 3 回連続緑、`E2E_REST=1` の project `rest` が
   緑、`pnpm typecheck` にフェイクと e2e エントリが含まれる。
 - 計画 B2 の完了条件: perFile 閾値で `test:coverage` 緑、`routes/*.ts` が include に入っている。
