@@ -87,6 +87,26 @@ e2e（Playwright）は project が 2 つある。`chromium` は挙動を検証�
 `py -3.13 docs/_build/build_all.py --project editor` で HTML を作り直す。撮影だけ手で走らせるときは
 `cd editor && pnpm exec playwright test --project docs`。
 
+### REST e2e（opt-in 統合テスト）
+
+REST API と SQL Server 連携を検証する e2e テストは `E2E_REST=1` 環境変数で opt-in される。
+
+```bash
+E2E_REST=1 pnpm run e2e:rest   # PowerShell: $env:E2E_REST='1'; pnpm run e2e:rest
+```
+
+このモードでは:
+- **サーバ** が `editor/server/scripts/e2e-rest-server.ts` をブート
+- **sproc は in-memory フェイク** (`editor/server/test/fakes/sprocFake.ts`) を使用（実 SQL Server には接続しない）
+- **ポート**: server :24690 / Vite :24691
+- **テンプレ領域** (dataRoot) は一時ディレクトリ（毎起動時クリア）
+- **認証** `AUTH_REQUIRED=true` + **監査ログ** `AUDIT_DB=true`
+- **スペック** : `editor/e2e/*.rest.spec.ts`（`approval.rest.spec.ts` / `users.rest.spec.ts` など）
+- **worker数** 1 / **再利用** false
+
+実 SQL Server（LocalDB）を相手にした検証は別枠の手動確認 — `ci` や GitHub Actions では
+opt-in の rest project は実行されず、ローカルモード (`chromium` project) のみが走る。
+
 ## LAN 公開（社内ネットワークの他端末から使う）
 
 既定ではサーバは `127.0.0.1` にのみバインドされ、起動した PC 以外からはアクセスできない。
