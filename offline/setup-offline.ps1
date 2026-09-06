@@ -8,8 +8,9 @@
   docs の mermaid JS / native-prebuilds）は git に入れず GitHub Releases（タグ offline-bundle-v1）に
   置いてある。本スクリプトは次を 1 本で行う:
     1. バンドルの用意。リポジトリ直下または bk\ に offline-deps-bundle.tar.gz と bundle.key が
-       あればそれを使う（取得しない）。無ければ Release から HTTPS で直取得する（gh 不要。
-       リポジトリは Public）。取得したときは Release の .sha256 と突き合わせて転送破損を検知する。
+       同じ場所に揃っていればそれを使う（取得しない）。揃っていなければ Release から HTTPS で
+       直取得する（gh 不要。リポジトリは Public）。取得は一時ディレクトリで行い、Release の
+       .sha256 と突き合わせた検証が通ってからだけ直下へ移す（検証前・失敗した取得物を直下に残さない）。
     2. 展開 → bundle.key と手元の pnpm-lock.yaml / packageManager / requirements / manifest から
        算出する content-key の一致検査。不一致は「ソースと重量物が別の組」なので中止する
        （続けても pnpm install --offline が落ちるだけで、原因が見えにくくなる）。
@@ -75,12 +76,16 @@ foreach ($f in @($LockFile, $PkgJson)) {
   }
 }
 
-# リポジトリ直下を優先し、無ければ bk\ から資材を探す。
-function Find-Local([string]$name) {
-  $a = Join-Path $RepoRoot $name
-  if (Test-Path -LiteralPath $a) { return $a }
-  $b = Join-Path $Bk $name
-  if (Test-Path -LiteralPath $b) { return $b }
+# リポジトリ直下 → bk\ の順で、バンドルと bundle.key が同じディレクトリに揃っている組だけを
+# 使う（直下の新しいバンドルと bk\ の古い鍵のような取り違えを避ける）。
+function Find-LocalBundlePair {
+  foreach ($dir in @($RepoRoot, $Bk)) {
+    $b = Join-Path $dir $BundleName
+    $k = Join-Path $dir 'bundle.key'
+    if ((Test-Path -LiteralPath $b) -and (Test-Path -LiteralPath $k)) {
+      return @{ Bundle = $b; Key = $k }
+    }
+  }
   return $null
 }
 
@@ -101,27 +106,45 @@ function Download-File([string]$url, [string]$dest) {
 
 # ---- [1/5] バンドルの用意（手元優先、無ければ Release から取得） ----
 Write-Host '[1/5] バンドルを確認...'
-$Bundle  = Find-Local $BundleName
-$KeyFile = Find-Local 'bundle.key'
+$local = Find-LocalBundlePair
 $downloaded = $false
-if ($Bundle -and $KeyFile) {
+if ($local) {
+  $Bundle  = $local.Bundle
+  $KeyFile = $local.Key
   Write-Host "[info] 手元のバンドルを使います: $Bundle"
 } else {
   Write-Host "[info] 手元にバンドルが無いため Release $Tag から HTTPS で取得します..."
+  # 取得はリポジトリ直下ではなく一時ディレクトリで行う。直下へ先に置くと、検証失敗で
+  # スクリプトが止まった後もファイルが残り、次回実行が「手元のバンドルを使う」経路で
+  # .sha256 検証を経ないままそれを使ってしまう。
+  $Work     = Join-Path ([IO.Path]::GetTempPath()) ('offline-setup-' + [Guid]::NewGuid().ToString('N'))
+  $WorkFile = Join-Path $Work $BundleName
+  $WorkKey  = Join-Path $Work 'bundle.key'
+  $WorkSha  = "$WorkFile.sha256"
+  New-Item -ItemType Directory -Path $Work -Force | Out-Null
+  try {
+    Download-File "$AssetBase/$BundleName"        $WorkFile
+    Download-File "$AssetBase/$BundleName.sha256" $WorkSha
+    Download-File "$AssetBase/bundle.key"         $WorkKey
+    # Release に並ぶ .sha256 で転送破損を検知する（形式: "<sha256>  <ファイル名>"）。
+    $expected = ((Get-Content -LiteralPath $WorkSha -Raw).Trim() -split '\s+')[0]
+    if (-not $expected -or $expected -notmatch '^[0-9a-fA-F]{64}$') {
+      throw '.sha256 の形式が想定外です。'
+    }
+    Assert-FileSha256 -File $WorkFile -ExpectedSha256 $expected -Label 'bundle'
+  } catch {
+    Write-Error "[error] $($_.Exception.Message)`n  タグ / ネットワーク / リポジトリの公開状態を確認してください。"
+    Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
+    exit 1
+  }
+  # 検証を通った取得物だけを直下へ移す。
   $Bundle  = Join-Path $RepoRoot $BundleName
   $KeyFile = Join-Path $RepoRoot 'bundle.key'
-  $Sha     = "$Bundle.sha256"
-  try {
-    Download-File "$AssetBase/$BundleName"        $Bundle
-    Download-File "$AssetBase/$BundleName.sha256" $Sha
-    Download-File "$AssetBase/bundle.key"         $KeyFile
-  } catch {
-    Write-Error "[error] $($_.Exception.Message)`n  タグ / ネットワーク / リポジトリの公開状態を確認してください。"; exit 1
-  }
+  Move-Item -LiteralPath $WorkFile -Destination $Bundle          -Force
+  Move-Item -LiteralPath $WorkSha  -Destination "$Bundle.sha256" -Force
+  Move-Item -LiteralPath $WorkKey  -Destination $KeyFile         -Force
+  Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
   $downloaded = $true
-  # Release に並ぶ .sha256 で転送破損を検知する（形式: "<sha256>  <ファイル名>"）。
-  $expected = ((Get-Content -LiteralPath $Sha -Raw).Trim() -split '\s+')[0]
-  Assert-FileSha256 -File $Bundle -ExpectedSha256 $expected -Label 'bundle'
 }
 
 # ---- [2/5] 展開 ----

@@ -42,31 +42,38 @@
 （`offline/README-offline.txt` と `offline/setup-offline.bat`。pnpm 11 + オフラインストア方式。
 旧 npm ベースの pack.ps1/setup.ps1 や 2 段運用の fetch スクリプトは廃止）。
 
-配布は **2 系統**に分離し、いずれも GitHub から HTTPS だけで取得する（`gh` 不要）:
+配布は **2 系統**に分離する:
 
-- **コード** … タグ ZIP（codeload）。Release のタグ `offline-bundle-v1` は公開のたびに最新コミットへ
-  移動するため、GitHub が自動添付する `Source code (zip/tar.gz)` は最新ソースと一致する。
-- **重量物**（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/`・`python-wheelhouse/`、約 1.2GB） …
-  **GitHub Releases**（同タグ、`offline-deps-bundle.tar.gz`）。容量が大きく毎回 git 履歴へ積めないため
-  git 管理外とし、内容（`pnpm-lock.yaml`／`packageManager`／各 `requirements.txt`）変更時のみ更新する。
-  `python-wheelhouse/` は docs 閲覧 HTML のビルドとテストに使う Python 依存の wheel で、
+- **ソース** … `git clone`（リポジトリは Public）。
+- **重量物**（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/`・`python-wheelhouse/`・`git-tools/`・
+  docs の mermaid JS（`docs\_build\vendor\mermaid*.js`）・`native-prebuilds/`、約 1.1GB） …
+  **GitHub Releases**（タグ `offline-bundle-v1`、アセット `offline-deps-bundle.tar.gz`）。容量が大きく
+  毎回 git 履歴へ積めないため git 管理外とし、内容（`pnpm-lock.yaml`／`packageManager`／各
+  `requirements.txt`／各 `manifest.txt`）変更時のみ更新する。同じ場所の `bundle.key` は、そのバンドルが
+  どのソースから作られたかを示す content-key で、`setup-offline.ps1` がこれと手元のソースを
+  突き合わせる。`python-wheelhouse/` は docs 閲覧 HTML のビルドとテストに使う Python 依存の wheel で、
   `docs\_build\build_all.bat` が `--no-index` でオフライン install する
   （無ければ通常の pip install へフォールバック）。
 
-### 1. 調達（オンライン機・Windows x64・Node 24）
+### 1. 調達（配布担当の端末・Windows x64・Node 24）
 
-通常はコミット毎フック（`.husky/post-commit`）が `offline/publish-offline-bundle.ps1` を自動実行する。
-ローリングタグを最新コミットへ移動して自動 Source code を更新し、重量物は content key
-（`pnpm-lock.yaml` + `packageManager`）に差分がある時だけ再生成・再アップロードする（不変ならスキップ）。
-手動実行は `pwsh -File offline/publish-offline-bundle.ps1`。無効化は `OFFLINE_PUBLISH_SKIP=1`。
-詳細は `offline/README-offline.txt` を参照。
+`pnpm-lock.yaml` / `package.json` の `packageManager` / 各 `requirements.txt` / 各 `manifest.txt` の
+いずれかを変えて push したら、配布担当の端末で git 管理外の
+`local-only\offline-publish\publish-offline-bundle.bat` を手動実行する（コミットフックからの
+自動実行はしない）。content-key が Release の `bundle.key` と一致していれば何もしない。不一致
+（または `-Force`）なら重量物を再生成し、`.sha256`・`bundle.key` と一緒に同タグへ
+`gh release upload --clobber` する。実行前に HEAD が origin へ push 済みであることを検査する
+（他端末が `git clone` する HEAD と組になる重量物を上げるため）。詳細は
+`offline/README-offline.txt` を参照。
 
 ### 2. 取得・展開・ビルド・起動（運用機）
 
-運用機では **`offline/` フォルダ一式だけを配置**し、`offline/setup-offline.bat` を実行する。
-取得中だけリポジトリを Public にしておけば、ソース ZIP と重量物を HTTPS で自動取得・検証・展開し、
-そのまま pnpm の corepack 登録 → `pnpm install --offline` → `pnpm build` → Playwright ブラウザ配置まで
-一括で完走する（`gh`・`git` 不要。取得後の install/build はオフライン）。ダウンロード物は `bk/` へ退避する。
+運用機では `git clone` で本リポジトリを取得し、`offline\setup-offline.bat` を実行する。
+リポジトリ直下（または `bk\`）に `offline-deps-bundle.tar.gz` と `bundle.key` があればそれを使い、
+無ければ Release から HTTPS で直取得する（`gh` 不要。取得したときは同梱の `.sha256` で転送破損を
+検査する）。展開 → `bundle.key` と手元のソースの content-key を突き合わせ（不一致は中止）→
+同梱 pnpm を corepack 登録 → `pnpm install --offline` → `pnpm build` → Playwright ブラウザ配置 →
+PortableGit 展開まで一括で完走する（取得後の install/build はオフライン）。取得物は `bk\` へ退避する。
 運用機は**単一 Node プロセス**で API と SPA（`web/dist`）を配信する。
 
 手動起動する場合:
