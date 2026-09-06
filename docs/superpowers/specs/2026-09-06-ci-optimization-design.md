@@ -21,6 +21,7 @@
 | build:editor | 13s | |
 | e2e(35 件、4 workers) | 72s | 合計 262s、並列効率 91%。server / vite は暖機状態 |
 | `pnpm run ci`(cold・全段の壁時計) | 383s | dev サーバ未起動・並走負荷なし。段の合算(約 6.5 分)との差は e2e の webServer 起動と coverage の集計 |
+| `pnpm run ci`(cold、計画 A 完了後) | 236s | 並走負荷なし。A1 の基準値 383s から 147s 短縮。段構成が変わっている(`test:docs`・`pie-chart:batch`・`pie-chart:batch:diff` を追加、`test:e2e` は `chromium` project のみ 33 件 + 事前ポート確認)ため、段ごとの直接比較はできない |
 
 段の合算は約 6.5 分。cold(dev サーバ未起動)で 1 本通した壁時計は上表の最終行(計画 A の最初の
 タスクで計測。10 章)。
@@ -433,6 +434,16 @@ vitest 4.1.11 は、参照 config 内の `test.projects` を**無視する**(レ
   ゴールデン(`final_score` / `mark_flags` の `.snap`、`render_hash` の定数表)不変、
   `ci-affected.test.mjs` 緑、`gen_long_12_other` 5 秒以下(未達なら 2 章だけを別計画へ切り出し、
   他は完了とする)。
+- 計画 A の実測(2026-09-06): cold `pnpm run ci` 236 秒(exit 0、10 分未満)、`gen_long_12_other`
+  約 25 秒(`npm run profile:synthetic` による単独実行。段階 4 完了時点のコミットが記録した
+  24.47 秒と同水準)、`batch:diff` は 83 件全件一致、`render_hash` / `final_score` / `mark_flags`
+  のゴールデンは不変(`pnpm exec vitest run --project pie-chart test/render_hash test/final_score
+  test/mark_flags` で 32 件全緑)、`test:scripts` も 32 件全緑。
+- pie-chart の配置計算高速化(2 章)は `gen_long_12_other` を 47.7 秒 → 38.5 秒 → 26.1 秒 →
+  24.5 秒まで縮めたが、受入条件の 5 秒以下には届かなかった。残る時間は幾何の再構築ではなく
+  採点そのもの(`measureRepairVecFrom` 内の `throughPairsFrom` 約 18.5 秒 / `crossingPairsFrom`
+  約 4.4 秒)にあり、これを差分計算へ置き換える残段(見積り 5〜7 秒)は 2.2 章の規定どおり
+  本計画では扱わず、別計画へ切り出す。SVG 出力のバイト不変はこの間ずっと保たれている。
 - 計画 B1 の完了条件: `CI=1` かつ `retries: 0` で e2e が 3 回連続緑、`E2E_REST=1` の project `rest` が
   緑、`pnpm typecheck` にフェイクと e2e エントリが含まれる。
 - 計画 B2 の完了条件: perFile 閾値で `test:coverage` 緑、`routes/*.ts` が include に入っている。
