@@ -73,11 +73,11 @@ function canSeeAll(actor: ReviewActor): boolean {
 }
 
 /**
- * 承認・差し戻しが受け付ける現在状態の検査。決着(approved/rejected)済みを 409 で拒む。
+ * 承認・却下が受け付ける現在状態の検査。決着(approved/rejected)済みを 409 で拒む。
  */
 function assertUndecided(review: ReviewRequest): void {
   if (review.status === 'approved' || review.status === 'rejected')
-    throw conflict(`この申請は既に${review.status === 'approved' ? '承認' : '差し戻し'}済みです`);
+    throw conflict(`この申請は既に${review.status === 'approved' ? '承認' : '却下'}済みです`);
 }
 
 /** 確定保存を申請する(pending 作成・実ファイル非更新)。 */

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // =============================================================================
-// ReviewDetail.vue — 申請 1 件の精査(見た目比較主体 + 通知集約 + 承認/差し戻し)
+// ReviewDetail.vue — 申請 1 件の精査(見た目比較主体 + 通知集約 + 承認/却下)
 // =============================================================================
 // 主表示は「修正前｜修正後」の左右組版比較(`ReviewVisualCompare`)。事務担当者の主観点は
 // 「最終の見た目がどうなるか」であり、パーツ単位の縦リストは「文字の変更を一覧で見る」タブへ
@@ -111,7 +111,7 @@ const renderedRows = computed<RenderedRow[]>(() =>
 );
 
 const comment = ref('');
-// 空理由で「差し戻す」を押した場合のインラインエラー。入力が始まったら消す。
+// 空理由で「却下する」を押した場合のインラインエラー。入力が始まったら消す。
 const rejectError = ref(false);
 const commentEl = ref<HTMLTextAreaElement | null>(null);
 watch(comment, (v) => {
@@ -131,10 +131,10 @@ const STATUS_BADGE: Record<
 /** 「処理済み(閲覧のみ)」表示の状態ラベル。pending は別分岐(`canDecide`)。 */
 const DECIDED_STATUS_LABEL: Record<'approved' | 'rejected', string> = {
   approved: '承認済み',
-  rejected: '差し戻し済',
+  rejected: '却下済み',
 };
 
-// pending は精査者が操作できる。処理済み(承認/差し戻し)は閲覧のみ。
+// pending は精査者が操作できる。処理済み(承認/却下)は閲覧のみ。
 const canDecide = computed(() => auth.isApprover && review.value?.status === 'pending');
 
 const visualRef = ref<InstanceType<typeof ReviewVisualCompare>>();
@@ -255,7 +255,7 @@ function notifyNoteMasterResult(noteMaster: ApproveReviewResult['noteMaster']): 
 }
 
 async function reject() {
-  // 差し戻しは申請者への差し戻し — 理由が残らないと編集者が直しようがないため必須にする。
+  // 却下は申請者へ戻す操作 — 理由が残らないと編集者が直しようがないため必須にする。
   if (!comment.value.trim()) {
     rejectError.value = true;
     commentEl.value?.focus();
@@ -263,7 +263,7 @@ async function reject() {
   }
   const res = await rejectReview(comment.value.trim());
   if (isOk(res)) {
-    toastSuccess('差し戻しました');
+    toastSuccess('却下しました');
     await load();
     if (review.value) emit('decided', toReviewMeta(review.value));
   }
@@ -506,28 +506,28 @@ onMounted(async () => {
         </ul>
       </template>
 
-      <!-- 承認/差し戻し(精査者のみ・pending のみ) -->
+      <!-- 承認/却下(精査者のみ・pending のみ) -->
       <div v-if="canDecide" class="space-y-2 rounded-[12px] border bg-muted/30 p-4">
         <label class="text-sm font-medium" :for="`review-comment-${reqId}`">
-          差し戻し理由（差し戻すときは必須です）
+          却下理由（却下するときは必須です）
         </label>
         <textarea
           :id="`review-comment-${reqId}`"
           ref="commentEl"
           v-model="comment"
           rows="2"
-          placeholder="差し戻し理由を入力します。"
+          placeholder="却下理由を入力します。"
           :aria-invalid="rejectError || undefined"
           class="w-full rounded-md border bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           :class="rejectError ? 'border-destructive' : 'border-input'"
         />
         <p v-if="rejectError" role="alert" class="text-xs text-destructive">
-          差し戻しには理由の入力が必要です。
+          却下には理由の入力が必要です。
         </p>
         <div class="flex items-center justify-end gap-2">
           <Button variant="outline" :disabled="deciding" @click="reject">
             <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
-            <X v-else class="h-4 w-4" /> 差し戻す
+            <X v-else class="h-4 w-4" /> 却下する
           </Button>
           <Button :disabled="deciding" @click="approve">
             <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
@@ -536,7 +536,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- 処理済み(承認/差し戻し)or 閲覧のみ -->
+      <!-- 処理済み(承認/却下)or 閲覧のみ -->
       <div
         v-else-if="review.status !== 'pending'"
         class="rounded-[12px] border bg-muted/30 p-4 text-sm"
@@ -547,7 +547,7 @@ onMounted(async () => {
         </span>
         です（{{ review.reviewedBy }}・{{ formatDateTimeShort(review.reviewedAt) }}）。
         <span v-if="review.comment && review.status === 'rejected'" class="block text-muted-foreground">
-          差し戻し理由: {{ review.comment }}
+          却下理由: {{ review.comment }}
         </span>
       </div>
       <p v-else class="text-sm text-muted-foreground">

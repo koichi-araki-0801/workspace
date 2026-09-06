@@ -74,10 +74,10 @@ test('対象が無ければ誘導し、編集タブで開いたテンプレー�
   await page.locator('[data-review-toggle]').nth(1).click();
   await expect(page.locator('[data-review-item] iframe[title="プレビュー"]')).toHaveCount(4);
 
-  // 先頭を差し戻すと同じ画面に留まり、承認待ちが 1 件に減る
+  // 先頭を却下すると同じ画面に留まり、承認待ちが 1 件に減る
   const first = page.locator('[data-review-item]').first();
   await first.locator('textarea[id^="review-comment"]').fill('数値を確認してください');
-  await first.getByRole('button', { name: '差し戻す' }).click();
+  await first.getByRole('button', { name: '却下する' }).click();
   await expect(page).toHaveURL(/\/reviews/);
   await expect(page.locator('[data-summary="pending"]')).toContainText('1');
   await expect(page.locator('[data-summary="rejected"]')).toContainText('1');

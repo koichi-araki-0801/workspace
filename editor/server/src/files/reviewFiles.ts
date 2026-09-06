@@ -48,7 +48,7 @@ export async function writeReview(req: ReviewRequest): Promise<void> {
  *
  * 旧い meta.json には保留(`held`)の状態と `heldBy` / `heldAt` / `holdComment` が残っている
  * ことがある。保留は撤去したので、読み取りで `pending` に正規化し保留の 3 フィールドは
- * 落とす。書き戻しはしない — 次の決着(承認 / 差し戻し)で新しい meta が書かれ自然に消える。
+ * 落とす。書き戻しはしない — 次の決着(承認 / 却下)で新しい meta が書かれ自然に消える。
  */
 async function readReviewMeta(reqId: string): Promise<ReviewRequestMeta | null> {
   const raw = await fs.readFile(metaPath(reqId), 'utf8').catch(() => null);
