@@ -5,29 +5,37 @@
 // (`反映` パーツのみ / 先頭出現を正 / 適用は全出現 / 失敗はベストエフォート)を検証する。
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../src/db/sproc.js', async (importOriginal) => {
-  const orig = await importOriginal<typeof import('../src/db/sproc.js')>();
-  return { ...orig, callSproc: vi.fn() };
-});
-vi.mock('../src/repositories/partRepo.js', () => ({ listParts: vi.fn() }));
 vi.mock('../src/files/templateFiles.js', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../src/files/templateFiles.js')>();
   return { ...orig, readTemplateHtml: vi.fn() };
 });
 
 import type { PartCatalogItem, PartMasterReflectDefault } from '@editor/shared';
-import { callSproc, type Param } from '../src/db/sproc.js';
+import type { Param, SprocClient } from '../src/db/sproc.js';
 import { SP } from '../src/db/sprocNames.js';
 import { readTemplateHtml } from '../src/files/templateFiles.js';
-import { listParts } from '../src/repositories/partRepo.js';
-import {
-  applyNoteMasterToHtml,
-  reflectNoteMasterAfterConfirm,
-} from '../src/sync/noteMasterService.js';
+import type { PartRepo } from '../src/repositories/partRepo.js';
+import { createNoteMasterService } from '../src/sync/noteMasterService.js';
 
-const callSprocMock = vi.mocked(callSproc);
-const listPartsMock = vi.mocked(listParts);
+const callSprocMock = vi.fn(async (..._a: unknown[]): Promise<Record<string, unknown>[]> => []);
+const listPartsMock = vi.fn(async (): Promise<PartCatalogItem[]> => []);
 const readTemplateHtmlMock = vi.mocked(readTemplateHtml);
+
+// DB の実行面とカタログだけを差し替え、サービス本体は実装のまま組む。
+const parts: PartRepo = {
+  listParts: (...a) => listPartsMock(...(a as [])),
+  getPartClassificationOptions: async () => ({
+    categories: [],
+    majorClasses: [],
+    middleClasses: [],
+    minorClasses: [],
+  }),
+};
+const sproc: SprocClient = { callSproc: (...a) => callSprocMock(...(a as [])) };
+const { reflectNoteMasterAfterConfirm, applyNoteMasterToHtml } = createNoteMasterService({
+  sproc,
+  parts,
+});
 
 const part = (id: string, text: string): string =>
   `<section data-part-id="${id}"><p>${text}</p></section>`;

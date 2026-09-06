@@ -14,7 +14,7 @@
 // パスワード誤り / DB 障害で文言・ステータス・`code`・レート制限の状態を揃えても、
 // 応答時間だけで「その ID は存在するか」が読めてしまうため(`auth/timing.ts`)。
 import { apiPaths, forbidden, INVALID_CREDENTIALS_MESSAGE, unauthorized } from '@editor/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import { canonicalLoginId, isOperationalLoginId } from '../auth/loginId.js';
 import {
@@ -25,13 +25,15 @@ import {
 import { cookieOptions, sessionIdFrom } from '../auth/session.js';
 import { applyFailureFloor, startedNow } from '../auth/timing.js';
 import { config } from '../config.js';
+import type { Deps } from '../deps.js';
 import { actorFromReq, audit } from '../logger.js';
 import { loadUser, requireAuth, requireIdentifiedUser } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { LoginRequest, PasswordInitRequest } from '../openapi/schemas.js';
-import * as auth from '../repositories/authRepo.js';
 
-export async function authRoutes(app: FastifyInstance): Promise<void> {
+export const authRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'auth'> }> = async (app, opts) => {
+  const { auth } = opts.deps;
+
   app.post<{ Body: z.infer<typeof LoginRequest> }>(
     apiPaths.authLogin,
     { preHandler: validate(LoginRequest) },
@@ -165,7 +167,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(204).send();
     },
   );
-}
+};
 
 /**
  * 試行本体を走らせ、成功・失敗のどちらでも必ずゲージを返す。失敗側だけ応答フロアを掛ける

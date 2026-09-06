@@ -13,19 +13,9 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
-// 生成器(python)と台帳(sproc)は本テストの対象外。台帳は既定で成功させ、孤児検査のときだけ
-// 失敗へ切り替える。
+// 生成器(python)と台帳(sproc)は本テストの対象外。台帳は既定で成功させ、孤児検査の
+// ときだけ失敗へ切り替える。
 let sprocFails = false;
-vi.mock('../src/db/sproc.js', async (importOriginal) => {
-  const orig = await importOriginal<typeof import('../src/db/sproc.js')>();
-  return {
-    ...orig,
-    callSproc: async () => {
-      if (sprocFails) throw new Error('台帳登録に失敗(テストの意図的失敗)');
-      return [] as Record<string, unknown>[];
-    },
-  };
-});
 vi.mock('../src/generate/pyTemplate.js', () => ({
   generateTemplate: async () => '<html><body><p>生成物</p></body></html>',
 }));
@@ -61,28 +51,33 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     const { errorHandler } = await import('../src/middleware/errorHandler.js');
     const { generateRoutes } = await import('../src/routes/generate.routes.js');
     const { templatesRoutes } = await import('../src/routes/templates.routes.js');
-    app = Fastify();
-    decorateSessionStore(
-      app,
-      createSessionStub({
-        getSessionUser: () => ({
-          id: 'editor1',
-          username: 'editor1',
-          displayName: 'editor1',
-          role: 'editor',
-          disabled: false,
-          mustChangePassword: false,
-        }),
+    const { createSprocClient } = await import('../src/db/sproc.js');
+    const { createDeps } = await import('../src/deps.js');
+    const sproc = createSprocClient(async () => {
+      if (sprocFails) throw new Error('台帳登録に失敗(テストの意図的失敗)');
+      return [];
+    });
+    const store = createSessionStub({
+      getSessionUser: () => ({
+        id: 'editor1',
+        username: 'editor1',
+        displayName: 'editor1',
+        role: 'editor',
+        disabled: false,
+        mustChangePassword: false,
       }),
-    );
+    });
+    const deps = createDeps(sproc, store);
+    app = Fastify();
+    decorateSessionStore(app, store);
     app.setErrorHandler(errorHandler);
     // `requireAuth` は実セッションを引くので、ここでは onRequest で user を注入して
     // 「認証済みの一般利用者」を作る(本テストの関心はロールではなく書込先)。
     app.addHook('onRequest', async (req) => {
       req.user = { username: 'editor1', role: 'editor' } as never;
     });
-    await app.register(generateRoutes);
-    await app.register(templatesRoutes);
+    await app.register(generateRoutes, { deps });
+    await app.register(templatesRoutes, { deps });
     await app.ready();
   });
   afterAll(async () => {

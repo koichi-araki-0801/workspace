@@ -9,20 +9,17 @@
 //   3. パスワード変更は「除外セッションID」を sproc へ渡す(旧セッションの失効は sproc 内)
 // の 3 点。
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SprocClient } from '../src/db/sproc.js';
+import { createSessionStub } from './helpers/sessionStub.js';
 
 const callSproc = vi.fn(async (..._args: unknown[]): Promise<Record<string, unknown>[]> => []);
 const verifyPassword = vi.fn(async (): Promise<boolean> => true);
 const createSession = vi.fn(async () => 'sid');
 
-vi.mock('../src/db/sproc.js', () => ({
-  callSproc: (...args: unknown[]) => callSproc(...args),
-  firstRow: (rows: Record<string, unknown>[]) => rows[0],
-  p: (name: string, value: unknown) => ({ name, value }),
-  asBool: (v: unknown) => v === true || v === 1,
-  asBuffer: () => Buffer.alloc(0),
-  asNumberOrNull: () => 120_000,
-  asString: (v: unknown) => (v == null ? '' : String(v)),
-}));
+// 行の変換(`firstRow` / `asBool` 等)は実装のものを通す。差し替えるのは DB の実行面と
+// KDF だけで、そこが repo の外側との境界にあたる。
+const sproc: SprocClient = { callSproc: (...args) => callSproc(...(args as [])) };
+const sessionStore = { ...createSessionStub(), createSession };
 
 vi.mock('../src/auth/password.js', () => ({
   verifyPassword: (...args: unknown[]) => verifyPassword(...(args as [])),
@@ -31,11 +28,6 @@ vi.mock('../src/auth/password.js', () => ({
     salt: Buffer.alloc(0),
     iterations: 1,
   })),
-}));
-
-vi.mock('../src/auth/session.js', () => ({
-  createSession: (...args: unknown[]) => createSession(...(args as [])),
-  destroySession: vi.fn(async () => {}),
 }));
 
 const row = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -60,7 +52,8 @@ beforeEach(() => {
 describe('login の失敗応答', () => {
   /** 3 通りの失敗を作り、投げられた error と KDF 回数を集める。 */
   async function failuresOf(): Promise<Array<{ error: unknown; kdfCalls: number; label: string }>> {
-    const { login } = await import('../src/repositories/authRepo.js');
+    const { createAuthRepo } = await import('../src/repositories/authRepo.js');
+    const { login } = createAuthRepo({ sproc, sessionStore });
     const scenarios: Array<[string, () => void]> = [
       [
         '未知 ID',
@@ -119,7 +112,8 @@ describe('login の失敗応答', () => {
   });
 
   it('opens a session only when everything checks out', async () => {
-    const { login } = await import('../src/repositories/authRepo.js');
+    const { createAuthRepo } = await import('../src/repositories/authRepo.js');
+    const { login } = createAuthRepo({ sproc, sessionStore });
     createSession.mockClear();
     callSproc.mockResolvedValue([row()]);
     verifyPassword.mockResolvedValue(true);
@@ -131,7 +125,8 @@ describe('login の失敗応答', () => {
 
 describe('initPassword', () => {
   it('uses the same message for unknown, disabled and wrong current password', async () => {
-    const { initPassword } = await import('../src/repositories/authRepo.js');
+    const { createAuthRepo } = await import('../src/repositories/authRepo.js');
+    const { initPassword } = createAuthRepo({ sproc, sessionStore });
     const req = { currentPassword: 'x', newPassword: 'new-password' };
     for (const setup of [
       () => callSproc.mockResolvedValue([]),
@@ -153,7 +148,8 @@ describe('initPassword', () => {
   // 旧セッションの失効はパスワード列の UPDATE と同一トランザクションで行う(sproc 内)。
   // Node 側が「除外するセッション」を渡さないと、変更した本人まで蹴られる。
   it('passes the session to keep alive through to the sproc', async () => {
-    const { initPassword } = await import('../src/repositories/authRepo.js');
+    const { createAuthRepo } = await import('../src/repositories/authRepo.js');
+    const { initPassword } = createAuthRepo({ sproc, sessionStore });
     callSproc.mockResolvedValue([row()]);
     verifyPassword.mockResolvedValue(true);
     callSproc.mockClear();
@@ -165,7 +161,8 @@ describe('initPassword', () => {
   });
 
   it('rejects a new password that is only whitespace', async () => {
-    const { initPassword } = await import('../src/repositories/authRepo.js');
+    const { createAuthRepo } = await import('../src/repositories/authRepo.js');
+    const { initPassword } = createAuthRepo({ sproc, sessionStore });
     callSproc.mockResolvedValue([row()]);
     verifyPassword.mockResolvedValue(true);
     await expect(

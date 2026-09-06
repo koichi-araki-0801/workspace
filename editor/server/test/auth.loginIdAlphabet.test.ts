@@ -18,6 +18,7 @@ import path from 'node:path';
 import { INVALID_CREDENTIALS_MESSAGE, unauthorized } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Deps } from '../src/deps.js';
 import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-alphabet-'));
@@ -31,11 +32,15 @@ const login = vi.fn(async (..._args: unknown[]): Promise<unknown> => {
   throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
 });
 
-vi.mock('../src/repositories/authRepo.js', () => ({
-  login: (...args: unknown[]) => login(...(args as [])),
-  logout: vi.fn(async () => {}),
-  initPassword: vi.fn(async () => {}),
-}));
+// 資格情報の検証自体は repo の責務なので、ルートへ渡す `deps.auth` を spy に差し替える
+// (モジュールモックではなく注入で切る)。
+const deps = {
+  auth: {
+    login: (...args: unknown[]) => login(...(args as [])),
+    logout: vi.fn(async () => {}),
+    initPassword: vi.fn(async () => {}),
+  },
+} as unknown as Pick<Deps, 'auth'>;
 
 /**
  * 運用アルファベット外の入力。正規形(NFKC + 小文字化)を通しても ASCII 英数字 + `_` に
@@ -68,7 +73,7 @@ describe('運用アルファベット外のログインID', () => {
     decorateSessionStore(app, createSessionStub());
     app.setErrorHandler(errorHandler);
     await app.register((await import('@fastify/cookie')).default);
-    await app.register(authRoutes);
+    await app.register(authRoutes, { deps });
     await app.ready();
   });
 

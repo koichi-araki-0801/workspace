@@ -31,6 +31,7 @@ import {
   preAuthGateUrl,
 } from './config.js';
 import { realSproc, type SprocClient } from './db/sproc.js';
+import { createDeps } from './deps.js';
 import { logger } from './logger.js';
 import { loadUser } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -95,7 +96,11 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   app.decorateRequest('user', undefined);
   // セッションストアはインスタンスへ載せる。ガード関数は参照同一性を保つ必要があるため
   // (`routes/routeGuards.ts` の `levelOf`)、注入はガードの引数でなくここで行う。
-  app.decorate('sessionStore', createSessionStore(sproc));
+  const sessionStore = createSessionStore(sproc);
+  app.decorate('sessionStore', sessionStore);
+  // 集約は 1 回だけ組み、ルートへは `register` の options で配る。プラグインを
+  // `fastify-plugin` に通していないので、options はそのルート群の中に閉じる。
+  const deps = createDeps(sproc, sessionStore);
 
   // ルートごとの必要ロールの網羅検査。**API ルートの register より前**に張る必要がある
   // (`onRoute` は張った後の登録しか見ないため、後ろに置くと検査漏れが静かに生まれる)。
@@ -183,15 +188,15 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   app.get(`/api${apiPaths.health}`, async () => ({ ok: true }));
 
   app.register(openapiRoutes, { prefix: '/api' });
-  app.register(authRoutes, { prefix: '/api' });
+  app.register(authRoutes, { prefix: '/api', deps });
   app.register(vivliostyleRoutes, { prefix: '/api' });
-  app.register(templatesRoutes, { prefix: '/api' });
-  app.register(generateRoutes, { prefix: '/api' });
-  app.register(partsRoutes, { prefix: '/api' });
-  app.register(reviewsRoutes, { prefix: '/api' });
+  app.register(templatesRoutes, { prefix: '/api', deps });
+  app.register(generateRoutes, { prefix: '/api', deps });
+  app.register(partsRoutes, { prefix: '/api', deps });
+  app.register(reviewsRoutes, { prefix: '/api', deps });
   app.register(historyRoutes, { prefix: '/api' });
   app.register(notesRoutes, { prefix: '/api' });
-  app.register(usersRoutes, { prefix: '/api' });
+  app.register(usersRoutes, { prefix: '/api', deps });
 
   // API リファレンス UI(/api/docs)。標準 JS バンドルはプラグインがローカル配信するため
   // オフライン(air-gapped)でも動作する。Scalar のインライン起動 script はグローバル CSP の
