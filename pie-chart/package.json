@@ -14,6 +14,7 @@
     "verify": "tsx src/verify/svg.ts",
     "verify:consistency": "tsx src/verify/consistency.ts",
     "gen:widths": "tsx scripts/gen_glyph_advance.ts",
+    "profile:synthetic": "tsx scripts/profile_synthetic.ts",
     "build:exe": "node scripts/build-exe.mjs"
   },
   "dependencies": {

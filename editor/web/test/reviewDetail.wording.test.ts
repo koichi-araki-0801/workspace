@@ -16,10 +16,10 @@ describe('ReviewDetail の構成', () => {
     expect(view).not.toContain('語句単位の着色');
   });
 
-  it('通知バー・見た目比較・差し戻しを組み込み、保留を持たない', () => {
+  it('通知バー・見た目比較・却下を組み込み、保留を持たない', () => {
     expect(view).toContain('ReviewNoticeBar');
     expect(view).toContain('ReviewVisualCompare');
-    expect(view).toContain('差し戻す');
+    expect(view).toContain('却下する');
     expect(view).not.toContain('保留');
     expect(view).not.toContain('held');
   });

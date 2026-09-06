@@ -38,6 +38,6 @@ export interface ReviewRepository {
     reqId: string,
     decision: ReviewDecisionRequest,
   ): Promise<Result<ApproveReviewResult>>;
-  /** 差し戻す(approver|admin のみ)。理由は `decision.comment`(必須)。 */
+  /** 却下する(approver|admin のみ)。理由は `decision.comment`(必須)。 */
   rejectReview(reqId: string, decision: ReviewDecisionRequest): Promise<Result<ReviewRequestMeta>>;
 }

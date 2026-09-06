@@ -74,10 +74,10 @@ test('対象が無ければ誘導し、編集タブで開いたテンプレー�
   await page.locator('[data-review-toggle]').nth(1).click();
   await expect(page.locator('[data-review-item] iframe[title="プレビュー"]')).toHaveCount(4);
 
-  // 先頭を差し戻すと同じ画面に留まり、承認待ちが 1 件に減る
+  // 先頭を却下すると同じ画面に留まり、承認待ちが 1 件に減る
   const first = page.locator('[data-review-item]').first();
   await first.locator('textarea[id^="review-comment"]').fill('数値を確認してください');
-  await first.getByRole('button', { name: '差し戻す' }).click();
+  await first.getByRole('button', { name: '却下する' }).click();
   await expect(page).toHaveURL(/\/reviews/);
   await expect(page.locator('[data-summary="pending"]')).toContainText('1');
   await expect(page.locator('[data-summary="rejected"]')).toContainText('1');
@@ -110,7 +110,7 @@ function comparePreviewFrames(item: Locator): { before: Locator; after: Locator 
 
 /**
  * 見た目比較の両面が組版を終える(ページが実際に描画される)まで待つ。行クリック直後は
- * `ReviewDetail.pendingIndex` → `ReviewVisualCompare.pendingPageIndex` の保留経路を通ることが
+ * `ReviewDetail.pendingIndex` → `ReviewVisualCompare.pendingPageIndex` の待機経路を通ることが
  * あり、どちらの経路でも最終的にここまでは揃う。
  */
 async function waitForComparePages(item: Locator): Promise<void> {
@@ -159,16 +159,16 @@ test('承認タブの行クリックで見た目比較が該当ページ(2 ペ�
   const pageCounter = item.getByText(/^2 \/ \d+ ページ（左右連動）\s*$/);
 
   // 区画は開いた直後(=既定で先頭が展開済み)で、見た目比較の組版が終わっているとは限らない。
-  // 未準備なら `ReviewDetail.pendingIndex` → `ReviewVisualCompare.pendingPageIndex` の保留を、
+  // 未準備なら `ReviewDetail.pendingIndex` → `ReviewVisualCompare.pendingPageIndex` の待機を、
   // 準備済みなら `gotoPage` の即送信経路を通るが、いずれも収束先は同じ 2 ページ目。
   await row.click();
   await waitForComparePages(item);
   await expect(pageCounter).toBeVisible({ timeout: 15_000 });
 
   // 文字の変更を一覧で見るタブへ切り替えてから行を押すと、`ReviewVisualCompare` はこの間
-  // `v-if` でアンマウントされ、再度の行クリックは必ず再マウント後の保留経路
+  // `v-if` でアンマウントされ、再度の行クリックは必ず再マウント後の待機経路
   // (`ReviewDetail.pendingIndex` → `ReviewVisualCompare` 再マウント → `pendingPageIndex`)を
-  // 通る — この 2 段の保留(単体網が無い)を固定する。
+  // 通る — この 2 段の待機(単体網が無い)を固定する。
   await item.getByRole('button', { name: '文字の変更を一覧で見る' }).click();
   await expect(pageCounter).toHaveCount(0);
 

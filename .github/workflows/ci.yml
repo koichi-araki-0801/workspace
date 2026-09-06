@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# 同じ PR / ブランチの古い run は新しい push で打ち切る。PR 以外(main への push)は打ち切らず
+# 直列に流す — main の履歴に「途中で消えた run」を残さないため。
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # 既定の GITHUB_TOKEN は読み取りだけに絞る。この job は検査しかしないため書き込み権限は不要で、
 # 依存やアクションの侵害でトークンが悪用されても push / release へは届かない。
 permissions:
@@ -14,12 +20,21 @@ permissions:
 # 動くため、上流のタグ移動 1 つで CI ランナー上の任意コード実行に到達する。版は末尾の
 # コメントで残し、更新時は SHA とコメントの両方を書き換える。
 #
+# step の並びは `package.json` の `ci` と同じ順に保つ(`scripts/ci-affected.test.mjs` が
+# 「yml の段 ⊆ ci の段・同じ相対順序」を機械検査する。段を足す/外すときはその写像表も更新する)。
+# `ci` にあってここに無い段は同テストの免除リストに理由付きで載せる:
+#   - `check:claude-hooks`: `.claude/` は git 追跡外で checkout に検査対象が無い。
+#   - `pie-chart:batch` / `pie-chart:batch:diff`: `out/_baseline` はローカル生成物で GH に無い。
+#
 # offline/ の Pester テスト(`pnpm run ci:offline`)はここでは実行しない: Windows ランナーへの
 # 切替が要り、この job は ubuntu-latest 前提のため。ローカルの `ci:affected`(offline/ 変更時に
 # 発火)で担保する。
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # ローカルのフル `ci` は 10 分未満が目標。ランナーの cold(依存導入・ブラウザ導入込み)でも
+    # 30 分を超えるのは hang なので打ち切る。
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -42,8 +57,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Python は `check:comments`(先頭の段)から要るので、導入は全部ここで済ませる。
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Install Python test dependencies
+        run: pip install -r docs/_build/requirements.txt -r docs/_build/dev-requirements.txt
+
+      - name: Comment convention check
+        run: python scripts/check-comments.py
+
       - name: Lint & format check (Biome)
         run: pnpm run check:ci
+
+      - name: Test (scripts, node:test)
+        run: pnpm run test:scripts
 
       - name: Typecheck
         run: pnpm run typecheck
@@ -51,22 +81,26 @@ jobs:
       - name: Test (with coverage thresholds)
         run: pnpm run test:coverage
 
-      - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.13'
-
-      - name: Comment convention check
-        run: python scripts/check-comments.py
-
-      - name: Install Python test dependencies
-        run: pip install -r docs/_build/requirements.txt -r docs/_build/dev-requirements.txt
-
       - name: Test (pytest - docs)
         run: python -m pytest docs/_build
 
       - name: Build
         run: pnpm run build
+
+      # ブラウザ本体(約 150MB)は `@playwright/test` の版が同じ限り不変なので、版を鍵に
+      # キャッシュする。版は lockfile から読む(`node_modules` から読むと frozen-lockfile と
+      # 二重に真実を持つことになる)。`playwright install` は既に在るブラウザを飛ばし、
+      # `--with-deps` の OS パッケージだけを毎回入れる。
+      - name: Resolve Playwright version
+        id: playwright
+        run: |
+          echo "version=$(sed -n "s/^  '@playwright\/test@\([^']*\)':.*/\1/p" pnpm-lock.yaml | head -n1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium

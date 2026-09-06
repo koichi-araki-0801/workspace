@@ -748,14 +748,53 @@ export function textBoxBounds(
 }
 
 /**
- * placement の現在位置から `verify/svg.ts` と同じ bbox を計算する。
+ * `placementExtent` の placement 単位メモ。extent は (`lines`, `nameScaleX`, `nameSplit`, `item`,
+ * cfg の文字寸法フィールド) の純関数で、配置パスはこれらを代入で置き換えるだけで in-place 変更を
+ * しない (`seamSnapshot` が前提にしている規約と同じ)。よって参照一致で再利用できる。
+ * エントリは placement と共に消えるので寿命は 1 回の描画に閉じ、cfg も参照一致を要求するので
+ * 別 cfg (浅いコピーを含む) との取り違えは起きない。返す値は毎回コピーにし、呼び出し側の
+ * 書き換えがメモへ漏れないようにする。
  */
+interface ExtentMemo {
+  cfg: PieLayoutConfig;
+  lines: string[];
+  nameScaleX: number | undefined;
+  nameSplit: boolean | undefined;
+  item: LayoutItem;
+  extent: Extent;
+}
+const EXTENT_MEMO = new WeakMap<Placement, ExtentMemo>();
+
 /**
  * placement の実描画 extent (論理単位)。行数は placement.lines.length、名前長体は
  * placement.nameScaleX を反映する (% は原寸)。scaledLabelWidthUnits(...,1) は
  * 非圧縮 estimateVerifyTextExtent と一致するため、衝突/クランプの幅源を一本化できる。
  */
 export function placementExtent(placement: Placement, cfg: PieLayoutConfig): Extent {
+  const hit = EXTENT_MEMO.get(placement);
+  if (
+    hit &&
+    hit.cfg === cfg &&
+    hit.lines === placement.lines &&
+    hit.nameScaleX === placement.nameScaleX &&
+    hit.nameSplit === placement.nameSplit &&
+    hit.item === placement.item
+  ) {
+    return { width: hit.extent.width, height: hit.extent.height };
+  }
+  const extent = computePlacementExtent(placement, cfg);
+  EXTENT_MEMO.set(placement, {
+    cfg,
+    lines: placement.lines,
+    nameScaleX: placement.nameScaleX,
+    nameSplit: placement.nameSplit,
+    item: placement.item,
+    extent: { width: extent.width, height: extent.height },
+  });
+  return extent;
+}
+
+function computePlacementExtent(placement: Placement, cfg: PieLayoutConfig): Extent {
   const lineCount = placement.lines.length >= 2 ? 2 : 1;
   const sx = placement.nameScaleX ?? 1;
   if (placement.nameSplit && placement.lines.length >= 2) {
@@ -774,7 +813,11 @@ export function placementExtent(placement: Placement, cfg: PieLayoutConfig): Ext
   };
 }
 
+/**
+ * placement の現在位置から `verify/svg.ts` と同じ bbox を計算する。
+ */
 export function placementBox(placement: Placement, cfg: PieLayoutConfig): BBox {
+  if (cfg.perfCounters) cfg.perfCounters.placementBox += 1;
   const measured = placementExtent(placement, cfg);
   return textBoxBounds(placement.x, placement.y, measured, placement.anchor, placement.baseline);
 }

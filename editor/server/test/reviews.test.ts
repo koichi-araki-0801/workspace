@@ -248,7 +248,7 @@ d('review workflow (reviewRepo)', () => {
       expect(await files.countPendingReviews()).toBeGreaterThanOrEqual(1);
     });
 
-    it('旧 held の申請はそのまま承認・差し戻しできる', async () => {
+    it('旧 held の申請はそのまま承認・却下できる', async () => {
       const meta = await submit('AM01_151515_20250101_交付版', '151515', '<p>旧保留→承認</p>');
       const metaPath = path.join(tmp, 'reviews', meta.id, 'meta.json');
       const raw = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as Record<string, unknown>;

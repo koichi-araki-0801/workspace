@@ -770,6 +770,74 @@ export type Coord = {
   height: number;
 };
 
+/** placement box の pixel 射影。`Coord` で y が反転しうるので min/max で辺を確定する。 */
+export type PixelBox = { left: number; right: number; top: number; bottom: number };
+
+/**
+ * 1 回の採点で共有する leader 幾何。採点ベクトルが呼ぶ計数関数はどれも `realLeaderPaths`
+ * (内部で `computeDrawnLeader` → `placementBox`) と `placementBox` を自前で作れるが、各関数に
+ * 個別に作らせると採点 1 回につき同じ折れ線と box を 4 回以上作ることになる。ここで placements
+ * 1 巡ぶんだけ計算し、`...From` / `...Of` 系の内部関数へ配る。
+ * 値はどれも純関数の結果なので、1 回計算して配っても各関数が個別に計算しても同じ数値になる
+ * (計算式と FP 演算の順序は各関数の中で不変)。
+ */
+export interface LeaderGeometry {
+  /** 実描画 leader の pixel 折れ線 (skip は null)。`realLeaderPaths` と同じ。 */
+  paths: (Pt[] | null)[];
+  /** 各 placement の logical box。`placementBox` と同じ。 */
+  boxes: BBox[];
+  /** `boxes` の pixel 射影。`projectBoxesToPixels` と同じ。 */
+  pixelBoxes: PixelBox[];
+}
+
+/** 1 回の採点で共有する leader 幾何 (折れ線・logical box・pixel box) をまとめて作る。 */
+export function collectLeaderGeometry(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): LeaderGeometry {
+  const paths = realLeaderPaths(placements, cfg, coord);
+  const boxes = placements.map((p) => placementBox(p, cfg));
+  return { paths, boxes, pixelBoxes: boxes.map((lb) => projectBoxToPixels(lb, coord)) };
+}
+
+/**
+ * `geo` の index `i` だけを現在の placement から作り直した幾何 (元の `geo` は変更しない)。
+ * bend 格子の候補ループのように 1 つの placement しか動かない場面で、他の leader と box を
+ * 作り直さないために使う。差し替える値は `collectLeaderGeometry` と同じ式で作るので、全体を
+ * 作り直した場合と同じ数値になる。動いていない placement が 1 つでもあると値が古くなるので、
+ * 「i 以外は不変」が呼び出し側で保証できる場面にだけ使うこと。
+ */
+export function replaceLeaderGeometryAt(
+  geo: LeaderGeometry,
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+  i: number,
+): LeaderGeometry {
+  const r = computeDrawnLeader(placements[i], cfg, false);
+  const box = placementBox(placements[i], cfg);
+  const paths = geo.paths.slice();
+  const boxes = geo.boxes.slice();
+  const pixelBoxes = geo.pixelBoxes.slice();
+  paths[i] = r.skipLeader
+    ? null
+    : r.pathPoints.map((pt) => ({ x: coord.xScale(pt.x), y: coord.yScale(pt.y) }));
+  boxes[i] = box;
+  pixelBoxes[i] = projectBoxToPixels(box, coord);
+  return { paths, boxes, pixelBoxes };
+}
+
+/** logical box 1 つを pixel 空間の辺へ射影する。 */
+function projectBoxToPixels(lb: BBox, coord: Coord): PixelBox {
+  return {
+    left: Math.min(coord.xScale(lb.left), coord.xScale(lb.right)),
+    right: Math.max(coord.xScale(lb.left), coord.xScale(lb.right)),
+    top: Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom)),
+    bottom: Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom)),
+  };
+}
+
 // -----------------------------------------------------------------------------
 // 実描画 leader パスを横断して数える「不具合量」メトリクス層。emit / scorer / 各後処理の
 // do-no-harm ゲートが共有する (verify と同じ実描画パス幾何で判定)。
@@ -795,6 +863,7 @@ export function realLeaderPaths(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): (Pt[] | null)[] {
+  if (cfg.perfCounters) cfg.perfCounters.realLeaderPaths += 1;
   return placements.map((p) => {
     const r = computeDrawnLeader(p, cfg, false);
     if (r.skipLeader) return null;
@@ -814,7 +883,11 @@ export function leaderCrossingPairs(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): Set<string> {
-  const paths = realLeaderPaths(placements, cfg, coord);
+  return crossingPairsFrom(placements, realLeaderPaths(placements, cfg, coord));
+}
+
+/** `leaderCrossingPairs` の本体 (leader 折れ線を引数から受ける)。 */
+function crossingPairsFrom(placements: Placement[], paths: (Pt[] | null)[]): Set<string> {
   const pairs = new Set<string>();
   for (let i = 0; i < paths.length; i += 1) {
     const pa = paths[i];
@@ -838,6 +911,11 @@ export function countLeaderCrossings(
   return leaderCrossingPairs(placements, cfg, coord).size;
 }
 
+/** `countLeaderCrossings` の事前計算版 (`collectLeaderGeometry` の結果から数える)。 */
+export function countLeaderCrossingsFrom(placements: Placement[], geo: LeaderGeometry): number {
+  return crossingPairsFrom(placements, geo.paths).size;
+}
+
 /**
  * 実描画 leader が自分以外のラベル box を貫く **対の集合** (verify の "leader through label" と同条件・
  * pixel)。キーはスライス名の対 `"貫くleaderの名>貫かれるboxの名"` (向きがあるので辞書順にしない)。
@@ -851,13 +929,22 @@ export function leaderThroughPairs(
 ): Set<string> {
   const paths = realLeaderPaths(placements, cfg, coord);
   const boxes = projectBoxesToPixels(placements, cfg, coord);
+  return throughPairsFrom(placements, paths, boxes);
+}
+
+/** `leaderThroughPairs` の本体 (leader 折れ線と pixel box を引数から受ける)。 */
+function throughPairsFrom(
+  placements: Placement[],
+  paths: (Pt[] | null)[],
+  pixelBoxes: PixelBox[],
+): Set<string> {
   const pairs = new Set<string>();
   for (let i = 0; i < paths.length; i += 1) {
     const pts = paths[i];
     if (!pts) continue;
     for (let j = 0; j < placements.length; j += 1) {
       if (j === i) continue;
-      if (leaderCrossesBox(pts, boxes[j]))
+      if (leaderCrossesBox(pts, pixelBoxes[j]))
         pairs.add(`${placements[i].item.name}>${placements[j].item.name}`);
     }
   }
@@ -871,6 +958,11 @@ export function countLeaderThroughLabels(
   coord: Coord,
 ): number {
   return leaderThroughPairs(placements, cfg, coord).size;
+}
+
+/** `countLeaderThroughLabels` の事前計算版。 */
+export function countLeaderThroughLabelsFrom(placements: Placement[], geo: LeaderGeometry): number {
+  return throughPairsFrom(placements, geo.paths, geo.pixelBoxes).size;
 }
 
 /** 折れ線の全長 (logical)。leader の「短さ」を測るのに使う。 */
@@ -945,11 +1037,16 @@ export function countBundledRimStubs(placements: Placement[], cfg: PieLayoutConf
 
 /** 全 placement 対の最大縦重なり量 (logical, X が重なる対のみ)。do-no-harm の ovl 指標。 */
 export function boxOverlapMax(placements: Placement[], cfg: PieLayoutConfig): number {
+  return boxOverlapMaxOf(placements.map((p) => placementBox(p, cfg)));
+}
+
+/** `boxOverlapMax` の box 配列版。対ごとに `placementBox` を作り直さない。 */
+export function boxOverlapMaxOf(boxes: BBox[]): number {
   let m = 0;
-  for (let i = 0; i < placements.length; i += 1) {
-    const a = placementBox(placements[i], cfg);
-    for (let j = i + 1; j < placements.length; j += 1) {
-      const b = placementBox(placements[j], cfg);
+  for (let i = 0; i < boxes.length; i += 1) {
+    const a = boxes[i];
+    for (let j = i + 1; j < boxes.length; j += 1) {
+      const b = boxes[j];
       const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
       const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
       if (ox > 0 && oy > 0) m = Math.max(m, oy);
@@ -960,10 +1057,23 @@ export function boxOverlapMax(placements: Placement[], cfg: PieLayoutConfig): nu
 
 /** 円外ラベル box の pie 円 (中心=logical 原点) への最大侵入深さ (logical)。verify "label inside pie" のゲート。 */
 export function boxPieIntrusionMax(placements: Placement[], cfg: PieLayoutConfig): number {
+  return boxPieIntrusionMaxOf(
+    placements,
+    placements.map((p) => placementBox(p, cfg)),
+    cfg,
+  );
+}
+
+/** `boxPieIntrusionMax` の box 配列版 (`boxes[i]` は `placements[i]` の box)。 */
+export function boxPieIntrusionMaxOf(
+  placements: Placement[],
+  boxes: BBox[],
+  cfg: PieLayoutConfig,
+): number {
   let m = 0;
-  for (const p of placements) {
-    if (p.insideSlice) continue;
-    const bx = placementBox(p, cfg);
+  for (let i = 0; i < placements.length; i += 1) {
+    if (placements[i].insideSlice) continue;
+    const bx = boxes[i];
     const nx = Math.max(bx.left, Math.min(bx.right, 0));
     const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
     m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
@@ -973,7 +1083,11 @@ export function boxPieIntrusionMax(placements: Placement[], cfg: PieLayoutConfig
 
 /** 1 つの placement box の viewBox はみ出し量 (pixel, 4 辺の最大。負=内側はそのまま負値)。 */
 export function boxViewOverflowOf(p: Placement, cfg: PieLayoutConfig, coord: Coord): number {
-  const lb = placementBox(p, cfg);
+  return boxViewOverflowOfBox(placementBox(p, cfg), coord);
+}
+
+/** `boxViewOverflowOf` の box 版。 */
+export function boxViewOverflowOfBox(lb: BBox, coord: Coord): number {
   const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
   const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
   const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
@@ -987,8 +1101,16 @@ export function boxViewOverflowMax(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): number {
+  return boxViewOverflowMaxOf(
+    placements.map((p) => placementBox(p, cfg)),
+    coord,
+  );
+}
+
+/** `boxViewOverflowMax` の box 配列版。 */
+export function boxViewOverflowMaxOf(boxes: BBox[], coord: Coord): number {
   let m = 0;
-  for (const p of placements) m = Math.max(m, boxViewOverflowOf(p, cfg, coord));
+  for (const lb of boxes) m = Math.max(m, boxViewOverflowOfBox(lb, coord));
   return Math.max(0, m);
 }
 
@@ -997,16 +1119,8 @@ export function projectBoxesToPixels(
   placements: Placement[],
   cfg: PieLayoutConfig,
   coord: Coord,
-): { left: number; right: number; top: number; bottom: number }[] {
-  return placements.map((p) => {
-    const lb = placementBox(p, cfg);
-    return {
-      left: Math.min(coord.xScale(lb.left), coord.xScale(lb.right)),
-      right: Math.max(coord.xScale(lb.left), coord.xScale(lb.right)),
-      top: Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-      bottom: Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-    };
-  });
+): PixelBox[] {
+  return placements.map((p) => projectBoxToPixels(placementBox(p, cfg), coord));
 }
 
 /** いずれかの点が viewBox を 1px 超はみ出す leader の本数 (do-no-harm の oob 指標)。 */
@@ -1015,7 +1129,11 @@ export function oobLeaderCount(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): number {
-  const paths = realLeaderPaths(placements, cfg, coord);
+  return oobLeaderCountFrom(realLeaderPaths(placements, cfg, coord), coord);
+}
+
+/** `oobLeaderCount` の path 配列版。 */
+export function oobLeaderCountFrom(paths: (Pt[] | null)[], coord: Coord): number {
   let c = 0;
   for (const pts of paths) {
     if (!pts) continue;
@@ -1029,17 +1147,36 @@ export function oobLeaderCount(
   return c;
 }
 
+type AngularStack = { labelY: number; anchorY: number }[];
+
 /** verify と同基準で各円外ラベルの {labelY, anchorY} (pixel) を左右スタックに分けて返す。 */
 function angularStacks(
   placements: Placement[],
   cfg: PieLayoutConfig,
   coord: Coord,
-): { left: { labelY: number; anchorY: number }[]; right: { labelY: number; anchorY: number }[] } {
+): { left: AngularStack; right: AngularStack } {
+  return angularStacksFrom(
+    placements,
+    coord,
+    realLeaderPaths(placements, cfg, coord),
+    placements.map((p) => placementBox(p, cfg)),
+  );
+}
+
+/**
+ * `angularStacks` の本体 (leader 折れ線と box を引数から受ける)。除外対象の box も配列に
+ * 含まれるが、その index を読まないので値には関与しない。
+ */
+function angularStacksFrom(
+  placements: Placement[],
+  coord: Coord,
+  paths: (Pt[] | null)[],
+  boxes: BBox[],
+): { left: AngularStack; right: AngularStack } {
   const cx = coord.xScale(0);
   const cy = coord.yScale(0);
-  const paths = realLeaderPaths(placements, cfg, coord);
-  const left: { labelY: number; anchorY: number }[] = [];
-  const right: { labelY: number; anchorY: number }[] = [];
+  const left: AngularStack = [];
+  const right: AngularStack = [];
   placements.forEach((p, i) => {
     if (p.insideSlice) return;
     // 意図的に角度順を破る/固定する その他 のみ除外する: コア帯 (右上逃がし or 真上垂直) と
@@ -1058,7 +1195,7 @@ function angularStacks(
     // 縦位置は生の `p.y` でなく box 縦中心で測る: baseline 逆向きの back-to-back 対 (例 イギリス/
     // イタリア) は両者の `p.y` がほぼ同値でも box 中心は上下に大きく離れ、視覚的な縦順序は box 中心で
     // しか判定できない。単一 baseline の通常スタックでは box 中心順 == `p.y` 順なので指標は不変。
-    const box = placementBox(p, cfg);
+    const box = boxes[i];
     const entry = { labelY: coord.yScale((box.top + box.bottom) / 2), anchorY: anchor.y };
     (coord.xScale(p.x) < cx ? left : right).push(entry);
   });
@@ -1076,9 +1213,22 @@ export function countAngularDiscordantPairs(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): number {
-  const { left, right } = angularStacks(placements, cfg, coord);
+  return discordantPairsOf(angularStacks(placements, cfg, coord));
+}
+
+/** `countAngularDiscordantPairs` の事前計算版。 */
+export function countAngularDiscordantPairsFrom(
+  placements: Placement[],
+  coord: Coord,
+  geo: LeaderGeometry,
+): number {
+  return discordantPairsOf(angularStacksFrom(placements, coord, geo.paths, geo.boxes));
+}
+
+/** 左右スタックから discordant 対を数える (`countAngularDiscordantPairs` の本体)。 */
+function discordantPairsOf(stacks: { left: AngularStack; right: AngularStack }): number {
   let dis = 0;
-  for (const arr of [left, right]) {
+  for (const arr of [stacks.left, stacks.right]) {
     arr.sort((a, b) => a.labelY - b.labelY);
     for (let i = 0; i < arr.length; i += 1) {
       for (let j = i + 1; j < arr.length; j += 1) {

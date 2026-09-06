@@ -1,8 +1,8 @@
 // =============================================================================
 // capture_docs.spec.ts — 操作手順書(docs/editor)向けスクリーンショット取得
 // =============================================================================
-// 実行は editor 配下で:
-//   pnpm exec playwright test e2e/capture_docs.spec.ts
+// 実行は editor 配下で(`docs` project だけが本 spec を担当し、`chromium` は ignore する):
+//   pnpm exec playwright test --project docs
 // `playwright.config.ts` の webServer が Vite dev(:24681, ローカル/ localStorage モード)
 // を自動起動する。ログイン後はセッションが localStorage に乗るので、編集/プレビューは
 // seed テンプレ(AM01_510037_20240710_交付版)へ直接遷移して撮る。

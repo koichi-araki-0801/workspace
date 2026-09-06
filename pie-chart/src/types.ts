@@ -318,6 +318,17 @@ export interface Placement {
 }
 
 /**
+ * 配置計算の熱源の呼出回数。`PieLayoutConfig.perfCounters` に渡すと各関数が加算する。
+ * どれも純粋な読み取り関数の呼出数で、SVG 出力には関与しない。
+ */
+export interface PerfCounters {
+  placementBox: number;
+  realLeaderPaths: number;
+  measureRepairVec: number;
+  tryBendGridOn: number;
+}
+
+/**
  * createPieLayoutConfig の戻り値。基本フィールド + 多数の派生 getter を**全て明示宣言**する
  * (index signature は持たない)。綴り違いをコンパイル時に検出するため。新しい getter/フィールドを
  * `config.ts` に足したら、ここにも宣言を追加すること。
@@ -398,6 +409,13 @@ export interface PieLayoutConfig {
   visualHalfwidthEm: number;
   /** 名前(長体)圧縮の試行段。大きい順に試し「収まる最大」を採る。例 [0.7, 0.6]。 */
   nameCondenseSteps: number[];
+  /**
+   * 開発時の計測フック (既定は未指定 = 計測しない)。`renderPdfStylePieToSvg(items, { perfCounters })`
+   * からだけ渡す。`placementBox` は約 100 箇所から呼ばれ、到達できる引数が `cfg` だけなので
+   * cfg の任意フィールドとして運ぶ。`{ ...cfg, textColor }` のような浅いコピーも同じオブジェクトを
+   * 共有するため、コピー越しの呼出も同じカウンタへ入る。各計測点の分岐は `if (cfg.perfCounters)` 1 つ。
+   */
+  perfCounters?: PerfCounters;
 
   // 派生 getter (一部抜粋。実装は `config.ts` を参照)
   readonly fontScale: number;

@@ -95,8 +95,8 @@ function sendGotoPage(index: number): void {
  * `watch([afterState, beforeState])` に委ねる。片面だけ準備できた状態で送ると `gotoAnchor`
  * は左右へ同じ id を送る関係上ページがずれ、ページ番号表示は `afterState` 由来の 1 つしか
  * 無いため承認者に「前後で内容が違う」と誤読させる — それを避けるため両面が揃うまで待つ。
- * 保留中に再度呼ばれたら最新の index で上書きする(最新勝ち)。`PreviewPanel` が iframe
- * フォールバックへ倒れた場合は `pageCount` が 0 のまま変わらないため、この保留は永久に
+ * 待機中に再度呼ばれたら最新の index で上書きする(最新勝ち)。`PreviewPanel` が iframe
+ * フォールバックへ倒れた場合は `pageCount` が 0 のまま変わらないため、この待機は永久に
  * flush されない(破棄処理は無く、次のクリックで上書きされるだけ)。
  */
 const pendingPageIndex = ref<number | null>(null);
@@ -108,7 +108,7 @@ const pendingPageIndex = ref<number | null>(null);
  * 関わらず全パーツへ付けられるため、変更ページのみの `anchors`(「次の変更箇所へ」用、
  * `anchorIndex` はその巡回カーソル)ではなく全ページの `pageAnchors` を引く。ここでの移動は
  * 「次の変更箇所へ」の巡回とは独立の操作なので `anchorIndex` は触らない。組版が未準備の間は
- * `pendingPageIndex` に保留する(詳細は同 ref のコメント)。
+ * `pendingPageIndex` に積んで待つ(詳細は同 ref のコメント)。
  */
 function gotoPage(index: number): void {
   if (!panelsReady()) {

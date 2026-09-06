@@ -128,11 +128,12 @@ export function buildCompareDocs(input: CompareDocsInput): CompareDocs {
   // 著者由来 id は保持される：同じ index で片側だけ著者 id のとき、after[i]
   // は before パネルでは解決されず何も起きない。previewHost のアンカー検査
   // /^[A-Za-z0-9_-]+$/ に合わない著者 id は無視される。after の行数を超える
-  // index は before パネルだけが移動する。
+  // index は before パネルだけが移動する。添字 = ページ index が契約なので、
+  // 空要素を詰めない(詰めると以後のページ送りが全部ずれる。空 id は送信側が弾く)。
   const pageAnchors = Array.from(
     { length: Math.max(after.pageIds.length, before.pageIds.length) },
     (_, i) => after.pageIds[i] ?? before.pageIds[i] ?? '',
-  ).filter((id) => id !== '');
+  );
   return {
     beforeDoc: wrapDoc(before.html, input.cssBefore, markerEnabled),
     afterDoc: wrapDoc(after.html, input.cssAfter, markerEnabled),

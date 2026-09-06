@@ -46,7 +46,7 @@ const latestLoad = useLatest();
 const heading = computed(() => (auth.isApprover ? '承認' : '申請状況'));
 const description = computed(() =>
   auth.isApprover
-    ? '編集タブで開いているテンプレートの申請を、1 件ずつ確認して承認・差し戻しします。'
+    ? '編集タブで開いているテンプレートの申請を、1 件ずつ確認して承認・却下します。'
     : '編集タブで開いているテンプレートについて、自分が出した申請の状況を確認します。',
 );
 
@@ -87,12 +87,12 @@ function toggleFilter(v: ReviewStatus) {
   statusFilter.value = statusFilter.value === v ? 'all' : v;
 }
 
-// 行バッジ・決着状態行の文言は「却下」でなく「差し戻し」で統一する(要約箱ラベルのみ
-// 「却下」を残す — 短い箱ラベルとしての指定)。
+// 行バッジ・決着状態行・要約箱の文言は「却下」で統一する(操作ボタン・理由欄も同語。「差し戻し」は
+// 使わない)。
 const STATUS_META: Record<ReviewStatus, { label: string; variant: 'warning' | 'success' | 'destructive' }> = {
   pending: { label: '承認待ち', variant: 'warning' },
   approved: { label: '承認済み', variant: 'success' },
-  rejected: { label: '差し戻し', variant: 'destructive' },
+  rejected: { label: '却下', variant: 'destructive' },
 };
 const ORIGIN_LABEL: Record<ReviewRequestMeta['origin'], string> = { edit: '編集', create: '新規作成' };
 
@@ -284,7 +284,7 @@ function goEdit() {
               >（申請者の申告。実際の差分は開いて確認します）
             </span>
             <span v-if="m.reviewedBy" class="basis-full text-xs text-muted-foreground">
-              {{ m.status === 'approved' ? '承認' : '差し戻し' }}: {{ m.reviewedBy }}・{{ formatDateTimeShort(m.reviewedAt) }}
+              {{ m.status === 'approved' ? '承認' : '却下' }}: {{ m.reviewedBy }}・{{ formatDateTimeShort(m.reviewedAt) }}
               <template v-if="m.status === 'rejected' && m.comment">・理由: {{ m.comment }}</template>
             </span>
           </button>
