@@ -20,9 +20,10 @@
 | pie-chart 単独(coverage 無し) | 131s | `render_hash` 128s / `final_score` 35s / `leader_invariants` 19s |
 | build:editor | 13s | |
 | e2e(35 件、4 workers) | 72s | 合計 262s、並列効率 91%。server / vite は暖機状態 |
+| `pnpm run ci`(cold・全段の壁時計) | 383s | dev サーバ未起動・並走負荷なし。段の合算(約 6.5 分)との差は e2e の webServer 起動と coverage の集計 |
 
-段の合算は約 6.5 分。`pnpm run ci` を cold(dev サーバ未起動)で 1 本通した壁時計は未計測で、
-計画 A の最初のタスクで測ってこの表へ足す(10 章)。
+段の合算は約 6.5 分。cold(dev サーバ未起動)で 1 本通した壁時計は上表の最終行(計画 A の最初の
+タスクで計測。10 章)。
 記憶にあった「11〜12 分・coverage 7〜8 分」は 2026-08-08 の値で、現状より 5 分以上長い。
 
 `render_hash` の 26 ケースのうち `gen_long_12_other`(1 ケース約 65 秒)が支配的。
@@ -438,7 +439,7 @@ vitest 4.1.11 は、参照 config 内の `test.projects` を**無視する**(レ
 - cold の `pnpm run ci` 壁時計は**計画 A の最初のタスク**として測り、0 章の表へ書く(設計時の
   試行は 2 回とも途中で停止され、1 回目は並走負荷で `hostGuard.test` が timeout した。有効な値が
   無いまま「10 分未満」の判定はしない)。段の合算(約 6.5 分)と coverage 段の実測(246〜276s)から、
-  分割だけでも 10 分は下回る見込み。
+  分割だけでも 10 分は下回る見込み。→ 実測 383s(0 章の表)。
 
 ### 10.1 計測中に観察した flaky 要因(計画 A / B1 で扱う)
 
