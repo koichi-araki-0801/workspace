@@ -281,6 +281,13 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
       if (!公開ID || !ログインID || !表示名 || !ロール)
         throw sqlError(50000, '公開ID・ログインID・表示名・ロール が必要です');
       if (byLoginId(ログインID)) throw sqlError(50409, 'このログインIDは既に使われています');
+      // `公開ID` の重複は自前 THROW でなく主キー違反として届く。番号が違えば `mapSqlError` の
+      // 経路も違う(2627 は文言を転送せず定型文へ倒す)ので、そこまで写す。
+      if (users.has(公開ID))
+        throw sqlError(
+          2627,
+          "Violation of PRIMARY KEY constraint 'PK_ユーザー'. Cannot insert duplicate key.",
+        );
       const row: UserRow = {
         公開ID,
         ログインID,

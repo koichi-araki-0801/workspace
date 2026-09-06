@@ -108,6 +108,23 @@ describe('ユーザー', () => {
     ).rejects.toMatchObject({ kind: 'conflict' });
   });
 
+  // 主キー違反はエンジンが出すエラーで、`mapSqlError` は分類(conflict)だけを使い文言は
+  // 定型文へ倒す。制約名やテーブル名が応答へ出ないことまで含めて写す。
+  it('作成 refuses a duplicate 公開ID as a primary key violation', async () => {
+    const sproc = await createFakeSproc();
+    await expect(
+      sproc.callSproc(SP.user, '作成', [
+        p('公開ID', 'u-editor'),
+        p('ログインID', 'another'),
+        p('表示名', '公開ID 重複'),
+        p('ロール', 'editor'),
+      ]),
+    ).rejects.toMatchObject({
+      kind: 'conflict',
+      message: 'すでに存在するか、競合しています',
+    });
+  });
+
   it('更新 keeps the columns whose argument is NULL', async () => {
     const sproc = await createFakeSproc();
     const row = (
@@ -247,6 +264,33 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
     expect(series.filter((r) => r.基準日 === '20260101')).toHaveLength(1);
   });
 
+  // 「行が 1 本のまま」だけでは上書き実装(`IF NOT EXISTS` 抜きの INSERT 相当)を見抜けない。
+  // 既存行を触らないことは、確定済みの行が `draft` へ落ちないことで主張する。
+  it('生成登録 leaves an already registered row untouched', async () => {
+    const sproc = await createFakeSproc();
+    const id = 'AM01_510037_20240710_交付版';
+    await sproc.callSproc(SP.template, '生成登録', [
+      p('テンプレートID', id),
+      p('委託会社コード', 'AM01'),
+      p('ファンドコード', '510037'),
+      p('基準日', '20240710'),
+      p('版種', '交付版'),
+      p('ファイル名', '別名にすり替えたファイル.html'),
+    ]);
+    const series = await sproc.callSproc(SP.template, '系列', [
+      p('委託会社コード', 'AM01'),
+      p('版種', '交付版'),
+    ]);
+    const row = series.filter((r) => r.テンプレートID === id);
+    expect(row).toHaveLength(1);
+    expect(row[0]).toMatchObject({
+      状態: 'published',
+      ファイル名: `${id}.html`,
+      更新日時: null,
+      更新者: null,
+    });
+  });
+
   it('系列 returns the ledger columns for one company and edition', async () => {
     const sproc = await createFakeSproc();
     const rows = await sproc.callSproc(SP.template, '系列', [
@@ -364,7 +408,7 @@ describe('未知の操作', () => {
   });
 });
 
-// ── 実配線(`buildApp({ sproc })`)への結合テスト ──
+// ── 1. 実配線(`buildApp({ sproc })`)への結合テスト ──
 //
 // 上の describe が主張するのは「フェイクが sproc の不変則を写している」ことで、
 // 「サーバがそのフェイクで実際に動く」ことではない。rest e2e はまさに後者に乗るので、
