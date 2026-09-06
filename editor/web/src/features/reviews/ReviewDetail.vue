@@ -170,6 +170,11 @@ watch(
   },
   { flush: 'post' },
 );
+// 読み込みのやり直しと失敗では待機 index を捨てる。失敗時は子がマウントされず index だけが
+// 残り、後の再読込で承認者が頼んでいないページ送りが 1 回起きるため。
+watch([loading, loadError], ([l, e]) => {
+  if (l || e) pendingIndex.value = null;
+});
 defineExpose({ gotoPage });
 
 // ── iframe ドキュメント組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差) ──
