@@ -1556,6 +1556,7 @@ export function measureRepairVec(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): RepairVec {
+  if (cfg.perfCounters) cfg.perfCounters.measureRepairVec += 1;
   return {
     cross: countLeaderCrossings(placements, cfg, coord),
     pieCross: leaderPieCrossCount(placements, cfg, coord),
@@ -1752,6 +1753,7 @@ interface ResidualRepairCtx {
 // 無ければ元の bend/フラグへ戻して false。 (単独手・複合手の両方から使う)
 function tryBendGridOn(ctx: ResidualRepairCtx, p: Placement): boolean {
   const { cfg, pxUnit, vecOf, better } = ctx;
+  if (cfg.perfCounters) cfg.perfCounters.tryBendGridOn += 1;
   const drawn2 = computeDrawnLeader(p, cfg, false);
   if (drawn2.skipLeader || drawn2.pathPoints.length < 2) return false;
   const a2 = drawn2.pathPoints[0];

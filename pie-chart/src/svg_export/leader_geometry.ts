@@ -795,6 +795,7 @@ export function realLeaderPaths(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): (Pt[] | null)[] {
+  if (cfg.perfCounters) cfg.perfCounters.realLeaderPaths += 1;
   return placements.map((p) => {
     const r = computeDrawnLeader(p, cfg, false);
     if (r.skipLeader) return null;

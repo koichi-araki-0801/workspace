@@ -775,6 +775,7 @@ export function placementExtent(placement: Placement, cfg: PieLayoutConfig): Ext
 }
 
 export function placementBox(placement: Placement, cfg: PieLayoutConfig): BBox {
+  if (cfg.perfCounters) cfg.perfCounters.placementBox += 1;
   const measured = placementExtent(placement, cfg);
   return textBoxBounds(placement.x, placement.y, measured, placement.anchor, placement.baseline);
 }
