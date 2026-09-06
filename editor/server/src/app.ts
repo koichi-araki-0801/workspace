@@ -30,6 +30,7 @@ import {
   isPreAuthBufferedRequest,
   preAuthGateUrl,
 } from './config.js';
+import { setAuditSink } from './db/audit.js';
 import { realSproc, type SprocClient } from './db/sproc.js';
 import { createDeps } from './deps.js';
 import { logger } from './logger.js';
@@ -98,6 +99,8 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   // (`routes/routeGuards.ts` の `levelOf`)、注入はガードの引数でなくここで行う。
   const sessionStore = createSessionStore(sproc);
   app.decorate('sessionStore', sessionStore);
+  // 監査ログの DB 複写は logger 経由(グローバル)なので、宛先だけをここで差し込む。
+  setAuditSink(sproc);
   // 集約は 1 回だけ組み、ルートへは `register` の options で配る。プラグインを
   // `fastify-plugin` に通していないので、options はそのルート群の中に閉じる。
   const deps = createDeps(sproc, sessionStore);

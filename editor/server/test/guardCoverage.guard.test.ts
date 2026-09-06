@@ -123,3 +123,16 @@ describe('requirements を pip へ渡す入口は全部が検査を通る', () =
     }
   });
 });
+
+describe('監査ログの実行面を差し込むのは buildApp だけ', () => {
+  // logger はグローバルで app にも request にも紐付かないため、監査 DB 複写の実行面だけは
+  // モジュール変数の setter になる。可変点が 1 つある以上、呼び出し元が増えていないことを
+  // 列挙として固定する — 他所から差し替えられると、監査の宛先が実行時に判らなくなる。
+  it('setAuditSink の呼び出し元は app.ts だけ', () => {
+    const callers = sourceFiles(SERVER_SRC, ['.ts'])
+      .filter((f) => path.basename(f) !== 'audit.ts')
+      .filter((f) => /setAuditSink\s*\(/.test(read(f)))
+      .map((f) => path.relative(SERVER_SRC, f).replaceAll('\\', '/'));
+    expect(callers).toEqual(['app.ts']);
+  });
+});
