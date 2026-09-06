@@ -310,10 +310,14 @@ test('ci.yml の段は ci の段の部分列で、免除リスト外の欠落が
   }
 });
 
-test('ci:offline は ci にも ci.yml にも無い(Windows 限定の Pester は runFullCi が別途呼ぶ)', () => {
+test('ci:offline は ci の段にも yml の run: 段にも無い(Windows 限定の Pester は ci:affected が別途呼ぶ)', () => {
+  // 検査対象は「実行される段」であって散文ではない。ファイル全文の文字列一致にすると、
+  // このコメント自身が理由説明のために `ci:offline` と書いた瞬間に赤くなってしまう
+  // (実際、コメントに書いただけで発火した実績がある)。よって `run:` から写像した段名だけを見る。
   assert.ok(!ciStages().includes('ci:offline'));
-  const text = readFileSync(CI_YML, 'utf8');
-  assert.doesNotMatch(text, /ci:offline/);
+  const steps = parseWorkflowSteps(readFileSync(CI_YML, 'utf8')).filter((s) => s.run !== null);
+  const stages = steps.flatMap((s) => stagesOfRun(s.run));
+  assert.ok(!stages.includes('ci:offline'), 'ci.yml の run: が ci:offline を実行している');
 });
 
 test('parseWorkflowSteps は run: | の継続行を連結し uses だけの step を run 無しにする', () => {

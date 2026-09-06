@@ -26,9 +26,9 @@ permissions:
 #   - `check:claude-hooks`: `.claude/` は git 追跡外で checkout に検査対象が無い。
 #   - `pie-chart:batch` / `pie-chart:batch:diff`: `out/_baseline` はローカル生成物で GH に無い。
 #
-# offline/ 配下の Pester 検証はこの job では実行しない: Windows ランナーへの切替が要り、この job は
-# ubuntu-latest 前提のため。ローカルの `pnpm run ci:affected`(offline/ 変更時に該当段を起動)で
-# 担保する。
+# offline/ の Pester テスト(`pnpm run ci:offline`)はここでは実行しない: Windows ランナーへの
+# 切替が要り、この job は ubuntu-latest 前提のため。ローカルの `ci:affected`(offline/ 変更時に
+# 発火)で担保する。
 jobs:
   verify:
     runs-on: ubuntu-latest
