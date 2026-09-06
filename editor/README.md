@@ -79,6 +79,14 @@ web のテストは vitest の project が 2 つある。`test/**/*.dom.test.ts`
 `vitest run --project "web-*"`。`pnpm --filter web test <name>` は `web/vitest.config.ts`（薄い
 root）経由で両 project を束ねる。設定の実体は `web/vitest.dom.config.ts` / `web/vitest.node.config.ts`。
 
+e2e（Playwright）は project が 2 つある。`chromium` は挙動を検証する spec 全部で、`pnpm test:e2e`
+（`ci`・GitHub Actions）が走らせる。`docs` は `e2e/capture_docs.spec.ts` だけで、操作手引きの
+`docs/editor/images/*.png` を撮り直す。撮影は git 管理下の成果物を書き換えるため `ci` には入れず、
+`pnpm e2e:editor`（`ci:affected` の editor 領域 = editor に触れた push）だけが
+`--project chromium --project docs` で走らせる。撮り直した画像の差分は「再撮影」としてコミットし、
+`py -3.13 docs/_build/build_all.py --project editor` で HTML を作り直す。撮影だけ手で走らせるときは
+`cd editor && pnpm exec playwright test --project docs`。
+
 ## LAN 公開（社内ネットワークの他端末から使う）
 
 既定ではサーバは `127.0.0.1` にのみバインドされ、起動した PC 以外からはアクセスできない。
