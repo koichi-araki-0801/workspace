@@ -8,22 +8,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import type { SprocClient } from '../src/db/sproc.js';
 
 // config を import する前に、データ配置先を一時ディレクトリへ逃がす。
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-session-'));
 process.env.DATA_ROOT = tmp;
 
-const callSproc = vi.fn(async () => []);
-vi.mock('../src/db/sproc.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/db/sproc.js')>();
-  return { ...actual, callSproc: (...args: unknown[]) => callSproc(...(args as [])) };
-});
+const callSproc = vi.fn(async (..._args: unknown[]): Promise<Record<string, unknown>[]> => []);
+const sproc: SprocClient = {
+  callSproc: async (proc, 操作, params) => (await callSproc(proc, 操作, params)) as never[],
+};
 
 const SID = 'a'.repeat(64);
 let sessionIdFrom: (header: string | undefined) => string | undefined;
+let createSessionStore: typeof import('../src/auth/session.js').createSessionStore;
 
 beforeAll(async () => {
-  ({ sessionIdFrom } = await import('../src/auth/session.js'));
+  ({ sessionIdFrom, createSessionStore } = await import('../src/auth/session.js'));
 });
 
 describe('sessionIdFrom', () => {
@@ -65,5 +66,33 @@ describe('sessionIdFrom', () => {
     expect(sessionIdFrom(undefined)).toBeUndefined();
     expect(sessionIdFrom('')).toBeUndefined();
     expect(sessionIdFrom('novalue')).toBeUndefined();
+  });
+});
+
+// ストアは注入された実行面しか触らない(実 DB へ降りない)。`取得` は「有効なら 1 行、
+// でなければ 0 行」という sproc の契約をそのまま写す形なので、Node 側は行の有無だけを見る。
+describe('createSessionStore', () => {
+  it('creates a 64 hex session id and passes it with the login id', async () => {
+    callSproc.mockReset();
+    callSproc.mockResolvedValue([]);
+    const id = await createSessionStore(sproc).createSession('admin');
+    expect(id).toMatch(/^[0-9a-f]{64}$/);
+    const [proc, 操作, params] = callSproc.mock.calls[0] as [string, string, { name: string }[]];
+    expect(proc).toContain('セッション');
+    expect(操作).toBe('作成');
+    expect(params.map((x) => x.name)).toEqual(['セッションID', 'ログインID', '有効期限']);
+  });
+
+  it('returns null when the sproc yields no row (revoked or expired)', async () => {
+    callSproc.mockReset();
+    callSproc.mockResolvedValue([]);
+    await expect(createSessionStore(sproc).getSessionUser(SID)).resolves.toBeNull();
+  });
+
+  it('passes the retention window to the purge operation', async () => {
+    callSproc.mockReset();
+    callSproc.mockResolvedValue([]);
+    await createSessionStore(sproc).purgeExpiredSessions(3);
+    expect(callSproc.mock.calls[0]?.[2]).toContainEqual({ name: '保持日数', value: 3 });
   });
 });

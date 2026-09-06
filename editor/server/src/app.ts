@@ -20,6 +20,7 @@ import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import staticPlugin from '@fastify/static';
 import Fastify, { type FastifyHttpOptions } from 'fastify';
+import { createSessionStore } from './auth/session.js';
 import {
   allowedHosts,
   buildCspDirectives,
@@ -29,6 +30,7 @@ import {
   isPreAuthBufferedRequest,
   preAuthGateUrl,
 } from './config.js';
+import { realSproc, type SprocClient } from './db/sproc.js';
 import { logger } from './logger.js';
 import { loadUser } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -78,14 +80,22 @@ function buildServerOptions(): FastifyHttpOptions<http.Server> {
   return serverOptions;
 }
 
+export interface BuildAppOptions {
+  /** DB 実行面。既定は本番のプール接続で、テストと rest e2e は in-memory フェイクを渡す。 */
+  sproc?: SprocClient;
+}
+
 /**
  * プラグイン・ルート・入口フックを配線した Fastify インスタンスを返す。ready 化も listen も
  * しないので、呼び出し側が `listen()`(本番)か `inject()`(テスト)でブートする。
  */
-export function buildApp() {
+export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   const app = Fastify(buildServerOptions());
   // `requireAuth` が解決して埋めるユーザ。型は `middleware/auth.ts` の module augmentation を参照。
   app.decorateRequest('user', undefined);
+  // セッションストアはインスタンスへ載せる。ガード関数は参照同一性を保つ必要があるため
+  // (`routes/routeGuards.ts` の `levelOf`)、注入はガードの引数でなくここで行う。
+  app.decorate('sessionStore', createSessionStore(sproc));
 
   // ルートごとの必要ロールの網羅検査。**API ルートの register より前**に張る必要がある
   // (`onRoute` は張った後の登録しか見ないため、後ろに置くと検査漏れが静かに生まれる)。

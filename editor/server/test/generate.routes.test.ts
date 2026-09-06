@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 // 生成器(python)と台帳(sproc)は本テストの対象外。台帳は既定で成功させ、孤児検査のときだけ
 // 失敗へ切り替える。
@@ -30,20 +31,10 @@ vi.mock('../src/generate/pyTemplate.js', () => ({
 }));
 // `AUTH_REQUIRED=true` の経路を実際に通したいので、セッション解決だけを差し替える
 // (ロール検査ではなく「認証済み利用者が確定領域へ書けないこと」が本テストの関心)。
-vi.mock('../src/auth/session.js', async (importOriginal) => {
-  const orig = await importOriginal<typeof import('../src/auth/session.js')>();
-  return {
-    ...orig,
-    sessionIdFrom: () => 'test-session',
-    getSessionUser: async () => ({
-      username: 'editor1',
-      role: 'editor',
-      displayName: 'editor1',
-      disabled: false,
-      mustChangePassword: false,
-    }),
-  };
-});
+vi.mock('../src/auth/session.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/auth/session.js')>()),
+  sessionIdFrom: () => 'test-session',
+}));
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-generate-routes-'));
 process.env.AUTH_REQUIRED = 'true';
@@ -71,6 +62,19 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     const { generateRoutes } = await import('../src/routes/generate.routes.js');
     const { templatesRoutes } = await import('../src/routes/templates.routes.js');
     app = Fastify();
+    decorateSessionStore(
+      app,
+      createSessionStub({
+        getSessionUser: () => ({
+          id: 'editor1',
+          username: 'editor1',
+          displayName: 'editor1',
+          role: 'editor',
+          disabled: false,
+          mustChangePassword: false,
+        }),
+      }),
+    );
     app.setErrorHandler(errorHandler);
     // `requireAuth` は実セッションを引くので、ここでは onRequest で user を注入して
     // 「認証済みの一般利用者」を作る(本テストの関心はロールではなく書込先)。

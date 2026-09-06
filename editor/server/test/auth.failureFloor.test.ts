@@ -12,6 +12,7 @@ import path from 'node:path';
 import { unauthorized, validation } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-floor-'));
 process.env.DATA_ROOT = tmp;
@@ -29,14 +30,6 @@ vi.mock('../src/repositories/authRepo.js', () => ({
   initPassword: vi.fn(async () => {}),
 }));
 
-vi.mock('../src/auth/session.js', () => ({
-  cookieOptions: {},
-  createSession: vi.fn(async () => 'sid'),
-  destroySession: vi.fn(async () => {}),
-  sessionIdFrom: () => undefined,
-  getSessionUser: async () => null,
-}));
-
 describe('失敗応答の時間フロア', () => {
   let app: FastifyInstance;
   let resetLoginRateLimit: () => void;
@@ -50,6 +43,9 @@ describe('失敗応答の時間フロア', () => {
     resetLoginRateLimit = rate.resetLoginRateLimit;
     maxFailures = rate.LOGIN_MAX_FAILURES;
     app = Fastify();
+    // `authRoutes` の init-password 経路は `requireAuth` → `loadUser` を通り、
+    // `request.server.sessionStore` を読む。本番と同じ形にするため載せておく。
+    decorateSessionStore(app, createSessionStub());
     app.setErrorHandler(errorHandler);
     await app.register((await import('@fastify/cookie')).default);
     await app.register(authRoutes);

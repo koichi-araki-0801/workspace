@@ -12,7 +12,6 @@
 
 import fs from 'node:fs';
 import { buildApp } from './app.js';
-import { invalidateAllSessions, purgeExpiredSessions } from './auth/session.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { buildWorkerPool } from './vivliostyle/buildWorkerServer.js';
@@ -57,10 +56,10 @@ function warnOnNetworkPlacement(): void {
 // 起動時に全セッションを失効させ、再起動をまたいだ旧セッションでの再ログイン不要化を断つ。
 // 認証なし(local)では DB 未接続なので呼ばない。失敗してもプロセスは継続するが、失効漏れ
 // は「再起動後もログイン状態が残る」形へ戻る退行なので error で目立たせる。
-async function invalidateSessionsOnBoot(): Promise<void> {
+async function invalidateSessionsOnBoot(app: ReturnType<typeof buildApp>): Promise<void> {
   if (!config.requireAuth) return;
   try {
-    await invalidateAllSessions();
+    await app.sessionStore.invalidateAllSessions();
     logger.info('[server] 全セッションを失効しました(起動時) — 再ログインを強制します');
   } catch (e) {
     logger.error(
@@ -72,7 +71,7 @@ async function invalidateSessionsOnBoot(): Promise<void> {
   // `unref` でこのタイマーがプロセスを生かし続けないようにする。
   const purge = async (): Promise<void> => {
     try {
-      await purgeExpiredSessions();
+      await app.sessionStore.purgeExpiredSessions();
     } catch (e) {
       logger.warn({ err: e }, '[server] 期限切れセッションの掃除に失敗しました');
     }
@@ -92,7 +91,7 @@ try {
 }
 
 warnOnNetworkPlacement();
-await invalidateSessionsOnBoot();
+await invalidateSessionsOnBoot(app);
 
 // listen。host は既定 127.0.0.1(同一マシン限定)で、社内 LAN へ公開するときだけ
 // `HOST=0.0.0.0`(start.bat lan が設定)で全 IF にバインドする。preview サーバは loopback のまま

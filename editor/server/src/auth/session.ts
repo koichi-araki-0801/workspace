@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 import type { User } from '@editor/shared';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import { config } from '../config.js';
-import { callSproc, firstRow, p } from '../db/sproc.js';
+import { firstRow, p, realSproc, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 import { rowToUser } from '../repositories/userRepo.js';
 
@@ -27,33 +27,79 @@ export const cookieOptions = {
   path: '/',
 } satisfies CookieSerializeOptions;
 
-export async function createSession(loginId: string): Promise<string> {
-  const id = randomBytes(32).toString('hex');
-  await callSproc(SP.session, '作成', [
-    p('セッションID', id),
-    p('ログインID', loginId),
-    p('有効期限', new Date(Date.now() + TTL_MS)),
-  ]);
-  return id;
+/**
+ * セッションのライフサイクル。実体は DB で、`buildApp` が組み立てて
+ * `app.decorate('sessionStore', …)` でインスタンスへ載せる。`middleware/auth.ts` の
+ * `loadUser` は `request.server.sessionStore` から読む — ガード関数
+ * (`requireAuth` 等)は `routes/routeGuards.ts` の `levelOf` が `preHandlers.includes()`
+ * で参照同一性を見るため、クロージャ化・ファクトリ化できない。
+ */
+export interface SessionStore {
+  createSession(loginId: string): Promise<string>;
+  getSessionUser(sessionId: string): Promise<User | null>;
+  destroySession(sessionId: string): Promise<void>;
+  invalidateAllSessions(): Promise<void>;
+  purgeExpiredSessions(retentionDays?: number): Promise<void>;
 }
 
-/** 有効(未期限切れ・未失効)なセッションに紐づくユーザー、無ければ null。 */
-export async function getSessionUser(sessionId: string): Promise<User | null> {
-  const row = firstRow(await callSproc(SP.session, '取得', [p('セッションID', sessionId)]));
-  return row ? rowToUser(row) : null;
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** `buildApp` が載せるセッションストア。ガードはここから読む。 */
+    sessionStore: SessionStore;
+  }
 }
 
-export async function destroySession(sessionId: string): Promise<void> {
-  await callSproc(SP.session, '失効', [p('セッションID', sessionId)]);
+export function createSessionStore(sproc: SprocClient): SessionStore {
+  return {
+    async createSession(loginId: string): Promise<string> {
+      const id = randomBytes(32).toString('hex');
+      await sproc.callSproc(SP.session, '作成', [
+        p('セッションID', id),
+        p('ログインID', loginId),
+        p('有効期限', new Date(Date.now() + TTL_MS)),
+      ]);
+      return id;
+    },
+
+    /** 有効(未期限切れ・未失効)なセッションに紐づくユーザー、無ければ null。 */
+    async getSessionUser(sessionId: string): Promise<User | null> {
+      const row = firstRow(
+        await sproc.callSproc(SP.session, '取得', [p('セッションID', sessionId)]),
+      );
+      return row ? rowToUser(row) : null;
+    },
+
+    async destroySession(sessionId: string): Promise<void> {
+      await sproc.callSproc(SP.session, '失効', [p('セッションID', sessionId)]);
+    },
+
+    /**
+     * 生存中の全セッションを失効させる。サーバ起動フックで呼び、再起動をまたいだ旧
+     * セッション(DB は再起動耐性なので残る)を無効化して全員に再ログインを強制する。
+     */
+    async invalidateAllSessions(): Promise<void> {
+      await sproc.callSproc(SP.session, '全失効', []);
+    },
+
+    /**
+     * 期限切れ・失効済みのセッション行を物理削除する。`失効` / `全失効` は論理フラグを
+     * 立てるだけなので、放置すると行はログインのたびに単調増加する。起動時と定期実行で回す。
+     * 削除の境界は「有効期限が保持日数ぶん過去」— `有効期限 < now` にすると、期限内の
+     * 行まで巻き込む書き方に一歩で退行しうる(全員が突然ログアウトする可用性事故)。
+     */
+    async purgeExpiredSessions(retentionDays = 7): Promise<void> {
+      await sproc.callSproc(SP.session, '掃除', [p('保持日数', retentionDays)]);
+    },
+  };
 }
 
 /**
- * 生存中の全セッションを失効させる。サーバ起動フックで呼び、再起動をまたいだ旧
- * セッション(DB は再起動耐性なので残る)を無効化して全員に再ログインを強制する。
+ * 注入をまだ受けていない呼び出し元(`repositories/authRepo.ts`)のための既定ストアと別名。
+ * 呼び出し元が注入を受け取る形になった時点で削除する。
  */
-export async function invalidateAllSessions(): Promise<void> {
-  await callSproc(SP.session, '全失効', []);
-}
+const defaultStore = createSessionStore(realSproc);
+export const createSession = defaultStore.createSession;
+export const destroySession = defaultStore.destroySession;
 
 /** セッション id の形。`randomBytes(32).toString('hex')` = 64 桁の小文字 hex に限る。 */
 const SESSION_ID_RE = /^[0-9a-f]{64}$/;
@@ -81,14 +127,4 @@ export function sessionIdFrom(cookieHeader: string | undefined): string | undefi
     return SESSION_ID_RE.test(value) ? value : undefined;
   }
   return undefined;
-}
-
-/**
- * 期限切れ・失効済みのセッション行を物理削除する。`失効` / `全失効` は論理フラグを
- * 立てるだけなので、放置すると行はログインのたびに単調増加する。起動時と定期実行で回す。
- * 削除の境界は「有効期限が保持日数ぶん過去」— `有効期限 < now` にすると、期限内の
- * 行まで巻き込む書き方に一歩で退行しうる(全員が突然ログアウトする可用性事故)。
- */
-export async function purgeExpiredSessions(retentionDays = 7): Promise<void> {
-  await callSproc(SP.session, '掃除', [p('保持日数', retentionDays)]);
 }

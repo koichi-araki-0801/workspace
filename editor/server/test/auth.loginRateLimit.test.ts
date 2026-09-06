@@ -12,6 +12,7 @@ import path from 'node:path';
 import { unauthorized } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 // config を import する前に、監査ログの書き出し先を一時ディレクトリへ逃がす。
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-login-rate-'));
@@ -31,14 +32,6 @@ vi.mock('../src/repositories/authRepo.js', () => ({
   login: (...args: unknown[]) => login(...(args as [string, string])),
   logout: vi.fn(async () => {}),
   initPassword: vi.fn(async () => {}),
-}));
-
-vi.mock('../src/auth/session.js', () => ({
-  cookieOptions: {},
-  createSession: vi.fn(async () => 'sid'),
-  destroySession: vi.fn(async () => {}),
-  sessionIdFrom: () => undefined,
-  getSessionUser: async () => null,
 }));
 
 const post = (app: FastifyInstance, username: string) =>
@@ -61,6 +54,9 @@ describe('POST /auth/login のレート制限', () => {
     resetLoginRateLimit = rate.resetLoginRateLimit;
     loginInFlightCount = rate.loginInFlightCount;
     app = Fastify();
+    // `authRoutes` の init-password 経路は `requireAuth` → `loadUser` を通り、
+    // `request.server.sessionStore` を読む。本番と同じ形にするため載せておく。
+    decorateSessionStore(app, createSessionStub());
     app.setErrorHandler(errorHandler);
     // 成功系は `reply.setCookie` を使うため、本番同様に cookie プラグインを載せる。
     await app.register((await import('@fastify/cookie')).default);

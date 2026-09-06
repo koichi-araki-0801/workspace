@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-local-mode-'));
 process.env.DATA_ROOT = tmp;
@@ -44,14 +45,6 @@ vi.mock('../src/repositories/userRepo.js', () => ({
   resetUserPassword: (...a: unknown[]) => resetUserPassword(...(a as [])),
 }));
 
-vi.mock('../src/auth/session.js', () => ({
-  cookieOptions: {},
-  createSession: vi.fn(async () => 'sid'),
-  destroySession: vi.fn(async () => {}),
-  sessionIdFrom: () => undefined,
-  getSessionUser: async () => null,
-}));
-
 const reply = {} as FastifyReply;
 const anonymous = {} as unknown as FastifyRequest;
 
@@ -69,6 +62,7 @@ describe('ローカルモード(認証を課さない構成)', () => {
     const { usersRoutes } = await import('../src/routes/users.routes.js');
     app = Fastify();
     app.decorateRequest('user', undefined);
+    decorateSessionStore(app, createSessionStub());
     app.setErrorHandler(errorHandler);
     await app.register(authRoutes);
     await app.register(usersRoutes);
