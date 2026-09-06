@@ -1,7 +1,7 @@
 # オフライン配布機構の縮退 — 設計
 
 - 日付: 2026-09-06
-- 状態: 承認待ち
+- 状態: 実装済み（2026-09-06。E2E 実測: monorepo 約4分48秒、python-tools 約23秒）
 - 対象: monorepo（workspace）と python-tools の両リポジトリ。python-tools 側の作業も本書を正典とする
   （python-tools には spec を置かず、計画ファイルから本書を参照する）。
 - 目標: オフライン配布機構を「この端末でバンドルを作って GitHub Releases へ上げる / 他端末は
