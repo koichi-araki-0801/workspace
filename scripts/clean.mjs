@@ -63,7 +63,7 @@ const LIGHT_DIR_NAMES = new Set(['.vite', '__pycache__']);
 const LIGHT_FILE_EXTS = new Set(['.tsbuildinfo']);
 
 // deep: 再生成が重い/オフライン依存。`pnpm install` (オフライン機は
-// `offline/setup-offline-local`) や exe 再ビルド・venv 再構築が要る。
+// `offline/setup-offline`) や exe 再ビルド・venv 再構築が要る。
 const DEEP_DIRS = [
   '.pnpm-store',
   'ms-playwright',
@@ -74,7 +74,7 @@ const DEEP_DIRS = [
 // これらは中身を個別に消さない (例: venv 内の `__pycache__` は無意味なノイズ)。
 const DEEP_WHOLE_DIR_NAMES = new Set(['node_modules', '.venv-build', '.venv']);
 
-// bundles: 大容量の配布物・ステージング。`offline/publish-offline-bundle.ps1`
+// bundles: 大容量の配布物・ステージング。`local-only/offline-publish/publish-offline-bundle.ps1`
 // (content key 差分時に再生成) や再取得で戻せる。既定では消さない。
 const BUNDLE_FILES = [
   'offline-deps-bundle.tar.gz',
@@ -185,7 +185,7 @@ if (!apply) {
 }
 
 if (wantDeep) {
-  console.log('\n⚠ deep: 次回 `pnpm install` (オフライン機は offline/setup-offline-local) が必要です。');
+  console.log('\n⚠ deep: 次回 `pnpm install` (オフライン機は offline/setup-offline) が必要です。');
 }
 for (const { r } of rows) {
   const abs = assertDeletable(r);
