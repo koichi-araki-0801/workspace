@@ -26,7 +26,9 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // retry は使わない: 状態待ちへ揃えた後の flake は「たまたま通った」で隠さず、
+  // CI で毎回顕在化させて直す対象にする(waitForTimeout 撤去のゴール)。
+  retries: 0,
   reporter: process.env.CI ? [['html', { open: 'never' }], ['list']] : 'list',
   use: {
     baseURL: REST ? 'http://localhost:24691' : 'http://localhost:24681',
