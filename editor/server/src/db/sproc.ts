@@ -54,9 +54,6 @@ export function createSprocClient(query: QueryFn): SprocClient {
  */
 export const realSproc: SprocClient = createSprocClient((sql, values) => query(sql, values));
 
-/** 注入をまだ受けていない呼び出し元のための別名。注入面が揃った時点で削除する。 */
-export const callSproc: SprocClient['callSproc'] = realSproc.callSproc;
-
 /** 先頭行、無ければ null(単一行取得ヘルパ)。 */
 export function firstRow<T>(rows: T[]): T | null {
   return rows.length > 0 ? rows[0] : null;

@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 import type { User } from '@editor/shared';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import { config } from '../config.js';
-import { firstRow, p, realSproc, type SprocClient } from '../db/sproc.js';
+import { firstRow, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 import { rowToUser } from '../repositories/userRepo.js';
 
@@ -92,14 +92,6 @@ export function createSessionStore(sproc: SprocClient): SessionStore {
     },
   };
 }
-
-/**
- * 注入をまだ受けていない呼び出し元(`repositories/authRepo.ts`)のための既定ストアと別名。
- * 呼び出し元が注入を受け取る形になった時点で削除する。
- */
-const defaultStore = createSessionStore(realSproc);
-export const createSession = defaultStore.createSession;
-export const destroySession = defaultStore.destroySession;
 
 /** セッション id の形。`randomBytes(32).toString('hex')` = 64 桁の小文字 hex に限る。 */
 const SESSION_ID_RE = /^[0-9a-f]{64}$/;
