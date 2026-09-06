@@ -4,6 +4,7 @@
 // 編集・プレビューは MainLayout の子ルートで、アプリヘッダとタブが常に見える。編集画面は
 // 残りの高さを全部使う(`h-full`)。タブを押すと、そのタブで直前に見ていた画面へ戻る。
 import { expect, type Page, test } from '@playwright/test';
+import { login, openEditor as openEditorAt } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -14,24 +15,7 @@ test.beforeEach(({ page }) => {
   page.on('dialog', (d) => void d.accept());
 });
 
-async function login(page: Page) {
-  await page.goto('/', { waitUntil: 'commit' });
-  await page.waitForURL(/\/(login|edit|reviews)/);
-  await page.evaluate(() => localStorage.removeItem('editor:session'));
-  await page.goto('/login', { waitUntil: 'commit' });
-  await page.locator('#u').waitFor();
-  await page.locator('#u').fill('admin');
-  await page.locator('#p').fill('admin');
-  await page.getByRole('button', { name: 'ログイン' }).click();
-  await page.waitForURL(/\/(edit|reviews)/);
-}
-
-async function openEditor(page: Page, query = '') {
-  await page.goto(`/edit/${encodeURIComponent(SEED_ID)}${query}`, { waitUntil: 'commit' });
-  const frame = page.frameLocator('iframe.gjs-frame');
-  await frame.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
-  return frame;
-}
+const openEditor = (page: Page, query = '') => openEditorAt(page, SEED_ID, query);
 
 test('編集画面でもアプリヘッダとタブが見え、「編集」タブが点灯する', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

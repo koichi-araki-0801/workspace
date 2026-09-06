@@ -4,65 +4,24 @@
 // 対象の決め方(?template= → 編集タブの直前画面 → 空状態)、要約箱 3 つの件数、同時展開の上限、
 // 決着後に同じ画面へ留まることを実機で固定する。
 import { expect, type Locator, type Page, test } from '@playwright/test';
+import { login, openEditor, submitOnce } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
-async function login(page: Page, user: string, pass: string): Promise<void> {
-  await page.goto('/', { waitUntil: 'commit' });
-  await page.waitForURL(/\/(login|edit|reviews)/);
-  await page.evaluate(() => localStorage.removeItem('editor:session'));
-  await page.goto('/login', { waitUntil: 'commit' });
-  await page.locator('#u').waitFor();
-  await page.locator('#u').fill(user);
-  await page.locator('#p').fill(pass);
-  await page.getByRole('button', { name: 'ログイン' }).click();
-  await page.waitForURL(/\/(edit|reviews)/);
-  // `nav` はロール非依存で全ロールに出るアプリヘッダの一部(`MainLayout.vue`)。着地後の
-  // レンダリングを待つのに固定待ちより確実。
-  await page.locator('header nav a').first().waitFor();
-}
-
-async function submitOnce(page: Page): Promise<void> {
-  await page.goto(`/preview/${encodeURIComponent(SEED_ID)}`);
-  await page
-    .frameLocator('iframe[title="プレビュー"]')
-    .locator('[data-vivliostyle-page-container]:visible')
-    .first()
-    .waitFor({ state: 'visible', timeout: 60_000 });
-  await page.getByRole('button', { name: '確定保存を申請' }).click();
-  await page.getByRole('button', { name: '申請する' }).click();
-  // `submitOnce` の先頭で `goto` するので前回の toast は残らない(`PreviewView.toastSuccess`、
-  // `Toaster.vue` は `role="status"`)。
-  await expect(
-    page.getByRole('status').filter({ hasText: '確定保存を申請しました' }),
-  ).toBeVisible();
-}
-
-/** GrapesJS canvas 初期化完了(1 ページ目が描画済み)を待つ。`/edit/:id` 遷移直後の固定待みの
- * 置き換え。`tabbed_layout.spec.ts` の `openEditor` と同じロケータを使う。 */
-async function waitForCanvasReady(page: Page): Promise<void> {
-  await page
-    .frameLocator('iframe.gjs-frame')
-    .locator('.page')
-    .first()
-    .waitFor({ state: 'visible', timeout: 30_000 });
-}
-
 test('対象が無ければ誘導し、編集タブで開いたテンプレートの申請を要約箱つきで並べる', async ({
   page,
 }) => {
-  await login(page, 'admin', 'admin');
-  await submitOnce(page);
-  await submitOnce(page);
+  await login(page, 'admin');
+  await submitOnce(page, SEED_ID);
+  await submitOnce(page, SEED_ID);
 
-  await login(page, 'approver', 'approver');
+  await login(page, 'approver');
   await page.goto('/reviews');
   await expect(page.getByText('編集タブでテンプレートを開いてから')).toBeVisible();
 
-  await page.goto(`/edit/${encodeURIComponent(SEED_ID)}`);
-  await waitForCanvasReady(page);
+  await openEditor(page, SEED_ID);
   await page.getByRole('link', { name: '承認' }).click();
 
   await expect(page.locator('[data-summary="pending"]')).toContainText('2');
@@ -128,9 +87,8 @@ async function waitForComparePages(item: Locator): Promise<void> {
 test('承認タブの行クリックで見た目比較が該当ページ(2 ページ目)へ移動する', async ({ page }) => {
   // 2 ページ目先頭パーツ宛にコメントを 1 件用意して申請する(区画の内容自体は未編集でよい)。
   const COMMENT_TEXT = '2ページ目パーツへの確認コメント';
-  await login(page, 'admin', 'admin');
-  await page.goto(`/edit/${encodeURIComponent(SEED_ID)}`);
-  await waitForCanvasReady(page);
+  await login(page, 'admin');
+  await openEditor(page, SEED_ID);
   // 既定の 1 ページ表示では 2 ページ目が canvas 上で非表示(display:none)のまま。全ページ
   // 連続表示へ切り替えてから対象パーツを選ぶ。
   await page.getByRole('button', { name: '全ページを連続表示' }).click();
@@ -142,11 +100,10 @@ test('承認タブの行クリックで見た目比較が該当ページ(2 ペ�
     .locator('> *')
     .first();
   await addCanvasComment(page, secondPagePart, COMMENT_TEXT);
-  await submitOnce(page);
+  await submitOnce(page, SEED_ID);
 
-  await login(page, 'approver', 'approver');
-  await page.goto(`/edit/${encodeURIComponent(SEED_ID)}`);
-  await waitForCanvasReady(page);
+  await login(page, 'approver');
+  await openEditor(page, SEED_ID);
   await page.getByRole('link', { name: '承認' }).click();
 
   const item = page.locator('[data-review-item]').first();

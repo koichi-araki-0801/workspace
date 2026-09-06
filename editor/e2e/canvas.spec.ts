@@ -6,34 +6,14 @@
 // (単体)の実画面版 — canvas body の `jinja-vars-highlight` クラスまで確認する。
 
 import { expect, type Page, test } from '@playwright/test';
+import { login, openEditor as openEditorAt } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
-async function login(page: Page) {
-  await page.goto('/login');
-  await page.locator('#u').fill('admin');
-  await page.locator('#p').fill('admin');
-  await page.getByRole('button', { name: 'ログイン' }).click();
-  await page.waitForURL(/\/(edit|reviews)/);
-}
-
-/**
- * 編集画面を開き、GrapesJS canvas のページ描画まで待つ。
- *
- * `goto` の完了条件は `'commit'` にする。既定の `'load'` は全サブリソースの読み込み完了まで
- * 待つため、SPA が起動時に出す認証確認や router のリダイレクトが割り込むと
- * **`net::ERR_ABORTED` で goto 自体が失敗する**(負荷の高い CI で実際に踏んだ)。
- * この関数が本当に待ちたいのは「canvas にページが描かれたか」で、それは下の
- * `waitFor` が直接見ている。
- */
-async function openEditor(page: Page, query = '') {
-  await page.goto(`/edit/${encodeURIComponent(SEED_ID)}${query}`, { waitUntil: 'commit' });
-  const frame = page.frameLocator('iframe.gjs-frame');
-  await frame.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
-  return frame;
-}
+/** このファイルは常に seed テンプレを開くので、id を省略できる薄いラッパーに保つ。 */
+const openEditor = (page: Page, query = '') => openEditorAt(page, SEED_ID, query);
 
 test('編集 2 系統: 編集タブはハイライト無し / 作成経路(?created=1)は有り', async ({ page }) => {
   await login(page);

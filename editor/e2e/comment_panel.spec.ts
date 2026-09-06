@@ -4,24 +4,11 @@
 // 一覧は右ペイン(overlay 層の外)にあるので pointer-events の罠は無いが、行クリックが
 // GrapesJS の選択と 1 ページ表示のページ送りまで届くかは実機でしか分からない。ここで押さえる。
 import { expect, type Page, test } from '@playwright/test';
+import { login, openEditor } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
 test.use({ viewport: { width: 1440, height: 900 } });
-
-async function login(page: Page): Promise<void> {
-  await page.goto('/', { waitUntil: 'commit' });
-  await page.waitForURL(/\/(login|edit|reviews)/);
-  await page.evaluate(() => localStorage.removeItem('editor:session'));
-  await page.goto('/login', { waitUntil: 'commit' });
-  await page.locator('#u').waitFor();
-  await page.locator('#u').fill('admin');
-  await page.locator('#p').fill('admin');
-  await page.getByRole('button', { name: 'ログイン' }).click();
-  await page.waitForURL(/\/(edit|reviews)/);
-  // 着地後のレンダリングをアプリヘッダの `nav`(全ロールに出る)で待つ。固定待ちより確実。
-  await page.locator('header nav a').first().waitFor();
-}
 
 async function addComment(page: Page, partIndex: number, text: string): Promise<void> {
   const frame = page.frameLocator('iframe.gjs-frame');
@@ -37,13 +24,7 @@ async function addComment(page: Page, partIndex: number, text: string): Promise<
 
 test('コメント一覧は検索・状態で絞り込め、行クリックでパーツを選択する', async ({ page }) => {
   await login(page);
-  await page.goto(`/edit/${encodeURIComponent(SEED_ID)}`);
-  // GrapesJS canvas の初期化完了(1 ページ目が描画済み)を待つ。
-  await page
-    .frameLocator('iframe.gjs-frame')
-    .locator('.page')
-    .first()
-    .waitFor({ state: 'visible', timeout: 30_000 });
+  await openEditor(page, SEED_ID);
   await page.locator('[data-pane-tab="comments"]').click();
 
   // 吹き出しはページへ常に重ねて出る仕様(表計算ソフトのセルコメントと同じ)なので、直前に

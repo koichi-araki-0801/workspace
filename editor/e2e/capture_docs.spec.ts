@@ -11,62 +11,14 @@
 
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { type Page, test } from '@playwright/test';
+import { login, waitForLoaded, waitForStableBox } from './helpers';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const IMG = (name: string) => resolve(here, '../../docs/editor/images', name);
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
 test.use({ viewport: { width: 1440, height: 900 } });
-
-async function login(page: Page, user: string, pass: string) {
-  // 認証済みのままログイン画面へ行くと guard がアプリへ戻す。別ユーザーで入り直す撮影
-  // フローがあるので、セッションだけ捨ててから入る(申請などの localStorage は残す)。
-  // `waitUntil: 'commit'` は `canvas.spec.ts` の `openEditor` と同じ理由: 既定の 'load' は
-  // 全サブリソースを待つので、SPA が起動時に出す認証確認や router のリダイレクトが割り込むと
-  // `net::ERR_ABORTED` で goto 自体が落ちる。さらに、その遷移が終わる前に `evaluate` を投げると
-  // 実行コンテキストごと壊れるため、URL が落ち着くまで待ってから localStorage を触る
-  // (どちらも 4 並列の pre-push CI で実際に踏んだ)。
-  await page.goto('/', { waitUntil: 'commit' });
-  await page.waitForURL(/\/(login|edit|reviews)/);
-  await page.evaluate(() => localStorage.removeItem('editor:session'));
-  await page.goto('/login', { waitUntil: 'commit' });
-  await page.locator('#u').waitFor();
-  await page.locator('#u').fill(user);
-  await page.locator('#p').fill(pass);
-  await page.getByRole('button', { name: 'ログイン' }).click();
-  await page.waitForURL(/\/(edit|reviews)/);
-  await page.waitForTimeout(800);
-}
-
-/**
- * ロード中のスケルトンが消えるまで待つ。固定時間の待ちだけでは、データ取得が間に合わず
- * **プレースホルダのまま**撮れることがある(履歴タブで実際に起き、読み込み中の画面が
- * 手引き HTML へ base64 で埋め込まれた)。撮影は緑のまま通るので CI では検出できない。
- * `animate-pulse` を持つのは `Skeleton.vue` だけなので、0 件 = 実データの描画完了。
- */
-async function waitForLoaded(page: Page) {
-  await expect(page.locator('.animate-pulse')).toHaveCount(0, { timeout: 15_000 });
-}
-
-/**
- * 要素の寸法が落ち着くまで待ち、その boundingBox を返す。可視化を待つだけでは足りない:
- * canvas のフォントが載る前は行の高さが確定せず、その寸法で `clip` を取ると**内容が
- * 途中で切れた**画像になる(CI の並列実行下で実際に起きた。単独実行では再現しない)。
- * 連続 2 回同じ寸法になったところを確定と見なす。
- */
-async function waitForStableBox(page: Page, locator: Locator, timeout = 20_000) {
-  const deadline = Date.now() + timeout;
-  let previous = '';
-  while (Date.now() < deadline) {
-    const box = await locator.boundingBox();
-    const key = box ? `${Math.round(box.width)}x${Math.round(box.height)}` : '';
-    if (key && key === previous) return box;
-    previous = key;
-    await page.waitForTimeout(300);
-  }
-  return locator.boundingBox();
-}
 
 /**
  * プレビューの組版完了を待つ。ページ要素は隔離 iframe(`sandbox="allow-scripts"`・
@@ -91,7 +43,7 @@ test('capture editor screens', async ({ page }) => {
   await page.locator('#u').waitFor();
   await page.screenshot({ path: IMG('login.png') });
 
-  await login(page, 'admin', 'admin');
+  await login(page, 'admin');
 
   // ①b パスワード変更画面。ログイン後にしか出せない（未認証だと現行パスワードを示せず、
   // フォーム自体が出ない仕様）。撮影後は編集タブへ戻して以降の導線を元の順序に保つ。
@@ -179,7 +131,7 @@ test('capture editor screens', async ({ page }) => {
 test('capture review screens (申請 → 承認タブ → 精査)', async ({ page }) => {
   // admin で申請を 1 件作る（editor は初回 PW 変更が挟まるため admin で代用）。
   // 無編集の申請でも精査画面の既定タブ（見た目で比較）は前後の組版を並べて表示できる。
-  await login(page, 'admin', 'admin');
+  await login(page, 'admin');
   await page.goto(`/preview/${encodeURIComponent(SEED_ID)}`);
   await waitForPreviewPage(page);
   await page.getByRole('button', { name: '確定保存を申請' }).click();
@@ -188,7 +140,7 @@ test('capture review screens (申請 → 承認タブ → 精査)', async ({ pag
 
   // approver で入り直し、承認タブを対象テンプレートで開く(編集タブで開いたテンプレートの
   // 申請を縦に並べる画面。先頭 1 件は既定で展開される)
-  await login(page, 'approver', 'approver');
+  await login(page, 'approver');
   await page.goto(`/reviews?template=${encodeURIComponent(SEED_ID)}`);
   await page.waitForTimeout(800);
   await waitForLoaded(page);

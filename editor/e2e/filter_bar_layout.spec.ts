@@ -6,20 +6,9 @@
 // 「委託会社コードを入力/選」のように読めなくなる。列数の一番多い比較タブ(5 列)は
 // 同時に「フィールド行が折り返さない」ことも確かめる。
 import { expect, type Page, test } from '@playwright/test';
+import { login } from './helpers';
 
 test.use({ viewport: { width: 1440, height: 900 } });
-
-async function login(page: Page) {
-  await page.goto('/', { waitUntil: 'commit' });
-  await page.waitForURL(/\/(login|edit|reviews)/);
-  await page.evaluate(() => localStorage.removeItem('editor:session'));
-  await page.goto('/login', { waitUntil: 'commit' });
-  await page.locator('#u').waitFor();
-  await page.locator('#u').fill('admin');
-  await page.locator('#p').fill('admin');
-  await page.getByRole('button', { name: 'ログイン' }).click();
-  await page.waitForURL(/\/(edit|reviews)/);
-}
 
 /**
  * placeholder の描画幅と入力欄の実幅の組。`scrollWidth` は placeholder を勘定しないので、

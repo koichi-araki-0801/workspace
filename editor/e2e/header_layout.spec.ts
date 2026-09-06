@@ -6,6 +6,7 @@
 // 2 行目の左端へ孤立する。折り返しの余裕はファンド名の長さと保存状態の文言で簡単に
 // 食い潰されるので、その両方が最長の状態で 1 行に収まることを 2 つの幅で固定する。
 import { expect, type Page, test } from '@playwright/test';
+import { login, openEditor } from './helpers';
 
 // 長いファンド名(SMT JPX日経中小型株インデックス・オープン)を持つ seed。ファンド名は
 // ヘッダ左ゾーンの幅を決めるので、短い名前の seed では余裕の不足を検出できない。
@@ -17,18 +18,6 @@ const LONG_NAME_ID = 'AM01_510124_20251020_交付版';
 // 「保存に失敗しました」は再試行ボタンも増えるため、折り返してでも全部出すのが正しく、
 // ここでは測らない。
 const LONGEST_STATUS = '00:00 に自動保存';
-
-async function login(page: Page) {
-  await page.goto('/', { waitUntil: 'commit' });
-  await page.waitForURL(/\/(login|edit|reviews)/);
-  await page.evaluate(() => localStorage.removeItem('editor:session'));
-  await page.goto('/login', { waitUntil: 'commit' });
-  await page.locator('#u').waitFor();
-  await page.locator('#u').fill('admin');
-  await page.locator('#p').fill('admin');
-  await page.getByRole('button', { name: 'ログイン' }).click();
-  await page.waitForURL(/\/(edit|reviews)/);
-}
 
 /**
  * 編集画面の上部バー(`EditorTopBar.vue`)。アプリヘッダ(`MainLayout.vue`)も `header` 要素
@@ -57,8 +46,7 @@ async function headerRows(page: Page, selector: string): Promise<number> {
 
 async function openLongNameEditor(page: Page) {
   await login(page);
-  await page.goto(`/edit/${encodeURIComponent(LONG_NAME_ID)}`, { waitUntil: 'commit' });
-  await page.frameLocator('iframe.gjs-frame').locator('.page').first().waitFor({ timeout: 30_000 });
+  await openEditor(page, LONG_NAME_ID);
 }
 
 test('1440px: 長いファンド名でもヘッダが 1 行に収まる', async ({ page }) => {
