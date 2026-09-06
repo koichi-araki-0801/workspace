@@ -54,13 +54,20 @@ import {
   countBundledRimStubs,
   boxOverlapMax,
   boxPieIntrusionMax,
-  boxViewOverflowOf,
   boxViewOverflowMax,
   projectBoxesToPixels,
-  oobLeaderCount,
   countAngularDiscordantPairs,
+  collectLeaderGeometry,
+  countLeaderCrossingsFrom,
+  countLeaderThroughLabelsFrom,
+  countAngularDiscordantPairsFrom,
+  boxOverlapMaxOf,
+  boxPieIntrusionMaxOf,
+  boxViewOverflowOfBox,
+  boxViewOverflowMaxOf,
+  oobLeaderCountFrom,
 } from './leader_geometry.js';
-import type { Pt, Coord } from './leader_geometry.js';
+import type { Pt, Coord, LeaderGeometry } from './leader_geometry.js';
 import { radialFraction, pieClearanceWithinViewBox } from '../layout/geometry.js';
 import { topBandSonohokaZone } from '../layout/placement.js';
 import { FINAL_CONDENSE_MIN_SCALE } from './post_layout.js';
@@ -1557,16 +1564,34 @@ export function measureRepairVec(
   coord: Coord,
 ): RepairVec {
   if (cfg.perfCounters) cfg.perfCounters.measureRepairVec += 1;
+  return measureRepairVecFrom(
+    placements,
+    cfg,
+    coord,
+    collectLeaderGeometry(placements, cfg, coord),
+  );
+}
+
+/**
+ * `measureRepairVec` の本体。leader 折れ線と box を `geo` から読むので、9 つの指標が同じ幾何を
+ * 共有する。各指標は互いに独立な読み取りなので、幾何を先に作っても値は変わらない。
+ */
+export function measureRepairVecFrom(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+  geo: LeaderGeometry,
+): RepairVec {
   return {
-    cross: countLeaderCrossings(placements, cfg, coord),
-    pieCross: leaderPieCrossCount(placements, cfg, coord),
-    through: countLeaderThroughLabels(placements, cfg, coord),
-    inv: countAngularDiscordantPairs(placements, cfg, coord),
-    clips: placements.filter((p) => boxViewOverflowOf(p, cfg, coord) > 1).length,
-    oob: oobLeaderCount(placements, cfg, coord),
-    ovl: boxOverlapMax(placements, cfg),
-    boxPie: boxPieIntrusionMax(placements, cfg),
-    view: boxViewOverflowMax(placements, cfg, coord),
+    cross: countLeaderCrossingsFrom(placements, geo),
+    pieCross: leaderPieCrossCountFrom(geo.paths, cfg, coord),
+    through: countLeaderThroughLabelsFrom(placements, geo),
+    inv: countAngularDiscordantPairsFrom(placements, coord, geo),
+    clips: geo.boxes.filter((lb) => boxViewOverflowOfBox(lb, coord) > 1).length,
+    oob: oobLeaderCountFrom(geo.paths, coord),
+    ovl: boxOverlapMaxOf(geo.boxes),
+    boxPie: boxPieIntrusionMaxOf(placements, geo.boxes, cfg),
+    view: boxViewOverflowMaxOf(geo.boxes, coord),
   };
 }
 
@@ -1646,7 +1671,15 @@ export function enforceFinalPieClearance(
 
 /** leader path が pie 円に侵入している本数 (pieRPx-1 余裕)。 */
 function leaderPieCrossCount(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
-  const paths = realLeaderPaths(placements, cfg, coord);
+  return leaderPieCrossCountFrom(realLeaderPaths(placements, cfg, coord), cfg, coord);
+}
+
+/** `leaderPieCrossCount` の path 配列版。 */
+function leaderPieCrossCountFrom(
+  paths: (Pt[] | null)[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): number {
   const cx = coord.xScale(0);
   const cy = coord.yScale(0);
   const pieRPx = Math.abs(coord.xScale(cfg.pieRadius) - coord.xScale(0));
