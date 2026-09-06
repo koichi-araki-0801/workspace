@@ -58,6 +58,7 @@ import {
   projectBoxesToPixels,
   countAngularDiscordantPairs,
   collectLeaderGeometry,
+  replaceLeaderGeometryAt,
   countLeaderCrossingsFrom,
   countLeaderThroughLabelsFrom,
   countAngularDiscordantPairsFrom,
@@ -1563,7 +1564,6 @@ export function measureRepairVec(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): RepairVec {
-  if (cfg.perfCounters) cfg.perfCounters.measureRepairVec += 1;
   return measureRepairVecFrom(
     placements,
     cfg,
@@ -1575,6 +1575,9 @@ export function measureRepairVec(
 /**
  * `measureRepairVec` の本体。leader 折れ線と box を `geo` から読むので、9 つの指標が同じ幾何を
  * 共有する。各指標は互いに独立な読み取りなので、幾何を先に作っても値は変わらない。
+ * `geo` は同じ `placements` の**現在の**幾何であること (placement を動かした後は作り直す)。
+ * 呼出回数のカウンタはここで加算する — 幾何を呼び出し側で持ち回る経路も「採点 1 回」として
+ * 数えたいため (`measureRepairVec` 経由かどうかで回数が変わると計測が比較できなくなる)。
  */
 export function measureRepairVecFrom(
   placements: Placement[],
@@ -1582,6 +1585,7 @@ export function measureRepairVecFrom(
   coord: Coord,
   geo: LeaderGeometry,
 ): RepairVec {
+  if (cfg.perfCounters) cfg.perfCounters.measureRepairVec += 1;
   return {
     cross: countLeaderCrossingsFrom(placements, geo),
     pieCross: leaderPieCrossCountFrom(geo.paths, cfg, coord),
@@ -1766,6 +1770,20 @@ interface ResidualVec {
   boxPie: number;
 }
 
+/** `RepairVec` → `ResidualVec` の射影 (crossPie = cross + pieCross)。 */
+function toResidualVec(m: RepairVec): ResidualVec {
+  return {
+    crossPie: m.cross + m.pieCross,
+    through: m.through,
+    inv: m.inv,
+    clips: m.clips,
+    oob: m.oob,
+    ovl: m.ovl,
+    view: m.view,
+    boxPie: m.boxPie,
+  };
+}
+
 /**
  * `repairResidualLeaderDefects` の各修復手 (単独手/複合手) が共有するコンテキスト。tol/tolPx/pxUnit
  * は同関数冒頭の導出値、vecOf は現在の placements の `ResidualVec` 採点、better は採否述語
@@ -1785,7 +1803,7 @@ interface ResidualRepairCtx {
 // p の bend を格子から選び直し、cur より良くなる候補があれば適用したまま true を返す。
 // 無ければ元の bend/フラグへ戻して false。 (単独手・複合手の両方から使う)
 function tryBendGridOn(ctx: ResidualRepairCtx, p: Placement): boolean {
-  const { cfg, pxUnit, vecOf, better } = ctx;
+  const { placements, cfg, coord, pxUnit, vecOf, better } = ctx;
   if (cfg.perfCounters) cfg.perfCounters.tryBendGridOn += 1;
   const drawn2 = computeDrawnLeader(p, cfg, false);
   if (drawn2.skipLeader || drawn2.pathPoints.length < 2) return false;
@@ -1803,6 +1821,23 @@ function tryBendGridOn(ctx: ResidualRepairCtx, p: Placement): boolean {
     fx: p.leaderBendFollowsEndpointX,
   };
   const cur2 = vecOf();
+  // 候補間で動くのは p の bend と 2 つの follows フラグだけで、これらは p の leader 折れ線にしか
+  // 効かない (box は x/y と字幅から決まり bend を読まない)。他の leader と全 box は候補間で不変
+  // なので幾何は 1 回だけ集め、候補ごとに p の分だけ差し替えて測る (全体を作り直すのと同値)。
+  // p が placements の外なら差し替える index が無いので、従来どおり全体を測る。
+  const i = placements.indexOf(p);
+  const base = i >= 0 ? collectLeaderGeometry(placements, cfg, coord) : null;
+  const measure = (): ResidualVec =>
+    base
+      ? toResidualVec(
+          measureRepairVecFrom(
+            placements,
+            cfg,
+            coord,
+            replaceLeaderGeometryAt(base, placements, cfg, coord, i),
+          ),
+        )
+      : vecOf();
   for (const f of [0.5, 0.35, 0.65, 0.2, 0.8]) {
     for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
       const th = tA + dT * f;
@@ -1810,7 +1845,7 @@ function tryBendGridOn(ctx: ResidualRepairCtx, p: Placement): boolean {
       p.leaderBend = { x: rr * Math.cos(th), y: rr * Math.sin(th) };
       p.leaderBendFollowsEndpointY = false;
       p.leaderBendFollowsEndpointX = false;
-      if (better(vecOf(), cur2)) return true;
+      if (better(measure(), cur2)) return true;
     }
   }
   p.leaderBend = sv.bend;
@@ -1846,6 +1881,8 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
       fy: p.leaderBendFollowsEndpointY,
       fx: p.leaderBendFollowsEndpointX,
     };
+    // `tryBendGridOn` と同じ理由で、候補間で不変な他の leader と全 box は 1 回だけ集める。
+    const base = bendFeasible ? collectLeaderGeometry(placements, cfg, coord) : null;
     outer: for (const f of bendFeasible ? [0.5, 0.35, 0.65, 0.2, 0.8] : []) {
       for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
         const th = thA + dTh * f;
@@ -1853,7 +1890,16 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
         p.leaderBend = { x: rr * Math.cos(th), y: rr * Math.sin(th) };
         p.leaderBendFollowsEndpointY = false;
         p.leaderBendFollowsEndpointX = false;
-        const v = vecOf();
+        const v = base
+          ? toResidualVec(
+              measureRepairVecFrom(
+                placements,
+                cfg,
+                coord,
+                replaceLeaderGeometryAt(base, placements, cfg, coord, i),
+              ),
+            )
+          : vecOf();
         if (better(v, cur)) {
           if (process.env.PIE_CHART_DEBUG_REPAIR) {
             console.error(
@@ -2096,19 +2142,7 @@ export function repairResidualLeaderDefects(
   const tol = pxToLogical(cfg, 2);
   const tolPx = 2;
   const pxUnit = 1 / cfg.pxPerUnit;
-  const vecOf = (): ResidualVec => {
-    const m = measureRepairVec(placements, cfg, coord);
-    return {
-      crossPie: m.cross + m.pieCross,
-      through: m.through,
-      inv: m.inv,
-      clips: m.clips,
-      oob: m.oob,
-      ovl: m.ovl,
-      view: m.view,
-      boxPie: m.boxPie,
-    };
-  };
+  const vecOf = (): ResidualVec => toResidualVec(measureRepairVec(placements, cfg, coord));
   // 主目的は (交差+円貫通) → (箱貫通) → (箱の円内侵入) の辞書式改善。それ以外は全て非悪化。
   const better = (a: ResidualVec, b: ResidualVec): boolean =>
     ((a.crossPie < b.crossPie && a.through <= b.through && a.boxPie <= b.boxPie + tol) ||

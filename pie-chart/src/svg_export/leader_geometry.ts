@@ -801,6 +801,33 @@ export function collectLeaderGeometry(
   return { paths, boxes, pixelBoxes: boxes.map((lb) => projectBoxToPixels(lb, coord)) };
 }
 
+/**
+ * `geo` の index `i` だけを現在の placement から作り直した幾何 (元の `geo` は変更しない)。
+ * bend 格子の候補ループのように 1 つの placement しか動かない場面で、他の leader と box を
+ * 作り直さないために使う。差し替える値は `collectLeaderGeometry` と同じ式で作るので、全体を
+ * 作り直した場合と同じ数値になる。動いていない placement が 1 つでもあると値が古くなるので、
+ * 「i 以外は不変」が呼び出し側で保証できる場面にだけ使うこと。
+ */
+export function replaceLeaderGeometryAt(
+  geo: LeaderGeometry,
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+  i: number,
+): LeaderGeometry {
+  const r = computeDrawnLeader(placements[i], cfg, false);
+  const box = placementBox(placements[i], cfg);
+  const paths = geo.paths.slice();
+  const boxes = geo.boxes.slice();
+  const pixelBoxes = geo.pixelBoxes.slice();
+  paths[i] = r.skipLeader
+    ? null
+    : r.pathPoints.map((pt) => ({ x: coord.xScale(pt.x), y: coord.yScale(pt.y) }));
+  boxes[i] = box;
+  pixelBoxes[i] = projectBoxToPixels(box, coord);
+  return { paths, boxes, pixelBoxes };
+}
+
 /** logical box 1 つを pixel 空間の辺へ射影する。 */
 function projectBoxToPixels(lb: BBox, coord: Coord): PixelBox {
   return {
