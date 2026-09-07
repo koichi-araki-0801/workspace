@@ -313,4 +313,46 @@ d('review workflow (HTTP routes)', () => {
     });
     expect(res.statusCode).toBe(200);
   });
+
+  // `actor()` は `req.user?.username ?? 'system'` / `req.user?.role ?? 'admin'` で local
+  // モード(user 未設定)を全件可視の admin 扱いにする。onRequest フックは `x-test-user` が
+  // 無ければ `req.user` を注入しない(上の各テストと同じ buildApp を使う)ので、ヘッダを
+  // 送らないリクエストがそのままこの分岐を踏む。
+  it('user 無し(local モード)の一覧は全件可視の admin 扱い', async () => {
+    const res = await app.inject({ method: 'GET', url: '/review-requests' });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as unknown[]).length).toBeGreaterThan(0);
+  });
+
+  // `auditedRethrow` の failure 分岐(`review.reject` 監査イベントを outcome=failure で記録)を
+  // 通す。`rejectReview` が投げる `notFound` はここで初めて中央 errorHandler へ渡る前に
+  // 監査ログを書く経路を踏むので、500 に化けないことが本命の主張。
+  it('存在しない申請の却下は 404 で、監査の failure 経路を通る(500 にならない)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/review-requests/rv-none/reject',
+      headers: asUser('approver1', 'approver'),
+      payload: { comment: '理由' },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  // `review.submit` 監査イベントの failure 分岐。`submitReview` は帰属検査
+  // (`attrs.fundCode !== req.fundCode`)を承認側(`applyConfirmedWrite`)と同条件で申請の入口にも
+  // 掛けており、通してしまうと精査者のキューに「承認できない申請」が積まれる。
+  it('templateId とファンドが食い違う申請は 400 で、監査の failure 経路を通る', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/review-requests',
+      headers: asUser('editor1', 'editor'),
+      payload: {
+        templateId: 'AM01_611111_20250101_交付版',
+        html: '<p>x</p>',
+        css: '',
+        fundCode: '999999',
+        origin: 'edit',
+      },
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });
