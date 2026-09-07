@@ -1054,6 +1054,10 @@ export function buildScoreBase(
  * 基準を作ったときに `paths[i]` が null (leader を描かない) でも、候補では null でなくなる
  * ことがある。`changed` に載った index は必ず再判定するので行列を読むことはなく、載って
  * いない index の null 判定は基準と同じ (幾何が同じ) なので `continue` の位置も動かない。
+ *
+ * `base.usable === false` の `ScoreBase` を渡してはならない。その基準の行列は全 false なので
+ * 再判定しない対をすべて「当たらない」と数えて過少になる。この判定は呼び出し前段の
+ * `measureRepairVecDelta` が持つ (ここで実行時チェックを足すと対判定ループに分岐が増える)。
  */
 export function crossCountWithChanged(
   placements: Placement[],
@@ -1089,6 +1093,9 @@ export function crossCountWithChanged(
  * `crossCountWithChanged` の貫通版。数え方 (向きのある名前キーの集合) は `throughPairsFrom`
  * と同一で、`changed` に載った index が絡む対だけを再判定する。box 側が動いた場合も
  * 「その index が絡む対」なので、行 i・列 j のどちらで当たっても再判定になる。
+ *
+ * `crossCountWithChanged` と同じく `base.usable === false` の `ScoreBase` を渡してはならない
+ * (過少に数える)。判定は `measureRepairVecDelta` の責務で、ここには実行時チェックを置かない。
  */
 export function throughCountWithChanged(
   placements: Placement[],

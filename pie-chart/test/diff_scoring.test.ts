@@ -8,7 +8,11 @@
 import { describe, expect, it } from 'vitest';
 import { createPieLayoutConfig } from '../src/config.js';
 import { layoutLabels } from '../src/layout/diagnostics.js';
-import { measureRepairVecDelta, measureRepairVecFrom } from '../src/svg_export/emit_repair.js';
+import {
+  measureRepairVec,
+  measureRepairVecDelta,
+  measureRepairVecFrom,
+} from '../src/svg_export/emit_repair.js';
 import {
   buildScoreBase,
   collectLeaderGeometry,
@@ -85,7 +89,7 @@ describe('差分採点は全走査と同値', () => {
     }
   });
 
-  it('measureRepairVecDelta は measureRepairVecFrom と 9 フィールドすべて一致する', () => {
+  it('measureRepairVecDelta は全走査の measureRepairVec と 9 フィールドすべて一致する', () => {
     const { placements, coord } = makePlacements(items, cfg);
     const rnd = lcg(4242);
     for (let t = 0; t < 30; t += 1) {
@@ -96,12 +100,11 @@ describe('差分採点は全走査と同値', () => {
         placements[i].x += (rnd() - 0.5) * 6;
         placements[i].leaderBend = { x: (rnd() - 0.5) * 12, y: (rnd() - 0.5) * 12 };
       }
-      const geo = changed.reduce(
-        (g, i) => replaceLeaderGeometryAt(g, placements, cfg, coord, i),
-        base.geo,
-      );
+      // 参照側は被検側と幾何を共有させない。`replaceLeaderGeometryAt` の連鎖適用で組んだ
+      // `geo` を両側へ渡すと、連鎖に誤りがあっても両側が同じだけ狂って一致してしまう。
+      // `measureRepairVec` は `collectLeaderGeometry` から幾何を作り直すので独立な参照になる。
       expect(measureRepairVecDelta(base, placements, cfg, coord, changed)).toEqual(
-        measureRepairVecFrom(placements, cfg, coord, geo),
+        measureRepairVec(placements, cfg, coord),
       );
     }
   });
