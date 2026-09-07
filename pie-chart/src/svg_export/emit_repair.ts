@@ -1966,9 +1966,16 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
         const rimX = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - edgeY * edgeY));
         const targetRight = -(rimX + clearance);
         if (lb.right > targetRight) {
+          // シフトで動くのは p (= placements[i]) の箱と leader だけ、続く複合手で追加で動くのは
+          // bend 替えを**採用した**相手だけなので、動いた index だけを数え直せば足りる
+          // (`tryBendGridOn` は不採用なら bend を元へ戻すので、戻り値が false の相手は不動)。
+          const shiftBase = buildScoreBase(placements, cfg, coord);
+          const movedIdx = new Set<number>([i]);
+          const measure = (): ResidualVec =>
+            toResidualVec(measureRepairVecDelta(shiftBase, placements, cfg, coord, [...movedIdx]));
           p.x += targetRight - lb.right;
           clampPlacement(p);
-          let v = vecOf();
+          let v = measure();
           let ok = better(v, cur);
           // シフトで leader が隣と絡んだ場合は、自分と交差相手の bend 替えを重ねて複合手として
           // 再評価する (相手の bend が旧位置の箱を前提に張り出していることがある)。
@@ -1986,11 +1993,11 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
                   !placements[j].insideSlice &&
                   !placements[j].forceTopRight
                 ) {
-                  tryBendGridOn(ctx, placements[j]);
+                  if (tryBendGridOn(ctx, placements[j])) movedIdx.add(j);
                 }
               }
             }
-            v = vecOf();
+            v = measure();
             ok = better(v, cur);
           }
           if (process.env.PIE_CHART_DEBUG_REPAIR) {
@@ -2010,6 +2017,8 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
       // 候補2b: 左 rim 再ハグ。bend 替えで直らない時、現在の Y のまま箱を円外クリアランス X へ
       // 置き直す。円に食い込んだ箱 (label inside pie) を外へ出し、他 leader の回廊を塞ぐ
       // 被害者箱を退かす。
+      // 動くのは p だけだが採点は 1 回きりなので、差分ではなく全走査で測る。基準行列を作る費用
+      // 自体が全走査 1 回ぶんあり、採点 1 回では差分の節約で取り返せない。
       if (!adopted && p.x < 0) {
         adopted = trySeamMutation(
           placements,
@@ -2045,7 +2054,7 @@ export function hasNewPair(cand: Set<string>, base: Set<string>): boolean {
 // (x, y, baseline) を丸ごと交換すると両 leader が短い扇形へ組み替わり構造的に解ける。
 // 交差は ERROR・角度順逆転は WARN なので、この手に限り inv の悪化を許容する (他指標は非悪化)。
 function trySwapCrossingPairs(ctx: ResidualRepairCtx, cur: ResidualVec): boolean {
-  const { placements, cfg, coord, tol, tolPx, vecOf } = ctx;
+  const { placements, cfg, coord, tol, tolPx } = ctx;
   const allPaths = realLeaderPaths(placements, cfg, coord);
   const pairs: [number, number][] = [];
   for (let i = 0; i < allPaths.length; i += 1) {
@@ -2073,10 +2082,16 @@ function trySwapCrossingPairs(ctx: ResidualRepairCtx, cur: ResidualVec): boolean
     a.ovl <= b.ovl + tol &&
     a.view <= b.view + tolPx &&
     a.boxPie <= b.boxPie + tol;
+  // 交換で動くのは当事者 2 枚だけ。却下時は `trySeamMutation` が全 placement を巻き戻すので、
+  // 基準の幾何は次の対でもそのまま通用する (採用したらこの関数は即 return する)。最初に実際へ
+  // 試す対まで作成を遅らせ、対が全て除外される入力で無駄な全走査を出さない。
+  let swapBase: ScoreBase | null = null;
   for (const [ia, ib] of pairs) {
     const pa = placements[ia];
     const pb = placements[ib];
     if (pa.insideSlice || pb.insideSlice || pa.forceTopRight || pb.forceTopRight) continue;
+    swapBase ??= buildScoreBase(placements, cfg, coord);
+    const base = swapBase;
     const adopted = trySeamMutation(
       placements,
       () => {
@@ -2087,7 +2102,7 @@ function trySwapCrossingPairs(ctx: ResidualRepairCtx, cur: ResidualVec): boolean
         pb.baseline = tb;
       },
       () => {
-        const v = vecOf();
+        const v = toResidualVec(measureRepairVecDelta(base, placements, cfg, coord, [ia, ib]));
         const ok = swapBetter(v, cur);
         if (process.env.PIE_CHART_DEBUG_REPAIR) {
           console.error(
