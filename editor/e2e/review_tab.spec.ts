@@ -13,6 +13,8 @@ test.use({ viewport: { width: 1440, height: 900 } });
 test('対象が無ければ誘導し、編集タブで開いたテンプレートの申請を要約箱つきで並べる', async ({
   page,
 }) => {
+  // 組版を 2 面走らせる重いテストで、並列負荷下では既定 30s を超えるため他の重い spec と同じ 120s にする。
+  test.setTimeout(120_000);
   await login(page, 'admin');
   await submitOnce(page, SEED_ID);
   await submitOnce(page, SEED_ID);
@@ -85,6 +87,8 @@ async function waitForComparePages(item: Locator): Promise<void> {
 }
 
 test('承認タブの行クリックで見た目比較が該当ページ(2 ページ目)へ移動する', async ({ page }) => {
+  // 組版を 2 面走らせる重いテストで、並列負荷下では既定 30s を超えるため他の重い spec と同じ 120s にする。
+  test.setTimeout(120_000);
   // 2 ページ目先頭パーツ宛にコメントを 1 件用意して申請する(区画の内容自体は未編集でよい)。
   const COMMENT_TEXT = '2ページ目パーツへの確認コメント';
   await login(page, 'admin');
