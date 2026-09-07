@@ -415,12 +415,13 @@ describe('egressGuard — 中継の端', () => {
     }
   });
 
-  it('上流がヘッダ送信後に切れても 502 へ書き換えず、応答を閉じる(ハングしない)', async () => {
-    // 実測: 応答ヘッダを送った後の premature close は Node の http クライアントでは
-    // `up`(IncomingMessage)側の 'aborted'/'error' として現れ、`upstream`
-    // (ClientRequest)の 'error' へは回らない(`res.headersSent` 分岐の consequent 側は
-    // 応答**前**の接続エラーでしか踏めない)。ここでは「ヘッダ送信後に上流が切れても
-    // 中継がハングしない・502 へ書き換えない」という利用者から見える性質だけを固定する。
+  it('上流がヘッダ送信後に切れても 502 へ書き換えない', async () => {
+    // 応答ヘッダを送った後の premature close は `up`(IncomingMessage)側の 'aborted'/'error'
+    // として現れるが、中継は `up.pipe(res)` で繋ぐだけでそれを購読しておらず、
+    // `upstream.on('error')`(ClientRequest 側)はヘッダ送信**前**の接続エラーでしか発火しない。
+    // つまり中継は上流の途中切断を検知して応答を終端せず、この経路の client は timeout する。
+    // ゆえにここで固定できるのは「502 へ書き換えない」ことだけで、応答を終端しないこと自体は
+    // 別途修正する既知の欠陥。client 側 timeout を「合格の一形態」と読まないこと。
     const b = await startFakeBuild('');
     b.origin.removeAllListeners('request');
     b.origin.on('request', (_req, res) => {
@@ -445,8 +446,8 @@ describe('egressGuard — 中継の端', () => {
         },
       );
       req.on('error', (e) => resolve(e));
-      // vitest の既定テストタイムアウト(5000ms)より十分短く切る。ハングしないことが
-      // 主張であって、正確な打ち切りタイミングは主張しない。
+      // 上記のとおりこの経路は client 側 timeout に落ちるので、テスト自体が vitest の既定
+      // タイムアウト(5000ms)で落ちないよう手前で打ち切る。打ち切りの時刻は主張しない。
       req.setTimeout(2000, () => {
         req.destroy();
         resolve(new Error('client timeout'));
