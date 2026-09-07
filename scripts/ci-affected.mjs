@@ -2,9 +2,10 @@
 // ci-affected.mjs — 変更領域だけ CI を走らせる affected ランナー
 // =============================================================================
 // `git diff` で変更ファイルを領域(editor / pie-chart など)へマッピングし、
-// 触れた領域の CI ステージだけ実行する。`pnpm run ci:affected` で起動し、`.husky/pre-push`
-// から呼ばれる。フル `ci`(coverage 閾値ゲート込み)は手動 `pnpm run ci` と GitHub Actions が
-// 担うため、ここでは速度優先で coverage 無しのテストのみ走らせる。
+// 触れた領域の CI ステージだけ実行する。`pnpm run ci:affected` で起動するほか、
+// `.husky/pre-push` から直接呼ばれる。フル `ci`(coverage 閾値ゲート込み)は手動
+// `pnpm run ci` と GitHub Actions が担うため、ここでは速度優先で coverage 無しの
+// テストのみ走らせる。
 //
 // なぜ affected か: 常設ブランチは重量物含め広大で、常にフル実行だと pie-chart の 1 ファイル
 // 変更でも editor の build/e2e まで毎回走って push が遅い。push 前段で「触った領域」へ絞る。

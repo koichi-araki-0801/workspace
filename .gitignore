@@ -17,6 +17,8 @@ __pycache__/
 # ローカル開発支援ツールの設定・作業ファイル（マシン固有。リポジトリでは共有しない）
 .claude/
 CLAUDE.md
+# 配布担当の端末にだけ置くバンドル生成スクリプトと、撤去した配布機構の複製
+local-only/
 pie-chart/.claude/
 # code-review-graph（MCP）のグラフ DB と MCP 設定（絶対パスを含むマシン固有）
 .code-review-graph/
@@ -36,12 +38,8 @@ python-wheelhouse/
 *.tar.gz.part-*
 # Release 公開時の付随生成物
 offline-deps-bundle.tar.gz.sha256
-# 分離署名。真正性の根拠は Release 側の実体と `offline/pinned-release.txt` であって、
-# 作業ツリーに残るこの控えではない（公開鍵 `offline/bundle-signing.pub.xml` は追跡する）。
-offline-deps-bundle.tar.gz.sig
 bundle.key
 _bundle_stage/
-_bundle_verify/
 # オフライン環境構築後、ダウンロード物（ソースZIP/バンドル/sha256/key）の退避先
 bk/
 # editor のテンプレ実体(templates/css/drafts)はワークスペース外の dataRoot で git 版管理する

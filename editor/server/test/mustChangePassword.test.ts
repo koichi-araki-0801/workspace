@@ -7,18 +7,20 @@
 // config を import する前に `AUTH_REQUIRED=true` を立て、認可を有効化して検証する。
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { createSessionStub, withSessionStore } from './helpers/sessionStub.js';
 
 process.env.AUTH_REQUIRED = 'true';
 
 const reply = {} as FastifyReply;
 
-/** cookie 経由のユーザ解決をモックせずに済むよう、`loadUser` が読む session module を差し替える。 */
-vi.mock('../src/auth/session.js', () => ({
-  cookieOptions: {},
-  createSession: vi.fn(async () => 'sid'),
-  destroySession: vi.fn(async () => {}),
+/** cookie の値をそのままセッション id として扱う(実装は 64 桁 hex しか受けない)。 */
+vi.mock('../src/auth/session.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/auth/session.js')>()),
   sessionIdFrom: (cookie?: string) => cookie,
-  getSessionUser: async (sid: string) => ({
+}));
+
+const store = createSessionStub({
+  getSessionUser: (sid) => ({
     id: sid,
     username: sid,
     displayName: sid,
@@ -27,15 +29,18 @@ vi.mock('../src/auth/session.js', () => ({
     // cookie に `must:` を付けたセッションだけ「初期パスワードのまま」とみなす。
     mustChangePassword: sid.startsWith('must:'),
   }),
-}));
+});
 
 /** `routeOptions.url` は登録時のパターン。ルートは `/api` prefix 付きで登録される。 */
 const reqFor = (sid: string, routeUrl: string): FastifyRequest =>
-  ({
-    headers: { cookie: sid },
-    routeOptions: { url: routeUrl },
-    url: routeUrl,
-  }) as unknown as FastifyRequest;
+  withSessionStore(
+    {
+      headers: { cookie: sid },
+      routeOptions: { url: routeUrl },
+      url: routeUrl,
+    },
+    store,
+  ) as unknown as FastifyRequest;
 
 describe('requireAuth と 要パスワード変更', () => {
   let requireAuth: typeof import('../src/middleware/auth.js').requireAuth;
@@ -76,10 +81,10 @@ describe('requireAuth と 要パスワード変更', () => {
   });
 
   it('falls back to the raw path when routeOptions is absent (query stripped)', async () => {
-    const request = {
-      headers: { cookie: 'must:admin' },
-      url: '/api/auth/me?x=1',
-    } as unknown as FastifyRequest;
+    const request = withSessionStore(
+      { headers: { cookie: 'must:admin' }, url: '/api/auth/me?x=1' },
+      store,
+    ) as unknown as FastifyRequest;
     await expect(requireAuth(request, reply)).resolves.toBeUndefined();
   });
 

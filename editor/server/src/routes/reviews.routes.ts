@@ -5,8 +5,9 @@
 // (reject)は `requireApprover` で施錠し、approve だけが実ファイル + git へ反映する
 // (`reviewRepo.ts`)。承認/却下は監査イベント(`review.approve` / `review.reject`)を記録する。
 import { apiPaths } from '@editor/shared';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
+import type { Deps } from '../deps.js';
 import { auditedRethrow } from '../logger.js';
 import { requireApprover, requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
@@ -16,17 +17,22 @@ import {
   ReviewRejectBody,
   SubmitReviewBody,
 } from '../openapi/schemas.js';
-import * as reviews from '../repositories/reviewRepo.js';
+import type { ReviewActor } from '../repositories/reviewRepo.js';
 
 /** 操作主体を request.user から導く。local モード(user 未設定)は全件可視の system 扱い。 */
-function actor(req: FastifyRequest): reviews.ReviewActor {
+function actor(req: FastifyRequest): ReviewActor {
   return { username: req.user?.username ?? 'system', role: req.user?.role ?? 'admin' };
 }
 
 // `:reqId` を持つルートで共有する params 型(RouteGeneric に渡してキャストを消す)。
 type ReqIdParams = { Params: { reqId: string } };
 
-export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
+export const reviewsRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'reviews'> }> = async (
+  app,
+  opts,
+) => {
+  const { reviews } = opts.deps;
+
   // 申請を作成(pending)。実ファイルは更新しない。
   app.post<{ Body: z.infer<typeof SubmitReviewBody> }>(
     apiPaths.reviewRequests,
@@ -99,4 +105,4 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
       );
     },
   );
-}
+};

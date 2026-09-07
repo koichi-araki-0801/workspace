@@ -1,2 +1,2 @@
-# タグのみの push では CI をスキップする振り分けを通す(理由は scripts/pre-push.mjs 冒頭)。
-node scripts/pre-push.mjs
+# ブランチ push のたび変更領域だけの CI を走らせる(振り分けは scripts/ci-affected.mjs)。
+node scripts/ci-affected.mjs

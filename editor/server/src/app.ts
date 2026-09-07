@@ -20,6 +20,7 @@ import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import staticPlugin from '@fastify/static';
 import Fastify, { type FastifyHttpOptions } from 'fastify';
+import { createSessionStore } from './auth/session.js';
 import {
   allowedHosts,
   buildCspDirectives,
@@ -29,6 +30,9 @@ import {
   isPreAuthBufferedRequest,
   preAuthGateUrl,
 } from './config.js';
+import { setAuditSink } from './db/audit.js';
+import { realSproc, type SprocClient } from './db/sproc.js';
+import { createDeps } from './deps.js';
 import { logger } from './logger.js';
 import { loadUser } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -78,14 +82,31 @@ function buildServerOptions(): FastifyHttpOptions<http.Server> {
   return serverOptions;
 }
 
+export interface BuildAppOptions {
+  /** DB 実行面。既定は本番のプール接続で、テストと rest e2e は in-memory フェイクを渡す。 */
+  sproc?: SprocClient;
+}
+
 /**
  * プラグイン・ルート・入口フックを配線した Fastify インスタンスを返す。ready 化も listen も
  * しないので、呼び出し側が `listen()`(本番)か `inject()`(テスト)でブートする。
  */
-export function buildApp() {
+export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   const app = Fastify(buildServerOptions());
   // `requireAuth` が解決して埋めるユーザ。型は `middleware/auth.ts` の module augmentation を参照。
   app.decorateRequest('user', undefined);
+  // セッションストアはインスタンスへ載せる。ガード関数は参照同一性を保つ必要があるため
+  // (`routes/routeGuards.ts` の `levelOf`)、注入はガードの引数でなくここで行う。
+  const sessionStore = createSessionStore(sproc);
+  app.decorate('sessionStore', sessionStore);
+  // 監査ログの DB 複写は logger 経由(グローバル)なので、宛先だけをここで差し込む。
+  // sink はプロセスグローバルな 1 つの変数で、複数の buildApp を呼ぶと最後に呼んだものの
+  // sink を共有する(本番は buildApp を 1 回しか呼ばないので問題無いが、テストは複数の
+  // app を逐次生成するため、後から作った app の呼び先が前の app の分まで差し替える)。
+  setAuditSink(sproc);
+  // 集約は 1 回だけ組み、ルートへは `register` の options で配る。プラグインを
+  // `fastify-plugin` に通していないので、options はそのルート群の中に閉じる。
+  const deps = createDeps(sproc, sessionStore);
 
   // ルートごとの必要ロールの網羅検査。**API ルートの register より前**に張る必要がある
   // (`onRoute` は張った後の登録しか見ないため、後ろに置くと検査漏れが静かに生まれる)。
@@ -173,15 +194,15 @@ export function buildApp() {
   app.get(`/api${apiPaths.health}`, async () => ({ ok: true }));
 
   app.register(openapiRoutes, { prefix: '/api' });
-  app.register(authRoutes, { prefix: '/api' });
+  app.register(authRoutes, { prefix: '/api', deps });
   app.register(vivliostyleRoutes, { prefix: '/api' });
-  app.register(templatesRoutes, { prefix: '/api' });
-  app.register(generateRoutes, { prefix: '/api' });
-  app.register(partsRoutes, { prefix: '/api' });
-  app.register(reviewsRoutes, { prefix: '/api' });
+  app.register(templatesRoutes, { prefix: '/api', deps });
+  app.register(generateRoutes, { prefix: '/api', deps });
+  app.register(partsRoutes, { prefix: '/api', deps });
+  app.register(reviewsRoutes, { prefix: '/api', deps });
   app.register(historyRoutes, { prefix: '/api' });
   app.register(notesRoutes, { prefix: '/api' });
-  app.register(usersRoutes, { prefix: '/api' });
+  app.register(usersRoutes, { prefix: '/api', deps });
 
   // API リファレンス UI(/api/docs)。標準 JS バンドルはプラグインがローカル配信するため
   // オフライン(air-gapped)でも動作する。Scalar のインライン起動 script はグローバル CSP の

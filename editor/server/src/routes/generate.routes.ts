@@ -19,9 +19,10 @@ import {
   templateFileName,
   templateIdFromFileName,
 } from '@editor/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
+import type { Deps } from '../deps.js';
 import { pendingExists, writePending } from '../files/pendingFiles.js';
 import { readFundCss, templateExists } from '../files/templateFiles.js';
 import { generateTemplate } from '../generate/pyTemplate.js';
@@ -30,14 +31,16 @@ import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { GenerateRequest } from '../openapi/schemas.js';
 import { recordCreate } from '../repositories/historyRepo.js';
-import { registerGenerated } from '../repositories/templateRepo.js';
-import { applyNoteMasterToHtml } from '../sync/noteMasterService.js';
 
 // トークン単位の検査はここに私有の複製を置かず `@editor/shared` の
 // `assertTemplateAttributeToken` 1 本を呼ぶ。同じ判定を呼び出し元ごとの私有複製で持つと、
 // 「生成は締まっているのに確定書込(`confirmedWrite.ts`)は緩い」のような非対称ができる。
 
-export async function generateRoutes(app: FastifyInstance): Promise<void> {
+export const generateRoutes: FastifyPluginAsync<{
+  deps: Pick<Deps, 'templates' | 'noteMaster'>;
+}> = async (app, opts) => {
+  const { templates, noteMaster } = opts.deps;
+
   app.post<{ Body: z.infer<typeof GenerateRequest> }>(
     apiPaths.generate,
     { preHandler: [requireAuth, requireEditor, validate(GenerateRequest)] },
@@ -69,7 +72,7 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
           // 生成器の出力へ、承認済み注記マスタ(そのファンド・版種)を適用してから保存する。
           // 生成器(差し替え前提)にマスタ参照を要求しないための編集側適用点。DB 不達時は
           // 関数内で warn + 素通し(生成をブロックしない)。
-          const html = await applyNoteMasterToHtml(
+          const html = await noteMaster.applyNoteMasterToHtml(
             await generateTemplate(body),
             attributes.fundCode,
             attributes.editionType,
@@ -94,7 +97,7 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
           // 永久に不能になる。pending は未確定の作業用実体なので上書きしてよい
           // (確定側は上の 409 が守る。承認ゲートは一切迂回していない)。
           if (config.requireAuth) {
-            if (!(await pendingExists(id))) await registerGenerated(attributes, id);
+            if (!(await pendingExists(id))) await templates.registerGenerated(attributes, id);
             await writePending(id, html, css);
             await recordCreate(attributes, body.basedOnTemplateId, loginId);
           }
@@ -117,7 +120,7 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       return { template: { meta, html, css, filled: '' } };
     },
   );
-}
+};
 
 function todayYmd(): string {
   const d = new Date();

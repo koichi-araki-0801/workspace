@@ -12,10 +12,10 @@ const query = vi.fn();
 vi.mock('../src/db/pool.js', () => ({ query: (...a: unknown[]) => query(...a) }));
 
 async function callWith(err: unknown): Promise<{ kind: string; message: string }> {
-  const { callSproc } = await import('../src/db/sproc.js');
+  const { realSproc } = await import('../src/db/sproc.js');
   query.mockRejectedValueOnce(err);
   try {
-    await callSproc('usp_x', '作成');
+    await realSproc.callSproc('usp_x', '作成');
     throw new Error('should have thrown');
   } catch (e) {
     return e as { kind: string; message: string };

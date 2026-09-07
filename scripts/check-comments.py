@@ -51,6 +51,7 @@ REPO_CONFIGS: dict[str, dict] = {
                 "__pycache__",
                 ".pytest_cache",
                 "python-wheelhouse",
+                "local-only",
                 "dist",
                 "build",
                 "out",
@@ -61,7 +62,7 @@ REPO_CONFIGS: dict[str, dict] = {
         ),
         "skip_dir_prefixes": (".venv",),
         "ps1_mode": "forbid",
-        "ps1_skip_dir_names": frozenset({".git", "python-wheelhouse"}),
+        "ps1_skip_dir_names": frozenset({".git", "python-wheelhouse", "local-only"}),
         "ps1_skip_dir_prefixes": (".venv",),
         "bat_pairing_exceptions": frozenset(),
         "box_header_roots": None,
@@ -81,6 +82,7 @@ REPO_CONFIGS: dict[str, dict] = {
                 ".venv",
                 "ms-playwright",
                 "python-wheelhouse",
+                "local-only",
                 ".pnpm-store",
                 "dist",
                 "coverage",
@@ -100,7 +102,7 @@ REPO_CONFIGS: dict[str, dict] = {
         # が同梱された瞬間に無検査になるのを避けるため、生成物ディレクトリは除外しない。
         "ps1_mode": "check",
         "ps1_skip_dir_names": frozenset(
-            {"node_modules", ".git", "ms-playwright", "python-wheelhouse"}
+            {"node_modules", ".git", "ms-playwright", "python-wheelhouse", "local-only"}
         ),
         "ps1_skip_dir_prefixes": (".venv",),
         # dot-source 専用ライブラリは単体起動しないため `.bat` 併設不要。
@@ -436,7 +438,7 @@ def _staged_files() -> frozenset[str]:
     後続の `(ROOT / p).is_file()` 判定が常に偽になって検査対象から黙って落ちる (実証済み。
     本リポの docs 原稿 14 件は全件日本語ファイル名でこれに該当していた)。`-z` は
     `core.quotepath` の設定に関わらずエスケープなしの生バイト列を NUL 区切りで返すため、
-    この問題が構造的に起きない。同型の修正が `offline/publish_bundle.py`
+    この問題が構造的に起きない。同型の修正が `scripts/check_requirements.py`
     (`find_pip_call_files`)・`offline/lib/bundle_common.py`
     (`list_requirements_files_via_git`)・`scripts/setup_dev.py`(`list_requirements`)の
     計 4 箇所にある。

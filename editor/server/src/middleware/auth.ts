@@ -12,7 +12,7 @@
 // 直接叩けば初期パスワードのままフル権限で操作できた(承認まで通った)。
 import { apiPaths, forbidden, type User, unauthorized } from '@editor/shared';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { getSessionUser, sessionIdFrom } from '../auth/session.js';
+import { sessionIdFrom } from '../auth/session.js';
 import { config } from '../config.js';
 
 declare module 'fastify' {
@@ -22,11 +22,15 @@ declare module 'fastify' {
   }
 }
 
-/** ログイン中ユーザをセッション cookie から解決する(未ログイン/失効時は null)。 */
+/**
+ * ログイン中ユーザをセッション cookie から解決する(未ログイン/失効時は null)。
+ * ストアはインスタンスに載っている(`app.ts` の `decorate`)。ここでモジュールを直接
+ * 掴まないのは、注入したフェイクが素通りしてしまうため。
+ */
 export async function loadUser(req: FastifyRequest): Promise<User | null> {
   const sid = sessionIdFrom(req.headers.cookie);
   if (!sid) return null;
-  return getSessionUser(sid);
+  return req.server.sessionStore.getSessionUser(sid);
 }
 
 /**

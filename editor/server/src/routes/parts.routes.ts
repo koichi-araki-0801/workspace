@@ -2,13 +2,13 @@
 // parts.routes.ts — パーツカタログのルート(エディタ左ペイン)+ パーツ単位履歴
 // =============================================================================
 import { apiPaths, type PartClassificationQuery } from '@editor/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
+import type { Deps } from '../deps.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { RecordPartChangeRequest } from '../openapi/schemas.js';
 import * as history from '../repositories/historyRepo.js';
-import * as parts from '../repositories/partRepo.js';
 
 const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
 
@@ -25,7 +25,9 @@ function toClassQuery(q: Record<string, unknown>): PartClassificationQuery {
 type ClassQuery = { Querystring: Record<string, unknown> };
 type PartHistoryParams = { Params: { templateId: string } };
 
-export async function partsRoutes(app: FastifyInstance): Promise<void> {
+export const partsRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'parts'> }> = async (app, opts) => {
+  const { parts } = opts.deps;
+
   app.get<ClassQuery>(
     apiPaths.partClassificationOptions,
     { preHandler: requireAuth },
@@ -56,4 +58,4 @@ export async function partsRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(204).send();
     },
   );
-}
+};

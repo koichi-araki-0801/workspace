@@ -4,6 +4,7 @@
 // 編集・プレビューは MainLayout の子ルートで、アプリヘッダとタブが常に見える。編集画面は
 // 残りの高さを全部使う(`h-full`)。タブを押すと、そのタブで直前に見ていた画面へ戻る。
 import { expect, type Page, test } from '@playwright/test';
+import { login, openEditor as openEditorAt } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -14,24 +15,7 @@ test.beforeEach(({ page }) => {
   page.on('dialog', (d) => void d.accept());
 });
 
-async function login(page: Page) {
-  await page.goto('/', { waitUntil: 'commit' });
-  await page.waitForURL(/\/(login|edit|reviews)/);
-  await page.evaluate(() => localStorage.removeItem('editor:session'));
-  await page.goto('/login', { waitUntil: 'commit' });
-  await page.locator('#u').waitFor();
-  await page.locator('#u').fill('admin');
-  await page.locator('#p').fill('admin');
-  await page.getByRole('button', { name: 'ログイン' }).click();
-  await page.waitForURL(/\/(edit|reviews)/);
-}
-
-async function openEditor(page: Page, query = '') {
-  await page.goto(`/edit/${encodeURIComponent(SEED_ID)}${query}`, { waitUntil: 'commit' });
-  const frame = page.frameLocator('iframe.gjs-frame');
-  await frame.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
-  return frame;
-}
+const openEditor = (page: Page, query = '') => openEditorAt(page, SEED_ID, query);
 
 test('編集画面でもアプリヘッダとタブが見え、「編集」タブが点灯する', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -169,23 +153,31 @@ test('リロードでは編集が残る(同じタブ = 同じセッション)', 
 
 test('タブを閉じた後(セッショントークンが消えた後)に開き直すと、未確定の編集は破棄される', async ({
   page,
+  context,
 }) => {
   test.setTimeout(120_000);
   await login(page);
   await openEditor(page);
   await appendAndAutosave(page, 'E2E破棄');
-  // ブラウザタブを閉じて開き直す = sessionStorage が消えて localStorage は残る
-  await page.evaluate(() => sessionStorage.clear());
-  await page.reload({ waitUntil: 'commit' });
-  const frame = page.frameLocator('iframe.gjs-frame');
+  // ブラウザタブを閉じて開き直す = 同じ context に新しいページを開く(sessionStorage は
+  // 新規発行・localStorage は共有)。`sessionStorage.clear()` + `reload` では、旧ページの
+  // `visibilitychange`(reload 中に発火する)で保留中の autosave が flush され、その成功時に
+  // `owner.claim` が新トークンを空になった sessionStorage へ鋳造してしまうため「同じタブ」を
+  // 装えず偽陽性(下書きが破棄されない)を招く。ページを閉じて新規ページで開き直すことで、
+  // 旧ページの flush が新ページの sessionStorage に触れないようにする。
+  const url = page.url();
+  await page.close();
+  const reopened = await context.newPage();
+  await reopened.goto(url, { waitUntil: 'commit' });
+  const frame = reopened.frameLocator('iframe.gjs-frame');
   await frame.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
   await expect(frame.getByText('E2E破棄')).toHaveCount(0);
-  await expect(page.getByText('変更なし', { exact: true })).toBeVisible();
+  await expect(reopened.getByText('変更なし', { exact: true })).toBeVisible();
   // 下書きの実体(local モードは localStorage の `editor:drafts`)も消えている
-  const leftover = await page.evaluate(() =>
+  const leftover = await reopened.evaluate(() =>
     (localStorage.getItem('editor:drafts') ?? '').includes('E2E破棄'),
   );
   expect(leftover).toBe(false);
   // Undo で破棄した本文が戻らない(ミラーから復元した Undo スタックも捨てている)。
-  await expect(page.getByRole('button', { name: '元に戻す' })).toBeDisabled();
+  await expect(reopened.getByRole('button', { name: '元に戻す' })).toBeDisabled();
 });

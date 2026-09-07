@@ -4,15 +4,17 @@
 // 作成(201)とリセット(200)は一時パスワードの平文を応答ボディで返す。監査ログには
 // **絶対に載せない** — 監査ログは長期保存されるため、載せた瞬間に「保存しない」前提が崩れる。
 import { apiPaths } from '@editor/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
+import type { Deps } from '../deps.js';
 import { actorFromReq, audit } from '../logger.js';
 import { requireAdmin, requireAuth, requireIdentifiedUser } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { CreateUserRequest, UpdateUserRequest } from '../openapi/schemas.js';
-import * as users from '../repositories/userRepo.js';
 
-export async function usersRoutes(app: FastifyInstance): Promise<void> {
+export const usersRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'users'> }> = async (app, opts) => {
+  const { users } = opts.deps;
+
   // ⚠ 資格情報・ユーザー台帳を操作する 4 ルートには `requireIdentifiedUser` を重ねる。
   // `requireAdmin` は `config.requireAuth` を見て素通りするため、`AUTH_REQUIRED` 未設定の
   // 既定 local モードでは role 検査が丸ごと消える。`requireIdentifiedUser` はフラグを見ず、
@@ -66,4 +68,4 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(200).send(result);
     },
   );
-}
+};

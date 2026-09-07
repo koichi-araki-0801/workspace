@@ -10,6 +10,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Deps } from '../src/deps.js';
+import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 // config を import する前に、監査ログの書き出し先を一時ディレクトリへ逃がす。
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-auth-routes-'));
@@ -19,31 +21,21 @@ process.env.AUTH_FAILURE_FLOOR_MS = '0';
 
 const initPassword = vi.fn(async (..._args: unknown[]) => {});
 
-vi.mock('../src/repositories/authRepo.js', () => ({
-  login: vi.fn(),
-  logout: vi.fn(async () => {}),
-  initPassword: (...args: unknown[]) => initPassword(...(args as [])),
-}));
+// 資格情報の検証自体は repo の責務なので、ルートへ渡す `deps.auth` を spy に差し替える
+// (モジュールモックではなく注入で切る)。
+const deps = {
+  auth: {
+    login: vi.fn(),
+    logout: vi.fn(async () => {}),
+    initPassword: (...args: unknown[]) => initPassword(...(args as [])),
+  },
+} as unknown as Pick<Deps, 'auth'>;
 
-// セッションは cookie `editor.sid=<username>` を「その名前のユーザ」とみなす最小の偽装にする。
-vi.mock('../src/auth/session.js', () => ({
-  cookieOptions: {},
-  createSession: vi.fn(async () => 'sid'),
-  destroySession: vi.fn(async () => {}),
+// cookie `editor.sid=<username>` を「その名前のユーザ」とみなす最小の偽装。実装の
+// `sessionIdFrom` は 64 桁 hex しか受けないので、id の取り出しだけを差し替える。
+vi.mock('../src/auth/session.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/auth/session.js')>()),
   sessionIdFrom: (cookie?: string) => cookie?.match(/editor\.sid=([^;]+)/)?.[1],
-  getSessionUser: async (sid: string) =>
-    sid
-      ? {
-          id: sid,
-          username: sid,
-          displayName: sid,
-          role: 'editor',
-          disabled: false,
-          // `must:` 前置きのセッションは「初期パスワードのまま」= `requireAuth` が他経路を
-          // 止める状態。パスワード変更だけは通らないと復旧不能になるのでここで確かめる。
-          mustChangePassword: sid.startsWith('must:'),
-        }
-      : null,
 }));
 
 const BODY = { currentPassword: 'current-pw', newPassword: 'new-password' };
@@ -62,11 +54,26 @@ describe('POST /auth/init-password の施錠', () => {
     maxFailures = rate.LOGIN_MAX_FAILURES;
     app = Fastify();
     app.decorateRequest('user', undefined);
+    decorateSessionStore(
+      app,
+      createSessionStub({
+        getSessionUser: (sid) => ({
+          id: sid,
+          username: sid,
+          displayName: sid,
+          role: 'editor',
+          disabled: false,
+          // `must:` 前置きのセッションは「初期パスワードのまま」= `requireAuth` が他経路を
+          // 止める状態。パスワード変更だけは通らないと復旧不能になるのでここで確かめる。
+          mustChangePassword: sid.startsWith('must:'),
+        }),
+      }),
+    );
     app.setErrorHandler(errorHandler);
     // 本番(`app.ts`)は `/api` prefix で register する。prefix なしのままだと
     // `middleware/auth.ts` の完全一致判定(`/api${p}`)がここでは常に不一致になり、
     // 「初期パスワードのままでも変更経路だけは通る」を実配線と違う形で検証してしまう。
-    await app.register(authRoutes, { prefix: '/api' });
+    await app.register(authRoutes, { prefix: '/api', deps });
     await app.ready();
   });
 

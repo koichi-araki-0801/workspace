@@ -6,13 +6,12 @@
 // 先に登録し、id として捕捉されないようにする(Fastify は static>parametric を内部優先する
 // ので機能上は順不同だが、可読性のため現行順を保つ)。
 import { apiPaths, type DropdownQuery, validation } from '@editor/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
+import type { Deps } from '../deps.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { SaveDraftRequest } from '../openapi/schemas.js';
-import * as templates from '../repositories/templateRepo.js';
-import { getPairSyncStatus } from '../sync/pairSyncService.js';
 
 function toQuery(q: Record<string, unknown>): DropdownQuery {
   const pick = (k: string) => (typeof q[k] === 'string' && q[k] ? (q[k] as string) : undefined);
@@ -29,7 +28,11 @@ const actor = (req: { user?: { username?: string } }): string => req.user?.usern
 type IdParams = { Params: { id: string } };
 type QueryRec = { Querystring: Record<string, unknown> };
 
-export async function templatesRoutes(app: FastifyInstance): Promise<void> {
+export const templatesRoutes: FastifyPluginAsync<{
+  deps: Pick<Deps, 'templates' | 'pairSync'>;
+}> = async (app, opts) => {
+  const { templates, pairSync } = opts.deps;
+
   app.get<QueryRec>(apiPaths.templatesOptions, { preHandler: requireAuth }, async (request) => {
     return templates.getDropdownOptions(toQuery(request.query));
   });
@@ -78,7 +81,7 @@ export async function templatesRoutes(app: FastifyInstance): Promise<void> {
 
   // 交付版⇄全体版 ペア同期の現況(編集画面を開いた時の競合バナー用)。
   app.get<IdParams>(apiPaths.templateSyncStatus, { preHandler: requireAuth }, async (request) => {
-    return getPairSyncStatus(request.params.id);
+    return pairSync.getPairSyncStatus(request.params.id);
   });
 
   app.get<IdParams>(apiPaths.templateById, { preHandler: requireAuth }, async (request) => {
@@ -92,4 +95,4 @@ export async function templatesRoutes(app: FastifyInstance): Promise<void> {
       return templates.getSampleData(request.params.fundCode);
     },
   );
-}
+};

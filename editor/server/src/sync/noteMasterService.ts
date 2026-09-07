@@ -13,91 +13,106 @@
 // ※ パーツ単位の作業メモ(notes = `notesFile.ts`)とは別物。
 
 import { type NoteMasterReflectSummary, parseTemplateFileName } from '@editor/shared';
-import { asString, asStringOrNull, callSproc, p } from '../db/sproc.js';
+import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 import { readTemplateHtml } from '../files/templateFiles.js';
 import { logger } from '../logger.js';
-import { listParts } from '../repositories/partRepo.js';
+import type { PartRepo } from '../repositories/partRepo.js';
 import { applyOps, extractSyncParts } from './partSync.js';
 
-/**
- * 承認確定した `templateId` から `次回反映既定`=`反映` のパーツを抽出し、そのファンド・
- * 版種の注記マスタへ upsert する。テンプレ ID が解決できなければ null(UI は表示なし)。
- * 失敗は throw せず `error` 付き summary で返す(承認自体は成立済み)。
- * 書き戻しの契機は「承認」のみ: ペア同期で機械転写された側の版種は、その版種自身が
- * 承認されたときに書き戻す(承認を経ない内容をマスタへ昇格させない)。
- */
-export async function reflectNoteMasterAfterConfirm(
-  templateId: string,
-  actor: string,
-): Promise<NoteMasterReflectSummary | null> {
-  const attrs = parseTemplateFileName(`${templateId}.html`);
-  if (!attrs) return null;
-
-  try {
-    const [html, catalog] = await Promise.all([
-      readTemplateHtml(`${templateId}.html`),
-      listParts({}),
-    ]);
-    const reflectIds = new Set(
-      catalog.filter((c) => c.masterReflectDefault === '反映').map((c) => c.id),
-    );
-    const updated: string[] = [];
-    // 同一 partId が複数出現する場合は文書内の先頭出現(`#1`)を正とする(マスタは
-    // 1 パーツ = 1 行のため。注記パーツは実務上 1 回しか現れない想定の安全側規約)。
-    for (const part of extractSyncParts(html)) {
-      if (!reflectIds.has(part.partId) || !part.key.endsWith('#1')) continue;
-      await callSproc(SP.noteMaster, '反映', [
-        p('パーツID', part.partId),
-        p('ファンドコード', attrs.fundCode),
-        p('版種', attrs.editionType),
-        p('注記HTML', part.html),
-        p('更新者', actor),
-      ]);
-      updated.push(part.partId);
-    }
-    return { updated, error: null };
-  } catch (e) {
-    logger.warn({ err: e }, '注記マスタへの書き戻しに失敗しました(承認自体は成立)');
-    return { updated: [], error: e instanceof Error ? e.message : String(e) };
-  }
+export interface NoteMasterService {
+  reflectNoteMasterAfterConfirm(
+    templateId: string,
+    actor: string,
+  ): Promise<NoteMasterReflectSummary | null>;
+  applyNoteMasterToHtml(html: string, fundCode: string, editionType: string): Promise<string>;
 }
 
 /**
- * 生成直後のテンプレ HTML へ、そのファンド・版種の注記マスタ行を適用する。マスタに行が
- * ある `data-part-id` パーツの全出現を span 置換し(同一パーツが複数あればすべて最新化)、
- * 非対象パーツはバイト不変。マスタが空・DB 不達・置換失敗のときは warn だけ残して元の
- * HTML を返す(新規作成をブロックしない)。
+ * この層はパーツカタログ(`parts.listParts`)に加えて注記マスタ sproc も直に呼ぶため、
+ * `sproc` と `parts` の両方を受け取る。
  */
-export async function applyNoteMasterToHtml(
-  html: string,
-  fundCode: string,
-  editionType: string,
-): Promise<string> {
-  try {
-    const rows = await callSproc(SP.noteMaster, '取得', [
-      p('ファンドコード', fundCode),
-      p('版種', editionType),
-    ]);
-    const masters = new Map<string, string>();
-    for (const r of rows) {
-      const noteHtml = asStringOrNull(r.注記HTML);
-      if (noteHtml !== null) masters.set(asString(r.パーツID), noteHtml);
-    }
-    if (masters.size === 0) return html;
+export function createNoteMasterService({
+  sproc,
+  parts,
+}: {
+  sproc: SprocClient;
+  parts: PartRepo;
+}): NoteMasterService {
+  return {
+    /**
+     * 承認確定した `templateId` から `次回反映既定`=`反映` のパーツを抽出し、そのファンド・
+     * 版種の注記マスタへ upsert する。テンプレ ID が解決できなければ null(UI は表示なし)。
+     * 失敗は throw せず `error` 付き summary で返す(承認自体は成立済み)。
+     * 書き戻しの契機は「承認」のみ: ペア同期で機械転写された側の版種は、その版種自身が
+     * 承認されたときに書き戻す(承認を経ない内容をマスタへ昇格させない)。
+     */
+    async reflectNoteMasterAfterConfirm(templateId, actor) {
+      const attrs = parseTemplateFileName(`${templateId}.html`);
+      if (!attrs) return null;
 
-    const ops = extractSyncParts(html)
-      .filter((part) => masters.has(part.partId))
-      .map((part, i) => ({
-        start: part.start,
-        end: part.end,
-        // filter 済みなので get は必ず成立するが、型上の undefined は現値で塞ぐ。
-        text: masters.get(part.partId) ?? part.html,
-        seq: i,
-      }));
-    return ops.length > 0 ? applyOps(html, ops) : html;
-  } catch (e) {
-    logger.warn({ err: e }, '注記マスタの生成時適用に失敗しました(未適用のまま生成を続行)');
-    return html;
-  }
+      try {
+        const [html, catalog] = await Promise.all([
+          readTemplateHtml(`${templateId}.html`),
+          parts.listParts({}),
+        ]);
+        const reflectIds = new Set(
+          catalog.filter((c) => c.masterReflectDefault === '反映').map((c) => c.id),
+        );
+        const updated: string[] = [];
+        // 同一 partId が複数出現する場合は文書内の先頭出現(`#1`)を正とする(マスタは
+        // 1 パーツ = 1 行のため。注記パーツは実務上 1 回しか現れない想定の安全側規約)。
+        for (const part of extractSyncParts(html)) {
+          if (!reflectIds.has(part.partId) || !part.key.endsWith('#1')) continue;
+          await sproc.callSproc(SP.noteMaster, '反映', [
+            p('パーツID', part.partId),
+            p('ファンドコード', attrs.fundCode),
+            p('版種', attrs.editionType),
+            p('注記HTML', part.html),
+            p('更新者', actor),
+          ]);
+          updated.push(part.partId);
+        }
+        return { updated, error: null };
+      } catch (e) {
+        logger.warn({ err: e }, '注記マスタへの書き戻しに失敗しました(承認自体は成立)');
+        return { updated: [], error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+
+    /**
+     * 生成直後のテンプレ HTML へ、そのファンド・版種の注記マスタ行を適用する。マスタに行が
+     * ある `data-part-id` パーツの全出現を span 置換し(同一パーツが複数あればすべて最新化)、
+     * 非対象パーツはバイト不変。マスタが空・DB 不達・置換失敗のときは warn だけ残して元の
+     * HTML を返す(新規作成をブロックしない)。
+     */
+    async applyNoteMasterToHtml(html, fundCode, editionType) {
+      try {
+        const rows = await sproc.callSproc(SP.noteMaster, '取得', [
+          p('ファンドコード', fundCode),
+          p('版種', editionType),
+        ]);
+        const masters = new Map<string, string>();
+        for (const r of rows) {
+          const noteHtml = asStringOrNull(r.注記HTML);
+          if (noteHtml !== null) masters.set(asString(r.パーツID), noteHtml);
+        }
+        if (masters.size === 0) return html;
+
+        const ops = extractSyncParts(html)
+          .filter((part) => masters.has(part.partId))
+          .map((part, i) => ({
+            start: part.start,
+            end: part.end,
+            // filter 済みなので get は必ず成立するが、型上の undefined は現値で塞ぐ。
+            text: masters.get(part.partId) ?? part.html,
+            seq: i,
+          }));
+        return ops.length > 0 ? applyOps(html, ops) : html;
+      } catch (e) {
+        logger.warn({ err: e }, '注記マスタの生成時適用に失敗しました(未適用のまま生成を続行)');
+        return html;
+      }
+    },
+  };
 }

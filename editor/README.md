@@ -87,6 +87,26 @@ e2e（Playwright）は project が 2 つある。`chromium` は挙動を検証�
 `py -3.13 docs/_build/build_all.py --project editor` で HTML を作り直す。撮影だけ手で走らせるときは
 `cd editor && pnpm exec playwright test --project docs`。
 
+### REST e2e（opt-in 統合テスト）
+
+REST 経路（`api/rest/*` リポジトリ実装 + Fastify サーバ）を実 HTTP セッションで検証する e2e テストは、
+`E2E_REST=1` 環境変数で opt-in される。SQL Server とは接続せず、sproc は in-memory フェイク
+（`editor/server/test/fakes/sprocFake.ts`）で置き換える。
+
+```bash
+E2E_REST=1 pnpm run e2e:rest   # PowerShell: $env:E2E_REST='1'; pnpm run e2e:rest
+```
+
+このモードでは、`editor/server/scripts/e2e-rest-server.ts` がサーバを server :24690 / Vite :24691 で
+起動する。テンプレ領域（dataRoot）はリポジトリ内の gitignore 済み固定パス
+`<repo>/.tmp/e2e-rest-dataroot`（git 管理外）を毎起動時にクリアして使い、失敗時はこの下を見れば
+そのまま原因調査できる。認証は `AUTH_REQUIRED=true`、監査ログは `AUDIT_DB=true` で有効にする。
+対象スペックは `editor/e2e/*.rest.spec.ts`（`approval.rest.spec.ts` / `users.rest.spec.ts` など）で、
+ログイン試行が `loginRateLimit` に集中しないよう worker 数は 1・サーバの使い回しはしない。
+
+実 SQL Server（LocalDB）を相手にした検証は別枠の手動確認であり、`ci` や GitHub Actions では
+opt-in の rest project は実行されず、ローカルモード（`chromium` project）のみが走る。
+
 ## LAN 公開（社内ネットワークの他端末から使う）
 
 既定ではサーバは `127.0.0.1` にのみバインドされ、起動した PC 以外からはアクセスできない。

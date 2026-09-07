@@ -15,6 +15,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { Deps } from '../src/deps.js';
+import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-local-mode-'));
 process.env.DATA_ROOT = tmp;
@@ -23,11 +25,13 @@ delete process.env.AUTH_REQUIRED;
 
 const initPassword = vi.fn(async (..._args: unknown[]) => {});
 
-vi.mock('../src/repositories/authRepo.js', () => ({
+// 資格情報の検証自体は repo の責務なので、ルートへ渡す `deps.auth` を spy に差し替える
+// (モジュールモックではなく注入で切る)。
+const authRepo = {
   login: vi.fn(),
   logout: vi.fn(async () => {}),
   initPassword: (...args: unknown[]) => initPassword(...(args as [])),
-}));
+};
 
 // ユーザー管理ルートが local モードで台帳へ到達しないことを固定するため、repo は spy にする。
 const listUsers = vi.fn(async () => []);
@@ -37,20 +41,14 @@ const createUser = vi.fn(async () => ({
 }));
 const updateUser = vi.fn(async () => ({ id: 'u', username: 'x' }));
 const resetUserPassword = vi.fn(async () => ({ temporaryPassword: 't' }));
-vi.mock('../src/repositories/userRepo.js', () => ({
+const userRepo = {
   listUsers: (...a: unknown[]) => listUsers(...(a as [])),
   createUser: (...a: unknown[]) => createUser(...(a as [])),
   updateUser: (...a: unknown[]) => updateUser(...(a as [])),
   resetUserPassword: (...a: unknown[]) => resetUserPassword(...(a as [])),
-}));
+};
 
-vi.mock('../src/auth/session.js', () => ({
-  cookieOptions: {},
-  createSession: vi.fn(async () => 'sid'),
-  destroySession: vi.fn(async () => {}),
-  sessionIdFrom: () => undefined,
-  getSessionUser: async () => null,
-}));
+const deps = { auth: authRepo, users: userRepo } as unknown as Pick<Deps, 'auth' | 'users'>;
 
 const reply = {} as FastifyReply;
 const anonymous = {} as unknown as FastifyRequest;
@@ -69,9 +67,10 @@ describe('ローカルモード(認証を課さない構成)', () => {
     const { usersRoutes } = await import('../src/routes/users.routes.js');
     app = Fastify();
     app.decorateRequest('user', undefined);
+    decorateSessionStore(app, createSessionStub());
     app.setErrorHandler(errorHandler);
-    await app.register(authRoutes);
-    await app.register(usersRoutes);
+    await app.register(authRoutes, { deps });
+    await app.register(usersRoutes, { deps });
     await app.ready();
   });
 

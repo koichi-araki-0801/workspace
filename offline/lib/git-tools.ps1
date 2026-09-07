@@ -1,9 +1,8 @@
 ﻿# 共通ライブラリ: 同梱 git ツール（PortableGit / TortoiseGit）の検証付き展開・導入。
-# setup-offline.ps1 / setup-offline-local.ps1 から dot-source して使う。
+# setup-offline.ps1 から dot-source して使う。
 # 日本語コメントを含むため UTF-8 BOM 必須（cp932 環境で文字化けさせない）。
 #
-# 同じ処理を両 setup へ写経すると「片方だけ直る」事故が起きる。
-# 実行判断を伴う処理はこの 1 か所に集約し、両者が同じコードを通るようにする。
+# 実行判断を伴う処理はこの 1 か所に集約し、setup 側は呼び出すだけにする。
 
 . (Join-Path $PSScriptRoot 'verify.ps1')
 

@@ -14,6 +14,7 @@ import path from 'node:path';
 import type { UserRole } from '@editor/shared';
 import type { FastifyInstance, RouteOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-route-guards-'));
 process.env.DATA_ROOT = tmp;
@@ -22,37 +23,9 @@ process.env.AUTH_FAILURE_FLOOR_MS = '0';
 
 // セッションは cookie `editor.sid=<role>` を「そのロールのユーザ」とみなす最小の偽装。
 // 実 DB へは降りないので、ここで観測できるのは preHandler の判定だけになる。
-vi.mock('../src/auth/session.js', () => ({
-  cookieOptions: {},
-  createSession: vi.fn(async () => 'sid'),
-  destroySession: vi.fn(async () => {}),
-  invalidateAllSessions: vi.fn(async () => {}),
-  purgeExpiredSessions: vi.fn(async () => {}),
+vi.mock('../src/auth/session.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/auth/session.js')>()),
   sessionIdFrom: (cookie?: string) => cookie?.match(/editor\.sid=([^;]+)/)?.[1],
-  getSessionUser: async (sid: string) =>
-    sid
-      ? {
-          id: sid,
-          username: sid,
-          displayName: sid,
-          role: sid,
-          disabled: false,
-          mustChangePassword: false,
-        }
-      : null,
-}));
-
-// ルートの本体には降りない(降りると DB/python/vivliostyle を叩く)。ガードを通過したか
-// だけを見たいので、リポジトリ層は全部モックして「到達したら 500 でなく素直に返る」形にする。
-vi.mock('../src/db/sproc.js', () => ({
-  callSproc: vi.fn(async () => []),
-  firstRow: () => undefined,
-  rows: () => [],
-  p: (name: string, value: unknown) => ({ name, value }),
-  asBool: () => false,
-  asBuffer: () => Buffer.alloc(0),
-  asNumberOrNull: () => null,
-  asString: () => '',
 }));
 
 const REGISTERED: RouteOptions[] = [];
@@ -69,8 +42,28 @@ beforeAll(async () => {
 
   const { errorHandler } = await import('../src/middleware/errorHandler.js');
   const { apiPaths } = await import('@editor/shared');
+  const store = createSessionStub({
+    getSessionUser: (sid) => ({
+      id: sid,
+      username: sid,
+      displayName: sid,
+      role: sid as UserRole,
+      disabled: false,
+      mustChangePassword: false,
+    }),
+  });
+  // ルートの本体には降りない(降りると DB/python/vivliostyle を叩く)。ガードを通過したか
+  // だけを見たいので、DB の実行面は「常に 0 行」を返すフェイクにして「到達したら 500 でなく
+  // 素直に返る」形にする。
+  const { createSprocClient } = await import('../src/db/sproc.js');
+  const { createDeps } = await import('../src/deps.js');
+  const deps = createDeps(
+    createSprocClient(async () => []),
+    store,
+  );
   app = Fastify();
   app.decorateRequest('user', undefined);
+  decorateSessionStore(app, store);
   app.setErrorHandler(errorHandler);
   // 本番(`app.ts`)と同じく register より前に張る。ここで throw すれば起動が落ちる。
   app.addHook('onRoute', (routeOptions) => {
@@ -101,7 +94,7 @@ beforeAll(async () => {
       Object.values(loaded).find((v) => typeof v === 'function')) as Parameters<
       typeof app.register
     >[0];
-    app.register(plugin, { prefix: '/api' });
+    app.register(plugin, { prefix: '/api', deps });
   }
   await app.ready();
 });

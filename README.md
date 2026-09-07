@@ -13,7 +13,7 @@ Node 非依存の python-tools リポジトリへ分離済み）。
    → `docs/<project>/src/設計正典.md`（構成・不変則・却下済み設計）。
    editor を触るなら `editor/CONTRIBUTING.md` がハブ。
 2. **最初に覚える 3 コマンド**:
-   - セットアップ: `offline\setup-offline-local.bat`（完全オフライン環境）または `pnpm install`
+   - セットアップ: `offline\setup-offline.bat`（git clone 後。重量物は Release から自動取得）または `pnpm install`
    - 検証: `pnpm run ci:<領域>`（editor / pie-chart。PR 前はフル `pnpm run ci`）
    - 起動: 各プロジェクト直下の入口 .bat（下記「入口スクリプト一覧」）
 3. **リポジトリ直下の見分け方**: `offline-deps-bundle.tar.gz`・`pnpm.tgz`・`python-wheelhouse/`・
@@ -39,8 +39,7 @@ Node 非依存の python-tools リポジトリへ分離済み）。
 | スクリプト | 役割 | 使い方 |
 |---|---|---|
 | `editor/start.bat` | editor アプリ起動（dev / prod / rest モード） | `editor\start.bat` または引数でモード指定 |
-| `offline/setup-offline.bat` | オンライン機でソース+重量物を取得し構築 | `offline\setup-offline.bat` |
-| `offline/setup-offline-local.bat` | 完全オフライン環境で構築（取得済み前提） | `offline\setup-offline-local.bat` |
+| `offline/setup-offline.bat` | git clone 済みリポジトリへ重量物を展開して構築（無ければ Release から取得） | `offline\setup-offline.bat` |
 
 裏方（各 `<project>/scripts/` ほか。ビルド・初期化・運用）:
 
@@ -52,8 +51,9 @@ Node 非依存の python-tools リポジトリへ分離済み）。
 | `editor/scripts/setup-lan-https.bat` | LAN 公開用の自己署名 TLS 証明書（PFX/cer）を生成 |
 | `editor/scripts/setup-lan-firewall.bat` | LAN 公開ポート（TCP 24680）の受信許可ルールを登録（要管理者） |
 | `editor/server/db/apply.bat` | SQL Server へ DDL/sproc/seed を適用 |
-| `offline/publish-offline-bundle.bat` | オフラインバンドルを GitHub Releases へ公開（post-commit で自動実行。`git config offline.publish true` を設定した公開担当者の clone のみ） |
 | `docs/_build/build_all.bat` | `docs/<project>/src/` の原稿から閲覧用 HTML（手引き/設計の 2 冊）を一括生成 |
+
+重量物バンドルの生成と Release への upload は配布担当の端末にある git 管理外の `local-only/offline-publish/` で手動実行する（`offline/README-offline.txt`）。
 
 `docs/<project>/src/` に置いた Markdown 原稿は、**既定で**手引き/設計いずれかの冊子に掲載されます
 （除外はファイル名に「設計正典」を含むものだけ）。社内限定で冊子に載せたくない下書き・メモは
@@ -90,10 +90,8 @@ CI は領域（`editor` = shared+server+web / `pie-chart`）単位で分割で�
 `pnpm run ci:<領域>` で手動部分実行、`pnpm run ci:affected` は `git diff`（既定で現ブランチ upstream 基準。
 `--base <ref>` / `--all` / `--dry-run`(計画のみ表示) / 環境変数 `CI_AFFECTED_BASE` で上書き可）から
 変更領域を判定して該当領域だけ走らせる。
-`.husky/pre-push` はこの affected 方式で push を高速化する（振り分けは `scripts/pre-push.mjs`）。領域に
+`.husky/pre-push` はこの affected 方式で push を高速化する（`scripts/ci-affected.mjs` を直接呼ぶ）。領域に
 紐付かない共有変更（`package.json` / lockfile / 各種 config）を検出した場合はフル `ci` にフォールバックする。
-**タグのみの push（ローリングタグ `offline-bundle-v1` の移動など）は CI をスキップする**（タグは CI 済み
-コミットへのポインタであり、リリース更新でフル CI を発火させてタグ push を巻き込み失敗させないため）。
 
 > **注意:** 領域別 / affected run は速度優先で **coverage 85% 閾値ゲートを通さない**
 > （vitest の coverage はラン全体で 1 つしか持てず、領域だけ走らせると他領域が 0% 扱いで落ちるため）。

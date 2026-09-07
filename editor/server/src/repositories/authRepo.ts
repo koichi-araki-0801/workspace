@@ -27,81 +27,103 @@ import {
   validation,
 } from '@editor/shared';
 import { hashPassword, verifyPassword } from '../auth/password.js';
-import { createSession, destroySession } from '../auth/session.js';
-import { asBool, asBuffer, asNumberOrNull, callSproc, firstRow, p } from '../db/sproc.js';
+import type { SessionStore } from '../auth/session.js';
+import { asBool, asBuffer, asNumberOrNull, firstRow, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 import { audit } from '../logger.js';
 import { rowToUser } from './userRepo.js';
 
-/**
- * 資格情報を検証しセッションを開く。結果と新しい session id を返す。
- *
- * `loginId` は `canonicalLoginId` の戻り値を受け取る(`LoginRequest` を丸ごと受けると
- * 「正規化前の値を DB へ渡す」経路が型の上で作れてしまう)。
- */
-export async function login(
-  loginId: string,
-  password: string,
-): Promise<{ result: LoginResult; sessionId: string }> {
-  const row = firstRow(await callSproc(SP.user, '認証情報取得', [p('ログインID', loginId)]));
-  const disabled = row ? asBool(row.無効) : false;
-  const ok = row
-    ? await verifyPassword(
-        password,
-        asBuffer(row.PWハッシュ),
-        asBuffer(row.PWソルト),
-        asNumberOrNull(row.PW反復回数),
-      )
-    : false;
-  if (!row || !ok || disabled) {
-    // 無効アカウントへの試行は応答からは判別できないが、運用が追えるよう証跡は残す。
-    if (row && ok && disabled)
-      audit({ event: 'auth.login', outcome: 'failure', actor: loginId, error: 'account_disabled' });
-    throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
-  }
-
-  const user = rowToUser(row);
-  const sessionId = await createSession(user.username);
-  return { result: { user, mustChangePassword: user.mustChangePassword }, sessionId };
+export interface AuthRepo {
+  login(loginId: string, password: string): Promise<{ result: LoginResult; sessionId: string }>;
+  logout(sessionId: string | undefined): Promise<void>;
+  initPassword(
+    loginId: string,
+    req: Pick<PasswordInitRequest, 'currentPassword' | 'newPassword'>,
+    exceptSessionId?: string,
+  ): Promise<void>;
 }
 
-export async function logout(sessionId: string | undefined): Promise<void> {
-  if (sessionId) await destroySession(sessionId);
-}
+export function createAuthRepo({
+  sproc,
+  sessionStore,
+}: {
+  sproc: SprocClient;
+  sessionStore: SessionStore;
+}): AuthRepo {
+  return {
+    /**
+     * 資格情報を検証しセッションを開く。結果と新しい session id を返す。
+     *
+     * `loginId` は `canonicalLoginId` の戻り値を受け取る(`LoginRequest` を丸ごと受けると
+     * 「正規化前の値を DB へ渡す」経路が型の上で作れてしまう)。
+     */
+    async login(loginId, password) {
+      const row = firstRow(
+        await sproc.callSproc(SP.user, '認証情報取得', [p('ログインID', loginId)]),
+      );
+      const disabled = row ? asBool(row.無効) : false;
+      const ok = row
+        ? await verifyPassword(
+            password,
+            asBuffer(row.PWハッシュ),
+            asBuffer(row.PWソルト),
+            asNumberOrNull(row.PW反復回数),
+          )
+        : false;
+      if (!row || !ok || disabled) {
+        // 無効アカウントへの試行は応答からは判別できないが、運用が追えるよう証跡は残す。
+        if (row && ok && disabled)
+          audit({
+            event: 'auth.login',
+            outcome: 'failure',
+            actor: loginId,
+            error: 'account_disabled',
+          });
+        throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
+      }
 
-/**
- * 自分自身のパスワードを変更する。宛先 `loginId` はルート側が**セッション所有者から**
- * 導出して渡す(body からは取らない)。ここでは現行パスワードによる所有証明を検証する。
- *
- * `PW初期化` は同一トランザクション内でそのユーザーの他セッションを失効させる
- * (`db/sproc/user.sql`)。Node 側で 2 回 sproc を呼ぶ形にすると、間で落ちたときに
- * 「パスワードは変わったが旧セッションは生きている」という最悪の中間状態が残る。
- */
-export async function initPassword(
-  loginId: string,
-  req: Pick<PasswordInitRequest, 'currentPassword' | 'newPassword'>,
-  exceptSessionId?: string,
-): Promise<void> {
-  const row = firstRow(await callSproc(SP.user, '認証情報取得', [p('ログインID', loginId)]));
-  const disabled = row ? asBool(row.無効) : false;
-  const owns = row
-    ? await verifyPassword(
-        req.currentPassword,
-        asBuffer(row.PWハッシュ),
-        asBuffer(row.PWソルト),
-        asNumberOrNull(row.PW反復回数),
-      )
-    : false;
-  if (!row || !owns || disabled) throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
-  // 閾値は UI と同じ `PASSWORD_MIN_LENGTH`。空白のみ(実質空)も弾くため trim 後で測る。
-  if (req.newPassword.trim().length < PASSWORD_MIN_LENGTH)
-    throw validation('新しいパスワードが短すぎます');
-  const { hash, salt, iterations } = await hashPassword(req.newPassword);
-  await callSproc(SP.user, 'PW初期化', [
-    p('ログインID', loginId),
-    p('PWハッシュ', hash),
-    p('PWソルト', salt),
-    p('PW反復回数', iterations),
-    p('除外セッションID', exceptSessionId ?? null),
-  ]);
+      const user = rowToUser(row);
+      const sessionId = await sessionStore.createSession(user.username);
+      return { result: { user, mustChangePassword: user.mustChangePassword }, sessionId };
+    },
+
+    async logout(sessionId) {
+      if (sessionId) await sessionStore.destroySession(sessionId);
+    },
+
+    /**
+     * 自分自身のパスワードを変更する。宛先 `loginId` はルート側が**セッション所有者から**
+     * 導出して渡す(body からは取らない)。ここでは現行パスワードによる所有証明を検証する。
+     *
+     * `PW初期化` は同一トランザクション内でそのユーザーの他セッションを失効させる
+     * (`db/sproc/user.sql`)。Node 側で 2 回 sproc を呼ぶ形にすると、間で落ちたときに
+     * 「パスワードは変わったが旧セッションは生きている」という最悪の中間状態が残る。
+     */
+    async initPassword(loginId, req, exceptSessionId) {
+      const row = firstRow(
+        await sproc.callSproc(SP.user, '認証情報取得', [p('ログインID', loginId)]),
+      );
+      const disabled = row ? asBool(row.無効) : false;
+      const owns = row
+        ? await verifyPassword(
+            req.currentPassword,
+            asBuffer(row.PWハッシュ),
+            asBuffer(row.PWソルト),
+            asNumberOrNull(row.PW反復回数),
+          )
+        : false;
+      if (!row || !owns || disabled) throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
+      // 閾値は UI と同じ `PASSWORD_MIN_LENGTH`。空白のみ(実質空)も弾くため trim 後で測る。
+      if (req.newPassword.trim().length < PASSWORD_MIN_LENGTH)
+        throw validation('新しいパスワードが短すぎます');
+      const { hash, salt, iterations } = await hashPassword(req.newPassword);
+      await sproc.callSproc(SP.user, 'PW初期化', [
+        p('ログインID', loginId),
+        p('PWハッシュ', hash),
+        p('PWソルト', salt),
+        p('PW反復回数', iterations),
+        p('除外セッションID', exceptSessionId ?? null),
+      ]);
+    },
+  };
 }

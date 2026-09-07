@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // dist へは出さない。ここは「テスト資産と補助スクリプトの型を検査する」ためだけの
+    // プロジェクトで、`server/tsconfig.json` の include を広げると emit 対象が増える。
+    "noEmit": true,
+    // 宣言生成は `server/tsconfig.json` と揃えて切る。有効のままだと、補助スクリプトが
+    // 参照する型を `.d.ts` として書ける形かどうかまで問われ、依存の内部モジュール名を
+    // 名指しできない型(zod-openapi)が TS2883 で落ちる。ここは型検査だけが目的。
+    "declaration": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "types": ["node"]
+  },
+  "references": [{ "path": "../shared" }],
+  "include": ["test/fakes/**/*.ts", "scripts/**/*.ts"]
+}

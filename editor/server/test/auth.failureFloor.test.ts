@@ -12,6 +12,8 @@ import path from 'node:path';
 import { unauthorized, validation } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Deps } from '../src/deps.js';
+import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-floor-'));
 process.env.DATA_ROOT = tmp;
@@ -23,19 +25,15 @@ const login = vi.fn(async (..._args: unknown[]): Promise<unknown> => {
   throw unauthorized('ユーザーIDまたはパスワードが違います');
 });
 
-vi.mock('../src/repositories/authRepo.js', () => ({
-  login: (...args: unknown[]) => login(...(args as [])),
-  logout: vi.fn(async () => {}),
-  initPassword: vi.fn(async () => {}),
-}));
-
-vi.mock('../src/auth/session.js', () => ({
-  cookieOptions: {},
-  createSession: vi.fn(async () => 'sid'),
-  destroySession: vi.fn(async () => {}),
-  sessionIdFrom: () => undefined,
-  getSessionUser: async () => null,
-}));
+// 資格情報の検証自体は repo の責務なので、ルートへ渡す `deps.auth` を spy に差し替える
+// (モジュールモックではなく注入で切る)。
+const deps = {
+  auth: {
+    login: (...args: unknown[]) => login(...(args as [])),
+    logout: vi.fn(async () => {}),
+    initPassword: vi.fn(async () => {}),
+  },
+} as unknown as Pick<Deps, 'auth'>;
 
 describe('失敗応答の時間フロア', () => {
   let app: FastifyInstance;
@@ -50,9 +48,12 @@ describe('失敗応答の時間フロア', () => {
     resetLoginRateLimit = rate.resetLoginRateLimit;
     maxFailures = rate.LOGIN_MAX_FAILURES;
     app = Fastify();
+    // `authRoutes` の init-password 経路は `requireAuth` → `loadUser` を通り、
+    // `request.server.sessionStore` を読む。本番と同じ形にするため載せておく。
+    decorateSessionStore(app, createSessionStub());
     app.setErrorHandler(errorHandler);
     await app.register((await import('@fastify/cookie')).default);
-    await app.register(authRoutes);
+    await app.register(authRoutes, { deps });
     await app.ready();
   });
 

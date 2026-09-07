@@ -38,7 +38,11 @@ export default defineConfig({
     port: 24681,
     proxy: {
       '/api': {
-        target: 'http://localhost:24680',
+        // rest e2e(playwright project `rest`)は 24690 の別サーバを使うため、proxy 先を
+        // `API_PROXY_TARGET` で上書き可能にする。`VITE_` 接頭辞を付けないのは、付けると
+        // Vite がクライアントバンドルへ露出させる値になり、この内部アドレスをブラウザ側
+        // JS に埋め込むことになるため(`import.meta.env` へは載せない)。
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:24680',
         changeOrigin: true,
       },
     },
