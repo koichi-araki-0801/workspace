@@ -63,9 +63,14 @@ pnpm knip        # 未使用 export / 依存の検出（knip.json）
 pnpm ci          # CI 集約（下記の全段）
 ```
 
+型チェックは workspace の tsconfig が拾う範囲だけでは足りない。e2e（`editor/e2e/**`）と
+`playwright.config.ts` は `editor/tsconfig.e2e.json`（`noEmit`・`moduleResolution: Bundler`）で
+検査する（`pnpm typecheck` / `typecheck:editor` に組み込み済み）。
+
 `pnpm ci` の内訳は `check:comments → check:claude-hooks → check:ci → test:scripts →
-typecheck → test:coverage → build → test:e2e`（pdf-to-svg / graph-editor の pytest 段は
-2026-08 の python-tools リポジトリへの分離に伴い除去済み）。
+typecheck → test:coverage → test:docs → pie-chart:batch → pie-chart:batch:diff → build →
+test:e2e`（pdf-to-svg / graph-editor の pytest 段は 2026-08 の python-tools リポジトリへの
+分離に伴い除去済み）。
 
 カバレッジ include は「テスト済みのファイルだけを列挙する」方針で、正典は
 ルート `vitest.config.ts`。**セキュリティ上の関門（許可リスト・認可テーブル・

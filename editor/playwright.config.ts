@@ -7,6 +7,18 @@ import { defineConfig, devices } from '@playwright/test';
 // 「外側の env をそのまま読む」方式に揃える。
 const REST = process.env.E2E_REST === '1';
 
+// `rest` project は `E2E_REST=1` のときだけ定義される。未設定のまま `--project rest` を指定すると
+// Playwright は "Project(s) \"rest\" not found" としか言わず、環境変数の存在に気づけない。
+// 設定の読み込み時点で理由を言って止める。
+const wantsRest = process.argv.some(
+  (a, i, argv) => a === '--project=rest' || (a === '--project' && argv[i + 1] === 'rest'),
+);
+if (wantsRest && !REST) {
+  throw new Error(
+    'project "rest" は E2E_REST=1 のときだけ定義されます。呼び出し元のシェルで E2E_REST=1 を設定してから `pnpm run e2e:rest` を実行してください。',
+  );
+}
+
 /**
  * E2E config. The default projects (chromium/docs) run against the web SPA (localApi +
  * localStorage) on the local servers (24680/24681): the domain data still comes from

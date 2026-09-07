@@ -7,6 +7,8 @@ import { armUnauthorizedNotice, setUnauthorizedHandler } from '@/lib/sessionExpi
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // ハンドラはモジュール全域の state。途中で assert が落ちても後続テストへ漏らさない。
+  setUnauthorizedHandler(null);
 });
 
 describe('apiFetch のエラー写像', () => {
@@ -86,7 +88,6 @@ describe('apiFetch の要求組み立てと網羅', () => {
     armUnauthorizedNotice();
     await expect(apiFetch('/x')).rejects.toMatchObject({ kind: 'unauthorized' });
     expect(handler).toHaveBeenCalledTimes(2);
-    setUnauthorizedHandler(null);
   });
   it('写像表に無いステータス(500)は unexpected、code が文字列でなければ落とす', async () => {
     vi.stubGlobal(

@@ -168,10 +168,26 @@ d('gitRepo', () => {
     fs.writeFileSync(path.join(tmp, rel), '<p>lock retry</p>', 'utf8');
     const lockFile = path.join(tmp, '.git', 'index.lock');
     fs.writeFileSync(lockFile, '');
-    // 最初のリトライ待ち(200ms)より後・2 回目(+400ms)より十分前に外す。
-    setTimeout(() => fs.rmSync(lockFile, { force: true }), 300);
-    const hash = await git.commitAll('確定保存: lock retry', { name: 'tester' });
+    const commit = git.commitAll('確定保存: lock retry', { name: 'tester' });
+    let settled = false;
+    void commit.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    // 実時間の窓に賭けて「外せた」だけを見ると、lock を無視して即 commit しても通って
+    // しまう。lock を握ったまま「まだ決着していない」= リトライ待ちに入っている事実を
+    // 観測してから外す(最初のリトライ待ちは 200ms なので、それを跨ぐ長さだけ握る)。
+    await new Promise((r) => setTimeout(r, 250));
+    expect(settled).toBe(false);
+    fs.rmSync(lockFile, { force: true });
+    const hash = await commit;
     expect(hash).toMatch(/^[0-9a-f]{40}$/);
+    // リトライで通った commit が空振りでないこと(対象ファイルを実際に取り込んだこと)。
+    expect(await git.commitFiles(hash)).toContain(rel);
   }, 10_000);
 
   it('withGitLock は直列化し、失敗しても次の予約を詰まらせない(直列化チェーンの失敗側)', async () => {

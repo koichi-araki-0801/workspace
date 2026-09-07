@@ -12,9 +12,11 @@ test.use({ viewport: { width: 1440, height: 900 } });
 test('結合PDF: 追加した順に文書が並んで /api/build/merge へ送られる', async ({ page }) => {
   await login(page);
 
-  let requestBody: { documents: { html: string; css: string }[] } | null = null;
+  // 代入は `page.route` のコールバック内でしか起きないため、単一変数で受けると TS は
+  // 初期値 `null` のままと見なして以降の参照を絞り込む。配列へ push して受ける。
+  const mergeRequests: { documents: { html: string; css: string }[] }[] = [];
   await page.route('**/api/build/merge', async (route) => {
-    requestBody = route.request().postDataJSON();
+    mergeRequests.push(route.request().postDataJSON());
     await route.fulfill({
       status: 200,
       contentType: 'application/pdf',
@@ -39,7 +41,7 @@ test('結合PDF: 追加した順に文書が並んで /api/build/merge へ送ら
   await expect(page.getByText('結合する順序(2件)')).toBeVisible();
 
   await page.getByRole('button', { name: 'PDF 出力' }).click();
-  await expect.poll(() => requestBody?.documents.length ?? 0).toBe(2);
-  expect(requestBody?.documents[0].html).toContain('510155');
-  expect(requestBody?.documents[1].html).toContain('510037');
+  await expect.poll(() => mergeRequests[0]?.documents.length ?? 0).toBe(2);
+  expect(mergeRequests[0].documents[0].html).toContain('510155');
+  expect(mergeRequests[0].documents[1].html).toContain('510037');
 });

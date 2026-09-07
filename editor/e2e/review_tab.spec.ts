@@ -3,7 +3,7 @@
 // =============================================================================
 // 対象の決め方(?template= → 編集タブの直前画面 → 空状態)、要約箱 3 つの件数、同時展開の上限、
 // 決着後に同じ画面へ留まることを実機で固定する。
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { expect, type FrameLocator, type Locator, type Page, test } from '@playwright/test';
 import { login, openEditor, selectPart, submitOnce } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
@@ -64,7 +64,7 @@ async function addCanvasComment(page: Page, part: Locator, content: string): Pro
 }
 
 /** `item`(承認タブの区画)内の見た目比較 iframe 2 枚(修正前/修正後)。 */
-function comparePreviewFrames(item: Locator): { before: Locator; after: Locator } {
+function comparePreviewFrames(item: Locator): { before: FrameLocator; after: FrameLocator } {
   const frames = item.frameLocator('iframe[title="プレビュー"]');
   return { before: frames.first(), after: frames.nth(1) };
 }

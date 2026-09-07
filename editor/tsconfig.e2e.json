@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // e2e と Playwright 設定の型検査だけが目的。emit はしない。
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    // `./helpers` のような拡張子なしの相対 import は Playwright(esbuild)が解決する。
+    // 実行時の解決規則に合わせて Bundler にする(NodeNext だと `.js` 拡張子を要求される)。
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    // `@types/node` はこのリポジトリでは `editor/server` の依存としてだけ入っており、
+    // `editor/` から上へ辿る既定の探索(`node_modules/@types`)には現れない。ここは
+    // 型検査専用プロジェクトなので、依存を増やさず実体のある場所を直接指す。
+    "typeRoots": ["./server/node_modules/@types"]
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts"],
+  // `e2e/_tmp/` は実行時の一時ファイル置き場で、型検査の対象ではない。
+  "exclude": ["e2e/_tmp/**"]
+}

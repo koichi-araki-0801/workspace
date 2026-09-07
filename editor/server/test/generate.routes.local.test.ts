@@ -80,7 +80,8 @@ describe('POST /api/generate は local モード(AUTH_REQUIRED 未設定)では�
     expect(res.statusCode).toBe(200);
     expect(res.json().template.html).toContain('生成物');
     expect(ledgerCalls).toBe(0);
+    // 確定領域(`templatesDir`)へ書かないことは `generate.routes.test.ts` が認証オンで
+    // 主張する。ここは local の非到達(台帳・pending)だけを見る。
     expect(fs.readdirSync(pendingDir)).toEqual([]);
-    expect(fs.readdirSync(templatesDir)).toEqual([]);
   });
 });
