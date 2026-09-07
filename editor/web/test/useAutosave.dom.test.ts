@@ -218,4 +218,35 @@ describe('useAutosave', () => {
     await vi.advanceTimersByTimeAsync(800);
     expect(save).not.toHaveBeenCalled();
   });
+
+  it('タイマー待機中の flush は待たずに保存し、タイマーは 1 度しか発火しない', async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async () => ok(undefined));
+    const { api } = host(save, 800);
+    api.trigger();
+    await api.flush();
+    await vi.advanceTimersByTimeAsync(800);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('タイマー待機中の cancel と unmount は予約を捨てる', async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async () => ok(undefined));
+    const a = host(save, 800);
+    a.api.trigger();
+    a.api.cancel();
+    const b = host(save, 800);
+    b.api.trigger();
+    b.wrapper.unmount();
+    await vi.advanceTimersByTimeAsync(800);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('trigger() 前の cancel() / unmount は予約が無くても何もしない(no-op)', () => {
+    const save = vi.fn(async () => ok(undefined));
+    const a = host(save, 800);
+    expect(() => a.api.cancel()).not.toThrow();
+    const b = host(save, 800);
+    expect(() => b.wrapper.unmount()).not.toThrow();
+  });
 });

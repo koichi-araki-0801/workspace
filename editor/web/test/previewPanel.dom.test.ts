@@ -213,4 +213,113 @@ describe('PreviewPanel — postMessage クライアント', () => {
     );
     wrapper.unmount();
   });
+
+  // `PreviewPanel.vue` はローダー保険のタイマー定数を export していないため、コンポーネント側の
+  // `RENDER_LOADER_FAILSAFE_MS` と同値をここで固定する(export したら import へ差し替える)。
+  const RENDER_LOADER_FAILSAFE_MS = 30_000;
+
+  it('ERROR は簡易表示へ倒し、2 度目の ERROR も props 更新も簡易 iframe の srcdoc に写す', async () => {
+    const wrapper = mount(PreviewPanel, { props: { html: '<p>a</p>' }, attachTo: document.body });
+    const win = frameWindow(wrapper);
+    deliver({ type: 'editor:preview-ready' }, win);
+    deliver({ type: 'editor:preview-error', message: 7 }, win); // 非文字列 → 「不明なエラー」
+    deliver({ type: 'editor:preview-error', message: 'again' }, win); // 2 度目は早期 return
+    await flushPromises();
+    const fb = wrapper.get('iframe[title="プレビュー(簡易表示)"]').element as HTMLIFrameElement;
+    expect(fb.srcdoc).toBe('<p>a</p>');
+
+    await wrapper.setProps({ html: '<p>b</p>' });
+    await flushPromises();
+    expect(fb.srcdoc).toBe('<p>b</p>');
+
+    const post = vi.spyOn(win, 'postMessage');
+    (wrapper.vm as unknown as { gotoAnchor(id: string): void }).gotoAnchor('review-anchor-1');
+    expect(post).not.toHaveBeenCalled(); // 簡易表示中は子への命令を出さない
+    wrapper.unmount();
+  });
+
+  it('簡易表示中はページ送り等のコマンドも送らない', async () => {
+    const wrapper = mount(PreviewPanel, { props: { html: '<p>a</p>' }, attachTo: document.body });
+    const win = frameWindow(wrapper);
+    deliver({ type: 'editor:preview-error', message: 'boom' }, win);
+    await flushPromises();
+    const post = vi.spyOn(win, 'postMessage');
+    (wrapper.vm as unknown as { prevPage(): void }).prevPage();
+    expect(post).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('type の無いメッセージ・state の無い STATE は無視し、ready な STATE でローダーを消す', async () => {
+    const wrapper = mount(PreviewPanel, { props: { html: '<p>a</p>' }, attachTo: document.body });
+    const win = frameWindow(wrapper);
+    deliver({ type: 'editor:preview-ready' }, win);
+    await flushPromises();
+    expect(wrapper.text()).toContain('プレビューを生成中');
+
+    deliver({ foo: 1 }, win); // type 無し → 無視
+    deliver({ type: 'editor:preview-state' }, win); // state 無し → 無視
+    await flushPromises();
+    expect(wrapper.text()).toContain('プレビューを生成中'); // まだ変化しない
+
+    deliver(
+      {
+        type: 'editor:preview-state',
+        state: { currentPage: 1, pageCount: 1, atFirst: true, atLast: true, zoom: 1, ready: true },
+      },
+      win,
+    );
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('プレビューを生成中'); // ready で解除
+    wrapper.unmount();
+  });
+
+  it('COMPLETE が来ないままの失敗はローダーだけ解除する(簡易表示へは倒さない)', async () => {
+    const wrapper = mount(PreviewPanel, { props: { html: '<p>a</p>' }, attachTo: document.body });
+    deliver({ type: 'editor:preview-ready' }, frameWindow(wrapper));
+    await flushPromises();
+    expect(wrapper.text()).toContain('プレビューを生成中');
+
+    vi.advanceTimersByTime(RENDER_LOADER_FAILSAFE_MS);
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('プレビューを生成中'); // ローダーだけ解除
+
+    const fb = wrapper.get('iframe[title="プレビュー(簡易表示)"]').element as HTMLIFrameElement;
+    expect(fb.style.display).toBe('none'); // 簡易表示へは倒れていない(v-show 非表示のまま)
+    const last = (wrapper.emitted('state') ?? []).at(-1)?.[0] as { vivlioReady: boolean };
+    expect(last.vivlioReady).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('自己完結化に失敗しても原文を送る', async () => {
+    const { selfContainPreviewDoc } = await import('../src/lib/previewSelfContain');
+    (selfContainPreviewDoc as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('x'));
+    const wrapper = mount(PreviewPanel, {
+      props: { html: '<p>fail</p>' },
+      attachTo: document.body,
+    });
+    const win = frameWindow(wrapper);
+    const post = vi.spyOn(win, 'postMessage');
+    deliver({ type: 'editor:preview-ready' }, win);
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'editor:preview-doc', html: '<p>fail</p>' }),
+      '*',
+    );
+    wrapper.unmount();
+  });
+
+  it('READY 済みの load イベントは boot 期限を張り直さない', async () => {
+    const wrapper = mount(PreviewPanel, { props: { html: '<p>a</p>' }, attachTo: document.body });
+    const win = frameWindow(wrapper);
+    deliver({ type: 'editor:preview-ready' }, win);
+    await flushPromises();
+    await wrapper.get('iframe[title="プレビュー"]').trigger('load');
+
+    vi.advanceTimersByTime(15_000);
+    await flushPromises();
+    // 簡易表示へ倒れていれば fallback iframe の v-show が表示側(display 空)へ切り替わる。
+    const fb = wrapper.get('iframe[title="プレビュー(簡易表示)"]').element as HTMLIFrameElement;
+    expect(fb.style.display).toBe('none');
+    wrapper.unmount();
+  });
 });

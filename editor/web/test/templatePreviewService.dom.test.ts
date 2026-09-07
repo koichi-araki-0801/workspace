@@ -161,6 +161,25 @@ describe('TemplatePreviewService.loadForPreview', () => {
       expect(res.value.hasDraft).toBe(true);
     }
   });
+
+  it('getSampleData / getDraft の失敗は loadForPreview の結果として返る', async () => {
+    const templatesA = {
+      getTemplate: vi.fn(async () => ok(tpl)),
+      getSampleData: vi.fn(async () => err(notFound('sample down'))),
+    } as unknown as TemplateRepository;
+    const resA = await createTemplatePreviewService(templatesA, history).loadForPreview('t1');
+    expect(isErr(resA)).toBe(true);
+    if (isErr(resA)) expect(resA.error.kind).toBe('not_found');
+
+    const templatesB = {
+      getTemplate: vi.fn(async () => ok(tpl)),
+      getSampleData: vi.fn(async () => ok({})),
+      getDraft: vi.fn(async () => err(notFound('draft down'))),
+    } as unknown as TemplateRepository;
+    const resB = await createTemplatePreviewService(templatesB, history).loadForPreview('t1');
+    expect(isErr(resB)).toBe(true);
+    if (isErr(resB)) expect(resB.error.kind).toBe('not_found');
+  });
 });
 
 describe('TemplatePreviewService.recordPdfExport', () => {
@@ -225,5 +244,19 @@ describe('TemplatePreviewService.renderPdf', () => {
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.message).toBe(PDF_ERROR_MSG);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('PDF 送信の fetch が例外を投げても conflict(PDF_ERROR_MSG)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('offline');
+      }),
+    );
+    const svc = createTemplatePreviewService({} as TemplateRepository, history);
+    const res = await svc.renderPdf('<p>hi</p>', '.c{}', {}, false);
+    vi.unstubAllGlobals();
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) expect(res.error.message).toBe(PDF_ERROR_MSG);
   });
 });

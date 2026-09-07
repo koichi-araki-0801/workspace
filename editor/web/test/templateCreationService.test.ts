@@ -53,3 +53,14 @@ describe('TemplateCreationService.listSeriesFunds', () => {
     expect(listSeriesFunds).toHaveBeenCalledWith('AM01', '510037', 'kr');
   });
 });
+
+describe('TemplateCreationService.resolveFund', () => {
+  it('resolveFund は repo へそのまま委譲する', async () => {
+    const resolveFund = vi.fn(async () => ok({ isSeriesFund: true }));
+    const repo = { resolveFund } as unknown as TemplateRepository;
+    const svc = createTemplateCreationService(repo);
+    const res = await svc.resolveFund('A', 'F', 'E');
+    expect(isOk(res)).toBe(true);
+    expect(resolveFund).toHaveBeenCalledWith('A', 'F', 'E');
+  });
+});

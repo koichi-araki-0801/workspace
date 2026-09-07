@@ -164,4 +164,29 @@ describe('MergePdfService.renderMergedPdf', () => {
     vi.unstubAllGlobals();
     expect(isOk(res)).toBe(true);
   });
+
+  it('サンプルデータの取得失敗は何番目の文書かを含む conflict', async () => {
+    const templates = {
+      ...templatesOf(),
+      getSampleData: vi.fn(async () => err(notFound('x'))),
+    } as unknown as TemplateRepository;
+    const res = await createMergePdfService(templates, historyOf().repo).renderMergedPdf(['t1']);
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) expect(res.error.message).toMatch(/サンプルデータ.*1.*取得に失敗/);
+  });
+
+  it('PDF 生成が例外を投げても Result で返る', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('offline');
+      }),
+    );
+    const res = await createMergePdfService(templatesOf(), historyOf().repo).renderMergedPdf([
+      't1',
+    ]);
+    vi.unstubAllGlobals();
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) expect(res.error.kind).toBe('conflict');
+  });
 });

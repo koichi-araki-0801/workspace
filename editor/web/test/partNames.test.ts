@@ -1,8 +1,13 @@
 // =============================================================================
 // partNames.test.ts — 差分行キー → パーツ業務名の突合(精査画面のラベル)
 // =============================================================================
-import { describe, expect, it } from 'vitest';
-import { businessLabel, partIdFromBlockKey } from '@/features/reviews/services/partNames';
+import { err, notFound, ok, type PartRepository } from '@editor/shared';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  businessLabel,
+  loadPartNameMap,
+  partIdFromBlockKey,
+} from '@/features/reviews/services/partNames';
 
 describe('partIdFromBlockKey', () => {
   it('data-part-id 由来のキーから id を取り出す', () => {
@@ -30,5 +35,23 @@ describe('businessLabel', () => {
     expect(businessLabel('note-fund-status#1', 'ページ1', names)).toBe(
       '当ファンドの状況（1 ページ目）',
     );
+  });
+  it('fallback にページ番号が無ければ業務名だけ', () => {
+    expect(businessLabel('note-fund-status#1', 'パーツ1', names)).toBe('当ファンドの状況');
+  });
+});
+
+describe('loadPartNameMap', () => {
+  it('listParts の失敗で空 Map、成功で id→name', async () => {
+    const failing = {
+      listParts: vi.fn(async () => err(notFound('x'))),
+    } as unknown as PartRepository;
+    expect((await loadPartNameMap(failing)).size).toBe(0);
+
+    const ok1 = {
+      listParts: vi.fn(async () => ok([{ id: 'a', name: 'A' }])),
+    } as unknown as PartRepository;
+    const m = await loadPartNameMap(ok1);
+    expect(m.get('a')).toBe('A');
   });
 });
