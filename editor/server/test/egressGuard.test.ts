@@ -18,6 +18,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   activeEgressRelayCount,
   type BuildOriginReservation,
+  type PortProbe,
+  pickFreePortSpan,
+  pickFreePortSpanSerialized,
   reserveBuildOrigin,
   startEgressGuard,
   stopEgressGuard,
@@ -312,7 +315,6 @@ describe('egressGuard — 共有中継(プレビュー経路)の性質', () => {
     originPort = build.originPort;
   });
 
-  // 起動失敗は fail closed(build ごと落とす)だが、**失敗した約束を握り続けてはいけない**。
   // 握ると一時的な EADDRINUSE がサーバ再起動まで続く永続故障になり、以後の PDF が全部
   // 同じ失敗を再生する。失敗はその 1 回で終わり、次の呼び出しは再試行できること。
   it('起動に失敗しても次の呼び出しで再試行できる(失敗を握り続けない)', async () => {
@@ -329,6 +331,138 @@ describe('egressGuard — 共有中継(プレビュー経路)の性質', () => {
     boom.mockRestore();
     const url = await startEgressGuard();
     expect(new URL(url).hostname).toBe('127.0.0.1');
+    build = await startFakeBuild('LOOPBACK-OK');
+    proxyUrl = build.proxyUrl;
+    originPort = build.originPort;
+  });
+});
+
+/** テストから注入する probe。`net.createServer` を実際に bind して実測どおり空きを確かめる。 */
+const realProbe: PortProbe = (port) =>
+  new Promise((resolve, reject) => {
+    const s = net.createServer();
+    s.once('error', reject);
+    s.listen(port, '127.0.0.1', () => {
+      s.removeListener('error', reject);
+      resolve(s);
+    });
+  });
+
+describe('pickFreePortSpan / pickFreePortSpanSerialized の失敗経路', () => {
+  it('先頭 probe が失敗し続ければ試行を使い切って例外(枠を予約しない)', async () => {
+    const failing: PortProbe = async () => {
+      throw new Error('EADDRINUSE');
+    };
+    await expect(pickFreePortSpan(failing)).rejects.toThrow(/連番ポート/);
+  });
+
+  it('span の途中に先客が居れば番地を替えて取り直す', async () => {
+    // `reservedPorts`(他の予約との重なり禁止)は他テストの実行順・OS の ephemeral
+    // 割当次第で「先頭の probe(0) は成功するが reservedPorts と重なって continue する」
+    // 試行を消費しうる(実測)。よって「何回目の probe 呼び出しで失敗させるか」ではなく、
+    // 「span 検証(port !== 0 の呼び出し)の中で最初の 1 回だけ失敗させる」形で狙いを定める。
+    let verifyCalls = 0;
+    const probe: PortProbe = async (port) => {
+      if (port !== 0) {
+        verifyCalls += 1;
+        if (verifyCalls === 1) throw new Error('EADDRINUSE');
+      }
+      return realProbe(port);
+    };
+    const ports = await pickFreePortSpan(probe);
+    expect(ports).toHaveLength(4);
+    // 失敗した 1 回 + 取り直した span の残り 3 回 = 少なくとも 4 回の検証呼び出し。
+    expect(verifyCalls).toBeGreaterThanOrEqual(4);
+  });
+
+  it('先頭の span が API ポートを覆えば、`isForwardableTarget` に頼らずその番地は使わない', async () => {
+    const { config } = await import('../src/config.js');
+    let calls = 0;
+    const probe: PortProbe = async (port) => {
+      calls += 1;
+      if (calls === 1) {
+        // 最初の試行だけ、config.port を含む番地を返す偽の Server(実 bind はしない)。
+        return {
+          address: () => ({ port: config.port, family: 'IPv4', address: '127.0.0.1' }),
+          close: (cb?: () => void) => cb?.(),
+        } as unknown as net.Server;
+      }
+      return realProbe(port);
+    };
+    const ports = await pickFreePortSpan(probe);
+    expect(ports).toHaveLength(4);
+    expect(ports).not.toContain(config.port);
+  });
+
+  it('直列化の行列は、直前の予約が失敗しても次の予約を止めない', async () => {
+    const failing: PortProbe = async () => {
+      throw new Error('EADDRINUSE');
+    };
+    await expect(pickFreePortSpanSerialized(failing)).rejects.toThrow();
+    await expect(pickFreePortSpanSerialized(realProbe)).resolves.toHaveLength(4);
+  });
+});
+
+describe('egressGuard — 中継の端', () => {
+  it('editor 自身の API ポート宛ては、枠に入っていても中継しない', async () => {
+    const { config } = await import('../src/config.js');
+    const b = await startFakeBuild('x');
+    try {
+      const res = await viaProxy(`http://127.0.0.1:${config.port}/api/health`, b.proxyUrl);
+      expect(res.status).toBe(502);
+    } finally {
+      await stopFakeBuild(b);
+    }
+  });
+
+  it('上流がヘッダ送信後に切れても 502 へ書き換えず、応答を閉じる(ハングしない)', async () => {
+    // 実測: 応答ヘッダを送った後の premature close は Node の http クライアントでは
+    // `up`(IncomingMessage)側の 'aborted'/'error' として現れ、`upstream`
+    // (ClientRequest)の 'error' へは回らない(`res.headersSent` 分岐の consequent 側は
+    // 応答**前**の接続エラーでしか踏めない)。ここでは「ヘッダ送信後に上流が切れても
+    // 中継がハングしない・502 へ書き換えない」という利用者から見える性質だけを固定する。
+    const b = await startFakeBuild('');
+    b.origin.removeAllListeners('request');
+    b.origin.on('request', (_req, res) => {
+      res.writeHead(200);
+      res.flushHeaders();
+      res.socket?.destroy();
+    });
+    const target = `http://127.0.0.1:${b.originPort}/`;
+    const outcome = await new Promise<{ status: number } | Error>((resolve) => {
+      const req = http.request(
+        {
+          host: b.proxyUrl.hostname,
+          port: Number(b.proxyUrl.port),
+          method: 'GET',
+          path: target,
+          headers: { host: new URL(target).host },
+        },
+        (res) => {
+          res.resume();
+          res.on('end', () => resolve({ status: res.statusCode ?? 0 }));
+          res.on('error', (e) => resolve(e));
+        },
+      );
+      req.on('error', (e) => resolve(e));
+      // vitest の既定テストタイムアウト(5000ms)より十分短く切る。ハングしないことが
+      // 主張であって、正確な打ち切りタイミングは主張しない。
+      req.setTimeout(2000, () => {
+        req.destroy();
+        resolve(new Error('client timeout'));
+      });
+      req.end();
+    });
+    expect(outcome instanceof Error || outcome.status === 200).toBe(true);
+    await stopFakeBuild(b);
+  });
+
+  it('release は冪等で、stopEgressGuard の後に呼んでも二重 close にならない', async () => {
+    const reservation = await reserveBuildOrigin();
+    await stopEgressGuard();
+    expect(() => reservation.release()).not.toThrow();
+    expect(() => reservation.release()).not.toThrow();
+    // `stopEgressGuard` はビルド専用の中継も畳むので、以降のテストのために張り直す。
     build = await startFakeBuild('LOOPBACK-OK');
     proxyUrl = build.proxyUrl;
     originPort = build.originPort;

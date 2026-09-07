@@ -294,6 +294,66 @@ describe('BuildWorkerPool', () => {
     await p;
   });
 
+  it('1 枠で build を 2 度呼ぶと 2 度目は拒否される(返却済みの枠へ投げない)', async () => {
+    const { pool, created } = makePool();
+    const p = pool.withSlot(async (build) => {
+      const first = build({});
+      created[0].finish();
+      await first;
+      await expect(build({})).rejects.toThrow(/枠の二重使用/);
+      return 'done';
+    });
+    await expect(p).resolves.toBe('done');
+  });
+
+  it('満員で待つ要求は、稼働中ワーカーのクラッシュで空いた容量へ新ワーカーで割り当てられる', async () => {
+    const { pool, created } = makePool({ poolSize: 1 });
+    const first = pool.run({});
+    const second = pool.run({});
+    // 待機列を確定させる(acquire の解決を待ってから run() を呼んでいることを見せる)。
+    await micro();
+    expect(created).toHaveLength(1);
+    created[0].crash();
+    await expect(first).rejects.toThrow();
+    await vi.waitFor(() => expect(created).toHaveLength(2));
+    created[1].finish();
+    await expect(second).resolves.toBeUndefined();
+  });
+
+  it('idle 中のワーカーがクラッシュしても idle 一覧から外れ、次の要求は新ワーカーで走る', async () => {
+    const { pool, created } = makePool({ poolSize: 1 });
+    const p = pool.run({});
+    await micro();
+    created[0].finish();
+    await p;
+    created[0].crash();
+    created[0].crash(); // 2 度目の exit 通知は無視される(既に在籍していない)
+    const q = pool.run({});
+    await vi.waitFor(() => expect(created).toHaveLength(2));
+    created[1].finish();
+    await q;
+  });
+
+  it('idle TTL が切れる前に再取得されたワーカーは停止されない', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pool, created } = makePool({ poolSize: 1, idleTtlMs: 1000 });
+      const p = pool.run({});
+      await micro();
+      created[0].finish();
+      await p;
+      // 再取得(idle.pop + disarm)は acquire() 内で同期に起きる。
+      const q = pool.run({});
+      await micro();
+      vi.advanceTimersByTime(1000); // 失効タイマーは「もう idle でない」で早期 return
+      expect(created[0].killed).toBe(false);
+      created[0].finish();
+      await q;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('disposeAll は全ワーカーを kill し、待機中ジョブを reject する', async () => {
     const { pool, created } = makePool({ poolSize: 1 });
     const p1 = pool.run('a');
