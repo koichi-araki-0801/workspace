@@ -121,8 +121,9 @@ describe('templates.routes', () => {
   });
 
   it('GET /templates/options: クエリが配列(文字列でない)値のキーは無視する', async () => {
-    // `?companyCode=a&companyCode=b` は Fastify のクエリ解析で配列になる。`toQuery` の
-    // 「文字列でないキーは無視する」分岐(companyCode 以外の絞り込みが効かない = 全件)を踏む。
+    // `?companyCode=a&companyCode=b` は Fastify のクエリ解析で配列になる。`toQuery` は
+    // 文字列でない値を無視するので、配列で来た絞り込みは効かず候補は全件になる(同名
+    // キーの重複で絞り込みが黙って変わらないことの固定)。
     const res = await app.inject({
       method: 'GET',
       url: '/templates/options?companyCode=AM01&companyCode=AM02',

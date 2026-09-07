@@ -255,7 +255,15 @@ describe('toFilled の端', () => {
     const out = toFilled('<ul>{% for h in holdings %}<li>{{ h.name }}</li>{% endfor %}</ul>', {
       holdings: 7,
     });
-    expect(out).not.toContain('<li>');
+    const doc = new DOMParser().parseFromString(out, 'text/html');
+    // 残る 1 つは round-trip 用の雛形行(`data-jinja-open`/`close` を運ぶ未 fill の
+    // テンプレート行)で、値入りの行は 1 つも増えない。`not.toContain('<li>')` だと
+    // 属性付きの `<li ...>` に素通りされるので、要素数で数える。
+    const lis = doc.querySelectorAll('li');
+    expect(lis.length).toBe(1);
+    expect(lis[0].hasAttribute('data-jinja-open')).toBe(true);
+    expect(out).not.toContain('h.name');
+    expect(doc.body.textContent?.trim()).toBe('');
   });
 
   it('値でないインライントークン(set)はチップ文言をそのまま見せる', () => {

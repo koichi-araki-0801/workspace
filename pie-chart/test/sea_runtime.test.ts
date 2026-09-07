@@ -153,15 +153,15 @@ describe('dev(非 SEA)では何もしない', () => {
   });
 });
 
-// `Module._load` / `Module._resolveFilename` の書換えはプロセス全体へ波及するため、
-// このブロックの各 it は必ず afterEach で両方を元に戻す(失敗時も afterEach は走るので
-// 後続テストへ漏れない)。
-afterEach(() => {
-  internals._load = originalLoad;
-  internals._resolveFilename = originalResolve;
-});
-
 describe('SEA 実行時の経路', () => {
+  // `Module._load` / `Module._resolveFilename` の書換えはプロセス全体へ波及するため、
+  // この describe の各 it は必ず afterEach で両方を元に戻す(失敗時も afterEach は走るので
+  // 後続テストへ漏れない)。他の describe は自分で try/finally 復元するので対象外。
+  afterEach(() => {
+    internals._load = originalLoad;
+    internals._resolveFilename = originalResolve;
+  });
+
   it('require が node:sea を投げれば非 SEA(dev と同じ振る舞い)', async () => {
     stubSeaRequire(new Error('no sea'));
     const rt = await freshRuntime();
@@ -177,7 +177,7 @@ describe('SEA 実行時の経路', () => {
     expect(() => rt.readSeaAsset('..\\evil.woff2')).toThrow(/not in the allowlist/);
   });
 
-  it('SEA では installSeaGuards が解決封鎖を張り、2 度目は何もしない', async () => {
+  it('SEA では installSeaGuards が builtin 以外の解決を封鎖する', async () => {
     // `req.resolve` に何が代入されたかは、production 側が握るローカル require の
     // オブジェクト同一性を外から観測できない(vite-node のラッパ引数のため)ので検証しない。
     // ここでは observable な副作用 = `Module._resolveFilename` の書換えだけを固定する。
@@ -187,10 +187,22 @@ describe('SEA 実行時の経路', () => {
     expect(() => (internals._resolveFilename as (r: string) => string)('lodash')).toThrow(
       /external module resolution is disabled/,
     );
-    // builtin は封鎖の後も解決できる(sentinel には「disabled」の文言が乗らないことだけ主張する)。
+  });
+
+  it('封鎖の後も builtin は解決できる', async () => {
+    // sentinel には「disabled」の文言が乗らないことだけを主張する。
+    stubSeaRequire({ isSea: () => true, getAsset: () => new ArrayBuffer(0) });
+    const rt = await freshRuntime();
+    rt.installSeaGuards();
     expect(() => (internals._resolveFilename as (r: string) => string)('node:path')).not.toThrow(
       /disabled/,
     );
+  });
+
+  it('installSeaGuards の 2 度目は何もしない(封鎖を二重に張らない)', async () => {
+    stubSeaRequire({ isSea: () => true, getAsset: () => new ArrayBuffer(0) });
+    const rt = await freshRuntime();
+    rt.installSeaGuards();
     const before = internals._resolveFilename;
     rt.installSeaGuards();
     expect(internals._resolveFilename).toBe(before);
