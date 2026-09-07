@@ -126,6 +126,65 @@ describe('履歴 JSONL の上限', () => {
   });
 });
 
+describe('readTail の端', () => {
+  it('空ファイルは空配列(0 バイト read を試みない)', async () => {
+    const h = await importHistory();
+    await fs.mkdir(path.join(tmpRoot, 'history'), { recursive: true });
+    await fs.writeFile(historyFile('pdf'), '', 'utf8');
+    expect(await h.readHistory('pdf')).toEqual([]);
+  });
+
+  it('読み窓より大きく改行を 1 つも含まない末尾は「行なし」として空配列', async () => {
+    const h = await importHistory();
+    await fs.mkdir(path.join(tmpRoot, 'history'), { recursive: true });
+    await fs.writeFile(historyFile('pdf'), 'x'.repeat(h.MAX_HISTORY_TAIL_BYTES + 16), 'utf8');
+    expect(await h.readHistory('pdf')).toEqual([]);
+  });
+
+  it('close の失敗は読み取り結果を変えない(監査ログの読み取りを掃除失敗で落とさない)', async () => {
+    const h = await importHistory();
+    await fs.mkdir(path.join(tmpRoot, 'history'), { recursive: true });
+    await fs.writeFile(
+      historyFile('pdf'),
+      `${JSON.stringify({ id: 'a', templateId: 't', user: 'u', timestamp: 'now' })}\n`,
+      'utf8',
+    );
+    const realOpen = fs.open.bind(fs);
+    const spy = vi
+      .spyOn(fs, 'open')
+      .mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+        const handle = await realOpen(...args);
+        const close = handle.close.bind(handle);
+        return Object.assign(handle, {
+          close: async () => {
+            await close();
+            throw new Error('close failed');
+          },
+        });
+      });
+    let rows: unknown[];
+    try {
+      rows = await h.readHistory('pdf');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(rows).toHaveLength(1);
+  });
+
+  it('世代ファイルの削除(rm)失敗はローテーションを止めない(rename まで進む)', async () => {
+    const h = await importHistory();
+    await fs.mkdir(path.join(tmpRoot, 'history'), { recursive: true });
+    await fs.writeFile(historyFile('pdf'), 'x'.repeat(h.MAX_HISTORY_BYTES), 'utf8');
+    const spy = vi.spyOn(fs, 'rm').mockRejectedValueOnce(new Error('EBUSY'));
+    try {
+      await h.appendHistory('pdf', { at: 'rm-failed' });
+    } finally {
+      spy.mockRestore();
+    }
+    await expect(fs.stat(historyFile('pdf', 1))).resolves.toBeTruthy();
+  });
+});
+
 // `part.jsonl` は全テンプレ共用の 1 本。先に件数で打ち切ってから呼び出し側で絞ると、
 // 他テンプレの編集が上限件数進むだけで当該テンプレの履歴が 0 件になる(画面から消える)。
 describe('共用 jsonl の絞り込みと打ち切りの順序', () => {

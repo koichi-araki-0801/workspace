@@ -100,6 +100,30 @@ describe('atomicWrite', () => {
       spy.mockRestore();
     }
   });
+
+  it('code の無い失敗は再試行せずに投げる(code ?? "" が空文字に丸まりリトライ対象外)', async () => {
+    const target = path.join(dir, 'no-code.json');
+    const spy = vi.spyOn(fs, 'rename').mockRejectedValue(new Error('no code'));
+    try {
+      await expect(atomicWrite(target, 'v')).rejects.toThrow('no code');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect((await fs.readdir(dir)).filter((f) => f.includes('.tmp-'))).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('一時ファイルの掃除(rm)自体が失敗しても、元の rename エラーを投げる(掃除失敗を握り潰す)', async () => {
+    const target = path.join(dir, 'rm-fails.json');
+    const renameSpy = vi.spyOn(fs, 'rename').mockRejectedValue(new Error('rename boom'));
+    const rmSpy = vi.spyOn(fs, 'rm').mockRejectedValue(new Error('rm boom'));
+    try {
+      await expect(atomicWrite(target, 'v')).rejects.toThrow('rename boom');
+    } finally {
+      renameSpy.mockRestore();
+      rmSpy.mockRestore();
+    }
+  });
 });
 
 describe('withFileLock', () => {

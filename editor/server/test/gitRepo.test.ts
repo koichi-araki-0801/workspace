@@ -147,6 +147,70 @@ d('gitRepo', () => {
     expect(files).toEqual([rel]);
   });
 
+  it('ensureRepo is idempotent for an already-initialized repo (isRepo=true 分岐)', async () => {
+    // beforeAll の 1 回目は「未初期化 → init」分岐だけを通る。ここで 2 回目を呼び、
+    // 「既に repo」分岐(ensureGitignore/ensureLongPaths の冪等パス)も通す。
+    await git.ensureRepo();
+    expect(fs.existsSync(path.join(tmp, '.git'))).toBe(true);
+    expect(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8')).toContain('/drafts/');
+  });
+
+  it('author.name が空でも system として commit できる(email は system@editor.local)', async () => {
+    const rel = 'templates/AM01_999999_20250109_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>system identity</p>', 'utf8');
+    await git.commitAll('確定保存: system identity', { name: '' });
+    const log = await git.logForFile(rel);
+    expect(log[0].author).toBe('system');
+  });
+
+  it('index.lock が居る間は待ち、外れれば commit が通る(共有違反リトライ)', async () => {
+    const rel = 'templates/AM01_999999_20250110_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>lock retry</p>', 'utf8');
+    const lockFile = path.join(tmp, '.git', 'index.lock');
+    fs.writeFileSync(lockFile, '');
+    // 最初のリトライ待ち(200ms)より後・2 回目(+400ms)より十分前に外す。
+    setTimeout(() => fs.rmSync(lockFile, { force: true }), 300);
+    const hash = await git.commitAll('確定保存: lock retry', { name: 'tester' });
+    expect(hash).toMatch(/^[0-9a-f]{40}$/);
+  }, 10_000);
+
+  it('withGitLock は直列化し、失敗しても次の予約を詰まらせない(直列化チェーンの失敗側)', async () => {
+    const order: number[] = [];
+    await expect(
+      git.withGitLock(async () => {
+        order.push(1);
+        return 'ok';
+      }),
+    ).resolves.toBe('ok');
+    await expect(
+      git.withGitLock(async () => {
+        order.push(2);
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    // 直前の予約が失敗していても、次の予約は待たされず実行される。
+    await expect(
+      git.withGitLock(async () => {
+        order.push(3);
+        return 'again';
+      }),
+    ).resolves.toBe('again');
+    expect(order).toEqual([1, 2, 3]);
+  });
+
+  it('showFile はコミット時点に無いパスを空文字で返す(git の定型文で「不在」と判定)', async () => {
+    const relOld = 'templates/AM01_999999_20250111_交付版.html';
+    fs.writeFileSync(path.join(tmp, relOld), '<p>old</p>', 'utf8');
+    const oldHash = await git.commitAll('確定保存: 旧コミット', { name: 'tester' });
+
+    const relNew = 'templates/AM01_999999_20250112_交付版.html';
+    fs.writeFileSync(path.join(tmp, relNew), '<p>new</p>', 'utf8');
+    await git.commitAll('確定保存: 新コミット', { name: 'tester' });
+
+    // relNew は oldHash 時点ではまだ存在しない。
+    expect(await git.showFile(oldHash, relNew)).toBe('');
+  });
+
   it('showFile still resolves a valid hash:path after the option guard', async () => {
     const rel = 'templates/AM01_999999_20250103_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>guard 正常系</p>', 'utf8');
