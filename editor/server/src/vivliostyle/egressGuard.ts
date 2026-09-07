@@ -148,10 +148,17 @@ let sharedStarting: Promise<string> | undefined;
  * `BUILD_PORT_SPAN` 個を機械的に取るので、番地の巡り合わせで API ポートを覆う可能性が
  * 理屈の上では残る。ここが覆われると、組版ブラウザから我々自身の API を叩けてしまう
  * (認証 cookie は載らないが、無認証面がある限り最悪の当たりになる)。
+ *
+ * `port` は呼び出し側で解決済みの値を受け取る(`handleRequest` 参照)。判定に使うポートと
+ * 実際に転送するポートが 1 か所ずつ別々に `target.port === '' ? 80 : …` を評価すると、
+ * 同じ URL でも「判定した宛先」と「転送した宛先」がずれる余地が構造として残るため。
  */
-function isForwardableTarget(target: URL, allowed: ReadonlySet<number>): boolean {
-  if (!isLoopbackHost(target.hostname)) return false;
-  const port = target.port === '' ? 80 : Number(target.port);
+function isForwardableTarget(
+  hostname: string,
+  port: number,
+  allowed: ReadonlySet<number>,
+): boolean {
+  if (!isLoopbackHost(hostname)) return false;
   if (port === config.port) return false;
   if (relayPorts.has(port)) return false;
   return allowed.has(port);
@@ -273,7 +280,9 @@ function handleRequest(
     refuse(res, String(req.url));
     return;
   }
-  if (target.protocol !== 'http:' || !isForwardableTarget(target, allowed)) {
+  // 中継先ポートは判定と転送で同じ値でなければならないので 1 回だけ解決する。
+  const port = target.port === '' ? 80 : Number(target.port);
+  if (target.protocol !== 'http:' || !isForwardableTarget(target.hostname, port, allowed)) {
     refuse(res, target.href);
     return;
   }
@@ -281,7 +290,7 @@ function handleRequest(
     {
       protocol: 'http:',
       host: target.hostname,
-      port: target.port === '' ? 80 : Number(target.port),
+      port,
       method: req.method,
       path: `${target.pathname}${target.search}`,
       headers: req.headers,
