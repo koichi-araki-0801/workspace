@@ -67,8 +67,10 @@ import {
   boxViewOverflowOfBox,
   boxViewOverflowMaxOf,
   oobLeaderCountFrom,
+  crossCountWithChanged,
+  throughCountWithChanged,
 } from './leader_geometry.js';
-import type { Pt, Coord, LeaderGeometry } from './leader_geometry.js';
+import type { Pt, Coord, LeaderGeometry, ScoreBase } from './leader_geometry.js';
 import { radialFraction, pieClearanceWithinViewBox } from '../layout/geometry.js';
 import { topBandSonohokaZone } from '../layout/placement.js';
 import { FINAL_CONDENSE_MIN_SCALE } from './post_layout.js';
@@ -1596,6 +1598,43 @@ export function measureRepairVecFrom(
     cross: countLeaderCrossingsFrom(placements, geo, cfg),
     pieCross: leaderPieCrossCountFrom(geo.paths, cfg, coord),
     through: countLeaderThroughLabelsFrom(placements, geo, cfg),
+    inv: countAngularDiscordantPairsFrom(placements, coord, geo),
+    clips: geo.boxes.filter((lb) => boxViewOverflowOfBox(lb, coord) > 1).length,
+    oob: oobLeaderCountFrom(geo.paths, coord),
+    ovl: boxOverlapMaxOf(geo.boxes),
+    boxPie: boxPieIntrusionMaxOf(placements, geo.boxes, cfg),
+    view: boxViewOverflowMaxOf(geo.boxes, coord),
+  };
+}
+
+/**
+ * `base` を基準に、`changed` に載った placement が絡む対判定だけを数え直して採点する。
+ * `changed` の index は **経路も箱も変わりうる** とみなす (呼び出し側が「箱は動いていない」を
+ * 自己申告する形にすると、申告を誤ったときに出力が静かに変わる)。同名スライスがある入力
+ * (`base.usable === false`) と、変化が全件に及ぶ場合は全走査へ落ちる。
+ * `cross` / `through` 以外の 7 指標は `measureRepairVecFrom` と同じ式・同じ順序で書く
+ * (差分の有無で FP の結果が動かないことが要件)。
+ */
+export function measureRepairVecDelta(
+  base: ScoreBase,
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+  changed: readonly number[],
+): RepairVec {
+  const geo = changed.reduce(
+    (g, i) => replaceLeaderGeometryAt(g, placements, cfg, coord, i),
+    base.geo,
+  );
+  if (!base.usable || changed.length >= placements.length) {
+    return measureRepairVecFrom(placements, cfg, coord, geo);
+  }
+  if (cfg.perfCounters) cfg.perfCounters.measureRepairVec += 1;
+  const set = new Set(changed);
+  return {
+    cross: crossCountWithChanged(placements, geo, base, set, cfg),
+    pieCross: leaderPieCrossCountFrom(geo.paths, cfg, coord),
+    through: throughCountWithChanged(placements, geo, base, set, cfg),
     inv: countAngularDiscordantPairsFrom(placements, coord, geo),
     clips: geo.boxes.filter((lb) => boxViewOverflowOfBox(lb, coord) > 1).length,
     oob: oobLeaderCountFrom(geo.paths, coord),

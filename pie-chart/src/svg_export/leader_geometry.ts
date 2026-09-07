@@ -987,6 +987,137 @@ export function countLeaderThroughLabelsFrom(
   return throughPairsFrom(placements, geo.paths, geo.pixelBoxes, cfg).size;
 }
 
+// -----------------------------------------------------------------------------
+// 差分採点の基盤。候補ループのように「1 つ (数個) の placement しか動かない」場面で、
+// 動いていない index どうしの対判定を作り直さないための行列と数え上げ。
+// -----------------------------------------------------------------------------
+
+/**
+ * 候補ループ 1 回のあいだ使い回す採点の基準。`crossMat` / `throughMat` は対判定の結果で、
+ * 動いていない index どうしの対はここから読む (幾何が同じなら判定も同じ)。
+ * 寿命は候補ループの中に閉じる — モジュールへは持たない。
+ */
+export interface ScoreBase {
+  geo: LeaderGeometry;
+  /** `crossMat[i][j]` (i < j) が true なら leader i と j が交差する。 */
+  crossMat: boolean[][];
+  /** `throughMat[i][j]` (i !== j) が true なら leader i が box j を貫く。 */
+  throughMat: boolean[][];
+  /**
+   * 差分を使ってよいか。採点値はスライス名をキーにした集合の要素数なので、同名スライスが
+   * あると別々の対が 1 つのキーへ潰れ、index 対の数え直しと値が乖離する。名前が全件一意の
+   * ときだけ true。
+   */
+  usable: boolean;
+}
+
+/**
+ * 現在の placements から `ScoreBase` を作る。行列は全対を 1 度だけ判定して埋めるので、
+ * 作るコスト自体は全走査 1 回ぶんであり、候補を 2 回以上採点する場面で初めて元が取れる。
+ * 同名スライスがある入力では行列を空のまま返す (差分が使えないので埋める意味がない)。
+ */
+export function buildScoreBase(
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+): ScoreBase {
+  const geo = collectLeaderGeometry(placements, cfg, coord);
+  const n = placements.length;
+  const names = new Set(placements.map((p) => p.item.name));
+  const usable = names.size === n;
+  const crossMat = Array.from({ length: n }, () => new Array<boolean>(n).fill(false));
+  const throughMat = Array.from({ length: n }, () => new Array<boolean>(n).fill(false));
+  if (!usable) return { geo, crossMat, throughMat, usable };
+  for (let i = 0; i < n; i += 1) {
+    const pa = geo.paths[i];
+    if (!pa) continue;
+    for (let j = i + 1; j < n; j += 1) {
+      const pb = geo.paths[j];
+      if (!pb) continue;
+      if (cfg.perfCounters) cfg.perfCounters.pairTests += 1;
+      crossMat[i][j] = pathsCross(pa, pb);
+    }
+    for (let j = 0; j < n; j += 1) {
+      if (j === i) continue;
+      if (cfg.perfCounters) cfg.perfCounters.pairTests += 1;
+      throughMat[i][j] = leaderCrossesBox(pa, geo.pixelBoxes[j]);
+    }
+  }
+  return { geo, crossMat, throughMat, usable };
+}
+
+/**
+ * `changed` に載った index が絡む対だけを再判定し、残りは `base` の行列から読んで数える。
+ * 数え方 (名前キーの集合の要素数) は `crossingPairsFrom` と同一で、判定の出どころが
+ * 行列か再計算かだけが違う。
+ *
+ * 基準を作ったときに `paths[i]` が null (leader を描かない) でも、候補では null でなくなる
+ * ことがある。`changed` に載った index は必ず再判定するので行列を読むことはなく、載って
+ * いない index の null 判定は基準と同じ (幾何が同じ) なので `continue` の位置も動かない。
+ */
+export function crossCountWithChanged(
+  placements: Placement[],
+  geo: LeaderGeometry,
+  base: ScoreBase,
+  changed: ReadonlySet<number>,
+  cfg: PieLayoutConfig,
+): number {
+  const pairs = new Set<string>();
+  const n = placements.length;
+  for (let i = 0; i < n; i += 1) {
+    const pa = geo.paths[i];
+    if (!pa) continue;
+    for (let j = i + 1; j < n; j += 1) {
+      const pb = geo.paths[j];
+      if (!pb) continue;
+      let hit: boolean;
+      if (changed.has(i) || changed.has(j)) {
+        if (cfg.perfCounters) cfg.perfCounters.pairTests += 1;
+        hit = pathsCross(pa, pb);
+      } else {
+        hit = base.crossMat[i][j];
+      }
+      if (!hit) continue;
+      const [x, y] = [placements[i].item.name, placements[j].item.name].sort();
+      pairs.add(`${x}×${y}`);
+    }
+  }
+  return pairs.size;
+}
+
+/**
+ * `crossCountWithChanged` の貫通版。数え方 (向きのある名前キーの集合) は `throughPairsFrom`
+ * と同一で、`changed` に載った index が絡む対だけを再判定する。box 側が動いた場合も
+ * 「その index が絡む対」なので、行 i・列 j のどちらで当たっても再判定になる。
+ */
+export function throughCountWithChanged(
+  placements: Placement[],
+  geo: LeaderGeometry,
+  base: ScoreBase,
+  changed: ReadonlySet<number>,
+  cfg: PieLayoutConfig,
+): number {
+  const pairs = new Set<string>();
+  const n = placements.length;
+  for (let i = 0; i < n; i += 1) {
+    const pa = geo.paths[i];
+    if (!pa) continue;
+    for (let j = 0; j < n; j += 1) {
+      if (j === i) continue;
+      let hit: boolean;
+      if (changed.has(i) || changed.has(j)) {
+        if (cfg.perfCounters) cfg.perfCounters.pairTests += 1;
+        hit = leaderCrossesBox(pa, geo.pixelBoxes[j]);
+      } else {
+        hit = base.throughMat[i][j];
+      }
+      if (!hit) continue;
+      pairs.add(`${placements[i].item.name}>${placements[j].item.name}`);
+    }
+  }
+  return pairs.size;
+}
+
 /** 折れ線の全長 (logical)。leader の「短さ」を測るのに使う。 */
 function pathLength(pts: Pt[]): number {
   let len = 0;
