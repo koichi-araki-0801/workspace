@@ -58,6 +58,11 @@ describe('geomFromStyle', () => {
     expect(geomFromStyle({ 'margin-top': 'oops' }).marginTop).toBe(0);
   });
 
+  it('width が無い・数値でない style は 100% として読む', () => {
+    expect(geomFromStyle({}).widthPct).toBe(100);
+    expect(geomFromStyle({ width: 'abc%' }).widthPct).toBe(100);
+  });
+
   it('rounds a unitless or non-mm/px length as-is (does not zero it)', () => {
     // mm/px 以外の単位・単位なしは換算せず、数値部分を丸めてそのまま採用する。
     expect(geomFromStyle({ 'margin-top': '12pt' }).marginTop).toBe(12);
@@ -94,6 +99,20 @@ describe('geomToStyle', () => {
     expect(s['margin-right']).toBe('auto');
   });
 
+  it('100% + indent は margin-left だけを出す、right 寄せは margin-right を空にする', () => {
+    expect(geomToStyle({ ...DEFAULT_GEOM, widthPct: 100, indent: 5 })['margin-left']).toBe('5mm');
+    expect(geomToStyle({ ...DEFAULT_GEOM, widthPct: 50, align: 'right' })['margin-right']).toBe('');
+    expect(geomToStyle({ ...DEFAULT_GEOM, widthPct: 50, align: 'right' })['margin-left']).toBe(
+      'auto',
+    );
+  });
+
+  it('pageBreakAfter は page-break-after を always にする', () => {
+    expect(geomToStyle({ ...DEFAULT_GEOM, pageBreakAfter: true })['page-break-after']).toBe(
+      'always',
+    );
+  });
+
   it('round-trips a non-trivial geometry through from→to→from', () => {
     const start: LayoutGeom = {
       widthPct: 70,
@@ -117,13 +136,36 @@ describe('geomChangeLabel', () => {
     const label = geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, widthPct: 50 });
     expect(label).toContain('幅');
   });
+  it('reports an align change', () => {
+    expect(geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, align: 'center' })).toContain(
+      '横の配置',
+    );
+  });
+  it('reports an indent change', () => {
+    expect(geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, indent: 2 })).toContain('左インデント');
+  });
   it('reports a margin change', () => {
     const label = geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, marginTop: 3 });
     expect(label).toContain('上の余白');
   });
+  it('reports a marginBottom change', () => {
+    expect(geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, marginBottom: 2 })).toContain(
+      '下の余白',
+    );
+  });
+  it('reports a pageBreakBefore activation', () => {
+    expect(geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, pageBreakBefore: true })).toContain(
+      '前で改ページ」を有効化',
+    );
+  });
   it('reports a page-break toggle', () => {
     const label = geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, pageBreakAfter: true });
     expect(label).toContain('後で改ページ');
+  });
+  it('reports a pageBreakAfter deactivation (before → after order)', () => {
+    expect(geomChangeLabel({ ...DEFAULT_GEOM, pageBreakAfter: true }, DEFAULT_GEOM)).toContain(
+      '後で改ページ」を解除',
+    );
   });
   it('reports a keep-together toggle', () => {
     const label = geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, keepTogether: true });

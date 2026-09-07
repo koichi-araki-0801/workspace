@@ -132,6 +132,78 @@ describe('useEditorSessionStore', () => {
     expect(readUndoMap().t1).toEqual({ past: [], future: [] });
   });
 
+  it('undo ミラーの JSON が壊れていても空として読む', () => {
+    localStorage.setItem(undoStacksKey(), '{not json');
+    const store = useEditorSessionStore();
+    expect(() => store.ensure('t1')).not.toThrow();
+    expect(store.ensure('t1').undoPast).toEqual([]);
+  });
+
+  it('未知の templateId への persist は no-op(localStorage を触らない)', () => {
+    const store = useEditorSessionStore();
+    // ensure() を呼んでいないので sessions['no-such'] は存在しない。
+    expect(() => store.persist('no-such')).not.toThrow();
+    expect(localStorage.getItem(undoStacksKey())).toBeNull();
+  });
+
+  it('容量超過では他テンプレを古い側から間引いて再試行する', () => {
+    const store = useEditorSessionStore();
+    for (const id of ['a', 'b']) {
+      const s = store.ensure(id);
+      s.undoPast.push({ html: 'x', css: '' });
+      store.persist(id);
+    }
+    const real = localStorage.setItem.bind(localStorage);
+    let fails = 2;
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      k,
+      v,
+    ) {
+      if (k === undoStacksKey() && fails-- > 0) {
+        throw new DOMException('quota', 'QuotaExceededError');
+      }
+      return real(k, v);
+    });
+    try {
+      const c = store.ensure('c');
+      c.undoPast.push({ html: 'y', css: '' });
+      store.persist('c');
+    } finally {
+      spy.mockRestore();
+    }
+    const map = readUndoMap();
+    expect(map.c).toBeDefined();
+    expect(Object.keys(map)).not.toContain('a');
+  });
+
+  it('他テンプレが無いとき、容量超過は自身の深度を半減して保存を試みる', () => {
+    const store = useEditorSessionStore();
+    const s = store.ensure('c');
+    for (let i = 0; i < 4; i++) s.undoPast.push({ html: `h${i}`, css: '' });
+    const real = localStorage.setItem.bind(localStorage);
+    let fails = 1;
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      k,
+      v,
+    ) {
+      if (k === undoStacksKey() && fails-- > 0) {
+        throw new DOMException('quota', 'QuotaExceededError');
+      }
+      return real(k, v);
+    });
+    try {
+      store.persist('c');
+    } finally {
+      spy.mockRestore();
+    }
+    const map = readUndoMap();
+    // 他テンプレが無く間引く先が無いので、深度半減(4 → 2、末尾=最新を残す)で保存できる。
+    expect(map.c.past).toHaveLength(2);
+    expect(map.c.past[1]).toEqual({ html: 'h3', css: '' });
+  });
+
   it('persist() never throws when localStorage.setItem fails (best-effort)', () => {
     const store = useEditorSessionStore();
     const s = store.ensure('t1');

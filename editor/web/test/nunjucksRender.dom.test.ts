@@ -33,6 +33,9 @@ describe('renderJinja', () => {
   it('returns an error string (not a throw) on a broken template', () => {
     const r = renderJinja('{% if %}', {});
     expect(r.html).toBe('');
+    // nunjucks は同期描画の失敗を TemplateError(Error 派生)で投げるため、`error` は
+    // 常に string(`(e as Error).message`)。非 Error 側は型の上で到達不能。
+    expect(typeof r.error).toBe('string');
     expect(r.error).toBeTruthy();
   });
 });

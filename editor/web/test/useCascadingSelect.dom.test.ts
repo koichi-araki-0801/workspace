@@ -94,6 +94,51 @@ describe('useCascadingSelect', () => {
     expect(cs.options.value.items).toEqual(['initial']);
   });
 
+  it('後着の旧世代応答は options に反映されない(世代ガード)', async () => {
+    let release!: () => void;
+    const first = new Promise<void>((r) => {
+      release = r;
+    });
+    const fetchOptions = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        await first;
+        return ok({ items: ['old'] });
+      })
+      .mockResolvedValueOnce(ok({ items: ['new'] }));
+    const cs = useCascadingSelect<Query, Options>({
+      levels: ['region'],
+      emptyOptions: { items: [] },
+      fetchOptions,
+      immediate: false,
+    });
+
+    const p1 = cs.refresh();
+    await cs.refresh();
+    release();
+    await p1;
+
+    expect(cs.options.value.items).toEqual(['new']);
+  });
+
+  it('fetchList の失敗は list を更新しない(options は成功分を反映する)', async () => {
+    // useCascadingSelect は `error` を公開しない(loading のみ)。観測できるのは
+    // options/list の状態だけなので、そこで失敗が反映されなかったことを主張する。
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const cs = useCascadingSelect<Query, Options, number>({
+      levels: ['region'],
+      emptyOptions: { items: [] },
+      fetchOptions: vi.fn().mockResolvedValue(ok({ items: ['ok'] })),
+      fetchList: vi.fn().mockResolvedValue(err(unauthorized('x'))),
+      immediate: false,
+    });
+
+    await cs.refresh();
+
+    expect(cs.options.value.items).toEqual(['ok']);
+    expect(cs.list.value).toEqual([]);
+  });
+
   it('refreshes on mount when immediate is the default', async () => {
     const fetchOptions = vi.fn().mockResolvedValue(ok({ items: ['mounted'] }));
     let cs!: ReturnType<typeof useCascadingSelect<Query, Options>>;

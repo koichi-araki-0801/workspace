@@ -1,11 +1,23 @@
-import { isErr, isOk } from '@editor/shared';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { conflict, err, isErr, isOk } from '@editor/shared';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
 import { localHistoryRepo } from '@/api/local/historyRepo';
-import { localTemplateRepo } from '@/api/local/templateRepo';
+import { localPartRepo } from '@/api/local/partRepo';
+import { K } from '@/api/local/store';
+import { confirmSaveLocal, localTemplateRepo } from '@/api/local/templateRepo';
 import { localUserRepo } from '@/api/local/userRepo';
 
 beforeEach(() => localStorage.clear());
+
+// fixtures にある id/fundCode(`localReviewRepo.dom.test.ts` 等と同じ組)。
+const ID = 'AM01_510037_20240710_交付版';
+const FUND = '510037';
+
+/** approver|admin としてログイン。 */
+async function loginAdmin(): Promise<void> {
+  const r = await localAuthRepo.login({ username: 'admin', password: 'admin' });
+  expect(isOk(r)).toBe(true);
+}
 
 async function firstMeta() {
   const list = await localTemplateRepo.listTemplates({});
@@ -377,5 +389,101 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
       expect(fund.name).toBe('サンプルファンド');
       expect(Array.isArray(r.value.holdings)).toBe(true);
     }
+  });
+});
+
+describe('localHistoryRepo.getSnapshot', () => {
+  it('templateId を渡したとき、別テンプレの snapshot は not_found', async () => {
+    const saved = await confirmSaveLocal({
+      templateId: ID,
+      html: '<p>a</p>',
+      css: '',
+      fundCode: FUND,
+    });
+    expect(isOk(saved)).toBe(true);
+    const versions = await localHistoryRepo.listVersions(ID);
+    const hid = isOk(versions) ? versions.value[0].historyId : '';
+    const r = await localHistoryRepo.getSnapshot(hid, 'AM01_999999_20240710_交付版');
+    expect(isErr(r) && r.error.kind).toBe('not_found');
+  });
+});
+
+describe('localPartRepo の階層絞り', () => {
+  it('majorClass / middleClass / minorClass は上位を満たす項目だけへ順に効く', async () => {
+    const all = await localPartRepo.listParts({});
+    const first = isOk(all) ? all.value[0] : undefined;
+    expect(first).toBeDefined();
+    if (!first) return;
+    const c = first.classification;
+    for (const q of [
+      { category: c.category, majorClass: c.majorClass },
+      { category: c.category, majorClass: c.majorClass, middleClass: c.middleClass },
+      {
+        category: c.category,
+        majorClass: c.majorClass,
+        middleClass: c.middleClass,
+        minorClass: c.minorClass,
+      },
+    ]) {
+      const r = await localPartRepo.listParts(q);
+      expect(isOk(r) && r.value.some((p) => p.id === first.id)).toBe(true);
+    }
+    const none = await localPartRepo.listParts({
+      category: c.category,
+      majorClass: '存在しない大分類',
+    });
+    expect(isOk(none) && none.value).toEqual([]);
+  });
+});
+
+describe('localTemplateRepo の生成と override', () => {
+  it('fixture の無いファンドは既定 skeleton から生成し、償還指定はモック置換を通す', async () => {
+    const r = await localTemplateRepo.generate({
+      companyCode: 'ZZ99',
+      fundCode: '000000',
+      editionType: '交付版',
+      isRedemption: true,
+    });
+    expect(isOk(r) && r.value.template.html.length).toBeGreaterThan(0);
+    expect(isOk(r) && r.value.template.css).toBe('');
+  });
+
+  it('confirmSaveLocal は filledHtml があれば instance も積み、override 後の getTemplate は filled を空にする', async () => {
+    const saved = await confirmSaveLocal({
+      templateId: ID,
+      html: '<p>over</p>',
+      css: '.o{}',
+      fundCode: FUND,
+      filledHtml: '<p>filled</p>',
+    });
+    expect(isOk(saved)).toBe(true);
+    expect(JSON.parse(localStorage.getItem(K.instances) ?? '{}')[ID].html).toBe('<p>filled</p>');
+    const t = await localTemplateRepo.getTemplate(ID);
+    expect(isOk(t) && t.value.html).toBe('<p>over</p>');
+    expect(isOk(t) && t.value.css).toBe('.o{}');
+    expect(isOk(t) && t.value.filled).toBe('');
+  });
+
+  it('resolveFund はコアラップ系の集合メンバシップ', async () => {
+    // 510037 はコアラップ系(SERIES_FUND_CODES)のメンバー。
+    const a = await localTemplateRepo.resolveFund('AM01', '510037', '交付版');
+    expect(isOk(a) && a.value.isSeriesFund).toBe(true);
+    // 非シリーズ(110024)は false。
+    const b = await localTemplateRepo.resolveFund('AM01', '110024', '交付版');
+    expect(isOk(b) && b.value.isSeriesFund).toBe(false);
+  });
+});
+
+describe('localUserRepo.resetUserPassword', () => {
+  it('更新に失敗したときはその失敗を返す(一時パスワードを払い出さない)', async () => {
+    await loginAdmin();
+    const users = await localUserRepo.listUsers();
+    const id = isOk(users) ? users.value[0].id : '';
+    const spy = vi
+      .spyOn(localUserRepo, 'updateUser')
+      .mockResolvedValueOnce(err(conflict('壊れた')));
+    const r = await localUserRepo.resetUserPassword(id);
+    spy.mockRestore();
+    expect(isErr(r) && r.error.kind).toBe('conflict');
   });
 });
