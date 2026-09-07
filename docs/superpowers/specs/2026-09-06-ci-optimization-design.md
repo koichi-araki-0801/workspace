@@ -464,6 +464,12 @@ vitest 4.1.11 は、参照 config 内の `test.projects` を**無視する**(レ
 - 計画 B1 の完了条件: `CI=1` かつ `retries: 0` で e2e が 3 回連続緑、`E2E_REST=1` の project `rest` が
   緑、`pnpm typecheck` にフェイクと e2e エントリが含まれる。
 - 計画 B2 の完了条件: perFile 閾値で `test:coverage` 緑、`routes/*.ts` が include に入っている。
+- 計画 B2 の実測(2026-09-07): perFile 有効化後の `pnpm run test:coverage` 全体通しは 208.30 秒
+  (exit 0、221 ファイル・2943 テスト全緑)。include には `editor/server/src/routes/*.ts`・
+  `editor/web/src/api/rest/*.ts`(`reviewRepo.ts`/`http.ts` の個別列挙を置換)・
+  `editor/web/src/api/repositories.ts` を追加。Task 1〜8 で本番コードへ入れた変更は 4 点:
+  `previewHost.bundleSafeToInline` export・`egressGuard` の `PortProbe` 注入・
+  `historyFiles`/`inlineDocScripts` の定数 export・`nunjucksRender` の到達不能分岐除去。
 - cold の `pnpm run ci` 壁時計は**計画 A の最初のタスク**として測り、0 章の表へ書く(設計時の
   試行は 2 回とも途中で停止され、1 回目は並走負荷で `hostGuard.test` が timeout した。有効な値が
   無いまま「10 分未満」の判定はしない)。段の合算(約 6.5 分)と coverage 段の実測(246〜276s)から、

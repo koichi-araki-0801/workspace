@@ -70,7 +70,10 @@ typecheck → test:coverage → build → test:e2e`（pdf-to-svg / graph-editor 
 カバレッジ include は「テスト済みのファイルだけを列挙する」方針で、正典は
 ルート `vitest.config.ts`。**セキュリティ上の関門（許可リスト・認可テーブル・
 egress 遮断・不変性チェック）は、テストの有無に関わらず include へ入れる** —
-閾値の外に置くと退行を検出できないため。
+閾値の外に置くと退行を検出できないため。**閾値はファイル単位**（`perFile: true`）。
+新規ファイルを include へ足すときは、そのファイル単体で 4 指標 85% を満たすテストを
+同時に入れる。単体の計測コマンドは `pnpm exec vitest run --project <p> --coverage
+--coverage.include='<file>' --coverage.reporter=text --coverage.thresholds.perFile=true <tests>`。
 
 web のテストは vitest の project が 2 つある。`test/**/*.dom.test.ts` は **`web-dom`（jsdom）**、
 それ以外の `test/**/*.test.ts` は **`web-node`（node）** で走る。jsdom の起動はファイルごとに
