@@ -35,14 +35,16 @@ export async function login(
 }
 
 /**
- * ロード中のスケルトンが消えるまで待つ。`animate-pulse` を持つのは `Skeleton.vue` だけなので、
- * 0 件 = 実データの描画完了。**画面遷移直後にそのまま呼ぶと、スケルトンがまだ 1 度も
- * 描画されていない瞬間を「0 件 = 完了」と誤認しうる**(`useAsyncResult` の `loading` は
- * 参照カウント式で初期値 false、スケルトン表示は `onMounted` の非同期処理が実際に走ってから)。
- * その画面固有の実データ要素を先に待ってから呼ぶこと(呼び出し側の責務)。
+ * ロード中の表示が消えるまで待つ。`animate-pulse` を持つのは `Skeleton.vue` だけ、
+ * `animate-spin` を持つのは各画面のローディングスピナーだけなので、両方 0 件 = 実データの
+ * 描画完了。**画面遷移直後にそのまま呼ぶと、スケルトンがまだ 1 度も描画されていない瞬間を
+ * 「0 件 = 完了」と誤認しうる**(`useAsyncResult` の `loading` は参照カウント式で初期値 false、
+ * スケルトン表示は `onMounted` の非同期処理が実際に走ってから)。その画面固有の実データ要素を
+ * 先に待ってから呼ぶこと(呼び出し側の責務)。
  */
 export async function waitForLoaded(page: Page): Promise<void> {
   await expect(page.locator('.animate-pulse')).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.locator('.animate-spin')).toHaveCount(0, { timeout: 15_000 });
 }
 
 /**
