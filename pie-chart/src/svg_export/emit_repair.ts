@@ -67,8 +67,11 @@ import {
   boxViewOverflowOfBox,
   boxViewOverflowMaxOf,
   oobLeaderCountFrom,
+  crossCountWithChanged,
+  throughCountWithChanged,
+  buildScoreBase,
 } from './leader_geometry.js';
-import type { Pt, Coord, LeaderGeometry } from './leader_geometry.js';
+import type { Pt, Coord, LeaderGeometry, ScoreBase } from './leader_geometry.js';
 import { radialFraction, pieClearanceWithinViewBox } from '../layout/geometry.js';
 import { topBandSonohokaZone } from '../layout/placement.js';
 import { FINAL_CONDENSE_MIN_SCALE } from './post_layout.js';
@@ -1593,9 +1596,46 @@ export function measureRepairVecFrom(
 ): RepairVec {
   if (cfg.perfCounters) cfg.perfCounters.measureRepairVec += 1;
   return {
-    cross: countLeaderCrossingsFrom(placements, geo),
+    cross: countLeaderCrossingsFrom(placements, geo, cfg),
     pieCross: leaderPieCrossCountFrom(geo.paths, cfg, coord),
-    through: countLeaderThroughLabelsFrom(placements, geo),
+    through: countLeaderThroughLabelsFrom(placements, geo, cfg),
+    inv: countAngularDiscordantPairsFrom(placements, coord, geo),
+    clips: geo.boxes.filter((lb) => boxViewOverflowOfBox(lb, coord) > 1).length,
+    oob: oobLeaderCountFrom(geo.paths, coord),
+    ovl: boxOverlapMaxOf(geo.boxes),
+    boxPie: boxPieIntrusionMaxOf(placements, geo.boxes, cfg),
+    view: boxViewOverflowMaxOf(geo.boxes, coord),
+  };
+}
+
+/**
+ * `base` を基準に、`changed` に載った placement が絡む対判定だけを数え直して採点する。
+ * `changed` の index は **経路も箱も変わりうる** とみなす (呼び出し側が「箱は動いていない」を
+ * 自己申告する形にすると、申告を誤ったときに出力が静かに変わる)。同名スライスがある入力
+ * (`base.usable === false`) と、変化が全件に及ぶ場合は全走査へ落ちる。
+ * `cross` / `through` 以外の 7 指標は `measureRepairVecFrom` と同じ式・同じ順序で書く
+ * (差分の有無で FP の結果が動かないことが要件)。
+ */
+export function measureRepairVecDelta(
+  base: ScoreBase,
+  placements: Placement[],
+  cfg: PieLayoutConfig,
+  coord: Coord,
+  changed: readonly number[],
+): RepairVec {
+  const geo = changed.reduce(
+    (g, i) => replaceLeaderGeometryAt(g, placements, cfg, coord, i),
+    base.geo,
+  );
+  if (!base.usable || changed.length >= placements.length) {
+    return measureRepairVecFrom(placements, cfg, coord, geo);
+  }
+  if (cfg.perfCounters) cfg.perfCounters.measureRepairVec += 1;
+  const set = new Set(changed);
+  return {
+    cross: crossCountWithChanged(placements, geo, base, set, cfg),
+    pieCross: leaderPieCrossCountFrom(geo.paths, cfg, coord),
+    through: throughCountWithChanged(placements, geo, base, set, cfg),
     inv: countAngularDiscordantPairsFrom(placements, coord, geo),
     clips: geo.boxes.filter((lb) => boxViewOverflowOfBox(lb, coord) > 1).length,
     oob: oobLeaderCountFrom(geo.paths, coord),
@@ -1829,21 +1869,13 @@ function tryBendGridOn(ctx: ResidualRepairCtx, p: Placement): boolean {
   const cur2 = vecOf();
   // 候補間で動くのは p の bend と 2 つの follows フラグだけで、これらは p の leader 折れ線にしか
   // 効かない (box は x/y と字幅から決まり bend を読まない)。他の leader と全 box は候補間で不変
-  // なので幾何は 1 回だけ集め、候補ごとに p の分だけ差し替えて測る (全体を作り直すのと同値)。
+  // なので、幾何と対判定の行列を 1 回だけ作り、候補ごとに p が絡む対だけ数え直す
+  // (全体を作り直して全対を判定するのと同値)。
   // p が placements の外なら差し替える index が無いので、従来どおり全体を測る。
   const i = placements.indexOf(p);
-  const base = i >= 0 ? collectLeaderGeometry(placements, cfg, coord) : null;
+  const base = i >= 0 ? buildScoreBase(placements, cfg, coord) : null;
   const measure = (): ResidualVec =>
-    base
-      ? toResidualVec(
-          measureRepairVecFrom(
-            placements,
-            cfg,
-            coord,
-            replaceLeaderGeometryAt(base, placements, cfg, coord, i),
-          ),
-        )
-      : vecOf();
+    base ? toResidualVec(measureRepairVecDelta(base, placements, cfg, coord, [i])) : vecOf();
   for (const f of [0.5, 0.35, 0.65, 0.2, 0.8]) {
     for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
       const th = tA + dT * f;
@@ -1887,8 +1919,9 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
       fy: p.leaderBendFollowsEndpointY,
       fx: p.leaderBendFollowsEndpointX,
     };
-    // `tryBendGridOn` と同じ理由で、候補間で不変な他の leader と全 box は 1 回だけ集める。
-    const base = bendFeasible ? collectLeaderGeometry(placements, cfg, coord) : null;
+    // `tryBendGridOn` と同じ理由で、候補間で不変な他の leader と全 box、およびそれらどうしの
+    // 対判定は 1 回だけ作る。
+    const base = bendFeasible ? buildScoreBase(placements, cfg, coord) : null;
     outer: for (const f of bendFeasible ? [0.5, 0.35, 0.65, 0.2, 0.8] : []) {
       for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
         const th = thA + dTh * f;
@@ -1897,14 +1930,7 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
         p.leaderBendFollowsEndpointY = false;
         p.leaderBendFollowsEndpointX = false;
         const v = base
-          ? toResidualVec(
-              measureRepairVecFrom(
-                placements,
-                cfg,
-                coord,
-                replaceLeaderGeometryAt(base, placements, cfg, coord, i),
-              ),
-            )
+          ? toResidualVec(measureRepairVecDelta(base, placements, cfg, coord, [i]))
           : vecOf();
         if (better(v, cur)) {
           if (process.env.PIE_CHART_DEBUG_REPAIR) {
@@ -1940,9 +1966,16 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
         const rimX = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - edgeY * edgeY));
         const targetRight = -(rimX + clearance);
         if (lb.right > targetRight) {
+          // シフトで動くのは p (= placements[i]) の箱と leader だけ、続く複合手で追加で動くのは
+          // bend 替えを**採用した**相手だけなので、動いた index だけを数え直せば足りる
+          // (`tryBendGridOn` は不採用なら bend を元へ戻すので、戻り値が false の相手は不動)。
+          const shiftBase = buildScoreBase(placements, cfg, coord);
+          const movedIdx = new Set<number>([i]);
+          const measure = (): ResidualVec =>
+            toResidualVec(measureRepairVecDelta(shiftBase, placements, cfg, coord, [...movedIdx]));
           p.x += targetRight - lb.right;
           clampPlacement(p);
-          let v = vecOf();
+          let v = measure();
           let ok = better(v, cur);
           // シフトで leader が隣と絡んだ場合は、自分と交差相手の bend 替えを重ねて複合手として
           // 再評価する (相手の bend が旧位置の箱を前提に張り出していることがある)。
@@ -1960,11 +1993,11 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
                   !placements[j].insideSlice &&
                   !placements[j].forceTopRight
                 ) {
-                  tryBendGridOn(ctx, placements[j]);
+                  if (tryBendGridOn(ctx, placements[j])) movedIdx.add(j);
                 }
               }
             }
-            v = vecOf();
+            v = measure();
             ok = better(v, cur);
           }
           if (process.env.PIE_CHART_DEBUG_REPAIR) {
@@ -1984,6 +2017,8 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
       // 候補2b: 左 rim 再ハグ。bend 替えで直らない時、現在の Y のまま箱を円外クリアランス X へ
       // 置き直す。円に食い込んだ箱 (label inside pie) を外へ出し、他 leader の回廊を塞ぐ
       // 被害者箱を退かす。
+      // 動くのは p だけだが採点は 1 回きりなので、差分ではなく全走査で測る。基準行列を作る費用
+      // 自体が全走査 1 回ぶんあり、採点 1 回では差分の節約で取り返せない。
       if (!adopted && p.x < 0) {
         adopted = trySeamMutation(
           placements,
@@ -2019,7 +2054,7 @@ export function hasNewPair(cand: Set<string>, base: Set<string>): boolean {
 // (x, y, baseline) を丸ごと交換すると両 leader が短い扇形へ組み替わり構造的に解ける。
 // 交差は ERROR・角度順逆転は WARN なので、この手に限り inv の悪化を許容する (他指標は非悪化)。
 function trySwapCrossingPairs(ctx: ResidualRepairCtx, cur: ResidualVec): boolean {
-  const { placements, cfg, coord, tol, tolPx, vecOf } = ctx;
+  const { placements, cfg, coord, tol, tolPx } = ctx;
   const allPaths = realLeaderPaths(placements, cfg, coord);
   const pairs: [number, number][] = [];
   for (let i = 0; i < allPaths.length; i += 1) {
@@ -2047,10 +2082,16 @@ function trySwapCrossingPairs(ctx: ResidualRepairCtx, cur: ResidualVec): boolean
     a.ovl <= b.ovl + tol &&
     a.view <= b.view + tolPx &&
     a.boxPie <= b.boxPie + tol;
+  // 交換で動くのは当事者 2 枚だけ。却下時は `trySeamMutation` が全 placement を巻き戻すので、
+  // 基準の幾何は次の対でもそのまま通用する (採用したらこの関数は即 return する)。最初に実際へ
+  // 試す対まで作成を遅らせ、対が全て除外される入力で無駄な全走査を出さない。
+  let swapBase: ScoreBase | null = null;
   for (const [ia, ib] of pairs) {
     const pa = placements[ia];
     const pb = placements[ib];
     if (pa.insideSlice || pb.insideSlice || pa.forceTopRight || pb.forceTopRight) continue;
+    swapBase ??= buildScoreBase(placements, cfg, coord);
+    const base = swapBase;
     const adopted = trySeamMutation(
       placements,
       () => {
@@ -2061,7 +2102,7 @@ function trySwapCrossingPairs(ctx: ResidualRepairCtx, cur: ResidualVec): boolean
         pb.baseline = tb;
       },
       () => {
-        const v = vecOf();
+        const v = toResidualVec(measureRepairVecDelta(base, placements, cfg, coord, [ia, ib]));
         const ok = swapBetter(v, cur);
         if (process.env.PIE_CHART_DEBUG_REPAIR) {
           console.error(

@@ -28,6 +28,7 @@ const perfCounters: PerfCounters = {
   realLeaderPaths: 0,
   measureRepairVec: 0,
   tryBendGridOn: 0,
+  pairTests: 0,
 };
 const t0 = performance.now();
 const { svg } = await renderPdfStylePieToSvg(items, { perfCounters });
