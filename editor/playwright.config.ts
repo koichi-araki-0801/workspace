@@ -32,7 +32,8 @@ export default defineConfig({
   reporter: process.env.CI ? [['html', { open: 'never' }], ['list']] : 'list',
   use: {
     baseURL: REST ? 'http://localhost:24691' : 'http://localhost:24681',
-    trace: 'on-first-retry',
+    // retries: 0 では「初回失敗」の trace を残さないと再現の手掛かりが無くなるため retain-on-failure にする。
+    trace: 'retain-on-failure',
   },
   projects: [
     {

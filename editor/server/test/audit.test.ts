@@ -1,8 +1,9 @@
 // =============================================================================
 // audit.test.ts — 監査ログ複写の実行面の差し替え(setAuditSink)を検証する
 // =============================================================================
-// D4 で `auditToDb` の呼び先がモジュール変数 `sink` になったので、`setAuditSink` で
-// フェイクへ差し替えたときに `SP.audit` の `登録` 操作へ正しく引数が渡ることを見る。
+// `auditToDb` の呼び先はモジュール変数なので、差し替えが効くことを固定する。
+// `setAuditSink` でフェイクへ差し替えたときに `SP.audit` の `登録` 操作へ
+// 正しく引数が渡ることを見る。
 import { describe, expect, it } from 'vitest';
 import { auditToDb, setAuditSink } from '../src/db/audit.js';
 import type { Row, SprocClient } from '../src/db/sproc.js';

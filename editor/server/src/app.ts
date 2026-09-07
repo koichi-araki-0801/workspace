@@ -100,6 +100,9 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   const sessionStore = createSessionStore(sproc);
   app.decorate('sessionStore', sessionStore);
   // 監査ログの DB 複写は logger 経由(グローバル)なので、宛先だけをここで差し込む。
+  // sink はプロセスグローバルな 1 つの変数で、複数の buildApp を呼ぶと最後に呼んだものの
+  // sink を共有する(本番は buildApp を 1 回しか呼ばないので問題無いが、テストは複数の
+  // app を逐次生成するため、後から作った app の呼び先が前の app の分まで差し替える)。
   setAuditSink(sproc);
   // 集約は 1 回だけ組み、ルートへは `register` の options で配る。プラグインを
   // `fastify-plugin` に通していないので、options はそのルート群の中に閉じる。

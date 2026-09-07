@@ -108,13 +108,15 @@ test('approver が承認すると確定ファイルと git コミットへ反映
   await openEditor(page, SEED_ID);
   await page.getByRole('link', { name: '承認' }).click();
 
-  await expect(page.locator('[data-summary="pending"]')).toContainText('1');
+  await expect(page.locator('[data-summary="pending"] .text-2xl')).toHaveText('1');
   const item = page.locator('[data-review-item]').first();
   await expect(item).toBeVisible();
   await item.getByRole('button', { name: '承認する' }).click();
 
   // 決着すると既定フィルタ(承認待ち)から外れる。承認済みの箱へ絞って決着表示を確かめる。
-  await expect(page.locator('[data-summary="pending"]')).toContainText('0', { timeout: 30_000 });
+  await expect(page.locator('[data-summary="pending"] .text-2xl')).toHaveText('0', {
+    timeout: 30_000,
+  });
   await page.locator('[data-summary="approved"]').click();
   const decided = page.locator('[data-review-item]').first();
   await expect(decided).toContainText('承認済み');

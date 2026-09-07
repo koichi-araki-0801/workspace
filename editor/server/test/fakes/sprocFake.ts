@@ -58,6 +58,9 @@ export interface FakeSeed {
 // 自己承認は職務分掌で拒否されるので、申請者と承認者は別人が要る。パスワードはユーザー名と
 // 同じにする: local の fixtures(users.json)と同じ規約なので、e2e の `login(page, user)` が
 // local / rest のどちらでも同じ引数で通る。
+// displayName は local fixtures とは意図的に別値にしてある(例: approver は「承認 花子」だが
+// local の精査担当は「精査花子」)。local/rest の両方を走らせる共有 spec は displayName の
+// 文言を assert しないこと。
 export const DEFAULT_USERS: readonly FakeUserSeed[] = [
   { username: 'editor', displayName: '編集 太郎', role: 'editor', password: 'editor' },
   { username: 'approver', displayName: '承認 花子', role: 'approver', password: 'approver' },

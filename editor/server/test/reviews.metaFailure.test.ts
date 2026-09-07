@@ -20,6 +20,9 @@ process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
 process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.REVIEWS_DIR = path.join(tmp, 'reviews');
 process.env.PENDING_DIR = path.join(tmp, 'pending');
+// 監査ログの DB 複写は setAuditSink を呼ぶ buildApp を通らないと realSproc のままなので、
+// env が立っていると実 DB へ出る。
+process.env.AUDIT_DB = 'false';
 
 // updateReviewMeta だけを差し替え、指定回数だけ失敗させる(他は実装のまま)。
 const metaFail = vi.hoisted(() => ({ remaining: 0 }));

@@ -29,13 +29,13 @@ test('結合PDF: 追加した順に文書が並んで /api/build/merge へ送ら
   await page.getByRole('button', { name: '検索' }).click();
 
   // 510155 を先に、510037 を後に追加する(結合順 = 追加順であることを本文の並びで確かめる)。
-  const rowLate = page.locator('tbody tr', { hasText: '510155' });
-  const rowEarly = page.locator('tbody tr', { hasText: '510037' }).first();
-  await expect(rowLate).toBeVisible();
+  const rowAddedFirst = page.locator('tbody tr', { hasText: '510155' });
+  const rowAddedSecond = page.locator('tbody tr', { hasText: '510037' }).first();
+  await expect(rowAddedFirst).toBeVisible();
 
-  await rowLate.getByRole('button', { name: '追加' }).click();
+  await rowAddedFirst.getByRole('button', { name: '追加' }).click();
   await expect(page.getByText('結合する順序(1件)')).toBeVisible();
-  await rowEarly.getByRole('button', { name: '追加' }).click();
+  await rowAddedSecond.getByRole('button', { name: '追加' }).click();
   await expect(page.getByText('結合する順序(2件)')).toBeVisible();
 
   await page.getByRole('button', { name: 'PDF 出力' }).click();

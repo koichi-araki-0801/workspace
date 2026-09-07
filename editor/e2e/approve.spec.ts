@@ -19,14 +19,14 @@ test('承認タブの「承認する」で区画が決着済み表示に変わ�
   await openEditor(page, SEED_ID);
   await page.getByRole('link', { name: '承認' }).click();
 
-  await expect(page.locator('[data-summary="pending"]')).toContainText('1');
+  await expect(page.locator('[data-summary="pending"] .text-2xl')).toHaveText('1');
   const item = page.locator('[data-review-item]').first();
   await expect(item).toBeVisible();
   await item.getByRole('button', { name: '承認する' }).click();
 
   // 決着後は既定フィルタ(承認待ち)からこの申請が外れ、要約箱の件数が動く。
-  await expect(page.locator('[data-summary="pending"]')).toContainText('0');
-  await expect(page.locator('[data-summary="approved"]')).toContainText('1');
+  await expect(page.locator('[data-summary="pending"] .text-2xl')).toHaveText('0');
+  await expect(page.locator('[data-summary="approved"] .text-2xl')).toHaveText('1');
   await expect(page.locator('[data-review-item]')).toHaveCount(0);
 
   // 「承認済み」の箱を押すと決着済み表示(承認済みバッジ + 承認者・日時)で 1 件出る。
