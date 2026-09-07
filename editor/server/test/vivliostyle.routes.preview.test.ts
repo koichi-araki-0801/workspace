@@ -55,43 +55,61 @@ vi.mock('../src/vivliostyle/build.js', () => ({
   prepareInlineDoc: async () => ({ dir: TEST_TMP_DIR, entry: path.join(TEST_TMP_DIR, 'x.html') }),
 }));
 
-/** 起動中セッション(id → mode/docBase/port)。実 Vite サーバは持たない。 */
-const sessions = new Map<string, { mode: 'inline' | 'project'; docBase: string; port: number }>();
+/**
+ * 起動中セッション。`meta` は `PreviewSessionMeta`(`previewManager.ts` の公開契約
+ * `{ id, mode, createdAt, expiresAt, url }`)そのものを保持し、`get`/`list` は加工せず
+ * この値を返す(実装は `owned()` が引いた `Session.meta` をそのまま返す形と対称)。
+ * `docBase`/`port` は `resolveFor`(中継専用)にしか要らない内部値なので meta には含めない。
+ */
+interface FakeSession {
+  meta: {
+    id: string;
+    mode: 'inline' | 'project';
+    createdAt: string;
+    expiresAt: string;
+    url: string;
+  };
+  docBase: string;
+  port: number;
+}
+const sessions = new Map<string, FakeSession>();
 
 vi.mock('../src/vivliostyle/previewServer.js', () => ({
   previewManager: {
     start: vi.fn(async (spec: { mode: 'inline' | 'project'; docBase: string }) => {
       const id = crypto.randomUUID();
-      sessions.set(id, { mode: spec.mode, docBase: spec.docBase, port: 1 });
       const now = Date.now();
-      return {
+      const meta = {
         id,
         mode: spec.mode,
         createdAt: new Date(now).toISOString(),
         expiresAt: new Date(now + 60_000).toISOString(),
         url: `/api/preview/${id}/`,
       };
+      sessions.set(id, { meta, docBase: spec.docBase, port: 1 });
+      return meta;
     }),
-    get: vi.fn((id: string) => {
-      const s = sessions.get(id);
-      if (!s) return undefined;
-      return {
-        id,
-        mode: s.mode,
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date().toISOString(),
-        url: `/api/preview/${id}/`,
-      };
-    }),
+    get: vi.fn((id: string) => sessions.get(id)?.meta),
     stop: vi.fn(async (id: string) => sessions.delete(id)),
     resolveFor: vi.fn((id: string) => {
       const s = sessions.get(id);
       return s ? { port: s.port, docBase: s.docBase } : undefined;
     }),
-    list: vi.fn(() => [...sessions.keys()]),
+    list: vi.fn(() => [...sessions.values()].map((s) => s.meta)),
     touch: vi.fn(() => true),
   },
 }));
+
+/** 展開ディレクトリの残骸(拒否時に残っていないことの確認用。entry.test.ts と同じ手法)。 */
+function tmpProjectDirs(): string[] {
+  try {
+    return fs
+      .readdirSync(TEST_TMP_DIR)
+      .filter((n) => n.startsWith('vivlio-') && !n.endsWith('.zip'));
+  } catch {
+    return [];
+  }
+}
 
 describe('vivliostyle build/preview の HTTP 契約', () => {
   let app: FastifyInstance;
@@ -188,11 +206,24 @@ describe('vivliostyle build/preview の HTTP 契約', () => {
     }
   });
 
-  it('GET /preview はセッション一覧を返す(previewManager.list への委譲)', async () => {
-    await app.inject({ method: 'POST', url: '/preview', payload: { html: '<p>x</p>', css: '' } });
+  // `previewManager.list(actor)` は `PreviewSessionMeta[]`(`{ id, mode, createdAt, expiresAt,
+  // url }`)を返す(`previewManager.ts:210-214`)。mock がそれと違う形(id 文字列の配列など)を
+  // 返すと、ルートが実際に mock の戻りをそのまま JSON へ流しているかを検査できない
+  // (`Array.isArray` だけでは形の食い違いを見逃す)。
+  it('GET /preview はセッション一覧(previewManager.list の戻り = meta 配列)をそのまま返す', async () => {
+    const started = (
+      await app.inject({ method: 'POST', url: '/preview', payload: { html: '<p>x</p>', css: '' } })
+    ).json();
     const res = await app.inject({ method: 'GET', url: '/preview' });
     expect(res.statusCode).toBe(200);
-    expect(Array.isArray(res.json())).toBe(true);
+    const list = res.json() as Array<{ id: string; mode: string; createdAt: string; url: string }>;
+    const entry = list.find((s) => s.id === started.id);
+    expect(entry).toMatchObject({
+      id: started.id,
+      mode: 'inline',
+      url: `/api/preview/${started.id}/`,
+    });
+    expect(typeof entry?.createdAt).toBe('string');
   });
 
   it('POST /preview(inline)は 201 でセッション meta、不正ボディは 400', async () => {
@@ -217,6 +248,26 @@ describe('vivliostyle build/preview の HTTP 契約', () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ mode: 'project' });
+  });
+
+  // `/build/project` の `?entry=` 封じ込めは `vivliostyleRoutes.entry.test.ts` が見るが、
+  // preview 起動(zip)は別ハンドラで同じ `projectOptions()` を呼ぶ独立した経路であり
+  // (`vivliostyle.routes.ts:196-204`)、そちらでは未検証だった。ここは SSRF/path traversal の
+  // 入口そのものなので、展開後ディレクトリの後始末(`cleanupProject`)込みで固定する。
+  it('POST /preview(zip): 不正な ?entry= は 400 で、展開ディレクトリを残さない', async () => {
+    const before = tmpProjectDirs();
+    const startedBefore = sessions.size;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/preview?entry=../../../../etc/passwd',
+      headers: { 'content-type': 'application/zip' },
+      payload: zip,
+    });
+    expect(res.statusCode).toBe(400);
+    // `entry` 検証(`projectOptions`)は `previewManager.start` を呼ぶより前で失敗するので、
+    // 新規セッションが 1 件も増えない(= start に到達していない)ことも併せて固定する。
+    expect(sessions.size).toBe(startedBefore);
+    expect(tmpProjectDirs().filter((n) => !before.includes(n))).toEqual([]);
   });
 
   it('GET /preview/:id は meta、未知 id は 404。DELETE は 204、二度目は 404(存在オラクルにしない)', async () => {

@@ -13,13 +13,19 @@ import { apiPaths } from '@editor/shared';
 import { AddNoteRequest, UpdateNoteRequest } from '@editor/shared/schemas';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ROUTE_POLICY } from '../src/routes/routeGuards.js';
 
 // config を import する前に一時ディレクトリへ向ける(history.routes.test.ts と同方針)。
 // メモは `dataRoot/notes/<templateId>.json` に永続化されるため、`DATA_ROOT` だけで足りる
 // (専用の `NOTES_DIR` という設定キーは存在しない)。
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-notes-routes-'));
 process.env.DATA_ROOT = tmp;
+
+// ⚠ `routeGuards.js` は `middleware/auth.js` 経由で `config.js` を静的 import する。ESM は
+// import 先を先に評価するため、これを本ファイル先頭の静的 import に置くと(過去の事故)
+// 上の `process.env.DATA_ROOT` 代入より前に `config.js` が確定し、開発機の実 `dataRoot`
+// (既定 `../../editor-data`)へ書き込む事故になる(`generate.routes.test.ts` の
+// `sprocFake.js` と同じ理由の回避)。top-level await で env 設定の**後**に動的 import する。
+const { ROUTE_POLICY } = await import('../src/routes/routeGuards.js');
 
 /** `x-test-user` ヘッダがあれば `request.user` へ注入する(history.routes.test.ts と同方針)。 */
 const as = (username: string): Record<string, string> => ({ 'x-test-user': username });
