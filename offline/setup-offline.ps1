@@ -76,19 +76,6 @@ foreach ($f in @($LockFile, $PkgJson)) {
   }
 }
 
-# リポジトリ直下 → bk\ の順で、バンドルと bundle.key が同じディレクトリに揃っている組だけを
-# 使う（直下の新しいバンドルと bk\ の古い鍵のような取り違えを避ける）。
-function Find-LocalBundlePair {
-  foreach ($dir in @($RepoRoot, $Bk)) {
-    $b = Join-Path $dir $BundleName
-    $k = Join-Path $dir 'bundle.key'
-    if ((Test-Path -LiteralPath $b) -and (Test-Path -LiteralPath $k)) {
-      return @{ Bundle = $b; Key = $k }
-    }
-  }
-  return $null
-}
-
 # curl.exe があればストリーミング DL、無ければ Invoke-WebRequest（PS5.1 の進捗描画は大容量で極端に遅い）。
 $curl = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
 function Download-File([string]$url, [string]$dest) {
@@ -106,7 +93,8 @@ function Download-File([string]$url, [string]$dest) {
 
 # ---- [1/5] バンドルの用意（手元優先、無ければ Release から取得） ----
 Write-Host '[1/5] バンドルを確認...'
-$local = Find-LocalBundlePair
+# リポジトリ直下 → bk\ の順で、バンドルと bundle.key が同じディレクトリに揃っている組だけを使う。
+$local = Find-LocalBundlePair -Directories @($RepoRoot, $Bk) -BundleName $BundleName
 $downloaded = $false
 if ($local) {
   $Bundle  = $local.Bundle
@@ -126,11 +114,8 @@ if ($local) {
     Download-File "$AssetBase/$BundleName"        $WorkFile
     Download-File "$AssetBase/$BundleName.sha256" $WorkSha
     Download-File "$AssetBase/bundle.key"         $WorkKey
-    # Release に並ぶ .sha256 で転送破損を検知する（形式: "<sha256>  <ファイル名>"）。
-    $expected = ((Get-Content -LiteralPath $WorkSha -Raw).Trim() -split '\s+')[0]
-    if (-not $expected -or $expected -notmatch '^[0-9a-fA-F]{64}$') {
-      throw '.sha256 の形式が想定外です。'
-    }
+    # Release に並ぶ .sha256 で転送破損を検知する（配信元と同じ場所の値なので、すり替えの検知には使えない）。
+    $expected = Get-Sha256FromSidecar -Path $WorkSha
     Assert-FileSha256 -File $WorkFile -ExpectedSha256 $expected -Label 'bundle'
   } catch {
     Write-Error "[error] $($_.Exception.Message)`n  タグ / ネットワーク / リポジトリの公開状態を確認してください。"
