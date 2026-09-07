@@ -57,7 +57,7 @@ Windows では `editor/start.bat` をダブルクリックでも起動できま�
 ```bash
 pnpm build       # tsc -b editor/server（shared→server）後に web をビルド
 pnpm test        # ルート集約の vitest（projects で全 workspace を一括実行。web は web-dom / web-node の 2 project）
-pnpm test:coverage  # カバレッジ付き（include 列挙＝テスト済みのみ・全指標 85% 閾値）
+pnpm test:coverage  # カバレッジ付き（include 列挙＝テスト済みのみ・ファイル単位で全指標 85% 閾値）
 pnpm typecheck   # 全 workspace の型チェック（shared 先行ビルド込み）
 pnpm knip        # 未使用 export / 依存の検出（knip.json）
 pnpm ci          # CI 集約（下記の全段）
