@@ -69,6 +69,7 @@ import {
   oobLeaderCountFrom,
   crossCountWithChanged,
   throughCountWithChanged,
+  buildScoreBase,
 } from './leader_geometry.js';
 import type { Pt, Coord, LeaderGeometry, ScoreBase } from './leader_geometry.js';
 import { radialFraction, pieClearanceWithinViewBox } from '../layout/geometry.js';
@@ -1868,21 +1869,13 @@ function tryBendGridOn(ctx: ResidualRepairCtx, p: Placement): boolean {
   const cur2 = vecOf();
   // 候補間で動くのは p の bend と 2 つの follows フラグだけで、これらは p の leader 折れ線にしか
   // 効かない (box は x/y と字幅から決まり bend を読まない)。他の leader と全 box は候補間で不変
-  // なので幾何は 1 回だけ集め、候補ごとに p の分だけ差し替えて測る (全体を作り直すのと同値)。
+  // なので、幾何と対判定の行列を 1 回だけ作り、候補ごとに p が絡む対だけ数え直す
+  // (全体を作り直して全対を判定するのと同値)。
   // p が placements の外なら差し替える index が無いので、従来どおり全体を測る。
   const i = placements.indexOf(p);
-  const base = i >= 0 ? collectLeaderGeometry(placements, cfg, coord) : null;
+  const base = i >= 0 ? buildScoreBase(placements, cfg, coord) : null;
   const measure = (): ResidualVec =>
-    base
-      ? toResidualVec(
-          measureRepairVecFrom(
-            placements,
-            cfg,
-            coord,
-            replaceLeaderGeometryAt(base, placements, cfg, coord, i),
-          ),
-        )
-      : vecOf();
+    base ? toResidualVec(measureRepairVecDelta(base, placements, cfg, coord, [i])) : vecOf();
   for (const f of [0.5, 0.35, 0.65, 0.2, 0.8]) {
     for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
       const th = tA + dT * f;
@@ -1926,8 +1919,9 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
       fy: p.leaderBendFollowsEndpointY,
       fx: p.leaderBendFollowsEndpointX,
     };
-    // `tryBendGridOn` と同じ理由で、候補間で不変な他の leader と全 box は 1 回だけ集める。
-    const base = bendFeasible ? collectLeaderGeometry(placements, cfg, coord) : null;
+    // `tryBendGridOn` と同じ理由で、候補間で不変な他の leader と全 box、およびそれらどうしの
+    // 対判定は 1 回だけ作る。
+    const base = bendFeasible ? buildScoreBase(placements, cfg, coord) : null;
     outer: for (const f of bendFeasible ? [0.5, 0.35, 0.65, 0.2, 0.8] : []) {
       for (const rPx of [2.5, 5, 9, 14, 22, 34]) {
         const th = thA + dTh * f;
@@ -1936,14 +1930,7 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
         p.leaderBendFollowsEndpointY = false;
         p.leaderBendFollowsEndpointX = false;
         const v = base
-          ? toResidualVec(
-              measureRepairVecFrom(
-                placements,
-                cfg,
-                coord,
-                replaceLeaderGeometryAt(base, placements, cfg, coord, i),
-              ),
-            )
+          ? toResidualVec(measureRepairVecDelta(base, placements, cfg, coord, [i]))
           : vecOf();
         if (better(v, cur)) {
           if (process.env.PIE_CHART_DEBUG_REPAIR) {
