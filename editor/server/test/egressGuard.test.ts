@@ -415,13 +415,11 @@ describe('egressGuard — 中継の端', () => {
     }
   });
 
-  it('上流がヘッダ送信後に切れても 502 へ書き換えない', async () => {
+  it('上流がヘッダ送信後に切れても 502 へ書き換えず、応答を閉じる(ハングしない)', async () => {
     // 応答ヘッダを送った後の premature close は `up`(IncomingMessage)側の 'aborted'/'error'
-    // として現れるが、中継は `up.pipe(res)` で繋ぐだけでそれを購読しておらず、
-    // `upstream.on('error')`(ClientRequest 側)はヘッダ送信**前**の接続エラーでしか発火しない。
-    // つまり中継は上流の途中切断を検知して応答を終端せず、この経路の client は timeout する。
-    // ゆえにここで固定できるのは「502 へ書き換えない」ことだけで、応答を終端しないこと自体は
-    // 別途修正する既知の欠陥。client 側 timeout を「合格の一形態」と読まないこと。
+    // として現れる。中継はこれを購読して `res` を破棄するので、client は「本文が途中で切れた」
+    // ことを接続断として受け取れる。ヘッダは送信済みなので 502 への書き換えはできず、
+    // 転送の失敗を伝える手段はソケットを閉じることだけである。
     const b = await startFakeBuild('');
     b.origin.removeAllListeners('request');
     b.origin.on('request', (_req, res) => {
@@ -430,32 +428,89 @@ describe('egressGuard — 中継の端', () => {
       res.socket?.destroy();
     });
     const target = `http://127.0.0.1:${b.originPort}/`;
-    const outcome = await new Promise<{ status: number } | Error>((resolve) => {
-      const req = http.request(
-        {
-          host: b.proxyUrl.hostname,
-          port: Number(b.proxyUrl.port),
-          method: 'GET',
-          path: target,
-          headers: { host: new URL(target).host },
-        },
-        (res) => {
-          res.resume();
-          res.on('end', () => resolve({ status: res.statusCode ?? 0 }));
-          res.on('error', (e) => resolve(e));
-        },
-      );
-      req.on('error', (e) => resolve(e));
-      // 上記のとおりこの経路は client 側 timeout に落ちるので、テスト自体が vitest の既定
-      // タイムアウト(5000ms)で落ちないよう手前で打ち切る。打ち切りの時刻は主張しない。
-      req.setTimeout(2000, () => {
-        req.destroy();
-        resolve(new Error('client timeout'));
-      });
-      req.end();
-    });
-    expect(outcome instanceof Error || outcome.status === 200).toBe(true);
+    // ハングが observable になる唯一の経路が client 側 timeout なので、他の失敗と型で
+    // 区別する(`Error` で表すと `instanceof Error` の主張がハングを合格として飲み込む)。
+    const CLIENT_TIMEOUT = Symbol('client timeout');
+    const outcome = await new Promise<{ status: number } | Error | typeof CLIENT_TIMEOUT>(
+      (resolve) => {
+        const req = http.request(
+          {
+            host: b.proxyUrl.hostname,
+            port: Number(b.proxyUrl.port),
+            method: 'GET',
+            path: target,
+            headers: { host: new URL(target).host },
+          },
+          (res) => {
+            res.resume();
+            res.on('end', () => resolve({ status: res.statusCode ?? 0 }));
+            res.on('error', (e) => resolve(e));
+          },
+        );
+        req.on('error', (e) => resolve(e));
+        // vitest の既定テストタイムアウト(5000ms)より十分短く切る。
+        req.setTimeout(2000, () => {
+          req.destroy();
+          resolve(CLIENT_TIMEOUT);
+        });
+        req.end();
+      },
+    );
+    // 上流が切れた事実は「200 のまま打ち切られる」か「client 側のエラー」として現れる。
+    // client 側の timeout に落ちたら中継がハングしている。
+    expect(outcome).not.toBe(CLIENT_TIMEOUT);
+    expect(outcome instanceof Error || (outcome as { status: number }).status === 200).toBe(true);
     await stopFakeBuild(b);
+  });
+
+  it('client が先に切れたら上流への要求も畳む(上流を開いたまま残さない)', async () => {
+    // client が消えた後も上流への要求が生き続けると、枠を返した後まで上流のソケットを
+    // 掴んだままになる(組版が終わっても中継先が閉じられない)。
+    const b = await startFakeBuild('');
+    b.origin.removeAllListeners('request');
+    // 上流は応答を終端せずに保持する。client が切った後で上流側の接続が閉じるなら、
+    // 中継が上流への要求を畳んだということ。
+    const upstreamClosed = new Promise<'closed'>((resolve) => {
+      b.origin.on('request', (_req, res) => {
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.write('partial');
+        res.on('close', () => resolve('closed'));
+      });
+    });
+    const target = `http://127.0.0.1:${b.originPort}/`;
+    try {
+      await new Promise<void>((resolve) => {
+        const req = http.request(
+          {
+            host: b.proxyUrl.hostname,
+            port: Number(b.proxyUrl.port),
+            method: 'GET',
+            path: target,
+            headers: { host: new URL(target).host },
+          },
+          (res) => {
+            // ヘッダと本文の一部を受け取った時点で client を落とす。
+            res.once('data', () => {
+              req.destroy();
+              resolve();
+            });
+          },
+        );
+        req.on('error', () => resolve());
+        req.end();
+      });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const stillOpen = new Promise<'open'>((resolve) => {
+        timer = setTimeout(() => resolve('open'), 2000);
+      });
+      const outcome = await Promise.race([upstreamClosed, stillOpen]);
+      clearTimeout(timer);
+      expect(outcome).toBe('closed');
+    } finally {
+      // 上流を掴んだままだと `origin.close` が返らないので、接続ごと落としてから畳む。
+      b.origin.closeAllConnections();
+      await stopFakeBuild(b);
+    }
   });
 
   it('release は冪等で、stopEgressGuard の後に呼んでも二重 close にならない', async () => {

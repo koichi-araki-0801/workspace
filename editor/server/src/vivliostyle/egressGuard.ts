@@ -298,13 +298,25 @@ function handleRequest(
     },
     (up) => {
       res.writeHead(up.statusCode ?? 502, up.headers);
+      // 上流がヘッダ送信後に切れたときに応答を終端する。`pipe` は元の stream のエラーを
+      // 宛先へ伝えず宛先も閉じないので、購読が無いと client は本文の終端を待ち続ける
+      // (`upstream` の 'error' は応答**前**の接続エラーでしか発火しない)。ヘッダは送信済みで
+      // 502 へは書き換えられないため、転送が失敗したことはソケットを閉じて伝えるほかない。
+      up.on('aborted', () => res.destroy());
+      up.on('error', () => res.destroy());
       up.pipe(res);
     },
   );
+  // `timeout` オプションはソケットの無通信タイマを張るだけで、Node は自動で破棄しない。
+  // 購読が無いと、黙り込んだ上流を待つ中継が build のタイムアウトまで枠を占有する。
+  upstream.on('timeout', () => upstream.destroy());
   upstream.on('error', () => {
     if (!res.headersSent) res.statusCode = 502;
     res.end();
   });
+  // client が先に消えたときに上流への要求だけが生き残らないようにする(枠を返した後まで
+  // 上流のソケットを掴んだままになる)。
+  res.on('close', () => upstream.destroy());
   req.pipe(upstream);
 }
 
