@@ -1593,9 +1593,9 @@ export function measureRepairVecFrom(
 ): RepairVec {
   if (cfg.perfCounters) cfg.perfCounters.measureRepairVec += 1;
   return {
-    cross: countLeaderCrossingsFrom(placements, geo),
+    cross: countLeaderCrossingsFrom(placements, geo, cfg),
     pieCross: leaderPieCrossCountFrom(geo.paths, cfg, coord),
-    through: countLeaderThroughLabelsFrom(placements, geo),
+    through: countLeaderThroughLabelsFrom(placements, geo, cfg),
     inv: countAngularDiscordantPairsFrom(placements, coord, geo),
     clips: geo.boxes.filter((lb) => boxViewOverflowOfBox(lb, coord) > 1).length,
     oob: oobLeaderCountFrom(geo.paths, coord),

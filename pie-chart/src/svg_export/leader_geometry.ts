@@ -883,18 +883,27 @@ export function leaderCrossingPairs(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): Set<string> {
-  return crossingPairsFrom(placements, realLeaderPaths(placements, cfg, coord));
+  return crossingPairsFrom(placements, realLeaderPaths(placements, cfg, coord), cfg);
 }
 
-/** `leaderCrossingPairs` の本体 (leader 折れ線を引数から受ける)。 */
-function crossingPairsFrom(placements: Placement[], paths: (Pt[] | null)[]): Set<string> {
+/**
+ * `leaderCrossingPairs` の本体 (leader 折れ線を引数から受ける)。`cfg` は `perfCounters` を
+ * 数えるためだけの任意引数で、渡さない呼出も従来どおり動く (計数されないだけ)。
+ */
+function crossingPairsFrom(
+  placements: Placement[],
+  paths: (Pt[] | null)[],
+  cfg?: PieLayoutConfig,
+): Set<string> {
   const pairs = new Set<string>();
   for (let i = 0; i < paths.length; i += 1) {
     const pa = paths[i];
     if (!pa) continue;
     for (let j = i + 1; j < paths.length; j += 1) {
       const pb = paths[j];
-      if (!pb || !pathsCross(pa, pb)) continue;
+      if (!pb) continue;
+      if (cfg?.perfCounters) cfg.perfCounters.pairTests += 1;
+      if (!pathsCross(pa, pb)) continue;
       const [x, y] = [placements[i].item.name, placements[j].item.name].sort();
       pairs.add(`${x}×${y}`);
     }
@@ -912,8 +921,12 @@ export function countLeaderCrossings(
 }
 
 /** `countLeaderCrossings` の事前計算版 (`collectLeaderGeometry` の結果から数える)。 */
-export function countLeaderCrossingsFrom(placements: Placement[], geo: LeaderGeometry): number {
-  return crossingPairsFrom(placements, geo.paths).size;
+export function countLeaderCrossingsFrom(
+  placements: Placement[],
+  geo: LeaderGeometry,
+  cfg?: PieLayoutConfig,
+): number {
+  return crossingPairsFrom(placements, geo.paths, cfg).size;
 }
 
 /**
@@ -929,14 +942,18 @@ export function leaderThroughPairs(
 ): Set<string> {
   const paths = realLeaderPaths(placements, cfg, coord);
   const boxes = projectBoxesToPixels(placements, cfg, coord);
-  return throughPairsFrom(placements, paths, boxes);
+  return throughPairsFrom(placements, paths, boxes, cfg);
 }
 
-/** `leaderThroughPairs` の本体 (leader 折れ線と pixel box を引数から受ける)。 */
+/**
+ * `leaderThroughPairs` の本体 (leader 折れ線と pixel box を引数から受ける)。`cfg` は
+ * `perfCounters` を数えるためだけの任意引数。
+ */
 function throughPairsFrom(
   placements: Placement[],
   paths: (Pt[] | null)[],
   pixelBoxes: PixelBox[],
+  cfg?: PieLayoutConfig,
 ): Set<string> {
   const pairs = new Set<string>();
   for (let i = 0; i < paths.length; i += 1) {
@@ -944,6 +961,7 @@ function throughPairsFrom(
     if (!pts) continue;
     for (let j = 0; j < placements.length; j += 1) {
       if (j === i) continue;
+      if (cfg?.perfCounters) cfg.perfCounters.pairTests += 1;
       if (leaderCrossesBox(pts, pixelBoxes[j]))
         pairs.add(`${placements[i].item.name}>${placements[j].item.name}`);
     }
@@ -961,8 +979,12 @@ export function countLeaderThroughLabels(
 }
 
 /** `countLeaderThroughLabels` の事前計算版。 */
-export function countLeaderThroughLabelsFrom(placements: Placement[], geo: LeaderGeometry): number {
-  return throughPairsFrom(placements, geo.paths, geo.pixelBoxes).size;
+export function countLeaderThroughLabelsFrom(
+  placements: Placement[],
+  geo: LeaderGeometry,
+  cfg?: PieLayoutConfig,
+): number {
+  return throughPairsFrom(placements, geo.paths, geo.pixelBoxes, cfg).size;
 }
 
 /** 折れ線の全長 (logical)。leader の「短さ」を測るのに使う。 */

@@ -326,6 +326,12 @@ export interface PerfCounters {
   realLeaderPaths: number;
   measureRepairVec: number;
   tryBendGridOn: number;
+  /**
+   * 対判定の回数 (leader 同士の交差 1 対 + leader と box の貫通 1 対を、それぞれ 1 と数える)。
+   * 採点の計算量そのもので、差分計算の効き目はこの回数の減りで測る (壁時計はトランスパイラの
+   * オーバーヘッドを含むため段階間の比較に使えない)。
+   */
+  pairTests: number;
 }
 
 /**
