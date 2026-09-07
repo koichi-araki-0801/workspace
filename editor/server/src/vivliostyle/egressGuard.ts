@@ -148,14 +148,27 @@ let sharedStarting: Promise<string> | undefined;
  * `BUILD_PORT_SPAN` 個を機械的に取るので、番地の巡り合わせで API ポートを覆う可能性が
  * 理屈の上では残る。ここが覆われると、組版ブラウザから我々自身の API を叩けてしまう
  * (認証 cookie は載らないが、無認証面がある限り最悪の当たりになる)。
+ *
+ * `port` は呼び出し側で解決済みの値を受け取る(`handleRequest` 参照)。判定に使うポートと
+ * 実際に転送するポートが 1 か所ずつ別々に `target.port === '' ? 80 : …` を評価すると、
+ * 同じ URL でも「判定した宛先」と「転送した宛先」がずれる余地が構造として残るため。
  */
-function isForwardableTarget(target: URL, allowed: ReadonlySet<number>): boolean {
-  if (!isLoopbackHost(target.hostname)) return false;
-  const port = target.port === '' ? 80 : Number(target.port);
+function isForwardableTarget(
+  hostname: string,
+  port: number,
+  allowed: ReadonlySet<number>,
+): boolean {
+  if (!isLoopbackHost(hostname)) return false;
   if (port === config.port) return false;
   if (relayPorts.has(port)) return false;
   return allowed.has(port);
 }
+
+/**
+ * ポートを実際に押さえる関数の型。既定は `listenProbe`(実際に bind する)で、テストが
+ * 失敗パターン(先客あり・全滅)を注入するために差し替えられるよう export する。
+ */
+export type PortProbe = (port: number) => Promise<net.Server>;
 
 /** 指定ポート(0 なら任意の空き)を実際に押さえる。押さえられなければ reject。 */
 function listenProbe(port: number): Promise<net.Server> {
@@ -188,13 +201,13 @@ function closeProbe(probe: net.Server): Promise<void> {
  * 外れた番地の probe は**閉じずに握ったまま**次の試行へ進む。閉じてしまうと OS が同じ番地を
  * 配り直し、同じ理由で外し続ける(進捗しない)。全部まとめて最後に閉じる。
  */
-async function pickFreePortSpan(): Promise<number[]> {
+export async function pickFreePortSpan(probe: PortProbe = listenProbe): Promise<number[]> {
   const held: net.Server[] = [];
   try {
     for (let attempt = 0; attempt < PORT_SPAN_ATTEMPTS; attempt += 1) {
       let base: number;
       try {
-        const head = await listenProbe(0);
+        const head = await probe(0);
         held.push(head);
         base = (head.address() as AddressInfo).port;
       } catch {
@@ -207,7 +220,7 @@ async function pickFreePortSpan(): Promise<number[]> {
       let free = true;
       for (const p of ports.slice(1)) {
         try {
-          held.push(await listenProbe(p));
+          held.push(await probe(p));
         } catch {
           // 連番の途中に先客が居た(または 65535 を跨いだ)。番地を替えて取り直す。
           free = false;
@@ -233,10 +246,10 @@ async function pickFreePortSpan(): Promise<number[]> {
  */
 let pickQueue: Promise<unknown> = Promise.resolve();
 
-function pickFreePortSpanSerialized(): Promise<number[]> {
+export function pickFreePortSpanSerialized(probe?: PortProbe): Promise<number[]> {
   const next = pickQueue.then(
-    () => pickFreePortSpan(),
-    () => pickFreePortSpan(),
+    () => pickFreePortSpan(probe),
+    () => pickFreePortSpan(probe),
   );
   // 直前の失敗で行列を止めない(失敗した約束を繋ぐと以後の全予約が同じ失敗を再生する)。
   pickQueue = next.catch(() => undefined);
@@ -267,7 +280,9 @@ function handleRequest(
     refuse(res, String(req.url));
     return;
   }
-  if (target.protocol !== 'http:' || !isForwardableTarget(target, allowed)) {
+  // 中継先ポートは判定と転送で同じ値でなければならないので 1 回だけ解決する。
+  const port = target.port === '' ? 80 : Number(target.port);
+  if (target.protocol !== 'http:' || !isForwardableTarget(target.hostname, port, allowed)) {
     refuse(res, target.href);
     return;
   }
@@ -275,7 +290,7 @@ function handleRequest(
     {
       protocol: 'http:',
       host: target.hostname,
-      port: target.port === '' ? 80 : Number(target.port),
+      port,
       method: req.method,
       path: `${target.pathname}${target.search}`,
       headers: req.headers,

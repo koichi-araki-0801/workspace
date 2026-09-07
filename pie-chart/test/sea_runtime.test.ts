@@ -7,8 +7,8 @@
 // `startsWith` / `includes` / 拡張子判定へ緩めた実装がここで落ちるようにしてある。
 // =============================================================================
 
-import { createRequire } from 'node:module';
-import { describe, expect, it } from 'vitest';
+import Module, { createRequire } from 'node:module';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   HB_WASM_SENTINEL,
@@ -21,6 +21,35 @@ import {
   readSeaAsset,
   resolveSeaRequest,
 } from '../src/runtime/seaRuntime.js';
+
+type Runtime = typeof import('../src/runtime/seaRuntime.js');
+type ModuleLoad = (request: string, ...rest: unknown[]) => unknown;
+const internals = Module as unknown as { _resolveFilename?: unknown; _load?: ModuleLoad };
+const originalResolve = internals._resolveFilename;
+const originalLoad = internals._load;
+
+/**
+ * SEA の ambient `require('node:sea')` の戻り値を装う。vitest(vite-node)はモジュールごとに
+ * `createRequire(href)` で作った**本物の** require をラッパ関数のローカル引数として注入する
+ * ため、`vi.stubGlobal('require', ...)` はこの引数に隠れて届かない(グローバルの `require` を
+ * 差し替えても、実行中のモジュールはローカル引数の方を見る)。実 require が最終的に通す
+ * `Module._load` を `'node:sea'` だけ差し替える形で装う(他の specifier は元の実装へ素通し)。
+ */
+function stubSeaRequire(api: unknown): void {
+  internals._load = (request: string, ...rest: unknown[]) => {
+    if (request === 'node:sea') {
+      if (api instanceof Error) throw api;
+      return api;
+    }
+    return (originalLoad as ModuleLoad)(request, ...rest);
+  };
+}
+
+/** モジュール内 `guardsInstalled` フラグを毎回まっさらにする。 */
+async function freshRuntime(): Promise<Runtime> {
+  vi.resetModules();
+  return import('../src/runtime/seaRuntime.js');
+}
 
 describe('SEA アセットの許可リスト', () => {
   it('許可キーはメンバシップ判定で受ける', () => {
@@ -121,5 +150,55 @@ describe('dev(非 SEA)では何もしない', () => {
     installSeaGuards();
     // 封鎖が dev に漏れると、テストや tsx 実行が丸ごと動かなくなる。
     expect(() => req.resolve('subset-font')).not.toThrow();
+  });
+});
+
+// `Module._load` / `Module._resolveFilename` の書換えはプロセス全体へ波及するため、
+// このブロックの各 it は必ず afterEach で両方を元に戻す(失敗時も afterEach は走るので
+// 後続テストへ漏れない)。
+afterEach(() => {
+  internals._load = originalLoad;
+  internals._resolveFilename = originalResolve;
+});
+
+describe('SEA 実行時の経路', () => {
+  it('require が node:sea を投げれば非 SEA(dev と同じ振る舞い)', async () => {
+    stubSeaRequire(new Error('no sea'));
+    const rt = await freshRuntime();
+    expect(rt.isSea()).toBe(false);
+  });
+
+  it('SEA では許可キーのアセットを getAsset のコピーで返す', async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    stubSeaRequire({ isSea: () => true, getAsset: () => bytes.buffer.slice(0) });
+    const rt = await freshRuntime();
+    expect(rt.isSea()).toBe(true);
+    expect([...rt.readSeaAsset('hb-subset.wasm')]).toEqual([1, 2, 3]);
+    expect(() => rt.readSeaAsset('..\\evil.woff2')).toThrow(/not in the allowlist/);
+  });
+
+  it('SEA では installSeaGuards が解決封鎖を張り、2 度目は何もしない', async () => {
+    // `req.resolve` に何が代入されたかは、production 側が握るローカル require の
+    // オブジェクト同一性を外から観測できない(vite-node のラッパ引数のため)ので検証しない。
+    // ここでは observable な副作用 = `Module._resolveFilename` の書換えだけを固定する。
+    stubSeaRequire({ isSea: () => true, getAsset: () => new ArrayBuffer(0) });
+    const rt = await freshRuntime();
+    rt.installSeaGuards();
+    expect(() => (internals._resolveFilename as (r: string) => string)('lodash')).toThrow(
+      /external module resolution is disabled/,
+    );
+    // builtin は封鎖の後も解決できる(sentinel には「disabled」の文言が乗らないことだけ主張する)。
+    expect(() => (internals._resolveFilename as (r: string) => string)('node:path')).not.toThrow(
+      /disabled/,
+    );
+    const before = internals._resolveFilename;
+    rt.installSeaGuards();
+    expect(internals._resolveFilename).toBe(before);
+  });
+
+  it('Module._resolveFilename が無ければ封鎖を張れない事実を投げる(黙って素通しにしない)', async () => {
+    const rt = await freshRuntime();
+    internals._resolveFilename = undefined;
+    expect(() => rt.installModuleResolutionBlock()).toThrow(/_resolveFilename is missing/);
   });
 });

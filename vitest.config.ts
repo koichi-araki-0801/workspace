@@ -68,6 +68,8 @@ export default defineConfig({
         'editor/server/src/auth/loginId.ts',
         'editor/server/src/auth/timing.ts',
         'editor/server/src/routes/routeGuards.ts',
+        // ルート層。ハンドラ本体は inject テストで通す(templates / parts / users を含む)。
+        'editor/server/src/routes/*.ts',
         'editor/server/src/middleware/auth.ts',
         'editor/server/src/security/externalRefs.ts',
         // 隔離の完結で新設。配信ルートへ写す許可リストと egress 遮断の実体で、
@@ -171,6 +173,9 @@ export default defineConfig({
         'editor/web/src/lib/draftOwner.ts',
         'editor/web/src/features/compare/htmlBlockDiff.ts',
         'editor/web/src/features/compare/services/compareService.ts',
+        // ページ対応の直接指定。退行は「番号を打っても飛ばない / 対応なしへ落ちる」形で出る。
+        'editor/web/src/features/compare/pageMatch.ts',
+        'editor/web/src/features/compare/PageMatchInput.vue',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
         'editor/web/src/features/reviews/services/reviewCompareDocs.ts',
         'editor/web/src/features/reviews/reviewPartMaps.ts',
@@ -188,8 +193,10 @@ export default defineConfig({
         'editor/web/src/api/local/partRepo.ts',
         'editor/web/src/api/local/noteRepo.ts',
         'editor/web/src/api/local/reviewRepo.ts',
-        'editor/web/src/api/rest/reviewRepo.ts',
-        'editor/web/src/api/rest/http.ts',
+        // rest トランスポートと 7 リポジトリ、DI 合成ルート。local と同じ契約で差し替わることを
+        // 直接テストで固定する(rest e2e は挙動の一部しか通らない)。
+        'editor/web/src/api/rest/*.ts',
+        'editor/web/src/api/repositories.ts',
         // editor/web (ui プリミティブ層。headless 一元化リファクタでテスト追加済みの分)
         'editor/web/src/components/ui/confirm.ts',
         'editor/web/src/components/ui/overlays.ts',
@@ -215,6 +222,8 @@ export default defineConfig({
       // `要パスワード変更` の関門がここに集約されており、閾値の外へ置くと退行を検出できない。
       exclude: [],
       thresholds: {
+        // ファイル単位で 4 指標とも 85%。全体平均だと薄いファイルが厚いファイルに隠れる。
+        perFile: true,
         statements: 85,
         branches: 85,
         functions: 85,

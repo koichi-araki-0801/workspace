@@ -1,5 +1,5 @@
-import { isOk } from '@editor/shared';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { err, isErr, isOk, notFound } from '@editor/shared';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
 import { localReviewRepo } from '@/api/local/reviewRepo';
 import { K } from '@/api/local/store';
@@ -53,5 +53,88 @@ describe('localReviewRepo の旧 held 申請', () => {
     );
     const approved = await localReviewRepo.approveReview(submitted.value.id, {});
     expect(isOk(approved)).toBe(true);
+  });
+});
+
+describe('localReviewRepo の拒否と既定値', () => {
+  it('規約外 templateId の申請は not_found、未ログインの申請者は「不明」', async () => {
+    const bad = await localReviewRepo.submitReview({
+      templateId: 'not-a-template',
+      fundCode: 'x',
+      origin: 'edit',
+      html: '',
+      css: '',
+    });
+    expect(isErr(bad) && bad.error.kind).toBe('not_found');
+
+    const target = await firstTemplate();
+    expect(target).not.toBeNull();
+    if (!target) return;
+    const r = await localReviewRepo.submitReview({
+      templateId: target.id,
+      fundCode: target.attributes.fundCode,
+      origin: 'edit',
+      html: '<p>x</p>',
+      css: '',
+      filledHtml: '<p>f</p>',
+      changedSummary: { count: 1, names: ['a'] },
+    });
+    expect(isOk(r) && r.value.submittedBy).toBe('不明');
+  });
+
+  it('現行版の取得に失敗した申請は baseHash が null(申請自体は妨げない)', async () => {
+    const target = await firstTemplate();
+    expect(target).not.toBeNull();
+    if (!target) return;
+    const spy = vi
+      .spyOn(localTemplateRepo, 'getTemplate')
+      .mockResolvedValueOnce(err(notFound('x')));
+    const sub = await localReviewRepo.submitReview({
+      templateId: target.id,
+      fundCode: target.attributes.fundCode,
+      origin: 'edit',
+      html: '<p>x</p>',
+      css: '',
+    });
+    spy.mockRestore();
+    expect(isOk(sub)).toBe(true);
+    if (!isOk(sub)) return;
+    const stored = await localReviewRepo.getReview(sub.value.id);
+    expect(isOk(stored) && stored.value.baseHash).toBeNull();
+  });
+
+  it('未知の申請 id は取得・承認・却下とも not_found', async () => {
+    await loginAdmin();
+    expect(isErr(await localReviewRepo.getReview('rv-none'))).toBe(true);
+    expect(isErr(await localReviewRepo.approveReview('rv-none', {}))).toBe(true);
+    expect(isErr(await localReviewRepo.rejectReview('rv-none', { comment: 'x' }))).toBe(true);
+  });
+
+  it('却下は理由必須(空白だけも不可)、処理済みの申請は承認も却下も conflict', async () => {
+    await loginAdmin();
+    const target = await firstTemplate();
+    expect(target).not.toBeNull();
+    if (!target) return;
+    const sub = await localReviewRepo.submitReview({
+      templateId: target.id,
+      fundCode: target.attributes.fundCode,
+      origin: 'edit',
+      html: '<p>x</p>',
+      css: '',
+    });
+    const id = isOk(sub) ? sub.value.id : '';
+    const noReason = await localReviewRepo.rejectReview(id, { comment: '   ' });
+    expect(isErr(noReason) && noReason.error.kind).toBe('validation');
+    expect(isOk(await localReviewRepo.rejectReview(id, { comment: '理由' }))).toBe(true);
+    const again = await localReviewRepo.approveReview(id, {});
+    expect(isErr(again) && again.error.kind).toBe('conflict');
+    const rejectAgain = await localReviewRepo.rejectReview(id, { comment: '再' });
+    expect(isErr(rejectAgain) && rejectAgain.error.kind).toBe('conflict');
+  });
+
+  it('一覧は未ログインでも落ちず、自分の申請だけを見せる(誰でもない = 0 件)', async () => {
+    const list = await localReviewRepo.listReviews({});
+    expect(isOk(list)).toBe(true);
+    if (isOk(list)) expect(list.value).toEqual([]);
   });
 });

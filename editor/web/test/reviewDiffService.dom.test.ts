@@ -299,4 +299,43 @@ describe('reviewDiffService.buildDiff', () => {
     expect(res.ok).toBe(false);
     expect(buildHtmlDiff).not.toHaveBeenCalled();
   });
+
+  it('申請者の style に隠し文言があっても本文テキストに現れ、空の style / fund CSS は無視される', async () => {
+    buildHtmlDiff.mockResolvedValue({
+      pages: [
+        {
+          index: 0,
+          changed: true,
+          changedBlockCount: 1,
+          beforeHtml: '',
+          afterHtml: '',
+          blocks: [
+            {
+              key: 'k0',
+              label: 'ページ1・パーツ1',
+              status: 'added',
+              beforeHtml: '', // htmlToText('') は空文字を返し、例外にならない
+              afterHtml: '<p style="display:none">隠し文言</p>',
+            },
+          ],
+        },
+      ],
+      changedPageCount: 1,
+      beforePageCount: 0,
+      afterPageCount: 1,
+    });
+    // fund CSS が空、本文の <style> も空なら collectPaneStyleText は何も足さない。
+    const { service } = makeService({
+      renderTemplateBody: ok({ html: '<div><style></style></div>', css: '' }),
+    });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const ins = res.value.rows[0].textOps
+      .filter((o) => o.type === 'ins')
+      .map((o) => o.text)
+      .join('');
+    expect(ins).toContain('隠し文言'); // 申請者スタイルの display:none に関係なく textContent 由来で拾う
+    expect(res.value.printOnlyCss).toBe(false);
+  });
 });

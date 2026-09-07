@@ -13,13 +13,14 @@ import PageNav from '@/components/PageNav.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import { DropdownMenu, DropdownMenuItem, Tooltip } from '@/components/ui/overlays';
-import Select from '@/components/ui/Select.vue';
 import { logError } from '@/lib/appError';
 import { formatDateTimeShort } from '@/lib/format';
 import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { cn } from '@/lib/utils';
 import { htmlWorker } from '@/workers';
 import { buildDiffDoc, diffHighlightCss, type HtmlDiff, type PagePair } from './htmlBlockDiff';
+import PageMatchInput from './PageMatchInput.vue';
+import { directOffset } from './pageMatch';
 
 const props = defineProps<{
   before: TemplateVersionMeta; // ファイルA(左)
@@ -172,12 +173,11 @@ function shift(side: Side, delta: number) {
   realign();
 }
 
-// プルダウン直接指定(そのページだけ。連動しない)。値は 0 起点 index か null(対応なし)。
+// 番号入力での直接指定(そのページだけ。連動しない)。値は 0 起点 index か null(対応なし)。
 function setDirect(side: Side, value: number | null) {
   const off = sideOff(side);
   const r = currentPage.value;
-  // 対応なしは確実に範囲外へ(idx = -1)。ページ指定は idx = value になるよう offset を置く。
-  off[r] = value == null ? -r - 1 : value - r;
+  off[r] = directOffset(value, r);
   realign();
 }
 
@@ -191,29 +191,17 @@ const isAligned = computed(
   () => beforeOff.value.some((o) => o !== 0) || afterOff.value.some((o) => o !== 0),
 );
 
-// ── プルダウン(現在ページ行の対応ページ選択) ──────────────────────────────
-const NONE = 'none';
-function pageOptions(side: Side): { label: string; value: string }[] {
-  const opts: { label: string; value: string }[] = [];
-  for (let p = 0; p < sideCount(side); p++) opts.push({ label: `p${p + 1}`, value: String(p) });
-  opts.push({ label: '対応なし', value: NONE });
-  return opts;
-}
-const beforeOptions = computed(() => pageOptions('before'));
-const afterOptions = computed(() => pageOptions('after'));
-function selModel(side: Side) {
-  return computed<string>({
-    get() {
-      const i = idxOf(side, currentPage.value);
-      return i == null ? NONE : String(i);
-    },
-    set(v: string) {
-      setDirect(side, v === NONE ? null : Number(v));
-    },
+// ── 番号入力(現在ページ行の対応ページ指定) ────────────────────────────────
+// 数百ページの版では候補プルダウンから対応ページを選べない(候補が数百件になる)ため、
+// 番号を直接入力する `PageMatchInput` へ 0 起点 index(`null` = 対応なし)を橋渡しする。
+function matchModel(side: Side) {
+  return computed<number | null>({
+    get: () => idxOf(side, currentPage.value),
+    set: (v) => setDirect(side, v),
   });
 }
-const beforeSel = selModel('before');
-const afterSel = selModel('after');
+const beforeMatch = matchModel('before');
+const afterMatch = matchModel('after');
 
 // テンプレート CSS と差分ハイライトを内包した `iframe` ドキュメントを組み立てる。
 // ブロック級(要素まるごと)は左帯+淡い背景、語句級(テキスト中)は前景の下線で区別する
@@ -342,9 +330,9 @@ const afterDoc = computed(() => buildDoc(page.value?.afterHtml ?? '', props.cssA
     <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
       <div class="flex items-center gap-1.5">
         <span class="text-xs text-muted-foreground">比較元</span>
-        <Select v-model="beforeSel" :options="beforeOptions" class="h-8 w-24" />
+        <PageMatchInput v-model="beforeMatch" :page-count="beforeCount" label="比較元" />
         <!-- 「ずらす/戻す」では方向が予測できなかったため、この行に表示するページを
-             1 つ前/後ろへ動かすことをラベルで明示する(直接指定は左の Select)。 -->
+             1 つ前/後ろへ動かすことをラベルで明示する(直接指定は左の番号入力)。 -->
         <Tooltip text="この行の比較元を 1 ページ前へ">
           <Button variant="outline" size="sm" class="h-8 px-2" @click="shift('before', -1)">
             <ChevronLeft class="h-3.5 w-3.5" /> 1つ前へ
@@ -361,7 +349,7 @@ const afterDoc = computed(() => buildDoc(page.value?.afterHtml ?? '', props.cssA
 
       <div class="flex items-center gap-1.5">
         <span class="text-xs text-muted-foreground">比較先</span>
-        <Select v-model="afterSel" :options="afterOptions" class="h-8 w-24" />
+        <PageMatchInput v-model="afterMatch" :page-count="afterCount" label="比較先" />
         <Tooltip text="この行の比較先を 1 ページ前へ">
           <Button variant="outline" size="sm" class="h-8 px-2" @click="shift('after', -1)">
             <ChevronLeft class="h-3.5 w-3.5" /> 1つ前へ

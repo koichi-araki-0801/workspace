@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { inlineDocScripts } from '../src/vivliostyle/inlineDocScripts.js';
+import { inlineDocScripts, MAX_INLINE_SCRIPT_BYTES } from '../src/vivliostyle/inlineDocScripts.js';
 
 let root = '';
 const SERVED = new Set(['js/app.js', 'js/evil.js', 'js/nested.js', 'css/a.css']);
@@ -96,5 +96,40 @@ describe('inlineDocScripts — 文書を壊さない', () => {
     // 閉じない属性引用符で `scanTags` が ok:false になる形。
     const html = '<script src="js/app.js"></script><div title="';
     expect(await inlineDocScripts(html, root, SERVED)).toBe(html);
+  });
+});
+
+describe('inlineDocScripts — type 属性の判定', () => {
+  it('type が module / text/javascript / application/javascript なら展開し、他の type は原文のまま', async () => {
+    const served = new Set(['js/app.js']);
+    expect(
+      await inlineDocScripts('<script type="module" src="js/app.js"></script>', root, served),
+    ).toContain('<script type="module">\nwindow.MARK');
+    expect(
+      await inlineDocScripts(
+        '<script type="text/javascript" src="js/app.js"></script>',
+        root,
+        served,
+      ),
+    ).toContain('<script>\nwindow.MARK');
+    const ld = '<script type="application/ld+json" src="js/app.js"></script>';
+    expect(await inlineDocScripts(ld, root, served)).toBe(ld);
+  });
+});
+
+describe('inlineDocScripts — 実体の状態(ファイルでない・サイズ超過・読取失敗)', () => {
+  it('served に載っていても実体が無い・ディレクトリ・上限超過なら原文のまま', async () => {
+    await fs.mkdir(path.join(root, 'js', 'dir.js'), { recursive: true });
+    await fs.writeFile(
+      path.join(root, 'js', 'big.js'),
+      'x'.repeat(MAX_INLINE_SCRIPT_BYTES + 1),
+      'utf8',
+    );
+    const cases = ['js/missing.js', 'js/dir.js', 'js/big.js'];
+    const served = new Set(cases);
+    for (const rel of cases) {
+      const html = `<script src="${rel}"></script>`;
+      expect(await inlineDocScripts(html, root, served)).toBe(html);
+    }
   });
 });

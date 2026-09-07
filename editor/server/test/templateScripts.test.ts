@@ -460,3 +460,48 @@ describe('raw text 要素の内側は必ず単位化される', () => {
     expect(accepted(b, edited)).toBe(true);
   });
 });
+
+// ── 走査の端(壊れた入力で単位列が欠落・混入しない)──
+// これまでの節は「実行面を隠す入力」を主に見てきた。ここは走査そのものが壊れて
+// (単位が消える/紛れ込む)いないかを、退避属性・タグ走査・URL scheme の端で確かめる。
+describe('走査の端(壊れた入力で単位列が欠落・混入しない)', () => {
+  const units = (html: string) => collectExecutableUnits(html);
+
+  it('空の data-opaque と single quote の data-opaque は復号対象にならない / なる', () => {
+    // 復号結果が空文字は payload として積まない(splitEncodedChips)。属性そのものは
+    // テキストから取り除かれるので、残る要素は inert のまま単位を作らない。
+    expect(units(`<span data-opaque="">x</span>`)).toEqual([]);
+    expect(units(`<span data-opaque=''>x</span>`)).toEqual([]);
+    const enc = Buffer.from('<script>a()</script>').toString('base64');
+    expect(units(`<span data-opaque='${enc}'>x</span>`)).toEqual(
+      units(`<span data-opaque="${enc}">x</span>`),
+    );
+    expect(units(`<span data-opaque="${enc}">x</span>`).length).toBe(1);
+  });
+
+  it('本文末尾の `<`・閉じない doctype・閉じない引用符で止まらず、後続の script を落とさない', () => {
+    expect(units('<p>x</p><')).toEqual([]);
+    expect(units('<!doctype html')).toEqual([]);
+    // 閉じない引用符は属性値がその後の全文字(<script> ごと)を飲み込む。飲まれた
+    // <script> はタグとして走査されない = 単位にならない(実行もされないので安全側)。
+    expect(units('<div title="unterminated><script>a()</script>')).toHaveLength(0);
+    expect(units('<div title="ok"><script>a()</script>')).toHaveLength(1);
+  });
+
+  it('URL の scheme: mailto/tel は不活性、data は画像・フォント media だけ不活性、Jinja トークン混じりは strip して判定', () => {
+    expect(units('<a href="mailto:a@b.example">x</a>')).toEqual([]);
+    expect(units('<a href="data:image/png;base64,AAAA">x</a>')).toEqual([]);
+    expect(units('<a href="data:text/html,<script>a()</script>">x</a>').length).toBe(1);
+    expect(units('<a href="{% if x %}javascript:{% endif %}a()">x</a>').length).toBe(1);
+    expect(units('<a href="{# c #}#top">x</a>')).toEqual([]);
+  });
+
+  it('<style> の非不活性属性は単位に入る(media は不活性)', () => {
+    expect(units('<style media="print">a{}</style>').some((u) => u.startsWith('attr:style.'))).toBe(
+      false,
+    );
+    expect(
+      units('<style onload="x()">a{}</style>').some((u) => u.startsWith('attr:style.onload=')),
+    ).toBe(true);
+  });
+});

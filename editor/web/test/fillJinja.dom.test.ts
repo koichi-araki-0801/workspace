@@ -250,6 +250,33 @@ describe('toFilled は解釈できない式を黙って捨てない', () => {
   });
 });
 
+describe('toFilled の端', () => {
+  it('for の対象が配列でなければ 0 回展開(例外にしない)', () => {
+    const out = toFilled('<ul>{% for h in holdings %}<li>{{ h.name }}</li>{% endfor %}</ul>', {
+      holdings: 7,
+    });
+    expect(out).not.toContain('<li>');
+  });
+
+  it('値でないインライントークン(set)はチップ文言をそのまま見せる', () => {
+    expect(toFilled('<p>{% set a = 1 %}x</p>', {})).toContain('{% set a = 1 %}');
+  });
+
+  it('if は else の有無どちらでも採用枝を展開し、枝が単一要素でなければ生ブロックを残す', () => {
+    expect(toFilled('{% if ok %}<p>A</p>{% else %}<p>B</p>{% endif %}', { ok: false })).toContain(
+      'B',
+    );
+    // else 無しで非採用: taken(空文字)は単一要素と判定できないため marker を運べず、
+    // ブロック全体が生のまま残って inline token 化される({% if %}/{% endif %} だけが
+    // チップになり、中の "A" はそのままテキストとして残る)。
+    const noElse = toFilled('{% if ok %}<p>A</p>{% endif %}', { ok: false });
+    expect(noElse).toContain('{% if ok %}');
+    // taken 側(2 要素、開始・終了タグが揃わない)も単一要素ではないので同じ扱い。
+    const raw = '{% if ok %}<p>A</p><div>A2</div>{% endif %}';
+    expect(toFilled(raw, { ok: true })).toContain('{% if ok %}');
+  });
+});
+
 describe('toFilled masks opaque content so GrapesJS cannot strip/restructure it', () => {
   it('round-trips a <script> verbatim', () => {
     const raw = `<div><script src="x.js"></script><script>doWidth();</script></div>`;

@@ -4,6 +4,8 @@
 // ここが閉じていないと、`entry` のパスだけ検査しても `server.proxy`(上流 Vite を踏み台に
 // した SSRF)・`pdfPostprocess`(docker / press-ready 起動)・`static`(任意ディレクトリ配信)が
 // 素通りする。テストは「この迂回入力が 400 になること」の形で書く。
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { isAppError } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
@@ -242,5 +244,104 @@ describe('その他のフィールド', () => {
   it('受理したキーだけが出力に載る(片方向の移し替えである)', () => {
     const out = parse({ entry: 'a.md', title: 't' });
     expect(Object.keys(out).sort()).toEqual(['base', 'entry', 'title']);
+  });
+});
+
+// entry のオブジェクト形は片方向の移し替え(§ファイル冒頭)なので、`assertContainedPath` が
+// 返すのは**原文**(絶対化しない)。resolve した値を期待すると実装と一致しない。
+describe('entry のオブジェクト形', () => {
+  it('title / theme / encodingFormat / rel(文字列・配列)を検証して写す', () => {
+    const out = parse({
+      entry: [
+        {
+          path: 'a.md',
+          title: 'T',
+          theme: 'theme.css',
+          encodingFormat: 'text/markdown',
+          rel: 'contents',
+        },
+        { path: 'b.md', rel: ['a', 'b'] },
+      ],
+    });
+    expect(out.entry).toEqual([
+      {
+        path: 'a.md',
+        title: 'T',
+        theme: 'theme.css',
+        encodingFormat: 'text/markdown',
+        rel: 'contents',
+      },
+      { path: 'b.md', rel: ['a', 'b'] },
+    ]);
+  });
+
+  it('文字列でもオブジェクトでもない要素・ルート外 theme・非文字列 title・非文字列 rel 要素は 400', () => {
+    expect(() => parse({ entry: [1] })).toThrow();
+    expect(() => parse({ entry: [{ path: 'a.md', theme: '../x.css' }] })).toThrow();
+    expect(() => parse({ entry: [{ path: 'a.md', title: 7 }] })).toThrow();
+    expect(() => parse({ entry: [{ path: 'a.md', rel: [1] }] })).toThrow();
+  });
+
+  it('要素数の上限を超える theme / entry / copyAsset.includes は 400', () => {
+    // MAX_LIST_ITEMS(既定 1000)を超える 1001 要素で検証する(境界の 1000 は通る側)。
+    const many = Array.from({ length: 1001 }, () => 'theme.css');
+    expect(() => parse({ entry: 'a.md', theme: many })).toThrow(/多すぎ/);
+    expect(() => parse({ entry: many.map(() => 'a.md') })).toThrow(/多すぎ/);
+    expect(() => parse({ entry: 'a.md', copyAsset: { includes: many } })).toThrow(/多すぎ/);
+  });
+});
+
+describe('cover / toc / copyAsset の型検査', () => {
+  it('cover オブジェクトは src 必須で name / htmlPath を写し、未知キー・非オブジェクト/文字列は 400', () => {
+    expect(
+      parse({ entry: 'a.md', cover: { src: 'c.png', name: 'Cover', htmlPath: 'cover.html' } })
+        .cover,
+    ).toEqual({ src: 'c.png', name: 'Cover', htmlPath: 'cover.html' });
+    expect(() => parse({ entry: 'a.md', cover: { src: 'c.png', evil: 1 } })).toThrow();
+    expect(() => parse({ entry: 'a.md', cover: 7 })).toThrow(/cover/);
+  });
+
+  it('toc は文字列パス・オブジェクト(title / htmlPath / sectionDepth 0〜10)を受け、他は 400', () => {
+    expect(parse({ entry: 'a.md', toc: 'toc.html' }).toc).toBe('toc.html');
+    expect(
+      parse({ entry: 'a.md', toc: { title: 'Contents', htmlPath: 'toc.html', sectionDepth: 3 } })
+        .toc,
+    ).toEqual({ title: 'Contents', htmlPath: 'toc.html', sectionDepth: 3 });
+    expect(() => parse({ entry: 'a.md', toc: { sectionDepth: 11 } })).toThrow(/sectionDepth/);
+    expect(() => parse({ entry: 'a.md', toc: { sectionDepth: 1.5 } })).toThrow(/sectionDepth/);
+    expect(() => parse({ entry: 'a.md', toc: 7 })).toThrow(/toc/);
+  });
+
+  it('copyAsset は includes / excludes の glob 配列だけを受け、非配列・非オブジェクトは 400', () => {
+    expect(parse({ entry: 'a.md', copyAsset: { excludes: ['**/*.psd'] } }).copyAsset).toEqual({
+      excludes: ['**/*.psd'],
+    });
+    expect(() => parse({ entry: 'a.md', copyAsset: 'x' })).toThrow(/copyAsset/);
+    expect(() => parse({ entry: 'a.md', copyAsset: { includes: 'x' } })).toThrow(/配列/);
+  });
+});
+
+describe('入力の大きさと形', () => {
+  it('MAX_CONFIG_BYTES を超える本文・オブジェクトでない JSON は 400', () => {
+    expect(() => parseText(`{"entry":"a.md","title":"${'x'.repeat(2 * 1024 * 1024)}"}`)).toThrow(
+      /大きすぎ/,
+    );
+    expect(() => parseText('"str"')).toThrow(/オブジェクト/);
+    expect(() => parseText('123')).toThrow(/オブジェクト/);
+  });
+
+  it('isFile 省略時は既定の lstat 判定で実在を見る', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'projcfg-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'theme.css'), '', 'utf8');
+      expect(
+        parseProjectConfig(JSON.stringify({ entry: 'a.md', theme: 'theme.css' }), dir).theme,
+      ).toBe('theme.css');
+      expect(() =>
+        parseProjectConfig(JSON.stringify({ entry: 'a.md', theme: 'missing.css' }), dir),
+      ).toThrow();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

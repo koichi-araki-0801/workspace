@@ -148,3 +148,67 @@ Describe 'Assert-FileSha256（期待値との突き合わせ）' {
   }
 }
 
+
+Describe 'Find-LocalBundlePair（バンドルと bundle.key の組を同じディレクトリから探す）' {
+  BeforeEach {
+    $script:root = Join-Path $TestDrive ('pair-' + [guid]::NewGuid().ToString('N'))
+    $script:bk = Join-Path $script:root 'bk'
+    New-Item -ItemType Directory -Path $script:bk -Force | Out-Null
+    $script:name = 'offline-deps-bundle.tar.gz'
+  }
+
+  It '直下に組が揃っていれば直下を返す' {
+    Set-Content -LiteralPath (Join-Path $script:root $script:name) -Value 'b'
+    Set-Content -LiteralPath (Join-Path $script:root 'bundle.key') -Value 'k'
+    $pair = Find-LocalBundlePair -Directories @($script:root, $script:bk) -BundleName $script:name
+    $pair.Bundle | Should Be (Join-Path $script:root $script:name)
+    $pair.Key | Should Be (Join-Path $script:root 'bundle.key')
+  }
+
+  It '直下に無ければ bk\ の組を返す' {
+    Set-Content -LiteralPath (Join-Path $script:bk $script:name) -Value 'b'
+    Set-Content -LiteralPath (Join-Path $script:bk 'bundle.key') -Value 'k'
+    $pair = Find-LocalBundlePair -Directories @($script:root, $script:bk) -BundleName $script:name
+    $pair.Bundle | Should Be (Join-Path $script:bk $script:name)
+  }
+
+  It '直下のバンドルと bk\ の鍵のような別ディレクトリの組み合わせは採らない' {
+    Set-Content -LiteralPath (Join-Path $script:root $script:name) -Value 'b'
+    Set-Content -LiteralPath (Join-Path $script:bk 'bundle.key') -Value 'k'
+    Find-LocalBundlePair -Directories @($script:root, $script:bk) -BundleName $script:name | Should Be $null
+  }
+
+  It 'どこにも無ければ $null' {
+    Find-LocalBundlePair -Directories @($script:root, $script:bk) -BundleName $script:name | Should Be $null
+  }
+}
+
+Describe 'Get-Sha256FromSidecar（Release の .sha256 の読み取り）' {
+  BeforeEach {
+    $script:sidecar = Join-Path $TestDrive ('sc-' + [guid]::NewGuid().ToString('N') + '.sha256')
+  }
+
+  It '"<hex>  <ファイル名>" の先頭トークンを小文字で返す' {
+    Set-Content -LiteralPath $script:sidecar -Value (('A' * 64) + '  offline-deps-bundle.tar.gz') -Encoding Ascii
+    Get-Sha256FromSidecar -Path $script:sidecar | Should Be ('a' * 64)
+  }
+
+  It 'ファイル名の無い hex だけの行も受け付ける' {
+    Set-Content -LiteralPath $script:sidecar -Value ('b' * 64) -Encoding Ascii
+    Get-Sha256FromSidecar -Path $script:sidecar | Should Be ('b' * 64)
+  }
+
+  It '空ファイルは停止する（生の例外でなく形式エラー）' {
+    Set-Content -LiteralPath $script:sidecar -Value '' -Encoding Ascii
+    { Get-Sha256FromSidecar -Path $script:sidecar } | Should Throw '.sha256 の形式が想定外'
+  }
+
+  It '64 桁 16 進でなければ停止する' {
+    Set-Content -LiteralPath $script:sidecar -Value 'not-a-hash  offline-deps-bundle.tar.gz' -Encoding Ascii
+    { Get-Sha256FromSidecar -Path $script:sidecar } | Should Throw '.sha256 の形式が想定外'
+  }
+
+  It 'ファイルが無ければ停止する' {
+    { Get-Sha256FromSidecar -Path (Join-Path $TestDrive 'missing.sha256') } | Should Throw
+  }
+}

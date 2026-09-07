@@ -130,8 +130,10 @@ let bundleCache: string | null = null;
  *  - `</script` — raw text の終端。1 つでもあれば要素がそこで閉じる。
  *  - `<!--` の後、対応する `-->` より前に `<script` — script data の二重エスケープ状態に
  *    入り、こちらが付ける終了タグが終了タグとして扱われなくなる。
+ *
+ * テストから直接検証するために export する。呼び出しは本モジュール内のみ。
  */
-function bundleSafeToInline(bundle: string): boolean {
+export function bundleSafeToInline(bundle: string): boolean {
   const lower = bundle.toLowerCase();
   if (lower.includes('</script')) return false;
   for (let at = lower.indexOf('<!--'); at !== -1; at = lower.indexOf('<!--', at + 4)) {

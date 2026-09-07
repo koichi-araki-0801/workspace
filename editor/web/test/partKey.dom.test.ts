@@ -1,5 +1,5 @@
 import type { Editor } from 'grapesjs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { canvasRawKey, partEls, partLabelMap, partPathKeyFor } from '@/features/editor/partKey';
 import { partMapsFromHtml } from '@/features/reviews/reviewPartMaps';
 import { occurrenceKey, rawKey, rawKeyFromParts } from '@/lib/blockKey';
@@ -94,6 +94,11 @@ describe('partPathKeyFor — 版を跨いで安定', () => {
     expect(key?.startsWith('.page#1/')).toBe(true);
   });
 
+  it('.page を持つ文書で .page の外にある要素は part を解決できない(null)', () => {
+    const r = root('<div class="page"><p>in</p></div><p id="out">out</p>');
+    expect(partPathKeyFor(q(r, '#out'), r)).toBeNull();
+  });
+
   it('ページ番号は出現順(2 ページ目のパーツは .page#2)', () => {
     const r = root(
       '<div class="page"><h1 class="t">A</h1></div><div class="page"><h1 class="t">B</h1></div>',
@@ -157,6 +162,13 @@ describe('canvasRawKey — canvas 側は id をモデルの明示属性から読
     const el = q(r, 'p');
     const keyOf = canvasRawKey(fakeEditor({ i1: { id: 'summary' } }));
     expect(keyOf(el)).toBe('cover');
+  });
+
+  it('id もクラスも無い要素はタグ名で表し、GrapesJS の自動 id を引かない', () => {
+    const ed = { Components: { getById: vi.fn(() => undefined) } } as unknown as Editor;
+    const r = root('<div class="page"><section>x</section></div>');
+    expect(canvasRawKey(ed)(q(r, 'section'))).toBe('section');
+    expect(ed.Components.getById).not.toHaveBeenCalled();
   });
 });
 

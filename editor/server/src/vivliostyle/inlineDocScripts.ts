@@ -35,7 +35,7 @@ import { scanTags, type TagSpan } from './inlineCss.js';
  * 巨大な JS を無制限に載せると文書サイズが跳ねる。超えたものは展開せず原文のまま残す
  * (= 従来どおり 404 で不実行。挙動は退行するが文書は壊れない)。
  */
-const MAX_INLINE_SCRIPT_BYTES = 2 * 1024 * 1024;
+export const MAX_INLINE_SCRIPT_BYTES = 2 * 1024 * 1024;
 
 /**
  * `</script` を無害化する。`<style>` 側の `STYLE_CLOSE_RE`(`inlineCss.ts`)と同じ発想で、

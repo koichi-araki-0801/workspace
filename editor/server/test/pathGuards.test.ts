@@ -170,6 +170,26 @@ describe('files/*.ts のパス封じ込め', () => {
     await expect(draftFiles.draftMtime('../outside/x')).resolves.toBeNull();
   });
 
+  it('draftExists/draftMtime は書き込み前後で fs.stat の成否を反映する(then/catch とも実行)', async () => {
+    // pathGuards の他ケースは規約外 id の早期 return(fs.stat に触れない分岐)だけを通る。
+    // ここでは規約内 id で実際に fs.stat を呼ばせ、無い→ある→消す、の 3 状態を確かめる。
+    const id = 'AM01_510037_20240711_交付版';
+    expect(await draftFiles.draftExists(id)).toBe(false);
+    expect(await draftFiles.draftMtime(id)).toBeNull();
+    await draftFiles.writeDraft(id, '<p>x</p>', '');
+    expect(await draftFiles.draftExists(id)).toBe(true);
+    expect(await draftFiles.draftMtime(id)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    await draftFiles.deleteDraft(id);
+    expect(await draftFiles.draftExists(id)).toBe(false);
+    expect(await draftFiles.draftMtime(id)).toBeNull();
+  });
+
+  it('readDraft は無いファイルを空文字で返す(台帳の値を信じない)', async () => {
+    const id = 'AM01_510037_20240712_交付版';
+    expect(await draftFiles.readDraft(null, null)).toEqual({ html: '', css: '' });
+    expect(await draftFiles.readDraft(`${id}.html`, `${id}.css`)).toEqual({ html: '', css: '' });
+  });
+
   it('applyConfirmedWrite accepts a valid pair and writes only inside the managed dirs', async () => {
     await confirmedWrite.applyConfirmedWrite({
       kind: 'review-approve',

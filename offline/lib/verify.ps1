@@ -186,3 +186,37 @@ function Assert-FileSha256 {
   }
   Write-Host "[info] sha256 OK ($Label): $actual"
 }
+
+# ── 手元のバンドル探索 ──
+# バンドルと bundle.key が**同じディレクトリ**に揃っている組だけを、Directories の順で返す。
+# 直下の新しいバンドルと bk\ の古い鍵のような取り違えは、content-key 不一致で止まるだけで
+# 原因が見えにくいため、組として揃っていない場所は候補にしない。
+function Find-LocalBundlePair {
+  param(
+    [Parameter(Mandatory = $true)][string[]]$Directories,
+    [Parameter(Mandatory = $true)][string]$BundleName
+  )
+  foreach ($dir in $Directories) {
+    $b = Join-Path $dir $BundleName
+    $k = Join-Path $dir 'bundle.key'
+    if ((Test-Path -LiteralPath $b) -and (Test-Path -LiteralPath $k)) {
+      return @{ Bundle = $b; Key = $k }
+    }
+  }
+  return $null
+}
+
+# ── Release の .sha256 の読み取り ──
+# 形式は "<sha256>  <ファイル名>"（ファイル名は省略可）。先頭トークンが 64 桁 16 進でなければ
+# 形式エラーで止める（空ファイルや HTML のエラーページを掴んだときに生の例外で終わらせない）。
+# 返す値は小文字。転送破損の検知にしか使えない値であることは呼び出し側の責務で書く。
+function Get-Sha256FromSidecar {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { throw ".sha256 がありません: $Path" }
+  $text = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::ASCII).Trim()
+  $first = ($text -split '\s+')[0]
+  if (-not $first -or $first -notmatch '^[0-9a-fA-F]{64}$') {
+    throw ".sha256 の形式が想定外です: $Path"
+  }
+  $first.ToLower()
+}

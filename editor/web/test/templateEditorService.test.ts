@@ -350,3 +350,55 @@ describe('TemplateEditorService.saveDraft / listPartHistory', () => {
     expect(getSyncStatus).toHaveBeenCalledWith('t1');
   });
 });
+
+describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', () => {
+  it('listParts / getDraft の失敗は loadForEdit の結果として返る', async () => {
+    const templatesA = {
+      getTemplate: vi.fn(async () => ok(tpl)),
+      getDraft: vi.fn(async () => ok(null)),
+    } as unknown as TemplateRepository;
+    const partsA = {
+      listParts: vi.fn(async () => err(network('parts down'))),
+    } as unknown as PartRepository;
+    const resA = await createTemplateEditorService(templatesA, partsA).loadForEdit('t1');
+    expect(isErr(resA)).toBe(true);
+    if (isErr(resA)) expect(resA.error.kind).toBe('network');
+
+    const templatesB = {
+      getTemplate: vi.fn(async () => ok(tpl)),
+      getDraft: vi.fn(async () => err(network('draft down'))),
+    } as unknown as TemplateRepository;
+    const partsB = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
+    const resB = await createTemplateEditorService(templatesB, partsB).loadForEdit('t1');
+    expect(isErr(resB)).toBe(true);
+    if (isErr(resB)) expect(resB.error.kind).toBe('network');
+  });
+
+  it('getSampleData の失敗でも本文は開ける(sample は空)', async () => {
+    const { templates, parts } = repos({ draft: null });
+    (templates as unknown as { getSampleData: unknown }).getSampleData = vi.fn(async () =>
+      err(notFound('no sample')),
+    );
+    const res = await createTemplateEditorService(templates, parts).loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.fundName).toBe('t1'); // sample が空なのでファイル名フォールバック
+  });
+
+  it('discardDraft が失敗したら下書きの所属は解放しない', async () => {
+    const templates = {
+      discardDraft: vi.fn(async () => err(network('x'))),
+    } as unknown as TemplateRepository;
+    const parts = {} as unknown as PartRepository;
+    const owner = ownerOf(true);
+    await createTemplateEditorService(templates, parts, owner).discardDraft('t1');
+    expect(owner.release).not.toHaveBeenCalled();
+  });
+
+  it('recordPartChange は parts へそのまま委譲する', async () => {
+    const recordPartChange = vi.fn(async () => ok(undefined));
+    const parts = { recordPartChange } as unknown as PartRepository;
+    const templates = {} as unknown as TemplateRepository;
+    await createTemplateEditorService(templates, parts).recordPartChange('t1', 'k#1', 'c');
+    expect(recordPartChange).toHaveBeenCalledWith('t1', 'k#1', 'c');
+  });
+});

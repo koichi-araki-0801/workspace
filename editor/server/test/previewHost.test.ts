@@ -23,6 +23,8 @@ process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.AUTH_REQUIRED = 'false';
 
 let app: FastifyInstance;
+/** テストから直接検証するために export された判定(`previewHost.ts`)。 */
+let bundleSafeToInline: (bundle: string) => boolean;
 
 beforeAll(async () => {
   fs.mkdirSync(path.join(tmp, 'assets', 'js'), { recursive: true });
@@ -36,7 +38,9 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(tmp, 'outside.js'), 'LEAK', 'utf8');
 
   const { buildCspDirectives } = await import('../src/config.js');
-  const { previewHostRoutes } = await import('../src/vivliostyle/previewHost.js');
+  const previewHostModule = await import('../src/vivliostyle/previewHost.js');
+  const { previewHostRoutes } = previewHostModule;
+  bundleSafeToInline = previewHostModule.bundleSafeToInline;
   app = Fastify();
   app.decorateRequest('user', undefined);
   // `app.ts` と同じ順序: helmet(全域)→ ルート。経路専用 CSP は onSend で上書きする。
@@ -129,5 +133,36 @@ describe('GET /api/preview-host/* — 同梱資産の配信', () => {
       expect(res.body, `${url} が本文を返した`).not.toContain('LEAK');
       expect(res.body, `${url} が本文を返した`).not.toContain('TOKEN=');
     }
+  });
+});
+
+describe('bundleSafeToInline', () => {
+  it('</script を含む bundle は inline にしない(要素の早期終端)', () => {
+    expect(bundleSafeToInline('var s="</script>";')).toBe(false);
+  });
+
+  it('<!-- の後に <script が来る形は inline にしない(script data の二重エスケープ)', () => {
+    expect(bundleSafeToInline('/*<!-- x */ var a="<script>";')).toBe(false);
+    // <!-- が閉じてから <script が現れる形は、その後にもう対応する <!-- が無いので
+    // 「コメントが閉じる前に <script が現れる」に当たらない = inline してよい。
+    expect(bundleSafeToInline('/*<!-- x --> */ var a="<script>";')).toBe(true);
+  });
+
+  it('<!-- が閉じられて <script を含まない・そもそも無い bundle は inline できる', () => {
+    expect(bundleSafeToInline('/*<!-- x -->*/ var a=1;')).toBe(true);
+    expect(bundleSafeToInline('var a=1;')).toBe(true);
+  });
+});
+
+describe('GET /api/preview-host/vivliostyle.js', () => {
+  it('ビューア bundle を text/javascript・no-store で配る(2 回目はキャッシュから同一内容)', async () => {
+    const a = await app.inject({ method: 'GET', url: '/api/preview-host/vivliostyle.js' });
+    expect(a.statusCode).toBe(200);
+    expect(a.headers['content-type']).toContain('text/javascript');
+    expect(a.headers['cache-control']).toBe('no-store');
+    expect(a.body).toContain('window.Vivliostyle=module.exports');
+    // 2 回目は `bundleCache` 命中(読取・IIFE ラップをやり直さない)。同一内容で確かめる。
+    const b = await app.inject({ method: 'GET', url: '/api/preview-host/vivliostyle.js' });
+    expect(b.body).toBe(a.body);
   });
 });

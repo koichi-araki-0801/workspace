@@ -18,13 +18,26 @@ process.env.DATA_ROOT = tmp;
 process.env.GIT_REPO_DIR = tmp;
 process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
 process.env.CSS_DIR = path.join(tmp, 'css');
+// PDF 出力記録は git ではなく `<LOG_DIR>/history/pdf.jsonl` へ書く。逸らさないとテストの度に
+// リポジトリ作業ツリーへ `editor/logs/history/pdf.jsonl` が生える。
+process.env.LOG_DIR = path.join(tmp, 'logs');
 
+/**
+ * `x-test-user` ヘッダがあれば `request.user` へ注入する(無ければ既存テスト同様に未設定の
+ * まま = `actor()` は `'system'` にフォールバックする)。history ルートは `requireAuth` しか
+ * 課さず(`config.requireAuth=false` では no-op)、ロール別の分岐を持たないため、他ファイルの
+ * `x-test-user`/`x-test-role` 2 本立てではなく user 名だけで足りる。
+ */
 async function buildApp(): Promise<FastifyInstance> {
   const Fastify = (await import('fastify')).default;
   const { errorHandler } = await import('../src/middleware/errorHandler.js');
   const { historyRoutes } = await import('../src/routes/history.routes.js');
   const instance = Fastify();
   instance.setErrorHandler(errorHandler);
+  instance.addHook('onRequest', async (req) => {
+    const username = req.headers['x-test-user'];
+    if (typeof username === 'string') req.user = { username } as never;
+  });
   await instance.register(historyRoutes);
   await instance.ready();
   return instance;
@@ -74,6 +87,65 @@ describe('history routes reject git option injection', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().kind).toBe('validation');
+  });
+});
+
+describe('POST /history/pdf は出力記録を残す', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('POST /history/pdf は 204 で記録し、GET /history/pdf に user 付きで現れる。templateId 欠落は 400', async () => {
+    const bad = await app.inject({ method: 'POST', url: '/history/pdf', payload: {} });
+    expect(bad.statusCode).toBe(400);
+
+    const ok = await app.inject({
+      method: 'POST',
+      url: '/history/pdf',
+      headers: { 'x-test-user': 'editor1' },
+      payload: { templateId: 'AM01_510037_20240710_交付版' },
+    });
+    expect(ok.statusCode).toBe(204);
+
+    const list = await app.inject({ method: 'GET', url: '/history/pdf' });
+    expect(list.json()).toEqual([
+      expect.objectContaining({ templateId: 'AM01_510037_20240710_交付版', user: 'editor1' }),
+    ]);
+  });
+
+  // `actor()` の `req.user?.username ?? 'system'` は user 有り(上のテスト)/無しの両分岐を
+  // 踏んで初めて branch 網羅になる。`x-test-user` ヘッダを送らないリクエストで `'system'` 側を
+  // 踏む。
+  it('POST /history/pdf: user ヘッダが無ければ actor は system で記録する', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/history/pdf',
+      payload: { templateId: 'AM01_520037_20240710_交付版' },
+    });
+    expect(res.statusCode).toBe(204);
+
+    const list = await app.inject({ method: 'GET', url: '/history/pdf' });
+    expect(list.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ templateId: 'AM01_520037_20240710_交付版', user: 'system' }),
+      ]),
+    );
+  });
+
+  it('GET /history/edit と GET /history/create は配列(空)を返す', async () => {
+    const edit = await app.inject({ method: 'GET', url: '/history/edit' });
+    expect(edit.statusCode).toBe(200);
+    expect(edit.json()).toEqual([]);
+
+    const create = await app.inject({ method: 'GET', url: '/history/create' });
+    expect(create.statusCode).toBe(200);
+    expect(create.json()).toEqual([]);
   });
 });
 

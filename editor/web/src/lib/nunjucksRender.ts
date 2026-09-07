@@ -41,7 +41,9 @@ export function renderJinja(template: string, data: SampleData): RenderResult {
   try {
     return { html: env.renderString(template, data as object), error: null };
   } catch (e) {
-    return { html: '', error: e instanceof Error ? e.message : String(e) };
+    // nunjucks は同期描画の失敗を必ず `TemplateError`(Error 派生)に包んで投げるので、
+    // 非 Error 側は型の上で到達不能。
+    return { html: '', error: (e as Error).message };
   }
 }
 

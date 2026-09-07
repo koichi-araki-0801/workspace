@@ -120,3 +120,77 @@ describe('全体の fail closed', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
+
+describe('上限・例外での fail closed', () => {
+  it('上限を超える script / font と fetcher の例外は展開しない', async () => {
+    const big = 'x'.repeat(2 * 1024 * 1024 + 1);
+    const out = await selfContainPreviewDoc(
+      DOC('<script src="js/big.js"></script>'),
+      fetcherFor({ 'js/big.js': big }),
+    );
+    expect(out).toContain('src="js/big.js"');
+
+    const throwing = vi.fn(async () => {
+      throw new Error('net');
+    });
+    expect(await selfContainPreviewDoc(DOC('<script src="js/a.js"></script>'), throwing)).toContain(
+      'src="js/a.js"',
+    );
+    expect(
+      await selfContainPreviewDoc(
+        DOC('', '<style>@font-face{src:url(fonts/a.woff2)}</style>'),
+        throwing,
+      ),
+    ).toContain('url(fonts/a.woff2)');
+  });
+
+  it('font が上限バイト数を超えると展開しない', async () => {
+    const big = new Uint8Array(8 * 1024 * 1024 + 1);
+    const fetcher = fetcherFor({ 'fonts/big.woff2': big });
+    const out = await selfContainPreviewDoc(
+      DOC('', '<style>@font-face{src:url(fonts/big.woff2)}</style>'),
+      fetcher,
+    );
+    expect(out).toContain('url(fonts/big.woff2)');
+  });
+
+  it('font は拡張子の許可リスト・404・上限で展開を諦め、同じ rel は 1 度しか取得しない', async () => {
+    const fetcher = fetcherFor({ 'fonts/a.woff2': new Uint8Array([1, 2, 3]) });
+    const css = '<style>@font-face{src:url(fonts/a.woff2)} .x{src:url(fonts/a.woff2)}</style>';
+    const out = await selfContainPreviewDoc(DOC('', css), fetcher);
+    expect(out.match(/data:font\/woff2;base64,/g)).toHaveLength(2);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(
+      await selfContainPreviewDoc(
+        DOC('', '<style>@font-face{src:url(fonts/a.xyz)}</style>'),
+        fetcher,
+      ),
+    ).toContain('url(fonts/a.xyz)');
+    expect(
+      await selfContainPreviewDoc(
+        DOC('', '<style>@font-face{src:url(fonts/missing.woff2)}</style>'),
+        fetcher,
+      ),
+    ).toContain('url(fonts/missing.woff2)');
+  });
+
+  it('type=module は展開し、許可外 type と src 無しの script、空の style は触らない', async () => {
+    const fetcher = fetcherFor({ 'js/m.js': 'm()' });
+    expect(
+      await selfContainPreviewDoc(DOC('<script type="module" src="js/m.js"></script>'), fetcher),
+    ).toContain('<script type="module">m()');
+    const ld = DOC(
+      '<script type="application/ld+json" src="js/m.js"></script><script>inline()</script><style></style>',
+    );
+    expect(await selfContainPreviewDoc(ld, fetcher)).toContain('src="js/m.js"');
+  });
+
+  it('fetcher を省略すると window.fetch を使う', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('g()', { status: 200 })),
+    );
+    expect(await selfContainPreviewDoc(DOC('<script src="js/g.js"></script>'))).toContain('g()');
+    vi.unstubAllGlobals();
+  });
+});
