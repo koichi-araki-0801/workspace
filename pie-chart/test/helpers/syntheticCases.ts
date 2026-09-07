@@ -56,7 +56,11 @@ function makeItems(n: number, style: 'short' | 'long', withOther: boolean): Slic
   let remaining = 100;
   for (let i = 0; i < n; i += 1) {
     // 先頭は残りの 45%、以降も残りの 45% ずつ取る逓減列。末尾は残り全部 (合計 100)。
-    const value = i === n - 1 ? remaining : Math.round(remaining * 0.45 * 10) / 10;
+    // 45% には「残りの項目 1 つにつき 0.1 を必ず残す」上限を掛ける。値 0 の項目は正規化
+    // (`|value| > 0` フィルタ) で落ち、項目数の違うケースが同一入力へ潰れるため作らない。
+    const decayed = Math.round(remaining * 0.45 * 10) / 10;
+    const capped = Math.round((remaining - (n - i - 1) * 0.1) * 10) / 10;
+    const value = i === n - 1 ? remaining : Math.min(decayed, capped);
     items.push({ name: names[i % names.length], value: Math.round(value * 10) / 10 });
     remaining = Math.round((remaining - value) * 10) / 10;
   }
@@ -99,8 +103,7 @@ export function syntheticCases(): Record<string, Slice[]> {
 }
 
 /**
- * 配置計算が突出して重いケース (n=12 の長名)。`render_hash_long.test.ts` だけが描画し、
- * `render_hash.test.ts` は除外する。`gen_long_14_other` は正規化で値 0 の 2 項目が落ちて
- * `gen_long_12_other` と同一入力になるため、重さもハッシュも同じ。
+ * 配置計算が突出して重いケース (長名の n=12 / n=14)。`render_hash_long.test.ts` だけが描画し、
+ * `render_hash.test.ts` は除外する。
  */
 export const LONG_CASE_NAMES: readonly string[] = ['gen_long_12_other', 'gen_long_14_other'];
