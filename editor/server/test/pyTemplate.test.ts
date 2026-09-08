@@ -68,4 +68,19 @@ describe('generateTemplate', () => {
 
     await expect(generateTemplate(attrs)).rejects.toThrow(/Python生成器の実行に失敗: exit 1$/);
   });
+
+  // 他のケースは `execFile` を差し替えているため、引数の組み立てが実 API を通るかは見ていない。
+  // ここだけ差し替えを外し、存在しない実行ファイルで「失敗の形」が保たれることを確かめる。
+  it('実行ファイルが無ければ Python 生成器の失敗として包んで投げる(実 execFile 経路)', async () => {
+    vi.doUnmock('node:child_process');
+    vi.resetModules();
+    vi.stubEnv('PYTHON_BIN', 'このコマンドは存在しません');
+    const { generateTemplate: real } = await import('../src/generate/pyTemplate.js');
+    await expect(real(attrs)).rejects.toThrow(/Python生成器の実行に失敗/);
+    // 差し替えが外れていなければ、直前のケースの実装が同じ文言で reject して素通りする。
+    // 実プロセスを通ったことを、差し替え側が呼ばれていないことで確かめる。
+    expect(execFileMock).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
 });

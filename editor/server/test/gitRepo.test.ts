@@ -191,28 +191,34 @@ d('gitRepo', () => {
     expect(await git.commitFiles(hash)).toContain(rel);
   }, 10_000);
 
-  it('withGitLock は直列化し、失敗しても次の予約を詰まらせない(直列化チェーンの失敗側)', async () => {
+  it('withGitLock は同時に来た予約を投入順へ直列化し、失敗しても次を詰まらせない', async () => {
     const order: number[] = [];
-    await expect(
+    const gate: Array<() => void> = [];
+    const hold = (n: number) =>
       git.withGitLock(async () => {
-        order.push(1);
-        return 'ok';
-      }),
-    ).resolves.toBe('ok');
-    await expect(
-      git.withGitLock(async () => {
-        order.push(2);
-        throw new Error('boom');
-      }),
-    ).rejects.toThrow('boom');
+        order.push(n);
+        await new Promise<void>((r) => gate.push(r));
+        if (n === 2) throw new Error('boom');
+        return n;
+      });
+    // 3 つを待たずに投げる。直列化されていれば、1 つ目が解ける前に 2 つ目は始まらない
+    // (1 つずつ待つ形だと、直列化していない実装でも同じ順序になり検査にならない)。
+    const p1 = hold(1);
+    const p2 = hold(2);
+    const p3 = hold(3);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(order).toEqual([1]);
+    gate.shift()?.();
+    await expect(p1).resolves.toBe(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(order).toEqual([1, 2]);
+    gate.shift()?.();
+    await expect(p2).rejects.toThrow('boom');
     // 直前の予約が失敗していても、次の予約は待たされず実行される。
-    await expect(
-      git.withGitLock(async () => {
-        order.push(3);
-        return 'again';
-      }),
-    ).resolves.toBe('again');
+    await new Promise((r) => setTimeout(r, 0));
     expect(order).toEqual([1, 2, 3]);
+    gate.shift()?.();
+    await expect(p3).resolves.toBe(3);
   });
 
   it('showFile はコミット時点に無いパスを空文字で返す(git の定型文で「不在」と判定)', async () => {
