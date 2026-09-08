@@ -1057,8 +1057,8 @@ export function buildScoreBase(
  * ことがある。`changed` に載った index は必ず再判定するので行列を読むことはなく、載って
  * いない index の null 判定は基準と同じ (幾何が同じ) なので `continue` の位置も動かない。
  *
- * `base.usable === false` の `ScoreBase` を渡してはならない。その基準の行列は全 false なので
- * 再判定しない対をすべて「当たらない」と数えて過少になる。この判定は呼び出し前段の
+ * `base.usable === false` の `ScoreBase` を渡してはならない。その基準は行列を持たない (空配列)
+ * ので、再判定しない対を読もうとした時点で落ちる。この判定は呼び出し前段の
  * `measureRepairVecDelta` が持つ (ここで実行時チェックを足すと対判定ループに分岐が増える)。
  */
 export function crossCountWithChanged(
@@ -1097,7 +1097,8 @@ export function crossCountWithChanged(
  * 「その index が絡む対」なので、行 i・列 j のどちらで当たっても再判定になる。
  *
  * `crossCountWithChanged` と同じく `base.usable === false` の `ScoreBase` を渡してはならない
- * (過少に数える)。判定は `measureRepairVecDelta` の責務で、ここには実行時チェックを置かない。
+ * (行列が空なので落ちる)。判定は `measureRepairVecDelta` の責務で、ここには実行時チェックを
+ * 置かない。
  */
 export function throughCountWithChanged(
   placements: Placement[],
