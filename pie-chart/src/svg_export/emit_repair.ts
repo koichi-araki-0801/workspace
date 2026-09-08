@@ -1988,6 +1988,9 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
           // シフトで動くのは p (= placements[i]) の箱と leader だけ、続く複合手で追加で動くのは
           // bend 替えを**採用した**相手だけなので、動いた index だけを数え直せば足りる
           // (`tryBendGridOn` は不採用なら bend を元へ戻すので、戻り値が false の相手は不動)。
+          // `i` をそのまま変化 index に使えるのは、修復パスが `placements` を並べ替えず
+          // index と要素の対応が保たれるため (`seamRestore` は各要素へフィールドを書き戻す
+          // だけで配列の順序を触らない)。bend 候補・交差対スワップも同じ前提に依る。
           const shiftBase = buildScoreBase(placements, cfg, coord);
           const movedIdx = new Set<number>([i]);
           const measure = (): ResidualVec =>

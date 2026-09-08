@@ -1024,10 +1024,12 @@ export function buildScoreBase(
   const geo = collectLeaderGeometry(placements, cfg, coord);
   const n = placements.length;
   const names = new Set(placements.map((p) => p.item.name));
+  // 名前が重複する入力では差分を使わないので、行列は作らない (呼び出し側は `usable` を見て
+  // 全走査へ落ちる)。空の行列を返すのは、型を分けずに「使ってはいけない基準」を表すため。
   const usable = names.size === n;
+  if (!usable) return { geo, crossMat: [], throughMat: [], usable };
   const crossMat = Array.from({ length: n }, () => new Array<boolean>(n).fill(false));
   const throughMat = Array.from({ length: n }, () => new Array<boolean>(n).fill(false));
-  if (!usable) return { geo, crossMat, throughMat, usable };
   for (let i = 0; i < n; i += 1) {
     const pa = geo.paths[i];
     if (!pa) continue;
