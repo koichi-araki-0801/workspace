@@ -50,8 +50,8 @@ function lenToMm(v: string | undefined): number {
   return Math.round(n);
 }
 
-function pctToNum(v: string | undefined): number {
-  if (!v) return 100;
+// 呼び出し元が `style.width` の真値を確かめて渡すため空値は来ない。数値でない指定を全幅へ寄せる。
+function pctToNum(v: string): number {
   const n = Number.parseFloat(v);
   return Number.isNaN(n) ? 100 : Math.round(n);
 }

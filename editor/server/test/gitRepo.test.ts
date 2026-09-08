@@ -92,6 +92,25 @@ d('gitRepo', () => {
     expect(after).toEqual(before);
   });
 
+  it('追跡対象が 1 つも実在しなければ git add を撃たず HEAD を維持する', async () => {
+    // `git add -- <pathspec>` は不在の pathspec で失敗するため、実在するものだけへ絞っている。
+    // 全滅した状態は `ensureRepo` 経由では起きないが、`commitAll` は単体でも公開されており、
+    // ここで git を落とすと承認後のベストエフォート処理(パーツ同期)が例外で止まる。
+    const before = await git.commitFiles('HEAD');
+    const headBefore = await git.commitAll('対象ゼロの下見', { name: 'tester' });
+    const specs = ['templates', 'css', 'sync', '.gitignore', '.gitattributes'];
+    for (const spec of specs) fs.rmSync(path.join(tmp, spec), { recursive: true, force: true });
+    try {
+      const hash = await git.commitAll('対象ゼロ', { name: 'tester' });
+      expect(hash).toBe(headBefore);
+    } finally {
+      execFileSync('git', ['checkout', '--', '.'], { cwd: tmp });
+      fs.mkdirSync(path.join(tmp, 'templates'), { recursive: true });
+    }
+    // 空コミットも作業ツリーの巻き戻しも起きていない。
+    expect(await git.commitFiles('HEAD')).toEqual(before);
+  });
+
   // ── 編集履歴の 1 パス取得 ──
   // `git log`(件数上限なし)でコミット一覧を取り、各コミットへ `git show` を
   // 投げる形にすると、`Array#map` の async コールバックは最初の await まで同期に走るので、
