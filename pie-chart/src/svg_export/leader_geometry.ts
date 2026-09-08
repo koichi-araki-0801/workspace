@@ -999,9 +999,15 @@ export function countLeaderThroughLabelsFrom(
  */
 export interface ScoreBase {
   geo: LeaderGeometry;
-  /** `crossMat[i][j]` (i < j) が true なら leader i と j が交差する。 */
+  /**
+   * `crossMat[i][j]` (i < j) が true なら leader i と j が交差する。`usable === false` の
+   * ときは空配列 (読んではいけない基準であることを、型を分けずに表す)。
+   */
   crossMat: boolean[][];
-  /** `throughMat[i][j]` (i !== j) が true なら leader i が box j を貫く。 */
+  /**
+   * `throughMat[i][j]` (i !== j) が true なら leader i が box j を貫く。`crossMat` と同じく
+   * `usable === false` のときは空配列。
+   */
   throughMat: boolean[][];
   /**
    * 差分を使ってよいか。採点値はスライス名をキーにした集合の要素数なので、同名スライスが
@@ -1024,10 +1030,12 @@ export function buildScoreBase(
   const geo = collectLeaderGeometry(placements, cfg, coord);
   const n = placements.length;
   const names = new Set(placements.map((p) => p.item.name));
+  // 名前が重複する入力では差分を使わないので、行列は作らない (呼び出し側は `usable` を見て
+  // 全走査へ落ちる)。空の行列を返すのは、型を分けずに「使ってはいけない基準」を表すため。
   const usable = names.size === n;
+  if (!usable) return { geo, crossMat: [], throughMat: [], usable };
   const crossMat = Array.from({ length: n }, () => new Array<boolean>(n).fill(false));
   const throughMat = Array.from({ length: n }, () => new Array<boolean>(n).fill(false));
-  if (!usable) return { geo, crossMat, throughMat, usable };
   for (let i = 0; i < n; i += 1) {
     const pa = geo.paths[i];
     if (!pa) continue;
@@ -1055,9 +1063,10 @@ export function buildScoreBase(
  * ことがある。`changed` に載った index は必ず再判定するので行列を読むことはなく、載って
  * いない index の null 判定は基準と同じ (幾何が同じ) なので `continue` の位置も動かない。
  *
- * `base.usable === false` の `ScoreBase` を渡してはならない。その基準の行列は全 false なので
- * 再判定しない対をすべて「当たらない」と数えて過少になる。この判定は呼び出し前段の
- * `measureRepairVecDelta` が持つ (ここで実行時チェックを足すと対判定ループに分岐が増える)。
+ * `base.usable === false` の `ScoreBase` を渡してはならない。その基準は行列を持たない (空配列)
+ * ので、再判定しない対を読んだ時点で落ちる。読む対が 1 つも無ければ落ちずに素通りするため、
+ * 例外は誤用の検出手段にならない。この判定は呼び出し前段の `measureRepairVecDelta` が持つ
+ * (ここで実行時チェックを足すと対判定ループに分岐が増える)。
  */
 export function crossCountWithChanged(
   placements: Placement[],
@@ -1095,7 +1104,8 @@ export function crossCountWithChanged(
  * 「その index が絡む対」なので、行 i・列 j のどちらで当たっても再判定になる。
  *
  * `crossCountWithChanged` と同じく `base.usable === false` の `ScoreBase` を渡してはならない
- * (過少に数える)。判定は `measureRepairVecDelta` の責務で、ここには実行時チェックを置かない。
+ * (行列が空なので、読む対があれば落ち、無ければ素通りする)。判定は `measureRepairVecDelta` の
+ * 責務で、ここには実行時チェックを置かない。
  */
 export function throughCountWithChanged(
   placements: Placement[],

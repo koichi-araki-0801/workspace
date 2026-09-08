@@ -5,7 +5,7 @@
 // 返す」に尽きる。実配置の分布に依存しない性質なので、決定的な擬似乱数で作った配置を動かして
 // 9 フィールドすべてを突き合わせる。`replaceLeaderGeometryAt` が `collectLeaderGeometry` と
 // 同値であることも同時に固定する (この 2 つの一致は差分の前提で、これまで byte 比較だけが網だった)。
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createPieLayoutConfig } from '../src/config.js';
 import { layoutLabels } from '../src/layout/diagnostics.js';
 import {
@@ -109,6 +109,31 @@ describe('差分採点は全走査と同値', () => {
     }
   });
 
+  it('changed が全件なら全走査へ落ちる(同じ値を返す)', () => {
+    // 「動いていない対を再利用する」ことに意味が無い入力。差分側が再利用の判定を持たずに
+    // 全走査へ倒すぶんの経路も、全走査と同値でなければならない。
+    const { placements, coord } = makePlacements(items, cfg);
+    const base = buildScoreBase(placements, cfg, coord);
+    for (const p of placements) p.leaderBend = { x: 5, y: -5 };
+    const all = placements.map((_, i) => i);
+    expect(measureRepairVecDelta(base, placements, cfg, coord, all)).toEqual(
+      measureRepairVec(placements, cfg, coord),
+    );
+  });
+
+  it('leader を描かない placement が混ざっても全走査と一致する', () => {
+    const { placements, coord } = makePlacements(items, cfg);
+    // 基準側で leader を持たない要素を作る。差分は「基準では null、候補では非 null」の
+    // 組み合わせを踏み、行列を読んではならない側に落ちる。
+    placements[2].insideSlice = true;
+    const base = buildScoreBase(placements, cfg, coord);
+    placements[2].insideSlice = false;
+    placements[2].leaderBend = { x: 6, y: 6 };
+    expect(measureRepairVecDelta(base, placements, cfg, coord, [2])).toEqual(
+      measureRepairVec(placements, cfg, coord),
+    );
+  });
+
   it('同名スライスがあれば差分を使わず全走査へ落ちる', () => {
     const dup = [
       { name: '国内株式', value: 40 },
@@ -123,5 +148,30 @@ describe('差分採点は全走査と同値', () => {
     expect(measureRepairVecDelta(base, placements, cfg, coord, [0])).toEqual(
       measureRepairVecFrom(placements, cfg, coord, geo),
     );
+  });
+});
+
+describe('自己検査モード', () => {
+  it('PIE_CHART_VERIFY_DELTA=1 のとき、changed の申告漏れを検出して投げる', () => {
+    const cfg = createPieLayoutConfig({});
+    const { placements, coord } = makePlacements(syntheticCases().gen_long_12_other, cfg);
+    const base = buildScoreBase(placements, cfg, coord);
+    // 2 件動かしたのに 1 件しか申告しない = 申告漏れそのもの。
+    placements[0].leaderBend = { x: 8, y: 8 };
+    placements[1].leaderBend = { x: -8, y: -8 };
+    vi.stubEnv('PIE_CHART_VERIFY_DELTA', '1');
+    expect(() => measureRepairVecDelta(base, placements, cfg, coord, [0])).toThrow(
+      /差分採点が全走査と一致しません/,
+    );
+    vi.unstubAllEnvs();
+  });
+
+  it('既定 (環境変数なし) では申告漏れでも投げない (本番経路の費用を増やさない)', () => {
+    const cfg = createPieLayoutConfig({});
+    const { placements, coord } = makePlacements(syntheticCases().gen_long_12_other, cfg);
+    const base = buildScoreBase(placements, cfg, coord);
+    placements[0].leaderBend = { x: 8, y: 8 };
+    placements[1].leaderBend = { x: -8, y: -8 };
+    expect(() => measureRepairVecDelta(base, placements, cfg, coord, [0])).not.toThrow();
   });
 });

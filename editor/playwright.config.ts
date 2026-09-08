@@ -15,7 +15,8 @@ const wantsRest = process.argv.some(
 );
 if (wantsRest && !REST) {
   throw new Error(
-    'project "rest" は E2E_REST=1 のときだけ定義されます。呼び出し元のシェルで E2E_REST=1 を設定してから `pnpm run e2e:rest` を実行してください。',
+    'project "rest" は E2E_REST=1 のときだけ定義されます。' +
+      '呼び出し元のシェルで E2E_REST=1 を設定してから `pnpm run e2e:rest` を実行してください。',
   );
 }
 
@@ -63,7 +64,10 @@ export default defineConfig({
       // の editor 領域)だけが `--project docs` で選ぶ。editor に触れた push でだけ再撮影が走り、
       // 差分は「再撮影」としてコミットする。
       name: 'docs',
-      use: { ...devices['Desktop Chrome'] },
+      // `timezoneId` は撮影する画面の時刻表示を固定するため。`capture_docs.spec.ts` の
+      // `setFixedTime` が固定するのは瞬間だけで、表示は `Date` のローカル getter 経由=
+      // ブラウザの地方時で組み立てられる。両方を固定して初めて PNG がバイト一致する。
+      use: { ...devices['Desktop Chrome'], timezoneId: 'Asia/Tokyo' },
       testMatch: '**/capture_docs.spec.ts',
     },
     ...(REST

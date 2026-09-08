@@ -92,6 +92,27 @@ d('gitRepo', () => {
     expect(after).toEqual(before);
   });
 
+  it('追跡対象が 1 つも実在しなければ git add を撃たず HEAD を維持する', async () => {
+    // `git add -- <pathspec>` は不在の pathspec で失敗するため、実在するものだけへ絞っている。
+    // 全滅した状態は `ensureRepo` 経由では起きないが、`commitAll` は単体でも公開されており、
+    // ここで git を落とすと承認後のベストエフォート処理(パーツ同期)が例外で止まる。
+    const headBefore = await git.commitAll('対象ゼロの下見', { name: 'tester' });
+    // `before` は保険コミットの後に取る。前のケースが作業ツリーを汚していると保険コミットが
+    // 新しい HEAD を作るため、先に取ると末尾の比較が本題と無関係な理由で落ちる。
+    const before = await git.commitFiles('HEAD');
+    const specs = ['templates', 'css', 'sync', '.gitignore', '.gitattributes'];
+    for (const spec of specs) fs.rmSync(path.join(tmp, spec), { recursive: true, force: true });
+    try {
+      const hash = await git.commitAll('対象ゼロ', { name: 'tester' });
+      expect(hash).toBe(headBefore);
+    } finally {
+      execFileSync('git', ['checkout', '--', '.'], { cwd: tmp });
+      fs.mkdirSync(path.join(tmp, 'templates'), { recursive: true });
+    }
+    // 空コミットも作業ツリーの巻き戻しも起きていない。
+    expect(await git.commitFiles('HEAD')).toEqual(before);
+  });
+
   // ── 編集履歴の 1 パス取得 ──
   // `git log`(件数上限なし)でコミット一覧を取り、各コミットへ `git show` を
   // 投げる形にすると、`Array#map` の async コールバックは最初の await まで同期に走るので、
@@ -178,11 +199,12 @@ d('gitRepo', () => {
         settled = true;
       },
     );
-    // 実時間の窓に賭けて「外せた」だけを見ると、lock を無視して即 commit しても通って
-    // しまう。lock を握ったまま「まだ決着していない」= リトライ待ちに入っている事実を
-    // 観測してから外す(最初のリトライ待ちは 200ms なので、それを跨ぐ長さだけ握る)。
-    await new Promise((r) => setTimeout(r, 250));
-    expect(settled).toBe(false);
+    // lock が居るあいだは完了しないことを、短い間隔で繰り返し確かめる。1 回の長い待ちだと
+    // 「たまたまその瞬間だけ未完了だった」と区別できない。
+    for (let i = 0; i < 5; i += 1) {
+      await new Promise((r) => setTimeout(r, 50));
+      expect(settled).toBe(false);
+    }
     fs.rmSync(lockFile, { force: true });
     const hash = await commit;
     expect(hash).toMatch(/^[0-9a-f]{40}$/);
@@ -190,28 +212,34 @@ d('gitRepo', () => {
     expect(await git.commitFiles(hash)).toContain(rel);
   }, 10_000);
 
-  it('withGitLock は直列化し、失敗しても次の予約を詰まらせない(直列化チェーンの失敗側)', async () => {
+  it('withGitLock は同時に来た予約を投入順へ直列化し、失敗しても次を詰まらせない', async () => {
     const order: number[] = [];
-    await expect(
+    const gate: Array<() => void> = [];
+    const hold = (n: number) =>
       git.withGitLock(async () => {
-        order.push(1);
-        return 'ok';
-      }),
-    ).resolves.toBe('ok');
-    await expect(
-      git.withGitLock(async () => {
-        order.push(2);
-        throw new Error('boom');
-      }),
-    ).rejects.toThrow('boom');
+        order.push(n);
+        await new Promise<void>((r) => gate.push(r));
+        if (n === 2) throw new Error('boom');
+        return n;
+      });
+    // 3 つを待たずに投げる。直列化されていれば、1 つ目が解ける前に 2 つ目は始まらない
+    // (1 つずつ待つ形だと、直列化していない実装でも同じ順序になり検査にならない)。
+    const p1 = hold(1);
+    const p2 = hold(2);
+    const p3 = hold(3);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(order).toEqual([1]);
+    gate.shift()?.();
+    await expect(p1).resolves.toBe(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(order).toEqual([1, 2]);
+    gate.shift()?.();
+    await expect(p2).rejects.toThrow('boom');
     // 直前の予約が失敗していても、次の予約は待たされず実行される。
-    await expect(
-      git.withGitLock(async () => {
-        order.push(3);
-        return 'again';
-      }),
-    ).resolves.toBe('again');
+    await new Promise((r) => setTimeout(r, 0));
     expect(order).toEqual([1, 2, 3]);
+    gate.shift()?.();
+    await expect(p3).resolves.toBe(3);
   });
 
   it('showFile はコミット時点に無いパスを空文字で返す(git の定型文で「不在」と判定)', async () => {

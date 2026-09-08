@@ -45,6 +45,10 @@ async function waitForPreviewPage(page: Page) {
  * 丸い縁の反エイリアスが数階調ずれる(タブ切替直後の `history-tab.png` で実測。見た目は同じでも
  * PNG のバイト列が変わり、作業ツリーが汚れる)。無限アニメーション(スピナー等)は撮影時に
  * 停止されるので待たない — 待つと永久に終わらない。
+ *
+ * 撮影の直前に一律で呼ぶ。必要なのはタブ遷移を挟む数枚だけだが、どの画面がアニメーションを
+ * 持つかは実装の変更で動くため、「必要な画面を選ぶ」形にすると選び漏れが撮影のばらつきとして
+ * 出る。進行中のアニメーションが無ければ即座に解決するので、一律で呼ぶ費用はほぼ無い。
  */
 async function waitForTransitionsSettled(page: Page): Promise<void> {
   await page.waitForFunction(
@@ -181,7 +185,10 @@ test('capture review screens (申請 → 承認タブ → 精査)', async ({ pag
   // 変わる(内容は同じでも作業ツリーが汚れる)。撮影の間だけ時刻を固定する。`setFixedTime` は
   // `Date` の返す値だけを固定してタイマーは通常どおり走らせるため、`install` と違って
   // プレビュー組版の非同期処理を止めない。
-  await page.clock.setFixedTime(new Date('2026-07-10T11:42:00'));
+  // オフセットを明示して固定するのは「瞬間」だけで、画面の時刻表示はブラウザの地方時で
+  // 組み立てられる。表示側は `playwright.config.ts` の `docs` project の `timezoneId` が
+  // 固定しており、瞬間と表示の両方が揃って初めて撮影結果が実行機に依存しなくなる。
+  await page.clock.setFixedTime(new Date('2026-07-10T11:42:00+09:00'));
 
   // admin で申請を 1 件作る（editor は初回 PW 変更が挟まるため admin で代用）。
   // 無編集の申請でも精査画面の既定タブ（見た目で比較）は前後の組版を並べて表示できる。

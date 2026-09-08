@@ -242,11 +242,16 @@ describe('useAutosave', () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  it('trigger() 前の cancel() / unmount は予約が無くても何もしない(no-op)', () => {
+  it('trigger() 前の cancel() / unmount は保存を起こさない', async () => {
+    vi.useFakeTimers();
     const save = vi.fn(async () => ok(undefined));
     const a = host(save, 800);
-    expect(() => a.api.cancel()).not.toThrow();
+    a.api.cancel();
     const b = host(save, 800);
-    expect(() => b.wrapper.unmount()).not.toThrow();
+    b.wrapper.unmount();
+    // 予約が無い状態で cancel / unmount しても、待ち時間を進めて保存が起きないことまで見る
+    // (例外が出ないことだけでは、誤って保存を走らせる実装を捕まえられない)。
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(save).not.toHaveBeenCalled();
   });
 });
