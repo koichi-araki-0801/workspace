@@ -24,7 +24,10 @@ export async function login(
     await page.evaluate(() => localStorage.removeItem('editor:session'));
   }
   await page.goto('/login', { waitUntil: 'commit' });
-  await page.locator('#u').waitFor();
+  // 全体 CI ではカバレッジ段の直後に走るため、SPA の初期化が既定の 30 秒に収まらないことがある。
+  // 待つのは「入力欄が DOM に出た」ではなく「ログイン画面として操作できる」状態にする。
+  await page.locator('#u').waitFor({ state: 'visible', timeout: 60_000 });
+  await expect(page.getByRole('button', { name: 'ログイン' })).toBeEnabled({ timeout: 60_000 });
   await page.locator('#u').fill(user);
   await page.locator('#p').fill(user);
   await page.getByRole('button', { name: 'ログイン' }).click();
