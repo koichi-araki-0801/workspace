@@ -178,11 +178,12 @@ d('gitRepo', () => {
         settled = true;
       },
     );
-    // 実時間の窓に賭けて「外せた」だけを見ると、lock を無視して即 commit しても通って
-    // しまう。lock を握ったまま「まだ決着していない」= リトライ待ちに入っている事実を
-    // 観測してから外す(最初のリトライ待ちは 200ms なので、それを跨ぐ長さだけ握る)。
-    await new Promise((r) => setTimeout(r, 250));
-    expect(settled).toBe(false);
+    // lock が居るあいだは完了しないことを、短い間隔で繰り返し確かめる。1 回の長い待ちだと
+    // 「たまたまその瞬間だけ未完了だった」と区別できない。
+    for (let i = 0; i < 5; i += 1) {
+      await new Promise((r) => setTimeout(r, 50));
+      expect(settled).toBe(false);
+    }
     fs.rmSync(lockFile, { force: true });
     const hash = await commit;
     expect(hash).toMatch(/^[0-9a-f]{40}$/);
