@@ -109,6 +109,31 @@ describe('差分採点は全走査と同値', () => {
     }
   });
 
+  it('changed が全件なら全走査へ落ちる(同じ値を返す)', () => {
+    // 「動いていない対を再利用する」ことに意味が無い入力。差分側が再利用の判定を持たずに
+    // 全走査へ倒すぶんの経路も、全走査と同値でなければならない。
+    const { placements, coord } = makePlacements(items, cfg);
+    const base = buildScoreBase(placements, cfg, coord);
+    for (const p of placements) p.leaderBend = { x: 5, y: -5 };
+    const all = placements.map((_, i) => i);
+    expect(measureRepairVecDelta(base, placements, cfg, coord, all)).toEqual(
+      measureRepairVec(placements, cfg, coord),
+    );
+  });
+
+  it('leader を描かない placement が混ざっても全走査と一致する', () => {
+    const { placements, coord } = makePlacements(items, cfg);
+    // 基準側で leader を持たない要素を作る。差分は「基準では null、候補では非 null」の
+    // 組み合わせを踏み、行列を読んではならない側に落ちる。
+    placements[2].skipLeader = true;
+    const base = buildScoreBase(placements, cfg, coord);
+    placements[2].skipLeader = false;
+    placements[2].leaderBend = { x: 6, y: 6 };
+    expect(measureRepairVecDelta(base, placements, cfg, coord, [2])).toEqual(
+      measureRepairVec(placements, cfg, coord),
+    );
+  });
+
   it('同名スライスがあれば差分を使わず全走査へ落ちる', () => {
     const dup = [
       { name: '国内株式', value: 40 },
