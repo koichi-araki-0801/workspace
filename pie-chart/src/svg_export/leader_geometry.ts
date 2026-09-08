@@ -999,9 +999,15 @@ export function countLeaderThroughLabelsFrom(
  */
 export interface ScoreBase {
   geo: LeaderGeometry;
-  /** `crossMat[i][j]` (i < j) が true なら leader i と j が交差する。 */
+  /**
+   * `crossMat[i][j]` (i < j) が true なら leader i と j が交差する。`usable === false` の
+   * ときは空配列 (読んではいけない基準であることを、型を分けずに表す)。
+   */
   crossMat: boolean[][];
-  /** `throughMat[i][j]` (i !== j) が true なら leader i が box j を貫く。 */
+  /**
+   * `throughMat[i][j]` (i !== j) が true なら leader i が box j を貫く。`crossMat` と同じく
+   * `usable === false` のときは空配列。
+   */
   throughMat: boolean[][];
   /**
    * 差分を使ってよいか。採点値はスライス名をキーにした集合の要素数なので、同名スライスが
@@ -1058,8 +1064,9 @@ export function buildScoreBase(
  * いない index の null 判定は基準と同じ (幾何が同じ) なので `continue` の位置も動かない。
  *
  * `base.usable === false` の `ScoreBase` を渡してはならない。その基準は行列を持たない (空配列)
- * ので、再判定しない対を読もうとした時点で落ちる。この判定は呼び出し前段の
- * `measureRepairVecDelta` が持つ (ここで実行時チェックを足すと対判定ループに分岐が増える)。
+ * ので、再判定しない対を読んだ時点で落ちる。読む対が 1 つも無ければ落ちずに素通りするため、
+ * 例外は誤用の検出手段にならない。この判定は呼び出し前段の `measureRepairVecDelta` が持つ
+ * (ここで実行時チェックを足すと対判定ループに分岐が増える)。
  */
 export function crossCountWithChanged(
   placements: Placement[],
@@ -1097,8 +1104,8 @@ export function crossCountWithChanged(
  * 「その index が絡む対」なので、行 i・列 j のどちらで当たっても再判定になる。
  *
  * `crossCountWithChanged` と同じく `base.usable === false` の `ScoreBase` を渡してはならない
- * (行列が空なので落ちる)。判定は `measureRepairVecDelta` の責務で、ここには実行時チェックを
- * 置かない。
+ * (行列が空なので、読む対があれば落ち、無ければ素通りする)。判定は `measureRepairVecDelta` の
+ * 責務で、ここには実行時チェックを置かない。
  */
 export function throughCountWithChanged(
   placements: Placement[],
