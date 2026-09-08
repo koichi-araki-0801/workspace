@@ -125,9 +125,9 @@ describe('差分採点は全走査と同値', () => {
     const { placements, coord } = makePlacements(items, cfg);
     // 基準側で leader を持たない要素を作る。差分は「基準では null、候補では非 null」の
     // 組み合わせを踏み、行列を読んではならない側に落ちる。
-    placements[2].skipLeader = true;
+    placements[2].insideSlice = true;
     const base = buildScoreBase(placements, cfg, coord);
-    placements[2].skipLeader = false;
+    placements[2].insideSlice = false;
     placements[2].leaderBend = { x: 6, y: 6 };
     expect(measureRepairVecDelta(base, placements, cfg, coord, [2])).toEqual(
       measureRepairVec(placements, cfg, coord),

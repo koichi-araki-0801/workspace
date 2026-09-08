@@ -96,8 +96,10 @@ d('gitRepo', () => {
     // `git add -- <pathspec>` は不在の pathspec で失敗するため、実在するものだけへ絞っている。
     // 全滅した状態は `ensureRepo` 経由では起きないが、`commitAll` は単体でも公開されており、
     // ここで git を落とすと承認後のベストエフォート処理(パーツ同期)が例外で止まる。
-    const before = await git.commitFiles('HEAD');
     const headBefore = await git.commitAll('対象ゼロの下見', { name: 'tester' });
+    // `before` は保険コミットの後に取る。前のケースが作業ツリーを汚していると保険コミットが
+    // 新しい HEAD を作るため、先に取ると末尾の比較が本題と無関係な理由で落ちる。
+    const before = await git.commitFiles('HEAD');
     const specs = ['templates', 'css', 'sync', '.gitignore', '.gitattributes'];
     for (const spec of specs) fs.rmSync(path.join(tmp, spec), { recursive: true, force: true });
     try {

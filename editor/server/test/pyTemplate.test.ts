@@ -71,6 +71,8 @@ describe('generateTemplate', () => {
 
   // 他のケースは `execFile` を差し替えているため、引数の組み立てが実 API を通るかは見ていない。
   // ここだけ差し替えを外し、存在しない実行ファイルで「失敗の形」が保たれることを確かめる。
+  // `vi.doUnmock` はファイル末尾まで効くので、このケースは必ず最後に置く(後ろへケースを足すと
+  // `execFile` の差し替えが外れたまま実プロセスを起動する)。
   it('実行ファイルが無ければ Python 生成器の失敗として包んで投げる(実 execFile 経路)', async () => {
     vi.doUnmock('node:child_process');
     vi.resetModules();

@@ -253,6 +253,5 @@ describe('useAutosave', () => {
     // (例外が出ないことだけでは、誤って保存を走らせる実装を捕まえられない)。
     await vi.advanceTimersByTimeAsync(1600);
     expect(save).not.toHaveBeenCalled();
-    vi.useRealTimers();
   });
 });
