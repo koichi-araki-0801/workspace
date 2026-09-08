@@ -15,7 +15,8 @@ const wantsRest = process.argv.some(
 );
 if (wantsRest && !REST) {
   throw new Error(
-    'project "rest" は E2E_REST=1 のときだけ定義されます。呼び出し元のシェルで E2E_REST=1 を設定してから `pnpm run e2e:rest` を実行してください。',
+    'project "rest" は E2E_REST=1 のときだけ定義されます。' +
+      '呼び出し元のシェルで E2E_REST=1 を設定してから `pnpm run e2e:rest` を実行してください。',
   );
 }
 
