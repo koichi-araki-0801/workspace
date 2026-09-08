@@ -45,6 +45,10 @@ async function waitForPreviewPage(page: Page) {
  * 丸い縁の反エイリアスが数階調ずれる(タブ切替直後の `history-tab.png` で実測。見た目は同じでも
  * PNG のバイト列が変わり、作業ツリーが汚れる)。無限アニメーション(スピナー等)は撮影時に
  * 停止されるので待たない — 待つと永久に終わらない。
+ *
+ * 撮影の直前に一律で呼ぶ。必要なのはタブ遷移を挟む数枚だけだが、どの画面がアニメーションを
+ * 持つかは実装の変更で動くため、「必要な画面を選ぶ」形にすると選び漏れが撮影のばらつきとして
+ * 出る。進行中のアニメーションが無ければ即座に解決するので、一律で呼ぶ費用はほぼ無い。
  */
 async function waitForTransitionsSettled(page: Page): Promise<void> {
   await page.waitForFunction(
