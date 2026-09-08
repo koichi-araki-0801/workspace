@@ -1613,6 +1613,9 @@ export function measureRepairVecFrom(
  * `changed` の index は **経路も箱も変わりうる** とみなす (呼び出し側が「箱は動いていない」を
  * 自己申告する形にすると、申告を誤ったときに出力が静かに変わる)。同名スライスがある入力
  * (`base.usable === false`) と、変化が全件に及ぶ場合は全走査へ落ちる。
+ * `changed` の index は呼び出し時点の `placements` の添字で、`base` を作ってから採点し終える
+ * までの間に配列が並べ替わらないことを前提にする (修復パスは要素へフィールドを書き戻すだけで
+ * 順序を触らない)。
  * `cross` / `through` 以外の 7 指標は `measureRepairVecFrom` と同じ式・同じ順序で書く
  * (差分の有無で FP の結果が動かないことが要件)。
  */
@@ -1645,7 +1648,9 @@ export function measureRepairVecDelta(
   };
   // 差分の正しさは「`changed` に動いた index が漏れなく載っていること」に懸かっており、漏れは
   // 出力バイトを静かに変える。実サンプルのバイト比較は、サンプルに出ない配置での漏れを捕まえ
-  // られない。開発時にだけ全走査と突き合わせ、食い違いをその場で落とす (既定は分岐 1 つの費用)。
+  // られない。開発時にだけ全走査と突き合わせ、食い違いをその場で落とす。既定でも
+  // `process.env` の読み出しぶんは掛かり、定数の比較より桁違いに重いが、最も重いチャートでも
+  // 全体の 0.2% 未満に収まる。
   if (process.env.PIE_CHART_VERIFY_DELTA === '1') {
     const full = measureRepairVecFrom(
       placements,
@@ -1988,9 +1993,6 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
           // シフトで動くのは p (= placements[i]) の箱と leader だけ、続く複合手で追加で動くのは
           // bend 替えを**採用した**相手だけなので、動いた index だけを数え直せば足りる
           // (`tryBendGridOn` は不採用なら bend を元へ戻すので、戻り値が false の相手は不動)。
-          // `i` をそのまま変化 index に使えるのは、修復パスが `placements` を並べ替えず
-          // index と要素の対応が保たれるため (`seamRestore` は各要素へフィールドを書き戻す
-          // だけで配列の順序を触らない)。bend 候補・交差対スワップも同じ前提に依る。
           const shiftBase = buildScoreBase(placements, cfg, coord);
           const movedIdx = new Set<number>([i]);
           const measure = (): ResidualVec =>
