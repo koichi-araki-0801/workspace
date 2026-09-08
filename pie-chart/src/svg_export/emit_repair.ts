@@ -1632,7 +1632,7 @@ export function measureRepairVecDelta(
   }
   if (cfg.perfCounters) cfg.perfCounters.measureRepairVec += 1;
   const set = new Set(changed);
-  return {
+  const out: RepairVec = {
     cross: crossCountWithChanged(placements, geo, base, set, cfg),
     pieCross: leaderPieCrossCountFrom(geo.paths, cfg, coord),
     through: throughCountWithChanged(placements, geo, base, set, cfg),
@@ -1643,6 +1643,25 @@ export function measureRepairVecDelta(
     boxPie: boxPieIntrusionMaxOf(placements, geo.boxes, cfg),
     view: boxViewOverflowMaxOf(geo.boxes, coord),
   };
+  // 差分の正しさは「`changed` に動いた index が漏れなく載っていること」に懸かっており、漏れは
+  // 出力バイトを静かに変える。実サンプルのバイト比較は、サンプルに出ない配置での漏れを捕まえ
+  // られない。開発時にだけ全走査と突き合わせ、食い違いをその場で落とす (既定は分岐 1 つの費用)。
+  if (process.env.PIE_CHART_VERIFY_DELTA === '1') {
+    const full = measureRepairVecFrom(
+      placements,
+      cfg,
+      coord,
+      collectLeaderGeometry(placements, cfg, coord),
+    );
+    for (const k of Object.keys(out) as (keyof RepairVec)[]) {
+      if (out[k] !== full[k]) {
+        throw new Error(
+          `差分採点が全走査と一致しません: ${k} が ${String(out[k])} と ${String(full[k])} で食い違います`,
+        );
+      }
+    }
+  }
+  return out;
 }
 
 /**
