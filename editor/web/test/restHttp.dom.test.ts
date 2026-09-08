@@ -110,4 +110,16 @@ describe('apiFetch の要求組み立てと網羅', () => {
       code: undefined,
     });
   });
+  it('構造化ボディの code が文字列ならそのまま載る(呼び出し側が分岐に使える)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ kind: 'conflict', message: '重複', code: 'DUP_KEY' }), {
+            status: 409,
+          }),
+      ),
+    );
+    await expect(apiFetch('/x')).rejects.toMatchObject({ kind: 'conflict', code: 'DUP_KEY' });
+  });
 });

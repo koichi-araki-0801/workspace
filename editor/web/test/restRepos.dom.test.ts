@@ -216,6 +216,8 @@ describe('restPartRepo / restHistoryRepo / restNoteRepo / restReviewRepo / restU
       'POST /api/review-requests/r1/approve',
       'POST /api/review-requests/r1/reject',
     ]);
+    expect(calls[4].body).toEqual({ comment: 'ok' });
+    expect(calls[5].body).toEqual({ comment: 'ng' });
   });
   it('users: 一覧 GET、作成 POST(201 ボディをそのまま返す)、更新 PATCH、リセット POST', async () => {
     const calls = stubFetch(() => json({ user: { id: 'u1' }, temporaryPassword: 'x' }, 201));
