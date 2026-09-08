@@ -13,6 +13,8 @@
     // `@types/node` はこのリポジトリでは `editor/server` の依存としてだけ入っており、
     // `editor/` から上へ辿る既定の探索(`node_modules/@types`)には現れない。ここは
     // 型検査専用プロジェクトなので、依存を増やさず実体のある場所を直接指す。
+    // 根へ足すとオフライン配布のバンドルを作り直すことになるので、ここから借りる。
+    // この配置が変わると `TS2688` で明示的に落ちるので、黙って壊れることはない。
     "typeRoots": ["./server/node_modules/@types"]
   },
   "include": ["e2e/**/*.ts", "playwright.config.ts"],

@@ -65,7 +65,9 @@ pnpm ci          # CI 集約（下記の全段）
 
 型チェックは workspace の tsconfig が拾う範囲だけでは足りない。e2e（`editor/e2e/**`）と
 `playwright.config.ts` は `editor/tsconfig.e2e.json`（`noEmit`・`moduleResolution: Bundler`）で
-検査する（`pnpm typecheck` / `typecheck:editor` に組み込み済み）。
+検査する（`pnpm typecheck` / `typecheck:editor` に組み込み済み）。（`@types/node` は
+`editor/server` の依存を借りている。根へ足すとオフライン配布のバンドルを作り直すことになる
+ため。配置が変われば `TS2688` で落ちる。）
 
 `pnpm ci` の内訳は `check:comments → check:claude-hooks → check:ci → test:scripts →
 typecheck → test:coverage → test:docs → pie-chart:batch → pie-chart:batch:diff → build →
