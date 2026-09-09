@@ -544,7 +544,7 @@ const statusText = computed(() => {
             :selected-key="currentNoteKey"
             :can-add="canNote"
             :part-labels="partLabels"
-            @add="(content, kind) => addNote(content, { kind })"
+            @add="(content) => addNote(content)"
             @reply="replyNote"
             @set-status="setNoteStatus"
             @update="updateNote"

@@ -33,7 +33,7 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
         body.pathKey,
         body.content,
         actor(request),
-        { replyTo: body.replyTo, kind: body.kind },
+        { replyTo: body.replyTo },
       );
       return reply.code(201).send(entry);
     },

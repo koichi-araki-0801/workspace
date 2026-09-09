@@ -65,9 +65,14 @@ describe('本文の検証', () => {
     expect(UpdateNoteRequest.safeParse({ content: '' }).success).toBe(false);
   });
 
-  it('追加は返信先と種別を受け、種別の既定は note', () => {
-    const parsed = AddNoteRequest.parse({ pathKey: 'p', content: 'x', replyTo: 'p1' });
-    expect(parsed.kind).toBe('note');
+  it('追加は返信先を受け、種別は持たない(旧クライアントの kind は捨てる)', () => {
+    const parsed = AddNoteRequest.parse({
+      pathKey: 'p',
+      content: 'x',
+      replyTo: 'p1',
+      kind: 'note',
+    });
+    expect(parsed).not.toHaveProperty('kind');
     expect(parsed.replyTo).toBe('p1');
   });
 
@@ -90,7 +95,7 @@ describe('POST /templates/:templateId/notes(HTTP 結合)', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('POST は 201 で投稿を返し、返信は replyTo と kind を保つ。pathKey 欠落は 400', async () => {
+  it('POST は 201 で投稿を返し、返信は replyTo を保つ(kind は出ない)。pathKey 欠落は 400', async () => {
     const parent = await app.inject({
       method: 'POST',
       url,
@@ -103,9 +108,9 @@ describe('POST /templates/:templateId/notes(HTTP 結合)', () => {
       content: '親',
       status: 'open',
       replyTo: null,
-      kind: 'note',
       createdBy: 'editor1',
     });
+    expect(parent.json()).not.toHaveProperty('kind');
 
     const reply = await app.inject({
       method: 'POST',
@@ -114,7 +119,8 @@ describe('POST /templates/:templateId/notes(HTTP 結合)', () => {
       payload: { pathKey: 'p#1', content: '子', replyTo: parent.json().id, kind: 'question' },
     });
     expect(reply.statusCode).toBe(201);
-    expect(reply.json()).toMatchObject({ replyTo: parent.json().id, kind: 'question' });
+    expect(reply.json()).toMatchObject({ replyTo: parent.json().id });
+    expect(reply.json()).not.toHaveProperty('kind');
 
     const missingPathKey = await app.inject({
       method: 'POST',
