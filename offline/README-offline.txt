@@ -20,6 +20,7 @@
 ■ 前提
 ------------------------------------------------------------------------------
   - Windows x64、Node.js 24 以降（corepack 同梱）、tar / curl.exe（Windows 10/11 標準）
+  - 取得（fetch）だけは HTTPS で GitHub に出られること。展開・構築（setup）はネット不要
   - PDF 出力には Microsoft Edge を使用（Windows 標準）
   - git clone できること（リポジトリは Public）
 
@@ -28,21 +29,23 @@
 ------------------------------------------------------------------------------
 1) リポジトリを clone する
      git clone https://github.com/koichi-araki-0801/workspace.git
-2) セットアップを実行する
+2) 重量物を取得する（ネットに出られる端末で）
+     offline\fetch-offline-bundle.bat
+   Release から HTTPS で直取得し（gh 不要）、Release の .sha256 で転送破損を検査してから
+   リポジトリ直下に 3 ファイルを置く:
+     offline-deps-bundle.tar.gz / offline-deps-bundle.tar.gz.sha256 / bundle.key
+   ※ ネットに出られない端末で構築する場合は、この 3 ファイルをその端末の clone 直下へ持ち込む。
+3) セットアップを実行する（ネット不要）
      offline\setup-offline.bat
-   これだけで次を全自動で行う:
-     - リポジトリ直下（または bk\）に offline-deps-bundle.tar.gz と bundle.key があればそれを使い、
-       無ければ Release から HTTPS で直取得する（gh 不要）。取得したときは Release の .sha256 で
-       転送破損を検査する
+   次を行う（取得はしない。直下にも bk\ にもバンドルが無ければ 2) を案内して止まる）:
+     - リポジトリ直下（または bk\）の offline-deps-bundle.tar.gz と bundle.key の組を使う
      - 展開 → bundle.key と手元のソースの content-key を突き合わせる（不一致は中止）
      - 同梱 pnpm を corepack 登録 → 依存をオフライン install → build → Playwright 配置 →
        PortableGit 展開
-     - 取得物を bk\ へ退避
+     - 直下のバンドルを bk\ へ退避
    「[OK] セットアップ完了。」が出れば完了。
    ※ 展開・整合検査だけ行う場合:  offline\setup-offline.bat -SkipBuild
-   ※ ネットに出られない端末では、別の端末で Release から offline-deps-bundle.tar.gz と bundle.key を
-      落としてリポジトリ直下へ置いてから実行する。
-3)（任意）動作確認
+4)（任意）動作確認
      corepack pnpm run ci
 
 ------------------------------------------------------------------------------
@@ -69,8 +72,10 @@
   - 「ソースと重量物が対応していません」で止まる
       → 配布担当に publish-offline-bundle.bat の実行を依頼する。または bundle.key に対応する
         コミットへ checkout し直す。
-  - ダウンロードが 404
+  - fetch のダウンロードが 404
       → タグ名（-Tag）とリポジトリの公開状態を確認する。
+  - setup が「組がありません」で止まる
+      → fetch-offline-bundle.bat を先に実行する（持ち込みなら 3 ファイルを直下へ置く）。
   - corepack が見つからない
       → Node.js 24+ をインストールする。
   - 展開で unlink に失敗する

@@ -6,6 +6,7 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path (Join-Path $here '..') '..')).ProviderPath
 . (Join-Path $here 'content-key.ps1')
 . (Join-Path $here 'verify.ps1')
+. (Join-Path $here 'fetch.ps1')
 
 Describe 'Test-OfflineRequirementLine' {
   Context '受け入れる形（名前 + 省略可能なバージョン指定子）' {
@@ -210,5 +211,76 @@ Describe 'Get-Sha256FromSidecar（Release の .sha256 の読み取り）' {
 
   It 'ファイルが無ければ停止する' {
     { Get-Sha256FromSidecar -Path (Join-Path $TestDrive 'missing.sha256') } | Should Throw
+  }
+}
+
+Describe 'Save-VerifiedReleaseBundle（取得 → 検証 → 配置。検証前の取得物を配置先に残さない）' {
+  BeforeEach {
+    # Release のアセット置き場を模す(downloader は URL 末尾のファイル名で src から写す)。
+    $script:src  = Join-Path $TestDrive ('src-' + [guid]::NewGuid().ToString('N'))
+    $script:dest = Join-Path $TestDrive ('dest-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $script:src, $script:dest -Force | Out-Null
+    $script:name = 'offline-deps-bundle.tar.gz'
+    $bundle = Join-Path $script:src $script:name
+    Set-Content -LiteralPath $bundle -Value 'bundle payload' -Encoding Ascii
+    $hash = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLower()
+    Set-Content -LiteralPath "$bundle.sha256" -Value "$hash  $($script:name)" -Encoding Ascii
+    Set-Content -LiteralPath (Join-Path $script:src 'bundle.key') -Value 'abc123' -Encoding Ascii
+    $script:copyFrom = {
+      param([string]$url, [string]$to)
+      Copy-Item -LiteralPath (Join-Path $script:src (Split-Path $url -Leaf)) -Destination $to
+    }
+    $script:tempBefore = @(Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter 'offline-fetch-*').Count
+  }
+
+  It '検証を通った 3 ファイル(バンドル / .sha256 / bundle.key)を Destination へ置き、そのパスを返す' {
+    $r = Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+      -Destination $script:dest -Downloader $script:copyFrom
+    $r.Bundle | Should Be (Join-Path $script:dest $script:name)
+    $r.Key | Should Be (Join-Path $script:dest 'bundle.key')
+    (Test-Path -LiteralPath $r.Bundle) | Should Be $true
+    (Test-Path -LiteralPath "$($r.Bundle).sha256") | Should Be $true
+    (Get-Content -LiteralPath $r.Key -Raw).Trim() | Should Be 'abc123'
+  }
+
+  It 'sha256 が一致しなければ停止し、Destination に何も残さない' {
+    Set-Content -LiteralPath (Join-Path $script:src "$($script:name).sha256") -Value (('a' * 64) + "  $($script:name)") -Encoding Ascii
+    { Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+        -Destination $script:dest -Downloader $script:copyFrom } | Should Throw
+    @(Get-ChildItem -LiteralPath $script:dest).Count | Should Be 0
+  }
+
+  It '取得そのものが失敗しても Destination に何も残さない' {
+    $failing = { param([string]$url, [string]$to) throw "ダウンロードに失敗: $url" }
+    { Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+        -Destination $script:dest -Downloader $failing } | Should Throw 'ダウンロードに失敗'
+    @(Get-ChildItem -LiteralPath $script:dest).Count | Should Be 0
+  }
+
+  It '成功・失敗のどちらでも一時ディレクトリを残さない' {
+    Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+      -Destination $script:dest -Downloader $script:copyFrom | Out-Null
+    $failing = { param([string]$url, [string]$to) throw 'x' }
+    try {
+      Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+        -Destination $script:dest -Downloader $failing | Out-Null
+    } catch {}
+    @(Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter 'offline-fetch-*').Count | Should Be $script:tempBefore
+  }
+
+  It 'downloader へは AssetBase 直下の 3 つの URL を渡す' {
+    $script:seen = @()
+    $recording = {
+      param([string]$url, [string]$to)
+      $script:seen += $url
+      & $script:copyFrom $url $to
+    }
+    Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+      -Destination $script:dest -Downloader $recording | Out-Null
+    $expected = (@(
+      "https://example/rel/$($script:name)",
+      "https://example/rel/$($script:name).sha256",
+      'https://example/rel/bundle.key') | Sort-Object) -join "`n"
+    (($script:seen | Sort-Object) -join "`n") | Should Be $expected
   }
 }
