@@ -54,6 +54,7 @@ const {
   selectPartByKey,
   allowAdd,
   allowEdit,
+  ui,
   dirty,
   redlineEnabled,
   redlineAvailable,
@@ -85,8 +86,11 @@ const { startHandle, dragLabel } = useGeomHandles({
 
 const rect = computed(() => g.selectedRect.value);
 
-// ── 右ペインの表示(プロパティ / コメント)。編集セッションをまたいで保持しない(画面ごと) ──
-const paneTab = ref<'props' | 'comments'>('props');
+// ── 右ペインの表示(プロパティ / コメント)。プレビュー往復で戻す(`ui` = 編集セッション) ──
+const paneTab = ref<'props' | 'comments'>(ui.paneTab);
+watch(paneTab, (v) => {
+  ui.paneTab = v;
+});
 // バッジは未対応の**親投稿**の件数(仕様 §4.3)。パーツ数(`openNoteKeys.size`)ではない
 // — 1 パーツに複数スレッドがあれば両者は食い違う。
 const openCommentCount = computed(() => openNoteCount.value);
@@ -167,8 +171,11 @@ watch(
   { immediate: true },
 );
 
-// ページ境界の overlay guide: 既定 ON、上部バーから切替える。
-const showPageGuides = ref(true);
+// ページ境界の overlay guide: 既定 ON、上部バーから切替える。プレビュー往復で戻す。
+const showPageGuides = ref(ui.showPageGuides);
+watch(showPageGuides, (v) => {
+  ui.showPageGuides = v;
+});
 
 // `PageRail` 用の現在ページ(1 起点)。1 ページ表示は表示中 index、全ページ連続表示は
 // 実スクロール位置(`scrollFraction`)から逆算する(目盛りのハイライトをスクロールに追従)。

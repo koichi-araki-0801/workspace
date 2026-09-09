@@ -312,3 +312,42 @@ async function replaceWord(
     .first()
     .click({ position: { x: 5, y: 5 } });
 }
+
+// 編集画面の UI 状態はプレビュー往復で戻るべきもの(タブの寿命の編集セッションの一部)。
+// 再マウントのたびに既定へ戻ると、プレビューを見るたびに編集許可・倍率・タブを入れ直す
+// ことになる。
+test('プレビュー往復で編集許可・赤入れ表示・右ペインのタブ・倍率・ページ表示・選択が残る', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await login(page);
+  const frame = await openEditor(page);
+  const widthOf = async () => (await page.locator('iframe.gjs-frame').boundingBox())?.width ?? 0;
+
+  await page.getByRole('button', { name: '拡大' }).click();
+  await page.getByRole('button', { name: '拡大' }).click();
+  await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 * 1.2 - 2);
+  await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+  await page.getByRole('button', { name: '変更箇所の赤入れを隠す' }).click();
+  await page.locator('[data-pane-tab="comments"]').click();
+  await page.getByRole('button', { name: '全ページを連続表示' }).click();
+  await page.getByRole('button', { name: 'ページ境界を隠す' }).click();
+  await selectPart(frame, frame.locator('.page > *').nth(3));
+
+  await page.getByRole('button', { name: 'プレビュー' }).click();
+  await page.waitForURL(/\/preview\//);
+  await page.getByRole('button', { name: 'エディターに戻る' }).click();
+  await page.waitForURL(/\/edit\//);
+  const back = page.frameLocator('iframe.gjs-frame');
+  await back.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
+
+  await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 * 1.2 - 2);
+  await expect(
+    page.getByRole('button', { name: '編集中(クリックで閲覧のみに戻す)' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: '変更箇所を赤入れで表示' })).toBeVisible();
+  await expect(page.locator('[data-pane-tab="comments"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: '1 ページだけ表示' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ページ境界を表示' })).toBeVisible();
+  await expect(back.locator('.gjs-selected')).toHaveCount(1, { timeout: 15_000 });
+});

@@ -1,7 +1,11 @@
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setUndoUserScope, undoStacksKey } from '@/lib/storageKeys';
-import { type EditorSnapshot, useEditorSessionStore } from '@/stores/editorSession';
+import {
+  defaultEditorUiState,
+  type EditorSnapshot,
+  useEditorSessionStore,
+} from '@/stores/editorSession';
 
 /** localStorage の Undo 永続ミラーを読む(テスト用)。 */
 function readUndoMap(): Record<string, { past: EditorSnapshot[]; future: EditorSnapshot[] }> {
@@ -17,7 +21,13 @@ describe('useEditorSessionStore', () => {
   it('ensure() creates an empty session and returns the same instance on re-ensure', () => {
     const store = useEditorSessionStore();
     const a = store.ensure('t1');
-    expect(a).toEqual({ partHistory: {}, seq: 0, undoPast: [], undoFuture: [] });
+    expect(a).toEqual({
+      partHistory: {},
+      seq: 0,
+      undoPast: [],
+      undoFuture: [],
+      ui: defaultEditorUiState(),
+    });
 
     // 同一 templateId を再度 ensure すると、同じセッション(参照)が返る
     // (= 編集⇄プレビュー往復で履歴が維持される)。
@@ -36,6 +46,43 @@ describe('useEditorSessionStore', () => {
     expect(t2.seq).toBe(0);
   });
 
+  // 編集画面の UI 状態(編集許可 / 赤入れ表示 / 右ペインのタブ / 倍率 / ページ表示 / 選択)は
+  // プレビュー往復で `EditorView` が再マウントされても戻るべきもの。Undo と同じくセッションに
+  // 持ち、リロードでは持ち越さない(永続ミラーに載せない)。
+  it('ui state is kept across re-ensure and never written to the undo mirror', () => {
+    const store = useEditorSessionStore();
+    const s = store.ensure('t1');
+    expect(s.ui).toEqual({
+      allowEdit: false,
+      redlineEnabled: true,
+      paneTab: 'props',
+      zoom: null,
+      singlePageMode: true,
+      currentPage: 0,
+      showPageGuides: true,
+      selectedKey: null,
+    });
+    s.ui.allowEdit = true;
+    s.ui.zoom = 1.2;
+    s.ui.paneTab = 'comments';
+    s.ui.selectedKey = 'p1/.x#2';
+    store.persist('t1');
+    expect(store.ensure('t1').ui).toMatchObject({
+      allowEdit: true,
+      zoom: 1.2,
+      paneTab: 'comments',
+      selectedKey: 'p1/.x#2',
+    });
+    expect(JSON.stringify(readUndoMap())).not.toContain('comments');
+  });
+
+  it('clear() drops the ui state together with the session', () => {
+    const store = useEditorSessionStore();
+    store.ensure('t1').ui.zoom = 0.8;
+    store.clear('t1');
+    expect(store.ensure('t1').ui.zoom).toBeNull();
+  });
+
   it('clear() drops the session so the next ensure() starts fresh', () => {
     const store = useEditorSessionStore();
     const s = store.ensure('t1');
@@ -44,7 +91,13 @@ describe('useEditorSessionStore', () => {
     store.clear('t1');
     const fresh = store.ensure('t1');
     expect(fresh).not.toBe(s);
-    expect(fresh).toEqual({ partHistory: {}, seq: 0, undoPast: [], undoFuture: [] });
+    expect(fresh).toEqual({
+      partHistory: {},
+      seq: 0,
+      undoPast: [],
+      undoFuture: [],
+      ui: defaultEditorUiState(),
+    });
   });
 
   it('clear() on an unknown templateId is a no-op', () => {

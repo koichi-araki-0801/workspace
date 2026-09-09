@@ -99,7 +99,7 @@ export function useTemplateEditor(
   /** 左ペイン「パーツを追加」トグル: catalog を表示し挿入を許可する。 */
   const allowAdd = ref(false);
   /** 左ペイン「編集を許可」トグル: canvas を編集可(text/並べ替え/layout)にする。 */
-  const allowEdit = ref(false);
+  const allowEdit = ref(sess.ui.allowEdit);
 
   // プロパティペイン: canvas 選択があればそれ、無ければ catalog プレビュー。
   const selectedPart = computed(() => (g.selected.value ? canvasPart.value : previewPart.value));
@@ -124,6 +124,44 @@ export function useTemplateEditor(
     dirty,
     parseHtml: g.parseHtmlQuiet,
   });
+  redline.enabled.value = sess.ui.redlineEnabled;
+
+  // ── UI 状態の往復保持(`sess.ui`) ──
+  // 編集許可 / 赤入れ表示 / 倍率 / ページ表示 / 選択は、変わるたびにセッションへ写し、次に
+  // マウントしたときはそこから始める(右ペインのタブと guide は `EditorView.vue` が同じ要領で扱う)。
+  watch(allowEdit, (v) => {
+    sess.ui.allowEdit = v;
+  });
+  watch(redline.enabled, (v) => {
+    sess.ui.redlineEnabled = v;
+  });
+  watch(g.zoom, (v) => {
+    sess.ui.zoom = v;
+  });
+  watch(g.singlePageMode, (v) => {
+    sess.ui.singlePageMode = v;
+  });
+  watch(g.currentPageIndex, (v) => {
+    sess.ui.currentPage = v;
+  });
+  // 選択は構造キーで覚える(GrapesJS の component id は再マウントで採番し直される)。
+  watch(
+    () => g.selected.value,
+    () => {
+      sess.ui.selectedKey = currentNoteKey();
+    },
+  );
+  /** load 後、ページ列挙が確定した最初の機会に前回の選択を戻す(1 回きり)。 */
+  let restoredSelection = false;
+  watch(
+    () => g.pageEls.value,
+    (els) => {
+      if (restoredSelection || els.length === 0) return;
+      restoredSelection = true;
+      const key = sess.ui.selectedKey;
+      if (key) selectPartByKey(key);
+    },
+  );
 
   // ── 1. undo / redo (snapshot 方式) ──
   // GrapesJS の UndoManager はプログラム経由の style 書き込みを確実には追えないため、
@@ -405,6 +443,9 @@ export function useTemplateEditor(
     const layers = layersEl.value;
     if (!canvas || !layers) return;
     g.init({ canvas, layers });
+    // 往復で戻ったときは前回の倍率・ページ表示から始める(初回は 100% / 1 ページ表示)。
+    g.setInitialZoom(sess.ui.zoom ?? 1);
+    g.setSinglePageMode(sess.ui.singlePageMode);
     // 確定版の正規形は canvas を通して取る。draft があるときは確定版を先に読み込んで測り、
     // そのあと draft で入れ替える(刈り取りのトーストは本文の読み込み側だけが出す)。
     const isCreateRoute = route.query.created === '1';
@@ -424,6 +465,10 @@ export function useTemplateEditor(
     if (!isCreateRoute && !res.value.hasDraft) {
       confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
     }
+    // ページ数は再レイアウト後に確定するので、その rAF の後で前回のページへ戻す。
+    requestAnimationFrame(() => {
+      if (g.singlePageMode.value && sess.ui.currentPage > 0) g.goToPage(sess.ui.currentPage);
+    });
     // 差し込み値ハイライトは作成経路(`?created=1`)でのみ出す。編集経路(query なし)は実値編集
     // なので出さない。設計正典.md「編集 2 系統」を参照。
     g.setVarsHighlight(route.query.created === '1');
@@ -601,6 +646,8 @@ export function useTemplateEditor(
     selectPartByKey,
     allowAdd,
     allowEdit,
+    /** 画面の UI 状態(往復で戻す)。`EditorView.vue` が右ペインのタブと guide の初期値に使う。 */
+    ui: sess.ui,
     dirty,
     autosave,
     canUndo,
