@@ -434,7 +434,8 @@ export function useGrapes() {
       refreshMove,
       refreshPageGuides,
       recomputeLayout,
-      fitToView,
+      // 起動時は 100%。画面へのフィットは手動(Ctrl+0 / % ボタン)でだけ行う。
+      applyInitialZoom: () => setZoom(1),
       onCanvasLoad,
       toInfo,
       isLocked: () => locked,
@@ -690,7 +691,7 @@ export function useGrapes() {
    * hit したときは `setComponents` も `setStyle` も呼ばない — CSS だけ落として開くと、
    * 直後の autosave が draft の CSS を空で上書きしてしまう(「拒む」が「削る」に化ける)。
    */
-  function load(bodyEditableHtml: string, css: string): boolean {
+  function load(bodyEditableHtml: string, css: string, opts: { quiet?: boolean } = {}): boolean {
     const ed = editor.value;
     if (!ed) return false;
     const refs = summarizeExternalCssRefs(css);
@@ -698,7 +699,14 @@ export function useGrapes() {
       toast(`CSSに外部参照が含まれるため読み込みを中止しました（${refs}）。`, 'error');
       return false;
     }
-    ed.setComponents(bodyEditableHtml);
+    // `quiet` は刈り取りのトーストだけを抑止する(刈り取り自体は通常どおり)。確定版の正規形を
+    // 取るための読み込みで使う — 本文の読み込みで同じ通知が出るため、二重に出すと誤解を招く。
+    quietParse = !!opts.quiet;
+    try {
+      ed.setComponents(bodyEditableHtml);
+    } finally {
+      quietParse = false;
+    }
     ed.setStyle(css);
     // setComponents/setStyle 直後は iframe DOM が未描画で、`component:add` の `fireChange`
     // から走る `recomputePages` が `.page` を拾えず `[body]` フォールバック(`pageCount=1`)に
@@ -731,12 +739,33 @@ export function useGrapes() {
     }
   }
 
+  /**
+   * 保存用の body HTML。GrapesJS は選択したパーツに StyleManager の id セレクタを作り、以後
+   * `getHtml()` が自動 id(`ccid`)を属性として出力する。その id が draft / Undo snapshot に
+   * 混入すると、再読込で確定版と構造キー(`partKey` / 赤入れ)が一致しなくなる(編集していない
+   * 箇所が赤入れになり、コメントが削除済みパーツ扱いになる)。テンプレ由来の id はモデルの
+   * 明示属性に載っているので、明示属性に無い id だけを落とす。
+   */
   function getBodyHtml(): string {
-    return editor.value?.getHtml() ?? '';
+    return (
+      editor.value?.getHtml({
+        attributes: (comp, attrs) => {
+          const explicit = (comp.get('attributes') as Record<string, unknown> | undefined)?.id;
+          if (typeof explicit !== 'string' || explicit === '') delete attrs.id;
+          return attrs;
+        },
+      }) ?? ''
+    );
   }
 
+  /**
+   * 保存用の CSS。GrapesJS は `getCss()` の先頭に canvas 用の `protectedCss`(`* { box-sizing }`
+   * `body { margin }`)を付けて返す。これを draft / Undo snapshot に載せると、次の `load` で
+   * 規則として取り込まれ、読み込むたびに同じ規則が積み増す(確定版との同一判定も永久に外れる)。
+   * canvas 内の見た目は GrapesJS が別途当てるので、保存する CSS からは外す。
+   */
   function getCss(): string {
-    return editor.value?.getCss() ?? '';
+    return editor.value?.getCss({ avoidProtected: true }) ?? '';
   }
 
   function onChange(cb: () => void): void {
@@ -789,6 +818,7 @@ export function useGrapes() {
     setNoteKeys,
     refreshBubbleAnchor,
     pageCount,
+    pageEls,
     currentPageIndex,
     singlePageMode,
     scrollFraction,
