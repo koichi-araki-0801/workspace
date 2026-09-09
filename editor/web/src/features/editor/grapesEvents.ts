@@ -49,8 +49,8 @@ export interface GrapesEventDeps {
    * 重い(全要素 `getComputedStyle`)ため、呼び出し側で rAF 集約してから渡す。
    */
   recomputeLayout: () => void;
-  /** canvas load 後に初期倍率を当てる(既定 100%。画面には合わせない)。 */
-  applyInitialZoom: () => void;
+  /** canvas を A4 ページ全体が収まる倍率へ合わせる(起動時の初期ズーム)。 */
+  fitToView: () => void;
   /** canvas load 時に呼ぶ(useGrapes が可視制御用 style を canvas head へ注入する)。 */
   onCanvasLoad: (doc: Document) => void;
   toInfo: (comp: Component) => SelectedInfo;
@@ -73,22 +73,6 @@ export interface GrapesEventDeps {
  * 保つため `useGrapes.ts` から切り出したもので、イベントの意味・名前・登録順は
  * inline 版から不変。
  */
-/**
- * `component:update` のうち dirty/autosave へ流さない prop。どれも GrapesJS がモデルの見た目・
- * 操作状態として set するもので、`getHtml()` の出力(保存内容)には現れない(`toJSON` が捨てる
- * `status`/`open` と、`setEditable` が撒く lock state の prop)。`open` は Layers がクリック
- * 選択のたびに祖先へ立てるため、ここで濾さないと「選択しただけで未確定 + 無編集 draft」になる。
- */
-const SAVE_NEUTRAL_PROPS: ReadonlySet<string> = new Set([
-  'status',
-  'open',
-  'editable',
-  'draggable',
-  'selectable',
-  'hoverable',
-  'highlightable',
-]);
-
 export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   const {
     selected,
@@ -116,12 +100,12 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
       // iframe (再)ロードごとに新しい document へ張り直す(古い document ごと破棄される)。
       docu.addEventListener('dblclick', () => callbacks.canvasDblClick?.());
     }
-    // 起動時の倍率は 100%(画面に合わせない)。直上で canvasCss(A4 `min-height:297mm`)を
-    // head へ注入済みのため、次フレームまで遅らせて body 実寸が確定してから収まり判定を行う。
-    // 画面へのフィットは Ctrl+0 / % ボタンの手動操作でだけ効く。
-    requestAnimationFrame(() => deps.applyInitialZoom());
+    // 起動時はページ全体がキャンバスに収まる倍率へ自動フィットする(以後は手動 +/- で調整)。
+    // 直上で canvasCss(A4 `min-height:297mm`)を head へ注入済みのため、次フレームまで遅らせて
+    // body 実寸が確定してから測る。
+    requestAnimationFrame(() => deps.fitToView());
     // ページ境界 guide / ページ列挙 / 縦配置: styles/components が出揃ったこの時点で一度走査する
-    // (`applyInitialZoom` の rAF でも縦配置は揃うが、ここで break/guide/ページも確定させる)。
+    // (`fitToView` の rAF でも縦配置は揃うが、ここで break/guide/ページも確定させる)。
     recomputeLayout();
   });
 
@@ -160,7 +144,7 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     });
   };
 
-  const fireChange = (opts: { saveNeutral?: boolean } = {}) => {
+  const fireChange = () => {
     // revision/rect/move/change は即時のまま(体感応答 + autosave 側で別途 debounce 済み)。
     revision.value++;
     refreshRect();
@@ -170,16 +154,7 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     // 編集可否切替中の component:update は内容変更ではない(`isApplyingLockState` の doc を
     // 見よ)。dirty/autosave へは流さず、幾何の追随(上の即時部)だけ行う。
     if (deps.isApplyingLockState?.()) return;
-    // 保存内容に現れない prop だけの更新も同様(`SAVE_NEUTRAL_PROPS` を見よ)。
-    if (opts.saveNeutral) return;
     callbacks.change?.();
-  };
-  // `component:update` は直近の `set` で変わった prop を `model.changed` に持つ。全部が
-  // 保存内容に現れない prop なら dirty/autosave へ流さない。読めない発火は保守的に「変更」扱い。
-  const onComponentUpdate = (model?: { changed?: Record<string, unknown> }) => {
-    const changed = model?.changed;
-    const keys = changed && typeof changed === 'object' ? Object.keys(changed) : [];
-    fireChange({ saveNeutral: keys.length > 0 && keys.every((k) => SAVE_NEUTRAL_PROPS.has(k)) });
   };
   // inline text 編集(RTE): 開始(undo snapshot 用)と終了(実際に内容が変わったか)を
   // 通知する。locked の間はブロックする。
@@ -217,12 +192,12 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     callbacks.textEnd?.(changed);
   });
 
-  ed.on('component:update', onComponentUpdate);
-  ed.on('component:add', () => fireChange());
-  ed.on('component:remove', () => fireChange());
+  ed.on('component:update', fireChange);
+  ed.on('component:add', fireChange);
+  ed.on('component:remove', fireChange);
   // inline style 変更(`Component` 由来)。GrapesJS の正規 event は `component:styleUpdate`
   // (`style:update` という event は存在せず、購読しても dead listener になる)。
-  ed.on('component:styleUpdate', () => fireChange());
+  ed.on('component:styleUpdate', fireChange);
 
   // native な drag-to-reorder: 開始時に undo 用 snapshot、終了時に history を記録する
   // (`Component` の兄弟内位置が実際に変わったときだけ)。version 依存の payload を

@@ -1,12 +1,11 @@
 // =============================================================================
 // editorSession.ts — 編集セッション(履歴 + Undo/Redo)の Pinia ストア
 // =============================================================================
-// 役割: 編集画面の「修正履歴」と Undo/Redo スタック、画面の UI 状態(編集許可 / 赤入れ表示 /
-// 右ペインのタブ / 倍率 / ページ表示 / 選択)を `EditorView.vue` の外へ持ち上げ、`templateId` を
-// キーに保持する。Pinia ストアはシングルトンのため、`/edit/:id` ⇄ `/preview/:id` の往復で
-// `EditorView` がアンマウント/再マウントされても state が生存し、プレビューから戻った時に
-// 履歴・Undo/Redo・UI 状態がそのまま継続する。タブ遷移でも破棄しない(編集セッションは
-// ブラウザタブの寿命)。セッションは「確定保存」で終了し、その時 `clear` で破棄する。
+// 役割: 編集画面の「修正履歴」と Undo/Redo スタックを `EditorView.vue` の外へ持ち上げ、
+// `templateId` をキーに保持する。Pinia ストアはシングルトンのため、`/edit/:id` ⇄
+// `/preview/:id` の往復で `EditorView` がアンマウント/再マウントされても state が生存し、
+// プレビューから戻った時に履歴と Undo/Redo がそのまま継続する。タブ遷移でも破棄しない
+// (編集セッションはブラウザタブの寿命)。セッションは「確定保存」で終了し、その時 `clear` で破棄する。
 
 import type { PartHistoryEntry } from '@editor/shared';
 import { defineStore } from 'pinia';
@@ -19,42 +18,6 @@ export interface EditorSnapshot {
   css: string;
 }
 
-/**
- * 編集画面の UI 状態。プレビュー往復で戻す対象で、リロードでは持ち越さない(Undo と違い
- * 永続ミラーに載せない — 倍率や選択はその画面を見ていた間だけの状態で、開き直しは既定から)。
- */
-export interface EditorUiState {
-  /** 「編集を許可」トグル。 */
-  allowEdit: boolean;
-  /** 変更箇所の赤入れ表示トグル。 */
-  redlineEnabled: boolean;
-  /** 右ペインの表示(プロパティ / コメント)。 */
-  paneTab: 'props' | 'comments';
-  /** canvas の倍率。null は「まだ決めていない」= 起動時の既定(100%)。 */
-  zoom: number | null;
-  /** 1 ページ表示か全ページ連続表示か。 */
-  singlePageMode: boolean;
-  /** 1 ページ表示の現在ページ index(0 始まり)。 */
-  currentPage: number;
-  /** ページ境界 guide の表示。 */
-  showPageGuides: boolean;
-  /** 選択していたパーツの構造キー(`partKey`)。null は未選択。 */
-  selectedKey: string | null;
-}
-
-export function defaultEditorUiState(): EditorUiState {
-  return {
-    allowEdit: false,
-    redlineEnabled: true,
-    paneTab: 'props',
-    zoom: null,
-    singlePageMode: true,
-    currentPage: 0,
-    showPageGuides: true,
-    selectedKey: null,
-  };
-}
-
 /** 1 テンプレートの編集セッション state。編集⇄プレビュー往復を跨いで保持する。 */
 interface EditSession {
   /** パーツ構造キー(`partKey`)ごとのセッション内修正履歴(新しい順)。 */
@@ -65,8 +28,6 @@ interface EditSession {
   undoPast: EditorSnapshot[];
   /** Redo スタック(未来スナップショット)。 */
   undoFuture: EditorSnapshot[];
-  /** 画面の UI 状態(往復で戻す。永続化しない)。 */
-  ui: EditorUiState;
 }
 
 /** localStorage に保持する Undo/Redo の永続ミラー。`Record<templateId, {past, future}>`。 */
@@ -115,7 +76,6 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
         seq: 0,
         undoPast: e?.past ?? [],
         undoFuture: e?.future ?? [],
-        ui: defaultEditorUiState(),
       };
     }
     // reactive proxy を返す(生 object でなく): partHistory の変更追跡を効かせ、

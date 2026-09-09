@@ -25,6 +25,7 @@ function entry(p: Partial<PartNoteEntry> & { id: string }): PartNoteEntry {
     updatedBy: null,
     status: 'open',
     replyTo: null,
+    kind: 'note',
     ...p,
   };
 }
@@ -66,6 +67,7 @@ describe('filterThreads', () => {
       id: 'a',
       content: '表紙の日付',
       createdBy: '山田',
+      kind: 'fix-request',
       createdAt: '2026-09-01T00:00:01.000Z',
     }),
     entry({
@@ -81,6 +83,7 @@ describe('filterThreads', () => {
       createdBy: '鈴木',
       pathKey: SUMMARY,
       status: 'resolved',
+      kind: 'question',
       createdAt: '2026-09-01T00:00:02.000Z',
     }),
     entry({ id: 'c', content: 'ロゴ', createdBy: '山田', createdAt: '2026-09-01T00:00:03.000Z' }),
@@ -101,10 +104,15 @@ describe('filterThreads', () => {
     expect(q('直しました')).toEqual(['a']);
   });
 
-  it('状態・投稿者・選択パーツで絞り込める', () => {
+  it('状態・種別・投稿者・選択パーツで絞り込める', () => {
     const f = DEFAULT_COMMENT_FILTER;
     expect(
       filterThreads(threads, { ...f, status: 'resolved' }, ctx).map((t) => t.parent.id),
+    ).toEqual(['b']);
+    expect(
+      filterThreads(threads, { ...f, status: 'all', kinds: new Set(['question']) }, ctx).map(
+        (t) => t.parent.id,
+      ),
     ).toEqual(['b']);
     expect(
       filterThreads(threads, { ...f, status: 'all', author: '山田' }, ctx).map((t) => t.parent.id),

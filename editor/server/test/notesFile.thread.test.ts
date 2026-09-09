@@ -152,8 +152,7 @@ describe('コメント属性の既定値補完', () => {
       }),
     );
     const notes = await files.readNotes(TPL);
-    expect(notes[KEY][0]).toMatchObject({ status: 'open', replyTo: null });
-    expect(notes[KEY][0]).not.toHaveProperty('kind');
+    expect(notes[KEY][0]).toMatchObject({ status: 'open', replyTo: null, kind: 'note' });
   });
 
   it('列挙の外の値は既定値へ戻す(壊れた値で画面を落とさない)', async () => {
@@ -179,11 +178,10 @@ describe('コメント属性の既定値補完', () => {
       }),
     );
     const notes = await files.readNotes(TPL);
-    expect(notes[KEY][0]).toMatchObject({ status: 'open', replyTo: null });
-    expect(notes[KEY][0]).not.toHaveProperty('kind');
+    expect(notes[KEY][0]).toMatchObject({ status: 'open', replyTo: null, kind: 'note' });
   });
 
-  it('旧形式(1 パーツ 1 件)の変換分も 2 フィールドを持つ', async () => {
+  it('旧形式(1 パーツ 1 件)の変換分も 3 フィールドを持つ', async () => {
     const files = await importNotesFile();
     const dir = path.join(tmpRoot, 'notes');
     await fs.mkdir(dir, { recursive: true });
@@ -198,8 +196,8 @@ describe('コメント属性の既定値補完', () => {
       id: `legacy:${KEY}`,
       status: 'open',
       replyTo: null,
+      kind: 'note',
     });
-    expect(notes[KEY][0]).not.toHaveProperty('kind');
   });
 });
 

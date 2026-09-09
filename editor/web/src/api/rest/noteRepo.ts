@@ -23,7 +23,7 @@ export const restNoteRepo: NoteRepository = {
     attemptRest(() =>
       apiFetch<PartNoteEntry>(buildPath(apiPaths.notes, { templateId }), {
         method: 'POST',
-        body: { pathKey, content, replyTo: opts.replyTo ?? null },
+        body: { pathKey, content, replyTo: opts.replyTo ?? null, kind: opts.kind ?? 'note' },
       }),
     ),
 

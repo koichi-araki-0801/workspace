@@ -20,7 +20,7 @@ import {
 import { computed, ref } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
-import { formatCommentAt, STATUS_LABEL, threadsOf } from './comments/commentFilter';
+import { formatCommentAt, KIND_LABEL, threadsOf } from './comments/commentFilter';
 import type { BubbleAnchor } from './noteBubbleLayout';
 
 const props = defineProps<{
@@ -165,7 +165,7 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
             <ChevronRight v-if="isCollapsed(t)" class="h-3 w-3" />
             <ChevronDown v-else class="h-3 w-3" />
           </Button>
-          <span class="note-entry-status shrink-0">{{ STATUS_LABEL[t.parent.status] }}</span>
+          <span class="note-entry-kind shrink-0">{{ KIND_LABEL[t.parent.kind] }}</span>
           <span class="note-entry-who min-w-0 truncate">{{ t.parent.createdBy }}</span>
           <span class="shrink-0">{{ formatCommentAt(t.parent.createdAt) }}</span>
         </div>
@@ -352,11 +352,11 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
   color: var(--foreground);
 }
 
-/* 状態チップの色(既定は未対応 = 琥珀)。解決済みへの切替は
-   `.note-entry-resolved .note-entry-status`(祖先 `.note-entry` のクラスからの子孫セレクタ)が
+/* 種別チップの色は状態で切り替える(既定は未対応 = 琥珀)。解決済みへの切替は
+   `.note-entry-resolved .note-entry-kind`(祖先 `.note-entry` のクラスからの子孫セレクタ)が
    受け持つ — `CommentPanel.vue` の Badge variant 切替と同じ「未対応 = warning / 解決済み =
    secondary」を、こちらは CSS のカスケードで表す。 */
-.note-entry-status {
+.note-entry-kind {
   padding: 0 5px;
   border-radius: 3px;
   background: var(--warning);
@@ -373,7 +373,7 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
   word-break: break-word;
 }
 
-.note-entry-resolved .note-entry-status {
+.note-entry-resolved .note-entry-kind {
   background: var(--secondary);
   color: var(--muted-foreground);
 }

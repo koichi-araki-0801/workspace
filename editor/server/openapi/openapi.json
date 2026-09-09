@@ -2683,11 +2683,23 @@
                 "type": "null"
               }
             ]
+          },
+          "kind": {
+            "default": "note",
+            "$ref": "#/components/schemas/NoteKind"
           }
         },
         "required": [
           "pathKey",
           "content"
+        ]
+      },
+      "NoteKind": {
+        "type": "string",
+        "enum": [
+          "note",
+          "fix-request",
+          "question"
         ]
       },
       "UpdateNoteRequest": {
@@ -3554,6 +3566,10 @@
               }
             ],
             "description": "親投稿の ID。null なら親(スレッドの起点)"
+          },
+          "kind": {
+            "description": "種別",
+            "$ref": "#/components/schemas/NoteKind"
           }
         },
         "required": [
@@ -3566,7 +3582,8 @@
           "updatedAt",
           "updatedBy",
           "status",
-          "replyTo"
+          "replyTo",
+          "kind"
         ],
         "additionalProperties": false
       },

@@ -1,30 +1,39 @@
 ﻿#requires -Version 5.1
 <#
 .SYNOPSIS
-  git clone 済みのリポジトリに、手元のオフライン重量物バンドルを展開して開発環境を構築する。
+  git clone 済みのリポジトリに、オフライン重量物バンドルを展開して開発環境を構築する。
 
 .DESCRIPTION
   重量物（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse / git-tools /
   docs の mermaid JS / native-prebuilds）は git に入れず GitHub Releases（タグ offline-bundle-v1）に
-  置いてある。取得は fetch-offline-bundle.bat の担当で、本スクリプトは**ネットに出ない**。
-  本スクリプトは次を行う:
-    1. バンドルの確認。リポジトリ直下または bk\ に offline-deps-bundle.tar.gz と bundle.key が
-       同じ場所に揃っている組を使う。揃っていなければ fetch-offline-bundle.bat の実行を案内して
-       中止する（取得を肩代わりしない）。
+  置いてある。本スクリプトは次を 1 本で行う:
+    1. バンドルの用意。リポジトリ直下または bk\ に offline-deps-bundle.tar.gz と bundle.key が
+       同じ場所に揃っていればそれを使う（取得しない）。揃っていなければ Release から HTTPS で
+       直取得する（gh 不要。リポジトリは Public）。取得は一時ディレクトリで行い、Release の
+       .sha256 と突き合わせた検証が通ってからだけ直下へ移す（検証前・失敗した取得物を直下に残さない）。
     2. 展開 → bundle.key と手元の pnpm-lock.yaml / packageManager / requirements / manifest から
        算出する content-key の一致検査。不一致は「ソースと重量物が別の組」なので中止する
        （続けても pnpm install --offline が落ちるだけで、原因が見えにくくなる）。
     3. 同梱 pnpm を corepack 登録 → node_modules / dist を消してオフライン install → build →
        Playwright 配置 → msnodesqlv8 prebuild 配置 → PortableGit 展開。
-    4. 直下に置かれていたバンドルを bk\ へ退避する（bk\ のものを使った回は動かさない）。
+    4. 取得物を bk\ へ退避する。
 
   ソースコードは取得しない（git clone が前提）。バンドルの真正性は検証しない: 配布担当だけが
   Release を更新でき、配布先は同じ所有者の Public リポジトリを clone している前提で受け入れる。
   content-key の不一致は改ざんではなく「依存を変えたのに publish していない」状態で、
   配布担当に local-only\offline-publish\publish-offline-bundle.bat の実行を依頼する。
 
+.PARAMETER Owner
+  GitHub オーナー名。既定 koichi-araki-0801。
+
+.PARAMETER Repo
+  リポジトリ名。既定 workspace。
+
+.PARAMETER Tag
+  重量物アセットの取得元タグ。既定 offline-bundle-v1。
+
 .PARAMETER SkipBuild
-  展開・整合検査のみ行い、install / build / Playwright 配置を省略する。
+  取得・展開・整合検査のみ行い、install / build / Playwright 配置を省略する。
 
 .PARAMETER InstallTortoiseGit
   TortoiseGit の MSI を msiexec /qn（サイレント・昇格）で導入する。既定では導入しない。
@@ -36,6 +45,9 @@
 #>
 [CmdletBinding()]
 param(
+  [string]$Owner = 'koichi-araki-0801',
+  [string]$Repo  = 'workspace',
+  [string]$Tag   = 'offline-bundle-v1',
   [switch]$SkipBuild,
   [switch]$InstallTortoiseGit
 )
@@ -55,6 +67,7 @@ Assert-LocalRepoRoot -Path $RepoRoot
 
 $TarExe     = Resolve-Tar
 $BundleName = 'offline-deps-bundle.tar.gz'
+$AssetBase  = "https://github.com/$Owner/$Repo/releases/download/$Tag"
 $LockFile   = Join-Path $RepoRoot 'pnpm-lock.yaml'
 $PkgJson    = Join-Path $RepoRoot 'package.json'
 foreach ($f in @($LockFile, $PkgJson)) {
@@ -63,23 +76,61 @@ foreach ($f in @($LockFile, $PkgJson)) {
   }
 }
 
-# ---- [1/5] バンドルの確認（取得はしない） ----
+# curl.exe があればストリーミング DL、無ければ Invoke-WebRequest（PS5.1 の進捗描画は大容量で極端に遅い）。
+$curl = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
+function Download-File([string]$url, [string]$dest) {
+  Write-Host "       <- $url"
+  if ($curl) {
+    & $curl.Source -L --fail --retry 3 -o $dest $url
+    if ($LASTEXITCODE -ne 0) { throw "ダウンロードに失敗: $url" }
+  } else {
+    $old = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    try { Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing }
+    finally { $ProgressPreference = $old }
+  }
+}
+
+# ---- [1/5] バンドルの用意（手元優先、無ければ Release から取得） ----
 Write-Host '[1/5] バンドルを確認...'
 # リポジトリ直下 → bk\ の順で、バンドルと bundle.key が同じディレクトリに揃っている組だけを使う。
-# 取得は fetch-offline-bundle.bat の担当。ここで肩代わりすると「ネットに出ない」前提が崩れ、
-# ネットに出られない端末で原因の見えにくい失敗になる。
 $local = Find-LocalBundlePair -Directories @($RepoRoot, $Bk) -BundleName $BundleName
-if (-not $local) {
-  Write-Error ("[error] リポジトリ直下にも bk\ にも $BundleName と bundle.key の組がありません。" +
-    "`n  ネットに出られる端末で offline\fetch-offline-bundle.bat を実行して取得し、" +
-    "`n  3 ファイル（$BundleName / $BundleName.sha256 / bundle.key）をリポジトリ直下に置いてから再実行してください。")
-  exit 1
+$downloaded = $false
+if ($local) {
+  $Bundle  = $local.Bundle
+  $KeyFile = $local.Key
+  Write-Host "[info] 手元のバンドルを使います: $Bundle"
+} else {
+  Write-Host "[info] 手元にバンドルが無いため Release $Tag から HTTPS で取得します..."
+  # 取得はリポジトリ直下ではなく一時ディレクトリで行う。直下へ先に置くと、検証失敗で
+  # スクリプトが止まった後もファイルが残り、次回実行が「手元のバンドルを使う」経路で
+  # .sha256 検証を経ないままそれを使ってしまう。
+  $Work     = Join-Path ([IO.Path]::GetTempPath()) ('offline-setup-' + [Guid]::NewGuid().ToString('N'))
+  $WorkFile = Join-Path $Work $BundleName
+  $WorkKey  = Join-Path $Work 'bundle.key'
+  $WorkSha  = "$WorkFile.sha256"
+  New-Item -ItemType Directory -Path $Work -Force | Out-Null
+  try {
+    Download-File "$AssetBase/$BundleName"        $WorkFile
+    Download-File "$AssetBase/$BundleName.sha256" $WorkSha
+    Download-File "$AssetBase/bundle.key"         $WorkKey
+    # Release に並ぶ .sha256 で転送破損を検知する（配信元と同じ場所の値なので、すり替えの検知には使えない）。
+    $expected = Get-Sha256FromSidecar -Path $WorkSha
+    Assert-FileSha256 -File $WorkFile -ExpectedSha256 $expected -Label 'bundle'
+  } catch {
+    Write-Error "[error] $($_.Exception.Message)`n  タグ / ネットワーク / リポジトリの公開状態を確認してください。"
+    Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
+    exit 1
+  }
+  # 検証を通った取得物だけを直下へ移す。
+  $Bundle  = Join-Path $RepoRoot $BundleName
+  $KeyFile = Join-Path $RepoRoot 'bundle.key'
+  Move-Item -LiteralPath $WorkFile -Destination $Bundle          -Force
+  Move-Item -LiteralPath $WorkSha  -Destination "$Bundle.sha256" -Force
+  Move-Item -LiteralPath $WorkKey  -Destination $KeyFile         -Force
+  Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
+  $downloaded = $true
 }
-$Bundle  = $local.Bundle
-$KeyFile = $local.Key
-# 直下のバンドルを使った回だけ、完了後に bk\ へ退避する（bk\ のものはそのまま）。
-$fromRoot = ((Split-Path $Bundle -Parent).TrimEnd('\') -eq $RepoRoot.TrimEnd('\'))
-Write-Host "[info] 手元のバンドルを使います: $Bundle"
 
 # ---- [2/5] 展開 ----
 Write-Host '[2/5] 重量物を直下へ展開...'
@@ -190,15 +241,15 @@ if (-not $SkipBuild) {
     }
   } finally { Pop-Location }
 } else {
-  Write-Host '[4/5] -SkipBuild: 展開・整合検査のみ。環境構築をスキップしました。'
+  Write-Host '[4/5] -SkipBuild: 取得・展開・整合検査のみ。環境構築をスキップしました。'
 }
 
 # editor のテンプレ版管理は git CLI を使う。同梱 PortableGit を展開して PATH/GIT_BIN を通す。
 Install-GitTools -RepoRoot $RepoRoot -InstallTortoiseGit:$InstallTortoiseGit
 
-# ---- [5/5] 直下のバンドルを bk\ へ退避（bk\ のものを使った回は動かさない） ----
-if ($fromRoot) {
-  Write-Host '[5/5] 直下のバンドルを bk/ へ退避...'
+# ---- [5/5] 取得物を bk\ へ退避（手元のバンドルを使った回は動かさない） ----
+if ($downloaded) {
+  Write-Host '[5/5] ダウンロード物を bk/ へ退避...'
   New-Item -ItemType Directory -Path $Bk -Force | Out-Null
   function Move-ToBk([string]$src) {
     if (-not (Test-Path -LiteralPath $src)) { return }

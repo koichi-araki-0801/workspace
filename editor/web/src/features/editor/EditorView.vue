@@ -54,7 +54,6 @@ const {
   selectPartByKey,
   allowAdd,
   allowEdit,
-  ui,
   dirty,
   redlineEnabled,
   redlineAvailable,
@@ -86,11 +85,8 @@ const { startHandle, dragLabel } = useGeomHandles({
 
 const rect = computed(() => g.selectedRect.value);
 
-// ── 右ペインの表示(プロパティ / コメント)。プレビュー往復で戻す(`ui` = 編集セッション) ──
-const paneTab = ref<'props' | 'comments'>(ui.paneTab);
-watch(paneTab, (v) => {
-  ui.paneTab = v;
-});
+// ── 右ペインの表示(プロパティ / コメント)。編集セッションをまたいで保持しない(画面ごと) ──
+const paneTab = ref<'props' | 'comments'>('props');
 // バッジは未対応の**親投稿**の件数(仕様 §4.3)。パーツ数(`openNoteKeys.size`)ではない
 // — 1 パーツに複数スレッドがあれば両者は食い違う。
 const openCommentCount = computed(() => openNoteCount.value);
@@ -171,11 +167,8 @@ watch(
   { immediate: true },
 );
 
-// ページ境界の overlay guide: 既定 ON、上部バーから切替える。プレビュー往復で戻す。
-const showPageGuides = ref(ui.showPageGuides);
-watch(showPageGuides, (v) => {
-  ui.showPageGuides = v;
-});
+// ページ境界の overlay guide: 既定 ON、上部バーから切替える。
+const showPageGuides = ref(true);
 
 // `PageRail` 用の現在ページ(1 起点)。1 ページ表示は表示中 index、全ページ連続表示は
 // 実スクロール位置(`scrollFraction`)から逆算する(目盛りのハイライトをスクロールに追従)。
@@ -223,10 +216,17 @@ async function goReview() {
   router.push({ name: 'reviews', query: { template: props.id } });
 }
 
-// canvas コンテナのサイズ変化時は倍率を据え置き、選択 overlay(frame/handle/toolbar)と
-// 縦配置だけを追随させる。倍率は起動時 100% か利用者が決めた値で、window/ペイン resize で
-// 勝手に画面へ合わせ直さない(フィットは Ctrl+0 / % ボタンの手動操作のみ)。
-// `requestAnimationFrame` で GrapesJS の再レイアウト後まで計測を遅らせる(`setZoom` と同じ手法)。
+// ユーザーが zoom +/- で明示的に倍率を決めたか。立っている間は resize で勝手に再フィット
+// しない(下の observer を見よ)。初期 `load` 時の自動フィットでは立てない。
+const userZoomed = ref(false);
+
+// canvas コンテナのサイズ変化時、A4 を現ビューポートへ再フィットし直し、選択 overlay
+// (frame/handle/toolbar)の位置も保つ。fitToView は `load` 時の 1 回きりのため、これが無いと
+// window/ペイン resize やブラウザズームで canvasEl の px が変わっても倍率が据え置きになり、
+// `.gjs-frame-wrapper{margin:24px auto}` の上揃えと相まってページが上部に小さく残り崩れる。
+// 手動ズーム中(`userZoomed`)は倍率を尊重し overlay 追従のみ行う。`requestAnimationFrame` で
+// GrapesJS の再レイアウト後まで計測を遅らせる(`setZoom` と同じ手法)。fitToView は内部で
+// setZoom→rAF で refreshRect/refreshPageGuides も走らせる。
 let canvasResizeObserver: ResizeObserver | null = null;
 onMounted(() => {
   // 承認待ちバッジの表示材料を取り直す(ベストエフォート。失敗してもバッジが出ないだけ)。
@@ -235,11 +235,15 @@ onMounted(() => {
   if (!el) return;
   canvasResizeObserver = new ResizeObserver(() => {
     requestAnimationFrame(() => {
-      // リサイズで canvasEl の client サイズが変われば収まり判定も変わるため、
-      // `updateScrollMode` で縦配置(中央寄せ / 上揃え + スクロール)を出し分け直す。
-      g.refreshRect();
-      g.refreshPageGuides();
-      g.updateScrollMode();
+      if (userZoomed.value) {
+        // 手動ズーム中は倍率を尊重し overlay 追従のみだが、リサイズで canvasEl の client
+        // サイズが変われば収まり判定も変わるため `updateScrollMode` で縦配置を出し分け直す。
+        g.refreshRect();
+        g.refreshPageGuides();
+        g.updateScrollMode();
+      } else {
+        g.fitToView();
+      }
     });
   });
   canvasResizeObserver.observe(el);
@@ -250,13 +254,16 @@ onBeforeUnmount(() => {
 });
 
 function zoomIn() {
+  userZoomed.value = true;
   g.setZoom(g.zoom.value + ZOOM_STEP);
 }
 function zoomOut() {
+  userZoomed.value = true;
   g.setZoom(g.zoom.value - ZOOM_STEP);
 }
-// Ctrl/⌘+0 / % ボタン: ページ全体が収まる倍率へ合わせる(手動操作のときだけ)。
+// Ctrl/⌘+0: 全体にフィットへ戻す。`userZoomed` を下ろし、以後の resize で自動再フィットを許す。
 function zoomReset() {
+  userZoomed.value = false;
   g.fitToView();
 }
 
@@ -544,7 +551,7 @@ const statusText = computed(() => {
             :selected-key="currentNoteKey"
             :can-add="canNote"
             :part-labels="partLabels"
-            @add="(content) => addNote(content)"
+            @add="(content, kind) => addNote(content, { kind })"
             @reply="replyNote"
             @set-status="setNoteStatus"
             @update="updateNote"

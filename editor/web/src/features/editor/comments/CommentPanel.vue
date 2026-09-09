@@ -6,7 +6,7 @@
 // 新規投稿の入口はここ 1 つ(選択パーツ宛)。スレッド内の操作(返信・解決・編集・削除)は
 // 行を開いた中で行い、canvas の吹き出し(`NoteBubble.vue`)と同じ規則で emit する。
 // 絞り込み・並びの規則は `commentFilter.ts` に閉じ、ここは描画と入力だけを持つ。
-import type { NoteStatus, PartNoteEntry } from '@editor/shared';
+import type { NoteKind, NoteStatus, PartNoteEntry } from '@editor/shared';
 import { Check, ChevronDown, ChevronRight, MessageSquare, Pencil, RotateCcw, Trash2 } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
@@ -19,8 +19,8 @@ import {
   DEFAULT_COMMENT_FILTER,
   filterThreads,
   formatCommentAt,
+  KIND_LABEL,
   openThreadCount,
-  STATUS_LABEL,
   threadsOf,
 } from './commentFilter';
 
@@ -47,7 +47,7 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  add: [content: string];
+  add: [content: string, kind: NoteKind];
   reply: [parent: PartNoteEntry, content: string];
   'set-status': [parent: PartNoteEntry, status: NoteStatus];
   update: [entry: PartNoteEntry, content: string];
@@ -56,7 +56,11 @@ const emit = defineEmits<{
 }>();
 
 // ── 1. 絞り込み ──
-const filter = reactive<CommentFilter>({ ...DEFAULT_COMMENT_FILTER });
+const filter = reactive<CommentFilter>({ ...DEFAULT_COMMENT_FILTER, kinds: new Set() });
+const kindChecked = reactive<Record<NoteKind, boolean>>({ note: false, 'fix-request': false, question: false });
+watch(kindChecked, () => {
+  filter.kinds = new Set((Object.keys(kindChecked) as NoteKind[]).filter((k) => kindChecked[k]));
+});
 
 const threads = computed(() => threadsOf(props.entries));
 const authors = computed(() => authorsOf(props.entries));
@@ -84,10 +88,11 @@ function onRowClick(key: string): void {
 
 // ── 2. 新規投稿(選択パーツ宛。入口はここだけ) ──
 const draft = ref('');
+const draftKind = ref<NoteKind>('note');
 function submitAdd(): void {
   const text = draft.value.trim();
   if (text === '' || !props.canAdd) return;
-  emit('add', draft.value);
+  emit('add', draft.value, draftKind.value);
   draft.value = '';
 }
 // 選択が変わったら下書きを捨てる(別パーツへ書き込む事故を避ける — 右ペインの旧入口と同じ)。
@@ -149,6 +154,10 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
       <div class="mb-1.5 flex items-center gap-2 text-[11.5px] text-muted-foreground">
         <MessageSquare class="h-3.5 w-3.5" />
         <span class="truncate">{{ selectedKey ? `宛先: ${partLabel(selectedKey)}` : 'パーツを選ぶと書けます' }}</span>
+        <span class="flex-1" />
+        <select v-model="draftKind" data-add-kind class="comment-select" :disabled="!canAdd" aria-label="種別">
+          <option v-for="(label, k) in KIND_LABEL" :key="k" :value="k">{{ label }}</option>
+        </select>
       </div>
       <textarea
         v-model="draft"
@@ -191,6 +200,9 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
         </select>
       </div>
       <div v-if="!compact" class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
+        <label v-for="(label, k) in KIND_LABEL" :key="k" class="flex cursor-pointer items-center gap-1">
+          <input v-model="kindChecked[k]" type="checkbox" :data-filter-kind="k" /> {{ label }}
+        </label>
         <label class="ml-auto flex cursor-pointer items-center gap-1">
           <input v-model="filter.onlySelected" type="checkbox" data-filter-selected /> 選択パーツのみ
         </label>
@@ -224,7 +236,7 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
         >
           <div class="flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
             <Badge :variant="t.parent.status === 'open' ? 'warning' : 'secondary'" class="h-[16px] py-0 text-[9.5px]">
-              {{ STATUS_LABEL[t.parent.status] }}
+              {{ KIND_LABEL[t.parent.kind] }}
             </Badge>
             <span class="truncate">{{ partLabel(t.parent.pathKey) }}</span>
             <span class="flex-1" />
@@ -246,8 +258,9 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
               {{ t.parent.content }}
             </span>
           </div>
-          <div v-if="t.replies.length" class="mt-0.5 text-[10.5px] text-muted-foreground">
-            <span>返信 {{ t.replies.length }}</span>
+          <div class="mt-0.5 text-[10.5px] text-muted-foreground">
+            <span v-if="t.replies.length">返信 {{ t.replies.length }}</span>
+            <span v-if="t.parent.status === 'resolved'" class="ml-1.5">解決済み</span>
           </div>
 
           <!-- 展開: 返信一覧・返信入力・解決/編集/削除 -->

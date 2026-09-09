@@ -18,6 +18,7 @@ function entry(p: Partial<PartNoteEntry> & { id: string }): PartNoteEntry {
     updatedBy: null,
     status: 'open',
     replyTo: null,
+    kind: 'note',
     ...p,
   };
 }
@@ -31,6 +32,7 @@ const entries = [
   entry({
     id: 'a',
     content: '表紙の日付を直してください',
+    kind: 'fix-request',
     createdAt: '2026-09-01T00:00:01.000Z',
   }),
   entry({
@@ -44,6 +46,7 @@ const entries = [
     id: 'b',
     content: '要約の数値は確定ですか',
     pathKey: SUMMARY,
+    kind: 'question',
     status: 'resolved',
     createdAt: '2026-09-01T00:00:03.000Z',
   }),
@@ -86,12 +89,13 @@ describe('CommentPanel', () => {
     expect(w.emitted('focus')?.[0]).toEqual([COVER]);
   });
 
-  it('新規入力は選択パーツ宛に add を emit し、入力を空へ戻す', async () => {
+  it('新規入力は選択パーツ宛に種別付きで add を emit し、入力を空へ戻す', async () => {
     const w = mountPanel();
+    await w.find('[data-add-kind]').setValue('question');
     const ta = w.find('textarea[data-add-content]');
     await ta.setValue('これは確定値ですか');
     await w.find('button[data-add-submit]').trigger('click');
-    expect(w.emitted('add')?.[0]).toEqual(['これは確定値ですか']);
+    expect(w.emitted('add')?.[0]).toEqual(['これは確定値ですか', 'question']);
     expect((ta.element as HTMLTextAreaElement).value).toBe('');
   });
 
@@ -113,17 +117,14 @@ describe('CommentPanel', () => {
     expect(w.emitted('reply')?.[0]).toEqual([entries[0], 'ありがとうございます']);
   });
 
-  // コメントは「メモ」1 種類だけ。種別を選ぶ入力も種別で絞る操作も出さず、行のバッジは状態を示す。
-  it('種別の入力欄・絞り込みは出さず、行のバッジは状態(未対応 / 解決済み)を示す', async () => {
+  it('種別チェックボックスをつけると、状態「すべて」でもその種別だけに絞り込む', async () => {
     const w = mountPanel();
-    expect(w.find('[data-add-kind]').exists()).toBe(false);
-    expect(w.find('[data-filter-kind]').exists()).toBe(false);
     await w.find('[data-filter-status]').setValue('all');
+    expect(w.findAll('[data-comment-row]')).toHaveLength(2);
+    await w.find('[data-filter-kind="question"]').setValue(true);
     const rows = w.findAll('[data-comment-row]');
-    expect(rows).toHaveLength(2);
-    expect(rows.find((r) => r.text().includes('表紙の日付'))?.text()).toContain('未対応');
-    expect(rows.find((r) => r.text().includes('要約の数値'))?.text()).toContain('解決済み');
-    expect(w.text()).not.toContain('メモ');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].text()).toContain('要約の数値');
   });
 
   it('パーツラベルが無い(削除済み)投稿は「削除済みパーツ」と表示し、行を控えめにする', () => {

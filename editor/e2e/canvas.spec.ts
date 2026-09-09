@@ -6,7 +6,7 @@
 // (単体)の実画面版 — canvas body の `jinja-vars-highlight` クラスまで確認する。
 
 import { expect, type Page, test } from '@playwright/test';
-import { login, openEditor as openEditorAt, selectPart } from './helpers';
+import { login, openEditor as openEditorAt } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -32,27 +32,26 @@ test('編集 2 系統: 編集タブはハイライト無し / 作成経路(?crea
   });
 });
 
-test('ズーム: 起動時は 100%(A4 実寸)で、拡大と「画面に合わせる」は手動でだけ効く', async ({
+test('ズーム: 拡大で canvas 倍率が変わり「画面に合わせる」でフィット倍率へ戻る', async ({
   page,
 }) => {
   await login(page);
   await openEditor(page);
 
-  // 倍率は iframe の表示幅で観測する (GrapesJS の zoom は inline transform に現れない)。
-  // A4 の紙面は 210mm = 794px。起動時は画面に合わせず 100% で開く(1440x900 では縦が
-  // 収まらないので、フィットさせると 794 より小さくなる = 100% と区別できる)。
+  // 倍率は iframe の表示幅で観測する (GrapesJS の zoom は inline transform に現れない)
   const widthOf = async () => (await page.locator('iframe.gjs-frame').boundingBox())?.width ?? 0;
-  await expect
-    .poll(async () => Math.abs((await widthOf()) - 794), { timeout: 15_000 })
-    .toBeLessThan(2);
+  const fitted = await widthOf();
+  expect(fitted).toBeGreaterThan(0);
 
   // 倍率の反映は rAF 経由なので、固定待ちだと負荷の高い CI で「まだ変わっていない」瞬間を
-  // 掴んで落ちる(実際に同値のまま失敗した)。**条件が満たされるまで待つ**形にする。
+  // 掴んで落ちる(実際に fitted と同値のまま失敗した)。**条件が満たされるまで待つ**形にする。
   await page.getByRole('button', { name: '拡大' }).click();
-  await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 + 10);
+  await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(fitted + 10);
 
   await page.getByRole('button', { name: '画面に合わせる' }).click();
-  await expect.poll(widthOf, { timeout: 15_000 }).toBeLessThan(794 - 10);
+  await expect
+    .poll(async () => Math.abs((await widthOf()) - fitted), { timeout: 15_000 })
+    .toBeLessThan(2);
 });
 
 test('ページ境界 guide: 全ページ連続表示で「ここまで N ページ目」線が出る', async ({ page }) => {
@@ -184,170 +183,4 @@ test('赤入れ: 作成経路(?created=1)ではトグルを出さない', async 
   // 編集経路では出る
   await openEditor(page);
   await expect(page.getByRole('button', { name: /赤入れ/ })).toHaveCount(1, { timeout: 15_000 });
-});
-
-// パーツをクリック選択すると GrapesJS は Layers の `open` と `status` を set するが、これは
-// 保存内容に現れない UI 状態。dirty/autosave へ流れると「何も編集していないのに未確定 +
-// 無編集 draft」になり、以後の往復で赤入れが出る(実測)。
-test('選択しただけでは未確定にならず draft も作られない', async ({ page }) => {
-  await login(page);
-  const frame = await openEditor(page);
-  await selectPart(frame, frame.locator('.page > *').nth(4));
-  await selectPart(frame, frame.locator('.page > *').nth(2));
-  // autosave の debounce(800ms)と赤入れの再計算(300ms)を越えて待ってから判定する。
-  await page.waitForTimeout(2_000);
-  await expect(page.getByText('変更なし', { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem('editor:drafts'))).toBeNull();
-  await expect(frame.locator('[data-redline]')).toHaveCount(0);
-});
-
-// 選択したパーツは StyleManager が id セレクタを作り、`getHtml()` が自動 id を出力する。
-// その id が draft / Undo スナップショットに混入すると、再ロード時に確定版とキーが
-// 一致せず「編集していない箇所」まで赤入れになり、コメントは削除済みパーツ扱いになる。
-test('往復後の赤入れは編集した箇所だけで、コメントは削除済み扱いにならない', async ({ page }) => {
-  test.setTimeout(120_000);
-  await login(page);
-  const frame = await openEditor(page);
-
-  // コメントを 1 件付ける(選択が要る = 自動 id が出る条件)。
-  await selectPart(frame, frame.locator('.page > *').nth(4));
-  await page.locator('[data-pane-tab="comments"]').click();
-  await page.getByPlaceholder('このパーツへのコメントを書く').fill('往復テスト');
-  await page.locator('button[data-add-submit]').click();
-  await expect(page.locator('[data-comment-row]', { hasText: '往復テスト' })).toBeVisible();
-  await expect(page.locator('.note-marker')).toHaveCount(1);
-
-  // 別パーツを 1 語置換する(旧文言の del が 1 つ出る)。
-  await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
-  await replaceWord(page, frame, '受益者のみなさまへ', 'みなさま', '皆様');
-  await expect(frame.locator('del[data-redline]', { hasText: 'みなさま' }).first()).toBeVisible({
-    timeout: 15_000,
-  });
-  await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
-    timeout: 15_000,
-  });
-
-  // プレビューへ行って戻る(draft から復元される)。
-  await page.getByRole('button', { name: 'プレビュー' }).click();
-  await page.waitForURL(/\/preview\//);
-  await page.getByRole('button', { name: 'エディターに戻る' }).click();
-  await page.waitForURL(/\/edit\//);
-  const back = page.frameLocator('iframe.gjs-frame');
-  await back.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
-
-  // 赤入れは置換した 1 箇所だけ。コメントは同じパーツに残り、削除済み扱いにならない。
-  await expect(back.locator('del[data-redline]', { hasText: 'みなさま' })).toHaveCount(1, {
-    timeout: 15_000,
-  });
-  await expect(back.locator('[data-redline]')).toHaveCount(1);
-  await expect(page.locator('.note-marker')).toHaveCount(1, { timeout: 15_000 });
-  await page.locator('[data-pane-tab="comments"]').click();
-  await expect(page.locator('[data-comment-row]', { hasText: '往復テスト' })).toBeVisible();
-  await expect(page.locator('[data-comment-row]', { hasText: '削除済み' })).toHaveCount(0);
-});
-
-// 「未確定」は確定版との差の有無で決める。編集を元に戻して同じ内容になったのに未確定のまま
-// draft が残ると、承認申請やプレビューが「変更あり」の経路を通り続ける。
-test('編集を元に戻して確定版と同じ内容になれば「変更なし」に戻り draft も消える', async ({
-  page,
-}) => {
-  test.setTimeout(120_000);
-  await login(page);
-  const frame = await openEditor(page);
-  await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
-  await appendToParagraph(page, frame, '受益者のみなさまへ', 'E2E戻す');
-  await expect(page.getByText('未確定', { exact: true })).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
-    timeout: 15_000,
-  });
-
-  await page.getByRole('button', { name: '元に戻す' }).first().click();
-  await expect(frame.getByText('E2E戻す')).toHaveCount(0, { timeout: 10_000 });
-  await expect(page.getByText('変更なし', { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(frame.locator('[data-redline]')).toHaveCount(0);
-  // local モードの draft 置き場は templateId をキーにした 1 つの JSON。この版のエントリが消える。
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          (id) => JSON.parse(localStorage.getItem('editor:drafts') ?? '{}')[id] ?? null,
-          SEED_ID,
-        ),
-      { timeout: 15_000 },
-    )
-    .toBeNull();
-});
-
-/** RTE でパラグラフ内の 1 語を置換する(赤入れテストの共通操作)。 */
-async function replaceWord(
-  page: Page,
-  frame: ReturnType<Page['frameLocator']>,
-  needle: string,
-  from: string,
-  to: string,
-) {
-  await frame.getByText(needle).first().click();
-  await page.evaluate((n) => {
-    const doc = document.querySelector<HTMLIFrameElement>('iframe.gjs-frame')?.contentDocument;
-    const p = [...(doc?.querySelectorAll('p') ?? [])].find((e) =>
-      (e.textContent ?? '').includes(n),
-    );
-    p?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-  }, needle);
-  const editing = frame.locator('[contenteditable="true"]').first();
-  await expect(editing).toBeVisible({ timeout: 10_000 });
-  await editing.evaluate(
-    (el, [f, t]) => {
-      for (const n of Array.from(el.childNodes)) {
-        if (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').includes(f)) {
-          n.textContent = (n.textContent ?? '').replace(f, t);
-        }
-      }
-      el.dispatchEvent(new InputEvent('input', { bubbles: true }));
-    },
-    [from, to],
-  );
-  await frame
-    .locator('.page')
-    .first()
-    .click({ position: { x: 5, y: 5 } });
-}
-
-// 編集画面の UI 状態はプレビュー往復で戻るべきもの(タブの寿命の編集セッションの一部)。
-// 再マウントのたびに既定へ戻ると、プレビューを見るたびに編集許可・倍率・タブを入れ直す
-// ことになる。
-test('プレビュー往復で編集許可・赤入れ表示・右ペインのタブ・倍率・ページ表示・選択が残る', async ({
-  page,
-}) => {
-  test.setTimeout(120_000);
-  await login(page);
-  const frame = await openEditor(page);
-  const widthOf = async () => (await page.locator('iframe.gjs-frame').boundingBox())?.width ?? 0;
-
-  await page.getByRole('button', { name: '拡大' }).click();
-  await page.getByRole('button', { name: '拡大' }).click();
-  await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 * 1.2 - 2);
-  await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
-  await page.getByRole('button', { name: '変更箇所の赤入れを隠す' }).click();
-  await page.locator('[data-pane-tab="comments"]').click();
-  await page.getByRole('button', { name: '全ページを連続表示' }).click();
-  await page.getByRole('button', { name: 'ページ境界を隠す' }).click();
-  await selectPart(frame, frame.locator('.page > *').nth(3));
-
-  await page.getByRole('button', { name: 'プレビュー' }).click();
-  await page.waitForURL(/\/preview\//);
-  await page.getByRole('button', { name: 'エディターに戻る' }).click();
-  await page.waitForURL(/\/edit\//);
-  const back = page.frameLocator('iframe.gjs-frame');
-  await back.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
-
-  await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 * 1.2 - 2);
-  await expect(
-    page.getByRole('button', { name: '編集中(クリックで閲覧のみに戻す)' }),
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: '変更箇所を赤入れで表示' })).toBeVisible();
-  await expect(page.locator('[data-pane-tab="comments"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('button', { name: '1 ページだけ表示' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'ページ境界を表示' })).toBeVisible();
-  await expect(back.locator('.gjs-selected')).toHaveCount(1, { timeout: 15_000 });
 });

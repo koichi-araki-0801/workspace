@@ -15,6 +15,7 @@ import {
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTE_PATH_KEY_CHARS,
   MAX_NOTES_PER_TEMPLATE,
+  type NoteKind,
   type NotePatch,
   type NoteRepository,
   type NoteStatus,
@@ -27,20 +28,21 @@ import { currentUser, delay, K, now, read, write } from './store';
 type NoteStore = Record<string, Record<string, PartNoteEntry[]>>;
 
 const NOTE_STATUSES: ReadonlySet<string> = new Set<NoteStatus>(['open', 'resolved']);
+const NOTE_KINDS: ReadonlySet<string> = new Set<NoteKind>(['note', 'fix-request', 'question']);
 
 /**
- * `status`/`replyTo` を持たない旧データ(`editor:notes:v2` 導入前に書かれた投稿)へ
+ * `status`/`replyTo`/`kind` を持たない旧データ(`editor:notes:v2` 導入前に書かれた投稿)へ
  * 既定値を補う。server の `files/notesFile.ts` の `withCommentDefaults` と同じ規則
- * (status は 'open'、replyTo は非空文字列でなければ null。旧形式の `kind` は読まない)。補わないと
+ * (status は 'open'、kind は 'note'、replyTo は非空文字列でなければ null)。補わないと
  * `parent.replyTo !== null` が `undefined !== null` で真になり、旧投稿への返信・解決が
  * 常に拒否される。列挙の外の値も既定へ戻す(1 件の破損で読み取り全体を落とさない)。
  */
 function withCommentDefaults(raw: PartNoteEntry): PartNoteEntry {
   const status =
     typeof raw.status === 'string' && NOTE_STATUSES.has(raw.status) ? raw.status : 'open';
+  const kind = typeof raw.kind === 'string' && NOTE_KINDS.has(raw.kind) ? raw.kind : 'note';
   const replyTo = typeof raw.replyTo === 'string' && raw.replyTo !== '' ? raw.replyTo : null;
-  const { kind: _legacyKind, ...rest } = raw as PartNoteEntry & { kind?: unknown };
-  return { ...rest, status, replyTo };
+  return { ...raw, status, replyTo, kind };
 }
 
 /** `K.notes` を読み、全投稿へコメント属性の既定値を補って返す(読み取りの唯一の入口)。 */
@@ -149,6 +151,7 @@ export const localNoteRepo: NoteRepository = {
         updatedBy: null,
         status: parent ? parent.status : 'open',
         replyTo: parent ? parent.id : null,
+        kind: opts.kind ?? 'note',
       };
       tpl[pathKey] = [...entries, entry];
       all[templateId] = tpl;

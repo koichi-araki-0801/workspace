@@ -39,10 +39,13 @@ describe('localNoteRepo', () => {
     expect(isOk(z) && z.value.map((e) => e.content)).toEqual(['全体版']);
   });
 
-  it('追加は open / 親で保存され、種別は持たない(コメントはメモのみ)', async () => {
-    const res = await localNoteRepo.addNote(KOUFU, KEY, '質問');
-    expect(isOk(res) && res.value).toMatchObject({ status: 'open', replyTo: null });
-    expect(isOk(res) && res.value).not.toHaveProperty('kind');
+  it('追加は open / 親 / 指定した種別で保存される', async () => {
+    const res = await localNoteRepo.addNote(KOUFU, KEY, '質問', { kind: 'question' });
+    expect(isOk(res) && res.value).toMatchObject({
+      status: 'open',
+      replyTo: null,
+      kind: 'question',
+    });
   });
 
   it('返信は同じパーツの親にだけ付き、親の状態を引き継ぐ', async () => {
@@ -169,6 +172,7 @@ describe('資源上限(REST と同じ 4 定数を local でも強制する)', ()
       updatedBy: null,
       status: 'open',
       replyTo: null,
+      kind: 'note',
     }));
     localStorage.setItem(K.notes, JSON.stringify({ [KOUFU]: { [KEY]: entries } }));
 
@@ -199,6 +203,7 @@ describe('資源上限(REST と同じ 4 定数を local でも強制する)', ()
           updatedBy: null,
           status: 'open',
           replyTo: null,
+          kind: 'note',
         },
       ];
     }
@@ -231,11 +236,11 @@ describe('読み取り時の既定値補完(旧データに status/replyTo/kind 
     localStorage.setItem(K.notes, JSON.stringify({ [KOUFU]: { [KEY]: [legacy] } }));
   }
 
-  it('2 属性を持たない投稿は open / null で一覧に出る', async () => {
+  it('3 属性を持たない投稿は open / null / note で一覧に出る', async () => {
     seedLegacyEntry('legacy1');
     const list = await localNoteRepo.listNotes(KOUFU);
     expect(isOk(list) && list.value).toEqual([
-      expect.objectContaining({ id: 'legacy1', status: 'open', replyTo: null }),
+      expect.objectContaining({ id: 'legacy1', status: 'open', replyTo: null, kind: 'note' }),
     ]);
   });
 
@@ -247,7 +252,7 @@ describe('読み取り時の既定値補完(旧データに status/replyTo/kind 
     expect(isOk(res) && res.value.status).toBe('resolved');
   });
 
-  it('列挙外の status と空文字の replyTo は既定値へ落ち、旧形式の kind は捨てる', async () => {
+  it('列挙外の status/kind と空文字の replyTo は既定値へ落ちる', async () => {
     const invalid = {
       id: 'bad1',
       templateId: KOUFU,
@@ -264,8 +269,7 @@ describe('読み取り時の既定値補完(旧データに status/replyTo/kind 
     localStorage.setItem(K.notes, JSON.stringify({ [KOUFU]: { [KEY]: [invalid] } }));
     const list = await localNoteRepo.listNotes(KOUFU);
     expect(isOk(list) && list.value).toEqual([
-      expect.objectContaining({ id: 'bad1', status: 'open', replyTo: null }),
+      expect.objectContaining({ id: 'bad1', status: 'open', replyTo: null, kind: 'note' }),
     ]);
-    expect(isOk(list) && list.value[0]).not.toHaveProperty('kind');
   });
 });

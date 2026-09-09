@@ -58,12 +58,11 @@ export function useZoomFit(ctx: ZoomFitContext) {
   }
 
   /**
-   * canvas を A4 ページ全体が縦横とも収まる倍率へ合わせる(Ctrl+0 / % ボタンの手動フィット用。
-   * 起動時は 100% で開き、自動では呼ばない)。
+   * canvas を A4 ページ全体が縦横とも収まる倍率へ合わせる(起動時の初期ズーム用)。
    * ページ実寸は body の `offsetHeight/offsetWidth`(CSS px、transform 非依存なので
    * `setZoom` の scale に影響されない)で測り、利用可能サイズは canvas コンテナの
    * client サイズから `FIT_MARGIN` を引いた値とする。両軸の min を取り `setZoom` に委譲
-   * (clamp `[ZOOM_MIN, ZOOM_MAX]` / 丸め / overlay 再計算はそちら任せ)。
+   * (clamp `[ZOOM_MIN, ZOOM_MAX]` / 丸め / overlay 再計算はそちら任せ)。以後は手動 +/- で調整。
    */
   function fitToView(): void {
     const containerEl = ctx.getContainer();

@@ -6,7 +6,7 @@
 // 返信は同じパーツの親投稿にだけ付き、状態の切替は親にだけ許して返信へ伝播する。
 // ルートは本モジュールを呼んで結果を返すだけ。
 import { randomUUID } from 'node:crypto';
-import { type NoteStatus, type PartNoteEntry, validation } from '@editor/shared';
+import { type NoteKind, type NoteStatus, type PartNoteEntry, validation } from '@editor/shared';
 import {
   entriesAtCapacity,
   entriesCapacityError,
@@ -23,6 +23,7 @@ import {
 /** 追加時の指定。ルートが Zod で既定値を埋めるので、ここでは省略不可にする。 */
 export interface AddNoteOptions {
   replyTo: string | null;
+  kind: NoteKind;
 }
 
 /** 部分更新。本文か状態のどちらか一方以上(ルートの Zod が保証する)。 */
@@ -98,6 +99,7 @@ export async function addNote(
       updatedBy: null,
       status: parent ? parent.status : 'open',
       replyTo: parent ? parent.id : null,
+      kind: opts.kind,
     };
     map[pathKey] = [...entries, stored];
     await writeNotes(templateId, map);

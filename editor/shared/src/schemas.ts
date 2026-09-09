@@ -589,6 +589,9 @@ export const PartClassificationQuery = z.object({
 /** コメントの状態。返信は親と同じ値を持ち、切り替えは親投稿にだけ許す。 */
 export const NoteStatus = z.enum(['open', 'resolved']).meta({ id: 'NoteStatus' });
 
+/** コメントの種別。表示ラベルは「メモ」「修正依頼」「質問」。 */
+export const NoteKind = z.enum(['note', 'fix-request', 'question']).meta({ id: 'NoteKind' });
+
 /**
  * パーツ単位コメントの投稿 1 件。コメントは 1 段の入れ子を持つスレッドで、投稿は書かれた
  * 版インスタンスのファイルへ入る(交付版⇄全体版で共有しない)。
@@ -609,6 +612,7 @@ export const PartNoteEntry = z
       .string()
       .nullable()
       .meta({ description: '親投稿の ID。null なら親(スレッドの起点)' }),
+    kind: NoteKind.meta({ description: '種別' }),
   })
   .meta({ id: 'PartNoteEntry' });
 
@@ -630,6 +634,7 @@ export const AddNoteRequest = z
       .nullable()
       .default(null)
       .meta({ description: '返信先の親投稿 ID。null なら親投稿として追加する' }),
+    kind: NoteKind.default('note'),
   })
   .meta({ id: 'AddNoteRequest' });
 

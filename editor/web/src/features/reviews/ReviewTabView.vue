@@ -318,7 +318,7 @@ function goEdit() {
                 :can-add="!partsUnavailable && (selectedKey[m.id] ?? null) !== null"
                 :part-labels="partLabels"
                 compact
-                @add="(content) => comments.add(content, {}, selectedKey[m.id] ?? undefined)"
+                @add="(content, kind) => comments.add(content, { kind }, selectedKey[m.id] ?? undefined)"
                 @reply="comments.reply"
                 @set-status="comments.setStatus"
                 @update="comments.update"

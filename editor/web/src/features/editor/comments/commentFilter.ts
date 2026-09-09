@@ -4,7 +4,7 @@
 // 役割: `PartNoteEntry` の平坦な配列を「親投稿 + 返信」のスレッドへ組み、右ペインの
 // 一覧が持つ検索・絞り込み・並びの規則をここに閉じる。DOM や store に依存しないので
 // 単体テストで規則を固定できる。表示コンポーネント(`CommentPanel.vue`)は結果を描くだけ。
-import type { PartNoteEntry } from '@editor/shared';
+import type { NoteKind, PartNoteEntry } from '@editor/shared';
 
 /** 親投稿 1 件とその返信。`lastAt` は親・返信の作成/編集日時の最大値(更新順の並びに使う)。 */
 export interface CommentThread {
@@ -20,6 +20,8 @@ export interface CommentFilter {
   /** 本文・投稿者の部分一致。空文字は無条件。 */
   query: string;
   status: CommentStatusFilter;
+  /** 空集合は無条件。 */
+  kinds: ReadonlySet<NoteKind>;
   /** null は無条件。 */
   author: string | null;
   /** true なら選択中のパーツのスレッドだけ。 */
@@ -31,15 +33,16 @@ export interface CommentFilter {
 export const DEFAULT_COMMENT_FILTER: CommentFilter = {
   query: '',
   status: 'open',
+  kinds: new Set<NoteKind>(),
   author: null,
   onlySelected: false,
   sort: 'updated',
 };
 
-/** 状態の表示ラベル。一覧の行バッジと吹き出しのチップで共用する。 */
-export const STATUS_LABEL: Record<PartNoteEntry['status'], string> = {
-  open: '未対応',
-  resolved: '解決済み',
+export const KIND_LABEL: Record<NoteKind, string> = {
+  note: 'メモ',
+  'fix-request': '修正依頼',
+  question: '質問',
 };
 
 function activityAt(e: PartNoteEntry): string {
@@ -119,6 +122,7 @@ export function filterThreads(
   const out = threads.filter((t) => {
     const p = t.parent;
     if (filter.status !== 'all' && p.status !== filter.status) return false;
+    if (filter.kinds.size > 0 && !filter.kinds.has(p.kind)) return false;
     if (filter.author !== null && p.createdBy !== filter.author) return false;
     if (filter.onlySelected && p.pathKey !== ctx.selectedKey) return false;
     return matchesQuery(t, filter.query);

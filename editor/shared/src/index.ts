@@ -164,6 +164,7 @@ export type PartMasterReflectDefault = z.infer<typeof sch.PartMasterReflectDefau
  */
 export type PartNoteEntry = z.infer<typeof sch.PartNoteEntry>;
 export type NoteStatus = z.infer<typeof sch.NoteStatus>;
+export type NoteKind = z.infer<typeof sch.NoteKind>;
 
 export type AddNoteRequest = z.infer<typeof sch.AddNoteRequest>;
 
