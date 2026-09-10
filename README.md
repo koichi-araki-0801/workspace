@@ -13,8 +13,9 @@ Node 非依存の python-tools リポジトリへ分離済み）。
    → `docs/<project>/src/設計正典.md`（構成・不変則・却下済み設計）。
    editor を触るなら `editor/CONTRIBUTING.md` がハブ。
 2. **最初に覚える 3 コマンド**:
-   - セットアップ: `offline\fetch-offline-bundle.bat`（重量物を Release から取得）→
-     `offline\setup-offline.bat`（展開・構築はネット不要）または `pnpm install`
+   - セットアップ: `offline\fetch-offline-bundle.bat`（重量物を Release から取得。遮断端末は
+     `-Source` でソース ZIP も併せて取得）→ `offline\setup-offline.bat`（展開・構築はネット不要）
+     または `pnpm install`
    - 検証: `pnpm run ci:<領域>`（editor / pie-chart。PR 前はフル `pnpm run ci`）
    - 起動: 各プロジェクト直下の入口 .bat（下記「入口スクリプト一覧」）
 3. **リポジトリ直下の見分け方**: `offline-deps-bundle.tar.gz`・`pnpm.tgz`・`python-wheelhouse/`・
@@ -40,7 +41,7 @@ Node 非依存の python-tools リポジトリへ分離済み）。
 | スクリプト | 役割 | 使い方 |
 |---|---|---|
 | `editor/start.bat` | editor アプリ起動（dev / prod / rest モード） | `editor\start.bat` または引数でモード指定 |
-| `offline/fetch-offline-bundle.bat` | 重量物バンドルを GitHub Releases から HTTPS で取得しリポジトリ直下へ置く | `offline\fetch-offline-bundle.bat` |
+| `offline/fetch-offline-bundle.bat` | 重量物バンドルを GitHub Releases から HTTPS で取得しリポジトリ直下へ置く（`-Source` で遮断端末向けのソース ZIP も取得） | `offline\fetch-offline-bundle.bat` |
 | `offline/setup-offline.bat` | 手元の重量物バンドルを展開して構築（取得はしない。無ければ fetch を案内して停止） | `offline\setup-offline.bat` |
 
 裏方（各 `<project>/scripts/` ほか。ビルド・初期化・運用）:
