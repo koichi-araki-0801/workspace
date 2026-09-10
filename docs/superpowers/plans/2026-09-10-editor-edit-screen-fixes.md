@@ -20,6 +20,7 @@
 - push はユーザーに `!` で依頼する（pre-push CI 11〜12 分 > 背景実行 10 分）。commit 後の auto-push フックは走るが、失敗時は手動 push を頼む。
 - 各タスクは RED → GREEN → REFACTOR。テストが先。
 - Python の起動は `py -3.13`。
+- 編集画面の赤入れ表示は**既定 OFF**（Q15）。上部バーのボタンで明示したときだけ差分を出す。
 
 ## File Structure
 
@@ -717,6 +718,8 @@ test('往復統合: 選択のみ非 dirty / 往復後の赤入れとコメント
   await page.locator('button[data-add-submit]').click();
   await expect(page.locator('[data-comment-row]', { hasText: '往復テスト' })).toBeVisible();
   await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+  // 赤入れは既定 OFF。ボタンで明示したときだけ差分を出す。
+  await page.getByRole('button', { name: '変更箇所を赤入れで表示' }).click();
   await replaceWord(page, frame, '受益者のみなさまへ', 'みなさま', '皆様');
   await expect(frame.locator('del[data-redline]', { hasText: 'みなさま' }).first()).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, { timeout: 15_000 });
@@ -895,6 +898,15 @@ const SAVE_NEUTRAL_PROPS: ReadonlySet<string> = new Set([
     ed.setStyle(css);
 ```
 
+- [ ] **Step 7b: 赤入れ表示の既定を OFF にする（Q15）**
+
+`editor/web/src/features/editor/redline/useRedline.ts` の `const enabled = ref(true);` を `ref(false)` にし、
+doc コメントに「既定 OFF。上部バーのボタンで明示したときだけ差分を出す（開いた直後に取り消し線が
+出るのは誤解を招く）」を書く。既存 e2e `canvas.spec.ts`「赤入れ: 文言を編集すると…」は、
+「閲覧のみ(クリックで編集を許可)」を押した直後に `await page.getByRole('button', { name: '変更箇所を赤入れで表示' }).click();`
+を足し、その後の「トグル OFF で消える → ON で戻る」の順序はそのまま。「赤入れ: 作成経路では
+トグルを出さない」は変更不要。
+
 - [ ] **Step 8: `useTemplateEditor.ts`**
 
 宣言部（`const dirty = ref(false);` の直後）:
@@ -1009,14 +1021,20 @@ Run: `cd editor && pnpm exec playwright test e2e/canvas.spec.ts e2e/comment_pane
   prop（`grapesEvents.SAVE_NEUTRAL_PROPS`）の濾過は即時応答用の補助で、主防御にしない。
   機械検証は `web/test/grapesEvents.test.ts`・`web/test/confirmedCanonical.dom.test.ts`・
   `e2e/canvas.spec.ts`「往復統合」。
+- **編集画面の赤入れ表示は既定 OFF**: 開いた直後は差分を出さず、上部バーのボタンで明示したときだけ
+  表示する（ON/OFF は編集セッションの UI 状態として往復・リロードで保持）。
 ```
+
+既存項「編集キャンバスの赤入れ表示は生 DOM の装飾で…」の「表示 ON では行送り・改ページが PDF と
+ずれる — これは仕様で、トグル OFF で戻す」を「表示は既定 OFF。ON にすると行送り・改ページが PDF と
+ずれる（仕様）」へ書き換える。
 
 - [ ] **Step 11: コミット**
 
 ```bash
 pnpm exec biome check --write editor/web/src editor/web/test editor/e2e
-git add editor/web/src/lib/confirmedCanonical.ts editor/web/src/lib/storageKeys.ts editor/web/src/api/local/store.ts editor/web/src/features/editor/grapesEvents.ts editor/web/src/features/editor/useGrapes.ts editor/web/src/features/editor/useTemplateEditor.ts editor/web/test/confirmedCanonical.dom.test.ts editor/web/test/grapesEvents.test.ts editor/e2e/canvas.spec.ts "docs/editor/src/設計正典.md"
-git commit -m "fix(editor): 「未確定」を保存内容と確定版正規形の比較で決め、選択だけで未確定にならず Undo で同一なら変更なしに戻す"
+git add editor/web/src/lib/confirmedCanonical.ts editor/web/src/lib/storageKeys.ts editor/web/src/api/local/store.ts editor/web/src/features/editor/grapesEvents.ts editor/web/src/features/editor/useGrapes.ts editor/web/src/features/editor/useTemplateEditor.ts editor/web/src/features/editor/redline/useRedline.ts editor/web/test/confirmedCanonical.dom.test.ts editor/web/test/grapesEvents.test.ts editor/e2e/canvas.spec.ts "docs/editor/src/設計正典.md"
+git commit -m "fix(editor): 「未確定」を保存内容と確定版正規形の比較で決め、選択だけで未確定にならず Undo で同一なら変更なしに戻す(赤入れ表示は既定 OFF)"
 ```
 
 ---
@@ -1110,21 +1128,21 @@ git commit -m "fix(editor): 起動時のズームを 100% にし、resize で画
     const store = useEditorSessionStore();
     const s = store.ensure('t1');
     expect(s.ui).toEqual({
-      allowEdit: false, redlineEnabled: true, paneTab: 'props', zoom: null,
+      allowEdit: false, redlineEnabled: false, paneTab: 'props', zoom: null,
       singlePageMode: true, currentPage: 0, showPageGuides: true, selectedKey: null,
     });
-    s.ui.allowEdit = true; s.ui.zoom = 1.2; s.ui.paneTab = 'comments'; s.ui.selectedKey = 'p1/.x#2';
+    s.ui.allowEdit = true; s.ui.zoom = 1.2; s.ui.paneTab = 'comments'; s.ui.selectedKey = 'p1/.x#2'; s.ui.redlineEnabled = true;
     store.persistUi('t1');
-    expect(store.ensure('t1').ui).toMatchObject({ allowEdit: true, zoom: 1.2, paneTab: 'comments', selectedKey: 'p1/.x#2' });
+    expect(store.ensure('t1').ui).toMatchObject({ allowEdit: true, zoom: 1.2, paneTab: 'comments', selectedKey: 'p1/.x#2', redlineEnabled: true });
     const persisted = JSON.parse(localStorage.getItem('editor:session:ui:local') ?? '{}');
     expect(persisted.t1).toEqual({ redlineEnabled: true, paneTab: 'comments', zoom: 1.2, singlePageMode: true, currentPage: 0, showPageGuides: true });
   });
 
   it('新しいセッションは永続した ui から hydrate し、allowEdit と選択は既定に戻る', () => {
-    localStorage.setItem('editor:session:ui:local', JSON.stringify({ t1: { redlineEnabled: false, paneTab: 'comments', zoom: 0.8, singlePageMode: false, currentPage: 2, showPageGuides: false } }));
+    localStorage.setItem('editor:session:ui:local', JSON.stringify({ t1: { redlineEnabled: true, paneTab: 'comments', zoom: 0.8, singlePageMode: false, currentPage: 2, showPageGuides: false } }));
     const store = useEditorSessionStore();
     expect(store.ensure('t1').ui).toEqual({
-      allowEdit: false, redlineEnabled: false, paneTab: 'comments', zoom: 0.8,
+      allowEdit: false, redlineEnabled: true, paneTab: 'comments', zoom: 0.8,
       singlePageMode: false, currentPage: 2, showPageGuides: false, selectedKey: null,
     });
   });
@@ -1150,7 +1168,7 @@ test('プレビュー往復で編集許可・赤入れ表示・右ペインの�
   await page.getByRole('button', { name: '拡大' }).click();
   await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 * 1.2 - 2);
   await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
-  await page.getByRole('button', { name: '変更箇所の赤入れを隠す' }).click();
+  await page.getByRole('button', { name: '変更箇所を赤入れで表示' }).click();
   await page.locator('[data-pane-tab="comments"]').click();
   await page.getByRole('button', { name: '全ページを連続表示' }).click();
   await page.getByRole('button', { name: 'ページ境界を隠す' }).click();
@@ -1165,7 +1183,7 @@ test('プレビュー往復で編集許可・赤入れ表示・右ペインの�
 
   await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 * 1.2 - 2);
   await expect(page.getByRole('button', { name: '編集中(クリックで閲覧のみに戻す)' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '変更箇所を赤入れで表示' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '変更箇所の赤入れを隠す' })).toBeVisible();
   await expect(page.locator('[data-pane-tab="comments"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: '1 ページだけ表示' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'ページ境界を表示' })).toBeVisible();
@@ -1193,6 +1211,7 @@ Run: 単体 → `defaultEditorUiState` 未定義で FAIL。e2e → FAIL。
 export interface EditorUiState {
   /** 「編集を許可」トグル(永続しない — リロード後は安全側の既定 OFF)。 */
   allowEdit: boolean;
+  /** 赤入れ表示。既定 OFF(ボタンで明示したときだけ差分を出す)。ON/OFF は永続する。 */
   redlineEnabled: boolean;
   paneTab: 'props' | 'comments';
   /** canvas の倍率。null は「まだ決めていない」= 起動時の既定(100%)。 */
@@ -1204,7 +1223,7 @@ export interface EditorUiState {
   selectedKey: string | null;
 }
 export function defaultEditorUiState(): EditorUiState {
-  return { allowEdit: false, redlineEnabled: true, paneTab: 'props', zoom: null, singlePageMode: true, currentPage: 0, showPageGuides: true, selectedKey: null };
+  return { allowEdit: false, redlineEnabled: false, paneTab: 'props', zoom: null, singlePageMode: true, currentPage: 0, showPageGuides: true, selectedKey: null };
 }
 type PersistedUi = Omit<EditorUiState, 'allowEdit' | 'selectedKey'>;
 type UiMap = Record<string, PersistedUi>;
@@ -1246,7 +1265,7 @@ Run: `cd editor/web && pnpm exec vitest run test/editorSession.dom.test.ts` / `c
 
 ```markdown
   画面の UI 状態も同じセッションの一部でプレビュー往復で戻す（`stores/editorSession.ts` の `ui`）。
-  倍率・ページ表示・右ペインのタブ・赤入れ表示・guide は localStorage へ永続しリロードでも戻る。
+  倍率・ページ表示・右ペインのタブ・赤入れ表示（既定 OFF）・guide は localStorage へ永続しリロードでも戻る。
   **`allowEdit` と選択は永続しない**（リロード後は安全側の既定 OFF・未選択）。
 ```
 
