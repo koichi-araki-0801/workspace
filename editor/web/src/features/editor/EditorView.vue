@@ -111,7 +111,8 @@ const noteBubbleEl = useTemplateRef<InstanceType<typeof NoteBubble>>('noteBubble
 // 変わった結果、その新しいパーツの投稿数がたまたま前パーツより多い」ケースを投稿追加と
 // 誤認して開いてしまうため(パーツ間で件数を比べても意味が無い)。`flush:'sync'` は
 // `openBubbleFor` の選択直後(`selectPartByKey`)に立てる true が、遅延実行される本 watch の
-// close で上書きされるのを防ぐ(`redline.onSelected` の watch と同じ理由。上のコメントを見よ)。
+// close で上書きされるのを防ぐ(`useTemplateEditor.ts` の `redline.onSelected` を呼ぶ watch と
+// 同じ理由で `flush:'sync'` にしている)。
 const bubbleOpen = ref(false);
 watch(
   () => [g.selected.value, noteEntries.value.length] as const,
@@ -430,7 +431,7 @@ const statusText = computed(() => {
             class="note-marker"
             :class="openNoteKeys.has(m.key) ? '' : 'note-marker-resolved'"
             :title="openNoteKeys.has(m.key) ? '未対応のコメントあり(クリックで開く)' : 'コメントあり(解決済み。クリックで開く)'"
-            :aria-label="'コメントを開く'"
+            aria-label="コメントを開く"
             :style="{ left: `${m.left}px`, top: `${m.top}px` }"
             @click="openBubbleFor(m.key)"
           >

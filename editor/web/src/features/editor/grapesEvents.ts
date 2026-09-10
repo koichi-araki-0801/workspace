@@ -176,6 +176,12 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   };
   // `component:update` は直近の `set` で変わった prop を `model.changed` に持つ。全部が
   // 保存内容に現れない prop なら dirty/autosave へ流さない。読めない発火は保守的に「変更」扱い。
+  // 移動・貼り付け・drag 終了は `set` を伴わず `component:update` だけが飛ぶことがあり、その
+  // ときの `model.changed` は 1 つ前の `set`(status 系)が残ったままで saveNeutral に見える。
+  // これで dirty を取りこぼさずに済んでいるのは、上記 3 操作がいずれも `component:add` /
+  // `component:remove` も併発し、そちらは無条件で `fireChange()` するため(下の登録を見よ)。
+  // この依存を切る変更(`component:add`/`component:remove` を伴わない移動系の追加等)をすると
+  // dirty が立たなくなるので、変える際は `onComponentUpdate` 側の判定も見直すこと。
   const onComponentUpdate = (model?: { changed?: Record<string, unknown> }) => {
     const changed = model?.changed;
     const keys = changed && typeof changed === 'object' ? Object.keys(changed) : [];

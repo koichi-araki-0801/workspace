@@ -464,12 +464,15 @@ export function useTemplateEditor(
       confirmedCanonical = readConfirmedCanonical(id, tplUpdatedAt);
       // キャッシュが無く draft から開くときだけ、確定版を先に読み込んで正規形を測る。
       if (!confirmedCanonical && res.value.hasDraft) {
-        if (!g.load(res.value.confirmedBody, res.value.template.css, { quiet: true })) {
-          router.replace({ name: 'edit' });
-          return;
+        if (g.load(res.value.confirmedBody, res.value.template.css, { quiet: true })) {
+          confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
+          writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
         }
-        confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
-        writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
+        // false になるのは確定版側の CSS に外部参照が残っているときだけ(draft の CSS は
+        // 下の本読み込みが通す入口ガードを既に通過済み)。確定版が古くて汚れているだけで
+        // draft 自体は正当なので、ここで編集を止めない。confirmedCanonical は null のまま
+        // 進み、`settleIfClean` の同一判定(⑥)が効かなくなるだけで、dirty は上で立てた
+        // `hasDraft` に従う従来どおりの挙動へ落ちる。
       }
     }
     // service の入口ガードを通っていれば false にはならないが、拒否された場合は空の

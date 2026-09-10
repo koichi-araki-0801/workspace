@@ -307,6 +307,24 @@ describe('useEditorSessionStore', () => {
     expect(store.ensure('t1').ui.zoom).toBeNull();
     expect(JSON.parse(localStorage.getItem('editor:session:ui:local') ?? '{}').t1).toBeUndefined();
   });
+
+  it('永続ミラーが壊れた値を持っていても、既定値へフォールバックして復元する', () => {
+    // 破損経路の例: 手動編集・旧バージョンとの互換切れ・localStorage 共有の事故。
+    // 型不整合のまま `setZoom` 等へ渡すと NaN clamp 等の実害があるため、hydrate 時点で防ぐ。
+    localStorage.setItem(
+      'editor:session:ui:local',
+      JSON.stringify({
+        t1: {
+          zoom: 'big',
+          currentPage: -3,
+          paneTab: 'x',
+          redlineEnabled: 'yes',
+        },
+      }),
+    );
+    const store = useEditorSessionStore();
+    expect(store.ensure('t1').ui).toEqual(defaultEditorUiState());
+  });
 });
 
 // 共有端末では Undo ミラーが localStorage に残る。ユーザーを跨いで復元されると、前の

@@ -55,6 +55,31 @@ export function defaultEditorUiState(): EditorUiState {
 type PersistedUi = Omit<EditorUiState, 'allowEdit' | 'selectedKey'>;
 type UiMap = Record<string, PersistedUi>;
 
+/**
+ * 永続ミラーから読んだ生値を検証し、型が合わないフィールドだけ既定値へ落とす。手書き編集・
+ * 旧バージョンとの互換切れ等で壊れた値(例: `zoom` が文字列)がそのまま `setZoom` 等へ渡ると
+ * `NaN` clamp のような実害になるため、hydrate の時点で 1 フィールドずつ検証する。
+ */
+function sanitizePersistedUi(raw: unknown): Partial<PersistedUi> {
+  if (typeof raw !== 'object' || raw === null) return {};
+  const r = raw as Record<string, unknown>;
+  const def = defaultEditorUiState();
+  const out: Partial<PersistedUi> = {};
+  out.zoom = typeof r.zoom === 'number' && Number.isFinite(r.zoom) ? r.zoom : null;
+  out.currentPage =
+    typeof r.currentPage === 'number' && Number.isInteger(r.currentPage) && r.currentPage >= 0
+      ? r.currentPage
+      : 0;
+  out.redlineEnabled =
+    typeof r.redlineEnabled === 'boolean' ? r.redlineEnabled : def.redlineEnabled;
+  out.singlePageMode =
+    typeof r.singlePageMode === 'boolean' ? r.singlePageMode : def.singlePageMode;
+  out.showPageGuides =
+    typeof r.showPageGuides === 'boolean' ? r.showPageGuides : def.showPageGuides;
+  out.paneTab = r.paneTab === 'props' || r.paneTab === 'comments' ? r.paneTab : def.paneTab;
+  return out;
+}
+
 /** UI 状態永続ミラーを読む(壊れていれば空)。 */
 function readUiMap(): UiMap {
   try {
@@ -134,7 +159,7 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
         undoPast: e?.past ?? [],
         undoFuture: e?.future ?? [],
         // `allowEdit`/`selectedKey` は永続ミラーに含まれない(常に既定のまま)。
-        ui: { ...defaultEditorUiState(), ...(readUiMap()[templateId] ?? {}) },
+        ui: { ...defaultEditorUiState(), ...sanitizePersistedUi(readUiMap()[templateId]) },
       };
     }
     // reactive proxy を返す(生 object でなく): partHistory の変更追跡を効かせ、

@@ -28,7 +28,7 @@ rev:
 | 13 | 編集 | テンプレートID | `templateId` | `string` | ○ | 下書き保存（PUT /templates/:id/draft）対象 |
 | 14 | 編集 | HTML | `html` | `string` | ○ | GrapesJS 本文。確定保存はファイル保存 |
 | 15 | 編集 | CSS | `css` | `string` | ○ | 本文スタイル |
-| 16 | 編集 | 変更箇所の赤入れ表示 | `showRedline` | `boolean` |  | 既定 ON。確定版と draft の差分を canvas の生 DOM に取り消し線で表示（保存・申請・PDF には載らない）。作成経路では非表示 |
+| 16 | 編集 | 変更箇所の赤入れ表示 | `showRedline` | `boolean` |  | 既定 OFF。ボタンで ON にしたときだけ、確定版と draft の差分を canvas の生 DOM に取り消し線で表示（保存・申請・PDF には載らない）。作成経路では非表示 |
 
 # 入出力定義（REST API）
 
