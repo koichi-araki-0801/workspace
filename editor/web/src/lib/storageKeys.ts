@@ -96,3 +96,9 @@ const CONFIRMED_CANONICAL_PREFIX = 'editor:confirmed:v1';
 export function confirmedCanonicalKey(): string {
   return `${CONFIRMED_CANONICAL_PREFIX}:${userScope()}`;
 }
+
+const UI_STATE_PREFIX = 'editor:session:ui';
+/** 編集画面 UI 状態(倍率・表示系)永続ミラーのキー(ユーザー別。`stores/editorSession.ts`)。 */
+export function editorUiKey(): string {
+  return `${UI_STATE_PREFIX}:${userScope()}`;
+}

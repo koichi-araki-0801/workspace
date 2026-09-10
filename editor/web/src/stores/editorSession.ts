@@ -10,12 +10,67 @@
 import type { PartHistoryEntry } from '@editor/shared';
 import { defineStore } from 'pinia';
 import { reactive } from 'vue';
-import { undoStacksKey } from '@/lib/storageKeys';
+import { editorUiKey, undoStacksKey } from '@/lib/storageKeys';
 
 /** Undo/Redo 用の不透明スナップショット(editor の capture と一致: body HTML + CSS)。 */
 export interface EditorSnapshot {
   html: string;
   css: string;
+}
+
+/**
+ * 編集画面の UI 状態。「編集セッションはブラウザタブの寿命」の一部として、プレビュー往復
+ * (SPA 遷移)では丸ごと保持する。倍率・表示系だけは `persistUi` で localStorage へも永続し
+ * リロード後も戻す。`allowEdit`/`selectedKey` は永続しない(リロード後は安全側の既定へ戻る)。
+ */
+export interface EditorUiState {
+  /** 「編集を許可」トグル(永続しない — リロード後は安全側の既定 OFF)。 */
+  allowEdit: boolean;
+  /** 赤入れ表示。既定 OFF(ボタンで明示したときだけ差分を出す)。ON/OFF は永続する。 */
+  redlineEnabled: boolean;
+  paneTab: 'props' | 'comments';
+  /** canvas の倍率。null は「まだ決めていない」= 起動時の既定(100%)。 */
+  zoom: number | null;
+  singlePageMode: boolean;
+  currentPage: number;
+  showPageGuides: boolean;
+  /** 選択パーツの構造キー(永続しない — リロード後は未選択から)。 */
+  selectedKey: string | null;
+}
+
+export function defaultEditorUiState(): EditorUiState {
+  return {
+    allowEdit: false,
+    redlineEnabled: false,
+    paneTab: 'props',
+    zoom: null,
+    singlePageMode: true,
+    currentPage: 0,
+    showPageGuides: true,
+    selectedKey: null,
+  };
+}
+
+/** localStorage へ永続する部分だけの形(`allowEdit`/`selectedKey` を除く)。 */
+type PersistedUi = Omit<EditorUiState, 'allowEdit' | 'selectedKey'>;
+type UiMap = Record<string, PersistedUi>;
+
+/** UI 状態永続ミラーを読む(壊れていれば空)。 */
+function readUiMap(): UiMap {
+  try {
+    return JSON.parse(localStorage.getItem(editorUiKey()) ?? '{}') as UiMap;
+  } catch {
+    return {};
+  }
+}
+
+/** UI 状態永続ミラーを書く。quota 等で失敗しても throw しない(倍率が戻らないだけ)。 */
+function writeUiMap(map: UiMap): void {
+  try {
+    localStorage.setItem(editorUiKey(), JSON.stringify(map));
+  } catch {
+    /* 諦める(倍率が戻らないだけ) */
+  }
 }
 
 /** 1 テンプレートの編集セッション state。編集⇄プレビュー往復を跨いで保持する。 */
@@ -28,6 +83,8 @@ interface EditSession {
   undoPast: EditorSnapshot[];
   /** Redo スタック(未来スナップショット)。 */
   undoFuture: EditorSnapshot[];
+  /** 画面の UI 状態(倍率・表示系・編集許可・選択)。 */
+  ui: EditorUiState;
 }
 
 /** localStorage に保持する Undo/Redo の永続ミラー。`Record<templateId, {past, future}>`。 */
@@ -76,6 +133,8 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
         seq: 0,
         undoPast: e?.past ?? [],
         undoFuture: e?.future ?? [],
+        // `allowEdit`/`selectedKey` は永続ミラーに含まれない(常に既定のまま)。
+        ui: { ...defaultEditorUiState(), ...(readUiMap()[templateId] ?? {}) },
       };
     }
     // reactive proxy を返す(生 object でなく): partHistory の変更追跡を効かせ、
@@ -118,6 +177,19 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
   }
 
   /**
+   * 当該テンプレートの UI 状態(倍率・表示系)を localStorage へ永続化する。`allowEdit` と
+   * `selectedKey` は除く(リロード後は安全側の既定 OFF・未選択から始める)。
+   */
+  function persistUi(templateId: string): void {
+    const sess = sessions[templateId];
+    if (!sess) return;
+    const { allowEdit: _allowEdit, selectedKey: _selectedKey, ...rest } = sess.ui;
+    const map = readUiMap();
+    map[templateId] = rest;
+    writeUiMap(map);
+  }
+
+  /**
    * Undo/Redo スタックだけを空にする。別タブが残した下書きを破棄して確定版から開いたとき
    * (`loadForEdit` の `discardedStaleDraft`)に呼ぶ — 残すと Undo 1 回で破棄したはずの本文が
    * 戻り、autosave がそれを下書きとして書き戻してしまうため。`useSnapshotHistory` が配列を
@@ -139,7 +211,12 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
       delete map[templateId];
       writeUndoMap(map); // best-effort(消せなくても実害なし)
     }
+    const uiMap = readUiMap();
+    if (templateId in uiMap) {
+      delete uiMap[templateId];
+      writeUiMap(uiMap);
+    }
   }
 
-  return { sessions, ensure, persist, reset, clear };
+  return { sessions, ensure, persist, persistUi, reset, clear };
 });

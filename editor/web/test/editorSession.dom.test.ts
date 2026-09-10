@@ -1,7 +1,11 @@
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setUndoUserScope, undoStacksKey } from '@/lib/storageKeys';
-import { type EditorSnapshot, useEditorSessionStore } from '@/stores/editorSession';
+import {
+  defaultEditorUiState,
+  type EditorSnapshot,
+  useEditorSessionStore,
+} from '@/stores/editorSession';
 
 /** localStorage の Undo 永続ミラーを読む(テスト用)。 */
 function readUndoMap(): Record<string, { past: EditorSnapshot[]; future: EditorSnapshot[] }> {
@@ -17,7 +21,13 @@ describe('useEditorSessionStore', () => {
   it('ensure() creates an empty session and returns the same instance on re-ensure', () => {
     const store = useEditorSessionStore();
     const a = store.ensure('t1');
-    expect(a).toEqual({ partHistory: {}, seq: 0, undoPast: [], undoFuture: [] });
+    expect(a).toEqual({
+      partHistory: {},
+      seq: 0,
+      undoPast: [],
+      undoFuture: [],
+      ui: defaultEditorUiState(),
+    });
 
     // 同一 templateId を再度 ensure すると、同じセッション(参照)が返る
     // (= 編集⇄プレビュー往復で履歴が維持される)。
@@ -44,7 +54,13 @@ describe('useEditorSessionStore', () => {
     store.clear('t1');
     const fresh = store.ensure('t1');
     expect(fresh).not.toBe(s);
-    expect(fresh).toEqual({ partHistory: {}, seq: 0, undoPast: [], undoFuture: [] });
+    expect(fresh).toEqual({
+      partHistory: {},
+      seq: 0,
+      undoPast: [],
+      undoFuture: [],
+      ui: defaultEditorUiState(),
+    });
   });
 
   it('clear() on an unknown templateId is a no-op', () => {
@@ -217,6 +233,79 @@ describe('useEditorSessionStore', () => {
     } finally {
       Storage.prototype.setItem = original;
     }
+  });
+
+  it('ui 状態は再 ensure で残り、倍率・表示系だけが localStorage へ永続し、allowEdit と選択は永続しない', () => {
+    const store = useEditorSessionStore();
+    const s = store.ensure('t1');
+    expect(s.ui).toEqual({
+      allowEdit: false,
+      redlineEnabled: false,
+      paneTab: 'props',
+      zoom: null,
+      singlePageMode: true,
+      currentPage: 0,
+      showPageGuides: true,
+      selectedKey: null,
+    });
+    s.ui.allowEdit = true;
+    s.ui.zoom = 1.2;
+    s.ui.paneTab = 'comments';
+    s.ui.selectedKey = 'p1/.x#2';
+    s.ui.redlineEnabled = true;
+    store.persistUi('t1');
+    expect(store.ensure('t1').ui).toMatchObject({
+      allowEdit: true,
+      zoom: 1.2,
+      paneTab: 'comments',
+      selectedKey: 'p1/.x#2',
+      redlineEnabled: true,
+    });
+    const persisted = JSON.parse(localStorage.getItem('editor:session:ui:local') ?? '{}');
+    expect(persisted.t1).toEqual({
+      redlineEnabled: true,
+      paneTab: 'comments',
+      zoom: 1.2,
+      singlePageMode: true,
+      currentPage: 0,
+      showPageGuides: true,
+    });
+  });
+
+  it('新しいセッションは永続した ui から hydrate し、allowEdit と選択は既定に戻る', () => {
+    localStorage.setItem(
+      'editor:session:ui:local',
+      JSON.stringify({
+        t1: {
+          redlineEnabled: true,
+          paneTab: 'comments',
+          zoom: 0.8,
+          singlePageMode: false,
+          currentPage: 2,
+          showPageGuides: false,
+        },
+      }),
+    );
+    const store = useEditorSessionStore();
+    expect(store.ensure('t1').ui).toEqual({
+      allowEdit: false,
+      redlineEnabled: true,
+      paneTab: 'comments',
+      zoom: 0.8,
+      singlePageMode: false,
+      currentPage: 2,
+      showPageGuides: false,
+      selectedKey: null,
+    });
+  });
+
+  it('clear() は ui と永続分も消す', () => {
+    const store = useEditorSessionStore();
+    store.ensure('t1').ui.zoom = 0.8;
+    store.persistUi('t1');
+    store.clear('t1');
+    expect(store.ensure('t1').ui.zoom).toBeNull();
+    expect(JSON.parse(localStorage.getItem('editor:session:ui:local') ?? '{}').t1).toBeUndefined();
   });
 });
 

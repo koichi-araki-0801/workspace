@@ -182,6 +182,49 @@ test('赤入れ: 作成経路(?created=1)ではトグルを出さない', async 
   await expect(page.getByRole('button', { name: /赤入れ/ })).toHaveCount(1, { timeout: 15_000 });
 });
 
+test('プレビュー往復で編集許可・赤入れ表示・右ペインのタブ・倍率・ページ表示・選択が残る', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await login(page);
+  const frame = await openEditor(page);
+  const widthOf = async () => (await page.locator('iframe.gjs-frame').boundingBox())?.width ?? 0;
+  await page.getByRole('button', { name: '拡大' }).click();
+  await page.getByRole('button', { name: '拡大' }).click();
+  await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 * 1.2 - 2);
+  await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+  await page.getByRole('button', { name: '変更箇所を赤入れで表示' }).click();
+  await page.locator('[data-pane-tab="comments"]').click();
+  await page.getByRole('button', { name: '全ページを連続表示' }).click();
+  await page.getByRole('button', { name: 'ページ境界を隠す' }).click();
+  await selectPart(frame, frame.locator('.page > *').nth(3));
+
+  await page.getByRole('button', { name: 'プレビュー' }).click();
+  await page.waitForURL(/\/preview\//);
+  await page.getByRole('button', { name: 'エディターに戻る' }).click();
+  await page.waitForURL(/\/edit\//);
+  const back = page.frameLocator('iframe.gjs-frame');
+  await back.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
+
+  await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 * 1.2 - 2);
+  await expect(
+    page.getByRole('button', { name: '編集中(クリックで閲覧のみに戻す)' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: '変更箇所の赤入れを隠す' })).toBeVisible();
+  await expect(page.locator('[data-pane-tab="comments"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: '1 ページだけ表示' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ページ境界を表示' })).toBeVisible();
+  await expect(back.locator('.gjs-selected')).toHaveCount(1, { timeout: 15_000 });
+
+  // リロードでは倍率・表示系は残り、編集許可と選択は既定へ戻る
+  await page.reload({ waitUntil: 'commit' });
+  const re = page.frameLocator('iframe.gjs-frame');
+  await re.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
+  await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 * 1.2 - 2);
+  await expect(page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' })).toBeVisible();
+  await expect(re.locator('.gjs-selected')).toHaveCount(0);
+});
+
 // ③⑥: 選択だけでは未確定にならず、編集後の往復で赤入れは編集箇所だけ、コメントは削除済み扱いに
 // ならず、Undo で確定版と同じ内容へ戻れば「変更なし」に戻り draft も消える。
 test('往復統合: 選択のみ非 dirty / 往復後の赤入れとコメント / Undo で変更なし', async ({
@@ -222,8 +265,8 @@ test('往復統合: 選択のみ非 dirty / 往復後の赤入れとコメント
   await page.waitForURL(/\/edit\//);
   const back = page.frameLocator('iframe.gjs-frame');
   await back.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
-  // 表示状態の保持は編集セッションの UI 状態（別タスク）で扱うため、ここでは明示的に ON にし直す。
-  await page.getByRole('button', { name: '変更箇所を赤入れで表示' }).click();
+  // 赤入れ ON・編集許可は編集セッションの UI 状態としてプレビュー往復を跨いで保持される。
+  await expect(page.getByRole('button', { name: '変更箇所の赤入れを隠す' })).toBeVisible();
   await expect(back.locator('del[data-redline]', { hasText: 'みなさま' })).toHaveCount(1, {
     timeout: 15_000,
   });
@@ -232,8 +275,10 @@ test('往復統合: 選択のみ非 dirty / 往復後の赤入れとコメント
   await page.locator('[data-pane-tab="comments"]').click();
   await expect(page.locator('[data-comment-row]', { hasText: '削除済み' })).toHaveCount(0);
 
-  // Undo で確定版と同じ内容に戻れば「変更なし」、draft も消える
-  await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+  // Undo で確定版と同じ内容に戻れば「変更なし」、draft も消える(編集許可は往復で ON のまま)。
+  await expect(
+    page.getByRole('button', { name: '編集中(クリックで閲覧のみに戻す)' }),
+  ).toBeVisible();
   await page.getByRole('button', { name: '元に戻す' }).first().click();
   await expect(back.getByText('皆様')).toHaveCount(0, { timeout: 10_000 });
   await expect(page.getByText('変更なし', { exact: true })).toBeVisible({ timeout: 15_000 });

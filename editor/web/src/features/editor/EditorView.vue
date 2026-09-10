@@ -12,6 +12,7 @@ import { fractionToPage } from '@/components/pageNav';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
+import { useEditorSessionStore } from '@/stores/editorSession';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import CommentPanel from './comments/CommentPanel.vue';
 import EditorTopBar from './EditorTopBar.vue';
@@ -33,6 +34,7 @@ const layersEl = useTemplateRef<HTMLElement>('layersEl');
 
 const {
   g,
+  ui,
   template,
   fundName,
   syncStatus,
@@ -85,8 +87,15 @@ const { startHandle, dragLabel } = useGeomHandles({
 
 const rect = computed(() => g.selectedRect.value);
 
-// ── 右ペインの表示(プロパティ / コメント)。編集セッションをまたいで保持しない(画面ごと) ──
-const paneTab = ref<'props' | 'comments'>('props');
+const sessionStore = useEditorSessionStore();
+
+// ── 右ペインの表示(プロパティ / コメント)。編集セッションの ui 状態を継ぐ
+// (プレビュー往復で保持、倍率・表示系と同じく永続ミラー経由でリロードでも復元)。 ──
+const paneTab = ref<'props' | 'comments'>(ui.paneTab);
+watch(paneTab, (v) => {
+  ui.paneTab = v;
+  sessionStore.persistUi(props.id);
+});
 // バッジは未対応の**親投稿**の件数(仕様 §4.3)。パーツ数(`openNoteKeys.size`)ではない
 // — 1 パーツに複数スレッドがあれば両者は食い違う。
 const openCommentCount = computed(() => openNoteCount.value);
@@ -167,8 +176,12 @@ watch(
   { immediate: true },
 );
 
-// ページ境界の overlay guide: 既定 ON、上部バーから切替える。
-const showPageGuides = ref(true);
+// ページ境界の overlay guide: 既定 ON、上部バーから切替える。ui 状態を継ぐ(paneTab と同じ理由)。
+const showPageGuides = ref(ui.showPageGuides);
+watch(showPageGuides, (v) => {
+  ui.showPageGuides = v;
+  sessionStore.persistUi(props.id);
+});
 
 // `PageRail` 用の現在ページ(1 起点)。1 ページ表示は表示中 index、全ページ連続表示は
 // 実スクロール位置(`scrollFraction`)から逆算する(目盛りのハイライトをスクロールに追従)。

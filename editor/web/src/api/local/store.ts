@@ -20,6 +20,7 @@ import { currentAppEpoch } from '@/lib/appEpoch';
 import {
   confirmedCanonicalKey,
   draftOwnerKey,
+  editorUiKey,
   K,
   LEGACY_NOTES_KEY,
   LEGACY_UNDO_STACKS_KEY,
@@ -171,6 +172,7 @@ const WORKING_KEYS = [
   undoStacksKey(),
   draftOwnerKey(),
   confirmedCanonicalKey(),
+  editorUiKey(),
   K.reviews,
   'editor:seed:compare', // compare-seed ガード。現行 id で再 seed させるため
 ] as const;

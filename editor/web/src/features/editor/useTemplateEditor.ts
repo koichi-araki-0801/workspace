@@ -104,8 +104,12 @@ export function useTemplateEditor(
 
   /** 左ペイン「パーツを追加」トグル: catalog を表示し挿入を許可する。 */
   const allowAdd = ref(false);
-  /** 左ペイン「編集を許可」トグル: canvas を編集可(text/並べ替え/layout)にする。 */
-  const allowEdit = ref(false);
+  /**
+   * 左ペイン「編集を許可」トグル: canvas を編集可(text/並べ替え/layout)にする。
+   * 初期値は `sess.ui.allowEdit`(永続しないメモリのみの値。プレビュー往復では同一セッションが
+   * 生存するので値が残るが、リロードでは新しいセッションが既定 false から始まる)。
+   */
+  const allowEdit = ref(sess.ui.allowEdit);
 
   // プロパティペイン: canvas 選択があればそれ、無ければ catalog プレビュー。
   const selectedPart = computed(() => (g.selected.value ? canvasPart.value : previewPart.value));
@@ -130,6 +134,8 @@ export function useTemplateEditor(
     dirty,
     parseHtml: g.parseHtmlQuiet,
   });
+  // ON/OFF はセッションの ui 状態を継ぐ(プレビュー往復で保持、永続ミラー経由でリロードでも復元)。
+  redline.enabled.value = sess.ui.redlineEnabled;
 
   // ── 1. undo / redo (snapshot 方式) ──
   // GrapesJS の UndoManager はプログラム経由の style 書き込みを確実には追えないため、
@@ -373,6 +379,44 @@ export function useTemplateEditor(
   // 「編集を許可」チェックボックスの切替で canvas を lock/unlock する。
   watch(allowEdit, (on) => g.setEditable(on));
 
+  // ── UI 状態の往復保持(`sess.ui`)。倍率・表示系は永続、編集許可・選択はメモリのみ ──
+  watch(allowEdit, (v) => {
+    sess.ui.allowEdit = v;
+  });
+  watch(redline.enabled, (v) => {
+    sess.ui.redlineEnabled = v;
+    sessionStore.persistUi(id);
+  });
+  watch(g.zoom, (v) => {
+    sess.ui.zoom = v;
+    sessionStore.persistUi(id);
+  });
+  watch(g.singlePageMode, (v) => {
+    sess.ui.singlePageMode = v;
+    sessionStore.persistUi(id);
+  });
+  watch(g.currentPageIndex, (v) => {
+    sess.ui.currentPage = v;
+    sessionStore.persistUi(id);
+  });
+  watch(
+    () => g.selected.value,
+    () => {
+      sess.ui.selectedKey = currentNoteKey();
+    },
+  );
+  // 選択の復元は canvas の描画確定(ページ要素が出揃う)を待つ 1 回きりの watch。早すぎると
+  // まだ要素が無く `selectPartByKey` が何も見つけられずに終わる。
+  let restoredSelection = false;
+  watch(
+    () => g.pageEls.value,
+    (els) => {
+      if (restoredSelection || els.length === 0) return;
+      restoredSelection = true;
+      if (sess.ui.selectedKey) selectPartByKey(sess.ui.selectedKey);
+    },
+  );
+
   // 選択変更で catalog part を解決する。永続履歴は `allPartHistory`(版インスタンス全件)を
   // onMounted で一度ロードし、表示は `partHistory` computed が選択キーで in-memory に絞るため、
   // 選択ごとの非同期 fetch も race 対策も不要になった。
@@ -410,6 +454,10 @@ export function useTemplateEditor(
     const layers = layersEl.value;
     if (!canvas || !layers) return;
     g.init({ canvas, layers });
+    // 倍率・ページ送りモードはセッションの ui 状態から復元する(`load` より前に当てる必要が
+    // ある — `setInitialZoom` は次の `applyInitialZoom` 呼び出しの基準値を差し替えるだけ)。
+    g.setInitialZoom(sess.ui.zoom ?? 1);
+    g.setSinglePageMode(sess.ui.singlePageMode);
     const isCreateRoute = route.query.created === '1';
     const tplUpdatedAt = res.value.template.meta.updatedAt;
     if (!isCreateRoute) {
@@ -434,6 +482,11 @@ export function useTemplateEditor(
       confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
       writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
     }
+    // ページ送りの復元は `load` の再レイアウト後(rAF)に行う — 直後は `.page` 列挙がまだ
+    // 確定しておらず `goToPage` の clamp がページ総数 1 として効いてしまう。
+    requestAnimationFrame(() => {
+      if (g.singlePageMode.value && sess.ui.currentPage > 0) g.goToPage(sess.ui.currentPage);
+    });
     // 差し込み値ハイライトは作成経路(`?created=1`)でのみ出す。編集経路(query なし)は実値編集
     // なので出さない。設計正典.md「編集 2 系統」を参照。
     g.setVarsHighlight(isCreateRoute);
@@ -589,6 +642,7 @@ export function useTemplateEditor(
 
   return {
     g,
+    ui: sess.ui,
     template,
     fundName,
     syncStatus,
