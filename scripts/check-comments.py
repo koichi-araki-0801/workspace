@@ -112,6 +112,7 @@ REPO_CONFIGS: dict[str, dict] = {
                 "offline/lib/verify.ps1",
                 "offline/lib/git-tools.ps1",
                 "offline/lib/fetch.ps1",
+                "offline/lib/source.ps1",
             }
         ),
         # 装飾ボックスヘッダを検査する `.ts/.js` のソート対象ルート (生成物は含めない)。
