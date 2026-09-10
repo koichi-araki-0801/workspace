@@ -25,6 +25,7 @@ import {
 } from '@/lib/confirmedCanonical';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
+import { shouldMeasureCanonical } from './confirmedCanonicalGate';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { canvasRawKey, pageEls, partEls, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
@@ -460,6 +461,8 @@ export function useTemplateEditor(
     g.setSinglePageMode(sess.ui.singlePageMode);
     const isCreateRoute = route.query.created === '1';
     const tplUpdatedAt = res.value.template.meta.updatedAt;
+    // 確定版の quiet load 失敗を覚えておく(下の 2 箇所の正規形測定を両方とも止めるため)。
+    let confirmedLoadFailed = false;
     if (!isCreateRoute) {
       confirmedCanonical = readConfirmedCanonical(id, tplUpdatedAt);
       // キャッシュが無く draft から開くときだけ、確定版を先に読み込んで正規形を測る。
@@ -467,12 +470,18 @@ export function useTemplateEditor(
         if (g.load(res.value.confirmedBody, res.value.template.css, { quiet: true })) {
           confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
           writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
+        } else {
+          // false になるのは確定版側の CSS に外部参照が残っているときだけ(draft の CSS は
+          // 下の本読み込みが通す入口ガードを既に通過済み)。確定版が古くて汚れているだけで
+          // draft 自体は正当なので、ここで編集を止めない。ただし正規形は作らない —
+          // この時点の canvas は確定版の内容ではなく(quiet load が拒否されて素通りしていない)
+          // 直前の状態のままで、これを正規形として測って直後に draft を読み込むと
+          // 「draft 自身から作った正規形」と一致してしまい、`settleIfClean` が「変更なし」と
+          // 誤認して正当な draft を自動で消す(過去の回帰実績)。confirmedCanonical は null の
+          // まま進め、⑥ の同一判定は効かせない。dirty は上で立てた `hasDraft` に従う
+          // 従来どおりの挙動へ落ちる。
+          confirmedLoadFailed = true;
         }
-        // false になるのは確定版側の CSS に外部参照が残っているときだけ(draft の CSS は
-        // 下の本読み込みが通す入口ガードを既に通過済み)。確定版が古くて汚れているだけで
-        // draft 自体は正当なので、ここで編集を止めない。confirmedCanonical は null のまま
-        // 進み、`settleIfClean` の同一判定(⑥)が効かなくなるだけで、dirty は上で立てた
-        // `hasDraft` に従う従来どおりの挙動へ落ちる。
       }
     }
     // service の入口ガードを通っていれば false にはならないが、拒否された場合は空の
@@ -481,7 +490,7 @@ export function useTemplateEditor(
       router.replace({ name: 'edit' });
       return;
     }
-    if (!isCreateRoute && !confirmedCanonical) {
+    if (shouldMeasureCanonical(isCreateRoute, !!confirmedCanonical, confirmedLoadFailed)) {
       confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
       writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
     }
@@ -519,7 +528,9 @@ export function useTemplateEditor(
     // load() より後に張るため、初期ロードでは発火せず純粋なユーザー編集だけを拾う。
     g.onChange(markChanged);
     // 前回セッションの draft が確定版と同じ内容なら、開いた時点で「変更なし」へ戻す。
-    if (res.value.hasDraft) scheduleCleanCheck();
+    // `confirmedLoadFailed` 時は正規形を作っていない(`settleIfClean` は base が null なら
+    // 元々 return する)が、フラグでも起動自体を止めて二重に安全側へ倒す。
+    if (res.value.hasDraft && !confirmedLoadFailed) scheduleCleanCheck();
     // ロック中(編集不許可)にダブルクリック(編集ジェスチャ)をした場合、解除導線を案内する。
     // 既定ロック開始のため「編集を許可」トグルに気付かないと何も編集できない — その発見性を補う。
     // 騒音にならないようセッション中 1 回だけ出す。

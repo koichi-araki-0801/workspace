@@ -147,6 +147,9 @@ export default defineConfig({
         'editor/web/src/lib/sessionExpiry.ts',
         'editor/web/src/lib/useIframeAutoFit.ts',
         'editor/web/src/features/editor/geom.ts',
+        // 確定版正規形を測ってよいかの純判定。quiet load 失敗時に draft 自身から正規形を
+        // 作ってしまうと自動 discard を招く回帰(実績あり)の再発防止網。
+        'editor/web/src/features/editor/confirmedCanonicalGate.ts',
         'editor/web/src/features/editor/pageView.ts',
         'editor/web/src/features/editor/useSnapshotHistory.ts',
         'editor/web/src/features/editor/usePartEditHistory.ts',
