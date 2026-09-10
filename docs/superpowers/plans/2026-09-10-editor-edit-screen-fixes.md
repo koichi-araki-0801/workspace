@@ -21,6 +21,7 @@
 - 各タスクは RED → GREEN → REFACTOR。テストが先。
 - Python の起動は `py -3.13`。
 - 編集画面の赤入れ表示は**既定 OFF**（Q15）。上部バーのボタンで明示したときだけ差分を出す。
+- コメント吹き出しは**選択しただけでは開かない**（Q16）。マーカーのクリック・一覧の行クリック・投稿の追加で開く。
 
 ## File Structure
 
@@ -1328,9 +1329,130 @@ git commit -m "feat(editor): コメントの種別(メモ / 修正依頼 / 質�
 
 ---
 
+## Task 7: ⑦ コメント吹き出しは明示操作でだけ開く（Q16）
+
+**Files:**
+- Modify: `editor/web/src/features/editor/EditorView.vue`（`bubbleClosed` → `bubbleOpen`、マーカーのクリック、CSS `.note-marker`）
+- Modify: `editor/web/src/features/editor/useCanvasMarkers.ts`（`NoteMarker` に変更なし。コメントのみ）
+- Test: `editor/e2e/note_bubble.spec.ts`
+- Modify: `docs/editor/src/設計正典.md:95`、`docs/editor/src/操作手順書.md:177`
+
+**Interfaces:**
+- Produces: `EditorView` 内 `openBubbleFor(key: string)`（`selectPartByKey(key)` + 吹き出しを開く）。マーカー要素は `data-note-marker` 属性を持ちクリック可能。
+- Consumes: 既存 `selectPartByKey`、`focusPart`。
+
+- [ ] **Step 1: RED — e2e**
+
+`note_bubble.spec.ts` の「吹き出しから返信と解決ができ、マーカーが灰色になる」で、パーツを選択した直後の `await expect(bubble).toBeVisible();` の前に次を挿入し、期待を「選択だけでは出ない → マーカーをクリックで出る」へ:
+
+```ts
+  // 選択しただけでは吹き出しを出さない(明示していないのに紙面へ重ねない)。
+  await expect(bubble).toHaveCount(0);
+  await page.locator('[data-note-marker]').first().click();
+  await expect(bubble).toBeVisible();
+```
+
+さらに新規テストを追加:
+
+```ts
+// 吹き出しはマーカーのクリック・一覧の行クリック・投稿の追加でだけ開き、選択が変わると閉じる。
+test('吹き出しは選択だけでは開かず、マーカーのクリックで開き、別パーツの選択で閉じる', async ({ page }) => {
+  await login(page);
+  const frame = await openEditor(page, SEED_ID);
+  const bubble = page.locator('.note-bubble');
+  const partA = frame.locator('.page > *').nth(4);
+  await selectPart(frame, partA);
+  await page.locator('[data-pane-tab="comments"]').click();
+  await page.getByPlaceholder('このパーツへのコメントを書く').fill('マーカーで開く');
+  await page.locator('button[data-add-submit]').click();
+  await expect(bubble).toHaveCount(1); // 投稿の追加では開く
+
+  await frame.locator('.page > *').nth(2).click(); // 別パーツの選択で閉じる
+  await expect(bubble).toHaveCount(0);
+  await selectPart(frame, partA); // コメントのあるパーツを選んでも開かない
+  await expect(bubble).toHaveCount(0);
+  await page.locator('[data-note-marker]').first().click();
+  await expect(bubble).toHaveCount(1);
+  await expect(bubble.getByText('マーカーで開く')).toBeVisible();
+});
+```
+
+Run: `cd editor && pnpm exec playwright test e2e/note_bubble.spec.ts --project chromium` → 2 件 FAIL（選択で開いてしまう / `[data-note-marker]` が無い）。
+
+- [ ] **Step 2: 実装（`EditorView.vue`）**
+
+`bubbleClosed` を `bubbleOpen = ref(false)` に置き換える:
+
+```ts
+// 吹き出しは明示操作(マーカーのクリック / 一覧の行クリック / 投稿の追加)でだけ開く。
+// コメントのあるパーツを選んだだけでは開かない — 紙面へ重なる吹き出しが、頼んでいないのに
+// 出る形になるため。選択が変われば閉じる(前のパーツの吹き出しが残らない)。
+const bubbleOpen = ref(false);
+watch(
+  () => g.selected.value,
+  () => {
+    bubbleOpen.value = false;
+  },
+);
+// 投稿が増えたときは開く(閉じたまま追加すると件数だけ増えて本文がどこにも出ない)。
+watch(
+  () => noteEntries.value.length,
+  (n, prev) => {
+    if (n > (prev ?? 0)) bubbleOpen.value = true;
+  },
+);
+/** マーカー / 一覧の行からの明示操作: そのパーツを選択して吹き出しを開く。 */
+function openBubbleFor(key: string): void {
+  selectPartByKey(key);
+  bubbleOpen.value = true;
+}
+```
+
+`focusPart` は `openBubbleFor` を呼ぶ形に統一。テンプレートは `v-if="g.bubbleAnchor.value && noteEntries.length > 0 && bubbleOpen"`、`@close="bubbleOpen = false"`。
+
+マーカー:
+
+```html
+          <!-- メモ有りパーツの目印(エクセルのセルコメント風)。クリックでそのパーツを選択して
+               吹き出しを開く(選択しただけでは開かない)。overlay 層は pointer-events:none なので
+               マーカーだけ auto で復帰させる。 -->
+          <button
+            v-for="m in g.noteMarkers.value"
+            :key="m.key"
+            type="button"
+            data-note-marker
+            class="note-marker"
+            :class="openNoteKeys.has(m.key) ? '' : 'note-marker-resolved'"
+            :title="openNoteKeys.has(m.key) ? '未対応のコメントあり(クリックで開く)' : 'コメントあり(解決済み。クリックで開く)'"
+            :aria-label="'コメントを開く'"
+            :style="{ left: `${m.left}px`, top: `${m.top}px` }"
+            @click="openBubbleFor(m.key)"
+          >
+            <StickyNote class="h-3 w-3" />
+          </button>
+```
+
+CSS `.note-marker` に `pointer-events: auto; cursor: pointer;` を足す（`button` 既定のボーダー・背景は既存見た目に合わせてリセット）。
+
+- [ ] **Step 3: GREEN**
+
+Run: `cd editor && pnpm exec playwright test e2e/note_bubble.spec.ts e2e/comment_panel.spec.ts e2e/canvas.spec.ts --project chromium` → PASS（`comment_panel` の行クリックは `focusPart` 経由で開く）。`pnpm run typecheck`。`capture_docs.spec.ts` が吹き出しを撮っていれば（`grep -n bubble editor/e2e/capture_docs.spec.ts`）マーカークリックを足して再撮影。
+
+- [ ] **Step 4: docs + コミット**
+
+設計正典 95 行「吹き出しは**常にページへ重ねて出す**」の前に「吹き出しは選択しただけでは開かず、マーカーのクリック・一覧の行クリック・投稿の追加で開く（選択が変われば閉じる）。開いたときは」を足す。「してはならないこと」へ「コメントのあるパーツを選んだだけで吹き出しを開く」。操作手順書 177 行に「紙面の目印（付箋アイコン）をクリックしても開けます」を足す。HTML 再生成。
+
+```bash
+pnpm exec biome check --write editor/web/src editor/e2e
+git add editor/web/src/features/editor/EditorView.vue editor/e2e/note_bubble.spec.ts docs/editor
+git commit -m "fix(editor): コメント吹き出しを選択だけでは開かず、マーカー・一覧・投稿の追加で開くようにする"
+```
+
+---
+
 ## 完了条件
 
 - `pnpm run ci` 相当が緑（`check:comments` / `ci:offline`（Pester）/ typecheck / unit / e2e）。
 - editor-data の汚染修正コミットが済んでいる。
-- 設計正典の追記 4 点（保存形式・未確定判定・起動ズーム・UI 状態）と「してはならないこと」5 件が入っている。
+- 設計正典の追記 5 点（保存形式・未確定判定・起動ズーム・UI 状態・吹き出し）と「してはならないこと」6 件が入っている。
 - push はユーザーへ依頼（各コミットの auto-push が失敗していれば `git push`）。
