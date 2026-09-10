@@ -55,7 +55,30 @@ function summaryLabel(
   return name ?? fallbackLabel;
 }
 
+/**
+ * 概要計算に許す時間。描画 2 本と Worker の差分計算を挟むので、負荷の高い端末では返ってこない
+ * ことがある(Worker の RPC は応答が無ければ永遠に待つ)。概要は参考情報なので、この時間で
+ * 打ち切って null にし、申請そのものを進める。
+ */
+const DEFAULT_TIMEOUT_MS = 20_000;
+
 export async function computeChangedSummaryWith(
+  input: SummaryInput,
+  deps: SummaryDeps,
+  opts: { timeoutMs?: number } = {},
+): Promise<ReviewChangedSummary | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([computeUnbounded(input, deps), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function computeUnbounded(
   input: SummaryInput,
   deps: SummaryDeps,
 ): Promise<ReviewChangedSummary | null> {
