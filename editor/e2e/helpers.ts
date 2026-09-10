@@ -129,9 +129,10 @@ export async function submitOnce(page: Page, id: string): Promise<void> {
     .waitFor({ state: 'visible', timeout: 60_000 });
   await page.getByRole('button', { name: '確定保存を申請' }).click();
   await page.getByRole('button', { name: '申請する' }).click();
-  // 申請は差分要約の計算と隔離描画を挟むので負荷下では 5 秒を超える。トーストは完了後に
-  // 出るため、既定の 5 秒では申請そのものと競争になる。
+  // 申請は差分要約の計算と隔離描画を挟み、CI の先頭(Vite dev サーバがコールドで依存最適化と
+  // worker チャンクの初回変換が重なる)では 30 秒を超える。トーストは完了後に出るため、待ちが
+  // 短いと申請そのものと競争になる。呼び出し元の test timeout(120 秒)の内側に収める。
   await expect(page.getByRole('status').filter({ hasText: '確定保存を申請しました' })).toBeVisible({
-    timeout: 30_000,
+    timeout: 90_000,
   });
 }
