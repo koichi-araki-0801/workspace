@@ -2,6 +2,7 @@
 chcp 65001 >nul
 title Offline setup - extract and build
 rem Launches setup-offline.ps1 with ExecutionPolicy Bypass (args forwarded).
+rem Also extracts source.zip found at the repo root (air-gapped update), then re-runs itself.
 rem Prerequisite: repo is git-cloned and the bundle (tar.gz / .sha256 / bundle.key) is at the
 rem repo root (or bk\). This script never downloads; fetch first with fetch-offline-bundle.bat
 rem on a machine with network access.

@@ -7,6 +7,9 @@
   重量物（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse / git-tools /
   docs の mermaid JS / native-prebuilds）は git に入れず GitHub Releases（タグ offline-bundle-v1）に
   置いてある。本スクリプトは次を 1 本で行う:
+    0. 直下に source.zip があれば展開段: .sha256 照合 → 前回の MANIFEST に載るファイルを削除 →
+       直下へ展開 → bk\ へ退避 → 新しい setup-offline.ps1 を -SkipSourceExtract で再実行して
+       以降を任せる（自分自身が展開で新しくなるため）。
     1. バンドルの確認。リポジトリ直下または bk\ に offline-deps-bundle.tar.gz と bundle.key が
        同じ場所に揃っていればそれを使う。無ければ fetch-offline-bundle.bat を案内して中止する
        （取得を肩代わりしない。取得はネットに出られる端末で先に行うものであり、ここで肩代わりすると
@@ -29,6 +32,9 @@
 .PARAMETER InstallTortoiseGit
   TortoiseGit の MSI を msiexec /qn（サイレント・昇格）で導入する。既定では導入しない。
 
+.PARAMETER SkipSourceExtract
+  展開段を飛ばす（再実行時に自動で付く。手で付ける必要はない）。
+
 .EXAMPLE
   offline\setup-offline.bat
 .EXAMPLE
@@ -37,7 +43,8 @@
 [CmdletBinding()]
 param(
   [switch]$SkipBuild,
-  [switch]$InstallTortoiseGit
+  [switch]$InstallTortoiseGit,
+  [switch]$SkipSourceExtract
 )
 
 Set-StrictMode -Version Latest
@@ -46,12 +53,38 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\content-key.ps1')
 . (Join-Path $PSScriptRoot 'lib\verify.ps1')
 . (Join-Path $PSScriptRoot 'lib\git-tools.ps1')
+. (Join-Path $PSScriptRoot 'lib\source.ps1')
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Bk       = Join-Path $RepoRoot 'bk'
 Write-Host "[info] repo root: $RepoRoot"
 # ネットワークドライブ上では pnpm の symlink/hardlink 構成が成立しないため開始前に止める。
 Assert-LocalRepoRoot -Path $RepoRoot
+
+# ---- [0/5] ソース ZIP の展開（直下に source.zip があるときだけ） ----
+# 展開で自分自身（このスクリプトと dot-source 済みの lib）が新しくなる。PowerShell は起動時に
+# 全文を読んでいるので実行中の処理は落ちないが、構築は新しい版に任せたいので、展開が済んだら
+# 新しい setup-offline.ps1 を再実行してその終了コードで終わる。再実行側は -SkipSourceExtract
+# 付きで呼ばれ、この段に入らない（再帰防止）。
+$SourceZip = Join-Path $RepoRoot 'source.zip'
+if (-not $SkipSourceExtract -and (Test-Path -LiteralPath $SourceZip)) {
+  Write-Host '[0/5] ソース ZIP を展開...'
+  try {
+    $r = Invoke-SourceExtractStage -RepoRoot $RepoRoot -Bk $Bk
+  } catch {
+    Write-Error "[error] $($_.Exception.Message)`n  source.zip と source.zip.sha256 を fetch-offline-bundle.bat -Source で取り直してください。"
+    exit 1
+  }
+  Write-Host "[info] 展開しました（前の版の削除: $($r.Removed) 件$(if ($r.FirstRun) { '、初回扱い' })）。新しい setup を続行します..."
+  # `$args` は PowerShell の自動変数なので使わない。
+  $reexec = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'setup-offline.ps1'), '-SkipSourceExtract')
+  if ($SkipBuild) { $reexec += '-SkipBuild' }
+  if ($InstallTortoiseGit) { $reexec += '-InstallTortoiseGit' }
+  & powershell @reexec
+  exit $LASTEXITCODE
+}
+$sourceCommit = Read-SourceCommit -RepoRoot $RepoRoot
+if ($sourceCommit) { Write-Host "[info] source commit: $sourceCommit" }
 
 $TarExe     = Resolve-Tar
 $BundleName = 'offline-deps-bundle.tar.gz'
@@ -102,7 +135,9 @@ if ($localKey -ne $publishedKey) {
   Write-Error ("[error] ソースと重量物が対応していません。`n  code (local) : $localKey" +
     "`n  bundle.key   : $publishedKey`n  依存を変えたのに Release を更新していない可能性があります。" +
     "`n  配布担当に local-only\offline-publish\publish-offline-bundle.bat の実行を依頼するか、" +
-    "`n  bundle.key に対応するコミットへ checkout し直してください。")
+    "`n  bundle.key に対応するコミットへ checkout し直してください。" +
+    "`n  遮断端末で source.zip を持ち込んだ場合は、その ZIP が古い（依存を変えたのに publish していない、" +
+    "`n  または古い ZIP を持ち込んだ）可能性もあります。$(if ($sourceCommit) { "source commit: $sourceCommit" })")
   exit 1
 }
 Write-Host "[info] content-key 一致: $localKey"
