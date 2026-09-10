@@ -1,7 +1,7 @@
 # ネットに出られない端末へソースコードを運ぶ — 設計（Release にソース ZIP を復活させる）
 
 - 日付: 2026-09-10
-- 状態: 設計確定（dig 3 ラウンド完了。実装は未着手）
+- 状態: 実装完了・E2E 実測済み（2026-09-10、`C:\Users\Public\offline-verify\`）。publish 7.6s（重量物 skip・source.zip 19.9MB）/ fetch `-Source` 4m17s・スイッチ無し 5m04s（重量物 1.1GB 込み）/ setup 初回 1m47s・更新 5m34s（`[0/5]` 展開 → 旧版 785 件削除 → 再実行 setup が build まで）/ 不一致案内 82s / 遮断端末相当の `pnpm run ci` = vitest 2981 件 + e2e 39 件（e2e 2m09s）緑
 - 前身: `2026-09-06-offline-local-only-design.md`（重量物だけを GitHub Releases に置き、ソースは git clone で受ける形に縮退した設計）。本書はその後継で、縮退時に消した「ソース ZIP の配布」を最小の形で戻す。
 - 対象: monorepo（workspace）のみ。python-tools は 2026-09-08 にネット接続前提のセットアップへ移行済みで、本書の対象外（決定 Q10）。
 
