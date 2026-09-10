@@ -100,47 +100,65 @@ watch(paneTab, (v) => {
 // — 1 パーツに複数スレッドがあれば両者は食い違う。
 const openCommentCount = computed(() => openNoteCount.value);
 
-/** コメント一覧の行 → そのパーツを選択して見せる。吹き出しも開き直す。 */
-function focusPart(key: string): void {
-  selectPartByKey(key);
-  bubbleClosed.value = false;
-}
-
 // ── メモ吹き出し(選択パーツのスレッド) ──
 const noteBubbleEl = useTemplateRef<InstanceType<typeof NoteBubble>>('noteBubbleEl');
 
-// 吹き出しの ✕ で閉じた状態。選択が変わったら開き直す(閉じたままだと次のパーツの
-// メモが出ず、「メモが消えた」ように見える)。
-const bubbleClosed = ref(false);
+// 吹き出しは明示操作(マーカーのクリック / 一覧の行クリック / 投稿の追加)でだけ開く。
+// コメントのあるパーツを選んだだけでは開かない — 紙面へ重なる吹き出しが、頼んでいないのに
+// 出る形になるため。選択が変われば閉じる(前のパーツの吹き出しが残らない)。同じパーツの
+// まま投稿だけが増えたときは開く(閉じたまま追加すると件数だけ増えて本文がどこにも出ない)。
+// 選択の変化と投稿数の変化を 1 つの watch にまとめるのは、分けると「選択が別パーツへ
+// 変わった結果、その新しいパーツの投稿数がたまたま前パーツより多い」ケースを投稿追加と
+// 誤認して開いてしまうため(パーツ間で件数を比べても意味が無い)。`flush:'sync'` は
+// `openBubbleFor` の選択直後(`selectPartByKey`)に立てる true が、遅延実行される本 watch の
+// close で上書きされるのを防ぐ(`redline.onSelected` の watch と同じ理由。上のコメントを見よ)。
+const bubbleOpen = ref(false);
 watch(
-  () => g.selected.value,
-  () => {
-    bubbleClosed.value = false;
+  () => [g.selected.value, noteEntries.value.length] as const,
+  ([selected, n], prev) => {
+    const [prevSelected, prevCount] = prev ?? [selected, n];
+    if (selected !== prevSelected) {
+      bubbleOpen.value = false;
+    } else if (n > prevCount) {
+      bubbleOpen.value = true;
+    }
   },
+  { flush: 'sync' },
 );
-
-// 閉じたまま投稿が増えたときも開き直す(閉じている間にメモを追加すると、件数バッジだけが
-// 増えて本文がどこにも出ない = 「追加したのに反映されていない」ように見える)。減少(削除)
-// では開かない — 削除は吹き出しを開いた状態で行う操作なので、この経路には来ない。
-watch(
-  () => noteEntries.value.length,
-  (n, prev) => {
-    if (n > (prev ?? 0)) bubbleClosed.value = false;
-  },
-);
-
 /** 吹き出しの実寸を測り直し `refreshBubbleAnchor` へ渡す(描画されていなければ null で解除)。 */
 function measureBubble(): void {
   const el = noteBubbleEl.value?.$el as HTMLElement | null | undefined;
   g.refreshBubbleAnchor(el ? { width: el.offsetWidth, height: el.offsetHeight } : null);
 }
 
+/**
+ * 吹き出しの anchor を幅 244・高さ 0 の見積もりで仮置きし、DOM 更新後に実寸で測り直す。
+ * 投稿が無ければ解除する。選択パーツが変わらないまま(既に選択中のパーツの)吹き出しを
+ * 開いたとき、下の `watch(noteEntries)` は発火しない(`noteEntries` の参照が変わらない
+ * ため)。そのため `openBubbleFor` からも呼び、開いた瞬間に必ず anchor を持つようにする。
+ */
+function refreshBubbleAnchorEstimate(): void {
+  if (noteEntries.value.length === 0) {
+    g.refreshBubbleAnchor(null);
+    return;
+  }
+  g.refreshBubbleAnchor({ width: 244, height: 0 });
+  void nextTick(measureBubble);
+}
+
+/** マーカー / 一覧の行からの明示操作: そのパーツを選択して吹き出しを開く。 */
+function openBubbleFor(key: string): void {
+  selectPartByKey(key);
+  bubbleOpen.value = true;
+  refreshBubbleAnchorEstimate();
+}
+
 // 折りたたみ/展開・返信欄・編集用テキストエリアの開閉は `noteEntries` を変えずに吹き出しの
-// 高さだけを変える。下の watch(noteEntries) は投稿の増減にしか反応しないため、これらの操作
-// では anchor の下端クランプが実寸とずれたまま古い値で居座り、吹き出しが overlay 層(非
-// スクロール)の下へはみ出しうる。吹き出し要素そのものの実寸変化を ResizeObserver で直接
-// 観測して測り直す。要素は v-if で着脱するので、テンプレート ref の変化を watch して
-// 都度つなぎ直す(jsdom には ResizeObserver が無いのでガードする)。
+// 高さだけを変える。下の watch(noteEntries)(`refreshBubbleAnchorEstimate`)は投稿の増減にしか
+// 反応しないため、これらの操作では anchor の下端クランプが実寸とずれたまま古い値で居座り、
+// 吹き出しが overlay 層(非スクロール)の下へはみ出しうる。吹き出し要素そのものの実寸変化を
+// ResizeObserver で直接観測して測り直す。要素は v-if で着脱するので、テンプレート ref の
+// 変化を watch して都度つなぎ直す(jsdom には ResizeObserver が無いのでガードする)。
 let bubbleResizeObserver: ResizeObserver | null = null;
 watch(
   noteBubbleEl,
@@ -159,22 +177,9 @@ onBeforeUnmount(() => {
   bubbleResizeObserver = null;
 });
 
-// スレッド(選択パーツの切替 / 追加・編集・削除)が変わるたびに実寸を測り直す。前パーツの
-// 高さのまま数フレーム居座らないよう、まず幅 244・高さ 0 の見積もりで仮置きし(この時点で
-// クランプ済みの概算位置が付く)、DOM 更新後に実寸で測り直す。以後の zoom/layout 再計算は
-// `useGrapes.ts` の `lastBubbleSize` キャッシュがこの実寸のまま追従させる。
-watch(
-  noteEntries,
-  () => {
-    if (noteEntries.value.length === 0) {
-      g.refreshBubbleAnchor(null);
-      return;
-    }
-    g.refreshBubbleAnchor({ width: 244, height: 0 });
-    void nextTick(measureBubble);
-  },
-  { immediate: true },
-);
+// スレッド(選択パーツの切替 / 追加・編集・削除)が変わるたびに実寸を測り直す(`refreshBubbleAnchorEstimate`)。
+// 以後の zoom/layout 再計算は `useGrapes.ts` の `lastBubbleSize` キャッシュがこの実寸のまま追従させる。
+watch(noteEntries, refreshBubbleAnchorEstimate, { immediate: true });
 
 // ページ境界の overlay guide: 既定 ON、上部バーから切替える。ui 状態を継ぐ(paneTab と同じ理由)。
 const showPageGuides = ref(ui.showPageGuides);
@@ -414,24 +419,27 @@ const statusText = computed(() => {
             </div>
           </template>
 
-          <!-- メモ有りパーツの目印(エクセルのセルコメント風)。閲覧/編集どちらでも表示し、
-               位置のみパーツへ追従、バッジは固定 px(ズーム非依存)。クリックは奪わない
-               (pointer-events なし) — パーツをクリックするとキャンバスの吹き出しにそのスレッド
-               が出る(一覧は右ペインの「コメント」)。 -->
-          <div
+          <!-- メモ有りパーツの目印(エクセルのセルコメント風)。クリックでそのパーツを選択して
+               吹き出しを開く(選択しただけでは開かない)。overlay 層は pointer-events:none なので
+               マーカーだけ auto で復帰させる。 -->
+          <button
             v-for="m in g.noteMarkers.value"
             :key="m.key"
+            type="button"
+            data-note-marker
             class="note-marker"
             :class="openNoteKeys.has(m.key) ? '' : 'note-marker-resolved'"
-            :title="openNoteKeys.has(m.key) ? '未対応のコメントあり' : 'コメントあり(解決済み)'"
+            :title="openNoteKeys.has(m.key) ? '未対応のコメントあり(クリックで開く)' : 'コメントあり(解決済み。クリックで開く)'"
+            :aria-label="'コメントを開く'"
             :style="{ left: `${m.left}px`, top: `${m.top}px` }"
+            @click="openBubbleFor(m.key)"
           >
             <StickyNote class="h-3 w-3" />
-          </div>
+          </button>
 
           <!-- メモ吹き出し(選択パーツのスレッド)。表計算ソフトのセルコメントと同じく常に
                ページへ重ねて出す。大きさ・倍率は変えない(`noteBubbleLayout` を見よ)。 -->
-          <template v-if="g.bubbleAnchor.value && noteEntries.length > 0 && !bubbleClosed">
+          <template v-if="g.bubbleAnchor.value && noteEntries.length > 0 && bubbleOpen">
             <NoteBubble
               ref="noteBubbleEl"
               :entries="noteEntries"
@@ -440,7 +448,7 @@ const statusText = computed(() => {
               @remove="removeNote"
               @reply="replyNote"
               @set-status="setNoteStatus"
-              @close="bubbleClosed = true"
+              @close="bubbleOpen = false"
             />
           </template>
 
@@ -554,7 +562,7 @@ const statusText = computed(() => {
             @set-status="setNoteStatus"
             @update="updateNote"
             @remove="removeNote"
-            @focus="focusPart"
+            @focus="openBubbleFor"
           />
         </template>
       </Inspector>
@@ -603,14 +611,20 @@ const statusText = computed(() => {
 }
 
 /* note marker: small amber sticky-note badge at a part's top-right corner.
-   purely a visual indicator (pointer-events:none) — like Excel's cell comment mark.
-   fixed px size so it stays legible/obvious at any canvas zoom. */
+   like Excel's cell comment mark, but clickable — opens the bubble for that part
+   (overlay layer is pointer-events:none; the marker restores pointer-events:auto).
+   fixed px size so it stays legible/obvious at any canvas zoom. button resets
+   (margin/padding/font/appearance) undo UA button chrome so it keeps the same look. */
 .note-marker {
   position: absolute;
   display: grid;
   place-items: center;
   width: 18px;
   height: 18px;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  appearance: none;
   transform: translate(-100%, 0);
   border-radius: 4px 4px 4px 0;
   /* 琥珀・灰色ともテーマトークンではなく固定値を使う。アイコン/枠の白も同じ理由でテーマ
@@ -621,7 +635,8 @@ const statusText = computed(() => {
   background: var(--warning);
   border: 1.5px solid #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   z-index: 24;
 }
 /* 全部解決済みのパーツは灰色で残す(「見た」ことは分かるが、次に見るべき場所ではない)。 */
