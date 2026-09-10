@@ -227,6 +227,10 @@ Describe 'Save-VerifiedReleaseBundle（取得 → 検証 → 配置。検証前�
     $hash = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLower()
     Set-Content -LiteralPath "$bundle.sha256" -Value "$hash  $($script:name)" -Encoding Ascii
     Set-Content -LiteralPath (Join-Path $script:src 'bundle.key') -Value 'abc123' -Encoding Ascii
+    $srcZip = Join-Path $script:src 'source.zip'
+    Set-Content -LiteralPath $srcZip -Value 'source payload' -Encoding Ascii
+    $srcHash = (Get-FileHash -LiteralPath $srcZip -Algorithm SHA256).Hash.ToLower()
+    Set-Content -LiteralPath "$srcZip.sha256" -Value "$srcHash  source.zip" -Encoding Ascii
     $script:copyFrom = {
       param([string]$url, [string]$to)
       Copy-Item -LiteralPath (Join-Path $script:src (Split-Path $url -Leaf)) -Destination $to
@@ -282,6 +286,26 @@ Describe 'Save-VerifiedReleaseBundle（取得 → 検証 → 配置。検証前�
       "https://example/rel/$($script:name).sha256",
       'https://example/rel/bundle.key') | Sort-Object) -join "`n"
     (($script:seen | Sort-Object) -join "`n") | Should Be $expected
+  }
+
+  It '-IncludeSource で source.zip と .sha256 も Destination へ置き、Source にパスを返す' {
+    $r = Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+      -Destination $script:dest -Downloader $script:copyFrom -IncludeSource
+    $r.Source | Should Be (Join-Path $script:dest 'source.zip')
+    (Test-Path -LiteralPath (Join-Path $script:dest 'source.zip.sha256')) | Should Be $true
+    @(Get-ChildItem -LiteralPath $script:dest -File).Count | Should Be 5
+  }
+  It '-IncludeSource 無しでは source.zip を取らず Source は null' {
+    $r = Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+      -Destination $script:dest -Downloader $script:copyFrom
+    ($null -eq $r.Source) | Should Be $true
+    @(Get-ChildItem -LiteralPath $script:dest -File).Count | Should Be 3
+  }
+  It 'source.zip の sha256 が合わなければ重量物 3 ファイルも含めて Destination に何も置かない' {
+    Set-Content -LiteralPath (Join-Path $script:src 'source.zip.sha256') -Value (('a' * 64) + '  source.zip') -Encoding Ascii
+    { Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+        -Destination $script:dest -Downloader $script:copyFrom -IncludeSource } | Should Throw
+    @(Get-ChildItem -LiteralPath $script:dest).Count | Should Be 0
   }
 }
 

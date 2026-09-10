@@ -26,6 +26,9 @@
 .PARAMETER Tag
   重量物アセットの取得元タグ。既定 offline-bundle-v1。
 
+.PARAMETER Source
+  遮断端末へ持ち込むソース ZIP（source.zip + .sha256）も取得する。git clone で運用する端末では不要。
+
 .EXAMPLE
   offline\fetch-offline-bundle.bat
 .EXAMPLE
@@ -35,7 +38,8 @@
 param(
   [string]$Owner = 'koichi-araki-0801',
   [string]$Repo  = 'workspace',
-  [string]$Tag   = 'offline-bundle-v1'
+  [string]$Tag   = 'offline-bundle-v1',
+  [switch]$Source
 )
 
 Set-StrictMode -Version Latest
@@ -50,7 +54,7 @@ $AssetBase  = "https://github.com/$Owner/$Repo/releases/download/$Tag"
 Write-Host "[info] repo root: $RepoRoot"
 Write-Host "[1/1] Release $Tag から HTTPS で取得します..."
 try {
-  $r = Save-VerifiedReleaseBundle -AssetBase $AssetBase -BundleName $BundleName -Destination $RepoRoot
+  $r = Save-VerifiedReleaseBundle -AssetBase $AssetBase -BundleName $BundleName -Destination $RepoRoot -IncludeSource:$Source
 } catch {
   Write-Error "[error] $($_.Exception.Message)`n  タグ / ネットワーク / リポジトリの公開状態を確認してください。"
   exit 1
@@ -58,5 +62,11 @@ try {
 Write-Host "[info] 配置: $($r.Bundle)"
 Write-Host "[info] 配置: $($r.Bundle).sha256"
 Write-Host "[info] 配置: $($r.Key)"
-Write-Host '[OK] 取得完了。続けて offline\setup-offline.bat を実行してください。'
+if ($Source) {
+  Write-Host "[info] 配置: $($r.Source)"
+  Write-Host "[info] 配置: $($r.Source).sha256"
+  Write-Host '[OK] 取得完了。遮断端末へ持ち込むのは次の 5 ファイル: offline-deps-bundle.tar.gz / .sha256 / bundle.key / source.zip / source.zip.sha256。続けて offline\setup-offline.bat を実行してください。'
+} else {
+  Write-Host '[OK] 取得完了。続けて offline\setup-offline.bat を実行してください。'
+}
 exit 0

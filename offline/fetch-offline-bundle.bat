@@ -7,6 +7,7 @@ rem HTTPS into the repo root. Run this on a machine with network access, then ru
 rem setup-offline.bat (which never downloads by itself).
 rem   fetch-offline-bundle.bat                    fetch tag offline-bundle-v1
 rem   fetch-offline-bundle.bat -Tag <tag>         fetch another release tag
+rem   fetch-offline-bundle.bat -Source             also fetch source.zip (for air-gapped machines)
 rem ASCII only on purpose: cmd garbles multi-byte rem/title lines in .bat files.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0fetch-offline-bundle.ps1" %*
 exit /b %ERRORLEVEL%

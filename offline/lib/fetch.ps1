@@ -39,7 +39,8 @@ function Save-VerifiedReleaseBundle {
     [Parameter(Mandatory = $true)][string]$AssetBase,
     [Parameter(Mandatory = $true)][string]$BundleName,
     [Parameter(Mandatory = $true)][string]$Destination,
-    [scriptblock]$Downloader = ${function:Invoke-ReleaseDownload}
+    [scriptblock]$Downloader = ${function:Invoke-ReleaseDownload},
+    [switch]$IncludeSource
   )
   $work     = Join-Path ([IO.Path]::GetTempPath()) ('offline-fetch-' + [Guid]::NewGuid().ToString('N'))
   $workFile = Join-Path $work $BundleName
@@ -53,13 +54,29 @@ function Save-VerifiedReleaseBundle {
     $expected = Get-Sha256FromSidecar -Path $workSha
     Assert-FileSha256 -File $workFile -ExpectedSha256 $expected -Label 'bundle'
 
+    # ソースは重量物と同じ一時ディレクトリで揃え、両方の照合が通ってから一括で移す —
+    # 片方だけ直下に置くと、次回の setup が「手元の組」として検証無しに使ってしまう。
+    $workSrc = Join-Path $work 'source.zip'
+    if ($IncludeSource) {
+      & $Downloader "$AssetBase/source.zip"        $workSrc
+      & $Downloader "$AssetBase/source.zip.sha256" "$workSrc.sha256"
+      $srcExpected = Get-Sha256FromSidecar -Path "$workSrc.sha256"
+      Assert-FileSha256 -File $workSrc -ExpectedSha256 $srcExpected -Label 'source.zip'
+    }
+
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     $bundle = Join-Path $Destination $BundleName
     $key    = Join-Path $Destination 'bundle.key'
     Move-Item -LiteralPath $workFile -Destination $bundle          -Force
     Move-Item -LiteralPath $workSha  -Destination "$bundle.sha256" -Force
     Move-Item -LiteralPath $workKey  -Destination $key             -Force
-    return @{ Bundle = $bundle; Key = $key }
+    $source = $null
+    if ($IncludeSource) {
+      $source = Join-Path $Destination 'source.zip'
+      Move-Item -LiteralPath $workSrc          -Destination $source          -Force
+      Move-Item -LiteralPath "$workSrc.sha256" -Destination "$source.sha256" -Force
+    }
+    return @{ Bundle = $bundle; Key = $key; Source = $source }
   } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
   }
