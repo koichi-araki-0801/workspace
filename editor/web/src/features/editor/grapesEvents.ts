@@ -49,7 +49,7 @@ export interface GrapesEventDeps {
    * 重い(全要素 `getComputedStyle`)ため、呼び出し側で rAF 集約してから渡す。
    */
   recomputeLayout: () => void;
-  /** canvas を A4 ページ全体が収まる倍率へ合わせる(起動時の初期ズーム)。 */
+  /** canvas load 後に初期倍率を当てる(既定 100%。画面には合わせない)。 */
   applyInitialZoom: () => void;
   /** canvas load 時に呼ぶ(useGrapes が可視制御用 style を canvas head へ注入する)。 */
   onCanvasLoad: (doc: Document) => void;
@@ -117,9 +117,9 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
       // iframe (再)ロードごとに新しい document へ張り直す(古い document ごと破棄される)。
       docu.addEventListener('dblclick', () => callbacks.canvasDblClick?.());
     }
-    // 起動時はページ全体がキャンバスに収まる倍率へ自動フィットする(以後は手動 +/- で調整)。
+    // 起動時の倍率は 100%。画面へのフィットは Ctrl+0 / % ボタンの手動操作でだけ効く。
     // 直上で canvasCss(A4 `min-height:297mm`)を head へ注入済みのため、次フレームまで遅らせて
-    // body 実寸が確定してから測る。
+    // body 実寸が確定してから当てる。
     requestAnimationFrame(() => deps.applyInitialZoom());
     // ページ境界 guide / ページ列挙 / 縦配置: styles/components が出揃ったこの時点で一度走査する
     // (`fitToView` の rAF でも縦配置は揃うが、ここで break/guide/ページも確定させる)。

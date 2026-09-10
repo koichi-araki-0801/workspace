@@ -32,26 +32,21 @@ test('編集 2 系統: 編集タブはハイライト無し / 作成経路(?crea
   });
 });
 
-test('ズーム: 拡大で canvas 倍率が変わり「画面に合わせる」でフィット倍率へ戻る', async ({
+test('ズーム: 起動時は 100%(A4 実寸)で、拡大と「画面に合わせる」は手動でだけ効く', async ({
   page,
 }) => {
   await login(page);
   await openEditor(page);
-
-  // 倍率は iframe の表示幅で観測する (GrapesJS の zoom は inline transform に現れない)
+  // A4 の紙面は 210mm = 794px。起動時は画面に合わせず 100% で開く(1440x900 では縦が
+  // 収まらないので、フィットさせると 794 より小さくなる = 100% と区別できる)。
   const widthOf = async () => (await page.locator('iframe.gjs-frame').boundingBox())?.width ?? 0;
-  const fitted = await widthOf();
-  expect(fitted).toBeGreaterThan(0);
-
-  // 倍率の反映は rAF 経由なので、固定待ちだと負荷の高い CI で「まだ変わっていない」瞬間を
-  // 掴んで落ちる(実際に fitted と同値のまま失敗した)。**条件が満たされるまで待つ**形にする。
-  await page.getByRole('button', { name: '拡大' }).click();
-  await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(fitted + 10);
-
-  await page.getByRole('button', { name: '画面に合わせる' }).click();
   await expect
-    .poll(async () => Math.abs((await widthOf()) - fitted), { timeout: 15_000 })
+    .poll(async () => Math.abs((await widthOf()) - 794), { timeout: 15_000 })
     .toBeLessThan(2);
+  await page.getByRole('button', { name: '拡大' }).click();
+  await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 + 10);
+  await page.getByRole('button', { name: '画面に合わせる' }).click();
+  await expect.poll(widthOf, { timeout: 15_000 }).toBeLessThan(794 - 10);
 });
 
 test('ページ境界 guide: 全ページ連続表示で「ここまで N ページ目」線が出る', async ({ page }) => {

@@ -192,6 +192,12 @@ export function useGrapes() {
     },
   });
   const { zoom, setZoom, fitToView, updateScrollMode } = zoomFit;
+  // 起動時の初期倍率(既定 100%)。`setInitialZoom` は load 前に呼ぶ想定で、
+  // 呼ばれなければ 100% のまま `applyInitialZoom` が当てる。
+  let initialZoom = 1;
+  function setInitialZoom(z: number): void {
+    initialZoom = z;
+  }
 
   function refreshMove(): void {
     const comp = editor.value?.getSelected();
@@ -449,7 +455,7 @@ export function useGrapes() {
       refreshMove,
       refreshPageGuides,
       recomputeLayout,
-      applyInitialZoom: fitToView,
+      applyInitialZoom: () => setZoom(initialZoom),
       onCanvasLoad,
       toInfo,
       isLocked: () => locked,
@@ -867,6 +873,7 @@ export function useGrapes() {
     onCanvasDblClick,
     setZoom,
     fitToView,
+    setInitialZoom,
     setEditable,
     goToPage,
     scrollToPage,

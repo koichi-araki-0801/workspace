@@ -216,17 +216,11 @@ async function goReview() {
   router.push({ name: 'reviews', query: { template: props.id } });
 }
 
-// ユーザーが zoom +/- で明示的に倍率を決めたか。立っている間は resize で勝手に再フィット
-// しない(下の observer を見よ)。初期 `load` 時の自動フィットでは立てない。
-const userZoomed = ref(false);
-
-// canvas コンテナのサイズ変化時、A4 を現ビューポートへ再フィットし直し、選択 overlay
-// (frame/handle/toolbar)の位置も保つ。fitToView は `load` 時の 1 回きりのため、これが無いと
-// window/ペイン resize やブラウザズームで canvasEl の px が変わっても倍率が据え置きになり、
-// `.gjs-frame-wrapper{margin:24px auto}` の上揃えと相まってページが上部に小さく残り崩れる。
-// 手動ズーム中(`userZoomed`)は倍率を尊重し overlay 追従のみ行う。`requestAnimationFrame` で
-// GrapesJS の再レイアウト後まで計測を遅らせる(`setZoom` と同じ手法)。fitToView は内部で
-// setZoom→rAF で refreshRect/refreshPageGuides も走らせる。
+// canvas コンテナのサイズ変化時、選択 overlay(frame/handle/toolbar)の位置とページ境界 guide・
+// 縦配置(収まり判定)を追随させる。倍率は据え置き(起動時 100%・手動フィットのみ変える) —
+// window/ペイン resize のたびに再フィットすると、拡大直後に resize が挟まるだけで倍率が
+// 勝手に戻ってしまう。`requestAnimationFrame` で GrapesJS の再レイアウト後まで計測を遅らせる
+// (`setZoom` と同じ手法)。
 let canvasResizeObserver: ResizeObserver | null = null;
 onMounted(() => {
   // 承認待ちバッジの表示材料を取り直す(ベストエフォート。失敗してもバッジが出ないだけ)。
@@ -235,15 +229,9 @@ onMounted(() => {
   if (!el) return;
   canvasResizeObserver = new ResizeObserver(() => {
     requestAnimationFrame(() => {
-      if (userZoomed.value) {
-        // 手動ズーム中は倍率を尊重し overlay 追従のみだが、リサイズで canvasEl の client
-        // サイズが変われば収まり判定も変わるため `updateScrollMode` で縦配置を出し分け直す。
-        g.refreshRect();
-        g.refreshPageGuides();
-        g.updateScrollMode();
-      } else {
-        g.fitToView();
-      }
+      g.refreshRect();
+      g.refreshPageGuides();
+      g.updateScrollMode();
     });
   });
   canvasResizeObserver.observe(el);
@@ -254,16 +242,13 @@ onBeforeUnmount(() => {
 });
 
 function zoomIn() {
-  userZoomed.value = true;
   g.setZoom(g.zoom.value + ZOOM_STEP);
 }
 function zoomOut() {
-  userZoomed.value = true;
   g.setZoom(g.zoom.value - ZOOM_STEP);
 }
-// Ctrl/⌘+0: 全体にフィットへ戻す。`userZoomed` を下ろし、以後の resize で自動再フィットを許す。
+// Ctrl/⌘+0: 画面に合わせる(手動フィット)。
 function zoomReset() {
-  userZoomed.value = false;
   g.fitToView();
 }
 
