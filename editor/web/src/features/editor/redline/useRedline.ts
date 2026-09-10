@@ -39,7 +39,9 @@ interface RedlineDeps {
 }
 
 export function useRedline(deps: RedlineDeps) {
-  const enabled = ref(true);
+  // 既定 OFF。上部バーのボタンで明示したときだけ差分を出す(開いた直後に取り消し線が
+  // 出るのは誤解を招く)。
+  const enabled = ref(false);
   const available = ref(false);
   let baseline: RedlineNode[] | null = null;
   let dragging = false;

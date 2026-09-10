@@ -6,7 +6,7 @@
 // (単体)の実画面版 — canvas body の `jinja-vars-highlight` クラスまで確認する。
 
 import { expect, type Page, test } from '@playwright/test';
-import { login, openEditor as openEditorAt } from './helpers';
+import { login, openEditor as openEditorAt, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -115,6 +115,8 @@ test('赤入れ: 文言を編集すると旧文言が取り消し線で出て、
   await expect(frame.locator('[data-redline]')).toHaveCount(0);
 
   await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+  // 赤入れは既定 OFF。ボタンで明示したときだけ差分を出す。
+  await page.getByRole('button', { name: '変更箇所を赤入れで表示' }).click();
   await appendToParagraph(page, frame, '受益者のみなさまへ', 'E2E赤入れ');
 
   // 追記が canvas に入り、語句差分の結果として挿入語句の直前には旧文言の del は出ない
@@ -184,3 +186,105 @@ test('赤入れ: 作成経路(?created=1)ではトグルを出さない', async 
   await openEditor(page);
   await expect(page.getByRole('button', { name: /赤入れ/ })).toHaveCount(1, { timeout: 15_000 });
 });
+
+// ③⑥: 選択だけでは未確定にならず、編集後の往復で赤入れは編集箇所だけ、コメントは削除済み扱いに
+// ならず、Undo で確定版と同じ内容へ戻れば「変更なし」に戻り draft も消える。
+test('往復統合: 選択のみ非 dirty / 往復後の赤入れとコメント / Undo で変更なし', async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  await login(page);
+  const frame = await openEditor(page);
+
+  // 選択しただけでは未確定にならず draft も作られない
+  await selectPart(frame, frame.locator('.page > *').nth(4));
+  await selectPart(frame, frame.locator('.page > *').nth(2));
+  await page.waitForTimeout(2_000);
+  await expect(page.getByText('変更なし', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('editor:drafts'))).toBeNull();
+
+  // コメントを付け(選択が要る)、別パーツを 1 語置換
+  await selectPart(frame, frame.locator('.page > *').nth(4));
+  await page.locator('[data-pane-tab="comments"]').click();
+  await page.getByPlaceholder('このパーツへのコメントを書く').fill('往復テスト');
+  await page.locator('button[data-add-submit]').click();
+  await expect(page.locator('[data-comment-row]', { hasText: '往復テスト' })).toBeVisible();
+  await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+  // 赤入れは既定 OFF。ボタンで明示したときだけ差分を出す。
+  await page.getByRole('button', { name: '変更箇所を赤入れで表示' }).click();
+  await replaceWord(page, frame, '受益者のみなさまへ', 'みなさま', '皆様');
+  await expect(frame.locator('del[data-redline]', { hasText: 'みなさま' }).first()).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
+    timeout: 15_000,
+  });
+
+  // プレビューへ行って戻る
+  await page.getByRole('button', { name: 'プレビュー' }).click();
+  await page.waitForURL(/\/preview\//);
+  await page.getByRole('button', { name: 'エディターに戻る' }).click();
+  await page.waitForURL(/\/edit\//);
+  const back = page.frameLocator('iframe.gjs-frame');
+  await back.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
+  // 表示状態の保持は編集セッションの UI 状態（別タスク）で扱うため、ここでは明示的に ON にし直す。
+  await page.getByRole('button', { name: '変更箇所を赤入れで表示' }).click();
+  await expect(back.locator('del[data-redline]', { hasText: 'みなさま' })).toHaveCount(1, {
+    timeout: 15_000,
+  });
+  await expect(back.locator('[data-redline]')).toHaveCount(1);
+  await expect(page.locator('.note-marker')).toHaveCount(1, { timeout: 15_000 });
+  await page.locator('[data-pane-tab="comments"]').click();
+  await expect(page.locator('[data-comment-row]', { hasText: '削除済み' })).toHaveCount(0);
+
+  // Undo で確定版と同じ内容に戻れば「変更なし」、draft も消える
+  await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+  await page.getByRole('button', { name: '元に戻す' }).first().click();
+  await expect(back.getByText('皆様')).toHaveCount(0, { timeout: 10_000 });
+  await expect(page.getByText('変更なし', { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(back.locator('[data-redline]')).toHaveCount(0);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          (id) => JSON.parse(localStorage.getItem('editor:drafts') ?? '{}')[id] ?? null,
+          SEED_ID,
+        ),
+      { timeout: 15_000 },
+    )
+    .toBeNull();
+});
+
+/** RTE でパラグラフ内の 1 語を置換する。 */
+async function replaceWord(
+  page: Page,
+  frame: ReturnType<Page['frameLocator']>,
+  needle: string,
+  from: string,
+  to: string,
+) {
+  await frame.getByText(needle).first().click();
+  await page.evaluate((n) => {
+    const doc = document.querySelector<HTMLIFrameElement>('iframe.gjs-frame')?.contentDocument;
+    const p = [...(doc?.querySelectorAll('p') ?? [])].find((e) =>
+      (e.textContent ?? '').includes(n),
+    );
+    p?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  }, needle);
+  const editing = frame.locator('[contenteditable="true"]').first();
+  await expect(editing).toBeVisible({ timeout: 10_000 });
+  await editing.evaluate(
+    (el, [f, t]) => {
+      for (const n of Array.from(el.childNodes)) {
+        if (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').includes(f))
+          n.textContent = (n.textContent ?? '').replace(f, t);
+      }
+      el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    },
+    [from, to],
+  );
+  await frame
+    .locator('.page')
+    .first()
+    .click({ position: { x: 5, y: 5 } });
+}

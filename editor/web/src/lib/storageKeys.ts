@@ -90,3 +90,9 @@ export function legacyUndoStacksKeyV1(): string {
 export function draftOwnerKey(): string {
   return `${DRAFT_OWNER_PREFIX}:${userScope()}`;
 }
+
+const CONFIRMED_CANONICAL_PREFIX = 'editor:confirmed:v1';
+/** 確定版正規形キャッシュのキー(ユーザー別。`lib/confirmedCanonical.ts`)。 */
+export function confirmedCanonicalKey(): string {
+  return `${CONFIRMED_CANONICAL_PREFIX}:${userScope()}`;
+}
