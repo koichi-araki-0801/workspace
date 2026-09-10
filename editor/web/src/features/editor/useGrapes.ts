@@ -395,6 +395,21 @@ export function useGrapes() {
       // script が恒久混入する — CSP は表示時の実行を止めるだけで、永続化は止めない。
       // 刈り取りとは独立に効く二重防御なので、片方が破られてももう片方が残る。
       jsInHtml: false,
+      // 幾何(幅・余白)は inline `style` 属性に保存する。既定の `avoidInlineStyle:true` は
+      // `setStyle` を `#<自動id>{…}` の CssRule へ書き、自動 id が保存内容の一部になる —
+      // 再読込で確定版と構造キーが一致しなくなり、ペア同期(パーツ HTML だけ転写)で幾何が
+      // 転写されない。inline ならパーツと一体で、id に依存しない。
+      avoidInlineStyle: false,
+      // 既定 `forceClass:true` は、component 生成時に inline `style` が非空だと自動生成クラス
+      // (`.c<cid>`)へ丸ごと移し替える。avoidInlineStyle:false と合わせて使うと、HTML を
+      // 読み込むたび(load 直後の再パース含む)に幾何が inline style → 自動クラスへ化けて
+      // round-trip が壊れる。false にして「inline style のまま」を維持する。
+      forceClass: false,
+      // canvas の下地 CSS(既定は `* { box-sizing: border-box } body { margin: 0 }`)は PDF 側
+      // の CSS に無く、canvas と PDF の見た目が食い違う。`getCss()` の先頭にも付いて保存 CSS へ
+      // 混入し、load のたび規則として積み増す。空にして PDF と同じ CSS で描く(必要な下地は
+      // `a4CanvasCss` に明示する)。
+      protectedCss: '',
     });
 
     // canvas へ入る HTML は他ユーザが書いた draft / テンプレ実体で、canvas の iframe は
@@ -731,12 +746,59 @@ export function useGrapes() {
     }
   }
 
+  /**
+   * 保存用の body HTML。GrapesJS は選択したパーツに StyleManager の id セレクタを作り、以後
+   * `getHtml()` が自動 id(`ccid`)を属性として出力する。その id が draft / Undo snapshot に
+   * 混入すると、再読込で確定版と構造キー(`partKey` / 赤入れ)が一致しなくなる。テンプレ由来の
+   * id はモデルの明示属性に載っているので、明示属性に無い id だけを落とす。
+   */
   function getBodyHtml(): string {
-    return editor.value?.getHtml() ?? '';
+    return (
+      editor.value?.getHtml({
+        attributes: (comp, attrs) => {
+          const explicit = (comp.get('attributes') as Record<string, unknown> | undefined)?.id;
+          if (typeof explicit !== 'string' || explicit === '') delete attrs.id;
+          return attrs;
+        },
+      }) ?? ''
+    );
   }
 
+  /**
+   * inline style を持つが明示 `id` を持たない component の id 集合(= GrapesJS が `getCss()` へ
+   * 無条件でミラーする `#<自動id>{…}` の「自動 id」だけを狙い撃ちするための正解集合)。
+   * パターン一致（`i[a-z0-9]+` 等）だけで判定すると、テンプレ作者が書いた本物の `#intro{}` の
+   * ような id セレクタまで巻き込んで消してしまう。component 木を実際に歩いて「明示属性に無い
+   * id」だけを集めることで、本物の id ルールには触れない。
+   */
+  function autoStyleIds(): Set<string> {
+    const ids = new Set<string>();
+    const root = editor.value?.getWrapper();
+    if (!root) return ids;
+    const walk = (comp: Component): void => {
+      const explicit = (comp.get('attributes') as Record<string, unknown> | undefined)?.id;
+      const hasExplicitId = typeof explicit === 'string' && explicit !== '';
+      const hasStyle = Object.keys(comp.getStyle() as Record<string, string>).length > 0;
+      if (!hasExplicitId && hasStyle) ids.add(comp.getId());
+      for (const child of comp.components()) walk(child);
+    };
+    walk(root);
+    return ids;
+  }
+
+  /**
+   * 保存用の CSS。GrapesJS の CSS export(`CssGenerator.buildFromModel`)は
+   * `avoidInlineStyle:false` でも inline style を持つ component へ無条件で `#<id>{…}` を
+   * ミラーする(`avoidInlineStyle` は deprecated で、この二重出力は抑止できない)。だが自動 id は
+   * Selector 登録を経ないため `getBodyHtml()` の属性には出ず、このルールは対応する `id` 属性を
+   * 持たない死んだセレクタになる。幾何の正典は inline style なので、`autoStyleIds()` が特定した
+   * 自動 id のルールだけを保存内容から取り除く(本物の id セレクタは触らない)。
+   */
   function getCss(): string {
-    return editor.value?.getCss() ?? '';
+    const raw = editor.value?.getCss() ?? '';
+    const ids = autoStyleIds();
+    if (ids.size === 0) return raw;
+    return raw.replace(/#([\w-]+)\{[^}]*\}/g, (rule, id: string) => (ids.has(id) ? '' : rule));
   }
 
   function onChange(cb: () => void): void {

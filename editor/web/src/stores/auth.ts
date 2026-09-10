@@ -18,6 +18,7 @@ import { armUnauthorizedNotice } from '@/lib/sessionExpiry';
 import {
   draftOwnerKey,
   LEGACY_UNDO_STACKS_KEY,
+  legacyUndoStacksKeyV1,
   setUndoUserScope,
   undoStacksKey,
 } from '@/lib/storageKeys';
@@ -94,6 +95,7 @@ export const useAuthStore = defineStore('auth', () => {
     // (残すと次の利用者の画面へ前の利用者の編集内容が復元されうる)。
     localStorage.removeItem(undoStacksKey());
     localStorage.removeItem(LEGACY_UNDO_STACKS_KEY);
+    localStorage.removeItem(legacyUndoStacksKeyV1());
     // 下書きの所属も端末に残る。次の利用者のセッションで前の利用者の下書きが
     // 「同じセッション」と誤判定されることは無い(トークンが違う)が、キーを残さない。
     localStorage.removeItem(draftOwnerKey());

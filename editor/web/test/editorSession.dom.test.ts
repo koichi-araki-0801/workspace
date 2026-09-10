@@ -235,7 +235,17 @@ describe('Undo ミラーのユーザー分離', () => {
 
   it('local は単一利用者前提の固定スコープを使う', () => {
     setUndoUserScope('alice');
-    expect(undoStacksKey()).toBe('editor:session:undo:local');
+    expect(undoStacksKey()).toBe('editor:session:undo:v2:local');
+  });
+
+  it('Undo ミラーのキーは v2 で、旧形式のミラーは読まない', () => {
+    localStorage.setItem(
+      'editor:session:undo:local',
+      JSON.stringify({ t1: { past: [{ html: 'old', css: '' }], future: [] } }),
+    );
+    const store = useEditorSessionStore();
+    expect(store.ensure('t1').undoPast).toEqual([]);
+    expect(undoStacksKey()).toBe('editor:session:undo:v2:local');
   });
 
   it('rest はログイン ID ごとに別キーで、他ユーザーの内容へ到達しない', () => {
@@ -257,6 +267,6 @@ describe('Undo ミラーのユーザー分離', () => {
   it('rest で未ログインなら anonymous スコープへ隔離する', () => {
     vi.stubEnv('VITE_API_MODE', 'rest');
     setUndoUserScope(null);
-    expect(undoStacksKey()).toBe('editor:session:undo:anonymous');
+    expect(undoStacksKey()).toBe('editor:session:undo:v2:anonymous');
   });
 });

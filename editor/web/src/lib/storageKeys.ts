@@ -45,7 +45,10 @@ export const LEGACY_NOTES_KEY = 'editor:notes';
 // 前の利用者の Undo スタックが次の利用者の画面へ復元されうるため。rest はログイン ID、
 // local は単一利用者前提の固定スコープを使う。
 
-const UNDO_STACKS_PREFIX = 'editor:session:undo';
+const UNDO_STACKS_PREFIX = 'editor:session:undo:v2';
+// v2 より前のミラー。自動 id と protectedCss が snapshot に混入しており、読み込むと確定版との
+// 内容比較が永久に外れる。後片付け(logout / スキーマ bump)でのみ参照する。
+const UNDO_STACKS_PREFIX_V1 = 'editor:session:undo';
 // 下書きの所属セッション。値は `Record<templateId, sessionToken>`(`lib/draftOwner.ts`)。
 // 編集セッションはブラウザタブの寿命で、別タブが残した下書きは次回オープン時に破棄する。
 // Undo ミラーと同じ理由でユーザー別に分ける。
@@ -54,7 +57,7 @@ const LOCAL_UNDO_SCOPE = 'local';
 const ANONYMOUS_UNDO_SCOPE = 'anonymous';
 
 /** ユーザー非分離だった旧形式キー。後片付け(logout / スキーマ bump)でのみ参照する。 */
-export const LEGACY_UNDO_STACKS_KEY = UNDO_STACKS_PREFIX;
+export const LEGACY_UNDO_STACKS_KEY = UNDO_STACKS_PREFIX_V1;
 
 let undoLoginId: string | null = null;
 
@@ -76,6 +79,11 @@ function userScope(): string {
 /** 現在のユーザー向け Undo ミラーキー。 */
 export function undoStacksKey(): string {
   return `${UNDO_STACKS_PREFIX}:${userScope()}`;
+}
+
+/** 現在のユーザー向け v1 ミラーキー(後片付け用)。 */
+export function legacyUndoStacksKeyV1(): string {
+  return `${UNDO_STACKS_PREFIX_V1}:${userScope()}`;
 }
 
 /** 現在のユーザー向け下書き所属キー。 */
