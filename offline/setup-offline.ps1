@@ -61,18 +61,31 @@ Write-Host "[info] repo root: $RepoRoot"
 # ネットワークドライブ上では pnpm の symlink/hardlink 構成が成立しないため開始前に止める。
 Assert-LocalRepoRoot -Path $RepoRoot
 
-# ---- [0/5] ソース ZIP の展開（直下に source.zip があるときだけ） ----
+# ---- [0/5] ソース ZIP の展開（直下に source.zip があり、.git が無いときだけ） ----
 # 展開で自分自身（このスクリプトと dot-source 済みの lib）が新しくなる。PowerShell は起動時に
 # 全文を読んでいるので実行中の処理は落ちないが、構築は新しい版に任せたいので、展開が済んだら
 # 新しい setup-offline.ps1 を再実行してその終了コードで終わる。再実行側は -SkipSourceExtract
 # 付きで呼ばれ、この段に入らない（再帰防止）。
+# .git の有無で経路を分けるのは、clone 端末（README-offline 手順 A）の直下へ手順 B-1 の
+# fetch -Source で source.zip が残っていることがあるため。.git があるなら、その source.zip は
+# 遮断端末へ運ぶための取得物であり、clone 端末自身の構築には使わない（展開すると未コミットの
+# 作業ツリーが Release 版で上書きされる）。「遮断端末には .git が無い」という spec 2 章の前提を
+# この条件で機械的に表明する。
 $SourceZip = Join-Path $RepoRoot 'source.zip'
-if (-not $SkipSourceExtract -and (Test-Path -LiteralPath $SourceZip)) {
+$hasSourceZip = Test-Path -LiteralPath $SourceZip
+$hasGit = Test-Path -LiteralPath (Join-Path $RepoRoot '.git')
+if (-not $SkipSourceExtract -and $hasSourceZip -and $hasGit) {
+  Write-Warning ("[warn] 直下に source.zip がありますが、このフォルダは git clone（.git あり）なので展開段は飛ばします。`n" +
+    '       source.zip / source.zip.sha256 は遮断端末へ運ぶための取得物です（このフォルダの構築には使いません）。')
+} elseif (-not $SkipSourceExtract -and $hasSourceZip) {
   Write-Host '[0/5] ソース ZIP を展開...'
   try {
     $r = Invoke-SourceExtractStage -RepoRoot $RepoRoot -Bk $Bk
   } catch {
-    Write-Error "[error] $($_.Exception.Message)`n  source.zip と source.zip.sha256 を fetch-offline-bundle.bat -Source で取り直してください。"
+    Write-Error ("[error] $($_.Exception.Message)`n" +
+      "  source.zip と source.zip.sha256 を fetch-offline-bundle.bat -Source で取り直してください。`n" +
+      "  照合エラー以外（展開の途中で止まった等）なら、直下または bk\ の source.zip をエクスプローラで`n" +
+      '  「すべて展開」してこのフォルダへ上書きし、offline\setup-offline.bat を実行し直してください。')
     exit 1
   }
   Write-Host "[info] 展開しました（前の版の削除: $($r.Removed) 件$(if ($r.FirstRun) { '、初回扱い' })）。新しい setup を続行します..."

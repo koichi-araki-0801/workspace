@@ -45,6 +45,8 @@
      - 直下のバンドルを bk\ へ退避
    「[OK] セットアップ完了。」が出れば完了。
    ※ 展開・整合検査だけ行う場合:  offline\setup-offline.bat -SkipBuild
+   ※ 直下に source.zip があっても setup は展開しない（.git があるフォルダでは展開段を飛ばす。
+      source.zip は遮断端末へ運ぶための取得物）。
 4)（任意）動作確認
      corepack pnpm run ci
 
@@ -106,6 +108,8 @@ git clone できない運用端末は、ソースコードも Release から ZIP
       → fetch-offline-bundle.bat を先に実行する（setup は取得を肩代わりしない）。
   - [0/5] で止まる
       → source.zip.sha256 を fetch-offline-bundle.bat -Source で取り直す（転送破損の疑い）。
+        照合エラー以外（展開の途中で止まった等）なら、直下または bk\ の source.zip をエクスプローラで
+        「すべて展開」してこのフォルダへ上書きし、offline\setup-offline.bat を実行し直す。
   - content-key 不一致で source commit が古い
       → 配布担当が publish を忘れている可能性がある。配布担当に依頼する。
   - ダウンロードが 404

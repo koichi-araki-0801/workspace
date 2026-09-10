@@ -61,6 +61,9 @@ Describe 'Get-OfflineRequirementsFiles' {
     }
   }
 
+  # このテストの守備範囲は「ZIP 展開後 = .git 無しの遮断端末で content-key が clone 端末と一致する
+  # こと」。git 経路は clone 端末（このテストの実行環境）でしか使えないため、遮断端末が実際に
+  # 使うファイルシステム経路が同じ集合を返すことでのみ両端末の content-key 一致を担保できる。
   It 'git 経路とファイルシステム経路が同じ結果になる（フォールバックの正しさの担保）' {
     $viaGit = @(Get-OfflineRequirementsFilesViaGit -RepoRoot $repoRoot) | Sort-Object
     $viaFileSystem = @(Get-OfflineRequirementsFilesViaFileSystem -RepoRoot $repoRoot) | Sort-Object
@@ -399,6 +402,7 @@ Describe 'Invoke-SourceExtractStage（照合 → 旧名簿で削除 → 展開 �
   It '旧 MANIFEST が無ければ初回扱い（削除せず警告）で展開する' {
     $r = Invoke-SourceExtractStage -RepoRoot $script:root -Bk $script:bk -WarningVariable w -WarningAction SilentlyContinue
     $r.FirstRun | Should Be $true
+    @($w).Count | Should Be 1
     (Test-Path (Join-Path $script:root 'offline\old.ps1')) | Should Be $true
     (Test-Path (Join-Path $script:root 'offline\new.ps1')) | Should Be $true
   }
