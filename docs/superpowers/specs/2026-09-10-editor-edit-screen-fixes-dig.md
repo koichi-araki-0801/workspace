@@ -52,7 +52,7 @@
 | 旧データ（自動 id・protectedCss 混入済みの Undo ミラー / REST draft） | **Undo ミラー形式の版数を上げて旧ミラーを捨てる**（`undoStacksKey` の版数）。REST draft は手で消す（検証環境 1 件、混入 0 件を確認済み） | 自動 id は load で明示属性になりテンプレ由来 id と機械判別できない。正規化コードを恒久化しない | 開発端末の Undo 履歴が 1 回消える |
 | 退行網の置き場 | **unit（jsdom で GrapesJS を実体起動）で機構を固定、e2e は ③⑤⑥ の往復統合 2 本** | 発見 A を逃した原因は「幾何の往復保存」テストの欠落。CI 時間を増やさず機構ごとに固定 | 実ブラウザ差は e2e 2 本頼み |
 | コミット分割 | **6 コミット**: ④ fetch（.ps1）/ 保存形式（幾何 inline 化 + 自動 id 除去 + protectedCss）/ dirty 機構（③⑥）/ ① 起動 100% + スクショ再撮影 / ⑤ UI 状態 / ② kind 撤去。editor-data の汚染修正は別リポで 1 commit | 保存形式の変更を単独で bisect できる | 保存形式のコミット直後は「選択だけで未確定」が残る（次コミットで解消） |
-| `canvasCss` に残す規則 | **計画の先頭に canvas⇄PDF の実機比較 spike を置いて決める** | protectedCss を外した後の見た目は実機でしか判断できない | spike の結果で `canvasCss` の内容と ① のスクショが変わる |
+| `canvasCss` に残す規則 | **spike 実測の結果、`CANVAS_BASE_CSS = ''`（何も足さない）**。`AM01_510037_20240710_交付版` の 1 ページ目（表紙・summary-table・脚注）で canvas スクショが `protectedCss` 既定時と空時で byte 一致、`body` の computed margin も両方 0px（`a4CanvasCss` が `body{margin:0}` を既に明示しているため既定の `body{margin:0}` は無効化で無影響）。`box-sizing` は `.summary-table th` の computed 値が `border-box`→`content-box` へ変わったが、table が auto レイアウトのため実際の `getBoundingClientRect().width` は前後とも 141.875px で不変 | 見た目は実機でしか判断できない（spike 完了） | ① のスクショは spike 後の状態のまま変更不要 |
 
 ## Dig Summary
 
@@ -94,7 +94,7 @@
 | Q11 | 旧ミラー / 旧 draft | ミラー版数を上げて捨てる。REST draft は手で消す | id は機械判別不能 | 低 | 開発端末の Undo が 1 回消える |
 | Q12 | 退行網 | unit（jsdom + GrapesJS 実体）主、e2e 往復統合 2 本 | 発見 A の再発防止、CI 時間 | 低 | — |
 | Q13 | コミット分割 | 6 コミット + editor-data 1 commit | 保存形式を単独で bisect | 低 | 順序は下記 |
-| Q14 | `canvasCss` の残し方 | 計画先頭の実機比較 spike で決める | 見た目は実機でしか判断できない | 中 | ① のスクショは spike 後に撮る |
+| Q14 | `canvasCss` の残し方 | **spike 実測済み。`CANVAS_BASE_CSS = ''`**（`AM01_510037_20240710_交付版` 1 ページ目で canvas スクショが `protectedCss` 既定/空で byte 一致。`body` margin は `a4CanvasCss` の明示 `margin:0` で既定と無差別、`box-sizing` は computed 値こそ変わるが `.summary-table th` の実描画幅は auto テーブルレイアウトに吸収され不変） | 見た目は実機でしか判断できない | 低 | ① のスクショは spike 後の状態のまま変更不要（byte 一致のため再撮影不要） |
 | Q15 | 編集画面の赤入れ表示の既定 | **既定 OFF**。上部バーのボタンで明示したときだけ表示。ON/OFF は ⑤ の UI 状態として往復・リロードで保持 | 編集画面は差分を見せる場ではなく、開いた直後に取り消し線が出るのは誤解を招く（計画レビューでのユーザー判断。従来は `2d50e34` 以来 既定 ON） | 低 | 既存 e2e「赤入れ」はトグル ON を先に押す形へ |
 | Q16 | コメント吹き出しの開き方 | **選択しただけでは開かない**。目印（マーカー）のクリック・一覧の行クリック・投稿の追加で開く。選択が変わったら閉じる | 赤入れと同じく「明示していないのに出る」もの。コメントのあるパーツを選ぶたびに吹き出しが紙面へ重なる（計画レビューでのユーザー判断） | 低 | マーカーは `pointer-events:auto` にする（overlay 層は none。メモリ `editor-canvas-overlay-clickability`）。既存 e2e「返信と解決」はマーカーをクリックしてから |
 
@@ -126,8 +126,13 @@
 
 ### 残リスク
 
-- **canvas の見た目変化**（Q2/Q14）: protectedCss を外すと `body` 既定 margin 8px・content-box に
-  なる。spike で確認するまで `canvasCss` の最終形は未定。ページ枠 210mm 内の見た目に影響しうる。
+- **canvas の見た目変化**（Q2/Q14・spike 実測済み・解消）: `AM01_510037_20240710_交付版` では
+  `protectedCss: ''` にしても canvas スクショが既定時と byte 一致だった（`CANVAS_BASE_CSS = ''`）。
+  ただしこれはこのテンプレの `.summary-table` が auto table layout で `box-sizing` の差を吸収した
+  結果で、per-fund CSS 側には `box-sizing` の指定が無い（`css/510037.css` に該当規則 0 件）。
+  flex/grid で `width:%` + `padding`/`border` を持つ別テンプレの要素は auto table layout の
+  救済が効かず崩れうる。canvas には足さず（PDF と揃える方針を優先）、他テンプレへ展開する際は
+  該当箇所ごとに実機確認すること。
 - **`updatedAt` が null の版**は確定版正規形のキャッシュが効かず毎回二重 load（性能のみ）。
 - **狭い画面での横スクロール**（Q7）: 起動 100% 固定のため、canvas 幅 < 794px + 余白の環境では
   横スクロールになる。Ctrl+0 / % ボタンで手動フィット。
