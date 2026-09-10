@@ -765,40 +765,28 @@ export function useGrapes() {
   }
 
   /**
-   * inline style を持つが明示 `id` を持たない component の id 集合(= GrapesJS が `getCss()` へ
-   * 無条件でミラーする `#<自動id>{…}` の「自動 id」だけを狙い撃ちするための正解集合)。
-   * パターン一致（`i[a-z0-9]+` 等）だけで判定すると、テンプレ作者が書いた本物の `#intro{}` の
-   * ような id セレクタまで巻き込んで消してしまう。component 木を実際に歩いて「明示属性に無い
-   * id」だけを集めることで、本物の id ルールには触れない。
-   */
-  function autoStyleIds(): Set<string> {
-    const ids = new Set<string>();
-    const root = editor.value?.getWrapper();
-    if (!root) return ids;
-    const walk = (comp: Component): void => {
-      const explicit = (comp.get('attributes') as Record<string, unknown> | undefined)?.id;
-      const hasExplicitId = typeof explicit === 'string' && explicit !== '';
-      const hasStyle = Object.keys(comp.getStyle() as Record<string, string>).length > 0;
-      if (!hasExplicitId && hasStyle) ids.add(comp.getId());
-      for (const child of comp.components()) walk(child);
-    };
-    walk(root);
-    return ids;
-  }
-
-  /**
-   * 保存用の CSS。GrapesJS の CSS export(`CssGenerator.buildFromModel`)は
-   * `avoidInlineStyle:false` でも inline style を持つ component へ無条件で `#<id>{…}` を
-   * ミラーする(`avoidInlineStyle` は deprecated で、この二重出力は抑止できない)。だが自動 id は
-   * Selector 登録を経ないため `getBodyHtml()` の属性には出ず、このルールは対応する `id` 属性を
-   * 持たない死んだセレクタになる。幾何の正典は inline style なので、`autoStyleIds()` が特定した
-   * 自動 id のルールだけを保存内容から取り除く(本物の id セレクタは触らない)。
+   * 保存用の CSS。`avoidInlineStyle:false` は編集(`patchSelectedStyle`)を inline style の
+   * round-trip に保つために要るが、GrapesJS の CSS export(`CssGenerator.buildFromModel`)は
+   * この設定値を生成のたびに読み(`!avoidInline && style` — `grapes.mjs`)、inline style を持つ
+   * component へ無条件で `#<自動id>{…}` をミラーしてしまう(`avoidInlineStyle` は deprecated で、
+   * この二重出力は抑止できない)。GrapesJS 側の component 走査・文字列連結を手元で再実装して
+   * 出力を後掛けで漉すと、ライブラリ更新のたびにその実装とズレる恐れがある。`getConfig()` は
+   * 生の設定オブジェクト(参照)を返し `buildFromModel` は毎回そこを読むだけなので、
+   * `getCss()` を呼ぶ**同期呼び出しの間だけ** `avoidInlineStyle` を立ててミラーを生成元で
+   * 止め、`finally` で必ず戻す(他の経路 — `patchSelectedStyle` 等 — は非同期に挟まらないので
+   * 影響しない)。
    */
   function getCss(): string {
-    const raw = editor.value?.getCss() ?? '';
-    const ids = autoStyleIds();
-    if (ids.size === 0) return raw;
-    return raw.replace(/#([\w-]+)\{[^}]*\}/g, (rule, id: string) => (ids.has(id) ? '' : rule));
+    const ed = editor.value;
+    if (!ed) return '';
+    const cfg = ed.getConfig() as { avoidInlineStyle?: boolean };
+    const prev = cfg.avoidInlineStyle;
+    cfg.avoidInlineStyle = true;
+    try {
+      return ed.getCss() ?? '';
+    } finally {
+      cfg.avoidInlineStyle = prev;
+    }
   }
 
   function onChange(cb: () => void): void {

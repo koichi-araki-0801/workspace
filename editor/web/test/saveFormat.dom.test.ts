@@ -74,4 +74,13 @@ describe('保存形式', () => {
     g.load(g.getBodyHtml(), css1);
     expect(g.getCss()).toBe(css1);
   });
+
+  it('幾何を持つ component があっても getCss に自動 id ミラーは出ず、明示 id の本物のルールは残る', () => {
+    g.load(DOC, '#fixed-1 { color: blue; }');
+    select('.cover-category');
+    g.patchSelectedStyle({ width: '50%' });
+    const css = g.getCss();
+    expect(css).not.toMatch(/#i[a-z0-9]+\s*\{/);
+    expect(css).toContain('#fixed-1{color:blue;}');
+  });
 });
