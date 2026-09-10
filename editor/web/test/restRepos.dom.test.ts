@@ -172,11 +172,11 @@ describe('restPartRepo / restHistoryRepo / restNoteRepo / restReviewRepo / restU
     ]);
     expect(calls[3].body).toEqual({ templateId: 't1' });
   });
-  it('notes: 追加は replyTo/kind の既定(null / note)を補い、編集は PATCH、削除は DELETE', async () => {
+  it('notes: 追加は replyTo の既定(null)を補い、編集は PATCH、削除は DELETE', async () => {
     const calls = stubFetch(() => json({}));
     await restNoteRepo.listNotes('t1');
     await restNoteRepo.addNote('t1', 'p#1', '本文');
-    await restNoteRepo.addNote('t1', 'p#1', '返信', { replyTo: 'n1', kind: 'question' });
+    await restNoteRepo.addNote('t1', 'p#1', '返信', { replyTo: 'n1' });
     await restNoteRepo.updateNote('t1', 'n1', { status: 'resolved' });
     await restNoteRepo.deleteNote('t1', 'n1');
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
@@ -186,13 +186,8 @@ describe('restPartRepo / restHistoryRepo / restNoteRepo / restReviewRepo / restU
       'PATCH /api/templates/t1/notes/n1',
       'DELETE /api/templates/t1/notes/n1',
     ]);
-    expect(calls[1].body).toEqual({ pathKey: 'p#1', content: '本文', replyTo: null, kind: 'note' });
-    expect(calls[2].body).toEqual({
-      pathKey: 'p#1',
-      content: '返信',
-      replyTo: 'n1',
-      kind: 'question',
-    });
+    expect(calls[1].body).toEqual({ pathKey: 'p#1', content: '本文', replyTo: null });
+    expect(calls[2].body).toEqual({ pathKey: 'p#1', content: '返信', replyTo: 'n1' });
   });
   it('reviews: 申請 POST、一覧は status フィルタのみクエリ、取得 GET、承認/却下 POST', async () => {
     const calls = stubFetch(() => json({}));

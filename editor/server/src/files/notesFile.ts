@@ -12,7 +12,6 @@ import {
   assertTemplateId,
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTES_PER_TEMPLATE,
-  type NoteKind,
   type NoteStatus,
   type PartNoteEntry,
   validation,
@@ -91,13 +90,14 @@ function looksLikeStoredNoteEntry(
 }
 
 const NOTE_STATUSES: ReadonlySet<string> = new Set<NoteStatus>(['open', 'resolved']);
-const NOTE_KINDS: ReadonlySet<string> = new Set<NoteKind>(['note', 'fix-request', 'question']);
 
 /**
  * 保存済みの投稿へコメント属性の既定値を補う。属性を持たない投稿(以前の形式)は
- * 「未対応の親投稿・種別メモ」として読む。列挙の外の値も既定値へ戻す — ここで例外にすると
+ * 「未対応の親投稿」として読む。列挙の外の値も既定値へ戻す — ここで例外にすると
  * 1 要素の破損でテンプレの全コメントが読めなくなる(コメントは注釈で、本体は git 側が正典)。
  * 補完は読み取り時だけで、次の書き込みで新形式として保存され自然に移りきる。
+ * `raw.kind` は旧形式(コメント種別が在った頃)の名残で、読み取っても返却値へは持ち込まない
+ * (コメントはメモ 1 種類になったため)。
  */
 function withCommentDefaults(
   raw: Record<string, unknown> & { id: string; content: string },
@@ -106,8 +106,6 @@ function withCommentDefaults(
     typeof raw.status === 'string' && NOTE_STATUSES.has(raw.status)
       ? (raw.status as NoteStatus)
       : 'open';
-  const kind =
-    typeof raw.kind === 'string' && NOTE_KINDS.has(raw.kind) ? (raw.kind as NoteKind) : 'note';
   const replyTo = typeof raw.replyTo === 'string' && raw.replyTo !== '' ? raw.replyTo : null;
   return {
     id: raw.id,
@@ -118,7 +116,6 @@ function withCommentDefaults(
     updatedBy: typeof raw.updatedBy === 'string' ? raw.updatedBy : null,
     status,
     replyTo,
-    kind,
   };
 }
 

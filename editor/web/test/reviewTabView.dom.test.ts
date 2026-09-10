@@ -33,7 +33,6 @@ function noteEntry(patch: Partial<PartNoteEntry> = {}): PartNoteEntry {
     updatedBy: null,
     status: 'open',
     replyTo: null,
-    kind: 'note',
     ...patch,
   };
 }
@@ -127,7 +126,7 @@ const CommentPanelStub = defineComponent({
   setup(_, { emit }) {
     return () => [
       h('button', { 'data-stub-focus': '', onClick: () => emit('focus', COVER) }),
-      h('button', { 'data-stub-add': '', onClick: () => emit('add', '本文', 'note') }),
+      h('button', { 'data-stub-add': '', onClick: () => emit('add', '本文') }),
     ];
   },
 });
@@ -339,7 +338,7 @@ describe('宛先の区画別化(表示中の宛先へ投稿する)', () => {
     await selects[0].setValue(COVER);
     await w.findAll('[data-stub-add]')[0].trigger('click');
     await flushPromises();
-    expect(addNoteFn).toHaveBeenCalledWith(TPL, COVER, '本文', { kind: 'note' });
+    expect(addNoteFn).toHaveBeenCalledWith(TPL, COVER, '本文', {});
   });
 
   it('宛先が未選択なら追加を押しても投稿しない(composable が null キーで早期 return する)', async () => {

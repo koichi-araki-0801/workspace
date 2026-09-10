@@ -94,14 +94,12 @@ export function useComments(
 
   /**
    * 親投稿へ返信する。宛先は `parent.pathKey` — 選択パーツではなく親の属するパーツに付ける
-   * (一覧から返信するとき、選択が別パーツへ移っていても返信先がずれない)。`kind` は親を
-   * 引き継ぐ(スレッド 1 本 = 1 種別の形を保ち、一覧の絞り込みは親の種別で行うため)。
+   * (一覧から返信するとき、選択が別パーツへ移っていても返信先がずれない)。
    */
   async function reply(parent: PartNoteEntry, content: string): Promise<void> {
     if (content.trim() === '') return;
     const res = await repo.addNote(parent.templateId, parent.pathKey, content, {
       replyTo: parent.id,
-      kind: parent.kind,
     });
     if (isErr(res)) {
       logError(res.error);
