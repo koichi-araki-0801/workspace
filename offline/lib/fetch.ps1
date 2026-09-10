@@ -29,7 +29,9 @@ function Invoke-ReleaseDownload {
 
 # ── 取得 → 検証 → 配置 ──
 # AssetBase 直下の 3 アセット（バンドル / .sha256 / bundle.key）を一時ディレクトリへ取得し、
-# .sha256 の検証が通ったときだけ Destination へ移す。戻り値は配置後のパス。
+# .sha256 の検証が通ったときだけ Destination へ移す。`IncludeSource` ならソース ZIP
+# （source.zip / .sha256）も同じ一時ディレクトリへ取得し、双方の検証が通ってから 5 ファイルを
+# まとめて移す（片方だけ直下に残さない）。戻り値は配置後のパス（`Source` は未指定なら null）。
 # `Downloader` は (url, dest) を受けるスクリプトブロックで、テストからは実ネットワークを
 # 使わない写し取りに差し替える。
 # .sha256 は配信元と同じ場所の値なので転送破損の検知にしか使えない（すり替えの検知は

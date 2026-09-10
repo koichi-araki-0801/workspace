@@ -12,7 +12,9 @@
 
   取得は一時ディレクトリで行い、Release の .sha256 と突き合わせた検証が通ってからだけ直下へ移す
   （検証前・失敗した取得物を直下に残さない。gh 不要。リポジトリは Public）。
-  置くファイルは offline-deps-bundle.tar.gz / offline-deps-bundle.tar.gz.sha256 / bundle.key の 3 つ。
+  置くファイルは offline-deps-bundle.tar.gz / offline-deps-bundle.tar.gz.sha256 / bundle.key の 3 つ
+  （-Source 指定時は source.zip / source.zip.sha256 が加わり 5 つ。遮断端末が git clone を持たない
+  場合の持ち込み用で、展開は setup-offline.bat が行う）。
 
   バンドルの真正性は検証しない: 配布担当だけが Release を更新でき、配布先は同じ所有者の
   Public リポジトリを clone している前提で受け入れる。
