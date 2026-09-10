@@ -13,9 +13,8 @@ Node 非依存の python-tools リポジトリへ分離済み）。
    → `docs/<project>/src/設計正典.md`（構成・不変則・却下済み設計）。
    editor を触るなら `editor/CONTRIBUTING.md` がハブ。
 2. **最初に覚える 3 コマンド**:
-   - セットアップ: `offline\fetch-offline-bundle.bat`（重量物を Release から取得。遮断端末は
-     `-Source` でソース ZIP も併せて取得）→ `offline\setup-offline.bat`（展開・構築はネット不要）
-     または `pnpm install`
+   - セットアップ: `offline\fetch-offline-bundle.bat`（重量物を Release から取得）→
+     `offline\setup-offline.bat`（展開・構築はネット不要）または `pnpm install`
    - 検証: `pnpm run ci:<領域>`（editor / pie-chart。PR 前はフル `pnpm run ci`）
    - 起動: 各プロジェクト直下の入口 .bat（下記「入口スクリプト一覧」）
 3. **リポジトリ直下の見分け方**: `offline-deps-bundle.tar.gz`・`pnpm.tgz`・`python-wheelhouse/`・
