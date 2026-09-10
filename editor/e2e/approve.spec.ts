@@ -12,6 +12,9 @@ const SEED_ID = 'AM01_510037_20240710_交付版';
 test.use({ viewport: { width: 1440, height: 900 } });
 
 test('承認タブの「承認する」で区画が決着済み表示に変わる', async ({ page }) => {
+  // 申請(submitOnce)は負荷下で 30 秒近くかかり、既定のテスト timeout(30 秒)と競争になる。
+  // 同じ申請を含む review_tab.spec.ts と同じ余裕を持たせる。
+  test.setTimeout(120_000);
   await login(page, 'admin');
   await submitOnce(page, SEED_ID);
 
