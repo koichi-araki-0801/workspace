@@ -18,8 +18,14 @@ function Assert-ManifestPathsSafe {
   foreach ($raw in $Lines) {
     $line = $raw.Trim()
     if ($line -eq '') { continue }
-    $bad = ($line -match '^[A-Za-z]:') -or ($line -match '^[\\/]') -or
-      (($line -split '[\\/]') -contains '..')
+    # Windows はパス解決時に各要素の末尾の空白・ドットを落とすため、段（`/` `\` 区切りの
+    # 各要素）を '..' と完全一致で比べるだけでは `a/.. /outside.txt`（要素 '.. '）のような
+    # 行が検査を素通りし、削除時には `..` として解決されてリポジトリ外を指しうる。
+    # ドットと空白だけの要素（'..' / '.. ' / '...' / '.' / ' . ' 等）はすべて `..` と同じ
+    # 扱いで拒む（'.' 単体も拒む＝保守的。`git ls-files` はこの形の要素を出さない）。
+    $segments = $line -split '[\\/]'
+    $dotOnly = $segments | Where-Object { $_ -ne '' -and $_.TrimEnd(' .') -eq '' }
+    $bad = ($line -match '^[A-Za-z]:') -or ($line -match '^[\\/]') -or (@($dotOnly).Count -gt 0)
     if ($bad) { throw "MANIFEST に不正なパスがあります（相対パスのみ許可）: $line" }
   }
 }

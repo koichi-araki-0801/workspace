@@ -288,10 +288,17 @@ Describe 'Save-VerifiedReleaseBundle（取得 → 検証 → 配置。検証前�
 Describe 'Assert-ManifestPathsSafe（名簿はリポジトリ直下からの相対パスだけ）' {
   It '相対パスだけなら通す（空行は無視）' {
     { Assert-ManifestPathsSafe -Lines @('offline/setup-offline.ps1', '', 'docs/a b/c.md') } | Should Not Throw
+    { Assert-ManifestPathsSafe -Lines @('dir.name/file.ps1') } | Should Not Throw
   }
   It '.. を含む行があれば止まる' {
     { Assert-ManifestPathsSafe -Lines @('offline/x.ps1', '../outside.txt') } | Should Throw
     { Assert-ManifestPathsSafe -Lines @('a/../../b') } | Should Throw
+  }
+  It 'Windows が解決時に落とす末尾の空白・ドットだけの要素も .. と同じ扱いで止まる' {
+    { Assert-ManifestPathsSafe -Lines @('a/.. /b') } | Should Throw
+    { Assert-ManifestPathsSafe -Lines @('a/.../b') } | Should Throw
+    { Assert-ManifestPathsSafe -Lines @('./x') } | Should Throw
+    { Assert-ManifestPathsSafe -Lines @('a/. /b') } | Should Throw
   }
   It '絶対パス・UNC・ルート始まりは止まる' {
     { Assert-ManifestPathsSafe -Lines @('C:\Windows\x') } | Should Throw
