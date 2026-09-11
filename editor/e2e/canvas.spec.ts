@@ -6,7 +6,7 @@
 // (単体)の実画面版 — canvas body の `jinja-vars-highlight` クラスまで確認する。
 
 import { expect, type Page, test } from '@playwright/test';
-import { login, openEditor as openEditorAt, selectPart } from './helpers';
+import { login, openEditor as openEditorAt, readDraft, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -161,15 +161,14 @@ test('赤入れ: 文言を編集すると旧文言が取り消し線で出て、
     timeout: 10_000,
   });
 
-  // autosave 済みの draft(local モードは localStorage)に装飾が一切無い。文言そのものは
+  // autosave 済みの draft(サーバの `drafts/`)に装飾が一切無い。文言そのものは
   // 2xl 未満の幅では隠れる(`EditorTopBar.vue`)ので、待つのは可視ではなく全文を持つ
   // `title` 属性にする(`smoke.spec.ts` と同じ理由)。
   await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
     timeout: 15_000,
   });
-  const leaked = await page.evaluate(() =>
-    Object.keys(localStorage).some((k) => (localStorage.getItem(k) ?? '').includes('data-redline')),
-  );
+  const draft = await readDraft(page, SEED_ID);
+  const leaked = draft?.html.includes('data-redline') ?? false;
   expect(leaked).toBe(false);
 });
 
@@ -239,7 +238,7 @@ test('往復統合: 選択のみ非 dirty / 往復後の赤入れとコメント
   await selectPart(frame, frame.locator('.page > *').nth(2));
   await page.waitForTimeout(2_000);
   await expect(page.getByText('変更なし', { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem('editor:drafts'))).toBeNull();
+  expect(await readDraft(page, SEED_ID)).toBeNull();
 
   // コメントを付け(選択が要る)、別パーツを 1 語置換
   await selectPart(frame, frame.locator('.page > *').nth(4));
@@ -283,16 +282,7 @@ test('往復統合: 選択のみ非 dirty / 往復後の赤入れとコメント
   await expect(back.getByText('皆様')).toHaveCount(0, { timeout: 10_000 });
   await expect(page.getByText('変更なし', { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(back.locator('[data-redline]')).toHaveCount(0);
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          (id) => JSON.parse(localStorage.getItem('editor:drafts') ?? '{}')[id] ?? null,
-          SEED_ID,
-        ),
-      { timeout: 15_000 },
-    )
-    .toBeNull();
+  await expect.poll(() => readDraft(page, SEED_ID), { timeout: 15_000 }).toBeNull();
 });
 
 /** RTE でパラグラフ内の 1 語を置換する。 */

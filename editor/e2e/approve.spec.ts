@@ -36,5 +36,5 @@ test('承認タブの「承認する」で区画が決着済み表示に変わ�
   await page.locator('[data-summary="approved"]').click();
   const decided = page.locator('[data-review-item]').first();
   await expect(decided).toContainText('承認済み');
-  await expect(decided).toContainText('精査花子'); // approver の displayName(fixtures)
+  await expect(decided).toContainText('承認 花子'); // approver の displayName(sproc フェイク)
 });

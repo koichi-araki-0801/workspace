@@ -141,3 +141,17 @@ export async function submitOnce(page: Page, id: string): Promise<void> {
     timeout: 90_000,
   });
 }
+
+/**
+ * 自動保存された下書きをサーバから読む(無ければ null)。下書きの実体は
+ * `dataRoot/drafts/` にあり、localStorage には無い。
+ */
+export async function readDraft(
+  page: Page,
+  id: string,
+): Promise<{ html: string; css: string } | null> {
+  // `GET /api/templates/:id/draft` は下書きが無いと JSON の `null` を 200 で返す
+  // (`templates.routes.ts` は `getDraft` の戻りをそのまま返す)。
+  const res = await page.request.get(`/api/templates/${encodeURIComponent(id)}/draft`);
+  return (await res.json()) as { html: string; css: string } | null;
+}

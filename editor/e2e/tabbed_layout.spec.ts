@@ -4,7 +4,7 @@
 // 編集・プレビューは MainLayout の子ルートで、アプリヘッダとタブが常に見える。編集画面は
 // 残りの高さを全部使う(`h-full`)。タブを押すと、そのタブで直前に見ていた画面へ戻る。
 import { expect, type Page, test } from '@playwright/test';
-import { login, openEditor as openEditorAt } from './helpers';
+import { login, openEditor as openEditorAt, readDraft } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -173,10 +173,8 @@ test('タブを閉じた後(セッショントークンが消えた後)に開き
   await frame.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
   await expect(frame.getByText('E2E破棄')).toHaveCount(0);
   await expect(reopened.getByText('変更なし', { exact: true })).toBeVisible();
-  // 下書きの実体(local モードは localStorage の `editor:drafts`)も消えている
-  const leftover = await reopened.evaluate(() =>
-    (localStorage.getItem('editor:drafts') ?? '').includes('E2E破棄'),
-  );
+  // 下書きの実体(サーバの `drafts/`)も消えている
+  const leftover = (await readDraft(reopened, SEED_ID))?.html.includes('E2E破棄') ?? false;
   expect(leftover).toBe(false);
   // Undo で破棄した本文が戻らない(ミラーから復元した Undo スタックも捨てている)。
   await expect(reopened.getByRole('button', { name: '元に戻す' })).toBeDisabled();
