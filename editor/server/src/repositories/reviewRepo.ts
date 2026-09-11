@@ -31,7 +31,12 @@ import {
   updateReviewMeta,
   writeReview,
 } from '../files/reviewFiles.js';
-import { readFilledHtml, readFundCss, readTemplateHtml } from '../files/templateFiles.js';
+import {
+  filledExists,
+  readFilledHtml,
+  readFundCss,
+  readTemplateHtml,
+} from '../files/templateFiles.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import type { NoteMasterService } from '../sync/noteMasterService.js';
 import type { PairSyncService } from '../sync/pairSyncService.js';
@@ -64,6 +69,18 @@ function withReviewLock<T>(fn: () => Promise<T>): Promise<T> {
 /** 申請元の経路 → 書込先。編集タブは値入り HTML、作成タブは Jinja スケルトン。 */
 export function targetOfOrigin(origin: 'edit' | 'create'): ConfirmedTarget {
   return origin === 'edit' ? 'filled' : 'template';
+}
+
+/**
+ * 編集経路の申請は値入り HTML(`filled/`)が既に在ることを要求する。無いまま通すと承認が
+ * `filled/` を新規作成し、そこへ作成タブ由来の Jinja 骨組みが書かれる(値入り HTML に Jinja は
+ * 残らない、という不変則が壊れる)。申請と承認の双方で見るのは、申請後に `filled/` が消えても
+ * 承認側で止めるため。
+ */
+async function assertFilledPresentForEdit(origin: 'edit' | 'create', templateId: string) {
+  if (origin !== 'edit') return;
+  if (!(await filledExists(`${templateId}.html`)))
+    throw validation(`編集タブの申請には値入り HTML(filled/)が必要です: ${templateId}`);
 }
 
 /** 申請時点の現行版(現在のディスク本体)のコンテンツキー。承認時の並行性警告に使う。 */
@@ -163,6 +180,7 @@ export function createReviewRepo({
           `ファンドコードがテンプレート id と一致しません: ${req.fundCode} (id=${req.templateId})`,
         );
       }
+      await assertFilledPresentForEdit(req.origin, req.templateId);
       // 実行コード面は生成時に確定し、以後どの経路でも変えられない。最後の関所は承認側の
       // `applyConfirmedWrite` だが、申請の入口でも同じ照合を掛ける — 通してしまうと精査者の
       // キューに「承認できない申請」が積まれ、承認者は実行結果しか見ないため差分にも気付けない。
@@ -236,6 +254,7 @@ export function createReviewRepo({
         assertUndecided(review);
         if (review.submittedBy === actor.username && actor.role !== 'admin')
           throw forbidden('自分の申請は承認できません(職務分掌)');
+        await assertFilledPresentForEdit(review.origin, review.templateId);
 
         // 反映前に現行版を再計測し、申請時点の baseHash と食い違えば警告する(申請後に別の確定が
         // 割り込んだ = 上書き注意)。ブロックはしない。baseHash 未記録(null)の申請は警告しない。

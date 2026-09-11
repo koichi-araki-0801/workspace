@@ -72,8 +72,16 @@ d('review workflow (HTTP routes)', () => {
     'x-test-role': role,
   });
 
-  const submit = (headers: Record<string, string>, templateId: string, html: string) =>
-    app.inject({
+  /** 編集タブが読む既存の値入り HTML。別ツールが置いた状態を模す。 */
+  const SEEDED_FILLED = '<p>既存の値入り</p>';
+  const filledFile = (templateId: string) => path.join(tmp, 'filled', `${templateId}.html`);
+
+  // 編集経路(`origin:'edit'`)の申請は値入り HTML が既に在ることが前提なので先に置く。
+  const submit = (headers: Record<string, string>, templateId: string, html: string) => {
+    fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
+    if (!fs.existsSync(filledFile(templateId)))
+      fs.writeFileSync(filledFile(templateId), SEEDED_FILLED, 'utf8');
+    return app.inject({
       method: 'POST',
       url: '/review-requests',
       headers,
@@ -85,6 +93,7 @@ d('review workflow (HTTP routes)', () => {
         origin: 'edit',
       },
     });
+  };
 
   beforeAll(async () => {
     app = await buildApp();
@@ -101,7 +110,7 @@ d('review workflow (HTTP routes)', () => {
     const meta = res.json();
     expect(meta.status).toBe('pending');
     expect(meta.submittedBy).toBe('editor1');
-    expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(false);
+    expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
   });
 
   it('POST /review-requests: 不正ボディ(templateId 欠落)は 400', async () => {
@@ -276,7 +285,7 @@ d('review workflow (HTTP routes)', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().status).toBe('rejected');
-    expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(false);
+    expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
   });
 
   // 却下だけは理由を要求する。却下された申請者に何を直せばよいか伝わらないと

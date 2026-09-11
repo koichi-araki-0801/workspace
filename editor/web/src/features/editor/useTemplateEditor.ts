@@ -505,9 +505,9 @@ export function useTemplateEditor(
     // locked 状態で開始する(allowEdit の既定は false)。
     g.setEditable(allowEdit.value);
     // 赤入れの基準は確定版の値埋め込み本文(`loadForEdit` が `filled` または `toFilled` で
-    // 解決する)。REST の `getTemplate` は `filled` を常に空で返すため、`template.filled` を
-    // 直に読むと本番では基準が無く機能が黙って死ぬ。作成経路(`?created=1`)は確定版そのものが
-    // 無いので機能を出さない。
+    // 解決する)。`template.filled` を直に読まないのは、作成経路の未確定テンプレ(`pending/`)では
+    // `filled` が空になり、基準が無いまま機能が黙って死ぬため。作成経路(`?created=1`)は確定版
+    // そのものが無いので機能を出さない。
     redline.setBaseline(isCreateRoute ? undefined : res.value.confirmedBody);
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
     // `refreshPageGuides`→`refreshNoteMarkers` が位置を測り直す。

@@ -83,10 +83,23 @@ export function createTemplatePreviewService(
       if (isErr(tplRes)) return tplRes;
       const tpl = tplRes.value;
 
-      const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
-      if (isErr(sampleRes)) return sampleRes;
-      // 版種・基準日(ファイル名由来)を被せる。getSampleData はファンド単位で属性を持たない。
-      const sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
+      // 値入り HTML(`tpl.filled`)は `toFilled` がテキストノードへ値を差し込んだ本文で、
+      // 属性内 Jinja(`href="css/{{ fund.code }}.css"` 等)は round-trip 保持のため設計上
+      // 残る。描画を通す必要が無いどころか、通すと地の文の `{{` 風の字面まで nunjucks が
+      // 式として解釈して本文が静かに欠ける。本文の源も `tpl.html`(Jinja 骨組み)ではなく
+      // `tpl.filled` を採る — local ではこの 2 つが別物(REST は同じ本文が両方へ入る)。
+      // `filled` はテストのフェイクや旧応答で欠けうるので、空文字と未定義をまとめて「無し」にする。
+      const isFilled = Boolean(tpl.filled);
+
+      // 値入り HTML は nunjucks を通さないので差し込み値そのものが要らない。サンプルを
+      // 取りに行くと、値の出どころを持たない配備でも取得失敗がプレビュー全体の失敗になる。
+      let sample: SampleData = {};
+      if (!isFilled) {
+        const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
+        if (isErr(sampleRes)) return sampleRes;
+        // 版種・基準日(ファイル名由来)を被せる。getSampleData はファンド単位で属性を持たない。
+        sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
+      }
 
       const draftRes = await templates.getDraft(id);
       if (isErr(draftRes)) return draftRes;
@@ -95,13 +108,6 @@ export function createTemplatePreviewService(
       // 編集経路に任せ、ここでは採用しない(確定版でプレビューする)だけに留める。
       const draft = draftRes.value && owner.belongsToSession(id) ? draftRes.value : null;
 
-      // 値入り HTML(`tpl.filled`)は `toFilled` がテキストノードへ値を差し込んだ本文で、
-      // 属性内 Jinja(`href="css/{{ fund.code }}.css"` 等)は round-trip 保持のため設計上
-      // 残る。描画を通す必要が無いどころか、通すと地の文の `{{` 風の字面まで nunjucks が
-      // 式として解釈して本文が静かに欠ける。本文の源も `tpl.html`(Jinja 骨組み)ではなく
-      // `tpl.filled` を採る — local ではこの 2 つが別物(REST は同じ本文が両方へ入る)。
-      // `filled` はテストのフェイクや旧応答で欠けうるので、空文字と未定義をまとめて「無し」にする。
-      const isFilled = Boolean(tpl.filled);
       const baseHtml = isFilled ? tpl.filled : tpl.html;
       let restoredHtml: string;
       let css: string;

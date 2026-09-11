@@ -209,6 +209,9 @@ describe('TemplatePreviewService.loadForPreview', () => {
       expect(res.value.restoredHtml).not.toContain('skeleton');
       expect(res.value.previewDoc).not.toContain('skeleton');
       expect(res.value.renderError).toBeNull();
+      // 値入り HTML は nunjucks を通さないので差し込み値そのものが要らない。取りに行くと、
+      // 値の出どころを持たない配備では取得失敗がプレビュー全体の失敗になる。
+      expect(templates.getSampleData).not.toHaveBeenCalled();
     }
   });
 
@@ -238,6 +241,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
       );
       expect(res.value.previewDoc).toContain('下書き {{ raw }}');
       expect(res.value.hasDraft).toBe(true);
+      expect(templates.getSampleData).not.toHaveBeenCalled();
     }
   });
 });

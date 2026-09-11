@@ -36,12 +36,25 @@ d('review workflow (reviewRepo)', () => {
   const submitter = { username: 'editor1', role: 'editor' };
   const approver = { username: 'approver1', role: 'approver' };
 
+  /** 編集タブが読む既存の値入り HTML。別ツールが置いた状態を模す。 */
+  const SEEDED_FILLED = '<p>既存の値入り</p>';
+  const filledFile = (templateId: string) => path.join(tmp, 'filled', `${templateId}.html`);
+  const seedFilled = (templateId: string) => {
+    fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
+    fs.writeFileSync(filledFile(templateId), SEEDED_FILLED, 'utf8');
+  };
+
+  // 編集タブの申請は値入り HTML が既に在ることが前提(無い id は作成経路の成果物で、
+  // 承認が `filled/` へ Jinja 骨組みを書いてしまう)。既定の origin に合わせて種を撒く。
   const submit = (
     templateId: string,
     fundCode: string,
     html: string,
     origin: 'edit' | 'create' = 'edit',
-  ) => reviews.submitReview({ templateId, html, css: '.x{}', fundCode, origin }, submitter);
+  ) => {
+    if (origin === 'edit' && !fs.existsSync(filledFile(templateId))) seedFilled(templateId);
+    return reviews.submitReview({ templateId, html, css: '.x{}', fundCode, origin }, submitter);
+  };
 
   beforeAll(async () => {
     // DB(sproc)は本テストの対象外。承認直後の注記マスタ書き戻しが実 DB へ触れないよう
@@ -59,8 +72,8 @@ d('review workflow (reviewRepo)', () => {
     const meta = await submit(tplId, '111111', '<p>{{ fund.name }} 申請</p>');
     expect(meta.status).toBe('pending');
     expect(meta.submittedBy).toBe('editor1');
-    // 実ファイルは未作成、申請だけが data/reviews 配下に在る。
-    expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(false);
+    // 実ファイルは未更新(既存の値入り HTML のまま)、申請だけが data/reviews 配下に在る。
+    expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
     expect(fs.existsSync(path.join(tmp, 'reviews', meta.id, 'meta.json'))).toBe(true);
   });
 
@@ -130,7 +143,7 @@ d('review workflow (reviewRepo)', () => {
 
     expect(rejected.status).toBe('rejected');
     expect(rejected.comment).toBe('理由');
-    expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(false);
+    expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
   });
 
   it('本体(body.html)欠損の申請は承認できず、実ファイルも書かれない', async () => {
@@ -142,8 +155,8 @@ d('review workflow (reviewRepo)', () => {
     await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
       kind: 'unexpected',
     });
-    // 空内容での上書きが起きていない(実ファイル未作成)。
-    expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(false);
+    // 空内容での上書きが起きていない(既存の値入り HTML のまま)。
+    expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
     // 詳細取得も同様にエラーになるが、一覧(メタのみ)には出続ける。
     await expect(reviews.getReview(meta.id, approver)).rejects.toMatchObject({
       kind: 'unexpected',
@@ -183,10 +196,10 @@ d('review workflow (reviewRepo)', () => {
     expect(fulfilledCount).toBe(1);
     for (const r of results)
       if (r.status === 'rejected') expect(r.reason).toMatchObject({ kind: 'conflict' });
-    // 確定した状態と実ファイルの有無が一致する(反映済みなのに rejected、が起きない)。
+    // 確定した状態と実ファイルの内容が一致する(反映済みなのに rejected、が起きない)。
     const after = await reviews.getReview(meta.id, approver);
-    const fileExists = fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`));
-    expect(fileExists).toBe(after.status === 'approved');
+    const written = fs.readFileSync(filledFile(tplId), 'utf8');
+    expect(written !== SEEDED_FILLED).toBe(after.status === 'approved');
     expect(['approved', 'rejected']).toContain(after.status);
   });
 
@@ -258,6 +271,33 @@ d('review workflow (reviewRepo)', () => {
       const result = await reviews.approveReview(meta.id, {}, approver);
       expect(result.meta).toBeTruthy();
     });
+  });
+
+  // ── 編集経路は値入り HTML の存在が前提 ──
+  it("filled 不在 + origin='edit' の申請は拒否される", async () => {
+    const tplId = 'AM01_202020_20250101_交付版';
+    expect(fs.existsSync(filledFile(tplId))).toBe(false);
+    await expect(
+      reviews.submitReview(
+        {
+          templateId: tplId,
+          html: '<p>骨組み</p>',
+          css: '.x{}',
+          fundCode: '202020',
+          origin: 'edit',
+        },
+        submitter,
+      ),
+    ).rejects.toMatchObject({ kind: 'validation' });
+    // 拒否は申請の作成前に起きる(未処理の申請が増えない)。
+    expect(fs.existsSync(filledFile(tplId))).toBe(false);
+  });
+
+  it("filled 不在でも origin='create' の申請は通る", async () => {
+    const tplId = 'AM01_212121_20250101_交付版';
+    const meta = await submit(tplId, '212121', '<p>{{ fund.name }}</p>', 'create');
+    expect(meta.status).toBe('pending');
+    expect(fs.existsSync(filledFile(tplId))).toBe(false);
   });
 
   // ── 承認の書込先は申請の `origin` で決まる ──

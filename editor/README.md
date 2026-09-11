@@ -166,7 +166,8 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 | `HTTPS_PFX_PASSPHRASE` | （pfx 隣の `.pass`） | PFX のパスフレーズ |
 | `COOKIE_SECURE` | 本番=true | セッション cookie の Secure 属性（HTTP フォールバック時のみ false） |
 | `DATA_ROOT` | `../../editor-data` | テンプレ git リポジトリのルート（下の `*_DIR` の基準） |
-| `TEMPLATES_DIR` | `<DATA_ROOT>/templates` | テンプレ .html 置き場 |
+| `TEMPLATES_DIR` | `<DATA_ROOT>/templates` | テンプレ .html 置き場（作成タブ経由の Jinja スケルトン） |
+| `FILLED_DIR` | `<DATA_ROOT>/filled` | 値入り HTML 置き場（編集タブが読み書きする本文） |
 | `CSS_DIR` | `<DATA_ROOT>/css` | ファンド毎 CSS 置き場 |
 | `DRAFTS_DIR` | `<DATA_ROOT>/drafts` | オートセーブ下書きの作業コピー |
 | `WEB_DIR` | `web/dist` | 本番配信する build 済み SPA |
@@ -186,6 +187,12 @@ REST モード（`start.bat rest`）で効く認証/DB 系:
 | `DB_ODBC_DRIVER` | `ODBC Driver 17 for SQL Server` | ODBC ドライバ |
 
 > DB 接続・DDL/sproc の詳細は **[server/db/README.md](./server/db/README.md)** を参照（Windows 統合認証・SQL Server 2012 互換）。
+
+### 既存配備の移行（`filled/` の配置）
+
+編集タブは `filled/` の値入り HTML だけを読む。editor 自身は値を持たないので、既存配備では
+別ツールで `filled/<テンプレID>.html` を先に配置すること。`templates/` にしか無いテンプレは
+一覧・履歴・比較のいずれにも出ない（`templates/` 時代の版履歴も画面には出ない）。
 
 ## 既知の制限
 

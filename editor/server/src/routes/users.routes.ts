@@ -16,8 +16,8 @@ export const usersRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'users'> }> = as
   const { users } = opts.deps;
 
   // ⚠ 資格情報・ユーザー台帳を操作する 4 ルートには `requireIdentifiedUser` を重ねる。
-  // `requireAdmin` は `config.requireAuth` を見て素通りするため、`AUTH_REQUIRED` 未設定の
-  // 既定 local モードでは role 検査が丸ごと消える。`requireIdentifiedUser` はフラグを見ず、
+  // `requireAdmin` は `config.requireAuth` を見て素通りするため、`AUTH_REQUIRED=false` を
+  // 明示した local 配備では role 検査が丸ごと消える。`requireIdentifiedUser` はフラグを見ず、
   // `request.user` が無ければ 401 にする(local モードにサーバ側アカウントは無いので 401 が正)。
   // この重ね掛けの網羅は `routeGuards.ts` の LOCAL_MODE_ENFORCED が起動時に強制する。
   app.get(

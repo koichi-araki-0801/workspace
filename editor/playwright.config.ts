@@ -1,5 +1,9 @@
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+import { E2E_REST_WEB_PORT } from './server/scripts/e2e-rest-paths';
+
+/** Vite dev の待受。定数を e2e サーバ側と共有し、片方だけ動いてずれる形を作らない。 */
+const webUrl = `http://localhost:${E2E_REST_WEB_PORT}`;
 
 /**
  * E2E config. 既定 project(chromium/docs)は sproc フェイク + 一時 dataRoot のサーバ(24680)と
@@ -27,7 +31,7 @@ export default defineConfig({
   retries: 0,
   reporter: process.env.CI ? [['html', { open: 'never' }], ['list']] : 'list',
   use: {
-    baseURL: 'http://localhost:24681',
+    baseURL: webUrl,
     // retries: 0 では「初回失敗」の trace を残さないと再現の手掛かりが無くなるため retain-on-failure にする。
     trace: 'retain-on-failure',
   },
@@ -62,16 +66,22 @@ export default defineConfig({
       // (`localhost` は環境により `::1` へ解決されて到達しない)。
       url: 'http://127.0.0.1:24680/api/health',
       reuseExistingServer: false,
+      // 起動途中で落ちたときに終了時の出力が要る(既定の 'ignore' では原因が残らない)。
+      stdout: 'pipe',
+      stderr: 'pipe',
       timeout: 120_000,
     },
     {
-      command: 'pnpm --filter web exec vite --port 24681',
+      command: `pnpm --filter web exec vite --port ${E2E_REST_WEB_PORT}`,
       cwd: fileURLToPath(new URL('..', import.meta.url)),
       // `VITE_API_MODE=rest` は既定と同じだが、呼び出し元シェルの `local` 指定に引きずられない
       // よう明示する。`API_PROXY_TARGET` は vite.config.ts の proxy 先の上書き。
       env: { VITE_API_MODE: 'rest', API_PROXY_TARGET: 'http://127.0.0.1:24680' },
-      url: 'http://localhost:24681',
+      url: webUrl,
       reuseExistingServer: false,
+      // Vite は実行中に黙って落ちたことがある。終了時の出力を捕まえて原因を残す。
+      stdout: 'pipe',
+      stderr: 'pipe',
       timeout: 120_000,
     },
   ],

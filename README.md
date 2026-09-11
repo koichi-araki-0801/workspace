@@ -115,5 +115,6 @@ pnpm --filter pie-chart run baseline:accept
 以後、出力変更を意図した確定時だけ同じ 2 コマンドで基準を更新する。詳細と注意（未検証の変更を
 基準に凍結しない）は `pie-chart/README.md` の「検証」節が正典。GitHub Actions では `out/_baseline`
 を持てないため、この 2 段は GH の job に含めない（`scripts/ci-affected.test.mjs` の免除リスト）。
-e2e は sproc フェイクと一時 dataRoot で走るため SQL Server は不要。
 `pnpm run ci:affected`（pre-push）は pie-chart 領域に触れたときだけこの 2 段を走らせる。
+
+なお `ci` に含まれる e2e は sproc フェイクと一時 dataRoot で走るため、SQL Server は不要。
