@@ -222,7 +222,23 @@ editor-data/
 - **編集タブ文書を nunjucks で再描画する**: 値入り HTML に Jinja は残らないので不要。
 - **ファンド名 JSON をサーバ起動時に生成**: 更新に再起動が要る。sessionStorage でよい。
 
-## 12. 実装順（計画で分割する単位）
+## 12. 実装計画での補正
+
+計画（`docs/superpowers/plans/2026-09-11-editor-db-default.md`）を書く際に実装を読んで次を補正した。
+
+- `listTemplates` は `filled/` に加えて `pending/`（生成直後の未確定実体、`status:'draft'`）も
+  返す。作成タブは生成後に `/edit/:id` へ 1 回遷移するだけで、一覧から外すと生成直後に
+  ブラウザを閉じた時点でその id へ到達する手段が消える（現行の設計判断を維持）。
+  `templates/` にしか無い id は一覧に出さない。
+- `getDropdownOptions` / `listSeriesFunds` は台帳（sproc）由来のままにする。5.2 節の
+  「`filled/` だけを走査」はファイル一覧 `listTemplates` にだけ当たる。
+- `Template.filled` の判定は `Boolean(tpl.filled)`（空文字と未定義をまとめて「無し」）。
+- e2e のユーザー切替は `test()` の分割でなく、`login()` ヘルパが cookie を捨ててから
+  ログイン画面へ行く形にする。既存 spec の 1 テスト内切替がそのまま動き、書き換え量が減る。
+- `ConfirmSaveRequest`（local 実装の確定保存の入力）に `origin` を足し、local も承認の
+  `origin` で `filled` / `html` を書き分ける。
+
+## 13. 実装順（計画で分割する単位）
 
 1. server: `filledDir` とファイル層 → `templateRepo` の一覧・取得 → 申請・承認の `target` →
    履歴・ペア同期・注記マスタ → `requireAuth` 既定 → e2e サーバの seed とポート。
