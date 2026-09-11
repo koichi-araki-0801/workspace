@@ -19,6 +19,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // (専用の `NOTES_DIR` という設定キーは存在しない)。
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-notes-routes-'));
 process.env.DATA_ROOT = tmp;
+// 認証ガードを no-op にし、下の `as()` が注入する x-test-user ヘッダだけで actor を駆動する
+// (history.routes.test.ts と同方針)。
+process.env.AUTH_REQUIRED = 'false';
 
 // ⚠ `routeGuards.js` は `middleware/auth.js` 経由で `config.js` を静的 import する。ESM は
 // import 先を先に評価するため、これを本ファイル先頭の静的 import に置くと(過去の事故)

@@ -145,12 +145,12 @@ describe('parts.routes', () => {
 
   // `actor(request)` の `req.user?.username ?? 'system'` は、`AUTH_REQUIRED=true` の他テストでは
   // `requireAuth`/`requireEditor` を通った後にしか呼ばれないため `request.user` が必ず埋まっており
-  // 到達しない。ローカルモード(`AUTH_REQUIRED` 未設定)は両ガードとも no-op で `request.user` を
+  // 到達しない。ローカルモード(`AUTH_REQUIRED=false`)は両ガードとも no-op で `request.user` を
   // 設定しないため、この 1 件だけ `config.ts` を env 差し替え + `vi.resetModules()` で読み直し、
   // 別インスタンスの `partsRoutes` に対して未ログインのまま叩く(`config.paths.test.ts` と同方針)。
-  it('ローカルモード(AUTH_REQUIRED 未設定)は未ログインのまま actor を system として記録する', async () => {
+  it('ローカルモード(AUTH_REQUIRED=false)は未ログインのまま actor を system として記録する', async () => {
     const saved = process.env.AUTH_REQUIRED;
-    delete process.env.AUTH_REQUIRED;
+    process.env.AUTH_REQUIRED = 'false';
     vi.resetModules();
     try {
       const Fastify = (await import('fastify')).default;

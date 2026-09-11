@@ -1,5 +1,5 @@
 // =============================================================================
-// generate.routes.local.test.ts — local モード(AUTH_REQUIRED 未設定)の生成経路
+// generate.routes.local.test.ts — local モード(AUTH_REQUIRED=false)の生成経路
 // =============================================================================
 // `generate.routes.test.ts` は `AUTH_REQUIRED=true` で「認証済み利用者が確定領域へ
 // 書けないこと」を検証するが、`request.user` を onRequest で必ず注入するため
@@ -28,11 +28,12 @@ process.env.PENDING_DIR = path.join(root, 'data', 'pending');
 // `HISTORY_DIR` という設定キーは存在しない。作成履歴は `config.logging.dir` 配下へ書かれる
 // (local モードでは呼ばれない想定だが、逸れ先を tmp に固定しておく)。
 process.env.LOG_DIR = path.join(root, 'logs');
+process.env.AUTH_REQUIRED = 'false';
 
 const templatesDir = path.join(root, 'data', 'templates');
 const pendingDir = path.join(root, 'data', 'pending');
 
-describe('POST /api/generate は local モード(AUTH_REQUIRED 未設定)では台帳にも pending にも触れない', () => {
+describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では台帳にも pending にも触れない', () => {
   let app: FastifyInstance;
   // `SP.template`(生成登録)を呼んだ回数だけを数える。注記マスタ適用(`SP.noteMaster` の
   // `取得`)は生成のたび呼ばれる正当な経路なので、ここでは対象外にする(「台帳(sproc)も

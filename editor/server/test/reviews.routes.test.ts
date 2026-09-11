@@ -26,6 +26,9 @@ process.env.PENDING_DIR = path.join(tmp, 'pending');
 // 監査ログの DB 複写は setAuditSink を呼ぶ buildApp を通らないと realSproc のままなので、
 // env が立っていると実 DB へ出る。
 process.env.AUDIT_DB = 'false';
+// 認可ゲート(requireApprover 等)を no-op にし、下の buildApp が注入する x-test-user/
+// x-test-role ヘッダだけでロール依存の挙動を駆動する(冒頭コメント参照)。
+process.env.AUTH_REQUIRED = 'false';
 
 let gitAvailable = true;
 try {

@@ -196,10 +196,10 @@ describe('数値 env の形式検証', () => {
 });
 
 describe('startup assertion (config module evaluation)', () => {
-  it('refuses to load with HOST=0.0.0.0 and no AUTH_REQUIRED', async () => {
-    await expect(
-      importConfigWithEnv({ HOST: '0.0.0.0', AUTH_REQUIRED: undefined }),
-    ).rejects.toThrow(/AUTH_REQUIRED=true/);
+  it('refuses to load with HOST=0.0.0.0 and an explicit AUTH_REQUIRED=false', async () => {
+    await expect(importConfigWithEnv({ HOST: '0.0.0.0', AUTH_REQUIRED: 'false' })).rejects.toThrow(
+      /AUTH_REQUIRED=true/,
+    );
   });
 
   // TLS 必須化により、認証だけでは足りない。証明書か明示の平文 opt-in が要る。
@@ -238,9 +238,14 @@ describe('startup assertion (config module evaluation)', () => {
     );
   });
 
-  it('keeps the loopback default (no HOST) loading without authentication', async () => {
+  it('requires authentication by default (AUTH_REQUIRED unset)', async () => {
     const mod = await importConfigWithEnv({ HOST: undefined, AUTH_REQUIRED: undefined });
     expect(mod.config.host).toBe('127.0.0.1');
+    expect(mod.config.requireAuth).toBe(true);
+  });
+
+  it('turns authentication off only with an explicit AUTH_REQUIRED=false', async () => {
+    const mod = await importConfigWithEnv({ HOST: undefined, AUTH_REQUIRED: 'false' });
     expect(mod.config.requireAuth).toBe(false);
   });
 });

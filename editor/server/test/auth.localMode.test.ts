@@ -20,8 +20,9 @@ import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.j
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-local-mode-'));
 process.env.DATA_ROOT = tmp;
-// config は起動時に env を読む。「未設定」の配備を再現するため、値の代入ではなく削除する。
-delete process.env.AUTH_REQUIRED;
+// config は起動時に env を読む。認証を課さない配備は `AUTH_REQUIRED=false` を明示した
+// local モードだけなので、その形を再現する。
+process.env.AUTH_REQUIRED = 'false';
 
 const initPassword = vi.fn(async (..._args: unknown[]) => {});
 

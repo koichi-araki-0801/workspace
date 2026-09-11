@@ -18,6 +18,9 @@ process.env.DATA_ROOT = tmp;
 process.env.GIT_REPO_DIR = tmp;
 process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
 process.env.CSS_DIR = path.join(tmp, 'css');
+// history ルートは requireAuth しか課さない(下の buildApp コメント参照)。ロールでなく
+// user 名だけで actor を駆動したいので、認証を課さない配備を明示する。
+process.env.AUTH_REQUIRED = 'false';
 // PDF 出力記録は git ではなく `<LOG_DIR>/history/pdf.jsonl` へ書く。逸らさないとテストの度に
 // リポジトリ作業ツリーへ `editor/logs/history/pdf.jsonl` が生える。
 process.env.LOG_DIR = path.join(tmp, 'logs');
