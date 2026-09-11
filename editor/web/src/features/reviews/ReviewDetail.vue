@@ -294,9 +294,9 @@ async function openPdf() {
   if (!review.value) return;
   pdfGenerating.value = true;
   try {
-    // 記入済みインスタンスは描画済みの文書。nunjucks はコンパイラなので、通すと地の文の
-    // `{{` 風の字面まで式として解釈され本文が静かに欠ける。diff 由来の申請版本文は
-    // 描画前のテンプレ本文なので従来どおり描画を通す。
+    // 記入済みインスタンスは描画済みの文書なので描画を通さない(理由は
+    // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所)。
+    // diff 由来の申請版本文は描画前のテンプレ本文なので従来どおり描画を通す。
     const filledHtml = review.value.filledHtml;
     const html = filledHtml ?? afterBodyHtml.value;
     const res = await preview.renderPdf(html, cssAfter.value, {}, false, filledHtml !== undefined);

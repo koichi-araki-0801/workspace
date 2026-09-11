@@ -182,13 +182,17 @@ describe('TemplatePreviewService.loadForPreview', () => {
     if (isErr(resB)) expect(resB.error.kind).toBe('not_found');
   });
 
-  it('filled が非空のテンプレは隔離描画を通さず、本文をそのまま文書にする', async () => {
+  // 編集タブの本文は値入り HTML(`filled`)で、`html` は Jinja 骨組み。local ではこの 2 つが
+  // 別物なので、フェイクも別内容にして「どちらを源にしたか」が判別できる形にする。
+  const filledTpl: Template = {
+    ...tpl,
+    html: '<html><head><title>骨組み</title></head><body><p>{{ raw }} skeleton</p></body></html>',
+    filled:
+      '<html><head><title>値入り</title></head><body><p>値入り本文 {{ raw }}</p></body></html>',
+  };
+
+  it('filled が非空のテンプレは隔離描画を通さず、filled を本文にする', async () => {
     // `{{ raw }}` は値入り HTML に紛れた地の文。描画を通すと空になる。
-    const filledTpl: Template = {
-      ...tpl,
-      html: '<html><body><p>値入り本文 {{ raw }}</p></body></html>',
-      filled: '<html><body><p>値入り本文 {{ raw }}</p></body></html>',
-    };
     const templates = {
       getTemplate: vi.fn(async () => ok(filledTpl)),
       getSampleData: vi.fn(async () => ok({})),
@@ -199,14 +203,16 @@ describe('TemplatePreviewService.loadForPreview', () => {
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       expect(res.value.isFilled).toBe(true);
-      expect(res.value.restoredHtml).toBe(filledTpl.html);
+      expect(res.value.restoredHtml).toBe(filledTpl.filled);
       expect(res.value.previewDoc).toContain('値入り本文 {{ raw }}');
+      // Jinja 骨組み(`html`)側は本文にも文書にも出てこない。
+      expect(res.value.restoredHtml).not.toContain('skeleton');
+      expect(res.value.previewDoc).not.toContain('skeleton');
       expect(res.value.renderError).toBeNull();
     }
   });
 
-  it('filled が非空のテンプレの下書きは Jinja 復元を通さず本文を差し替える', async () => {
-    const filledTpl: Template = { ...tpl, filled: tpl.html };
+  it('filled が非空のテンプレの下書きは Jinja 復元を通さず filled の本文を差し替える', async () => {
     const templates = {
       getTemplate: vi.fn(async () => ok(filledTpl)),
       getSampleData: vi.fn(async () => ok({})),
@@ -225,8 +231,11 @@ describe('TemplatePreviewService.loadForPreview', () => {
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       // toTemplate を通すと `{{ raw }}` はチップ復元の対象外なので残るが、本文全体が
-      // 整形(pretty)される。整形されずそのまま差し替わっていることを body で主張する。
-      expect(res.value.restoredHtml).toBe('<html><body><p>下書き {{ raw }}</p></body></html>');
+      // 整形(pretty)される。整形されずそのまま差し替わっていること、および body の外側
+      // (`<head>`)が `filled` 由来で、Jinja 骨組み(`html`)由来でないことを主張する。
+      expect(res.value.restoredHtml).toBe(
+        '<html><head><title>値入り</title></head><body><p>下書き {{ raw }}</p></body></html>',
+      );
       expect(res.value.previewDoc).toContain('下書き {{ raw }}');
       expect(res.value.hasDraft).toBe(true);
     }

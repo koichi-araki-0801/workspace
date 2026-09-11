@@ -50,7 +50,7 @@ function findExternalRefsInDom(root: Element): string[] {
 /**
  * テンプレ HTML+CSS+サンプルデータから、サーバ PDF ビルドへ渡せる安全な文書を組み立てる。
  * `cropMarks` が true のときトンボ用 CSS(`CROP_MARKS_CSS`)を css へ連結する。
- * `skipJinja` は `html` が値入り HTML(Jinja を持たない)のとき true にする。
+ * `skipJinja` は `html` が値入り HTML(編集タブの本文)のとき true にする。
  */
 export async function renderPdfDocument(
   html: string,
@@ -58,8 +58,8 @@ export async function renderPdfDocument(
   sample: SampleData,
   opts?: { cropMarks?: boolean; skipJinja?: boolean },
 ): Promise<Result<{ html: string; css: string }>> {
-  // 値入り HTML(編集タブの本文。Jinja を持たない)は隔離描画を通さない — nunjucks は
-  // コンパイラで、本文中の `{{` 風の字面まで式として解釈してしまう。
+  // 値入り HTML は隔離描画を通さない(理由は `features/preview/services/
+  // templatePreviewService.ts` の `isFilled` の定義箇所)。
   let renderedHtml: string;
   if (opts?.skipJinja) {
     renderedHtml = html;

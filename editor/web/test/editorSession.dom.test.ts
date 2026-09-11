@@ -386,7 +386,7 @@ describe('Undo ミラーのユーザー分離', () => {
   });
 
   it('VITE_API_MODE 未設定でも Undo ミラーはログイン ID でスコープされる(既定は rest)', () => {
-    vi.stubEnv('VITE_API_MODE', '');
+    vi.stubEnv('VITE_API_MODE', undefined);
     setUndoUserScope('alice');
     const keyA = undoStacksKey();
     const s = useEditorSessionStore().ensure('t1');

@@ -60,7 +60,7 @@ interface TemplatePreviewService {
   /**
    * テンプレートをサーバー経由で PDF blob にレンダリングする。`cropMarks` が true のとき
    * トンボ用 CSS(`CROP_MARKS_CSS`)を css へ連結する(プレビュー表示と同じ見た目にする)。
-   * `skipJinja` は値入り HTML のとき true。
+   * `skipJinja` は値入り HTML(`isFilled`)のとき true。
    */
   renderPdf(
     html: string,
@@ -95,14 +95,20 @@ export function createTemplatePreviewService(
       // 編集経路に任せ、ここでは採用しない(確定版でプレビューする)だけに留める。
       const draft = draftRes.value && owner.belongsToSession(id) ? draftRes.value : null;
 
+      // 値入り HTML(`tpl.filled`)は `toFilled` がテキストノードへ値を差し込んだ本文で、
+      // 属性内 Jinja(`href="css/{{ fund.code }}.css"` 等)は round-trip 保持のため設計上
+      // 残る。描画を通す必要が無いどころか、通すと地の文の `{{` 風の字面まで nunjucks が
+      // 式として解釈して本文が静かに欠ける。本文の源も `tpl.html`(Jinja 骨組み)ではなく
+      // `tpl.filled` を採る — local ではこの 2 つが別物(REST は同じ本文が両方へ入る)。
       // `filled` はテストのフェイクや旧応答で欠けうるので、空文字と未定義をまとめて「無し」にする。
       const isFilled = Boolean(tpl.filled);
+      const baseHtml = isFilled ? tpl.filled : tpl.html;
       let restoredHtml: string;
       let css: string;
       if (draft && isFilled) {
         // 値入り HTML の下書きは値を保った本文そのもの。Jinja 復元は掛けない(掛けると
         // round-trip 用のチップから Jinja が戻り、承認で filled/ に Jinja が書かれる)。
-        restoredHtml = replaceBodyInner(tpl.html, draft.html);
+        restoredHtml = replaceBodyInner(baseHtml, draft.html);
         css = formatCss(draft.css);
       } else if (draft) {
         // Jinja 復元(DOM 重処理)は Worker(linkedom)で実行しメインを塞がない。`pretty` で
@@ -118,20 +124,19 @@ export function createTemplatePreviewService(
         } catch (e) {
           return err(validation(RENDER_ERROR_MSG, { cause: e }));
         }
-        restoredHtml = replaceBodyInner(tpl.html, restoredBody);
+        restoredHtml = replaceBodyInner(baseHtml, restoredBody);
         css = formatCss(draft.css);
       } else {
-        // draft 無し(編集前)は生テンプレをそのまま使う。生 Jinja HTML は整形しない(構文破壊
+        // draft 無し(編集前)は確定版の本文をそのまま使う。生 Jinja HTML は整形しない(構文破壊
         // 回避)。CSS は静的なので整形して保存形を揃える(整形済みでも冪等)。
-        restoredHtml = tpl.html;
+        restoredHtml = baseHtml;
         css = formatCss(tpl.css);
       }
 
       let previewDoc = '';
       let renderError: string | null = null;
       if (isFilled) {
-        // 値入り HTML はすでに描画済みの本文。nunjucks はコンパイラなので、通すと地の文の
-        // `{{` 風の字面まで式として解釈され、本文が静かに欠ける。
+        // 値入り HTML を描画へ通さない理由は上の `isFilled` の定義箇所を参照。
         previewDoc = assemblePreviewDocument(restoredHtml, css);
       } else {
         // 描画は opaque オリジンの iframe(`renderHostClient`)、サニタイズ + 文書組み立て
