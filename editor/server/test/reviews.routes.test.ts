@@ -19,6 +19,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-review-routes-'));
 process.env.DATA_ROOT = tmp;
 process.env.GIT_REPO_DIR = tmp;
 process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
+process.env.FILLED_DIR = path.join(tmp, 'filled');
 process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.REVIEWS_DIR = path.join(tmp, 'reviews');
 process.env.PENDING_DIR = path.join(tmp, 'pending');
@@ -97,7 +98,7 @@ d('review workflow (HTTP routes)', () => {
     const meta = res.json();
     expect(meta.status).toBe('pending');
     expect(meta.submittedBy).toBe('editor1');
-    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
+    expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(false);
   });
 
   it('POST /review-requests: 不正ボディ(templateId 欠落)は 400', async () => {
@@ -181,7 +182,7 @@ d('review workflow (HTTP routes)', () => {
       payload: { comment: 'ok' },
     });
     expect(res.statusCode).toBe(200);
-    const written = fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8');
+    const written = fs.readFileSync(path.join(tmp, 'filled', `${tplId}.html`), 'utf8');
     expect(written).toContain('反映済');
 
     const got = await app.inject({
@@ -272,7 +273,7 @@ d('review workflow (HTTP routes)', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().status).toBe('rejected');
-    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
+    expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(false);
   });
 
   // 却下だけは理由を要求する。却下された申請者に何を直せばよいか伝わらないと

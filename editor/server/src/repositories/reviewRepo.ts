@@ -31,11 +31,11 @@ import {
   updateReviewMeta,
   writeReview,
 } from '../files/reviewFiles.js';
-import { readFundCss, readTemplateHtml } from '../files/templateFiles.js';
+import { readFilledHtml, readFundCss, readTemplateHtml } from '../files/templateFiles.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import type { NoteMasterService } from '../sync/noteMasterService.js';
 import type { PairSyncService } from '../sync/pairSyncService.js';
-import { baselineTemplateHtml } from './confirmedWrite.js';
+import { baselineTemplateHtml, type ConfirmedTarget } from './confirmedWrite.js';
 import { applyConfirmedSave } from './templateRepo.js';
 
 /** 操作主体(認証済みユーザ)。ロールは自己承認/閲覧範囲の判定に使う。 */
@@ -61,11 +61,23 @@ function withReviewLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** 申請元の経路 → 書込先。編集タブは値入り HTML、作成タブは Jinja スケルトン。 */
+export function targetOfOrigin(origin: 'edit' | 'create'): ConfirmedTarget {
+  return origin === 'edit' ? 'filled' : 'template';
+}
+
 /** 申請時点の現行版(現在のディスク本体)のコンテンツキー。承認時の並行性警告に使う。 */
-async function currentBaseHash(templateId: string, fundCode: string): Promise<string> {
+async function currentBaseHash(
+  templateId: string,
+  fundCode: string,
+  target: ConfirmedTarget,
+): Promise<string> {
   const attrs = parseTemplateFileName(`${templateId}.html`);
   const fileName = attrs ? templateFileName(attrs) : `${templateId}.html`;
-  const [html, css] = await Promise.all([readTemplateHtml(fileName), readFundCss(fundCode)]);
+  const [html, css] = await Promise.all([
+    target === 'filled' ? readFilledHtml(fileName) : readTemplateHtml(fileName),
+    readFundCss(fundCode),
+  ]);
   return createHash('sha1').update(html).update('\x00').update(css).digest('hex');
 }
 
@@ -156,7 +168,8 @@ export function createReviewRepo({
       // キューに「承認できない申請」が積まれ、承認者は実行結果しか見ないため差分にも気付けない。
       // 基準は確定テンプレ → 生成物(pending)の順(確定優先)で、いずれも `data-opaque` 等を
       // 復号した実体に対して比較する。
-      assertTemplateScriptsUnchanged(await baselineTemplateHtml(req.templateId), req.html, {
+      const target = targetOfOrigin(req.origin);
+      assertTemplateScriptsUnchanged(await baselineTemplateHtml(req.templateId, target), req.html, {
         templateId: req.templateId,
         where: 'review-submit',
       });
@@ -180,7 +193,7 @@ export function createReviewRepo({
         reviewedBy: null,
         reviewedAt: null,
         comment: null,
-        baseHash: await currentBaseHash(req.templateId, req.fundCode),
+        baseHash: await currentBaseHash(req.templateId, req.fundCode, target),
         ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
         html: req.html,
         css: req.css,
@@ -226,9 +239,10 @@ export function createReviewRepo({
 
         // 反映前に現行版を再計測し、申請時点の baseHash と食い違えば警告する(申請後に別の確定が
         // 割り込んだ = 上書き注意)。ブロックはしない。baseHash 未記録(null)の申請は警告しない。
+        const target = targetOfOrigin(review.origin);
         const staleWarning =
           review.baseHash !== null &&
-          review.baseHash !== (await currentBaseHash(review.templateId, review.fundCode));
+          review.baseHash !== (await currentBaseHash(review.templateId, review.fundCode, target));
 
         // git コミットに申請者・承認者の双方を残す(承認者を author、申請者を Co-Authored-By)。
         const commitMessage =
@@ -236,6 +250,7 @@ export function createReviewRepo({
           `Co-Authored-By: ${review.submittedBy} <${review.submittedBy}@editor.local>`;
         const meta = await applyConfirmedSave({
           templateId: review.templateId,
+          target,
           html: review.html,
           css: review.css,
           fundCode: review.fundCode,
@@ -250,13 +265,14 @@ export function createReviewRepo({
         });
         // 承認の完結後に交付版⇄全体版のパーツ自動同期を掛ける(ベストエフォート。失敗しても
         // 承認は成立済みで、結果/理由は summary として UI へ返す)。ペア対象外なら null。
-        const sync = await pairSync.syncPairAfterConfirm(review.templateId, actor.username);
+        const sync = await pairSync.syncPairAfterConfirm(review.templateId, actor.username, target);
         // 続けて `次回反映既定`=`反映` パーツの注記マスタ書き戻し(同じくベストエフォート)。
         // 契機は承認のみ = ペア同期で機械転写された側の版種はここでは書き戻さない
         // (その版種自身の承認時に昇格する)。
         const noteMasterResult = await noteMaster.reflectNoteMasterAfterConfirm(
           review.templateId,
           actor.username,
+          target,
         );
         return { meta, staleWarning, sync, noteMaster: noteMasterResult };
       });

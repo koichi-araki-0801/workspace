@@ -123,6 +123,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     await expect(
       confirmedWrite.applyConfirmedWrite({
         kind: 'pair-sync',
+        target: 'template',
         targetTemplateId: OTHER,
         sourceTemplateId: SOURCE,
         html: '<p>のっとり</p>',
@@ -138,6 +139,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     await expect(
       confirmedWrite.applyConfirmedWrite({
         kind: 'review-approve',
+        target: 'template',
         templateId: SOURCE,
         fundCode: '999999',
         html: '<p>x</p>',
@@ -155,6 +157,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     await expect(
       confirmedWrite.applyConfirmedWrite({
         kind: 'review-approve',
+        target: 'template',
         templateId: SOURCE,
         fundCode: '510037',
         html: '<html><script>col.width=1</script><script>fetch("/x")</script></html>',
@@ -171,6 +174,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     await expect(
       confirmedWrite.applyConfirmedWrite({
         kind: 'pair-sync',
+        target: 'template',
         targetTemplateId: PAIR,
         sourceTemplateId: SOURCE,
         html: '<html><p>ペア側</p><script>fetch("/x")</script></html>',
@@ -187,6 +191,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     await expect(
       confirmedWrite.applyConfirmedWrite({
         kind: 'pair-sync',
+        target: 'template',
         targetTemplateId: PAIR,
         sourceTemplateId: SOURCE,
         html: '<p>転写後</p>',
@@ -204,6 +209,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     seed(PAIR, '<p>元の内容</p>');
     await confirmedWrite.applyConfirmedWrite({
       kind: 'pair-sync',
+      target: 'template',
       targetTemplateId: PAIR,
       sourceTemplateId: SOURCE,
       html: '<p>転写後</p>',

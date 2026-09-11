@@ -46,6 +46,7 @@ const confirmedWrite = await import('../src/repositories/confirmedWrite.js');
 const approve = () =>
   confirmedWrite.applyConfirmedWrite({
     kind: 'review-approve',
+    target: 'template',
     templateId: TEMPLATE_ID,
     fundCode: FUND,
     html: '<p>新しい本文</p>',
@@ -91,6 +92,7 @@ describe('applyConfirmedWrite の補償', () => {
     await expect(
       confirmedWrite.applyConfirmedWrite({
         kind: 'pair-sync',
+        target: 'template',
         targetTemplateId: PAIR,
         sourceTemplateId: TEMPLATE_ID,
         html: '<p>転写後</p>',

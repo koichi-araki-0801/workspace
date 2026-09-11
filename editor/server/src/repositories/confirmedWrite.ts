@@ -1,11 +1,11 @@
 // =============================================================================
 // confirmedWrite.ts — 確定テンプレ実体へ書き込む唯一のモジュール(チョークポイント)
 // =============================================================================
-// `templatesDir` / `cssDir` へバイト列を書けるのはこのファイルだけである。書込関数を
+// `templatesDir` / `filledDir` / `cssDir` へバイト列を書けるのはこのファイルだけである。書込関数を
 // `files/templateFiles.ts` の素の export に置くと、承認ゲートを通らない 2 つの
 // 呼び出し元(`routes/generate.routes.ts` / `sync/pairSyncService.ts`)が直接叩ける。
 // 「唯一の関所」を doc comment ではなくモジュール境界で強制するのが本ファイルの役割で、
-// `atomicWrite` と `templatePath`/`cssPath` の組み合わせを持つファイルがここ 1 つで
+// `atomicWrite` と `templatePath`/`filledPath`/`cssPath` の組み合わせを持つファイルがここ 1 つで
 // あることは `test/confirmedWrite.guard.test.ts` が機械検査する。
 //
 // 書込は kind に依らず必ず次を通る:
@@ -33,7 +33,13 @@ import {
 import { config } from '../config.js';
 import { atomicWrite } from '../files/atomic.js';
 import { deletePending, readPending } from '../files/pendingFiles.js';
-import { cssPath, readTemplateHtml, templatePath } from '../files/templateFiles.js';
+import {
+  cssPath,
+  filledPath,
+  readFilledHtml,
+  readTemplateHtml,
+  templatePath,
+} from '../files/templateFiles.js';
 import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
 import { audit, logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
@@ -41,7 +47,19 @@ import { fileToMeta } from './templateMeta.js';
 
 // ── 1. module-private な物理書込プリミティブ ──
 
+/**
+ * 書込先。`filled` = 値入り HTML(編集タブの承認)、`template` = Jinja スケルトン(作成タブの
+ * 承認)。申請の `origin` から `reviewRepo.targetOfOrigin` が決め、ペア同期は承認と同じ先へ書く。
+ */
+export type ConfirmedTarget = 'filled' | 'template';
+
+const htmlPathOf = (target: ConfirmedTarget, fileName: string): string =>
+  target === 'filled' ? filledPath(fileName) : templatePath(fileName);
+const htmlDirOf = (target: ConfirmedTarget): string =>
+  target === 'filled' ? config.filledDir : config.templatesDir;
+
 async function writeTemplateAndCss(
+  target: ConfirmedTarget,
   fileName: string,
   html: string,
   fundCode: string,
@@ -49,18 +67,22 @@ async function writeTemplateAndCss(
 ): Promise<void> {
   // 先に両方のパスを解決する。不正な名前でディレクトリだけ作られる(片方書けて片方落ちる)
   // 中途半端な状態を避けるため、副作用の前に検査を済ませる。
-  const htmlPath = templatePath(fileName);
+  const htmlPath = htmlPathOf(target, fileName);
   const stylePath = cssPath(fundCode);
-  await fs.mkdir(config.templatesDir, { recursive: true });
+  await fs.mkdir(htmlDirOf(target), { recursive: true });
   await fs.mkdir(config.cssDir, { recursive: true });
   await atomicWrite(htmlPath, html);
   await atomicWrite(stylePath, css);
 }
 
 /** テンプレ本体だけの単ファイル書込(ペア同期。CSS はファンド単位共有なので触らない)。 */
-async function writeTemplateHtml(fileName: string, html: string): Promise<void> {
-  const htmlPath = templatePath(fileName);
-  await fs.mkdir(config.templatesDir, { recursive: true });
+async function writeTemplateHtml(
+  target: ConfirmedTarget,
+  fileName: string,
+  html: string,
+): Promise<void> {
+  const htmlPath = htmlPathOf(target, fileName);
+  await fs.mkdir(htmlDirOf(target), { recursive: true });
   await atomicWrite(htmlPath, html);
 }
 
@@ -77,7 +99,11 @@ interface Snapshot {
 }
 
 /** ロールバックできるよう、現在の状態(内容 / 不存在 / 不明)を読む。 */
-async function snapshotCurrent(fileName: string, fundCode: string | null): Promise<Snapshot> {
+async function snapshotCurrent(
+  target: ConfirmedTarget,
+  fileName: string,
+  fundCode: string | null,
+): Promise<Snapshot> {
   const read = async (resolve: () => string): Promise<FileSnapshot> => {
     let p: string;
     try {
@@ -96,13 +122,14 @@ async function snapshotCurrent(fileName: string, fundCode: string | null): Promi
     }
   };
   return {
-    html: await read(() => templatePath(fileName)),
+    html: await read(() => htmlPathOf(target, fileName)),
     css: fundCode === null ? { state: 'unknown' } : await read(() => cssPath(fundCode)),
   };
 }
 
 /** 先に読んだ状態へ復元する(書込失敗時の補償 = compensation)。 */
 async function restoreTemplateAndCss(
+  target: ConfirmedTarget,
   fileName: string,
   fundCode: string | null,
   prev: Snapshot,
@@ -111,7 +138,7 @@ async function restoreTemplateAndCss(
     if (snap.state === 'content') await atomicWrite(resolve(), snap.text);
     else if (snap.state === 'absent') await fs.rm(resolve(), { force: true });
   };
-  await restore(prev.html, () => templatePath(fileName));
+  await restore(prev.html, () => htmlPathOf(target, fileName));
   if (fundCode !== null) await restore(prev.css, () => cssPath(fundCode));
 }
 
@@ -124,6 +151,7 @@ async function restoreTemplateAndCss(
 export type ConfirmedWriteOp =
   | {
       kind: 'review-approve';
+      target: ConfirmedTarget;
       templateId: string;
       fundCode: string;
       html: string;
@@ -133,6 +161,7 @@ export type ConfirmedWriteOp =
     }
   | {
       kind: 'pair-sync';
+      target: ConfirmedTarget;
       /** 転写先。source から再計算した値と一致しなければ拒否する(引数を信じない)。 */
       targetTemplateId: string;
       sourceTemplateId: string;
@@ -147,13 +176,20 @@ export type ConfirmedWriteOp =
     };
 
 /**
- * 実行コード不変性の基準となる HTML を返す。確定ファイル → pending(生成器の出力)の順で
- * 探し、どちらも無ければ空文字。空文字を基準にすると「実行コードを 1 つも持てない」に
- * 倒れる(fail-closed)。**確定を先に見る順序が契約**で、逆にすると pending を書ける者が
- * 基準そのものを差し替えられる。
+ * 実行コード不変性の基準となる HTML を返す。`target='filled'` は 値入り HTML → Jinja →
+ * pending の順、`target='template'` は Jinja → pending の順に探し、どれも無ければ空文字。
+ * 空文字を基準にすると「実行コードを 1 つも持てない」に倒れる(fail-closed)。
+ * **確定を先に見る順序が契約**で、逆にすると pending を書ける者が基準そのものを差し替えられる。
  */
-export async function baselineTemplateHtml(templateId: string): Promise<string> {
+export async function baselineTemplateHtml(
+  templateId: string,
+  target: ConfirmedTarget,
+): Promise<string> {
   const fileName = `${templateId}.html`;
+  if (target === 'filled') {
+    const filled = await readFilledHtml(fileName);
+    if (filled !== '') return filled;
+  }
   const confirmed = await readTemplateHtml(fileName);
   if (confirmed !== '') return confirmed;
   const pending = await readPending(templateId);
@@ -194,13 +230,13 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
   // ── 実行コード不変性 ──
   // 承認者は実行結果しか見ない運用なので、JS が変わっていないことはシステムが保証する。
   // 基準は復号後の実体に対して取る(チップの中身は信じない)。
-  assertTemplateScriptsUnchanged(await baselineTemplateHtml(templateId), op.html, {
+  assertTemplateScriptsUnchanged(await baselineTemplateHtml(templateId, op.target), op.html, {
     templateId,
     where: op.kind,
   });
 
   await ensureRepo();
-  const prev = await snapshotCurrent(fileName, fundCode);
+  const prev = await snapshotCurrent(op.target, fileName, fundCode);
 
   // 復元(補償)の失敗は握りつぶさない: 復元も同じ rename なので、書込を失敗させた
   // 共有違反(dataRoot がネットワークドライブのときは別クライアント起因でも起きる)が
@@ -208,7 +244,7 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
   // 直せなかったことをエラーログと監査に残し、元の例外はそのまま呼び出し側へ返す。
   const restoreOrReport = async (): Promise<void> => {
     try {
-      await restoreTemplateAndCss(fileName, fundCode, prev);
+      await restoreTemplateAndCss(op.target, fileName, fundCode, prev);
     } catch (restoreErr) {
       logger.error(
         { err: restoreErr, templateId },
@@ -218,7 +254,7 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
         event: 'template.confirmedWrite',
         outcome: 'failure',
         actor: op.kind === 'review-approve' ? op.author : op.actor,
-        resource: { templateId, kind: op.kind },
+        resource: { templateId, kind: op.kind, target: op.target },
         detail: { rollbackFailed: true },
       });
     }
@@ -226,9 +262,9 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
 
   try {
     if (op.kind === 'review-approve') {
-      await writeTemplateAndCss(fileName, op.html, op.fundCode, op.css);
+      await writeTemplateAndCss(op.target, fileName, op.html, op.fundCode, op.css);
     } else {
-      await writeTemplateHtml(fileName, op.html);
+      await writeTemplateHtml(op.target, fileName, op.html);
     }
   } catch (e) {
     await restoreOrReport();
@@ -263,7 +299,7 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
       event: 'template.confirmedWrite',
       outcome: 'failure',
       actor: author,
-      resource: { templateId, kind: op.kind },
+      resource: { templateId, kind: op.kind, target: op.target },
       detail: { gitCommitFailed: true },
     });
   }
@@ -276,8 +312,13 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
     // 追えない(ペア同期の監査はこれまで source しか持っていなかった)。
     resource:
       op.kind === 'review-approve'
-        ? { templateId, kind: op.kind }
-        : { templateId, kind: op.kind, sourceTemplateId: op.sourceTemplateId },
+        ? { templateId, kind: op.kind, target: op.target }
+        : {
+            templateId,
+            kind: op.kind,
+            target: op.target,
+            sourceTemplateId: op.sourceTemplateId,
+          },
     detail:
       op.kind === 'pair-sync' ? { appliedParts: op.appliedParts.length } : { fundCode: fundCode },
   });
@@ -287,7 +328,7 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
     await deletePending(templateId).catch(() => {});
   }
 
-  const meta = await fileToMeta(fileName);
+  const meta = await fileToMeta(fileName, op.target === 'filled' ? 'filled' : 'template');
   if (!meta) throw notFound(`テンプレートが見つかりません: ${templateId}`);
   return meta;
 }

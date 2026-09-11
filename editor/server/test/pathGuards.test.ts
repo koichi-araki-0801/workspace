@@ -109,6 +109,7 @@ describe('files/*.ts のパス封じ込め', () => {
     await expect(
       confirmedWrite.applyConfirmedWrite({
         kind: 'review-approve',
+        target: 'template',
         templateId: id,
         fundCode: '510037',
         html: '<p>pwned</p>',
@@ -124,6 +125,7 @@ describe('files/*.ts のパス封じ込め', () => {
     await expect(
       confirmedWrite.applyConfirmedWrite({
         kind: 'review-approve',
+        target: 'template',
         templateId: VALID_ID,
         fundCode: fund,
         html: '<p>x</p>',
@@ -193,6 +195,7 @@ describe('files/*.ts のパス封じ込め', () => {
   it('applyConfirmedWrite accepts a valid pair and writes only inside the managed dirs', async () => {
     await confirmedWrite.applyConfirmedWrite({
       kind: 'review-approve',
+      target: 'template',
       templateId: VALID_ID,
       fundCode: '510037',
       html: '<p>ok</p>',

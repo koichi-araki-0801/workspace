@@ -17,6 +17,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-review-metafail-'));
 process.env.DATA_ROOT = tmp;
 process.env.GIT_REPO_DIR = tmp;
 process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
+process.env.FILLED_DIR = path.join(tmp, 'filled');
 process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.REVIEWS_DIR = path.join(tmp, 'reviews');
 process.env.PENDING_DIR = path.join(tmp, 'pending');
@@ -90,7 +91,7 @@ d('review approve — meta 更新の部分失敗', () => {
     });
     metaFail.remaining = 0;
     // 実ファイル反映と git commit は完了済み(エラーメッセージの前提)であること。
-    const written = fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8');
+    const written = fs.readFileSync(path.join(tmp, 'filled', `${tplId}.html`), 'utf8');
     expect(written).toContain('恒常失敗');
     // meta は pending のまま残る(申請一覧に表示 = 手動復旧の手掛かり)。
     const after = await reviews.getReview(meta.id, approver);

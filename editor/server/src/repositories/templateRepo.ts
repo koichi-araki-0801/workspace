@@ -44,7 +44,7 @@ import {
   readTemplateHtml,
   templateExists,
 } from '../files/templateFiles.js';
-import { applyConfirmedWrite } from './confirmedWrite.js';
+import { applyConfirmedWrite, type ConfirmedTarget } from './confirmedWrite.js';
 import { fileToMeta } from './templateMeta.js';
 
 function rowToMeta(r: Record<string, unknown>): TemplateMeta {
@@ -265,6 +265,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
  */
 export function applyConfirmedSave(req: {
   templateId: string;
+  target: ConfirmedTarget;
   html: string;
   css: string;
   fundCode: string;
