@@ -19,7 +19,10 @@ import { E2E_REST_DATA_ROOT } from './e2e-rest-paths.js';
  * 事前作成は不要。git リポジトリ化(`ensureRepo`)も承認時に自動で行われるため不要。
  */
 export async function seedDataRoot(repoRoot: string): Promise<void> {
-  await fs.rm(E2E_REST_DATA_ROOT, { recursive: true, force: true });
+  // `maxRetries` / `retryDelay` は Windows の一過性のロック対策。閉じかけのハンドルが残ると
+  // 削除が EBUSY / EPERM / ENOTEMPTY で落ちる。待つのはそれだけで、テスト終了後にサーバが
+  // 書き終える順序は解かない。
+  await fs.rm(E2E_REST_DATA_ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   const templatesDir = path.join(E2E_REST_DATA_ROOT, 'templates');
   const cssDir = path.join(E2E_REST_DATA_ROOT, 'css');
   const filledDir = path.join(E2E_REST_DATA_ROOT, 'filled');

@@ -106,6 +106,11 @@ e2e（Playwright）は project が 2 つある。`chromium` は挙動を検証�
 `filled/` には `web/src/api/fixtures/filled/*.html` を seed する。worker 数は 1（ログイン試行の
 集中回避）。
 
+Vite はランチャ `editor/e2e/tools/e2e-vite.ts` 経由で起動し、異常終了時は
+`.tmp/vite-e2e/exit-*.txt` に終了コードと直前の出力が残る。`E2E_VITE_PROCDUMP=<procdump.exe>` を
+設定するとクラッシュダンプも採る（ダンプ採取は procdump、読解は WinDbg。手順は
+`docs/superpowers/specs/2026-09-12-vite-crash-findings.md`）。
+
 実 SQL Server（LocalDB）を相手にした検証は別枠の手動確認であり、`ci` や GitHub Actions では
 実行されない。
 

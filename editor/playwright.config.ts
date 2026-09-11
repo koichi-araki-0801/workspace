@@ -1,9 +1,17 @@
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
-import { E2E_REST_WEB_PORT } from './server/scripts/e2e-rest-paths';
+import { E2E_REST_PORT, E2E_REST_WEB_PORT } from './server/scripts/e2e-rest-paths';
 
 /** Vite dev の待受。定数を e2e サーバ側と共有し、片方だけ動いてずれる形を作らない。 */
 const webUrl = `http://localhost:${E2E_REST_WEB_PORT}`;
+/**
+ * Fastify サーバの待受。`127.0.0.1` で書くのは、このサーバが `HOST=127.0.0.1` で待つため
+ * (`localhost` は環境により `::1` へ解決されて到達しない)。ポートは e2e サーバ側と同じ
+ * 定数から引き、ヘルスチェック先と proxy 先が別々にずれる形を作らない。
+ * ルート `package.json` の `check-ports.mjs 24680 24681` は**既定値**の事前検査なので、
+ * `E2E_REST_PORT` / `E2E_REST_WEB_PORT` を env で変えるときは呼び出し側が引数も変える。
+ */
+const apiUrl = `http://127.0.0.1:${E2E_REST_PORT}`;
 
 /**
  * E2E config. 既定 project(chromium/docs)は sproc フェイク + 一時 dataRoot のサーバ(24680)と
@@ -62,9 +70,7 @@ export default defineConfig({
       // 24680 で待つ。開発中の実サーバを使い回さない(実 DB・実 dataRoot を汚さない)。
       command: 'pnpm --filter server exec tsx scripts/e2e-rest-server.ts',
       cwd: fileURLToPath(new URL('..', import.meta.url)),
-      // ヘルスチェック先を `127.0.0.1` で書くのは、このサーバが `HOST=127.0.0.1` で待つため
-      // (`localhost` は環境により `::1` へ解決されて到達しない)。
-      url: 'http://127.0.0.1:24680/api/health',
+      url: `${apiUrl}/api/health`,
       reuseExistingServer: false,
       // 起動途中で落ちたときに終了時の出力が要る(既定の 'ignore' では原因が残らない)。
       stdout: 'pipe',
@@ -72,11 +78,16 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: `pnpm --filter web exec vite --port ${E2E_REST_WEB_PORT}`,
+      // ランチャ経由で起動するのは、Vite が実行中に黙って落ちたときに終了コードと直前の出力を
+      // `.tmp/vite-e2e/` へ残すため(`e2e/tools/e2e-vite.ts`)。pnpm を挟むと reporter の出力が
+      // 混ざり、終了コードの出所も曖昧になる。
+      // パスがリポジトリルート起点なのは、`cwd` がこの設定ファイルの 1 つ上 = リポジトリルート
+      // だから(`editor/` ではない。隣の webServer が `pnpm --filter` で効いているのと同じ理由)。
+      command: `node editor/e2e/tools/e2e-vite.ts --port ${E2E_REST_WEB_PORT}`,
       cwd: fileURLToPath(new URL('..', import.meta.url)),
       // `VITE_API_MODE=rest` は既定と同じだが、呼び出し元シェルの `local` 指定に引きずられない
       // よう明示する。`API_PROXY_TARGET` は vite.config.ts の proxy 先の上書き。
-      env: { VITE_API_MODE: 'rest', API_PROXY_TARGET: 'http://127.0.0.1:24680' },
+      env: { VITE_API_MODE: 'rest', API_PROXY_TARGET: apiUrl },
       url: webUrl,
       reuseExistingServer: false,
       // Vite は実行中に黙って落ちたことがある。終了時の出力を捕まえて原因を残す。
