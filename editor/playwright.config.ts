@@ -46,6 +46,9 @@ export default defineConfig({
       // ブラウザの地方時で組み立てられる。両方を固定して初めて PNG がバイト一致する。
       use: { ...devices['Desktop Chrome'], timezoneId: 'Asia/Tokyo' },
       testMatch: '**/capture_docs.spec.ts',
+      // `workers: 1` は chromium と同じく必須。テストごとに一時 dataRoot を作り直す
+      // (`e2e/fixtures.ts`)ので、並列だと片方のリセットがもう片方の申請・下書きを消す。
+      workers: 1,
     },
   ],
   webServer: [

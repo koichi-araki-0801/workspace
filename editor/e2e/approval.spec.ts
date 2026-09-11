@@ -22,6 +22,8 @@ const EDIT_MARK = 'restE2E追記';
 
 // 2 つ目のテストは 1 つ目が残した申請を承認する。依存を実行順序として明示する。
 test.describe.configure({ mode: 'serial' });
+// 2 つ目のテストは 1 つ目が出した申請を承認するので、dataRoot はこのファイルの中で共有する。
+test.use({ keepDataRootAcrossTests: true });
 
 // 編集画面ヘッダは狭い幅だと保存状態の文言・ボタンが折り返す(`EditorTopBar.vue`)。
 // 他の承認系 spec と同じ幅に揃える。
