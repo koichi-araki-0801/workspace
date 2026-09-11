@@ -50,18 +50,27 @@ function findExternalRefsInDom(root: Element): string[] {
 /**
  * テンプレ HTML+CSS+サンプルデータから、サーバ PDF ビルドへ渡せる安全な文書を組み立てる。
  * `cropMarks` が true のときトンボ用 CSS(`CROP_MARKS_CSS`)を css へ連結する。
+ * `skipJinja` は `html` が値入り HTML(Jinja を持たない)のとき true にする。
  */
 export async function renderPdfDocument(
   html: string,
   css: string,
   sample: SampleData,
-  opts?: { cropMarks?: boolean },
+  opts?: { cropMarks?: boolean; skipJinja?: boolean },
 ): Promise<Result<{ html: string; css: string }>> {
-  // Jinja のコンパイルは opaque オリジンの iframe(`renderHostClient`)で行う。ここへ来る
-  // `html` は申請者・生成器が書いたテンプレ本文で、nunjucks は**コンパイラ**であるため
-  // アプリのオリジンで走らせるとテンプレの字面がそのまま JS 実行になる。
-  const rendered = await renderJinjaIsolated(html, sample);
-  if (rendered.error) return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
+  // 値入り HTML(編集タブの本文。Jinja を持たない)は隔離描画を通さない — nunjucks は
+  // コンパイラで、本文中の `{{` 風の字面まで式として解釈してしまう。
+  let renderedHtml: string;
+  if (opts?.skipJinja) {
+    renderedHtml = html;
+  } else {
+    // Jinja のコンパイルは opaque オリジンの iframe(`renderHostClient`)で行う。ここへ来る
+    // `html` は申請者・生成器が書いたテンプレ本文で、nunjucks は**コンパイラ**であるため
+    // アプリのオリジンで走らせるとテンプレの字面がそのまま JS 実行になる。
+    const rendered = await renderJinjaIsolated(html, sample);
+    if (rendered.error) return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
+    renderedHtml = rendered.html;
+  }
   // **script は落とさない**(`sanitizePdfRoot`)。テンプレの JS は開発者が生成時に埋め込む
   // 正当なコンテンツであり、守り方は除去ではなく隔離(サーバ側の egress 遮断 + 作業
   // ディレクトリ封じ込め)+ 出所の固定(`security/templateScripts.ts` の不変性照合)である。
@@ -76,7 +85,7 @@ export async function renderPdfDocument(
   // 整形はサニタイズの**前**に置く: 出力バイトを最後に決めるのは HTML 仕様のパーサ
   // (DOMPurify 内蔵)でなければならず、js-beautify を後段にすると保証がそこで途切れる
   // (`sanitizeHtml.ts` 冒頭の不変則)。
-  const root = sanitizePdfRoot(formatHtml(rendered.html));
+  const root = sanitizePdfRoot(formatHtml(renderedHtml));
   // トンボは CSS 一本で効かせる方針(`cropMarks.ts` 参照)。サーバ `inlineCss` が css を
   // `<style>` 化するため, ここで連結すればプレビュー表示と同じトンボが PDF にも乗る。
   const pdfCss = opts?.cropMarks ? `${css}\n${CROP_MARKS_CSS}` : css;

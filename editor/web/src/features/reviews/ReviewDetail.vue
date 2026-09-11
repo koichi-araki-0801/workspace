@@ -282,7 +282,7 @@ const pdfGenerating = ref(false);
  * 通知バーの「PDF を開いて確認」— 修正後 1 文書を既存の PDF 出力経路(`PreviewView` の
  * `exportPdf` と同じ `templatePreviewService.renderPdf`)で開く。対象は申請の記入済み
  * インスタンス(`review.filledHtml`)、無ければ diff 由来の申請版本文(`afterBodyHtml` +
- * `cssAfter`)。いずれも Jinja は既に解決済みのため `sample` は空でよい。新しい PDF
+ * `cssAfter`)。値の差込は申請側で済んでいるため `sample` は空でよい。新しい PDF
  * 生成経路・独自 fetch はここでは作らない。
  *
  * ダウンロードは `PreviewView.exportPdf` と同じアンカー download 方式を使う
@@ -294,8 +294,12 @@ async function openPdf() {
   if (!review.value) return;
   pdfGenerating.value = true;
   try {
-    const html = review.value.filledHtml ?? afterBodyHtml.value;
-    const res = await preview.renderPdf(html, cssAfter.value, {}, false);
+    // 記入済みインスタンスは描画済みの文書。nunjucks はコンパイラなので、通すと地の文の
+    // `{{` 風の字面まで式として解釈され本文が静かに欠ける。diff 由来の申請版本文は
+    // 描画前のテンプレ本文なので従来どおり描画を通す。
+    const filledHtml = review.value.filledHtml;
+    const html = filledHtml ?? afterBodyHtml.value;
+    const res = await preview.renderPdf(html, cssAfter.value, {}, false, filledHtml !== undefined);
     if (!isOk(res)) {
       toast('PDFの作成に失敗しました。時間をおいて再度お試しください。', 'error');
       return;

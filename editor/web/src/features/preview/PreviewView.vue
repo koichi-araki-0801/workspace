@@ -42,6 +42,8 @@ const previewDoc = ref('');
 const renderError = ref<string | null>(null);
 // 自動保存された draft の有無。上部バーの「変更なし」バッジにだけ使う。
 const hasDraft = ref(false);
+// 本文が値入り HTML(Jinja を持たない)か。PDF 出力で隔離描画を通すかの判断に使う。
+const isFilled = ref(false);
 // トンボ(トリムマーク)の ON/OFF。画面内トグルのみで保持し, 初期は ON。表示用の `displayDoc`
 // と PDF 出力(`exportPdf`)の双方へ効かせる。ベースの `previewDoc`(トンボ無し)は保持し,
 // 申請の記入済みインスタンス(`filledHtml`)には一時設定を混入させない。
@@ -92,6 +94,7 @@ onMounted(async () => {
   previewDoc.value = v.previewDoc;
   renderError.value = v.renderError;
   hasDraft.value = v.hasDraft;
+  isFilled.value = v.isFilled;
 });
 
 // 編集タブ(query なし) / 作成タブ(`?created=1`)の区別。申請に保持し 2 系統を保つ。
@@ -139,7 +142,7 @@ async function submitForReview() {
 
 async function exportPdf() {
   const res = await runExport(() =>
-    preview.renderPdf(restoredHtml.value, css.value, sample.value, cropMarks.value),
+    preview.renderPdf(restoredHtml.value, css.value, sample.value, cropMarks.value, isFilled.value),
   );
   if (isErr(res)) return;
   const url = URL.createObjectURL(res.value);

@@ -55,6 +55,7 @@ const tpl: Template = {
   },
   html: '<html><body><p>hello</p></body></html>',
   css: '.from-file{}',
+  filled: '',
 };
 
 describe('TemplatePreviewService.loadForPreview', () => {
@@ -179,6 +180,56 @@ describe('TemplatePreviewService.loadForPreview', () => {
     const resB = await createTemplatePreviewService(templatesB, history).loadForPreview('t1');
     expect(isErr(resB)).toBe(true);
     if (isErr(resB)) expect(resB.error.kind).toBe('not_found');
+  });
+
+  it('filled が非空のテンプレは隔離描画を通さず、本文をそのまま文書にする', async () => {
+    // `{{ raw }}` は値入り HTML に紛れた地の文。描画を通すと空になる。
+    const filledTpl: Template = {
+      ...tpl,
+      html: '<html><body><p>値入り本文 {{ raw }}</p></body></html>',
+      filled: '<html><body><p>値入り本文 {{ raw }}</p></body></html>',
+    };
+    const templates = {
+      getTemplate: vi.fn(async () => ok(filledTpl)),
+      getSampleData: vi.fn(async () => ok({})),
+      getDraft: vi.fn(async () => ok(null)),
+    } as unknown as TemplateRepository;
+    const svc = createTemplatePreviewService(templates, history);
+    const res = await svc.loadForPreview('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.isFilled).toBe(true);
+      expect(res.value.restoredHtml).toBe(filledTpl.html);
+      expect(res.value.previewDoc).toContain('値入り本文 {{ raw }}');
+      expect(res.value.renderError).toBeNull();
+    }
+  });
+
+  it('filled が非空のテンプレの下書きは Jinja 復元を通さず本文を差し替える', async () => {
+    const filledTpl: Template = { ...tpl, filled: tpl.html };
+    const templates = {
+      getTemplate: vi.fn(async () => ok(filledTpl)),
+      getSampleData: vi.fn(async () => ok({})),
+      getDraft: vi.fn(async () =>
+        ok({
+          templateId: 't1',
+          html: '<p>下書き {{ raw }}</p>',
+          css: '.d{}',
+          savedAt: '',
+          savedBy: '',
+        }),
+      ),
+    } as unknown as TemplateRepository;
+    const svc = createTemplatePreviewService(templates, history, ownerOf(true));
+    const res = await svc.loadForPreview('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      // toTemplate を通すと `{{ raw }}` はチップ復元の対象外なので残るが、本文全体が
+      // 整形(pretty)される。整形されずそのまま差し替わっていることを body で主張する。
+      expect(res.value.restoredHtml).toBe('<html><body><p>下書き {{ raw }}</p></body></html>');
+      expect(res.value.previewDoc).toContain('下書き {{ raw }}');
+      expect(res.value.hasDraft).toBe(true);
+    }
   });
 });
 
