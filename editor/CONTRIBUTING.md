@@ -16,6 +16,10 @@ pnpm install       # 依存をインストール（husky フックも自動で�
 pnpm dev           # shared ビルド後、Fastify(:24680) と Vite(:24681) を並行起動
 ```
 
+`pnpm dev` は既定で REST モード（SQL Server + ログイン必須）で起動する。DB を用意せず開発するときは
+`editor/start.bat dev local` で起動するか、`VITE_API_MODE=local` を指定する（fixtures + localStorage、
+DB・ログインなし）。
+
 Windows は `editor/start.bat`（ダブルクリック=本番 REST / `dev` / `local` 等）でも起動できます。
 ブラウザで http://localhost:24681 → REST では DB のユーザーで、`local` ではデモログイン
 `admin / admin`（または `editor / editor`）。
@@ -58,7 +62,7 @@ web/src/
   lib/                 ← 画面に依存しないロジック（jinjaMask, useAsyncResult, useCascadingSelect 等）
   api/repositories.ts  ← Repository コンテナ＋DI。★`VITE_API_MODE` で rest（既定）/ local を切替える唯一の点
   api/local/           ← 開発用のローカル実装（`VITE_API_MODE=local` で選ぶ。fixtures + localStorage）。集約ごとに *Repo.ts
-  api/rest/            ← Phase2 の REST 実装（同契約・/api を叩く）。集約ごとに *Repo.ts
+  api/rest/            ← REST 実装（既定。SQL Server バックエンド・同契約・/api を叩く）。集約ごとに *Repo.ts
   stores/              ← Pinia ストア（横断状態。例: auth.ts）
   router/              ← ルーティング定義 + 認証 navigation guard（authGuard）
 server/src/
