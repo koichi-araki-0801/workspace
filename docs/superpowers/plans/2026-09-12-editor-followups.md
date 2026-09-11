@@ -1,240 +1,99 @@
-# editor: DB 既定化の残タスク解消 実装計画
+# editor: DB 既定化の残タスク解消 実装計画（v3）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** PR #67（DB モード既定化 + `filled/`）のレビューで park / defer した残件を解消し、Vite 8.2.2 の e2e ネイティブ即死の原因を掴む。
 
-**Architecture:** 3 群に分ける。A = 正しさ・防御（作成経路の query 落ち、契約の機械検証、正典追記）、B = Vite 即死の原因調査（Vite をランチャで包んでクラッシュ情報を残し、対策を決める）、C = 整理（識別子・dead export・被覆・重複・表記）。A と C は小さな独立コミットに束ね、B は調査 → 判断 → 対策の 3 段。
+**Architecture:** 3 群。B = Vite 即死の観測（ランチャで終了コード・出力・任意のダンプを残す）→ 再現の計数 → 判断ゲート。A = 正しさ・防御（pending だけの id を作成経路で開く規則を**データ（`status`）側**で 1 か所に置く、local の filled 意味論を明文化して契約を揃える、正典追記）。C = 整理。B の観測機構を先に入れ、以後のすべての e2e 実行を再現試行として数える。
 
-**Tech Stack:** TypeScript / Vue 3 / Fastify / Vitest / Playwright / tsx
+**Tech Stack:** TypeScript / Vue 3 / Fastify / Vitest / Playwright / Node 24（型ストリップ既定有効）
 
-**Spec:** 前計画の設計書 `docs/superpowers/specs/2026-09-11-editor-db-default-design.md`（不変則の正典）と、本計画冒頭の「残件一覧」。
+**Spec:** 前計画の設計書 `docs/superpowers/specs/2026-09-11-editor-db-default-design.md`（不変則の正典）と本計画の「残件一覧」。反対目線レビュー（v1 → v2 → v3）の反映点は末尾「v1 からの変更」「v2 からの変更」。
 
 ## Global Constraints
 
 - 不変則は前計画と同じ: 関所は `confirmedWrite.ts` のみ / 経路判定は `created` query と `origin` のみ / `Boolean(tpl.filled)` の文書は nunjucks・`toTemplate` を通さない / local 資源は削除しない。
-- コメント規約 `docs/コメント規約.md`（なぜを書く・経緯や日付を書かない・100 桁）。
+- コメント規約 `docs/コメント規約.md`（なぜを書く・経緯や日付を書かない・100 桁。幅は全角 = 2 で数える。`check:comments` は幅を検査しないので自分で数える）。
 - `editor/**` 変更コミット前に `pnpm exec biome check --write <対象>`。`.bat` は CRLF、日本語 `.ps1` は BOM。
-- 新規スクリプトは TypeScript（`tsx` 実行）。新規 `.mjs` / `.ps1` は作らない（チーム方針）。
+- 新規スクリプトは TypeScript。実行は Node 24 の型ストリップ（`node <file>.ts`、erasable な構文のみ: enum / namespace / parameter property を使わない）か、server の `tsx`。新規 `.mjs` / `.ps1` は作らない。**devDependency を増やさない**（lockfile 変更 = オフラインバンドル再 publish）。
 - コミットメッセージは通常の日本語、末尾に `Claude-Session: https://claude.ai/code/session_01MqQNqj2QCN24jXTC7XSUmR`。1 タスク 1 コミット。コミット後は `git log --oneline -3` で実在確認。
-- テスト: `pnpm exec vitest run --project server|web-dom|web-node <file>`、型は `pnpm typecheck:editor`。e2e はポート 24680/24681 が空いているとき（`node scripts/check-ports.mjs 24680 24681`）だけ、1 度に 1 プロセス。
+- テスト: `pnpm exec vitest run --project server|web-dom|web-node <file>`、型は `pnpm typecheck:editor`。e2e はポート 24680/24681 が空いているとき（`node scripts/check-ports.mjs 24680 24681`）だけ、1 度に 1 プロセス。**e2e を走らせたら毎回、結果（緑 / Vite 死亡）を `.tmp/vite-e2e/RUNS.md` に 1 行追記する**（Task 7 の計数）。
 - 実 DB・実 dataRoot に触れない。
 
 ## 残件一覧（出所 = 前計画の ledger / 最終レビュー）
 
 | # | 群 | 内容 | 対応タスク |
 |---|---|---|---|
-| A1 | A | `ReviewTabView.vue:196`「編集へ」と `PreviewView.vue:169` の BackButton fallback が `?created=1` を落とす | Task 1 |
-| A2 | A | 設計正典に「編集経路の申請は `filled/` の存在を要求する」が未記載 | Task 5 |
-| A3 | A | `reviews.test.ts:288` のコメント「申請の作成前に拒否」を assert が検証していない | Task 2 |
-| A4 | A | `routeGuards.ts:146` が 100 桁超 | Task 2 |
-| A5 | A | rest と local の `status==='draft'` ⇔「filled 無し」の一致に機械検証が無い（local は `fixtureTemplates` の有無で判定） | Task 3 |
+| A1 | A | `ReviewTabView.vue:196`「編集へ」と `PreviewView.vue:169` の BackButton fallback が作成経路の id を編集経路で開く | Task 2 |
+| A2 | A | 設計正典に「編集経路の申請は `filled/` の存在を要求する」「pending だけの id は作成経路で開く」が未記載 | Task 5 |
+| A3 | A | `reviews.test.ts:288` のコメント「申請の作成前に拒否」を assert が検証していない | Task 4 |
+| A4 | A | `routeGuards.ts:146` が 100 幅超（全角 2 幅で 118。機械検査対象外） | Task 4 |
+| A5 | A | local の `status` が `fixtureTemplates` の有無で決まり、rest の「`filled/` の有無」と一致しない。機械検証も無い | Task 3 |
 | A6 | A | local に「edit 申請は filled 必須」の門が無い | Task 3 |
-| B1 | B | Vite 8.2.2 が e2e 中に exit 0xC0000409 で即死（16 回中 7 回、地点は移動、warmup 無効） | Task 6, 7 |
+| B1 | B | Vite 8.2.2 が e2e 中に exit 0xC0000409 で即死（16 回中 7 回、地点は移動、warmup 無効、死ぬ前に Vite は 1 行も出さない） | Task 1, 6, 7 |
 | C1 | C | `historyRepo.ts` の `TEMPLATES_PATHSPEC` / `templateRel` / `templateFilesOf` が `filled` を指す | Task 8 |
 | C2 | C | `listTemplateFiles` が dead export | Task 8 |
 | C3 | C | `server/src/repositories/templateRepo.ts` が coverage include 外 | Task 8 |
-| C4 | C | `playwright.config.ts` の API ポート 24680 が 3 箇所ハードコード（`E2E_REST_PORT` 未配線） | Task 9 |
-| C5 | C | `generate.routes.test.ts:154` の `templatesDir` 書込が一覧には無効（残置） | Task 8 |
+| C4 | C | `playwright.config.ts` の API ポート 24680 が 3 箇所ハードコード | Task 1 |
 | C6 | C | `readFilledHtml` の非 ENOENT throw が `ioFailurePolicy.test.ts` に無い | Task 8 |
-| C7 | C | `auth.ts` の `reset()`（401）で sample キャッシュを消さない | Task 10 |
-| C8 | C | `readSampleCache` に形状検査が無い | Task 10 |
-| C9 | C | `ReviewDetail.vue:302` の `filledHtml !== undefined` と `Boolean()` の不一致 | Task 10 |
-| C10 | C | `mergePdfService.ts` の `conflict` ラップ重複（108 / 126） | Task 10 |
-| C11 | C | `putContentOverrides` の read/write 重複 | Task 10 |
-| C12 | C | 旧「フェーズ 1 / フェーズ 2 / Phase2」表記（`editor/README.md:23`、`CONTRIBUTING.md:71`、`設計書.md:21,53,85,181,205,739`） | Task 11 |
-| C13 | C | e2e の `rm -rf` がサーバ書込と競合しうる（実測無し） | Task 9（再試行を足す） |
+| C7 | C | `auth.ts` の `reset()`（401）で sample キャッシュを消さない | Task 9 |
+| C8 | C | `readSampleCache` に形状検査が無い | Task 9 |
+| C9 | C | `ReviewDetail.vue:302` の `filledHtml !== undefined` と `Boolean()` の不一致（`filledHtml: ''` は描画中・描画失敗の申請で到達する） | Task 9 |
+| C10 | C | `mergePdfService.ts` の `conflict` ラップ重複（108 / 126） | Task 9 |
+| C11 | C | `putContentOverrides` の read/write 重複 | Task 9 |
+| C12 | C | 旧「フェーズ 1 / フェーズ 2 / Phase2」表記 | Task 10 |
+| C13 | C | e2e の `rm -rf` が閉じかけのハンドルと競合しうる（実測無し） | Task 1（`fs.rm` の再試行オプション） |
 | D1 | 見送り | ペア同期の状態ファイルを target で分けない | Task 5（理由を正典へ） |
 | D2 | 見送り | 編集タブバナーが `templates/` 側の競合を出さない | Task 5（理由を正典へ） |
+| — | 落とした | `generate.routes.test.ts:154` の `templatesDir` 書込削除（主張に無関係な churn） | なし |
+| — | 落とした | rest↔local 契約一致テスト（v1 Task 4。rest 側は fetch スタブで検証不能） | Task 3 に吸収 |
 
 ---
 
-## Stage A: 正しさ・防御
+## Stage B-1: Vite 即死の観測機構（最初に入れる）
 
-### Task 1: 作成経路の query を落とす 2 導線を直す
+### Task 1: Vite ランチャ + API ポート配線 + `fs.rm` の再試行
 
 **Files:**
-- Modify: `editor/web/src/features/reviews/ReviewTabView.vue:196`
-- Modify: `editor/web/src/features/preview/PreviewView.vue:169`
-- Test: `editor/web/test/twoSystems.guard.test.ts`（ソース走査を 1 件追加）
+- Create: `editor/e2e/tools/e2e-vite.ts`（Node 24 の型ストリップで直接実行。`tsconfig.e2e.json` の `include` に `e2e/**/*.ts` が入っているので型検査対象になる）
+- Modify: `editor/playwright.config.ts`（webServer 2 本、`E2E_REST_PORT` の配線）
+- Modify: `editor/server/scripts/e2e-rest-seed.ts:22`
+- Modify: `editor/README.md`（e2e 節に 2 行）
+- Verify: `knip.json`（ランチャが未使用扱いにならないか。`pnpm knip` が `ci` に無いなら確認のみ）
 
 **Interfaces:**
-- Produces: 編集画面へ遷移する導線はすべて `route.query.created` を引き継ぐ（`EditorView.vue:220-223` と同じ形）。
+- Produces: `node editor/e2e/tools/e2e-vite.ts --port <n>` が Vite を**Node 直接**（`process.execPath` + `vite/bin/vite.js`）で子プロセス起動し、stdout/stderr を素通ししつつ `<repoRoot>/.tmp/vite-e2e/vite-<stamp>.log` にも写す。終了コードが 0 以外なら `exit-<stamp>.txt` に `code / hex / 直前 200 行` を残す。環境変数 `RUST_BACKTRACE=full` と `NODE_OPTIONS` に `--report-on-fatalerror --report-directory=<dir>` を足す。`E2E_VITE_PROCDUMP=<procdump.exe のパス>` が設定されているときは `procdump -accepteula -e -ma -x <dir> node.exe vite.js …` の形で起動する（クラッシュダンプ採取。未設定なら従来どおり）。
+- `E2E_REST_PORT` を `playwright.config.ts` で import し `apiUrl` として `url` / `API_PROXY_TARGET` / コメントに使う。root `package.json:18` の `check-ports.mjs 24680 24681` と `capture_docs.spec.ts:6` のコメントは据え置き（`check-ports` は既定値の事前検査で、env で変えた場合は呼び出し側が引数も変える。コメントに 1 行書く）。
 
-- [ ] **Step 1: 失敗するテストを書く**
-
-`twoSystems.guard.test.ts` の describe `'editor 2系統の原則: rest 経路の値入り HTML'` に足す:
-
-```ts
-  it('編集画面へ戻る導線は created query を引き継ぐ(承認タブ・プレビュー)', () => {
-    const review = read('features/reviews/ReviewTabView.vue');
-    expect(review).toMatch(/name: 'editor', params: \{ id: targetId\.value \}, query: createdQuery/);
-    const preview = read('features/preview/PreviewView.vue');
-    expect(preview).toMatch(/:fallback="\{ name: 'editor', params: \{ id \}, query: createdQuery \}"/);
-  });
-```
-
-- [ ] **Step 2: 失敗を確認する** — `pnpm exec vitest run --project web-node editor/web/test/twoSystems.guard.test.ts` → FAIL
-
-- [ ] **Step 3: 実装する**
-
-`ReviewTabView.vue`: `targetId` の近くに次を足し、196 行を `router.push({ name: 'editor', params: { id: targetId.value }, query: createdQuery.value })` にする。
-
-```ts
-// 承認タブが対象にしているテンプレートが作成経路(`?created=1`)で開かれたものなら、編集へ
-// 戻る導線もその query を引き継ぐ。落とすと編集経路として開き直され、値入り HTML の無い
-// pending 実体を編集経路で申請する形になる(サーバは拒否するが、画面が先に迷わせない)。
-const createdQuery = computed(() => (route.query.created === '1' ? { created: '1' } : {}));
-```
-
-（`route` が未 import なら `useRoute()` を足す。承認タブは `?template=<id>` で来るので、`created` は編集タブの直前画面（`tabMemory`）から取れないことがある。その場合は `resolveReviewTarget.ts` が返す対象に `created` を含めるよう拡張し、同じ値を使う。どちらにしたかを報告に書く。）
-
-`PreviewView.vue:169`: `:fallback="{ name: 'editor', params: { id }, query: createdQuery }"`。`createdQuery` は既存の `origin` 算出（`route.query.created === '1'`）の隣に `const createdQuery = computed(() => (origin.value === 'create' ? { created: '1' } : {}));` を置く。
-
-- [ ] **Step 4: 通ることを確認する** — 同テスト PASS、`pnpm typecheck:editor`、`pnpm exec playwright test -c editor/playwright.config.ts --project=chromium review_tab.spec.ts create.spec.ts`（ポート空き時）
-
-- [ ] **Step 5: コミット** — `fix(web): 承認タブとプレビューから編集へ戻る導線が created query を引き継ぐ`
-
----
-
-### Task 2: テストの主張とコメント長の是正
-
-**Files:**
-- Modify: `editor/server/test/reviews.test.ts:288-289`
-- Modify: `editor/server/src/routes/routeGuards.ts:146`
-
-- [ ] **Step 1: `reviews.test.ts`**
-
-288〜289 行を次にする（`countPendingReviews` は `reviewFiles.ts` の export。無ければ `fs.readdirSync(path.join(tmp, 'reviews'))` の件数を前後で比べる）:
-
-```ts
-    // 拒否は申請の作成前に起きる(未処理の申請が増えない)。
-    expect(fs.existsSync(path.join(tmp, 'reviews'))
-      ? fs.readdirSync(path.join(tmp, 'reviews')).filter((d) => d.includes(tplId)).length
-      : 0).toBe(0);
-```
-
-（申請ディレクトリ名が reqId(UUID)で templateId を含まない場合は、`listReviews({}, approver)` に `templateId === tplId` の行が無いことを主張する形にする。）
-
-- [ ] **Step 2: `routeGuards.ts:146`** を 100 桁以内に折り返す（意味は変えない）。
-
-- [ ] **Step 3: 確認** — `pnpm exec vitest run --project server editor/server/test/reviews.test.ts`、`pnpm run check:comments`
-
-- [ ] **Step 4: コミット** — `test(server): 編集経路の申請拒否で申請が作られないことを主張し、コメント長を規約に揃える`
-
----
-
-### Task 3: local 実装の契約一致（draft 判定・filled 必須門）
-
-**Files:**
-- Modify: `editor/web/src/api/local/store.ts:239`
-- Modify: `editor/web/src/api/local/reviewRepo.ts`（`submitReview` / 承認）
-- Test: `editor/web/test/localReviewRepo.dom.test.ts`、`editor/web/test/twoSystems.guard.test.ts`
-
-**Interfaces:**
-- Produces: local の `status` は `fixtureFilled[fileName] || filledOverride[id]` があれば `published`、無ければ `draft`（rest の「`filled/` にあるものが published」と同じ意味）。local の `submitReview` は `origin==='edit'` かつ filled が無い id を `validation` で拒否する。
-
-- [ ] **Step 1: 失敗するテストを書く**
-
-`localReviewRepo.dom.test.ts` に:
-
-```ts
-  it("origin='edit' の申請は filled が無い id を validation で拒否する(server と同じ契約)", async () => {
-    const id = 'AM01_510037_20991231_交付版'; // fixture に無い id
-    const res = await localReviewRepo.submitReview({ templateId: id, html: '<p>x</p>', css: '', fundCode: '510037', origin: 'edit' });
-    expect(isErr(res) && res.error.kind).toBe('validation');
-  });
-```
-
-`twoSystems.guard.test.ts` に「fixtures/templates と fixtures/filled のファイル名集合が一致する」を足す（一致しないと local の draft 判定が rest とずれる）:
-
-```ts
-  it('fixtures/templates と fixtures/filled は同じファイル名集合(local の draft 判定を rest と揃える前提)', () => {
-    const dir = (p: string) => fs.readdirSync(path.resolve(__dirname, '../src/api/fixtures', p)).filter((f) => f.endsWith('.html')).sort();
-    expect(dir('filled')).toEqual(dir('templates'));
-  });
-```
-
-- [ ] **Step 2: 失敗を確認する** — web-dom / web-node の該当ファイル
-
-- [ ] **Step 3: 実装する**
-
-`store.ts:239`: `status: saved?.status ?? (fixtureFilled[fileName] || filledOverride[id] ? 'published' : 'draft')`（`filledOverride` は `read<Record<string,string>>(K.filledOverride, {})` で取る。コメントを「rest と同じく値入り HTML の有無で決める」に直す）。
-
-`reviewRepo.ts` `submitReview`: 先頭で `if (req.origin === 'edit' && !hasFilled(req.templateId)) throw validation('編集タブの申請には値入り HTML(filled)が必要です: ' + req.templateId)`。`hasFilled` は `fixtureFilled[fileName] || filledOverride[id]`（`templateRepo.ts` に既にある判定を export して使う。重複させない）。
-
-- [ ] **Step 4: 通ることを確認する** — `pnpm exec vitest run --project web-dom --project web-node`、`pnpm typecheck:editor`
-
-- [ ] **Step 5: コミット** — `feat(web): local 実装の draft 判定と編集経路の申請拒否を server の契約に揃える`
-
----
-
-### Task 4: rest↔local の契約一致の機械検証
-
-**Files:**
-- Test: `editor/web/test/repositoryContract.dom.test.ts`（新規）
-
-- [ ] **Step 1: テストを書く** — 同じ入力に対し local と rest（`fetch` スタブ）が同じ `status` / 同じ拒否を返すことを 2 ケースで固定する:
-  1. `listTemplates` の `status`: local の fixture 一覧で `published` になる id 集合 = `fixtures/filled` のファイル名集合。
-  2. `submitReview(origin:'edit', filled 無し)`: local は `validation`、rest は `apiFetch` へ届く前に… ではなく server が 400 を返す形なので、rest 側は `server/test/reviews.routes.test.ts` の既存ケース（Task 2 で確認）に委ね、ここでは local の拒否だけを主張しつつコメントで rest 側テストの場所を指す。
-
-- [ ] **Step 2: 通す・コミット** — `test(web): local と rest の status と申請拒否の契約が一致することを固定する`
-
----
-
-### Task 5: 設計正典の追記（A2, D1, D2）
-
-**Files:**
-- Modify: `docs/editor/src/設計正典.md`（中核原則「編集 2 系統」の箇条書き `:61-66`、「してはならないこと・却下済み設計」）
-
-- [ ] **Step 1: 追記**（通常の日本語・簡潔）
-
-中核原則に 1 文: 「編集経路（`origin='edit'`）の申請と承認は `filled/<id>.html` の存在を要求する（無ければ `validation`）。pending だけの id は作成経路（`?created=1`）で開く。導線（一覧・承認タブ・プレビューの戻る）はすべて `created` query を引き継ぐ。」
-
-却下済み設計に 2 項:
-- 「ペア同期の状態ファイル（`sync/<pairKey>.json`）を `filled/` と `templates/` で分ける」: しない。同じペアが両方にあるのは作成タブ承認直後の短期間だけで、混在しても両側変更→競合→スキップの fail-safe に倒れる。分けると JSON 形式の変更と移行が要る。
-- 「編集タブのバナーに `templates/` 側の同期競合を出す」: しない。バナーは値入り HTML のペアの有無を見る。`templates/` 側の競合はその版種自身の承認時に扱う。
-
-- [ ] **Step 2: ビルド・コミット** — `py -3.13 docs/_build/build_all.py --project editor`、`pnpm run test:docs`。`docs(editor): 編集経路の filled 必須と、ペア同期状態・バナーの見送り理由を設計正典に書く`
-
----
-
-## Stage B: Vite 即死の原因調査
-
-### Task 6: Vite をランチャで包み、クラッシュ情報を残す
-
-**Files:**
-- Create: `editor/web/scripts/e2e-vite.ts`
-- Modify: `editor/playwright.config.ts:75`（`command`）
-- Modify: `editor/web/package.json`（`"e2e:vite": "tsx scripts/e2e-vite.ts"` を追加。`tsx` は server と同じ devDependency を使う）
-
-**Interfaces:**
-- Produces: `pnpm --filter web run e2e:vite -- --port <n>` が `vite --port <n>` を子プロセスで起動し、stdout/stderr を素通ししつつ `<repoRoot>/.tmp/vite-e2e/vite-<timestamp>.log` にも書き、終了時に `exit code / signal / 直前 200 行` を `crash-<timestamp>.txt` に残す。環境変数 `RUST_BACKTRACE=full`、`NODE_OPTIONS=--report-on-fatalerror --report-on-signal --report-directory=<repoRoot>/.tmp/vite-e2e`（既存の `NODE_OPTIONS` があれば連結）を子に渡す。
-
-- [ ] **Step 1: 実装する**
+- [ ] **Step 1: ランチャを書く**
 
 ```ts
 // =============================================================================
-// e2e-vite.ts — e2e 用 Vite dev サーバのランチャ(クラッシュ情報の採取)
+// e2e-vite.ts — e2e 用 Vite dev サーバのランチャ(即死時の観測)
 // =============================================================================
-// Vite 8 が e2e の途中で exit 0xC0000409(ネイティブ即死)で落ちる事象があり、Playwright の
-// webServer からは終了コードしか見えない。子プロセスとして起動し、出力をファイルにも写し、
-// 終了時に終了コード・シグナル・直前の出力を残す。Rust 製ネイティブ部品の panic を stderr へ
-// 出させるため RUST_BACKTRACE を立て、Node 側の致命エラーは診断レポートに残す。
+// Vite 8 が e2e の途中で exit 0xC0000409(ネイティブ側の即死)で落ちる事象があり、Playwright の
+// webServer からは終了コードしか見えない。pnpm を挟むと reporter の出力が混ざり終了コードの
+// 出所も曖昧になるため、Node で `vite/bin/vite.js` を直接起動する。出力はファイルにも写し、
+// 異常終了のときだけ終了コードと直前の出力を残す。Rust 製ネイティブ部品の panic hook を
+// 通る失敗は `RUST_BACKTRACE` で stderr に出る。hook を通らない即死はクラッシュダンプでしか
+// 追えないので、`E2E_VITE_PROCDUMP` が指すときは procdump 経由で起動する。
+// Playwright は Windows で `taskkill /T /F` により終了させるため、シグナル転送は持たない。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const repoRoot = path.resolve(webDir, '..', '..');
+const here = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(here, '..', '..', '..');
+const webDir = path.join(repoRoot, 'editor', 'web');
 const outDir = path.join(repoRoot, '.tmp', 'vite-e2e');
 fs.mkdirSync(outDir, { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const logPath = path.join(outDir, `vite-${stamp}.log`);
 const log = fs.createWriteStream(logPath);
 const recent: string[] = [];
-const keep = (chunk: Buffer) => {
+const keep = (chunk: Buffer): void => {
   const text = chunk.toString('utf8');
   log.write(text);
   for (const line of text.split(/\r?\n/)) {
@@ -242,121 +101,215 @@ const keep = (chunk: Buffer) => {
     if (recent.length > 200) recent.shift();
   }
 };
-const nodeOptions = [process.env.NODE_OPTIONS, '--report-on-fatalerror', '--report-on-signal', `--report-directory=${outDir}`]
+
+const viteBin = createRequire(path.join(webDir, 'package.json')).resolve('vite/bin/vite.js');
+const nodeOptions = [process.env.NODE_OPTIONS, '--report-on-fatalerror', `--report-directory=${outDir}`]
   .filter(Boolean)
   .join(' ');
-const child = spawn('pnpm', ['exec', 'vite', ...process.argv.slice(2)], {
-  cwd: webDir,
-  env: { ...process.env, RUST_BACKTRACE: 'full', NODE_OPTIONS: nodeOptions },
-  shell: process.platform === 'win32',
-  stdio: ['inherit', 'pipe', 'pipe'],
+const env = { ...process.env, RUST_BACKTRACE: 'full', NODE_OPTIONS: nodeOptions };
+const viteArgs = [viteBin, ...process.argv.slice(2)];
+const procdump = process.env.E2E_VITE_PROCDUMP;
+// 配列リテラルの分割代入は tuple に推論されないので型を明示する(`tsc -p tsconfig.e2e.json`)。
+const [cmd, args]: [string, string[]] = procdump
+  ? [procdump, ['-accepteula', '-e', '-ma', '-x', outDir, process.execPath, ...viteArgs]]
+  : [process.execPath, viteArgs];
+
+const child = spawn(cmd, args, { cwd: webDir, env, stdio: ['inherit', 'pipe', 'pipe'] });
+child.stdout.on('data', (c: Buffer) => {
+  process.stdout.write(c);
+  keep(c);
 });
-child.stdout.on('data', (c: Buffer) => { process.stdout.write(c); keep(c); });
-child.stderr.on('data', (c: Buffer) => { process.stderr.write(c); keep(c); });
+child.stderr.on('data', (c: Buffer) => {
+  process.stderr.write(c);
+  keep(c);
+});
 child.on('exit', (code, signal) => {
-  const summary = `exit code=${code} signal=${signal} hex=${code === null ? '-' : `0x${(code >>> 0).toString(16).toUpperCase()}`}\n--- last output ---\n${recent.join('\n')}\n`;
-  fs.writeFileSync(path.join(outDir, `crash-${stamp}.txt`), summary, 'utf8');
-  process.stderr.write(`[e2e-vite] ${summary.split('\n')[0]} (log: ${logPath})\n`);
+  const hex = code === null ? '-' : `0x${(code >>> 0).toString(16).toUpperCase()}`;
+  // procdump 経由のときの `code` は procdump 自身のもので、Vite の即死は伝播しない。実体は
+  // `.dmp` の有無と procdump の出力(`Exception: C0000409` / `Dump 1 complete`)で判定するため、
+  // procdump 使用時は終了コードに関わらず記録を残す。直前の出力は chunk 境界で行が割れる
+  // ことがあり、末尾 200 行は目安。procdump のバナー行も混ざる。
+  const head = `[e2e-vite] exit code=${code} (${hex}) signal=${signal} procdump=${Boolean(procdump)} log=${logPath}`;
+  process.stderr.write(`${head}\n`);
+  if (code !== 0 || procdump) {
+    fs.writeFileSync(
+      path.join(outDir, `exit-${stamp}.txt`),
+      `${head}\n--- last output (目安。chunk 境界で行が割れうる) ---\n${recent.join('\n')}\n`,
+      'utf8',
+    );
+  }
   log.end(() => process.exit(code ?? 1));
 });
-for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => child.kill(sig));
 ```
 
-`playwright.config.ts:75` の `command` を `` `pnpm --filter web run e2e:vite -- --port ${E2E_REST_WEB_PORT}` `` にし、コメントで「ランチャ経由でクラッシュ情報を `.tmp/vite-e2e/` に残す」と書く。`.tmp/` は既に gitignore 済みか確認する。
+- [ ] **Step 2: `playwright.config.ts`**
 
-- [ ] **Step 2: 動作確認** — `pnpm run test:e2e` を 1 回。`[e2e-vite] exit code=…` が出ること、`.tmp/vite-e2e/` にログが出ること。
+`import { E2E_REST_PORT, E2E_REST_WEB_PORT } from './server/scripts/e2e-rest-paths';`、`const apiUrl = \`http://127.0.0.1:${E2E_REST_PORT}\`;`。webServer の `url: \`${apiUrl}/api/health\``、`API_PROXY_TARGET: apiUrl`、Vite の `command: \`node e2e/tools/e2e-vite.ts --port ${E2E_REST_WEB_PORT}\``（`cwd` は既存どおり `editor/`）。コメントに「ランチャ経由で即死時の情報を `.tmp/vite-e2e/` に残す」「`check-ports.mjs` の引数は既定値のまま」を書く。
 
-- [ ] **Step 3: コミット** — `test(e2e): Vite をランチャで包み、即死時の終了コード・出力・診断レポートを残す`
+- [ ] **Step 3: `e2e-rest-seed.ts:22`**
+
+`await fs.rm(E2E_REST_DATA_ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });` + コメント「Windows では閉じかけのハンドルで EBUSY/EPERM/ENOTEMPTY になるので一過性のロックだけ待つ（テスト終了後にサーバが書き終える順序は解かない）」。
+
+- [ ] **Step 4: README**
+
+`editor/README.md` の e2e 節に: 「Vite はランチャ `editor/e2e/tools/e2e-vite.ts` 経由で起動し、異常終了時は `.tmp/vite-e2e/exit-*.txt` に終了コードと直前の出力が残る。`E2E_VITE_PROCDUMP=<procdump.exe>` を設定するとクラッシュダンプも採る。」
+
+- [ ] **Step 5: 確認** — `pnpm typecheck:editor`（`tsconfig.e2e.json` がランチャを型検査する）、`pnpm exec biome check --write editor/e2e editor/playwright.config.ts editor/server/scripts`、`pnpm run test:e2e` 1 回（`[e2e-vite] exit code=…` が出る。`RUNS.md` に記録）。`pnpm knip` があれば実行して未使用警告が無いこと。
+
+- [ ] **Step 6: コミット** — `test(e2e): Vite を Node 直起動のランチャで包み、異常終了時の情報を残す。API ポートを共有定数から引く`
 
 ---
 
-### Task 7: 再現と原因の切り分け（判断ゲート）
+### Task 1b: ダンプ採取と読解の道具（ユーザー承認済み: procdump / WinDbg とも導入可）
 
-- [ ] **Step 1: 再現** — `pnpm run test:e2e` を最大 6 回（緑でも続ける）。落ちた回の `crash-*.txt` / `report*.json` / `vite-*.log` 末尾を集める。
-- [ ] **Step 2: 切り分け（落ちた回の情報で分岐）**
-  - stderr に Rust panic（`thread '...' panicked` / rolldown / oxc）が出た → rolldown/oxc のバグ。パニック位置（対象ファイル）を特定し、そのファイルの構文を回避できるか（例: 特定の正規表現リテラルや TS 構文）を試す。回避不能なら Vite 7 系固定案へ。
-  - Node 診断レポートが出た（V8 側の致命エラー）→ `javascriptStack` / `nativeStack` から原因モジュールを特定。
-  - どちらも無く即死だけ → 外部要因（メモリ / AV）を疑い、`Get-Counter '\Memory\Available MBytes'` を並走記録して相関を見る。
-- [ ] **Step 3: 判断（ユーザー確認）** — 結果を `docs/superpowers/specs/2026-09-12-vite-crash-findings.md` に書き、対策を 3 択で提示する: (a) Vite 7 系へ固定（依存変更 → `local-only/offline-publish` でバンドル再 publish）、(b) 回避策（設定・構文）、(c) `test:e2e` ラッパで Vite 死亡時だけ 1 回再実行。**ユーザーの選択を待って** Stage B を閉じる（選択後のタスクは別途起こす）。
+- [ ] procdump: `https://download.sysinternals.com/files/Procdump.zip` を `<repoRoot>/.tmp/tools/procdump/` に展開（git 管理外）。`procdump64.exe -accepteula -?` が動くことを確認。以後の e2e は `E2E_VITE_PROCDUMP=<repoRoot>/.tmp/tools/procdump/procdump64.exe` を呼び出し元シェルで設定して走らせる（`RUNS.md` に「procdump あり」と記す）。
+- [ ] WinDbg: `winget install Microsoft.WinDbg`（Store 版）。入らなければ `cdb` を含む Windows SDK Debugging Tools を候補にし、どちらも無理なら「`.dmp` のヘッダから faulting module 名だけ読む」に留めて報告する。
+- [ ] 読み方の手順を `docs/superpowers/specs/2026-09-12-vite-crash-findings.md` の冒頭に書く: `windbg -z <dmp>` → `!analyze -v` → `FAULTING_MODULE` / `STACK_TEXT` を控える。
+- [ ] コミット対象なし（道具は git 管理外）。README の e2e 節に「ダンプ採取は procdump、読解は WinDbg」の 1 行を Task 1 の追記へ足す。
+
+---
+
+## Stage A: 正しさ・防御
+
+### Task 2: pending だけの id を作成経路で開く規則を 1 か所にする（A1）
+
+**Files:**
+- Create: `editor/web/src/features/templates/editorRoute.ts`
+- Modify: `editor/web/src/features/templates/EditTabView.vue:46-51`（既存の inline 規則を `editorRouteFor` に置換）
+- Modify: `editor/web/src/features/reviews/ReviewTabView.vue:164-170, 196`（`loadParts` で取った `tpl.meta` を ref に保持し `goEdit` で使う）
+- Modify: `editor/web/src/features/preview/PreviewView.vue:169`（`origin` から `created` を復元して fallback に渡す）
+- Test: `editor/web/test/editorRoute.test.ts`（新規・web-node）、`editor/web/test/reviewTabView.dom.test.ts`（draft メタの push を主張する 1 ケース追加。既存の完全一致主張は `query` を付けないので無傷）
+- Modify: `vitest.config.ts`（coverage include に `editor/web/src/features/templates/editorRoute.ts` を追加。単体で 4 指標 85% 以上）
+
+**Interfaces:**
+- Produces（2 関数。`status` と `origin` を混ぜない）:
+  - `editorRoute(id: string, opts: { created: boolean }): RouteLocationRaw` = `{ name: 'editor', params: { id }, ...(opts.created ? { query: { created: '1' } } : {}) }` — 編集画面への遷移で `created` query を出す**唯一の場所**。
+  - `opensAsCreate(meta: Pick<TemplateMeta, 'status'>): boolean` = `meta.status === 'draft'` — 「pending だけの id（作成経路の産物）は作成経路で開く」の判定。doc: 「編集経路で開くと値入り HTML が無いまま申請へ進み server の `assertFilledPresentForEdit` で拒否される。経路判定は `created` query のみ、という原則は変えず、その query を出す規則をここに集める。」
+  - 呼び出し: EditTabView / ReviewTabView は `editorRoute(m.id, { created: opensAsCreate(m) })`、PreviewView は `editorRoute(id, { created: origin === 'create' })`（プレビューは route query に `origin` を持つので `status` を経由しない）。
+
+- [ ] **Step 1: テスト** — `editorRoute.test.ts`: `editorRoute('x', { created: false })` → query なし / `{ created: true }` → `created:'1'`、`opensAsCreate({ status: 'draft' })` → true / `'published'` → false。`reviewTabView.dom.test.ts`: 既存の `template()` ヘルパは `Partial<Template>` を受けるので `getTemplateFn.mockResolvedValue(ok(template({ meta: { ...template().meta, status: 'draft' } })))` の形で draft を返し、`loadParts` は非同期（`watch(targetId, loadParts, { immediate: true })`）なので click 前に `await flushPromises()`（同ファイル 172-181 行の流儀）。主張: 「編集へ」の push が `{ name:'editor', params:{id}, query:{created:'1'} }`。
+- [ ] **Step 2: 実装** — `ReviewTabView.vue`: `const targetMeta = ref<TemplateMeta | null>(null)` を `loadParts` で設定。`goEdit` は `router.push(editorRoute(targetId.value, { created: targetMeta.value ? opensAsCreate(targetMeta.value) : mine.value.some((m) => m.origin === 'create') }))` — メタ未取得（`loadParts` 前のクリック）でも申請一覧の `origin` を第 2 の根拠にし、pending だけの id を編集経路で開かない。`PreviewView.vue:169`: `:fallback="editorRoute(id, { created: origin === 'create' })"`。
+- [ ] **Step 3: 確認** — web-dom / web-node、`pnpm typecheck:editor`、`pnpm exec playwright test -c editor/playwright.config.ts --project=chromium review_tab.spec.ts create.spec.ts`（RUNS.md に記録）
+- [ ] **Step 4: コミット** — `fix(web): pending だけのテンプレートを開く導線を作成経路へ送る規則を 1 か所にまとめる`
+
+---
+
+### Task 3: local の filled 意味論を決めて契約を揃える（A5, A6）
+
+**Step 0（設計判断。実装前に確定）**: local の「値入り HTML がある」は `resolveFilled(id, fileName) = filledOverride[id] ?? (htmlOverride[id] ? '' : (fixtureFilled[fileName] ?? ''))`（現行 `getTemplate` の式）で定義する。作成承認（`htmlOverride`）後に `filledOverride` が無い id は「filled 無し = `draft`」。rest では `filled/` の旧ファイルが残れば `published` のままなので、この点は**意図的に違う**（local は別ツールが `filled/` を置く運用を持たないため）。Task 5 で正典に記録する。
+
+**Files:**
+- Modify: `editor/web/src/api/local/store.ts`（`resolveFilled` を export、`allMetas` の `status` を **`resolveFilled(id, fileName) !== '' ? 'published' : 'draft'` だけから導く**。META（`saved`）の `status` は読まない（`updatedAt` / `updatedBy` のみ使う）。現行は `saved?.status ?? (…)` で保存済み status が優先され、`publishMeta` が origin を問わず `published` を書くため、作成承認後も `published` のままになる）
+- Modify: `editor/web/src/api/local/templateRepo.ts:70-74` `publishMeta`（`status` を書かない。`updatedAt` / `updatedBy` だけにする）
+- Modify: `editor/web/test/localRepos.dom.test.ts:114` 付近（confirm 後 `status === 'published'` を主張するケースの origin を確認し、`create` origin なら期待値を `draft` に直す。`edit` origin なら `published` のまま）
+- Modify: `editor/web/src/api/local/templateRepo.ts:223-224`（inline 式を `resolveFilled` に置換）
+- Modify: `editor/web/src/api/local/reviewRepo.ts` `submitReview`（`origin==='edit' && resolveFilled(...) === ''` なら `validation`。**store を直接読む**（`getTemplate` 経由にしない — `localReviewRepo.dom.test.ts:85-104` は `getTemplate` を notFound にモックして申請が通ることを主張している））
+- Test: `editor/web/test/localReviewRepo.dom.test.ts`（edit + filled 無し → `validation`）、`editor/web/test/localRepos.dom.test.ts`（create 承認後の id が `draft` になる / edit 承認後は `published` のまま）、`editor/web/test/twoSystems.guard.test.ts`（`fixtures/templates` と `fixtures/filled` のファイル名集合が一致する — local の既定 fixture が rest の「filled があるものだけ一覧」と同じ集合を出す前提を固定）
+
+- [ ] **Step 1: 失敗するテスト → Step 2: 実装 → Step 3: `pnpm exec vitest run --project web-dom --project web-node`、`pnpm typecheck:editor`**
+- [ ] **Step 4: コミット** — `feat(web): local 実装の値入り HTML の有無を 1 つの規則にし、draft 判定と編集経路の申請拒否を server に揃える`
+
+---
+
+### Task 4: テストの主張とコメント幅の是正（A3, A4。Task 5 と同じコミットでもよい）
+
+- [ ] `editor/server/test/reviews.test.ts:288-289`: 「申請が作られない」は `reviews.listReviews({}, approver)` の結果に `templateId === tplId` の行が無いことで主張する（申請ディレクトリ名は reqId で templateId を含まない）。
+- [ ] `editor/server/src/routes/routeGuards.ts:146`: 全角 2 幅で 100 以内に折り返す（意味は変えない。`biome check` はコメントを再整形しないので手で折り、実行後に戻っていないことを確認）。
+- [ ] 確認: `pnpm exec vitest run --project server editor/server/test/reviews.test.ts`
+- [ ] コミット: `test(server): 編集経路の申請拒否で申請が作られないことを主張し、コメント幅を規約に揃える`
+
+---
+
+### Task 5: 設計正典の追記（A2, D1, D2, Task 3 Step 0）
+
+**Files:** `docs/editor/src/設計正典.md`（中核原則「編集 2 系統」`:61-66`、「してはならないこと・却下済み設計」）
+
+- [ ] 中核原則に追記（通常の日本語）:
+  - 「`status:'draft'`（pending だけの id）は作成経路（`?created=1`）で開く。`created` query を出す規則は `features/templates/editorRoute.ts` の `editorRoute`、pending の判定は同ファイルの `opensAsCreate` で、一覧・承認タブ・プレビューの戻る導線が共用する。」
+  - 「編集経路（`origin='edit'`）の申請・承認は `filled/<id>.html` の存在を要求する（server `assertFilledPresentForEdit`、local は `resolveFilled`）。」
+  - 「local の値入り HTML の有無は `resolveFilled`（`filledOverride` → 作成承認済みなら無し → fixture）で決める。作成承認後に旧 `filled/` が残る rest とは意図的に違う（local は別ツールの配置運用を持たない）。」
+- [ ] 却下済み設計に 2 項: ペア同期の状態ファイルを `filled/` と `templates/` で分けない（両方にあるのは作成承認直後の短期間で、混在は競合→スキップの fail-safe。分けると JSON 形式変更と移行が要る）/ 編集タブのバナーに `templates/` 側の競合を出さない（バナーは値入り HTML のペアの有無を見る。`templates/` 側はその版種自身の承認時に扱う）。
+- [ ] `py -3.13 docs/_build/build_all.py --project editor`、`pnpm run test:docs`。コミット: `docs(editor): pending の開き方・編集経路の filled 必須・local の filled 意味論と見送り理由を設計正典に書く`
 
 ---
 
 ## Stage C: 整理
 
-### Task 8: server の整理（C1, C2, C3, C5, C6）
+### Task 8: server の整理（C1, C2, C3, C6）
 
-**Files:**
-- Modify: `editor/server/src/repositories/historyRepo.ts:29-43`（`TEMPLATES_PATHSPEC`→`FILLED_PATHSPEC`、`templateRel`→`filledRel`、`templateFilesOf`→`filledFilesOf`。呼び出し 5 箇所も追随）
-- Modify: `editor/server/src/files/templateFiles.ts:63`（`listTemplateFiles` を削除）
-- Modify: `vitest.config.ts`（include に `editor/server/src/repositories/templateRepo.ts` を追加。`templateMeta.ts` の隣）
-- Modify: `editor/server/test/generate.routes.test.ts:154`（`templatesDir` への書込を削除し、コメントを「一覧の確定判定は filled/ 走査」だけにする）
-- Modify: `editor/server/test/ioFailurePolicy.test.ts`（`readFilledHtml` 版の 2 ケース: 規約外は空文字 / EISDIR は throw）
-
-- [ ] **Step 1: 実装・テスト** — `pnpm exec vitest run --project server --coverage --coverage.include='**/repositories/templateRepo.ts'` で `templateRepo.ts` の 4 指標が 85% 以上であることを確認（不足なら `templateRepo.filled.test.ts` に `getDropdownOptions` / `listSeriesFunds` / `saveDraft` 系のケースを足す）。`pnpm typecheck:editor`。
-- [ ] **Step 2: コミット** — `refactor(server): 版履歴の識別子を filled に合わせ、未使用 export を消し、templateRepo を被覆ゲートに入れる`
+- [ ] `historyRepo.ts:29-43`: `TEMPLATES_PATHSPEC`→`FILLED_PATHSPEC`、`templateRel`→`filledRel`、`templateFilesOf`→`filledFilesOf`（呼び出し 5 箇所も。他ファイル・テストからの参照は無い）。
+- [ ] `files/templateFiles.ts:63` `listTemplateFiles` を削除（呼び出し無し。`confirmedWrite.guard.test.ts:88` の検査には影響しない）。
+- [ ] `vitest.config.ts` include に `editor/server/src/repositories/templateRepo.ts` を追加し、`pnpm exec vitest run --project server --coverage --coverage.include='**/repositories/templateRepo.ts'` で 4 指標 ≥ 85% を確認（route テストの sproc フェイク経由も数えられる。不足なら `templateRepo.filled.test.ts` に不足分岐のケースを足す）。
+- [ ] `ioFailurePolicy.test.ts`: `readFilledHtml` 版の 2 ケース（規約外は空文字 / EISDIR は throw）。
+- [ ] `pnpm typecheck:editor`。コミット: `refactor(server): 版履歴の識別子を filled に合わせ、未使用 export を消し、templateRepo を被覆ゲートに入れる`
 
 ---
 
-### Task 9: e2e の整理（C4, C13）
+### Task 9: web の整理（C7〜C11）
 
-**Files:**
-- Modify: `editor/playwright.config.ts:62-79`（`E2E_REST_PORT` を import し `apiUrl = \`http://127.0.0.1:${E2E_REST_PORT}\`` を `url` / `API_PROXY_TARGET` / コメントに使う）
-- Modify: `editor/server/scripts/e2e-rest-seed.ts:22`（`fs.rm` を最大 5 回・200ms 間隔で再試行。`EBUSY` / `EPERM` / `ENOTEMPTY` のときだけ）
-
-```ts
-async function rmWithRetry(target: string): Promise<void> {
-  // Windows では直前テストの autosave など、まだ閉じていないハンドルがあると rm が
-  // EBUSY/EPERM/ENOTEMPTY で失敗する。数百 ms 待てば閉じるので、その種類だけ再試行する。
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await fs.rm(target, { recursive: true, force: true });
-      return;
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (attempt >= 4 || !['EBUSY', 'EPERM', 'ENOTEMPTY'].includes(code ?? '')) throw e;
-      await new Promise((r) => setTimeout(r, 200));
-    }
-  }
-}
-```
-
-- [ ] **Step 1: 実装・確認** — `pnpm typecheck:editor`、`pnpm run test:e2e` 1 回（ポート空き時）
-- [ ] **Step 2: コミット** — `test(e2e): API ポートを共有定数から引き、dataRoot 削除を一過性のロックで再試行する`
+- [ ] `stores/auth.ts` `reset()` に `clearSampleDataCache()`（コメント: 401 の後に別利用者がログインしうる）。既存の auth ストアテストに「reset で `editor:sample:*` が消える」を足す。
+- [ ] `api/rest/templateRepo.ts` `readSampleCache`: `typeof parsed === 'object' && parsed !== null` でなければ null。`restRepos.dom.test.ts` に壊れた JSON → 再取得の 1 ケース。
+- [ ] `ReviewDetail.vue:301-302`: `const html = filledHtml || afterBodyHtml.value; … renderPdf(html, cssAfter.value, {}, false, Boolean(filledHtml))`。コメント: 「`filledHtml` が空文字の申請（描画中・描画失敗のまま申請）は差分由来の本文を隔離描画する」。
+- [ ] `mergePdfService.ts` `renderOne`: `const fail = (cause: unknown) => err(conflict(\`テンプレート${nth}のレンダリングに失敗しました。\`, { cause }))` で 2 分岐を共用。
+- [ ] `api/local/templateRepo.ts` `putContentOverrides`: `const key = req.origin === 'edit' ? K.filledOverride : K.htmlOverride;` で 1 本化（コメントは残す）。
+- [ ] `pnpm exec vitest run --project web-dom --project web-node`、`pnpm typecheck:editor`。コミット: `refactor(web): 401 リセットでもサンプル名を捨て、キャッシュの形状検査と重複した分岐を整理する`
 
 ---
 
-### Task 10: web の整理（C7, C8, C9, C10, C11）
+### Task 10: 表記の整理（C12）
 
-**Files:**
-- Modify: `editor/web/src/stores/auth.ts` `reset()`（`clearSampleDataCache()` を呼ぶ。コメント: 401 の後に別利用者がログインしうる）
-- Modify: `editor/web/src/api/rest/templateRepo.ts` `readSampleCache`（`typeof parsed === 'object' && parsed !== null` を確認、違えば null）
-- Modify: `editor/web/src/features/reviews/ReviewDetail.vue:301-302`（`const html = filledHtml || afterBodyHtml.value; … renderPdf(html, cssAfter.value, {}, false, Boolean(filledHtml))` — 空文字の `filledHtml` は「描画失敗の申請」なので差分由来へ倒す）
-- Modify: `editor/web/src/features/merge/services/mergePdfService.ts`（`renderOne` の 2 分岐で共通の `const fail = (cause: unknown) => err(conflict(\`テンプレート${nth}のレンダリングに失敗しました。\`, { cause }))` を使う）
-- Modify: `editor/web/src/api/local/templateRepo.ts` `putContentOverrides`（`const key = req.origin === 'edit' ? K.filledOverride : K.htmlOverride;` で 1 本化）
-- Test: `restRepos.dom.test.ts`（壊れた JSON は無視して再取得する 1 ケース）、`auth` ストアのテスト（reset で `editor:sample:*` が消える）
-
-- [ ] **Step 1: 実装・テスト** — `pnpm exec vitest run --project web-dom --project web-node`、`pnpm typecheck:editor`
-- [ ] **Step 2: コミット** — `refactor(web): 401 リセットでもサンプル名を捨て、キャッシュの形状検査と重複した分岐を整理する`
+- [ ] `editor/README.md:23`、`editor/CONTRIBUTING.md:71`、`docs/editor/src/設計書.md:21,53,85,181,205,739` の「フェーズ 1 / フェーズ 2 / Phase2」を「local（開発用）/ rest（既定。SQL Server）」の語へ（205 行の「同じ Repository 契約」の説明は残す）。`py -3.13 docs/_build/build_all.py --project editor`、`pnpm run test:docs`、`pnpm run check:comments`。
+- [ ] コミット: `docs(editor): フェーズ番号での呼び分けを rest / local の語に揃える`
 
 ---
 
-### Task 11: 表記の整理（C12）
+## Stage B-2: 再現の計数と判断
 
-**Files:**
-- Modify: `editor/README.md:23`、`editor/CONTRIBUTING.md:71`、`docs/editor/src/設計書.md:21,53,85,181,205,739`
+### Task 6: 再現の計数
 
-- [ ] **Step 1: 書き換え** — 「フェーズ 1 / フェーズ 2 / Phase2」を「local（開発用）/ rest（既定。SQL Server）」の語へ。設計書 205 行の「同じ Repository 契約」の説明は残す。ビルド `py -3.13 docs/_build/build_all.py --project editor`、`pnpm run test:docs`、`pnpm run check:comments`。
-- [ ] **Step 2: コミット** — `docs(editor): フェーズ番号での呼び分けを rest / local の語に揃える`
+- [ ] Task 1 以降のすべての e2e 実行（Task 2・3 の spec 実行、Task 11 の CI）を `.tmp/vite-e2e/RUNS.md` に記録。合計が 6 回未満なら `pnpm run test:e2e` を追加実行して 6 回にする（緑でも続ける）。
+- [ ] 各実行で `Start-Job { Get-Counter '\Memory\Available MBytes','\Memory\Committed Bytes','\Memory\% Committed Bytes In Use' -SampleInterval 5 -MaxSamples 120 | Export-Counter -Path <csv> -FileFormat CSV }` を**並走**させ（前景で回すと 10 分ブロックする）CSV に残す。値の整形は `[long]`（Committed Bytes は `[int]` で溢れる）（割当失敗はコミット枯渇で起きる。物理 7.67 GB・空き 1.8 GB の端末で、node.exe の `RADAR_PRE_LEAK_64` が WER に記録された実績あり）。
+- [ ] 落ちた回は `exit-*.txt` / `report*.json` / procdump の `.dmp`（設定時）/ メモリ CSV を揃える。
+
+### Task 7: 切り分けと判断（ユーザーゲート）
+
+- [ ] 切り分け:
+  - stderr に `panicked at`（rolldown / oxc-resolver / lightningcss / tailwind oxide のどれか）→ そのモジュールのバグ。対象ファイルが判れば構文回避を試す。
+  - Node 診断レポート（`FATAL ERROR:` が stderr に出る）→ `javascriptStack` / `nativeStack` から特定。
+  - 無音死 + ダンプあり → faulting module 名（`.node` のどれか）で判断。
+  - 無音死 + ダンプ無し → メモリ CSV の相関（コミット枯渇なら資源起因）。
+- [ ] 所見を `docs/superpowers/specs/2026-09-12-vite-crash-findings.md` に書き、対策を提示して**ユーザーの選択を待つ**:
+  - (a) Vite 7 系へ固定 — 依存上は可能（`@vitejs/plugin-vue@6.0.8` / `@tailwindcss/vite@4.3.3` / `vitest@4.1.11` の peer 範囲は `^7` を含む）が、vitest は自前の vite を解決するため lockfile に 7 と 8 が併存し、オフラインバンドルの再 publish が要る。**消えるのは rolldown / oxc だけ**で lightningcss・tailwind oxide は残る。faulting module が判るまでは賭け。
+  - (b) 回避策（構文・設定）。
+  - (c) `test:e2e` を Vite 死亡（ランチャの exit ≠ 0 かつ `ERR_CONNECTION_REFUSED` 連発）に限って 1 回再実行するラッパ（`editor/e2e/tools/` の TS を node で。`playwright.config.ts:31` の `retries: 0` の理由「flake を隠さない」と整合させ、条件を狭く書く）。
+- [ ] 選択後のタスクは別途起こす。
 
 ---
 
-### Task 12: CI とレビュー
+### Task 11: CI と PR
 
-- [ ] `pnpm run ci`（前半後半を分けてよい。e2e は Vite 死亡なら 1 回再実行し、結果を報告に書く）
-- [ ] PR #67 へ積む（ブランチは同じ）。GH の `verify` が緑になることを確認。
+- [ ] `pnpm run ci`（前半後半を分けてよい。e2e は Vite 死亡なら 1 回再実行し、両方を RUNS.md と報告に書く）。
+- [ ] PR #67 へ積む。GH の `verify` が緑であること。
 
-## 自己点検
+## v1 からの変更（反対目線レビューの反映）
 
-- 残件一覧の全行に対応タスクがある（D1/D2 は正典への記録）。Task 7 だけはユーザー判断で終わる（設計上の分岐点）。
-- 新規スクリプトは TypeScript（`e2e-vite.ts`）。`.mjs` / `.ps1` は増やさない。
-- 型・シグネチャ: `E2E_REST_PORT` / `E2E_REST_WEB_PORT` は `e2e-rest-paths.ts` の既存 export。`clearSampleDataCache` は前計画で export 済み。`K.filledOverride` は前計画で追加済み。
+- Task 1（旧）→ Task 2: 承認タブに `created` query は来ない（`resolveReviewTarget` が作成経路を意図的に除く）ため、規則を `status:'draft'` ベースの純関数 `editorRouteFor` に集約。ソース走査テストを捨て、振る舞いテスト（`reviewTabView.dom.test.ts` の draft ケース）へ。
+- Task 6（旧）→ Task 1: pnpm を挟まず Node 直起動（`[WebServer] undefined` は pnpm reporter の産物で Vite は無音）。`tsx` 追加を避け Node 24 の型ストリップで実行。シグナル転送と `--report-on-signal` を削除（Playwright は `taskkill /T /F`）。異常終了時のみ記録。procdump の任意経路と、ダンプ道具の有無をユーザー確認事項に。ポート配線と `fs.rm` の再試行を同じコミットへ。
+- Task 3: `hasFilled` を `getTemplate` と同じ式（`htmlOverride` を含む）にし、`resolveFilled` として store に 1 つ置く。門は store を直接読む（既存モックテストを壊さない）。rest との意味の違いを Step 0 で決め正典に記録。
+- Task 4（旧・契約一致テスト）を削除し Task 3 に吸収。
+- Task 2（旧）→ Task 4: 申請の非生成は `listReviews` で主張。A4 は全角 2 幅で 118 と明記。
+- Task 9（旧）の自作再試行ループ → `fs.rm` の `maxRetries` / `retryDelay`。C5（templatesDir 書込削除）は落とす。
+- Task 7: 3 択に lockfile / 残るネイティブ部品の注記、メモリはコミット系カウンタも記録。
+- 実行順: B-1 → ユーザー確認 → A → C → B-2 → CI。
+
+## v2 からの変更（2 回目の反対目線レビューの反映）
+
+- M1: ランチャの `[cmd, args]` に tuple 型注釈（`tsconfig.e2e.json` の型検査で落ちる）。
+- M2: local の `status` は `resolveFilled` だけから導き、`publishMeta` は `status` を書かない。`localRepos.dom.test.ts:114` の期待値を origin に合わせて見直す。
+- M3: procdump 経由では終了コードが procdump のものになるため、procdump 使用時は常に `exit-*.txt` を書き、判定は `.dmp` と procdump の出力で行う。
+- S1: `editorRouteFor(meta)` を `editorRoute(id, { created })` + `opensAsCreate(meta)` の 2 関数に分け、`origin` を偽の `status` に写さない。
+- S2: 承認タブでメタ未取得のときは申請一覧の `origin === 'create'` を第 2 の根拠にする。
+- S3: `editorRoute.ts` を coverage include へ。
+- S4: `reviewTabView.dom.test.ts` の draft ケースの組み方（`template({ meta: {...} })` + `flushPromises`）を明記。
+- N1〜N3: メモリ計測は `Start-Job` で並走・`[long]`、直前出力の chunk 境界と procdump バナーを注記。
+- ユーザー承認を受け、procdump と WinDbg の導入を Task 1b として計画に入れた。
