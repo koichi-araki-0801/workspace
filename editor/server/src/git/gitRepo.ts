@@ -278,7 +278,7 @@ export async function ensureRepo(): Promise<void> {
  * 許可リストで書く。ここに無いディレクトリは、`.gitignore` へ書き忘れても混ざらない。
  * `.gitignore` 側の必須リストは多層防御として残す(`ensureGitignore`)。
  */
-const COMMITTED_PATHSPECS = ['templates', 'css', 'sync', '.gitignore', '.gitattributes'];
+const COMMITTED_PATHSPECS = ['templates', 'filled', 'css', 'sync', '.gitignore', '.gitattributes'];
 
 /**
  * 許可リストの領域だけを stage する。存在しない pathspec を渡すと git は

@@ -2,7 +2,7 @@
 // historyRepo.multiTemplate.test.ts — 1 コミットが複数テンプレに触れた版の帰属
 // =============================================================================
 // 確定コミットは `git add -A` で作るため、承認とペア転写が同じコミットへ入るなど
-// 1 コミットが 2 つ以上の `templates/*.html` を持つことがある。版一覧は各テンプレごとに
+// 1 コミットが 2 つ以上の `filled/*.html` を持つことがある。版一覧は各テンプレごとに
 // 同じ hash を返すので、hash だけで対象ファイルを決めると先頭のテンプレの内容が
 // 別テンプレの版として表示される(誤帰属)。実 git の一時リポジトリで固定する。
 import { execFileSync } from 'node:child_process';
@@ -34,10 +34,10 @@ d('複数テンプレを含む版のスナップショット', () => {
     const git = await import('../src/git/gitRepo.js');
     history = await import('../src/repositories/historyRepo.js');
     await git.ensureRepo();
-    fs.mkdirSync(path.join(tmp, 'templates'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
     fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'templates', `${FIRST}.html`), '<p>交付版の本文</p>', 'utf8');
-    fs.writeFileSync(path.join(tmp, 'templates', `${SECOND}.html`), '<p>全体版の本文</p>', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'filled', `${FIRST}.html`), '<p>交付版の本文</p>', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'filled', `${SECOND}.html`), '<p>全体版の本文</p>', 'utf8');
     fs.writeFileSync(path.join(tmp, 'css', '999999.css'), 'p{color:#000}', 'utf8');
     hash = await git.commitAll('確定保存 + ペア転写', { name: 'tester' });
   });

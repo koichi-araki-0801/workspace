@@ -157,9 +157,9 @@ d('history routes still serve valid ids', () => {
   beforeAll(async () => {
     const git = await import('../src/git/gitRepo.js');
     await git.ensureRepo();
-    fs.mkdirSync(path.join(tmp, 'templates'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
     fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'templates', `${templateId}.html`), '<p>本文</p>', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'filled', `${templateId}.html`), '<p>本文</p>', 'utf8');
     fs.writeFileSync(path.join(tmp, 'css', '999999.css'), 'p{color:#000}', 'utf8');
     hash = await git.commitAll(`確定保存: ${templateId} by tester`, { name: 'tester' });
     app = await buildApp();

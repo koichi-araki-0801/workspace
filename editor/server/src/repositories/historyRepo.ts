@@ -24,12 +24,14 @@ import {
 import { appendHistory, readHistory } from '../files/historyFiles.js';
 import { commitDate, commitFiles, logAllWithFiles, logForFile, showFile } from '../git/gitRepo.js';
 
-const TEMPLATES_PATHSPEC = 'templates';
+// 版履歴は値入り HTML(`filled/`)のコミットで数える。編集タブ・比較画面が見る履歴は
+// 編集タブが読み書きする本文のもので、作成タブの Jinja(`templates/`)の履歴は画面から参照しない。
+const TEMPLATES_PATHSPEC = 'filled';
 const templateRel = (templateId: string): string => `${TEMPLATES_PATHSPEC}/${templateId}.html`;
 const cssRel = (fundCode: string): string => `css/${fundCode}.css`;
 
 /**
- * 変更ファイル一覧から `templates/*.html` を**すべて**取り出す。
+ * 変更ファイル一覧から `filled/*.html` を**すべて**取り出す。
  *
  * 確定コミットは `git add -A` で作るため、承認とペア転写のように 2 つ以上のテンプレが
  * 同じコミットへ入りうる。先頭 1 件だけを見ると、版一覧が同じ hash を返す別テンプレへ
@@ -66,7 +68,7 @@ function pickTemplateFile(
 // ── git 由来: 編集履歴 / 版一覧 / スナップ ──
 
 /**
- * 全テンプレの編集履歴(templates/ に触れた各コミット)。
+ * 全テンプレの編集履歴(filled/ に触れた各コミット)。
  *
  * ⚠ コミットごとに `git show` を呼ぶ形へ戻さないこと。`Promise.all(commits.map(...))` は
  * 全コミットぶんの子プロセスを同一 tick で spawn するため、承認のたび伸びる履歴が
