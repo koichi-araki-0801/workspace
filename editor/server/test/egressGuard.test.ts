@@ -10,10 +10,11 @@
 // SOP 無効(CLI が `--disable-web-security` を必ず渡す)の組版ブラウザから他利用者の
 // プレビュー Vite サーバや editor 自身の API を読める。許可を 1 本の中継で共有すると、
 // そこから「同時に走る別ビルドの本文」まで読める(このファイルの最後の describe)。
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import net from 'node:net';
+import { PassThrough } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   activeEgressRelayCount,
@@ -522,5 +523,177 @@ describe('egressGuard — 中継の端', () => {
     build = await startFakeBuild('LOOPBACK-OK');
     proxyUrl = build.proxyUrl;
     originPort = build.originPort;
+  });
+});
+
+// ── 実接続では順序を決められない端 ──
+// プロキシへ実際に喋ると、`req` を組み立てるのは Node の HTTP パーサで、上流の応答・切断・
+// 無通信の起きる順序は OS とタイミングが決める。`req.url` を持たない要求、status を持たない
+// 応答、ヘッダ送信後の上流エラーは実行環境によって出たり出なかったりするので、中継の
+// `http.Server` を掴んで `request` を自分で発火させ、上流を偽装して順序を固定する。
+
+/** 中継 1 本と、その `handleRequest` を直接叩くための `http.Server` 実体。 */
+interface DrivenRelay {
+  reservation: BuildOriginReservation;
+  server: http.Server;
+}
+
+/** 枠を 1 つ取り、その枠専用の中継が作った `http.Server` を掴む。 */
+async function reserveWithRelayServer(): Promise<DrivenRelay> {
+  const createServer = http.createServer;
+  const created: http.Server[] = [];
+  const spy = vi.spyOn(http, 'createServer').mockImplementation(((...args: unknown[]) => {
+    const s = (createServer as (...a: unknown[]) => http.Server)(...args);
+    created.push(s);
+    return s;
+  }) as unknown as typeof http.createServer);
+  try {
+    const reservation = await reserveBuildOrigin();
+    return { reservation, server: created[0] };
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+/** 中継が書き込む先。`writeHead` を済ませたかどうかを観測できる最小の応答。 */
+class FakeRes extends PassThrough {
+  statusCode = 200;
+  headersSent = false;
+  readonly headers: Record<string, unknown> = {};
+
+  writeHead(status: number, headers?: http.OutgoingHttpHeaders): this {
+    this.statusCode = status;
+    this.headersSent = true;
+    Object.assign(this.headers, headers ?? {});
+    return this;
+  }
+
+  setHeader(name: string, value: string): this {
+    this.headers[name] = value;
+    return this;
+  }
+}
+
+/** 偽装した上流。中継が作った要求を握り、応答を配る時期をテストが決める。 */
+interface StubbedUpstream {
+  /** 中継が `http.request` で作った上流要求。 */
+  readonly requests: PassThrough[];
+  /** 上流の応答を配る。`status` を省くと「status を持たない応答」になる。 */
+  respond(status?: number): void;
+  restore(): void;
+}
+
+function stubUpstream(): StubbedUpstream {
+  const requests: PassThrough[] = [];
+  let onResponse: ((up: http.IncomingMessage) => void) | undefined;
+  const spy = vi.spyOn(http, 'request').mockImplementation(((
+    _options: unknown,
+    cb?: (up: http.IncomingMessage) => void,
+  ) => {
+    const request = new PassThrough();
+    requests.push(request);
+    onResponse = cb;
+    return request as unknown as http.ClientRequest;
+  }) as unknown as typeof http.request);
+  return {
+    requests,
+    respond(status?: number) {
+      const up = new PassThrough() as unknown as http.IncomingMessage;
+      up.headers = {};
+      if (status !== undefined) up.statusCode = status;
+      onResponse?.(up);
+    },
+    restore: () => spy.mockRestore(),
+  };
+}
+
+/** 枠の中の宛先へ向けた要求を中継へ渡す(`http.request` まで到達する形)。 */
+function emitForwardable(relay: DrivenRelay): FakeRes {
+  const res = new FakeRes();
+  const req = new PassThrough() as unknown as http.IncomingMessage;
+  req.url = `http://127.0.0.1:${relay.reservation.port}/x`;
+  req.method = 'GET';
+  req.headers = {};
+  relay.server.emit('request', req, res);
+  return res;
+}
+
+describe('egressGuard — 中継の端(事象の順序を明示して駆動する)', () => {
+  it('URL を持たない要求は中継しない', async () => {
+    const relay = await reserveWithRelayServer();
+    try {
+      const res = new FakeRes();
+      const chunks: string[] = [];
+      res.on('data', (c) => chunks.push(String(c)));
+      // `url` を持たない要求。絶対形として解けないので中継の対象にならない。
+      relay.server.emit('request', new PassThrough(), res);
+      expect(res.statusCode).toBe(502);
+      await once(res, 'end');
+      expect(chunks.join('')).toContain('許可されていません');
+    } finally {
+      relay.reservation.release();
+    }
+  });
+
+  it('status を持たない上流の応答は 502 として中継する', async () => {
+    const relay = await reserveWithRelayServer();
+    const upstream = stubUpstream();
+    try {
+      const res = emitForwardable(relay);
+      upstream.respond();
+      expect(res.headersSent).toBe(true);
+      expect(res.statusCode).toBe(502);
+    } finally {
+      upstream.restore();
+      relay.reservation.release();
+    }
+  });
+
+  it('ヘッダ送信後に上流が失敗しても status は書き換えず、応答を終端する', async () => {
+    const relay = await reserveWithRelayServer();
+    const upstream = stubUpstream();
+    try {
+      const res = emitForwardable(relay);
+      upstream.respond(200);
+      expect(res.headersSent).toBe(true);
+      const finished = once(res, 'finish');
+      // 応答ヘッダを送った後で上流が落ちる順序。502 は既に送れないので、終端だけが手段。
+      upstream.requests[0].emit('error', new Error('ECONNRESET'));
+      await finished;
+      expect(res.statusCode).toBe(200);
+    } finally {
+      upstream.restore();
+      relay.reservation.release();
+    }
+  });
+
+  it('黙り込んだ上流への要求は破棄する(枠を掴んだまま待ち続けない)', async () => {
+    const relay = await reserveWithRelayServer();
+    const upstream = stubUpstream();
+    try {
+      emitForwardable(relay);
+      upstream.requests[0].emit('timeout');
+      expect(upstream.requests[0].destroyed).toBe(true);
+    } finally {
+      upstream.restore();
+      relay.reservation.release();
+    }
+  });
+
+  it('中継が立たないときは枠を返してから失敗する(番地を握り潰さない)', async () => {
+    const before = activeEgressRelayCount();
+    const boom = vi.spyOn(http, 'createServer').mockImplementation(() => {
+      const fake = new EventEmitter() as unknown as http.Server;
+      (fake as unknown as { listen: () => void }).listen = () => {
+        setImmediate(() => fake.emit('error', new Error('EADDRINUSE')));
+      };
+      return fake;
+    });
+    await expect(reserveBuildOrigin()).rejects.toThrow('EADDRINUSE');
+    boom.mockRestore();
+    expect(activeEgressRelayCount()).toBe(before);
+    // 枠を返していれば次の予約はそのまま通る(返さないとその番地を避け続けて枯渇する)。
+    const ok = await reserveBuildOrigin();
+    ok.release();
   });
 });
