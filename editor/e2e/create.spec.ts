@@ -6,7 +6,7 @@
 // ハイライト有りであることを実画面で固定する(設計正典「編集 2 系統」)。生成される id は
 // 実行日の基準日を含み事前に分からないため、`openEditor` へは委ねずボタン押下後の遷移先で
 // 直接 canvas を待つ。
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { login } from './helpers';
 
 test.use({ viewport: { width: 1440, height: 900 } });

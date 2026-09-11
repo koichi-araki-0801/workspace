@@ -3,7 +3,8 @@
 // =============================================================================
 // 編集・プレビューは MainLayout の子ルートで、アプリヘッダとタブが常に見える。編集画面は
 // 残りの高さを全部使う(`h-full`)。タブを押すと、そのタブで直前に見ていた画面へ戻る。
-import { expect, type Page, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { login, openEditor as openEditorAt, readDraft } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';

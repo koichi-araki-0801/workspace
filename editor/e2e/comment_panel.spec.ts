@@ -3,7 +3,8 @@
 // =============================================================================
 // 一覧は右ペイン(overlay 層の外)にあるので pointer-events の罠は無いが、行クリックが
 // GrapesJS の選択と 1 ページ表示のページ送りまで届くかは実機でしか分からない。ここで押さえる。
-import { expect, type Page, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { login, openEditor, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';

@@ -9,7 +9,7 @@
 //
 // 併せて、右ペインの下書きが別パーツへ持ち越されないこと(別パーツにメモが付く事故)と、
 // 閉じた吹き出しが投稿の追加で開き直すこと(件数だけ増えて何も見えない事故)も固定する。
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { expectSelectedPart, login, openEditor, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';

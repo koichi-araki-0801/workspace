@@ -3,7 +3,8 @@
 // =============================================================================
 // 対象の決め方(?template= → 編集タブの直前画面 → 空状態)、要約箱 3 つの件数、同時展開の上限、
 // 決着後に同じ画面へ留まることを実機で固定する。
-import { expect, type FrameLocator, type Locator, type Page, test } from '@playwright/test';
+import type { FrameLocator, Locator, Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { login, openEditor, selectPart, submitOnce } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';

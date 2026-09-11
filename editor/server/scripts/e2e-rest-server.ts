@@ -5,44 +5,13 @@
 // `config.ts` は import 時に `process.env` を解決するため、`PORT` 等は `serve.ts` の
 // 動的 import より前に設定する(静的 import では一時 `DATA_ROOT` が効かない)。
 // dataRoot はリポジトリ内の gitignore 済み固定パス(`.tmp/e2e-rest-dataroot`)を毎回
-// 作り直して使う。パス定数は `e2e-rest-paths.ts` 側に置き、本ファイルは何も export しない。
+// 作り直して使う。パス定数は `e2e-rest-paths.ts`、seed 本体は `e2e-rest-seed.ts` 側に置き、
+// 本ファイルは何も export しない。
 
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { E2E_REST_DATA_ROOT, E2E_REST_PORT } from './e2e-rest-paths.js';
-
-/**
- * dataRoot をファイルで seed する。一覧・1 件取得・申請はファイル走査(台帳ではない。
- * `templateRepo.ts` / `reviewRepo.ts` を見よ)なので、確定 template と per-fund CSS を
- * 置くだけで一覧・編集・申請・承認が成立する。`reviews` / `notes` / `drafts` / `pending`
- * ディレクトリは各リポジトリの書込側が `mkdir(..., { recursive: true })` するため
- * 事前作成は不要。git リポジトリ化(`ensureRepo`)も承認時に自動で行われるため不要。
- */
-async function seedDataRoot(repoRoot: string): Promise<void> {
-  await fs.rm(E2E_REST_DATA_ROOT, { recursive: true, force: true });
-  const templatesDir = path.join(E2E_REST_DATA_ROOT, 'templates');
-  const cssDir = path.join(E2E_REST_DATA_ROOT, 'css');
-  const filledDir = path.join(E2E_REST_DATA_ROOT, 'filled');
-  await fs.mkdir(templatesDir, { recursive: true });
-  await fs.mkdir(cssDir, { recursive: true });
-  await fs.mkdir(filledDir, { recursive: true });
-
-  const fixturesTemplatesDir = path.join(repoRoot, 'editor/web/src/api/fixtures/templates');
-  const fixturesCssDir = path.join(repoRoot, 'editor/web/src/api/fixtures/css');
-  // 編集タブの一覧は filled/ が源。値入り HTML の seed は web 同梱の round-trip 形式 fixture
-  // (`{%` を含まない)をそのまま使う。
-  const fixturesFilledDir = path.join(repoRoot, 'editor/web/src/api/fixtures/filled');
-  for (const name of await fs.readdir(fixturesTemplatesDir)) {
-    await fs.copyFile(path.join(fixturesTemplatesDir, name), path.join(templatesDir, name));
-  }
-  for (const name of await fs.readdir(fixturesCssDir)) {
-    await fs.copyFile(path.join(fixturesCssDir, name), path.join(cssDir, name));
-  }
-  for (const name of await fs.readdir(fixturesFilledDir)) {
-    await fs.copyFile(path.join(fixturesFilledDir, name), path.join(filledDir, name));
-  }
-}
+import { seedDataRoot } from './e2e-rest-seed.js';
 
 async function main(): Promise<void> {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');

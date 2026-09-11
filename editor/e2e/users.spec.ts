@@ -12,7 +12,7 @@
 // ユーザー切替は `test()` を分けて行う。Playwright は `test()` ごとに cookie 空の
 // `BrowserContext` を払い出すので、セッション cookie 方式の rest ではこれが最も素直な
 // 切替手段になる。
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { login } from './helpers';
 
 const NEW_USERNAME = 'e2erest';

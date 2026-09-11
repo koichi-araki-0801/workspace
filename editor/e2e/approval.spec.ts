@@ -13,8 +13,8 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
 import { E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
+import { expect, test } from './fixtures';
 import { login, openEditor, waitForLoaded } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';

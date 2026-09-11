@@ -5,7 +5,8 @@
 // GrapesJS 統合部の実画面挙動を固定する。2 系統の出し分けは `twoSystems.guard.test.ts`
 // (単体)の実画面版 — canvas body の `jinja-vars-highlight` クラスまで確認する。
 
-import { expect, type Page, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { login, openEditor as openEditorAt, readDraft, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
