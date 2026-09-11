@@ -69,11 +69,11 @@ export function setUndoUserScope(loginId: string | null): void {
   undoLoginId = loginId;
 }
 
-/** 現在のユーザーのスコープ。rest はログイン ID、local は単一利用者前提の固定値。 */
+/** 現在のユーザーのスコープ。local は単一利用者前提の固定値、それ以外(既定 rest)はログイン ID。 */
 function userScope(): string {
-  return import.meta.env.VITE_API_MODE === 'rest'
-    ? (undoLoginId ?? ANONYMOUS_UNDO_SCOPE)
-    : LOCAL_UNDO_SCOPE;
+  return import.meta.env.VITE_API_MODE === 'local'
+    ? LOCAL_UNDO_SCOPE
+    : (undoLoginId ?? ANONYMOUS_UNDO_SCOPE);
 }
 
 /** 現在のユーザー向け Undo ミラーキー。 */

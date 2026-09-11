@@ -16,6 +16,12 @@ describe('useEditorSessionStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     localStorage.clear();
+    // 既定は rest(= ログイン ID スコープ)なので、キー名を直書きする検証は local を明示する。
+    vi.stubEnv('VITE_API_MODE', 'local');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('ensure() creates an empty session and returns the same instance on re-ensure', () => {
@@ -341,11 +347,13 @@ describe('Undo ミラーのユーザー分離', () => {
   });
 
   it('local は単一利用者前提の固定スコープを使う', () => {
+    vi.stubEnv('VITE_API_MODE', 'local');
     setUndoUserScope('alice');
     expect(undoStacksKey()).toBe('editor:session:undo:v2:local');
   });
 
   it('Undo ミラーのキーは v2 で、旧形式のミラーは読まない', () => {
+    vi.stubEnv('VITE_API_MODE', 'local');
     localStorage.setItem(
       'editor:session:undo:local',
       JSON.stringify({ t1: { past: [{ html: 'old', css: '' }], future: [] } }),
@@ -375,5 +383,20 @@ describe('Undo ミラーのユーザー分離', () => {
     vi.stubEnv('VITE_API_MODE', 'rest');
     setUndoUserScope(null);
     expect(undoStacksKey()).toBe('editor:session:undo:v2:anonymous');
+  });
+
+  it('VITE_API_MODE 未設定でも Undo ミラーはログイン ID でスコープされる(既定は rest)', () => {
+    vi.stubEnv('VITE_API_MODE', '');
+    setUndoUserScope('alice');
+    const keyA = undoStacksKey();
+    const s = useEditorSessionStore().ensure('t1');
+    s.undoPast.push({ html: '<p>alice</p>', css: '' });
+    useEditorSessionStore().persist('t1');
+    expect(localStorage.getItem(keyA)).toContain('alice');
+
+    setUndoUserScope('bob');
+    expect(undoStacksKey()).not.toBe(keyA);
+    setActivePinia(createPinia());
+    expect(useEditorSessionStore().ensure('t1').undoPast).toEqual([]);
   });
 });

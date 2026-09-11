@@ -23,15 +23,15 @@ import '@fontsource-variable/jetbrains-mono/index.css';
 import 'font-awesome/css/font-awesome.css';
 import './assets/index.css';
 
-// データソース: `VITE_API_MODE=rest` なら REST(SQL Server backend),
-// それ以外は local fixtures + localStorage 一式(既定)。
-const useRest = import.meta.env.VITE_API_MODE === 'rest';
-const repositories = useRest ? restRepositories : localRepositories;
+// データソース: `VITE_API_MODE=local` のときだけ local fixtures + localStorage 一式(開発用の
+// opt-in)。未設定を含むそれ以外は REST(SQL Server backend + 認証)。
+const useLocal = import.meta.env.VITE_API_MODE === 'local';
+const repositories = useLocal ? localRepositories : restRepositories;
 
 initTheme();
 // local store のみ: schema bump 時に古い fixture 由来の working-state を clear し,
 // 次に現行 template id で compare 画面のデモデータを seed する。
-if (!useRest) {
+if (useLocal) {
   migrateStore();
   seedCompareFixtures();
 }
@@ -47,7 +47,7 @@ app.use(router);
 // セッション切れ(401)の受け口。REST 経路でしか起きない(local は localStorage 完結)。
 // 画面が認証済みのまま静かに失敗し続けるのを避け、auth state を落としてログイン画面へ
 // 退避する。着地後に戻れるよう、離脱時のパスを `redirect` に載せる。
-if (useRest) {
+if (!useLocal) {
   setUnauthorizedHandler(() => {
     useAuthStore().reset();
     const current = router.currentRoute.value;
