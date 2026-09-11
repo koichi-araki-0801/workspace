@@ -9,9 +9,9 @@ import { expect, type FrameLocator, type Locator, type Page } from '@playwright/
 /**
  * ログイン(fixtures はログインID = パスワード運用: `admin`/`admin` 等)。`clearSession` は
  * 同一テスト内で別ユーザーへ入り直す(承認タブの精査等)ときに使う — 認証済みのまま
- * `/login` へ行くと router guard がアプリへ押し戻すため、先にセッションを捨てる。
- * 未認証の初回ログインでも no-op になる(`/` が `/login` へリダイレクトし、
- * `localStorage.removeItem` は何も無くても安全)ため、既定で有効にしておく。
+ * `/login` へ行くと router guard がアプリへ押し戻すため、先にセッション cookie を捨てる。
+ * 未認証の初回ログインでも no-op になる(cookie が無い状態で捨てても安全)ため、既定で
+ * 有効にしておく。
  */
 export async function login(
   page: Page,
@@ -19,9 +19,12 @@ export async function login(
   { clearSession = true }: { clearSession?: boolean } = {},
 ): Promise<void> {
   if (clearSession) {
+    // rest のセッションはサーバ発行の cookie。同じコンテキストでユーザーを切り替える
+    // (admin で申請 → approver で承認)ときは cookie を捨ててからログイン画面へ行く。
+    // ログイン画面は認証済みだと router guard がアプリへ押し戻すため、先に捨てる。
+    await page.context().clearCookies();
     await page.goto('/', { waitUntil: 'commit' });
-    await page.waitForURL(/\/(login|edit|reviews)/);
-    await page.evaluate(() => localStorage.removeItem('editor:session'));
+    await page.waitForURL(/\/login/);
   }
   await page.goto('/login', { waitUntil: 'commit' });
   // 全体 CI ではカバレッジ段の直後に走るため、SPA の初期化が既定の 30 秒に収まらないことがある。

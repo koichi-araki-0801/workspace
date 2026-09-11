@@ -1,7 +1,7 @@
 // =============================================================================
-// e2e-rest-server.ts — rest e2e(playwright project `rest`)専用のサーバ起動エントリ
+// e2e-rest-server.ts — e2e 専用のサーバ起動エントリ
 // =============================================================================
-// `E2E_REST=1` のときだけ playwright.config.ts が webServer として起動する。
+// playwright.config.ts が webServer として起動する(chromium / docs の両 project で使う)。
 // `config.ts` は import 時に `process.env` を解決するため、`PORT` 等は `serve.ts` の
 // 動的 import より前に設定する(静的 import では一時 `DATA_ROOT` が効かない)。
 // dataRoot はリポジトリ内の gitignore 済み固定パス(`.tmp/e2e-rest-dataroot`)を毎回
