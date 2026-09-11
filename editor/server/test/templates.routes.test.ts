@@ -34,6 +34,7 @@ process.env.AUDIT_DB = 'false';
 process.env.DATA_ROOT = path.join(root, 'data');
 process.env.GIT_REPO_DIR = path.join(root, 'data');
 process.env.TEMPLATES_DIR = path.join(root, 'data', 'templates');
+process.env.FILLED_DIR = path.join(root, 'data', 'filled');
 process.env.CSS_DIR = path.join(root, 'data', 'css');
 process.env.DRAFTS_DIR = path.join(root, 'data', 'drafts');
 process.env.PENDING_DIR = path.join(root, 'data', 'pending');
@@ -92,9 +93,11 @@ describe('templates.routes', () => {
 
   beforeAll(async () => {
     fs.mkdirSync(path.join(root, 'data', 'templates'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'data', 'filled'), { recursive: true });
     fs.mkdirSync(path.join(root, 'data', 'css'), { recursive: true });
+    // 一覧(`GET /templates`)は filled/ を源にする。編集タブの本文と同じ位置づけで置く。
     fs.writeFileSync(
-      path.join(root, 'data', 'templates', `${ID}.html`),
+      path.join(root, 'data', 'filled', `${ID}.html`),
       '<html><body><p>{{ fund.name }}</p></body></html>',
       'utf8',
     );
