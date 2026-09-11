@@ -16,6 +16,7 @@ const PATH_ENV_KEYS = [
   'DATA_ROOT',
   'TEMPLATES_DIR',
   'CSS_DIR',
+  'FILLED_DIR',
   'ASSETS_DIR',
   'DRAFTS_DIR',
   'PENDING_DIR',
@@ -51,6 +52,7 @@ describe('config paths', () => {
     expect(config.dataRoot).toBe(DATA_ROOT);
     expect(config.templatesDir).toBe(path.join(DATA_ROOT, 'templates'));
     expect(config.cssDir).toBe(path.join(DATA_ROOT, 'css'));
+    expect(config.filledDir).toBe(path.join(DATA_ROOT, 'filled'));
     expect(config.assetsDir).toBe(path.join(DATA_ROOT, 'assets'));
     expect(config.draftsDir).toBe(path.join(DATA_ROOT, 'drafts'));
     expect(config.pendingDir).toBe(path.join(DATA_ROOT, 'pending'));
@@ -66,6 +68,14 @@ describe('config paths', () => {
     expect(config.templatesDir).toBe(templatesDir);
     // 指定しなかった置き場は dataRoot 起点のまま。
     expect(config.cssDir).toBe(path.join(DATA_ROOT, 'css'));
+  });
+
+  it('lets FILLED_DIR win over DATA_ROOT for the filled directory only', async () => {
+    const filledDir = path.resolve(path.sep, 'tmp', 'editor-filled-elsewhere');
+    const { config } = await importConfigWithEnv({ DATA_ROOT, FILLED_DIR: filledDir });
+
+    expect(config.filledDir).toBe(filledDir);
+    expect(config.templatesDir).toBe(path.join(DATA_ROOT, 'templates'));
   });
 
   it('keeps the built-in default when DATA_ROOT is unset', async () => {

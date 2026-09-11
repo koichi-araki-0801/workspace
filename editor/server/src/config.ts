@@ -50,6 +50,7 @@ const appConfigSchema = z
         dataRoot: z.string().optional(),
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
+        filledDir: z.string().optional(),
         assetsDir: z.string().optional(),
         draftsDir: z.string().optional(),
         pendingDir: z.string().optional(),
@@ -286,6 +287,13 @@ export const config = {
   templatesDir: resolveDataPath(process.env.TEMPLATES_DIR, file.paths?.templatesDir, 'templates'),
   /** ファンド別(per-fund)共有 CSS ファイルを置くディレクトリ。 */
   cssDir: resolveDataPath(process.env.CSS_DIR, file.paths?.cssDir, 'css'),
+  /**
+   * 値入り HTML(filled)を置くディレクトリ。編集タブが読み書きする本文で、別ツールが
+   * `<テンプレID>.html` を置き、承認(`origin='edit'`)が上書きする。`templatesDir` は作成タブの
+   * Jinja スケルトン専用で、両者を同じフォルダに置くと一覧走査が互いを別テンプレとして拾う。
+   * git 管理**内**(承認コミットに本文と一緒に載せる。管理外だと巻き戻しで本文だけが戻る)。
+   */
+  filledDir: resolveDataPath(process.env.FILLED_DIR, file.paths?.filledDir, 'filled'),
   /**
    * **全ファンド共通**の同梱資産(`fonts/` と `js/`)を置くディレクトリ。テンプレはこれらを
    * `fonts/…` `js/…` の相対パスで参照し、PDF ビルド / プレビューの配信ルートへ
