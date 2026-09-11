@@ -9,6 +9,8 @@
 //     退行。→ ファンド間で主要値(`fund.nav`)が異なる、を検証。
 //   - 点灯ずれ型: タブ点灯の写像が `created` query 以外の根拠を見て、作成経路の編集画面が
 //     「編集」タブに点灯する退行。→ 写像は query のみで決まる、を検証。
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import sample110024 from '@/api/fixtures/sample/110024.json';
 import sample510037 from '@/api/fixtures/sample/510037.json';
@@ -62,5 +64,25 @@ describe('editor 2系統の原則: タブ点灯の写像', () => {
     expect(tabOf({ name: 'editor', query: { created: '1' } })).toBe('create');
     expect(tabOf({ name: 'preview', query: {} })).toBe('edit');
     expect(tabOf({ name: 'preview', query: { created: '1' } })).toBe('create');
+  });
+});
+
+describe('editor 2系統の原則: rest 経路の値入り HTML', () => {
+  const read = (rel: string) => fs.readFileSync(path.resolve(__dirname, '../src', rel), 'utf8');
+
+  it('既定のデータモードは rest(main.ts は local を明示指定でだけ選ぶ)', () => {
+    const src = read('main.ts');
+    expect(src).toMatch(/VITE_API_MODE === 'local'/);
+    expect(src).not.toMatch(/VITE_API_MODE === 'rest'/);
+  });
+
+  it('プレビューは filled が非空の文書で toTemplate を通さない', () => {
+    const src = read('features/preview/services/templatePreviewService.ts');
+    expect(src).toMatch(/draft && isFilled/);
+  });
+
+  it('比較の現行版は filled が非空なら描画を通さない', () => {
+    const src = read('features/compare/services/compareService.ts');
+    expect(src).toMatch(/if \(tpl\.filled\) return ok\(\{ html: tpl\.filled/);
   });
 });
