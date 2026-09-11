@@ -25,6 +25,7 @@ export interface SummaryDeps {
     html: string,
     css: string,
     fundCode: string,
+    origin: 'edit' | 'create',
   ) => Promise<Result<{ html: string; css: string }>>;
   renderBefore: (templateId: string) => Promise<Result<{ html: string; css: string }>>;
   buildHtmlDiff: (
@@ -83,7 +84,7 @@ async function computeUnbounded(
   deps: SummaryDeps,
 ): Promise<ReviewChangedSummary | null> {
   try {
-    const afterRes = await deps.renderAfter(input.html, input.css, input.fundCode);
+    const afterRes = await deps.renderAfter(input.html, input.css, input.fundCode, input.origin);
     if (isErr(afterRes)) return null;
     let beforeHtml = '';
     let cssBefore = afterRes.value.css;
@@ -122,7 +123,8 @@ export function createChangedSummaryService(
   return {
     computeChangedSummary: (input) =>
       computeChangedSummaryWith(input, {
-        renderAfter: (html, css, fundCode) => compare.renderTemplateBody(html, css, fundCode),
+        renderAfter: (html, css, fundCode, origin) =>
+          compare.renderTemplateBody(html, css, fundCode, origin),
         renderBefore: (templateId) => compare.renderVersionHtml(`baseline:${templateId}`),
         buildHtmlDiff: (b, a, cb, ca) => htmlWorker.buildHtmlDiff(b, a, cb, ca),
         loadNames: () => loadPartNameMap(parts),

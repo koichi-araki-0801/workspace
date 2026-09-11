@@ -56,7 +56,7 @@ export interface CompareVersionRow {
 
 /** 左右並列の block diff 用に、1 版を HTML へレンダリングした結果。 */
 export interface RenderedVersion {
-  /** 完全な HTML ドキュメント(nunjucks 適用済みの snapshot)。 */
+  /** 完全な HTML ドキュメント(値入り HTML、または Jinja 骨組みを描画した結果)。 */
   html: string;
   /** プレビュー `iframe` 用の、版ごとのファンド別 CSS。 */
   css: string;
@@ -70,7 +70,8 @@ export interface CompareService {
   /** テンプレートの確定版(snapshot 付き)を新しい順で返す。 */
   listVersions(templateId: string): Promise<Result<TemplateVersionMeta[]>>;
   /**
-   * 1 版の snapshot を HTML へレンダリングする(クライアント側、サーバ往復なし)。
+   * 1 版の本文を比較用の HTML にする(クライアント側、サーバ往復なし)。値入り HTML は
+   * そのまま、Jinja 骨組みだけをサンプル値で描画する。
    * `templateId` はどのテンプレの版かの指定で、1 コミットが複数テンプレを含む版で要る。
    */
   renderVersionHtml(historyId: string, templateId?: string): Promise<Result<RenderedVersion>>;
@@ -78,8 +79,14 @@ export interface CompareService {
    * 任意のテンプレ本文(html/css)を、現行版/snapshot と同一の描画経路(`getSampleData` +
    * `renderJinjaIsolated`)でレンダリングする。承認画面が申請内容を現行版と同じ土俵で diff
    * するために使う(見せかけ差分を出さないよう、版種を被せない素の sample を現行版と共有する)。
+   * `origin` が `'edit'` の本文は値入り HTML なので描画を通さない。
    */
-  renderTemplateBody(html: string, css: string, fundCode: string): Promise<Result<RenderedVersion>>;
+  renderTemplateBody(
+    html: string,
+    css: string,
+    fundCode: string,
+    origin: 'edit' | 'create',
+  ): Promise<Result<RenderedVersion>>;
 }
 
 export function createCompareService(
@@ -141,6 +148,9 @@ export function createCompareService(
         const tplRes = await templates.getTemplate(baselineTemplateId(historyId));
         if (isErr(tplRes)) return tplRes;
         const tpl = tplRes.value;
+        // 値入り HTML は完成した文書そのもの。描画を通さずそのまま比較に使う(理由は
+        // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所)。
+        if (tpl.filled) return ok({ html: tpl.filled, css: tpl.css });
         const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
         if (isErr(sampleRes)) return sampleRes;
         const rendered = await renderJinjaIsolated(tpl.html, sampleRes.value);
@@ -151,18 +161,15 @@ export function createCompareService(
       const snapRes = await history.getSnapshot(historyId, templateId);
       if (isErr(snapRes)) return snapRes;
       const snap = snapRes.value;
-
-      const sampleRes = await templates.getSampleData(snap.fundCode);
-      if (isErr(sampleRes)) return sampleRes;
-
-      // プレビュー画面と同じレンダリング経路だが、処理はブラウザ内で完結させる。
-      // block diff がこの HTML を直接パースするため、PDF 化やサーバ往復は不要。
-      const rendered = await renderJinjaIsolated(snap.html, sampleRes.value);
-      if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
-      return ok({ html: rendered.html, css: snap.css });
+      // 版履歴は値入り HTML(`filled/`)のコミットなので、スナップショットも完成した文書。
+      // block diff がこの HTML を直接パースするため、PDF 化やサーバ往復も要らない。
+      return ok({ html: snap.html, css: snap.css });
     },
 
-    async renderTemplateBody(html, css, fundCode) {
+    async renderTemplateBody(html, css, fundCode, origin) {
+      // 編集タブ由来の申請本文は値入り HTML で、描画を通さない(通すと地の文の `{{` 風の
+      // 字面まで式として解釈され本文が静かに欠ける)。
+      if (origin === 'edit') return ok({ html, css });
       const sampleRes = await templates.getSampleData(fundCode);
       if (isErr(sampleRes)) return sampleRes;
       // baseline 経路と同じく素の sample で描画する(版種を被せない)。現行版と土俵を揃える。

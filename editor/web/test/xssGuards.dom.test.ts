@@ -269,7 +269,7 @@ describe('compareService の描画結果', () => {
   });
 
   it('keeps active content in a submitted body (approval screen)', async () => {
-    const res = await service.renderTemplateBody(ACTIVE, '', '510037');
+    const res = await service.renderTemplateBody(ACTIVE, '', '510037', 'create');
     expect(res.ok).toBe(true);
     if (res.ok) expectActiveKept(res.value.html);
   });
@@ -280,6 +280,7 @@ describe('compareService の描画結果', () => {
       '<!doctype html><html><body><table class="t"><tr><td style="width:1px">値</td></tr></table></body></html>',
       '',
       '510037',
+      'create',
     );
     expect(res.ok).toBe(true);
     if (res.ok) {

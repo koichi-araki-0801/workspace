@@ -75,7 +75,10 @@ export function createMergePdfService(
   };
 }
 
-/** 1 テンプレを取得 → サンプル値適用 → PDF 入力文書へ変換する。失敗時は何件目かを文言に含める。 */
+/**
+ * 1 テンプレを取得 → (値入りでなければ)サンプル値適用 → PDF 入力文書へ変換する。
+ * 失敗時は何件目かを文言に含める。
+ */
 async function renderOne(
   templates: TemplateRepository,
   id: string,
@@ -87,6 +90,28 @@ async function renderOne(
     return err(conflict(`テンプレート${nth}の取得に失敗しました。`, { cause: tplRes.error }));
   }
   const tpl = tplRes.value;
+
+  // 値入り HTML は完成した文書なので、サンプル取得も隔離描画も飛ばす(理由は
+  // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所)。
+  if (tpl.filled) {
+    const filledDoc = await renderPdfDocument(
+      tpl.filled,
+      formatCss(tpl.css),
+      {},
+      {
+        cropMarks: false,
+        skipJinja: true,
+      },
+    );
+    if (isErr(filledDoc)) {
+      return err(
+        conflict(`テンプレート${nth}のレンダリングに失敗しました。`, {
+          cause: filledDoc.error,
+        }),
+      );
+    }
+    return filledDoc;
+  }
 
   const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
   if (isErr(sampleRes)) {
