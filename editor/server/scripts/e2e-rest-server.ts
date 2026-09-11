@@ -23,16 +23,24 @@ async function seedDataRoot(repoRoot: string): Promise<void> {
   await fs.rm(E2E_REST_DATA_ROOT, { recursive: true, force: true });
   const templatesDir = path.join(E2E_REST_DATA_ROOT, 'templates');
   const cssDir = path.join(E2E_REST_DATA_ROOT, 'css');
+  const filledDir = path.join(E2E_REST_DATA_ROOT, 'filled');
   await fs.mkdir(templatesDir, { recursive: true });
   await fs.mkdir(cssDir, { recursive: true });
+  await fs.mkdir(filledDir, { recursive: true });
 
   const fixturesTemplatesDir = path.join(repoRoot, 'editor/web/src/api/fixtures/templates');
   const fixturesCssDir = path.join(repoRoot, 'editor/web/src/api/fixtures/css');
+  // 編集タブの一覧は filled/ が源。値入り HTML の seed は web 同梱の round-trip 形式 fixture
+  // (`{%` を含まない)をそのまま使う。
+  const fixturesFilledDir = path.join(repoRoot, 'editor/web/src/api/fixtures/filled');
   for (const name of await fs.readdir(fixturesTemplatesDir)) {
     await fs.copyFile(path.join(fixturesTemplatesDir, name), path.join(templatesDir, name));
   }
   for (const name of await fs.readdir(fixturesCssDir)) {
     await fs.copyFile(path.join(fixturesCssDir, name), path.join(cssDir, name));
+  }
+  for (const name of await fs.readdir(fixturesFilledDir)) {
+    await fs.copyFile(path.join(fixturesFilledDir, name), path.join(filledDir, name));
   }
 }
 
@@ -47,6 +55,9 @@ async function main(): Promise<void> {
   process.env.AUTH_REQUIRED = 'true';
   process.env.AUDIT_DB = 'true';
   process.env.DATA_ROOT = E2E_REST_DATA_ROOT;
+  // 作成タブ(`POST /api/generate`)は Python 生成器を子プロセスで呼ぶ。素の `python` は
+  // Windows で Store のスタブへ解決される端末があるため(exit 9009)、ランチャを既定にする。
+  process.env.PYTHON_BIN ??= process.platform === 'win32' ? 'py' : 'python3';
 
   await seedDataRoot(repoRoot);
 

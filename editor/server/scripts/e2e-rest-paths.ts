@@ -18,5 +18,10 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
  */
 export const E2E_REST_DATA_ROOT = path.join(repoRoot, '.tmp', 'e2e-rest-dataroot');
 
-/** rest e2e のサーバ待受ポート。通常の dev サーバ(24680)と衝突させない。 */
-export const E2E_REST_PORT = 24690;
+/**
+ * e2e のサーバ待受ポート。既定は通常の dev サーバと同じ 24680(chromium project が
+ * これを使う)。並走させたいときは env で変える。
+ */
+export const E2E_REST_PORT = Number(process.env.E2E_REST_PORT ?? '24680');
+/** e2e の Vite dev ポート。`playwright.config.ts` の webServer と揃える。 */
+export const E2E_REST_WEB_PORT = Number(process.env.E2E_REST_WEB_PORT ?? '24681');
