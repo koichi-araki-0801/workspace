@@ -73,14 +73,14 @@ describe('書込プリミティブの import 許可リスト', () => {
     expect(actual.sort()).toEqual(allowed.sort());
   });
 
-  it('templatePath / cssPath を import してよいのは confirmedWrite.ts だけ', () => {
-    // この 2 つは確定ディレクトリと連結する唯一の解決子。`atomicWrite` と組み合わせられる
+  it('templatePath / cssPath / filledPath を import してよいのは confirmedWrite.ts だけ', () => {
+    // この 3 つは確定ディレクトリと連結する唯一の解決子。`atomicWrite` と組み合わせられる
     // のがチョークポイント 1 ファイルだけであることが「唯一の関所」の実体である。
     const actual = listSources().filter((rel) => {
       const text = fs.readFileSync(path.join(SRC, rel), 'utf8');
       const m = /import\s*\{([^}]*)\}\s*from\s*'(?:\.\.?\/)*files\/templateFiles\.js'/.exec(text);
       if (!m) return false;
-      return /\b(templatePath|cssPath)\b/.test(m[1]);
+      return /\b(templatePath|cssPath|filledPath)\b/.test(m[1]);
     });
     expect(actual).toEqual(['repositories/confirmedWrite.ts']);
   });

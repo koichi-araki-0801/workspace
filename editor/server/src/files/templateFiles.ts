@@ -1,5 +1,5 @@
 // =============================================================================
-// templateFiles.ts — 確定 template 本体(HTML)とファンド別共有 CSS(ディスク I/O)
+// templateFiles.ts — 確定 template 本体(HTML)・値入り HTML(filled)・ファンド別共有 CSS(ディスク I/O)
 // =============================================================================
 // 確定済み template 本体(HTML)とファンド別(per-fund)共有 CSS をディスク上に持つ。
 // DB レジストリ(台帳)はメタデータのみを保持し、バイト列(本体)はここに置く。
@@ -25,6 +25,12 @@ export const templatePath = (fileName: string): string =>
   path.join(config.templatesDir, assertTemplateFileName(fileName));
 export const cssPath = (fundCode: string): string =>
   path.join(config.cssDir, `${assertFundCode(fundCode)}.css`);
+/**
+ * 値入り HTML(`filledDir`)の解決子。`templatePath` と同じく名前検査を内蔵し、書込側
+ * (`confirmedWrite.ts`)だけが使う。読み取りは下の `readFilledHtml` 等を通す。
+ */
+export const filledPath = (fileName: string): string =>
+  path.join(config.filledDir, assertTemplateFileName(fileName));
 
 /**
  * 読み取り・存在確認向けの解決。規約外の名前は例外にせず null を返し、呼び出し側が
@@ -41,6 +47,13 @@ const templatePathOrNull = (fileName: string): string | null => {
 const cssPathOrNull = (fundCode: string): string | null => {
   try {
     return cssPath(fundCode);
+  } catch {
+    return null;
+  }
+};
+const filledPathOrNull = (fileName: string): string | null => {
+  try {
+    return filledPath(fileName);
   } catch {
     return null;
   }
@@ -97,6 +110,47 @@ export function readTemplateHtml(fileName: string): Promise<string> {
  */
 export function readFundCss(fundCode: string): Promise<string> {
   const p = cssPathOrNull(fundCode);
+  if (!p) return Promise.resolve('');
+  return fs.readFile(p, 'utf8').catch((e: NodeJS.ErrnoException) => {
+    if (e?.code === 'ENOENT') return '';
+    throw e;
+  });
+}
+
+// ── filled/(値入り HTML)。templates/ と同じ規約で、置き場だけが違う ──
+
+/** 値入り HTML の `*.html` 一覧(編集タブの一覧はここが源)。 */
+export async function listFilledFiles(): Promise<string[]> {
+  const entries = await fs.readdir(config.filledDir).catch(() => [] as string[]);
+  return entries.filter((f) => f.endsWith('.html'));
+}
+
+/** 値入り HTML の最終更新時刻(ISO)。無ければ(名前が規約外なら)null。 */
+export function filledMtime(fileName: string): Promise<string | null> {
+  const p = filledPathOrNull(fileName);
+  if (!p) return Promise.resolve(null);
+  return fs
+    .stat(p)
+    .then((s) => s.mtime.toISOString())
+    .catch(() => null);
+}
+
+/** 値入り HTML が存在するか(名前が規約外なら false)。 */
+export function filledExists(fileName: string): Promise<boolean> {
+  const p = filledPathOrNull(fileName);
+  if (!p) return Promise.resolve(false);
+  return fs
+    .stat(p)
+    .then(() => true)
+    .catch(() => false);
+}
+
+/**
+ * 値入り HTML を読む。`readTemplateHtml` と同方針で、規約外の名前と ENOENT だけを
+ * 空文字へ倒し、それ以外の読み取り失敗は例外にする(承認の基準と履歴の入力になるため)。
+ */
+export function readFilledHtml(fileName: string): Promise<string> {
+  const p = filledPathOrNull(fileName);
   if (!p) return Promise.resolve('');
   return fs.readFile(p, 'utf8').catch((e: NodeJS.ErrnoException) => {
     if (e?.code === 'ENOENT') return '';
