@@ -3,7 +3,7 @@
 // =============================================================================
 import { expect, test } from './fixtures';
 
-// 各テストは localStorage をクリーンにし、古い session が実行間で漏れないようにする。
+// 各テストはセッション cookie を捨て、古い session が実行間で漏れないようにする。
 test.beforeEach(async ({ context }) => {
   await context.clearCookies();
 });

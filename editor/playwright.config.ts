@@ -13,6 +13,13 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e',
+  // 全 project が 1 台のサーバと 1 つの一時 dataRoot を共有し、`e2e/fixtures.ts` が
+  // テストごとにそれを `rm -rf` して作り直す。直列でなければ片方のリセットがもう片方の
+  // 申請・下書きを実行中に消し、fixture の module-level `lastFile` も worker ごとに
+  // 別値になって効かない。ログインが並列に集中して `loginRateLimit` に当たるのも防ぐ
+  // (承認フローは admin→approver の 2 名を直列に使う)。`fullyParallel` が無害なのは
+  // これがあるからで、外すときは両方を一緒に考えること。
+  workers: 1,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   // retry は使わない: 状態待ちへ揃えた後の flake は「たまたま通った」で隠さず、
@@ -29,12 +36,9 @@ export default defineConfig({
       // 挙動を検証する spec 全部。`test:e2e`(`ci` と GitHub Actions)と `e2e:editor` の両方で走る。
       // `capture_docs.spec.ts` を外すのは、あの spec が git 管理下の `docs/editor/images/*.png` を
       // 書き換えるため。フル `ci` / GH の結果としてリポジトリの成果物が変わるのは検査ではない。
-      // `workers: 1` はログインが並列に集中して `loginRateLimit` に当たるのを避けるため
-      // (承認フローは admin→approver の 2 名を直列に使う)。
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
       testIgnore: ['**/capture_docs.spec.ts'],
-      workers: 1,
     },
     {
       // 操作手引き(docs/editor)のスクリーンショットを撮り直す project。`e2e:editor`(`ci:affected`
@@ -46,9 +50,6 @@ export default defineConfig({
       // ブラウザの地方時で組み立てられる。両方を固定して初めて PNG がバイト一致する。
       use: { ...devices['Desktop Chrome'], timezoneId: 'Asia/Tokyo' },
       testMatch: '**/capture_docs.spec.ts',
-      // `workers: 1` は chromium と同じく必須。テストごとに一時 dataRoot を作り直す
-      // (`e2e/fixtures.ts`)ので、並列だと片方のリセットがもう片方の申請・下書きを消す。
-      workers: 1,
     },
   ],
   webServer: [

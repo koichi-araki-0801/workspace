@@ -171,6 +171,12 @@ test('赤入れ: 文言を編集すると旧文言が取り消し線で出て、
   const draft = await readDraft(page, SEED_ID);
   const leaked = draft?.html.includes('data-redline') ?? false;
   expect(leaked).toBe(false);
+  // Undo ミラー(`:v2`)と確定版正規形は rest でも localStorage に残るので、下書き(サーバ)と
+  // 端末側の両方を見る(設計正典「装飾は snapshot に載せない」)。
+  const leakedLocal = await page.evaluate(() =>
+    Object.keys(localStorage).some((k) => (localStorage.getItem(k) ?? '').includes('data-redline')),
+  );
+  expect(leakedLocal).toBe(false);
 });
 
 test('赤入れ: 作成経路(?created=1)ではトグルを出さない', async ({ page }) => {

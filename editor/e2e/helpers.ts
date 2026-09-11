@@ -153,5 +153,6 @@ export async function readDraft(
   // `GET /api/templates/:id/draft` は下書きが無いと JSON の `null` を 200 で返す
   // (`templates.routes.ts` は `getDraft` の戻りをそのまま返す)。
   const res = await page.request.get(`/api/templates/${encodeURIComponent(id)}/draft`);
+  expect(res.ok(), `GET draft ${res.status()}`).toBeTruthy();
   return (await res.json()) as { html: string; css: string } | null;
 }
