@@ -51,9 +51,16 @@ import {
 
 /** 編集後の本文 + fund 単位の共有 CSS override を公開する。 */
 function putContentOverrides(req: ConfirmSaveRequest): void {
-  const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
-  htmlOverride[req.templateId] = req.html;
-  write(K.htmlOverride, htmlOverride);
+  if (req.origin === 'edit') {
+    // 編集タブの承認は値入り HTML を上書きする(server の filled/ と同じ契約)。Jinja は据え置く。
+    const filledOverride = read<Record<string, string>>(K.filledOverride, {});
+    filledOverride[req.templateId] = req.html;
+    write(K.filledOverride, filledOverride);
+  } else {
+    const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
+    htmlOverride[req.templateId] = req.html;
+    write(K.htmlOverride, htmlOverride);
+  }
   const cssOverride = read<Record<string, string>>(K.cssOverride, {});
   cssOverride[req.fundCode] = req.css; // fund 単位の共有 CSS
   write(K.cssOverride, cssOverride);
@@ -143,6 +150,7 @@ export const confirmSaveLocal = (req: ConfirmSaveRequest, extra?: ConfirmSaveExt
     tx(
       [
         K.htmlOverride,
+        K.filledOverride,
         K.cssOverride,
         META_KEY,
         K.editHist,
@@ -205,13 +213,15 @@ export const localTemplateRepo: TemplateRepository = {
       const meta = allMetas().find((m) => m.id === id);
       if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
       const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
+      const filledOverride = read<Record<string, string>>(K.filledOverride, {});
       const cssOverride = read<Record<string, string>>(K.cssOverride, {});
       const html = htmlOverride[id] ?? fixtureTemplates[meta.fileName] ?? '';
       const css =
         cssOverride[meta.attributes.fundCode] ?? fixtureCss[meta.attributes.fundCode] ?? '';
-      // 静的な filled コピーは未編集 fixture でのみ意味を持つ。テンプレート HTML が
-      // override 済みなら、editor がロード時に再度 fill する。
-      const filled = htmlOverride[id] ? '' : (fixtureFilled[meta.fileName] ?? '');
+      // 編集タブの承認で上書きした値入り HTML → 未編集 fixture の静的 filled の順。作成タブの
+      // 承認で Jinja が変わった id は静的 filled が古いので空にし、editor が再差込する。
+      const filled =
+        filledOverride[id] ?? (htmlOverride[id] ? '' : (fixtureFilled[meta.fileName] ?? ''));
       return delay({ meta, html, css, filled });
     }),
 

@@ -9,6 +9,8 @@
 export const K = {
   drafts: 'editor:drafts',
   htmlOverride: 'editor:html',
+  // 編集タブの承認が上書きする値入り HTML(server の filled/ と同じ契約)。
+  filledOverride: 'editor:filled',
   cssOverride: 'editor:css',
   editHist: 'editor:hist:edit',
   pdfHist: 'editor:hist:pdf',

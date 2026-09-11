@@ -74,7 +74,7 @@ describe('localReviewRepo round-trip', () => {
     }
 
     const reread = await localTemplateRepo.getTemplate(target.id);
-    if (isOk(reread)) expect(reread.value.html).toContain('承認後に反映される本文');
+    if (isOk(reread)) expect(reread.value.filled).toContain('承認後に反映される本文');
 
     const detail = await localReviewRepo.getReview(submitted.value.id);
     if (isOk(detail)) {

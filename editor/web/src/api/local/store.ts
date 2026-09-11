@@ -157,6 +157,7 @@ const SCHEMA_KEY = 'editor:schemaVersion';
 const WORKING_KEYS = [
   K.drafts,
   K.htmlOverride,
+  K.filledOverride,
   K.cssOverride,
   META_KEY,
   K.snapshots,

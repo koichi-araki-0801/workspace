@@ -202,6 +202,8 @@ export interface ConfirmSaveRequest {
   /** ファンド別の共有スタイルシートへマージする CSS。 */
   css: string;
   fundCode: string;
+  /** 申請元の経路。`'edit'` は値入り HTML(filled)を、`'create'` は Jinja(html)を更新する。 */
+  origin: 'edit' | 'create';
   /**
    * 描画済みの "filled" ドキュメント (値差込済み・Jinja なし)。この確定の帳票
    * インスタンスとして保持する。任意。描画対象が無ければ省略する。

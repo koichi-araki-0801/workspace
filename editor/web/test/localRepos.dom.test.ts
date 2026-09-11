@@ -38,6 +38,35 @@ describe('localTemplateRepo.getTemplate', () => {
     expect(isErr(r)).toBe(true);
     if (isErr(r)) expect(r.error.kind).toBe('not_found');
   });
+
+  it("origin='edit' の確定保存は filled を更新し html は据え置く", async () => {
+    const id = 'AM01_510037_20240710_交付版';
+    const before = await localTemplateRepo.getTemplate(id);
+    await confirmSaveLocal({
+      templateId: id,
+      html: '<p>値入り更新</p>',
+      css: '',
+      fundCode: '510037',
+      origin: 'edit',
+    });
+    const after = await localTemplateRepo.getTemplate(id);
+    expect(isOk(after) && after.value.filled).toBe('<p>値入り更新</p>');
+    expect(isOk(after) && isOk(before) && after.value.html).toBe(before.value.html);
+  });
+
+  it("origin='create' の確定保存は html を更新し filled を空にする(従来どおり)", async () => {
+    const id = 'AM01_510037_20240710_全体版';
+    await confirmSaveLocal({
+      templateId: id,
+      html: '<p>{{ x }}</p>',
+      css: '',
+      fundCode: '510037',
+      origin: 'create',
+    });
+    const after = await localTemplateRepo.getTemplate(id);
+    expect(isOk(after) && after.value.html).toBe('<p>{{ x }}</p>');
+    expect(isOk(after) && after.value.filled).toBe('');
+  });
 });
 
 describe('localTemplateRepo.getSyncStatus', () => {
@@ -79,6 +108,7 @@ describe('confirmSaveLocal round-trip', () => {
       html: '<p>round-trip</p>',
       css: '.x{}',
       fundCode: target.attributes.fundCode,
+      origin: 'create',
     });
     expect(isOk(saved)).toBe(true);
     if (isOk(saved)) expect(saved.value.status).toBe('published');
@@ -108,6 +138,7 @@ describe('confirmSaveLocal version snapshots', () => {
       html: '<p>v1</p>',
       css: '.v1{}',
       fundCode: target.attributes.fundCode,
+      origin: 'edit',
     });
     expect(isOk(saved)).toBe(true);
 

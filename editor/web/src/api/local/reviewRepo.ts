@@ -126,6 +126,7 @@ export const localReviewRepo: ReviewRepository = {
           html: review.html,
           css: review.css,
           fundCode: review.fundCode,
+          origin: review.origin,
           filledHtml: review.filledHtml,
         },
         {
