@@ -266,8 +266,8 @@ d('review workflow (reviewRepo)', () => {
   it("origin='edit' の承認は filled/ に書き、templates/ には触れない", {
     timeout: 60_000,
   }, async () => {
-    const tplId = 'AM01_444444_20250101_交付版';
-    const meta = await submit(tplId, '444444', '<p>値入り本文</p>', 'edit');
+    const tplId = 'AM01_161616_20250101_交付版';
+    const meta = await submit(tplId, '161616', '<p>値入り本文</p>', 'edit');
     await reviews.approveReview(meta.id, {}, approver);
     expect(fs.readFileSync(path.join(tmp, 'filled', `${tplId}.html`), 'utf8')).toBe(
       '<p>値入り本文</p>',
@@ -278,12 +278,37 @@ d('review workflow (reviewRepo)', () => {
   it("origin='create' の承認は templates/ に書き、filled/ には触れない", {
     timeout: 60_000,
   }, async () => {
-    const tplId = 'AM01_555555_20250101_交付版';
-    const meta = await submit(tplId, '555555', '<p>{{ fund.name }}</p>', 'create');
+    const tplId = 'AM01_171717_20250101_交付版';
+    const meta = await submit(tplId, '171717', '<p>{{ fund.name }}</p>', 'create');
     await reviews.approveReview(meta.id, {}, approver);
     expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(
       '<p>{{ fund.name }}</p>',
     );
     expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(false);
+  });
+
+  // ── pending(生成直後の Jinja スケルトン)の後始末も書込先で分かれる ──
+  // 編集タブの一覧は確定分と pending を合成して出す。値入り HTML の承認で pending を
+  // 捨てると、まだ `templates/` へ昇格していない骨組みごと一覧から消える。
+  it("origin='edit' の承認は pending を残す", { timeout: 60_000 }, async () => {
+    const tplId = 'AM01_181818_20250101_交付版';
+    const pendingFiles = await import('../src/files/pendingFiles.js');
+    await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
+    const meta = await submit(tplId, '181818', '<p>値入り本文</p>', 'edit');
+    await reviews.approveReview(meta.id, {}, approver);
+
+    expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, 'pending', `${tplId}.html`))).toBe(true);
+  });
+
+  it("origin='create' の承認は pending を捨てる", { timeout: 60_000 }, async () => {
+    const tplId = 'AM01_191919_20250101_交付版';
+    const pendingFiles = await import('../src/files/pendingFiles.js');
+    await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
+    const meta = await submit(tplId, '191919', '<p>{{ fund.name }} 確定</p>', 'create');
+    await reviews.approveReview(meta.id, {}, approver);
+
+    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, 'pending', `${tplId}.html`))).toBe(false);
   });
 });

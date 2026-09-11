@@ -47,12 +47,6 @@ import { fileToMeta } from './templateMeta.js';
 
 // ── 1. module-private な物理書込プリミティブ ──
 
-/**
- * 書込先。`filled` = 値入り HTML(編集タブの承認)、`template` = Jinja スケルトン(作成タブの
- * 承認)。申請の `origin` から `reviewRepo.targetOfOrigin` が決め、ペア同期は承認と同じ先へ書く。
- */
-export type ConfirmedTarget = 'filled' | 'template';
-
 const htmlPathOf = (target: ConfirmedTarget, fileName: string): string =>
   target === 'filled' ? filledPath(fileName) : templatePath(fileName);
 const htmlDirOf = (target: ConfirmedTarget): string =>
@@ -143,6 +137,12 @@ async function restoreTemplateAndCss(
 }
 
 // ── 2. 公開 API ──
+
+/**
+ * 書込先。`filled` = 値入り HTML(編集タブの承認)、`template` = Jinja スケルトン(作成タブの
+ * 承認)。申請の `origin` から `reviewRepo.targetOfOrigin` が決め、ペア同期は承認と同じ先へ書く。
+ */
+export type ConfirmedTarget = 'filled' | 'template';
 
 /**
  * 確定書込の操作。discriminated union にして「どの経路からの書込か」を型で明示し、
@@ -323,12 +323,15 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
       op.kind === 'pair-sync' ? { appliedParts: op.appliedParts.length } : { fundCode: fundCode },
   });
 
-  if (op.kind === 'review-approve') {
-    // 確定へ昇格したので生成時の未確定実体は捨てる(ベストエフォート)。
+  if (op.kind === 'review-approve' && op.target === 'template') {
+    // Jinja スケルトンが確定へ昇格したので生成時の未確定実体は捨てる(ベストエフォート)。
+    // `filled` 側の承認では消さない — 値入り HTML が確定しても pending の骨組みは
+    // まだ `templatesDir` へ昇格しておらず、消すと編集タブの一覧(確定 + pending)から
+    // その id が丸ごと消える。
     await deletePending(templateId).catch(() => {});
   }
 
-  const meta = await fileToMeta(fileName, op.target === 'filled' ? 'filled' : 'template');
+  const meta = await fileToMeta(fileName, op.target);
   if (!meta) throw notFound(`テンプレートが見つかりません: ${templateId}`);
   return meta;
 }
