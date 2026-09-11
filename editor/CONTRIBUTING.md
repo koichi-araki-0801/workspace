@@ -16,8 +16,9 @@ pnpm install       # 依存をインストール（husky フックも自動で�
 pnpm dev           # shared ビルド後、Fastify(:24680) と Vite(:24681) を並行起動
 ```
 
-Windows は `editor/start.bat`（ダブルクリック=本番ローカル / `dev` / `rest` 等）でも起動できます。
-ブラウザで http://localhost:24681 → デモログイン `admin / admin`（または `editor / editor`）。
+Windows は `editor/start.bat`（ダブルクリック=本番 REST / `dev` / `local` 等）でも起動できます。
+ブラウザで http://localhost:24681 → REST では DB のユーザーで、`local` ではデモログイン
+`admin / admin`（または `editor / editor`）。
 
 ## 2. コマンド早見表（ルートから）
 
@@ -55,8 +56,8 @@ web/src/
   features/<画面>/     ← 画面単位のまとまり。services/ composables/ viewmodels/ components/
   components/ui/       ← 汎用 UI 部品（shadcn-vue 由来）
   lib/                 ← 画面に依存しないロジック（jinjaMask, useAsyncResult, useCascadingSelect 等）
-  api/repositories.ts  ← Repository コンテナ＋DI。★VITE_API_MODE で local / rest を切替える唯一の点
-  api/local/           ← Phase1 のローカル実装（fixtures + localStorage）。集約ごとに *Repo.ts
+  api/repositories.ts  ← Repository コンテナ＋DI。★`VITE_API_MODE` で rest（既定）/ local を切替える唯一の点
+  api/local/           ← 開発用のローカル実装（`VITE_API_MODE=local` で選ぶ。fixtures + localStorage）。集約ごとに *Repo.ts
   api/rest/            ← Phase2 の REST 実装（同契約・/api を叩く）。集約ごとに *Repo.ts
   stores/              ← Pinia ストア（横断状態。例: auth.ts）
   router/              ← ルーティング定義 + 認証 navigation guard（authGuard）

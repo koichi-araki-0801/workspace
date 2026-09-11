@@ -24,9 +24,9 @@ editor/server/   Fastify + TS（PDF 生成 / ファイル索引 / Python 生成�
 editor/data/     テンプレ(.html) と ファンド毎 CSS（サーバが参照）
 ```
 
-> **フェーズ 1**: フロント先行。データは `web/src/api/local`（fixtures + localStorage）の Repository 実装で抽象化。
-> **フェーズ 2（実装済・未デプロイ）**: 同じ Repository インターフェースの REST 実装（`web/src/api/rest`）+ SQL Server（固定スキーマ・DDL 禁止）連携。
-> データソースは `VITE_API_MODE`（`local`／`rest`）で切替。`web/src/api/repositories.ts` の 1 オブジェクトを差し替えるだけで画面/サービス/ストアは無改修。
+> データソースは `VITE_API_MODE` で切り替える。既定は `rest`（SQL Server + 認証）。`local`
+> （fixtures + localStorage、DB なし・ログインなし）は開発用の opt-in。`web/src/api/repositories.ts`
+> の 1 オブジェクトを差し替えるだけで画面/サービス/ストアは無改修。
 
 ## 起動
 
@@ -38,17 +38,18 @@ pnpm dev         # shared をビルド後、Fastify(:24680) と Vite(:24681) を
 ```
 
 Windows では `editor/start.bat` をダブルクリックでも起動できます（初回は `pnpm install` を自動実行）。
-引数は順不同で、ビルドモード（`dev`／`prod`・既定 prod）とデータモード（`local`／`rest`・既定 local）を指定:
+引数は順不同で、ビルドモード（`dev`／`prod`・既定 prod）とデータモード（`rest`／`local`・既定 rest）を指定:
 
 | コマンド | 内容 |
 |---|---|
-| `start.bat` | 本番（build → server 単体 :24680）/ ローカルデータ |
-| `start.bat dev` | 開発（Fastify :24680 + Vite :24681）/ ローカルデータ |
-| `start.bat rest` | 本番 / REST（SQL Server バックエンド・認証必須） |
-| `start.bat dev rest` | 開発 / REST |
-| `start.bat rest lan` | 本番 / REST + **社内 LAN 公開**（下記「LAN 公開」節） |
+| `start.bat` | 本番（build → server 単体 :24680）/ REST（SQL Server バックエンド・認証必須） |
+| `start.bat dev` | 開発（Fastify :24680 + Vite :24681）/ REST |
+| `start.bat local` | 本番 / ローカルデータ（fixtures + localStorage。DB なし・ログインなし。開発用） |
+| `start.bat dev local` | 開発 / ローカルデータ |
+| `start.bat lan` | 本番 / REST + **社内 LAN 公開**（下記「LAN 公開」節） |
 
-ブラウザで http://localhost:24681 → デモログイン `admin / admin`（または `editor / editor`）。
+ブラウザで http://localhost:24681 → REST では DB のユーザーで、`local` ではデモログイン
+`admin / admin`（または `editor / editor`）。
 
 > 開発に参加する方は **[CONTRIBUTING.md](./CONTRIBUTING.md)** を最初に読んでください（セットアップ・コマンド・ディレクトリ地図・規約）。
 
@@ -96,25 +97,16 @@ e2e（Playwright）は project が 2 つある。`chromium` は挙動を検証�
 `py -3.13 docs/_build/build_all.py --project editor` で HTML を作り直す。撮影だけ手で走らせるときは
 `cd editor && pnpm exec playwright test --project docs`。
 
-### REST e2e（opt-in 統合テスト）
+### e2e（sproc フェイク）
 
-REST 経路（`api/rest/*` リポジトリ実装 + Fastify サーバ）を実 HTTP セッションで検証する e2e テストは、
-`E2E_REST=1` 環境変数で opt-in される。SQL Server とは接続せず、sproc は in-memory フェイク
-（`editor/server/test/fakes/sprocFake.ts`）で置き換える。
-
-```bash
-E2E_REST=1 pnpm run e2e:rest   # PowerShell: $env:E2E_REST='1'; pnpm run e2e:rest
-```
-
-このモードでは、`editor/server/scripts/e2e-rest-server.ts` がサーバを server :24690 / Vite :24691 で
-起動する。テンプレ領域（dataRoot）はリポジトリ内の gitignore 済み固定パス
-`<repo>/.tmp/e2e-rest-dataroot`（git 管理外）を毎起動時にクリアして使い、失敗時はこの下を見れば
-そのまま原因調査できる。認証は `AUTH_REQUIRED=true`、監査ログは `AUDIT_DB=true` で有効にする。
-対象スペックは `editor/e2e/*.rest.spec.ts`（`approval.rest.spec.ts` / `users.rest.spec.ts` など）で、
-ログイン試行が `loginRateLimit` に集中しないよう worker 数は 1・サーバの使い回しはしない。
+`test:e2e` / `e2e:editor` の chromium/docs project は `editor/server/scripts/e2e-rest-server.ts` が
+起動するサーバ（sproc は `server/test/fakes/sprocFake.ts` の in-memory フェイク、dataRoot は
+`<repo>/editor/.tmp/e2e-rest-dataroot` を毎回作り直し）を相手に走る。SQL Server は不要。
+`filled/` には `web/src/api/fixtures/filled/*.html` を seed する。worker 数は 1（ログイン試行の
+集中回避）。
 
 実 SQL Server（LocalDB）を相手にした検証は別枠の手動確認であり、`ci` や GitHub Actions では
-opt-in の rest project は実行されず、ローカルモード（`chromium` project）のみが走る。
+実行されない。
 
 ## LAN 公開（社内ネットワークの他端末から使う）
 
@@ -142,8 +134,7 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 
 - 証明書未生成のまま `lan` で起動すると **平文 HTTP にフォールバック**し、`COOKIE_SECURE=false`
   を自動設定してログインを通す（社内 LAN 限定の暫定運用。HTTPS 推奨）。
-- `start.bat lan`（local データ）でも公開はできるが、**local モードは認証なし**のため
-  LAN 上の誰でも編集できる点に注意。
+- `lan` は REST を含意し、`local lan` は起動しない（認証なしの公開を作らない）。
 - 社内 CA 発行の証明書を使う場合は PFX を `server\tls\editor.pfx` に置く
   （パスフレーズは `editor.pfx.pass` か env `HTTPS_PFX_PASSPHRASE`）。
 
@@ -182,11 +173,11 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 | `PY_GENERATE_SCRIPT` | `server/scripts/generate_template.py` | 既存 Python 生成器 |
 | `VIVLIOSTYLE_EXECUTABLE_BROWSER` | 自動検出 | PDF 用ブラウザ（Edge → playwright 既定） |
 
-REST モード（`start.bat rest`）で効く認証/DB 系（既定はローカルモード相当の無効値）:
+REST モード（`start.bat rest`）で効く認証/DB 系:
 
 | 変数 | 既定 | 用途 |
 |---|---|---|
-| `AUTH_REQUIRED` | `false` | 認証強制（REST で `true`） |
+| `AUTH_REQUIRED` | `true` | 認証強制（`start.bat local` が `false` にする） |
 | `AUDIT_DB` | `false` | 監査ログを DB にも書く |
 | `AUTH_SESSION_TTL_HOURS` | 12 | セッション有効期限（時間） |
 | `DB_SERVER` | `localhost` | SQL Server ホスト |
