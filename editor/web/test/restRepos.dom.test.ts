@@ -11,7 +11,7 @@ import { restHistoryRepo } from '@/api/rest/historyRepo';
 import { restNoteRepo } from '@/api/rest/noteRepo';
 import { restPartRepo } from '@/api/rest/partRepo';
 import { restReviewRepo } from '@/api/rest/reviewRepo';
-import { restTemplateRepo } from '@/api/rest/templateRepo';
+import { clearSampleDataCache, restTemplateRepo } from '@/api/rest/templateRepo';
 import { restUserRepo } from '@/api/rest/userRepo';
 
 interface Recorded {
@@ -43,7 +43,11 @@ function stubFetch(response: () => Response = () => json({})): Recorded[] {
   return calls;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  // `getSampleData` のキャッシュはタブ寿命で残るため、テスト間へ漏らさない。
+  sessionStorage.clear();
+});
 
 describe('restAuthRepo', () => {
   it('login は POST /api/auth/login に資格情報をそのまま送る', async () => {
@@ -134,6 +138,25 @@ describe('restTemplateRepo', () => {
       'GET /api/templates/t1/sync-status',
       'POST /api/generate',
     ]);
+  });
+  it('getSampleData は同じファンドの 2 回目を sessionStorage から返し、clear で捨てる', async () => {
+    sessionStorage.clear();
+    const calls = stubFetch(() => json({ fund: { code: '510037', name: 'F' } }));
+    const first = await restTemplateRepo.getSampleData('510037');
+    const second = await restTemplateRepo.getSampleData('510037');
+    expect(calls).toHaveLength(1);
+    expect(isOk(second) && second.value).toEqual(isOk(first) && first.value);
+    expect(sessionStorage.getItem('editor:sample:510037')).not.toBeNull();
+    clearSampleDataCache();
+    expect(sessionStorage.getItem('editor:sample:510037')).toBeNull();
+    await restTemplateRepo.getSampleData('510037');
+    expect(calls).toHaveLength(2);
+  });
+  it('getSampleData は失敗を保存しない', async () => {
+    sessionStorage.clear();
+    stubFetch(() => new Response('{}', { status: 500 }));
+    expect(isErr(await restTemplateRepo.getSampleData('510037'))).toBe(true);
+    expect(sessionStorage.getItem('editor:sample:510037')).toBeNull();
   });
 });
 

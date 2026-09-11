@@ -11,6 +11,7 @@ import {
 } from '@editor/shared';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
+import { clearSampleDataCache } from '@/api/rest/templateRepo';
 import { useAuthService } from '@/features/auth/services/authService';
 import { currentAppEpoch, restartEnded } from '@/lib/appEpoch';
 import { logError } from '@/lib/appError';
@@ -101,6 +102,8 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem(draftOwnerKey());
     setUndoUserScope(null);
     forgetTabMemory();
+    // ファンド名の取得結果もタブに残る。次の利用者の画面へ前の利用者が見た名前を出さない。
+    clearSampleDataCache();
     // 手動ログアウトは「再起動切断」ではない。マーカーと理由を消す。
     localStorage.removeItem(AUTH_EPOCH_KEY);
     sessionEndedReason.value = null;
