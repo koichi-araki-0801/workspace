@@ -195,19 +195,20 @@ if (-not $SkipBuild) {
     # msnodesqlv8 のネイティブ .node を配置する。npm tarball / .pnpm-store にバイナリは入らず
     # install スクリプトも allowBuilds で封止しているため、同梱の公式 prebuild を install 後の
     # .pnpm 実体へ展開する（editor/server と pie-chart は同実体への symlink 参照＝1 箇所で両方に
-    # 効く。install 前だと purge/再構成で消える）。REST/DB 入力を使わない構成では無くても動くため
-    # 失敗は警告止まりで setup を続行する。
+    # 効く。install 前だと purge/再構成で消える）。editor の既定は DB モードなので、ここが欠けると
+    # setup は成功したのに起動できない端末ができる。3 段（prebuild と install 先の有無 / 版一致 /
+    # 展開と require 疎通）のどれかで失敗したら setup を失敗にする。
     $pbTar = Get-ChildItem (Join-Path $RepoRoot 'native-prebuilds\msnodesqlv8-*.tar.gz') -ErrorAction SilentlyContinue | Select-Object -First 1
     $pbPkg = Get-ChildItem (Join-Path $RepoRoot 'node_modules\.pnpm\msnodesqlv8@*\node_modules\msnodesqlv8') -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($pbTar -and $pbPkg) {
       # lockfile の版だけ上げて prebuild の差し替えを忘れる事故の検知（native-prebuilds\manifest.txt 参照）。
       $instVer = (Get-Content (Join-Path $pbPkg.FullName 'package.json') -Raw | ConvertFrom-Json).version
       if ($pbTar.Name -notlike "*v$instVer*") {
-        Write-Warning "[warn] msnodesqlv8 の install 版($instVer)と prebuild($($pbTar.Name))の版が不一致。native-prebuilds の差し替えが必要です。"
+        Write-Error "[error] msnodesqlv8 の install 版($instVer)と prebuild($($pbTar.Name))の版が不一致。native-prebuilds の差し替えが必要です。"; exit 1
       }
       & (Resolve-Tar) -xzf $pbTar.FullName -C $pbPkg.FullName
       if ($LASTEXITCODE -ne 0) {
-        Write-Warning '[warn] msnodesqlv8 prebuild の展開に失敗（editor REST / pie-chart DB 入力は使用不可）。'
+        Write-Error '[error] msnodesqlv8 prebuild の展開に失敗しました。'; exit 1
       } else {
         # ABI 不一致・破損はロードで露見するため require で疎通確認する（editor/server から解決）。
         # EAP=Stop のため stderr リダイレクトは使わず、node 側 try/catch で exit code のみ返す。
@@ -216,10 +217,10 @@ if (-not $SkipBuild) {
         $reqOk = ($LASTEXITCODE -eq 0)
         Pop-Location
         if ($reqOk) { Write-Host '[info] msnodesqlv8 ネイティブ .node を配置（require OK）。' }
-        else { Write-Warning '[warn] msnodesqlv8 の require に失敗。Node の ABI（24.x=137）と prebuild の対応を確認してください。' }
+        else { Write-Error '[error] msnodesqlv8 の require に失敗しました。Node の ABI（24.x=137）と prebuild の対応を確認してください。'; exit 1 }
       }
     } else {
-      Write-Warning '[warn] msnodesqlv8 prebuild または install 先が見つからず、ネイティブ .node を配置できませんでした（editor REST / pie-chart DB 入力は使用不可）。'
+      Write-Error '[error] msnodesqlv8 prebuild または install 先が見つからず、ネイティブ .node を配置できませんでした。'; exit 1
     }
 
     & corepack pnpm build
