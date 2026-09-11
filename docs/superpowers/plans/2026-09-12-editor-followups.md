@@ -1,4 +1,4 @@
-# editor: DB 既定化の残タスク解消 実装計画（v3）
+# editor: DB 既定化の残タスク解消 実装計画（v4）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript / Vue 3 / Fastify / Vitest / Playwright / Node 24（型ストリップ既定有効）
 
-**Spec:** 前計画の設計書 `docs/superpowers/specs/2026-09-11-editor-db-default-design.md`（不変則の正典）と本計画の「残件一覧」。反対目線レビュー（v1 → v2 → v3）の反映点は末尾「v1 からの変更」「v2 からの変更」。
+**Spec:** 前計画の設計書 `docs/superpowers/specs/2026-09-11-editor-db-default-design.md`（不変則の正典）と本計画の「残件一覧」。反対目線レビュー（v1 → v2 → v3 → v4）の反映点は末尾「v1 からの変更」「v2 からの変更」「v3 からの変更」。
 
 ## Global Constraints
 
@@ -102,7 +102,14 @@ const keep = (chunk: Buffer): void => {
   }
 };
 
-const viteBin = createRequire(path.join(webDir, 'package.json')).resolve('vite/bin/vite.js');
+// `vite/bin/vite.js` は package の `exports` に含まれず `resolve` が throw するので、唯一公開されている
+// `vite/package.json` を引き、その `bin.vite`(= `bin/vite.js`)からパスを組む。
+const req = createRequire(path.join(webDir, 'package.json'));
+const vitePkgPath = req.resolve('vite/package.json');
+const viteBin = path.join(
+  path.dirname(vitePkgPath),
+  (req(vitePkgPath) as { bin: { vite: string } }).bin.vite,
+);
 const nodeOptions = [process.env.NODE_OPTIONS, '--report-on-fatalerror', `--report-directory=${outDir}`]
   .filter(Boolean)
   .join(' ');
@@ -164,7 +171,7 @@ child.on('exit', (code, signal) => {
 
 - [ ] procdump: `https://download.sysinternals.com/files/Procdump.zip` を `<repoRoot>/.tmp/tools/procdump/` に展開（git 管理外）。`procdump64.exe -accepteula -?` が動くことを確認。以後の e2e は `E2E_VITE_PROCDUMP=<repoRoot>/.tmp/tools/procdump/procdump64.exe` を呼び出し元シェルで設定して走らせる（`RUNS.md` に「procdump あり」と記す）。
 - [ ] WinDbg: `winget install Microsoft.WinDbg`（Store 版）。入らなければ `cdb` を含む Windows SDK Debugging Tools を候補にし、どちらも無理なら「`.dmp` のヘッダから faulting module 名だけ読む」に留めて報告する。
-- [ ] 読み方の手順を `docs/superpowers/specs/2026-09-12-vite-crash-findings.md` の冒頭に書く: `windbg -z <dmp>` → `!analyze -v` → `FAULTING_MODULE` / `STACK_TEXT` を控える。
+- [ ] 読み方の手順を `docs/superpowers/specs/2026-09-12-vite-crash-findings.md` の冒頭に書く: Store 版の実行ファイルは `WinDbgX.exe`（`%LOCALAPPDATA%\Microsoft\WindowsApps\WinDbgX.exe -z <dmp>`）。スクリプト向けには `cdb -z <dmp> -c "!analyze -v; q"` が確実（cdb が無ければ WinDbgX で手動）。`!analyze -v` の `FAULTING_MODULE` / `STACK_TEXT` を控える。
 - [ ] コミット対象なし（道具は git 管理外）。README の e2e 節に「ダンプ採取は procdump、読解は WinDbg」の 1 行を Task 1 の追記へ足す。
 
 ---
@@ -188,7 +195,7 @@ child.on('exit', (code, signal) => {
   - 呼び出し: EditTabView / ReviewTabView は `editorRoute(m.id, { created: opensAsCreate(m) })`、PreviewView は `editorRoute(id, { created: origin === 'create' })`（プレビューは route query に `origin` を持つので `status` を経由しない）。
 
 - [ ] **Step 1: テスト** — `editorRoute.test.ts`: `editorRoute('x', { created: false })` → query なし / `{ created: true }` → `created:'1'`、`opensAsCreate({ status: 'draft' })` → true / `'published'` → false。`reviewTabView.dom.test.ts`: 既存の `template()` ヘルパは `Partial<Template>` を受けるので `getTemplateFn.mockResolvedValue(ok(template({ meta: { ...template().meta, status: 'draft' } })))` の形で draft を返し、`loadParts` は非同期（`watch(targetId, loadParts, { immediate: true })`）なので click 前に `await flushPromises()`（同ファイル 172-181 行の流儀）。主張: 「編集へ」の push が `{ name:'editor', params:{id}, query:{created:'1'} }`。
-- [ ] **Step 2: 実装** — `ReviewTabView.vue`: `const targetMeta = ref<TemplateMeta | null>(null)` を `loadParts` で設定。`goEdit` は `router.push(editorRoute(targetId.value, { created: targetMeta.value ? opensAsCreate(targetMeta.value) : mine.value.some((m) => m.origin === 'create') }))` — メタ未取得（`loadParts` 前のクリック）でも申請一覧の `origin` を第 2 の根拠にし、pending だけの id を編集経路で開かない。`PreviewView.vue:169`: `:fallback="editorRoute(id, { created: origin === 'create' })"`。
+- [ ] **Step 2: 実装** — `ReviewTabView.vue`: `const targetMeta = ref<TemplateMeta | null>(null)` を `loadParts` で設定。`goEdit` は既存の `if (targetId.value) { … } else router.push({ name: 'edit' })` の **if の中身だけ**を `router.push(editorRoute(targetId.value, { created: targetMeta.value ? opensAsCreate(targetMeta.value) : mine.value.some((m) => m.origin === 'create') }))` に置き換える（`targetId` は `string | null` なので null ガードは残す。else 分岐は `reviewTabView.dom.test.ts:169` が主張しているので変えない）— メタ未取得（`loadParts` 前のクリック）でも申請一覧の `origin` を第 2 の根拠にし、pending だけの id を編集経路で開かない。`PreviewView.vue:169`: `:fallback="editorRoute(id, { created: origin === 'create' })"`。
 - [ ] **Step 3: 確認** — web-dom / web-node、`pnpm typecheck:editor`、`pnpm exec playwright test -c editor/playwright.config.ts --project=chromium review_tab.spec.ts create.spec.ts`（RUNS.md に記録）
 - [ ] **Step 4: コミット** — `fix(web): pending だけのテンプレートを開く導線を作成経路へ送る規則を 1 か所にまとめる`
 
@@ -268,7 +275,7 @@ child.on('exit', (code, signal) => {
 ### Task 6: 再現の計数
 
 - [ ] Task 1 以降のすべての e2e 実行（Task 2・3 の spec 実行、Task 11 の CI）を `.tmp/vite-e2e/RUNS.md` に記録。合計が 6 回未満なら `pnpm run test:e2e` を追加実行して 6 回にする（緑でも続ける）。
-- [ ] 各実行で `Start-Job { Get-Counter '\Memory\Available MBytes','\Memory\Committed Bytes','\Memory\% Committed Bytes In Use' -SampleInterval 5 -MaxSamples 120 | Export-Counter -Path <csv> -FileFormat CSV }` を**並走**させ（前景で回すと 10 分ブロックする）CSV に残す。値の整形は `[long]`（Committed Bytes は `[int]` で溢れる）（割当失敗はコミット枯渇で起きる。物理 7.67 GB・空き 1.8 GB の端末で、node.exe の `RADAR_PRE_LEAK_64` が WER に記録された実績あり）。
+- [ ] 各実行で `Start-Job -ArgumentList $csv { param($csv) Get-Counter '\Memory\Available MBytes','\Memory\Committed Bytes','\Memory\% Committed Bytes In Use' -SampleInterval 5 -MaxSamples 120 | Export-Counter -Path $csv -FileFormat CSV }` を**並走**させ（`<csv>` はジョブ内スコープに入らないので `-ArgumentList` で渡す）（前景で回すと 10 分ブロックする）CSV に残す。値の整形は `[long]`（Committed Bytes は `[int]` で溢れる）（割当失敗はコミット枯渇で起きる。物理 7.67 GB・空き 1.8 GB の端末で、node.exe の `RADAR_PRE_LEAK_64` が WER に記録された実績あり）。
 - [ ] 落ちた回は `exit-*.txt` / `report*.json` / procdump の `.dmp`（設定時）/ メモリ CSV を揃える。
 
 ### Task 7: 切り分けと判断（ユーザーゲート）
@@ -313,3 +320,10 @@ child.on('exit', (code, signal) => {
 - S4: `reviewTabView.dom.test.ts` の draft ケースの組み方（`template({ meta: {...} })` + `flushPromises`）を明記。
 - N1〜N3: メモリ計測は `Start-Job` で並走・`[long]`、直前出力の chunk 境界と procdump バナーを注記。
 - ユーザー承認を受け、procdump と WinDbg の導入を Task 1b として計画に入れた。
+
+## v3 からの変更（3 回目の反対目線レビューの反映）
+
+- M4: `vite/bin/vite.js` は `exports` 外で `createRequire.resolve` が throw する。`vite/package.json` の `bin.vite` からパスを組む。
+- S5: `goEdit` は既存の null ガードの中身だけを置き換え、else 分岐（`{ name: 'edit' }`）は変えない。
+- N4: Store 版 WinDbg は `WinDbgX.exe`。手順に `cdb -z … -c "!analyze -v; q"` を併記。
+- N5: `Start-Job` の CSV パスは `-ArgumentList` で渡す。
