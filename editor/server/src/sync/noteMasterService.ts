@@ -15,8 +15,9 @@
 import { type NoteMasterReflectSummary, parseTemplateFileName } from '@editor/shared';
 import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
-import { readTemplateHtml } from '../files/templateFiles.js';
+import { readFilledHtml, readTemplateHtml } from '../files/templateFiles.js';
 import { logger } from '../logger.js';
+import type { ConfirmedTarget } from '../repositories/confirmedWrite.js';
 import type { PartRepo } from '../repositories/partRepo.js';
 import { applyOps, extractSyncParts } from './partSync.js';
 
@@ -24,6 +25,7 @@ export interface NoteMasterService {
   reflectNoteMasterAfterConfirm(
     templateId: string,
     actor: string,
+    target: ConfirmedTarget,
   ): Promise<NoteMasterReflectSummary | null>;
   applyNoteMasterToHtml(html: string, fundCode: string, editionType: string): Promise<string>;
 }
@@ -46,14 +48,16 @@ export function createNoteMasterService({
      * 失敗は throw せず `error` 付き summary で返す(承認自体は成立済み)。
      * 書き戻しの契機は「承認」のみ: ペア同期で機械転写された側の版種は、その版種自身が
      * 承認されたときに書き戻す(承認を経ない内容をマスタへ昇格させない)。
+     * 読む実体は承認が書いた先(`target`)と同じ — 別の実体を読むと承認を経ていない文言を
+     * マスタへ昇格させることになる。
      */
-    async reflectNoteMasterAfterConfirm(templateId, actor) {
+    async reflectNoteMasterAfterConfirm(templateId, actor, target) {
       const attrs = parseTemplateFileName(`${templateId}.html`);
       if (!attrs) return null;
 
       try {
         const [html, catalog] = await Promise.all([
-          readTemplateHtml(`${templateId}.html`),
+          (target === 'filled' ? readFilledHtml : readTemplateHtml)(`${templateId}.html`),
           parts.listParts({}),
         ]);
         const reflectIds = new Set(
