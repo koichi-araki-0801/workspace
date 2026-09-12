@@ -289,8 +289,10 @@ d('review workflow (reviewRepo)', () => {
         submitter,
       ),
     ).rejects.toMatchObject({ kind: 'validation' });
-    // 拒否は申請の作成前に起きる(未処理の申請が増えない)。
-    expect(fs.existsSync(filledFile(tplId))).toBe(false);
+    // 拒否は申請の作成前に起きる(未処理の申請が増えない)。申請ディレクトリ名は
+    // reqId で templateId を含まないため、一覧に対象 templateId の行が無いことで主張する。
+    const listed = await reviews.listReviews({}, approver);
+    expect(listed.some((m) => m.templateId === tplId)).toBe(false);
   });
 
   it("filled 不在でも origin='create' の申請は通る", async () => {
