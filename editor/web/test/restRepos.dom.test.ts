@@ -158,6 +158,16 @@ describe('restTemplateRepo', () => {
     expect(isErr(await restTemplateRepo.getSampleData('510037'))).toBe(true);
     expect(sessionStorage.getItem('editor:sample:510037')).toBeNull();
   });
+  it('getSampleData は壊れたキャッシュ(オブジェクトでない JSON)を無視して再取得する', async () => {
+    sessionStorage.clear();
+    sessionStorage.setItem('editor:sample:510037', '"broken"');
+    const calls = stubFetch(() => json({ fund: { code: '510037', name: 'F' } }));
+    const r = await restTemplateRepo.getSampleData('510037');
+    expect(calls).toHaveLength(1);
+    expect(isOk(r) && r.value).toEqual({ fund: { code: '510037', name: 'F' } });
+    // 取り直した値で上書きされ、以後は正常にキャッシュから返る。
+    expect(sessionStorage.getItem('editor:sample:510037')).not.toBe('"broken"');
+  });
 });
 
 describe('restPartRepo / restHistoryRepo / restNoteRepo / restReviewRepo / restUserRepo', () => {

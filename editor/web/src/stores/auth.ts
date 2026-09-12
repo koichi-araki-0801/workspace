@@ -86,6 +86,9 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null;
     setUndoUserScope(null);
     forgetTabMemory();
+    // 401 の後も共有端末では別の利用者がログインしうる。ファンド名の取得結果を
+    // 次の利用者の画面へ持ち越さない(logout() と同じ理由)。
+    clearSampleDataCache();
   }
 
   async function logout(): Promise<void> {

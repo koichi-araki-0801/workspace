@@ -90,6 +90,10 @@ async function renderOne(
     return err(conflict(`テンプレート${nth}の取得に失敗しました。`, { cause: tplRes.error }));
   }
   const tpl = tplRes.value;
+  // 失敗時の文言は「取得」「サンプル」と違い、値入り/通常のどちらの経路でも同じ
+  // (どちらも `renderPdfDocument` の失敗)なので 1 箇所にまとめる。
+  const fail = (cause: unknown) =>
+    err(conflict(`テンプレート${nth}のレンダリングに失敗しました。`, { cause }));
 
   // 値入り HTML は完成した文書なので、サンプル取得も隔離描画も飛ばす(理由は
   // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所)。
@@ -103,13 +107,7 @@ async function renderOne(
         skipJinja: true,
       },
     );
-    if (isErr(filledDoc)) {
-      return err(
-        conflict(`テンプレート${nth}のレンダリングに失敗しました。`, {
-          cause: filledDoc.error,
-        }),
-      );
-    }
+    if (isErr(filledDoc)) return fail(filledDoc.error);
     return filledDoc;
   }
 
@@ -122,9 +120,7 @@ async function renderOne(
   const sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
 
   const doc = await renderPdfDocument(tpl.html, formatCss(tpl.css), sample, { cropMarks: false });
-  if (isErr(doc)) {
-    return err(conflict(`テンプレート${nth}のレンダリングに失敗しました。`, { cause: doc.error }));
-  }
+  if (isErr(doc)) return fail(doc.error);
   return doc;
 }
 

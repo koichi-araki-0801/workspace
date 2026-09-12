@@ -30,7 +30,11 @@ const sampleCacheKey = (fundCode: string) => `${SAMPLE_CACHE_PREFIX}${fundCode}`
 function readSampleCache(fundCode: string): SampleData | null {
   try {
     const raw = sessionStorage.getItem(sampleCacheKey(fundCode));
-    return raw ? (JSON.parse(raw) as SampleData) : null;
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    // sessionStorage は他スクリプト・拡張機能からも書き換えられうる外部入力。オブジェクトで
+    // ない値(壊れた JSON)を SampleData として扱うと呼び出し側が形の合わない値を掴む。
+    return typeof parsed === 'object' && parsed !== null ? (parsed as SampleData) : null;
   } catch {
     return null;
   }

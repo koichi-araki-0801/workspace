@@ -51,16 +51,13 @@ import {
 
 /** 編集後の本文 + fund 単位の共有 CSS override を公開する。 */
 function putContentOverrides(req: ConfirmSaveRequest): void {
-  if (req.origin === 'edit') {
-    // 編集タブの承認は値入り HTML を上書きする(server の filled/ と同じ契約)。Jinja は据え置く。
-    const filledOverride = read<Record<string, string>>(K.filledOverride, {});
-    filledOverride[req.templateId] = req.html;
-    write(K.filledOverride, filledOverride);
-  } else {
-    const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
-    htmlOverride[req.templateId] = req.html;
-    write(K.htmlOverride, htmlOverride);
-  }
+  // 編集タブの承認は値入り HTML を上書きする(server の filled/ と同じ契約)。Jinja は据え置く。
+  // 作成タブの承認は Jinja テンプレそのものを上書きする。書き先が違うだけで手順は同じ。
+  const key = req.origin === 'edit' ? K.filledOverride : K.htmlOverride;
+  const override = read<Record<string, string>>(key, {});
+  override[req.templateId] = req.html;
+  write(key, override);
+
   const cssOverride = read<Record<string, string>>(K.cssOverride, {});
   cssOverride[req.fundCode] = req.css; // fund 単位の共有 CSS
   write(K.cssOverride, cssOverride);
