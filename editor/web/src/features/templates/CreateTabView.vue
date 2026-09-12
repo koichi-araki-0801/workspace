@@ -15,6 +15,7 @@ import { useLatest } from '@/lib/useLatest';
 import { cn } from '@/lib/utils';
 import SearchFilters from './components/SearchFilters.vue';
 import TemplateTable from './components/TemplateTable.vue';
+import { editorRoute } from './editorRoute';
 import { SELECT_ALL_MSG, useTemplateCreationService } from './services/templateCreationService';
 
 type Method = 'blank' | 'series';
@@ -118,9 +119,8 @@ async function create(req: GenerateRequest, successMsg: string) {
   const res = await run(() => templates.create(req));
   if (isErr(res)) return;
   toastSuccess(successMsg);
-  // 作成経路の印。編集画面はこの query で差し込み値ハイライトを出す(編集タブ=query なし=
-  // ハイライト無し)。設計正典.md「編集 2 系統」を参照。
-  router.push({ name: 'editor', params: { id: res.value.id }, query: { created: '1' } });
+  // 作成タブの産物は必ず作成経路で開く(`created` query の生成は `editorRoute` に集約する)。
+  router.push(editorRoute(res.value.id, { created: true }));
 }
 
 function createNew() {

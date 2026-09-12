@@ -49,8 +49,8 @@ export interface GrapesEventDeps {
    * 重い(全要素 `getComputedStyle`)ため、呼び出し側で rAF 集約してから渡す。
    */
   recomputeLayout: () => void;
-  /** canvas を A4 ページ全体が収まる倍率へ合わせる(起動時の初期ズーム)。 */
-  fitToView: () => void;
+  /** canvas load 後に初期倍率を当てる(既定 100%。画面には合わせない)。 */
+  applyInitialZoom: () => void;
   /** canvas load 時に呼ぶ(useGrapes が可視制御用 style を canvas head へ注入する)。 */
   onCanvasLoad: (doc: Document) => void;
   toInfo: (comp: Component) => SelectedInfo;
@@ -67,6 +67,23 @@ export interface GrapesEventDeps {
   canvasCss: string;
   callbacks: GrapesCallbacks;
 }
+
+/**
+ * `component:update` のうち dirty/autosave へ流さない prop。どれも GrapesJS がモデルの見た目・
+ * 操作状態として set するもので、`getHtml()` の出力(保存内容)には現れない(`toJSON` が捨てる
+ * `status`/`open` と、`setEditable` が撒く lock state の prop)。主防御は保存内容の比較
+ * (`useTemplateEditor.settleIfClean`)で、これは選択直後に「未確定」を一瞬でも出さないための
+ * 即時応答用。
+ */
+const SAVE_NEUTRAL_PROPS: ReadonlySet<string> = new Set([
+  'status',
+  'open',
+  'editable',
+  'draggable',
+  'selectable',
+  'hoverable',
+  'highlightable',
+]);
 
 /**
  * 3-pane editor 用に GrapesJS editor の listener を一括登録する。`init()` を小さく
@@ -100,10 +117,10 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
       // iframe (再)ロードごとに新しい document へ張り直す(古い document ごと破棄される)。
       docu.addEventListener('dblclick', () => callbacks.canvasDblClick?.());
     }
-    // 起動時はページ全体がキャンバスに収まる倍率へ自動フィットする(以後は手動 +/- で調整)。
+    // 起動時の倍率は 100%。画面へのフィットは Ctrl+0 / % ボタンの手動操作でだけ効く。
     // 直上で canvasCss(A4 `min-height:297mm`)を head へ注入済みのため、次フレームまで遅らせて
-    // body 実寸が確定してから測る。
-    requestAnimationFrame(() => deps.fitToView());
+    // body 実寸が確定してから当てる。
+    requestAnimationFrame(() => deps.applyInitialZoom());
     // ページ境界 guide / ページ列挙 / 縦配置: styles/components が出揃ったこの時点で一度走査する
     // (`fitToView` の rAF でも縦配置は揃うが、ここで break/guide/ページも確定させる)。
     recomputeLayout();
@@ -144,7 +161,7 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     });
   };
 
-  const fireChange = () => {
+  const fireChange = (opts: { saveNeutral?: boolean } = {}) => {
     // revision/rect/move/change は即時のまま(体感応答 + autosave 側で別途 debounce 済み)。
     revision.value++;
     refreshRect();
@@ -154,7 +171,21 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     // 編集可否切替中の component:update は内容変更ではない(`isApplyingLockState` の doc を
     // 見よ)。dirty/autosave へは流さず、幾何の追随(上の即時部)だけ行う。
     if (deps.isApplyingLockState?.()) return;
+    if (opts.saveNeutral) return;
     callbacks.change?.();
+  };
+  // `component:update` は直近の `set` で変わった prop を `model.changed` に持つ。全部が
+  // 保存内容に現れない prop なら dirty/autosave へ流さない。読めない発火は保守的に「変更」扱い。
+  // 移動・貼り付け・drag 終了は `set` を伴わず `component:update` だけが飛ぶことがあり、その
+  // ときの `model.changed` は 1 つ前の `set`(status 系)が残ったままで saveNeutral に見える。
+  // これで dirty を取りこぼさずに済んでいるのは、上記 3 操作がいずれも `component:add` /
+  // `component:remove` も併発し、そちらは無条件で `fireChange()` するため(下の登録を見よ)。
+  // この依存を切る変更(`component:add`/`component:remove` を伴わない移動系の追加等)をすると
+  // dirty が立たなくなるので、変える際は `onComponentUpdate` 側の判定も見直すこと。
+  const onComponentUpdate = (model?: { changed?: Record<string, unknown> }) => {
+    const changed = model?.changed;
+    const keys = changed && typeof changed === 'object' ? Object.keys(changed) : [];
+    fireChange({ saveNeutral: keys.length > 0 && keys.every((k) => SAVE_NEUTRAL_PROPS.has(k)) });
   };
   // inline text 編集(RTE): 開始(undo snapshot 用)と終了(実際に内容が変わったか)を
   // 通知する。locked の間はブロックする。
@@ -192,12 +223,12 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     callbacks.textEnd?.(changed);
   });
 
-  ed.on('component:update', fireChange);
-  ed.on('component:add', fireChange);
-  ed.on('component:remove', fireChange);
+  ed.on('component:update', onComponentUpdate);
+  ed.on('component:add', () => fireChange());
+  ed.on('component:remove', () => fireChange());
   // inline style 変更(`Component` 由来)。GrapesJS の正規 event は `component:styleUpdate`
   // (`style:update` という event は存在せず、購読しても dead listener になる)。
-  ed.on('component:styleUpdate', fireChange);
+  ed.on('component:styleUpdate', () => fireChange());
 
   // native な drag-to-reorder: 開始時に undo 用 snapshot、終了時に history を記録する
   // (`Component` の兄弟内位置が実際に変わったときだけ)。version 依存の payload を

@@ -1,24 +1,20 @@
 // =============================================================================
-// approval.rest.spec.ts — rest 経路(sproc フェイク + 一時 dataRoot)の申請→承認の実機検証
+// approval.spec.ts — 申請→承認の実機検証(サーバは sproc フェイク + 一時 dataRoot)
 // =============================================================================
-// `E2E_REST=1` のときだけ走る project `rest` 専用 spec。実 `POST /api/auth/login` の
-// セッション cookie でログインし、一覧 → 編集 → 申請 → 承認 と進めたうえで、dataRoot の
-// 確定ファイルと git コミットまでを実ディスクで確かめる。local project(localStorage +
-// fixtures)では確定ファイルも git も存在しないため、この後段はここでしか検証できない。
+// chromium project で走る。実 `POST /api/auth/login` のセッション cookie でログインし、
+// 一覧 → 編集 → 申請 → 承認 と進めたうえで、dataRoot の確定ファイルと git コミットまでを
+// 実ディスクで確かめる。
 //
-// rest では `filled`(per-fund 値埋め込み済み HTML)が空で、編集 canvas は共通 sample の
-// 差込表示になる。よって per-fund 実値のアサーションは書かず、canvas に本文が描かれること
-// だけを見る。編集の材料に使う `受益者のみなさまへ` は fixture テンプレの地の文なので、
-// 差込の有無に関わらず出る。
+// 編集 canvas は `filled/` に seed した値入り HTML を表示する。編集の材料に使う
+// `受益者のみなさまへ` は fixture テンプレの地の文なので、差込の有無に関わらず出る。
 //
 // ユーザー切替は `test()` を分けて行う。Playwright は `test()` ごとに cookie 空の
-// `BrowserContext` を払い出すので、セッション cookie 方式の rest ではこれが最も素直な
-// 切替手段になる(`review_tab.spec.ts` の 1 テスト内切替は localStorage 方式の local 専用)。
+// `BrowserContext` を払い出すので、セッション cookie 方式ではこれが最も素直な切替手段になる。
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
 import { E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
+import { expect, test } from './fixtures';
 import { login, openEditor, waitForLoaded } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
@@ -26,6 +22,8 @@ const EDIT_MARK = 'restE2E追記';
 
 // 2 つ目のテストは 1 つ目が残した申請を承認する。依存を実行順序として明示する。
 test.describe.configure({ mode: 'serial' });
+// 2 つ目のテストは 1 つ目が出した申請を承認するので、dataRoot はこのファイルの中で共有する。
+test.use({ keepDataRootAcrossTests: true });
 
 // 編集画面ヘッダは狭い幅だと保存状態の文言・ボタンが折り返す(`EditorTopBar.vue`)。
 // 他の承認系 spec と同じ幅に揃える。
@@ -34,8 +32,8 @@ test.use({ viewport: { width: 1440, height: 900 } });
 test('editor がログインして一覧・編集画面を確認し、確定保存を申請する', async ({ page }) => {
   test.setTimeout(180_000);
   await login(page, 'editor');
-  // rest のセッションはサーバ発行の cookie。実 `POST /api/auth/login` が `Set-Cookie` を
-  // 返したことをここで押さえる(local project は localStorage 方式なのでこの検証を持てない)。
+  // セッションはサーバ発行の cookie。実 `POST /api/auth/login` が `Set-Cookie` を
+  // 返したことをここで押さえる。
   expect((await page.context().cookies()).map((c) => c.name)).toContain('editor.sid');
 
   // 一覧は条件を選んで検索するまで出ない。絞り込みは URL クエリと双方向同期する
@@ -122,11 +120,9 @@ test('approver が承認すると確定ファイルと git コミットへ反映
   await expect(decided).toContainText('承認済み');
   await expect(decided).toContainText('approver');
 
-  // dataRoot の確定ファイルへ反映されたことを実ディスクで確認する。
-  const html = fs.readFileSync(
-    path.join(E2E_REST_DATA_ROOT, 'templates', `${SEED_ID}.html`),
-    'utf8',
-  );
+  // dataRoot の確定ファイルへ反映されたことを実ディスクで確認する。編集タブの承認が書くのは
+  // 値入り HTML(`filled/`)で、Jinja スケルトン(`templates/`)は作成タブの承認の担当。
+  const html = fs.readFileSync(path.join(E2E_REST_DATA_ROOT, 'filled', `${SEED_ID}.html`), 'utf8');
   expect(html).toContain(EDIT_MARK);
 
   // 承認コミット(申請者=editor・承認者=approver)が積まれたことを確認する。HEAD 1 件では

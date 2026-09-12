@@ -107,38 +107,75 @@ describe('CompareService.renderVersionHtml', () => {
     if (isErr(res)) expect(res.error.message).toBe(COMPARE_RENDER_ERROR);
   });
 
-  it('renders the snapshot to HTML and returns the html and snapshot css', async () => {
+  it('現行版: filled が非空なら隔離描画を通さず本文をそのまま返す', async () => {
+    const templates = {
+      getTemplate: vi.fn(async () =>
+        ok({
+          meta: { attributes: { fundCode: '510037' } },
+          html: '<p>値入り {{ fund.name }}</p>',
+          css: '.base{}',
+          filled: '<p>値入り {{ fund.name }}</p>',
+        }),
+      ),
+      getSampleData: vi.fn(async () => ok({ fund: { name: '原本ファンド' } })),
+    } as unknown as TemplateRepository;
+    const svc = createCompareService(templates, {} as HistoryRepository);
+    const res = await svc.renderVersionHtml('baseline:AM01_510037_20240710_kr');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.html).toBe('<p>値入り {{ fund.name }}</p>');
+    expect(templates.getSampleData).not.toHaveBeenCalled();
+  });
+
+  it('スナップショット: filled/ の履歴なので隔離描画も getSampleData も通さない', async () => {
     const history = {
       getSnapshot: vi.fn(async () => ok(snapshot)),
     } as unknown as HistoryRepository;
     const templates = {
-      getSampleData: vi.fn(async () => ok({ fund: { name: 'テストファンド' } })),
+      getSampleData: vi.fn(async () => ok({ fund: { name: 'x' } })),
     } as unknown as TemplateRepository;
-
     const svc = createCompareService(templates, history);
     const res = await svc.renderVersionHtml('eh-1');
-
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) {
-      // the nunjucks-applied HTML and the snapshot CSS come back unchanged
-      expect(res.value.html).toContain('テストファンド');
-      expect(res.value.css).toBe('.x{}');
-    }
+    if (isOk(res)) expect(res.value).toEqual({ html: snapshot.html, css: snapshot.css });
+    expect(templates.getSampleData).not.toHaveBeenCalled();
+  });
+});
+
+describe('CompareService.renderTemplateBody', () => {
+  it("origin='edit' の本文は描画を通さずそのまま返す", async () => {
+    const templates = { getSampleData: vi.fn(async () => ok({})) } as unknown as TemplateRepository;
+    const svc = createCompareService(templates, {} as HistoryRepository);
+    const res = await svc.renderTemplateBody('<p>{{ raw }}</p>', '.c{}', '510037', 'edit');
+    expect(isOk(res) && res.value).toEqual({ html: '<p>{{ raw }}</p>', css: '.c{}' });
+    expect(templates.getSampleData).not.toHaveBeenCalled();
   });
 
-  it('returns the safe render error when the template fails to render', async () => {
-    const history = {
-      getSnapshot: vi.fn(async () => ok({ ...snapshot, html: '{% if %}' })),
-    } as unknown as HistoryRepository;
+  it("origin='create' の本文はサンプル値で描画する", async () => {
+    const templates = {
+      getSampleData: vi.fn(async () => ok({ fund: { name: '作成ファンド' } })),
+    } as unknown as TemplateRepository;
+    const svc = createCompareService(templates, {} as HistoryRepository);
+    const res = await svc.renderTemplateBody('<p>{{ fund.name }}</p>', '.c{}', '510037', 'create');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.html).toContain('作成ファンド');
+  });
+
+  it('描画に失敗したら安全な文言を返す', async () => {
     const templates = {
       getSampleData: vi.fn(async () => ok({})),
     } as unknown as TemplateRepository;
-
-    const svc = createCompareService(templates, history);
-    const res = await svc.renderVersionHtml('eh-1');
-
+    const svc = createCompareService(templates, {} as HistoryRepository);
+    const res = await svc.renderTemplateBody('{% if %}', '', '510037', 'create');
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.message).toBe(COMPARE_RENDER_ERROR);
+  });
+
+  it('サンプルデータの取得失敗は伝播する', async () => {
+    const templates = {
+      getSampleData: vi.fn(async () => err(notFound('no sample'))),
+    } as unknown as TemplateRepository;
+    const svc = createCompareService(templates, {} as HistoryRepository);
+    expect(isErr(await svc.renderTemplateBody('<p/>', '', '510037', 'create'))).toBe(true);
   });
 });
 

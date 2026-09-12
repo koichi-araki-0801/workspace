@@ -76,9 +76,9 @@ describe('rest バンドル分離ガード — api/local/ への import 経路',
     expect([...offenders], `api/local/ を import している想定外ファイル`).toEqual([]);
   });
 
-  it('main.ts に useRest によるガード分岐が存在する(seed 系を rest で実行しない)', () => {
+  it('main.ts に useLocal によるガード分岐が存在する(seed 系を rest で実行しない)', () => {
     const source = readFileSync(path.join(WEB_SRC, 'main.ts'), 'utf8');
-    expect(source).toMatch(/if\s*\(\s*!useRest\s*\)\s*\{[^}]*migrateStore/);
+    expect(source).toMatch(/if\s*\(\s*useLocal\s*\)\s*\{[^}]*migrateStore/);
     expect(source).toMatch(/seedCompareFixtures/);
   });
 });

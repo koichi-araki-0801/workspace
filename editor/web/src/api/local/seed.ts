@@ -11,7 +11,7 @@ import {
   type TemplateMeta,
   type TemplateSnapshot,
 } from '@editor/shared';
-import { fixtureCss, fixtureTemplates, K, META_KEY, read, write } from './store';
+import { fixtureCss, fixtureFilled, fixtureTemplates, K, META_KEY, read, write } from './store';
 
 const SEED_KEY = 'editor:seed:compare';
 const SEED_USER = '佐藤花子';
@@ -101,7 +101,10 @@ export function seedCompareFixtures(): void {
   const metaStore = read<Record<string, Partial<TemplateMeta>>>(META_KEY, {});
 
   for (const t of SEED) {
-    const baseHtml = fixtureTemplates[`${t.templateId}.html`] ?? '';
+    // snapshot は比較画面がそのまま組版する本文で、nunjucks を通さない。Jinja 骨組み
+    // (`fixtureTemplates`)を入れると差し込み値が字面のまま並ぶので値入り HTML を優先する。
+    const fileName = `${t.templateId}.html`;
+    const baseHtml = fixtureFilled[fileName] ?? fixtureTemplates[fileName] ?? '';
     const css = fixtureCss[t.fundCode] ?? '';
     for (const v of t.versions) {
       // 新しい順 → push で `editHist` を新しい順に保つ(`SEED` は既に整列済み)。
@@ -122,8 +125,9 @@ export function seedCompareFixtures(): void {
         timestamp: v.timestamp,
       };
     }
+    // `status` は書かない(一覧は値入り HTML の有無だけから導く。`store.ts` の
+    // `resolveFilled`)。META が持つのは最終更新の表示材料だけ。
     metaStore[t.templateId] = {
-      status: 'published',
       updatedAt: t.versions[0].timestamp,
       updatedBy: t.versions[0].user ?? SEED_USER,
     };

@@ -37,12 +37,14 @@ import {
 } from '../files/draftFiles.js';
 import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
 import {
-  listTemplateFiles,
+  filledExists,
+  listFilledFiles,
+  readFilledHtml,
   readFundCss,
   readTemplateHtml,
   templateExists,
 } from '../files/templateFiles.js';
-import { applyConfirmedWrite } from './confirmedWrite.js';
+import { applyConfirmedWrite, type ConfirmedTarget } from './confirmedWrite.js';
 import { fileToMeta } from './templateMeta.js';
 
 function rowToMeta(r: Record<string, unknown>): TemplateMeta {
@@ -129,8 +131,9 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     },
 
     /**
-     * 既存テンプレの一覧は台帳でなく `data/templates`(確定)と `data/pending`(生成直後の
-     * 未確定実体)のファイル走査から導く。**pending も混ぜ、`status` で区別する。**
+     * 既存テンプレの一覧は台帳でなく `filled/`(値入り HTML = 編集タブの本文)と
+     * `pending/`(生成直後の未確定実体)のファイル走査から導く。`templates/`(作成タブの
+     * Jinja)は一覧に出さない — 値入り HTML が無いテンプレを編集して申請する事故を防ぐため。
      *
      * 混ぜない設計は一度採ったが不成立だった: 作成タブは生成後に `/edit/:id` へ 1 回遷移する
      * だけで、履歴タブは遷移経路を持たない。そのため一覧から外すと、生成直後にブラウザを
@@ -141,8 +144,8 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
      * `status === 'published'` に絞る。一覧側で落とすと上記の到達不能が再発する。
      */
     async listTemplates(q) {
-      const files = await listTemplateFiles();
-      const confirmed = (await Promise.all(files.map(fileToMeta))).filter(
+      const files = await listFilledFiles();
+      const confirmed = (await Promise.all(files.map((f) => fileToMeta(f, 'filled')))).filter(
         (m): m is TemplateMeta => m !== null,
       );
       const confirmedIds = new Set(confirmed.map((m) => m.id));
@@ -173,19 +176,28 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     /**
      * 1 件取得。メタはファイル名規約、本体はファイル(台帳は引かない)。
      *
-     * **確定を先に見る順序が契約**である。① 確定ファイルが在れば `status:'published'`、
-     * ② 無く pending(生成直後の未確定実体)が在れば `status:'draft'`、③ どちらも無ければ 404。
-     * 逆順にすると pending を書ける者が承認済みテンプレの表示内容を差し替えられ、編集画面・
-     * 結合 PDF・比較タブが揃って汚染される。
+     * 探索順は ① `filled/`(値入り HTML。編集タブの本文)→ ② `templates/`(作成タブの Jinja。
+     * 作成経路の承認直後に精査画面が確定版を読む)→ ③ `pending/`(生成直後の未確定実体)。
+     * ①②は `status:'published'`、③は `status:'draft'`、どこにも無ければ 404。
+     * **確定を先に見る順序が契約**である。逆順にすると pending を書ける者が承認済みテンプレの
+     * 表示内容を差し替えられ、編集画面・結合 PDF・比較タブが揃って汚染される。
+     * ①で見つかったときだけ `filled` に本文を入れる(値入り HTML は Jinja を持たないので
+     * `html` と同じ内容。web は `filled` が非空の文書を完成描画として扱う)。
      */
     async getTemplate(id) {
       const fileName = `${id}.html`;
+      if (await filledExists(fileName)) {
+        const meta = await fileToMeta(fileName, 'filled');
+        if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
+        const html = await readFilledHtml(fileName);
+        const css = await readFundCss(meta.attributes.fundCode);
+        return { meta, html, css, filled: html };
+      }
       const meta = await fileToMeta(fileName);
       if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
       if (await templateExists(fileName)) {
         const html = await readTemplateHtml(fileName);
         const css = await readFundCss(meta.attributes.fundCode);
-        // 記入済みの静的コピーはサーバ側に保持しない。エディタが読み込み時に再差込する。
         return { meta, html, css, filled: '' };
       }
       const pending = await readPending(id);
@@ -253,6 +265,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
  */
 export function applyConfirmedSave(req: {
   templateId: string;
+  target: ConfirmedTarget;
   html: string;
   css: string;
   fundCode: string;

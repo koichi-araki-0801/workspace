@@ -28,7 +28,6 @@ function makeRepo(opts?: { listNotes?: () => Promise<PartNoteEntry[]> }) {
         updatedBy: null,
         status: 'open',
         replyTo: opts.replyTo ?? null,
-        kind: opts.kind ?? 'note',
       };
       store.push(entry);
       return ok(entry);
@@ -203,7 +202,6 @@ describe('useComments', () => {
       updatedBy: null,
       status: 'open',
       replyTo: null,
-      kind: 'note',
     };
     const errRepo: NoteRepository = {
       listNotes: async () => err(unexpected('boom')),
@@ -232,9 +230,8 @@ describe('useComments', () => {
       () => key.value,
       repo,
     );
-    await note.add('親', { kind: 'question' });
+    await note.add('親');
     const parent = note.entries.value[0];
-    expect(parent.kind).toBe('question');
 
     await note.reply(parent, '返信');
     expect(note.entries.value.map((e) => e.replyTo)).toEqual([null, parent.id]);
@@ -319,12 +316,12 @@ describe('useComments', () => {
     const p2 = note.reload();
 
     // 後発が先に解決
-    resolve2?.([{ id: 'e2', content: '後発', pathKey: COVER, kind: 'note' } as PartNoteEntry]);
+    resolve2?.([{ id: 'e2', content: '後発', pathKey: COVER } as PartNoteEntry]);
     await p2;
     expect(note.all.value.map((e) => e.content)).toEqual(['後発']);
 
     // 先発が遅れて解決
-    resolve1?.([{ id: 'e1', content: '先発', pathKey: COVER, kind: 'note' } as PartNoteEntry]);
+    resolve1?.([{ id: 'e1', content: '先発', pathKey: COVER } as PartNoteEntry]);
     await p1;
     // 先発の結果は無視される
     expect(note.all.value.map((e) => e.content)).toEqual(['後発']);
@@ -355,7 +352,7 @@ describe('useComments', () => {
     expect(note.all.value).toEqual([]);
 
     // 旧応答が遅れて解決
-    resolve1?.([{ id: 'e1', content: '旧応答', pathKey: COVER, kind: 'note' } as PartNoteEntry]);
+    resolve1?.([{ id: 'e1', content: '旧応答', pathKey: COVER } as PartNoteEntry]);
     await p1;
     // 結果は反映されない
     expect(note.all.value).toEqual([]);

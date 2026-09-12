@@ -5,7 +5,8 @@
 // (「委託会社コードを入力/選択」)。トークンが足りないと入力欄の中で文字が見切れ、
 // 「委託会社コードを入力/選」のように読めなくなる。列数の一番多い比較タブ(5 列)は
 // 同時に「フィールド行が折り返さない」ことも確かめる。
-import { expect, type Page, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { login } from './helpers';
 
 test.use({ viewport: { width: 1440, height: 900 } });

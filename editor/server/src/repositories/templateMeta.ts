@@ -5,19 +5,25 @@
 // ここへ切り出す。台帳(DB)は引かず、名前と mtime だけからメタを作る。
 
 import { parseTemplateFileName, type TemplateMeta, templateIdFromFileName } from '@editor/shared';
-import { templateMtime } from '../files/templateFiles.js';
+import { filledMtime, templateMtime } from '../files/templateFiles.js';
 
-/** ファイル名 + 更新時刻から `TemplateMeta` を組む(台帳は引かない)。 */
-export async function fileToMeta(fileName: string): Promise<TemplateMeta | null> {
+/**
+ * ファイル名 + 更新時刻から `TemplateMeta` を組む(台帳は引かない)。`source` は更新時刻を
+ * どちらの実体から取るか。編集タブの一覧は値入り HTML(`filled`)の時刻を出す。
+ */
+export async function fileToMeta(
+  fileName: string,
+  source: 'template' | 'filled' = 'template',
+): Promise<TemplateMeta | null> {
   const attrs = parseTemplateFileName(fileName);
   if (!attrs) return null;
   return {
     id: templateIdFromFileName(fileName),
     attributes: attrs,
     fileName,
-    // 確定状態は今後 git コミット有無で表す(phase 3)。本体ファイルが在る分は published 扱い。
+    // 本体ファイルが在る分は published 扱い(確定状態は git コミット有無で表す予定)。
     status: 'published',
-    updatedAt: await templateMtime(fileName),
+    updatedAt: source === 'filled' ? await filledMtime(fileName) : await templateMtime(fileName),
     updatedBy: null,
   };
 }

@@ -39,6 +39,7 @@ process.env.PENDING_DIR = path.join(root, 'data', 'pending');
 process.env.LOG_DIR = path.join(root, 'logs');
 
 const templatesDir = path.join(root, 'data', 'templates');
+const filledDir = path.join(root, 'data', 'filled');
 const pendingDir = path.join(root, 'data', 'pending');
 const OUTSIDE = path.join(root, 'outside');
 
@@ -86,7 +87,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   });
   beforeEach(() => {
     sprocFails = false;
-    for (const d of [templatesDir, pendingDir]) {
+    for (const d of [templatesDir, filledDir, pendingDir]) {
       fs.rmSync(d, { recursive: true, force: true });
       fs.mkdirSync(d, { recursive: true });
     }
@@ -150,7 +151,9 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   });
 
   it('確定済みは一覧に published で出て、pending が二重行を作らない', async () => {
+    // 一覧の確定判定は filled/ 走査なので、確定済みの模擬は filled/ にも置く。
     fs.writeFileSync(path.join(templatesDir, `${ID}.html`), '<p>確定版</p>', 'utf8');
+    fs.writeFileSync(path.join(filledDir, `${ID}.html`), '<p>確定版(値入り)</p>', 'utf8');
     fs.writeFileSync(path.join(pendingDir, `${ID}.html`), '<p>消し残り</p>', 'utf8');
     const list = await app.inject({ method: 'GET', url: '/templates?fundCode=510037' });
     const rows = list.json() as { id: string; status: string }[];

@@ -4,7 +4,7 @@
 // local モードでも `mergePdfService` は実サーバの `POST /api/build/merge` を叩くため、
 // `page.route` で止めないと vivliostyle CLI が実際に走ってしまう(設計正典 6.3)。
 // ここでは要求本文の文書順序(= 追加順)だけを検証し、PDF の実生成はしない。
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { login } from './helpers';
 
 test.use({ viewport: { width: 1440, height: 900 } });

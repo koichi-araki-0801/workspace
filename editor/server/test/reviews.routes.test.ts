@@ -19,12 +19,16 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-review-routes-'));
 process.env.DATA_ROOT = tmp;
 process.env.GIT_REPO_DIR = tmp;
 process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
+process.env.FILLED_DIR = path.join(tmp, 'filled');
 process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.REVIEWS_DIR = path.join(tmp, 'reviews');
 process.env.PENDING_DIR = path.join(tmp, 'pending');
 // 監査ログの DB 複写は setAuditSink を呼ぶ buildApp を通らないと realSproc のままなので、
 // env が立っていると実 DB へ出る。
 process.env.AUDIT_DB = 'false';
+// 認可ゲート(requireApprover 等)を no-op にし、下の buildApp が注入する x-test-user/
+// x-test-role ヘッダだけでロール依存の挙動を駆動する(冒頭コメント参照)。
+process.env.AUTH_REQUIRED = 'false';
 
 let gitAvailable = true;
 try {
@@ -68,8 +72,16 @@ d('review workflow (HTTP routes)', () => {
     'x-test-role': role,
   });
 
-  const submit = (headers: Record<string, string>, templateId: string, html: string) =>
-    app.inject({
+  /** 編集タブが読む既存の値入り HTML。別ツールが置いた状態を模す。 */
+  const SEEDED_FILLED = '<p>既存の値入り</p>';
+  const filledFile = (templateId: string) => path.join(tmp, 'filled', `${templateId}.html`);
+
+  // 編集経路(`origin:'edit'`)の申請は値入り HTML が既に在ることが前提なので先に置く。
+  const submit = (headers: Record<string, string>, templateId: string, html: string) => {
+    fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
+    if (!fs.existsSync(filledFile(templateId)))
+      fs.writeFileSync(filledFile(templateId), SEEDED_FILLED, 'utf8');
+    return app.inject({
       method: 'POST',
       url: '/review-requests',
       headers,
@@ -81,6 +93,7 @@ d('review workflow (HTTP routes)', () => {
         origin: 'edit',
       },
     });
+  };
 
   beforeAll(async () => {
     app = await buildApp();
@@ -97,7 +110,7 @@ d('review workflow (HTTP routes)', () => {
     const meta = res.json();
     expect(meta.status).toBe('pending');
     expect(meta.submittedBy).toBe('editor1');
-    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
+    expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
   });
 
   it('POST /review-requests: 不正ボディ(templateId 欠落)は 400', async () => {
@@ -181,7 +194,7 @@ d('review workflow (HTTP routes)', () => {
       payload: { comment: 'ok' },
     });
     expect(res.statusCode).toBe(200);
-    const written = fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8');
+    const written = fs.readFileSync(path.join(tmp, 'filled', `${tplId}.html`), 'utf8');
     expect(written).toContain('反映済');
 
     const got = await app.inject({
@@ -272,7 +285,7 @@ d('review workflow (HTTP routes)', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().status).toBe('rejected');
-    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
+    expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
   });
 
   // 却下だけは理由を要求する。却下された申請者に何を直せばよいか伝わらないと

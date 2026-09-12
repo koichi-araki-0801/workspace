@@ -164,7 +164,6 @@ export type PartMasterReflectDefault = z.infer<typeof sch.PartMasterReflectDefau
  */
 export type PartNoteEntry = z.infer<typeof sch.PartNoteEntry>;
 export type NoteStatus = z.infer<typeof sch.NoteStatus>;
-export type NoteKind = z.infer<typeof sch.NoteKind>;
 
 export type AddNoteRequest = z.infer<typeof sch.AddNoteRequest>;
 
@@ -203,6 +202,8 @@ export interface ConfirmSaveRequest {
   /** ファンド別の共有スタイルシートへマージする CSS。 */
   css: string;
   fundCode: string;
+  /** 申請元の経路。`'edit'` は値入り HTML(filled)を、`'create'` は Jinja(html)を更新する。 */
+  origin: 'edit' | 'create';
   /**
    * 描画済みの "filled" ドキュメント (値差込済み・Jinja なし)。この確定の帳票
    * インスタンスとして保持する。任意。描画対象が無ければ省略する。

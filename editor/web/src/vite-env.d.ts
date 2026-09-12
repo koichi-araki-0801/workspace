@@ -11,7 +11,7 @@ declare module '*.vue' {
 }
 
 interface ImportMetaEnv {
-  /** データソース: 'rest' は SQL Server backend, それ以外は local(既定)。 */
+  /** データソース: 'local' は fixtures + localStorage(開発用 opt-in)、未設定を含むそれ以外は REST。 */
   readonly VITE_API_MODE?: 'local' | 'rest';
 }
 

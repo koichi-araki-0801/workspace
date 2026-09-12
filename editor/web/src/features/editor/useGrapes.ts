@@ -192,6 +192,12 @@ export function useGrapes() {
     },
   });
   const { zoom, setZoom, fitToView, updateScrollMode } = zoomFit;
+  // 起動時の初期倍率(既定 100%)。`setInitialZoom` は load 前に呼ぶ想定で、
+  // 呼ばれなければ 100% のまま `applyInitialZoom` が当てる。
+  let initialZoom = 1;
+  function setInitialZoom(z: number): void {
+    initialZoom = z;
+  }
 
   function refreshMove(): void {
     const comp = editor.value?.getSelected();
@@ -395,6 +401,21 @@ export function useGrapes() {
       // script が恒久混入する — CSP は表示時の実行を止めるだけで、永続化は止めない。
       // 刈り取りとは独立に効く二重防御なので、片方が破られてももう片方が残る。
       jsInHtml: false,
+      // 幾何(幅・余白)は inline `style` 属性に保存する。既定の `avoidInlineStyle:true` は
+      // `setStyle` を `#<自動id>{…}` の CssRule へ書き、自動 id が保存内容の一部になる —
+      // 再読込で確定版と構造キーが一致しなくなり、ペア同期(パーツ HTML だけ転写)で幾何が
+      // 転写されない。inline ならパーツと一体で、id に依存しない。
+      avoidInlineStyle: false,
+      // 既定 `forceClass:true` は、component 生成時に inline `style` が非空だと自動生成クラス
+      // (`.c<cid>`)へ丸ごと移し替える。avoidInlineStyle:false と合わせて使うと、HTML を
+      // 読み込むたび(load 直後の再パース含む)に幾何が inline style → 自動クラスへ化けて
+      // round-trip が壊れる。false にして「inline style のまま」を維持する。
+      forceClass: false,
+      // canvas の下地 CSS(既定は `* { box-sizing: border-box } body { margin: 0 }`)は PDF 側
+      // の CSS に無く、canvas と PDF の見た目が食い違う。`getCss()` の先頭にも付いて保存 CSS へ
+      // 混入し、load のたび規則として積み増す。空にして PDF と同じ CSS で描く(必要な下地は
+      // `a4CanvasCss` に明示する)。
+      protectedCss: '',
     });
 
     // canvas へ入る HTML は他ユーザが書いた draft / テンプレ実体で、canvas の iframe は
@@ -434,7 +455,7 @@ export function useGrapes() {
       refreshMove,
       refreshPageGuides,
       recomputeLayout,
-      fitToView,
+      applyInitialZoom: () => setZoom(initialZoom),
       onCanvasLoad,
       toInfo,
       isLocked: () => locked,
@@ -690,7 +711,7 @@ export function useGrapes() {
    * hit したときは `setComponents` も `setStyle` も呼ばない — CSS だけ落として開くと、
    * 直後の autosave が draft の CSS を空で上書きしてしまう(「拒む」が「削る」に化ける)。
    */
-  function load(bodyEditableHtml: string, css: string): boolean {
+  function load(bodyEditableHtml: string, css: string, opts: { quiet?: boolean } = {}): boolean {
     const ed = editor.value;
     if (!ed) return false;
     const refs = summarizeExternalCssRefs(css);
@@ -698,7 +719,14 @@ export function useGrapes() {
       toast(`CSSに外部参照が含まれるため読み込みを中止しました（${refs}）。`, 'error');
       return false;
     }
-    ed.setComponents(bodyEditableHtml);
+    // `quiet` は刈り取りのトーストだけを抑止する(刈り取り自体は通常どおり)。確定版の正規形を
+    // 取るための読み込みで使う — 本文の読み込みで同じ通知が出るため、二重に出すと誤解を招く。
+    quietParse = !!opts.quiet;
+    try {
+      ed.setComponents(bodyEditableHtml);
+    } finally {
+      quietParse = false;
+    }
     ed.setStyle(css);
     // setComponents/setStyle 直後は iframe DOM が未描画で、`component:add` の `fireChange`
     // から走る `recomputePages` が `.page` を拾えず `[body]` フォールバック(`pageCount=1`)に
@@ -731,12 +759,47 @@ export function useGrapes() {
     }
   }
 
+  /**
+   * 保存用の body HTML。GrapesJS は選択したパーツに StyleManager の id セレクタを作り、以後
+   * `getHtml()` が自動 id(`ccid`)を属性として出力する。その id が draft / Undo snapshot に
+   * 混入すると、再読込で確定版と構造キー(`partKey` / 赤入れ)が一致しなくなる。テンプレ由来の
+   * id はモデルの明示属性に載っているので、明示属性に無い id だけを落とす。
+   */
   function getBodyHtml(): string {
-    return editor.value?.getHtml() ?? '';
+    return (
+      editor.value?.getHtml({
+        attributes: (comp, attrs) => {
+          const explicit = (comp.get('attributes') as Record<string, unknown> | undefined)?.id;
+          if (typeof explicit !== 'string' || explicit === '') delete attrs.id;
+          return attrs;
+        },
+      }) ?? ''
+    );
   }
 
+  /**
+   * 保存用の CSS。`avoidInlineStyle:false` は編集(`patchSelectedStyle`)を inline style の
+   * round-trip に保つために要るが、GrapesJS の CSS export(`CssGenerator.buildFromModel`)は
+   * この設定値を生成のたびに読み(`!avoidInline && style` — `grapes.mjs`)、inline style を持つ
+   * component へ無条件で `#<自動id>{…}` をミラーしてしまう(`avoidInlineStyle` は deprecated で、
+   * この二重出力は抑止できない)。GrapesJS 側の component 走査・文字列連結を手元で再実装して
+   * 出力を後掛けで漉すと、ライブラリ更新のたびにその実装とズレる恐れがある。`getConfig()` は
+   * 生の設定オブジェクト(参照)を返し `buildFromModel` は毎回そこを読むだけなので、
+   * `getCss()` を呼ぶ**同期呼び出しの間だけ** `avoidInlineStyle` を立ててミラーを生成元で
+   * 止め、`finally` で必ず戻す(他の経路 — `patchSelectedStyle` 等 — は非同期に挟まらないので
+   * 影響しない)。
+   */
   function getCss(): string {
-    return editor.value?.getCss() ?? '';
+    const ed = editor.value;
+    if (!ed) return '';
+    const cfg = ed.getConfig() as { avoidInlineStyle?: boolean };
+    const prev = cfg.avoidInlineStyle;
+    cfg.avoidInlineStyle = true;
+    try {
+      return ed.getCss() ?? '';
+    } finally {
+      cfg.avoidInlineStyle = prev;
+    }
   }
 
   function onChange(cb: () => void): void {
@@ -788,6 +851,7 @@ export function useGrapes() {
     bubbleAnchor,
     setNoteKeys,
     refreshBubbleAnchor,
+    pageEls,
     pageCount,
     currentPageIndex,
     singlePageMode,
@@ -809,6 +873,7 @@ export function useGrapes() {
     onCanvasDblClick,
     setZoom,
     fitToView,
+    setInitialZoom,
     setEditable,
     goToPage,
     scrollToPage,

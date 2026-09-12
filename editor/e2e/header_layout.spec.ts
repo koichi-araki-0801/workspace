@@ -5,7 +5,8 @@
 // 回避)。ただし通常の画面幅でまで折り返すと、最重要アクションの「プレビュー」だけが
 // 2 行目の左端へ孤立する。折り返しの余裕はファンド名の長さと保存状態の文言で簡単に
 // 食い潰されるので、その両方が最長の状態で 1 行に収まることを 2 つの幅で固定する。
-import { expect, type Page, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { login, openEditor } from './helpers';
 
 // 長いファンド名(SMT JPX日経中小型株インデックス・オープン)を持つ seed。ファンド名は

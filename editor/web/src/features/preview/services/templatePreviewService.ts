@@ -49,6 +49,10 @@ interface PreviewLoad {
    * ここで止めると「差分計算が劣化しただけ」のときに正当な申請まで塞ぐ。
    */
   hasDraft: boolean;
+  /**
+   * `tpl.filled` が非空 = 値入り HTML。申請本文と描画は Jinja を通さない。
+   */
+  isFilled: boolean;
 }
 
 interface TemplatePreviewService {
@@ -56,12 +60,14 @@ interface TemplatePreviewService {
   /**
    * テンプレートをサーバー経由で PDF blob にレンダリングする。`cropMarks` が true のとき
    * トンボ用 CSS(`CROP_MARKS_CSS`)を css へ連結する(プレビュー表示と同じ見た目にする)。
+   * `skipJinja` は値入り HTML(`isFilled`)のとき true。
    */
   renderPdf(
     html: string,
     css: string,
     sample: SampleData,
     cropMarks: boolean,
+    skipJinja: boolean,
   ): Promise<Result<Blob>>;
   recordPdfExport(id: string): Promise<Result<void>>;
 }
@@ -77,10 +83,23 @@ export function createTemplatePreviewService(
       if (isErr(tplRes)) return tplRes;
       const tpl = tplRes.value;
 
-      const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
-      if (isErr(sampleRes)) return sampleRes;
-      // 版種・基準日(ファイル名由来)を被せる。getSampleData はファンド単位で属性を持たない。
-      const sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
+      // 値入り HTML(`tpl.filled`)は `toFilled` がテキストノードへ値を差し込んだ本文で、
+      // 属性内 Jinja(`href="css/{{ fund.code }}.css"` 等)は round-trip 保持のため設計上
+      // 残る。描画を通す必要が無いどころか、通すと地の文の `{{` 風の字面まで nunjucks が
+      // 式として解釈して本文が静かに欠ける。本文の源も `tpl.html`(Jinja 骨組み)ではなく
+      // `tpl.filled` を採る — local ではこの 2 つが別物(REST は同じ本文が両方へ入る)。
+      // `filled` はテストのフェイクや旧応答で欠けうるので、空文字と未定義をまとめて「無し」にする。
+      const isFilled = Boolean(tpl.filled);
+
+      // 値入り HTML は nunjucks を通さないので差し込み値そのものが要らない。サンプルを
+      // 取りに行くと、値の出どころを持たない配備でも取得失敗がプレビュー全体の失敗になる。
+      let sample: SampleData = {};
+      if (!isFilled) {
+        const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
+        if (isErr(sampleRes)) return sampleRes;
+        // 版種・基準日(ファイル名由来)を被せる。getSampleData はファンド単位で属性を持たない。
+        sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
+      }
 
       const draftRes = await templates.getDraft(id);
       if (isErr(draftRes)) return draftRes;
@@ -89,9 +108,15 @@ export function createTemplatePreviewService(
       // 編集経路に任せ、ここでは採用しない(確定版でプレビューする)だけに留める。
       const draft = draftRes.value && owner.belongsToSession(id) ? draftRes.value : null;
 
+      const baseHtml = isFilled ? tpl.filled : tpl.html;
       let restoredHtml: string;
       let css: string;
-      if (draft) {
+      if (draft && isFilled) {
+        // 値入り HTML の下書きは値を保った本文そのもの。Jinja 復元は掛けない(掛けると
+        // round-trip 用のチップから Jinja が戻り、承認で filled/ に Jinja が書かれる)。
+        restoredHtml = replaceBodyInner(baseHtml, draft.html);
+        css = formatCss(draft.css);
+      } else if (draft) {
         // Jinja 復元(DOM 重処理)は Worker(linkedom)で実行しメインを塞がない。`pretty` で
         // 復元 HTML を整形し、確定保存される `data/templates` が git に読める形になる。
         // `toTemplate` は復元マスクの形状検査に失敗すると throw する(canvas 入口を素通りした
@@ -105,26 +130,31 @@ export function createTemplatePreviewService(
         } catch (e) {
           return err(validation(RENDER_ERROR_MSG, { cause: e }));
         }
-        restoredHtml = replaceBodyInner(tpl.html, restoredBody);
+        restoredHtml = replaceBodyInner(baseHtml, restoredBody);
         css = formatCss(draft.css);
       } else {
-        // draft 無し(編集前)は生テンプレをそのまま使う。生 Jinja HTML は整形しない(構文破壊
+        // draft 無し(編集前)は確定版の本文をそのまま使う。生 Jinja HTML は整形しない(構文破壊
         // 回避)。CSS は静的なので整形して保存形を揃える(整形済みでも冪等)。
-        restoredHtml = tpl.html;
+        restoredHtml = baseHtml;
         css = formatCss(tpl.css);
       }
 
-      // 描画は opaque オリジンの iframe(`renderHostClient`)、サニタイズ + 文書組み立て
-      // (コンパイルを伴わない安価な処理)はメインで行う。Worker へ載せていた頃は同一
-      // オリジンで nunjucks をコンパイルしており、隔離としては何も守っていなかった。
-      const rendered = await renderJinjaIsolated(restoredHtml, sample);
       let previewDoc = '';
       let renderError: string | null = null;
-      if (rendered.error) {
-        logError(unexpected('preview render failed', { cause: rendered.error }));
-        renderError = RENDER_ERROR_MSG;
+      if (isFilled) {
+        // 値入り HTML を描画へ通さない理由は上の `isFilled` の定義箇所を参照。
+        previewDoc = assemblePreviewDocument(restoredHtml, css);
       } else {
-        previewDoc = assemblePreviewDocument(rendered.html, css);
+        // 描画は opaque オリジンの iframe(`renderHostClient`)、サニタイズ + 文書組み立て
+        // (コンパイルを伴わない安価な処理)はメインで行う。Worker へ載せていた頃は同一
+        // オリジンで nunjucks をコンパイルしており、隔離としては何も守っていなかった。
+        const rendered = await renderJinjaIsolated(restoredHtml, sample);
+        if (rendered.error) {
+          logError(unexpected('preview render failed', { cause: rendered.error }));
+          renderError = RENDER_ERROR_MSG;
+        } else {
+          previewDoc = assemblePreviewDocument(rendered.html, css);
+        }
       }
       return ok({
         template: tpl,
@@ -134,12 +164,13 @@ export function createTemplatePreviewService(
         previewDoc,
         renderError,
         hasDraft: !!draft,
+        isFilled,
       });
     },
 
-    async renderPdf(html, css, sample, cropMarks) {
+    async renderPdf(html, css, sample, cropMarks, skipJinja) {
       try {
-        const doc = await renderPdfDocument(html, css, sample, { cropMarks });
+        const doc = await renderPdfDocument(html, css, sample, { cropMarks, skipJinja });
         if (isErr(doc)) return doc;
         const res = await fetch(apiUrl(apiPaths.build), {
           method: 'POST',

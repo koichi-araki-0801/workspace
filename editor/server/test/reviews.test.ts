@@ -15,6 +15,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-review-'));
 process.env.DATA_ROOT = tmp;
 process.env.GIT_REPO_DIR = tmp;
 process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
+process.env.FILLED_DIR = path.join(tmp, 'filled');
 process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.REVIEWS_DIR = path.join(tmp, 'reviews');
 process.env.PENDING_DIR = path.join(tmp, 'pending');
@@ -35,8 +36,25 @@ d('review workflow (reviewRepo)', () => {
   const submitter = { username: 'editor1', role: 'editor' };
   const approver = { username: 'approver1', role: 'approver' };
 
-  const submit = (templateId: string, fundCode: string, html: string) =>
-    reviews.submitReview({ templateId, html, css: '.x{}', fundCode, origin: 'edit' }, submitter);
+  /** 編集タブが読む既存の値入り HTML。別ツールが置いた状態を模す。 */
+  const SEEDED_FILLED = '<p>既存の値入り</p>';
+  const filledFile = (templateId: string) => path.join(tmp, 'filled', `${templateId}.html`);
+  const seedFilled = (templateId: string) => {
+    fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
+    fs.writeFileSync(filledFile(templateId), SEEDED_FILLED, 'utf8');
+  };
+
+  // 編集タブの申請は値入り HTML が既に在ることが前提(無い id は作成経路の成果物で、
+  // 承認が `filled/` へ Jinja 骨組みを書いてしまう)。既定の origin に合わせて種を撒く。
+  const submit = (
+    templateId: string,
+    fundCode: string,
+    html: string,
+    origin: 'edit' | 'create' = 'edit',
+  ) => {
+    if (origin === 'edit' && !fs.existsSync(filledFile(templateId))) seedFilled(templateId);
+    return reviews.submitReview({ templateId, html, css: '.x{}', fundCode, origin }, submitter);
+  };
 
   beforeAll(async () => {
     // DB(sproc)は本テストの対象外。承認直後の注記マスタ書き戻しが実 DB へ触れないよう
@@ -54,8 +72,8 @@ d('review workflow (reviewRepo)', () => {
     const meta = await submit(tplId, '111111', '<p>{{ fund.name }} 申請</p>');
     expect(meta.status).toBe('pending');
     expect(meta.submittedBy).toBe('editor1');
-    // 実ファイルは未作成、申請だけが data/reviews 配下に在る。
-    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
+    // 実ファイルは未更新(既存の値入り HTML のまま)、申請だけが data/reviews 配下に在る。
+    expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
     expect(fs.existsSync(path.join(tmp, 'reviews', meta.id, 'meta.json'))).toBe(true);
   });
 
@@ -79,7 +97,7 @@ d('review workflow (reviewRepo)', () => {
     // 申請〜承認の間に現行版へ割り込みが無いので並行性警告は立たない。
     expect(tplMeta.staleWarning).toBe(false);
     // 実ファイルが書かれた。
-    const written = fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8');
+    const written = fs.readFileSync(path.join(tmp, 'filled', `${tplId}.html`), 'utf8');
     expect(written).toContain('反映済');
     // git に承認コミットが積まれた(申請者・承認者の双方を残す)。
     const log = execFileSync('git', ['log', '-1', '--format=%an%x09%s'], {
@@ -125,7 +143,7 @@ d('review workflow (reviewRepo)', () => {
 
     expect(rejected.status).toBe('rejected');
     expect(rejected.comment).toBe('理由');
-    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
+    expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
   });
 
   it('本体(body.html)欠損の申請は承認できず、実ファイルも書かれない', async () => {
@@ -137,8 +155,8 @@ d('review workflow (reviewRepo)', () => {
     await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
       kind: 'unexpected',
     });
-    // 空内容での上書きが起きていない(実ファイル未作成)。
-    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
+    // 空内容での上書きが起きていない(既存の値入り HTML のまま)。
+    expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
     // 詳細取得も同様にエラーになるが、一覧(メタのみ)には出続ける。
     await expect(reviews.getReview(meta.id, approver)).rejects.toMatchObject({
       kind: 'unexpected',
@@ -178,10 +196,10 @@ d('review workflow (reviewRepo)', () => {
     expect(fulfilledCount).toBe(1);
     for (const r of results)
       if (r.status === 'rejected') expect(r.reason).toMatchObject({ kind: 'conflict' });
-    // 確定した状態と実ファイルの有無が一致する(反映済みなのに rejected、が起きない)。
+    // 確定した状態と実ファイルの内容が一致する(反映済みなのに rejected、が起きない)。
     const after = await reviews.getReview(meta.id, approver);
-    const fileExists = fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`));
-    expect(fileExists).toBe(after.status === 'approved');
+    const written = fs.readFileSync(filledFile(tplId), 'utf8');
+    expect(written !== SEEDED_FILLED).toBe(after.status === 'approved');
     expect(['approved', 'rejected']).toContain(after.status);
   });
 
@@ -253,5 +271,86 @@ d('review workflow (reviewRepo)', () => {
       const result = await reviews.approveReview(meta.id, {}, approver);
       expect(result.meta).toBeTruthy();
     });
+  });
+
+  // ── 編集経路は値入り HTML の存在が前提 ──
+  it("filled 不在 + origin='edit' の申請は拒否される", async () => {
+    const tplId = 'AM01_202020_20250101_交付版';
+    expect(fs.existsSync(filledFile(tplId))).toBe(false);
+    await expect(
+      reviews.submitReview(
+        {
+          templateId: tplId,
+          html: '<p>骨組み</p>',
+          css: '.x{}',
+          fundCode: '202020',
+          origin: 'edit',
+        },
+        submitter,
+      ),
+    ).rejects.toMatchObject({ kind: 'validation' });
+    // 拒否は申請の作成前に起きる(未処理の申請が増えない)。申請ディレクトリ名は
+    // reqId で templateId を含まないため、一覧に対象 templateId の行が無いことで主張する。
+    const listed = await reviews.listReviews({}, approver);
+    expect(listed.some((m) => m.templateId === tplId)).toBe(false);
+  });
+
+  it("filled 不在でも origin='create' の申請は通る", async () => {
+    const tplId = 'AM01_212121_20250101_交付版';
+    const meta = await submit(tplId, '212121', '<p>{{ fund.name }}</p>', 'create');
+    expect(meta.status).toBe('pending');
+    expect(fs.existsSync(filledFile(tplId))).toBe(false);
+  });
+
+  // ── 承認の書込先は申請の `origin` で決まる ──
+  // 編集タブ(edit)は値入り HTML、テンプレート作成タブ(create)は Jinja スケルトンを
+  // 確定させる。取り違えると編集タブの実値が Jinja を上書きする(またはその逆)。
+  it("origin='edit' の承認は filled/ に書き、templates/ には触れない", {
+    timeout: 60_000,
+  }, async () => {
+    const tplId = 'AM01_161616_20250101_交付版';
+    const meta = await submit(tplId, '161616', '<p>値入り本文</p>', 'edit');
+    await reviews.approveReview(meta.id, {}, approver);
+    expect(fs.readFileSync(path.join(tmp, 'filled', `${tplId}.html`), 'utf8')).toBe(
+      '<p>値入り本文</p>',
+    );
+    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
+  });
+
+  it("origin='create' の承認は templates/ に書き、filled/ には触れない", {
+    timeout: 60_000,
+  }, async () => {
+    const tplId = 'AM01_171717_20250101_交付版';
+    const meta = await submit(tplId, '171717', '<p>{{ fund.name }}</p>', 'create');
+    await reviews.approveReview(meta.id, {}, approver);
+    expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(
+      '<p>{{ fund.name }}</p>',
+    );
+    expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(false);
+  });
+
+  // ── pending(生成直後の Jinja スケルトン)の後始末も書込先で分かれる ──
+  // 編集タブの一覧は確定分と pending を合成して出す。値入り HTML の承認で pending を
+  // 捨てると、まだ `templates/` へ昇格していない骨組みごと一覧から消える。
+  it("origin='edit' の承認は pending を残す", { timeout: 60_000 }, async () => {
+    const tplId = 'AM01_181818_20250101_交付版';
+    const pendingFiles = await import('../src/files/pendingFiles.js');
+    await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
+    const meta = await submit(tplId, '181818', '<p>値入り本文</p>', 'edit');
+    await reviews.approveReview(meta.id, {}, approver);
+
+    expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, 'pending', `${tplId}.html`))).toBe(true);
+  });
+
+  it("origin='create' の承認は pending を捨てる", { timeout: 60_000 }, async () => {
+    const tplId = 'AM01_191919_20250101_交付版';
+    const pendingFiles = await import('../src/files/pendingFiles.js');
+    await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
+    const meta = await submit(tplId, '191919', '<p>{{ fund.name }} 確定</p>', 'create');
+    await reviews.approveReview(meta.id, {}, approver);
+
+    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, 'pending', `${tplId}.html`))).toBe(false);
   });
 });

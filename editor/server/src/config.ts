@@ -50,6 +50,7 @@ const appConfigSchema = z
         dataRoot: z.string().optional(),
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
+        filledDir: z.string().optional(),
         assetsDir: z.string().optional(),
         draftsDir: z.string().optional(),
         pendingDir: z.string().optional(),
@@ -287,6 +288,13 @@ export const config = {
   /** ファンド別(per-fund)共有 CSS ファイルを置くディレクトリ。 */
   cssDir: resolveDataPath(process.env.CSS_DIR, file.paths?.cssDir, 'css'),
   /**
+   * 値入り HTML(filled)を置くディレクトリ。編集タブが読み書きする本文で、別ツールが
+   * `<テンプレID>.html` を置き、承認(`origin='edit'`)が上書きする。`templatesDir` は作成タブの
+   * Jinja スケルトン専用で、両者を同じフォルダに置くと一覧走査が互いを別テンプレとして拾う。
+   * git 管理**内**(承認コミットに本文と一緒に載せる。管理外だと巻き戻しで本文だけが戻る)。
+   */
+  filledDir: resolveDataPath(process.env.FILLED_DIR, file.paths?.filledDir, 'filled'),
+  /**
    * **全ファンド共通**の同梱資産(`fonts/` と `js/`)を置くディレクトリ。テンプレはこれらを
    * `fonts/…` `js/…` の相対パスで参照し、PDF ビルド / プレビューの配信ルートへ
    * `vivliostyle/docAssets.ts` が写す。CSS だけ per-fund で `cssDir` に分かれているのは
@@ -517,11 +525,11 @@ export const config = {
   auditToDb: envFlag('AUDIT_DB', process.env.AUDIT_DB) ?? false,
 
   /**
-   * REST データルートにセッション認証を強制する。既定 off なので `local`
-   * モード(DB なし / ログインなし)では開放したまま PDF/generate が動き続ける。
-   * REST バックエンドでは `AUTH_REQUIRED=true` を設定する(start.bat rest が設定する)。
+   * データルートにセッション認証を強制する。既定 on。DB モード(rest)が既定になったので
+   * 「設定し忘れると無認証で起動する」形を作らない。認証を課さないのは `AUTH_REQUIRED=false`
+   * を明示した local モード(`start.bat local`。DB なし / ログインなし)だけ。
    */
-  requireAuth: envFlag('AUTH_REQUIRED', process.env.AUTH_REQUIRED) ?? false,
+  requireAuth: envFlag('AUTH_REQUIRED', process.env.AUTH_REQUIRED) ?? true,
 
   /** 構造化ロギング / 監査証跡(audit trail)。 */
   logging: {
@@ -558,10 +566,10 @@ export function isLoopbackHost(host: string): boolean {
  * 効かない。唯一食い違うのが `Host` ヘッダで、ブラウザはこれを攻撃者ドメインのまま送る。
  * したがって「自分が名乗られるはずのない名前で来た要求」を落とせば経路ごと消える。
  *
- * 効きどころは**認証を課さない配備**(既定の local モード)である。そこでは実質「loopback に
- * 到達できること」だけが認可条件で、下書きの読み書きから `POST /api/generate` の子プロセス
- * 起動まで到達される。認証オンの配備ではリバインディング先のオリジンに cookie が付かない
- * ので 401 で止まるが、層は薄いより厚い方がよい。
+ * 効きどころは**認証を課さない配備**(`AUTH_REQUIRED=false` を明示した local モード)である。
+ * そこでは実質「loopback に到達できること」だけが認可条件で、下書きの読み書きから
+ * `POST /api/generate` の子プロセス起動まで到達される。認証オンの配備ではリバインディング先の
+ * オリジンに cookie が付かないので 401 で止まるが、層は薄いより厚い方がよい。
  *
  * 判定は**ホスト名だけ**で行い、ポートは見ない。攻撃者が選べるのは名前であってポートでは
  * ないうえ、`Host` はポートを省略できる形(既定ポート)があり、port 込みの完全一致は

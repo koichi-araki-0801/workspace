@@ -6,7 +6,7 @@
   確定保存したテンプレ(templates) とファンド別 CSS(css) を git で版管理するため、
   ワークスペースリポジトリの外に置く data リポジトリを作る(ネスト git の回避)。
   処理内容:
-    1. dataRoot 配下に templates/ css/ drafts/ pending/ を作成する。
+    1. dataRoot 配下に templates/ filled/ css/ drafts/ pending/ を作成する。
     2. 既存 editor/data/{templates,css} があれば dataRoot へコピーする(初回移行)。
     3. dataRoot が未初期化なら git init + .gitignore/.gitattributes + 初回コミット。
   サーバは環境変数 DATA_ROOT(または appconfig.json の paths.dataRoot)でこの場所を
@@ -45,7 +45,7 @@ Write-Host "dataRoot: $DataRoot"
 
 # 1. ディレクトリ構成を用意する。
 New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
-foreach ($d in 'templates', 'css', 'drafts', 'pending') {
+foreach ($d in 'templates', 'filled', 'css', 'drafts', 'pending') {
   New-Item -ItemType Directory -Force -Path (Join-Path $DataRoot $d) | Out-Null
 }
 

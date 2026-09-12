@@ -33,7 +33,6 @@ function noteEntry(patch: Partial<PartNoteEntry> = {}): PartNoteEntry {
     updatedBy: null,
     status: 'open',
     replyTo: null,
-    kind: 'note',
     ...patch,
   };
 }
@@ -127,7 +126,7 @@ const CommentPanelStub = defineComponent({
   setup(_, { emit }) {
     return () => [
       h('button', { 'data-stub-focus': '', onClick: () => emit('focus', COVER) }),
-      h('button', { 'data-stub-add': '', onClick: () => emit('add', '本文', 'note') }),
+      h('button', { 'data-stub-add': '', onClick: () => emit('add', '本文') }),
     ];
   },
 });
@@ -179,6 +178,25 @@ describe('対象テンプレートの解決', () => {
       .find((b) => b.text() === '編集画面へ')
       ?.trigger('click');
     expect(push).toHaveBeenCalledWith({ name: 'editor', params: { id: TPL } });
+  });
+
+  it('対象が `status:"draft"`(pending だけ)なら「編集画面へ」は作成経路で開く', async () => {
+    editPath.value = `/edit/${encodeURIComponent(TPL)}`;
+    getTemplateFn.mockResolvedValue(
+      ok(template({ meta: { ...template().meta, status: 'draft' } })),
+    );
+    const w = await mountTab([meta({})]);
+    // `loadParts` はメタ取得を待つので、押す前に解決させる(押した時点のメタで経路が決まる)。
+    await flushPromises();
+    await w
+      .findAll('button')
+      .find((b) => b.text() === '編集画面へ')
+      ?.trigger('click');
+    expect(push).toHaveBeenCalledWith({
+      name: 'editor',
+      params: { id: TPL },
+      query: { created: '1' },
+    });
   });
 
   it('query の template が編集タブの記憶より優先される', async () => {
@@ -339,7 +357,7 @@ describe('宛先の区画別化(表示中の宛先へ投稿する)', () => {
     await selects[0].setValue(COVER);
     await w.findAll('[data-stub-add]')[0].trigger('click');
     await flushPromises();
-    expect(addNoteFn).toHaveBeenCalledWith(TPL, COVER, '本文', { kind: 'note' });
+    expect(addNoteFn).toHaveBeenCalledWith(TPL, COVER, '本文', {});
   });
 
   it('宛先が未選択なら追加を押しても投稿しない(composable が null キーで早期 return する)', async () => {

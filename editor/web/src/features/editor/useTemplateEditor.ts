@@ -18,8 +18,14 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useNoteRepo } from '@/api/repositories';
 import { toast, toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
+import {
+  type ConfirmedCanonical,
+  readConfirmedCanonical,
+  writeConfirmedCanonical,
+} from '@/lib/confirmedCanonical';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
+import { shouldMeasureCanonical } from './confirmedCanonicalGate';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { canvasRawKey, pageEls, partEls, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
@@ -59,6 +65,17 @@ export function useTemplateEditor(
   // 立ち、初期値は前回セッションの draft 有無(`loadForEdit` 結果)で決める。
   const dirty = ref(false);
 
+  /**
+   * 確定版の値埋め込み本文を GrapesJS 自身が直列化した形(HTML + CSS)。「未確定」の判定基準。
+   * 文字列比較が成り立つのは同じ直列化を通した同士だけなので canvas から取る。初回に取って
+   * `lib/confirmedCanonical.ts` へ永続し、draft 再開時はそれを使う(無ければ確定版を先に
+   * 読み込んで測る)。作成経路は確定版が無く null。
+   */
+  let confirmedCanonical: ConfirmedCanonical | null = null;
+  /** draft が実体として在りうるか(前回セッションの draft、または autosave が 1 度でも走った)。 */
+  let draftMayExist = false;
+  let cleanCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
   const template = ref<Template | null>(null);
   const fundName = ref('');
   /** 当該版インスタンス(templateId)の全パーツ履歴(永続層)。onMounted で一度ロードする。 */
@@ -88,8 +105,12 @@ export function useTemplateEditor(
 
   /** 左ペイン「パーツを追加」トグル: catalog を表示し挿入を許可する。 */
   const allowAdd = ref(false);
-  /** 左ペイン「編集を許可」トグル: canvas を編集可(text/並べ替え/layout)にする。 */
-  const allowEdit = ref(false);
+  /**
+   * 左ペイン「編集を許可」トグル: canvas を編集可(text/並べ替え/layout)にする。
+   * 初期値は `sess.ui.allowEdit`(永続しないメモリのみの値。プレビュー往復では同一セッションが
+   * 生存するので値が残るが、リロードでは新しいセッションが既定 false から始まる)。
+   */
+  const allowEdit = ref(sess.ui.allowEdit);
 
   // プロパティペイン: canvas 選択があればそれ、無ければ catalog プレビュー。
   const selectedPart = computed(() => (g.selected.value ? canvasPart.value : previewPart.value));
@@ -114,6 +135,8 @@ export function useTemplateEditor(
     dirty,
     parseHtml: g.parseHtmlQuiet,
   });
+  // ON/OFF はセッションの ui 状態を継ぐ(プレビュー往復で保持、永続ミラー経由でリロードでも復元)。
+  redline.enabled.value = sess.ui.redlineEnabled;
 
   // ── 1. undo / redo (snapshot 方式) ──
   // GrapesJS の UndoManager はプログラム経由の style 書き込みを確実には追えないため、
@@ -206,6 +229,9 @@ export function useTemplateEditor(
    */
   const partLabels = computed<Map<string, string>>(() => {
     void g.revision.value;
+    // load 直後は wrapper 要素がまだ無く、`root` を引けても子孫の `.page` 走査が空 Map になる。
+    // `pageEls`(ページ列挙 cache)も依存に含め、ページ確定後の再評価を取りこぼさない。
+    void g.pageEls.value;
     const ed = g.editor.value;
     const root = canvasRoot();
     return ed && root ? partLabelMap(root, canvasRawKey(ed)) : new Map();
@@ -354,6 +380,44 @@ export function useTemplateEditor(
   // 「編集を許可」チェックボックスの切替で canvas を lock/unlock する。
   watch(allowEdit, (on) => g.setEditable(on));
 
+  // ── UI 状態の往復保持(`sess.ui`)。倍率・表示系は永続、編集許可・選択はメモリのみ ──
+  watch(allowEdit, (v) => {
+    sess.ui.allowEdit = v;
+  });
+  watch(redline.enabled, (v) => {
+    sess.ui.redlineEnabled = v;
+    sessionStore.persistUi(id);
+  });
+  watch(g.zoom, (v) => {
+    sess.ui.zoom = v;
+    sessionStore.persistUi(id);
+  });
+  watch(g.singlePageMode, (v) => {
+    sess.ui.singlePageMode = v;
+    sessionStore.persistUi(id);
+  });
+  watch(g.currentPageIndex, (v) => {
+    sess.ui.currentPage = v;
+    sessionStore.persistUi(id);
+  });
+  watch(
+    () => g.selected.value,
+    () => {
+      sess.ui.selectedKey = currentNoteKey();
+    },
+  );
+  // 選択の復元は canvas の描画確定(ページ要素が出揃う)を待つ 1 回きりの watch。早すぎると
+  // まだ要素が無く `selectPartByKey` が何も見つけられずに終わる。
+  let restoredSelection = false;
+  watch(
+    () => g.pageEls.value,
+    (els) => {
+      if (restoredSelection || els.length === 0) return;
+      restoredSelection = true;
+      if (sess.ui.selectedKey) selectPartByKey(sess.ui.selectedKey);
+    },
+  );
+
   // 選択変更で catalog part を解決する。永続履歴は `allPartHistory`(版インスタンス全件)を
   // onMounted で一度ロードし、表示は `partHistory` computed が選択キーで in-memory に絞るため、
   // 選択ごとの非同期 fetch も race 対策も不要になった。
@@ -378,6 +442,7 @@ export function useTemplateEditor(
     fundName.value = res.value.fundName;
     // 前回セッションの未確定 draft が残っていれば、最初から dirty 扱いにする。
     dirty.value = res.value.hasDraft;
+    draftMayExist = res.value.hasDraft;
     // 別タブの下書きを破棄して確定版から開いたときは、ミラーから復元した Undo も捨てる。
     // 残すと Undo 1 回で破棄したはずの本文が戻り、autosave で下書きとして書き戻る。
     if (res.value.discardedStaleDraft) {
@@ -390,22 +455,60 @@ export function useTemplateEditor(
     const layers = layersEl.value;
     if (!canvas || !layers) return;
     g.init({ canvas, layers });
+    // 倍率・ページ送りモードはセッションの ui 状態から復元する(`load` より前に当てる必要が
+    // ある — `setInitialZoom` は次の `applyInitialZoom` 呼び出しの基準値を差し替えるだけ)。
+    g.setInitialZoom(sess.ui.zoom ?? 1);
+    g.setSinglePageMode(sess.ui.singlePageMode);
+    const isCreateRoute = route.query.created === '1';
+    const tplUpdatedAt = res.value.template.meta.updatedAt;
+    // 確定版の quiet load 失敗を覚えておく(下の 2 箇所の正規形測定を両方とも止めるため)。
+    let confirmedLoadFailed = false;
+    if (!isCreateRoute) {
+      confirmedCanonical = readConfirmedCanonical(id, tplUpdatedAt);
+      // キャッシュが無く draft から開くときだけ、確定版を先に読み込んで正規形を測る。
+      if (!confirmedCanonical && res.value.hasDraft) {
+        if (g.load(res.value.confirmedBody, res.value.template.css, { quiet: true })) {
+          confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
+          writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
+        } else {
+          // false になるのは確定版側の CSS に外部参照が残っているときだけ(draft の CSS は
+          // 下の本読み込みが通す入口ガードを既に通過済み)。確定版が古くて汚れているだけで
+          // draft 自体は正当なので、ここで編集を止めない。ただし正規形は作らない —
+          // この時点の canvas は確定版の内容ではなく(quiet load が拒否されて素通りしていない)
+          // 直前の状態のままで、これを正規形として測って直後に draft を読み込むと
+          // 「draft 自身から作った正規形」と一致してしまい、`settleIfClean` が「変更なし」と
+          // 誤認して正当な draft を自動で消す(過去の回帰実績)。confirmedCanonical は null の
+          // まま進め、⑥ の同一判定は効かせない。dirty は上で立てた `hasDraft` に従う
+          // 従来どおりの挙動へ落ちる。
+          confirmedLoadFailed = true;
+        }
+      }
+    }
     // service の入口ガードを通っていれば false にはならないが、拒否された場合は空の
     // エディタ枠を残さず一覧へ戻す(不正 id と同じ後始末)。トーストは load が出している。
     if (!g.load(res.value.editableBody, res.value.css)) {
       router.replace({ name: 'edit' });
       return;
     }
+    if (shouldMeasureCanonical(isCreateRoute, !!confirmedCanonical, confirmedLoadFailed)) {
+      confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
+      writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
+    }
+    // ページ送りの復元は `load` の再レイアウト後(rAF)に行う — 直後は `.page` 列挙がまだ
+    // 確定しておらず `goToPage` の clamp がページ総数 1 として効いてしまう。
+    requestAnimationFrame(() => {
+      if (g.singlePageMode.value && sess.ui.currentPage > 0) g.goToPage(sess.ui.currentPage);
+    });
     // 差し込み値ハイライトは作成経路(`?created=1`)でのみ出す。編集経路(query なし)は実値編集
     // なので出さない。設計正典.md「編集 2 系統」を参照。
-    g.setVarsHighlight(route.query.created === '1');
+    g.setVarsHighlight(isCreateRoute);
     // locked 状態で開始する(allowEdit の既定は false)。
     g.setEditable(allowEdit.value);
     // 赤入れの基準は確定版の値埋め込み本文(`loadForEdit` が `filled` または `toFilled` で
-    // 解決する)。REST の `getTemplate` は `filled` を常に空で返すため、`template.filled` を
-    // 直に読むと本番では基準が無く機能が黙って死ぬ。作成経路(`?created=1`)は確定版そのものが
-    // 無いので機能を出さない。
-    redline.setBaseline(route.query.created === '1' ? undefined : res.value.confirmedBody);
+    // 解決する)。`template.filled` を直に読まないのは、作成経路の未確定テンプレ(`pending/`)では
+    // `filled` が空になり、基準が無いまま機能が黙って死ぬため。作成経路(`?created=1`)は確定版
+    // そのものが無いので機能を出さない。
+    redline.setBaseline(isCreateRoute ? undefined : res.value.confirmedBody);
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
     // `refreshPageGuides`→`refreshNoteMarkers` が位置を測り直す。
     void note.reload();
@@ -423,10 +526,11 @@ export function useTemplateEditor(
     }
     // canvas の全変更はここを通る — dirty を立て、autosave を起動する。`g.onChange` は
     // load() より後に張るため、初期ロードでは発火せず純粋なユーザー編集だけを拾う。
-    g.onChange(() => {
-      dirty.value = true;
-      autosave.trigger();
-    });
+    g.onChange(markChanged);
+    // 前回セッションの draft が確定版と同じ内容なら、開いた時点で「変更なし」へ戻す。
+    // `confirmedLoadFailed` 時は正規形を作っていない(`settleIfClean` は base が null なら
+    // 元々 return する)が、フラグでも起動自体を止めて二重に安全側へ倒す。
+    if (res.value.hasDraft && !confirmedLoadFailed) scheduleCleanCheck();
     // ロック中(編集不許可)にダブルクリック(編集ジェスチャ)をした場合、解除導線を案内する。
     // 既定ロック開始のため「編集を許可」トグルに気付かないと何も編集できない — その発見性を補う。
     // 騒音にならないようセッション中 1 回だけ出す。
@@ -466,6 +570,42 @@ export function useTemplateEditor(
     watch(g.selected, () => redline.onSelected(g.editor.value?.getSelected()), { flush: 'sync' });
   });
 
+  /** canvas の変更。dirty を即時に立てて autosave を予約し、確定版との同一判定も予約する。 */
+  function markChanged(): void {
+    dirty.value = true;
+    draftMayExist = true;
+    autosave.trigger();
+    scheduleCleanCheck();
+  }
+
+  /**
+   * 現在の保存内容が確定版の正規形と同じなら「未確定」を下ろし、draft を消す。Undo や手戻しで
+   * 元の内容に戻ったのに未確定のまま draft が残ると、プレビュー・申請が「変更あり」の経路を
+   * 通り続けるため。判定は autosave の debounce(800ms)より先に走らせ、同じ内容の draft を
+   * 保存しに行く前に予約を取り消す。進行中の保存があれば完了を待ってから消す。
+   */
+  function scheduleCleanCheck(): void {
+    if (cleanCheckTimer) clearTimeout(cleanCheckTimer);
+    cleanCheckTimer = setTimeout(() => {
+      cleanCheckTimer = null;
+      void settleIfClean();
+    }, 300);
+  }
+  async function settleIfClean(): Promise<void> {
+    const base = confirmedCanonical;
+    if (!base || !dirty.value) return;
+    if (g.getBodyHtml() !== base.html || g.getCss() !== base.css) return;
+    dirty.value = false;
+    autosave.cancel();
+    if (!draftMayExist) return;
+    await autosave.settled();
+    // 待っている間に編集が入っていれば、その変更の判定に任せる(消してはいけない draft を消さない)。
+    if (dirty.value) return;
+    draftMayExist = false;
+    const res = await service.discardDraft(id);
+    if (isErr(res)) logError(res.error);
+  }
+
   // autosave の失敗はステータス行だけでは見逃しうる(狭幅ではアイコンのみになる)ため、
   // error への遷移エッジで 1 回だけトーストする。debounce された失敗のたびに重ねない方針は
   // `useAutosave.ts` のコメントを見よ。
@@ -500,6 +640,7 @@ export function useTemplateEditor(
     // 保留中の Undo 永続ミラーを確定する(プレビュー往復の再マウント/リロード前)。
     if (persistTimer) clearTimeout(persistTimer);
     persistUndo();
+    if (cleanCheckTimer) clearTimeout(cleanCheckTimer);
     g.destroy();
   });
 
@@ -515,6 +656,7 @@ export function useTemplateEditor(
 
   return {
     g,
+    ui: sess.ui,
     template,
     fundName,
     syncStatus,

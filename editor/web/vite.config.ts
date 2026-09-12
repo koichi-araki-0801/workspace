@@ -32,13 +32,21 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  // `linkedom` は worker(`workers/htmlWorkerImpl.ts`)だけが import するため、dev サーバ起動時の
+  // 依存クロール(HTML 入口から辿る)では見つからず、worker が初めて動いた瞬間に後追いで
+  // 最適化される。そのとき Vite は接続中の全クライアントを再読込するので、同時に走っている
+  // 画面(申請の途中など)が巻き込まれる(e2e の初回実行だけ落ちる実体)。起動時に含めて、
+  // 実行中の再最適化を起こさない。
+  optimizeDeps: {
+    include: ['linkedom'],
+  },
   server: {
     // Vite 既定の 5173 は他ツールと被りやすいため、衝突しにくい 24681 に固定
     // (server 側 :24680 と対で予約。選定理由は editor/README.md の「LAN 公開」節)。
     port: 24681,
     proxy: {
       '/api': {
-        // rest e2e(playwright project `rest`)は 24690 の別サーバを使うため、proxy 先を
+        // e2e は自前で立てたサーバを相手にするため、proxy 先を
         // `API_PROXY_TARGET` で上書き可能にする。`VITE_` 接頭辞を付けないのは、付けると
         // Vite がクライアントバンドルへ露出させる値になり、この内部アドレスをブラウザ側
         // JS に埋め込むことになるため(`import.meta.env` へは載せない)。

@@ -7,36 +7,33 @@
   重量物（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse / git-tools /
   docs の mermaid JS / native-prebuilds）は git に入れず GitHub Releases（タグ offline-bundle-v1）に
   置いてある。本スクリプトは次を 1 本で行う:
-    1. バンドルの用意。リポジトリ直下または bk\ に offline-deps-bundle.tar.gz と bundle.key が
-       同じ場所に揃っていればそれを使う（取得しない）。揃っていなければ Release から HTTPS で
-       直取得する（gh 不要。リポジトリは Public）。取得は一時ディレクトリで行い、Release の
-       .sha256 と突き合わせた検証が通ってからだけ直下へ移す（検証前・失敗した取得物を直下に残さない）。
+    0. 直下に source.zip があれば展開段: .sha256 照合 → 前回の MANIFEST に載るファイルを削除 →
+       直下へ展開 → bk\ へ退避 → 新しい setup-offline.ps1 を -SkipSourceExtract で再実行して
+       以降を任せる（自分自身が展開で新しくなるため）。
+    1. バンドルの確認。リポジトリ直下または bk\ に offline-deps-bundle.tar.gz と bundle.key が
+       同じ場所に揃っていればそれを使う。無ければ fetch-offline-bundle.bat を案内して中止する
+       （取得を肩代わりしない。取得はネットに出られる端末で先に行うものであり、ここで肩代わりすると
+       「ネットに出ない」前提が崩れてネットに出られない端末で原因の見えにくい失敗になる）。
     2. 展開 → bundle.key と手元の pnpm-lock.yaml / packageManager / requirements / manifest から
        算出する content-key の一致検査。不一致は「ソースと重量物が別の組」なので中止する
        （続けても pnpm install --offline が落ちるだけで、原因が見えにくくなる）。
     3. 同梱 pnpm を corepack 登録 → node_modules / dist を消してオフライン install → build →
        Playwright 配置 → msnodesqlv8 prebuild 配置 → PortableGit 展開。
-    4. 取得物を bk\ へ退避する。
+    4. 直下に置かれていたバンドルを bk\ へ退避する（bk\ のものを使った回は動かさない）。
 
   ソースコードは取得しない（git clone が前提）。バンドルの真正性は検証しない: 配布担当だけが
   Release を更新でき、配布先は同じ所有者の Public リポジトリを clone している前提で受け入れる。
   content-key の不一致は改ざんではなく「依存を変えたのに publish していない」状態で、
   配布担当に local-only\offline-publish\publish-offline-bundle.bat の実行を依頼する。
 
-.PARAMETER Owner
-  GitHub オーナー名。既定 koichi-araki-0801。
-
-.PARAMETER Repo
-  リポジトリ名。既定 workspace。
-
-.PARAMETER Tag
-  重量物アセットの取得元タグ。既定 offline-bundle-v1。
-
 .PARAMETER SkipBuild
-  取得・展開・整合検査のみ行い、install / build / Playwright 配置を省略する。
+  展開・整合検査のみ行い、install / build / Playwright 配置を省略する。
 
 .PARAMETER InstallTortoiseGit
   TortoiseGit の MSI を msiexec /qn（サイレント・昇格）で導入する。既定では導入しない。
+
+.PARAMETER SkipSourceExtract
+  展開段を飛ばす（再実行時に自動で付く。手で付ける必要はない）。
 
 .EXAMPLE
   offline\setup-offline.bat
@@ -45,11 +42,9 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$Owner = 'koichi-araki-0801',
-  [string]$Repo  = 'workspace',
-  [string]$Tag   = 'offline-bundle-v1',
   [switch]$SkipBuild,
-  [switch]$InstallTortoiseGit
+  [switch]$InstallTortoiseGit,
+  [switch]$SkipSourceExtract
 )
 
 Set-StrictMode -Version Latest
@@ -58,6 +53,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\content-key.ps1')
 . (Join-Path $PSScriptRoot 'lib\verify.ps1')
 . (Join-Path $PSScriptRoot 'lib\git-tools.ps1')
+. (Join-Path $PSScriptRoot 'lib\source.ps1')
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Bk       = Join-Path $RepoRoot 'bk'
@@ -65,9 +61,46 @@ Write-Host "[info] repo root: $RepoRoot"
 # ネットワークドライブ上では pnpm の symlink/hardlink 構成が成立しないため開始前に止める。
 Assert-LocalRepoRoot -Path $RepoRoot
 
+# ---- [0/5] ソース ZIP の展開（直下に source.zip があり、.git が無いときだけ） ----
+# 展開で自分自身（このスクリプトと dot-source 済みの lib）が新しくなる。PowerShell は起動時に
+# 全文を読んでいるので実行中の処理は落ちないが、構築は新しい版に任せたいので、展開が済んだら
+# 新しい setup-offline.ps1 を再実行してその終了コードで終わる。再実行側は -SkipSourceExtract
+# 付きで呼ばれ、この段に入らない（再帰防止）。
+# .git の有無で経路を分けるのは、clone 端末（README-offline 手順 A）の直下へ手順 B-1 の
+# fetch -Source で source.zip が残っていることがあるため。.git があるなら、その source.zip は
+# 遮断端末へ運ぶための取得物であり、clone 端末自身の構築には使わない（展開すると未コミットの
+# 作業ツリーが Release 版で上書きされる）。「遮断端末には .git が無い」という spec 2 章の前提を
+# この条件で機械的に表明する。
+$SourceZip = Join-Path $RepoRoot 'source.zip'
+$hasSourceZip = Test-Path -LiteralPath $SourceZip
+$hasGit = Test-Path -LiteralPath (Join-Path $RepoRoot '.git')
+if (-not $SkipSourceExtract -and $hasSourceZip -and $hasGit) {
+  Write-Warning ("[warn] 直下に source.zip がありますが、このフォルダは git clone（.git あり）なので展開段は飛ばします。`n" +
+    '       source.zip / source.zip.sha256 は遮断端末へ運ぶための取得物です（このフォルダの構築には使いません）。')
+} elseif (-not $SkipSourceExtract -and $hasSourceZip) {
+  Write-Host '[0/5] ソース ZIP を展開...'
+  try {
+    $r = Invoke-SourceExtractStage -RepoRoot $RepoRoot -Bk $Bk
+  } catch {
+    Write-Error ("[error] $($_.Exception.Message)`n" +
+      "  source.zip と source.zip.sha256 を fetch-offline-bundle.bat -Source で取り直してください。`n" +
+      "  照合エラー以外（展開の途中で止まった等）なら、直下または bk\ の source.zip をエクスプローラで`n" +
+      '  「すべて展開」してこのフォルダへ上書きし、offline\setup-offline.bat を実行し直してください。')
+    exit 1
+  }
+  Write-Host "[info] 展開しました（前の版の削除: $($r.Removed) 件$(if ($r.FirstRun) { '、初回扱い' })）。新しい setup を続行します..."
+  # `$args` は PowerShell の自動変数なので使わない。
+  $reexec = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'setup-offline.ps1'), '-SkipSourceExtract')
+  if ($SkipBuild) { $reexec += '-SkipBuild' }
+  if ($InstallTortoiseGit) { $reexec += '-InstallTortoiseGit' }
+  & powershell @reexec
+  exit $LASTEXITCODE
+}
+$sourceCommit = Read-SourceCommit -RepoRoot $RepoRoot
+if ($sourceCommit) { Write-Host "[info] source commit: $sourceCommit" }
+
 $TarExe     = Resolve-Tar
 $BundleName = 'offline-deps-bundle.tar.gz'
-$AssetBase  = "https://github.com/$Owner/$Repo/releases/download/$Tag"
 $LockFile   = Join-Path $RepoRoot 'pnpm-lock.yaml'
 $PkgJson    = Join-Path $RepoRoot 'package.json'
 foreach ($f in @($LockFile, $PkgJson)) {
@@ -76,61 +109,23 @@ foreach ($f in @($LockFile, $PkgJson)) {
   }
 }
 
-# curl.exe があればストリーミング DL、無ければ Invoke-WebRequest（PS5.1 の進捗描画は大容量で極端に遅い）。
-$curl = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
-function Download-File([string]$url, [string]$dest) {
-  Write-Host "       <- $url"
-  if ($curl) {
-    & $curl.Source -L --fail --retry 3 -o $dest $url
-    if ($LASTEXITCODE -ne 0) { throw "ダウンロードに失敗: $url" }
-  } else {
-    $old = $ProgressPreference
-    $ProgressPreference = 'SilentlyContinue'
-    try { Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing }
-    finally { $ProgressPreference = $old }
-  }
-}
-
-# ---- [1/5] バンドルの用意（手元優先、無ければ Release から取得） ----
+# ---- [1/5] バンドルの確認（取得はしない） ----
 Write-Host '[1/5] バンドルを確認...'
 # リポジトリ直下 → bk\ の順で、バンドルと bundle.key が同じディレクトリに揃っている組だけを使う。
+# 取得は fetch-offline-bundle.bat の担当。ここで肩代わりすると「ネットに出ない」前提が崩れ、
+# ネットに出られない端末で原因の見えにくい失敗になる。
 $local = Find-LocalBundlePair -Directories @($RepoRoot, $Bk) -BundleName $BundleName
-$downloaded = $false
-if ($local) {
-  $Bundle  = $local.Bundle
-  $KeyFile = $local.Key
-  Write-Host "[info] 手元のバンドルを使います: $Bundle"
-} else {
-  Write-Host "[info] 手元にバンドルが無いため Release $Tag から HTTPS で取得します..."
-  # 取得はリポジトリ直下ではなく一時ディレクトリで行う。直下へ先に置くと、検証失敗で
-  # スクリプトが止まった後もファイルが残り、次回実行が「手元のバンドルを使う」経路で
-  # .sha256 検証を経ないままそれを使ってしまう。
-  $Work     = Join-Path ([IO.Path]::GetTempPath()) ('offline-setup-' + [Guid]::NewGuid().ToString('N'))
-  $WorkFile = Join-Path $Work $BundleName
-  $WorkKey  = Join-Path $Work 'bundle.key'
-  $WorkSha  = "$WorkFile.sha256"
-  New-Item -ItemType Directory -Path $Work -Force | Out-Null
-  try {
-    Download-File "$AssetBase/$BundleName"        $WorkFile
-    Download-File "$AssetBase/$BundleName.sha256" $WorkSha
-    Download-File "$AssetBase/bundle.key"         $WorkKey
-    # Release に並ぶ .sha256 で転送破損を検知する（配信元と同じ場所の値なので、すり替えの検知には使えない）。
-    $expected = Get-Sha256FromSidecar -Path $WorkSha
-    Assert-FileSha256 -File $WorkFile -ExpectedSha256 $expected -Label 'bundle'
-  } catch {
-    Write-Error "[error] $($_.Exception.Message)`n  タグ / ネットワーク / リポジトリの公開状態を確認してください。"
-    Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
-    exit 1
-  }
-  # 検証を通った取得物だけを直下へ移す。
-  $Bundle  = Join-Path $RepoRoot $BundleName
-  $KeyFile = Join-Path $RepoRoot 'bundle.key'
-  Move-Item -LiteralPath $WorkFile -Destination $Bundle          -Force
-  Move-Item -LiteralPath $WorkSha  -Destination "$Bundle.sha256" -Force
-  Move-Item -LiteralPath $WorkKey  -Destination $KeyFile         -Force
-  Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
-  $downloaded = $true
+if (-not $local) {
+  Write-Error ("[error] リポジトリ直下にも bk\ にも $BundleName と bundle.key の組がありません。" +
+    "`n  ネットに出られる端末で offline\fetch-offline-bundle.bat を実行して取得し、" +
+    "`n  3 ファイル（$BundleName / $BundleName.sha256 / bundle.key）をリポジトリ直下に置いてから再実行してください。")
+  exit 1
 }
+$Bundle  = $local.Bundle
+$KeyFile = $local.Key
+# 直下のバンドルを使った回だけ、完了後に bk\ へ退避する（bk\ のものはそのまま）。
+$fromRoot = ((Split-Path $Bundle -Parent).TrimEnd('\') -eq $RepoRoot.TrimEnd('\'))
+Write-Host "[info] 手元のバンドルを使います: $Bundle"
 
 # ---- [2/5] 展開 ----
 Write-Host '[2/5] 重量物を直下へ展開...'
@@ -153,7 +148,9 @@ if ($localKey -ne $publishedKey) {
   Write-Error ("[error] ソースと重量物が対応していません。`n  code (local) : $localKey" +
     "`n  bundle.key   : $publishedKey`n  依存を変えたのに Release を更新していない可能性があります。" +
     "`n  配布担当に local-only\offline-publish\publish-offline-bundle.bat の実行を依頼するか、" +
-    "`n  bundle.key に対応するコミットへ checkout し直してください。")
+    "`n  bundle.key に対応するコミットへ checkout し直してください。" +
+    "`n  遮断端末で source.zip を持ち込んだ場合は、その ZIP が古い（依存を変えたのに publish していない、" +
+    "`n  または古い ZIP を持ち込んだ）可能性もあります。$(if ($sourceCommit) { "source commit: $sourceCommit" })")
   exit 1
 }
 Write-Host "[info] content-key 一致: $localKey"
@@ -198,19 +195,20 @@ if (-not $SkipBuild) {
     # msnodesqlv8 のネイティブ .node を配置する。npm tarball / .pnpm-store にバイナリは入らず
     # install スクリプトも allowBuilds で封止しているため、同梱の公式 prebuild を install 後の
     # .pnpm 実体へ展開する（editor/server と pie-chart は同実体への symlink 参照＝1 箇所で両方に
-    # 効く。install 前だと purge/再構成で消える）。REST/DB 入力を使わない構成では無くても動くため
-    # 失敗は警告止まりで setup を続行する。
+    # 効く。install 前だと purge/再構成で消える）。editor の既定は DB モードなので、ここが欠けると
+    # setup は成功したのに起動できない端末ができる。3 段（prebuild と install 先の有無 / 版一致 /
+    # 展開と require 疎通）のどれかで失敗したら setup を失敗にする。
     $pbTar = Get-ChildItem (Join-Path $RepoRoot 'native-prebuilds\msnodesqlv8-*.tar.gz') -ErrorAction SilentlyContinue | Select-Object -First 1
     $pbPkg = Get-ChildItem (Join-Path $RepoRoot 'node_modules\.pnpm\msnodesqlv8@*\node_modules\msnodesqlv8') -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($pbTar -and $pbPkg) {
       # lockfile の版だけ上げて prebuild の差し替えを忘れる事故の検知（native-prebuilds\manifest.txt 参照）。
       $instVer = (Get-Content (Join-Path $pbPkg.FullName 'package.json') -Raw | ConvertFrom-Json).version
       if ($pbTar.Name -notlike "*v$instVer*") {
-        Write-Warning "[warn] msnodesqlv8 の install 版($instVer)と prebuild($($pbTar.Name))の版が不一致。native-prebuilds の差し替えが必要です。"
+        Write-Error "[error] msnodesqlv8 の install 版($instVer)と prebuild($($pbTar.Name))の版が不一致。native-prebuilds の差し替えが必要です。"; exit 1
       }
       & (Resolve-Tar) -xzf $pbTar.FullName -C $pbPkg.FullName
       if ($LASTEXITCODE -ne 0) {
-        Write-Warning '[warn] msnodesqlv8 prebuild の展開に失敗（editor REST / pie-chart DB 入力は使用不可）。'
+        Write-Error '[error] msnodesqlv8 prebuild の展開に失敗しました。'; exit 1
       } else {
         # ABI 不一致・破損はロードで露見するため require で疎通確認する（editor/server から解決）。
         # EAP=Stop のため stderr リダイレクトは使わず、node 側 try/catch で exit code のみ返す。
@@ -219,10 +217,10 @@ if (-not $SkipBuild) {
         $reqOk = ($LASTEXITCODE -eq 0)
         Pop-Location
         if ($reqOk) { Write-Host '[info] msnodesqlv8 ネイティブ .node を配置（require OK）。' }
-        else { Write-Warning '[warn] msnodesqlv8 の require に失敗。Node の ABI（24.x=137）と prebuild の対応を確認してください。' }
+        else { Write-Error '[error] msnodesqlv8 の require に失敗しました。Node の ABI（24.x=137）と prebuild の対応を確認してください。'; exit 1 }
       }
     } else {
-      Write-Warning '[warn] msnodesqlv8 prebuild または install 先が見つからず、ネイティブ .node を配置できませんでした（editor REST / pie-chart DB 入力は使用不可）。'
+      Write-Error '[error] msnodesqlv8 prebuild または install 先が見つからず、ネイティブ .node を配置できませんでした。'; exit 1
     }
 
     & corepack pnpm build
@@ -241,15 +239,15 @@ if (-not $SkipBuild) {
     }
   } finally { Pop-Location }
 } else {
-  Write-Host '[4/5] -SkipBuild: 取得・展開・整合検査のみ。環境構築をスキップしました。'
+  Write-Host '[4/5] -SkipBuild: 展開・整合検査のみ。環境構築をスキップしました。'
 }
 
 # editor のテンプレ版管理は git CLI を使う。同梱 PortableGit を展開して PATH/GIT_BIN を通す。
 Install-GitTools -RepoRoot $RepoRoot -InstallTortoiseGit:$InstallTortoiseGit
 
-# ---- [5/5] 取得物を bk\ へ退避（手元のバンドルを使った回は動かさない） ----
-if ($downloaded) {
-  Write-Host '[5/5] ダウンロード物を bk/ へ退避...'
+# ---- [5/5] 直下のバンドルを bk\ へ退避（bk\ のものを使った回は動かさない） ----
+if ($fromRoot) {
+  Write-Host '[5/5] 直下のバンドルを bk/ へ退避...'
   New-Item -ItemType Directory -Path $Bk -Force | Out-Null
   function Move-ToBk([string]$src) {
     if (-not (Test-Path -LiteralPath $src)) { return }

@@ -3,17 +3,16 @@ rem ============================================================================
 rem  Jinja Template Editor - launcher
 rem
 rem  Usage:
-rem    start.bat               production, local data (build + server :24680)
-rem    start.bat dev           development : Fastify(:24680) + Vite(:24681)
-rem    start.bat rest          REST data mode (SQL Server backend; needs login)
-rem    start.bat dev rest      development + REST
-rem    start.bat prod rest     production  + REST
-rem    start.bat rest lan      production + REST, exposed to the intranet LAN (HTTPS)
-rem    start.bat rest lan-plain  same but plain HTTP (opt-in, discouraged)
+rem    start.bat               production, REST data mode (SQL Server backend; needs login)
+rem    start.bat dev           development + REST
+rem    start.bat local         production, local data (fixtures + localStorage, no DB, no login)
+rem    start.bat dev local     development + local data
+rem    start.bat lan           production + REST, exposed to the intranet LAN (HTTPS)
+rem    start.bat lan-plain     same but plain HTTP (opt-in, discouraged)
 rem
-rem  Args are order-free. The data mode (local|rest) sets VITE_API_MODE, which
-rem  the web app reads to pick localStorage (local, default, no DB) or the REST
-rem  repositories (rest). 'db' is an alias of 'rest'.
+rem  Args are order-free. The data mode (rest|local) sets VITE_API_MODE, which the
+rem  web app reads to pick the REST repositories (rest, default) or localStorage
+rem  (local, developer opt-in). 'db' is an alias of 'rest'.
 rem
 rem  'lan' (prod only) binds to 0.0.0.0 so other machines can reach the app.
 rem  It implies the REST data mode: REST is the mode that has logins, and the
@@ -28,7 +27,7 @@ rem  scripts\setup-lan-https.bat once. If plain HTTP is truly required, use
 rem  'lan-plain', which opts in via ALLOW_PLAINTEXT_LAN and drops the Secure
 rem  cookie flag (otherwise REST login cookies would be rejected by browsers).
 rem
-rem  Double-click runs production mode with local data. Stop with Ctrl+C.
+rem  Double-click runs production mode against SQL Server. Stop with Ctrl+C.
 rem  ASCII only on purpose: non-ASCII here breaks cmd parsing on JP code pages.
 rem ============================================================================
 setlocal
@@ -54,12 +53,12 @@ set "VITE_PAT=vite[\\/]bin[\\/]vite\.js"
 
 rem --- mode (build prod/dev) and data mode (local/rest), order-free -----------
 set "MODE=prod"
-set "APIMODE=local"
+set "APIMODE=rest"
 rem Server listen port. Kept in env so the port pre-check and node agree (see config.ts).
 set "PORT=24680"
 set "LAN="
 set "LANPLAIN="
-rem Set when 'local' was typed, to tell it apart from 'local' being the default.
+rem Set when 'local' was typed (the explicit opt-in for the no-DB developer mode).
 set "LOCALARG="
 for %%A in (%1 %2 %3) do (
   if /I "%%A"=="dev"         set "MODE=dev"
@@ -92,18 +91,18 @@ if "%LAN%"=="1" if /I "%MODE%"=="dev" (
   set "LAN="
 )
 if "%LAN%"=="1" if "%LOCALARG%"=="1" goto :lanlocal
-if "%LAN%"=="1" if /I "%APIMODE%"=="local" (
-  echo [start] NOTE: 'lan' implies the REST backend - data mode set to rest.
-  set "APIMODE=rest"
-)
 
 rem Vite exposes process-env vars prefixed VITE_ to the client at build/dev time.
 set "VITE_API_MODE=%APIMODE%"
-rem In REST mode, turn on server-side auth enforcement + DB audit mirroring.
-rem (DB_SERVER etc. come from the environment / appconfig; see server/db/README.)
+rem REST (default): server-side auth enforcement + DB audit mirroring.
+rem local (explicit opt-in, no DB): switch auth off; config.ts defaults AUTH_REQUIRED to
+rem true, so the developer mode has to say so out loud.
 if /I "%APIMODE%"=="rest" (
   set "AUTH_REQUIRED=true"
   set "AUDIT_DB=true"
+) else (
+  set "AUTH_REQUIRED=false"
+  set "AUDIT_DB=false"
 )
 
 if "%LAN%"=="1" (

@@ -54,7 +54,7 @@ export const localRepositories: Repositories = {
 
 /**
  * REST 配線。インタフェースは local と同一で、実体は SQL Server backend の API。
- * `main.ts` が VITE_API_MODE=rest のとき本セットを採用する(既定は上の local セット)。
+ * `main.ts` の既定はこちらで、上の local セットは `VITE_API_MODE=local` の明示指定だけが選ぶ。
  */
 export const restRepositories: Repositories = {
   auth: restAuthRepo,

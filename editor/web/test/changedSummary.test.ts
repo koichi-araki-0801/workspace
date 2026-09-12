@@ -45,6 +45,21 @@ describe('computeChangedSummaryWith', () => {
     expect(s).toEqual({ count: 2, names: ['運用実績の表', 'ページ2・パーツ1'] });
   });
 
+  it('時間上限を超えたら null(返ってこない Worker 呼び出しで申請を止めない)', async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = computeChangedSummaryWith(
+        { templateId: 't', html: '<p>a</p>', css: '', fundCode: 'f', origin: 'edit' },
+        { ...deps, buildHtmlDiff: vi.fn(() => new Promise(() => {})) },
+        { timeoutMs: 1_000 },
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await pending).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('内部で例外が出ても null(申請を止めない)', async () => {
     const s = await computeChangedSummaryWith(
       { templateId: 't', html: '', css: '', fundCode: 'f', origin: 'edit' },

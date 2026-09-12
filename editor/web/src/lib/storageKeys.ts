@@ -9,6 +9,8 @@
 export const K = {
   drafts: 'editor:drafts',
   htmlOverride: 'editor:html',
+  // 編集タブの承認が上書きする値入り HTML(server の filled/ と同じ契約)。
+  filledOverride: 'editor:filled',
   cssOverride: 'editor:css',
   editHist: 'editor:hist:edit',
   pdfHist: 'editor:hist:pdf',
@@ -45,7 +47,10 @@ export const LEGACY_NOTES_KEY = 'editor:notes';
 // 前の利用者の Undo スタックが次の利用者の画面へ復元されうるため。rest はログイン ID、
 // local は単一利用者前提の固定スコープを使う。
 
-const UNDO_STACKS_PREFIX = 'editor:session:undo';
+const UNDO_STACKS_PREFIX = 'editor:session:undo:v2';
+// v2 より前のミラー。自動 id と protectedCss が snapshot に混入しており、読み込むと確定版との
+// 内容比較が永久に外れる。後片付け(logout / スキーマ bump)でのみ参照する。
+const UNDO_STACKS_PREFIX_V1 = 'editor:session:undo';
 // 下書きの所属セッション。値は `Record<templateId, sessionToken>`(`lib/draftOwner.ts`)。
 // 編集セッションはブラウザタブの寿命で、別タブが残した下書きは次回オープン時に破棄する。
 // Undo ミラーと同じ理由でユーザー別に分ける。
@@ -54,7 +59,7 @@ const LOCAL_UNDO_SCOPE = 'local';
 const ANONYMOUS_UNDO_SCOPE = 'anonymous';
 
 /** ユーザー非分離だった旧形式キー。後片付け(logout / スキーマ bump)でのみ参照する。 */
-export const LEGACY_UNDO_STACKS_KEY = UNDO_STACKS_PREFIX;
+export const LEGACY_UNDO_STACKS_KEY = UNDO_STACKS_PREFIX_V1;
 
 let undoLoginId: string | null = null;
 
@@ -66,11 +71,11 @@ export function setUndoUserScope(loginId: string | null): void {
   undoLoginId = loginId;
 }
 
-/** 現在のユーザーのスコープ。rest はログイン ID、local は単一利用者前提の固定値。 */
+/** 現在のユーザーのスコープ。local は単一利用者前提の固定値、それ以外(既定 rest)はログイン ID。 */
 function userScope(): string {
-  return import.meta.env.VITE_API_MODE === 'rest'
-    ? (undoLoginId ?? ANONYMOUS_UNDO_SCOPE)
-    : LOCAL_UNDO_SCOPE;
+  return import.meta.env.VITE_API_MODE === 'local'
+    ? LOCAL_UNDO_SCOPE
+    : (undoLoginId ?? ANONYMOUS_UNDO_SCOPE);
 }
 
 /** 現在のユーザー向け Undo ミラーキー。 */
@@ -78,7 +83,24 @@ export function undoStacksKey(): string {
   return `${UNDO_STACKS_PREFIX}:${userScope()}`;
 }
 
+/** 現在のユーザー向け v1 ミラーキー(後片付け用)。 */
+export function legacyUndoStacksKeyV1(): string {
+  return `${UNDO_STACKS_PREFIX_V1}:${userScope()}`;
+}
+
 /** 現在のユーザー向け下書き所属キー。 */
 export function draftOwnerKey(): string {
   return `${DRAFT_OWNER_PREFIX}:${userScope()}`;
+}
+
+const CONFIRMED_CANONICAL_PREFIX = 'editor:confirmed:v1';
+/** 確定版正規形キャッシュのキー(ユーザー別。`lib/confirmedCanonical.ts`)。 */
+export function confirmedCanonicalKey(): string {
+  return `${CONFIRMED_CANONICAL_PREFIX}:${userScope()}`;
+}
+
+const UI_STATE_PREFIX = 'editor:session:ui';
+/** 編集画面 UI 状態(倍率・表示系)永続ミラーのキー(ユーザー別。`stores/editorSession.ts`)。 */
+export function editorUiKey(): string {
+  return `${UI_STATE_PREFIX}:${userScope()}`;
 }

@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { apiPaths, buildPath, MAX_NOTE_ENTRIES_PER_PART } from '../src/index.js';
-import {
-  AddNoteRequest,
-  NoteKind,
-  NoteStatus,
-  PartNoteEntry,
-  UpdateNoteRequest,
-} from '../src/schemas.js';
+import { AddNoteRequest, NoteStatus, PartNoteEntry, UpdateNoteRequest } from '../src/schemas.js';
 
 describe('PartNoteEntry', () => {
   it('投稿 1 件の形を受理する(未編集は updatedAt/updatedBy が null)', () => {
@@ -21,7 +15,6 @@ describe('PartNoteEntry', () => {
       updatedBy: null,
       status: 'open',
       replyTo: null,
-      kind: 'note',
     });
     expect(parsed.content).toBe('メモ本文');
   });
@@ -39,23 +32,31 @@ describe('PartNoteEntry のコメント属性', () => {
     updatedBy: null,
   };
 
-  it('status / replyTo / kind を持つ形を受理する', () => {
+  it('status / replyTo を持つ形を受理する', () => {
     const res = PartNoteEntry.safeParse({
       ...base,
       status: 'resolved',
       replyTo: 'p1',
-      kind: 'question',
     });
     expect(res.success).toBe(true);
   });
 
-  it('3 フィールドはいずれも必須(応答はサーバが必ず補う)', () => {
+  it('2 フィールドはいずれも必須(応答はサーバが必ず補う)', () => {
     expect(PartNoteEntry.safeParse(base).success).toBe(false);
+  });
+
+  it('旧形式の kind は捨てる(コメントはメモのみ)', () => {
+    const parsed = PartNoteEntry.parse({
+      ...base,
+      status: 'open',
+      replyTo: null,
+      kind: 'question',
+    });
+    expect(parsed).not.toHaveProperty('kind');
   });
 
   it('列挙の外の値は拒否する', () => {
     expect(NoteStatus.safeParse('closed').success).toBe(false);
-    expect(NoteKind.safeParse('todo').success).toBe(false);
   });
 });
 
@@ -71,28 +72,26 @@ describe('AddNoteRequest / UpdateNoteRequest', () => {
   });
 });
 
-describe('AddNoteRequest の返信と種別', () => {
-  it('kind を省くと note にパースされる', () => {
+describe('AddNoteRequest の返信', () => {
+  it('replyTo を省くと null にパースされる', () => {
     const res = AddNoteRequest.parse({ pathKey: 'p', content: 'x' });
-    expect(res.kind).toBe('note');
     expect(res.replyTo).toBeNull();
   });
 
-  it('replyTo と kind を受理する', () => {
-    const res = AddNoteRequest.parse({
-      pathKey: 'p',
-      content: 'x',
-      replyTo: 'p1',
-      kind: 'fix-request',
-    });
+  it('replyTo を受理する', () => {
+    const res = AddNoteRequest.parse({ pathKey: 'p', content: 'x', replyTo: 'p1' });
     expect(res.replyTo).toBe('p1');
-    expect(res.kind).toBe('fix-request');
   });
 
   it('replyTo の空文字は拒否する(親を指さない返信を作らない)', () => {
     expect(AddNoteRequest.safeParse({ pathKey: 'p', content: 'x', replyTo: '' }).success).toBe(
       false,
     );
+  });
+
+  it('旧クライアントの kind は捨てる', () => {
+    const res = AddNoteRequest.parse({ pathKey: 'p', content: 'x', kind: 'fix-request' });
+    expect(res).not.toHaveProperty('kind');
   });
 });
 

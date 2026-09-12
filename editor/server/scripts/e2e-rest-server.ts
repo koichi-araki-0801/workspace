@@ -1,40 +1,17 @@
 // =============================================================================
-// e2e-rest-server.ts — rest e2e(playwright project `rest`)専用のサーバ起動エントリ
+// e2e-rest-server.ts — e2e 専用のサーバ起動エントリ
 // =============================================================================
-// `E2E_REST=1` のときだけ playwright.config.ts が webServer として起動する。
+// playwright.config.ts が webServer として起動する(chromium / docs の両 project で使う)。
 // `config.ts` は import 時に `process.env` を解決するため、`PORT` 等は `serve.ts` の
 // 動的 import より前に設定する(静的 import では一時 `DATA_ROOT` が効かない)。
 // dataRoot はリポジトリ内の gitignore 済み固定パス(`.tmp/e2e-rest-dataroot`)を毎回
-// 作り直して使う。パス定数は `e2e-rest-paths.ts` 側に置き、本ファイルは何も export しない。
+// 作り直して使う。パス定数は `e2e-rest-paths.ts`、seed 本体は `e2e-rest-seed.ts` 側に置き、
+// 本ファイルは何も export しない。
 
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { E2E_REST_DATA_ROOT, E2E_REST_PORT } from './e2e-rest-paths.js';
-
-/**
- * dataRoot をファイルで seed する。一覧・1 件取得・申請はファイル走査(台帳ではない。
- * `templateRepo.ts` / `reviewRepo.ts` を見よ)なので、確定 template と per-fund CSS を
- * 置くだけで一覧・編集・申請・承認が成立する。`reviews` / `notes` / `drafts` / `pending`
- * ディレクトリは各リポジトリの書込側が `mkdir(..., { recursive: true })` するため
- * 事前作成は不要。git リポジトリ化(`ensureRepo`)も承認時に自動で行われるため不要。
- */
-async function seedDataRoot(repoRoot: string): Promise<void> {
-  await fs.rm(E2E_REST_DATA_ROOT, { recursive: true, force: true });
-  const templatesDir = path.join(E2E_REST_DATA_ROOT, 'templates');
-  const cssDir = path.join(E2E_REST_DATA_ROOT, 'css');
-  await fs.mkdir(templatesDir, { recursive: true });
-  await fs.mkdir(cssDir, { recursive: true });
-
-  const fixturesTemplatesDir = path.join(repoRoot, 'editor/web/src/api/fixtures/templates');
-  const fixturesCssDir = path.join(repoRoot, 'editor/web/src/api/fixtures/css');
-  for (const name of await fs.readdir(fixturesTemplatesDir)) {
-    await fs.copyFile(path.join(fixturesTemplatesDir, name), path.join(templatesDir, name));
-  }
-  for (const name of await fs.readdir(fixturesCssDir)) {
-    await fs.copyFile(path.join(fixturesCssDir, name), path.join(cssDir, name));
-  }
-}
+import { seedDataRoot } from './e2e-rest-seed.js';
 
 async function main(): Promise<void> {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -47,6 +24,9 @@ async function main(): Promise<void> {
   process.env.AUTH_REQUIRED = 'true';
   process.env.AUDIT_DB = 'true';
   process.env.DATA_ROOT = E2E_REST_DATA_ROOT;
+  // 作成タブ(`POST /api/generate`)は Python 生成器を子プロセスで呼ぶ。素の `python` は
+  // Windows で Store のスタブへ解決される端末があるため(exit 9009)、ランチャを既定にする。
+  process.env.PYTHON_BIN ??= process.platform === 'win32' ? 'py' : 'python3';
 
   await seedDataRoot(repoRoot);
 

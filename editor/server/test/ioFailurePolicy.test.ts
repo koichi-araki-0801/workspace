@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-io-policy-'));
 process.env.DATA_ROOT = tmp;
+process.env.FILLED_DIR = path.join(tmp, 'filled');
 
 let gitAvailable = true;
 try {
@@ -77,5 +78,27 @@ describe('templateFiles.readTemplateHtml', () => {
     const id = 'AM01_888888_20250101_交付版';
     fs.mkdirSync(path.join(templatesDir, `${id}.html`), { recursive: true });
     await expect(files.readTemplateHtml(`${id}.html`)).rejects.toThrow();
+  });
+});
+
+describe('templateFiles.readFilledHtml', () => {
+  let files: typeof import('../src/files/templateFiles.js');
+  const filledDir = path.join(tmp, 'filled');
+
+  beforeAll(async () => {
+    files = await import('../src/files/templateFiles.js');
+    fs.mkdirSync(filledDir, { recursive: true });
+  });
+
+  it('規約外の名前は空文字(パスを解決しないので読みに行かない)', async () => {
+    expect(await files.readFilledHtml('../escape.html')).toBe('');
+  });
+
+  it('解決できたパスの読み取り失敗は例外にする', async () => {
+    // readTemplateHtml と同方針: EISDIR を空文字へ倒すと、値入り HTML が「本文は空」を
+    // 前提にした承認差分・帰属検査の入力になる。
+    const id = 'AM01_888888_20250101_交付版';
+    fs.mkdirSync(path.join(filledDir, `${id}.html`), { recursive: true });
+    await expect(files.readFilledHtml(`${id}.html`)).rejects.toThrow();
   });
 });

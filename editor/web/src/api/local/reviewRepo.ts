@@ -17,11 +17,12 @@ import {
   type ReviewRepository,
   type ReviewRequest,
   type SubmitReviewRequest,
+  templateFileName,
   toReviewMeta,
   validation,
 } from '@editor/shared';
 import { attempt } from './attempt';
-import { currentUser, delay, K, now, read, uid, write } from './store';
+import { currentUser, delay, K, now, read, resolveFilled, uid, write } from './store';
 import { confirmSaveLocal, localTemplateRepo } from './templateRepo';
 
 /** 現行版(現在の本文 override + CSS override)の簡易コンテンツキー(djb2)。 */
@@ -49,11 +50,36 @@ function readReviews(): Record<string, ReviewRequest> {
   return out;
 }
 
+/**
+ * 編集経路の申請が満たすべき 2 条件。申請と承認の双方で見るのは、申請後に前提が崩れても
+ * (作成タブの承認が割り込む)承認側で止めるため(server の `assertFilledPresentForEdit` と
+ * 同じ構え)。判定は store を直接読む(`getTemplate` 経由にすると、現行版の取得失敗を握り潰す
+ * 呼び出し側の経路と絡んで「取得できない = 拒否」に化ける)。
+ *
+ * - 値入り HTML が既に在ること。無いまま通すと、承認が値入り HTML を新規に作り、そこへ
+ *   作成タブ由来の Jinja 骨組みが書かれる。
+ * - 本文が空でないこと。local は空文字を「値入り HTML 無し」の印として使うので、空本文の
+ *   承認はテンプレを黙って `draft` へ落とす(`store.ts` の `resolveFilled`)。
+ */
+function assertEditSubmissionAllowed(
+  origin: ReviewRequest['origin'],
+  templateId: string,
+  attrs: ReviewRequest['attributes'],
+  html: string,
+): void {
+  if (origin !== 'edit') return;
+  if (html === '')
+    throw validation(`編集タブの申請は本文が空では受け付けられません: ${templateId}`);
+  if (resolveFilled(templateId, templateFileName(attrs)) === '')
+    throw validation(`編集タブの申請には値入り HTML(filled)が必要です: ${templateId}`);
+}
+
 export const localReviewRepo: ReviewRepository = {
   submitReview: (req: SubmitReviewRequest) =>
     attempt(async () => {
       const attrs = parseTemplateFileName(`${req.templateId}.html`);
       if (!attrs) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
+      assertEditSubmissionAllowed(req.origin, req.templateId, attrs, req.html);
       // 現行版を読み、baseHash(並行性警告の素)を取る。失敗しても申請自体は妨げない。
       const cur = await localTemplateRepo.getTemplate(req.templateId);
       const baseHash = isErr(cur) ? null : contentKey(cur.value.html, cur.value.css);
@@ -109,6 +135,7 @@ export const localReviewRepo: ReviewRepository = {
       if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
       if (review.status === 'approved' || review.status === 'rejected')
         throw conflict('この申請は既に処理済みです');
+      assertEditSubmissionAllowed(review.origin, review.templateId, review.attributes, review.html);
       // 反映前に現行版を再計測し、申請時点の baseHash と食い違えば警告する(申請後に別の確定が
       // 割り込んだ = 上書き注意)。ブロックはしない。baseHash 未記録の申請は警告しない。
       const cur = await localTemplateRepo.getTemplate(review.templateId);
@@ -126,6 +153,7 @@ export const localReviewRepo: ReviewRepository = {
           html: review.html,
           css: review.css,
           fundCode: review.fundCode,
+          origin: review.origin,
           filledHtml: review.filledHtml,
         },
         {

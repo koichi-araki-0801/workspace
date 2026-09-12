@@ -6,6 +6,8 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path (Join-Path $here '..') '..')).ProviderPath
 . (Join-Path $here 'content-key.ps1')
 . (Join-Path $here 'verify.ps1')
+. (Join-Path $here 'fetch.ps1')
+. (Join-Path $here 'source.ps1')
 
 Describe 'Test-OfflineRequirementLine' {
   Context '受け入れる形（名前 + 省略可能なバージョン指定子）' {
@@ -59,6 +61,9 @@ Describe 'Get-OfflineRequirementsFiles' {
     }
   }
 
+  # このテストの守備範囲は「ZIP 展開後 = .git 無しの遮断端末で content-key が clone 端末と一致する
+  # こと」。git 経路は clone 端末（このテストの実行環境）でしか使えないため、遮断端末が実際に
+  # 使うファイルシステム経路が同じ集合を返すことでのみ両端末の content-key 一致を担保できる。
   It 'git 経路とファイルシステム経路が同じ結果になる（フォールバックの正しさの担保）' {
     $viaGit = @(Get-OfflineRequirementsFilesViaGit -RepoRoot $repoRoot) | Sort-Object
     $viaFileSystem = @(Get-OfflineRequirementsFilesViaFileSystem -RepoRoot $repoRoot) | Sort-Object
@@ -210,5 +215,218 @@ Describe 'Get-Sha256FromSidecar（Release の .sha256 の読み取り）' {
 
   It 'ファイルが無ければ停止する' {
     { Get-Sha256FromSidecar -Path (Join-Path $TestDrive 'missing.sha256') } | Should Throw
+  }
+}
+
+Describe 'Save-VerifiedReleaseBundle（取得 → 検証 → 配置。検証前の取得物を配置先に残さない）' {
+  BeforeEach {
+    # Release のアセット置き場を模す(downloader は URL 末尾のファイル名で src から写す)。
+    $script:src  = Join-Path $TestDrive ('src-' + [guid]::NewGuid().ToString('N'))
+    $script:dest = Join-Path $TestDrive ('dest-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $script:src, $script:dest -Force | Out-Null
+    $script:name = 'offline-deps-bundle.tar.gz'
+    $bundle = Join-Path $script:src $script:name
+    Set-Content -LiteralPath $bundle -Value 'bundle payload' -Encoding Ascii
+    $hash = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLower()
+    Set-Content -LiteralPath "$bundle.sha256" -Value "$hash  $($script:name)" -Encoding Ascii
+    Set-Content -LiteralPath (Join-Path $script:src 'bundle.key') -Value 'abc123' -Encoding Ascii
+    $srcZip = Join-Path $script:src 'source.zip'
+    Set-Content -LiteralPath $srcZip -Value 'source payload' -Encoding Ascii
+    $srcHash = (Get-FileHash -LiteralPath $srcZip -Algorithm SHA256).Hash.ToLower()
+    Set-Content -LiteralPath "$srcZip.sha256" -Value "$srcHash  source.zip" -Encoding Ascii
+    $script:copyFrom = {
+      param([string]$url, [string]$to)
+      Copy-Item -LiteralPath (Join-Path $script:src (Split-Path $url -Leaf)) -Destination $to
+    }
+    $script:tempBefore = @(Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter 'offline-fetch-*').Count
+  }
+
+  It '検証を通った 3 ファイル(バンドル / .sha256 / bundle.key)を Destination へ置き、そのパスを返す' {
+    $r = Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+      -Destination $script:dest -Downloader $script:copyFrom
+    $r.Bundle | Should Be (Join-Path $script:dest $script:name)
+    $r.Key | Should Be (Join-Path $script:dest 'bundle.key')
+    (Test-Path -LiteralPath "$($r.Bundle).sha256") | Should Be $true
+    (Get-Content -LiteralPath $r.Key -Raw).Trim() | Should Be 'abc123'
+  }
+
+  It 'sha256 が一致しなければ停止し、Destination に何も残さない' {
+    Set-Content -LiteralPath (Join-Path $script:src "$($script:name).sha256") -Value (('a' * 64) + "  $($script:name)") -Encoding Ascii
+    { Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+        -Destination $script:dest -Downloader $script:copyFrom } | Should Throw
+    @(Get-ChildItem -LiteralPath $script:dest).Count | Should Be 0
+  }
+
+  It '取得そのものが失敗しても Destination に何も残さない' {
+    $failing = { param([string]$url, [string]$to) throw "ダウンロードに失敗: $url" }
+    { Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+        -Destination $script:dest -Downloader $failing } | Should Throw 'ダウンロードに失敗'
+    @(Get-ChildItem -LiteralPath $script:dest).Count | Should Be 0
+  }
+
+  It '成功・失敗のどちらでも一時ディレクトリを残さない' {
+    Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+      -Destination $script:dest -Downloader $script:copyFrom | Out-Null
+    $failing = { param([string]$url, [string]$to) throw 'x' }
+    try {
+      Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+        -Destination $script:dest -Downloader $failing | Out-Null
+    } catch {}
+    @(Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter 'offline-fetch-*').Count | Should Be $script:tempBefore
+  }
+
+  It 'downloader へは AssetBase 直下の 3 つの URL を渡す' {
+    $script:seen = @()
+    $recording = {
+      param([string]$url, [string]$to)
+      $script:seen += $url
+      & $script:copyFrom $url $to
+    }
+    Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+      -Destination $script:dest -Downloader $recording | Out-Null
+    $expected = (@(
+      "https://example/rel/$($script:name)",
+      "https://example/rel/$($script:name).sha256",
+      'https://example/rel/bundle.key') | Sort-Object) -join "`n"
+    (($script:seen | Sort-Object) -join "`n") | Should Be $expected
+  }
+
+  It '-IncludeSource で source.zip と .sha256 も Destination へ置き、Source にパスを返す' {
+    $r = Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+      -Destination $script:dest -Downloader $script:copyFrom -IncludeSource
+    $r.Source | Should Be (Join-Path $script:dest 'source.zip')
+    (Test-Path -LiteralPath (Join-Path $script:dest 'source.zip.sha256')) | Should Be $true
+    @(Get-ChildItem -LiteralPath $script:dest -File).Count | Should Be 5
+  }
+  It '-IncludeSource 無しでは source.zip を取らず Source は null' {
+    $r = Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+      -Destination $script:dest -Downloader $script:copyFrom
+    ($null -eq $r.Source) | Should Be $true
+    @(Get-ChildItem -LiteralPath $script:dest -File).Count | Should Be 3
+  }
+  It 'source.zip の sha256 が合わなければ重量物 3 ファイルも含めて Destination に何も置かない' {
+    Set-Content -LiteralPath (Join-Path $script:src 'source.zip.sha256') -Value (('a' * 64) + '  source.zip') -Encoding Ascii
+    { Save-VerifiedReleaseBundle -AssetBase 'https://example/rel' -BundleName $script:name `
+        -Destination $script:dest -Downloader $script:copyFrom -IncludeSource } | Should Throw
+    @(Get-ChildItem -LiteralPath $script:dest).Count | Should Be 0
+  }
+}
+
+Describe 'Assert-ManifestPathsSafe（名簿はリポジトリ直下からの相対パスだけ）' {
+  It '相対パスだけなら通す（空行は無視）' {
+    { Assert-ManifestPathsSafe -Lines @('offline/setup-offline.ps1', '', 'docs/a b/c.md') } | Should Not Throw
+    { Assert-ManifestPathsSafe -Lines @('dir.name/file.ps1') } | Should Not Throw
+  }
+  It '.. を含む行があれば止まる' {
+    { Assert-ManifestPathsSafe -Lines @('offline/x.ps1', '../outside.txt') } | Should Throw
+    { Assert-ManifestPathsSafe -Lines @('a/../../b') } | Should Throw
+  }
+  It 'Windows が解決時に落とす末尾の空白・ドットだけの要素も .. と同じ扱いで止まる' {
+    { Assert-ManifestPathsSafe -Lines @('a/.. /b') } | Should Throw
+    { Assert-ManifestPathsSafe -Lines @('a/.../b') } | Should Throw
+    { Assert-ManifestPathsSafe -Lines @('./x') } | Should Throw
+    { Assert-ManifestPathsSafe -Lines @('a/. /b') } | Should Throw
+  }
+  It '絶対パス・UNC・ルート始まりは止まる' {
+    { Assert-ManifestPathsSafe -Lines @('C:\Windows\x') } | Should Throw
+    { Assert-ManifestPathsSafe -Lines @('\\server\share\x') } | Should Throw
+    { Assert-ManifestPathsSafe -Lines @('/etc/passwd') } | Should Throw
+    { Assert-ManifestPathsSafe -Lines @('\x') } | Should Throw
+  }
+}
+
+Describe 'Remove-ManifestFiles（旧名簿に載るファイルだけを消す）' {
+  BeforeEach {
+    $script:root = Join-Path $TestDrive ('root-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path (Join-Path $script:root 'offline'), (Join-Path $script:root 'bk'), (Join-Path $script:root 'node_modules\pkg') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $script:root 'offline\old.ps1') -Value 'x' -Encoding Ascii
+    Set-Content -LiteralPath (Join-Path $script:root 'offline\keep.ps1') -Value 'x' -Encoding Ascii
+    Set-Content -LiteralPath (Join-Path $script:root 'appconfig.json') -Value '{}' -Encoding Ascii
+    Set-Content -LiteralPath (Join-Path $script:root 'bk\offline-deps-bundle.tar.gz') -Value 'b' -Encoding Ascii
+    Set-Content -LiteralPath (Join-Path $script:root 'node_modules\pkg\index.js') -Value 'j' -Encoding Ascii
+    $script:manifest = Join-Path $script:root 'MANIFEST'
+    [IO.File]::WriteAllText($script:manifest, "offline/old.ps1`noffline/gone-already.ps1`n", [Text.UTF8Encoding]::new($false))
+  }
+  It '名簿のファイルだけ消え、名簿に無いものと git 管理外は残る。存在しない行は無視する' {
+    $n = Remove-ManifestFiles -RepoRoot $script:root -ManifestPath $script:manifest
+    $n | Should Be 1
+    (Test-Path (Join-Path $script:root 'offline\old.ps1')) | Should Be $false
+    (Test-Path (Join-Path $script:root 'offline\keep.ps1')) | Should Be $true
+    (Test-Path (Join-Path $script:root 'appconfig.json')) | Should Be $true
+    (Test-Path (Join-Path $script:root 'bk\offline-deps-bundle.tar.gz')) | Should Be $true
+    (Test-Path (Join-Path $script:root 'node_modules\pkg\index.js')) | Should Be $true
+  }
+  It '空になったフォルダは消さない' {
+    [IO.File]::WriteAllText($script:manifest, "offline/old.ps1`noffline/keep.ps1`n", [Text.UTF8Encoding]::new($false))
+    Remove-ManifestFiles -RepoRoot $script:root -ManifestPath $script:manifest | Out-Null
+    (Test-Path (Join-Path $script:root 'offline')) | Should Be $true
+  }
+  It '名簿に不正な行があれば 1 つも消さずに止まる' {
+    [IO.File]::WriteAllText($script:manifest, "offline/old.ps1`n../outside`n", [Text.UTF8Encoding]::new($false))
+    { Remove-ManifestFiles -RepoRoot $script:root -ManifestPath $script:manifest } | Should Throw
+    (Test-Path (Join-Path $script:root 'offline\old.ps1')) | Should Be $true
+  }
+}
+
+Describe 'Invoke-SourceExtractStage（照合 → 旧名簿で削除 → 展開 → 退避）' {
+  BeforeEach {
+    $script:root = Join-Path $TestDrive ('root-' + [guid]::NewGuid().ToString('N'))
+    $script:bk = Join-Path $script:root 'bk'
+    New-Item -ItemType Directory -Path (Join-Path $script:root 'offline'), $script:bk -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $script:root 'offline\old.ps1') -Value 'old' -Encoding Ascii
+    Set-Content -LiteralPath (Join-Path $script:root 'appconfig.json') -Value '{}' -Encoding Ascii
+    # 新版の ZIP を作る（offline/new.ps1 + MANIFEST + SOURCE-COMMIT。prefix 無し）
+    $src = Join-Path $TestDrive ('src-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path (Join-Path $src 'offline') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $src 'offline\new.ps1') -Value 'new' -Encoding Ascii
+    [IO.File]::WriteAllText((Join-Path $src 'MANIFEST'), "offline/new.ps1`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $src 'SOURCE-COMMIT'), "0123456789abcdef0123456789abcdef01234567 2026-09-10T00:00:00+09:00`n", [Text.UTF8Encoding]::new($false))
+    $script:zip = Join-Path $script:root 'source.zip'
+    Compress-Archive -Path (Join-Path $src '*') -DestinationPath $script:zip -Force
+    $hash = (Get-FileHash -LiteralPath $script:zip -Algorithm SHA256).Hash.ToLower()
+    Set-Content -LiteralPath "$($script:zip).sha256" -Value "$hash  source.zip" -Encoding Ascii
+  }
+  It '旧 MANIFEST があれば削除してから展開し、ZIP と .sha256 を bk\ へ退避する' {
+    [IO.File]::WriteAllText((Join-Path $script:root 'MANIFEST'), "offline/old.ps1`n", [Text.UTF8Encoding]::new($false))
+    $r = Invoke-SourceExtractStage -RepoRoot $script:root -Bk $script:bk
+    $r.FirstRun | Should Be $false
+    $r.Removed | Should Be 1
+    (Test-Path (Join-Path $script:root 'offline\old.ps1')) | Should Be $false
+    (Test-Path (Join-Path $script:root 'offline\new.ps1')) | Should Be $true
+    (Test-Path (Join-Path $script:root 'appconfig.json')) | Should Be $true
+    (Get-Content -LiteralPath (Join-Path $script:root 'MANIFEST') -Raw).Trim() | Should Be 'offline/new.ps1'
+    (Test-Path (Join-Path $script:bk 'source.zip')) | Should Be $true
+    (Test-Path (Join-Path $script:bk 'source.zip.sha256')) | Should Be $true
+    (Test-Path $script:zip) | Should Be $false
+  }
+  It '旧 MANIFEST が無ければ初回扱い（削除せず警告）で展開する' {
+    $r = Invoke-SourceExtractStage -RepoRoot $script:root -Bk $script:bk -WarningVariable w -WarningAction SilentlyContinue
+    $r.FirstRun | Should Be $true
+    @($w).Count | Should Be 1
+    (Test-Path (Join-Path $script:root 'offline\old.ps1')) | Should Be $true
+    (Test-Path (Join-Path $script:root 'offline\new.ps1')) | Should Be $true
+  }
+  It '.sha256 が無ければ何もせずに止まる' {
+    Remove-Item -LiteralPath "$($script:zip).sha256"
+    [IO.File]::WriteAllText((Join-Path $script:root 'MANIFEST'), "offline/old.ps1`n", [Text.UTF8Encoding]::new($false))
+    { Invoke-SourceExtractStage -RepoRoot $script:root -Bk $script:bk } | Should Throw
+    (Test-Path (Join-Path $script:root 'offline\old.ps1')) | Should Be $true
+    (Test-Path (Join-Path $script:root 'offline\new.ps1')) | Should Be $false
+    (Test-Path $script:zip) | Should Be $true
+  }
+  It '.sha256 が合わなければ何もせずに止まる' {
+    Set-Content -LiteralPath "$($script:zip).sha256" -Value (('a' * 64) + '  source.zip') -Encoding Ascii
+    { Invoke-SourceExtractStage -RepoRoot $script:root -Bk $script:bk } | Should Throw
+    (Test-Path (Join-Path $script:root 'offline\new.ps1')) | Should Be $false
+  }
+}
+
+Describe 'Read-SourceCommit' {
+  It 'ファイルがあれば 1 行を返し、無ければ null' {
+    $root = Join-Path $TestDrive ('rc-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $root | Out-Null
+    ($null -eq (Read-SourceCommit -RepoRoot $root)) | Should Be $true
+    [IO.File]::WriteAllText((Join-Path $root 'SOURCE-COMMIT'), "abc 2026-09-10T00:00:00+09:00`n", [Text.UTF8Encoding]::new($false))
+    Read-SourceCommit -RepoRoot $root | Should Be 'abc 2026-09-10T00:00:00+09:00'
   }
 }

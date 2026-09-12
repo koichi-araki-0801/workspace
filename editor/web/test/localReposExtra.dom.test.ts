@@ -399,6 +399,7 @@ describe('localHistoryRepo.getSnapshot', () => {
       html: '<p>a</p>',
       css: '',
       fundCode: FUND,
+      origin: 'edit',
     });
     expect(isOk(saved)).toBe(true);
     const versions = await localHistoryRepo.listVersions(ID);
@@ -454,6 +455,7 @@ describe('localTemplateRepo の生成と override', () => {
       html: '<p>over</p>',
       css: '.o{}',
       fundCode: FUND,
+      origin: 'create',
       filledHtml: '<p>filled</p>',
     });
     expect(isOk(saved)).toBe(true);

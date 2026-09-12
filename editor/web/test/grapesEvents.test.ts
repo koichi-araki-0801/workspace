@@ -66,7 +66,7 @@ function setup() {
     refreshMove: spies.refreshMove,
     refreshPageGuides: spies.refreshPageGuides,
     recomputeLayout: spies.recomputeLayout,
-    fitToView: vi.fn(),
+    applyInitialZoom: vi.fn(),
     onCanvasLoad: vi.fn(),
     toInfo: vi.fn(),
     isLocked: () => false,
@@ -142,7 +142,7 @@ describe('wireGrapesEvents — 編集可否切替中の dirty 抑制', () => {
       refreshMove: vi.fn(),
       refreshPageGuides: vi.fn(),
       recomputeLayout: vi.fn(),
-      fitToView: vi.fn(),
+      applyInitialZoom: vi.fn(),
       onCanvasLoad: vi.fn(),
       toInfo: vi.fn(),
       isLocked: () => false,
@@ -162,5 +162,40 @@ describe('wireGrapesEvents — 編集可否切替中の dirty 抑制', () => {
     applying = false;
     ed.emit('component:update');
     expect(spies.change).toHaveBeenCalledTimes(1);
+  });
+});
+
+// パーツをクリック選択すると Layers が祖先へ `open:true` を、GrapesJS が `status` を set し、
+// どちらも `component:update` を発火させる。保存内容に現れない UI 状態なので dirty/autosave へ
+// 流さない(主防御は内容比較。これは即時応答用の補助)。内容の変更は従来どおり届く。
+describe('wireGrapesEvents — 保存内容に現れない prop だけの component:update', () => {
+  function emitUpdate(ed: ReturnType<typeof makeFakeEditor>, changed: Record<string, unknown>) {
+    ed.emit('component:update', { changed });
+  }
+
+  it('open / status だけの更新は change を呼ばず、revision は進む', () => {
+    stubRaf();
+    const { ed, spies, revision } = setup();
+    emitUpdate(ed, { open: true });
+    emitUpdate(ed, { status: 'selected' });
+    emitUpdate(ed, { open: true, status: 'hovered' });
+    expect(spies.change).not.toHaveBeenCalled();
+    expect(revision.value).toBe(3);
+  });
+
+  it('内容の変更を含む更新は change を呼ぶ(UI 状態と混ざっていても)', () => {
+    stubRaf();
+    const { ed, spies } = setup();
+    emitUpdate(ed, { content: 'x' });
+    emitUpdate(ed, { open: true, attributes: { id: 'a' } });
+    expect(spies.change).toHaveBeenCalledTimes(2);
+  });
+
+  it('changed が読めない発火(引数なし / 空)は保守的に change を呼ぶ', () => {
+    stubRaf();
+    const { ed, spies } = setup();
+    ed.emit('component:update');
+    emitUpdate(ed, {});
+    expect(spies.change).toHaveBeenCalledTimes(2);
   });
 });

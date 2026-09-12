@@ -10,6 +10,10 @@ import type { AddressInfo } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// 中継の許可リストだけを見るテストで、認証は本題ではない(`vivliostyleRoutes` の
+// `requireAuth` を no-op にする)。config を import する前に設定する。
+process.env.AUTH_REQUIRED = 'false';
+
 /** 上流(実 Vite の代役)が受け取った `req.url`。空のままなら 1 件も転送されていない。 */
 const upstreamHits: string[] = [];
 let upstreamPort = 0;

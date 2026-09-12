@@ -13,6 +13,7 @@ import { useLatest } from '@/lib/useLatest';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import SearchFilters from './components/SearchFilters.vue';
 import TemplateTable from './components/TemplateTable.vue';
+import { editorRoute, opensAsCreate } from './editorRoute';
 
 const router = useRouter();
 const repo = useTemplateRepo();
@@ -44,7 +45,7 @@ async function search(q: DropdownQuery) {
 }
 
 function openEditor(m: TemplateMeta) {
-  router.push({ name: 'editor', params: { id: m.id } });
+  router.push(editorRoute(m.id, { created: opensAsCreate(m) }));
 }
 
 /** 「承認待ち」バッジ。承認タブをそのテンプレートで開く(件数に関わらず同じ導線)。 */

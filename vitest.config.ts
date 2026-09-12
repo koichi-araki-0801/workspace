@@ -54,6 +54,9 @@ export default defineConfig({
         'editor/server/src/security/templateScripts.ts',
         'editor/server/src/repositories/confirmedWrite.ts',
         'editor/server/src/repositories/templateMeta.ts',
+        // テンプレート集約の中心。一覧/取得の探索順(filled→templates→pending)と
+        // 下書き入出力が承認・編集画面の到達可能性を左右するため、被覆を切らさない。
+        'editor/server/src/repositories/templateRepo.ts',
         'editor/server/src/files/pendingFiles.ts',
         'editor/server/src/files/syncFiles.ts',
         // テンプレ実体のパス解決と下書きの入出力。`assertTemplateId` / `assertFundCode` を
@@ -118,6 +121,9 @@ export default defineConfig({
         'editor/web/src/lib/useAsyncResult.ts',
         'editor/web/src/lib/format.ts',
         'editor/web/src/lib/labels.ts',
+        // 編集経路 / 作成経路の出し分け。`created` query を出す唯一の場所で、退行は
+        // 「pending だけのテンプレートを編集経路で開いて申請が拒否される」形で出る。
+        'editor/web/src/features/templates/editorRoute.ts',
         'editor/web/src/features/templates/viewmodels/templateVm.ts',
         'editor/web/src/features/templates/components/searchGuard.ts',
         'editor/web/src/features/templates/services/templateCreationService.ts',
@@ -147,6 +153,9 @@ export default defineConfig({
         'editor/web/src/lib/sessionExpiry.ts',
         'editor/web/src/lib/useIframeAutoFit.ts',
         'editor/web/src/features/editor/geom.ts',
+        // 確定版正規形を測ってよいかの純判定。quiet load 失敗時に draft 自身から正規形を
+        // 作ってしまうと自動 discard を招く回帰(実績あり)の再発防止網。
+        'editor/web/src/features/editor/confirmedCanonicalGate.ts',
         'editor/web/src/features/editor/pageView.ts',
         'editor/web/src/features/editor/useSnapshotHistory.ts',
         'editor/web/src/features/editor/usePartEditHistory.ts',

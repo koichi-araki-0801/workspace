@@ -17,6 +17,8 @@ const TEST_TMP_DIR = path.join(
   `editor-extref-test-${process.pid}-${crypto.randomBytes(4).toString('hex')}`,
 );
 process.env.TMP_DIR = TEST_TMP_DIR;
+// 外部参照ゲートが本題で、認証は本テストの対象外(build 系ルートの requireAuth を no-op にする)。
+process.env.AUTH_REQUIRED = 'false';
 
 const {
   findDocumentExternalRefs,

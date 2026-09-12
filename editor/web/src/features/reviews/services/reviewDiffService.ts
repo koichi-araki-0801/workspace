@@ -166,8 +166,13 @@ export function createReviewDiffService(
       if (isErr(revRes)) return revRes;
       const review = revRes.value;
 
-      // after(申請版)は常に申請本文を素の sample で描画する。
-      const afterRes = await compare.renderTemplateBody(review.html, review.css, review.fundCode);
+      // after(申請版)は申請本文そのもの。作成タブ由来なら素の sample で描画する。
+      const afterRes = await compare.renderTemplateBody(
+        review.html,
+        review.css,
+        review.fundCode,
+        review.origin,
+      );
       if (isErr(afterRes)) return afterRes;
       const after = afterRes.value;
 

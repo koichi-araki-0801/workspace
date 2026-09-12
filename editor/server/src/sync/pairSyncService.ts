@@ -18,16 +18,25 @@ import {
   templatePairKey,
 } from '@editor/shared';
 import { readSyncState, writeSyncState } from '../files/syncFiles.js';
-import { readTemplateHtml, templateExists } from '../files/templateFiles.js';
+import {
+  filledExists,
+  readFilledHtml,
+  readTemplateHtml,
+  templateExists,
+} from '../files/templateFiles.js';
 import { commitAll, withGitLock } from '../git/gitRepo.js';
 import { logger } from '../logger.js';
-import { applyConfirmedWrite } from '../repositories/confirmedWrite.js';
+import { applyConfirmedWrite, type ConfirmedTarget } from '../repositories/confirmedWrite.js';
 import type { PartRepo } from '../repositories/partRepo.js';
 import { computePairSync } from './partSync.js';
 
 export interface PairSyncService {
   getPairSyncStatus(templateId: string): Promise<PairSyncStatus>;
-  syncPairAfterConfirm(sourceTemplateId: string, actor: string): Promise<PairSyncSummary | null>;
+  syncPairAfterConfirm(
+    sourceTemplateId: string,
+    actor: string,
+    target: ConfirmedTarget,
+  ): Promise<PairSyncSummary | null>;
 }
 
 export function createPairSyncService(parts: PartRepo): PairSyncService {
@@ -42,7 +51,8 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
       const attrs = parseTemplateFileName(`${templateId}.html`);
       if (pairId === null || !attrs)
         return { pairTemplateId: null, pairExists: false, conflicts: [] };
-      const pairExists = await templateExists(`${pairId}.html`);
+      // バナーが問うのは編集タブで開けるペアの有無なので、値入り HTML の側を見る。
+      const pairExists = await filledExists(`${pairId}.html`);
       const state = pairExists
         ? await readSyncState(templatePairKey(attrs)).catch(() => null)
         : null;
@@ -60,19 +70,23 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
      * 承認確定した `sourceTemplateId` の変更をペアへ自動同期する。ペア対象外の版種・ペア実体
      * 不在なら null(UI は「同期なし」表示)。失敗は throw せず `error` 付き summary で返す。
      */
-    async syncPairAfterConfirm(sourceTemplateId, actor) {
+    async syncPairAfterConfirm(sourceTemplateId, actor, target) {
+      // 読み書きする実体は承認が書いた先と同じに揃える。混ぜると値入り HTML の変更を
+      // Jinja スケルトンへ転写する(またはその逆)ことになる。
+      const exists = target === 'filled' ? filledExists : templateExists;
+      const readHtml = target === 'filled' ? readFilledHtml : readTemplateHtml;
       const pairId = pairedTemplateId(sourceTemplateId);
       if (pairId === null) return null;
       const attrs = parseTemplateFileName(`${sourceTemplateId}.html`);
       const pairAttrs = parseTemplateFileName(`${pairId}.html`);
       if (!attrs || !pairAttrs) return null;
       const pairFile = `${pairId}.html`;
-      if (!(await templateExists(pairFile))) return null;
+      if (!(await exists(pairFile))) return null;
 
       try {
         const [sourceHtml, targetHtml, catalog] = await Promise.all([
-          readTemplateHtml(`${sourceTemplateId}.html`),
-          readTemplateHtml(pairFile),
+          readHtml(`${sourceTemplateId}.html`),
+          readHtml(pairFile),
           parts.listParts({}),
         ]);
         const state = await readSyncState(templatePairKey(attrs));
@@ -95,6 +109,7 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
           // ここが失敗すると本体も元へ戻る = 「転写済みなのに lastSynced が古い」状態を作らない。
           await applyConfirmedWrite({
             kind: 'pair-sync',
+            target,
             targetTemplateId: pairId,
             sourceTemplateId,
             html: result.targetHtml,

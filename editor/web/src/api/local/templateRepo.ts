@@ -30,7 +30,6 @@ import {
   defaultSkeleton,
   delay,
   fixtureCss,
-  fixtureFilled,
   fixtureTemplates,
   fundMaster,
   K,
@@ -38,6 +37,7 @@ import {
   metaMatches,
   now,
   read,
+  resolveFilled,
   todayYmd,
   tx,
   uid,
@@ -51,18 +51,23 @@ import {
 
 /** 編集後の本文 + fund 単位の共有 CSS override を公開する。 */
 function putContentOverrides(req: ConfirmSaveRequest): void {
-  const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
-  htmlOverride[req.templateId] = req.html;
-  write(K.htmlOverride, htmlOverride);
+  // 編集タブの承認は値入り HTML を上書きする(server の filled/ と同じ契約)。Jinja は据え置く。
+  // 作成タブの承認は Jinja テンプレそのものを上書きする。書き先が違うだけで手順は同じ。
+  const key = req.origin === 'edit' ? K.filledOverride : K.htmlOverride;
+  const override = read<Record<string, string>>(key, {});
+  override[req.templateId] = req.html;
+  write(key, override);
+
   const cssOverride = read<Record<string, string>>(K.cssOverride, {});
   cssOverride[req.fundCode] = req.css; // fund 単位の共有 CSS
   write(K.cssOverride, cssOverride);
 }
 
-/** テンプレートを現在の編集者 + 時刻で published にする。 */
-function publishMeta(templateId: string, who: string): void {
+/** 確定保存の編集者と時刻を記録する。`status` は書かない(値入り HTML の有無だけから
+ *  導く。`store.ts` の `resolveFilled`)。 */
+function stampMeta(templateId: string, who: string): void {
   const metaStore = read<Record<string, Partial<TemplateMeta>>>(META_KEY, {});
-  metaStore[templateId] = { status: 'published', updatedAt: now(), updatedBy: who };
+  metaStore[templateId] = { updatedAt: now(), updatedBy: who };
   write(META_KEY, metaStore);
 }
 
@@ -143,6 +148,7 @@ export const confirmSaveLocal = (req: ConfirmSaveRequest, extra?: ConfirmSaveExt
     tx(
       [
         K.htmlOverride,
+        K.filledOverride,
         K.cssOverride,
         META_KEY,
         K.editHist,
@@ -157,7 +163,7 @@ export const confirmSaveLocal = (req: ConfirmSaveRequest, extra?: ConfirmSaveExt
         const timestamp = now(); // edit-history entry とその snapshot で共有する
 
         putContentOverrides(req);
-        publishMeta(req.templateId, who);
+        stampMeta(req.templateId, who);
         appendEditHistory(req, who, historyId, timestamp);
         freezeSnapshot(req, historyId, timestamp);
         putInstance(req, who);
@@ -209,10 +215,7 @@ export const localTemplateRepo: TemplateRepository = {
       const html = htmlOverride[id] ?? fixtureTemplates[meta.fileName] ?? '';
       const css =
         cssOverride[meta.attributes.fundCode] ?? fixtureCss[meta.attributes.fundCode] ?? '';
-      // 静的な filled コピーは未編集 fixture でのみ意味を持つ。テンプレート HTML が
-      // override 済みなら、editor がロード時に再度 fill する。
-      const filled = htmlOverride[id] ? '' : (fixtureFilled[meta.fileName] ?? '');
-      return delay({ meta, html, css, filled });
+      return delay({ meta, html, css, filled: resolveFilled(id, meta.fileName) });
     }),
 
   generate: (req: GenerateRequest) =>

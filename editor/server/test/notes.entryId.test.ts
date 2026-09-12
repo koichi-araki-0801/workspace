@@ -20,9 +20,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-notes-entryid-'));
 process.env.DATA_ROOT = tmp;
-// ローカルモード(認証を課さない構成)を明示する。ガードの通過自体はこのテストの主眼ではない
-// (`auth.localMode.test.ts` が別途固定している)ので、ここでは素通りさせて経路そのものに絞る。
-delete process.env.AUTH_REQUIRED;
+// config は起動時に env を読む。認証を課さない配備は `AUTH_REQUIRED=false` を明示した
+// local モードだけなので、その形を再現する(ガードの通過自体は `auth.localMode.test.ts` が
+// 別途固定している)。
+process.env.AUTH_REQUIRED = 'false';
 
 const listNotes = vi.fn(async () => []);
 const addNote = vi.fn(async () => {

@@ -25,6 +25,7 @@ export interface SummaryDeps {
     html: string,
     css: string,
     fundCode: string,
+    origin: 'edit' | 'create',
   ) => Promise<Result<{ html: string; css: string }>>;
   renderBefore: (templateId: string) => Promise<Result<{ html: string; css: string }>>;
   buildHtmlDiff: (
@@ -55,12 +56,35 @@ function summaryLabel(
   return name ?? fallbackLabel;
 }
 
+/**
+ * 概要計算に許す時間。描画 2 本と Worker の差分計算を挟むので、負荷の高い端末では返ってこない
+ * ことがある(Worker の RPC は応答が無ければ永遠に待つ)。概要は参考情報なので、この時間で
+ * 打ち切って null にし、申請そのものを進める。
+ */
+const DEFAULT_TIMEOUT_MS = 20_000;
+
 export async function computeChangedSummaryWith(
+  input: SummaryInput,
+  deps: SummaryDeps,
+  opts: { timeoutMs?: number } = {},
+): Promise<ReviewChangedSummary | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([computeUnbounded(input, deps), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function computeUnbounded(
   input: SummaryInput,
   deps: SummaryDeps,
 ): Promise<ReviewChangedSummary | null> {
   try {
-    const afterRes = await deps.renderAfter(input.html, input.css, input.fundCode);
+    const afterRes = await deps.renderAfter(input.html, input.css, input.fundCode, input.origin);
     if (isErr(afterRes)) return null;
     let beforeHtml = '';
     let cssBefore = afterRes.value.css;
@@ -99,7 +123,8 @@ export function createChangedSummaryService(
   return {
     computeChangedSummary: (input) =>
       computeChangedSummaryWith(input, {
-        renderAfter: (html, css, fundCode) => compare.renderTemplateBody(html, css, fundCode),
+        renderAfter: (html, css, fundCode, origin) =>
+          compare.renderTemplateBody(html, css, fundCode, origin),
         renderBefore: (templateId) => compare.renderVersionHtml(`baseline:${templateId}`),
         buildHtmlDiff: (b, a, cb, ca) => htmlWorker.buildHtmlDiff(b, a, cb, ca),
         loadNames: () => loadPartNameMap(parts),

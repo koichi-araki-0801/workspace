@@ -28,7 +28,7 @@ const KOUFU = 'AM01_510037_20240710_交付版';
 const ZENTAI = 'AM01_510037_20240710_全体版';
 const KEY = '.page#1/cover#1';
 const OTHER_KEY = '.page#1/.summary#1';
-const PARENT = { replyTo: null, kind: 'note' as const };
+const PARENT = { replyTo: null };
 
 beforeEach(async () => {
   tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'editor-note-repo-'));
@@ -60,7 +60,6 @@ describe('版インスタンスの独立', () => {
       updatedBy: null,
       status: 'open' as const,
       replyTo: null,
-      kind: 'note' as const,
     });
     await files.writeNotes(KOUFU, {
       [KEY]: [stored('z1', '1 件目'), stored('m2', '2 件目'), stored('a3', '3 件目')],
@@ -74,33 +73,30 @@ describe('版インスタンスの独立', () => {
 });
 
 describe('追加', () => {
-  it('親投稿は open / replyTo null / 指定した種別で保存される', async () => {
+  it('親投稿は open / replyTo null で保存され、種別は持たない', async () => {
     const { repo } = await importRepo();
-    const e = await repo.addNote(KOUFU, KEY, '修正して', 'editor1', {
-      replyTo: null,
-      kind: 'fix-request',
-    });
+    const e = await repo.addNote(KOUFU, KEY, '修正して', 'editor1', { replyTo: null });
     expect(e).toMatchObject({
       status: 'open',
       replyTo: null,
-      kind: 'fix-request',
       templateId: KOUFU,
       pathKey: KEY,
     });
+    expect(e).not.toHaveProperty('kind');
   });
 
   it('返信は親の状態を引き継ぐ', async () => {
     const { repo } = await importRepo();
     const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
     await repo.updateNote(KOUFU, p.id, { status: 'resolved' }, 'editor1');
-    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id });
     expect(r).toMatchObject({ replyTo: p.id, status: 'resolved' });
   });
 
   it('存在しない親への返信は拒否する', async () => {
     const { repo } = await importRepo();
     await expect(
-      repo.addNote(KOUFU, KEY, '返信', 'editor1', { replyTo: 'nope', kind: 'note' }),
+      repo.addNote(KOUFU, KEY, '返信', 'editor1', { replyTo: 'nope' }),
     ).rejects.toMatchObject({
       kind: 'validation',
     });
@@ -110,7 +106,7 @@ describe('追加', () => {
     const { repo } = await importRepo();
     const p = await repo.addNote(KOUFU, OTHER_KEY, '別パーツ', 'editor1', PARENT);
     await expect(
-      repo.addNote(KOUFU, KEY, '返信', 'editor1', { replyTo: p.id, kind: 'note' }),
+      repo.addNote(KOUFU, KEY, '返信', 'editor1', { replyTo: p.id }),
     ).rejects.toMatchObject({
       kind: 'validation',
     });
@@ -119,20 +115,22 @@ describe('追加', () => {
   it('返信への返信は拒否する(入れ子は 1 段)', async () => {
     const { repo } = await importRepo();
     const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
-    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id });
     await expect(
-      repo.addNote(KOUFU, KEY, '孫', 'editor1', { replyTo: r.id, kind: 'note' }),
+      repo.addNote(KOUFU, KEY, '孫', 'editor1', { replyTo: r.id }),
     ).rejects.toMatchObject({
       kind: 'validation',
     });
   });
 
-  it('1 パーツの投稿数上限は返信を含めて数える', async () => {
+  // 上限件数ぶんの投稿を 1 件ずつ足す(毎回ファイルを読んで書き直す)ので、CI の並列負荷下では
+  // 既定の 5 秒に収まらない。上限に達するまでの件数は仕様の一部なので減らさず、時間の方を許す。
+  it('1 パーツの投稿数上限は返信を含めて数える', { timeout: 30_000 }, async () => {
     const { repo } = await importRepo();
     const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
     // 親 1 件 + 返信 (上限 - 1) 件で上限に達する。次の親投稿は拒否される。
     for (let i = 1; i < MAX_NOTE_ENTRIES_PER_PART; i += 1) {
-      await repo.addNote(KOUFU, KEY, `返信 ${i}`, 'editor1', { replyTo: p.id, kind: 'note' });
+      await repo.addNote(KOUFU, KEY, `返信 ${i}`, 'editor1', { replyTo: p.id });
     }
     await expect(repo.addNote(KOUFU, KEY, '上限超え', 'editor1', PARENT)).rejects.toMatchObject({
       kind: 'validation',
@@ -155,7 +153,7 @@ describe('更新', () => {
   it('親の状態切替は返信へ伝播する', async () => {
     const { repo } = await importRepo();
     const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
-    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id });
     await repo.updateNote(KOUFU, p.id, { status: 'resolved' }, 'editor1');
     const all = await repo.listNotes(KOUFU);
     expect(all.find((e) => e.id === r.id)?.status).toBe('resolved');
@@ -166,7 +164,7 @@ describe('更新', () => {
   it('返信への状態指定は拒否する', async () => {
     const { repo } = await importRepo();
     const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
-    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id });
     await expect(
       repo.updateNote(KOUFU, r.id, { status: 'resolved' }, 'editor1'),
     ).rejects.toMatchObject({
@@ -177,7 +175,7 @@ describe('更新', () => {
   it('返信の本文は編集できる', async () => {
     const { repo } = await importRepo();
     const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
-    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id });
     expect((await repo.updateNote(KOUFU, r.id, { content: '直した返信' }, 'editor2')).content).toBe(
       '直した返信',
     );
@@ -188,8 +186,8 @@ describe('削除', () => {
   it('親を削除すると返信も消え、パーツが空になればキーごと畳む', async () => {
     const { repo, files } = await importRepo();
     const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
-    await repo.addNote(KOUFU, KEY, '返信 1', 'editor2', { replyTo: p.id, kind: 'note' });
-    await repo.addNote(KOUFU, KEY, '返信 2', 'editor2', { replyTo: p.id, kind: 'note' });
+    await repo.addNote(KOUFU, KEY, '返信 1', 'editor2', { replyTo: p.id });
+    await repo.addNote(KOUFU, KEY, '返信 2', 'editor2', { replyTo: p.id });
     await repo.deleteNote(KOUFU, p.id);
     expect(await repo.listNotes(KOUFU)).toEqual([]);
     expect(await files.readNotes(KOUFU)).toEqual({});
@@ -198,7 +196,7 @@ describe('削除', () => {
   it('返信だけを削除しても親は残る', async () => {
     const { repo } = await importRepo();
     const p = await repo.addNote(KOUFU, KEY, '親', 'editor1', PARENT);
-    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id, kind: 'note' });
+    const r = await repo.addNote(KOUFU, KEY, '返信', 'editor2', { replyTo: p.id });
     await repo.deleteNote(KOUFU, r.id);
     expect((await repo.listNotes(KOUFU)).map((e) => e.id)).toEqual([p.id]);
   });
@@ -229,7 +227,6 @@ describe('件数上限に達したパーツの更新・削除(上限は詰みを
       updatedBy: null,
       status: 'open' as const,
       replyTo: null,
-      kind: 'note' as const,
     }));
     await files.writeNotes(KOUFU, { [KEY]: entries });
   }

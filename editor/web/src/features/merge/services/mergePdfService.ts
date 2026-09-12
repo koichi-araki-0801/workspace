@@ -75,7 +75,10 @@ export function createMergePdfService(
   };
 }
 
-/** 1 テンプレを取得 → サンプル値適用 → PDF 入力文書へ変換する。失敗時は何件目かを文言に含める。 */
+/**
+ * 1 テンプレを取得 → (値入りでなければ)サンプル値適用 → PDF 入力文書へ変換する。
+ * 失敗時は何件目かを文言に含める。
+ */
 async function renderOne(
   templates: TemplateRepository,
   id: string,
@@ -87,6 +90,26 @@ async function renderOne(
     return err(conflict(`テンプレート${nth}の取得に失敗しました。`, { cause: tplRes.error }));
   }
   const tpl = tplRes.value;
+  // 失敗時の文言は「取得」「サンプル」と違い、値入り/通常のどちらの経路でも同じ
+  // (どちらも `renderPdfDocument` の失敗)なので 1 箇所にまとめる。
+  const fail = (cause: unknown) =>
+    err(conflict(`テンプレート${nth}のレンダリングに失敗しました。`, { cause }));
+
+  // 値入り HTML は完成した文書なので、サンプル取得も隔離描画も飛ばす(理由は
+  // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所)。
+  if (tpl.filled) {
+    const filledDoc = await renderPdfDocument(
+      tpl.filled,
+      formatCss(tpl.css),
+      {},
+      {
+        cropMarks: false,
+        skipJinja: true,
+      },
+    );
+    if (isErr(filledDoc)) return fail(filledDoc.error);
+    return filledDoc;
+  }
 
   const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
   if (isErr(sampleRes)) {
@@ -97,9 +120,7 @@ async function renderOne(
   const sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
 
   const doc = await renderPdfDocument(tpl.html, formatCss(tpl.css), sample, { cropMarks: false });
-  if (isErr(doc)) {
-    return err(conflict(`テンプレート${nth}のレンダリングに失敗しました。`, { cause: doc.error }));
-  }
+  if (isErr(doc)) return fail(doc.error);
   return doc;
 }
 

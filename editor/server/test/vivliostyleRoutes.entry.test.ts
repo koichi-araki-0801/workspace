@@ -21,6 +21,8 @@ const TEST_TMP_DIR = path.join(
   `editor-entry-test-${process.pid}-${crypto.randomBytes(4).toString('hex')}`,
 );
 process.env.TMP_DIR = TEST_TMP_DIR;
+// `?entry=` の封じ込めが本題で、認証は本テストの対象外(requireAuth を no-op にする)。
+process.env.AUTH_REQUIRED = 'false';
 
 /** `buildProjectInSlot` へ渡った引数(最後の 1 回)。実 CLI は起動しない。 */
 const calls: { dir: string; entry?: string }[] = [];

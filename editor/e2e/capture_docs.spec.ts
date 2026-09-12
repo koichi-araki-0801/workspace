@@ -3,17 +3,17 @@
 // =============================================================================
 // 実行は editor 配下で(`docs` project だけが本 spec を担当し、`chromium` は ignore する):
 //   pnpm exec playwright test --project docs
-// `playwright.config.ts` の webServer が Vite dev(:24681, ローカル/ localStorage モード)
-// を自動起動する。ログイン後はセッションが localStorage に乗るので、編集/プレビューは
-// seed テンプレ(AM01_510037_20240710_交付版)へ直接遷移して撮る。
-// 承認系(reviews-list/review-diff)は「admin で申請 → approver で承認タブを開く」を同一
-// コンテキスト(localStorage 共有)内で通しで再現する。
+// `playwright.config.ts` の webServer が sproc フェイクのサーバ(:24680)と Vite(:24681)を
+// 起動する。ログインはサーバ発行の cookie で、編集/プレビューは seed テンプレ
+// (AM01_510037_20240710_交付版)へ直接遷移して撮る。承認系(reviews-list/review-diff)は
+// admin で申請 → approver で承認タブを開く(`login()` が cookie を捨てて切り替える)。
 // 撮影は `animations: 'disabled'` で行う。スピナーの回転角やタブ切替のトランジション途中が
 // 写ると、内容が同じでもバイト列が run ごとに変わり、pre-push の再撮影が毎回作業ツリーを汚す。
 
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, type Page, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { login, openEditor, waitForLoaded, waitForStableBox } from './helpers';
 
 const here = dirname(fileURLToPath(import.meta.url));

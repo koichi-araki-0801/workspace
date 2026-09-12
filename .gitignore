@@ -53,3 +53,9 @@ docs/_build/vendor/mermaid-layout-elk.min.js
 # msnodesqlv8 の公式 prebuild（.node 入り tar.gz。npm tarball に入らないため重量物バンドルへ同梱し
 # setup が node_modules の .pnpm 実体へ展開。版は native-prebuilds/manifest.txt が規定し content key に折り込まれる）
 native-prebuilds/*.tar.gz
+# 遮断端末向けソース ZIP（publish の生成物、および遮断端末の setup が展開段でリポジトリ直下に残すもの。
+# clone 運用の端末で誤って生成されても追跡しないため）
+source.zip
+source.zip.sha256
+MANIFEST
+SOURCE-COMMIT

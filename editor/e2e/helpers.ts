@@ -9,9 +9,9 @@ import { expect, type FrameLocator, type Locator, type Page } from '@playwright/
 /**
  * ログイン(fixtures はログインID = パスワード運用: `admin`/`admin` 等)。`clearSession` は
  * 同一テスト内で別ユーザーへ入り直す(承認タブの精査等)ときに使う — 認証済みのまま
- * `/login` へ行くと router guard がアプリへ押し戻すため、先にセッションを捨てる。
- * 未認証の初回ログインでも no-op になる(`/` が `/login` へリダイレクトし、
- * `localStorage.removeItem` は何も無くても安全)ため、既定で有効にしておく。
+ * `/login` へ行くと router guard がアプリへ押し戻すため、先にセッション cookie を捨てる。
+ * 未認証の初回ログインでも no-op になる(cookie が無い状態で捨てても安全)ため、既定で
+ * 有効にしておく。
  */
 export async function login(
   page: Page,
@@ -19,9 +19,12 @@ export async function login(
   { clearSession = true }: { clearSession?: boolean } = {},
 ): Promise<void> {
   if (clearSession) {
+    // rest のセッションはサーバ発行の cookie。同じコンテキストでユーザーを切り替える
+    // (admin で申請 → approver で承認)ときは cookie を捨ててからログイン画面へ行く。
+    // ログイン画面は認証済みだと router guard がアプリへ押し戻すため、先に捨てる。
+    await page.context().clearCookies();
     await page.goto('/', { waitUntil: 'commit' });
-    await page.waitForURL(/\/(login|edit|reviews)/);
-    await page.evaluate(() => localStorage.removeItem('editor:session'));
+    await page.waitForURL(/\/login/);
   }
   await page.goto('/login', { waitUntil: 'commit' });
   // 全体 CI ではカバレッジ段の直後に走るため、SPA の初期化が既定の 30 秒に収まらないことがある。
@@ -129,9 +132,27 @@ export async function submitOnce(page: Page, id: string): Promise<void> {
     .waitFor({ state: 'visible', timeout: 60_000 });
   await page.getByRole('button', { name: '確定保存を申請' }).click();
   await page.getByRole('button', { name: '申請する' }).click();
-  // 申請は差分要約の計算と隔離描画を挟むので負荷下では 5 秒を超える。トーストは完了後に
-  // 出るため、既定の 5 秒では申請そのものと競争になる。
+  // 申請は差分要約の計算と隔離描画を挟み、CI の先頭(Vite dev サーバがコールドで依存最適化と
+  // worker チャンクの初回変換が重なる)では 30 秒を超える。トーストは完了後に出るため、待ちが
+  // 短いと申請そのものと競争になる。トースト待ちは単独で 90 秒あり、直前のプレビュー待ち(60 秒)
+  // と合算すると呼び出し元の test timeout(120 秒)を超えうるが、その場合はテスト timeout として
+  // 失敗する(ハングはしない)。
   await expect(page.getByRole('status').filter({ hasText: '確定保存を申請しました' })).toBeVisible({
-    timeout: 30_000,
+    timeout: 90_000,
   });
+}
+
+/**
+ * 自動保存された下書きをサーバから読む(無ければ null)。下書きの実体は
+ * `dataRoot/drafts/` にあり、localStorage には無い。
+ */
+export async function readDraft(
+  page: Page,
+  id: string,
+): Promise<{ html: string; css: string } | null> {
+  // `GET /api/templates/:id/draft` は下書きが無いと JSON の `null` を 200 で返す
+  // (`templates.routes.ts` は `getDraft` の戻りをそのまま返す)。
+  const res = await page.request.get(`/api/templates/${encodeURIComponent(id)}/draft`);
+  expect(res.ok(), `GET draft ${res.status()}`).toBeTruthy();
+  return (await res.json()) as { html: string; css: string } | null;
 }

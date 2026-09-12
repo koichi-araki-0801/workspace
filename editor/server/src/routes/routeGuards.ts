@@ -140,10 +140,10 @@ const REQUIRED_GUARD: Readonly<Record<Exclude<GuardLevel, 'public' | 'auth'>, un
 };
 
 /**
- * ローカルモード(`AUTH_REQUIRED` 未設定)でも施錠されねばならないルート。
+ * ローカルモード(`AUTH_REQUIRED=false`)でも施錠されねばならないルート。
  *
- * role ガード(`requireAdmin` 等)は `config.requireAuth` を見て素通りするため、フラグ未設定の
- * 既定 local 配備では検査ごと消える。資格情報・ユーザー台帳を操作する面は、フラグを見ない
+ * role ガード(`requireAdmin` 等)は `config.requireAuth` を見て素通りするため、`AUTH_REQUIRED=false`
+ * を明示した local 配備では検査ごと消える。資格情報・ユーザー台帳を操作する面は、フラグを見ない
  * `requireIdentifiedUser` を重ねて 401 にしなければならない(local にサーバ側アカウントは
  * 無いので 401 が正しい応答)。ここに載せたルートに `requireIdentifiedUser` が無ければ
  * **サーバ起動時に落ちる** — 「表にはガードがあるが local では効かない」形を届かせない。

@@ -20,6 +20,7 @@ import { confirm } from '@/components/ui/confirm';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
 import { useChangedSummaryService } from '@/features/reviews/services/changedSummary';
+import { editorRoute } from '@/features/templates/editorRoute';
 import { withCropMarks } from '@/lib/cropMarks';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
@@ -42,6 +43,8 @@ const previewDoc = ref('');
 const renderError = ref<string | null>(null);
 // 自動保存された draft の有無。上部バーの「変更なし」バッジにだけ使う。
 const hasDraft = ref(false);
+// 本文が値入り HTML(Jinja を持たない)か。PDF 出力で隔離描画を通すかの判断に使う。
+const isFilled = ref(false);
 // トンボ(トリムマーク)の ON/OFF。画面内トグルのみで保持し, 初期は ON。表示用の `displayDoc`
 // と PDF 出力(`exportPdf`)の双方へ効かせる。ベースの `previewDoc`(トンボ無し)は保持し,
 // 申請の記入済みインスタンス(`filledHtml`)には一時設定を混入させない。
@@ -92,6 +95,7 @@ onMounted(async () => {
   previewDoc.value = v.previewDoc;
   renderError.value = v.renderError;
   hasDraft.value = v.hasDraft;
+  isFilled.value = v.isFilled;
 });
 
 // 編集タブ(query なし) / 作成タブ(`?created=1`)の区別。申請に保持し 2 系統を保つ。
@@ -139,7 +143,7 @@ async function submitForReview() {
 
 async function exportPdf() {
   const res = await runExport(() =>
-    preview.renderPdf(restoredHtml.value, css.value, sample.value, cropMarks.value),
+    preview.renderPdf(restoredHtml.value, css.value, sample.value, cropMarks.value, isFilled.value),
   );
   if (isErr(res)) return;
   const url = URL.createObjectURL(res.value);
@@ -163,7 +167,10 @@ async function exportPdf() {
     <header
       class="z-30 flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-3.5 gap-y-2 border-b bg-card px-4 py-1.5 shadow-sm print:hidden"
     >
-      <BackButton :fallback="{ name: 'editor', params: { id } }" aria-label="エディターに戻る" />
+      <BackButton
+        :fallback="editorRoute(id, { created: origin === 'create' })"
+        aria-label="エディターに戻る"
+      />
       <div class="h-[26px] w-px shrink-0 bg-border" />
       <AttributeBar v-if="template" :attributes="template.meta.attributes" class="flex-1" />
       <span v-else class="flex-1" />

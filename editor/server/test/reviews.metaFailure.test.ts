@@ -17,6 +17,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-review-metafail-'));
 process.env.DATA_ROOT = tmp;
 process.env.GIT_REPO_DIR = tmp;
 process.env.TEMPLATES_DIR = path.join(tmp, 'templates');
+process.env.FILLED_DIR = path.join(tmp, 'filled');
 process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.REVIEWS_DIR = path.join(tmp, 'reviews');
 process.env.PENDING_DIR = path.join(tmp, 'pending');
@@ -55,8 +56,15 @@ d('review approve — meta 更新の部分失敗', () => {
   const submitter = { username: 'editor1', role: 'editor' };
   const approver = { username: 'approver1', role: 'approver' };
 
-  const submit = (templateId: string, fundCode: string, html: string) =>
-    reviews.submitReview({ templateId, html, css: '.x{}', fundCode, origin: 'edit' }, submitter);
+  // 編集経路(`origin:'edit'`)の申請は値入り HTML が既に在ることが前提なので先に置く。
+  const submit = (templateId: string, fundCode: string, html: string) => {
+    fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'filled', `${templateId}.html`), '<p>既存の値入り</p>', 'utf8');
+    return reviews.submitReview(
+      { templateId, html, css: '.x{}', fundCode, origin: 'edit' },
+      submitter,
+    );
+  };
 
   beforeAll(async () => {
     // DB(sproc)は本テストの対象外。承認直後の注記マスタ書き戻しが実 DB へ触れないよう、
@@ -90,7 +98,7 @@ d('review approve — meta 更新の部分失敗', () => {
     });
     metaFail.remaining = 0;
     // 実ファイル反映と git commit は完了済み(エラーメッセージの前提)であること。
-    const written = fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8');
+    const written = fs.readFileSync(path.join(tmp, 'filled', `${tplId}.html`), 'utf8');
     expect(written).toContain('恒常失敗');
     // meta は pending のまま残る(申請一覧に表示 = 手動復旧の手掛かり)。
     const after = await reviews.getReview(meta.id, approver);

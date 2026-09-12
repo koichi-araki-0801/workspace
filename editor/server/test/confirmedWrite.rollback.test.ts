@@ -39,13 +39,15 @@ process.env.GIT_REPO_DIR = path.join(root, 'data');
 const TEMPLATE_ID = 'AM01_510037_20240710_交付版';
 const FUND = '510037';
 const templatesDir = path.join(root, 'data', 'templates');
+const filledDir = path.join(root, 'data', 'filled');
 const cssDir = path.join(root, 'data', 'css');
 
 const confirmedWrite = await import('../src/repositories/confirmedWrite.js');
 
-const approve = () =>
+const approve = (target: 'filled' | 'template' = 'template') =>
   confirmedWrite.applyConfirmedWrite({
     kind: 'review-approve',
+    target,
     templateId: TEMPLATE_ID,
     fundCode: FUND,
     html: '<p>新しい本文</p>',
@@ -61,8 +63,10 @@ describe('applyConfirmedWrite の補償', () => {
   beforeEach(() => {
     failingSuffixes.clear();
     fs.rmSync(templatesDir, { recursive: true, force: true });
+    fs.rmSync(filledDir, { recursive: true, force: true });
     fs.rmSync(cssDir, { recursive: true, force: true });
     fs.mkdirSync(templatesDir, { recursive: true });
+    fs.mkdirSync(filledDir, { recursive: true });
     fs.mkdirSync(cssDir, { recursive: true });
   });
 
@@ -86,11 +90,26 @@ describe('applyConfirmedWrite の補償', () => {
     );
   });
 
+  it('値入り HTML でも CSS 書込の失敗で本体を元のバイト列へ戻す', async () => {
+    // 補償は書込先ごとに別のパスを触る。`filled` 側を通らない限り、値入り HTML が
+    // 中途半端な状態で確定する退行に気付けない。
+    fs.writeFileSync(path.join(filledDir, `${TEMPLATE_ID}.html`), '<p>元の値入り</p>', 'utf8');
+    failingSuffixes.add(`${FUND}.css`);
+
+    await expect(approve('filled')).rejects.toThrow('書込に失敗しました');
+
+    expect(fs.readFileSync(path.join(filledDir, `${TEMPLATE_ID}.html`), 'utf8')).toBe(
+      '<p>元の値入り</p>',
+    );
+    expect(fs.existsSync(path.join(templatesDir, `${TEMPLATE_ID}.html`))).toBe(false);
+  });
+
   it('afterWrite が失敗したら新規に作った転写先を残さない', async () => {
     const PAIR = 'AM01_510037_20240710_全体版';
     await expect(
       confirmedWrite.applyConfirmedWrite({
         kind: 'pair-sync',
+        target: 'template',
         targetTemplateId: PAIR,
         sourceTemplateId: TEMPLATE_ID,
         html: '<p>転写後</p>',

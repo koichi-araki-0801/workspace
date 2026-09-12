@@ -45,6 +45,33 @@ function templatesOf(edition = '交付版'): TemplateRepository {
   } as unknown as TemplateRepository;
 }
 
+/** `filled`(値入り HTML)を持つテンプレを返すスタブ。本文は id ごとに `body` が決める。 */
+function filledTemplatesOf(body: (id: string) => string): TemplateRepository {
+  return {
+    getTemplate: vi.fn(async (id: string) =>
+      ok({
+        meta: {
+          id,
+          attributes: {
+            companyCode: 'A',
+            fundCode: 'F',
+            baseDate: '20240101',
+            editionType: '交付版',
+          },
+          fileName: `${id}.html`,
+          status: 'published',
+          updatedAt: null,
+          updatedBy: null,
+        },
+        html: `<html><body><p>骨組み {{ report.editionType }}</p></body></html>`,
+        css: '.f{}',
+        filled: body(id),
+      } as Template),
+    ),
+    getSampleData: vi.fn(async () => ok({})),
+  } as unknown as TemplateRepository;
+}
+
 function historyOf() {
   const recordPdfExport = vi.fn(async () => ok(undefined));
   return { repo: { recordPdfExport } as unknown as HistoryRepository, recordPdfExport };
@@ -74,6 +101,38 @@ describe('MergePdfService.renderMergedPdf', () => {
     expect(recordPdfExport).toHaveBeenCalledTimes(2);
     expect(recordPdfExport).toHaveBeenCalledWith('t2');
     expect(recordPdfExport).toHaveBeenCalledWith('t1');
+  });
+
+  it('filled が非空のテンプレは描画を通さず、値入り HTML をそのまま PDF 入力にする', async () => {
+    const fetchSpy = vi.fn(async () => new Response('%PDF-1.4', { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const templates = filledTemplatesOf(
+      (id) => `<html><body><p>doc-${id} {{ report.editionType }}</p></body></html>`,
+    );
+    const svc = createMergePdfService(templates, historyOf().repo);
+
+    const res = await svc.renderMergedPdf(['t1']);
+    vi.unstubAllGlobals();
+
+    expect(isOk(res)).toBe(true);
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(init.body as string) as { documents: { html: string; css: string }[] };
+    // 描画を通していれば版種へ置き換わる。字面のまま残ることが「通していない」ことの主張。
+    expect(body.documents[0].html).toContain('{{ report.editionType }}');
+    expect(templates.getSampleData).not.toHaveBeenCalled();
+  });
+
+  it('値入り HTML が外部参照を含めば何件目かを含む conflict', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const templates = filledTemplatesOf(
+      () => '<html><body><img src="https://example.test/x.png"></body></html>',
+    );
+    const res = await createMergePdfService(templates, historyOf().repo).renderMergedPdf(['t1']);
+    vi.unstubAllGlobals();
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) expect(res.error.message).toContain('(1件目)');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('reports progress once per document', async () => {

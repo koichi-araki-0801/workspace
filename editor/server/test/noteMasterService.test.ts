@@ -7,19 +7,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/files/templateFiles.js', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../src/files/templateFiles.js')>();
-  return { ...orig, readTemplateHtml: vi.fn() };
+  return { ...orig, readTemplateHtml: vi.fn(), readFilledHtml: vi.fn() };
 });
 
 import type { PartCatalogItem, PartMasterReflectDefault } from '@editor/shared';
 import type { Param, SprocClient } from '../src/db/sproc.js';
 import { SP } from '../src/db/sprocNames.js';
-import { readTemplateHtml } from '../src/files/templateFiles.js';
+import { readFilledHtml, readTemplateHtml } from '../src/files/templateFiles.js';
 import type { PartRepo } from '../src/repositories/partRepo.js';
 import { createNoteMasterService } from '../src/sync/noteMasterService.js';
 
 const callSprocMock = vi.fn(async (..._a: unknown[]): Promise<Record<string, unknown>[]> => []);
 const listPartsMock = vi.fn(async (): Promise<PartCatalogItem[]> => []);
 const readTemplateHtmlMock = vi.mocked(readTemplateHtml);
+const readFilledHtmlMock = vi.mocked(readFilledHtml);
 
 // DB の実行面とカタログだけを差し替え、サービス本体は実装のまま組む。
 const parts: PartRepo = {
@@ -75,7 +76,11 @@ describe('reflectNoteMasterAfterConfirm', () => {
     listPartsMock.mockResolvedValue([catalogItem('note-a', '反映'), catalogItem('other', null)]);
     callSprocMock.mockResolvedValue([]);
 
-    const res = await reflectNoteMasterAfterConfirm('AM01_510037_20240710_交付版', 'approver1');
+    const res = await reflectNoteMasterAfterConfirm(
+      'AM01_510037_20240710_交付版',
+      'approver1',
+      'template',
+    );
 
     expect(res).toEqual({ updated: ['note-a'], error: null });
     expect(callSprocMock).toHaveBeenCalledTimes(1);
@@ -95,14 +100,18 @@ describe('reflectNoteMasterAfterConfirm', () => {
     readTemplateHtmlMock.mockResolvedValue(doc(part('no', 'X'), part('undecided', 'Y')));
     listPartsMock.mockResolvedValue([catalogItem('no', '非反映'), catalogItem('undecided', null)]);
 
-    const res = await reflectNoteMasterAfterConfirm('AM01_510037_20240710_交付版', 'approver1');
+    const res = await reflectNoteMasterAfterConfirm(
+      'AM01_510037_20240710_交付版',
+      'approver1',
+      'template',
+    );
 
     expect(res).toEqual({ updated: [], error: null });
     expect(callSprocMock).not.toHaveBeenCalled();
   });
 
   it('テンプレ ID が解決できなければ null(何もしない)', async () => {
-    const res = await reflectNoteMasterAfterConfirm('壊れたID', 'approver1');
+    const res = await reflectNoteMasterAfterConfirm('壊れたID', 'approver1', 'template');
     expect(res).toBeNull();
     expect(readTemplateHtmlMock).not.toHaveBeenCalled();
   });
@@ -112,7 +121,11 @@ describe('reflectNoteMasterAfterConfirm', () => {
     listPartsMock.mockResolvedValue([catalogItem('note-a', '反映')]);
     callSprocMock.mockRejectedValue(new Error('DB 停止中'));
 
-    const res = await reflectNoteMasterAfterConfirm('AM01_510037_20240710_交付版', 'approver1');
+    const res = await reflectNoteMasterAfterConfirm(
+      'AM01_510037_20240710_交付版',
+      'approver1',
+      'template',
+    );
     expect(res).toEqual({ updated: [], error: 'DB 停止中' });
   });
 
@@ -120,15 +133,38 @@ describe('reflectNoteMasterAfterConfirm', () => {
     readTemplateHtmlMock.mockResolvedValue(doc(part('note-a', 'A')));
     listPartsMock.mockRejectedValue(new Error('カタログ不達'));
 
-    const res = await reflectNoteMasterAfterConfirm('AM01_510037_20240710_交付版', 'approver1');
+    const res = await reflectNoteMasterAfterConfirm(
+      'AM01_510037_20240710_交付版',
+      'approver1',
+      'template',
+    );
     expect(res).toEqual({ updated: [], error: 'カタログ不達' });
+  });
+
+  it("target='filled' のときは値入り HTML を読む(templates/ は読まない)", async () => {
+    // 書き戻す実体は承認が書いた先と同じでなければならない。編集タブの承認は値入り HTML を
+    // 確定させるので、ここで Jinja 側を読むと未承認の文言をマスタへ昇格させてしまう。
+    listPartsMock.mockResolvedValue([catalogItem('note1', '反映')]);
+    readFilledHtmlMock.mockResolvedValue(doc(part('note1', '値入り注記')));
+    readTemplateHtmlMock.mockResolvedValue(doc(part('note1', 'Jinja 注記')));
+    callSprocMock.mockResolvedValue([]);
+
+    const res = await reflectNoteMasterAfterConfirm('AM01_510037_20240710_交付版', 'u', 'filled');
+
+    expect(res?.updated).toEqual(['note1']);
+    expect(readTemplateHtmlMock).not.toHaveBeenCalled();
+    expect(paramMap(callSprocMock.mock.calls[0]?.[2] ?? []).注記HTML).toContain('値入り注記');
   });
 
   it('Error でない失敗値も文字列化して error へ載せる', async () => {
     readTemplateHtmlMock.mockResolvedValue(doc(part('note-a', 'A')));
     listPartsMock.mockRejectedValue('文字列 reject');
 
-    const res = await reflectNoteMasterAfterConfirm('AM01_510037_20240710_交付版', 'approver1');
+    const res = await reflectNoteMasterAfterConfirm(
+      'AM01_510037_20240710_交付版',
+      'approver1',
+      'template',
+    );
     expect(res).toEqual({ updated: [], error: '文字列 reject' });
   });
 });

@@ -38,6 +38,35 @@ describe('localTemplateRepo.getTemplate', () => {
     expect(isErr(r)).toBe(true);
     if (isErr(r)) expect(r.error.kind).toBe('not_found');
   });
+
+  it("origin='edit' の確定保存は filled を更新し html は据え置く", async () => {
+    const id = 'AM01_510037_20240710_交付版';
+    const before = await localTemplateRepo.getTemplate(id);
+    await confirmSaveLocal({
+      templateId: id,
+      html: '<p>値入り更新</p>',
+      css: '',
+      fundCode: '510037',
+      origin: 'edit',
+    });
+    const after = await localTemplateRepo.getTemplate(id);
+    expect(isOk(after) && after.value.filled).toBe('<p>値入り更新</p>');
+    expect(isOk(after) && isOk(before) && after.value.html).toBe(before.value.html);
+  });
+
+  it("origin='create' の確定保存は html を更新し filled を空にする(従来どおり)", async () => {
+    const id = 'AM01_510037_20240710_全体版';
+    await confirmSaveLocal({
+      templateId: id,
+      html: '<p>{{ x }}</p>',
+      css: '',
+      fundCode: '510037',
+      origin: 'create',
+    });
+    const after = await localTemplateRepo.getTemplate(id);
+    expect(isOk(after) && after.value.html).toBe('<p>{{ x }}</p>');
+    expect(isOk(after) && after.value.filled).toBe('');
+  });
 });
 
 describe('localTemplateRepo.getSyncStatus', () => {
@@ -68,7 +97,7 @@ describe('localTemplateRepo.getSyncStatus', () => {
 });
 
 describe('confirmSaveLocal round-trip', () => {
-  it('persists html/css and marks the template published', async () => {
+  it("origin='create' の確定保存は html を残し、値入り HTML が無いので draft に戻る", async () => {
     const list = await localTemplateRepo.listTemplates({});
     expect(isOk(list)).toBe(true);
     if (!isOk(list) || list.value.length === 0) return;
@@ -79,13 +108,31 @@ describe('confirmSaveLocal round-trip', () => {
       html: '<p>round-trip</p>',
       css: '.x{}',
       fundCode: target.attributes.fundCode,
+      origin: 'create',
     });
     expect(isOk(saved)).toBe(true);
-    if (isOk(saved)) expect(saved.value.status).toBe('published');
+    // 作成タブの承認は Jinja 骨組みを差し替えるため、古い静的 filled は捨てられる
+    // (`getTemplate` が空を返す)。`status` は値入り HTML の有無だけから決まるので draft。
+    if (isOk(saved)) expect(saved.value.status).toBe('draft');
 
     const reread = await localTemplateRepo.getTemplate(target.id);
     expect(isOk(reread)).toBe(true);
     if (isOk(reread)) expect(reread.value.html).toBe('<p>round-trip</p>');
+  });
+
+  it("origin='edit' の確定保存は値入り HTML を書くので published のまま", async () => {
+    const list = await localTemplateRepo.listTemplates({});
+    if (!isOk(list) || list.value.length === 0) return;
+    const target = list.value[0];
+
+    const saved = await confirmSaveLocal({
+      templateId: target.id,
+      html: '<p>値入り</p>',
+      css: '.x{}',
+      fundCode: target.attributes.fundCode,
+      origin: 'edit',
+    });
+    expect(isOk(saved) && saved.value.status).toBe('published');
   });
 });
 
@@ -108,6 +155,7 @@ describe('confirmSaveLocal version snapshots', () => {
       html: '<p>v1</p>',
       css: '.v1{}',
       fundCode: target.attributes.fundCode,
+      origin: 'edit',
     });
     expect(isOk(saved)).toBe(true);
 

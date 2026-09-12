@@ -31,6 +31,8 @@ process.env.TMP_DIR = TEST_TMP_DIR;
 process.env.DATA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-preview-routes-data-'));
 process.env.AUDIT_DB = 'false';
 process.env.LOG_DIR = path.join(TEST_TMP_DIR, 'logs');
+// build/preview の HTTP 契約が本題で、認証は本テストの対象外(requireAuth を no-op にする)。
+process.env.AUTH_REQUIRED = 'false';
 
 // build 系 3 関数はテストごとに失敗させたいことがある(`auditedRethrow` の failure 分岐 =
 // 監査ログを outcome=failure で記録する経路が、成功応答だけでは一度も踏まれない)。

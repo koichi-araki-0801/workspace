@@ -9,7 +9,7 @@
 //
 // 併せて、右ペインの下書きが別パーツへ持ち越されないこと(別パーツにメモが付く事故)と、
 // 閉じた吹き出しが投稿の追加で開き直すこと(件数だけ増えて何も見えない事故)も固定する。
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { expectSelectedPart, login, openEditor, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
@@ -43,12 +43,12 @@ test('メモ吹き出しは閉じる・編集・削除を実際に受け付け�
   await frame.locator('.page > *').nth(2).click();
   await expect(draft).toHaveValue('');
 
-  // 閉じた吹き出しは、投稿を足したら開き直す(件数だけ増えて何も見えない状態を作らない)。
+  // メモのあるパーツを選び直しても吹き出しは開かない(選択だけでは開かない不変則)。
+  // 閉じたまま投稿を足したら開き直す(件数だけ増えて何も見えない状態を作らない)。
   // この canvas では直前に選択操作(`selectPart`)が済んでおり GrapesJS の選択配線は
   // 既に確立しているため、`selectPart` の再試行クリックは不要で単純な待ちで足りる。
   await partA.click();
   await expectSelectedPart(frame);
-  await bubble.getByRole('button', { name: 'コメントを閉じる' }).click();
   await expect(bubble).toHaveCount(0);
   await draft.fill('閉じた状態で足したメモ。');
   await addButton.click();
@@ -80,6 +80,11 @@ test('吹き出しから返信と解決ができ、マーカーが灰色にな�
   await page.locator('button[data-add-submit]').click();
 
   const bubble = page.locator('.note-bubble');
+  await expect(bubble).toBeVisible(); // 投稿の追加で開く
+  await bubble.getByRole('button', { name: 'コメントを閉じる' }).click();
+  // 選択しただけでは吹き出しを出さない(明示していないのに紙面へ重ねない)。
+  await expect(bubble).toHaveCount(0);
+  await page.locator('[data-note-marker]').first().click();
   await expect(bubble).toBeVisible();
   await bubble.getByRole('button', { name: '返信する' }).click();
   await bubble.locator('[data-bubble-reply]').fill('返信です');
@@ -89,4 +94,27 @@ test('吹き出しから返信と解決ができ、マーカーが灰色にな�
   await bubble.getByRole('button', { name: '解決にする' }).click();
   await expect(page.locator('.note-marker.note-marker-resolved')).toHaveCount(1);
   await expect(bubble.getByRole('button', { name: '未対応に戻す' })).toBeVisible();
+});
+
+// 吹き出しはマーカーのクリック・一覧の行クリック・投稿の追加でだけ開き、選択が変わると閉じる。
+test('吹き出しは選択だけでは開かず、マーカーのクリックで開き、別パーツの選択で閉じる', async ({
+  page,
+}) => {
+  await login(page);
+  const frame = await openEditor(page, SEED_ID);
+  const bubble = page.locator('.note-bubble');
+  const partA = frame.locator('.page > *').nth(4);
+  await selectPart(frame, partA);
+  await page.locator('[data-pane-tab="comments"]').click();
+  await page.getByPlaceholder('このパーツへのコメントを書く').fill('マーカーで開く');
+  await page.locator('button[data-add-submit]').click();
+  await expect(bubble).toHaveCount(1); // 投稿の追加では開く
+
+  await frame.locator('.page > *').nth(2).click(); // 別パーツの選択で閉じる
+  await expect(bubble).toHaveCount(0);
+  await selectPart(frame, partA); // コメントのあるパーツを選んでも開かない
+  await expect(bubble).toHaveCount(0);
+  await page.locator('[data-note-marker]').first().click();
+  await expect(bubble).toHaveCount(1);
+  await expect(bubble.getByText('マーカーで開く')).toBeVisible();
 });
