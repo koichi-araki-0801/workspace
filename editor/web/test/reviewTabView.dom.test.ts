@@ -199,6 +199,34 @@ describe('対象テンプレートの解決', () => {
     });
   });
 
+  it('メタが取れないとき、承認済みの作成申請しか無ければ編集経路で開く', async () => {
+    editPath.value = `/edit/${encodeURIComponent(TPL)}`;
+    getTemplateFn.mockResolvedValue(err(unexpected('読み取り失敗')));
+    const w = await mountTab([meta({ origin: 'create', status: 'approved' })]);
+    await flushPromises();
+    await w
+      .findAll('button')
+      .find((b) => b.text() === '編集画面へ')
+      ?.trigger('click');
+    expect(push).toHaveBeenCalledWith({ name: 'editor', params: { id: TPL } });
+  });
+
+  it('メタが取れないとき、承認待ちの作成申請があれば作成経路で開く', async () => {
+    editPath.value = `/edit/${encodeURIComponent(TPL)}`;
+    getTemplateFn.mockResolvedValue(err(unexpected('読み取り失敗')));
+    const w = await mountTab([meta({ origin: 'create', status: 'pending' })]);
+    await flushPromises();
+    await w
+      .findAll('button')
+      .find((b) => b.text() === '編集画面へ')
+      ?.trigger('click');
+    expect(push).toHaveBeenCalledWith({
+      name: 'editor',
+      params: { id: TPL },
+      query: { created: '1' },
+    });
+  });
+
   it('query の template が編集タブの記憶より優先される', async () => {
     editPath.value = '/edit/OTHER';
     route.query = { template: TPL };
