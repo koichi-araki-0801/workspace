@@ -10,7 +10,9 @@ import type { TemplateMeta } from '@editor/shared';
 import type { RouteLocationRaw } from 'vue-router';
 
 /**
- * 編集画面への遷移先。`created` query を出す唯一の場所。
+ * 編集画面への遷移先。編集画面へ `created` query を出す唯一の場所(作成タブ・テンプレ一覧・
+ * 承認タブ・プレビューの「戻る」がここを通る。`EditorView` がプレビューへ渡す `created` は
+ * 受け取った query の素通しで、経路を決めてはいない)。
  * 編集経路では query を持たせない(空の `query` を付けると URL に `?` が残り、
  * 「query なし = 編集経路」の見分けに余計な形が混ざる)。
  */
