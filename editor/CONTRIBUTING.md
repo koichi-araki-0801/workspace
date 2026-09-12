@@ -68,7 +68,7 @@ web/src/
 server/src/
   routes/              ← API エンドポイント（*.routes.ts）。app.ts に登録
   auth/                ← セッション/Cookie・初回パスワード初期化
-  db/                  ← SQL Server アクセス（sproc ゲートウェイ。Phase2）
+  db/                  ← SQL Server アクセス（sproc ゲートウェイ。`rest` 用）
   vivliostyle/ generate/ ← PDF/preview（vivliostyle CLI）・Python 生成器アダプタ
 data/                  ← テンプレ(.html)・CSS（サーバが参照。整形対象外・git 管理外）
 ```
