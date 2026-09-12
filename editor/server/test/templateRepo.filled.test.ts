@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { sampleCommon } from '@editor/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SprocClient } from '../src/db/sproc.js';
 
@@ -104,7 +105,9 @@ describe('getSampleData と parseFundMaster の分岐', () => {
   it('company が欠けたマスタは未収録ファンド扱い(placeholder のまま)', async () => {
     const repo = createTemplateRepo(sprocWithSampleJson(JSON.stringify({ fund: { name: 'x' } })));
     const sample = await repo.getSampleData('999999');
-    expect(sample.fund.name).not.toBe('x');
+    // if 条件が false になり `buildSampleData(undefined, ...)` へ落ちるので、
+    // 共通ダミー(`sampleCommon`)の placeholder がそのまま出る。
+    expect(sample.fund.name).toBe(sampleCommon.fund.name);
   });
 
   it('nickname が無ければ空文字で補う', async () => {
