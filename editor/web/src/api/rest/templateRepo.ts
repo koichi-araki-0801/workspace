@@ -33,8 +33,10 @@ function readSampleCache(fundCode: string): SampleData | null {
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     // sessionStorage は他スクリプト・拡張機能からも書き換えられうる外部入力。オブジェクトで
-    // ない値(壊れた JSON)を SampleData として扱うと呼び出し側が形の合わない値を掴む。
-    return typeof parsed === 'object' && parsed !== null ? (parsed as SampleData) : null;
+    // ない値(壊れた JSON・配列)を SampleData として扱うと呼び出し側が形の合わない値を掴む。
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as SampleData)
+      : null;
   } catch {
     return null;
   }

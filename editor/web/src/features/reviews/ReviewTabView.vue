@@ -203,12 +203,15 @@ function focusPart(reqId: string, key: string) {
 }
 
 function goEdit() {
-  // メタ未取得(`loadParts` の応答前のクリック)でも申請の `origin` を第 2 の根拠にする。
+  // メタ未取得(`loadParts` の応答前・取得失敗)でも申請の `origin` を第 2 の根拠にする。
+  // 見るのは承認待ちだけ — 決着済みの作成申請は「承認で値入り HTML になった」か「却下で
+  // 何も無い」かのどちらかで、いま作成経路で開く根拠にならない(取得失敗はテンプレートが
+  // 直るまで続くので、決着済みまで見ると誤判定が固定化する)。
   // 根拠がどちらも無いときだけ編集経路へ落とす — pending だけのテンプレートを編集経路で
   // 開くと、値入り HTML が無いまま申請へ進んで server に拒否される。
   const created = targetMeta.value
     ? opensAsCreate(targetMeta.value)
-    : mine.value.some((m) => m.origin === 'create');
+    : mine.value.some((m) => m.origin === 'create' && m.status === 'pending');
   if (targetId.value) router.push(editorRoute(targetId.value, { created }));
   else router.push({ name: 'edit' });
 }

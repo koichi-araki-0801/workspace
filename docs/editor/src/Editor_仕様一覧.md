@@ -7,7 +7,7 @@ rev:
   - 1.1 | 2026-08-15 | 実装との突合（ロール approver・REST ルート全列挙・sproc 7 本・注記マスタ）
 ---
 
-対象: 運報自動化 Editor（フェーズ2 REST + SQL Server）／ 版 1.1 ／ 出典: editor/ 実装コード・DDL・テスト
+対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.1 ／ 出典: editor/ 実装コード・DDL・テスト
 
 # 画面項目定義
 

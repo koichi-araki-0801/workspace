@@ -212,6 +212,8 @@ export const metaMatches = (m: TemplateMeta, q: DropdownQuery): boolean =>
 
 // ── 3. derived helpers — fixtures + overlay からの導出 ──
 
+type Overlay = Record<string, string>;
+
 /**
  * テンプレートの値入り HTML(filled)。編集タブの承認で上書きした本文 → 未編集 fixture の
  * 静的 filled の順で引き、無ければ空文字を返す。作成タブの承認で Jinja が変わった id
@@ -221,14 +223,28 @@ export const metaMatches = (m: TemplateMeta, q: DropdownQuery): boolean =>
  * 対応し、一覧の `status` も編集経路の申請可否もここだけから導く(判定が 2 本あると、
  * 一覧では published なのに申請が拒まれる、といった食い違いが出る)。
  */
-export function resolveFilled(id: string, fileName: string): string {
-  const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
-  const filledOverride = read<Record<string, string>>(K.filledOverride, {});
+function resolveFilledWith(
+  id: string,
+  fileName: string,
+  htmlOverride: Overlay,
+  filledOverride: Overlay,
+): string {
   return filledOverride[id] ?? (htmlOverride[id] ? '' : (fixtureFilled[fileName] ?? ''));
 }
 
+/** ストレージから読んで `resolveFilledWith` に委譲する。 */
+export function resolveFilled(id: string, fileName: string): string {
+  return resolveFilledWith(
+    id,
+    fileName,
+    read<Overlay>(K.htmlOverride, {}),
+    read<Overlay>(K.filledOverride, {}),
+  );
+}
+
 export function allMetas(): TemplateMeta[] {
-  const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
+  const htmlOverride = read<Overlay>(K.htmlOverride, {});
+  const filledOverride = read<Overlay>(K.filledOverride, {});
   const ids = new Set([
     ...Object.keys(fixtureTemplates).map(templateIdFromFileName),
     ...Object.keys(htmlOverride),
@@ -251,7 +267,10 @@ export function allMetas(): TemplateMeta[] {
       //
       // META(`saved`)の `status` は読まない。読むと確定保存が書いた値が `resolveFilled`
       // より優先され、作成タブの承認で値入り HTML を失った id が published のまま残る。
-      status: resolveFilled(id, fileName) !== '' ? 'published' : 'draft',
+      status:
+        resolveFilledWith(id, fileName, htmlOverride, filledOverride) !== ''
+          ? 'published'
+          : 'draft',
       updatedAt: saved?.updatedAt ?? null,
       updatedBy: saved?.updatedBy ?? null,
     });

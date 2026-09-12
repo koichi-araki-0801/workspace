@@ -152,6 +152,18 @@ describe('restTemplateRepo', () => {
     await restTemplateRepo.getSampleData('510037');
     expect(calls).toHaveLength(2);
   });
+  it('getSampleData は sessionStorage に配列が入っていてもそれを返さず API から取り直す', async () => {
+    sessionStorage.clear();
+    sessionStorage.setItem('editor:sample:510037', '[]');
+    const calls = stubFetch(() => json({ fund: { code: '510037', name: 'F' } }));
+    const res = await restTemplateRepo.getSampleData('510037');
+    expect(calls).toHaveLength(1);
+    expect(isOk(res) && res.value).toEqual({ fund: { code: '510037', name: 'F' } });
+    // 取り直した値で上書きされている(配列は残らない)。
+    expect(JSON.parse(sessionStorage.getItem('editor:sample:510037') ?? 'null')).toEqual({
+      fund: { code: '510037', name: 'F' },
+    });
+  });
   it('getSampleData は失敗を保存しない', async () => {
     sessionStorage.clear();
     stubFetch(() => new Response('{}', { status: 500 }));

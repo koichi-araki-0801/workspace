@@ -1,5 +1,5 @@
 import { isErr, isOk, type PartHistoryEntry } from '@editor/shared';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
 import { localHistoryRepo } from '@/api/local/historyRepo';
 import { localPartRepo } from '@/api/local/partRepo';
@@ -263,5 +263,17 @@ describe('localPartRepo', () => {
     // a different templateId is unaffected
     const other = await localPartRepo.listPartHistory('T2');
     if (isOk(other)) expect(other.value).toEqual([]);
+  });
+});
+
+describe('allMetas の localStorage 読み取り回数', () => {
+  it('テンプレ件数に関わらず filledOverride / htmlOverride は 1 回ずつしか読まない', async () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem');
+    const res = await localTemplateRepo.listTemplates({});
+    expect(isOk(res)).toBe(true);
+    const keys = spy.mock.calls.map(([k]) => k);
+    expect(keys.filter((k) => k === K.filledOverride)).toHaveLength(1); // 'editor:filled'
+    expect(keys.filter((k) => k === K.htmlOverride)).toHaveLength(1); // 'editor:html'
+    spy.mockRestore();
   });
 });
