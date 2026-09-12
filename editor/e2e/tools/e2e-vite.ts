@@ -54,8 +54,9 @@ const viteBin = path.join(
 const nodeOptions = [
   process.env.NODE_OPTIONS,
   '--report-on-fatalerror',
-  // Node は NODE_OPTIONS 内の引用符を解釈する。パスに空白があっても 1 引数に保つ。
-  `--report-directory="${outDir}"`,
+  // Node は NODE_OPTIONS 内の引用符を解釈し、引用符の中では `\` を次の文字のエスケープとして
+  // 食う。パスに空白があっても 1 引数に保つため引用符で囲み、Windows パスの `\` は二重化する。
+  `--report-directory="${outDir.replace(/\\/g, '\\\\')}"`,
 ]
   .filter(Boolean)
   .join(' ');

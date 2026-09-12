@@ -1,5 +1,5 @@
 import { isErr, isOk, type PartHistoryEntry } from '@editor/shared';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
 import { localHistoryRepo } from '@/api/local/historyRepo';
 import { localPartRepo } from '@/api/local/partRepo';
@@ -268,7 +268,6 @@ describe('localPartRepo', () => {
 
 describe('allMetas の localStorage 読み取り回数', () => {
   it('テンプレ件数に関わらず filledOverride / htmlOverride は 1 回ずつしか読まない', async () => {
-    const { vi } = await import('vitest');
     const spy = vi.spyOn(Storage.prototype, 'getItem');
     const res = await localTemplateRepo.listTemplates({});
     expect(isOk(res)).toBe(true);
