@@ -265,3 +265,16 @@ describe('localPartRepo', () => {
     if (isOk(other)) expect(other.value).toEqual([]);
   });
 });
+
+describe('allMetas の localStorage 読み取り回数', () => {
+  it('テンプレ件数に関わらず filledOverride / htmlOverride は 1 回ずつしか読まない', async () => {
+    const { vi } = await import('vitest');
+    const spy = vi.spyOn(Storage.prototype, 'getItem');
+    const res = await localTemplateRepo.listTemplates({});
+    expect(isOk(res)).toBe(true);
+    const keys = spy.mock.calls.map(([k]) => k);
+    expect(keys.filter((k) => k === K.filledOverride)).toHaveLength(1); // 'editor:filled'
+    expect(keys.filter((k) => k === K.htmlOverride)).toHaveLength(1); // 'editor:html'
+    spy.mockRestore();
+  });
+});
