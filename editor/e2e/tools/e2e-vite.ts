@@ -23,8 +23,19 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const logPath = path.join(outDir, `vite-${stamp}.log`);
 const log = fs.createWriteStream(logPath);
 const recent: string[] = [];
+/**
+ * procdump は stdout に UTF-16LE を吐き、同じパイプに Vite(UTF-8)も流れる。chunk 単位で
+ * 書き手が分かれるので、奇数バイトの半分以上が NUL なら UTF-16LE として復号する
+ * (ASCII 主体の UTF-16LE は 1 文字おきに NUL が並ぶ。UTF-8 の出力に NUL は現れない)。
+ */
+const looksUtf16le = (chunk: Buffer): boolean => {
+  if (chunk.length < 2 || chunk.length % 2 !== 0) return false;
+  let zeros = 0;
+  for (let i = 1; i < chunk.length; i += 2) if (chunk[i] === 0) zeros += 1;
+  return zeros * 2 > chunk.length / 2;
+};
 const keep = (chunk: Buffer): void => {
-  const text = chunk.toString('utf8');
+  const text = chunk.toString(looksUtf16le(chunk) ? 'utf16le' : 'utf8');
   log.write(text);
   for (const line of text.split(/\r?\n/)) {
     recent.push(line);
@@ -43,7 +54,8 @@ const viteBin = path.join(
 const nodeOptions = [
   process.env.NODE_OPTIONS,
   '--report-on-fatalerror',
-  `--report-directory=${outDir}`,
+  // Node は NODE_OPTIONS 内の引用符を解釈する。パスに空白があっても 1 引数に保つ。
+  `--report-directory="${outDir}"`,
 ]
   .filter(Boolean)
   .join(' ');
@@ -56,6 +68,14 @@ const [cmd, args]: [string, string[]] = procdump
   : [process.execPath, viteArgs];
 
 const child = spawn(cmd, args, { cwd: webDir, env, stdio: ['inherit', 'pipe', 'pipe'] });
+// 起動そのものの失敗(`E2E_VITE_PROCDUMP` のパス誤り = ENOENT 等)。`exit` は来ないので、
+// ここで記録して終える(未捕捉のままだと例外で落ちてログが残らない)。
+child.on('error', (e) => {
+  const head = `[e2e-vite] spawn failed cmd=${cmd}: ${e.message}`;
+  process.stderr.write(`${head}\n`);
+  fs.writeFileSync(path.join(outDir, `exit-${stamp}.txt`), `${head}\n`, 'utf8');
+  log.end(() => process.exit(1));
+});
 child.stdout.on('data', (c: Buffer) => {
   process.stdout.write(c);
   keep(c);
