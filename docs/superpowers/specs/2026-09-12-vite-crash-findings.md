@@ -67,4 +67,47 @@ cdb -z <dmp> -c "!analyze -v; q"
 
 ## 所見
 
-（未記入。採取したダンプの `FAULTING_MODULE` / `STACK_TEXT` をここへ書く。）
+### 計数（ランチャ導入後）
+
+| 起動方法 | 実行回数 | Vite 死亡 | 備考 |
+|---|---|---|---|
+| ランチャ（`node editor/e2e/tools/e2e-vite.ts`。Node が `vite/bin/vite.js` を直接起動） | 6 | 0 | procdump あり 5 回・なし 1 回。全回 44/44 |
+| 旧コマンド（`pnpm --filter web exec vite`。cmd.exe → pnpm → node） | 3 | 2 | B: 9 passed / 33 failed、C: 37 passed / 5 failed。死亡地点は回ごとに違う |
+
+ランチャ導入前の記録（通算 16 回中 7 回死亡）も旧コマンドで走っていた。合わせると旧コマンドは
+19 回中 9 回、ランチャは 6 回中 0 回。
+
+### 死亡時の出力
+
+旧コマンドで死ぬときは、毎回 pnpm の reporter が `undefined` を 1 行出した直後に
+`[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 3221226505: vite --port 24681`
+で終わる。Vite 自身の出力は死ぬ前に 1 行も無い。`3221226505` = `0xC0000409`
+（`STATUS_STACK_BUFFER_OVERRUN`。ネイティブコードの `__fastfail` / `abort()` 系の即死）。
+
+ランチャ経由では procdump が node.exe（= Vite 本体）に張り付いた状態で 5 回走らせたが、例外は
+1 度も捕捉されず `.dmp` は生成されていない。つまり **Vite 本体の node.exe は落ちていない**。
+
+### 判断
+
+死んでいるのは Vite の node.exe ではなく、`pnpm exec` が挟む中間層（cmd.exe → pnpm 自身の
+node プロセス → 子の node）のどこかである。pnpm 側のプロセスが即死すると Playwright からは
+「webServer の command が exit 0xC0000409 で終わった」ようにしか見えず、Vite の子プロセスも
+道連れになって接続拒否になる。`undefined` が直前に出るのは pnpm の reporter が例外オブジェクトを
+持たないまま終了処理へ入っている形で、これも pnpm 側の異常終了と整合する。
+
+メモリの相関: 死亡した B の実行中は空きメモリが 0.8〜1.2 GB、コミット済み 58〜70% で、
+生き残った回と同程度。資源枯渇だけでは説明がつかない。
+
+依存の遅延最適化（Vite の deps キャッシュは温まっている）、Worker 初回ロード（warmup を入れても
+再現し、死亡地点も移動）、`server.warmup` は既に否定済み。
+
+### 結論と対策
+
+- **対策は Task 1 で入れたランチャそのもの**（Node が `vite/bin/vite.js` を直接起動する）。
+  pnpm を経由しないだけで 6 回連続で再現しない。追加の依存変更（Vite 7 系への固定）や
+  `test:e2e` のリトライは要らない。
+- 残る未解決は「pnpm 11.18 の exec がなぜ 0xC0000409 で落ちるか」。Vite の問題ではないため
+  本リポジトリ側で追う価値は低い。再発時は procdump を **pnpm の node プロセス**（ランチャでなく
+  `pnpm exec` を包む形）に張れば faulting module が取れる。
+- 開発者が手で `pnpm --filter web exec vite` / `pnpm dev` を使う分には Playwright の並列負荷が
+  無く、これまで実害の報告も無い。手順は変えない。
