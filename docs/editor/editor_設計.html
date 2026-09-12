@@ -212,14 +212,16 @@ const repositories = useLocal ? localRepositories : restRepositories;</code></pr
     const meta = allMetas().find((m) =&gt; m.id === id);
     if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
     const htmlOverride = read&lt;Record&lt;string, string&gt;&gt;(K.htmlOverride, {});
-    const filledOverride = read&lt;Record&lt;string, string&gt;&gt;(K.filledOverride, {});
     const cssOverride = read&lt;Record&lt;string, string&gt;&gt;(K.cssOverride, {});
     const html = htmlOverride[id] ?? fixtureTemplates[meta.fileName] ?? '';
-    const css = cssOverride[meta.attributes.fundCode] ?? fixtureCss[meta.attributes.fundCode] ?? '';
-    // 編集タブの承認で上書きした値入り HTML → 未編集 fixture の静的 filled の順。
-    const filled = filledOverride[id] ?? (htmlOverride[id] ? '' : (fixtureFilled[meta.fileName] ?? ''));
-    return delay({ meta, html, css, filled });
-  }),</code></pre></div><p>rest 実装は REST への委譲のみ（<code>web/src/api/rest/templateRepo.ts</code>）:</p><div class="code"><span class="code-lang">ts</span><pre><code>getTemplate: (id: string) =&gt;
+    const css =
+      cssOverride[meta.attributes.fundCode] ?? fixtureCss[meta.attributes.fundCode] ?? '';
+    return delay({ meta, html, css, filled: resolveFilled(id, meta.fileName) });
+  }),</code></pre></div><p><code>filled</code> の値は <code>resolveFilled</code>（<code>web/src/api/local/store.ts</code>）が決める。編集タブの承認で上書きした値入り HTML → 未編集 fixture の静的 filled の順で引き、作成タブの承認で Jinja が変わった id（<code>htmlOverride</code> が在る）は静的 filled が古いので空扱いにし、editor に再差込させる:</p><div class="code"><span class="code-lang">ts</span><pre><code>export function resolveFilled(id: string, fileName: string): string {
+  const htmlOverride = read&lt;Record&lt;string, string&gt;&gt;(K.htmlOverride, {});
+  const filledOverride = read&lt;Record&lt;string, string&gt;&gt;(K.filledOverride, {});
+  return filledOverride[id] ?? (htmlOverride[id] ? '' : (fixtureFilled[fileName] ?? ''));
+}</code></pre></div><p>rest 実装は REST への委譲のみ（<code>web/src/api/rest/templateRepo.ts</code>）:</p><div class="code"><span class="code-lang">ts</span><pre><code>getTemplate: (id: string) =&gt;
   attemptRest(() =&gt; apiFetch&lt;Template&gt;(buildPath(apiPaths.templateById, { id }))),</code></pre></div><p><code>getTemplate</code> は <code>filled/</code>（値入り HTML）→ <code>templates/</code>（作成タブの Jinja）→ <code>pending/</code> の順に探し、 <code>filled/</code> で見つかれば <code>html</code> と <code>filled</code> の両方に本文を返す。</p><p>「throw → Result」の継ぎ目は共通ヘルパー（local が <code>attempt</code>、rest が <code>attemptRest</code>）に集約。REST トランスポート <code>apiFetch</code>（<code>web/src/api/rest/http.ts</code>）は <code>credentials: 'include'</code>・<code>/api</code> プレフィックス付与・HTTP エラー→AppError 変換（サーバの <code>{kind, message, code}</code> を優先、無ければ status→kind 表）を一手に担う。</p><h3 id="d1-h12">4.3 値入り HTML の出どころ（2 系統の原則のデータ源）</h3><p>編集タブが読む「値埋め込み済み HTML」の出どころは local / rest で異なる。</p><p>local は <code>genFilled.ts</code>（<code>pnpm --filter web run gen:filled</code>）が <code>fixtures/templates/*.html</code>（生 Jinja）</p><ul><li><code>fixtures/sample/&lt;fund&gt;.json</code>（<strong>per-fund 実値</strong>）から <code>fixtures/filled/*.html</code> （= <code>Template.filled</code>）を事前生成する:</li></ul><div class="code"><span class="code-lang">ts</span><pre><code>function resolveSample(fundCode, editionType): SampleData {
   const file = resolve(sampleDir, `${fundCode}.json`);
   if (existsSync(file)) {                       // ファンド別実値を正典に

@@ -32,8 +32,8 @@ const keep = (chunk: Buffer): void => {
   }
 };
 
-// `vite/bin/vite.js` は package の `exports` に含まれず `resolve` が throw するので、唯一公開されている
-// `vite/package.json` を引き、その `bin.vite`(= `bin/vite.js`)からパスを組む。
+// `vite/bin/vite.js` は package の `exports` に含まれず `resolve` が throw するので、
+// 唯一公開されている `vite/package.json` を引き、その `bin.vite`(= `bin/vite.js`)からパスを組む。
 const req = createRequire(path.join(webDir, 'package.json'));
 const vitePkgPath = req.resolve('vite/package.json');
 const viteBin = path.join(

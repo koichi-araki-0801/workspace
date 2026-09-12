@@ -178,9 +178,8 @@ async function loadParts() {
   partsLoaded.value = true;
   if (!isOk(tpl)) return;
   targetMeta.value = tpl.value.meta;
-  // `filled`(per-fund 実値埋め込み済み)は local 専用で、rest では常に ''(server の
-  // `templateRepo.ts` が値埋め込み済みファイル取得を未実装のため)を返す本番値。パーツ構造
-  // しか要らないので値の有無を区別する `??` でなく、空文字も拾う `||` で `html` へ落とす。
+  // `filled`(per-fund 実値埋め込み済み本文)は rest でも値を返す。パーツ構造しか要らないので
+  // 値の有無を区別する `??` でなく、空文字も拾う `||` で `html` へ落とす。
   const maps = partMapsFromHtml(tpl.value.filled || tpl.value.html);
   partLabels.value = maps.labels;
   partPages.value = maps.pages;
