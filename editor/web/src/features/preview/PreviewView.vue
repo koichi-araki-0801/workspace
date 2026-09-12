@@ -20,6 +20,7 @@ import { confirm } from '@/components/ui/confirm';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
 import { useChangedSummaryService } from '@/features/reviews/services/changedSummary';
+import { editorRoute } from '@/features/templates/editorRoute';
 import { withCropMarks } from '@/lib/cropMarks';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
@@ -166,7 +167,10 @@ async function exportPdf() {
     <header
       class="z-30 flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-3.5 gap-y-2 border-b bg-card px-4 py-1.5 shadow-sm print:hidden"
     >
-      <BackButton :fallback="{ name: 'editor', params: { id } }" aria-label="エディターに戻る" />
+      <BackButton
+        :fallback="editorRoute(id, { created: origin === 'create' })"
+        aria-label="エディターに戻る"
+      />
       <div class="h-[26px] w-px shrink-0 bg-border" />
       <AttributeBar v-if="template" :attributes="template.meta.attributes" class="flex-1" />
       <span v-else class="flex-1" />

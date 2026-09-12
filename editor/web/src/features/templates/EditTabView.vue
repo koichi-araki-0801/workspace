@@ -13,6 +13,7 @@ import { useLatest } from '@/lib/useLatest';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import SearchFilters from './components/SearchFilters.vue';
 import TemplateTable from './components/TemplateTable.vue';
+import { editorRoute, opensAsCreate } from './editorRoute';
 
 const router = useRouter();
 const repo = useTemplateRepo();
@@ -44,11 +45,7 @@ async function search(q: DropdownQuery) {
 }
 
 function openEditor(m: TemplateMeta) {
-  // `status:'draft'` は作成タブが生成しただけで値入り HTML(`filled/`)が無い成果物。
-  // 作成経路(`created=1`)で開かないと編集経路の申請になり、承認が Jinja 骨組みを
-  // `filled/` へ書いてしまう。
-  const query = m.status === 'draft' ? { created: '1' } : undefined;
-  router.push({ name: 'editor', params: { id: m.id }, ...(query ? { query } : {}) });
+  router.push(editorRoute(m.id, { created: opensAsCreate(m) }));
 }
 
 /** 「承認待ち」バッジ。承認タブをそのテンプレートで開く(件数に関わらず同じ導線)。 */

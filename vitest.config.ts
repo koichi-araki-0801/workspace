@@ -118,6 +118,9 @@ export default defineConfig({
         'editor/web/src/lib/useAsyncResult.ts',
         'editor/web/src/lib/format.ts',
         'editor/web/src/lib/labels.ts',
+        // 編集経路 / 作成経路の出し分け。`created` query を出す唯一の場所で、退行は
+        // 「pending だけのテンプレートを編集経路で開いて申請が拒否される」形で出る。
+        'editor/web/src/features/templates/editorRoute.ts',
         'editor/web/src/features/templates/viewmodels/templateVm.ts',
         'editor/web/src/features/templates/components/searchGuard.ts',
         'editor/web/src/features/templates/services/templateCreationService.ts',

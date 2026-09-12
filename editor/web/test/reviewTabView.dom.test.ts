@@ -180,6 +180,25 @@ describe('対象テンプレートの解決', () => {
     expect(push).toHaveBeenCalledWith({ name: 'editor', params: { id: TPL } });
   });
 
+  it('対象が `status:"draft"`(pending だけ)なら「編集画面へ」は作成経路で開く', async () => {
+    editPath.value = `/edit/${encodeURIComponent(TPL)}`;
+    getTemplateFn.mockResolvedValue(
+      ok(template({ meta: { ...template().meta, status: 'draft' } })),
+    );
+    const w = await mountTab([meta({})]);
+    // `loadParts` はメタ取得を待つので、押す前に解決させる(押した時点のメタで経路が決まる)。
+    await flushPromises();
+    await w
+      .findAll('button')
+      .find((b) => b.text() === '編集画面へ')
+      ?.trigger('click');
+    expect(push).toHaveBeenCalledWith({
+      name: 'editor',
+      params: { id: TPL },
+      query: { created: '1' },
+    });
+  });
+
   it('query の template が編集タブの記憶より優先される', async () => {
     editPath.value = '/edit/OTHER';
     route.query = { template: TPL };

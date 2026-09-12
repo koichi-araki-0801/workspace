@@ -8,7 +8,13 @@
 // の上限に従う。各区画の右にコメントパネルを置き、行クリックで見た目比較の該当ページへ送る。
 // 決着しても画面に留まり、区画が決着済み表示へ変わる(次の申請へ続けて進める)。見出しと
 // 説明文は承認する側(精査者)と自分の申請を追う側(編集者)で読者が違うため、ロールで分ける。
-import { isErr, isOk, type ReviewRequestMeta, type ReviewStatus } from '@editor/shared';
+import {
+  isErr,
+  isOk,
+  type ReviewRequestMeta,
+  type ReviewStatus,
+  type TemplateMeta,
+} from '@editor/shared';
 import { ChevronDown, ChevronRight, ClipboardCheck, Info } from '@lucide/vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -20,6 +26,7 @@ import EmptyState from '@/components/ui/EmptyState.vue';
 import Skeleton from '@/components/ui/Skeleton.vue';
 import CommentPanel from '@/features/editor/comments/CommentPanel.vue';
 import { useComments } from '@/features/editor/useComments';
+import { editorRoute, opensAsCreate } from '@/features/templates/editorRoute';
 import { formatDateTimeShort } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useLatest } from '@/lib/useLatest';
@@ -155,18 +162,22 @@ const partPages = ref<Map<string, number>>(new Map());
  * 「読み込みが終わったのに空」であることだけを使うため)。`targetId` が変わるたびに
  * `loadParts` の先頭で false へ戻す。 */
 const partsLoaded = ref(false);
+/** 対象テンプレートのメタ。「編集画面へ」を編集経路と作成経路のどちらで開くかに使う。 */
+const targetMeta = ref<TemplateMeta | null>(null);
 const latestLoadParts = useLatest();
 async function loadParts() {
   const isLatest = latestLoadParts.begin();
   partLabels.value = new Map();
   partPages.value = new Map();
   partsLoaded.value = false;
+  targetMeta.value = null;
   const id = targetId.value;
   if (!id) return;
   const tpl = await templates.getTemplate(id);
   if (!isLatest()) return;
   partsLoaded.value = true;
   if (!isOk(tpl)) return;
+  targetMeta.value = tpl.value.meta;
   // `filled`(per-fund 実値埋め込み済み)は local 専用で、rest では常に ''(server の
   // `templateRepo.ts` が値埋め込み済みファイル取得を未実装のため)を返す本番値。パーツ構造
   // しか要らないので値の有無を区別する `??` でなく、空文字も拾う `||` で `html` へ落とす。
@@ -193,7 +204,13 @@ function focusPart(reqId: string, key: string) {
 }
 
 function goEdit() {
-  if (targetId.value) router.push({ name: 'editor', params: { id: targetId.value } });
+  // メタ未取得(`loadParts` の応答前のクリック)でも申請の `origin` を第 2 の根拠にする。
+  // 根拠がどちらも無いときだけ編集経路へ落とす — pending だけのテンプレートを編集経路で
+  // 開くと、値入り HTML が無いまま申請へ進んで server に拒否される。
+  const created = targetMeta.value
+    ? opensAsCreate(targetMeta.value)
+    : mine.value.some((m) => m.origin === 'create');
+  if (targetId.value) router.push(editorRoute(targetId.value, { created }));
   else router.push({ name: 'edit' });
 }
 </script>
