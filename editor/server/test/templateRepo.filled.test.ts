@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { SprocClient } from '../src/db/sproc.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-template-repo-filled-'));
 process.env.DATA_ROOT = tmp;
@@ -71,5 +72,58 @@ describe('templateRepo と filled/', () => {
     await expect(repo.getTemplate('AM01_999999_20240710_交付版')).rejects.toMatchObject({
       kind: 'not_found',
     });
+  });
+
+  it('一覧は companyCode/baseDate/editionType でも絞れる', async () => {
+    const ids = (
+      await repo.listTemplates({ companyCode: 'AM01', baseDate: '20240710', editionType: '交付版' })
+    ).map((m) => m.id);
+    expect(ids).toEqual([FILLED_ID]);
+    const none = await repo.listTemplates({
+      companyCode: 'AM01',
+      baseDate: '20240710',
+      editionType: '全体版',
+    });
+    expect(none).toEqual([]);
+  });
+});
+
+describe('getSampleData と parseFundMaster の分岐', () => {
+  let createTemplateRepo: typeof import('../src/repositories/templateRepo.js').createTemplateRepo;
+  let createSprocClient: typeof import('../src/db/sproc.js').createSprocClient;
+
+  beforeAll(async () => {
+    ({ createTemplateRepo } = await import('../src/repositories/templateRepo.js'));
+    ({ createSprocClient } = await import('../src/db/sproc.js'));
+  });
+
+  /** サンプルデータ sproc の `データJSON` 列だけを差し替える最小 sproc。 */
+  const sprocWithSampleJson = (json: string | null): SprocClient =>
+    createSprocClient(async () => [{ データJSON: json }]);
+
+  it('company が欠けたマスタは未収録ファンド扱い(placeholder のまま)', async () => {
+    const repo = createTemplateRepo(sprocWithSampleJson(JSON.stringify({ fund: { name: 'x' } })));
+    const sample = await repo.getSampleData('999999');
+    expect(sample.fund.name).not.toBe('x');
+  });
+
+  it('nickname が無ければ空文字で補う', async () => {
+    const repo = createTemplateRepo(
+      sprocWithSampleJson(
+        JSON.stringify({
+          fund: { name: 'ニックネーム無し' },
+          company: { code: 'AM01', name: '会社' },
+        }),
+      ),
+    );
+    const sample = await repo.getSampleData('510037');
+    expect(sample.fund.name).toBe('ニックネーム無し');
+    expect(sample.fund.nickname).toBe('');
+  });
+
+  it('壊れた JSON は例外を投げずマスタ無し扱いにする', async () => {
+    const repo = createTemplateRepo(sprocWithSampleJson('{not valid json'));
+    const sample = await repo.getSampleData('999999');
+    expect(sample.fund.code).toBe('999999');
   });
 });

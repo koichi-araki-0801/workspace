@@ -59,12 +59,6 @@ const filledPathOrNull = (fileName: string): string | null => {
   }
 };
 
-/** 確定済みテンプレートの `*.html` 一覧(台帳ではなくディレクトリ走査が一覧の源)。 */
-export async function listTemplateFiles(): Promise<string[]> {
-  const entries = await fs.readdir(config.templatesDir).catch(() => [] as string[]);
-  return entries.filter((f) => f.endsWith('.html'));
-}
-
 /** テンプレート本体ファイルの最終更新時刻(ISO)。無ければ(名前が規約外なら)null。 */
 export function templateMtime(fileName: string): Promise<string | null> {
   const p = templatePathOrNull(fileName);

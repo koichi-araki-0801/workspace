@@ -26,8 +26,8 @@ import { commitDate, commitFiles, logAllWithFiles, logForFile, showFile } from '
 
 // 版履歴は値入り HTML(`filled/`)のコミットで数える。編集タブ・比較画面が見る履歴は
 // 編集タブが読み書きする本文のもので、作成タブの Jinja(`templates/`)の履歴は画面から参照しない。
-const TEMPLATES_PATHSPEC = 'filled';
-const templateRel = (templateId: string): string => `${TEMPLATES_PATHSPEC}/${templateId}.html`;
+const FILLED_PATHSPEC = 'filled';
+const filledRel = (templateId: string): string => `${FILLED_PATHSPEC}/${templateId}.html`;
 const cssRel = (fundCode: string): string => `css/${fundCode}.css`;
 
 /**
@@ -37,10 +37,10 @@ const cssRel = (fundCode: string): string => `css/${fundCode}.css`;
  * 同じコミットへ入りうる。先頭 1 件だけを見ると、版一覧が同じ hash を返す別テンプレへ
  * 先頭テンプレの内容を配ってしまう(誤帰属)。
  */
-function templateFilesOf(files: readonly string[]): string[] {
+function filledFilesOf(files: readonly string[]): string[] {
   return files
-    .filter((f) => f.startsWith(`${TEMPLATES_PATHSPEC}/`) && f.endsWith('.html'))
-    .map((f) => f.slice(`${TEMPLATES_PATHSPEC}/`.length));
+    .filter((f) => f.startsWith(`${FILLED_PATHSPEC}/`) && f.endsWith('.html'))
+    .map((f) => f.slice(`${FILLED_PATHSPEC}/`.length));
 }
 
 /** コミットが触れたテンプレのうち、スナップショットの対象 1 件を決める。 */
@@ -76,7 +76,7 @@ function pickTemplateFile(
  * 変更ファイルは `logAllWithFiles` が同じ `git log` から取る = 子プロセスは常に 1 個。
  */
 export async function getEditHistory(): Promise<EditHistoryEntry[]> {
-  const commits = await logAllWithFiles(TEMPLATES_PATHSPEC);
+  const commits = await logAllWithFiles(FILLED_PATHSPEC);
   return commits.flatMap((c) => {
     const base = { historyId: c.hash, user: c.author, timestamp: c.date, summary: c.subject };
     const row = (templateId: string) => ({
@@ -84,7 +84,7 @@ export async function getEditHistory(): Promise<EditHistoryEntry[]> {
       id: editHistoryRowId(c.hash, templateId),
       templateId,
     });
-    const fileNames = templateFilesOf(c.files);
+    const fileNames = filledFilesOf(c.files);
     // 触れたテンプレごとに 1 行を出す。1 行へ畳むと、同じコミットで変わった他のテンプレは
     // 履歴に現れないまま先頭テンプレの編集として記録される。
     if (fileNames.length === 0) return [row('')];
@@ -96,7 +96,7 @@ export async function getEditHistory(): Promise<EditHistoryEntry[]> {
 export async function listVersions(templateId: string): Promise<TemplateVersionMeta[]> {
   // `templateId` は URL 由来で pathspec の一部になる。ファイル名規約 + 単一セグメント安全性を
   // 通ってからでないと git へ渡さない(`..` や pathspec magic の混入を入口で断つ)。
-  const commits = await logForFile(templateRel(assertTemplateId(templateId)));
+  const commits = await logForFile(filledRel(assertTemplateId(templateId)));
   return commits.map((c) => ({
     historyId: c.hash,
     templateId,
@@ -121,7 +121,7 @@ export async function getSnapshot(
   // オプションとして解釈するため(`--output=<file>` で任意ファイルを破壊できる)、git を
   // 呼ぶ前にオブジェクトID 形式で弾く。git 呼び出し側の多層防御は `gitRepo.ts` の検証節。
   if (!isGitObjectId(historyId)) throw validation(`版の指定が不正です: ${historyId}`);
-  const fileNames = templateFilesOf(await commitFiles(historyId));
+  const fileNames = filledFilesOf(await commitFiles(historyId));
   const fileName = pickTemplateFile(historyId, fileNames, templateId);
   const attrs = parseTemplateFileName(fileName);
   if (!attrs) throw notFound(`版のファイル名を解釈できません: ${historyId}`);
@@ -129,7 +129,7 @@ export async function getSnapshot(
   // html/css/日時は互いに独立した git read(`withGitLock` 非経由 = 並列安全)。
   // 逐次 await だと 3 プロセスの起動待ちが直列化するため Promise.all でまとめる。
   const [html, css, timestamp] = await Promise.all([
-    showFile(historyId, templateRel(resolvedId)),
+    showFile(historyId, filledRel(resolvedId)),
     showFile(historyId, cssRel(attrs.fundCode)),
     commitDate(historyId),
   ]);
