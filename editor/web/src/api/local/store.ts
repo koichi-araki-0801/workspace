@@ -212,6 +212,21 @@ export const metaMatches = (m: TemplateMeta, q: DropdownQuery): boolean =>
 
 // ── 3. derived helpers — fixtures + overlay からの導出 ──
 
+/**
+ * テンプレートの値入り HTML(filled)。編集タブの承認で上書きした本文 → 未編集 fixture の
+ * 静的 filled の順で引き、無ければ空文字を返す。作成タブの承認で Jinja が変わった id
+ * (`htmlOverride` が在る)は静的 filled が古いので空扱いにし、editor に再差込させる。
+ *
+ * local の「値入り HTML が在る」を決める唯一の規則。rest の `filled/<id>.html` の有無に
+ * 対応し、一覧の `status` も編集経路の申請可否もここだけから導く(判定が 2 本あると、
+ * 一覧では published なのに申請が拒まれる、といった食い違いが出る)。
+ */
+export function resolveFilled(id: string, fileName: string): string {
+  const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
+  const filledOverride = read<Record<string, string>>(K.filledOverride, {});
+  return filledOverride[id] ?? (htmlOverride[id] ? '' : (fixtureFilled[fileName] ?? ''));
+}
+
 export function allMetas(): TemplateMeta[] {
   const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
   const ids = new Set([
@@ -229,14 +244,14 @@ export function allMetas(): TemplateMeta[] {
       id,
       attributes: attrs,
       fileName,
-      // `status` の意味は rest 実装と揃える: 配信済みテンプレ(= fixture が在る)が
-      // `published`、fixture が無く override だけで存在する = 作成タブが生成しただけの
-      // 未確定テンプレが `draft`(rest の pending 相当)。
+      // `status` の意味は rest 実装と揃える: 値入り HTML が在るテンプレが `published`、
+      // 作成タブが生成しただけ(Jinja 骨組みしか無い)のテンプレが `draft`(rest の pending
+      // 相当)。比較タブ・結合 PDF は `status === 'published'` で承認前を除くため、ここが
+      // 逆だと local モードで候補が 1 件も出ない。
       //
-      // 「override が在れば published」と逆向きに読み違えないこと(未編集の fixture が
-      // 全部 draft になる)。比較タブ・結合 PDF は `status === 'published'` で承認前を
-      // 除くため、ここが逆だと local モードで候補が 1 件も出ない。
-      status: saved?.status ?? (fixtureTemplates[fileName] ? 'published' : 'draft'),
+      // META(`saved`)の `status` は読まない。読むと確定保存が書いた値が `resolveFilled`
+      // より優先され、作成タブの承認で値入り HTML を失った id が published のまま残る。
+      status: resolveFilled(id, fileName) !== '' ? 'published' : 'draft',
       updatedAt: saved?.updatedAt ?? null,
       updatedBy: saved?.updatedBy ?? null,
     });

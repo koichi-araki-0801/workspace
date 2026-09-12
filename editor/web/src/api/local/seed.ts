@@ -125,8 +125,9 @@ export function seedCompareFixtures(): void {
         timestamp: v.timestamp,
       };
     }
+    // `status` は書かない(一覧は値入り HTML の有無だけから導く。`store.ts` の
+    // `resolveFilled`)。META が持つのは最終更新の表示材料だけ。
     metaStore[t.templateId] = {
-      status: 'published',
       updatedAt: t.versions[0].timestamp,
       updatedBy: t.versions[0].user ?? SEED_USER,
     };

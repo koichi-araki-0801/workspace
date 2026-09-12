@@ -30,7 +30,6 @@ import {
   defaultSkeleton,
   delay,
   fixtureCss,
-  fixtureFilled,
   fixtureTemplates,
   fundMaster,
   K,
@@ -38,6 +37,7 @@ import {
   metaMatches,
   now,
   read,
+  resolveFilled,
   todayYmd,
   tx,
   uid,
@@ -66,10 +66,11 @@ function putContentOverrides(req: ConfirmSaveRequest): void {
   write(K.cssOverride, cssOverride);
 }
 
-/** テンプレートを現在の編集者 + 時刻で published にする。 */
-function publishMeta(templateId: string, who: string): void {
+/** 確定保存の編集者と時刻を記録する。`status` は書かない(値入り HTML の有無だけから
+ *  導く。`store.ts` の `resolveFilled`)。 */
+function stampMeta(templateId: string, who: string): void {
   const metaStore = read<Record<string, Partial<TemplateMeta>>>(META_KEY, {});
-  metaStore[templateId] = { status: 'published', updatedAt: now(), updatedBy: who };
+  metaStore[templateId] = { updatedAt: now(), updatedBy: who };
   write(META_KEY, metaStore);
 }
 
@@ -165,7 +166,7 @@ export const confirmSaveLocal = (req: ConfirmSaveRequest, extra?: ConfirmSaveExt
         const timestamp = now(); // edit-history entry とその snapshot で共有する
 
         putContentOverrides(req);
-        publishMeta(req.templateId, who);
+        stampMeta(req.templateId, who);
         appendEditHistory(req, who, historyId, timestamp);
         freezeSnapshot(req, historyId, timestamp);
         putInstance(req, who);
@@ -213,16 +214,11 @@ export const localTemplateRepo: TemplateRepository = {
       const meta = allMetas().find((m) => m.id === id);
       if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
       const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
-      const filledOverride = read<Record<string, string>>(K.filledOverride, {});
       const cssOverride = read<Record<string, string>>(K.cssOverride, {});
       const html = htmlOverride[id] ?? fixtureTemplates[meta.fileName] ?? '';
       const css =
         cssOverride[meta.attributes.fundCode] ?? fixtureCss[meta.attributes.fundCode] ?? '';
-      // 編集タブの承認で上書きした値入り HTML → 未編集 fixture の静的 filled の順。作成タブの
-      // 承認で Jinja が変わった id は静的 filled が古いので空にし、editor が再差込する。
-      const filled =
-        filledOverride[id] ?? (htmlOverride[id] ? '' : (fixtureFilled[meta.fileName] ?? ''));
-      return delay({ meta, html, css, filled });
+      return delay({ meta, html, css, filled: resolveFilled(id, meta.fileName) });
     }),
 
   generate: (req: GenerateRequest) =>

@@ -85,4 +85,12 @@ describe('editor 2系統の原則: rest 経路の値入り HTML', () => {
     const src = read('features/compare/services/compareService.ts');
     expect(src).toMatch(/if \(tpl\.filled\) return ok\(\{ html: tpl\.filled/);
   });
+
+  // local の既定 fixture は「値入り HTML が在るものだけが `published`」という rest と同じ
+  // 一覧を出す前提で組んである。片側だけにファイルが増えると、その id は local でだけ
+  // `draft`(比較タブ・結合 PDF の候補から消える)になり、2 実装の見えが食い違う。
+  it('fixtures の templates と filled はファイル名集合が一致する', () => {
+    const names = (rel: string) => fs.readdirSync(path.resolve(__dirname, '../src', rel)).sort();
+    expect(names('api/fixtures/filled')).toEqual(names('api/fixtures/templates'));
+  });
 });

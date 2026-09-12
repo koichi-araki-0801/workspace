@@ -17,11 +17,12 @@ import {
   type ReviewRepository,
   type ReviewRequest,
   type SubmitReviewRequest,
+  templateFileName,
   toReviewMeta,
   validation,
 } from '@editor/shared';
 import { attempt } from './attempt';
-import { currentUser, delay, K, now, read, uid, write } from './store';
+import { currentUser, delay, K, now, read, resolveFilled, uid, write } from './store';
 import { confirmSaveLocal, localTemplateRepo } from './templateRepo';
 
 /** 現行版(現在の本文 override + CSS override)の簡易コンテンツキー(djb2)。 */
@@ -54,6 +55,13 @@ export const localReviewRepo: ReviewRepository = {
     attempt(async () => {
       const attrs = parseTemplateFileName(`${req.templateId}.html`);
       if (!attrs) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
+      // 編集経路の申請は値入り HTML が既に在ることを要求する(server の
+      // `assertFilledPresentForEdit` と同じ拒否)。無いまま通すと、承認が値入り HTML を
+      // 新規に作り、そこへ作成タブ由来の Jinja 骨組みが書かれる。判定は store を直接読む
+      // (`getTemplate` 経由にすると、現行版の取得失敗を握り潰す下の経路と絡んで
+      // 「取得できない = 拒否」に化ける)。
+      if (req.origin === 'edit' && resolveFilled(req.templateId, templateFileName(attrs)) === '')
+        throw validation(`編集タブの申請には値入り HTML(filled)が必要です: ${req.templateId}`);
       // 現行版を読み、baseHash(並行性警告の素)を取る。失敗しても申請自体は妨げない。
       const cur = await localTemplateRepo.getTemplate(req.templateId);
       const baseHash = isErr(cur) ? null : contentKey(cur.value.html, cur.value.css);

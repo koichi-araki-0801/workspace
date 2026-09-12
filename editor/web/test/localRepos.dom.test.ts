@@ -97,7 +97,7 @@ describe('localTemplateRepo.getSyncStatus', () => {
 });
 
 describe('confirmSaveLocal round-trip', () => {
-  it('persists html/css and marks the template published', async () => {
+  it("origin='create' の確定保存は html を残し、値入り HTML が無いので draft に戻る", async () => {
     const list = await localTemplateRepo.listTemplates({});
     expect(isOk(list)).toBe(true);
     if (!isOk(list) || list.value.length === 0) return;
@@ -111,11 +111,28 @@ describe('confirmSaveLocal round-trip', () => {
       origin: 'create',
     });
     expect(isOk(saved)).toBe(true);
-    if (isOk(saved)) expect(saved.value.status).toBe('published');
+    // 作成タブの承認は Jinja 骨組みを差し替えるため、古い静的 filled は捨てられる
+    // (`getTemplate` が空を返す)。`status` は値入り HTML の有無だけから決まるので draft。
+    if (isOk(saved)) expect(saved.value.status).toBe('draft');
 
     const reread = await localTemplateRepo.getTemplate(target.id);
     expect(isOk(reread)).toBe(true);
     if (isOk(reread)) expect(reread.value.html).toBe('<p>round-trip</p>');
+  });
+
+  it("origin='edit' の確定保存は値入り HTML を書くので published のまま", async () => {
+    const list = await localTemplateRepo.listTemplates({});
+    if (!isOk(list) || list.value.length === 0) return;
+    const target = list.value[0];
+
+    const saved = await confirmSaveLocal({
+      templateId: target.id,
+      html: '<p>値入り</p>',
+      css: '.x{}',
+      fundCode: target.attributes.fundCode,
+      origin: 'edit',
+    });
+    expect(isOk(saved) && saved.value.status).toBe('published');
   });
 });
 

@@ -138,3 +138,39 @@ describe('localReviewRepo の拒否と既定値', () => {
     if (isOk(list)) expect(list.value).toEqual([]);
   });
 });
+
+describe('localReviewRepo の値入り HTML 要求', () => {
+  it("origin='edit' の申請は値入り HTML の無いテンプレを validation で拒む", async () => {
+    await loginAdmin();
+    // 作成タブが生成しただけのテンプレは値入り HTML を持たない(fixture が無く
+    // `htmlOverride` だけが在る)。server の `assertFilledPresentForEdit` と同じ拒否になる。
+    const gen = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510037',
+      editionType: '交付版',
+    });
+    expect(isOk(gen)).toBe(true);
+    if (!isOk(gen)) return;
+    const id = gen.value.template.meta.id;
+
+    const bad = await localReviewRepo.submitReview({
+      templateId: id,
+      fundCode: '510037',
+      origin: 'edit',
+      html: '<p>x</p>',
+      css: '',
+    });
+    expect(isErr(bad) && bad.error.kind).toBe('validation');
+    expect(isErr(bad) && bad.error.message).toContain('値入り HTML');
+
+    // 同じテンプレでも作成タブ経路(`create`)の申請は通る。
+    const good = await localReviewRepo.submitReview({
+      templateId: id,
+      fundCode: '510037',
+      origin: 'create',
+      html: '<p>{{ x }}</p>',
+      css: '',
+    });
+    expect(isOk(good)).toBe(true);
+  });
+});
