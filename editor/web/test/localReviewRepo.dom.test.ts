@@ -174,3 +174,56 @@ describe('localReviewRepo の値入り HTML 要求', () => {
     expect(isOk(good)).toBe(true);
   });
 });
+
+describe('localReviewRepo の値入り HTML 要求(承認時)', () => {
+  it("origin='edit' の申請は承認時にも値入り HTML を要求し、失われていれば反映しない", async () => {
+    await loginAdmin();
+    const target = await firstTemplate();
+    expect(target).not.toBeNull();
+    if (!target) return;
+    const sub = await localReviewRepo.submitReview({
+      templateId: target.id,
+      fundCode: target.attributes.fundCode,
+      origin: 'edit',
+      html: '<p>申請本文</p>',
+      css: '',
+    });
+    expect(isOk(sub)).toBe(true);
+    if (!isOk(sub)) return;
+
+    // 申請後に作成タブの承認が割り込むと、その id は Jinja 骨組みだけになり静的 filled は
+    // 捨てられる(値入り HTML 無し)。承認側で止まらないと、ここへ編集本文が書き戻る。
+    localStorage.setItem(K.htmlOverride, JSON.stringify({ [target.id]: '<p>{{ x }}</p>' }));
+    const before = await localTemplateRepo.getTemplate(target.id);
+    expect(isOk(before)).toBe(true);
+    if (!isOk(before)) return;
+
+    const approved = await localReviewRepo.approveReview(sub.value.id, {});
+    expect(isErr(approved) && approved.error.kind).toBe('validation');
+
+    const after = await localTemplateRepo.getTemplate(target.id);
+    expect(isOk(after) && after.value.html).toBe(before.value.html);
+    expect(isOk(after) && after.value.filled).toBe(before.value.filled);
+    // 申請は未決着のまま残る(承認済みにしない)。
+    const stored = await localReviewRepo.getReview(sub.value.id);
+    expect(isOk(stored) && stored.value.status).toBe('pending');
+  });
+});
+
+describe('localReviewRepo の空本文の申請', () => {
+  it("origin='edit' の申請は本文が空なら validation(承認がテンプレを draft へ落とすため)", async () => {
+    await loginAdmin();
+    const target = await firstTemplate();
+    expect(target).not.toBeNull();
+    if (!target) return;
+    const empty = await localReviewRepo.submitReview({
+      templateId: target.id,
+      fundCode: target.attributes.fundCode,
+      origin: 'edit',
+      html: '',
+      css: '',
+    });
+    expect(isErr(empty) && empty.error.kind).toBe('validation');
+    expect(isErr(empty) && empty.error.message).toContain('本文が空');
+  });
+});
