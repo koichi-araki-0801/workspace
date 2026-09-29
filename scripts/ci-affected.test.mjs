@@ -25,7 +25,7 @@ const REAL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(REAL_ROOT, 'scripts', 'ci-affected.mjs');
 
 // 共有ゲート。領域の有無に関わらず必ずこの順で先頭に並ぶ。
-const SHARED_GATES = ['check:comments', 'check:claude-hooks', 'check:ci', 'test:scripts'];
+const SHARED_GATES = ['check:comments', 'check:claude-hooks', 'check:canon-summary', 'check:ci', 'test:scripts'];
 
 // 疑似リポジトリのコミットは、実行環境の git 設定 (`user.name` 未設定・環境変数の混入) に
 // 左右されないよう毎回明示する。`core.autocrlf` を切るのは改行の警告でテスト出力を
@@ -281,6 +281,7 @@ function ciStages() {
 // `ci` にあって GH に無い段。理由が消えたらここから外して yml へ足す。
 const GH_EXEMPT = {
   'check:claude-hooks': '.claude/ は git 追跡外で、GH の checkout には検査対象が無い(exit 0 になるだけ)',
+  'check:canon-summary': '.claude/ の要約は git 追跡外で、GH の checkout には検査対象が無い(スキップで exit 0)',
   'pie-chart:batch': 'out/_baseline はローカル生成物で GH に存在しない',
   'pie-chart:batch:diff': 'out/_baseline はローカル生成物で GH に存在しない',
 };
