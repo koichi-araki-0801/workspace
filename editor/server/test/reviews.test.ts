@@ -72,7 +72,7 @@ d('review workflow (reviewRepo)', () => {
     const meta = await submit(tplId, '111111', '<p>{{ fund.name }} 申請</p>');
     expect(meta.status).toBe('pending');
     expect(meta.submittedBy).toBe('editor1');
-    // 実ファイルは未更新(既存の値入り HTML のまま)、申請だけが data/reviews 配下に在る。
+    // 実ファイルは未更新(既存の値入り HTML のまま)、申請だけが <dataRoot>/reviews 配下に在る。
     expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
     expect(fs.existsSync(path.join(tmp, 'reviews', meta.id, 'meta.json'))).toBe(true);
   });

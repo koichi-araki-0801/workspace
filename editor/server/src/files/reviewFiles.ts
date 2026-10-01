@@ -1,7 +1,7 @@
 // =============================================================================
 // reviewFiles.ts — 確定保存の承認待ち申請(ディスク I/O)
 // =============================================================================
-// 確定保存の申請を `data/reviews/<reqId>/` に保管する(git 管理外。`ensureRepo` が
+// 確定保存の申請を `<dataRoot>/reviews/<reqId>/` に保管する(git 管理外。`ensureRepo` が
 // `/reviews/` を .gitignore する)。1 申請 = 1 ディレクトリで、メタ(`meta.json`)と本体
 // (`body.html` / `body.css` / 任意 `filled.html`)を分けて持つ。一覧は readdir、状態更新は
 // `meta.json` の書き換え。`templateFiles.ts`/`draftFiles.ts` と同じく本体はファイル、索引は

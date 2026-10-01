@@ -156,7 +156,7 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 | ページ境界オーバーレイ | `web/src/features/editor/pageView.ts` |
 | セッション失効（再起動検知） | `web/src/lib/appEpoch.ts`, `web/src/stores/auth.ts`, `web/src/router/index.ts`（`authGuard`） |
 | PDF / preview（vivliostyle CLI） | `server/src/vivliostyle/*`（`build.ts` / `previewManager.ts`） |
-| Python 生成器アダプタ | `server/src/generate/pyTemplate.ts`（`server/scripts/generate_template.py` を呼ぶ） |
+| Python 生成器アダプタ | `server/src/generate/pyTemplate.ts`（既定はテスト用の偽物 `server/scripts/fake_generate_template.py` を `py -3.13` で呼ぶ） |
 | REST + DB ゲートウェイ sproc | `server/src/routes/*`, `server/src/db/*`, `server/db/{ddl,sproc,seed}` |
 
 ## 環境変数（server）
@@ -177,8 +177,10 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 | `CSS_DIR` | `<DATA_ROOT>/css` | ファンド毎 CSS 置き場 |
 | `DRAFTS_DIR` | `<DATA_ROOT>/drafts` | オートセーブ下書きの作業コピー |
 | `WEB_DIR` | `web/dist` | 本番配信する build 済み SPA |
-| `PYTHON_BIN` | `python` | Python 実行体 |
-| `PY_GENERATE_SCRIPT` | `server/scripts/generate_template.py` | 既存 Python 生成器 |
+| `PYTHON_BIN` | `py`（引数 `-3.13` 付き） | 生成器を起動する Python。指定すると引数の既定は空（絶対パスの python.exe を直接指す） |
+| `PY_GENERATE_SCRIPT` | `server/scripts/fake_generate_template.py` | 生成器のスクリプト（既定はテスト用の偽物。本番は既存の生成器を指す） |
+| `PY_GENERATE_SCRIPT_SHA256` | なし | 生成器のスクリプトの SHA256。設定すると生成のたびに照合する |
+| `GENERATE_MAX_CONCURRENCY` / `GENERATE_MAX_QUEUE` | 2 / 8 | 生成の同時実行と待ち行列の上限 |
 | `VIVLIOSTYLE_EXECUTABLE_BROWSER` | 自動検出 | PDF 用ブラウザ（Edge → playwright 既定） |
 
 REST モード（`start.bat rest`）で効く認証/DB 系:
