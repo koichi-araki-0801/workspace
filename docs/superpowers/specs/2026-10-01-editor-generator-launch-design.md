@@ -152,3 +152,32 @@
 - appconfig の `paths.assetsDir` はスキーマから外す。appconfig は厳格スキーマ（`.strict()`）なので、残っていれば「不明なキー」として起動時に読み込みエラーになる。黙って無視はされない。環境変数 `ASSETS_DIR` は読まなくなる（設定されていても何も起きない）。
 - `assertImagesDirOutsideCommittedAreas` は旧構成の検査ではなく、現行構成で画像が承認コミットへ巻き込まれるのを防ぐものなので残す。
 - 文書の「新版は旧構成のままでは起動しない」旨の記述（運用手順書、パッチの README、パッチ適用の手順ページ）を、パッチで片付ける形に改める。
+
+### 6.4 既存データ向けの互換処理の整理
+
+ユーザーの補足: 本番の運用はこれからだが、**`151cafd`（.gitattributes の修正）より前の断面で構築済みの環境が 1 つある**。その断面は PR #70・#71（フォント移設・画像の置き場）を含むので、構築済み環境の data リポジトリはすでに新しい構成（`css\fonts`・`js`・`images`）で作られている。ただし `.gitattributes` は旧い無効な行（`* text=lf`）のまま。
+
+- **残す:** `gitRepo.ts` の `ensureGitattributes` と `.gitignore` の補修（承認時に旧い行を直す）。構築済み環境の `.gitattributes` を直す唯一の経路のため。
+- **外す:** 構築済み環境の断面より前の形式を読むための互換処理。その断面以降のデータには現れない。
+  - 旧形式メモの変換（`editor/server/src/files/notesFile.ts` の `legacy:<pathKey>` 変換、web の local 版 `noteRepo.ts` の `kind` の読み捨て）。web 側で `legacy:` の ID を前提にしている記述（`CommentPanel.vue`・`NoteBubble.vue` のコメント）も合わせて直す。
+  - 撤去した「保留」（`held`）の申請を「承認待ち」に読み替える処理（`reviewFiles.ts`、web の local 版 `reviewRepo.ts`）。
+  - web の local 版が使うブラウザ保存領域の旧キーの掃除（`store.ts` の `legacyUndoStacksKeyV1` など）。旧キーがブラウザに残っても読まれないだけで害はない。
+- 外す前に、この端末の開発用データ（`C:\Users\caads\editor-data`）に旧形式が無いことを確かめる（2026-10-02 時点で、旧形式メモ・保留の申請とも無し）。開発用データの `.gitattributes` は、次の承認で上の補修が直す。
+
+### 6.5 構築済み環境の更新手順
+
+構築済み環境（6.4）を新版へ上げる手順:
+
+1. サーバを止め、新版を配置する。
+2. フォント移設パッチを確認モードで流す。フォント・js の移設は済んでいるので「コピー 0 件」になり、appconfig の旧構成の片付け（6.2）だけが出る。報告を確かめて `-Apply`。
+3. 画像の置き場パッチは、済んでいれば何も変えない（流してよい）。
+4. Python 3.13 が PATH で通っていることを確かめる（`python --version`）。本番の生成器の場所を `PY_GENERATE_SCRIPT`、指紋を `PY_GENERATE_SCRIPT_SHA256` に設定する。
+5. 起動し、起動ログの警告（版・指紋・偽物のまま）が出ていないことを確かめる。
+
+パッチ適用の手順ページ（公開済み）にも、この更新手順を載せる。
+
+### 6.6 細部
+
+- 起動コマンドの既定の引数が空になるので、「bin を明示したら引数の既定は空」の規則（`resolvePythonCommand` の `explicitBin`）は削って単純にする。appconfig の `python.args` で引数を足せる点は残す。
+- offline の確認関数の名前は、`py` を前提にしない名前（例: `Test-Python313OnPath`）へ改める。docs のビルド（`docs/_build/build_all.bat`）は開発機でだけ動かすので、`py -3.13` のまま変えない。確認関数のコメントからは docs ビルドへの言及を外す。
+- 前回見送った 2 件は解消する。`python-wheelhouse.ps1` は `python -m pip` で、既定（PATH 上の python）と揃う。`LOCALAPPDATA` の件は、py ランチャを使わなくなるので対象外になる。
