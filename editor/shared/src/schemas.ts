@@ -596,7 +596,7 @@ export const NoteStatus = z.enum(['open', 'resolved']).meta({ id: 'NoteStatus' }
  */
 export const PartNoteEntry = z
   .object({
-    id: z.string().meta({ description: '投稿 ID(UUID。旧形式からの変換分は `legacy:<pathKey>`)' }),
+    id: z.string().meta({ description: '投稿 ID(UUID)' }),
     templateId: z.string().meta({ description: '投稿が属する版インスタンス ID' }),
     pathKey: z.string().meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
     content: z.string().meta({ description: '投稿本文' }),

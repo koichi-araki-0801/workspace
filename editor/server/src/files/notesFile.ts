@@ -96,8 +96,7 @@ const NOTE_STATUSES: ReadonlySet<string> = new Set<NoteStatus>(['open', 'resolve
  * 「未対応の親投稿」として読む。列挙の外の値も既定値へ戻す — ここで例外にすると
  * 1 要素の破損でテンプレの全コメントが読めなくなる(コメントは注釈で、本体は git 側が正典)。
  * 補完は読み取り時だけで、次の書き込みで新形式として保存され自然に移りきる。
- * `raw.kind` は旧形式(コメント種別が在った頃)の名残で、読み取っても返却値へは持ち込まない
- * (コメントはメモ 1 種類になったため)。
+ * 返却値は既知のフィールドだけで組む(保存内容に未知のフィールドがあっても持ち込まない)。
  */
 function withCommentDefaults(
   raw: Record<string, unknown> & { id: string; content: string },
@@ -120,37 +119,14 @@ function withCommentDefaults(
 }
 
 /**
- * 旧形式(`pathKey` → メモ 1 件)を投稿 1 件の配列へ変換する。
- *
- * 変換後の ID を `` `legacy:${key}` ``(`key` = そのメモが属する `pathKey`)にするのは、
- * 読むたびに ID が変わると編集・削除の宛先が安定しないため。固定値 `legacy` 単体だと、
- * `repositories/noteRepo.ts` の `locate` は**ファイル内の全 `pathKey` を横断**して ID 一致を
- * 探すので、旧形式ファイルが 2 パーツ以上を持つ場合に全パーツが同じ ID を名乗ってしまい、
- * 先に見つかったパーツ(= 別パーツ)が編集・削除の宛先になる(所在特定はファイル単位で一意な
- * ID を前提にしている)。`pathKey` を連結すれば旧形式(1 パーツにつき 1 件)の制約と合わせて
- * ファイル内で一意になる。一括移行はしない — 次の書き込みで新形式として保存され、自然に
- * 移りきる。
+ * 保存形式(`pathKey` → 投稿配列)を読む。配列でない値は読み捨てる(この形式の外の値を投稿として
+ * 扱わない)。書き込みもこの戻り値から組むので、読み捨てた値は次の書き込みで消える。
  */
 function normalizeStored(parsed: Record<string, unknown>): NoteEntriesMap {
   const out: NoteEntriesMap = {};
   for (const [key, value] of Object.entries(parsed)) {
-    if (Array.isArray(value)) {
-      out[key] = value.filter(looksLikeStoredNoteEntry).map(withCommentDefaults);
-      continue;
-    }
-    if (value === null || typeof value !== 'object') continue;
-    const legacy = value as { content?: unknown; updatedAt?: unknown; updatedBy?: unknown };
-    if (typeof legacy.content !== 'string') continue;
-    out[key] = [
-      withCommentDefaults({
-        id: `legacy:${key}`,
-        content: legacy.content,
-        createdAt: typeof legacy.updatedAt === 'string' ? legacy.updatedAt : '',
-        createdBy: typeof legacy.updatedBy === 'string' ? legacy.updatedBy : '',
-        updatedAt: null,
-        updatedBy: null,
-      }),
-    ];
+    if (!Array.isArray(value)) continue;
+    out[key] = value.filter(looksLikeStoredNoteEntry).map(withCommentDefaults);
   }
   return out;
 }
