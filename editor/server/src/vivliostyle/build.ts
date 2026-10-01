@@ -18,6 +18,7 @@ import { type MergeDocument, materializeMergeProject } from './mergeInput.js';
 import { sharedInlineConfig } from './options.js';
 import type { SafeProjectConfig } from './projectConfig.js';
 import { cleanupProject } from './projectInput.js';
+import { rebaseRequestCss } from './requestCss.js';
 
 /** PDF 生成失敗時に投げる Error の前置き(原因は cause として stderr/timeout を連結する)。 */
 const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
@@ -152,12 +153,15 @@ interface BuildInlineInput {
  * 追加オプション無しの出力と一致させる(単純入力のドロップイン互換)。
  */
 export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
+  // リクエスト CSS は入口で 1 回だけ付け替える(`requestCss.ts`)。検査は付け替え後の CSS に
+  // 対して行う — 実際に文書へ入る形を見る(fail closed)。
+  const doc = { ...input, css: rebaseRequestCss(input.css) };
   // 外部参照の関門は**ここ**(サーバの build 入口)。ブラウザ側の検査だけだと
   // 公開 API へ直接 POST すれば無検査で headless へ届く(`security/externalRefs.ts` 参照)。
   // 枠の確保より前に置くのは、拒否すべき入力を行列へ並ばせないため(同期の文字列検査で、
   // 資源は 1 つも握らない)。
-  assertNoDocumentExternalRefs(input.html, input.css ?? '', 'build.inline');
-  return withBuildSlot((runBuild) => buildInlineInSlot(input, runBuild));
+  assertNoDocumentExternalRefs(doc.html, doc.css, 'build.inline');
+  return withBuildSlot((runBuild) => buildInlineInSlot(doc, runBuild));
 }
 
 /** 枠を確保した状態で inline ビルドを行う(資源の確保はすべてこの中)。 */
@@ -282,16 +286,18 @@ export async function buildMergedPdf(input: {
   documents: MergeDocument[];
   size?: string;
 }): Promise<Buffer> {
+  // 文書ごとのリクエスト CSS を入口で 1 回だけ付け替える(`requestCss.ts`)。
+  const documents = input.documents.map((d) => ({ ...d, css: rebaseRequestCss(d.css) }));
   // 結合は文書毎に実体化されるので、実体化の**前**に全文書を検査する
   // (1 文書でも外部参照を持てば egress は成立する)。枠を取る前に検査するのは inline と
   // 同じ理由(拒否すべき入力を行列へ並ばせない)。
-  for (const [i, doc] of input.documents.entries()) {
+  for (const [i, doc] of documents.entries()) {
     assertNoDocumentExternalRefs(doc.html, doc.css, `build.merge[${i}]`);
   }
   // 実体化(文書数ぶんのファイル書き出し)も枠の内側で行う。外に出すと、順番待ちの
   // あいだ最大 30 文書ぶんの展開済みディレクトリが並んで残る。
   return withBuildSlot(async (runBuild) => {
-    const { dir, config: mergeConfig } = await materializeMergeProject(input.documents, input.size);
+    const { dir, config: mergeConfig } = await materializeMergeProject(documents, input.size);
     try {
       return await buildProjectInSlot({ dir, config: mergeConfig }, runBuild);
     } finally {
@@ -308,12 +314,14 @@ export async function buildMergedPdf(input: {
 export async function prepareInlineDoc(
   input: BuildInlineInput,
 ): Promise<{ dir: string; entry: string }> {
+  // リクエスト CSS は入口で 1 回だけ付け替える(`requestCss.ts`)。
+  const css = rebaseRequestCss(input.css);
   await fs.mkdir(config.tmpDir, { recursive: true });
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const dir = path.join(config.tmpDir, `vivlio-prev-${stamp}`);
   await fs.mkdir(dir, { recursive: true });
   const entry = path.join(dir, 'index.html');
-  assertNoDocumentExternalRefs(input.html, input.css ?? '', 'preview.inline');
+  assertNoDocumentExternalRefs(input.html, css, 'preview.inline');
   // プレビューも配信ルートは同じ形にする(同梱資産を相対パスで引ける)。
   //
   // ⚠ ここは**外部クライアント向けのライブプレビュー API**(`/api/preview`)の経路で、
@@ -322,12 +330,8 @@ export async function prepareInlineDoc(
   // 止まったままで(中継先が我々のオリジンで返るため隔離が効かない)、外部 JS の
   // インライン展開も行わない — 「JS を止める面」であることを CSP と揃えて据え置く。
   const served = await stageDocAssets(dir, {
-    referenced: collectDocumentAssetRefs(input.html, input.css ?? ''),
+    referenced: collectDocumentAssetRefs(input.html, css),
   });
-  await fs.writeFile(
-    entry,
-    inlineCss(input.html, input.css ?? '', { servedAssets: served }),
-    'utf8',
-  );
+  await fs.writeFile(entry, inlineCss(input.html, css, { servedAssets: served }), 'utf8');
   return { dir, entry };
 }

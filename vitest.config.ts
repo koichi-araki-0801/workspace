@@ -50,6 +50,7 @@ export default defineConfig({
         // editor/server (vivliostyle は pure layer のみ。build.ts 等は browser+socket 依存で対象外)
         'editor/server/src/auth/password.ts',
         'editor/server/src/auth/loginRateLimit.ts',
+        'editor/server/src/vivliostyle/requestCss.ts',
         // セキュリティ修正で新設した層。確定書き込みの関所とテンプレ JS の不変性チェックは
         // 迂回されると他の防御が全部無意味になるため、閾値の対象へ入れる。
         'editor/server/src/security/templateScripts.ts',
