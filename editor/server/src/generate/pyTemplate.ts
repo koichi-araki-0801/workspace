@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises';
 import { assertTemplateId } from '@editor/shared';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { BuildAdmissionGate } from '../vivliostyle/buildAdmission.js';
 
 /** 生成器へ渡す属性。ルート(`generate.routes.ts`)で検証した値とサーバが決めた基準日だけ。 */
 export interface GenerateAttributes {
@@ -74,6 +75,20 @@ async function assertGeneratorFingerprint(): Promise<void> {
   }
 }
 
+/** 生成の待ち行列が満杯のときに利用者へ出す文言(PDF ビルドの満杯時と同じ形)。 */
+export const GENERATE_QUEUE_FULL_MESSAGE =
+  'テンプレート生成の順番待ちが混み合っています。しばらく待ってから再実行してください';
+
+/**
+ * 生成の受付制御。上限が無いと、同時に押された数だけ Python が立ち上がる。満杯なら待たせずに
+ * 503 で断る — 待たせると、待つ間ずっと HTTP 接続とリクエストを握り続ける。
+ */
+const GENERATE_GATE = new BuildAdmissionGate({
+  maxConcurrent: config.python.maxConcurrency,
+  maxQueue: config.python.maxQueue,
+  queueFullError: () => generatorError(GENERATE_QUEUE_FULL_MESSAGE, 'GENERATE_QUEUE_FULL', 503),
+});
+
 /**
  * 親から引き継ぐ環境変数。Windows で py ランチャと Python が動く最小限
  * (`SYSTEMROOT` が無いと Python の乱数・ソケットの初期化が失敗する)。
@@ -118,10 +133,11 @@ export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
   // もう一度検査する(Python 側にも basename + 実パス封じ込めの検査がある)。
   if (attrs.basedOnTemplateId) assertTemplateId(attrs.basedOnTemplateId);
   const payload = toGeneratorPayload(attrs);
-  return (async () => {
+  // 指紋の照合は枠を取った後・起動の直前に行う(待ち行列にいる間の差し替えも拾う)。
+  return GENERATE_GATE.run(async () => {
     await assertGeneratorFingerprint();
     return runGenerator(payload);
-  })();
+  });
 }
 
 function runGenerator(payload: GenerateAttributes): Promise<string> {

@@ -113,6 +113,21 @@ describe('BuildAdmissionGate', () => {
     const gate = new BuildAdmissionGate({ maxConcurrent: 0, maxQueue: 1 });
     await expect(gate.run(async () => 'ok')).resolves.toBe('ok');
   });
+
+  it('queueFullError を渡せば満杯時にその Error を投げる(PDF の文言を流用しない)', async () => {
+    const custom = Object.assign(new Error('生成が混み合っています'), { statusCode: 503 });
+    const gate = new BuildAdmissionGate({
+      maxConcurrent: 1,
+      maxQueue: 0,
+      queueFullError: () => custom,
+    });
+    const running = deferred();
+    const a = gate.run(() => running.promise);
+    await tick();
+    await expect(gate.run(async () => undefined)).rejects.toBe(custom);
+    running.resolve();
+    await a;
+  });
 });
 
 // 障害調査用の安全弁(ジョブ毎 spawn)にも受付制御が効いていることを見る。渡された

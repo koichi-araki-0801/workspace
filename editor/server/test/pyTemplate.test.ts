@@ -15,7 +15,11 @@ const { execFileMock } = vi.hoisted(() => {
 vi.mock('node:child_process', () => ({ execFile: execFileMock }));
 
 import { config } from '../src/config.js';
-import { type GenerateAttributes, generateTemplate } from '../src/generate/pyTemplate';
+import {
+  GENERATE_QUEUE_FULL_MESSAGE,
+  type GenerateAttributes,
+  generateTemplate,
+} from '../src/generate/pyTemplate';
 
 const attrs: GenerateAttributes = {
   companyCode: 'C1',
@@ -171,6 +175,53 @@ describe('生成器の指紋', () => {
     fs.writeFileSync(changing, 'print(2)\n', 'utf8');
     await expect(gen(attrs)).rejects.toMatchObject({ code: 'GENERATOR_FINGERPRINT_MISMATCH' });
     expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('生成の同時実行の上限', () => {
+  type Callback = (err: Error | null, stdout: string, stderr: string) => void;
+
+  it('同時 2・待ち 8 を超えた要求は待たずに 503 で断り、1 本終わると次が起動する', async () => {
+    expect(config.python.maxConcurrency).toBe(2);
+    expect(config.python.maxQueue).toBe(8);
+    const callbacks: Callback[] = [];
+    execFileMock.mockImplementation((_bin, _args, _opts, cb: Callback) => {
+      callbacks.push(cb);
+      return { on: vi.fn() };
+    });
+
+    const runs = Array.from({ length: 10 }, () => generateTemplate(attrs));
+    await vi.waitFor(() => expect(execFileMock).toHaveBeenCalledTimes(2));
+    // 11 本目: 実行中 2・待ち 8 で満杯。待たずに断り、生成器を起動しない。
+    await expect(generateTemplate(attrs)).rejects.toMatchObject({
+      message: GENERATE_QUEUE_FULL_MESSAGE,
+      statusCode: 503,
+      code: 'GENERATE_QUEUE_FULL',
+    });
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+
+    callbacks[0](null, '<html>1</html>', '');
+    await vi.waitFor(() => expect(execFileMock).toHaveBeenCalledTimes(3));
+
+    for (let i = 1; i < 10; i += 1) {
+      await vi.waitFor(() => expect(callbacks.length).toBeGreaterThan(i));
+      callbacks[i](null, `<html>${i + 1}</html>`, '');
+    }
+    await expect(Promise.all(runs)).resolves.toHaveLength(10);
+  });
+
+  it('生成器が失敗しても枠を返す(失敗が続いても詰まらない)', async () => {
+    execFileMock.mockImplementation((_bin, _args, _opts, cb: Callback) => {
+      cb(new Error('exit 1'), '', '');
+      return { on: vi.fn() };
+    });
+    const results = await Promise.allSettled(
+      Array.from({ length: 12 }, () => generateTemplate(attrs)),
+    );
+    // 同時に投げた 12 本のうち、満杯で断られるのは 2 本まで。残りは生成器の失敗として返る。
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(12);
+    answerOk();
+    await expect(generateTemplate(attrs)).resolves.toBe('<html>ok</html>');
   });
 });
 
