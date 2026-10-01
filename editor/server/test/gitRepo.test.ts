@@ -192,6 +192,57 @@ d('gitRepo', () => {
     expect(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8')).toContain('/drafts/');
   });
 
+  describe('.gitattributes', () => {
+    const attrFile = path.join(tmp, '.gitattributes');
+    const REQUIRED = '* text eol=lf\n';
+
+    it('新規リポジトリは `* text eol=lf`(LF・BOM 無し)を書く', () => {
+      const raw = fs.readFileSync(attrFile);
+      expect(raw.toString('utf8')).toBe(REQUIRED);
+      expect(raw[0]).not.toBe(0xef);
+    });
+
+    it('git が text=set / eol=lf として解釈する', () => {
+      const out = execFileSync(
+        'git',
+        ['-C', tmp, 'check-attr', 'text', 'eol', '--', 'templates/a.html'],
+        { encoding: 'utf8' },
+      );
+      expect(out).toContain('text: set');
+      expect(out).toContain('eol: lf');
+    });
+
+    it('旧い `* text=lf` を補修する', async () => {
+      fs.writeFileSync(attrFile, '* text=lf\n', 'utf8');
+      await git.ensureRepo();
+      expect(fs.readFileSync(attrFile, 'utf8')).toBe(REQUIRED);
+    });
+
+    it('BOM 付き・CRLF の旧い行も補修し、他の利用者行は残す', async () => {
+      fs.writeFileSync(attrFile, '﻿* text=lf\r\n*.png binary\r\n', 'utf8');
+      await git.ensureRepo();
+      const raw = fs.readFileSync(attrFile);
+      expect(raw[0]).not.toBe(0xef);
+      expect(raw.toString('utf8')).toBe(`${REQUIRED}*.png binary\n`);
+    });
+
+    it('ファイルが無ければ作る', async () => {
+      fs.rmSync(attrFile);
+      await git.ensureRepo();
+      expect(fs.readFileSync(attrFile, 'utf8')).toBe(REQUIRED);
+    });
+
+    it('既に正しければ書き換えない(mtime 不変)', async () => {
+      fs.writeFileSync(attrFile, `${REQUIRED}*.png binary\n`, 'utf8');
+      const past = new Date('2020-01-01T00:00:00Z');
+      fs.utimesSync(attrFile, past, past);
+      await git.ensureRepo();
+      expect(fs.statSync(attrFile).mtimeMs).toBe(past.getTime());
+      expect(fs.readFileSync(attrFile, 'utf8')).toBe(`${REQUIRED}*.png binary\n`);
+      fs.writeFileSync(attrFile, REQUIRED, 'utf8');
+    });
+  });
+
   it('author.name が空でも system として commit できる(email は system@editor.local)', async () => {
     const rel = 'templates/AM01_999999_20250109_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>system identity</p>', 'utf8');

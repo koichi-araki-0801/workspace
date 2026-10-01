@@ -14,8 +14,9 @@
   サーバは環境変数 DATA_ROOT(または appconfig.json の paths.dataRoot)でこの場所を
   参照する。drafts/ pending/ と一時ファイルは追跡しない(.gitignore)。pending/ を
   追跡しないのは整理ではなく防御の一部で、承認コミット(git add -A)に未承認の生成物が
-  混ざると「確定領域へは承認経路からしか書けない」不変則が崩れるため。改行は LF 固定
-  (.gitattributes)で Windows でも byte が揺れないようにする。
+  混ざると「確定領域へは承認経路からしか書けない」不変則が崩れるため。.gitattributes は
+  `* text eol=lf`: text で改行正規化を有効にし eol=lf で作業ツリーも LF に固定するので、
+  core.autocrlf の設定に関わらず Windows でも byte が揺れない。
 
 .PARAMETER DataRoot
   data リポジトリの場所。UNC パス(\\server\share\editor-data)も指定できる。省略時は
@@ -101,7 +102,7 @@ try {
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
     [IO.File]::WriteAllText((Join-Path $DataRoot '.gitignore'),
       "/drafts/`n/reviews/`n/pending/`n/notes/`n/css/fonts/`n/images/`n*.tmp-*`n", $utf8NoBom)
-    [IO.File]::WriteAllText((Join-Path $DataRoot '.gitattributes'), "* text=lf`n", $utf8NoBom)
+    [IO.File]::WriteAllText((Join-Path $DataRoot '.gitattributes'), "* text eol=lf`n", $utf8NoBom)
     git add -A | Out-Null
     git -c user.name=system -c user.email=system@editor.local commit -m '初期化: テンプレ版管理リポジトリ' | Out-Null
     Write-Host 'git リポジトリを初期化し、初回コミットを作成しました。'
