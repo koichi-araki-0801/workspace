@@ -17,7 +17,11 @@
 // 呼ぶ場所は 2 つ(配置時 `server/src/vivliostyle/docAssets.ts`、単体配信
 // `server/src/routes/fundAssets.routes.ts`)。画面内プレビューは後者から取得するので同じ関所を通る。
 
-import { collectCssUrlSpans, findExternalRefsInCss, isAllowedDataUrl } from './cssExternalRefs.js';
+import {
+  collectCssUrlSpansInContext,
+  findExternalRefsInCss,
+  isAllowedDataUrl,
+} from './cssExternalRefs.js';
 import { decodeHtmlEntities, normalizeHtmlUrlValue } from './htmlEntities.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -610,15 +614,29 @@ function checkHref(el: string, raw: string, add: Report): void {
 }
 
 /**
- * CSS(`<style>` の中身・`style` 属性・プレゼンテーション属性)の `url()` は `#id` と、共有の
- * 許可リストの `data:`(埋め込みフォント `data:font/…` など)だけ。
- * 外部参照の判定は検査・配置と同じトークナイザ(`findExternalRefsInCss`)に任せ、エスケープで
- * 隠した `url(\68ttp://…)` もそこで捕まえる。
+ * 埋め込みフォントの値か。`data:font/` だけで、SVG フォント(`data:font/svg…`)は文書として扱われ
+ * うるので除く。フラグメント(`#`)を含むものも除く。
+ */
+function isEmbeddedFontData(v: string): boolean {
+  const lower = v.trim().toLowerCase();
+  return (
+    lower.startsWith('data:font/') && !lower.startsWith('data:font/svg') && !lower.includes('#')
+  );
+}
+
+/**
+ * CSS(`<style>` の中身・`style` 属性・プレゼンテーション属性)の `url()` は `#id` だけ。例外は
+ * `<style>` 要素の最上位 `@font-face` の `src` 記述子に置いた `data:font/…`(pdf-to-svg・pie-chart
+ * が埋め込む)だけで、それ以外の文脈の data URI は通さない。外部参照の判定は検査・配置と同じ
+ * トークナイザ(`findExternalRefsInCss`)に任せ、エスケープで隠した `url(\68ttp://…)` もそこで
+ * 捕まえる。
  */
 function checkCss(css: string, where: string, add: Report): void {
   if (findExternalRefsInCss(css).length > 0) add(`外部参照を含む CSS(${where})`);
-  const nonLocal = (v: string): boolean => !v.trim().startsWith('#') && !isAllowedDataUrl(v);
-  if (collectCssUrlSpans(css).some((span) => nonLocal(span.value))) {
-    add(`url() が #id 以外を指す(${where})`);
-  }
+  const allowFont = where === 'style 要素';
+  const bad = collectCssUrlSpansInContext(css).some((span) => {
+    if (span.value.trim().startsWith('#')) return false;
+    return !(allowFont && span.inFontFaceSrc && isEmbeddedFontData(span.value));
+  });
+  if (bad) add(`url() が #id 以外を指す(${where})`);
 }

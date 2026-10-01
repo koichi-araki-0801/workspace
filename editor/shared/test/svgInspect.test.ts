@@ -40,7 +40,7 @@ describe('inspectSvg — 通すもの', () => {
     [
       '埋め込みフォントの @font-face(data:font)',
       wrap(
-        '<style><![CDATA[@font-face{font-family:"F";src:url(data:font/woff2;base64,d09GMg==)}]]></style>',
+        '<style><![CDATA[@font-face{font-family:"F";src:url(data:font/woff2;base64,AAAA) format("woff2")}]]></style>',
       ),
     ],
     ['use の #id', wrap('<use href="#a"/><use xlink:href="#a"/>')],
@@ -162,6 +162,61 @@ describe('inspectSvg — 落とすもの', () => {
     [
       'style 要素の相対 url()',
       wrap('<style><![CDATA[.a{fill:url(x.png)}]]></style>'),
+      'url() が #id 以外を指す(style 要素)',
+    ],
+    [
+      'プレゼンテーション属性の data:image',
+      wrap('<rect fill="url(data:image/png;base64,AAAA)"/>'),
+      'url() が #id 以外を指す(fill 属性)',
+    ],
+    [
+      'style 属性の data:image + #',
+      wrap('<rect style="filter:url(data:image/png;base64,AAAA#f)"/>'),
+      'url() が #id 以外を指す(style 属性)',
+    ],
+    [
+      'style 属性の data:font/svg+xml',
+      wrap('<rect style="fill:url(data:font/svg+xml,%3Csvg%3E#a)"/>'),
+      'url() が #id 以外を指す(style 属性)',
+    ],
+    [
+      'style 属性の data:image/png+xml',
+      wrap('<rect style="fill:url(data:image/png+xml,x#a)"/>'),
+      'url() が #id 以外を指す(style 属性)',
+    ],
+    [
+      'style 属性の src:url(data:font)',
+      wrap('<rect style="src:url(data:font/woff2;base64,AAAA)"/>'),
+      'url() が #id 以外を指す(style 属性)',
+    ],
+    [
+      '@font-face の data:font/svg',
+      wrap('<style>@font-face{src:url(data:font/svg+xml,%3Csvg%3E)}</style>'),
+      'url() が #id 以外を指す(style 要素)',
+    ],
+    [
+      '@font-face の data:font にフラグメント',
+      wrap('<style>@font-face{src:url(data:font/woff2,AAAA#x)}</style>'),
+      'url() が #id 以外を指す(style 要素)',
+    ],
+    [
+      '@font-face の外の data:font',
+      wrap('<style>.a{background:url(data:font/woff2,AAAA)}</style>'),
+      'url() が #id 以外を指す(style 要素)',
+    ],
+    [
+      '@font-face の src 以外の宣言',
+      wrap('<style>@font-face{x:url(data:font/woff2,AAAA)}</style>'),
+      'url() が #id 以外を指す(style 要素)',
+    ],
+    [
+      '閉じていない @font-face',
+      wrap('<style>@font-face{src:url(data:font/woff2,AAAA)</style>'),
+      'url() が #id 以外を指す(style 要素)',
+    ],
+    [
+      '@font-face を装う入れ子(@media の中)',
+      wrap('<style>@media print{@font-face{src:url(data:font/woff2,AAAA)}}</style>'),
       'url() が #id 以外を指す(style 要素)',
     ],
     [

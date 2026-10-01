@@ -290,12 +290,69 @@ export function collectCssUrlSpans(css: string): CssUrlSpan[] {
   return found;
 }
 
+/** `collectCssUrlSpansInContext` が返す 1 件。 */
+export interface CssUrlSpanInContext extends CssUrlSpan {
+  /**
+   * 最上位の `@font-face { … }` ブロック直下の `src` 宣言の中にあり、かつそのブロックが閉じて
+   * いる。範囲が特定できない(閉じていない・入れ子・`src` 以外の宣言)ときは false(fail closed)。
+   */
+  inFontFaceSrc: boolean;
+}
+
+/**
+ * `collectCssUrlSpans` と同じ走査器で `url()` を拾い、`@font-face` の `src` 記述子の中かを
+ * 併せて返す。ブロック境界は走査器がコメント・文字列・`url()` を読み飛ばした後の `{` `}` `;`
+ * だけを見るので、正規表現で切り出す方式と違いコメントや文字列に隠した括弧に騙されない。
+ */
+export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] {
+  const found: CssUrlSpanInContext[] = [];
+  /** 開いているブロックが最上位の `@font-face` か(入れ子の外側から順)。 */
+  const stack: boolean[] = [];
+  /** 開いている最上位 `@font-face` の中で見つけた `url()`。閉じた時点で確定させる。 */
+  let faceItems: CssUrlSpanInContext[] = [];
+  let pending = '';
+  let declStart = 0;
+  walkCss(css, {
+    atRule: (name) => {
+      pending = name.toLowerCase();
+    },
+    punct: (ch, at) => {
+      if (ch === '{') {
+        stack.push(pending === 'font-face' && stack.length === 0);
+        pending = '';
+      } else if (ch === '}') {
+        if (stack.length === 1 && stack[0]) {
+          found.push(...faceItems);
+          faceItems = [];
+        }
+        stack.pop();
+      } else {
+        pending = '';
+      }
+      declStart = at + 1;
+    },
+    value: (value, kind, span) => {
+      if (kind !== 'url' || span === undefined) return;
+      const inFace = stack.length === 1 && stack[0] === true;
+      const isSrc = inFace && /^\s*src\s*:/i.test(css.slice(declStart, span.start));
+      const item = { value, ...span, inFontFaceSrc: isSrc };
+      if (inFace) faceItems.push(item);
+      else found.push(item);
+    },
+  });
+  // 閉じていないブロックの url() は範囲が確定していないので false で返す。
+  for (const it of faceItems) found.push({ ...it, inFontFaceSrc: false });
+  return found;
+}
+
 /** `findExternalRefsInCss` / `collectCssUrlCandidates` / `collectCssUrlSpans` が共有する 1 パス走査。 */
 function walkCss(
   css: string,
   visit: {
     atRule: (name: string) => void;
     value: (value: string, kind: 'url' | 'string', span?: { start: number; end: number }) => void;
+    /** コメント・文字列・`url()` の外にある `{` `}` `;` の位置。ブロックの範囲を取るために使う。 */
+    punct?: (ch: '{' | '}' | ';', at: number) => void;
   },
 ): void {
   let i = 0;
@@ -335,6 +392,7 @@ function walkCss(
       i = id.next;
       continue;
     }
+    if (c === '{' || c === '}' || c === ';') visit.punct?.(c, i);
     i++;
   }
 }
