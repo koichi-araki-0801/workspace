@@ -250,3 +250,20 @@ dataRoot の構成は、ユーザーが手で差し替える予定。パッチ�
 - **互換処理を外す範囲（6.4 の補足）:** `editor/shared/src/schemas.ts` の説明文と、そこから生成する `openapi.json`（再生成する）、`notes.entryId.test.ts`・`notesFile.thread.test.ts`・`noteRepo.test.ts`・`reviews.test.ts`・`localReviewRepo.dom.test.ts`・`auth.store.dom.test.ts` の該当箇所、`stores/auth.ts`、`lib/storageKeys.ts` の旧キー定数も対象。外した後に旧形式が現れたときの挙動は、notes は配列でない値を読み捨て、reviews の `held` は 1 件ずつ読み飛ばして一覧全体は落とさない。
 - **文書の更新先（6.3 と 6.5 の補足）:** 設計正典（`docs/editor/src/設計正典.md` の起動中止の記述）と、その要約 `.claude/rules/design-canon-summary.md`（`pnpm run check:canon-summary -- --update`）、設計書、OFFLINE.md、運用手順書、2 本のパッチの README。運用手順書には「`paths.assetsDir` は不明なキーとして読み込みエラーになる／環境変数 `ASSETS_DIR` は無視される」を分けて書く。PATH の落とし穴（偽物より先に本物、`setx` の 1024 文字、別アカウント）も書く。
 - **構築済み環境の正確な断面（ユーザー確認 2026-10-02）:** 2026-09-11 より後。したがって `filled` の置き場（09-11 導入）・Undo の保存形式 v2（09-10）・保留の撤去（09-03）・メモの新形式（09-02）はすべて入っており、6.4 の 3 つの互換処理はどれも構築済み環境では使われない。3 つとも外す。
+
+### 6.8 前提の洗い出し（dig、2026-10-02）で決めたこと
+
+ユーザー確認:
+
+- 構築済み環境の `appconfig.json` に、editor のフォルダの中を指す置き場の設定（旧例の `data/templates` など）は入っていない。6.2 の「中断せず外す」はそのままとし、安全弁は足さない。
+- 本物の生成器は、PATH 上の Python 3.13 の標準ライブラリだけで動く。外部パッケージや専用の Python の扱いは、入出力の約束（契約）を作り直すときに扱う（範囲外）。
+
+コードで確かめて決めたこと:
+
+1. **HEAD の無い data リポジトリ:** `init-data-repo.ps1` は `.git` があると git を触らないため、6.7.1 の「`init-data-repo.bat` を案内」だけでは初回コミットが作られない。`init-data-repo.ps1` に「`.git` はあるが HEAD が無い」場合の初回コミット（6.7.2 の確定領域への絞り込みと同じ範囲）を足し、パッチはそれを案内する。
+2. **`init-data-repo.ps1` も `GIT_BIN` を使う**（2 本のパッチと揃える）。
+3. **更新手順（6.5）での `init-data-repo.bat` の位置は、2 本のパッチの後に固定する。** 先に流すと空の `css\fonts` が作られ、取り違えの検査を誤らせるため。
+4. **dataRoot の取り違えの検査（6.7.4 を改める）:** 「旧構成も新構成も見つからない」ではなく、**`templates` も `css` も無い** ときに警告し、終了コードを 0 以外にする。フォントを使わない正当な環境（この端末の開発用データなど）を失敗扱いにしないため。
+5. **既知の形の差分の判定（6.7.1 の補足）:** BOM と改行コード（CRLF / LF）を除いてから比べる。断面時点の `init-data-repo.ps1` は BOM 付きで書いていたため（開発用データの `.gitattributes` も BOM 付きの `* text=lf`）。
+6. **フォントも js も無い `assets` が残っている場合:** フォント移設パッチは、`assets` が残っていれば中身にかかわらず `assets.migrated-<日付>` へ改名する（中身は消さない）。フォントと js 以外のものが入っていれば、報告する。画像の置き場パッチが `assets` の残りで止まり続けないようにするため。
+7. **PATH の順序（6.7.5 の補足）:** Windows のプロセスの PATH は「システム PATH の後にユーザー PATH」。システム PATH に別の版の Python があると、ユーザー PATH の先頭に置いても負ける。運用手順書に書き、起動時の版の確認で気づけることも添える。
