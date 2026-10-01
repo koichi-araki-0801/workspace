@@ -431,6 +431,52 @@ Describe 'migrate.ps1' {
     } finally { Remove-Item -Recurse -Force $root }
   }
 
+  It '中止: 点検範囲の外でステージ済みの変更があれば、確認モードでも -Apply でも中止し、何も変えない' {
+    $root = New-OldLayout
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'fonts'), (Join-Path $root 'misc') | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'fonts\x.woff2') -Value 'X' -NoNewline
+      Set-Content -LiteralPath (Join-Path $root 'misc\hand.txt') -Value 'h' -NoNewline
+      git -C $root add -- fonts/x.woff2 misc/hand.txt
+      $head = git -C $root rev-parse HEAD
+      $msg = Get-Message { Invoke-Patch $script @{ DataRoot = $root; Port = 1 } }
+      $msg | Should Match '手作業の変更が残っています'
+      $msg | Should Match 'fonts/x\.woff2'
+      $msg | Should Match 'misc/hand\.txt'
+      $msg = Get-Message { Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } }
+      $msg | Should Match 'misc/hand\.txt'
+      git -C $root rev-parse HEAD | Should Be $head
+      Test-Path (Join-Path $root 'assets\fonts\a.woff2') | Should Be $true
+      Test-Path (Join-Path $root 'css\fonts') | Should Be $false
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It '中止: .gitignore に先頭の空白付きの "  /css/fonts/" を足しただけでは取り込まない(git はその行で無視しない)' {
+    $root = New-OldLayout
+    try {
+      [IO.File]::AppendAllText((Join-Path $root '.gitignore'), "  /css/fonts/`n", (New-Object Text.UTF8Encoding $false))
+      $head = git -C $root rev-parse HEAD
+      $msg = Get-Message { Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } }
+      $msg | Should Match '手作業の変更が残っています'
+      $msg | Should Match '\.gitignore'
+      git -C $root rev-parse HEAD | Should Be $head
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It '確定済みの .gitignore にあるのが先頭の空白付きの "  /css/fonts/" なら、/css/fonts/ を追記してフォントをコミットに入れない' {
+    $root = New-OldLayout
+    try {
+      [IO.File]::AppendAllText((Join-Path $root '.gitignore'), "  /css/fonts/`n", (New-Object Text.UTF8Encoding $false))
+      git -C $root add -- .gitignore
+      git -C $root -c user.name=t -c user.email=t@t commit -q -m ignore
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } | Out-Null
+      @([IO.File]::ReadAllLines((Join-Path $root '.gitignore')) | Where-Object { $_ -ceq '/css/fonts/' }).Count | Should Be 1
+      Test-Path (Join-Path $root 'css\fonts\a.woff2') | Should Be $true
+      @(git -C $root ls-files -- css/fonts).Count | Should Be 0
+      (git -C $root log -1 --format='%an') | Should Be 'system'
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
   It '手で変更してステージした追跡済みのフォントも、-Apply で追跡だけ外し、作業ツリーのファイルは残す' {
     $root = New-OldLayout
     try {

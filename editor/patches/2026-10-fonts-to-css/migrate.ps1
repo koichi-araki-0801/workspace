@@ -219,12 +219,16 @@ function Get-WorkText([string]$rel) {
 
 function Get-Lines([string]$s) {
   if ($null -eq $s) { return @() }
-  return @($s.Split("`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+  # 末尾の空白だけ除く。git は .gitignore の行頭の空白を無視しないので、"  /css/fonts/" を
+  # "/css/fonts/" と同じに扱うと、効いていない行を「済み」と取り違える。
+  return @($s.Split("`n") | ForEach-Object { $_.TrimEnd() } | Where-Object { $_ -ne '' })
 }
 
 function Test-KnownShape([string]$xy, [string]$rel) {
-  # 候補は「変更・追加・未追跡」だけ(削除・改名・型の変更はパッチが作らない)。
+  # 候補は「変更・追加・未追跡」だけ(削除・改名・型の変更はパッチが作らない)。中身を読む前に
+  # パスで絞る(templates・filled の大量の変更で 1 件ずつ git を起動しないため)。
   if ($xy -notmatch '^[ MA?][ M?]$') { return $false }
+  if ($rel -cne '.gitignore' -and $rel -cne '.gitattributes' -and $rel -cnotmatch '^css/[^/]+\.css$') { return $false }
   $work = Get-WorkText $rel
   if ($null -eq $work) { return $false }
   $head = Get-HeadText $rel
@@ -262,6 +266,21 @@ for ($i = 0; $i -lt $tokens.Count; $i++) {
   if (Test-KnownShape $xy $rel) { $absorbed += $rel; continue }
   $hint = if ($rel -match '^css/[^/]+\.(woff2?|ttf|otf)$') { '(css 直下のフォントは配信されません。css\fonts へ移してください)' } else { '' }
   $foreign += "  $xy $rel$hint"
+}
+# 適用は index 全体をコミットするので、点検範囲の外でステージ済みの変更も見る。追跡を外す置き場
+# (css/fonts・images・js・assets)は後で index から外すので除く。点検範囲の中は上の status が見た。
+$stagedTokens = @((Invoke-GitUtf8 -GitArgs @('diff', '--cached', '--name-status', '-z', 'HEAD')).Out.Split([char]0) | Where-Object { $_ -ne '' })
+for ($i = 0; $i -lt $stagedTokens.Count; $i++) {
+  $code = $stagedTokens[$i]
+  # 改名・複写は元と先の 2 つのパスが続く。
+  $count = if ($code -match '^[RC]') { 2 } else { 1 }
+  $paths = @($stagedTokens[($i + 1)..($i + $count)])
+  $i += $count
+  foreach ($rel in $paths) {
+    if ($rel -ceq '.gitignore' -or $rel -ceq '.gitattributes') { continue }
+    if ($rel -cmatch '^(templates|filled|css|sync|images|js|assets)/') { continue }
+    $foreign += "  $($code.Substring(0, 1))  $rel(点検範囲の外でステージ済み)"
+  }
 }
 if ($foreign.Count -gt 0) {
   $list = $foreign -join "`n"
@@ -333,7 +352,7 @@ foreach ($d in 'templates', 'filled') {
 }
 $reportCssCss = @($cssTargets | Where-Object { (Get-Content -Raw -Encoding UTF8 -LiteralPath $_.FullName) -match '(?i)url\(\s*["'']?css/' })
 $gitignorePath = Join-Path $DataRoot '.gitignore'
-$ignoreLines = if (Test-Path -LiteralPath $gitignorePath) { @([IO.File]::ReadAllLines($gitignorePath) | ForEach-Object { $_.Trim() }) } else { @() }
+$ignoreLines = if (Test-Path -LiteralPath $gitignorePath) { @([IO.File]::ReadAllLines($gitignorePath) | ForEach-Object { $_.TrimEnd() }) } else { @() }
 $needsIgnore = -not ($ignoreLines -contains '/css/fonts/')
 $needsConfig = [bool]($cfgPaths -and $cfgPaths.assetsDir)
 
