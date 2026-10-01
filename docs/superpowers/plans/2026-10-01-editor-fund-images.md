@@ -34,6 +34,7 @@
 3. 単体配信ルートで `..`・`%2F`・`%5C`・サブフォルダ・`CON.svg` などの予約名・許可外拡張子がすべて 404 になり、SVG の応答だけ helmet の全域 CSP が `sandbox` に置き換わること（Task 4 のテスト）。
 4. `inspectSvg` が迂回入力（`xlink` の別名接頭辞、文字参照で隠した `javascript:`、CSS エスケープで隠した外部 `url()`、`xmlns:__proto__`、UTF-16 のバイト列）で違反を返し、Illustrator / Inkscape の通常出力の見本は通すこと（Task 1 のテスト）。
 5. パッチが「`.gitignore` に `/images/` の 1 行が未コミットで足されただけ」の状態では進んでその差分をコミットし、それ以外の差分では止まること。rollback を 2 回流しても revert の revert にならないこと（Task 8 のテスト）。
+6. 社内ツール（pdf-to-svg・pie-chart）の実出力 SVG が `inspectSvg` を通ること。落ちる場合も危険な構造は許可しないこと（Task 1b のテスト）。
 
 ---
 
@@ -1086,6 +1087,92 @@ Expected: PASS
 pnpm exec biome check --write editor/shared/src/security/svgInspect.ts editor/shared/src/security/cssExternalRefs.ts editor/shared/src/index.ts editor/shared/test/svgInspect.test.ts editor/shared/test/cssExternalRefs.test.ts
 git add editor/shared/src/security/svgInspect.ts editor/shared/src/security/cssExternalRefs.ts editor/shared/src/index.ts editor/shared/test/svgInspect.test.ts editor/shared/test/cssExternalRefs.test.ts editor/shared/test/fixtures/svg vitest.config.ts
 git commit -m "feat(shared): 配信する SVG を許可リストの字句走査で検査する inspectSvg を追加する"
+```
+
+---
+
+### Task 1b: 実ツールの出力（pdf-to-svg・pie-chart）を `inspectSvg` の見本に加える
+
+画像を作るのは社内ツールである。python-tools リポジトリの pdf-to-svg（PDF → SVG）と、このリポジトリの pie-chart（円グラフ SVG）の実際の出力が `inspectSvg` を必ず通ることを、見本ファイルで固定する。手で書いた見本（Task 1）だけでは、実ツールが出す要素・属性の取りこぼしに気付けない。
+
+**Files:**
+- Create: `editor/shared/test/fixtures/svg/tools/pie-chart/*.svg`（3 本）
+- Create: `editor/shared/test/fixtures/svg/tools/pdf-to-svg/*.svg`（python-tools/pdf-to-svg の test/fixtures の PDF から変換したもの。最大 5 本）
+- Create: `editor/shared/test/fixtures/svg/tools/README.md`（各ファイルの出所・生成コマンド・生成元のコミット SHA・作り直し方）
+- Create: `editor/shared/test/svgInspect.tools.test.ts`
+- Modify: `editor/shared/src/security/svgInspect.ts`（実出力が落ちた場合だけ、許可集合へ足す）
+
+**Interfaces:**
+- Consumes: `inspectSvg(text: string): string[]`（Task 1）
+- Produces: なし（見本とテストのみ）
+
+- [ ] **Step 1: pie-chart の出力を 3 本選んで置く**
+
+`pie-chart/out/_baseline/` に出力があればそこから、無ければ `cd pie-chart && npm run batch` で `pie-chart/out/` に生成してから選ぶ。選ぶのは性質の違う 3 本: スライスの少ないもの（例 `asset_2slice_split.svg`）、多くラベルの混んだもの（例 `asset_11_mixed.svg`）、「その他」を含むもの（`ls pie-chart/out/_baseline | head -40` で名前を見て 1 本）。`editor/shared/test/fixtures/svg/tools/pie-chart/` へコピーする（中身は変えない）。
+
+- [ ] **Step 2: pdf-to-svg の出力を作って置く**
+
+`C:\Users\caads\python-tools\pdf-to-svg` の README と `src/` を読み、PDF を SVG に変換する処理をスクリプトから呼ぶ方法（CLI、または Python 関数を `py -3.13 -c` で呼ぶ）を特定する。GUI の起動を伴う経路は使わない。`test/fixtures/*.pdf`（`banner_sample.pdf` `clipped_image_sample.pdf` `ocr_layer_sample.pdf` `qr_cells_sample.pdf` など）を変換し、出力 SVG のうち 1 本 300KB 以下のものを最大 5 本、`editor/shared/test/fixtures/svg/tools/pdf-to-svg/` に置く（中身は変えない）。変換に使った一時フォルダは削除する。python-tools の作業ツリーは変更しない。変換方法がどうしても特定できない場合は BLOCKED で報告する（推測で手書きしない）。
+
+- [ ] **Step 3: README を書く**
+
+`editor/shared/test/fixtures/svg/tools/README.md` に、ファイルごとの出所（ツール名・入力・生成コマンド）、生成元のコミット SHA（`git -C C:\Users\caads\python-tools rev-parse --short HEAD`、pie-chart は workspace の HEAD）、ツールの出力が変わったら同じ手順で作り直して本テストを流すこと、を書く。
+
+- [ ] **Step 4: 失敗するかもしれないテストを書く**
+
+`editor/shared/test/svgInspect.tools.test.ts`:
+
+```ts
+// =============================================================================
+// svgInspect.tools.test.ts — 社内ツールが実際に出す SVG が inspectSvg を通ることの固定
+// =============================================================================
+// 画像は pdf-to-svg と pie-chart が作って images/ に置く。検査が実出力を落とすと、正当な画像が
+// 黙って表示されなくなる(配置しない・404)。見本は手で書かず、ツールの出力をそのまま置いている。
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { inspectSvg } from '../src/security/svgInspect.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const TOOLS = path.join(HERE, 'fixtures', 'svg', 'tools');
+
+const samples = ['pie-chart', 'pdf-to-svg'].flatMap((tool) =>
+  readdirSync(path.join(TOOLS, tool))
+    .filter((f) => f.endsWith('.svg'))
+    .map((f) => [`${tool}/${f}`, path.join(TOOLS, tool, f)] as const),
+);
+
+describe('社内ツールの実出力', () => {
+  it('両ツールの見本が 1 本以上ある', () => {
+    expect(samples.some(([n]) => n.startsWith('pie-chart/'))).toBe(true);
+    expect(samples.some(([n]) => n.startsWith('pdf-to-svg/'))).toBe(true);
+  });
+
+  it.each(samples)('%s は違反なし', (_name, file) => {
+    expect(inspectSvg(readFileSync(file, 'utf8'))).toEqual([]);
+  });
+});
+```
+
+- [ ] **Step 5: テストを流す**
+
+Run: `pnpm --filter @editor/shared exec vitest run test/svgInspect.tools.test.ts`
+Expected: PASS。FAIL した場合は Step 6 へ。
+
+- [ ] **Step 6: 落ちた場合は許可集合を足す（安全側を崩さない）**
+
+違反の説明に出た要素・属性が、仕様 3.3 の「違反にするもの」（スクリプト・`foreignObject`・イベント属性・外部参照・別ファイル参照・`xml:base`・SMIL・未知の名前空間）に当たらない描画上の要素・属性であれば、`svgInspect.ts` の許可集合へ足し、`svgInspect.test.ts` にその要素・属性だけを使う最小の許可ケースを 1 件足す。違反にするものに当たる場合（例: pdf-to-svg が外部フォントを `@font-face src:url(http…)` で参照する）は許可せず、DONE_WITH_CONCERNS で内容を報告する（ツール側の出力を直すべきか、コントローラが判断する）。`data:font/…` の `@font-face` は共有の許可リストが既に許すので違反にならないはず。
+
+Run: `pnpm --filter @editor/shared exec vitest run test/svgInspect.tools.test.ts test/svgInspect.test.ts`
+Expected: PASS
+
+- [ ] **Step 7: コミット**
+
+```bash
+pnpm exec biome check --write editor/shared/test/svgInspect.tools.test.ts editor/shared/src/security/svgInspect.ts
+git add editor/shared/test/fixtures/svg/tools editor/shared/test/svgInspect.tools.test.ts editor/shared/src/security/svgInspect.ts editor/shared/test/svgInspect.test.ts
+git commit -m "test(shared): pdf-to-svg と pie-chart の実出力 SVG が inspectSvg を通ることを見本で固定する"
 ```
 
 ---
@@ -3924,6 +4011,8 @@ git commit -m "docs(editor): ファンド別画像の置き場・配信経路の
 ---
 
 ### Task 10: 全体の検証
+
+実機の PDF 確認では、手で作った SVG・png に加え、Task 1b で置いた pdf-to-svg と pie-chart の実出力 SVG を 1 本ずつ `images/` に `<fund>_<名前>.svg` で置いて参照し、PDF に表示されることも確かめる。
 
 **Files:** なし（確認のみ。直しが出たら該当 Task のファイルを直して追加コミット）
 
