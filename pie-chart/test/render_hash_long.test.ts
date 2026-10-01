@@ -18,11 +18,12 @@ const LONG_CASES = Object.entries(syntheticCases()).filter(([name]) =>
 
 describe('合成入力の SVG ハッシュ固定 (配置計算が重いケース)', () => {
   // timeout はルート `vitest run --coverage` (4 project 並列) 併走時の実測を余裕込みで収める値
-  // (`render_hash.test.ts` と同じ判断・同じ値)。単独では 1 ケース約 4〜5 秒で、カバレッジ実行の
-  // オーバーヘッドと並列負荷を掛け合わせても 60 秒には十分な余裕がある。
+  // (`render_hash.test.ts` と同じ判断)。単独では 1 ケース約 4〜5 秒だが、GitHub Actions の
+  // ランナーではカバレッジのオーバーヘッドと並列負荷が重なって 2 分近くかかることがあるため、
+  // 軽いケース側 (60 秒) より大きく取る。遅いこと自体は退行ではない。
   it.each(LONG_CASES)(
     '%s の SHA256 が定数表と一致する',
-    { timeout: 60_000 },
+    { timeout: 180_000 },
     async (name, items) => {
       const { svg } = await renderPdfStylePieToSvg(items, {});
       expect(createHash('sha256').update(svg).digest('hex')).toBe(EXPECTED[name]);
