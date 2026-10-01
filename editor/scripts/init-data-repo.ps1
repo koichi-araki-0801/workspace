@@ -174,9 +174,11 @@ if ($hasGit -and (Test-GitHead)) {
   # `:(exclude)css/fonts` を併せて渡すと、git add は無視中のパスを名指ししたとみなして失敗する。
   $specs = @(Get-CommittedPathspecs)
   # HEAD の無い .git では、手で `git add -A` した後に commit が止まった等で index に確定領域の外が
-  # 載っていることがある。領域を絞った add は領域外の index に触れないので、先に index を空にする
-  # (--cached なので作業ツリーのファイルは消えない)。
-  if ($hasGit) { Invoke-Git rm -r -q --cached --ignore-unmatch -- . | Out-Null }
+  # 載っていることがある。領域を絞った add は領域外の index に触れないので、先に index を空にする。
+  # read-tree --empty は index だけを無条件に空にし、作業ツリーには触れない。`git rm --cached` は
+  # HEAD が無いと「index が作業ツリーとも HEAD とも違う」ファイル(直前に書き直した .gitignore 等)で
+  # 止まり、再実行しても同じ所で止まり続ける。
+  if ($hasGit) { Invoke-Git read-tree --empty | Out-Null }
   Invoke-Git add -A -- @specs | Out-Null
   Invoke-Git -c user.name=system -c user.email=system@editor.local commit -q -m '初期化: テンプレ版管理リポジトリ' | Out-Null
   if ($hasGit) {

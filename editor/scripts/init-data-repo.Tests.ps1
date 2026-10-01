@@ -76,6 +76,39 @@ Describe 'init-data-repo.ps1' {
     } finally { Remove-Item -Recurse -Force $root }
   }
 
+  It '既存の .gitignore ごと手で git add -A 済みの履歴の無いリポジトリでも、確定領域だけで初回コミットを作る' {
+    $root = New-Root
+    try {
+      New-HandMadeContent $root
+      [IO.File]::WriteAllText((Join-Path $root '.gitignore'), "/local-only/`n", (New-Object Text.UTF8Encoding $false))
+      git -C $root init -q
+      git -C $root add -A 2>$null
+      Invoke-Init @{ DataRoot = $root } | Out-Null
+      Get-Tracked $root | Should Be $expectedTracked
+      $lines = @([IO.File]::ReadAllLines((Join-Path $root '.gitignore')))
+      $lines -contains '/local-only/' | Should Be $true
+      $lines -contains '/css/fonts/' | Should Be $true
+      ((git -C $root show HEAD:.gitignore) -join '|') | Should Be ($lines -join '|')
+      foreach ($f in 'assets\fonts\b.woff2', 'js\w.js', 'css\fonts\a.woff2', 'images\510037_logo.svg', 'notes\T1.json') {
+        Test-Path (Join-Path $root $f) | Should Be $true
+      }
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It 'git add -A のあとテンプレを手で変えた履歴の無いリポジトリでも、作業ツリーの内容で初回コミットを作る' {
+    $root = New-Root
+    try {
+      New-HandMadeContent $root
+      git -C $root init -q
+      git -C $root add -A 2>$null
+      Set-Content -LiteralPath (Join-Path $root 'templates\T1.html') -Value '<p>changed</p>' -NoNewline
+      Invoke-Init @{ DataRoot = $root } | Out-Null
+      Get-Tracked $root | Should Be $expectedTracked
+      (git -C $root show HEAD:templates/T1.html) | Should Be '<p>changed</p>'
+      Test-Path (Join-Path $root 'js\w.js') | Should Be $true
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
   It 'git が HEAD の確認で失敗したら(dubious ownership 等)、.gitignore と .gitattributes を書かずに止まる' {
     $root = New-Root
     $fake = Join-Path $env:TEMP ('init-data-fakegit-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.cmd')
