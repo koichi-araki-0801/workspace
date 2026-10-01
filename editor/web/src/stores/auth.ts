@@ -16,13 +16,7 @@ import { useAuthService } from '@/features/auth/services/authService';
 import { currentAppEpoch, restartEnded } from '@/lib/appEpoch';
 import { logError } from '@/lib/appError';
 import { armUnauthorizedNotice } from '@/lib/sessionExpiry';
-import {
-  draftOwnerKey,
-  LEGACY_UNDO_STACKS_KEY,
-  legacyUndoStacksKeyV1,
-  setUndoUserScope,
-  undoStacksKey,
-} from '@/lib/storageKeys';
+import { draftOwnerKey, setUndoUserScope, undoStacksKey } from '@/lib/storageKeys';
 import { useTabMemoryStore } from '@/stores/tabMemory';
 
 /** メッセージ判定専用マーカー(認証強制は repo epoch / REST 全失効が担う。これは表示用)。 */
@@ -95,11 +89,9 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await auth.logout();
     if (!isOk(res)) logError(res.error);
     user.value = null;
-    // Undo ミラーは端末に残るため、現行キーと旧形式キーを消してから scope を落とす
+    // Undo ミラーは端末に残るため、現在のユーザーのキーを消してから scope を落とす
     // (残すと次の利用者の画面へ前の利用者の編集内容が復元されうる)。
     localStorage.removeItem(undoStacksKey());
-    localStorage.removeItem(LEGACY_UNDO_STACKS_KEY);
-    localStorage.removeItem(legacyUndoStacksKeyV1());
     // 下書きの所属も端末に残る。次の利用者のセッションで前の利用者の下書きが
     // 「同じセッション」と誤判定されることは無い(トークンが違う)が、キーを残さない。
     localStorage.removeItem(draftOwnerKey());

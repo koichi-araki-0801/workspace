@@ -10,13 +10,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from 'vue';
 import editorUser from '@/api/fixtures/users.json';
 import { localRepositories, REPOS_KEY } from '@/api/repositories';
-import {
-  draftOwnerKey,
-  K,
-  LEGACY_UNDO_STACKS_KEY,
-  legacyUndoStacksKeyV1,
-  undoStacksKey,
-} from '@/lib/storageKeys';
+import { draftOwnerKey, K, undoStacksKey } from '@/lib/storageKeys';
 import { useAuthStore } from '@/stores/auth';
 
 // fixture の editor ユーザーは mustChangePassword:true 個体で、平文パスワードもここから読む
@@ -92,23 +86,36 @@ describe('useAuthStore.login()', () => {
 });
 
 describe('useAuthStore.logout()', () => {
-  it('Undo ミラー(現行/旧 2 種)・下書き所属・authEpoch・sample cache を消す', async () => {
+  it('Undo ミラー・下書き所属・authEpoch・sample cache を消す', async () => {
     const store = setupStore();
     await store.login('admin', 'admin');
     localStorage.setItem(undoStacksKey(), '{}');
-    localStorage.setItem(LEGACY_UNDO_STACKS_KEY, '{}');
-    localStorage.setItem(legacyUndoStacksKeyV1(), '{}');
     localStorage.setItem(draftOwnerKey(), '{}');
     sessionStorage.setItem('editor:sample:510037', '{}');
     const key = undoStacksKey();
     await store.logout();
     expect(store.user).toBeNull();
     expect(localStorage.getItem(key)).toBeNull();
-    expect(localStorage.getItem(LEGACY_UNDO_STACKS_KEY)).toBeNull();
-    expect(localStorage.getItem(legacyUndoStacksKeyV1())).toBeNull();
     expect(localStorage.getItem(draftOwnerKey())).toBeNull();
     expect(localStorage.getItem('editor:authEpoch')).toBeNull();
     expect(sessionStorage.getItem('editor:sample:510037')).toBeNull();
+  });
+
+  it('旧形式の Undo ミラーのキーには触らない(読まれないだけで害はない)', async () => {
+    const store = setupStore();
+    await store.login('admin', 'admin');
+    localStorage.setItem('editor:session:undo', '{}');
+    await store.logout();
+    expect(localStorage.getItem('editor:session:undo')).toBe('{}');
+  });
+});
+
+describe('storageKeys', () => {
+  it('旧キーの定数を持たない', async () => {
+    const keys = await import('@/lib/storageKeys');
+    for (const name of ['LEGACY_NOTES_KEY', 'LEGACY_UNDO_STACKS_KEY', 'legacyUndoStacksKeyV1']) {
+      expect(name in keys).toBe(false);
+    }
   });
 });
 
