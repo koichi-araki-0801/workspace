@@ -7,8 +7,11 @@
 // DB 接続の追加文字列を共有上のコードが読める。秘密値だけを削る拒否リストにしないのは、
 // 秘密値が増えたときに黙って漏れるため。
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { assertTemplateId } from '@editor/shared';
 import { config } from '../config.js';
+import { logger } from '../logger.js';
 
 /** 生成器へ渡す属性。ルート(`generate.routes.ts`)で検証した値とサーバが決めた基準日だけ。 */
 export interface GenerateAttributes {
@@ -18,6 +21,57 @@ export interface GenerateAttributes {
   /** サーバの現在日(`yyyyMMdd`)。ファイル名・台帳の基準日と同じ値を生成器にも見せる。 */
   baseDate: string;
   basedOnTemplateId?: string;
+}
+
+/** 指紋が合わないときに利用者へ出す文言(生成器の差し替えは管理者の対応事項)。 */
+export const GENERATOR_FINGERPRINT_MISMATCH_MESSAGE =
+  'テンプレート生成器の指紋が設定と一致しないため、生成を中止しました。管理者に連絡してください';
+
+/**
+ * 利用者へそのまま出せる文言と状態コードを持つ Error。`errorHandler` は `kind` を持つ値の
+ * `message` を応答に使い、数値の `statusCode` を状態コードに使う。Error のインスタンスに
+ * するのは、`auditedRethrow` が監査ログへ `message` を残すため。
+ */
+function generatorError(message: string, code: string, statusCode: number): Error {
+  return Object.assign(new Error(message), { kind: 'unexpected' as const, code, statusCode });
+}
+
+/**
+ * 生成器のスクリプトの指紋を照合する(設定が無ければ何もしない)。生成のたびに読むのは、
+ * 照合から起動までの間に共有上のスクリプトを差し替えられる幅を狭めるため。読めないときも
+ * 拒否する — 照合できない生成器を起動すると、指紋を設定した意味が消える。
+ */
+async function assertGeneratorFingerprint(): Promise<void> {
+  const expected = config.python.scriptSha256;
+  if (expected === undefined) return;
+  const script = config.python.script;
+  let actual: string;
+  try {
+    actual = createHash('sha256')
+      .update(await readFile(script))
+      .digest('hex');
+  } catch (err) {
+    logger.error(
+      { err, script },
+      '[generate] 生成器のスクリプトを読めず指紋を照合できません — 生成を拒否しました',
+    );
+    throw generatorError(
+      GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
+      'GENERATOR_FINGERPRINT_MISMATCH',
+      500,
+    );
+  }
+  if (actual !== expected) {
+    logger.error(
+      { script, expected, actual },
+      '[generate] 生成器の指紋が設定と一致しません — 生成を拒否しました',
+    );
+    throw generatorError(
+      GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
+      'GENERATOR_FINGERPRINT_MISMATCH',
+      500,
+    );
+  }
 }
 
 /**
@@ -63,7 +117,11 @@ export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
   // するが、ここを別の呼び出し元から使われても任意ファイルを取り込ませないよう、渡す前に
   // もう一度検査する(Python 側にも basename + 実パス封じ込めの検査がある)。
   if (attrs.basedOnTemplateId) assertTemplateId(attrs.basedOnTemplateId);
-  return runGenerator(toGeneratorPayload(attrs));
+  const payload = toGeneratorPayload(attrs);
+  return (async () => {
+    await assertGeneratorFingerprint();
+    return runGenerator(payload);
+  })();
 }
 
 function runGenerator(payload: GenerateAttributes): Promise<string> {

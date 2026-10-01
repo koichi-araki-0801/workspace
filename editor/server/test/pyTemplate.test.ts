@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Hoisted so the vi.mock factory (also hoisted) can reference it. `config.ts` と `logger.ts` は
@@ -87,6 +91,86 @@ describe('生成器の起動のしかた', () => {
     await generateTemplate({ ...attrs, basedOnTemplateId: 'AM01_510037_20240710_交付版' });
     const args = execFileMock.mock.calls[0][1] as string[];
     expect(JSON.parse(args[args.length - 1]).basedOnTemplateId).toBe('AM01_510037_20240710_交付版');
+  });
+});
+
+describe('生成器の指紋', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-fingerprint-'));
+  const script = path.join(dir, 'generator.py');
+  fs.writeFileSync(script, 'print("<html></html>")\n', 'utf8');
+  const sha = createHash('sha256').update(fs.readFileSync(script)).digest('hex');
+
+  /** 指紋とスクリプトを差し替えて pyTemplate を読み直す(config は import 時に値を確定する)。 */
+  async function load(scriptPath: string, sha256: string | undefined) {
+    vi.stubEnv('PY_GENERATE_SCRIPT', scriptPath);
+    const saved = process.env.PY_GENERATE_SCRIPT_SHA256;
+    if (sha256 === undefined) delete process.env.PY_GENERATE_SCRIPT_SHA256;
+    else process.env.PY_GENERATE_SCRIPT_SHA256 = sha256;
+    vi.resetModules();
+    try {
+      const mod = await import('../src/generate/pyTemplate.js');
+      const { logger } = await import('../src/logger.js');
+      return { ...mod, logger };
+    } finally {
+      if (saved === undefined) delete process.env.PY_GENERATE_SCRIPT_SHA256;
+      else process.env.PY_GENERATE_SCRIPT_SHA256 = saved;
+    }
+  }
+
+  afterEach(() => vi.resetModules());
+
+  it('一致すれば起動する', async () => {
+    const { generateTemplate: gen } = await load(script, sha);
+    answerOk();
+    await expect(gen(attrs)).resolves.toBe('<html>ok</html>');
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('食い違えば起動せずに拒否し、サーバログに残す', async () => {
+    const {
+      generateTemplate: gen,
+      logger,
+      GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
+    } = await load(script, 'f'.repeat(64));
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    answerOk();
+    await expect(gen(attrs)).rejects.toMatchObject({
+      message: GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
+      kind: 'unexpected',
+      code: 'GENERATOR_FINGERPRINT_MISMATCH',
+    });
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(logged).toHaveBeenCalledWith(
+      expect.objectContaining({ script, expected: 'f'.repeat(64), actual: sha }),
+      expect.stringContaining('指紋'),
+    );
+  });
+
+  it('指紋を設定したのにスクリプトが読めなければ拒否する(照合できない = 起動しない)', async () => {
+    const { generateTemplate: gen, logger } = await load(path.join(dir, 'missing.py'), sha);
+    vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    answerOk();
+    await expect(gen(attrs)).rejects.toMatchObject({ code: 'GENERATOR_FINGERPRINT_MISMATCH' });
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it('未設定なら照合しない(スクリプトが無くても読みに行かない)', async () => {
+    const { generateTemplate: gen } = await load(path.join(dir, 'missing.py'), undefined);
+    answerOk();
+    await expect(gen(attrs)).resolves.toBe('<html>ok</html>');
+  });
+
+  it('照合はその都度行う(1 回目の後にスクリプトが変われば 2 回目は拒否)', async () => {
+    const changing = path.join(dir, 'changing.py');
+    fs.writeFileSync(changing, 'print(1)\n', 'utf8');
+    const first = createHash('sha256').update(fs.readFileSync(changing)).digest('hex');
+    const { generateTemplate: gen, logger } = await load(changing, first);
+    vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    answerOk();
+    await expect(gen(attrs)).resolves.toBe('<html>ok</html>');
+    fs.writeFileSync(changing, 'print(2)\n', 'utf8');
+    await expect(gen(attrs)).rejects.toMatchObject({ code: 'GENERATOR_FINGERPRINT_MISMATCH' });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
   });
 });
 
