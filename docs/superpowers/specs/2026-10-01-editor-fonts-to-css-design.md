@@ -41,7 +41,7 @@
 - フォントの物理的な置き場は `cssDir/fonts`、配信パスは `css/fonts/…` の 1 つだけとする。配信パス `fonts/` は廃止する。
 - `ASSET_GROUPS` から `fonts` グループを外し、配信パス `css/fonts`・元フォルダ `cssDir/fonts`・拡張子 `.ttf .otf .woff .woff2` のグループを新設する。既存の css グループ（拡張子 `.css`）の拡張子にフォントを足す形は採らない（`cssDir` 直下にもフォントを置けてしまうため）。
 - `resolveServedAssetSource` と `collectGroup` のグループの引き方を、配信パスの**最長一致の前方一致**に変える（`css/fonts/x` は css/fonts グループ、`css/x.css` は css グループ）。PDF の配置（`stageDocAssets`）とプレビューホスト（`previewHost.ts`）は、引き続きこの 1 つの判定を共有する。
-- フォルダ名 `fonts` の照合は大文字・小文字を区別しない（Windows の FS で `css/Fonts/` に置かれても配信できるようにする）。
+- フォルダ名 `fonts` の大文字・小文字: 物理フォルダは Windows の FS が大小を区別しないので `css\Fonts\` に置かれても `path.join(cssDir, 'fonts')` で届く。CSS に書く URL は小文字 `fonts/` とし、運用手順書に明記する（URL 側の大小無視の照合は作らない。配置・参照の洗い出し・プレビュー埋め込みの 3 か所に正規化を足すことになり、得るものが小さい）。
 - 深さの上限（`MAX_ASSET_DEPTH` = 4）は `css/fonts/noto/JP/x.woff2` でも収まるので変えない。
 
 ### 3.2 js の外出しと旧設定
@@ -120,7 +120,7 @@
    - `cssDir\*.css`（確定領域）
    - `drafts\*.css`、`pending\*.css`、`reviews\<id>\body.css`（承認前の作業コピー。放置すると、移行前に出した申請を承認した瞬間に、移行済み CSS が旧参照で上書きされる）
 4. appconfig に `paths.assetsDir` があれば、`paths.jsDir`（値は旧 `<assetsDir>\js`）に書き換え、`paths.assetsDir` を消す。`ASSETS_DIR` 環境変数が設定されていれば、`JS_DIR` へ移すよう案内を表示する（環境変数は書き換えない）。
-5. 確定領域の変更（`css/*.css` と `.gitignore`）を、`init-data-repo` の初回コミットと同じ `system` 名義で 1 コミットする。メッセージは「移行: フォント置き場の移設（assets/fonts → css/fonts）」。
+5. 確定領域の変更（`css/*.css` と `.gitignore`）を、`init-data-repo` の初回コミットと同じ `system` 名義で 1 コミットする。メッセージは「移行: フォント置き場の移設（assets/fonts → css/fonts） [fonts-to-css]」（末尾は rollback が探す ASCII の目印）。
 
 #### 報告のみ（書き換えない）
 
