@@ -12,7 +12,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 let root: string;
 let cssDir: string;
 let jsDir: string;
+let imagesDir: string;
 let dest: string;
+/** `stageDocAssets` が出す警告(違反 SVG)の受け口。 */
+const warn = vi.fn();
 
 /**
  * `config` を temp ディレクトリ向けに差し替えた `stageDocAssets` を読み込む。
@@ -23,10 +26,11 @@ async function loadStage(
 ): Promise<(dir: string, opts?: { referenced?: ReadonlySet<string> }) => Promise<Set<string>>> {
   vi.resetModules();
   vi.doMock('../src/config.js', () => ({
-    config: { cssDir, jsDir },
+    config: { cssDir, jsDir, imagesDir },
     envPositiveNumber: (name: string, _v: string | undefined, def: number) =>
       limits[name as keyof typeof limits] ?? def,
   }));
+  vi.doMock('../src/logger.js', () => ({ logger: { warn } }));
   const mod = await import('../src/vivliostyle/docAssets.js');
   return mod.stageDocAssets;
 }
@@ -35,12 +39,15 @@ beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'editor-assets-'));
   cssDir = path.join(root, 'data', 'css');
   jsDir = path.join(root, 'data', 'js');
+  imagesDir = path.join(root, 'data', 'images');
+  warn.mockReset();
   dest = path.join(root, 'serve');
   await fs.mkdir(dest, { recursive: true });
 });
 
 afterEach(async () => {
   vi.doUnmock('../src/config.js');
+  vi.doUnmock('../src/logger.js');
   vi.resetModules();
   await fs.rm(root, { recursive: true, force: true });
 });
@@ -208,9 +215,10 @@ describe('stageDocAssets — 置けないもの(迂回入力)', () => {
 async function loadResolve(): Promise<(rel: string) => Promise<string | undefined>> {
   vi.resetModules();
   vi.doMock('../src/config.js', () => ({
-    config: { cssDir, jsDir },
+    config: { cssDir, jsDir, imagesDir },
     envPositiveNumber: (_n: string, _v: string | undefined, def: number) => def,
   }));
+  vi.doMock('../src/logger.js', () => ({ logger: { warn } }));
   const mod = await import('../src/vivliostyle/docAssets.js');
   return mod.resolveServedAssetSource;
 }
@@ -313,5 +321,107 @@ describe('stageDocAssets — referenced を渡すと参照されたものだけ�
     await write(path.join(cssDir, '510155.css'), 'p{}');
     const served = await (await loadStage())(dest);
     expect(served.size).toBe(2);
+  });
+});
+
+const NS = 'http://www.w3.org/2000/svg';
+const GOOD_SVG = `<svg xmlns="${NS}" width="10" height="10"><rect width="10" height="10"/></svg>`;
+const BAD_SVG = `<svg xmlns="${NS}" onload="alert(1)"><rect width="10" height="10"/></svg>`;
+
+// ── ファンド別画像(images/)──
+// 置き場は別ツールが書くフラットなフォルダ。参照されたものだけ・直下だけ・許可拡張子だけを
+// 置き、SVG は中身を検査して違反を置かない(参照は表示されないまま落ちる)。
+describe('stageDocAssets — ファンド別画像(images/)', () => {
+  it('images 直下の参照された画像だけを置く(他ファンドの画像は載らない)', async () => {
+    await write(path.join(imagesDir, '510037_logo.svg'), GOOD_SVG);
+    await write(path.join(imagesDir, '510037_photo.png'), 'png');
+    await write(path.join(imagesDir, '510155_logo.svg'), GOOD_SVG);
+    const served = await (await loadStage())(dest, {
+      referenced: new Set(['images/510037_logo.svg', 'images/510037_photo.png']),
+    });
+    expect([...served].sort()).toEqual(['images/510037_logo.svg', 'images/510037_photo.png']);
+  });
+
+  it('サブフォルダと許可外の拡張子は置かない', async () => {
+    await write(path.join(imagesDir, 'sub', '510037_a.svg'), GOOD_SVG);
+    await write(path.join(imagesDir, '510037_a.gif'), 'gif');
+    const served = await (await loadStage())(dest, {
+      referenced: new Set(['images/sub/510037_a.svg', 'images/510037_a.gif']),
+    });
+    expect(served.size).toBe(0);
+  });
+
+  it('違反した SVG は置かずに警告する', async () => {
+    await write(path.join(imagesDir, '510037_bad.svg'), BAD_SVG);
+    const served = await (await loadStage())(dest, {
+      referenced: new Set(['images/510037_bad.svg']),
+    });
+    expect(served.size).toBe(0);
+    await expect(fs.stat(path.join(dest, 'images', '510037_bad.svg'))).rejects.toThrow();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ file: 'images/510037_bad.svg' }),
+      expect.any(String),
+    );
+  });
+
+  it('参照されていない SVG は読まない(違反があっても警告しない)', async () => {
+    await write(path.join(imagesDir, '510037_bad.svg'), BAD_SVG);
+    await write(path.join(imagesDir, '510037_logo.svg'), GOOD_SVG);
+    await (await loadStage())(dest, { referenced: new Set(['images/510037_logo.svg']) });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('ファンド CSS の url(../images/…) から連鎖した SVG も検査する', async () => {
+    await write(
+      path.join(cssDir, '510037.css'),
+      '.a{background:url(../images/510037_bad.svg)} .b{background:url(../images/510037_logo.svg)}',
+    );
+    await write(path.join(imagesDir, '510037_bad.svg'), BAD_SVG);
+    await write(path.join(imagesDir, '510037_logo.svg'), GOOD_SVG);
+    const served = await (await loadStage())(dest, { referenced: new Set(['css/510037.css']) });
+    expect([...served].sort()).toEqual(['css/510037.css', 'images/510037_logo.svg']);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('置いた SVG のバイト列は検査したものと同じ', async () => {
+    await write(path.join(imagesDir, '510037_logo.svg'), GOOD_SVG);
+    await (await loadStage())(dest, { referenced: new Set(['images/510037_logo.svg']) });
+    expect(await fs.readFile(path.join(dest, 'images', '510037_logo.svg'), 'utf8')).toBe(GOOD_SVG);
+  });
+
+  it('referenced 省略(全件)でも違反 SVG は置かない', async () => {
+    await write(path.join(imagesDir, '510037_bad.svg'), BAD_SVG);
+    await write(path.join(imagesDir, '510037_logo.svg'), GOOD_SVG);
+    const served = await (await loadStage())(dest);
+    expect([...served]).toEqual(['images/510037_logo.svg']);
+  });
+});
+
+describe('resolveServedAssetSource / isFundImagePath — images/', () => {
+  it('images 直下だけを引き、サブフォルダ・許可外拡張子は引かない', async () => {
+    await write(path.join(imagesDir, '510037_logo.svg'), GOOD_SVG);
+    await write(path.join(imagesDir, 'sub', '510037_deep.svg'), GOOD_SVG);
+    await write(path.join(imagesDir, '510037_anim.gif'), 'gif');
+    const resolve = await loadResolve();
+    expect(await resolve('images/510037_logo.svg')).toBe(path.join(imagesDir, '510037_logo.svg'));
+    expect(await resolve('images/sub/510037_deep.svg')).toBeUndefined();
+    expect(await resolve('images/510037_anim.gif')).toBeUndefined();
+  });
+
+  it('既存グループの深さは変わらない(css/fonts の 2 段下は引ける)', async () => {
+    await write(path.join(cssDir, 'fonts', 'noto', 'JP', 'a.woff2'), 'font');
+    const resolve = await loadResolve();
+    expect(await resolve('css/fonts/noto/JP/a.woff2')).toBe(
+      path.join(cssDir, 'fonts', 'noto', 'JP', 'a.woff2'),
+    );
+  });
+
+  it('isFundImagePath は images/ 始まり(大小文字を問わない)だけを真にする', async () => {
+    await loadResolve();
+    const { isFundImagePath } = await import('../src/vivliostyle/docAssets.js');
+    expect(isFundImagePath('images/510037_logo.svg')).toBe(true);
+    expect(isFundImagePath('Images/510037_logo.svg')).toBe(true);
+    expect(isFundImagePath('css/510037.css')).toBe(false);
+    expect(isFundImagePath('imagesx/a.svg')).toBe(false);
   });
 });
