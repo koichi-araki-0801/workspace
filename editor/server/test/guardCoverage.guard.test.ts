@@ -136,3 +136,27 @@ describe('監査ログの実行面を差し込むのは buildApp だけ', () => 
     expect(callers).toEqual(['app.ts']);
   });
 });
+
+describe('画像の配信面は SVG 検査を通る', () => {
+  // 資産の解決器(`resolveServedAssetSource`)は images グループも引ける。呼び出し元が増えたとき、
+  // その経路が SVG 検査も images/ の拒否もしていなければ、検査を通らない SVG の配信面が開く。
+  it('resolveServedAssetSource の呼び出し元は inspectSvg を呼ぶか images/ を拒む', () => {
+    const callers = sourceFiles(SERVER_SRC, ['.ts'])
+      .filter((f) => path.basename(f) !== 'docAssets.ts')
+      .filter((f) => /resolveServedAssetSource\s*\(/.test(read(f)))
+      .map((f) => path.relative(SERVER_SRC, f).replaceAll('\\', '/'))
+      .sort();
+    expect(callers).toEqual(['routes/fundAssets.routes.ts', 'vivliostyle/previewHost.ts']);
+    for (const rel of callers) {
+      const src = read(path.join(SERVER_SRC, rel));
+      expect(
+        src.includes('inspectSvg(') || src.includes('isFundImagePath('),
+        `${rel} が SVG 検査も images/ の拒否もしていない`,
+      ).toBe(true);
+    }
+  });
+
+  it('配置(stageDocAssets)も SVG を検査する', () => {
+    expect(read(path.join(SERVER_SRC, 'vivliostyle', 'docAssets.ts'))).toContain('inspectSvg(');
+  });
+});

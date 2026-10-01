@@ -39,6 +39,8 @@ const noContent = (description: string) => ({ description });
 
 // PDF のバイナリペイロード(OpenAPI 3.1: string/binary)。
 const PdfBinary = z.string().meta({ format: 'binary', description: 'PDF バイナリ' });
+// 画像のバイナリペイロード。
+const ImageBinary = z.string().meta({ format: 'binary', description: '画像バイナリ' });
 
 /**
  * project zip の受入条件。`POST /build/project` と `POST /preview`(zip 経路)が同じ
@@ -592,6 +594,34 @@ export function buildOpenApiDocument() {
       },
 
       // ── 7. vivliostyle ──
+      [toOpenApiPath(apiPaths.fundAssetImage)]: {
+        get: {
+          tags: ['vivliostyle'],
+          summary: 'ファンド別画像(images/)を 1 つ返す',
+          operationId: 'getFundAssetImage',
+          description: [
+            '`imagesDir` 直下の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。',
+            'ファイル名は `<fund>_<画像名>.<拡張子>` の約束だが、名前の規則は検査しない。',
+            'サブフォルダ・`..`・`\\`・Windows の予約名(`CON` など)・許可外の拡張子は 404。',
+            'SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。',
+            '応答は `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を持ち、',
+            'SVG には `Content-Security-Policy: sandbox` を付ける。',
+          ].join(''),
+          requestParams: { path: z.object({ file: z.string() }) },
+          responses: {
+            '200': {
+              description: '画像',
+              content: {
+                'image/svg+xml': { schema: ImageBinary },
+                'image/png': { schema: ImageBinary },
+                'image/jpeg': { schema: ImageBinary },
+              },
+            },
+            ...ERR_401,
+            '404': { description: '対象が無い / 配信対象外 / SVG 検査の違反(本文なし)' },
+          },
+        },
+      },
       '/build': {
         post: {
           tags: ['vivliostyle'],

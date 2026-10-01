@@ -223,7 +223,9 @@ export async function resolveServedAssetSource(rel: string): Promise<string | un
   if (hit === undefined) return undefined;
   const { group, rest } = hit;
   if (rest.length > group.maxDepth + 1) return undefined;
-  if (rest.some((s) => s === '' || s === '.' || s === '..')) return undefined;
+  // `\` と NUL は Windows で 1 セグメントのまま下の階層へ降りる / 名前を切るので、先に落とす。
+  if (rest.some((s) => s === '' || s === '.' || s === '..' || s.includes('\\') || s.includes('\0')))
+    return undefined;
   if (!group.extensions.has(path.extname(rest[rest.length - 1]).toLowerCase())) return undefined;
   let current = group.sourceDir();
   for (const [i, seg] of rest.entries()) {

@@ -39,6 +39,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { docsRoutes, openapiRoutes } from './openapi/index.js';
 import { renderHostRoutes } from './render/renderHost.js';
 import { authRoutes } from './routes/auth.routes.js';
+import { fundAssetsRoutes } from './routes/fundAssets.routes.js';
 import { generateRoutes } from './routes/generate.routes.js';
 import { historyRoutes } from './routes/history.routes.js';
 import { notesRoutes } from './routes/notes.routes.js';
@@ -203,6 +204,9 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   app.register(historyRoutes, { prefix: '/api' });
   app.register(notesRoutes, { prefix: '/api' });
   app.register(usersRoutes, { prefix: '/api', deps });
+  // ファンド別画像。SVG だけ全域 CSP を `sandbox` で上書きするため、fastify-plugin を通さない
+  // 独自コンテキストで登録する(onSend がこのルートにだけ掛かる)。
+  app.register(fundAssetsRoutes, { prefix: '/api' });
 
   // API リファレンス UI(/api/docs)。標準 JS バンドルはプラグインがローカル配信するため
   // オフライン(air-gapped)でも動作する。Scalar のインライン起動 script はグローバル CSP の

@@ -408,6 +408,13 @@ describe('resolveServedAssetSource / isFundImagePath — images/', () => {
     expect(await resolve('images/510037_anim.gif')).toBeUndefined();
   });
 
+  it('`` や NUL を含むセグメントは引かない(Windows で 1 セグメントのまま下へ降りる入力)', async () => {
+    await write(path.join(imagesDir, 'sub', '510037_deep.svg'), GOOD_SVG);
+    const resolve = await loadResolve();
+    expect(await resolve('images/sub\\510037_deep.svg')).toBeUndefined();
+    expect(await resolve('images/510037\0.svg')).toBeUndefined();
+  });
+
   it('既存グループの深さは変わらない(css/fonts の 2 段下は引ける)', async () => {
     await write(path.join(cssDir, 'fonts', 'noto', 'JP', 'a.woff2'), 'font');
     const resolve = await loadResolve();
