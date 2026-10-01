@@ -7,8 +7,6 @@
     "webDist": "web/dist"
   },
   "python": {
-    "bin": "py",
-    "args": ["-3.13"],
     "script": "server/scripts/fake_generate_template.py",
     "timeoutMs": 30000
   },

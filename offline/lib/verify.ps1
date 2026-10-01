@@ -227,12 +227,27 @@ function Get-Sha256FromSidecar {
 # setup の時点で案内する。止めはしない（Python を使わない運用もある）。
 # -Invoke は終了コードを返すスクリプトブロック（テストで差し替える）。既定は py ランチャの
 # 有無を Get-Command で見てから実行する（無い端末で例外にしない）。
+# ネイティブコマンドを実行して終了コードだけを返す。stderr は $ErrorActionPreference='Stop' のもとで
+# NativeCommandError になり（リダイレクトされたホストで顕著）、setup が止まる。「警告するだけで止めない」
+# ための確認なので、呼ぶ区間だけ設定を緩め、finally で必ず戻す（content-key.ps1 と同じ作法）。
+function Get-NativeExitCode {
+  param(
+    [Parameter(Mandatory = $true)][string]$Command,
+    [string[]]$Arguments = @()
+  )
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & $Command @Arguments 2>$null | Out-Null
+    return $LASTEXITCODE
+  } finally { $ErrorActionPreference = $prevEap }
+}
+
 function Test-Python313Launcher {
   param(
     [scriptblock]$Invoke = {
       if (-not (Get-Command 'py' -ErrorAction SilentlyContinue)) { return 9009 }
-      & py -3.13 -c 'import sys' | Out-Null
-      return $LASTEXITCODE
+      return (Get-NativeExitCode -Command 'py' -Arguments @('-3.13', '-c', 'import sys'))
     }
   )
   $code = & $Invoke

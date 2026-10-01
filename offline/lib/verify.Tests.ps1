@@ -441,6 +441,14 @@ Describe 'Test-Python313Launcher（py -3.13 が起動できるか）' {
   It '3.13 が入っていない(py が非 0 を返す)ときも同じ案内で、終了コードを添える' {
     Test-Python313Launcher -Invoke { 103 } | Should Match '終了コード: 103'
   }
+  It '既定の起動経路は、ネイティブコマンドが stderr を出して失敗しても Stop のもとで例外にならない' {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Stop'
+    try {
+      $code = Get-NativeExitCode -Command 'cmd.exe' -Arguments @('/c', 'echo err 1>&2 & exit 3')
+    } finally { $ErrorActionPreference = $prev }
+    $code | Should Be 3
+  }
   It 'setup-offline.ps1 がこの確認を呼ぶ' {
     $setup = [IO.File]::ReadAllText((Join-Path $repoRoot 'offline\setup-offline.ps1'), [Text.Encoding]::UTF8)
     $setup | Should Match 'Test-Python313Launcher'
