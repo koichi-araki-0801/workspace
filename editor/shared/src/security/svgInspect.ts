@@ -314,6 +314,9 @@ const BAD_REFERENCE_RE = /&(?!(?:#\d+|#x[0-9a-fA-F]+|lt|gt|amp|quot|apos);)/;
 
 const BOM = '﻿';
 
+/** 報告する違反の上限。これに達したら走査を打ち切る(悪意ある入力で時間を使わせない)。 */
+const MAX_VIOLATIONS = 50;
+
 interface SvgAttr {
   name: string;
   raw: string;
@@ -334,8 +337,12 @@ type Report = (message: string) => void;
  */
 export function inspectSvg(text: string): string[] {
   const found: string[] = [];
+  // 重複の判定は Set で行う(配列の `includes` だと、名前の違う違反を大量に並べた入力で二乗時間になる)。
+  const seen = new Set<string>();
   const add: Report = (message) => {
-    if (!found.includes(message)) found.push(message);
+    if (seen.has(message)) return;
+    seen.add(message);
+    found.push(message);
   };
   if (text.includes('\u0000')) add('NUL 文字を含む(UTF-16 などの可能性)');
   if (text.includes('�') || text.startsWith('￾')) add('UTF-8 として読めない');
@@ -398,6 +405,11 @@ export function inspectSvg(text: string): string[] {
   };
 
   while (pos < text.length) {
+    // 違反が出そろった時点で打ち切る。見るべき情報は十分で、残りを走査する意味が無い。
+    if (found.length >= MAX_VIOLATIONS) {
+      found.push('違反が多いため以降は省略');
+      return found;
+    }
     const lt = text.indexOf('<', pos);
     takeText(text.slice(pos, lt < 0 ? text.length : lt));
     if (lt < 0) break;
@@ -428,8 +440,10 @@ export function inspectSvg(text: string): string[] {
         add('閉じていない DOCTYPE');
         return found;
       }
-      const bracket = text.indexOf('[', pos);
-      if (bracket >= 0 && bracket < gt) {
+      // `[` の探索はこの宣言の `>` までに限る(文書末尾まで探すと、宣言の繰り返しで二乗時間になる)。
+      const bracketRel = text.slice(pos, gt).indexOf('[');
+      const bracket = bracketRel < 0 ? -1 : pos + bracketRel;
+      if (bracket >= 0) {
         add('DOCTYPE の内部サブセット');
         const close = text.indexOf(']>', bracket);
         if (close < 0) return found;
@@ -489,6 +503,7 @@ function readStartTag(text: string, at: number): StartTag | string {
   const name = m[0];
   let p = NAME_RE.lastIndex;
   const attrs: SvgAttr[] = [];
+  const names = new Set<string>();
   for (;;) {
     const before = p;
     while (p < text.length && WS_RE.test(text[p])) p++;
@@ -511,7 +526,8 @@ function readStartTag(text: string, at: number): StartTag | string {
     if (close < 0) return `閉じていない属性値 ${attrName}`;
     const raw = text.slice(p + 1, close);
     if (raw.includes('<')) return `属性値に < を含む ${attrName}`;
-    if (attrs.some((a) => a.name === attrName)) return `重複した属性 ${attrName}`;
+    if (names.has(attrName)) return `重複した属性 ${attrName}`;
+    names.add(attrName);
     attrs.push({ name: attrName, raw });
     p = close + 1;
   }

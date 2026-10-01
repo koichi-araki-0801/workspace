@@ -195,3 +195,41 @@ describe('inspectSvg — 落とすもの', () => {
     expect(found.filter((m) => m === '禁止された要素 <script>')).toHaveLength(1);
   });
 });
+
+// 悪意ある入力で同期処理を止めさせない(単体配信ルートはリクエスト毎に検査する)。実時間の上限は
+// CI のランナーが遅い前提で緩く取る。二乗時間の経路が残ると桁違いに超える。
+describe('inspectSvg — 入力サイズに対して線形', () => {
+  const LIMIT_MS = 5000;
+  const timed = (svg: string): number => {
+    const t0 = performance.now();
+    inspectSvg(svg);
+    return performance.now() - t0;
+  };
+
+  it('名前の違う未知要素を大量に並べても終わる', () => {
+    const body = Array.from({ length: 300_000 }, (_, i) => `<e${i}/>`).join('');
+    expect(timed(wrap(body))).toBeLessThan(LIMIT_MS);
+  });
+
+  it('違反が多い入力は上限で打ち切って省略を報告する', () => {
+    const body = Array.from({ length: 1000 }, (_, i) => `<e${i}/>`).join('');
+    const found = inspectSvg(wrap(body));
+    expect(found.length).toBeLessThanOrEqual(51);
+    expect(found).toContain('違反が多いため以降は省略');
+  });
+
+  it('1 タグに属性を大量に付けても終わる', () => {
+    const attrs = Array.from({ length: 300_000 }, (_, i) => `data-a${i}="1"`).join(' ');
+    expect(timed(wrap(`<rect ${attrs}/>`))).toBeLessThan(LIMIT_MS);
+  });
+
+  it('DOCTYPE を大量に繰り返しても終わる', () => {
+    const svg = `${'<!DOCTYPE svg>'.repeat(400_000)}<svg xmlns="${NS}"/>`;
+    expect(timed(svg)).toBeLessThan(LIMIT_MS);
+    expect(inspectSvg(svg)).toContain('DOCTYPE の位置が不正');
+  });
+
+  it('重複属性は違反のまま', () => {
+    expect(inspectSvg(wrap('<rect width="1" width="2"/>'))).toContain('重複した属性 width');
+  });
+});
