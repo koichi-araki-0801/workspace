@@ -9,6 +9,8 @@ const { execFileMock } = vi.hoisted(() => {
   process.env.LOG_DIR = `${tmpRoot}/editor-generator-check-logs`;
   // 既定では指紋を設定済みにして、版の警告だけを観測する。未設定の警告は専用のケースで見る。
   process.env.PY_GENERATE_SCRIPT_SHA256 = 'a'.repeat(64);
+  // 既定の生成器は偽物なので、偽物の警告が混ざらないよう別名の本物扱いにしておく。
+  process.env.PY_GENERATE_SCRIPT = `${tmpRoot}/real_generator.py`;
   return { execFileMock: vi.fn() };
 });
 vi.mock('node:child_process', () => ({ execFile: execFileMock }));

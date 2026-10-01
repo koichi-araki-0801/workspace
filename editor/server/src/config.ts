@@ -400,7 +400,7 @@ export const config = {
     script: resolvePath(
       process.env.PY_GENERATE_SCRIPT,
       file.python?.script,
-      'server/scripts/generate_template.py',
+      'server/scripts/fake_generate_template.py',
     ),
     /**
      * 生成器のスクリプトの SHA256。設定すると生成のたびに照合し、食い違えば生成を拒否する
