@@ -13,6 +13,7 @@
 import {
   apiPaths,
   assertTemplateAttributeToken,
+  assertTemplateId,
   conflict,
   type TemplateAttributes,
   type TemplateMeta,
@@ -57,6 +58,10 @@ export const generateRoutes: FastifyPluginAsync<{
             baseDate: todayYmd(),
             editionType: assertTemplateAttributeToken('版種', body.editionType),
           };
+          // 元テンプレ指定も属性と同じくここで検査する。検査済みの値だけを生成器と作成履歴へ渡す。
+          const basedOnTemplateId = body.basedOnTemplateId
+            ? assertTemplateId(body.basedOnTemplateId)
+            : undefined;
           const fileName = templateFileName(attributes);
           const id = templateIdFromFileName(fileName);
 
@@ -73,7 +78,15 @@ export const generateRoutes: FastifyPluginAsync<{
           // 生成器(差し替え前提)にマスタ参照を要求しないための編集側適用点。DB 不達時は
           // 関数内で warn + 素通し(生成をブロックしない)。
           const html = await noteMaster.applyNoteMasterToHtml(
-            await generateTemplate(body),
+            // 生成器へはリクエスト本文を渡さず、検証済みの属性とサーバの基準日だけを明示して
+            // 組む(本文の他のキーが共有上のコードへ流れないようにする)。
+            await generateTemplate({
+              companyCode: attributes.companyCode,
+              fundCode: attributes.fundCode,
+              editionType: attributes.editionType,
+              baseDate: attributes.baseDate,
+              ...(basedOnTemplateId === undefined ? {} : { basedOnTemplateId }),
+            }),
             attributes.fundCode,
             attributes.editionType,
           );
@@ -99,7 +112,7 @@ export const generateRoutes: FastifyPluginAsync<{
           if (config.requireAuth) {
             if (!(await pendingExists(id))) await templates.registerGenerated(attributes, id);
             await writePending(id, html, css);
-            await recordCreate(attributes, body.basedOnTemplateId, loginId);
+            await recordCreate(attributes, basedOnTemplateId, loginId);
           }
 
           return { meta, html, css, id, attributes };

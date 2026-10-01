@@ -14,11 +14,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 // 生成器(python)と台帳(sproc)は本テストの対象外。台帳は既定で成功させ、孤児検査の
-// ときだけ失敗へ切り替える。
+// ときだけ失敗へ切り替える。生成器は「何を渡されたか」だけを観測する。
 let sprocFails = false;
-vi.mock('../src/generate/pyTemplate.js', () => ({
-  generateTemplate: async () => '<html><body><p>生成物</p></body></html>',
+const { generateMock } = vi.hoisted(() => ({
+  generateMock: vi.fn(async (_attrs: unknown) => '<html><body><p>生成物</p></body></html>'),
 }));
+vi.mock('../src/generate/pyTemplate.js', () => ({ generateTemplate: generateMock }));
 // `AUTH_REQUIRED=true` の経路を実際に通したいので、セッション解決だけを差し替える
 // (ロール検査ではなく「認証済み利用者が確定領域へ書けないこと」が本テストの関心)。
 vi.mock('../src/auth/session.js', async (importOriginal) => ({
@@ -207,5 +208,31 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   it('アンダースコアを含む属性は 400(ファイル名規約のトークン境界を偽装させない)', async () => {
     const res = await generate({ ...validBody, fundCode: '510037_20240710' });
     expect(res.statusCode).toBe(400);
+  });
+
+  it('生成器へは検証済みの属性とサーバの基準日だけを渡す(本文の他のキーは渡らない)', async () => {
+    generateMock.mockClear();
+    const res = await generate({
+      ...validBody,
+      basedOnTemplateId: 'AM01_510037_20240710_交付版',
+      isRedemption: true,
+      evil: '<script>',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(generateMock).toHaveBeenCalledTimes(1);
+    expect(generateMock.mock.calls[0][0]).toEqual({
+      companyCode: 'AM01',
+      fundCode: '510037',
+      editionType: '交付版',
+      baseDate: ymd,
+      basedOnTemplateId: 'AM01_510037_20240710_交付版',
+    });
+  });
+
+  it('規約外の basedOnTemplateId はルートで 400 にし、生成器を呼ばない', async () => {
+    generateMock.mockClear();
+    const res = await generate({ ...validBody, basedOnTemplateId: '../../outside/x' });
+    expect(res.statusCode).toBe(400);
+    expect(generateMock).not.toHaveBeenCalled();
   });
 });
