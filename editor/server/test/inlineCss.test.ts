@@ -137,7 +137,7 @@ describe('inlineCss', () => {
   // `docAssets.stageDocAssets` が配信ルートへ置く。**置いたものは残さねばならない** —
   // ここが落ちると CSS が当たらず JS も動かない。
   describe('servedAssets', () => {
-    const served = new Set(['css/510037.css', 'js/column-width.js', 'fonts/BIZUD.woff2']);
+    const served = new Set(['css/510037.css', 'js/column-width.js', 'css/fonts/BIZUD.woff2']);
 
     it('配信ルートに実体のある <link> と <script src> は残す(リクエスト CSS が無い場合)', () => {
       const html =
@@ -165,7 +165,7 @@ describe('inlineCss', () => {
 
     it('rel が stylesheet でない <link>(preload 等)はリクエスト CSS があっても残す', () => {
       const html =
-        '<html><head><link rel="preload" as="font" href="fonts/BIZUD.woff2">' +
+        '<html><head><link rel="preload" as="font" href="css/fonts/BIZUD.woff2">' +
         '</head><body>x</body></html>';
       const out = inlineCss(html, 'p{}', { servedAssets: served });
       expect(out).toContain('<link rel="preload"');

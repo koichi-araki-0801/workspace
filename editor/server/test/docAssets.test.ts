@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let root: string;
 let cssDir: string;
-let assetsDir: string;
+let jsDir: string;
 let dest: string;
 
 /**
@@ -23,7 +23,7 @@ async function loadStage(
 ): Promise<(dir: string, opts?: { referenced?: ReadonlySet<string> }) => Promise<Set<string>>> {
   vi.resetModules();
   vi.doMock('../src/config.js', () => ({
-    config: { cssDir, assetsDir },
+    config: { cssDir, jsDir },
     envPositiveNumber: (name: string, _v: string | undefined, def: number) =>
       limits[name as keyof typeof limits] ?? def,
   }));
@@ -34,7 +34,7 @@ async function loadStage(
 beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'editor-assets-'));
   cssDir = path.join(root, 'data', 'css');
-  assetsDir = path.join(root, 'data', 'assets');
+  jsDir = path.join(root, 'data', 'js');
   dest = path.join(root, 'serve');
   await fs.mkdir(dest, { recursive: true });
 });
@@ -53,14 +53,14 @@ const write = async (file: string, body = 'x'): Promise<void> => {
 describe('stageDocAssets — 置けるもの', () => {
   it('css / fonts / js を配信ルート相対の同名 path へ写す', async () => {
     await write(path.join(cssDir, '510037.css'), 'p{color:red}');
-    await write(path.join(assetsDir, 'fonts', 'BIZUD.woff2'), 'font');
-    await write(path.join(assetsDir, 'js', 'column-width.js'), 'console.log(1)');
+    await write(path.join(cssDir, 'fonts', 'BIZUD.woff2'), 'font');
+    await write(path.join(jsDir, 'column-width.js'), 'console.log(1)');
 
     const served = await (await loadStage())(dest);
 
     expect([...served].sort()).toEqual([
       'css/510037.css',
-      'fonts/BIZUD.woff2',
+      'css/fonts/BIZUD.woff2',
       'js/column-width.js',
     ]);
     expect(await fs.readFile(path.join(dest, 'css', '510037.css'), 'utf8')).toBe('p{color:red}');
@@ -69,10 +69,10 @@ describe('stageDocAssets — 置けるもの', () => {
     );
   });
 
-  it('サブディレクトリも辿る(fonts/noto/x.woff2)', async () => {
-    await write(path.join(assetsDir, 'fonts', 'noto', 'x.woff2'));
+  it('サブディレクトリも辿る(css/fonts/noto/x.woff2)', async () => {
+    await write(path.join(cssDir, 'fonts', 'noto', 'x.woff2'));
     const served = await (await loadStage())(dest);
-    expect([...served]).toEqual(['fonts/noto/x.woff2']);
+    expect([...served]).toEqual(['css/fonts/noto/x.woff2']);
   });
 
   it('置き場が無い環境でも壊れない(空集合を返す)', async () => {
@@ -94,30 +94,57 @@ describe('stageDocAssets — 置けないもの(迂回入力)', () => {
     // `.ps1` / `.json` / `.html` は資産ではない。特に dataRoot 直下の運用ファイルが
     // 配信面へ載ると、テンプレの JS から読み出せる位置に置かれることになる。
     await write(path.join(cssDir, 'notes.json'), '{}');
-    await write(path.join(assetsDir, 'js', 'run.ps1'), 'evil');
-    await write(path.join(assetsDir, 'fonts', 'secret.pfx'), 'key');
+    await write(path.join(jsDir, 'run.ps1'), 'evil');
+    await write(path.join(cssDir, 'fonts', 'secret.pfx'), 'key');
     const served = await (await loadStage())(dest);
     expect(served.size).toBe(0);
     await expect(fs.stat(path.join(dest, 'js', 'run.ps1'))).rejects.toThrow();
   });
 
   it('置き場ごとに許可拡張子が違う(js を fonts へ置いても写らない)', async () => {
-    await write(path.join(assetsDir, 'fonts', 'x.js'), 'evil');
+    await write(path.join(cssDir, 'fonts', 'x.js'), 'evil');
     await write(path.join(cssDir, 'x.js'), 'evil');
     const served = await (await loadStage())(dest);
     expect(served.size).toBe(0);
   });
 
-  it('assetsDir 直下(fonts/js の外)のファイルは写らない', async () => {
-    await write(path.join(assetsDir, 'loose.js'), 'evil');
+  it('フォントは css/fonts 配下だけ配る(cssDir 直下のフォントは写らない)', async () => {
+    await write(path.join(cssDir, 'fonts', 'BIZUD.woff2'), 'font');
+    await write(path.join(cssDir, 'loose.woff2'), 'font');
     const served = await (await loadStage())(dest);
-    expect(served.size).toBe(0);
+    expect([...served].sort()).toEqual(['css/fonts/BIZUD.woff2']);
+  });
+
+  it('css/fonts 配下の .css は配らない(css グループは fonts 配下を見ない)', async () => {
+    await write(path.join(cssDir, 'fonts', 'x.css'), '.a{}');
+    await write(path.join(cssDir, '510037.css'), '.b{}');
+    const served = await (await loadStage())(dest);
+    expect([...served].sort()).toEqual(['css/510037.css']);
+  });
+
+  it('旧配信パス fonts/ は解決しない', async () => {
+    await write(path.join(cssDir, 'fonts', 'BIZUD.woff2'), 'font');
+    const resolve = await loadResolve();
+    expect(await resolve('fonts/BIZUD.woff2')).toBeUndefined();
+    expect(await resolve('css/fonts/BIZUD.woff2')).toBe(path.join(cssDir, 'fonts', 'BIZUD.woff2'));
+  });
+
+  it('css/fonts/x.css は css グループにも css/fonts グループにも解決しない', async () => {
+    await write(path.join(cssDir, 'fonts', 'x.css'), '.a{}');
+    const resolve = await loadResolve();
+    expect(await resolve('css/fonts/x.css')).toBeUndefined();
+  });
+
+  it('jsDir 直下の js を js/ で配る', async () => {
+    await write(path.join(jsDir, 'column-width.js'), 'ok()');
+    const served = await (await loadStage())(dest);
+    expect([...served]).toEqual(['js/column-width.js']);
   });
 
   it('シンボリックリンクは辿らない(置き場の外を配信ルートへ引き込めない)', async () => {
     const secret = path.join(root, 'outside', 'secret.css');
     await write(secret, 'SECRET');
-    await fs.mkdir(path.join(assetsDir, 'js'), { recursive: true });
+    await fs.mkdir(path.join(jsDir), { recursive: true });
     await fs.mkdir(cssDir, { recursive: true });
     try {
       await fs.symlink(secret, path.join(cssDir, 'linked.css'), 'file');
@@ -157,10 +184,10 @@ describe('stageDocAssets — 置けないもの(迂回入力)', () => {
   // 深さ・件数・バイト数の上限は「壊れた置き場でも配信ルートが膨らまない」ための安全弁。
   // 上限が効いていることを実測しないと、既定値を書いただけの飾りになる。
   it('深すぎるツリーは辿らない(リンクの輪・異常な深さで走査が止まらなくなるのを防ぐ)', async () => {
-    await write(path.join(assetsDir, 'fonts', 'a', 'b', 'c', 'd', 'shallow.woff2'));
-    await write(path.join(assetsDir, 'fonts', 'a', 'b', 'c', 'd', 'e', 'deep.woff2'));
+    await write(path.join(cssDir, 'fonts', 'a', 'b', 'c', 'd', 'shallow.woff2'));
+    await write(path.join(cssDir, 'fonts', 'a', 'b', 'c', 'd', 'e', 'deep.woff2'));
     const served = await (await loadStage())(dest);
-    expect([...served]).toEqual(['fonts/a/b/c/d/shallow.woff2']);
+    expect([...served]).toEqual(['css/fonts/a/b/c/d/shallow.woff2']);
   });
 
   it('件数上限を超えた分は写さない', async () => {
@@ -181,7 +208,7 @@ describe('stageDocAssets — 置けないもの(迂回入力)', () => {
 async function loadResolve(): Promise<(rel: string) => Promise<string | undefined>> {
   vi.resetModules();
   vi.doMock('../src/config.js', () => ({
-    config: { cssDir, assetsDir },
+    config: { cssDir, jsDir },
     envPositiveNumber: (_n: string, _v: string | undefined, def: number) => def,
   }));
   const mod = await import('../src/vivliostyle/docAssets.js');
@@ -193,14 +220,14 @@ async function loadResolve(): Promise<(rel: string) => Promise<string | undefine
 describe('resolveServedAssetSource — 引けるもの / 引けないもの', () => {
   it('許可リスト配下の実体を絶対パスで返す', async () => {
     await write(path.join(cssDir, '510037.css'), 'p{}');
-    await write(path.join(assetsDir, 'js', 'column-width.js'), 'ok()');
+    await write(path.join(jsDir, 'column-width.js'), 'ok()');
     const resolve = await loadResolve();
     expect(await resolve('css/510037.css')).toBe(path.join(cssDir, '510037.css'));
-    expect(await resolve('js/column-width.js')).toBe(path.join(assetsDir, 'js', 'column-width.js'));
+    expect(await resolve('js/column-width.js')).toBe(path.join(jsDir, 'column-width.js'));
   });
 
   it('実体が無い / 許可外拡張子 / 未知の置き場 / `..` セグメントは undefined', async () => {
-    await write(path.join(assetsDir, 'js', 'secret.env'), 'TOKEN');
+    await write(path.join(jsDir, 'secret.env'), 'TOKEN');
     await write(path.join(root, 'outside.js'), 'LEAK');
     const resolve = await loadResolve();
     expect(await resolve('js/missing.js')).toBeUndefined();
@@ -211,9 +238,9 @@ describe('resolveServedAssetSource — 引けるもの / 引けないもの', ()
   });
 
   it('深さ上限を超えるパスは引けない(stageDocAssets の走査と同じ物差し)', async () => {
-    await write(path.join(assetsDir, 'fonts', 'a', 'b', 'c', 'd', 'e', 'deep.woff2'));
+    await write(path.join(cssDir, 'fonts', 'a', 'b', 'c', 'd', 'e', 'deep.woff2'));
     const resolve = await loadResolve();
-    expect(await resolve('fonts/a/b/c/d/e/deep.woff2')).toBeUndefined();
+    expect(await resolve('css/fonts/a/b/c/d/e/deep.woff2')).toBeUndefined();
   });
 
   it('経路上のシンボリックリンクは拒む(ファイル)', async () => {
@@ -233,14 +260,14 @@ describe('resolveServedAssetSource — 引けるもの / 引けないもの', ()
   it('経路上のシンボリックリンクは拒む(ディレクトリ)', async () => {
     const outside = path.join(root, 'outside2');
     await write(path.join(outside, 'secret.woff2'), 'SECRET');
-    await fs.mkdir(path.join(assetsDir, 'fonts'), { recursive: true });
+    await fs.mkdir(path.join(cssDir, 'fonts'), { recursive: true });
     try {
-      await fs.symlink(outside, path.join(assetsDir, 'fonts', 'sub'), 'dir');
+      await fs.symlink(outside, path.join(cssDir, 'fonts', 'sub'), 'dir');
     } catch {
       return;
     }
     const resolve = await loadResolve();
-    expect(await resolve('fonts/sub/secret.woff2')).toBeUndefined();
+    expect(await resolve('css/fonts/sub/secret.woff2')).toBeUndefined();
   });
 });
 
@@ -260,17 +287,17 @@ describe('stageDocAssets — referenced を渡すと参照されたものだけ�
   it('参照 CSS が引くフォントは連鎖して置く(1 段では足りない形を潰す)', async () => {
     await write(
       path.join(cssDir, '510037.css'),
-      '@font-face{font-family:BIZ;src:url(../fonts/BIZUD.woff2) format("woff2")}',
+      '@font-face{font-family:BIZ;src:url(fonts/BIZUD.woff2) format("woff2")}',
     );
-    await write(path.join(assetsDir, 'fonts', 'BIZUD.woff2'), 'font');
-    await write(path.join(assetsDir, 'fonts', 'unused.woff2'), 'font');
+    await write(path.join(cssDir, 'fonts', 'BIZUD.woff2'), 'font');
+    await write(path.join(cssDir, 'fonts', 'unused.woff2'), 'font');
     const served = await (await loadStage())(dest, { referenced: new Set(['css/510037.css']) });
-    expect([...served].sort()).toEqual(['css/510037.css', 'fonts/BIZUD.woff2']);
+    expect([...served].sort()).toEqual(['css/510037.css', 'css/fonts/BIZUD.woff2']);
   });
 
   it('参照が 1 つも無ければ何も置かない', async () => {
     await write(path.join(cssDir, '510037.css'), 'p{}');
-    await write(path.join(assetsDir, 'fonts', 'BIZUD.woff2'), 'font');
+    await write(path.join(cssDir, 'fonts', 'BIZUD.woff2'), 'font');
     const served = await (await loadStage())(dest, { referenced: new Set() });
     expect(served.size).toBe(0);
   });
