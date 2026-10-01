@@ -408,7 +408,7 @@ describe('resolveServedAssetSource / isFundImagePath — images/', () => {
     expect(await resolve('images/510037_anim.gif')).toBeUndefined();
   });
 
-  it('`` や NUL を含むセグメントは引かない(Windows で 1 セグメントのまま下へ降りる入力)', async () => {
+  it('`\\` や NUL を含むセグメントは引かない(Windows で 1 セグメントのまま下へ降りる入力)', async () => {
     await write(path.join(imagesDir, 'sub', '510037_deep.svg'), GOOD_SVG);
     const resolve = await loadResolve();
     expect(await resolve('images/sub\\510037_deep.svg')).toBeUndefined();

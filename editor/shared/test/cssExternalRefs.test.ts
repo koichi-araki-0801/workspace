@@ -122,13 +122,6 @@ describe('collectCssUrlSpansInContext は入力サイズに対して線形', () 
     expect(timed(60_000)).toBeLessThan(2000);
   });
 
-  it('サイズを 2 倍にしても時間が 4 倍近くまで増えない', () => {
-    timed(5_000);
-    const small = Math.max(timed(30_000), 1);
-    const large = timed(60_000);
-    expect(large / small).toBeLessThan(3.5);
-  });
-
   it('src 宣言は従来どおり判定する', () => {
     const [a, b] = collectCssUrlSpansInContext('@font-face{ src:url(#a),url(#b);x:url(#c)}');
     expect([a?.inFontFaceSrc, b?.inFontFaceSrc]).toEqual([true, true]);

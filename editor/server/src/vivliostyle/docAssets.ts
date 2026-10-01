@@ -51,6 +51,20 @@ interface AssetGroup {
 }
 
 /**
+ * 資産ツリーを降りる深さの上限。`css/fonts/noto/JP/x.woff2` 程度を想定した値で、
+ * シンボリックリンクの輪や異常に深いツリーで走査が止まらなくなるのを防ぐ。
+ */
+const MAX_ASSET_DEPTH = 4;
+
+const FONT_EXTENSIONS: ReadonlySet<string> = new Set(['.ttf', '.otf', '.woff', '.woff2']);
+
+/** ファンド別画像として配る拡張子。web の `lib/fundImages.ts` の MIME 表と揃える。 */
+const FUND_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(['.svg', '.png', '.jpg', '.jpeg']);
+
+/** 配信ルートでのファンド別画像の置き場(テンプレの相対参照 `images/…` の先頭)。 */
+export const FUND_IMAGES_MOUNT = 'images';
+
+/**
  * 配信してよい資産の全体。**ここに無いものは配信ルートへ出ない。**
  *
  * `.js` を許すのはテンプレ JS が正当なコンテンツだからで(列幅自動調整など、開発者が
@@ -68,20 +82,6 @@ interface AssetGroup {
  * `.map`(sourcemap)は入れない。組版に不要で、開発者の作業ツリーの構造を配信ルートへ
  * 持ち出すだけになる。
  */
-/**
- * 資産ツリーを降りる深さの上限。`css/fonts/noto/JP/x.woff2` 程度を想定した値で、
- * シンボリックリンクの輪や異常に深いツリーで走査が止まらなくなるのを防ぐ。
- */
-const MAX_ASSET_DEPTH = 4;
-
-const FONT_EXTENSIONS: ReadonlySet<string> = new Set(['.ttf', '.otf', '.woff', '.woff2']);
-
-/** ファンド別画像として配る拡張子。web の `lib/fundImages.ts` の MIME 表と揃える。 */
-const FUND_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(['.svg', '.png', '.jpg', '.jpeg']);
-
-/** 配信ルートでのファンド別画像の置き場(テンプレの相対参照 `images/…` の先頭)。 */
-export const FUND_IMAGES_MOUNT = 'images';
-
 const ASSET_GROUPS: readonly AssetGroup[] = [
   {
     mount: 'css/fonts',
@@ -339,7 +339,8 @@ export async function stageDocAssets(
   for (const file of wanted) {
     if (files >= MAX_ASSET_FILES || bytes + file.bytes > MAX_ASSET_BYTES) return served;
     // SVG は参照されたものだけをここで検査する(目録づくりの段では読まない = 全画像を毎回
-    // 読まない)。違反は置かず、参照は `inlineCss` の判断で落ちる。
+    // 読まない)。違反は置かない。`served` に入らないので `<link>` / `<script>` の参照は
+    // `inlineCss` が落とすが、`<img>` / `url()` は残って 404 になり、表示されない。
     let body: Buffer | undefined;
     if (path.extname(file.rel).toLowerCase() === '.svg') {
       body = await readInspectedSvg(file);
