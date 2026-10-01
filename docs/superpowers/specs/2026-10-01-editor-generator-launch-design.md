@@ -182,4 +182,70 @@
 
 - 起動コマンドの既定の引数が空になるので、「bin を明示したら引数の既定は空」の規則（`resolvePythonCommand` の `explicitBin`）は削って単純にする。appconfig の `python.args` で引数を足せる点は残す。
 - offline の確認関数の名前は、`py` を前提にしない名前（例: `Test-Python313OnPath`）へ改める。docs のビルド（`docs/_build/build_all.bat`）は開発機でだけ動かすので、`py -3.13` のまま変えない。確認関数のコメントからは docs ビルドへの言及を外す。
-- 前回見送った 2 件は解消する。`python-wheelhouse.ps1` は `python -m pip` で、既定（PATH 上の python）と揃う。`LOCALAPPDATA` の件は、py ランチャを使わなくなるので対象外になる。
+- 前回見送った 2 件は解消する。`python-wheelhouse.ps1` は `python -m pip` で、既定（PATH 上の python）と揃う。`LOCALAPPDATA` の件は、py ランチャを使わなくなるので対象外になる。ただし download 側は配布担当の開発機で動くので、開発機の PATH も 6.7.5 で整える前提。
+
+### 6.7 点検（2026-10-02）を受けた補強
+
+dataRoot の構成は、ユーザーが手で差し替える予定。パッチはその結果を検査し、問題があれば置き換える（直す）。この前提で穴を点検し、次を足す。
+
+#### 6.7.1 手作業による未コミットの変更（ユーザー判断: 既知の形だけ取り込む）
+
+- フォント移設パッチと画像の置き場パッチは、dataRoot の git に未コミットの変更があると中止していた。手作業の直後は必ずこれに当たる。
+- 変更を 1 件ずつ点検し、**パッチ自身が作るのと同じ変更**だけなら取り込んで、パッチの system コミットに含める。
+  - CSS の `url(../fonts/…)` → `url(fonts/…)` の書き換えだけの差分
+  - `.gitignore` に必須の行（`/css/fonts/`・`/images/` など、`init-data-repo.ps1` が書く行）を足しただけの差分
+  - `.gitattributes` を正しい行（`* text eol=lf`）にしただけの差分
+  - 追跡していないフォルダの新規作成（中身が無い、または追跡しない置き場だけのもの）
+- それ以外の差分が 1 つでもあれば、一覧を出して中止する。中止メッセージは「前回のパッチが途中で止まった」場合と「手作業の変更が残っている」場合を分けて案内する。
+- `git init` した直後で HEAD が無い data リポジトリは、「履歴が無い」として扱い、初回コミットの作り方（`init-data-repo.bat`）を案内して中止する。
+
+#### 6.7.2 追跡済みのフォント・画像・js（ユーザー判断: 自動で追跡を外す）
+
+- 点検に `git ls-files -- css/fonts images js assets` を足す。追跡されていれば、確認モードで一覧を出し、`-Apply` で `git rm -r --cached`（ファイル自体は残す）して同じ system コミットに含める。
+- `init-data-repo.ps1` の初回コミットの `git add -A` を、サーバの承認コミットと同じ確定領域（`templates`・`filled`・`css`（`css/fonts` を除く）・`sync`・`.gitignore`・`.gitattributes`）だけに絞る。手で作り直した dataRoot に `assets`・`js`・`images` が残っていても、初回コミットへ入らないようにするため。
+
+#### 6.7.3 旧構成の残りを起動ログで警告する（ユーザー判断: 止めずに警告）
+
+- 6.3 で外す起動時検査の代わりに、サーバの起動時に次を**警告だけ**する（起動は止めない。生成器の確認と同じ方針）。
+  - `<dataRoot>\assets` が残っている
+  - `cssDir` の CSS に `url(../fonts/` が残っている
+- 警告文には「フォント移設パッチを流してください」と案内を入れる。
+
+#### 6.7.4 パッチの細部
+
+- **元に戻す:** フォント移設の `rollback.ps1` は `assets.migrated-*` が無い環境（手で `assets` を消した、appconfig の片付けだけが動いた）でも止まらず、revert と appconfig の復元だけを行う。戻す日付は `appconfig.json.bak-*` からも決められるようにする。
+- **appconfig のバックアップ:** appconfig を 1 か所でも変えるなら必ず `appconfig.json.bak-<日付>` を作る。同じ日に流し直したときは、既存のバックアップを上書きしない（別名で残す）。
+- **`python.bin` / `python.args` の外し方:**
+
+  | 今の値（bin, args） | 扱い |
+  |---|---|
+  | (`python`, 無し) | 両方外す（新しい既定と同じ） |
+  | (`py`, `["-3.13"]`) | 両方外す（PATH 上の python へ移る） |
+  | (`python`, `["-3.13"]`) | 両方外す（元から起動できない組） |
+  | それ以外（絶対パス・他の引数） | 触らずに報告する |
+
+- **`python.script`:** 旧い仮の生成器（`server/scripts/generate_template.py`）を指していれば外す。現行の偽の生成器（`fake_generate_template.py`）を指している場合は既定と同じなので外す。どちらも「本番の生成器は `PY_GENERATE_SCRIPT` で指す」と案内する。
+- **editor のフォルダの中の判定:** appconfig の値を `Resolve-EditorPath` で絶対パスにし、`<editorDir>\` で始まるか（大文字小文字を区別しない）で決める。`paths.dataRoot` 自体が editor の中を指す場合も外す。環境変数（`TEMPLATES_DIR`・`CSS_DIR`・`PENDING_DIR` など）が editor の中を指す場合は、パッチは環境変数を変えないので報告だけする。
+- **dataRoot の取り違え:** 旧い構成（`assets`）も新しい構成（`css\fonts`）も `[fonts-to-css]` コミットも見つからなければ、「旧構成も新構成も見つからない」と警告し、終了コードを 0 以外にする。
+- **置き場違いの報告:** `<dataRoot>\fonts`、`css` 直下のフォント（`.woff2`・`.woff`・`.ttf`・`.otf`）、`assets.migrated-*` 以外の `assets*` を報告する（配信されないため）。中身の違う同名ファイル（競合）は、最初の 1 件で止めずに全件を報告してから中止する。
+- **足りないフォルダ:** 更新手順（6.5）に `init-data-repo.bat` を入れる（冪等で、`.git` があれば git を触らない）。6.7.2 の絞り込みを入れた後に限る。
+- **git の場所:** パッチは環境変数 `GIT_BIN` があればそれを使う（サーバと同じ）。PortableGit だけの端末で、PATH に git が無くても流せるようにする。
+- **旧形式データの報告:** フォント移設パッチの確認モードで、`notes/*.json` に配列でない値（旧形式メモ）、`reviews/*/meta.json` の `status: held`、`filled` フォルダの有無を報告する。6.4 で互換処理を外すので、見つかったら手で直す必要があることを案内する。
+
+#### 6.7.5 Python の PATH を整える（ユーザー判断: 本番機と同じく、ユーザー環境変数 PATH をパッチで整える）
+
+- 開発機も本番機と同じく、ユーザー環境変数 PATH で Python 3.13 を通す。Microsoft Store の偽物（`%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`）より先に本物が見つかるようにする。
+- フォント移設パッチ（6.2 と同じく既存パッチへ統合）に「Python の PATH」の段を足す。確認モードで現状を報告し、`-Apply` で直す。
+  - Python 3.13 の場所は、レジストリ（`HKCU` / `HKLM` の `Software\Python\PythonCore\3.13\InstallPath`）から探す。見つからなければ「Python 3.13 を入れてください」と案内して、この段だけ飛ばす。
+  - ユーザー環境変数 PATH の先頭に、`<InstallPath>` と `<InstallPath>\Scripts` を足す（すでに先頭側にあれば何もしない）。`setx` は 1024 文字で切れるので使わず、レジストリ（`HKCU\Environment` の `Path`、型 `REG_EXPAND_SZ` を保つ）へ直接書き、設定変更の通知を出す。変更前の値はバックアップ（`<editorDir>\patches-backup\user-path-<日付>.txt` など）に残す。
+  - 元に戻す（`rollback.ps1`）で、バックアップから PATH を戻す。
+  - 直した後は、新しいコマンドプロンプトで `python --version` が 3.13 になることを確かめ、サーバも新しいコマンドプロンプトから起動し直すよう案内する。
+- サーバをサービスや別アカウントで動かす場合は、そのアカウントの PATH が使われる。手順書に注意として書く（パッチは実行したユーザーの PATH だけを直す）。
+- これにより、開発機の e2e と `start.bat dev` も、裸の `python` で偽の生成器を動かせる。`e2e-rest-server.ts` の Windows 向けの既定の扱いは、PATH が整っている前提に合わせて直す。
+
+#### 6.7.6 その他
+
+- **offline の確認:** 版の文字列を標準出力から読む（`Get-NativeExitCode` は出力を捨てるので、版を返す別の関数を足す）。関数名の変更に合わせて Pester のテストも直す。
+- **互換処理を外す範囲（6.4 の補足）:** `editor/shared/src/schemas.ts` の説明文と、そこから生成する `openapi.json`（再生成する）、`notes.entryId.test.ts`・`notesFile.thread.test.ts`・`noteRepo.test.ts`・`reviews.test.ts`・`localReviewRepo.dom.test.ts`・`auth.store.dom.test.ts` の該当箇所、`stores/auth.ts`、`lib/storageKeys.ts` の旧キー定数も対象。外した後に旧形式が現れたときの挙動は、notes は配列でない値を読み捨て、reviews の `held` は 1 件ずつ読み飛ばして一覧全体は落とさない。
+- **文書の更新先（6.3 と 6.5 の補足）:** 設計正典（`docs/editor/src/設計正典.md` の起動中止の記述）と、その要約 `.claude/rules/design-canon-summary.md`（`pnpm run check:canon-summary -- --update`）、設計書、OFFLINE.md、運用手順書、2 本のパッチの README。運用手順書には「`paths.assetsDir` は不明なキーとして読み込みエラーになる／環境変数 `ASSETS_DIR` は無視される」を分けて書く。PATH の落とし穴（偽物より先に本物、`setx` の 1024 文字、別アカウント）も書く。
+- **構築済み環境の正確な断面:** 6.4 で外す 3 つの互換処理のうち、ブラウザの旧い Undo キーの掃除（2026-09-10 に形式を変更）は、断面が 09-10 より前だと構築済み環境のブラウザに旧キーが残りうる。旧キーには前の利用者の編集内容が入るので、共有端末では掃除に意味がある。構築済み環境の `SOURCE-COMMIT` でコミットを特定し、09-10 より前なら Undo キーの掃除だけは残す。
