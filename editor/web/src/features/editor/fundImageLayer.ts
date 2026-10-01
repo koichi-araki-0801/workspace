@@ -6,9 +6,11 @@
 // 何も載らない。GrapesJS の image component にならない `<img>`(Jinja のブロックにまとめた
 // 範囲の中など)も、DOM の走査なので同じ規則で表示される。
 //
-// `content:url()` の画像は `load` イベントを出さないので、ページ境界・幾何の再計測は、規則を
-// 作り直したあとの画像の読み込み完了(`Image` で同じ URL を先読みして `decode()` を待つ)を
-// 契機にする。
+// `content:url()` の画像は `load` イベントを出さないので、ページ境界・幾何の再計測は 2 つの
+// 契機で起こす。1 つは親 window での先読み(`Image` + `decode()`)の完了で、早めに確定させる
+// 補助。ただし配信は `no-store` なので、canvas 側の取得は先読みとは別のリクエストになりうり、
+// 先読みが済んだ時点で canvas の画像が描画済みとは限らない。そこで本命として canvas の body を
+// `ResizeObserver` で見張り、画像が描画されて大きさが変わったところで測り直す。
 
 import type { Editor } from 'grapesjs';
 import { type FundImageContext, fundImageCss, needsFundImageWarning } from './fundImages';
@@ -30,11 +32,20 @@ export interface FundImageLayerOptions {
   preload?: (url: string) => Promise<void>;
   /** 走査の間引き(テストで同期にする)。既定は rAF で 1 フレーム 1 回。 */
   schedule?: (cb: () => void) => void;
+  /** canvas の body の大きさが変わった(画像の描画完了などで測り直す契機)。 */
+  onCanvasResize?: () => void;
+  /**
+   * body の監視に使う `ResizeObserver`(テストで偽物を注入する)。既定は canvas の window の
+   * もの。どちらも無い環境(jsdom)では監視しない。
+   */
+  ResizeObserver?: typeof ResizeObserver;
 }
 
 export interface FundImageLayer {
   /** canvas を走査して規則と警告を作り直す。 */
   refresh(): void;
+  /** body の監視を外す(editor の破棄時)。 */
+  destroy(): void;
 }
 
 function defaultPreload(url: string): Promise<void> {
@@ -56,6 +67,50 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   let pending = false;
   /** この document で先読みを始めた URL(document が変われば数え直す)。 */
   const preloaded = new Set<string>();
+  /** canvas の document ごとに 1 つの body 監視。document が替われば外して作り直す。 */
+  let observer: ResizeObserver | null = null;
+  let observedDoc: Document | null = null;
+  let observedBody: HTMLElement | null = null;
+  /** 最後に見た body の大きさ。同じ大きさでは測り直さない(測り直しが大きさを変えない限り止まる)。 */
+  let lastSize = '';
+
+  const disconnect = (): void => {
+    observer?.disconnect();
+    observer = null;
+    observedDoc = null;
+    observedBody = null;
+    lastSize = '';
+  };
+
+  const observeBody = (doc: Document): void => {
+    if (!opts.onCanvasResize) return;
+    const body = doc.body;
+    if (!body) return;
+    if (observer && observedDoc === doc) {
+      if (observedBody === body) return;
+      // load で body が差し替わったら、同じ observer の監視先を移す。
+      observer.disconnect();
+      observer.observe(body);
+      observedBody = body;
+      lastSize = '';
+      return;
+    }
+    disconnect();
+    const RO = opts.ResizeObserver ?? doc.defaultView?.ResizeObserver;
+    if (!RO) return;
+    const onResize = opts.onCanvasResize;
+    observer = new RO((entries) => {
+      const rect = entries[entries.length - 1]?.contentRect;
+      if (!rect) return;
+      const size = `${rect.width}x${rect.height}`;
+      if (size === lastSize) return;
+      lastSize = size;
+      onResize();
+    });
+    observer.observe(body);
+    observedDoc = doc;
+    observedBody = body;
+  };
 
   const ensureStyle = (doc: Document): HTMLStyleElement => {
     if (styleEl?.isConnected && styleEl.ownerDocument === doc) return styleEl;
@@ -74,6 +129,7 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     const ctx = opts.getContext();
     const { css, urls } = fundImageCss(srcs, ctx);
     const el = ensureStyle(doc);
+    observeBody(doc);
     // 同じ内容なら書き直さない(書き直すと no-store の画像を取り直して表示がちらつく)。
     if (css !== lastCss) {
       el.textContent = css;
@@ -105,7 +161,7 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   host.on('component:add', scheduleRefresh);
   host.on('component:remove', scheduleRefresh);
   host.on('component:update', scheduleRefresh);
-  return { refresh };
+  return { refresh, destroy: disconnect };
 }
 
 /** GrapesJS の image view の、ここで使う面だけ。 */

@@ -151,6 +151,118 @@ describe('attachFundImages', () => {
   });
 });
 
+/** 大きさの変化を手で起こせる偽の ResizeObserver(jsdom には無い)。 */
+class FakeResizeObserver {
+  static instances: FakeResizeObserver[] = [];
+  targets: Element[] = [];
+  disconnected = false;
+  constructor(private readonly cb: ResizeObserverCallback) {
+    FakeResizeObserver.instances.push(this);
+  }
+  observe(target: Element): void {
+    this.targets.push(target);
+  }
+  unobserve(): void {}
+  disconnect(): void {
+    this.disconnected = true;
+    this.targets = [];
+  }
+  fire(width: number, height: number): void {
+    const entries = this.targets.map(
+      (target) => ({ target, contentRect: { width, height } }) as unknown as ResizeObserverEntry,
+    );
+    this.cb(entries, this as unknown as ResizeObserver);
+  }
+}
+
+describe('canvas の大きさの変化で測り直す', () => {
+  beforeEach(() => {
+    FakeResizeObserver.instances = [];
+  });
+
+  function attachWithResize() {
+    document.body.innerHTML = '<img src="images/510037_logo.svg">';
+    const { host, emit } = fakeHost(document);
+    const onCanvasResize = vi.fn();
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningChange: vi.fn(),
+      onCanvasResize,
+      preload: async () => {},
+      schedule: (cb) => cb(),
+      ResizeObserver: FakeResizeObserver as unknown as typeof ResizeObserver,
+    });
+    emit('load');
+    return { layer, emit, onCanvasResize };
+  }
+
+  it('body の大きさが変わったら呼び、同じ大きさでは呼ばない', () => {
+    const { onCanvasResize } = attachWithResize();
+    expect(FakeResizeObserver.instances).toHaveLength(1);
+    const ro = FakeResizeObserver.instances[0];
+    expect(ro?.targets).toEqual([document.body]);
+    ro?.fire(794, 1123);
+    expect(onCanvasResize).toHaveBeenCalledTimes(1);
+    ro?.fire(794, 1123);
+    expect(onCanvasResize).toHaveBeenCalledTimes(1);
+    ro?.fire(794, 1400);
+    expect(onCanvasResize).toHaveBeenCalledTimes(2);
+  });
+
+  it('再走査では observer を作り直さず、body が替われば監視先を移す', () => {
+    const { layer, emit } = attachWithResize();
+    emit('component:add');
+    expect(FakeResizeObserver.instances).toHaveLength(1);
+    const oldBody = document.body;
+    const newBody = document.createElement('body');
+    document.documentElement.replaceChild(newBody, oldBody);
+    layer.refresh();
+    expect(FakeResizeObserver.instances[0]?.targets).toEqual([newBody]);
+  });
+
+  it('canvas の document が替われば古い observer を外して作り直し、destroy でも外す', () => {
+    let doc: Document = document;
+    const host = {
+      on: () => {},
+      Canvas: { getDocument: () => doc },
+    } as unknown as FundImageHost;
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningChange: vi.fn(),
+      onCanvasResize: vi.fn(),
+      preload: async () => {},
+      schedule: (cb) => cb(),
+      ResizeObserver: FakeResizeObserver as unknown as typeof ResizeObserver,
+    });
+    layer.refresh();
+    const first = FakeResizeObserver.instances[0];
+    doc = document.implementation.createHTMLDocument('frame');
+    layer.refresh();
+    expect(first?.disconnected).toBe(true);
+    const second = FakeResizeObserver.instances[1];
+    expect(second?.targets).toEqual([doc.body]);
+    layer.destroy();
+    expect(second?.disconnected).toBe(true);
+  });
+
+  it('ResizeObserver が無い環境では何もしない', () => {
+    document.body.innerHTML = '<img src="images/510037_logo.svg">';
+    const { host, emit } = fakeHost(document);
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningChange: vi.fn(),
+      onCanvasResize: vi.fn(),
+      preload: async () => {},
+      schedule: (cb) => cb(),
+    });
+    expect(() => emit('load')).not.toThrow();
+    expect(() => layer.destroy()).not.toThrow();
+  });
+});
+
 /** class でモデル木を探す(`saveFormat.dom.test.ts` と同じ理由で view 依存の find を避ける)。 */
 function findByClass(root: Component, cls: string): Component | undefined {
   if (root.getClasses().includes(cls)) return root;

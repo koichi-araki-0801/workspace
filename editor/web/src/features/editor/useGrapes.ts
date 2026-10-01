@@ -455,6 +455,7 @@ export function useGrapes() {
     fundImages = attachFundImages(ed, {
       getContext: () => fundImageContext,
       onImagesReady: scheduleLayoutRecompute,
+      onCanvasResize: scheduleLayoutRecompute,
       onWarningChange: (on) => {
         fundImageWarning.value = on;
       },
@@ -867,6 +868,7 @@ export function useGrapes() {
     if (cvScrollEl && cvScrollHandler) cvScrollEl.removeEventListener('scroll', cvScrollHandler);
     cvScrollEl = null;
     cvScrollHandler = null;
+    fundImages?.destroy();
     fundImages = null;
     editor.value?.destroy();
     editor.value = undefined;
