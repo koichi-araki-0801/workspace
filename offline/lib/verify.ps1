@@ -220,3 +220,23 @@ function Get-Sha256FromSidecar {
   }
   $first.ToLower()
 }
+
+# ── 前提ツールの確認: py -3.13 ──
+# editor の作成タブ（テンプレ生成器）と docs のビルドは `py -3.13` で Python を起動する。
+# 起動できない端末は、setup が成功しても最初の「新規作成」や docs ビルドまで気づかないので、
+# setup の時点で案内する。止めはしない（Python を使わない運用もある）。
+# -Invoke は終了コードを返すスクリプトブロック（テストで差し替える）。既定は py ランチャの
+# 有無を Get-Command で見てから実行する（無い端末で例外にしない）。
+function Test-Python313Launcher {
+  param(
+    [scriptblock]$Invoke = {
+      if (-not (Get-Command 'py' -ErrorAction SilentlyContinue)) { return 9009 }
+      & py -3.13 -c 'import sys' | Out-Null
+      return $LASTEXITCODE
+    }
+  )
+  $code = & $Invoke
+  if ($code -eq 0) { return $null }
+  return ("Python 3.13 と py ランチャを入れてください（py -3.13 が起動できません。終了コード: $code）。" +
+    'editor の作成タブ（テンプレ生成）と docs のビルドが使います。')
+}

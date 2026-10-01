@@ -430,3 +430,19 @@ Describe 'Read-SourceCommit' {
     Read-SourceCommit -RepoRoot $root | Should Be 'abc 2026-09-10T00:00:00+09:00'
   }
 }
+
+Describe 'Test-Python313Launcher（py -3.13 が起動できるか）' {
+  It '終了コード 0 なら null（案内なし）' {
+    ($null -eq (Test-Python313Launcher -Invoke { 0 })) | Should Be $true
+  }
+  It 'py が無い(9009)なら Python 3.13 と py ランチャの導入を案内する' {
+    Test-Python313Launcher -Invoke { 9009 } | Should Match 'Python 3\.13 と py ランチャを入れてください'
+  }
+  It '3.13 が入っていない(py が非 0 を返す)ときも同じ案内で、終了コードを添える' {
+    Test-Python313Launcher -Invoke { 103 } | Should Match '終了コード: 103'
+  }
+  It 'setup-offline.ps1 がこの確認を呼ぶ' {
+    $setup = [IO.File]::ReadAllText((Join-Path $repoRoot 'offline\setup-offline.ps1'), [Text.Encoding]::UTF8)
+    $setup | Should Match 'Test-Python313Launcher'
+  }
+}
