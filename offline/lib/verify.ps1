@@ -221,16 +221,16 @@ function Get-Sha256FromSidecar {
   $first.ToLower()
 }
 
-# ── 前提ツールの確認: py -3.13 ──
-# editor の作成タブ（テンプレ生成器）と docs のビルドは `py -3.13` で Python を起動する。
-# 起動できない端末は、setup が成功しても最初の「新規作成」や docs ビルドまで気づかないので、
-# setup の時点で案内する。止めはしない（Python を使わない運用もある）。
-# -Invoke は終了コードを返すスクリプトブロック（テストで差し替える）。既定は py ランチャの
-# 有無を Get-Command で見てから実行する（無い端末で例外にしない）。
-# ネイティブコマンドを実行して終了コードだけを返す。stderr は $ErrorActionPreference='Stop' のもとで
-# NativeCommandError になり（リダイレクトされたホストで顕著）、setup が止まる。「警告するだけで止めない」
-# ための確認なので、呼ぶ区間だけ設定を緩め、finally で必ず戻す（content-key.ps1 と同じ作法）。
-function Get-NativeExitCode {
+# ── 前提ツールの確認: PATH 上の python が 3.13 か ──
+# editor の作成タブ（テンプレ生成器）は既定で PATH 上の `python` を版を指定せずに起動する。
+# 3.13 でない・起動できない（Microsoft Store の偽物 WindowsApps\python.exe は終了コード 9009）端末は、
+# setup が成功しても最初の「新規作成」まで気づかないので、setup の時点で案内する。止めはしない
+# （生成を使わない運用もある）。
+
+# ネイティブコマンドを実行して終了コードと標準出力を返す。stderr は $ErrorActionPreference='Stop' の
+# もとで NativeCommandError になり（リダイレクトされたホストで顕著）、setup が止まる。「警告するだけで
+# 止めない」ための確認なので、呼ぶ区間だけ設定を緩め、finally で必ず戻す（content-key.ps1 と同じ作法）。
+function Get-NativeOutput {
   param(
     [Parameter(Mandatory = $true)][string]$Command,
     [string[]]$Arguments = @()
@@ -238,20 +238,29 @@ function Get-NativeExitCode {
   $prevEap = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
   try {
-    & $Command @Arguments 2>$null | Out-Null
-    return $LASTEXITCODE
+    $out = @(& $Command @Arguments 2>$null)
+    return [pscustomobject]@{
+      ExitCode = $LASTEXITCODE
+      Output   = (($out | ForEach-Object { [string]$_ }) -join "`n").Trim()
+    }
   } finally { $ErrorActionPreference = $prevEap }
 }
 
-function Test-Python313Launcher {
+# -Invoke は ExitCode と Output（標準出力）を持つオブジェクトを返すスクリプトブロック（テストで差し替える）。
+# 既定は PATH 上の python の有無を Get-Command で見てから版を出させる（無い端末で例外にしない）。
+function Test-Python313OnPath {
   param(
     [scriptblock]$Invoke = {
-      if (-not (Get-Command 'py' -ErrorAction SilentlyContinue)) { return 9009 }
-      return (Get-NativeExitCode -Command 'py' -Arguments @('-3.13', '-c', 'import sys'))
+      if (-not (Get-Command 'python' -CommandType Application -ErrorAction SilentlyContinue)) {
+        return [pscustomobject]@{ ExitCode = 9009; Output = '' }
+      }
+      return (Get-NativeOutput -Command 'python' -Arguments @('-c', "import sys; print('%d.%d' % sys.version_info[:2])"))
     }
   )
-  $code = & $Invoke
-  if ($code -eq 0) { return $null }
-  return ("Python 3.13 と py ランチャを入れてください（py -3.13 が起動できません。終了コード: $code）。" +
-    'editor の作成タブ（テンプレ生成）と docs のビルドが使います。')
+  $r = & $Invoke
+  if ($r.ExitCode -eq 0 -and $r.Output -eq '3.13') { return $null }
+  $state = if ($r.ExitCode -ne 0) { "起動できません。終了コード: $($r.ExitCode)" } else { "版が $($r.Output) です" }
+  return ("Python 3.13 を入れ、ユーザー環境変数 PATH に通してください（PATH 上の python: $state）。" +
+    'editor の作成タブ（テンプレ生成）が使います。WindowsApps の python より前に置き、' +
+    '設定後は新しいコマンドプロンプトから起動し直してください。')
 }

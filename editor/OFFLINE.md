@@ -33,7 +33,7 @@
 ## 事前に運用機へインストールしておくもの
 
 - **Node.js 24.x**（`.nvmrc` = 24、`engines: node>=24`）
-- **Python 3.13 と py ランチャ**（`/api/generate` の生成器を `py -3.13` で起動する。テスト用の偽の生成器は標準ライブラリのみ）
+- **Python 3.13（ユーザー環境変数 PATH に通す）**（`/api/generate` の生成器を PATH 上の `python` で起動する。setup が版を確かめ、3.13 でなければ警告する。PATH の設定方法は運用手順書 3.2 節。テスト用の偽の生成器は標準ライブラリのみ）
 - **Microsoft Edge**（Windows 11 標準。`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`）
 
 ## 手順

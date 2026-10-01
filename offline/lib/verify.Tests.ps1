@@ -431,26 +431,34 @@ Describe 'Read-SourceCommit' {
   }
 }
 
-Describe 'Test-Python313Launcher（py -3.13 が起動できるか）' {
-  It '終了コード 0 なら null（案内なし）' {
-    ($null -eq (Test-Python313Launcher -Invoke { 0 })) | Should Be $true
+Describe 'Test-Python313OnPath（PATH 上の python が 3.13 か）' {
+  It '終了コード 0 で版が 3.13 なら null（案内なし）' {
+    ($null -eq (Test-Python313OnPath -Invoke { [pscustomobject]@{ ExitCode = 0; Output = '3.13' } })) | Should Be $true
   }
-  It 'py が無い(9009)なら Python 3.13 と py ランチャの導入を案内する' {
-    Test-Python313Launcher -Invoke { 9009 } | Should Match 'Python 3\.13 と py ランチャを入れてください'
+  It 'python が無い・Store の偽物(9009)なら、Python 3.13 を PATH に通すよう案内し、終了コードを添える' {
+    $msg = Test-Python313OnPath -Invoke { [pscustomobject]@{ ExitCode = 9009; Output = '' } }
+    $msg | Should Match 'Python 3\.13 を入れ、ユーザー環境変数 PATH に通してください'
+    $msg | Should Match '終了コード: 9009'
   }
-  It '3.13 が入っていない(py が非 0 を返す)ときも同じ案内で、終了コードを添える' {
-    Test-Python313Launcher -Invoke { 103 } | Should Match '終了コード: 103'
+  It '版が 3.13 でなければ、その版を添えて同じ案内を出す' {
+    $msg = Test-Python313OnPath -Invoke { [pscustomobject]@{ ExitCode = 0; Output = '3.12' } }
+    $msg | Should Match 'ユーザー環境変数 PATH に通してください'
+    $msg | Should Match '版が 3\.12'
   }
-  It '既定の起動経路は、ネイティブコマンドが stderr を出して失敗しても Stop のもとで例外にならない' {
+  It '版は標準出力から読み、stderr を出して失敗しても Stop のもとで例外にならない' {
     $prev = $ErrorActionPreference
     $ErrorActionPreference = 'Stop'
     try {
-      $code = Get-NativeExitCode -Command 'cmd.exe' -Arguments @('/c', 'echo err 1>&2 & exit 3')
+      $r = Get-NativeOutput -Command 'cmd.exe' -Arguments @('/c', 'echo 3.13& echo err 1>&2& exit 3')
     } finally { $ErrorActionPreference = $prev }
-    $code | Should Be 3
+    $r.ExitCode | Should Be 3
+    $r.Output | Should Be '3.13'
   }
-  It 'setup-offline.ps1 がこの確認を呼ぶ' {
+  It 'setup-offline.ps1 がこの確認を呼び、py ランチャの確認は残っていない' {
     $setup = [IO.File]::ReadAllText((Join-Path $repoRoot 'offline\setup-offline.ps1'), [Text.Encoding]::UTF8)
-    $setup | Should Match 'Test-Python313Launcher'
+    $setup | Should Match 'Test-Python313OnPath'
+    $setup | Should Not Match 'Test-Python313Launcher'
+    (Get-Command Test-Python313Launcher -ErrorAction SilentlyContinue) | Should BeNullOrEmpty
+    (Get-Command Get-NativeExitCode -ErrorAction SilentlyContinue) | Should BeNullOrEmpty
   }
 }
