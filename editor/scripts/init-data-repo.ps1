@@ -6,7 +6,9 @@
   確定保存したテンプレ(templates) とファンド別 CSS(css) を git で版管理するため、
   ワークスペースリポジトリの外に置く data リポジトリを作る(ネスト git の回避)。
   処理内容:
-    1. dataRoot 配下に templates/ filled/ css/ drafts/ pending/ を作成する。
+    1. dataRoot 配下にサーバが使う置き場をすべて作成する(templates/ filled/ css/ sync/
+       drafts/ pending/ reviews/ notes/ assets/fonts/ assets/js/)。サーバも必要時に作るが、
+       共有フォルダへ置く運用では権限設定や目視確認のために最初から揃っている方が扱いやすい。
     2. 既存 editor/data/{templates,css} があれば dataRoot へコピーする(初回移行)。
     3. dataRoot が未初期化なら git init + .gitignore/.gitattributes + 初回コミット。
   サーバは環境変数 DATA_ROOT(または appconfig.json の paths.dataRoot)でこの場所を
@@ -16,16 +18,25 @@
   (.gitattributes)で Windows でも byte が揺れないようにする。
 
 .PARAMETER DataRoot
-  data リポジトリの場所。省略時はワークスペースの 1 つ上の editor-data
-  (例: C:\Users\<user>\editor-data)。サーバ既定(config.ts の dataRoot)と一致。
+  data リポジトリの場所。UNC パス(\\server\share\editor-data)も指定できる。省略時は
+  環境変数 DATA_ROOT(このプロセス → ユーザー環境変数の順)を使い、それも無ければ
+  ワークスペースの 1 つ上の editor-data(例: C:\Users\<user>\editor-data)。いずれも
+  サーバ(config.ts の dataRoot)と同じ解決で、相対パスは editor/ 基準になる。
+  ユーザー環境変数まで見るのは、setx 直後の同じウィンドウでは $env: に反映されず、
+  サーバ(新しいウィンドウから起動)と違う場所へ作ってしまうため。
 
 .EXAMPLE
   editor\scripts\init-data-repo.bat
-  既定の場所(ワークスペースの 1 つ上の editor-data)に初期化する。
+  環境変数 DATA_ROOT の場所(未設定なら既定の場所)に初期化する。
 
 .EXAMPLE
   editor\scripts\init-data-repo.bat -DataRoot D:\editor-data
   指定した場所に初期化する。サーバ側は DATA_ROOT=D:\editor-data を設定する。
+
+.EXAMPLE
+  editor\scripts\init-data-repo.bat -DataRoot \\fileserver\share\editor-data
+  ファイルサーバの共有上に初期化する。所有者が実行アカウントと異なる共有では、git が
+  dubious ownership で止まるため、先に safe.directory を登録しておく。
 #>
 param(
   [string]$DataRoot
@@ -37,15 +48,33 @@ $ErrorActionPreference = 'Stop'
 # ワークスペースの場所になる。data リポジトリの既定値はこれらを基準に解決する。
 $editorDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $workspace = Split-Path -Parent $editorDir
+$source = '-DataRoot 引数'
 if (-not $DataRoot) {
-  $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data'
+  $fromEnv = $env:DATA_ROOT
+  $source = '環境変数 DATA_ROOT'
+  if (-not $fromEnv) {
+    $fromEnv = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User')
+    $source = 'ユーザー環境変数 DATA_ROOT'
+  }
+  if ($fromEnv) {
+    # サーバ(config.ts の toPath)は相対パスを editor/ 基準で解決するので合わせる。
+    $DataRoot = if ([IO.Path]::IsPathRooted($fromEnv)) { $fromEnv } else {
+      [IO.Path]::GetFullPath((Join-Path $editorDir $fromEnv))
+    }
+  } else {
+    $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data'
+    $source = '既定'
+  }
 }
 
-Write-Host "dataRoot: $DataRoot"
+Write-Host "dataRoot: $DataRoot ($source)"
 
-# 1. ディレクトリ構成を用意する。
+# 1. ディレクトリ構成を用意する。名前は server/src/config.ts の既定と
+#    notesFile.ts の notes/、gitRepo.ts の COMMITTED_PATHSPECS に合わせる。
 New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
-foreach ($d in 'templates', 'filled', 'css', 'drafts', 'pending') {
+$dirs = 'templates', 'filled', 'css', 'sync', 'drafts', 'pending', 'reviews', 'notes',
+  'assets\fonts', 'assets\js'
+foreach ($d in $dirs) {
   New-Item -ItemType Directory -Force -Path (Join-Path $DataRoot $d) | Out-Null
 }
 
@@ -66,8 +95,13 @@ Push-Location $DataRoot
 try {
   if (-not (Test-Path (Join-Path $DataRoot '.git'))) {
     git init | Out-Null
-    Set-Content -Path '.gitignore' -Value "/drafts/`n/reviews/`n/pending/`n*.tmp-*" -Encoding utf8
-    Set-Content -Path '.gitattributes' -Value "* text=lf" -Encoding utf8
+    # 中身は gitRepo.ts の ensureGitignore の必須行と揃える。BOM 無しで書くのは、
+    # PowerShell 5.1 の -Encoding utf8 が付ける BOM で先頭行がサーバの照合に一致せず、
+    # 同じ行が重複して足されるため。
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [IO.File]::WriteAllText((Join-Path $DataRoot '.gitignore'),
+      "/drafts/`n/reviews/`n/pending/`n/notes/`n*.tmp-*`n", $utf8NoBom)
+    [IO.File]::WriteAllText((Join-Path $DataRoot '.gitattributes'), "* text=lf`n", $utf8NoBom)
     git add -A | Out-Null
     git -c user.name=system -c user.email=system@editor.local commit -m '初期化: テンプレ版管理リポジトリ' | Out-Null
     Write-Host 'git リポジトリを初期化し、初回コミットを作成しました。'

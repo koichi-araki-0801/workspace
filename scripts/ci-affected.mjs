@@ -217,11 +217,13 @@ function main() {
   if (benign.length) console.log(`[ci:affected] 領域 CI 不要の変更: ${benign.length} 件 (${benign.join(', ')})`);
 
   // 共有ゲートは領域の有無に関わらず 1 回だけ実行(comments は .ps1/.md 等も検査するため常時必要)。
-  // claude-hooks も同列: `.claude/` は git 追跡外で diff に現れないため領域発火の対象にできず、
-  // diff の中身に関わらず常時検査する側に置くしかない。test:scripts も同列: `scripts/` の
+  // claude-hooks と canon-summary も同列: `.claude/` は git 追跡外で diff に現れないため領域発火の
+  // 対象にできず、diff の中身に関わらず常時検査する側に置くしかない (canon-summary は正典の
+  // `docs/*/src/設計正典.md` だけが変わった場合も、要約とのずれをここで捕まえる)。test:scripts も同列: `scripts/` の
   // `ci-machinery` 領域は段を持たず、`scripts/*.test.mjs` はここで常時実行する。
   runPnpm('check:comments');
   runPnpm('check:claude-hooks');
+  runPnpm('check:canon-summary');
   runPnpm('check:ci');
   runPnpm('test:scripts');
 
