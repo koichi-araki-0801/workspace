@@ -102,7 +102,7 @@ function groupFor(rel: string): { group: AssetGroup; rest: string[] } | undefine
 }
 
 /**
- * 資産ツリーを降りる深さの上限。`fonts/noto/JP/x.woff2` 程度を想定した値で、
+ * 資産ツリーを降りる深さの上限。`css/fonts/noto/JP/x.woff2` 程度を想定した値で、
  * シンボリックリンクの輪や異常に深いツリーで走査が止まらなくなるのを防ぐ。
  */
 const MAX_ASSET_DEPTH = 4;

@@ -62,7 +62,7 @@ import { resolveServedAssetSource } from './docAssets.js';
  *    オリジン・cookie・API には届かない。
  *  - `style-src 'self' 'unsafe-inline'` — 文書の `<style>`(組版 CSS の本体)が inline。
  *  - `img-src 'self' data: blob:` / `font-src 'self' data:` — 帳票の画像・埋め込みフォントと、
- *    同梱資産(この接頭辞から配る `fonts/`)。外部ホストは許さない。
+ *    同梱資産(この接頭辞から配る `css/fonts/`)。外部ホストは許さない。
  *  - `connect-src 'self' blob: data:` — core は文書を `fetch` で取る。文書は子が自分で作る
  *    blob URL(opaque オリジン)なので `blob:` が要る。`data:` は core の内蔵 UA リソース用:
  *    表セル・脚注のある文書で core は `user-agent.xml` を**バンドル埋め込みの
@@ -404,7 +404,7 @@ export async function previewHostRoutes(app: FastifyInstance): Promise<void> {
       .send(await hostPage());
   });
 
-  // ビューアバンドルと同梱資産(`css/` `js/` `fonts/`)。パスの解決は
+  // ビューアバンドルと同梱資産(`css/`(配下に `css/fonts/`)と `js/`)。パスの解決は
   // `resolveServedAssetPath`(配信ルート相対への正規化)+ `resolveServedAssetSource`
   // (許可リスト・深さ・シンボリックリンク)の 2 段で、PDF 経路と同じ物差しを使う。
   app.get<{ Params: { '*': string } }>(

@@ -107,7 +107,7 @@ describe('GET /api/render-host/* — 配信面は完全一致 1 件だけ', () =
   });
 
   it('迂回入力は 404 で、本文を 1 バイトも出さない', async () => {
-    // preview-host は同梱資産(`css/` `js/` `fonts/`)を配る面を持つが、こちらは表示を
+    // preview-host は同梱資産(`css/` `css/fonts/` `js/`)を配る面を持つが、こちらは表示を
     // しないので配る資産が無い。「許可リストが正しいか」ではなく「面が無いか」を主張する。
     const cases = [
       // 置き場の外(`..` の遡上。素の形と URL エンコード形の両方)
@@ -116,7 +116,7 @@ describe('GET /api/render-host/* — 配信面は完全一致 1 件だけ', () =
       // preview-host では配る面がある置き場。ここでは配ってはならない。
       '/api/render-host/js/app.js',
       '/api/render-host/css/510037.css',
-      '/api/render-host/fonts/x.woff2',
+      '/api/render-host/css/fonts/x.woff2',
       // 完全一致からの逸脱(前方一致・後方一致・大文字化で通らないこと)
       '/api/render-host/nunjucks.js.map',
       '/api/render-host/x/nunjucks.js',

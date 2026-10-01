@@ -21,7 +21,7 @@
 //   4. HTML の取得系属性(`<link href>` `<script src>` `<img src>` …)
 //
 // ── 相対参照は「拒む対象」ではない。むしろ必須である ──
-// テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `fonts/…` `js/…` の
+// テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `css/fonts/…` `js/…` の
 // 相対パスで参照し、その実体は `vivliostyle/docAssets.ts` が配信ルートへ置く。よって
 // 4 の判定は「取得系属性かどうか」ではなく「**その URL がオリジンの外を指すか**」で行い、
 // 基準は CSS 側と同じ `isSelfContainedUrl`(`@editor/shared`)1 つに揃える。
@@ -43,7 +43,7 @@ import { scanTags } from '../vivliostyle/inlineCss.js';
 export const EXTERNAL_REF_MESSAGE =
   'CSSまたはHTMLに外部参照(@import / 絶対URLのurl() / 絶対URLのhref・src)が含まれるため' +
   'PDFを作成できません。' +
-  'フォントや画像やスクリプトは文書に同梱するか、同梱資産への相対パス(css/… fonts/… js/…)で' +
+  'フォントや画像やスクリプトは文書に同梱するか、同梱資産への相対パス(css/… css/fonts/… js/…)で' +
   '指定してください。';
 
 /** 応答に載せる機械可読コード(OpenAPI に明記。クライアントはこれで分岐する)。 */
