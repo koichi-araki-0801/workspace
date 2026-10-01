@@ -108,6 +108,62 @@
 - 設計正典: 相対参照の節に `images/` の置き場・配信・SVG 検査の 3 か所・編集画面は表示だけ差し替える不変則。却下済み設計に「編集画面で画像の `src` をモデルごと書き換えて保存時に戻す」「`data:image/svg+xml` を共有の許可リストへ足す」を追記し、要約と `check:canon-summary` を更新する。
 - OpenAPI に新しいルートを足し、`openapi.json` を再生成する。
 
+### 3.9 既存環境向けパッチ
+
+既存の dataRoot（①の移行済み）を、画像を置ける状態にする。①と同じ形のパッチを別フォルダに置く。
+
+置き場: `editor/patches/2026-10-fund-images/`
+
+- `apply.ps1`（UTF-8 BOM）と `apply.bat`（CRLF、`chcp 65001 >nul`、4 行雛形）
+- `rollback.ps1` / `rollback.bat`
+- `README.md`（目的・前提・手順・画像の置き方と命名・元に戻し方）
+- `apply.Tests.ps1`（Pester 3/4 書式）
+- ルート `README.md` の入口スクリプト一覧に 2 行
+
+#### 置き場の解決
+
+- ①の `migrate.ps1` と同じ規則・同じ表示にする: dataRoot は `-DataRoot` → `DATA_ROOT`（プロセス → ユーザー環境変数）→ appconfig `paths.dataRoot` → 既定。images は `IMAGES_DIR` → appconfig `paths.imagesDir` → `<dataRoot>\images`。解決結果と出典を表示する。
+- 解決関数は①のパッチと重複して持つ（①の判断と同じく、共通 lib は作らない）。
+
+#### 実行条件と既定動作
+
+- 既定は確認モード（何も変えない）。`-Apply` を付けたときだけ実行する。
+- 次の場合は中止する: editor サーバが動いている（ポート確認）、dataRoot が git リポジトリでない、確定領域（`.gitignore .gitattributes templates filled css sync`）に未コミット変更がある（`css/fonts` は除外）。
+- ①の移行が済んでいない環境（`<dataRoot>\assets` が残っている）は、先に①のパッチを流すよう案内して中止する。
+
+#### 処理（`-Apply` 時、この順）
+
+1. `.gitignore` に `/images/` が無ければ追記する（BOM 無し、LF）。画像を置く前に追跡外にしておく。
+2. `<imagesDir>` が無ければ作る。
+3. `.gitignore` の変更を `system` 名義で 1 コミットする。件名は「移行: 画像の置き場を追加 [fund-images]」（末尾は rollback が探す ASCII の目印）。
+
+#### 報告のみ（書き換えない）
+
+- 既に置かれている画像の点検結果を表示する。
+  - `images` 直下以外（サブフォルダ）に置かれたファイル（配信されない）。
+  - 許可外の拡張子（配信されない）。
+  - 命名 `<fund>_<名前>` に合わないファイル（配信はされるが約束から外れる）。
+- SVG の中身の検査（3.3）はサーバ側の TypeScript 実装が正なので、パッチでは行わない。違反はサーバログの警告で確認する、と README に書く。
+
+#### 冪等性
+
+- `.gitignore` に既に `/images/` があり、`<imagesDir>` も存在すれば、何も変えずに終わる（コミットも作らない）。
+
+#### 元に戻す（rollback）
+
+- 既定は確認モード。`-Apply` で、目印 `[fund-images]` を持つ移行コミット（`Revert` で始まる件名は除外、既に revert 済みなら飛ばす）を `git revert` する。失敗したら `git revert --abort` してから中止し、git の出力を表示する。
+- `<imagesDir>` と中の画像は消さない（別ツールが置いたもので、git 管理外のため戻せない）。README に、不要なら手で消すと書く。
+
+#### テスト（Pester）
+
+- 確認モードで何も変えない。
+- `-Apply` で `.gitignore` に `/images/` が入り、`images` が作られ、`system` 名義・`[fund-images]` 付きの 1 コミットができる。
+- 再実行で何も変わらない（HEAD 不変）。
+- `assets` が残っていれば中止する。
+- 未コミット変更があれば中止する。
+- 点検の報告（サブフォルダ・拡張子・命名）が出る。
+- rollback を 2 回実行しても revert の revert にならない。`images` の中身が残る。
+
 ## 4. 範囲外・残るリスク
 
 - エディタからのアップロード・差し替え・削除（画像は外から置く）。
