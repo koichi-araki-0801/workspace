@@ -877,7 +877,7 @@ export function assertImagesDirOutsideCommittedAreas(opts: {
     throw new Error(
       `[config] imagesDir(${opts.imagesDir})が承認コミットの対象 ${area}/ の内側にあります。` +
         ' 画像が承認コミットへ巻き込まれるため起動を中止しました。' +
-        ' 環境変数 IMAGES_DIR / appconfig の paths.imagesDir を dataRootimages などへ移してください。',
+        ' 環境変数 IMAGES_DIR / appconfig の paths.imagesDir を <dataRoot>/images などへ移してください。',
     );
   }
 }

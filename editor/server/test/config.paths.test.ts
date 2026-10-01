@@ -110,7 +110,7 @@ describe('config paths', () => {
   it('IMAGES_DIR が確定領域(css)の内側なら起動を中止する', async () => {
     await expect(
       importConfigWithEnv({ DATA_ROOT, IMAGES_DIR: path.join(DATA_ROOT, 'css', 'images') }),
-    ).rejects.toThrow(/imagesDir.*css/s);
+    ).rejects.toThrow(/imagesDir.*css.*<dataRoot>\/images/s);
   });
 });
 
