@@ -182,7 +182,7 @@
 
 - 起動コマンドの既定の引数が空になるので、「bin を明示したら引数の既定は空」の規則（`resolvePythonCommand` の `explicitBin`）は削って単純にする。appconfig の `python.args` で引数を足せる点は残す。
 - offline の確認関数の名前は、`py` を前提にしない名前（例: `Test-Python313OnPath`）へ改める。docs のビルド（`docs/_build/build_all.bat`）は開発機でだけ動かすので、`py -3.13` のまま変えない。確認関数のコメントからは docs ビルドへの言及を外す。
-- 前回見送った 2 件は解消する。`python-wheelhouse.ps1` は `python -m pip` で、既定（PATH 上の python）と揃う。`LOCALAPPDATA` の件は、py ランチャを使わなくなるので対象外になる。ただし download 側は配布担当の開発機で動くので、開発機の PATH も 6.7.5 で整える前提。
+- 前回見送った 2 件は解消する。`python-wheelhouse.ps1` は `python -m pip` で、既定（PATH 上の python）と揃う。`LOCALAPPDATA` の件は、py ランチャを使わなくなるので対象外になる。download 側は配布担当の開発機で動くが、開発機も PATH 上の python が 3.13 であることを確認済み（6.7.5）。
 
 ### 6.7 点検（2026-10-02）を受けた補強
 
@@ -232,16 +232,17 @@ dataRoot の構成は、ユーザーが手で差し替える予定。パッチ�
 - **git の場所:** パッチは環境変数 `GIT_BIN` があればそれを使う（サーバと同じ）。PortableGit だけの端末で、PATH に git が無くても流せるようにする。
 - **旧形式データの報告:** フォント移設パッチの確認モードで、`notes/*.json` に配列でない値（旧形式メモ）、`reviews/*/meta.json` の `status: held`、`filled` フォルダの有無を報告する。6.4 で互換処理を外すので、見つかったら手で直す必要があることを案内する。
 
-#### 6.7.5 Python の PATH を整える（ユーザー判断: 本番機と同じく、ユーザー環境変数 PATH をパッチで整える）
+#### 6.7.5 Python の PATH（ユーザー判断: 本番機・開発機とも、ユーザー環境変数 PATH で通す）
 
-- 開発機も本番機と同じく、ユーザー環境変数 PATH で Python 3.13 を通す。Microsoft Store の偽物（`%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`）より先に本物が見つかるようにする。
-- フォント移設パッチ（6.2 と同じく既存パッチへ統合）に「Python の PATH」の段を足す。確認モードで現状を報告し、`-Apply` で直す。
-  - Python 3.13 の場所は、レジストリ（`HKCU` / `HKLM` の `Software\Python\PythonCore\3.13\InstallPath`）から探す。見つからなければ「Python 3.13 を入れてください」と案内して、この段だけ飛ばす。
-  - ユーザー環境変数 PATH の先頭に、`<InstallPath>` と `<InstallPath>\Scripts` を足す（すでに先頭側にあれば何もしない）。`setx` は 1024 文字で切れるので使わず、レジストリ（`HKCU\Environment` の `Path`、型 `REG_EXPAND_SZ` を保つ）へ直接書き、設定変更の通知を出す。変更前の値はバックアップ（`<editorDir>\patches-backup\user-path-<日付>.txt` など）に残す。
-  - 元に戻す（`rollback.ps1`）で、バックアップから PATH を戻す。
-  - 直した後は、新しいコマンドプロンプトで `python --version` が 3.13 になることを確かめ、サーバも新しいコマンドプロンプトから起動し直すよう案内する。
-- サーバをサービスや別アカウントで動かす場合は、そのアカウントの PATH が使われる。手順書に注意として書く（パッチは実行したユーザーの PATH だけを直す）。
-- これにより、開発機の e2e と `start.bat dev` も、裸の `python` で偽の生成器を動かせる。`e2e-rest-server.ts` の Windows 向けの既定の扱いは、PATH が整っている前提に合わせて直す。
+- 本番環境では、運用者がユーザー環境変数 PATH に Python 3.13 を設定する（手作業）。PATH を書き換える仕組みは作らない。
+- 開発機も同じ形にそろえる。この端末は確認済みで、ユーザー環境変数 PATH の先頭に `C:\Users\caads\AppData\Local\Programs\Python\Python313\` と `…\Scripts\` があり、Microsoft Store の偽物（`%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`）より先に解決される（`where python` の 1 件目が本物、`python --version` が 3.13.15。2026-10-02）。
+- したがって開発機の e2e と `start.bat dev` は、裸の `python` で偽の生成器を動かせる。`e2e-rest-server.ts` の「Windows は既定に任せる」コメントは、PATH 上の python を前提にした文言へ直す。
+- 運用手順書に、PATH の設定方法と落とし穴を書く。
+  - Python 3.13 のフォルダと `Scripts` を、ユーザー環境変数 PATH の **WindowsApps より前** に置く（インストーラの「Add python.exe to PATH」はこの形になる）。または「アプリ実行エイリアス」の python を切る。
+  - `setx` は 1024 文字で切れるので使わず、「環境変数を編集」の画面で設定する。
+  - 設定後は新しいコマンドプロンプトで `python --version` が 3.13 になることを確かめ、サーバも新しいコマンドプロンプトから起動し直す。
+  - サーバをサービスや別アカウントで動かす場合は、そのアカウントの PATH が使われる。
+- 設定を誤ったときは、サーバの起動時の確認（版違い・起動できない）と offline の setup の確認が警告する（3.1・6.1）。
 
 #### 6.7.6 その他
 
