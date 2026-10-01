@@ -16,8 +16,8 @@
 //
 // ── 置き場(利用者決定・変更しないこと) ──
 //   css   = `config.cssDir`   (per-fund。`<fund>.css`)
-//   fonts = `config.assetsDir/fonts` (全ファンド共通)
-//   js    = `config.assetsDir/js`    (全ファンド共通)
+//   fonts = `config.cssDir/fonts` (全ファンド共通)
+//   js    = `config.jsDir`    (全ファンド共通)
 // 配信ルートでの名前は `css/` `fonts/` `js/` に固定する(テンプレ側の相対参照と対)。
 
 import type { Dirent } from 'node:fs';
@@ -62,12 +62,12 @@ const ASSET_GROUPS: readonly AssetGroup[] = [
   },
   {
     mount: 'fonts',
-    sourceDir: () => path.join(config.assetsDir, 'fonts'),
+    sourceDir: () => path.join(config.cssDir, 'fonts'),
     extensions: new Set(['.ttf', '.otf', '.woff', '.woff2']),
   },
   {
     mount: 'js',
-    sourceDir: () => path.join(config.assetsDir, 'js'),
+    sourceDir: () => config.jsDir,
     extensions: new Set(['.js', '.mjs']),
   },
 ];

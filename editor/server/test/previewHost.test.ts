@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-preview-host-'));
 // 資産の置き場を temp へ寄せる(`config` は import 時に env を読む)。
 process.env.DATA_ROOT = tmp;
-process.env.ASSETS_DIR = path.join(tmp, 'assets');
+process.env.JS_DIR = path.join(tmp, 'js');
 process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.AUTH_REQUIRED = 'false';
 
@@ -27,12 +27,12 @@ let app: FastifyInstance;
 let bundleSafeToInline: (bundle: string) => boolean;
 
 beforeAll(async () => {
-  fs.mkdirSync(path.join(tmp, 'assets', 'js'), { recursive: true });
-  fs.mkdirSync(path.join(tmp, 'assets', 'fonts'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, 'js'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, 'css', 'fonts'), { recursive: true });
   fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
-  fs.writeFileSync(path.join(tmp, 'assets', 'js', 'app.js'), 'window.FIT=1;', 'utf8');
+  fs.writeFileSync(path.join(tmp, 'js', 'app.js'), 'window.FIT=1;', 'utf8');
   // 許可外拡張子。同じ置き場でも配ってはならない。
-  fs.writeFileSync(path.join(tmp, 'assets', 'js', 'secret.env'), 'TOKEN=zz', 'utf8');
+  fs.writeFileSync(path.join(tmp, 'js', 'secret.env'), 'TOKEN=zz', 'utf8');
   fs.writeFileSync(path.join(tmp, 'css', '510037.css'), 'body{}', 'utf8');
   // 配信面の外(dataRoot 直下)。`..` で辿れないことの標的。
   fs.writeFileSync(path.join(tmp, 'outside.js'), 'LEAK', 'utf8');

@@ -17,12 +17,13 @@ const PATH_ENV_KEYS = [
   'TEMPLATES_DIR',
   'CSS_DIR',
   'FILLED_DIR',
-  'ASSETS_DIR',
+  'JS_DIR',
   'DRAFTS_DIR',
   'PENDING_DIR',
   'REVIEWS_DIR',
   'SYNC_DIR',
   'GIT_REPO_DIR',
+  'ASSETS_DIR',
 ] as const;
 
 /** env を一時的に差し替えて `config.ts` を評価し直す(評価後に env は元へ戻す)。 */
@@ -53,7 +54,8 @@ describe('config paths', () => {
     expect(config.templatesDir).toBe(path.join(DATA_ROOT, 'templates'));
     expect(config.cssDir).toBe(path.join(DATA_ROOT, 'css'));
     expect(config.filledDir).toBe(path.join(DATA_ROOT, 'filled'));
-    expect(config.assetsDir).toBe(path.join(DATA_ROOT, 'assets'));
+    expect(config.jsDir).toBe(path.join(DATA_ROOT, 'js'));
+    expect('assetsDir' in config).toBe(false);
     expect(config.draftsDir).toBe(path.join(DATA_ROOT, 'drafts'));
     expect(config.pendingDir).toBe(path.join(DATA_ROOT, 'pending'));
     expect(config.reviewsDir).toBe(path.join(DATA_ROOT, 'reviews'));
@@ -83,5 +85,31 @@ describe('config paths', () => {
 
     expect(config.templatesDir).toBe(path.join(config.dataRoot, 'templates'));
     expect(config.gitRepoDir).toBe(config.dataRoot);
+  });
+
+  it('JS_DIR が jsDir を上書きする', async () => {
+    const jsDir = path.resolve(path.sep, 'tmp', 'editor-js-elsewhere');
+    const { config } = await importConfigWithEnv({ DATA_ROOT, JS_DIR: jsDir });
+    expect(config.jsDir).toBe(jsDir);
+  });
+
+  it('ASSETS_DIR が残っていたら起動エラーで jsDir への移行を案内する', async () => {
+    await expect(
+      importConfigWithEnv({ DATA_ROOT, ASSETS_DIR: path.join(DATA_ROOT, 'assets') }),
+    ).rejects.toThrow(/assetsDir は廃止しました.*JS_DIR.*2026-10-fonts-to-css/s);
+  });
+});
+
+describe('assertNoRetiredAssetsDir', () => {
+  it('appconfig の paths.assetsDir だけでも拒む', async () => {
+    const { assertNoRetiredAssetsDir } = await importConfigWithEnv({ DATA_ROOT });
+    expect(() => assertNoRetiredAssetsDir({ env: undefined, file: 'data/assets' })).toThrow(
+      /paths\.assetsDir/,
+    );
+  });
+
+  it('どちらも無ければ何もしない', async () => {
+    const { assertNoRetiredAssetsDir } = await importConfigWithEnv({ DATA_ROOT });
+    expect(() => assertNoRetiredAssetsDir({ env: undefined, file: undefined })).not.toThrow();
   });
 });

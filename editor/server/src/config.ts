@@ -52,6 +52,7 @@ const appConfigSchema = z
         cssDir: z.string().optional(),
         filledDir: z.string().optional(),
         assetsDir: z.string().optional(),
+        jsDir: z.string().optional(),
         draftsDir: z.string().optional(),
         pendingDir: z.string().optional(),
         reviewsDir: z.string().optional(),
@@ -295,15 +296,14 @@ export const config = {
    */
   filledDir: resolveDataPath(process.env.FILLED_DIR, file.paths?.filledDir, 'filled'),
   /**
-   * **全ファンド共通**の同梱資産(`fonts/` と `js/`)を置くディレクトリ。テンプレはこれらを
-   * `fonts/…` `js/…` の相対パスで参照し、PDF ビルド / プレビューの配信ルートへ
-   * `vivliostyle/docAssets.ts` が写す。CSS だけ per-fund で `cssDir` に分かれているのは
-   * ファンドごとに中身が違うためで、フォントと JS は共通なのでここに 1 組だけ置く。
+   * **全ファンド共通**のテンプレ JS(`js/…`)を置くディレクトリ。テンプレはこれを `js/…` の
+   * 相対パスで参照し、PDF ビルド / プレビューの配信ルートへ `vivliostyle/docAssets.ts` が写す。
+   * フォントは CSS 側の資産なので `<cssDir>/fonts` に置く(CSS から `url(fonts/…)` で引く)。
    *
    * ⚠ この配下は **headless ブラウザが読む配信ルートへ写される**。任意のファイルを置く
    * 場所ではなく、写す対象は `docAssets.ts` の拡張子許可リストで絞る。
    */
-  assetsDir: resolveDataPath(process.env.ASSETS_DIR, file.paths?.assetsDir, 'assets'),
+  jsDir: resolveDataPath(process.env.JS_DIR, file.paths?.jsDir, 'js'),
   /** 自動保存(autosave)ドラフトの作業コピー(template ごとに html/css。git 管理外)。 */
   draftsDir: resolveDataPath(process.env.DRAFTS_DIR, file.paths?.draftsDir, 'drafts'),
   /**
@@ -807,6 +807,27 @@ export function buildCspDirectives(
 }
 
 /**
+ * 廃止した設定 `assetsDir`(appconfig `paths.assetsDir` / env `ASSETS_DIR`)が残っていないか。
+ * 黙って無視すると、独自の置き場に置いた js が配信ルートへ載らず、JS の効かない PDF が成功扱いで
+ * 出る。誤記を起動中止で運用者に届ける方針(`envFlag`)に揃えて、ここで止める。
+ */
+export function assertNoRetiredAssetsDir(opts: {
+  env: string | undefined;
+  file: string | undefined;
+}): void {
+  const where = [
+    ...(opts.env === undefined ? [] : ['環境変数 ASSETS_DIR']),
+    ...(opts.file === undefined ? [] : ['appconfig.json の paths.assetsDir']),
+  ];
+  if (where.length === 0) return;
+  throw new Error(
+    `[config] ${where.join(' と ')} が指定されていますが、assetsDir は廃止しました。` +
+      ' js は jsDir(環境変数 JS_DIR / appconfig の paths.jsDir)へ、フォントは <cssDir>/fonts へ' +
+      ' 移してください。移行パッチ: editor/patches/2026-10-fonts-to-css/',
+  );
+}
+
+/**
  * 平文での LAN 公開を明示的に許した状態か(`ALLOW_PLAINTEXT_LAN`)。起動バナーへ
  * 警告を出すため export する。恒久設定にすると本修正の意味が消えるので、
  * `start.bat rest lan-plain` から一時的に立てる想定。
@@ -827,6 +848,9 @@ export const allowedHosts = resolveAllowedHosts({
     .filter((n): n is os.NetworkInterfaceInfo => !!n && !n.internal)
     .map((n) => n.address),
 });
+
+// 廃止した置き場の指定が残っていたら、listen より前に止める。
+assertNoRetiredAssetsDir({ env: process.env.ASSETS_DIR, file: file.paths?.assetsDir });
 
 // 危険な待受構成(認証オフ / TLS 無し / preview の公開 / Secure の矛盾)は起動前に落とす。
 // 値の解決直後に評価するので、`app.ts` が listen する前 — import 時点で失敗する。
