@@ -69,7 +69,9 @@ const appConfigSchema = z
     python: z
       .object({
         bin: z.string().optional(),
+        args: z.array(z.string()).optional(),
         script: z.string().optional(),
+        scriptSha256: z.string().optional(),
         timeoutMs: z.number().int().positive().optional(),
       })
       .strict()
@@ -228,6 +230,47 @@ export function envPositiveNumber(
   return envNumber(name, envVal, def, { ...opts, min: opts.min ?? 0, exclusiveMin: true });
 }
 
+/** 生成器を起動する既定のコマンド(リポジトリの方針 `py -3.13`)。 */
+export const DEFAULT_PYTHON_BIN = 'py';
+export const DEFAULT_PYTHON_ARGS: readonly string[] = ['-3.13'];
+
+/**
+ * 生成器を起動する実行ファイルと、スクリプトの前に付ける引数を決める。
+ *
+ * 実行ファイルを明示した(env `PYTHON_BIN` / appconfig `python.bin`)ときは引数の既定を空にする。
+ * 絶対パスの python.exe を直接指す運用で、py ランチャ用の `-3.13` が付くと起動できないため。
+ * 引数を env で受けない(`PYTHON_ARGS` を設けない)のは、空白で区切る規則がパスの空白と衝突するため。
+ */
+export function resolvePythonCommand(opts: {
+  envBin: string | undefined;
+  fileBin: string | undefined;
+  fileArgs: readonly string[] | undefined;
+}): { bin: string; args: string[] } {
+  const bin = opts.envBin ?? opts.fileBin ?? DEFAULT_PYTHON_BIN;
+  const explicitBin = opts.envBin !== undefined || opts.fileBin !== undefined;
+  const args = opts.fileArgs ?? (explicitBin ? [] : DEFAULT_PYTHON_ARGS);
+  return { bin, args: [...args] };
+}
+
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
+
+/**
+ * 生成器のスクリプトの指紋(SHA256)を検査して小文字で返す。未指定は `undefined`(照合しない)。
+ * 形式違反は起動中止にする。打ち間違いを黙って「照合しない」へ倒すと、守っているつもりの
+ * 無防備が残る(`envNumber` と同じ方針)。
+ */
+export function parseScriptSha256(value: string | undefined, source: string): string | undefined {
+  if (value === undefined) return undefined;
+  const v = value.trim();
+  if (!SHA256_HEX_RE.test(v)) {
+    throw new Error(
+      `[config] ${source}=${JSON.stringify(value)} は SHA256 の 64 桁の 16 進ではありません。` +
+        ' `certutil -hashfile <生成器のスクリプト> SHA256` の出力を指定してください。',
+    );
+  }
+  return v.toLowerCase();
+}
+
 const executableBrowser =
   process.env.VIVLIOSTYLE_EXECUTABLE_BROWSER ||
   file.pdf?.executableBrowser ||
@@ -344,20 +387,50 @@ export const config = {
   /** 本番で配信するビルド済み web SPA。 */
   webDist: resolvePath(process.env.WEB_DIR, file.paths?.webDist, 'web/dist'),
 
-  /** 既存の Python template ジェネレータ。 */
+  /**
+   * テンプレート生成器(社内の共有フォルダなどにある既存ツール)。起動は
+   * `<bin> <args...> <script> <属性 JSON>`(`generate/pyTemplate.ts`)。
+   */
   python: {
-    bin: process.env.PYTHON_BIN ?? file.python?.bin ?? 'python',
+    ...resolvePythonCommand({
+      envBin: process.env.PYTHON_BIN,
+      fileBin: file.python?.bin,
+      fileArgs: file.python?.args,
+    }),
     script: resolvePath(
       process.env.PY_GENERATE_SCRIPT,
       file.python?.script,
       'server/scripts/generate_template.py',
     ),
+    /**
+     * 生成器のスクリプトの SHA256。設定すると生成のたびに照合し、食い違えば生成を拒否する
+     * (共有フォルダ上の生成器の差し替えに気づくため)。照合できるのは入口のスクリプト 1 本だけ。
+     */
+    scriptSha256:
+      process.env.PY_GENERATE_SCRIPT_SHA256 !== undefined
+        ? parseScriptSha256(
+            process.env.PY_GENERATE_SCRIPT_SHA256,
+            '環境変数 PY_GENERATE_SCRIPT_SHA256',
+          )
+        : parseScriptSha256(file.python?.scriptSha256, 'appconfig.json の python.scriptSha256'),
     timeoutMs: envPositiveNumber(
       'PY_TIMEOUT_MS',
       process.env.PY_TIMEOUT_MS,
       file.python?.timeoutMs ?? 30000,
       { integer: true, max: 600_000 },
     ),
+    /** 同時に起動する生成器の上限。 */
+    maxConcurrency: envPositiveNumber(
+      'GENERATE_MAX_CONCURRENCY',
+      process.env.GENERATE_MAX_CONCURRENCY,
+      2,
+      { integer: true, max: 16 },
+    ),
+    /** 生成の待ち行列の上限。超えた要求は待たせずに 503 で返す(`generate/pyTemplate.ts`)。 */
+    maxQueue: envPositiveNumber('GENERATE_MAX_QUEUE', process.env.GENERATE_MAX_QUEUE, 8, {
+      integer: true,
+      max: 256,
+    }),
   },
 
   /** vivliostyle の PDF 生成に使う一時ディレクトリ。 */
