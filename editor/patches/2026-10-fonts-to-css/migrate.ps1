@@ -12,6 +12,10 @@
        drafts\*.css・pending\*.css・reviews\<id>\body.css)
     4. appconfig の paths.assetsDir を paths.jsDir(<旧 assetsDir>\js)へ書き換える
     5. 確定領域の変更(css/*.css と .gitignore)を system 名義で 1 コミットする
+  作業コピー(drafts / pending / reviews)の CSS は git 管理外なので、書き換え前に
+  <dataRoot>\.fonts-to-css-backup-<yyyyMMdd>\ へ退避する(rollback.ps1 がここから戻す)。
+  置き場(dataRoot・drafts・pending・reviews・css・旧 assets)はサーバと同じ順(環境変数 →
+  appconfig → dataRoot 配下の既定)で決め、出典を表示する。
   templates / filled の HTML 内の fonts/ 参照と、url(css/…) を持つ CSS は報告だけする。
   サーバ稼働中、または dataRoot の git に未コミットの変更があるときは中止する。
 
@@ -53,41 +57,67 @@ function Resolve-EditorPath([string]$p) {
 
 function Invoke-Git {
   # git は LF→CRLF 変換などの警告を stderr へ出す。$ErrorActionPreference = 'Stop' のままだと
-  # PowerShell 5.1 がそれを例外にするので、stderr は捨てて終了コードだけで失敗を判定する。
+  # PowerShell 5.1 がそれを例外にするので、stderr は自前で受けて終了コードで失敗を判定する。
+  # 成功時の警告は捨て、失敗時だけ原因として例外メッセージへ載せる。
   $ErrorActionPreference = 'Continue'
-  $out = & git -C $DataRoot @args 2>$null
-  if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') が失敗しました(終了コード $LASTEXITCODE)。" }
-  return $out
+  $all = @(& git -C $DataRoot @args 2>&1)
+  if ($LASTEXITCODE -ne 0) {
+    $err = ($all | Where-Object { $_ -is [Management.Automation.ErrorRecord] } | ForEach-Object { $_.ToString() }) -join "`n"
+    throw "git $($args -join ' ') が失敗しました(終了コード $LASTEXITCODE)。`n$err"
+  }
+  return @($all | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] })
 }
 
-# ── 1. 置き場の解決(init-data-repo.ps1 と同じ規則 + 個別の上書き設定) ──
-$source = '-DataRoot 引数'
-if (-not $DataRoot) {
-  $DataRoot = $env:DATA_ROOT; $source = '環境変数 DATA_ROOT'
-  if (-not $DataRoot) {
-    $DataRoot = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User'); $source = 'ユーザー環境変数 DATA_ROOT'
-  }
-  if ($DataRoot) { $DataRoot = Resolve-EditorPath $DataRoot }
-  else { $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data'; $source = '既定' }
-}
+# ── 1. 置き場の解決(サーバの config.ts と同じ順: 環境変数 → appconfig → 既定) ──
 $appConfigPath = if ($env:APP_CONFIG) { $env:APP_CONFIG } else { Join-Path $editorDir 'appconfig.json' }
 $appConfig = $null
 if (Test-Path -LiteralPath $appConfigPath) {
   $appConfig = Get-Content -Raw -Encoding UTF8 -LiteralPath $appConfigPath | ConvertFrom-Json
 }
 $cfgPaths = if ($appConfig -and $appConfig.paths) { $appConfig.paths } else { $null }
-$cssDir = if ($env:CSS_DIR) { Resolve-EditorPath $env:CSS_DIR }
-  elseif ($cfgPaths -and $cfgPaths.cssDir) { Resolve-EditorPath $cfgPaths.cssDir }
-  else { Join-Path $DataRoot 'css' }
-$assetsDir = if ($env:ASSETS_DIR) { Resolve-EditorPath $env:ASSETS_DIR }
-  elseif ($cfgPaths -and $cfgPaths.assetsDir) { Resolve-EditorPath $cfgPaths.assetsDir }
-  else { Join-Path $DataRoot 'assets' }
+
+function Get-CfgPath([string]$key) {
+  if ($cfgPaths -and $cfgPaths.PSObject.Properties[$key] -and $cfgPaths.$key) { return [string]$cfgPaths.$key }
+  return $null
+}
+
+# -DataRoot 引数が最優先。なければ DATA_ROOT(プロセス → ユーザー)→ appconfig の paths.dataRoot
+# → 既定(サーバの既定と同じ editor の 2 つ上の editor-data)。
+$source = '-DataRoot 引数'
+if (-not $DataRoot) {
+  $DataRoot = $env:DATA_ROOT; $source = '環境変数 DATA_ROOT'
+  if (-not $DataRoot) {
+    $DataRoot = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User'); $source = 'ユーザー環境変数 DATA_ROOT'
+  }
+  if (-not $DataRoot) { $DataRoot = Get-CfgPath 'dataRoot'; $source = 'appconfig の paths.dataRoot' }
+  if ($DataRoot) { $DataRoot = Resolve-EditorPath $DataRoot }
+  else { $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data'; $source = '既定' }
+}
+
+# dataRoot 配下の置き場は 環境変数 → appconfig → <dataRoot>\<sub> の順で決め、出典を返す。
+function Resolve-Place([string]$envName, [string]$key, [string]$sub) {
+  $e = [Environment]::GetEnvironmentVariable($envName)
+  if ($e) { return @{ Path = (Resolve-EditorPath $e); Source = "環境変数 $envName" } }
+  $c = Get-CfgPath $key
+  if ($c) { return @{ Path = (Resolve-EditorPath $c); Source = "appconfig の paths.$key" } }
+  return @{ Path = (Join-Path $DataRoot $sub); Source = "既定(dataRoot\$sub)" }
+}
+$cssPlace = Resolve-Place 'CSS_DIR' 'cssDir' 'css'
+$assetsPlace = Resolve-Place 'ASSETS_DIR' 'assetsDir' 'assets'
+$draftsPlace = Resolve-Place 'DRAFTS_DIR' 'draftsDir' 'drafts'
+$pendingPlace = Resolve-Place 'PENDING_DIR' 'pendingDir' 'pending'
+$reviewsPlace = Resolve-Place 'REVIEWS_DIR' 'reviewsDir' 'reviews'
+$cssDir = $cssPlace.Path
+$assetsDir = $assetsPlace.Path
 $jsDir = Join-Path $DataRoot 'js'
 
 Write-Host "dataRoot : $DataRoot ($source)"
-Write-Host "cssDir   : $cssDir"
-Write-Host "旧 assets: $assetsDir"
+Write-Host "cssDir   : $cssDir ($($cssPlace.Source))"
+Write-Host "旧 assets: $assetsDir ($($assetsPlace.Source))"
 Write-Host "jsDir    : $jsDir"
+Write-Host "drafts   : $($draftsPlace.Path) ($($draftsPlace.Source))"
+Write-Host "pending  : $($pendingPlace.Path) ($($pendingPlace.Source))"
+Write-Host "reviews  : $($reviewsPlace.Path) ($($reviewsPlace.Source))"
 Write-Host ("モード   : " + $(if ($Apply) { '適用(-Apply)' } else { '確認(何も変えません)' }))
 Write-Host ''
 
@@ -103,7 +133,12 @@ if (-not (Test-Path -LiteralPath (Join-Path $DataRoot '.git'))) { throw "$DataRo
 # 見るのは確定領域(承認コミットの対象)だけ。js\ や assets.migrated-* のような追跡外の
 # フォルダまで見ると、移行後の再実行が「未コミットの変更あり」で止まってしまう。
 $dirty = Invoke-Git status --porcelain -- .gitignore .gitattributes templates filled css sync
-if ($dirty) { throw "dataRoot の git に未コミットの変更があります。先にコミットまたは破棄してください:`n$dirty" }
+if ($dirty) {
+  throw ("dataRoot の git に未コミットの変更があります。先にコミットまたは破棄してください。`n" +
+    "前回の移行が途中で止まった可能性もあります。git -C `"$DataRoot`" diff で確認し、パッチの変更" +
+    "(.gitignore の /css/fonts/ 行と ../fonts/ → fonts/ の書き換え)だけなら、system 名義でコミットして" +
+    "から再実行してください:`n$($dirty -join "`n")")
+}
 
 # ── 3. 計画 ──
 function Get-FileHashHex([string]$p) { (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash }
@@ -126,13 +161,17 @@ foreach ($pair in @(@{ From = (Join-Path $assetsDir 'fonts'); To = (Join-Path $c
 }
 
 $rewriteRe = '(?i)(url\(\s*["'']?)\.\./fonts/'
-$cssTargets = @()
-$cssTargets += Get-ChildItem -LiteralPath $cssDir -Filter '*.css' -File -ErrorAction SilentlyContinue
-foreach ($d in 'drafts', 'pending') {
-  $cssTargets += Get-ChildItem -LiteralPath (Join-Path $DataRoot $d) -Filter '*.css' -File -ErrorAction SilentlyContinue
+$confirmedCss = @(Get-ChildItem -LiteralPath $cssDir -Filter '*.css' -File -ErrorAction SilentlyContinue)
+$workCss = @()
+foreach ($p in $draftsPlace, $pendingPlace) {
+  $workCss += Get-ChildItem -LiteralPath $p.Path -Filter '*.css' -File -ErrorAction SilentlyContinue
 }
-$cssTargets += Get-ChildItem -LiteralPath (Join-Path $DataRoot 'reviews') -Filter 'body.css' -File -Recurse -ErrorAction SilentlyContinue
+$workCss += Get-ChildItem -LiteralPath $reviewsPlace.Path -Filter 'body.css' -File -Recurse -ErrorAction SilentlyContinue
+$cssTargets = @($confirmedCss) + @($workCss)
 $rewrites = @($cssTargets | Where-Object { (Get-Content -Raw -Encoding UTF8 -LiteralPath $_.FullName) -match $rewriteRe })
+# 作業コピーは git 管理外で revert できないので、書き換える前に退避して rollback の復元元にする。
+$workRewrites = @($rewrites | Where-Object { $workCss.FullName -contains $_.FullName })
+$backupRoot = Join-Path $DataRoot ".fonts-to-css-backup-$stamp"
 
 $reportHtml = @()
 foreach ($d in 'templates', 'filled') {
@@ -151,6 +190,7 @@ Write-Host "コピーするファイル: $($moves.Count) 件"
 $moves | ForEach-Object { Write-Host "  $($_.From) -> $($_.To)" }
 Write-Host "../fonts/ を書き換える CSS: $($rewrites.Count) 件"
 $rewrites | ForEach-Object { Write-Host "  $($_.FullName)" }
+if ($workRewrites.Count -gt 0) { Write-Host "うち作業コピー $($workRewrites.Count) 件は書き換え前に $backupRoot へ退避します。" }
 Write-Host ".gitignore に /css/fonts/ を追記: $needsIgnore"
 Write-Host "appconfig の paths.assetsDir を paths.jsDir へ: $needsConfig"
 if ($env:ASSETS_DIR) { Write-Host "※ 環境変数 ASSETS_DIR が設定されています。JS_DIR=$jsDir に置き換えてください(パッチは環境変数を変えません)。" }
@@ -177,6 +217,32 @@ foreach ($m in $moves) {
 }
 if ((Test-Path -LiteralPath $assetsDir) -and ($moves.Count -gt 0 -or (Test-Path -LiteralPath (Join-Path $assetsDir 'fonts')) -or (Test-Path -LiteralPath (Join-Path $assetsDir 'js')))) {
   Rename-Item -LiteralPath $assetsDir -NewName ("{0}.migrated-{1}" -f (Split-Path -Leaf $assetsDir), $stamp)
+}
+if ($workRewrites.Count -gt 0) {
+  # マニフェストは「退避先の相対パス<TAB>元の絶対パス」。dataRoot の外にある置き場は _external 配下へ
+  # 置く(ドライブのコロンは除く)。既存の退避は上書きしない(最初の状態を残すため)。
+  New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
+  $manifestPath = Join-Path $backupRoot 'manifest.tsv'
+  $entries = @{}
+  if (Test-Path -LiteralPath $manifestPath) {
+    foreach ($line in [IO.File]::ReadAllLines($manifestPath, $utf8NoBom)) {
+      $parts = $line -split "`t", 2
+      if ($parts.Count -eq 2) { $entries[$parts[0]] = $parts[1] }
+    }
+  }
+  $prefix = $DataRoot.TrimEnd('\') + '\'
+  foreach ($f in $workRewrites) {
+    $full = $f.FullName
+    $rel = if ($full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { $full.Substring($prefix.Length) }
+      else { '_external\' + ($full -replace ':', '' -replace '^\\\\', 'unc\') }
+    $dest = Join-Path $backupRoot $rel
+    if (-not (Test-Path -LiteralPath $dest)) {
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+      Copy-Item -LiteralPath $full -Destination $dest
+    }
+    $entries[$rel] = $full
+  }
+  [IO.File]::WriteAllLines($manifestPath, [string[]]@($entries.Keys | Sort-Object | ForEach-Object { "$_`t$($entries[$_])" }), $utf8NoBom)
 }
 foreach ($f in $rewrites) {
   $text = [IO.File]::ReadAllText($f.FullName)
