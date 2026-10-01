@@ -45,7 +45,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
-import { resolveServedAssetSource } from './docAssets.js';
+import { isFundImagePath, resolveServedAssetSource } from './docAssets.js';
 
 /**
  * この経路**だけ**に効かせる CSP。全域 CSP(`config.buildCspDirectives`)は変更しない。
@@ -404,7 +404,7 @@ export async function previewHostRoutes(app: FastifyInstance): Promise<void> {
       .send(await hostPage());
   });
 
-  // ビューアバンドルと同梱資産(`css/`(配下に `css/fonts/`)と `js/`)。パスの解決は
+  // ビューアバンドルと同梱資産(`css/`(配下に `css/fonts/`)と `js/`。`images/` は配らない)。パスの解決は
   // `resolveServedAssetPath`(配信ルート相対への正規化)+ `resolveServedAssetSource`
   // (許可リスト・深さ・シンボリックリンク)の 2 段で、PDF 経路と同じ物差しを使う。
   app.get<{ Params: { '*': string } }>(
@@ -421,6 +421,9 @@ export async function previewHostRoutes(app: FastifyInstance): Promise<void> {
       const rel = resolveServedAssetPath(raw);
       // 存在しない/許可外は 404 本文なしで返す(組版側は 404 を静かに無視する)。
       if (rel === undefined) return reply.code(404).send();
+      // 画像の配信経路は `/api/fund-assets/images/` の 1 本に集める。ここで配ると SVG 検査を
+      // 通らない経路ができる(子の画像は親が文書へ埋めるので、子がここへ取りに来る必要も無い)。
+      if (isFundImagePath(rel)) return reply.code(404).send();
       const source = await resolveServedAssetSource(rel);
       if (source === undefined) return reply.code(404).send();
       return reply

@@ -20,6 +20,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-preview-host-'));
 process.env.DATA_ROOT = tmp;
 process.env.JS_DIR = path.join(tmp, 'js');
 process.env.CSS_DIR = path.join(tmp, 'css');
+process.env.IMAGES_DIR = path.join(tmp, 'images');
 process.env.AUTH_REQUIRED = 'false';
 
 let app: FastifyInstance;
@@ -30,6 +31,12 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(tmp, 'js'), { recursive: true });
   fs.mkdirSync(path.join(tmp, 'css', 'fonts'), { recursive: true });
   fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, 'images'), { recursive: true });
+  fs.writeFileSync(
+    path.join(tmp, 'images', '510037_logo.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>',
+    'utf8',
+  );
   fs.writeFileSync(path.join(tmp, 'js', 'app.js'), 'window.FIT=1;', 'utf8');
   // 許可外拡張子。同じ置き場でも配ってはならない。
   fs.writeFileSync(path.join(tmp, 'js', 'secret.env'), 'TOKEN=zz', 'utf8');
@@ -132,6 +139,17 @@ describe('GET /api/preview-host/* — 同梱資産の配信', () => {
       expect([404, 400], `${url} → ${res.statusCode}`).toContain(res.statusCode);
       expect(res.body, `${url} が本文を返した`).not.toContain('LEAK');
       expect(res.body, `${url} が本文を返した`).not.toContain('TOKEN=');
+    }
+  });
+
+  it('images/ は配らない(画像の配信経路は /api/fund-assets/images/ の 1 本)', async () => {
+    for (const url of [
+      '/api/preview-host/images/510037_logo.svg',
+      '/api/preview-host/Images/510037_logo.svg',
+    ]) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode, url).toBe(404);
+      expect(res.body).not.toContain('<svg');
     }
   });
 });

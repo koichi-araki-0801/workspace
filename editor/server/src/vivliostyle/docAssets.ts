@@ -1,5 +1,5 @@
 // =============================================================================
-// docAssets.ts — 同梱資産(css / fonts / js)を PDF・プレビューの配信ルートへ配置する
+// docAssets.ts — 同梱資産(css / fonts / js / images)を PDF・プレビューの配信ルートへ配置する
 // =============================================================================
 // テンプレは `href="css/{{ fund.code }}.css"` のように、CSS・フォント・JS を**相対パス**で
 // 参照する。参照先の実体は `editor-data` にあるが、`@vivliostyle/cli` が配信するのは
@@ -12,19 +12,21 @@
 // ── 何を写すかは許可リストで決める ──
 // `dataRoot` は git 管理下の作業ディレクトリで、テンプレ実体・承認申請・同期状態も同居する。
 // ディレクトリを丸ごと写すと、それらが headless ブラウザから読める配信ルートへ載る。
-// よって写すのは「決められた 3 つの置き場」×「決められた拡張子」だけとする。
+// よって写すのは「決められた 4 つの置き場」×「決められた拡張子」だけとする。
 //
 // ── 置き場(利用者決定・変更しないこと) ──
 //   css       = `config.cssDir`        (per-fund。`<fund>.css`。直下の `fonts/` は下の別グループ)
 //   css/fonts = `config.cssDir/fonts`  (全ファンド共通のフォント。CSS から `url(fonts/…)`)
 //   js        = `config.jsDir`         (全ファンド共通のテンプレ JS)
-// 配信ルートでの名前は `css/` `css/fonts/` `js/` に固定する(テンプレ側の相対参照と対)。
+//   images    = `config.imagesDir`     (ファンド別画像。直下だけ。SVG は置く前に `inspectSvg`)
+// 配信ルートでの名前は `css/` `css/fonts/` `js/` `images/` に固定する(テンプレ側の相対参照と対)。
 
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { collectCssUrlCandidates } from '@editor/shared';
+import { collectCssUrlCandidates, inspectSvg } from '@editor/shared';
 import { config, envPositiveNumber } from '../config.js';
+import { logger } from '../logger.js';
 import { MAX_ASSET_REF_DEPTH, resolveRefFrom } from './docRefs.js';
 
 /** 配信ルートに作るサブディレクトリと、その中身として許す拡張子(小文字・末尾一致)。 */
@@ -40,7 +42,27 @@ interface AssetGroup {
    * 片方の判定だけが配る食い違いが生まれる。
    */
   readonly skipTopDirs?: ReadonlySet<string>;
+  /**
+   * 置き場から降りる深さの上限(0 = 直下のファイルだけ)。走査(`collectGroup`)と 1 本配る解決
+   * (`resolveServedAssetSource`)が同じ値を見る — 片方だけ深く見ると、配置されないのに単体配信
+   * される形の食い違いが生まれる。
+   */
+  readonly maxDepth: number;
 }
+
+/**
+ * 資産ツリーを降りる深さの上限。`css/fonts/noto/JP/x.woff2` 程度を想定した値で、
+ * シンボリックリンクの輪や異常に深いツリーで走査が止まらなくなるのを防ぐ。
+ */
+const MAX_ASSET_DEPTH = 4;
+
+const FONT_EXTENSIONS: ReadonlySet<string> = new Set(['.ttf', '.otf', '.woff', '.woff2']);
+
+/** ファンド別画像として配る拡張子。web の `lib/fundImages.ts` の MIME 表と揃える。 */
+const FUND_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(['.svg', '.png', '.jpg', '.jpeg']);
+
+/** 配信ルートでのファンド別画像の置き場(テンプレの相対参照 `images/…` の先頭)。 */
+export const FUND_IMAGES_MOUNT = 'images';
 
 /**
  * 配信してよい資産の全体。**ここに無いものは配信ルートへ出ない。**
@@ -60,26 +82,42 @@ interface AssetGroup {
  * `.map`(sourcemap)は入れない。組版に不要で、開発者の作業ツリーの構造を配信ルートへ
  * 持ち出すだけになる。
  */
-const FONT_EXTENSIONS: ReadonlySet<string> = new Set(['.ttf', '.otf', '.woff', '.woff2']);
-
 const ASSET_GROUPS: readonly AssetGroup[] = [
   {
     mount: 'css/fonts',
     sourceDir: () => path.join(config.cssDir, 'fonts'),
     extensions: FONT_EXTENSIONS,
+    maxDepth: MAX_ASSET_DEPTH,
   },
   {
     mount: 'css',
     sourceDir: () => config.cssDir,
     extensions: new Set(['.css']),
     skipTopDirs: new Set(['fonts']),
+    maxDepth: MAX_ASSET_DEPTH,
   },
   {
     mount: 'js',
     sourceDir: () => config.jsDir,
     extensions: new Set(['.js', '.mjs']),
+    maxDepth: MAX_ASSET_DEPTH,
+  },
+  {
+    mount: FUND_IMAGES_MOUNT,
+    sourceDir: () => config.imagesDir,
+    extensions: FUND_IMAGE_EXTENSIONS,
+    // 直下だけ。ファンドの区別は命名の約束(`<fund>_<名前>`)で持ち、サブフォルダは作らない契約。
+    maxDepth: 0,
   },
 ];
+
+/**
+ * 配信ルート相対パスがファンド別画像の置き場を指すか。大小文字を問わないのは、Windows の
+ * 置き場では `Images/x.svg` も同じ実体に届くため(配信面を絞る側の判定は広く取る)。
+ */
+export function isFundImagePath(rel: string): boolean {
+  return rel.split('/')[0].toLowerCase() === FUND_IMAGES_MOUNT;
+}
 
 /**
  * 配信ルート相対パスを持つグループを引く。`css/fonts/x` が `css` に当たらないよう、
@@ -100,12 +138,6 @@ function groupFor(rel: string): { group: AssetGroup; rest: string[] } | undefine
   }
   return undefined;
 }
-
-/**
- * 資産ツリーを降りる深さの上限。`css/fonts/noto/JP/x.woff2` 程度を想定した値で、
- * シンボリックリンクの輪や異常に深いツリーで走査が止まらなくなるのを防ぐ。
- */
-const MAX_ASSET_DEPTH = 4;
 
 /** 配置する資産の総ファイル数の上限(超えたら以降を無視する)。 */
 const MAX_ASSET_FILES = envPositiveNumber(
@@ -143,7 +175,7 @@ async function collectGroup(group: AssetGroup): Promise<AssetFile[]> {
   const root = group.sourceDir();
   const out: AssetFile[] = [];
   const walk = async (dir: string, relPrefix: string, depth: number): Promise<void> => {
-    if (depth > MAX_ASSET_DEPTH) return;
+    if (depth > group.maxDepth) return;
     let entries: Dirent[] = [];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
@@ -190,8 +222,10 @@ export async function resolveServedAssetSource(rel: string): Promise<string | un
   const hit = groupFor(rel);
   if (hit === undefined) return undefined;
   const { group, rest } = hit;
-  if (rest.length > MAX_ASSET_DEPTH + 1) return undefined;
-  if (rest.some((s) => s === '' || s === '.' || s === '..')) return undefined;
+  if (rest.length > group.maxDepth + 1) return undefined;
+  // `\` と NUL は Windows で 1 セグメントのまま下の階層へ降りる / 名前を切るので、先に落とす。
+  if (rest.some((s) => s === '' || s === '.' || s === '..' || s.includes('\\') || s.includes('\0')))
+    return undefined;
   if (!group.extensions.has(path.extname(rest[rest.length - 1]).toLowerCase())) return undefined;
   let current = group.sourceDir();
   for (const [i, seg] of rest.entries()) {
@@ -256,6 +290,26 @@ async function expandReferenced(
 }
 
 /**
+ * SVG を読んで検査し、合格ならそのバイト列を返す。違反・読めないときは `undefined`。
+ * 呼び出し側は**このバイト列を書く**(検査後に読み直すと、その間の差し替えを検査せずに通す)。
+ */
+async function readInspectedSvg(file: AssetFile): Promise<Buffer | undefined> {
+  let body: Buffer;
+  try {
+    body = await fs.readFile(file.source);
+  } catch {
+    return undefined;
+  }
+  const violations = inspectSvg(body.toString('utf8'));
+  if (violations.length === 0) return body;
+  logger.warn(
+    { type: 'asset.svg_rejected', file: file.rel, violations },
+    'SVG の検査に違反したため配信ルートへ置きません(この画像は表示されません)',
+  );
+  return undefined;
+}
+
+/**
  * 同梱資産を配信ルート `destDir` へ配置し、**実際に置いた配信ルート相対パスの集合**を返す。
  *
  * 戻り値は `inlineCss` が `<link href>` / `<script src>` を残すかどうかの判断に使う。
@@ -284,12 +338,21 @@ export async function stageDocAssets(
   let bytes = 0;
   for (const file of wanted) {
     if (files >= MAX_ASSET_FILES || bytes + file.bytes > MAX_ASSET_BYTES) return served;
+    // SVG は参照されたものだけをここで検査する(目録づくりの段では読まない = 全画像を毎回
+    // 読まない)。違反は置かない。`served` に入らないので `<link>` / `<script>` の参照は
+    // `inlineCss` が落とすが、`<img>` / `url()` は残って 404 になり、表示されない。
+    let body: Buffer | undefined;
+    if (path.extname(file.rel).toLowerCase() === '.svg') {
+      body = await readInspectedSvg(file);
+      if (body === undefined) continue;
+    }
     const dest = path.join(destDir, ...file.rel.split('/'));
     await fs.mkdir(path.dirname(dest), { recursive: true });
     try {
-      // `COPYFILE_EXCL` = 既存があれば失敗。配信ルートに先着の実体があればそちらを残す
+      // `COPYFILE_EXCL` / `wx` = 既存があれば失敗。配信ルートに先着の実体があればそちらを残す
       // (zip 展開物のように既に同名がある配信ルートを我々の資産で上書きしない)。
-      await fs.copyFile(file.source, dest, fs.constants.COPYFILE_EXCL);
+      if (body === undefined) await fs.copyFile(file.source, dest, fs.constants.COPYFILE_EXCL);
+      else await fs.writeFile(dest, body, { flag: 'wx' });
     } catch {
       // 失敗の原因が「先着があった」なのか「読めなかった」なのかを、例外の種類ではなく
       // **配信ルートの実体**で判定する。集合に載せてよいのは実体が在るときだけ —

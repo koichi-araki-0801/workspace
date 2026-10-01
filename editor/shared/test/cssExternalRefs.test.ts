@@ -8,7 +8,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectCssUrlCandidates,
+  collectCssUrlSpansInContext,
   findExternalRefsInCss,
+  isAllowedDataUrl,
   isSelfContainedUrl,
 } from '../src/security/cssExternalRefs.js';
 
@@ -80,5 +82,50 @@ describe('バックスラッシュで書いた scheme 相対 URL', () => {
     expect(isSelfContainedUrl('fonts/BIZUDPGothic.woff2')).toBe(true);
     expect(isSelfContainedUrl('./css/510037.css')).toBe(true);
     expect(isSelfContainedUrl('#clip1')).toBe(true);
+  });
+});
+
+describe('isAllowedDataUrl', () => {
+  it('許可リストの data: URI だけを真にする(SVG は入れない)', () => {
+    expect(isAllowedDataUrl('data:image/png;base64,AAAA')).toBe(true);
+    expect(isAllowedDataUrl(' DATA:image/JPEG;base64,AAAA')).toBe(true);
+    expect(isAllowedDataUrl('data:image/svg+xml,%3Csvg%3E')).toBe(false);
+    expect(isAllowedDataUrl('data:text/html,x')).toBe(false);
+    expect(isAllowedDataUrl('https://example.com/x.png')).toBe(false);
+  });
+
+  it('isSelfContainedUrl の data: 判定と一致する', () => {
+    for (const url of [
+      'data:image/png;base64,A',
+      'data:image/svg+xml,x',
+      'data:font/woff2;base64,A',
+    ]) {
+      expect(isSelfContainedUrl(url)).toBe(isAllowedDataUrl(url));
+    }
+  });
+});
+
+// ── @font-face の src 判定は宣言ごとに 1 回(url() ごとに頭から見直さない)──
+describe('collectCssUrlSpansInContext は入力サイズに対して線形', () => {
+  const build = (n: number): string => `@font-face{${' '.repeat(10 * n)}x:${'url(#a)'.repeat(n)}}`;
+  const timed = (n: number): number => {
+    const css = build(n);
+    const t0 = performance.now();
+    const spans = collectCssUrlSpansInContext(css);
+    const ms = performance.now() - t0;
+    expect(spans).toHaveLength(n);
+    expect(spans.every((x) => !x.inFontFaceSrc)).toBe(true);
+    return ms;
+  };
+
+  it('長い空白の後に x: と url() を大量に並べても終わる(約 1MB)', () => {
+    expect(timed(60_000)).toBeLessThan(2000);
+  });
+
+  it('src 宣言は従来どおり判定する', () => {
+    const [a, b] = collectCssUrlSpansInContext('@font-face{ src:url(#a),url(#b);x:url(#c)}');
+    expect([a?.inFontFaceSrc, b?.inFontFaceSrc]).toEqual([true, true]);
+    const spans = collectCssUrlSpansInContext('@font-face{src:url(#a);x:url(#c)}');
+    expect(spans.map((x) => x.inFontFaceSrc)).toEqual([true, false]);
   });
 });

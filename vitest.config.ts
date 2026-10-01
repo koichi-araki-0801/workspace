@@ -47,6 +47,7 @@ export default defineConfig({
         'editor/shared/src/security/htmlExternalRefs.ts',
         'editor/shared/src/security/htmlEntities.ts',
         'editor/shared/src/security/cssRebase.ts',
+        'editor/shared/src/security/svgInspect.ts',
         // editor/server (vivliostyle は pure layer のみ。build.ts 等は browser+socket 依存で対象外)
         'editor/server/src/auth/password.ts',
         'editor/server/src/auth/loginRateLimit.ts',
@@ -83,6 +84,7 @@ export default defineConfig({
         'editor/server/src/vivliostyle/docRefs.ts',
         'editor/server/src/vivliostyle/egressGuard.ts',
         'editor/server/src/git/gitRepo.ts',
+        'editor/server/src/git/committedAreas.ts',
         'editor/server/src/openapi/docsRoutes.ts',
         'editor/server/src/vivliostyle/previewProxy.ts',
         'editor/server/src/generate/pyTemplate.ts',
@@ -141,6 +143,7 @@ export default defineConfig({
         'editor/web/src/lib/sanitizeHtml.ts',
         // プレビュー文書の自己完結化(子の要求ゼロ化)と postMessage クライアント。
         'editor/web/src/lib/previewSelfContain.ts',
+        'editor/web/src/lib/fundImages.ts',
         'editor/web/src/features/preview/PreviewPanel.vue',
         // Jinja コンパイルを opaque オリジンへ追い出す親側クライアント。
         // 発信元検証・保留・id 対応付けのどれが欠けても隔離が骨抜きになるため対象へ入れる。
@@ -159,6 +162,9 @@ export default defineConfig({
         // 作ってしまうと自動 discard を招く回帰(実績あり)の再発防止網。
         'editor/web/src/features/editor/confirmedCanonicalGate.ts',
         'editor/web/src/features/editor/pageView.ts',
+        // 編集画面のファンド別画像。属性を書き換えず CSS で差す設計の純粋部分と GrapesJS 配線。
+        'editor/web/src/features/editor/fundImages.ts',
+        'editor/web/src/features/editor/fundImageLayer.ts',
         'editor/web/src/features/editor/useSnapshotHistory.ts',
         'editor/web/src/features/editor/usePartEditHistory.ts',
         'editor/web/src/features/editor/useComments.ts',

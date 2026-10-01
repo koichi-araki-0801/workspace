@@ -21,6 +21,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { isGitObjectId, validation } from '@editor/shared';
 import { config, envPositiveNumber } from '../config.js';
+import { COMMITTED_AREAS } from './committedAreas.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -213,7 +214,17 @@ async function ensureGitignore(): Promise<void> {
   // 承認メッセージを着せられた「承認済みの内容」として履歴に残る。
   // `/css/fonts/` は手で置く全ファンド共通のフォント(和文 1 本 5〜20MB)。追跡すると承認
   // コミットの `git add -A -- css` が、置いた人ではなく次の承認者の名前でフォントを巻き込む。
-  const required = ['/drafts/', '/reviews/', '/pending/', '/notes/', '/css/fonts/', '*.tmp-*'];
+  // `/images/` は別ツールが置くファンド別画像。エディタは読むだけで版を記録しない(過去版の
+  // 表示も現在の画像を使う)。追跡すると次の承認者の名前で画像が承認コミットへ混ざる。
+  const required = [
+    '/drafts/',
+    '/reviews/',
+    '/pending/',
+    '/notes/',
+    '/css/fonts/',
+    '/images/',
+    '*.tmp-*',
+  ];
   const existing = await fs.readFile(file, 'utf8').catch(() => '');
   const lines = existing.split('\n').map((l) => l.trim());
   const missing = required.filter((r) => !lines.includes(r));
@@ -280,7 +291,7 @@ export async function ensureRepo(): Promise<void> {
  * 許可リストで書く。ここに無いディレクトリは、`.gitignore` へ書き忘れても混ざらない。
  * `.gitignore` 側の必須リストは多層防御として残す(`ensureGitignore`)。
  */
-const COMMITTED_PATHSPECS = ['templates', 'filled', 'css', 'sync', '.gitignore', '.gitattributes'];
+const COMMITTED_PATHSPECS = [...COMMITTED_AREAS, '.gitignore', '.gitattributes'];
 
 /**
  * 許可リストの領域だけを stage する。存在しない pathspec を渡すと git は

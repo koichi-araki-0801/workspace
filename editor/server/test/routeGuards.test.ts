@@ -83,6 +83,7 @@ beforeAll(async () => {
     '../src/routes/history.routes.js',
     '../src/routes/notes.routes.js',
     '../src/routes/users.routes.js',
+    '../src/routes/fundAssets.routes.js',
     // プレビューの隔離ビューア。routes/ の外(vivliostyle/)に居るが `/api` 配下の
     // ルートを生やすので、表の網羅検査から漏らさない。
     '../src/vivliostyle/previewHost.js',

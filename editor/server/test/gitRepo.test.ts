@@ -156,6 +156,21 @@ d('gitRepo', () => {
 
     expect(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8')).toContain('/notes/');
     expect(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8')).toContain('/css/fonts/');
+    expect(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8').split(/\r?\n/)).toContain(
+      '/images/',
+    );
+  });
+
+  it('commitAll は images/ を巻き込まない', async () => {
+    fs.mkdirSync(path.join(tmp, 'images'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'images', '510037_logo.svg'), '<svg/>', 'utf8');
+    const rel = 'templates/AM01_999999_20250107_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>images 除外</p>', 'utf8');
+
+    const hash = await git.commitAll('確定保存: images 除外', { name: 'tester' });
+    const files = await git.commitFiles(hash);
+    expect(files).toContain(rel);
+    expect(files.some((f) => f.startsWith('images/'))).toBe(false);
   });
 
   it('commitAll は許可リスト外のディレクトリを追跡下へ入れない', async () => {

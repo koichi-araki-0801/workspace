@@ -12,6 +12,11 @@
 // 埋め込む。`SameSite=None` は Secure 必須で平文 LAN 運用と衝突し、資産経路の認証撤廃は
 // per-fund CSS・テンプレ JS の未認証露出になるため、どちらも採らない(設計正典)。
 //
+// ファンド別画像(`<img src="images/…">` と `<style>` 内の `url(images/…)`)も同じ理由で埋める。
+// 取得先は単体配信ルート `/api/fund-assets/images/:file`(SVG 検査と認証を通る唯一の経路)で、
+// プレビューホストは `images/` を配らない。`data:image/svg+xml` は**ここが作るときだけ**使い、
+// 共有の data: 許可リストには足さない(テンプレの著者が未検査の SVG を直接書ける経路を開かない)。
+//
 // ── 加工の作法 ──
 // 「探す・切る」は必ず **DOM の上**で行う(`sanitizeHtml.ts` 冒頭の不変則)。入力は
 // `assemblePreviewDocument` が組んだサニタイズ済み文書だが、ここで再度
@@ -21,6 +26,7 @@
 // `vivliostyle/inlineDocScripts.ts` と同一(`resolveServedAssetPath` 1 本 + `<!--` 拒否 +
 // サイズ上限 + 属性許可リスト)。片方だけ直すと PDF とプレビューで挙動が割れる。
 import { collectCssUrlSpans, PREVIEW_HOST_BASE, resolveServedAssetPath } from '@editor/shared';
+import { fundImageFileOf, fundImageMime, fundImageUrl } from './fundImages';
 import { sanitizeStyleContent } from './sanitizeCss';
 import { sanitizePreviewRoot, serializePreviewRoot } from './sanitizeHtml';
 
@@ -42,6 +48,9 @@ const MAX_INLINE_SCRIPT_BYTES = 2 * 1024 * 1024;
 /** data: URI 化する 1 フォントのサイズ上限(base64 で +33% 膨れるぶんを含めた安全域)。 */
 const MAX_INLINE_FONT_BYTES = 8 * 1024 * 1024;
 
+/** data: URI 化する 1 画像のサイズ上限(フォントと同じ考え方。超えたものは埋めない)。 */
+const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
+
 /** `</script` の無害化(サーバ `inlineDocScripts.ts` の `SCRIPT_CLOSE_RE` と同一)。 */
 const SCRIPT_CLOSE_RE = /<\/(?=script)/gi;
 
@@ -61,11 +70,13 @@ const FONT_MIME: Readonly<Record<string, string>> = {
 // セッション中の失効を考えなくてよい。
 const scriptCache = new Map<string, Promise<string | undefined>>();
 const fontCache = new Map<string, Promise<string | undefined>>();
+const imageCache = new Map<string, Promise<string | undefined>>();
 
 /** テスト用: キャッシュを空にする(実運用コードから呼ばない)。 */
 export function resetSelfContainCache(): void {
   scriptCache.clear();
   fontCache.clear();
+  imageCache.clear();
 }
 
 async function fetchScriptBody(rel: string, fetcher: AssetFetcher): Promise<string | undefined> {
@@ -122,6 +133,40 @@ async function fetchFontDataUri(rel: string, fetcher: AssetFetcher): Promise<str
 }
 
 /**
+ * images 直下の 1 ファイルを data: URI にする。key はファイル名。キャッシュはページの寿命で、
+ * 外部ツールが画像を差し替えたときの反映はブラウザの再読み込みに任せる(運用手順書)。
+ */
+async function fetchImageDataUri(file: string, fetcher: AssetFetcher): Promise<string | undefined> {
+  const cached = imageCache.get(file);
+  if (cached !== undefined) return cached;
+  const p = (async () => {
+    const mime = fundImageMime(file);
+    if (mime === undefined) return undefined;
+    try {
+      const res = await fetcher(fundImageUrl(file));
+      if (!res.ok) return undefined;
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength > MAX_INLINE_IMAGE_BYTES) return undefined;
+      return `data:${mime};base64,${toBase64(buf)}`;
+    } catch {
+      return undefined;
+    }
+  })();
+  imageCache.set(file, p);
+  return p;
+}
+
+/** `<img src="images/…">` を data: URI へ置き換える。埋められないものは原文のまま残す。 */
+async function inlineImages(root: Element, fetcher: AssetFetcher): Promise<void> {
+  for (const img of Array.from(root.querySelectorAll('img[src]'))) {
+    const file = fundImageFileOf(img.getAttribute('src') ?? '');
+    if (file === undefined) continue;
+    const dataUri = await fetchImageDataUri(file, fetcher);
+    if (dataUri !== undefined) img.setAttribute('src', dataUri);
+  }
+}
+
+/**
  * `<script src>` をインライン `<script>` へ展開する。対象はサーバ `rebuildOpenTag` と同じ
  * 「`src` と許可された `type` だけを持つ script」のみで、それ以外(未知属性・データブロック
  * `type`)は原文のまま残す。`src` 付き script の中身は HTML 仕様上実行されないので捨ててよい。
@@ -150,14 +195,14 @@ async function inlineScripts(root: Element, fetcher: AssetFetcher): Promise<void
 }
 
 /**
- * `<style>` 内の `url(css/fonts/…)` を data: URI へ置き換える。
+ * `<style>` 内の `url(css/fonts/…)` と `url(images/…)` を data: URI へ置き換える。
  *
  * 相対 URL の置換は認証対策であると同時に忠実度の問題でもある: 子の文書は blob URL
  * (非階層)で、inline CSS の相対参照はそもそも解決できない。置換範囲は shared の
  * `collectCssUrlSpans`(検査・staging と同一トークナイザ)が返す `url(…)` 式全体で、
  * 正規表現での再探索はしない。
  */
-async function inlineFonts(root: Element, fetcher: AssetFetcher): Promise<void> {
+async function inlineStyleAssets(root: Element, fetcher: AssetFetcher): Promise<void> {
   for (const style of Array.from(root.querySelectorAll('style'))) {
     const css = style.textContent ?? '';
     if (css === '') continue;
@@ -167,8 +212,14 @@ async function inlineFonts(root: Element, fetcher: AssetFetcher): Promise<void> 
     // 後ろから置換して先行 span のオフセットを保つ。
     for (const span of [...spans].reverse()) {
       const rel = resolveServedAssetPath(span.value);
-      if (rel === undefined || !rel.startsWith('css/fonts/')) continue;
-      const dataUri = await fetchFontDataUri(rel, fetcher);
+      if (rel === undefined) continue;
+      let dataUri: string | undefined;
+      if (rel.startsWith('css/fonts/')) {
+        dataUri = await fetchFontDataUri(rel, fetcher);
+      } else {
+        const file = fundImageFileOf(rel);
+        if (file !== undefined) dataUri = await fetchImageDataUri(file, fetcher);
+      }
       if (dataUri === undefined) continue;
       out = `${out.slice(0, span.start)}url(${dataUri})${out.slice(span.end)}`;
       changed = true;
@@ -191,6 +242,7 @@ export async function selfContainPreviewDoc(
   if (doc === '') return doc;
   const root = sanitizePreviewRoot(doc);
   await inlineScripts(root, fetcher);
-  await inlineFonts(root, fetcher);
+  await inlineImages(root, fetcher);
+  await inlineStyleAssets(root, fetcher);
   return serializePreviewRoot(root);
 }

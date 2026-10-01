@@ -1843,6 +1843,67 @@
         }
       }
     },
+    "/fund-assets/images/{file}": {
+      "get": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "ファンド別画像(images/)を 1 つ返す",
+        "operationId": "getFundAssetImage",
+        "description": "`imagesDir` 直下の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。ファイル名は `<fund>_<画像名>.<拡張子>` の約束だが、名前の規則は検査しない。サブフォルダ・`..`・`\\`・Windows の予約名(`CON` など)・許可外の拡張子は 404。SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。応答は `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を持ち、SVG には `Content-Security-Policy: sandbox` を付ける。",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "画像",
+            "content": {
+              "image/svg+xml": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "画像バイナリ"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "画像バイナリ"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "画像バイナリ"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が無い / 配信対象外 / SVG 検査の違反(本文なし)"
+          }
+        }
+      }
+    },
     "/build": {
       "post": {
         "tags": [

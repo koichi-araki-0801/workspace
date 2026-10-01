@@ -1,10 +1,12 @@
 {
-  "//": "vitest typecheck モード(test/schemas.test-d.ts)専用。build 用 tsconfig の include を広げると dist にテストが混入するため別ファイルにする。composite は tsc -b 専用機能なので外す。",
+  "//": "vitest typecheck モード(test/schemas.test-d.ts)専用。test の見本 SVG 読み込み(node:fs)用に node 型だけ server の @types/node から借りる(shared 自体の build には入れない)。build 用 tsconfig の include を広げると dist にテストが混入するため別ファイルにする。composite は tsc -b 専用機能なので外す。",
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "composite": false,
     "noEmit": true,
-    "rootDir": "."
+    "rootDir": ".",
+    "typeRoots": ["../server/node_modules/@types"],
+    "types": ["node"]
   },
   "include": ["src/**/*", "test/**/*"]
 }
