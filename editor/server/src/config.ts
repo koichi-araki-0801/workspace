@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { apiPaths } from '@editor/shared';
 import { z } from 'zod';
+import { COMMITTED_AREAS } from './git/committedAreas.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -54,6 +55,7 @@ const appConfigSchema = z
         // 廃止済み。専用の起動エラーを出すため検出用に残す(消すと .strict() の汎用エラーに退化する)。
         assetsDir: z.string().optional(),
         jsDir: z.string().optional(),
+        imagesDir: z.string().optional(),
         draftsDir: z.string().optional(),
         pendingDir: z.string().optional(),
         reviewsDir: z.string().optional(),
@@ -305,6 +307,16 @@ export const config = {
    * 場所ではなく、写す対象は `docAssets.ts` の拡張子許可リストで絞る。
    */
   jsDir: resolveDataPath(process.env.JS_DIR, file.paths?.jsDir, 'js'),
+  /**
+   * ファンド別画像(`images/<fund>_<名前>.<拡張子>`)の置き場。別ツールが置き、エディタは読んで
+   * 表示するだけ。git 管理外(`.gitignore` の `/images/`)。テンプレ・値入り HTML・ファンド CSS は
+   * `images/…`(CSS からは `../images/…`)の相対パスで参照し、PDF の配信ルートへは
+   * `vivliostyle/docAssets.ts` が参照されたものだけを写す。画面内プレビューと編集画面は
+   * `GET /api/fund-assets/images/:file` から取る。
+   *
+   * ⚠ 確定領域(`git/committedAreas.ts`)の内側は不可(起動時に止める)。
+   */
+  imagesDir: resolveDataPath(process.env.IMAGES_DIR, file.paths?.imagesDir, 'images'),
   /** 自動保存(autosave)ドラフトの作業コピー(template ごとに html/css。git 管理外)。 */
   draftsDir: resolveDataPath(process.env.DRAFTS_DIR, file.paths?.draftsDir, 'drafts'),
   /**
@@ -847,6 +859,30 @@ export function assertNoLegacyAssetsDir(opts: {
 }
 
 /**
+ * `imagesDir` が確定領域(承認コミットが `git add -A -- <領域>` する dataRoot 直下の
+ * ディレクトリ)の内側にないか。内側だと、別ツールが置いた画像が次の承認で承認者の名前の
+ * コミットへ巻き込まれる(`.gitignore` の `/images/` は dataRoot 直下にしか効かない)。
+ */
+export function assertImagesDirOutsideCommittedAreas(opts: {
+  imagesDir: string;
+  gitRepoDir: string;
+  areas?: readonly string[];
+}): void {
+  const target = path.resolve(opts.imagesDir);
+  for (const area of opts.areas ?? COMMITTED_AREAS) {
+    const rel = path.relative(path.resolve(opts.gitRepoDir, area), target);
+    const inside =
+      rel === '' || !(rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel));
+    if (!inside) continue;
+    throw new Error(
+      `[config] imagesDir(${opts.imagesDir})が承認コミットの対象 ${area}/ の内側にあります。` +
+        ' 画像が承認コミットへ巻き込まれるため起動を中止しました。' +
+        ' 環境変数 IMAGES_DIR / appconfig の paths.imagesDir を dataRootimages などへ移してください。',
+    );
+  }
+}
+
+/**
  * 平文での LAN 公開を明示的に許した状態か(`ALLOW_PLAINTEXT_LAN`)。起動バナーへ
  * 警告を出すため export する。恒久設定にすると本修正の意味が消えるので、
  * `start.bat rest lan-plain` から一時的に立てる想定。
@@ -871,6 +907,10 @@ export const allowedHosts = resolveAllowedHosts({
 // 廃止した置き場の指定が残っていたら、listen より前に止める。
 assertNoRetiredAssetsDir({ env: process.env.ASSETS_DIR, file: file.paths?.assetsDir });
 assertNoLegacyAssetsDir({ dataRoot: config.dataRoot, exists: fs.existsSync });
+assertImagesDirOutsideCommittedAreas({
+  imagesDir: config.imagesDir,
+  gitRepoDir: config.gitRepoDir,
+});
 
 // 危険な待受構成(認証オフ / TLS 無し / preview の公開 / Secure の矛盾)は起動前に落とす。
 // 値の解決直後に評価するので、`app.ts` が listen する前 — import 時点で失敗する。

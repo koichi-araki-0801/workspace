@@ -18,6 +18,7 @@ const PATH_ENV_KEYS = [
   'CSS_DIR',
   'FILLED_DIR',
   'JS_DIR',
+  'IMAGES_DIR',
   'DRAFTS_DIR',
   'PENDING_DIR',
   'REVIEWS_DIR',
@@ -55,6 +56,7 @@ describe('config paths', () => {
     expect(config.cssDir).toBe(path.join(DATA_ROOT, 'css'));
     expect(config.filledDir).toBe(path.join(DATA_ROOT, 'filled'));
     expect(config.jsDir).toBe(path.join(DATA_ROOT, 'js'));
+    expect(config.imagesDir).toBe(path.join(DATA_ROOT, 'images'));
     expect('assetsDir' in config).toBe(false);
     expect(config.draftsDir).toBe(path.join(DATA_ROOT, 'drafts'));
     expect(config.pendingDir).toBe(path.join(DATA_ROOT, 'pending'));
@@ -98,6 +100,18 @@ describe('config paths', () => {
       importConfigWithEnv({ DATA_ROOT, ASSETS_DIR: path.join(DATA_ROOT, 'assets') }),
     ).rejects.toThrow(/assetsDir は廃止しました.*JS_DIR.*2026-10-fonts-to-css/s);
   });
+
+  it('IMAGES_DIR が imagesDir を上書きする', async () => {
+    const imagesDir = path.resolve(path.sep, 'tmp', 'editor-images-elsewhere');
+    const { config } = await importConfigWithEnv({ DATA_ROOT, IMAGES_DIR: imagesDir });
+    expect(config.imagesDir).toBe(imagesDir);
+  });
+
+  it('IMAGES_DIR が確定領域(css)の内側なら起動を中止する', async () => {
+    await expect(
+      importConfigWithEnv({ DATA_ROOT, IMAGES_DIR: path.join(DATA_ROOT, 'css', 'images') }),
+    ).rejects.toThrow(/imagesDir.*css/s);
+  });
 });
 
 describe('assertNoRetiredAssetsDir', () => {
@@ -135,5 +149,30 @@ describe('assertNoLegacyAssetsDir', () => {
       }),
     ).not.toThrow();
     expect(seen).toEqual([path.join(DATA_ROOT, 'assets')]);
+  });
+});
+
+describe('assertImagesDirOutsideCommittedAreas', () => {
+  it.each([
+    'templates',
+    'filled',
+    'css',
+    'sync',
+  ])('%s の内側と、その領域そのものを拒む', async (area) => {
+    const { assertImagesDirOutsideCommittedAreas } = await importConfigWithEnv({ DATA_ROOT });
+    for (const imagesDir of [path.join(DATA_ROOT, area, 'images'), path.join(DATA_ROOT, area)]) {
+      expect(() =>
+        assertImagesDirOutsideCommittedAreas({ imagesDir, gitRepoDir: DATA_ROOT }),
+      ).toThrow(new RegExp(area));
+    }
+  });
+
+  it('dataRoot 直下の images と、名前が前方一致するだけの兄弟は通す', async () => {
+    const { assertImagesDirOutsideCommittedAreas } = await importConfigWithEnv({ DATA_ROOT });
+    for (const imagesDir of [path.join(DATA_ROOT, 'images'), path.join(DATA_ROOT, 'css-images')]) {
+      expect(() =>
+        assertImagesDirOutsideCommittedAreas({ imagesDir, gitRepoDir: DATA_ROOT }),
+      ).not.toThrow();
+    }
   });
 });

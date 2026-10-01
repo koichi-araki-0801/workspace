@@ -84,6 +84,7 @@ export default defineConfig({
         'editor/server/src/vivliostyle/docRefs.ts',
         'editor/server/src/vivliostyle/egressGuard.ts',
         'editor/server/src/git/gitRepo.ts',
+        'editor/server/src/git/committedAreas.ts',
         'editor/server/src/openapi/docsRoutes.ts',
         'editor/server/src/vivliostyle/previewProxy.ts',
         'editor/server/src/generate/pyTemplate.ts',
