@@ -113,3 +113,27 @@ describe('assertNoRetiredAssetsDir', () => {
     expect(() => assertNoRetiredAssetsDir({ env: undefined, file: undefined })).not.toThrow();
   });
 });
+
+describe('assertNoLegacyAssetsDir', () => {
+  it('dataRoot 直下に assets があれば移行パッチを案内して拒む', async () => {
+    const { assertNoLegacyAssetsDir } = await importConfigWithEnv({ DATA_ROOT });
+    expect(() => assertNoLegacyAssetsDir({ dataRoot: DATA_ROOT, exists: () => true })).toThrow(
+      /assets.*2026-10-fonts-to-css/s,
+    );
+  });
+
+  it('assets が無ければ何もしない', async () => {
+    const { assertNoLegacyAssetsDir } = await importConfigWithEnv({ DATA_ROOT });
+    const seen: string[] = [];
+    expect(() =>
+      assertNoLegacyAssetsDir({
+        dataRoot: DATA_ROOT,
+        exists: (p) => {
+          seen.push(p);
+          return false;
+        },
+      }),
+    ).not.toThrow();
+    expect(seen).toEqual([path.join(DATA_ROOT, 'assets')]);
+  });
+});

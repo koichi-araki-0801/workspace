@@ -84,43 +84,55 @@ const PROJECT_ZIP_CONTRACT = [
 
 /**
  * 外部参照の禁止。build 3 本と project プレビューが同じゲート
- * (`security/externalRefs.ts`)を通るので文面を 1 つにする。外部クライアントはまだ存在せず、
+ * (`security/externalRefs.ts`)を通るので文面を共有し、`css` の解釈規則だけ経路ごとに差し替える。外部クライアントはまだ存在せず、
  * **ここに書いたものがそのまま本番の契約になる**。
  */
-const EXTERNAL_REF_CONTRACT = [
-  '\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ',
-  'ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。',
-  '検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、',
-  '(3) HTML の `style="…"` 属性、(4) HTML の**取得系属性**',
-  '(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` ',
-  'SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、',
-  '(zip 経路は加えて展開した `.css` / `.html` 全件)。',
-  '拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` と',
-  'マージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**',
-  '(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず',
-  '`image-set("http://…")` のような引用符文字列も含む。許可する `data:` は ',
-  '`data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` ',
-  '`data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。',
-  '**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・',
-  'テンプレ JS を `css/…` `css/fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。',
-  'リクエストの `css` は `css/<fund>.css` の位置に置かれた CSS として解釈する(相対 `url()` は',
-  '`css/` 基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`)。',
-  '相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。',
-  '同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす',
-  '(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、',
-  '違反が 1 件でも PDF は生成されない。',
-  'また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は',
-  '`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。',
-  '\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは ',
-  '**body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして ',
-  'script をビューアの window へ作り直すため、`<script src="js/x.js">` は相対 URL の解決基準が',
-  'ずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。',
-  'なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ',
-  '中継される(それ以外は宛先が loopback でも 502 で落ちる)。',
-  'ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)は',
-  'この中継を通らない — そこは残余リスクとして残る。',
-  '\n\n',
-].join('');
+function externalRefContract(requestCssRule: string): string {
+  return [
+    '\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ',
+    'ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。',
+    '検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、',
+    '(3) HTML の `style="…"` 属性、(4) HTML の**取得系属性**',
+    '(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` ',
+    'SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、',
+    '(zip 経路は加えて展開した `.css` / `.html` 全件)。',
+    '拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` と',
+    'マージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**',
+    '(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず',
+    '`image-set("http://…")` のような引用符文字列も含む。許可する `data:` は ',
+    '`data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` ',
+    '`data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。',
+    '**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・',
+    'テンプレ JS を `css/…` `css/fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。',
+    requestCssRule,
+    '相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。',
+    '同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす',
+    '(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、',
+    '違反が 1 件でも PDF は生成されない。',
+    'また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は',
+    '`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。',
+    '\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは ',
+    '**body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして ',
+    'script をビューアの window へ作り直すため、`<script src="js/x.js">` は相対 URL の解決基準が',
+    'ずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。',
+    'なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ',
+    '中継される(それ以外は宛先が loopback でも 502 で落ちる)。',
+    'ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)は',
+    'この中継を通らない — そこは残余リスクとして残る。',
+    '\n\n',
+  ].join('');
+}
+
+/** リクエストの `css` フィールドを持つ経路(inline / merge)だけに載せる解釈規則。 */
+const REQUEST_CSS_RULE =
+  '`css` は `css/<fund>.css` の位置に置かれた CSS として解釈する(相対 `url()` は `css/` 基準。' +
+  '例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`)。';
+
+/** zip 経路には `css` フィールドが無い。CSS ファイルは zip 内の位置が解決の基準になる。 */
+const ZIP_CSS_RULE = '展開した CSS ファイルは置かれた位置を基準に相対参照を解決する。';
+
+const EXTERNAL_REF_CONTRACT = externalRefContract(`リクエストの ${REQUEST_CSS_RULE}`);
+const EXTERNAL_REF_CONTRACT_ZIP = externalRefContract(ZIP_CSS_RULE);
 
 export function buildOpenApiDocument() {
   return createDocument({
@@ -605,7 +617,7 @@ export function buildOpenApiDocument() {
           operationId: 'buildProject',
           description:
             `${PROJECT_ZIP_CONTRACT}任意クエリ: \`entry\`, \`size\`, \`singleDoc\`。` +
-            EXTERNAL_REF_CONTRACT,
+            EXTERNAL_REF_CONTRACT_ZIP,
           requestBody: {
             content: { 'application/zip': { schema: PdfBinary } },
           },

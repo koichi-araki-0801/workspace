@@ -10,7 +10,7 @@
        旧 assets\ を assets.migrated-<yyyyMMdd> へ改名して残す(共有フォルダでの途中失敗に備える)
     3. CSS の url( 直後の ../fonts/ を fonts/ に直す(css\*.css と、承認前の作業コピー
        drafts\*.css・pending\*.css・reviews\<id>\body.css)
-    4. appconfig の paths.assetsDir を paths.jsDir(<旧 assetsDir>\js)へ書き換える
+    4. appconfig の paths.assetsDir を paths.jsDir(<dataRoot>\js)へ書き換える
     5. 確定領域の変更(css/*.css と .gitignore)を system 名義で 1 コミットする
   作業コピー(drafts / pending / reviews)の CSS は git 管理外なので、書き換え前に
   <dataRoot>\.fonts-to-css-backup-<yyyyMMdd>\ へ退避する(rollback.ps1 がここから戻す)。
@@ -20,8 +20,8 @@
   サーバ稼働中、または dataRoot の git に未コミットの変更があるときは中止する。
 
 .PARAMETER DataRoot
-  data リポジトリの場所。省略時は init-data-repo.ps1 と同じ規則(環境変数 DATA_ROOT → ユーザー
-  環境変数 DATA_ROOT → 既定)で決める。
+  data リポジトリの場所。省略時は -DataRoot → 環境変数 DATA_ROOT(プロセス → ユーザー) →
+  appconfig の paths.dataRoot → 既定の順で決める。
 
 .PARAMETER Apply
   実際に変更する。付けなければ確認モード。
@@ -132,7 +132,7 @@ if ($listening) { throw "editor サーバがポート $Port で動いていま�
 if (-not (Test-Path -LiteralPath (Join-Path $DataRoot '.git'))) { throw "$DataRoot は git リポジトリではありません。" }
 # 見るのは確定領域(承認コミットの対象)だけ。js\ や assets.migrated-* のような追跡外の
 # フォルダまで見ると、移行後の再実行が「未コミットの変更あり」で止まってしまう。
-$dirty = Invoke-Git status --porcelain -- .gitignore .gitattributes templates filled css sync
+$dirty = Invoke-Git status --porcelain -- .gitignore .gitattributes templates filled css sync ':(exclude)css/fonts'
 if ($dirty) {
   throw ("dataRoot の git に未コミットの変更があります。先にコミットまたは破棄してください。`n" +
     "前回の移行が途中で止まった可能性もあります。git -C `"$DataRoot`" diff で確認し、パッチの変更" +
@@ -250,7 +250,7 @@ foreach ($f in $rewrites) {
 }
 if ($needsConfig) {
   Copy-Item -LiteralPath $appConfigPath -Destination "$appConfigPath.bak-$stamp"
-  $newJs = Join-Path (Resolve-EditorPath $cfgPaths.assetsDir) 'js'
+  $newJs = $jsDir
   $cfgPaths.PSObject.Properties.Remove('assetsDir')
   $cfgPaths | Add-Member -NotePropertyName 'jsDir' -NotePropertyValue $newJs -Force
   [IO.File]::WriteAllText($appConfigPath, ($appConfig | ConvertTo-Json -Depth 10), $utf8NoBom)

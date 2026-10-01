@@ -73,3 +73,6 @@ editor を配置して起動してください。
 旧 assets を dataRoot の外(`ASSETS_DIR` / `paths.assetsDir` で別の場所)に置いていた環境では、
 `rollback.bat` は `assets.migrated-*` を dataRoot の中しか探しません。その場所の改名は手で
 元に戻してください。
+
+旧 assets が元から無かった環境(`assets.migrated-*` が作られていない)では `rollback.bat` が止まります。
+その場合は dataRoot で移行コミット(件名末尾が `[fonts-to-css]`)を `git revert <移行コミット>` で手で戻してください。

@@ -181,4 +181,32 @@ Describe 'migrate.ps1' {
       (Get-Content -Raw (Join-Path $root 'reviews\r1\body.css')) | Should Match 'url\(\.\./fonts/a\.woff2\)'
     } finally { Remove-Item -Recurse -Force $root }
   }
+
+  It 'appconfig の paths.assetsDir を paths.jsDir=<dataRoot>\js へ書き換え、バックアップを残す' {
+    $root = New-OldLayout
+    $cfg = Join-Path $env:TEMP ('fonts-mig-cfg-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.json')
+    try {
+      $json = @{ paths = @{ assetsDir = (Join-Path $root 'assets') } } | ConvertTo-Json
+      [IO.File]::WriteAllText($cfg, $json, (New-Object Text.UTF8Encoding $false))
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg | Out-Null
+      $after = Get-Content -Raw -Encoding UTF8 $cfg | ConvertFrom-Json
+      $after.paths.PSObject.Properties['assetsDir'] | Should BeNullOrEmpty
+      $after.paths.jsDir | Should Be (Join-Path $root 'js')
+      @(Get-ChildItem (Split-Path $cfg) -Filter ((Split-Path $cfg -Leaf) + '.bak-*')).Count | Should Be 1
+    } finally {
+      Remove-Item -Recurse -Force $root
+      Remove-Item -Force -ErrorAction SilentlyContinue $cfg, "$cfg.bak-*"
+    }
+  }
+
+  It 'css\fonts に未追跡のフォントが先に置かれていても -Apply が進む' {
+    $root = New-OldLayout
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'css\fonts') | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'css\fonts\a.woff2') -Value 'FONT' -NoNewline
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } | Out-Null
+      (Get-Content -Raw (Join-Path $root 'css\510037.css')) | Should Match 'url\(fonts/a\.woff2\)'
+      Test-Path (Join-Path $root 'js\w.js') | Should Be $true
+    } finally { Remove-Item -Recurse -Force $root }
+  }
 }

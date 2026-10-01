@@ -51,6 +51,7 @@ const appConfigSchema = z
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
         filledDir: z.string().optional(),
+        // 廃止済み。専用の起動エラーを出すため検出用に残す(消すと .strict() の汎用エラーに退化する)。
         assetsDir: z.string().optional(),
         jsDir: z.string().optional(),
         draftsDir: z.string().optional(),
@@ -828,6 +829,24 @@ export function assertNoRetiredAssetsDir(opts: {
 }
 
 /**
+ * 旧構成の `<dataRoot>/assets` が残っていないか。`assetsDir` を指定しない既定構成でも、移行前に
+ * 起動するとフォント(css/fonts)と js が配信ルートに載らず、見た目と JS だけが黙って欠けた
+ * PDF が成功扱いで出る。移行パッチは `assets` を `assets.migrated-*` へ改名するので、移行後は通る。
+ */
+export function assertNoLegacyAssetsDir(opts: {
+  dataRoot: string;
+  exists: (p: string) => boolean;
+}): void {
+  const legacy = path.join(opts.dataRoot, 'assets');
+  if (!opts.exists(legacy)) return;
+  throw new Error(
+    `[config] ${legacy} が残っています。フォントは <cssDir>/fonts、js は jsDir(既定 <dataRoot>/js)へ` +
+      ' 置き場を移したため、このままでは配信されません。' +
+      ' 移行パッチ editor/patches/2026-10-fonts-to-css/ を流してから起動してください。',
+  );
+}
+
+/**
  * 平文での LAN 公開を明示的に許した状態か(`ALLOW_PLAINTEXT_LAN`)。起動バナーへ
  * 警告を出すため export する。恒久設定にすると本修正の意味が消えるので、
  * `start.bat rest lan-plain` から一時的に立てる想定。
@@ -851,6 +870,7 @@ export const allowedHosts = resolveAllowedHosts({
 
 // 廃止した置き場の指定が残っていたら、listen より前に止める。
 assertNoRetiredAssetsDir({ env: process.env.ASSETS_DIR, file: file.paths?.assetsDir });
+assertNoLegacyAssetsDir({ dataRoot: config.dataRoot, exists: fs.existsSync });
 
 // 危険な待受構成(認証オフ / TLS 無し / preview の公開 / Secure の矛盾)は起動前に落とす。
 // 値の解決直後に評価するので、`app.ts` が listen する前 — import 時点で失敗する。
