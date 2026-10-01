@@ -12,7 +12,7 @@
 
 ### 成功条件
 
-1. `dataRoot\images\510037_logo.svg` を置き、テンプレに `<img src="images/{{ fund.code }}_logo.svg">`（作成タブ）または `<img src="images/510037_logo.svg">`（値入り HTML）と書けば、PDF・画面内プレビュー・編集画面のどれでも表示される。
+1. `dataRoot\images\510037_logo.svg` を置き、テンプレに `<img src="images/{{ fund.code }}_logo.svg">`（作成タブ）または `<img src="images/510037_logo.svg">`（値入り HTML。外部ツールが確定したパスを書く）と書けば、PDF・画面内プレビュー・編集画面のどれでも表示される。値入り HTML に `{{ fund.code }}` が残っていれば、どの経路でも表示されず、編集画面に警告が出る。
 2. ファンド CSS の `url(../images/510037_logo.svg)` が、PDF と画面内プレビューで表示される。
 3. 危険な SVG（スクリプト・イベント属性・外部参照など）は、どの経路でも配信・表示されない。
 4. 編集画面の表示は CSS だけで行い、文字編集・ペーストを含むどの操作の後も、保存される HTML（下書き・申請・確定）は原文のまま変わらない。
