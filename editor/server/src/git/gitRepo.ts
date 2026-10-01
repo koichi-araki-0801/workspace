@@ -211,7 +211,9 @@ async function ensureGitignore(): Promise<void> {
   // `/notes/` も同じ理由で追跡外。パーツ単位メモは editor ロールが自由に書ける作業メモで、
   // 承認を経ていない。追跡すると承認コミットへ第三者のメモが混ざり、承認者の identity と
   // 承認メッセージを着せられた「承認済みの内容」として履歴に残る。
-  const required = ['/drafts/', '/reviews/', '/pending/', '/notes/', '*.tmp-*'];
+  // `/css/fonts/` は手で置く全ファンド共通のフォント(和文 1 本 5〜20MB)。追跡すると承認
+  // コミットの `git add -A -- css` が、置いた人ではなく次の承認者の名前でフォントを巻き込む。
+  const required = ['/drafts/', '/reviews/', '/pending/', '/notes/', '/css/fonts/', '*.tmp-*'];
   const existing = await fs.readFile(file, 'utf8').catch(() => '');
   const lines = existing.split('\n').map((l) => l.trim());
   const missing = required.filter((r) => !lines.includes(r));

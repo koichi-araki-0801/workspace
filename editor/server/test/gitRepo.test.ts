@@ -155,6 +155,7 @@ d('gitRepo', () => {
     expect(files.some((f) => f.startsWith('notes/'))).toBe(false);
 
     expect(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8')).toContain('/notes/');
+    expect(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8')).toContain('/css/fonts/');
   });
 
   it('commitAll は許可リスト外のディレクトリを追跡下へ入れない', async () => {
