@@ -162,6 +162,8 @@ export default defineConfig({
         // 作ってしまうと自動 discard を招く回帰(実績あり)の再発防止網。
         'editor/web/src/features/editor/confirmedCanonicalGate.ts',
         'editor/web/src/features/editor/pageView.ts',
+        // 編集画面のファンド別画像。属性を書き換えず CSS で差す設計の純粋部分と GrapesJS 配線。
+        'editor/web/src/features/editor/fundImages.ts',
         'editor/web/src/features/editor/useSnapshotHistory.ts',
         'editor/web/src/features/editor/usePartEditHistory.ts',
         'editor/web/src/features/editor/useComments.ts',
