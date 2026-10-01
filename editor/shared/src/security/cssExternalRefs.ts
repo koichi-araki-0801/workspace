@@ -312,6 +312,8 @@ export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] 
   let faceItems: CssUrlSpanInContext[] = [];
   let pending = '';
   let declStart = 0;
+  /** `declStart` の宣言が `src:` で始まるか。宣言ごとに 1 回だけ判定して持ち回る。 */
+  let declIsSrc: boolean | undefined;
   walkCss(css, {
     atRule: (name) => {
       pending = name.toLowerCase();
@@ -330,11 +332,17 @@ export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] 
         pending = '';
       }
       declStart = at + 1;
+      declIsSrc = undefined;
     },
     value: (value, kind, span) => {
       if (kind !== 'url' || span === undefined) return;
       const inFace = stack.length === 1 && stack[0] === true;
-      const isSrc = inFace && /^\s*src\s*:/i.test(css.slice(declStart, span.start));
+      // url() ごとに `slice` + 正規表現を掛け直すと、長い空白の後に `x:url()` を並べた入力で
+      // 二乗時間になる。宣言の頭は同じなので最初の 1 回だけ見る。
+      if (inFace && declIsSrc === undefined) {
+        declIsSrc = /^\s*src\s*:/i.test(css.slice(declStart, span.start));
+      }
+      const isSrc = inFace && declIsSrc === true;
       const item = { value, ...span, inFontFaceSrc: isSrc };
       if (inFace) faceItems.push(item);
       else found.push(item);

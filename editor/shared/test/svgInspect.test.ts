@@ -295,6 +295,14 @@ describe('inspectSvg — 入力サイズに対して線形', () => {
     expect(inspectSvg(svg)).toContain('DOCTYPE の位置が不正');
   });
 
+  it('@font-face に長い空白と x:url() を大量に並べても終わる(約 1MB)', () => {
+    const n = 60_000;
+    const css = `@font-face{${' '.repeat(10 * n)}x:${'url(#a)'.repeat(n)}}`;
+    const svg = wrap(`<style>${css}</style>`);
+    expect(timed(svg)).toBeLessThan(LIMIT_MS);
+    expect(inspectSvg(svg)).toEqual([]);
+  });
+
   it('重複属性は違反のまま', () => {
     expect(inspectSvg(wrap('<rect width="1" width="2"/>'))).toContain('重複した属性 width');
   });

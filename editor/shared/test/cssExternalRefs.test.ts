@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectCssUrlCandidates,
+  collectCssUrlSpansInContext,
   findExternalRefsInCss,
   isAllowedDataUrl,
   isSelfContainedUrl,
@@ -101,5 +102,37 @@ describe('isAllowedDataUrl', () => {
     ]) {
       expect(isSelfContainedUrl(url)).toBe(isAllowedDataUrl(url));
     }
+  });
+});
+
+// ── @font-face の src 判定は宣言ごとに 1 回(url() ごとに頭から見直さない)──
+describe('collectCssUrlSpansInContext は入力サイズに対して線形', () => {
+  const build = (n: number): string => `@font-face{${' '.repeat(10 * n)}x:${'url(#a)'.repeat(n)}}`;
+  const timed = (n: number): number => {
+    const css = build(n);
+    const t0 = performance.now();
+    const spans = collectCssUrlSpansInContext(css);
+    const ms = performance.now() - t0;
+    expect(spans).toHaveLength(n);
+    expect(spans.every((x) => !x.inFontFaceSrc)).toBe(true);
+    return ms;
+  };
+
+  it('長い空白の後に x: と url() を大量に並べても終わる(約 1MB)', () => {
+    expect(timed(60_000)).toBeLessThan(2000);
+  });
+
+  it('サイズを 2 倍にしても時間が 4 倍近くまで増えない', () => {
+    timed(5_000);
+    const small = Math.max(timed(30_000), 1);
+    const large = timed(60_000);
+    expect(large / small).toBeLessThan(3.5);
+  });
+
+  it('src 宣言は従来どおり判定する', () => {
+    const [a, b] = collectCssUrlSpansInContext('@font-face{ src:url(#a),url(#b);x:url(#c)}');
+    expect([a?.inFontFaceSrc, b?.inFontFaceSrc]).toEqual([true, true]);
+    const spans = collectCssUrlSpansInContext('@font-face{src:url(#a);x:url(#c)}');
+    expect(spans.map((x) => x.inFontFaceSrc)).toEqual([true, false]);
   });
 });
