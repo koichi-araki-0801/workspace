@@ -610,13 +610,15 @@ function checkHref(el: string, raw: string, add: Report): void {
 }
 
 /**
- * CSS(`<style>` の中身・`style` 属性・プレゼンテーション属性)の `url()` は `#id` だけ。
+ * CSS(`<style>` の中身・`style` 属性・プレゼンテーション属性)の `url()` は `#id` と、共有の
+ * 許可リストの `data:`(埋め込みフォント `data:font/…` など)だけ。
  * 外部参照の判定は検査・配置と同じトークナイザ(`findExternalRefsInCss`)に任せ、エスケープで
  * 隠した `url(\68ttp://…)` もそこで捕まえる。
  */
 function checkCss(css: string, where: string, add: Report): void {
   if (findExternalRefsInCss(css).length > 0) add(`外部参照を含む CSS(${where})`);
-  if (collectCssUrlSpans(css).some((span) => !span.value.trim().startsWith('#'))) {
+  const nonLocal = (v: string): boolean => !v.trim().startsWith('#') && !isAllowedDataUrl(v);
+  if (collectCssUrlSpans(css).some((span) => nonLocal(span.value))) {
     add(`url() が #id 以外を指す(${where})`);
   }
 }

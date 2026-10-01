@@ -37,6 +37,12 @@ describe('inspectSvg — 通すもの', () => {
       `<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg xmlns="${NS}"/>`,
     ],
     ['CDATA の style', wrap('<style><![CDATA[.a{fill:url(#g)}]]></style>')],
+    [
+      '埋め込みフォントの @font-face(data:font)',
+      wrap(
+        '<style><![CDATA[@font-face{font-family:"F";src:url(data:font/woff2;base64,d09GMg==)}]]></style>',
+      ),
+    ],
     ['use の #id', wrap('<use href="#a"/><use xlink:href="#a"/>')],
     ['fill の url(#id)', wrap('<rect fill="url(#grad)" filter="url(#f)"/>')],
     ['image の data:image/png', wrap('<image href="data:image/png;base64,iVBORw0KGgo="/>')],
@@ -156,6 +162,11 @@ describe('inspectSvg — 落とすもの', () => {
     [
       'style 要素の相対 url()',
       wrap('<style><![CDATA[.a{fill:url(x.png)}]]></style>'),
+      'url() が #id 以外を指す(style 要素)',
+    ],
+    [
+      'style 要素の data:image/svg+xml',
+      wrap('<style><![CDATA[.a{fill:url(data:image/svg+xml,%3Csvg%3E)}]]></style>'),
       'url() が #id 以外を指す(style 要素)',
     ],
     [
