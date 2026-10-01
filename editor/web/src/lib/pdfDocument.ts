@@ -29,7 +29,7 @@ export const PDF_CSS_EXTERNAL_REF_MSG =
   'CSSまたはHTMLに外部参照（@import / 絶対URLのurl() / 絶対URLのhref・src）が含まれるため' +
   'PDFを作成できません。' +
   'フォントや画像やスクリプトはテンプレートに同梱するか、' +
-  '同梱資産への相対パス（css/… fonts/… js/…）で指定してください。';
+  '同梱資産への相対パス（css/… css/fonts/… js/…）で指定してください。';
 
 /**
  * サニタイズ済み DOM から、オリジン外を指す取得系属性を洗い出す(早期フィードバック用)。

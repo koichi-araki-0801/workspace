@@ -150,7 +150,7 @@ async function inlineScripts(root: Element, fetcher: AssetFetcher): Promise<void
 }
 
 /**
- * `<style>` 内の `url(fonts/…)` を data: URI へ置き換える。
+ * `<style>` 内の `url(css/fonts/…)` を data: URI へ置き換える。
  *
  * 相対 URL の置換は認証対策であると同時に忠実度の問題でもある: 子の文書は blob URL
  * (非階層)で、inline CSS の相対参照はそもそも解決できない。置換範囲は shared の
@@ -167,7 +167,7 @@ async function inlineFonts(root: Element, fetcher: AssetFetcher): Promise<void> 
     // 後ろから置換して先行 span のオフセットを保つ。
     for (const span of [...spans].reverse()) {
       const rel = resolveServedAssetPath(span.value);
-      if (rel === undefined || !rel.startsWith('fonts/')) continue;
+      if (rel === undefined || !rel.startsWith('css/fonts/')) continue;
       const dataUri = await fetchFontDataUri(rel, fetcher);
       if (dataUri === undefined) continue;
       out = `${out.slice(0, span.start)}url(${dataUri})${out.slice(span.end)}`;

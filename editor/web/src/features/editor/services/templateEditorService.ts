@@ -115,7 +115,7 @@ export function createTemplateEditorService(
             `CSSに外部参照が含まれるため編集画面を開けません(${refs})。` +
               (draft
                 ? '下書きを破棄すると開けるようになります。'
-                : 'フォントや画像は同梱資産への相対パス(css/… fonts/…)で指定してください。'),
+                : 'フォントや画像は CSS 自身の位置からの相対パス(例 url(fonts/x.woff2))で指定してください。'),
           ),
         );
       }

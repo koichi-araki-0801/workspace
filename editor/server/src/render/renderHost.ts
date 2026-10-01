@@ -282,7 +282,7 @@ async function hostPage(): Promise<string> {
  * (`openapi/docsRoutes.ts`・`vivliostyle/previewHost.ts` と同じ作法)。helmet は `onRequest`
  * でヘッダを置くので、`onSend` の上書きが必ず勝つ。
  *
- * **同梱資産(`css/` `fonts/` `js/`)は配らない。** preview-host はテンプレの相対参照を
+ * **同梱資産(`css/` `css/fonts/` `js/`)は配らない。** preview-host はテンプレの相対参照を
  * 解決するために配る必要があったが、この子は表示をしないので参照する資産が無い。配る面を
  * 持たないこと自体がここでの封じ込めで、ワイルドカードが配るのはバンドル 1 ファイルだけ
  * (許可リストではなく**完全一致 1 件**)。

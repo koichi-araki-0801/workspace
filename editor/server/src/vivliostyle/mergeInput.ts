@@ -71,6 +71,9 @@ export function mergeConfigObject(entries: string[], size?: string): SafeProject
  *
  * - 各文書は `doc-000.html` からのゼロ埋め連番で書き出す(entry 順 = 配列順を字面でも保証)。
  * - CSS は `stripPageCounterReset` + `MERGE_PAGE_COUNTER_CSS` を経て各 HTML へインライン化。
+ * - リクエスト CSS は `build.ts` の入口で css/ 基準へ付け替え済み。ここで連結する
+ *   `MERGE_PAGE_COUNTER_CSS` やトンボの CSS に相対 url() を足すと、PDF とプレビューで解決先が
+ *   食い違う(プレビューはそれらを別の `<style>` に入れ、付け替えない)。
  */
 export async function materializeMergeProject(
   documents: MergeDocument[],

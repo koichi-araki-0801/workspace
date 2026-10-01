@@ -28,6 +28,7 @@ Node 非依存の python-tools リポジトリへ分離済み）。
 
 - `.ps1` には必ず同名 `.bat` ランチャを **同じフォルダに併設**する（実行ポリシー Bypass で起動）。
   CI (`pnpm run check:comments`) が併設と UTF-8 BOM を検査する。
+- 一度だけ流すデータ移行は `<project>/patches/<yyyy-MM-名前>/` に置く。
 - dot-source 専用ライブラリ（`offline/lib/content-key.ps1`、`offline/lib/fetch.ps1`、
   `scripts/lib/build-python-venv.ps1`）は単体起動しないため `.bat` 併設の例外。
 - 詳しい `.ps1`/`.bat` 規約は [`docs/コメント規約.md`](docs/コメント規約.md) の
@@ -53,6 +54,8 @@ Node 非依存の python-tools リポジトリへ分離済み）。
 | `editor/scripts/setup-lan-https.bat` | LAN 公開用の自己署名 TLS 証明書（PFX/cer）を生成 |
 | `editor/scripts/setup-lan-firewall.bat` | LAN 公開ポート（TCP 24680）の受信許可ルールを登録（要管理者） |
 | `editor/server/db/apply.bat` | SQL Server へ DDL/sproc/seed を適用 |
+| `editor/patches/2026-10-fonts-to-css/migrate.bat` | data リポジトリのフォント・js の置き場を新構成へ移す(既定は確認モード、`-Apply` で実行) |
+| `editor/patches/2026-10-fonts-to-css/rollback.bat` | 上の移行を元に戻す |
 | `docs/_build/build_all.bat` | `docs/<project>/src/` の原稿から閲覧用 HTML（手引き/設計の 2 冊）を一括生成 |
 
 重量物バンドルの生成と Release への upload は配布担当の端末にある git 管理外の `local-only/offline-publish/` で手動実行する（`offline/README-offline.txt`）。

@@ -75,17 +75,26 @@ describe('script のインライン展開', () => {
 });
 
 describe('フォントの data: URI 化', () => {
-  it('style 内の url(fonts/…) を data:font/… へ置き換える', async () => {
-    const fetcher = fetcherFor({ 'fonts/biz.woff2': new Uint8Array([1, 2, 3]) });
+  it('style 内の url(css/fonts/…) を data:font/… へ置き換える', async () => {
+    const fetcher = fetcherFor({ 'css/fonts/biz.woff2': new Uint8Array([1, 2, 3]) });
     const out = await selfContainPreviewDoc(
-      DOC('<p>x</p>', '<style>@font-face{font-family:a;src:url(fonts/biz.woff2)}</style>'),
+      DOC('<p>x</p>', '<style>@font-face{font-family:a;src:url(css/fonts/biz.woff2)}</style>'),
       fetcher,
     );
     expect(out).toContain('url(data:font/woff2;base64,AQID)');
-    expect(out).not.toContain('url(fonts/biz.woff2)');
+    expect(out).not.toContain('url(css/fonts/biz.woff2)');
   });
 
-  it('fonts/ 配下でない url() は触らない(css/ 画像や外部 URL)', async () => {
+  it('旧配信パス fonts/ は埋め込まない', async () => {
+    const fetcher = fetcherFor({ 'fonts/old.woff2': new Uint8Array([1]) });
+    const out = await selfContainPreviewDoc(
+      DOC('', '<style>@font-face{src:url(fonts/old.woff2)}</style>'),
+      fetcher,
+    );
+    expect(out).toContain('url(fonts/old.woff2)');
+  });
+
+  it('css/fonts/ 配下でない url() は触らない(css/ 画像や外部 URL)', async () => {
     const fetcher = fetcherFor({});
     const css = '@import url(css/x.css);b{background:url(https://evil/x.png)}';
     const out = await selfContainPreviewDoc(DOC('<p>x</p>', `<style>${css}</style>`), fetcher);
@@ -94,9 +103,9 @@ describe('フォントの data: URI 化', () => {
   });
 
   it('CSS エスケープで書いた参照も同じ物差しで解決される(url(\\66 onts/…))', async () => {
-    const fetcher = fetcherFor({ 'fonts/a.woff2': new Uint8Array([9]) });
+    const fetcher = fetcherFor({ 'css/fonts/a.woff2': new Uint8Array([9]) });
     const out = await selfContainPreviewDoc(
-      DOC('<p>x</p>', '<style>@font-face{src:url(\\66 onts/a.woff2)}</style>'),
+      DOC('<p>x</p>', '<style>@font-face{src:url(css/\\66 onts/a.woff2)}</style>'),
       fetcher,
     );
     expect(out).toContain('data:font/woff2;base64,');
@@ -138,40 +147,41 @@ describe('上限・例外での fail closed', () => {
     );
     expect(
       await selfContainPreviewDoc(
-        DOC('', '<style>@font-face{src:url(fonts/a.woff2)}</style>'),
+        DOC('', '<style>@font-face{src:url(css/fonts/a.woff2)}</style>'),
         throwing,
       ),
-    ).toContain('url(fonts/a.woff2)');
+    ).toContain('url(css/fonts/a.woff2)');
   });
 
   it('font が上限バイト数を超えると展開しない', async () => {
     const big = new Uint8Array(8 * 1024 * 1024 + 1);
-    const fetcher = fetcherFor({ 'fonts/big.woff2': big });
+    const fetcher = fetcherFor({ 'css/fonts/big.woff2': big });
     const out = await selfContainPreviewDoc(
-      DOC('', '<style>@font-face{src:url(fonts/big.woff2)}</style>'),
+      DOC('', '<style>@font-face{src:url(css/fonts/big.woff2)}</style>'),
       fetcher,
     );
-    expect(out).toContain('url(fonts/big.woff2)');
+    expect(out).toContain('url(css/fonts/big.woff2)');
   });
 
   it('font は拡張子の許可リスト・404・上限で展開を諦め、同じ rel は 1 度しか取得しない', async () => {
-    const fetcher = fetcherFor({ 'fonts/a.woff2': new Uint8Array([1, 2, 3]) });
-    const css = '<style>@font-face{src:url(fonts/a.woff2)} .x{src:url(fonts/a.woff2)}</style>';
+    const fetcher = fetcherFor({ 'css/fonts/a.woff2': new Uint8Array([1, 2, 3]) });
+    const css =
+      '<style>@font-face{src:url(css/fonts/a.woff2)} .x{src:url(css/fonts/a.woff2)}</style>';
     const out = await selfContainPreviewDoc(DOC('', css), fetcher);
     expect(out.match(/data:font\/woff2;base64,/g)).toHaveLength(2);
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(
       await selfContainPreviewDoc(
-        DOC('', '<style>@font-face{src:url(fonts/a.xyz)}</style>'),
+        DOC('', '<style>@font-face{src:url(css/fonts/a.xyz)}</style>'),
         fetcher,
       ),
-    ).toContain('url(fonts/a.xyz)');
+    ).toContain('url(css/fonts/a.xyz)');
     expect(
       await selfContainPreviewDoc(
-        DOC('', '<style>@font-face{src:url(fonts/missing.woff2)}</style>'),
+        DOC('', '<style>@font-face{src:url(css/fonts/missing.woff2)}</style>'),
         fetcher,
       ),
-    ).toContain('url(fonts/missing.woff2)');
+    ).toContain('url(css/fonts/missing.woff2)');
   });
 
   it('type=module は展開し、許可外 type と src 無しの script、空の style は触らない', async () => {

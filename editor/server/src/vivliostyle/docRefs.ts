@@ -18,12 +18,12 @@
 import { collectCssUrlCandidates, resolveServedAssetPath } from '@editor/shared';
 import { scanTags } from './inlineCss.js';
 
-/** CSS 内の相対参照を辿る段数。`css/x.css` → `fonts/y.woff2` の 1 段で足りるが余裕を持つ。 */
+/** CSS 内の相対参照を辿る段数。`css/x.css` → `css/fonts/y.woff2` の 1 段で足りるが余裕を持つ。 */
 export const MAX_ASSET_REF_DEPTH = 3;
 
 /**
  * `baseRel`(配信ルート相対のファイル)から見た相対 URL を、配信ルート相対パスへ直す。
- * `css/510037.css` の中の `../fonts/a.woff2` は `fonts/a.woff2` になる。
+ * `css/510037.css` の中の `fonts/a.woff2` は `css/fonts/a.woff2` になる。
  */
 export function resolveRefFrom(baseRel: string, url: string): string | undefined {
   const baseDir = baseRel.split('/').slice(0, -1).join('/');

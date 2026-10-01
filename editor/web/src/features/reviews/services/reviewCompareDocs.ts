@@ -15,6 +15,8 @@
 // - 変更ページの粒度は `buildHtmlDiff` の `diff.pages` の index（0 始まり）。実テンプレは
 //   `.page` 1 個 = 1 ページの構成のため、index と `.page` 出現順は直接対応する。
 
+import { REQUEST_CSS_BASE, rebaseCssUrls } from '@editor/shared';
+
 export interface CompareDocsInput {
   beforeHtml: string;
   afterHtml: string;
@@ -98,9 +100,10 @@ function markerCss(): string {
 /** 完全な HTML 文書を組み立てる。マーカー CSS は申請者 CSS より前に出す。 */
 function wrapDoc(bodyHtml: string, css: string, marker: boolean): string {
   const markerBlock = marker ? `<style>${markerCss()}</style>` : '';
+  // 申請者 CSS は css/ 基準で書かれているので、文書へ埋め込む前に 1 回だけ付け替える。
   // マーカーのレイヤ宣言は申請者 CSS より**前**に出す(重要宣言はレイヤ優先順位が逆転する
   // 性質を使うため、先に宣言した側が勝つ)。
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8">${markerBlock}<style>${css}</style></head><body>${bodyHtml}</body></html>`;
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8">${markerBlock}<style>${rebaseCssUrls(css, REQUEST_CSS_BASE)}</style></head><body>${bodyHtml}</body></html>`;
 }
 
 export function buildCompareDocs(input: CompareDocsInput): CompareDocs {

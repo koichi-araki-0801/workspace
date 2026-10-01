@@ -15,10 +15,10 @@
 // よって写すのは「決められた 3 つの置き場」×「決められた拡張子」だけとする。
 //
 // ── 置き場(利用者決定・変更しないこと) ──
-//   css   = `config.cssDir`   (per-fund。`<fund>.css`)
-//   fonts = `config.assetsDir/fonts` (全ファンド共通)
-//   js    = `config.assetsDir/js`    (全ファンド共通)
-// 配信ルートでの名前は `css/` `fonts/` `js/` に固定する(テンプレ側の相対参照と対)。
+//   css       = `config.cssDir`        (per-fund。`<fund>.css`。直下の `fonts/` は下の別グループ)
+//   css/fonts = `config.cssDir/fonts`  (全ファンド共通のフォント。CSS から `url(fonts/…)`)
+//   js        = `config.jsDir`         (全ファンド共通のテンプレ JS)
+// 配信ルートでの名前は `css/` `css/fonts/` `js/` に固定する(テンプレ側の相対参照と対)。
 
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -29,11 +29,17 @@ import { MAX_ASSET_REF_DEPTH, resolveRefFrom } from './docRefs.js';
 
 /** 配信ルートに作るサブディレクトリと、その中身として許す拡張子(小文字・末尾一致)。 */
 interface AssetGroup {
-  /** 配信ルート側のディレクトリ名(= テンプレの相対参照の先頭セグメント)。 */
+  /** 配信ルート側のディレクトリ(= テンプレの相対参照の先頭。`css/fonts` のように複数段もある)。 */
   readonly mount: string;
   /** 実体の置き場を返す(`config` を毎回読むのはテストで差し替えられるようにするため)。 */
   readonly sourceDir: () => string;
   readonly extensions: ReadonlySet<string>;
+  /**
+   * 置き場の直下で降りないディレクトリ名(小文字で比較)。css の置き場の `fonts/` は
+   * 別グループ(`css/fonts`)の持ち物で、css グループが降りると `css/fonts/x.css` を
+   * 片方の判定だけが配る食い違いが生まれる。
+   */
+  readonly skipTopDirs?: ReadonlySet<string>;
 }
 
 /**
@@ -54,26 +60,49 @@ interface AssetGroup {
  * `.map`(sourcemap)は入れない。組版に不要で、開発者の作業ツリーの構造を配信ルートへ
  * 持ち出すだけになる。
  */
+const FONT_EXTENSIONS: ReadonlySet<string> = new Set(['.ttf', '.otf', '.woff', '.woff2']);
+
 const ASSET_GROUPS: readonly AssetGroup[] = [
+  {
+    mount: 'css/fonts',
+    sourceDir: () => path.join(config.cssDir, 'fonts'),
+    extensions: FONT_EXTENSIONS,
+  },
   {
     mount: 'css',
     sourceDir: () => config.cssDir,
     extensions: new Set(['.css']),
-  },
-  {
-    mount: 'fonts',
-    sourceDir: () => path.join(config.assetsDir, 'fonts'),
-    extensions: new Set(['.ttf', '.otf', '.woff', '.woff2']),
+    skipTopDirs: new Set(['fonts']),
   },
   {
     mount: 'js',
-    sourceDir: () => path.join(config.assetsDir, 'js'),
+    sourceDir: () => config.jsDir,
     extensions: new Set(['.js', '.mjs']),
   },
 ];
 
 /**
- * 資産ツリーを降りる深さの上限。`fonts/noto/JP/x.woff2` 程度を想定した値で、
+ * 配信ルート相対パスを持つグループを引く。`css/fonts/x` が `css` に当たらないよう、
+ * mount の段数が多い方を先に照合する(最長一致)。
+ */
+function groupFor(rel: string): { group: AssetGroup; rest: string[] } | undefined {
+  const segments = rel.split('/');
+  const byDepth = [...ASSET_GROUPS].sort(
+    (a, b) => b.mount.split('/').length - a.mount.split('/').length,
+  );
+  for (const group of byDepth) {
+    const mountSegs = group.mount.split('/');
+    if (segments.length <= mountSegs.length) continue;
+    if (!mountSegs.every((s, i) => segments[i] === s)) continue;
+    const rest = segments.slice(mountSegs.length);
+    if (group.skipTopDirs?.has(rest[0].toLowerCase()) && rest.length > 1) return undefined;
+    return { group, rest };
+  }
+  return undefined;
+}
+
+/**
+ * 資産ツリーを降りる深さの上限。`css/fonts/noto/JP/x.woff2` 程度を想定した値で、
  * シンボリックリンクの輪や異常に深いツリーで走査が止まらなくなるのを防ぐ。
  */
 const MAX_ASSET_DEPTH = 4;
@@ -102,8 +131,8 @@ interface AssetFile {
 }
 
 /**
- * 1 グループ配下の資産を列挙する。ディレクトリが無ければ空(既存環境に `assets/` が
- * 無くても壊れないこと、が要件)。
+ * 1 グループ配下の資産を列挙する。ディレクトリが無ければ空(`css/fonts` や `js` の
+ * 置き場がまだ無い環境でも壊れないこと、が要件)。
  *
  * `withFileTypes` の `isFile()` / `isDirectory()` は **lstat 相当**でシンボリックリンクを
  * 展開しない。よってリンクは `isFile()` にも `isDirectory()` にも当たらず、自動的に
@@ -126,6 +155,7 @@ async function collectGroup(group: AssetGroup): Promise<AssetFile[]> {
       const full = path.join(dir, entry.name);
       const rel = `${relPrefix}/${entry.name}`;
       if (entry.isDirectory()) {
+        if (depth === 0 && group.skipTopDirs?.has(entry.name.toLowerCase())) continue;
         await walk(full, rel, depth + 1);
         continue;
       }
@@ -157,11 +187,10 @@ async function collectGroup(group: AssetGroup): Promise<AssetFile[]> {
  * リンクがあれば拒む(`dataRoot` の外を配信面へ引き込ませない)。`stat` へ変えないこと。
  */
 export async function resolveServedAssetSource(rel: string): Promise<string | undefined> {
-  const segments = rel.split('/');
-  if (segments.length < 2 || segments.length > MAX_ASSET_DEPTH + 2) return undefined;
-  const group = ASSET_GROUPS.find((g) => g.mount === segments[0]);
-  if (group === undefined) return undefined;
-  const rest = segments.slice(1);
+  const hit = groupFor(rel);
+  if (hit === undefined) return undefined;
+  const { group, rest } = hit;
+  if (rest.length > MAX_ASSET_DEPTH + 1) return undefined;
   if (rest.some((s) => s === '' || s === '.' || s === '..')) return undefined;
   if (!group.extensions.has(path.extname(rest[rest.length - 1]).toLowerCase())) return undefined;
   let current = group.sourceDir();
@@ -194,7 +223,7 @@ export interface StageDocAssetsOptions {
  * 参照集合を「参照された CSS が更に引く資産」まで広げる。
  *
  * `<link href="css/510037.css">` しか書いていない文書でも、その CSS が
- * `@font-face { src: url(../fonts/a.woff2) }` と書いていれば fonts も要る。1 段では
+ * `@font-face { src: url(fonts/a.woff2) }` と書いていれば fonts も要る。1 段では
  * 足りない形(CSS が CSS を引く)もあるので `MAX_ASSET_REF_DEPTH` まで繰り返す。
  */
 async function expandReferenced(

@@ -74,6 +74,7 @@ describe('collectDocumentAssetRefs — 壊れた入力', () => {
 describe('resolveRefFrom — 参照元ファイルからの相対解決', () => {
   it.each([
     ['css/510037.css', '../fonts/a.woff2', 'fonts/a.woff2'],
+    ['css/510037.css', 'fonts/a.woff2', 'css/fonts/a.woff2'],
     ['css/510037.css', 'sub/b.png', 'css/sub/b.png'],
     ['', 'fonts/a.woff2', 'fonts/a.woff2'],
   ])('%s から %s → %s', (base, url, expected) => {
