@@ -88,6 +88,7 @@ export default defineConfig({
         'editor/server/src/openapi/docsRoutes.ts',
         'editor/server/src/vivliostyle/previewProxy.ts',
         'editor/server/src/generate/pyTemplate.ts',
+        'editor/server/src/generate/generatorCheck.ts',
         'editor/server/src/sync/partSync.ts',
         'editor/server/src/sync/noteMasterService.ts',
         'editor/server/src/middleware/*.ts',
