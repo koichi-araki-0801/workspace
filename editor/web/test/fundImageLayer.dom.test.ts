@@ -139,6 +139,31 @@ describe('attachFundImages', () => {
     expect(document.querySelectorAll(`img[src=${cssString(src)}]`)).toHaveLength(1);
   });
 
+  it('destroy の後は、予約済みの走査も以後の契機も canvas に触れない', () => {
+    document.body.innerHTML = '<img src="images/510037_logo.svg">';
+    const { host, emit } = fakeHost(document);
+    const getDocument = vi.spyOn(host.Canvas, 'getDocument');
+    const queued: Array<() => void> = [];
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningChange: vi.fn(),
+      preload: async () => {},
+      schedule: (cb) => queued.push(cb),
+    });
+    emit('component:remove');
+    layer.destroy();
+    // editor の破棄は Canvas を外したうえで component:remove を出す。
+    (host as { Canvas?: unknown }).Canvas = undefined;
+    emit('component:remove');
+    expect(() => {
+      for (const cb of queued) cb();
+      emit('load');
+      layer.refresh();
+    }).not.toThrow();
+    expect(getDocument).not.toHaveBeenCalled();
+  });
+
   it('先読みの既定実装(Image)でも落ちない', () => {
     document.body.innerHTML = '<img src="images/510037_logo.svg">';
     const { host, emit } = fakeHost(document);

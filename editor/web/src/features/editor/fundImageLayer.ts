@@ -44,7 +44,7 @@ export interface FundImageLayerOptions {
 export interface FundImageLayer {
   /** canvas を走査して規則と警告を作り直す。 */
   refresh(): void;
-  /** body の監視を外す(editor の破棄時)。 */
+  /** body の監視を外し、以後の走査を止める(editor の破棄時。破棄より前に呼ぶ)。 */
   destroy(): void;
 }
 
@@ -73,6 +73,11 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   let observedBody: HTMLElement | null = null;
   /** 最後に見た body の大きさ。同じ大きさでは測り直さない(測り直しが大きさを変えない限り止まる)。 */
   let lastSize = '';
+  /**
+   * 破棄済み。editor の破棄は Canvas を外したうえで component:remove を出すので、その契機で
+   * 予約された走査が後から canvas を読みに行かないよう止める。
+   */
+  let destroyed = false;
 
   const disconnect = (): void => {
     observer?.disconnect();
@@ -123,6 +128,7 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   };
 
   const refresh = (): void => {
+    if (destroyed) return;
     const doc = host.Canvas.getDocument();
     if (!doc?.head) return;
     const srcs = Array.from(doc.querySelectorAll('img'), (img) => img.getAttribute('src') ?? '');
@@ -148,7 +154,7 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   };
 
   const scheduleRefresh = (): void => {
-    if (pending) return;
+    if (pending || destroyed) return;
     pending = true;
     schedule(() => {
       pending = false;
@@ -161,7 +167,12 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   host.on('component:add', scheduleRefresh);
   host.on('component:remove', scheduleRefresh);
   host.on('component:update', scheduleRefresh);
-  return { refresh, destroy: disconnect };
+  const destroy = (): void => {
+    destroyed = true;
+    disconnect();
+  };
+
+  return { refresh, destroy };
 }
 
 /** GrapesJS の image view の、ここで使う面だけ。 */
