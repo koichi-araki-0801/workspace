@@ -26,6 +26,7 @@ import {
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { shouldMeasureCanonical } from './confirmedCanonicalGate';
+import { fundCodeOfTemplateId } from './fundImages';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { canvasRawKey, pageEls, partEls, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
@@ -455,6 +456,14 @@ export function useTemplateEditor(
     const layers = layersEl.value;
     if (!canvas || !layers) return;
     g.init({ canvas, layers });
+    // ファンド別画像の文脈。値入り本文(`filled` が非空 = 編集タブの本文)は描画を通らないので
+    // 確定パスだけを差し、Jinja 本文は `{{ fund.code }}` をテンプレ ID のファンドコードで解く。
+    // 判定をプレビュー(`templatePreviewService` の `isFilled`)と同じ材料にして、編集画面だけ
+    // 見える / 見えないのずれを作らない。
+    g.setFundImageContext({
+      mode: res.value.template.filled ? 'filled' : 'jinja',
+      fundCode: fundCodeOfTemplateId(id),
+    });
     // 倍率・ページ送りモードはセッションの ui 状態から復元する(`load` より前に当てる必要が
     // ある — `setInitialZoom` は次の `applyInitialZoom` 呼び出しの基準値を差し替えるだけ)。
     g.setInitialZoom(sess.ui.zoom ?? 1);
@@ -660,6 +669,7 @@ export function useTemplateEditor(
     template,
     fundName,
     syncStatus,
+    fundImageWarning: g.fundImageWarning,
     partHistory,
     displayHistory,
     partLabels,

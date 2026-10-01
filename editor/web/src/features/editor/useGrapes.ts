@@ -17,6 +17,8 @@ import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
+import { attachFundImages, type FundImageLayer, registerFundImageView } from './fundImageLayer';
+import { type FundImageContext, resolveFundImageSrc } from './fundImages';
 import { type GrapesCallbacks, wireGrapesEvents } from './grapesEvents';
 import {
   JINJA_COMPONENT_TYPE_SET,
@@ -112,6 +114,13 @@ export function useGrapes() {
   // 作成経路でのみ true。`setVarsHighlight` が状態を持ち、`load` 後の再描画でも body へ
   // 反映し直す(load で iframe body が差し替わるため)。
   let varsHighlight = false;
+
+  // ファンド別画像の文脈(本文の種類とファンドコード)。`setFundImageContext` が差し替え、
+  // 差し替え層(`fundImageLayer.ts`)と image view の拡張が読む。
+  let fundImageContext: FundImageContext = { mode: 'filled', fundCode: null };
+  let fundImages: FundImageLayer | null = null;
+  /** 値入り本文に `{{ … }}` 入りの画像参照が残っているか(編集画面の警告用)。 */
+  const fundImageWarning = ref(false);
 
   // ── ページ送り(1 ページだけ表示)の状態。判定は `pageView.ts` の純粋関数に委譲する ──
   /** 現在 canvas に在るページ要素(`body > .page`、無ければ `[body]`)の cache。 */
@@ -439,6 +448,18 @@ export function useGrapes() {
 
     registerJinjaComponents(ed);
 
+    // ファンド別画像は属性を書き換えず、canvas 専用の `<style>` で差す(`fundImageLayer.ts`)。
+    // 対象の `<img>` で GrapesJS の代替画像処理が `src` を差し替えるとセレクタが外れるので、
+    // view の拡張は component 生成より前のここで行う。
+    registerFundImageView(ed, (src) => resolveFundImageSrc(src, fundImageContext) !== null);
+    fundImages = attachFundImages(ed, {
+      getContext: () => fundImageContext,
+      onImagesReady: scheduleLayoutRecompute,
+      onWarningChange: (on) => {
+        fundImageWarning.value = on;
+      },
+    });
+
     // GrapesJS 既定の keymap(`core:undo`=⌘z / `core:redo` / `core:component-delete`=
     // backspace,delete 等)を全撤去する。本エディタは自前の snapshot 方式 Undo/Redo
     // (`useSnapshotHistory.ts`)と独自の削除を使い、ショートカットは `useEditorShortcuts.ts`
@@ -704,6 +725,15 @@ export function useGrapes() {
   }
 
   /**
+   * 編集画面のファンド別画像の文脈を設定する。`load` より前に呼ぶ(呼んだ時点の canvas も
+   * 作り直す)。Jinja 本文は `{{ fund.code }}` を解き、値入り本文は確定パスだけを差す。
+   */
+  function setFundImageContext(ctx: FundImageContext): void {
+    fundImageContext = ctx;
+    fundImages?.refresh();
+  }
+
+  /**
    * canvas を HTML + CSS で入れ替える。読み込めたら `true`、外部参照 CSS を拒んだら `false`。
    *
    * CSS 検査はここが最終防衛線で、service の入口ガード(`templateEditorService.loadForEdit`)を
@@ -736,6 +766,9 @@ export function useGrapes() {
       recomputeLayout();
       // load で iframe body が差し替わるため、保持中のハイライト状態を再適用する。
       setVarsHighlight(varsHighlight);
+      // `component:add` を経ない入れ替えでも、描画後の canvas で差し替え規則を作り直す
+      // (同じ内容なら書き直さないので重ねて呼んでよい)。
+      fundImages?.refresh();
     });
     return true;
   }
@@ -834,6 +867,7 @@ export function useGrapes() {
     if (cvScrollEl && cvScrollHandler) cvScrollEl.removeEventListener('scroll', cvScrollHandler);
     cvScrollEl = null;
     cvScrollHandler = null;
+    fundImages = null;
     editor.value?.destroy();
     editor.value = undefined;
   }
@@ -861,6 +895,8 @@ export function useGrapes() {
     init,
     load,
     setVarsHighlight,
+    setFundImageContext,
+    fundImageWarning,
     parseHtmlQuiet,
     insertPart,
     getBodyHtml,

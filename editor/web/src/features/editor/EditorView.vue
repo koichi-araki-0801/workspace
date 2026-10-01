@@ -16,6 +16,7 @@ import { useEditorSessionStore } from '@/stores/editorSession';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import CommentPanel from './comments/CommentPanel.vue';
 import EditorTopBar from './EditorTopBar.vue';
+import { FUND_IMAGE_WARNING_MESSAGE } from './fundImages';
 import Inspector from './Inspector.vue';
 import NoteBubble from './NoteBubble.vue';
 import PartTree from './PartTree.vue';
@@ -38,6 +39,7 @@ const {
   template,
   fundName,
   syncStatus,
+  fundImageWarning,
   displayHistory,
   partLabels,
   selectedPart,
@@ -372,6 +374,18 @@ const statusText = computed(() => {
         競合しています（自動同期停止中）:
         {{ syncStatus.conflicts.map((c) => `${c.partKey}〔${c.kind}〕`).join('、') }}
       </span>
+    </div>
+
+    <!-- 値入り本文に {{ fund.code }} 入りの画像参照が残っている。PDF にもプレビューにも出ないので、
+         外部ツール側で確定パスへ直すまで開くたびに出す(閉じるボタンは置かない)。文言は
+         テンプレート構文の字面を含むため定数で補間する。 -->
+    <div
+      v-if="fundImageWarning"
+      class="flex items-center gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
+      role="alert"
+    >
+      <TriangleAlert class="h-4 w-4 shrink-0" />
+      <span>{{ FUND_IMAGE_WARNING_MESSAGE }}</span>
     </div>
 
     <!-- 高ズームで両袖(固定幅)+ 中央が実効ビューポート幅を超える極端な場合は、クリップ
