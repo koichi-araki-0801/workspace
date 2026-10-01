@@ -52,8 +52,6 @@ const appConfigSchema = z
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
         filledDir: z.string().optional(),
-        // 廃止済み。専用の起動エラーを出すため検出用に残す(消すと .strict() の汎用エラーに退化する)。
-        assetsDir: z.string().optional(),
         jsDir: z.string().optional(),
         imagesDir: z.string().optional(),
         draftsDir: z.string().optional(),
@@ -896,45 +894,6 @@ export function buildCspDirectives(
 }
 
 /**
- * 廃止した設定 `assetsDir`(appconfig `paths.assetsDir` / env `ASSETS_DIR`)が残っていないか。
- * 黙って無視すると、独自の置き場に置いた js が配信ルートへ載らず、JS の効かない PDF が成功扱いで
- * 出る。誤記を起動中止で運用者に届ける方針(`envFlag`)に揃えて、ここで止める。
- */
-export function assertNoRetiredAssetsDir(opts: {
-  env: string | undefined;
-  file: string | undefined;
-}): void {
-  const where = [
-    ...(opts.env === undefined ? [] : ['環境変数 ASSETS_DIR']),
-    ...(opts.file === undefined ? [] : ['appconfig.json の paths.assetsDir']),
-  ];
-  if (where.length === 0) return;
-  throw new Error(
-    `[config] ${where.join(' と ')} が指定されていますが、assetsDir は廃止しました。` +
-      ' js は jsDir(環境変数 JS_DIR / appconfig の paths.jsDir)へ、フォントは <cssDir>/fonts へ' +
-      ' 移してください。移行パッチ: editor/patches/2026-10-fonts-to-css/',
-  );
-}
-
-/**
- * 旧構成の `<dataRoot>/assets` が残っていないか。`assetsDir` を指定しない既定構成でも、移行前に
- * 起動するとフォント(css/fonts)と js が配信ルートに載らず、見た目と JS だけが黙って欠けた
- * PDF が成功扱いで出る。移行パッチは `assets` を `assets.migrated-*` へ改名するので、移行後は通る。
- */
-export function assertNoLegacyAssetsDir(opts: {
-  dataRoot: string;
-  exists: (p: string) => boolean;
-}): void {
-  const legacy = path.join(opts.dataRoot, 'assets');
-  if (!opts.exists(legacy)) return;
-  throw new Error(
-    `[config] ${legacy} が残っています。フォントは <cssDir>/fonts、js は jsDir(既定 <dataRoot>/js)へ` +
-      ' 置き場を移したため、このままでは配信されません。' +
-      ' 移行パッチ editor/patches/2026-10-fonts-to-css/ を流してから起動してください。',
-  );
-}
-
-/**
  * `imagesDir` が確定領域(承認コミットが `git add -A -- <領域>` する dataRoot 直下の
  * ディレクトリ)の内側にないか。内側だと、別ツールが置いた画像が次の承認で承認者の名前の
  * コミットへ巻き込まれる(`.gitignore` の `/images/` は dataRoot 直下にしか効かない)。
@@ -980,9 +939,7 @@ export const allowedHosts = resolveAllowedHosts({
     .map((n) => n.address),
 });
 
-// 廃止した置き場の指定が残っていたら、listen より前に止める。
-assertNoRetiredAssetsDir({ env: process.env.ASSETS_DIR, file: file.paths?.assetsDir });
-assertNoLegacyAssetsDir({ dataRoot: config.dataRoot, exists: fs.existsSync });
+// imagesDir が確定領域の内側なら、listen より前に止める。
 assertImagesDirOutsideCommittedAreas({
   imagesDir: config.imagesDir,
   gitRepoDir: config.gitRepoDir,

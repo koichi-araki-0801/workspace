@@ -6,6 +6,8 @@
 // 指定は従来どおり dataRoot より優先される。
 // env を差し替えて評価し直すため、モジュールは毎回 `vi.resetModules()` してから動的
 // import する(`config.ts` は import 時に env を読んで値を確定する)。
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -25,6 +27,7 @@ const PATH_ENV_KEYS = [
   'SYNC_DIR',
   'GIT_REPO_DIR',
   'ASSETS_DIR',
+  'APP_CONFIG',
 ] as const;
 
 /** env を一時的に差し替えて `config.ts` を評価し直す(評価後に env は元へ戻す)。 */
@@ -95,10 +98,37 @@ describe('config paths', () => {
     expect(config.jsDir).toBe(jsDir);
   });
 
-  it('ASSETS_DIR が残っていたら起動エラーで jsDir への移行を案内する', async () => {
-    await expect(
-      importConfigWithEnv({ DATA_ROOT, ASSETS_DIR: path.join(DATA_ROOT, 'assets') }),
-    ).rejects.toThrow(/assetsDir は廃止しました.*JS_DIR.*2026-10-fonts-to-css/s);
+  it('ASSETS_DIR は読まない(設定されていても起動でき、jsDir は既定のまま)', async () => {
+    const { config } = await importConfigWithEnv({
+      DATA_ROOT,
+      ASSETS_DIR: path.join(DATA_ROOT, 'assets'),
+    });
+    expect(config.jsDir).toBe(path.join(DATA_ROOT, 'js'));
+    expect('assetsDir' in config).toBe(false);
+  });
+
+  it('dataRoot に旧構成の assets が残っていても起動は止めない(警告は files/legacyLayoutCheck.ts)', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-config-assets-'));
+    try {
+      fs.mkdirSync(path.join(root, 'assets', 'fonts'), { recursive: true });
+      const { config } = await importConfigWithEnv({ DATA_ROOT: root });
+      expect(config.dataRoot).toBe(root);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('appconfig の paths.assetsDir は不明なキーとして読み込みエラーになる', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-config-assetsdir-'));
+    const file = path.join(dir, 'appconfig.json');
+    try {
+      fs.writeFileSync(file, JSON.stringify({ paths: { assetsDir: 'D:\\old\\assets' } }), 'utf8');
+      await expect(importConfigWithEnv({ DATA_ROOT, APP_CONFIG: file })).rejects.toThrow(
+        /appconfig\.json の内容が不正です[\s\S]*assetsDir/,
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('IMAGES_DIR が imagesDir を上書きする', async () => {
@@ -111,44 +141,6 @@ describe('config paths', () => {
     await expect(
       importConfigWithEnv({ DATA_ROOT, IMAGES_DIR: path.join(DATA_ROOT, 'css', 'images') }),
     ).rejects.toThrow(/imagesDir.*css.*<dataRoot>\/images/s);
-  });
-});
-
-describe('assertNoRetiredAssetsDir', () => {
-  it('appconfig の paths.assetsDir だけでも拒む', async () => {
-    const { assertNoRetiredAssetsDir } = await importConfigWithEnv({ DATA_ROOT });
-    expect(() => assertNoRetiredAssetsDir({ env: undefined, file: 'data/assets' })).toThrow(
-      /paths\.assetsDir/,
-    );
-  });
-
-  it('どちらも無ければ何もしない', async () => {
-    const { assertNoRetiredAssetsDir } = await importConfigWithEnv({ DATA_ROOT });
-    expect(() => assertNoRetiredAssetsDir({ env: undefined, file: undefined })).not.toThrow();
-  });
-});
-
-describe('assertNoLegacyAssetsDir', () => {
-  it('dataRoot 直下に assets があれば移行パッチを案内して拒む', async () => {
-    const { assertNoLegacyAssetsDir } = await importConfigWithEnv({ DATA_ROOT });
-    expect(() => assertNoLegacyAssetsDir({ dataRoot: DATA_ROOT, exists: () => true })).toThrow(
-      /assets.*2026-10-fonts-to-css/s,
-    );
-  });
-
-  it('assets が無ければ何もしない', async () => {
-    const { assertNoLegacyAssetsDir } = await importConfigWithEnv({ DATA_ROOT });
-    const seen: string[] = [];
-    expect(() =>
-      assertNoLegacyAssetsDir({
-        dataRoot: DATA_ROOT,
-        exists: (p) => {
-          seen.push(p);
-          return false;
-        },
-      }),
-    ).not.toThrow();
-    expect(seen).toEqual([path.join(DATA_ROOT, 'assets')]);
   });
 });
 
