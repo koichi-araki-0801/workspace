@@ -270,3 +270,5 @@ export * from './security/cssRebase.js';
 export * from './security/htmlEntities.js';
 // HTML 属性の外部参照検出。同梱資産への相対参照は通し、オリジン外の絶対参照だけを拒む。
 export * from './security/htmlExternalRefs.js';
+// 配信する SVG の許可リスト検査。関所はサーバ(配置時と単体配信時)の 2 か所。
+export * from './security/svgInspect.js';

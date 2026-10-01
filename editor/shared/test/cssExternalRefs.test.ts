@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   collectCssUrlCandidates,
   findExternalRefsInCss,
+  isAllowedDataUrl,
   isSelfContainedUrl,
 } from '../src/security/cssExternalRefs.js';
 
@@ -80,5 +81,25 @@ describe('バックスラッシュで書いた scheme 相対 URL', () => {
     expect(isSelfContainedUrl('fonts/BIZUDPGothic.woff2')).toBe(true);
     expect(isSelfContainedUrl('./css/510037.css')).toBe(true);
     expect(isSelfContainedUrl('#clip1')).toBe(true);
+  });
+});
+
+describe('isAllowedDataUrl', () => {
+  it('許可リストの data: URI だけを真にする(SVG は入れない)', () => {
+    expect(isAllowedDataUrl('data:image/png;base64,AAAA')).toBe(true);
+    expect(isAllowedDataUrl(' DATA:image/JPEG;base64,AAAA')).toBe(true);
+    expect(isAllowedDataUrl('data:image/svg+xml,%3Csvg%3E')).toBe(false);
+    expect(isAllowedDataUrl('data:text/html,x')).toBe(false);
+    expect(isAllowedDataUrl('https://example.com/x.png')).toBe(false);
+  });
+
+  it('isSelfContainedUrl の data: 判定と一致する', () => {
+    for (const url of [
+      'data:image/png;base64,A',
+      'data:image/svg+xml,x',
+      'data:font/woff2;base64,A',
+    ]) {
+      expect(isSelfContainedUrl(url)).toBe(isAllowedDataUrl(url));
+    }
   });
 });

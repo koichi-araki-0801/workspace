@@ -47,6 +47,7 @@ export default defineConfig({
         'editor/shared/src/security/htmlExternalRefs.ts',
         'editor/shared/src/security/htmlEntities.ts',
         'editor/shared/src/security/cssRebase.ts',
+        'editor/shared/src/security/svgInspect.ts',
         // editor/server (vivliostyle は pure layer のみ。build.ts 等は browser+socket 依存で対象外)
         'editor/server/src/auth/password.ts',
         'editor/server/src/auth/loginRateLimit.ts',

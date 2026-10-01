@@ -79,6 +79,16 @@ const ALLOWED_DATA_PREFIXES = [
   'data:application/font-woff',
 ];
 
+/**
+ * `url` が許可リストの `data:` URI か。SVG の `<image href>` の判定(`svgInspect.ts`)が同じ
+ * 許可リストを使うために公開する。リスト自体は公開しない — 呼び出し側で足し引きされると、
+ * 「テンプレの著者が未検査の SVG を data URI で直接書ける」経路が開く。
+ */
+export function isAllowedDataUrl(url: string): boolean {
+  const lower = url.trim().toLowerCase();
+  return lower.startsWith('data:') && ALLOWED_DATA_PREFIXES.some((p) => lower.startsWith(p));
+}
+
 const HEX = /[0-9a-fA-F]/;
 const WS = /\s/;
 /** ident を構成する ASCII 文字。非 ASCII(U+0080 以降)は CSS 仕様どおり無条件で ident 文字。 */
@@ -202,7 +212,7 @@ export function isSelfContainedUrl(url: string): boolean {
   if (v.startsWith('//')) return false;
   const lower = v.toLowerCase();
   if (lower.startsWith('data:')) {
-    return ALLOWED_DATA_PREFIXES.some((p) => lower.startsWith(p));
+    return isAllowedDataUrl(lower);
   }
   const colon = v.indexOf(':');
   if (colon < 0) return true;
