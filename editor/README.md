@@ -21,8 +21,9 @@ editor はリポジトリ直下の **pnpm モノレポ**の一部（`editor/shar
 editor/shared/   共有 TS 型/DTO + Result/AppError + ドメイン + 集約ごとの Repository 契約（型の真実源）
 editor/web/      Vue3 + Vite + TS + Vue Router + Pinia + Tailwind v4 + shadcn-vue + GrapesJS + Nunjucks + vivliostyle
 editor/server/   Fastify + TS（PDF 生成 / ファイル索引 / Python 生成器アダプタ / `rest` 向け REST・SQL）
-editor/data/     テンプレ(.html) と ファンド毎 CSS（サーバが参照）
 ```
+
+テンプレ実体（`.html`）とファンド毎 CSS はリポジトリの外の data リポジトリ（既定 `../../editor-data`、環境変数 `DATA_ROOT`）に置く。初期化は `editor/scripts/init-data-repo.bat`。
 
 > データソースは `VITE_API_MODE` で切り替える。既定は `rest`（SQL Server + 認証）。`local`
 > （fixtures + localStorage、DB なし・ログインなし）は開発用の opt-in。`web/src/api/repositories.ts`

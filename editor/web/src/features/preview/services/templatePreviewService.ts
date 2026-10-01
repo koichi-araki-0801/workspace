@@ -118,7 +118,7 @@ export function createTemplatePreviewService(
         css = formatCss(draft.css);
       } else if (draft) {
         // Jinja 復元(DOM 重処理)は Worker(linkedom)で実行しメインを塞がない。`pretty` で
-        // 復元 HTML を整形し、確定保存される `data/templates` が git に読める形になる。
+        // 復元 HTML を整形し、確定保存される `<dataRoot>/templates` が git に読める形になる。
         // `toTemplate` は復元マスクの形状検査に失敗すると throw する(canvas 入口を素通りした
         // 攻撃形 draft の検出)。comlink 越しでも promise reject で届くので Result へ写す。
         let restoredBody: string;

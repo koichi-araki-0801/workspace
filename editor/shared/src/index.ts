@@ -81,8 +81,8 @@ export type TemplateSnapshot = z.infer<typeof sch.TemplateSnapshot>;
 export type TemplateVersionMeta = z.infer<typeof sch.TemplateVersionMeta>;
 
 // ── 5b. Domain: review workflow (確定保存の精査者承認) ──
-// 確定保存(= 実ファイル `data/templates` + git への反映)を「申請(submit)」と
-// 「承認(approve)」の 2 段に割る。申請は実ファイルを更新せず `data/reviews/` に積み、
+// 確定保存(= 実ファイル `<dataRoot>/templates` + git への反映)を「申請(submit)」と
+// 「承認(approve)」の 2 段に割る。申請は実ファイルを更新せず `<dataRoot>/reviews/` に積み、
 // approver|admin が承認したときに限り実ファイルへ反映する。編集タブ(既存編集)・作成タブ
 // (新規確定)の両経路を一律にゲートする。詳細は `repositories/ReviewRepository.ts` を見よ。
 

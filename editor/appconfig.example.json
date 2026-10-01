@@ -1,9 +1,7 @@
 {
   "port": 24680,
   "paths": {
-    "templatesDir": "data/templates",
-    "cssDir": "data/css",
-    "pendingDir": "data/pending",
+    "dataRoot": "../../editor-data",
     "tmpDir": ".tmp",
     "logDir": "logs",
     "webDist": "web/dist"

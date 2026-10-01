@@ -9,8 +9,7 @@
     1. dataRoot 配下にサーバが使う置き場をすべて作成する(templates/ filled/ css/ css/fonts/ sync/
        drafts/ pending/ reviews/ notes/ js/ images/)。サーバも必要時に作るが、
        共有フォルダへ置く運用では権限設定や目視確認のために最初から揃っている方が扱いやすい。
-    2. 既存 editor/data/{templates,css} があれば dataRoot へコピーする(初回移行)。
-    3. dataRoot が未初期化なら git init + .gitignore/.gitattributes + 初回コミット。
+    2. dataRoot が未初期化なら git init + .gitignore/.gitattributes + 初回コミット。
   サーバは環境変数 DATA_ROOT(または appconfig.json の paths.dataRoot)でこの場所を
   参照する。drafts/ pending/ と一時ファイルは追跡しない(.gitignore)。pending/ を
   追跡しないのは整理ではなく防御の一部で、承認コミット(git add -A)に未承認の生成物が
@@ -79,19 +78,7 @@ foreach ($d in $dirs) {
   New-Item -ItemType Directory -Force -Path (Join-Path $DataRoot $d) | Out-Null
 }
 
-# 2. 既存 editor/data の本体(templates/css)を初回移行(コピー)する。
-$src = Join-Path $editorDir 'data'
-if (Test-Path $src) {
-  foreach ($sub in 'templates', 'css') {
-    $s = Join-Path $src $sub
-    if (Test-Path $s) {
-      Copy-Item (Join-Path $s '*') (Join-Path $DataRoot $sub) -Recurse -Force -ErrorAction SilentlyContinue
-      Write-Host "コピー: editor/data/$sub -> dataRoot/$sub"
-    }
-  }
-}
-
-# 3. git リポジトリを初期化する(未初期化のときだけ)。
+# 2. git リポジトリを初期化する(未初期化のときだけ)。
 Push-Location $DataRoot
 try {
   if (-not (Test-Path (Join-Path $DataRoot '.git'))) {
@@ -117,6 +104,3 @@ Write-Host ''
 Write-Host '完了しました。次の対応をしてください:'
 Write-Host "  - サーバ起動時に環境変数 DATA_ROOT=$DataRoot を設定する(start.bat rest 等)。"
 Write-Host '  - TortoiseGit で上記 dataRoot フォルダを開くと履歴/diff を参照できます。'
-Write-Host '  - 旧 editor/data の追跡解除(任意。ワークスペースで実行):'
-Write-Host '      git rm -r --cached editor/data'
-Write-Host "      echo 'editor/data/' >> .gitignore"

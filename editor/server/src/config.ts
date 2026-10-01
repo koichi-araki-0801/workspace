@@ -131,8 +131,8 @@ function resolvePath(envVal: string | undefined, fileVal: string | undefined, de
  * テンプレ実体(templates/css/drafts)を置く data ルート。git 版管理の対象でもある
  * (`gitRepoDir`)。ネスト git を避けるため既定は **ワークスペースリポジトリ外**
  * (repoRoot=editor の 2 つ上、例 `C:\Users\<user>\editor-data`)。env `DATA_ROOT`
- * または `appconfig.json` の `paths.dataRoot` で上書きする。移設は init-data-repo
- * スクリプトが行う(既存 editor/data からの移動)。
+ * または `appconfig.json` の `paths.dataRoot` で上書きする。初期化は init-data-repo
+ * スクリプトが行う。
  */
 const dataRoot = resolvePath(process.env.DATA_ROOT, file.paths?.dataRoot, '../../editor-data');
 
@@ -371,7 +371,7 @@ export const config = {
    */
   pendingDir: resolveDataPath(process.env.PENDING_DIR, file.paths?.pendingDir, 'pending'),
   /**
-   * 確定保存の承認待ち申請(`data/reviews/<reqId>/`。git 管理外)。承認時に実ファイル
+   * 確定保存の承認待ち申請(`<dataRoot>/reviews/<reqId>/`。git 管理外)。承認時に実ファイル
    * (templates/css)へ反映するまでの中間保管。`ensureRepo` が `/reviews/` を .gitignore する。
    */
   reviewsDir: resolveDataPath(process.env.REVIEWS_DIR, file.paths?.reviewsDir, 'reviews'),

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { buildSampleData, type FundMaster, parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
@@ -129,33 +129,45 @@ describe('real report templates round-trip token-for-token', () => {
   }
 });
 
-// fixture テンプレ(上)と REST 検証データ(`editor/data/templates`)・生成スケルトンは
-// 書きぶりが分岐しており、fixture だけを検査すると後者だけが参照するキー
-// (`report.baseDate` / `fund.navChange` で実際に起きた)の欠落が素通りする。
-// 参照キーがサンプルデータで満たされることを、全系統に対して固定する。
-// `editor/data/templates` は dataRoot 方式のローカル専用実データで git 管理外(.gitignore)
-// のため、用意されていない環境(CI 等)ではこの系統だけスキップする。
-describe('data/templates と生成スケルトンの参照キーがサンプルで満たされる', () => {
-  const funds = fundMaster as Record<string, FundMaster>;
-  const dataTemplates = resolve(__dirname, '../../data/templates');
-  const dataTemplateFiles = existsSync(dataTemplates)
-    ? readdirSync(dataTemplates).filter((f) => f.endsWith('.html'))
-    : [];
+// fixture テンプレ(上)と生成器のスケルトンは書きぶりが分岐しており、fixture だけを検査すると
+// 生成器だけが参照するキー(`report.baseDate` と `fund.navChange` の符号分岐で実際に起きた)の
+// 欠落が素通りする。生成器の書きぶりの最小の代替をここに置き、参照キーがサンプルデータで
+// 満たされることを固定する。
+const GENERATED_SKELETON_BODY = `<div class="page">
+<header class="report-header">
+  <h1 class="report-title">{{ fund.name }}</h1>
+  <p class="report-meta">基準日: {{ report.baseDate }}　版種: {{ report.editionType }}</p>
+</header>
+<section class="summary">
+  <p class="nav">{{ fund.nav }} 円</p>
+  {% if fund.navChange >= 0 %}
+  <p class="nav-change up">前日比 +{{ fund.navChange }} 円</p>
+  {% else %}
+  <p class="nav-change down">前日比 {{ fund.navChange }} 円</p>
+  {% endif %}
+</section>
+<table class="holdings-table"><tbody>
+  {% for h in holdings %}
+  <tr data-rank="{{ loop.index }}"><td>{{ loop.index }}</td><td>{{ h.name }}</td><td>{{ h.weight }}%</td></tr>
+  {% endfor %}
+</tbody></table>
+<footer class="report-footer"><p>委託会社: {{ company.name }}（{{ company.code }}）</p></footer>
+</div>`;
 
-  for (const file of dataTemplateFiles) {
-    it(`${file}: 解釈できない/未定義の Jinja 式が無い`, () => {
-      const raw = readFileSync(resolve(dataTemplates, file), 'utf8');
-      const attrs = parseTemplateFileName(file);
-      expect(attrs).not.toBeNull();
-      if (!attrs) return;
-      const { diagnostics } = toFilledWithDiagnostics(
-        raw,
-        buildSampleData(funds[attrs.fundCode], attrs.fundCode, attrs),
-      );
-      expect(diagnostics.unsupported).toEqual([]);
-      expect(diagnostics.missing).toEqual([]);
-    });
-  }
+describe('生成スケルトンの参照キーがサンプルで満たされる', () => {
+  const funds = fundMaster as Record<string, FundMaster>;
+
+  it('生成器の書きぶり(基準日・前日比の符号分岐): 解釈できない/未定義の Jinja 式が無い', () => {
+    const attrs = parseTemplateFileName('AM01_510037_20240710_kr.html');
+    expect(attrs).not.toBeNull();
+    if (!attrs) return;
+    const { diagnostics } = toFilledWithDiagnostics(
+      GENERATED_SKELETON_BODY,
+      buildSampleData(funds[attrs.fundCode], attrs.fundCode, attrs),
+    );
+    expect(diagnostics.unsupported).toEqual([]);
+    expect(diagnostics.missing).toEqual([]);
+  });
 
   it('defaultSkeleton(local の新規作成雛形): 解釈できない/未定義の Jinja 式が無い', () => {
     const { diagnostics } = toFilledWithDiagnostics(
