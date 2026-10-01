@@ -94,14 +94,19 @@ function Invoke-Git {
 }
 
 function Test-GitHead {
-  # HEAD が無い(git init だけした)リポジトリでは rev-parse が非 0 で終わる。それを例外にしない
-  # よう、呼ぶ区間だけ設定を緩めて finally で戻す。
+  # HEAD が無い(git init だけした)リポジトリでは `rev-parse --verify -q` が終了コード 1 で終わる。
+  # それ以外の非 0(128: dubious ownership・リポジトリとして読めない等)は HEAD 無しとみなすと、
+  # 履歴のあるリポジトリへ .gitignore 等を書いたうえ初回コミットを試みるので、ここで止める。
   $prev = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
   try {
-    & $gitExe -C $DataRoot rev-parse --verify -q HEAD 2>$null | Out-Null
-    return ($LASTEXITCODE -eq 0)
+    $all = @(& $gitExe -C $DataRoot rev-parse --verify -q HEAD 2>&1)
+    $code = $LASTEXITCODE
   } finally { $ErrorActionPreference = $prev }
+  if ($code -eq 0) { return $true }
+  if ($code -eq 1) { return $false }
+  $err = ($all | Where-Object { $_ -is [Management.Automation.ErrorRecord] } | ForEach-Object { $_.ToString() }) -join "`n"
+  throw "git rev-parse --verify -q HEAD が失敗しました(終了コード $code)。`n$err"
 }
 
 function Get-CommittedPathspecs {
@@ -136,15 +141,20 @@ if ($hasGit -and (Test-GitHead)) {
   # 中身は gitRepo.ts の ensureGitignore の必須行と揃える。BOM 無しで書くのは、PowerShell 5.1 の
   # -Encoding utf8 が付ける BOM で先頭行がサーバの照合に一致せず、同じ行が重複して足されるため。
   # 既にある .gitignore は消さず、足りない必須行だけを足す(手で作り直した dataRoot の設定を残す)。
+  # 足すときはサーバと同じく、既存の行を空行を除いて重複無しに並べ直し、LF で書き直す(CRLF の
+  # ファイルへ LF の行を継ぎ足して改行が混ざらないため)。必須行が揃っていれば書かない。
   $utf8NoBom = New-Object System.Text.UTF8Encoding $false
   $required = '/drafts/', '/reviews/', '/pending/', '/notes/', '/css/fonts/', '/images/', '*.tmp-*'
   $ignorePath = Join-Path $DataRoot '.gitignore'
   $current = if (Test-Path -LiteralPath $ignorePath) { [IO.File]::ReadAllText($ignorePath) } else { '' }
   $lines = @($current -split "`r?`n" | ForEach-Object { $_.Trim() })
   $missing = @($required | Where-Object { $lines -cnotcontains $_ })
-  if ($missing.Count -gt 0) {
-    if ($current -ne '' -and -not $current.EndsWith("`n")) { $current += "`n" }
-    [IO.File]::WriteAllText($ignorePath, $current + (($missing -join "`n") + "`n"), $utf8NoBom)
+  if ($missing.Count -gt 0 -or $current -eq '') {
+    $merged = New-Object System.Collections.Generic.List[string]
+    foreach ($l in @($lines | Where-Object { $_ -ne '' }) + $missing) {
+      if (-not $merged.Contains($l)) { $merged.Add($l) }
+    }
+    [IO.File]::WriteAllText($ignorePath, (($merged -join "`n") + "`n"), $utf8NoBom)
   }
   # .gitattributes はサーバ(gitRepo.ts の ensureGitattributes)と同じ形に揃えてから記録する: 先頭を
   # `* text eol=lf` にし、無効な `* text=lf` を落とし、他の行は残す(BOM 無し・LF)。初回コミットへ
@@ -163,6 +173,10 @@ if ($hasGit -and (Test-GitHead)) {
   # css/fonts は上で必ず入れる .gitignore の /css/fonts/ で外す(サーバの stageTrackedAreas と同じ)。
   # `:(exclude)css/fonts` を併せて渡すと、git add は無視中のパスを名指ししたとみなして失敗する。
   $specs = @(Get-CommittedPathspecs)
+  # HEAD の無い .git では、手で `git add -A` した後に commit が止まった等で index に確定領域の外が
+  # 載っていることがある。領域を絞った add は領域外の index に触れないので、先に index を空にする
+  # (--cached なので作業ツリーのファイルは消えない)。
+  if ($hasGit) { Invoke-Git rm -r -q --cached --ignore-unmatch -- . | Out-Null }
   Invoke-Git add -A -- @specs | Out-Null
   Invoke-Git -c user.name=system -c user.email=system@editor.local commit -q -m '初期化: テンプレ版管理リポジトリ' | Out-Null
   if ($hasGit) {
