@@ -168,6 +168,15 @@ describe('assemblePreviewDocument — サニタイズ後の復活を許さない
     expect(styles[1].hasAttribute('data-extra-css')).toBe(true);
   });
 
+  it('本文 CSS の相対 url() を css/ 基準へ 1 回だけ付け替える(filledHtml 経由の再入でも二重にしない)', () => {
+    const css = '@font-face{font-family:a;src:url(fonts/a.woff2)}';
+    const once = assemblePreviewDocument('<p>x</p>', css);
+    expect(once).toContain('url("css/fonts/a.woff2")');
+    // 申請の filledHtml(= 上の出力)を本文として再度組み立てても、HTML 側の <style> は触らない。
+    const again = assemblePreviewDocument(once, css);
+    expect(again).not.toContain('css/css/');
+  });
+
   it('組み立て済み文書を再度通しても構造が壊れない(filledHtml 経由の再入)', () => {
     const once = assemblePreviewDocument('<p>x</p>', '.a{color:red}');
     const twice = assemblePreviewDocument(once, '.b{color:blue}');

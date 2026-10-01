@@ -1,7 +1,7 @@
 // =============================================================================
 // nunjucksRender.ts — ブラウザでの Jinja2 テンプレートのプレビュー描画
 // =============================================================================
-import type { SampleData } from '@editor/shared';
+import { REQUEST_CSS_BASE, rebaseCssUrls, type SampleData } from '@editor/shared';
 import nunjucks from 'nunjucks';
 import { formatCss, formatHtml } from './formatOutput';
 import {
@@ -77,7 +77,12 @@ export function assemblePreviewDocument(
   // ページ分割を中断する。ここは構造の上での二重化(版差と非サニタイズ経路の保険)。
   stripExternalRefs(root);
   // CSS は DOMPurify を通らないため `</style>` 脱出は `appendPreviewStyle` の中で潰す。
-  appendPreviewStyle(root, formatCss(css), { 'data-preview-css': '' });
+  // 本文 CSS は `css/<fund>.css` の位置の CSS として書かれている(相対 url() は css/ 基準)。
+  // `<style>` へ埋め込むと文書基準になるので、ここで 1 回だけ付け替える。HTML 側の
+  // `<style>` は触らない — 申請の filledHtml を本文として再入させる経路があり、触ると二重になる。
+  appendPreviewStyle(root, formatCss(rebaseCssUrls(css, REQUEST_CSS_BASE)), {
+    'data-preview-css': '',
+  });
   if (opts?.extraCss) appendPreviewStyle(root, opts.extraCss, { 'data-extra-css': '' });
   return serializePreviewRoot(root);
 }
