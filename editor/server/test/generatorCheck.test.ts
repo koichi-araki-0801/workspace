@@ -18,6 +18,7 @@ import {
   checkGeneratorAtStartup,
   EXPECTED_PYTHON_VERSION,
 } from '../src/generate/generatorCheck.js';
+import { logger } from '../src/logger.js';
 
 type Callback = (err: Error | null, stdout: string, stderr: string) => void;
 
@@ -81,6 +82,28 @@ describe('checkGeneratorAtStartup', () => {
     const log = fakeLog();
     await expect(checkGeneratorAtStartup(log)).resolves.toBeUndefined();
     expect(log.warn).toHaveBeenCalledWith(expect.stringMatching(/起動できません[\s\S]*ENOENT/));
+  });
+
+  it('タイムアウト(killed)は応答が無いと明示して警告する', async () => {
+    answer(Object.assign(new Error('Command failed'), { killed: true }), '');
+    const log = fakeLog();
+    await checkGeneratorAtStartup(log);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/起動できません[\s\S]*10 秒以内に応答がありません/),
+    );
+  });
+
+  it('execFile が同期 throw しても reject せず、ロガーへ警告する', async () => {
+    execFileMock.mockImplementation(() => {
+      throw new Error('The argument must be a string without null bytes');
+    });
+    const spy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+    try {
+      await expect(checkGeneratorAtStartup(fakeLog())).resolves.toBeUndefined();
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining('起動時確認に失敗しました'));
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('子プロセスの error イベントも起動失敗として警告する', async () => {

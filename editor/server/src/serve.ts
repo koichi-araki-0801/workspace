@@ -98,7 +98,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<voi
   warnOnNetworkPlacement();
   // 生成器の Python と指紋の設定を確かめる。待たない(最大 10 秒の確認で listen を遅らせない)。
   // 結果は警告ログだけで起動は止めない — 生成を使わない運用まで止まるため。
-  void checkGeneratorAtStartup();
+  checkGeneratorAtStartup().catch(() => {});
   await invalidateSessionsOnBoot(app);
 
   // listen。host は既定 127.0.0.1(同一マシン限定)で、社内 LAN へ公開するときだけ

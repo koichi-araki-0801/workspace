@@ -34,6 +34,10 @@ function probePythonVersion(): Promise<{ version: string } | { failure: string }
         if (err) {
           const code = (err as { code?: unknown }).code;
           const detail = stderr.trim();
+          if ((err as { killed?: unknown }).killed === true) {
+            resolve({ failure: `${PROBE_TIMEOUT_MS / 1000} 秒以内に応答がありません` });
+            return;
+          }
           resolve({
             failure:
               `${err.message}${code === undefined ? '' : ` [code=${String(code)}]`}` +
@@ -48,8 +52,21 @@ function probePythonVersion(): Promise<{ version: string } | { failure: string }
   });
 }
 
-/** 生成器の Python の版と指紋の設定を確かめ、結果をログへ出す。 */
+/**
+ * 生成器の Python の版と指紋の設定を確かめ、結果をログへ出す。reject しない — 呼び出し側は
+ * 待たずに投げるため、ここで例外を漏らすと unhandled rejection でプロセスが落ちる。
+ */
 export async function checkGeneratorAtStartup(log: StartupLog = logger): Promise<void> {
+  try {
+    await runChecks(log);
+  } catch (err) {
+    logger.warn(
+      `[generate] 生成器の起動時確認に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+async function runChecks(log: StartupLog): Promise<void> {
   const command = [config.python.bin, ...config.python.args].join(' ');
   const probe = await probePythonVersion();
   if ('failure' in probe) {
