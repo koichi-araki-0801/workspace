@@ -1,15 +1,19 @@
 // =============================================================================
 // generatorCheck.ts — 起動時に生成器の Python と指紋の設定を 1 回だけ確かめてログへ出す
 // =============================================================================
-// 生成器を起動できない環境(py ランチャが無い・3.13 が無い・Microsoft Store のスタブに解決
-// される)は、最初の「新規作成」まで誰も気づかない。起動ログで先に知らせる。起動は止めない —
-// 生成を使わない運用(local・閲覧専用)まで止まるため。
+// 生成器を起動できない環境(PATH に python が無い・PATH で先に見つかる python が 3.13 でない・
+// Microsoft Store の偽物 WindowsApps\python.exe に解決される)は、最初の「新規作成」まで誰も
+// 気づかない。起動ログで先に知らせる。起動は止めない — 生成を使わない運用(local・閲覧専用)
+// まで止まるため。
 import { execFile } from 'node:child_process';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { generatorEnv } from './pyTemplate.js';
 
-/** 生成器が前提とする Python の版(リポジトリの方針 `py -3.13`)。 */
+/**
+ * 生成器が前提とする Python の版。既定の起動コマンド(PATH 上の python)は版を指定しないので、
+ * ここで確かめる。
+ */
 export const EXPECTED_PYTHON_VERSION = '3.13';
 
 const VERSION_PROBE = "import sys; print('%d.%d' % sys.version_info[:2])";
@@ -72,13 +76,16 @@ async function runChecks(log: StartupLog): Promise<void> {
   if ('failure' in probe) {
     log.warn(
       `[generate] 生成器の Python を起動できません(${command}): ${probe.failure} — ` +
-        '作成タブの「新規作成」は失敗します。Python 3.13 と py ランチャを入れるか、' +
+        '作成タブの「新規作成」は失敗します。Python 3.13 を入れてユーザー環境変数 PATH に通し' +
+        '(WindowsApps の python より前)、新しいコマンドプロンプトからサーバを起動し直すか、' +
         'PYTHON_BIN / appconfig の python.bin・python.args を確認してください',
     );
   } else if (probe.version !== EXPECTED_PYTHON_VERSION) {
     log.warn(
       `[generate] 生成器の Python が ${probe.version} です(${command})。` +
-        `${EXPECTED_PYTHON_VERSION} を前提にしています — python.args などで版を指定してください`,
+        `${EXPECTED_PYTHON_VERSION} を前提にしています — PATH で先に見つかる python が ` +
+        `${EXPECTED_PYTHON_VERSION} になるよう PATH を直す(システム PATH はユーザー PATH より先に` +
+        `探されます)か、PYTHON_BIN に ${EXPECTED_PYTHON_VERSION} の python.exe を指定してください`,
     );
   } else {
     log.info(`[generate] 生成器の Python: ${probe.version}(${command})`);

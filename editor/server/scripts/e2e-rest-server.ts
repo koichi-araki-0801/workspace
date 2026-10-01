@@ -24,8 +24,9 @@ async function main(): Promise<void> {
   process.env.AUTH_REQUIRED = 'true';
   process.env.AUDIT_DB = 'true';
   process.env.DATA_ROOT = E2E_REST_DATA_ROOT;
-  // 作成タブ(`POST /api/generate`)は生成器を子プロセスで呼ぶ。Windows は既定の `py -3.13`
-  // をそのまま使い、py ランチャの無い Linux(CI)だけ python3 を直接指す。
+  // 作成タブ(`POST /api/generate`)は生成器を子プロセスで呼ぶ。Windows は既定の PATH 上の
+  // `python` を使う(開発機もユーザー環境変数 PATH の先頭に Python 3.13 を置く)。`python` が
+  // Python 3 を指すとは限らない Linux(CI)だけ python3 を直接指す。
   if (process.platform !== 'win32') process.env.PYTHON_BIN ??= 'python3';
 
   await seedDataRoot(repoRoot);

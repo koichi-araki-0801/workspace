@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const { execFileMock } = vi.hoisted(() => {
   const tmpRoot = process.env.TEMP ?? process.env.TMPDIR ?? '/tmp';
   process.env.LOG_DIR = `${tmpRoot}/editor-generator-check-logs`;
+  process.env.APP_CONFIG = `${tmpRoot}/editor-generator-check-no-appconfig.json`;
   // 既定では指紋を設定済みにして、版の警告だけを観測する。未設定の警告は専用のケースで見る。
   process.env.PY_GENERATE_SCRIPT_SHA256 = 'a'.repeat(64);
   // 既定の生成器は偽物なので、偽物の警告が混ざらないよう別名の本物扱いにしておく。
@@ -65,18 +66,25 @@ describe('checkGeneratorAtStartup', () => {
     expect(env.TEMPLATES_DIR).toBe(config.templatesDir);
   });
 
-  it('3.13 以外なら版を添えて警告する', async () => {
+  it('3.13 以外なら版を添え、システム PATH が先に探されることを案内して警告する', async () => {
     answer(null, '3.12\n');
     const log = fakeLog();
     await checkGeneratorAtStartup(log);
     expect(log.warn).toHaveBeenCalledWith(expect.stringMatching(/3\.12[\s\S]*3\.13/));
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('システム PATH'));
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('PYTHON_BIN'));
   });
 
-  it('exit 9009(Store のスタブ・py が無い)は起動失敗として警告する', async () => {
-    answer(Object.assign(new Error('Command failed: py -3.13 -c ...'), { code: 9009 }), '');
+  it('exit 9009(Store の偽物・python が無い)は起動失敗として、PATH の直し方を添えて警告する', async () => {
+    answer(Object.assign(new Error('Command failed: python -c ...'), { code: 9009 }), '');
     const log = fakeLog();
     await checkGeneratorAtStartup(log);
     expect(log.warn).toHaveBeenCalledWith(expect.stringMatching(/起動できません[\s\S]*9009/));
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('ユーザー環境変数 PATH'));
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('WindowsApps'));
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('新しいコマンドプロンプトからサーバを起動し直す'),
+    );
   });
 
   it('実行ファイルが無い(ENOENT)も起動失敗として警告し、reject しない', async () => {
@@ -166,6 +174,25 @@ describe('checkGeneratorAtStartup', () => {
       await check(log);
       expect(log.warn).not.toHaveBeenCalled();
     } finally {
+      vi.resetModules();
+    }
+  });
+
+  it('PYTHON_BIN が無ければ PATH 上の python を引数なしで確かめ、info にその名前を出す', async () => {
+    const saved = process.env.PYTHON_BIN;
+    delete process.env.PYTHON_BIN;
+    vi.resetModules();
+    try {
+      const { checkGeneratorAtStartup: check } = await import('../src/generate/generatorCheck.js');
+      answer(null, '3.13\n');
+      const log = fakeLog();
+      await check(log);
+      const [bin, args] = execFileMock.mock.calls[0] as [string, string[]];
+      expect(bin).toBe('python');
+      expect(args).toEqual(['-c', expect.stringContaining('sys.version_info')]);
+      expect(log.info).toHaveBeenCalledWith(expect.stringContaining('3.13(python)'));
+    } finally {
+      if (saved !== undefined) process.env.PYTHON_BIN = saved;
       vi.resetModules();
     }
   });

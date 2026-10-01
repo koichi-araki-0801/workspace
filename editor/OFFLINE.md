@@ -93,7 +93,7 @@ $env:NODE_ENV='production'; corepack pnpm --filter server start
 | `port` | 24680 | API/SPA のポート |
 | `paths.dataRoot` | `../../editor-data` | テンプレ・CSS などの data リポジトリ（各置き場の既定の基準） |
 | `paths.tmpDir` / `paths.logDir` / `paths.webDist` | `.tmp` / `logs` / `web/dist` | 一時/ログ/SPA |
-| `python.bin` / `python.args` / `python.script` / `python.scriptSha256` / `python.timeoutMs` | `py` / `["-3.13"]` / `server/scripts/fake_generate_template.py` / なし / 30000 | テンプレート生成器（本番は `python.script` で既存の生成器を指す） |
+| `python.bin` / `python.args` / `python.script` / `python.scriptSha256` / `python.timeoutMs` | `python` / なし / `server/scripts/fake_generate_template.py` / なし / 30000 | テンプレート生成器（`python` は PATH から探す。本番は `python.script` で既存の生成器を指す） |
 | `pdf.executableBrowser` | 空=Edge 自動検出 | PDF 用ブラウザの実行ファイル |
 | `logging.level` / `logging.pretty` | `info` / `false` | ログ（監査ログ `logs/audit.log`） |
 

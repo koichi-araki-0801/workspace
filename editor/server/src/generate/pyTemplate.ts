@@ -90,8 +90,8 @@ const GENERATE_GATE = new BuildAdmissionGate({
 });
 
 /**
- * 親から引き継ぐ環境変数。Windows で py ランチャと Python が動く最小限
- * (`SYSTEMROOT` が無いと Python の乱数・ソケットの初期化が失敗する)。
+ * 親から引き継ぐ環境変数。Windows で Python(既定の PATH 上の python。py ランチャを指定した場合は
+ * それも)が動く最小限(`SYSTEMROOT` が無いと Python の乱数・ソケットの初期化が失敗する)。
  */
 const INHERITED_ENV_KEYS = ['PATH', 'SYSTEMROOT', 'TEMP', 'TMP', 'PATHEXT', 'COMSPEC'] as const;
 

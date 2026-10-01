@@ -230,26 +230,29 @@ export function envPositiveNumber(
   return envNumber(name, envVal, def, { ...opts, min: opts.min ?? 0, exclusiveMin: true });
 }
 
-/** 生成器を起動する既定のコマンド(リポジトリの方針 `py -3.13`)。 */
-export const DEFAULT_PYTHON_BIN = 'py';
-export const DEFAULT_PYTHON_ARGS: readonly string[] = ['-3.13'];
+/**
+ * 生成器を起動する既定のコマンド。PATH 上の `python` を版を指定せずに使う(配置先では運用者が
+ * ユーザー環境変数 PATH に Python 3.13 を通す)。3.13 かどうかは起動時の確認
+ * (`generate/generatorCheck.ts`)が知らせる。
+ */
+export const DEFAULT_PYTHON_BIN = 'python';
 
 /**
  * 生成器を起動する実行ファイルと、スクリプトの前に付ける引数を決める。
  *
- * 実行ファイルを明示した(env `PYTHON_BIN` / appconfig `python.bin`)ときは引数の既定を空にする。
- * 絶対パスの python.exe を直接指す運用で、py ランチャ用の `-3.13` が付くと起動できないため。
- * 引数を env で受けない(`PYTHON_ARGS` を設けない)のは、空白で区切る規則がパスの空白と衝突するため。
+ * 実行ファイルは env `PYTHON_BIN` → appconfig `python.bin` → 既定の順。引数は appconfig
+ * `python.args` でだけ足せる(既定は無し)。引数を env で受けない(`PYTHON_ARGS` を設けない)のは、
+ * 空白で区切る規則がパスの空白と衝突するため。
  */
 export function resolvePythonCommand(opts: {
   envBin: string | undefined;
   fileBin: string | undefined;
   fileArgs: readonly string[] | undefined;
 }): { bin: string; args: string[] } {
-  const bin = opts.envBin ?? opts.fileBin ?? DEFAULT_PYTHON_BIN;
-  const explicitBin = opts.envBin !== undefined || opts.fileBin !== undefined;
-  const args = opts.fileArgs ?? (explicitBin ? [] : DEFAULT_PYTHON_ARGS);
-  return { bin, args: [...args] };
+  return {
+    bin: opts.envBin ?? opts.fileBin ?? DEFAULT_PYTHON_BIN,
+    args: [...(opts.fileArgs ?? [])],
+  };
 }
 
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;

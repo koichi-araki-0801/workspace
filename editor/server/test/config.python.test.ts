@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { parseScriptSha256, resolvePythonCommand } from '../src/config.js';
+import { DEFAULT_PYTHON_BIN, parseScriptSha256, resolvePythonCommand } from '../src/config.js';
 
 type ConfigModule = typeof import('../src/config.js');
 
@@ -56,35 +56,50 @@ async function importConfig(
 const HEX = 'ab'.repeat(32);
 
 describe('resolvePythonCommand', () => {
-  it('何も指定しなければ py -3.13', () => {
+  it('何も指定しなければ PATH 上の python を引数なしで使う', () => {
+    expect(DEFAULT_PYTHON_BIN).toBe('python');
     expect(
       resolvePythonCommand({ envBin: undefined, fileBin: undefined, fileArgs: undefined }),
-    ).toEqual({ bin: 'py', args: ['-3.13'] });
+    ).toEqual({ bin: 'python', args: [] });
   });
 
-  it('PYTHON_BIN を指定したら引数の既定は空(絶対パスの python.exe を直接指す運用)', () => {
+  it('PYTHON_BIN を指定したらそれを使い、引数は付けない', () => {
     expect(
       resolvePythonCommand({
-        envBin: 'C:Python313python.exe',
+        envBin: 'C:\\Python313\\python.exe',
         fileBin: undefined,
         fileArgs: undefined,
       }),
-    ).toEqual({ bin: 'C:Python313python.exe', args: [] });
+    ).toEqual({ bin: 'C:\\Python313\\python.exe', args: [] });
   });
 
-  it('appconfig の python.bin だけを指定しても引数の既定は空', () => {
+  it('appconfig の python.bin だけを指定しても引数は付けない', () => {
     expect(
       resolvePythonCommand({ envBin: undefined, fileBin: 'python3', fileArgs: undefined }),
-    ).toEqual({
-      bin: 'python3',
-      args: [],
-    });
+    ).toEqual({ bin: 'python3', args: [] });
   });
 
-  it('appconfig の python.args は PYTHON_BIN と併用しても優先される', () => {
+  it('PYTHON_BIN は appconfig の python.bin より優先される', () => {
     expect(
-      resolvePythonCommand({ envBin: 'py', fileBin: undefined, fileArgs: ['-3.13', '-X', 'utf8'] }),
-    ).toEqual({ bin: 'py', args: ['-3.13', '-X', 'utf8'] });
+      resolvePythonCommand({ envBin: 'C:\\a\\python.exe', fileBin: 'python3', fileArgs: undefined })
+        .bin,
+    ).toBe('C:\\a\\python.exe');
+  });
+
+  it('appconfig の python.args は既定の python にも PYTHON_BIN にも付く', () => {
+    expect(
+      resolvePythonCommand({ envBin: undefined, fileBin: undefined, fileArgs: ['-X', 'utf8'] }),
+    ).toEqual({ bin: 'python', args: ['-X', 'utf8'] });
+    expect(resolvePythonCommand({ envBin: 'py', fileBin: undefined, fileArgs: ['-3.13'] })).toEqual(
+      { bin: 'py', args: ['-3.13'] },
+    );
+  });
+
+  it('返す引数は設定の配列とは別物(呼び出し側が書き換えても設定は変わらない)', () => {
+    const fileArgs = ['-X', 'utf8'];
+    const { args } = resolvePythonCommand({ envBin: undefined, fileBin: undefined, fileArgs });
+    args.push('extra');
+    expect(fileArgs).toEqual(['-X', 'utf8']);
   });
 });
 
@@ -110,18 +125,18 @@ describe('parseScriptSha256', () => {
 });
 
 describe('config.python', () => {
-  it('既定は py -3.13・指紋なし・同時 2・待ち 8', async () => {
+  it('既定は PATH 上の python・引数なし・指紋なし・同時 2・待ち 8', async () => {
     const { config } = await importConfig({});
-    expect(config.python.bin).toBe('py');
-    expect(config.python.args).toEqual(['-3.13']);
+    expect(config.python.bin).toBe('python');
+    expect(config.python.args).toEqual([]);
     expect(config.python.scriptSha256).toBeUndefined();
     expect(config.python.maxConcurrency).toBe(2);
     expect(config.python.maxQueue).toBe(8);
   });
 
   it('PYTHON_BIN を指定したら args は空', async () => {
-    const { config } = await importConfig({ PYTHON_BIN: 'C:Python313python.exe' });
-    expect(config.python.bin).toBe('C:Python313python.exe');
+    const { config } = await importConfig({ PYTHON_BIN: 'C:\\Python313\\python.exe' });
+    expect(config.python.bin).toBe('C:\\Python313\\python.exe');
     expect(config.python.args).toEqual([]);
   });
 
