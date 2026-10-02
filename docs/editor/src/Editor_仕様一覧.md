@@ -1,13 +1,14 @@
 ---
 audience: spec
 title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
-version: "1.1"
+version: "1.2"
 rev:
   - 1.0 | 2026-08-02 | 初版
   - 1.1 | 2026-08-15 | 実装との突合（ロール approver・REST ルート全列挙・sproc 7 本・注記マスタ）
+  - 1.2 | 2026-10-02 | 候補の出所（scope）と系列のファイル化、sproc `template` の `系列` 削除
 ---
 
-対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.1 ／ 出典: editor/ 実装コード・DDL・テスト
+対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.2 ／ 出典: editor/ 実装コード・DDL・テスト
 
 # 画面項目定義
 
@@ -39,8 +40,8 @@ rev:
 | 3 | `POST` | `/auth/init-password` | Cookie | PasswordInitRequest（username, currentPassword, newPassword） | 204 / 更新後 User（本人一致 + 現行パスワードの検証を通す） |
 | 4 | `POST` | `/auth/logout` | Cookie | — | 204（セッション失効） |
 | 5 | `GET` | `/auth/me` | Cookie | — | User（未認証は401） |
-| 6 | `GET` | `/templates/options` | ○ | companyCode, fundCode, baseDate, editionType（任意） | DropdownOptions |
-| 7 | `GET` | `/templates/series` | ○ | companyCode, editionType（必須） | シリーズファンド一覧 |
+| 6 | `GET` | `/templates/options` | ○ | companyCode, fundCode, baseDate, editionType（任意）、scope（edit / published / create。省略時 create） | DropdownOptions |
+| 7 | `GET` | `/templates/series` | ○ | companyCode, editionType（必須） | シリーズファンド一覧（`templates/` のファイル名から作る） |
 | 8 | `GET` | `/templates` | ○ | 属性フィルタ（DropdownQuery） | TemplateMeta[] |
 | 9 | `GET` | `/templates/:id` | ○ | id | Template（meta + html + css） |
 | 10 | `GET` | `/templates/:id/draft` | ○ | id | TemplateDraft |
@@ -153,26 +154,25 @@ rev:
 
 | No | ゲートウェイ | @操作 | 用途 |
 |:--:|---|---|---|
-| 1 | `template` | 候補 | 属性ドロップダウン候補（/templates/options） |
-| 2 | `template` | 系列 | シリーズファンド一覧 |
-| 3 | `template` | 生成登録 | 生成直後に台帳行を draft 作成（冪等） |
-| 4 | `user` | 一覧 | ユーザー一覧 |
-| 5 | `user` | 作成 | ユーザー作成 |
-| 6 | `user` | 更新 | 表示名/ロール/無効 更新 |
-| 7 | `user` | PWリセット | 管理者によるPWリセット（要PW変更） |
-| 8 | `user` | 認証情報取得 | ログイン認証用のハッシュ取得 |
-| 9 | `user` | PW初期化 | 初回PW設定（旧セッションの失効と同一トランザクション） |
-| 10 | `part` | 分類候補 | 分類ドロップダウン候補（カテゴリ/大/中/小） |
-| 11 | `part` | 一覧 | 分類フィルタでパーツカタログ一覧 |
-| 12 | `sample` | 取得 | ファンド別サンプルデータ取得 |
-| 13 | `session` | 作成 | セッション発行 |
-| 14 | `session` | 取得 | セッション検証（期限/失効）＋ユーザー結合 |
-| 15 | `session` | 失効 | ログアウトで失効 |
-| 16 | `session` | 全失効 | サーバ起動時に全セッションを失効 |
-| 17 | `session` | 掃除 | 期限切れセッションの削除 |
-| 18 | `audit` | 登録 | 監査イベント記録（logger.ts 連携） |
-| 19 | `noteMaster` | 反映 | 承認確定パーツの注記 HTML を（パーツID, ファンドコード, 版種）で upsert |
-| 20 | `noteMaster` | 取得 | テンプレート生成直後に適用する注記マスタ行の取得 |
+| 1 | `template` | 候補 | 作成タブの属性ドロップダウン候補（/templates/options?scope=create） |
+| 2 | `template` | 生成登録 | 生成直後に台帳行を draft 作成（冪等） |
+| 3 | `user` | 一覧 | ユーザー一覧 |
+| 4 | `user` | 作成 | ユーザー作成 |
+| 5 | `user` | 更新 | 表示名/ロール/無効 更新 |
+| 6 | `user` | PWリセット | 管理者によるPWリセット（要PW変更） |
+| 7 | `user` | 認証情報取得 | ログイン認証用のハッシュ取得 |
+| 8 | `user` | PW初期化 | 初回PW設定（旧セッションの失効と同一トランザクション） |
+| 9 | `part` | 分類候補 | 分類ドロップダウン候補（カテゴリ/大/中/小） |
+| 10 | `part` | 一覧 | 分類フィルタでパーツカタログ一覧 |
+| 11 | `sample` | 取得 | ファンド別サンプルデータ取得 |
+| 12 | `session` | 作成 | セッション発行 |
+| 13 | `session` | 取得 | セッション検証（期限/失効）＋ユーザー結合 |
+| 14 | `session` | 失効 | ログアウトで失効 |
+| 15 | `session` | 全失効 | サーバ起動時に全セッションを失効 |
+| 16 | `session` | 掃除 | 期限切れセッションの削除 |
+| 17 | `audit` | 登録 | 監査イベント記録（logger.ts 連携） |
+| 18 | `noteMaster` | 反映 | 承認確定パーツの注記 HTML を（パーツID, ファンドコード, 版種）で upsert |
+| 19 | `noteMaster` | 取得 | テンプレート生成直後に適用する注記マスタ行の取得 |
 
 sproc ファイルは `server/db/sproc/` の 7 本（`audit` / `noteMaster` / `part` / `sample` / `session` / `template` / `user`）。物理名は `server/src/db/sprocNames.ts` の `SP` に集約する。
 
