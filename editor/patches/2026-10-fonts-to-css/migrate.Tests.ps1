@@ -978,3 +978,82 @@ Describe 'migrate.ps1' {
     }
   }
 }
+
+# 本物の dataRoot になりうる場所(ユーザー環境変数 DATA_ROOT と、実リポジトリから見た既定の
+# <ワークスペースの親>\editor-data)。テストがそこへ届いたら止めるための比較にだけ使い、中は読まない。
+$guardRealRoots = @(
+  (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $here)))) 'editor-data'),
+  [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User')
+) | Where-Object { $_ } | ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd('\') }
+
+function Test-GuardRealDataPath([object[]]$paths) {
+  foreach ($p in $paths) {
+    if (-not $p) { continue }
+    try { $full = [IO.Path]::GetFullPath([string]$p).TrimEnd('\') } catch { continue }
+    foreach ($r in $guardRealRoots) {
+      if ($full -ieq $r -or $full.StartsWith($r + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+  }
+  return $false
+}
+
+# Mock は Describe の終わりまで残るので、ユーザー環境変数の差し替えが他のテストへ及ばないよう分ける。
+Describe 'migrate.ps1 / rollback.ps1 の dataRoot の解決' {
+  # ユーザー環境変数 DATA_ROOT(この端末では本物の dataRoot)を読ませず、appconfig まで進ませる。
+  Mock Get-ItemProperty { $null } -ParameterFilter { $LiteralPath -eq 'HKCU:\Environment' }
+  # 差し替えが効かずに本物の dataRoot(ユーザー環境変数の場所か実リポジトリから見た既定)へ解決したら、
+  # スクリプトが最初にその場所へ触れるところで止める(文字列で比べるだけで、その場所は読まない)。
+  Mock Test-Path { throw "テスト外の場所を見ようとしました: $LiteralPath$Path" } -ParameterFilter {
+    Test-GuardRealDataPath (@($LiteralPath) + @($Path))
+  }
+  Mock Get-Item { throw "テスト外の場所を見ようとしました: $LiteralPath$Path" } -ParameterFilter {
+    Test-GuardRealDataPath (@($LiteralPath) + @($Path))
+  }
+  Mock New-Item { throw "テスト外の場所へ作ろうとしました: $Path" } -ParameterFilter { Test-GuardRealDataPath @($Path) }
+
+  # 既定の場所が本物の dataRoot にならないよう、スクリプトを一時の偽の editor 構成へ複製して流す
+  # (既定は <偽のワークスペースの親>\editor-data になり、そこへ一時の dataRoot を移す)。
+  function New-FakeTree([string]$leaf) {
+    $x = Join-Path $env:TEMP ('fonts-mig-ws-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    $fakePatch = Join-Path $x 'workspace\editor\patches\2026-10-fonts-to-css'
+    New-Item -ItemType Directory -Force -Path $fakePatch | Out-Null
+    Copy-Item -LiteralPath (Join-Path $here $leaf) -Destination $fakePatch
+    $default = Join-Path $x 'editor-data'
+    Move-Item -LiteralPath (New-OldLayout) -Destination $default
+    $cfg = Join-Path $x 'appconfig.json'
+    Write-Utf8 $cfg (@{ paths = @{ dataRoot = 'data' } } | ConvertTo-Json)
+    return @{ Root = $x; Script = (Join-Path $fakePatch $leaf); Default = $default; Config = $cfg }
+  }
+
+  # スクリプトを流す前に、ユーザー環境変数の差し替えが効いていることを確かめる。効いていなければ
+  # スクリプトは本物の dataRoot へ解決しうるので、流さずにテストを落とす。
+  function Assert-UserEnvMocked {
+    if ($null -ne (Get-ItemProperty -LiteralPath 'HKCU:\Environment' -Name DATA_ROOT -ErrorAction SilentlyContinue)) {
+      throw 'ユーザー環境変数 DATA_ROOT の差し替えが効いていないため、スクリプトを流さずに止めます。'
+    }
+  }
+
+  It 'migrate はユーザー環境変数を差し替えられる方法で読み、editor の中を指す paths.dataRoot を使わず既定へ移る' {
+    Assert-UserEnvMocked
+    $t = New-FakeTree 'migrate.ps1'
+    try {
+      $out = Invoke-Patch $t.Script @{ Port = 1 } $t.Config *>&1 | Out-String
+      # 事前の確認の 1 回に加え、スクリプトも差し替えた方を読んだこと。
+      Assert-MockCalled Get-ItemProperty -Scope It -Exactly 2
+      $out | Should Match ([regex]::Escape("dataRoot : $($t.Default) (既定)"))
+      $out | Should Match '確認モード'
+    } finally { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $t.Root }
+  }
+
+  It 'rollback は editor のフォルダの中を指す paths.dataRoot を使わずに既定へ移り、その旨を案内する' {
+    Assert-UserEnvMocked
+    $t = New-FakeTree 'rollback.ps1'
+    try {
+      $out = Invoke-Patch $t.Script @{} $t.Config *>&1 | Out-String
+      Assert-MockCalled Get-ItemProperty -Scope It -Exactly 2
+      $out | Should Match 'paths\.dataRoot\(data\)は editor のフォルダの中を指すため使いません'
+      $out | Should Match ([regex]::Escape("dataRoot: $($t.Default)"))
+      $out | Should Match '確認モードのため何も変えていません'
+    } finally { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $t.Root }
+  }
+}

@@ -160,7 +160,7 @@ css・旧 assets の置き場も、環境変数(`DRAFTS_DIR` など)、appconfig
 しないため)。
 
 `rollback.bat` も `migrate.bat` と同じく、appconfig の置き場の設定が editor のフォルダの中を指すときは
-無視して dataRoot 配下の既定を使います。1 回目が戻した移行前の appconfig には旧例の `data/css` などが
+無視して dataRoot 配下の既定を使います(`paths.dataRoot` を使わなかったときは、その旨を表示します)。1 回目が戻した移行前の appconfig には旧例の `data/css` などが
 残っていますが、2 回目の rollback が editor のフォルダの `data` を片付けの対象にすることはありません。
 
 `assets.migrated-*` が無い環境(手で消した、旧 assets が元から無く appconfig の片付けだけが動いた)

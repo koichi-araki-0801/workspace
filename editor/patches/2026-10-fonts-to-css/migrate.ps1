@@ -164,7 +164,10 @@ $insideEnvs = @(foreach ($n in $placeEnvs) {
   })
 # dataRoot の解決はユーザー環境変数 DATA_ROOT も読むので、同じく報告する(プロセスの DATA_ROOT と同じ
 # 値なら上で報告済み)。
-$userDataRoot = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User')
+# ユーザー環境変数はレジストリから Get-ItemProperty で読む([Environment]::GetEnvironmentVariable と
+# 同じ値)。テストが本物の dataRoot を指すユーザー環境変数を差し替えられるようにするため。
+$userEnv = Get-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'DATA_ROOT' -ErrorAction SilentlyContinue
+$userDataRoot = if ($userEnv) { [string]$userEnv.DATA_ROOT } else { $null }
 if ($userDataRoot -and $userDataRoot -ne $env:DATA_ROOT -and (Test-InsideEditor $userDataRoot 'ユーザー環境変数 DATA_ROOT')) {
   $insideEnvs += @{ Name = 'DATA_ROOT'; Label = 'ユーザー環境変数 DATA_ROOT'; Value = $userDataRoot }
 }
@@ -175,7 +178,7 @@ $source = '-DataRoot 引数'
 if (-not $DataRoot) {
   $DataRoot = $env:DATA_ROOT; $source = '環境変数 DATA_ROOT'
   if (-not $DataRoot) {
-    $DataRoot = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User'); $source = 'ユーザー環境変数 DATA_ROOT'
+    $DataRoot = $userDataRoot; $source = 'ユーザー環境変数 DATA_ROOT'
   }
   if (-not $DataRoot) { $DataRoot = Get-PlaceCfg 'dataRoot'; $source = 'appconfig の paths.dataRoot' }
   if ($DataRoot) { $DataRoot = Resolve-EditorPath $DataRoot }

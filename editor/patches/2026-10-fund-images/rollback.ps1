@@ -108,12 +108,30 @@ function Get-CfgPath([string]$key) {
   if ($cfgPaths -and $cfgPaths.PSObject.Properties[$key] -and $cfgPaths.$key) { return [string]$cfgPaths.$key }
   return $null
 }
+
+function Get-CfgDataRoot {
+  # editor のフォルダの中を指す値は旧構成の名残で、apply.ps1 とフォント移設パッチも無視する。同じ扱いに
+  # しておかないと、apply.ps1 が点検した場所とは別の場所を戻そうとする。
+  $v = Get-CfgPath 'dataRoot'
+  if (-not $v) { return $null }
+  $full = (Resolve-PlacePath $v 'appconfig の paths.dataRoot').TrimEnd('\') + '\'
+  if ($full.StartsWith($editorDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    Write-Host "appconfig の paths.dataRoot($v)は editor のフォルダの中を指すため使いません。"
+    return $null
+  }
+  return $v
+}
+
+# ユーザー環境変数はレジストリから Get-ItemProperty で読む([Environment]::GetEnvironmentVariable と
+# 同じ値)。テストが本物の dataRoot を指すユーザー環境変数を差し替えられるようにするため。
 if (-not $DataRoot) {
   $DataRoot = $env:DATA_ROOT; $source = '環境変数 DATA_ROOT'
   if (-not $DataRoot) {
-    $DataRoot = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User'); $source = 'ユーザー環境変数 DATA_ROOT'
+    $userEnv = Get-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'DATA_ROOT' -ErrorAction SilentlyContinue
+    $DataRoot = if ($userEnv) { [string]$userEnv.DATA_ROOT } else { $null }
+    $source = 'ユーザー環境変数 DATA_ROOT'
   }
-  if (-not $DataRoot) { $DataRoot = Get-CfgPath 'dataRoot'; $source = 'appconfig の paths.dataRoot' }
+  if (-not $DataRoot) { $DataRoot = Get-CfgDataRoot; $source = 'appconfig の paths.dataRoot' }
   if ($DataRoot) { $DataRoot = Resolve-PlacePath $DataRoot $source }
   else { $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data' }
 }

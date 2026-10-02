@@ -111,6 +111,9 @@ SVG の中身の検査はサーバが行います(パッチは行いません)�
 2. `rollback.bat` を引数なしで実行し、確認モードで内容を見る。
 3. `rollback.bat -Apply` で実行する。
 
+dataRoot の決め方は `apply.bat` と同じです(appconfig の `paths.dataRoot` が editor のフォルダの中を
+指すときは、その旨を表示して使いません)。
+
 目印 `[fund-images]` の移行コミットを `git revert` します(すでに revert 済みなら飛ばすので、2 回目
 以降は何も変えません)。追跡を外したファイルは revert で再び追跡されます。revert の前に、戻る場所に
 あるファイルを `<dataRoot>\.rollback-tmp-<日付>\` へ退避し、revert の後に同じ内容なら退避を消し、

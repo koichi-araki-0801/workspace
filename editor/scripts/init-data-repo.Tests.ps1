@@ -36,6 +36,24 @@ function Get-Tracked([string]$root) { (@(git -C $root ls-files) | Sort-Object) -
 
 $expectedTracked = '.gitattributes,.gitignore,css/510037.css,templates/T1.html'
 
+# 本物の dataRoot になりうる場所(ユーザー環境変数 DATA_ROOT と、実リポジトリから見た既定の
+# <ワークスペースの親>\editor-data)。テストがそこへ届いたら止めるための比較にだけ使い、中は読まない。
+$guardRealRoots = @(
+  (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $here))) 'editor-data'),
+  [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User')
+) | Where-Object { $_ } | ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd('\') }
+
+function Test-GuardRealDataPath([object[]]$paths) {
+  foreach ($p in $paths) {
+    if (-not $p) { continue }
+    try { $full = [IO.Path]::GetFullPath([string]$p).TrimEnd('\') } catch { continue }
+    foreach ($r in $guardRealRoots) {
+      if ($full -ieq $r -or $full.StartsWith($r + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+  }
+  return $false
+}
+
 Describe 'init-data-repo.ps1' {
   It '新規の dataRoot では置き場をすべて作り、確定領域だけを初回コミットに入れる' {
     $root = New-Root
@@ -268,11 +286,16 @@ Describe 'init-data-repo.ps1 の appconfig' {
     $cfg = Join-Path $x 'appconfig.json'
     # ユーザー環境変数 DATA_ROOT(この端末では本物の dataRoot)を読ませない。
     Mock Get-ItemProperty { $null } -ParameterFilter { $LiteralPath -eq 'HKCU:\Environment' }
-    # 差し替えが効かずにユーザー環境変数の場所を指したら、最初のフォルダ作成で止める(文字列で比べる
-    # だけで、その場所は読まない)。
-    $userRoot = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User')
-    Mock New-Item { throw "テスト外の場所へ作ろうとしました: $Path" } -ParameterFilter {
-      $userRoot -and "$Path" -like "$userRoot*"
+    # 差し替えが効かずに本物の dataRoot(ユーザー環境変数の場所か実リポジトリから見た既定)を指したら、
+    # 最初のフォルダ作成で止める(文字列で比べるだけで、その場所は読まない)。
+    Mock New-Item { throw "テスト外の場所へ作ろうとしました: $Path" } -ParameterFilter { Test-GuardRealDataPath @($Path) }
+    Mock Get-Item { throw "テスト外の場所を見ようとしました: $LiteralPath$Path" } -ParameterFilter {
+      Test-GuardRealDataPath (@($LiteralPath) + @($Path))
+    }
+    # スクリプトを流す前に、ユーザー環境変数の差し替えが効いていることを確かめる。効いていなければ
+    # スクリプトは本物の dataRoot へ解決しうるので、流さずにテストを落とす。
+    if ($null -ne (Get-ItemProperty -LiteralPath 'HKCU:\Environment' -Name DATA_ROOT -ErrorAction SilentlyContinue)) {
+      throw 'ユーザー環境変数 DATA_ROOT の差し替えが効いていないため、スクリプトを流さずに止めます。'
     }
     try {
       New-HandMadeContent $root
@@ -283,7 +306,8 @@ Describe 'init-data-repo.ps1 の appconfig' {
       $env:DATA_ROOT = $null
       try { $out = & $fakeScript *>&1 | Out-String }
       finally { $env:APP_CONFIG = $saved; $env:DATA_ROOT = $savedRoot }
-      Assert-MockCalled Get-ItemProperty -Scope It
+      # 事前の確認の 1 回に加え、スクリプトも差し替えた方を読んだこと。
+      Assert-MockCalled Get-ItemProperty -Scope It -Exactly 2
       $out | Should Match ([regex]::Escape("dataRoot: $root (appconfig の paths.dataRoot)"))
       Get-Tracked $root | Should Be $expectedTracked
       Test-Path $default | Should Be $false

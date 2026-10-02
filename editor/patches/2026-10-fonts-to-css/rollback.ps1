@@ -155,20 +155,34 @@ if (Test-Path -LiteralPath $appConfigPath) {
   $appConfig = Get-Content -Raw -Encoding UTF8 -LiteralPath $appConfigPath | ConvertFrom-Json
 }
 $cfgPaths = if ($appConfig -and $appConfig.paths) { $appConfig.paths } else { $null }
+function Get-CfgRaw([string]$key) {
+  if ($cfgPaths -and $cfgPaths.PSObject.Properties[$key] -and $cfgPaths.$key) { return [string]$cfgPaths.$key }
+  return $null
+}
 function Get-CfgPath([string]$key) {
   # migrate.ps1 と同じく、editor のフォルダの中を指す値(旧例の data/css など)は無視して既定を使う。
   # 1 回目の rollback が戻した移行前の appconfig にはこの値が残っているので、2 回目で旧い場所を
   # 片付けの対象にしないため。
-  if ($cfgPaths -and $cfgPaths.PSObject.Properties[$key] -and $cfgPaths.$key) {
-    $v = [string]$cfgPaths.$key
-    if (-not (Test-InsideEditor $v "appconfig の paths.$key")) { return $v }
-  }
+  $v = Get-CfgRaw $key
+  if ($v -and -not (Test-InsideEditor $v "appconfig の paths.$key")) { return $v }
   return $null
 }
+# ユーザー環境変数はレジストリから Get-ItemProperty で読む([Environment]::GetEnvironmentVariable と
+# 同じ値)。テストが本物の dataRoot を指すユーザー環境変数を差し替えられるようにするため。
 if (-not $DataRoot) {
   $DataRoot = $env:DATA_ROOT
-  if (-not $DataRoot) { $DataRoot = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User') }
-  if (-not $DataRoot) { $DataRoot = Get-CfgPath 'dataRoot' }
+  if (-not $DataRoot) {
+    $userEnv = Get-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'DATA_ROOT' -ErrorAction SilentlyContinue
+    $DataRoot = if ($userEnv) { [string]$userEnv.DATA_ROOT } else { $null }
+  }
+  if (-not $DataRoot) {
+    $DataRoot = Get-CfgPath 'dataRoot'
+    # 使わなかったことを示さないと、appconfig の値を見た人が別の場所を戻したと取り違える。
+    $rawRoot = Get-CfgRaw 'dataRoot'
+    if ($rawRoot -and -not $DataRoot) {
+      Write-Host "appconfig の paths.dataRoot($rawRoot)は editor のフォルダの中を指すため使いません。"
+    }
+  }
   if ($DataRoot) { $DataRoot = Resolve-EditorPath $DataRoot }
   else { $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data' }
 }
