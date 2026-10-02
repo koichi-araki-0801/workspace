@@ -253,7 +253,7 @@ export function buildOpenApiDocument() {
           tags: ['templates'],
           summary: 'カスケードドロップダウンの候補を取得',
           operationId: 'getDropdownOptions',
-          requestParams: { query: s.DropdownQuery },
+          requestParams: { query: s.DropdownOptionsQuery },
           responses: { '200': json('各属性の候補', s.DropdownOptions), ...ERR_401 },
         },
       },

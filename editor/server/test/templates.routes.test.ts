@@ -109,7 +109,7 @@ describe('templates.routes', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('GET /templates/options: 台帳 sproc の候補を 4 配列へ束ねる(未ログインは 401)', async () => {
+  it('GET /templates/options: scope 省略は台帳 sproc の候補(create)(未ログインは 401)', async () => {
     expect((await app.inject({ method: 'GET', url: '/templates/options' })).statusCode).toBe(401);
     const res = await app.inject({
       method: 'GET',
@@ -121,6 +121,30 @@ describe('templates.routes', () => {
     expect(body.companyCodes).toEqual(['AM01']);
     expect(body.fundCodes).toContain('510037');
     expect(body.editionTypes).toEqual(expect.arrayContaining(['交付版', '全体版']));
+  });
+
+  it('GET /templates/options: scope=edit は filled/ から作る', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/templates/options?scope=edit',
+      headers: as('editor'),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      companyCodes: ['AM01'],
+      fundCodes: ['510037'],
+      baseDates: ['20240710'],
+      editionTypes: ['交付版'],
+    });
+  });
+
+  it('GET /templates/options: 未知の scope は 400', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/templates/options?scope=all',
+      headers: as('editor'),
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it('GET /templates/options: クエリが配列(文字列でない)値のキーは無視する', async () => {
