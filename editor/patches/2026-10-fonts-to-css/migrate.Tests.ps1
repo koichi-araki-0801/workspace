@@ -903,6 +903,36 @@ Describe 'migrate.ps1' {
     } finally { Remove-Item -Recurse -Force $root }
   }
 
+  It 'rollback は revert で追跡に戻った css\fonts・js のファイルを、assets と同じ内容でも消さない' {
+    $root = New-OldLayout
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'css\fonts'), (Join-Path $root 'js') | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'css\fonts\a.woff2') -Value 'FONT' -NoNewline
+      Set-Content -LiteralPath (Join-Path $root 'js\w.js') -Value 'w()' -NoNewline
+      git -C $root add -f -- css/fonts js
+      git -C $root -c user.name=t -c user.email=t@t commit -q -m tracked
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } | Out-Null
+      @(git -C $root ls-files -- css/fonts js).Count | Should Be 0
+      Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root; Apply = $true } | Out-Null
+      Test-Path (Join-Path $root 'css\fonts\a.woff2') | Should Be $true
+      Test-Path (Join-Path $root 'js\w.js') | Should Be $true
+      (git -C $root status --porcelain -- css js) | Should BeNullOrEmpty
+      Test-Path (Join-Path $root 'assets\fonts\a.woff2') | Should Be $true
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It 'rollback も appconfig の置き場の値がパスとして読めなければ、キーの名前を出して中止する' {
+    $root = New-OldLayout
+    $cfg = New-TempConfig @{ paths = @{ cssDir = 'a|b' } }
+    try {
+      $msg = Get-Message { Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root } $cfg }
+      $msg | Should Match 'paths\.cssDir'
+    } finally {
+      Remove-Item -Recurse -Force $root
+      Remove-Item -Force -ErrorAction SilentlyContinue $cfg
+    }
+  }
+
   It 'rollback も PATH に git が無ければ GIT_BIN の git を使う' {
     $root = New-OldLayout
     $gitPath = (Get-Command git -CommandType Application | Select-Object -First 1).Source

@@ -13,9 +13,10 @@
        退避名の側にしか無いファイルだけを assets へ移し、同じ内容のものは消し、違うものは残して
        報告する。空になった退避名のフォルダは消す
     3. 移行で作った css\fonts と js のうち、戻した assets に同じ相対パス・同じ SHA256 のファイルが
-       あるものだけ削除する。旧 assets と内容が違うファイルは消さず、一覧を表示して残す。空になった
-       フォルダだけ消す。assets が戻らない(手で assets を消した、appconfig の片付けだけが動いた)
-       ときは、同一内容かを確かめられないので css\fonts と js には触らない
+       あるものだけ削除する。旧 assets と内容が違うファイルと、git が追跡しているファイル(移行前から
+       追跡されていて revert で追跡に戻ったもの)は消さず、一覧を表示して残す。空になったフォルダだけ
+       消す。assets が戻らない(手で assets を消した、appconfig の片付けだけが動いた)ときは、
+       同一内容かを確かめられないので css\fonts と js には触らない
     4. <dataRoot>\.fonts-to-css-backup-<日付>\ に退避した作業コピー(drafts / pending / reviews の
        CSS)を元の場所へ戻す。退避に無いファイルは触らない。移行後にこれらを編集していた場合、
        その編集は退避時点の内容で上書きされる
@@ -56,9 +57,11 @@ function Resolve-EditorPath([string]$p) {
   return [IO.Path]::GetFullPath((Join-Path $editorDir $p))
 }
 
-function Test-InsideEditor([string]$p) {
+function Test-InsideEditor([string]$p, [string]$label) {
   # migrate.ps1 と同じ判定(editor 基準で絶対パスにし、<editorDir>\ で始まるか。大文字小文字は区別しない)。
-  $full = [IO.Path]::GetFullPath((Resolve-EditorPath $p)).TrimEnd('\') + '\'
+  # パスとして読めない値は、.NET の例外のままだとどの設定か分からないので出どころを添えて止める。
+  try { $full = [IO.Path]::GetFullPath((Resolve-EditorPath $p)).TrimEnd('\') + '\' }
+  catch { throw "$label の値 '$p' はパスとして読めません($($_.Exception.Message))。直してから再実行してください。" }
   return $full.StartsWith($editorDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
 }
 
@@ -116,16 +119,29 @@ function Remove-EmptyDirs([string]$root) {
   if (-not (Get-ChildItem -LiteralPath $root -Force)) { Remove-Item -LiteralPath $root -Force }
 }
 
-function Get-DeletePlan([string]$oldRoot) {
-  # css\fonts と js のうち、旧 assets($oldRoot)に同じ相対パス・同じ内容があるものだけを消す対象にする。
-  $plan = @{ Deletes = @(); Keeps = @() }
+function Get-TrackedSet([string[]]$extra) {
+  # css/fonts と js のうち git が追跡しているファイルの絶対パス(大文字小文字は区別しない)。移行前から
+  # 追跡されていたファイルは revert で追跡に戻るので、assets と同じ内容でも「移行が作ったコピー」と
+  # みなして消すと、rollback の後に削除の差分が残る。$extra は revert で追跡に戻る見込みのパス。
+  $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+  $rels = @((Invoke-GitUtf8 -GitArgs @('ls-files', '-z', '--', 'css/fonts', 'js')).Out.Split([char]0) | Where-Object { $_ -ne '' })
+  $rels += @($extra | Where-Object { $_ -match '^(css/fonts|js)/' })
+  foreach ($r in $rels) { [void]$set.Add((Join-Path $DataRoot ($r -replace '/', '\'))) }
+  return , $set
+}
+
+function Get-DeletePlan([string]$oldRoot, $tracked) {
+  # css\fonts と js のうち、旧 assets($oldRoot)に同じ相対パス・同じ内容があり、git が追跡していない
+  # ものだけを消す対象にする。
+  $plan = @{ Deletes = @(); Keeps = @(); Tracked = @() }
   foreach ($pair in @(@{ Dir = (Join-Path $cssDir 'fonts'); Old = (Join-Path $oldRoot 'fonts') },
                       @{ Dir = $jsDir; Old = (Join-Path $oldRoot 'js') })) {
     if (-not (Test-Path -LiteralPath $pair.Dir)) { continue }
     foreach ($f in Get-ChildItem -LiteralPath $pair.Dir -Recurse -File) {
       $rel = $f.FullName.Substring($pair.Dir.Length).TrimStart('\')
       $old = Join-Path $pair.Old $rel
-      if ((Test-Path -LiteralPath $old) -and ((Get-FileHashHex $old) -eq (Get-FileHashHex $f.FullName))) { $plan.Deletes += $f.FullName }
+      if ($tracked.Contains($f.FullName)) { $plan.Tracked += $f.FullName }
+      elseif ((Test-Path -LiteralPath $old) -and ((Get-FileHashHex $old) -eq (Get-FileHashHex $f.FullName))) { $plan.Deletes += $f.FullName }
       else { $plan.Keeps += $f.FullName }
     }
   }
@@ -145,7 +161,7 @@ function Get-CfgPath([string]$key) {
   # 片付けの対象にしないため。
   if ($cfgPaths -and $cfgPaths.PSObject.Properties[$key] -and $cfgPaths.$key) {
     $v = [string]$cfgPaths.$key
-    if (-not (Test-InsideEditor $v)) { return $v }
+    if (-not (Test-InsideEditor $v "appconfig の paths.$key")) { return $v }
   }
   return $null
 }
@@ -216,7 +232,8 @@ if ($stashClash.Count -gt 0) {
 # css\fonts と js の削除は、戻した assets と同一内容の分だけ。確認モードでは、退避名の assets
 # (無ければ今の assets)を基準に見込みを出す(-Apply では戻した後の assets で決め直す)。
 $previewRoot = if ($hasMigrated) { $migratedDir } elseif (Test-Path -LiteralPath $assetsDir) { $assetsDir } else { $null }
-$preview = if ($previewRoot) { Get-DeletePlan $previewRoot } else { @{ Deletes = @(); Keeps = @() } }
+$preview = if ($previewRoot) { Get-DeletePlan $previewRoot (Get-TrackedSet $restorePaths) }
+  else { @{ Deletes = @(); Keeps = @(); Tracked = @() } }
 
 # 作業コピーの退避。
 $restores = @()
@@ -250,6 +267,10 @@ $preview.Deletes | ForEach-Object { Write-Host "  $_" }
 if ($preview.Keeps.Count -gt 0) {
   Write-Host "【残す】旧 assets と内容が違うファイル(移行後に置いた、または git に記録された版と違う)。消さずに残します: $($preview.Keeps.Count) 件"
   $preview.Keeps | ForEach-Object { Write-Host "  $_" }
+}
+if ($preview.Tracked.Count -gt 0) {
+  Write-Host "【残す】git が追跡している(revert で追跡に戻る)ファイル。旧 assets と同じ内容でも消しません: $($preview.Tracked.Count) 件"
+  $preview.Tracked | ForEach-Object { Write-Host "  $_" }
 }
 if ($alreadyReverted) {
   Write-Host '退避から戻す作業コピー・appconfig: (移行コミットが revert 済みのため戻しません)'
@@ -316,10 +337,13 @@ if ($hasMigrated) {
 }
 
 $keeps = @()
+$trackedKeeps = @()
 if (Test-Path -LiteralPath $assetsDir) {
-  $plan = Get-DeletePlan $assetsDir
+  # 追跡の集合は revert の後の HEAD で取り直す(移行前から追跡されていたファイルを消さないため)。
+  $plan = Get-DeletePlan $assetsDir (Get-TrackedSet @())
   foreach ($p in $plan.Deletes) { Remove-Item -LiteralPath $p -Force }
   $keeps = $plan.Keeps
+  $trackedKeeps = $plan.Tracked
   foreach ($root in (Join-Path $cssDir 'fonts'), $jsDir) { Remove-EmptyDirs $root }
 }
 # 2 回目以降(移行コミットが revert 済み)は戻さない。1 回目の後に直した作業コピーや appconfig を、
@@ -342,5 +366,9 @@ if ($assetsDiffer.Count -gt 0) {
 if ($keeps.Count -gt 0) {
   Write-Host '【残す】旧 assets と内容が違うファイル(移行後に置いた、または git に記録された版と違う)。消さずに残しました:'
   $keeps | ForEach-Object { Write-Host "  $_" }
+}
+if ($trackedKeeps.Count -gt 0) {
+  Write-Host '【残す】git が追跡しているファイル。旧 assets と同じ内容でも消さずに残しました:'
+  $trackedKeeps | ForEach-Object { Write-Host "  $_" }
 }
 Write-Host '元に戻しました。旧版の editor を配置して起動してください。'
