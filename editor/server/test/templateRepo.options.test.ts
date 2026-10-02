@@ -37,6 +37,8 @@ describe('templateRepo.getDropdownOptions の scope', () => {
     await writePending('AM02_999999_20261001_交付版', '<p>未確定</p>', '');
     // filled/ と同じ id の pending は filled/ 側で数える(二重にしない)。
     await writePending('AM01_510155_20240710_交付版', '<p>消し残り</p>', '');
+    // 大文字小文字だけが違う id の消し残りも filled/ 側で数える(NTFS では承認が既存の綴りへ上書きする)。
+    await writePending('am01_510155_20240710_交付版', '<p>綴り違いの消し残り</p>', '');
     const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
     repo = createTemplateRepo(createOfflineSproc());
@@ -77,6 +79,11 @@ describe('templateRepo.getDropdownOptions の scope', () => {
 
   it('create は台帳 sproc を呼ぶ(DB 不在なら失敗する)', async () => {
     await expect(repo.getDropdownOptions({}, 'create')).rejects.toBeTruthy();
+  });
+
+  it('一覧は大文字小文字だけが違う pending の消し残りを二重に出さない', async () => {
+    const ids = (await repo.listTemplates({ fundCode: '510155' })).map((m) => m.id);
+    expect(ids).toEqual(['AM01_510155_20240710_交付版']);
   });
 
   it('一覧の絞り込みも大文字小文字を区別しない', async () => {

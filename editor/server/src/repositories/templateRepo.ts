@@ -104,8 +104,10 @@ async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[
   const files = await listFilledFiles();
   const confirmed = (await Promise.all(files.map((f) => fileToMeta(f, 'filled')))).filter(isMeta);
   if (!includePending) return confirmed;
-  const confirmedIds = new Set(confirmed.map((m) => m.id));
-  const pendingIds = (await listPendingIds()).filter((id) => !confirmedIds.has(id));
+  // 照合は大文字小文字を区別しない。NTFS では承認が既存の綴りのファイルへ上書きするので、
+  // 綴り違いの pending が消し残ると完全一致では同じテンプレが二重に出る。
+  const confirmedIds = new Set(confirmed.map((m) => m.id.toLowerCase()));
+  const pendingIds = (await listPendingIds()).filter((id) => !confirmedIds.has(id.toLowerCase()));
   const pending = (
     await Promise.all(
       pendingIds.map(async (id): Promise<TemplateMeta | null> => {
