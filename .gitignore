@@ -17,6 +17,7 @@ __pycache__/
 # ローカル開発支援ツールの設定・作業ファイル（マシン固有。リポジトリでは共有しない）
 .claude/
 CLAUDE.md
+AGENTS.md
 # 配布担当の端末にだけ置くバンドル生成スクリプトと、撤去した配布機構の複製
 local-only/
 pie-chart/.claude/
