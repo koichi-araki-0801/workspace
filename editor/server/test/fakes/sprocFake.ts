@@ -109,7 +109,7 @@ export const DEFAULT_FUNDS: readonly FakeFundSeed[] = [
   },
 ];
 
-// `editor/web/src/api/fixtures/templates/*.html` と同じ 8 件。候補・系列の値がここから出る。
+// `editor/web/src/api/fixtures/templates/*.html` と同じ 8 件。候補の値がここから出る。
 export const DEFAULT_TEMPLATE_IDS: readonly string[] = [
   'AM01_110024_20251117_交付版',
   'AM01_110024_20251117_全体版',
@@ -457,19 +457,6 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
         (x, y) =>
           String(x.区分).localeCompare(String(y.区分)) || String(x.値).localeCompare(String(y.値)),
       );
-    }
-
-    if (op === '系列') {
-      const company = text(a, '委託会社コード');
-      const edition = text(a, '版種');
-      if (!company || !edition) throw sqlError(50000, '委託会社コードと版種が必要です');
-      return rows
-        .filter((r) => r.委託会社コード === company && r.版種 === edition)
-        .sort(
-          (x, y) =>
-            x.ファンドコード.localeCompare(y.ファンドコード) || x.基準日.localeCompare(y.基準日),
-        )
-        .map((r) => ({ ...r }));
     }
 
     if (op === '生成登録') {

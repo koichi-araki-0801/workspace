@@ -69,6 +69,12 @@ export function templateMtime(fileName: string): Promise<string | null> {
     .catch(() => null);
 }
 
+/** 作成タブの Jinja(`templatesDir`)の `*.html` 一覧(系列の源)。 */
+export async function listTemplateFiles(): Promise<string[]> {
+  const entries = await fs.readdir(config.templatesDir).catch(() => [] as string[]);
+  return entries.filter((f) => f.endsWith('.html'));
+}
+
 /** テンプレート本体ファイルが存在するか(名前が規約外なら false)。 */
 export function templateExists(fileName: string): Promise<boolean> {
   const p = templatePathOrNull(fileName);

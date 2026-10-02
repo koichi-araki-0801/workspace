@@ -16,11 +16,9 @@ import {
   type TemplateAttributes,
   type TemplateDraft,
   type TemplateMeta,
-  type TemplateStatus,
   templateFileName,
 } from '@editor/shared';
 import {
-  asIso,
   asString,
   asStringOrNull,
   firstRow,
@@ -40,6 +38,7 @@ import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles
 import {
   filledExists,
   listFilledFiles,
+  listTemplateFiles,
   readFilledHtml,
   readFundCss,
   readTemplateHtml,
@@ -48,23 +47,7 @@ import {
 import { applyConfirmedWrite, type ConfirmedTarget } from './confirmedWrite.js';
 import { fileToMeta } from './templateMeta.js';
 
-function rowToMeta(r: Record<string, unknown>): TemplateMeta {
-  return {
-    id: asString(r.テンプレートID),
-    attributes: {
-      companyCode: asString(r.委託会社コード),
-      fundCode: asString(r.ファンドコード),
-      baseDate: asString(r.基準日),
-      editionType: asString(r.版種),
-    },
-    fileName: asString(r.ファイル名),
-    status: asString(r.状態) as TemplateStatus,
-    updatedAt: asIso(r.更新日時),
-    updatedBy: asStringOrNull(r.更新者),
-  };
-}
-
-/** `候補` / `一覧` で共有する属性パラメータ(未設定時は null)。 */
+/** `候補` の属性パラメータ(未設定時は null)。 */
 function queryParams(q: DropdownQuery): Param[] {
   return [
     p('委託会社コード', q.companyCode),
@@ -205,12 +188,24 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         .sort((a, b) => a.fileName.localeCompare(b.fileName));
     },
 
+    /**
+     * 系列は templates/(作成タブの Jinja)から作る。「系列から作る」で生成器が読むのは
+     * `templates/<ID>.html` なので、ここに在るものだけを出す。
+     */
     async listSeriesFunds(companyCode, editionType) {
-      const rows = await sproc.callSproc(SP.template, '系列', [
-        p('委託会社コード', companyCode),
-        p('版種', editionType),
-      ]);
-      return rows.map(rowToMeta);
+      const files = await listTemplateFiles();
+      const metas = (await Promise.all(files.map((f) => fileToMeta(f)))).filter(isMeta);
+      return metas
+        .filter(
+          (m) =>
+            sameCi(m.attributes.companyCode, companyCode) &&
+            sameCi(m.attributes.editionType, editionType),
+        )
+        .sort(
+          (a, b) =>
+            a.attributes.fundCode.localeCompare(b.attributes.fundCode) ||
+            a.attributes.baseDate.localeCompare(b.attributes.baseDate),
+        );
     },
 
     /**
