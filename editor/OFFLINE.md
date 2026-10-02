@@ -33,7 +33,7 @@
 ## 事前に運用機へインストールしておくもの
 
 - **Node.js 24.x**（`.nvmrc` = 24、`engines: node>=24`）
-- **Python**（`/api/generate` 用。現状の stub は標準ライブラリのみ）
+- **Python 3.13（ユーザー環境変数 PATH に通す）**（`/api/generate` の生成器を PATH 上の `python` で起動する。setup が版を確かめ、3.13 でなければ警告する。PATH の設定方法は運用手順書 3.2 節。テスト用の偽の生成器は標準ライブラリのみ）
 - **Microsoft Edge**（Windows 11 標準。`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`）
 
 ## 手順
@@ -91,9 +91,9 @@ $env:NODE_ENV='production'; corepack pnpm --filter server start
 | キー | 既定 | 用途 |
 |---|---|---|
 | `port` | 24680 | API/SPA のポート |
-| `paths.templatesDir` / `paths.cssDir` | `data/...` | テンプレ/CSS 配置 |
+| `paths.dataRoot` | `../../editor-data` | テンプレ・CSS などの data リポジトリ（各置き場の既定の基準） |
 | `paths.tmpDir` / `paths.logDir` / `paths.webDist` | `.tmp` / `logs` / `web/dist` | 一時/ログ/SPA |
-| `python.bin` / `python.script` / `python.timeoutMs` | `python` / `server/scripts/...` / 30000 | Python 生成器 |
+| `python.bin` / `python.args` / `python.script` / `python.scriptSha256` / `python.timeoutMs` | `python` / なし / `server/scripts/fake_generate_template.py` / なし / 30000 | テンプレート生成器（`python` は PATH から探す。本番は `python.script` で既存の生成器を指す） |
 | `pdf.executableBrowser` | 空=Edge 自動検出 | PDF 用ブラウザの実行ファイル |
 | `logging.level` / `logging.pretty` | `info` / `false` | ログ（監査ログ `logs/audit.log`） |
 
@@ -108,7 +108,8 @@ $env:NODE_ENV='production'; corepack pnpm --filter server start
 3. 一時・緊急の上書き（例 `PORT=3009`、`LOG_LEVEL=debug`、`VIVLIOSTYLE_EXECUTABLE_BROWSER=...`）
 
 対応 env: `PORT` / `TEMPLATES_DIR` / `CSS_DIR` / `WEB_DIR` / `PYTHON_BIN` /
-`PY_GENERATE_SCRIPT` / `PY_TIMEOUT_MS` / `TMP_DIR` / `LOG_DIR` / `LOG_LEVEL` /
+`PY_GENERATE_SCRIPT` / `PY_GENERATE_SCRIPT_SHA256` / `PY_TIMEOUT_MS` /
+`GENERATE_MAX_CONCURRENCY` / `GENERATE_MAX_QUEUE` / `TMP_DIR` / `LOG_DIR` / `LOG_LEVEL` /
 `LOG_PRETTY` / `VIVLIOSTYLE_EXECUTABLE_BROWSER` / `NODE_ENV`。
 設定ファイルの場所自体は `APP_CONFIG` で変更可。
 

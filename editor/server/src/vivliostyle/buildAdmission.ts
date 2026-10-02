@@ -10,6 +10,9 @@
 // ⚠ ここでワーカー管理を再利用しない(`buildWorkerPool` を呼ばない)。フォールバックは
 // 「プール機構そのものを疑うとき」に使う迂回路で、迂回先がプールに依存したら意味が消える。
 // 共有するのは行列満杯の**文言だけ**で、経路によって利用者への応答を変えない。
+//
+// 生成器(`generate/pyTemplate.ts`)も同じ受付制御を使う。満杯時の Error は呼び出し側が
+// `queueFullError` で渡す(文言と状態コードは経路ごとに違う)。
 
 import { BUILD_QUEUE_FULL_MESSAGE } from './buildWorkerPool.js';
 
@@ -22,6 +25,8 @@ export interface BuildAdmissionOptions {
    * `buildWorkerPool` と同じく有限にする。
    */
   maxQueue: number;
+  /** 行列が満杯のときに投げる Error を作る。省略時は PDF ビルドの文言の Error。 */
+  queueFullError?: () => Error;
 }
 
 /**
@@ -35,6 +40,7 @@ export interface BuildAdmissionOptions {
 export class BuildAdmissionGate {
   private readonly maxConcurrent: number;
   private readonly maxQueue: number;
+  private readonly queueFullError: () => Error;
   private active = 0;
   private readonly waiters: { resolve: () => void; reject: (e: Error) => void }[] = [];
 
@@ -43,6 +49,7 @@ export class BuildAdmissionGate {
     // なる。上限の設定ミスで停止させるより、最も保守的な 1 本ずつへ寄せる。
     this.maxConcurrent = Math.max(1, Math.floor(opts.maxConcurrent));
     this.maxQueue = Math.max(0, Math.floor(opts.maxQueue));
+    this.queueFullError = opts.queueFullError ?? (() => new Error(BUILD_QUEUE_FULL_MESSAGE));
   }
 
   /** 枠を確保して `fn` を 1 回走らせる。行列が満杯なら `fn` を呼ばずに reject する。 */
@@ -73,7 +80,7 @@ export class BuildAdmissionGate {
       return Promise.resolve();
     }
     if (this.waiters.length >= this.maxQueue) {
-      return Promise.reject(new Error(BUILD_QUEUE_FULL_MESSAGE));
+      return Promise.reject(this.queueFullError());
     }
     return new Promise<void>((resolve, reject) => this.waiters.push({ resolve, reject }));
   }

@@ -1,9 +1,8 @@
 // =============================================================================
-// notesFile.thread.test.ts — 追記型スレッドのファイル形式と旧形式からの遅延変換
+// notesFile.thread.test.ts — 追記型スレッドのファイル形式と配列でない値の読み捨て
 // =============================================================================
-// メモは `dataRoot/notes/<templateId>.json` に `pathKey → 投稿配列` で持つ。旧形式
-// (`pathKey → メモ 1 件`)のファイルが残っていても読めること、変換後の投稿 ID が読むたびに
-// 変わらないこと(編集・削除の宛先が安定すること)を主張する。
+// メモは `dataRoot/notes/<templateId>.json` に `pathKey → 投稿配列` で持つ。配列でない値は
+// 読み捨てること(表示用・書き込み用のどちらの読み取りでも)を主張する。
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,6 +18,7 @@ async function importNotesFile(): Promise<typeof import('../src/files/notesFile.
 
 const TPL = 'AM01_510037_20240710_交付版';
 const KEY = '.page#1/cover#1';
+const KEY2 = '.page#1/cover#2';
 const notesPath = (): string => path.join(tmpRoot, 'notes', `${TPL}.json`);
 
 async function writeRaw(body: unknown): Promise<void> {
@@ -59,51 +59,33 @@ describe('新形式の read/write', () => {
   });
 });
 
-describe('旧形式の遅延変換', () => {
-  it('旧形式(1 パーツ 1 件)を投稿 1 件として読む', async () => {
+describe('配列でない値の読み捨て', () => {
+  const stored = {
+    id: 'e1',
+    content: '新形式',
+    createdAt: '2026-09-01T00:00:00.000Z',
+    createdBy: 'u',
+    updatedAt: null,
+    updatedBy: null,
+  };
+
+  it('配列でない値(1 パーツ 1 件の形・null・文字列)は読み捨て、配列の投稿は残す', async () => {
     const files = await importNotesFile();
     await writeRaw({
-      [KEY]: {
-        templateId: TPL,
-        pathKey: KEY,
-        content: '旧メモ',
-        updatedAt: '2026-08-01T00:00:00.000Z',
-        updatedBy: '旧編集者',
-      },
+      [KEY]: { content: '旧メモ', updatedAt: 'x', updatedBy: 'u' },
+      [KEY2]: [stored],
+      '.page#2/x#1': null,
+      '.page#3/x#1': '文字列',
     });
     const map = await files.readNotes(TPL);
-    expect(map[KEY]).toHaveLength(1);
-    expect(map[KEY][0]).toMatchObject({
-      id: `legacy:${KEY}`,
-      content: '旧メモ',
-      createdAt: '2026-08-01T00:00:00.000Z',
-      createdBy: '旧編集者',
-    });
+    expect(Object.keys(map)).toEqual([KEY2]);
+    expect(map[KEY2][0]).toMatchObject({ id: 'e1', content: '新形式' });
   });
 
-  it('変換後の ID は読むたびに変わらない(編集・削除の宛先が安定する)', async () => {
+  it('書き込み用の読み取り(readNotesStrict)も同じく読み捨てる', async () => {
     const files = await importNotesFile();
-    await writeRaw({ [KEY]: { content: '旧メモ', updatedAt: 'x', updatedBy: 'u' } });
-    const a = await files.readNotes(TPL);
-    const b = await files.readNotes(TPL);
-    expect(a[KEY][0].id).toBe(b[KEY][0].id);
-  });
-
-  it('複数 pathKey を持つ旧形式ファイルでは各パーツが異なる ID になる', async () => {
-    // 固定値 `legacy` 単体へ戻す退行が起きると、ここが同じ ID になって検出できる
-    // (`repositories/noteRepo.ts` の `locate` はファイル内の全 pathKey を横断して ID 一致を
-    // 探すため、ID が衝突すると編集・削除が別パーツへ誤爆する。実害は noteRepo.test.ts の
-    // describe('旧形式ファイル(複数 pathKey)での id 衝突を防ぐ') で確認する)。
-    const KEY2 = '.page#1/cover#2';
-    const files = await importNotesFile();
-    await writeRaw({
-      [KEY]: { content: 'パーツ1', updatedAt: 'x', updatedBy: 'u' },
-      [KEY2]: { content: 'パーツ2', updatedAt: 'x', updatedBy: 'u' },
-    });
-    const map = await files.readNotes(TPL);
-    expect(map[KEY][0].id).not.toBe(map[KEY2][0].id);
-    expect(map[KEY][0].id).toBe(`legacy:${KEY}`);
-    expect(map[KEY2][0].id).toBe(`legacy:${KEY2}`);
+    await writeRaw({ [KEY]: { content: '旧メモ' }, [KEY2]: [stored] });
+    expect(Object.keys(await files.readNotesStrict(TPL))).toEqual([KEY2]);
   });
 });
 
@@ -180,25 +162,6 @@ describe('コメント属性の既定値補完', () => {
     );
     const notes = await files.readNotes(TPL);
     expect(notes[KEY][0]).toMatchObject({ status: 'open', replyTo: null });
-    expect(notes[KEY][0]).not.toHaveProperty('kind');
-  });
-
-  it('旧形式(1 パーツ 1 件)の変換分も 2 フィールドを持つ', async () => {
-    const files = await importNotesFile();
-    const dir = path.join(tmpRoot, 'notes');
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(
-      path.join(dir, `${TPL}.json`),
-      JSON.stringify({
-        [KEY]: { content: '旧形式', updatedAt: '2026-09-01T00:00:00.000Z', updatedBy: 'e' },
-      }),
-    );
-    const notes = await files.readNotes(TPL);
-    expect(notes[KEY][0]).toMatchObject({
-      id: `legacy:${KEY}`,
-      status: 'open',
-      replyTo: null,
-    });
     expect(notes[KEY][0]).not.toHaveProperty('kind');
   });
 });

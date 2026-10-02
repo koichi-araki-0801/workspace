@@ -29,28 +29,29 @@ type NoteStore = Record<string, Record<string, PartNoteEntry[]>>;
 const NOTE_STATUSES: ReadonlySet<string> = new Set<NoteStatus>(['open', 'resolved']);
 
 /**
- * `status`/`replyTo` を持たない旧データ(`editor:notes:v2` 導入前に書かれた投稿)へ既定値を
- * 補う。server の `files/notesFile.ts` の `withCommentDefaults` と同じ規則(status は
- * 'open'、replyTo は非空文字列でなければ null)。補わないと `parent.replyTo !== null` が
- * `undefined !== null` で真になり、旧投稿への返信・解決が常に拒否される。列挙の外の値も
- * 既定へ戻す(1 件の破損で読み取り全体を落とさない)。`raw.kind` は旧形式(コメント種別が
- * 在った頃)の名残で、読み取っても返却値へは持ち込まない(コメントはメモ 1 種類になったため)。
+ * `status`/`replyTo` を持たない投稿へ既定値を補う。server の `files/notesFile.ts` の
+ * `withCommentDefaults` と同じ規則(status は 'open'、replyTo は非空文字列でなければ null)。
+ * 補わないと `parent.replyTo !== null` が `undefined !== null` で真になり、その投稿への返信・
+ * 解決が常に拒否される。列挙の外の値も既定へ戻す(1 件の破損で読み取り全体を落とさない)。
  */
 function withCommentDefaults(raw: PartNoteEntry): PartNoteEntry {
   const status =
     typeof raw.status === 'string' && NOTE_STATUSES.has(raw.status) ? raw.status : 'open';
   const replyTo = typeof raw.replyTo === 'string' && raw.replyTo !== '' ? raw.replyTo : null;
-  const { kind: _legacyKind, ...rest } = raw as PartNoteEntry & { kind?: unknown };
-  return { ...rest, status, replyTo };
+  return { ...raw, status, replyTo };
 }
 
-/** `K.notes` を読み、全投稿へコメント属性の既定値を補って返す(読み取りの唯一の入口)。 */
+/**
+ * `K.notes` を読み、全投稿へコメント属性の既定値を補って返す(読み取りの唯一の入口)。
+ * パーツの値が配列でなければ読み捨てる(server の `normalizeStored` と同じ)。
+ */
 function readStore(): NoteStore {
   const all = read<NoteStore>(K.notes, {});
   const out: NoteStore = {};
   for (const [templateId, tpl] of Object.entries(all)) {
     const outTpl: Record<string, PartNoteEntry[]> = {};
     for (const [pathKey, entries] of Object.entries(tpl)) {
+      if (!Array.isArray(entries)) continue;
       outTpl[pathKey] = entries.map(withCommentDefaults);
     }
     out[templateId] = outTpl;

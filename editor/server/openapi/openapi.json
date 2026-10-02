@@ -3560,7 +3560,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "投稿 ID(UUID。旧形式からの変換分は `legacy:<pathKey>`)"
+            "description": "投稿 ID(UUID)"
           },
           "templateId": {
             "type": "string",

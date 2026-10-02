@@ -3,8 +3,8 @@
 // =============================================================================
 // 役割:
 //   editor が保存・出力する HTML/CSS は GrapesJS の `getHtml()`/`getCss()` 由来で
-//   minified になっており可読性が低い。確定版テンプレ(`data/templates`)とファンド CSS
-//   (`data/css`)は git 管理されるため、整形して diff/レビューを読めるようにする。
+//   minified になっており可読性が低い。確定版テンプレ(`<dataRoot>/templates`)とファンド CSS
+//   (`<dataRoot>/css`)は git 管理されるため、整形して diff/レビューを読めるようにする。
 //
 // 設計:
 //   js-beautify は html/css/js 整形を 1 パッケージに同梱し、ブラウザ/Worker/Node の

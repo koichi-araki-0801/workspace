@@ -20,39 +20,40 @@ async function loginAdmin(): Promise<void> {
   expect(isOk(r)).toBe(true);
 }
 
-describe('localReviewRepo の旧 held 申請', () => {
-  it('localStorage に held で残る申請は pending として読み、そのまま承認できる', async () => {
+describe('localReviewRepo の現行の 3 状態の外にある申請', () => {
+  it('held で残る申請は読み飛ばし、他の申請は一覧に出す', async () => {
     await loginAdmin();
-    const target = await firstTemplate();
-    if (!target) return;
-    const submitted = await localReviewRepo.submitReview({
-      templateId: target.id,
-      fundCode: target.attributes.fundCode,
-      origin: 'edit',
-      html: '<div>Test</div>',
-      css: 'div { color: black; }',
-    });
-    expect(isOk(submitted)).toBe(true);
-    if (!isOk(submitted)) return;
+    const listed = await localTemplateRepo.listTemplates({});
+    const [t1, t2] = isOk(listed) ? listed.value : [];
+    expect(t2).toBeDefined();
+    if (!t1 || !t2) return;
+    const submit = (t: typeof t1) =>
+      localReviewRepo.submitReview({
+        templateId: t.id,
+        fundCode: t.attributes.fundCode,
+        origin: 'edit',
+        html: `<div>${t.id}</div>`,
+        css: '',
+      });
+    const a = await submit(t1);
+    const b = await submit(t2);
+    expect(isOk(a) && isOk(b)).toBe(true);
+    if (!isOk(a) || !isOk(b)) return;
 
     const all = JSON.parse(localStorage.getItem(K.reviews) ?? '{}') as Record<
       string,
       Record<string, unknown>
     >;
-    all[submitted.value.id] = {
-      ...all[submitted.value.id],
-      status: 'held',
-      heldBy: 'x',
-      holdComment: 'メモ',
-    };
+    all[a.value.id] = { ...all[a.value.id], status: 'held', heldBy: 'x' };
     localStorage.setItem(K.reviews, JSON.stringify(all));
 
     const list = await localReviewRepo.listReviews({});
-    expect(isOk(list) && list.value.find((m) => m.id === submitted.value.id)?.status).toBe(
-      'pending',
-    );
-    const approved = await localReviewRepo.approveReview(submitted.value.id, {});
-    expect(isOk(approved)).toBe(true);
+    expect(isOk(list)).toBe(true);
+    const ids = isOk(list) ? list.value.map((m) => m.id) : [];
+    expect(ids).toContain(b.value.id);
+    expect(ids).not.toContain(a.value.id);
+    const got = await localReviewRepo.getReview(a.value.id);
+    expect(isErr(got) && got.error.kind).toBe('not_found');
   });
 });
 

@@ -139,6 +139,35 @@ test('offline は ci:offline (Pester) を起動する', () => {
   assert.deepEqual(planForChanges(['offline/lib/verify.ps1']), [...SHARED_GATES, 'ci:offline']);
 });
 
+test('classifyChanges: editor のパッチ・scripts の .ps1 / .bat は editor と offline の両方', () => {
+  // `ci:offline` がパッチと init-data-repo の Pester を走らせる。editor 領域だけに落ちると
+  // vitest / e2e は PowerShell を実行しないので、Pester が一度も走らない。
+  for (const p of [
+    'editor/patches/2026-10-fonts-to-css/migrate.ps1',
+    'editor/patches/2026-10-fund-images/apply.Tests.ps1',
+    'editor/scripts/init-data-repo.ps1',
+    'editor/scripts/init-data-repo.bat',
+  ]) {
+    assert.deepEqual(classifyChanges([p]).areas, ['editor', 'offline'], p);
+  }
+});
+
+test('classifyChanges: editor の .ps1 以外(TS・パッチの README)は offline を起動しない', () => {
+  assert.deepEqual(classifyChanges(['editor/server/src/config.ts']).areas, ['editor']);
+  assert.deepEqual(classifyChanges(['editor/patches/2026-10-fonts-to-css/README.md']).areas, ['editor']);
+});
+
+test('editor/scripts の .ps1 は editor の 4 段に続けて ci:offline を起動する', () => {
+  assert.deepEqual(planForChanges(['editor/scripts/init-data-repo.ps1']), [
+    ...SHARED_GATES,
+    'typecheck:editor',
+    'test:editor',
+    'build:editor',
+    'e2e:editor',
+    'ci:offline',
+  ]);
+});
+
 test('editor は typecheck・vitest・build・e2e の 4 段', () => {
   assert.deepEqual(planForChanges(['editor/web/src/main.ts']), [
     ...SHARED_GATES,

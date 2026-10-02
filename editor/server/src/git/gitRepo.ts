@@ -13,6 +13,8 @@
 //     グローバル git 設定に依存しない。
 //   - `ensureRepo` は lazy: 未初期化なら init + .gitignore/.gitattributes + 初回
 //     コミットまで行う(local/テストでは確定保存を呼ばない限り起動しない)。
+//   - .gitattributes は `* text eol=lf`。`text` で改行正規化を有効にし `eol=lf` で作業ツリー
+//     側も LF に固定するので、`core.autocrlf` の設定に関わらず Windows でも byte が揺れない。
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -233,6 +235,28 @@ async function ensureGitignore(): Promise<void> {
   await fs.writeFile(file, `${merged.join('\n')}\n`, 'utf8');
 }
 
+const GITATTRIBUTES_LINE = '* text eol=lf';
+// `text` 属性の値として無効な書き方。見つけたら取り除く。
+const LEGACY_GITATTRIBUTES_LINE = '* text=lf';
+
+/**
+ * .gitattributes を `* text eol=lf` から始まる形へ冪等に揃える。初期化済みリポジトリにも
+ * 適用する。利用者が足した他の行は残し、旧い無効行だけを落とす。既に正しければ書かない
+ * (`ensureRepo` は承認のたび呼ばれるので、共有上の作業ツリーを毎回書き換えない)。
+ */
+async function ensureGitattributes(): Promise<void> {
+  const file = path.join(config.gitRepoDir, '.gitattributes');
+  const existing = await fs.readFile(file, 'utf8').catch(() => null);
+  const normalized = (existing ?? '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+  const others = normalized
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '' && l !== LEGACY_GITATTRIBUTES_LINE && l !== GITATTRIBUTES_LINE);
+  const wanted = `${[GITATTRIBUTES_LINE, ...others].join('\n')}\n`;
+  if (existing === wanted) return;
+  await fs.writeFile(file, wanted, 'utf8');
+}
+
 /**
  * `core.longpaths` をリポジトリローカルで有効にする(冪等)。
  *
@@ -250,24 +274,21 @@ async function ensureLongPaths(): Promise<void> {
 /**
  * リポジトリを必要に応じて初期化する(lazy)。未初期化なら init + .gitignore/
  * .gitattributes 配置 + 既存 templates/css を初回コミット(author=system)。
- * 初期化済みでも .gitignore は冪等に補修する(`/reviews/` の後付け対応)。
+ * 初期化済みでも .gitignore(`/reviews/` の後付け対応)と .gitattributes(旧い無効行の置換)
+ * は冪等に補修する。
  */
 export async function ensureRepo(): Promise<void> {
   await fs.mkdir(config.gitRepoDir, { recursive: true });
   if (await isRepo()) {
     await ensureGitignore();
+    await ensureGitattributes();
     await ensureLongPaths();
     return;
   }
   await git(['init']);
   await ensureGitignore();
+  await ensureGitattributes();
   await ensureLongPaths();
-  await fs.writeFile(
-    path.join(config.gitRepoDir, '.gitattributes'),
-    // Windows でも byte が揺れないよう改行を LF 固定にする。
-    '* text=lf\n',
-    'utf8',
-  );
   // 初回コミットも許可リストの領域だけを取り込む(既存 dataRoot に notes 等が
   // 残っている状態で初期化されても、確定領域以外を追跡下へ入れない)。
   await stageTrackedAreas();

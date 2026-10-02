@@ -13,7 +13,6 @@
       "!**/dist",
       "!**/coverage",
       "!**/out",
-      "!editor/data",
       "!editor/web/src/api/fixtures",
       "!editor/server/openapi/openapi.json",
       "!**/*.tsbuildinfo"

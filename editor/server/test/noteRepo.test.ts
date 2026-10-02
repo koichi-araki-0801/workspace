@@ -249,41 +249,44 @@ describe('件数上限に達したパーツの更新・削除(上限は詰みを
   });
 });
 
-describe('旧形式ファイル(複数 pathKey)での id 衝突を防ぐ', () => {
-  // `normalizeStored`(files/notesFile.ts)は旧形式(pathKey → メモ 1 件)の投稿 ID を
-  // `legacy:<pathKey>` にする。固定値 `legacy` 単体へ戻す退行が起きると、本 repo の `locate`
-  // (ファイル内の全 pathKey を横断して ID 一致を探す)が同じ ID を複数 pathKey で見つけ、
-  // 編集・削除が別パーツへ誤爆する。関連する変換自体の主張は
-  // `notesFile.thread.test.ts`「複数 pathKey を持つ旧形式ファイルでは各パーツが異なる ID になる」
-  // が持ち、ここでは repo 層の編集・削除がパーツを跨がないことを主張する。
-  async function writeLegacyFile(): Promise<void> {
+describe('配列でない値の扱い', () => {
+  // 読み取りで捨てた値は、次の書き込みの元にもならない(書き込みも同じ読み取りから組む)。
+  async function writeMixedFile(): Promise<void> {
     const notesDir = path.join(tmpRoot, 'notes');
     await fs.mkdir(notesDir, { recursive: true });
     await fs.writeFile(
       path.join(notesDir, `${KOUFU}.json`),
       JSON.stringify({
-        [KEY]: { content: 'パーツ1', updatedAt: 'x', updatedBy: 'u' },
-        [OTHER_KEY]: { content: 'パーツ2', updatedAt: 'x', updatedBy: 'u' },
+        [KEY]: { content: '旧', updatedAt: 'x', updatedBy: 'u' },
+        [OTHER_KEY]: [
+          {
+            id: 'e1',
+            content: '残る',
+            createdAt: '2026-09-01T00:00:00.000Z',
+            createdBy: 'u',
+            updatedAt: null,
+            updatedBy: null,
+          },
+        ],
       }),
       'utf8',
     );
   }
 
-  it('片方の legacy id を削除しても、もう一方のパーツの投稿は残る', async () => {
+  it('一覧には配列の投稿だけが出る', async () => {
     const { repo } = await importRepo();
-    await writeLegacyFile();
-    await repo.deleteNote(KOUFU, `legacy:${OTHER_KEY}`);
-    const remaining = await repo.listNotes(KOUFU);
-    expect(remaining.map((e) => e.pathKey)).toEqual([KEY]);
-    expect(remaining[0].content).toBe('パーツ1');
+    await writeMixedFile();
+    expect((await repo.listNotes(KOUFU)).map((e) => e.id)).toEqual(['e1']);
   });
 
-  it('片方の legacy id を編集しても、もう一方のパーツの投稿は変わらない', async () => {
+  it('同じファイルへ書き込むと、配列でない値は残らない', async () => {
     const { repo } = await importRepo();
-    await writeLegacyFile();
-    await repo.updateNote(KOUFU, `legacy:${KEY}`, { content: '直した' }, 'editor1');
-    const all = await repo.listNotes(KOUFU);
-    expect(all.find((e) => e.pathKey === KEY)?.content).toBe('直した');
-    expect(all.find((e) => e.pathKey === OTHER_KEY)?.content).toBe('パーツ2');
+    await writeMixedFile();
+    await repo.addNote(KOUFU, KEY, '新しい投稿', 'editor1', PARENT);
+    const raw = JSON.parse(
+      await fs.readFile(path.join(tmpRoot, 'notes', `${KOUFU}.json`), 'utf8'),
+    ) as Record<string, Array<{ id: string; content: string }>>;
+    expect(raw[KEY].map((e) => e.content)).toEqual(['新しい投稿']);
+    expect(raw[OTHER_KEY][0].id).toBe('e1');
   });
 });

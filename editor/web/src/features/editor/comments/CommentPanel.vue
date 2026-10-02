@@ -100,8 +100,7 @@ watch(
 
 // ── 3. 行の展開(返信・解決・編集・削除) ──
 // キーは `id` 単体ではなく `templateId/id` の対で持つ(`NoteBubble.vue` の `entryKey` と同じ
-// 理由。旧形式ファイルの遅延変換が `legacy:<pathKey>` を id に使うため、版が違えば同じ id を
-// 名乗りうる)。
+// 理由。投稿 id の一意性は版インスタンスのファイルの中でだけ約束されている)。
 function entryKey(entry: PartNoteEntry): string {
   return `${entry.templateId}/${entry.id}`;
 }

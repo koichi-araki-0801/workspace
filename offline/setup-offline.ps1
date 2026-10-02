@@ -98,6 +98,9 @@ if (-not $SkipSourceExtract -and $hasSourceZip -and $hasGit) {
 }
 $sourceCommit = Read-SourceCommit -RepoRoot $RepoRoot
 if ($sourceCommit) { Write-Host "[info] source commit: $sourceCommit" }
+# editor の作成タブ（テンプレ生成器）が使う PATH 上の Python の確認（止めずに案内だけ出す）。
+$pyNote = Test-Python313OnPath
+if ($pyNote) { Write-Warning "[warn] $pyNote" } else { Write-Host '[info] PATH 上の python が 3.13 であることを確認しました。' }
 
 $TarExe     = Resolve-Tar
 $BundleName = 'offline-deps-bundle.tar.gz'

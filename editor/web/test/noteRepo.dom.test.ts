@@ -237,7 +237,6 @@ describe('読み取り時の既定値補完(旧データに status/replyTo が�
     expect(isOk(list) && list.value).toEqual([
       expect.objectContaining({ id: 'legacy1', status: 'open', replyTo: null }),
     ]);
-    expect(isOk(list) && list.value[0]).not.toHaveProperty('kind');
   });
 
   it('旧投稿(親)へ返信でき、解決できる', async () => {
@@ -248,7 +247,7 @@ describe('読み取り時の既定値補完(旧データに status/replyTo が�
     expect(isOk(res) && res.value.status).toBe('resolved');
   });
 
-  it('列挙外の status と空文字の replyTo は既定値へ落ちる。旧形式の kind は読み取りで捨てる', async () => {
+  it('列挙外の status と空文字の replyTo は既定値へ落ちる', async () => {
     const invalid = {
       id: 'bad1',
       templateId: KOUFU,
@@ -260,13 +259,32 @@ describe('読み取り時の既定値補完(旧データに status/replyTo が�
       updatedBy: null,
       status: 'archived',
       replyTo: '',
-      kind: 'unknown',
     };
     localStorage.setItem(K.notes, JSON.stringify({ [KOUFU]: { [KEY]: [invalid] } }));
     const list = await localNoteRepo.listNotes(KOUFU);
     expect(isOk(list) && list.value).toEqual([
       expect.objectContaining({ id: 'bad1', status: 'open', replyTo: null }),
     ]);
-    expect(isOk(list) && list.value[0]).not.toHaveProperty('kind');
+  });
+
+  it('パーツの値が配列でなければ読み捨て、他のパーツの投稿は出す', async () => {
+    const entry = {
+      id: 'n1',
+      templateId: KOUFU,
+      pathKey: KEY,
+      content: '残る',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdBy: 'u',
+      updatedAt: null,
+      updatedBy: null,
+      status: 'open',
+      replyTo: null,
+    };
+    localStorage.setItem(
+      K.notes,
+      JSON.stringify({ [KOUFU]: { [KEY]: [entry], '.page#9/x#1': { content: '旧' } } }),
+    );
+    const list = await localNoteRepo.listNotes(KOUFU);
+    expect(isOk(list) && list.value.map((e) => e.id)).toEqual(['n1']);
   });
 });

@@ -16,6 +16,7 @@ import {
   type ReviewListFilter,
   type ReviewRepository,
   type ReviewRequest,
+  type ReviewStatus,
   type SubmitReviewRequest,
   templateFileName,
   toReviewMeta,
@@ -33,19 +34,22 @@ function contentKey(html: string, css: string): string {
   return (h >>> 0).toString(16);
 }
 
+const REVIEW_STATUSES: ReadonlySet<string> = new Set<ReviewStatus>([
+  'pending',
+  'approved',
+  'rejected',
+]);
+
 /**
- * 保存済みの申請を読む。旧いデータに残る保留(`held`)は `pending` へ正規化し、保留の
- * 3 フィールドは落とす(server の `reviewFiles.readReviewMeta` と同じ規則)。
+ * 保存済みの申請を読む。`status` が現行の 3 状態の外にある申請は読み飛ばす(server の
+ * `reviewFiles.readReviewMeta` と同じ規則。1 件のために一覧全体を落とさない)。書き戻しは
+ * この戻り値から組むので、読み飛ばした申請は次の書き込みで消える。
  */
 function readReviews(): Record<string, ReviewRequest> {
-  const raw = read<Record<string, Record<string, unknown>>>(K.reviews, {});
+  const raw = read<Record<string, ReviewRequest>>(K.reviews, {});
   const out: Record<string, ReviewRequest> = {};
   for (const [id, r] of Object.entries(raw)) {
-    const { heldBy: _heldBy, heldAt: _heldAt, holdComment: _holdComment, ...rest } = r;
-    out[id] = {
-      ...rest,
-      status: rest.status === 'held' ? 'pending' : rest.status,
-    } as ReviewRequest;
+    if (REVIEW_STATUSES.has(r.status)) out[id] = r;
   }
   return out;
 }

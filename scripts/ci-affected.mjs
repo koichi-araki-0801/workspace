@@ -43,8 +43,12 @@ export const AREAS = {
     stages: ['typecheck:pie-chart', 'test:pie-chart', 'pie-chart:batch', 'pie-chart:batch:diff'],
   },
   offline: {
-    label: 'offline',
-    match: (p) => p.startsWith('offline/'),
+    label: 'offline + editor の PowerShell (Pester)',
+    // `ci:offline` は offline の Pester に加え、editor のパッチと init-data-repo の Pester も
+    // 走らせる。それらの .ps1 / .bat は editor 領域にも当たるが、editor の段(vitest / e2e)は
+    // PowerShell を 1 行も実行しないので、ここでも拾わないと Pester が一度も走らない。
+    match: (p) =>
+      p.startsWith('offline/') || /^editor\/(patches|scripts)\/.+\.(ps1|bat)$/i.test(p),
     stages: ['ci:offline'],
   },
   docs: {
@@ -100,9 +104,10 @@ export function classifyChanges(paths) {
       benign.push(p);
       continue;
     }
-    const area = Object.keys(AREAS).find((k) => AREAS[k].match(p));
-    if (area) {
-      selected.add(area);
+    // 当たる領域はすべて選ぶ(editor のパッチの .ps1 は editor と offline の両方の段が要る)。
+    const hits = Object.keys(AREAS).filter((k) => AREAS[k].match(p));
+    if (hits.length > 0) {
+      for (const a of hits) selected.add(a);
       continue;
     }
     if (BENIGN_PREFIXES.some((pre) => p.startsWith(pre))) {

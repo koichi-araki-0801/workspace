@@ -430,3 +430,35 @@ Describe 'Read-SourceCommit' {
     Read-SourceCommit -RepoRoot $root | Should Be 'abc 2026-09-10T00:00:00+09:00'
   }
 }
+
+Describe 'Test-Python313OnPath（PATH 上の python が 3.13 か）' {
+  It '終了コード 0 で版が 3.13 なら null（案内なし）' {
+    ($null -eq (Test-Python313OnPath -Invoke { [pscustomobject]@{ ExitCode = 0; Output = '3.13' } })) | Should Be $true
+  }
+  It 'python が無い・Store の偽物(9009)なら、Python 3.13 を PATH に通すよう案内し、終了コードを添える' {
+    $msg = Test-Python313OnPath -Invoke { [pscustomobject]@{ ExitCode = 9009; Output = '' } }
+    $msg | Should Match 'Python 3\.13 を入れ、ユーザー環境変数 PATH に通してください'
+    $msg | Should Match '終了コード: 9009'
+  }
+  It '版が 3.13 でなければ、その版を添えて同じ案内を出す' {
+    $msg = Test-Python313OnPath -Invoke { [pscustomobject]@{ ExitCode = 0; Output = '3.12' } }
+    $msg | Should Match 'ユーザー環境変数 PATH に通してください'
+    $msg | Should Match '版が 3\.12'
+  }
+  It '版は標準出力から読み、stderr を出して失敗しても Stop のもとで例外にならない' {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Stop'
+    try {
+      $r = Get-NativeOutput -Command 'cmd.exe' -Arguments @('/c', 'echo 3.13& echo err 1>&2& exit 3')
+    } finally { $ErrorActionPreference = $prev }
+    $r.ExitCode | Should Be 3
+    $r.Output | Should Be '3.13'
+  }
+  It 'setup-offline.ps1 がこの確認を呼び、py ランチャの確認は残っていない' {
+    $setup = [IO.File]::ReadAllText((Join-Path $repoRoot 'offline\setup-offline.ps1'), [Text.Encoding]::UTF8)
+    $setup | Should Match 'Test-Python313OnPath'
+    $setup | Should Not Match 'Test-Python313Launcher'
+    (Get-Command Test-Python313Launcher -ErrorAction SilentlyContinue) | Should BeNullOrEmpty
+    (Get-Command Get-NativeExitCode -ErrorAction SilentlyContinue) | Should BeNullOrEmpty
+  }
+}

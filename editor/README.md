@@ -21,8 +21,9 @@ editor はリポジトリ直下の **pnpm モノレポ**の一部（`editor/shar
 editor/shared/   共有 TS 型/DTO + Result/AppError + ドメイン + 集約ごとの Repository 契約（型の真実源）
 editor/web/      Vue3 + Vite + TS + Vue Router + Pinia + Tailwind v4 + shadcn-vue + GrapesJS + Nunjucks + vivliostyle
 editor/server/   Fastify + TS（PDF 生成 / ファイル索引 / Python 生成器アダプタ / `rest` 向け REST・SQL）
-editor/data/     テンプレ(.html) と ファンド毎 CSS（サーバが参照）
 ```
+
+テンプレ実体（`.html`）とファンド毎 CSS はリポジトリの外の data リポジトリ（既定 `../../editor-data`、環境変数 `DATA_ROOT`）に置く。初期化は `editor/scripts/init-data-repo.bat`。
 
 > データソースは `VITE_API_MODE` で切り替える。既定は `rest`（SQL Server + 認証）。`local`
 > （fixtures + localStorage、DB なし・ログインなし）は開発用の opt-in。`web/src/api/repositories.ts`
@@ -155,7 +156,7 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 | ページ境界オーバーレイ | `web/src/features/editor/pageView.ts` |
 | セッション失効（再起動検知） | `web/src/lib/appEpoch.ts`, `web/src/stores/auth.ts`, `web/src/router/index.ts`（`authGuard`） |
 | PDF / preview（vivliostyle CLI） | `server/src/vivliostyle/*`（`build.ts` / `previewManager.ts`） |
-| Python 生成器アダプタ | `server/src/generate/pyTemplate.ts`（`server/scripts/generate_template.py` を呼ぶ） |
+| Python 生成器アダプタ | `server/src/generate/pyTemplate.ts`（既定はテスト用の偽物 `server/scripts/fake_generate_template.py` を PATH 上の `python` で呼ぶ） |
 | REST + DB ゲートウェイ sproc | `server/src/routes/*`, `server/src/db/*`, `server/db/{ddl,sproc,seed}` |
 
 ## 環境変数（server）
@@ -176,8 +177,10 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 | `CSS_DIR` | `<DATA_ROOT>/css` | ファンド毎 CSS 置き場 |
 | `DRAFTS_DIR` | `<DATA_ROOT>/drafts` | オートセーブ下書きの作業コピー |
 | `WEB_DIR` | `web/dist` | 本番配信する build 済み SPA |
-| `PYTHON_BIN` | `python` | Python 実行体 |
-| `PY_GENERATE_SCRIPT` | `server/scripts/generate_template.py` | 既存 Python 生成器 |
+| `PYTHON_BIN` | `python`（PATH から探す。引数なし） | 生成器を起動する Python。3.13 でなければ起動ログに警告が出る |
+| `PY_GENERATE_SCRIPT` | `server/scripts/fake_generate_template.py` | 生成器のスクリプト（既定はテスト用の偽物。本番は既存の生成器を指す） |
+| `PY_GENERATE_SCRIPT_SHA256` | なし | 生成器のスクリプトの SHA256。設定すると生成のたびに照合する |
+| `GENERATE_MAX_CONCURRENCY` / `GENERATE_MAX_QUEUE` | 2 / 8 | 生成の同時実行と待ち行列の上限 |
 | `VIVLIOSTYLE_EXECUTABLE_BROWSER` | 自動検出 | PDF 用ブラウザ（Edge → playwright 既定） |
 
 REST モード（`start.bat rest`）で効く認証/DB 系:

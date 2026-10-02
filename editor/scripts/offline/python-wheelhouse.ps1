@@ -4,7 +4,7 @@
   Build (online) or install (offline) a pip wheelhouse for the Python template generator.
 
 .DESCRIPTION
-  The current generator stub (server/scripts/generate_template.py) uses only the Python
+  The fake generator for tests (server/scripts/fake_generate_template.py) uses only the Python
   standard library, so no wheelhouse is needed yet. Once the generator adds pip
   dependencies, list them in server/scripts/requirements.txt and use:
 

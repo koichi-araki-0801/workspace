@@ -42,8 +42,6 @@ bundle.key
 _bundle_stage/
 # オフライン環境構築後、ダウンロード物（ソースZIP/バンドル/sha256/key）の退避先
 bk/
-# editor のテンプレ実体(templates/css/drafts)はワークスペース外の dataRoot で git 版管理する
-editor/data/
 # git/TortoiseGit の同梱バイナリ（重量物。content key 差分で再配布）
 git-tools/
 # docs の Mermaid ランタイムと ELK レイアウト（計 ~4.3MB。git に入れず重量物バンドルへ同梱し

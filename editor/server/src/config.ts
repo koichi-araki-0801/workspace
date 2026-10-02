@@ -52,8 +52,6 @@ const appConfigSchema = z
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
         filledDir: z.string().optional(),
-        // 廃止済み。専用の起動エラーを出すため検出用に残す(消すと .strict() の汎用エラーに退化する)。
-        assetsDir: z.string().optional(),
         jsDir: z.string().optional(),
         imagesDir: z.string().optional(),
         draftsDir: z.string().optional(),
@@ -69,7 +67,9 @@ const appConfigSchema = z
     python: z
       .object({
         bin: z.string().optional(),
+        args: z.array(z.string()).optional(),
         script: z.string().optional(),
+        scriptSha256: z.string().optional(),
         timeoutMs: z.number().int().positive().optional(),
       })
       .strict()
@@ -129,8 +129,8 @@ function resolvePath(envVal: string | undefined, fileVal: string | undefined, de
  * テンプレ実体(templates/css/drafts)を置く data ルート。git 版管理の対象でもある
  * (`gitRepoDir`)。ネスト git を避けるため既定は **ワークスペースリポジトリ外**
  * (repoRoot=editor の 2 つ上、例 `C:\Users\<user>\editor-data`)。env `DATA_ROOT`
- * または `appconfig.json` の `paths.dataRoot` で上書きする。移設は init-data-repo
- * スクリプトが行う(既存 editor/data からの移動)。
+ * または `appconfig.json` の `paths.dataRoot` で上書きする。初期化は init-data-repo
+ * スクリプトが行う。
  */
 const dataRoot = resolvePath(process.env.DATA_ROOT, file.paths?.dataRoot, '../../editor-data');
 
@@ -226,6 +226,50 @@ export function envPositiveNumber(
   opts: EnvNumberOptions = {},
 ): number {
   return envNumber(name, envVal, def, { ...opts, min: opts.min ?? 0, exclusiveMin: true });
+}
+
+/**
+ * 生成器を起動する既定のコマンド。PATH 上の `python` を版を指定せずに使う(配置先では運用者が
+ * ユーザー環境変数 PATH に Python 3.13 を通す)。3.13 かどうかは起動時の確認
+ * (`generate/generatorCheck.ts`)が知らせる。
+ */
+export const DEFAULT_PYTHON_BIN = 'python';
+
+/**
+ * 生成器を起動する実行ファイルと、スクリプトの前に付ける引数を決める。
+ *
+ * 実行ファイルは env `PYTHON_BIN` → appconfig `python.bin` → 既定の順。引数は appconfig
+ * `python.args` でだけ足せる(既定は無し)。引数を env で受けない(`PYTHON_ARGS` を設けない)のは、
+ * 空白で区切る規則がパスの空白と衝突するため。
+ */
+export function resolvePythonCommand(opts: {
+  envBin: string | undefined;
+  fileBin: string | undefined;
+  fileArgs: readonly string[] | undefined;
+}): { bin: string; args: string[] } {
+  return {
+    bin: opts.envBin ?? opts.fileBin ?? DEFAULT_PYTHON_BIN,
+    args: [...(opts.fileArgs ?? [])],
+  };
+}
+
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
+
+/**
+ * 生成器のスクリプトの指紋(SHA256)を検査して小文字で返す。未指定は `undefined`(照合しない)。
+ * 形式違反は起動中止にする。打ち間違いを黙って「照合しない」へ倒すと、守っているつもりの
+ * 無防備が残る(`envNumber` と同じ方針)。
+ */
+export function parseScriptSha256(value: string | undefined, source: string): string | undefined {
+  if (value === undefined) return undefined;
+  const v = value.trim();
+  if (!SHA256_HEX_RE.test(v)) {
+    throw new Error(
+      `[config] ${source}=${JSON.stringify(value)} は SHA256 の 64 桁の 16 進ではありません。` +
+        ' `certutil -hashfile <生成器のスクリプト> SHA256` の出力を指定してください。',
+    );
+  }
+  return v.toLowerCase();
 }
 
 const executableBrowser =
@@ -328,7 +372,7 @@ export const config = {
    */
   pendingDir: resolveDataPath(process.env.PENDING_DIR, file.paths?.pendingDir, 'pending'),
   /**
-   * 確定保存の承認待ち申請(`data/reviews/<reqId>/`。git 管理外)。承認時に実ファイル
+   * 確定保存の承認待ち申請(`<dataRoot>/reviews/<reqId>/`。git 管理外)。承認時に実ファイル
    * (templates/css)へ反映するまでの中間保管。`ensureRepo` が `/reviews/` を .gitignore する。
    */
   reviewsDir: resolveDataPath(process.env.REVIEWS_DIR, file.paths?.reviewsDir, 'reviews'),
@@ -344,20 +388,50 @@ export const config = {
   /** 本番で配信するビルド済み web SPA。 */
   webDist: resolvePath(process.env.WEB_DIR, file.paths?.webDist, 'web/dist'),
 
-  /** 既存の Python template ジェネレータ。 */
+  /**
+   * テンプレート生成器(社内の共有フォルダなどにある既存ツール)。起動は
+   * `<bin> <args...> <script> <属性 JSON>`(`generate/pyTemplate.ts`)。
+   */
   python: {
-    bin: process.env.PYTHON_BIN ?? file.python?.bin ?? 'python',
+    ...resolvePythonCommand({
+      envBin: process.env.PYTHON_BIN,
+      fileBin: file.python?.bin,
+      fileArgs: file.python?.args,
+    }),
     script: resolvePath(
       process.env.PY_GENERATE_SCRIPT,
       file.python?.script,
-      'server/scripts/generate_template.py',
+      'server/scripts/fake_generate_template.py',
     ),
+    /**
+     * 生成器のスクリプトの SHA256。設定すると生成のたびに照合し、食い違えば生成を拒否する
+     * (共有フォルダ上の生成器の差し替えに気づくため)。照合できるのは入口のスクリプト 1 本だけ。
+     */
+    scriptSha256:
+      process.env.PY_GENERATE_SCRIPT_SHA256 !== undefined
+        ? parseScriptSha256(
+            process.env.PY_GENERATE_SCRIPT_SHA256,
+            '環境変数 PY_GENERATE_SCRIPT_SHA256',
+          )
+        : parseScriptSha256(file.python?.scriptSha256, 'appconfig.json の python.scriptSha256'),
     timeoutMs: envPositiveNumber(
       'PY_TIMEOUT_MS',
       process.env.PY_TIMEOUT_MS,
       file.python?.timeoutMs ?? 30000,
       { integer: true, max: 600_000 },
     ),
+    /** 同時に起動する生成器の上限。 */
+    maxConcurrency: envPositiveNumber(
+      'GENERATE_MAX_CONCURRENCY',
+      process.env.GENERATE_MAX_CONCURRENCY,
+      2,
+      { integer: true, max: 16 },
+    ),
+    /** 生成の待ち行列の上限。超えた要求は待たせずに 503 で返す(`generate/pyTemplate.ts`)。 */
+    maxQueue: envPositiveNumber('GENERATE_MAX_QUEUE', process.env.GENERATE_MAX_QUEUE, 8, {
+      integer: true,
+      max: 256,
+    }),
   },
 
   /** vivliostyle の PDF 生成に使う一時ディレクトリ。 */
@@ -820,45 +894,6 @@ export function buildCspDirectives(
 }
 
 /**
- * 廃止した設定 `assetsDir`(appconfig `paths.assetsDir` / env `ASSETS_DIR`)が残っていないか。
- * 黙って無視すると、独自の置き場に置いた js が配信ルートへ載らず、JS の効かない PDF が成功扱いで
- * 出る。誤記を起動中止で運用者に届ける方針(`envFlag`)に揃えて、ここで止める。
- */
-export function assertNoRetiredAssetsDir(opts: {
-  env: string | undefined;
-  file: string | undefined;
-}): void {
-  const where = [
-    ...(opts.env === undefined ? [] : ['環境変数 ASSETS_DIR']),
-    ...(opts.file === undefined ? [] : ['appconfig.json の paths.assetsDir']),
-  ];
-  if (where.length === 0) return;
-  throw new Error(
-    `[config] ${where.join(' と ')} が指定されていますが、assetsDir は廃止しました。` +
-      ' js は jsDir(環境変数 JS_DIR / appconfig の paths.jsDir)へ、フォントは <cssDir>/fonts へ' +
-      ' 移してください。移行パッチ: editor/patches/2026-10-fonts-to-css/',
-  );
-}
-
-/**
- * 旧構成の `<dataRoot>/assets` が残っていないか。`assetsDir` を指定しない既定構成でも、移行前に
- * 起動するとフォント(css/fonts)と js が配信ルートに載らず、見た目と JS だけが黙って欠けた
- * PDF が成功扱いで出る。移行パッチは `assets` を `assets.migrated-*` へ改名するので、移行後は通る。
- */
-export function assertNoLegacyAssetsDir(opts: {
-  dataRoot: string;
-  exists: (p: string) => boolean;
-}): void {
-  const legacy = path.join(opts.dataRoot, 'assets');
-  if (!opts.exists(legacy)) return;
-  throw new Error(
-    `[config] ${legacy} が残っています。フォントは <cssDir>/fonts、js は jsDir(既定 <dataRoot>/js)へ` +
-      ' 置き場を移したため、このままでは配信されません。' +
-      ' 移行パッチ editor/patches/2026-10-fonts-to-css/ を流してから起動してください。',
-  );
-}
-
-/**
  * `imagesDir` が確定領域(承認コミットが `git add -A -- <領域>` する dataRoot 直下の
  * ディレクトリ)の内側にないか。内側だと、別ツールが置いた画像が次の承認で承認者の名前の
  * コミットへ巻き込まれる(`.gitignore` の `/images/` は dataRoot 直下にしか効かない)。
@@ -904,9 +939,7 @@ export const allowedHosts = resolveAllowedHosts({
     .map((n) => n.address),
 });
 
-// 廃止した置き場の指定が残っていたら、listen より前に止める。
-assertNoRetiredAssetsDir({ env: process.env.ASSETS_DIR, file: file.paths?.assetsDir });
-assertNoLegacyAssetsDir({ dataRoot: config.dataRoot, exists: fs.existsSync });
+// imagesDir が確定領域の内側なら、listen より前に止める。
 assertImagesDirOutsideCommittedAreas({
   imagesDir: config.imagesDir,
   gitRepoDir: config.gitRepoDir,

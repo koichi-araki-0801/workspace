@@ -1,7 +1,7 @@
 // =============================================================================
 // reviewFiles.ts — 確定保存の承認待ち申請(ディスク I/O)
 // =============================================================================
-// 確定保存の申請を `data/reviews/<reqId>/` に保管する(git 管理外。`ensureRepo` が
+// 確定保存の申請を `<dataRoot>/reviews/<reqId>/` に保管する(git 管理外。`ensureRepo` が
 // `/reviews/` を .gitignore する)。1 申請 = 1 ディレクトリで、メタ(`meta.json`)と本体
 // (`body.html` / `body.css` / 任意 `filled.html`)を分けて持つ。一覧は readdir、状態更新は
 // `meta.json` の書き換え。`templateFiles.ts`/`draftFiles.ts` と同じく本体はファイル、索引は
@@ -15,6 +15,7 @@ import {
   toReviewMeta,
   unexpected,
 } from '@editor/shared';
+import { ReviewStatus } from '@editor/shared/schemas';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { atomicWrite } from './atomic.js';
@@ -44,21 +45,30 @@ export async function writeReview(req: ReviewRequest): Promise<void> {
 }
 
 /**
+ * 状態が不明で読み飛ばした申請の id。一覧は開くたびに全件を読むので、警告は申請ごとに
+ * プロセスで 1 回だけ出す(同じ警告でログを埋めない)。
+ */
+const warnedUnknownStatus = new Set<string>();
+
+/**
  * 申請メタを読む。無ければ null(モジュール内部ヘルパ)。
  *
- * 旧い meta.json には保留(`held`)の状態と `heldBy` / `heldAt` / `holdComment` が残っている
- * ことがある。保留は撤去したので、読み取りで `pending` に正規化し保留の 3 フィールドは
- * 落とす。書き戻しはしない — 次の決着(承認 / 却下)で新しい meta が書かれ自然に消える。
+ * `status` が現行の 3 状態(`ReviewStatus`)の外にあるメタは読み飛ばし(null)、警告ログに残す。
+ * 応答のスキーマに合わない 1 件のために一覧全体を落とさないため。単件の読み取りでは
+ * 「見つからない」になる。
  */
 async function readReviewMeta(reqId: string): Promise<ReviewRequestMeta | null> {
   const raw = await fs.readFile(metaPath(reqId), 'utf8').catch(() => null);
   if (raw === null) return null;
-  const parsed = JSON.parse(raw) as Record<string, unknown>;
-  delete parsed.heldBy;
-  delete parsed.heldAt;
-  delete parsed.holdComment;
-  const status = parsed.status === 'held' ? 'pending' : parsed.status;
-  return { ...parsed, status } as ReviewRequestMeta;
+  const parsed = JSON.parse(raw) as ReviewRequestMeta;
+  if (!ReviewStatus.safeParse(parsed.status).success) {
+    if (!warnedUnknownStatus.has(reqId)) {
+      warnedUnknownStatus.add(reqId);
+      logger.warn({ reqId, status: parsed.status }, '申請の状態が不明なため読み飛ばしました');
+    }
+    return null;
+  }
+  return parsed;
 }
 
 /**

@@ -210,7 +210,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       };
     },
 
-    /** 自動保存ドラフトはファイルのみ(`data/drafts`、git 管理外)。台帳は引かない。 */
+    /** 自動保存ドラフトはファイルのみ(`<dataRoot>/drafts`、git 管理外)。台帳は引かない。 */
     async saveDraft(templateId, html, css, _loginId) {
       await writeDraft(templateId, html, css);
     },

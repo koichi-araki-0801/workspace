@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Stub template generator.
+"""テスト・local 検証用の偽の生成器。本番は PY_GENERATE_SCRIPT で既存の生成器を指す。
 
-Replace this with the existing Python template generator. Contract:
-- argv[1] is a JSON object: {companyCode, fundCode, editionType, basedOnTemplateId?}
-- prints the generated Jinja2 template HTML to stdout.
+入出力の約束(呼び出し元は editor/server/src/generate/pyTemplate.ts):
+- argv[1] は JSON: {companyCode, fundCode, editionType, baseDate, basedOnTemplateId?}
+- 生成した Jinja2 テンプレート HTML を stdout へ出す。
 
-This stub resolves attributes to a minimal report template; if basedOnTemplateId
-is given it tries to read that template file as the base.
+basedOnTemplateId があれば、環境変数 TEMPLATES_DIR(サーバが config.templatesDir を渡す)の
+<id>.html をそのまま返す。TEMPLATES_DIR が無ければ元テンプレ指定はエラーにする。
 """
 import json
 import os
@@ -24,10 +24,12 @@ def main() -> int:
     based_on = attrs.get("basedOnTemplateId")
 
     if based_on:
-        templates_dir = os.environ.get(
-            "TEMPLATES_DIR",
-            os.path.join(os.path.dirname(__file__), "..", "..", "data", "templates"),
-        )
+        templates_dir = os.environ.get("TEMPLATES_DIR")
+        if not templates_dir:
+            # サーバは必ず TEMPLATES_DIR を渡す。無いのは単独実行か呼び出し元の不備で、既定の
+            # 置き場を推測して読むと、別の環境のテンプレを元にした生成物ができてしまう。
+            print("TEMPLATES_DIR is required when basedOnTemplateId is given", file=sys.stderr)
+            return 2
         # 呼び出し元(`pyTemplate.ts`)も検査するが、ここでも独立に封じ込める。単独実行や
         # 将来の別呼び出し元でも「templates ディレクトリの外は読まない」を成立させるため。
         # basename でセグメントを 1 つに潰し、realpath で解決先が中にあることを確かめる。

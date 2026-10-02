@@ -7,9 +7,8 @@
 //
 // 安全設計:
 //   - 既定はドライラン (消す対象と容量を表示するだけ)。実削除は `--yes` を付けたときのみ。
-//   - `git clean -Xd` のような「ignore 全消し」はしない。巻き込み事故 (`editor/data` の
-//     テンプレ実体・`git-tools` の同梱バイナリ・大容量バンドル) を避けるため、対象は
-//     下のキュレーション済みリストに限定する。
+//   - `git clean -Xd` のような「ignore 全消し」はしない。巻き込み事故 (`git-tools` の
+//     同梱バイナリ・大容量バンドル) を避けるため、対象は下のキュレーション済みリストに限定する。
 //   - 何を消し何を残したかを必ず出力する (silent に絞ったように見せない)。
 //
 // 関連: 置き場/コマンド一覧は `README.md`、再生成物の正典は `.gitignore`。
@@ -21,17 +20,16 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // ── 1. 絶対に触れない領域 ──
-// 走査で降りず、削除候補にも絶対に入れない。`.git` は履歴、`editor/data` はテンプレ実体
-// (ワークスペース外 dataRoot の git 管理対象)、`git-tools` と `native-prebuilds` は
+// 走査で降りず、削除候補にも絶対に入れない。`.git` は履歴、`git-tools` と `native-prebuilds` は
 // 同梱バイナリ (git 管理外の重量物。再配布・再取得が要る)。
 // 照合は**小文字へ畳んでから** (`isNever*`): Windows のファイルシステムは大文字小文字を
-// 保持するだけで区別せず、ネットワークドライブ経由では `Data` のような別ケーシングが
-// 返ることがある。厳密一致だと除外が外れて `--yes` がテンプレ実体を消しうる。
+// 保持するだけで区別せず、ネットワークドライブ経由では `Git-Tools` のような別ケーシングが
+// 返ることがある。厳密一致だと除外が外れて `--yes` が同梱バイナリを消しうる。
 // `NEVER_REL` は**固定文字列**で持つ (`rel()` へは渡さない): `rel()` は `path.relative` で
 // 絶対パスを前提とするため、相対文字列を渡すと cwd 基準で解決されてしまい、cwd が ROOT 以外
-// (例: `cd editor && node ../scripts/clean.mjs`) だとここの 3 領域が丸ごと外れる。
+// (例: `cd editor && node ../scripts/clean.mjs`) だとここの領域が丸ごと外れる。
 const NEVER = new Set(['.git', '.claude', '.github', '.husky', '.vscode']);
-const NEVER_REL = new Set(['editor/data', 'git-tools', 'native-prebuilds']);
+const NEVER_REL = new Set(['git-tools', 'native-prebuilds']);
 const isNeverName = (name) => NEVER.has(name.toLowerCase());
 const isNeverRel = (r) => NEVER_REL.has(r.toLowerCase());
 // 完全一致だけでなく配下も保護する (削除直前の二重チェック用。走査時の除外は親ディレクトリ

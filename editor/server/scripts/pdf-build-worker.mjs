@@ -5,7 +5,7 @@
 // stdio backpressure 等が原因で `build()` が返らずハングする事象がある(同一入力を別プロセスで
 // 実行すると毎回成功する)。そこで PDF 生成だけをこの plain ESM worker に隔離し、`build.ts` から
 // `child_process` で spawn する。これで in-process ハングを構造的に回避し、親側の timeout で
-// 応答が必ず返る(無限スピナー解消)。`server/scripts/generate_template.py` と同じ「裏方スクリプト」
+// 応答が必ず返る(無限スピナー解消)。`server/scripts/fake_generate_template.py` と同じ「裏方スクリプト」
 // 配置で、tsc のコンパイル対象外(.mjs)とし dev(tsx)/prod(node) の双方から `node` で直接実行できる。
 //
 // 契約: `process.argv[2]` = `@vivliostyle/cli` の `build()` へ渡すオプションの JSON 文字列

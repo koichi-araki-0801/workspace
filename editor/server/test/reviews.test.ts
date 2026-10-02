@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createSessionStub } from './helpers/sessionStub.js';
 
 // config を import する前に一時ディレクトリへ向ける。
@@ -72,7 +72,7 @@ d('review workflow (reviewRepo)', () => {
     const meta = await submit(tplId, '111111', '<p>{{ fund.name }} 申請</p>');
     expect(meta.status).toBe('pending');
     expect(meta.submittedBy).toBe('editor1');
-    // 実ファイルは未更新(既存の値入り HTML のまま)、申請だけが data/reviews 配下に在る。
+    // 実ファイルは未更新(既存の値入り HTML のまま)、申請だけが <dataRoot>/reviews 配下に在る。
     expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SEEDED_FILLED);
     expect(fs.existsSync(path.join(tmp, 'reviews', meta.id, 'meta.json'))).toBe(true);
   });
@@ -240,36 +240,49 @@ d('review workflow (reviewRepo)', () => {
     ).rejects.toMatchObject({ kind: 'validation' });
   });
 
-  describe('旧 held 申請の読み取り', () => {
-    it('meta.json の status が held なら pending として読み、保留フィールドは落とす', async () => {
-      const meta = await submit('AM01_141414_20250101_交付版', '141414', '<p>旧保留</p>');
-      const files = await import('../src/files/reviewFiles.js');
-      const metaPath = path.join(tmp, 'reviews', meta.id, 'meta.json');
+  describe('現行の 3 状態の外にある申請', () => {
+    /** 申請の meta.json の status だけを書き換える(旧い保留の申請が残った状態を作る)。 */
+    const markHeld = (id: string) => {
+      const metaPath = path.join(tmp, 'reviews', id, 'meta.json');
       const raw = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as Record<string, unknown>;
-      fs.writeFileSync(
-        metaPath,
-        JSON.stringify({
-          ...raw,
-          status: 'held',
-          heldBy: 'approver1',
-          heldAt: '2026-09-01T00:00:00.000Z',
-          holdComment: '確認中',
-        }),
-      );
-      const read = await files.readReview(meta.id);
-      expect(read?.status).toBe('pending');
-      expect(read && 'heldBy' in read).toBe(false);
-      expect((await files.listReviewMetas()).find((m) => m.id === meta.id)?.status).toBe('pending');
-      expect(await files.countPendingReviews()).toBeGreaterThanOrEqual(1);
+      fs.writeFileSync(metaPath, JSON.stringify({ ...raw, status: 'held', heldBy: 'approver1' }));
+    };
+
+    it('status が held の申請は 1 件ずつ読み飛ばし、他の申請の一覧は落とさない', async () => {
+      const held = await submit('AM01_141414_20250101_交付版', '141414', '<p>旧保留</p>');
+      const kept = await submit('AM01_232323_20250101_交付版', '232323', '<p>残る</p>');
+      markHeld(held.id);
+      const files = await import('../src/files/reviewFiles.js');
+      const ids = (await files.listReviewMetas()).map((m) => m.id);
+      expect(ids).toContain(kept.id);
+      expect(ids).not.toContain(held.id);
+      expect(await files.readReview(held.id)).toBeNull();
     });
 
-    it('旧 held の申請はそのまま承認・却下できる', async () => {
+    it('読み飛ばしの警告は申請ごとに 1 回だけ出す(一覧を開くたびにログを埋めない)', async () => {
+      const held = await submit('AM01_242424_20250101_交付版', '242424', '<p>旧保留</p>');
+      markHeld(held.id);
+      const files = await import('../src/files/reviewFiles.js');
+      const { logger } = await import('../src/logger.js');
+      const spy = vi.spyOn(logger, 'warn');
+      try {
+        await files.listReviewMetas();
+        await files.listReviewMetas();
+        const forHeld = spy.mock.calls.filter(
+          (c) => (c[0] as { reqId?: string } | undefined)?.reqId === held.id,
+        );
+        expect(forHeld).toHaveLength(1);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('status が held の申請は承認できず、見つからない扱いになる', async () => {
       const meta = await submit('AM01_151515_20250101_交付版', '151515', '<p>旧保留→承認</p>');
-      const metaPath = path.join(tmp, 'reviews', meta.id, 'meta.json');
-      const raw = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as Record<string, unknown>;
-      fs.writeFileSync(metaPath, JSON.stringify({ ...raw, status: 'held' }));
-      const result = await reviews.approveReview(meta.id, {}, approver);
-      expect(result.meta).toBeTruthy();
+      markHeld(meta.id);
+      await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+        kind: 'not_found',
+      });
     });
   });
 

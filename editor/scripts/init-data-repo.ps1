@@ -9,19 +9,29 @@
     1. dataRoot 配下にサーバが使う置き場をすべて作成する(templates/ filled/ css/ css/fonts/ sync/
        drafts/ pending/ reviews/ notes/ js/ images/)。サーバも必要時に作るが、
        共有フォルダへ置く運用では権限設定や目視確認のために最初から揃っている方が扱いやすい。
-    2. 既存 editor/data/{templates,css} があれば dataRoot へコピーする(初回移行)。
-    3. dataRoot が未初期化なら git init + .gitignore/.gitattributes + 初回コミット。
+    2. git の履歴(HEAD)が無ければ初回コミットを作る。.git が無ければ git init から行い、
+       .git はあるが HEAD が無い(git init だけした)ときは、そのリポジトリへ初回コミットを足す。
+       .gitignore は無ければ書き、あれば足りない必須行だけを足す。.gitattributes はサーバと同じ形(先頭
+       を * text eol=lf にし、無効な * text=lf を落とす。BOM 無し)に揃える。
+       初回コミットに入れるのは、サーバの承認コミットと同じ確定領域(templates・filled・
+       css(css/fonts を除く)・sync・.gitignore・.gitattributes)だけ。手で作り直した dataRoot に
+       assets・js・images・notes などが残っていても記録しない。
+    履歴が既にあれば git には触らない(何度流してもよい)。
   サーバは環境変数 DATA_ROOT(または appconfig.json の paths.dataRoot)でこの場所を
   参照する。drafts/ pending/ と一時ファイルは追跡しない(.gitignore)。pending/ を
-  追跡しないのは整理ではなく防御の一部で、承認コミット(git add -A)に未承認の生成物が
-  混ざると「確定領域へは承認経路からしか書けない」不変則が崩れるため。改行は LF 固定
-  (.gitattributes)で Windows でも byte が揺れないようにする。
+  追跡しないのは整理ではなく防御の一部で、承認コミットに未承認の生成物が混ざると
+  「確定領域へは承認経路からしか書けない」不変則が崩れるため。.gitattributes は
+  `* text eol=lf`: text で改行正規化を有効にし eol=lf で作業ツリーも LF に固定するので、
+  core.autocrlf の設定に関わらず Windows でも byte が揺れない。
+  git は環境変数 GIT_BIN があればそれを使う(サーバと同じ。PATH に git が無い端末向け)。
 
 .PARAMETER DataRoot
   data リポジトリの場所。UNC パス(\\server\share\editor-data)も指定できる。省略時は
-  環境変数 DATA_ROOT(このプロセス → ユーザー環境変数の順)を使い、それも無ければ
-  ワークスペースの 1 つ上の editor-data(例: C:\Users\<user>\editor-data)。いずれも
-  サーバ(config.ts の dataRoot)と同じ解決で、相対パスは editor/ 基準になる。
+  環境変数 DATA_ROOT(このプロセス → ユーザー環境変数の順)、appconfig(環境変数 APP_CONFIG、
+  無ければ editor\appconfig.json)の paths.dataRoot(editor のフォルダの中を指す値は使わない)を
+  使い、どれも無ければワークスペースの 1 つ上の editor-data(例: C:\Users\<user>\editor-data)。
+  2 本のパッチ(editor\patches\2026-10-*)と同じ順で、相対パスは editor/ 基準になる。決めた元は
+  dataRoot: で始まる行に出る。
   ユーザー環境変数まで見るのは、setx 直後の同じウィンドウでは $env: に反映されず、
   サーバ(新しいウィンドウから起動)と違う場所へ作ってしまうため。
 
@@ -48,74 +58,170 @@ $ErrorActionPreference = 'Stop'
 # ワークスペースの場所になる。data リポジトリの既定値はこれらを基準に解決する。
 $editorDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $workspace = Split-Path -Parent $editorDir
+# git の場所はサーバ(gitRepo.ts)と同じく GIT_BIN を優先する。PortableGit だけの端末で PATH に
+# git が無くても流せるようにするため。
+$gitExe = if ($env:GIT_BIN) { $env:GIT_BIN } else { 'git' }
+# -DataRoot の相対パスは PowerShell の今の場所を基準に絶対パスへ直す。起動する git と .NET の
+# ファイル操作は PowerShell の今の場所を引き継がない(プロセスの作業フォルダは別)ため。
+if ($DataRoot) { $DataRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DataRoot) }
+
+function Resolve-EditorPath([string]$p) {
+  # サーバ(config.ts の toPath)は相対パスを editor/ 基準で解決するので合わせる。
+  if ([IO.Path]::IsPathRooted($p)) { return $p }
+  return [IO.Path]::GetFullPath((Join-Path $editorDir $p))
+}
+
+function Get-CfgDataRoot {
+  # 2 本のパッチ(migrate.ps1・apply.ps1)と同じく APP_CONFIG → <editor>\appconfig.json を読む。
+  # パッチと違う dataRoot を初期化すると、既定の場所に別のリポジトリを作ってしまうため。
+  $cfgPath = if ($env:APP_CONFIG) { $env:APP_CONFIG } else { Join-Path $editorDir 'appconfig.json' }
+  if (-not (Test-Path -LiteralPath $cfgPath)) { return $null }
+  $cfg = Get-Content -Raw -Encoding UTF8 -LiteralPath $cfgPath | ConvertFrom-Json
+  if (-not ($cfg -and $cfg.paths -and $cfg.paths.PSObject.Properties['dataRoot'] -and $cfg.paths.dataRoot)) { return $null }
+  $v = [string]$cfg.paths.dataRoot
+  # editor のフォルダの中を指す値は旧構成の名残で、フォント移設パッチも無視して外す。
+  try { $full = [IO.Path]::GetFullPath((Resolve-EditorPath $v)).TrimEnd('\') + '\' }
+  catch { throw "appconfig の paths.dataRoot の値 '$v' はパスとして読めません($($_.Exception.Message))。直してから再実行してください。" }
+  if ($full.StartsWith($editorDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    Write-Host "appconfig の paths.dataRoot($v)は editor のフォルダの中を指すため使いません。"
+    return $null
+  }
+  return $v
+}
+
+# パッチと同じ順: -DataRoot → DATA_ROOT(プロセス → ユーザー) → appconfig の paths.dataRoot → 既定。
+# ユーザー環境変数はレジストリから Get-ItemProperty で読む([Environment]::GetEnvironmentVariable
+# と同じ値)。テストが本物の dataRoot を指すユーザー環境変数を差し替えられるようにするため。
 $source = '-DataRoot 引数'
 if (-not $DataRoot) {
-  $fromEnv = $env:DATA_ROOT
-  $source = '環境変数 DATA_ROOT'
-  if (-not $fromEnv) {
-    $fromEnv = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User')
+  $DataRoot = $env:DATA_ROOT; $source = '環境変数 DATA_ROOT'
+  if (-not $DataRoot) {
+    $userEnv = Get-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'DATA_ROOT' -ErrorAction SilentlyContinue
+    $DataRoot = if ($userEnv) { [string]$userEnv.DATA_ROOT } else { $null }
     $source = 'ユーザー環境変数 DATA_ROOT'
   }
-  if ($fromEnv) {
-    # サーバ(config.ts の toPath)は相対パスを editor/ 基準で解決するので合わせる。
-    $DataRoot = if ([IO.Path]::IsPathRooted($fromEnv)) { $fromEnv } else {
-      [IO.Path]::GetFullPath((Join-Path $editorDir $fromEnv))
-    }
-  } else {
-    $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data'
-    $source = '既定'
-  }
+  if (-not $DataRoot) { $DataRoot = Get-CfgDataRoot; $source = 'appconfig の paths.dataRoot' }
+  if ($DataRoot) { $DataRoot = Resolve-EditorPath $DataRoot }
+  else { $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data'; $source = '既定' }
 }
+# 8.3 形式の短い名前のままだと、Get-ChildItem が返す長い名前の FullName と置き場の接頭辞が一致せず、
+# サーバへの案内にも短い名前が出る。まだ無いフォルダは GetFullPath では長い名前にならない(.NET
+# Framework 4.8 は短い名前を展開しない)ので、どのみち作る dataRoot を先に作ってから長い名前へ揃える。
+New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
+$DataRoot = (Get-Item -LiteralPath $DataRoot).FullName
 
 Write-Host "dataRoot: $DataRoot ($source)"
 
+function Invoke-Git {
+  # git は LF→CRLF 変換などの警告を stderr へ出す。$ErrorActionPreference = 'Stop' のままだと、
+  # 出力をリダイレクトしたホストで PowerShell 5.1 がそれを例外にするので、stderr は自前で受けて
+  # 終了コードで失敗を判定する。成功時の警告は捨て、失敗時だけ原因として例外メッセージへ載せる。
+  $ErrorActionPreference = 'Continue'
+  $all = @(& $gitExe -C $DataRoot @args 2>&1)
+  if ($LASTEXITCODE -ne 0) {
+    $err = ($all | Where-Object { $_ -is [Management.Automation.ErrorRecord] } | ForEach-Object { $_.ToString() }) -join "`n"
+    throw "git $($args -join ' ') が失敗しました(終了コード $LASTEXITCODE)。`n$err"
+  }
+  return @($all | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] })
+}
+
+function Test-GitHead {
+  # HEAD が無い(git init だけした)リポジトリでは `rev-parse --verify -q` が終了コード 1 で終わる。
+  # それ以外の非 0(128: dubious ownership・リポジトリとして読めない等)は HEAD 無しとみなすと、
+  # 履歴のあるリポジトリへ .gitignore 等を書いたうえ初回コミットを試みるので、ここで止める。
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $all = @(& $gitExe -C $DataRoot rev-parse --verify -q HEAD 2>&1)
+    $code = $LASTEXITCODE
+  } finally { $ErrorActionPreference = $prev }
+  if ($code -eq 0) { return $true }
+  if ($code -eq 1) { return $false }
+  $err = ($all | Where-Object { $_ -is [Management.Automation.ErrorRecord] } | ForEach-Object { $_.ToString() }) -join "`n"
+  throw "git rev-parse --verify -q HEAD が失敗しました(終了コード $code)。`n$err"
+}
+
+function Get-CommittedPathspecs {
+  # サーバの承認コミット(gitRepo.ts の stageTrackedAreas と committedAreas.ts)と同じ確定領域。
+  # 中身の無い置き場は渡さない(git add が pathspec の不一致で止まりうるため)。
+  $fontsPrefix = (Join-Path $DataRoot 'css\fonts') + '\'
+  foreach ($a in 'templates', 'filled', 'css', 'sync', '.gitignore', '.gitattributes') {
+    $p = Join-Path $DataRoot $a
+    if (Test-Path -LiteralPath $p -PathType Leaf) { $a; continue }
+    if (-not (Test-Path -LiteralPath $p -PathType Container)) { continue }
+    $files = @(Get-ChildItem -LiteralPath $p -Recurse -File -Force |
+      Where-Object { -not $_.FullName.StartsWith($fontsPrefix, [StringComparison]::OrdinalIgnoreCase) })
+    if ($files.Count -gt 0) { $a }
+  }
+}
+
 # 1. ディレクトリ構成を用意する。名前は server/src/config.ts の既定と
 #    notesFile.ts の notes/、gitRepo.ts の COMMITTED_PATHSPECS に合わせる。
-New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
 $dirs = 'templates', 'filled', 'css', 'css\fonts', 'sync', 'drafts', 'pending', 'reviews', 'notes',
   'js', 'images'
 foreach ($d in $dirs) {
   New-Item -ItemType Directory -Force -Path (Join-Path $DataRoot $d) | Out-Null
 }
 
-# 2. 既存 editor/data の本体(templates/css)を初回移行(コピー)する。
-$src = Join-Path $editorDir 'data'
-if (Test-Path $src) {
-  foreach ($sub in 'templates', 'css') {
-    $s = Join-Path $src $sub
-    if (Test-Path $s) {
-      Copy-Item (Join-Path $s '*') (Join-Path $DataRoot $sub) -Recurse -Force -ErrorAction SilentlyContinue
-      Write-Host "コピー: editor/data/$sub -> dataRoot/$sub"
+# 2. 履歴が無ければ初回コミットを作る(.git が無ければ init から)。
+$hasGit = Test-Path -LiteralPath (Join-Path $DataRoot '.git')
+if ($hasGit -and (Test-GitHead)) {
+  Write-Host 'git リポジトリは既に初期化済みです(スキップ)。'
+} else {
+  if (-not $hasGit) { Invoke-Git init -q | Out-Null }
+  # 中身は gitRepo.ts の ensureGitignore の必須行と揃える。BOM 無しで書くのは、PowerShell 5.1 の
+  # -Encoding utf8 が付ける BOM で先頭行がサーバの照合に一致せず、同じ行が重複して足されるため。
+  # 既にある .gitignore は消さず、足りない必須行だけを足す(手で作り直した dataRoot の設定を残す)。
+  # 足すときはサーバと同じく、既存の行を空行を除いて重複無しに並べ直し、LF で書き直す(CRLF の
+  # ファイルへ LF の行を継ぎ足して改行が混ざらないため)。必須行が揃っていれば書かない。
+  $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+  $required = '/drafts/', '/reviews/', '/pending/', '/notes/', '/css/fonts/', '/images/', '*.tmp-*'
+  $ignorePath = Join-Path $DataRoot '.gitignore'
+  $current = if (Test-Path -LiteralPath $ignorePath) { [IO.File]::ReadAllText($ignorePath) } else { '' }
+  # 落とすのは行末の空白だけ(パッチと同じ)。git は行頭の空白を模様の一部と読むので、`  /css/fonts/`
+  # を必須行があるとみなすと、無視されないまま必須行も足されない。
+  $lines = @($current -split "`r?`n" | ForEach-Object { $_.TrimEnd(' ') })
+  $missing = @($required | Where-Object { $lines -cnotcontains $_ })
+  if ($missing.Count -gt 0 -or $current -eq '') {
+    $merged = New-Object System.Collections.Generic.List[string]
+    foreach ($l in @($lines | Where-Object { $_ -ne '' }) + $missing) {
+      if (-not $merged.Contains($l)) { $merged.Add($l) }
     }
+    [IO.File]::WriteAllText($ignorePath, (($merged -join "`n") + "`n"), $utf8NoBom)
   }
-}
-
-# 3. git リポジトリを初期化する(未初期化のときだけ)。
-Push-Location $DataRoot
-try {
-  if (-not (Test-Path (Join-Path $DataRoot '.git'))) {
-    git init | Out-Null
-    # 中身は gitRepo.ts の ensureGitignore の必須行と揃える。BOM 無しで書くのは、
-    # PowerShell 5.1 の -Encoding utf8 が付ける BOM で先頭行がサーバの照合に一致せず、
-    # 同じ行が重複して足されるため。
-    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    [IO.File]::WriteAllText((Join-Path $DataRoot '.gitignore'),
-      "/drafts/`n/reviews/`n/pending/`n/notes/`n/css/fonts/`n/images/`n*.tmp-*`n", $utf8NoBom)
-    [IO.File]::WriteAllText((Join-Path $DataRoot '.gitattributes'), "* text=lf`n", $utf8NoBom)
-    git add -A | Out-Null
-    git -c user.name=system -c user.email=system@editor.local commit -m '初期化: テンプレ版管理リポジトリ' | Out-Null
-    Write-Host 'git リポジトリを初期化し、初回コミットを作成しました。'
+  # .gitattributes はサーバ(gitRepo.ts の ensureGitattributes)と同じ形に揃えてから記録する: 先頭を
+  # `* text eol=lf` にし、無効な `* text=lf` を落とし、他の行は残す(BOM 無し・LF)。初回コミットへ
+  # 無効な行や BOM を持ち込まないため。既に同じ形なら書かない。
+  $attrPath = Join-Path $DataRoot '.gitattributes'
+  $attrNow = if (Test-Path -LiteralPath $attrPath) { [IO.File]::ReadAllText($attrPath) } else { '' }
+  $attrOthers = @($attrNow -split "`r?`n" | ForEach-Object { $_.Trim() } |
+    Where-Object { $_ -ne '' -and $_ -cne '* text=lf' -and $_ -cne '* text eol=lf' })
+  $attrWanted = $utf8NoBom.GetBytes(((@('* text eol=lf') + $attrOthers) -join "`n") + "`n")
+  # if 式の値にすると空の配列がパイプラインで展開されて $null になるので、代入で受ける。
+  $attrBytes = [byte[]]@()
+  if (Test-Path -LiteralPath $attrPath) { $attrBytes = [IO.File]::ReadAllBytes($attrPath) }
+  if ([Convert]::ToBase64String($attrBytes) -ne [Convert]::ToBase64String($attrWanted)) {
+    [IO.File]::WriteAllBytes($attrPath, $attrWanted)
+  }
+  # css/fonts は上で必ず入れる .gitignore の /css/fonts/ で外す(サーバの stageTrackedAreas と同じ)。
+  # `:(exclude)css/fonts` を併せて渡すと、git add は無視中のパスを名指ししたとみなして失敗する。
+  $specs = @(Get-CommittedPathspecs)
+  # HEAD の無い .git では、手で `git add -A` した後に commit が止まった等で index に確定領域の外が
+  # 載っていることがある。領域を絞った add は領域外の index に触れないので、先に index を空にする。
+  # read-tree --empty は index だけを無条件に空にし、作業ツリーには触れない。`git rm --cached` は
+  # HEAD が無いと「index が作業ツリーとも HEAD とも違う」ファイル(直前に書き直した .gitignore 等)で
+  # 止まり、再実行しても同じ所で止まり続ける。
+  if ($hasGit) { Invoke-Git read-tree --empty | Out-Null }
+  Invoke-Git add -A -- @specs | Out-Null
+  Invoke-Git -c user.name=system -c user.email=system@editor.local commit -q -m '初期化: テンプレ版管理リポジトリ' | Out-Null
+  if ($hasGit) {
+    Write-Host '履歴(HEAD)の無い git リポジトリへ初回コミットを作成しました(確定領域だけを記録)。'
   } else {
-    Write-Host 'git リポジトリは既に初期化済みです(スキップ)。'
+    Write-Host 'git リポジトリを初期化し、初回コミットを作成しました。'
   }
-} finally {
-  Pop-Location
 }
 
 Write-Host ''
 Write-Host '完了しました。次の対応をしてください:'
 Write-Host "  - サーバ起動時に環境変数 DATA_ROOT=$DataRoot を設定する(start.bat rest 等)。"
 Write-Host '  - TortoiseGit で上記 dataRoot フォルダを開くと履歴/diff を参照できます。'
-Write-Host '  - 旧 editor/data の追跡解除(任意。ワークスペースで実行):'
-Write-Host '      git rm -r --cached editor/data'
-Write-Host "      echo 'editor/data/' >> .gitignore"

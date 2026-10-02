@@ -2,7 +2,7 @@
 // reviewRepo.ts — 確定保存の精査者承認ワークフロー(サーバ REST 実装)
 // =============================================================================
 // 確定保存を「申請(submit)→ 承認(approve)/却下(reject)」の 2 段に割る。申請は実ファイルを
-// 一切更新せず `data/reviews/` に積み(`reviewFiles.ts`)、承認時に限り `applyConfirmedSave`
+// 一切更新せず `<dataRoot>/reviews/` に積み(`reviewFiles.ts`)、承認時に限り `applyConfirmedSave`
 // (`templateRepo.ts`)で実ファイル + git へ反映する。これが実ファイル書込の唯一の関所で、
 // ルートは `requireApprover` で施錠する(`reviews.routes.ts`)。各関数は失敗時に `AppError`
 // を throw し、HTTP 変換は中央 `errorHandler` に委ねる(`templateRepo.ts` と同方針)。
@@ -137,7 +137,7 @@ async function finalizeApprovedMeta(
   }
   throw unexpected(
     `承認結果の保存に失敗しました: ${reqId}。実ファイル反映と git コミットは完了済みのため、` +
-      `再承認せず data/reviews/${reqId}/meta.json の status を手動で approved に更新してください` +
+      `再承認せず <dataRoot>/reviews/${reqId}/meta.json の status を手動で approved に更新してください` +
       '(この失敗で承認処理は中断するため、ペア自動同期と注記マスタ書き戻しは実行されて' +
       'いません。必要なら手動で反映してください)',
     { cause: lastCause, code: 'REVIEW_META_UPDATE_FAILED' },
