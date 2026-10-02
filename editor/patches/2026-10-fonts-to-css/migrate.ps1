@@ -230,7 +230,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $DataRoot 'templates')) -and -not (T
     '(-DataRoot で指定できます)。何も変えずに終了します。')
   exit 2
 }
-if (-not (Test-Path -LiteralPath (Join-Path $DataRoot '.git'))) { throw "$DataRoot は git リポジトリではありません。" }
+if (-not (Test-Path -LiteralPath (Join-Path $DataRoot '.git'))) {
+  throw ("$DataRoot は git リポジトリではありません。editor\scripts\init-data-repo.bat -DataRoot `"$DataRoot`" で " +
+    'git リポジトリと初回コミット(確定領域だけを記録します)を作ってから再実行してください。')
+}
 # HEAD が無い(git init だけした)リポジトリでは `rev-parse --verify -q` が終了コード 1 で終わる。
 # それ以外の非 0(128: dubious ownership・リポジトリとして読めない等)を履歴無しとみなすと、誤った
 # 案内になるので git の原因をそのまま出して止める。
@@ -350,10 +353,10 @@ if ($foreign.Count -gt 0) {
   }
   throw ("手作業の変更が残っています。次の未コミットの変更は、このパッチが作る形(CSS の ../fonts/ → " +
     'fonts/ の書き換え・.gitignore への必須行の追記・.gitattributes を * text eol=lf にしただけ)ではない' +
-    "ため中止しました。残すなら先にコミットしてください。要らなければ、ステージ済みのものは " +
-    "git -C `"$DataRoot`" restore --staged -- <ファイル> でステージから外し(checkout -- だけでは新しく" +
-    "足したファイルが残ります)、git -C `"$DataRoot`" checkout -- <ファイル> で戻して(新しく足した" +
-    "ファイルは消して)から再実行してください:`n$list")
+    "ため中止しました。残すなら先にコミットしてください。要らなければ、ステージ済みのものを git -C `"$DataRoot`" " +
+    "restore --staged -- <ファイル> でステージから外し、変更したファイルは git -C `"$DataRoot`" checkout -- " +
+    "<ファイル> で戻し、新しく足したファイルは消してから再実行してください(新しく足したファイルを " +
+    "checkout -- に渡すと、git の知らないファイルとして全体が失敗します):`n$list")
 }
 
 # 追跡されたフォント・画像・js は、承認コミットのたびに版に残り続け、次の承認者の名前で更新される。

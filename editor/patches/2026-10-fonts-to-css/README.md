@@ -15,8 +15,9 @@ editor の data リポジトリで、フォントの置き場を `assets\fonts` 
 
 - 新版の editor を配置済みであること。
 - editor サーバが停止していること(稼働中なら中止します)。
-- dataRoot が git リポジトリで、履歴(最初のコミット)があること。`git init` だけで履歴が無いときは
-  中止し、`editor\scripts\init-data-repo.bat` で初回コミット(確定領域だけを記録)を作るよう案内します。
+- dataRoot が git リポジトリで、履歴(最初のコミット)があること。`.git` が無いときと、`git init`
+  だけで履歴が無いときは中止し、`editor\scripts\init-data-repo.bat` で初回コミット(確定領域だけを
+  記録)を作るよう案内します。
 
 ## 手順
 
@@ -89,9 +90,9 @@ css・旧 assets の置き場も、環境変数(`DRAFTS_DIR` など)、appconfig
 変更も、同じく中止の対象です。前回のパッチや rollback が途中で止まった形跡(`.git\index.lock`・
 `REVERT_HEAD` など、移行コミットの無い `assets.migrated-*`)があればその旨を、無ければ「手作業の
 変更が残っています」と案内します。残すなら先にコミットしてください。要らなければ、ステージ済みの
-ものは `git restore --staged -- <ファイル>` でステージから外し(`git checkout -- <ファイル>` だけでは
-新しく足してステージしたファイルが index に残ります)、`git checkout -- <ファイル>` で戻して(新しく
-足したファイルは消して)から再実行してください。
+ものを `git restore --staged -- <ファイル>` でステージから外し、変更したファイルは
+`git checkout -- <ファイル>` で戻し、新しく足したファイルは消してから再実行してください。新しく足した
+ファイルを `git checkout --` に渡すと、git の知らないファイルとして全体が失敗します。
 
 ## 中止・終了コード
 

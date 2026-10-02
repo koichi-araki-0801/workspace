@@ -189,6 +189,17 @@ Describe 'apply.ps1' {
     }
   }
 
+  It '.git の無い dataRoot では init-data-repo.bat を案内して中止し、何も作らない' {
+    $root = Join-Path $env:TEMP ('fund-img-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'css'), (Join-Path $root 'templates') | Out-Null
+      $msg = Get-Message { Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } }
+      $msg | Should Match 'git リポジトリではありません'
+      $msg | Should Match 'init-data-repo\.bat'
+      Test-Path (Join-Path $root '.git') | Should Be $false
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
   It '履歴(HEAD)の無い data リポジトリでは init-data-repo.bat を案内して中止する' {
     $root = Join-Path $env:TEMP ('fund-img-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     try {
@@ -327,6 +338,7 @@ Describe 'apply.ps1' {
       $msg | Should Match 'misc/hand\.txt'
       # checkout -- だけでは新しく足してステージしたファイルが index に残るので、外し方も案内する。
       $msg | Should Match 'restore --staged'
+      $msg | Should Match 'checkout -- に渡すと'
       $msg = Get-Message { Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } }
       $msg | Should Match 'misc/hand\.txt'
       git -C $root rev-parse HEAD | Should Be $head

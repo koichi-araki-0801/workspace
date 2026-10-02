@@ -251,3 +251,34 @@ Describe 'init-data-repo.ps1' {
     }
   }
 }
+
+# Mock は Describe の終わりまで残るので、New-Item を止める差し替えが他のテストへ及ばないよう分ける。
+Describe 'init-data-repo.ps1 の appconfig' {
+  It '-DataRoot も DATA_ROOT も無ければ APP_CONFIG の paths.dataRoot を使い、既定の場所には何も作らない' {
+    $root = New-Root
+    $cfg = Join-Path $env:TEMP ('init-cfg-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.json')
+    # ユーザー環境変数 DATA_ROOT(この端末では本物の dataRoot)を読ませないよう、レジストリの読み取りを
+    # 空に差し替える。差し替えが効かなければ本物へ触れるので、効いたことも確かめる。
+    Mock Get-ItemProperty { $null } -ParameterFilter { $LiteralPath -eq 'HKCU:\Environment' }
+    $default = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $here))) 'editor-data'
+    # 解決を誤って既定やユーザー環境変数の場所(この端末では本物の dataRoot)を指したら、最初の
+    # フォルダ作成で止める。
+    $userRoot = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User')
+    Mock New-Item { throw "テスト外の場所へ作ろうとしました: $Path" } -ParameterFilter {
+      "$Path" -like "$default*" -or ($userRoot -and "$Path" -like "$userRoot*")
+    }
+    $before = @(Get-ChildItem -LiteralPath $default -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ','
+    try {
+      New-HandMadeContent $root
+      [IO.File]::WriteAllText($cfg, (@{ paths = @{ dataRoot = $root } } | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
+      $out = Invoke-Init @{} @{ APP_CONFIG = $cfg } *>&1 | Out-String
+      Assert-MockCalled Get-ItemProperty -Scope It
+      $out | Should Match ([regex]::Escape("dataRoot: $root (appconfig の paths.dataRoot)"))
+      Get-Tracked $root | Should Be $expectedTracked
+      (@(Get-ChildItem -LiteralPath $default -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ',') | Should Be $before
+    } finally {
+      Remove-Item -Recurse -Force $root
+      Remove-Item -Force -ErrorAction SilentlyContinue $cfg
+    }
+  }
+}

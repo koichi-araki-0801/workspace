@@ -27,9 +27,11 @@
 
 .PARAMETER DataRoot
   data リポジトリの場所。UNC パス(\\server\share\editor-data)も指定できる。省略時は
-  環境変数 DATA_ROOT(このプロセス → ユーザー環境変数の順)を使い、それも無ければ
-  ワークスペースの 1 つ上の editor-data(例: C:\Users\<user>\editor-data)。いずれも
-  サーバ(config.ts の dataRoot)と同じ解決で、相対パスは editor/ 基準になる。
+  環境変数 DATA_ROOT(このプロセス → ユーザー環境変数の順)、appconfig(環境変数 APP_CONFIG、
+  無ければ editor\appconfig.json)の paths.dataRoot(editor のフォルダの中を指す値は使わない)を
+  使い、どれも無ければワークスペースの 1 つ上の editor-data(例: C:\Users\<user>\editor-data)。
+  2 本のパッチ(editor\patches\2026-10-*)と同じ順で、相対パスは editor/ 基準になる。決めた元は
+  1 行目の dataRoot の表示に出る。
   ユーザー環境変数まで見るのは、setx 直後の同じウィンドウでは $env: に反映されず、
   サーバ(新しいウィンドウから起動)と違う場所へ作ってしまうため。
 
@@ -62,23 +64,45 @@ $gitExe = if ($env:GIT_BIN) { $env:GIT_BIN } else { 'git' }
 # -DataRoot の相対パスは PowerShell の今の場所を基準に絶対パスへ直す。起動する git と .NET の
 # ファイル操作は PowerShell の今の場所を引き継がない(プロセスの作業フォルダは別)ため。
 if ($DataRoot) { $DataRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DataRoot) }
+
+function Resolve-EditorPath([string]$p) {
+  # サーバ(config.ts の toPath)は相対パスを editor/ 基準で解決するので合わせる。
+  if ([IO.Path]::IsPathRooted($p)) { return $p }
+  return [IO.Path]::GetFullPath((Join-Path $editorDir $p))
+}
+
+function Get-CfgDataRoot {
+  # 2 本のパッチ(migrate.ps1・apply.ps1)と同じく APP_CONFIG → <editor>\appconfig.json を読む。
+  # パッチと違う dataRoot を初期化すると、既定の場所に別のリポジトリを作ってしまうため。
+  $cfgPath = if ($env:APP_CONFIG) { $env:APP_CONFIG } else { Join-Path $editorDir 'appconfig.json' }
+  if (-not (Test-Path -LiteralPath $cfgPath)) { return $null }
+  $cfg = Get-Content -Raw -Encoding UTF8 -LiteralPath $cfgPath | ConvertFrom-Json
+  if (-not ($cfg -and $cfg.paths -and $cfg.paths.PSObject.Properties['dataRoot'] -and $cfg.paths.dataRoot)) { return $null }
+  $v = [string]$cfg.paths.dataRoot
+  # editor のフォルダの中を指す値は旧構成の名残で、フォント移設パッチも無視して外す。
+  try { $full = [IO.Path]::GetFullPath((Resolve-EditorPath $v)).TrimEnd('\') + '\' }
+  catch { throw "appconfig の paths.dataRoot の値 '$v' はパスとして読めません($($_.Exception.Message))。直してから再実行してください。" }
+  if ($full.StartsWith($editorDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    Write-Host "appconfig の paths.dataRoot($v)は editor のフォルダの中を指すため使いません。"
+    return $null
+  }
+  return $v
+}
+
+# パッチと同じ順: -DataRoot → DATA_ROOT(プロセス → ユーザー) → appconfig の paths.dataRoot → 既定。
+# ユーザー環境変数はレジストリから Get-ItemProperty で読む([Environment]::GetEnvironmentVariable
+# と同じ値)。テストが本物の dataRoot を指すユーザー環境変数を差し替えられるようにするため。
 $source = '-DataRoot 引数'
 if (-not $DataRoot) {
-  $fromEnv = $env:DATA_ROOT
-  $source = '環境変数 DATA_ROOT'
-  if (-not $fromEnv) {
-    $fromEnv = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User')
+  $DataRoot = $env:DATA_ROOT; $source = '環境変数 DATA_ROOT'
+  if (-not $DataRoot) {
+    $userEnv = Get-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'DATA_ROOT' -ErrorAction SilentlyContinue
+    $DataRoot = if ($userEnv) { [string]$userEnv.DATA_ROOT } else { $null }
     $source = 'ユーザー環境変数 DATA_ROOT'
   }
-  if ($fromEnv) {
-    # サーバ(config.ts の toPath)は相対パスを editor/ 基準で解決するので合わせる。
-    $DataRoot = if ([IO.Path]::IsPathRooted($fromEnv)) { $fromEnv } else {
-      [IO.Path]::GetFullPath((Join-Path $editorDir $fromEnv))
-    }
-  } else {
-    $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data'
-    $source = '既定'
-  }
+  if (-not $DataRoot) { $DataRoot = Get-CfgDataRoot; $source = 'appconfig の paths.dataRoot' }
+  if ($DataRoot) { $DataRoot = Resolve-EditorPath $DataRoot }
+  else { $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data'; $source = '既定' }
 }
 # 8.3 形式の短い名前のままだと、Get-ChildItem が返す長い名前の FullName と置き場の接頭辞が一致せず、
 # サーバへの案内にも短い名前が出る。まだ無いフォルダは GetFullPath では長い名前にならない(.NET
@@ -133,7 +157,7 @@ function Get-CommittedPathspecs {
 
 # 1. ディレクトリ構成を用意する。名前は server/src/config.ts の既定と
 #    notesFile.ts の notes/、gitRepo.ts の COMMITTED_PATHSPECS に合わせる。
-$dirs ='templates', 'filled', 'css', 'css\fonts', 'sync', 'drafts', 'pending', 'reviews', 'notes',
+$dirs = 'templates', 'filled', 'css', 'css\fonts', 'sync', 'drafts', 'pending', 'reviews', 'notes',
   'js', 'images'
 foreach ($d in $dirs) {
   New-Item -ItemType Directory -Force -Path (Join-Path $DataRoot $d) | Out-Null
