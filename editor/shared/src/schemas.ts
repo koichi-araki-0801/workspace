@@ -497,6 +497,15 @@ export const DropdownQuery = z.object({
   editionType: z.string().optional(),
 });
 
+/** 候補の出所。edit = filled/ + pending/、published = filled/ のみ、create = 台帳(sproc `候補`)。 */
+export const DROPDOWN_SCOPES = ['edit', 'published', 'create'] as const;
+export const DropdownScope = z.enum(DROPDOWN_SCOPES);
+
+/** `GET /templates/options` のクエリ。`scope` 省略時は `create`。 */
+export const DropdownOptionsQuery = DropdownQuery.extend({
+  scope: DropdownScope.optional(),
+});
+
 export const DropdownOptions = z
   .object({
     companyCodes: z.array(z.string()),

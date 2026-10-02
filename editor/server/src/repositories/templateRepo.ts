@@ -8,6 +8,7 @@ import {
   buildSampleData,
   type DropdownOptions,
   type DropdownQuery,
+  type DropdownScope,
   type FundMaster,
   notFound,
   type SampleData,
@@ -15,11 +16,9 @@ import {
   type TemplateAttributes,
   type TemplateDraft,
   type TemplateMeta,
-  type TemplateStatus,
   templateFileName,
 } from '@editor/shared';
 import {
-  asIso,
   asString,
   asStringOrNull,
   firstRow,
@@ -39,6 +38,7 @@ import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles
 import {
   filledExists,
   listFilledFiles,
+  listTemplateFiles,
   readFilledHtml,
   readFundCss,
   readTemplateHtml,
@@ -47,23 +47,7 @@ import {
 import { applyConfirmedWrite, type ConfirmedTarget } from './confirmedWrite.js';
 import { fileToMeta } from './templateMeta.js';
 
-function rowToMeta(r: Record<string, unknown>): TemplateMeta {
-  return {
-    id: asString(r.テンプレートID),
-    attributes: {
-      companyCode: asString(r.委託会社コード),
-      fundCode: asString(r.ファンドコード),
-      baseDate: asString(r.基準日),
-      editionType: asString(r.版種),
-    },
-    fileName: asString(r.ファイル名),
-    status: asString(r.状態) as TemplateStatus,
-    updatedAt: asIso(r.更新日時),
-    updatedBy: asStringOrNull(r.更新者),
-  };
-}
-
-/** `候補` / `一覧` で共有する属性パラメータ(未設定時は null)。 */
+/** `候補` の属性パラメータ(未設定時は null)。 */
 function queryParams(q: DropdownQuery): Param[] {
   return [
     p('委託会社コード', q.companyCode),
@@ -73,14 +57,66 @@ function queryParams(q: DropdownQuery): Param[] {
   ];
 }
 
+const ATTR_KEYS = ['companyCode', 'fundCode', 'baseDate', 'editionType'] as const;
+
+/** 大文字小文字を区別しない一致。ファイル名由来の属性と利用者の選択を照合する。 */
+export const sameCi = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
+export const isMeta = (m: TemplateMeta | null): m is TemplateMeta => m !== null;
+
+/** dropdown query の先頭 `depth` 個の設定済みフィールドにメタが一致するか。 */
+function matchesUpTo(m: TemplateMeta, q: DropdownQuery, depth: number): boolean {
+  return ATTR_KEYS.slice(0, depth).every((k) => {
+    const want = q[k];
+    return !want || sameCi(m.attributes[k], want);
+  });
+}
+
 /** dropdown query の設定済み全フィールドにメタが一致するか。 */
 function metaMatches(m: TemplateMeta, q: DropdownQuery): boolean {
-  return (
-    (!q.companyCode || m.attributes.companyCode === q.companyCode) &&
-    (!q.fundCode || m.attributes.fundCode === q.fundCode) &&
-    (!q.baseDate || m.attributes.baseDate === q.baseDate) &&
-    (!q.editionType || m.attributes.editionType === q.editionType)
-  );
+  return matchesUpTo(m, q, ATTR_KEYS.length);
+}
+
+/** 大文字小文字だけが違う値は最初の表記へまとめ、`localeCompare` で並べる。 */
+function uniqCi(values: string[]): string[] {
+  const seen = new Map<string, string>();
+  for (const v of values) if (!seen.has(v.toLowerCase())) seen.set(v.toLowerCase(), v);
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
+/** 各候補は自分より上位の選択だけで絞る(sproc `候補` と同じ規則)。 */
+function optionsFromMetas(metas: TemplateMeta[], q: DropdownQuery): DropdownOptions {
+  const at = (depth: number, key: (typeof ATTR_KEYS)[number]) =>
+    uniqCi(metas.filter((m) => matchesUpTo(m, q, depth)).map((m) => m.attributes[key]));
+  return {
+    companyCodes: at(0, 'companyCode'),
+    fundCodes: at(1, 'fundCode'),
+    baseDates: at(2, 'baseDate'),
+    editionTypes: at(3, 'editionType'),
+  };
+}
+
+/**
+ * 編集タブが扱うテンプレ。`filled/`(確定)に、`includePending` なら `pending/`(生成直後の
+ * 未確定)を足す。同じ id が両方に在るときは確定を採る(承認後の pending 削除はベストエフォート)。
+ */
+async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[]> {
+  const files = await listFilledFiles();
+  const confirmed = (await Promise.all(files.map((f) => fileToMeta(f, 'filled')))).filter(isMeta);
+  if (!includePending) return confirmed;
+  // 照合は大文字小文字を区別しない。NTFS では承認が既存の綴りのファイルへ上書きするので、
+  // 綴り違いの pending が消し残ると完全一致では同じテンプレが二重に出る。
+  const confirmedIds = new Set(confirmed.map((m) => m.id.toLowerCase()));
+  const pendingIds = (await listPendingIds()).filter((id) => !confirmedIds.has(id.toLowerCase()));
+  const pending = (
+    await Promise.all(
+      pendingIds.map(async (id): Promise<TemplateMeta | null> => {
+        const meta = await fileToMeta(`${id}.html`);
+        return meta && { ...meta, status: 'draft', updatedAt: await pendingMtime(id) };
+      }),
+    )
+  ).filter(isMeta);
+  return [...confirmed, ...pending];
 }
 
 /** サンプルデータ台帳 JSON からファンド固有マスタ(名称/会社)を取り出す。 */
@@ -105,7 +141,7 @@ function parseFundMaster(json: string | null): FundMaster | undefined {
 }
 
 export interface TemplateRepo {
-  getDropdownOptions(q: DropdownQuery): Promise<DropdownOptions>;
+  getDropdownOptions(q: DropdownQuery, scope: DropdownScope): Promise<DropdownOptions>;
   listTemplates(q: DropdownQuery): Promise<TemplateMeta[]>;
   listSeriesFunds(companyCode: string, editionType: string): Promise<TemplateMeta[]>;
   getTemplate(id: string): Promise<Template>;
@@ -118,7 +154,12 @@ export interface TemplateRepo {
 
 export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
   return {
-    async getDropdownOptions(q) {
+    /**
+     * 候補の出所は画面ごとに違う。編集タブ(edit)は一覧と同じ filled/ + pending/、比較・結合
+     * (published)は承認済みの filled/ だけ、作成タブ(create)は作成可能カタログである台帳。
+     */
+    async getDropdownOptions(q, scope) {
+      if (scope !== 'create') return optionsFromMetas(await scanEditableMetas(scope === 'edit'), q);
       const rows = await sproc.callSproc(SP.template, '候補', queryParams(q));
       const pick = (kbn: string) =>
         rows.filter((r) => asString(r.区分) === kbn).map((r) => asString(r.値));
@@ -144,33 +185,29 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
      * `status === 'published'` に絞る。一覧側で落とすと上記の到達不能が再発する。
      */
     async listTemplates(q) {
-      const files = await listFilledFiles();
-      const confirmed = (await Promise.all(files.map((f) => fileToMeta(f, 'filled')))).filter(
-        (m): m is TemplateMeta => m !== null,
-      );
-      const confirmedIds = new Set(confirmed.map((m) => m.id));
-      // 承認で確定へ昇格した後も pending が消し残る場合がある(削除はベストエフォート)。
-      // 同一 id が両方に在るときは確定を採る — 一覧が二重に出るのを防ぐ。
-      const pendingIds = (await listPendingIds()).filter((id) => !confirmedIds.has(id));
-      const pending = (
-        await Promise.all(
-          pendingIds.map(async (id): Promise<TemplateMeta | null> => {
-            const meta = await fileToMeta(`${id}.html`);
-            return meta && { ...meta, status: 'draft', updatedAt: await pendingMtime(id) };
-          }),
-        )
-      ).filter((m): m is TemplateMeta => m !== null);
-      return [...confirmed, ...pending]
+      return (await scanEditableMetas(true))
         .filter((m) => metaMatches(m, q))
         .sort((a, b) => a.fileName.localeCompare(b.fileName));
     },
 
+    /**
+     * 系列は templates/(作成タブの Jinja)から作る。「系列から作る」で生成器が読むのは
+     * `templates/<ID>.html` なので、ここに在るものだけを出す。
+     */
     async listSeriesFunds(companyCode, editionType) {
-      const rows = await sproc.callSproc(SP.template, '系列', [
-        p('委託会社コード', companyCode),
-        p('版種', editionType),
-      ]);
-      return rows.map(rowToMeta);
+      const files = await listTemplateFiles();
+      const metas = (await Promise.all(files.map((f) => fileToMeta(f)))).filter(isMeta);
+      return metas
+        .filter(
+          (m) =>
+            sameCi(m.attributes.companyCode, companyCode) &&
+            sameCi(m.attributes.editionType, editionType),
+        )
+        .sort(
+          (a, b) =>
+            a.attributes.fundCode.localeCompare(b.attributes.fundCode) ||
+            a.attributes.baseDate.localeCompare(b.attributes.baseDate),
+        );
     },
 
     /**

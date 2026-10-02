@@ -140,6 +140,7 @@ export type NoteMasterReflectSummary = z.infer<typeof sch.NoteMasterReflectSumma
 
 /** カスケード型ドロップダウンの問い合わせ: 既知の属性を入力、残りの候補を出力。 */
 export type DropdownQuery = z.infer<typeof sch.DropdownQuery>;
+export type DropdownScope = z.infer<typeof sch.DropdownScope>;
 
 export type DropdownOptions = z.infer<typeof sch.DropdownOptions>;
 
@@ -170,6 +171,7 @@ export type AddNoteRequest = z.infer<typeof sch.AddNoteRequest>;
 export type UpdateNoteRequest = z.infer<typeof sch.UpdateNoteRequest>;
 
 export {
+  DROPDOWN_SCOPES,
   MAX_NOTE_CONTENT_CHARS,
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTE_PATH_KEY_CHARS,

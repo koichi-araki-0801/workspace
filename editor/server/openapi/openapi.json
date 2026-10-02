@@ -278,6 +278,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "edit",
+                "published",
+                "create"
+              ]
+            }
           }
         ],
         "responses": {

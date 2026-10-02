@@ -169,6 +169,7 @@ function createFromSeries(m: TemplateMeta) {
         :done="canCreate"
       >
         <SearchFilters
+          dropdown-scope="create"
           :fields="['companyCode', 'fundCode', 'editionType']"
           :required-fields="['companyCode', 'fundCode', 'editionType']"
           hide-search

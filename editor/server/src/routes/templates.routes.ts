@@ -1,11 +1,18 @@
 // =============================================================================
 // templates.routes.ts — テンプレートのルート(phase 2)
 // =============================================================================
-// メタデータは台帳 sproc 経由、本体(html/css)はファイル経由で扱う。
+// 候補(作成タブ)と生成登録は台帳 sproc、一覧・候補(編集/比較/結合)・系列はファイル走査、
+// 本体(html/css)はファイルで扱う。
 // 登録順が重要: `/templates/options` と `/templates/series` を `/templates/:id` より
 // 先に登録し、id として捕捉されないようにする(Fastify は static>parametric を内部優先する
 // ので機能上は順不同だが、可読性のため現行順を保つ)。
-import { apiPaths, type DropdownQuery, validation } from '@editor/shared';
+import {
+  apiPaths,
+  DROPDOWN_SCOPES,
+  type DropdownQuery,
+  type DropdownScope,
+  validation,
+} from '@editor/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import type { Deps } from '../deps.js';
@@ -23,6 +30,15 @@ function toQuery(q: Record<string, unknown>): DropdownQuery {
   };
 }
 
+/** `scope` の検査。省略・空文字は作成タブと同じ `create`(変更前の挙動)。 */
+function toScope(v: unknown): DropdownScope {
+  if (v === undefined || v === '') return 'create';
+  if (typeof v === 'string' && (DROPDOWN_SCOPES as readonly string[]).includes(v)) {
+    return v as DropdownScope;
+  }
+  throw validation(`scope は ${DROPDOWN_SCOPES.join(' / ')} のいずれかです`);
+}
+
 const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
 
 type IdParams = { Params: { id: string } };
@@ -34,7 +50,7 @@ export const templatesRoutes: FastifyPluginAsync<{
   const { templates, pairSync } = opts.deps;
 
   app.get<QueryRec>(apiPaths.templatesOptions, { preHandler: requireAuth }, async (request) => {
-    return templates.getDropdownOptions(toQuery(request.query));
+    return templates.getDropdownOptions(toQuery(request.query), toScope(request.query.scope));
   });
 
   app.get<QueryRec>(apiPaths.templatesSeries, { preHandler: requireAuth }, async (request) => {

@@ -245,13 +245,13 @@ describe('localHistoryRepo pdf/create history', () => {
 
 describe('localTemplateRepo dropdowns / generate / drafts', () => {
   it('getDropdownOptions narrows fundCodes by companyCode', async () => {
-    const all = await localTemplateRepo.getDropdownOptions({});
+    const all = await localTemplateRepo.getDropdownOptions({}, 'edit');
     expect(isOk(all)).toBe(true);
     if (!isOk(all)) return;
     expect(all.value.companyCodes.length).toBeGreaterThan(0);
 
     const company = all.value.companyCodes[0];
-    const narrowed = await localTemplateRepo.getDropdownOptions({ companyCode: company });
+    const narrowed = await localTemplateRepo.getDropdownOptions({ companyCode: company }, 'edit');
     if (isOk(narrowed)) {
       // narrowed fundCodes ⊆ all fundCodes
       expect(narrowed.value.fundCodes.every((f) => all.value.fundCodes.includes(f))).toBe(true);
@@ -260,6 +260,33 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
 
   // 各候補は「自分より上位の選択」だけで絞る。版種を選んでも候補がその版種 1 件へ潰れず、
   // 同一会社・ファンド・基準日の別版種(例: 全体版)へ選び直せること(再選択不能バグの回帰)。
+  it('getDropdownOptions(published) は未承認(draft)を候補に含めない', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const base = await firstMeta();
+    const r = await localTemplateRepo.generate({
+      companyCode: base.attributes.companyCode,
+      fundCode: base.attributes.fundCode,
+      editionType: base.attributes.editionType,
+    });
+    if (!isOk(r)) throw new Error('generate に失敗');
+    const draftDate = r.value.template.meta.attributes.baseDate;
+    const q = { companyCode: base.attributes.companyCode, fundCode: base.attributes.fundCode };
+    const edit = await localTemplateRepo.getDropdownOptions(q, 'edit');
+    const pub = await localTemplateRepo.getDropdownOptions(q, 'published');
+    expect(isOk(edit) && edit.value.baseDates).toContain(draftDate);
+    expect(isOk(pub) && pub.value.baseDates).not.toContain(draftDate);
+  });
+
+  it('listTemplates の絞り込みは大文字小文字を区別しない', async () => {
+    const all = await localTemplateRepo.listTemplates({});
+    if (!isOk(all) || all.value.length === 0) throw new Error('fixtures が空');
+    const company = all.value[0].attributes.companyCode;
+    const lower = await localTemplateRepo.listTemplates({ companyCode: company.toLowerCase() });
+    const exact = await localTemplateRepo.listTemplates({ companyCode: company });
+    expect(isOk(lower) && isOk(exact)).toBe(true);
+    if (isOk(lower) && isOk(exact)) expect(lower.value).toEqual(exact.value);
+  });
+
   it('getDropdownOptions keeps sibling editionTypes/baseDates after selecting the lowest level', async () => {
     const list = await localTemplateRepo.listTemplates({});
     expect(isOk(list)).toBe(true);
@@ -278,12 +305,15 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     const [companyCode, fundCode, baseDate] = key.split(' ');
     const editionType = [...editions][0]; // 片方の版種を選んだ状態を模す
 
-    const opts = await localTemplateRepo.getDropdownOptions({
-      companyCode,
-      fundCode,
-      baseDate,
-      editionType,
-    });
+    const opts = await localTemplateRepo.getDropdownOptions(
+      {
+        companyCode,
+        fundCode,
+        baseDate,
+        editionType,
+      },
+      'edit',
+    );
     expect(isOk(opts)).toBe(true);
     if (!isOk(opts)) return;
     // 選択中の版種だけに潰れず、その基準日の全版種が候補に残る。

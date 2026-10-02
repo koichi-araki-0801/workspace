@@ -257,60 +257,18 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
     ];
     await sproc.callSproc(SP.template, '生成登録', args);
     await sproc.callSproc(SP.template, '生成登録', args);
-    const series = await sproc.callSproc(SP.template, '系列', [
-      p('委託会社コード', 'AM01'),
-      p('版種', '交付版'),
-    ]);
-    expect(series.filter((r) => r.基準日 === '20260101')).toHaveLength(1);
-  });
-
-  // 「行が 1 本のまま」だけでは上書き実装(`IF NOT EXISTS` 抜きの INSERT 相当)を見抜けない。
-  // 既存行を触らないことは、確定済みの行が `draft` へ落ちないことで主張する。
-  it('生成登録 leaves an already registered row untouched', async () => {
-    const sproc = await createFakeSproc();
-    const id = 'AM01_510037_20240710_交付版';
-    await sproc.callSproc(SP.template, '生成登録', [
-      p('テンプレートID', id),
+    const rows = await sproc.callSproc(SP.template, '候補', [
       p('委託会社コード', 'AM01'),
       p('ファンドコード', '510037'),
-      p('基準日', '20240710'),
-      p('版種', '交付版'),
-      p('ファイル名', '別名にすり替えたファイル.html'),
     ]);
-    const series = await sproc.callSproc(SP.template, '系列', [
-      p('委託会社コード', 'AM01'),
-      p('版種', '交付版'),
-    ]);
-    const row = series.filter((r) => r.テンプレートID === id);
-    expect(row).toHaveLength(1);
-    expect(row[0]).toMatchObject({
-      状態: 'published',
-      ファイル名: `${id}.html`,
-      更新日時: null,
-      更新者: null,
-    });
+    expect(rows.filter((r) => r.区分 === '基準日' && r.値 === '20260101')).toHaveLength(1);
   });
 
-  it('系列 returns the ledger columns for one company and edition', async () => {
-    const sproc = await createFakeSproc();
-    const rows = await sproc.callSproc(SP.template, '系列', [
-      p('委託会社コード', 'AM01'),
-      p('版種', '全体版'),
-    ]);
-    expect(rows.map((r) => r.テンプレートID)).toEqual([
-      'AM01_110024_20251117_全体版',
-      'AM01_510003_20250710_全体版',
-      'AM01_510037_20240710_全体版',
-      'AM01_510124_20251020_全体版',
-    ]);
-    expect(rows[0]).toMatchObject({ ファンドコード: '110024', ファイル名: expect.any(String) });
-  });
-
-  it('系列 needs both the company and the edition', async () => {
+  it('系列 is no longer an operation (same as the real sproc)', async () => {
     const sproc = await createFakeSproc();
     await expect(
-      sproc.callSproc(SP.template, '系列', [p('委託会社コード', 'AM01')]),
-    ).rejects.toMatchObject({ kind: 'validation' });
+      sproc.callSproc(SP.template, '系列', [p('委託会社コード', 'AM01'), p('版種', '交付版')]),
+    ).rejects.toBeTruthy();
   });
 
   it('候補 narrows only by the choices above each level', async () => {

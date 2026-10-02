@@ -6,6 +6,7 @@ import {
   buildPath,
   type DropdownOptions,
   type DropdownQuery,
+  type DropdownScope,
   type FundResolution,
   type GenerateRequest,
   type GenerateResult,
@@ -61,7 +62,7 @@ export function clearSampleDataCache(): void {
   }
 }
 
-/** シリーズ(sproc `系列`)の問い合わせ。`resolveFund` と `listSeriesFunds` で共用。 */
+/** シリーズ(`GET /templates/series`。templates/ の走査)の問い合わせ。`resolveFund` と `listSeriesFunds` で共用。 */
 const seriesFetch = (companyCode: string, fundCode: string, editionType: string) =>
   attemptRest(() =>
     apiFetch<TemplateMeta[]>(apiPaths.templatesSeries, {
@@ -70,10 +71,10 @@ const seriesFetch = (companyCode: string, fundCode: string, editionType: string)
   );
 
 export const restTemplateRepo: TemplateRepository = {
-  getDropdownOptions: (query: DropdownQuery) =>
+  getDropdownOptions: (query: DropdownQuery, scope: DropdownScope) =>
     attemptRest(() =>
       apiFetch<DropdownOptions>(apiPaths.templatesOptions, {
-        query: query as Record<string, string | undefined>,
+        query: { ...query, scope } as Record<string, string | undefined>,
       }),
     ),
 
@@ -90,7 +91,7 @@ export const restTemplateRepo: TemplateRepository = {
   generate: (req: GenerateRequest) =>
     attemptRest(() => apiFetch<GenerateResult>(apiPaths.generate, { method: 'POST', body: req })),
 
-  // 属性解決: シリーズの sproc 結果に自分以外のメンバーが居ればシリーズファンド。
+  // 属性解決: シリーズの問い合わせ結果に自分以外のメンバーが居ればシリーズファンド。
   resolveFund: async (companyCode: string, fundCode: string, editionType: string) =>
     map(
       await seriesFetch(companyCode, fundCode, editionType),

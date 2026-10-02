@@ -4,6 +4,7 @@
 import type {
   DropdownOptions,
   DropdownQuery,
+  DropdownScope,
   FundResolution,
   GenerateRequest,
   GenerateResult,
@@ -21,7 +22,8 @@ import type { Result } from '../result.js';
  * サンプルデータを、同一のテンプレート identity と override ストアで束ねる。
  */
 export interface TemplateRepository {
-  getDropdownOptions(query: DropdownQuery): Promise<Result<DropdownOptions>>;
+  /** 候補。出所は画面ごとに違う(edit / published / create。`DropdownScope` を参照)。 */
+  getDropdownOptions(query: DropdownQuery, scope: DropdownScope): Promise<Result<DropdownOptions>>;
   listTemplates(query: DropdownQuery): Promise<Result<TemplateMeta[]>>;
   getTemplate(id: string): Promise<Result<Template>>;
   generate(req: GenerateRequest): Promise<Result<GenerateResult>>;

@@ -197,12 +197,14 @@ export const uniq = (xs: string[]) => [...new Set(xs)].sort();
 // (表紙から)で出すために使い、五十音ソートの `uniq` とは別物として置く。
 export const uniqStable = (xs: string[]) => [...new Set(xs)];
 
-/** テンプレートが dropdown query の設定済み全フィールドに一致すれば真。 */
+const sameCi = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
+/** テンプレートが dropdown query の設定済み全フィールドに一致すれば真(大文字小文字は区別しない)。 */
 export const metaMatches = (m: TemplateMeta, q: DropdownQuery): boolean =>
-  (!q.companyCode || m.attributes.companyCode === q.companyCode) &&
-  (!q.fundCode || m.attributes.fundCode === q.fundCode) &&
-  (!q.baseDate || m.attributes.baseDate === q.baseDate) &&
-  (!q.editionType || m.attributes.editionType === q.editionType);
+  (!q.companyCode || sameCi(m.attributes.companyCode, q.companyCode)) &&
+  (!q.fundCode || sameCi(m.attributes.fundCode, q.fundCode)) &&
+  (!q.baseDate || sameCi(m.attributes.baseDate, q.baseDate)) &&
+  (!q.editionType || sameCi(m.attributes.editionType, q.editionType));
 
 // ── 3. derived helpers — fixtures + overlay からの導出 ──
 

@@ -84,6 +84,7 @@ watch(historyId, emitChange);
   <div class="space-y-3">
     <h3 v-if="heading" class="text-[15px] font-bold">{{ heading }}</h3>
     <SearchFilters
+      dropdown-scope="published"
       bare
       stack-actions
       search-label="絞り込み"
