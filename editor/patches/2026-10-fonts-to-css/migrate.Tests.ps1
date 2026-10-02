@@ -50,6 +50,22 @@ function Write-Utf8([string]$path, [string]$text, [switch]$Bom) {
 
 $cssRewritten = '@font-face{src:url(fonts/a.woff2)} .x{background:url(../../fonts/no.png)}'
 
+# editor のフォルダの中の判定を、実リポジトリの editor を汚さずに確かめるための写し。
+# 戻り値はワークスペースに当たるフォルダ(<戻り値>\editor が editor のフォルダ)。
+function New-FakeEditor {
+  $ws = Join-Path $env:TEMP ('fonts-mig-ws-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+  $patchDir = Join-Path $ws 'editor\patches\2026-10-fonts-to-css'
+  New-Item -ItemType Directory -Force -Path $patchDir, (Join-Path $ws 'editor\data\templates') | Out-Null
+  Copy-Item -LiteralPath (Join-Path $here 'migrate.ps1'), (Join-Path $here 'rollback.ps1') -Destination $patchDir
+  return $ws
+}
+
+function New-TempConfig([object]$value) {
+  $cfg = Join-Path $env:TEMP ('fonts-mig-cfg-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.json')
+  [IO.File]::WriteAllText($cfg, ($value | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
+  return $cfg
+}
+
 Describe 'migrate.ps1' {
   It '確認モードでは何も変えない' {
     $root = New-OldLayout
@@ -492,6 +508,208 @@ Describe 'migrate.ps1' {
       @(git -C $root ls-files -- css/fonts).Count | Should Be 0
       (Get-Content -Raw (Join-Path $root 'css\fonts\b.woff2')) | Should Be 'B3'
       (git -C $root log -1 --format='%an') | Should Be 'system'
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It '確定済みの .gitignore にあるのが末尾にタブ付きの "/css/fonts/<TAB>" なら、/css/fonts/ を追記してフォントをコミットに入れない' {
+    $root = New-OldLayout
+    try {
+      [IO.File]::AppendAllText((Join-Path $root '.gitignore'), "/css/fonts/`t`n", (New-Object Text.UTF8Encoding $false))
+      git -C $root add -- .gitignore
+      git -C $root -c user.name=t -c user.email=t@t commit -q -m ignore
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } | Out-Null
+      @([IO.File]::ReadAllLines((Join-Path $root '.gitignore')) | Where-Object { $_ -ceq '/css/fonts/' }).Count | Should Be 1
+      Test-Path (Join-Path $root 'css\fonts\a.woff2') | Should Be $true
+      @(git -C $root ls-files -- css/fonts).Count | Should Be 0
+      (git -C $root log -1 --format='%an') | Should Be 'system'
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It '旧例の appconfig(editor の中の置き場・旧い生成器・python.bin)を片付け、置き場は dataRoot 配下で解決する' {
+    $root = New-OldLayout
+    $ws = New-FakeEditor
+    $fake = Join-Path $ws 'editor\patches\2026-10-fonts-to-css\migrate.ps1'
+    $cfg = Join-Path $ws 'editor\appconfig.json'
+    try {
+      $original = '{"port":24680,"paths":{"templatesDir":"data/templates","cssDir":"data/css","pendingDir":"data/pending","tmpDir":".tmp","logDir":"logs","webDist":"web/dist"},"python":{"bin":"python","script":"server/scripts/generate_template.py","timeoutMs":30000}}'
+      [IO.File]::WriteAllText($cfg, $original, (New-Object Text.UTF8Encoding $false))
+      $dry = Invoke-Patch $fake @{ DataRoot = $root; Port = 1 } $cfg *>&1 | Out-String
+      $dry | Should Match '旧構成の置き場の設定を外す'
+      $dry | Should Match 'paths\.templatesDir'
+      $dry | Should Match 'paths\.cssDir'
+      $dry | Should Match 'paths\.pendingDir'
+      $dry | Should Not Match 'paths\.tmpDir'
+      $dry | Should Match 'python\.bin を外します'
+      $dry | Should Match 'python\.script を外します'
+      $dry | Should Match 'PY_GENERATE_SCRIPT'
+      $dry | Should Match 'editor のフォルダに data が残っています'
+      $dry | Should Match ([regex]::Escape("cssDir   : $(Join-Path $root 'css')"))
+      [IO.File]::ReadAllText($cfg) | Should Be $original
+      Invoke-Patch $fake @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg | Out-Null
+      $after = Get-Content -Raw -Encoding UTF8 $cfg | ConvertFrom-Json
+      @($after.paths.PSObject.Properties.Name) -join ',' | Should Be 'tmpDir,logDir,webDist'
+      @($after.python.PSObject.Properties.Name) -join ',' | Should Be 'timeoutMs'
+      $after.port | Should Be 24680
+      [IO.File]::ReadAllText("$cfg.bak-$(Get-Date -Format 'yyyyMMdd')") | Should Be $original
+      (Get-Content -Raw (Join-Path $root 'css\510037.css')) | Should Match 'url\(fonts/a\.woff2\)'
+      Test-Path (Join-Path $ws 'editor\data\templates') | Should Be $true
+    } finally { Remove-Item -Recurse -Force $root, $ws }
+  }
+
+  $pyCases = @(
+    @{ Name = '(python, 無し)'; Python = @{ bin = 'python' }; Left = @() },
+    @{ Name = '(py, -3.13)'; Python = @{ bin = 'py'; args = @('-3.13') }; Left = @() },
+    @{ Name = '(python, -3.13)'; Python = @{ bin = 'python'; args = @('-3.13') }; Left = @() },
+    @{ Name = '(bin 無指定, -3.13)'; Python = @{ args = @('-3.13') }; Left = @() },
+    @{ Name = '(絶対パス, 無し)'; Python = @{ bin = 'C:\Python313\python.exe' }; Left = @('bin') },
+    @{ Name = '(py, 無し)'; Python = @{ bin = 'py' }; Left = @('bin') },
+    @{ Name = '(python, -X utf8)'; Python = @{ bin = 'python'; args = @('-X', 'utf8') }; Left = @('bin', 'args') }
+  )
+  foreach ($c in $pyCases) {
+    It "python.bin / python.args $($c.Name) は $(if ($c.Left.Count -eq 0) { '外す' } else { '残して報告する' })" {
+      $root = New-OldLayout
+      # 偽の生成器の指定は全件で外れるので、appconfig は必ず書き戻される(配列の書き戻しも確かめられる)。
+      $py = @{ timeoutMs = 30000; script = 'server/scripts/fake_generate_template.py' } + $c.Python
+      $cfg = New-TempConfig @{ python = $py }
+      try {
+        $out = Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg *>&1 | Out-String
+        $raw = [IO.File]::ReadAllText($cfg)
+        $after = $raw | ConvertFrom-Json
+        foreach ($k in 'bin', 'args') {
+          [bool]$after.python.PSObject.Properties[$k] | Should Be ($c.Left -contains $k)
+        }
+        $after.python.PSObject.Properties['script'] | Should BeNullOrEmpty
+        $raw | Should Not Match '"Count"'
+        if ($c.Left.Count -gt 0) { $out | Should Match '【報告】python\.bin=' }
+        if ($c.Left -contains 'args') { @($after.python.args) -join ' ' | Should Be '-X utf8' }
+      } finally {
+        Remove-Item -Recurse -Force $root
+        Remove-Item -Force -ErrorAction SilentlyContinue $cfg, "$cfg.bak-*"
+      }
+    }
+  }
+
+  It 'python.script が共有フォルダの生成器を指していれば触らない(書き戻しもバックアップも作らない)' {
+    $root = New-OldLayout
+    $cfg = New-TempConfig @{ python = @{ script = '\\fileserver\share\gen\generate_template.py' } }
+    try {
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg | Out-Null
+      (Get-Content -Raw -Encoding UTF8 $cfg | ConvertFrom-Json).python.script | Should Be '\\fileserver\share\gen\generate_template.py'
+      @(Get-ChildItem (Split-Path $cfg) -Filter ((Split-Path $cfg -Leaf) + '.bak-*')).Count | Should Be 0
+    } finally {
+      Remove-Item -Recurse -Force $root
+      Remove-Item -Force -ErrorAction SilentlyContinue $cfg
+    }
+  }
+
+  It 'paths.dataRoot が editor の中を指していれば外す(空になった paths も外す)' {
+    $root = New-OldLayout
+    $ws = New-FakeEditor
+    $fake = Join-Path $ws 'editor\patches\2026-10-fonts-to-css\migrate.ps1'
+    $cfg = Join-Path $ws 'editor\appconfig.json'
+    try {
+      [IO.File]::WriteAllText($cfg, '{"paths":{"dataRoot":"data"}}', (New-Object Text.UTF8Encoding $false))
+      Invoke-Patch $fake @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg | Out-Null
+      (Get-Content -Raw -Encoding UTF8 $cfg | ConvertFrom-Json).PSObject.Properties['paths'] | Should BeNullOrEmpty
+    } finally { Remove-Item -Recurse -Force $root, $ws }
+  }
+
+  It '環境変数が editor の中を指していれば報告だけする(appconfig は変えない)' {
+    $root = New-OldLayout
+    $ws = New-FakeEditor
+    $fake = Join-Path $ws 'editor\patches\2026-10-fonts-to-css\migrate.ps1'
+    try {
+      $out = Invoke-Patch $fake @{ DataRoot = $root; Port = 1 } $null @{ TEMPLATES_DIR = (Join-Path $ws 'editor\data\templates') } *>&1 | Out-String
+      $out | Should Match '環境変数 TEMPLATES_DIR が editor のフォルダの中を指しています'
+    } finally { Remove-Item -Recurse -Force $root, $ws }
+  }
+
+  It '同じ日に流し直しても、最初のバックアップは上書きせず別名で残す' {
+    $root = New-OldLayout
+    $cfg = New-TempConfig @{ python = @{ bin = 'python' } }
+    try {
+      $first = [IO.File]::ReadAllText($cfg)
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg | Out-Null
+      [IO.File]::WriteAllText($cfg, '{"python":{"bin":"py","args":["-3.13"]}}', (New-Object Text.UTF8Encoding $false))
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg | Out-Null
+      $stamp = Get-Date -Format 'yyyyMMdd'
+      [IO.File]::ReadAllText("$cfg.bak-$stamp") | Should Be $first
+      [IO.File]::ReadAllText("$cfg.bak-$stamp-2") | Should Match '"py"'
+    } finally {
+      Remove-Item -Recurse -Force $root
+      Remove-Item -Force -ErrorAction SilentlyContinue $cfg, "$cfg.bak-*"
+    }
+  }
+
+  It '中身の違う同名ファイルは最初の 1 件で止めず、全件を並べてから中止する(確認モードでも)' {
+    $root = New-OldLayout
+    try {
+      Set-Content -LiteralPath (Join-Path $root 'assets\fonts\b.woff2') -Value 'B' -NoNewline
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'css\fonts') | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'css\fonts\a.woff2') -Value 'X' -NoNewline
+      Set-Content -LiteralPath (Join-Path $root 'css\fonts\b.woff2') -Value 'Y' -NoNewline
+      $head = git -C $root rev-parse HEAD
+      foreach ($p in @(@{ DataRoot = $root; Port = 1 }, @{ DataRoot = $root; Apply = $true; Port = 1 })) {
+        $msg = Get-Message { Invoke-Patch $script $p }
+        $msg | Should Match '2 件'
+        $msg | Should Match 'a\.woff2'
+        $msg | Should Match 'b\.woff2'
+      }
+      git -C $root rev-parse HEAD | Should Be $head
+      Test-Path (Join-Path $root 'assets') | Should Be $true
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It '配信されない場所のフォントと assets* を報告する(assets.migrated-* は報告しない)' {
+    $root = New-OldLayout
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'fonts'), (Join-Path $root 'assets_old'), (Join-Path $root 'assets.migrated-20000101') | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'fonts\x.woff2') -Value 'X' -NoNewline
+      Set-Content -LiteralPath (Join-Path $root 'css\y.ttf') -Value 'Y' -NoNewline
+      git -C $root add -- css/y.ttf
+      git -C $root -c user.name=t -c user.email=t@t commit -q -m ttf
+      $out = Invoke-Patch $script @{ DataRoot = $root; Port = 1 } *>&1 | Out-String
+      $out | Should Match ([regex]::Escape((Join-Path $root 'fonts')))
+      $out | Should Match 'css\\y\.ttf'
+      $out | Should Match 'assets_old'
+      $out | Should Not Match 'assets\.migrated-20000101[^\r\n]*配信されません'
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It 'フォントも js も無い assets も改名して残し、フォントと js 以外のものを報告する' {
+    $root = New-OldLayout
+    try {
+      Remove-Item -Recurse -Force (Join-Path $root 'assets\fonts'), (Join-Path $root 'assets\js')
+      Set-Content -LiteralPath (Join-Path $root 'assets\readme.txt') -Value 'r' -NoNewline
+      $out = Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } *>&1 | Out-String
+      $out | Should Match 'readme\.txt'
+      $stamp = Get-Date -Format 'yyyyMMdd'
+      Test-Path (Join-Path $root 'assets') | Should Be $false
+      Test-Path (Join-Path $root "assets.migrated-$stamp\readme.txt") | Should Be $true
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It '同じ日の assets.migrated-<日付> が既にあれば、改名せずに中止する' {
+    $root = New-OldLayout
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $root ("assets.migrated-" + (Get-Date -Format 'yyyyMMdd'))) | Out-Null
+      $msg = Get-Message { Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } }
+      $msg | Should Match '同じ日の退避'
+      Test-Path (Join-Path $root 'assets\fonts\a.woff2') | Should Be $true
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It '旧い形式のデータ(配列でないメモ・held の申請・filled の無いこと)を報告する' {
+    $root = New-OldLayout
+    try {
+      Remove-Item -Recurse -Force (Join-Path $root 'filled')
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'notes') | Out-Null
+      Write-Utf8 (Join-Path $root 'notes\T1.json') '{"k":{"content":"x"},"k2":[]}'
+      Write-Utf8 (Join-Path $root 'reviews\r1\meta.json') '{"status":"held"}'
+      $out = Invoke-Patch $script @{ DataRoot = $root; Port = 1 } *>&1 | Out-String
+      $out | Should Match 'T1\.json[^\r\n]*配列でない値 1 件'
+      $out | Should Match 'meta\.json[^\r\n]*held'
+      $out | Should Match 'filled フォルダがありません'
     } finally { Remove-Item -Recurse -Force $root }
   }
 }
