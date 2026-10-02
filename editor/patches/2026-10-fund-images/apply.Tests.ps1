@@ -325,6 +325,8 @@ Describe 'apply.ps1' {
       $msg = Get-Message { Invoke-Patch $script @{ DataRoot = $root; Port = 1 } }
       $msg | Should Match '手作業の変更が残っています'
       $msg | Should Match 'misc/hand\.txt'
+      # checkout -- だけでは新しく足してステージしたファイルが index に残るので、外し方も案内する。
+      $msg | Should Match 'restore --staged'
       $msg = Get-Message { Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } }
       $msg | Should Match 'misc/hand\.txt'
       git -C $root rev-parse HEAD | Should Be $head
@@ -394,7 +396,8 @@ Describe 'apply.ps1' {
       $out | Should Match ([regex]::Escape("dataRoot : $root "))
       Invoke-Patch $script @{ DataRoot = $short; Apply = $true; Port = 1 } | Out-Null
       (git -C $root log -1 --format='%s') | Should Match '\[fund-images\]'
-      Invoke-Patch $roll @{ DataRoot = $short; Apply = $true } | Out-Null
+      $out = Invoke-Patch $roll @{ DataRoot = $short; Apply = $true } *>&1 | Out-String
+      $out | Should Match ([regex]::Escape("dataRoot: $root") + '\r?\n')
       (Get-IgnoreLines $root) -contains '/images/' | Should Be $false
     } finally { Remove-Item -Recurse -Force $root }
   }

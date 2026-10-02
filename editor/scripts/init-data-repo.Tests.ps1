@@ -215,6 +215,20 @@ Describe 'init-data-repo.ps1' {
     } finally { Remove-Item -Recurse -Force $root }
   }
 
+  It '-DataRoot がまだ無いフォルダで、親を 8.3 形式の短い名前で渡しても、長い名前で表示し案内する' {
+    $parent = New-Root
+    try {
+      New-Item -ItemType Directory -Force -Path $parent | Out-Null
+      $short = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($parent).ShortPath
+      if ($short -eq $parent) { Set-TestInconclusive 'このボリュームでは 8.3 形式の短い名前が無効なため飛ばします。' }
+      $out = Invoke-Init @{ DataRoot = (Join-Path $short 'newroot') } *>&1 | Out-String
+      $long = Join-Path $parent 'newroot'
+      $out | Should Match ([regex]::Escape("dataRoot: $long ("))
+      $out | Should Match ([regex]::Escape("DATA_ROOT=$long "))
+      Test-Path (Join-Path $long 'templates') | Should Be $true
+    } finally { Remove-Item -Recurse -Force $parent }
+  }
+
   It 'PATH に git が無くても、履歴のあるリポジトリは GIT_BIN の git で確かめて触らない' {
     $root = New-Root
     $gitPath = (Get-Command git -CommandType Application | Select-Object -First 1).Source

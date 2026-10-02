@@ -54,7 +54,7 @@ Node 非依存の python-tools リポジトリへ分離済み）。
 | `editor/scripts/setup-lan-https.bat` | LAN 公開用の自己署名 TLS 証明書（PFX/cer）を生成 |
 | `editor/scripts/setup-lan-firewall.bat` | LAN 公開ポート（TCP 24680）の受信許可ルールを登録（要管理者） |
 | `editor/server/db/apply.bat` | SQL Server へ DDL/sproc/seed を適用 |
-| `editor/patches/2026-10-fonts-to-css/migrate.bat` | data リポジトリのフォント・js の置き場を新構成へ移す(既定は確認モード、`-Apply` で実行) |
+| `editor/patches/2026-10-fonts-to-css/migrate.bat` | data リポジトリのフォント・js の置き場を新構成へ移し、appconfig の旧構成の設定を片付ける(既定は確認モード、`-Apply` で実行) |
 | `editor/patches/2026-10-fonts-to-css/rollback.bat` | 上の移行を元に戻す |
 | `editor/patches/2026-10-fund-images/apply.bat` | data リポジトリにファンド別画像の置き場(images)を用意する(既定は確認モード、`-Apply` で実行) |
 | `editor/patches/2026-10-fund-images/rollback.bat` | 上の変更を元に戻す(画像は消さない) |

@@ -317,7 +317,9 @@ if ($foreign.Count -gt 0) {
   }
   throw ("手作業の変更が残っています。次の未コミットの変更は、パッチが作る形(.gitignore への必須行の追記・" +
     'CSS の ../fonts/ → fonts/ の書き換え・.gitattributes を * text eol=lf にしただけ)ではないため中止' +
-    "しました。残すなら先にコミットし、要らなければ git -C `"$DataRoot`" checkout -- <ファイル> で戻して" +
+    "しました。残すなら先にコミットしてください。要らなければ、ステージ済みのものは git -C `"$DataRoot`" " +
+    "restore --staged -- <ファイル> でステージから外し(checkout -- だけでは新しく足したファイルが" +
+    "残ります)、git -C `"$DataRoot`" checkout -- <ファイル> で戻して(新しく足したファイルは消して)" +
     "から再実行してください:`n$list")
 }
 

@@ -459,6 +459,8 @@ Describe 'migrate.ps1' {
       $msg | Should Match '手作業の変更が残っています'
       $msg | Should Match 'fonts/x\.woff2'
       $msg | Should Match 'misc/hand\.txt'
+      # checkout -- だけでは新しく足してステージしたファイルが index に残るので、外し方も案内する。
+      $msg | Should Match 'restore --staged'
       $msg = Get-Message { Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } }
       $msg | Should Match 'misc/hand\.txt'
       git -C $root rev-parse HEAD | Should Be $head

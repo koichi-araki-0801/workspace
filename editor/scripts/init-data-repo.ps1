@@ -81,8 +81,10 @@ if (-not $DataRoot) {
   }
 }
 # 8.3 形式の短い名前のままだと、Get-ChildItem が返す長い名前の FullName と置き場の接頭辞が一致せず、
-# サーバへの案内にも短い名前が出る。フォルダがあれば長い名前へ揃える。
-if (Test-Path -LiteralPath $DataRoot -PathType Container) { $DataRoot = (Get-Item -LiteralPath $DataRoot).FullName }
+# サーバへの案内にも短い名前が出る。まだ無いフォルダは GetFullPath では長い名前にならない(.NET
+# Framework 4.8 は短い名前を展開しない)ので、どのみち作る dataRoot を先に作ってから長い名前へ揃える。
+New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
+$DataRoot = (Get-Item -LiteralPath $DataRoot).FullName
 
 Write-Host "dataRoot: $DataRoot ($source)"
 
@@ -131,8 +133,7 @@ function Get-CommittedPathspecs {
 
 # 1. ディレクトリ構成を用意する。名前は server/src/config.ts の既定と
 #    notesFile.ts の notes/、gitRepo.ts の COMMITTED_PATHSPECS に合わせる。
-New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
-$dirs = 'templates', 'filled', 'css', 'css\fonts', 'sync', 'drafts', 'pending', 'reviews', 'notes',
+$dirs ='templates', 'filled', 'css', 'css\fonts', 'sync', 'drafts', 'pending', 'reviews', 'notes',
   'js', 'images'
 foreach ($d in $dirs) {
   New-Item -ItemType Directory -Force -Path (Join-Path $DataRoot $d) | Out-Null
