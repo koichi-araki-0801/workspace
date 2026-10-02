@@ -7,7 +7,7 @@ SQL Server 2012 の `usrap.ug01`（既存 DB / 既存スキーマ）に、`Rep1_
 ddl/    01_テーブル.sql 02_索引.sql 03_制約.sql   … 6 テーブル（冪等）
 sproc/  template/user/session/part/sample/audit.sql
         … テーブル単位の 1 ゲートウェイ sproc（第1引数 @操作 で分岐）
-        … usp_テンプレートは候補/系列/生成登録のみ（一覧/取得/確定/下書きは git・ファイルへ移行）
+        … usp_テンプレートは候補（作成タブ）/生成登録のみ（一覧/取得/系列/確定/下書きは git・ファイル）
 seed/   管理ユーザー.sql（生成物）/ パーツカタログ.sql / サンプルデータ.sql
 apply.ps1  … ddl→sproc→seed を sqlcmd(-E -f 65001) で順に適用
 ```
