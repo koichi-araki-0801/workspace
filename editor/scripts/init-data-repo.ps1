@@ -31,7 +31,7 @@
   無ければ editor\appconfig.json)の paths.dataRoot(editor のフォルダの中を指す値は使わない)を
   使い、どれも無ければワークスペースの 1 つ上の editor-data(例: C:\Users\<user>\editor-data)。
   2 本のパッチ(editor\patches\2026-10-*)と同じ順で、相対パスは editor/ 基準になる。決めた元は
-  1 行目の dataRoot の表示に出る。
+  dataRoot: で始まる行に出る。
   ユーザー環境変数まで見るのは、setx 直後の同じウィンドウでは $env: に反映されず、
   サーバ(新しいウィンドウから起動)と違う場所へ作ってしまうため。
 

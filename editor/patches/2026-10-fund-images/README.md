@@ -34,7 +34,8 @@ editor の data リポジトリに、ファンド別画像の置き場 `images` 
 
 dataRoot は `-DataRoot <path>` で指定できます。相対パスは今いるフォルダを基準に解決します。
 省略時はサーバと同じ順(環境変数 `DATA_ROOT`、ユーザー環境変数、appconfig の `paths.dataRoot`、
-既定)で決めます。画像の置き場は `IMAGES_DIR`、appconfig の `paths.imagesDir`、`<dataRoot>\images`
+既定)で決めます。appconfig の値が editor のフォルダの中を指すときは、その旨を表示して使わず、既定へ
+移ります(`2026-10-fonts-to-css` と同じ)。画像の置き場は `IMAGES_DIR`、appconfig の `paths.imagesDir`、`<dataRoot>\images`
 の順で決め、出典を表示します。appconfig などの値がパスとして読めないときは、どの設定かを表示して
 中止します。稼働確認のポートは `-Port <n>`(既定 24680)で変えられます。git は環境変数 `GIT_BIN`
 があればそれを使います(PATH に git が無い端末向け)。

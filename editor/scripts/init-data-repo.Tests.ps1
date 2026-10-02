@@ -5,10 +5,11 @@
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script = Join-Path $here 'init-data-repo.ps1'
 
-# 実データへ触れないよう DATA_ROOT と GIT_BIN を退避して空にし、-DataRoot は呼び出し側が必ず渡す。
+# 実データへ触れないよう DATA_ROOT・GIT_BIN・APP_CONFIG を退避して空にし、-DataRoot は
+# 呼び出し側が必ず渡す。
 # $extraEnv のキーは $names のどれか(終わったら元へ戻す)。
 function Invoke-Init([hashtable]$params, [hashtable]$extraEnv) {
-  $names = 'DATA_ROOT', 'GIT_BIN'
+  $names = 'DATA_ROOT', 'GIT_BIN', 'APP_CONFIG'
   $saved = @{}
   foreach ($n in $names) { $saved[$n] = [Environment]::GetEnvironmentVariable($n); [Environment]::SetEnvironmentVariable($n, $null) }
   if ($extraEnv) { foreach ($k in $extraEnv.Keys) { [Environment]::SetEnvironmentVariable($k, $extraEnv[$k]) } }

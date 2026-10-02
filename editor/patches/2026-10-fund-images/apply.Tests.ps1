@@ -550,3 +550,35 @@ Describe 'rollback.ps1' {
     }
   }
 }
+
+# Mock は Describe の終わりまで残るので、ユーザー環境変数の差し替えが他のテストへ及ばないよう分ける。
+Describe 'apply.ps1 の appconfig の paths.dataRoot' {
+  It 'editor のフォルダの中を指す paths.dataRoot は使わずに次の候補(既定)へ移り、その旨を案内する' {
+    $cfg = Join-Path $env:TEMP ('fund-img-cfg-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.json')
+    # ユーザー環境変数 DATA_ROOT(この端末では本物の dataRoot)を読ませず、appconfig まで進ませる。
+    Mock Get-ItemProperty { $null } -ParameterFilter { $LiteralPath -eq 'HKCU:\Environment' }
+    # 既定の場所(この端末では本物の dataRoot)には何もさせない。待ち受け中のポートを渡し、置き場を
+    # 表示した直後の稼働確認で止める(git もファイルの書き込みも、その後にしか無い)。
+    $listener = New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    $editorDir = Split-Path -Parent (Split-Path -Parent $here)
+    $default = Join-Path (Split-Path -Parent (Split-Path -Parent $editorDir)) 'editor-data'
+    $lines = New-Object System.Collections.Generic.List[string]
+    $caught = ''
+    try {
+      Write-Utf8 $cfg (@{ paths = @{ dataRoot = 'data' } } | ConvertTo-Json)
+      try {
+        Invoke-Patch $script @{ Port = $listener.LocalEndpoint.Port } $null @{ APP_CONFIG = $cfg } *>&1 |
+          ForEach-Object { $lines.Add([string]$_) }
+      } catch { $caught = $_.Exception.Message }
+      Assert-MockCalled Get-ItemProperty -Scope It
+      $caught | Should Match '動いています'
+      $out = $lines -join "`n"
+      $out | Should Match 'paths\.dataRoot\(data\)は editor のフォルダの中を指すため使いません'
+      $out | Should Match ([regex]::Escape("dataRoot : $default (既定)"))
+    } finally {
+      $listener.Stop()
+      Remove-Item -Force -ErrorAction SilentlyContinue $cfg
+    }
+  }
+}

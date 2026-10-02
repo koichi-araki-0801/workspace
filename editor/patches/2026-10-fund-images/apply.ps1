@@ -24,7 +24,8 @@
 
 .PARAMETER DataRoot
   data リポジトリの場所。省略時は -DataRoot → 環境変数 DATA_ROOT(プロセス → ユーザー) →
-  appconfig の paths.dataRoot → 既定の順で決める(2026-10-fonts-to-css と同じ規則)。
+  appconfig の paths.dataRoot → 既定の順で決める(2026-10-fonts-to-css と同じ規則。appconfig の値が
+  editor のフォルダの中を指すときは使わない)。
 
 .PARAMETER Apply
   実際に変更する。付けなければ確認モード。
@@ -149,13 +150,30 @@ function Get-CfgPath([string]$key) {
   return $null
 }
 
+function Get-CfgDataRoot {
+  # editor のフォルダの中を指す値は旧構成の名残で、フォント移設パッチも無視して外す。同じ扱いにして
+  # おかないと、移設パッチを流す前の環境で editor の中を dataRoot として点検してしまう。
+  $v = Get-CfgPath 'dataRoot'
+  if (-not $v) { return $null }
+  $full = (Resolve-PlacePath $v 'appconfig の paths.dataRoot').TrimEnd('\') + '\'
+  if ($full.StartsWith($editorDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    Write-Host "appconfig の paths.dataRoot($v)は editor のフォルダの中を指すため使いません。"
+    return $null
+  }
+  return $v
+}
+
+# ユーザー環境変数はレジストリから Get-ItemProperty で読む([Environment]::GetEnvironmentVariable と
+# 同じ値)。テストが本物の dataRoot を指すユーザー環境変数を差し替えられるようにするため。
 $source = '-DataRoot 引数'
 if (-not $DataRoot) {
   $DataRoot = $env:DATA_ROOT; $source = '環境変数 DATA_ROOT'
   if (-not $DataRoot) {
-    $DataRoot = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User'); $source = 'ユーザー環境変数 DATA_ROOT'
+    $userEnv = Get-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'DATA_ROOT' -ErrorAction SilentlyContinue
+    $DataRoot = if ($userEnv) { [string]$userEnv.DATA_ROOT } else { $null }
+    $source = 'ユーザー環境変数 DATA_ROOT'
   }
-  if (-not $DataRoot) { $DataRoot = Get-CfgPath 'dataRoot'; $source = 'appconfig の paths.dataRoot' }
+  if (-not $DataRoot) { $DataRoot = Get-CfgDataRoot; $source = 'appconfig の paths.dataRoot' }
   if ($DataRoot) { $DataRoot = Resolve-PlacePath $DataRoot $source }
   else { $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data'; $source = '既定' }
 }
