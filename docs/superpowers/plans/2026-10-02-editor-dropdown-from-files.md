@@ -731,7 +731,8 @@ git commit -m "feat(web): 候補の出所を画面ごとの scope で切り替�
 
 **Files:**
 - Modify: `docs/editor/src/設計書.md:73-87,183-190,596`
-- Modify: `docs/editor/src/デプロイ運用手順書.md`（3.3 節の手順 1 の直後、4 章の適用手順の後）
+- Modify: `docs/editor/src/デプロイ運用手順書.md`（3.3 節の手順 1 の直後）
+- Modify: `docs/editor/editor_設計.html`（`build_all.py` で再生成）
 - 確認: `docs/editor/src/設計正典.md` と `.claude/rules/design-canon-summary.md`（台帳の守備範囲の記述が変わる場合だけ直し、`pnpm run check:canon-summary` を通す）
 
 - [ ] **Step 1: 設計書を直す**
@@ -754,6 +755,9 @@ git commit -m "feat(web): 候補の出所を画面ごとの scope で切り替�
 
 - [ ] **Step 3: 文書のビルド検査**
 
+Run: `py -3.13 docs/_build/build_all.py`
+Expected: `docs/editor/editor_設計.html` が作り直される（差分は原稿を直した箇所だけ）
+
 Run: `pnpm run test:docs`
 Expected: PASS
 
@@ -763,7 +767,7 @@ Expected: PASS（設計正典を直した場合は `--update` で SHA を貼り�
 - [ ] **Step 4: コミット**
 
 ```bash
-git add docs/editor/src/設計書.md docs/editor/src/デプロイ運用手順書.md
+git add docs/editor/src/設計書.md docs/editor/src/デプロイ運用手順書.md docs/editor/editor_設計.html
 git commit -m "docs(editor): 候補と系列の出所(ファイル起点)を設計書と手順書へ反映する"
 ```
 
