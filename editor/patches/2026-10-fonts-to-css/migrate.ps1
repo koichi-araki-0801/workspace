@@ -181,6 +181,10 @@ if (-not $DataRoot) {
   if ($DataRoot) { $DataRoot = Resolve-EditorPath $DataRoot }
   else { $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data'; $source = '既定' }
 }
+# 8.3 形式の短い名前(…\EDITOR~1 など)のままだと、Get-ChildItem が返す長い名前の FullName から
+# 置き場の長さで相対パスを切り出すときに位置がずれ、違う場所へコピーする。フォルダがあれば長い名前へ
+# 揃える。
+if (Test-Path -LiteralPath $DataRoot -PathType Container) { $DataRoot = (Get-Item -LiteralPath $DataRoot).FullName }
 
 # dataRoot 配下の置き場は 環境変数 → appconfig → <dataRoot>\<sub> の順で決め、出典を返す。
 function Resolve-Place([string]$envName, [string]$key, [string]$sub) {

@@ -933,6 +933,21 @@ Describe 'migrate.ps1' {
     }
   }
 
+  It '-DataRoot に 8.3 形式の短い名前を渡しても、長い名前に揃えて移行し、rollback で戻す' {
+    $root = New-OldLayout
+    try {
+      $short = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($root).ShortPath
+      if ($short -eq $root) { Set-TestInconclusive 'このボリュームでは 8.3 形式の短い名前が無効なため飛ばします。' }
+      Invoke-Patch $script @{ DataRoot = $short; Apply = $true; Port = 1 } | Out-Null
+      Test-Path (Join-Path $root 'css\fonts\a.woff2') | Should Be $true
+      Test-Path (Join-Path $root 'js\w.js') | Should Be $true
+      Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $short; Apply = $true } | Out-Null
+      Test-Path (Join-Path $root 'assets\fonts\a.woff2') | Should Be $true
+      Test-Path (Join-Path $root 'css\fonts\a.woff2') | Should Be $false
+      Test-Path (Join-Path $root 'js\w.js') | Should Be $false
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
   It 'rollback も PATH に git が無ければ GIT_BIN の git を使う' {
     $root = New-OldLayout
     $gitPath = (Get-Command git -CommandType Application | Select-Object -First 1).Source

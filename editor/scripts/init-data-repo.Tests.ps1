@@ -203,6 +203,18 @@ Describe 'init-data-repo.ps1' {
     }
   }
 
+  It '-DataRoot に 8.3 形式の短い名前を渡しても、長い名前に揃えて初期化し、案内にも長い名前を出す' {
+    $root = New-Root
+    try {
+      New-HandMadeContent $root
+      $short = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($root).ShortPath
+      if ($short -eq $root) { Set-TestInconclusive 'このボリュームでは 8.3 形式の短い名前が無効なため飛ばします。' }
+      $out = Invoke-Init @{ DataRoot = $short } *>&1 | Out-String
+      $out | Should Match ([regex]::Escape("DATA_ROOT=$root "))
+      Get-Tracked $root | Should Be $expectedTracked
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
   It 'PATH に git が無くても、履歴のあるリポジトリは GIT_BIN の git で確かめて触らない' {
     $root = New-Root
     $gitPath = (Get-Command git -CommandType Application | Select-Object -First 1).Source

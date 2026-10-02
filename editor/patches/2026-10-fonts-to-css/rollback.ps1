@@ -172,6 +172,9 @@ if (-not $DataRoot) {
   if ($DataRoot) { $DataRoot = Resolve-EditorPath $DataRoot }
   else { $DataRoot = Join-Path (Split-Path -Parent $workspace) 'editor-data' }
 }
+# 8.3 形式の短い名前のままだと、Get-ChildItem が返す長い名前の FullName と比べる追跡の判定や、
+# 置き場の長さでの相対パスの切り出しを誤る。フォルダがあれば長い名前へ揃える。
+if (Test-Path -LiteralPath $DataRoot -PathType Container) { $DataRoot = (Get-Item -LiteralPath $DataRoot).FullName }
 $cssDir = if ($env:CSS_DIR) { Resolve-EditorPath $env:CSS_DIR }
   elseif (Get-CfgPath 'cssDir') { Resolve-EditorPath (Get-CfgPath 'cssDir') }
   else { Join-Path $DataRoot 'css' }

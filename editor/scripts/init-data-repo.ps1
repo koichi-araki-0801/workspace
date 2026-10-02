@@ -59,6 +59,9 @@ $workspace = Split-Path -Parent $editorDir
 # git の場所はサーバ(gitRepo.ts)と同じく GIT_BIN を優先する。PortableGit だけの端末で PATH に
 # git が無くても流せるようにするため。
 $gitExe = if ($env:GIT_BIN) { $env:GIT_BIN } else { 'git' }
+# -DataRoot の相対パスは PowerShell の今の場所を基準に絶対パスへ直す。起動する git と .NET の
+# ファイル操作は PowerShell の今の場所を引き継がない(プロセスの作業フォルダは別)ため。
+if ($DataRoot) { $DataRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DataRoot) }
 $source = '-DataRoot 引数'
 if (-not $DataRoot) {
   $fromEnv = $env:DATA_ROOT
@@ -77,6 +80,9 @@ if (-not $DataRoot) {
     $source = '既定'
   }
 }
+# 8.3 形式の短い名前のままだと、Get-ChildItem が返す長い名前の FullName と置き場の接頭辞が一致せず、
+# サーバへの案内にも短い名前が出る。フォルダがあれば長い名前へ揃える。
+if (Test-Path -LiteralPath $DataRoot -PathType Container) { $DataRoot = (Get-Item -LiteralPath $DataRoot).FullName }
 
 Write-Host "dataRoot: $DataRoot ($source)"
 
