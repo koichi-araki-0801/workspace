@@ -176,6 +176,21 @@ Describe 'init-data-repo.ps1' {
     } finally { Remove-Item -Recurse -Force $root }
   }
 
+  It '行頭に空白のある必須行(  /css/fonts/)は git が別の模様と読むので、無いものとして必須行を足す' {
+    $root = New-Root
+    try {
+      New-HandMadeContent $root
+      # ほかの必須行は揃えておく(1 行でも足りなければ、書き直しの副作用で行頭の空白が消えてしまう)。
+      [IO.File]::WriteAllText((Join-Path $root '.gitignore'),
+        "/drafts/`n/reviews/`n/pending/`n/notes/`n  /css/fonts/`n/images/`n*.tmp-*`n", (New-Object Text.UTF8Encoding $false))
+      git -C $root init -q
+      Invoke-Init @{ DataRoot = $root } | Out-Null
+      $lines = @([IO.File]::ReadAllLines((Join-Path $root '.gitignore')))
+      $lines -ccontains '/css/fonts/' | Should Be $true
+      Get-Tracked $root | Should Be $expectedTracked
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
   It '履歴の無いリポジトリの BOM 付き * text=lf は、* text eol=lf に揃えて初回コミットに入れる(他の行は残す)' {
     $root = New-Root
     try {

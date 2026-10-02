@@ -83,8 +83,14 @@ export async function warnLegacyLayoutAtStartup(
       );
     }
   } catch (err) {
-    logger.warn(
-      `[layout] 旧構成の確認に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    const msg = `[layout] 旧構成の確認に失敗しました: ${
+      err instanceof Error ? err.message : String(err)
+    }`;
+    // 失敗も渡された出力先へ出す。出力先そのものが投げた場合だけサーバのロガーへ逃がす。
+    try {
+      log.warn(msg);
+    } catch {
+      logger.warn(msg);
+    }
   }
 }

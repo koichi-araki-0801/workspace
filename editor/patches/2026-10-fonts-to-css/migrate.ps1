@@ -345,16 +345,23 @@ if ($foreign.Count -gt 0) {
   $traces = @(foreach ($n in 'index.lock', 'REVERT_HEAD', 'MERGE_HEAD', 'CHERRY_PICK_HEAD') {
       if (Test-Path -LiteralPath (Join-Path $DataRoot ".git\$n")) { ".git\$n" }
     })
-  # 移行コミットが無いのに退避名の assets があれば、前回の -Apply が改名の後で止まった形跡。
-  if (-not (Invoke-Git log --author=system --grep '\[fonts-to-css\]' --format=%H -1)) {
-    $traces += @(Get-ChildItem -LiteralPath $DataRoot -Directory -Filter 'assets.migrated-*' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
-  }
   if ($traces.Count -gt 0) {
     throw ("前回のパッチ(または rollback)が途中で止まった形跡があります($($traces -join ', '))。" +
       "git -C `"$DataRoot`" status で状態を確かめ、途中の操作を終えるか戻してから再実行してください。" +
       "次の未コミットの変更は、このパッチが作る形ではありません:`n$list")
   }
-  throw ("手作業の変更が残っています。次の未コミットの変更は、このパッチが作る形(CSS の ../fonts/ → " +
+  # 移行コミットの無い退避名の assets は、-Apply が改名の後で止まった跡とは限らない。書き換えも追記も
+  # 要らない構成では、正常な -Apply も改名だけでコミットを作らない。どちらとも決めつけずに案内する。
+  $lead = '手作業の変更が残っています。'
+  if (-not (Invoke-Git log --author=system --grep '\[fonts-to-css\]' --format=%H -1)) {
+    $migrated = @(Get-ChildItem -LiteralPath $DataRoot -Directory -Filter 'assets.migrated-*' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+    if ($migrated.Count -gt 0) {
+      $lead = ("前回のパッチの跡($($migrated -join ', '))がありますが、移行コミットはありません。前回の " +
+        'パッチが途中で止まったか、コミットの要らない適用の後に手作業で変更したかのどちらかです。' +
+        "git -C `"$DataRoot`" status で状態を確かめてください。")
+    }
+  }
+  throw ($lead + "次の未コミットの変更は、このパッチが作る形(CSS の ../fonts/ → " +
     'fonts/ の書き換え・.gitignore への必須行の追記・.gitattributes を * text eol=lf にしただけ)ではない' +
     "ため中止しました。残すなら先にコミットしてください。要らなければ、ステージ済みのものを git -C `"$DataRoot`" " +
     "restore --staged -- <ファイル> でステージから外し、変更したファイルは git -C `"$DataRoot`" checkout -- " +

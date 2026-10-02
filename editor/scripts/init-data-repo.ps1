@@ -178,7 +178,9 @@ if ($hasGit -and (Test-GitHead)) {
   $required = '/drafts/', '/reviews/', '/pending/', '/notes/', '/css/fonts/', '/images/', '*.tmp-*'
   $ignorePath = Join-Path $DataRoot '.gitignore'
   $current = if (Test-Path -LiteralPath $ignorePath) { [IO.File]::ReadAllText($ignorePath) } else { '' }
-  $lines = @($current -split "`r?`n" | ForEach-Object { $_.Trim() })
+  # 落とすのは行末の空白だけ(パッチと同じ)。git は行頭の空白を模様の一部と読むので、`  /css/fonts/`
+  # を必須行があるとみなすと、無視されないまま必須行も足されない。
+  $lines = @($current -split "`r?`n" | ForEach-Object { $_.TrimEnd(' ') })
   $missing = @($required | Where-Object { $lines -cnotcontains $_ })
   if ($missing.Count -gt 0 -or $current -eq '') {
     $merged = New-Object System.Collections.Generic.List[string]

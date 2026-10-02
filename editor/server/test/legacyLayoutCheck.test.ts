@@ -136,6 +136,16 @@ describe('warnLegacyLayoutAtStartup', () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
+  it('確認に失敗したら、その旨も渡された出力先へ警告する', async () => {
+    const spy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+    const log = fakeLog();
+    // path.join が型の違う引数で投げる = 確認そのものの失敗。
+    const bad = { dataRoot: 42 as unknown as string, cssDir: 'x' };
+    await expect(warnLegacyLayoutAtStartup(log, bad)).resolves.toBeUndefined();
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('旧構成の確認に失敗しました'));
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('出力先が例外を投げても reject せず、サーバのロガーへ警告する', async () => {
     const r = makeRoot();
     fs.mkdirSync(path.join(r.dataRoot, 'assets'));

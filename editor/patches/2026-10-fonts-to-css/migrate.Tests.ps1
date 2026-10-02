@@ -436,6 +436,28 @@ Describe 'migrate.ps1' {
     } finally { Remove-Item -Recurse -Force $root }
   }
 
+  It '中止: コミットの要らない適用の後の assets.migrated-* は、途中停止と決めつけず手作業の変更の可能性も案内する' {
+    $root = New-OldLayout
+    try {
+      # 書き換えも追記も要らない構成(assets には js だけ)では、-Apply は改名だけでコミットを作らない。
+      Remove-Item -Recurse -Force (Join-Path $root 'assets\fonts')
+      Write-Utf8 (Join-Path $root 'css\510037.css') $cssRewritten
+      Write-Utf8 (Join-Path $root '.gitignore') "/drafts/`n/reviews/`n/pending/`n/notes/`n/css/fonts/`n/images/`n*.tmp-*`n"
+      Write-Utf8 (Join-Path $root '.gitattributes') "* text eol=lf`n"
+      git -C $root add -- .gitignore .gitattributes css
+      git -C $root -c user.name=t -c user.email=t@t commit -q -m settle
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } | Out-Null
+      @(Get-ChildItem $root -Directory -Filter 'assets.migrated-*').Count | Should Be 1
+      (git -C $root log --format='%s') -join "`n" | Should Not Match '\[fonts-to-css\]'
+      Add-Content -LiteralPath (Join-Path $root 'css\510037.css') -Value ' '
+      $msg = Get-Message { Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } }
+      $msg | Should Not Match '途中で止まった形跡があります'
+      $msg | Should Match '手作業'
+      $msg | Should Match 'assets\.migrated-'
+      $msg | Should Match 'css/510037\.css'
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
   It '追跡されているフォント・画像・js は確認モードで一覧に出し、-Apply で追跡だけ外す(ファイルは残す)' {
     $root = New-OldLayout
     try {
