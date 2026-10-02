@@ -618,10 +618,54 @@ Describe 'migrate.ps1' {
     $root = New-OldLayout
     $ws = New-FakeEditor
     $fake = Join-Path $ws 'editor\patches\2026-10-fonts-to-css\migrate.ps1'
+    $cfg = Join-Path $ws 'editor\appconfig.json'
     try {
-      $out = Invoke-Patch $fake @{ DataRoot = $root; Port = 1 } $null @{ TEMPLATES_DIR = (Join-Path $ws 'editor\data\templates') } *>&1 | Out-String
+      $original = '{"port":24680,"paths":{"tmpDir":".tmp"}}'
+      [IO.File]::WriteAllText($cfg, $original, (New-Object Text.UTF8Encoding $false))
+      $out = Invoke-Patch $fake @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg @{ TEMPLATES_DIR = (Join-Path $ws 'editor\data\templates') } *>&1 | Out-String
       $out | Should Match '環境変数 TEMPLATES_DIR が editor のフォルダの中を指しています'
+      [IO.File]::ReadAllText($cfg) | Should Be $original
+      @(Get-ChildItem (Split-Path $cfg) -Filter 'appconfig.json.bak-*').Count | Should Be 0
+      (git -C $root log -1 --format='%s') | Should Match '\[fonts-to-css\]'
     } finally { Remove-Item -Recurse -Force $root, $ws }
+  }
+
+  It 'ASSETS_DIR が editor の中を指していれば、その場所を改名することを報告に書く' {
+    $root = New-OldLayout
+    $ws = New-FakeEditor
+    $fake = Join-Path $ws 'editor\patches\2026-10-fonts-to-css\migrate.ps1'
+    $inside = Join-Path $ws 'editor\data\assets'
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $inside 'fonts') | Out-Null
+      Set-Content -LiteralPath (Join-Path $inside 'fonts\a.woff2') -Value 'FONT' -NoNewline
+      # 長い 1 行を Out-String がコンソール幅で折り返さないよう、幅を広げて受ける。
+      $out = Invoke-Patch $fake @{ DataRoot = $root; Port = 1 } $null @{ ASSETS_DIR = $inside } *>&1 | Out-String -Width 4096
+      $out | Should Match '環境変数 ASSETS_DIR が editor のフォルダの中を指しています[^\r\n]*assets\.migrated-\d{8} へ改名します'
+      Test-Path (Join-Path $inside 'fonts\a.woff2') | Should Be $true
+    } finally { Remove-Item -Recurse -Force $root, $ws }
+  }
+
+  It 'appconfig の置き場の値がパスとして読めなければ、キーの名前を出して中止する' {
+    $root = New-OldLayout
+    $cfg = New-TempConfig @{ paths = @{ cssDir = 'a|b' } }
+    try {
+      $msg = Get-Message { Invoke-Patch $script @{ DataRoot = $root; Port = 1 } $cfg }
+      $msg | Should Match 'paths\.cssDir'
+    } finally {
+      Remove-Item -Recurse -Force $root
+      Remove-Item -Force -ErrorAction SilentlyContinue $cfg
+    }
+  }
+
+  It '最上位が配列のメモは、壊れたファイル 1 件として報告する' {
+    $root = New-OldLayout
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'notes') | Out-Null
+      Write-Utf8 (Join-Path $root 'notes\T2.json') '[{"content":"x"},{"content":"y"}]'
+      $out = Invoke-Patch $script @{ DataRoot = $root; Port = 1 } *>&1 | Out-String
+      $out | Should Match 'T2\.json[^\r\n]*最上位がオブジェクトではありません'
+      $out | Should Not Match 'T2\.json[^\r\n]*配列でない値'
+    } finally { Remove-Item -Recurse -Force $root }
   }
 
   It '同じ日に流し直しても、最初のバックアップは上書きせず別名で残す' {
@@ -711,5 +755,167 @@ Describe 'migrate.ps1' {
       $out | Should Match 'meta\.json[^\r\n]*held'
       $out | Should Match 'filled フォルダがありません'
     } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It 'rollback は assets.migrated-* が無い環境(appconfig の片付けだけが動いた)でも止まらず、revert と appconfig の復元を行う' {
+    $root = Join-Path $env:TEMP ('fonts-mig-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    $cfg = New-TempConfig @{ python = @{ bin = 'python' } }
+    try {
+      foreach ($d in 'css\fonts', 'templates') { New-Item -ItemType Directory -Force -Path (Join-Path $root $d) | Out-Null }
+      Set-Content -LiteralPath (Join-Path $root 'css\fonts\a.woff2') -Value 'FONT' -NoNewline
+      Set-Content -LiteralPath (Join-Path $root 'css\510037.css') -Value '@font-face{src:url(../fonts/a.woff2)}' -NoNewline
+      [IO.File]::WriteAllText((Join-Path $root '.gitignore'), "/css/fonts/`n", (New-Object Text.UTF8Encoding $false))
+      git -C $root init -q
+      git -C $root add -- .gitignore css
+      git -C $root -c user.name=t -c user.email=t@t commit -q -m init
+      $original = [IO.File]::ReadAllText($cfg)
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg | Out-Null
+      (Get-Content -Raw (Join-Path $root 'css\510037.css')) | Should Match 'url\(fonts/a\.woff2\)'
+      Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root; Apply = $true } $cfg | Out-Null
+      (Get-Content -Raw (Join-Path $root 'css\510037.css')) | Should Match 'url\(\.\./fonts/a\.woff2\)'
+      [IO.File]::ReadAllText($cfg) | Should Be $original
+      Test-Path (Join-Path $root 'css\fonts\a.woff2') | Should Be $true
+    } finally {
+      Remove-Item -Recurse -Force $root
+      Remove-Item -Force -ErrorAction SilentlyContinue $cfg, "$cfg.bak-*"
+    }
+  }
+
+  It 'rollback は移行後に assets.migrated-* を手で消していても、revert と appconfig の復元を行う' {
+    $root = New-OldLayout
+    $cfg = New-TempConfig @{ python = @{ bin = 'python' } }
+    try {
+      $original = [IO.File]::ReadAllText($cfg)
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg | Out-Null
+      Get-ChildItem $root -Directory -Filter 'assets.migrated-*' | Remove-Item -Recurse -Force
+      Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root; Apply = $true } $cfg | Out-Null
+      (Get-Content -Raw (Join-Path $root 'css\510037.css')) | Should Match 'url\(\.\./fonts/a\.woff2\)'
+      [IO.File]::ReadAllText($cfg) | Should Be $original
+      Test-Path (Join-Path $root 'css\fonts\a.woff2') | Should Be $true
+    } finally {
+      Remove-Item -Recurse -Force $root
+      Remove-Item -Force -ErrorAction SilentlyContinue $cfg, "$cfg.bak-*"
+    }
+  }
+
+  It 'rollback は戻す日付の候補が複数あれば -Date を求め、-Date を付ければ戻す' {
+    $root = New-OldLayout
+    $cfg = New-TempConfig @{ python = @{ bin = 'python' } }
+    try {
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg | Out-Null
+      Copy-Item -LiteralPath $cfg -Destination "$cfg.bak-20000101"
+      $msg = Get-Message { Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root } $cfg }
+      $msg | Should Match '-Date'
+      Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root; Apply = $true; Date = (Get-Date -Format 'yyyyMMdd') } $cfg | Out-Null
+      Test-Path (Join-Path $root 'assets\fonts\a.woff2') | Should Be $true
+    } finally {
+      Remove-Item -Recurse -Force $root
+      Remove-Item -Force -ErrorAction SilentlyContinue $cfg, "$cfg.bak-*"
+    }
+  }
+
+  It '追跡されたフォント・js・画像を -Apply で外したあとでも、rollback -Apply が通り、追跡と assets が戻る' {
+    $root = New-OldLayout
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'css\fonts'), (Join-Path $root 'images') | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'css\fonts\b.woff2') -Value 'B' -NoNewline
+      Set-Content -LiteralPath (Join-Path $root 'images\510037_logo.svg') -Value '<svg/>' -NoNewline
+      git -C $root add -f -- assets css/fonts images
+      git -C $root -c user.name=t -c user.email=t@t commit -q -m tracked
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } | Out-Null
+      Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root; Apply = $true } | Out-Null
+      $tracked = (@(git -C $root ls-files -- assets css/fonts images) | Sort-Object) -join ','
+      $tracked | Should Be 'assets/fonts/a.woff2,assets/js/w.js,css/fonts/b.woff2,images/510037_logo.svg'
+      Test-Path (Join-Path $root 'assets\fonts\a.woff2') | Should Be $true
+      Test-Path (Join-Path $root 'assets\js\w.js') | Should Be $true
+      @(Get-ChildItem $root -Directory -Filter 'assets.migrated-*').Count | Should Be 0
+      @(Get-ChildItem $root -Directory -Force -Filter '.rollback-tmp-*').Count | Should Be 0
+      Test-Path (Join-Path $root 'css\fonts\a.woff2') | Should Be $false
+      Test-Path (Join-Path $root 'js\w.js') | Should Be $false
+      Test-Path (Join-Path $root 'css\fonts\b.woff2') | Should Be $true
+      (git -C $root status --porcelain -- assets css images) | Should BeNullOrEmpty
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It '追跡を外した後に中身を変えたファイルは、rollback で退避を残して報告する' {
+    $root = New-OldLayout
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'images') | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'images\510037_logo.svg') -Value '<svg/>' -NoNewline
+      git -C $root add -f -- images
+      git -C $root -c user.name=t -c user.email=t@t commit -q -m tracked
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'images\510037_logo.svg') -Value '<svg>new</svg>' -NoNewline
+      $out = Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root; Apply = $true } *>&1 | Out-String
+      $stamp = Get-Date -Format 'yyyyMMdd'
+      Get-Content -Raw (Join-Path $root ".rollback-tmp-$stamp\images\510037_logo.svg") | Should Be '<svg>new</svg>'
+      Get-Content -Raw (Join-Path $root 'images\510037_logo.svg') | Should Be '<svg/>'
+      $out | Should Match '退避に残しました'
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It 'rollback は同じ日の退避に同じパスのファイルが既にあれば、何も変えずに中止する' {
+    $root = New-OldLayout
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'images') | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'images\510037_logo.svg') -Value '<svg/>' -NoNewline
+      git -C $root add -f -- images
+      git -C $root -c user.name=t -c user.email=t@t commit -q -m tracked
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } | Out-Null
+      $stamp = Get-Date -Format 'yyyyMMdd'
+      $old = Join-Path $root ".rollback-tmp-$stamp\images\510037_logo.svg"
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $old) | Out-Null
+      Set-Content -LiteralPath $old -Value 'OLD' -NoNewline
+      $head = git -C $root rev-parse HEAD
+      $msg = Get-Message { Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root; Apply = $true } }
+      $msg | Should Match '同じ日の退避'
+      Get-Content -Raw $old | Should Be 'OLD'
+      git -C $root rev-parse HEAD | Should Be $head
+      Test-Path (Join-Path $root "assets.migrated-$stamp") | Should Be $true
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It 'rollback の 2 回目(移行コミットが revert 済み)は、appconfig と作業コピーを戻さない' {
+    $root = New-OldLayout
+    $cfg = New-TempConfig @{ python = @{ bin = 'python' } }
+    try {
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } $cfg | Out-Null
+      Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root; Apply = $true } $cfg | Out-Null
+      [IO.File]::WriteAllText($cfg, '{"port":1}', (New-Object Text.UTF8Encoding $false))
+      Set-Content -LiteralPath (Join-Path $root 'drafts\T1.css') -Value 'edited' -NoNewline
+      Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root; Apply = $true } $cfg | Out-Null
+      [IO.File]::ReadAllText($cfg) | Should Be '{"port":1}'
+      Get-Content -Raw (Join-Path $root 'drafts\T1.css') | Should Be 'edited'
+    } finally {
+      Remove-Item -Recurse -Force $root
+      Remove-Item -Force -ErrorAction SilentlyContinue $cfg, "$cfg.bak-*"
+    }
+  }
+
+  It 'rollback も -DataRoot の相対パスを今の場所を基準に解決する' {
+    $root = New-OldLayout
+    try {
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } | Out-Null
+      Push-Location (Split-Path -Parent $root)
+      try { Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = (Split-Path -Leaf $root); Apply = $true } | Out-Null }
+      finally { Pop-Location }
+      (Get-Content -Raw (Join-Path $root 'css\510037.css')) | Should Match 'url\(\.\./fonts/a\.woff2\)'
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It 'rollback も PATH に git が無ければ GIT_BIN の git を使う' {
+    $root = New-OldLayout
+    $gitPath = (Get-Command git -CommandType Application | Select-Object -First 1).Source
+    $savedPath = $env:PATH
+    try {
+      Invoke-Patch $script @{ DataRoot = $root; Apply = $true; Port = 1 } | Out-Null
+      $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+      Invoke-Patch (Join-Path $here 'rollback.ps1') @{ DataRoot = $root; Apply = $true } $null @{ GIT_BIN = $gitPath } | Out-Null
+      $env:PATH = $savedPath
+      (Get-Content -Raw (Join-Path $root 'css\510037.css')) | Should Match 'url\(\.\./fonts/a\.woff2\)'
+    } finally {
+      $env:PATH = $savedPath
+      Remove-Item -Recurse -Force $root
+    }
   }
 }

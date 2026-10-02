@@ -136,10 +136,12 @@ function Get-CfgPath([string]$key) {
   return $null
 }
 
-function Test-InsideEditor([string]$p) {
+function Test-InsideEditor([string]$p, [string]$label) {
   # サーバと同じく editor 基準で絶対パスにしてから、<editorDir>\ で始まるかを見る(大文字小文字は
-  # 区別しない)。
-  $full = [IO.Path]::GetFullPath((Resolve-EditorPath $p)).TrimEnd('\') + '\'
+  # 区別しない)。パスとして読めない値(| などを含む)は .NET の例外のままだとどの設定か分からない
+  # ので、出どころ($label)を添えて止める。
+  try { $full = [IO.Path]::GetFullPath((Resolve-EditorPath $p)).TrimEnd('\') + '\' }
+  catch { throw "$label の値 '$p' はパスとして読めません($($_.Exception.Message))。直してから再実行してください。" }
   return $full.StartsWith($editorDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
 }
 
@@ -148,7 +150,7 @@ function Test-InsideEditor([string]$p) {
 # 外す。tmpDir・logDir・webDist は editor の中に置くのが正しい設定なので対象にしない。
 $placeKeys = 'dataRoot', 'templatesDir', 'filledDir', 'cssDir', 'jsDir', 'imagesDir', 'draftsDir',
   'pendingDir', 'reviewsDir', 'syncDir', 'assetsDir'
-$insideKeys = @($placeKeys | Where-Object { $v = Get-CfgPath $_; $v -and (Test-InsideEditor $v) })
+$insideKeys = @($placeKeys | Where-Object { $v = Get-CfgPath $_; $v -and (Test-InsideEditor $v "appconfig の paths.$_") })
 function Get-PlaceCfg([string]$key) {
   if ($insideKeys -contains $key) { return $null }
   return Get-CfgPath $key
@@ -156,7 +158,16 @@ function Get-PlaceCfg([string]$key) {
 # 環境変数はパッチが変えられないので、editor の中を指していても報告だけする(解決にはサーバと同じく使う)。
 $placeEnvs = 'DATA_ROOT', 'TEMPLATES_DIR', 'FILLED_DIR', 'CSS_DIR', 'JS_DIR', 'IMAGES_DIR', 'DRAFTS_DIR',
   'PENDING_DIR', 'REVIEWS_DIR', 'SYNC_DIR', 'ASSETS_DIR'
-$insideEnvs = @($placeEnvs | Where-Object { $v = [Environment]::GetEnvironmentVariable($_); $v -and (Test-InsideEditor $v) })
+$insideEnvs = @(foreach ($n in $placeEnvs) {
+    $v = [Environment]::GetEnvironmentVariable($n)
+    if ($v -and (Test-InsideEditor $v "環境変数 $n")) { @{ Name = $n; Label = "環境変数 $n"; Value = $v } }
+  })
+# dataRoot の解決はユーザー環境変数 DATA_ROOT も読むので、同じく報告する(プロセスの DATA_ROOT と同じ
+# 値なら上で報告済み)。
+$userDataRoot = [Environment]::GetEnvironmentVariable('DATA_ROOT', 'User')
+if ($userDataRoot -and $userDataRoot -ne $env:DATA_ROOT -and (Test-InsideEditor $userDataRoot 'ユーザー環境変数 DATA_ROOT')) {
+  $insideEnvs += @{ Name = 'DATA_ROOT'; Label = 'ユーザー環境変数 DATA_ROOT'; Value = $userDataRoot }
+}
 
 # -DataRoot 引数が最優先。なければ DATA_ROOT(プロセス → ユーザー)→ appconfig の paths.dataRoot
 # → 既定(サーバの既定と同じ editor の 2 つ上の editor-data)。
@@ -432,7 +443,11 @@ if ($py) {
   $scriptProp = $py.PSObject.Properties['script']
   if ($scriptProp -and $scriptProp.Value) {
     # 旧い仮の生成器と現行の偽の生成器は、どちらも既定(偽の生成器)と同じ扱いなので外す。
-    $scriptFull = [IO.Path]::GetFullPath((Resolve-EditorPath ([string]$scriptProp.Value)))
+    try { $scriptFull = [IO.Path]::GetFullPath((Resolve-EditorPath ([string]$scriptProp.Value))) }
+    catch {
+      throw ("appconfig の python.script の値 '$($scriptProp.Value)' はパスとして読めません" +
+        "($($_.Exception.Message))。直してから再実行してください。")
+    }
     foreach ($old in 'server\scripts\generate_template.py', 'server\scripts\fake_generate_template.py') {
       if ($scriptFull -ieq (Join-Path $editorDir $old)) { $pyRemove += 'script' }
     }
@@ -459,8 +474,12 @@ if ($env:ASSETS_DIR) {
   Write-Host ("※ 環境変数 ASSETS_DIR が設定されています。新版は読まないので外してください(js の置き場を変えていた" +
     "なら JS_DIR=$jsDir へ。パッチは環境変数を変えません)。")
 }
-foreach ($n in $insideEnvs) {
-  Write-Host ("【報告】環境変数 $n が editor のフォルダの中を指しています($([Environment]::GetEnvironmentVariable($n)))。" +
+foreach ($e in $insideEnvs) {
+  # ASSETS_DIR は旧 assets の置き場の解決に使うので、editor の中でもその場所を移設・改名の対象にする。
+  $moveNote = if ($e.Name -eq 'ASSETS_DIR' -and $renameAssets) {
+    "旧 assets の置き場として使うので、-Apply でフォントと js を移したうえで、この場所を $migratedName へ改名します。"
+  } else { '' }
+  Write-Host ("【報告】$($e.Label) が editor のフォルダの中を指しています($($e.Value))。$moveNote" +
     'パッチは環境変数を変えないので、手で外してください。')
 }
 if ($reportHtml.Count -gt 0) {
@@ -496,7 +515,13 @@ if ($assetsOthers.Count -gt 0) {
 $oldData = @()
 foreach ($f in Get-ChildItem -LiteralPath (Join-Path $DataRoot 'notes') -Filter '*.json' -File -ErrorAction SilentlyContinue) {
   try {
-    $obj = [IO.File]::ReadAllText($f.FullName, $utf8NoBom) | ConvertFrom-Json
+    $obj = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($f.FullName, $utf8NoBom))
+    # 最上位が配列・文字列などのときは、PSObject.Properties が配列の Count や Length を返して件数が
+    # 意味を持たないので、ファイル 1 件として報告する。
+    if ($obj -isnot [Management.Automation.PSCustomObject]) {
+      $oldData += "$($f.FullName) (最上位がオブジェクトではありません。メモの形式(pathKey → 投稿の配列)に直してください)"
+      continue
+    }
     $bad = @($obj.PSObject.Properties | Where-Object { $_.Value -isnot [array] })
     if ($bad.Count -gt 0) { $oldData += "$($f.FullName) (配列でない値 $($bad.Count) 件。新版は読み捨てます)" }
   } catch { $oldData += "$($f.FullName) (PowerShell で読めないため点検できません。手で確かめてください)" }
