@@ -554,31 +554,28 @@ Describe 'rollback.ps1' {
 # Mock は Describe の終わりまで残るので、ユーザー環境変数の差し替えが他のテストへ及ばないよう分ける。
 Describe 'apply.ps1 の appconfig の paths.dataRoot' {
   It 'editor のフォルダの中を指す paths.dataRoot は使わずに次の候補(既定)へ移り、その旨を案内する' {
-    $cfg = Join-Path $env:TEMP ('fund-img-cfg-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.json')
+    # 既定の場所が本物の dataRoot にならないよう、apply.ps1 を一時の偽の editor 構成へ複製して流す
+    # (既定は <偽のワークスペースの親>\editor-data になり、そこへ一時の dataRoot を用意する)。
+    $x = Join-Path $env:TEMP ('fund-img-ws-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    $fakePatch = Join-Path $x 'workspace\editor\patches\2026-10-fund-images'
+    New-Item -ItemType Directory -Force -Path $fakePatch | Out-Null
+    Copy-Item -LiteralPath $script -Destination $fakePatch
+    $fakeScript = Join-Path $fakePatch 'apply.ps1'
+    $cfg = Join-Path $x 'appconfig.json'
     # ユーザー環境変数 DATA_ROOT(この端末では本物の dataRoot)を読ませず、appconfig まで進ませる。
     Mock Get-ItemProperty { $null } -ParameterFilter { $LiteralPath -eq 'HKCU:\Environment' }
-    # 既定の場所(この端末では本物の dataRoot)には何もさせない。待ち受け中のポートを渡し、置き場を
-    # 表示した直後の稼働確認で止める(git もファイルの書き込みも、その後にしか無い)。
-    $listener = New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback, 0)
-    $listener.Start()
-    $editorDir = Split-Path -Parent (Split-Path -Parent $here)
-    $default = Join-Path (Split-Path -Parent (Split-Path -Parent $editorDir)) 'editor-data'
-    $lines = New-Object System.Collections.Generic.List[string]
-    $caught = ''
+    $layout = New-Layout
     try {
+      $default = Join-Path $x 'editor-data'
+      Move-Item -LiteralPath $layout -Destination $default
       Write-Utf8 $cfg (@{ paths = @{ dataRoot = 'data' } } | ConvertTo-Json)
-      try {
-        Invoke-Patch $script @{ Port = $listener.LocalEndpoint.Port } $null @{ APP_CONFIG = $cfg } *>&1 |
-          ForEach-Object { $lines.Add([string]$_) }
-      } catch { $caught = $_.Exception.Message }
+      $out = Invoke-Patch $fakeScript @{ Port = 1 } $null @{ APP_CONFIG = $cfg } *>&1 | Out-String
       Assert-MockCalled Get-ItemProperty -Scope It
-      $caught | Should Match '動いています'
-      $out = $lines -join "`n"
       $out | Should Match 'paths\.dataRoot\(data\)は editor のフォルダの中を指すため使いません'
       $out | Should Match ([regex]::Escape("dataRoot : $default (既定)"))
+      $out | Should Match '確認モードのため何も変えていません'
     } finally {
-      $listener.Stop()
-      Remove-Item -Force -ErrorAction SilentlyContinue $cfg
+      Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $x, $layout
     }
   }
 }
