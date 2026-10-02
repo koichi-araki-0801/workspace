@@ -57,7 +57,7 @@ function openReview(m: TemplateMeta) {
 <template>
   <div class="space-y-4">
     <h2 class="text-lg font-bold">テンプレートを検索</h2>
-    <SearchFilters @search="search" @restore="search" />
+    <SearchFilters dropdown-scope="edit" @search="search" @restore="search" />
     <TemplateTable
       v-if="searched"
       :rows="rows"

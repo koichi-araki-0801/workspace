@@ -82,8 +82,10 @@ describe('restTemplateRepo', () => {
       baseDate: '',
     });
     expect(calls[0].url).toBe('/api/templates?companyCode=AM01');
-    await restTemplateRepo.getDropdownOptions({});
-    expect(calls[1].url).toBe('/api/templates/options');
+    await restTemplateRepo.getDropdownOptions({}, 'edit');
+    expect(calls[1].url).toBe('/api/templates/options?scope=edit');
+    await restTemplateRepo.getDropdownOptions({ companyCode: 'AM01' }, 'published');
+    expect(calls[2].url).toBe('/api/templates/options?companyCode=AM01&scope=published');
   });
   it(':id は encodeURIComponent される(日本語 id)', async () => {
     const calls = stubFetch(() => json({ meta: {}, html: '', css: '', filled: '' }));

@@ -6,6 +6,7 @@ import {
   type ConfirmSaveRequest,
   type CreateHistoryEntry,
   type DropdownQuery,
+  type DropdownScope,
   type EditHistoryEntry,
   editHistoryRowId,
   type GenerateRequest,
@@ -178,13 +179,17 @@ export const confirmSaveLocal = (req: ConfirmSaveRequest, extra?: ConfirmSaveExt
   );
 
 export const localTemplateRepo: TemplateRepository = {
-  getDropdownOptions: (query: DropdownQuery) =>
+  getDropdownOptions: (query: DropdownQuery, scope: DropdownScope) =>
     attempt(() => {
-      const metas = allMetas();
+      // 比較・結合(published)は承認済みだけを扱う画面なので、候補も承認済みから作る。
+      const metas = allMetas().filter((m) => scope !== 'published' || m.status === 'published');
       // 各候補は「自分より上位の選択」だけで絞る(自分自身・下位は含めない)。そうしないと
       // 最下位の版種を選んだ後にその版種だけへ候補が潰れ、別の版種(例: 全体版)へ戻せない。
       const matchesUpper = (m: TemplateMeta, fields: (keyof TemplateAttributes)[]): boolean =>
-        fields.every((f) => !query[f] || m.attributes[f] === query[f]);
+        fields.every((f) => {
+          const want = query[f];
+          return !want || m.attributes[f].toLowerCase() === want.toLowerCase();
+        });
       return delay({
         companyCodes: uniq(metas.map((m) => m.attributes.companyCode)),
         fundCodes: uniq(

@@ -106,7 +106,7 @@ async function exportPdf() {
     <p class="text-sm text-muted-foreground">
       テンプレートを検索して結合したい順に追加すると、通しページ番号付きの 1 つの PDF を出力できます。
     </p>
-    <SearchFilters @search="search" @restore="search" />
+    <SearchFilters dropdown-scope="published" @search="search" @restore="search" />
 
     <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div class="min-w-0">

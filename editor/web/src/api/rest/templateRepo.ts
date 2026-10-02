@@ -6,6 +6,7 @@ import {
   buildPath,
   type DropdownOptions,
   type DropdownQuery,
+  type DropdownScope,
   type FundResolution,
   type GenerateRequest,
   type GenerateResult,
@@ -70,10 +71,10 @@ const seriesFetch = (companyCode: string, fundCode: string, editionType: string)
   );
 
 export const restTemplateRepo: TemplateRepository = {
-  getDropdownOptions: (query: DropdownQuery) =>
+  getDropdownOptions: (query: DropdownQuery, scope: DropdownScope) =>
     attemptRest(() =>
       apiFetch<DropdownOptions>(apiPaths.templatesOptions, {
-        query: query as Record<string, string | undefined>,
+        query: { ...query, scope } as Record<string, string | undefined>,
       }),
     ),
 

@@ -2,7 +2,7 @@
 // =============================================================================
 // SearchFilters.vue — 委託会社→ファンド→基準日→版種のカスケード絞り込みバー
 // =============================================================================
-import type { DropdownOptions, DropdownQuery } from '@editor/shared';
+import type { DropdownOptions, DropdownQuery, DropdownScope } from '@editor/shared';
 import { Loader2, RotateCcw, Search } from '@lucide/vue';
 import { computed, onMounted, watch } from 'vue';
 import { useTemplateRepo } from '@/api/repositories';
@@ -21,6 +21,8 @@ type Field = 'companyCode' | 'fundCode' | 'baseDate' | 'editionType';
 
 const props = withDefaults(
   defineProps<{
+    /** 候補の出所(edit = 編集タブ / published = 比較・結合 / create = 作成タブ)。 */
+    dropdownScope: DropdownScope;
     /** どの属性フィールドをカスケード dropdown として出すか。 */
     fields?: Field[];
     searchLabel?: string;
@@ -72,7 +74,7 @@ const { query, options, loading, onLevelChange, reset } = useCascadingSelect<
 >({
   levels: props.fields,
   emptyOptions: EMPTY,
-  fetchOptions: (q) => repo.getDropdownOptions(q),
+  fetchOptions: (q) => repo.getDropdownOptions(q, props.dropdownScope),
   onChange: (q) => emit('update', q),
 });
 
