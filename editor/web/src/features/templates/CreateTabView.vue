@@ -172,7 +172,7 @@ function createFromSeries(sourceFundCode: string) {
           class="mb-3 flex w-fit cursor-pointer items-center gap-2 text-[13px] text-foreground"
         >
           <Checkbox v-model="isRedemption" />
-          償還ファンドとして作成する（特定パーツを償還用に置換）
+          償還ファンドとして作成する
         </label>
 
         <div :class="cn('flex flex-wrap gap-3', !canCreate && 'pointer-events-none')">
