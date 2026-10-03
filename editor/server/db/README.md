@@ -1,13 +1,16 @@
 # DB スキーマ / 適用 (フェーズ2)
 
-SQL Server 2012 の `usrap.ug01`（既存 DB / 既存スキーマ）に、`Rep1_運報自動化_Editor_` 接頭辞でテーブルとストアドを作成する。本文(HTML/CSS)はファイル保存、DB は台帳(作成可能カタログ)・パーツ・認証・監査などメタのみ。版/スナップ/編集履歴は git(コミット履歴)、PDF出力/作成/パーツ変更はファイル監査ログ(logs/history/*.jsonl)が担う。
+SQL Server 2012 の `usrap.ug01`（既存 DB / 既存スキーマ）に、`Rep1_運報自動化_Editor_` 接頭辞でテーブルとストアドを作成する。本文(HTML/CSS)はファイル保存、DB はパーツ・認証・監査などのメタと、作成タブが読むファンド属性(同じサーバの `Rep1`。sproc から 3 部名で参照)のみ。テンプレートの台帳は持たない。版/スナップ/編集履歴は git(コミット履歴)、PDF出力/作成/パーツ変更はファイル監査ログ(logs/history/*.jsonl)が担う。
 
 ## 構成
 ```
-ddl/    01_テーブル.sql 02_索引.sql 03_制約.sql   … 6 テーブル（冪等）
-sproc/  template/user/session/part/sample/audit.sql
-        … テーブル単位の 1 ゲートウェイ sproc（第1引数 @操作 で分岐）
-        … usp_テンプレートは候補（作成タブ）/生成登録のみ（一覧/取得/系列/確定/下書きは git・ファイル）
+ddl/    01_テーブル.sql 02_索引.sql 03_制約.sql   … 6 テーブル（冪等。テンプレート台帳は無い）
+sproc/  template/series/user/session/part/sample/audit/noteMaster.sql
+        … 1 ゲートウェイ sproc ごとに第1引数 @操作 で分岐（8 本）
+        … usp_テンプレートは 委託会社一覧 / ファンド一覧、usp_シリーズは 一覧 のみ。どちらも Rep1 を
+          3 部名で読み、テーブル名・列名は仮(sproc の中だけに書く)。一覧/取得/確定/下書きは git・ファイル
+dev/    Rep1_検証用.sql(LocalDB に検証用の Rep1 を作る) / 台帳_削除.sql(旧テンプレート台帳の DROP)
+        … apply.ps1 の対象外。必要なときに手で流す
 seed/   管理ユーザー.sql（生成物）/ パーツカタログ.sql / サンプルデータ.sql
 apply.ps1  … ddl→sproc→seed を sqlcmd(-E -f 65001) で順に適用
 ```
