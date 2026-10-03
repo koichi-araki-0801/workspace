@@ -2,7 +2,7 @@
 // =============================================================================
 // CreateTabView.vue — テンプレ作成タブ (Step1 ファンド指定 → Step2 作成方法選択)
 // =============================================================================
-import { type DropdownQuery, type GenerateRequest, isErr, type TemplateMeta } from '@editor/shared';
+import { type CreatableInfo, type GenerateRequest, isErr } from '@editor/shared';
 import { FilePlus2, FileText } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -13,8 +13,8 @@ import { toastError, toastSuccess } from '@/components/ui/toast';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useLatest } from '@/lib/useLatest';
 import { cn } from '@/lib/utils';
-import SearchFilters from './components/SearchFilters.vue';
-import TemplateTable from './components/TemplateTable.vue';
+import CreateFundSelect, { type CreateFundSelection } from './components/CreateFundSelect.vue';
+import SeriesSourceTable from './components/SeriesSourceTable.vue';
 import { editorRoute } from './editorRoute';
 import { SELECT_ALL_MSG, useTemplateCreationService } from './services/templateCreationService';
 
@@ -23,16 +23,16 @@ type Method = 'blank' | 'series';
 const router = useRouter();
 const templates = useTemplateCreationService();
 const { loading: creating, run } = useAsyncResult();
-const liveQuery = reactive<DropdownQuery>({});
+const liveQuery = reactive<CreateFundSelection>({});
 const method = ref<Method | null>(null);
-const seriesRows = ref<TemplateMeta[]>([]);
-// 属性解決でシリーズファンドと判定できたときだけ「シリーズから作成」を出す (⑥)。
-const isSeriesFund = ref(false);
-// 償還ファンドとして作成するか (⑦・モック)。
+// 3 つがそろったときの作成可否(作成済みか・シリーズのコピー元候補)。
+const info = ref<CreatableInfo | null>(null);
+// シリーズのコピー元候補があるときだけ「シリーズから作成」を出す。
+const isSeriesFund = computed(() => (info.value?.seriesFunds.length ?? 0) > 0);
+// 償還ファンドとして作成するか(生成器へのパラメータ)。
 const isRedemption = ref(false);
 // 属性を素早く変えると前の属性の応答が後から届く。反映は最新の要求分だけに絞る。
 const latestResolve = useLatest();
-const latestSeries = useLatest();
 
 const canCreate = computed(
   () => !!liveQuery.companyCode && !!liveQuery.fundCode && !!liveQuery.editionType,
@@ -58,27 +58,27 @@ const visibleMethodCards = computed(() =>
   methodCards.filter((c) => c.key !== 'series' || isSeriesFund.value),
 );
 
-function onUpdate(q: DropdownQuery) {
+function onUpdate(q: CreateFundSelection) {
   Object.assign(liveQuery, q);
 }
 
-// 属性が揃ったらシリーズファンドか属性解決する。属性変更で選択方法もリセット。
+// 属性がそろったら作成可否を問い合わせる。属性変更で選択方法もリセット。
 watch(
-  () => [liveQuery.companyCode, liveQuery.fundCode, liveQuery.editionType],
+  () => [liveQuery.companyCode, liveQuery.rep1CompanyCode, liveQuery.fundCode, liveQuery.editionType],
   async () => {
     method.value = null;
-    isSeriesFund.value = false;
-    const { companyCode, fundCode, editionType } = liveQuery;
-    if (!companyCode || !fundCode || !editionType) return;
+    info.value = null;
+    const { companyCode, rep1CompanyCode, fundCode, editionType } = liveQuery;
+    if (!companyCode || !rep1CompanyCode || !fundCode || !editionType) return;
     const isLatest = latestResolve.begin();
-    const res = await templates.resolveFund(companyCode, fundCode, editionType);
+    const res = await templates.getCreatableInfo({ companyCode, rep1CompanyCode, fundCode, editionType });
     if (!isLatest()) return; // 属性を変え直した後に届いた旧応答は捨てる
     if (isErr(res)) {
-      // 解決できないと「シリーズから作成」カードが黙って消えるだけになるため明示する。
+      // 取れないと「シリーズから作成」カードが黙って消えるだけになるため明示する。
       toastError(res.error.message);
       return;
     }
-    isSeriesFund.value = res.value.isSeriesFund;
+    info.value = res.value;
   },
 );
 
@@ -90,29 +90,6 @@ function selectMethod(m: Method) {
     return;
   }
   method.value = m;
-}
-
-// series モードでは 3 フィールドが揃うと一覧をロードする。カスケードでフィールドを
-// リセットすると再ロード/クリアされる。series 以外へ切り替えると一覧をクリアする。
-watch(
-  () => [liveQuery.companyCode, liveQuery.fundCode, liveQuery.editionType, method.value],
-  () => {
-    if (method.value !== 'series') {
-      seriesRows.value = [];
-      return;
-    }
-    if (canCreate.value) loadSeries();
-    else seriesRows.value = [];
-  },
-);
-
-async function loadSeries() {
-  const { companyCode, fundCode, editionType } = liveQuery;
-  if (!companyCode || !fundCode || !editionType) return;
-  const isLatest = latestSeries.begin();
-  const res = await run(() => templates.listSeriesFunds(companyCode, fundCode, editionType));
-  if (isErr(res) || !isLatest()) return;
-  seriesRows.value = res.value;
 }
 
 async function create(req: GenerateRequest, successMsg: string) {
@@ -135,16 +112,16 @@ function createNew() {
   );
 }
 
-function createFromSeries(m: TemplateMeta) {
+function createFromSeries(sourceFundCode: string) {
   if (creating.value) return; // 連打で同じファンドのテンプレを二重作成させない
-  // 「基にする」だけが候補テンプレ。作成されるのは Step1 で選んだファンド。
+  // コピー元は候補のファンド。作成されるのは Step1 で選んだファンド。
   const { companyCode, fundCode, editionType } = liveQuery;
   if (!companyCode || !fundCode || !editionType) {
     toastError(SELECT_ALL_MSG);
     return;
   }
   create(
-    { companyCode, fundCode, editionType, basedOnTemplateId: m.id, isRedemption: isRedemption.value },
+    { companyCode, fundCode, editionType, sourceFundCode, isRedemption: isRedemption.value },
     'シリーズを基にテンプレートを作成しました',
   );
 }
@@ -168,15 +145,7 @@ function createFromSeries(m: TemplateMeta) {
         :active="!canCreate"
         :done="canCreate"
       >
-        <SearchFilters
-          dropdown-scope="create"
-          :fields="['companyCode', 'fundCode', 'editionType']"
-          :required-fields="['companyCode', 'fundCode', 'editionType']"
-          hide-search
-          bare
-          @update="onUpdate"
-          @restore="onUpdate"
-        />
+        <CreateFundSelect @update="onUpdate" />
       </Step>
 
       <!-- Step 2 — 作成方法を選び、実行する -->
@@ -187,6 +156,12 @@ function createFromSeries(m: TemplateMeta) {
         :active="canCreate"
         :connector="false"
       >
+        <p
+          v-if="canCreate && info?.created"
+          class="mb-3 rounded-[11px] border border-warning/40 bg-warning/10 px-4 py-2.5 text-[12.5px] text-foreground"
+        >
+          この会社・ファンド・版種のテンプレートは作成済みです。作成すると新しい版ができます。
+        </p>
         <label
           v-if="canCreate"
           class="mb-3 flex w-fit cursor-pointer items-center gap-2 text-[13px] text-foreground"
@@ -229,15 +204,13 @@ function createFromSeries(m: TemplateMeta) {
         <!-- 文脈依存の action — series のみ。blank はカード押下で即遷移する -->
         <div v-if="method === 'series'" class="mt-4 grid gap-2.5">
           <p class="text-[12.5px] text-muted-foreground">
-            元にするファンドの「作成」を押すと、それを基にした編集画面に進みます。
+            元にするファンドの「作成」を押すと、そのテンプレートを基にした編集画面に進みます。コピー元のテンプレートが無いファンドは選べません。
           </p>
-          <div
-            v-if="seriesRows.length === 0"
-            class="rounded-[11px] border border-dashed bg-muted/50 px-4 py-5 text-center text-[13px] text-muted-foreground"
-          >
-            該当するシリーズファンドが見つかりませんでした。
-          </div>
-          <TemplateTable v-else :rows="seriesRows" action="create" :action-disabled="creating" @action="createFromSeries" />
+          <SeriesSourceTable
+            :rows="info?.seriesFunds ?? []"
+            :disabled="creating"
+            @create="createFromSeries"
+          />
         </div>
       </Step>
     </div>

@@ -18,9 +18,12 @@ test('作成タブ: 属性を選んで新規作成すると ?created=1 の編集
   await page.goto('/create', { waitUntil: 'commit' });
   await page.getByText('作成するファンドを指定').first().waitFor();
 
-  await page.getByPlaceholder('委託会社コードを入力/選択').click();
-  await page.getByRole('option', { name: 'AM01', exact: true }).click();
-  await page.getByPlaceholder('ファンドコードを入力/選択').click();
+  // 委託会社は会社名で選ぶ(値はファイル名の会社コード AM01。Rep1 のコードとは別)。
+  await page.getByPlaceholder('委託会社を入力/選択').click();
+  await page
+    .getByRole('option', { name: '三井住友トラスト・アセットマネジメント株式会社' })
+    .click();
+  await page.getByPlaceholder('ファンドを入力/選択').click();
   await page.getByRole('option', { name: /^510037/ }).click();
   // Select トリガの accessible name はプレースホルダ span の中身に付かないため
   // (`getByRole('combobox', { name: ... })` は空名でマッチしない)、表示文字列での絞り込みにする。

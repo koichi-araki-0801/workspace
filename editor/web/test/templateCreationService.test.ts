@@ -64,3 +64,39 @@ describe('TemplateCreationService.resolveFund', () => {
     expect(resolveFund).toHaveBeenCalledWith('A', 'F', 'E');
   });
 });
+
+describe('TemplateCreationService の作成タブ用の問い合わせ', () => {
+  it('listCompanies は repo へそのまま委譲する', async () => {
+    const listCompanies = vi.fn(async () =>
+      ok([{ companyCode: 'AM01', companyName: '会社', rep1CompanyCode: 'R-AM01' }]),
+    );
+    const svc = createTemplateCreationService({ listCompanies } as unknown as TemplateRepository);
+    const res = await svc.listCompanies();
+    expect(isOk(res) && res.value[0].rep1CompanyCode).toBe('R-AM01');
+    expect(listCompanies).toHaveBeenCalledOnce();
+  });
+
+  it('listFunds は repo へそのまま委譲する', async () => {
+    const listFunds = vi.fn(async () => ok([{ fundCode: '510037', fundName: 'F' }]));
+    const svc = createTemplateCreationService({ listFunds } as unknown as TemplateRepository);
+    const res = await svc.listFunds('R-AM01');
+    expect(isOk(res)).toBe(true);
+    expect(listFunds).toHaveBeenCalledWith('R-AM01');
+  });
+
+  it('getCreatableInfo は repo へそのまま委譲する', async () => {
+    const getCreatableInfo = vi.fn(async () => ok({ created: true, seriesFunds: [] }));
+    const svc = createTemplateCreationService({
+      getCreatableInfo,
+    } as unknown as TemplateRepository);
+    const q = {
+      companyCode: 'AM01',
+      rep1CompanyCode: 'R-AM01',
+      fundCode: '510037',
+      editionType: '交付版',
+    };
+    const res = await svc.getCreatableInfo(q);
+    expect(isOk(res) && res.value.created).toBe(true);
+    expect(getCreatableInfo).toHaveBeenCalledWith(q);
+  });
+});

@@ -74,6 +74,23 @@ describe('restAuthRepo', () => {
 });
 
 describe('restTemplateRepo', () => {
+  it('作成タブの 3 つの問い合わせの URL', async () => {
+    const calls = stubFetch(() => json([]));
+    await restTemplateRepo.listCompanies();
+    expect(calls[0].url).toBe('/api/templates/companies');
+    await restTemplateRepo.listFunds('R-AM01');
+    expect(calls[1].url).toBe('/api/templates/funds?rep1CompanyCode=R-AM01');
+    await restTemplateRepo.getCreatableInfo({
+      companyCode: 'AM01',
+      rep1CompanyCode: 'R-AM01',
+      fundCode: '510037',
+      editionType: '交付版',
+    });
+    expect(calls[2].url).toBe(
+      `/api/templates/creatable?companyCode=AM01&rep1CompanyCode=R-AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`,
+    );
+  });
+
   it('一覧・候補は未指定のクエリを付けず、指定分だけを query string にする', async () => {
     const calls = stubFetch(() => json([]));
     await restTemplateRepo.listTemplates({

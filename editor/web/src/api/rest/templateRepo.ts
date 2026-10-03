@@ -4,9 +4,12 @@
 import {
   apiPaths,
   buildPath,
+  type CompanyOption,
+  type CreatableInfo,
   type DropdownOptions,
   type DropdownQuery,
   type DropdownScope,
+  type FundOption,
   type FundResolution,
   type GenerateRequest,
   type GenerateResult,
@@ -71,6 +74,16 @@ const seriesFetch = (companyCode: string, fundCode: string, editionType: string)
   );
 
 export const restTemplateRepo: TemplateRepository = {
+  listCompanies: () => attemptRest(() => apiFetch<CompanyOption[]>(apiPaths.templatesCompanies)),
+
+  listFunds: (rep1CompanyCode: string) =>
+    attemptRest(() =>
+      apiFetch<FundOption[]>(apiPaths.templatesFunds, { query: { rep1CompanyCode } }),
+    ),
+
+  getCreatableInfo: (q) =>
+    attemptRest(() => apiFetch<CreatableInfo>(apiPaths.templatesCreatable, { query: { ...q } })),
+
   getDropdownOptions: (query: DropdownQuery, scope: DropdownScope) =>
     attemptRest(() =>
       apiFetch<DropdownOptions>(apiPaths.templatesOptions, {

@@ -2,9 +2,12 @@
 // TemplateRepository.ts — テンプレート集約ルート (探索/生成/下書き/確定/サンプル)
 // =============================================================================
 import type {
+  CompanyOption,
+  CreatableInfo,
   DropdownOptions,
   DropdownQuery,
   DropdownScope,
+  FundOption,
   FundResolution,
   GenerateRequest,
   GenerateResult,
@@ -23,6 +26,17 @@ import type { Result } from '../result.js';
  */
 export interface TemplateRepository {
   /** 候補。出所は画面ごとに違う(edit / published / create。`DropdownScope` を参照)。 */
+  /** 作成タブの委託会社(Rep1 のファンド属性)。`companyCode` はファイル名の会社コード(略称)。 */
+  listCompanies(): Promise<Result<CompanyOption[]>>;
+  /** 作成タブのファンド(Rep1 の委託会社コードで引く)。 */
+  listFunds(rep1CompanyCode: string): Promise<Result<FundOption[]>>;
+  /** 作成タブ Step 2 の素: 作成済みか、シリーズのコピー元候補(テンプレの有無付き)。 */
+  getCreatableInfo(q: {
+    companyCode: string;
+    rep1CompanyCode: string;
+    fundCode: string;
+    editionType: string;
+  }): Promise<Result<CreatableInfo>>;
   getDropdownOptions(query: DropdownQuery, scope: DropdownScope): Promise<Result<DropdownOptions>>;
   listTemplates(query: DropdownQuery): Promise<Result<TemplateMeta[]>>;
   getTemplate(id: string): Promise<Result<Template>>;

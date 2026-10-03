@@ -22,6 +22,7 @@ import {
   type TemplateSnapshot,
   templateFileName,
   templateIdFromFileName,
+  validation,
 } from '@editor/shared';
 import { attempt } from './attempt';
 import { applyRedemptionMock, SERIES_FUND_CODES } from './fundRules';
@@ -179,6 +180,47 @@ export const confirmSaveLocal = (req: ConfirmSaveRequest, extra?: ConfirmSaveExt
   );
 
 export const localTemplateRepo: TemplateRepository = {
+  listCompanies: () =>
+    attempt(() => {
+      const byCode = new Map<string, string>();
+      for (const f of Object.values(fundMaster)) byCode.set(f.company.code, f.company.name);
+      // local では Rep1 のコードと略称(ファイル名の会社コード)を同じ値にする。
+      return delay(
+        [...byCode.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([code, name]) => ({ companyCode: code, companyName: name, rep1CompanyCode: code })),
+      );
+    }),
+
+  listFunds: (rep1CompanyCode: string) =>
+    attempt(() =>
+      delay(
+        Object.entries(fundMaster)
+          .filter(([, f]) => f.company.code.toLowerCase() === rep1CompanyCode.toLowerCase())
+          .map(([fundCode, f]) => ({ fundCode, fundName: f.name }))
+          .sort((a, b) => a.fundCode.localeCompare(b.fundCode)),
+      ),
+    ),
+
+  getCreatableInfo: ({ companyCode, fundCode, editionType }) =>
+    attempt(() => {
+      const has = (code: string) =>
+        allMetas().some(
+          (m) =>
+            m.attributes.companyCode.toLowerCase() === companyCode.toLowerCase() &&
+            m.attributes.fundCode === code &&
+            m.attributes.editionType === editionType,
+        );
+      // シリーズはモック(`SERIES_FUND_CODES`)。テンプレの有無は local で開けるテンプレで代用する。
+      const seriesFunds = SERIES_FUND_CODES.has(fundCode)
+        ? [...SERIES_FUND_CODES]
+            .filter((c) => c !== fundCode)
+            .sort()
+            .map((c) => ({ fundCode: c, fundName: fundMaster[c]?.name ?? '', hasTemplate: has(c) }))
+        : [];
+      return delay({ created: has(fundCode), seriesFunds });
+    }),
+
   getDropdownOptions: (query: DropdownQuery, scope: DropdownScope) =>
     attempt(() => {
       // 比較・結合(published)は承認済みだけを扱う画面なので、候補も承認済みから作る。
@@ -227,7 +269,21 @@ export const localTemplateRepo: TemplateRepository = {
     attempt(async () => {
       const user = currentUser();
       let baseHtml: string;
-      if (req.basedOnTemplateId) {
+      if (req.sourceFundCode) {
+        const source = allMetas()
+          .filter(
+            (m) =>
+              m.attributes.companyCode.toLowerCase() === req.companyCode.toLowerCase() &&
+              m.attributes.fundCode === req.sourceFundCode &&
+              m.attributes.editionType === req.editionType,
+          )
+          .sort((a, b) => a.attributes.baseDate.localeCompare(b.attributes.baseDate))
+          .at(-1);
+        if (!source) throw validation(`コピー元のテンプレートがありません: ${req.sourceFundCode}`);
+        const baseRes = await localTemplateRepo.getTemplate(source.id);
+        if (isErr(baseRes)) throw baseRes.error;
+        baseHtml = baseRes.value.html;
+      } else if (req.basedOnTemplateId) {
         const baseRes = await localTemplateRepo.getTemplate(req.basedOnTemplateId);
         if (isErr(baseRes)) throw baseRes.error;
         baseHtml = baseRes.value.html;
@@ -269,6 +325,7 @@ export const localTemplateRepo: TemplateRepository = {
         user: user?.displayName ?? '不明',
         timestamp: now(),
         basedOnTemplateId: req.basedOnTemplateId,
+        ...(req.sourceFundCode ? { sourceFundCode: req.sourceFundCode } : {}),
       });
       write(K.createHist, createHist);
       const css = fixtureCss[req.fundCode] ?? '';

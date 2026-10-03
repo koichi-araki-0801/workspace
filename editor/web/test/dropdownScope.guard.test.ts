@@ -19,7 +19,6 @@ function scopesOf(rel: string): string[] {
 describe('SearchFilters の dropdownScope', () => {
   it.each([
     ['features/templates/EditTabView.vue', 'edit'],
-    ['features/templates/CreateTabView.vue', 'create'],
     ['features/compare/CompareSideSelector.vue', 'published'],
     ['features/merge/MergeTabView.vue', 'published'],
   ])('%s は %s を渡す', (rel, scope) => {

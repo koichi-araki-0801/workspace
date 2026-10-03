@@ -244,6 +244,49 @@ describe('localHistoryRepo pdf/create history', () => {
 });
 
 describe('localTemplateRepo dropdowns / generate / drafts', () => {
+  it('listCompanies / listFunds / getCreatableInfo は fixtures から作る', async () => {
+    const companies = await localTemplateRepo.listCompanies();
+    expect(isOk(companies) && companies.value[0]).toMatchObject({
+      companyCode: 'AM01',
+      rep1CompanyCode: 'AM01',
+    });
+    const funds = await localTemplateRepo.listFunds('AM01');
+    expect(isOk(funds) && funds.value.map((f) => f.fundCode)).toContain('510037');
+    const info = await localTemplateRepo.getCreatableInfo({
+      companyCode: 'AM01',
+      rep1CompanyCode: 'AM01',
+      fundCode: '510037',
+      editionType: '交付版',
+    });
+    if (!isOk(info)) throw new Error('getCreatableInfo に失敗');
+    expect(info.value.created).toBe(true);
+    expect(info.value.seriesFunds.map((s) => s.fundCode)).toEqual(['510003', '510155']);
+  });
+
+  it('generate(sourceFundCode) はコピー元ファンドの最新テンプレートの HTML を写す', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const r = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '全体版',
+      sourceFundCode: '510037',
+    });
+    const base = await localTemplateRepo.getTemplate('AM01_510037_20240710_全体版');
+    if (!isOk(r) || !isOk(base)) throw new Error('generate か getTemplate に失敗');
+    expect(r.value.template.html).toBe(base.value.html);
+  });
+
+  it('generate(sourceFundCode) はコピー元テンプレートが無ければ失敗する', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const r = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '交付版',
+      sourceFundCode: '999999',
+    });
+    expect(isOk(r)).toBe(false);
+  });
+
   it('getDropdownOptions narrows fundCodes by companyCode', async () => {
     const all = await localTemplateRepo.getDropdownOptions({}, 'edit');
     expect(isOk(all)).toBe(true);

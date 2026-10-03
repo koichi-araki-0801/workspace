@@ -91,8 +91,12 @@ test('capture editor screens', async ({ page }) => {
   // 終了を待っても合成レイヤの解除が 1 フレーム遅れて丸い縁の反エイリアスが数階調ずれる
   // (`history-tab.png` で run の約半数。見た目は同じでも PNG のバイト列が変わる)。全再読込なら
   // トランジションが起きず、押した直後のホバー残りも写らない。
-  await page.goto('/create');
+  // 会社・ファンド・版種を URL から復元し、Step 2 まで選べる状態を写す。
+  await page.goto(
+    `/create?companyCode=AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`,
+  );
   await page.getByText('作成するファンドを指定').first().waitFor();
+  await expect(page.getByRole('button', { name: '属性から新規作成' })).toBeEnabled();
   await waitForLoaded(page);
   await waitForTransitionsSettled(page);
   await page.screenshot({ path: IMG('create-tab.png'), animations: 'disabled' });

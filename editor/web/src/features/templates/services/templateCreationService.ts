@@ -2,7 +2,10 @@
 // templateCreationService.ts — 属性検証つきテンプレ生成とシリーズ関連の問い合わせ
 // =============================================================================
 import {
+  type CompanyOption,
+  type CreatableInfo,
   err,
+  type FundOption,
   type FundResolution,
   type GenerateRequest,
   map,
@@ -17,6 +20,14 @@ import { useTemplateRepo } from '@/api/repositories';
 export const SELECT_ALL_MSG = '委託会社・ファンド・版種を選択してください';
 
 interface TemplateCreationService {
+  /** 作成タブの委託会社(Rep1)。 */
+  listCompanies(): Promise<Result<CompanyOption[]>>;
+  /** 作成タブのファンド(Rep1 の委託会社コードで引く)。 */
+  listFunds(rep1CompanyCode: string): Promise<Result<FundOption[]>>;
+  /** 作成済みかとシリーズのコピー元候補。 */
+  getCreatableInfo(
+    q: Parameters<TemplateRepository['getCreatableInfo']>[0],
+  ): Promise<Result<CreatableInfo>>;
   /** 属性を検証してから生成する。成功時は新規テンプレの meta を返す。 */
   create(req: GenerateRequest): Promise<Result<TemplateMeta>>;
   /** 属性解決: シリーズファンド判定など。 */
@@ -40,6 +51,9 @@ export function createTemplateCreationService(repo: TemplateRepository): Templat
       }
       return map(await repo.generate(req), (r) => r.template.meta);
     },
+    listCompanies: () => repo.listCompanies(),
+    listFunds: (rep1CompanyCode) => repo.listFunds(rep1CompanyCode),
+    getCreatableInfo: (q) => repo.getCreatableInfo(q),
     resolveFund: (companyCode, fundCode, editionType) =>
       repo.resolveFund(companyCode, fundCode, editionType),
     listSeriesFunds: (companyCode, fundCode, editionType) =>
