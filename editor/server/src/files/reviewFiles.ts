@@ -126,6 +126,17 @@ export async function countPendingReviews(): Promise<number> {
   return metas.filter((m) => m.status === 'pending').length;
 }
 
+/**
+ * 同じ id の承認待ちの作成申請(origin=create)があるか。あるうちに作り直すと、承認でその申請の
+ * 内容が templates/ に入り、作り直した生成物と食い違う。照合は大文字小文字を区別しない。
+ */
+export async function hasPendingCreateReview(templateId: string): Promise<boolean> {
+  const want = templateId.toLowerCase();
+  return (await listReviewMetas()).some(
+    (m) => m.status === 'pending' && m.origin === 'create' && m.templateId.toLowerCase() === want,
+  );
+}
+
 /** 同時に開くメタファイル数。`Promise.all` の全件同時 open は fd を枯渇させる。 */
 const REVIEW_READ_CONCURRENCY = 8;
 

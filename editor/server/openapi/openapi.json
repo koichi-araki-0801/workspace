@@ -286,8 +286,7 @@
               "type": "string",
               "enum": [
                 "edit",
-                "published",
-                "create"
+                "published"
               ]
             }
           }
@@ -380,19 +379,120 @@
         }
       }
     },
-    "/templates/series": {
+    "/templates/companies": {
       "get": {
         "tags": [
           "templates"
         ],
-        "summary": "系列ファンドのテンプレート一覧",
-        "operationId": "listSeriesFunds",
+        "summary": "作成タブの委託会社一覧(Rep1 のファンド属性)",
+        "operationId": "listCompanies",
+        "responses": {
+          "200": {
+            "description": "委託会社(略称 = ファイル名の会社コード)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CompanyOption"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/funds": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "作成タブのファンド一覧(Rep1 の委託会社コードで引く)",
+        "operationId": "listFunds",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "rep1CompanyCode",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ファンドの一覧",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FundOption"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/creatable": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "作成タブの作成可否(作成済み・シリーズのコピー元候補)",
+        "operationId": "getCreatableInfo",
         "parameters": [
           {
             "in": "query",
             "name": "companyCode",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "rep1CompanyCode",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
             },
             "required": true
           },
@@ -400,7 +500,8 @@
             "in": "query",
             "name": "fundCode",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "required": true
           },
@@ -408,21 +509,19 @@
             "in": "query",
             "name": "editionType",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "required": true
           }
         ],
         "responses": {
           "200": {
-            "description": "系列ファンドの meta 配列",
+            "description": "作成済みとシリーズのコピー元候補",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TemplateMeta"
-                  }
+                  "$ref": "#/components/schemas/CreatableInfo"
                 }
               }
             }
@@ -2680,7 +2779,7 @@
       "TemplateId": {
         "type": "string",
         "example": "AM01_510037_20240710_交付版",
-        "description": "ファイル名規約 `<会社コード>_<ファンドコード>_<基準日>_<版種>`(拡張子なし)。パス区切り・`..`・制御文字・末尾のドット/空白を含まない単一のファイル名セグメントに限る(判定は `isValidTemplateId`)。"
+        "description": "ファイル名規約(拡張子なし)。値入り HTML は `<会社コード>_<ファンドコード>_<基準日>_<版種>`、テンプレートは `<会社コード>_<ファンドコード>_<版種>`。パス区切り・`..`・制御文字・末尾のドット/空白を含まない単一のファイル名セグメントに限る(判定は `isValidAnyTemplateId`)。"
       },
       "GenerateRequest": {
         "type": "object",
@@ -2697,12 +2796,16 @@
             "type": "string",
             "minLength": 1
           },
-          "basedOnTemplateId": {
-            "description": "シリーズファンドのテンプレから生成する場合の元テンプレ ID",
+          "sourceFundCode": {
+            "description": "シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)",
             "type": "string"
           },
           "isRedemption": {
-            "description": "償還ファンドとして作成(特定パーツを償還用へ置換。現状はモック実装)",
+            "description": "償還ファンドとして作成(生成器へパラメータとして渡す)",
+            "type": "boolean"
+          },
+          "replaceExisting": {
+            "description": "同じ id の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409",
             "type": "boolean"
           }
         },
@@ -3219,9 +3322,9 @@
             "description": "ファンドコード"
           },
           "baseDate": {
-            "type": "string",
-            "description": "基準日 (yyyymmdd)",
-            "example": "20240710"
+            "description": "基準日 (yyyymmdd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない",
+            "example": "20240710",
+            "type": "string"
           },
           "editionType": {
             "type": "string",
@@ -3231,7 +3334,6 @@
         "required": [
           "companyCode",
           "fundCode",
-          "baseDate",
           "editionType"
         ],
         "additionalProperties": false
@@ -3242,6 +3344,95 @@
           "draft",
           "published"
         ]
+      },
+      "CompanyOption": {
+        "type": "object",
+        "properties": {
+          "companyCode": {
+            "type": "string",
+            "description": "ファイル名の会社コード(Rep1 の委託会社略称)"
+          },
+          "companyName": {
+            "type": "string",
+            "description": "委託会社名"
+          },
+          "rep1CompanyCode": {
+            "type": "string",
+            "description": "Rep1 の委託会社コード(ファンドを引くときに使う)"
+          }
+        },
+        "required": [
+          "companyCode",
+          "companyName",
+          "rep1CompanyCode"
+        ],
+        "additionalProperties": false
+      },
+      "FundOption": {
+        "type": "object",
+        "properties": {
+          "fundCode": {
+            "type": "string"
+          },
+          "fundName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fundCode",
+          "fundName"
+        ],
+        "additionalProperties": false
+      },
+      "CreatableInfo": {
+        "type": "object",
+        "properties": {
+          "created": {
+            "type": "boolean",
+            "description": "選んだ会社・ファンド・版種のテンプレートが templates/ にあるか(会社_ファンド_版種.html。大文字小文字は区別しない)"
+          },
+          "templateId": {
+            "description": "作成済みのときのテンプレートの id(templates/ のファイルの綴りのまま)。作成タブの「既存のテンプレートを開く」で開く",
+            "type": "string"
+          },
+          "inProgressId": {
+            "description": "作成済みでなく、同じ id の下書きか pending/ があるときの id。作成タブの「作成中のテンプレートを開く」で開く。作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける",
+            "type": "string"
+          },
+          "seriesFunds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeriesFundOption"
+            },
+            "description": "同じシリーズの他のファンド(シリーズから作成のコピー元候補)"
+          }
+        },
+        "required": [
+          "created",
+          "seriesFunds"
+        ],
+        "additionalProperties": false
+      },
+      "SeriesFundOption": {
+        "type": "object",
+        "properties": {
+          "fundCode": {
+            "type": "string"
+          },
+          "fundName": {
+            "type": "string"
+          },
+          "hasTemplate": {
+            "type": "boolean",
+            "description": "コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)があるか"
+          }
+        },
+        "required": [
+          "fundCode",
+          "fundName",
+          "hasTemplate"
+        ],
+        "additionalProperties": false
       },
       "Template": {
         "type": "object",
@@ -4046,7 +4237,11 @@
             "type": "string"
           },
           "basedOnTemplateId": {
-            "description": "系列ファンドの元テンプレ ID",
+            "description": "過去の履歴(シリーズの元テンプレ ID)。新しい履歴は sourceFundCode",
+            "type": "string"
+          },
+          "sourceFundCode": {
+            "description": "シリーズから作成したときのコピー元ファンドコード",
             "type": "string"
           }
         },

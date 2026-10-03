@@ -7,18 +7,18 @@
 // ここは表示の絞り込み(approver|admin は全件、それ以外は自分の申請のみ)程度に留める。
 import {
   type ApproveReviewResult,
+  anyTemplateFileName,
   conflict,
   isApprover,
   isErr,
   notFound,
-  parseTemplateFileName,
+  parseAnyTemplateFileName,
   type ReviewDecisionRequest,
   type ReviewListFilter,
   type ReviewRepository,
   type ReviewRequest,
   type ReviewStatus,
   type SubmitReviewRequest,
-  templateFileName,
   toReviewMeta,
   validation,
 } from '@editor/shared';
@@ -74,14 +74,14 @@ function assertEditSubmissionAllowed(
   if (origin !== 'edit') return;
   if (html === '')
     throw validation(`編集タブの申請は本文が空では受け付けられません: ${templateId}`);
-  if (resolveFilled(templateId, templateFileName(attrs)) === '')
+  if (resolveFilled(templateId, anyTemplateFileName(attrs)) === '')
     throw validation(`編集タブの申請には値入り HTML(filled)が必要です: ${templateId}`);
 }
 
 export const localReviewRepo: ReviewRepository = {
   submitReview: (req: SubmitReviewRequest) =>
     attempt(async () => {
-      const attrs = parseTemplateFileName(`${req.templateId}.html`);
+      const attrs = parseAnyTemplateFileName(`${req.templateId}.html`);
       if (!attrs) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
       assertEditSubmissionAllowed(req.origin, req.templateId, attrs, req.html);
       // 現行版を読み、baseHash(並行性警告の素)を取る。失敗しても申請自体は妨げない。

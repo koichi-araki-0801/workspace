@@ -9,16 +9,18 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   type ApproveReviewResult,
+  anyTemplateFileName,
   conflict,
   forbidden,
   notFound,
+  parseAnyTemplateFileName,
+  parseSkeletonFileName,
   parseTemplateFileName,
   type ReviewDecisionRequest,
   type ReviewRequest,
   type ReviewRequestMeta,
   type ReviewStatus,
   type SubmitReviewRequest,
-  templateFileName,
   toReviewMeta,
   unexpected,
   validation,
@@ -89,8 +91,8 @@ async function currentBaseHash(
   fundCode: string,
   target: ConfirmedTarget,
 ): Promise<string> {
-  const attrs = parseTemplateFileName(`${templateId}.html`);
-  const fileName = attrs ? templateFileName(attrs) : `${templateId}.html`;
+  const attrs = parseAnyTemplateFileName(`${templateId}.html`);
+  const fileName = attrs ? anyTemplateFileName(attrs) : `${templateId}.html`;
   const [html, css] = await Promise.all([
     target === 'filled' ? readFilledHtml(fileName) : readTemplateHtml(fileName),
     readFundCss(fundCode),
@@ -170,8 +172,20 @@ export function createReviewRepo({
   return {
     /** 確定保存を申請する(pending 作成・実ファイル非更新)。 */
     async submitReview(req, actor) {
-      const attrs = parseTemplateFileName(`${req.templateId}.html`);
+      const attrs = parseAnyTemplateFileName(`${req.templateId}.html`);
       if (!attrs) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
+      // 経路ごとに id の形が決まっている。作成タブはテンプレート(会社_ファンド_版種)、編集タブは
+      // 値入り HTML(会社_ファンド_基準日_版種)。形が合わない申請は承認で書けないので入口で止める。
+      if (req.origin === 'create' && !parseSkeletonFileName(`${req.templateId}.html`)) {
+        throw validation(
+          `作成タブの申請はテンプレート(会社_ファンド_版種)の id だけを受けます: ${req.templateId}`,
+        );
+      }
+      if (req.origin === 'edit' && !parseTemplateFileName(`${req.templateId}.html`)) {
+        throw validation(
+          `編集タブの申請は値入り HTML(会社_ファンド_基準日_版種)の id だけを受けます: ${req.templateId}`,
+        );
+      }
       // 帰属検査は承認側(`applyConfirmedWrite`)と同条件で入口にも置く。CSS はファンド単位の
       // 共有ファイルなので不一致を通すと「承認できない申請」がキューに積まれるだけで、
       // 申請時に取る現行版ハッシュ(`baseHash`)も別ファンドの CSS を混ぜた値になる。

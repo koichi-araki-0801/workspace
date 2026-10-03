@@ -1,11 +1,11 @@
 <script setup lang="ts">
 // =============================================================================
-// Combobox.vue — 入力で前方一致フィルタする `reka-ui` Combobox のセレクトボックス
+// Combobox.vue — 入力で絞り込める `reka-ui` Combobox のセレクトボックス
 // =============================================================================
 // `Select.vue` と同じ props / v-model を持つ差し替え互換の入力欄。違いは値を
-// タイプでき, 入力文字 (`value` = コードへの前方一致) で候補を絞り込む点。候補は
-// `filtered` に限定して描画するため, リスト外の値は確定できない (絞り込み専用)。
-// 既定の部分一致フィルタは `ignore-filter` で切り, 前方一致のみを自前で行う。
+// タイプでき, 入力文字 (`value` = コードへの前方一致、または `label` = 表示名への部分一致) で
+// 候補を絞り込む点。候補は `filtered` に限定して描画するため, リスト外の値は確定できない
+// (絞り込み専用)。reka 既定のフィルタは `ignore-filter` で切り, `filterComboboxOptions` で行う。
 import { Check, ChevronDown } from '@lucide/vue';
 import {
   ComboboxAnchor,
@@ -21,6 +21,7 @@ import {
 } from 'reka-ui';
 import { computed, ref } from 'vue';
 import { cn } from '@/lib/utils';
+import { filterComboboxOptions } from './comboboxFilter';
 
 type Option = string | { label: string; value: string };
 
@@ -32,19 +33,15 @@ const props = defineProps<{
 }>();
 const model = defineModel<string | undefined>();
 
-// 入力中の検索文字。`ComboboxInput` の v-model に束縛し, 前方一致の照合に使う。
+// 入力中の検索文字。`ComboboxInput` の v-model に束縛し, 絞り込みの照合に使う。
 const search = ref('');
 
 const normalized = computed(() =>
   props.options.map((o) => (typeof o === 'string' ? { label: o, value: o } : o)),
 );
 
-// `value` (コード) への前方一致のみ。`label` (ファンド名等) では照合しない。空入力は全件。
-const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  if (!q) return normalized.value;
-  return normalized.value.filter((o) => o.value.toLowerCase().startsWith(q));
-});
+// コードの前方一致に加えて、会社名・ファンド名でも探せるよう表示名の部分一致でも絞る。
+const filtered = computed(() => filterComboboxOptions(normalized.value, search.value));
 
 // blur 後の表示。選択中 value をその `label` に解決し, 未確定の検索文字を現選択へ戻す
 // (`resetSearchTermOnBlur` 既定 true との合わせ技)。未収録なら value をそのまま見せる。
@@ -57,7 +54,7 @@ function displayValue(value: unknown): string {
 <template>
   <!-- `open-on-focus`/`open-on-click`: `Select` と同じく入力欄クリックで全候補を開く
        (Combobox 既定は false で, タイプかトグル押下まで開かない)。`ignore-filter` で reka
-       既定の部分一致を切り, `filtered` の前方一致だけを描画する。 -->
+       既定のフィルタを切り, `filtered` だけを描画する。 -->
   <ComboboxRoot
     v-model="model"
     :disabled="disabled"

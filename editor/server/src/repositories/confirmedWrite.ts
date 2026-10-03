@@ -9,7 +9,7 @@
 // あることは `test/confirmedWrite.guard.test.ts` が機械検査する。
 //
 // 書込は kind に依らず必ず次を通る:
-//   1. 名前検査(`assertTemplateFileName`。`templatePath` に内蔵)
+//   1. 名前検査(書込先ごとの形。`assertFileNameFor`、`templatePath` / `filledPath` にも内蔵)
 //   2. 帰属検査(review-approve = 申告 fundCode と id の一致 / pair-sync = source から
 //      再計算したペア id と target の一致。**引数で渡された target を信じない**)
 //   3. 実行コード不変性の照合(`security/templateScripts.ts`)
@@ -23,10 +23,11 @@
 
 import fs from 'node:fs/promises';
 import {
+  assertSkeletonFileName,
   assertTemplateFileName,
   notFound,
   pairedTemplateId,
-  parseTemplateFileName,
+  parseAnyTemplateFileName,
   type TemplateMeta,
   validation,
 } from '@editor/shared';
@@ -46,6 +47,11 @@ import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import { fileToMeta } from './templateMeta.js';
 
 // ── 1. module-private な物理書込プリミティブ ──
+
+/** 書込先ごとに受けるファイル名の形を強制する。値入り HTML は 4 つ区切り、テンプレートは 3 つ区切りだけ。 */
+function assertFileNameFor(target: ConfirmedTarget, fileName: string): string {
+  return target === 'filled' ? assertTemplateFileName(fileName) : assertSkeletonFileName(fileName);
+}
 
 const htmlPathOf = (target: ConfirmedTarget, fileName: string): string =>
   target === 'filled' ? filledPath(fileName) : templatePath(fileName);
@@ -176,8 +182,9 @@ export type ConfirmedWriteOp =
     };
 
 /**
- * 実行コード不変性の基準となる HTML を返す。`target='filled'` は 値入り HTML → Jinja →
- * pending の順、`target='template'` は Jinja → pending の順に探し、どれも無ければ空文字。
+ * 実行コード不変性の基準となる HTML を返す。確定版(`target='filled'` は値入り HTML、
+ * `target='template'` はテンプレート)→ pending の順に探し、どれも無ければ空文字。
+ * 値入り HTML とテンプレートは id の形が違うので、互いの置き場は読まない。
  * 空文字を基準にすると「実行コードを 1 つも持てない」に倒れる(fail-closed)。
  * **確定を先に見る順序が契約**で、逆にすると pending を書ける者が基準そのものを差し替えられる。
  */
@@ -186,11 +193,8 @@ export async function baselineTemplateHtml(
   target: ConfirmedTarget,
 ): Promise<string> {
   const fileName = `${templateId}.html`;
-  if (target === 'filled') {
-    const filled = await readFilledHtml(fileName);
-    if (filled !== '') return filled;
-  }
-  const confirmed = await readTemplateHtml(fileName);
+  const confirmed =
+    target === 'filled' ? await readFilledHtml(fileName) : await readTemplateHtml(fileName);
   if (confirmed !== '') return confirmed;
   const pending = await readPending(templateId);
   return pending?.html ?? '';
@@ -202,8 +206,8 @@ export async function baselineTemplateHtml(
  */
 export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<TemplateMeta> {
   const templateId = op.kind === 'review-approve' ? op.templateId : op.targetTemplateId;
-  const fileName = assertTemplateFileName(`${templateId}.html`);
-  const attrs = parseTemplateFileName(fileName);
+  const fileName = assertFileNameFor(op.target, `${templateId}.html`);
+  const attrs = parseAnyTemplateFileName(fileName);
 
   // ── 帰属検査 ──
   const fundCode = op.kind === 'review-approve' ? op.fundCode : null;

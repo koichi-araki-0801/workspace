@@ -16,7 +16,7 @@ import type * as sch from './schemas.js';
 
 // ── 1. Domain: template identity ──
 
-/** テンプレートを識別する4属性 (ファイル名: company_fund_date_edition.html)。 */
+/** テンプレートを識別する属性(値入り HTML は 4 つ、テンプレートは基準日を除く 3 つ)。 */
 export type TemplateAttributes = z.infer<typeof sch.TemplateAttributes>;
 
 export type TemplateStatus = z.infer<typeof sch.TemplateStatus>;
@@ -185,13 +185,12 @@ export type PartClassificationQuery = z.infer<typeof sch.PartClassificationQuery
 export type PartClassificationOptions = z.infer<typeof sch.PartClassificationOptions>;
 
 /** 作成タブ: 属性をサーバ側で解決し、Python ツール経由で生成する。 */
-export type GenerateRequest = z.infer<typeof sch.GenerateRequest>;
+export type CompanyOption = z.infer<typeof sch.CompanyOption>;
+export type FundOption = z.infer<typeof sch.FundOption>;
+export type SeriesFundOption = z.infer<typeof sch.SeriesFundOption>;
+export type CreatableInfo = z.infer<typeof sch.CreatableInfo>;
 
-/** ファンドの属性解決の結果 (例: シリーズファンドか否か)。 */
-export interface FundResolution {
-  /** 属性解決の結果、シリーズファンド（コアラップ系）と判定できたか。 */
-  isSeriesFund: boolean;
-}
+export type GenerateRequest = z.infer<typeof sch.GenerateRequest>;
 
 export type GenerateResult = z.infer<typeof sch.GenerateResult>;
 

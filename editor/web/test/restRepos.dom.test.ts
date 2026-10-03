@@ -74,6 +74,23 @@ describe('restAuthRepo', () => {
 });
 
 describe('restTemplateRepo', () => {
+  it('作成タブの 3 つの問い合わせの URL', async () => {
+    const calls = stubFetch(() => json([]));
+    await restTemplateRepo.listCompanies();
+    expect(calls[0].url).toBe('/api/templates/companies');
+    await restTemplateRepo.listFunds('R-AM01');
+    expect(calls[1].url).toBe('/api/templates/funds?rep1CompanyCode=R-AM01');
+    await restTemplateRepo.getCreatableInfo({
+      companyCode: 'AM01',
+      rep1CompanyCode: 'R-AM01',
+      fundCode: '510037',
+      editionType: '交付版',
+    });
+    expect(calls[2].url).toBe(
+      `/api/templates/creatable?companyCode=AM01&rep1CompanyCode=R-AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`,
+    );
+  });
+
   it('一覧・候補は未指定のクエリを付けず、指定分だけを query string にする', async () => {
     const calls = stubFetch(() => json([]));
     await restTemplateRepo.listTemplates({
@@ -92,23 +109,6 @@ describe('restTemplateRepo', () => {
     await restTemplateRepo.getTemplate('AM01_510037_20240710_交付版');
     expect(calls[0].url).toBe(
       `/api/templates/${encodeURIComponent('AM01_510037_20240710_交付版')}`,
-    );
-  });
-  it('resolveFund は series 応答に自分以外のファンドがあるときだけ isSeriesFund=true', async () => {
-    stubFetch(() =>
-      json([{ attributes: { fundCode: '510037' } }, { attributes: { fundCode: '510038' } }]),
-    );
-    const r = await restTemplateRepo.resolveFund('AM01', '510037', '交付版');
-    expect(isOk(r) && r.value.isSeriesFund).toBe(true);
-    stubFetch(() => json([{ attributes: { fundCode: '510037' } }]));
-    const only = await restTemplateRepo.resolveFund('AM01', '510037', '交付版');
-    expect(isOk(only) && only.value.isSeriesFund).toBe(false);
-  });
-  it('listSeriesFunds は 3 引数をクエリに載せる', async () => {
-    const calls = stubFetch(() => json([]));
-    await restTemplateRepo.listSeriesFunds('AM01', '510037', '交付版');
-    expect(calls[0].url).toBe(
-      `/api/templates/series?companyCode=AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`,
     );
   });
   it('saveDraft は PUT /templates/:id/draft にボディごと送り、204 を ok(undefined) に写す', async () => {

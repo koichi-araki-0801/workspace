@@ -5,6 +5,7 @@ import {
   buildSampleData,
   type ConfirmSaveRequest,
   type CreateHistoryEntry,
+  conflict,
   type DropdownQuery,
   type DropdownScope,
   type EditHistoryEntry,
@@ -13,15 +14,19 @@ import {
   isErr,
   notFound,
   pairedTemplateId,
+  parseSkeletonFileName,
+  type ReviewRequest,
   type SaveDraftRequest,
+  type SkeletonAttributes,
+  skeletonFileName,
   type TemplateAttributes,
   type TemplateDraft,
   type TemplateInstance,
   type TemplateMeta,
   type TemplateRepository,
   type TemplateSnapshot,
-  templateFileName,
   templateIdFromFileName,
+  validation,
 } from '@editor/shared';
 import { attempt } from './attempt';
 import { applyRedemptionMock, SERIES_FUND_CODES } from './fundRules';
@@ -39,7 +44,6 @@ import {
   now,
   read,
   resolveFilled,
-  todayYmd,
   tx,
   uid,
   uniq,
@@ -137,6 +141,40 @@ interface ConfirmSaveExtra {
 }
 
 /**
+ * local の templates/ 相当: 作成タブの承認(`confirmSaveLocal`)を通ったテンプレート(3 つ区切り)。
+ * 生成しただけ(server の pending/ 相当)は `updatedAt` を持たないので数えない。会社コードは
+ * 大文字小文字を区別しない(server の `findTemplateId` と同じ)。
+ */
+function confirmedSkeleton(
+  companyCode: string,
+  fundCode: string,
+  editionType: string,
+): TemplateMeta | undefined {
+  return allMetas().find(
+    (m) =>
+      parseSkeletonFileName(m.fileName) !== null &&
+      m.updatedAt !== null &&
+      m.attributes.companyCode.toLowerCase() === companyCode.toLowerCase() &&
+      m.attributes.fundCode === fundCode &&
+      m.attributes.editionType === editionType,
+  );
+}
+
+/** 作業中か(同じ id の下書きか、承認前の生成物)。server の「下書きか pending/ がある」と同じ規則。 */
+function inProgress(templateId: string): boolean {
+  if (read<Record<string, TemplateDraft>>(K.drafts, {})[templateId]) return true;
+  return allMetas().some((m) => m.id === templateId && m.updatedAt === null);
+}
+
+/** 同じ id の承認待ちの作成申請があるか(server の `hasPendingCreateReview` と同じ規則)。 */
+function hasPendingCreateReview(templateId: string): boolean {
+  const want = templateId.toLowerCase();
+  return Object.values(read<Record<string, ReviewRequest>>(K.reviews, {})).some(
+    (r) => r.status === 'pending' && r.origin === 'create' && r.templateId.toLowerCase() === want,
+  );
+}
+
+/**
  * 確定内容の実反映(local 版)。承認ワークフローの `approveReview`(`reviewRepo.ts`)だけが
  * 呼ぶ内部経路で、Repository 契約には公開しない(確定保存は申請 → 承認の 2 段階ゲートに
  * 一本化。REST 側の対応物は server の `applyConfirmedSave`)。
@@ -179,6 +217,51 @@ export const confirmSaveLocal = (req: ConfirmSaveRequest, extra?: ConfirmSaveExt
   );
 
 export const localTemplateRepo: TemplateRepository = {
+  listCompanies: () =>
+    attempt(() => {
+      const byCode = new Map<string, string>();
+      for (const f of Object.values(fundMaster)) byCode.set(f.company.code, f.company.name);
+      // local では Rep1 のコードと略称(ファイル名の会社コード)を同じ値にする。
+      return delay(
+        [...byCode.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([code, name]) => ({ companyCode: code, companyName: name, rep1CompanyCode: code })),
+      );
+    }),
+
+  listFunds: (rep1CompanyCode: string) =>
+    attempt(() =>
+      delay(
+        Object.entries(fundMaster)
+          .filter(([, f]) => f.company.code.toLowerCase() === rep1CompanyCode.toLowerCase())
+          .map(([fundCode, f]) => ({ fundCode, fundName: f.name }))
+          .sort((a, b) => a.fundCode.localeCompare(b.fundCode)),
+      ),
+    ),
+
+  getCreatableInfo: ({ companyCode, fundCode, editionType }) =>
+    attempt(() => {
+      const created = confirmedSkeleton(companyCode, fundCode, editionType);
+      const id = templateIdFromFileName(skeletonFileName({ companyCode, fundCode, editionType }));
+      // シリーズはモック(`SERIES_FUND_CODES`)。コピー元は承認済みのテンプレートだけ(server と同じ)。
+      const seriesFunds = SERIES_FUND_CODES.has(fundCode)
+        ? [...SERIES_FUND_CODES]
+            .filter((c) => c !== fundCode)
+            .sort()
+            .map((c) => ({
+              fundCode: c,
+              fundName: fundMaster[c]?.name ?? '',
+              hasTemplate: confirmedSkeleton(companyCode, c, editionType) !== undefined,
+            }))
+        : [];
+      return delay({
+        created: created !== undefined,
+        ...(created ? { templateId: created.id } : {}),
+        ...(!created && inProgress(id) ? { inProgressId: id } : {}),
+        seriesFunds,
+      });
+    }),
+
   getDropdownOptions: (query: DropdownQuery, scope: DropdownScope) =>
     attempt(() => {
       // 比較・結合(published)は承認済みだけを扱う画面なので、候補も承認済みから作る。
@@ -188,7 +271,7 @@ export const localTemplateRepo: TemplateRepository = {
       const matchesUpper = (m: TemplateMeta, fields: (keyof TemplateAttributes)[]): boolean =>
         fields.every((f) => {
           const want = query[f];
-          return !want || m.attributes[f].toLowerCase() === want.toLowerCase();
+          return !want || (m.attributes[f] ?? '').toLowerCase() === want.toLowerCase();
         });
       return delay({
         companyCodes: uniq(metas.map((m) => m.attributes.companyCode)),
@@ -198,7 +281,7 @@ export const localTemplateRepo: TemplateRepository = {
         baseDates: uniq(
           metas
             .filter((m) => matchesUpper(m, ['companyCode', 'fundCode']))
-            .map((m) => m.attributes.baseDate),
+            .flatMap((m) => m.attributes.baseDate ?? []),
         ),
         editionTypes: uniq(
           metas
@@ -226,9 +309,28 @@ export const localTemplateRepo: TemplateRepository = {
   generate: (req: GenerateRequest) =>
     attempt(async () => {
       const user = currentUser();
+      // テンプレートは会社・ファンド・版種に 1 つで、基準日を持たない(server の生成と同じ規則)。
+      const attrs: SkeletonAttributes = {
+        companyCode: req.companyCode,
+        fundCode: req.fundCode,
+        editionType: req.editionType,
+      };
+      const fileName = skeletonFileName(attrs);
+      const id = templateIdFromFileName(fileName);
+      if (confirmedSkeleton(req.companyCode, req.fundCode, req.editionType)) {
+        throw conflict('作成済みです。既存のテンプレートを開いてください');
+      }
+      if (hasPendingCreateReview(id)) {
+        throw conflict('申請中です。承認か却下を待ってください');
+      }
+      if (req.replaceExisting !== true && inProgress(id)) {
+        throw conflict('作成中のテンプレートがあります');
+      }
       let baseHtml: string;
-      if (req.basedOnTemplateId) {
-        const baseRes = await localTemplateRepo.getTemplate(req.basedOnTemplateId);
+      if (req.sourceFundCode) {
+        const source = confirmedSkeleton(req.companyCode, req.sourceFundCode, req.editionType);
+        if (!source) throw validation(`コピー元のテンプレートがありません: ${req.sourceFundCode}`);
+        const baseRes = await localTemplateRepo.getTemplate(source.id);
         if (isErr(baseRes)) throw baseRes.error;
         baseHtml = baseRes.value.html;
       } else {
@@ -241,15 +343,8 @@ export const localTemplateRepo: TemplateRepository = {
       }
       // 償還ファンド指定時は特定パーツを償還用パーツへ置換(モック)。
       if (req.isRedemption) baseHtml = applyRedemptionMock(baseHtml);
-      const baseDate = todayYmd();
-      const attrs: TemplateAttributes = {
-        companyCode: req.companyCode,
-        fundCode: req.fundCode,
-        baseDate,
-        editionType: req.editionType,
-      };
-      const fileName = templateFileName(attrs);
-      const id = templateIdFromFileName(fileName);
+      // 生成できたので、前回の下書きを捨ててから置く(server と同じく失敗時は何も捨てない)。
+      clearDraft(id);
       const meta: TemplateMeta = {
         id,
         attributes: attrs,
@@ -268,29 +363,13 @@ export const localTemplateRepo: TemplateRepository = {
         attributes: attrs,
         user: user?.displayName ?? '不明',
         timestamp: now(),
-        basedOnTemplateId: req.basedOnTemplateId,
+        ...(req.sourceFundCode ? { sourceFundCode: req.sourceFundCode } : {}),
       });
       write(K.createHist, createHist);
       const css = fixtureCss[req.fundCode] ?? '';
       // 新規生成 skeleton には静的 fill が無い。editor が 1 つ描画する。
       return delay({ template: { meta, html: baseHtml, css, filled: '' } });
     }),
-
-  resolveFund: (_companyCode: string, fundCode: string, _editionType: string) =>
-    attempt(() => delay({ isSeriesFund: SERIES_FUND_CODES.has(fundCode) })),
-
-  // シリーズ候補はコアラップ系(`SERIES_FUND_CODES`)のメンバーのみ。非シリーズは出さない。
-  listSeriesFunds: (companyCode: string, _fundCode: string, editionType: string) =>
-    attempt(() =>
-      delay(
-        allMetas().filter(
-          (m) =>
-            m.attributes.companyCode === companyCode &&
-            m.attributes.editionType === editionType &&
-            SERIES_FUND_CODES.has(m.attributes.fundCode),
-        ),
-      ),
-    ),
 
   saveDraft: (req: SaveDraftRequest) =>
     attempt(() => {

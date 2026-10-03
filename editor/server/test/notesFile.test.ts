@@ -15,8 +15,13 @@ describe('notesFile templateId validation', () => {
     await expect(readNotes('a\\b')).rejects.toMatchObject({ kind: 'validation' });
   });
 
-  it('rejects ids that are not 4-token template names', async () => {
+  it('rejects ids that are neither a template (3 tokens) nor a filled id (4 tokens)', async () => {
     await expect(readNotes('notatemplate')).rejects.toMatchObject({ kind: 'validation' });
-    await expect(readNotes('AM01_510037_20240710')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(readNotes('AM01_510037')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(readNotes('A_B_C_D_E')).rejects.toMatchObject({ kind: 'validation' });
+  });
+
+  it('accepts a template id without a base date (3 tokens)', async () => {
+    await expect(readNotes('AM01_510037_全体版')).resolves.toEqual({});
   });
 });

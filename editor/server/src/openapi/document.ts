@@ -269,14 +269,38 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      '/templates/series': {
+      '/templates/companies': {
         get: {
           tags: ['templates'],
-          summary: '系列ファンドのテンプレート一覧',
-          operationId: 'listSeriesFunds',
-          requestParams: { query: s.SeriesFundsQuery },
+          summary: '作成タブの委託会社一覧(Rep1 のファンド属性)',
+          operationId: 'listCompanies',
           responses: {
-            '200': json('系列ファンドの meta 配列', z.array(s.TemplateMeta)),
+            '200': json('委託会社(略称 = ファイル名の会社コード)', z.array(s.CompanyOption)),
+            ...ERR_401,
+          },
+        },
+      },
+      '/templates/funds': {
+        get: {
+          tags: ['templates'],
+          summary: '作成タブのファンド一覧(Rep1 の委託会社コードで引く)',
+          operationId: 'listFunds',
+          requestParams: { query: s.FundsQuery },
+          responses: {
+            '200': json('ファンドの一覧', z.array(s.FundOption)),
+            ...ERR_400,
+            ...ERR_401,
+          },
+        },
+      },
+      '/templates/creatable': {
+        get: {
+          tags: ['templates'],
+          summary: '作成タブの作成可否(作成済み・シリーズのコピー元候補)',
+          operationId: 'getCreatableInfo',
+          requestParams: { query: s.CreatableQuery },
+          responses: {
+            '200': json('作成済みとシリーズのコピー元候補', s.CreatableInfo),
             ...ERR_400,
             ...ERR_401,
           },

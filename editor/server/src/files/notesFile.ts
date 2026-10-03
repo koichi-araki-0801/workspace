@@ -9,7 +9,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
-  assertTemplateId,
+  assertAnyTemplateId,
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTES_PER_TEMPLATE,
   type NoteStatus,
@@ -37,15 +37,16 @@ const notesDir = (): string => path.join(config.dataRoot, 'notes');
 export const MAX_NOTES_FILE_BYTES = 4 * 1024 * 1024;
 
 /**
- * templateId を安全なファイル名に限定する(パストラバーサル防止)。
+ * templateId を安全なファイル名に限定する(パストラバーサル防止)。メモはテンプレート(3 つ区切り)と
+ * 値入り HTML(4 つ区切り)のどちらにも付く。
  *
- * 判定は shared の `assertTemplateId` **1 本**に寄せる。ここで独自に
- * 「basename 一致 + `..` を含まない + 4 トークン構造」と書き下すと、正典が持つ
+ * 判定は shared の `assertAnyTemplateId` **1 本**に寄せる。ここで独自に
+ * 「basename 一致 + `..` を含まない + トークン構造」と書き下すと、正典が持つ
  * 長さ上限(200 文字)のような制約を落とし、同じ id 規約に**2 つの実装**が並ぶ。
  * 正典が厳しくなってもこちらは追随しない、という形の乖離を構造的に作らない。
  */
 function fileFor(templateId: string): string {
-  return path.join(notesDir(), `${assertTemplateId(templateId)}.json`);
+  return path.join(notesDir(), `${assertAnyTemplateId(templateId)}.json`);
 }
 
 /**

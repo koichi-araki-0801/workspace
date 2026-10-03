@@ -26,6 +26,7 @@ import BackButton from '@/components/ui/BackButton.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
+import { templateAttributeItems } from '@/lib/templateAttributeItems';
 import type { SaveState } from './useAutosave';
 
 const props = defineProps<{
@@ -73,12 +74,9 @@ const emit = defineEmits<{
   openReview: [];
 }>();
 
-const attrItems = (a: TemplateAttributes) => [
-  { k: '委託会社コード', v: a.companyCode },
-  { k: 'ファンドコード', v: a.fundCode },
-  { k: '基準日', v: a.baseDate },
-  { k: '版種', v: a.editionType },
-];
+// テンプレート(基準日を持たない)を開いているときは、基準日のチップごと出さない。
+const attrItems = (a: TemplateAttributes) =>
+  templateAttributeItems(a).map((i) => ({ k: i.label, v: i.value }));
 </script>
 
 <template>

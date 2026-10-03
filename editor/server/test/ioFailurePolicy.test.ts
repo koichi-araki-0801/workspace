@@ -65,7 +65,7 @@ describe('templateFiles.readTemplateHtml', () => {
   });
 
   it('まだ無いテンプレは空文字(正常な「無い」)', async () => {
-    expect(await files.readTemplateHtml('AM01_777777_20250101_交付版.html')).toBe('');
+    expect(await files.readTemplateHtml('AM01_777777_交付版.html')).toBe('');
   });
 
   it('規約外の名前は空文字(パスを解決しないので読みに行かない)', async () => {
@@ -75,7 +75,7 @@ describe('templateFiles.readTemplateHtml', () => {
   it('解決できたパスの読み取り失敗は例外にする', async () => {
     // ディレクトリを同名で置くと readFile は EISDIR で落ちる。空文字へ倒すと、その値を
     // 基準にした実行コード照合や書き戻しが「本文が空」を前提に進む。
-    const id = 'AM01_888888_20250101_交付版';
+    const id = 'AM01_888888_交付版';
     fs.mkdirSync(path.join(templatesDir, `${id}.html`), { recursive: true });
     await expect(files.readTemplateHtml(`${id}.html`)).rejects.toThrow();
   });

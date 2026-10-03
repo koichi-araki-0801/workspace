@@ -69,6 +69,17 @@ beforeEach(() => {
 });
 
 describe('reflectNoteMasterAfterConfirm', () => {
+  it('テンプレート(3 つ区切り)の承認でも、id のファンド・版種で書き戻す', async () => {
+    readTemplateHtmlMock.mockResolvedValue(doc(part('note-a', 'A')));
+    listPartsMock.mockResolvedValue([catalogItem('note-a', '反映')]);
+    const res = await reflectNoteMasterAfterConfirm('AM01_510037_全体版', 'approver1', 'template');
+    expect(res).toEqual({ updated: ['note-a'], error: null });
+    expect(paramMap(callSprocMock.mock.calls[0][2] ?? [])).toMatchObject({
+      ファンドコード: '510037',
+      版種: '全体版',
+    });
+  });
+
   it('反映=対象パーツの先頭出現のみを、ファンド・版種つきで upsert する', async () => {
     readTemplateHtmlMock.mockResolvedValue(
       doc(part('note-a', '一回目'), part('other', 'X'), part('note-a', '二回目')),

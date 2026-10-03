@@ -8,15 +8,16 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { assertTemplateId, isValidTemplateId } from '@editor/shared';
+import { assertAnyTemplateId, isValidAnyTemplateId } from '@editor/shared';
 import { config } from '../config.js';
 import { atomicWrite } from './atomic.js';
 
 // `templateId` は request 由来のまま渡ってくる(body の `templateId` / URL の `:id`)。
 // ディレクトリと連結する前にここで必ず検査する — 検査を呼び出し側へ委ねると、
 // `../templates/<確定版>` を渡すだけで承認ゲートを迂回して確定ファイルを上書きできてしまう。
-const htmlName = (templateId: string): string => `${assertTemplateId(templateId)}.html`;
-const cssName = (templateId: string): string => `${assertTemplateId(templateId)}.css`;
+// 下書きはテンプレート(3 つ区切り)と値入り HTML(4 つ区切り)のどちらの id も受ける。
+const htmlName = (templateId: string): string => `${assertAnyTemplateId(templateId)}.html`;
+const cssName = (templateId: string): string => `${assertAnyTemplateId(templateId)}.css`;
 
 /**
  * 台帳が持つドラフトファイル名を、drafts ディレクトリ内の実パスへ解決する。台帳の値も
@@ -25,7 +26,7 @@ const cssName = (templateId: string): string => `${assertTemplateId(templateId)}
  */
 function draftFilePath(fileName: string): string | null {
   const m = /^(.+)\.(html|css)$/.exec(fileName);
-  if (!m || !isValidTemplateId(m[1])) return null;
+  if (!m || !isValidAnyTemplateId(m[1])) return null;
   return path.join(config.draftsDir, fileName);
 }
 
@@ -91,4 +92,13 @@ export async function deleteDraft(templateId: string): Promise<void> {
     fs.rm(path.join(config.draftsDir, htmlFile), { force: true }),
     fs.rm(path.join(config.draftsDir, cssFile), { force: true }),
   ]);
+}
+
+/** 下書きのある `templateId` の一覧(本体の `.html` があるもの)。規約外の名前は捨てる。 */
+export async function listDraftIds(): Promise<string[]> {
+  const entries = await fs.readdir(config.draftsDir).catch(() => [] as string[]);
+  return entries
+    .filter((f) => f.endsWith('.html'))
+    .map((f) => f.slice(0, -'.html'.length))
+    .filter((id) => isValidAnyTemplateId(id));
 }

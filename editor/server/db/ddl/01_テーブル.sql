@@ -4,7 +4,7 @@
  *  配置: usrap.ug01 (既存 DB / 既存スキーマ。CREATE SCHEMA はしない)
  *  接頭辞: Rep1_運報自動化_Editor_  (Jinja2 側 Rep1_運報自動化_ と区別する Editor)
  *  方針:
- *    - 本文(html/css)はファイル保存。本テーブル群は台帳・カタログ・認証等のメタのみ。
+ *    - 本文(html/css)はファイル保存。本テーブル群はカタログ・認証等のメタのみ。
  *    - 全テキストは NVARCHAR。比較に使う列(ID/コード/種別)に COLLATE Japanese_CI_AS
  *      を明示し、DB 既定照合順序に依存しない。内容/表示/パス/JSON 列は既定照合。
  *    - 時刻は DATETIME2(3) を UTC(SYSUTCDATETIME)で保管。アプリは ISO 文字列。
@@ -15,33 +15,7 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
-/* --- 1. テンプレート台帳 -------------------------------------------------- */
-/* 「作成可能カタログ」(作成タブの候補の源)と生成登録のみを担う。テンプレ本体はファイル + */
-/* git 側が正典。                                                                     */
-IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_テンプレート台帳]', N'U') IS NULL
-BEGIN
-  CREATE TABLE [ug01].[Rep1_運報自動化_Editor_テンプレート台帳] (
-    [台帳ID]            BIGINT IDENTITY(1,1) NOT NULL,
-    [テンプレートID]    NVARCHAR(128) COLLATE Japanese_CI_AS NOT NULL,
-    [委託会社コード]    NVARCHAR(32)  COLLATE Japanese_CI_AS NOT NULL,
-    [ファンドコード]    NVARCHAR(32)  COLLATE Japanese_CI_AS NOT NULL,
-    [基準日]            NVARCHAR(8)   COLLATE Japanese_CI_AS NOT NULL,
-    [版種]              NVARCHAR(16)  COLLATE Japanese_CI_AS NOT NULL,
-    [ファイル名]        NVARCHAR(160) NOT NULL,
-    [状態]              NVARCHAR(16)  COLLATE Japanese_CI_AS NOT NULL
-                          CONSTRAINT [DF_台帳_状態] DEFAULT (N'draft'),
-    [更新日時]          DATETIME2(3)  NULL,
-    [更新者]            NVARCHAR(64)  NULL,
-    [作成日時]          DATETIME2(3)  NOT NULL
-                          CONSTRAINT [DF_台帳_作成日時] DEFAULT (SYSUTCDATETIME()),
-    [論理削除]          BIT           NOT NULL
-                          CONSTRAINT [DF_台帳_論理削除] DEFAULT (0),
-    CONSTRAINT [PK_テンプレート台帳] PRIMARY KEY CLUSTERED ([台帳ID])
-  );
-END
-GO
-
-/* --- 2. ユーザー ---------------------------------------------------------- */
+/* --- 1. ユーザー ----------------------------------------------------------- */
 /* 独自認証。PW は PBKDF2 派生鍵+ソルト(VARBINARY)。ハッシュ列は API に出さない。 */
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_ユーザー]', N'U') IS NULL
 BEGIN
@@ -66,7 +40,7 @@ BEGIN
 END
 GO
 
-/* --- 3. パーツカタログ --------------------------------------------------- */
+/* --- 2. パーツカタログ ---------------------------------------------------- */
 /* 内容HTML は短いカタログ素材なので DB 保持(テンプレ本文ファイル方針の例外)。   */
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'U') IS NULL
 BEGIN
@@ -104,7 +78,7 @@ IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'�
     ADD [次回反映既定] NVARCHAR(16) COLLATE Japanese_CI_AS NULL;
 GO
 
-/* --- 4. 監査ログ --------------------------------------------------------- */
+/* --- 3. 監査ログ ---------------------------------------------------------- */
 /* logger.ts の AuditEvent を列化(ファイルログとの二重化)。JSON はテキスト保管。   */
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_監査ログ]', N'U') IS NULL
 BEGIN
@@ -124,7 +98,7 @@ BEGIN
 END
 GO
 
-/* --- 5. サンプルデータ --------------------------------------------------- */
+/* --- 4. サンプルデータ ---------------------------------------------------- */
 /* fundCode ごとのプレビュー context(任意 JSON をテキスト保管)。               */
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_サンプルデータ]', N'U') IS NULL
 BEGIN
@@ -138,7 +112,7 @@ BEGIN
 END
 GO
 
-/* --- 6. セッション ------------------------------------------------------- */
+/* --- 5. セッション -------------------------------------------------------- */
 /* cookie editor.sid。再起動でログアウトしないよう DB 保持。失効/期限で無効化。   */
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_セッション]', N'U') IS NULL
 BEGIN
@@ -157,7 +131,7 @@ BEGIN
 END
 GO
 
-/* --- 7. 注記マスタ(仮組) ------------------------------------------------- */
+/* --- 6. 注記マスタ(仮組) -------------------------------------------------- */
 /* 実運用 DB の既存注記テーブルへ差し替える前提の仮組(スタブ)。列は「承認確定パーツの
  * 書き戻し → 次回テンプレ生成時の適用」経路の疎通に必要な最小限に留める。キーは
  * (パーツID, ファンドコード, 版種) — 反映は「そのファンドのみ」の要件に閉じ、交付版/全体版で

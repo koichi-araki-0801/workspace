@@ -309,7 +309,7 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it("filled 不在でも origin='create' の申請は通る", async () => {
-    const tplId = 'AM01_212121_20250101_交付版';
+    const tplId = 'AM01_212121_交付版';
     const meta = await submit(tplId, '212121', '<p>{{ fund.name }}</p>', 'create');
     expect(meta.status).toBe('pending');
     expect(fs.existsSync(filledFile(tplId))).toBe(false);
@@ -318,6 +318,27 @@ d('review workflow (reviewRepo)', () => {
   // ── 承認の書込先は申請の `origin` で決まる ──
   // 編集タブ(edit)は値入り HTML、テンプレート作成タブ(create)は Jinja スケルトンを
   // 確定させる。取り違えると編集タブの実値が Jinja を上書きする(またはその逆)。
+  it('作成タブの申請(origin=create)は値入り HTML の id(4 つ区切り)を 400 で拒む', async () => {
+    await expect(
+      submit('AM01_232323_20250101_交付版', '232323', '<p>{{ x }}</p>', 'create'),
+    ).rejects.toMatchObject({ kind: 'validation' });
+  });
+
+  it('編集タブの申請(origin=edit)はテンプレートの id(3 つ区切り)を 400 で拒む', async () => {
+    await expect(
+      reviews.submitReview(
+        {
+          templateId: 'AM01_242424_交付版',
+          html: '<p>x</p>',
+          css: '',
+          fundCode: '242424',
+          origin: 'edit',
+        },
+        submitter,
+      ),
+    ).rejects.toMatchObject({ kind: 'validation' });
+  });
+
   it("origin='edit' の承認は filled/ に書き、templates/ には触れない", {
     timeout: 60_000,
   }, async () => {
@@ -333,7 +354,7 @@ d('review workflow (reviewRepo)', () => {
   it("origin='create' の承認は templates/ に書き、filled/ には触れない", {
     timeout: 60_000,
   }, async () => {
-    const tplId = 'AM01_171717_20250101_交付版';
+    const tplId = 'AM01_171717_交付版';
     const meta = await submit(tplId, '171717', '<p>{{ fund.name }}</p>', 'create');
     await reviews.approveReview(meta.id, {}, approver);
     expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(
@@ -357,13 +378,32 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it("origin='create' の承認は pending を捨てる", { timeout: 60_000 }, async () => {
-    const tplId = 'AM01_191919_20250101_交付版';
+    const tplId = 'AM01_191919_交付版';
     const pendingFiles = await import('../src/files/pendingFiles.js');
     await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
     const meta = await submit(tplId, '191919', '<p>{{ fund.name }} 確定</p>', 'create');
     await reviews.approveReview(meta.id, {}, approver);
 
     expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, 'pending', `${tplId}.html`))).toBe(false);
+  });
+
+  it("origin='create' のテンプレート(3 つ区切り)の承認は templates/<id>.html に書き、pending を捨てる", {
+    timeout: 60_000,
+  }, async () => {
+    const tplId = 'AM01_222333_交付版';
+    const pendingFiles = await import('../src/files/pendingFiles.js');
+    await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
+    const meta = await submit(tplId, '222333', '<p>{{ fund.name }} 確定</p>', 'create');
+    expect(meta.attributes).toEqual({
+      companyCode: 'AM01',
+      fundCode: '222333',
+      editionType: '交付版',
+    });
+    await reviews.approveReview(meta.id, {}, approver);
+    expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(
+      '<p>{{ fund.name }} 確定</p>',
+    );
     expect(fs.existsSync(path.join(tmp, 'pending', `${tplId}.html`))).toBe(false);
   });
 });

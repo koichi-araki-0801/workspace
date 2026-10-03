@@ -10,9 +10,11 @@
 // 撮影は `animations: 'disabled'` で行う。スピナーの回転角やタブ切替のトランジション途中が
 // 写ると、内容が同じでもバイト列が run ごとに変わり、pre-push の再撮影が毎回作業ツリーを汚す。
 
+import fs from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
+import { E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
 import { expect, test } from './fixtures';
 import { login, openEditor, waitForLoaded, waitForStableBox } from './helpers';
 
@@ -91,8 +93,19 @@ test('capture editor screens', async ({ page }) => {
   // 終了を待っても合成レイヤの解除が 1 フレーム遅れて丸い縁の反エイリアスが数階調ずれる
   // (`history-tab.png` で run の約半数。見た目は同じでも PNG のバイト列が変わる)。全再読込なら
   // トランジションが起きず、押した直後のホバー残りも写らない。
-  await page.goto('/create');
+  // 会社・ファンド・版種を URL から復元し、Step 2 まで選べる状態を写す。
+  // 作成済みのテンプレート(3 つ区切り)を置き、「既存のテンプレートを開く」が出る状態を写す。
+  fs.mkdirSync(resolve(E2E_REST_DATA_ROOT, 'templates'), { recursive: true });
+  fs.writeFileSync(
+    resolve(E2E_REST_DATA_ROOT, 'templates', 'AM01_510037_交付版.html'),
+    '<html><body><h1 class="report-title">{{ fund.name }}</h1></body></html>',
+    'utf8',
+  );
+  await page.goto(
+    `/create?companyCode=AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`,
+  );
   await page.getByText('作成するファンドを指定').first().waitFor();
+  await expect(page.getByRole('button', { name: '既存のテンプレートを開く' })).toBeVisible();
   await waitForLoaded(page);
   await waitForTransitionsSettled(page);
   await page.screenshot({ path: IMG('create-tab.png'), animations: 'disabled' });

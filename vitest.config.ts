@@ -65,6 +65,7 @@ export default defineConfig({
         // テンプレ実体のパス解決と下書きの入出力。`assertTemplateId` / `assertFundCode` を
         // 連結の唯一の場所で強制する層なので、被覆を切らすと関所の退行を検出できない。
         'editor/server/src/files/draftFiles.ts',
+        'editor/server/src/files/inProgress.ts',
         'editor/server/src/files/templateFiles.ts',
         // 設定の一元解決。危険な既定値での起動拒否と DATA_ROOT 起点の派生がここに集約されている。
         'editor/server/src/config.ts',
@@ -157,6 +158,7 @@ export default defineConfig({
         // セッション期限判定。いずれも退行が「たまに古い値が出る」無言の形になる。
         'editor/web/src/lib/useLatest.ts',
         'editor/web/src/lib/routeQuery.ts',
+        'editor/web/src/lib/templateAttributeItems.ts',
         'editor/web/src/lib/sessionExpiry.ts',
         'editor/web/src/lib/useIframeAutoFit.ts',
         'editor/web/src/features/editor/geom.ts',
@@ -220,6 +222,7 @@ export default defineConfig({
         'editor/web/src/api/rest/*.ts',
         'editor/web/src/api/repositories.ts',
         // editor/web (ui プリミティブ層。headless 一元化リファクタでテスト追加済みの分)
+        'editor/web/src/components/ui/comboboxFilter.ts',
         'editor/web/src/components/ui/confirm.ts',
         'editor/web/src/components/ui/overlays.ts',
         'editor/web/src/components/ui/toast.ts',

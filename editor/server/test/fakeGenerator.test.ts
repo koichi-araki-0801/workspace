@@ -21,8 +21,11 @@ const ATTRS = {
   companyCode: 'AM01',
   fundCode: '510037',
   editionType: '交付版',
-  baseDate: '20261001',
 };
+
+const pendingOf = (name: string) => path.join(tmp, name, 'pending');
+const readOut = (name: string, id = 'AM01_510037_交付版') =>
+  fs.readFileSync(path.join(pendingOf(name), `${id}.html`), 'utf8');
 
 function run(
   attrs: Record<string, unknown>,
@@ -47,39 +50,91 @@ function run(
 }
 
 describe('fake_generate_template.py', () => {
-  it('元テンプレ指定が無ければ属性入りのスケルトンを出す', async () => {
-    const r = await run(ATTRS, {});
+  it('元テンプレ指定が無ければ属性入りのスケルトンを PENDING_DIR へ書き、標準出力には何も出さない', async () => {
+    const r = await run(ATTRS, { PENDING_DIR: pendingOf('blank') });
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain('{{ fund.name }}');
-    expect(r.stdout).toContain('ファンド: 510037');
+    expect(r.stdout).toBe('');
+    expect(readOut('blank')).toContain('{{ fund.name }}');
+    expect(readOut('blank')).toContain('ファンド: 510037');
+    // 一時ファイルを残さない(名前の変更で置き換える)。
+    expect(fs.readdirSync(pendingOf('blank'))).toEqual(['AM01_510037_交付版.html']);
   }, 30_000);
 
-  it('元テンプレは TEMPLATES_DIR の <id>.html を読む', async () => {
-    const templates = path.join(tmp, 'templates');
+  it('書き出しに失敗したら一時ファイルを残さず、エラーで終わる', async () => {
+    // 書き先の名前にフォルダを置き、名前の変更を失敗させる。
+    fs.mkdirSync(path.join(pendingOf('fail'), 'AM01_510037_交付版.html'), { recursive: true });
+    const r = await run(ATTRS, { PENDING_DIR: pendingOf('fail') });
+    expect(r.code).not.toBe(0);
+    expect(fs.readdirSync(pendingOf('fail'))).toEqual(['AM01_510037_交付版.html']);
+  }, 30_000);
+
+  it('PENDING_DIR が無ければエラー(書き先を勝手に決めない)', async () => {
+    const r = await run(ATTRS, {});
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain('PENDING_DIR');
+  }, 30_000);
+
+  it('sourceFundCode は templates/ の 会社_コピー元_版種.html を写す(会社コードの大小を問わず、旧形式は見ない)', async () => {
+    const templates = path.join(tmp, 'templates-source');
+    fs.mkdirSync(templates, { recursive: true });
+    fs.writeFileSync(path.join(templates, 'am01_510037_交付版.html'), '<p>src</p>', 'utf8');
+    fs.writeFileSync(
+      path.join(templates, 'AM01_510037_20250101_交付版.html'),
+      '<p>旧形式</p>',
+      'utf8',
+    );
+    fs.writeFileSync(path.join(templates, 'AM01_510037_全体版.html'), '<p>版種違い</p>', 'utf8');
+    const r = await run(
+      { ...ATTRS, fundCode: '510155', sourceFundCode: '510037' },
+      { TEMPLATES_DIR: templates, PENDING_DIR: pendingOf('source') },
+    );
+    expect(r.code).toBe(0);
+    expect(readOut('source', 'AM01_510155_交付版')).toBe('<p>src</p>');
+  }, 30_000);
+
+  it('コピー元が旧形式(4 つ区切り)しか無ければエラーで、前の pending を残す', async () => {
+    const templates = path.join(tmp, 'templates-legacy');
     fs.mkdirSync(templates, { recursive: true });
     fs.writeFileSync(
-      path.join(templates, 'AM01_510037_20240710_交付版.html'),
-      '<p>元テンプレ</p>',
+      path.join(templates, 'AM01_510037_20250101_交付版.html'),
+      '<p>旧形式</p>',
+      'utf8',
+    );
+    fs.mkdirSync(pendingOf('legacy'), { recursive: true });
+    fs.writeFileSync(
+      path.join(pendingOf('legacy'), 'AM01_510037_交付版.html'),
+      '<p>前の生成物</p>',
       'utf8',
     );
     const r = await run(
-      { ...ATTRS, basedOnTemplateId: 'AM01_510037_20240710_交付版' },
-      { TEMPLATES_DIR: templates },
+      { ...ATTRS, sourceFundCode: '510037' },
+      { TEMPLATES_DIR: templates, PENDING_DIR: pendingOf('legacy') },
     );
-    expect(r.code).toBe(0);
-    expect(r.stdout).toBe('<p>元テンプレ</p>');
+    expect(r.code).toBe(2);
+    expect(readOut('legacy')).toBe('<p>前の生成物</p>');
   }, 30_000);
 
-  it('TEMPLATES_DIR が無ければ元テンプレ指定はエラー(既定の置き場を黙って読まない)', async () => {
-    const r = await run({ ...ATTRS, basedOnTemplateId: 'AM01_510037_20240710_交付版' }, {});
+  it('属性に区切り文字やパスが混ざればエラー(PENDING_DIR の外へ書かない)', async () => {
+    const r = await run({ ...ATTRS, fundCode: '../x' }, { PENDING_DIR: pendingOf('bad') });
+    expect(r.code).toBe(2);
+  }, 30_000);
+
+  it('TEMPLATES_DIR が無ければ sourceFundCode はエラー(既定の置き場を黙って読まない)', async () => {
+    const r = await run(
+      { ...ATTRS, sourceFundCode: '510037' },
+      { PENDING_DIR: pendingOf('nodir') },
+    );
     expect(r.code).toBe(2);
     expect(r.stderr).toContain('TEMPLATES_DIR');
-    expect(r.stdout).toBe('');
   }, 30_000);
 
-  it('置き場の外を指す元テンプレ指定はエラー', async () => {
-    const r = await run({ ...ATTRS, basedOnTemplateId: '../outside' }, { TEMPLATES_DIR: tmp });
-    expect(r.code).toBe(2);
-    expect(r.stderr).toContain('invalid basedOnTemplateId');
+  it('sourceFundCode のコピー元が無い・規約外ならエラー', async () => {
+    const templates = path.join(tmp, 'templates-empty');
+    fs.mkdirSync(templates, { recursive: true });
+    const env = { TEMPLATES_DIR: templates, PENDING_DIR: pendingOf('empty') };
+    const missing = await run({ ...ATTRS, sourceFundCode: '999999' }, env);
+    expect(missing.code).toBe(2);
+    const bad = await run({ ...ATTRS, sourceFundCode: '../x' }, env);
+    expect(bad.code).toBe(2);
   }, 30_000);
 });

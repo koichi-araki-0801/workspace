@@ -17,7 +17,7 @@
 // (`id`, `param` ...)で拡張される。実行時の影響は無い。
 import 'zod-openapi';
 import { z } from 'zod';
-import { isValidTemplateId } from './domain/template.js';
+import { isValidAnyTemplateId } from './domain/template.js';
 import { isValidUsername, USERNAME_MAX_LENGTH } from './domain/user.js';
 import { APP_ERROR_KINDS } from './errors.js';
 
@@ -53,11 +53,11 @@ export const TemplateStatus = z.enum(['draft', 'published']).meta({ id: 'Templat
 /**
  * ファイル名規約に一致し、単一のファイル名セグメントとして安全なテンプレート id。
  * ディレクトリと連結される値は契約の段でここに通す(最終的な強制は I/O 層の
- * `assertTemplateId`。二重にするのは、契約を通らない内部経路でも守るため)。
+ * `assertAnyTemplateId`。二重にするのは、契約を通らない内部経路でも守るため)。
  */
 export const TemplateId = z
   .string()
-  .refine(isValidTemplateId, { message: '不正なテンプレート id です' })
+  .refine(isValidAnyTemplateId, { message: '不正なテンプレート id です' })
   .meta({
     id: 'TemplateId',
     example: 'AM01_510037_20240710_交付版',
@@ -65,17 +65,25 @@ export const TemplateId = z
     // 添えないと、公開 OpenAPI 上は「ただの string」に見えて外部クライアントが素の文字列を
     // 送れると誤解する(`$ref` へ寄せると `minLength` のような字面上の制約は消える)。
     description:
-      'ファイル名規約 `<会社コード>_<ファンドコード>_<基準日>_<版種>`(拡張子なし)。' +
+      'ファイル名規約(拡張子なし)。値入り HTML は `<会社コード>_<ファンドコード>_<基準日>_<版種>`、' +
+      'テンプレートは `<会社コード>_<ファンドコード>_<版種>`。' +
       'パス区切り・`..`・制御文字・末尾のドット/空白を含まない単一のファイル名セグメントに限る' +
-      '(判定は `isValidTemplateId`)。',
+      '(判定は `isValidAnyTemplateId`)。',
   });
 
-/** テンプレートを識別する 4 属性(ファイル名: company_fund_date_edition.html)。 */
+/**
+ * テンプレートを識別する属性。値入り HTML は 4 つ(company_fund_date_edition.html)、
+ * テンプレートは基準日を除く 3 つ(company_fund_edition.html)。
+ */
 export const TemplateAttributes = z
   .object({
     companyCode: z.string().meta({ description: '委託会社コード' }),
     fundCode: z.string().meta({ description: 'ファンドコード' }),
-    baseDate: z.string().meta({ description: '基準日 (yyyymmdd)', example: '20240710' }),
+    baseDate: z.string().optional().meta({
+      description:
+        '基準日 (yyyymmdd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない',
+      example: '20240710',
+    }),
     editionType: z.string().meta({ description: '版種' }),
   })
   .meta({ id: 'TemplateAttributes' });
@@ -262,7 +270,14 @@ export const CreateHistoryEntry = z
     attributes: TemplateAttributes,
     user: z.string(),
     timestamp: z.string(),
-    basedOnTemplateId: z.string().optional().meta({ description: '系列ファンドの元テンプレ ID' }),
+    basedOnTemplateId: z
+      .string()
+      .optional()
+      .meta({ description: '過去の履歴(シリーズの元テンプレ ID)。新しい履歴は sourceFundCode' }),
+    sourceFundCode: z
+      .string()
+      .optional()
+      .meta({ description: 'シリーズから作成したときのコピー元ファンドコード' }),
   })
   .meta({ id: 'CreateHistoryEntry' });
 
@@ -497,11 +512,11 @@ export const DropdownQuery = z.object({
   editionType: z.string().optional(),
 });
 
-/** 候補の出所。edit = filled/ + pending/、published = filled/ のみ、create = 台帳(sproc `候補`)。 */
-export const DROPDOWN_SCOPES = ['edit', 'published', 'create'] as const;
+/** 候補の出所。edit = filled/ + pending/、published = filled/ のみ。 */
+export const DROPDOWN_SCOPES = ['edit', 'published'] as const;
 export const DropdownScope = z.enum(DROPDOWN_SCOPES);
 
-/** `GET /templates/options` のクエリ。`scope` 省略時は `create`。 */
+/** `GET /templates/options` のクエリ。`scope` 省略時は `edit`。 */
 export const DropdownOptionsQuery = DropdownQuery.extend({
   scope: DropdownScope.optional(),
 });
@@ -514,13 +529,6 @@ export const DropdownOptions = z
     editionTypes: z.array(z.string()),
   })
   .meta({ id: 'DropdownOptions' });
-
-/** (server 専用) `GET /templates/series` のクエリパラメータ。 */
-export const SeriesFundsQuery = z.object({
-  companyCode: z.string(),
-  fundCode: z.string(),
-  editionType: z.string(),
-});
 
 // ── 7. Parts catalog / generate / draft / confirm-save / build ──
 
@@ -662,20 +670,79 @@ export const UpdateNoteRequest = z
   })
   .meta({ id: 'UpdateNoteRequest' });
 
+// ── 作成タブ: 委託会社・ファンド・作成可否(Rep1 のファンド属性 + ファイル) ──
+
+export const CompanyOption = z
+  .object({
+    companyCode: z.string().meta({ description: 'ファイル名の会社コード(Rep1 の委託会社略称)' }),
+    companyName: z.string().meta({ description: '委託会社名' }),
+    rep1CompanyCode: z
+      .string()
+      .meta({ description: 'Rep1 の委託会社コード(ファンドを引くときに使う)' }),
+  })
+  .meta({ id: 'CompanyOption' });
+
+export const FundOption = z
+  .object({ fundCode: z.string(), fundName: z.string() })
+  .meta({ id: 'FundOption' });
+
+export const SeriesFundOption = FundOption.extend({
+  hasTemplate: z.boolean().meta({
+    description:
+      'コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)があるか',
+  }),
+}).meta({ id: 'SeriesFundOption' });
+
+export const CreatableInfo = z
+  .object({
+    created: z.boolean().meta({
+      description:
+        '選んだ会社・ファンド・版種のテンプレートが templates/ にあるか(会社_ファンド_版種.html。大文字小文字は区別しない)',
+    }),
+    templateId: z.string().optional().meta({
+      description:
+        '作成済みのときのテンプレートの id(templates/ のファイルの綴りのまま)。作成タブの「既存のテンプレートを開く」で開く',
+    }),
+    inProgressId: z
+      .string()
+      .optional()
+      .meta({
+        description:
+          '作成済みでなく、同じ id の下書きか pending/ があるときの id。作成タブの「作成中のテンプレートを開く」で開く。' +
+          '作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける',
+      }),
+    seriesFunds: z
+      .array(SeriesFundOption)
+      .meta({ description: '同じシリーズの他のファンド(シリーズから作成のコピー元候補)' }),
+  })
+  .meta({ id: 'CreatableInfo' });
+
+export const FundsQuery = z.object({ rep1CompanyCode: z.string().min(1).max(32) });
+
+export const CreatableQuery = z.object({
+  companyCode: z.string().min(1),
+  rep1CompanyCode: z.string().min(1).max(32),
+  fundCode: z.string().min(1),
+  editionType: z.string().min(1),
+});
+
 /** 作成タブ: 属性をサーバ側で解決し、Python ツール経由で生成する。 */
 export const GenerateRequest = z
   .object({
     companyCode: z.string().min(1),
     fundCode: z.string().min(1),
     editionType: z.string().min(1),
-    basedOnTemplateId: z
-      .string()
-      .optional()
-      .meta({ description: 'シリーズファンドのテンプレから生成する場合の元テンプレ ID' }),
+    sourceFundCode: z.string().optional().meta({
+      description: 'シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)',
+    }),
     isRedemption: z
       .boolean()
       .optional()
-      .meta({ description: '償還ファンドとして作成(特定パーツを償還用へ置換。現状はモック実装)' }),
+      .meta({ description: '償還ファンドとして作成(生成器へパラメータとして渡す)' }),
+    replaceExisting: z.boolean().optional().meta({
+      description:
+        '同じ id の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409',
+    }),
   })
   .meta({ id: 'GenerateRequest' });
 

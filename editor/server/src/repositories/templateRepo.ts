@@ -6,26 +6,23 @@
 // (Result を返す Repository 契約は web の `rest` 層が満たす。ここでは throw する)。
 import {
   buildSampleData,
+  type CompanyOption,
+  type CreatableInfo,
   type DropdownOptions,
   type DropdownQuery,
   type DropdownScope,
   type FundMaster,
+  type FundOption,
   notFound,
+  parseTemplateFileName,
   type SampleData,
+  skeletonFileName,
   type Template,
-  type TemplateAttributes,
   type TemplateDraft,
   type TemplateMeta,
-  templateFileName,
+  templateIdFromFileName,
 } from '@editor/shared';
-import {
-  asString,
-  asStringOrNull,
-  firstRow,
-  type Param,
-  p,
-  type SprocClient,
-} from '../db/sproc.js';
+import { asString, asStringOrNull, firstRow, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 import {
   deleteDraft,
@@ -34,28 +31,22 @@ import {
   readDraft,
   writeDraft,
 } from '../files/draftFiles.js';
+import { findInProgressIds } from '../files/inProgress.js';
 import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
 import {
+  attrKey,
   filledExists,
+  findTemplateId,
   listFilledFiles,
   listTemplateFiles,
   readFilledHtml,
   readFundCss,
   readTemplateHtml,
+  templateAttrKeys,
   templateExists,
 } from '../files/templateFiles.js';
 import { applyConfirmedWrite, type ConfirmedTarget } from './confirmedWrite.js';
 import { fileToMeta } from './templateMeta.js';
-
-/** `候補` の属性パラメータ(未設定時は null)。 */
-function queryParams(q: DropdownQuery): Param[] {
-  return [
-    p('委託会社コード', q.companyCode),
-    p('ファンドコード', q.fundCode),
-    p('基準日', q.baseDate),
-    p('版種', q.editionType),
-  ];
-}
 
 const ATTR_KEYS = ['companyCode', 'fundCode', 'baseDate', 'editionType'] as const;
 
@@ -68,7 +59,7 @@ export const isMeta = (m: TemplateMeta | null): m is TemplateMeta => m !== null;
 function matchesUpTo(m: TemplateMeta, q: DropdownQuery, depth: number): boolean {
   return ATTR_KEYS.slice(0, depth).every((k) => {
     const want = q[k];
-    return !want || sameCi(m.attributes[k], want);
+    return !want || sameCi(m.attributes[k] ?? '', want);
   });
 }
 
@@ -87,7 +78,7 @@ function uniqCi(values: string[]): string[] {
 /** 各候補は自分より上位の選択だけで絞る(sproc `候補` と同じ規則)。 */
 function optionsFromMetas(metas: TemplateMeta[], q: DropdownQuery): DropdownOptions {
   const at = (depth: number, key: (typeof ATTR_KEYS)[number]) =>
-    uniqCi(metas.filter((m) => matchesUpTo(m, q, depth)).map((m) => m.attributes[key]));
+    uniqCi(metas.filter((m) => matchesUpTo(m, q, depth)).flatMap((m) => m.attributes[key] ?? []));
   return {
     companyCodes: at(0, 'companyCode'),
     fundCodes: at(1, 'fundCode'),
@@ -143,43 +134,103 @@ function parseFundMaster(json: string | null): FundMaster | undefined {
 export interface TemplateRepo {
   getDropdownOptions(q: DropdownQuery, scope: DropdownScope): Promise<DropdownOptions>;
   listTemplates(q: DropdownQuery): Promise<TemplateMeta[]>;
-  listSeriesFunds(companyCode: string, editionType: string): Promise<TemplateMeta[]>;
   getTemplate(id: string): Promise<Template>;
   saveDraft(templateId: string, html: string, css: string, loginId: string): Promise<void>;
   getDraft(templateId: string): Promise<TemplateDraft | null>;
   discardDraft(templateId: string): Promise<void>;
   getSampleData(fundCode: string): Promise<SampleData>;
-  registerGenerated(attributes: TemplateAttributes, id: string): Promise<void>;
+  listCompanies(): Promise<CompanyOption[]>;
+  listFunds(rep1CompanyCode: string): Promise<FundOption[]>;
+  getCreatableInfo(q: {
+    companyCode: string;
+    rep1CompanyCode: string;
+    fundCode: string;
+    editionType: string;
+  }): Promise<CreatableInfo>;
 }
 
 export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
+  async function listFunds(rep1CompanyCode: string): Promise<FundOption[]> {
+    const rows = await sproc.callSproc(SP.template, 'ファンド一覧', [
+      p('委託会社コード', rep1CompanyCode),
+    ]);
+    return rows.map((r) => ({
+      fundCode: asString(r.ファンドコード),
+      fundName: asString(r.ファンド名),
+    }));
+  }
+
   return {
+    async listCompanies() {
+      const rows = await sproc.callSproc(SP.template, '委託会社一覧');
+      return rows.map((r) => ({
+        companyCode: asString(r.委託会社略称),
+        companyName: asString(r.委託会社名),
+        rep1CompanyCode: asString(r.委託会社コード),
+      }));
+    },
+
+    listFunds,
+
     /**
-     * 候補の出所は画面ごとに違う。編集タブ(edit)は一覧と同じ filled/ + pending/、比較・結合
-     * (published)は承認済みの filled/ だけ、作成タブ(create)は作成可能カタログである台帳。
+     * 作成タブ Step 2 の素。作成済み・作業中・コピー元の有無はファイルで、シリーズは Rep1 の会社コードで
+     * 引き、名称はファンド一覧から付ける。
      */
-    async getDropdownOptions(q, scope) {
-      if (scope !== 'create') return optionsFromMetas(await scanEditableMetas(scope === 'edit'), q);
-      const rows = await sproc.callSproc(SP.template, '候補', queryParams(q));
-      const pick = (kbn: string) =>
-        rows.filter((r) => asString(r.区分) === kbn).map((r) => asString(r.値));
-      return {
-        companyCodes: pick('会社'),
-        fundCodes: pick('ファンド'),
-        baseDates: pick('基準日'),
-        editionTypes: pick('版種'),
+    async getCreatableInfo({ companyCode, rep1CompanyCode, fundCode, editionType }) {
+      // テンプレートは基準日で使い回さないので、テンプレートフォルダ(templates/)に 3 つ区切りの
+      // ファイルがあるかだけを見る。値入り HTML(filled/)や生成直後(pending/)は作成済みに数えない。
+      const files = await listTemplateFiles();
+      const templateKeys = templateAttrKeys(files);
+      const templateId = findTemplateId(files, companyCode, fundCode, editionType);
+      const created = templateId !== null;
+      // 作業中は、作成済みでないときだけ問う。作成済みのテンプレートを作成経路で直している下書きは
+      // 作り直しの対象ではない(画面は「既存のテンプレートを開く」だけを出す)。
+      const id = templateIdFromFileName(skeletonFileName({ companyCode, fundCode, editionType }));
+      // 綴り違いも見つけ、id はファイルの綴りのまま返す(pending を優先。無ければ下書き)。
+      const found = created ? null : await findInProgressIds(id);
+      const inProgressId = found ? (found.pending[0] ?? found.drafts[0]) : undefined;
+      const extra = {
+        ...(templateId === null ? {} : { templateId }),
+        ...(inProgressId === undefined ? {} : { inProgressId }),
       };
+      const seriesRows = await sproc.callSproc(SP.series, '一覧', [
+        p('委託会社コード', rep1CompanyCode),
+      ]);
+      const seriesOf = new Map(
+        seriesRows.map((r) => [asString(r.ファンドコード), asStringOrNull(r.シリーズコード)]),
+      );
+      const series = seriesOf.get(fundCode) ?? null;
+      if (!series) return { created, ...extra, seriesFunds: [] };
+      const names = new Map(
+        (await listFunds(rep1CompanyCode)).map((f) => [f.fundCode, f.fundName]),
+      );
+      const seriesFunds = [...seriesOf.entries()]
+        .filter(([code, s]) => code !== fundCode && s === series)
+        .map(([code]) => ({
+          fundCode: code,
+          fundName: names.get(code) ?? '',
+          hasTemplate: templateKeys.has(attrKey(companyCode, code, editionType)),
+        }))
+        .sort((a, b) => a.fundCode.localeCompare(b.fundCode));
+      return { created, ...extra, seriesFunds };
     },
 
     /**
-     * 既存テンプレの一覧は台帳でなく `filled/`(値入り HTML = 編集タブの本文)と
+     * 候補の出所は画面ごとに違う。編集タブ(edit)は一覧と同じ filled/ + pending/、比較・結合
+     * (published)は承認済みの filled/ だけ。作成タブの候補は Rep1(`listCompanies` / `listFunds`)。
+     */
+    async getDropdownOptions(q, scope) {
+      return optionsFromMetas(await scanEditableMetas(scope === 'edit'), q);
+    },
+
+    /**
+     * 既存テンプレの一覧は `filled/`(値入り HTML = 編集タブの本文)と
      * `pending/`(生成直後の未確定実体)のファイル走査から導く。`templates/`(作成タブの
      * Jinja)は一覧に出さない — 値入り HTML が無いテンプレを編集して申請する事故を防ぐため。
      *
      * 混ぜない設計は一度採ったが不成立だった: 作成タブは生成後に `/edit/:id` へ 1 回遷移する
      * だけで、履歴タブは遷移経路を持たない。そのため一覧から外すと、生成直後にブラウザを
-     * 閉じた時点でその id へ到達する手段が UI から消え、同一属性の再生成も台帳の
-     * `UQ_台帳_属性4` に当たって復旧できない(= 作ったテンプレが行方不明になる)。
+     * 閉じた時点でその id へ到達する手段が UI から消える(= 作ったテンプレが行方不明になる)。
      *
      * 未承認の内容を扱ってはいけない画面(比較タブ・結合 PDF)は**呼び出し側**で
      * `status === 'published'` に絞る。一覧側で落とすと上記の到達不能が再発する。
@@ -191,48 +242,27 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     },
 
     /**
-     * 系列は templates/(作成タブの Jinja)から作る。「系列から作る」で生成器が読むのは
-     * `templates/<ID>.html` なので、ここに在るものだけを出す。
-     */
-    async listSeriesFunds(companyCode, editionType) {
-      const files = await listTemplateFiles();
-      const metas = (await Promise.all(files.map((f) => fileToMeta(f)))).filter(isMeta);
-      return metas
-        .filter(
-          (m) =>
-            sameCi(m.attributes.companyCode, companyCode) &&
-            sameCi(m.attributes.editionType, editionType),
-        )
-        .sort(
-          (a, b) =>
-            a.attributes.fundCode.localeCompare(b.attributes.fundCode) ||
-            a.attributes.baseDate.localeCompare(b.attributes.baseDate),
-        );
-    },
-
-    /**
-     * 1 件取得。メタはファイル名規約、本体はファイル(台帳は引かない)。
+     * 1 件取得。メタはファイル名規約、本体はファイル(DB は引かない)。
      *
-     * 探索順は ① `filled/`(値入り HTML。編集タブの本文)→ ② `templates/`(作成タブの Jinja。
-     * 作成経路の承認直後に精査画面が確定版を読む)→ ③ `pending/`(生成直後の未確定実体)。
-     * ①②は `status:'published'`、③は `status:'draft'`、どこにも無ければ 404。
+     * 探し先は id の形で決まる。値入り HTML(4 つ区切り)は ① `filled/`、テンプレート(3 つ区切り)は
+     * ① `templates/`(作成経路の承認直後に精査画面が確定版を読む)。① に無ければ ② `pending/`
+     * (生成直後の未確定実体)。① は `status:'published'`、② は `status:'draft'`、どこにも無ければ 404。
      * **確定を先に見る順序が契約**である。逆順にすると pending を書ける者が承認済みテンプレの
      * 表示内容を差し替えられ、編集画面・結合 PDF・比較タブが揃って汚染される。
-     * ①で見つかったときだけ `filled` に本文を入れる(値入り HTML は Jinja を持たないので
+     * 値入り HTML のときだけ `filled` に本文を入れる(値入り HTML は Jinja を持たないので
      * `html` と同じ内容。web は `filled` が非空の文書を完成描画として扱う)。
      */
     async getTemplate(id) {
       const fileName = `${id}.html`;
-      if (await filledExists(fileName)) {
-        const meta = await fileToMeta(fileName, 'filled');
-        if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
+      const isFilled = parseTemplateFileName(fileName) !== null;
+      const meta = await fileToMeta(fileName, isFilled ? 'filled' : 'template');
+      if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
+      if (isFilled && (await filledExists(fileName))) {
         const html = await readFilledHtml(fileName);
         const css = await readFundCss(meta.attributes.fundCode);
         return { meta, html, css, filled: html };
       }
-      const meta = await fileToMeta(fileName);
-      if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
-      if (await templateExists(fileName)) {
+      if (!isFilled && (await templateExists(fileName))) {
         const html = await readTemplateHtml(fileName);
         const css = await readFundCss(meta.attributes.fundCode);
         return { meta, html, css, filled: '' };
@@ -247,7 +277,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       };
     },
 
-    /** 自動保存ドラフトはファイルのみ(`<dataRoot>/drafts`、git 管理外)。台帳は引かない。 */
+    /** 自動保存ドラフトはファイルのみ(`<dataRoot>/drafts`、git 管理外)。DB は引かない。 */
     async saveDraft(templateId, html, css, _loginId) {
       await writeDraft(templateId, html, css);
     },
@@ -275,18 +305,6 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       );
       const master = parseFundMaster(row ? asStringOrNull(row.データJSON) : null);
       return buildSampleData(master, fundCode);
-    },
-
-    /** 新規生成したテンプレートを `台帳` に登録する(status=draft)。 */
-    async registerGenerated(attributes, id) {
-      await sproc.callSproc(SP.template, '生成登録', [
-        p('テンプレートID', id),
-        p('委託会社コード', attributes.companyCode),
-        p('ファンドコード', attributes.fundCode),
-        p('基準日', attributes.baseDate),
-        p('版種', attributes.editionType),
-        p('ファイル名', templateFileName(attributes)),
-      ]);
     },
   };
 }

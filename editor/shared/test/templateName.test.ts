@@ -1,18 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
+  anyTemplateFileName,
   assertTemplateAttributeToken,
   assertTemplateFileName,
+  type FilledTemplateAttributes,
   isValidFundCode,
   isValidTemplateId,
   isValidTemplateToken,
+  parseAnyTemplateFileName,
+  parseSkeletonFileName,
   parseTemplateFileName,
+  skeletonFileName,
   TEMPLATE_FILENAME_RE,
-  type TemplateAttributes,
   templateFileName,
   templateIdFromFileName,
 } from '../src/index';
 
-const SAMPLE: TemplateAttributes = {
+const SAMPLE: FilledTemplateAttributes = {
   companyCode: 'AM01',
   fundCode: '510037',
   baseDate: '20240710',
@@ -121,5 +125,38 @@ describe('トークン単位のパス安全性ゲート', () => {
       expect(isValidFundCode(token), token).toBe(isValidTemplateToken(token));
     }
     expect(isValidFundCode('510_037')).toBe(false);
+  });
+});
+
+describe('テンプレート(3 つ区切り)のファイル名', () => {
+  const SKELETON = { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' };
+
+  it('parseSkeletonFileName は 3 つ区切りだけを解析する', () => {
+    expect(parseSkeletonFileName('AM01_510037_交付版.html')).toEqual(SKELETON);
+    expect(parseSkeletonFileName('AM01_510037_20240710_交付版.html')).toBeNull();
+    expect(parseSkeletonFileName('AM01_510037.html')).toBeNull();
+  });
+
+  it('parseTemplateFileName は 3 つ区切りを解析しない(2 つの形は重ならない)', () => {
+    expect(parseTemplateFileName('AM01_510037_交付版.html')).toBeNull();
+  });
+
+  it('skeletonFileName は基準日を入れない', () => {
+    expect(skeletonFileName(SKELETON)).toBe('AM01_510037_交付版.html');
+  });
+
+  it('parseAnyTemplateFileName は形に応じて基準日の有無を返す', () => {
+    expect(parseAnyTemplateFileName('AM01_510037_交付版.html')).toEqual(SKELETON);
+    expect(parseAnyTemplateFileName(SAMPLE_FILE)).toEqual(SAMPLE);
+    expect(parseAnyTemplateFileName('AM01.html')).toBeNull();
+  });
+
+  it('anyTemplateFileName は基準日があれば 4 つ、無ければ 3 つ区切りで組む', () => {
+    expect(anyTemplateFileName(SAMPLE)).toBe(SAMPLE_FILE);
+    expect(anyTemplateFileName(SKELETON)).toBe('AM01_510037_交付版.html');
+  });
+
+  it('templateIdFromFileName は形を問わず .html を外す', () => {
+    expect(templateIdFromFileName('AM01_510037_交付版.html')).toBe('AM01_510037_交付版');
   });
 });

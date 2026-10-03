@@ -19,6 +19,23 @@ async function loginAdmin(): Promise<void> {
   expect(isOk(r)).toBe(true);
 }
 
+/** 作成タブで生成して承認した(= local の templates/ 相当)テンプレートを置く。 */
+async function approveSkeleton(fundCode: string, editionType: string, html: string) {
+  await localAuthRepo.login({ username: 'admin', password: 'admin' });
+  const gen = await localTemplateRepo.generate({ companyCode: 'AM01', fundCode, editionType });
+  if (!isOk(gen)) throw new Error('generate に失敗');
+  const id = gen.value.template.meta.id;
+  const saved = await confirmSaveLocal({
+    templateId: id,
+    html,
+    css: '',
+    fundCode,
+    origin: 'create',
+  });
+  if (!isOk(saved)) throw new Error('confirmSaveLocal に失敗');
+  return id;
+}
+
 async function firstMeta() {
   const list = await localTemplateRepo.listTemplates({});
   if (!isOk(list) || list.value.length === 0) throw new Error('no fixture templates');
@@ -244,6 +261,78 @@ describe('localHistoryRepo pdf/create history', () => {
 });
 
 describe('localTemplateRepo dropdowns / generate / drafts', () => {
+  it('listCompanies / listFunds / getCreatableInfo は fixtures から作る', async () => {
+    const companies = await localTemplateRepo.listCompanies();
+    expect(isOk(companies) && companies.value[0]).toMatchObject({
+      companyCode: 'AM01',
+      rep1CompanyCode: 'AM01',
+    });
+    const funds = await localTemplateRepo.listFunds('AM01');
+    expect(isOk(funds) && funds.value.map((f) => f.fundCode)).toContain('510037');
+    const info = await localTemplateRepo.getCreatableInfo({
+      companyCode: 'AM01',
+      rep1CompanyCode: 'AM01',
+      fundCode: '510037',
+      editionType: '交付版',
+    });
+    if (!isOk(info)) throw new Error('getCreatableInfo に失敗');
+    expect(info.value.created).toBe(false);
+    expect(info.value.seriesFunds.map((s) => s.fundCode)).toEqual(['510003', '510155']);
+    const id = await approveSkeleton('510037', '交付版', '<p>{{ fund.name }}</p>');
+    expect(id).toBe('AM01_510037_交付版');
+    const after = await localTemplateRepo.getCreatableInfo({
+      companyCode: 'am01',
+      rep1CompanyCode: 'AM01',
+      fundCode: '510037',
+      editionType: '交付版',
+    });
+    expect(isOk(after) && after.value).toMatchObject({ created: true, templateId: id });
+    expect(isOk(after) && after.value).not.toHaveProperty('inProgressId');
+  });
+
+  it('generate(sourceFundCode) は承認済みのコピー元テンプレート(3 つ区切り)の HTML を写す', async () => {
+    await approveSkeleton('510037', '全体版', '<p>コピー元 {{ fund.name }}</p>');
+    const r = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '全体版',
+      sourceFundCode: '510037',
+    });
+    if (!isOk(r)) throw new Error('generate に失敗');
+    expect(r.value.template.html).toBe('<p>コピー元 {{ fund.name }}</p>');
+    expect(r.value.template.meta.id).toBe('AM01_510155_全体版');
+  });
+
+  it('getCreatableInfo はシリーズに属さないファンドではコピー元の候補を返さない', async () => {
+    const info = await localTemplateRepo.getCreatableInfo({
+      companyCode: 'AM01',
+      rep1CompanyCode: 'AM01',
+      fundCode: '999999',
+      editionType: '交付版',
+    });
+    if (!isOk(info)) throw new Error('getCreatableInfo に失敗');
+    expect(info.value).toEqual({ created: false, seriesFunds: [] });
+  });
+
+  it('generate(sourceFundCode) はコピー元テンプレートが無ければ失敗する', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const r = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '交付版',
+      sourceFundCode: '999999',
+    });
+    expect(isOk(r)).toBe(false);
+    // fixtures(4 つ区切り。値入り HTML 扱い)はコピー元にならない。
+    const fromFixture = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '交付版',
+      sourceFundCode: '510037',
+    });
+    expect(isOk(fromFixture)).toBe(false);
+  });
+
   it('getDropdownOptions narrows fundCodes by companyCode', async () => {
     const all = await localTemplateRepo.getDropdownOptions({}, 'edit');
     expect(isOk(all)).toBe(true);
@@ -262,19 +351,17 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
   // 同一会社・ファンド・基準日の別版種(例: 全体版)へ選び直せること(再選択不能バグの回帰)。
   it('getDropdownOptions(published) は未承認(draft)を候補に含めない', async () => {
     await localAuthRepo.login({ username: 'admin', password: 'admin' });
-    const base = await firstMeta();
     const r = await localTemplateRepo.generate({
-      companyCode: base.attributes.companyCode,
-      fundCode: base.attributes.fundCode,
-      editionType: base.attributes.editionType,
+      companyCode: 'ZZ99',
+      fundCode: '000000',
+      editionType: '交付版',
     });
     if (!isOk(r)) throw new Error('generate に失敗');
-    const draftDate = r.value.template.meta.attributes.baseDate;
-    const q = { companyCode: base.attributes.companyCode, fundCode: base.attributes.fundCode };
-    const edit = await localTemplateRepo.getDropdownOptions(q, 'edit');
-    const pub = await localTemplateRepo.getDropdownOptions(q, 'published');
-    expect(isOk(edit) && edit.value.baseDates).toContain(draftDate);
-    expect(isOk(pub) && pub.value.baseDates).not.toContain(draftDate);
+    const edit = await localTemplateRepo.getDropdownOptions({}, 'edit');
+    const pub = await localTemplateRepo.getDropdownOptions({}, 'published');
+    expect(isOk(edit) && edit.value.companyCodes).toContain('ZZ99');
+    expect(isOk(pub) && pub.value.companyCodes).not.toContain('ZZ99');
+    expect(isOk(edit) && edit.value.baseDates.every((d) => d !== '')).toBe(true);
   });
 
   it('listTemplates の絞り込みは大文字小文字を区別しない', async () => {
@@ -353,51 +440,6 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     if (isOk(hist)) expect(hist.value.length).toBe(1);
   });
 
-  it('generate (based on a template) copies the base html', async () => {
-    const base = await firstMeta();
-    const baseTpl = await localTemplateRepo.getTemplate(base.id);
-    if (!isOk(baseTpl)) return;
-    const r = await localTemplateRepo.generate({
-      companyCode: base.attributes.companyCode,
-      fundCode: base.attributes.fundCode,
-      editionType: base.attributes.editionType,
-      basedOnTemplateId: base.id,
-    });
-    expect(isOk(r)).toBe(true);
-    if (isOk(r)) expect(r.value.template.html).toBe(baseTpl.value.html);
-  });
-
-  it('generate based on a missing template propagates not_found', async () => {
-    const base = await firstMeta();
-    const r = await localTemplateRepo.generate({
-      companyCode: base.attributes.companyCode,
-      fundCode: base.attributes.fundCode,
-      editionType: base.attributes.editionType,
-      basedOnTemplateId: 'does_not_exist',
-    });
-    expect(isErr(r)).toBe(true);
-    if (isErr(r)) expect(r.error.kind).toBe('not_found');
-  });
-
-  it('listSeriesFunds filters by company and edition', async () => {
-    const meta = await firstMeta();
-    const r = await localTemplateRepo.listSeriesFunds(
-      meta.attributes.companyCode,
-      meta.attributes.fundCode,
-      meta.attributes.editionType,
-    );
-    expect(isOk(r)).toBe(true);
-    if (isOk(r)) {
-      expect(
-        r.value.every(
-          (m) =>
-            m.attributes.companyCode === meta.attributes.companyCode &&
-            m.attributes.editionType === meta.attributes.editionType,
-        ),
-      ).toBe(true);
-    }
-  });
-
   it('saveDraft then getDraft round-trips; missing draft is null', async () => {
     const meta = await firstMeta();
     await localTemplateRepo.saveDraft({ templateId: meta.id, html: '<p>d</p>', css: '.d{}' });
@@ -419,6 +461,90 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
       expect(fund.name).toBe('サンプルファンド');
       expect(Array.isArray(r.value.holdings)).toBe(true);
     }
+  });
+
+  it('generate は作成済みなら conflict「作成済み」', async () => {
+    await approveSkeleton('510124', '交付版', '<p>確定</p>');
+    const again = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510124',
+      editionType: '交付版',
+    });
+    expect(isErr(again) && again.error).toMatchObject({
+      kind: 'conflict',
+      message: '作成済みです。既存のテンプレートを開いてください',
+    });
+  });
+
+  it('generate は承認待ちの作成申請があれば、同意があっても conflict「申請中」', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const gen = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510003',
+      editionType: '交付版',
+    });
+    if (!isOk(gen)) throw new Error('generate に失敗');
+    const { localReviewRepo } = await import('@/api/local/reviewRepo');
+    const sub = await localReviewRepo.submitReview({
+      templateId: gen.value.template.meta.id,
+      fundCode: '510003',
+      origin: 'create',
+      html: '<p>{{ x }}</p>',
+      css: '',
+    });
+    expect(isOk(sub)).toBe(true);
+    const again = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510003',
+      editionType: '交付版',
+      replaceExisting: true,
+    });
+    expect(isErr(again) && again.error.message).toBe('申請中です。承認か却下を待ってください');
+  });
+
+  it('作成中(生成済み・未承認)は inProgressId を返し、同意の無い作り直しは conflict「作成中」', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const first = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '交付版',
+    });
+    if (!isOk(first)) throw new Error('generate に失敗');
+    const id = first.value.template.meta.id;
+    const info = await localTemplateRepo.getCreatableInfo({
+      companyCode: 'AM01',
+      rep1CompanyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '交付版',
+    });
+    expect(isOk(info) && info.value).toMatchObject({ created: false, inProgressId: id });
+    const again = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '交付版',
+    });
+    expect(isErr(again) && again.error.message).toBe('作成中のテンプレートがあります');
+  });
+
+  it('同意した作り直しは前回の下書きを捨てる', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const first = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '交付版',
+    });
+    if (!isOk(first)) throw new Error('generate に失敗');
+    const id = first.value.template.meta.id;
+    await localTemplateRepo.saveDraft({ templateId: id, html: '<p>古い下書き</p>', css: '' });
+    const again = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '交付版',
+      replaceExisting: true,
+    });
+    expect(isOk(again)).toBe(true);
+    const draft = await localTemplateRepo.getDraft(id);
+    expect(isOk(draft) && draft.value).toBeNull();
   });
 });
 
@@ -494,15 +620,6 @@ describe('localTemplateRepo の生成と override', () => {
     expect(isOk(t) && t.value.html).toBe('<p>over</p>');
     expect(isOk(t) && t.value.css).toBe('.o{}');
     expect(isOk(t) && t.value.filled).toBe('');
-  });
-
-  it('resolveFund はコアラップ系の集合メンバシップ', async () => {
-    // 510037 はコアラップ系(SERIES_FUND_CODES)のメンバー。
-    const a = await localTemplateRepo.resolveFund('AM01', '510037', '交付版');
-    expect(isOk(a) && a.value.isSeriesFund).toBe(true);
-    // 非シリーズ(110024)は false。
-    const b = await localTemplateRepo.resolveFund('AM01', '110024', '交付版');
-    expect(isOk(b) && b.value.isSeriesFund).toBe(false);
   });
 });
 

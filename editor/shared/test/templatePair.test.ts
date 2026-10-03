@@ -31,6 +31,14 @@ describe('pairedTemplateId', () => {
   });
 });
 
+describe('pairedTemplateId(テンプレート)', () => {
+  it('テンプレート(3 つ区切り)は 3 つ区切りのペアを返す', () => {
+    expect(pairedTemplateId('AM01_510037_交付版')).toBe('AM01_510037_全体版');
+    expect(pairedTemplateId('AM01_510037_全体版')).toBe('AM01_510037_交付版');
+    expect(pairedTemplateId('AM01_510037_kr')).toBeNull();
+  });
+});
+
 describe('EDITION_SYNC_PAIRS', () => {
   it('交付版⇄全体版 が相互に対応している(片方向の定義漏れを防ぐ)', () => {
     for (const [from, to] of Object.entries(EDITION_SYNC_PAIRS)) {
@@ -44,5 +52,11 @@ describe('templatePairKey', () => {
     const a = { companyCode: 'AM01', fundCode: '510037', baseDate: '20240710' };
     expect(templatePairKey({ ...a, editionType: '交付版' })).toBe('AM01_510037_20240710');
     expect(templatePairKey({ ...a, editionType: '全体版' })).toBe('AM01_510037_20240710');
+  });
+
+  it('基準日の無いテンプレートは会社_ファンド(値入り HTML のキーとは別になる)', () => {
+    const t = { companyCode: 'AM01', fundCode: '510037' };
+    expect(templatePairKey({ ...t, editionType: '交付版' })).toBe('AM01_510037');
+    expect(templatePairKey({ ...t, editionType: '全体版' })).toBe('AM01_510037');
   });
 });

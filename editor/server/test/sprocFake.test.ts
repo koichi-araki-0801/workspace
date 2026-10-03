@@ -3,7 +3,7 @@
 // =============================================================================
 // フェイクは rest e2e が見る「サーバの挙動」の下敷きなので、sproc の不変則を外すと
 // e2e が偽の挙動を検証したまま緑になる。ここで固定するのはその不変則そのもので、
-// SQL の書き方ではない。ゲートウェイ 7 本で実際に呼ばれる 20 操作を、1 操作 1 主張の
+// SQL の書き方ではない。ゲートウェイ 8 本で実際に呼ばれる操作を、1 操作 1 主張の
 // 粒度で覆う。
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,7 +13,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { verifyPassword } from '../src/auth/password.js';
 import { p, type SprocClient } from '../src/db/sproc.js';
 import { SP } from '../src/db/sprocNames.js';
-import { createFakeSproc, DEFAULT_USERS } from './fakes/sprocFake.js';
+import { createFakeSproc, DEFAULT_USERS, TRUST_AM } from './fakes/sprocFake.js';
 
 // 実 `buildApp()` を通す結合テストが確定領域へ触れないよう、dataRoot は一時ディレクトリへ
 // 向ける(既定は隣の実データを指す)。
@@ -245,45 +245,45 @@ describe('セッション', () => {
 });
 
 describe('テンプレート・パーツ・サンプル・注記マスタ・監査ログ', () => {
-  it('生成登録 is idempotent', async () => {
+  it('系列・候補・生成登録 are no longer operations (same as the real sproc)', async () => {
     const sproc = await createFakeSproc();
-    const args = [
-      p('テンプレートID', 'AM01_510037_20260101_交付版'),
-      p('委託会社コード', 'AM01'),
-      p('ファンドコード', '510037'),
-      p('基準日', '20260101'),
-      p('版種', '交付版'),
-      p('ファイル名', 'AM01_510037_20260101_交付版.html'),
-    ];
-    await sproc.callSproc(SP.template, '生成登録', args);
-    await sproc.callSproc(SP.template, '生成登録', args);
-    const rows = await sproc.callSproc(SP.template, '候補', [
-      p('委託会社コード', 'AM01'),
-      p('ファンドコード', '510037'),
-    ]);
-    expect(rows.filter((r) => r.区分 === '基準日' && r.値 === '20260101')).toHaveLength(1);
+    for (const op of ['系列', '候補', '生成登録']) {
+      await expect(
+        sproc.callSproc(SP.template, op, [p('委託会社コード', 'AM01')]),
+      ).rejects.toMatchObject({ kind: 'validation' });
+    }
   });
 
-  it('系列 is no longer an operation (same as the real sproc)', async () => {
+  it('委託会社一覧 returns the Rep1 code, name and abbreviation (abbreviation = file company code)', async () => {
     const sproc = await createFakeSproc();
-    await expect(
-      sproc.callSproc(SP.template, '系列', [p('委託会社コード', 'AM01'), p('版種', '交付版')]),
-    ).rejects.toBeTruthy();
+    const rows = await sproc.callSproc(SP.template, '委託会社一覧');
+    expect(rows).toEqual([
+      { 委託会社コード: 'R-AM01', 委託会社名: TRUST_AM, 委託会社略称: 'AM01' },
+    ]);
   });
 
-  it('候補 narrows only by the choices above each level', async () => {
+  it('ファンド一覧 returns the funds of one Rep1 company (case-insensitive) and needs the company', async () => {
     const sproc = await createFakeSproc();
-    const rows = await sproc.callSproc(SP.template, '候補', [
-      p('委託会社コード', 'AM01'),
-      p('ファンドコード', '510037'),
-      p('基準日', undefined),
-      p('版種', undefined),
+    const rows = await sproc.callSproc(SP.template, 'ファンド一覧', [
+      p('委託会社コード', 'r-am01'),
     ]);
-    const pick = (区分: string) => rows.filter((r) => r.区分 === 区分).map((r) => String(r.値));
-    expect(pick('基準日')).toEqual(['20240710']);
-    expect(pick('版種').sort()).toEqual(['交付版', '全体版']);
-    // 上位はより狭い選択に潰れない(潰れると別のファンドへ戻せなくなる)。
-    expect(pick('ファンド').length).toBeGreaterThan(1);
+    expect(rows.map((r) => r.ファンドコード)).toEqual([
+      '110024',
+      '510003',
+      '510037',
+      '510124',
+      '510155',
+    ]);
+    await expect(sproc.callSproc(SP.template, 'ファンド一覧', [])).rejects.toMatchObject({
+      kind: 'validation',
+    });
+  });
+
+  it('シリーズ 一覧 returns fund and series code (null when not in a series)', async () => {
+    const sproc = await createFakeSproc();
+    const rows = await sproc.callSproc(SP.series, '一覧', [p('委託会社コード', 'R-AM01')]);
+    expect(rows).toContainEqual({ ファンドコード: '510037', シリーズコード: 'CORE' });
+    expect(rows).toContainEqual({ ファンドコード: '110024', シリーズコード: null });
   });
 
   it('注記マスタ 反映 upserts by (パーツID, ファンドコード, 版種)', async () => {
