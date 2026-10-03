@@ -68,9 +68,10 @@ sproc の SELECT に別名（`AS`）を付けて合わせる。
 
 - `created`: 選んだ版種で、その会社・ファンドのテンプレートが `filled/`・`templates/`・`pending/` のどこかに
   あるか（基準日は問わない。照合は大文字小文字を区別しない）。
-- `seriesFunds`: 同じシリーズコードの他のファンドの `[{ fundCode, fundName }]`（「系列から作成」のコピー元に
-  できるもの）。ファンドコード順。シリーズに属さないファンドは空配列。`templates/` の有無では絞らない
-  （コピー元のテンプレートをどこから読むかは生成器が決める）。
+- `seriesFunds`: 同じシリーズコードの他のファンドの `[{ fundCode, fundName, hasTemplate }]`（「系列から作成」の
+  コピー元の候補）。ファンドコード順。シリーズに属さないファンドは空配列。`hasTemplate` は、コピー元の
+  テンプレートが `templates/` に同じ会社・版種で 1 件以上あるか（基準日は問わない。大文字小文字は区別しない）。
+  無いファンドも候補には出す（画面で警告して作成を止める）。
 - 削除: `GET /api/templates/series`、`TemplateRepository.resolveFund` / `listSeriesFunds`、
   `GET /api/templates/options` の `scope=create`（`scope` 省略時は `edit`）、`DROPDOWN_SCOPES` の `create`。
 - 生成（`POST /api/generate`）: 台帳への登録をやめる。`GenerateRequest` の `basedOnTemplateId` を
@@ -79,10 +80,12 @@ sproc の SELECT に別名（`AS`）を付けて合わせる。
   ときだけ）と `isRedemption`（true のときだけ）を加える。作成履歴の「元テンプレ」も `sourceFundCode` を記録する。
   テスト用の偽の生成器は、`templates/` にあるコピー元ファンド（同じ会社・版種）の基準日が最新のテンプレートを
   読む。
+- 生成 API でも、`sourceFundCode` のコピー元テンプレートが `templates/` に無ければ 400（validation）で止める
+  （画面を通さない呼び出しでも同じ結果にする）。
 
 `shared` に `CompanyOption`（`companyCode`・`companyName`）と `CreatableFund`（上の 4 項目）の Zod スキーマを
 置き、`TemplateRepository` に `listCompanies()` と `listCreatableFunds(companyCode, editionType)` を足す。
-`CreatableFund.seriesFunds` の要素は `{ fundCode, fundName }`。
+`CreatableFund.seriesFunds` の要素は `{ fundCode, fundName, hasTemplate }`。
 
 ### 画面（作成タブ）
 
@@ -93,7 +96,8 @@ sproc の SELECT に別名（`AS`）を付けて合わせる。
 - 下段: ファンドの表。列は「ファンドコード」「ファンド名」「状態」（`created` なら「作成済み」）「操作」。
   - 「作成」: その会社・ファンド・版種で新規作成する。
   - 「系列から作成」: `seriesFunds` が空でないときだけ出す。コピー元のファンド（選択肢は `seriesFunds`）を
-    選ばせてから作成する。
+    選ばせてから作成する。候補一覧で `hasTemplate` が false のファンドには「コピー元のテンプレートが
+    ありません」と警告を出し、そのファンドを選んでいる間は作成ボタンをグレーアウト（disabled）にする。
 - 作成後の遷移は従来どおり作成経路の編集画面（`editorRoute(id, { created: true })`）。
 - URL クエリ同期（`companyCode`・`editionType`）は編集タブと同じく保つ。
 
@@ -116,17 +120,17 @@ sproc の SELECT に別名（`AS`）を付けて合わせる。
 - `companies` / `funds` の DB エラーは既存の sproc エラー変換（`mapSqlError`）に任せ、画面はトーストで出す。
 - `funds` の `companyCode` / `editionType` 欠落は 400。
 - `templates/`・`filled/`・`pending/` が無いときは空として扱う（`created` は false）。
-- 「系列から作成」で生成器がコピー元を見つけられないときは、生成器のエラーとして既存の経路で返す。
+- 「系列から作成」でコピー元テンプレートが無いときは、画面で作成を押せず、API でも 400 で止める。
 
 ## テスト
 
 - サーバ: `listCompanies`・`listCreatableFunds`（`created` の判定を 3 つの置き場それぞれで、大文字小文字を
   区別しない照合、`seriesFunds` が同じシリーズの他ファンドだけで自分を含まないこと、並び、シリーズ無しは空）、
   ルートの 400、`sourceFundCode` と `isRedemption` が生成器の JSON に入ること（無いときは入らないこと）、
-  `sourceFundCode` の検査（規約外は 400）、生成が台帳を呼ばないこと、`scope=create` の 400。
+  `sourceFundCode` の検査（規約外は 400、コピー元テンプレートが無ければ 400）、`hasTemplate` の判定、生成が台帳を呼ばないこと、`scope=create` の 400。
 - sprocFake: `委託会社一覧`・`ファンド一覧`・`usp_シリーズ 一覧` を足し、`候補`・`生成登録` を消す。
 - web: rest の URL、local の `listCompanies` / `listCreatableFunds`、作成タブの画面（会社と版種で検索 →
-  表 → 作成 / 系列から作成）。
+  表 → 作成 / 系列から作成、`hasTemplate` が false のコピー元で警告が出て作成ボタンが disabled になること）。
 - e2e と手引きの撮影を新しい画面に合わせる。
 - LocalDB: 検証用 `Rep1` を作り、実 sproc で会社・ファンド・シリーズが返ることを確かめる。
 
