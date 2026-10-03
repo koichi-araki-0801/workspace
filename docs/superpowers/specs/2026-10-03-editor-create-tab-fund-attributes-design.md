@@ -20,7 +20,7 @@
 | 画面 | 編集タブの連動プルダウン＋表の形を保つ。上段で委託会社（会社名で表示、値はコード）と版種（交付版 / 全体版の 1 つ）を選び、下段にファンドの表 |
 | 版種 | プルダウンで 1 つだけ選ぶ（両方を一度に作らない） |
 | 作成済み | 表に出し、選んだ版種のテンプレートがあれば「作成済み」と表示する。作成は止めない |
-| 系列 | 新しいゲートウェイ `usp_シリーズ` で系列（シリーズ）を引く。SQL は仮 |
+| 系列 | 新しいゲートウェイ `usp_シリーズ` で系列（シリーズ）を引く。SQL は仮。シリーズのファンドを選ぶと、コピー元（選んだファンド）とコピー先（今回作るファンド）を Python に渡す |
 | 償還 | チェックボックスを残し、生成器（Python）へのパラメータとして渡す |
 | 台帳 | `候補`・`生成登録`・テンプレート台帳テーブルを削除する（読む処理が無くなるため） |
 | 列名 | 仮の列名で作り、sproc の中だけに閉じる。実際の列名が分かったら sproc を直す |
@@ -64,20 +64,25 @@ sproc の SELECT に別名（`AS`）を付けて合わせる。
 | ルート | 内容 |
 |---|---|
 | `GET /api/templates/companies` | `[{ companyCode, companyName }]` |
-| `GET /api/templates/funds?companyCode=…&editionType=…` | `[{ fundCode, fundName, created, seriesBases }]`。`companyCode` と `editionType` は必須（無ければ 400） |
+| `GET /api/templates/funds?companyCode=…&editionType=…` | `[{ fundCode, fundName, created, seriesFunds }]`。`companyCode` と `editionType` は必須（無ければ 400） |
 
 - `created`: 選んだ版種で、その会社・ファンドのテンプレートが `filled/`・`templates/`・`pending/` のどこかに
   あるか（基準日は問わない。照合は大文字小文字を区別しない）。
-- `seriesBases`: 同じシリーズコードの他のファンドについて、`templates/` にある同じ版種のテンプレートの
-  `TemplateMeta` の配列（「系列から作成」の元にできるもの）。ファンド → 基準日の順。シリーズに属さない
-  ファンドは空配列。
+- `seriesFunds`: 同じシリーズコードの他のファンドの `[{ fundCode, fundName }]`（「系列から作成」のコピー元に
+  できるもの）。ファンドコード順。シリーズに属さないファンドは空配列。`templates/` の有無では絞らない
+  （コピー元のテンプレートをどこから読むかは生成器が決める）。
 - 削除: `GET /api/templates/series`、`TemplateRepository.resolveFund` / `listSeriesFunds`、
   `GET /api/templates/options` の `scope=create`（`scope` 省略時は `edit`）、`DROPDOWN_SCOPES` の `create`。
-- 生成（`POST /api/generate`）: 台帳への登録をやめる。生成器へ渡す JSON に `isRedemption` を
-  加える（true のときだけ）。
+- 生成（`POST /api/generate`）: 台帳への登録をやめる。`GenerateRequest` の `basedOnTemplateId` を
+  `sourceFundCode`（コピー元のファンドコード。会社と版種はコピー先と同じ）に置き換える。生成器へ渡す JSON は
+  コピー先の属性（`companyCode`・`fundCode`・`baseDate`・`editionType`）に、`sourceFundCode`（系列から作成の
+  ときだけ）と `isRedemption`（true のときだけ）を加える。作成履歴の「元テンプレ」も `sourceFundCode` を記録する。
+  テスト用の偽の生成器は、`templates/` にあるコピー元ファンド（同じ会社・版種）の基準日が最新のテンプレートを
+  読む。
 
 `shared` に `CompanyOption`（`companyCode`・`companyName`）と `CreatableFund`（上の 4 項目）の Zod スキーマを
 置き、`TemplateRepository` に `listCompanies()` と `listCreatableFunds(companyCode, editionType)` を足す。
+`CreatableFund.seriesFunds` の要素は `{ fundCode, fundName }`。
 
 ### 画面（作成タブ）
 
@@ -87,16 +92,16 @@ sproc の SELECT に別名（`AS`）を付けて合わせる。
   償還のチェックボックス、検索ボタン。会社と版種がそろうまで検索は押せない。
 - 下段: ファンドの表。列は「ファンドコード」「ファンド名」「状態」（`created` なら「作成済み」）「操作」。
   - 「作成」: その会社・ファンド・版種で新規作成する。
-  - 「系列から作成」: `seriesBases` が空でないときだけ出す。元にするテンプレートを選ばせてから作成する
-    （選択肢は `seriesBases`）。
+  - 「系列から作成」: `seriesFunds` が空でないときだけ出す。コピー元のファンド（選択肢は `seriesFunds`）を
+    選ばせてから作成する。
 - 作成後の遷移は従来どおり作成経路の編集画面（`editorRoute(id, { created: true })`）。
 - URL クエリ同期（`companyCode`・`editionType`）は編集タブと同じく保つ。
 
 ### local モード
 
 `listCompanies` は fixtures のファンド表（`funds.json`）の会社を重複なしで、`listCreatableFunds` はその会社の
-ファンドを返す。`created` は local のテンプレート一覧から、`seriesBases` は既存のモック
-（`SERIES_FUND_CODES`）から作る。
+ファンドを返す。`created` は local のテンプレート一覧から、`seriesFunds` は既存のモック
+（`SERIES_FUND_CODES`）から作る。local の生成は、コピー元ファンドの最新テンプレートの HTML を写す。
 
 ### 文書
 
@@ -110,13 +115,15 @@ sproc の SELECT に別名（`AS`）を付けて合わせる。
 
 - `companies` / `funds` の DB エラーは既存の sproc エラー変換（`mapSqlError`）に任せ、画面はトーストで出す。
 - `funds` の `companyCode` / `editionType` 欠落は 400。
-- `templates/`・`filled/`・`pending/` が無いときは空として扱う（`created` は false、`seriesBases` は空）。
+- `templates/`・`filled/`・`pending/` が無いときは空として扱う（`created` は false）。
+- 「系列から作成」で生成器がコピー元を見つけられないときは、生成器のエラーとして既存の経路で返す。
 
 ## テスト
 
 - サーバ: `listCompanies`・`listCreatableFunds`（`created` の判定を 3 つの置き場それぞれで、大文字小文字を
-  区別しない照合、`seriesBases` の絞り込みと並び、シリーズ無しは空）、ルートの 400、`isRedemption` が生成器の
-  JSON に入ること、生成が台帳を呼ばないこと、`scope=create` の 400。
+  区別しない照合、`seriesFunds` が同じシリーズの他ファンドだけで自分を含まないこと、並び、シリーズ無しは空）、
+  ルートの 400、`sourceFundCode` と `isRedemption` が生成器の JSON に入ること（無いときは入らないこと）、
+  `sourceFundCode` の検査（規約外は 400）、生成が台帳を呼ばないこと、`scope=create` の 400。
 - sprocFake: `委託会社一覧`・`ファンド一覧`・`usp_シリーズ 一覧` を足し、`候補`・`生成登録` を消す。
 - web: rest の URL、local の `listCompanies` / `listCreatableFunds`、作成タブの画面（会社と版種で検索 →
   表 → 作成 / 系列から作成）。
