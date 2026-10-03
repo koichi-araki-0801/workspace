@@ -10,7 +10,7 @@ import {
   type DropdownQuery,
   type FundMaster,
   type PartCatalogItem,
-  parseTemplateFileName,
+  parseAnyTemplateFileName,
   type TemplateMeta,
   templateIdFromFileName,
   type User,
@@ -249,7 +249,7 @@ export function allMetas(): TemplateMeta[] {
   const metas: TemplateMeta[] = [];
   for (const id of ids) {
     const fileName = `${id}.html`;
-    const attrs = parseTemplateFileName(fileName);
+    const attrs = parseAnyTemplateFileName(fileName);
     if (!attrs) continue;
     const saved = metaStore[id];
     metas.push({
@@ -312,11 +312,6 @@ export function passwordFor(username: string): string | undefined {
   const pw = read<Record<string, string>>(K.passwords, {});
   if (pw[username] !== undefined) return pw[username];
   return seedUsers.find((u) => u.username === username)?.password;
-}
-
-export function todayYmd(): string {
-  const d = new Date();
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export function defaultSkeleton(): string {

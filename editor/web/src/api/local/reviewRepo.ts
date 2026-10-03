@@ -12,7 +12,7 @@ import {
   isApprover,
   isErr,
   notFound,
-  parseTemplateFileName,
+  parseAnyTemplateFileName,
   type ReviewDecisionRequest,
   type ReviewListFilter,
   type ReviewRepository,
@@ -81,7 +81,7 @@ function assertEditSubmissionAllowed(
 export const localReviewRepo: ReviewRepository = {
   submitReview: (req: SubmitReviewRequest) =>
     attempt(async () => {
-      const attrs = parseTemplateFileName(`${req.templateId}.html`);
+      const attrs = parseAnyTemplateFileName(`${req.templateId}.html`);
       if (!attrs) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
       assertEditSubmissionAllowed(req.origin, req.templateId, attrs, req.html);
       // 現行版を読み、baseHash(並行性警告の素)を取る。失敗しても申請自体は妨げない。

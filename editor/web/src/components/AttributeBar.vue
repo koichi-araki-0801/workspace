@@ -3,22 +3,20 @@
 // AttributeBar.vue — template 属性(委託会社コード等)の横並びサマリ表示
 // =============================================================================
 import type { TemplateAttributes } from '@editor/shared';
+import { computed } from 'vue';
 import FundCodeName from '@/components/FundCodeName.vue';
+import { templateAttributeItems } from '@/lib/templateAttributeItems';
 
 // `inline`: `button` 内(承認タブの行ヘッダ)に置く用途。button の内容モデルは phrasing
 // content に限られ `div` を含められないため、ルートと各列を `span`(`inline-flex`)で描く
 // (ラベル上・値下の縦 2 段は変えない = 見た目は既定と揃える)。既定 `false` は他の利用者
 // (`PreviewView.vue`)向けで無影響。
-withDefaults(defineProps<{ attributes: TemplateAttributes; inline?: boolean }>(), {
+const props = withDefaults(defineProps<{ attributes: TemplateAttributes; inline?: boolean }>(), {
   inline: false,
 });
 
-const items: Array<{ key: keyof TemplateAttributes; label: string }> = [
-  { key: 'companyCode', label: '委託会社コード' },
-  { key: 'fundCode', label: 'ファンドコード' },
-  { key: 'baseDate', label: '基準日' },
-  { key: 'editionType', label: '版種' },
-];
+// テンプレート(基準日を持たない)を開いているときは、基準日の項目ごと出さない。
+const items = computed(() => templateAttributeItems(props.attributes));
 </script>
 
 <template>
@@ -40,8 +38,8 @@ const items: Array<{ key: keyof TemplateAttributes; label: string }> = [
       <span class="text-xs text-muted-foreground">{{ it.label }}</span>
       <span class="truncate text-sm text-foreground">
         <!-- fundCode 列だけコード＋解決名の共有部品へ委譲(名前解決の配線を二重に持たない) -->
-        <FundCodeName v-if="it.key === 'fundCode'" :code="attributes.fundCode" />
-        <span v-else class="mono font-medium">{{ attributes[it.key] }}</span>
+        <FundCodeName v-if="it.key === 'fundCode'" :code="it.value" />
+        <span v-else class="mono font-medium">{{ it.value }}</span>
       </span>
     </component>
   </component>

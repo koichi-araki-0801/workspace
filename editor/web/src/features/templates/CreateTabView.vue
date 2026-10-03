@@ -3,11 +3,12 @@
 // CreateTabView.vue — テンプレ作成タブ (Step1 ファンド指定 → Step2 作成方法選択)
 // =============================================================================
 import { type CreatableInfo, type GenerateRequest, isErr } from '@editor/shared';
-import { FilePlus2, FileText } from '@lucide/vue';
+import { FilePlus2, FileText, FolderOpen } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
+import { confirm } from '@/components/ui/confirm';
 import Step from '@/components/ui/Step.vue';
 import { toastError, toastSuccess } from '@/components/ui/toast';
 import { useAsyncResult } from '@/lib/useAsyncResult';
@@ -29,6 +30,8 @@ const method = ref<Method | null>(null);
 const info = ref<CreatableInfo | null>(null);
 // シリーズのコピー元候補があるときだけ「シリーズから作成」を出す。
 const isSeriesFund = computed(() => (info.value?.seriesFunds.length ?? 0) > 0);
+// 作成済み(templates/ にある)なら作成せず、既存のテンプレートを開かせる(作成しても 409 になる)。
+const alreadyCreated = computed(() => info.value?.created === true);
 // 償還ファンドとして作成するか(生成器へのパラメータ)。
 const isRedemption = ref(false);
 // 属性を素早く変えると前の属性の応答が後から届く。反映は最新の要求分だけに絞る。
@@ -88,10 +91,10 @@ watch(
 );
 
 function selectMethod(m: Method) {
-  if (!canCreate.value || creating.value) return;
+  if (!canCreate.value || alreadyCreated.value || creating.value) return;
   // 属性から新規作成 (`blank`) はカード押下で即作成→編集画面へ。シリーズは候補一覧を表示する。
   if (m === 'blank') {
-    createNew();
+    void createNew();
     return;
   }
   method.value = m;
@@ -105,28 +108,60 @@ async function create(req: GenerateRequest, successMsg: string) {
   router.push(editorRoute(res.value.id, { created: true }));
 }
 
-function createNew() {
+/**
+ * 作業中(同じ id の下書きか pending)があれば、作り直しの同意を取る。同意しなければ null(作らない)。
+ * サーバは同意(`replaceExisting`)の無い作り直しを 409 で止めるので、送る前にここで聞く。
+ */
+async function recreateConsent(): Promise<{ replaceExisting?: true } | null> {
+  if (!info.value?.inProgressId) return {};
+  const ok = await confirm({
+    title: '作業中の内容を捨てて作り直しますか',
+    description:
+      '作成中のテンプレートの下書きと生成した内容を捨てて、新しく作り直します。コメントと修正履歴は残ります。',
+    confirmLabel: '作り直す',
+    variant: 'destructive',
+  });
+  return ok ? { replaceExisting: true } : null;
+}
+
+/** 作成経路(差し込み値のハイライトあり)で開く。作成済みは申請 → 承認で templates/ を上書きする。 */
+function openInCreateRoute(id: string | undefined) {
+  if (id) router.push(editorRoute(id, { created: true }));
+}
+
+async function createNew() {
   const { companyCode, fundCode, editionType } = liveQuery;
   if (!companyCode || !fundCode || !editionType) {
     toastError(SELECT_ALL_MSG);
     return;
   }
-  create(
-    { companyCode, fundCode, editionType, isRedemption: isRedemption.value },
+  const consent = await recreateConsent();
+  if (!consent) return;
+  await create(
+    { companyCode, fundCode, editionType, isRedemption: isRedemption.value, ...consent },
     'テンプレートを作成しました',
   );
 }
 
-function createFromSeries(sourceFundCode: string) {
-  if (creating.value) return; // 連打で同じファンドのテンプレを二重作成させない
+async function createFromSeries(sourceFundCode: string) {
+  if (creating.value || alreadyCreated.value) return; // 連打・作成済みで二重に作らせない
   // コピー元は候補のファンド。作成されるのは Step1 で選んだファンド。
   const { companyCode, fundCode, editionType } = liveQuery;
   if (!companyCode || !fundCode || !editionType) {
     toastError(SELECT_ALL_MSG);
     return;
   }
-  create(
-    { companyCode, fundCode, editionType, sourceFundCode, isRedemption: isRedemption.value },
+  const consent = await recreateConsent();
+  if (!consent) return;
+  await create(
+    {
+      companyCode,
+      fundCode,
+      editionType,
+      sourceFundCode,
+      isRedemption: isRedemption.value,
+      ...consent,
+    },
     'シリーズを基にテンプレートを作成しました',
   );
 }
@@ -161,12 +196,29 @@ function createFromSeries(sourceFundCode: string) {
         :active="canCreate"
         :connector="false"
       >
-        <p
-          v-if="canCreate && info?.created"
-          class="mb-3 rounded-[11px] border border-warning/40 bg-warning/10 px-4 py-2.5 text-[12.5px] text-foreground"
+        <div
+          v-if="canCreate && alreadyCreated"
+          class="mb-3 flex flex-wrap items-center gap-3 rounded-[11px] border border-warning/40 bg-warning/10 px-4 py-2.5 text-[12.5px] text-foreground"
         >
-          この会社・ファンド・版種のテンプレートは作成済みです。
-        </p>
+          <span>この会社・ファンド・版種のテンプレートは作成済みです。直すときは既存のテンプレートを開いてください。</span>
+          <Button
+            v-if="info?.templateId"
+            variant="outline"
+            size="sm"
+            @click="openInCreateRoute(info?.templateId)"
+          >
+            <FolderOpen /> 既存のテンプレートを開く
+          </Button>
+        </div>
+        <div
+          v-else-if="canCreate && info?.inProgressId"
+          class="mb-3 flex flex-wrap items-center gap-3 rounded-[11px] border border-warning/40 bg-warning/10 px-4 py-2.5 text-[12.5px] text-foreground"
+        >
+          <span>この会社・ファンド・版種のテンプレートは作成中です。続きは作成中のテンプレートを開いてください。作り直すと作業中の内容は捨てられます。</span>
+          <Button variant="outline" size="sm" @click="openInCreateRoute(info?.inProgressId)">
+            <FolderOpen /> 作成中のテンプレートを開く
+          </Button>
+        </div>
         <label
           v-if="canCreate"
           class="mb-3 flex w-fit cursor-pointer items-center gap-2 text-[13px] text-foreground"
@@ -175,7 +227,7 @@ function createFromSeries(sourceFundCode: string) {
           償還ファンドとして作成する
         </label>
 
-        <div :class="cn('flex flex-wrap gap-3', !canCreate && 'pointer-events-none')">
+        <div :class="cn('flex flex-wrap gap-3', (!canCreate || alreadyCreated) && 'pointer-events-none')">
           <Button
             v-for="c in visibleMethodCards"
             :key="c.key"
@@ -188,7 +240,7 @@ function createFromSeries(sourceFundCode: string) {
                   : 'border-border bg-card hover:bg-card',
               )
             "
-            :disabled="!canCreate"
+            :disabled="!canCreate || alreadyCreated"
             @click="selectMethod(c.key)"
           >
             <span

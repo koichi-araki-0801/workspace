@@ -1,4 +1,12 @@
-import { isErr, isOk, ok, type TemplateMeta, type TemplateRepository } from '@editor/shared';
+import {
+  conflict,
+  err,
+  isErr,
+  isOk,
+  ok,
+  type TemplateMeta,
+  type TemplateRepository,
+} from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createTemplateCreationService,
@@ -39,6 +47,18 @@ describe('TemplateCreationService.create', () => {
     expect(isOk(res)).toBe(true);
     if (isOk(res)) expect(res.value.id).toBe(meta.id);
     expect(repo.generate).toHaveBeenCalledOnce();
+  });
+
+  it('生成に成功したら、その id の同じタブの編集状態を捨てる(失敗したら捨てない)', async () => {
+    const repo = repoWithGenerate();
+    const forget = vi.fn();
+    const svc = createTemplateCreationService(repo, forget);
+    await svc.create({ companyCode: 'AM01', fundCode: '510037', editionType: 'kr' });
+    expect(forget).toHaveBeenCalledWith(meta.id);
+    forget.mockClear();
+    repo.generate.mockResolvedValueOnce(err(conflict('作成中のテンプレートがあります')) as never);
+    await svc.create({ companyCode: 'AM01', fundCode: '510037', editionType: 'kr' });
+    expect(forget).not.toHaveBeenCalled();
   });
 });
 

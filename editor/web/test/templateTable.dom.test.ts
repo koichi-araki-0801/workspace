@@ -47,3 +47,22 @@ describe('TemplateTable の action ボタン', () => {
     expect(w.emitted('action')).toBeUndefined();
   });
 });
+
+describe('TemplateTable の基準日の列(回帰網)', () => {
+  it('基準日を持たないテンプレートの行は基準日の欄が空になる', () => {
+    const skeleton: TemplateMeta = {
+      id: 'AM01_510037_交付版',
+      attributes: { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' },
+      fileName: 'AM01_510037_交付版.html',
+      status: 'draft',
+      updatedAt: null,
+      updatedBy: null,
+    };
+    const w = mount(TemplateTable, {
+      props: { rows: [skeleton], action: 'edit' },
+      global: { stubs: { FundCodeName: true } },
+    });
+    expect(w.findAll('thead th').map((th) => th.text())).toContain('基準日');
+    expect(w.text()).not.toContain('undefined');
+  });
+});

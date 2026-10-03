@@ -157,6 +157,7 @@ export default defineConfig({
         // セッション期限判定。いずれも退行が「たまに古い値が出る」無言の形になる。
         'editor/web/src/lib/useLatest.ts',
         'editor/web/src/lib/routeQuery.ts',
+        'editor/web/src/lib/templateAttributeItems.ts',
         'editor/web/src/lib/sessionExpiry.ts',
         'editor/web/src/lib/useIframeAutoFit.ts',
         'editor/web/src/features/editor/geom.ts',
