@@ -110,7 +110,7 @@ e2e（Playwright）は project が 2 つある。`chromium` は挙動を検証�
 Vite はランチャ `editor/e2e/tools/e2e-vite.ts` 経由で起動し、異常終了時は
 `.tmp/vite-e2e/exit-*.txt` に終了コードと直前の出力が残る。`E2E_VITE_PROCDUMP=<procdump.exe>` を
 設定するとクラッシュダンプも採る（ダンプ採取は procdump、読解は WinDbg。手順は
-`docs/superpowers/specs/2026-09-12-vite-crash-findings.md`）。
+`docs/トラブルシュート.md` の「e2e の途中で Vite が終了コード `3221226505` で落ちる」）。
 
 実 SQL Server（LocalDB）を相手にした検証は別枠の手動確認であり、`ci` や GitHub Actions では
 実行されない。

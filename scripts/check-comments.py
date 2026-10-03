@@ -40,9 +40,8 @@ ROOT = Path(__file__).resolve().parent.parent
 #   docs_src_pattern : docs 原稿側の所見番号検査を当てるパスの正規表現
 #   finding_id_skip_prefixes : §5 所見番号検査だけを免除する前方一致パス集合
 #                               (ディレクトリ自体は §4 等の走査対象に残る点が
-#                               `skip_dir_names` と違う)。monorepo 側では PDF 抽出の
-#                               生テキストサンプルを置く `("docs/_samples/",)` を使う。
-#                               python-tools では該当ディレクトリが無いため空。
+#                               `skip_dir_names` と違う)。現状はどちらのリポジトリも
+#                               該当ディレクトリが無いため空。
 REPO_CONFIGS: dict[str, dict] = {
     "python-tools": {
         "skip_dir_names": frozenset(
@@ -127,8 +126,7 @@ REPO_CONFIGS: dict[str, dict] = {
         # `.husky/` 配下の拡張子なしファイル (git フックシム) をシェル構文扱いする。
         "shell_shim_prefixes": (".husky/",),
         "docs_src_pattern": re.compile(r"^docs/[^/]+/src/"),
-        # PDF 抽出プレーンテキストサンプルは所見番号らしき数字列を含みうるため除外。
-        "finding_id_skip_prefixes": ("docs/_samples/",),
+        "finding_id_skip_prefixes": (),
     },
 }
 ACTIVE_REPO = "workspace"

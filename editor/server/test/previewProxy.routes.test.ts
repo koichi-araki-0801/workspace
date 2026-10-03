@@ -70,8 +70,8 @@ describe('GET /api/preview/:id/* の中継許可リスト', () => {
     app.inject({ method: 'GET', url: `/api/preview/${id}${suffix}` });
 
   it.each([
-    '/@fs/C:/Users/caads/workspace/editor/server/tls/editor.pfx',
-    '/@fs/C:/Users/caads/workspace/pnpm-workspace.yaml',
+    '/@fs/C:/work/repo/editor/server/tls/editor.pfx',
+    '/@fs/C:/work/repo/pnpm-workspace.yaml',
     '/@id/x',
     '/@vite/client',
     '/node_modules/evil.html',
