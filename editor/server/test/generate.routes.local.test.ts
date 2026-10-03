@@ -4,10 +4,9 @@
 // `generate.routes.test.ts` は `AUTH_REQUIRED=true` で「認証済み利用者が確定領域へ
 // 書けないこと」を検証するが、`request.user` を onRequest で必ず注入するため
 // `loginId = request.user?.username ?? 'system'` の `?? 'system'` 側と、
-// `if (config.requireAuth) { ... }` の else 側(台帳登録も pending 書込もしない)を
-// 一度も踏まない。web の local モード(localStorage のみ・DB 不達を前提)を模した本ファイルは
-// user 注入を外し、生成物を返すだけで台帳(sproc の `台帳登録`)にも pending にも触れないことを
-// 固定する。
+// `if (config.requireAuth) { ... }` の else 側(pending 書込をしない)を一度も踏まない。
+// web の local モード(localStorage のみ・DB 不達を前提)を模した本ファイルは user 注入を外し、
+// 生成物を返すだけで sproc の `テンプレート` にも pending にも触れないことを固定する。
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,12 +32,11 @@ process.env.AUTH_REQUIRED = 'false';
 const templatesDir = path.join(root, 'data', 'templates');
 const pendingDir = path.join(root, 'data', 'pending');
 
-describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では台帳にも pending にも触れない', () => {
+describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では sproc の テンプレート にも pending にも触れない', () => {
   let app: FastifyInstance;
-  // `SP.template`(生成登録)を呼んだ回数だけを数える。注記マスタ適用(`SP.noteMaster` の
-  // `取得`)は生成のたび呼ばれる正当な経路なので、ここでは対象外にする(「台帳(sproc)も
-  // pending も触らない」の"台帳"はテンプレート台帳への登録を指す)。
-  let ledgerCalls = 0;
+  // `SP.template` を呼んだ回数だけを数える。注記マスタ適用(`SP.noteMaster` の `取得`)は
+  // 生成のたび呼ばれる正当な経路なので、ここでは対象外にする。
+  let templateCalls = 0;
 
   beforeAll(async () => {
     const Fastify = (await import('fastify')).default;
@@ -49,7 +47,7 @@ describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では台�
     const { createDeps } = await import('../src/deps.js');
     const { createSessionStub } = await import('./helpers/sessionStub.js');
     const sproc = createSprocClient(async (sql) => {
-      if (sql.includes(SP.template)) ledgerCalls += 1;
+      if (sql.includes(SP.template)) templateCalls += 1;
       return [];
     });
     const deps = createDeps(sproc, createSessionStub());
@@ -65,14 +63,14 @@ describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では台�
     fs.rmSync(root, { recursive: true, force: true });
   });
   beforeEach(() => {
-    ledgerCalls = 0;
+    templateCalls = 0;
     for (const d of [templatesDir, pendingDir]) {
       fs.rmSync(d, { recursive: true, force: true });
       fs.mkdirSync(d, { recursive: true });
     }
   });
 
-  it('local モードでは生成物を返すだけで、台帳(sproc)も pending も触らない', async () => {
+  it('local モードでは生成物を返すだけで、sproc の テンプレート も pending も触らない', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/generate',
@@ -80,9 +78,9 @@ describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では台�
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().template.html).toContain('生成物');
-    expect(ledgerCalls).toBe(0);
+    expect(templateCalls).toBe(0);
     // 確定領域(`templatesDir`)へ書かないことは `generate.routes.test.ts` が認証オンで
-    // 主張する。ここは local の非到達(台帳・pending)だけを見る。
+    // 主張する。ここは local の非到達(sproc・pending)だけを見る。
     expect(fs.readdirSync(pendingDir)).toEqual([]);
   });
 });

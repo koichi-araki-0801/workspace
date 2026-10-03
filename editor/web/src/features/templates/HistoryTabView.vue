@@ -78,7 +78,7 @@ const createColumns: HistoryColumn<CreateHistoryEntry>[] = [
   { header: '日時', headerClass: W_TIME, cellClass: MONO, value: (e) => formatDateTime(e.timestamp) },
   { header: '生成ファイル', headerClass: W_ID, cellClass: MONO, value: (e) => templateFileName(e.attributes) },
   { header: '実行者', headerClass: W_USER, value: (e) => e.user },
-  { header: '元テンプレート', cellClass: MONO, value: (e) => e.basedOnTemplateId ?? '—' },
+  { header: '元テンプレート', cellClass: MONO, value: (e) => e.sourceFundCode ?? e.basedOnTemplateId ?? '—' },
 ];
 
 // 単一のフィルタバーへ渡す値。アクティブな履歴タイプに応じて切り替える。

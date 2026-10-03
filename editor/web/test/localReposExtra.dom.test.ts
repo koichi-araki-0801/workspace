@@ -396,51 +396,6 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     if (isOk(hist)) expect(hist.value.length).toBe(1);
   });
 
-  it('generate (based on a template) copies the base html', async () => {
-    const base = await firstMeta();
-    const baseTpl = await localTemplateRepo.getTemplate(base.id);
-    if (!isOk(baseTpl)) return;
-    const r = await localTemplateRepo.generate({
-      companyCode: base.attributes.companyCode,
-      fundCode: base.attributes.fundCode,
-      editionType: base.attributes.editionType,
-      basedOnTemplateId: base.id,
-    });
-    expect(isOk(r)).toBe(true);
-    if (isOk(r)) expect(r.value.template.html).toBe(baseTpl.value.html);
-  });
-
-  it('generate based on a missing template propagates not_found', async () => {
-    const base = await firstMeta();
-    const r = await localTemplateRepo.generate({
-      companyCode: base.attributes.companyCode,
-      fundCode: base.attributes.fundCode,
-      editionType: base.attributes.editionType,
-      basedOnTemplateId: 'does_not_exist',
-    });
-    expect(isErr(r)).toBe(true);
-    if (isErr(r)) expect(r.error.kind).toBe('not_found');
-  });
-
-  it('listSeriesFunds filters by company and edition', async () => {
-    const meta = await firstMeta();
-    const r = await localTemplateRepo.listSeriesFunds(
-      meta.attributes.companyCode,
-      meta.attributes.fundCode,
-      meta.attributes.editionType,
-    );
-    expect(isOk(r)).toBe(true);
-    if (isOk(r)) {
-      expect(
-        r.value.every(
-          (m) =>
-            m.attributes.companyCode === meta.attributes.companyCode &&
-            m.attributes.editionType === meta.attributes.editionType,
-        ),
-      ).toBe(true);
-    }
-  });
-
   it('saveDraft then getDraft round-trips; missing draft is null', async () => {
     const meta = await firstMeta();
     await localTemplateRepo.saveDraft({ templateId: meta.id, html: '<p>d</p>', css: '.d{}' });
@@ -537,15 +492,6 @@ describe('localTemplateRepo の生成と override', () => {
     expect(isOk(t) && t.value.html).toBe('<p>over</p>');
     expect(isOk(t) && t.value.css).toBe('.o{}');
     expect(isOk(t) && t.value.filled).toBe('');
-  });
-
-  it('resolveFund はコアラップ系の集合メンバシップ', async () => {
-    // 510037 はコアラップ系(SERIES_FUND_CODES)のメンバー。
-    const a = await localTemplateRepo.resolveFund('AM01', '510037', '交付版');
-    expect(isOk(a) && a.value.isSeriesFund).toBe(true);
-    // 非シリーズ(110024)は false。
-    const b = await localTemplateRepo.resolveFund('AM01', '110024', '交付版');
-    expect(isOk(b) && b.value.isSeriesFund).toBe(false);
   });
 });
 

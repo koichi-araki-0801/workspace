@@ -10,11 +10,9 @@ import {
   type DropdownQuery,
   type DropdownScope,
   type FundOption,
-  type FundResolution,
   type GenerateRequest,
   type GenerateResult,
   isOk,
-  map,
   ok,
   type PairSyncStatus,
   type SampleData,
@@ -65,14 +63,6 @@ export function clearSampleDataCache(): void {
   }
 }
 
-/** シリーズ(`GET /templates/series`。templates/ の走査)の問い合わせ。`resolveFund` と `listSeriesFunds` で共用。 */
-const seriesFetch = (companyCode: string, fundCode: string, editionType: string) =>
-  attemptRest(() =>
-    apiFetch<TemplateMeta[]>(apiPaths.templatesSeries, {
-      query: { companyCode, fundCode, editionType },
-    }),
-  );
-
 export const restTemplateRepo: TemplateRepository = {
   listCompanies: () => attemptRest(() => apiFetch<CompanyOption[]>(apiPaths.templatesCompanies)),
 
@@ -103,18 +93,6 @@ export const restTemplateRepo: TemplateRepository = {
 
   generate: (req: GenerateRequest) =>
     attemptRest(() => apiFetch<GenerateResult>(apiPaths.generate, { method: 'POST', body: req })),
-
-  // 属性解決: シリーズの問い合わせ結果に自分以外のメンバーが居ればシリーズファンド。
-  resolveFund: async (companyCode: string, fundCode: string, editionType: string) =>
-    map(
-      await seriesFetch(companyCode, fundCode, editionType),
-      (rows): FundResolution => ({
-        isSeriesFund: rows.some((m) => m.attributes.fundCode !== fundCode),
-      }),
-    ),
-
-  listSeriesFunds: (companyCode: string, fundCode: string, editionType: string) =>
-    seriesFetch(companyCode, fundCode, editionType),
 
   saveDraft: (req: SaveDraftRequest) =>
     attemptRest(() =>

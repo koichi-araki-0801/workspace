@@ -102,14 +102,6 @@ describe('templates.routes', () => {
       'utf8',
     );
     fs.writeFileSync(path.join(root, 'data', 'css', '510037.css'), 'body{}', 'utf8');
-    // 系列(`GET /templates/series`)は templates/(作成タブの Jinja)を源にする。
-    for (const id of ['AM01_510037_20240710_交付版', 'AM01_510037_20240710_全体版']) {
-      fs.writeFileSync(
-        path.join(root, 'data', 'templates', `${id}.html`),
-        '<p>{{ a }}</p>',
-        'utf8',
-      );
-    }
     app = await buildApp();
   });
   afterAll(async () => {
@@ -117,18 +109,29 @@ describe('templates.routes', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('GET /templates/options: scope 省略は台帳 sproc の候補(create)(未ログインは 401)', async () => {
+  it('GET /templates/options: scope 省略は edit(filled/ から作る)(未ログインは 401)', async () => {
     expect((await app.inject({ method: 'GET', url: '/templates/options' })).statusCode).toBe(401);
     const res = await app.inject({
       method: 'GET',
-      url: '/templates/options?companyCode=AM01',
+      url: '/templates/options',
       headers: as('editor'),
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json();
-    expect(body.companyCodes).toEqual(['AM01']);
-    expect(body.fundCodes).toContain('510037');
-    expect(body.editionTypes).toEqual(expect.arrayContaining(['交付版', '全体版']));
+    expect(res.json()).toEqual({
+      companyCodes: ['AM01'],
+      fundCodes: ['510037'],
+      baseDates: ['20240710'],
+      editionTypes: ['交付版'],
+    });
+  });
+
+  it('GET /templates/options: scope=create は無くなったので 400', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/templates/options?scope=create',
+      headers: as('editor'),
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it('GET /templates/companies: 略称と Rep1 コード付きの会社(未ログインは 401)', async () => {
@@ -211,7 +214,7 @@ describe('templates.routes', () => {
 
   it('GET /templates/options: クエリが配列(文字列でない)値のキーは無視する', async () => {
     // `?companyCode=a&companyCode=b` は Fastify のクエリ解析で配列になる。`toQuery` が
-    // 文字列でない値を無視して素通しすることを固定する。台帳の会社は 1 件なので、
+    // 文字列でない値を無視して素通しすることを固定する。filled/ の会社は 1 件なので、
     // 絞り込みが効いた場合と応答は区別できない(見ているのは 500 にならないことと候補の形)。
     const res = await app.inject({
       method: 'GET',
@@ -222,35 +225,13 @@ describe('templates.routes', () => {
     expect(res.json().companyCodes).toEqual(['AM01']);
   });
 
-  it('GET /templates/series: companyCode と editionType が無ければ 400、あれば templates/ を版種で絞る', async () => {
-    expect(
-      (
-        await app.inject({
-          method: 'GET',
-          url: '/templates/series?companyCode=AM01',
-          headers: as('editor'),
-        })
-      ).statusCode,
-    ).toBe(400);
-    // companyCode 側だけが欠けているケースも踏んでおく(2 パラメータのどちらが欠けても 400)。
-    expect(
-      (
-        await app.inject({
-          method: 'GET',
-          url: `/templates/series?editionType=${encodeURIComponent('交付版')}`,
-          headers: as('editor'),
-        })
-      ).statusCode,
-    ).toBe(400);
+  it('GET /templates/series は無くなった(テンプレート ID として扱われ 404)', async () => {
     const res = await app.inject({
       method: 'GET',
       url: `/templates/series?companyCode=AM01&editionType=${encodeURIComponent('交付版')}`,
       headers: as('editor'),
     });
-    expect(res.statusCode).toBe(200);
-    expect((res.json() as Array<{ id: string }>).map((m) => m.id)).toEqual([
-      'AM01_510037_20240710_交付版',
-    ]);
+    expect(res.statusCode).toBe(404);
   });
 
   it('GET /templates: ファイル走査由来の一覧を属性クエリで絞る(空文字のクエリは無視)', async () => {

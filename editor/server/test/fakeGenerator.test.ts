@@ -80,6 +80,12 @@ describe('fake_generate_template.py', () => {
     expect(r.stdout).toBe('<p>new</p>');
   }, 30_000);
 
+  it('TEMPLATES_DIR が無ければ sourceFundCode はエラー(既定の置き場を黙って読まない)', async () => {
+    const r = await run({ ...ATTRS, sourceFundCode: '510037' }, {});
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain('TEMPLATES_DIR');
+  }, 30_000);
+
   it('sourceFundCode のコピー元が無い・規約外ならエラー', async () => {
     const templates = path.join(tmp, 'templates-empty');
     fs.mkdirSync(templates, { recursive: true });
@@ -87,34 +93,5 @@ describe('fake_generate_template.py', () => {
     expect(missing.code).toBe(2);
     const bad = await run({ ...ATTRS, sourceFundCode: '../x' }, { TEMPLATES_DIR: templates });
     expect(bad.code).toBe(2);
-  }, 30_000);
-
-  it('元テンプレは TEMPLATES_DIR の <id>.html を読む', async () => {
-    const templates = path.join(tmp, 'templates');
-    fs.mkdirSync(templates, { recursive: true });
-    fs.writeFileSync(
-      path.join(templates, 'AM01_510037_20240710_交付版.html'),
-      '<p>元テンプレ</p>',
-      'utf8',
-    );
-    const r = await run(
-      { ...ATTRS, basedOnTemplateId: 'AM01_510037_20240710_交付版' },
-      { TEMPLATES_DIR: templates },
-    );
-    expect(r.code).toBe(0);
-    expect(r.stdout).toBe('<p>元テンプレ</p>');
-  }, 30_000);
-
-  it('TEMPLATES_DIR が無ければ元テンプレ指定はエラー(既定の置き場を黙って読まない)', async () => {
-    const r = await run({ ...ATTRS, basedOnTemplateId: 'AM01_510037_20240710_交付版' }, {});
-    expect(r.code).toBe(2);
-    expect(r.stderr).toContain('TEMPLATES_DIR');
-    expect(r.stdout).toBe('');
-  }, 30_000);
-
-  it('置き場の外を指す元テンプレ指定はエラー', async () => {
-    const r = await run({ ...ATTRS, basedOnTemplateId: '../outside' }, { TEMPLATES_DIR: tmp });
-    expect(r.code).toBe(2);
-    expect(r.stderr).toContain('invalid basedOnTemplateId');
   }, 30_000);
 });

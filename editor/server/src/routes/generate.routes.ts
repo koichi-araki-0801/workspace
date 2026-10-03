@@ -1,8 +1,8 @@
 // =============================================================================
 // generate.routes.ts — 既存 Python ツールで新規テンプレートを生成
 // =============================================================================
-// REST モードでは生成結果を**未確定(pending)領域**へ置き、台帳へ登録(status=draft)、作成
-// 履歴フィードへ記録する。Python ステップ自体は変更しない。
+// REST モードでは生成結果を**未確定(pending)領域**へ置き、作成履歴フィードへ記録する。
+// Python ステップ自体は変更しない。
 //
 // **確定ディレクトリ(templatesDir)へは書かない。** ここが確定書込を直呼びすると、
 // 任意ロールの認証済みユーザが承認を経ない確定テンプレ実体を作れてしまう。
@@ -13,7 +13,6 @@
 import {
   apiPaths,
   assertTemplateAttributeToken,
-  assertTemplateId,
   conflict,
   type TemplateAttributes,
   type TemplateMeta,
@@ -25,7 +24,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
 import type { Deps } from '../deps.js';
-import { pendingExists, writePending } from '../files/pendingFiles.js';
+import { writePending } from '../files/pendingFiles.js';
 import { hasTemplateFor, readFundCss, templateExists } from '../files/templateFiles.js';
 import { generateTemplate } from '../generate/pyTemplate.js';
 import { auditedRethrow } from '../logger.js';
@@ -39,9 +38,9 @@ import { recordCreate } from '../repositories/historyRepo.js';
 // 「生成は締まっているのに確定書込(`confirmedWrite.ts`)は緩い」のような非対称ができる。
 
 export const generateRoutes: FastifyPluginAsync<{
-  deps: Pick<Deps, 'templates' | 'noteMaster'>;
+  deps: Pick<Deps, 'noteMaster'>;
 }> = async (app, opts) => {
-  const { templates, noteMaster } = opts.deps;
+  const { noteMaster } = opts.deps;
 
   app.post<{ Body: z.infer<typeof GenerateRequest> }>(
     apiPaths.generate,
@@ -59,10 +58,7 @@ export const generateRoutes: FastifyPluginAsync<{
             baseDate: todayYmd(),
             editionType: assertTemplateAttributeToken('版種', body.editionType),
           };
-          // 元テンプレ指定も属性と同じくここで検査する。検査済みの値だけを生成器と作成履歴へ渡す。
-          const basedOnTemplateId = body.basedOnTemplateId
-            ? assertTemplateId(body.basedOnTemplateId)
-            : undefined;
+          // コピー元も属性と同じくここで検査する。検査済みの値だけを生成器と作成履歴へ渡す。
           const sourceFundCode = body.sourceFundCode
             ? assertTemplateAttributeToken('コピー元ファンドコード', body.sourceFundCode)
             : undefined;
@@ -96,7 +92,6 @@ export const generateRoutes: FastifyPluginAsync<{
               fundCode: attributes.fundCode,
               editionType: attributes.editionType,
               baseDate: attributes.baseDate,
-              ...(basedOnTemplateId === undefined ? {} : { basedOnTemplateId }),
               ...(sourceFundCode === undefined ? {} : { sourceFundCode }),
               ...(body.isRedemption === true ? { isRedemption: true } : {}),
             }),
@@ -113,19 +108,13 @@ export const generateRoutes: FastifyPluginAsync<{
             updatedBy: null,
           };
 
-          // REST モード: 台帳登録 → pending 実体 → 作成記録の順。**台帳が先**なのは
-          // `UQ_台帳_属性4` 違反で弾かれたときに実体だけが残る(孤児)のを避けるため。
-          // CSS はファンド共有ファイルなので pending にしか書かない — 共有 CSS の
-          // 書き換えは承認経路(`applyConfirmedWrite`)の専権である。
-          //
-          // 同一属性の pending が既に在るなら台帳行も既に在る(前回の生成で登録済み)。
-          // ここで再登録すると `UQ_台帳_属性4` に当たり、未承認テンプレの作り直しが
-          // 永久に不能になる。pending は未確定の作業用実体なので上書きしてよい
-          // (確定側は上の 409 が守る。承認ゲートは一切迂回していない)。
+          // REST モード: pending 実体 → 作成記録の順。CSS はファンド共有ファイルなので pending に
+          // しか書かない — 共有 CSS の書き換えは承認経路(`applyConfirmedWrite`)の専権である。
+          // 同一属性の pending が既に在れば上書きする。pending は未確定の作業用実体なので、
+          // 作り直しを塞がない(確定側は上の 409 が守る。承認ゲートは一切迂回していない)。
           if (config.requireAuth) {
-            if (!(await pendingExists(id))) await templates.registerGenerated(attributes, id);
             await writePending(id, html, css);
-            await recordCreate(attributes, { basedOnTemplateId, sourceFundCode }, loginId);
+            await recordCreate(attributes, sourceFundCode, loginId);
           }
 
           return { meta, html, css, id, attributes };

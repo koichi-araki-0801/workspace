@@ -1,7 +1,7 @@
 // =============================================================================
 // templateRepo.options.test.ts — 候補の出所を scope で切り替えること
 // =============================================================================
-// edit は filled/ + pending/、published は filled/ だけ、create は台帳 sproc。ファイル起点の
+// edit は filled/ + pending/、published は filled/ だけ。どちらもファイル起点の
 // scope は DB に触れない(DB 不在の sproc を渡しても候補が返る)。照合は大文字小文字を区別しない。
 import fs from 'node:fs';
 import os from 'node:os';
@@ -75,10 +75,6 @@ describe('templateRepo.getDropdownOptions の scope', () => {
   it('pending/ と filled/ に同じ id があっても二重にならない', async () => {
     const o = await repo.getDropdownOptions({ companyCode: 'AM01' }, 'edit');
     expect(o.fundCodes).toEqual(['510155']);
-  });
-
-  it('create は台帳 sproc を呼ぶ(DB 不在なら失敗する)', async () => {
-    await expect(repo.getDropdownOptions({}, 'create')).rejects.toBeTruthy();
   });
 
   it('一覧は大文字小文字だけが違う pending の消し残りを二重に出さない', async () => {

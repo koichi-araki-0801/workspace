@@ -21,7 +21,7 @@ type Field = 'companyCode' | 'fundCode' | 'baseDate' | 'editionType';
 
 const props = withDefaults(
   defineProps<{
-    /** 候補の出所(edit = 編集タブ / published = 比較・結合 / create = 作成タブ)。 */
+    /** 候補の出所(edit = 編集タブ / published = 比較・結合)。 */
     dropdownScope: DropdownScope;
     /** どの属性フィールドをカスケード dropdown として出すか。 */
     fields?: Field[];

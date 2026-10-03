@@ -7,13 +7,6 @@
 
 SET NOCOUNT ON;
 
-/* 台帳.状態 ∈ {draft, published} */
-IF OBJECT_ID(N'[ug01].[CK_台帳_状態]', N'C') IS NULL
-  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_テンプレート台帳]
-    ADD CONSTRAINT [CK_台帳_状態]
-      CHECK ([状態] IN (N'draft', N'published'));
-GO
-
 /* ユーザー.ロール ∈ {admin, approver, editor, viewer}
  * approver 追加(承認ワークフロー)に伴い DROP+ADD で作り直す。既定の WITH CHECK で
  * 既存行も検証されるが、旧 3 値はすべて新列挙に含まれるため通る。 */

@@ -1,9 +1,9 @@
 // =============================================================================
 // templates.routes.ts — テンプレートのルート(phase 2)
 // =============================================================================
-// 候補(作成タブ)と生成登録は台帳 sproc、作成タブの会社・ファンド・シリーズは Rep1 を読む sproc、
-// 一覧・候補(編集/比較/結合)・系列・作成済みの判定はファイル走査、本体(html/css)はファイルで扱う。
-// 登録順が重要: `/templates/options` と `/templates/series` を `/templates/:id` より
+// 作成タブの会社・ファンド・シリーズは Rep1 を読む sproc、一覧・候補(編集/比較/結合)・
+// 作成済みの判定はファイル走査、本体(html/css)はファイルで扱う。
+// 登録順が重要: `/templates/options` などの固定パスを `/templates/:id` より
 // 先に登録し、id として捕捉されないようにする(Fastify は static>parametric を内部優先する
 // ので機能上は順不同だが、可読性のため現行順を保つ)。
 import {
@@ -31,9 +31,9 @@ function toQuery(q: Record<string, unknown>): DropdownQuery {
   };
 }
 
-/** `scope` の検査。省略・空文字は作成タブと同じ `create`(変更前の挙動)。 */
+/** `scope` の検査。省略・空文字は編集タブと同じ `edit`。 */
 function toScope(v: unknown): DropdownScope {
-  if (v === undefined || v === '') return 'create';
+  if (v === undefined || v === '') return 'edit';
   if (typeof v === 'string' && (DROPDOWN_SCOPES as readonly string[]).includes(v)) {
     return v as DropdownScope;
   }
@@ -79,14 +79,6 @@ export const templatesRoutes: FastifyPluginAsync<{
       });
     },
   );
-
-  app.get<QueryRec>(apiPaths.templatesSeries, { preHandler: requireAuth }, async (request) => {
-    const q = request.query;
-    const companyCode = typeof q.companyCode === 'string' ? q.companyCode : '';
-    const editionType = typeof q.editionType === 'string' ? q.editionType : '';
-    if (!companyCode || !editionType) throw validation('companyCode と editionType が必要です');
-    return templates.listSeriesFunds(companyCode, editionType);
-  });
 
   app.get<QueryRec>(apiPaths.templates, { preHandler: requireAuth }, async (request) => {
     return templates.listTemplates(toQuery(request.query));

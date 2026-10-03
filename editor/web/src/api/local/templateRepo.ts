@@ -283,10 +283,6 @@ export const localTemplateRepo: TemplateRepository = {
         const baseRes = await localTemplateRepo.getTemplate(source.id);
         if (isErr(baseRes)) throw baseRes.error;
         baseHtml = baseRes.value.html;
-      } else if (req.basedOnTemplateId) {
-        const baseRes = await localTemplateRepo.getTemplate(req.basedOnTemplateId);
-        if (isErr(baseRes)) throw baseRes.error;
-        baseHtml = baseRes.value.html;
       } else {
         baseHtml =
           fixtureTemplates[
@@ -324,7 +320,6 @@ export const localTemplateRepo: TemplateRepository = {
         attributes: attrs,
         user: user?.displayName ?? '不明',
         timestamp: now(),
-        basedOnTemplateId: req.basedOnTemplateId,
         ...(req.sourceFundCode ? { sourceFundCode: req.sourceFundCode } : {}),
       });
       write(K.createHist, createHist);
@@ -332,22 +327,6 @@ export const localTemplateRepo: TemplateRepository = {
       // 新規生成 skeleton には静的 fill が無い。editor が 1 つ描画する。
       return delay({ template: { meta, html: baseHtml, css, filled: '' } });
     }),
-
-  resolveFund: (_companyCode: string, fundCode: string, _editionType: string) =>
-    attempt(() => delay({ isSeriesFund: SERIES_FUND_CODES.has(fundCode) })),
-
-  // シリーズ候補はコアラップ系(`SERIES_FUND_CODES`)のメンバーのみ。非シリーズは出さない。
-  listSeriesFunds: (companyCode: string, _fundCode: string, editionType: string) =>
-    attempt(() =>
-      delay(
-        allMetas().filter(
-          (m) =>
-            m.attributes.companyCode === companyCode &&
-            m.attributes.editionType === editionType &&
-            SERIES_FUND_CODES.has(m.attributes.fundCode),
-        ),
-      ),
-    ),
 
   saveDraft: (req: SaveDraftRequest) =>
     attempt(() => {

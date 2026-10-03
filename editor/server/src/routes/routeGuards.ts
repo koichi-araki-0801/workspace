@@ -51,7 +51,6 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
 
   // templates — 参照は viewer にも開く
   [`GET ${api(apiPaths.templatesOptions)}`]: 'auth',
-  [`GET ${api(apiPaths.templatesSeries)}`]: 'auth',
   [`GET ${api(apiPaths.templatesCompanies)}`]: 'auth',
   [`GET ${api(apiPaths.templatesFunds)}`]: 'auth',
   [`GET ${api(apiPaths.templatesCreatable)}`]: 'auth',

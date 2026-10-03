@@ -5,28 +5,6 @@
 
 SET NOCOUNT ON;
 
-/* --- テンプレート台帳 ---------------------------------------------------- */
-IF NOT EXISTS (SELECT 1 FROM sys.indexes
-  WHERE name = N'UQ_台帳_テンプレートID'
-    AND object_id = OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_テンプレート台帳]'))
-  CREATE UNIQUE INDEX [UQ_台帳_テンプレートID]
-    ON [ug01].[Rep1_運報自動化_Editor_テンプレート台帳] ([テンプレートID]);
-GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes
-  WHERE name = N'UQ_台帳_属性4'
-    AND object_id = OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_テンプレート台帳]'))
-  CREATE UNIQUE INDEX [UQ_台帳_属性4]
-    ON [ug01].[Rep1_運報自動化_Editor_テンプレート台帳]
-       ([委託会社コード], [ファンドコード], [基準日], [版種]);
-GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes
-  WHERE name = N'IX_台帳_会社_ファンド'
-    AND object_id = OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_テンプレート台帳]'))
-  CREATE INDEX [IX_台帳_会社_ファンド]
-    ON [ug01].[Rep1_運報自動化_Editor_テンプレート台帳]
-       ([委託会社コード], [ファンドコード]);
-GO
-
 /* --- ユーザー ------------------------------------------------------------ */
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
   WHERE name = N'UQ_ユーザー_公開ID'

@@ -6,7 +6,6 @@ import {
   type CreatableInfo,
   err,
   type FundOption,
-  type FundResolution,
   type GenerateRequest,
   map,
   type Result,
@@ -30,17 +29,6 @@ interface TemplateCreationService {
   ): Promise<Result<CreatableInfo>>;
   /** 属性を検証してから生成する。成功時は新規テンプレの meta を返す。 */
   create(req: GenerateRequest): Promise<Result<TemplateMeta>>;
-  /** 属性解決: シリーズファンド判定など。 */
-  resolveFund(
-    companyCode: string,
-    fundCode: string,
-    editionType: string,
-  ): Promise<Result<FundResolution>>;
-  listSeriesFunds(
-    companyCode: string,
-    fundCode: string,
-    editionType: string,
-  ): Promise<Result<TemplateMeta[]>>;
 }
 
 export function createTemplateCreationService(repo: TemplateRepository): TemplateCreationService {
@@ -54,10 +42,6 @@ export function createTemplateCreationService(repo: TemplateRepository): Templat
     listCompanies: () => repo.listCompanies(),
     listFunds: (rep1CompanyCode) => repo.listFunds(rep1CompanyCode),
     getCreatableInfo: (q) => repo.getCreatableInfo(q),
-    resolveFund: (companyCode, fundCode, editionType) =>
-      repo.resolveFund(companyCode, fundCode, editionType),
-    listSeriesFunds: (companyCode, fundCode, editionType) =>
-      repo.listSeriesFunds(companyCode, fundCode, editionType),
   };
 }
 

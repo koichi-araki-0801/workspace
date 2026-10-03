@@ -306,19 +306,6 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      '/templates/series': {
-        get: {
-          tags: ['templates'],
-          summary: '系列ファンドのテンプレート一覧',
-          operationId: 'listSeriesFunds',
-          requestParams: { query: s.SeriesFundsQuery },
-          responses: {
-            '200': json('系列ファンドの meta 配列', z.array(s.TemplateMeta)),
-            ...ERR_400,
-            ...ERR_401,
-          },
-        },
-      },
       [toOpenApiPath(apiPaths.templateById)]: {
         get: {
           tags: ['templates'],

@@ -262,7 +262,10 @@ export const CreateHistoryEntry = z
     attributes: TemplateAttributes,
     user: z.string(),
     timestamp: z.string(),
-    basedOnTemplateId: z.string().optional().meta({ description: '系列ファンドの元テンプレ ID' }),
+    basedOnTemplateId: z
+      .string()
+      .optional()
+      .meta({ description: '過去の履歴(シリーズの元テンプレ ID)。新しい履歴は sourceFundCode' }),
     sourceFundCode: z
       .string()
       .optional()
@@ -501,11 +504,11 @@ export const DropdownQuery = z.object({
   editionType: z.string().optional(),
 });
 
-/** 候補の出所。edit = filled/ + pending/、published = filled/ のみ、create = 台帳(sproc `候補`)。 */
-export const DROPDOWN_SCOPES = ['edit', 'published', 'create'] as const;
+/** 候補の出所。edit = filled/ + pending/、published = filled/ のみ。 */
+export const DROPDOWN_SCOPES = ['edit', 'published'] as const;
 export const DropdownScope = z.enum(DROPDOWN_SCOPES);
 
-/** `GET /templates/options` のクエリ。`scope` 省略時は `create`。 */
+/** `GET /templates/options` のクエリ。`scope` 省略時は `edit`。 */
 export const DropdownOptionsQuery = DropdownQuery.extend({
   scope: DropdownScope.optional(),
 });
@@ -518,13 +521,6 @@ export const DropdownOptions = z
     editionTypes: z.array(z.string()),
   })
   .meta({ id: 'DropdownOptions' });
-
-/** (server 専用) `GET /templates/series` のクエリパラメータ。 */
-export const SeriesFundsQuery = z.object({
-  companyCode: z.string(),
-  fundCode: z.string(),
-  editionType: z.string(),
-});
 
 // ── 7. Parts catalog / generate / draft / confirm-save / build ──
 
@@ -715,10 +711,6 @@ export const GenerateRequest = z
     companyCode: z.string().min(1),
     fundCode: z.string().min(1),
     editionType: z.string().min(1),
-    basedOnTemplateId: z
-      .string()
-      .optional()
-      .meta({ description: 'シリーズファンドのテンプレから生成する場合の元テンプレ ID' }),
     sourceFundCode: z.string().optional().meta({
       description: 'シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)',
     }),

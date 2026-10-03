@@ -27,7 +27,6 @@ export const apiPaths = {
   authInitPassword: '/auth/init-password',
   // templates
   templatesOptions: '/templates/options',
-  templatesSeries: '/templates/series',
   templatesCompanies: '/templates/companies',
   templatesFunds: '/templates/funds',
   templatesCreatable: '/templates/creatable',

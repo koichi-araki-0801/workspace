@@ -9,13 +9,13 @@
 //   - `ユーザー/作成` は重複ログインID を 50409 で断り、`要パスワード変更` の既定は 1。
 //   - `ユーザー/更新` は NULL を据え置く(COALESCE)。
 //   - `セッション/取得` は `失効=0` かつ `有効期限 > now` の行だけを返す。
-//   - `テンプレート/生成登録` は冪等。
+//   - `テンプレート/ファンド一覧`・`シリーズ/一覧` の会社コード照合は大文字小文字を
+//     区別しない(実 DB の照合順序)。
 // エラーは `AppError` ではなく `number` を持つ生 SQL エラー相当を throw する。種別への
 // 変換は `createSprocClient` の中の `mapSqlError` が 1 回だけ行う。
 // 状態はすべて `createFakeQuery` のクロージャに閉じるので、フェイクを 2 つ作れば 2 つの
 // 独立した DB になる(モジュール変数を持たない)。
 import type { UserRole } from '@editor/shared';
-import { parseTemplateFileName } from '@editor/shared';
 import { hashPassword } from '../../src/auth/password.js';
 import { createSprocClient, type QueryFn, type Row, type SprocClient } from '../../src/db/sproc.js';
 import { SP } from '../../src/db/sprocNames.js';
@@ -57,8 +57,6 @@ export interface FakePartSeed {
 export interface FakeSeed {
   users?: readonly FakeUserSeed[];
   funds?: readonly FakeFundSeed[];
-  /** 台帳へ載せるテンプレートID(ファイル名の stem)。属性はここから解析する。 */
-  templateIds?: readonly string[];
   parts?: readonly FakePartSeed[];
 }
 
@@ -119,18 +117,6 @@ export const DEFAULT_FUNDS: readonly FakeFundSeed[] = [
   },
 ];
 
-// `editor/web/src/api/fixtures/templates/*.html` と同じ 8 件。候補の値がここから出る。
-export const DEFAULT_TEMPLATE_IDS: readonly string[] = [
-  'AM01_110024_20251117_交付版',
-  'AM01_110024_20251117_全体版',
-  'AM01_510003_20250710_全体版',
-  'AM01_510037_20240710_交付版',
-  'AM01_510037_20240710_全体版',
-  'AM01_510124_20251020_交付版',
-  'AM01_510124_20251020_全体版',
-  'AM01_510155_20240710_交付版',
-];
-
 // 既定は「未判断」= ペア同期も次回反映もしない。承認フローで機械転写が勝手に走らない側へ倒す。
 const DEFAULT_PARTS: readonly FakePartSeed[] = [
   {
@@ -178,17 +164,6 @@ interface SessionRow {
   失効: number;
   最終アクセス: Date;
 }
-interface TemplateRow {
-  テンプレートID: string;
-  委託会社コード: string;
-  ファンドコード: string;
-  基準日: string;
-  版種: string;
-  ファイル名: string;
-  状態: string;
-  更新日時: string | null;
-  更新者: string | null;
-}
 interface NoteRow {
   パーツID: string;
   ファンドコード: string;
@@ -228,7 +203,6 @@ function parseCall(sql: string, values: unknown[]): { proc: string; args: Args }
 export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
   const users = new Map<string, UserRow>();
   const sessions = new Map<string, SessionRow>();
-  const templates = new Map<string, TemplateRow>();
   const notes = new Map<string, NoteRow>();
   const funds = new Map<string, FakeFundSeed>();
   const parts = [...(seed.parts ?? DEFAULT_PARTS)];
@@ -254,21 +228,6 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     });
   });
   for (const f of seed.funds ?? DEFAULT_FUNDS) funds.set(f.code, f);
-  for (const id of seed.templateIds ?? DEFAULT_TEMPLATE_IDS) {
-    const attrs = parseTemplateFileName(`${id}.html`);
-    if (!attrs) continue;
-    templates.set(id, {
-      テンプレートID: id,
-      委託会社コード: attrs.companyCode,
-      ファンドコード: attrs.fundCode,
-      基準日: attrs.baseDate,
-      版種: attrs.editionType,
-      ファイル名: `${id}.html`,
-      状態: 'published',
-      更新日時: null,
-      更新者: null,
-    });
-  }
 
   /** 台帳の公開列だけを写す(ハッシュ列は `認証情報取得` 以外へ出さない)。 */
   const publicUser = (r: UserRow): Row => ({
@@ -439,7 +398,6 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
   }
 
   function templateOp(op: string, a: Args): Row[] {
-    const rows = [...templates.values()];
     if (op === '委託会社一覧') {
       const byCode = new Map<string, { 名: string; 略: string }>();
       for (const f of funds.values()) {
@@ -458,60 +416,6 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
         .filter((f) => rep1Of(f).toLowerCase() === company.toLowerCase())
         .sort((x, y) => x.code.localeCompare(y.code))
         .map((f) => ({ ファンドコード: f.code, ファンド名: f.name }));
-    }
-
-    if (op === '候補') {
-      const company = optText(a, '委託会社コード');
-      const fund = optText(a, 'ファンドコード');
-      const base = optText(a, '基準日');
-      // 各候補は「自分より上位の選択」だけで絞る(自分自身・下位は含めない)。そうしないと
-      // 版種を選んだ後にその版種だけへ候補が潰れ、別の版種へ戻せない。
-      const out: Row[] = [];
-      const push = (区分: string, 値: string) => {
-        if (!out.some((r) => r.区分 === 区分 && r.値 === 値)) out.push({ 区分, 値 });
-      };
-      for (const r of rows) push('会社', r.委託会社コード);
-      for (const r of rows)
-        if (!company || r.委託会社コード === company) push('ファンド', r.ファンドコード);
-      for (const r of rows)
-        if ((!company || r.委託会社コード === company) && (!fund || r.ファンドコード === fund))
-          push('基準日', r.基準日);
-      for (const r of rows)
-        if (
-          (!company || r.委託会社コード === company) &&
-          (!fund || r.ファンドコード === fund) &&
-          (!base || r.基準日 === base)
-        )
-          push('版種', r.版種);
-      return out.sort(
-        (x, y) =>
-          String(x.区分).localeCompare(String(y.区分)) || String(x.値).localeCompare(String(y.値)),
-      );
-    }
-
-    if (op === '生成登録') {
-      const id = text(a, 'テンプレートID');
-      const 委託会社コード = text(a, '委託会社コード');
-      const ファンドコード = text(a, 'ファンドコード');
-      const 基準日 = text(a, '基準日');
-      const 版種 = text(a, '版種');
-      const ファイル名 = text(a, 'ファイル名');
-      if (!id || !委託会社コード || !ファンドコード || !基準日 || !版種 || !ファイル名)
-        throw sqlError(50000, '生成登録には属性4とファイル名が必要です');
-      // 冪等。既に在る行は触らない。
-      if (!templates.has(id))
-        templates.set(id, {
-          テンプレートID: id,
-          委託会社コード,
-          ファンドコード,
-          基準日,
-          版種,
-          ファイル名,
-          状態: 'draft',
-          更新日時: null,
-          更新者: null,
-        });
-      return [];
     }
 
     throw sqlError(50000, '未知の @操作 です(テンプレート)');

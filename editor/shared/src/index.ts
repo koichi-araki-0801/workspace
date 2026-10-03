@@ -192,12 +192,6 @@ export type CreatableInfo = z.infer<typeof sch.CreatableInfo>;
 
 export type GenerateRequest = z.infer<typeof sch.GenerateRequest>;
 
-/** ファンドの属性解決の結果 (例: シリーズファンドか否か)。 */
-export interface FundResolution {
-  /** 属性解決の結果、シリーズファンド（コアラップ系）と判定できたか。 */
-  isSeriesFund: boolean;
-}
-
 export type GenerateResult = z.infer<typeof sch.GenerateResult>;
 
 export type SaveDraftRequest = z.infer<typeof sch.SaveDraftRequest>;

@@ -9,7 +9,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { assertTemplateAttributeToken, assertTemplateId } from '@editor/shared';
+import { assertTemplateAttributeToken } from '@editor/shared';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { BuildAdmissionGate } from '../vivliostyle/buildAdmission.js';
@@ -19,9 +19,8 @@ export interface GenerateAttributes {
   companyCode: string;
   fundCode: string;
   editionType: string;
-  /** サーバの現在日(`yyyyMMdd`)。ファイル名・台帳の基準日と同じ値を生成器にも見せる。 */
+  /** サーバの現在日(`yyyyMMdd`)。ファイル名の基準日と同じ値を生成器にも見せる。 */
   baseDate: string;
-  basedOnTemplateId?: string;
   /** シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)。 */
   sourceFundCode?: string;
   /** 償還ファンドとして作成するか。true のときだけ生成器へ渡す。 */
@@ -100,8 +99,8 @@ const GENERATE_GATE = new BuildAdmissionGate({
 const INHERITED_ENV_KEYS = ['PATH', 'SYSTEMROOT', 'TEMP', 'TMP', 'PATHEXT', 'COMSPEC'] as const;
 
 /**
- * 生成器(と起動時の版確認)の子プロセスへ渡す環境変数を組む。`TEMPLATES_DIR` は元テンプレ指定
- * (`basedOnTemplateId`)の読み先で、サーバの本当の置き場(`config.templatesDir`)を必ず渡す。
+ * 生成器(と起動時の版確認)の子プロセスへ渡す環境変数を組む。`TEMPLATES_DIR` はコピー元
+ * (`sourceFundCode`)のテンプレートの読み先で、サーバの本当の置き場(`config.templatesDir`)を必ず渡す。
  */
 export function generatorEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
@@ -123,7 +122,6 @@ function toGeneratorPayload(attrs: GenerateAttributes): GenerateAttributes {
     fundCode: attrs.fundCode,
     editionType: attrs.editionType,
     baseDate: attrs.baseDate,
-    ...(attrs.basedOnTemplateId ? { basedOnTemplateId: attrs.basedOnTemplateId } : {}),
     ...(attrs.sourceFundCode ? { sourceFundCode: attrs.sourceFundCode } : {}),
     ...(attrs.isRedemption ? { isRedemption: true } : {}),
   };
@@ -134,10 +132,9 @@ function toGeneratorPayload(attrs: GenerateAttributes): GenerateAttributes {
  * (入出力の約束。テスト用の偽物は `config.python.script` の既定)。
  */
 export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
-  // `basedOnTemplateId` は生成器側で templates ディレクトリと連結して読まれる。ルートでも検査
-  // するが、ここを別の呼び出し元から使われても任意ファイルを取り込ませないよう、渡す前に
-  // もう一度検査する(Python 側にも basename + 実パス封じ込めの検査がある)。
-  if (attrs.basedOnTemplateId) assertTemplateId(attrs.basedOnTemplateId);
+  // `sourceFundCode` は生成器側でファイル名の照合に使われる。ルートでも検査するが、ここを別の
+  // 呼び出し元から使われても区切り文字を持ち込ませないよう、渡す前にもう一度検査する
+  // (Python 側にも区切り文字の検査がある)。
   if (attrs.sourceFundCode) {
     assertTemplateAttributeToken('コピー元ファンドコード', attrs.sourceFundCode);
   }

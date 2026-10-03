@@ -286,8 +286,7 @@
               "type": "string",
               "enum": [
                 "edit",
-                "published",
-                "create"
+                "published"
               ]
             }
           }
@@ -523,76 +522,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CreatableInfo"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "リクエスト検証エラー (kind=validation)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "未認証 (kind=unauthorized)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/templates/series": {
-      "get": {
-        "tags": [
-          "templates"
-        ],
-        "summary": "系列ファンドのテンプレート一覧",
-        "operationId": "listSeriesFunds",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "companyCode",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          },
-          {
-            "in": "query",
-            "name": "fundCode",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          },
-          {
-            "in": "query",
-            "name": "editionType",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "系列ファンドの meta 配列",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TemplateMeta"
-                  }
                 }
               }
             }
@@ -2867,10 +2796,6 @@
             "type": "string",
             "minLength": 1
           },
-          "basedOnTemplateId": {
-            "description": "シリーズファンドのテンプレから生成する場合の元テンプレ ID",
-            "type": "string"
-          },
           "sourceFundCode": {
             "description": "シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)",
             "type": "string"
@@ -4301,7 +4226,7 @@
             "type": "string"
           },
           "basedOnTemplateId": {
-            "description": "系列ファンドの元テンプレ ID",
+            "description": "過去の履歴(シリーズの元テンプレ ID)。新しい履歴は sourceFundCode",
             "type": "string"
           },
           "sourceFundCode": {

@@ -13,9 +13,9 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
-// 生成器(python)と台帳(sproc)は本テストの対象外。台帳は既定で成功させ、孤児検査の
-// ときだけ失敗へ切り替える。生成器は「何を渡されたか」だけを観測する。
-let sprocFails = false;
+// 生成器(python)と sproc は本テストの対象外。生成器は「何を渡されたか」だけを、sproc は
+// `テンプレート` を呼ばないことだけを観測する(注記マスタの適用は DB 不達でも素通しする)。
+let templateCalls = 0;
 const { generateMock } = vi.hoisted(() => ({
   generateMock: vi.fn(async (_attrs: unknown) => '<html><body><p>生成物</p></body></html>'),
 }));
@@ -55,8 +55,9 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     const { templatesRoutes } = await import('../src/routes/templates.routes.js');
     const { createSprocClient } = await import('../src/db/sproc.js');
     const { createDeps } = await import('../src/deps.js');
-    const sproc = createSprocClient(async () => {
-      if (sprocFails) throw new Error('台帳登録に失敗(テストの意図的失敗)');
+    const { SP } = await import('../src/db/sprocNames.js');
+    const sproc = createSprocClient(async (sql) => {
+      if (sql.includes(SP.template)) templateCalls += 1;
       return [];
     });
     const store = createSessionStub({
@@ -87,7 +88,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
   beforeEach(() => {
-    sprocFails = false;
+    templateCalls = 0;
     for (const d of [templatesDir, filledDir, pendingDir]) {
       fs.rmSync(d, { recursive: true, force: true });
       fs.mkdirSync(d, { recursive: true });
@@ -163,8 +164,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   });
 
   it('pending がある属性の再生成は通り、pending を上書きする(復旧手段を塞がない)', async () => {
-    // 台帳への再登録は `UQ_台帳_属性4` に当たるため行わない。ここが 409 や 500 になると
-    // 「一覧に出るが開けない・作り直せない」テンプレが恒久的に残る。
+    // ここが 409 や 500 になると「一覧に出るが開けない・作り直せない」テンプレが恒久的に残る。
     await generate(validBody);
     fs.writeFileSync(path.join(pendingDir, `${ID}.html`), '<p>古い生成物</p>', 'utf8');
     const res = await generate(validBody);
@@ -173,11 +173,10 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(fs.readdirSync(templatesDir)).toEqual([]);
   });
 
-  it('台帳登録に失敗したら pending も残さない(孤児を作らない)', async () => {
-    sprocFails = true;
+  it('生成で sproc の テンプレート を呼ばない(作成タブの台帳は無い)', async () => {
     const res = await generate(validBody);
-    expect(res.statusCode).toBeGreaterThanOrEqual(400);
-    expect(fs.readdirSync(pendingDir)).toEqual([]);
+    expect(res.statusCode).toBe(200);
+    expect(templateCalls).toBe(0);
   });
 
   it.each([
@@ -210,7 +209,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('生成器へは検証済みの属性とサーバの基準日だけを渡す(本文の他のキーは渡らない)', async () => {
+  it('生成器へは検証済みの属性とサーバの基準日だけを渡す(本文の他のキーや廃止した basedOnTemplateId は渡らない)', async () => {
     generateMock.mockClear();
     const res = await generate({
       ...validBody,
@@ -224,7 +223,6 @@ describe('POST /api/generate は確定領域へ書かない', () => {
       fundCode: '510037',
       editionType: '交付版',
       baseDate: ymd,
-      basedOnTemplateId: 'AM01_510037_20240710_交付版',
     });
   });
 
@@ -269,12 +267,5 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     generateMock.mockClear();
     await generate({ ...validBody, isRedemption: false });
     expect(generateMock.mock.calls[0][0]).not.toHaveProperty('isRedemption');
-  });
-
-  it('規約外の basedOnTemplateId はルートで 400 にし、生成器を呼ばない', async () => {
-    generateMock.mockClear();
-    const res = await generate({ ...validBody, basedOnTemplateId: '../../outside/x' });
-    expect(res.statusCode).toBe(400);
-    expect(generateMock).not.toHaveBeenCalled();
   });
 });

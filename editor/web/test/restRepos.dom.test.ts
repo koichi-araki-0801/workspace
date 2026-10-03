@@ -111,23 +111,6 @@ describe('restTemplateRepo', () => {
       `/api/templates/${encodeURIComponent('AM01_510037_20240710_交付版')}`,
     );
   });
-  it('resolveFund は series 応答に自分以外のファンドがあるときだけ isSeriesFund=true', async () => {
-    stubFetch(() =>
-      json([{ attributes: { fundCode: '510037' } }, { attributes: { fundCode: '510038' } }]),
-    );
-    const r = await restTemplateRepo.resolveFund('AM01', '510037', '交付版');
-    expect(isOk(r) && r.value.isSeriesFund).toBe(true);
-    stubFetch(() => json([{ attributes: { fundCode: '510037' } }]));
-    const only = await restTemplateRepo.resolveFund('AM01', '510037', '交付版');
-    expect(isOk(only) && only.value.isSeriesFund).toBe(false);
-  });
-  it('listSeriesFunds は 3 引数をクエリに載せる', async () => {
-    const calls = stubFetch(() => json([]));
-    await restTemplateRepo.listSeriesFunds('AM01', '510037', '交付版');
-    expect(calls[0].url).toBe(
-      `/api/templates/series?companyCode=AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`,
-    );
-  });
   it('saveDraft は PUT /templates/:id/draft にボディごと送り、204 を ok(undefined) に写す', async () => {
     const calls = stubFetch(() => new Response(null, { status: 204 }));
     const req = { templateId: 'AM01_510037_20240710_交付版', html: '<p>x</p>', css: '.a{}' };

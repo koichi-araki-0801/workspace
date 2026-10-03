@@ -2,15 +2,12 @@
 """テスト・local 検証用の偽の生成器。本番は PY_GENERATE_SCRIPT で既存の生成器を指す。
 
 入出力の約束(呼び出し元は editor/server/src/generate/pyTemplate.ts):
-- argv[1] は JSON: {companyCode, fundCode, editionType, baseDate, basedOnTemplateId?,
-  sourceFundCode?, isRedemption?}
+- argv[1] は JSON: {companyCode, fundCode, editionType, baseDate, sourceFundCode?, isRedemption?}
 - 生成した Jinja2 テンプレート HTML を stdout へ出す。
 
-basedOnTemplateId があれば、環境変数 TEMPLATES_DIR(サーバが config.templatesDir を渡す)の
-<id>.html をそのまま返す。TEMPLATES_DIR が無ければ元テンプレ指定はエラーにする。
-
-sourceFundCode があれば、TEMPLATES_DIR にある同じ会社・版種のコピー元ファンドのうち、基準日が
-最新のテンプレートを返す(会社コードの大文字小文字は区別しない)。isRedemption は受け取るだけ。
+sourceFundCode があれば、環境変数 TEMPLATES_DIR(サーバが config.templatesDir を渡す)にある
+同じ会社・版種のコピー元ファンドのうち、基準日が最新のテンプレートを返す(会社コードの大文字小文字は
+区別しない)。TEMPLATES_DIR が無ければエラーにする。isRedemption は受け取るだけ。
 """
 import json
 import os
@@ -25,7 +22,6 @@ def main() -> int:
     company = attrs.get("companyCode", "")
     fund = attrs.get("fundCode", "")
     edition = attrs.get("editionType", "")
-    based_on = attrs.get("basedOnTemplateId")
     source_fund = attrs.get("sourceFundCode")
 
     if source_fund:
@@ -54,29 +50,6 @@ def main() -> int:
         with open(os.path.join(templates_dir, best[1]), encoding="utf-8") as fh:
             sys.stdout.write(fh.read())
             return 0
-
-    if based_on:
-        templates_dir = os.environ.get("TEMPLATES_DIR")
-        if not templates_dir:
-            # サーバは必ず TEMPLATES_DIR を渡す。無いのは単独実行か呼び出し元の不備で、既定の
-            # 置き場を推測して読むと、別の環境のテンプレを元にした生成物ができてしまう。
-            print("TEMPLATES_DIR is required when basedOnTemplateId is given", file=sys.stderr)
-            return 2
-        # 呼び出し元(`pyTemplate.ts`)も検査するが、ここでも独立に封じ込める。単独実行や
-        # 将来の別呼び出し元でも「templates ディレクトリの外は読まない」を成立させるため。
-        # basename でセグメントを 1 つに潰し、realpath で解決先が中にあることを確かめる。
-        if based_on != os.path.basename(based_on) or ".." in based_on:
-            print("invalid basedOnTemplateId", file=sys.stderr)
-            return 2
-        root = os.path.realpath(templates_dir)
-        path = os.path.realpath(os.path.join(root, based_on + ".html"))
-        if os.path.commonpath([root, path]) != root:
-            print("invalid basedOnTemplateId", file=sys.stderr)
-            return 2
-        if os.path.exists(path):
-            with open(path, encoding="utf-8") as f:
-                sys.stdout.write(f.read())
-                return 0
 
     html = f"""<!doctype html>
 <html lang="ja">

@@ -42,29 +42,6 @@ describe('TemplateCreationService.create', () => {
   });
 });
 
-describe('TemplateCreationService.listSeriesFunds', () => {
-  it('delegates to the repository with the given attributes', async () => {
-    const listSeriesFunds = vi.fn(async () => ok([meta]));
-    const repo = { listSeriesFunds } as unknown as TemplateRepository;
-    const svc = createTemplateCreationService(repo);
-    const res = await svc.listSeriesFunds('AM01', '510037', 'kr');
-    expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value).toHaveLength(1);
-    expect(listSeriesFunds).toHaveBeenCalledWith('AM01', '510037', 'kr');
-  });
-});
-
-describe('TemplateCreationService.resolveFund', () => {
-  it('resolveFund は repo へそのまま委譲する', async () => {
-    const resolveFund = vi.fn(async () => ok({ isSeriesFund: true }));
-    const repo = { resolveFund } as unknown as TemplateRepository;
-    const svc = createTemplateCreationService(repo);
-    const res = await svc.resolveFund('A', 'F', 'E');
-    expect(isOk(res)).toBe(true);
-    expect(resolveFund).toHaveBeenCalledWith('A', 'F', 'E');
-  });
-});
-
 describe('TemplateCreationService の作成タブ用の問い合わせ', () => {
   it('listCompanies は repo へそのまま委譲する', async () => {
     const listCompanies = vi.fn(async () =>
