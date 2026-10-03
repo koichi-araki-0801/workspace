@@ -54,6 +54,41 @@ describe('fake_generate_template.py', () => {
     expect(r.stdout).toContain('ファンド: 510037');
   }, 30_000);
 
+  it('sourceFundCode はコピー元ファンドの基準日が最新のテンプレートを写す(会社コードの大小を問わない)', async () => {
+    const templates = path.join(tmp, 'templates-source');
+    fs.mkdirSync(templates, { recursive: true });
+    fs.writeFileSync(
+      path.join(templates, 'AM01_510037_20240101_交付版.html'),
+      '<p>old</p>',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(templates, 'am01_510037_20250101_交付版.html'),
+      '<p>new</p>',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(templates, 'AM01_510037_20260101_全体版.html'),
+      '<p>版種違い</p>',
+      'utf8',
+    );
+    const r = await run(
+      { ...ATTRS, fundCode: '510155', sourceFundCode: '510037' },
+      { TEMPLATES_DIR: templates },
+    );
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe('<p>new</p>');
+  }, 30_000);
+
+  it('sourceFundCode のコピー元が無い・規約外ならエラー', async () => {
+    const templates = path.join(tmp, 'templates-empty');
+    fs.mkdirSync(templates, { recursive: true });
+    const missing = await run({ ...ATTRS, sourceFundCode: '999999' }, { TEMPLATES_DIR: templates });
+    expect(missing.code).toBe(2);
+    const bad = await run({ ...ATTRS, sourceFundCode: '../x' }, { TEMPLATES_DIR: templates });
+    expect(bad.code).toBe(2);
+  }, 30_000);
+
   it('元テンプレは TEMPLATES_DIR の <id>.html を読む', async () => {
     const templates = path.join(tmp, 'templates');
     fs.mkdirSync(templates, { recursive: true });

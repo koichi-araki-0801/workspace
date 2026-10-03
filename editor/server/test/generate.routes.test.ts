@@ -215,7 +215,6 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     const res = await generate({
       ...validBody,
       basedOnTemplateId: 'AM01_510037_20240710_交付版',
-      isRedemption: true,
       evil: '<script>',
     });
     expect(res.statusCode).toBe(200);
@@ -227,6 +226,49 @@ describe('POST /api/generate は確定領域へ書かない', () => {
       baseDate: ymd,
       basedOnTemplateId: 'AM01_510037_20240710_交付版',
     });
+  });
+
+  it('sourceFundCode のコピー元テンプレートが templates/ に無ければ生成器を呼ばずに 400', async () => {
+    generateMock.mockClear();
+    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '999999' });
+    expect(res.statusCode).toBe(400);
+    expect(generateMock).not.toHaveBeenCalled();
+  });
+
+  it('規約外の sourceFundCode は 400', async () => {
+    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '../x' });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('コピー元があれば sourceFundCode と isRedemption を生成器へ渡し、作成履歴に残す', async () => {
+    fs.writeFileSync(
+      path.join(templatesDir, 'AM01_510037_20240710_交付版.html'),
+      '<p>元</p>',
+      'utf8',
+    );
+    generateMock.mockClear();
+    const res = await generate({
+      ...validBody,
+      fundCode: '510155',
+      sourceFundCode: '510037',
+      isRedemption: true,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(generateMock.mock.calls[0][0]).toMatchObject({
+      sourceFundCode: '510037',
+      isRedemption: true,
+    });
+    const lines = fs
+      .readFileSync(path.join(root, 'logs', 'history', 'create.jsonl'), 'utf8')
+      .trim()
+      .split('\n');
+    expect(JSON.parse(lines[lines.length - 1])).toMatchObject({ sourceFundCode: '510037' });
+  });
+
+  it('isRedemption が false なら生成器へ渡さない', async () => {
+    generateMock.mockClear();
+    await generate({ ...validBody, isRedemption: false });
+    expect(generateMock.mock.calls[0][0]).not.toHaveProperty('isRedemption');
   });
 
   it('規約外の basedOnTemplateId はルートで 400 にし、生成器を呼ばない', async () => {

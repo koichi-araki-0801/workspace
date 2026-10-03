@@ -9,7 +9,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { assertTemplateId } from '@editor/shared';
+import { assertTemplateAttributeToken, assertTemplateId } from '@editor/shared';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { BuildAdmissionGate } from '../vivliostyle/buildAdmission.js';
@@ -22,6 +22,10 @@ export interface GenerateAttributes {
   /** サーバの現在日(`yyyyMMdd`)。ファイル名・台帳の基準日と同じ値を生成器にも見せる。 */
   baseDate: string;
   basedOnTemplateId?: string;
+  /** シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)。 */
+  sourceFundCode?: string;
+  /** 償還ファンドとして作成するか。true のときだけ生成器へ渡す。 */
+  isRedemption?: boolean;
 }
 
 /** 指紋が合わないときに利用者へ出す文言(生成器の差し替えは管理者の対応事項)。 */
@@ -120,6 +124,8 @@ function toGeneratorPayload(attrs: GenerateAttributes): GenerateAttributes {
     editionType: attrs.editionType,
     baseDate: attrs.baseDate,
     ...(attrs.basedOnTemplateId ? { basedOnTemplateId: attrs.basedOnTemplateId } : {}),
+    ...(attrs.sourceFundCode ? { sourceFundCode: attrs.sourceFundCode } : {}),
+    ...(attrs.isRedemption ? { isRedemption: true } : {}),
   };
 }
 
@@ -132,6 +138,9 @@ export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
   // するが、ここを別の呼び出し元から使われても任意ファイルを取り込ませないよう、渡す前に
   // もう一度検査する(Python 側にも basename + 実パス封じ込めの検査がある)。
   if (attrs.basedOnTemplateId) assertTemplateId(attrs.basedOnTemplateId);
+  if (attrs.sourceFundCode) {
+    assertTemplateAttributeToken('コピー元ファンドコード', attrs.sourceFundCode);
+  }
   const payload = toGeneratorPayload(attrs);
   // 指紋の照合は枠を取った後・起動の直前に行う(待ち行列にいる間の差し替えも拾う)。
   return GENERATE_GATE.run(async () => {

@@ -80,7 +80,7 @@ describe('生成器の起動のしかた', () => {
 
   it('属性 JSON は明示したキーだけで組み、呼び出し元の余計なキーを渡さない', async () => {
     answerOk();
-    await generateTemplate({ ...attrs, isRedemption: true, evil: '<x>' } as GenerateAttributes);
+    await generateTemplate({ ...attrs, evil: '<x>' } as GenerateAttributes);
     const args = execFileMock.mock.calls[0][1] as string[];
     expect(JSON.parse(args[args.length - 1])).toEqual({
       companyCode: 'C1',
@@ -88,6 +88,34 @@ describe('生成器の起動のしかた', () => {
       editionType: 'monthly',
       baseDate: '20261001',
     });
+  });
+
+  it('sourceFundCode と isRedemption は指定したときだけ生成器の JSON に入る', async () => {
+    answerOk();
+    await generateTemplate({ ...attrs, sourceFundCode: '510037', isRedemption: true });
+    let args = execFileMock.mock.calls[0][1] as string[];
+    expect(JSON.parse(args[args.length - 1])).toEqual({
+      companyCode: 'C1',
+      fundCode: 'F1',
+      editionType: 'monthly',
+      baseDate: '20261001',
+      sourceFundCode: '510037',
+      isRedemption: true,
+    });
+    execFileMock.mockClear();
+    answerOk();
+    await generateTemplate({ ...attrs, isRedemption: false });
+    args = execFileMock.mock.calls[0][1] as string[];
+    const payload = JSON.parse(args[args.length - 1]);
+    expect(payload).not.toHaveProperty('sourceFundCode');
+    expect(payload).not.toHaveProperty('isRedemption');
+  });
+
+  it('規約外の sourceFundCode は生成器を呼ばずに拒否する(呼び出し元とは独立の防御)', async () => {
+    expect(() => generateTemplate({ ...attrs, sourceFundCode: '../x' })).toThrow(
+      /不正なコピー元ファンドコード/,
+    );
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 
   it('元テンプレ指定は basedOnTemplateId として渡す', async () => {

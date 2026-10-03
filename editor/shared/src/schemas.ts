@@ -263,6 +263,10 @@ export const CreateHistoryEntry = z
     user: z.string(),
     timestamp: z.string(),
     basedOnTemplateId: z.string().optional().meta({ description: '系列ファンドの元テンプレ ID' }),
+    sourceFundCode: z
+      .string()
+      .optional()
+      .meta({ description: 'シリーズから作成したときのコピー元ファンドコード' }),
   })
   .meta({ id: 'CreateHistoryEntry' });
 
@@ -715,10 +719,13 @@ export const GenerateRequest = z
       .string()
       .optional()
       .meta({ description: 'シリーズファンドのテンプレから生成する場合の元テンプレ ID' }),
+    sourceFundCode: z.string().optional().meta({
+      description: 'シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)',
+    }),
     isRedemption: z
       .boolean()
       .optional()
-      .meta({ description: '償還ファンドとして作成(特定パーツを償還用へ置換。現状はモック実装)' }),
+      .meta({ description: '償還ファンドとして作成(生成器へパラメータとして渡す)' }),
   })
   .meta({ id: 'GenerateRequest' });
 

@@ -19,13 +19,14 @@ import {
   type TemplateMeta,
   templateFileName,
   templateIdFromFileName,
+  validation,
 } from '@editor/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
 import type { Deps } from '../deps.js';
 import { pendingExists, writePending } from '../files/pendingFiles.js';
-import { readFundCss, templateExists } from '../files/templateFiles.js';
+import { hasTemplateFor, readFundCss, templateExists } from '../files/templateFiles.js';
 import { generateTemplate } from '../generate/pyTemplate.js';
 import { auditedRethrow } from '../logger.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
@@ -62,6 +63,16 @@ export const generateRoutes: FastifyPluginAsync<{
           const basedOnTemplateId = body.basedOnTemplateId
             ? assertTemplateId(body.basedOnTemplateId)
             : undefined;
+          const sourceFundCode = body.sourceFundCode
+            ? assertTemplateAttributeToken('コピー元ファンドコード', body.sourceFundCode)
+            : undefined;
+          // 画面はコピー元テンプレートが無い候補で作成を止めるが、API を直接呼ばれても同じ結果にする。
+          if (
+            sourceFundCode &&
+            !(await hasTemplateFor(attributes.companyCode, sourceFundCode, attributes.editionType))
+          ) {
+            throw validation(`コピー元のテンプレートがありません: ${sourceFundCode}`);
+          }
           const fileName = templateFileName(attributes);
           const id = templateIdFromFileName(fileName);
 
@@ -86,6 +97,8 @@ export const generateRoutes: FastifyPluginAsync<{
               editionType: attributes.editionType,
               baseDate: attributes.baseDate,
               ...(basedOnTemplateId === undefined ? {} : { basedOnTemplateId }),
+              ...(sourceFundCode === undefined ? {} : { sourceFundCode }),
+              ...(body.isRedemption === true ? { isRedemption: true } : {}),
             }),
             attributes.fundCode,
             attributes.editionType,
@@ -112,7 +125,7 @@ export const generateRoutes: FastifyPluginAsync<{
           if (config.requireAuth) {
             if (!(await pendingExists(id))) await templates.registerGenerated(attributes, id);
             await writePending(id, html, css);
-            await recordCreate(attributes, basedOnTemplateId, loginId);
+            await recordCreate(attributes, { basedOnTemplateId, sourceFundCode }, loginId);
           }
 
           return { meta, html, css, id, attributes };

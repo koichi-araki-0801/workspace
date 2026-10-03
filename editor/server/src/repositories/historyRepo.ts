@@ -165,7 +165,7 @@ export async function recordPdfExport(templateId: string, loginId: string): Prom
 
 export async function recordCreate(
   attributes: TemplateAttributes,
-  basedOnTemplateId: string | undefined,
+  source: { basedOnTemplateId?: string; sourceFundCode?: string },
   loginId: string,
 ): Promise<void> {
   const entry: CreateHistoryEntry = {
@@ -173,7 +173,10 @@ export async function recordCreate(
     attributes,
     user: loginId,
     timestamp: new Date().toISOString(),
-    basedOnTemplateId,
+    ...(source.basedOnTemplateId === undefined
+      ? {}
+      : { basedOnTemplateId: source.basedOnTemplateId }),
+    ...(source.sourceFundCode === undefined ? {} : { sourceFundCode: source.sourceFundCode }),
   };
   await appendHistory('create', entry);
 }

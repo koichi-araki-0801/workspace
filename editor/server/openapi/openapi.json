@@ -2871,8 +2871,12 @@
             "description": "シリーズファンドのテンプレから生成する場合の元テンプレ ID",
             "type": "string"
           },
+          "sourceFundCode": {
+            "description": "シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)",
+            "type": "string"
+          },
           "isRedemption": {
-            "description": "償還ファンドとして作成(特定パーツを償還用へ置換。現状はモック実装)",
+            "description": "償還ファンドとして作成(生成器へパラメータとして渡す)",
             "type": "boolean"
           }
         },
@@ -4298,6 +4302,10 @@
           },
           "basedOnTemplateId": {
             "description": "系列ファンドの元テンプレ ID",
+            "type": "string"
+          },
+          "sourceFundCode": {
+            "description": "シリーズから作成したときのコピー元ファンドコード",
             "type": "string"
           }
         },
