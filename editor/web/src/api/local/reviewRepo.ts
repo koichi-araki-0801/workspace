@@ -7,6 +7,7 @@
 // ここは表示の絞り込み(approver|admin は全件、それ以外は自分の申請のみ)程度に留める。
 import {
   type ApproveReviewResult,
+  anyTemplateFileName,
   conflict,
   isApprover,
   isErr,
@@ -18,7 +19,6 @@ import {
   type ReviewRequest,
   type ReviewStatus,
   type SubmitReviewRequest,
-  templateFileName,
   toReviewMeta,
   validation,
 } from '@editor/shared';
@@ -74,7 +74,7 @@ function assertEditSubmissionAllowed(
   if (origin !== 'edit') return;
   if (html === '')
     throw validation(`編集タブの申請は本文が空では受け付けられません: ${templateId}`);
-  if (resolveFilled(templateId, templateFileName(attrs)) === '')
+  if (resolveFilled(templateId, anyTemplateFileName(attrs)) === '')
     throw validation(`編集タブの申請には値入り HTML(filled)が必要です: ${templateId}`);
 }
 

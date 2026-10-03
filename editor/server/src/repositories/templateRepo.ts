@@ -54,7 +54,7 @@ export const isMeta = (m: TemplateMeta | null): m is TemplateMeta => m !== null;
 function matchesUpTo(m: TemplateMeta, q: DropdownQuery, depth: number): boolean {
   return ATTR_KEYS.slice(0, depth).every((k) => {
     const want = q[k];
-    return !want || sameCi(m.attributes[k], want);
+    return !want || sameCi(m.attributes[k] ?? '', want);
   });
 }
 
@@ -73,7 +73,7 @@ function uniqCi(values: string[]): string[] {
 /** 各候補は自分より上位の選択だけで絞る(sproc `候補` と同じ規則)。 */
 function optionsFromMetas(metas: TemplateMeta[], q: DropdownQuery): DropdownOptions {
   const at = (depth: number, key: (typeof ATTR_KEYS)[number]) =>
-    uniqCi(metas.filter((m) => matchesUpTo(m, q, depth)).map((m) => m.attributes[key]));
+    uniqCi(metas.filter((m) => matchesUpTo(m, q, depth)).flatMap((m) => m.attributes[key] ?? []));
   return {
     companyCodes: at(0, 'companyCode'),
     fundCodes: at(1, 'fundCode'),

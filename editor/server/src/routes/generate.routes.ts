@@ -14,7 +14,7 @@ import {
   apiPaths,
   assertTemplateAttributeToken,
   conflict,
-  type TemplateAttributes,
+  type FilledTemplateAttributes,
   type TemplateMeta,
   templateFileName,
   templateIdFromFileName,
@@ -52,7 +52,7 @@ export const generateRoutes: FastifyPluginAsync<{
         request,
         'template.generate',
         async () => {
-          const attributes: TemplateAttributes = {
+          const attributes: FilledTemplateAttributes = {
             companyCode: assertTemplateAttributeToken('会社コード', body.companyCode),
             fundCode: assertTemplateAttributeToken('ファンドコード', body.fundCode),
             baseDate: todayYmd(),

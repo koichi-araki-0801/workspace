@@ -203,7 +203,7 @@ const sameCi = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerC
 export const metaMatches = (m: TemplateMeta, q: DropdownQuery): boolean =>
   (!q.companyCode || sameCi(m.attributes.companyCode, q.companyCode)) &&
   (!q.fundCode || sameCi(m.attributes.fundCode, q.fundCode)) &&
-  (!q.baseDate || sameCi(m.attributes.baseDate, q.baseDate)) &&
+  (!q.baseDate || sameCi(m.attributes.baseDate ?? '', q.baseDate)) &&
   (!q.editionType || sameCi(m.attributes.editionType, q.editionType));
 
 // ── 3. derived helpers — fixtures + overlay からの導出 ──

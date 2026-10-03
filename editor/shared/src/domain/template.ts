@@ -1,8 +1,9 @@
 // =============================================================================
 // template.ts — テンプレート identity の値オブジェクトとファイル名規約の純関数
 // =============================================================================
-// ファイル名規約は `company_fund_date_edition.html`。純粋・依存なしなので `web` と
-// `server` の双方で再利用できる。
+// ファイル名規約は 2 つで、区切りの数で見分ける。値入り HTML(`filled/`)は基準日ごとに別物なので
+// `company_fund_date_edition.html`、テンプレート(`templates/`)は基準日で使い回さないので
+// `company_fund_edition.html`。純粋・依存なしなので `web` と `server` の双方で再利用できる。
 
 // `../errors.js` を barrel(`../index.js`)経由でなく直接引くのは循環 import を避けるため
 // (index は本ファイルを再輸出する)。型のみの `TemplateAttributes` は消去されるので barrel で良い。
@@ -16,15 +17,53 @@ import type { TemplateAttributes } from '../index.js';
 export const TEMPLATE_FILENAME_RE =
   /^(?<companyCode>[^_/\\]+)_(?<fundCode>[^_/\\]+)_(?<baseDate>[^_/\\]+)_(?<editionType>[^_/\\]+)\.html$/;
 
-export function parseTemplateFileName(fileName: string): TemplateAttributes | null {
+/** 値入り HTML(`filled/`)の属性。基準日を必ず持つ。 */
+export type FilledTemplateAttributes = TemplateAttributes & { baseDate: string };
+
+/** テンプレート(`templates/`)の属性。基準日を持たない。 */
+export type SkeletonAttributes = Omit<TemplateAttributes, 'baseDate'>;
+
+/** 値入り HTML のファイル名(4 つ区切り)を解析する。3 つ区切りは null。 */
+export function parseTemplateFileName(fileName: string): FilledTemplateAttributes | null {
   const m = TEMPLATE_FILENAME_RE.exec(fileName);
   if (!m?.groups) return null;
   const { companyCode, fundCode, baseDate, editionType } = m.groups;
   return { companyCode, fundCode, baseDate, editionType };
 }
 
-export function templateFileName(a: TemplateAttributes): string {
+export function templateFileName(a: FilledTemplateAttributes): string {
   return `${a.companyCode}_${a.fundCode}_${a.baseDate}_${a.editionType}.html`;
+}
+
+/** テンプレート(`templates/`)のファイル名規約。トークンの許可文字は `TEMPLATE_FILENAME_RE` と同じ。 */
+export const SKELETON_FILENAME_RE =
+  /^(?<companyCode>[^_/\\]+)_(?<fundCode>[^_/\\]+)_(?<editionType>[^_/\\]+)\.html$/;
+
+/** テンプレートのファイル名(3 つ区切り)を解析する。4 つ区切りは null。 */
+export function parseSkeletonFileName(fileName: string): SkeletonAttributes | null {
+  const m = SKELETON_FILENAME_RE.exec(fileName);
+  if (!m?.groups) return null;
+  const { companyCode, fundCode, editionType } = m.groups;
+  return { companyCode, fundCode, editionType };
+}
+
+export function skeletonFileName(a: SkeletonAttributes): string {
+  return `${a.companyCode}_${a.fundCode}_${a.editionType}.html`;
+}
+
+/**
+ * どちらの形も受ける置き場(`pending/`・下書き・メモ・申請・履歴)用の解析。4 つ区切りなら
+ * 基準日付き、3 つ区切りなら基準日の無い属性を返す。
+ */
+export function parseAnyTemplateFileName(fileName: string): TemplateAttributes | null {
+  return parseTemplateFileName(fileName) ?? parseSkeletonFileName(fileName);
+}
+
+/** 属性からファイル名を組む。基準日があれば値入り HTML、無ければテンプレートの形。 */
+export function anyTemplateFileName(a: TemplateAttributes): string {
+  return a.baseDate === undefined
+    ? skeletonFileName(a)
+    : templateFileName({ ...a, baseDate: a.baseDate });
 }
 
 export function templateIdFromFileName(fileName: string): string {
@@ -54,20 +93,26 @@ export const EDITION_SYNC_PAIRS: Readonly<Record<string, string>> = Object.assig
 );
 
 /**
- * テンプレート ID から同期ペアの ID を導く。版種がペア対象外・ID が規約外なら null。
+ * テンプレート ID から同期ペアの ID を導く。形(3 つ区切り / 4 つ区切り)はそのままで版種だけを
+ * 入れ替える。版種がペア対象外・ID が規約外なら null。
  * ペア実体(ファイル)の存在確認は呼び出し側の責務(ここは純粋な名前変換のみ)。
  */
 export function pairedTemplateId(templateId: string): string | null {
-  const attrs = parseTemplateFileName(`${templateId}.html`);
+  const attrs = parseAnyTemplateFileName(`${templateId}.html`);
   if (!attrs) return null;
   const paired = EDITION_SYNC_PAIRS[attrs.editionType];
   if (!paired) return null;
-  return templateIdFromFileName(templateFileName({ ...attrs, editionType: paired }));
+  return templateIdFromFileName(anyTemplateFileName({ ...attrs, editionType: paired }));
 }
 
-/** ペア単位の識別子(版種を除いた 3 属性)。同期状態ファイル `sync/<pairKey>.json` の名に使う。 */
+/**
+ * ペア単位の識別子(版種を除いた属性)。同期状態ファイル `sync/<pairKey>.json` の名に使う。
+ * テンプレートは `会社_ファンド`、値入り HTML は `会社_ファンド_基準日` になり、状態ファイルは別になる。
+ */
 export function templatePairKey(a: TemplateAttributes): string {
-  return `${a.companyCode}_${a.fundCode}_${a.baseDate}`;
+  return a.baseDate === undefined
+    ? `${a.companyCode}_${a.fundCode}`
+    : `${a.companyCode}_${a.fundCode}_${a.baseDate}`;
 }
 
 /**
@@ -116,15 +161,31 @@ export function isValidTemplateToken(token: string): boolean {
   return isSafeFileNameSegment(token) && !token.includes('_');
 }
 
-/** `TemplateAttributes` の 4 トークンがすべて安全か。 */
+/** `TemplateAttributes` のトークン(基準日は持つときだけ)がすべて安全か。 */
 function attributesAreSafe(a: TemplateAttributes): boolean {
-  return [a.companyCode, a.fundCode, a.baseDate, a.editionType].every(isValidTemplateToken);
+  const tokens = [a.companyCode, a.fundCode, a.editionType];
+  if (a.baseDate !== undefined) tokens.push(a.baseDate);
+  return tokens.every(isValidTemplateToken);
 }
 
-/** テンプレート id がファイル名規約に一致し、全体もトークン単位でも安全か。 */
+/** 値入り HTML の id(4 つ区切り)がファイル名規約に一致し、全体もトークン単位でも安全か。 */
 export function isValidTemplateId(templateId: string): boolean {
   const attrs = parseTemplateFileName(`${templateId}.html`);
   return attrs !== null && isSafeFileNameSegment(templateId) && attributesAreSafe(attrs);
+}
+
+/** テンプレートの id(3 つ区切り)がファイル名規約に一致し、全体もトークン単位でも安全か。 */
+export function isValidSkeletonId(templateId: string): boolean {
+  const attrs = parseSkeletonFileName(`${templateId}.html`);
+  return attrs !== null && isSafeFileNameSegment(templateId) && attributesAreSafe(attrs);
+}
+
+/**
+ * どちらの形でもよい置き場(`pending/`・下書き・メモ・申請・履歴)の id の検査。判定は 2 つの
+ * 関数の論理和にして、片方の形だけ検査が緩む書き方をしない。
+ */
+export function isValidAnyTemplateId(templateId: string): boolean {
+  return isValidTemplateId(templateId) || isValidSkeletonId(templateId);
 }
 
 /**
@@ -136,12 +197,13 @@ export function isValidFundCode(fundCode: string): boolean {
 }
 
 /**
- * ペアキー(`templatePairKey` の形 = `companyCode_fundCode_baseDate`)が全体・トークン単位
- * ともに安全か。`syncFiles.ts` が `sync/<pairKey>.json` へ連結する前の検査に使う。
+ * ペアキー(`templatePairKey` の形。テンプレートは `companyCode_fundCode`、値入り HTML は
+ * `companyCode_fundCode_baseDate`)が全体・トークン単位ともに安全か。`syncFiles.ts` が
+ * `sync/<pairKey>.json` へ連結する前の検査に使う。
  */
 export function isValidPairKey(pairKey: string): boolean {
   const tokens = pairKey.split('_');
-  return tokens.length === 3 && tokens.every(isValidTemplateToken);
+  return (tokens.length === 2 || tokens.length === 3) && tokens.every(isValidTemplateToken);
 }
 
 /** `isValidPairKey` に通らなければ `validation` を投げ、通れば入力をそのまま返す。 */
@@ -155,6 +217,14 @@ export function assertPairKey(pairKey: string): string {
 /** `isValidTemplateId` に通らなければ `validation` を投げ、通れば入力をそのまま返す。 */
 export function assertTemplateId(templateId: string): string {
   if (!isValidTemplateId(templateId)) {
+    throw validation(`不正なテンプレート id です: ${templateId}`);
+  }
+  return templateId;
+}
+
+/** `isValidAnyTemplateId` に通らなければ `validation` を投げ、通れば入力をそのまま返す。 */
+export function assertAnyTemplateId(templateId: string): string {
+  if (!isValidAnyTemplateId(templateId)) {
     throw validation(`不正なテンプレート id です: ${templateId}`);
   }
   return templateId;
@@ -179,7 +249,7 @@ export function assertTemplateAttributeToken(label: string, value: string): stri
 }
 
 /**
- * テンプレート本体のファイル名(`*.html`)として安全か検査し、正規化した名前を返す。
+ * 値入り HTML のファイル名(4 つ区切り)として安全か検査し、正規化した名前を返す。
  * 台帳やディレクトリ走査で得た名前も、書き込み先に使う前にここを通す。
  * 検査はファイル名全体と**4 トークンそれぞれ**の両方に掛ける(`isValidTemplateToken`)。
  */
@@ -189,4 +259,16 @@ export function assertTemplateFileName(fileName: string): string {
     throw validation(`不正なテンプレートファイル名です: ${fileName}`);
   }
   return templateFileName(attrs);
+}
+
+/**
+ * テンプレート(`templates/`)のファイル名(3 つ区切り)として安全か検査し、正規化した名前を返す。
+ * 検査はファイル名全体と 3 トークンそれぞれの両方に掛ける(`assertTemplateFileName` と同じ)。
+ */
+export function assertSkeletonFileName(fileName: string): string {
+  const attrs = parseSkeletonFileName(fileName);
+  if (!attrs || !isSafeFileNameSegment(fileName) || !attributesAreSafe(attrs)) {
+    throw validation(`不正なテンプレートファイル名です: ${fileName}`);
+  }
+  return skeletonFileName(attrs);
 }

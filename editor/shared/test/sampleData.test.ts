@@ -48,6 +48,14 @@ describe('applyTemplateAttributes', () => {
     const out = applyTemplateAttributes({}, ATTRS);
     expect(out.report).toEqual({ editionType: '交付版', baseDate: '2024年7月10日' });
   });
+
+  it('基準日を持たないテンプレートでは共通サンプルの report.baseDate を残す', () => {
+    const out = applyTemplateAttributes(
+      { report: { baseDate: '2025年1月1日' } },
+      { editionType: '全体版' },
+    );
+    expect(out.report).toEqual({ baseDate: '2025年1月1日', editionType: '全体版' });
+  });
 });
 
 describe('buildSampleData のテンプレ属性上書き', () => {

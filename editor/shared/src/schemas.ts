@@ -17,7 +17,7 @@
 // (`id`, `param` ...)で拡張される。実行時の影響は無い。
 import 'zod-openapi';
 import { z } from 'zod';
-import { isValidTemplateId } from './domain/template.js';
+import { isValidAnyTemplateId } from './domain/template.js';
 import { isValidUsername, USERNAME_MAX_LENGTH } from './domain/user.js';
 import { APP_ERROR_KINDS } from './errors.js';
 
@@ -53,11 +53,11 @@ export const TemplateStatus = z.enum(['draft', 'published']).meta({ id: 'Templat
 /**
  * ファイル名規約に一致し、単一のファイル名セグメントとして安全なテンプレート id。
  * ディレクトリと連結される値は契約の段でここに通す(最終的な強制は I/O 層の
- * `assertTemplateId`。二重にするのは、契約を通らない内部経路でも守るため)。
+ * `assertAnyTemplateId`。二重にするのは、契約を通らない内部経路でも守るため)。
  */
 export const TemplateId = z
   .string()
-  .refine(isValidTemplateId, { message: '不正なテンプレート id です' })
+  .refine(isValidAnyTemplateId, { message: '不正なテンプレート id です' })
   .meta({
     id: 'TemplateId',
     example: 'AM01_510037_20240710_交付版',
@@ -65,17 +65,25 @@ export const TemplateId = z
     // 添えないと、公開 OpenAPI 上は「ただの string」に見えて外部クライアントが素の文字列を
     // 送れると誤解する(`$ref` へ寄せると `minLength` のような字面上の制約は消える)。
     description:
-      'ファイル名規約 `<会社コード>_<ファンドコード>_<基準日>_<版種>`(拡張子なし)。' +
+      'ファイル名規約(拡張子なし)。値入り HTML は `<会社コード>_<ファンドコード>_<基準日>_<版種>`、' +
+      'テンプレートは `<会社コード>_<ファンドコード>_<版種>`。' +
       'パス区切り・`..`・制御文字・末尾のドット/空白を含まない単一のファイル名セグメントに限る' +
-      '(判定は `isValidTemplateId`)。',
+      '(判定は `isValidAnyTemplateId`)。',
   });
 
-/** テンプレートを識別する 4 属性(ファイル名: company_fund_date_edition.html)。 */
+/**
+ * テンプレートを識別する属性。値入り HTML は 4 つ(company_fund_date_edition.html)、
+ * テンプレートは基準日を除く 3 つ(company_fund_edition.html)。
+ */
 export const TemplateAttributes = z
   .object({
     companyCode: z.string().meta({ description: '委託会社コード' }),
     fundCode: z.string().meta({ description: 'ファンドコード' }),
-    baseDate: z.string().meta({ description: '基準日 (yyyymmdd)', example: '20240710' }),
+    baseDate: z.string().optional().meta({
+      description:
+        '基準日 (yyyymmdd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない',
+      example: '20240710',
+    }),
     editionType: z.string().meta({ description: '版種' }),
   })
   .meta({ id: 'TemplateAttributes' });

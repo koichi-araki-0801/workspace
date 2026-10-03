@@ -16,7 +16,7 @@ import type * as sch from './schemas.js';
 
 // ── 1. Domain: template identity ──
 
-/** テンプレートを識別する4属性 (ファイル名: company_fund_date_edition.html)。 */
+/** テンプレートを識別する属性(値入り HTML は 4 つ、テンプレートは基準日を除く 3 つ)。 */
 export type TemplateAttributes = z.infer<typeof sch.TemplateAttributes>;
 
 export type TemplateStatus = z.infer<typeof sch.TemplateStatus>;

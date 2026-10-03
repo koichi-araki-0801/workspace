@@ -3,12 +3,12 @@
 // HistoryTabView.vue — 履歴タブ (編集/PDF/作成を 1 つのフィルタバーで切替表示)
 // =============================================================================
 import {
+  anyTemplateFileName,
   type CreateHistoryEntry,
   type EditHistoryEntry,
   isErr,
   matchFilter,
   type PdfHistoryEntry,
-  templateFileName,
   uniq,
 } from '@editor/shared';
 import { computed, onMounted, ref } from 'vue';
@@ -51,7 +51,7 @@ const filteredPdfs = computed(() =>
   pdfs.value.filter((e) => matchFilter(e, filter.value, [e.templateId])),
 );
 const filteredCreates = computed(() =>
-  creates.value.filter((e) => matchFilter(e, filter.value, [templateFileName(e.attributes)])),
+  creates.value.filter((e) => matchFilter(e, filter.value, [anyTemplateFileName(e.attributes)])),
 );
 
 const pagedEdits = usePagedList(filteredEdits);
@@ -76,7 +76,7 @@ const pdfColumns: HistoryColumn<PdfHistoryEntry>[] = [
 ];
 const createColumns: HistoryColumn<CreateHistoryEntry>[] = [
   { header: '日時', headerClass: W_TIME, cellClass: MONO, value: (e) => formatDateTime(e.timestamp) },
-  { header: '生成ファイル', headerClass: W_ID, cellClass: MONO, value: (e) => templateFileName(e.attributes) },
+  { header: '生成ファイル', headerClass: W_ID, cellClass: MONO, value: (e) => anyTemplateFileName(e.attributes) },
   { header: '実行者', headerClass: W_USER, value: (e) => e.user },
   { header: 'コピー元', cellClass: MONO, value: (e) => e.sourceFundCode ?? e.basedOnTemplateId ?? '—' },
 ];

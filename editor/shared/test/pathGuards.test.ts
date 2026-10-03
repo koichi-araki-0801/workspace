@@ -2,16 +2,21 @@
 // server 側の I/O 層テスト(`server/test/pathGuards.test.ts`)からも同じ意図で使い回す。
 import { describe, expect, it } from 'vitest';
 import {
+  assertAnyTemplateId,
   assertFundCode,
   assertPairKey,
+  assertSkeletonFileName,
   assertTemplateFileName,
   assertTemplateId,
+  isValidAnyTemplateId,
   isValidFundCode,
   isValidPairKey,
+  isValidSkeletonId,
   isValidTemplateId,
   parseTemplateFileName,
   TEMPLATE_FILENAME_RE,
 } from '../src/index';
+import { TemplateId } from '../src/schemas';
 
 const VALID_ID = 'AM01_510037_20240710_交付版';
 
@@ -142,14 +147,19 @@ describe('assertPairKey', () => {
     expect(assertPairKey(VALID_PAIR_KEY)).toBe(VALID_PAIR_KEY);
   });
 
+  it('テンプレート側の company_fund(2 つ区切り)も受ける', () => {
+    expect(isValidPairKey('AM01_510037')).toBe(true);
+    expect(isValidPairKey('AM01_../evil')).toBe(false);
+  });
+
   it('rejects every traversal payload', () => {
     for (const payload of TRAVERSAL_PAYLOADS) {
       expect(isValidPairKey(payload)).toBe(false);
     }
   });
 
-  it('rejects a key with too few or too many tokens', () => {
-    expect(isValidPairKey('AM01_510037')).toBe(false);
+  it('rejects a key with one token or four tokens', () => {
+    expect(isValidPairKey('AM01')).toBe(false);
     expect(isValidPairKey('AM01_510037_20240710_交付版')).toBe(false);
   });
 
@@ -174,5 +184,54 @@ describe('TEMPLATE_FILENAME_RE', () => {
   it('still matches the names in the fixture set', () => {
     expect(TEMPLATE_FILENAME_RE.test('AM01_510037_20240710_交付版.html')).toBe(true);
     expect(TEMPLATE_FILENAME_RE.test('AM01_510037_20240710_kr.html')).toBe(true);
+  });
+});
+
+describe('テンプレート(3 つ区切り)の id とどちらの形も受ける入口', () => {
+  const SKELETON_ID = 'AM01_510037_交付版';
+
+  it('isValidSkeletonId は 3 つ区切りだけ、isValidTemplateId は 4 つ区切りだけを受ける', () => {
+    expect(isValidSkeletonId(SKELETON_ID)).toBe(true);
+    expect(isValidSkeletonId(VALID_ID)).toBe(false);
+    expect(isValidTemplateId(SKELETON_ID)).toBe(false);
+  });
+
+  it('isValidAnyTemplateId は両方の形を受け、どちらでもない形は受けない', () => {
+    expect(isValidAnyTemplateId(SKELETON_ID)).toBe(true);
+    expect(isValidAnyTemplateId(VALID_ID)).toBe(true);
+    expect(isValidAnyTemplateId('AM01_510037')).toBe(false);
+    expect(isValidAnyTemplateId('AM01_510037_20240710_交付版_extra')).toBe(false);
+  });
+
+  it('どちらの形でもトラバーサル・空白・制御文字・長すぎる値は通らない(片方だけ緩む穴が無い)', () => {
+    for (const payload of TRAVERSAL_PAYLOADS) expect(isValidAnyTemplateId(payload)).toBe(false);
+    expect(isValidAnyTemplateId('AM01_510037_../../evil')).toBe(false);
+    expect(isValidAnyTemplateId('AM01 _510037_交付版')).toBe(false);
+    expect(isValidAnyTemplateId(`${SKELETON_ID} `)).toBe(false);
+    expect(isValidAnyTemplateId(`${SKELETON_ID}.`)).toBe(false);
+    expect(isValidAnyTemplateId('AM01_510037_\u001f版')).toBe(false);
+    expect(isValidAnyTemplateId(`AM01_510037_${'あ'.repeat(300)}`)).toBe(false);
+  });
+
+  it('assertAnyTemplateId は通らなければ validation を投げ、通れば入力を返す', () => {
+    expect(assertAnyTemplateId(SKELETON_ID)).toBe(SKELETON_ID);
+    expect(() => assertAnyTemplateId('../evil')).toThrowError(
+      expect.objectContaining({ kind: 'validation' }),
+    );
+  });
+
+  it('assertSkeletonFileName は 3 つ区切りのファイル名だけを受ける', () => {
+    expect(assertSkeletonFileName(`${SKELETON_ID}.html`)).toBe(`${SKELETON_ID}.html`);
+    for (const bad of [`${VALID_ID}.html`, '../../evil.html', 'AM01 _510037_交付版.html']) {
+      expect(() => assertSkeletonFileName(bad)).toThrowError(
+        expect.objectContaining({ kind: 'validation' }),
+      );
+    }
+  });
+
+  it('契約の TemplateId は両方の形を受ける', () => {
+    expect(TemplateId.safeParse(SKELETON_ID).success).toBe(true);
+    expect(TemplateId.safeParse(VALID_ID).success).toBe(true);
+    expect(TemplateId.safeParse('../evil').success).toBe(false);
   });
 });

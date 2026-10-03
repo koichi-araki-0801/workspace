@@ -9,6 +9,7 @@ import {
   type DropdownScope,
   type EditHistoryEntry,
   editHistoryRowId,
+  type FilledTemplateAttributes,
   type GenerateRequest,
   isErr,
   notFound,
@@ -230,7 +231,7 @@ export const localTemplateRepo: TemplateRepository = {
       const matchesUpper = (m: TemplateMeta, fields: (keyof TemplateAttributes)[]): boolean =>
         fields.every((f) => {
           const want = query[f];
-          return !want || m.attributes[f].toLowerCase() === want.toLowerCase();
+          return !want || (m.attributes[f] ?? '').toLowerCase() === want.toLowerCase();
         });
       return delay({
         companyCodes: uniq(metas.map((m) => m.attributes.companyCode)),
@@ -240,7 +241,7 @@ export const localTemplateRepo: TemplateRepository = {
         baseDates: uniq(
           metas
             .filter((m) => matchesUpper(m, ['companyCode', 'fundCode']))
-            .map((m) => m.attributes.baseDate),
+            .flatMap((m) => m.attributes.baseDate ?? []),
         ),
         editionTypes: uniq(
           metas
@@ -277,7 +278,7 @@ export const localTemplateRepo: TemplateRepository = {
               m.attributes.fundCode === req.sourceFundCode &&
               m.attributes.editionType === req.editionType,
           )
-          .sort((a, b) => a.attributes.baseDate.localeCompare(b.attributes.baseDate))
+          .sort((a, b) => (a.attributes.baseDate ?? '').localeCompare(b.attributes.baseDate ?? ''))
           .at(-1);
         if (!source) throw validation(`コピー元のテンプレートがありません: ${req.sourceFundCode}`);
         const baseRes = await localTemplateRepo.getTemplate(source.id);
@@ -294,7 +295,7 @@ export const localTemplateRepo: TemplateRepository = {
       // 償還ファンド指定時は特定パーツを償還用パーツへ置換(モック)。
       if (req.isRedemption) baseHtml = applyRedemptionMock(baseHtml);
       const baseDate = todayYmd();
-      const attrs: TemplateAttributes = {
+      const attrs: FilledTemplateAttributes = {
         companyCode: req.companyCode,
         fundCode: req.fundCode,
         baseDate,

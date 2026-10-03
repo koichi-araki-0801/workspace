@@ -25,7 +25,7 @@ export interface FundMaster {
 /**
  * ファイル名由来でサンプルへ被せるテンプレ属性の部分集合。版種と基準日はファンド単位の
  * サンプル(`getSampleData` / `sampleCommon`)が持たない・持てない値で、テンプレを開く
- * 文脈でだけ判る。
+ * 文脈でだけ判る。テンプレート(基準日を持たない)を開く文脈では基準日は無い。
  */
 export type SampleTemplateAttributes = Pick<TemplateAttributes, 'editionType' | 'baseDate'>;
 
@@ -71,7 +71,8 @@ export function applyTemplateAttributes(
     report: {
       ...report,
       editionType: attrs.editionType,
-      baseDate: formatBaseDate(attrs.baseDate),
+      // テンプレート(基準日を持たない)を開いているときは、共通サンプルの基準日を差し込み値として残す。
+      ...(attrs.baseDate === undefined ? {} : { baseDate: formatBaseDate(attrs.baseDate) }),
     },
   };
 }
