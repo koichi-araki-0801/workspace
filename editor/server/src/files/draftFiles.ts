@@ -93,3 +93,12 @@ export async function deleteDraft(templateId: string): Promise<void> {
     fs.rm(path.join(config.draftsDir, cssFile), { force: true }),
   ]);
 }
+
+/** 下書きのある `templateId` の一覧(本体の `.html` があるもの)。規約外の名前は捨てる。 */
+export async function listDraftIds(): Promise<string[]> {
+  const entries = await fs.readdir(config.draftsDir).catch(() => [] as string[]);
+  return entries
+    .filter((f) => f.endsWith('.html'))
+    .map((f) => f.slice(0, -'.html'.length))
+    .filter((id) => isValidAnyTemplateId(id));
+}

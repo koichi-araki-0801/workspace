@@ -118,7 +118,8 @@ describe('生成器の起動のしかた', () => {
       isRedemption: true,
     });
     execFileMock.mockClear();
-    answerOk();
+    // 2 回目は別の内容を書く(同じ内容を同じ瞬間に書き直すと、この呼び出しで書かれたと見分けられない)。
+    answerOk('<html>2</html>');
     await generateTemplate({ ...attrs, isRedemption: false });
     args = execFileMock.mock.calls[0][1] as string[];
     const payload = JSON.parse(args[args.length - 1]);
@@ -318,6 +319,21 @@ describe('generateTemplate', () => {
     });
 
     await expect(generateTemplate(attrs)).rejects.toThrow(/Python生成器の実行に失敗/);
+  });
+
+  it('更新時刻もファイル番号も変わらない書き方でも、内容が変われば書かれたとみなす', async () => {
+    // 更新時刻の粒度が粗く、ファイル番号を返さないドライブ(ino が 0)で、同じファイルへ
+    // 直に書き直した場合を再現する(時刻を呼び出し前の値へ戻す)。
+    writeOutput('<html>前回の生成物</html>');
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(outputPath(), old, old);
+    execFileMock.mockImplementation((_bin, _args, _opts, cb) => {
+      fs.writeFileSync(outputPath(), '<html>新しい生成物</html>', 'utf8');
+      fs.utimesSync(outputPath(), old, old);
+      cb(null, '', '');
+      return { on: vi.fn() };
+    });
+    await expect(generateTemplate(attrs)).resolves.toBe('<html>新しい生成物</html>');
   });
 
   it('書かれたものが空、または通常のファイルでなければ失敗にする', async () => {

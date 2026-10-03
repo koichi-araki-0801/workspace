@@ -24,8 +24,9 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
 import type { Deps } from '../deps.js';
-import { deleteDraft, draftExists } from '../files/draftFiles.js';
-import { deletePending, pendingMtime, writePending } from '../files/pendingFiles.js';
+import { deleteDraft } from '../files/draftFiles.js';
+import { findInProgressIds } from '../files/inProgress.js';
+import { deletePending, writePending } from '../files/pendingFiles.js';
 import { hasPendingCreateReview } from '../files/reviewFiles.js';
 import {
   findTemplateId,
@@ -96,9 +97,11 @@ export const generateRoutes: FastifyPluginAsync<{
             throw conflict('申請中です。承認か却下を待ってください');
           }
           // ③ 作業中(下書きか pending)を黙って捨てない。画面は確認ダイアログで同意を得て送り直す。
+          // 綴り違い(会社コードの大文字小文字)も同じテンプレートとして数える(① ② と同じ規則)。
+          const inProgress = await findInProgressIds(id);
           if (
             body.replaceExisting !== true &&
-            ((await draftExists(id)) || (await pendingMtime(id)) !== null)
+            (inProgress.drafts.length > 0 || inProgress.pending.length > 0)
           ) {
             throw conflict('作成中のテンプレートがあります');
           }
@@ -137,7 +140,10 @@ export const generateRoutes: FastifyPluginAsync<{
           // パーツ変更履歴は同じテンプレートの記録なので残す。確定側(templates/)は ① が守る。
           if (config.requireAuth) {
             await writePending(id, html, css);
+            // 綴り違いの古い下書き・pending も同じテンプレートの作業なので捨てる(生成物は id の綴りで置く)。
+            for (const d of inProgress.drafts) await deleteDraft(d);
             await deleteDraft(id);
+            for (const p of inProgress.pending) if (p !== id) await deletePending(p);
             await recordCreate(attributes, sourceFundCode, loginId);
           } else {
             // local モードは pending を持たない。生成器は約束どおり書くので、読み終えたここで消す。

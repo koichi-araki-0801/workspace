@@ -6,7 +6,7 @@
   (テンプレートは基準日を持たないので baseDate は来ない)
 - 生成した Jinja2 テンプレート HTML を、環境変数 PENDING_DIR(サーバが config.pendingDir を渡す)の
   <会社コード>_<ファンドコード>_<版種>.html へ書く。一時ファイルに書いてから名前を変え、書きかけを
-  残さない(失敗したら前のファイルはそのまま)。標準出力には何も出さない。PENDING_DIR が無ければ
+  残さない(失敗したら前のファイルはそのままにし、一時ファイルは消す)。標準出力には何も出さない。PENDING_DIR が無ければ
   エラーにする。
 
 sourceFundCode があれば、環境変数 TEMPLATES_DIR(サーバが config.templatesDir を渡す)にある
@@ -26,11 +26,17 @@ def _token_ok(value: str) -> bool:
 
 def write_output(pending_dir: str, file_name: str, html: str) -> None:
     # 一時ファイル(.tmp。editor の一覧は .html しか拾わない)に書いてから名前を変える。
+    # 失敗したら一時ファイルを消す(pending/ に掃除されない残骸を置かない)。
     os.makedirs(pending_dir, exist_ok=True)
     tmp = os.path.join(pending_dir, f".{file_name}.{os.getpid()}.tmp")
-    with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write(html)
-    os.replace(tmp, os.path.join(pending_dir, file_name))
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(html)
+        os.replace(tmp, os.path.join(pending_dir, file_name))
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
 
 
 def main() -> int:

@@ -65,6 +65,7 @@ export default defineConfig({
         // テンプレ実体のパス解決と下書きの入出力。`assertTemplateId` / `assertFundCode` を
         // 連結の唯一の場所で強制する層なので、被覆を切らすと関所の退行を検出できない。
         'editor/server/src/files/draftFiles.ts',
+        'editor/server/src/files/inProgress.ts',
         'editor/server/src/files/templateFiles.ts',
         // 設定の一元解決。危険な既定値での起動拒否と DATA_ROOT 起点の派生がここに集約されている。
         'editor/server/src/config.ts',

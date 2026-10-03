@@ -60,6 +60,14 @@ describe('fake_generate_template.py', () => {
     expect(fs.readdirSync(pendingOf('blank'))).toEqual(['AM01_510037_交付版.html']);
   }, 30_000);
 
+  it('書き出しに失敗したら一時ファイルを残さず、エラーで終わる', async () => {
+    // 書き先の名前にフォルダを置き、名前の変更を失敗させる。
+    fs.mkdirSync(path.join(pendingOf('fail'), 'AM01_510037_交付版.html'), { recursive: true });
+    const r = await run(ATTRS, { PENDING_DIR: pendingOf('fail') });
+    expect(r.code).not.toBe(0);
+    expect(fs.readdirSync(pendingOf('fail'))).toEqual(['AM01_510037_交付版.html']);
+  }, 30_000);
+
   it('PENDING_DIR が無ければエラー(書き先を勝手に決めない)', async () => {
     const r = await run(ATTRS, {});
     expect(r.code).toBe(2);

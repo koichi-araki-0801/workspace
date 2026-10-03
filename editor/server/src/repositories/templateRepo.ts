@@ -31,6 +31,7 @@ import {
   readDraft,
   writeDraft,
 } from '../files/draftFiles.js';
+import { findInProgressIds } from '../files/inProgress.js';
 import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
 import {
   attrKey,
@@ -185,10 +186,12 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       // 作業中は、作成済みでないときだけ問う。作成済みのテンプレートを作成経路で直している下書きは
       // 作り直しの対象ではない(画面は「既存のテンプレートを開く」だけを出す)。
       const id = templateIdFromFileName(skeletonFileName({ companyCode, fundCode, editionType }));
-      const inProgress = !created && ((await draftExists(id)) || (await pendingMtime(id)) !== null);
+      // 綴り違いも見つけ、id はファイルの綴りのまま返す(pending を優先。無ければ下書き)。
+      const found = created ? null : await findInProgressIds(id);
+      const inProgressId = found ? (found.pending[0] ?? found.drafts[0]) : undefined;
       const extra = {
         ...(templateId === null ? {} : { templateId }),
-        ...(inProgress ? { inProgressId: id } : {}),
+        ...(inProgressId === undefined ? {} : { inProgressId }),
       };
       const seriesRows = await sproc.callSproc(SP.series, '一覧', [
         p('委託会社コード', rep1CompanyCode),

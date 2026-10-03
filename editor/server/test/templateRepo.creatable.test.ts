@@ -100,6 +100,10 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
     expect(await repo.getCreatableInfo(q('510003'))).toMatchObject({
       inProgressId: 'AM01_510003_交付版', // 下書きだけ
     });
+    // 会社コードの綴りが違っても見つけ、id はファイルの綴りのまま返す(そのまま開ける)。
+    expect(await repo.getCreatableInfo({ ...q('510124'), companyCode: 'am01' })).toMatchObject({
+      inProgressId: 'AM01_510124_交付版',
+    });
     expect(await repo.getCreatableInfo(q('510037'))).not.toHaveProperty('inProgressId');
     expect(await repo.getCreatableInfo(q('110024'))).not.toHaveProperty('inProgressId');
   });

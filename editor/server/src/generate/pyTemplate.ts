@@ -138,13 +138,21 @@ function toGeneratorPayload(attrs: GenerateAttributes): GenerateAttributes {
   };
 }
 
-/** 出力ファイルの状態(無ければ null)。シンボリックリンクは辿らない(`lstat`)。 */
+/**
+ * 出力ファイルの状態(無ければ null)。シンボリックリンクは辿らない(`lstat`)。内容の指紋も持つのは、
+ * 更新時刻の粒度が粗くファイル番号を返さない(`ino` が 0 の)ドライブでも書き直しを見分けるため。
+ */
 async function outputState(
   file: string,
-): Promise<{ mtimeMs: number; ino: number; isFile: boolean } | null> {
+): Promise<{ mtimeMs: number; ino: number; isFile: boolean; digest: string } | null> {
   try {
     const s = await lstat(file);
-    return { mtimeMs: s.mtimeMs, ino: s.ino, isFile: s.isFile() };
+    const digest = s.isFile()
+      ? createHash('sha256')
+          .update(await readFile(file))
+          .digest('hex')
+      : '';
+    return { mtimeMs: s.mtimeMs, ino: s.ino, isFile: s.isFile(), digest };
   } catch {
     return null;
   }
@@ -184,7 +192,10 @@ export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
     const after = await outputState(output);
     const written =
       after?.isFile === true &&
-      (before === null || after.mtimeMs > before.mtimeMs || after.ino !== before.ino);
+      (before === null ||
+        after.mtimeMs > before.mtimeMs ||
+        after.ino !== before.ino ||
+        after.digest !== before.digest);
     if (!written) {
       throw new Error(`Python生成器が ${path.basename(output)} を書き出していません`);
     }
