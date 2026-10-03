@@ -4,7 +4,7 @@
 
 **Goal:** テンプレート(`templates/`)の ID とファイル名を基準日の無い `会社_ファンド_版種` にし、値入り HTML(`filled/`)の `会社_ファンド_基準日_版種` と形で見分ける。作成済みのテンプレートは作成タブから開いて直し、作業中のものがあるときの作り直しは確認ダイアログで同意を得てから行う。
 
-**Architecture:** shared の `domain/template.ts` に 3 つ区切りの解析・組み立てと「どちらの形も受ける」判定を足し、`TemplateAttributes.baseDate` を省略可にする(Task 1)。server は置き場ごとに受ける形をパス解決の関数で強制する。まず「どちらの形も受ける」入口(pending・下書き・メモ・申請・版の一覧・ペア同期)を広げ(Task 2)、次に生成と `templates/` を 3 つ区切りへ切り替える(Task 3。生成の 409 は 3 種類、下書きと pending の破棄は生成器の成功後)。web は作成タブの「既存のテンプレートを開く」「作成中のテンプレートを開く」と作り直しの確認、同じタブの編集状態の破棄、基準日の項目の非表示、local モードの同じ規則を入れる(Task 4)。最後に文書(Task 5)と差分パッチ(Task 6)。
+**Architecture:** shared の `domain/template.ts` に 3 つ区切りの解析・組み立てと「どちらの形も受ける」判定を足し、`TemplateAttributes.baseDate` を省略可にする(Task 1)。server は置き場ごとに受ける形をパス解決の関数で強制する。まず「どちらの形も受ける」入口(pending・下書き・メモ・申請・版の一覧・ペア同期)を広げ(Task 2)、次に生成と `templates/` を 3 つ区切りへ切り替える(Task 3。生成の 409 は 3 種類。生成器は `PENDING_DIR` へ自分で書き、editor はこの呼び出しで書かれたことを確かめて読む。下書きの破棄は生成器の成功後)。web は作成タブの「既存のテンプレートを開く」「作成中のテンプレートを開く」と作り直しの確認、同じタブの編集状態の破棄、基準日の項目の非表示、local モードの同じ規則を入れる(Task 4)。最後に文書(Task 5)と差分パッチ(Task 6)。
 
 **Tech Stack:** TypeScript(Fastify / Vue 3 / Pinia / Zod / reka-ui)、vitest、Playwright、Python 3.13(テスト用の偽の生成器)。
 
@@ -20,9 +20,10 @@
 - ID の区別は形で行う。3 つ区切り = テンプレート、4 つ区切り = 値入り HTML。
 - 置き場ごとの受ける ID: `templates/` は 3 つ区切りだけ、`filled/` は 4 つ区切りだけ、`pending/`・`drafts/`・`notes/`・`reviews/`・作成履歴はどちらの形も。パスを組み立てる関数が形を強制する(呼び出し側に任せない)。
 - 移行はしない(別環境の `templates/` にファイルが無く、作成タブも未使用で、4 つ区切りの `pending/`・作成の申請も無い)。`templates/` に残った 4 つ区切りのファイルは、作成済み・コピー元の判定にも一覧にも数えない。パッチの README には念のため「当てる前に作成タブの申請を片付ける」と書く。
-- 生成(`POST /api/generate`)の確認順: ① `templates/<ID>.html` がある → 409「作成済みです。既存のテンプレートを開いてください」 ② 同じ ID の承認待ちの申請(origin=create)がある → 409「申請中です。承認か却下を待ってください」 ③ 同じ ID の下書きか `pending/` があり、要求に `replaceExisting: true` が無い → 409「作成中のテンプレートがあります」 ④ 生成器を呼ぶ。成功したら同じ ID の下書き(`drafts/`)と `pending/` を消してから `pending/<ID>.html` に置く。生成器が失敗したら何も消さない。
+- 生成(`POST /api/generate`)の確認順: ① `templates/<ID>.html` がある → 409「作成済みです。既存のテンプレートを開いてください」 ② 同じ ID の承認待ちの申請(origin=create)がある → 409「申請中です。承認か却下を待ってください」 ③ 同じ ID の下書きか `pending/` があり、要求に `replaceExisting: true` が無い → 409「作成中のテンプレートがあります」 ④ 生成器を呼ぶ。生成器が `PENDING_DIR/<ID>.html` を自分で書く(一時ファイル → 名前の変更。失敗しても前の `pending/` は残る)。editor は終了コード 0 で、かつそのファイルがこの呼び出しで書かれたこと(呼び出し前に無かった、または更新時刻が新しい、またはファイルが差し替わった)を確かめてから読む。確かめられなければ生成の失敗。 ⑤ 成功したら editor が読んだ HTML に注記マスタを適用して `writePending` で `pending/<ID>.html` と CSS を書き直し、同じ ID の下書きを消し、作成履歴に記録する。失敗したら editor は何も消さない。
+- 生成器の出力の読み先は、editor が検証済みの id から組んだ `config.pendingDir/<ID>.html` だけ(生成器に読み先を決めさせない)。通常のファイルでなければ(ディレクトリ・シンボリックリンク)失敗として扱う。標準出力の HTML は使わない。
 - コメント(`notes/`)とパーツ変更履歴は作り直しでも消さない。作り直したときは、同じタブに残る編集状態(Undo のスタックと永続ミラー、下書きの持ち主)も捨てる。
-- 生成器へ渡す JSON は `companyCode`・`fundCode`・`editionType` と、あれば `sourceFundCode`・`isRedemption`。`baseDate` は渡さない。偽の生成器のコピー元は `TEMPLATES_DIR/会社_コピー元_版種.html`(会社コードの大文字小文字は問わない)。本番の生成器は別途この約束へ改修する(パッチの README とリリースノートに明記)。
+- 生成器へ渡す JSON は `companyCode`・`fundCode`・`editionType` と、あれば `sourceFundCode`・`isRedemption`。`baseDate` は渡さない。環境変数は今の `TEMPLATES_DIR` に加えて `PENDING_DIR`(`config.pendingDir`)を渡す。偽の生成器のコピー元は `TEMPLATES_DIR/会社_コピー元_版種.html`(会社コードの大文字小文字は問わない)で、結果は `PENDING_DIR/会社_ファンド_版種.html` へ一時ファイル経由で書き、標準出力には何も出さない。本番の生成器は別途この約束(書き先 `pending\会社_ファンド_版種.html`、一時ファイル → 名前の変更)へ改修する(パッチの README とリリースノートに明記)。
 - `CreatableInfo.templateId` は作成済みのときだけ、`inProgressId` は作業中(同じ ID の下書きか `pending/`)のときだけ付ける。作成済みなら「既存のテンプレートを開く」を出し、「属性から新規作成」「シリーズから作成」は押せない。作業中なら「作成中のテンプレートを開く」を出し、新規作成・シリーズから作成は押せるが「作業中の内容を捨てて作り直しますか」と確認し、同意したら `replaceExisting: true` で生成する。どちらも `editorRoute(id, { created: true })` で開く。
 - 版の一覧(`listVersions`。`filled/` の git 履歴)は 3 つ区切りの ID に空の配列を返す。
 - 基準日を持たないテンプレートを開いているときは、`EditorTopBar` と `AttributeBar` から基準日の項目を丸ごと隠す。一覧の表(`TemplateTable`)は空欄。共通サンプルの `report.baseDate`(差し込み値)は今のまま。
@@ -41,7 +42,7 @@
 1. 生成器が失敗した作り直しで、前回の下書きと `pending/` が消えて作業が失われる。生成器が失敗したら何も消さず、成功したときだけ消す(Task 3 の `generate.routes.test.ts` の `generateMock.mockRejectedValueOnce` で固定)。
 2. 作業中(同じ ID の下書きか pending)のテンプレートを、同意なしに作り直して上書きする。`replaceExisting` が無ければ 409「作成中のテンプレートがあります」、画面は確認で断れば生成しない(Task 3 の server テスト、Task 4 の `CreateTabView.dom.test.ts` と local のテストで固定)。作り直してもコメントとパーツ変更履歴は残る(Task 3 で固定)。
 3. 会社コードの大文字小文字だけが違うテンプレート(`am01_510037_交付版.html`)や、`templates/` に残った旧形式(4 つ区切り)のファイルがあるときの作成済み・コピー元の判定。前者は作成済み(`templateId` はファイルの綴り)で 409、後者は数えない(Task 3 の `generate.routes.test.ts`・`templateRepo.creatable.test.ts`・`fakeGenerator.test.ts`・`templateRepo.filled.test.ts` で固定)。
-4. 編集タブの一覧に pending の 3 つ区切りの行が出たとき、版数を問う `GET /templates/:id/versions` が 400 になって一覧の版数が壊れる。3 つ区切りは 200 `[]`(Task 2 の `history.routes.test.ts` で固定)。
+4. 生成器が終了コード 0 で終わったのに `pending/<ID>.html` を書いていない(前回の作業の古いファイルがそのまま残っている)とき、古い生成物を新しい出力と取り違えて「作り直した」ことにする。呼び出し前後のファイルの状態を比べ、この呼び出しで書かれていなければ生成の失敗にする(Task 3 の `pyTemplate.test.ts` で固定)。あわせて、版の一覧が 3 つ区切りの id に 400 を返さないこと(Task 2 の `history.routes.test.ts`)も固定している。
 5. テンプレートの承認後のペア同期の状態ファイルが、同じ会社・ファンドの値入り側の状態ファイルを上書きする。テンプレート側は `sync/AM01_510037.json`、値入り側は `sync/AM01_510037_20240710.json`(Task 2 の `pairSyncService.test.ts` で固定)。
 
 ---
@@ -924,8 +925,10 @@ git commit -m "feat(server): pending・下書き・メモ・申請・版の一�
 - Modify: `editor/server/src/files/templateFiles.ts`(先頭コメント、`templatePath`、`templateAttrKeys`、`findTemplateId` を追加)
 - Modify: `editor/server/src/files/reviewFiles.ts`(`hasPendingCreateReview` を追加)
 - Modify: `editor/server/src/routes/generate.routes.ts`(全体)
-- Modify: `editor/server/src/generate/pyTemplate.ts:17-28,117-127`
+- Modify: `editor/server/src/generate/pyTemplate.ts`(`GenerateAttributes`・`generatorEnv`・`toGeneratorPayload`・`generateTemplate`・`runGenerator`、出力ファイルの確認と読み取りを追加)
 - Modify: `editor/server/scripts/fake_generate_template.py`
+- 変えない: `editor/server/src/generate/generatorCheck.ts`(起動時の版の確認は自分のプローブ `print(版)` の標準出力を読むだけで、生成器の標準出力には依存しない。`generatorEnv()` に `PENDING_DIR` が増えても害は無い)
+- Modify(テスト): `editor/server/test/generate.routes.local.test.ts`(下で説明)
 - Modify: `editor/server/src/repositories/templateRepo.ts`(`getTemplate`・`getCreatableInfo`)
 - Modify: `editor/server/src/repositories/confirmedWrite.ts`(`assertFileNameFor`・`baselineTemplateHtml`)
 - Modify: `editor/server/src/repositories/reviewRepo.ts`(`submitReview` の形の検査)
@@ -943,6 +946,8 @@ git commit -m "feat(server): pending・下書き・メモ・申請・版の一�
   - `findTemplateId(fileNames: string[], companyCode: string, fundCode: string, editionType: string): string | null`(`files/templateFiles.ts`)
   - `hasPendingCreateReview(templateId: string): Promise<boolean>`(`files/reviewFiles.ts`)
   - `GenerateAttributes` から `baseDate` を外す
+  - `generateTemplate(attrs: GenerateAttributes): Promise<string>` の戻り値は「生成器が `config.pendingDir/<会社_ファンド_版種>.html` に書いた内容」(標準出力ではない)。この呼び出しで書かれていなければ reject する。ルートから見た形(属性を渡して HTML を受け取る)は変わらないので、ルートのテストは `generateTemplate` のモックのまま(ファイルを書かせない)で済む
+  - `generatorEnv()` は `PENDING_DIR`(= `config.pendingDir`)も渡す
   - 生成の 409 の文言: `作成済みです。既存のテンプレートを開いてください` / `申請中です。承認か却下を待ってください` / `作成中のテンプレートがあります`
 
 - [ ] **Step 1: 壊れる既存テストを書き換え、新しいテストを書く(RED)**
@@ -952,8 +957,9 @@ git commit -m "feat(server): pending・下書き・メモ・申請・版の一�
 | ファイル | 壊れる理由 | 書き換え |
 |---|---|---|
 | `generate.routes.test.ts` | 生成の ID が `AM01_510037_<当日>_交付版` でなくなる。作業中の作り直しが 409 になる | 下の全面書き換え |
-| `pyTemplate.test.ts` | `baseDate` を渡さなくなる | `attrs` から `baseDate: '20261001'` を消し、`'属性 JSON は明示したキーだけで組み…'` と `'sourceFundCode と isRedemption は…'` の期待値から `baseDate: '20261001',` を消す |
-| `fakeGenerator.test.ts` | コピー元が 3 つ区切りになる | 下の書き換え |
+| `pyTemplate.test.ts` | `baseDate` を渡さなくなる。HTML を標準出力ではなく `PENDING_DIR` のファイルから読む。環境変数に `PENDING_DIR` が増える | 下の書き換え |
+| `fakeGenerator.test.ts` | コピー元が 3 つ区切りになる。出力が `PENDING_DIR` のファイルになり、標準出力は空 | 下の書き換え |
+| `generate.routes.local.test.ts` | local モード(`AUTH_REQUIRED=false`)でも本物の生成器は `pending/` を書くので、ルートがそれを消す | 下の書き換え |
 | `templateRepo.creatable.test.ts` | `templates/` の 4 つ区切りを数えなくなる | 下の書き換え |
 | `templateRepo.filled.test.ts` | 4 つ区切りの id で `templates/` を読まなくなる | 下の書き換え |
 | `templates.routes.test.ts` | 作成済みの確認で 4 つ区切りを `templates/` に置いている | 下の書き換え |
@@ -1113,9 +1119,154 @@ process.env.REVIEWS_DIR = path.join(root, 'data', 'reviews');
 
 (`recordPartChange` / `listPartHistory` の引数の形は `historyRepo.ts` に合わせる。パーツ変更履歴は `<LOG_DIR>/history/` の追記ファイルで、生成ルートは触らない。)
 
-`fakeGenerator.test.ts`: `ATTRS` から `baseDate` を消す。`'sourceFundCode はコピー元ファンドの基準日が最新のテンプレートを写す…'` を次に替え、旧形式のケースを足す:
+生成ルートのテストと標準出力: `generate.routes.test.ts` は `generateTemplate` ごとモックしている(`generateMock` が HTML の文字列を返す)。`generateTemplate` は「生成器を起動し、書かれたファイルを確かめて読む」までを中に持ち、ルートから見た形(属性を渡して HTML を受け取る)は変わらないので、生成器の標準出力に頼っているルートのテストは無い。上の各ケースは `generateMock` のまま(モックにファイルを書かせない)でよい。生成器が失敗したときの「下書きも pending も消さない」ケース(`generateMock.mockRejectedValueOnce`)は、生成器の約束(一時ファイル → 名前の変更)で前の `pending/` が残る状況を表している。ファイルの確認と読み取りそのものは `pyTemplate.test.ts` が持つ。
+
+`generate.routes.local.test.ts`(local モード。`AUTH_REQUIRED=false`): 本物の生成器はこのモードでも `pending/<ID>.html` を書く。local モードは pending を残さない約束なので、ルートは読んだ後にそれを消す。モックを「pending へ書いてから HTML を返す」形にし、終わった後に pending が空であることを確かめる。`vi.mock` を次にする(`pendingDir` の定数は今のままファイル内にある):
 
 ```ts
+// 生成器(python)は本テストの対象外。本物の生成器と同じく pending/ へ書いてから、その内容を返す。
+vi.mock('../src/generate/pyTemplate.js', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  return {
+    generateTemplate: async () => {
+      const html = '<html><body><p>生成物</p></body></html>';
+      const dir = process.env.PENDING_DIR ?? '';
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'AM01_510037_交付版.html'), html, 'utf8');
+      return html;
+    },
+  };
+});
+```
+
+既存ケース `'local モードでは生成物を返すだけで、sproc の テンプレート も pending も触らない'` は、名前を `'local モードでは生成物を返すだけで、sproc の テンプレート を呼ばず、生成器が書いた pending も残さない'` にする(本文の `expect(fs.readdirSync(pendingDir)).toEqual([]);` はそのまま。実装が消さなければ FAIL する)。
+
+`pyTemplate.test.ts` の書き換え:
+- `vi.hoisted` の中に `process.env.PENDING_DIR = `${tmpRoot}/editor-pytemplate-test-pending`;` を足す。
+- `attrs` から `baseDate: '20261001'` を消す(出力の id は `C1_F1_monthly`)。
+- `ALLOWED_ENV_KEYS` に `'PENDING_DIR'` を足し、`'子プロセスには許可した環境変数だけを渡し…'` に `expect(env.PENDING_DIR).toBe(config.pendingDir);` を足す。
+- `'属性 JSON は明示したキーだけで組み…'` と `'sourceFundCode と isRedemption は…'` の期待値から `baseDate: '20261001',` を消す。
+- 出力のファイルを書く helper を足し、`answerOk` を「pending へ書いてから成功で返す」にする(標準出力はわざと別の値にして、使っていないことを示す):
+
+```ts
+const outputPath = (fundCode = 'F1') => path.join(config.pendingDir, `C1_${fundCode}_monthly.html`);
+
+/** 生成器が PENDING_DIR へ書いたことにする(本物は一時ファイル → 名前の変更)。 */
+function writeOutput(html: string, fundCode = 'F1'): void {
+  fs.mkdirSync(config.pendingDir, { recursive: true });
+  fs.writeFileSync(outputPath(fundCode), html, 'utf8');
+}
+
+/** 成功を返す execFile の差し替え。出力は PENDING_DIR のファイルで、標準出力は使わない。 */
+function answerOk(html = '<html>ok</html>'): void {
+  execFileMock.mockImplementation((_bin, _args, _opts, cb) => {
+    writeOutput(html);
+    cb(null, '<html>標準出力は使わない</html>', '');
+    return { on: vi.fn() };
+  });
+}
+```
+
+`afterEach` に `fs.rmSync(config.pendingDir, { recursive: true, force: true });` を足す。
+
+- `describe('生成の同時実行の上限')` の 1 つ目: 10 本を同じ id で投げると「この呼び出しで書かれたか」の判定が互いに干渉するので、ファンドコードを分ける。`const runs = Array.from({ length: 10 }, (_, i) => generateTemplate({ ...attrs, fundCode: `F${i}` }));`、11 本目は `fundCode: 'F10'`。コールバックを呼ぶ前に、その呼び出しの JSON からファンドコードを読んで書く:
+
+```ts
+    const fundOf = (i: number) =>
+      JSON.parse((execFileMock.mock.calls[i][1] as string[]).at(-1) ?? '{}').fundCode as string;
+    writeOutput('<html>1</html>', fundOf(0));
+    callbacks[0](null, '', '');
+    // (ループの中も同じく) writeOutput(`<html>${i + 1}</html>`, fundOf(i)); callbacks[i](null, '', '');
+```
+
+- `describe('generateTemplate')` の 3 ケースを次に替える(他の 2 ケースと、最後の実 `execFile` のケースはそのまま):
+
+```ts
+  it('生成器が PENDING_DIR に書いたファイルを返し、標準出力は使わない', async () => {
+    answerOk('<html>file</html>');
+    await expect(generateTemplate(attrs)).resolves.toBe('<html>file</html>');
+    const calledArgs = execFileMock.mock.calls[0][1] as string[];
+    expect(calledArgs[calledArgs.length - 1]).toContain('"fundCode":"F1"');
+  });
+
+  it('終了コード 0 でもファイルを書かなければ失敗にする', async () => {
+    execFileMock.mockImplementation((_bin, _args, _opts, cb) => {
+      cb(null, '<html>標準出力だけ</html>', '');
+      return { on: vi.fn() };
+    });
+    await expect(generateTemplate(attrs)).rejects.toThrow(/書き出していません/);
+  });
+
+  it('呼び出し前からある古いファイルを、この呼び出しの出力と取り違えない', async () => {
+    writeOutput('<html>前回の生成物</html>');
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(outputPath(), old, old);
+    execFileMock.mockImplementation((_bin, _args, _opts, cb) => {
+      cb(null, '', ''); // 書かずに成功で終わる
+      return { on: vi.fn() };
+    });
+    await expect(generateTemplate(attrs)).rejects.toThrow(/書き出していません/);
+    expect(fs.readFileSync(outputPath(), 'utf8')).toBe('<html>前回の生成物</html>'); // 消さない
+  });
+
+  it('古いファイルを書き直したなら、その内容を返す', async () => {
+    writeOutput('<html>前回の生成物</html>');
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(outputPath(), old, old);
+    answerOk('<html>新しい生成物</html>');
+    await expect(generateTemplate(attrs)).resolves.toBe('<html>新しい生成物</html>');
+  });
+
+  it('書かれたものが空、または通常のファイルでなければ失敗にする', async () => {
+    answerOk('   ');
+    await expect(generateTemplate(attrs)).rejects.toThrow(/空の出力/);
+    fs.rmSync(outputPath(), { force: true });
+    execFileMock.mockImplementation((_bin, _args, _opts, cb) => {
+      fs.mkdirSync(outputPath(), { recursive: true }); // ディレクトリを置く
+      cb(null, '', '');
+      return { on: vi.fn() };
+    });
+    await expect(generateTemplate(attrs)).rejects.toThrow(/書き出していません/);
+  });
+
+  it('属性がファイル名のトークンとして不正なら、生成器を呼ばずに拒否する(読み先を pending/ の外へ向けさせない)', async () => {
+    await expect(generateTemplate({ ...attrs, fundCode: '../x' })).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+```
+
+(`'rejects with a wrapped error…'` と `'stderr が空の失敗は…'` はそのまま。`'rejects when the generator returns empty output'` は上の「空、または通常のファイルでなければ」に置き換える。指紋のケースと `'生成器が失敗しても枠を返す'` は `answerOk` が書くのでそのまま通る。)
+
+`fakeGenerator.test.ts`: `ATTRS` から `baseDate` を消す。`run` に渡す env に毎回 `PENDING_DIR` を入れ、出力をファイルから読む helper を足す:
+
+```ts
+const pendingOf = (name: string) => path.join(tmp, name, 'pending');
+const readOut = (name: string, id = 'AM01_510037_交付版') =>
+  fs.readFileSync(path.join(pendingOf(name), `${id}.html`), 'utf8');
+```
+
+既存ケースを次に替える:
+
+```ts
+  it('元テンプレ指定が無ければ属性入りのスケルトンを PENDING_DIR へ書き、標準出力には何も出さない', async () => {
+    const r = await run(ATTRS, { PENDING_DIR: pendingOf('blank') });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe('');
+    expect(readOut('blank')).toContain('{{ fund.name }}');
+    expect(readOut('blank')).toContain('ファンド: 510037');
+    // 一時ファイルを残さない(名前の変更で置き換える)。
+    expect(fs.readdirSync(pendingOf('blank'))).toEqual(['AM01_510037_交付版.html']);
+  }, 30_000);
+
+  it('PENDING_DIR が無ければエラー(書き先を勝手に決めない)', async () => {
+    const r = await run(ATTRS, {});
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain('PENDING_DIR');
+  }, 30_000);
+
   it('sourceFundCode は templates/ の 会社_コピー元_版種.html を写す(会社コードの大小を問わず、旧形式は見ない)', async () => {
     const templates = path.join(tmp, 'templates-source');
     fs.mkdirSync(templates, { recursive: true });
@@ -1124,20 +1275,33 @@ process.env.REVIEWS_DIR = path.join(root, 'data', 'reviews');
     fs.writeFileSync(path.join(templates, 'AM01_510037_全体版.html'), '<p>版種違い</p>', 'utf8');
     const r = await run(
       { ...ATTRS, fundCode: '510155', sourceFundCode: '510037' },
-      { TEMPLATES_DIR: templates },
+      { TEMPLATES_DIR: templates, PENDING_DIR: pendingOf('source') },
     );
     expect(r.code).toBe(0);
-    expect(r.stdout).toBe('<p>src</p>');
+    expect(readOut('source', 'AM01_510155_交付版')).toBe('<p>src</p>');
   }, 30_000);
 
-  it('コピー元が旧形式(4 つ区切り)しか無ければエラー', async () => {
+  it('コピー元が旧形式(4 つ区切り)しか無ければエラーで、前の pending を残す', async () => {
     const templates = path.join(tmp, 'templates-legacy');
     fs.mkdirSync(templates, { recursive: true });
     fs.writeFileSync(path.join(templates, 'AM01_510037_20250101_交付版.html'), '<p>旧形式</p>', 'utf8');
-    const r = await run({ ...ATTRS, sourceFundCode: '510037' }, { TEMPLATES_DIR: templates });
+    fs.mkdirSync(pendingOf('legacy'), { recursive: true });
+    fs.writeFileSync(path.join(pendingOf('legacy'), 'AM01_510037_交付版.html'), '<p>前の生成物</p>', 'utf8');
+    const r = await run(
+      { ...ATTRS, sourceFundCode: '510037' },
+      { TEMPLATES_DIR: templates, PENDING_DIR: pendingOf('legacy') },
+    );
+    expect(r.code).toBe(2);
+    expect(readOut('legacy')).toBe('<p>前の生成物</p>');
+  }, 30_000);
+
+  it('属性に区切り文字やパスが混ざればエラー(PENDING_DIR の外へ書かない)', async () => {
+    const r = await run({ ...ATTRS, fundCode: '../x' }, { PENDING_DIR: pendingOf('bad') });
     expect(r.code).toBe(2);
   }, 30_000);
 ```
+
+`'TEMPLATES_DIR が無ければ sourceFundCode はエラー…'` と `'sourceFundCode のコピー元が無い・規約外ならエラー'` は、env に `PENDING_DIR: pendingOf('…')` を足す(終了コード 2 の期待はそのまま)。
 
 `templateRepo.creatable.test.ts` の `beforeAll` の置き方を次にする:
 
@@ -1297,8 +1461,8 @@ const approve = (target: 'filled' | 'template' = 'template') =>
   expect(decodeURIComponent(url.pathname)).toBe('/edit/AM01_510037_交付版');
 ```
 
-Run: `pnpm exec vitest run --project server editor/server/test/generate.routes.test.ts editor/server/test/pyTemplate.test.ts editor/server/test/fakeGenerator.test.ts editor/server/test/templateRepo.creatable.test.ts editor/server/test/templateRepo.filled.test.ts editor/server/test/templates.routes.test.ts editor/server/test/reviews.test.ts editor/server/test/confirmedWrite.guard.test.ts editor/server/test/confirmedWrite.rollback.test.ts editor/server/test/pathGuards.test.ts editor/server/test/ioFailurePolicy.test.ts` と `pnpm exec vitest run --project "web-*" editor/web/test/fundImages.test.ts`
-Expected: 生成・作成済み・作成中・形の検査・偽の生成器・ファンド画像のケースが FAIL。
+Run: `pnpm exec vitest run --project server editor/server/test/generate.routes.test.ts editor/server/test/generate.routes.local.test.ts editor/server/test/pyTemplate.test.ts editor/server/test/fakeGenerator.test.ts editor/server/test/templateRepo.creatable.test.ts editor/server/test/templateRepo.filled.test.ts editor/server/test/templates.routes.test.ts editor/server/test/reviews.test.ts editor/server/test/confirmedWrite.guard.test.ts editor/server/test/confirmedWrite.rollback.test.ts editor/server/test/pathGuards.test.ts editor/server/test/ioFailurePolicy.test.ts` と `pnpm exec vitest run --project "web-*" editor/web/test/fundImages.test.ts`
+Expected: 生成・作成済み・作成中・形の検査・出力ファイルの確認・偽の生成器・local の pending の後始末・ファンド画像のケースが FAIL。
 
 - [ ] **Step 2: shared の契約を直す**
 
@@ -1407,9 +1571,104 @@ export async function hasPendingCreateReview(templateId: string): Promise<boolea
 }
 ```
 
-- [ ] **Step 4: 生成器の約束と偽の生成器を直す**
+- [ ] **Step 4: 生成器の約束(PENDING_DIR へ書く)と偽の生成器を直す**
 
-`pyTemplate.ts`: `GenerateAttributes` から `baseDate` とそのコメントを消し、interface の doc を「生成器へ渡す属性。ルート(`generate.routes.ts`)で検証した値だけ。テンプレートは基準日を持たないので基準日は渡さない。」にする。`toGeneratorPayload` から `baseDate: attrs.baseDate,` を消す。
+`pyTemplate.ts`:
+- import に `fs`(`node:fs/promises` の `lstat`・`readFile` は既存の `readFile` の import に `lstat` を足す)、`path`(`node:path`)、`assertSkeletonFileName`・`skeletonFileName`(`@editor/shared`)を足す。
+- 先頭コメントの最後に「生成器はテンプレートを `PENDING_DIR/<会社_ファンド_版種>.html` に一時ファイル → 名前の変更で書き、editor はこの呼び出しで書かれたことを確かめてから読む。標準出力の HTML は使わない(書きかけや前回の生成物を受け取らないため)。」を足す。
+- `GenerateAttributes` から `baseDate` とそのコメントを消し、interface の doc を「生成器へ渡す属性。ルート(`generate.routes.ts`)で検証した値だけ。テンプレートは基準日を持たないので基準日は渡さない。」にする。
+- `generatorEnv` の doc に `PENDING_DIR` を足し、`env.TEMPLATES_DIR = config.templatesDir;` の次に `env.PENDING_DIR = config.pendingDir;` を足す(doc: 「`PENDING_DIR` は生成器の書き先。サーバの本当の置き場(`config.pendingDir`)を渡す。」)。
+- `toGeneratorPayload` から `baseDate: attrs.baseDate,` を消す。
+- 出力ファイルの状態を取る関数と、`generateTemplate` / `runGenerator` を次にする:
+
+```ts
+/** 出力ファイルの状態(無ければ null)。シンボリックリンクは辿らない(`lstat`)。 */
+async function outputState(
+  file: string,
+): Promise<{ mtimeMs: number; ino: number; isFile: boolean } | null> {
+  try {
+    const s = await lstat(file);
+    return { mtimeMs: s.mtimeMs, ino: s.ino, isFile: s.isFile() };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 生成器を呼び出す。属性は JSON 引数で渡し、生成器は `PENDING_DIR/<会社_ファンド_版種>.html` を書く。
+ * 読み先は検証済みの属性からここで組む(生成器に決めさせない)。終了コード 0 でも、そのファイルが
+ * この呼び出しで書かれていなければ(呼び出し前からある古いファイルのまま・書かれていない・通常の
+ * ファイルでない)失敗にする。前回の生成物を新しい出力と取り違えないため。
+ */
+export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
+  // `sourceFundCode` は生成器側でファイル名の照合に使われる。ルートでも検査するが、ここを別の
+  // 呼び出し元から使われても区切り文字を持ち込ませないよう、渡す前にもう一度検査する
+  // (Python 側にも区切り文字の検査がある)。会社・ファンド・版種も同じ理由でここで検査し、
+  // 読み先が pending/ の外へ出ないことを名前の検査(`assertSkeletonFileName`)でも保つ。
+  if (attrs.sourceFundCode) {
+    assertTemplateAttributeToken('コピー元ファンドコード', attrs.sourceFundCode);
+  }
+  const output = path.join(
+    config.pendingDir,
+    assertSkeletonFileName(
+      skeletonFileName({
+        companyCode: assertTemplateAttributeToken('会社コード', attrs.companyCode),
+        fundCode: assertTemplateAttributeToken('ファンドコード', attrs.fundCode),
+        editionType: assertTemplateAttributeToken('版種', attrs.editionType),
+      }),
+    ),
+  );
+  const payload = toGeneratorPayload(attrs);
+  // 指紋の照合は枠を取った後・起動の直前に行う(待ち行列にいる間の差し替えも拾う)。
+  return GENERATE_GATE.run(async () => {
+    await assertGeneratorFingerprint();
+    // 書かれたかの比較の基準は、起動の直前に取る(待ち行列の間に別の生成が書いた分を混ぜない)。
+    const before = await outputState(output);
+    await runGenerator(payload);
+    const after = await outputState(output);
+    const written =
+      after !== null &&
+      after.isFile &&
+      (before === null || after.mtimeMs > before.mtimeMs || after.ino !== before.ino);
+    if (!written) {
+      throw new Error(`Python生成器が ${path.basename(output)} を書き出していません`);
+    }
+    const html = await readFile(output, 'utf8');
+    if (!html.trim()) throw new Error('Python生成器が空の出力を返しました');
+    return html;
+  });
+}
+
+function runGenerator(payload: GenerateAttributes): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      config.python.bin,
+      [...config.python.args, config.python.script, JSON.stringify(payload)],
+      {
+        timeout: config.python.timeoutMs,
+        maxBuffer: 16 * 1024 * 1024,
+        encoding: 'utf8',
+        env: generatorEnv(),
+      },
+      // 標準出力は使わない(出力は PENDING_DIR のファイル)。失敗時の stderr だけを残す。
+      (err, _stdout, stderr) => {
+        if (err) {
+          reject(
+            new Error(`Python生成器の実行に失敗: ${err.message}${stderr ? `\n${stderr}` : ''}`),
+          );
+          return;
+        }
+        resolve();
+      },
+    );
+    child.on('error', reject);
+  });
+}
+```
+
+(「通常のファイルでない」= ディレクトリやシンボリックリンク。`lstat` はリンクを辿らないので、生成器がリンクを置いて pending/ の外を読ませることはできない。`assertTemplateAttributeToken` の失敗は `validation` なので、ルートを通さずに呼ばれても 400 相当で止まる。)
+
+`generatorCheck.ts` は変えない(版の確認は自分のプローブの標準出力だけを読む)。
 
 `fake_generate_template.py` の docstring:
 
@@ -1419,18 +1678,62 @@ export async function hasPendingCreateReview(templateId: string): Promise<boolea
 入出力の約束(呼び出し元は editor/server/src/generate/pyTemplate.ts):
 - argv[1] は JSON: {companyCode, fundCode, editionType, sourceFundCode?, isRedemption?}
   (テンプレートは基準日を持たないので baseDate は来ない)
-- 生成した Jinja2 テンプレート HTML を stdout へ出す。
+- 生成した Jinja2 テンプレート HTML を、環境変数 PENDING_DIR(サーバが config.pendingDir を渡す)の
+  <会社コード>_<ファンドコード>_<版種>.html へ書く。一時ファイルに書いてから名前を変え、書きかけを
+  残さない(失敗したら前のファイルはそのまま)。標準出力には何も出さない。PENDING_DIR が無ければ
+  エラーにする。
 
 sourceFundCode があれば、環境変数 TEMPLATES_DIR(サーバが config.templatesDir を渡す)にある
-コピー元のテンプレート <会社コード>_<sourceFundCode>_<版種>.html を返す(会社コードの大文字小文字は
+コピー元のテンプレート <会社コード>_<sourceFundCode>_<版種>.html を写す(会社コードの大文字小文字は
 区別しない。基準日の入った 4 つ区切りの名前は見ない)。TEMPLATES_DIR が無ければエラーにする。
 isRedemption は受け取るだけ。
 """
 ```
 
-`if source_fund:` の中の検索(「会社・版種は作成先と同じ。基準日…」のコメントから `best[1]` を開くところまで)を:
+`main` を次の形にする(既存のスケルトンの組み立て `html = f"""…"""` はそのまま使い、`sys.stdout.write(html)` の代わりに `write_output` を呼ぶ):
 
 ```python
+def _token_ok(value: str) -> bool:
+    # ファイル名の 1 トークンとして安全か(区切り・パス・.. を含まない)。editor 側の検査と同じ意図。
+    return bool(value) and value == os.path.basename(value) and ".." not in value and "_" not in value
+
+
+def write_output(pending_dir: str, file_name: str, html: str) -> None:
+    # 一時ファイル(.tmp。editor の一覧は .html しか拾わない)に書いてから名前を変える。
+    os.makedirs(pending_dir, exist_ok=True)
+    tmp = os.path.join(pending_dir, f".{file_name}.{os.getpid()}.tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(html)
+    os.replace(tmp, os.path.join(pending_dir, file_name))
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print("missing attributes JSON", file=sys.stderr)
+        return 2
+    attrs = json.loads(sys.argv[1])
+    company = attrs.get("companyCode", "")
+    fund = attrs.get("fundCode", "")
+    edition = attrs.get("editionType", "")
+    source_fund = attrs.get("sourceFundCode")
+
+    pending_dir = os.environ.get("PENDING_DIR")
+    if not pending_dir:
+        print("PENDING_DIR is required", file=sys.stderr)
+        return 2
+    if not (_token_ok(company) and _token_ok(fund) and _token_ok(edition)):
+        print("invalid attributes", file=sys.stderr)
+        return 2
+    file_name = f"{company}_{fund}_{edition}.html"
+
+    if source_fund:
+        templates_dir = os.environ.get("TEMPLATES_DIR")
+        if not templates_dir:
+            print("TEMPLATES_DIR is required when sourceFundCode is given", file=sys.stderr)
+            return 2
+        if not _token_ok(source_fund):
+            print("invalid sourceFundCode", file=sys.stderr)
+            return 2
         # 会社・版種は作成先と同じ。テンプレートは 会社_ファンド_版種.html の 3 つ区切りだけを見る。
         for name in sorted(os.listdir(templates_dir)):
             if not name.lower().endswith(".html"):
@@ -1441,10 +1744,14 @@ isRedemption は受け取るだけ。
             c, f, e = parts
             if c.lower() == company.lower() and f == source_fund and e == edition:
                 with open(os.path.join(templates_dir, name), encoding="utf-8") as fh:
-                    sys.stdout.write(fh.read())
+                    write_output(pending_dir, file_name, fh.read())
                 return 0
         print(f"source template not found: {source_fund}", file=sys.stderr)
         return 2
+
+    html = f"""…(既存のスケルトンのまま)…"""
+    write_output(pending_dir, file_name, html)
+    return 0
 ```
 
 - [ ] **Step 5: 生成ルートを切り替える**
@@ -1543,16 +1850,19 @@ import {
 `config.requireAuth` の分岐を:
 
 ```ts
-          // REST モード: pending 実体 → 作成記録の順。CSS はファンド共有ファイルなので pending に
-          // しか書かない — 共有 CSS の書き換えは承認経路(`applyConfirmedWrite`)の専権である。
-          // 前回の下書きと生成物は、生成器が成功したここで初めて捨てる(失敗したら作業を残す)。
-          // 下書きが残ると、編集画面を開いたときに古い下書きが新しい生成物を覆う。コメント(notes/)と
+          // REST モード: 生成器が書いた pending/<id>.html を、注記マスタを適用した HTML と CSS で
+          // 書き直し → 作成記録の順。CSS はファンド共有ファイルなので pending にしか書かない — 共有 CSS の
+          // 書き換えは承認経路(`applyConfirmedWrite`)の専権である。前回の下書きは、生成器が成功した
+          // ここで初めて捨てる(失敗したら作業を残す。前の pending/ は生成器の約束で残る)。下書きが
+          // 残ると、編集画面を開いたときに古い下書きが新しい生成物を覆う。コメント(notes/)と
           // パーツ変更履歴は同じテンプレートの記録なので残す。確定側(templates/)は ① が守る。
           if (config.requireAuth) {
-            await deleteDraft(id);
-            await deletePending(id);
             await writePending(id, html, css);
+            await deleteDraft(id);
             await recordCreate(attributes, sourceFundCode, loginId);
+          } else {
+            // local モードは pending を持たない。生成器は約束どおり書くので、読み終えたここで消す。
+            await deletePending(id);
           }
 ```
 
@@ -1702,7 +2012,7 @@ Expected: typecheck exit 0、vitest 全件 PASS(`openapiArtifact.guard` を含�
 ```bash
 pnpm exec biome check --write editor/shared/src editor/server/src editor/server/test editor/server/scripts editor/web/src editor/web/test editor/e2e
 git status --short   # docs/editor/images の差分(create-tab.png など)は含めない
-git add editor/shared/src/schemas.ts editor/server/src/files/templateFiles.ts editor/server/src/files/reviewFiles.ts editor/server/src/routes/generate.routes.ts editor/server/src/generate/pyTemplate.ts editor/server/scripts/fake_generate_template.py editor/server/src/repositories/templateRepo.ts editor/server/src/repositories/confirmedWrite.ts editor/server/src/repositories/reviewRepo.ts editor/web/src/features/editor/fundImages.ts editor/server/scripts/e2e-rest-seed.ts editor/e2e/create.spec.ts editor/server/test/generate.routes.test.ts editor/server/test/pyTemplate.test.ts editor/server/test/fakeGenerator.test.ts editor/server/test/templateRepo.creatable.test.ts editor/server/test/templateRepo.filled.test.ts editor/server/test/templates.routes.test.ts editor/server/test/reviews.test.ts editor/server/test/confirmedWrite.guard.test.ts editor/server/test/confirmedWrite.rollback.test.ts editor/server/test/pathGuards.test.ts editor/server/test/ioFailurePolicy.test.ts editor/web/test/fundImages.test.ts editor/server/openapi/openapi.json
+git add editor/shared/src/schemas.ts editor/server/src/files/templateFiles.ts editor/server/src/files/reviewFiles.ts editor/server/src/routes/generate.routes.ts editor/server/src/generate/pyTemplate.ts editor/server/scripts/fake_generate_template.py editor/server/src/repositories/templateRepo.ts editor/server/src/repositories/confirmedWrite.ts editor/server/src/repositories/reviewRepo.ts editor/web/src/features/editor/fundImages.ts editor/server/scripts/e2e-rest-seed.ts editor/e2e/create.spec.ts editor/server/test/generate.routes.test.ts editor/server/test/generate.routes.local.test.ts editor/server/test/pyTemplate.test.ts editor/server/test/fakeGenerator.test.ts editor/server/test/templateRepo.creatable.test.ts editor/server/test/templateRepo.filled.test.ts editor/server/test/templates.routes.test.ts editor/server/test/reviews.test.ts editor/server/test/confirmedWrite.guard.test.ts editor/server/test/confirmedWrite.rollback.test.ts editor/server/test/pathGuards.test.ts editor/server/test/ioFailurePolicy.test.ts editor/web/test/fundImages.test.ts editor/server/openapi/openapi.json
 git commit -m "feat(editor): テンプレートを基準日の無い名前(会社_ファンド_版種)で作り、作成済み・申請中・作成中は生成を止める"
 ```
 
@@ -2611,7 +2921,7 @@ Expected: 2 回目が OK。
 - 3.3 節の「テンプレート同一性」: 「`TemplateAttributes`（… / `baseDate` 基準日 yyyymmdd。値入り HTML だけが持つ / …）。ファイル名規約は値入り HTML が `company_fund_date_edition.html`、テンプレートが `company_fund_edition.html` で、区切りの数で見分ける。変換は `shared/src/domain/template.ts`（`templateFileName` / `parseTemplateFileName` / `skeletonFileName` / `parseSkeletonFileName` / `parseAnyTemplateFileName`）の純関数。」にする。
 - 4.2 節(264 行付近)の「`getTemplate` は `filled/`（値入り HTML）→ `templates/`（作成タブの Jinja）→ `pending/` の順に探し、`filled/` で見つかれば `html` と `filled` の両方に本文を返す。」を「`getTemplate` は id の形で探し先を分ける。値入り HTML（4 つ区切り）は `filled/` → `pending/`、テンプレート（3 つ区切り）は `templates/` → `pending/`。`filled/` で見つかれば `html` と `filled` の両方に本文を返す。local では承認済みのテンプレートも一覧に `draft` の行として出る（rest の一覧は `filled/` と `pending/` だけ）。」にする。
 - 6.1 節(編集 2 系統)の作成タブの説明に「作成済み・作成中のテンプレートは作成タブの『既存のテンプレートを開く』『作成中のテンプレートを開く』から作成経路で開く。作り直しは確認ダイアログで同意を得てから行い、同じタブの編集状態（Undo と下書きの持ち主）も捨てる。基準日を持たないテンプレートでは上部バーと属性欄に基準日を出さない」を足す。
-- 7.3 節の「渡すもの」: 「サーバが決めた `baseDate`、」を消し、「テンプレートは基準日を持たないので基準日は渡さない。」を足す。`sourceFundCode` の説明に「生成器は `templates/<会社>_<コピー元>_<版種>.html` を読む」を足す。同じ節に「生成の前に、作成済み・承認待ちの作成申請・同意（`replaceExisting`）の無い作業中を確かめて 409 で止める。同じ id の下書きと `pending/` は生成器が成功した後に捨て、失敗したら残す。コメントとパーツ変更履歴は残す」を足す。
+- 7.3 節の「渡すもの」: 「サーバが決めた `baseDate`、」を消し、「テンプレートは基準日を持たないので基準日は渡さない。」を足す。`sourceFundCode` の説明に「生成器は `templates/<会社>_<コピー元>_<版種>.html` を読む」を足す。環境変数の許可リストに `PENDING_DIR` を足す。節の冒頭の「stdout の HTML を受け取る」を「生成器が `PENDING_DIR/<会社>_<ファンド>_<版種>.html` を一時ファイル → 名前の変更で書き、editor は終了コード 0 で、かつそのファイルがこの呼び出しで書かれたこと（呼び出し前に無かった・更新時刻が新しい・ファイルが差し替わった）を確かめてから読む。読み先は検証済みの id から editor が組み、通常のファイル以外は失敗。標準出力の HTML は使わない」にする。同じ節に「生成の前に、作成済み・承認待ちの作成申請・同意（`replaceExisting`）の無い作業中を確かめて 409 で止める。成功したら読んだ HTML に注記マスタを適用して `pending/` を書き直し、同じ id の下書きを捨てる。生成器が失敗したら editor は何も消さない（前の `pending/` は生成器の約束で残る）。local モード（認証なし）は読み終えた `pending/` を消す。コメントとパーツ変更履歴は残す」を足す。502 行の「入出力の約束（argv の JSON を受け、stdout に HTML を出す）」を「入出力の約束（argv の JSON を受け、`PENDING_DIR` にファイルを書く）」にする。
 - ペア同期を説明している段落(`pairSyncService` を説明しているところ)に「状態ファイルはテンプレートが `sync/会社_ファンド.json`、値入り HTML が `sync/会社_ファンド_基準日.json`」を足す。
 - `rev` に `- 3.1 | 2026-10-03 | テンプレート（templates/）の ID から基準日を外し、作り直しの守りを追加（2.1 節・3.3 節・4.2 節・6.1 節・7.3 節）` を足し、`version` を `"3.1"` にする。
 
@@ -2635,7 +2945,8 @@ Expected: 2 回目が OK。
 - `rev` に `- 3.7 | 2026-10-03 | テンプレート作成タブ（作成済み・作成中のテンプレートを開く、作り直しの確認、申請中の表示）` を足し、`version` を `"3.7"` にする。
 
 `docs/editor/src/デプロイ運用手順書.md` の 3.2 節に、生成器への入力の約束を 1 段落足す:
-「生成器へ渡す属性の JSON は `companyCode`・`fundCode`・`editionType` と、シリーズから作成のときだけ `sourceFundCode`、償還のときだけ `isRedemption`。テンプレートは基準日を持たないので `baseDate` は渡さない。コピー元は `TEMPLATES_DIR` の `<会社コード>_<sourceFundCode>_<版種>.html`（基準日なし）で、生成器はこれを読む。本番の生成器はこの約束に合わせて改修してから、この版の editor を動かす。」
+「生成器へ渡す属性の JSON は `companyCode`・`fundCode`・`editionType` と、シリーズから作成のときだけ `sourceFundCode`、償還のときだけ `isRedemption`。テンプレートは基準日を持たないので `baseDate` は渡さない。コピー元は `TEMPLATES_DIR` の `<会社コード>_<sourceFundCode>_<版種>.html`（基準日なし）で、生成器はこれを読む。生成器は結果を環境変数 `PENDING_DIR`（サーバの `paths.pendingDir`）の `<会社コード>_<ファンドコード>_<版種>.html` へ書く。書きかけを残さないよう、同じフォルダの一時ファイル（拡張子 `.html` 以外）に書いてから名前を変え、失敗したときは前のファイルに触れない。標準出力の HTML は使われない。editor は終了コード 0 でもこのファイルが書かれていなければ生成の失敗として扱う。本番の生成器はこの約束に合わせて改修してから、この版の editor を動かす。」
+同じ節の環境変数の箇条（「生成器の子プロセスへ渡す環境変数は … `TEMPLATES_DIR`（元テンプレの読み先。サーバの `paths.templatesDir`）だけ。」）に `PENDING_DIR`（生成物の書き先。サーバの `paths.pendingDir`）を足す。生成器はサーバの実行アカウントで動くので、`pending\` への書き込み権限を足す作業は無い。
 `rev` に `- 2.0 | 2026-10-03 | 生成器への入力から基準日を外し、コピー元のファイル名を基準日なしへ（3.2 節）` を足し、`version` を `"2.0"` にする。
 
 - [ ] **Step 4: 生成と検査**
@@ -2666,9 +2977,13 @@ git commit -m "docs(editor): テンプレートのファイル名から基準日
 
 ```
 ※ 手順 1 より前に(このパッチを当てる前に)次の 2 つを済ませる。
-  ・本番の生成器(PY_GENERATE_SCRIPT)を新しい約束へ改修しておく。属性の JSON に baseDate は
-    来なくなり、シリーズから作成のコピー元は templates\<会社>_<コピー元ファンド>_<版種>.html
-    (基準日なし)を読む。改修前のままだと「シリーズから作成」がコピー元を見つけられない。
+  ・本番の生成器(PY_GENERATE_SCRIPT)を新しい約束へ改修しておく。
+    - 属性の JSON に baseDate は来ない。
+    - シリーズから作成のコピー元は templates\<会社>_<コピー元ファンド>_<版種>.html(基準日なし)を読む。
+    - 生成結果は標準出力ではなく、環境変数 PENDING_DIR の <会社>_<ファンド>_<版種>.html
+      (= pending\会社_ファンド_版種.html)へ書く。同じフォルダの一時ファイル(.html 以外の拡張子)に
+      書いてから名前を変え、失敗したら前のファイルに触れない。
+    改修前の生成器(標準出力に出すもの)のままだと、作成タブの作成はすべて失敗する。
   ・念のため、作成タブの申請(承認タブで「作成」の申請)が残っていれば承認か却下で片付けておく。
     テンプレートのファイル名から基準日を外したので、古い名前の申請は承認できない。
 ※ 次の a〜c を、手順 5 で start.bat を起動する前に済ませる。
@@ -2712,7 +3027,7 @@ Release notes(スクラッチパッドの `notes-skeleton.md`):
 SOURCE-COMMIT が e82a5c2（前回のパッチ `patch-2f88a2e-to-e82a5c2` を当てた環境）を <target7> へ更新する差分パッチ。
 
 当てる前に
-- **本番の生成器を新しい約束へ改修しておく**: 属性の JSON に `baseDate` は来なくなり、シリーズから作成のコピー元は `templates\<会社>_<コピー元ファンド>_<版種>.html`（基準日なし）を読む。改修前のままだと「シリーズから作成」がコピー元を見つけられない。
+- **本番の生成器を新しい約束へ改修しておく**: 属性の JSON に `baseDate` は来なくなり、シリーズから作成のコピー元は `templates\<会社>_<コピー元ファンド>_<版種>.html`（基準日なし）を読む。生成結果は標準出力ではなく、環境変数 `PENDING_DIR` の `<会社>_<ファンド>_<版種>.html`（つまり `pending\会社_ファンド_版種.html`）へ書く。書きかけを残さないよう一時ファイルに書いてから名前を変え、失敗したら前のファイルに触れない。改修前の生成器（標準出力に出すもの）のままだと、作成タブの作成はすべて「書き出していません」の失敗になる。
 - 念のため、作成タブの申請（承認タブの「作成」の申請）が残っていれば承認か却下で片付けておく。
 
 変更の要点
@@ -2746,5 +3061,6 @@ Expected: `gh release view patch-e82a5c2-to-<target7>` に zip と `.sha256` の
 
 - 仕様の各節 → Task: ID とファイル名(Task 1)/ 置き場ごとの規則(Task 2・3)/ 生成の 4 段の確認と破棄の順序(Task 3、local は Task 4)/ コメントとパーツ変更履歴を残す(Task 3 のテスト)/ 同じタブの編集状態の破棄(Task 4 の `forgetLocalEditState`)/ 作成済み・作成中の画面(Task 4)/ 取得と一覧・版の一覧(Task 2・3)/ 申請と承認(Task 2・3)/ ペア同期(Task 2 のテスト、Task 5 の #46)/ 画面の基準日(Task 4)/ local(Task 4)/ 文書(Task 5)/ エラー処理(Task 3 の 409 の 3 種類)/ 差分パッチと生成器・移行の README(Task 6)。
 - 型と名前の一貫性: `findTemplateId(fileNames, companyCode, fundCode, editionType)`、`hasPendingCreateReview(templateId)`、`templateAttributeItems(a)`、`assertFileNameFor(target, fileName)`、`forgetLocalEditState(templateId)`、`createTemplateCreationService(repo, forgetEditState?)`、`CreatableInfo.templateId` / `inProgressId`、`GenerateRequest.replaceExisting` は定義した Task と使う Task で同じ形。
+- 生成器の約束(PENDING_DIR へ書く)は Task 3 の 1 コミットで、`pyTemplate.ts`・偽の生成器・`fakeGenerator.test.ts`・`pyTemplate.test.ts`・ルートを同時に切り替える(偽の生成器だけ先に変えると e2e の作成が、editor だけ先に変えると偽の生成器の出力が読めず、どちらかが赤になるため)。`generatorCheck.ts` は生成器の標準出力に依存しないので変えない。
 - 各コミットの緑: Task 3 の時点では web が `replaceExisting` を送らないので作業中の作り直しは 409 のトーストになるが、e2e(create.spec)は seed 直後の 1 回目の作成なので通る。ファンド画像の解決(`fundCodeOfTemplateId`)は 3 つ区切りの id が出る Task 3 で直す。
 - 各コミットで壊れる既存テストは、その Task の表・箇条で書き換え先を示した。RED にならない追加ケース(confirmedWrite.guard の filled 側、templateTable の空欄)は回帰網と明記した。
