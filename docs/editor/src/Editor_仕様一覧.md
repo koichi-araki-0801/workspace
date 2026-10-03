@@ -1,15 +1,16 @@
 ---
 audience: spec
 title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
-version: "1.3"
+version: "1.4"
 rev:
   - 1.0 | 2026-08-02 | 初版
   - 1.1 | 2026-08-15 | 実装との突合（ロール approver・REST ルート全列挙・sproc 7 本・注記マスタ）
   - 1.2 | 2026-10-02 | 候補の出所（scope）と系列のファイル化、sproc `template` の `系列` 削除
   - 1.3 | 2026-10-03 | 作成タブの候補を Rep1 のファンド属性へ（companies / funds / creatable）、sproc `シリーズ` 追加、テンプレート台帳と `/templates/series` の削除
+  - 1.4 | 2026-10-03 | テンプレートの ID から基準日を外す（作成タブの基準日の項目を削除、既存・作成中を開くボタン、creatable の templateId / inProgressId、generate の 409 の 3 種類と replaceExisting）
 ---
 
-対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.3 ／ 出典: editor/ 実装コード・DDL・テスト
+対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.4 ／ 出典: editor/ 実装コード・DDL・テスト
 
 # 画面項目定義
 
@@ -20,18 +21,19 @@ rev:
 | 3 | PW初期化 | 新パスワード | `password` | `string` | ○ | mustChangePassword=true のとき必須。/auth/init-password で確定 |
 | 4 | テンプレート作成 | 委託会社 | `companyCode` | `string` | ○ | ドロップダウン（/templates/companies）。表示は会社名、値はファイル名の会社コード（Rep1 の委託会社略称）。名称の一部でも絞れる |
 | 5 | テンプレート作成 | ファンド | `fundCode` | `string` | ○ | ドロップダウン（/templates/funds。会社を選ぶと Rep1 の委託会社コードで一括取得）。表示は「コード 名称」 |
-| 6 | テンプレート作成 | 基準日 | `baseDate` | `string(yyyymmdd)` | ○ | 8桁。サーバの当日（画面では選ばない） |
-| 7 | テンプレート作成 | 版種 | `editionType` | `string` | ○ | ドロップダウン（交付版 / 全体版の 1 つ） |
-| 8 | テンプレート作成 | コピー元ファンド | `sourceFundCode` | `string` |  | シリーズから作成するときに、同じシリーズの候補（/templates/creatable）から選ぶ。コピー元のテンプレートが無い候補は警告し作成不可 |
-| 9 | テンプレート作成 | 償還 | `isRedemption` | `boolean` |  | 償還ファンドとして作成。生成器へパラメータとして渡す |
-| 10 | ユーザー管理 | ユーザーID | `username` | `string` | ○ | validateNewUser: 必須・パターン・重複（大小無視）チェック |
-| 11 | ユーザー管理 | 表示名 | `displayName` | `string` | ○ | 未入力で『表示名を入力してください』 |
-| 12 | ユーザー管理 | ロール | `role` | `admin \| approver \| editor \| viewer` | ○ | admin = 全権 / approver = 精査者（確定保存の承認・却下） / editor = 編集者（申請のみ） / viewer = 閲覧。admin のみユーザー管理可（isAdmin） |
-| 13 | ユーザー管理 | 無効 | `disabled` | `boolean` |  | 無効化フラグ |
-| 14 | 編集 | テンプレートID | `templateId` | `string` | ○ | 下書き保存（PUT /templates/:id/draft）対象 |
-| 15 | 編集 | HTML | `html` | `string` | ○ | GrapesJS 本文。確定保存はファイル保存 |
-| 16 | 編集 | CSS | `css` | `string` | ○ | 本文スタイル |
-| 17 | 編集 | 変更箇所の赤入れ表示 | `showRedline` | `boolean` |  | 既定 OFF。ボタンで ON にしたときだけ、確定版と draft の差分を canvas の生 DOM に取り消し線で表示（保存・申請・PDF には載らない）。作成経路では非表示 |
+| 6 | テンプレート作成 | 版種 | `editionType` | `string` | ○ | ドロップダウン（交付版 / 全体版の 1 つ） |
+| 7 | テンプレート作成 | コピー元ファンド | `sourceFundCode` | `string` |  | シリーズから作成するときに、同じシリーズの候補（/templates/creatable）から選ぶ。コピー元のテンプレートが無い候補は警告し作成不可 |
+| 8 | テンプレート作成 | 償還 | `isRedemption` | `boolean` |  | 償還ファンドとして作成。生成器へパラメータとして渡す |
+| 9 | テンプレート作成 | 既存のテンプレートを開く | — | ボタン |  | 作成済み（/templates/creatable の created=true）のときだけ表示。templateId を作成経路（?created=1）の編集画面で開く。このとき「属性から新規作成」「既存のシリーズを元に作成」は押せない |
+| 10 | テンプレート作成 | 作成中のテンプレートを開く | — | ボタン |  | 作成中（/templates/creatable の inProgressId あり）のときだけ表示。inProgressId を作成経路で開く。新規作成・シリーズから作成は押せるが、「作業中の内容を捨てて作り直しますか」と確認し、同意したら replaceExisting=true で生成する |
+| 11 | ユーザー管理 | ユーザーID | `username` | `string` | ○ | validateNewUser: 必須・パターン・重複（大小無視）チェック |
+| 12 | ユーザー管理 | 表示名 | `displayName` | `string` | ○ | 未入力で『表示名を入力してください』 |
+| 13 | ユーザー管理 | ロール | `role` | `admin \| approver \| editor \| viewer` | ○ | admin = 全権 / approver = 精査者（確定保存の承認・却下） / editor = 編集者（申請のみ） / viewer = 閲覧。admin のみユーザー管理可（isAdmin） |
+| 14 | ユーザー管理 | 無効 | `disabled` | `boolean` |  | 無効化フラグ |
+| 15 | 編集 | テンプレートID | `templateId` | `string` | ○ | 下書き保存（PUT /templates/:id/draft）対象 |
+| 16 | 編集 | HTML | `html` | `string` | ○ | GrapesJS 本文。確定保存はファイル保存 |
+| 17 | 編集 | CSS | `css` | `string` | ○ | 本文スタイル |
+| 18 | 編集 | 変更箇所の赤入れ表示 | `showRedline` | `boolean` |  | 既定 OFF。ボタンで ON にしたときだけ、確定版と draft の差分を canvas の生 DOM に取り消し線で表示（保存・申請・PDF には載らない）。作成経路では非表示 |
 
 # 入出力定義（REST API）
 
@@ -45,7 +47,7 @@ rev:
 | 6 | `GET` | `/templates/options` | ○ | companyCode, fundCode, baseDate, editionType（任意）、scope（edit / published。省略時 edit） | DropdownOptions |
 | 7 | `GET` | `/templates/companies` | ○ | — | CompanyOption[]（companyCode = 略称, companyName, rep1CompanyCode） |
 | 8 | `GET` | `/templates/funds` | ○ | rep1CompanyCode（必須） | FundOption[]（fundCode, fundName） |
-| 9 | `GET` | `/templates/creatable` | ○ | companyCode, rep1CompanyCode, fundCode, editionType（すべて必須） | CreatableInfo（created, seriesFunds[fundCode, fundName, hasTemplate]） |
+| 9 | `GET` | `/templates/creatable` | ○ | companyCode, rep1CompanyCode, fundCode, editionType（すべて必須） | CreatableInfo（created, templateId?（作成済みのときだけ。templates/ のファイルの綴り）, inProgressId?（作業中のときだけ）, seriesFunds[fundCode, fundName, hasTemplate]） |
 | 10 | `GET` | `/templates` | ○ | 属性フィルタ（DropdownQuery） | TemplateMeta[] |
 | 11 | `GET` | `/templates/:id` | ○ | id | Template（meta + html + css） |
 | 12 | `GET` | `/templates/:id/draft` | ○ | id | TemplateDraft |
@@ -53,7 +55,7 @@ rev:
 | 14 | `DELETE` | `/templates/:id/draft` | editor | id | 204（下書き破棄） |
 | 15 | `GET` | `/templates/:id/sync-status` | ○ | id | 交付版⇄全体版パーツ同期の状態 |
 | 16 | `GET` | `/funds/:fundCode/sample-data` | ○ | fundCode | SampleData（プレビュー context） |
-| 17 | `POST` | `/generate` | editor | GenerateRequest（companyCode, fundCode, editionType, sourceFundCode?, isRedemption?）。sourceFundCode のコピー元テンプレートが無ければ 400 | GenerateResult（テンプレート骨子 + draft） |
+| 17 | `POST` | `/generate` | editor | GenerateRequest（companyCode, fundCode, editionType, sourceFundCode?, isRedemption?, replaceExisting?）。生成される id は `会社_ファンド_版種`（基準日なし）。作成済みなら 409「作成済みです。既存のテンプレートを開いてください」、承認待ちの作成申請があれば 409「申請中です。承認か却下を待ってください」、同じ id の下書きか pending があり replaceExisting が無ければ 409「作成中のテンプレートがあります」。下書きと pending は生成の成功後に捨てる。sourceFundCode のコピー元テンプレートが無ければ 400 | GenerateResult（テンプレート骨子 + draft） |
 | 18 | `GET` | `/parts` | ○ | 分類フィルタ | PartCatalogItem[] |
 | 19 | `GET` | `/parts/classification-options` | ○ | — | 分類ドロップダウン候補 |
 | 20 | `GET` | `/templates/:templateId/part-history` | ○ | templateId | パーツ変更履歴 |
@@ -71,7 +73,7 @@ rev:
 | 32 | `GET` | `/history/pdf` | ○ | — | PDF出力履歴一覧 |
 | 33 | `POST` | `/history/pdf` | ○ | RecordPdfExportRequest | 204（PDF 出力の記録） |
 | 34 | `GET` | `/history/create` | ○ | — | 作成履歴一覧 |
-| 35 | `GET` | `/templates/:templateId/versions` | ○ | templateId | 版一覧（比較用） |
+| 35 | `GET` | `/templates/:templateId/versions` | ○ | templateId | 版一覧（比較用）。テンプレート（3 つ区切り）は空の配列 |
 | 36 | `GET` | `/snapshots/:historyId` | ○ | historyId | スナップショット本文 |
 | 37 | `POST` | `/review-requests` | editor | SubmitReviewBody（templateId, html, css, fundCode, filledHtml?, origin） | ReviewRequestMeta（pending。実ファイル非更新） |
 | 38 | `GET` | `/review-requests` | ○ | status（任意） | ReviewRequestMeta[]（精査者・admin は全件、editor は自分の申請のみ） |
