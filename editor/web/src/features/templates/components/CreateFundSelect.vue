@@ -40,8 +40,12 @@ const latestFunds = useLatest();
 
 useUrlQuerySync(query, { keys: ['companyCode', 'fundCode', 'editionType'] });
 
-const rep1Of = (companyCode?: string) =>
-  companies.value.find((c) => c.companyCode === companyCode)?.rep1CompanyCode;
+/** 会社コード(略称)に当たる候補。URL の手打ち・古いブックマークの大文字小文字は問わない。 */
+const companyOf = (companyCode?: string) =>
+  companyCode === undefined
+    ? undefined
+    : companies.value.find((c) => c.companyCode.toLowerCase() === companyCode.toLowerCase());
+const rep1Of = (companyCode?: string) => companyOf(companyCode)?.rep1CompanyCode;
 const companyOptions = computed(() =>
   companies.value.map((c) => ({ label: c.companyName, value: c.companyCode })),
 );
@@ -53,7 +57,11 @@ function notify() {
   emit('update', { ...query, rep1CompanyCode: rep1Of(query.companyCode) });
 }
 
-/** 会社のファンドを引く。`keepFund` は URL から復元した選択を残すとき。 */
+/**
+ * 会社のファンドを引く。`keepFund` は URL から復元した選択を残すとき。
+ * 親への通知は選択が変わった時点で 1 回(取得を待つ間に Step 2 が前の選択のまま押せないように)、
+ * 取得が済んだ後にもう 1 回送る。取得に失敗しても、消した選択は通知済み。
+ */
 async function loadFunds(keepFund: boolean) {
   const rep1 = rep1Of(query.companyCode);
   funds.value = [];
@@ -61,10 +69,8 @@ async function loadFunds(keepFund: boolean) {
     query.fundCode = undefined;
     query.editionType = undefined;
   }
-  if (!rep1) {
-    notify();
-    return;
-  }
+  notify();
+  if (!rep1) return;
   const isLatest = latestFunds.begin();
   loading.value = true;
   const res = await service.listFunds(rep1);
@@ -87,6 +93,9 @@ onMounted(async () => {
     return;
   }
   companies.value = res.value;
+  // URL から復元した会社コードは候補の綴り(略称)へそろえる。ファイル名の会社コードになるため。
+  const known = companyOf(query.companyCode);
+  if (known) query.companyCode = known.companyCode;
   await loadFunds(true);
 });
 

@@ -34,8 +34,13 @@ const isRedemption = ref(false);
 // 属性を素早く変えると前の属性の応答が後から届く。反映は最新の要求分だけに絞る。
 const latestResolve = useLatest();
 
+// Rep1 の会社コードがそろわない(候補に無い会社)ときは、作成済みもシリーズも分からないので押させない。
 const canCreate = computed(
-  () => !!liveQuery.companyCode && !!liveQuery.fundCode && !!liveQuery.editionType,
+  () =>
+    !!liveQuery.companyCode &&
+    !!liveQuery.rep1CompanyCode &&
+    !!liveQuery.fundCode &&
+    !!liveQuery.editionType,
 );
 
 const methodCards: { key: Method; icon: typeof FilePlus2; title: string; desc: string }[] = [

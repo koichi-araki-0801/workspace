@@ -24,7 +24,6 @@ import type { Result } from '../result.js';
  * サンプルデータを、同一のテンプレート identity と override ストアで束ねる。
  */
 export interface TemplateRepository {
-  /** 候補。出所は画面ごとに違う(edit / published / create。`DropdownScope` を参照)。 */
   /** 作成タブの委託会社(Rep1 のファンド属性)。`companyCode` はファイル名の会社コード(略称)。 */
   listCompanies(): Promise<Result<CompanyOption[]>>;
   /** 作成タブのファンド(Rep1 の委託会社コードで引く)。 */
@@ -36,6 +35,7 @@ export interface TemplateRepository {
     fundCode: string;
     editionType: string;
   }): Promise<Result<CreatableInfo>>;
+  /** 候補。出所は画面ごとに違う(edit / published。`DropdownScope` を参照)。 */
   getDropdownOptions(query: DropdownQuery, scope: DropdownScope): Promise<Result<DropdownOptions>>;
   listTemplates(query: DropdownQuery): Promise<Result<TemplateMeta[]>>;
   getTemplate(id: string): Promise<Result<Template>>;

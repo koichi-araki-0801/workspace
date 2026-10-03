@@ -30,6 +30,8 @@ test('作成タブ: 属性を選んで新規作成すると ?created=1 の編集
   await page.getByRole('combobox').filter({ hasText: '版種を選択' }).click();
   await page.getByRole('option', { name: '交付版', exact: true }).click();
 
+  // 510037 / 交付版 はテスト用データに既にあるので、作成済みの注意が出る(作成は止めない)。
+  await expect(page.getByText('テンプレートは作成済みです')).toBeVisible();
   await page.getByRole('button', { name: '属性から新規作成' }).click();
 
   await expect(page).toHaveURL(/\/edit\/.+\?created=1$/);
