@@ -97,6 +97,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
   let confirmedWrite: typeof import('../src/repositories/confirmedWrite.js');
   const templatesDir = path.join(root, 'data', 'templates');
   const cssDir = path.join(root, 'data', 'css');
+  const filledDir = path.join(root, 'data', 'filled');
 
   beforeAll(async () => {
     confirmedWrite = await import('../src/repositories/confirmedWrite.js');
@@ -220,5 +221,22 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     const ev = auditCalls.at(-1) as { resource: Record<string, string> };
     expect(ev.resource.templateId).toBe(PAIR);
     expect(ev.resource.sourceTemplateId).toBe(SOURCE);
+  });
+
+  it('値入り HTML(target=filled)にテンプレートの id(3 つ区切り)は書けない', async () => {
+    await expect(
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'review-approve',
+        target: 'filled',
+        templateId: 'AM01_510037_交付版',
+        fundCode: '510037',
+        html: '<p>x</p>',
+        css: '',
+        author: 'approver1',
+        commitMessage: 'm',
+      }),
+    ).rejects.toSatisfy(isAppError);
+    expect(fs.existsSync(path.join(filledDir, 'AM01_510037_交付版.html'))).toBe(false);
+    expect(fs.existsSync(path.join(cssDir, '510037.css'))).toBe(false);
   });
 });

@@ -194,4 +194,13 @@ d('history routes still serve valid ids', () => {
     expect(versions[0].historyId).toBe(hash);
     expect(versions[0].user).toBe('tester');
   });
+
+  it('テンプレート(3 つ区切り)の版の一覧は 200 で空(編集タブの一覧が pending の行の版数を問うため)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/templates/${encodeURIComponent('AM01_999999_交付版')}/versions`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+  });
 });

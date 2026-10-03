@@ -9,16 +9,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   type ApproveReviewResult,
+  anyTemplateFileName,
   conflict,
   forbidden,
   notFound,
-  parseTemplateFileName,
+  parseAnyTemplateFileName,
   type ReviewDecisionRequest,
   type ReviewRequest,
   type ReviewRequestMeta,
   type ReviewStatus,
   type SubmitReviewRequest,
-  templateFileName,
   toReviewMeta,
   unexpected,
   validation,
@@ -89,8 +89,8 @@ async function currentBaseHash(
   fundCode: string,
   target: ConfirmedTarget,
 ): Promise<string> {
-  const attrs = parseTemplateFileName(`${templateId}.html`);
-  const fileName = attrs ? templateFileName(attrs) : `${templateId}.html`;
+  const attrs = parseAnyTemplateFileName(`${templateId}.html`);
+  const fileName = attrs ? anyTemplateFileName(attrs) : `${templateId}.html`;
   const [html, css] = await Promise.all([
     target === 'filled' ? readFilledHtml(fileName) : readTemplateHtml(fileName),
     readFundCss(fundCode),
@@ -170,7 +170,7 @@ export function createReviewRepo({
   return {
     /** 確定保存を申請する(pending 作成・実ファイル非更新)。 */
     async submitReview(req, actor) {
-      const attrs = parseTemplateFileName(`${req.templateId}.html`);
+      const attrs = parseAnyTemplateFileName(`${req.templateId}.html`);
       if (!attrs) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
       // 帰属検査は承認側(`applyConfirmedWrite`)と同条件で入口にも置く。CSS はファンド単位の
       // 共有ファイルなので不一致を通すと「承認できない申請」がキューに積まれるだけで、

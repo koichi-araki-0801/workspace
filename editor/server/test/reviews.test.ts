@@ -366,4 +366,23 @@ d('review workflow (reviewRepo)', () => {
     expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(true);
     expect(fs.existsSync(path.join(tmp, 'pending', `${tplId}.html`))).toBe(false);
   });
+
+  it("origin='create' のテンプレート(3 つ区切り)の承認は templates/<id>.html に書き、pending を捨てる", {
+    timeout: 60_000,
+  }, async () => {
+    const tplId = 'AM01_222333_交付版';
+    const pendingFiles = await import('../src/files/pendingFiles.js');
+    await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
+    const meta = await submit(tplId, '222333', '<p>{{ fund.name }} 確定</p>', 'create');
+    expect(meta.attributes).toEqual({
+      companyCode: 'AM01',
+      fundCode: '222333',
+      editionType: '交付版',
+    });
+    await reviews.approveReview(meta.id, {}, approver);
+    expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(
+      '<p>{{ fund.name }} 確定</p>',
+    );
+    expect(fs.existsSync(path.join(tmp, 'pending', `${tplId}.html`))).toBe(false);
+  });
 });

@@ -338,4 +338,18 @@ describe('templates.routes', () => {
     // 交付版⇄全体版のペア名は幾何ではなく文字列変換(`pairedTemplateId`)で決まる。
     expect(res.json().pairTemplateId).toBe('AM01_510037_20240710_全体版');
   });
+
+  it('GET /templates/:id/sync-status: テンプレート(3 つ区切り)は 3 つ区切りのペアを返し、バナーの対象外', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/templates/${encodeURIComponent('AM01_510037_交付版')}/sync-status`,
+      headers: as('editor'),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      pairTemplateId: 'AM01_510037_全体版',
+      pairExists: false,
+      conflicts: [],
+    });
+  });
 });

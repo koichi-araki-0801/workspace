@@ -22,6 +22,8 @@ process.env.DRAFTS_DIR = path.join(tmp, 'drafts');
 const FILLED_ID = 'AM01_510037_20240710_交付版';
 const JINJA_ONLY_ID = 'AM01_510037_20240710_全体版';
 const BOTH_ID = 'AM01_110024_20251117_交付版';
+const SKELETON_ID = 'AM01_510124_交付版';
+const SKELETON_PENDING_ID = 'AM01_510155_交付版';
 
 describe('templateRepo と filled/', () => {
   let repo: import('../src/repositories/templateRepo.js').TemplateRepo;
@@ -41,13 +43,45 @@ describe('templateRepo と filled/', () => {
     fs.writeFileSync(path.join(tmp, 'css', '510037.css'), '.a{}', 'utf8');
     const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
+    fs.writeFileSync(path.join(tmp, 'templates', `${SKELETON_ID}.html`), '<p>{{ s }}</p>', 'utf8');
+    const { writePending } = await import('../src/files/pendingFiles.js');
+    await writePending(SKELETON_PENDING_ID, '<p>{{ 生成直後 }}</p>', '');
     repo = createTemplateRepo(createOfflineSproc());
   });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
   it('一覧は filled/ にあるテンプレだけを published として返す', async () => {
-    const ids = (await repo.listTemplates({})).map((m) => `${m.id}:${m.status}`);
+    const ids = (await repo.listTemplates({}))
+      .filter((m) => m.status === 'published')
+      .map((m) => `${m.id}:${m.status}`);
     expect(ids).toEqual([`${BOTH_ID}:published`, `${FILLED_ID}:published`]);
+  });
+
+  it('テンプレート(3 つ区切り)は templates/ を読み、基準日を持たない', async () => {
+    const t = await repo.getTemplate(SKELETON_ID);
+    expect(t.html).toBe('<p>{{ s }}</p>');
+    expect(t.filled).toBe('');
+    expect(t.meta.status).toBe('published');
+    expect(t.meta.attributes).toEqual({
+      companyCode: 'AM01',
+      fundCode: '510124',
+      editionType: '交付版',
+    });
+  });
+
+  it('pending/ にしか無いテンプレートは draft で返り、一覧にも基準日なしの draft で出る', async () => {
+    const t = await repo.getTemplate(SKELETON_PENDING_ID);
+    expect(t.meta.status).toBe('draft');
+    const row = (await repo.listTemplates({})).find((m) => m.id === SKELETON_PENDING_ID);
+    expect(row?.status).toBe('draft');
+    expect(row?.attributes.baseDate).toBeUndefined();
+  });
+
+  it('基準日で絞った一覧と候補に、基準日を持たない行は混ざらない', async () => {
+    const ids = (await repo.listTemplates({ baseDate: '20240710' })).map((m) => m.id);
+    expect(ids).not.toContain(SKELETON_PENDING_ID);
+    const opts = await repo.getDropdownOptions({}, 'edit');
+    expect(opts.baseDates.every((d) => d !== '')).toBe(true);
   });
 
   it('取得は filled/ の本文を html と filled の両方に返す', async () => {

@@ -11,6 +11,7 @@ import {
   type EditHistoryEntry,
   editHistoryRowId,
   isGitObjectId,
+  isValidSkeletonId,
   notFound,
   type PartHistoryEntry,
   type PdfHistoryEntry,
@@ -94,6 +95,9 @@ export async function getEditHistory(): Promise<EditHistoryEntry[]> {
 
 /** テンプレ単位の版一覧(新しい順)。historyId はコミット hash。 */
 export async function listVersions(templateId: string): Promise<TemplateVersionMeta[]> {
+  // 版は値入り HTML(filled/)の git 履歴にしか無い。テンプレート(3 つ区切り)は版を持たないので
+  // 空を返す(編集タブの一覧が pending の行の版数を問うたびに 400 にしない)。
+  if (isValidSkeletonId(templateId)) return [];
   // `templateId` は URL 由来で pathspec の一部になる。ファイル名規約 + 単一セグメント安全性を
   // 通ってからでないと git へ渡さない(`..` や pathspec magic の混入を入口で断つ)。
   const commits = await logForFile(filledRel(assertTemplateId(templateId)));

@@ -8,13 +8,14 @@
 // ベストエフォート方針: 同期のどの失敗も承認自体は成立させる(呼び出し側は throw を受けず
 // `PairSyncSummary.error` で UI へ伝える)。転写内容は「承認済みの内容と同一パーツの機械的な
 // 転写」なので追加の承認ゲートは設けない(設計判断。両側変更などの競合はエンジンが
-// スキップして人間へ返す)。
+// スキップして人間へ返す)。ペアのキーはテンプレート(3 つ区切り)が `会社_ファンド`、値入り HTML
+// (4 つ区切り)が `会社_ファンド_基準日` で、状態ファイルは別になる。
 
 import {
   type PairSyncStatus,
   type PairSyncSummary,
   pairedTemplateId,
-  parseTemplateFileName,
+  parseAnyTemplateFileName,
   templatePairKey,
 } from '@editor/shared';
 import { readSyncState, writeSyncState } from '../files/syncFiles.js';
@@ -48,7 +49,7 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
      */
     async getPairSyncStatus(templateId) {
       const pairId = pairedTemplateId(templateId);
-      const attrs = parseTemplateFileName(`${templateId}.html`);
+      const attrs = parseAnyTemplateFileName(`${templateId}.html`);
       if (pairId === null || !attrs)
         return { pairTemplateId: null, pairExists: false, conflicts: [] };
       // バナーが問うのは編集タブで開けるペアの有無なので、値入り HTML の側を見る。
@@ -77,8 +78,8 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
       const readHtml = target === 'filled' ? readFilledHtml : readTemplateHtml;
       const pairId = pairedTemplateId(sourceTemplateId);
       if (pairId === null) return null;
-      const attrs = parseTemplateFileName(`${sourceTemplateId}.html`);
-      const pairAttrs = parseTemplateFileName(`${pairId}.html`);
+      const attrs = parseAnyTemplateFileName(`${sourceTemplateId}.html`);
+      const pairAttrs = parseAnyTemplateFileName(`${pairId}.html`);
       if (!attrs || !pairAttrs) return null;
       const pairFile = `${pairId}.html`;
       if (!(await exists(pairFile))) return null;

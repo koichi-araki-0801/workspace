@@ -11,19 +11,20 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { assertTemplateId, isValidTemplateId } from '@editor/shared';
+import { assertAnyTemplateId, isValidAnyTemplateId } from '@editor/shared';
 import { config } from '../config.js';
 import { atomicWrite } from './atomic.js';
 
 // `templateId` は request 由来のまま渡ってくる。ディレクトリと連結する前にここで必ず
 // 検査する — 検査を呼び出し側へ委ねると `../templates/<確定版>` を渡すだけで承認ゲートを
 // 迂回して確定ファイルを書ける(`draftFiles.ts` が同じ経緯を記録している)。
-const htmlName = (templateId: string): string => `${assertTemplateId(templateId)}.html`;
-const cssName = (templateId: string): string => `${assertTemplateId(templateId)}.css`;
+// `pending/` はテンプレート(3 つ区切り)と値入り HTML(4 つ区切り)のどちらの id も受ける。
+const htmlName = (templateId: string): string => `${assertAnyTemplateId(templateId)}.html`;
+const cssName = (templateId: string): string => `${assertAnyTemplateId(templateId)}.css`;
 
 /** 規約外の名前は null を返し、読み取り側は「無い」として扱う(書き込み系は例外にする)。 */
 function pendingPathOrNull(templateId: string, ext: 'html' | 'css'): string | null {
-  if (!isValidTemplateId(templateId)) return null;
+  if (!isValidAnyTemplateId(templateId)) return null;
   return path.join(config.pendingDir, `${templateId}.${ext}`);
 }
 
@@ -59,16 +60,7 @@ export async function listPendingIds(): Promise<string[]> {
   return entries
     .filter((f) => f.endsWith('.html'))
     .map((f) => f.slice(0, -'.html'.length))
-    .filter((id) => isValidTemplateId(id));
-}
-
-export function pendingExists(templateId: string): Promise<boolean> {
-  const p = pendingPathOrNull(templateId, 'html');
-  if (!p) return Promise.resolve(false);
-  return fs
-    .stat(p)
-    .then(() => true)
-    .catch(() => false);
+    .filter((id) => isValidAnyTemplateId(id));
 }
 
 export function pendingMtime(templateId: string): Promise<string | null> {

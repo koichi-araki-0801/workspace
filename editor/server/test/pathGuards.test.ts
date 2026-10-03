@@ -156,8 +156,8 @@ describe('files/*.ts のパス封じ込め', () => {
     const secret = path.join(OUTSIDE, 'secret.html');
     fs.writeFileSync(secret, 'TOP SECRET');
     await expect(pendingFiles.readPending('../outside/secret')).resolves.toBeNull();
-    await expect(pendingFiles.pendingExists('../outside/secret')).resolves.toBe(false);
     await expect(pendingFiles.pendingMtime('../outside/secret')).resolves.toBeNull();
+    await expect(pendingFiles.pendingMtime('AM01_510037_20240799_交付版')).resolves.toBeNull();
     fs.rmSync(secret);
   });
 
@@ -190,6 +190,18 @@ describe('files/*.ts のパス封じ込め', () => {
     const id = 'AM01_510037_20240712_交付版';
     expect(await draftFiles.readDraft(null, null)).toEqual({ html: '', css: '' });
     expect(await draftFiles.readDraft(`${id}.html`, `${id}.css`)).toEqual({ html: '', css: '' });
+  });
+
+  it('pending・下書きはテンプレート(3 つ区切り)の id も受け、置き場の中に書く', async () => {
+    const id = 'AM01_510037_交付版';
+    await pendingFiles.writePending(id, '<p>骨組み</p>', '');
+    expect(await pendingFiles.readPending(id)).toEqual({ html: '<p>骨組み</p>', css: '' });
+    expect(await pendingFiles.listPendingIds()).toContain(id);
+    await draftFiles.writeDraft(id, '<p>下書き</p>', '');
+    expect(await draftFiles.draftExists(id)).toBe(true);
+    await draftFiles.deleteDraft(id);
+    await pendingFiles.deletePending(id);
+    expect(strayFiles()).toEqual([]);
   });
 
   it('applyConfirmedWrite accepts a valid pair and writes only inside the managed dirs', async () => {

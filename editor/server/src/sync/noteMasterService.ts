@@ -12,7 +12,7 @@
 // 列のみで、ファンド個別のオーバーライドは持たない(ペア同期の `同期既定` と同じ設計判断)。
 // ※ パーツ単位の作業メモ(notes = `notesFile.ts`)とは別物。
 
-import { type NoteMasterReflectSummary, parseTemplateFileName } from '@editor/shared';
+import { type NoteMasterReflectSummary, parseAnyTemplateFileName } from '@editor/shared';
 import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 import { readFilledHtml, readTemplateHtml } from '../files/templateFiles.js';
@@ -52,7 +52,7 @@ export function createNoteMasterService({
      * マスタへ昇格させることになる。
      */
     async reflectNoteMasterAfterConfirm(templateId, actor, target) {
-      const attrs = parseTemplateFileName(`${templateId}.html`);
+      const attrs = parseAnyTemplateFileName(`${templateId}.html`);
       if (!attrs) return null;
 
       try {
