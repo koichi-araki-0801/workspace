@@ -6,10 +6,13 @@
 // (Result を返す Repository 契約は web の `rest` 層が満たす。ここでは throw する)。
 import {
   buildSampleData,
+  type CompanyOption,
+  type CreatableInfo,
   type DropdownOptions,
   type DropdownQuery,
   type DropdownScope,
   type FundMaster,
+  type FundOption,
   notFound,
   type SampleData,
   type Template,
@@ -36,12 +39,14 @@ import {
 } from '../files/draftFiles.js';
 import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
 import {
+  attrKey,
   filledExists,
   listFilledFiles,
   listTemplateFiles,
   readFilledHtml,
   readFundCss,
   readTemplateHtml,
+  templateAttrKeys,
   templateExists,
 } from '../files/templateFiles.js';
 import { applyConfirmedWrite, type ConfirmedTarget } from './confirmedWrite.js';
@@ -150,10 +155,73 @@ export interface TemplateRepo {
   discardDraft(templateId: string): Promise<void>;
   getSampleData(fundCode: string): Promise<SampleData>;
   registerGenerated(attributes: TemplateAttributes, id: string): Promise<void>;
+  listCompanies(): Promise<CompanyOption[]>;
+  listFunds(rep1CompanyCode: string): Promise<FundOption[]>;
+  getCreatableInfo(q: {
+    companyCode: string;
+    rep1CompanyCode: string;
+    fundCode: string;
+    editionType: string;
+  }): Promise<CreatableInfo>;
 }
 
 export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
+  async function listFunds(rep1CompanyCode: string): Promise<FundOption[]> {
+    const rows = await sproc.callSproc(SP.template, 'ファンド一覧', [
+      p('委託会社コード', rep1CompanyCode),
+    ]);
+    return rows.map((r) => ({
+      fundCode: asString(r.ファンドコード),
+      fundName: asString(r.ファンド名),
+    }));
+  }
+
   return {
+    async listCompanies() {
+      const rows = await sproc.callSproc(SP.template, '委託会社一覧');
+      return rows.map((r) => ({
+        companyCode: asString(r.委託会社略称),
+        companyName: asString(r.委託会社名),
+        rep1CompanyCode: asString(r.委託会社コード),
+      }));
+    },
+
+    listFunds,
+
+    /**
+     * 作成タブ Step 2 の素。作成済みは filled/・templates/・pending/ のどれか、コピー元の有無は
+     * 生成器が読む templates/ だけを見る。シリーズは Rep1 の会社コードで引き、名称はファンド一覧から付ける。
+     */
+    async getCreatableInfo({ companyCode, rep1CompanyCode, fundCode, editionType }) {
+      const templateKeys = templateAttrKeys(await listTemplateFiles());
+      const createdKeys = new Set([
+        ...templateKeys,
+        ...templateAttrKeys(await listFilledFiles()),
+        ...templateAttrKeys((await listPendingIds()).map((id) => `${id}.html`)),
+      ]);
+      const created = createdKeys.has(attrKey(companyCode, fundCode, editionType));
+      const seriesRows = await sproc.callSproc(SP.series, '一覧', [
+        p('委託会社コード', rep1CompanyCode),
+      ]);
+      const seriesOf = new Map(
+        seriesRows.map((r) => [asString(r.ファンドコード), asStringOrNull(r.シリーズコード)]),
+      );
+      const series = seriesOf.get(fundCode) ?? null;
+      if (!series) return { created, seriesFunds: [] };
+      const names = new Map(
+        (await listFunds(rep1CompanyCode)).map((f) => [f.fundCode, f.fundName]),
+      );
+      const seriesFunds = [...seriesOf.entries()]
+        .filter(([code, s]) => code !== fundCode && s === series)
+        .map(([code]) => ({
+          fundCode: code,
+          fundName: names.get(code) ?? '',
+          hasTemplate: templateKeys.has(attrKey(companyCode, code, editionType)),
+        }))
+        .sort((a, b) => a.fundCode.localeCompare(b.fundCode));
+      return { created, seriesFunds };
+    },
+
     /**
      * 候補の出所は画面ごとに違う。編集タブ(edit)は一覧と同じ filled/ + pending/、比較・結合
      * (published)は承認済みの filled/ だけ、作成タブ(create)は作成可能カタログである台帳。

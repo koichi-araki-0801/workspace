@@ -662,6 +662,49 @@ export const UpdateNoteRequest = z
   })
   .meta({ id: 'UpdateNoteRequest' });
 
+// ── 作成タブ: 委託会社・ファンド・作成可否(Rep1 のファンド属性 + ファイル) ──
+
+export const CompanyOption = z
+  .object({
+    companyCode: z.string().meta({ description: 'ファイル名の会社コード(Rep1 の委託会社略称)' }),
+    companyName: z.string().meta({ description: '委託会社名' }),
+    rep1CompanyCode: z
+      .string()
+      .meta({ description: 'Rep1 の委託会社コード(ファンドを引くときに使う)' }),
+  })
+  .meta({ id: 'CompanyOption' });
+
+export const FundOption = z
+  .object({ fundCode: z.string(), fundName: z.string() })
+  .meta({ id: 'FundOption' });
+
+export const SeriesFundOption = FundOption.extend({
+  hasTemplate: z.boolean().meta({
+    description: 'コピー元のテンプレートが templates/ に同じ会社・版種で 1 件以上あるか',
+  }),
+}).meta({ id: 'SeriesFundOption' });
+
+export const CreatableInfo = z
+  .object({
+    created: z.boolean().meta({
+      description:
+        '選んだ会社・ファンド・版種のテンプレートが filled/・templates/・pending/ のどこかにあるか',
+    }),
+    seriesFunds: z
+      .array(SeriesFundOption)
+      .meta({ description: '同じシリーズの他のファンド(シリーズから作成のコピー元候補)' }),
+  })
+  .meta({ id: 'CreatableInfo' });
+
+export const FundsQuery = z.object({ rep1CompanyCode: z.string().min(1).max(32) });
+
+export const CreatableQuery = z.object({
+  companyCode: z.string().min(1),
+  rep1CompanyCode: z.string().min(1).max(32),
+  fundCode: z.string().min(1),
+  editionType: z.string().min(1),
+});
+
 /** 作成タブ: 属性をサーバ側で解決し、Python ツール経由で生成する。 */
 export const GenerateRequest = z
   .object({

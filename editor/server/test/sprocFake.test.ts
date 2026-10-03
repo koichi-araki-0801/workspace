@@ -13,7 +13,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { verifyPassword } from '../src/auth/password.js';
 import { p, type SprocClient } from '../src/db/sproc.js';
 import { SP } from '../src/db/sprocNames.js';
-import { createFakeSproc, DEFAULT_USERS } from './fakes/sprocFake.js';
+import { createFakeSproc, DEFAULT_USERS, TRUST_AM } from './fakes/sprocFake.js';
 
 // 実 `buildApp()` を通す結合テストが確定領域へ触れないよう、dataRoot は一時ディレクトリへ
 // 向ける(既定は隣の実データを指す)。
@@ -269,6 +269,38 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
     await expect(
       sproc.callSproc(SP.template, '系列', [p('委託会社コード', 'AM01'), p('版種', '交付版')]),
     ).rejects.toBeTruthy();
+  });
+
+  it('委託会社一覧 returns the Rep1 code, name and abbreviation (abbreviation = file company code)', async () => {
+    const sproc = await createFakeSproc();
+    const rows = await sproc.callSproc(SP.template, '委託会社一覧');
+    expect(rows).toEqual([
+      { 委託会社コード: 'R-AM01', 委託会社名: TRUST_AM, 委託会社略称: 'AM01' },
+    ]);
+  });
+
+  it('ファンド一覧 returns the funds of one Rep1 company (case-insensitive) and needs the company', async () => {
+    const sproc = await createFakeSproc();
+    const rows = await sproc.callSproc(SP.template, 'ファンド一覧', [
+      p('委託会社コード', 'r-am01'),
+    ]);
+    expect(rows.map((r) => r.ファンドコード)).toEqual([
+      '110024',
+      '510003',
+      '510037',
+      '510124',
+      '510155',
+    ]);
+    await expect(sproc.callSproc(SP.template, 'ファンド一覧', [])).rejects.toMatchObject({
+      kind: 'validation',
+    });
+  });
+
+  it('シリーズ 一覧 returns fund and series code (null when not in a series)', async () => {
+    const sproc = await createFakeSproc();
+    const rows = await sproc.callSproc(SP.series, '一覧', [p('委託会社コード', 'R-AM01')]);
+    expect(rows).toContainEqual({ ファンドコード: '510037', シリーズコード: 'CORE' });
+    expect(rows).toContainEqual({ ファンドコード: '110024', シリーズコード: null });
   });
 
   it('候補 narrows only by the choices above each level', async () => {

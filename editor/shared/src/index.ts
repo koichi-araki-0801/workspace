@@ -185,6 +185,11 @@ export type PartClassificationQuery = z.infer<typeof sch.PartClassificationQuery
 export type PartClassificationOptions = z.infer<typeof sch.PartClassificationOptions>;
 
 /** 作成タブ: 属性をサーバ側で解決し、Python ツール経由で生成する。 */
+export type CompanyOption = z.infer<typeof sch.CompanyOption>;
+export type FundOption = z.infer<typeof sch.FundOption>;
+export type SeriesFundOption = z.infer<typeof sch.SeriesFundOption>;
+export type CreatableInfo = z.infer<typeof sch.CreatableInfo>;
+
 export type GenerateRequest = z.infer<typeof sch.GenerateRequest>;
 
 /** ファンドの属性解決の結果 (例: シリーズファンドか否か)。 */

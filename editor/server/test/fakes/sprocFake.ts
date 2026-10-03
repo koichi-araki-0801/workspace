@@ -1,5 +1,5 @@
 // =============================================================================
-// sprocFake.ts — ゲートウェイ sproc 7 本の in-memory 実装
+// sprocFake.ts — ゲートウェイ sproc 8 本の in-memory 実装
 // =============================================================================
 // `createSprocClient(query)` の `query` として差し込み、rest モードのサーバを DB 無しで
 // 動かす。写すのは SQL ではなく sproc の**不変則**で、外すと rest e2e が偽の挙動を検証する:
@@ -33,9 +33,16 @@ export interface FakeFundSeed {
   code: string;
   name: string;
   nickname: string;
+  /** ファイル名の会社コード(Rep1 の委託会社略称)。 */
   companyCode: string;
   companyName: string;
+  /** Rep1 の委託会社コード。略称とは書式が違うことを再現するため、既定は `R-<略称>`。 */
+  rep1CompanyCode?: string;
+  /** Rep1 のシリーズコード。シリーズに属さないファンドは未指定(NULL)。 */
+  seriesCode?: string | null;
 }
+
+const rep1Of = (f: FakeFundSeed): string => f.rep1CompanyCode ?? `R-${f.companyCode}`;
 export interface FakePartSeed {
   id: string;
   category: string;
@@ -70,7 +77,7 @@ export const DEFAULT_USERS: readonly FakeUserSeed[] = [
 // ファンドマスタが無いと `parseFundMaster` が undefined を返し、画面のファンド名が空になる。
 // コードは `editor/web/src/api/fixtures/sample/*.json` と一致させる(dataRoot 側の seed が
 // 同じファンドのテンプレートを置くため)。
-const TRUST_AM = '三井住友トラスト・アセットマネジメント株式会社';
+export const TRUST_AM = '三井住友トラスト・アセットマネジメント株式会社';
 export const DEFAULT_FUNDS: readonly FakeFundSeed[] = [
   {
     code: '110024',
@@ -85,6 +92,7 @@ export const DEFAULT_FUNDS: readonly FakeFundSeed[] = [
     nickname: 'コアラップ（安定型）',
     companyCode: 'AM01',
     companyName: TRUST_AM,
+    seriesCode: 'CORE',
   },
   {
     code: '510037',
@@ -92,6 +100,7 @@ export const DEFAULT_FUNDS: readonly FakeFundSeed[] = [
     nickname: 'コアラップ（切替型）',
     companyCode: 'AM01',
     companyName: TRUST_AM,
+    seriesCode: 'CORE',
   },
   {
     code: '510124',
@@ -106,6 +115,7 @@ export const DEFAULT_FUNDS: readonly FakeFundSeed[] = [
     nickname: 'コアラップ（切替型ワイド）',
     companyCode: 'AM01',
     companyName: TRUST_AM,
+    seriesCode: 'CORE',
   },
 ];
 
@@ -430,6 +440,26 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
 
   function templateOp(op: string, a: Args): Row[] {
     const rows = [...templates.values()];
+    if (op === '委託会社一覧') {
+      const byCode = new Map<string, { 名: string; 略: string }>();
+      for (const f of funds.values()) {
+        if (!byCode.has(rep1Of(f))) byCode.set(rep1Of(f), { 名: f.companyName, 略: f.companyCode });
+      }
+      return [...byCode.entries()]
+        .sort(([x], [y]) => x.localeCompare(y))
+        .map(([委託会社コード, v]) => ({ 委託会社コード, 委託会社名: v.名, 委託会社略称: v.略 }));
+    }
+
+    if (op === 'ファンド一覧') {
+      const company = text(a, '委託会社コード');
+      if (!company) throw sqlError(50000, '委託会社コードが必要です');
+      // 実 DB は Japanese_CI_AS 前提なので大文字小文字を区別しない。
+      return [...funds.values()]
+        .filter((f) => rep1Of(f).toLowerCase() === company.toLowerCase())
+        .sort((x, y) => x.code.localeCompare(y.code))
+        .map((f) => ({ ファンドコード: f.code, ファンド名: f.name }));
+    }
+
     if (op === '候補') {
       const company = optText(a, '委託会社コード');
       const fund = optText(a, 'ファンドコード');
@@ -604,6 +634,18 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     throw sqlError(50000, '未知の @操作 です(監査ログ)');
   }
 
+  function seriesOp(op: string, a: Args): Row[] {
+    if (op === '一覧') {
+      const company = text(a, '委託会社コード');
+      if (!company) throw sqlError(50000, '委託会社コードが必要です');
+      return [...funds.values()]
+        .filter((f) => rep1Of(f).toLowerCase() === company.toLowerCase())
+        .sort((x, y) => x.code.localeCompare(y.code))
+        .map((f) => ({ ファンドコード: f.code, シリーズコード: f.seriesCode ?? null }));
+    }
+    throw sqlError(50000, '未知の @操作 です(シリーズ)');
+  }
+
   return async (sql, values) => {
     const { proc, args } = parseCall(sql, values);
     const op = String(args.get('操作') ?? '');
@@ -622,6 +664,8 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
         return noteMasterOp(op, args);
       case SP.audit:
         return auditOp(op, args);
+      case SP.series:
+        return seriesOp(op, args);
       default:
         throw sqlError(50000, `フェイクが知らない sproc です: ${proc}`);
     }

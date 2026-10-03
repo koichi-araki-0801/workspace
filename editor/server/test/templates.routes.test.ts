@@ -131,6 +131,60 @@ describe('templates.routes', () => {
     expect(body.editionTypes).toEqual(expect.arrayContaining(['交付版', '全体版']));
   });
 
+  it('GET /templates/companies: 略称と Rep1 コード付きの会社(未ログインは 401)', async () => {
+    expect((await app.inject({ method: 'GET', url: '/templates/companies' })).statusCode).toBe(401);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/templates/companies',
+      headers: as('editor'),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()[0]).toMatchObject({ companyCode: 'AM01', rep1CompanyCode: 'R-AM01' });
+  });
+
+  it('GET /templates/funds: rep1CompanyCode が無ければ 400、あれば Rep1 のファンド', async () => {
+    const bad = await app.inject({ method: 'GET', url: '/templates/funds', headers: as('editor') });
+    expect(bad.statusCode).toBe(400);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/templates/funds?rep1CompanyCode=R-AM01',
+      headers: as('editor'),
+    });
+    expect(res.json().map((f: { fundCode: string }) => f.fundCode)).toContain('510037');
+  });
+
+  it('GET /templates/creatable: 4 つのどれかが欠けたら 400、そろえば作成済みを返す', async () => {
+    const base = `companyCode=AM01&rep1CompanyCode=R-AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`;
+    for (const drop of ['companyCode', 'rep1CompanyCode', 'fundCode', 'editionType']) {
+      const query = base
+        .split('&')
+        .filter((kv) => !kv.startsWith(`${drop}=`))
+        .join('&');
+      const res = await app.inject({
+        method: 'GET',
+        url: `/templates/creatable?${query}`,
+        headers: as('editor'),
+      });
+      expect(res.statusCode).toBe(400);
+    }
+    const res = await app.inject({
+      method: 'GET',
+      url: `/templates/creatable?${base}`,
+      headers: as('editor'),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ created: true }); // beforeAll が filled/ に置いた ID
+  });
+
+  it('GET /templates/creatable: ファイル名のトークンとして不正な会社コードは 400', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/templates/creatable?companyCode=A_B&rep1CompanyCode=R-AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`,
+      headers: as('editor'),
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it('GET /templates/options: scope=edit は filled/ から作る', async () => {
     const res = await app.inject({
       method: 'GET',
