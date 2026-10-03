@@ -1,93 +1,98 @@
-# editor: 作成タブをファンド属性テーブル起点の一覧へ 実装計画
+# editor: 作成タブの候補をファンド属性テーブル起点へ 実装計画
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 作成タブの候補を DB の台帳から `Rep1` のファンド属性テーブル（sproc 経由）へ移し、会社と版種で検索したファンドの表から作成・系列から作成できるようにし、使われなくなる台帳一式を削除する。
+**Goal:** 作成タブの連動プルダウン（会社 → ファンド → 版種）の候補を DB の台帳から `Rep1` のファンド属性テーブル（sproc 経由）へ移し、シリーズから作成ではコピー元のファンドコードを生成器へ渡し、使われなくなる台帳一式を削除する。
 
-**Architecture:** DB は `usp_テンプレート` に `委託会社一覧` / `ファンド一覧`、新ゲートウェイ `usp_シリーズ` に `一覧` を足し、いずれも `Rep1.dbo.…` を 3 部名で読む（列名は仮で sproc 内に閉じる）。サーバは `GET /templates/companies` と `GET /templates/funds` で、ファンドごとに「作成済み」と「系列のコピー元候補（テンプレの有無付き）」を組み立てる。web の作成タブは編集タブと同じ「上段のプルダウン＋下段の表」に作り直し、系列から作成ではコピー元のファンドコード（`sourceFundCode`）を生成器へ渡す。
+**Architecture:** DB は `usp_テンプレート` に `委託会社一覧`（略称付き）/ `ファンド一覧`、新ゲートウェイ `usp_シリーズ` に `一覧` を足し、いずれも `Rep1.dbo.…` を 3 部名で読む（列名は仮で sproc 内に閉じ、`RTRIM(CAST(…))` で返す）。サーバは `companies` / `funds` / `creatable` の 3 ルートを持ち、`creatable` が「作成済み」と「シリーズのコピー元候補（テンプレの有無付き）」を返す。web の作成タブは見た目を保ったまま、Step 1 を専用の連動プルダウンへ差し替え、Step 2 にコピー元候補の表を置く。
 
-**Tech Stack:** TypeScript（Fastify / Vue 3 / Zod）、vitest、Playwright、SQL Server 2012 の sproc、Python 3.13（テスト用の偽の生成器・パッチ生成）。
+**Tech Stack:** TypeScript（Fastify / Vue 3 / Zod / reka-ui）、vitest、Playwright、SQL Server 2012 の sproc、Python 3.13。
 
 **Spec:** `docs/superpowers/specs/2026-10-03-editor-create-tab-fund-attributes-design.md`
 
+**Reviews:** 初版を /dig と Fable でレビューし、指摘（テスト用 QueryFn の操作名の取り出し、既存テスト 2 件の書き換え、台帳削除で壊れるテスト、e2e のボタン名の部分一致、Select のテスト方法、カバレッジ、列の型、会社コードの書式、権限、パッチ README の順序）を反映した版。
+
 ## Global Constraints
 
-- DB へは必ず sproc ゲートウェイ経由（却下済み設計 #12）。`Rep1` は usrap の sproc の中で 3 部名（`Rep1.dbo.<テーブル>`）で読む。
-- 仮の名前（sproc 内だけに書く）: テーブル `Rep1.dbo.Rep1_投委託会社`・`Rep1.dbo.Rep1_投信ファンド属性`、列 `委託会社コード`・`委託会社名`・`ファンドコード`・`ファンド名`・`シリーズコード`。sproc が返す列名はこの 5 つで固定し、Node 側はこれだけを見る。
-- sproc は 8 本（`usp_シリーズ` を追加）。`usp_テンプレート` の `@操作` は `委託会社一覧` / `ファンド一覧` だけになる（`候補`・`生成登録` は削除）。
-- 全 SQL ファイルは UTF-8 BOM。SQL Server 2012 互換（`CREATE OR ALTER` 不可、DROP + CREATE）。
-- 版種は `交付版` / `全体版` の 2 択（プルダウンで 1 つ）。
-- `created` と `hasTemplate` の照合は大文字小文字を区別しない。`created` は `filled/`・`templates/`・`pending/` のどれか、`hasTemplate` は `templates/` だけを見る。基準日は問わない。
-- `GenerateRequest.basedOnTemplateId` は `sourceFundCode` に置き換える。生成器へ渡す JSON の `sourceFundCode` は系列から作成のときだけ、`isRedemption` は true のときだけ付ける。
+- DB へは必ず sproc ゲートウェイ経由（却下済み設計 #12）。`Rep1` は usrap の sproc の中で 3 部名で読む。Rep1 は同じサーバで、実行アカウントは既に読める（権限付与の作業は無い）。
+- 仮の名前（sproc 内だけに書く）: テーブル `Rep1.dbo.Rep1_投委託会社`・`Rep1.dbo.Rep1_投信ファンド属性`。sproc が返す列名は `委託会社コード`・`委託会社名`・`委託会社略称`・`ファンドコード`・`ファンド名`・`シリーズコード` で固定。各列は `RTRIM(CAST(<列> AS NVARCHAR(n)))`（コード 32、名称 256）で返す。
+- 会社コードの使い分け: editor 内の `companyCode`（ファイル名・`TemplateAttributes`・`GenerateRequest`）は **略称**。Rep1 を引くときだけ `rep1CompanyCode`（Rep1 の `委託会社コード`）を使う。
+- sproc は 8 本（`usp_シリーズ` 追加）。最終的に `usp_テンプレート` の `@操作` は `委託会社一覧` / `ファンド一覧` だけ。
+- 全 SQL ファイルは UTF-8 BOM。SQL Server 2012 互換（DROP + CREATE）。
+- 版種は `交付版` / `全体版` の 2 択。
+- `created` は `filled/`・`templates/`・`pending/` のどれか、`hasTemplate` は `templates/` だけを見る。基準日は問わず、照合は大文字小文字を区別しない。
+- 生成器へ渡す JSON の `sourceFundCode` はシリーズから作成のときだけ、`isRedemption` は true のときだけ付ける（false や未指定ではキー自体を付けない）。
 - `GET /templates/options` の `scope` は `edit` / `published` だけ。省略時は `edit`。
-- 削除するもの: `GET /templates/series`、`TemplateRepository.resolveFund` / `listSeriesFunds`、`FundResolution`、テンプレート台帳テーブルと関連 DDL、`registerGenerated`。
-- 各コミットの時点で `pnpm typecheck` と `pnpm run test:editor` が通ること（commit ごとに自動 push の pre-push CI が走るため）。
-- `editor/**` を変更したコミットの前に `pnpm exec biome check --write <対象>` を実行する。vitest はリポジトリ直下から実行する。
+- 各コミットで pre-push（`ci-affected` → editor を触ると typecheck + `test:editor` + build + `e2e:editor`）が通ること。フルの pre-push は 10 分を超えうるので、push が終わったかは `git ls-remote` で確かめ、止まっていたらユーザーに `! git push` を頼む。
+- `editor/**` を変更したコミットの前に `pnpm exec biome check --write <対象>`。vitest はリポジトリ直下から実行する。
 - コメントに経緯（変更日・移植元・所見番号）を書かない。
-- 差分パッチ: `--base e82a5c27677376f4db8ba55de12c7e855c60e9e9`（別環境に適用済み）。
+- 見える文言で、仕様書に無いものは変えない（作成履歴の列見出しなど）。
 
 ## Review Focus
 
-1. 会社に属するファンドが 0 件のとき、表が空の案内を出し、エラーにしない（Task 1 のリポジトリテスト、Task 3 の画面で固定）。
-2. `usp_シリーズ` が返すシリーズコードが NULL のファンドは `seriesFunds` が空で、自分自身はコピー元候補に入らない（Task 1 で固定）。
-3. ファンド一覧にあってシリーズ一覧に無いファンド（行の欠け）でも落ちない（Task 1 で固定）。
-4. コピー元テンプレートが無いのに API を直接叩いて `sourceFundCode` を送った場合、生成器を呼ばずに 400（Task 2 で固定）。
-5. 会社コードの大文字小文字がファイル名と DB で違う（`smtam` と `SMTAM`）場合でも `created` / `hasTemplate` が正しく立つ（Task 1 で固定）。
+1. Rep1 の会社コード（`R-AM01` など）と略称（`AM01`）が違っても、作成済み・コピー元の判定とファイル名は略称で行われる（Task 1 のリポジトリテスト、Task 3 の e2e で固定）。
+2. シリーズ一覧に行が無いファンド、シリーズコードが NULL のファンドは `seriesFunds` が空（Task 1 で固定）。
+3. コピー元テンプレートが無いのに API を直接叩いて `sourceFundCode` を送ると、生成器を呼ばずに 400（Task 2 で固定）。
+4. 会社コードの大文字小文字がファイル名と違っても（`am01_…` のファイル）`created` / `hasTemplate` が立つ（Task 1 で固定）。
+5. 3 つの選択を素早く変えたとき、古い `creatable` の応答で Step 2 が上書きされない（Task 3 で `useLatest` を使う）。
 
 ---
 
-### Task 1: DB とサーバ — 委託会社・ファンド・シリーズの取得 API を追加する
+### Task 1: DB とサーバ — 委託会社・ファンド・作成可否の取得 API を追加する
 
 既存の台帳の処理には触らない（削除は Task 4）。
 
 **Files:**
-- Modify: `editor/server/db/sproc/template.sql`（`候補` の前に 2 操作を追加）
-- Create: `editor/server/db/sproc/series.sql`
-- Create: `editor/server/db/dev/Rep1_検証用.sql`
-- Modify: `editor/server/src/db/sprocNames.ts`（`series: gw('シリーズ')`）
-- Modify: `editor/server/test/fakes/sprocFake.ts`（`FakeFundSeed.seriesCode?`、`委託会社一覧` / `ファンド一覧`、`usp_シリーズ` の `一覧`）
-- Modify: `editor/server/test/sprocFake.test.ts`
+- Modify: `editor/server/db/sproc/template.sql`（`候補` の前に 2 操作を追加、先頭コメント）
+- Create: `editor/server/db/sproc/series.sql`、`editor/server/db/dev/Rep1_検証用.sql`
+- Modify: `editor/server/src/db/sprocNames.ts`（`series: gw('シリーズ')`、ヘッダの本数）
+- Modify: `editor/server/src/files/templateFiles.ts`（`attrKey`・`templateAttrKeys`・`hasTemplateFor`）
+- Modify: `editor/server/test/fakes/sprocFake.ts`（`FakeFundSeed.rep1CompanyCode?` / `seriesCode?`、3 操作、ヘッダの本数）、`editor/server/test/sprocFake.test.ts`
 - Modify: `editor/shared/src/schemas.ts`、`editor/shared/src/index.ts`、`editor/shared/src/api-paths.ts`
-- Modify: `editor/server/src/repositories/templateRepo.ts`
-- Modify: `editor/server/src/routes/templates.routes.ts`、`editor/server/src/openapi/document.ts`
+- Modify: `editor/server/src/repositories/templateRepo.ts`、`editor/server/src/routes/templates.routes.ts`、`editor/server/src/openapi/document.ts`
 - Create: `editor/server/test/templateRepo.creatable.test.ts`
 - Modify: `editor/server/test/templates.routes.test.ts`
 - Regenerate: `editor/server/openapi/openapi.json`
 
 **Interfaces:**
-- Produces（shared schemas, `editor/shared/src/schemas.ts`）:
-  - `CompanyOption = z.object({ companyCode: z.string(), companyName: z.string() }).meta({ id: 'CompanyOption' })`
-  - `SeriesFundOption = z.object({ fundCode: z.string(), fundName: z.string(), hasTemplate: z.boolean() }).meta({ id: 'SeriesFundOption' })`
-  - `CreatableFund = z.object({ fundCode: z.string(), fundName: z.string(), created: z.boolean(), seriesFunds: z.array(SeriesFundOption) }).meta({ id: 'CreatableFund' })`
-  - `CreatableFundsQuery = z.object({ companyCode: z.string(), editionType: z.string() })`
-  - 型 export: `CompanyOption` / `SeriesFundOption` / `CreatableFund`（index.ts で `z.infer`）
-- Produces（api-paths）: `templatesCompanies: '/templates/companies'`、`templatesFunds: '/templates/funds'`
-- Produces（server `TemplateRepo`）: `listCompanies(): Promise<CompanyOption[]>`、`listCreatableFunds(companyCode: string, editionType: string): Promise<CreatableFund[]>`
-- Produces（`templateRepo.ts` 内 export、Task 2 が使う）: `hasTemplateFor(companyCode: string, fundCode: string, editionType: string): Promise<boolean>`（`templates/` に同じ会社・ファンド・版種が 1 件以上あるか、大文字小文字を区別しない）
+- Produces（shared schemas）:
+  - `CompanyOption = z.object({ companyCode: z.string(), companyName: z.string(), rep1CompanyCode: z.string() })`
+  - `FundOption = z.object({ fundCode: z.string(), fundName: z.string() })`
+  - `SeriesFundOption = FundOption.extend({ hasTemplate: z.boolean() })`
+  - `CreatableInfo = z.object({ created: z.boolean(), seriesFunds: z.array(SeriesFundOption) })`
+  - `FundsQuery = z.object({ rep1CompanyCode: z.string().min(1) })`
+  - `CreatableQuery = z.object({ companyCode: z.string().min(1), rep1CompanyCode: z.string().min(1), fundCode: z.string().min(1), editionType: z.string().min(1) })`
+  - 型 export（index.ts）: `CompanyOption` / `FundOption` / `SeriesFundOption` / `CreatableInfo`
+- Produces（api-paths）: `templatesCompanies: '/templates/companies'`、`templatesFunds: '/templates/funds'`、`templatesCreatable: '/templates/creatable'`
+- Produces（`files/templateFiles.ts`、Task 2 も使う）: `attrKey(companyCode, fundCode, editionType): string`、`templateAttrKeys(fileNames: string[]): Set<string>`、`hasTemplateFor(companyCode: string, fundCode: string, editionType: string): Promise<boolean>`
+- Produces（server `TemplateRepo`）: `listCompanies(): Promise<CompanyOption[]>`、`listFunds(rep1CompanyCode: string): Promise<FundOption[]>`、`getCreatableInfo(q: { companyCode: string; rep1CompanyCode: string; fundCode: string; editionType: string }): Promise<CreatableInfo>`
 - Produces（sprocNames）: `SP.series`
 
-- [ ] **Step 1: sproc を書く**
+- [ ] **Step 1: sproc と検証用 SQL を書く**
 
-`editor/server/db/sproc/template.sql` の `/* ---- 候補:` の直前に追加する（UTF-8 BOM を保つ）:
+`template.sql` の `/* ---- 候補:` の直前に追加（UTF-8 BOM を保つ。保存後に先頭 3 バイトが `EF BB BF` か確かめる）:
 
 ```sql
-  /* ---- 委託会社一覧: 作成タブの会社プルダウン(Rep1 のファンド属性系テーブル) ---- */
-  /* テーブル名・列名は仮。実際の名前が違うときは FROM と列に AS を付けて、返す列名を   */
-  /* [委託会社コード] [委託会社名] に合わせる(Node 側はこの列名だけを見る)。              */
+  /* ---- 委託会社一覧: 作成タブの会社プルダウン(Rep1 のファンド属性系テーブル) ------- */
+  /* テーブル名・列名は仮。返す列名は固定で、実際の名前が違うときは FROM と AS を直す。  */
+  /* CHAR 型でも末尾空白で照合がずれないよう、文字列化して右の空白を落として返す。       */
   IF @操作 = N'委託会社一覧'
   BEGIN
-    SELECT [委託会社コード] AS [委託会社コード], [委託会社名] AS [委託会社名]
+    SELECT RTRIM(CAST([委託会社コード] AS NVARCHAR(32)))  AS [委託会社コード],
+           RTRIM(CAST([委託会社名]     AS NVARCHAR(256))) AS [委託会社名],
+           RTRIM(CAST([委託会社略称]   AS NVARCHAR(32)))  AS [委託会社略称]
       FROM [Rep1].[dbo].[Rep1_投委託会社]
       ORDER BY [委託会社コード];
     RETURN;
   END
 
-  /* ---- ファンド一覧: 会社を選んだときに 1 回で引く(返す列名は固定) ------------- */
+  /* ---- ファンド一覧: 会社を選んだときに 1 回で引く -------------------------------- */
   IF @操作 = N'ファンド一覧'
   BEGIN
     IF @委託会社コード IS NULL
       THROW 50000, N'委託会社コードが必要です', 1;
-    SELECT [ファンドコード] AS [ファンドコード], [ファンド名] AS [ファンド名]
+    SELECT RTRIM(CAST([ファンドコード] AS NVARCHAR(32)))  AS [ファンドコード],
+           RTRIM(CAST([ファンド名]     AS NVARCHAR(256))) AS [ファンド名]
       FROM [Rep1].[dbo].[Rep1_投信ファンド属性]
       WHERE [委託会社コード] = @委託会社コード
       ORDER BY [ファンドコード];
@@ -96,15 +101,15 @@
 
 ```
 
-先頭コメントの `@操作 で分岐:` の行に `委託会社一覧 / ファンド一覧` を足し、「`Rep1` は 3 部名で読む。editor の実行アカウントに Rep1 の 2 テーブルの SELECT 権限が要る（DB をまたぐ参照は所有権の連鎖が効かない）」を 1 行足す。
+先頭コメントの `@操作 で分岐:` に `委託会社一覧 / ファンド一覧` を足し、「Rep1 は 3 部名で読む（同じサーバ）。返す委託会社略称がファイル名の会社コード」を 1 行足す。
 
-`editor/server/db/sproc/series.sql`（UTF-8 BOM で新規作成）:
+`series.sql`（UTF-8 BOM で新規）:
 
 ```sql
 /* ============================================================================
  *  ゲートウェイ sproc: Rep1_運報自動化_Editor_usp_シリーズ
  *  @操作 で分岐: 一覧
- *  作成タブの「系列から作成」で、同じシリーズのファンド(コピー元の候補)を求める素。
+ *  作成タブの「シリーズから作成」で、同じシリーズのファンド(コピー元の候補)を求める素。
  *  Rep1 のファンド属性テーブルを 3 部名で読む。テーブル名・列名は仮で、返す列名
  *  [ファンドコード] [シリーズコード] は固定(違うときは AS で合わせる)。シリーズに
  *  属さないファンドは [シリーズコード] を NULL で返す。
@@ -126,7 +131,8 @@ BEGIN
   BEGIN
     IF @委託会社コード IS NULL
       THROW 50000, N'委託会社コードが必要です', 1;
-    SELECT [ファンドコード] AS [ファンドコード], [シリーズコード] AS [シリーズコード]
+    SELECT RTRIM(CAST([ファンドコード] AS NVARCHAR(32))) AS [ファンドコード],
+           NULLIF(RTRIM(CAST([シリーズコード] AS NVARCHAR(32))), N'') AS [シリーズコード]
       FROM [Rep1].[dbo].[Rep1_投信ファンド属性]
       WHERE [委託会社コード] = @委託会社コード
       ORDER BY [ファンドコード];
@@ -138,7 +144,7 @@ END
 GO
 ```
 
-`editor/server/db/dev/Rep1_検証用.sql`（UTF-8 BOM。`apply.ps1` は `ddl` / `sproc` / `seed` しか読まないので対象外）:
+`server/db/dev/Rep1_検証用.sql`（UTF-8 BOM。`apply.ps1` は `ddl` / `sproc` / `seed` だけを読むので対象外）:
 
 ```sql
 /* 検証用: LocalDB に Rep1 と仮の 2 テーブルを作る(本番では流さない)。
@@ -149,52 +155,54 @@ USE [Rep1];
 GO
 IF OBJECT_ID(N'[dbo].[Rep1_投委託会社]', N'U') IS NULL
   CREATE TABLE [dbo].[Rep1_投委託会社] (
-    [委託会社コード] NVARCHAR(32) NOT NULL PRIMARY KEY,
-    [委託会社名]     NVARCHAR(128) NOT NULL
+    [委託会社コード] CHAR(4)       NOT NULL PRIMARY KEY,  -- 末尾空白の除去を確かめるため CHAR
+    [委託会社名]     NVARCHAR(128) NOT NULL,
+    [委託会社略称]   NVARCHAR(32)  NOT NULL
   );
 IF OBJECT_ID(N'[dbo].[Rep1_投信ファンド属性]', N'U') IS NULL
   CREATE TABLE [dbo].[Rep1_投信ファンド属性] (
-    [ファンドコード]   NVARCHAR(32) NOT NULL PRIMARY KEY,
-    [委託会社コード]   NVARCHAR(32) NOT NULL,
+    [ファンドコード]   CHAR(8)       NOT NULL PRIMARY KEY,
+    [委託会社コード]   CHAR(4)       NOT NULL,
     [ファンド名]       NVARCHAR(256) NOT NULL,
-    [シリーズコード]   NVARCHAR(32) NULL
+    [シリーズコード]   NVARCHAR(32)  NULL
   );
 GO
 DELETE FROM [dbo].[Rep1_投信ファンド属性];
 DELETE FROM [dbo].[Rep1_投委託会社];
 INSERT INTO [dbo].[Rep1_投委託会社] VALUES
-  (N'AM01', N'三井住友トラスト・アセットマネジメント株式会社'),
-  (N'AM02', N'検証用アセット');
+  ('0001', N'三井住友トラスト・アセットマネジメント株式会社', N'AM01'),
+  ('0002', N'検証用アセット', N'AM02');
 INSERT INTO [dbo].[Rep1_投信ファンド属性] VALUES
-  (N'110024', N'AM01', N'高金利ソブリンオープン', NULL),
-  (N'510003', N'AM01', N'コア投資戦略ファンド（安定型）', N'CORE'),
-  (N'510037', N'AM01', N'コア投資戦略ファンド（切替型）', N'CORE'),
-  (N'510124', N'AM01', N'コア投資戦略ファンド（成長型）', NULL),
-  (N'510155', N'AM01', N'コア投資戦略ファンド（切替型ワイド）', N'CORE'),
-  (N'900001', N'AM02', N'検証用ファンド', NULL);
+  ('110024', '0001', N'高金利ソブリンオープン', NULL),
+  ('510003', '0001', N'コア投資戦略ファンド（安定型）', N'CORE'),
+  ('510037', '0001', N'コア投資戦略ファンド（切替型）', N'CORE'),
+  ('510124', '0001', N'ＳＭＴ ＪＰＸ日経中小型株インデックス・オープン', NULL),
+  ('510155', '0001', N'コア投資戦略ファンド（切替型ワイド）', N'CORE'),
+  ('900001', '0002', N'検証用ファンド', NULL);
 GO
 ```
 
-`editor/server/src/db/sprocNames.ts` の `SP` に `series: gw('シリーズ'),` を足す（`noteMaster` の後）。
+（ファンド名は `sprocFake.ts` の `DEFAULT_FUNDS` に合わせる。違えば DEFAULT_FUNDS 側の値をそのまま写す。）
 
-- [ ] **Step 2: sprocFake に操作を足し、フェイクのテストを書く（RED → GREEN）**
+`sprocNames.ts` の `SP` に `series: gw('シリーズ'),` を足し、ファイル先頭の「7 本」の記述を「8 本」にする。
 
-`editor/server/test/sprocFake.test.ts` に追加:
+- [ ] **Step 2: sprocFake に操作を足す（RED → GREEN）**
+
+`sprocFake.test.ts` に追加（`TRUST_AM_NAME` は `sprocFake.ts` の会社名定数。export されていなければ export を付けるか、文字列をそのまま書く）:
 
 ```ts
-  it('委託会社一覧 returns every company once, ordered by code', async () => {
+  it('委託会社一覧 returns the Rep1 code, name and abbreviation (abbreviation = file company code)', async () => {
     const sproc = await createFakeSproc();
     const rows = await sproc.callSproc(SP.template, '委託会社一覧');
     expect(rows).toEqual([
-      { 委託会社コード: 'AM01', 委託会社名: '三井住友トラスト・アセットマネジメント株式会社' },
+      { 委託会社コード: 'R-AM01', 委託会社名: TRUST_AM_NAME, 委託会社略称: 'AM01' },
     ]);
   });
 
-  it('ファンド一覧 returns the funds of one company and needs the company', async () => {
+  it('ファンド一覧 returns the funds of one Rep1 company (case-insensitive) and needs the company', async () => {
     const sproc = await createFakeSproc();
-    const rows = await sproc.callSproc(SP.template, 'ファンド一覧', [p('委託会社コード', 'AM01')]);
+    const rows = await sproc.callSproc(SP.template, 'ファンド一覧', [p('委託会社コード', 'r-am01')]);
     expect(rows.map((r) => r.ファンドコード)).toEqual(['110024', '510003', '510037', '510124', '510155']);
-    expect(rows[0]).toMatchObject({ ファンド名: '高金利ソブリンオープン' });
     await expect(sproc.callSproc(SP.template, 'ファンド一覧', [])).rejects.toMatchObject({
       kind: 'validation',
     });
@@ -202,73 +210,77 @@ GO
 
   it('シリーズ 一覧 returns fund and series code (null when not in a series)', async () => {
     const sproc = await createFakeSproc();
-    const rows = await sproc.callSproc(SP.series, '一覧', [p('委託会社コード', 'AM01')]);
+    const rows = await sproc.callSproc(SP.series, '一覧', [p('委託会社コード', 'R-AM01')]);
     expect(rows).toContainEqual({ ファンドコード: '510037', シリーズコード: 'CORE' });
     expect(rows).toContainEqual({ ファンドコード: '110024', シリーズコード: null });
   });
 ```
 
-（会社名の期待値は `DEFAULT_FUNDS` の `companyName` の値に合わせる。`TRUST_AM` 定数の文字列を確認すること。）
+Run: `pnpm exec vitest run --project server editor/server/test/sprocFake.test.ts` → FAIL（未知の @操作）。
 
-実行して失敗を確かめる: `pnpm exec vitest run --project server editor/server/test/sprocFake.test.ts` → FAIL（未知の @操作）。
+`sprocFake.ts`:
+- `FakeFundSeed` に `rep1CompanyCode?: string; seriesCode?: string | null;` を足す。`DEFAULT_FUNDS` の `510003` / `510037` / `510155` に `seriesCode: 'CORE'`（local の `SERIES_FUND_CODES` と同じ 3 件）。Rep1 コードの既定は `R-<companyCode>`:
 
-`editor/server/test/fakes/sprocFake.ts`:
-- `FakeFundSeed` に `seriesCode?: string | null;` を足し、`DEFAULT_FUNDS` の `510003` / `510037` / `510155` に `seriesCode: 'CORE'` を付ける（local の `SERIES_FUND_CODES` と同じ 3 件）。
+```ts
+const rep1Of = (f: FakeFundSeed): string => f.rep1CompanyCode ?? `R-${f.companyCode}`;
+```
+
 - テンプレート sproc の分岐（`if (op === '候補')` の前）に:
 
 ```ts
     if (op === '委託会社一覧') {
-      const byCode = new Map<string, string>();
-      for (const f of funds.values()) if (!byCode.has(f.companyCode)) byCode.set(f.companyCode, f.companyName);
+      const byCode = new Map<string, { 名: string; 略: string }>();
+      for (const f of funds.values()) {
+        if (!byCode.has(rep1Of(f))) byCode.set(rep1Of(f), { 名: f.companyName, 略: f.companyCode });
+      }
       return [...byCode.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([委託会社コード, 委託会社名]) => ({ 委託会社コード, 委託会社名 }));
+        .map(([委託会社コード, v]) => ({ 委託会社コード, 委託会社名: v.名, 委託会社略称: v.略 }));
     }
 
     if (op === 'ファンド一覧') {
       const company = text(a, '委託会社コード');
       if (!company) throw sqlError(50000, '委託会社コードが必要です');
+      // 実 DB は Japanese_CI_AS 前提なので大文字小文字を区別しない。
       return [...funds.values()]
-        .filter((f) => f.companyCode === company)
+        .filter((f) => rep1Of(f).toLowerCase() === company.toLowerCase())
         .sort((x, y) => x.code.localeCompare(y.code))
         .map((f) => ({ ファンドコード: f.code, ファンド名: f.name }));
     }
 ```
 
-- `SP.series` 用の分岐を、他のゲートウェイ（`SP.part` など）の分岐と同じ形で足す（`proc === SP.series` の判定の書き方は既存に合わせる）:
+- `switch (proc)` に `SP.series` の case を、他のゲートウェイと同じ形で足す:
 
 ```ts
     if (op === '一覧') {
       const company = text(a, '委託会社コード');
       if (!company) throw sqlError(50000, '委託会社コードが必要です');
       return [...funds.values()]
-        .filter((f) => f.companyCode === company)
+        .filter((f) => rep1Of(f).toLowerCase() === company.toLowerCase())
         .sort((x, y) => x.code.localeCompare(y.code))
         .map((f) => ({ ファンドコード: f.code, シリーズコード: f.seriesCode ?? null }));
     }
     throw sqlError(50000, '未知の @操作 です(シリーズ)');
 ```
 
-再実行して PASS を確かめる。
+- ファイル先頭のゲートウェイの本数の記述を 8 本にする。
+
+再実行して PASS。
 
 - [ ] **Step 3: shared に型とパスを足す**
 
-`editor/shared/src/schemas.ts` の `GenerateRequest` の直前に Interfaces の 4 スキーマを追加する（説明は `.meta({ description })` で付ける: companyName「委託会社名(Rep1 の属性テーブル)」、created「選んだ版種のテンプレートが filled/・templates/・pending/ のどこかにあるか」、seriesFunds「同じシリーズの他のファンド(系列から作成のコピー元候補)」、hasTemplate「コピー元のテンプレートが templates/ に同じ会社・版種で 1 件以上あるか」）。
+`schemas.ts` の `GenerateRequest` の直前に Interfaces の 6 スキーマを追加（`CompanyOption` / `FundOption` / `SeriesFundOption` / `CreatableInfo` は `.meta({ id })` 付き。説明: `companyCode`「ファイル名の会社コード(Rep1 の委託会社略称)」、`rep1CompanyCode`「Rep1 の委託会社コード(ファンドを引くときに使う)」、`created`「選んだ会社・ファンド・版種のテンプレートが filled/・templates/・pending/ のどこかにあるか」、`seriesFunds`「同じシリーズの他のファンド(シリーズから作成のコピー元候補)」、`hasTemplate`「コピー元のテンプレートが templates/ に同じ会社・版種で 1 件以上あるか」）。index.ts に 4 型、api-paths.ts に 3 パスを足す。
 
-`editor/shared/src/index.ts` に `export type CompanyOption = z.infer<typeof sch.CompanyOption>;`・`SeriesFundOption`・`CreatableFund` を足す。
+- [ ] **Step 4: リポジトリとファイル判定のテストを書く（RED）**
 
-`editor/shared/src/api-paths.ts` の `templates` の近くに `templatesCompanies: '/templates/companies',` と `templatesFunds: '/templates/funds',` を足す。
-
-- [ ] **Step 4: リポジトリのテストを書く（RED）**
-
-`editor/server/test/templateRepo.creatable.test.ts`:
+`templateRepo.creatable.test.ts`:
 
 ```ts
 // =============================================================================
-// templateRepo.creatable.test.ts — 作成タブの会社・ファンド一覧(Rep1 の属性 + ファイル)
+// templateRepo.creatable.test.ts — 作成タブの会社・ファンド・作成可否(Rep1 の属性 + ファイル)
 // =============================================================================
-// 会社とファンドは sproc(Rep1 の属性テーブル)から、作成済みとコピー元の有無はファイルから決める。
-// 照合は大文字小文字を区別しない(ファイル名と DB で会社コードの綴りが揺れる)。
+// 会社・ファンド・シリーズは sproc(Rep1)から、作成済みとコピー元の有無はファイルから決める。
+// ファイル名の会社コードは Rep1 の略称で、Rep1 のコードとは書式が違う。
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -284,15 +296,18 @@ process.env.DRAFTS_DIR = path.join(tmp, 'drafts');
 
 const put = (dir: string, id: string) =>
   fs.writeFileSync(path.join(tmp, dir, `${id}.html`), '<p>x</p>', 'utf8');
+const q = (fundCode: string) => ({
+  companyCode: 'AM01', rep1CompanyCode: 'R-AM01', fundCode, editionType: '交付版',
+});
 
-describe('templateRepo の作成タブ用一覧', () => {
+describe('templateRepo の作成タブ用の問い合わせ', () => {
   let repo: import('../src/repositories/templateRepo.js').TemplateRepo;
 
   beforeAll(async () => {
     for (const d of ['templates', 'filled', 'pending']) fs.mkdirSync(path.join(tmp, d), { recursive: true });
     put('filled', 'am01_110024_20250101_交付版'); // 小文字の会社コード(filled/)
-    put('templates', 'AM01_510037_20240710_交付版'); // 510037 はコピー元になれる
-    put('templates', 'AM01_510003_20240710_全体版'); // 版種違い(交付版のコピー元にはならない)
+    put('templates', 'AM01_510037_20240710_交付版');
+    put('templates', 'AM01_510003_20240710_全体版');
     const { writePending } = await import('../src/files/pendingFiles.js');
     await writePending('AM01_510124_20261001_交付版', '<p>未確定</p>', '');
     const { createFakeSproc } = await import('./fakes/sprocFake.js');
@@ -301,79 +316,73 @@ describe('templateRepo の作成タブ用一覧', () => {
   });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-  it('委託会社は sproc から会社コードと会社名で返す', async () => {
+  it('hasTemplateFor は templates/ だけを、大文字小文字を区別せずに見る', async () => {
+    const { hasTemplateFor } = await import('../src/files/templateFiles.js');
+    expect(await hasTemplateFor('am01', '510037', '交付版')).toBe(true);
+    expect(await hasTemplateFor('AM01', '510003', '交付版')).toBe(false); // 全体版だけ
+    expect(await hasTemplateFor('AM01', '110024', '交付版')).toBe(false); // filled/ にしか無い
+  });
+
+  it('委託会社は略称をファイル名の会社コード、Rep1 のコードを rep1CompanyCode で返す', async () => {
     expect(await repo.listCompanies()).toEqual([
-      { companyCode: 'AM01', companyName: '三井住友トラスト・アセットマネジメント株式会社' },
+      { companyCode: 'AM01', companyName: TRUST_AM_NAME, rep1CompanyCode: 'R-AM01' },
     ]);
+  });
+
+  it('ファンドは Rep1 の会社コードで引く', async () => {
+    const funds = await repo.listFunds('R-AM01');
+    expect(funds.map((f) => f.fundCode)).toEqual(['110024', '510003', '510037', '510124', '510155']);
+    expect(await repo.listFunds('R-ZZ99')).toEqual([]);
   });
 
   it('作成済みは filled/・templates/・pending/ のどれかにあれば立つ(大文字小文字を区別しない)', async () => {
-    const rows = await repo.listCreatableFunds('AM01', '交付版');
-    const created = Object.fromEntries(rows.map((r) => [r.fundCode, r.created]));
-    expect(created).toEqual({
-      '110024': true, // filled/(小文字の会社コード)
-      '510003': false, // templates/ にあるのは全体版だけ
-      '510037': true, // templates/
-      '510124': true, // pending/
-      '510155': false,
-    });
+    const created = async (f: string) => (await repo.getCreatableInfo(q(f))).created;
+    expect(await created('110024')).toBe(true); // filled/(小文字)
+    expect(await created('510037')).toBe(true); // templates/
+    expect(await created('510124')).toBe(true); // pending/
+    expect(await created('510003')).toBe(false); // 全体版だけ
+    expect(await created('510155')).toBe(false);
   });
 
   it('シリーズの他ファンドをコピー元候補にし、自分は含めず、テンプレの有無を付ける', async () => {
-    const rows = await repo.listCreatableFunds('AM01', '交付版');
-    const of = (code: string) => rows.find((r) => r.fundCode === code);
-    expect(of('510155')?.seriesFunds).toEqual([
+    expect((await repo.getCreatableInfo(q('510155'))).seriesFunds).toEqual([
       { fundCode: '510003', fundName: 'コア投資戦略ファンド（安定型）', hasTemplate: false },
       { fundCode: '510037', fundName: 'コア投資戦略ファンド（切替型）', hasTemplate: true },
     ]);
-    expect(of('110024')?.seriesFunds).toEqual([]); // シリーズに属さない
+    expect((await repo.getCreatableInfo(q('110024'))).seriesFunds).toEqual([]);
   });
 
-  it('ファンドが 0 件の会社は空配列', async () => {
-    expect(await repo.listCreatableFunds('ZZ99', '交付版')).toEqual([]);
-  });
-
-  it('hasTemplateFor は templates/ を大文字小文字を区別せずに見る', async () => {
-    const { hasTemplateFor } = await import('../src/repositories/templateRepo.js');
-    expect(await hasTemplateFor('am01', '510037', '交付版')).toBe(true);
-    expect(await hasTemplateFor('AM01', '510003', '交付版')).toBe(false);
-  });
-});
-```
-
-（ファンド名の期待値は `DEFAULT_FUNDS` に合わせる。）
-
-続けて、シリーズ一覧に行が無いファンド（Review Focus 3）のケースを足す。`createFakeSproc` の seed に、シリーズ sproc の結果から外すファンドを作る手段が無いので、`createSprocClient` で包んだ手書きの QueryFn を使う:
-
-```ts
   it('シリーズ一覧に行が無いファンドも落ちず、seriesFunds は空', async () => {
     const { createSprocClient } = await import('../src/db/sproc.js');
     const { SP } = await import('../src/db/sprocNames.js');
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
-    // 既存の QueryFn の引数の形(proc 名と @操作の取り出し方)は sprocFake.ts の parseCall に合わせる。
-    const sproc = createSprocClient(async (sql) => {
+    // createSprocClient が組む SQL は `EXEC <proc> @操作=?, …` で、@操作 の値は values[0]。
+    const sproc = createSprocClient(async (sql, values) => {
       if (sql.includes(SP.series)) return [];
-      if (sql.includes('ファンド一覧')) return [{ ファンドコード: '777777', ファンド名: '行なし' }];
+      if (values[0] === 'ファンド一覧') return [{ ファンドコード: '777777', ファンド名: '行なし' }];
       return [];
     });
-    const rows = await createTemplateRepo(sproc).listCreatableFunds('AM01', '交付版');
-    expect(rows).toEqual([{ fundCode: '777777', fundName: '行なし', created: false, seriesFunds: [] }]);
+    const info = await createTemplateRepo(sproc).getCreatableInfo(q('777777'));
+    expect(info).toEqual({ created: false, seriesFunds: [] });
   });
+});
 ```
 
-`pnpm exec vitest run --project server editor/server/test/templateRepo.creatable.test.ts` → FAIL（`listCompanies` が無い）。
+（`TRUST_AM_NAME` は Step 2 と同じ。ファンド名の期待値は `DEFAULT_FUNDS` に合わせる。）
 
-- [ ] **Step 5: リポジトリを実装する（GREEN）**
+Run: `pnpm exec vitest run --project server editor/server/test/templateRepo.creatable.test.ts` → FAIL。
 
-`editor/server/src/repositories/templateRepo.ts`（`sameCi` / `isMeta` / `parseTemplateFileName` を使う）:
+- [ ] **Step 5: 実装する（GREEN）**
+
+`templateFiles.ts` に追加（`parseTemplateFileName` を import）:
 
 ```ts
-/** 会社・ファンド・版種のキー(大文字小文字を区別しない照合用)。 */
-const attrKey = (companyCode: string, fundCode: string, editionType: string): string =>
+/** 会社・ファンド・版種のキー(基準日を問わず、大文字小文字を区別しない照合用)。 */
+export const attrKey = (companyCode: string, fundCode: string, editionType: string): string =>
   `${companyCode}\u0000${fundCode}\u0000${editionType}`.toLowerCase();
 
-/** ファイル名一覧から、会社・ファンド・版種のキー集合を作る(基準日は問わない)。 */
-function keysOf(fileNames: string[]): Set<string> {
+/** ファイル名一覧から、会社・ファンド・版種のキー集合を作る(規約外の名前は捨てる)。 */
+export function templateAttrKeys(fileNames: string[]): Set<string> {
   const keys = new Set<string>();
   for (const f of fileNames) {
     const a = parseTemplateFileName(f);
@@ -382,118 +391,135 @@ function keysOf(fileNames: string[]): Set<string> {
   return keys;
 }
 
-/** templates/ に、同じ会社・ファンド・版種のテンプレートが 1 件以上あるか(系列のコピー元判定)。 */
+/** templates/ に同じ会社・ファンド・版種が 1 件以上あるか(シリーズから作成のコピー元判定)。 */
 export async function hasTemplateFor(
   companyCode: string,
   fundCode: string,
   editionType: string,
 ): Promise<boolean> {
-  return keysOf(await listTemplateFiles()).has(attrKey(companyCode, fundCode, editionType));
+  return templateAttrKeys(await listTemplateFiles()).has(attrKey(companyCode, fundCode, editionType));
 }
 ```
 
-`TemplateRepo` に `listCompanies(): Promise<CompanyOption[]>;` と `listCreatableFunds(companyCode: string, editionType: string): Promise<CreatableFund[]>;` を足し、実装:
+`templateRepo.ts`（import に `type CompanyOption`・`type FundOption`・`type CreatableInfo`、`attrKey`・`templateAttrKeys`・`listTemplateFiles`）。`TemplateRepo` に 3 メソッドを足し、`createTemplateRepo` の中で:
+
+```ts
+  async function listFunds(rep1CompanyCode: string): Promise<FundOption[]> {
+    const rows = await sproc.callSproc(SP.template, 'ファンド一覧', [
+      p('委託会社コード', rep1CompanyCode),
+    ]);
+    return rows.map((r) => ({ fundCode: asString(r.ファンドコード), fundName: asString(r.ファンド名) }));
+  }
+```
+
+を置き、返すオブジェクトに:
 
 ```ts
     async listCompanies() {
       const rows = await sproc.callSproc(SP.template, '委託会社一覧');
       return rows.map((r) => ({
-        companyCode: asString(r.委託会社コード),
+        companyCode: asString(r.委託会社略称),
         companyName: asString(r.委託会社名),
+        rep1CompanyCode: asString(r.委託会社コード),
       }));
     },
 
+    listFunds,
+
     /**
-     * 作成タブのファンド表。ファンドと名称は Rep1 の属性(sproc)、作成済みとコピー元の有無は
-     * ファイルから決める。作成済みは filled/・templates/・pending/ のどれか、コピー元は生成器が
-     * 読む templates/ だけを見る。
+     * 作成タブ Step 2 の素。作成済みは filled/・templates/・pending/ のどれか、コピー元の有無は
+     * 生成器が読む templates/ だけを見る。シリーズは Rep1 の会社コードで引き、名称はファンド一覧から付ける。
      */
-    async listCreatableFunds(companyCode, editionType) {
-      const fundRows = await sproc.callSproc(SP.template, 'ファンド一覧', [
-        p('委託会社コード', companyCode),
+    async getCreatableInfo({ companyCode, rep1CompanyCode, fundCode, editionType }) {
+      const templateKeys = templateAttrKeys(await listTemplateFiles());
+      const createdKeys = new Set([
+        ...templateKeys,
+        ...templateAttrKeys(await listFilledFiles()),
+        ...templateAttrKeys((await listPendingIds()).map((id) => `${id}.html`)),
       ]);
-      if (fundRows.length === 0) return [];
-      const seriesRows = await sproc.callSproc(SP.series, '一覧', [p('委託会社コード', companyCode)]);
+      const created = createdKeys.has(attrKey(companyCode, fundCode, editionType));
+      const seriesRows = await sproc.callSproc(SP.series, '一覧', [p('委託会社コード', rep1CompanyCode)]);
       const seriesOf = new Map(
         seriesRows.map((r) => [asString(r.ファンドコード), asStringOrNull(r.シリーズコード)]),
       );
-      const funds = fundRows.map((r) => ({
-        fundCode: asString(r.ファンドコード),
-        fundName: asString(r.ファンド名),
-      }));
-      const templateKeys = keysOf(await listTemplateFiles());
-      const createdKeys = new Set([
-        ...templateKeys,
-        ...keysOf(await listFilledFiles()),
-        ...keysOf((await listPendingIds()).map((id) => `${id}.html`)),
-      ]);
-      return funds.map((f) => {
-        const series = seriesOf.get(f.fundCode) ?? null;
-        const seriesFunds = series
-          ? funds
-              .filter((o) => o.fundCode !== f.fundCode && seriesOf.get(o.fundCode) === series)
-              .map((o) => ({
-                ...o,
-                hasTemplate: templateKeys.has(attrKey(companyCode, o.fundCode, editionType)),
-              }))
-          : [];
-        return {
-          ...f,
-          created: createdKeys.has(attrKey(companyCode, f.fundCode, editionType)),
-          seriesFunds,
-        };
-      });
+      const series = seriesOf.get(fundCode) ?? null;
+      if (!series) return { created, seriesFunds: [] };
+      const names = new Map((await listFunds(rep1CompanyCode)).map((f) => [f.fundCode, f.fundName]));
+      const seriesFunds = [...seriesOf.entries()]
+        .filter(([code, s]) => code !== fundCode && s === series)
+        .map(([code]) => ({
+          fundCode: code,
+          fundName: names.get(code) ?? '',
+          hasTemplate: templateKeys.has(attrKey(companyCode, code, editionType)),
+        }))
+        .sort((a, b) => a.fundCode.localeCompare(b.fundCode));
+      return { created, seriesFunds };
     },
 ```
 
-import に `type CompanyOption`・`type CreatableFund`・`parseTemplateFileName` を足す。テストを再実行して PASS を確かめる。
+PASS を確かめる。
 
-- [ ] **Step 6: ルートとテスト（RED → GREEN）**
+- [ ] **Step 6: ルート（RED → GREEN）**
 
-`editor/server/test/templates.routes.test.ts` に追加:
+`templates.routes.test.ts` に追加（認証ヘッダは既存の `as('editor')`）:
 
 ```ts
-  it('GET /templates/companies: 会社コードと会社名(未ログインは 401)', async () => {
+  it('GET /templates/companies: 略称と Rep1 コード付きの会社(未ログインは 401)', async () => {
     expect((await app.inject({ method: 'GET', url: '/templates/companies' })).statusCode).toBe(401);
     const res = await app.inject({ method: 'GET', url: '/templates/companies', headers: as('editor') });
     expect(res.statusCode).toBe(200);
-    expect(res.json()[0]).toMatchObject({ companyCode: 'AM01' });
+    expect(res.json()[0]).toMatchObject({ companyCode: 'AM01', rep1CompanyCode: 'R-AM01' });
   });
 
-  it('GET /templates/funds: companyCode と editionType が無ければ 400、あれば作成済み付きのファンド', async () => {
-    for (const url of ['/templates/funds?companyCode=AM01', `/templates/funds?editionType=${encodeURIComponent('交付版')}`]) {
+  it('GET /templates/funds: rep1CompanyCode が無ければ 400', async () => {
+    expect((await app.inject({ method: 'GET', url: '/templates/funds', headers: as('editor') })).statusCode).toBe(400);
+    const res = await app.inject({ method: 'GET', url: '/templates/funds?rep1CompanyCode=R-AM01', headers: as('editor') });
+    expect(res.json().map((f: { fundCode: string }) => f.fundCode)).toContain('510037');
+  });
+
+  it('GET /templates/creatable: 4 つのどれかが欠けたら 400、そろえば作成済みを返す', async () => {
+    const base = `companyCode=AM01&rep1CompanyCode=R-AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`;
+    for (const drop of ['companyCode', 'rep1CompanyCode', 'fundCode', 'editionType']) {
+      const url = `/templates/creatable?${base.split('&').filter((kv) => !kv.startsWith(`${drop}=`)).join('&')}`;
       expect((await app.inject({ method: 'GET', url, headers: as('editor') })).statusCode).toBe(400);
     }
-    const res = await app.inject({
-      method: 'GET',
-      url: `/templates/funds?companyCode=AM01&editionType=${encodeURIComponent('交付版')}`,
-      headers: as('editor'),
-    });
-    expect(res.statusCode).toBe(200);
-    const row = (res.json() as Array<{ fundCode: string; created: boolean }>).find((r) => r.fundCode === '510037');
-    expect(row?.created).toBe(true); // beforeAll が filled/ に置いた ID
+    const res = await app.inject({ method: 'GET', url: `/templates/creatable?${base}`, headers: as('editor') });
+    expect(res.json()).toMatchObject({ created: true }); // beforeAll が filled/ に置いた ID
   });
 ```
 
-RED を確かめてから、`templates.routes.ts` に追加（`templatesSeries` の前）:
+FAIL を確かめてから、`templates.routes.ts` に追加（既存の `validateQuery` があればそれに `FundsQuery` / `CreatableQuery` を渡す。無ければこのファイル内に `parseQuery` を置く）:
 
 ```ts
-  app.get(apiPaths.templatesCompanies, { preHandler: requireAuth }, async () =>
-    templates.listCompanies(),
-  );
+function parseQuery<T>(schema: z.ZodType<T>, q: unknown): T {
+  const r = schema.safeParse(q);
+  if (!r.success) throw validation('クエリが不正です');
+  return r.data;
+}
+```
+
+```ts
+  app.get(apiPaths.templatesCompanies, { preHandler: requireAuth }, async () => templates.listCompanies());
 
   app.get<QueryRec>(apiPaths.templatesFunds, { preHandler: requireAuth }, async (request) => {
-    const q = request.query;
-    const companyCode = typeof q.companyCode === 'string' ? q.companyCode : '';
-    const editionType = typeof q.editionType === 'string' ? q.editionType : '';
-    if (!companyCode || !editionType) throw validation('companyCode と editionType が必要です');
-    return templates.listCreatableFunds(companyCode, editionType);
+    const q = parseQuery(FundsQuery, request.query);
+    return templates.listFunds(assertTemplateAttributeToken('委託会社コード', q.rep1CompanyCode));
+  });
+
+  app.get<QueryRec>(apiPaths.templatesCreatable, { preHandler: requireAuth }, async (request) => {
+    const q = parseQuery(CreatableQuery, request.query);
+    return templates.getCreatableInfo({
+      companyCode: assertTemplateAttributeToken('会社コード', q.companyCode),
+      rep1CompanyCode: assertTemplateAttributeToken('委託会社コード', q.rep1CompanyCode),
+      fundCode: assertTemplateAttributeToken('ファンドコード', q.fundCode),
+      editionType: assertTemplateAttributeToken('版種', q.editionType),
+    });
   });
 ```
 
-`openapi/document.ts` の `/templates/series` の前に 2 パスを足す（`getDropdownOptions` と同じ書式。companies は `responses: { '200': json('委託会社の一覧', z.array(s.CompanyOption)), ...ERR_401 }`、funds は `requestParams: { query: s.CreatableFundsQuery }`、`'200': json('作成タブのファンド一覧', z.array(s.CreatableFund))`、`...ERR_400`（既存の 400 定数名に合わせる）、`...ERR_401`）。
+（`assertTemplateAttributeToken` が `R-AM01` の `-` を通すかを `isValidTemplateToken` で確かめる。通らなければ `rep1CompanyCode` の検査は長さと区切り文字（`/` `\` `_`）だけにし、その判断を台帳に Ruling で残す。）
 
-`pnpm exec tsc -b editor/shared` → `pnpm --filter server run openapi:gen` で `openapi.json` を再生成する。
+`openapi/document.ts` に 3 パスを、既存の `getDropdownOptions` と同じ書式で足す（`requestParams: { query: s.FundsQuery }` / `s.CreatableQuery`、`'200': json(…, z.array(s.CompanyOption))` / `z.array(s.FundOption)` / `s.CreatableInfo`、`...ERR_400`、`...ERR_401`）。`pnpm exec tsc -b editor/shared` → `pnpm --filter server run openapi:gen`。
 
 - [ ] **Step 7: 検証とコミット**
 
@@ -501,8 +527,8 @@ Run: `pnpm typecheck` → exit 0。`pnpm exec vitest run --project server` → �
 
 ```bash
 pnpm exec biome check --write editor/shared/src editor/server/src editor/server/test
-git add editor/server/db/sproc/template.sql editor/server/db/sproc/series.sql editor/server/db/dev/Rep1_検証用.sql editor/server/src/db/sprocNames.ts editor/server/test/fakes/sprocFake.ts editor/server/test/sprocFake.test.ts editor/shared/src/schemas.ts editor/shared/src/index.ts editor/shared/src/api-paths.ts editor/server/src/repositories/templateRepo.ts editor/server/src/routes/templates.routes.ts editor/server/src/openapi/document.ts editor/server/openapi/openapi.json editor/server/test/templateRepo.creatable.test.ts editor/server/test/templates.routes.test.ts
-git commit -m "feat(server): 作成タブ用に委託会社とファンド(Rep1 の属性)・シリーズの取得 API を追加する"
+git add editor/server/db/sproc/template.sql editor/server/db/sproc/series.sql editor/server/db/dev/Rep1_検証用.sql editor/server/src/db/sprocNames.ts editor/server/src/files/templateFiles.ts editor/server/test/fakes/sprocFake.ts editor/server/test/sprocFake.test.ts editor/shared/src/schemas.ts editor/shared/src/index.ts editor/shared/src/api-paths.ts editor/server/src/repositories/templateRepo.ts editor/server/src/routes/templates.routes.ts editor/server/src/openapi/document.ts editor/server/openapi/openapi.json editor/server/test/templateRepo.creatable.test.ts editor/server/test/templates.routes.test.ts
+git commit -m "feat(server): 作成タブ用に委託会社・ファンド(Rep1 の属性)と作成可否の取得 API を追加する"
 ```
 
 ---
@@ -512,107 +538,108 @@ git commit -m "feat(server): 作成タブ用に委託会社とファンド(Rep1 
 `basedOnTemplateId` はまだ消さない（web が使っているため。削除は Task 4）。
 
 **Files:**
-- Modify: `editor/shared/src/schemas.ts`（`GenerateRequest` に `sourceFundCode`、`CreateHistoryEntry` に `sourceFundCode`）
-- Modify: `editor/server/src/generate/pyTemplate.ts`（`GenerateAttributes` と `toGeneratorPayload`）
-- Modify: `editor/server/src/routes/generate.routes.ts`
-- Modify: `editor/server/src/repositories/historyRepo.ts`（`recordCreate` の引数）
+- Modify: `editor/shared/src/schemas.ts`（`GenerateRequest.sourceFundCode`、`CreateHistoryEntry.sourceFundCode`、`isRedemption` の説明）
+- Modify: `editor/server/src/generate/pyTemplate.ts`、`editor/server/src/routes/generate.routes.ts`、`editor/server/src/repositories/historyRepo.ts`
 - Modify: `editor/server/scripts/fake_generate_template.py`
 - Modify: `editor/server/test/pyTemplate.test.ts`、`editor/server/test/generate.routes.test.ts`、`editor/server/test/fakeGenerator.test.ts`
 - Regenerate: `editor/server/openapi/openapi.json`
 
 **Interfaces:**
-- Consumes: Task 1 の `hasTemplateFor(companyCode, fundCode, editionType)`
-- Produces: `GenerateRequest.sourceFundCode?: string`（コピー元のファンドコード）、`CreateHistoryEntry.sourceFundCode?: string`、`GenerateAttributes.sourceFundCode?` / `isRedemption?`、`recordCreate(attributes, source: { basedOnTemplateId?: string; sourceFundCode?: string }, loginId)`（Task 4 で `basedOnTemplateId` を外す）
+- Consumes: Task 1 の `hasTemplateFor`（`files/templateFiles.ts`）
+- Produces: `GenerateRequest.sourceFundCode?: string`、`CreateHistoryEntry.sourceFundCode?: string`、`GenerateAttributes.sourceFundCode?` / `isRedemption?`、`recordCreate(attributes, source: { basedOnTemplateId?: string; sourceFundCode?: string }, loginId)`
 
-- [ ] **Step 1: 失敗するテストを書く**
+- [ ] **Step 1: テストを書き換え・追加する（RED）**
 
-`editor/server/test/pyTemplate.test.ts` の `toGeneratorPayload`（または `generateTemplate` の引数 JSON を確かめている既存ケース）に倣って追加:
+`pyTemplate.test.ts`（生成器は `execFileMock`、属性は `attrs`、応答は `answerOk()`）:
+- 既存「属性 JSON は明示したキーだけで組み…」（`{ ...attrs, isRedemption: true, evil: '<x>' }` を渡して 4 キーを `toEqual`）は、渡す余計なキーを `evil` だけにする（`isRedemption` を外す。期待値は 4 キーのまま）。
+- 追加:
 
 ```ts
   it('sourceFundCode と isRedemption は指定したときだけ生成器の JSON に入る', async () => {
-    // 既存ケースと同じ方法で、生成器に渡った argv[1] の JSON を取り出す。
-    const withAll = await capturedPayload({
-      companyCode: 'AM01', fundCode: '510155', editionType: '交付版', baseDate: '20261003',
+    answerOk();
+    await generateTemplate({ ...attrs, sourceFundCode: '510037', isRedemption: true });
+    let args = execFileMock.mock.calls[0][1] as string[];
+    expect(JSON.parse(args[args.length - 1])).toEqual({
+      companyCode: 'C1', fundCode: 'F1', editionType: 'monthly', baseDate: '20261001',
       sourceFundCode: '510037', isRedemption: true,
     });
-    expect(withAll).toEqual({
-      companyCode: 'AM01', fundCode: '510155', editionType: '交付版', baseDate: '20261003',
-      sourceFundCode: '510037', isRedemption: true,
+    execFileMock.mockClear();
+    answerOk();
+    await generateTemplate({ ...attrs, isRedemption: false });
+    args = execFileMock.mock.calls[0][1] as string[];
+    const payload = JSON.parse(args[args.length - 1]);
+    expect(payload).not.toHaveProperty('sourceFundCode');
+    expect(payload).not.toHaveProperty('isRedemption');
+  });
+
+  it('規約外の sourceFundCode は生成器を呼ばずに拒否する(呼び出し元とは独立の防御)', async () => {
+    await expect(generateTemplate({ ...attrs, sourceFundCode: '../x' })).rejects.toMatchObject({
+      kind: 'validation',
     });
-    const plain = await capturedPayload({
-      companyCode: 'AM01', fundCode: '510155', editionType: '交付版', baseDate: '20261003',
-      isRedemption: false,
-    });
-    expect(plain).not.toHaveProperty('sourceFundCode');
-    expect(plain).not.toHaveProperty('isRedemption');
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 ```
 
-（`capturedPayload` は既存テストが argv を取り出している方法に合わせたヘルパ。無ければ `toGeneratorPayload` を export して直接検査する。）
-
-`editor/server/test/generate.routes.test.ts` に追加:
+`generate.routes.test.ts`（生成器は `generateMock`、呼び出しは `generate(body)`、本文の基本は `validBody`、`beforeEach` が `templatesDir` を毎回空にする）:
+- 既存「生成器へは検証済みの属性とサーバの基準日だけを渡す(本文の他のキーは渡らない)」は、本文から `isRedemption: true` を外し、残りの余計なキーで「渡らない」ことを確かめる形にする。
+- 追加:
 
 ```ts
   it('sourceFundCode のコピー元テンプレートが templates/ に無ければ生成器を呼ばずに 400', async () => {
-    const res = await app.inject({
-      method: 'POST', url: '/generate', headers: as('editor'),
-      payload: { companyCode: 'AM01', fundCode: '510155', editionType: '交付版', sourceFundCode: '999999' },
-    });
+    generateMock.mockClear();
+    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '999999' });
     expect(res.statusCode).toBe(400);
-    expect(generatorCalls).toHaveLength(0); // 既存テストの生成器スパイ名に合わせる
+    expect(generateMock).not.toHaveBeenCalled();
   });
 
-  it('sourceFundCode が規約外(パス区切りなど)なら 400', async () => {
-    const res = await app.inject({
-      method: 'POST', url: '/generate', headers: as('editor'),
-      payload: { companyCode: 'AM01', fundCode: '510155', editionType: '交付版', sourceFundCode: '../x' },
-    });
+  it('規約外の sourceFundCode は 400', async () => {
+    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '../x' });
     expect(res.statusCode).toBe(400);
   });
 
-  it('コピー元があれば sourceFundCode を生成器へ渡し、作成履歴に残す', async () => {
-    // templates/ に AM01_510037_20240710_交付版.html を置いてから呼ぶ(既存の beforeAll の置き方に合わせる)
-    const res = await app.inject({
-      method: 'POST', url: '/generate', headers: as('editor'),
-      payload: { companyCode: 'AM01', fundCode: '510155', editionType: '交付版', sourceFundCode: '510037' },
-    });
+  it('コピー元があれば sourceFundCode と isRedemption を生成器へ渡し、作成履歴に残す', async () => {
+    fs.writeFileSync(path.join(templatesDir, 'AM01_510037_20240710_交付版.html'), '<p>元</p>', 'utf8');
+    generateMock.mockClear();
+    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '510037', isRedemption: true });
     expect(res.statusCode).toBe(200);
-    expect(lastGeneratorPayload()).toMatchObject({ sourceFundCode: '510037' });
-    // 作成履歴に sourceFundCode が入ることは既存の作成履歴の検査方法で確かめる。
+    expect(generateMock.mock.calls[0][0]).toMatchObject({ sourceFundCode: '510037', isRedemption: true });
+    const lines = fs.readFileSync(path.join(root, 'logs', 'history', 'create.jsonl'), 'utf8').trim().split('\n');
+    expect(JSON.parse(lines[lines.length - 1])).toMatchObject({ sourceFundCode: '510037' });
+  });
+
+  it('isRedemption が false なら生成器へ渡さない', async () => {
+    generateMock.mockClear();
+    await generate({ ...validBody, isRedemption: false });
+    expect(generateMock.mock.calls[0][0]).not.toHaveProperty('isRedemption');
   });
 ```
 
-`editor/server/test/fakeGenerator.test.ts` に追加（既存の起動方法に合わせる）: `TEMPLATES_DIR` に `AM01_510037_20240101_交付版.html`（本文 `<p>old</p>`）と `AM01_510037_20250101_交付版.html`（`<p>new</p>`）を置き、`{ companyCode: 'AM01', fundCode: '510155', editionType: '交付版', sourceFundCode: '510037' }` で起動すると stdout が `<p>new</p>` になること。会社コードを `am01` で渡しても同じになること。
+（作成履歴のパスは、このファイル冒頭のコメント（`<LOG_DIR>/history/create.jsonl`）と `LOG_DIR` の設定に合わせる。）
 
-Run: `pnpm exec vitest run --project server editor/server/test/pyTemplate.test.ts editor/server/test/generate.routes.test.ts editor/server/test/fakeGenerator.test.ts` → FAIL。
+`fakeGenerator.test.ts`（既存の起動方法に合わせる）: `TEMPLATES_DIR` に `AM01_510037_20240101_交付版.html`（`<p>old</p>`）と `am01_510037_20250101_交付版.html`（`<p>new</p>`）を置き、`{ companyCode: 'AM01', fundCode: '510155', editionType: '交付版', baseDate: '20261003', sourceFundCode: '510037' }` で起動すると stdout が `<p>new</p>`（大文字小文字が混在しても基準日で最新を選ぶ）。コピー元が無ければ終了コード 2。`sourceFundCode` が `../x` なら終了コード 2。
+
+Run: `pnpm exec vitest run --project server editor/server/test/pyTemplate.test.ts editor/server/test/generate.routes.test.ts editor/server/test/fakeGenerator.test.ts` → 新ケースが FAIL。
 
 - [ ] **Step 2: 実装する**
 
-`schemas.ts` の `GenerateRequest` に:
+`schemas.ts`:
+- `GenerateRequest` に `sourceFundCode: z.string().optional().meta({ description: 'シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)' })`。`isRedemption` の説明を「償還ファンドとして作成(生成器へパラメータとして渡す)」に。
+- `CreateHistoryEntry` に `sourceFundCode: z.string().optional().meta({ description: 'シリーズから作成したときのコピー元ファンドコード' })`。
 
-```ts
-    sourceFundCode: z
-      .string()
-      .optional()
-      .meta({ description: '系列から作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)' }),
-```
-
-`isRedemption` の説明を「償還ファンドとして作成(生成器へパラメータとして渡す)」に直す。`CreateHistoryEntry`（265 行付近）に `sourceFundCode: z.string().optional().meta({ description: '系列から作成したときのコピー元ファンドコード' })` を足す。
-
-`pyTemplate.ts`: `GenerateAttributes` に `sourceFundCode?: string; isRedemption?: boolean;` を足し、`toGeneratorPayload` の返り値に:
+`pyTemplate.ts`: `GenerateAttributes` に `sourceFundCode?: string; isRedemption?: boolean;`。`generateTemplate` の先頭（`basedOnTemplateId` の検査と同じ場所）で `if (attrs.sourceFundCode) assertTemplateAttributeToken('コピー元ファンドコード', attrs.sourceFundCode);`。`toGeneratorPayload` に:
 
 ```ts
     ...(attrs.sourceFundCode ? { sourceFundCode: attrs.sourceFundCode } : {}),
     ...(attrs.isRedemption ? { isRedemption: true } : {}),
 ```
 
-`generate.routes.ts`: `basedOnTemplateId` の検査の後に:
+`generate.routes.ts`（`basedOnTemplateId` の検査の後）:
 
 ```ts
           const sourceFundCode = body.sourceFundCode
             ? assertTemplateAttributeToken('コピー元ファンドコード', body.sourceFundCode)
             : undefined;
-          // 画面は「コピー元テンプレートが無い候補」で作成を止めるが、API を直接呼ばれても同じ結果にする。
+          // 画面はコピー元テンプレートが無い候補で作成を止めるが、API を直接呼ばれても同じ結果にする。
           if (
             sourceFundCode &&
             !(await hasTemplateFor(attributes.companyCode, sourceFundCode, attributes.editionType))
@@ -621,9 +648,11 @@ Run: `pnpm exec vitest run --project server editor/server/test/pyTemplate.test.t
           }
 ```
 
-生成器の呼び出しに `...(sourceFundCode === undefined ? {} : { sourceFundCode })` と `isRedemption: body.isRedemption === true` を足し、`recordCreate(attributes, { basedOnTemplateId, sourceFundCode }, loginId)` にする。`historyRepo.ts` の `recordCreate` の第 2 引数を `source: { basedOnTemplateId?: string; sourceFundCode?: string }` にして、両方をエントリへ書く（`undefined` は書かない）。既存の呼び出し元とテストを合わせる。
+生成器の呼び出しの引数に `...(sourceFundCode === undefined ? {} : { sourceFundCode })` と `...(body.isRedemption === true ? { isRedemption: true } : {})` を足す。`recordCreate(attributes, { basedOnTemplateId, sourceFundCode }, loginId)`。
 
-`fake_generate_template.py`: `based_on` の処理の前に:
+`historyRepo.ts` の `recordCreate` の第 2 引数を `source: { basedOnTemplateId?: string; sourceFundCode?: string }` にし、`undefined` でない方だけエントリへ書く。
+
+`fake_generate_template.py`（`based_on` の処理の前。docstring の引数説明に `sourceFundCode?` / `isRedemption?` を足す）:
 
 ```python
     source_fund = attrs.get("sourceFundCode")
@@ -632,22 +661,26 @@ Run: `pnpm exec vitest run --project server editor/server/test/pyTemplate.test.t
         if not templates_dir:
             print("TEMPLATES_DIR is required when sourceFundCode is given", file=sys.stderr)
             return 2
-        # 会社・版種は作成先と同じ。基準日が最新のコピー元テンプレートを写す(大文字小文字は区別しない)。
-        prefix = f"{company}_{source_fund}_".lower()
-        suffix = f"_{edition}.html".lower()
-        candidates = sorted(
-            f for f in os.listdir(templates_dir)
-            if f.lower().startswith(prefix) and f.lower().endswith(suffix)
-        )
-        if not candidates:
+        if source_fund != os.path.basename(source_fund) or ".." in source_fund or "_" in source_fund:
+            print("invalid sourceFundCode", file=sys.stderr)
+            return 2
+        # 会社・版種は作成先と同じ。基準日(ファイル名の 3 番目のトークン)が最新のものを写す。
+        best = None
+        for name in os.listdir(templates_dir):
+            parts = name[: -len(".html")].split("_") if name.lower().endswith(".html") else []
+            if len(parts) != 4:
+                continue
+            c, f, d, e = parts
+            if c.lower() == company.lower() and f == source_fund and e == edition:
+                if best is None or d > best[0]:
+                    best = (d, name)
+        if best is None:
             print(f"source template not found: {source_fund}", file=sys.stderr)
             return 2
-        with open(os.path.join(templates_dir, candidates[-1]), encoding="utf-8") as f:
-            sys.stdout.write(f.read())
+        with open(os.path.join(templates_dir, best[1]), encoding="utf-8") as fh:
+            sys.stdout.write(fh.read())
             return 0
 ```
-
-（`os.listdir` が返すのは名前だけなので、ディレクトリの外へは出ない。docstring の引数説明に `sourceFundCode?` と `isRedemption?` を足す。）
 
 - [ ] **Step 3: 検証とコミット**
 
@@ -656,132 +689,155 @@ Run: `pnpm exec vitest run --project server editor/server/test/pyTemplate.test.t
 ```bash
 pnpm exec biome check --write editor/shared/src editor/server/src editor/server/test
 git add editor/shared/src/schemas.ts editor/server/src/generate/pyTemplate.ts editor/server/src/routes/generate.routes.ts editor/server/src/repositories/historyRepo.ts editor/server/scripts/fake_generate_template.py editor/server/test/pyTemplate.test.ts editor/server/test/generate.routes.test.ts editor/server/test/fakeGenerator.test.ts editor/server/openapi/openapi.json
-git commit -m "feat(server): 系列から作成のコピー元ファンドコードと償還を生成器へ渡す"
+git commit -m "feat(server): シリーズから作成のコピー元ファンドコードと償還を生成器へ渡す"
 ```
 
 ---
 
-### Task 3: web — 作成タブを「会社・版種で検索 → ファンドの表」へ作り直す
+### Task 3: web — 作成タブの候補を Rep1 起点へ差し替え、名称でも絞れるようにする
 
 **Files:**
-- Modify: `editor/shared/src/repositories/TemplateRepository.ts`（`listCompanies` / `listCreatableFunds` を追加）
+- Modify: `editor/shared/src/repositories/TemplateRepository.ts`（3 メソッドを追加）
 - Modify: `editor/web/src/api/rest/templateRepo.ts`、`editor/web/src/api/local/templateRepo.ts`
 - Modify: `editor/web/src/features/templates/services/templateCreationService.ts`
-- Create: `editor/web/src/features/templates/components/FundTable.vue`
-- Modify: `editor/web/src/features/templates/CreateTabView.vue`（全面）
-- Modify: `editor/web/src/features/templates/HistoryTabView.vue:81`（元の列）
-- Modify: `editor/web/test/restRepos.dom.test.ts`、`editor/web/test/localReposExtra.dom.test.ts`、`editor/web/test/templateCreationService.test.ts`、`editor/web/test/dropdownScope.guard.test.ts`（作成タブの行を外す）
-- Create: `editor/web/test/FundTable.dom.test.ts`
-- Modify: `editor/e2e/create.spec.ts`、`editor/e2e/capture_docs.spec.ts`（作成タブの撮影手順）
-- Modify: `vitest.config.ts`（カバレッジ include に `FundTable.vue` を足すかは、既存の `TemplateTable.vue` が入っているかに合わせる）
+- Create: `editor/web/src/components/ui/comboboxFilter.ts`
+- Modify: `editor/web/src/components/ui/Combobox.vue`
+- Create: `editor/web/src/features/templates/components/CreateFundSelect.vue`、`editor/web/src/features/templates/components/SeriesSourceTable.vue`
+- Modify: `editor/web/src/features/templates/CreateTabView.vue`
+- Modify: `editor/web/test/restRepos.dom.test.ts`、`editor/web/test/localReposExtra.dom.test.ts`、`editor/web/test/templateCreationService.test.ts`、`editor/web/test/dropdownScope.guard.test.ts`
+- Create: `editor/web/test/comboboxFilter.test.ts`、`editor/web/test/SeriesSourceTable.dom.test.ts`
+- Modify: `editor/e2e/create.spec.ts`、`editor/e2e/capture_docs.spec.ts`、`vitest.config.ts`（カバレッジ include に `comboboxFilter.ts`）
 
 **Interfaces:**
-- Consumes: Task 1 の `CompanyOption` / `CreatableFund` / `apiPaths.templatesCompanies` / `apiPaths.templatesFunds`、Task 2 の `GenerateRequest.sourceFundCode`
-- Produces: `TemplateRepository.listCompanies(): Promise<Result<CompanyOption[]>>`、`listCreatableFunds(companyCode: string, editionType: string): Promise<Result<CreatableFund[]>>`。`FundTable.vue`: props `rows: CreatableFund[]`、`disabled?: boolean`、emits `create: [CreatableFund]`、`createFromSeries: [CreatableFund, string]`（第 2 引数はコピー元ファンドコード）
+- Consumes: Task 1 の `CompanyOption` / `FundOption` / `SeriesFundOption` / `CreatableInfo` / `apiPaths.templatesCompanies|templatesFunds|templatesCreatable`、Task 2 の `GenerateRequest.sourceFundCode`
+- Produces:
+  - `TemplateRepository.listCompanies(): Promise<Result<CompanyOption[]>>`、`listFunds(rep1CompanyCode: string): Promise<Result<FundOption[]>>`、`getCreatableInfo(q: { companyCode: string; rep1CompanyCode: string; fundCode: string; editionType: string }): Promise<Result<CreatableInfo>>`
+  - `filterComboboxOptions(options: { label: string; value: string }[], query: string): { label: string; value: string }[]`
+  - `CreateFundSelect.vue`: emits `update: [{ companyCode?: string; rep1CompanyCode?: string; fundCode?: string; editionType?: string }]`
+  - `SeriesSourceTable.vue`: props `rows: SeriesFundOption[]`、`disabled?: boolean`、emits `create: [string]`（コピー元ファンドコード）
 
 - [ ] **Step 1: 失敗するテストを書く**
 
-`restRepos.dom.test.ts` に:
+`comboboxFilter.test.ts`:
 
 ```ts
-  it('作成タブの会社・ファンド一覧の URL', async () => {
-    const calls = stubFetch(() => json([]));
-    await restTemplateRepo.listCompanies();
-    expect(calls[0].url).toBe('/api/templates/companies');
-    await restTemplateRepo.listCreatableFunds('AM01', '交付版');
-    expect(calls[1].url).toBe(`/api/templates/funds?companyCode=AM01&editionType=${encodeURIComponent('交付版')}`);
+import { describe, expect, it } from 'vitest';
+import { filterComboboxOptions } from '@/components/ui/comboboxFilter';
+
+const opts = [
+  { label: '三井住友トラスト', value: 'AM01' },
+  { label: '510037 コア投資戦略ファンド（切替型）', value: '510037' },
+];
+
+describe('filterComboboxOptions', () => {
+  it('空の入力は全件', () => expect(filterComboboxOptions(opts, ' ')).toEqual(opts));
+  it('値(コード)の前方一致で絞る(大文字小文字を区別しない)', () =>
+    expect(filterComboboxOptions(opts, 'am0')).toEqual([opts[0]]));
+  it('表示名の部分一致でも絞る', () => {
+    expect(filterComboboxOptions(opts, 'トラスト')).toEqual([opts[0]]);
+    expect(filterComboboxOptions(opts, '切替')).toEqual([opts[1]]);
   });
+  it('どれにも当たらなければ空', () => expect(filterComboboxOptions(opts, 'zzz')).toEqual([]));
+});
 ```
 
-`localReposExtra.dom.test.ts` に:
-
-```ts
-  it('listCompanies / listCreatableFunds は fixtures の会社とファンドを返し、作成済みとシリーズを付ける', async () => {
-    const companies = await localTemplateRepo.listCompanies();
-    expect(isOk(companies) && companies.value[0]).toMatchObject({ companyCode: 'AM01' });
-    const funds = await localTemplateRepo.listCreatableFunds('AM01', '交付版');
-    if (!isOk(funds)) throw new Error('listCreatableFunds に失敗');
-    const f510037 = funds.value.find((f) => f.fundCode === '510037');
-    expect(f510037?.created).toBe(true); // fixtures に AM01_510037_…_交付版 がある
-    expect(f510037?.seriesFunds.map((s) => s.fundCode)).toEqual(['510003', '510155']);
-    expect(funds.value.find((f) => f.fundCode === '110024')?.seriesFunds).toEqual([]);
-  });
-
-  it('generate(sourceFundCode) はコピー元ファンドの最新テンプレートの HTML を写す', async () => {
-    await localAuthRepo.login({ username: 'admin', password: 'admin' });
-    const r = await localTemplateRepo.generate({
-      companyCode: 'AM01', fundCode: '510155', editionType: '全体版', sourceFundCode: '510037',
-    });
-    const base = await localTemplateRepo.getTemplate('AM01_510037_20240710_全体版');
-    if (!isOk(r) || !isOk(base)) throw new Error('generate か getTemplate に失敗');
-    expect(r.value.template.html).toBe(base.value.html);
-  });
-```
-
-`editor/web/test/FundTable.dom.test.ts`（既存の `*.dom.test.ts` の mount の仕方に合わせる）:
+`SeriesSourceTable.dom.test.ts`（`Button` はネイティブの `<button>` を描くので、`data-testid` は Button に付ける。mount の仕方は既存の `*.dom.test.ts` に合わせる）:
 
 ```ts
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
-import FundTable from '@/features/templates/components/FundTable.vue';
+import SeriesSourceTable from '@/features/templates/components/SeriesSourceTable.vue';
 
-const row = (over = {}) => ({
-  fundCode: '510155', fundName: '切替型ワイド', created: false,
-  seriesFunds: [
-    { fundCode: '510003', fundName: '安定型', hasTemplate: false },
-    { fundCode: '510037', fundName: '切替型', hasTemplate: true },
-  ],
-  ...over,
-});
+const rows = [
+  { fundCode: '510003', fundName: '安定型', hasTemplate: false },
+  { fundCode: '510037', fundName: '切替型', hasTemplate: true },
+];
 
-describe('FundTable', () => {
-  it('作成済みの行に「作成済み」を出す', () => {
-    const w = mount(FundTable, { props: { rows: [row({ created: true })] } });
-    expect(w.text()).toContain('作成済み');
-  });
-
-  it('コピー元テンプレートが無いファンドを選ぶと警告を出し、系列から作成を押せない', async () => {
-    const w = mount(FundTable, { props: { rows: [row()] } });
-    await w.get('[data-testid="series-source-510155"]').setValue('510003');
+describe('SeriesSourceTable', () => {
+  it('コピー元テンプレートが無い行は警告を出し、作成ボタンを押せない', () => {
+    const w = mount(SeriesSourceTable, { props: { rows } });
     expect(w.text()).toContain('コピー元のテンプレートがありません');
-    expect(w.get('[data-testid="series-create-510155"]').attributes('disabled')).toBeDefined();
-    await w.get('[data-testid="series-source-510155"]').setValue('510037');
-    expect(w.get('[data-testid="series-create-510155"]').attributes('disabled')).toBeUndefined();
-    await w.get('[data-testid="series-create-510155"]').trigger('click');
-    expect(w.emitted('createFromSeries')?.[0]?.[1]).toBe('510037');
+    expect(w.get('[data-testid="series-create-510003"]').attributes('disabled')).toBeDefined();
+    expect(w.get('[data-testid="series-create-510037"]').attributes('disabled')).toBeUndefined();
   });
 
-  it('シリーズに属さない行には系列から作成を出さない', () => {
-    const w = mount(FundTable, { props: { rows: [row({ seriesFunds: [] })] } });
-    expect(w.find('[data-testid="series-create-510155"]').exists()).toBe(false);
+  it('作成ボタンでコピー元のファンドコードを emit する', async () => {
+    const w = mount(SeriesSourceTable, { props: { rows } });
+    await w.get('[data-testid="series-create-510037"]').trigger('click');
+    expect(w.emitted('create')?.[0]).toEqual(['510037']);
+  });
+
+  it('disabled のときは全行の作成ボタンを押せない', () => {
+    const w = mount(SeriesSourceTable, { props: { rows, disabled: true } });
+    expect(w.get('[data-testid="series-create-510037"]').attributes('disabled')).toBeDefined();
   });
 });
 ```
 
-Run: `pnpm exec vitest run --project "web-*" editor/web/test/restRepos.dom.test.ts editor/web/test/localReposExtra.dom.test.ts editor/web/test/FundTable.dom.test.ts` → FAIL。
-
-- [ ] **Step 2: 契約と repo を実装する**
-
-`TemplateRepository.ts` に:
+`restRepos.dom.test.ts`:
 
 ```ts
-  /** 作成タブの委託会社(Rep1 の属性テーブル)。 */
-  listCompanies(): Promise<Result<CompanyOption[]>>;
-  /** 作成タブのファンド表。作成済みと、系列から作成のコピー元候補を含む。 */
-  listCreatableFunds(companyCode: string, editionType: string): Promise<Result<CreatableFund[]>>;
+  it('作成タブの 3 つの問い合わせの URL', async () => {
+    const calls = stubFetch(() => json([]));
+    await restTemplateRepo.listCompanies();
+    expect(calls[0].url).toBe('/api/templates/companies');
+    await restTemplateRepo.listFunds('R-AM01');
+    expect(calls[1].url).toBe('/api/templates/funds?rep1CompanyCode=R-AM01');
+    await restTemplateRepo.getCreatableInfo({ companyCode: 'AM01', rep1CompanyCode: 'R-AM01', fundCode: '510037', editionType: '交付版' });
+    expect(calls[2].url).toBe(
+      `/api/templates/creatable?companyCode=AM01&rep1CompanyCode=R-AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`,
+    );
+  });
 ```
+
+`localReposExtra.dom.test.ts`:
+
+```ts
+  it('listCompanies / listFunds / getCreatableInfo は fixtures から作る', async () => {
+    const companies = await localTemplateRepo.listCompanies();
+    expect(isOk(companies) && companies.value[0]).toMatchObject({ companyCode: 'AM01', rep1CompanyCode: 'AM01' });
+    const funds = await localTemplateRepo.listFunds('AM01');
+    expect(isOk(funds) && funds.value.map((f) => f.fundCode)).toContain('510037');
+    const info = await localTemplateRepo.getCreatableInfo({ companyCode: 'AM01', rep1CompanyCode: 'AM01', fundCode: '510037', editionType: '交付版' });
+    if (!isOk(info)) throw new Error('getCreatableInfo に失敗');
+    expect(info.value.created).toBe(true);
+    expect(info.value.seriesFunds.map((s) => s.fundCode)).toEqual(['510003', '510155']);
+  });
+
+  it('generate(sourceFundCode) はコピー元ファンドの最新テンプレートの HTML を写す', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const r = await localTemplateRepo.generate({ companyCode: 'AM01', fundCode: '510155', editionType: '全体版', sourceFundCode: '510037' });
+    const base = await localTemplateRepo.getTemplate('AM01_510037_20240710_全体版');
+    if (!isOk(r) || !isOk(base)) throw new Error('generate か getTemplate に失敗');
+    expect(r.value.template.html).toBe(base.value.html);
+  });
+
+  it('generate(sourceFundCode) はコピー元テンプレートが無ければ失敗する', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const r = await localTemplateRepo.generate({ companyCode: 'AM01', fundCode: '510155', editionType: '交付版', sourceFundCode: '999999' });
+    expect(isOk(r)).toBe(false);
+  });
+```
+
+`templateCreationService.test.ts`: `listCompanies` / `listFunds` / `getCreatableInfo` の 3 つとも repo へそのまま委譲することを 1 ケースずつ書く（このファイルはカバレッジ対象で、関数単位の閾値がある）。
+
+Run: `pnpm exec vitest run --project "web-*" editor/web/test/comboboxFilter.test.ts editor/web/test/SeriesSourceTable.dom.test.ts editor/web/test/restRepos.dom.test.ts editor/web/test/localReposExtra.dom.test.ts editor/web/test/templateCreationService.test.ts` → FAIL。
+
+- [ ] **Step 2: 契約・repo・サービス・絞り込みを実装する**
+
+`TemplateRepository.ts` に 3 メソッドを足す（説明コメント付き）。
 
 rest:
 
 ```ts
   listCompanies: () => attemptRest(() => apiFetch<CompanyOption[]>(apiPaths.templatesCompanies)),
-  listCreatableFunds: (companyCode: string, editionType: string) =>
-    attemptRest(() =>
-      apiFetch<CreatableFund[]>(apiPaths.templatesFunds, { query: { companyCode, editionType } }),
-    ),
+  listFunds: (rep1CompanyCode: string) =>
+    attemptRest(() => apiFetch<FundOption[]>(apiPaths.templatesFunds, { query: { rep1CompanyCode } })),
+  getCreatableInfo: (q) =>
+    attemptRest(() => apiFetch<CreatableInfo>(apiPaths.templatesCreatable, { query: { ...q } })),
 ```
 
-local（`fundMaster` は `store.ts` が読む `funds.json`。キーがファンドコード、値に `name` と `company.{code,name}`）:
+local（`fundMaster` は `store.ts` の `Record<string, FundMaster>`。`name` と `company.{code,name}`。local では Rep1 コードと略称を同じにする）:
 
 ```ts
   listCompanies: () =>
@@ -791,40 +847,40 @@ local（`fundMaster` は `store.ts` が読む `funds.json`。キーがファン�
       return delay(
         [...byCode.entries()]
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([companyCode, companyName]) => ({ companyCode, companyName })),
+          .map(([code, name]) => ({ companyCode: code, companyName: name, rep1CompanyCode: code })),
       );
     }),
 
-  listCreatableFunds: (companyCode: string, editionType: string) =>
+  listFunds: (rep1CompanyCode: string) =>
+    attempt(() =>
+      delay(
+        Object.entries(fundMaster)
+          .filter(([, f]) => f.company.code.toLowerCase() === rep1CompanyCode.toLowerCase())
+          .map(([fundCode, f]) => ({ fundCode, fundName: f.name }))
+          .sort((a, b) => a.fundCode.localeCompare(b.fundCode)),
+      ),
+    ),
+
+  getCreatableInfo: ({ companyCode, fundCode, editionType }) =>
     attempt(() => {
-      const funds = Object.entries(fundMaster)
-        .filter(([, f]) => f.company.code.toLowerCase() === companyCode.toLowerCase())
-        .map(([fundCode, f]) => ({ fundCode, fundName: f.name }))
-        .sort((a, b) => a.fundCode.localeCompare(b.fundCode));
-      const has = (fundCode: string) =>
+      const has = (code: string) =>
         allMetas().some(
           (m) =>
             m.attributes.companyCode.toLowerCase() === companyCode.toLowerCase() &&
-            m.attributes.fundCode === fundCode &&
+            m.attributes.fundCode === code &&
             m.attributes.editionType === editionType,
         );
-      return delay(
-        funds.map((f) => ({
-          ...f,
-          created: has(f.fundCode),
-          seriesFunds: SERIES_FUND_CODES.has(f.fundCode)
-            ? funds
-                .filter((o) => o.fundCode !== f.fundCode && SERIES_FUND_CODES.has(o.fundCode))
-                .map((o) => ({ ...o, hasTemplate: has(o.fundCode) }))
-            : [],
-        })),
-      );
+      const seriesFunds = SERIES_FUND_CODES.has(fundCode)
+        ? [...SERIES_FUND_CODES]
+            .filter((c) => c !== fundCode)
+            .sort()
+            .map((c) => ({ fundCode: c, fundName: fundMaster[c]?.name ?? '', hasTemplate: has(c) }))
+        : [];
+      return delay({ created: has(fundCode), seriesFunds });
     }),
 ```
 
-（`fundMaster` の実際の型と名前は `store.ts` を確認して合わせる。local の `hasTemplate` は「local で開けるテンプレがある」で代用する。）
-
-local の `generate` に、`basedOnTemplateId` の分岐の前に:
+local の `generate` の `basedOnTemplateId` の分岐の前に:
 
 ```ts
       if (req.sourceFundCode) {
@@ -844,172 +900,218 @@ local の `generate` に、`basedOnTemplateId` の分岐の前に:
       } else if (req.basedOnTemplateId) {
 ```
 
-作成履歴のエントリに `sourceFundCode: req.sourceFundCode` を（あるときだけ）入れる。
+作成履歴のエントリに `...(req.sourceFundCode ? { sourceFundCode: req.sourceFundCode } : {})` を入れる。
 
-`templateCreationService.ts`: `listCompanies` / `listCreatableFunds` を素通しで足す（`resolveFund` / `listSeriesFunds` は Task 4 で消すまで残す）。`templateCreationService.test.ts` に素通しの 1 ケースを足す。
+`templateCreationService.ts` に 3 メソッドを素通しで足す（`resolveFund` / `listSeriesFunds` は Task 4 まで残す）。
 
-- [ ] **Step 3: FundTable.vue を作る**
+`comboboxFilter.ts`:
 
-`TemplateTable.vue` と同じ表の部品（`Table` / `TableHeader` / `TableRow` / `TableCell` / `Badge` / `Button` / `Select`）とクラスを使う。列は「ファンドコード」「ファンド名」「状態」「操作」。
+```ts
+// =============================================================================
+// comboboxFilter.ts — Combobox の絞り込み(コードの前方一致 + 表示名の部分一致)
+// =============================================================================
+
+type Option = { label: string; value: string };
+
+/** 値(コード)の前方一致、または表示名の部分一致で絞る。大文字小文字は区別しない。空入力は全件。 */
+export function filterComboboxOptions(options: Option[], query: string): Option[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return options;
+  return options.filter(
+    (o) => o.value.toLowerCase().startsWith(q) || o.label.toLowerCase().includes(q),
+  );
+}
+```
+
+`Combobox.vue` の `filtered` を `filterComboboxOptions(normalized.value, search.value)` にし、6〜8 行目と 42 行目のコメントを「値の前方一致または表示名の部分一致」に直す。`vitest.config.ts` のカバレッジ include に `editor/web/src/components/ui/comboboxFilter.ts` を足す（テスト済みの新規ファイルは include に足す規約）。
+
+- [ ] **Step 3: SeriesSourceTable.vue を作る**
+
+`TemplateTable.vue` と同じ表の部品とクラスで、列は「ファンドコード」「ファンド名」「状態」「操作」。
 
 ```vue
 <script setup lang="ts">
 // =============================================================================
-// FundTable.vue — 作成タブのファンド表(作成済みの印・作成・系列から作成)
+// SeriesSourceTable.vue — シリーズから作成のコピー元候補(テンプレが無い行は作成できない)
 // =============================================================================
-import type { CreatableFund } from '@editor/shared';
-import { FilePlus2, Files, TriangleAlert } from '@lucide/vue';
-import { reactive } from 'vue';
-// 表の部品は TemplateTable.vue と同じものを import する。
+import type { SeriesFundOption } from '@editor/shared';
+import { FilePlus2, TriangleAlert } from '@lucide/vue';
+// Table / TableHeader / TableRow / TableHead / TableBody / TableCell / Button は TemplateTable.vue と同じ所から import する。
 
-const props = defineProps<{ rows: CreatableFund[]; disabled?: boolean }>();
-const emit = defineEmits<{ create: [CreatableFund]; createFromSeries: [CreatableFund, string] }>();
-
-/** 行ごとに選んだコピー元ファンドコード。 */
-const source = reactive<Record<string, string>>({});
-
-function selected(row: CreatableFund) {
-  return row.seriesFunds.find((s) => s.fundCode === source[row.fundCode]);
-}
-/** コピー元を選び、そのテンプレートがあるときだけ系列から作成を押せる。 */
-function canCreateFromSeries(row: CreatableFund): boolean {
-  return !props.disabled && selected(row)?.hasTemplate === true;
-}
+const props = defineProps<{ rows: SeriesFundOption[]; disabled?: boolean }>();
+const emit = defineEmits<{ create: [string] }>();
 </script>
 ```
 
-テンプレート部の要点（クラスは TemplateTable に合わせる）:
-- 状態セル: `row.created` なら `<Badge variant="secondary">作成済み</Badge>`、そうでなければ「—」。
-- 操作セル: `<Button variant="outline" :disabled="props.disabled" @click="emit('create', row)"><FilePlus2 /> 作成</Button>`。
-- `row.seriesFunds.length > 0` のとき、同じセルに
-  - コピー元の Select（`data-testid="series-source-<fundCode>"`、`v-model="source[row.fundCode]"`、選択肢は `` `${s.fundCode} ${s.fundName}` ``、テンプレの無いものはラベル末尾に「（テンプレートなし）」）
-  - `<Button data-testid="series-create-<fundCode>" :disabled="!canCreateFromSeries(row)" @click="emit('createFromSeries', row, source[row.fundCode])"><Files /> 系列から作成</Button>`
-  - 選んだコピー元の `hasTemplate` が false なら `<p class="text-xs text-destructive"><TriangleAlert /> コピー元のテンプレートがありません</p>`
-- 行が 0 件の表示は呼び出し側（CreateTabView）が持つ。
+テンプレート部の要点:
+- 状態セル: `row.hasTemplate` が false なら `<span class="inline-flex items-center gap-1 text-xs text-destructive"><TriangleAlert class="h-3.5 w-3.5" /> コピー元のテンプレートがありません</span>`、true なら「—」。
+- 操作セル: `` <Button :data-testid="`series-create-${row.fundCode}`" variant="outline" size="sm" :disabled="props.disabled || !row.hasTemplate" @click="emit('create', row.fundCode)"><FilePlus2 /> 作成</Button> ``。
 
-（Select が `setValue` で動かない部品なら、テストは部品の `update:modelValue` を emit させる形に合わせる。`data-testid` は残す。）
+- [ ] **Step 4: CreateFundSelect.vue を作る**
 
-- [ ] **Step 4: CreateTabView.vue を作り直す**
-
-構成（編集タブと同じ `FilterBar` / `FormField` / `Label` / `Combobox` / `Select` を使う）:
+`SearchFilters.vue` と同じ `FilterBar` / `FormField` / `Label` / `Combobox` / `Select` で、`bare` 指定（Step の中に埋め込む）・検索ボタン無し・クリアボタンあり。
 
 ```vue
 <script setup lang="ts">
 // =============================================================================
-// CreateTabView.vue — テンプレ作成タブ(委託会社・版種で検索 → ファンドの表から作成)
+// CreateFundSelect.vue — 作成タブ Step 1 の連動プルダウン(委託会社 → ファンド → 版種)
 // =============================================================================
-// 会社とファンドは Rep1 の属性テーブル(サーバの sproc 経由)から取る。会社はタブを開いたとき、
-// ファンドは検索したときに会社コードで一括取得する。版種は 1 つだけ選ぶ。
-import { type CompanyOption, type CreatableFund, type GenerateRequest, isErr } from '@editor/shared';
+// 候補は Rep1 のファンド属性(サーバの sproc 経由)から取る。会社は開いたとき、ファンドは会社を
+// 選んだときに一括取得する。会社の値はファイル名の会社コード(略称)で、ファンドを引くときだけ
+// Rep1 の会社コードを使う。
+import { type CompanyOption, type FundOption, isErr } from '@editor/shared';
 import { computed, onMounted, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
-// FilterBar / FormField / Label / Combobox / Select / Button / Checkbox / Search アイコン / toast は
-// SearchFilters.vue と同じ場所から import する。
-import { useAsyncResult } from '@/lib/useAsyncResult';
+// FilterBar / FormField / Label / Combobox / Select / Button / RotateCcw / toastError は SearchFilters.vue と同じ所から。
 import { useLatest } from '@/lib/useLatest';
 import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
-import FundTable from './components/FundTable.vue';
-import { editorRoute } from './editorRoute';
-import { useTemplateCreationService } from './services/templateCreationService';
+import { useTemplateCreationService } from '../services/templateCreationService';
 
-const EDITION_TYPES = ['交付版', '全体版'] as const;
+const EDITION_TYPES = ['交付版', '全体版'];
 
-const router = useRouter();
-const templates = useTemplateCreationService();
-const { loading: creating, run } = useAsyncResult();
-const query = reactive<{ companyCode?: string; editionType?: string }>({});
+const emit = defineEmits<{
+  update: [{ companyCode?: string; rep1CompanyCode?: string; fundCode?: string; editionType?: string }];
+}>();
+
+const service = useTemplateCreationService();
+const query = reactive<{ companyCode?: string; fundCode?: string; editionType?: string }>({});
 const companies = ref<CompanyOption[]>([]);
-const rows = ref<CreatableFund[]>([]);
-const searched = ref(false);
-const isRedemption = ref(false);
-const latest = useLatest();
+const funds = ref<FundOption[]>([]);
+const loading = ref(false);
+const latestFunds = useLatest();
 
+useUrlQuerySync(query, { keys: ['companyCode', 'fundCode', 'editionType'] });
+
+const rep1Of = (companyCode?: string) =>
+  companies.value.find((c) => c.companyCode === companyCode)?.rep1CompanyCode;
 const companyOptions = computed(() =>
   companies.value.map((c) => ({ label: c.companyName, value: c.companyCode })),
 );
-const canSearch = computed(() => !!query.companyCode && !!query.editionType);
+const fundOptions = computed(() =>
+  funds.value.map((f) => ({ label: `${f.fundCode} ${f.fundName}`, value: f.fundCode })),
+);
 
-const { hydrated } = useUrlQuerySync(query, { keys: ['companyCode', 'editionType'] });
+function notify() {
+  emit('update', { ...query, rep1CompanyCode: rep1Of(query.companyCode) });
+}
+
+async function loadFunds(keepFund: boolean) {
+  const rep1 = rep1Of(query.companyCode);
+  funds.value = [];
+  if (!keepFund) {
+    query.fundCode = undefined;
+    query.editionType = undefined;
+  }
+  if (!rep1) return notify();
+  const isLatest = latestFunds.begin();
+  loading.value = true;
+  const res = await service.listFunds(rep1);
+  loading.value = false;
+  if (!isLatest()) return;
+  if (isErr(res)) {
+    toastError(res.error.message);
+    return;
+  }
+  funds.value = res.value;
+  notify();
+}
 
 onMounted(async () => {
-  const res = await templates.listCompanies();
+  loading.value = true;
+  const res = await service.listCompanies();
+  loading.value = false;
   if (isErr(res)) {
     toastError(res.error.message);
     return;
   }
   companies.value = res.value;
-  if (hydrated && canSearch.value) search();
+  // URL から復元した選択は保ったままファンドを引く。
+  await loadFunds(true);
 });
 
-async function search() {
-  const { companyCode, editionType } = query;
-  if (!companyCode || !editionType) return;
-  const isLatest = latest.begin();
-  const res = await run(() => templates.listCreatableFunds(companyCode, editionType));
-  if (isErr(res) || !isLatest()) return;
-  rows.value = res.value;
-  searched.value = true;
+function onCompany() {
+  void loadFunds(false);
 }
-
-async function create(req: GenerateRequest, successMsg: string) {
-  const res = await run(() => templates.create(req));
-  if (isErr(res)) return;
-  toastSuccess(successMsg);
-  router.push(editorRoute(res.value.id, { created: true }));
+function onFund() {
+  query.editionType = undefined;
+  notify();
 }
-
-function createNew(f: CreatableFund) {
-  const { companyCode, editionType } = query;
-  if (!companyCode || !editionType || creating.value) return;
-  create(
-    { companyCode, fundCode: f.fundCode, editionType, isRedemption: isRedemption.value },
-    'テンプレートを作成しました',
-  );
-}
-
-function createFromSeries(f: CreatableFund, sourceFundCode: string) {
-  const { companyCode, editionType } = query;
-  if (!companyCode || !editionType || creating.value) return;
-  create(
-    { companyCode, fundCode: f.fundCode, editionType, sourceFundCode, isRedemption: isRedemption.value },
-    'シリーズを基にテンプレートを作成しました',
-  );
+function reset() {
+  query.companyCode = undefined;
+  query.fundCode = undefined;
+  query.editionType = undefined;
+  funds.value = [];
+  notify();
 }
 </script>
 ```
 
-テンプレート部:
-- 見出し「テンプレート作成」と説明「委託会社と版種を選んで検索し、作成するファンドの行で作成します。」
-- `FilterBar` の中に: 委託会社（`Combobox`、`:options="companyOptions"`、placeholder「委託会社を入力/選択」）、版種（`Select`、`:options="EDITION_TYPES"`、placeholder「版種を選択」）、償還（`Checkbox` と「償還ファンドとして作成する」）、検索ボタン（`:disabled="!canSearch"`）。会社や版種を変えたら `searched` を false に戻し、表を消す。
-- `searched` かつ `rows.length === 0` なら「この委託会社のファンドが見つかりませんでした。」の枠（既存の空表示と同じクラス）。
-- `rows.length > 0` なら `<FundTable :rows="rows" :disabled="creating" @create="createNew" @create-from-series="createFromSeries" />`。
+テンプレート部: 委託会社（`Combobox`、`:options="companyOptions"`、placeholder「委託会社を入力/選択」、`@update:model-value="onCompany"`）、ファンド（`Combobox`、`:options="fundOptions"`、placeholder「ファンドを入力/選択」、`:disabled="loading || !query.companyCode"`、`@update:model-value="onFund"`）、版種（`Select`、`:options="EDITION_TYPES"`、placeholder「版種を選択」、`:disabled="!query.fundCode"`、`@update:model-value="notify"`）、ラベルに必須の `*`、クリアボタン（`@click="reset"`）。
 
-`dropdownScope.guard.test.ts` から `CreateTabView.vue` の行を外す（作成タブは `SearchFilters` を使わなくなる）。`HistoryTabView.vue:81` の列は `{ header: '元', cellClass: MONO, value: (e) => e.sourceFundCode ?? e.basedOnTemplateId ?? '—' }` にする（Task 4 で `basedOnTemplateId` を外す）。
+- [ ] **Step 5: CreateTabView.vue を差し替える**
 
-- [ ] **Step 5: e2e と撮影を直す**
-
-`editor/e2e/create.spec.ts` の操作を新しい画面に合わせる:
+変える箇所だけ:
+- `SearchFilters` を `<CreateFundSelect @update="onUpdate" />` に置き換える（`dropdown-scope` などの属性は消す）。`liveQuery` の型に `rep1CompanyCode` を足す。
+- `resolveFund` の watch を `getCreatableInfo` に替える:
 
 ```ts
-  await page.getByText('テンプレート作成').first().waitFor();
-  await page.getByPlaceholder('委託会社を入力/選択').click();
-  await page.getByRole('option', { name: '三井住友トラスト・アセットマネジメント株式会社' }).click();
-  await page.getByRole('combobox').filter({ hasText: '版種を選択' }).click();
-  await page.getByRole('option', { name: '交付版', exact: true }).click();
-  await page.getByRole('button', { name: '検索' }).click();
-  await page.getByRole('row', { name: /510037/ }).getByRole('button', { name: '作成' }).click();
+const info = ref<CreatableInfo | null>(null);
+
+watch(
+  () => [liveQuery.companyCode, liveQuery.rep1CompanyCode, liveQuery.fundCode, liveQuery.editionType],
+  async () => {
+    method.value = null;
+    info.value = null;
+    const { companyCode, rep1CompanyCode, fundCode, editionType } = liveQuery;
+    if (!companyCode || !rep1CompanyCode || !fundCode || !editionType) return;
+    const isLatest = latestResolve.begin();
+    const res = await templates.getCreatableInfo({ companyCode, rep1CompanyCode, fundCode, editionType });
+    if (!isLatest()) return;
+    if (isErr(res)) {
+      toastError(res.error.message);
+      return;
+    }
+    info.value = res.value;
+  },
+);
+
+const isSeriesFund = computed(() => (info.value?.seriesFunds.length ?? 0) > 0);
 ```
 
-以降の検証（`/edit/AM01_510037_\d{8}_交付版?created=1` とハイライト）はそのまま。`capture_docs.spec.ts` の作成タブ（94〜98 行付近）は、会社と版種を選んで検索し、表が出た状態で `create-tab.png` を撮るように直す。
+- `isSeriesFund` の ref、`seriesRows` / `loadSeries` / `latestSeries` と、`method` が `series` のときの watch を消す。
+- Step 2 の先頭に、`info?.created` のときの注意（既存の注意枠と同じクラス。文言「この会社・ファンド・版種のテンプレートは作成済みです。作成すると新しい版ができます。」）。
+- series の候補表を `<SeriesSourceTable :rows="info?.seriesFunds ?? []" :disabled="creating" @create="createFromSeries" />` にし、案内文を「元にするファンドの「作成」を押すと、そのテンプレートを基にした編集画面に進みます。コピー元のテンプレートが無いファンドは選べません。」にする。
+- `createFromSeries(sourceFundCode: string)` は `{ companyCode, fundCode, editionType, sourceFundCode, isRedemption }` で作成する。
+- import から `SearchFilters`・`TemplateTable`・`TemplateMeta`（使わなくなれば）を外し、`CreateFundSelect`・`SeriesSourceTable`・`type CreatableInfo` を足す。
 
-- [ ] **Step 6: 検証とコミット**
+`dropdownScope.guard.test.ts` から `CreateTabView.vue` の行を外す。
+
+- [ ] **Step 6: e2e と撮影**
+
+`create.spec.ts` の Step 1 の操作を次にする（以降の検証はそのまま）:
+
+```ts
+  await page.getByPlaceholder('委託会社を入力/選択').click();
+  await page.getByRole('option', { name: '三井住友トラスト・アセットマネジメント株式会社' }).click();
+  await page.getByPlaceholder('ファンドを入力/選択').click();
+  await page.getByRole('option', { name: /^510037/ }).click();
+  await page.getByRole('combobox').filter({ hasText: '版種を選択' }).click();
+  await page.getByRole('option', { name: '交付版', exact: true }).click();
+  await page.getByRole('button', { name: '属性から新規作成' }).click();
+```
+
+（e2e の既定 project は rest + sprocFake。フェイクの略称は `AM01` なので、生成される ID は従来どおり `AM01_510037_<日付>_交付版`。Rep1 コード `R-AM01` とファイル名の `AM01` が違っても通ることがここで確かめられる。）
+
+`capture_docs.spec.ts` の作成タブ（95〜98 行付近）は `page.goto('/create?companyCode=AM01&fundCode=510037&editionType=' + encodeURIComponent('交付版'))` で開き、「属性から新規作成」ボタンが見えるまで待ってから `create-tab.png` を撮る。
+
+- [ ] **Step 7: 検証とコミット**
 
 Run: `pnpm typecheck` → exit 0。`pnpm run test:editor` → 全件 PASS。`pnpm exec playwright test -c editor/playwright.config.ts --project chromium editor/e2e/create.spec.ts` → PASS。
 
 ```bash
 pnpm exec biome check --write editor/shared/src editor/web/src editor/web/test editor/e2e
-git add editor/shared/src/repositories/TemplateRepository.ts editor/web/src/api/rest/templateRepo.ts editor/web/src/api/local/templateRepo.ts editor/web/src/features/templates/services/templateCreationService.ts editor/web/src/features/templates/components/FundTable.vue editor/web/src/features/templates/CreateTabView.vue editor/web/src/features/templates/HistoryTabView.vue editor/web/test/restRepos.dom.test.ts editor/web/test/localReposExtra.dom.test.ts editor/web/test/templateCreationService.test.ts editor/web/test/dropdownScope.guard.test.ts editor/web/test/FundTable.dom.test.ts editor/e2e/create.spec.ts editor/e2e/capture_docs.spec.ts
-git commit -m "feat(web): 作成タブを委託会社・版種で検索するファンドの表へ作り直す"
+git status --short   # docs/editor/images の再撮影差分は含めない
+git add editor/shared/src/repositories/TemplateRepository.ts editor/web/src/api/rest/templateRepo.ts editor/web/src/api/local/templateRepo.ts editor/web/src/features/templates/services/templateCreationService.ts editor/web/src/components/ui/comboboxFilter.ts editor/web/src/components/ui/Combobox.vue editor/web/src/features/templates/components/CreateFundSelect.vue editor/web/src/features/templates/components/SeriesSourceTable.vue editor/web/src/features/templates/CreateTabView.vue editor/web/test/restRepos.dom.test.ts editor/web/test/localReposExtra.dom.test.ts editor/web/test/templateCreationService.test.ts editor/web/test/dropdownScope.guard.test.ts editor/web/test/comboboxFilter.test.ts editor/web/test/SeriesSourceTable.dom.test.ts editor/e2e/create.spec.ts editor/e2e/capture_docs.spec.ts vitest.config.ts
+git commit -m "feat(web): 作成タブの候補を Rep1 起点にし、シリーズのコピー元を選べるようにする"
 ```
 
 ---
@@ -1017,41 +1119,39 @@ git commit -m "feat(web): 作成タブを委託会社・版種で検索するフ
 ### Task 4: 使われなくなった台帳・系列・候補の処理を削除する
 
 **Files:**
-- Modify: `editor/server/db/sproc/template.sql`（`候補`・`生成登録` を削除）
-- Modify: `editor/server/db/ddl/01_テーブル.sql`・`02_索引.sql`・`03_制約.sql`（台帳の節を削除）
-- Create: `editor/server/db/dev/台帳_削除.sql`（既存環境で手で流す DROP。`apply.ps1` の対象外）
-- Modify: `editor/server/test/fakes/sprocFake.ts`（`候補`・`生成登録`・`templates` マップと `DEFAULT_TEMPLATE_IDS` / `FakeSeed.templateIds` のうち台帳用のもの）、`editor/server/test/sprocFake.test.ts`
-- Modify: `editor/server/src/repositories/templateRepo.ts`（`registerGenerated`・`listSeriesFunds`・`queryParams`・`scope=create` の分岐）
-- Modify: `editor/server/src/routes/generate.routes.ts`（`registerGenerated` の呼び出し、`basedOnTemplateId`）
-- Modify: `editor/server/src/routes/templates.routes.ts`（series ルート、`toScope` の既定）
-- Modify: `editor/server/src/generate/pyTemplate.ts`、`editor/server/scripts/fake_generate_template.py`（`basedOnTemplateId`）
-- Modify: `editor/server/src/repositories/historyRepo.ts`（`recordCreate` の `basedOnTemplateId`）
-- Modify: `editor/server/src/openapi/document.ts`、`editor/shared/src/schemas.ts`（`DROPDOWN_SCOPES` から `create`、`GenerateRequest.basedOnTemplateId`）、`editor/shared/src/api-paths.ts`（`templatesSeries`）、`editor/shared/src/index.ts`（`FundResolution`）、`editor/shared/src/repositories/TemplateRepository.ts`（`resolveFund` / `listSeriesFunds`）
-- Modify: `editor/web/src/api/rest/templateRepo.ts`、`editor/web/src/api/local/templateRepo.ts`、`editor/web/src/features/templates/services/templateCreationService.ts`、`editor/web/src/features/templates/HistoryTabView.vue`
+- Modify: `editor/server/db/sproc/template.sql`（`候補`・`生成登録` を削除、先頭コメント）
+- Modify: `editor/server/db/ddl/01_テーブル.sql`・`02_索引.sql`・`03_制約.sql`（台帳の節を削除、節番号を詰める）
+- Create: `editor/server/db/dev/台帳_削除.sql`
+- Modify: `editor/server/test/fakes/sprocFake.ts`、`editor/server/test/sprocFake.test.ts`
+- Modify: `editor/server/src/repositories/templateRepo.ts`、`editor/server/src/routes/generate.routes.ts`、`editor/server/src/routes/templates.routes.ts`
+- Modify: `editor/server/src/generate/pyTemplate.ts`、`editor/server/scripts/fake_generate_template.py`、`editor/server/src/repositories/historyRepo.ts`
+- Modify: `editor/server/src/openapi/document.ts`、`editor/shared/src/schemas.ts`、`editor/shared/src/api-paths.ts`、`editor/shared/src/index.ts`、`editor/shared/src/repositories/TemplateRepository.ts`
+- Modify: `editor/web/src/api/rest/templateRepo.ts`、`editor/web/src/api/local/templateRepo.ts`、`editor/web/src/features/templates/services/templateCreationService.ts`、`editor/web/src/features/templates/HistoryTabView.vue`、`editor/web/src/features/templates/components/SearchFilters.vue`、`editor/web/src/api/local/fundRules.ts`（先頭コメントが台帳前提なら）
 - Delete: `editor/server/test/templateRepo.series.test.ts`
-- Modify: 関連テスト（`templateRepo.options*.test.ts`・`templates.routes.test.ts`・`generate.routes*.test.ts`・`pyTemplate.test.ts`・`fakeGenerator.test.ts`・`restRepos.dom.test.ts`・`localReposExtra.dom.test.ts`・`templateCreationService.test.ts`）
+- Modify: `editor/server/test/templateRepo.options.test.ts`、`templates.routes.test.ts`、`generate.routes.test.ts`、`generate.routes.local.test.ts`、`pyTemplate.test.ts`、`fakeGenerator.test.ts`、`editor/web/test/restRepos.dom.test.ts`、`localReposExtra.dom.test.ts`、`templateCreationService.test.ts`
 - Regenerate: `editor/server/openapi/openapi.json`
 
 **Interfaces:**
-- Consumes: Task 1〜3 の新しい API と画面（これらが動いていること）
+- Consumes: Task 1〜3 の新しい API と画面
 - Produces: `DROPDOWN_SCOPES = ['edit', 'published']`、`toScope` の既定 `edit`。`recordCreate(attributes, sourceFundCode: string | undefined, loginId)`。`CreateHistoryEntry.basedOnTemplateId` は既存の作成履歴ファイルを読むために optional で残す（書かない）。
 
 - [ ] **Step 1: 削除後の振る舞いを固定するテストを先に書き換える（RED）**
 
-- `templates.routes.test.ts`: 「`scope 省略は台帳 sproc の候補(create)`」を「`scope 省略は edit(filled/ から作る)`」に書き換え（期待値は `scope=edit` のケースと同じ）。`scope=create` が 400 になるケースを足す。`GET /templates/series` が 404 になるケースを足す。
-- `generate.routes.test.ts`: 生成で sproc の `生成登録` を呼ばないこと（フェイクへの呼び出しを記録している既存の方法で、`SP.template` が呼ばれないこと）。`basedOnTemplateId` を送っても無視される（スキーマから消えるので素通しされない）こと。
-- `sprocFake.test.ts`: `候補` と `生成登録` が「未知の @操作」で失敗するケースに書き換え、既存の `候補` / `生成登録` のケースを削除。
-- `fakeGenerator.test.ts`: `basedOnTemplateId` のケースを削除（`sourceFundCode` のケースで置き換わっている）。
-- `localReposExtra.dom.test.ts` / `restRepos.dom.test.ts` / `templateCreationService.test.ts`: `resolveFund` / `listSeriesFunds` / `basedOnTemplateId` のケースを削除。
+- `templates.routes.test.ts`: 「scope 省略は台帳 sproc の候補(create)」を「scope 省略は edit(filled/ から作る)」に書き換え（期待値は `scope=edit` のケースと同じ）。`scope=create` が 400 のケース、`GET /templates/series` が 404 のケースを足す。「クエリが配列…」のケースのコメントから台帳の記述を消す。
+- `templateRepo.options.test.ts`: 「create は台帳 sproc を呼ぶ」のケースを削除。
+- `generate.routes.test.ts`: 「台帳登録に失敗したら pending も残さない(孤児を作らない)」を削除し、代わりに「生成で `SP.template` を呼ばない」を足す（このファイルの sproc の QueryFn に `if (sql.includes(SP.template)) templateCalls += 1;` を足し、生成後に `templateCalls === 0`）。ファイル冒頭と途中の台帳前提のコメントを直す。`basedOnTemplateId` の 400 のケースは削除。
+- `generate.routes.local.test.ts`: 「台帳(sproc)も pending も触らない」を「sproc の `SP.template` を呼ばない、pending も触らない」と言い換える（`ledgerCalls` の名前を `templateCalls` へ）。
+- `sprocFake.test.ts`: `候補` と `生成登録` が「未知の @操作」で失敗するケースに書き換え、既存の `候補` / `生成登録` のケースを削除。ファイル先頭の操作数のコメントを直す。
+- `pyTemplate.test.ts` / `fakeGenerator.test.ts`: `basedOnTemplateId` のケースを削除。
+- web の 3 テスト: `resolveFund` / `listSeriesFunds` / `basedOnTemplateId` のケースを削除。
 
 Run: `pnpm exec vitest run --project server editor/server/test/templates.routes.test.ts editor/server/test/generate.routes.test.ts editor/server/test/sprocFake.test.ts` → 書き換えたケースが FAIL。
 
 - [ ] **Step 2: 削除する**
 
-上の Files の順に削除する。要点:
-- `template.sql` は `委託会社一覧` / `ファンド一覧` だけ残す。先頭コメントの分岐一覧と「台帳は…」の説明を直す。
-- DDL の台帳の節（`01` の「1. テンプレート台帳」、`02` の「テンプレート台帳」の索引 3 本、`03` の `CK_台帳_状態`）を削除し、後続の節番号を詰める。
-- `server/db/dev/台帳_削除.sql`:
+- `template.sql`: `委託会社一覧` / `ファンド一覧` だけ残し、先頭コメントの分岐一覧と「台帳は…」の説明を直す。
+- DDL: `01` の「1. テンプレート台帳」、`02` の「テンプレート台帳」の索引 3 本、`03` の `CK_台帳_状態` を削除し、節番号を詰める。`01` 冒頭の「本テーブル群は台帳・カタログ・認証等のメタのみ」を「カタログ・認証等のメタのみ」へ。
+- `server/db/dev/台帳_削除.sql`（UTF-8 BOM）:
 
 ```sql
 /* 既存環境で不要になったテンプレート台帳を消す(任意。editor は読まない)。
@@ -1061,19 +1161,21 @@ IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_テンプレート台帳]', N
 GO
 ```
 
-- `templateRepo.ts`: `getDropdownOptions` は `optionsFromMetas(await scanEditableMetas(scope === 'edit'), q)` だけにし、`queryParams` と未使用の import を消す。`registerGenerated` と `listSeriesFunds` を `TemplateRepo` から消す。
-- `generate.routes.ts`: `if (!(await pendingExists(id))) await templates.registerGenerated(attributes, id);` を消す（`pendingExists` が他で使われていなければ import も消す）。`basedOnTemplateId` の検査と受け渡しを消す。
-- `toScope`: 省略・空文字は `edit`。
-- `fake_generate_template.py`: `based_on` の分岐を消す。
-- web: `resolveFund` / `listSeriesFunds` / `seriesFetch` / `basedOnTemplateId` の分岐を消す。`HistoryTabView.vue` の列は `e.sourceFundCode ?? e.basedOnTemplateId ?? '—'` のまま（過去の履歴ファイルを表示するため）。
+- `templateRepo.ts`: `getDropdownOptions` は `optionsFromMetas(await scanEditableMetas(scope === 'edit'), q)` だけにし、`queryParams` と未使用 import を消す。`registerGenerated` と `listSeriesFunds` を `TemplateRepo` から消す。`listTemplates` の doc コメントの「`UQ_台帳_属性4`」の段落を、今の理由（生成直後にブラウザを閉じても一覧から辿れる）だけに直す。
+- `generate.routes.ts`: `registerGenerated` の呼び出しと `basedOnTemplateId` の検査・受け渡しを消す。`recordCreate(attributes, sourceFundCode, loginId)`。台帳前提のコメントを直す。
+- `templates.routes.ts`: series ルートを消す。`toScope` の省略・空文字は `edit`。先頭コメントを「一覧・候補はファイル走査、作成タブの会社・ファンドは Rep1(sproc)」へ。
+- `pyTemplate.ts` / `fake_generate_template.py` / `historyRepo.ts`: `basedOnTemplateId` を消す（`recordCreate` は `sourceFundCode` だけを書く）。
+- shared: `DROPDOWN_SCOPES = ['edit', 'published']`（コメントから create を消す）、`GenerateRequest.basedOnTemplateId` を削除、`templatesSeries` を削除、`FundResolution` を削除、`TemplateRepository` から `resolveFund` / `listSeriesFunds` を削除。`CreateHistoryEntry.basedOnTemplateId` は説明を「過去の履歴(シリーズの元テンプレ ID)。新しい履歴は sourceFundCode」にして残す。
+- web: `resolveFund` / `listSeriesFunds` / `seriesFetch` / `basedOnTemplateId` の分岐を消す。`HistoryTabView.vue:81` は値だけ `e.sourceFundCode ?? e.basedOnTemplateId ?? '—'` にする（列見出し「元テンプレート」は変えない）。`SearchFilters.vue` の `dropdownScope` の説明から create を消す。
 - `editor/server/test/templateRepo.series.test.ts` を削除する。
+- `sprocFake.ts`: `候補` / `生成登録` と台帳用のデータ（`templates` マップ、`DEFAULT_TEMPLATE_IDS`、`FakeSeed.templateIds`）を消す（`e2e-rest-server.ts` は `createFakeQuery()` を引数無しで呼ぶだけなので影響しない）。
 
 `pnpm exec tsc -b editor/shared` → `pnpm --filter server run openapi:gen`。
 
-- [ ] **Step 3: 残りを grep で確かめる**
+- [ ] **Step 3: 残りを確かめる**
 
-Run: `grep -rn "resolveFund\b\|listSeriesFunds\|templatesSeries\|registerGenerated\|生成登録\|'候補'\|FundResolution\|basedOnTemplateId" editor --include=*.ts --include=*.vue --include=*.py --include=*.sql | grep -v node_modules | grep -v /dist/`
-Expected: `CreateHistoryEntry` の optional な `basedOnTemplateId`（読み取り用）と `HistoryTabView.vue` の表示だけが残る。
+Run: `rg -n "resolveFund\b|listSeriesFunds|templatesSeries|registerGenerated|生成登録|'候補'|FundResolution|basedOnTemplateId|台帳|7 本|create = 台帳|省略時は .create" editor -g '!**/node_modules/**' -g '!**/dist/**'`
+Expected: `CreateHistoryEntry.basedOnTemplateId`（読み取り用）、`HistoryTabView.vue` の表示、`server/db/dev/台帳_削除.sql` 以外に残らない。残っていれば直す。
 
 - [ ] **Step 4: 検証とコミット**
 
@@ -1082,7 +1184,7 @@ Run: `pnpm typecheck` → exit 0。`pnpm run test:editor` → 全件 PASS。
 ```bash
 pnpm exec biome check --write editor/shared/src editor/server/src editor/server/test editor/web/src editor/web/test
 git add -A editor/server/db editor/server/src editor/server/test editor/server/scripts editor/server/openapi/openapi.json editor/shared/src editor/web/src editor/web/test
-git commit -m "refactor(editor): 使われなくなったテンプレート台帳・系列 API・作成タブの候補を削除する"
+git commit -m "refactor(editor): 使われなくなったテンプレート台帳・系列 API・作成タブの台帳候補を削除する"
 ```
 
 ---
@@ -1090,23 +1192,27 @@ git commit -m "refactor(editor): 使われなくなったテンプレート台�
 ### Task 5: 文書
 
 **Files:**
-- Modify: `docs/editor/src/設計正典.md`（DB の守備範囲「DB=台帳」、sproc 7 本 → 8 本、作成タブの候補の出所、Rep1 を sproc 経由で読むこと）
-- Modify: `.claude/rules/design-canon-summary.md`（`server/src/db/` — sproc ゲートウェイ 8 本）→ `pnpm run check:canon-summary -- --update`
-- Modify: `docs/editor/src/設計書.md`（2.1 節の DB の守備範囲、7 節の図、9.2 節の表、作成タブの説明、改訂履歴）
-- Modify: `docs/editor/src/Editor_仕様一覧.md`（作成タブの画面項目、API に companies / funds を追加し series を削除、`GenerateRequest.sourceFundCode`、DB テーブル表から台帳を削除、sproc 表の `template` を `委託会社一覧` / `ファンド一覧` に、`シリーズ` / `一覧` を追加、版と改訂履歴）
-- Modify: `docs/editor/src/デプロイ運用手順書.md`（4 章: `series.sql` の追加、Rep1 の SELECT 権限の付け方、台帳を消す任意の手順。3.3 節の手順 1 の小項目に sproc の流し直しと権限、改訂履歴）
-- Modify: `docs/editor/src/操作手順書.md`（作成タブの操作。作成済み・系列から作成・コピー元が無いときの警告）
-- Modify: `editor/server/db/README.md`（sproc の本数と usp_テンプレート / usp_シリーズの役割、dev/ の 2 ファイル）
-- Regenerate: `docs/editor/editor_設計.html`・`docs/editor/editor_手引き.html`（`py -3.13 docs/_build/build_all.py`。手引きの画像は Task 3 の撮影で更新される `create-tab.png` を含む）
+- Modify: `docs/editor/src/設計正典.md`（DB の守備範囲「DB=台帳」→「DB はパーツ・認証・監査・注記マスタと、ファンド属性（Rep1）の参照」、sproc 8 本、作成タブの候補の出所、Rep1 を sproc 経由で読むこと、会社コードは Rep1 の略称を使うこと）
+- Modify: `.claude/rules/design-canon-summary.md`（`server/src/db/` — sproc ゲートウェイ 8 本）→ `pnpm run check:canon-summary -- --update`（git 管理外。コミットには含めない）
+- Modify: `docs/editor/src/設計書.md`、`docs/editor/src/Editor_仕様一覧.md`、`docs/editor/src/デプロイ運用手順書.md`、`docs/editor/src/操作手順書.md`、`editor/server/db/README.md`
+- Regenerate: `docs/editor/editor_設計.html`・`docs/editor/editor_手引き.html`
 
-- [ ] **Step 1: 原稿を直す**（各ファイルの該当節を、上の内容に合わせて書き換える。権限の付け方は次の SQL を手順書に載せる）
+- [ ] **Step 0: 未コミットの撮影差分を片付ける**
 
-```sql
-USE [Rep1];
-CREATE USER [<ドメイン>\<editor の実行アカウント>] FOR LOGIN [<ドメイン>\<editor の実行アカウント>];
-GRANT SELECT ON [dbo].[Rep1_投委託会社] TO [<ドメイン>\<editor の実行アカウント>];
-GRANT SELECT ON [dbo].[Rep1_投信ファンド属性] TO [<ドメイン>\<editor の実行アカウント>];
+`git status --short docs/editor/images` に差分があれば、「再撮影」として先にコミットする（`docs(editor): 手引きのスクリーンショットを再撮影する`）。HTML は作業ツリーの画像を埋め込むので、これを先にしないと HTML と PNG が食い違う。
+
+- [ ] **Step 1: 原稿を直す**
+
+- 設計書: 2.1 節の DB の守備範囲、7 節の図、9.2 節の表、作成タブの説明、改訂履歴。
+- 仕様一覧: 作成タブの画面項目、API に companies / funds / creatable を追加し series を削除、`GenerateRequest.sourceFundCode`、DB テーブル表から台帳を削除、sproc 表を `template`（委託会社一覧 / ファンド一覧）と `シリーズ`（一覧）に、版と改訂履歴。
+- 手順書: 4 章に `series.sql` の追加、仮のテーブル名・列名を合わせる箇所、Rep1 が読めることの確かめ方、台帳を消す任意の手順、汎用の DB エラーが出たら Rep1 の SELECT 権限を疑うこと。3.3 節の手順 1 の小項目に sproc の流し直し。改訂履歴。確かめ方:
+
 ```
+sqlcmd -S <DBサーバ> -d usrap -E -f 65001 -Q "EXEC [ug01].[Rep1_運報自動化_Editor_usp_テンプレート] @操作=N'委託会社一覧'"
+```
+
+- 操作手順書: 作成タブ（会社名で選べること・名称の一部で絞れること・作成済みの注意・シリーズから作成・コピー元が無いときの警告）。
+- `editor/server/db/README.md`: sproc の本数、usp_テンプレート / usp_シリーズの役割、dev/ の 2 ファイル。
 
 - [ ] **Step 2: 生成と検査**
 
@@ -1115,58 +1221,58 @@ Run: `py -3.13 docs/_build/build_all.py` → exit 0。`pnpm run test:docs` → P
 - [ ] **Step 3: コミット**
 
 ```bash
-git add docs/editor/src .claude/rules/design-canon-summary.md editor/server/db/README.md docs/editor/editor_設計.html docs/editor/editor_手引き.html docs/editor/images/create-tab.png
-git commit -m "docs(editor): 作成タブのファンド属性テーブル起点化と台帳の削除を文書へ反映する"
+git add docs/editor/src editor/server/db/README.md docs/editor/editor_設計.html docs/editor/editor_手引き.html docs/editor/images/create-tab.png
+git commit -m "docs(editor): 作成タブの候補の Rep1 起点化と台帳の削除を文書へ反映する"
 ```
-
-（`.claude/` は git 管理外。`git add` で弾かれたら外してよい。要約ファイルの更新はディスク上で行う。）
 
 ---
 
 ### Task 6: LocalDB での実 DB 検証と差分パッチ
 
-**Files:**
-- なし（検証と配布物の作成。リポジトリの変更が出たら別コミット）
+- [ ] **Step 1: 3 部名を含む sproc が Rep1 の無い DB でも作れるかを先に確かめる**
 
-- [ ] **Step 1: LocalDB に検証用 Rep1 と sproc を入れる**
+LocalDB に `Rep1` が無い状態で `sqlcmd -S "(localdb)\MSSQLLocalDB" -d usrap -E -b -f 65001 -i editor/server/db/sproc/series.sql` を流し、作成できるか（遅延名前解決で通るか）を記録する。通らなければ手順書とパッチの README に「Rep1 のある環境で流す」を明記する。
+
+- [ ] **Step 2: 検証用 Rep1 と sproc を入れ、実 sproc を確かめる**
 
 ```bash
 sqlcmd -S "(localdb)\MSSQLLocalDB" -E -b -f 65001 -i editor/server/db/dev/Rep1_検証用.sql
 sqlcmd -S "(localdb)\MSSQLLocalDB" -d usrap -E -b -f 65001 -i editor/server/db/sproc/template.sql
 sqlcmd -S "(localdb)\MSSQLLocalDB" -d usrap -E -b -f 65001 -i editor/server/db/sproc/series.sql
-```
-
-- [ ] **Step 2: 実 sproc を確かめる**
-
-```bash
 sqlcmd -S "(localdb)\MSSQLLocalDB" -d usrap -E -f 65001 -Q "EXEC [ug01].[Rep1_運報自動化_Editor_usp_テンプレート] @操作=N'委託会社一覧'"
-sqlcmd -S "(localdb)\MSSQLLocalDB" -d usrap -E -f 65001 -Q "EXEC [ug01].[Rep1_運報自動化_Editor_usp_テンプレート] @操作=N'ファンド一覧', @委託会社コード=N'AM01'"
-sqlcmd -S "(localdb)\MSSQLLocalDB" -d usrap -E -f 65001 -Q "EXEC [ug01].[Rep1_運報自動化_Editor_usp_シリーズ] @操作=N'一覧', @委託会社コード=N'AM01'"
+sqlcmd -S "(localdb)\MSSQLLocalDB" -d usrap -E -f 65001 -Q "EXEC [ug01].[Rep1_運報自動化_Editor_usp_テンプレート] @操作=N'ファンド一覧', @委託会社コード=N'0001'"
+sqlcmd -S "(localdb)\MSSQLLocalDB" -d usrap -E -f 65001 -Q "EXEC [ug01].[Rep1_運報自動化_Editor_usp_シリーズ] @操作=N'一覧', @委託会社コード=N'0001'"
 ```
 
-Expected: 会社 2 件、AM01 のファンド 5 件、シリーズは 510003 / 510037 / 510155 が `CORE`、他は NULL。
+Expected: 会社 2 件（`0001` / `AM01` の組、末尾空白なし）、`0001` のファンド 5 件、シリーズは 510003 / 510037 / 510155 が `CORE`、他は NULL。
 
-- [ ] **Step 3: rest モードで画面を確かめる**
+（この端末の LocalDB はログイン中の Windows ユーザーが sysadmin なので、DB をまたぐ権限の問題は再現しない。本番は「既に読める」前提で、手順書に確かめ方を載せている。）
 
-rest モード（`start.bat dev`、LocalDB の検証ユーザーでログイン）で作成タブを開き、会社名が出ること、AM01 と交付版で検索した表に作成済みの印が出ること、510155 の「系列から作成」で 510003（テンプレなし）を選ぶと警告が出て押せないことを確かめる。確認後はサーバを止める。
+- [ ] **Step 3: rest モードで画面を確かめる（実データに書き込まない）**
+
+`DATA_ROOT` を一時フォルダ（`init-data-repo.bat -DataRoot <一時フォルダ>` で初期化）へ向けた新しいコマンドプロンプトで `start.bat dev` を起動し、LocalDB の検証ユーザーでログインして作成タブを開く。会社名で選べること（名称の一部入力で絞れること）、AM01 / 510155 / 交付版でシリーズの候補に 510003（テンプレなし、警告・押せない）と 510037 が出ることを確かめる。確認後はサーバを止める。
 
 - [ ] **Step 4: 差分パッチを作り、検証し、Release に上げる**
 
-`--note` の内容:
+`local-only/make-source-patch/templates/README.txt` の `@@NOTE@@` の位置を、手順 4（適用）と 5（start.bat の起動）の間へ動かす（DB の作業は起動の前に要るため。local-only の雛形の変更として台帳に記録する）。
+
+`--note`:
 
 ```
-6. DB へ反映する(sqlcmd。<DBサーバ> は DB_SERVER の値):
+※ 次の a〜c を、手順 5 で start.bat を起動する前に済ませる。
+a. sproc 2 本(editor\server\db\sproc\template.sql の 委託会社一覧/ファンド一覧、series.sql の 一覧)の
+   仮のテーブル名・列名を実際の名前に合わせる(返す列名 AS … は変えない)。
+b. DB へ流す(<DBサーバ> は DB_SERVER の値):
      sqlcmd -S <DBサーバ> -d usrap -E -b -f 65001 -i editor\server\db\sproc\template.sql
      sqlcmd -S <DBサーバ> -d usrap -E -b -f 65001 -i editor\server\db\sproc\series.sql
-7. editor を動かすアカウントに Rep1 の 2 テーブルの SELECT 権限を付ける(DBA に依頼。SQL は手順書 4 章)。
-8. sproc 2 本(template.sql の 委託会社一覧/ファンド一覧、series.sql の 一覧)のテーブル名・列名は仮。
-   実際の名前に合わせて FROM と AS を直してから 6 を流す。
-9. 任意: 使わなくなったテンプレート台帳を消す
+c. 確かめる(会社と略称が返ること):
+     sqlcmd -S <DBサーバ> -d usrap -E -f 65001 -Q "EXEC [ug01].[Rep1_運報自動化_Editor_usp_テンプレート] @操作=N'委託会社一覧'"
+任意: 使わなくなったテンプレート台帳を消す
      sqlcmd -S <DBサーバ> -d usrap -E -b -f 65001 -i editor\server\db\dev\台帳_削除.sql
 ```
 
 ```bash
-py -3.13 local-only/make-source-patch/make_source_patch.py --base e82a5c27677376f4db8ba55de12c7e855c60e9e9 --target HEAD --out <scratchpad> --note <note.txt>
+py -3.13 local-only/make-source-patch/make_source_patch.py --base e82a5c27677376f4db8ba55de12c7e855c60e9e9 --target HEAD --out C:/Users/caads/AppData/Local/Temp/claude/C--Users-caads-workspace/a38df4cf-1686-40cd-aa9e-67b1bf36ec57/scratchpad/patch-out --note <note.txt>
 ```
 
 検証: `e82a5c2` の `git archive` を展開し、別環境と同じ MANIFEST（`git -c core.quotepath=false ls-tree -r --name-only e82a5c2`）と SOURCE-COMMIT（`e82a5c2 のフル SHA` ＋ 空白 ＋ `git show -s --format=%cI e82a5c2`、末尾改行なし）を置いた所へ `--dry-run` → 適用し、`HEAD` の `git archive` ＋ 生成した MANIFEST / SOURCE-COMMIT と `diff -rq` で一致すること。2 回目は「適用済み」、別の SOURCE-COMMIT では中止すること。
