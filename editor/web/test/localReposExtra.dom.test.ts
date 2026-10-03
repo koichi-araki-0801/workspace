@@ -276,6 +276,41 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     expect(r.value.template.html).toBe(base.value.html);
   });
 
+  it('getCreatableInfo はシリーズに属さないファンドではコピー元の候補を返さない', async () => {
+    const info = await localTemplateRepo.getCreatableInfo({
+      companyCode: 'AM01',
+      rep1CompanyCode: 'AM01',
+      fundCode: '999999',
+      editionType: '交付版',
+    });
+    if (!isOk(info)) throw new Error('getCreatableInfo に失敗');
+    expect(info.value).toEqual({ created: false, seriesFunds: [] });
+  });
+
+  it('generate(sourceFundCode) はコピー元に複数の版があれば基準日の新しい方を写す', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    // 今日の基準日で 510037 全体版を作り、fixtures(20240710)より新しい版を足す。償還として作り、
+    // fixtures の版と本文が違うようにする(どちらを写したかを見分けるため)。
+    const newer = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510037',
+      editionType: '全体版',
+      isRedemption: true,
+    });
+    if (!isOk(newer)) throw new Error('generate に失敗');
+    const r = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '全体版',
+      sourceFundCode: '510037',
+    });
+    if (!isOk(r)) throw new Error('generate に失敗');
+    const old = await localTemplateRepo.getTemplate('AM01_510037_20240710_全体版');
+    if (!isOk(old)) throw new Error('getTemplate に失敗');
+    expect(newer.value.template.html).not.toBe(old.value.html);
+    expect(r.value.template.html).toBe(newer.value.template.html);
+  });
+
   it('generate(sourceFundCode) はコピー元テンプレートが無ければ失敗する', async () => {
     await localAuthRepo.login({ username: 'admin', password: 'admin' });
     const r = await localTemplateRepo.generate({
