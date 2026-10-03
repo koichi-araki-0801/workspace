@@ -41,7 +41,7 @@ BEGIN
       WHERE [委託会社コード] = @委託会社コード
       ORDER BY [ファンドコード];
     RETURN;
-  END
+  END;
 
   THROW 50000, N'未知の @操作 です(テンプレート)', 1;
 END
