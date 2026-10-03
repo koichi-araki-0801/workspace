@@ -70,13 +70,18 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
     expect(await repo.listFunds('R-ZZ99')).toEqual([]);
   });
 
-  it('作成済みは filled/・templates/・pending/ のどれかにあれば立つ(大文字小文字を区別しない)', async () => {
+  it('作成済みは templates/ にあるときだけ立つ(基準日は問わない。filled/・pending/ は見ない)', async () => {
     const created = async (f: string) => (await repo.getCreatableInfo(q(f))).created;
-    expect(await created('110024')).toBe(true); // filled/(小文字)
     expect(await created('510037')).toBe(true); // templates/
-    expect(await created('510124')).toBe(true); // pending/
-    expect(await created('510003')).toBe(false); // 全体版だけ
+    expect(await created('110024')).toBe(false); // filled/ にしか無い
+    expect(await created('510124')).toBe(false); // pending/ にしか無い
+    expect(await created('510003')).toBe(false); // templates/ は全体版だけ
     expect(await created('510155')).toBe(false);
+  });
+
+  it('作成済みの照合は会社コードの大文字小文字を区別しない', async () => {
+    const info = await repo.getCreatableInfo({ ...q('510037'), companyCode: 'am01' });
+    expect(info.created).toBe(true);
   });
 
   it('シリーズの他ファンドをコピー元候補にし、自分は含めず、テンプレの有無を付ける', async () => {

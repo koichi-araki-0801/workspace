@@ -165,7 +165,7 @@ function createFromSeries(sourceFundCode: string) {
           v-if="canCreate && info?.created"
           class="mb-3 rounded-[11px] border border-warning/40 bg-warning/10 px-4 py-2.5 text-[12.5px] text-foreground"
         >
-          この会社・ファンド・版種のテンプレートは作成済みです。作成すると新しい版ができます。
+          この会社・ファンド・版種のテンプレートは作成済みです。
         </p>
         <label
           v-if="canCreate"

@@ -688,7 +688,7 @@ export const CreatableInfo = z
   .object({
     created: z.boolean().meta({
       description:
-        '選んだ会社・ファンド・版種のテンプレートが filled/・templates/・pending/ のどこかにあるか',
+        '選んだ会社・ファンド・版種のテンプレートが templates/ にあるか(基準日は問わない)',
     }),
     seriesFunds: z
       .array(SeriesFundOption)

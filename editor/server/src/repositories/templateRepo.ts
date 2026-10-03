@@ -168,17 +168,14 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     listFunds,
 
     /**
-     * 作成タブ Step 2 の素。作成済みは filled/・templates/・pending/ のどれか、コピー元の有無は
-     * 生成器が読む templates/ だけを見る。シリーズは Rep1 の会社コードで引き、名称はファンド一覧から付ける。
+     * 作成タブ Step 2 の素。作成済みもコピー元の有無も templates/(テンプレートフォルダ)だけを見る。
+     * シリーズは Rep1 の会社コードで引き、名称はファンド一覧から付ける。
      */
     async getCreatableInfo({ companyCode, rep1CompanyCode, fundCode, editionType }) {
+      // テンプレートは基準日で使い回さないので基準日は問わず、テンプレートフォルダ(templates/)に
+      // あるかだけを見る。値入り HTML(filled/)や生成直後(pending/)は作成済みに数えない。
       const templateKeys = templateAttrKeys(await listTemplateFiles());
-      const createdKeys = new Set([
-        ...templateKeys,
-        ...templateAttrKeys(await listFilledFiles()),
-        ...templateAttrKeys((await listPendingIds()).map((id) => `${id}.html`)),
-      ]);
-      const created = createdKeys.has(attrKey(companyCode, fundCode, editionType));
+      const created = templateKeys.has(attrKey(companyCode, fundCode, editionType));
       const seriesRows = await sproc.callSproc(SP.series, '一覧', [
         p('委託会社コード', rep1CompanyCode),
       ]);

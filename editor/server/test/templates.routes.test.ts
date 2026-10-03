@@ -170,13 +170,25 @@ describe('templates.routes', () => {
       });
       expect(res.statusCode).toBe(400);
     }
+    // 作成済みは templates/ にあるときだけ。filled/ にしか無い間は false。
+    const before = await app.inject({
+      method: 'GET',
+      url: `/templates/creatable?${base}`,
+      headers: as('editor'),
+    });
+    expect(before.statusCode).toBe(200);
+    expect(before.json()).toMatchObject({ created: false });
+    fs.writeFileSync(
+      path.join(root, 'data', 'templates', 'AM01_510037_20200101_交付版.html'),
+      '<p>{{ a }}</p>',
+      'utf8',
+    );
     const res = await app.inject({
       method: 'GET',
       url: `/templates/creatable?${base}`,
       headers: as('editor'),
     });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ created: true }); // beforeAll が filled/ に置いた ID
+    expect(res.json()).toMatchObject({ created: true }); // 基準日は問わない
   });
 
   it('GET /templates/creatable: ファイル名のトークンとして不正な会社コードは 400', async () => {
