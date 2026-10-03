@@ -2803,6 +2803,10 @@
           "isRedemption": {
             "description": "償還ファンドとして作成(生成器へパラメータとして渡す)",
             "type": "boolean"
+          },
+          "replaceExisting": {
+            "description": "同じ id の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409",
+            "type": "boolean"
           }
         },
         "required": [
@@ -3385,7 +3389,15 @@
         "properties": {
           "created": {
             "type": "boolean",
-            "description": "選んだ会社・ファンド・版種のテンプレートが templates/ にあるか(基準日は問わない)"
+            "description": "選んだ会社・ファンド・版種のテンプレートが templates/ にあるか(会社_ファンド_版種.html。大文字小文字は区別しない)"
+          },
+          "templateId": {
+            "description": "作成済みのときのテンプレートの id(templates/ のファイルの綴りのまま)。作成タブの「既存のテンプレートを開く」で開く",
+            "type": "string"
+          },
+          "inProgressId": {
+            "description": "作成済みでなく、同じ id の下書きか pending/ があるときの id。作成タブの「作成中のテンプレートを開く」で開く。作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける",
+            "type": "string"
           },
           "seriesFunds": {
             "type": "array",
@@ -3412,7 +3424,7 @@
           },
           "hasTemplate": {
             "type": "boolean",
-            "description": "コピー元のテンプレートが templates/ に同じ会社・版種で 1 件以上あるか"
+            "description": "コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)があるか"
           }
         },
         "required": [

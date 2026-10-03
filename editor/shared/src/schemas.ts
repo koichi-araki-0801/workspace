@@ -688,7 +688,8 @@ export const FundOption = z
 
 export const SeriesFundOption = FundOption.extend({
   hasTemplate: z.boolean().meta({
-    description: 'コピー元のテンプレートが templates/ に同じ会社・版種で 1 件以上あるか',
+    description:
+      'コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)があるか',
   }),
 }).meta({ id: 'SeriesFundOption' });
 
@@ -696,8 +697,20 @@ export const CreatableInfo = z
   .object({
     created: z.boolean().meta({
       description:
-        '選んだ会社・ファンド・版種のテンプレートが templates/ にあるか(基準日は問わない)',
+        '選んだ会社・ファンド・版種のテンプレートが templates/ にあるか(会社_ファンド_版種.html。大文字小文字は区別しない)',
     }),
+    templateId: z.string().optional().meta({
+      description:
+        '作成済みのときのテンプレートの id(templates/ のファイルの綴りのまま)。作成タブの「既存のテンプレートを開く」で開く',
+    }),
+    inProgressId: z
+      .string()
+      .optional()
+      .meta({
+        description:
+          '作成済みでなく、同じ id の下書きか pending/ があるときの id。作成タブの「作成中のテンプレートを開く」で開く。' +
+          '作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける',
+      }),
     seriesFunds: z
       .array(SeriesFundOption)
       .meta({ description: '同じシリーズの他のファンド(シリーズから作成のコピー元候補)' }),
@@ -726,6 +739,10 @@ export const GenerateRequest = z
       .boolean()
       .optional()
       .meta({ description: '償還ファンドとして作成(生成器へパラメータとして渡す)' }),
+    replaceExisting: z.boolean().optional().meta({
+      description:
+        '同じ id の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409',
+    }),
   })
   .meta({ id: 'GenerateRequest' });
 

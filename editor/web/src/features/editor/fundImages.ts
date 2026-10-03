@@ -14,7 +14,7 @@
 //    PDF にも出ないため解かず、警告で外部ツール側の修正を促す。
 // GrapesJS への配線は `fundImageLayer.ts`。
 
-import { parseTemplateFileName } from '@editor/shared';
+import { parseAnyTemplateFileName } from '@editor/shared';
 import { FUND_IMAGES_DIR, fundImageFileOf, fundImageUrl } from '@/lib/fundImages';
 
 /** 本文の種類。`jinja` = 描画を通る本文、`filled` = 値入り HTML(描画を通らない)。 */
@@ -39,9 +39,12 @@ const FUND_CODE_EXPR_RE = /\{\{\s*fund\.code\s*\}\}/g;
 /** 解いた後にも残る Jinja の開始記号(式・文・コメント)。 */
 const JINJA_RE = /\{[{%#]/;
 
-/** テンプレ ID(`<会社>_<ファンド>_<基準日>_<版>`)からファンドコードを取り出す。 */
+/**
+ * テンプレ ID(値入り HTML `<会社>_<ファンド>_<基準日>_<版>`、テンプレート `<会社>_<ファンド>_<版>`)から
+ * ファンドコードを取り出す。
+ */
 export function fundCodeOfTemplateId(templateId: string): string | null {
-  return parseTemplateFileName(`${templateId}.html`)?.fundCode ?? null;
+  return parseAnyTemplateFileName(`${templateId}.html`)?.fundCode ?? null;
 }
 
 /** `src` が差す対象なら、配信するファイル名を返す。対象外は null。 */

@@ -14,9 +14,9 @@ import {
   apiPaths,
   assertTemplateAttributeToken,
   conflict,
-  type FilledTemplateAttributes,
+  type SkeletonAttributes,
+  skeletonFileName,
   type TemplateMeta,
-  templateFileName,
   templateIdFromFileName,
   validation,
 } from '@editor/shared';
@@ -24,8 +24,15 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
 import type { Deps } from '../deps.js';
-import { writePending } from '../files/pendingFiles.js';
-import { hasTemplateFor, readFundCss, templateExists } from '../files/templateFiles.js';
+import { deleteDraft, draftExists } from '../files/draftFiles.js';
+import { deletePending, pendingMtime, writePending } from '../files/pendingFiles.js';
+import { hasPendingCreateReview } from '../files/reviewFiles.js';
+import {
+  findTemplateId,
+  hasTemplateFor,
+  listTemplateFiles,
+  readFundCss,
+} from '../files/templateFiles.js';
 import { generateTemplate } from '../generate/pyTemplate.js';
 import { auditedRethrow } from '../logger.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
@@ -52,10 +59,10 @@ export const generateRoutes: FastifyPluginAsync<{
         request,
         'template.generate',
         async () => {
-          const attributes: FilledTemplateAttributes = {
+          // テンプレートは会社・ファンド・版種に 1 つで、基準日を持たない(基準日で使い回さない)。
+          const attributes: SkeletonAttributes = {
             companyCode: assertTemplateAttributeToken('会社コード', body.companyCode),
             fundCode: assertTemplateAttributeToken('ファンドコード', body.fundCode),
-            baseDate: todayYmd(),
             editionType: assertTemplateAttributeToken('版種', body.editionType),
           };
           // コピー元も属性と同じくここで検査する。検査済みの値だけを生成器と作成履歴へ渡す。
@@ -69,29 +76,43 @@ export const generateRoutes: FastifyPluginAsync<{
           ) {
             throw validation(`コピー元のテンプレートがありません: ${sourceFundCode}`);
           }
-          const fileName = templateFileName(attributes);
+          const fileName = skeletonFileName(attributes);
           const id = templateIdFromFileName(fileName);
 
-          // 同一属性の確定テンプレが既にあるなら生成では触らない。存在検査なしに
-          // 上書きすると、baseDate がサーバ現在日と一致する確定テンプレを黙って
-          // 壊せてしまう。続きは編集タブ(承認フロー)から行う。
-          if (await templateExists(fileName)) {
-            throw conflict(
-              `同じ属性のテンプレートが既にあります: ${id}。編集タブから開いてください`,
-            );
+          // ① 作成済みなら生成では触らない。直すときは作成タブで既存のテンプレートを開き、申請 → 承認で
+          // templates/ を上書きする。照合は作成タブの「作成済み」と同じく大文字小文字を区別しない。
+          const existing = findTemplateId(
+            await listTemplateFiles(),
+            attributes.companyCode,
+            attributes.fundCode,
+            attributes.editionType,
+          );
+          if (existing !== null) {
+            throw conflict('作成済みです。既存のテンプレートを開いてください');
+          }
+          // ② 承認待ちの作成申請があるうちに作り直すと、承認でその申請の内容が templates/ に入り、
+          // 作り直した生成物と食い違う。
+          if (await hasPendingCreateReview(id)) {
+            throw conflict('申請中です。承認か却下を待ってください');
+          }
+          // ③ 作業中(下書きか pending)を黙って捨てない。画面は確認ダイアログで同意を得て送り直す。
+          if (
+            body.replaceExisting !== true &&
+            ((await draftExists(id)) || (await pendingMtime(id)) !== null)
+          ) {
+            throw conflict('作成中のテンプレートがあります');
           }
 
-          // 生成器の出力へ、承認済み注記マスタ(そのファンド・版種)を適用してから保存する。
+          // ④ 生成器の出力へ、承認済み注記マスタ(そのファンド・版種)を適用してから保存する。
           // 生成器(差し替え前提)にマスタ参照を要求しないための編集側適用点。DB 不達時は
           // 関数内で warn + 素通し(生成をブロックしない)。
           const html = await noteMaster.applyNoteMasterToHtml(
-            // 生成器へはリクエスト本文を渡さず、検証済みの属性とサーバの基準日だけを明示して
-            // 組む(本文の他のキーが共有上のコードへ流れないようにする)。
+            // 生成器へはリクエスト本文を渡さず、検証済みの属性だけを明示して組む
+            // (本文の他のキーが共有上のコードへ流れないようにする)。
             await generateTemplate({
               companyCode: attributes.companyCode,
               fundCode: attributes.fundCode,
               editionType: attributes.editionType,
-              baseDate: attributes.baseDate,
               ...(sourceFundCode === undefined ? {} : { sourceFundCode }),
               ...(body.isRedemption === true ? { isRedemption: true } : {}),
             }),
@@ -108,13 +129,19 @@ export const generateRoutes: FastifyPluginAsync<{
             updatedBy: null,
           };
 
-          // REST モード: pending 実体 → 作成記録の順。CSS はファンド共有ファイルなので pending に
-          // しか書かない — 共有 CSS の書き換えは承認経路(`applyConfirmedWrite`)の専権である。
-          // 同一属性の pending が既に在れば上書きする。pending は未確定の作業用実体なので、
-          // 作り直しを塞がない(確定側は上の 409 が守る。承認ゲートは一切迂回していない)。
+          // REST モード: 生成器が書いた pending/<id>.html を、注記マスタを適用した HTML と CSS で
+          // 書き直し → 作成記録の順。CSS はファンド共有ファイルなので pending にしか書かない — 共有 CSS の
+          // 書き換えは承認経路(`applyConfirmedWrite`)の専権である。前回の下書きは、生成器が成功した
+          // ここで初めて捨てる(失敗したら作業を残す。前の pending/ は生成器の約束で残る)。下書きが
+          // 残ると、編集画面を開いたときに古い下書きが新しい生成物を覆う。コメント(notes/)と
+          // パーツ変更履歴は同じテンプレートの記録なので残す。確定側(templates/)は ① が守る。
           if (config.requireAuth) {
             await writePending(id, html, css);
+            await deleteDraft(id);
             await recordCreate(attributes, sourceFundCode, loginId);
+          } else {
+            // local モードは pending を持たない。生成器は約束どおり書くので、読み終えたここで消す。
+            await deletePending(id);
           }
 
           return { meta, html, css, id, attributes };
@@ -136,8 +163,3 @@ export const generateRoutes: FastifyPluginAsync<{
     },
   );
 };
-
-function todayYmd(): string {
-  const d = new Date();
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-}

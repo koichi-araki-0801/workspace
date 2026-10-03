@@ -14,10 +14,13 @@ import {
   type FundMaster,
   type FundOption,
   notFound,
+  parseTemplateFileName,
   type SampleData,
+  skeletonFileName,
   type Template,
   type TemplateDraft,
   type TemplateMeta,
+  templateIdFromFileName,
 } from '@editor/shared';
 import { asString, asStringOrNull, firstRow, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
@@ -32,6 +35,7 @@ import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles
 import {
   attrKey,
   filledExists,
+  findTemplateId,
   listFilledFiles,
   listTemplateFiles,
   readFilledHtml,
@@ -168,14 +172,24 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     listFunds,
 
     /**
-     * 作成タブ Step 2 の素。作成済みもコピー元の有無も templates/(テンプレートフォルダ)だけを見る。
-     * シリーズは Rep1 の会社コードで引き、名称はファンド一覧から付ける。
+     * 作成タブ Step 2 の素。作成済み・作業中・コピー元の有無はファイルで、シリーズは Rep1 の会社コードで
+     * 引き、名称はファンド一覧から付ける。
      */
     async getCreatableInfo({ companyCode, rep1CompanyCode, fundCode, editionType }) {
-      // テンプレートは基準日で使い回さないので基準日は問わず、テンプレートフォルダ(templates/)に
-      // あるかだけを見る。値入り HTML(filled/)や生成直後(pending/)は作成済みに数えない。
-      const templateKeys = templateAttrKeys(await listTemplateFiles());
-      const created = templateKeys.has(attrKey(companyCode, fundCode, editionType));
+      // テンプレートは基準日で使い回さないので、テンプレートフォルダ(templates/)に 3 つ区切りの
+      // ファイルがあるかだけを見る。値入り HTML(filled/)や生成直後(pending/)は作成済みに数えない。
+      const files = await listTemplateFiles();
+      const templateKeys = templateAttrKeys(files);
+      const templateId = findTemplateId(files, companyCode, fundCode, editionType);
+      const created = templateId !== null;
+      // 作業中は、作成済みでないときだけ問う。作成済みのテンプレートを作成経路で直している下書きは
+      // 作り直しの対象ではない(画面は「既存のテンプレートを開く」だけを出す)。
+      const id = templateIdFromFileName(skeletonFileName({ companyCode, fundCode, editionType }));
+      const inProgress = !created && ((await draftExists(id)) || (await pendingMtime(id)) !== null);
+      const extra = {
+        ...(templateId === null ? {} : { templateId }),
+        ...(inProgress ? { inProgressId: id } : {}),
+      };
       const seriesRows = await sproc.callSproc(SP.series, '一覧', [
         p('委託会社コード', rep1CompanyCode),
       ]);
@@ -183,7 +197,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         seriesRows.map((r) => [asString(r.ファンドコード), asStringOrNull(r.シリーズコード)]),
       );
       const series = seriesOf.get(fundCode) ?? null;
-      if (!series) return { created, seriesFunds: [] };
+      if (!series) return { created, ...extra, seriesFunds: [] };
       const names = new Map(
         (await listFunds(rep1CompanyCode)).map((f) => [f.fundCode, f.fundName]),
       );
@@ -195,7 +209,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
           hasTemplate: templateKeys.has(attrKey(companyCode, code, editionType)),
         }))
         .sort((a, b) => a.fundCode.localeCompare(b.fundCode));
-      return { created, seriesFunds };
+      return { created, ...extra, seriesFunds };
     },
 
     /**
@@ -227,26 +241,25 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     /**
      * 1 件取得。メタはファイル名規約、本体はファイル(DB は引かない)。
      *
-     * 探索順は ① `filled/`(値入り HTML。編集タブの本文)→ ② `templates/`(作成タブの Jinja。
-     * 作成経路の承認直後に精査画面が確定版を読む)→ ③ `pending/`(生成直後の未確定実体)。
-     * ①②は `status:'published'`、③は `status:'draft'`、どこにも無ければ 404。
+     * 探し先は id の形で決まる。値入り HTML(4 つ区切り)は ① `filled/`、テンプレート(3 つ区切り)は
+     * ① `templates/`(作成経路の承認直後に精査画面が確定版を読む)。① に無ければ ② `pending/`
+     * (生成直後の未確定実体)。① は `status:'published'`、② は `status:'draft'`、どこにも無ければ 404。
      * **確定を先に見る順序が契約**である。逆順にすると pending を書ける者が承認済みテンプレの
      * 表示内容を差し替えられ、編集画面・結合 PDF・比較タブが揃って汚染される。
-     * ①で見つかったときだけ `filled` に本文を入れる(値入り HTML は Jinja を持たないので
+     * 値入り HTML のときだけ `filled` に本文を入れる(値入り HTML は Jinja を持たないので
      * `html` と同じ内容。web は `filled` が非空の文書を完成描画として扱う)。
      */
     async getTemplate(id) {
       const fileName = `${id}.html`;
-      if (await filledExists(fileName)) {
-        const meta = await fileToMeta(fileName, 'filled');
-        if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
+      const isFilled = parseTemplateFileName(fileName) !== null;
+      const meta = await fileToMeta(fileName, isFilled ? 'filled' : 'template');
+      if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
+      if (isFilled && (await filledExists(fileName))) {
         const html = await readFilledHtml(fileName);
         const css = await readFundCss(meta.attributes.fundCode);
         return { meta, html, css, filled: html };
       }
-      const meta = await fileToMeta(fileName);
-      if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
-      if (await templateExists(fileName)) {
+      if (!isFilled && (await templateExists(fileName))) {
         const html = await readTemplateHtml(fileName);
         const css = await readFundCss(meta.attributes.fundCode);
         return { meta, html, css, filled: '' };

@@ -10,6 +10,7 @@ const { execFileMock } = vi.hoisted(() => {
   const tmpRoot = process.env.TEMP ?? process.env.TMPDIR ?? '/tmp';
   process.env.LOG_DIR = `${tmpRoot}/editor-pytemplate-test-logs`;
   process.env.TEMPLATES_DIR = `${tmpRoot}/editor-pytemplate-test-templates`;
+  process.env.PENDING_DIR = `${tmpRoot}/editor-pytemplate-test-pending`;
   return { execFileMock: vi.fn() };
 });
 vi.mock('node:child_process', () => ({ execFile: execFileMock }));
@@ -25,10 +26,9 @@ const attrs: GenerateAttributes = {
   companyCode: 'C1',
   fundCode: 'F1',
   editionType: 'monthly',
-  baseDate: '20261001',
 };
 
-/** 生成器の子プロセスへ引き継いでよい環境変数(許可リスト + 生成器向けの 3 つ)。 */
+/** 生成器の子プロセスへ引き継いでよい環境変数(許可リスト + 生成器向けのもの)。 */
 const ALLOWED_ENV_KEYS = new Set([
   'PATH',
   'SYSTEMROOT',
@@ -39,17 +39,33 @@ const ALLOWED_ENV_KEYS = new Set([
   'PYTHONUTF8',
   'PYTHONIOENCODING',
   'TEMPLATES_DIR',
+  'PENDING_DIR',
 ]);
 
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
+  fs.rmSync(config.pendingDir, { recursive: true, force: true });
 });
 
-/** 成功を返す execFile の差し替え。 */
-function answerOk(stdout = '<html>ok</html>'): void {
+const outputPath = (fundCode = 'F1') => path.join(config.pendingDir, `C1_${fundCode}_monthly.html`);
+
+/**
+ * 生成器が PENDING_DIR へ書いたことにする。本物の約束どおり一時ファイル → 名前の変更で置く
+ * (同じファイルへの上書きは更新時刻が変わらないことがあり、続けて呼ぶと「書かれていない」に見える)。
+ */
+function writeOutput(html: string, fundCode = 'F1'): void {
+  fs.mkdirSync(config.pendingDir, { recursive: true });
+  const tmp = `${outputPath(fundCode)}.tmp`;
+  fs.writeFileSync(tmp, html, 'utf8');
+  fs.renameSync(tmp, outputPath(fundCode));
+}
+
+/** 成功を返す execFile の差し替え。出力は PENDING_DIR のファイルで、標準出力は使わない。 */
+function answerOk(html = '<html>ok</html>'): void {
   execFileMock.mockImplementation((_bin, _args, _opts, cb) => {
-    cb(null, stdout, '');
+    writeOutput(html);
+    cb(null, '<html>標準出力は使わない</html>', '');
     return { on: vi.fn() };
   });
 }
@@ -75,6 +91,7 @@ describe('生成器の起動のしかた', () => {
     expect(env.PYTHONUTF8).toBe('1');
     expect(env.PYTHONIOENCODING).toBe('utf-8');
     expect(env.TEMPLATES_DIR).toBe(config.templatesDir);
+    expect(env.PENDING_DIR).toBe(config.pendingDir);
     expect(env.PATH).toBe(process.env.PATH);
   });
 
@@ -86,7 +103,6 @@ describe('生成器の起動のしかた', () => {
       companyCode: 'C1',
       fundCode: 'F1',
       editionType: 'monthly',
-      baseDate: '20261001',
     });
   });
 
@@ -98,7 +114,6 @@ describe('生成器の起動のしかた', () => {
       companyCode: 'C1',
       fundCode: 'F1',
       editionType: 'monthly',
-      baseDate: '20261001',
       sourceFundCode: '510037',
       isRedemption: true,
     });
@@ -211,22 +226,29 @@ describe('生成の同時実行の上限', () => {
       return { on: vi.fn() };
     });
 
-    const runs = Array.from({ length: 10 }, () => generateTemplate(attrs));
+    // 書き先はファンドごとに分ける(同じ id だと「この呼び出しで書かれたか」の判定が互いに干渉する)。
+    const runs = Array.from({ length: 10 }, (_, i) =>
+      generateTemplate({ ...attrs, fundCode: `F${i}` }),
+    );
     await vi.waitFor(() => expect(execFileMock).toHaveBeenCalledTimes(2));
     // 11 本目: 実行中 2・待ち 8 で満杯。待たずに断り、生成器を起動しない。
-    await expect(generateTemplate(attrs)).rejects.toMatchObject({
+    await expect(generateTemplate({ ...attrs, fundCode: 'F10' })).rejects.toMatchObject({
       message: GENERATE_QUEUE_FULL_MESSAGE,
       statusCode: 503,
       code: 'GENERATE_QUEUE_FULL',
     });
     expect(execFileMock).toHaveBeenCalledTimes(2);
 
-    callbacks[0](null, '<html>1</html>', '');
+    const fundOf = (i: number) =>
+      JSON.parse((execFileMock.mock.calls[i][1] as string[]).at(-1) ?? '{}').fundCode as string;
+    writeOutput('<html>1</html>', fundOf(0));
+    callbacks[0](null, '', '');
     await vi.waitFor(() => expect(execFileMock).toHaveBeenCalledTimes(3));
 
     for (let i = 1; i < 10; i += 1) {
       await vi.waitFor(() => expect(callbacks.length).toBeGreaterThan(i));
-      callbacks[i](null, `<html>${i + 1}</html>`, '');
+      writeOutput(`<html>${i + 1}</html>`, fundOf(i));
+      callbacks[i](null, '', '');
     }
     await expect(Promise.all(runs)).resolves.toHaveLength(10);
   });
@@ -247,16 +269,46 @@ describe('生成の同時実行の上限', () => {
 });
 
 describe('generateTemplate', () => {
-  it('resolves with stdout and passes the attributes as a JSON arg', async () => {
-    execFileMock.mockImplementation((_bin, _args, _opts, cb) => {
-      cb(null, '<html>ok</html>', '');
-      return { on: vi.fn() };
-    });
-
-    await expect(generateTemplate(attrs)).resolves.toBe('<html>ok</html>');
-
+  it('生成器が PENDING_DIR に書いたファイルを返し、標準出力は使わない', async () => {
+    answerOk('<html>file</html>');
+    await expect(generateTemplate(attrs)).resolves.toBe('<html>file</html>');
     const calledArgs = execFileMock.mock.calls[0][1] as string[];
     expect(calledArgs[calledArgs.length - 1]).toContain('"fundCode":"F1"');
+  });
+
+  it('終了コード 0 でもファイルを書かなければ失敗にする', async () => {
+    execFileMock.mockImplementation((_bin, _args, _opts, cb) => {
+      cb(null, '<html>標準出力だけ</html>', '');
+      return { on: vi.fn() };
+    });
+    await expect(generateTemplate(attrs)).rejects.toThrow(/書き出していません/);
+  });
+
+  it('呼び出し前からある古いファイルを、この呼び出しの出力と取り違えない', async () => {
+    writeOutput('<html>前回の生成物</html>');
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(outputPath(), old, old);
+    execFileMock.mockImplementation((_bin, _args, _opts, cb) => {
+      cb(null, '', ''); // 書かずに成功で終わる
+      return { on: vi.fn() };
+    });
+    await expect(generateTemplate(attrs)).rejects.toThrow(/書き出していません/);
+    expect(fs.readFileSync(outputPath(), 'utf8')).toBe('<html>前回の生成物</html>'); // 消さない
+  });
+
+  it('古いファイルを書き直したなら、その内容を返す', async () => {
+    writeOutput('<html>前回の生成物</html>');
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(outputPath(), old, old);
+    answerOk('<html>新しい生成物</html>');
+    await expect(generateTemplate(attrs)).resolves.toBe('<html>新しい生成物</html>');
+  });
+
+  it('属性がファイル名のトークンとして不正なら、生成器を呼ばずに拒否する(読み先を pending/ の外へ向けさせない)', () => {
+    expect(() => generateTemplate({ ...attrs, fundCode: '../x' })).toThrowError(
+      expect.objectContaining({ kind: 'validation' }),
+    );
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 
   it('rejects with a wrapped error (including stderr) when the process fails', async () => {
@@ -268,13 +320,16 @@ describe('generateTemplate', () => {
     await expect(generateTemplate(attrs)).rejects.toThrow(/Python生成器の実行に失敗/);
   });
 
-  it('rejects when the generator returns empty output', async () => {
+  it('書かれたものが空、または通常のファイルでなければ失敗にする', async () => {
+    answerOk('   ');
+    await expect(generateTemplate(attrs)).rejects.toThrow(/空の出力/);
+    fs.rmSync(outputPath(), { force: true });
     execFileMock.mockImplementation((_bin, _args, _opts, cb) => {
-      cb(null, '   ', '');
+      fs.mkdirSync(outputPath(), { recursive: true }); // ディレクトリを置く
+      cb(null, '', '');
       return { on: vi.fn() };
     });
-
-    await expect(generateTemplate(attrs)).rejects.toThrow(/空の出力/);
+    await expect(generateTemplate(attrs)).rejects.toThrow(/書き出していません/);
   });
 
   it('stderr が空の失敗は message だけで組む(末尾に改行を足さない)', async () => {

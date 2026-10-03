@@ -134,3 +134,11 @@ describe('cssString / fundImageCss', () => {
     expect(fundImageCss(['photos/x.png'], FILLED)).toEqual({ css: '', urls: [] });
   });
 });
+
+describe('fundCodeOfTemplateId', () => {
+  it('fundCodeOfTemplateId はテンプレート(3 つ区切り)の id からもファンドコードを取る', () => {
+    expect(fundCodeOfTemplateId('AM01_510037_交付版')).toBe('510037');
+    expect(fundCodeOfTemplateId('AM01_510037_20240710_交付版')).toBe('510037');
+    expect(fundCodeOfTemplateId('規約外')).toBeNull();
+  });
+});

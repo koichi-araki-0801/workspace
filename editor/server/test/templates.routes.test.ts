@@ -178,8 +178,20 @@ describe('templates.routes', () => {
     });
     expect(before.statusCode).toBe(200);
     expect(before.json()).toMatchObject({ created: false });
+    // 作成済みは templates/ に 3 つ区切りがあるときだけ。旧形式(4 つ区切り)は数えない。
     fs.writeFileSync(
       path.join(root, 'data', 'templates', 'AM01_510037_20200101_交付版.html'),
+      '<p>{{ a }}</p>',
+      'utf8',
+    );
+    const legacy = await app.inject({
+      method: 'GET',
+      url: `/templates/creatable?${base}`,
+      headers: as('editor'),
+    });
+    expect(legacy.json()).toMatchObject({ created: false });
+    fs.writeFileSync(
+      path.join(root, 'data', 'templates', 'AM01_510037_交付版.html'),
       '<p>{{ a }}</p>',
       'utf8',
     );
@@ -188,7 +200,7 @@ describe('templates.routes', () => {
       url: `/templates/creatable?${base}`,
       headers: as('editor'),
     });
-    expect(res.json()).toMatchObject({ created: true }); // 基準日は問わない
+    expect(res.json()).toMatchObject({ created: true, templateId: 'AM01_510037_交付版' });
   });
 
   it('GET /templates/creatable: ファイル名のトークンとして不正な会社コードは 400', async () => {

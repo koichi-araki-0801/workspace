@@ -20,7 +20,7 @@ process.env.PENDING_DIR = path.join(tmp, 'pending');
 process.env.DRAFTS_DIR = path.join(tmp, 'drafts');
 
 const FILLED_ID = 'AM01_510037_20240710_交付版';
-const JINJA_ONLY_ID = 'AM01_510037_20240710_全体版';
+const JINJA_ONLY_ID = 'AM01_510037_全体版';
 const BOTH_ID = 'AM01_110024_20251117_交付版';
 const SKELETON_ID = 'AM01_510124_交付版';
 const SKELETON_PENDING_ID = 'AM01_510155_交付版';
@@ -82,6 +82,17 @@ describe('templateRepo と filled/', () => {
     expect(ids).not.toContain(SKELETON_PENDING_ID);
     const opts = await repo.getDropdownOptions({}, 'edit');
     expect(opts.baseDates.every((d) => d !== '')).toBe(true);
+  });
+
+  it('4 つ区切りの id は templates/ を読まない(旧形式のファイルがあっても filled/ → pending/ だけ)', async () => {
+    fs.writeFileSync(
+      path.join(tmp, 'templates', 'AM01_510003_20240710_交付版.html'),
+      '<p>旧形式</p>',
+      'utf8',
+    );
+    await expect(repo.getTemplate('AM01_510003_20240710_交付版')).rejects.toMatchObject({
+      kind: 'not_found',
+    });
   });
 
   it('取得は filled/ の本文を html と filled の両方に返す', async () => {

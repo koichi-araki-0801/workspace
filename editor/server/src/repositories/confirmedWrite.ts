@@ -28,7 +28,6 @@ import {
   notFound,
   pairedTemplateId,
   parseAnyTemplateFileName,
-  parseSkeletonFileName,
   type TemplateMeta,
   validation,
 } from '@editor/shared';
@@ -49,15 +48,9 @@ import { fileToMeta } from './templateMeta.js';
 
 // ── 1. module-private な物理書込プリミティブ ──
 
-/**
- * 書込先ごとに受けるファイル名の形を強制する。値入り HTML(`filled`)は 4 つ区切りだけ。
- * テンプレート(`template`)は 3 つ区切りを受ける(生成が 4 つ区切りを作る間は 4 つ区切りも受ける)。
- */
+/** 書込先ごとに受けるファイル名の形を強制する。値入り HTML は 4 つ区切り、テンプレートは 3 つ区切りだけ。 */
 function assertFileNameFor(target: ConfirmedTarget, fileName: string): string {
-  if (target === 'filled') return assertTemplateFileName(fileName);
-  return parseSkeletonFileName(fileName)
-    ? assertSkeletonFileName(fileName)
-    : assertTemplateFileName(fileName);
+  return target === 'filled' ? assertTemplateFileName(fileName) : assertSkeletonFileName(fileName);
 }
 
 const htmlPathOf = (target: ConfirmedTarget, fileName: string): string =>
@@ -189,8 +182,9 @@ export type ConfirmedWriteOp =
     };
 
 /**
- * 実行コード不変性の基準となる HTML を返す。`target='filled'` は 値入り HTML → Jinja →
- * pending の順、`target='template'` は Jinja → pending の順に探し、どれも無ければ空文字。
+ * 実行コード不変性の基準となる HTML を返す。確定版(`target='filled'` は値入り HTML、
+ * `target='template'` はテンプレート)→ pending の順に探し、どれも無ければ空文字。
+ * 値入り HTML とテンプレートは id の形が違うので、互いの置き場は読まない。
  * 空文字を基準にすると「実行コードを 1 つも持てない」に倒れる(fail-closed)。
  * **確定を先に見る順序が契約**で、逆にすると pending を書ける者が基準そのものを差し替えられる。
  */
@@ -199,11 +193,8 @@ export async function baselineTemplateHtml(
   target: ConfirmedTarget,
 ): Promise<string> {
   const fileName = `${templateId}.html`;
-  if (target === 'filled') {
-    const filled = await readFilledHtml(fileName);
-    if (filled !== '') return filled;
-  }
-  const confirmed = await readTemplateHtml(fileName);
+  const confirmed =
+    target === 'filled' ? await readFilledHtml(fileName) : await readTemplateHtml(fileName);
   if (confirmed !== '') return confirmed;
   const pending = await readPending(templateId);
   return pending?.html ?? '';

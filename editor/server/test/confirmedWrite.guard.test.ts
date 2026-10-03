@@ -39,9 +39,9 @@ process.env.CSS_DIR = path.join(root, 'data', 'css');
 process.env.PENDING_DIR = path.join(root, 'data', 'pending');
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
-const SOURCE = 'AM01_510037_20240710_交付版';
-const PAIR = 'AM01_510037_20240710_全体版';
-const OTHER = 'AM01_999999_20240710_全体版';
+const SOURCE = 'AM01_510037_交付版';
+const PAIR = 'AM01_510037_全体版';
+const OTHER = 'AM01_999999_全体版';
 
 /** `src` 配下の .ts を再帰列挙し、`src` からの相対 POSIX パスで返す。 */
 function listSources(dir = SRC, base = SRC): string[] {
@@ -238,5 +238,21 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     ).rejects.toSatisfy(isAppError);
     expect(fs.existsSync(path.join(filledDir, 'AM01_510037_交付版.html'))).toBe(false);
     expect(fs.existsSync(path.join(cssDir, '510037.css'))).toBe(false);
+  });
+
+  it('テンプレート(target=template)に値入り HTML の id(4 つ区切り)は書けない', async () => {
+    await expect(
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'review-approve',
+        target: 'template',
+        templateId: 'AM01_510037_20240710_交付版',
+        fundCode: '510037',
+        html: '<p>x</p>',
+        css: '',
+        author: 'approver1',
+        commitMessage: 'm',
+      }),
+    ).rejects.toSatisfy(isAppError);
+    expect(fs.readdirSync(templatesDir)).toEqual([]);
   });
 });

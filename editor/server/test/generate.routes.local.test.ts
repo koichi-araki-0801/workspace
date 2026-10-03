@@ -13,10 +13,20 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// 生成器(python)は本テストの対象外。
-vi.mock('../src/generate/pyTemplate.js', () => ({
-  generateTemplate: async () => '<html><body><p>生成物</p></body></html>',
-}));
+// 生成器(python)は本テストの対象外。本物の生成器と同じく pending/ へ書いてから、その内容を返す。
+vi.mock('../src/generate/pyTemplate.js', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  return {
+    generateTemplate: async () => {
+      const html = '<html><body><p>生成物</p></body></html>';
+      const dir = process.env.PENDING_DIR ?? '';
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'AM01_510037_交付版.html'), html, 'utf8');
+      return html;
+    },
+  };
+});
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-generate-local-'));
 process.env.DATA_ROOT = path.join(root, 'data');
@@ -70,7 +80,7 @@ describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では spro
     }
   });
 
-  it('local モードでは生成物を返すだけで、sproc の テンプレート も pending も触らない', async () => {
+  it('local モードでは生成物を返すだけで、sproc の テンプレート を呼ばず、生成器が書いた pending も残さない', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/generate',

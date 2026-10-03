@@ -3,9 +3,8 @@
 // =============================================================================
 // 「属性から新規作成」は `POST /api/generate`(Python 生成器。テスト用の偽物 `server/scripts/fake_generate_template.py`)
 // を経て `pending/` に置かれ、そのうえで編集画面へ遷移する。作成経路(?created=1)= 差し込み値
-// ハイライト有りであることを実画面で固定する(設計正典「編集 2 系統」)。生成される id は
-// 実行日の基準日を含み事前に分からないため、`openEditor` へは委ねずボタン押下後の遷移先で
-// 直接 canvas を待つ。
+// ハイライト有りであることを実画面で固定する(設計正典「編集 2 系統」)。生成器のスケルトンは
+// `.page` を持たないので、`openEditor` へは委ねず遷移先で直接 canvas を待つ。
 import { expect, test } from './fixtures';
 import { login } from './helpers';
 
@@ -30,13 +29,13 @@ test('作成タブ: 属性を選んで新規作成すると ?created=1 の編集
   await page.getByRole('combobox').filter({ hasText: '版種を選択' }).click();
   await page.getByRole('option', { name: '交付版', exact: true }).click();
 
-  // 510037 / 交付版 はテスト用データに既にあるので、作成済みの注意が出る(作成は止めない)。
-  await expect(page.getByText('テンプレートは作成済みです')).toBeVisible();
+  // 作成済みの判定は templates/ の 3 つ区切りのファイルだけ。e2e の seed は templates/ を空で始めるので注意は出ない。
+  await expect(page.getByText('テンプレートは作成済みです')).toHaveCount(0);
   await page.getByRole('button', { name: '属性から新規作成' }).click();
 
   await expect(page).toHaveURL(/\/edit\/.+\?created=1$/);
   const url = new URL(page.url());
-  expect(decodeURIComponent(url.pathname)).toMatch(/^\/edit\/AM01_510037_\d{8}_交付版$/);
+  expect(decodeURIComponent(url.pathname)).toBe('/edit/AM01_510037_交付版');
 
   // 生成器のスケルトンは `.page` を持たない(最小の帳票 1 枚。`fake_generate_template.py`)ので、
   // canvas の描画完了は見出し要素で待つ。

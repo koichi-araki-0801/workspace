@@ -31,6 +31,7 @@ process.env.SYNC_DIR = path.join(root, 'data', 'sync');
 
 const OUTSIDE = path.join(root, 'outside');
 const VALID_ID = 'AM01_510037_20240710_交付版';
+const VALID_SKELETON_ID = 'AM01_510037_交付版';
 
 /** 管理ディレクトリの外を狙う id。相対 1 段上がると `data/` 直下、2 段で `root/outside`。 */
 const ESCAPES = [
@@ -126,7 +127,7 @@ describe('files/*.ts のパス封じ込め', () => {
       confirmedWrite.applyConfirmedWrite({
         kind: 'review-approve',
         target: 'template',
-        templateId: VALID_ID,
+        templateId: VALID_SKELETON_ID,
         fundCode: fund,
         html: '<p>x</p>',
         css: 'body{}',
@@ -208,14 +209,16 @@ describe('files/*.ts のパス封じ込め', () => {
     await confirmedWrite.applyConfirmedWrite({
       kind: 'review-approve',
       target: 'template',
-      templateId: VALID_ID,
+      templateId: VALID_SKELETON_ID,
       fundCode: '510037',
       html: '<p>ok</p>',
       css: 'body{}',
       author: 'tester',
       commitMessage: 'x',
     });
-    expect(fs.existsSync(path.join(root, 'data', 'templates', `${VALID_ID}.html`))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'data', 'templates', `${VALID_SKELETON_ID}.html`))).toBe(
+      true,
+    );
     expect(fs.existsSync(path.join(root, 'data', 'css', '510037.css'))).toBe(true);
     expect(strayFiles()).toEqual([]);
   });

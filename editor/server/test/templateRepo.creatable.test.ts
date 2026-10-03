@@ -34,11 +34,15 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
   beforeAll(async () => {
     for (const d of ['templates', 'filled', 'pending'])
       fs.mkdirSync(path.join(tmp, d), { recursive: true });
-    put('filled', 'am01_110024_20250101_交付版'); // 小文字の会社コード(filled/)
-    put('templates', 'AM01_510037_20240710_交付版');
-    put('templates', 'AM01_510003_20240710_全体版');
+    put('filled', 'am01_110024_20250101_交付版'); // filled/ にしか無い
+    put('templates', 'am01_510037_交付版'); // 小文字の会社コード
+    put('templates', 'AM01_510003_全体版');
+    put('templates', 'AM01_510155_20240710_交付版'); // 旧形式(4 つ区切り)は数えない
     const { writePending } = await import('../src/files/pendingFiles.js');
-    await writePending('AM01_510124_20261001_交付版', '<p>未確定</p>', '');
+    await writePending('AM01_510124_交付版', '<p>未確定</p>', '');
+    const { writeDraft } = await import('../src/files/draftFiles.js');
+    await writeDraft('AM01_510003_交付版', '<p>下書きだけ</p>', '');
+    await writeDraft('am01_510037_交付版', '<p>既存を直している下書き</p>', '');
     const { createFakeSproc } = await import('./fakes/sprocFake.js');
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
     repo = createTemplateRepo(await createFakeSproc());
@@ -50,6 +54,7 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
     expect(await hasTemplateFor('am01', '510037', '交付版')).toBe(true);
     expect(await hasTemplateFor('AM01', '510003', '交付版')).toBe(false); // 全体版だけ
     expect(await hasTemplateFor('AM01', '110024', '交付版')).toBe(false); // filled/ にしか無い
+    expect(await hasTemplateFor('AM01', '510155', '交付版')).toBe(false); // 旧形式だけ
   });
 
   it('委託会社は略称をファイル名の会社コード、Rep1 のコードを rep1CompanyCode で返す', async () => {
@@ -70,18 +75,33 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
     expect(await repo.listFunds('R-ZZ99')).toEqual([]);
   });
 
-  it('作成済みは templates/ にあるときだけ立つ(基準日は問わない。filled/・pending/ は見ない)', async () => {
+  it('作成済みは templates/ に 3 つ区切りがあるときだけ立つ(filled/・pending/・旧形式は見ない)', async () => {
     const created = async (f: string) => (await repo.getCreatableInfo(q(f))).created;
     expect(await created('510037')).toBe(true); // templates/
     expect(await created('110024')).toBe(false); // filled/ にしか無い
     expect(await created('510124')).toBe(false); // pending/ にしか無い
     expect(await created('510003')).toBe(false); // templates/ は全体版だけ
-    expect(await created('510155')).toBe(false);
+    expect(await created('510155')).toBe(false); // 旧形式だけ
   });
 
-  it('作成済みの照合は会社コードの大文字小文字を区別しない', async () => {
-    const info = await repo.getCreatableInfo({ ...q('510037'), companyCode: 'am01' });
-    expect(info.created).toBe(true);
+  it('作成済みは大文字小文字を区別せずに照合し、templateId はファイルの綴りのまま返す', async () => {
+    expect(await repo.getCreatableInfo(q('510037'))).toMatchObject({
+      created: true,
+      templateId: 'am01_510037_交付版',
+    });
+    expect(await repo.getCreatableInfo(q('510003'))).not.toHaveProperty('templateId');
+  });
+
+  it('作業中(同じ id の pending か下書き)なら inProgressId を返す。作成済みなら返さない', async () => {
+    expect(await repo.getCreatableInfo(q('510124'))).toMatchObject({
+      created: false,
+      inProgressId: 'AM01_510124_交付版', // pending
+    });
+    expect(await repo.getCreatableInfo(q('510003'))).toMatchObject({
+      inProgressId: 'AM01_510003_交付版', // 下書きだけ
+    });
+    expect(await repo.getCreatableInfo(q('510037'))).not.toHaveProperty('inProgressId');
+    expect(await repo.getCreatableInfo(q('110024'))).not.toHaveProperty('inProgressId');
   });
 
   it('シリーズの他ファンドをコピー元候補にし、自分は含めず、テンプレの有無を付ける', async () => {
