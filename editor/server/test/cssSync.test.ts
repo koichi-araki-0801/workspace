@@ -296,7 +296,8 @@ describe('computeCssSync — 変わった規則は baseline(GrapesJS 形)→ nex
       now: LATER,
     });
     expect(kept).toMatchObject({ ran: false, css: null, conflicts: prev, conflictsChanged: false });
-    // 未使用の規則も含めて同じ書き出し(GrapesJS 形)どうしなら、書式の違いだけで一致と見なす。
+    // ペア側が同じ書き出し(GrapesJS 形)になれば一致する。ペア側にだけある別の規則(.unused)は
+    // 判定に関わらない — 比べるのは競合した規則のキーごと。
     const cleared = computeCssSync({
       base: gjs('rgb(0, 0, 0)'),
       baseline: gjs('rgb(0, 0, 0)'),

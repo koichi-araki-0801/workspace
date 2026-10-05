@@ -120,7 +120,7 @@ d('承認とペアの CSS 転写', () => {
       '.a{color:red}',
     );
   });
-  it('baseline は申請本体として保存して承認で読み、一覧のメタには載せない', {
+  it('baseline は申請本体として保存して承認で読み、一覧のメタにも単件の取得にも載せない', {
     timeout: 60_000,
   }, async () => {
     put('filled', 'AM01_582000_20240710_交付版.html', '<p>交付</p>');
@@ -137,7 +137,9 @@ d('承認とペアの CSS 転写', () => {
     );
     expect(meta).not.toHaveProperty('cssBaseline');
     const full = await reviews.getReview(meta.id, { username: 'editor1', role: 'editor' });
-    expect(full.cssBaseline).toBe('.a{color:red;}');
+    expect(full).not.toHaveProperty('cssBaseline');
+    const { readReview } = await import('../src/files/reviewFiles.js');
+    expect((await readReview(meta.id))?.cssBaseline).toBe('.a{color:red;}');
     const list = await reviews.listReviews({}, { username: 'editor1', role: 'editor' });
     expect(list.find((m) => m.id === meta.id)).not.toHaveProperty('cssBaseline');
   });

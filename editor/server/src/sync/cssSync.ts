@@ -86,6 +86,9 @@ export function computeCssSync(input: CssSyncInput): CssSyncResult {
 
   // 競合が解けたか(両版の規則が一致したか、両方から消えたか)は転写後の姿で判定する。
   // 解消の操作(専用 API)は持たず、本文の競合と同じく「次の承認で一致していれば消える」。
+  // 比べるのは next(編集画面の書き出し = GrapesJS の形)とペア側のファイルなので、ペア側が
+  // 外部ツールの原文のままだと、意味が同じでも一致しない。消えるのは両版とも編集画面の書き出しの
+  // 形になったとき — つまりペア側も編集画面を通して承認された後(書式の差は `sameCssRule` が吸収)。
   const source = ruleTexts(input.next);
   const after = ruleTexts(css ?? input.target);
   const unresolved = (key: string): boolean => !sameRuleAt(source.get(key), after.get(key));

@@ -101,6 +101,13 @@ export type ReviewRequestMeta = z.infer<typeof sch.ReviewRequestMeta>;
 export type ReviewRequest = z.infer<typeof sch.ReviewRequest>;
 
 /**
+ * 保存している申請。`ReviewRequest` に、承認時のペア同期だけが読む `cssBaseline`(確定版の CSS を
+ * 編集画面が読み込んだ直後の形。最大で CSS 1 本分)を足したもの。承認画面は使わないので、
+ * 単件の取得の応答には載せない(`toReviewResponse`)。
+ */
+export type StoredReviewRequest = ReviewRequest & { cssBaseline?: string };
+
+/**
  * 確定保存の申請ボディ。`PreviewView` が editor/approver いずれの操作でも積む。
  * HTTP 上のスキーマ名は `SubmitReviewBody`(POST /review-requests)。
  */

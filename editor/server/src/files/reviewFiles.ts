@@ -10,8 +10,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   notFound,
-  type ReviewRequest,
   type ReviewRequestMeta,
+  type StoredReviewRequest,
   toReviewMeta,
   unexpected,
 } from '@editor/shared';
@@ -35,7 +35,7 @@ const filledPath = (reqId: string) => path.join(reviewDir(reqId), 'filled.html')
 const baselineCssPath = (reqId: string) => path.join(reviewDir(reqId), 'baseline.css');
 
 /** 申請のメタ + 本体を新規作成する(申請=submit 時)。 */
-export async function writeReview(req: ReviewRequest): Promise<void> {
+export async function writeReview(req: StoredReviewRequest): Promise<void> {
   const dir = reviewDir(req.id);
   await fs.mkdir(dir, { recursive: true });
   await atomicWrite(bodyHtmlPath(req.id), req.html);
@@ -87,7 +87,7 @@ async function readBodyFile(filePath: string, reqId: string): Promise<string> {
 }
 
 /** 申請を本体込みで読む。無ければ null。本体(html/css)が読めない申請はエラー。 */
-export async function readReview(reqId: string): Promise<ReviewRequest | null> {
+export async function readReview(reqId: string): Promise<StoredReviewRequest | null> {
   const meta = await readReviewMeta(reqId);
   if (!meta) return null;
   const html = await readBodyFile(bodyHtmlPath(reqId), reqId);

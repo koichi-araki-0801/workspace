@@ -20,8 +20,10 @@ import {
   type ReviewRequest,
   type ReviewRequestMeta,
   type ReviewStatus,
+  type StoredReviewRequest,
   type SubmitReviewRequest,
   toReviewMeta,
+  toReviewResponse,
   unexpected,
   validation,
 } from '@editor/shared';
@@ -73,7 +75,7 @@ function withReviewLock<T>(fn: () => Promise<T>): Promise<T> {
  * 承認時のペアへの CSS 転写の入力。承認の直前の CSS を読めないとき、申請に baseline が無いとき
  * (公開 API からの申請など)は null にして警告を残す。
  */
-async function pairCssSourceOf(review: ReviewRequest): Promise<PairCssSource | null> {
+async function pairCssSourceOf(review: StoredReviewRequest): Promise<PairCssSource | null> {
   let before: string;
   try {
     before = await readTemplateCss(review.templateId);
@@ -227,7 +229,7 @@ export function createReviewRepo({
           `未処理の確定保存申請が上限(${MAX_PENDING_REVIEWS} 件)に達しています。` +
             '精査者が既存の申請を処理してから、あらためて申請してください。',
         );
-      const review: ReviewRequest = {
+      const review: StoredReviewRequest = {
         id: randomUUID(),
         templateId: req.templateId,
         attributes: attrs,
@@ -268,7 +270,7 @@ export function createReviewRepo({
       if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
       if (!canSeeAll(actor) && review.submittedBy !== actor.username)
         throw forbidden('この申請を閲覧する権限がありません');
-      return review;
+      return toReviewResponse(review);
     },
 
     /**

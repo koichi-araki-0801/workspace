@@ -18,8 +18,10 @@ import {
   type ReviewRepository,
   type ReviewRequest,
   type ReviewStatus,
+  type StoredReviewRequest,
   type SubmitReviewRequest,
   toReviewMeta,
+  toReviewResponse,
   validation,
 } from '@editor/shared';
 import { attempt } from './attempt';
@@ -45,9 +47,9 @@ const REVIEW_STATUSES: ReadonlySet<string> = new Set<ReviewStatus>([
  * `reviewFiles.readReviewMeta` と同じ規則。1 件のために一覧全体を落とさない)。書き戻しは
  * この戻り値から組むので、読み飛ばした申請は次の書き込みで消える。
  */
-function readReviews(): Record<string, ReviewRequest> {
-  const raw = read<Record<string, ReviewRequest>>(K.reviews, {});
-  const out: Record<string, ReviewRequest> = {};
+function readReviews(): Record<string, StoredReviewRequest> {
+  const raw = read<Record<string, StoredReviewRequest>>(K.reviews, {});
+  const out: Record<string, StoredReviewRequest> = {};
   for (const [id, r] of Object.entries(raw)) {
     if (REVIEW_STATUSES.has(r.status)) out[id] = r;
   }
@@ -88,7 +90,7 @@ export const localReviewRepo: ReviewRepository = {
       const cur = await localTemplateRepo.getTemplate(req.templateId);
       const baseHash = isErr(cur) ? null : contentKey(cur.value.html, cur.value.css);
       const who = currentUser()?.displayName ?? '不明';
-      const review: ReviewRequest = {
+      const review: StoredReviewRequest = {
         id: uid('rv'),
         templateId: req.templateId,
         attributes: attrs,
@@ -129,7 +131,7 @@ export const localReviewRepo: ReviewRepository = {
     attempt(() => {
       const review = readReviews()[reqId];
       if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
-      return delay(review);
+      return delay(toReviewResponse(review));
     }),
 
   approveReview: (reqId: string, decision: ReviewDecisionRequest) =>
@@ -190,7 +192,7 @@ export const localReviewRepo: ReviewRepository = {
       if (review.status === 'approved' || review.status === 'rejected')
         throw conflict('この申請は既に処理済みです');
       const who = currentUser()?.displayName ?? '不明';
-      const next: ReviewRequest = {
+      const next: StoredReviewRequest = {
         ...review,
         status: 'rejected',
         reviewedBy: who,

@@ -405,10 +405,6 @@ export const ReviewRequest = ReviewRequestMeta.extend({
   html: z.string().meta({ description: '確定保存しようとしている生 Jinja2 HTML' }),
   css: z.string(),
   filledHtml: z.string().optional().meta({ description: '値差込済みの成果物(任意)' }),
-  cssBaseline: z.string().optional().meta({
-    description:
-      '確定版の CSS を編集画面が読み込んだ直後の形(ペア同期で変わった CSS 規則を見分ける基準)',
-  }),
 }).meta({ id: 'ReviewRequest' });
 
 /**

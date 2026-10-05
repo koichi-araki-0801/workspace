@@ -234,6 +234,29 @@ d('review workflow (HTTP routes)', () => {
     expect(approver.statusCode).toBe(200);
   });
 
+  it('GET /review-requests/:reqId は cssBaseline を返さない(承認画面は使わない。保存はする)', async () => {
+    fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
+    const templateId = 'AM01_678888_20250101_交付版';
+    fs.writeFileSync(filledFile(templateId), SEEDED_FILLED, 'utf8');
+    const sub = await app.inject({
+      method: 'POST',
+      url: '/review-requests',
+      headers: asUser('editor1', 'editor'),
+      payload: { templateId, html: '<p>x</p>', css: '.x{}', cssBaseline: '.x{}', origin: 'edit' },
+    });
+    expect(sub.statusCode).toBe(200);
+    const reqId = sub.json().id;
+    expect(fs.readFileSync(path.join(tmp, 'reviews', reqId, 'baseline.css'), 'utf8')).toBe('.x{}');
+    const got = await app.inject({
+      method: 'GET',
+      url: `/review-requests/${reqId}`,
+      headers: asUser('approver1', 'approver'),
+    });
+    expect(got.statusCode).toBe(200);
+    expect(got.json()).not.toHaveProperty('cssBaseline');
+    expect(got.json().css).toBe('.x{}');
+  });
+
   it('POST approve: 決定済みの申請は 409', async () => {
     const sub = await submit(
       asUser('editor1', 'editor'),
