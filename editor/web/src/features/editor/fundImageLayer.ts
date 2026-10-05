@@ -11,12 +11,22 @@
 // 補助。ただし配信は `no-store` なので、canvas 側の取得は先読みとは別のリクエストになりうり、
 // 先読みが済んだ時点で canvas の画像が描画済みとは限らない。そこで本命として canvas の body を
 // `ResizeObserver` で見張り、画像が描画されて大きさが変わったところで測り直す。
+//
+// テンプレの CSS の `url()`(フォント・背景画像)も同じ理由で canvas では解けないので、
+// `canvasCssAssets.ts` が作る複製を、もう 1 枚の canvas 専用 `<style>` に置く。こちらは head では
+// なく body の末尾に置く: GrapesJS は CSS 規則の入れ物を body の中(本文の後ろ)に置くので、
+// head に置くと同じ `@font-face`・同じセレクタの規則に負ける。走査のたびに末尾にあるかを確かめ、
+// 後ろに要素が足されていたら末尾へ戻す。
 
 import type { Editor } from 'grapesjs';
+import { canvasCssAssetCopy } from './canvasCssAssets';
 import { type FundImageContext, fundImageCss, needsFundImageWarning } from './fundImages';
 
 /** canvas の head に置く差し替え用 `<style>` の目印。 */
 export const FUND_IMAGE_STYLE_ATTR = 'data-fund-images';
+
+/** canvas の body 末尾に置く、CSS の url() 規則の複製用 `<style>` の目印。 */
+export const CANVAS_CSS_ASSET_ATTR = 'data-canvas-css-assets';
 
 /** このモジュールが editor に求める面(テストで最小の偽物を渡せるよう絞る)。 */
 export type FundImageHost = Pick<Editor, 'on' | 'Canvas'>;
@@ -44,6 +54,8 @@ export interface FundImageLayerOptions {
 export interface FundImageLayer {
   /** canvas を走査して規則と警告を作り直す。 */
   refresh(): void;
+  /** テンプレの CSS を受け取り、url() 規則の複製を作り直す(canvas の CSS を入れ替えるたびに呼ぶ)。 */
+  setCss(css: string): void;
   /** body の監視を外し、以後の走査を止める(editor の破棄時。破棄より前に呼ぶ)。 */
   destroy(): void;
 }
@@ -78,6 +90,12 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
    * 予約された走査が後から canvas を読みに行かないよう止める。
    */
   let destroyed = false;
+  /** 現在の CSS の url() 規則の複製と、それを作った入力(同じ入力なら作り直さない)。 */
+  let cssInput = '';
+  let cssCompany: string | null = null;
+  let cssCopy = '';
+  let assetEl: HTMLStyleElement | null = null;
+  let lastAssetCss: string | null = null;
 
   const disconnect = (): void => {
     observer?.disconnect();
@@ -127,15 +145,41 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     return styleEl;
   };
 
+  /** 複製を body の末尾に置く。複製が一度も無いうちは要素を作らない。 */
+  const syncAssetStyle = (doc: Document): void => {
+    const body = doc.body;
+    if (!body) return;
+    if (cssCopy === '' && assetEl === null) return;
+    if (assetEl === null || assetEl.ownerDocument !== doc) {
+      assetEl = doc.createElement('style');
+      assetEl.setAttribute(CANVAS_CSS_ASSET_ATTR, '');
+      lastAssetCss = null;
+    }
+    if (body.lastElementChild !== assetEl) body.appendChild(assetEl);
+    if (cssCopy !== lastAssetCss) {
+      assetEl.textContent = cssCopy;
+      lastAssetCss = cssCopy;
+    }
+  };
+
+  /** 会社コードが変わったときだけ複製を作り直す(走査は高頻度なので CSS の分割を毎回しない)。 */
+  const updateCssCopy = (companyCode: string | null): void => {
+    if (cssInput === '' || companyCode === cssCompany) return;
+    cssCompany = companyCode;
+    cssCopy = canvasCssAssetCopy(cssInput, companyCode);
+  };
+
   const refresh = (): void => {
     if (destroyed) return;
     const doc = host.Canvas.getDocument();
     if (!doc?.head) return;
     const srcs = Array.from(doc.querySelectorAll('img'), (img) => img.getAttribute('src') ?? '');
     const ctx = opts.getContext();
+    updateCssCopy(ctx.companyCode);
     const { css, urls } = fundImageCss(srcs, ctx);
     const el = ensureStyle(doc);
     observeBody(doc);
+    syncAssetStyle(doc);
     // 同じ内容なら書き直さない(書き直すと no-store の画像を取り直して表示がちらつく)。
     if (css !== lastCss) {
       el.textContent = css;
@@ -172,7 +216,14 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     disconnect();
   };
 
-  return { refresh, destroy };
+  const setCss = (css: string): void => {
+    cssInput = css;
+    cssCompany = opts.getContext().companyCode;
+    cssCopy = canvasCssAssetCopy(css, cssCompany);
+    refresh();
+  };
+
+  return { refresh, setCss, destroy };
 }
 
 /** GrapesJS の image view の、ここで使う面だけ。 */

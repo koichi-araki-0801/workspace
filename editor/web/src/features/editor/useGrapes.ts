@@ -759,6 +759,9 @@ export function useGrapes() {
       quietParse = false;
     }
     ed.setStyle(css);
+    // テンプレの CSS の url()(フォント・背景画像)は canvas では解けないので、配信 URL へ直した
+    // 複製を canvas 専用の `<style>` に置く(`canvasCssAssets.ts`)。保存内容(getCss)には載らない。
+    fundImages?.setCss(css);
     // setComponents/setStyle 直後は iframe DOM が未描画で、`component:add` の `fireChange`
     // から走る `recomputePages` が `.page` を拾えず `[body]` フォールバック(`pageCount=1`)に
     // 落ちる。その結果ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に

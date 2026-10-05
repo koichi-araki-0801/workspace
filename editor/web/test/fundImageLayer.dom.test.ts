@@ -10,6 +10,7 @@ import type { Component } from 'grapesjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   attachFundImages,
+  CANVAS_CSS_ASSET_ATTR,
   FUND_IMAGE_STYLE_ATTR,
   type FundImageHost,
 } from '@/features/editor/fundImageLayer';
@@ -200,6 +201,79 @@ class FakeResizeObserver {
   }
 }
 
+describe('CSS の url() 規則の複製層', () => {
+  const assetStyle = (): Element | null =>
+    document.body.querySelector(`style[${CANVAS_CSS_ASSET_ATTR}]`);
+
+  it('url() を含む規則だけを body の末尾に置き、後ろに要素が足されたら末尾へ戻す', () => {
+    document.body.innerHTML = '<div id="wrapper"></div><div id="css-rules"></div>';
+    const { host, emit } = fakeHost(document);
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningChange: vi.fn(),
+      preload: async () => {},
+      schedule: (cb) => cb(),
+    });
+    layer.setCss('@font-face{font-family:a;src:url(fonts/biz.woff2)}.p{color:red}');
+    expect(assetStyle()?.textContent).toContain('/api/preview-host/css/fonts/biz.woff2');
+    expect(assetStyle()?.textContent).not.toContain('color:red');
+    expect(document.body.lastElementChild).toBe(assetStyle());
+    document.body.appendChild(document.createElement('div'));
+    emit('component:add');
+    expect(document.body.lastElementChild).toBe(assetStyle());
+  });
+
+  it('url() の無い CSS では body に何も足さず、複製が空になれば中身を空にする', () => {
+    const { host } = fakeHost(document);
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningChange: vi.fn(),
+      preload: async () => {},
+      schedule: (cb) => cb(),
+    });
+    layer.setCss('.p{color:red}');
+    expect(assetStyle()).toBeNull();
+    layer.setCss('.p{background:url(../images/510037_bg.svg)}');
+    expect(assetStyle()?.textContent).toContain('/api/fund-assets/images/510037_bg.svg');
+    layer.setCss('.p{color:red}');
+    expect(assetStyle()?.textContent).toBe('');
+  });
+
+  it('canvas の document が作り直されたら複製を新しい body に置き直す', () => {
+    const { host } = fakeHost(document);
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningChange: vi.fn(),
+      preload: async () => {},
+      schedule: (cb) => cb(),
+    });
+    layer.setCss('.p{background:url(../images/510037_bg.svg)}');
+    document.body.innerHTML = '';
+    layer.refresh();
+    expect(assetStyle()?.textContent).toContain('510037_bg.svg');
+  });
+
+  it('会社コードが変わったら、走査のときに会社フォルダの照合をやり直す', () => {
+    const { host } = fakeHost(document);
+    let ctx: FundImageContext = FILLED;
+    const layer = attachFundImages(host, {
+      getContext: () => ctx,
+      onImagesReady: vi.fn(),
+      onWarningChange: vi.fn(),
+      preload: async () => {},
+      schedule: (cb) => cb(),
+    });
+    layer.setCss('.p{background:url(../images/am01/qr.svg)}');
+    expect(assetStyle()?.textContent).toContain('/api/fund-assets/images/am01/qr.svg');
+    ctx = { ...FILLED, companyCode: 'SMTAM' };
+    layer.refresh();
+    expect(assetStyle()?.textContent).toBe('');
+  });
+});
+
 describe('canvas の大きさの変化で測り直す', () => {
   beforeEach(() => {
     FakeResizeObserver.instances = [];
@@ -323,6 +397,19 @@ describe('useGrapes との結合', () => {
     expect(saved).toContain('src="../images/510037_seal.png"');
     expect(saved).not.toContain('fund-assets');
     expect(g.getCss()).not.toContain('fund-assets');
+  });
+
+  it('CSS の url() を直した複製は保存出力(getCss・getBodyHtml)に載らない', () => {
+    const css =
+      '@font-face{font-family:a;src:url(fonts/biz.woff2)}' +
+      '.page{background:url(../images/510037_bg.svg)}';
+    // 複製は load の中で同期に作る(rAF を待たない)ので、ここで保存出力を読めば足りる。
+    expect(g.load('<div class="page"><p>x</p></div>', css)).toBe(true);
+    expect(g.getCss()).not.toContain('/api/');
+    // jsdom の CSSOM は `@font-face` の記述子を落とすので、原文の参照は背景画像の側で確かめる。
+    expect(g.getCss()).toContain('url("../images/510037_bg.svg")');
+    expect(g.getBodyHtml()).not.toContain(CANVAS_CSS_ASSET_ATTR);
+    expect(g.getBodyHtml()).not.toContain('/api/');
   });
 
   it('代替画像処理は対象の src で止まり、対象外では従来どおり差し替える', () => {

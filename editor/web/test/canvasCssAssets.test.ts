@@ -1,0 +1,95 @@
+// =============================================================================
+// canvasCssAssets.test.ts — 編集画面の canvas 専用に、url() を含む規則を配信 URL へ直した複製
+// =============================================================================
+import { describe, expect, it } from 'vitest';
+import { canvasAssetUrl, canvasCssAssetCopy } from '@/features/editor/canvasCssAssets';
+
+describe('canvasAssetUrl', () => {
+  it('フォントはプレビューホスト、画像は fund-assets の配信 URL にする', () => {
+    expect(canvasAssetUrl('css/fonts/BIZ UD.woff2', null)).toBe(
+      '/api/preview-host/css/fonts/BIZ%20UD.woff2',
+    );
+    expect(canvasAssetUrl('images/510037_bg.svg', null)).toBe(
+      '/api/fund-assets/images/510037_bg.svg',
+    );
+    expect(canvasAssetUrl('images/am01/qr.svg', 'AM01')).toBe(
+      '/api/fund-assets/images/am01/qr.svg',
+    );
+  });
+
+  it.each([
+    ['images/smtam/qr.svg', 'AM01'],
+    ['images/a/b/c.svg', 'AM01'],
+    ['images/x.gif', 'AM01'],
+    ['css/other.css', 'AM01'],
+    ['js/x.js', 'AM01'],
+  ])('%s(会社 %s)は配らない', (rel, company) => {
+    expect(canvasAssetUrl(rel, company)).toBeUndefined();
+  });
+});
+
+describe('canvasCssAssetCopy', () => {
+  it('url() を含む規則だけを、配信 URL へ直して複製する', () => {
+    const css =
+      '@font-face{font-family:biz;src:url(fonts/biz.woff2) format("woff2")}' +
+      '.page{color:red}' +
+      '.logo{background:url(../images/510037_bg.svg) no-repeat}';
+    const out = canvasCssAssetCopy(css, 'AM01');
+    expect(out).toContain(
+      '@font-face{font-family:biz;src:url("/api/preview-host/css/fonts/biz.woff2") format("woff2")}',
+    );
+    expect(out).toContain(
+      '.logo{background:url("/api/fund-assets/images/510037_bg.svg") no-repeat}',
+    );
+    expect(out).not.toContain('color:red');
+  });
+
+  it('at-rule の中の規則は前置きで包み直す', () => {
+    const out = canvasCssAssetCopy('@media print{.a{background:url(../images/a.svg)}}', null);
+    expect(out).toBe('@media print{.a{background:url("/api/fund-assets/images/a.svg")}}');
+  });
+
+  it('配らない参照だけの規則・data: やルート外の参照は複製しない', () => {
+    const css =
+      '.x{background:url(../images/smtam/q.svg)}' +
+      '.y{background:url(data:image/png;base64,AA)}' +
+      '.z{background:url(../../x.png)}';
+    expect(canvasCssAssetCopy(css, 'AM01')).toBe('');
+  });
+
+  it('url() の無い CSS は空', () => {
+    expect(canvasCssAssetCopy('.a{color:red}', null)).toBe('');
+    expect(canvasCssAssetCopy('', null)).toBe('');
+  });
+
+  it('日本語のファイル名は区切りごとに 1 回だけ percent-encode する(既に %XX でも二重にしない)', () => {
+    const font = '/api/preview-host/css/fonts/%E6%98%8E%E6%9C%9D.woff2';
+    const img = '/api/fund-assets/images/am01/%E8%83%8C%E6%99%AF.svg';
+    const raw =
+      '@font-face{font-family:m;src:url(fonts/明朝.woff2)}' +
+      '.a{background:url("../images/AM01/背景.svg")}';
+    const raw2 = canvasCssAssetCopy(raw, 'AM01');
+    expect(raw2).toContain(`url("${font}")`);
+    expect(raw2).toContain('url("/api/fund-assets/images/AM01/%E8%83%8C%E6%99%AF.svg")');
+    const escaped =
+      '@font-face{font-family:m;src:url(fonts/%E6%98%8E%E6%9C%9D.woff2)}' +
+      '.a{background:url(../images/am01/%E8%83%8C%E6%99%AF.svg)}';
+    const out = canvasCssAssetCopy(escaped, 'AM01');
+    expect(out).toContain(`url("${font}")`);
+    expect(out).toContain(`url("${img}")`);
+    expect(out).not.toContain('%25');
+  });
+
+  it('先頭に BOM があり改行が CRLF の CSS でも、最初の url() 規則を複製する', () => {
+    const css =
+      '﻿@font-face {\r\n  font-family: biz;\r\n  src: url(fonts/biz.woff2);\r\n}\r\n' +
+      '.p {\r\n  color: red;\r\n}\r\n' +
+      '.logo {\r\n  background: url(../images/510037_bg.svg);\r\n}\r\n';
+    const out = canvasCssAssetCopy(css, null);
+    expect(out).toContain('url("/api/preview-host/css/fonts/biz.woff2")');
+    expect(out).toContain('url("/api/fund-assets/images/510037_bg.svg")');
+    expect(out).not.toContain('color: red');
+    expect(out.startsWith('@font-face')).toBe(true);
+    expect(out.match(/url\(/g)).toHaveLength(2);
+  });
+});
