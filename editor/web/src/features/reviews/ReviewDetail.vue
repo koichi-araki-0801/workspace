@@ -347,6 +347,7 @@ onMounted(async () => {
       <!-- 技術的警告 4 種(truncated / printOnlyCss / cssChanged / 行打ち切り)は 1 行へ集約。 -->
       <ReviewNoticeBar
         :css-changed="cssChanged"
+        :shared-across-base-dates="review?.origin === 'edit'"
         :css-before="cssBefore"
         :css-after="cssAfter"
         :print-only-css="printOnlyCss"

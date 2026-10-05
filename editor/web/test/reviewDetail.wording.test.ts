@@ -23,6 +23,7 @@ describe('ReviewDetail の構成', () => {
   it('通知バー・見た目比較・却下を組み込み、保留を持たない', () => {
     expect(view).toContain('ReviewNoticeBar');
     expect(view).toContain('ReviewVisualCompare');
+    expect(view).toContain(`:shared-across-base-dates="review?.origin === 'edit'"`);
     expect(view).toContain('却下する');
     expect(view).not.toContain('保留');
     expect(view).not.toContain('held');
