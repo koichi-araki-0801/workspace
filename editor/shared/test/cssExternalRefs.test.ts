@@ -7,6 +7,7 @@
 // **報告されること**の主張に置き、正常系は誤検知しないことの回帰に絞る。
 import { describe, expect, it } from 'vitest';
 import {
+  collectCssStructure,
   collectCssUrlCandidates,
   collectCssUrlSpansInContext,
   findExternalRefsInCss,
@@ -127,5 +128,35 @@ describe('collectCssUrlSpansInContext は入力サイズに対して線形', () 
     expect([a?.inFontFaceSrc, b?.inFontFaceSrc]).toEqual([true, true]);
     const spans = collectCssUrlSpansInContext('@font-face{src:url(#a);x:url(#c)}');
     expect(spans.map((x) => x.inFontFaceSrc)).toEqual([true, false]);
+  });
+});
+
+describe('collectCssStructure — 規則分割のための構造(検査と同じ走査器)', () => {
+  it('コメント・文字列の中の括弧は拾わず、位置と at-rule 名を返す', () => {
+    const css = '/* x */@media a{.b{c:"{"}}';
+    const s = collectCssStructure(css);
+    expect(s.comments).toEqual([{ start: 0, end: 7 }]);
+    expect([...s.atRules]).toEqual([[7, 'media']]);
+    expect(s.punct).toEqual([
+      { ch: '{', at: 15 },
+      { ch: '{', at: 18 },
+      { ch: '}', at: 24 },
+      { ch: '}', at: 25 },
+    ]);
+  });
+
+  it('url() の中の括弧と ; は拾わない', () => {
+    expect(collectCssStructure('.a{background:url(x{;}.png)}').punct).toEqual([
+      { ch: '{', at: 2 },
+      { ch: '}', at: 27 },
+    ]);
+  });
+
+  it('閉じていないコメントは末尾まで', () => {
+    expect(collectCssStructure('.a{}/* x').comments).toEqual([{ start: 4, end: 8 }]);
+  });
+
+  it('エスケープした at-rule 名は解決して返す', () => {
+    expect([...collectCssStructure('@\\6d edia x{}').atRules]).toEqual([[0, 'media']]);
   });
 });

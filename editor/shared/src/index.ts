@@ -241,6 +241,8 @@ export type BuildMergeRequest = z.infer<typeof sch.BuildMergeRequest>;
 
 // REST エンドポイントパスの単一正典(server/web/OpenAPI が共有)。
 export * from './api-paths.js';
+// CSS の規則分割と 3 者比較(ペア同期の CSS 転写)。
+export * from './css/cssRules.js';
 export * from './domain/history.js';
 // 承認ワークフローの純関数(メタ抽出)。
 export * from './domain/review.js';

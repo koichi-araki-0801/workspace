@@ -353,14 +353,52 @@ export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] 
   return found;
 }
 
-/** `findExternalRefsInCss` / `collectCssUrlCandidates` / `collectCssUrlSpans` が共有する 1 パス走査。 */
+/** `collectCssStructure` の結果。位置はすべて原文のオフセット。 */
+export interface CssStructure {
+  /** コメント・文字列・`url()` の外にある `{` `}` `;`(出現順)。 */
+  punct: Array<{ ch: '{' | '}' | ';'; at: number }>;
+  /** コメントの範囲 `[start, end)`(出現順)。 */
+  comments: Array<{ start: number; end: number }>;
+  /** at-rule の `@` の位置 → エスケープ解決後の名前。 */
+  atRules: Map<number, string>;
+}
+
+/**
+ * CSS を規則へ分けるための構造を返す(用途は `css/cssRules.ts` のペア同期)。検査と同じ走査器を
+ * 使うのが要点で、別の正規表現で括弧を数えると、文字列やコメントに入った `{` `}` で検査と
+ * 分割の解釈が割れる。
+ */
+export function collectCssStructure(css: string): CssStructure {
+  const out: CssStructure = { punct: [], comments: [], atRules: new Map() };
+  walkCss(css, {
+    atRule: (name, at) => {
+      out.atRules.set(at, name);
+    },
+    value: () => undefined,
+    punct: (ch, at) => {
+      out.punct.push({ ch, at });
+    },
+    comment: (start, end) => {
+      out.comments.push({ start, end });
+    },
+  });
+  return out;
+}
+
+/**
+ * `findExternalRefsInCss` / `collectCssUrlCandidates` / `collectCssUrlSpans` /
+ * `collectCssStructure` が共有する 1 パス走査。
+ */
 function walkCss(
   css: string,
   visit: {
-    atRule: (name: string) => void;
+    /** `at` は `@` の位置。 */
+    atRule: (name: string, at: number) => void;
     value: (value: string, kind: 'url' | 'string', span?: { start: number; end: number }) => void;
     /** コメント・文字列・`url()` の外にある `{` `}` `;` の位置。ブロックの範囲を取るために使う。 */
     punct?: (ch: '{' | '}' | ';', at: number) => void;
+    /** コメントの範囲 `[start, end)`。閉じていないコメントは末尾まで。 */
+    comment?: (start: number, end: number) => void;
   },
 ): void {
   let i = 0;
@@ -368,7 +406,9 @@ function walkCss(
     const c = css[i];
     if (c === '/' && css[i + 1] === '*') {
       const end = css.indexOf('*/', i + 2);
-      i = end === -1 ? css.length : end + 2;
+      const next = end === -1 ? css.length : end + 2;
+      visit.comment?.(i, next);
+      i = next;
       continue;
     }
     if (c === '"' || c === "'") {
@@ -379,7 +419,7 @@ function walkCss(
     }
     if (c === '@') {
       const id = readIdent(css, i + 1);
-      if (id.next > i + 1) visit.atRule(id.value);
+      if (id.next > i + 1) visit.atRule(id.value, i);
       i = id.next > i + 1 ? id.next : i + 1;
       continue;
     }
