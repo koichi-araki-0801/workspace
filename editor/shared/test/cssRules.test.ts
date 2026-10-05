@@ -655,6 +655,16 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
     });
   });
 
+  it('ペア側が原文より少ない出現にまとめていれば、baseline の出現ではなく本文で比べて当てる', () => {
+    const r = mergeCssRuleChangesFromBaseline(
+      '.a{color:red}\n.b{}\n.a{margin:0}',
+      '.a{color:red;}.b{}.a{margin:0;}',
+      '.a{color:red;}.b{}',
+      '.a{color:red;margin:0}\n.b{}',
+    );
+    expect(r).toEqual({ css: '.a{color:red;}\n.b{}', applied: [k('.a')], conflicts: [] });
+  });
+
   it('宣言が空や無効の重複は対応づけから外し、前からそろえて当てる', () => {
     for (const empty of ['.a{}', '.a{garbage}', '.a{ ; }']) {
       const raw = `${empty}\n.b{color:green}\n.a{color:red}\n`;

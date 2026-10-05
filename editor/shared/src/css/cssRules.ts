@@ -413,6 +413,10 @@ function isValidDecl(decl: string): boolean {
  * 効く宣言を 1 つも持たない出現(`.a{}` や宣言が無効なもの)か。GrapesJS はこの形の規則を
  * `getCss` に出さないので、next の出現と対応づけるときに外す。入れ子のブロックを持つ規則と
  * ブロックを持たない文は空とみなさない。
+ *
+ * 残差: プロパティ名の知識が無いので、未知のプロパティ(`.a{foo:bar}`)も効く宣言として数える。
+ * GrapesJS がその出現を `getCss` に出さなくても対応から外せないので、その重複を空にする編集は
+ * 出現の対応が取れず、最後の出現への 1 本の畳み込みに落ちる。
  */
 function isEmptyOccurrence(rule: ScannedRule): boolean {
   return rule.decls !== undefined && !rule.decls.some(isValidDecl);
@@ -425,8 +429,9 @@ function isEmptyOccurrence(rule: ScannedRule): boolean {
  *
  * - 出現数が next と同じなら出現ごとに置き換える。
  * - target(と `from`)より next が少なければ、前からそろえ、next に無い末尾の出現を消す。
- * - 本文が next と同じ出現と、`from` の同じ出現から変わっていない出現には触らない(間にある別の
- *   規則とのカスケードと、ペア側の書き方を保つ)。空の出現にも触らない。
+ * - 本文が next と同じ出現には触らない。`from` とペア側の出現数が同じときは、`from` の同じ
+ *   出現から変わっていない出現にも触らない(間にある別の規則とのカスケードと、ペア側の書き方を
+ *   保つ)。空の出現にも触らない。
  * - それでも対応が取れない形のときだけ、最後の出現の位置に畳んだ 1 本を置き、ほかの出現を消す。
  */
 function replacementOf(target: string, fr: MergeRule, nr: MergeRule, tr: MergeRule): Edit[] {
@@ -438,7 +443,8 @@ function replacementOf(target: string, fr: MergeRule, nr: MergeRule, tr: MergeRu
       p === tr.parts.at(-1) ? { start: p.start, end: p.end, text: nr.text } : removalOf(target, p),
     );
   }
-  const fromAligned = fr.parts.length >= n;
+  // baseline との比較で「触らない」を決めるのは、baseline とペア側の出現の形が同じときだけ。
+  const fromAligned = fr.parts.length === live.length;
   return live.flatMap((p, i): Edit[] => {
     if (i >= n) return [removalOf(target, p)];
     const next = nr.parts[i].text;
