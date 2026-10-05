@@ -160,6 +160,10 @@ function confirmedSkeleton(
   );
 }
 
+/** local の Rep1 委託会社コード(略称 → コード)。検証用 DB(`Rep1_検証用.sql`)と同じ対応。 */
+const LOCAL_REP1_COMPANY_CODES: Readonly<Record<string, string>> = { AM01: '0001' };
+const rep1CodeOf = (abbr: string) => LOCAL_REP1_COMPANY_CODES[abbr] ?? abbr;
+
 /** 編集タブ・比較・結合が扱うのは値入り HTML(基準日あり)だけ。テンプレートは作成タブで開く。 */
 const filledMetas = () => allMetas().filter((m) => m.attributes.baseDate !== undefined);
 
@@ -224,11 +228,14 @@ export const localTemplateRepo: TemplateRepository = {
     attempt(() => {
       const byCode = new Map<string, string>();
       for (const f of Object.values(fundMaster)) byCode.set(f.company.code, f.company.name);
-      // local では Rep1 のコードと略称(ファイル名の会社コード)を同じ値にする。
       return delay(
         [...byCode.entries()]
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([code, name]) => ({ companyCode: code, companyName: name, rep1CompanyCode: code })),
+          .map(([code, name]) => ({
+            companyCode: code,
+            companyName: name,
+            rep1CompanyCode: rep1CodeOf(code),
+          })),
       );
     }),
 
@@ -236,7 +243,9 @@ export const localTemplateRepo: TemplateRepository = {
     attempt(() =>
       delay(
         Object.entries(fundMaster)
-          .filter(([, f]) => f.company.code.toLowerCase() === rep1CompanyCode.toLowerCase())
+          .filter(
+            ([, f]) => rep1CodeOf(f.company.code).toLowerCase() === rep1CompanyCode.toLowerCase(),
+          )
           .map(([fundCode, f]) => ({ fundCode, fundName: f.name }))
           .sort((a, b) => a.fundCode.localeCompare(b.fundCode)),
       ),

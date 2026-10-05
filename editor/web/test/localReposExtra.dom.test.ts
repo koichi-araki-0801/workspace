@@ -287,12 +287,15 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
 
   it('listCompanies / listFunds / getCreatableInfo は fixtures から作る', async () => {
     const companies = await localTemplateRepo.listCompanies();
+    // 略称(ファイル名の会社コード)と Rep1 の委託会社コードは別の値(検証用 DB と同じ対応)。
     expect(isOk(companies) && companies.value[0]).toMatchObject({
       companyCode: 'AM01',
-      rep1CompanyCode: 'AM01',
+      rep1CompanyCode: '0001',
     });
-    const funds = await localTemplateRepo.listFunds('AM01');
+    const funds = await localTemplateRepo.listFunds('0001');
     expect(isOk(funds) && funds.value.map((f) => f.fundCode)).toContain('510037');
+    const byAbbr = await localTemplateRepo.listFunds('AM01');
+    expect(isOk(byAbbr) && byAbbr.value).toEqual([]);
     const info = await localTemplateRepo.getCreatableInfo({
       companyCode: 'AM01',
       rep1CompanyCode: 'AM01',
