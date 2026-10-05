@@ -23,6 +23,11 @@ interface ExtractedProject {
    * (ファイルパスは渡さない)。config 同梱が無ければ undefined でクエリ `?entry=` 経路。
    */
   config?: SafeProjectConfig;
+  /**
+   * CLI へ渡す `cwd`。config の置き場(入れ子のフォルダに置いた zip ではそのフォルダ)で、
+   * config 内の相対パスはここを基準に検証済み。config が無ければ `dir`。
+   */
+  cwd: string;
   /** 書き出したファイル数。 */
   fileCount: number;
   /**
@@ -466,9 +471,13 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
     if (configPaths.length > 1) {
       throw validation('vivliostyle.config.json が複数あります。1 つにしてください');
     }
+    // config 内の相対パスは CLI が `cwd` 基準で解くので、検証も CLI へ渡す `cwd` と同じ
+    // config の置き場を基準にする。展開ルートで検証して `cwd` も展開ルートにすると、
+    // `proj/` に置いた config の `"theme":"style.css"` が `proj/style.css` に届かない。
+    const cwd = configPaths.length === 1 ? path.dirname(configPaths[0]) : dir;
     const parsed =
       configPaths.length === 1
-        ? parseProjectConfig(await fs.readFile(configPaths[0], 'utf8'), dir)
+        ? parseProjectConfig(await fs.readFile(configPaths[0], 'utf8'), cwd)
         : undefined;
     // ⚠ zip 経路には `docAssets.stageDocAssets` を**掛けない**(コードを読んで確認した
     // 上での判断)。zip は外部クライアントが送ってくる自己完結のプロジェクトで、CSS も
@@ -487,7 +496,7 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
     // build 入口の `assertNoDocumentExternalRefs` では掴まらず、展開直後が唯一の関所になる
     // (build も project プレビューもこのディレクトリを見る)。
     await assertProjectDirHasNoExternalRefs(dir);
-    return { dir, config: parsed, fileCount, docBase: parsed?.base ?? DEFAULT_DOC_BASE };
+    return { dir, config: parsed, cwd, fileCount, docBase: parsed?.base ?? DEFAULT_DOC_BASE };
   } catch (e) {
     // 中途展開のディレクトリを決して漏らさない(例: zip-slip エントリ拒否時)。
     await cleanupProject(dir);

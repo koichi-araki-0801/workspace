@@ -99,8 +99,9 @@ function assertText(value: unknown, label: string): string {
 /**
  * config 内の相対パスを検証する。**返すのは原文**で、絶対化しない — 絶対化すると
  * `entryContext` との二重解決になり、我々の解釈と CLI の解釈が分岐する。
- * 検証は展開ルート基準で行う。`entryContext` が設定されていても CLI の解決先は
- * `root/<entryContext>/<value>` で、ルート基準より必ず深いので、この検査で漏れは出ない。
+ * 検証は `root`(CLI へ渡す `cwd` = config の置き場)基準で行う。`entryContext` が設定されて
+ * いても CLI の解決先は `root/<entryContext>/<value>` で、`root` 基準より必ず深いので、
+ * この検査で漏れは出ない。
  */
 function assertContainedPath(root: string, value: unknown, label: string): string {
   const text = assertText(value, label);
@@ -226,7 +227,8 @@ const defaultIsFile = (p: string): boolean => {
 
 /**
  * config テキストを検証済みオブジェクトへ作り直す。失敗はすべて `validation`(400)。
- * `root` は展開ルート(封じ込めの基準)、`isFile` はテストから差し替えるための実在判定。
+ * `root` は CLI へ渡す `cwd`(config の置き場。封じ込めと相対パス解決の基準)、`isFile` は
+ * テストから差し替えるための実在判定。
  */
 export function parseProjectConfig(
   text: string,

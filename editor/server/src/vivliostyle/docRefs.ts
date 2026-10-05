@@ -22,6 +22,23 @@ import { scanTags } from './inlineCss.js';
 /** CSS 内の相対参照を辿る段数。`css/x.css` → `css/fonts/y.woff2` の 1 段で足りるが余裕を持つ。 */
 export const MAX_ASSET_REF_DEPTH = 3;
 
+/** 1 つの値へ複数の URL を詰める属性(`url 1x, url 2x` の形)。 */
+const MULTI_URL_ATTRS = new Set(['srcset', 'imagesrcset']);
+
+/**
+ * 属性値から参照の候補を並べる。`srcset` 系はカンマで候補に分け、各候補の先頭(URL)だけを
+ * 取る(後ろの `1x` / `480w` は記述子)。値そのものも候補に残すのは、web 側
+ * (`web/src/lib/pdfDocument.ts`)が値そのものも照合しているためで、拾いすぎても害は無い。
+ */
+function attrRefCandidates(name: string, value: string): string[] {
+  if (!MULTI_URL_ATTRS.has(name)) return [value];
+  const urls = value
+    .split(',')
+    .map((part) => part.trim().split(/\s+/)[0] ?? '')
+    .filter((u) => u !== '');
+  return [value, ...urls];
+}
+
 /** CSS 1 枚が参照する論理ルート相対パスを `out` へ積む。`from` は CSS の置き場(文書なら `DOC_DIR`)。 */
 function addCssRefs(css: string, from: string, out: Set<string>): void {
   for (const candidate of collectCssUrlCandidates(css)) {
@@ -55,8 +72,10 @@ export function collectDocumentAssetRefs(html: string, css: string): Set<string>
         addCssRefs(a.value, DOC_DIR, refs);
         continue;
       }
-      const rel = resolveDocAssetPath(a.value, DOC_DIR);
-      if (rel !== undefined) refs.add(rel);
+      for (const candidate of attrRefCandidates(a.name, a.value)) {
+        const rel = resolveDocAssetPath(candidate, DOC_DIR);
+        if (rel !== undefined) refs.add(rel);
+      }
     }
   }
   return refs;

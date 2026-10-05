@@ -111,7 +111,10 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     apiPaths.buildProject,
     { preHandler: [requireAuth, requireEditor] },
     async (request, reply) => {
-      const zip = request.body;
+      const zip: unknown = request.body;
+      // zip 以外の content-type(JSON・本文なし)では `request.body` が Buffer にならない。
+      // 展開へ渡すと型の前提が崩れて 500 になるので、`POST /preview` と同じく入力エラーにする。
+      if (!Buffer.isBuffer(zip)) throw validation('プロジェクト zip を送ってください');
       // ⚠ zip の展開は**枠を取ってから**行う(`withBuildSlot` の内側)。枠の外で展開していた
       // 版は、順番待ちのあいだずっと展開済みディレクトリを握ったので、行列の長さがそのまま
       // ディスク消費だった(inline / merge の資源確保を枠の内側へ寄せたのと同じ理由)。
@@ -128,6 +131,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
               buildProjectInSlot(
                 {
                   dir: project.dir,
+                  cwd: project.cwd,
                   config: project.config,
                   entry: opts.entry,
                   size: opts.size,
@@ -206,7 +210,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
           {
             mode: 'project',
             config: project.config,
-            cwd: project.dir,
+            cwd: project.cwd,
             input: opts.entry,
             size: opts.size,
             // config があるときは singleDoc を渡さない(理由は build.ts の `buildProjectInSlot`)。

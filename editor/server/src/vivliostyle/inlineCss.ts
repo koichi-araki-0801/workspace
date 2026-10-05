@@ -378,6 +378,13 @@ export interface InlineCssOptions {
    * (= 資産配置を入れる前と同じ挙動)。
    */
   servedAssets?: ReadonlySet<string>;
+  /**
+   * stylesheet の `<link>` を落とすか(`stripUnresolvableRefTags` の `hasInlineCss`)。省略時は
+   * 「`css` が空でない」。決め手は**リクエストが `css` を持つか**なので、サーバ側で `css` へ
+   * 定数を足して渡す呼び出し(結合の通しページ番号)は、足す前の `css` で決めてここへ渡す。
+   * 足した後の値で決めると、リクエストの `css` が空でも同梱 CSS の `<link>` が落ちる。
+   */
+  dropStylesheetLinks?: boolean;
 }
 
 /** CSS 文字列を HTML ドキュメントへインライン展開する(head / body / 完全ラッパ)。 */
@@ -391,7 +398,12 @@ export function inlineCss(html: string, css: string, opts: InlineCssOptions = {}
     // アンカー探索も部分除去も要らず、誤った位置へ差し込む余地が無い。
     return styleTag ? `<!doctype html>\n${styleTag}\n${html}` : html;
   }
-  const cleaned = stripUnresolvableRefTags(html, first.tags, served, styleTag !== '');
+  const cleaned = stripUnresolvableRefTags(
+    html,
+    first.tags,
+    served,
+    opts.dropStylesheetLinks ?? styleTag !== '',
+  );
   if (!styleTag) return cleaned;
 
   // 除去でオフセットが動くので、挿入位置は掃除後の文字列から取り直す。

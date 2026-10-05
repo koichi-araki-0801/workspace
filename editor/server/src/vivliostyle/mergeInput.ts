@@ -102,7 +102,13 @@ export async function materializeMergeProject(
       // `inlineDocScripts.ts` 冒頭)。結合 PDF だけ JS が効かない、という差を作らない。
       await fs.writeFile(
         path.join(dir, ...name.split('/')),
-        await inlineDocScripts(inlineCss(doc.html, css, { servedAssets: served }), dir, served),
+        await inlineDocScripts(
+          // stylesheet の `<link>` を落とすかはリクエストの `css` で決める(足した
+          // `MERGE_PAGE_COUNTER_CSS` で決めると、`css` が空のリクエストでも落ちる)。
+          inlineCss(doc.html, css, { servedAssets: served, dropStylesheetLinks: doc.css !== '' }),
+          dir,
+          served,
+        ),
         'utf8',
       );
       entries.push(name);

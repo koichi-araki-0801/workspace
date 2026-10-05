@@ -211,6 +211,14 @@ describe('vivliostyle build/preview の HTTP 契約', () => {
     }
   });
 
+  it.each([
+    ['JSON 本文', { payload: { html: '<p>x</p>', css: '' } }],
+    ['本文なし', { payload: undefined }],
+  ])('POST /build/project: zip でない本文(%s)は 400', async (_label, { payload }) => {
+    const res = await app.inject({ method: 'POST', url: '/build/project', payload });
+    expect(res.statusCode).toBe(400);
+  });
+
   // `previewManager.list(actor)` は `PreviewSessionMeta[]`(`{ id, mode, createdAt, expiresAt,
   // url }`)を返す(`previewManager.ts:210-214`)。mock がそれと違う形(id 文字列の配列など)を
   // 返すと、ルートが実際に mock の戻りをそのまま JSON へ流しているかを検査できない

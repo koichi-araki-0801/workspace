@@ -39,6 +39,24 @@ describe('collectDocumentAssetRefs — 取得系属性', () => {
     expect(refs('<link href="../../css/A_1_交付版.css">')).toEqual([]);
   });
 
+  it('srcset 系は候補ごとに分けて記述子を外して拾う', () => {
+    expect(
+      refs(
+        '<img srcset="../images/a.png 1x, ../images/b.png 2x">' +
+          '<picture><source srcset="../images/c.png 480w,../images/d.png"></picture>' +
+          '<link rel="preload" as="image" imagesrcset="../images/e.png 1x">',
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        'images/a.png',
+        'images/b.png',
+        'images/c.png',
+        'images/d.png',
+        'images/e.png',
+      ]),
+    );
+  });
+
   it('文書直下基準(css/… images/…)は資産として拾わない(doc/ 配下を指す = 規約外)', () => {
     expect(refs('<link href="css/x.css"><img src="images/a.svg">')).toEqual([]);
   });

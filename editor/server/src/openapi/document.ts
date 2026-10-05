@@ -30,6 +30,8 @@ const err = (description: string) => json(description, s.AppError);
 const ERR_400 = { '400': err('リクエスト検証エラー (kind=validation)') };
 const ERR_401 = { '401': err('未認証 (kind=unauthorized)') };
 const ERR_403 = { '403': err('権限不足 (admin 限定など)') };
+/** `requireEditor`(編集者以上)で守るルートの 403。`viewer` ロールはここで落ちる。 */
+const ERR_403_EDITOR = { '403': err('編集者権限が必要 (viewer は不可。kind=forbidden)') };
 const ERR_404 = { '404': err('対象が存在しない (kind=not_found)') };
 const ERR_409 = { '409': err('競合 (kind=conflict)') };
 const ERR_500 = { '500': err('サーバ内部エラー (kind=unexpected)') };
@@ -89,7 +91,7 @@ const PROJECT_ZIP_CONTRACT = [
  * (`security/externalRefs.ts`)を通るので文面を共有し、`css` の解釈規則だけ経路ごとに差し替える。外部クライアントはまだ存在せず、
  * **ここに書いたものがそのまま本番の契約になる**。
  */
-function externalRefContract(requestCssRule: string): string {
+function externalRefContract(requestCssRule: string, scriptRule: string): string {
   return [
     '\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ',
     'ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。',
@@ -116,10 +118,10 @@ function externalRefContract(requestCssRule: string): string {
     '違反が 1 件でも PDF は生成されない。',
     'また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は',
     '`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。',
-    '\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは ',
-    '**body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして ',
-    'script をビューアの window へ作り直すため、`<script src="../js/x.js">` は相対 URL の解決基準が',
-    'ずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。',
+    '\n\n**文書内の JavaScript**: 組版時に実行される。組版エンジンは文書を再パースして ',
+    'script をビューアの window へ作り直すため、`<head>` で `DOMContentLoaded` に登録した処理は',
+    '発火しない(実測。処理は body 末尾に置くこと)。',
+    scriptRule,
     'なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ',
     '中継される(それ以外は宛先が loopback でも 502 で落ちる)。',
     'ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)は',
@@ -137,8 +139,22 @@ const REQUEST_CSS_RULE =
 /** zip 経路には `css` フィールドが無い。CSS ファイルは zip 内の位置が解決の基準になる。 */
 const ZIP_CSS_RULE = '展開した CSS ファイルは置かれた位置を基準に相対参照を解決する。';
 
-const EXTERNAL_REF_CONTRACT = externalRefContract(`リクエストの ${REQUEST_CSS_RULE}`);
-const EXTERNAL_REF_CONTRACT_ZIP = externalRefContract(ZIP_CSS_RULE);
+/**
+ * 外部 JS(`<script src>`)の扱い。inline / merge はサーバが同梱した実体をインライン展開して
+ * から組版へ渡す(`vivliostyle/inlineDocScripts.ts`)。zip 経路は展開しない。
+ */
+const REQUEST_SCRIPT_RULE =
+  '`<script src="../js/x.js">` は、サーバが同梱した実体の中身をその位置へ**インライン展開**して' +
+  'から組版へ渡すので実行される(そのままでは相対 URL の解決基準がずれて 404 になるため)。' +
+  '同梱の実体が無い参照は要素ごと落ち、2MB を超えるファイルは展開されず 404 で実行されない。';
+const ZIP_SCRIPT_RULE =
+  '実行されるのは HTML に直接書いたインライン `<script>` だけである。zip へ `.js` は同梱できず、' +
+  '`<script src>` は相対 URL の解決基準がずれて 404 になる(サーバはインライン展開しない)。';
+const EXTERNAL_REF_CONTRACT = externalRefContract(
+  `リクエストの ${REQUEST_CSS_RULE}`,
+  REQUEST_SCRIPT_RULE,
+);
+const EXTERNAL_REF_CONTRACT_ZIP = externalRefContract(ZIP_CSS_RULE, ZIP_SCRIPT_RULE);
 
 export function buildOpenApiDocument() {
   return createDocument({
@@ -718,6 +734,7 @@ export function buildOpenApiDocument() {
             },
             ...ERR_400,
             ...ERR_401,
+            ...ERR_403_EDITOR,
             '413': err('プロジェクトが大きすぎる (kind=validation)'),
             ...ERR_500,
           },
@@ -768,6 +785,8 @@ export function buildOpenApiDocument() {
             '201': json('起動したセッション', s.PreviewSession),
             ...ERR_400,
             ...ERR_401,
+            ...ERR_403_EDITOR,
+            '413': err('プロジェクト zip が大きすぎる (zip 経路のみ。kind=validation)'),
             ...ERR_500,
           },
         },
@@ -787,7 +806,12 @@ export function buildOpenApiDocument() {
           operationId: 'stopPreview',
           description: '他人が作成したセッションは 404(停止も作業ディレクトリ削除も起きない)。',
           requestParams: { path: z.object({ id: z.string() }) },
-          responses: { '204': noContent('停止完了'), ...ERR_401, ...ERR_404 },
+          responses: {
+            '204': noContent('停止完了'),
+            ...ERR_401,
+            ...ERR_403_EDITOR,
+            ...ERR_404,
+          },
         },
       },
       [`${toOpenApiPath(apiPaths.previewById)}/{path}`]: {
@@ -857,8 +881,11 @@ export function buildOpenApiDocument() {
             '200': json('更新後のユーザ', s.User),
             ...ERR_400,
             ...ERR_401,
-            ...ERR_403,
+            '403': err(
+              '権限不足 (admin 限定)、または自分自身のロール変更・無効化 (code=USER_SELF_CHANGE)',
+            ),
             ...ERR_404,
+            '409': err('有効な admin が 0 人になる変更 (code=LAST_ADMIN)'),
           },
         },
       },

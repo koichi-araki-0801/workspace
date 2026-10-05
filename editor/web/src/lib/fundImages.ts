@@ -108,7 +108,7 @@ const MULTI_URL_ATTRS = new Set(['srcset', 'imagesrcset']);
  * HTML の属性値から、画像参照になりうる URL を並べる(`srcset` 系は候補ごとの URL、ほかは値
  * そのもの)。サーバ(`vivliostyle/docRefs.ts`)は `style` 以外の**全属性**の値を、それぞれ
  * 1 つの参照として文書基準で解いて画像を作業フォルダへ置くので、照合する側も属性を絞らない。
- * `srcset` の候補への分割は web だけが行う(サーバより広く見る = 他社の画像を見逃さない側)。
+ * `srcset` 系はサーバも候補ごとに分けて解き、値そのものも参照として拾う。
  * PDF 文書(`pdfDocument.ts`)は値そのものも照合し、サーバが解く形を取りこぼさない。
  */
 export function attrUrlCandidates(name: string, value: string): string[] {
