@@ -154,4 +154,16 @@ describe('renderPdfDocument', () => {
     expect(PDF_CSS_EXTERNAL_REF_MSG).toContain('../css/');
     expect(PDF_CSS_EXTERNAL_REF_MSG).toContain('../images/');
   });
+  it('会社フォルダが会社コードと合わない画像は style 属性の url() からも落とし、合うものは残す', async () => {
+    const html =
+      '<html><body><div style="background:url(../images/other/s.svg)">a</div>' +
+      '<div style="background:url(../images/smtam/t.svg)">b</div>' +
+      '<div style="background:url(../images/510037_u.svg)">c</div></body></html>';
+    const res = await renderPdfDocument(html, '', {}, { skipJinja: true, companyCode: 'SMTAM' });
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.html).not.toContain('other/s.svg');
+    expect(res.value.html).toContain('url(../images/smtam/t.svg)');
+    expect(res.value.html).toContain('url(../images/510037_u.svg)');
+  });
 });

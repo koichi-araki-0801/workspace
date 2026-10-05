@@ -57,9 +57,10 @@ function findExternalRefsInDom(root: Element): string[] {
 
 /**
  * 会社フォルダがテンプレの会社コードと合わない画像を、PDF に配置させないよう文書から落とす
- * (`<img>` は `src` を外し、`<style>` の `url()` は `none` にする)。照合は画面内プレビュー・
- * 編集画面と同じ `companyFolderMatches` で、PDF だけ出るずれを作らない。`style` 属性は見ない
- * (背景画像は CSS か `<style>` に書く約束。運用手順書)。
+ * (`<img>` は `src` を外し、`<style>` と `style` 属性の `url()` は `none` にする)。照合は画面内
+ * プレビュー・編集画面と同じ `companyFolderMatches` で、PDF だけ出るずれを作らない。`style`
+ * 属性も落とすのは、サーバが `style` 属性の `url()` も集めて作業フォルダへ置くため(見逃すと
+ * 他社の画像が PDF にだけ載る)。
  */
 function dropUnmatchedCompanyImages(root: Element, companyCode: string | null): void {
   for (const img of Array.from(root.querySelectorAll('img[src]'))) {
@@ -71,6 +72,11 @@ function dropUnmatchedCompanyImages(root: Element, companyCode: string | null): 
     const css = style.textContent ?? '';
     const next = dropUnmatchedCompanyImageUrls(css, DOC_DIR, companyCode);
     if (next !== css) style.textContent = next;
+  }
+  for (const el of Array.from(root.querySelectorAll('[style]'))) {
+    const value = el.getAttribute('style') ?? '';
+    const next = dropUnmatchedCompanyImageUrls(value, DOC_DIR, companyCode);
+    if (next !== value) el.setAttribute('style', next);
   }
 }
 
