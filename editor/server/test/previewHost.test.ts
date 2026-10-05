@@ -161,6 +161,7 @@ describe('GET /api/preview-host/* — 同梱資産の配信', () => {
     for (const url of [
       '/api/preview-host/images/510037_logo.svg',
       '/api/preview-host/Images/510037_logo.svg',
+      '/api/preview-host/images/smtam/qr.svg',
     ]) {
       const res = await app.inject({ method: 'GET', url });
       expect(res.statusCode, url).toBe(404);

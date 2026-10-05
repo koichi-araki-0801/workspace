@@ -108,6 +108,7 @@ function externalRefContract(requestCssRule: string): string {
     'ものとして扱い、テンプレ CSS・共通フォント・テンプレ JS・画像を `../css/…` `../css/fonts/…` ',
     '`../js/…` `../images/…` の相対パスで参照する。サーバは参照された実体だけを `doc/` の兄弟',
     '(`css/` `js/` `images/`)へ同梱する。文書直下基準の `css/…` `images/…` は `doc/css/…` を指し、同梱されない。',
+    '画像は `../images/<名前>` と `../images/<フォルダ>/<名前>`(1 段まで)を同梱し、2 段以上は同梱しない。',
     requestCssRule,
     '相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。',
     '同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす',
@@ -624,17 +625,48 @@ export function buildOpenApiDocument() {
       [toOpenApiPath(apiPaths.fundAssetImage)]: {
         get: {
           tags: ['vivliostyle'],
-          summary: 'ファンド別画像(images/)を 1 つ返す',
+          summary: '画像(images/ 直下)を 1 つ返す',
           operationId: 'getFundAssetImage',
           description: [
-            '`imagesDir` 直下の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。',
-            'ファイル名は `<fund>_<画像名>.<拡張子>` の約束だが、名前の規則は検査しない。',
-            'サブフォルダ・`..`・`\\`・Windows の予約名(`CON` など)・許可外の拡張子は 404。',
+            '`imagesDir` 直下の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。名前の規則は検査しない。',
+            '会社フォルダ 1 段の画像は `/fund-assets/images/{dir}/{file}` で取る。',
+            '`/`(`%2F` を含む)・`..`・`\\`・Windows の予約名(`CON` など)・許可外の拡張子は 404。',
+            '末尾が `.` や空白の名前と `:` を含む名前(Windows で別の実体へ読み替わる形)も 404。',
             'SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。',
             '応答は `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を持ち、',
             'SVG には `Content-Security-Policy: sandbox` を付ける。',
           ].join(''),
           requestParams: { path: z.object({ file: z.string() }) },
+          responses: {
+            '200': {
+              description: '画像',
+              content: {
+                'image/svg+xml': { schema: ImageBinary },
+                'image/png': { schema: ImageBinary },
+                'image/jpeg': { schema: ImageBinary },
+              },
+            },
+            ...ERR_401,
+            '404': { description: '対象が無い / 配信対象外 / SVG 検査の違反(本文なし)' },
+          },
+        },
+      },
+      [toOpenApiPath(apiPaths.fundAssetImageInDir)]: {
+        get: {
+          tags: ['vivliostyle'],
+          summary: '画像(images/ の会社フォルダ 1 段)を 1 つ返す',
+          operationId: 'getFundAssetImageInDir',
+          description: [
+            '`imagesDir/<dir>/<file>` の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。',
+            'フォルダは 1 段まで(2 段以上は経路が無く 404)。フォルダ名は大小文字を区別せずに',
+            '実フォルダを探す(`smtam` で `SMTAM` を引く)。ファイル名は区別する。',
+            'フォルダ名とテンプレの会社コードの照合はしない(テンプレ ID を持たない経路のため)。',
+            '`/`(`%2F` を含む)・`..`・`\\`・Windows の予約名・リンクのフォルダ・許可外の拡張子は 404。',
+            '末尾が `.` や空白の名前と `:` を含む名前(Windows で別の実体へ読み替わる形)も 404。',
+            'SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。',
+            '応答ヘッダは `/fund-assets/images/{file}` と同じ。',
+          ].join(''),
+          requestParams: { path: z.object({ dir: z.string(), file: z.string() }) },
           responses: {
             '200': {
               description: '画像',

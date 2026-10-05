@@ -32,7 +32,7 @@ const ALL = sourceFiles(SRC).map((f) => ({
 
 /** ルート引数の正規化に使う場所。文書の参照を解く場所は入れない。 */
 const ROUTE_PARAM_USERS = [
-  'routes/fundAssets.routes.ts', // GET /fund-assets/images/:dir?/:file の経路の正規化
+  'routes/fundAssets.routes.ts', // GET /fund-assets/images/:file・:dir/:file の経路の正規化
   'vivliostyle/previewHost.ts', // GET /api/preview-host/* の経路の正規化
 ];
 
@@ -45,6 +45,7 @@ describe('文書側の資産参照の解決', () => {
   });
 
   it.each([
+    'vivliostyle/docAssets.ts',
     'vivliostyle/docRefs.ts',
     'vivliostyle/inlineCss.ts',
     'vivliostyle/inlineDocScripts.ts',

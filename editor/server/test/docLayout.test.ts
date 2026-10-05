@@ -136,6 +136,11 @@ describe('buildInlinePdf — 作業フォルダの形', () => {
     expect(run.files).not.toContain('css/fonts/G.woff2');
   });
 
+  it('会社フォルダの画像も参照の綴りで images/ の 1 段下に置く(実フォルダは SMTAM)', async () => {
+    await build.buildInlinePdf({ html: HTML });
+    expect(runs[0].files).toContain('images/smtam/qr.svg');
+  });
+
   it('実体のある <link> は残し、実体の無い文書直下基準の <link> は落とし、JS は展開する', async () => {
     await build.buildInlinePdf({ html: HTML });
     const doc = runs[0].docs['doc/index.html'];

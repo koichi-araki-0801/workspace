@@ -18,7 +18,7 @@
 //   css       = `config.cssDir`        (テンプレ単位。`<会社>_<ファンド>_<版種>.css`。直下の `fonts/` は下の別グループ)
 //   css/fonts = `config.cssDir/fonts`  (全テンプレ共通のフォント。CSS から `url(fonts/…)`)
 //   js        = `config.jsDir`         (全テンプレ共通のテンプレ JS)
-//   images    = `config.imagesDir`     (画像。直下だけ。SVG は置く前に `inspectSvg`)
+//   images    = `config.imagesDir`     (画像。直下と 1 段下の会社フォルダ。SVG は置く前に `inspectSvg`)
 // 作業フォルダでの名前は `css/` `css/fonts/` `js/` `images/` に固定する(文書の `../` 参照と対)。
 
 import type { Dirent } from 'node:fs';
@@ -106,8 +106,9 @@ const ASSET_GROUPS: readonly AssetGroup[] = [
     mount: FUND_IMAGES_MOUNT,
     sourceDir: () => config.imagesDir,
     extensions: FUND_IMAGE_EXTENSIONS,
-    // 直下だけ。ファンドの区別は命名の約束(`<fund>_<名前>`)で持ち、サブフォルダは作らない契約。
-    maxDepth: 0,
+    // 直下(`images/<名前>`)と、委託会社共通の会社フォルダ 1 段(`images/<会社>/<名前>`)まで。
+    // 2 段以上は配らない(単体配信の経路 `:dir/:file` と同じ深さ)。
+    maxDepth: 1,
   },
 ];
 
@@ -137,6 +138,46 @@ function groupFor(rel: string): { group: AssetGroup; rest: string[] } | undefine
     return { group, rest };
   }
   return undefined;
+}
+
+/**
+ * Windows のファイル API が別の実体へ読み替えるセグメントか。末尾の `.` と空白は黙って削られ
+ * (`smtam./x.svg` が `smtam/x.svg` に届く)、`:` は NTFS の代替データストリームを指す
+ * (`x.svg:s` は `x.svg` の別ストリーム)。照合した名前と違う実体を開かせないため、実体に触れる
+ * 前にどの OS でも拒む。
+ */
+function isAliasingSegment(seg: string): boolean {
+  return seg.endsWith('.') || seg.endsWith(' ') || seg.includes(':');
+}
+
+/**
+ * images の 1 段下の参照を、フォルダ名だけ小文字へ畳んだ照合キーにする
+ * (`images/SMTAM/qr.svg` → `images/smtam/qr.svg`)。それ以外の形は `undefined`。
+ * 参照は会社コードの綴り(`smtam`)で書かれ、実フォルダは外部ツールが別の綴り(`SMTAM`)で作る
+ * ことがあるため、フォルダ名だけは大小文字を問わない。ファイル名は区別する。
+ */
+function foldImageDirKey(rel: string): string | undefined {
+  const segs = rel.split('/');
+  if (segs.length !== 3 || segs[0] !== FUND_IMAGES_MOUNT) return undefined;
+  if (segs.some(isAliasingSegment)) return undefined;
+  return `${segs[0]}/${segs[1].toLowerCase()}/${segs[2]}`;
+}
+
+/**
+ * `parent` 直下のディレクトリから、名前が大小文字の違いだけで一致するものを 1 つ引く。
+ * `Dirent.isDirectory()` は lstat 相当でリンクを展開しないので、リンクのフォルダは当たらない
+ * (`collectGroup` と同じ性質)。綴り違いの同名が 2 つ以上あれば、どちらとも決めず `undefined`。
+ */
+async function matchDirName(parent: string, name: string): Promise<string | undefined> {
+  let entries: Dirent[];
+  try {
+    entries = await fs.readdir(parent, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const wanted = name.toLowerCase();
+  const hits = entries.filter((e) => e.isDirectory() && e.name.toLowerCase() === wanted);
+  return hits.length === 1 ? hits[0].name : undefined;
 }
 
 /** 配置する資産の総ファイル数の上限(超えたら以降を無視する)。 */
@@ -224,15 +265,31 @@ export async function resolveServedAssetSource(rel: string): Promise<string | un
   const { group, rest } = hit;
   if (rest.length > group.maxDepth + 1) return undefined;
   // `\` と NUL は Windows で 1 セグメントのまま下の階層へ降りる / 名前を切るので、先に落とす。
-  if (rest.some((s) => s === '' || s === '.' || s === '..' || s.includes('\\') || s.includes('\0')))
+  // 末尾の `.`・空白と `:` は別の実体へ読み替えられる(`isAliasingSegment`)。
+  if (
+    rest.some(
+      (s) =>
+        s === '' ||
+        s === '.' ||
+        s === '..' ||
+        s.includes('\\') ||
+        s.includes('\0') ||
+        isAliasingSegment(s),
+    )
+  )
     return undefined;
   if (!group.extensions.has(path.extname(rest[rest.length - 1]).toLowerCase())) return undefined;
   let current = group.sourceDir();
   for (const [i, seg] of rest.entries()) {
-    current = path.join(current, seg);
+    const last = i === rest.length - 1;
+    // images の会社フォルダだけは名前の大小文字を問わない(`foldImageDirKey` の理由)。
+    const name =
+      !last && group.mount === FUND_IMAGES_MOUNT ? await matchDirName(current, seg) : seg;
+    if (name === undefined) return undefined;
+    current = path.join(current, name);
     try {
       const st = await fs.lstat(current);
-      if (i === rest.length - 1 ? !st.isFile() : !st.isDirectory()) return undefined;
+      if (last ? !st.isFile() : !st.isDirectory()) return undefined;
     } catch {
       return undefined;
     }
@@ -259,18 +316,37 @@ export interface StageDocAssetsOptions {
  * `<link href="../css/A_1_交付版.css">` しか書いていない文書でも、その CSS が
  * `@font-face { src: url(fonts/a.woff2) }` と書いていれば fonts も要る。1 段では
  * 足りない形(CSS が CSS を引く)もあるので `MAX_ASSET_REF_DEPTH` まで繰り返す。
+ *
+ * 会社フォルダの画像は目録(実フォルダの綴り)に無ければフォルダ名を畳んだキーで引き、
+ * **参照の綴りで**選ぶ。組版ブラウザは参照の綴りで取りに来るので、実フォルダの綴りで置くと
+ * 大小文字を区別する配信で 404 になる。
  */
 async function expandReferenced(
   catalog: ReadonlyMap<string, AssetFile>,
   referenced: ReadonlySet<string>,
 ): Promise<AssetFile[]> {
+  // 綴り違いの同名フォルダが 2 つあれば null(どちらとも決めない)。
+  const folded = new Map<string, AssetFile | null>();
+  for (const [rel, file] of catalog) {
+    const key = foldImageDirKey(rel);
+    if (key !== undefined) folded.set(key, folded.has(key) ? null : file);
+  }
+  const lookup = (rel: string): AssetFile | undefined => {
+    const exact = catalog.get(rel);
+    if (exact !== undefined) return exact;
+    const key = foldImageDirKey(rel);
+    return key === undefined ? undefined : (folded.get(key) ?? undefined);
+  };
+
   const chosen = new Map<string, AssetFile>();
   let frontier = [...referenced];
   for (let depth = 0; depth < MAX_ASSET_REF_DEPTH && frontier.length > 0; depth++) {
     const next: string[] = [];
     for (const rel of frontier) {
-      const file = catalog.get(rel);
-      if (file === undefined || chosen.has(rel)) continue;
+      if (chosen.has(rel)) continue;
+      const found = lookup(rel);
+      if (found === undefined) continue;
+      const file = { ...found, rel };
       chosen.set(rel, file);
       if (path.extname(rel).toLowerCase() !== '.css') continue;
       let text = '';

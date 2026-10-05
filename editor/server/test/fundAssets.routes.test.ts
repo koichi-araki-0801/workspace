@@ -4,6 +4,7 @@
 // 画面内プレビューと編集画面が画像を取る唯一の経路。ここが緩むと、検査を通らない SVG が
 // 同一オリジンで開ける面になる。迂回入力では 1 バイトも出さないこと、SVG の応答だけ全域 CSP が
 // `sandbox` へ置き換わることを主張する。
+// 経路は直下 `:file` と会社フォルダ 1 段 `:dir/:file` の 2 本で、深さは経路の形で決める。
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,6 +42,27 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(imagesDir, '510037_photo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   fs.writeFileSync(path.join(imagesDir, '510037_anim.gif'), 'GIF89a');
   fs.writeFileSync(path.join(imagesDir, 'sub', '510037_deep.svg'), GOOD_SVG);
+  fs.mkdirSync(path.join(imagesDir, 'SMTAM', 'deep'), { recursive: true });
+  fs.writeFileSync(path.join(imagesDir, 'SMTAM', 'qr.svg'), GOOD_SVG);
+  fs.writeFileSync(path.join(imagesDir, 'SMTAM', 'bad.svg'), BAD_SVG);
+  fs.writeFileSync(path.join(imagesDir, 'SMTAM', 'deep', 'x.svg'), GOOD_SVG);
+  // NTFS の代替データストリーム(作れない環境では存在しないファイルとして 404 になるだけ)。
+  try {
+    fs.writeFileSync(path.join(imagesDir, '510037_logo.svg:s.svg'), GOOD_SVG);
+    fs.writeFileSync(path.join(imagesDir, 'SMTAM', 'qr.svg:s.svg'), GOOD_SVG);
+  } catch {
+    // 代替データストリームを作れない環境
+  }
+  // リンクの会社フォルダ(Windows は junction を権限なしで作れる)。作れない環境では存在しない
+  // フォルダとして 404 になるだけなので、下のテストはどちらでも成立する。
+  const outside = path.join(root, 'outside');
+  fs.mkdirSync(outside, { recursive: true });
+  fs.writeFileSync(path.join(outside, 'x.svg'), GOOD_SVG);
+  try {
+    fs.symlinkSync(outside, path.join(imagesDir, 'linked'), 'junction');
+  } catch {
+    // リンクを作れない環境
+  }
   fs.writeFileSync(path.join(root, 'data', 'css', '510037.css'), 'SECRET_CSS{}');
 
   const Fastify = (await import('fastify')).default;
@@ -126,7 +148,20 @@ describe('GET /api/fund-assets/images/:file', () => {
     ['%5C で区切ったサブフォルダ', `${URL_BASE}/sub%5C510037_deep.svg`],
     ['%2F で css へ遡る', `${URL_BASE}/..%2Fcss%2F510037.css`],
     ['二重符号化の ..', `${URL_BASE}/%252e%252e%252Fcss%252F510037.css`],
-    ['サブフォルダ', `${URL_BASE}/sub/510037_deep.svg`],
+    ['2 段のサブフォルダ', `${URL_BASE}/SMTAM/deep/x.svg`],
+    ['%2F で 2 段を 1 段に偽装', `${URL_BASE}/SMTAM/deep%2Fx.svg`],
+    ['%2F でフォルダを偽装', `${URL_BASE}/SMTAM%2Fdeep/x.svg`],
+    ['フォルダが ..', `${URL_BASE}/%2e%2e/510037_logo.svg`],
+    ['予約名のフォルダ', `${URL_BASE}/CON/510037_logo.svg`],
+    ['会社フォルダの違反 SVG', `${URL_BASE}/smtam/bad.svg`],
+    ['リンクの会社フォルダ', `${URL_BASE}/linked/x.svg`],
+    ['存在しない会社フォルダ', `${URL_BASE}/nope/qr.svg`],
+    ['末尾が . のフォルダ', `${URL_BASE}/smtam./qr.svg`],
+    ['末尾が空白のフォルダ', `${URL_BASE}/smtam%20/qr.svg`],
+    [': を含むファイル名(代替データストリーム)', `${URL_BASE}/510037_logo.svg:s.svg`],
+    [': を含むフォルダ配下のファイル名', `${URL_BASE}/smtam/qr.svg:s.svg`],
+    [': を含むフォルダ', `${URL_BASE}/a:b/qr.svg`],
+    ['末尾が . のファイル名', `${URL_BASE}/smtam/qr.svg.`],
     ['予約名', `${URL_BASE}/CON.svg`],
     ['予約名(小文字・拡張子付き)', `${URL_BASE}/com1.png`],
     ['許可外の拡張子', `${URL_BASE}/510037_anim.gif`],
@@ -136,5 +171,36 @@ describe('GET /api/fund-assets/images/:file', () => {
     expect(res.statusCode, `${url} → ${res.statusCode}`).toBe(404);
     expect(res.body).not.toContain('SECRET_CSS');
     expect(res.body).not.toContain('<svg');
+  });
+});
+
+describe('GET /api/fund-assets/images/:dir/:file', () => {
+  it('認証なしは 401', async () => {
+    const res = await app.inject({ method: 'GET', url: `${URL_BASE}/smtam/qr.svg` });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('会社フォルダの SVG を返す(参照 smtam で実フォルダ SMTAM を引く)', async () => {
+    for (const dir of ['smtam', 'SMTAM']) {
+      const res = await app.inject({
+        method: 'GET',
+        url: `${URL_BASE}/${dir}/qr.svg`,
+        headers: as('viewer'),
+      });
+      expect(res.statusCode, dir).toBe(200);
+      expect(res.body).toBe(GOOD_SVG);
+      expect(res.headers['content-type']).toContain('image/svg+xml');
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(res.headers['content-security-policy']).toBe('sandbox');
+    }
+  });
+
+  it('会社コードとの照合はしない(サーバは深さ 1 までだけを検査する)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `${URL_BASE}/sub/510037_deep.svg`,
+      headers: as('viewer'),
+    });
+    expect(res.statusCode).toBe(200);
   });
 });

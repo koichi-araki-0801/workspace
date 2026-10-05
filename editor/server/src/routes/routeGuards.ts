@@ -104,8 +104,9 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   [`GET ${api(RENDER_HOST_BASE)}/index.html`]: 'auth',
   [`GET ${api(RENDER_HOST_BASE)}/*`]: 'auth',
 
-  // ファンド別画像(imagesDir 直下)。閲覧そのものなので viewer にも開く(CSS と同じ権限)。
+  // 画像(imagesDir 直下と会社フォルダ 1 段)。閲覧そのものなので viewer にも開く(CSS と同じ権限)。
   [`GET ${api(apiPaths.fundAssetImage)}`]: 'auth',
+  [`GET ${api(apiPaths.fundAssetImageInDir)}`]: 'auth',
 
   // reviews
   [`POST ${api(apiPaths.reviewRequests)}`]: 'editor',

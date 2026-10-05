@@ -56,8 +56,9 @@ export const apiPaths = {
   preview: '/preview',
   // ワイルドカード経路(reverse-proxy)はルート側で `+ '/*'` を合成する。
   previewById: '/preview/:id',
-  // fund assets (別ツールが置くファンド別画像。imagesDir 直下の 1 ファイル)
+  // fund assets (別ツールが置く画像。imagesDir 直下と、会社フォルダ 1 段の 1 ファイル)
   fundAssetImage: '/fund-assets/images/:file',
+  fundAssetImageInDir: '/fund-assets/images/:dir/:file',
   // reviews (確定保存の精査者承認ワークフロー)
   reviewRequests: '/review-requests',
   reviewRequestById: '/review-requests/:reqId',
