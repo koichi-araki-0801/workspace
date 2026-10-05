@@ -10,8 +10,10 @@
 // 足さない — 遮断端末への配布物が増えるため。
 //
 // 規則のキーは「外側の入れ子 at-rule の前置きの並び + セレクタ」を JSON 配列にした文字列。
-// セレクタを持たない規則(`@font-face` など)は中身を含めて見分け、同じキーが複数あれば出現順の
-// 番号を足す。規則の間のコメントはどの規則にも属さず、同期の対象にならない。
+// `@page` は前置き(`@page` / `@page :first` / `@page cover`)で、`@font-face` は `font-family` +
+// `font-weight` + `font-style` の値で見分ける(中身をキーにすると、版種固有に直した規則への変更が
+// 「削除 + 追加」になり、競合にならず後ろへ追記されて勝ってしまうため)。それ以外のセレクタを
+// 持たない規則は中身全体で見分ける。同じキーが複数あれば出現順の番号を足す。規則の間のコメントはどの規則にも属さず、同期の対象にならない。
 
 import { collectCssStructure } from '../security/cssExternalRefs.js';
 
@@ -49,8 +51,17 @@ const GROUPING_AT_RULES = new Set([
   'starting-style',
 ]);
 
-/** 前置きが at-keyword だけの形(`@font-face` `@page`)。中身で見分ける。 */
+/** 前置きが at-keyword だけの形(`@font-face` `@page`)。 */
 const BARE_AT_KEYWORD_RE = /^@[-\w\\]+$/;
+
+/** 規則本体(正規化済み)から宣言 `prop` の値を取る(引用符は外す)。無ければ空。 */
+function descriptor(body: string, prop: string): string {
+  const m = new RegExp(`(?:^|[{;])\\s*${prop}\\s*:\\s*([^;}]*)`, 'i').exec(body);
+  return (m?.[1] ?? '')
+    .trim()
+    .replace(/^(["'])(.*)\1$/, '$2')
+    .toLowerCase();
+}
 
 interface ScannedRule extends CssRule {
   /** `atRules` を比較用に文字列にしたもの。 */
@@ -122,10 +133,15 @@ function scanCssRules(css: string): ScannedRule[] {
       }
       const closeAt = depth === 0 ? punct[j - 1].at : css.length;
       const end = depth === 0 ? closeAt + 1 : css.length;
-      const identity =
-        name !== undefined && BARE_AT_KEYWORD_RE.test(prelude)
-          ? `${prelude}{${normalize(at + 1, closeAt)}}`
-          : prelude;
+      let identity = prelude;
+      if (name !== undefined && name !== 'page' && BARE_AT_KEYWORD_RE.test(prelude)) {
+        const body = normalize(at + 1, closeAt);
+        const family = name === 'font-face' ? descriptor(body, 'font-family') : '';
+        identity =
+          family === ''
+            ? `${prelude}{${body}}`
+            : `${prelude}{font-family:${family};font-weight:${descriptor(body, 'font-weight')};font-style:${descriptor(body, 'font-style')}}`;
+      }
       found.push({ chain: [...chain], identity, start, end });
       segStart = end;
       i = j;

@@ -45,7 +45,7 @@ describe('splitCssRules', () => {
     const css = '@media print{\n  @font-face{font-family:P;src:url(fonts/p.woff2)}\n}';
     expect(splitCssRules(css)).toEqual([
       {
-        key: k('@media print', '@font-face{font-family:P;src:url(fonts/p.woff2)}'),
+        key: k('@media print', '@font-face{font-family:p;font-weight:;font-style:}'),
         atRules: ['@media print'],
         text: '@font-face{font-family:P;src:url(fonts/p.woff2)}',
         start: 16,
@@ -83,14 +83,14 @@ describe('splitCssRules', () => {
     ]);
   });
 
-  it('@font-face は中身で見分ける', () => {
+  it('@font-face は family で見分ける(キーは小文字化)', () => {
     const rules = splitCssRules(
       '@font-face{font-family:A;src:url(a.woff2)}\n@font-face{font-family:B;src:url(b.woff2)}',
     );
     expect(rules).toHaveLength(2);
     expect(rules[0].key).not.toBe(rules[1].key);
-    expect(rules[0].key).toContain('font-family:A');
-    expect(rules[1].key).toContain('font-family:B');
+    expect(rules[0].key).toContain('font-family:a');
+    expect(rules[1].key).toContain('font-family:b');
   });
 
   it('@page :first は前置きで、@keyframes は中へ降りずに 1 規則', () => {
@@ -361,5 +361,62 @@ describe('sameCssRule — 書式の違いだけなら同じ規則', () => {
   it('値やプロパティの順が違えば別の規則', () => {
     expect(sameCssRule('.a{color:red}', '.a{color:blue}')).toBe(false);
     expect(sameCssRule('.a{x:1;y:2}', '.a{y:2;x:1}')).toBe(false);
+  });
+});
+
+describe('名前のない at-rule(@page / @font-face)の識別', () => {
+  it('@page は前置きで見分け、@page と @page :first は別のキー', () => {
+    const rules = splitCssRules('@page{margin:1mm}@page :first{margin:2mm}@page cover{margin:3mm}');
+    expect(rules.map((r) => r.key)).toEqual([k('@page'), k('@page :first'), k('@page cover')]);
+  });
+
+  it('@font-face は family・weight・style で見分け、weight が違えば別のキー', () => {
+    const rules = splitCssRules(
+      '@font-face{font-family:"A";font-weight:400;src:url(a4.woff2)}' +
+        '@font-face{font-family:A;font-weight:700;src:url(a7.woff2)}',
+    );
+    expect(rules).toHaveLength(2);
+    expect(rules[0].key).not.toBe(rules[1].key);
+  });
+
+  it('font-family の無い @font-face は中身全体で見分ける', () => {
+    const rules = splitCssRules('@font-face{src:url(a.woff2)}@font-face{src:url(b.woff2)}');
+    expect(new Set(rules.map((r) => r.key)).size).toBe(2);
+  });
+
+  it('@page の変更をペア側が版種固有に直していれば競合にし、追記しない', () => {
+    const target = '@page{margin:20mm}\n.a{}\n';
+    const r = mergeCssRuleChanges(
+      '@page{margin:10mm}\n.a{}\n',
+      '@page{margin:12mm}\n.a{}\n',
+      target,
+    );
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('@page')] });
+  });
+
+  it('@page の変更をペア側が base のままならその場で置き換える', () => {
+    const r = mergeCssRuleChanges(
+      '@page{margin:10mm}\n.a{}\n',
+      '@page{margin:12mm}\n.a{}\n',
+      '@page{margin:10mm}\n.a{}\n',
+    );
+    expect(r).toEqual({ css: '@page{margin:12mm}\n.a{}\n', applied: [k('@page')], conflicts: [] });
+  });
+
+  it('@font-face の src 変更は同じ family/weight/style の変更として扱う', () => {
+    const base = '@font-face{font-family:A;font-weight:400;src:url(a.woff2)}\n';
+    const next = '@font-face{font-family:A;font-weight:400;src:url(a2.woff2)}\n';
+    const key = k('@font-face{font-family:a;font-weight:400;font-style:}');
+    expect(mergeCssRuleChanges(base, next, base)).toEqual({
+      css: next,
+      applied: [key],
+      conflicts: [],
+    });
+    const edited = '@font-face{font-family:A;font-weight:400;src:url(mine.woff2)}\n';
+    expect(mergeCssRuleChanges(base, next, edited)).toEqual({
+      css: edited,
+      applied: [],
+      conflicts: [key],
+    });
   });
 });
