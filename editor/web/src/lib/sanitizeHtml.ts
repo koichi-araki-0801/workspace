@@ -182,8 +182,8 @@ export function sanitizePreviewHtml(html: string): string {
 }
 
 /**
- * PDF ビルドへ送る HTML をサニタイズし、**DOM のまま**返す(`pdfPurifyConfig` を見よ)。
- * script と link を残すのがプレビュー用との差で、他の防御は同じだけ効いている。
+ * PDF ビルドへ送る HTML をサニタイズし、**DOM のまま**返す。プレビュー用との差は
+ * `pdfPurifyConfig` を見よ。
  */
 export function sanitizePdfRoot(html: string): Element {
   return pdfPurifier().sanitize(html, {
