@@ -19,7 +19,7 @@ rev:
 | 1 | ログイン | ユーザーID | `username` | `string` | ○ | 半角英数字とアンダースコアのみ（USERNAME_PATTERN）。前後空白はトリム |
 | 2 | ログイン | パスワード | `password` | `string` | ○ | マスク表示。初回ログインは要パスワード変更（mustChangePassword）でPW初期化画面へ |
 | 3 | PW初期化 | 新パスワード | `password` | `string` | ○ | mustChangePassword=true のとき必須。/auth/init-password で確定 |
-| 4 | テンプレート作成 | 委託会社 | `companyCode` | `string` | ○ | ドロップダウン（/templates/companies）。表示は会社名、値はファイル名の会社コード（Rep1 の委託会社略称）。名称の一部でも絞れる |
+| 4 | テンプレート作成 | 委託会社 | `companyCode` | `string` | ○ | ドロップダウン（/templates/companies）。表示は「略称（委託会社コード）」、値はファイル名の会社コード（Rep1 の委託会社略称）。略称の前方一致か委託会社コードでも絞れる |
 | 5 | テンプレート作成 | ファンド | `fundCode` | `string` | ○ | ドロップダウン（/templates/funds。会社を選ぶと Rep1 の委託会社コードで一括取得）。表示は「コード 名称」 |
 | 6 | テンプレート作成 | 版種 | `editionType` | `string` | ○ | ドロップダウン（交付版 / 全体版の 1 つ） |
 | 7 | テンプレート作成 | コピー元ファンド | `sourceFundCode` | `string` |  | シリーズから作成するときに、同じシリーズの候補（/templates/creatable）から選ぶ。コピー元のテンプレートが無い候補は警告し作成不可 |

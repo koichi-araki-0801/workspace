@@ -81,7 +81,7 @@ test('capture editor screens', async ({ page }) => {
   await waitForTransitionsSettled(page);
   await page.screenshot({ path: IMG('password-init.png'), animations: 'disabled' });
   await page.goto('/edit');
-  await page.getByText('委託会社コード').first().waitFor();
+  await page.getByText('ファンドコード').first().waitFor();
   await waitForLoaded(page);
 
   // ② 編集タブ（属性ドロップダウンが見える）
@@ -114,7 +114,7 @@ test('capture editor screens', async ({ page }) => {
   // タブ固有の実データ要素(絞り込みバーの見出し・タブボタン・一覧行)を先に待ってから、
   // 一覧を持つ画面は `waitForLoaded` でスケルトンの消滅まで待って撮る。
   await page.goto('/compare');
-  // 待つのは比較画面にしか無い見出し。絞り込みバーの「委託会社コード」はテンプレート作成画面にも
+  // 待つのは比較画面にしか無い見出し。絞り込みバーの「委託会社」はテンプレート作成画面にも
   // 出るため、それを待つと遷移前の画面のまま合格し、作成画面を写した compare-tab.png ができる。
   await page.getByText('ファイルの比較').first().waitFor();
   await waitForLoaded(page);

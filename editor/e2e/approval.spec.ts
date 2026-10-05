@@ -37,7 +37,7 @@ test('editor がログインして一覧・編集画面を確認し、確定保�
   expect((await page.context().cookies()).map((c) => c.name)).toContain('editor.sid');
 
   // 一覧は条件を選んで検索するまで出ない。絞り込みは URL クエリと双方向同期する
-  // (`useUrlQuerySync.ts`)ので、委託会社コードを URL で渡して復元経路から一覧を出す。
+  // (`useUrlQuerySync.ts`)ので、委託会社(略称)を URL で渡して復元経路から一覧を出す。
   await page.goto('/edit?companyCode=AM01', { waitUntil: 'commit' });
   // ファンド名はファンドマスタの有無に依存するので、常に描かれるファンドコード・基準日・
   // 版種の 3 列だけで 1 行に絞る。

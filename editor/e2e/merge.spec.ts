@@ -25,9 +25,10 @@ test('結合PDF: 追加した順に文書が並んで /api/build/merge へ送ら
   });
 
   await page.goto('/merge', { waitUntil: 'commit' });
-  await page.getByText('委託会社コード').first().waitFor();
-  await page.getByPlaceholder('委託会社コードを入力/選択').click();
-  await page.getByRole('option', { name: 'AM01', exact: true }).click();
+  await page.getByText('ファンドコード').first().waitFor();
+  await page.getByPlaceholder('委託会社を入力/選択').click();
+  // 候補のラベルは「略称（Rep1 の委託会社コード）」。
+  await page.getByRole('option', { name: /^AM01（/ }).click();
   await page.getByRole('button', { name: '検索' }).click();
 
   // 510155 を先に、510037 を後に追加する(結合順 = 追加順であることを本文の並びで確かめる)。
