@@ -491,8 +491,7 @@ describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側
     expect(r2).toMatchObject({ applied: [], conflicts: [k('.c')] });
   });
 
-  it('baseline に無く next で現れた規則は、ペア側が原文から消していれば競合にする', () => {
-    // GrapesJS は使われていないセレクタの規則を書き出さない。原文にはあり、baseline には無い。
+  it('baseline に無く next で現れた規則は、原文にあってペア側が消していれば競合にする', () => {
     const r = mergeCssRuleChangesFromBaseline(
       '.a{x:1}\n.c{z:1}\n',
       '.a{x:1;}',
@@ -500,6 +499,24 @@ describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側
       '.a{x:1}\n',
     );
     expect(r).toEqual({ css: '.a{x:1}\n', applied: [], conflicts: [k('.c')] });
+  });
+
+  // 編集画面の getCss は文書で使っていない規則も書き出す(`useGrapes` の `keepUnusedStyles`)。
+  // baseline と next の両方に同じ形で載るので、使う要素の増減は規則の変更にならない。
+  it('クラスを使う最後の要素を消しても、規則が baseline と next に同じ形で残れば削除にならない', () => {
+    const raw = '.a{x:1}\n.gone{color:#003366}\n';
+    const both = '.a{x:1;}.gone{color:rgb(0, 51, 102);}';
+    const r = mergeCssRuleChangesFromBaseline(raw, both, both, raw);
+    expect(r).toEqual({ css: raw, applied: [], conflicts: [] });
+  });
+
+  it('baseline で未使用だった規則を使い始めても、本文が同じなら変更にも競合にもならない', () => {
+    const raw = '.a{x:1}\n.later{padding:1mm}\n';
+    const target = '.a{x:1}\n.later{padding:2mm}\n';
+    const gjs =
+      '.a{x:1;}.later{padding-top:1mm;padding-right:1mm;padding-bottom:1mm;padding-left:1mm;}';
+    const r = mergeCssRuleChangesFromBaseline(raw, gjs, gjs, target);
+    expect(r).toEqual({ css: target, applied: [], conflicts: [] });
   });
 
   it('ペア側が既に next と同じなら当てず、競合にもしない', () => {

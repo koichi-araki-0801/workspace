@@ -284,6 +284,30 @@ describe('computeCssSync — 変わった規則は baseline(GrapesJS 形)→ nex
     expect(r.skipped).toEqual([k('.cover-title')]);
     expect(r.conflicts).toEqual([{ ruleKey: k('.cover-title'), detectedAt: NOW }]);
   });
+
+  it('記録済みの競合は、無編集の承認では検出時刻ごと持ち越し、両版が同じ形になれば消える', () => {
+    const prev = [{ ruleKey: k('.cover-title'), detectedAt: NOW }];
+    const kept = computeCssSync({
+      base: gjs('rgb(0, 0, 0)'),
+      baseline: gjs('rgb(0, 0, 0)'),
+      next: gjs('rgb(0, 0, 0)'),
+      target: RAW.replace('#003366', '#990000'),
+      prev,
+      now: LATER,
+    });
+    expect(kept).toMatchObject({ ran: false, css: null, conflicts: prev, conflictsChanged: false });
+    // 未使用の規則も含めて同じ書き出し(GrapesJS 形)どうしなら、書式の違いだけで一致と見なす。
+    const cleared = computeCssSync({
+      base: gjs('rgb(0, 0, 0)'),
+      baseline: gjs('rgb(0, 0, 0)'),
+      next: gjs('rgb(0, 0, 0)'),
+      target: `${gjs('rgb(0, 0, 0)')}\n.unused{color:red;}`,
+      prev,
+      now: LATER,
+    });
+    expect(cleared.conflicts).toEqual([]);
+    expect(cleared.conflictsChanged).toBe(true);
+  });
 });
 
 describe('cssSyncPairKey', () => {

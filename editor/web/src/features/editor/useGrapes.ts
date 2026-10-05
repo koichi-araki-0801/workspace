@@ -825,6 +825,12 @@ export function useGrapes() {
    * `getCss()` を呼ぶ**同期呼び出しの間だけ** `avoidInlineStyle` を立ててミラーを生成元で
    * 止め、`finally` で必ず戻す(他の経路 — `patchSelectedStyle` 等 — は非同期に挟まらないので
    * 影響しない)。
+   *
+   * `keepUnusedStyles` も立てる。既定の GrapesJS は、文書のどの要素も使っていない単純な
+   * セレクタの規則を書き出さない。CSS はテンプレ単位のファイルで基準日をまたいで共有するので、
+   * この文書で使っていない規則(別の基準日の文書が使う規則、最後の要素を消したクラスの規則)を
+   * 落とすと、承認でファイルからもペアの CSS からも消える。下書き・申請・CSS の baseline は
+   * すべてここを通すので、どれも同じ「全規則」の形になる。
    */
   function getCss(): string {
     const ed = editor.value;
@@ -833,7 +839,7 @@ export function useGrapes() {
     const prev = cfg.avoidInlineStyle;
     cfg.avoidInlineStyle = true;
     try {
-      return ed.getCss() ?? '';
+      return ed.getCss({ keepUnusedStyles: true }) ?? '';
     } finally {
       cfg.avoidInlineStyle = prev;
     }

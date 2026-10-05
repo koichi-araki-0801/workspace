@@ -83,4 +83,17 @@ describe('保存形式', () => {
     expect(css).not.toMatch(/#i[a-z0-9]+\s*\{/);
     expect(css).toContain('#fixed-1{color:blue;}');
   });
+  // CSS はテンプレ単位で基準日をまたいで共有する。この文書で使っていない規則も、別の基準日の
+  // 文書では使われうるので、保存・申請・baseline の CSS から落とさない。
+  it('文書で使っていないクラスの規則も getCss に残る(load → getCss で消えない)', () => {
+    g.load(DOC, '.body { color: red; } .only-other-date { color: blue; }');
+    expect(g.getCss()).toContain('.only-other-date{color:blue;}');
+  });
+
+  it('クラスを使う最後の要素を消しても、そのクラスの規則は getCss に残る', () => {
+    g.load(DOC, '.cover-category { color: green; }');
+    select('.cover-category').remove();
+    expect(g.getBodyHtml()).not.toContain('cover-category');
+    expect(g.getCss()).toContain('.cover-category{color:green;}');
+  });
 });
