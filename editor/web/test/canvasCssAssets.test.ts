@@ -66,6 +66,44 @@ describe('canvasCssAssetCopy', () => {
     expect(out).not.toContain('color');
   });
 
+  it('url() の一括指定より後ろにある同じ系統の個別指定は残す(一括指定の初期化で消さない)', () => {
+    const out = canvasCssAssetCopy(
+      '.a{background:url(../images/a.svg) center;color:blue;background-size:cover;' +
+        'background-color:#eee}',
+      null,
+    );
+    expect(out).toBe(
+      '.a{background:url("/api/fund-assets/images/a.svg") center;background-size:cover;' +
+        'background-color:#eee}',
+    );
+  });
+
+  it('一括指定より前の個別指定は元の規則でも初期化されているので複製しない', () => {
+    const out = canvasCssAssetCopy(
+      '.a{background-color:#eee;background:url(../images/a.svg)}',
+      null,
+    );
+    expect(out).toBe('.a{background:url("/api/fund-assets/images/a.svg")}');
+  });
+
+  it('個別指定の url() は他の宣言を引き込まない', () => {
+    const out = canvasCssAssetCopy(
+      '.a{background-image:url(../images/a.svg);background-size:cover;color:red}',
+      null,
+    );
+    expect(out).toBe('.a{background-image:url("/api/fund-assets/images/a.svg")}');
+  });
+
+  it('at-rule の中でも一括指定の後ろの個別指定を残して包み直す', () => {
+    const out = canvasCssAssetCopy(
+      '@media print{.a{margin:0;background:url(../images/a.svg);/* x */background-repeat:no-repeat}}',
+      null,
+    );
+    expect(out).toBe(
+      '@media print{.a{background:url("/api/fund-assets/images/a.svg");background-repeat:no-repeat}}',
+    );
+  });
+
   it('at-rule の中の規則も url() の宣言だけを残し、前置きで包み直す', () => {
     const out = canvasCssAssetCopy(
       '@media print{.a{color:blue;background:url(../images/a.svg) no-repeat;margin:0}}',

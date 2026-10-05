@@ -14,6 +14,11 @@
 // 勝ってしまう。`url()` の宣言にも同じことは起こる(後ろの規則で `background:none` に打ち消された
 // 背景が canvas でだけ出る)が、これは受け入れる: 表示だけの差で、保存内容と PDF には影響しない。
 //
+// ただし `url()` の宣言が一括指定(`background` など)のときは、同じ規則でそれより後ろにある同じ
+// 系統の個別指定(`background-size` など、`<プロパティ>-` で始まるもの)も残す。一括指定だけを
+// 後ろへ置くと、元の規則では一括指定の後ろで上書きされていた個別指定が初期値へ戻されるため。
+// 一括指定より前の個別指定は元の規則の中でも一括指定に初期化されているので残さない。
+//
 // 配信 URL は、フォントがプレビューホスト(`/api/preview-host/css/fonts/…`。同一オリジンで
 // cookie が付く)、画像が単体配信ルート(`/api/fund-assets/images/…`)。画像の判定と会社フォルダの
 // 照合は `lib/fundImages.ts` と共有する。参照の解決は CSS 自身の位置(`css/`)を基準にする。
@@ -50,6 +55,15 @@ export function canvasAssetUrl(rel: string, companyCode: string | null): string 
 
 /** 先頭のコメントと空白を飛ばして `@font-face` で始まる規則か。 */
 const FONT_FACE_RE = /^(?:\s|\/\*[\s\S]*?\*\/)*@font-face\b/i;
+
+/** 宣言の先頭の空白とコメント。 */
+const LEADING_TRIVIA_RE = /^(?:\s|\/\*[\s\S]*?\*\/)+/;
+
+/** 宣言(先頭の空白・コメントを除いたもの)のプロパティ名。小文字。`:` が無ければ空。 */
+function propertyName(decl: string): string {
+  const colon = decl.indexOf(':');
+  return colon < 0 ? '' : decl.slice(0, colon).trim().toLowerCase();
+}
 
 /** `text` の範囲。`end` は含まない。 */
 interface Range {
@@ -121,7 +135,8 @@ function rewriteUrls(
 }
 
 /**
- * 1 規則の複製を作る。`@font-face` は丸ごと、それ以外は `url()` を直せた宣言だけを残す。
+ * 1 規則の複製を作る。`@font-face` は丸ごと、それ以外は `url()` を直せた宣言と、その後ろにある
+ * 同じ系統の個別指定だけを残す。
  * 残すものが無ければ undefined。
  */
 function rewriteRule(text: string, companyCode: string | null): string | undefined {
@@ -133,9 +148,18 @@ function rewriteRule(text: string, companyCode: string | null): string | undefin
   const ranges = declarationRanges(text);
   if (ranges.length === 0) return undefined;
   const kept: string[] = [];
+  /** これまでに残した `url()` 宣言のプロパティ名(後ろの個別指定を引き込む系統)。 */
+  const families: string[] = [];
   for (const range of ranges) {
+    const raw = text.slice(range.start, range.end).replace(LEADING_TRIVIA_RE, '');
+    const prop = propertyName(raw);
     const decl = rewriteUrls(text, range, spans, companyCode);
-    if (decl !== undefined) kept.push(decl.trim());
+    if (decl !== undefined) {
+      kept.push(decl.replace(LEADING_TRIVIA_RE, '').trim());
+      if (prop !== '') families.push(prop);
+    } else if (prop !== '' && families.some((f) => prop.startsWith(`${f}-`))) {
+      kept.push(raw.trim());
+    }
   }
   if (kept.length === 0) return undefined;
   return `${text.slice(0, ranges[0].start)}${kept.join(';')}}`;
