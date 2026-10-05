@@ -18,9 +18,10 @@
 // 持たない規則は中身全体で見分ける。セレクタの属性値は `[src="x"]` の形にそろえる(GrapesJS は
 // ブラウザが書き出したセレクタを使うため)。同じキーが複数あれば `splitCssRules` は出現順の番号を
 // 足す。`mergeCssRuleChangesFromBaseline` は重複を 1 本に畳んでから比べる。GrapesJS は重複を
-// 別々の規則のまま持ち、宣言の無効な規則は読み込みで落とす(出現番号が原文とずれる)。スタイルの
-// 編集は同じセレクタの最後の規則に入るので、出現ごとの対応では「どの出現が変わったか」が原文と
-// 合わないことがある。畳めば、どの出現を編集しても実際のカスケードと同じ値で比べられる。
+// 別々の規則のまま持つが、宣言が空になった規則は `getCss` に出ない(そのため出現番号が原文と
+// ずれる)。スタイルの編集は同じセレクタの最後の規則に入る。畳めば、出現番号がずれても実際の
+// カスケードと同じ値で比べられる。当てるときは、next とペア側で出現数が合えば出現ごとに当てる
+// (1 本にまとめると、間にある別の規則とのカスケードがどこに置いても崩れる)。
 // 規則の間のコメントはどの規則にも属さず、同期の対象にならない。
 
 import { collectCssStructure } from '../security/cssExternalRefs.js';
@@ -132,8 +133,12 @@ function canonicalAttrQuotes(sel: string): string {
       const { value, next } = readAttrValue(sel, quoted ? i + 1 : i, quoted ? c : undefined);
       out += `"${value.replace(/["\\]/g, '\\$&')}"`;
       i = quoted ? next + 1 : next;
-      // `[x='y'i]` の `i` はブラウザが `[x="y" i]` と書き出す。
-      if (/[a-z]/i.test(sel[i] ?? '')) out += ' ';
+      // 大文字小文字の指定(`i` / `s`)はブラウザが `[x="y" i]` と空白を挟んだ小文字で書き出す。
+      const flag = /^ ?([is])(?= ?\])/i.exec(sel.slice(i));
+      if (flag !== null) {
+        out += ` ${flag[1].toLowerCase()}`;
+        i += flag[0].length;
+      } else if (/[a-z]/i.test(sel[i] ?? '')) out += ' ';
       continue;
     }
     out += c;
@@ -164,7 +169,9 @@ function readAttrValue(
         continue;
       }
       const cp = Number.parseInt(hex, 16);
-      value += cp === 0 || cp > 0x10ffff ? '\ufffd' : String.fromCodePoint(cp);
+      // 0・サロゲート・範囲外は U+FFFD(CSS Syntax の escaped code point)。
+      const invalid = cp === 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff);
+      value += invalid ? '\ufffd' : String.fromCodePoint(cp);
       k += 1 + hex.length;
       if (sel[k] === ' ') k++;
       continue;
@@ -209,10 +216,14 @@ function scanCssRules(css: string): ScannedRule[] {
       out += css[k];
       k++;
     }
-    return out
-      .replace(/\s+/g, ' ')
-      .replace(/\s*,\s*/g, ',')
-      .trim();
+    return (
+      out
+        // `\` + 改行は文字列の行の継続で、文字ごと消える。空白へ畳む前に消す(`\\` は残す)。
+        .replace(/\\(\r\n|[\n\r\f]|[\s\S])/g, (m, c: string) => (/^[\r\n\f]/.test(c) ? '' : m))
+        .replace(/\s+/g, ' ')
+        .replace(/\s*,\s*/g, ',')
+        .trim()
+    );
   };
 
   const found: Array<{
@@ -392,6 +403,26 @@ function removalOf(src: string, rule: ScannedRule): Edit {
   return { start, end, text: '' };
 }
 
+/**
+ * target の規則 `tr` を next の `nr` にする書き換え。GrapesJS は重複を別々の規則のまま持つので、
+ * 出現数が同じなら i 番目どうしが対応する。そのときは出現ごとに置き換え、`from` の同じ出現と
+ * 変わっていない出現には触らない(間にある別の規則とのカスケードを保つ)。出現数が違う(空の規則が
+ * `getCss` に出ず対応が取れない)ときは、最後の出現の位置に畳んだ 1 本を置き、ほかの出現を消す。
+ */
+function replacementOf(target: string, fr: MergeRule, nr: MergeRule, tr: MergeRule): Edit[] {
+  if (nr.parts.length === tr.parts.length) {
+    const sameShape = fr.parts.length === nr.parts.length;
+    return tr.parts.flatMap((p, i) =>
+      sameShape && sameCssRule(fr.parts[i].text, nr.parts[i].text)
+        ? []
+        : [{ start: p.start, end: p.end, text: nr.parts[i].text }],
+    );
+  }
+  return tr.parts.map((p) =>
+    p === tr.parts.at(-1) ? { start: p.start, end: p.end, text: nr.text } : removalOf(target, p),
+  );
+}
+
 /** `at` の行頭からの空白(行頭から空白だけが続くときのみ)。 */
 function indentBefore(src: string, at: number): string {
   let s = at;
@@ -461,15 +492,7 @@ function mergeRuleChanges(
     } else if (tr === undefined) {
       inserts.add(fr.key);
     } else {
-      // 重複を畳んだ規則は最後の出現の位置へ 1 本で置き、ほかの出現は消す。最後の出現の位置なら、
-      // 編集した値(後勝ちで効いていた宣言)が間にある別の規則との順序を変えずに効く。
-      for (const p of tr.parts) {
-        edits.push(
-          p === tr.parts.at(-1)
-            ? { start: p.start, end: p.end, text: nr.text }
-            : removalOf(target, p),
-        );
-      }
+      edits.push(...replacementOf(target, fr, nr, tr));
       applied.push(fr.key);
     }
   }
@@ -579,7 +602,8 @@ export function mergeCssRuleChanges(base: string, next: string, target: string):
 
 /**
  * 変更の検出と、ペア側(target)の照合を別の形で行う版。4 つの CSS とも重複した規則を畳んで
- * 比べ(`folded`)、当てるときはペア側の重複を最後の出現へ 1 本にまとめる。承認の CSS は GrapesJS が書き直した形
+ * 比べ(`folded`)、当てるときは出現ごとに当てる(出現数が合わなければ最後の出現へ 1 本に
+ * まとめる。`replacementOf`)。承認の CSS は GrapesJS が書き直した形
  * (一括指定の展開・色の正規化・url の引用符)で届くので、外部ツールが書いた原文と直に比べると
  * 編集していない規則まで「変わった」に見える。
  *

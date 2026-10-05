@@ -563,6 +563,23 @@ describe('属性セレクタの値の引用符', () => {
     ]);
   });
 
+  it('閉じた引用符の後ろの大文字の I と S は小文字にそろえる', () => {
+    const keys = splitCssRules(`a[x='y'I]{}\na[x="y" S]{}\na[x=y s]{}`).map((r) => r.key);
+    expect(keys).toEqual([k('a[x="y" i]'), k('a[x="y" s]'), k('a[x="y" s]', 2)]);
+  });
+
+  it('サロゲートと 0 と範囲外の符号位置のエスケープは U+FFFD にする', () => {
+    const keys = splitCssRules(`a[x="\\d800"]{}\na[x="\\0"]{}\na[x="\\110000"]{}`).map(
+      (r) => r.key,
+    );
+    expect(keys).toEqual([k('a[x="\ufffd"]'), k('a[x="\ufffd"]', 2), k('a[x="\ufffd"]', 3)]);
+  });
+
+  it('文字列の中の \\ + 改行は行の継続として消す(ほかの改行は空白に畳む)', () => {
+    const keys = splitCssRules('a[x="a\\\nb"]{}\na[x="a\\\r\nb"]{}\n.p\n.q{}').map((r) => r.key);
+    expect(keys).toEqual([k('a[x="ab"]'), k('a[x="ab"]', 2), k('.p .q')]);
+  });
+
   it('GrapesJS が引用符を付け直した規則も、原文の規則と対応づけて当てる', () => {
     const raw = "img[src=x]{color:red}\nimg[src='y']{color:red}\n";
     const baseline = 'img[src="x"]{color:red;}img[src="y"]{color:red;}';
@@ -577,7 +594,7 @@ describe('属性セレクタの値の引用符', () => {
 });
 
 describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳んで比べる', () => {
-  it('重複した規則は 1 本に畳んで比べ、編集はペア側の重複をまとめて 1 本に置き換える', () => {
+  it('出現数が next とペア側で合わなければ、ペア側の重複を最後の出現の位置に 1 本へまとめる', () => {
     const raw = '.a{color:red}.a{margin:0}';
     const r = mergeCssRuleChangesFromBaseline(
       raw,
@@ -588,16 +605,39 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
     expect(r).toEqual({ css: '.a{color:blue;margin:0;}', applied: [k('.a')], conflicts: [] });
   });
 
-  it('後ろの重複が同じ宣言を上書きしていても、編集した値が勝つ(最後の出現の位置に置く)', () => {
+  it('出現数が合えば出現ごとに当て、間にある別の規則とのカスケードを保つ', () => {
+    const raw = '.a{color:red}\n.b{color:green}\n.a{margin:0}\n';
+    const gjs = (margin: string): string => `.a{color:red;}.b{color:green;}.a{margin:${margin};}`;
+    const r = mergeCssRuleChangesFromBaseline(raw, gjs('0'), gjs('5px'), raw);
+    // 編集していない最初の .a は原文のまま残り、.b より前に置かれ続ける。
+    expect(r).toEqual({
+      css: '.a{color:red}\n.b{color:green}\n.a{margin:5px;}\n',
+      applied: [k('.a')],
+      conflicts: [],
+    });
+  });
+
+  it('出現ごとに当てるとき、編集した出現だけを置き換える(後ろの重複の上書きも保つ)', () => {
     const raw = '.a{color:red}\n.b{x:1}\n.a{color:green;margin:0}\n';
     const gjs = (color: string): string => `.a{color:red;}.b{x:1;}.a{color:${color};margin:0;}`;
     const r = mergeCssRuleChangesFromBaseline(raw, gjs('green'), gjs('blue'), raw);
     expect(r).toEqual({
-      // 当てる本文は next の重複を畳んだ形。
-      css: '.b{x:1}\n.a{color:blue;margin:0}\n',
+      css: '.a{color:red}\n.b{x:1}\n.a{color:blue;margin:0;}\n',
       applied: [k('.a')],
       conflicts: [],
     });
+  });
+
+  it('baseline と出現数が違っても、next とペア側の出現数が合えば出現ごとに置き換える', () => {
+    const raw = '.a{color:red}\n.b{x:1}\n.a{margin:0}\n';
+    const r = mergeCssRuleChangesFromBaseline(
+      raw,
+      '.a{color:red;margin:0;}.b{x:1;}',
+      '.a{color:red;}.b{x:1;}.a{margin:5px;}',
+      raw,
+    );
+    expect(r.css).toBe('.a{color:red;}\n.b{x:1}\n.a{margin:5px;}\n');
+    expect(r.applied).toEqual([k('.a')]);
   });
 
   it('ペア側の重複を畳んだ形が原文と違えば競合にし、ペア側は変えない', () => {
