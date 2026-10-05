@@ -61,6 +61,18 @@ interface PreviewLoad {
   isFilled: boolean;
 }
 
+/** 下書きから申請するのに CSS の baseline が無いときの知らせ(申請は止めない)。 */
+export const CSS_BASELINE_MISSING_MSG =
+  'このまま申請するとペアの版種へ CSS が写りません。編集画面から開き直してください';
+
+/**
+ * 申請画面に出す CSS の baseline の知らせ。下書きがあって baseline が無い(別タブ・ブックマークから
+ * 開いた等)ときだけ返す。そのまま申請すると、承認はペアへの CSS の転写を飛ばす。
+ */
+export function cssBaselineNotice(hasDraft: boolean, cssBaseline: string | null): string | null {
+  return hasDraft && cssBaseline === null ? CSS_BASELINE_MISSING_MSG : null;
+}
+
 interface TemplatePreviewService {
   /**
    * `editorCssBaseline` は編集画面が測った確定版の CSS の形(`stores/editorSession.ts` の

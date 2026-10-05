@@ -82,6 +82,48 @@ describe('useEditorSessionStore', () => {
     expect(store.cssBaselineOf('t1')).toBeNull();
   });
 
+  it('CSS の baseline は sessionStorage にも置き、再読み込み(新しいストア)でも読める', () => {
+    sessionStorage.clear();
+    useEditorSessionStore().setCssBaseline('t1', '.a{color:red;}');
+    // 再読み込み相当: Pinia を作り直す(メモリは空、sessionStorage は残る)。
+    setActivePinia(createPinia());
+    const fresh = useEditorSessionStore();
+    expect(fresh.cssBaselineOf('t1')).toBe('.a{color:red;}');
+    // null と clear() は sessionStorage からも消す。
+    fresh.setCssBaseline('t1', null);
+    setActivePinia(createPinia());
+    expect(useEditorSessionStore().cssBaselineOf('t1')).toBeNull();
+    useEditorSessionStore().setCssBaseline('t2', '.b{}');
+    useEditorSessionStore().clear('t2');
+    setActivePinia(createPinia());
+    expect(useEditorSessionStore().cssBaselineOf('t2')).toBeNull();
+  });
+
+  it('sessionStorage が使えなくても CSS の baseline の記録と読み出しは落ちない', () => {
+    sessionStorage.clear();
+    const store = useEditorSessionStore();
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    try {
+      expect(() => store.setCssBaseline('t1', '.a{}')).not.toThrow();
+      expect(store.cssBaselineOf('t1')).toBe('.a{}');
+      expect(useEditorSessionStore().cssBaselineOf('t9')).toBeNull();
+      expect(() => store.setCssBaseline('t1', null)).not.toThrow();
+      expect(() => store.clear('t1')).not.toThrow();
+    } finally {
+      set.mockRestore();
+      get.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
   it('clear() on an unknown templateId is a no-op', () => {
     const store = useEditorSessionStore();
     expect(() => store.clear('missing')).not.toThrow();

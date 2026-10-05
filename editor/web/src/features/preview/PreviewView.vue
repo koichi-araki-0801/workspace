@@ -27,7 +27,7 @@ import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import PreviewPanel from './PreviewPanel.vue';
-import { useTemplatePreviewService } from './services/templatePreviewService';
+import { cssBaselineNotice, useTemplatePreviewService } from './services/templatePreviewService';
 
 const props = defineProps<{ id: string }>();
 
@@ -83,6 +83,9 @@ function onState(s: typeof nav) {
 
 const fundCode = computed(() => template.value?.meta.attributes.fundCode ?? '');
 // CSS の不在・配信されない画像参照の警告。開くことは止めず、帯で知らせる(編集画面と同じ判定)。
+// 下書きがあるのに CSS の baseline が無い(別タブ・ブックマークから開いた等)ときの知らせ。
+// 申請は止めない — 本文の確定は通り、承認がペアへの CSS の転写だけを飛ばす。
+const baselineNotice = computed(() => cssBaselineNotice(hasDraft.value, cssBaseline.value));
 const assetWarnings = computed(() =>
   template.value
     ? previewAssetWarnings(props.id, template.value.cssMissing === true, previewDoc.value)
@@ -281,6 +284,16 @@ async function exportPdf() {
 
     <div v-if="renderError" class="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
       {{ renderError }}
+    </div>
+
+    <div
+      v-if="baselineNotice"
+      class="flex items-start gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
+      role="alert"
+      data-testid="css-baseline-notice"
+    >
+      <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+      <span>{{ baselineNotice }}</span>
     </div>
 
     <!-- 資産の警告(CSS ファイルの不在・配信されない画像参照)。開くことは止めず、帯で知らせる。 -->

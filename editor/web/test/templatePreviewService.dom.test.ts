@@ -8,13 +8,17 @@ import {
   type Template,
   type TemplateRepository,
 } from '@editor/shared';
+import { createPinia, setActivePinia } from 'pinia';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CSS_BASELINE_MISSING_MSG,
   createTemplatePreviewService,
+  cssBaselineNotice,
   PDF_ERROR_MSG,
 } from '@/features/preview/services/templatePreviewService';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import type { DraftOwner } from '@/lib/draftOwner';
+import { useEditorSessionStore } from '@/stores/editorSession';
 
 // 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では起動しない。
 // ここで固定したいのは draft 適用・文書組み立て・PDF 送信なので、隔離の向こう側にあたる
@@ -194,6 +198,20 @@ describe('TemplatePreviewService.loadForPreview', () => {
     if (isOk(res)) expect(res.value.cssBaseline).toBeNull();
   });
 
+  it('再読み込み後も sessionStorage の baseline を申請の cssBaseline にする', async () => {
+    sessionStorage.clear();
+    setActivePinia(createPinia());
+    useEditorSessionStore().setCssBaseline('t1', '.from-file{}');
+    setActivePinia(createPinia()); // 再読み込み相当(メモリは空)
+    const svc = createTemplatePreviewService(draftRepos('<p>d</p>'), history, ownerOf(true));
+    const res = await svc.loadForPreview('t1', {
+      editorCssBaseline: useEditorSessionStore().cssBaselineOf('t1'),
+    });
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.cssBaseline).toContain('.from-file');
+    sessionStorage.clear();
+  });
+
   it('getSampleData / getDraft の失敗は loadForPreview の結果として返る', async () => {
     const templatesA = {
       getTemplate: vi.fn(async () => ok(tpl)),
@@ -353,5 +371,17 @@ describe('TemplatePreviewService.renderPdf', () => {
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.message).toBe(PDF_ERROR_MSG);
+  });
+});
+
+describe('cssBaselineNotice', () => {
+  it('下書きがあって baseline が無いときだけ、CSS が写らないことを知らせる', () => {
+    expect(cssBaselineNotice(true, null)).toBe(CSS_BASELINE_MISSING_MSG);
+    expect(CSS_BASELINE_MISSING_MSG).toBe(
+      'このまま申請するとペアの版種へ CSS が写りません。編集画面から開き直してください',
+    );
+    expect(cssBaselineNotice(true, '.a{}')).toBeNull();
+    expect(cssBaselineNotice(false, null)).toBeNull();
+    expect(cssBaselineNotice(false, '.a{}')).toBeNull();
   });
 });
