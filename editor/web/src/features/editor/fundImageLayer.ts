@@ -19,8 +19,10 @@
 // 後ろに要素が足されていたら末尾へ戻す。
 
 import type { Editor } from 'grapesjs';
+import { cssImageIssues, type ImageRefIssue } from '@/lib/assetWarnings';
+import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
 import { canvasCssAssetCopy } from './canvasCssAssets';
-import { type FundImageContext, fundImageCss, needsFundImageWarning } from './fundImages';
+import { type FundImageContext, fundImageCss, fundImageWarnings } from './fundImages';
 
 /** canvas の head に置く差し替え用 `<style>` の目印。 */
 export const FUND_IMAGE_STYLE_ATTR = 'data-fund-images';
@@ -36,8 +38,8 @@ export interface FundImageLayerOptions {
   getContext: () => FundImageContext;
   /** 差した画像の読み込みが済んだ(ページ境界・幾何を測り直す契機)。 */
   onImagesReady: () => void;
-  /** 値入り本文の解けない参照の有無が変わった。 */
-  onWarningChange: (on: boolean) => void;
+  /** 警告欄の文(`{{` の残る参照・配信されない参照・会社フォルダ不一致)が変わった。 */
+  onWarningsChange: (messages: string[]) => void;
   /** 画像の先読み(テストで差し替える)。既定は `Image` + `decode()`。 */
   preload?: (url: string) => Promise<void>;
   /** 走査の間引き(テストで同期にする)。既定は rAF で 1 フレーム 1 回。 */
@@ -75,7 +77,7 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   const schedule = opts.schedule ?? ((cb: () => void) => requestAnimationFrame(cb));
   let styleEl: HTMLStyleElement | null = null;
   let lastCss = '';
-  let lastWarning = false;
+  let lastWarnings = '';
   let pending = false;
   /** この document で先読みを始めた URL(document が変われば数え直す)。 */
   const preloaded = new Set<string>();
@@ -94,6 +96,7 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   let cssInput = '';
   let cssCompany: string | null = null;
   let cssCopy = '';
+  let cssIssues: Array<[string, ImageRefIssue]> = [];
   let assetEl: HTMLStyleElement | null = null;
   let lastAssetCss: string | null = null;
 
@@ -167,6 +170,7 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     if (cssInput === '' || companyCode === cssCompany) return;
     cssCompany = companyCode;
     cssCopy = canvasCssAssetCopy(cssInput, companyCode);
+    cssIssues = cssImageIssues(cssInput, TEMPLATE_CSS_FROM, cssCompany);
   };
 
   const refresh = (): void => {
@@ -190,10 +194,11 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     if (fresh.length > 0) {
       void Promise.allSettled(fresh.map((u) => preload(u))).then(() => opts.onImagesReady());
     }
-    const warning = needsFundImageWarning(srcs, ctx);
-    if (warning !== lastWarning) {
-      lastWarning = warning;
-      opts.onWarningChange(warning);
+    const warnings = fundImageWarnings(srcs, ctx, cssIssues);
+    const key = warnings.join('\n');
+    if (key !== lastWarnings) {
+      lastWarnings = key;
+      opts.onWarningsChange(warnings);
     }
   };
 
@@ -220,6 +225,7 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     cssInput = css;
     cssCompany = opts.getContext().companyCode;
     cssCopy = canvasCssAssetCopy(css, cssCompany);
+    cssIssues = cssImageIssues(css, TEMPLATE_CSS_FROM, cssCompany);
     refresh();
   };
 

@@ -8,12 +8,12 @@ import { buildSampleData, parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import {
   cssString,
-  FUND_IMAGE_WARNING_MESSAGE,
   fundCodeOfTemplateId,
   fundImageCss,
-  needsFundImageWarning,
+  fundImageWarnings,
   resolveFundImageSrc,
 } from '@/features/editor/fundImages';
+import { FUND_IMAGE_WARNING_MESSAGE } from '@/lib/assetWarnings';
 
 const ID = 'AM01_510037_20250105_交付版';
 const JINJA = { mode: 'jinja' as const, fundCode: '510037', companyCode: 'AM01' };
@@ -90,13 +90,38 @@ describe('resolveFundImageSrc', () => {
   });
 });
 
-describe('needsFundImageWarning', () => {
-  it('値入り本文に {{ の残る images/ 参照があるときだけ真', () => {
-    expect(needsFundImageWarning(['../images/{{ fund.code }}_logo.svg'], FILLED)).toBe(true);
-    expect(needsFundImageWarning(['../images/{{ fund.code }}_logo.svg'], JINJA)).toBe(false);
+describe('fundImageWarnings', () => {
+  it('値入り本文: {{ の残る images/ 参照・配信されない参照・会社フォルダ不一致をまとめる', () => {
     expect(
-      needsFundImageWarning(['../images/510037_logo.svg', '../photos/{{ x }}.png'], FILLED),
-    ).toBe(false);
+      fundImageWarnings(
+        [
+          '../images/{{ fund.code }}_logo.svg',
+          'images/510037_logo.svg',
+          '../images/smtam/qr.svg',
+          '../images/510037_logo.svg',
+        ],
+        FILLED,
+      ),
+    ).toEqual([
+      FUND_IMAGE_WARNING_MESSAGE,
+      '配信されない画像参照があります（images/510037_logo.svg）。' +
+        '画像は ../images/<名前> か ../images/<会社フォルダ>/<名前> で参照してください',
+      '会社フォルダ名がテンプレの会社コード（AM01）と違うため表示しません（../images/smtam/qr.svg）',
+    ]);
+  });
+
+  it('Jinja 本文: {{ fund.code }} を解いてから判定し、解けない式の残る参照は見ない', () => {
+    expect(
+      fundImageWarnings(
+        ['../images/{{ fund.code }}_logo.svg', '../images/{{ report.x }}.svg'],
+        JINJA,
+      ),
+    ).toEqual([]);
+    expect(fundImageWarnings(['../images/{{ fund.code }}/a/b.svg'], JINJA)).toHaveLength(1);
+  });
+
+  it('CSS 由来の問題も同じ欄にまとめる', () => {
+    expect(fundImageWarnings([], FILLED, [['../images/x/y/z.svg', 'unserved']])).toHaveLength(1);
   });
 
   it('警告文は {{ fund.code }} を字面で含む(Vue の補間に渡さず定数で出す)', () => {

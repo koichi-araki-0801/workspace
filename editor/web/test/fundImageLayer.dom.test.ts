@@ -16,6 +16,7 @@ import {
 } from '@/features/editor/fundImageLayer';
 import { cssString, type FundImageContext } from '@/features/editor/fundImages';
 import { useGrapes } from '@/features/editor/useGrapes';
+import { FUND_IMAGE_WARNING_MESSAGE } from '@/lib/assetWarnings';
 import { toTemplate } from '@/lib/jinjaMask';
 
 const JINJA: FundImageContext = { mode: 'jinja', fundCode: '510037', companyCode: 'AM01' };
@@ -55,7 +56,7 @@ describe('attachFundImages', () => {
     attachFundImages(host, {
       getContext: () => JINJA,
       onImagesReady,
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
       preload,
       schedule: (cb) => cb(),
     });
@@ -80,21 +81,21 @@ describe('attachFundImages', () => {
     document.body.innerHTML =
       '<img id="bad" src="../images/{{ fund.code }}_logo.svg"><img src="../images/510037_logo.svg">';
     const { host, emit } = fakeHost(document);
-    const onWarningChange = vi.fn();
+    const onWarningsChange = vi.fn();
     attachFundImages(host, {
       getContext: () => FILLED,
       onImagesReady: vi.fn(),
-      onWarningChange,
+      onWarningsChange,
       preload: async () => {},
       schedule: (cb) => cb(),
     });
     emit('load');
-    expect(onWarningChange).toHaveBeenLastCalledWith(true);
+    expect(onWarningsChange).toHaveBeenLastCalledWith([FUND_IMAGE_WARNING_MESSAGE]);
     expect(styleText()).not.toContain('{{');
     expect(styleText()).toContain('img[src="../images/510037_logo.svg"]');
     document.getElementById('bad')?.remove();
     emit('component:remove');
-    expect(onWarningChange).toHaveBeenLastCalledWith(false);
+    expect(onWarningsChange).toHaveBeenLastCalledWith([]);
   });
 
   it('同じ内容では style を書き直さず、同じ URL は 1 度しか先読みしない', () => {
@@ -104,7 +105,7 @@ describe('attachFundImages', () => {
     attachFundImages(host, {
       getContext: () => FILLED,
       onImagesReady: vi.fn(),
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
       preload,
       schedule: (cb) => cb(),
     });
@@ -122,7 +123,7 @@ describe('attachFundImages', () => {
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
       onImagesReady: vi.fn(),
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
       preload: async () => {},
       schedule: (cb) => cb(),
     });
@@ -148,7 +149,7 @@ describe('attachFundImages', () => {
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
       onImagesReady: vi.fn(),
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
       preload: async () => {},
       schedule: (cb) => queued.push(cb),
     });
@@ -171,7 +172,7 @@ describe('attachFundImages', () => {
     attachFundImages(host, {
       getContext: () => FILLED,
       onImagesReady: vi.fn(),
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
     });
     expect(() => emit('load')).not.toThrow();
   });
@@ -211,7 +212,7 @@ describe('CSS の url() 規則の複製層', () => {
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
       onImagesReady: vi.fn(),
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
       preload: async () => {},
       schedule: (cb) => cb(),
     });
@@ -229,7 +230,7 @@ describe('CSS の url() 規則の複製層', () => {
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
       onImagesReady: vi.fn(),
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
       preload: async () => {},
       schedule: (cb) => cb(),
     });
@@ -246,7 +247,7 @@ describe('CSS の url() 規則の複製層', () => {
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
       onImagesReady: vi.fn(),
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
       preload: async () => {},
       schedule: (cb) => cb(),
     });
@@ -262,7 +263,7 @@ describe('CSS の url() 規則の複製層', () => {
     const layer = attachFundImages(host, {
       getContext: () => ctx,
       onImagesReady: vi.fn(),
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
       preload: async () => {},
       schedule: (cb) => cb(),
     });
@@ -271,6 +272,22 @@ describe('CSS の url() 規則の複製層', () => {
     ctx = { ...FILLED, companyCode: 'SMTAM' };
     layer.refresh();
     expect(assetStyle()?.textContent).toBe('');
+  });
+
+  it('CSS 内の配信されない画像参照も警告に入れる', () => {
+    const { host } = fakeHost(document);
+    const onWarningsChange = vi.fn();
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningsChange,
+      preload: async () => {},
+      schedule: (cb) => cb(),
+    });
+    layer.setCss('.p{background:url(../images/other/q.svg)}');
+    expect(onWarningsChange).toHaveBeenLastCalledWith([
+      '会社フォルダ名がテンプレの会社コード（AM01）と違うため表示しません（../images/other/q.svg）',
+    ]);
   });
 });
 
@@ -286,7 +303,7 @@ describe('canvas の大きさの変化で測り直す', () => {
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
       onImagesReady: vi.fn(),
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
       onCanvasResize,
       preload: async () => {},
       schedule: (cb) => cb(),
@@ -329,7 +346,7 @@ describe('canvas の大きさの変化で測り直す', () => {
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
       onImagesReady: vi.fn(),
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
       onCanvasResize: vi.fn(),
       preload: async () => {},
       schedule: (cb) => cb(),
@@ -352,7 +369,7 @@ describe('canvas の大きさの変化で測り直す', () => {
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
       onImagesReady: vi.fn(),
-      onWarningChange: vi.fn(),
+      onWarningsChange: vi.fn(),
       onCanvasResize: vi.fn(),
       preload: async () => {},
       schedule: (cb) => cb(),

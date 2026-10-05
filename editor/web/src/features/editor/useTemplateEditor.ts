@@ -18,6 +18,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useNoteRepo } from '@/api/repositories';
 import { toast, toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
+import { editorAssetWarnings } from '@/lib/assetWarnings';
 import {
   type ConfirmedCanonical,
   readConfirmedCanonical,
@@ -670,7 +671,9 @@ export function useTemplateEditor(
     template,
     fundName,
     syncStatus,
-    fundImageWarning: g.fundImageWarning,
+    assetWarnings: computed(() =>
+      editorAssetWarnings(id, template.value?.cssMissing === true, g.imageWarnings.value),
+    ),
     partHistory,
     displayHistory,
     partLabels,

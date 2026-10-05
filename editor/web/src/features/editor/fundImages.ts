@@ -17,9 +17,9 @@
 // GrapesJS への配線は `fundImageLayer.ts`。
 
 import { DOC_DIR, parseAnyTemplateFileName, resolveDocAssetPath } from '@editor/shared';
+import { type ImageRefIssue, imageIssueMessages, imageRefIssue } from '@/lib/assetWarnings';
 import {
   companyFolderMatches,
-  FUND_IMAGES_DIR,
   type FundImageRef,
   fundImageRefOf,
   fundImageUrl,
@@ -36,15 +36,6 @@ export interface FundImageContext {
   companyCode: string | null;
 }
 
-/**
- * 値入り本文に `{{ … }}` 入りの画像参照が残っているときの警告。テンプレート構文の字面を含むので、
- * Vue のテンプレートへ直書きせず定数として補間する(直書きすると Vue が式として評価する)。
- */
-export const FUND_IMAGE_WARNING_MESSAGE =
-  '値入り HTML の画像参照に {{ fund.code }} が残っています。' +
-  '外部ツールで確定したパスを書いてください。PDF には表示されません';
-
-const PREFIX = `${FUND_IMAGES_DIR}/`;
 const FUND_CODE_EXPR_RE = /\{\{\s*fund\.code\s*\}\}/g;
 /** 解いた後にも残る Jinja の開始記号(式・文・コメント)。 */
 const JINJA_RE = /\{[{%#]/;
@@ -74,13 +65,29 @@ export function resolveFundImageSrc(src: string, ctx: FundImageContext): FundIma
   return ref;
 }
 
-/** 値入り本文に、解けない(`{{` の残る)images/ 参照があるか。 */
-export function needsFundImageWarning(srcs: Iterable<string>, ctx: FundImageContext): boolean {
-  if (ctx.mode !== 'filled') return false;
-  for (const src of srcs) {
-    if (src.includes('{{') && resolveDocAssetPath(src, DOC_DIR)?.startsWith(PREFIX)) return true;
+/**
+ * canvas の `<img>` の `src` と CSS 由来の問題から、警告欄の文を作る。Jinja 本文は
+ * `{{ fund.code }}` を解いてから判定し、他の式が残る参照は描画で決まるので見ない。値入り本文の
+ * `{{` の残る参照は、PDF にも出ないので警告する。
+ */
+export function fundImageWarnings(
+  srcs: Iterable<string>,
+  ctx: FundImageContext,
+  cssIssues: ReadonlyArray<readonly [string, ImageRefIssue]> = [],
+): string[] {
+  const issues: Array<readonly [string, ImageRefIssue]> = [];
+  for (const src of new Set(srcs)) {
+    let resolved = src;
+    if (ctx.mode === 'jinja') {
+      const { fundCode } = ctx;
+      if (fundCode === null) continue;
+      resolved = resolved.replace(FUND_CODE_EXPR_RE, () => fundCode);
+      if (JINJA_RE.test(resolved)) continue;
+    }
+    const kind = imageRefIssue(resolved, DOC_DIR, ctx.companyCode);
+    if (kind !== null) issues.push([src, kind]);
   }
-  return false;
+  return imageIssueMessages([...issues, ...cssIssues], ctx.companyCode);
 }
 
 /**

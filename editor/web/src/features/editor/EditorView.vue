@@ -17,7 +17,6 @@ import { useEditorSessionStore } from '@/stores/editorSession';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import CommentPanel from './comments/CommentPanel.vue';
 import EditorTopBar from './EditorTopBar.vue';
-import { FUND_IMAGE_WARNING_MESSAGE } from './fundImages';
 import Inspector from './Inspector.vue';
 import NoteBubble from './NoteBubble.vue';
 import PartTree from './PartTree.vue';
@@ -40,7 +39,7 @@ const {
   template,
   fundName,
   syncStatus,
-  fundImageWarning,
+  assetWarnings,
   displayHistory,
   partLabels,
   selectedPart,
@@ -374,16 +373,18 @@ const statusText = computed(() => {
       <span>{{ pairSyncBanner }}</span>
     </div>
 
-    <!-- 値入り本文に {{ fund.code }} 入りの画像参照が残っている。PDF にもプレビューにも出ないので、
-         外部ツール側で確定パスへ直すまで開くたびに出す(閉じるボタンは置かない)。文言は
-         テンプレート構文の字面を含むため定数で補間する。 -->
+    <!-- 資産の警告(CSS ファイルの不在・配信されない画像参照・{{ fund.code }} の残る画像参照)。
+         開くことは止めず、外部ツール側で直すまで開くたびに出す(閉じるボタンは置かない)。文言は
+         テンプレート構文の字面を含みうるため、テンプレートへ直書きせず補間で出す。 -->
     <div
-      v-if="fundImageWarning"
-      class="flex items-center gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
+      v-if="assetWarnings.length > 0"
+      class="flex items-start gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
       role="alert"
     >
-      <TriangleAlert class="h-4 w-4 shrink-0" />
-      <span>{{ FUND_IMAGE_WARNING_MESSAGE }}</span>
+      <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+      <ul class="space-y-0.5">
+        <li v-for="m in assetWarnings" :key="m">{{ m }}</li>
+      </ul>
     </div>
 
     <!-- 高ズームで両袖(固定幅)+ 中央が実効ビューポート幅を超える極端な場合は、クリップ

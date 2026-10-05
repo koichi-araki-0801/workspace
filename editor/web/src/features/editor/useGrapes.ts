@@ -119,8 +119,8 @@ export function useGrapes() {
   // `setFundImageContext` が差し替え、差し替え層(`fundImageLayer.ts`)と image view の拡張が読む。
   let fundImageContext: FundImageContext = { mode: 'filled', fundCode: null, companyCode: null };
   let fundImages: FundImageLayer | null = null;
-  /** 値入り本文に `{{ … }}` 入りの画像参照が残っているか(編集画面の警告用)。 */
-  const fundImageWarning = ref(false);
+  /** canvas の画像参照の警告(`{{` の残る参照・配信されない参照・会社フォルダ不一致)。 */
+  const imageWarnings = ref<string[]>([]);
 
   // ── ページ送り(1 ページだけ表示)の状態。判定は `pageView.ts` の純粋関数に委譲する ──
   /** 現在 canvas に在るページ要素(`body > .page`、無ければ `[body]`)の cache。 */
@@ -456,8 +456,8 @@ export function useGrapes() {
       getContext: () => fundImageContext,
       onImagesReady: scheduleLayoutRecompute,
       onCanvasResize: scheduleLayoutRecompute,
-      onWarningChange: (on) => {
-        fundImageWarning.value = on;
+      onWarningsChange: (messages) => {
+        imageWarnings.value = messages;
       },
     });
 
@@ -901,7 +901,7 @@ export function useGrapes() {
     load,
     setVarsHighlight,
     setFundImageContext,
-    fundImageWarning,
+    imageWarnings,
     parseHtmlQuiet,
     insertPart,
     getBodyHtml,

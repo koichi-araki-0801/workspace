@@ -6,7 +6,7 @@
 // 実際のズーム/ページ送りは `PreviewPanel`(vivliostyle)へ ref 経由で委譲し, 状態は
 // `state` イベントで受け取って表示する。
 import { isErr, isOk, type SampleData, type Template } from '@editor/shared';
-import { AlertCircle, Crop, FileDown, Loader2, Minus, Plus, Send } from '@lucide/vue';
+import { AlertCircle, Crop, FileDown, Loader2, Minus, Plus, Send, TriangleAlert } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useReviewRepo } from '@/api/repositories';
@@ -21,6 +21,7 @@ import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
 import { useChangedSummaryService } from '@/features/reviews/services/changedSummary';
 import { editorRoute } from '@/features/templates/editorRoute';
+import { previewAssetWarnings } from '@/lib/assetWarnings';
 import { withCropMarks } from '@/lib/cropMarks';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
@@ -79,6 +80,12 @@ function onState(s: typeof nav) {
 }
 
 const fundCode = computed(() => template.value?.meta.attributes.fundCode ?? '');
+// CSS の不在・配信されない画像参照の警告。開くことは止めず、帯で知らせる(編集画面と同じ判定)。
+const assetWarnings = computed(() =>
+  template.value
+    ? previewAssetWarnings(props.id, template.value.cssMissing === true, previewDoc.value)
+    : [],
+);
 
 onMounted(async () => {
   const res = await runLoad(() => preview.loadForPreview(props.id));
@@ -266,6 +273,18 @@ async function exportPdf() {
 
     <div v-if="renderError" class="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
       {{ renderError }}
+    </div>
+
+    <!-- 資産の警告(CSS ファイルの不在・配信されない画像参照)。開くことは止めず、帯で知らせる。 -->
+    <div
+      v-if="assetWarnings.length > 0"
+      class="flex items-start gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
+      role="alert"
+    >
+      <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+      <ul class="space-y-0.5">
+        <li v-for="m in assetWarnings" :key="m">{{ m }}</li>
+      </ul>
     </div>
 
     <!-- PDF 出力が長引く場合の補足(ボタンのスピナーだけでは固まったように見えるため)。 -->

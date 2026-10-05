@@ -149,6 +149,7 @@ export default defineConfig({
         // プレビュー文書の自己完結化(子の要求ゼロ化)と postMessage クライアント。
         'editor/web/src/lib/previewSelfContain.ts',
         'editor/web/src/lib/fundImages.ts',
+        'editor/web/src/lib/assetWarnings.ts',
         'editor/web/src/features/preview/PreviewPanel.vue',
         // Jinja コンパイルを opaque オリジンへ追い出す親側クライアント。
         // 発信元検証・保留・id 対応付けのどれが欠けても隔離が骨抜きになるため対象へ入れる。

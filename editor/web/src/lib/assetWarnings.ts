@@ -1,0 +1,148 @@
+// =============================================================================
+// assetWarnings.ts — 文書の資産(CSS・画像)が表示されない理由を利用者向けの警告文にする
+// =============================================================================
+// 編集画面とプレビューは、CSS ファイルが無いときも、配信されない画像参照があるときも、開くこと
+// 自体は止めない(外部ツールの出力を直すまで作業を止めないため)。代わりに理由を警告欄に出す。
+// 判定は表示の判定(`fundImages.ts` の `fundImageRefOf` / `companyFolderMatches`)と同じ材料で
+// 行い、「警告は出ないのに表示されない」ずれを作らない。
+//
+// 警告文はテンプレート構文の字面(`{{ fund.code }}`)を含みうるので、Vue のテンプレートへ直書き
+// せず、補間(`{{ m }}`)で出す。補間はテキストとして挿すだけで、式として評価しない。
+
+import { collectCssUrlSpans, cssFileNameOf, DOC_DIR, resolveDocAssetPath } from '@editor/shared';
+import {
+  companyCodeOfTemplateId,
+  companyFolderMatches,
+  FUND_IMAGES_DIR,
+  fundImageRefOf,
+} from './fundImages';
+
+/**
+ * 値入り HTML に `{{ … }}` 入りの画像参照が残っているときの警告。テンプレート構文の字面を含むので、
+ * Vue のテンプレートへ直書きせず定数として補間する(直書きすると Vue が式として評価する)。
+ */
+export const FUND_IMAGE_WARNING_MESSAGE =
+  '値入り HTML の画像参照に {{ fund.code }} が残っています。' +
+  '外部ツールで確定したパスを書いてください。PDF には表示されません';
+
+/** 画像参照が表示されない理由。`jinja` = `{{` が残る、`unserved` = 配信されない形、`company` = 会社フォルダ不一致。 */
+export type ImageRefIssue = 'jinja' | 'unserved' | 'company';
+
+const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+const JINJA_RE = /\{[{%#]/;
+const IMAGES_PREFIX = `${FUND_IMAGES_DIR}/`;
+/** 警告文に並べる参照の上限(残りは件数で出す)。 */
+const LIST_MAX = 3;
+
+/**
+ * `<img src>` の値が表示されない理由。表示される・判定の対象外(scheme 付き = data: や外部 URL。
+ * 外部参照は別の関門が扱う)は null。`from` は文書なら `'doc'`。
+ */
+export function imageRefIssue(
+  url: string,
+  from: string,
+  companyCode: string | null,
+): ImageRefIssue | null {
+  const v = url.trim();
+  if (v === '' || v.startsWith('#') || SCHEME_RE.test(v)) return null;
+  const rel = resolveDocAssetPath(v, from);
+  if (JINJA_RE.test(v)) return rel?.startsWith(IMAGES_PREFIX) ? 'jinja' : null;
+  if (rel === undefined) return 'unserved';
+  const ref = fundImageRefOf(rel);
+  if (ref === undefined) return 'unserved';
+  return companyFolderMatches(ref, companyCode) ? null : 'company';
+}
+
+/** CSS の `url()` のうち `images/` を指すものの問題を拾う(フォント等の他の参照は見ない)。 */
+export function cssImageIssues(
+  css: string,
+  from: string,
+  companyCode: string | null,
+): Array<[string, ImageRefIssue]> {
+  const out: Array<[string, ImageRefIssue]> = [];
+  for (const span of collectCssUrlSpans(css)) {
+    const rel = resolveDocAssetPath(span.value, from);
+    if (rel === undefined || !rel.startsWith(IMAGES_PREFIX)) continue;
+    const ref = fundImageRefOf(rel);
+    if (ref === undefined) out.push([span.value, 'unserved']);
+    else if (!companyFolderMatches(ref, companyCode)) out.push([span.value, 'company']);
+  }
+  return out;
+}
+
+/** 組み立て済みの文書(プレビュー用)の `<img>` と `<style>` から画像参照の問題を拾う。 */
+export function docImageIssues(
+  html: string,
+  companyCode: string | null,
+): Array<[string, ImageRefIssue]> {
+  if (html === '') return [];
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const out: Array<[string, ImageRefIssue]> = [];
+  for (const img of Array.from(doc.querySelectorAll('img[src]'))) {
+    const src = img.getAttribute('src') ?? '';
+    const kind = imageRefIssue(src, DOC_DIR, companyCode);
+    if (kind !== null) out.push([src, kind]);
+  }
+  for (const style of Array.from(doc.querySelectorAll('style'))) {
+    out.push(...cssImageIssues(style.textContent ?? '', DOC_DIR, companyCode));
+  }
+  return out;
+}
+
+function listRefs(refs: readonly string[]): string {
+  const uniq = [...new Set(refs)];
+  const head = uniq.slice(0, LIST_MAX).join('、');
+  return uniq.length > LIST_MAX ? `${head} ほか${uniq.length - LIST_MAX}件` : head;
+}
+
+/** 画像参照の問題を、種類ごとに 1 文の警告にまとめる。 */
+export function imageIssueMessages(
+  issues: Iterable<readonly [string, ImageRefIssue]>,
+  companyCode: string | null,
+): string[] {
+  const by: Record<ImageRefIssue, string[]> = { jinja: [], unserved: [], company: [] };
+  for (const [ref, kind] of issues) by[kind].push(ref);
+  const out: string[] = [];
+  if (by.jinja.length > 0) out.push(FUND_IMAGE_WARNING_MESSAGE);
+  if (by.unserved.length > 0) {
+    out.push(
+      `配信されない画像参照があります（${listRefs(by.unserved)}）。` +
+        '画像は ../images/<名前> か ../images/<会社フォルダ>/<名前> で参照してください',
+    );
+  }
+  if (by.company.length > 0) {
+    out.push(
+      `会社フォルダ名がテンプレの会社コード（${companyCode ?? '不明'}）と違うため表示しません` +
+        `（${listRefs(by.company)}）`,
+    );
+  }
+  return out;
+}
+
+/** テンプレの CSS ファイルが無いときの警告。名前は文書 ID から導く(サーバが探した名前と同じ)。 */
+export function cssMissingMessage(templateId: string): string {
+  const name = cssFileNameOf(templateId) ?? `${templateId}.css`;
+  return `CSS ${name} が見つかりません。スタイルを当てずに表示しています`;
+}
+
+/** 編集画面の警告欄の中身(CSS の不在を先頭に、canvas の画像の警告を続ける)。 */
+export function editorAssetWarnings(
+  templateId: string,
+  cssMissing: boolean,
+  imageWarnings: readonly string[],
+): string[] {
+  return [...(cssMissing ? [cssMissingMessage(templateId)] : []), ...imageWarnings];
+}
+
+/** プレビュー画面の警告欄の中身。画像は組み立て済み文書の参照から判定する。 */
+export function previewAssetWarnings(
+  templateId: string,
+  cssMissing: boolean,
+  previewDoc: string,
+): string[] {
+  const companyCode = companyCodeOfTemplateId(templateId);
+  return [
+    ...(cssMissing ? [cssMissingMessage(templateId)] : []),
+    ...imageIssueMessages(docImageIssues(previewDoc, companyCode), companyCode),
+  ];
+}
