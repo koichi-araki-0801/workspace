@@ -124,8 +124,11 @@ function readJsonFile(filePath: string): unknown {
         'Raise the limit with PIE_MAX_JSON_BYTES=<n> if this input is expected.',
     );
   }
+  // PowerShell 5.1 の `Out-File -Encoding utf8` / `Set-Content -Encoding utf8` は先頭に BOM を
+  // 書き、`JSON.parse` は BOM を不正な先頭文字として拒否する。
+  const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
   try {
-    return JSON.parse(raw);
+    return JSON.parse(text);
   } catch (err: any) {
     throw new Error(`Failed to parse JSON file "${filePath}": ${err.message ?? err}`);
   }

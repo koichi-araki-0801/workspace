@@ -302,21 +302,18 @@ nav.toc a.now { color:var(--accent); font-weight:700; background:#fff; border-ra
       database?: string;
       nameColumn?: string;
       valueColumn?: string;
-    };</code></pre></div><p><code>normalizeInputItems</code> は <code>[name, value]</code> タプルと <code>{name, value}</code> オブジェクトの両形式を受け付けて <code>Item[]</code> に揃える。それ以外の形は即例外にして、不正入力を早期に落とす:</p><div class="code"><span class="code-lang">ts</span><pre><code>export function normalizeInputItems(rawItems: unknown): Item[] {
-  if (!Array.isArray(rawItems)) {
-    throw new Error('Input data must be an array.');
+    };</code></pre></div><p><code>normalizeInputItems</code> は <code>[name, value]</code> タプルと <code>{name, value}</code> オブジェクトの両形式を受け付けて <code>Item[]</code> に揃える。それ以外の形は即例外にして、不正入力を早期に落とす。</p><ul><li>name は文字列か有限の数値だけを受け付ける（数値は文字列にする）。null・undefined・空文字・空白だけの名前は <code>Empty name at item N.</code>、真偽値やオブジェクトは <code>Invalid name at item N</code> で止める。xlsx / DB 経路の <code>Empty name at row N</code> と同じ扱い。</li><li>value は有限の数値か、10 進表記の数値文字列（符号・小数・指数は可。<code>0x1A</code> などは不可）だけを受け付ける。それ以外（<code>[]</code>・<code>false</code>・空文字など）は <code>Non-numeric value for "…"</code> で止める。<code>Number()</code> に任せると 0 や 1 に化けて、明示した <code>0</code> と区別できないスライスが帳票に載るため。</li><li>10 進表記の判定は <code>src/input/number.ts</code> に集約し、xlsx・DB・JSON の 3 経路が同じものを使う。</li></ul><div class="code"><span class="code-lang">ts</span><pre><code>return rawItems.map((item: unknown, index): Item =&gt; {
+  if (Array.isArray(item) &amp;&amp; item.length &gt;= 2) {
+    const name = toName(item[0], index);
+    return { name, value: checkValue(name, item[1]) };
   }
-  return rawItems.map((item: unknown): Item =&gt; {
-    if (Array.isArray(item) &amp;&amp; item.length &gt;= 2) {
-      return { name: String(item[0]), value: Number(item[1]) };
-    }
-    if (typeof item === 'object' &amp;&amp; item !== null &amp;&amp; 'name' in item &amp;&amp; 'value' in item) {
-      const obj = item as { name: unknown; value: unknown };
-      return { name: String(obj.name), value: Number(obj.value) };
-    }
-    throw new Error('Each item must be {name, value} or [name, value].');
-  });
-}</code></pre></div><p>描画直前には <code>normalizeAndSortItems</code>（<code>src/svg_export/pipeline.ts</code>）がさらに: (1) 有限かつ絶対値が 0 より大きい値だけ残す、(2) 絶対値化しつつ元の符号を <code>signedValue</code> に保持、(3) <strong>値降順・「その他」末尾</strong>に並べ替える:</p><div class="code"><span class="code-lang">ts</span><pre><code>export function normalizeAndSortItems(rawItems: unknown): LayoutItem[] {
+  if (typeof item === 'object' &amp;&amp; item !== null &amp;&amp; 'name' in item &amp;&amp; 'value' in item) {
+    const obj = item as { name: unknown; value: unknown };
+    const name = toName(obj.name, index);
+    return { name, value: checkValue(name, obj.value) };
+  }
+  throw new Error('Each item must be {name, value} or [name, value].');
+});</code></pre></div><p>描画直前には <code>normalizeAndSortItems</code>（<code>src/svg_export/pipeline.ts</code>）がさらに: (1) 有限かつ絶対値が 0 より大きい値だけ残す、(2) 絶対値化しつつ元の符号を <code>signedValue</code> に保持、(3) <strong>値降順・「その他」末尾</strong>に並べ替える:</p><div class="code"><span class="code-lang">ts</span><pre><code>export function normalizeAndSortItems(rawItems: unknown): LayoutItem[] {
   return normalizeInputItems(rawItems)
     .filter((item) =&gt; Number.isFinite(Number(item.value)) &amp;&amp; Math.abs(Number(item.value)) &gt; 0)
     .map((item) =&gt; ({

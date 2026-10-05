@@ -44,6 +44,19 @@ describe('cellAsNumber', () => {
     expect(cellAsNumber({ value: ',123' })).toBeNull();
     expect(cellAsNumber({ value: '1,234,' })).toBeNull();
   });
+  it('10 進以外の記法 (16 進・2 進・8 進) は null', () => {
+    // `Number()` は "0x1A" を 26 と読む。帳票の数値に 16 進表記は無いので、読めない値として扱う。
+    expect(cellAsNumber({ value: '0x1A' })).toBeNull();
+    expect(cellAsNumber({ value: '0b11' })).toBeNull();
+    expect(cellAsNumber({ value: '0o7' })).toBeNull();
+    expect(cellAsNumber({ value: 'Infinity' })).toBeNull();
+  });
+  it('符号・小数・指数表記の 10 進数は読む', () => {
+    expect(cellAsNumber({ value: '+1.5' })).toBe(1.5);
+    expect(cellAsNumber({ value: '.5' })).toBe(0.5);
+    expect(cellAsNumber({ value: '1e3' })).toBe(1000);
+    expect(cellAsNumber({ value: '-2.5E-1' })).toBe(-0.25);
+  });
   it('空・数値以外は null', () => {
     expect(cellAsNumber({ value: null })).toBeNull();
     expect(cellAsNumber({ value: '' })).toBeNull();

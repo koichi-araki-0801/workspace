@@ -23,6 +23,7 @@
 import { createRequire } from 'node:module';
 
 import { MAX_DB_ROWS } from '../limits.js';
+import { cellValueAsNumber } from './number.js';
 import { isSea } from '../runtime/seaRuntime.js';
 
 // 通常の ESM(tsx)では `require` が無いので createRequire で作る。SEA(esbuild の cjs
@@ -174,6 +175,57 @@ export function buildConnectionString(opts: LoadDbOpts): string {
 // ── 2. クエリの形式チェック(権限の境界ではない) ────────────────────────────
 
 /**
+ * 文字列リテラル(`'...'`、`''` はエスケープ)・引用識別子(`"..."` / `[...]`、`""` / `]]` は
+ * エスケープ)・コメント(`-- ...` / 入れ子になりうる `/* ... *\/`)の**外にある**最初の `;` の
+ * 位置を返す。無ければ -1。`WHERE note = 'a;b'` のような値の中の `;` を文の区切りと
+ * 取り違えないためで、閉じていないリテラル・コメントは末尾まで続くものとして扱う。
+ */
+function findStatementSeparator(sql: string): number {
+  let i = 0;
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+    if (ch === ';') return i;
+    if (ch === "'" || ch === '"' || ch === '[') {
+      const close = ch === '[' ? ']' : ch;
+      i += 1;
+      while (i < sql.length) {
+        if (sql[i] === close) {
+          if (sql[i + 1] === close) {
+            i += 2;
+            continue;
+          }
+          break;
+        }
+        i += 1;
+      }
+      i += 1;
+    } else if (ch === '-' && next === '-') {
+      const eol = sql.indexOf('\n', i + 2);
+      i = eol === -1 ? sql.length : eol + 1;
+    } else if (ch === '/' && next === '*') {
+      // T-SQL のブロックコメントは入れ子にできるので、深さを数えて対応する `*/` まで飛ばす。
+      let depth = 1;
+      i += 2;
+      while (i < sql.length && depth > 0) {
+        if (sql[i] === '/' && sql[i + 1] === '*') {
+          depth += 1;
+          i += 2;
+        } else if (sql[i] === '*' && sql[i + 1] === '/') {
+          depth -= 1;
+          i += 2;
+        } else {
+          i += 1;
+        }
+      }
+    } else {
+      i += 1;
+    }
+  }
+  return -1;
+}
+
+/**
  * 指定ミス(空文字・更新文の貼り付け)を早く見つけるための**形式チェック**。
  *
  * **これは読み取り専用の強制ではない。** 文字列パターンで T-SQL の読み取り専用性は
@@ -190,7 +242,7 @@ export function assertLooksLikeSelect(query: string): void {
   if (trimmed === '') {
     throw new Error('Query is empty.');
   }
-  if (trimmed.includes(';')) {
+  if (findStatementSeparator(trimmed) !== -1) {
     throw new Error('Query looks like multiple statements (embedded ";"); pass a single query.');
   }
   if (!/^(select|with)\b/i.test(trimmed)) {
@@ -199,25 +251,6 @@ export function assertLooksLikeSelect(query: string): void {
 }
 
 // ── 3. 結果セットの解決と読み出し ──────────────────────────────────────────
-
-/**
- * 数値として読めなければ null。`load.ts` の `cellAsNumber`(xlsx 経路)と同じ規則で、
- * カンマは桁区切りとして成立する位置にある時だけ許容する。判定を共有しないのは
- * `load.ts` が本ファイルを import しており、逆向きの import が循環になるため。
- * 規則を変えるときは両方を揃える。
- */
-const GROUPED_NUMBER_RE = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
-
-function toNumber(v: unknown): number | null {
-  if (v == null || v === '') return null;
-  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  const text = String(v).trim();
-  if (text === '') return null;
-  const normalized = GROUPED_NUMBER_RE.test(text) ? text.replace(/,/g, '') : text;
-  if (normalized.includes(',')) return null;
-  const n = Number(normalized);
-  return Number.isFinite(n) ? n : null;
-}
 
 /**
  * 結果セット(行オブジェクト配列)から name/value 2 列を解決し `[name, value][]` を返す。
@@ -278,7 +311,7 @@ export function rowsToItems(
 
     if (!name && valueIsBlank) continue;
     if (!name) throw new Error(`Empty name at row ${i + 1}.`);
-    const value = toNumber(valueRaw);
+    const value = cellValueAsNumber(valueRaw);
     if (value == null) {
       throw new Error(`Non-numeric value at row ${i + 1} (got "${String(valueRaw)}").`);
     }

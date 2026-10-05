@@ -138,6 +138,30 @@ describe('assertLooksLikeSelect', () => {
   it('文中セミコロンは投げる', () => {
     expect(() => assertLooksLikeSelect('SELECT 1; DROP TABLE t')).toThrow(/multiple statements/i);
   });
+  it('文字列リテラル・引用識別子・コメントの中の ";" は文の区切りと見なさない', () => {
+    for (const q of [
+      "SELECT name, value FROM t WHERE note = 'a;b'",
+      "SELECT name, value FROM t WHERE note = 'it''s;here'",
+      'SELECT "a;b" AS name, 1 AS value',
+      'SELECT [a;b] AS name, 1 AS value',
+      'SELECT [a]];b] AS name, 1 AS value',
+      'SELECT 1 AS v -- trailing; comment\n, 2 AS w',
+      'SELECT 1 /* a; /* nested; */ b; */ AS v',
+      "SELECT 'a;b' AS name, 1 AS value;",
+    ]) {
+      expect(() => assertLooksLikeSelect(q), q).not.toThrow();
+    }
+  });
+  it('リテラルの外の ";" は従来どおり投げる', () => {
+    for (const q of [
+      "SELECT 'a;b' AS name; DROP TABLE t",
+      'SELECT 1;;',
+      'SELECT 1; -- after',
+      "SELECT 'it''s' AS n; SELECT 2",
+    ]) {
+      expect(() => assertLooksLikeSelect(q), q).toThrow(/multiple statements/i);
+    }
+  });
   it('SELECT / WITH 以外で始まる文は投げる', () => {
     expect(() => assertLooksLikeSelect('UPDATE t SET a=1')).toThrow(/must start with SELECT/);
     expect(() => assertLooksLikeSelect('DELETE FROM t')).toThrow(/must start with SELECT/);
@@ -231,6 +255,11 @@ describe('rowsToItems', () => {
 describe('rowsToItems の数値解釈 (load.ts の cellAsNumber と同規則)', () => {
   it('桁区切り位置のカンマは許容する', () => {
     expect(rowsToItems([{ n: 'X', v: '1,234,567.5' }])).toEqual([['X', 1234567.5]]);
+  });
+  it('10 進以外の記法 (16 進・2 進・8 進) は明示エラー', () => {
+    expect(() => rowsToItems([{ n: 'X', v: '0x1A' }])).toThrow(/Non-numeric value/);
+    expect(() => rowsToItems([{ n: 'X', v: '0b11' }])).toThrow(/Non-numeric value/);
+    expect(() => rowsToItems([{ n: 'X', v: '0o7' }])).toThrow(/Non-numeric value/);
   });
   it('桁区切りとして成立しないカンマは明示エラー', () => {
     expect(() => rowsToItems([{ n: 'X', v: '1,23' }])).toThrow(/Non-numeric value/);
