@@ -56,12 +56,15 @@ import {
 // 各ステップは単一の localStorage read+write。呼び出し元が 1 つの `tx()` 内で実行し、
 // 途中失敗時に全キーをロールバックする。
 
-/** テンプレ単位の CSS(承認済み override → fixtures の順)。名前は server と同じく `cssFileNameOf`。 */
-function localCssOf(templateId: string): string {
+/**
+ * テンプレ単位の CSS(承認済み override → fixtures の順)。名前は server と同じく `cssFileNameOf`。
+ * どちらにも無ければ undefined(呼び出し側が `cssMissing` を立てる)。
+ */
+function localCssOf(templateId: string): string | undefined {
   const name = cssFileNameOf(templateId);
-  if (name === null) return '';
+  if (name === null) return undefined;
   const cssOverride = read<Record<string, string>>(K.cssOverride, {});
-  return cssOverride[name] ?? fixtureCss[name] ?? '';
+  return cssOverride[name] ?? fixtureCss[name];
 }
 
 /** 編集後の本文 + テンプレ単位の CSS override を公開する。 */
@@ -326,7 +329,14 @@ export const localTemplateRepo: TemplateRepository = {
       if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
       const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
       const html = htmlOverride[id] ?? fixtureTemplates[meta.fileName] ?? '';
-      return delay({ meta, html, css: localCssOf(id), filled: resolveFilled(id, meta.fileName) });
+      const css = localCssOf(id);
+      return delay({
+        meta,
+        html,
+        css: css ?? '',
+        filled: resolveFilled(id, meta.fileName),
+        ...(css === undefined ? { cssMissing: true } : {}),
+      });
     }),
 
   generate: (req: GenerateRequest) =>
@@ -365,7 +375,7 @@ export const localTemplateRepo: TemplateRepository = {
               f.startsWith(`${req.companyCode}_${req.fundCode}_`),
             ) ?? ''
           ] ?? defaultSkeleton();
-        css = localCssOf(id); // 同じ名前の既存 CSS、無ければ空
+        css = localCssOf(id) ?? ''; // 同じ名前の既存 CSS、無ければ空
       }
       // 償還ファンド指定時は特定パーツを償還用パーツへ置換(モック)。
       if (req.isRedemption) baseHtml = applyRedemptionMock(baseHtml);

@@ -13,7 +13,7 @@ import { E2E_REST_DATA_ROOT } from './e2e-rest-paths.js';
 
 /**
  * dataRoot をファイルで seed する。一覧・1 件取得・申請はファイル走査(台帳ではない。
- * `templateRepo.ts` / `reviewRepo.ts` を見よ)なので、値入り HTML と per-fund CSS を
+ * `templateRepo.ts` / `reviewRepo.ts` を見よ)なので、値入り HTML とテンプレ単位の CSS(`<会社>_<ファンド>_<版種>.css`)を
  * 置くだけで一覧・編集・申請・承認が成立する。`reviews` / `notes` / `drafts` / `pending`
  * ディレクトリは各リポジトリの書込側が `mkdir(..., { recursive: true })` するため
  * 事前作成は不要。git リポジトリ化(`ensureRepo`)も承認時に自動で行われるため不要。

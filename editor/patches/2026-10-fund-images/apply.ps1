@@ -362,13 +362,18 @@ $needsDir = -not (Test-Path -LiteralPath $imagesFull)
 $report = @()
 if (-not $needsDir) {
   foreach ($f in Get-ChildItem -LiteralPath $imagesFull -Recurse -File) {
-    if ($f.DirectoryName.TrimEnd('\') -ine $imagesFull) {
-      $report += "[subfolder] $($f.FullName) (images 直下以外は配信されません)"; continue
+    # 置けるのは直下と 1 段下の会社フォルダだけ。2 段以上はサーバの配信経路(:file と :dir/:file)の形に合わない。
+    $depth = if ($f.DirectoryName.TrimEnd('\') -ieq $imagesFull) { 0 }
+      elseif ($f.Directory.Parent.FullName.TrimEnd('\') -ieq $imagesFull) { 1 }
+      else { 2 }
+    if ($depth -ge 2) {
+      $report += "[subfolder] $($f.FullName) (images の 2 段以上下は配信されません。置けるのは直下と 1 段下の会社フォルダ)"; continue
     }
     if ($allowedExt -notcontains $f.Extension.ToLowerInvariant()) {
       $report += "[extension] $($f.FullName) (許可外の拡張子は配信されません。.svg .png .jpg .jpeg)"; continue
     }
-    if (-not (Test-FundImageName $f.Name)) {
+    # 命名の約束は直下のファンド別画像のもの。会社フォルダの画像は会社共通なので名前を見ない。
+    if ($depth -eq 0 -and -not (Test-FundImageName $f.Name)) {
       $report += "[naming] $($f.FullName) (命名 <fund>_<名前>.<拡張子> に合いません。配信はされます)"
     }
   }

@@ -39,6 +39,32 @@ describe('localTemplateRepo.getTemplate', () => {
     if (isErr(r)) expect(r.error.kind).toBe('not_found');
   });
 
+  it('CSS があるテンプレは cssMissing を立てない', async () => {
+    const r = await localTemplateRepo.getTemplate('AM01_510037_20240710_交付版');
+    expect(isOk(r) && r.value.css).toBe(fixtureCss['AM01_510037_交付版.css']);
+    expect(isOk(r) && r.value.cssMissing).toBeFalsy();
+  });
+
+  it('CSS ファイルが無いテンプレは css を空にして cssMissing を立てる', async () => {
+    const saved = fixtureCss['AM01_510155_交付版.css'];
+    delete fixtureCss['AM01_510155_交付版.css'];
+    try {
+      const r = await localTemplateRepo.getTemplate('AM01_510155_20240710_交付版');
+      expect(isOk(r) && r.value.css).toBe('');
+      expect(isOk(r) && r.value.cssMissing).toBe(true);
+    } finally {
+      fixtureCss['AM01_510155_交付版.css'] = saved;
+    }
+  });
+
+  it('承認で空の CSS を保存したテンプレは、不在ではない', async () => {
+    const id = 'AM01_510037_20240710_全体版';
+    await confirmSaveLocal({ templateId: id, html: '<p>x</p>', css: '', origin: 'edit' });
+    const r = await localTemplateRepo.getTemplate(id);
+    expect(isOk(r) && r.value.css).toBe('');
+    expect(isOk(r) && r.value.cssMissing).toBeFalsy();
+  });
+
   it("origin='edit' の確定保存は filled を更新し html は据え置く", async () => {
     const id = 'AM01_510037_20240710_交付版';
     const before = await localTemplateRepo.getTemplate(id);
