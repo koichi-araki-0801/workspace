@@ -12,6 +12,7 @@ import { fractionToPage } from '@/components/pageNav';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
+import { pairSyncConflictText } from '@/lib/pairSyncText';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import CommentPanel from './comments/CommentPanel.vue';
@@ -101,6 +102,7 @@ watch(paneTab, (v) => {
 // バッジは未対応の**親投稿**の件数(仕様 §4.3)。パーツ数(`openNoteKeys.size`)ではない
 // — 1 パーツに複数スレッドがあれば両者は食い違う。
 const openCommentCount = computed(() => openNoteCount.value);
+const pairSyncBanner = computed(() => pairSyncConflictText(syncStatus.value));
 
 // ── メモ吹き出し(選択パーツのスレッド) ──
 const noteBubbleEl = useTemplateRef<InstanceType<typeof NoteBubble>>('noteBubbleEl');
@@ -360,20 +362,16 @@ const statusText = computed(() => {
 
     <ShortcutHelpDialog v-model:open="helpOpen" />
 
-    <!-- 交付版⇄全体版 ペア同期の未解決競合バナー。競合中のパーツは自動同期が止まって
-         いる(両版の内容を一致させると次回承認時に解消される)。放置による二重メンテ回帰を
+    <!-- 交付版⇄全体版 ペア同期の未解決競合バナー(本文のパーツと書式の規則)。競合中は自動同期が
+         止まっている(両版の内容を一致させると次回承認時に解消される)。放置による二重メンテ回帰を
          防ぐため、解消まで開くたびに表示する(閉じるボタンは意図的に置かない)。 -->
     <div
-      v-if="syncStatus && syncStatus.conflicts.length > 0"
+      v-if="pairSyncBanner"
       class="flex items-center gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
       role="alert"
     >
       <TriangleAlert class="h-4 w-4 shrink-0" />
-      <span>
-        ペア（{{ syncStatus.pairTemplateId }}）と {{ syncStatus.conflicts.length }} 件のパーツが
-        競合しています（自動同期停止中）:
-        {{ syncStatus.conflicts.map((c) => `${c.partKey}〔${c.kind}〕`).join('、') }}
-      </span>
+      <span>{{ pairSyncBanner }}</span>
     </div>
 
     <!-- 値入り本文に {{ fund.code }} 入りの画像参照が残っている。PDF にもプレビューにも出ないので、

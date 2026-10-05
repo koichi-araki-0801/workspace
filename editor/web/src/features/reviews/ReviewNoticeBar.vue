@@ -56,6 +56,9 @@ const count = computed(
           文字の大きさ・色・配置などの決まりが変更されました。
           左右の見た目比較に差がないか、特に注意して確認してください。
         </p>
+        <p class="mt-1 text-xs text-amber-800">
+          ペアの版種（交付版⇔全体版）にも、ペア側で個別に直していない書式は承認のときに写ります。
+        </p>
         <details class="mt-1 text-xs">
           <summary class="cursor-pointer text-amber-900 underline">
             書式の変更内容を表示（変更前｜変更後）

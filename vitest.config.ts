@@ -93,6 +93,7 @@ export default defineConfig({
         'editor/server/src/generate/generatorCheck.ts',
         'editor/server/src/files/legacyLayoutCheck.ts',
         'editor/server/src/sync/partSync.ts',
+        'editor/server/src/sync/cssSync.ts',
         'editor/server/src/sync/noteMasterService.ts',
         'editor/server/src/middleware/*.ts',
         'editor/server/src/vivliostyle/options.ts',
@@ -167,6 +168,7 @@ export default defineConfig({
         'editor/web/src/lib/sessionExpiry.ts',
         'editor/web/src/lib/useIframeAutoFit.ts',
         'editor/web/src/features/editor/geom.ts',
+        'editor/web/src/lib/pairSyncText.ts',
         // 確定版正規形を測ってよいかの純判定。quiet load 失敗時に draft 自身から正規形を
         // 作ってしまうと自動 discard を招く回帰(実績あり)の再発防止網。
         'editor/web/src/features/editor/confirmedCanonicalGate.ts',

@@ -30,6 +30,7 @@ import {
 } from '@/features/compare/htmlBlockDiff';
 import { useTemplatePreviewService } from '@/features/preview/services/templatePreviewService';
 import { formatDateTimeShort } from '@/lib/format';
+import { pairSyncResultText } from '@/lib/pairSyncText';
 import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { useAuthStore } from '@/stores/auth';
 import ReviewNoticeBar from './ReviewNoticeBar.vue';
@@ -221,23 +222,14 @@ async function approve() {
 }
 
 /**
- * 承認直後に走った交付版⇄全体版のパーツ自動同期の結果を通知する。同期はベストエフォート
+ * 承認直後に走った交付版⇄全体版のパーツと CSS の自動同期の結果を通知する。同期はベストエフォート
  * (失敗しても承認は成立)のため、失敗・スキップは destructive/長め表示で見落としを防ぐ。
  * スキップの内訳(競合など)は同期先テンプレを開いた時のバナーが恒常表示する。
  */
 function notifySyncResult(sync: ApproveReviewResult['sync']): void {
-  if (!sync) return;
-  if (sync.error) {
-    toast(`ペア(${sync.pairTemplateId})への自動同期に失敗しました: ${sync.error}`, 'error', 8000);
-    return;
-  }
-  if (sync.applied.length === 0 && sync.skipped.length === 0) return;
-  const skippedNote = sync.skipped.length > 0 ? `・スキップ ${sync.skipped.length} 件(要確認)` : '';
-  toast(
-    `ペア ${sync.pairTemplateId} へ ${sync.applied.length} パーツを自動同期しました${skippedNote}`,
-    'default',
-    6000,
-  );
+  const r = pairSyncResultText(sync);
+  if (!r) return;
+  toast(r.text, r.variant, r.variant === 'error' ? 8000 : 6000);
 }
 
 /**

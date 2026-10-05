@@ -19,6 +19,7 @@
 
 import { createHash } from 'node:crypto';
 import type { PartSyncDefault } from '@editor/shared';
+import type { CssRuleConflict } from './cssSync.js';
 
 // ── 1. パーツ抽出(生テキストスキャン) ──
 
@@ -288,6 +289,8 @@ export interface PairPartState {
 export interface PairSyncState {
   pairKey: string;
   parts: Record<string, PairPartState>;
+  /** CSS 規則の未解決の競合。CSS の転写は `cssSync.ts`。 */
+  css?: { conflicts: CssRuleConflict[] };
   updatedAt: string;
 }
 

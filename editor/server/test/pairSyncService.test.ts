@@ -40,6 +40,15 @@ const put = (dir: string, id: string, html: string) => {
 const read = (dir: string, id: string) =>
   fs.readFileSync(path.join(tmp, dir, `${id}.html`), 'utf8');
 const syncFile = (pairKey: string) => path.join(tmp, 'sync', `${pairKey}.json`);
+const putCss = (name: string, text: string) => {
+  fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
+  fs.writeFileSync(path.join(tmp, 'css', name), text, 'utf8');
+};
+const readCss = (name: string) => fs.readFileSync(path.join(tmp, 'css', name), 'utf8');
+const syncCommits = () =>
+  execFileSync('git', ['log', '--format=%s'], { cwd: tmp, encoding: 'utf8' })
+    .split('\n')
+    .filter((s) => s.startsWith('同期:')).length;
 
 d('pairSyncService', () => {
   let svc: import('../src/sync/pairSyncService.js').PairSyncService;
@@ -59,12 +68,16 @@ d('pairSyncService', () => {
     put('templates', 'AM01_510037_交付版', doc(part('a', '旧')));
     put('templates', 'AM01_510037_全体版', doc(part('a', '旧')));
     // 1 回目: 両版が一致しているので転写せず、前回同期の基準だけを作る。
-    const first = await svc.syncPairAfterConfirm('AM01_510037_交付版', 'approver1', 'template');
+    const first = await svc.syncPairAfterConfirm('AM01_510037_交付版', 'approver1', 'template', {
+      cssBefore: '',
+    });
     expect(first).toMatchObject({ pairTemplateId: 'AM01_510037_全体版', error: null });
     expect(fs.existsSync(syncFile('AM01_510037'))).toBe(true);
     // 2 回目: 交付版だけが変わったので全体版へ転写する。
     put('templates', 'AM01_510037_交付版', doc(part('a', '新')));
-    const second = await svc.syncPairAfterConfirm('AM01_510037_交付版', 'approver1', 'template');
+    const second = await svc.syncPairAfterConfirm('AM01_510037_交付版', 'approver1', 'template', {
+      cssBefore: '',
+    });
     expect(second?.error).toBeNull();
     expect(second?.applied).toHaveLength(1);
     expect(read('templates', 'AM01_510037_全体版')).toContain('新');
@@ -76,7 +89,9 @@ d('pairSyncService', () => {
     const before = fs.readFileSync(syncFile('AM01_510037'), 'utf8');
     put('filled', 'AM01_510037_20240710_交付版', doc(part('a', 'x')));
     put('filled', 'AM01_510037_20240710_全体版', doc(part('a', 'x')));
-    await svc.syncPairAfterConfirm('AM01_510037_20240710_交付版', 'approver1', 'filled');
+    await svc.syncPairAfterConfirm('AM01_510037_20240710_交付版', 'approver1', 'filled', {
+      cssBefore: '',
+    });
     expect(fs.existsSync(syncFile('AM01_510037_20240710'))).toBe(true);
     expect(fs.readFileSync(syncFile('AM01_510037'), 'utf8')).toBe(before);
   });
@@ -84,9 +99,13 @@ d('pairSyncService', () => {
   it('ペアのテンプレートが無ければ null、版種がペアの対象外でも null', async () => {
     put('templates', 'AM01_510155_交付版', doc(part('a', 'x')));
     expect(
-      await svc.syncPairAfterConfirm('AM01_510155_交付版', 'approver1', 'template'),
+      await svc.syncPairAfterConfirm('AM01_510155_交付版', 'approver1', 'template', {
+        cssBefore: '',
+      }),
     ).toBeNull();
-    expect(await svc.syncPairAfterConfirm('AM01_510155_kr', 'approver1', 'template')).toBeNull();
+    expect(
+      await svc.syncPairAfterConfirm('AM01_510155_kr', 'approver1', 'template', { cssBefore: '' }),
+    ).toBeNull();
   });
 
   it('同期の途中で失敗しても throw せず、error 付きで返す(承認は成立させる)', async () => {
@@ -104,6 +123,7 @@ d('pairSyncService', () => {
         'AM01_510003_交付版',
         'approver1',
         'template',
+        { cssBefore: '' },
       );
     })();
     expect(r).toMatchObject({
@@ -118,11 +138,190 @@ d('pairSyncService', () => {
       pairTemplateId: 'AM01_510037_全体版',
       pairExists: false,
       conflicts: [],
+      cssConflicts: [],
     });
     expect(await svc.getPairSyncStatus('規約外')).toEqual({
       pairTemplateId: null,
       pairExists: false,
       conflicts: [],
+      cssConflicts: [],
     });
+  });
+
+  it('テンプレのペア: 承認で変わった CSS 規則をペアの CSS へ写す(本文と同じ 1 コミット)', {
+    timeout: 60_000,
+  }, async () => {
+    put('templates', 'AM01_530000_交付版', doc(part('a', '旧')));
+    put('templates', 'AM01_530000_全体版', doc(part('a', '旧')));
+    await svc.syncPairAfterConfirm('AM01_530000_交付版', 'approver1', 'template', {
+      cssBefore: '',
+    });
+    // 承認: 本文と CSS の両方が変わった。
+    putCss('AM01_530000_交付版.css', '.a{color:green}\n.b{color:blue}');
+    putCss('AM01_530000_全体版.css', '.a{color:red}\n.b{color:navy}');
+    put('templates', 'AM01_530000_交付版', doc(part('a', '新')));
+    const before = syncCommits();
+    const r = await svc.syncPairAfterConfirm('AM01_530000_交付版', 'approver1', 'template', {
+      cssBefore: '.a{color:red}\n.b{color:blue}',
+    });
+    expect(r?.error).toBeNull();
+    expect(r?.css?.applied).toHaveLength(1);
+    expect(readCss('AM01_530000_全体版.css')).toContain('.a{color:green}');
+    expect(readCss('AM01_530000_全体版.css')).toContain('.b{color:navy}');
+    expect(read('templates', 'AM01_530000_全体版')).toContain('新');
+    // 承認 1 回につき転写は 1 回(本文と CSS を同じ確定書込で書く)。
+    expect(syncCommits()).toBe(before + 1);
+  });
+
+  it('値入り HTML のペアでも同じ CSS 2 枚(…_交付版.css ⇔ …_全体版.css)が対象', {
+    timeout: 60_000,
+  }, async () => {
+    put('filled', 'AM01_540000_20240710_交付版', doc(part('a', 'x')));
+    put('filled', 'AM01_540000_20240710_全体版', doc(part('a', 'x')));
+    putCss('AM01_540000_交付版.css', '.a{color:green}');
+    putCss('AM01_540000_全体版.css', '.a{color:red}');
+    const r = await svc.syncPairAfterConfirm('AM01_540000_20240710_交付版', 'approver1', 'filled', {
+      cssBefore: '.a{color:red}',
+    });
+    expect(r?.css?.applied).toHaveLength(1);
+    expect(readCss('AM01_540000_全体版.css')).toContain('.a{color:green}');
+    expect(readCss('AM01_540000_全体版.css')).not.toContain('red');
+  });
+
+  it('ペア側が版種固有に直した規則は写さず、状態ファイルの css 欄と現況に競合として出す', {
+    timeout: 60_000,
+  }, async () => {
+    put('filled', 'AM01_550000_20240710_交付版', doc(part('a', 'x')));
+    put('filled', 'AM01_550000_20240710_全体版', doc(part('a', 'x')));
+    putCss('AM01_550000_交付版.css', '.a{color:green}');
+    putCss('AM01_550000_全体版.css', '.a{color:black}');
+    const r = await svc.syncPairAfterConfirm('AM01_550000_20240710_交付版', 'approver1', 'filled', {
+      cssBefore: '.a{color:red}',
+    });
+    expect(r?.css?.applied).toEqual([]);
+    expect(r?.css?.conflicts).toHaveLength(1);
+    expect(readCss('AM01_550000_全体版.css')).toBe('.a{color:black}');
+    // 記録先はテンプレのペアキー(会社_ファンド)。基準日ごとの状態ファイルには CSS の競合を書かない。
+    const state = JSON.parse(fs.readFileSync(syncFile('AM01_550000'), 'utf8'));
+    expect(state.css.conflicts).toEqual([
+      { ruleKey: JSON.stringify(['.a']), detectedAt: expect.any(String) },
+    ]);
+    if (fs.existsSync(syncFile('AM01_550000_20240710'))) {
+      const dated = JSON.parse(fs.readFileSync(syncFile('AM01_550000_20240710'), 'utf8'));
+      expect(dated.css).toBeUndefined();
+    }
+    // 本文の競合と同じ現況(編集画面のバナーの入力)に出る。ペア側から見ても同じ記録先。
+    const status = await svc.getPairSyncStatus('AM01_550000_20240710_全体版');
+    expect(status.cssConflicts).toHaveLength(1);
+  });
+
+  it('基準日 A の承認で起きた CSS 競合が、基準日 B の画面と作成タブの状態取得でも見える', {
+    timeout: 60_000,
+  }, async () => {
+    put('filled', 'AM01_551000_20240710_交付版', doc(part('a', 'x')));
+    put('filled', 'AM01_551000_20240710_全体版', doc(part('a', 'x')));
+    put('filled', 'AM01_551000_20250110_交付版', doc(part('a', 'y')));
+    put('filled', 'AM01_551000_20250110_全体版', doc(part('a', 'y')));
+    putCss('AM01_551000_交付版.css', '.a{color:green}');
+    putCss('AM01_551000_全体版.css', '.a{color:black}');
+    await svc.syncPairAfterConfirm('AM01_551000_20240710_交付版', 'approver1', 'filled', {
+      cssBefore: '.a{color:red}',
+    });
+    const otherDate = await svc.getPairSyncStatus('AM01_551000_20250110_交付版');
+    expect(otherDate.cssConflicts).toEqual([
+      { ruleKey: JSON.stringify(['.a']), detectedAt: expect.any(String) },
+    ]);
+    // 作成タブ(テンプレ id)。パーツの競合は値入り HTML のペアだけが持つので空のまま。
+    const template = await svc.getPairSyncStatus('AM01_551000_交付版');
+    expect(template.cssConflicts).toHaveLength(1);
+    expect(template.conflicts).toEqual([]);
+  });
+
+  it('テンプレのペアの承認と値入り HTML のペアの承認は同じ記録先を使い、両版が一致すれば消える', {
+    timeout: 60_000,
+  }, async () => {
+    put('templates', 'AM01_552000_交付版', doc(part('a', 'x')));
+    put('templates', 'AM01_552000_全体版', doc(part('a', 'x')));
+    put('filled', 'AM01_552000_20240710_交付版', doc(part('a', 'x')));
+    put('filled', 'AM01_552000_20240710_全体版', doc(part('a', 'x')));
+    putCss('AM01_552000_交付版.css', '.a{color:green}');
+    putCss('AM01_552000_全体版.css', '.a{color:black}');
+    // テンプレの承認で競合が記録される。
+    await svc.syncPairAfterConfirm('AM01_552000_交付版', 'approver1', 'template', {
+      cssBefore: '.a{color:red}',
+    });
+    const read1 = JSON.parse(fs.readFileSync(syncFile('AM01_552000'), 'utf8'));
+    expect(read1.css.conflicts).toHaveLength(1);
+    // 全体版を交付版に合わせてから、値入り HTML のペアで別の規則を承認すると、同じ記録先の競合が消える。
+    putCss('AM01_552000_全体版.css', '.a{color:green}');
+    putCss('AM01_552000_交付版.css', '.a{color:green}\n.b{x:1}');
+    await svc.syncPairAfterConfirm('AM01_552000_20240710_交付版', 'approver1', 'filled', {
+      cssBefore: '.a{color:green}',
+    });
+    const read2 = JSON.parse(fs.readFileSync(syncFile('AM01_552000'), 'utf8'));
+    expect(read2.css.conflicts).toEqual([]);
+    expect(readCss('AM01_552000_全体版.css')).toContain('.b{x:1}');
+  });
+
+  it('承認で CSS が変わらなければペアの CSS に触れず、css は null', {
+    timeout: 60_000,
+  }, async () => {
+    put('templates', 'AM01_560000_交付版', doc(part('a', 'x')));
+    put('templates', 'AM01_560000_全体版', doc(part('a', 'x')));
+    putCss('AM01_560000_交付版.css', '.a{color:green}');
+    putCss('AM01_560000_全体版.css', '.a{color:red}');
+    const r = await svc.syncPairAfterConfirm('AM01_560000_交付版', 'approver1', 'template', {
+      cssBefore: '.a{color:green}',
+    });
+    expect(r?.css).toBeNull();
+    expect(readCss('AM01_560000_全体版.css')).toBe('.a{color:red}');
+  });
+
+  it('ペアの実体が無ければ(本文の同期が動かなければ)CSS も写さない', async () => {
+    put('templates', 'AM01_570000_交付版', doc(part('a', 'x')));
+    putCss('AM01_570000_交付版.css', '.a{color:green}');
+    const r = await svc.syncPairAfterConfirm('AM01_570000_交付版', 'approver1', 'template', {
+      cssBefore: '.a{color:red}',
+    });
+    expect(r).toBeNull();
+    expect(fs.existsSync(path.join(tmp, 'css', 'AM01_570000_全体版.css'))).toBe(false);
+  });
+
+  it('BOM と CRLF を持つペアの CSS へも写し、BOM と既存の改行は保つ', {
+    timeout: 60_000,
+  }, async () => {
+    const BOM = '﻿';
+    put('filled', 'AM01_580000_20240710_交付版', doc(part('a', 'x')));
+    put('filled', 'AM01_580000_20240710_全体版', doc(part('a', 'x')));
+    putCss('AM01_580000_交付版.css', '.a{color:green;}.b{color:blue;}');
+    putCss(
+      'AM01_580000_全体版.css',
+      `${BOM}.a {\r\n  color: red;\r\n}\r\n.b {\r\n  color: navy;\r\n}\r\n`,
+    );
+    const r = await svc.syncPairAfterConfirm('AM01_580000_20240710_交付版', 'approver1', 'filled', {
+      cssBefore: `${BOM}.a {\r\n  color: red;\r\n}\r\n.b {\r\n  color: blue;\r\n}\r\n`,
+    });
+    expect(r?.css).toEqual({ applied: [JSON.stringify(['.a'])], conflicts: [] });
+    expect(readCss('AM01_580000_全体版.css')).toBe(
+      `${BOM}.a{color:green;}\r\n.b {\r\n  color: navy;\r\n}\r\n`,
+    );
+  });
+
+  it('BOM と CRLF を持つペアの CSS でも、版種固有に直した規則は競合として記録する', {
+    timeout: 60_000,
+  }, async () => {
+    const BOM = '﻿';
+    const pairCss = `${BOM}.a {\r\n  color: black;\r\n}\r\n`;
+    put('filled', 'AM01_581000_20240710_交付版', doc(part('a', 'x')));
+    put('filled', 'AM01_581000_20240710_全体版', doc(part('a', 'x')));
+    putCss('AM01_581000_交付版.css', '.a{color:green;}');
+    putCss('AM01_581000_全体版.css', pairCss);
+    const r = await svc.syncPairAfterConfirm('AM01_581000_20240710_交付版', 'approver1', 'filled', {
+      cssBefore: `${BOM}.a {\r\n  color: red;\r\n}\r\n`,
+    });
+    expect(r?.css).toEqual({ applied: [], conflicts: [JSON.stringify(['.a'])] });
+    expect(readCss('AM01_581000_全体版.css')).toBe(pairCss);
+    const state = JSON.parse(fs.readFileSync(syncFile('AM01_581000'), 'utf8'));
+    expect(state.css.conflicts).toHaveLength(1);
   });
 });

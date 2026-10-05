@@ -128,12 +128,14 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
         targetTemplateId: OTHER,
         sourceTemplateId: SOURCE,
         html: '<p>のっとり</p>',
+        css: '.pwned{}',
         actor: 'attacker',
         appliedParts: ['p1'],
       }),
     ).rejects.toSatisfy(isAppError);
     expect(read(OTHER)).toBe('<p>他人のテンプレ</p>');
     expect(auditCalls).toEqual([]);
+    expect(fs.existsSync(path.join(cssDir, 'AM01_999999_全体版.css'))).toBe(false);
   });
 
   it('review-approve の CSS は id から決まり、同じファンドの別の版種や別のファンドの CSS に触れない', async () => {
@@ -269,5 +271,67 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
       }),
     ).rejects.toSatisfy(isAppError);
     expect(fs.readdirSync(templatesDir)).toEqual([]);
+  });
+
+  const cssFile = (name: string) => path.join(cssDir, name);
+
+  it('ペア転写の CSS は転写先 id から決まる CSS にだけ書く', async () => {
+    seed(PAIR, '<p>ペア側</p>');
+    fs.writeFileSync(cssFile('AM01_510037_全体版.css'), '.old{}', 'utf8');
+    fs.writeFileSync(cssFile('AM01_510037_交付版.css'), '.source{}', 'utf8');
+    await confirmedWrite.applyConfirmedWrite({
+      kind: 'pair-sync',
+      target: 'template',
+      targetTemplateId: PAIR,
+      sourceTemplateId: SOURCE,
+      html: '<p>ペア側</p>',
+      css: '.new{}',
+      actor: 'approver1',
+      appliedParts: [],
+      appliedCssRules: ['.new'],
+    });
+    expect(fs.readFileSync(cssFile('AM01_510037_全体版.css'), 'utf8')).toBe('.new{}');
+    expect(fs.readFileSync(cssFile('AM01_510037_交付版.css'), 'utf8')).toBe('.source{}');
+    const ev = auditCalls.at(-1) as { detail: Record<string, number> };
+    expect(ev.detail.appliedCssRules).toBe(1);
+  });
+
+  it('css を渡さないペア転写は CSS に触れない', async () => {
+    seed(PAIR, '<p>元</p>');
+    fs.writeFileSync(cssFile('AM01_510037_全体版.css'), '.keep{}', 'utf8');
+    await confirmedWrite.applyConfirmedWrite({
+      kind: 'pair-sync',
+      target: 'template',
+      targetTemplateId: PAIR,
+      sourceTemplateId: SOURCE,
+      html: '<p>転写後</p>',
+      actor: 'approver1',
+      appliedParts: ['p1'],
+    });
+    expect(fs.readFileSync(cssFile('AM01_510037_全体版.css'), 'utf8')).toBe('.keep{}');
+  });
+
+  it('afterWrite が失敗したらペアの CSS も元へ戻す(無かった CSS は消す)', async () => {
+    seed(PAIR, '<p>元</p>');
+    fs.writeFileSync(cssFile('AM01_510037_全体版.css'), '.old{}', 'utf8');
+    const fail = () =>
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'pair-sync',
+        target: 'template',
+        targetTemplateId: PAIR,
+        sourceTemplateId: SOURCE,
+        html: '<p>転写後</p>',
+        css: '.new{}',
+        actor: 'approver1',
+        appliedParts: ['p1'],
+        afterWrite: async () => {
+          throw new Error('同期状態の書込に失敗');
+        },
+      });
+    await expect(fail()).rejects.toThrow('同期状態の書込に失敗');
+    expect(fs.readFileSync(cssFile('AM01_510037_全体版.css'), 'utf8')).toBe('.old{}');
+    fs.rmSync(cssFile('AM01_510037_全体版.css'));
+    await expect(fail()).rejects.toThrow('同期状態の書込に失敗');
+    expect(fs.existsSync(cssFile('AM01_510037_全体版.css'))).toBe(false);
   });
 });

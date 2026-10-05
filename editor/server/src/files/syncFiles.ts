@@ -24,11 +24,16 @@ const syncPath = (pairKey: string): string =>
 // が「同期スキップ + 警告」に倒す。
 const PairPartStateSchema = z.object({
   lastSynced: z.string().optional(),
-  conflict: z.object({ kind: z.enum(['初期差分', '両側変更']), detectedAt: z.string() }).optional(),
+  conflict: z
+    .object({ kind: z.enum(['初期差分', '両側変更', 'ペア側先行']), detectedAt: z.string() })
+    .optional(),
 });
 const PairSyncStateSchema = z.object({
   pairKey: z.string(),
   parts: z.record(z.string(), PairPartStateSchema),
+  css: z
+    .object({ conflicts: z.array(z.object({ ruleKey: z.string(), detectedAt: z.string() })) })
+    .optional(),
   updatedAt: z.string(),
 });
 

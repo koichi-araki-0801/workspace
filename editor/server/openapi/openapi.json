@@ -3506,12 +3506,33 @@
               "additionalProperties": false
             },
             "description": "未解決競合(自動同期停止中)のパーツ一覧"
+          },
+          "cssConflicts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ruleKey": {
+                  "type": "string"
+                },
+                "detectedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ruleKey",
+                "detectedAt"
+              ],
+              "additionalProperties": false
+            },
+            "description": "未解決の CSS 規則の競合(ペア側が版種固有に直してあり転写を止めた規則)"
           }
         },
         "required": [
           "pairTemplateId",
           "pairExists",
-          "conflicts"
+          "conflicts",
+          "cssConflicts"
         ],
         "additionalProperties": false
       },
@@ -4105,6 +4126,38 @@
             },
             "description": "転写しなかったパーツと理由(競合・初期差分・未判断など)"
           },
+          "css": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "applied": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "ペアの CSS へ写した規則のキー"
+                  },
+                  "conflicts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "ペア側が承認前と違うため写さなかった規則のキー"
+                  }
+                },
+                "required": [
+                  "applied",
+                  "conflicts"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CSS の転写結果。承認で CSS が変わらなかったときは null"
+          },
           "error": {
             "anyOf": [
               {
@@ -4121,6 +4174,7 @@
           "pairTemplateId",
           "applied",
           "skipped",
+          "css",
           "error"
         ],
         "additionalProperties": false

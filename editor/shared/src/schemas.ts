@@ -456,6 +456,15 @@ export const PairSyncSummary = z
     skipped: z
       .array(z.object({ partKey: z.string(), reason: z.string() }))
       .meta({ description: '転写しなかったパーツと理由(競合・初期差分・未判断など)' }),
+    css: z
+      .object({
+        applied: z.array(z.string()).meta({ description: 'ペアの CSS へ写した規則のキー' }),
+        conflicts: z
+          .array(z.string())
+          .meta({ description: 'ペア側が承認前と違うため写さなかった規則のキー' }),
+      })
+      .nullable()
+      .meta({ description: 'CSS の転写結果。承認で CSS が変わらなかったときは null' }),
     error: z.string().nullable().meta({ description: '同期処理自体の失敗理由。正常時は null' }),
   })
   .meta({ id: 'PairSyncSummary' });
@@ -473,7 +482,7 @@ export const NoteMasterReflectSummary = z
 
 /**
  * ペア同期の現況(編集画面のバナー・要判断表示用の軽量ビュー)。未解決競合 = 自動同期を
- * 停止して人間の判断を待っているパーツ。競合の解消は「両版の内容を一致させる」か
+ * 停止して人間の判断を待っているパーツと CSS 規則。競合の解消は「両版の内容を一致させる」か
  * 「先行変更した側を承認して逆方向の転写を走らせる」ことで次回承認時に自動で消える
  * (専用の解消 API は持たない)。
  */
@@ -493,6 +502,9 @@ export const PairSyncStatus = z
         }),
       )
       .meta({ description: '未解決競合(自動同期停止中)のパーツ一覧' }),
+    cssConflicts: z.array(z.object({ ruleKey: z.string(), detectedAt: z.string() })).meta({
+      description: '未解決の CSS 規則の競合(ペア側が版種固有に直してあり転写を止めた規則)',
+    }),
   })
   .meta({ id: 'PairSyncStatus' });
 

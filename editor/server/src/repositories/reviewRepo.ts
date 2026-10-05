@@ -268,6 +268,8 @@ export function createReviewRepo({
         const commitMessage =
           `確定保存(承認): ${review.templateId} 申請=${review.submittedBy} 承認=${actor.username}\n\n` +
           `Co-Authored-By: ${review.submittedBy} <${review.submittedBy}@editor.local>`;
+        // ペア同期の CSS 転写の base は承認の直前の CSS。反映の後では next と同じになって取れない。
+        const cssBefore = await readTemplateCss(review.templateId);
         const meta = await applyConfirmedSave({
           templateId: review.templateId,
           target,
@@ -282,9 +284,16 @@ export function createReviewRepo({
           reviewedAt: new Date().toISOString(),
           comment: decision.comment ?? null,
         });
-        // 承認の完結後に交付版⇄全体版のパーツ自動同期を掛ける(ベストエフォート。失敗しても
+        // 承認の完結後に交付版⇄全体版のパーツと CSS の自動同期を掛ける(ベストエフォート。失敗しても
         // 承認は成立済みで、結果/理由は summary として UI へ返す)。ペア対象外なら null。
-        const sync = await pairSync.syncPairAfterConfirm(review.templateId, actor.username, target);
+        const sync = await pairSync.syncPairAfterConfirm(
+          review.templateId,
+          actor.username,
+          target,
+          {
+            cssBefore,
+          },
+        );
         // 続けて `次回反映既定`=`反映` パーツの注記マスタ書き戻し(同じくベストエフォート)。
         // 契機は承認のみ = ペア同期で機械転写された側の版種はここでは書き戻さない
         // (その版種自身の承認時に昇格する)。

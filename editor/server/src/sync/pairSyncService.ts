@@ -10,6 +10,11 @@
 // 転写」なので追加の承認ゲートは設けない(設計判断。両側変更などの競合はエンジンが
 // スキップして人間へ返す)。ペアのキーはテンプレート(3 つ区切り)が `会社_ファンド`、値入り HTML
 // (4 つ区切り)が `会社_ファンド_基準日` で、状態ファイルは別になる。
+//
+// CSS も同じ承認の中で写す(`cssSync.ts`)。CSS はテンプレ単位なので、値入り HTML のペアでも
+// テンプレのペアでも対象は同じ CSS 2 枚(`…_交付版.css` ⇔ `…_全体版.css`)になる。base は承認の
+// 直前の CSS で、呼び出し側(承認)が書く前に読んで渡す(状態の記録は増やさない)。CSS の競合は
+// 基準日をまたぐので、値入り HTML の承認でもテンプレのペアキー(`cssSyncPairKey`)の状態ファイルへ書く。
 
 import {
   type PairSyncStatus,
@@ -22,6 +27,7 @@ import { readSyncState, writeSyncState } from '../files/syncFiles.js';
 import {
   filledExists,
   readFilledHtml,
+  readTemplateCss,
   readTemplateHtml,
   templateExists,
 } from '../files/templateFiles.js';
@@ -29,7 +35,8 @@ import { commitAll, withGitLock } from '../git/gitRepo.js';
 import { logger } from '../logger.js';
 import { applyConfirmedWrite, type ConfirmedTarget } from '../repositories/confirmedWrite.js';
 import type { PartRepo } from '../repositories/partRepo.js';
-import { computePairSync } from './partSync.js';
+import { computeCssSync, cssSyncPairKey } from './cssSync.js';
+import { computePairSync, type PairSyncState } from './partSync.js';
 
 export interface PairSyncService {
   getPairSyncStatus(templateId: string): Promise<PairSyncStatus>;
@@ -37,6 +44,7 @@ export interface PairSyncService {
     sourceTemplateId: string,
     actor: string,
     target: ConfirmedTarget,
+    opts: { cssBefore: string },
   ): Promise<PairSyncSummary | null>;
 }
 
@@ -51,7 +59,7 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
       const pairId = pairedTemplateId(templateId);
       const attrs = parseAnyTemplateFileName(`${templateId}.html`);
       if (pairId === null || !attrs)
-        return { pairTemplateId: null, pairExists: false, conflicts: [] };
+        return { pairTemplateId: null, pairExists: false, conflicts: [], cssConflicts: [] };
       // バナーが問うのは編集タブで開けるペアの有無なので、値入り HTML の側を見る。
       const pairExists = await filledExists(`${pairId}.html`);
       const state = pairExists
@@ -64,14 +72,18 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
               : [],
           )
         : [];
-      return { pairTemplateId: pairId, pairExists, conflicts };
+      // CSS の競合はテンプレ単位の記録先から読む(どの基準日の画面でも、作成タブでも同じものが見える)。
+      const cssKey = cssSyncPairKey(templateId);
+      const cssState = cssKey ? await readSyncState(cssKey).catch(() => null) : null;
+      const cssConflicts = cssState?.css?.conflicts ?? [];
+      return { pairTemplateId: pairId, pairExists, conflicts, cssConflicts };
     },
 
     /**
      * 承認確定した `sourceTemplateId` の変更をペアへ自動同期する。ペア対象外の版種・ペア実体
      * 不在なら null(UI は「同期なし」表示)。失敗は throw せず `error` 付き summary で返す。
      */
-    async syncPairAfterConfirm(sourceTemplateId, actor, target) {
+    async syncPairAfterConfirm(sourceTemplateId, actor, target, opts) {
       // 読み書きする実体は承認が書いた先と同じに揃える。混ぜると値入り HTML の変更を
       // Jinja スケルトンへ転写する(またはその逆)ことになる。
       const exists = target === 'filled' ? filledExists : templateExists;
@@ -85,12 +97,21 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
       if (!(await exists(pairFile))) return null;
 
       try {
-        const [sourceHtml, targetHtml, catalog] = await Promise.all([
+        const [sourceHtml, targetHtml, catalog, cssNext, cssTarget] = await Promise.all([
           readHtml(`${sourceTemplateId}.html`),
           readHtml(pairFile),
           parts.listParts({}),
+          readTemplateCss(sourceTemplateId),
+          readTemplateCss(pairId),
         ]);
-        const state = await readSyncState(templatePairKey(attrs));
+        const bodyKey = templatePairKey(attrs);
+        // attrs が取れているので非 null。
+        const cssKey = cssSyncPairKey(sourceTemplateId) as string;
+        const sameFile = cssKey === bodyKey;
+        const state = await readSyncState(bodyKey);
+        // テンプレのペアの承認では同じファイル。値入り HTML のペアの承認では別のファイルを読む。
+        const cssState = sameFile ? state : await readSyncState(cssKey);
+        const now = new Date().toISOString();
         const result = computePairSync({
           sourceHtml,
           targetHtml,
@@ -98,14 +119,41 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
           sourceEdition: attrs.editionType,
           targetEdition: pairAttrs.editionType,
           state,
-          now: new Date().toISOString(),
+          now,
         });
+        const cssSync = computeCssSync({
+          base: opts.cssBefore,
+          next: cssNext,
+          target: cssTarget,
+          prev: cssState.css?.conflicts ?? [],
+          now,
+        });
+        // `computePairSync` の返す状態は本文のパーツだけを持つ。CSS の競合はテンプレのペアキーの
+        // 状態にだけ載せる(テンプレのペアの承認なら同じファイルを 1 回、値入り HTML なら 2 ファイル)。
+        const cssStateNext: PairSyncState = {
+          ...(sameFile ? result.state : cssState),
+          css: { conflicts: cssSync.conflicts },
+          updatedAt: now,
+        };
+        const statesChanged = result.stateChanged || cssSync.conflictsChanged;
+        const writeStates = async (): Promise<void> => {
+          // CSS 側を先に書く。後の本文側が失敗して本体と CSS が元へ戻っても、残る CSS の競合は
+          // 「写さなかった規則」だけで、次の承認で両版の一致を見て持ち越すか消すかが決まる
+          // (写したことにする記録は残らない)。
+          if (sameFile) {
+            if (statesChanged) await writeSyncState(cssStateNext);
+            return;
+          }
+          if (cssSync.conflictsChanged) await writeSyncState(cssStateNext);
+          if (result.stateChanged) await writeSyncState(result.state);
+        };
 
-        if (result.changed) {
+        if (result.changed || cssSync.css !== null) {
           // 確定ディレクトリへの書込はチョークポイント経由に限る(承認ゲート・帰属検査・
           // 実行コード不変性・snapshot/restore・監査を素通りさせない)。転写先は
           // チョークポイント側が source から再計算して照合するため、ここの `pairId` を
-          // 信用させない構造になっている。
+          // 信用させない構造になっている。本文と CSS を 1 回の確定書込で書く(承認 1 回につき
+          // 転写 1 回)。CSS の書き先もチョークポイントが転写先 id から決める。
           // 同期状態ファイルは「本体書込の成功後」という順序を保ちつつ `afterWrite` で書く。
           // ここが失敗すると本体も元へ戻る = 「転写済みなのに lastSynced が古い」状態を作らない。
           await applyConfirmedWrite({
@@ -114,14 +162,16 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
             targetTemplateId: pairId,
             sourceTemplateId,
             html: result.targetHtml,
+            ...(cssSync.css !== null ? { css: cssSync.css } : {}),
             actor,
             appliedParts: result.applied,
-            afterWrite: () => writeSyncState(result.state),
+            appliedCssRules: cssSync.applied,
+            afterWrite: writeStates,
           });
-        } else if (result.stateChanged) {
+        } else if (statesChanged) {
           // 本体を書かない(状態だけ動いた)場合はチョークポイントを通らないので、状態ファイルの
           // コミットだけをここで積む。ベストエフォートは従来どおり。
-          await writeSyncState(result.state);
+          await writeStates();
           try {
             await withGitLock(() =>
               commitAll(`同期状態更新: ${pairId} ← ${sourceTemplateId} 実行者=${actor}`, {
@@ -136,6 +186,7 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
           pairTemplateId: pairId,
           applied: result.applied,
           skipped: result.skipped,
+          css: cssSync.ran ? { applied: cssSync.applied, conflicts: cssSync.skipped } : null,
           error: null,
         };
       } catch (e) {
@@ -144,6 +195,7 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
           pairTemplateId: pairId,
           applied: [],
           skipped: [],
+          css: null,
           error: e instanceof Error ? e.message : String(e),
         };
       }

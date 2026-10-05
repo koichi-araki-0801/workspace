@@ -33,6 +33,33 @@ describe('readSyncState', () => {
     });
   });
 
+  it('CSS の競合(css 欄)を持つ状態ファイルを書いて読み戻せる', async () => {
+    const { readSyncState, writeSyncState } = await import('../src/files/syncFiles.js');
+    const key = 'AM01_510037_20240712';
+    await writeSyncState({
+      pairKey: key,
+      parts: {},
+      css: { conflicts: [{ ruleKey: '.a', detectedAt: '2026-10-05T00:00:00.000Z' }] },
+      updatedAt: '2026-10-05T00:00:00.000Z',
+    });
+    expect((await readSyncState(key)).css).toEqual({
+      conflicts: [{ ruleKey: '.a', detectedAt: '2026-10-05T00:00:00.000Z' }],
+    });
+  });
+
+  it('競合「ペア側先行」を持つ状態ファイルを読める(同期エンジンが書く種別)', async () => {
+    const { readSyncState, writeSyncState } = await import('../src/files/syncFiles.js');
+    const key = 'AM01_510037_20240713';
+    await writeSyncState({
+      pairKey: key,
+      parts: {
+        'p-1': { conflict: { kind: 'ペア側先行', detectedAt: '2026-10-05T00:00:00.000Z' } },
+      },
+      updatedAt: '2026-10-05T00:00:00.000Z',
+    });
+    expect((await readSyncState(key)).parts['p-1'].conflict?.kind).toBe('ペア側先行');
+  });
+
   it('形の壊れたファイルは例外(黙って空状態にしない = 書き込み経路の入力にしない)', async () => {
     const { readSyncState } = await import('../src/files/syncFiles.js');
     fs.mkdirSync(path.join(root, 'sync'), { recursive: true });

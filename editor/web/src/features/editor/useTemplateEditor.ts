@@ -527,12 +527,11 @@ export function useTemplateEditor(
       if (isOk(res)) allPartHistory.value = res.value;
       else logError(res.error);
     });
-    // ペア同期の競合バナー用。編集経路のみ(作成経路 `?created=1` は未確定テンプレでペア無し)。
-    if (route.query.created !== '1') {
-      void service.getSyncStatus(id).then((res) => {
-        if (isOk(res)) syncStatus.value = res.value;
-      });
-    }
+    // ペア同期の競合バナー用。作成経路(`?created=1`)でも取る — CSS の競合はテンプレ単位で記録され、
+    // 作成タブでも見える必要がある(パーツの競合は値入り HTML のペアだけが持つので作成経路では空)。
+    void service.getSyncStatus(id).then((res) => {
+      if (isOk(res)) syncStatus.value = res.value;
+    });
     // canvas の全変更はここを通る — dirty を立て、autosave を起動する。`g.onChange` は
     // load() より後に張るため、初期ロードでは発火せず純粋なユーザー編集だけを拾う。
     g.onChange(markChanged);

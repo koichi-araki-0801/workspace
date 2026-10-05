@@ -75,6 +75,13 @@ describe('ReviewNoticeBar', () => {
     );
   });
 
+  it('書式の項目は、ペアの版種へも写ることを添える', () => {
+    const w = mount(ReviewNoticeBar, { props: { ...noneProps, cssChanged: true } });
+    expect(w.findAll('[data-notice-item]')[0].text()).toContain(
+      'ペアの版種（交付版⇔全体版）にも、ペア側で個別に直していない書式は承認のときに写ります',
+    );
+  });
+
   it('作成タブ(テンプレ)の申請では基準日の注意を出さない', () => {
     const w = mount(ReviewNoticeBar, {
       props: { ...noneProps, cssChanged: true, sharedAcrossBaseDates: false },
