@@ -3,6 +3,7 @@
 // =============================================================================
 import { describe, expect, it } from 'vitest';
 import {
+  foldedCssRuleTexts,
   mergeCssRuleChanges,
   mergeCssRuleChangesFromBaseline,
   sameCssRule,
@@ -594,7 +595,7 @@ describe('属性セレクタの値の引用符', () => {
 });
 
 describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳んで比べる', () => {
-  it('出現数が next とペア側で合わなければ、ペア側の重複を最後の出現の位置に 1 本へまとめる', () => {
+  it('原文と baseline の出現数が合わなければ対応が取れないので競合にし、ペア側は変えない', () => {
     const raw = '.a{color:red}.a{margin:0}';
     const r = mergeCssRuleChangesFromBaseline(
       raw,
@@ -602,7 +603,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       '.a{color:blue;margin:0;}',
       raw,
     );
-    expect(r).toEqual({ css: '.a{color:blue;margin:0;}', applied: [k('.a')], conflicts: [] });
+    expect(r).toEqual({ css: raw, applied: [], conflicts: [k('.a')] });
   });
 
   it('出現数が合えば出現ごとに当て、間にある別の規則とのカスケードを保つ', () => {
@@ -628,7 +629,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
     });
   });
 
-  it('baseline と出現数が違っても出現ごとに当て、本文が next と同じ出現には触らない', () => {
+  it('next の出現が baseline より多ければ対応が取れないので競合にする', () => {
     const raw = '.a{color:red}\n.b{x:1}\n.a{margin:0}\n';
     const r = mergeCssRuleChangesFromBaseline(
       raw,
@@ -636,8 +637,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       '.a{color:red;}.b{x:1;}.a{margin:5px;}',
       raw,
     );
-    expect(r.css).toBe('.a{color:red}\n.b{x:1}\n.a{margin:5px;}\n');
-    expect(r.applied).toEqual([k('.a')]);
+    expect(r).toEqual({ css: raw, applied: [], conflicts: [k('.a')] });
   });
 
   it('最後の重複の宣言を全部消した編集は、ペア側の最後の出現を消し、前の出現は残す', () => {
@@ -655,14 +655,38 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
     });
   });
 
-  it('ペア側が原文より少ない出現にまとめていれば、baseline の出現ではなく本文で比べて当てる', () => {
+  it('ペア側が原文より少ない出現にまとめていれば、宣言の削除も競合にする', () => {
+    const target = '.a{color:red;margin:0}\n.b{}';
     const r = mergeCssRuleChangesFromBaseline(
       '.a{color:red}\n.b{}\n.a{margin:0}',
       '.a{color:red;}.b{}.a{margin:0;}',
       '.a{color:red;}.b{}',
-      '.a{color:red;margin:0}\n.b{}',
+      target,
     );
-    expect(r).toEqual({ css: '.a{color:red;}\n.b{}', applied: [k('.a')], conflicts: [] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+  });
+
+  it('ペア側が宣言の配り方を変えていれば、畳めば同じでも競合にする', () => {
+    const target = '.a{x:1;y:1}\n.a{y:1}';
+    const r = mergeCssRuleChangesFromBaseline(
+      '.a{x:1}\n.a{y:1}',
+      '.a{x:1;}.a{y:1;}',
+      '.a{x:1;}',
+      target,
+    );
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+  });
+
+  it('ペア側が後ろの重複を 1 本にまとめていれば、出現の編集も競合にする(順序を変えない)', () => {
+    const target = '.a{x:1}\n.b{x:2}\n.a{y:1;z:1}';
+    const gjs = (z: string): string => `.a{x:1;}.b{x:2;}.a{y:1;}.a{z:${z};}`;
+    const r = mergeCssRuleChangesFromBaseline(
+      '.a{x:1}\n.b{x:2}\n.a{y:1}\n.a{z:1}',
+      gjs('1'),
+      gjs('5'),
+      target,
+    );
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
   });
 
   it('宣言が空や無効の重複は対応づけから外し、前からそろえて当てる', () => {
@@ -704,14 +728,15 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
     expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
   });
 
-  it('ペア側が 1 本で、畳んだ原文と同じ宣言なら手つかずとみなして当てる', () => {
+  it('ペア側が 1 本で、畳んだ原文と同じ宣言でも、出現の形が違うので競合にする', () => {
+    const target = '.a{color:red;margin:0}\n';
     const r = mergeCssRuleChangesFromBaseline(
       '.a{color:red}\n.a{margin:0}\n',
-      '.a{color:red;margin:0;}',
-      '.a{color:blue;margin:0;}',
-      '.a{color:red;margin:0}\n',
+      '.a{color:red;}.a{margin:0;}',
+      '.a{color:blue;}.a{margin:0;}',
+      target,
     );
-    expect(r).toEqual({ css: '.a{color:blue;margin:0;}\n', applied: [k('.a')], conflicts: [] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
   });
 
   it('削除は重複をすべて消す', () => {
@@ -725,30 +750,14 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
     expect(r).toEqual({ css: '.b{x:1}\n', applied: [k('.a')], conflicts: [] });
   });
 
-  it('!important の宣言は後ろの通常の宣言に負けない', () => {
-    const raw = '.a{color:red !important}.a{color:green}';
-    const r = mergeCssRuleChangesFromBaseline(
-      raw,
-      '.a{color:red !important;}',
-      '.a{color:blue !important;}',
-      raw,
-    );
-    expect(r).toEqual({ css: '.a{color:blue !important;}', applied: [k('.a')], conflicts: [] });
+  it('畳んだ本文(foldedCssRuleTexts)では、!important の宣言は後ろの通常の宣言に負けない', () => {
+    const texts = foldedCssRuleTexts('.a{color:red !important}.a{color:green;margin:0}');
+    expect(texts.get(k('.a'))).toBe('.a{color:red !important;margin:0}');
   });
 
-  it('宣言でない中身(@keyframes)の重複は最後の 1 本を代表にする', () => {
-    const raw = '@keyframes k{from{x:0}}\n@keyframes k{from{x:1}}\n';
-    const r = mergeCssRuleChangesFromBaseline(
-      raw,
-      '@keyframes k{from{x:1;}}',
-      '@keyframes k{from{x:2;}}',
-      raw,
-    );
-    expect(r).toEqual({
-      css: '@keyframes k{from{x:2;}}\n',
-      applied: [k('@keyframes k')],
-      conflicts: [],
-    });
+  it('畳んだ本文では、宣言でない中身(@keyframes)の重複は最後の 1 本を代表にする', () => {
+    const texts = foldedCssRuleTexts('@keyframes k{from{x:0}}\n@keyframes k{from{x:1}}\n');
+    expect(texts.get(k('@keyframes k'))).toBe('@keyframes k{from{x:1}}');
   });
 
   it('重複した規則の後ろへの追加は、ペア側の最後の出現の後ろへ入れる', () => {

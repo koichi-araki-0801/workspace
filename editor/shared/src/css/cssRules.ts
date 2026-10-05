@@ -17,12 +17,13 @@
 // 「削除 + 追加」になり、競合にならず後ろへ追記されて勝ってしまうため)。それ以外のセレクタを
 // 持たない規則は中身全体で見分ける。セレクタの属性値は `[src="x"]` の形にそろえる(GrapesJS は
 // ブラウザが書き出したセレクタを使うため)。同じキーが複数あれば `splitCssRules` は出現順の番号を
-// 足す。`mergeCssRuleChangesFromBaseline` は重複を 1 本に畳んでから比べる。GrapesJS は重複を
-// 別々の規則のまま持つが、宣言が空になった規則は `getCss` に出ない(そのため出現番号が原文と
-// ずれる)。スタイルの編集は同じセレクタの最後の規則に入る。畳めば、出現番号がずれても実際の
-// カスケードと同じ値で比べられる。当てるときは、ペア側の空の出現を外して前から出現ごとに対応
-// させて当てる(1 本にまとめると、間にある別の規則とのカスケードがどこに置いても崩れる。
-// `replacementOf`)。
+// 足す。`mergeCssRuleChangesFromBaseline` は同じキーの重複を 1 つの規則として識別し(出現番号を
+// 付けない)、その中の出現を前から対応づける。GrapesJS は重複を別々の規則のまま持ち、宣言が空に
+// なった規則だけを `getCss` に出さない(スタイルの編集は同じセレクタの最後の規則に入るので、
+// 消えるのも最後の規則)。そこで空の出現を外したうえで、変更の判定・ペア側が手つかずかの判定・
+// 当てる処理をすべて出現ごとに行う。ペア側の出現の形が原文と違う(宣言の配り方が違う・まとめて
+// ある・重複が多い)ときは対応が取れないので競合にする — 1 本にまとめて当てると、間にある別の
+// 規則とのカスケードがどこに置いても崩れうるため。
 // 規則の間のコメントはどの規則にも属さず、同期の対象にならない。
 
 import { collectCssStructure } from '../security/cssExternalRefs.js';
@@ -85,8 +86,8 @@ interface ScannedRule extends CssRule {
 }
 
 /**
- * 規則の比較と書き換えの単位。重複を畳んだときは `parts` が原文の出現で、`start`/`end` は
- * 最後の出現(置き換え・追加の基準)を指す。
+ * 規則の比較と書き換えの単位。`parts` が原文の出現(原文の順)で、`start`/`end` は最後の出現
+ * (追加の挿入位置の基準)を指す。`text` は重複を畳んだ本文で、`foldedCssRuleTexts` にだけ使う。
  */
 interface MergeRule extends ScannedRule {
   parts: ScannedRule[];
@@ -411,47 +412,27 @@ function isValidDecl(decl: string): boolean {
 
 /**
  * 効く宣言を 1 つも持たない出現(`.a{}` や宣言が無効なもの)か。GrapesJS はこの形の規則を
- * `getCss` に出さないので、next の出現と対応づけるときに外す。入れ子のブロックを持つ規則と
- * ブロックを持たない文は空とみなさない。
+ * `getCss` に出さないので、出現を対応づけるときに外す(原文には残したまま触らない)。入れ子の
+ * ブロックを持つ規則とブロックを持たない文は空とみなさない。
  *
  * 残差: プロパティ名の知識が無いので、未知のプロパティ(`.a{foo:bar}`)も効く宣言として数える。
- * GrapesJS がその出現を `getCss` に出さなくても対応から外せないので、その重複を空にする編集は
- * 出現の対応が取れず、最後の出現への 1 本の畳み込みに落ちる。
+ * GrapesJS がその出現を `getCss` に出さないと出現数が合わず、その規則の転写は競合になる。
  */
 function isEmptyOccurrence(rule: ScannedRule): boolean {
   return rule.decls !== undefined && !rule.decls.some(isValidDecl);
 }
 
 /**
- * target の規則 `tr` を next の `nr` にする書き換え。GrapesJS は重複を別々の規則のまま持ち、
- * 宣言が空になった規則だけを `getCss` から落とす。スタイルの編集は最後の規則に入るので、消えるのも
- * 最後の規則になる。そこで target の出現から空の出現を外し、前から i 番目どうしを対応させる。
- *
- * - 出現数が next と同じなら出現ごとに置き換える。
- * - target(と `from`)より next が少なければ、前からそろえ、next に無い末尾の出現を消す。
- * - 本文が next と同じ出現には触らない。`from` とペア側の出現数が同じときは、`from` の同じ
- *   出現から変わっていない出現にも触らない(間にある別の規則とのカスケードと、ペア側の書き方を
- *   保つ)。空の出現にも触らない。
- * - それでも対応が取れない形のときだけ、最後の出現の位置に畳んだ 1 本を置き、ほかの出現を消す。
+ * 対応づけに使う出現(原文の順)。重複があるときは空の出現を外す。出現が 1 つの規則は外さない
+ * (重複の無い規則は、空でも本文どうしで比べる)。
  */
-function replacementOf(target: string, fr: MergeRule, nr: MergeRule, tr: MergeRule): Edit[] {
-  const live = tr.parts.filter((p) => !isEmptyOccurrence(p));
-  const n = nr.parts.length;
-  const aligned = live.length === n || (n < live.length && live.length === fr.parts.length);
-  if (!aligned) {
-    return tr.parts.map((p) =>
-      p === tr.parts.at(-1) ? { start: p.start, end: p.end, text: nr.text } : removalOf(target, p),
-    );
-  }
-  // baseline との比較で「触らない」を決めるのは、baseline とペア側の出現の形が同じときだけ。
-  const fromAligned = fr.parts.length === live.length;
-  return live.flatMap((p, i): Edit[] => {
-    if (i >= n) return [removalOf(target, p)];
-    const next = nr.parts[i].text;
-    if (sameCssRule(p.text, next)) return [];
-    if (fromAligned && sameCssRule(fr.parts[i].text, next)) return [];
-    return [{ start: p.start, end: p.end, text: next }];
-  });
+function occurrencesOf(rule: MergeRule): ScannedRule[] {
+  return rule.parts.length === 1 ? rule.parts : rule.parts.filter((p) => !isEmptyOccurrence(p));
+}
+
+/** 2 つの出現の並びが、数も各出現の本文(`sameCssRule`)も同じか。 */
+function sameOccurrences(a: readonly ScannedRule[], b: readonly ScannedRule[]): boolean {
+  return a.length === b.length && a.every((x, i) => sameCssRule(x.text, b[i].text));
 }
 
 /** `at` の行頭からの空白(行頭から空白だけが続くときのみ)。 */
@@ -479,15 +460,22 @@ function anchorFor(
 /**
  * `from` → next で変わった規則(追加・変更・削除)だけを target へ当てる(2 つの公開関数の本体)。
  *
- * - 変わった規則は、target の同じ規則が `ref`(target が今も持っているはずの形)と同じなら当てる。
- *   違えば(版種固有に直してある)競合として飛ばす。`ref` に無い規則は target にも無いことを求める。
+ * 比べるのは出現の並び(`occurrencesOf`。重複の無い規則は出現 1 つ)で、数と各出現の本文が
+ * 同じなら同じ規則とみなす。
+ *
+ * - 変わった規則は、target の同じ規則が `ref`(target が今も持っているはずの形)と出現ごとに
+ *   同じなら当てる。違えば(版種固有に直してある・出現の形が違う)競合として飛ばす。削除も同じ。
+ *   `ref` に無い規則は target にも無いことを求める。
+ * - 当てるときは `from` と next の出現を前から対応させ、変わった出現だけを target の同じ番目の
+ *   出現へ書き、next に無い末尾の出現を消す。`ref` と `from` の出現数が違う・next の出現が
+ *   `from` より多いときは対応が取れないので競合にする。空の出現は原文のまま残す。
  * - 変わっていない規則には触らない。target が既に next と同じ形なら何もしない。
  * - 追加(target に無い規則を当てる)は、next で同じ入れ子の中にある直前の規則の後ろへ入れる。
  *   その規則が target に無ければ、外側の入れ子 at-rule で包んで末尾へ入れる。
  */
 function mergeRuleChanges(
   from: MergeRule[],
-  ref: ReadonlyMap<string, string>,
+  ref: ReadonlyMap<string, MergeRule>,
   n: MergeRule[],
   target: string,
   t: MergeRule[],
@@ -498,10 +486,11 @@ function mergeRuleChanges(
   const edits: Edit[] = [];
   const applied: string[] = [];
   const conflicts: string[] = [];
-  /** target が `ref` の形のままか(両方に無い場合も含む)。 */
+  /** target が `ref` の形のままか。出現ごとに比べる(両方に無い場合も含む)。 */
   const untouched = (key: string, tr: MergeRule | undefined): boolean => {
     const r = ref.get(key);
-    return r === undefined || tr === undefined ? r === tr?.text : sameCssRule(tr.text, r);
+    if (r === undefined || tr === undefined) return r === tr;
+    return sameOccurrences(occurrencesOf(tr), occurrencesOf(r));
   };
   /** 変わったが target に無いので、追加と同じ位置へ入れる規則。 */
   const inserts = new Set<string>();
@@ -509,23 +498,42 @@ function mergeRuleChanges(
   // ── 1. 変更と削除(from の順)──
   for (const fr of from) {
     const nr = nMap.get(fr.key);
-    if (nr !== undefined && sameCssRule(fr.text, nr.text)) continue;
+    const F = occurrencesOf(fr);
+    const N = nr === undefined ? undefined : occurrencesOf(nr);
+    if (N !== undefined && sameOccurrences(F, N)) continue;
     const tr = tMap.get(fr.key);
-    if (nr === undefined ? tr === undefined : tr !== undefined && sameCssRule(tr.text, nr.text))
+    if (
+      N === undefined ? tr === undefined : tr !== undefined && sameOccurrences(occurrencesOf(tr), N)
+    )
       continue;
     if (!untouched(fr.key, tr)) {
       conflicts.push(fr.key);
       continue;
     }
-    if (nr === undefined) {
+    if (N === undefined) {
       for (const p of tr?.parts ?? []) edits.push(removalOf(target, p));
       applied.push(fr.key);
-    } else if (tr === undefined) {
-      inserts.add(fr.key);
-    } else {
-      edits.push(...replacementOf(target, fr, nr, tr));
-      applied.push(fr.key);
+      continue;
     }
+    if (tr === undefined) {
+      inserts.add(fr.key);
+      continue;
+    }
+    // 出現ごとに当てる。GrapesJS は重複を別々の規則のまま持ち、宣言が空になった最後の規則だけを
+    // `getCss` から落とすので、F(baseline)と N(next)は前から i 番目どうしが対応する。原文と
+    // F の出現数が違う・N が F より多い形は対応が取れないので競合にする。
+    const L = occurrencesOf(tr);
+    const R = occurrencesOf(ref.get(fr.key) as MergeRule);
+    if (R.length !== F.length || N.length > F.length) {
+      conflicts.push(fr.key);
+      continue;
+    }
+    L.forEach((p, i) => {
+      if (i >= N.length) edits.push(removalOf(target, p));
+      else if (!sameCssRule(F[i].text, N[i].text))
+        edits.push({ start: p.start, end: p.end, text: N[i].text });
+    });
+    applied.push(fr.key);
   }
 
   // ── 2. 追加(next の順)。挿入位置ごとにまとめ、next の順を保つ ──
@@ -537,7 +545,7 @@ function mergeRuleChanges(
     if (fromKeys.has(nr.key) && !inserts.has(nr.key)) continue;
     const tr = tMap.get(nr.key);
     if (tr !== undefined) {
-      if (!sameCssRule(tr.text, nr.text)) conflicts.push(nr.key);
+      if (!sameOccurrences(occurrencesOf(tr), occurrencesOf(nr))) conflicts.push(nr.key);
       continue;
     }
     if (!inserts.has(nr.key) && !untouched(nr.key, tr)) {
@@ -547,7 +555,7 @@ function mergeRuleChanges(
     const anchor = anchorFor(n, index, tMap);
     const groupKey = anchor !== undefined ? `after:${anchor.key}` : `end:${nr.chainKey}`;
     const group = groups.get(groupKey) ?? { anchor, atRules: nr.atRules, texts: [] };
-    group.texts.push(nr.text);
+    group.texts.push(...occurrencesOf(nr).map((p) => p.text));
     groups.set(groupKey, group);
     applied.push(nr.key);
   }
@@ -570,6 +578,11 @@ function mergeRuleChanges(
   return { css: edits.length === 0 ? target : applyEdits(target, edits), applied, conflicts };
 }
 
+/** 規則のキー → 規則。 */
+function byKey(rules: MergeRule[]): Map<string, MergeRule> {
+  return new Map(rules.map((r) => [r.key, r]));
+}
+
 /** 規則のキー → 原文。 */
 function textsByKey(rules: MergeRule[]): Map<string, string> {
   return new Map(rules.map((r) => [r.key, r.text]));
@@ -581,10 +594,10 @@ function asIs(css: string): MergeRule[] {
 }
 
 /**
- * 重複した規則(出現番号の付くもの)を、最後の出現の位置にある 1 本へ畳む。宣言だけの規則は
- * 宣言の後勝ち(`!important` は後ろの通常の宣言に負けない)= 実際のカスケードの値で 1 本にし、
- * 宣言の並びは最初に現れた順を保つ。入れ子のブロックを持つ規則(`@keyframes` など)とブロックを
- * 持たない文は、最後の出現を代表にする。並びは最後の出現の位置の順。
+ * 同じキーの重複(出現番号の付くもの)を 1 つの規則にまとめる(`parts` に出現を持つ)。並びは最後の
+ * 出現の位置の順。`text` は畳んだ本文: 宣言だけの規則は宣言の後勝ち(`!important` は後ろの通常の
+ * 宣言に負けない)= 実際のカスケードの値で 1 本にし、宣言の並びは最初に現れた順を保つ。入れ子の
+ * ブロックを持つ規則(`@keyframes` など)とブロックを持たない文は、最後の出現を代表にする。
  */
 function folded(css: string): MergeRule[] {
   const rules = scanCssRules(css);
@@ -628,13 +641,12 @@ export function foldedCssRuleTexts(css: string): Map<string, string> {
  */
 export function mergeCssRuleChanges(base: string, next: string, target: string): CssMergeResult {
   const b = asIs(base);
-  return mergeRuleChanges(b, textsByKey(b), asIs(next), target, asIs(target));
+  return mergeRuleChanges(b, byKey(b), asIs(next), target, asIs(target));
 }
 
 /**
- * 変更の検出と、ペア側(target)の照合を別の形で行う版。4 つの CSS とも重複した規則を畳んで
- * 比べ(`folded`)、当てるときは前から出現ごとに当てる(対応が取れないときだけ最後の出現へ
- * 1 本にまとめる。`replacementOf`)。承認の CSS は GrapesJS が書き直した形
+ * 変更の検出と、ペア側(target)の照合を別の形で行う版。4 つの CSS とも同じキーの重複を 1 つの
+ * 規則として識別し(`folded`)、出現ごとに比べて当てる(`mergeRuleChanges`)。承認の CSS は GrapesJS が書き直した形
  * (一括指定の展開・色の正規化・url の引用符)で届くので、外部ツールが書いた原文と直に比べると
  * 編集していない規則まで「変わった」に見える。
  *
@@ -650,7 +662,7 @@ export function mergeCssRuleChangesFromBaseline(
 ): CssMergeResult {
   return mergeRuleChanges(
     folded(baseline),
-    textsByKey(folded(rawBase)),
+    byKey(folded(rawBase)),
     folded(next),
     target,
     folded(target),
