@@ -15,6 +15,7 @@ import FormField from '@/components/ui/FormField.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import { toastError } from '@/components/ui/toast';
+import { formatCompanyLabel } from '@/lib/companyLabel';
 import { useLatest } from '@/lib/useLatest';
 import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
 import { useTemplateCreationService } from '../services/templateCreationService';
@@ -47,7 +48,10 @@ const companyOf = (companyCode?: string) =>
     : companies.value.find((c) => c.companyCode.toLowerCase() === companyCode.toLowerCase());
 const rep1Of = (companyCode?: string) => companyOf(companyCode)?.rep1CompanyCode;
 const companyOptions = computed(() =>
-  companies.value.map((c) => ({ label: c.companyName, value: c.companyCode })),
+  companies.value.map((c) => ({
+    label: formatCompanyLabel(c.companyCode, c.rep1CompanyCode),
+    value: c.companyCode,
+  })),
 );
 const fundOptions = computed(() =>
   funds.value.map((f) => ({ label: `${f.fundCode} ${f.fundName}`, value: f.fundCode })),

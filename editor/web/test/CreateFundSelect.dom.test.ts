@@ -60,6 +60,17 @@ async function chooseCompany(w: ReturnType<typeof mount>, value: string) {
 }
 
 describe('CreateFundSelect', () => {
+  it('委託会社の候補は「略称（Rep1 のコード）」で、正式名は出さない', async () => {
+    const { w } = mountWith(async () => ok(FUNDS));
+    await flushPromises();
+    const company = w.findAllComponents(Combobox)[0];
+    expect(company.props('options')).toEqual([
+      { label: 'AM01（R-AM01）', value: 'AM01' },
+      { label: 'AM02（R-AM02）', value: 'AM02' },
+    ]);
+    expect(w.text()).not.toContain('会社 1');
+  });
+
   it('会社を変えたら、ファンドの取得を待たずにファンドと版種を消した選択を伝える', async () => {
     Object.assign(routeQuery, { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' });
     let releaseAm02: (v: unknown) => void = () => {};
