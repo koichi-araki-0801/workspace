@@ -1,16 +1,17 @@
 ---
 audience: spec
 title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
-version: "1.4"
+version: "1.5"
 rev:
   - 1.0 | 2026-08-02 | 初版
   - 1.1 | 2026-08-15 | 実装との突合（ロール approver・REST ルート全列挙・sproc 7 本・注記マスタ）
   - 1.2 | 2026-10-02 | 候補の出所（scope）と系列のファイル化、sproc `template` の `系列` 削除
   - 1.3 | 2026-10-03 | 作成タブの候補を Rep1 のファンド属性へ（companies / funds / creatable）、sproc `シリーズ` 追加、テンプレート台帳と `/templates/series` の削除
   - 1.4 | 2026-10-03 | テンプレートの ID から基準日を外す（作成タブの基準日の項目を削除、既存・作成中を開くボタン、creatable の templateId / inProgressId、generate の 409 の 3 種類と replaceExisting）
+  - 1.5 | 2026-10-05 | Template の cssMissing、申請の fundCode の削除と cssBaseline の追加、同期状態の CSS の競合、build の singleDoc の扱い
 ---
 
-対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.4 ／ 出典: editor/ 実装コード・DDL・テスト
+対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.5 ／ 出典: editor/ 実装コード・DDL・テスト
 
 # 画面項目定義
 
@@ -49,11 +50,11 @@ rev:
 | 8 | `GET` | `/templates/funds` | ○ | rep1CompanyCode（必須） | FundOption[]（fundCode, fundName） |
 | 9 | `GET` | `/templates/creatable` | ○ | companyCode, rep1CompanyCode, fundCode, editionType（すべて必須） | CreatableInfo（created, templateId?（作成済みのときだけ。templates/ のファイルの綴り）, inProgressId?（作業中のときだけ）, seriesFunds[fundCode, fundName, hasTemplate]） |
 | 10 | `GET` | `/templates` | ○ | 属性フィルタ（DropdownQuery） | TemplateMeta[] |
-| 11 | `GET` | `/templates/:id` | ○ | id | Template（meta + html + css） |
+| 11 | `GET` | `/templates/:id` | ○ | id | Template（meta + html + css + cssMissing?（CSS ファイルが無いとき true）） |
 | 12 | `GET` | `/templates/:id/draft` | ○ | id | TemplateDraft |
 | 13 | `PUT` | `/templates/:id/draft` | editor | SaveDraftRequest（templateId, html, css） | 204 |
 | 14 | `DELETE` | `/templates/:id/draft` | editor | id | 204（下書き破棄） |
-| 15 | `GET` | `/templates/:id/sync-status` | ○ | id | 交付版⇄全体版パーツ同期の状態 |
+| 15 | `GET` | `/templates/:id/sync-status` | ○ | id | 交付版⇄全体版パーツ同期の状態（パーツの競合と、テンプレの CSS の競合 cssConflicts） |
 | 16 | `GET` | `/funds/:fundCode/sample-data` | ○ | fundCode | SampleData（プレビュー context） |
 | 17 | `POST` | `/generate` | editor | GenerateRequest（companyCode, fundCode, editionType, sourceFundCode?, isRedemption?, replaceExisting?）。生成される id は `会社_ファンド_版種`（基準日なし）。作成済みなら 409「作成済みです。既存のテンプレートを開いてください」、承認待ちの作成申請があれば 409「申請中です。承認か却下を待ってください」、同じ id の下書きか pending があり replaceExisting が無ければ 409「作成中のテンプレートがあります」。下書きと pending は生成の成功後に捨てる。sourceFundCode のコピー元テンプレートが無ければ 400 | GenerateResult（テンプレート骨子 + draft） |
 | 18 | `GET` | `/parts` | ○ | 分類フィルタ | PartCatalogItem[] |
@@ -62,7 +63,7 @@ rev:
 | 21 | `POST` | `/templates/:templateId/part-history` | editor | RecordPartChangeRequest | 204（パーツ変更の記録） |
 | 22 | `GET` | `/templates/:templateId/notes` | ○ | templateId | パーツ単位メモ一覧 |
 | 23 | `PUT` | `/templates/:templateId/notes` | editor | SaveNoteRequest（pathKey, content。空文字＝削除） | 204 |
-| 24 | `POST` | `/build` | ○ | BuildInlineRequest（html, css, size, singleDoc） | PDF（vivliostyle） |
+| 24 | `POST` | `/build` | ○ | BuildInlineRequest（html, css, size, singleDoc（受け付けるが無視する）） | PDF（vivliostyle） |
 | 25 | `POST` | `/build/project` | editor | プロジェクト zip | PDF |
 | 26 | `POST` | `/build/merge` | ○ | BuildMergeRequest（documents = html/css の配列, size?） | PDF（複数文書を結合・通しページ番号） |
 | 27 | `GET` | `/preview` | ○ | — | 稼働中プレビューセッション一覧（自分の分のみ） |
@@ -75,7 +76,7 @@ rev:
 | 34 | `GET` | `/history/create` | ○ | — | 作成履歴一覧 |
 | 35 | `GET` | `/templates/:templateId/versions` | ○ | templateId | 版一覧（比較用）。テンプレート（3 つ区切り）は空の配列 |
 | 36 | `GET` | `/snapshots/:historyId` | ○ | historyId | スナップショット本文 |
-| 37 | `POST` | `/review-requests` | editor | SubmitReviewBody（templateId, html, css, fundCode, filledHtml?, origin） | ReviewRequestMeta（pending。実ファイル非更新） |
+| 37 | `POST` | `/review-requests` | editor | SubmitReviewBody（templateId, html, css, filledHtml?, cssBaseline?（確定版の CSS を編集画面の書き出しの形にしたもの。無ければ CSS のペア転写を飛ばす）, origin） | ReviewRequestMeta（pending。実ファイル非更新） |
 | 38 | `GET` | `/review-requests` | ○ | status（任意） | ReviewRequestMeta[]（精査者・admin は全件、editor は自分の申請のみ） |
 | 39 | `GET` | `/review-requests/:reqId` | ○ | reqId | ReviewRequest（本体込み） |
 | 40 | `POST` | `/review-requests/:reqId/approve` | approver | ReviewDecisionRequest（comment） | ApproveReviewResult（実ファイル反映 + git コミット。自己承認は拒否） |

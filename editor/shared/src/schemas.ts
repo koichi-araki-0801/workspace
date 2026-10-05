@@ -796,7 +796,10 @@ export const BuildInlineRequest = z
       .meta({ description: 'レンダリング済み(nunjucks)HTML' }),
     css: z.string().max(MAX_DOCUMENT_CSS_CHARS).default(''),
     size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
-    singleDoc: z.boolean().optional().meta({ description: '単一ドキュメント扱い' }),
+    singleDoc: z.boolean().optional().meta({
+      description:
+        '受け付けるが無視する(inline の build と preview は entry 1 本の config で、既に単一文書として組む)',
+    }),
   })
   .meta({ id: 'BuildInlineRequest' });
 

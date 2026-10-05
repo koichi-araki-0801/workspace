@@ -150,7 +150,7 @@ interface BuildInlineInput {
   css?: string;
   /** vivliostyle へ渡すページサイズ(既定 'A4')。 */
   size?: string;
-  /** 入力を単一ドキュメントとして扱う(ファイル単位のページ分割をしない)。 */
+  /** inline の build と preview では無視される(CLI へ渡さない。理由は `buildInlinePdf`)。 */
   singleDoc?: boolean;
 }
 

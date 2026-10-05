@@ -3087,7 +3087,7 @@
             "type": "string"
           },
           "singleDoc": {
-            "description": "単一ドキュメント扱い",
+            "description": "受け付けるが無視する(inline の build と preview は entry 1 本の config で、既に単一文書として組む)",
             "type": "boolean"
           }
         },
