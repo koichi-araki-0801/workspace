@@ -69,12 +69,20 @@ describe('templateRepo と filled/', () => {
     });
   });
 
-  it('pending/ にしか無いテンプレートは draft で返り、一覧にも基準日なしの draft で出る', async () => {
+  it('pending/ にしか無いテンプレート(基準日なし)は取得できるが、編集タブの一覧と候補には出ない', async () => {
     const t = await repo.getTemplate(SKELETON_PENDING_ID);
     expect(t.meta.status).toBe('draft');
-    const row = (await repo.listTemplates({})).find((m) => m.id === SKELETON_PENDING_ID);
+    const ids = (await repo.listTemplates({})).map((m) => m.id);
+    expect(ids).not.toContain(SKELETON_PENDING_ID);
+    const opts = await repo.getDropdownOptions({ companyCode: 'AM01' }, 'edit');
+    expect(opts.fundCodes).not.toContain('510155');
+  });
+
+  it('pending/ の基準日つき(4 つ区切り)は編集タブの一覧に draft で出る', async () => {
+    const { writePending } = await import('../src/files/pendingFiles.js');
+    await writePending('AM01_510999_20240711_交付版', '<p>生成直後</p>', '');
+    const row = (await repo.listTemplates({})).find((m) => m.id === 'AM01_510999_20240711_交付版');
     expect(row?.status).toBe('draft');
-    expect(row?.attributes.baseDate).toBeUndefined();
   });
 
   it('基準日で絞った一覧と候補に、基準日を持たない行は混ざらない', async () => {

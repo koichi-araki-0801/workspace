@@ -88,8 +88,8 @@ function optionsFromMetas(metas: TemplateMeta[], q: DropdownQuery): DropdownOpti
 }
 
 /**
- * 編集タブが扱うテンプレ。`filled/`(確定)に、`includePending` なら `pending/`(生成直後の
- * 未確定)を足す。同じ id が両方に在るときは確定を採る(承認後の pending 削除はベストエフォート)。
+ * 編集タブが扱うテンプレ(値入り HTML = 基準日を持つものだけ)。`filled/`(確定)に、
+ * `includePending` なら `pending/`(生成直後の未確定)を足す。同じ id が両方に在るときは確定を採る(承認後の pending 削除はベストエフォート)。
  */
 async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[]> {
   const files = await listFilledFiles();
@@ -106,7 +106,10 @@ async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[
         return meta && { ...meta, status: 'draft', updatedAt: await pendingMtime(id) };
       }),
     )
-  ).filter(isMeta);
+  )
+    .filter(isMeta)
+    // 作成タブの生成物(基準日なし)は作成タブの「作成中のテンプレートを開く」から開く。
+    .filter((m) => m.attributes.baseDate !== undefined);
   return [...confirmed, ...pending];
 }
 
@@ -228,12 +231,11 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
      * `pending/`(生成直後の未確定実体)のファイル走査から導く。`templates/`(作成タブの
      * Jinja)は一覧に出さない — 値入り HTML が無いテンプレを編集して申請する事故を防ぐため。
      *
-     * 混ぜない設計は一度採ったが不成立だった: 作成タブは生成後に `/edit/:id` へ 1 回遷移する
-     * だけで、履歴タブは遷移経路を持たない。そのため一覧から外すと、生成直後にブラウザを
-     * 閉じた時点でその id へ到達する手段が UI から消える(= 作ったテンプレが行方不明になる)。
+     * 基準日を持たないテンプレート(作成タブの生成物)は出さない。生成直後の作業中のものは
+     * 作成タブの「作成中のテンプレートを開く」(`CreatableInfo.inProgressId`)から開ける。
      *
      * 未承認の内容を扱ってはいけない画面(比較タブ・結合 PDF)は**呼び出し側**で
-     * `status === 'published'` に絞る。一覧側で落とすと上記の到達不能が再発する。
+     * `status === 'published'` に絞る。一覧側で落とすと、承認前の `pending/` へ編集タブから戻れなくなる。
      */
     async listTemplates(q) {
       return (await scanEditableMetas(true))

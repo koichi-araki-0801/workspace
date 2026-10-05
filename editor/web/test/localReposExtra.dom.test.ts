@@ -261,6 +261,30 @@ describe('localHistoryRepo pdf/create history', () => {
 });
 
 describe('localTemplateRepo dropdowns / generate / drafts', () => {
+  it('基準日なし(作成タブの生成物・承認済みテンプレート)は一覧と候補に出ない', async () => {
+    const approved = await approveSkeleton('510037', '交付版', '<p>{{ fund.name }}</p>');
+    const gen = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '全体版',
+    });
+    if (!isOk(gen)) throw new Error('generate に失敗');
+    const list = await localTemplateRepo.listTemplates({});
+    if (!isOk(list)) throw new Error('listTemplates に失敗');
+    const ids = list.value.map((m) => m.id);
+    expect(ids).not.toContain(approved);
+    expect(ids).not.toContain(gen.value.template.meta.id);
+    expect(list.value.every((m) => m.attributes.baseDate !== undefined)).toBe(true);
+    for (const scope of ['edit', 'published'] as const) {
+      const opts = await localTemplateRepo.getDropdownOptions(
+        { companyCode: 'AM01', fundCode: '510155' },
+        scope,
+      );
+      if (!isOk(opts)) throw new Error('getDropdownOptions に失敗');
+      expect(opts.value.editionTypes).not.toContain('全体版');
+    }
+  });
+
   it('listCompanies / listFunds / getCreatableInfo は fixtures から作る', async () => {
     const companies = await localTemplateRepo.listCompanies();
     expect(isOk(companies) && companies.value[0]).toMatchObject({
@@ -350,18 +374,20 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
   // 各候補は「自分より上位の選択」だけで絞る。版種を選んでも候補がその版種 1 件へ潰れず、
   // 同一会社・ファンド・基準日の別版種(例: 全体版)へ選び直せること(再選択不能バグの回帰)。
   it('getDropdownOptions(published) は未承認(draft)を候補に含めない', async () => {
-    await localAuthRepo.login({ username: 'admin', password: 'admin' });
-    const r = await localTemplateRepo.generate({
-      companyCode: 'ZZ99',
-      fundCode: '000000',
-      editionType: '交付版',
+    // 作成経路で Jinja だけ差し替えた値入り HTML の id は、値入り HTML を失って draft になる。
+    const saved = await confirmSaveLocal({
+      templateId: ID,
+      html: '<p>{{ fund.name }}</p>',
+      css: '',
+      fundCode: FUND,
+      origin: 'create',
     });
-    if (!isOk(r)) throw new Error('generate に失敗');
-    const edit = await localTemplateRepo.getDropdownOptions({}, 'edit');
-    const pub = await localTemplateRepo.getDropdownOptions({}, 'published');
-    expect(isOk(edit) && edit.value.companyCodes).toContain('ZZ99');
-    expect(isOk(pub) && pub.value.companyCodes).not.toContain('ZZ99');
-    expect(isOk(edit) && edit.value.baseDates.every((d) => d !== '')).toBe(true);
+    expect(isOk(saved)).toBe(true);
+    const q = { companyCode: 'AM01', fundCode: FUND, baseDate: '20240710' };
+    const edit = await localTemplateRepo.getDropdownOptions(q, 'edit');
+    const pub = await localTemplateRepo.getDropdownOptions(q, 'published');
+    expect(isOk(edit) && edit.value.editionTypes).toContain('交付版');
+    expect(isOk(pub) && pub.value.editionTypes).not.toContain('交付版');
   });
 
   it('listTemplates の絞り込みは大文字小文字を区別しない', async () => {

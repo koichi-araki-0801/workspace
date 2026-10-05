@@ -160,6 +160,9 @@ function confirmedSkeleton(
   );
 }
 
+/** 編集タブ・比較・結合が扱うのは値入り HTML(基準日あり)だけ。テンプレートは作成タブで開く。 */
+const filledMetas = () => allMetas().filter((m) => m.attributes.baseDate !== undefined);
+
 /** 作業中か(同じ id の下書きか、承認前の生成物)。server の「下書きか pending/ がある」と同じ規則。 */
 function inProgress(templateId: string): boolean {
   if (read<Record<string, TemplateDraft>>(K.drafts, {})[templateId]) return true;
@@ -265,7 +268,7 @@ export const localTemplateRepo: TemplateRepository = {
   getDropdownOptions: (query: DropdownQuery, scope: DropdownScope) =>
     attempt(() => {
       // 比較・結合(published)は承認済みだけを扱う画面なので、候補も承認済みから作る。
-      const metas = allMetas().filter((m) => scope !== 'published' || m.status === 'published');
+      const metas = filledMetas().filter((m) => scope !== 'published' || m.status === 'published');
       // 各候補は「自分より上位の選択」だけで絞る(自分自身・下位は含めない)。そうしないと
       // 最下位の版種を選んだ後にその版種だけへ候補が潰れ、別の版種(例: 全体版)へ戻せない。
       const matchesUpper = (m: TemplateMeta, fields: (keyof TemplateAttributes)[]): boolean =>
@@ -292,7 +295,7 @@ export const localTemplateRepo: TemplateRepository = {
     }),
 
   listTemplates: (query: DropdownQuery) =>
-    attempt(() => delay(allMetas().filter((m) => metaMatches(m, query)))),
+    attempt(() => delay(filledMetas().filter((m) => metaMatches(m, query)))),
 
   getTemplate: (id: string) =>
     attempt(() => {
