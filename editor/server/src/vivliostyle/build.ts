@@ -245,6 +245,7 @@ interface BuildProjectInput {
   /** config が無い場合に使う相対エントリファイル。 */
   entry?: string;
   size?: string;
+  /** config が無いときだけ CLI へ渡す(config があるときは無視する)。 */
   singleDoc?: boolean;
 }
 
@@ -275,7 +276,9 @@ export async function buildProjectInSlot(
       ...entry,
       output: [{ path: pdfPath, format: 'pdf' }],
       ...(input.size ? { size: input.size } : {}),
-      ...(input.singleDoc ? { singleDoc: true } : {}),
+      // config があるときは `singleDoc` を渡さない(inline と同じ理由で、configData と併用すると
+      // 組版が XML パースエラーの 1 ページに壊れる)。効くのは config の無い zip だけ。
+      ...(input.singleDoc && !input.config ? { singleDoc: true } : {}),
       ...scope.options,
     });
 

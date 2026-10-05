@@ -255,6 +255,26 @@ describe('vivliostyle build/preview の HTTP 契約', () => {
     expect(res.json()).toMatchObject({ mode: 'project' });
   });
 
+  it('POST /preview(zip): config があれば singleDoc を起動へ渡さず、無ければ渡す', async () => {
+    const { previewManager } = await import('../src/vivliostyle/previewServer.js');
+    const start = vi.mocked(previewManager.start);
+    const z = new JSZip();
+    z.file('index.html', '<p>x</p>');
+    z.file('vivliostyle.config.json', '{"entry":"index.html"}');
+    const withConfig = await z.generateAsync({ type: 'nodebuffer' });
+    const post = (payload: Buffer) =>
+      app.inject({
+        method: 'POST',
+        url: '/preview?singleDoc=true',
+        headers: { 'content-type': 'application/zip' },
+        payload,
+      });
+    expect((await post(withConfig)).statusCode).toBe(201);
+    expect(start.mock.calls.at(-1)?.[0]).not.toHaveProperty('singleDoc', true);
+    expect((await post(zip)).statusCode).toBe(201);
+    expect(start.mock.calls.at(-1)?.[0]).toHaveProperty('singleDoc', true);
+  });
+
   // `/build/project` の `?entry=` 封じ込めは `vivliostyleRoutes.entry.test.ts` が見るが、
   // preview 起動(zip)は別ハンドラで同じ `projectOptions()` を呼ぶ独立した経路であり
   // (`vivliostyle.routes.ts:196-204`)、そちらでは未検証だった。ここは SSRF/path traversal の

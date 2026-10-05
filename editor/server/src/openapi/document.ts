@@ -705,7 +705,8 @@ export function buildOpenApiDocument() {
           summary: 'vivliostyle プロジェクト(zip)から PDF を生成',
           operationId: 'buildProject',
           description:
-            `${PROJECT_ZIP_CONTRACT}任意クエリ: \`entry\`, \`size\`, \`singleDoc\`。` +
+            `${PROJECT_ZIP_CONTRACT}任意クエリ: \`entry\`, \`size\`, \`singleDoc\`` +
+            '(`singleDoc` は zip に config が無いときだけ効き、config があるときは無視する)。' +
             EXTERNAL_REF_CONTRACT_ZIP,
           requestBody: {
             content: { 'application/zip': { schema: PdfBinary } },
@@ -759,7 +760,8 @@ export function buildOpenApiDocument() {
           description:
             'inline は `application/json` (BuildInlineRequest)、project は `application/zip`。' +
             '返却 `url` (`/api/preview/{id}/`) を同一オリジンで開くと vivliostyle ビューアが表示される。' +
-            '\n\nzip 経路の受入条件は `POST /build/project` と**同一**である(同じ展開・検証を通る):' +
+            '\n\nzip 経路の受入条件と任意クエリ(`entry` `size` `singleDoc`)は `POST /build/project` と' +
+            '**同一**である(同じ展開・検証を通る):' +
             '\n\n' +
             PROJECT_ZIP_CONTRACT,
           responses: {

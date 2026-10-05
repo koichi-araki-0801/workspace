@@ -168,6 +168,38 @@ describe('buildInlinePdf — 作業フォルダの形', () => {
   });
 });
 
+describe('buildProjectInSlot — zip の PDF の singleDoc', () => {
+  /** `withBuildSlot` から 1 回組版し、CLI へ渡った build オプションを返す。 */
+  const runProject = async (input: {
+    config?: { entry: string; base: string };
+    entry?: string;
+    singleDoc?: boolean;
+  }): Promise<Record<string, unknown>> => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doclayout-project-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'index.html'), HTML);
+      await build.withBuildSlot((run) => build.buildProjectInSlot({ dir, ...input }, run));
+      return runs[runs.length - 1].options;
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it('config があれば singleDoc を CLI へ渡さない(configData と併用すると組版が壊れる)', async () => {
+    const options = await runProject({
+      config: { entry: 'index.html', base: '/vivliostyle' },
+      singleDoc: true,
+    });
+    expect(options).toHaveProperty('configData');
+    expect(options).not.toHaveProperty('singleDoc');
+  });
+
+  it('config が無くエントリで組むときは singleDoc を CLI へ渡す', async () => {
+    const options = await runProject({ entry: 'index.html', singleDoc: true });
+    expect(options).toMatchObject({ input: 'index.html', singleDoc: true });
+  });
+});
+
 describe('prepareInlineDoc — プレビューの作業フォルダ', () => {
   it('config のエントリは doc/index.html で、資産は兄弟に置く', async () => {
     const { dir, config } = await build.prepareInlineDoc({ html: HTML, size: 'A5' });

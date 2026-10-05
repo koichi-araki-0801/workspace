@@ -209,7 +209,8 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
             cwd: project.dir,
             input: opts.entry,
             size: opts.size,
-            singleDoc: opts.singleDoc,
+            // config があるときは singleDoc を渡さない(理由は build.ts の `buildProjectInSlot`)。
+            ...(project.config ? {} : { singleDoc: opts.singleDoc }),
             workDir: project.dir,
             docBase: project.docBase,
           },
