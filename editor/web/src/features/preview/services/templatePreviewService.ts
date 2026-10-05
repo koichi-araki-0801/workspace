@@ -39,6 +39,12 @@ interface PreviewLoad {
   /** Jinja を復元した HTML(draft があれば適用済み)。save と PDF で使う。 */
   restoredHtml: string;
   css: string;
+  /**
+   * 確定版の CSS を `css` と同じ書き出し・整形にしたもの(申請の `cssBaseline`)。承認時の
+   * ペア同期は、これと `css` の差を変わった規則として見る。下書きがあって編集画面が測って
+   * いなければ null。
+   */
+  cssBaseline: string | null;
   /** プレビュー iframe 用の自己完結 HTML ドキュメント。 */
   previewDoc: string;
   /** ユーザー向けレンダリングエラー。正常にレンダリングできた場合は null。 */
@@ -56,7 +62,14 @@ interface PreviewLoad {
 }
 
 interface TemplatePreviewService {
-  loadForPreview(id: string): Promise<Result<PreviewLoad>>;
+  /**
+   * `editorCssBaseline` は編集画面が測った確定版の CSS の形(`stores/editorSession.ts` の
+   * `cssBaselineOf`)。下書きから申請するときの `cssBaseline` の素になる。
+   */
+  loadForPreview(
+    id: string,
+    opts?: { editorCssBaseline?: string | null },
+  ): Promise<Result<PreviewLoad>>;
   /**
    * テンプレートをサーバー経由で PDF blob にレンダリングする。`cropMarks` が true のとき
    * トンボ用 CSS(`CROP_MARKS_CSS`)を css へ連結する(プレビュー表示と同じ見た目にする)。
@@ -80,7 +93,7 @@ export function createTemplatePreviewService(
   owner: DraftOwner = draftOwner,
 ): TemplatePreviewService {
   return {
-    async loadForPreview(id) {
+    async loadForPreview(id, opts = {}) {
       const tplRes = await templates.getTemplate(id);
       if (isErr(tplRes)) return tplRes;
       const tpl = tplRes.value;
@@ -158,11 +171,17 @@ export function createTemplatePreviewService(
           previewDoc = assemblePreviewDocument(rendered.html, css);
         }
       }
+      // 申請の `cssBaseline`。`css` と同じ書き出し・同じ整形の「確定版の CSS」にする。下書きが
+      // 無ければ `css` 自体が確定版。下書きがあれば編集画面が測った形を同じ整形に通す。測れて
+      // いなければ null(申請に載せず、承認はペアへの CSS の転写だけを飛ばす)。
+      const editorBaseline = opts.editorCssBaseline ?? null;
+      const cssBaseline = !draft ? css : editorBaseline !== null ? formatCss(editorBaseline) : null;
       return ok({
         template: tpl,
         sample,
         restoredHtml,
         css,
+        cssBaseline,
         previewDoc,
         renderError,
         hasDraft: !!draft,

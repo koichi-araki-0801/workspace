@@ -103,6 +103,7 @@ export const localReviewRepo: ReviewRepository = {
         html: req.html,
         css: req.css,
         ...(req.filledHtml !== undefined ? { filledHtml: req.filledHtml } : {}),
+        ...(req.cssBaseline !== undefined ? { cssBaseline: req.cssBaseline } : {}),
         ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
       };
       const reviews = readReviews();

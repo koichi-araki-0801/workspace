@@ -27,9 +27,9 @@ import {
 import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
-import { shouldMeasureCanonical } from './confirmedCanonicalGate';
 import { fundCodeOfTemplateId } from './fundImages';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
+import { openCanvas } from './openCanvas';
 import { canvasRawKey, pageEls, partEls, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
 import { useTemplateEditorService } from './services/templateEditorService';
@@ -473,39 +473,30 @@ export function useTemplateEditor(
     g.setSinglePageMode(sess.ui.singlePageMode);
     const isCreateRoute = route.query.created === '1';
     const tplUpdatedAt = res.value.template.meta.updatedAt;
-    // 確定版の quiet load 失敗を覚えておく(下の 2 箇所の正規形測定を両方とも止めるため)。
-    let confirmedLoadFailed = false;
-    if (!isCreateRoute) {
-      confirmedCanonical = readConfirmedCanonical(id, tplUpdatedAt);
-      // キャッシュが無く draft から開くときだけ、確定版を先に読み込んで正規形を測る。
-      if (!confirmedCanonical && res.value.hasDraft) {
-        if (g.load(res.value.confirmedBody, res.value.template.css, { quiet: true })) {
-          confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
-          writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
-        } else {
-          // false になるのは確定版側の CSS に外部参照が残っているときだけ(draft の CSS は
-          // 下の本読み込みが通す入口ガードを既に通過済み)。確定版が古くて汚れているだけで
-          // draft 自体は正当なので、ここで編集を止めない。ただし正規形は作らない —
-          // この時点の canvas は確定版の内容ではなく(quiet load が拒否されて素通りしていない)
-          // 直前の状態のままで、これを正規形として測って直後に draft を読み込むと
-          // 「draft 自身から作った正規形」と一致してしまい、`settleIfClean` が「変更なし」と
-          // 誤認して正当な draft を自動で消す(過去の回帰実績)。confirmedCanonical は null の
-          // まま進め、⑥ の同一判定は効かせない。dirty は上で立てた `hasDraft` に従う
-          // 従来どおりの挙動へ落ちる。
-          confirmedLoadFailed = true;
-        }
-      }
-    }
+    // 本文の読み込みと、確定版の正規形・CSS の baseline の測定(下書きから開くときは確定版を
+    // 先に quiet load する)。順序と測る時点の理由は `openCanvas.ts` を見よ。
+    const opened = openCanvas(g, {
+      isCreateRoute,
+      hasDraft: res.value.hasDraft,
+      confirmedBody: res.value.confirmedBody,
+      confirmedCss: res.value.template.css,
+      editableBody: res.value.editableBody,
+      css: res.value.css,
+      cachedCanonical: isCreateRoute ? null : readConfirmedCanonical(id, tplUpdatedAt),
+    });
     // service の入口ガードを通っていれば false にはならないが、拒否された場合は空の
     // エディタ枠を残さず一覧へ戻す(不正 id と同じ後始末)。トーストは load が出している。
-    if (!g.load(res.value.editableBody, res.value.css)) {
+    if (!opened.loaded) {
       router.replace({ name: 'edit' });
       return;
     }
-    if (shouldMeasureCanonical(isCreateRoute, !!confirmedCanonical, confirmedLoadFailed)) {
-      confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
+    confirmedCanonical = opened.canonical;
+    if (opened.measuredCanonical && confirmedCanonical)
       writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
-    }
+    // 申請(プレビュー画面)へ渡す。プレビュー往復では編集セッションと同じく残る。
+    sessionStore.setCssBaseline(id, opened.cssBaseline);
+    // 確定版の quiet load 失敗時は、確定版との同一判定(`scheduleCleanCheck`)を起動しない。
+    const confirmedLoadFailed = opened.loadFailed;
     // ページ送りの復元は `load` の再レイアウト後(rAF)に行う — 直後は `.page` 列挙がまだ
     // 確定しておらず `goToPage` の clamp がページ総数 1 として効いてしまう。
     requestAnimationFrame(() => {

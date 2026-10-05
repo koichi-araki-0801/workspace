@@ -147,6 +147,23 @@ function writeUndoMap(map: UndoMap): boolean {
  */
 export const useEditorSessionStore = defineStore('editorSession', () => {
   const sessions = reactive<Record<string, EditSession>>({});
+  /**
+   * 確定版の CSS を編集画面が読み込んだ直後の `getCss()`(`openCanvas.ts`)。申請に載せる
+   * (プレビュー画面が読む)。セッションの形(`EditSession`)とは別に持ち、永続しない —
+   * 編集画面を開くたびに測り直す。
+   */
+  const cssBaselines = new Map<string, string>();
+
+  /** CSS の baseline を記録する。測れなかったとき(null)は前の値を消す。 */
+  function setCssBaseline(templateId: string, css: string | null): void {
+    if (css === null) cssBaselines.delete(templateId);
+    else cssBaselines.set(templateId, css);
+  }
+
+  /** CSS の baseline。編集画面を経ていない・測れなかったときは null。 */
+  function cssBaselineOf(templateId: string): string | null {
+    return cssBaselines.get(templateId) ?? null;
+  }
 
   /** 編集セッションを取得する。無ければ Undo 永続ミラーから hydrate して生成する。 */
   function ensure(templateId: string): EditSession {
@@ -231,6 +248,7 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
   /** 編集セッションを破棄する(メニュー復帰での破棄 / 確定保存後)。永続ミラーも消す。 */
   function clear(templateId: string): void {
     delete sessions[templateId];
+    cssBaselines.delete(templateId);
     const map = readUndoMap();
     if (templateId in map) {
       delete map[templateId];
@@ -243,5 +261,14 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
     }
   }
 
-  return { sessions, ensure, persist, persistUi, reset, clear };
+  return {
+    sessions,
+    ensure,
+    persist,
+    persistUi,
+    reset,
+    clear,
+    setCssBaseline,
+    cssBaselineOf,
+  };
 });

@@ -40,6 +40,8 @@ const template = ref<Template | null>(null);
 const sample = ref<SampleData>({});
 const restoredHtml = ref('');
 const css = ref('');
+// 申請に載せる CSS の baseline(`templatePreviewService` の `cssBaseline`)。null なら載せない。
+const cssBaseline = ref<string | null>(null);
 const previewDoc = ref('');
 const renderError = ref<string | null>(null);
 // 自動保存された draft の有無。上部バーの「変更なし」バッジにだけ使う。
@@ -88,7 +90,11 @@ const assetWarnings = computed(() =>
 );
 
 onMounted(async () => {
-  const res = await runLoad(() => preview.loadForPreview(props.id));
+  const res = await runLoad(() =>
+    preview.loadForPreview(props.id, {
+      editorCssBaseline: sessionStore.cssBaselineOf(props.id),
+    }),
+  );
   if (isErr(res)) {
     // runLoad が cause をログ + トースト済み。加えて本文に常設エラーを出して無音化を防ぐ。
     loadFailed.value = true;
@@ -99,6 +105,7 @@ onMounted(async () => {
   sample.value = v.sample;
   restoredHtml.value = v.restoredHtml;
   css.value = v.css;
+  cssBaseline.value = v.cssBaseline;
   previewDoc.value = v.previewDoc;
   renderError.value = v.renderError;
   hasDraft.value = v.hasDraft;
@@ -136,6 +143,7 @@ async function submitForReview() {
       css: css.value,
       // レンダリング済みドキュメントを、申請の記入済みレポートインスタンスとして保持する。
       filledHtml: previewDoc.value,
+      ...(cssBaseline.value !== null ? { cssBaseline: cssBaseline.value } : {}),
       origin: origin.value,
       ...(changedSummary ? { changedSummary } : {}),
     }),

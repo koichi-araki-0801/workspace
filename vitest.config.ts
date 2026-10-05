@@ -173,6 +173,8 @@ export default defineConfig({
         // 確定版正規形を測ってよいかの純判定。quiet load 失敗時に draft 自身から正規形を
         // 作ってしまうと自動 discard を招く回帰(実績あり)の再発防止網。
         'editor/web/src/features/editor/confirmedCanonicalGate.ts',
+        // 編集画面を開くときの読み込み順と、確定版の正規形・CSS の baseline を測る時点。
+        'editor/web/src/features/editor/openCanvas.ts',
         'editor/web/src/features/editor/pageView.ts',
         // 編集画面のファンド別画像。属性を書き換えず CSS で差す設計の純粋部分と GrapesJS 配線。
         'editor/web/src/features/editor/fundImages.ts',

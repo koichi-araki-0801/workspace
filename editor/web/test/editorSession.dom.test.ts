@@ -69,6 +69,19 @@ describe('useEditorSessionStore', () => {
     });
   });
 
+  it('CSS の baseline はテンプレごとに持ち、clear() で消える(プレビュー往復では残る)', () => {
+    const store = useEditorSessionStore();
+    expect(store.cssBaselineOf('t1')).toBeNull();
+    store.setCssBaseline('t1', '.a{color:rgb(0, 0, 0);}');
+    store.setCssBaseline('t2', '.b{}');
+    expect(store.cssBaselineOf('t1')).toBe('.a{color:rgb(0, 0, 0);}');
+    // 測れなかったとき(null)は前の値を残さない。
+    store.setCssBaseline('t2', null);
+    expect(store.cssBaselineOf('t2')).toBeNull();
+    store.clear('t1');
+    expect(store.cssBaselineOf('t1')).toBeNull();
+  });
+
   it('clear() on an unknown templateId is a no-op', () => {
     const store = useEditorSessionStore();
     expect(() => store.clear('missing')).not.toThrow();

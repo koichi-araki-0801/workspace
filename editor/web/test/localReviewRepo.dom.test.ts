@@ -80,6 +80,24 @@ describe('localReviewRepo の拒否と既定値', () => {
     expect(isOk(r) && r.value.submittedBy).toBe('不明');
   });
 
+  it('cssBaseline は申請本体として保存し、メタ(申請の戻り値)には載せない', async () => {
+    const target = await firstTemplate();
+    expect(target).not.toBeNull();
+    if (!target) return;
+    const sub = await localReviewRepo.submitReview({
+      templateId: target.id,
+      origin: 'edit',
+      html: '<p>x</p>',
+      css: '.a{}',
+      cssBaseline: '.a{color:red;}',
+    });
+    expect(isOk(sub)).toBe(true);
+    if (!isOk(sub)) return;
+    expect(sub.value).not.toHaveProperty('cssBaseline');
+    const stored = await localReviewRepo.getReview(sub.value.id);
+    expect(isOk(stored) && stored.value.cssBaseline).toBe('.a{color:red;}');
+  });
+
   it('現行版の取得に失敗した申請は baseHash が null(申請自体は妨げない)', async () => {
     const target = await firstTemplate();
     expect(target).not.toBeNull();

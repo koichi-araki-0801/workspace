@@ -163,6 +163,37 @@ describe('TemplatePreviewService.loadForPreview', () => {
     }
   });
 
+  it('下書きが無ければ cssBaseline は申請する css と同じ(CSS は変わっていない)', async () => {
+    const templates = {
+      getTemplate: vi.fn(async () => ok(tpl)),
+      getSampleData: vi.fn(async () => ok({})),
+      getDraft: vi.fn(async () => ok(null)),
+    } as unknown as TemplateRepository;
+    const svc = createTemplatePreviewService(templates, history);
+    const res = await svc.loadForPreview('t1', { editorCssBaseline: '.ignored{}' });
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.cssBaseline).toBe(res.value.css);
+  });
+
+  it('下書きがあれば、編集画面が測った baseline を css と同じ整形で返す', async () => {
+    const svc = createTemplatePreviewService(draftRepos('<p>d</p>'), history, ownerOf(true));
+    const res = await svc.loadForPreview('t1', { editorCssBaseline: '.from-file{}' });
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.cssBaseline).toContain('.from-file');
+      // css と同じ整形(`formatCss`)を通す。下書きの CSS が確定版と同じなら文字列も一致する。
+      const same = await svc.loadForPreview('t1', { editorCssBaseline: '.from-draft{}' });
+      if (isOk(same)) expect(same.value.cssBaseline).toBe(same.value.css);
+    }
+  });
+
+  it('下書きがあって編集画面の baseline が無ければ cssBaseline は null', async () => {
+    const svc = createTemplatePreviewService(draftRepos('<p>d</p>'), history, ownerOf(true));
+    const res = await svc.loadForPreview('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.cssBaseline).toBeNull();
+  });
+
   it('getSampleData / getDraft の失敗は loadForPreview の結果として返る', async () => {
     const templatesA = {
       getTemplate: vi.fn(async () => ok(tpl)),
