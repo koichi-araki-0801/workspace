@@ -689,6 +689,26 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
     expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
   });
 
+  it('原文の空の規則に宣言を足した編集は、ペア側の最後の空の出現を置き換える', () => {
+    const raw = '.a{}\n.b{y:1}';
+    const r = mergeCssRuleChangesFromBaseline(raw, '.b{y:1;}', '.b{y:1;}.a{color:red;}', raw);
+    expect(r).toEqual({ css: '.a{color:red;}\n.b{y:1}', applied: [k('.a')], conflicts: [] });
+    const dup = '.a{}\n.a{ }\n.b{y:1}';
+    expect(
+      mergeCssRuleChangesFromBaseline(dup, '.b{y:1;}', '.b{y:1;}.a{color:red;}', dup).css,
+    ).toBe('.a{}\n.a{color:red;}\n.b{y:1}');
+  });
+
+  it('ペア側の空の規則が原文と違う形(原文に無い・数が違う)なら、宣言の追加は競合にする', () => {
+    for (const [raw, target] of [
+      ['.b{y:1}', '.a{}\n.b{y:1}'],
+      ['.a{}\n.b{y:1}', '.a{}\n.a{}\n.b{y:1}'],
+    ]) {
+      const r = mergeCssRuleChangesFromBaseline(raw, '.b{y:1;}', '.b{y:1;}.a{color:red;}', target);
+      expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+    }
+  });
+
   it('宣言が空や無効の重複は対応づけから外し、前からそろえて当てる', () => {
     for (const empty of ['.a{}', '.a{garbage}', '.a{ ; }']) {
       const raw = `${empty}\n.b{color:green}\n.a{color:red}\n`;

@@ -468,10 +468,12 @@ function anchorFor(
  *   `ref` に無い規則は target にも無いことを求める。
  * - 当てるときは `from` と next の出現を前から対応させ、変わった出現だけを target の同じ番目の
  *   出現へ書き、next に無い末尾の出現を消す。`ref` と `from` の出現数が違う・next の出現が
- *   `from` より多いときは対応が取れないので競合にする。空の出現は原文のまま残す。
+ *   `from` より多いときは対応が取れないので競合にする。空の出現は原文のまま残す(規則ごと削除する
+ *   とき = next に無いキーは、空の出現も含めて全部消す)。
  * - 変わっていない規則には触らない。target が既に next と同じ形なら何もしない。
  * - 追加(target に無い規則を当てる)は、next で同じ入れ子の中にある直前の規則の後ろへ入れる。
- *   その規則が target に無ければ、外側の入れ子 at-rule で包んで末尾へ入れる。
+ *   その規則が target に無ければ、外側の入れ子 at-rule で包んで末尾へ入れる。target に原文と同じ
+ *   空の規則だけがあるときは、最後の空の出現を置き換える。
  */
 function mergeRuleChanges(
   from: MergeRule[],
@@ -545,7 +547,17 @@ function mergeRuleChanges(
     if (fromKeys.has(nr.key) && !inserts.has(nr.key)) continue;
     const tr = tMap.get(nr.key);
     if (tr !== undefined) {
-      if (!sameOccurrences(occurrencesOf(tr), occurrencesOf(nr))) conflicts.push(nr.key);
+      if (sameOccurrences(occurrencesOf(tr), occurrencesOf(nr))) continue;
+      // 原文の空の規則(`getCss` に出ないので baseline に無い)に宣言を足した編集。ペア側も原文と
+      // 同じ空の形なら、最後の空の出現を next の出現で置き換える(前の空の出現は残す)。
+      if (untouched(nr.key, tr) && tr.parts.every(isEmptyOccurrence)) {
+        const last = tr.parts[tr.parts.length - 1];
+        const text = occurrencesOf(nr)
+          .map((p) => p.text)
+          .join('\n');
+        edits.push({ start: last.start, end: last.end, text });
+        applied.push(nr.key);
+      } else conflicts.push(nr.key);
       continue;
     }
     if (!inserts.has(nr.key) && !untouched(nr.key, tr)) {
