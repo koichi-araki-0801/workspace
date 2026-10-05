@@ -36,7 +36,7 @@ import {
 import {
   filledExists,
   readFilledHtml,
-  readFundCss,
+  readTemplateCss,
   readTemplateHtml,
 } from '../files/templateFiles.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
@@ -86,16 +86,12 @@ async function assertFilledPresentForEdit(origin: 'edit' | 'create', templateId:
 }
 
 /** 申請時点の現行版(現在のディスク本体)のコンテンツキー。承認時の並行性警告に使う。 */
-async function currentBaseHash(
-  templateId: string,
-  fundCode: string,
-  target: ConfirmedTarget,
-): Promise<string> {
+async function currentBaseHash(templateId: string, target: ConfirmedTarget): Promise<string> {
   const attrs = parseAnyTemplateFileName(`${templateId}.html`);
   const fileName = attrs ? anyTemplateFileName(attrs) : `${templateId}.html`;
   const [html, css] = await Promise.all([
     target === 'filled' ? readFilledHtml(fileName) : readTemplateHtml(fileName),
-    readFundCss(fundCode),
+    readTemplateCss(templateId),
   ]);
   return createHash('sha1').update(html).update('\x00').update(css).digest('hex');
 }
@@ -119,8 +115,8 @@ function assertUndecided(review: ReviewRequest): void {
  * EPERM/EBUSY 等)は短い backoff で再試行し、それでも駄目なら手動復旧の手順を載せた明示エラー
  * にする。順序を逆(メタ先行)にするとクラッシュ時に「approved なのに未反映」というサイレント
  * 欠落になるため現行順(反映→メタ)を維持する。なお「現行版 hash が申請内容の hash と一致すれば
- * 既反映としてスキップ」する冪等検知は、`applyConfirmedSave` の CSS がファンド CSS へのマージ
- * で `review.css` と結果が一致せず判定不成立のため不採用。
+ * 既反映としてスキップ」する冪等検知は、別の基準日の承認が同じテンプレの CSS を書き換えうるため
+ * 判定が成り立たず不採用。
  */
 async function finalizeApprovedMeta(
   reqId: string,
@@ -186,14 +182,6 @@ export function createReviewRepo({
           `編集タブの申請は値入り HTML(会社_ファンド_基準日_版種)の id だけを受けます: ${req.templateId}`,
         );
       }
-      // 帰属検査は承認側(`applyConfirmedWrite`)と同条件で入口にも置く。CSS はファンド単位の
-      // 共有ファイルなので不一致を通すと「承認できない申請」がキューに積まれるだけで、
-      // 申請時に取る現行版ハッシュ(`baseHash`)も別ファンドの CSS を混ぜた値になる。
-      if (attrs.fundCode !== req.fundCode) {
-        throw validation(
-          `ファンドコードがテンプレート id と一致しません: ${req.fundCode} (id=${req.templateId})`,
-        );
-      }
       await assertFilledPresentForEdit(req.origin, req.templateId);
       // 実行コード面は生成時に確定し、以後どの経路でも変えられない。最後の関所は承認側の
       // `applyConfirmedWrite` だが、申請の入口でも同じ照合を掛ける — 通してしまうと精査者の
@@ -217,7 +205,6 @@ export function createReviewRepo({
         id: randomUUID(),
         templateId: req.templateId,
         attributes: attrs,
-        fundCode: req.fundCode,
         origin: req.origin,
         status: 'pending',
         submittedBy: actor.username,
@@ -225,7 +212,7 @@ export function createReviewRepo({
         reviewedBy: null,
         reviewedAt: null,
         comment: null,
-        baseHash: await currentBaseHash(req.templateId, req.fundCode, target),
+        baseHash: await currentBaseHash(req.templateId, target),
         ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
         html: req.html,
         css: req.css,
@@ -275,7 +262,7 @@ export function createReviewRepo({
         const target = targetOfOrigin(review.origin);
         const staleWarning =
           review.baseHash !== null &&
-          review.baseHash !== (await currentBaseHash(review.templateId, review.fundCode, target));
+          review.baseHash !== (await currentBaseHash(review.templateId, target));
 
         // git コミットに申請者・承認者の双方を残す(承認者を author、申請者を Co-Authored-By)。
         const commitMessage =
@@ -286,7 +273,6 @@ export function createReviewRepo({
           target,
           html: review.html,
           css: review.css,
-          fundCode: review.fundCode,
           commitMessage,
           author: actor.username,
         });

@@ -40,9 +40,10 @@ import {
   listFilledFiles,
   listTemplateFiles,
   readFilledHtml,
-  readFundCss,
+  readTemplateCss,
   readTemplateHtml,
   templateAttrKeys,
+  templateCssExists,
   templateExists,
 } from '../files/templateFiles.js';
 import { applyConfirmedWrite, type ConfirmedTarget } from './confirmedWrite.js';
@@ -264,13 +265,13 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
       if (isFilled && (await filledExists(fileName))) {
         const html = await readFilledHtml(fileName);
-        const css = await readFundCss(meta.attributes.fundCode);
-        return { meta, html, css, filled: html };
+        const [css, cssFound] = await Promise.all([readTemplateCss(id), templateCssExists(id)]);
+        return { meta, html, css, filled: html, ...(cssFound ? {} : { cssMissing: true }) };
       }
       if (!isFilled && (await templateExists(fileName))) {
         const html = await readTemplateHtml(fileName);
-        const css = await readFundCss(meta.attributes.fundCode);
-        return { meta, html, css, filled: '' };
+        const [css, cssFound] = await Promise.all([readTemplateCss(id), templateCssExists(id)]);
+        return { meta, html, css, filled: '', ...(cssFound ? {} : { cssMissing: true }) };
       }
       const pending = await readPending(id);
       if (!pending) throw notFound(`テンプレートが見つかりません: ${id}`);
@@ -317,7 +318,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
 /**
  * 確定内容を実ファイルへ反映する(承認ワークフロー専用の入口)。実体は
  * `confirmedWrite.applyConfirmedWrite` にあり、ここは呼び出し側
- * (`reviewRepo.approveReview`)の参照を保つための薄い委譲。名前検査・ファンド帰属検査・
+ * (`reviewRepo.approveReview`)の参照を保つための薄い委譲。名前検査・CSS の書き先の決定(id から)・
  * 実行コード不変性の照合・snapshot/restore・git コミット・監査はすべてチョークポイント側。
  *
  * sproc に依存しないため `createTemplateRepo` の中へは入れない — 入れると
@@ -328,7 +329,6 @@ export function applyConfirmedSave(req: {
   target: ConfirmedTarget;
   html: string;
   css: string;
-  fundCode: string;
   commitMessage: string;
   author: string;
 }): Promise<TemplateMeta> {

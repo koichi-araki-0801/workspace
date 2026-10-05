@@ -2910,10 +2910,6 @@
             "type": "string",
             "maxLength": 1048576
           },
-          "fundCode": {
-            "type": "string",
-            "minLength": 1
-          },
           "filledHtml": {
             "type": "string",
             "maxLength": 4194304
@@ -2931,7 +2927,6 @@
           "templateId",
           "html",
           "css",
-          "fundCode",
           "origin"
         ]
       },
@@ -3446,11 +3441,15 @@
           },
           "css": {
             "type": "string",
-            "description": "fundCode ごとの共有 CSS"
+            "description": "テンプレ単位の CSS(css/<会社>_<ファンド>_<版種>.css。基準日違いの文書で共有)"
           },
           "filled": {
             "type": "string",
             "description": "エディタキャンバス用に事前描画した filled HTML(Jinja 値を差し込みつつ元ソースを保持)。静的な fill が無ければ空で、エディタは都度描画にフォールバックする"
+          },
+          "cssMissing": {
+            "description": "確定版の CSS ファイル(css/<会社>_<ファンド>_<版種>.css)が見つからないとき true。あれば付けない。生成直後(pending)は対象外",
+            "type": "boolean"
           }
         },
         "required": [
@@ -3846,9 +3845,6 @@
           "attributes": {
             "$ref": "#/components/schemas/TemplateAttributes"
           },
-          "fundCode": {
-            "type": "string"
-          },
           "origin": {
             "$ref": "#/components/schemas/ReviewOrigin"
           },
@@ -3919,7 +3915,6 @@
           "id",
           "templateId",
           "attributes",
-          "fundCode",
           "origin",
           "status",
           "submittedBy",
@@ -3942,9 +3937,6 @@
           },
           "attributes": {
             "$ref": "#/components/schemas/TemplateAttributes"
-          },
-          "fundCode": {
-            "type": "string"
           },
           "origin": {
             "$ref": "#/components/schemas/ReviewOrigin"
@@ -4027,7 +4019,6 @@
           "id",
           "templateId",
           "attributes",
-          "fundCode",
           "origin",
           "status",
           "submittedBy",
@@ -4049,7 +4040,7 @@
           },
           "staleWarning": {
             "type": "boolean",
-            "description": "申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)"
+            "description": "申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意。CSS は基準日をまたいで共有されるため、他の基準日の承認による変更も含む)"
           },
           "sync": {
             "description": "ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落",

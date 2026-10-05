@@ -34,7 +34,6 @@ function review(origin: 'edit' | 'create'): ReviewRequest {
       baseDate: '20250101',
       editionType: '交付版',
     },
-    fundCode: '111111',
     origin,
     status: 'pending',
     submittedBy: 'editor1',

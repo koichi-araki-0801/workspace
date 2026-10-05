@@ -41,7 +41,7 @@ describe('templateRepo と filled/', () => {
     );
     fs.writeFileSync(path.join(tmp, 'templates', `${BOTH_ID}.html`), '<p>{{ y }}</p>', 'utf8');
     fs.writeFileSync(path.join(tmp, 'filled', `${BOTH_ID}.html`), '<p>値入り 110024</p>', 'utf8');
-    fs.writeFileSync(path.join(tmp, 'css', '510037.css'), '.a{}', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'css', 'AM01_510037_交付版.css'), '.a{}', 'utf8');
     // 会社コードの無い 3 つ区切り(ファンド_基準日_版種)。3 つ区切りはテンプレートの形なので
     // 会社=510037・ファンド=20240710 と読めてしまうが、値入り HTML ではない。
     fs.writeFileSync(path.join(tmp, 'filled', `${NO_COMPANY_ID}.html`), '<p>会社なし</p>', 'utf8');
@@ -122,6 +122,34 @@ describe('templateRepo と filled/', () => {
     expect(t.filled).toBe('<p>値入り 510037</p>');
     expect(t.css).toBe('.a{}');
     expect(t.meta.status).toBe('published');
+  });
+
+  it('全体版(テンプレ)は交付版の CSS を読まない(版種ごとに別の CSS)', async () => {
+    const t = await repo.getTemplate(JINJA_ONLY_ID);
+    expect(t.css).toBe('');
+  });
+
+  it('CSS ファイルが見つからなければ cssMissing=true、あれば付けない', async () => {
+    // FILLED_ID は css/AM01_510037_交付版.css がある。BOTH_ID(AM01_110024_…)は CSS が無い。
+    expect((await repo.getTemplate(FILLED_ID)).cssMissing).toBeUndefined();
+    expect((await repo.getTemplate(BOTH_ID)).cssMissing).toBe(true);
+    // テンプレート(3 つ区切り)の確定版も同じ。
+    expect((await repo.getTemplate(JINJA_ONLY_ID)).cssMissing).toBe(true);
+  });
+
+  it('中身が空の CSS ファイルは「ある」(cssMissing を付けない)', async () => {
+    fs.writeFileSync(path.join(tmp, 'css', 'AM01_510124_交付版.css'), '', 'utf8');
+    try {
+      const t = await repo.getTemplate(SKELETON_ID);
+      expect(t.css).toBe('');
+      expect(t.cssMissing).toBeUndefined();
+    } finally {
+      fs.rmSync(path.join(tmp, 'css', 'AM01_510124_交付版.css'));
+    }
+  });
+
+  it('pending(生成直後)は cssMissing の対象外で付けない', async () => {
+    expect((await repo.getTemplate(SKELETON_PENDING_ID)).cssMissing).toBeUndefined();
   });
 
   it('filled/ と templates/ の両方にあれば filled/ が勝つ', async () => {

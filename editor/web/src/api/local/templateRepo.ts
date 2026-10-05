@@ -6,6 +6,7 @@ import {
   type ConfirmSaveRequest,
   type CreateHistoryEntry,
   conflict,
+  cssFileNameOf,
   type DropdownQuery,
   type DropdownScope,
   type EditHistoryEntry,
@@ -14,6 +15,7 @@ import {
   isErr,
   notFound,
   pairedTemplateId,
+  parseAnyTemplateFileName,
   parseSkeletonFileName,
   type ReviewRequest,
   type SaveDraftRequest,
@@ -54,7 +56,15 @@ import {
 // 各ステップは単一の localStorage read+write。呼び出し元が 1 つの `tx()` 内で実行し、
 // 途中失敗時に全キーをロールバックする。
 
-/** 編集後の本文 + fund 単位の共有 CSS override を公開する。 */
+/** テンプレ単位の CSS(承認済み override → fixtures の順)。名前は server と同じく `cssFileNameOf`。 */
+function localCssOf(templateId: string): string {
+  const name = cssFileNameOf(templateId);
+  if (name === null) return '';
+  const cssOverride = read<Record<string, string>>(K.cssOverride, {});
+  return cssOverride[name] ?? fixtureCss[name] ?? '';
+}
+
+/** 編集後の本文 + テンプレ単位の CSS override を公開する。 */
 function putContentOverrides(req: ConfirmSaveRequest): void {
   // 編集タブの承認は値入り HTML を上書きする(server の filled/ と同じ契約)。Jinja は据え置く。
   // 作成タブの承認は Jinja テンプレそのものを上書きする。書き先が違うだけで手順は同じ。
@@ -63,9 +73,13 @@ function putContentOverrides(req: ConfirmSaveRequest): void {
   override[req.templateId] = req.html;
   write(key, override);
 
-  const cssOverride = read<Record<string, string>>(K.cssOverride, {});
-  cssOverride[req.fundCode] = req.css; // fund 単位の共有 CSS
-  write(K.cssOverride, cssOverride);
+  // CSS はテンプレ単位(基準日違いの文書で共有)。キーは CSS のファイル名。
+  const name = cssFileNameOf(req.templateId);
+  if (name !== null) {
+    const cssOverride = read<Record<string, string>>(K.cssOverride, {});
+    cssOverride[name] = req.css;
+    write(K.cssOverride, cssOverride);
+  }
 }
 
 /** 確定保存の編集者と時刻を記録する。`status` は書かない(値入り HTML の有無だけから
@@ -104,7 +118,7 @@ function freezeSnapshot(req: ConfirmSaveRequest, historyId: string, timestamp: s
     templateId: req.templateId,
     html: req.html,
     css: req.css,
-    fundCode: req.fundCode,
+    fundCode: parseAnyTemplateFileName(`${req.templateId}.html`)?.fundCode ?? '',
     timestamp,
   };
   write(K.snapshots, snapshots);
@@ -311,11 +325,8 @@ export const localTemplateRepo: TemplateRepository = {
       const meta = allMetas().find((m) => m.id === id);
       if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
       const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
-      const cssOverride = read<Record<string, string>>(K.cssOverride, {});
       const html = htmlOverride[id] ?? fixtureTemplates[meta.fileName] ?? '';
-      const css =
-        cssOverride[meta.attributes.fundCode] ?? fixtureCss[meta.attributes.fundCode] ?? '';
-      return delay({ meta, html, css, filled: resolveFilled(id, meta.fileName) });
+      return delay({ meta, html, css: localCssOf(id), filled: resolveFilled(id, meta.fileName) });
     }),
 
   generate: (req: GenerateRequest) =>
@@ -339,12 +350,14 @@ export const localTemplateRepo: TemplateRepository = {
         throw conflict('作成中のテンプレートがあります');
       }
       let baseHtml: string;
+      let css: string;
       if (req.sourceFundCode) {
         const source = confirmedSkeleton(req.companyCode, req.sourceFundCode, req.editionType);
         if (!source) throw validation(`コピー元のテンプレートがありません: ${req.sourceFundCode}`);
         const baseRes = await localTemplateRepo.getTemplate(source.id);
         if (isErr(baseRes)) throw baseRes.error;
         baseHtml = baseRes.value.html;
+        css = baseRes.value.css; // コピー元テンプレの CSS
       } else {
         baseHtml =
           fixtureTemplates[
@@ -352,6 +365,7 @@ export const localTemplateRepo: TemplateRepository = {
               f.startsWith(`${req.companyCode}_${req.fundCode}_`),
             ) ?? ''
           ] ?? defaultSkeleton();
+        css = localCssOf(id); // 同じ名前の既存 CSS、無ければ空
       }
       // 償還ファンド指定時は特定パーツを償還用パーツへ置換(モック)。
       if (req.isRedemption) baseHtml = applyRedemptionMock(baseHtml);
@@ -378,7 +392,6 @@ export const localTemplateRepo: TemplateRepository = {
         ...(req.sourceFundCode ? { sourceFundCode: req.sourceFundCode } : {}),
       });
       write(K.createHist, createHist);
-      const css = fixtureCss[req.fundCode] ?? '';
       // 新規生成 skeleton には静的 fill が無い。editor が 1 つ描画する。
       return delay({ template: { meta, html: baseHtml, css, filled: '' } });
     }),

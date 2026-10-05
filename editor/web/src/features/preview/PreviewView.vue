@@ -127,7 +127,6 @@ async function submitForReview() {
       templateId: props.id,
       html: restoredHtml.value,
       css: css.value,
-      fundCode: fundCode.value,
       // レンダリング済みドキュメントを、申請の記入済みレポートインスタンスとして保持する。
       filledHtml: previewDoc.value,
       origin: origin.value,

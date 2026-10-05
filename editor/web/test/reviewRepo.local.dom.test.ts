@@ -36,7 +36,6 @@ describe('localReviewRepo round-trip', () => {
       templateId: target.id,
       html: '<p>申請版の本文</p>',
       css: '.x{}',
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
     });
     expect(isOk(submitted)).toBe(true);
@@ -60,7 +59,6 @@ describe('localReviewRepo round-trip', () => {
       templateId: target.id,
       html: '<p>承認後に反映される本文</p>',
       css: '.y{}',
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
     });
     if (!isOk(submitted)) throw new Error('submit failed');
@@ -93,7 +91,6 @@ describe('localReviewRepo round-trip', () => {
       templateId: target.id,
       html: '<p>却下されるべき本文</p>',
       css: '.z{}',
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
     });
     if (!isOk(submitted)) throw new Error('submit failed');
@@ -118,7 +115,6 @@ describe('localReviewRepo round-trip', () => {
       templateId: target.id,
       html: '<p>巻き戻る本文</p>',
       css: '.z{}',
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
     });
     if (!isOk(submitted)) throw new Error('submit failed');

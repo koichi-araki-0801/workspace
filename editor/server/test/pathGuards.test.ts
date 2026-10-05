@@ -112,25 +112,8 @@ describe('files/*.ts のパス封じ込め', () => {
         kind: 'review-approve',
         target: 'template',
         templateId: id,
-        fundCode: '510037',
         html: '<p>pwned</p>',
         css: '',
-        author: 'tester',
-        commitMessage: 'x',
-      }),
-    ).rejects.toSatisfy(isAppError);
-    expect(strayFiles()).toEqual([]);
-  });
-
-  it.each(ESCAPES)('applyConfirmedWrite rejects a traversal fund code (%s)', async (fund) => {
-    await expect(
-      confirmedWrite.applyConfirmedWrite({
-        kind: 'review-approve',
-        target: 'template',
-        templateId: VALID_SKELETON_ID,
-        fundCode: fund,
-        html: '<p>x</p>',
-        css: 'body{}',
         author: 'tester',
         commitMessage: 'x',
       }),
@@ -168,7 +151,8 @@ describe('files/*.ts のパス封じ込め', () => {
     await expect(templateFiles.templateExists('../outside/secret.html')).resolves.toBe(false);
     await expect(templateFiles.readTemplateHtml('../outside/secret.html')).resolves.toBe('');
     await expect(templateFiles.templateMtime('../outside/secret.html')).resolves.toBeNull();
-    await expect(templateFiles.readFundCss('../outside/x')).resolves.toBe('');
+    await expect(templateFiles.readTemplateCss('../outside/x')).resolves.toBe('');
+    await expect(templateFiles.resolveTemplateCssPath('../outside/x')).resolves.toBeNull();
     await expect(draftFiles.draftExists('../outside/x')).resolves.toBe(false);
     await expect(draftFiles.draftMtime('../outside/x')).resolves.toBeNull();
   });
@@ -210,7 +194,6 @@ describe('files/*.ts のパス封じ込め', () => {
       kind: 'review-approve',
       target: 'template',
       templateId: VALID_SKELETON_ID,
-      fundCode: '510037',
       html: '<p>ok</p>',
       css: 'body{}',
       author: 'tester',
@@ -219,7 +202,7 @@ describe('files/*.ts のパス封じ込め', () => {
     expect(fs.existsSync(path.join(root, 'data', 'templates', `${VALID_SKELETON_ID}.html`))).toBe(
       true,
     );
-    expect(fs.existsSync(path.join(root, 'data', 'css', '510037.css'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'data', 'css', `${VALID_SKELETON_ID}.css`))).toBe(true);
     expect(strayFiles()).toEqual([]);
   });
 });

@@ -29,7 +29,6 @@ async function approveSkeleton(fundCode: string, editionType: string, html: stri
     templateId: id,
     html,
     css: '',
-    fundCode,
     origin: 'create',
   });
   if (!isOk(saved)) throw new Error('confirmSaveLocal に失敗');
@@ -382,7 +381,6 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
       templateId: ID,
       html: '<p>{{ fund.name }}</p>',
       css: '',
-      fundCode: FUND,
       origin: 'create',
     });
     expect(isOk(saved)).toBe(true);
@@ -516,7 +514,6 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     const { localReviewRepo } = await import('@/api/local/reviewRepo');
     const sub = await localReviewRepo.submitReview({
       templateId: gen.value.template.meta.id,
-      fundCode: '510003',
       origin: 'create',
       html: '<p>{{ x }}</p>',
       css: '',
@@ -583,7 +580,6 @@ describe('localHistoryRepo.getSnapshot', () => {
       templateId: ID,
       html: '<p>a</p>',
       css: '',
-      fundCode: FUND,
       origin: 'edit',
     });
     expect(isOk(saved)).toBe(true);
@@ -639,7 +635,6 @@ describe('localTemplateRepo の生成と override', () => {
       templateId: ID,
       html: '<p>over</p>',
       css: '.o{}',
-      fundCode: FUND,
       origin: 'create',
       filledHtml: '<p>filled</p>',
     });

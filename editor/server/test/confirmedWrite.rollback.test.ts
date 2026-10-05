@@ -38,7 +38,7 @@ process.env.GIT_REPO_DIR = path.join(root, 'data');
 
 const SKELETON_ID = 'AM01_510037_交付版';
 const FILLED_ID = 'AM01_510037_20240710_交付版';
-const FUND = '510037';
+const CSS_NAME = 'AM01_510037_交付版.css';
 const templatesDir = path.join(root, 'data', 'templates');
 const filledDir = path.join(root, 'data', 'filled');
 const cssDir = path.join(root, 'data', 'css');
@@ -50,7 +50,6 @@ const approve = (target: 'filled' | 'template' = 'template') =>
     kind: 'review-approve',
     target,
     templateId: target === 'filled' ? FILLED_ID : SKELETON_ID,
-    fundCode: FUND,
     html: '<p>新しい本文</p>',
     css: 'body{color:#000}',
     author: 'approver1',
@@ -72,17 +71,17 @@ describe('applyConfirmedWrite の補償', () => {
   });
 
   it('新規テンプレの CSS 書込が失敗したら HTML を残さない', async () => {
-    failingSuffixes.add(`${FUND}.css`);
+    failingSuffixes.add(CSS_NAME);
 
     await expect(approve()).rejects.toThrow('書込に失敗しました');
 
     expect(fs.existsSync(path.join(templatesDir, `${SKELETON_ID}.html`))).toBe(false);
-    expect(fs.existsSync(path.join(cssDir, `${FUND}.css`))).toBe(false);
+    expect(fs.existsSync(path.join(cssDir, CSS_NAME))).toBe(false);
   });
 
   it('既存テンプレの CSS 書込が失敗したら HTML を元のバイト列へ戻す', async () => {
     fs.writeFileSync(path.join(templatesDir, `${SKELETON_ID}.html`), '<p>元の本文</p>', 'utf8');
-    failingSuffixes.add(`${FUND}.css`);
+    failingSuffixes.add(CSS_NAME);
 
     await expect(approve()).rejects.toThrow('書込に失敗しました');
 
@@ -95,7 +94,7 @@ describe('applyConfirmedWrite の補償', () => {
     // 補償は書込先ごとに別のパスを触る。`filled` 側を通らない限り、値入り HTML が
     // 中途半端な状態で確定する退行に気付けない。
     fs.writeFileSync(path.join(filledDir, `${FILLED_ID}.html`), '<p>元の値入り</p>', 'utf8');
-    failingSuffixes.add(`${FUND}.css`);
+    failingSuffixes.add(CSS_NAME);
 
     await expect(approve('filled')).rejects.toThrow('書込に失敗しました');
 

@@ -101,7 +101,7 @@ describe('templates.routes', () => {
       '<html><body><p>{{ fund.name }}</p></body></html>',
       'utf8',
     );
-    fs.writeFileSync(path.join(root, 'data', 'css', '510037.css'), 'body{}', 'utf8');
+    fs.writeFileSync(path.join(root, 'data', 'css', 'AM01_510037_交付版.css'), 'body{}', 'utf8');
     app = await buildApp();
   });
   afterAll(async () => {

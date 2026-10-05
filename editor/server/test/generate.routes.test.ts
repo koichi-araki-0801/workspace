@@ -46,6 +46,7 @@ const filledDir = path.join(root, 'data', 'filled');
 const pendingDir = path.join(root, 'data', 'pending');
 const draftsDir = path.join(root, 'data', 'drafts');
 const reviewsDir = path.join(root, 'data', 'reviews');
+const cssDir = path.join(root, 'data', 'css');
 // メモの置き場は env を持たず `<DATA_ROOT>/notes` 固定(`files/notesFile.ts` の `notesDir`)。
 const notesDir = path.join(root, 'data', 'notes');
 const OUTSIDE = path.join(root, 'outside');
@@ -95,7 +96,15 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   });
   beforeEach(() => {
     templateCalls = 0;
-    for (const d of [templatesDir, filledDir, pendingDir, draftsDir, reviewsDir, notesDir]) {
+    for (const d of [
+      templatesDir,
+      filledDir,
+      pendingDir,
+      draftsDir,
+      reviewsDir,
+      notesDir,
+      cssDir,
+    ]) {
       fs.rmSync(d, { recursive: true, force: true });
       fs.mkdirSync(d, { recursive: true });
     }
@@ -117,7 +126,6 @@ describe('POST /api/generate は確定領域へ書かない', () => {
       id,
       templateId: ID,
       attributes: ATTRS,
-      fundCode: '510037',
       origin,
       status,
       submittedBy: 'editor1',
@@ -397,5 +405,28 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     );
     const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '510037' });
     expect(res.statusCode).toBe(400);
+  });
+
+  it('CSS の初期値はコピー元テンプレの CSS(同名の既存 CSS より優先)', async () => {
+    fs.writeFileSync(path.join(templatesDir, 'AM01_510037_交付版.html'), '<p>元</p>', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'AM01_510037_交付版.css'), '.src{}', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'AM01_510155_交付版.css'), '.own{}', 'utf8');
+    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '510037' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().template.css).toBe('.src{}');
+    // css/ は承認の専権。生成では書き換えない。
+    expect(fs.readFileSync(path.join(cssDir, 'AM01_510155_交付版.css'), 'utf8')).toBe('.own{}');
+  });
+
+  it('コピー元が無ければ同じ名前の既存 CSS を初期値にする', async () => {
+    fs.writeFileSync(path.join(cssDir, 'AM01_510037_交付版.css'), '.same{}', 'utf8');
+    const res = await generate(validBody);
+    expect(res.json().template.css).toBe('.same{}');
+  });
+
+  it('どちらも無ければ空', async () => {
+    fs.writeFileSync(path.join(cssDir, '510037.css'), '.old{}', 'utf8');
+    const res = await generate(validBody);
+    expect(res.json().template.css).toBe('');
   });
 });

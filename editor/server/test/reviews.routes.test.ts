@@ -89,7 +89,6 @@ d('review workflow (HTTP routes)', () => {
         templateId,
         html,
         css: '.x{}',
-        fundCode: templateId.split('_')[1],
         origin: 'edit',
       },
     });
@@ -118,7 +117,7 @@ d('review workflow (HTTP routes)', () => {
       method: 'POST',
       url: '/review-requests',
       headers: asUser('editor1', 'editor'),
-      payload: { html: '<p>x</p>', css: '', fundCode: '611111', origin: 'edit' },
+      payload: { html: '<p>x</p>', css: '', origin: 'edit' },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -136,7 +135,7 @@ d('review workflow (HTTP routes)', () => {
       method: 'POST',
       url: '/review-requests',
       headers: asUser('editor1', 'editor'),
-      payload: { templateId, html: '<p>x</p>', css: '', fundCode: '611111', origin: 'edit' },
+      payload: { templateId, html: '<p>x</p>', css: '', origin: 'edit' },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -350,10 +349,9 @@ d('review workflow (HTTP routes)', () => {
     expect(res.statusCode).toBe(404);
   });
 
-  // `review.submit` 監査イベントの failure 分岐。`submitReview` は帰属検査
-  // (`attrs.fundCode !== req.fundCode`)を承認側(`applyConfirmedWrite`)と同条件で申請の入口にも
-  // 掛けており、通してしまうと精査者のキューに「承認できない申請」が積まれる。
-  it('templateId とファンドが食い違う申請は 400 で、監査の failure 経路を通る', async () => {
+  // `review.submit` 監査イベントの failure 分岐。作成タブの申請に値入り HTML の id(4 つ区切り)を
+  // 渡すと入口で 400 になる。
+  it('経路と id の形が合わない申請は 400 で、監査の failure 経路を通る', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/review-requests',
@@ -362,8 +360,7 @@ d('review workflow (HTTP routes)', () => {
         templateId: 'AM01_611111_20250101_交付版',
         html: '<p>x</p>',
         css: '',
-        fundCode: '999999',
-        origin: 'edit',
+        origin: 'create',
       },
     });
     expect(res.statusCode).toBe(400);

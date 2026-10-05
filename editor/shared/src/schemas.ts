@@ -105,12 +105,22 @@ export const Template = z
   .object({
     meta: TemplateMeta,
     html: z.string().meta({ description: 'Jinja2 生 HTML(タグ保持)' }),
-    css: z.string().meta({ description: 'fundCode ごとの共有 CSS' }),
+    css: z.string().meta({
+      description: 'テンプレ単位の CSS(css/<会社>_<ファンド>_<版種>.css。基準日違いの文書で共有)',
+    }),
     filled: z.string().meta({
       description:
         'エディタキャンバス用に事前描画した filled HTML(Jinja 値を差し込みつつ元ソースを保持)。' +
         '静的な fill が無ければ空で、エディタは都度描画にフォールバックする',
     }),
+    cssMissing: z
+      .boolean()
+      .optional()
+      .meta({
+        description:
+          '確定版の CSS ファイル(css/<会社>_<ファンド>_<版種>.css)が見つからないとき true。' +
+          'あれば付けない。生成直後(pending)は対象外',
+      }),
   })
   .meta({ id: 'Template' });
 
@@ -378,7 +388,6 @@ export const ReviewRequestMeta = z
     id: z.string(),
     templateId: z.string(),
     attributes: TemplateAttributes,
-    fundCode: z.string(),
     origin: ReviewOrigin,
     status: ReviewStatus,
     submittedBy: z.string(),
@@ -408,7 +417,6 @@ export const SubmitReviewBody = z
     templateId: TemplateId,
     html: z.string().max(MAX_DOCUMENT_HTML_CHARS).meta({ description: '復元済みの生 Jinja2 HTML' }),
     css: z.string().max(MAX_DOCUMENT_CSS_CHARS),
-    fundCode: z.string().min(1),
     filledHtml: z.string().max(MAX_DOCUMENT_HTML_CHARS).optional(),
     origin: ReviewOrigin.meta({
       description: "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
@@ -492,9 +500,10 @@ export const PairSyncStatus = z
 export const ApproveReviewResult = z
   .object({
     meta: TemplateMeta,
-    staleWarning: z
-      .boolean()
-      .meta({ description: '申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)' }),
+    staleWarning: z.boolean().meta({
+      description:
+        '申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意。CSS は基準日をまたいで共有されるため、他の基準日の承認による変更も含む)',
+    }),
     sync: PairSyncSummary.nullable()
       .optional()
       .meta({ description: 'ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落' }),

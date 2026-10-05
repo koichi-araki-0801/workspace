@@ -32,7 +32,7 @@ import {
   findTemplateId,
   hasTemplateFor,
   listTemplateFiles,
-  readFundCss,
+  readTemplateCss,
 } from '../files/templateFiles.js';
 import { generateTemplate } from '../generate/pyTemplate.js';
 import { auditedRethrow } from '../logger.js';
@@ -122,7 +122,17 @@ export const generateRoutes: FastifyPluginAsync<{
             attributes.fundCode,
             attributes.editionType,
           );
-          const css = await readFundCss(attributes.fundCode);
+          // CSS の初期値: コピー元テンプレの CSS → 同じ名前の既存 CSS → 空(`readTemplateCss` は無ければ空)。
+          // コピー元の有無は上で検査済み(大文字小文字を区別しない照合も `hasTemplateFor` と同じ)。
+          const sourceId = sourceFundCode
+            ? findTemplateId(
+                await listTemplateFiles(),
+                attributes.companyCode,
+                sourceFundCode,
+                attributes.editionType,
+              )
+            : null;
+          const css = await readTemplateCss(sourceId ?? id);
           const meta: TemplateMeta = {
             id,
             attributes,
@@ -133,11 +143,12 @@ export const generateRoutes: FastifyPluginAsync<{
           };
 
           // REST モード: 生成器が書いた pending/<id>.html を、注記マスタを適用した HTML と CSS で
-          // 書き直し → 作成記録の順。CSS はファンド共有ファイルなので pending にしか書かない — 共有 CSS の
-          // 書き換えは承認経路(`applyConfirmedWrite`)の専権である。前回の下書きは、生成器が成功した
-          // ここで初めて捨てる(失敗したら作業を残す。前の pending/ は生成器の約束で残る)。下書きが
-          // 残ると、編集画面を開いたときに古い下書きが新しい生成物を覆う。コメント(notes/)と
-          // パーツ変更履歴は同じテンプレートの記録なので残す。確定側(templates/)は ① が守る。
+          // 書き直し → 作成記録の順。CSS は同じテンプレの基準日違いで共有するので pending にしか
+          // 書かない — css/ の書き換えは承認経路(`applyConfirmedWrite`)の専権である。前回の
+          // 下書きは、生成器が成功したここで初めて捨てる(失敗したら作業を残す。前の pending/ は
+          // 生成器の約束で残る)。下書きが残ると、編集画面を開いたときに古い下書きが新しい生成物を
+          // 覆う。コメント(notes/)とパーツ変更履歴は同じテンプレートの記録なので残す。確定側
+          // (templates/)は ① が守る。
           if (config.requireAuth) {
             await writePending(id, html, css);
             // 綴り違いの古い下書き・pending も同じテンプレートの作業なので捨てる(生成物は id の綴りで置く)。

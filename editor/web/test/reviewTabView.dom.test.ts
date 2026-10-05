@@ -85,7 +85,6 @@ function meta(patch: Partial<ReviewRequestMeta>): ReviewRequestMeta {
     id: 'rv1',
     templateId: TPL,
     attributes: ATTRS,
-    fundCode: '510037',
     origin: 'edit',
     status: 'pending',
     submittedBy: 'editor1',

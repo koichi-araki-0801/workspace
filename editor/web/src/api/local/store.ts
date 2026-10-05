@@ -83,9 +83,10 @@ for (const [path, content] of Object.entries(filledFiles)) {
   fixtureFilled[baseName(path)] = content;
 }
 
+/** fixtures の CSS。キーはファイル名(`cssFileNameOf` の出力と同じ `<会社>_<ファンド>_<版種>.css`)。 */
 export const fixtureCss: Record<string, string> = {};
 for (const [path, content] of Object.entries(cssFiles)) {
-  fixtureCss[baseName(path).replace(/\.css$/, '')] = content;
+  fixtureCss[baseName(path)] = content;
 }
 
 // ファンド固有マスタ(コード → 名称/会社)。サンプル本体はパーツ別共通ダミー
@@ -147,7 +148,7 @@ export const META_KEY = 'editor:meta';
  * 変更(例: 版種リネーム + report 再テーマ)を入れたら bump する。`migrateStore()` が
  * bump ごとに一度 working-state をクリアする。
  */
-const SCHEMA_VERSION = '4';
+const SCHEMA_VERSION = '5';
 const SCHEMA_KEY = 'editor:schemaVersion';
 
 /** fixtures 由来の working-state キー群。スキーマ版 bump 時にクリアする。 */
@@ -155,7 +156,7 @@ const WORKING_KEYS = [
   K.drafts,
   K.htmlOverride,
   K.filledOverride,
-  K.cssOverride,
+  K.cssOverride, // CSS のキーを fundCode から CSS 名(テンプレ単位)へ変えた。旧形式は読めないので bump で一掃する
   META_KEY,
   K.snapshots,
   K.instances,

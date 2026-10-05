@@ -23,13 +23,13 @@ import {
   validation,
 } from '@editor/shared';
 import { appendHistory, readHistory } from '../files/historyFiles.js';
+import { resolveTemplateCssName } from '../files/templateFiles.js';
 import { commitDate, commitFiles, logAllWithFiles, logForFile, showFile } from '../git/gitRepo.js';
 
 // 版履歴は値入り HTML(`filled/`)のコミットで数える。編集タブ・比較画面が見る履歴は
 // 編集タブが読み書きする本文のもので、作成タブの Jinja(`templates/`)の履歴は画面から参照しない。
 const FILLED_PATHSPEC = 'filled';
 const filledRel = (templateId: string): string => `${FILLED_PATHSPEC}/${templateId}.html`;
-const cssRel = (fundCode: string): string => `css/${fundCode}.css`;
 
 /**
  * 変更ファイル一覧から `filled/*.html` を**すべて**取り出す。
@@ -132,9 +132,12 @@ export async function getSnapshot(
   const resolvedId = templateIdFromFileName(fileName);
   // html/css/日時は互いに独立した git read(`withGitLock` 非経由 = 並列安全)。
   // 逐次 await だと 3 プロセスの起動待ちが直列化するため Promise.all でまとめる。
+  // CSS はテンプレ単位(`css/<会社>_<ファンド>_<版種>.css`)。綴りは今の cssDir の実ファイルに合わせる
+  // (承認は既存の綴りで書くので、履歴の中の綴りも同じ)。旧名(`<fund>.css`)は見ない。
+  const cssName = await resolveTemplateCssName(resolvedId);
   const [html, css, timestamp] = await Promise.all([
     showFile(historyId, filledRel(resolvedId)),
-    showFile(historyId, cssRel(attrs.fundCode)),
+    cssName === null ? Promise.resolve('') : showFile(historyId, `css/${cssName}`),
     commitDate(historyId),
   ]);
   return {

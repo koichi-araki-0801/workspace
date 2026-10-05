@@ -170,7 +170,7 @@ export function createReviewDiffService(
       const afterRes = await compare.renderTemplateBody(
         review.html,
         review.css,
-        review.fundCode,
+        review.attributes.fundCode,
         review.origin,
       );
       if (isErr(afterRes)) return afterRes;

@@ -13,7 +13,6 @@ const baseMeta = {
     baseDate: '20240710',
     editionType: '交付版',
   },
-  fundCode: '510037',
   origin: 'edit',
   status: 'pending',
   submittedBy: 'editor1',
@@ -53,7 +52,6 @@ describe('SubmitReviewBody', () => {
       templateId: 'AM01_510037_20240710_交付版',
       html: '<p>x</p>',
       css: '',
-      fundCode: '510037',
       origin: 'edit',
     };
     expect(SubmitReviewBody.parse(body).changedSummary).toBeUndefined();

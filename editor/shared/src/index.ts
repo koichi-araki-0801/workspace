@@ -200,9 +200,8 @@ export interface ConfirmSaveRequest {
   templateId: string;
   /** テンプレファイル (ファンド別テンプレ) に書き戻す、復元済みの生 Jinja2 HTML。 */
   html: string;
-  /** ファンド別の共有スタイルシートへマージする CSS。 */
+  /** テンプレ単位の CSS(`cssFileNameOf` の名前)へ書く CSS。 */
   css: string;
-  fundCode: string;
   /** 申請元の経路。`'edit'` は値入り HTML(filled)を、`'create'` は Jinja(html)を更新する。 */
   origin: 'edit' | 'create';
   /**

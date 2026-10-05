@@ -242,7 +242,6 @@ describe('restPartRepo / restHistoryRepo / restNoteRepo / restReviewRepo / restU
       templateId: 't1',
       html: '',
       css: '',
-      fundCode: 'f',
       origin: 'edit',
     });
     await restReviewRepo.listReviews();

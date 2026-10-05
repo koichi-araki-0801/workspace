@@ -73,14 +73,14 @@ describe('書込プリミティブの import 許可リスト', () => {
     expect(actual.sort()).toEqual(allowed.sort());
   });
 
-  it('templatePath / cssPath / filledPath を import してよいのは confirmedWrite.ts だけ', () => {
+  it('templatePath / resolveTemplateCssPath / filledPath を import してよいのは confirmedWrite.ts だけ', () => {
     // この 3 つは確定ディレクトリと連結する唯一の解決子。`atomicWrite` と組み合わせられる
     // のがチョークポイント 1 ファイルだけであることが「唯一の関所」の実体である。
     const actual = listSources().filter((rel) => {
       const text = fs.readFileSync(path.join(SRC, rel), 'utf8');
       const m = /import\s*\{([^}]*)\}\s*from\s*'(?:\.\.?\/)*files\/templateFiles\.js'/.exec(text);
       if (!m) return false;
-      return /\b(templatePath|cssPath|filledPath)\b/.test(m[1]);
+      return /\b(templatePath|resolveTemplateCssPath|filledPath)\b/.test(m[1]);
     });
     expect(actual).toEqual(['repositories/confirmedWrite.ts']);
   });
@@ -136,21 +136,39 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     expect(auditCalls).toEqual([]);
   });
 
-  it('review-approve の fundCode が id と食い違えば書かない', async () => {
-    await expect(
-      confirmedWrite.applyConfirmedWrite({
-        kind: 'review-approve',
-        target: 'template',
-        templateId: SOURCE,
-        fundCode: '999999',
-        html: '<p>x</p>',
-        css: 'body{}',
-        author: 'editor1',
-        commitMessage: 'm',
-      }),
-    ).rejects.toSatisfy(isAppError);
-    expect(fs.existsSync(path.join(templatesDir, `${SOURCE}.html`))).toBe(false);
-    expect(fs.existsSync(path.join(cssDir, '999999.css'))).toBe(false);
+  it('review-approve の CSS は id から決まり、同じファンドの別の版種や別のファンドの CSS に触れない', async () => {
+    fs.writeFileSync(path.join(cssDir, 'AM01_510037_全体版.css'), '.zentai{}', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'AM01_999999_交付版.css'), '.other{}', 'utf8');
+    await confirmedWrite.applyConfirmedWrite({
+      kind: 'review-approve',
+      target: 'filled',
+      templateId: 'AM01_510037_20240710_交付版',
+      html: '<p>x</p>',
+      css: '.kofu{}',
+      author: 'approver1',
+      commitMessage: 'm',
+    });
+    expect(fs.readFileSync(path.join(cssDir, 'AM01_510037_交付版.css'), 'utf8')).toBe('.kofu{}');
+    expect(fs.readFileSync(path.join(cssDir, 'AM01_510037_全体版.css'), 'utf8')).toBe('.zentai{}');
+    expect(fs.readFileSync(path.join(cssDir, 'AM01_999999_交付版.css'), 'utf8')).toBe('.other{}');
+    expect(fs.readdirSync(cssDir).sort()).toEqual(
+      ['AM01_510037_交付版.css', 'AM01_510037_全体版.css', 'AM01_999999_交付版.css'].sort(),
+    );
+  });
+
+  it('既存の CSS の綴り(am01_…)があればその綴りで書き、別名を増やさない', async () => {
+    fs.writeFileSync(path.join(cssDir, 'am01_510037_交付版.css'), '.old{}', 'utf8');
+    await confirmedWrite.applyConfirmedWrite({
+      kind: 'review-approve',
+      target: 'template',
+      templateId: 'AM01_510037_交付版',
+      html: '<p>x</p>',
+      css: '.new{}',
+      author: 'approver1',
+      commitMessage: 'm',
+    });
+    expect(fs.readdirSync(cssDir)).toEqual(['am01_510037_交付版.css']);
+    expect(fs.readFileSync(path.join(cssDir, 'am01_510037_交付版.css'), 'utf8')).toBe('.new{}');
   });
 
   it('承認経路でも実行コードの追加は拒否する(承認を通しても JS は変えられない)', async () => {
@@ -160,7 +178,6 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
         kind: 'review-approve',
         target: 'template',
         templateId: SOURCE,
-        fundCode: '510037',
         html: '<html><script>col.width=1</script><script>fetch("/x")</script></html>',
         css: '',
         author: 'approver1',
@@ -229,7 +246,6 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
         kind: 'review-approve',
         target: 'filled',
         templateId: 'AM01_510037_交付版',
-        fundCode: '510037',
         html: '<p>x</p>',
         css: '',
         author: 'approver1',
@@ -237,7 +253,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
       }),
     ).rejects.toSatisfy(isAppError);
     expect(fs.existsSync(path.join(filledDir, 'AM01_510037_交付版.html'))).toBe(false);
-    expect(fs.existsSync(path.join(cssDir, '510037.css'))).toBe(false);
+    expect(fs.existsSync(path.join(cssDir, 'AM01_510037_交付版.css'))).toBe(false);
   });
 
   it('テンプレート(target=template)に値入り HTML の id(4 つ区切り)は書けない', async () => {
@@ -246,7 +262,6 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
         kind: 'review-approve',
         target: 'template',
         templateId: 'AM01_510037_20240710_交付版',
-        fundCode: '510037',
         html: '<p>x</p>',
         css: '',
         author: 'approver1',

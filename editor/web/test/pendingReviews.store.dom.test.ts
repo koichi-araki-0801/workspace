@@ -44,12 +44,11 @@ async function templates(n: number) {
   return list.value.slice(0, n);
 }
 
-async function submit(templateId: string, fundCode: string): Promise<void> {
+async function submit(templateId: string): Promise<void> {
   const r = await localReviewRepo.submitReview({
     templateId,
     html: '<p>申請本文</p>',
     css: '.a{}',
-    fundCode,
     origin: 'edit',
   });
   if (!r.ok) throw new Error('submit failed');
@@ -63,9 +62,9 @@ describe('usePendingReviewsStore', () => {
     const ts = await templates(2);
     if (!ts) return;
     const [t1, t2] = ts;
-    await submit(t1.id, t1.attributes.fundCode);
-    await submit(t1.id, t1.attributes.fundCode);
-    await submit(t2.id, t2.attributes.fundCode);
+    await submit(t1.id);
+    await submit(t1.id);
+    await submit(t2.id);
 
     const store = setupStore();
     expect(store.count).toBe(0); // refresh 前は空
@@ -82,7 +81,7 @@ describe('usePendingReviewsStore', () => {
     const ts = await templates(1);
     if (!ts) return;
     const [t1] = ts;
-    await submit(t1.id, t1.attributes.fundCode);
+    await submit(t1.id);
 
     await login('editor', 'editor');
     const store = setupStore();
@@ -90,7 +89,7 @@ describe('usePendingReviewsStore', () => {
     expect(store.count).toBe(0);
 
     // editor 自身の申請は乗る。
-    await submit(t1.id, t1.attributes.fundCode);
+    await submit(t1.id);
     await store.refresh();
     expect(store.count).toBe(1);
   });
@@ -100,7 +99,7 @@ describe('usePendingReviewsStore', () => {
     const ts = await templates(1);
     if (!ts) return;
     const [t1] = ts;
-    await submit(t1.id, t1.attributes.fundCode);
+    await submit(t1.id);
 
     let fail = false;
     const store = setupStore(() =>

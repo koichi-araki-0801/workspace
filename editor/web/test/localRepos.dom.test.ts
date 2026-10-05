@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
 import { localHistoryRepo } from '@/api/local/historyRepo';
 import { localPartRepo } from '@/api/local/partRepo';
-import { K, partCatalog } from '@/api/local/store';
+import { fixtureCss, K, partCatalog } from '@/api/local/store';
 import { confirmSaveLocal, localTemplateRepo } from '@/api/local/templateRepo';
 import { localUserRepo } from '@/api/local/userRepo';
 
@@ -46,7 +46,6 @@ describe('localTemplateRepo.getTemplate', () => {
       templateId: id,
       html: '<p>値入り更新</p>',
       css: '',
-      fundCode: '510037',
       origin: 'edit',
     });
     const after = await localTemplateRepo.getTemplate(id);
@@ -60,7 +59,6 @@ describe('localTemplateRepo.getTemplate', () => {
       templateId: id,
       html: '<p>{{ x }}</p>',
       css: '',
-      fundCode: '510037',
       origin: 'create',
     });
     const after = await localTemplateRepo.getTemplate(id);
@@ -107,7 +105,6 @@ describe('confirmSaveLocal round-trip', () => {
       templateId: target.id,
       html: '<p>round-trip</p>',
       css: '.x{}',
-      fundCode: target.attributes.fundCode,
       origin: 'create',
     });
     expect(isOk(saved)).toBe(true);
@@ -129,10 +126,40 @@ describe('confirmSaveLocal round-trip', () => {
       templateId: target.id,
       html: '<p>値入り</p>',
       css: '.x{}',
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
     });
     expect(isOk(saved) && saved.value.status).toBe('published');
+  });
+
+  it('CSS はテンプレ単位: fixtures はテンプレ名で引け、交付版の確定保存は全体版の CSS を変えない', async () => {
+    // vitest は `.css?raw` の中身を空にするため、fixtures の CSS はキー(ファイル名)だけを確かめる。
+    expect(Object.keys(fixtureCss)).toContain('AM01_510037_交付版.css');
+    expect(Object.keys(fixtureCss)).toContain('AM01_510037_全体版.css');
+    const kofuId = 'AM01_510037_20240710_交付版';
+    const zentaiId = 'AM01_510037_20240710_全体版';
+    const seeded = await confirmSaveLocal({
+      templateId: zentaiId,
+      html: '<p>全体版</p>',
+      css: '.only-zentai{}',
+      origin: 'edit',
+    });
+    expect(isOk(seeded)).toBe(true);
+    const saved = await confirmSaveLocal({
+      templateId: kofuId,
+      html: '<p>x</p>',
+      css: '.only-kofu{}',
+      origin: 'edit',
+    });
+    expect(isOk(saved)).toBe(true);
+    const kofu = await localTemplateRepo.getTemplate(kofuId);
+    const zentai = await localTemplateRepo.getTemplate(zentaiId);
+    expect(isOk(kofu) && kofu.value.css).toBe('.only-kofu{}');
+    expect(isOk(zentai) && zentai.value.css).toBe('.only-zentai{}');
+    // 基準日違いの同じテンプレは同じ CSS を読む(キーは基準日を含まない)。
+    expect(JSON.parse(localStorage.getItem(K.cssOverride) ?? '{}')).toEqual({
+      'AM01_510037_交付版.css': '.only-kofu{}',
+      'AM01_510037_全体版.css': '.only-zentai{}',
+    });
   });
 });
 
@@ -154,7 +181,6 @@ describe('confirmSaveLocal version snapshots', () => {
       templateId: target.id,
       html: '<p>v1</p>',
       css: '.v1{}',
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
     });
     expect(isOk(saved)).toBe(true);
