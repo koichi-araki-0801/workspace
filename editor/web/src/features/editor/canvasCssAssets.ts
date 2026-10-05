@@ -4,15 +4,22 @@
 // canvas(GrapesJS の iframe)は相対 URL をアプリの URL 基準で解くので、テンプレの CSS の
 // `url(fonts/x.woff2)`(= `css/fonts/x.woff2`)や `url(../images/x.svg)`(= `images/x.svg`)は
 // 必ず 404 になる。CSS 自体を書き換えると `getCss()` 経由で配信 URL が下書き・申請・確定 CSS へ
-// 混ざるので、触らない。代わりに `url()` を含む規則だけを複製して配信 URL へ直し、canvas 専用の
-// `<style>` に置く(`fundImageLayer.ts`)。複製は元の規則と同じセレクタ・同じ記述子なので、後ろに
-// 置けば同じ規則として勝ち、他の宣言の見た目は元の規則のまま変わらない。
+// 混ざるので、触らない。代わりに `url()` を含む規則を複製して配信 URL へ直し、canvas 専用の
+// `<style>` に置く(`fundImageLayer.ts`)。複製は元の規則と同じセレクタなので、後ろに置けば同じ
+// 宣言として勝つ。
+//
+// 複製に残すのは `url()` を含む宣言だけ(`@font-face` は記述子が揃って初めて 1 つの書体になるので
+// 丸ごと)。他の宣言まで複製すると、全規則の後ろに置かれた分だけ優先順位が上がり、元は後続の
+// 規則に負けていた宣言(`.a{color:blue}` に対する後ろの `.b{color:red}` など)が canvas でだけ
+// 勝ってしまう。`url()` の宣言にも同じことは起こる(後ろの規則で `background:none` に打ち消された
+// 背景が canvas でだけ出る)が、これは受け入れる: 表示だけの差で、保存内容と PDF には影響しない。
 //
 // 配信 URL は、フォントがプレビューホスト(`/api/preview-host/css/fonts/…`。同一オリジンで
 // cookie が付く)、画像が単体配信ルート(`/api/fund-assets/images/…`)。画像の判定と会社フォルダの
 // 照合は `lib/fundImages.ts` と共有する。参照の解決は CSS 自身の位置(`css/`)を基準にする。
 
 import {
+  type CssUrlSpan,
   collectCssUrlSpans,
   PREVIEW_HOST_BASE,
   resolveDocAssetPath,
@@ -41,24 +48,102 @@ export function canvasAssetUrl(rel: string, companyCode: string | null): string 
   return `/api${PREVIEW_HOST_BASE}/${rel.split('/').map(encodeURIComponent).join('/')}`;
 }
 
-/** 1 規則の `url()` を配信 URL へ直す。直したものが 1 つも無ければ undefined。 */
-function rewriteRule(text: string, companyCode: string | null): string | undefined {
-  let out = text;
+/** 先頭のコメントと空白を飛ばして `@font-face` で始まる規則か。 */
+const FONT_FACE_RE = /^(?:\s|\/\*[\s\S]*?\*\/)*@font-face\b/i;
+
+/** `text` の範囲。`end` は含まない。 */
+interface Range {
+  start: number;
+  end: number;
+}
+
+/**
+ * 規則本体 `sel{…}` の宣言を、文字列・括弧・コメントの中の `;` `{` `}` を数えずに区切る。
+ * 本体の `{` が見つからなければ空。
+ */
+function declarationRanges(text: string): Range[] {
+  const ranges: Range[] = [];
+  let open = -1;
+  let start = -1;
+  let depth = 0;
+  let quote = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quote !== '') {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '\\') {
+      i++;
+    } else if (ch === '/' && text[i + 1] === '*') {
+      const close = text.indexOf('*/', i + 2);
+      i = close < 0 ? text.length : close + 1;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      if (depth > 0) depth--;
+    } else if (depth === 0 && open < 0 && ch === '{') {
+      open = i;
+      start = i + 1;
+    } else if (depth === 0 && open >= 0 && (ch === ';' || ch === '}')) {
+      ranges.push({ start, end: i });
+      start = i + 1;
+      if (ch === '}') break;
+    }
+  }
+  return ranges;
+}
+
+/** `text` の `range` の中の `url()` を配信 URL へ直す。直したものが 1 つも無ければ undefined。 */
+function rewriteUrls(
+  text: string,
+  range: Range,
+  spans: readonly CssUrlSpan[],
+  companyCode: string | null,
+): string | undefined {
+  let out = text.slice(range.start, range.end);
   let changed = false;
   // 後ろから置換して、先行する範囲のオフセットを保つ。
-  for (const span of [...collectCssUrlSpans(text)].reverse()) {
+  for (const span of [...spans].reverse()) {
+    if (span.start < range.start || span.end > range.end) continue;
     const rel = resolveDocAssetPath(span.value, TEMPLATE_CSS_FROM);
     const url = rel === undefined ? undefined : canvasAssetUrl(rel, companyCode);
     if (url === undefined) continue;
-    out = `${out.slice(0, span.start)}url(${cssString(url)})${out.slice(span.end)}`;
+    const s = span.start - range.start;
+    const e = span.end - range.start;
+    out = `${out.slice(0, s)}url(${cssString(url)})${out.slice(e)}`;
     changed = true;
   }
   return changed ? out : undefined;
 }
 
 /**
+ * 1 規則の複製を作る。`@font-face` は丸ごと、それ以外は `url()` を直せた宣言だけを残す。
+ * 残すものが無ければ undefined。
+ */
+function rewriteRule(text: string, companyCode: string | null): string | undefined {
+  const spans = collectCssUrlSpans(text);
+  if (spans.length === 0) return undefined;
+  if (FONT_FACE_RE.test(text)) {
+    return rewriteUrls(text, { start: 0, end: text.length }, spans, companyCode);
+  }
+  const ranges = declarationRanges(text);
+  if (ranges.length === 0) return undefined;
+  const kept: string[] = [];
+  for (const range of ranges) {
+    const decl = rewriteUrls(text, range, spans, companyCode);
+    if (decl !== undefined) kept.push(decl.trim());
+  }
+  if (kept.length === 0) return undefined;
+  return `${text.slice(0, ranges[0].start)}${kept.join(';')}}`;
+}
+
+/**
  * テンプレの CSS から、`url()` を配信 URL へ直せた規則だけを、囲む at-rule ごと複製して返す
- * (1 規則 1 行)。直せる参照が無ければ空文字。
+ * (1 規則 1 行。`@font-face` 以外は `url()` の宣言だけ)。直せる参照が無ければ空文字。
  */
 export function canvasCssAssetCopy(css: string, companyCode: string | null): string {
   const out: string[] = [];

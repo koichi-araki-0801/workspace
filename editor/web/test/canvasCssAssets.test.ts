@@ -57,6 +57,43 @@ describe('canvasCssAssetCopy', () => {
     expect(canvasCssAssetCopy(css, 'AM01')).toBe('');
   });
 
+  it('url() を持たない宣言は複製に入れない(後ろの規則との優先順位を canvas で変えない)', () => {
+    const out = canvasCssAssetCopy(
+      '.a{background:url(../images/a.svg);color:blue}.b{color:red}',
+      null,
+    );
+    expect(out).toBe('.a{background:url("/api/fund-assets/images/a.svg")}');
+    expect(out).not.toContain('color');
+  });
+
+  it('at-rule の中の規則も url() の宣言だけを残し、前置きで包み直す', () => {
+    const out = canvasCssAssetCopy(
+      '@media print{.a{color:blue;background:url(../images/a.svg) no-repeat;margin:0}}',
+      null,
+    );
+    expect(out).toBe('@media print{.a{background:url("/api/fund-assets/images/a.svg") no-repeat}}');
+  });
+
+  it('@font-face は記述子をすべて残して丸ごと複製する', () => {
+    const out = canvasCssAssetCopy(
+      '/* 本文 */@font-face{font-family:"biz";font-weight:700;font-style:normal;' +
+        'src:url(fonts/biz.woff2) format("woff2")}',
+      null,
+    );
+    expect(out).toContain(
+      '@font-face{font-family:"biz";font-weight:700;font-style:normal;' +
+        'src:url("/api/preview-host/css/fonts/biz.woff2") format("woff2")}',
+    );
+  });
+
+  it('宣言の区切りは文字列・括弧・コメントの中の ; と } を数えない', () => {
+    const out = canvasCssAssetCopy(
+      '.a{content:"x;}";background:url("../images/a.svg");/* ; */color:red}',
+      null,
+    );
+    expect(out).toBe('.a{background:url("/api/fund-assets/images/a.svg")}');
+  });
+
   it('url() の無い CSS は空', () => {
     expect(canvasCssAssetCopy('.a{color:red}', null)).toBe('');
     expect(canvasCssAssetCopy('', null)).toBe('');
