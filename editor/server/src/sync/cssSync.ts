@@ -1,16 +1,16 @@
 // =============================================================================
 // cssSync.ts — ペア同期の CSS 転写(純関数)。転写の結果と競合の持ち越しを決める
 // =============================================================================
-// 規則の分割と転写は `@editor/shared` の `splitCssRules` / `mergeCssRuleChangesFromBaseline` が
+// 規則の分割と転写は `@editor/shared` の `foldedCssRuleTexts` / `mergeCssRuleChangesFromBaseline` が
 // 正典で、ここは「承認 1 回ぶんの転写結果」と「同期状態ファイルへ残す競合」を組み立てるだけを持つ。
 // I/O は `pairSyncService.ts`。
 
 import {
+  foldedCssRuleTexts,
   isValidAnyTemplateId,
   mergeCssRuleChangesFromBaseline,
   parseAnyTemplateFileName,
   sameCssRule,
-  splitCssRules,
   templatePairKey,
 } from '@editor/shared';
 
@@ -68,10 +68,6 @@ export interface CssSyncResult {
   conflictsChanged: boolean;
 }
 
-function ruleTexts(css: string): Map<string, string> {
-  return new Map(splitCssRules(css).map((r) => [r.key, r.text]));
-}
-
 /** 書式の違い(`sameCssRule` の正規化)を除いて同じ規則か。両方に無ければ同じ、片方だけに無ければ違う。 */
 function sameRuleAt(a: string | undefined, b: string | undefined): boolean {
   return a === undefined || b === undefined ? a === b : sameCssRule(a, b);
@@ -89,8 +85,9 @@ export function computeCssSync(input: CssSyncInput): CssSyncResult {
   // 比べるのは next(編集画面の書き出し = GrapesJS の形)とペア側のファイルなので、ペア側が
   // 外部ツールの原文のままだと、意味が同じでも一致しない。消えるのは両版とも編集画面の書き出しの
   // 形になったとき — つまりペア側も編集画面を通して承認された後(書式の差は `sameCssRule` が吸収)。
-  const source = ruleTexts(input.next);
-  const after = ruleTexts(css ?? input.target);
+  // キーは転写と同じ形(重複を畳んだもの)で引く。
+  const source = foldedCssRuleTexts(input.next);
+  const after = foldedCssRuleTexts(css ?? input.target);
   const unresolved = (key: string): boolean => !sameRuleAt(source.get(key), after.get(key));
 
   const kept = input.prev.filter((c) => unresolved(c.ruleKey));

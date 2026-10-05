@@ -15,7 +15,11 @@
 // `@page` は前置き(`@page` / `@page :first` / `@page cover`)で、`@font-face` は `font-family` +
 // `font-weight` + `font-style` の値で見分ける(中身をキーにすると、版種固有に直した規則への変更が
 // 「削除 + 追加」になり、競合にならず後ろへ追記されて勝ってしまうため)。それ以外のセレクタを
-// 持たない規則は中身全体で見分ける。同じキーが複数あれば出現順の番号を足す。規則の間のコメントはどの規則にも属さず、同期の対象にならない。
+// 持たない規則は中身全体で見分ける。セレクタの属性値は `[src="x"]` の形にそろえる(GrapesJS は
+// ブラウザが書き出したセレクタを使うため)。同じキーが複数あれば `splitCssRules` は出現順の番号を
+// 足す。`mergeCssRuleChangesFromBaseline` は重複を先頭の出現の位置に 1 本へ畳んでから比べる
+// (GrapesJS も重複を 1 本に畳むので、出現ごとに対応づけると編集が原文の後ろの重複に負ける)。
+// 規則の間のコメントはどの規則にも属さず、同期の対象にならない。
 
 import { collectCssStructure } from '../security/cssExternalRefs.js';
 
@@ -68,6 +72,84 @@ function descriptor(body: string, prop: string): string {
 interface ScannedRule extends CssRule {
   /** `atRules` を比較用に文字列にしたもの。 */
   chainKey: string;
+  /** 出現番号を付けないキー(同じ規則の重複で共通)。 */
+  group: string;
+  /** ブロックの前置きの原文(`.a ` の末尾空白を除いたもの)。ブロックを持たない文は空。 */
+  head: string;
+  /** 宣言の並び(正規化済み)。ブロックを持たない文と、中に入れ子のブロックを持つ規則は undefined。 */
+  decls: string[] | undefined;
+}
+
+/** 規則の比較と書き換えの単位。重複を畳んだときは `parts` が原文の出現(先頭が置き場所)。 */
+interface MergeRule extends ScannedRule {
+  parts: ScannedRule[];
+}
+
+/**
+ * セレクタの属性値の書き方を、ブラウザの書き出し(`[src="x"]`)にそろえる。GrapesJS はセレクタを
+ * ブラウザに解かせて書き出すので、原文の `[src=x]` `[src='x']` と同じキーにするため。
+ */
+function canonicalAttrQuotes(sel: string): string {
+  let out = '';
+  let inAttr = false;
+  let i = 0;
+  while (i < sel.length) {
+    const c = sel[i];
+    if (c === '\\') {
+      out += sel.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
+    if (!inAttr) {
+      if (c === '[') inAttr = true;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === ']') {
+      inAttr = false;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === ' ') {
+      const prev = out.at(-1) ?? '';
+      if (prev === '[' || prev === '=' || /[\]=~|^$*]/.test(sel[i + 1] ?? '')) {
+        i++;
+        continue;
+      }
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      let value = '';
+      let k = i + 1;
+      while (k < sel.length && sel[k] !== c) {
+        if (sel[k] === '\\' && k + 1 < sel.length) {
+          // 一重引用符の中の `\'` は `'` そのもの。ほかのエスケープは残す。
+          value += sel[k + 1] === "'" ? "'" : sel.slice(k, k + 2);
+          k += 2;
+          continue;
+        }
+        value += sel[k] === '"' ? '\\"' : sel[k];
+        k++;
+      }
+      out += `"${value}"`;
+      i = k + 1;
+      continue;
+    }
+    if (out.at(-1) === '=') {
+      let k = i;
+      while (k < sel.length && sel[k] !== ' ' && sel[k] !== ']') k += sel[k] === '\\' ? 2 : 1;
+      out += `"${sel.slice(i, k)}"`;
+      i = k;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
 }
 
 /** 原文を規則へ分ける(キーと入れ子の情報つき)。 */
@@ -110,7 +192,14 @@ function scanCssRules(css: string): ScannedRule[] {
       .trim();
   };
 
-  const found: Array<{ chain: string[]; identity: string; start: number; end: number }> = [];
+  const found: Array<{
+    chain: string[];
+    identity: string;
+    start: number;
+    end: number;
+    head: string;
+    decls: string[] | undefined;
+  }> = [];
   const chain: string[] = [];
   let segStart = 0;
   let i = 0;
@@ -129,13 +218,28 @@ function scanCssRules(css: string): ScannedRule[] {
       // 葉のブロック: 対応する `}` まで中身ごと 1 規則にする(入れ子のブロックへは降りない)。
       let depth = 1;
       let j = i + 1;
+      let nested = false;
+      const semis: number[] = [];
       for (; j < punct.length && depth > 0; j++) {
-        if (punct[j].ch === '{') depth++;
-        else if (punct[j].ch === '}') depth--;
+        if (punct[j].ch === '{') {
+          depth++;
+          nested = true;
+        } else if (punct[j].ch === '}') depth--;
+        else if (depth === 1) semis.push(punct[j].at);
       }
       const closeAt = depth === 0 ? punct[j - 1].at : css.length;
       const end = depth === 0 ? closeAt + 1 : css.length;
-      let identity = prelude;
+      let decls: string[] | undefined;
+      if (!nested) {
+        decls = [];
+        let from = at + 1;
+        for (const to of [...semis, closeAt]) {
+          const d = normalize(from, to);
+          if (d !== '') decls.push(d);
+          from = to + 1;
+        }
+      }
+      let identity = name === undefined ? canonicalAttrQuotes(prelude) : prelude;
       if (name !== undefined && name !== 'page' && BARE_AT_KEYWORD_RE.test(prelude)) {
         const body = normalize(at + 1, closeAt);
         const family = name === 'font-face' ? descriptor(body, 'font-family') : '';
@@ -144,7 +248,14 @@ function scanCssRules(css: string): ScannedRule[] {
             ? `${prelude}{${body}}`
             : `${prelude}{font-family:${family};font-weight:${descriptor(body, 'font-weight')};font-style:${descriptor(body, 'font-style')}}`;
       }
-      found.push({ chain: [...chain], identity, start, end });
+      found.push({
+        chain: [...chain],
+        identity,
+        start,
+        end,
+        head: css.slice(start, at).trimEnd(),
+        decls,
+      });
       segStart = end;
       i = j;
       continue;
@@ -155,7 +266,14 @@ function scanCssRules(css: string): ScannedRule[] {
       // `;` で終わる文は `;` まで。`}` の手前で終わる文は末尾の空白を含めない。
       let end = ch === ';' ? at + 1 : at;
       if (ch === '}') while (end > start && /\s/.test(css[end - 1])) end--;
-      found.push({ chain: [...chain], identity: normalize(start, at), start, end });
+      found.push({
+        chain: [...chain],
+        identity: normalize(start, at),
+        start,
+        end,
+        head: '',
+        decls: undefined,
+      });
     }
     // 対応の無い `}` は最上位で現れ、pop は何もしない(読み飛ばす)。
     if (ch === '}') chain.pop();
@@ -177,6 +295,9 @@ function scanCssRules(css: string): ScannedRule[] {
       start: r.start,
       end: r.end,
       chainKey: JSON.stringify(r.chain),
+      group: first,
+      head: r.head,
+      decls: r.decls,
     };
   });
 }
@@ -257,10 +378,10 @@ function indentBefore(src: string, at: number): string {
 
 /** next で同じ入れ子の中にあり、target に元からある直前の規則(target 側の位置で返す)。 */
 function anchorFor(
-  rules: ScannedRule[],
+  rules: MergeRule[],
   index: number,
-  present: ReadonlyMap<string, ScannedRule>,
-): ScannedRule | undefined {
+  present: ReadonlyMap<string, MergeRule>,
+): MergeRule | undefined {
   const { chainKey } = rules[index];
   for (let k = index - 1; k >= 0; k--) {
     if (rules[k].chainKey !== chainKey) continue;
@@ -280,13 +401,12 @@ function anchorFor(
  *   その規則が target に無ければ、外側の入れ子 at-rule で包んで末尾へ入れる。
  */
 function mergeRuleChanges(
-  from: ScannedRule[],
+  from: MergeRule[],
   ref: ReadonlyMap<string, string>,
-  next: string,
+  n: MergeRule[],
   target: string,
+  t: MergeRule[],
 ): CssMergeResult {
-  const n = scanCssRules(next);
-  const t = scanCssRules(target);
   const fromKeys = new Set(from.map((r) => r.key));
   const nMap = new Map(n.map((r) => [r.key, r]));
   const tMap = new Map(t.map((r) => [r.key, r]));
@@ -294,7 +414,7 @@ function mergeRuleChanges(
   const applied: string[] = [];
   const conflicts: string[] = [];
   /** target が `ref` の形のままか(両方に無い場合も含む)。 */
-  const untouched = (key: string, tr: ScannedRule | undefined): boolean => {
+  const untouched = (key: string, tr: MergeRule | undefined): boolean => {
     const r = ref.get(key);
     return r === undefined || tr === undefined ? r === tr?.text : sameCssRule(tr.text, r);
   };
@@ -313,12 +433,15 @@ function mergeRuleChanges(
       continue;
     }
     if (nr === undefined) {
-      if (tr !== undefined) edits.push(removalOf(target, tr));
+      for (const p of tr?.parts ?? []) edits.push(removalOf(target, p));
       applied.push(fr.key);
     } else if (tr === undefined) {
       inserts.add(fr.key);
     } else {
-      edits.push({ start: tr.start, end: tr.end, text: nr.text });
+      // 重複を畳んだ規則は先頭の出現の位置へ 1 本で置き、残りの出現は消す。
+      const [first, ...rest] = tr.parts;
+      edits.push({ start: first.start, end: first.end, text: nr.text });
+      for (const p of rest) edits.push(removalOf(target, p));
       applied.push(fr.key);
     }
   }
@@ -326,7 +449,7 @@ function mergeRuleChanges(
   // ── 2. 追加(next の順)。挿入位置ごとにまとめ、next の順を保つ ──
   const groups = new Map<
     string,
-    { anchor: ScannedRule | undefined; atRules: string[]; texts: string[] }
+    { anchor: MergeRule | undefined; atRules: string[]; texts: string[] }
   >();
   for (const [index, nr] of n.entries()) {
     if (fromKeys.has(nr.key) && !inserts.has(nr.key)) continue;
@@ -366,8 +489,55 @@ function mergeRuleChanges(
 }
 
 /** 規則のキー → 原文。 */
-function textsByKey(rules: ScannedRule[]): Map<string, string> {
+function textsByKey(rules: MergeRule[]): Map<string, string> {
   return new Map(rules.map((r) => [r.key, r.text]));
+}
+
+/** 重複を畳まず、出現ごとに 1 規則にする(キーは出現番号つき)。 */
+function asIs(css: string): MergeRule[] {
+  return scanCssRules(css).map((r) => ({ ...r, parts: [r] }));
+}
+
+/**
+ * 重複した規則(出現番号の付くもの)を、先頭の出現の位置に 1 本へ畳む。宣言だけの規則は
+ * 宣言の後勝ち(`!important` は後ろの通常の宣言に負けない)で 1 本にし、宣言の並びは最初に
+ * 現れた順を保つ(GrapesJS が重複を読み込むときの畳み方と同じ)。入れ子のブロックを持つ規則
+ * (`@keyframes` など)とブロックを持たない文は、最後の出現を代表にする。
+ */
+function folded(css: string): MergeRule[] {
+  const rules = scanCssRules(css);
+  const groups = new Map<string, ScannedRule[]>();
+  for (const r of rules) groups.set(r.group, [...(groups.get(r.group) ?? []), r]);
+  const out: MergeRule[] = [];
+  for (const parts of groups.values()) {
+    const [first] = parts;
+    out.push({ ...first, key: first.group, text: foldedText(parts), parts });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+function foldedText(parts: ScannedRule[]): string {
+  if (parts.length === 1) return parts[0].text;
+  if (parts.some((p) => p.decls === undefined)) return parts[parts.length - 1].text;
+  const winners = new Map<string, { decl: string; important: boolean }>();
+  for (const p of parts) {
+    for (const decl of p.decls ?? []) {
+      const colon = decl.indexOf(':');
+      const prop = colon === -1 ? decl : decl.slice(0, colon).trim().toLowerCase();
+      const important = /!\s*important$/i.test(decl);
+      if (winners.get(prop)?.important && !important) continue;
+      winners.set(prop, { decl, important });
+    }
+  }
+  return `${parts[0].head}{${[...winners.values()].map((w) => w.decl).join(';')}}`;
+}
+
+/**
+ * 重複を畳んだ規則のキー → 本文(`mergeCssRuleChangesFromBaseline` のキーと同じ形)。ペア同期で、
+ * 転写後の規則が両版で一致したかを判定するのに使う。
+ */
+export function foldedCssRuleTexts(css: string): Map<string, string> {
+  return textsByKey(folded(css));
 }
 
 /**
@@ -375,12 +545,13 @@ function textsByKey(rules: ScannedRule[]): Map<string, string> {
  * target の同じ規則が base と同じなら当て、違えば競合にする(`mergeRuleChanges` を見よ)。
  */
 export function mergeCssRuleChanges(base: string, next: string, target: string): CssMergeResult {
-  const b = scanCssRules(base);
-  return mergeRuleChanges(b, textsByKey(b), next, target);
+  const b = asIs(base);
+  return mergeRuleChanges(b, textsByKey(b), asIs(next), target, asIs(target));
 }
 
 /**
- * 変更の検出と、ペア側(target)の照合を別の形で行う版。承認の CSS は GrapesJS が書き直した形
+ * 変更の検出と、ペア側(target)の照合を別の形で行う版。4 つの CSS とも重複した規則を畳んで
+ * 比べ(`folded`)、当てるときはペア側の重複を先頭の出現へ 1 本にまとめる。承認の CSS は GrapesJS が書き直した形
  * (一括指定の展開・色の正規化・url の引用符)で届くので、外部ツールが書いた原文と直に比べると
  * 編集していない規則まで「変わった」に見える。
  *
@@ -394,5 +565,11 @@ export function mergeCssRuleChangesFromBaseline(
   next: string,
   target: string,
 ): CssMergeResult {
-  return mergeRuleChanges(scanCssRules(baseline), textsByKey(scanCssRules(rawBase)), next, target);
+  return mergeRuleChanges(
+    folded(baseline),
+    textsByKey(folded(rawBase)),
+    folded(next),
+    target,
+    folded(target),
+  );
 }

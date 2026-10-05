@@ -524,3 +524,132 @@ describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側
     expect(r).toEqual({ css: '.a{x:2;}', applied: [], conflicts: [] });
   });
 });
+
+describe('属性セレクタの値の引用符', () => {
+  it('引用符なし・一重・二重の値を同じキーにする', () => {
+    const keys = splitCssRules(`img[src=x]{a:1}\nimg[src='x']{a:1}\nimg[src="x"]{a:1}`).map(
+      (r) => r.key,
+    );
+    expect(keys).toEqual([k('img[src="x"]'), k('img[src="x"]', 2), k('img[src="x"]', 3)]);
+  });
+
+  it('演算子・大文字小文字の指定・値の中の引用符も、ブラウザの書き出しと同じ形にそろえる', () => {
+    const keys = splitCssRules(
+      `a[href ^= 'http']{}\na[title='say "hi"']{}\na[lang|=en i]{}\na[data-x="a]b"]{}`,
+    ).map((r) => r.key);
+    expect(keys).toEqual([
+      k('a[href^="http"]'),
+      k('a[title="say \\"hi\\""]'),
+      k('a[lang|="en" i]'),
+      k('a[data-x="a]b"]'),
+    ]);
+  });
+
+  it('GrapesJS が引用符を付け直した規則も、原文の規則と対応づけて当てる', () => {
+    const raw = "img[src=x]{color:red}\nimg[src='y']{color:red}\n";
+    const baseline = 'img[src="x"]{color:red;}img[src="y"]{color:red;}';
+    const next = 'img[src="x"]{color:blue;}img[src="y"]{color:red;}';
+    const r = mergeCssRuleChangesFromBaseline(raw, baseline, next, raw);
+    expect(r).toEqual({
+      css: 'img[src="x"]{color:blue;}\nimg[src=\'y\']{color:red}\n',
+      applied: [k('img[src="x"]')],
+      conflicts: [],
+    });
+  });
+});
+
+describe('mergeCssRuleChangesFromBaseline — 原文で重複する規則は 1 本に畳んで比べる', () => {
+  it('GrapesJS が 1 本に畳んだ規則の編集は、原文の重複をまとめて 1 本に置き換える', () => {
+    const raw = '.a{color:red}.a{margin:0}';
+    const r = mergeCssRuleChangesFromBaseline(
+      raw,
+      '.a{color:red;margin:0;}',
+      '.a{color:blue;margin:0;}',
+      raw,
+    );
+    expect(r).toEqual({ css: '.a{color:blue;margin:0;}', applied: [k('.a')], conflicts: [] });
+  });
+
+  it('後ろの重複が同じ宣言を上書きしていても、編集した値が勝つ(最初の位置に置く)', () => {
+    const raw = '.a{color:red}\n.b{x:1}\n.a{color:green;margin:0}\n';
+    const r = mergeCssRuleChangesFromBaseline(
+      raw,
+      '.a{color:green;margin:0;}.b{x:1;}',
+      '.a{color:blue;margin:0;}.b{x:1;}',
+      raw,
+    );
+    expect(r).toEqual({
+      css: '.a{color:blue;margin:0;}\n.b{x:1}\n',
+      applied: [k('.a')],
+      conflicts: [],
+    });
+  });
+
+  it('ペア側の重複を畳んだ形が原文と違えば競合にし、ペア側は変えない', () => {
+    const target = '.a{color:red}.a{margin:5px}';
+    const r = mergeCssRuleChangesFromBaseline(
+      '.a{color:red}.a{margin:0}',
+      '.a{color:red;margin:0;}',
+      '.a{color:blue;margin:0;}',
+      target,
+    );
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+  });
+
+  it('ペア側が 1 本で、畳んだ原文と同じ宣言なら手つかずとみなして当てる', () => {
+    const r = mergeCssRuleChangesFromBaseline(
+      '.a{color:red}\n.a{margin:0}\n',
+      '.a{color:red;margin:0;}',
+      '.a{color:blue;margin:0;}',
+      '.a{color:red;margin:0}\n',
+    );
+    expect(r).toEqual({ css: '.a{color:blue;margin:0;}\n', applied: [k('.a')], conflicts: [] });
+  });
+
+  it('削除は重複をすべて消す', () => {
+    const raw = '.a{color:red}\n.b{x:1}\n.a{margin:0}\n';
+    const r = mergeCssRuleChangesFromBaseline(
+      raw,
+      '.a{color:red;margin:0;}.b{x:1;}',
+      '.b{x:1;}',
+      raw,
+    );
+    expect(r).toEqual({ css: '.b{x:1}\n', applied: [k('.a')], conflicts: [] });
+  });
+
+  it('!important の宣言は後ろの通常の宣言に負けない', () => {
+    const raw = '.a{color:red !important}.a{color:green}';
+    const r = mergeCssRuleChangesFromBaseline(
+      raw,
+      '.a{color:red !important;}',
+      '.a{color:blue !important;}',
+      raw,
+    );
+    expect(r).toEqual({ css: '.a{color:blue !important;}', applied: [k('.a')], conflicts: [] });
+  });
+
+  it('宣言でない中身(@keyframes)の重複は最後の 1 本を代表にする', () => {
+    const raw = '@keyframes k{from{x:0}}\n@keyframes k{from{x:1}}\n';
+    const r = mergeCssRuleChangesFromBaseline(
+      raw,
+      '@keyframes k{from{x:1;}}',
+      '@keyframes k{from{x:2;}}',
+      raw,
+    );
+    expect(r).toEqual({
+      css: '@keyframes k{from{x:2;}}\n',
+      applied: [k('@keyframes k')],
+      conflicts: [],
+    });
+  });
+
+  it('無編集なら重複があっても何もしない', () => {
+    const raw = '.a{color:red}.a{margin:0}';
+    const b = '.a{color:red;margin:0;}';
+    expect(mergeCssRuleChangesFromBaseline(raw, b, b, raw)).toEqual({
+      css: raw,
+      applied: [],
+      conflicts: [],
+    });
+  });
+});

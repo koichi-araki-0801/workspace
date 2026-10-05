@@ -107,6 +107,19 @@ describe('computeCssSync', () => {
     expect(r.conflicts).toEqual([{ ruleKey: k('.a'), detectedAt: NOW }]);
   });
 
+  it('ペア側で重複した規則は、畳んだ形が承認後と同じなら競合を解く', () => {
+    const r = computeCssSync({
+      base: '.a{color:red}',
+      baseline: '.a{color:red;}',
+      next: '.a{color:blue;margin:0;}',
+      target: '.a{color:blue}\n.a{margin:0}\n',
+      prev: [{ ruleKey: k('.a'), detectedAt: NOW }],
+      now: LATER,
+    });
+    expect(r.conflicts).toEqual([]);
+    expect(r.conflictsChanged).toBe(true);
+  });
+
   it('空のペア側への追加は写す', () => {
     const r = computeCssSync({
       base: '',
