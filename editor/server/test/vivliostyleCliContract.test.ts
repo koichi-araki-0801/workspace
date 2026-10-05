@@ -5,14 +5,19 @@
 // 渡す形へ戻すと、`locateVivliostyleConfig` の大小文字ヒットと JSONC パーサが同時に復活し、
 // 我々の許可リストは無関係になる。ここではソースを走査して**その退行を静的に落とす**。
 //
-// 実 CLI を起動する契約テスト(configData / viteConfigFile:false が本当に効くか)は、
-// オフライン CI での chromium 取得と ~11s の import を避けるためここには置かない。
-// 代わりに「我々のコードが CLI へ何を渡しているか」を型と静的検査の 2 段で固定する。
+// CLI へ何を渡しているかは、型と静的検査の 2 段で固定する。実 CLI を起動するのは
+// 配信ルートと singleDoc の契約だけ(Task 1 と Task 7 Step 17 が足す分)で、ブラウザは起こさず
+// (`preview` の `openViewer:false`)HTTP で直接確かめる。CLI の import に約 11 秒掛かるので、
+// 実 CLI を起動する契約はこの 2 種に限り、他の振る舞いは CLI をモックして確かめる。
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { mergeConfigObject } from '../src/vivliostyle/mergeInput.js';
 import { sharedInlineConfig } from '../src/vivliostyle/options.js';
+import { DEFAULT_DOC_BASE } from '../src/vivliostyle/previewProxy.js';
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'vivliostyle');
 
@@ -157,4 +162,93 @@ describe('@vivliostyle/viewer の script 実行(テンプレ JS が動く根拠)
   it('allowScripts の既定は true(false になったらテンプレ JS が全部死ぬ)', () => {
     expect(viewerBundle()).toContain('allowScripts:!0');
   });
+});
+
+// ── 文書を doc/ に置いたときの配信ルート(実 CLI で測る)──
+// 文書は `doc/index.html` に置き、`../css/…` `../images/…` で兄弟の資産を引く(論理配置。
+// `@editor/shared` の `resolveDocAssetPath`)。CLI の単一入力(`input`)はエントリの親
+// (= `doc/`)を配信ルートにするので兄弟へ届かない。entry 配列の config(`configData`)なら
+// `cwd`(作業フォルダ)が `entryContextDir` になり、資産の拡張子(css・画像・フォント)は
+// そこから配られる。ここが赤くなったら、PDF 経路の作業フォルダの形を設計から見直すこと。
+describe('@vivliostyle/cli の配信ルート(doc/ のエントリと兄弟の資産)', () => {
+  it('configData で doc/index.html をエントリにすると ../css と ../images と css/fonts が配信される', async () => {
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'vivlio-contract-'));
+    const put = async (rel: string, body: string): Promise<void> => {
+      const p = path.join(dir, ...rel.split('/'));
+      await fsp.mkdir(path.dirname(p), { recursive: true });
+      await fsp.writeFile(p, body, 'utf8');
+    };
+    await put(
+      'doc/index.html',
+      '<!doctype html><html><head><meta charset="utf-8">' +
+        '<link rel="stylesheet" href="../css/x.css"></head>' +
+        '<body><p>doc-marker</p><img src="../images/y.svg" alt=""></body></html>',
+    );
+    await put(
+      'css/x.css',
+      '/* css-marker */\n@font-face{font-family:F;src:url(fonts/a.woff2)}\np{color:red}\n',
+    );
+    await put('css/fonts/a.woff2', 'font-marker');
+    await put('images/y.svg', '<svg xmlns="http://www.w3.org/2000/svg"><!-- svg-marker --></svg>');
+
+    const { preview } = await import('@vivliostyle/cli');
+    const server = await preview({
+      configData: mergeConfigObject(['doc/index.html']),
+      cwd: dir,
+      openViewer: false,
+      host: '127.0.0.1',
+      viteConfigFile: false,
+      logLevel: 'silent',
+      vite: { server: { hmr: false, fs: { strict: true, allow: [dir] } } },
+    } as Parameters<typeof preview>[0]);
+    try {
+      const addr = server.httpServer?.address();
+      if (addr === null || addr === undefined || typeof addr !== 'object') {
+        throw new Error('プレビューサーバのポートが取れません');
+      }
+      const docUrl = new URL(`http://127.0.0.1:${addr.port}${DEFAULT_DOC_BASE}/doc/index.html`);
+      // ブラウザと同じ Accept を付ける。付けないと Vite が CSS を JS モジュールとして返しうる。
+      const get = async (
+        url: URL,
+        accept: string,
+      ): Promise<{ status: number; type: string; body: string }> => {
+        const res = await fetch(url, { headers: { accept } });
+        return {
+          status: res.status,
+          type: res.headers.get('content-type') ?? '',
+          body: await res.text(),
+        };
+      };
+
+      const doc = await get(docUrl, 'text/html');
+      expect(doc.status).toBe(200);
+      expect(doc.body).toContain('doc-marker');
+
+      // 参照の解決はブラウザと同じく文書の URL を基準にする。
+      const cssUrl = new URL('../css/x.css', docUrl);
+      const css = await get(cssUrl, 'text/css,*/*;q=0.1');
+      expect(css.status).toBe(200);
+      expect(css.type).toContain('text/css');
+      expect(css.body).toContain('css-marker');
+
+      // CSS 内の参照は CSS の URL を基準にする(`url(fonts/a.woff2)` = `css/fonts/a.woff2`)。
+      const font = await get(new URL('fonts/a.woff2', cssUrl), '*/*');
+      expect(font.status).toBe(200);
+      expect(font.body).toBe('font-marker');
+
+      const svg = await get(new URL('../images/y.svg', docUrl), 'image/svg+xml,image/*,*/*;q=0.8');
+      expect(svg.status).toBe(200);
+      expect(svg.type).toContain('image/svg+xml');
+      expect(svg.body).toContain('svg-marker');
+
+      // `.js` は資産の拡張子に入っていないので配られない。テンプレ JS は `inlineDocScripts` が
+      // 文書へ埋め込む前提で、配信を当てにしない(ここが 200 になったら前提を見直す)。
+      await put('js/z.js', '/* js-marker */');
+      const js = await get(new URL('../js/z.js', docUrl), '*/*');
+      expect(js.status).toBe(404);
+    } finally {
+      await server.close();
+      await fsp.rm(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });
