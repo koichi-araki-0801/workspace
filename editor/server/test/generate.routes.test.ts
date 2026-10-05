@@ -418,6 +418,14 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(fs.readFileSync(path.join(cssDir, 'AM01_510155_交付版.css'), 'utf8')).toBe('.own{}');
   });
 
+  it('コピー元テンプレはあるが CSS ファイルが無ければ、同じ名前の既存 CSS があっても空', async () => {
+    fs.writeFileSync(path.join(templatesDir, 'AM01_510037_交付版.html'), '<p>元</p>', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'AM01_510155_交付版.css'), '.own{}', 'utf8');
+    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '510037' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().template.css).toBe('');
+  });
+
   it('コピー元が無ければ同じ名前の既存 CSS を初期値にする', async () => {
     fs.writeFileSync(path.join(cssDir, 'AM01_510037_交付版.css'), '.same{}', 'utf8');
     const res = await generate(validBody);

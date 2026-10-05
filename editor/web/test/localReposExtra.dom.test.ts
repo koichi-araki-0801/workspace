@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
 import { localHistoryRepo } from '@/api/local/historyRepo';
 import { localPartRepo } from '@/api/local/partRepo';
-import { K } from '@/api/local/store';
+import { K, read, write } from '@/api/local/store';
 import { confirmSaveLocal, localTemplateRepo } from '@/api/local/templateRepo';
 import { localUserRepo } from '@/api/local/userRepo';
 
@@ -327,6 +327,58 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     if (!isOk(r)) throw new Error('generate に失敗');
     expect(r.value.template.html).toBe('<p>コピー元 {{ fund.name }}</p>');
     expect(r.value.template.meta.id).toBe('AM01_510155_全体版');
+  });
+
+  describe('generate の CSS の初期値(server の生成と同じ規則)', () => {
+    /** テンプレ単位の CSS を置く(`null` は消す)。 */
+    const putCss = (name: string, css: string | null): void => {
+      const all = read<Record<string, string>>(K.cssOverride, {});
+      if (css === null) delete all[name];
+      else all[name] = css;
+      write(K.cssOverride, all);
+    };
+    const gen = (sourceFundCode?: string) =>
+      localTemplateRepo.generate({
+        companyCode: 'AM01',
+        fundCode: '510155',
+        editionType: '全体版',
+        ...(sourceFundCode === undefined ? {} : { sourceFundCode }),
+      });
+
+    it('コピー元テンプレの CSS を、同じ名前の既存 CSS より優先する', async () => {
+      await approveSkeleton('510037', '全体版', '<p>元</p>');
+      putCss('AM01_510037_全体版.css', '.src{}');
+      putCss('AM01_510155_全体版.css', '.own{}');
+      const r = await gen('510037');
+      if (!isOk(r)) throw new Error('generate に失敗');
+      expect(r.value.template.css).toBe('.src{}');
+    });
+
+    it('コピー元テンプレはあるが CSS ファイルが無ければ、同じ名前の既存 CSS があっても空', async () => {
+      await approveSkeleton('510037', '全体版', '<p>元</p>');
+      putCss('AM01_510037_全体版.css', null);
+      putCss('AM01_510155_全体版.css', '.own{}');
+      const r = await gen('510037');
+      if (!isOk(r)) throw new Error('generate に失敗');
+      expect(r.value.template.css).toBe('');
+    });
+
+    it('コピー元が無ければ同じ名前の既存 CSS、それも無ければ空', async () => {
+      await loginAdmin();
+      putCss('AM01_510155_全体版.css', '.own{}');
+      const withOwn = await gen();
+      if (!isOk(withOwn)) throw new Error('generate に失敗');
+      expect(withOwn.value.template.css).toBe('.own{}');
+      putCss('AM01_510155_全体版.css', null);
+      const none = await localTemplateRepo.generate({
+        companyCode: 'AM01',
+        fundCode: '510155',
+        editionType: '全体版',
+        replaceExisting: true,
+      });
+      if (!isOk(none)) throw new Error('generate に失敗');
+      expect(none.value.template.css).toBe('');
+    });
   });
 
   it('getCreatableInfo はシリーズに属さないファンドではコピー元の候補を返さない', async () => {
