@@ -58,6 +58,24 @@ describe('docImageIssues', () => {
     ]);
     expect(docImageIssues('', 'SMTAM')).toEqual([]);
   });
+
+  it('style 属性の url() と、srcset・<source srcset>・<input src>・<video poster> の画像参照も拾う', () => {
+    const html =
+      '<html><body><div style="background:url(../images/other/s.svg)">a</div>' +
+      '<div style="background:url(../images/smtam/ok.svg)">b</div>' +
+      '<img src="../images/smtam/a.svg" srcset="../images/smtam/a.svg 1x, ../images/other/a2.svg 2x">' +
+      '<picture><source srcset="../images/x/y/p.svg"></picture>' +
+      '<input type="image" src="../images/other/i.svg">' +
+      '<video poster="../images/other/v.svg"></video>' +
+      '<a href="https://example.com/">x</a></body></html>';
+    expect(docImageIssues(html, 'SMTAM')).toEqual([
+      ['../images/other/s.svg', 'company'],
+      ['../images/other/a2.svg', 'company'],
+      ['../images/x/y/p.svg', 'unserved'],
+      ['../images/other/i.svg', 'company'],
+      ['../images/other/v.svg', 'company'],
+    ]);
+  });
 });
 
 describe('imageIssueMessages', () => {

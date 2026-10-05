@@ -20,6 +20,7 @@ import {
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { formatHtml } from '@/lib/formatOutput';
 import {
+  attrUrlCandidates,
   companyFolderMatches,
   dropUnmatchedCompanyImageUrls,
   fundImageRefOf,
@@ -56,27 +57,33 @@ function findExternalRefsInDom(root: Element): string[] {
 }
 
 /**
- * 会社フォルダがテンプレの会社コードと合わない画像を、PDF に配置させないよう文書から落とす
- * (`<img>` は `src` を外し、`<style>` と `style` 属性の `url()` は `none` にする)。照合は画面内
- * プレビュー・編集画面と同じ `companyFolderMatches` で、PDF だけ出るずれを作らない。`style`
- * 属性も落とすのは、サーバが `style` 属性の `url()` も集めて作業フォルダへ置くため(見逃すと
- * 他社の画像が PDF にだけ載る)。
+ * 会社フォルダがテンプレの会社コードと合わない画像を、PDF に配置させないよう文書から落とす。
+ * `<style>` と `style` 属性の `url()` は `none` にし、ほかの属性は合わない参照を含めば属性ごと
+ * 外す(`src`・`srcset`・`<source srcset>`・`<input src>`・`<video poster>` など)。属性を絞らない
+ * のは、サーバ(`vivliostyle/docRefs.ts`)が全属性の値を参照として集めて作業フォルダへ置くため
+ * (見逃すと他社の画像が PDF にだけ載る)。照合は画面内プレビュー・編集画面と同じ
+ * `companyFolderMatches` で、PDF だけ出るずれを作らない。
  */
 function dropUnmatchedCompanyImages(root: Element, companyCode: string | null): void {
-  for (const img of Array.from(root.querySelectorAll('img[src]'))) {
-    const rel = resolveDocAssetPath(img.getAttribute('src') ?? '', DOC_DIR);
+  const unmatched = (url: string): boolean => {
+    const rel = resolveDocAssetPath(url, DOC_DIR);
     const ref = rel === undefined ? undefined : fundImageRefOf(rel);
-    if (ref !== undefined && !companyFolderMatches(ref, companyCode)) img.removeAttribute('src');
-  }
+    return ref !== undefined && !companyFolderMatches(ref, companyCode);
+  };
   for (const style of Array.from(root.querySelectorAll('style'))) {
     const css = style.textContent ?? '';
     const next = dropUnmatchedCompanyImageUrls(css, DOC_DIR, companyCode);
     if (next !== css) style.textContent = next;
   }
-  for (const el of Array.from(root.querySelectorAll('[style]'))) {
-    const value = el.getAttribute('style') ?? '';
-    const next = dropUnmatchedCompanyImageUrls(value, DOC_DIR, companyCode);
-    if (next !== value) el.setAttribute('style', next);
+  for (const el of [root, ...Array.from(root.querySelectorAll('*'))]) {
+    for (const { name, value } of Array.from(el.attributes)) {
+      if (name === 'style') {
+        const next = dropUnmatchedCompanyImageUrls(value, DOC_DIR, companyCode);
+        if (next !== value) el.setAttribute('style', next);
+      } else if (unmatched(value) || attrUrlCandidates(name, value).some(unmatched)) {
+        el.removeAttribute(name);
+      }
+    }
   }
 }
 

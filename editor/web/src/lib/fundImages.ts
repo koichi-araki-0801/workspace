@@ -101,6 +101,22 @@ export function servedFundImageOf(
   return ref !== undefined && companyFolderMatches(ref, companyCode) ? ref : undefined;
 }
 
+/** 複数の URL を詰める属性(`srcset` は `url 1x, url 2x` の形)。 */
+const MULTI_URL_ATTRS = new Set(['srcset', 'imagesrcset']);
+
+/**
+ * HTML の属性値から、画像参照になりうる URL を並べる(`srcset` 系は候補ごとの URL、ほかは値
+ * そのもの)。サーバ(`vivliostyle/docRefs.ts`)は `style` 以外の**全属性**の値を文書基準の
+ * 参照として解き、画像を作業フォルダへ置くので、照合する側も属性を絞らない。
+ */
+export function attrUrlCandidates(name: string, value: string): string[] {
+  if (!MULTI_URL_ATTRS.has(name.toLowerCase())) return [value];
+  return value
+    .split(',')
+    .map((part) => part.trim().split(/\s+/)[0] ?? '')
+    .filter((u) => u !== '');
+}
+
 /**
  * CSS の中の、会社フォルダが合わない画像の `url()` を `none` にする(PDF に配置させないため)。
  * 走査は検査・付け替えと同じ `collectCssUrlSpans` で行い、別の正規表現で拾い直さない。

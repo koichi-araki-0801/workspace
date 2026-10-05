@@ -11,6 +11,7 @@
 
 import { collectCssUrlSpans, cssFileNameOf, DOC_DIR, resolveDocAssetPath } from '@editor/shared';
 import {
+  attrUrlCandidates,
   companyCodeOfTemplateId,
   companyFolderMatches,
   FUND_IMAGES_DIR,
@@ -70,7 +71,11 @@ export function cssImageIssues(
   return out;
 }
 
-/** 組み立て済みの文書(プレビュー用)の `<img>` と `<style>` から画像参照の問題を拾う。 */
+/**
+ * 組み立て済みの文書(プレビュー用)から画像参照の問題を拾う。`<img src>`・`<style>`・`style`
+ * 属性の `url()` に加え、ほかの属性(`srcset`・`<source srcset>`・`<input src>`・`<video poster>`
+ * など)のうち `images/` を指す値も見る — PDF 文書(`pdfDocument.ts`)が落とす参照と同じ範囲。
+ */
 export function docImageIssues(
   html: string,
   companyCode: string | null,
@@ -86,7 +91,30 @@ export function docImageIssues(
   for (const style of Array.from(doc.querySelectorAll('style'))) {
     out.push(...cssImageIssues(style.textContent ?? '', DOC_DIR, companyCode));
   }
+  for (const el of Array.from(doc.querySelectorAll('*'))) {
+    const isImg = el.tagName.toLowerCase() === 'img';
+    for (const { name, value } of Array.from(el.attributes)) {
+      if (name === 'style') {
+        out.push(...cssImageIssues(value, DOC_DIR, companyCode));
+        continue;
+      }
+      if (isImg && name === 'src') continue;
+      for (const url of attrUrlCandidates(name, value)) {
+        const kind = imagesAttrIssue(url, companyCode);
+        if (kind !== null) out.push([url, kind]);
+      }
+    }
+  }
   return out;
+}
+
+/** `images/` を指す属性値の問題(`images/` 以外を指す値は見ない)。 */
+function imagesAttrIssue(url: string, companyCode: string | null): ImageRefIssue | null {
+  const rel = resolveDocAssetPath(url, DOC_DIR);
+  if (rel === undefined || !rel.startsWith(IMAGES_PREFIX)) return null;
+  const ref = fundImageRefOf(rel);
+  if (ref === undefined) return 'unserved';
+  return companyFolderMatches(ref, companyCode) ? null : 'company';
 }
 
 function listRefs(refs: readonly string[]): string {
