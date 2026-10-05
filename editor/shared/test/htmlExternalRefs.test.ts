@@ -7,10 +7,12 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeHtmlUrlValue } from '../src/security/htmlEntities.js';
 import {
+  DOC_DIR,
   fetchUrlAttrsFor,
   findExternalRefsInTag,
   isFetchUrlAttr,
   nestedHtmlAttrsFor,
+  resolveDocAssetPath,
   resolveServedAssetPath,
 } from '../src/security/htmlExternalRefs.js';
 
@@ -278,5 +280,123 @@ describe('バックスラッシュで書いた scheme 相対', () => {
   it('resolveServedAssetPath も同じ形を配信ルート配下へ解決しない', () => {
     expect(resolveServedAssetPath('\\\\evil.example/x.png')).toBeUndefined();
     expect(resolveServedAssetPath('/\\evil.example/x.png')).toBeUndefined();
+  });
+});
+
+describe('resolveDocAssetPath — 文書(doc/)や CSS の位置を基準に論理ルート相対へ解く', () => {
+  it('文書の置き場は doc', () => {
+    expect(DOC_DIR).toBe('doc');
+  });
+
+  it.each([
+    ['../css/A_1_交付版.css', 'css/A_1_交付版.css'],
+    ['../images/smtam/qr.svg', 'images/smtam/qr.svg'],
+    ['../images/logo.png', 'images/logo.png'],
+    ['../js/column-width.js?v=1#top', 'js/column-width.js'],
+    ['../css/%E4%BA%A4%E4%BB%98%E7%89%88.css', 'css/交付版.css'],
+    ['../css/a&amp;b.css', 'css/a&b.css'],
+    ['./../css/x.css', 'css/x.css'],
+    [`../css/x.css${LF}`, 'css/x.css'],
+  ])('文書から %s → %s', (url, expected) => {
+    expect(resolveDocAssetPath(url, 'doc')).toBe(expected);
+  });
+
+  it.each([
+    // 文書直下基準の旧形式は扱わない(doc/ 配下は資産の置き場ではない)。
+    ['css/x.css'],
+    ['images/x.svg'],
+    ['./x.png'],
+    ['../doc/other.html'],
+    // ルートの外・ルートそのもの。
+    ['../../x.css'],
+    ['../'],
+    ['..'],
+    // 絶対参照・scheme 付き・断片だけ。
+    ['http://example.com/x.css'],
+    ['//example.com/x.css'],
+    ['/css/x.css'],
+    ['data:image/png;base64,AAAA'],
+    ['&#104;ttps://evil.example/x.css'],
+    ['#frag'],
+    [''],
+    // `\` は区切りとして扱わない(fail closed)。
+    ['..\\css\\x.css'],
+  ])('文書から %j は undefined', (url) => {
+    expect(resolveDocAssetPath(url, 'doc')).toBeUndefined();
+  });
+
+  it.each([
+    ['fonts/a.woff2', 'css/A_1_交付版.css', 'css/fonts/a.woff2'],
+    ['../images/b.png', 'css/A.css', 'images/b.png'],
+    ['./fonts/b.woff', 'css/A.css', 'css/fonts/b.woff'],
+    ['x.svg', 'images/smtam/a.svg', 'images/smtam/x.svg'],
+  ])('%s を %s から → %s', (url, from, expected) => {
+    expect(resolveDocAssetPath(url, from)).toBe(expected);
+  });
+
+  it.each([
+    ['../../x.png', 'css/A.css'],
+    ['../doc/x.html', 'css/A.css'],
+    ['http://example.com/a.woff2', 'css/A.css'],
+    // 参照元の論理パスそのものが不正。
+    ['x.png', ''],
+    ['x.png', '../A.css'],
+  ])('%s を %j から は undefined', (url, from) => {
+    expect(resolveDocAssetPath(url, from)).toBeUndefined();
+  });
+
+  it('resolveServedAssetPath の振る舞いは変えない(配信ルート直下基準のまま)', () => {
+    expect(resolveServedAssetPath('css/x.css')).toBe('css/x.css');
+    expect(resolveServedAssetPath('../css/x.css')).toBeUndefined();
+  });
+
+  // ── 日本語ファイル名と百分率符号化 ──
+  it('HTML に百分率符号化で書かれた日本語名は、生の綴りと同じ論理パスへ解ける', () => {
+    expect(resolveDocAssetPath('../images/110024_%E5%9F%BA%E6%BA%96.svg', 'doc')).toBe(
+      'images/110024_基準.svg',
+    );
+    expect(resolveDocAssetPath('../images/110024_基準.svg', 'doc')).toBe('images/110024_基準.svg');
+  });
+
+  it.each([
+    ['%2e%2e でルートの外へ', '../%2e%2e/x.css'],
+    ['%2e%2e で 1 段戻る', '../css/%2e%2e/images/x.svg'],
+    ['%2E%2E(大文字)', '../css/%2E%2E/x.svg'],
+    ['%2e で現在位置', '../css/%2e/x.css'],
+    ['%2F が区切りに化ける', '../css%2F..%2Fimages/x.svg'],
+    ['%2f(小文字)', '..%2fcss/x.css'],
+    ['%5C が区切りに化ける', '../css%5C..%5Cx.css'],
+    ['%00(NUL)', '../css/x%00.css'],
+    ['不正な百分率(末尾)', '../css/%E5%.css'],
+    ['不正な UTF-8 列', '../css/%E5%9F.svg'],
+    ['% 単独', '../css/100%.css'],
+  ])('復号で構造が変わる/壊れる形は undefined: %s', (_label, url) => {
+    expect(() => resolveDocAssetPath(url, 'doc')).not.toThrow();
+    expect(resolveDocAssetPath(url, 'doc')).toBeUndefined();
+  });
+
+  // ── 綴りの揺れ(解決の結果を表で固定する) ──
+  it.each([
+    ['先頭の ./ は無視して解く', './../images/x.svg', 'images/x.svg'],
+    [
+      'バックスラッシュ区切りは fail closed(resolveServedAssetPath と同じ規則)',
+      '..\\images\\x.svg',
+      undefined,
+    ],
+    ['大文字小文字は変えずに返す(実体との照合は呼び出し側)', '../IMAGES/x.svg', 'IMAGES/x.svg'],
+    [
+      'クエリは落として解く(resolveServedAssetPath と同じ規則)',
+      '../images/x.svg?v=1',
+      'images/x.svg',
+    ],
+    [
+      '断片は落として解く(resolveServedAssetPath と同じ規則)',
+      '../images/x.svg#frag',
+      'images/x.svg',
+    ],
+    ['DOC の大文字違いも doc 配下として拒否', '../DOC/x.html', undefined],
+    ['重複スラッシュは畳む', '..//images///x.svg', 'images/x.svg'],
+  ])('%s: %s', (_label, url, expected) => {
+    expect(resolveDocAssetPath(url, 'doc')).toBe(expected);
   });
 });

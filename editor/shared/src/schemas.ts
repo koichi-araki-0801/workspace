@@ -83,8 +83,8 @@ export const TemplateAttributes = z
     fundCode: z.string().meta({ description: 'ファンドコード' }),
     baseDate: z.string().optional().meta({
       description:
-        '基準日 (yyyymmdd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない',
-      example: '20240710',
+        '基準日(yyyymmdd または yyyy-mm-dd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない',
+      example: '2024-05-17',
     }),
     editionType: z.string().meta({ description: '版種' }),
   })

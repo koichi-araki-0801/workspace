@@ -1,8 +1,8 @@
 // =============================================================================
 // htmlExternalRefs.ts — HTML の属性が「文書の外へ取りに行く」参照かを判定する
 // =============================================================================
-// テンプレは CSS・フォント・JS を **同梱資産への相対パス**(`css/…` `css/fonts/…` `js/…`)で
-// 参照する。これは正当どころか必須で、遮断してはならない。遮断すべきなのは
+// 文書は CSS・JS・画像を **文書の置き場から見た相対パス**(`../css/…` `../js/…` `../images/…`)で
+// 参照する(論理配置は `resolveDocAssetPath`)。これは正当どころか必須で、遮断してはならない。遮断すべきなのは
 // **オリジン外への絶対参照**(`https://…` / `//host` / 許可外 `data:`)だけである。
 //
 // つまり「外部参照要素を要素名で落とす」という方針は誤りである。`<link>` を無条件に
@@ -179,6 +179,58 @@ export function findExternalRefsInTag(
   return found;
 }
 
+/** 論理ルートでの文書の置き場(1 段下)。文書の相対参照はここを基準に解く。 */
+export const DOC_DIR = 'doc';
+
+/** scheme 付き(`data:` やドライブ指定 `C:` を含む)の形。資産のパスにはならない。 */
+const SCHEME_PREFIX_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+
+/**
+ * 正規化済みの URL 値からパス部分を取り出して百分率復号する。配信ルート配下のパスに
+ * なりえない形(外部参照・ルート絶対・空・復号不能)は `undefined`。
+ *
+ * `strict` では区切りと相対指定を**復号前の字面**で確定する。`%2F` `%5C` `%2e%2e` は
+ * 区切りや `..` として働かせず(ブラウザも同じ扱い)、そうなる形は `undefined` にする。
+ */
+function decodedPathOf(value: string, strict: boolean): string | undefined {
+  if (value === '' || !isSelfContainedUrl(value)) return undefined;
+  // 断片・クエリは配信対象の識別に関与しない。
+  const pathOnly = value.split(/[?#]/, 1)[0];
+  if (pathOnly === '' || pathOnly.startsWith('/')) return undefined;
+  try {
+    if (!strict) return decodeURIComponent(pathOnly);
+    const parts: string[] = [];
+    for (const raw of pathOnly.split('/')) {
+      const seg = decodeURIComponent(raw);
+      if (seg.includes('/') || seg.includes('\\')) return undefined;
+      if ((seg === '.' || seg === '..') && seg !== raw) return undefined;
+      parts.push(seg);
+    }
+    return parts.join('/');
+  } catch {
+    return undefined; // 復号不能は fail closed
+  }
+}
+
+/**
+ * 復号済みのパスを `base`(ルート相対のセグメント列)の下で解く。ルートより上へ出る形と
+ * NUL・`\` を含む形は `undefined`。
+ */
+function resolveSegments(base: readonly string[], decoded: string): string[] | undefined {
+  if (decoded.includes('\0') || decoded.includes('\\')) return undefined;
+  const segments = [...base];
+  for (const seg of decoded.split('/')) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') {
+      if (segments.length === 0) return undefined;
+      segments.pop();
+      continue;
+    }
+    segments.push(seg);
+  }
+  return segments;
+}
+
 /**
  * 相対 URL を「配信ルート相対のパス」へ正規化する。配信ルート配下へ解決できない形
  * (絶対 URL・scheme 相対・ルート絶対 `/…`・`..` でルート外へ出る形)は `undefined`。
@@ -190,28 +242,36 @@ export function findExternalRefsInTag(
 export function resolveServedAssetPath(url: string): string | undefined {
   // 判定も解決も**ブラウザが実際に取りに行く形**で行う(`htmlEntities.ts`)。生値のままだと
   // `&#104;ttps://evil/x` が「相対参照」として配信ルート配下へ解決されうる。
-  const v = normalizeHtmlUrlValue(url);
-  if (v === '' || !isSelfContainedUrl(v)) return undefined;
-  // 断片・クエリは配信対象の識別に関与しない。
-  const pathOnly = v.split(/[?#]/, 1)[0];
-  if (pathOnly === '' || pathOnly.startsWith('/')) return undefined;
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(pathOnly);
-  } catch {
-    return undefined; // 復号不能は fail closed
-  }
-  if (decoded.includes('\0') || decoded.includes('\\')) return undefined;
-  const segments: string[] = [];
-  for (const seg of decoded.split('/')) {
-    if (seg === '' || seg === '.') continue;
-    if (seg === '..') {
-      // ルートより上へ出る形は配信ルート配下に解決できない。
-      if (segments.length === 0) return undefined;
-      segments.pop();
-      continue;
-    }
-    segments.push(seg);
-  }
-  return segments.length === 0 ? undefined : segments.join('/');
+  const decoded = decodedPathOf(normalizeHtmlUrlValue(url), false);
+  const segments = decoded === undefined ? undefined : resolveSegments([], decoded);
+  return segments === undefined || segments.length === 0 ? undefined : segments.join('/');
+}
+
+/** 参照元ファイルの論理パスから、相対参照の基準になるディレクトリのセグメント列を作る。 */
+function baseSegmentsOf(from: string): string[] | undefined {
+  if (from === DOC_DIR) return [DOC_DIR];
+  const segments = resolveSegments([], from);
+  return segments === undefined || segments.length === 0 ? undefined : segments.slice(0, -1);
+}
+
+/**
+ * 文書または CSS 等からの相対参照を、論理ルート相対のパスへ解く。
+ *
+ * 文書は「論理ルートの 1 段下(`doc/<文書>.html`)」にあるものとして解く。`from` が `'doc'` なら
+ * 文書から、それ以外は参照元ファイルの論理パス(例 `css/A_1_交付版.css`)から見た相対になる。
+ * 結果が `doc/` 配下になる参照(文書直下基準の `css/x.css` など)は資産の置き場を指さないので
+ * `undefined` にする。ルート外・絶対・scheme 付き・`data:` も `undefined`。
+ *
+ * 綴りの扱い: クエリ・断片は落とす。百分率符号化は区間ごとに復号し、`%2F` `%5C` `%2e%2e` の
+ * ように区切りや `..` になる形は `undefined`。大文字小文字は変えない(照合側の責務)。
+ */
+export function resolveDocAssetPath(url: string, from: string): string | undefined {
+  const base = baseSegmentsOf(from);
+  if (base === undefined) return undefined;
+  const decoded = decodedPathOf(normalizeHtmlUrlValue(url), true);
+  if (decoded === undefined || SCHEME_PREFIX_RE.test(decoded)) return undefined;
+  const segments = resolveSegments(base, decoded);
+  if (segments === undefined || segments.length === 0) return undefined;
+  if (segments[0].toLowerCase() === DOC_DIR) return undefined;
+  return segments.join('/');
 }

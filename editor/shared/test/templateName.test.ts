@@ -3,6 +3,7 @@ import {
   anyTemplateFileName,
   assertTemplateAttributeToken,
   assertTemplateFileName,
+  cssFileNameOf,
   type FilledTemplateAttributes,
   isValidFundCode,
   isValidTemplateId,
@@ -158,5 +159,28 @@ describe('テンプレート(3 つ区切り)のファイル名', () => {
 
   it('templateIdFromFileName は形を問わず .html を外す', () => {
     expect(templateIdFromFileName('AM01_510037_交付版.html')).toBe('AM01_510037_交付版');
+  });
+});
+
+describe('cssFileNameOf — 文書 ID からテンプレ単位の CSS 名を導く', () => {
+  it.each([
+    ['SMTAM_110024_2024-05-17_交付版', 'SMTAM_110024_交付版.css'],
+    // 基準日違いの文書は同じ CSS を共有する。
+    ['SMTAM_110024_2024-05-18_交付版', 'SMTAM_110024_交付版.css'],
+    ['SMTAM_110024_交付版', 'SMTAM_110024_交付版.css'],
+    ['AM01_510037_20240710_全体版', 'AM01_510037_全体版.css'],
+  ])('%s → %s', (id, expected) => {
+    expect(cssFileNameOf(id)).toBe(expected);
+  });
+
+  it.each([
+    [''],
+    ['SMTAM_110024'],
+    ['A_1_2024-05-17_交付版_余り'],
+    ['A/B_1_交付版'],
+    ['A_1_交付版 '],
+    ['A_1_..'],
+  ])('規約外 %j は null', (id) => {
+    expect(cssFileNameOf(id)).toBeNull();
   });
 });

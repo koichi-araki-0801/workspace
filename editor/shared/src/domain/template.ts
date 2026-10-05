@@ -70,6 +70,18 @@ export function templateIdFromFileName(fileName: string): string {
   return fileName.replace(/\.html$/, '');
 }
 
+/**
+ * 文書 ID(値入り HTML の 4 つ区切り / テンプレートの 3 つ区切り)から、テンプレ単位の CSS 名
+ * `<会社>_<ファンド>_<版種>.css` を導く。基準日違いの文書は同じ CSS を共有する(承認による
+ * CSS の変更が同じテンプレの他の基準日にも効く)。規約外・安全でない ID は null。
+ */
+export function cssFileNameOf(templateId: string): string | null {
+  if (!isValidAnyTemplateId(templateId)) return null;
+  const a = parseAnyTemplateFileName(`${templateId}.html`);
+  if (!a) return null;
+  return `${a.companyCode}_${a.fundCode}_${a.editionType}.css`;
+}
+
 // ── 交付版⇄全体版 ペア解決 ──
 // 同一の会社/ファンド/基準日で版種だけが異なる 2 テンプレートを「ペア」と呼び、確定保存の
 // 承認直後にパーツ単位の自動同期(server の `sync/partSync.ts`)を掛ける。版種は自由文字列の
