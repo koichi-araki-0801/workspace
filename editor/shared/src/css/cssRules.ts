@@ -17,8 +17,10 @@
 // 「削除 + 追加」になり、競合にならず後ろへ追記されて勝ってしまうため)。それ以外のセレクタを
 // 持たない規則は中身全体で見分ける。セレクタの属性値は `[src="x"]` の形にそろえる(GrapesJS は
 // ブラウザが書き出したセレクタを使うため)。同じキーが複数あれば `splitCssRules` は出現順の番号を
-// 足す。`mergeCssRuleChangesFromBaseline` は重複を先頭の出現の位置に 1 本へ畳んでから比べる
-// (GrapesJS も重複を 1 本に畳むので、出現ごとに対応づけると編集が原文の後ろの重複に負ける)。
+// 足す。`mergeCssRuleChangesFromBaseline` は重複を 1 本に畳んでから比べる。GrapesJS は重複を
+// 別々の規則のまま持ち、宣言の無効な規則は読み込みで落とす(出現番号が原文とずれる)。スタイルの
+// 編集は同じセレクタの最後の規則に入るので、出現ごとの対応では「どの出現が変わったか」が原文と
+// 合わないことがある。畳めば、どの出現を編集しても実際のカスケードと同じ値で比べられる。
 // 規則の間のコメントはどの規則にも属さず、同期の対象にならない。
 
 import { collectCssStructure } from '../security/cssExternalRefs.js';
@@ -80,7 +82,10 @@ interface ScannedRule extends CssRule {
   decls: string[] | undefined;
 }
 
-/** 規則の比較と書き換えの単位。重複を畳んだときは `parts` が原文の出現(先頭が置き場所)。 */
+/**
+ * 規則の比較と書き換えの単位。重複を畳んだときは `parts` が原文の出現で、`start`/`end` は
+ * 最後の出現(置き換え・追加の基準)を指す。
+ */
 interface MergeRule extends ScannedRule {
   parts: ScannedRule[];
 }
@@ -95,7 +100,7 @@ function canonicalAttrQuotes(sel: string): string {
   let i = 0;
   while (i < sel.length) {
     const c = sel[i];
-    if (c === '\\') {
+    if (c === '\\' && !(inAttr && out.at(-1) === '=')) {
       out += sel.slice(i, i + 2);
       i += 2;
       continue;
@@ -122,34 +127,52 @@ function canonicalAttrQuotes(sel: string): string {
       i++;
       continue;
     }
-    if (c === '"' || c === "'") {
-      let value = '';
-      let k = i + 1;
-      while (k < sel.length && sel[k] !== c) {
-        if (sel[k] === '\\' && k + 1 < sel.length) {
-          // 一重引用符の中の `\'` は `'` そのもの。ほかのエスケープは残す。
-          value += sel[k + 1] === "'" ? "'" : sel.slice(k, k + 2);
-          k += 2;
-          continue;
-        }
-        value += sel[k] === '"' ? '\\"' : sel[k];
-        k++;
-      }
-      out += `"${value}"`;
-      i = k + 1;
-      continue;
-    }
-    if (out.at(-1) === '=') {
-      let k = i;
-      while (k < sel.length && sel[k] !== ' ' && sel[k] !== ']') k += sel[k] === '\\' ? 2 : 1;
-      out += `"${sel.slice(i, k)}"`;
-      i = k;
+    if (c === '"' || c === "'" || out.at(-1) === '=') {
+      const quoted = c === '"' || c === "'";
+      const { value, next } = readAttrValue(sel, quoted ? i + 1 : i, quoted ? c : undefined);
+      out += `"${value.replace(/["\\]/g, '\\$&')}"`;
+      i = quoted ? next + 1 : next;
+      // `[x='y'i]` の `i` はブラウザが `[x="y" i]` と書き出す。
+      if (/[a-z]/i.test(sel[i] ?? '')) out += ' ';
       continue;
     }
     out += c;
     i++;
   }
   return out;
+}
+
+/**
+ * 属性値を `from` から読み、エスケープを解いた値と終わりの位置を返す。引用符つきは `quote` の
+ * 手前まで、引用符なしは空白か `]` の手前まで。
+ */
+function readAttrValue(
+  sel: string,
+  from: number,
+  quote: string | undefined,
+): { value: string; next: number } {
+  let value = '';
+  let k = from;
+  while (k < sel.length) {
+    const ch = sel[k];
+    if (quote !== undefined ? ch === quote : ch === ' ' || ch === ']') break;
+    if (ch === '\\' && k + 1 < sel.length) {
+      const hex = /^[0-9a-f]{1,6}/i.exec(sel.slice(k + 1, k + 7))?.[0];
+      if (hex === undefined) {
+        value += sel[k + 1];
+        k += 2;
+        continue;
+      }
+      const cp = Number.parseInt(hex, 16);
+      value += cp === 0 || cp > 0x10ffff ? '\ufffd' : String.fromCodePoint(cp);
+      k += 1 + hex.length;
+      if (sel[k] === ' ') k++;
+      continue;
+    }
+    value += ch;
+    k++;
+  }
+  return { value, next: k };
 }
 
 /** 原文を規則へ分ける(キーと入れ子の情報つき)。 */
@@ -438,10 +461,15 @@ function mergeRuleChanges(
     } else if (tr === undefined) {
       inserts.add(fr.key);
     } else {
-      // 重複を畳んだ規則は先頭の出現の位置へ 1 本で置き、残りの出現は消す。
-      const [first, ...rest] = tr.parts;
-      edits.push({ start: first.start, end: first.end, text: nr.text });
-      for (const p of rest) edits.push(removalOf(target, p));
+      // 重複を畳んだ規則は最後の出現の位置へ 1 本で置き、ほかの出現は消す。最後の出現の位置なら、
+      // 編集した値(後勝ちで効いていた宣言)が間にある別の規則との順序を変えずに効く。
+      for (const p of tr.parts) {
+        edits.push(
+          p === tr.parts.at(-1)
+            ? { start: p.start, end: p.end, text: nr.text }
+            : removalOf(target, p),
+        );
+      }
       applied.push(fr.key);
     }
   }
@@ -499,10 +527,10 @@ function asIs(css: string): MergeRule[] {
 }
 
 /**
- * 重複した規則(出現番号の付くもの)を、先頭の出現の位置に 1 本へ畳む。宣言だけの規則は
- * 宣言の後勝ち(`!important` は後ろの通常の宣言に負けない)で 1 本にし、宣言の並びは最初に
- * 現れた順を保つ(GrapesJS が重複を読み込むときの畳み方と同じ)。入れ子のブロックを持つ規則
- * (`@keyframes` など)とブロックを持たない文は、最後の出現を代表にする。
+ * 重複した規則(出現番号の付くもの)を、最後の出現の位置にある 1 本へ畳む。宣言だけの規則は
+ * 宣言の後勝ち(`!important` は後ろの通常の宣言に負けない)= 実際のカスケードの値で 1 本にし、
+ * 宣言の並びは最初に現れた順を保つ。入れ子のブロックを持つ規則(`@keyframes` など)とブロックを
+ * 持たない文は、最後の出現を代表にする。並びは最後の出現の位置の順。
  */
 function folded(css: string): MergeRule[] {
   const rules = scanCssRules(css);
@@ -510,8 +538,8 @@ function folded(css: string): MergeRule[] {
   for (const r of rules) groups.set(r.group, [...(groups.get(r.group) ?? []), r]);
   const out: MergeRule[] = [];
   for (const parts of groups.values()) {
-    const [first] = parts;
-    out.push({ ...first, key: first.group, text: foldedText(parts), parts });
+    const last = parts[parts.length - 1];
+    out.push({ ...last, key: last.group, text: foldedText(parts), parts });
   }
   return out.sort((a, b) => a.start - b.start);
 }
@@ -551,7 +579,7 @@ export function mergeCssRuleChanges(base: string, next: string, target: string):
 
 /**
  * 変更の検出と、ペア側(target)の照合を別の形で行う版。4 つの CSS とも重複した規則を畳んで
- * 比べ(`folded`)、当てるときはペア側の重複を先頭の出現へ 1 本にまとめる。承認の CSS は GrapesJS が書き直した形
+ * 比べ(`folded`)、当てるときはペア側の重複を最後の出現へ 1 本にまとめる。承認の CSS は GrapesJS が書き直した形
  * (一括指定の展開・色の正規化・url の引用符)で届くので、外部ツールが書いた原文と直に比べると
  * 編集していない規則まで「変わった」に見える。
  *

@@ -545,6 +545,24 @@ describe('属性セレクタの値の引用符', () => {
     ]);
   });
 
+  it('引用符を閉じた直後の大文字小文字の指定は、空白を挟んだ形にそろえる', () => {
+    const keys = splitCssRules(`a[x='y'i]{}\na[x="y" i]{}\na[x=y i]{}`).map((r) => r.key);
+    expect(keys).toEqual([k('a[x="y" i]'), k('a[x="y" i]', 2), k('a[x="y" i]', 3)]);
+  });
+
+  it('値のエスケープは解いてから二重引用符で囲み、`"` と `\\` だけを書き直す', () => {
+    const keys = splitCssRules(
+      `a[x=a\\]b]{}\na[x="a]b"]{}\na[x='a\\'b']{}\na[x=a\\5d b]{}\na[x='a\\\\b']{}`,
+    ).map((r) => r.key);
+    expect(keys).toEqual([
+      k('a[x="a]b"]'),
+      k('a[x="a]b"]', 2),
+      k(`a[x="a'b"]`),
+      k('a[x="a]b"]', 3),
+      k('a[x="a\\\\b"]'),
+    ]);
+  });
+
   it('GrapesJS が引用符を付け直した規則も、原文の規則と対応づけて当てる', () => {
     const raw = "img[src=x]{color:red}\nimg[src='y']{color:red}\n";
     const baseline = 'img[src="x"]{color:red;}img[src="y"]{color:red;}';
@@ -558,8 +576,8 @@ describe('属性セレクタの値の引用符', () => {
   });
 });
 
-describe('mergeCssRuleChangesFromBaseline — 原文で重複する規則は 1 本に畳んで比べる', () => {
-  it('GrapesJS が 1 本に畳んだ規則の編集は、原文の重複をまとめて 1 本に置き換える', () => {
+describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳んで比べる', () => {
+  it('重複した規則は 1 本に畳んで比べ、編集はペア側の重複をまとめて 1 本に置き換える', () => {
     const raw = '.a{color:red}.a{margin:0}';
     const r = mergeCssRuleChangesFromBaseline(
       raw,
@@ -570,16 +588,13 @@ describe('mergeCssRuleChangesFromBaseline — 原文で重複する規則は 1 �
     expect(r).toEqual({ css: '.a{color:blue;margin:0;}', applied: [k('.a')], conflicts: [] });
   });
 
-  it('後ろの重複が同じ宣言を上書きしていても、編集した値が勝つ(最初の位置に置く)', () => {
+  it('後ろの重複が同じ宣言を上書きしていても、編集した値が勝つ(最後の出現の位置に置く)', () => {
     const raw = '.a{color:red}\n.b{x:1}\n.a{color:green;margin:0}\n';
-    const r = mergeCssRuleChangesFromBaseline(
-      raw,
-      '.a{color:green;margin:0;}.b{x:1;}',
-      '.a{color:blue;margin:0;}.b{x:1;}',
-      raw,
-    );
+    const gjs = (color: string): string => `.a{color:red;}.b{x:1;}.a{color:${color};margin:0;}`;
+    const r = mergeCssRuleChangesFromBaseline(raw, gjs('green'), gjs('blue'), raw);
     expect(r).toEqual({
-      css: '.a{color:blue;margin:0;}\n.b{x:1}\n',
+      // 当てる本文は next の重複を畳んだ形。
+      css: '.b{x:1}\n.a{color:blue;margin:0}\n',
       applied: [k('.a')],
       conflicts: [],
     });
@@ -639,6 +654,17 @@ describe('mergeCssRuleChangesFromBaseline — 原文で重複する規則は 1 �
     expect(r).toEqual({
       css: '@keyframes k{from{x:2;}}\n',
       applied: [k('@keyframes k')],
+      conflicts: [],
+    });
+  });
+
+  it('重複した規則の後ろへの追加は、ペア側の最後の出現の後ろへ入れる', () => {
+    const raw = '.a{x:1}\n.b{y:1}\n.a{z:1}\n';
+    const base = '.a{x:1;}.b{y:1;}.a{z:1;}';
+    const r = mergeCssRuleChangesFromBaseline(raw, base, `${base}.c{w:1;}`, raw);
+    expect(r).toEqual({
+      css: '.a{x:1}\n.b{y:1}\n.a{z:1}\n.c{w:1;}\n',
+      applied: [k('.c')],
       conflicts: [],
     });
   });
