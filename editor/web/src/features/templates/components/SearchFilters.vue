@@ -13,7 +13,7 @@ import FormField from '@/components/ui/FormField.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import { useCascadingSelect } from '@/lib/useCascadingSelect';
-import { useFundNames } from '@/lib/useFundNames';
+import { useRep1Names } from '@/lib/useRep1Names';
 import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
 import { canSubmitSearch } from './searchGuard';
 
@@ -55,7 +55,7 @@ const emit = defineEmits<{ search: [DropdownQuery]; update: [DropdownQuery]; res
 const repo = useTemplateRepo();
 
 const labels: Record<Field, string> = {
-  companyCode: '委託会社コード',
+  companyCode: '委託会社',
   fundCode: 'ファンドコード',
   baseDate: '基準日',
   editionType: '版種',
@@ -85,20 +85,29 @@ onMounted(() => {
   if (hydrated) emit('restore', { ...query });
 });
 
-const { resolve, nameOf } = useFundNames();
-watch(() => options.value.fundCodes, (codes) => resolve(codes), { immediate: true });
+const { resolveCompanies, resolveFunds, companyLabel, fundName } = useRep1Names();
+resolveCompanies();
+watch(
+  () => query.companyCode,
+  (c) => c && resolveFunds(c),
+  { immediate: true },
+);
 
-// ファンドコードはコード+名称をラベルに、value はコードのまま (query/cascade 不変)。
+// 委託会社は「略称（コード）」、ファンドは「コード 名称」をラベルに。value は略称・コードの
+// まま(query/cascade 不変)。名前は Rep1 から引く(`useRep1Names`)。
+const companyOptions = computed(() =>
+  options.value.companyCodes.map((code) => ({ label: companyLabel(code), value: code })),
+);
 const fundOptions = computed(() =>
-  options.value.fundCodes.map((code) => ({
-    label: nameOf(code) ? `${code} ${nameOf(code)}` : code,
-    value: code,
-  })),
+  options.value.fundCodes.map((code) => {
+    const name = query.companyCode ? fundName(query.companyCode, code) : '';
+    return { label: name ? `${code} ${name}` : code, value: code };
+  }),
 );
 
 type Option = string | { label: string; value: string };
 const optionsByField: Record<Field, () => Option[]> = {
-  companyCode: () => options.value.companyCodes,
+  companyCode: () => companyOptions.value,
   fundCode: () => fundOptions.value,
   baseDate: () => options.value.baseDates,
   editionType: () => options.value.editionTypes,

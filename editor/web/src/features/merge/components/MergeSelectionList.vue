@@ -6,6 +6,7 @@
 // 増やさず、キーボード操作でも順序を確定できる。
 import type { TemplateMeta } from '@editor/shared';
 import { ArrowDown, ArrowUp, FileStack, X } from '@lucide/vue';
+import CompanyCodeLabel from '@/components/CompanyCodeLabel.vue';
 import FundCodeName from '@/components/FundCodeName.vue';
 import Button from '@/components/ui/Button.vue';
 
@@ -24,10 +25,10 @@ const emit = defineEmits<{ move: [index: number, dir: -1 | 1]; remove: [index: n
         <span class="w-6 shrink-0 text-center font-semibold text-muted-foreground">{{ i + 1 }}</span>
         <div class="min-w-0 flex-1">
           <div class="truncate">
-            <FundCodeName :code="m.attributes.fundCode" />
+            <FundCodeName :company-code="m.attributes.companyCode" :code="m.attributes.fundCode" />
           </div>
           <div class="mono truncate text-xs text-muted-foreground">
-            {{ m.attributes.companyCode }} / {{ m.attributes.baseDate }} / {{ m.attributes.editionType }}
+            <CompanyCodeLabel :code="m.attributes.companyCode" /> / {{ m.attributes.baseDate }} / {{ m.attributes.editionType }}
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-1">

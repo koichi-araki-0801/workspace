@@ -52,11 +52,20 @@ const route = reactive({ query: {} as Record<string, string> });
 const auth = reactive({ isApprover: true });
 const editPath = { value: undefined as string | undefined };
 
-vi.mock('@/api/repositories', () => ({
-  useReviewRepo: () => ({ listReviews: listReviewsFn }),
-  useTemplateRepo: () => ({ getTemplate: getTemplateFn, getSampleData: getSampleDataFn }),
-  useNoteRepo: () => ({ listNotes: listNotesFn, addNote: addNoteFn }),
-}));
+vi.mock('@/api/repositories', async () => {
+  const { ok } = await import('@editor/shared');
+  return {
+    useReviewRepo: () => ({ listReviews: listReviewsFn }),
+    useTemplateRepo: () => ({
+      getTemplate: getTemplateFn,
+      getSampleData: getSampleDataFn,
+      // 属性欄の委託会社・ファンド名(Rep1)。この画面の関心ではないので空で返す。
+      listCompanies: async () => ok([]),
+      listFunds: async () => ok([]),
+    }),
+    useNoteRepo: () => ({ listNotes: listNotesFn, addNote: addNoteFn }),
+  };
+});
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ push }) }));
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }));
 vi.mock('@/stores/tabMemory', () => ({

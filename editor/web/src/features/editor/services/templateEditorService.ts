@@ -33,7 +33,7 @@ interface EditorLoad {
   css: string;
   /** canvas 選択を docs へ解決するための catalog parts。 */
   parts: PartCatalogItem[];
-  /** editor タイトル用の表示 fund 名(sample data 由来。無ければファイル名にフォールバック)。 */
+  /** editor タイトルの既定(ファイル名。ファンド名は上部バーが Rep1 から引いて差し替える)。 */
   fundName: string;
   /** 未確定の draft が既に存在したか(前回セッションの編集途中)。dirty 初期化に使う。 */
   hasDraft: boolean;
@@ -81,8 +81,8 @@ export function createTemplateEditorService(
         discardedStaleDraft = true;
       }
 
-      // sample data は値の差込と editor タイトルの両方を駆動する。ここでの失敗が
-      // load をブロックしてはならない(差込は空値になるだけ)。
+      // sample data は値の差込を駆動する。ここでの失敗が load をブロックしてはならない
+      // (差込は空値になるだけ)。
       let sample: SampleData = {};
       try {
         const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
@@ -120,9 +120,8 @@ export function createTemplateEditorService(
         );
       }
 
-      let fundName = tpl.meta.fileName.replace(/\.html$/, '');
-      const fund = sample.fund as { name?: string } | undefined;
-      if (fund?.name) fundName = fund.name;
+      // タイトルの既定はファイル名。ファンド名は上部バーが Rep1 から引いて差し替える。
+      const fundName = tpl.meta.fileName.replace(/\.html$/, '');
 
       return ok({
         template: tpl,

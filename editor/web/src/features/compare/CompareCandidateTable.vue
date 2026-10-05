@@ -4,6 +4,7 @@
 // =============================================================================
 import { Check, ChevronLeft, ChevronRight, Inbox } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
+import CompanyCodeLabel from '@/components/CompanyCodeLabel.vue';
 import FundCodeName from '@/components/FundCodeName.vue';
 import Button from '@/components/ui/Button.vue';
 import TableContainer from '@/components/ui/TableContainer.vue';
@@ -46,7 +47,7 @@ watch(
     <Table class="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead class="w-[104px]">委託会社コード</TableHead>
+          <TableHead class="w-[150px]">委託会社</TableHead>
           <TableHead class="w-[260px]">ファンド</TableHead>
           <TableHead class="w-[110px]">基準日</TableHead>
           <TableHead class="w-[84px]">版種</TableHead>
@@ -65,9 +66,14 @@ watch(
             ? 'bg-primary/10 [&>td:first-child]:border-l-2 [&>td:first-child]:border-primary'
             : ''"
         >
-          <TableCell class="mono truncate font-medium">{{ c.meta.attributes.companyCode }}</TableCell>
           <TableCell class="truncate">
-            <FundCodeName :code="c.meta.attributes.fundCode" />
+            <CompanyCodeLabel :code="c.meta.attributes.companyCode" />
+          </TableCell>
+          <TableCell class="truncate">
+            <FundCodeName
+              :company-code="c.meta.attributes.companyCode"
+              :code="c.meta.attributes.fundCode"
+            />
           </TableCell>
           <TableCell class="mono truncate">{{ c.meta.attributes.baseDate }}</TableCell>
           <TableCell class="truncate">{{ c.meta.attributes.editionType }}</TableCell>

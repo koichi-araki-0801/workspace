@@ -21,12 +21,15 @@ import {
   Strikethrough,
   Undo2,
 } from '@lucide/vue';
+import { computed, watch } from 'vue';
 import PageNav from '@/components/PageNav.vue';
 import BackButton from '@/components/ui/BackButton.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
+import { UNREGISTERED } from '@/lib/companyLabel';
 import { templateAttributeItems } from '@/lib/templateAttributeItems';
+import { useRep1Names } from '@/lib/useRep1Names';
 import type { SaveState } from './useAutosave';
 
 const props = defineProps<{
@@ -75,8 +78,25 @@ const emit = defineEmits<{
 }>();
 
 // テンプレート(基準日を持たない)を開いているときは、基準日のチップごと出さない。
+const { resolveFunds, companyLabel, fundName: rep1FundName } = useRep1Names();
+watch(
+  () => props.attributes?.companyCode,
+  (c) => c && resolveFunds(c),
+  { immediate: true },
+);
+
+// タイトルは Rep1 のファンド名。引けない(取得前・失敗・未登録)間は既定(ファイル名)のまま。
+const title = computed(() => {
+  const a = props.attributes;
+  const name = a ? rep1FundName(a.companyCode, a.fundCode) : '';
+  return name && name !== UNREGISTERED ? name : props.fundName;
+});
+
 const attrItems = (a: TemplateAttributes) =>
-  templateAttributeItems(a).map((i) => ({ k: i.label, v: i.value }));
+  templateAttributeItems(a).map((i) => ({
+    k: i.label,
+    v: i.key === 'companyCode' ? companyLabel(i.value) : i.value,
+  }));
 </script>
 
 <template>
@@ -92,7 +112,7 @@ const attrItems = (a: TemplateAttributes) =>
          上限は属性チップ 1 行分(実測 418px)で、長いファンド名は truncate へ回す。 -->
     <div class="flex min-w-0 max-w-[420px] flex-col">
       <div class="flex min-w-0 items-center gap-2">
-        <span class="truncate text-[15px] font-bold">{{ fundName }}</span>
+        <span class="truncate text-[15px] font-bold">{{ title }}</span>
         <!-- 確定状態のバッジ。下書きは常時自動保存されるが「確定保存」は preview 画面で行うため、
              未確定の編集が残っているかをここで明示する(自動保存ステータスとは別物)。 -->
         <Tooltip v-if="dirty" text="確定保存していない編集があります。プレビュー画面で確定保存できます。">

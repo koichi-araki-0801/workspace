@@ -5,6 +5,7 @@
 import type { ReviewRequestMeta, TemplateMeta } from '@editor/shared';
 import { FilePlus2, Inbox, Pencil, Plus } from '@lucide/vue';
 import { computed } from 'vue';
+import CompanyCodeLabel from '@/components/CompanyCodeLabel.vue';
 import FundCodeName from '@/components/FundCodeName.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
@@ -53,7 +54,7 @@ const emptyColspan = computed(
     <Table class="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead class="w-[110px]">委託会社コード</TableHead>
+          <TableHead class="w-[150px]">委託会社</TableHead>
           <TableHead class="w-[360px]">ファンド</TableHead>
           <TableHead v-if="showBaseDate" class="w-[120px]">基準日</TableHead>
           <TableHead class="w-[88px]">版種</TableHead>
@@ -64,9 +65,11 @@ const emptyColspan = computed(
       </TableHeader>
       <TableBody class="[&>tr:nth-child(even)]:bg-muted/40">
         <TableRow v-for="vm in vms" :key="vm.id">
-          <TableCell class="mono truncate font-medium">{{ vm.attributes.companyCode }}</TableCell>
           <TableCell class="truncate">
-            <FundCodeName :code="vm.attributes.fundCode" />
+            <CompanyCodeLabel :code="vm.attributes.companyCode" />
+          </TableCell>
+          <TableCell class="truncate">
+            <FundCodeName :company-code="vm.attributes.companyCode" :code="vm.attributes.fundCode" />
           </TableCell>
           <TableCell v-if="showBaseDate" class="mono truncate">{{ vm.attributes.baseDate }}</TableCell>
           <TableCell class="truncate">{{ vm.attributes.editionType }}</TableCell>

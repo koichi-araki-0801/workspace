@@ -161,6 +161,8 @@ export default defineConfig({
         'editor/web/src/lib/templateAttributeItems.ts',
         'editor/web/src/lib/companyLabel.ts',
         'editor/web/src/lib/useRep1Names.ts',
+        'editor/web/src/components/CompanyCodeLabel.vue',
+        'editor/web/src/components/FundCodeName.vue',
         'editor/web/src/lib/sessionExpiry.ts',
         'editor/web/src/lib/useIframeAutoFit.ts',
         'editor/web/src/features/editor/geom.ts',

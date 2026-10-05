@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // =============================================================================
-// AttributeBar.vue — template 属性(委託会社コード等)の横並びサマリ表示
+// AttributeBar.vue — template 属性(委託会社等)の横並びサマリ表示
 // =============================================================================
 import type { TemplateAttributes } from '@editor/shared';
 import { computed } from 'vue';
+import CompanyCodeLabel from '@/components/CompanyCodeLabel.vue';
 import FundCodeName from '@/components/FundCodeName.vue';
 import { templateAttributeItems } from '@/lib/templateAttributeItems';
 
@@ -37,8 +38,13 @@ const items = computed(() => templateAttributeItems(props.attributes));
     >
       <span class="text-xs text-muted-foreground">{{ it.label }}</span>
       <span class="truncate text-sm text-foreground">
-        <!-- fundCode 列だけコード＋解決名の共有部品へ委譲(名前解決の配線を二重に持たない) -->
-        <FundCodeName v-if="it.key === 'fundCode'" :code="it.value" />
+        <!-- 委託会社・ファンドは Rep1 から引く共有部品へ委譲(名前解決の配線を二重に持たない) -->
+        <FundCodeName
+          v-if="it.key === 'fundCode'"
+          :company-code="props.attributes.companyCode"
+          :code="it.value"
+        />
+        <CompanyCodeLabel v-else-if="it.key === 'companyCode'" :code="it.value" />
         <span v-else class="mono font-medium">{{ it.value }}</span>
       </span>
     </component>

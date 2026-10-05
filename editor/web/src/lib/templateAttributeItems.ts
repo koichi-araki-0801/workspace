@@ -13,7 +13,7 @@ export interface TemplateAttributeItem {
 }
 
 const LABELS: ReadonlyArray<[keyof TemplateAttributes, string]> = [
-  ['companyCode', '委託会社コード'],
+  ['companyCode', '委託会社'],
   ['fundCode', 'ファンドコード'],
   ['baseDate', '基準日'],
   ['editionType', '版種'],

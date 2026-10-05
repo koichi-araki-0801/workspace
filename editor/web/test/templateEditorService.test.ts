@@ -96,7 +96,7 @@ describe('TemplateEditorService.loadForEdit', () => {
     if (isErr(res)) expect(res.error.kind).toBe('not_found');
   });
 
-  it('uses the sample fund name for the title when available', async () => {
+  it('タイトルの既定はファイル名(サンプルデータのファンド名は使わない。名前は上部バーが Rep1 から引く)', async () => {
     const templates = {
       getTemplate: vi.fn(async () => ok(tpl)),
       getDraft: vi.fn(async () => ok(null)),
@@ -106,7 +106,7 @@ describe('TemplateEditorService.loadForEdit', () => {
     const svc = createTemplateEditorService(templates, parts);
     const res = await svc.loadForEdit('t1');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.fundName).toBe('グローバル株式ファンド');
+    if (isOk(res)) expect(res.value.fundName).toBe('t1');
   });
 
   it('falls back to the file name when the sample fetch fails', async () => {
