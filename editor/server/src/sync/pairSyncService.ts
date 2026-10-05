@@ -12,9 +12,10 @@
 // (4 つ区切り)が `会社_ファンド_基準日` で、状態ファイルは別になる。
 //
 // CSS も同じ承認の中で写す(`cssSync.ts`)。CSS はテンプレ単位なので、値入り HTML のペアでも
-// テンプレのペアでも対象は同じ CSS 2 枚(`…_交付版.css` ⇔ `…_全体版.css`)になる。base は承認の
-// 直前の CSS で、呼び出し側(承認)が書く前に読んで渡す(状態の記録は増やさない)。CSS の競合は
-// 基準日をまたぐので、値入り HTML の承認でもテンプレのペアキー(`cssSyncPairKey`)の状態ファイルへ書く。
+// テンプレのペアでも対象は同じ CSS 2 枚(`…_交付版.css` ⇔ `…_全体版.css`)になる。呼び出し側
+// (承認)は承認の直前の CSS(書く前に読む原文)と、申請に載った baseline(確定版の CSS を
+// 編集画面が読み込んだ直後の形)を渡す(状態の記録は増やさない)。CSS の競合は基準日をまたぐ
+// ので、値入り HTML の承認でもテンプレのペアキー(`cssSyncPairKey`)の状態ファイルへ書く。
 
 import {
   type PairSyncStatus,
@@ -38,14 +39,25 @@ import type { PartRepo } from '../repositories/partRepo.js';
 import { computeCssSync, cssSyncPairKey } from './cssSync.js';
 import { computePairSync, type PairSyncState } from './partSync.js';
 
+/** CSS の転写の入力(`computeCssSync` の `base` / `baseline`)。 */
+export interface PairCssSource {
+  /** 承認の直前の source の CSS(ファイルの原文)。 */
+  before: string;
+  /** 確定版の CSS を編集画面が読み込んだ直後の形。 */
+  baseline: string;
+}
+
 export interface PairSyncService {
   getPairSyncStatus(templateId: string): Promise<PairSyncStatus>;
   syncPairAfterConfirm(
     sourceTemplateId: string,
     actor: string,
     target: ConfirmedTarget,
-    /** 承認の直前の source の CSS。読めなかったときは null(CSS の転写だけを飛ばす)。 */
-    opts: { cssBefore: string | null },
+    /**
+     * CSS の転写の入力。揃わないとき(承認前の CSS を読めない・baseline の無い申請)は null で、
+     * CSS の転写だけを飛ばす。
+     */
+    opts: { css: PairCssSource | null },
   ): Promise<PairSyncSummary | null>;
 }
 
@@ -100,7 +112,7 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
       // CSS の入力。読めなければ(権限・共有違反など)CSS の転写だけを飛ばし、本文の同期は続ける。
       // 読めない CSS を '' と見なすと、全規則が追加・削除扱いになってペアへ誤って写る。
       const readCssInputs = async (bodyKey: string, state: PairSyncState) => {
-        if (opts.cssBefore === null) return null;
+        if (opts.css === null) return null;
         const cssKey = cssSyncPairKey(sourceTemplateId);
         if (cssKey === null) return null;
         try {
@@ -110,7 +122,7 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
           ]);
           // テンプレのペアの承認では同じファイル。値入り HTML のペアの承認では別のファイルを読む。
           const cssState = cssKey === bodyKey ? state : await readSyncState(cssKey);
-          return { base: opts.cssBefore, cssKey, next, target, cssState };
+          return { ...opts.css, cssKey, next, target, cssState };
         } catch (e) {
           logger.warn(
             { err: e },
@@ -143,7 +155,8 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
           cssIn === null
             ? null
             : computeCssSync({
-                base: cssIn.base,
+                base: cssIn.before,
+                baseline: cssIn.baseline,
                 next: cssIn.next,
                 target: cssIn.target,
                 prev: cssIn.cssState.css?.conflicts ?? [],

@@ -84,14 +84,14 @@ d('pairSyncService', () => {
     put('templates', 'AM01_510037_全体版', doc(part('a', '旧')));
     // 1 回目: 両版が一致しているので転写せず、前回同期の基準だけを作る。
     const first = await svc.syncPairAfterConfirm('AM01_510037_交付版', 'approver1', 'template', {
-      cssBefore: '',
+      css: { before: '', baseline: '' },
     });
     expect(first).toMatchObject({ pairTemplateId: 'AM01_510037_全体版', error: null });
     expect(fs.existsSync(syncFile('AM01_510037'))).toBe(true);
     // 2 回目: 交付版だけが変わったので全体版へ転写する。
     put('templates', 'AM01_510037_交付版', doc(part('a', '新')));
     const second = await svc.syncPairAfterConfirm('AM01_510037_交付版', 'approver1', 'template', {
-      cssBefore: '',
+      css: { before: '', baseline: '' },
     });
     expect(second?.error).toBeNull();
     expect(second?.applied).toHaveLength(1);
@@ -105,7 +105,7 @@ d('pairSyncService', () => {
     put('filled', 'AM01_510037_20240710_交付版', doc(part('a', 'x')));
     put('filled', 'AM01_510037_20240710_全体版', doc(part('a', 'x')));
     await svc.syncPairAfterConfirm('AM01_510037_20240710_交付版', 'approver1', 'filled', {
-      cssBefore: '',
+      css: { before: '', baseline: '' },
     });
     expect(fs.existsSync(syncFile('AM01_510037_20240710'))).toBe(true);
     expect(fs.readFileSync(syncFile('AM01_510037'), 'utf8')).toBe(before);
@@ -115,11 +115,13 @@ d('pairSyncService', () => {
     put('templates', 'AM01_510155_交付版', doc(part('a', 'x')));
     expect(
       await svc.syncPairAfterConfirm('AM01_510155_交付版', 'approver1', 'template', {
-        cssBefore: '',
+        css: { before: '', baseline: '' },
       }),
     ).toBeNull();
     expect(
-      await svc.syncPairAfterConfirm('AM01_510155_kr', 'approver1', 'template', { cssBefore: '' }),
+      await svc.syncPairAfterConfirm('AM01_510155_kr', 'approver1', 'template', {
+        css: { before: '', baseline: '' },
+      }),
     ).toBeNull();
   });
 
@@ -138,7 +140,7 @@ d('pairSyncService', () => {
         'AM01_510003_交付版',
         'approver1',
         'template',
-        { cssBefore: '' },
+        { css: { before: '', baseline: '' } },
       );
     })();
     expect(r).toMatchObject({
@@ -169,7 +171,7 @@ d('pairSyncService', () => {
     put('templates', 'AM01_530000_交付版', doc(part('a', '旧')));
     put('templates', 'AM01_530000_全体版', doc(part('a', '旧')));
     await svc.syncPairAfterConfirm('AM01_530000_交付版', 'approver1', 'template', {
-      cssBefore: '',
+      css: { before: '', baseline: '' },
     });
     // 承認: 本文と CSS の両方が変わった。
     putCss('AM01_530000_交付版.css', '.a{color:green}\n.b{color:blue}');
@@ -177,7 +179,7 @@ d('pairSyncService', () => {
     put('templates', 'AM01_530000_交付版', doc(part('a', '新')));
     const before = syncCommits();
     const r = await svc.syncPairAfterConfirm('AM01_530000_交付版', 'approver1', 'template', {
-      cssBefore: '.a{color:red}\n.b{color:blue}',
+      css: { before: '.a{color:red}\n.b{color:blue}', baseline: '.a{color:red}\n.b{color:blue}' },
     });
     expect(r?.error).toBeNull();
     expect(r?.css?.applied).toHaveLength(1);
@@ -196,7 +198,7 @@ d('pairSyncService', () => {
     putCss('AM01_540000_交付版.css', '.a{color:green}');
     putCss('AM01_540000_全体版.css', '.a{color:red}');
     const r = await svc.syncPairAfterConfirm('AM01_540000_20240710_交付版', 'approver1', 'filled', {
-      cssBefore: '.a{color:red}',
+      css: { before: '.a{color:red}', baseline: '.a{color:red}' },
     });
     expect(r?.css?.applied).toHaveLength(1);
     expect(readCss('AM01_540000_全体版.css')).toContain('.a{color:green}');
@@ -211,7 +213,7 @@ d('pairSyncService', () => {
     putCss('AM01_550000_交付版.css', '.a{color:green}');
     putCss('AM01_550000_全体版.css', '.a{color:black}');
     const r = await svc.syncPairAfterConfirm('AM01_550000_20240710_交付版', 'approver1', 'filled', {
-      cssBefore: '.a{color:red}',
+      css: { before: '.a{color:red}', baseline: '.a{color:red}' },
     });
     expect(r?.css?.applied).toEqual([]);
     expect(r?.css?.conflicts).toHaveLength(1);
@@ -240,7 +242,7 @@ d('pairSyncService', () => {
     putCss('AM01_551000_交付版.css', '.a{color:green}');
     putCss('AM01_551000_全体版.css', '.a{color:black}');
     await svc.syncPairAfterConfirm('AM01_551000_20240710_交付版', 'approver1', 'filled', {
-      cssBefore: '.a{color:red}',
+      css: { before: '.a{color:red}', baseline: '.a{color:red}' },
     });
     const otherDate = await svc.getPairSyncStatus('AM01_551000_20250110_交付版');
     expect(otherDate.cssConflicts).toEqual([
@@ -263,7 +265,7 @@ d('pairSyncService', () => {
     putCss('AM01_552000_全体版.css', '.a{color:black}');
     // テンプレの承認で競合が記録される。
     await svc.syncPairAfterConfirm('AM01_552000_交付版', 'approver1', 'template', {
-      cssBefore: '.a{color:red}',
+      css: { before: '.a{color:red}', baseline: '.a{color:red}' },
     });
     const read1 = JSON.parse(fs.readFileSync(syncFile('AM01_552000'), 'utf8'));
     expect(read1.css.conflicts).toHaveLength(1);
@@ -271,7 +273,7 @@ d('pairSyncService', () => {
     putCss('AM01_552000_全体版.css', '.a{color:green}');
     putCss('AM01_552000_交付版.css', '.a{color:green}\n.b{x:1}');
     await svc.syncPairAfterConfirm('AM01_552000_20240710_交付版', 'approver1', 'filled', {
-      cssBefore: '.a{color:green}',
+      css: { before: '.a{color:green}', baseline: '.a{color:green}' },
     });
     const read2 = JSON.parse(fs.readFileSync(syncFile('AM01_552000'), 'utf8'));
     expect(read2.css.conflicts).toEqual([]);
@@ -286,17 +288,40 @@ d('pairSyncService', () => {
     putCss('AM01_560000_交付版.css', '.a{color:green}');
     putCss('AM01_560000_全体版.css', '.a{color:red}');
     const r = await svc.syncPairAfterConfirm('AM01_560000_交付版', 'approver1', 'template', {
-      cssBefore: '.a{color:green}',
+      css: { before: '.a{color:green}', baseline: '.a{color:green}' },
     });
     expect(r?.css).toBeNull();
     expect(readCss('AM01_560000_全体版.css')).toBe('.a{color:red}');
+  });
+
+  it('無編集の承認で CSS が GrapesJS の形に書き直されても、ペアの CSS は変えず競合も出さない', {
+    timeout: 60_000,
+  }, async () => {
+    const raw = '.cover-title{color:#003366}\n.page{padding:10mm}\n';
+    const gjs =
+      '.cover-title{color:rgb(0, 51, 102);}' +
+      '.page{padding-top:10mm;padding-right:10mm;padding-bottom:10mm;padding-left:10mm;}';
+    const pairCss = raw.replace('#003366', '#990000');
+    put('templates', 'AM01_561000_交付版', doc(part('a', 'x')));
+    put('templates', 'AM01_561000_全体版', doc(part('a', 'x')));
+    // 承認が書いた後の source の CSS は GrapesJS の形(承認前は外部ツールの原文)。
+    putCss('AM01_561000_交付版.css', gjs);
+    putCss('AM01_561000_全体版.css', pairCss);
+    const r = await svc.syncPairAfterConfirm('AM01_561000_交付版', 'approver1', 'template', {
+      css: { before: raw, baseline: gjs },
+    });
+    expect(r?.error).toBeNull();
+    expect(r?.css).toBeNull();
+    expect(readCss('AM01_561000_全体版.css')).toBe(pairCss);
+    const status = await svc.getPairSyncStatus('AM01_561000_交付版');
+    expect(status.cssConflicts).toEqual([]);
   });
 
   it('ペアの実体が無ければ(本文の同期が動かなければ)CSS も写さない', async () => {
     put('templates', 'AM01_570000_交付版', doc(part('a', 'x')));
     putCss('AM01_570000_交付版.css', '.a{color:green}');
     const r = await svc.syncPairAfterConfirm('AM01_570000_交付版', 'approver1', 'template', {
-      cssBefore: '.a{color:red}',
+      css: { before: '.a{color:red}', baseline: '.a{color:red}' },
     });
     expect(r).toBeNull();
     expect(fs.existsSync(path.join(tmp, 'css', 'AM01_570000_全体版.css'))).toBe(false);
@@ -314,7 +339,10 @@ d('pairSyncService', () => {
       `${BOM}.a {\r\n  color: red;\r\n}\r\n.b {\r\n  color: navy;\r\n}\r\n`,
     );
     const r = await svc.syncPairAfterConfirm('AM01_580000_20240710_交付版', 'approver1', 'filled', {
-      cssBefore: `${BOM}.a {\r\n  color: red;\r\n}\r\n.b {\r\n  color: blue;\r\n}\r\n`,
+      css: {
+        before: `${BOM}.a {\r\n  color: red;\r\n}\r\n.b {\r\n  color: blue;\r\n}\r\n`,
+        baseline: `${BOM}.a {\r\n  color: red;\r\n}\r\n.b {\r\n  color: blue;\r\n}\r\n`,
+      },
     });
     expect(r?.css).toEqual({ applied: [JSON.stringify(['.a'])], conflicts: [] });
     expect(readCss('AM01_580000_全体版.css')).toBe(
@@ -332,7 +360,10 @@ d('pairSyncService', () => {
     putCss('AM01_581000_交付版.css', '.a{color:green;}');
     putCss('AM01_581000_全体版.css', pairCss);
     const r = await svc.syncPairAfterConfirm('AM01_581000_20240710_交付版', 'approver1', 'filled', {
-      cssBefore: `${BOM}.a {\r\n  color: red;\r\n}\r\n`,
+      css: {
+        before: `${BOM}.a {\r\n  color: red;\r\n}\r\n`,
+        baseline: `${BOM}.a {\r\n  color: red;\r\n}\r\n`,
+      },
     });
     expect(r?.css).toEqual({ applied: [], conflicts: [JSON.stringify(['.a'])] });
     expect(readCss('AM01_581000_全体版.css')).toBe(pairCss);
@@ -346,7 +377,7 @@ d('pairSyncService', () => {
     put('templates', 'AM01_590000_交付版', doc(part('a', '旧')));
     put('templates', 'AM01_590000_全体版', doc(part('a', '旧')));
     await svc.syncPairAfterConfirm('AM01_590000_交付版', 'approver1', 'template', {
-      cssBefore: '',
+      css: { before: '', baseline: '' },
     });
     put('templates', 'AM01_590000_交付版', doc(part('a', '新')));
     putCss('AM01_590000_交付版.css', '.a{color:green}');
@@ -354,7 +385,7 @@ d('pairSyncService', () => {
     failCssReadOf.add('AM01_590000_全体版');
     try {
       const r = await svc.syncPairAfterConfirm('AM01_590000_交付版', 'approver1', 'template', {
-        cssBefore: '.a{color:red}',
+        css: { before: '.a{color:red}', baseline: '.a{color:red}' },
       });
       expect(r?.error).toBeNull();
       expect(r?.applied).toHaveLength(1);
@@ -366,7 +397,7 @@ d('pairSyncService', () => {
     expect(readCss('AM01_590000_全体版.css')).toBe('.a{color:red}');
   });
 
-  it('承認の直前の CSS が無い(cssBefore=null)なら CSS を写さず、記録済みの CSS の競合も消さない', {
+  it('CSS の入力が無い(css=null)なら CSS を写さず、記録済みの CSS の競合も消さない', {
     timeout: 60_000,
   }, async () => {
     put('templates', 'AM01_591000_交付版', doc(part('a', '旧')));
@@ -375,7 +406,7 @@ d('pairSyncService', () => {
     putCss('AM01_591000_全体版.css', '.a{color:black}');
     // 競合を 1 件記録する(同じ状態ファイルに本文のパーツの状態も載る)。
     await svc.syncPairAfterConfirm('AM01_591000_交付版', 'approver1', 'template', {
-      cssBefore: '.a{color:red}',
+      css: { before: '.a{color:red}', baseline: '.a{color:red}' },
     });
     expect(JSON.parse(fs.readFileSync(syncFile('AM01_591000'), 'utf8')).css.conflicts).toHaveLength(
       1,
@@ -383,7 +414,7 @@ d('pairSyncService', () => {
     put('templates', 'AM01_591000_交付版', doc(part('a', '新')));
     putCss('AM01_591000_交付版.css', '.a{color:green}\n.b{x:1}');
     const r = await svc.syncPairAfterConfirm('AM01_591000_交付版', 'approver1', 'template', {
-      cssBefore: null,
+      css: null,
     });
     expect(r?.error).toBeNull();
     expect(r?.applied).toHaveLength(1);

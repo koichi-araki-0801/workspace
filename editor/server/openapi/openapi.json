@@ -2983,6 +2983,11 @@
             "type": "string",
             "maxLength": 4194304
           },
+          "cssBaseline": {
+            "description": "確定版の CSS を `css` と同じ書き出しの形にしたもの。無ければ承認時のペアへの CSS 転写を飛ばす",
+            "type": "string",
+            "maxLength": 1048576
+          },
           "origin": {
             "description": "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
             "$ref": "#/components/schemas/ReviewOrigin"
@@ -4102,6 +4107,10 @@
           },
           "filledHtml": {
             "description": "値差込済みの成果物(任意)",
+            "type": "string"
+          },
+          "cssBaseline": {
+            "description": "確定版の CSS を編集画面が読み込んだ直後の形(ペア同期で変わった CSS 規則を見分ける基準)",
             "type": "string"
           }
         },

@@ -1,7 +1,8 @@
 // =============================================================================
-// reviews.cssSync.test.ts — 承認の直前の CSS を base にしてペアへ CSS を写す
+// reviews.cssSync.test.ts — 承認の直前の CSS と申請の baseline からペアへ CSS を写す
 // =============================================================================
 // base は承認が CSS を書く前に読まないと取れない(書いた後は next と同じになり、何も写らない)。
+// 変わった規則は申請に載った baseline(確定版の CSS を編集画面が読み込んだ直後の形)と比べて見る。
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -75,6 +76,7 @@ d('承認とペアの CSS 転写', () => {
         templateId: 'AM01_580000_20240710_交付版',
         html: '<p>交付</p>',
         css: '.a{color:green}\n.b{color:blue}',
+        cssBaseline: '.a{color:red}\n.b{color:blue}',
         origin: 'edit',
       },
       { username: 'editor1', role: 'editor' },
@@ -98,6 +100,7 @@ d('承認とペアの CSS 転写', () => {
         templateId: 'AM01_581000_20240710_交付版',
         html: '<p>交付</p>',
         css: '.a{color:green}',
+        cssBaseline: '.a{color:red}',
         origin: 'edit',
       },
       { username: 'editor1', role: 'editor' },
@@ -114,6 +117,69 @@ d('承認とペアの CSS 転写', () => {
       '.a{color:green}',
     );
     expect(fs.readFileSync(path.join(tmp, 'css', 'AM01_581000_全体版.css'), 'utf8')).toBe(
+      '.a{color:red}',
+    );
+  });
+  it('baseline は申請本体として保存して承認で読み、一覧のメタには載せない', {
+    timeout: 60_000,
+  }, async () => {
+    put('filled', 'AM01_582000_20240710_交付版.html', '<p>交付</p>');
+    put('css', 'AM01_582000_交付版.css', '.a{color:red}');
+    const meta = await reviews.submitReview(
+      {
+        templateId: 'AM01_582000_20240710_交付版',
+        html: '<p>交付</p>',
+        css: '.a{color:green;}',
+        cssBaseline: '.a{color:red;}',
+        origin: 'edit',
+      },
+      { username: 'editor1', role: 'editor' },
+    );
+    expect(meta).not.toHaveProperty('cssBaseline');
+    const full = await reviews.getReview(meta.id, { username: 'editor1', role: 'editor' });
+    expect(full.cssBaseline).toBe('.a{color:red;}');
+    const list = await reviews.listReviews({}, { username: 'editor1', role: 'editor' });
+    expect(list.find((m) => m.id === meta.id)).not.toHaveProperty('cssBaseline');
+  });
+
+  it('baseline の無い申請は承認を成立させ、CSS の転写だけを飛ばして警告を残す', {
+    timeout: 60_000,
+  }, async () => {
+    const { logger } = await import('../src/logger.js');
+    const warn = vi.spyOn(logger, 'warn');
+    put('filled', 'AM01_583000_20240710_交付版.html', '<p>交付</p>');
+    put('filled', 'AM01_583000_20240710_全体版.html', '<p>全体</p>');
+    put('css', 'AM01_583000_交付版.css', '.a{color:red}');
+    put('css', 'AM01_583000_全体版.css', '.a{color:red}');
+    const meta = await reviews.submitReview(
+      {
+        templateId: 'AM01_583000_20240710_交付版',
+        html: '<p>交付</p>',
+        css: '.a{color:green}',
+        origin: 'edit',
+      },
+      { username: 'editor1', role: 'editor' },
+    );
+    try {
+      const r = await reviews.approveReview(
+        meta.id,
+        {},
+        { username: 'approver1', role: 'approver' },
+      );
+      expect(r.meta.id).toBe('AM01_583000_20240710_交付版');
+      expect(r.sync?.error).toBeNull();
+      expect(r.sync?.css).toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ templateId: 'AM01_583000_20240710_交付版' }),
+        expect.stringContaining('baseline'),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+    expect(fs.readFileSync(path.join(tmp, 'css', 'AM01_583000_交付版.css'), 'utf8')).toBe(
+      '.a{color:green}',
+    );
+    expect(fs.readFileSync(path.join(tmp, 'css', 'AM01_583000_全体版.css'), 'utf8')).toBe(
       '.a{color:red}',
     );
   });

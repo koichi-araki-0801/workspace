@@ -2,7 +2,12 @@
 // cssRules.test.ts — CSS の規則分割と、承認で変わった規則だけをペア側へ当てる 3 者比較
 // =============================================================================
 import { describe, expect, it } from 'vitest';
-import { mergeCssRuleChanges, sameCssRule, splitCssRules } from '../src/css/cssRules.js';
+import {
+  mergeCssRuleChanges,
+  mergeCssRuleChangesFromBaseline,
+  sameCssRule,
+  splitCssRules,
+} from '../src/css/cssRules.js';
 
 /** キーの組み立て(実装と同じ JSON 配列の文字列)。 */
 const k = (...parts: Array<string | number>): string => JSON.stringify(parts);
@@ -418,5 +423,87 @@ describe('名前のない at-rule(@page / @font-face)の識別', () => {
       applied: [],
       conflicts: [key],
     });
+  });
+});
+
+describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側は原文で比べる', () => {
+  // 外部ツールが書いた原文(承認前のファイル)。一括指定・16 進色・引用符なしの url を含む。
+  const rawBase = [
+    '.cover-title{color:#003366}',
+    '.bg{background:url(../images/110024_bg.svg) center}',
+    '.page{padding:10mm}',
+    '@font-face{font-family:T;src:url(fonts/t.woff2)}',
+    '',
+  ].join('\n');
+  // 同じ CSS を GrapesJS が読み込んで getCss した形(色の正規化・一括指定の展開・url の引用符・
+  // @font-face の末尾移動)。
+  const gjs = (coverTitle: string): string =>
+    `.cover-title{${coverTitle}}` +
+    '.bg{background-image:url("../images/110024_bg.svg");background-position-x:center;' +
+    'background-position-y:center;background-repeat:initial;background-attachment:initial;' +
+    'background-origin:initial;background-clip:initial;background-size:initial;' +
+    'background-color:initial;}' +
+    '.page{padding-top:10mm;padding-right:10mm;padding-bottom:10mm;padding-left:10mm;}' +
+    '@font-face{font-family:T;src:url("fonts/t.woff2");}';
+  const baseline = gjs('color:rgb(0, 51, 102);');
+
+  it('無編集(next = baseline)なら何も当てず、競合も出さない', () => {
+    const r = mergeCssRuleChangesFromBaseline(rawBase, baseline, baseline, rawBase);
+    expect(r).toEqual({ css: rawBase, applied: [], conflicts: [] });
+  });
+
+  it('無編集なら、ペア側で版種固有に直した規則があっても偽の競合を出さない', () => {
+    const target = rawBase.replace('#003366', '#990000');
+    const r = mergeCssRuleChangesFromBaseline(rawBase, baseline, baseline, target);
+    expect(r).toEqual({ css: target, applied: [], conflicts: [] });
+  });
+
+  it('編集した規則だけを当て、GrapesJS が書き換えただけの規則には触らない', () => {
+    const next = gjs('color:rgb(0, 0, 0);');
+    const r = mergeCssRuleChangesFromBaseline(rawBase, baseline, next, rawBase);
+    expect(r.applied).toEqual([k('.cover-title')]);
+    expect(r.conflicts).toEqual([]);
+    expect(r.css).toBe(
+      rawBase.replace('.cover-title{color:#003366}', '.cover-title{color:rgb(0, 0, 0);}'),
+    );
+  });
+
+  it('編集した規則をペア側が版種固有に直していれば競合にし、ペア側は変えない', () => {
+    const next = gjs('color:rgb(0, 0, 0);');
+    const target = rawBase.replace('#003366', '#990000');
+    const r = mergeCssRuleChangesFromBaseline(rawBase, baseline, next, target);
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.cover-title')] });
+  });
+
+  it('追加はペア側に無ければ next の直前の規則の後ろへ入れ、削除はペア側が原文のままなら消す', () => {
+    const base = '.a{x:1}\n.b{y:1}\n';
+    const r = mergeCssRuleChangesFromBaseline(base, '.a{x:1;}.b{y:1;}', '.a{x:1;}.n{z:1;}', base);
+    expect(r.applied).toEqual([k('.b'), k('.n')]);
+    expect(r.conflicts).toEqual([]);
+    expect(r.css).toBe('.a{x:1}\n.n{z:1;}\n');
+  });
+
+  it('原文に無い規則の変更は、ペア側にも無ければ追加として当て、ペア側にあれば競合にする', () => {
+    const r1 = mergeCssRuleChangesFromBaseline('.a{x:1}\n', '.c{z:1;}', '.c{z:2;}', '.a{x:1}\n');
+    expect(r1.applied).toEqual([k('.c')]);
+    expect(r1.css).toBe('.a{x:1}\n.c{z:2;}\n');
+    const r2 = mergeCssRuleChangesFromBaseline('.a{x:1}\n', '.c{z:1;}', '.c{z:2;}', '.c{z:9}\n');
+    expect(r2).toMatchObject({ applied: [], conflicts: [k('.c')] });
+  });
+
+  it('baseline に無く next で現れた規則は、ペア側が原文から消していれば競合にする', () => {
+    // GrapesJS は使われていないセレクタの規則を書き出さない。原文にはあり、baseline には無い。
+    const r = mergeCssRuleChangesFromBaseline(
+      '.a{x:1}\n.c{z:1}\n',
+      '.a{x:1;}',
+      '.a{x:1;}.c{z:1;}',
+      '.a{x:1}\n',
+    );
+    expect(r).toEqual({ css: '.a{x:1}\n', applied: [], conflicts: [k('.c')] });
+  });
+
+  it('ペア側が既に next と同じなら当てず、競合にもしない', () => {
+    const r = mergeCssRuleChangesFromBaseline('.a{x:1}', '.a{x:1;}', '.a{x:2;}', '.a{x:2;}');
+    expect(r).toEqual({ css: '.a{x:2;}', applied: [], conflicts: [] });
   });
 });

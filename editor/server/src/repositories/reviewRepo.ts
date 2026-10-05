@@ -42,7 +42,7 @@ import {
 import { logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import type { NoteMasterService } from '../sync/noteMasterService.js';
-import type { PairSyncService } from '../sync/pairSyncService.js';
+import type { PairCssSource, PairSyncService } from '../sync/pairSyncService.js';
 import { baselineTemplateHtml, type ConfirmedTarget } from './confirmedWrite.js';
 import { applyConfirmedSave } from './templateRepo.js';
 
@@ -67,6 +67,31 @@ function withReviewLock<T>(fn: () => Promise<T>): Promise<T> {
     () => undefined,
   );
   return run;
+}
+
+/**
+ * 承認時のペアへの CSS 転写の入力。承認の直前の CSS を読めないとき、申請に baseline が無いとき
+ * (公開 API からの申請など)は null にして警告を残す。
+ */
+async function pairCssSourceOf(review: ReviewRequest): Promise<PairCssSource | null> {
+  let before: string;
+  try {
+    before = await readTemplateCss(review.templateId);
+  } catch (e) {
+    logger.warn(
+      { err: e, templateId: review.templateId },
+      '承認前の CSS を読めないため、ペアへの CSS の転写を飛ばします',
+    );
+    return null;
+  }
+  if (review.cssBaseline === undefined) {
+    logger.warn(
+      { templateId: review.templateId, reqId: review.id },
+      '申請に CSS の baseline が無いため、ペアへの CSS の転写を飛ばします',
+    );
+    return null;
+  }
+  return { before, baseline: review.cssBaseline };
 }
 
 /** 申請元の経路 → 書込先。編集タブは値入り HTML、作成タブは Jinja スケルトン。 */
@@ -218,6 +243,7 @@ export function createReviewRepo({
         html: req.html,
         css: req.css,
         ...(req.filledHtml !== undefined ? { filledHtml: req.filledHtml } : {}),
+        ...(req.cssBaseline !== undefined ? { cssBaseline: req.cssBaseline } : {}),
       };
       await writeReview(review);
       return toReviewMeta(review);
@@ -269,18 +295,10 @@ export function createReviewRepo({
         const commitMessage =
           `確定保存(承認): ${review.templateId} 申請=${review.submittedBy} 承認=${actor.username}\n\n` +
           `Co-Authored-By: ${review.submittedBy} <${review.submittedBy}@editor.local>`;
-        // ペア同期の CSS 転写の base は承認の直前の CSS。反映の後では next と同じになって取れない。
-        // 読めなくても承認は止めない(CSS の転写だけを飛ばす)。'' と見なすと全規則がペアへ誤って写る。
-        let cssBefore: string | null;
-        try {
-          cssBefore = await readTemplateCss(review.templateId);
-        } catch (e) {
-          logger.warn(
-            { err: e, templateId: review.templateId },
-            '承認前の CSS を読めないため、ペアへの CSS の転写を飛ばします',
-          );
-          cssBefore = null;
-        }
+        // ペア同期の CSS 転写の入力。承認の直前の CSS は反映の後では next と同じになって取れない。
+        // baseline(確定版の CSS を編集画面が読み込んだ直後の形)は申請に載ったものを使う。どちらかが
+        // 欠けても承認は止めない(CSS の転写だけを飛ばす)。'' と見なすと全規則がペアへ誤って写る。
+        const cssSource = await pairCssSourceOf(review);
         const meta = await applyConfirmedSave({
           templateId: review.templateId,
           target,
@@ -301,9 +319,7 @@ export function createReviewRepo({
           review.templateId,
           actor.username,
           target,
-          {
-            cssBefore,
-          },
+          { css: cssSource },
         );
         // 続けて `次回反映既定`=`反映` パーツの注記マスタ書き戻し(同じくベストエフォート)。
         // 契機は承認のみ = ペア同期で機械転写された側の版種はここでは書き戻さない

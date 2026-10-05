@@ -4,6 +4,8 @@
 // ペア同期(交付版⇄全体版)の CSS 転写に使う。CSS はテンプレ単位のファイルで、版種ごとに手で
 // 直した規則が混ざるため、ファイル丸ごとの上書きはできない。base(承認前)→ next(承認後)で
 // 変わった規則だけを見て、ペア側(target)の同じ規則が base のままなら当て、違えば競合にする。
+// 承認の CSS は GrapesJS が書き直した形で届くので、ペア同期は変更の検出(baseline → next)と
+// ペア側の照合(原文の base と target)を分ける `mergeCssRuleChangesFromBaseline` を使う。
 //
 // 字句は `collectCssStructure`(外部参照検査と同じ走査器)から取る。別の正規表現で `{` `}` を
 // 数えると、文字列やコメントに入った括弧で検査と分割の解釈が割れる。新しい依存(postcss 等)は
@@ -269,50 +271,56 @@ function anchorFor(
 }
 
 /**
- * base → next で変わった規則(追加・変更・削除)だけを、target へ 3 者比較で当てる。
+ * `from` → next で変わった規則(追加・変更・削除)だけを target へ当てる(2 つの公開関数の本体)。
  *
- * - target の同じ規則が base と同じなら当てる。違えば(版種固有に直してある)競合として飛ばす。
+ * - 変わった規則は、target の同じ規則が `ref`(target が今も持っているはずの形)と同じなら当てる。
+ *   違えば(版種固有に直してある)競合として飛ばす。`ref` に無い規則は target にも無いことを求める。
  * - 変わっていない規則には触らない。target が既に next と同じ形なら何もしない。
- * - 追加は、next で同じ入れ子の中にある直前の規則の後ろへ入れる。その規則が target に無ければ、
- *   外側の入れ子 at-rule で包んで末尾へ入れる。
+ * - 追加(target に無い規則を当てる)は、next で同じ入れ子の中にある直前の規則の後ろへ入れる。
+ *   その規則が target に無ければ、外側の入れ子 at-rule で包んで末尾へ入れる。
  */
-export function mergeCssRuleChanges(base: string, next: string, target: string): CssMergeResult {
-  const b = scanCssRules(base);
+function mergeRuleChanges(
+  from: ScannedRule[],
+  ref: ReadonlyMap<string, string>,
+  next: string,
+  target: string,
+): CssMergeResult {
   const n = scanCssRules(next);
   const t = scanCssRules(target);
-  const bKeys = new Set(b.map((r) => r.key));
+  const fromKeys = new Set(from.map((r) => r.key));
   const nMap = new Map(n.map((r) => [r.key, r]));
   const tMap = new Map(t.map((r) => [r.key, r]));
   const edits: Edit[] = [];
   const applied: string[] = [];
   const conflicts: string[] = [];
+  /** target が `ref` の形のままか(両方に無い場合も含む)。 */
+  const untouched = (key: string, tr: ScannedRule | undefined): boolean => {
+    const r = ref.get(key);
+    return r === undefined || tr === undefined ? r === tr?.text : sameCssRule(tr.text, r);
+  };
+  /** 変わったが target に無いので、追加と同じ位置へ入れる規則。 */
+  const inserts = new Set<string>();
 
-  // ── 1. 変更と削除(base の順)──
-  for (const br of b) {
-    const nr = nMap.get(br.key);
-    if (nr !== undefined && sameCssRule(br.text, nr.text)) continue;
-    const tr = tMap.get(br.key);
+  // ── 1. 変更と削除(from の順)──
+  for (const fr of from) {
+    const nr = nMap.get(fr.key);
+    if (nr !== undefined && sameCssRule(fr.text, nr.text)) continue;
+    const tr = tMap.get(fr.key);
+    if (nr === undefined ? tr === undefined : tr !== undefined && sameCssRule(tr.text, nr.text))
+      continue;
+    if (!untouched(fr.key, tr)) {
+      conflicts.push(fr.key);
+      continue;
+    }
     if (nr === undefined) {
-      if (tr === undefined) continue;
-      if (!sameCssRule(tr.text, br.text)) {
-        conflicts.push(br.key);
-        continue;
-      }
-      edits.push(removalOf(target, tr));
-      applied.push(br.key);
-      continue;
+      if (tr !== undefined) edits.push(removalOf(target, tr));
+      applied.push(fr.key);
+    } else if (tr === undefined) {
+      inserts.add(fr.key);
+    } else {
+      edits.push({ start: tr.start, end: tr.end, text: nr.text });
+      applied.push(fr.key);
     }
-    if (tr === undefined) {
-      conflicts.push(br.key);
-      continue;
-    }
-    if (sameCssRule(tr.text, nr.text)) continue;
-    if (!sameCssRule(tr.text, br.text)) {
-      conflicts.push(br.key);
-      continue;
-    }
-    edits.push({ start: tr.start, end: tr.end, text: nr.text });
-    applied.push(br.key);
   }
 
   // ── 2. 追加(next の順)。挿入位置ごとにまとめ、next の順を保つ ──
@@ -321,10 +329,14 @@ export function mergeCssRuleChanges(base: string, next: string, target: string):
     { anchor: ScannedRule | undefined; atRules: string[]; texts: string[] }
   >();
   for (const [index, nr] of n.entries()) {
-    if (bKeys.has(nr.key)) continue;
+    if (fromKeys.has(nr.key) && !inserts.has(nr.key)) continue;
     const tr = tMap.get(nr.key);
     if (tr !== undefined) {
       if (!sameCssRule(tr.text, nr.text)) conflicts.push(nr.key);
+      continue;
+    }
+    if (!inserts.has(nr.key) && !untouched(nr.key, tr)) {
+      conflicts.push(nr.key);
       continue;
     }
     const anchor = anchorFor(n, index, tMap);
@@ -351,4 +363,36 @@ export function mergeCssRuleChanges(base: string, next: string, target: string):
   }
 
   return { css: edits.length === 0 ? target : applyEdits(target, edits), applied, conflicts };
+}
+
+/** 規則のキー → 原文。 */
+function textsByKey(rules: ScannedRule[]): Map<string, string> {
+  return new Map(rules.map((r) => [r.key, r.text]));
+}
+
+/**
+ * base → next で変わった規則(追加・変更・削除)だけを、target へ 3 者比較で当てる。
+ * target の同じ規則が base と同じなら当て、違えば競合にする(`mergeRuleChanges` を見よ)。
+ */
+export function mergeCssRuleChanges(base: string, next: string, target: string): CssMergeResult {
+  const b = scanCssRules(base);
+  return mergeRuleChanges(b, textsByKey(b), next, target);
+}
+
+/**
+ * 変更の検出と、ペア側(target)の照合を別の形で行う版。承認の CSS は GrapesJS が書き直した形
+ * (一括指定の展開・色の正規化・url の引用符)で届くので、外部ツールが書いた原文と直に比べると
+ * 編集していない規則まで「変わった」に見える。
+ *
+ * - 変わった規則は `baseline`(確定版の CSS を GrapesJS が読み込んだ直後の形)→ `next` で見る。
+ * - target の同じ規則は `rawBase`(承認前のファイルの原文)と比べる。target も原文なので、
+ *   書き直しの差で競合にならない。
+ */
+export function mergeCssRuleChangesFromBaseline(
+  rawBase: string,
+  baseline: string,
+  next: string,
+  target: string,
+): CssMergeResult {
+  return mergeRuleChanges(scanCssRules(baseline), textsByKey(scanCssRules(rawBase)), next, target);
 }

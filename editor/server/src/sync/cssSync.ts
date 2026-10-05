@@ -1,13 +1,13 @@
 // =============================================================================
-// cssSync.ts — ペア同期の CSS 転写(純関数)。3 者比較の結果と競合の持ち越しを決める
+// cssSync.ts — ペア同期の CSS 転写(純関数)。転写の結果と競合の持ち越しを決める
 // =============================================================================
-// 規則の分割と 3 者比較は `@editor/shared` の `splitCssRules` / `mergeCssRuleChanges` が正典で、
-// ここは「承認 1 回ぶんの転写結果」と「同期状態ファイルへ残す競合」を組み立てるだけを持つ。
+// 規則の分割と転写は `@editor/shared` の `splitCssRules` / `mergeCssRuleChangesFromBaseline` が
+// 正典で、ここは「承認 1 回ぶんの転写結果」と「同期状態ファイルへ残す競合」を組み立てるだけを持つ。
 // I/O は `pairSyncService.ts`。
 
 import {
   isValidAnyTemplateId,
-  mergeCssRuleChanges,
+  mergeCssRuleChangesFromBaseline,
   parseAnyTemplateFileName,
   sameCssRule,
   splitCssRules,
@@ -37,8 +37,14 @@ export interface CssRuleConflict {
 }
 
 export interface CssSyncInput {
-  /** 承認の直前の source の CSS。 */
+  /** 承認の直前の source の CSS(ファイルの原文)。ペア側の規則が手つかずかの照合に使う。 */
   base: string;
+  /**
+   * 確定版の CSS を編集画面が読み込んだ直後の形(`next` と同じ書き出し)。変わった規則は
+   * これと `next` の差で見る — 原文と `next` を直に比べると、GrapesJS の書き直し(一括指定の
+   * 展開・色の正規化・url の引用符)まで変更に見える。
+   */
+  baseline: string;
   /** 承認の直後の source の CSS。 */
   next: string;
   /** ペア側の今の CSS。 */
@@ -49,7 +55,7 @@ export interface CssSyncInput {
 }
 
 export interface CssSyncResult {
-  /** 承認で CSS が変わったか(`base !== next`)。 */
+  /** 承認で CSS が変わったか(`baseline !== next`)。 */
   ran: boolean;
   /** ペアへ書く CSS。書く必要が無ければ null。 */
   css: string | null;
@@ -72,8 +78,10 @@ function sameRuleAt(a: string | undefined, b: string | undefined): boolean {
 }
 
 export function computeCssSync(input: CssSyncInput): CssSyncResult {
-  const ran = input.base !== input.next;
-  const merge = ran ? mergeCssRuleChanges(input.base, input.next, input.target) : null;
+  const ran = input.baseline !== input.next;
+  const merge = ran
+    ? mergeCssRuleChangesFromBaseline(input.base, input.baseline, input.next, input.target)
+    : null;
   const css = merge !== null && merge.css !== input.target ? merge.css : null;
 
   // 競合が解けたか(両版の規則が一致したか、両方から消えたか)は転写後の姿で判定する。

@@ -13,6 +13,7 @@ describe('computeCssSync', () => {
   it('承認で変わった規則だけをペアへ写し、ペア固有に直した別の規則は残す', () => {
     const r = computeCssSync({
       base: '.a{color:red}\n.b{color:blue}',
+      baseline: '.a{color:red}\n.b{color:blue}',
       next: '.a{color:green}\n.b{color:blue}',
       target: '.a{color:red}\n.b{color:navy}',
       prev: [],
@@ -29,6 +30,7 @@ describe('computeCssSync', () => {
   it('ペア側が承認前と違う規則は競合として飛ばし、CSS は書かない', () => {
     const r = computeCssSync({
       base: '.a{color:red}',
+      baseline: '.a{color:red}',
       next: '.a{color:green}',
       target: '.a{color:black}',
       prev: [],
@@ -41,7 +43,14 @@ describe('computeCssSync', () => {
   });
 
   it('承認で CSS が変わらなければ何もしない(ran=false)', () => {
-    const r = computeCssSync({ base: '.a{}', next: '.a{}', target: '.a{x:1}', prev: [], now: NOW });
+    const r = computeCssSync({
+      base: '.a{}',
+      baseline: '.a{}',
+      next: '.a{}',
+      target: '.a{x:1}',
+      prev: [],
+      now: NOW,
+    });
     expect(r).toMatchObject({ ran: false, css: null, applied: [], skipped: [], conflicts: [] });
     expect(r.conflictsChanged).toBe(false);
   });
@@ -50,6 +59,7 @@ describe('computeCssSync', () => {
     const prev = [{ ruleKey: k('.a'), detectedAt: NOW }];
     const r = computeCssSync({
       base: '.a{color:green}\n.b{x:1}',
+      baseline: '.a{color:green}\n.b{x:1}',
       next: '.a{color:green}\n.b{x:2}',
       target: '.a{color:black}\n.b{x:1}',
       prev,
@@ -62,6 +72,7 @@ describe('computeCssSync', () => {
   it('両版の規則が一致したら競合を消す', () => {
     const r = computeCssSync({
       base: '.a{color:green}',
+      baseline: '.a{color:green}',
       next: '.a{color:green}',
       target: '.a{color:green}',
       prev: [{ ruleKey: k('.a'), detectedAt: NOW }],
@@ -74,6 +85,7 @@ describe('computeCssSync', () => {
   it('空白の違いだけなら一致と見なす', () => {
     const r = computeCssSync({
       base: '.a{x:1}',
+      baseline: '.a{x:1}',
       next: '.a{x:1}',
       target: '.a { x:1 }',
       prev: [{ ruleKey: k('.a'), detectedAt: NOW }],
@@ -85,6 +97,7 @@ describe('computeCssSync', () => {
   it('ペア側に無い規則の変更も競合(Task 3 の判定のまま)', () => {
     const r = computeCssSync({
       base: '.a{x:1}',
+      baseline: '.a{x:1}',
       next: '.a{x:2}',
       target: '.t{z:1}',
       prev: [],
@@ -95,7 +108,14 @@ describe('computeCssSync', () => {
   });
 
   it('空のペア側への追加は写す', () => {
-    const r = computeCssSync({ base: '', next: '.a{x:1}', target: '', prev: [], now: NOW });
+    const r = computeCssSync({
+      base: '',
+      baseline: '',
+      next: '.a{x:1}',
+      target: '',
+      prev: [],
+      now: NOW,
+    });
     expect(r.css).toBe('.a{x:1}\n');
     expect(r.applied).toEqual([k('.a')]);
   });
@@ -108,6 +128,7 @@ describe('computeCssSync', () => {
   it('書式だけ違う規則は転写しない(外部ツール形の base と getCss 形の next)', () => {
     const r = computeCssSync({
       base: EXTERNAL_BASE,
+      baseline: EXTERNAL_BASE,
       next: GRAPES_NEXT_SAME,
       target: '.a {\n  color: navy;\n}\n\n.b {\n  color: blue;\n}\n',
       prev: [],
@@ -124,6 +145,7 @@ describe('computeCssSync', () => {
   it('書式が違う中で実際に変わった規則だけを写し、ペア固有の規則は残す', () => {
     const r = computeCssSync({
       base: EXTERNAL_BASE,
+      baseline: EXTERNAL_BASE,
       next: '.a{color:red;margin:0;}.b{color:green;}',
       target: '.a {\n  color: navy;\n}\n\n.b {\n  color: blue;\n}\n',
       prev: [],
@@ -139,6 +161,7 @@ describe('computeCssSync', () => {
   it('書式だけ違う未解決の競合は、両版が一致したものとして消える', () => {
     const r = computeCssSync({
       base: '.a{x:1}',
+      baseline: '.a{x:1}',
       next: '.a{x:1;}',
       target: '.a {\n  x: 1;\n}\n',
       prev: [{ ruleKey: k('.a'), detectedAt: NOW }],
@@ -157,6 +180,7 @@ describe('computeCssSync', () => {
     const target = `${BOM}.a {\r\n  color: red;\r\n}\r\n.b {\r\n  color: navy;\r\n}\r\n`;
     const r = computeCssSync({
       base: `${BOM}.a {\r\n  color: red;\r\n}\r\n.b {\r\n  color: blue;\r\n}\r\n`,
+      baseline: `${BOM}.a {\r\n  color: red;\r\n}\r\n.b {\r\n  color: blue;\r\n}\r\n`,
       next: '.a{color:green;}.b{color:blue;}',
       target,
       prev: [],
@@ -171,6 +195,7 @@ describe('computeCssSync', () => {
   it('BOM と CRLF を持つペア側でも、版種固有に直した規則は競合になる', () => {
     const r = computeCssSync({
       base: `${BOM}.a {\r\n  color: red;\r\n}\r\n`,
+      baseline: `${BOM}.a {\r\n  color: red;\r\n}\r\n`,
       next: '.a{color:green;}',
       target: `${BOM}.a {\r\n  color: black;\r\n}\r\n`,
       prev: [],
@@ -185,6 +210,7 @@ describe('computeCssSync', () => {
     const clean = '.a {\n  color: red;\n}\n';
     const r = computeCssSync({
       base: `${BOM}${clean.replaceAll('\n', '\r\n')}`,
+      baseline: `${BOM}${clean.replaceAll('\n', '\r\n')}`,
       next: clean,
       target: `${BOM}.a {\r\n  color: red;\r\n}\r\n`,
       prev: [{ ruleKey: k('.a'), detectedAt: NOW }],
@@ -200,6 +226,7 @@ describe('computeCssSync', () => {
     const target = `${BOM}.a {\r\n  color: red;\r\n}\r\n`;
     const r = computeCssSync({
       base: '.a{color:red}',
+      baseline: '.a{color:red}',
       next: '.a{color:red}\n.z{x:1}',
       target,
       prev: [],
@@ -208,6 +235,54 @@ describe('computeCssSync', () => {
     expect(r.applied).toEqual([k('.z')]);
     // 差し込んだ文字列(`\n.z{x:1}`)の外は元のまま。
     expect(r.css).toBe(`${BOM}.a {\r\n  color: red;\r\n}\n.z{x:1}\r\n`);
+  });
+});
+
+describe('computeCssSync — 変わった規則は baseline(GrapesJS 形)→ next で見る', () => {
+  // 外部ツールが書いた承認前の原文と、それを GrapesJS が読み込んで書き出した形。
+  const RAW = '.cover-title{color:#003366}\n.page{padding:10mm}\n';
+  const gjs = (color: string): string =>
+    `.cover-title{color:${color};}` +
+    '.page{padding-top:10mm;padding-right:10mm;padding-bottom:10mm;padding-left:10mm;}';
+
+  it('無編集の承認はペアの CSS を書かず、版種固有に直した規則も競合にしない', () => {
+    const target = RAW.replace('#003366', '#990000');
+    const r = computeCssSync({
+      base: RAW,
+      baseline: gjs('rgb(0, 51, 102)'),
+      next: gjs('rgb(0, 51, 102)'),
+      target,
+      prev: [],
+      now: NOW,
+    });
+    expect(r).toMatchObject({ ran: false, css: null, applied: [], skipped: [], conflicts: [] });
+  });
+
+  it('編集した規則だけを写し、書き直されただけの規則には触らない', () => {
+    const r = computeCssSync({
+      base: RAW,
+      baseline: gjs('rgb(0, 51, 102)'),
+      next: gjs('rgb(0, 0, 0)'),
+      target: RAW,
+      prev: [],
+      now: NOW,
+    });
+    expect(r.applied).toEqual([k('.cover-title')]);
+    expect(r.css).toBe('.cover-title{color:rgb(0, 0, 0);}\n.page{padding:10mm}\n');
+  });
+
+  it('編集した規則をペア側が版種固有に直していれば競合にする', () => {
+    const r = computeCssSync({
+      base: RAW,
+      baseline: gjs('rgb(0, 51, 102)'),
+      next: gjs('rgb(0, 0, 0)'),
+      target: RAW.replace('#003366', '#990000'),
+      prev: [],
+      now: NOW,
+    });
+    expect(r.css).toBeNull();
+    expect(r.skipped).toEqual([k('.cover-title')]);
+    expect(r.conflicts).toEqual([{ ruleKey: k('.cover-title'), detectedAt: NOW }]);
   });
 });
 

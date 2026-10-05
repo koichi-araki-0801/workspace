@@ -405,6 +405,10 @@ export const ReviewRequest = ReviewRequestMeta.extend({
   html: z.string().meta({ description: '確定保存しようとしている生 Jinja2 HTML' }),
   css: z.string(),
   filledHtml: z.string().optional().meta({ description: '値差込済みの成果物(任意)' }),
+  cssBaseline: z.string().optional().meta({
+    description:
+      '確定版の CSS を編集画面が読み込んだ直後の形(ペア同期で変わった CSS 規則を見分ける基準)',
+  }),
 }).meta({ id: 'ReviewRequest' });
 
 /**
@@ -418,6 +422,10 @@ export const SubmitReviewBody = z
     html: z.string().max(MAX_DOCUMENT_HTML_CHARS).meta({ description: '復元済みの生 Jinja2 HTML' }),
     css: z.string().max(MAX_DOCUMENT_CSS_CHARS),
     filledHtml: z.string().max(MAX_DOCUMENT_HTML_CHARS).optional(),
+    cssBaseline: z.string().max(MAX_DOCUMENT_CSS_CHARS).optional().meta({
+      description:
+        '確定版の CSS を `css` と同じ書き出しの形にしたもの。無ければ承認時のペアへの CSS 転写を飛ばす',
+    }),
     origin: ReviewOrigin.meta({
       description: "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
     }),
