@@ -57,7 +57,11 @@ const flush = computed(() => route.meta.flush === true);
 // タブごとに「直前に見ていた画面」を覚え、タブを押したときそこへ戻す。記憶が無ければ
 // タブの既定画面。`immediate` は初期表示の画面も覚えるため。
 watch(() => route.fullPath, () => memory.remember(route), { immediate: true });
+// 承認タブだけは覚えた画面へ戻さない。承認タブの対象は「編集タブで開いているテンプレート」で、
+// 前回の `?template=` を戻すと、編集タブで別のテンプレートを開いた後も前のテンプレートが出る。
+// query なしで開けば `resolveReviewTarget` が編集タブの直前画面から対象を決める。
 function tabTarget(name: TabName): RouteLocationRaw {
+  if (name === 'reviews') return { name };
   return memory.pathFor(name) ?? { name };
 }
 

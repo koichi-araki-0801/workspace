@@ -113,4 +113,41 @@ describe('CreateFundSelect', () => {
     await flushPromises();
     expect(last()).toMatchObject({ companyCode: 'AM01', rep1CompanyCode: 'R-AM01' });
   });
+
+  it('取得中に候補に無い会社へ変えたら、前の会社のファンドが後から届いても候補へ載せない', async () => {
+    let releaseAm02: (v: unknown) => void = () => {};
+    const { w } = mountWith(
+      () =>
+        new Promise((resolve) => {
+          releaseAm02 = resolve;
+        }),
+    );
+    await flushPromises();
+    await chooseCompany(w, 'AM02');
+    await chooseCompany(w, 'ZZ99');
+    releaseAm02(ok(FUNDS));
+    await flushPromises();
+    expect(w.findAllComponents(Combobox)[1].props('options')).toEqual([]);
+    expect(w.find('.animate-spin').exists()).toBe(false);
+  });
+
+  it('取得中にクリアしたら、前の会社のファンドが後から届いても候補へ載せない', async () => {
+    let releaseAm02: (v: unknown) => void = () => {};
+    const { w } = mountWith(
+      () =>
+        new Promise((resolve) => {
+          releaseAm02 = resolve;
+        }),
+    );
+    await flushPromises();
+    await chooseCompany(w, 'AM02');
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('クリア'))
+      ?.trigger('click');
+    releaseAm02(ok(FUNDS));
+    await flushPromises();
+    expect(w.findAllComponents(Combobox)[1].props('options')).toEqual([]);
+    expect(w.find('.animate-spin').exists()).toBe(false);
+  });
 });

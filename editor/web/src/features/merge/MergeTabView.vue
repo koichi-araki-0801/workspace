@@ -12,6 +12,7 @@ import { useTemplateRepo } from '@/api/repositories';
 import Button from '@/components/ui/Button.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { toastSuccess } from '@/components/ui/toast';
+import { formatYmdCompact } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
 import SearchFilters from '../templates/components/SearchFilters.vue';
@@ -87,7 +88,7 @@ async function exportPdf() {
     const url = URL.createObjectURL(result.value);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `merged-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.pdf`;
+    a.download = `merged-${formatYmdCompact(new Date())}.pdf`;
     document.body.appendChild(a);
     a.click();
     a.remove();

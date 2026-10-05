@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from 'vue';
 import editorUser from '@/api/fixtures/users.json';
 import { localRepositories, REPOS_KEY } from '@/api/repositories';
+import { draftOwner } from '@/lib/draftOwner';
 import { draftOwnerKey, K, undoStacksKey } from '@/lib/storageKeys';
 import { useAuthStore } from '@/stores/auth';
 
@@ -93,12 +94,25 @@ describe('useAuthStore.logout()', () => {
     localStorage.setItem(draftOwnerKey(), '{}');
     sessionStorage.setItem('editor:sample:510037', '{}');
     const key = undoStacksKey();
+    const ownerKey = draftOwnerKey();
     await store.logout();
     expect(store.user).toBeNull();
     expect(localStorage.getItem(key)).toBeNull();
-    expect(localStorage.getItem(draftOwnerKey())).toBeNull();
+    // キーごと消すと移行の猶予(`belongsToSession`)が再び開くため、空の記録を残す。
+    expect(localStorage.getItem(ownerKey)).toBe('{}');
     expect(localStorage.getItem('editor:authEpoch')).toBeNull();
     expect(sessionStorage.getItem('editor:sample:510037')).toBeNull();
+  });
+
+  it('ログアウト後に別タブで開いた下書きを、移行の猶予で引き継がない', async () => {
+    const store = setupStore();
+    await store.login('admin', 'admin');
+    draftOwner.claim('T1');
+    await store.logout();
+    // 別タブ = セッショントークンが違う
+    sessionStorage.clear();
+    await store.login('admin', 'admin');
+    expect(draftOwner.belongsToSession('T1')).toBe(false);
   });
 
   it('旧形式の Undo ミラーのキーには触らない(読まれないだけで害はない)', async () => {

@@ -74,8 +74,13 @@ async function loadFunds(keepFund: boolean) {
     query.editionType = undefined;
   }
   notify();
-  if (!rep1) return;
+  // 世代は取得しないときも進める。前の会社の取得が飛んでいると、その応答が後から届いて
+  // 消したばかりの候補を埋め戻すため。
   const isLatest = latestFunds.begin();
+  if (!rep1) {
+    loading.value = false;
+    return;
+  }
   loading.value = true;
   const res = await service.listFunds(rep1);
   if (!isLatest()) return;
@@ -113,6 +118,9 @@ function onFund() {
 }
 
 function reset() {
+  // 取得中の前の会社の応答で候補を埋め戻させない。
+  latestFunds.begin();
+  loading.value = false;
   query.companyCode = undefined;
   query.fundCode = undefined;
   query.editionType = undefined;

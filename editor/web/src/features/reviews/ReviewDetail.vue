@@ -12,6 +12,7 @@
 import {
   type ApproveReviewResult,
   isOk,
+  type ReviewRequest,
   type ReviewRequestMeta,
   toReviewMeta,
 } from '@editor/shared';
@@ -215,11 +216,37 @@ async function approve() {
     }
     notifySyncResult(res.value.sync);
     notifyNoteMasterResult(res.value.noteMaster);
+    // 承認の応答はテンプレートのメタしか持たない。決着後の申請は読み直して得る。
+    const decided = review.value;
     await load();
-    // `review` は本体(html/css/filledHtml)を持つ `ReviewRequest`。一覧の親(`ReviewTabView`)
-    // はメタだけを保持するので、本体を持ち越さないよう剥がしてから渡す。
-    if (review.value) emit('decided', toReviewMeta(review.value));
+    emitDecided(decided, {
+      status: 'approved',
+      reviewedBy: auth.user?.username ?? null,
+      reviewedAt: new Date().toISOString(),
+      comment: comment.value.trim() || null,
+    });
   }
+}
+
+/**
+ * 決着を親へ伝える。読み直した申請が決着済みならそれを、読み直しに失敗して承認待ちのまま
+ * なら決着前の申請へ決着の内容を重ねたものを使う。承認・却下はサーバで成立しているので、
+ * 承認待ちのまま伝えると一覧に決着済みの申請が承認待ちとして残り、ボタンも押せたままになる。
+ * `review` は本体(html/css/filledHtml)を持つ `ReviewRequest`。一覧の親(`ReviewTabView`)は
+ * メタだけを保持するので、本体を持ち越さないよう剥がしてから渡す。
+ */
+function emitDecided(
+  before: ReviewRequest | null,
+  decision: Pick<ReviewRequestMeta, 'status' | 'reviewedBy' | 'reviewedAt' | 'comment'>,
+): void {
+  const reloaded = review.value;
+  if (reloaded && reloaded.id === before?.id && reloaded.status !== 'pending' && !loadError.value) {
+    emit('decided', toReviewMeta(reloaded));
+    return;
+  }
+  if (!before) return;
+  review.value = { ...before, ...decision };
+  emit('decided', toReviewMeta(review.value));
 }
 
 /**
@@ -262,8 +289,10 @@ async function reject() {
   const res = await rejectReview(comment.value.trim());
   if (isOk(res)) {
     toastSuccess('却下しました');
+    const decided = review.value;
     await load();
-    if (review.value) emit('decided', toReviewMeta(review.value));
+    const { status, reviewedBy, reviewedAt, comment: reason } = res.value;
+    emitDecided(decided, { status, reviewedBy, reviewedAt, comment: reason });
   }
 }
 
@@ -289,16 +318,16 @@ async function openPdf() {
   try {
     // 記入済みインスタンスは描画済みの文書なので描画を通さない(理由は
     // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所)。
-    // diff 由来の申請版本文は描画前のテンプレ本文なので従来どおり描画を通す。`filledHtml` が
-    // 空文字の申請(描画中・描画失敗のまま申請)は diff 由来の本文へ倒し、隔離描画を通す。
-    const filledHtml = review.value.filledHtml;
-    const html = filledHtml || afterBodyHtml.value;
+    // `filledHtml` が空文字の申請(描画中・描画失敗のまま申請)は diff 由来の申請版本文へ倒す。
+    // これも `renderTemplateBody` がサンプル値で描画した後の HTML なので、同じく描画を通さない
+    // (もう一度通すと、本文中の `{{` に見える文字が空の値で消える)。
+    const html = review.value.filledHtml || afterBodyHtml.value;
     const res = await preview.renderPdf(
       html,
       cssAfter.value,
       {},
       false,
-      Boolean(filledHtml),
+      true,
       companyCodeOfTemplateId(review.value.templateId),
     );
     if (!isOk(res)) {

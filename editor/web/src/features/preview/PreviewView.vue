@@ -61,7 +61,11 @@ const displayDoc = computed(() =>
 // 見逃して「無音の白紙」になるため、本文領域に常設のエラー表示を出す。
 const loadFailed = ref(false);
 const { loading: loadingPreview, run: runLoad } = useAsyncResult();
-const { loading: submitting, run: runSubmit } = useAsyncResult();
+const { loading: sending, run: runSubmit } = useAsyncResult();
+// 申請の確認後から送信完了までを通して立てる。送信前の変更概要の計算は長引きうる(数十秒)ため、
+// 送信中だけを見ると、その間にもう一度押されて同じ編集の申請が 2 件できる。
+const preparing = ref(false);
+const submitting = computed(() => preparing.value || sending.value);
 const { loading: exporting, run: runExport } = useAsyncResult();
 // 長引くロード/出力への補足(進捗は取得できないため経過時間ベースの段階メッセージ)。
 const { slow: loadSlow } = useSlowIndicator(loadingPreview);
@@ -122,7 +126,7 @@ const origin = computed<'edit' | 'create'>(() =>
 
 // 実ファイルへは即時反映せず、精査者(承認者)の承認を経て反映する申請を出す。
 async function submitForReview() {
-  if (!template.value) return;
+  if (!template.value || submitting.value) return;
   const proceed = await confirm({
     title: '確定保存を申請しますか？',
     description:
@@ -130,27 +134,33 @@ async function submitForReview() {
       'この時点では実ファイルは変更されません。',
     confirmLabel: '申請する',
   });
-  if (!proceed) return;
-  // 一覧の先出し表示用の変更概要(ベストエフォート・失敗は null で申請は続行)。
-  const changedSummary = await changedSummaryService.computeChangedSummary({
-    templateId: props.id,
-    html: restoredHtml.value,
-    css: css.value,
-    fundCode: fundCode.value,
-    origin: origin.value,
-  });
-  const submitted = await runSubmit(() =>
-    reviews.submitReview({
+  if (!proceed || submitting.value) return;
+  preparing.value = true;
+  let submitted: Awaited<ReturnType<typeof runSubmit>>;
+  try {
+    // 一覧の先出し表示用の変更概要(ベストエフォート・失敗は null で申請は続行)。
+    const changedSummary = await changedSummaryService.computeChangedSummary({
       templateId: props.id,
       html: restoredHtml.value,
       css: css.value,
-      // レンダリング済みドキュメントを、申請の記入済みレポートインスタンスとして保持する。
-      filledHtml: previewDoc.value,
-      ...(cssBaseline.value !== null ? { cssBaseline: cssBaseline.value } : {}),
+      fundCode: fundCode.value,
       origin: origin.value,
-      ...(changedSummary ? { changedSummary } : {}),
-    }),
-  );
+    });
+    submitted = await runSubmit(() =>
+      reviews.submitReview({
+        templateId: props.id,
+        html: restoredHtml.value,
+        css: css.value,
+        // レンダリング済みドキュメントを、申請の記入済みレポートインスタンスとして保持する。
+        filledHtml: previewDoc.value,
+        ...(cssBaseline.value !== null ? { cssBaseline: cssBaseline.value } : {}),
+        origin: origin.value,
+        ...(changedSummary ? { changedSummary } : {}),
+      }),
+    );
+  } finally {
+    preparing.value = false;
+  }
   if (isOk(submitted)) {
     // 申請済みの編集は持ち越さない: 編集セッション(履歴 + Undo/Redo)を破棄する。
     sessionStore.clear(props.id);

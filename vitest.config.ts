@@ -211,6 +211,9 @@ export default defineConfig({
         // ページ対応の直接指定。退行は「番号を打っても飛ばない / 対応なしへ落ちる」形で出る。
         'editor/web/src/features/compare/pageMatch.ts',
         'editor/web/src/features/compare/PageMatchInput.vue',
+        // 後着の古い応答の破棄。退行は「絞り込みを変えた直後に選択が消える」形で出る。
+        'editor/web/src/features/compare/CompareSideSelector.vue',
+        'editor/web/src/features/templates/components/CreateFundSelect.vue',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
         'editor/web/src/features/reviews/services/reviewCompareDocs.ts',
         'editor/web/src/features/reviews/reviewPartMaps.ts',
