@@ -54,7 +54,10 @@ vi.mock('../src/vivliostyle/build.js', () => ({
     if (buildFail.merge) throw new Error('merge build failed(テストの意図的失敗)');
     return Buffer.from('%PDF-1.4 merged');
   },
-  prepareInlineDoc: async () => ({ dir: TEST_TMP_DIR, entry: path.join(TEST_TMP_DIR, 'x.html') }),
+  prepareInlineDoc: async () => ({
+    dir: TEST_TMP_DIR,
+    config: { entry: ['doc/index.html'], base: '/vivliostyle' },
+  }),
 }));
 
 /**

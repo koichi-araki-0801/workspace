@@ -104,8 +104,10 @@ function externalRefContract(requestCssRule: string): string {
     '`image-set("http://…")` のような引用符文字列も含む。許可する `data:` は ',
     '`data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` ',
     '`data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。',
-    '**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・',
-    'テンプレ JS を `css/…` `css/fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。',
+    '**相対 URL と断片(`#id`)は通る。むしろ必須である** — 文書は作業フォルダの `doc/` に置かれた',
+    'ものとして扱い、テンプレ CSS・共通フォント・テンプレ JS・画像を `../css/…` `../css/fonts/…` ',
+    '`../js/…` `../images/…` の相対パスで参照する。サーバは参照された実体だけを `doc/` の兄弟',
+    '(`css/` `js/` `images/`)へ同梱する。文書直下基準の `css/…` `images/…` は `doc/css/…` を指し、同梱されない。',
     requestCssRule,
     '相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。',
     '同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす',
@@ -115,7 +117,7 @@ function externalRefContract(requestCssRule: string): string {
     '`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。',
     '\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは ',
     '**body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして ',
-    'script をビューアの window へ作り直すため、`<script src="js/x.js">` は相対 URL の解決基準が',
+    'script をビューアの window へ作り直すため、`<script src="../js/x.js">` は相対 URL の解決基準が',
     'ずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。',
     'なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ',
     '中継される(それ以外は宛先が loopback でも 502 で落ちる)。',
@@ -127,8 +129,9 @@ function externalRefContract(requestCssRule: string): string {
 
 /** リクエストの `css` フィールドを持つ経路(inline / merge)だけに載せる解釈規則。 */
 const REQUEST_CSS_RULE =
-  '`css` は `css/<fund>.css` の位置に置かれた CSS として解釈する(相対 `url()` は `css/` 基準。' +
-  '例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`)。';
+  '`css` は `css/<会社>_<ファンド>_<版種>.css` の位置に置かれた CSS として解釈する' +
+  '(相対 `url()` は CSS 自身の位置が基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`、' +
+  '`url(../images/a.svg)` → `images/a.svg`)。文書へは `doc/` から見た形に付け替えて埋め込む。';
 
 /** zip 経路には `css` フィールドが無い。CSS ファイルは zip 内の位置が解決の基準になる。 */
 const ZIP_CSS_RULE = '展開した CSS ファイルは置かれた位置を基準に相対参照を解決する。';

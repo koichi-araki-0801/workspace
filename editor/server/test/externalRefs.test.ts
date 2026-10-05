@@ -113,6 +113,17 @@ describe('findDocumentExternalRefs — 検査面の網羅', () => {
     expect(findDocumentExternalRefs(html, '')).toEqual([]);
   });
 
+  it('文書基準の相対参照(../css/ ../js/ ../images/<会社>/)は通す', () => {
+    const html =
+      '<html><head><link rel="stylesheet" href="../css/A_1_交付版.css">' +
+      '<script src="../js/column-width.js"></scr' +
+      'ipt></head><body><img src="../images/smtam/qr.svg">' +
+      '<div style="background:url(../images/b.png)"></div></body></html>';
+    expect(findDocumentExternalRefs(html, '@font-face{src:url("../css/fonts/a.woff2")}')).toEqual(
+      [],
+    );
+  });
+
   // `<a href>` は組版中に 1 バイトも取りに行かない。ここを弾いても egress は減らず、
   // 引用元 URL を書いた帳票が全部 400 になるだけ。
   it('<a href="https://…"> は拒まない', () => {

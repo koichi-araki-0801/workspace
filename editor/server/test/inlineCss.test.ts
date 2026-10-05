@@ -133,30 +133,30 @@ describe('inlineCss', () => {
   });
 
   // ── 同梱資産への相対参照(テンプレの必須要件)──
-  // テンプレは per-fund CSS・共通フォント・テンプレ JS を相対パスで参照し、実体は
-  // `docAssets.stageDocAssets` が配信ルートへ置く。**置いたものは残さねばならない** —
-  // ここが落ちると CSS が当たらず JS も動かない。
+  // 文書はテンプレ CSS・共通フォント・テンプレ JS を `doc/` から見た相対パス(`../css/…`)で
+  // 参照し、実体は `docAssets.stageDocAssets` が作業フォルダへ置く。**置いたものは残さねば
+  // ならない** — ここが落ちると CSS が当たらず JS も動かない。
   describe('servedAssets', () => {
-    const served = new Set(['css/510037.css', 'js/column-width.js', 'css/fonts/BIZUD.woff2']);
+    const served = new Set(['css/A_1_交付版.css', 'js/column-width.js', 'css/fonts/BIZUD.woff2']);
 
     it('配信ルートに実体のある <link> と <script src> は残す(リクエスト CSS が無い場合)', () => {
       const html =
-        '<html><head><link rel="stylesheet" href="css/510037.css">' +
-        '<script src="js/column-width.js"></script></head><body>x</body></html>';
+        '<html><head><link rel="stylesheet" href="../css/A_1_交付版.css">' +
+        '<script src="../js/column-width.js"></script></head><body>x</body></html>';
       const out = inlineCss(html, '', { servedAssets: served });
-      expect(out).toContain('<link rel="stylesheet" href="css/510037.css">');
-      expect(out).toContain('<script src="js/column-width.js">');
+      expect(out).toContain('<link rel="stylesheet" href="../css/A_1_交付版.css">');
+      expect(out).toContain('<script src="../js/column-width.js">');
     });
 
     // ── CSS の適用元は 1 つ ──
-    // リクエストが `css` を持つとき、それが唯一の源である。`<link>` を残すと同じ per-fund
+    // リクエストが `css` を持つとき、それが唯一の源である。`<link>` を残すと同じテンプレ
     // CSS が 2 重に当たり、しかも**ディスク側が先・リクエスト側が後**になるので、下書きで
     // 「削除」した規則がディスクの旧 CSS から復活する(後勝ちでは削除を上書きできない)。
     // プレビュー(`web/src/lib/nunjucksRender.ts`)は `<link>` を落とすので、残すと
     // プレビューと PDF で当たる CSS が食い違う。
     it('リクエスト CSS があるとき stylesheet の <link> は落とす(2 重適用を作らない)', () => {
       const html =
-        '<html><head><link rel="stylesheet" href="css/510037.css">' +
+        '<html><head><link rel="stylesheet" href="../css/A_1_交付版.css">' +
         '</head><body>x</body></html>';
       const out = inlineCss(html, 'p{color:red}', { servedAssets: served });
       expect(out).not.toContain('<link');
@@ -165,39 +165,48 @@ describe('inlineCss', () => {
 
     it('rel が stylesheet でない <link>(preload 等)はリクエスト CSS があっても残す', () => {
       const html =
-        '<html><head><link rel="preload" as="font" href="css/fonts/BIZUD.woff2">' +
+        '<html><head><link rel="preload" as="font" href="../css/fonts/BIZUD.woff2">' +
         '</head><body>x</body></html>';
       const out = inlineCss(html, 'p{}', { servedAssets: served });
       expect(out).toContain('<link rel="preload"');
     });
 
     it('大小文字混じり・複数値の rel でも stylesheet として落とす', () => {
-      const html = '<head><link REL="Alternate StyleSheet" href="css/510037.css"></head>';
+      const html = '<head><link REL="Alternate StyleSheet" href="../css/A_1_交付版.css"></head>';
       expect(inlineCss(html, 'p{}', { servedAssets: served })).not.toContain('<link');
     });
 
     it('リクエスト CSS があっても <script src> は残す(テンプレ JS は CSS と無関係)', () => {
-      const html = '<head><script src="js/column-width.js"></script></head>';
+      const html = '<head><script src="../js/column-width.js"></script></head>';
       const out = inlineCss(html, 'p{}', { servedAssets: served });
-      expect(out).toContain('<script src="js/column-width.js">');
+      expect(out).toContain('<script src="../js/column-width.js">');
     });
 
     it('`./` 付きやクエリ付きの相対参照も同じ資産として解決する', () => {
-      const html = '<head><link rel="stylesheet" href="./css/510037.css?v=3"></head>';
+      const html = '<head><link rel="stylesheet" href="./../css/A_1_交付版.css?v=3"></head>';
       const out = inlineCss(html, '', { servedAssets: served });
       expect(out).toContain('<link');
     });
 
     it('実体の無い相対参照は落とす(404 は組版のページ分割を止める)', () => {
-      const html = '<head><link rel="stylesheet" href="css/999999.css">' + '</head>';
+      const html = '<head><link rel="stylesheet" href="../css/999999.css"></head>';
       expect(inlineCss(html, '', { servedAssets: served })).not.toContain('<link');
+    });
+
+    it('文書直下基準(css/…)は served に同名があっても落とす(doc/ から見ると別の場所)', () => {
+      const html =
+        '<head><link rel="stylesheet" href="css/A_1_交付版.css">' +
+        '<script src="js/column-width.js"></script></head>';
+      const out = inlineCss(html, '', { servedAssets: served });
+      expect(out).not.toContain('<link');
+      expect(scanTags(out).tags.map((t) => t.name)).not.toContain('script');
     });
 
     it.each([
       'https://evil.example/x.js',
       '//evil.example/x.js',
-      '/css/510037.css',
-      '../../css/510037.css',
+      '/css/A_1_交付版.css',
+      '../../css/A_1_交付版.css',
     ])('配信ルート配下へ解決できない src(%s)は残さない', (src) => {
       const html = `<head><script src="${src}"></script></head>`;
       const out = inlineCss(html, '', { servedAssets: served });
@@ -222,7 +231,7 @@ describe('inlineCss', () => {
     });
 
     it('資産があっても <base> は落ちる(相対解決先を動かせるため)', () => {
-      const out = inlineCss('<head><base href="css/"></head>', '', { servedAssets: served });
+      const out = inlineCss('<head><base href="../css/"></head>', '', { servedAssets: served });
       expect(scanTags(out).tags.map((t) => t.name)).not.toContain('base');
     });
   });

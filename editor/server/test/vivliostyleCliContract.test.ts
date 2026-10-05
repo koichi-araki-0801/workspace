@@ -5,10 +5,10 @@
 // 渡す形へ戻すと、`locateVivliostyleConfig` の大小文字ヒットと JSONC パーサが同時に復活し、
 // 我々の許可リストは無関係になる。ここではソースを走査して**その退行を静的に落とす**。
 //
-// CLI へ何を渡しているかは、型と静的検査の 2 段で固定する。実 CLI を起動するのは
-// 配信ルートと singleDoc の契約だけ(Task 1 と Task 7 Step 17 が足す分)で、ブラウザは起こさず
-// (`preview` の `openViewer:false`)HTTP で直接確かめる。CLI の import に約 11 秒掛かるので、
-// 実 CLI を起動する契約はこの 2 種に限り、他の振る舞いは CLI をモックして確かめる。
+// CLI へ何を渡しているかは、型と静的検査の 2 段で固定する。実 CLI を起動するのは配信ルートの
+// 契約だけで、ブラウザは起こさず(`preview` の `openViewer:false`)HTTP で直接確かめる。CLI の
+// import に約 11 秒掛かるので、実 CLI を起動する契約はこの 1 種に限り、他の振る舞いは CLI を
+// モックして確かめる。
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -172,36 +172,43 @@ describe('@vivliostyle/viewer の script 実行(テンプレ JS が動く根拠)
 // そこから配られる。ここが赤くなったら、PDF 経路の作業フォルダの形を設計から見直すこと。
 describe('@vivliostyle/cli の配信ルート(doc/ のエントリと兄弟の資産)', () => {
   it('configData で doc/index.html をエントリにすると ../css と ../images と css/fonts が配信される', async () => {
-    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'vivlio-contract-'));
-    const put = async (rel: string, body: string): Promise<void> => {
-      const p = path.join(dir, ...rel.split('/'));
-      await fsp.mkdir(path.dirname(p), { recursive: true });
-      await fsp.writeFile(p, body, 'utf8');
-    };
-    await put(
-      'doc/index.html',
-      '<!doctype html><html><head><meta charset="utf-8">' +
-        '<link rel="stylesheet" href="../css/x.css"></head>' +
-        '<body><p>doc-marker</p><img src="../images/y.svg" alt=""></body></html>',
-    );
-    await put(
-      'css/x.css',
-      '/* css-marker */\n@font-face{font-family:F;src:url(fonts/a.woff2)}\np{color:red}\n',
-    );
-    await put('css/fonts/a.woff2', 'font-marker');
-    await put('images/y.svg', '<svg xmlns="http://www.w3.org/2000/svg"><!-- svg-marker --></svg>');
-
-    const { preview } = await import('@vivliostyle/cli');
-    const server = await preview({
-      configData: mergeConfigObject(['doc/index.html']),
-      cwd: dir,
-      openViewer: false,
-      host: '127.0.0.1',
-      viteConfigFile: false,
-      logLevel: 'silent',
-      vite: { server: { hmr: false, fs: { strict: true, allow: [dir] } } },
-    } as Parameters<typeof preview>[0]);
+    type PreviewServer = Awaited<ReturnType<typeof import('@vivliostyle/cli')['preview']>>;
+    let dir: string | undefined;
+    let server: PreviewServer | undefined;
     try {
+      const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'vivlio-contract-'));
+      dir = root;
+      const put = async (rel: string, body: string): Promise<void> => {
+        const p = path.join(root, ...rel.split('/'));
+        await fsp.mkdir(path.dirname(p), { recursive: true });
+        await fsp.writeFile(p, body, 'utf8');
+      };
+      await put(
+        'doc/index.html',
+        '<!doctype html><html><head><meta charset="utf-8">' +
+          '<link rel="stylesheet" href="../css/x.css"></head>' +
+          '<body><p>doc-marker</p><img src="../images/y.svg" alt=""></body></html>',
+      );
+      await put(
+        'css/x.css',
+        '/* css-marker */\n@font-face{font-family:F;src:url(fonts/a.woff2)}\np{color:red}\n',
+      );
+      await put('css/fonts/a.woff2', 'font-marker');
+      await put(
+        'images/y.svg',
+        '<svg xmlns="http://www.w3.org/2000/svg"><!-- svg-marker --></svg>',
+      );
+
+      const { preview } = await import('@vivliostyle/cli');
+      server = await preview({
+        configData: mergeConfigObject(['doc/index.html']),
+        cwd: root,
+        openViewer: false,
+        host: '127.0.0.1',
+        viteConfigFile: false,
+        logLevel: 'silent',
+        vite: { server: { hmr: false, fs: { strict: true, allow: [root] } } },
+      } as Parameters<typeof preview>[0]);
       const addr = server.httpServer?.address();
       if (addr === null || addr === undefined || typeof addr !== 'object') {
         throw new Error('プレビューサーバのポートが取れません');
@@ -247,8 +254,9 @@ describe('@vivliostyle/cli の配信ルート(doc/ のエントリと兄弟の�
       const js = await get(new URL('../js/z.js', docUrl), '*/*');
       expect(js.status).toBe(404);
     } finally {
-      await server.close();
-      await fsp.rm(dir, { recursive: true, force: true });
+      // mkdtemp や資産の書き出しで落ちても作業フォルダを残さない。
+      await server?.close();
+      if (dir !== undefined) await fsp.rm(dir, { recursive: true, force: true });
     }
   }, 120_000);
 });

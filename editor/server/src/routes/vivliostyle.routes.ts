@@ -218,16 +218,17 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
       } else {
         const parsed = BuildInlineRequest.safeParse(request.body);
         if (!parsed.success) throw validation('リクエスト内容が不正です');
-        const { dir, entry } = await prepareInlineDoc(parsed.data);
+        const { dir, config: inlineConfig } = await prepareInlineDoc(parsed.data);
         meta = await previewManager.start(
           {
             mode: 'inline',
-            input: entry,
+            // 単一入力(`input`)ではなく config で渡す(`build.ts` の `INLINE_ENTRY`)。
+            config: inlineConfig,
             cwd: dir,
             size: parsed.data.size,
-            singleDoc: parsed.data.singleDoc,
+            // singleDoc は渡さない(entry 1 本の config は既に単一文書。理由は build.ts の inline)。
             workDir: dir,
-            // inline は config を持たないので CLI 既定の base になる。
+            // config の base は `mergeConfigObject` が `DEFAULT_DOC_BASE` に固定している。
             docBase: DEFAULT_DOC_BASE,
           },
           actorOf(request),

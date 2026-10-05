@@ -5,9 +5,12 @@ import { describe, expect, it } from 'vitest';
 import { rebaseRequestCss } from '../src/vivliostyle/requestCss.js';
 
 describe('rebaseRequestCss', () => {
-  it('css/ 基準へ付け替える', () => {
+  it('css/<テンプレ>.css の位置の CSS を doc/ から見た形へ付け替える', () => {
     expect(rebaseRequestCss('@font-face{src:url(fonts/a.woff2)}')).toBe(
-      '@font-face{src:url("css/fonts/a.woff2")}',
+      '@font-face{src:url("../css/fonts/a.woff2")}',
+    );
+    expect(rebaseRequestCss('.q{background:url(../images/smtam/qr.svg)}')).toBe(
+      '.q{background:url("../images/smtam/qr.svg")}',
     );
   });
 

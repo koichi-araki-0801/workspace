@@ -1,8 +1,8 @@
 // =============================================================================
 // mergeInput.ts — 複数文書の結合 build 入力を一時ディレクトリへ実体化する
 // =============================================================================
-// `POST /api/build/merge` の裏方。レンダリング済み HTML+CSS の配列を `doc-000.html` …の
-// 連番ファイルへ書き出し、`entry` 配列を持つ `vivliostyle.config.cjs` を生成する。複数
+// `POST /api/build/merge` の裏方。レンダリング済み HTML+CSS の配列を `doc/doc-000.html` …の
+// 連番ファイルへ書き出し(資産は `doc/` の兄弟に置く)、`entry` 配列を持つ config を組む。複数
 // entry のビルドは vivliostyle が book(単一 spine)として組版し、CSS Paged Media の
 // `page` カウンタが文書境界でリセットされず継続する — これが「通しページ番号」の土台。
 // ライフサイクルは `projectInput.ts` と同じで、呼び出し側が `cleanupProject(dir)` を持つ。
@@ -10,6 +10,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { DOC_DIR } from '@editor/shared';
 import { config } from '../config.js';
 import { stageDocAssets } from './docAssets.js';
 import { collectDocumentAssetRefs } from './docRefs.js';
@@ -69,9 +70,9 @@ export function mergeConfigObject(entries: string[], size?: string): SafeProject
  * build 完了後に必ず `cleanupProject(dir)` を呼ぶこと(このモジュールは途中失敗時のみ
  * 自前で掃除する)。
  *
- * - 各文書は `doc-000.html` からのゼロ埋め連番で書き出す(entry 順 = 配列順を字面でも保証)。
+ * - 各文書は `doc/doc-000.html` からのゼロ埋め連番で書き出す(entry 順 = 配列順を字面でも保証)。
  * - CSS は `stripPageCounterReset` + `MERGE_PAGE_COUNTER_CSS` を経て各 HTML へインライン化。
- * - リクエスト CSS は `build.ts` の入口で css/ 基準へ付け替え済み。ここで連結する
+ * - リクエスト CSS は `build.ts` の入口で doc/ 基準へ付け替え済み。ここで連結する
  *   `MERGE_PAGE_COUNTER_CSS` やトンボの CSS に相対 url() を足すと、PDF とプレビューで解決先が
  *   食い違う(プレビューはそれらを別の `<style>` に入れ、付け替えない)。
  */
@@ -92,14 +93,15 @@ export async function materializeMergeProject(
       for (const rel of collectDocumentAssetRefs(doc.html, doc.css)) referenced.add(rel);
     }
     const served = await stageDocAssets(dir, { referenced });
+    await fs.mkdir(path.join(dir, DOC_DIR), { recursive: true });
     const entries: string[] = [];
     for (const [i, doc] of documents.entries()) {
-      const name = `doc-${String(i).padStart(3, '0')}.html`;
+      const name = `${DOC_DIR}/doc-${String(i).padStart(3, '0')}.html`;
       const css = `${stripPageCounterReset(doc.css)}\n${MERGE_PAGE_COUNTER_CSS}`;
       // 外部 JS のインライン展開は inline build と同条件で行う(理由は
       // `inlineDocScripts.ts` 冒頭)。結合 PDF だけ JS が効かない、という差を作らない。
       await fs.writeFile(
-        path.join(dir, name),
+        path.join(dir, ...name.split('/')),
         await inlineDocScripts(inlineCss(doc.html, css, { servedAssets: served }), dir, served),
         'utf8',
       );

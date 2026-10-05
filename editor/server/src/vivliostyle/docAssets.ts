@@ -1,10 +1,10 @@
 // =============================================================================
 // docAssets.ts — 同梱資産(css / fonts / js / images)を PDF・プレビューの配信ルートへ配置する
 // =============================================================================
-// テンプレは `href="css/{{ fund.code }}.css"` のように、CSS・フォント・JS を**相対パス**で
-// 参照する。参照先の実体は `editor-data` にあるが、`@vivliostyle/cli` が配信するのは
-// **エントリ HTML と同じディレクトリ**(`vsDevServerPlugin` が `sirv(workspaceDir)` /
-// `sirv(entryContextDir)` で配る)なので、そこへ写さないと相対参照は必ず 404 になる。
+// 文書は `../css/<会社>_<ファンド>_<版種>.css` のように、CSS・フォント・JS・画像を**文書の位置
+// から見た相対パス**で参照する。PDF・プレビューの作業フォルダでは文書を `doc/` に書き、
+// 参照先の実体を `doc/` の兄弟(`css/` `js/` `images/`)へ写す。`@vivliostyle/cli` が配信するのは
+// 作業フォルダ(`cwd`)配下なので、そこへ写さないと相対参照は必ず 404 になる。
 //
 // つまり「相対参照を許す」(`security/externalRefs.ts`)だけでは足りず、**参照先を配信ルートへ
 // 置く側**が対になって初めて成立する。この 2 つは同じ 1 つの作業である。
@@ -15,19 +15,19 @@
 // よって写すのは「決められた 4 つの置き場」×「決められた拡張子」だけとする。
 //
 // ── 置き場(利用者決定・変更しないこと) ──
-//   css       = `config.cssDir`        (per-fund。`<fund>.css`。直下の `fonts/` は下の別グループ)
-//   css/fonts = `config.cssDir/fonts`  (全ファンド共通のフォント。CSS から `url(fonts/…)`)
-//   js        = `config.jsDir`         (全ファンド共通のテンプレ JS)
-//   images    = `config.imagesDir`     (ファンド別画像。直下だけ。SVG は置く前に `inspectSvg`)
-// 配信ルートでの名前は `css/` `css/fonts/` `js/` `images/` に固定する(テンプレ側の相対参照と対)。
+//   css       = `config.cssDir`        (テンプレ単位。`<会社>_<ファンド>_<版種>.css`。直下の `fonts/` は下の別グループ)
+//   css/fonts = `config.cssDir/fonts`  (全テンプレ共通のフォント。CSS から `url(fonts/…)`)
+//   js        = `config.jsDir`         (全テンプレ共通のテンプレ JS)
+//   images    = `config.imagesDir`     (画像。直下だけ。SVG は置く前に `inspectSvg`)
+// 作業フォルダでの名前は `css/` `css/fonts/` `js/` `images/` に固定する(文書の `../` 参照と対)。
 
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { collectCssUrlCandidates, inspectSvg } from '@editor/shared';
+import { collectCssUrlCandidates, inspectSvg, resolveDocAssetPath } from '@editor/shared';
 import { config, envPositiveNumber } from '../config.js';
 import { logger } from '../logger.js';
-import { MAX_ASSET_REF_DEPTH, resolveRefFrom } from './docRefs.js';
+import { MAX_ASSET_REF_DEPTH } from './docRefs.js';
 
 /** 配信ルートに作るサブディレクトリと、その中身として許す拡張子(小文字・末尾一致)。 */
 interface AssetGroup {
@@ -256,7 +256,7 @@ export interface StageDocAssetsOptions {
 /**
  * 参照集合を「参照された CSS が更に引く資産」まで広げる。
  *
- * `<link href="css/510037.css">` しか書いていない文書でも、その CSS が
+ * `<link href="../css/A_1_交付版.css">` しか書いていない文書でも、その CSS が
  * `@font-face { src: url(fonts/a.woff2) }` と書いていれば fonts も要る。1 段では
  * 足りない形(CSS が CSS を引く)もあるので `MAX_ASSET_REF_DEPTH` まで繰り返す。
  */
@@ -280,7 +280,8 @@ async function expandReferenced(
         continue;
       }
       for (const candidate of collectCssUrlCandidates(text)) {
-        const child = resolveRefFrom(rel, candidate);
+        // CSS 内の参照は CSS 自身の位置が基準(`css/A_1_交付版.css` の `fonts/x` = `css/fonts/x`)。
+        const child = resolveDocAssetPath(candidate, rel);
         if (child !== undefined && !chosen.has(child)) next.push(child);
       }
     }

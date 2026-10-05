@@ -41,6 +41,7 @@ beforeAll(async () => {
   // 許可外拡張子。同じ置き場でも配ってはならない。
   fs.writeFileSync(path.join(tmp, 'js', 'secret.env'), 'TOKEN=zz', 'utf8');
   fs.writeFileSync(path.join(tmp, 'css', '510037.css'), 'body{}', 'utf8');
+  fs.writeFileSync(path.join(tmp, 'css', 'A_1_交付版.css'), 'body{}', 'utf8');
   // 配信面の外(dataRoot 直下)。`..` で辿れないことの標的。
   fs.writeFileSync(path.join(tmp, 'outside.js'), 'LEAK', 'utf8');
 
@@ -111,6 +112,20 @@ describe('GET /api/preview-host/index.html', () => {
 });
 
 describe('GET /api/preview-host/* — 同梱資産の配信', () => {
+  it('受けるのは論理ルート相対のパス(親が文書基準の参照を解いてから取りに来る)', async () => {
+    const ok = await app.inject({
+      method: 'GET',
+      url: `/api/preview-host/css/${encodeURIComponent('A_1_交付版.css')}`,
+    });
+    expect(ok.statusCode).toBe(200);
+    // 文書基準の形(`../css/…`)をそのまま渡しても論理ルートの外 = 配らない。
+    const raw = await app.inject({
+      method: 'GET',
+      url: `/api/preview-host/doc/..%2F..%2Fcss/${encodeURIComponent('A_1_交付版.css')}`,
+    });
+    expect([400, 404]).toContain(raw.statusCode);
+  });
+
   it('許可リスト配下の資産を配る', async () => {
     const js = await app.inject({ method: 'GET', url: '/api/preview-host/js/app.js' });
     expect(js.statusCode).toBe(200);

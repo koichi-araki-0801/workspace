@@ -15,7 +15,7 @@
 // `docAssets.ts` は**ファイルを配信ルートへ写すだけ**で HTML を 1 バイトも読まない。そこへ
 // 展開を置くと「タグ境界を正しく求める走査器」をもう 1 つ持つことになり、`inlineCss.ts`
 // 冒頭が戒めている「`[^>]*` で属性値を跨いで span を食う」種類の誤爆を二重に抱える。
-// 対して本モジュールは `inlineCss.scanTags` と `resolveServedAssetPath` をそのまま使う =
+// 対して本モジュールは `inlineCss.scanTags` と `resolveDocAssetPath(…, DOC_DIR)` をそのまま使う =
 // **残す/落とすの判定(`dropsUnservedRef`)と完全に同じ物差し**で展開対象を決められる。
 // 実行順も `inlineCss` の**後**にする: そこで既に「実体の無い相対参照」は要素ごと落ちて
 // いるので、本モジュールが見る `<script src>` は必ず配信ルートに実体がある。
@@ -27,7 +27,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { resolveServedAssetPath } from '@editor/shared';
+import { DOC_DIR, resolveDocAssetPath } from '@editor/shared';
 import { scanTags, type TagSpan } from './inlineCss.js';
 
 /**
@@ -118,10 +118,10 @@ function elementEnd(tags: readonly TagSpan[], index: number, tag: TagSpan): numb
 }
 
 /**
- * `servedRoot`(= 配信ルート)へ既に配置済みの実体を読み、`<script src>` をインライン
- * `<script>` へ展開した HTML を返す。
+ * `servedRoot`(= 作業フォルダ。文書は `doc/` に、資産はその兄弟に置かれている)へ既に
+ * 配置済みの実体を読み、`<script src>` をインライン `<script>` へ展開した HTML を返す。
  *
- * 判定は `resolveServedAssetPath` **1 本**で、`inlineCss` の残す/落とす判定と同じ物差し。
+ * 判定は `resolveDocAssetPath(…, DOC_DIR)` **1 本**で、`inlineCss` の残す/落とす判定と同じ物差し。
  * 別実装の判定を置くと「落とさないのに展開もしない」形の穴が必ず生まれる。
  *
  * 展開できない参照(実体が読めない・大きすぎる・`<!--` を含む・タグの形が想定外)は
@@ -142,7 +142,7 @@ export async function inlineDocScripts(
     if (tag.isEnd || tag.name !== 'script') continue;
     const src = tag.attrs.find((a) => a.name === 'src');
     if (src === undefined) continue;
-    const rel = resolveServedAssetPath(src.value);
+    const rel = resolveDocAssetPath(src.value, DOC_DIR);
     if (rel === undefined || !served.has(rel)) continue;
     const openTag = rebuildOpenTag(tag);
     if (openTag === undefined) continue;

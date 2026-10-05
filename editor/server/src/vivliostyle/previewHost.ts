@@ -404,8 +404,10 @@ export async function previewHostRoutes(app: FastifyInstance): Promise<void> {
       .send(await hostPage());
   });
 
-  // ビューアバンドルと同梱資産(`css/`(配下に `css/fonts/`)と `js/`。`images/` は配らない)。パスの解決は
-  // `resolveServedAssetPath`(配信ルート相対への正規化)+ `resolveServedAssetSource`
+  // ビューアバンドルと同梱資産(`css/`(配下に `css/fonts/`)と `js/`。`images/` は配らない)。
+  // 受けるのは**論理ルート相対のパス**で、文書の参照そのものではない — web の
+  // `previewSelfContain` が文書基準の参照を `resolveDocAssetPath` で解いてから取りに来る。
+  // パスの解決は `resolveServedAssetPath`(ルート引数の正規化)+ `resolveServedAssetSource`
   // (許可リスト・深さ・シンボリックリンク)の 2 段で、PDF 経路と同じ物差しを使う。
   app.get<{ Params: { '*': string } }>(
     `${PREVIEW_HOST_BASE}/*`,

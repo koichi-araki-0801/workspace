@@ -26,7 +26,7 @@
 // 文字列連結で差し込むのも意図的: `String.prototype.replace` は置換文字列中の `$&` `$'`
 // などを特殊解釈するため、CSS(利用者入力)をそのまま置換文字列に載せると内容が化ける。
 
-import { resolveServedAssetPath } from '@editor/shared';
+import { DOC_DIR, resolveDocAssetPath } from '@editor/shared';
 
 /** `servedAssets` 未指定時の既定(資産を 1 つも配置していない配信ルート)。 */
 const EMPTY_SERVED: ReadonlySet<string> = new Set<string>();
@@ -303,6 +303,7 @@ function isStylesheetLink(tag: TagSpan): boolean {
  * (`security/externalRefs.ts` の `assertNoDocumentExternalRefs`)なので、ここで見るのは
  * 「相対参照だが実体が無い」形だけである。残すと組版側のフェッチャが 404 を踏み、
  * ページ分割が中断する — だから**残すのは実体があるときだけ**という非対称にする。
+ * 参照は文書の位置(`doc/`)を基準に解く(`docRefs.collectDocumentAssetRefs` と同じ物差し)。
  *
  * 属性そのものが無い場合(素の `<script>` = テンプレ JS 本体、href の無い `<link>`)は
  * 取得を起こさないので落とさない。
@@ -311,7 +312,7 @@ function dropsUnservedRef(tag: TagSpan, served: ReadonlySet<string>): boolean {
   const attrName = tag.name === 'link' ? 'href' : 'src';
   const attr = tag.attrs.find((a) => a.name === attrName);
   if (attr === undefined) return false;
-  const rel = resolveServedAssetPath(attr.value);
+  const rel = resolveDocAssetPath(attr.value, DOC_DIR);
   return rel === undefined || !served.has(rel);
 }
 
@@ -323,8 +324,8 @@ function dropsUnservedRef(tag: TagSpan, served: ReadonlySet<string>): boolean {
  * (`docAssets.ts` 冒頭を見よ)。判定軸は要素名ではなく URL の解決先に置く。
  *
  * ── CSS の適用元は 1 つに保つ(`hasInlineCss`)──
- * リクエストが `css` を持つとき、その CSS が**唯一の源**である。同じ per-fund CSS が
- * ディスク側にも在るので、`<link href="css/510037.css">` を残すと 2 重に当たり、しかも
+ * リクエストが `css` を持つとき、その CSS が**唯一の源**である。同じテンプレ CSS が
+ * ディスク側にも在るので、`<link href="../css/<テンプレ>.css">` を残すと 2 重に当たり、しかも
  * 挿入位置の都合で**ディスク側が先・リクエスト側が後**になる。編集中の下書き CSS で
  * 規則を「削除」しても、後勝ちでは削除を上書きできないためディスクの旧規則が復活する。
  * プレビュー(`web/src/lib/nunjucksRender.ts`)は `<link>` を落として inline だけを当てるので、
