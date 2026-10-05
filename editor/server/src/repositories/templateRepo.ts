@@ -92,7 +92,9 @@ function optionsFromMetas(metas: TemplateMeta[], q: DropdownQuery): DropdownOpti
  * `includePending` なら `pending/`(生成直後の未確定)を足す。同じ id が両方に在るときは確定を採る(承認後の pending 削除はベストエフォート)。
  */
 async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[]> {
-  const files = await listFilledFiles();
+  // 値入り HTML は基準日を持つ 4 つ区切り(会社_ファンド_基準日_版種)だけ。3 つ区切りの名前
+  // (例 ファンド_基準日_版種)はテンプレートの形に読めてしまうので、名前の形で先に外す。
+  const files = (await listFilledFiles()).filter((f) => parseTemplateFileName(f) !== null);
   const confirmed = (await Promise.all(files.map((f) => fileToMeta(f, 'filled')))).filter(isMeta);
   if (!includePending) return confirmed;
   // 照合は大文字小文字を区別しない。NTFS では承認が既存の綴りのファイルへ上書きするので、

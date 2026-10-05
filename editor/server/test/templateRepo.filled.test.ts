@@ -24,6 +24,7 @@ const JINJA_ONLY_ID = 'AM01_510037_全体版';
 const BOTH_ID = 'AM01_110024_20251117_交付版';
 const SKELETON_ID = 'AM01_510124_交付版';
 const SKELETON_PENDING_ID = 'AM01_510155_交付版';
+const NO_COMPANY_ID = '510037_20240710_交付版';
 
 describe('templateRepo と filled/', () => {
   let repo: import('../src/repositories/templateRepo.js').TemplateRepo;
@@ -41,6 +42,9 @@ describe('templateRepo と filled/', () => {
     fs.writeFileSync(path.join(tmp, 'templates', `${BOTH_ID}.html`), '<p>{{ y }}</p>', 'utf8');
     fs.writeFileSync(path.join(tmp, 'filled', `${BOTH_ID}.html`), '<p>値入り 110024</p>', 'utf8');
     fs.writeFileSync(path.join(tmp, 'css', '510037.css'), '.a{}', 'utf8');
+    // 会社コードの無い 3 つ区切り(ファンド_基準日_版種)。3 つ区切りはテンプレートの形なので
+    // 会社=510037・ファンド=20240710 と読めてしまうが、値入り HTML ではない。
+    fs.writeFileSync(path.join(tmp, 'filled', `${NO_COMPANY_ID}.html`), '<p>会社なし</p>', 'utf8');
     const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
     fs.writeFileSync(path.join(tmp, 'templates', `${SKELETON_ID}.html`), '<p>{{ s }}</p>', 'utf8');
@@ -76,6 +80,15 @@ describe('templateRepo と filled/', () => {
     expect(ids).not.toContain(SKELETON_PENDING_ID);
     const opts = await repo.getDropdownOptions({ companyCode: 'AM01' }, 'edit');
     expect(opts.fundCodes).not.toContain('510155');
+  });
+
+  it('filled/ の 3 つ区切り(ファンド_基準日_版種 など)は一覧にも候補にも出ない', async () => {
+    const ids = (await repo.listTemplates({})).map((m) => m.id);
+    expect(ids).not.toContain(NO_COMPANY_ID);
+    for (const scope of ['edit', 'published'] as const) {
+      const opts = await repo.getDropdownOptions({}, scope);
+      expect(opts.companyCodes).not.toContain('510037');
+    }
   });
 
   it('pending/ の基準日つき(4 つ区切り)は編集タブの一覧に draft で出る', async () => {
