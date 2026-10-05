@@ -70,9 +70,9 @@ export function useTemplateEditor(
 
   /**
    * 確定版の値埋め込み本文を GrapesJS 自身が直列化した形(HTML + CSS)。「未確定」の判定基準。
-   * 文字列比較が成り立つのは同じ直列化を通した同士だけなので canvas から取る。初回に取って
-   * `lib/confirmedCanonical.ts` へ永続し、draft 再開時はそれを使う(無ければ確定版を先に
-   * 読み込んで測る)。作成経路は確定版が無く null。
+   * 文字列比較が成り立つのは同じ直列化を通した同士だけなので canvas から取る。開くたびに
+   * 確定版の読み込みから測り直し(`openCanvas.ts`)、`lib/confirmedCanonical.ts` の永続は
+   * 測れないときの代わりにだけ使う。作成経路は確定版が無く null。
    */
   let confirmedCanonical: ConfirmedCanonical | null = null;
   /** draft が実体として在りうるか(前回セッションの draft、または autosave が 1 度でも走った)。 */

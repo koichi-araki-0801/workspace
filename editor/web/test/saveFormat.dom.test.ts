@@ -1,6 +1,9 @@
 import type { Component } from 'grapesjs';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { toast } from '@/components/ui/toast';
 import { useGrapes } from '@/features/editor/useGrapes';
+
+vi.mock('@/components/ui/toast', () => ({ toast: vi.fn(), toastError: vi.fn() }));
 
 // =============================================================================
 // saveFormat.dom.test.ts — 保存内容(getBodyHtml / getCss)に GrapesJS 由来の揮発物を載せない
@@ -95,5 +98,18 @@ describe('保存形式', () => {
     select('.cover-category').remove();
     expect(g.getBodyHtml()).not.toContain('cover-category');
     expect(g.getCss()).toContain('.cover-category{color:green;}');
+  });
+  it('@media の中の、文書で使っていないクラスの規則も getCss に残る', () => {
+    g.load(DOC, '.body { color: red; } @media print { .unused-print { color: blue; } }');
+    expect(g.getCss()).toContain('@media print{.unused-print{color:blue;}}');
+  });
+
+  it('quiet の読み込みは外部参照の CSS を拒んでも通知を出さない(通常の読み込みは出す)', () => {
+    vi.mocked(toast).mockClear();
+    const external = '@import "http://evil.example/x";';
+    expect(g.load(DOC, external, { quiet: true })).toBe(false);
+    expect(toast).not.toHaveBeenCalled();
+    expect(g.load(DOC, external)).toBe(false);
+    expect(toast).toHaveBeenCalledTimes(1);
   });
 });

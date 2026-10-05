@@ -66,14 +66,20 @@ describe('openCanvas', () => {
     expect(r.loaded).toBe(true);
   });
 
-  it('正規形のキャッシュがあっても、下書きから開くときは確定版を読み込んで baseline を測る', () => {
+  it('古い正規形のキャッシュは、下書きから開くときに確定版を読み込んで測った形で置き換える', () => {
     const g = fakeCanvas();
     const cached = { html: 'cached-html', css: 'cached-css' };
     const r = openCanvas(g, { ...withDraft, cachedCanonical: cached });
     expect(g.loads.map((l) => l.quiet)).toEqual([true, false]);
     expect(r.cssBaseline).toBe('gjs:.a{color:#003366}');
-    expect(r.canonical).toBe(cached);
-    expect(r.measuredCanonical).toBe(false);
+    expect(r.canonical).toEqual({ html: 'gjs:<p>確定</p>', css: 'gjs:.a{color:#003366}' });
+    expect(r.measuredCanonical).toBe(true);
+  });
+
+  it('古い正規形のキャッシュは、下書きが無くても読み込み直後の形で置き換える', () => {
+    const r = openCanvas(fakeCanvas(), { ...base, cachedCanonical: { html: 'old', css: 'old' } });
+    expect(r.canonical).toEqual({ html: 'gjs:<p>確定</p>', css: 'gjs:.a{color:#003366}' });
+    expect(r.measuredCanonical).toBe(true);
   });
 
   it('作成経路でも baseline を測り、正規形は作らない', () => {

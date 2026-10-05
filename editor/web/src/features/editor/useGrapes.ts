@@ -747,10 +747,13 @@ export function useGrapes() {
     if (!ed) return false;
     const refs = summarizeExternalCssRefs(css);
     if (refs !== null) {
-      toast(`CSSに外部参照が含まれるため読み込みを中止しました（${refs}）。`, 'error');
+      // quiet の読み込み(確定版の形を測るだけ)では拒むだけにする。呼び出し側は false を見て
+      // 測るのをやめ、利用者が開いた本文はこのあと通常の読み込みで同じ検査を通る。
+      if (!opts.quiet)
+        toast(`CSSに外部参照が含まれるため読み込みを中止しました（${refs}）。`, 'error');
       return false;
     }
-    // `quiet` は刈り取りのトーストだけを抑止する(刈り取り自体は通常どおり)。確定版の正規形を
+    // `quiet` は通知だけを抑止する(拒否・刈り取り自体は通常どおり)。確定版の正規形を
     // 取るための読み込みで使う — 本文の読み込みで同じ通知が出るため、二重に出すと誤解を招く。
     quietParse = !!opts.quiet;
     try {
