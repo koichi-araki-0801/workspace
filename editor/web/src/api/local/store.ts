@@ -156,7 +156,7 @@ const WORKING_KEYS = [
   K.drafts,
   K.htmlOverride,
   K.filledOverride,
-  K.cssOverride, // CSS のキーを fundCode から CSS 名(テンプレ単位)へ変えた。旧形式は読めないので bump で一掃する
+  K.cssOverride, // テンプレ単位の CSS。キーは CSS のファイル名(`cssFileNameOf`)
   META_KEY,
   K.snapshots,
   K.instances,
@@ -164,7 +164,7 @@ const WORKING_KEYS = [
   K.pdfHist,
   K.createHist,
   K.partHist,
-  K.notes, // メモ単位を fundCode→templateId へ変更。旧形式は非可逆なので bump で一掃する
+  K.notes, // メモはテンプレート ID 単位
   undoStacksKey(),
   draftOwnerKey(),
   confirmedCanonicalKey(),

@@ -94,7 +94,7 @@ describe('computeCssSync', () => {
     expect(r.conflicts).toEqual([]);
   });
 
-  it('ペア側に無い規則の変更も競合(Task 3 の判定のまま)', () => {
+  it('ペア側に無い規則の変更も競合', () => {
     const r = computeCssSync({
       base: '.a{x:1}',
       baseline: '.a{x:1}',

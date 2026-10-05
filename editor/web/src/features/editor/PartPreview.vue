@@ -10,7 +10,7 @@
  *
  * 実寸は A4 横幅相当(96dpi ≒ 794px)で組み、ステージ実測幅に合わせて `transform: scale`
  * で縮小する。挿入先 canvas には全ファンド共通テーマの複製 CSS が載るため、プレビューも
- * その正テーマ(`510037.css`)1 枚を読めば実物と同じ見た目になる([[editor-tofilled-text-only]])。
+ * その正テーマ(`AM01_510037_交付版.css`)1 枚を読めば実物と同じ見た目になる([[editor-tofilled-text-only]])。
  */
 import { Eye } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';

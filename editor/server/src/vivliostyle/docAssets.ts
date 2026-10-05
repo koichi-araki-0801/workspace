@@ -196,7 +196,7 @@ const MAX_ASSET_BYTES = envPositiveNumber(
   { integer: true },
 );
 
-/** 走査で拾った 1 ファイル。`rel` は mount を含む配信ルート相対パス(`css/510037.css`)。 */
+/** 走査で拾った 1 ファイル。`rel` は mount を含む配信ルート相対パス(`css/AM01_510037_交付版.css`)。 */
 interface AssetFile {
   rel: string;
   source: string;
