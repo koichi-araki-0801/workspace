@@ -28,6 +28,8 @@ const props = defineProps<{
   beforePageCount?: number;
   afterPageCount?: number;
   isCreate: boolean;
+  /** テンプレ ID の会社コード(会社フォルダの画像の照合用)。 */
+  companyCode: string | null;
 }>();
 
 const showMarker = ref(true);
@@ -162,6 +164,7 @@ defineExpose({ gotoPage });
           <PreviewPanel
             ref="beforePanel"
             :html="docs.beforeDoc"
+            :company-code="companyCode"
             @state="(s) => (beforeState = s)"
           />
         </div>
@@ -174,6 +177,7 @@ defineExpose({ gotoPage });
           <PreviewPanel
             ref="afterPanel"
             :html="docs.afterDoc"
+            :company-code="companyCode"
             @state="(s) => (afterState = s)"
           />
         </div>

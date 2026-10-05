@@ -8,15 +8,23 @@
 
 import {
   conflict,
+  DOC_DIR,
   err,
   fetchUrlAttrsFor,
   findExternalRefsInTag,
   ok,
   type Result,
+  resolveDocAssetPath,
   type SampleData,
 } from '@editor/shared';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { formatHtml } from '@/lib/formatOutput';
+import {
+  companyFolderMatches,
+  dropUnmatchedCompanyImageUrls,
+  fundImageRefOf,
+  TEMPLATE_CSS_FROM,
+} from '@/lib/fundImages';
 import { renderJinjaIsolated } from '@/lib/renderHostClient';
 import { findExternalRefsInCss } from '@/lib/sanitizeCss';
 import { sanitizePdfRoot, serializePreviewRoot } from '@/lib/sanitizeHtml';
@@ -28,8 +36,8 @@ export const PDF_ERROR_MSG = 'PDFの作成に失敗しました。時間をお�
 export const PDF_CSS_EXTERNAL_REF_MSG =
   'CSSまたはHTMLに外部参照（@import / 絶対URLのurl() / 絶対URLのhref・src）が含まれるため' +
   'PDFを作成できません。' +
-  'フォントや画像やスクリプトはテンプレートに同梱するか、' +
-  '同梱資産への相対パス（css/… css/fonts/… js/…）で指定してください。';
+  'フォントや画像やスクリプトはテンプレートに同梱し、文書からの相対パス' +
+  '（../css/… ../js/… ../images/…。CSS の中では fonts/… ../images/…）で指定してください。';
 
 /**
  * サニタイズ済み DOM から、オリジン外を指す取得系属性を洗い出す(早期フィードバック用)。
@@ -48,15 +56,36 @@ function findExternalRefsInDom(root: Element): string[] {
 }
 
 /**
+ * 会社フォルダがテンプレの会社コードと合わない画像を、PDF に配置させないよう文書から落とす
+ * (`<img>` は `src` を外し、`<style>` の `url()` は `none` にする)。照合は画面内プレビュー・
+ * 編集画面と同じ `companyFolderMatches` で、PDF だけ出るずれを作らない。`style` 属性は見ない
+ * (背景画像は CSS か `<style>` に書く約束。運用手順書)。
+ */
+function dropUnmatchedCompanyImages(root: Element, companyCode: string | null): void {
+  for (const img of Array.from(root.querySelectorAll('img[src]'))) {
+    const rel = resolveDocAssetPath(img.getAttribute('src') ?? '', DOC_DIR);
+    const ref = rel === undefined ? undefined : fundImageRefOf(rel);
+    if (ref !== undefined && !companyFolderMatches(ref, companyCode)) img.removeAttribute('src');
+  }
+  for (const style of Array.from(root.querySelectorAll('style'))) {
+    const css = style.textContent ?? '';
+    const next = dropUnmatchedCompanyImageUrls(css, DOC_DIR, companyCode);
+    if (next !== css) style.textContent = next;
+  }
+}
+
+/**
  * テンプレ HTML+CSS+サンプルデータから、サーバ PDF ビルドへ渡せる安全な文書を組み立てる。
  * `cropMarks` が true のときトンボ用 CSS(`CROP_MARKS_CSS`)を css へ連結する。
  * `skipJinja` は `html` が値入り HTML(編集タブの本文)のとき true にする。
+ * `companyCode` はテンプレ ID の会社コード。会社フォルダの画像の照合に使う(省略・null は
+ * 会社フォルダの画像を落とす)。
  */
 export async function renderPdfDocument(
   html: string,
   css: string,
   sample: SampleData,
-  opts?: { cropMarks?: boolean; skipJinja?: boolean },
+  opts?: { cropMarks?: boolean; skipJinja?: boolean; companyCode?: string | null },
 ): Promise<Result<{ html: string; css: string }>> {
   // 値入り HTML は隔離描画を通さない(理由は `features/preview/services/
   // templatePreviewService.ts` の `isFilled` の定義箇所)。
@@ -86,9 +115,13 @@ export async function renderPdfDocument(
   // (DOMPurify 内蔵)でなければならず、js-beautify を後段にすると保証がそこで途切れる
   // (`sanitizeHtml.ts` 冒頭の不変則)。
   const root = sanitizePdfRoot(formatHtml(renderedHtml));
+  const companyCode = opts?.companyCode ?? null;
+  dropUnmatchedCompanyImages(root, companyCode);
   // トンボは CSS 一本で効かせる方針(`cropMarks.ts` 参照)。サーバ `inlineCss` が css を
   // `<style>` 化するため, ここで連結すればプレビュー表示と同じトンボが PDF にも乗る。
-  const pdfCss = opts?.cropMarks ? `${css}\n${CROP_MARKS_CSS}` : css;
+  // リクエストの css は `css/<テンプレ>.css` の位置の CSS なので、その位置から照合する。
+  const baseCss = dropUnmatchedCompanyImageUrls(css, TEMPLATE_CSS_FROM, companyCode);
+  const pdfCss = opts?.cropMarks ? `${baseCss}\n${CROP_MARKS_CSS}` : baseCss;
   // ここの検査は**早期フィードバック専用**であって関門ではない。関門はサーバの build 入口
   // (`server/src/security/externalRefs.ts`)にあり、判定関数は `@editor/shared` の 1 つを共有する。
   // ブラウザ側を唯一の関門にすると、公開 API `POST /api/build` へ直接 POST すれば

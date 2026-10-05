@@ -23,6 +23,7 @@ import {
   readConfirmedCanonical,
   writeConfirmedCanonical,
 } from '@/lib/confirmedCanonical';
+import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { shouldMeasureCanonical } from './confirmedCanonicalGate';
@@ -463,6 +464,7 @@ export function useTemplateEditor(
     g.setFundImageContext({
       mode: res.value.template.filled ? 'filled' : 'jinja',
       fundCode: fundCodeOfTemplateId(id),
+      companyCode: companyCodeOfTemplateId(id),
     });
     // 倍率・ページ送りモードはセッションの ui 状態から復元する(`load` より前に当てる必要が
     // ある — `setInitialZoom` は次の `applyInitialZoom` 呼び出しの基準値を差し替えるだけ)。

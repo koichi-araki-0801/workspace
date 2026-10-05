@@ -76,13 +76,13 @@ describe('assemblePreviewDocument — 文書の正規化と CSS の inline 化',
 
   it('strips the external stylesheet <link> (CSS is inlined; the link would 404 in the viewer)', () => {
     const html = assemblePreviewDocument(
-      '<html><head><link rel="stylesheet" href="css/110024.css" /></head><body>x</body></html>',
+      '<html><head><link rel="stylesheet" href="../css/AM01_110024_交付版.css" /></head><body>x</body></html>',
       '.a{color:red}',
     );
     const doc = parse(html);
     // 除去しているのは後段の正規表現ではなくサニタイザの許可リスト(+ 構造の上での二重化)。
     expect(doc.querySelectorAll('link')).toHaveLength(0);
-    expect(html).not.toContain('css/110024.css');
+    expect(html).not.toContain('AM01_110024_交付版.css');
     expect(doc.querySelector('style[data-preview-css]')?.textContent).toMatch(/color:\s*red/);
   });
 
@@ -168,12 +168,14 @@ describe('assemblePreviewDocument — サニタイズ後の復活を許さない
     expect(styles[1].hasAttribute('data-extra-css')).toBe(true);
   });
 
-  it('本文 CSS の相対 url() を css/ 基準へ 1 回だけ付け替える(filledHtml 経由の再入でも二重にしない)', () => {
+  it('本文 CSS の相対 url() を文書基準へ 1 回だけ付け替える(filledHtml 経由の再入でも HTML 側は触らない)', () => {
     const css = '@font-face{font-family:a;src:url(fonts/a.woff2)}';
     const once = assemblePreviewDocument('<p>x</p>', css);
-    expect(once).toContain('url("css/fonts/a.woff2")');
+    expect(once).toContain('../css/fonts/a.woff2');
+    expect(once).not.toContain('url(fonts/a.woff2)');
     // 申請の filledHtml(= 上の出力)を本文として再度組み立てても、HTML 側の <style> は触らない。
     const again = assemblePreviewDocument(once, css);
+    expect(again.match(/\.\.\/css\/fonts\/a\.woff2/g)).toHaveLength(2);
     expect(again).not.toContain('css/css/');
   });
 

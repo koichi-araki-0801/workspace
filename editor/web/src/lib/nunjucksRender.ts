@@ -1,7 +1,7 @@
 // =============================================================================
 // nunjucksRender.ts — ブラウザでの Jinja2 テンプレートのプレビュー描画
 // =============================================================================
-import { REQUEST_CSS_BASE, rebaseCssUrls, type SampleData } from '@editor/shared';
+import { rebaseCssForDoc, type SampleData } from '@editor/shared';
 import nunjucks from 'nunjucks';
 import { formatCss, formatHtml } from './formatOutput';
 import {
@@ -71,16 +71,16 @@ export function assemblePreviewDocument(
   // なければならず、js-beautify を後段に置くと保証がそこで途切れる。Jinja 解決済みの純
   // HTML なので整形は安全 — プレビュー/PDF 入力を読める形にする。
   const root = sanitizePreviewRoot(formatHtml(renderedHtml));
-  // 外部 stylesheet `<link>`(例: `<link rel="stylesheet" href="css/110024.css">`)は
+  // 外部 stylesheet `<link>`(例: `<link rel="stylesheet" href="../css/AM01_110024_交付版.css">`)は
   // サニタイザの許可リストが既に落としている。CSS は直後に inline 化するため不要で, 残ると
   // viewer が Blob 相対 URL で解決して 404 になり `@vivliostyle/core` のフェッチャが
   // ページ分割を中断する。ここは構造の上での二重化(版差と非サニタイズ経路の保険)。
   stripExternalRefs(root);
   // CSS は DOMPurify を通らないため `</style>` 脱出は `appendPreviewStyle` の中で潰す。
-  // 本文 CSS は `css/<fund>.css` の位置の CSS として書かれている(相対 url() は css/ 基準)。
-  // `<style>` へ埋め込むと文書基準になるので、ここで 1 回だけ付け替える。HTML 側の
+  // 本文 CSS は `css/<テンプレ>.css` の位置の CSS として書かれている(相対 url() は css/ 基準)。
+  // `<style>` へ埋め込むと文書(`doc/`)基準になるので、ここで 1 回だけ付け替える。HTML 側の
   // `<style>` は触らない — 申請の filledHtml を本文として再入させる経路があり、触ると二重になる。
-  appendPreviewStyle(root, formatCss(rebaseCssUrls(css, REQUEST_CSS_BASE)), {
+  appendPreviewStyle(root, formatCss(rebaseCssForDoc(css)), {
     'data-preview-css': '',
   });
   if (opts?.extraCss) appendPreviewStyle(root, opts.extraCss, { 'data-extra-css': '' });

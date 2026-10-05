@@ -32,7 +32,11 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { logError } from '@/lib/appError';
 import { selfContainPreviewDoc } from '@/lib/previewSelfContain';
 
-const props = defineProps<{ html: string }>();
+const props = defineProps<{
+  html: string;
+  /** テンプレ ID の会社コード(会社フォルダの画像の照合用。不明なら会社フォルダは埋めない)。 */
+  companyCode?: string | null;
+}>();
 
 /** 親(上部バー)へ渡すページ送り/ズーム状態のスナップショット。 */
 const emit = defineEmits<{
@@ -135,7 +139,7 @@ function sendDoc() {
   // テンプレ JS・フォントは**親のここで**文書へ埋めてから渡す(`previewSelfContain.ts`)。
   // 失敗時は原文のまま送る = 認証オフ環境なら子の相対参照が今までどおり解決される。
   // 加工は表示境界限定で、申請へ保存される `previewDoc`/`filledHtml` には触れない。
-  void selfContainPreviewDoc(props.html)
+  void selfContainPreviewDoc(props.html, undefined, { companyCode: props.companyCode ?? null })
     .catch(() => props.html)
     .then((html) => {
       if (seq !== sendSeq || !hostReady.value || useFallback.value) return;

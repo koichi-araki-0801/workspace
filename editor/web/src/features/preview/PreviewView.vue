@@ -142,7 +142,14 @@ async function submitForReview() {
 
 async function exportPdf() {
   const res = await runExport(() =>
-    preview.renderPdf(restoredHtml.value, css.value, sample.value, cropMarks.value, isFilled.value),
+    preview.renderPdf(
+      restoredHtml.value,
+      css.value,
+      sample.value,
+      cropMarks.value,
+      isFilled.value,
+      template.value?.meta.attributes.companyCode ?? null,
+    ),
   );
   if (isErr(res)) return;
   const url = URL.createObjectURL(res.value);
@@ -271,7 +278,12 @@ async function exportPdf() {
     </div>
 
     <div class="relative flex-1 overflow-hidden">
-      <PreviewPanel ref="panel" :html="displayDoc" @state="onState" />
+      <PreviewPanel
+        ref="panel"
+        :html="displayDoc"
+        :company-code="template?.meta.attributes.companyCode ?? null"
+        @state="onState"
+      />
       <!-- 右端の縦ページ目盛り(スクラバ)。vivliostyle は離散表示なのでスクロール比率は渡さず、
            クリック/ドラッグで `goToPage`(EPAGE ジャンプ)する。 -->
       <PageRail

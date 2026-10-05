@@ -1,21 +1,29 @@
 // =============================================================================
 // fundImages.ts — 編集画面でファンド別画像を差すための純関数(対象の判定と CSS の生成)
 // =============================================================================
-// 編集画面(GrapesJS の canvas)は相対 URL をアプリの URL 基準で解くので、`images/…` は必ず
+// 編集画面(GrapesJS の canvas)は相対 URL をアプリの URL 基準で解くので、`../images/…` は必ず
 // 404 になる。属性を書き換えて直すと、文字編集・ペースト・Undo・`getHtml` のどこかで配信 URL が
 // 保存内容へ混ざる経路が残る。だから属性には触らず、canvas 専用の `<style>` に
 // `img[src="<原文>"]{content:url("<配信 URL>")}` を書いて表示だけを差し替える(DOM とモデルが
 // 変わらないので、保存内容は原理的に原文のまま)。
 //
-// 差す範囲は PDF・プレビューと同じにする(編集画面だけ見えるずれを作らない):
+// 参照は文書位置基準(文書は論理ルートの `doc/` にあるものとして `../images/…` を解く)で、
+// 判定・配信 URL・会社フォルダの照合は `lib/fundImages.ts` と共有する。差す範囲は PDF・
+// プレビューと同じにする(編集画面だけ見えるずれを作らない):
 //  - Jinja 本文(作成タブと、値入り HTML の無いテンプレ)は描画で `{{ fund.code }}` が展開される
 //    ので、同じ値(テンプレ ID のファンドコード = `buildSampleData` が `fund.code` に入れる値)で解く。
 //  - 値入り本文(編集タブ)は描画を通らないので、確定したパスだけを差す。`{{` が残る参照は
 //    PDF にも出ないため解かず、警告で外部ツール側の修正を促す。
 // GrapesJS への配線は `fundImageLayer.ts`。
 
-import { parseAnyTemplateFileName } from '@editor/shared';
-import { FUND_IMAGES_DIR, fundImageFileOf, fundImageUrl } from '@/lib/fundImages';
+import { DOC_DIR, parseAnyTemplateFileName, resolveDocAssetPath } from '@editor/shared';
+import {
+  companyFolderMatches,
+  FUND_IMAGES_DIR,
+  type FundImageRef,
+  fundImageRefOf,
+  fundImageUrl,
+} from '@/lib/fundImages';
 
 /** 本文の種類。`jinja` = 描画を通る本文、`filled` = 値入り HTML(描画を通らない)。 */
 export type FundImageMode = 'jinja' | 'filled';
@@ -24,6 +32,8 @@ export interface FundImageContext {
   mode: FundImageMode;
   /** テンプレ ID のファンドコード。ID が規約に合わなければ null(Jinja の参照を解かない)。 */
   fundCode: string | null;
+  /** テンプレ ID の会社コード。会社フォルダの照合に使う。ID が規約に合わなければ null。 */
+  companyCode: string | null;
 }
 
 /**
@@ -47,9 +57,8 @@ export function fundCodeOfTemplateId(templateId: string): string | null {
   return parseAnyTemplateFileName(`${templateId}.html`)?.fundCode ?? null;
 }
 
-/** `src` が差す対象なら、配信するファイル名を返す。対象外は null。 */
-export function resolveFundImageSrc(src: string, ctx: FundImageContext): string | null {
-  if (!src.startsWith(PREFIX)) return null;
+/** `src` が差す対象なら、配信する画像を返す。対象外は null。 */
+export function resolveFundImageSrc(src: string, ctx: FundImageContext): FundImageRef | null {
   let resolved = src;
   if (ctx.mode === 'jinja') {
     const { fundCode } = ctx;
@@ -58,14 +67,18 @@ export function resolveFundImageSrc(src: string, ctx: FundImageContext): string 
     resolved = resolved.replace(FUND_CODE_EXPR_RE, () => fundCode);
   }
   if (JINJA_RE.test(resolved)) return null;
-  return fundImageFileOf(resolved) ?? null;
+  const rel = resolveDocAssetPath(resolved, DOC_DIR);
+  if (rel === undefined) return null;
+  const ref = fundImageRefOf(rel);
+  if (ref === undefined || !companyFolderMatches(ref, ctx.companyCode)) return null;
+  return ref;
 }
 
 /** 値入り本文に、解けない(`{{` の残る)images/ 参照があるか。 */
 export function needsFundImageWarning(srcs: Iterable<string>, ctx: FundImageContext): boolean {
   if (ctx.mode !== 'filled') return false;
   for (const src of srcs) {
-    if (src.startsWith(PREFIX) && src.includes('{{')) return true;
+    if (src.includes('{{') && resolveDocAssetPath(src, DOC_DIR)?.startsWith(PREFIX)) return true;
   }
   return false;
 }
@@ -96,9 +109,9 @@ export function fundImageCss(
   for (const src of srcs) {
     if (seen.has(src)) continue;
     seen.add(src);
-    const file = resolveFundImageSrc(src, ctx);
-    if (file === null) continue;
-    const url = fundImageUrl(file);
+    const ref = resolveFundImageSrc(src, ctx);
+    if (ref === null) continue;
+    const url = fundImageUrl(ref);
     rules.push(`img[src=${cssString(src)}]{content:url(${cssString(url)})}`);
     if (!urls.includes(url)) urls.push(url);
   }

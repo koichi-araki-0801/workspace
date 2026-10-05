@@ -30,6 +30,7 @@ import {
 } from '@/features/compare/htmlBlockDiff';
 import { useTemplatePreviewService } from '@/features/preview/services/templatePreviewService';
 import { formatDateTimeShort } from '@/lib/format';
+import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { pairSyncResultText } from '@/lib/pairSyncText';
 import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { useAuthStore } from '@/stores/auth';
@@ -292,7 +293,14 @@ async function openPdf() {
     // 空文字の申請(描画中・描画失敗のまま申請)は diff 由来の本文へ倒し、隔離描画を通す。
     const filledHtml = review.value.filledHtml;
     const html = filledHtml || afterBodyHtml.value;
-    const res = await preview.renderPdf(html, cssAfter.value, {}, false, Boolean(filledHtml));
+    const res = await preview.renderPdf(
+      html,
+      cssAfter.value,
+      {},
+      false,
+      Boolean(filledHtml),
+      companyCodeOfTemplateId(review.value.templateId),
+    );
     if (!isOk(res)) {
       toast('PDFの作成に失敗しました。時間をおいて再度お試しください。', 'error');
       return;
@@ -380,6 +388,7 @@ onMounted(async () => {
         :before-page-count="beforePageCount"
         :after-page-count="afterPageCount"
         :is-create="review.origin === 'create'"
+        :company-code="companyCodeOfTemplateId(review.templateId)"
       />
 
       <template v-else>

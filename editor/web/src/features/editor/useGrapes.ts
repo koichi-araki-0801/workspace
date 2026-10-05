@@ -115,9 +115,9 @@ export function useGrapes() {
   // 反映し直す(load で iframe body が差し替わるため)。
   let varsHighlight = false;
 
-  // ファンド別画像の文脈(本文の種類とファンドコード)。`setFundImageContext` が差し替え、
-  // 差し替え層(`fundImageLayer.ts`)と image view の拡張が読む。
-  let fundImageContext: FundImageContext = { mode: 'filled', fundCode: null };
+  // ファンド別画像の文脈(本文の種類・ファンドコード・会社コード)。
+  // `setFundImageContext` が差し替え、差し替え層(`fundImageLayer.ts`)と image view の拡張が読む。
+  let fundImageContext: FundImageContext = { mode: 'filled', fundCode: null, companyCode: null };
   let fundImages: FundImageLayer | null = null;
   /** 値入り本文に `{{ … }}` 入りの画像参照が残っているか(編集画面の警告用)。 */
   const fundImageWarning = ref(false);

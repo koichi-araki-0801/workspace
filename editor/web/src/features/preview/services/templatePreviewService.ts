@@ -60,7 +60,8 @@ interface TemplatePreviewService {
   /**
    * テンプレートをサーバー経由で PDF blob にレンダリングする。`cropMarks` が true のとき
    * トンボ用 CSS(`CROP_MARKS_CSS`)を css へ連結する(プレビュー表示と同じ見た目にする)。
-   * `skipJinja` は値入り HTML(`isFilled`)のとき true。
+   * `skipJinja` は値入り HTML(`isFilled`)のとき true。`companyCode` はテンプレ ID の会社コード
+   * (会社フォルダの画像の照合用。省略・null は会社フォルダの画像を落とす)。
    */
   renderPdf(
     html: string,
@@ -68,6 +69,7 @@ interface TemplatePreviewService {
     sample: SampleData,
     cropMarks: boolean,
     skipJinja: boolean,
+    companyCode?: string | null,
   ): Promise<Result<Blob>>;
   recordPdfExport(id: string): Promise<Result<void>>;
 }
@@ -168,9 +170,13 @@ export function createTemplatePreviewService(
       });
     },
 
-    async renderPdf(html, css, sample, cropMarks, skipJinja) {
+    async renderPdf(html, css, sample, cropMarks, skipJinja, companyCode = null) {
       try {
-        const doc = await renderPdfDocument(html, css, sample, { cropMarks, skipJinja });
+        const doc = await renderPdfDocument(html, css, sample, {
+          cropMarks,
+          skipJinja,
+          companyCode,
+        });
         if (isErr(doc)) return doc;
         const res = await fetch(apiUrl(apiPaths.build), {
           method: 'POST',

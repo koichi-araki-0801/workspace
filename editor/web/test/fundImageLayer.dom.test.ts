@@ -17,8 +17,8 @@ import { cssString, type FundImageContext } from '@/features/editor/fundImages';
 import { useGrapes } from '@/features/editor/useGrapes';
 import { toTemplate } from '@/lib/jinjaMask';
 
-const JINJA: FundImageContext = { mode: 'jinja', fundCode: '510037' };
-const FILLED: FundImageContext = { mode: 'filled', fundCode: '510037' };
+const JINJA: FundImageContext = { mode: 'jinja', fundCode: '510037', companyCode: 'AM01' };
+const FILLED: FundImageContext = { mode: 'filled', fundCode: '510037', companyCode: 'AM01' };
 
 /** `on` で張られた handler を名前で呼べる最小の editor。canvas の document は jsdom のもの。 */
 function fakeHost(doc: Document) {
@@ -46,8 +46,8 @@ beforeEach(() => {
 describe('attachFundImages', () => {
   it('Jinja 本文: 対象の <img> にだけ規則を書き、先読み後に再計測を呼ぶ', async () => {
     document.body.innerHTML =
-      '<img src="images/{{ fund.code }}_logo.svg"><img src="images/510037_seal.png">' +
-      '<img src="photos/x.png"><img src="images/{{ report.x }}.svg">';
+      '<img src="../images/{{ fund.code }}_logo.svg"><img src="../images/510037_seal.png">' +
+      '<img src="photos/x.png"><img src="../images/{{ report.x }}.svg">';
     const { host, emit } = fakeHost(document);
     const preload = vi.fn(async () => {});
     const onImagesReady = vi.fn();
@@ -61,7 +61,7 @@ describe('attachFundImages', () => {
     emit('load');
     const css = styleText();
     expect(css).toContain(
-      'img[src="images/{{ fund.code }}_logo.svg"]{content:url("/api/fund-assets/images/510037_logo.svg")}',
+      'img[src="../images/{{ fund.code }}_logo.svg"]{content:url("/api/fund-assets/images/510037_logo.svg")}',
     );
     expect(css).toContain('/api/fund-assets/images/510037_seal.png');
     expect(css).not.toContain('photos');
@@ -77,7 +77,7 @@ describe('attachFundImages', () => {
 
   it('値入り本文: {{ の残る参照は差さずに警告し、消えたら警告を下ろす', () => {
     document.body.innerHTML =
-      '<img id="bad" src="images/{{ fund.code }}_logo.svg"><img src="images/510037_logo.svg">';
+      '<img id="bad" src="../images/{{ fund.code }}_logo.svg"><img src="../images/510037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const onWarningChange = vi.fn();
     attachFundImages(host, {
@@ -90,14 +90,14 @@ describe('attachFundImages', () => {
     emit('load');
     expect(onWarningChange).toHaveBeenLastCalledWith(true);
     expect(styleText()).not.toContain('{{');
-    expect(styleText()).toContain('img[src="images/510037_logo.svg"]');
+    expect(styleText()).toContain('img[src="../images/510037_logo.svg"]');
     document.getElementById('bad')?.remove();
     emit('component:remove');
     expect(onWarningChange).toHaveBeenLastCalledWith(false);
   });
 
   it('同じ内容では style を書き直さず、同じ URL は 1 度しか先読みしない', () => {
-    document.body.innerHTML = '<img src="images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const preload = vi.fn(async () => {});
     attachFundImages(host, {
@@ -116,7 +116,7 @@ describe('attachFundImages', () => {
   });
 
   it('canvas の document が作り直されたら style を作り直す', () => {
-    document.body.innerHTML = '<img src="images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
@@ -128,11 +128,11 @@ describe('attachFundImages', () => {
     emit('load');
     document.head.innerHTML = '';
     layer.refresh();
-    expect(styleText()).toContain('img[src="images/510037_logo.svg"]');
+    expect(styleText()).toContain('img[src="../images/510037_logo.svg"]');
   });
 
   it('書いたセレクタは引用符・空白を含む src の <img> に実際に一致する', () => {
-    const src = 'images/510037_a"b c.svg';
+    const src = '../images/510037_a"b c.svg';
     const img = document.createElement('img');
     img.setAttribute('src', src);
     document.body.appendChild(img);
@@ -140,7 +140,7 @@ describe('attachFundImages', () => {
   });
 
   it('destroy の後は、予約済みの走査も以後の契機も canvas に触れない', () => {
-    document.body.innerHTML = '<img src="images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const getDocument = vi.spyOn(host.Canvas, 'getDocument');
     const queued: Array<() => void> = [];
@@ -165,7 +165,7 @@ describe('attachFundImages', () => {
   });
 
   it('先読みの既定実装(Image)でも落ちない', () => {
-    document.body.innerHTML = '<img src="images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
     const { host, emit } = fakeHost(document);
     attachFundImages(host, {
       getContext: () => FILLED,
@@ -206,7 +206,7 @@ describe('canvas の大きさの変化で測り直す', () => {
   });
 
   function attachWithResize() {
-    document.body.innerHTML = '<img src="images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const onCanvasResize = vi.fn();
     const layer = attachFundImages(host, {
@@ -273,7 +273,7 @@ describe('canvas の大きさの変化で測り直す', () => {
   });
 
   it('ResizeObserver が無い環境では何もしない', () => {
-    document.body.innerHTML = '<img src="images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
@@ -308,19 +308,19 @@ describe('useGrapes との結合', () => {
 
   it('文字編集の取り込み直し・ペーストの後も、保存出力は原文の src のまま', () => {
     g.load(
-      '<div class="page"><p class="t">見出し<img src="images/{{ fund.code }}_logo.svg" alt=""></p></div>',
+      '<div class="page"><p class="t">見出し<img src="../images/{{ fund.code }}_logo.svg" alt=""></p></div>',
       '',
     );
     const wrapper = g.editor.value?.getWrapper();
     const p = wrapper ? findByClass(wrapper, 't') : undefined;
     expect(p).toBeDefined();
     // RTE の終了時と同じく、編集後の innerHTML でテキスト component の中身を作り直す。
-    p?.components('見出し改<img src="images/{{ fund.code }}_logo.svg" alt="">');
+    p?.components('見出し改<img src="../images/{{ fund.code }}_logo.svg" alt="">');
     // ペースト相当(兄弟へ HTML を足す)。
-    p?.parent()?.append('<img src="images/510037_seal.png">');
+    p?.parent()?.append('<img src="../images/510037_seal.png">');
     const saved = toTemplate(g.getBodyHtml(), { asFragment: true });
-    expect(saved).toContain('src="images/{{ fund.code }}_logo.svg"');
-    expect(saved).toContain('src="images/510037_seal.png"');
+    expect(saved).toContain('src="../images/{{ fund.code }}_logo.svg"');
+    expect(saved).toContain('src="../images/510037_seal.png"');
     expect(saved).not.toContain('fund-assets');
     expect(g.getCss()).not.toContain('fund-assets');
   });
@@ -336,9 +336,9 @@ describe('useGrapes との結合', () => {
       },
       el: { src, srcset: '' },
     });
-    const target = fake('images/{{ fund.code }}_logo.svg');
+    const target = fake('../images/{{ fund.code }}_logo.svg');
     View.prototype.onError.call(target);
-    expect(target.el.src).toBe('images/{{ fund.code }}_logo.svg');
+    expect(target.el.src).toBe('../images/{{ fund.code }}_logo.svg');
     const other = fake('photos/x.png');
     View.prototype.onError.call(other);
     expect(other.el.src).toBe('data:image/svg+xml;base64,FALLBACK');
@@ -351,10 +351,10 @@ describe('useGrapes との結合', () => {
     };
     const t = {
       model: {
-        get: (key: string) => (key === 'src' ? 'images/{{ fund.code }}_logo.svg' : undefined),
+        get: (key: string) => (key === 'src' ? '../images/{{ fund.code }}_logo.svg' : undefined),
         getSrcResult: () => 'data:image/svg+xml;base64,FALLBACK',
       },
-      el: { src: 'images/{{ fund.code }}_logo.svg', srcset: '' },
+      el: { src: '../images/{{ fund.code }}_logo.svg', srcset: '' },
     };
     View.prototype.onError.call(t);
     expect(t.el.src).toBe('data:image/svg+xml;base64,FALLBACK');

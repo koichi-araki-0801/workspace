@@ -235,4 +235,18 @@ describe('buildCompareDocs', () => {
     });
     expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2', 'review-anchor-3']);
   });
+
+  it('申請者 CSS の相対 url() を文書基準へ付け替えて埋め込む', () => {
+    const { beforeDoc, afterDoc } = buildCompareDocs({
+      beforeHtml: '<div class="page">b</div>',
+      afterHtml: '<div class="page">a</div>',
+      cssBefore: '@font-face{src:url(fonts/a.woff2)}',
+      cssAfter: '.p{background:url(../images/x.svg)}',
+      changedPageIndexes: new Set(),
+      marker: false,
+    });
+    expect(beforeDoc).toContain('../css/fonts/a.woff2');
+    expect(afterDoc).toContain('../images/x.svg');
+    expect(afterDoc).not.toContain('"images/x.svg"');
+  });
 });

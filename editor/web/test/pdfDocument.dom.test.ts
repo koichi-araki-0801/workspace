@@ -52,14 +52,14 @@ describe('renderPdfDocument', () => {
   // ディスクの旧 per-fund CSS から復活し、プレビューと PDF が食い違う。
   it('同梱資産への相対参照(link / script src)は残す', async () => {
     const html =
-      '<html><head><link rel="stylesheet" href="css/510037.css">' +
-      '<script src="js/column-width.js"></scr' +
+      '<html><head><link rel="stylesheet" href="../css/AM01_510037_交付版.css">' +
+      '<script src="../js/column-width.js"></scr' +
       'ipt></head><body>x</body></html>';
     const res = await renderPdfDocument(html, '', {});
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
-      expect(res.value.html).toContain('css/510037.css');
-      expect(res.value.html).toContain('js/column-width.js');
+      expect(res.value.html).toContain('../css/AM01_510037_交付版.css');
+      expect(res.value.html).toContain('../js/column-width.js');
     }
   });
 
@@ -130,5 +130,28 @@ describe('renderPdfDocument', () => {
       '@media print{.d{color:red}}';
     const res = await renderPdfDocument('<p>x</p>', css, {});
     expect(isOk(res)).toBe(true);
+  });
+
+  it('会社フォルダが会社コードと合わない画像は <img src>・<style>・css の url() から落とす', async () => {
+    const html =
+      '<html><head><style>.h{background:url(../images/other/h.svg)}</style></head><body>' +
+      '<img src="../images/smtam/qr.svg"><img src="../images/other/x.svg">' +
+      '<img src="../images/510037_logo.svg"></body></html>';
+    const css =
+      '.b{background:url(../images/other/c.svg)}.c{background:url(../images/SMTAM/d.svg)}';
+    const res = await renderPdfDocument(html, css, {}, { skipJinja: true, companyCode: 'SMTAM' });
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.html).toContain('src="../images/smtam/qr.svg"');
+    expect(res.value.html).toContain('src="../images/510037_logo.svg"');
+    expect(res.value.html).not.toContain('other/x.svg');
+    expect(res.value.html).not.toContain('other/h.svg');
+    expect(res.value.css).not.toContain('other/c.svg');
+    expect(res.value.css).toContain('url(../images/SMTAM/d.svg)');
+  });
+
+  it('外部参照の文言は文書基準の相対パスを案内する', () => {
+    expect(PDF_CSS_EXTERNAL_REF_MSG).toContain('../css/');
+    expect(PDF_CSS_EXTERNAL_REF_MSG).toContain('../images/');
   });
 });

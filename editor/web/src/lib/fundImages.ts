@@ -1,16 +1,37 @@
 // =============================================================================
-// fundImages.ts — ファンド別画像(images/)の配信 URL とファイル名の判定(web 共通)
+// fundImages.ts — ファンド別画像(images/)の判定・配信 URL・会社フォルダの照合(web 共通)
 // =============================================================================
-// ファンド別画像は別ツールが `dataRoot/images/` 直下に置き、web はサーバの
-// `GET /api/fund-assets/images/:file` だけから取る(SVG 検査と認証を通る唯一の経路)。
-// 画面内プレビュー(`previewSelfContain.ts`)と編集画面(`features/editor/fundImages.ts`)が
-// 同じ判定と URL を使うよう、ここに 1 つだけ置く。拡張子はサーバの `vivliostyle/docAssets.ts` の
-// images グループと揃える — 片方だけ広げると、取りに行っても 404 になるだけの参照を作る。
+// ファンド別画像は別ツールが論理ルートの `images/` に置く。置けるのは直下(`images/<名前>`)と
+// 1 段下の会社フォルダ(`images/<会社フォルダ>/<名前>`)だけで、web はサーバの
+// `GET /api/fund-assets/images/:file` と `…/:dir/:file` だけから取る(SVG 検査と認証を通る経路)。
+// 画面内プレビュー(`previewSelfContain.ts`)・編集画面(`features/editor/`)・PDF 文書
+// (`pdfDocument.ts`)が同じ判定と URL を使うよう、ここに 1 つだけ置く。拡張子はサーバの
+// `vivliostyle/docAssets.ts` の images グループと揃える — 片方だけ広げると、取りに行っても 404 に
+// なるだけの参照を作る。
+//
+// 会社フォルダはテンプレの会社コードと大文字小文字の違いだけを許す。テンプレ ID が分かる経路
+// (編集画面・プレビュー・承認と比較・editor から出す PDF)はすべて `companyFolderMatches` で
+// 照合し、合わないものは表示しない。照合をここ 1 本にするのは、経路ごとに判定が割れると
+// 「プレビューには出るが PDF には出ない」ずれになるため。
 
-import { apiPaths, buildPath, resolveServedAssetPath } from '@editor/shared';
+import {
+  apiPaths,
+  buildPath,
+  collectCssUrlSpans,
+  DOC_CSS_PATH,
+  parseAnyTemplateFileName,
+  resolveDocAssetPath,
+} from '@editor/shared';
 
-/** 配信ルートでの置き場の名前(テンプレの相対参照 `images/…` の先頭)。 */
+/** 論理ルートでの置き場の名前(参照を解いた論理パスの先頭)。 */
 export const FUND_IMAGES_DIR = 'images';
+
+/**
+ * テンプレの CSS の参照元として `resolveDocAssetPath` に渡す論理パス。shared の `DOC_CSS_PATH`
+ * (`rebaseCssForDoc` が使う値)をそのまま再公開する。web で別に書くと、付け替えと照合で
+ * 基準がずれる。
+ */
+export const TEMPLATE_CSS_FROM: string = DOC_CSS_PATH;
 
 /** 拡張子 → MIME。`Map` なのは、利用者入力の拡張子で `Object.prototype` を引かないため。 */
 const FUND_IMAGE_MIME: ReadonlyMap<string, string> = new Map([
@@ -20,6 +41,12 @@ const FUND_IMAGE_MIME: ReadonlyMap<string, string> = new Map([
   ['.jpeg', 'image/jpeg'],
 ]);
 
+/** 配信する 1 画像。`dir` は会社フォルダ(直下なら null)。 */
+export interface FundImageRef {
+  dir: string | null;
+  file: string;
+}
+
 /** ファイル名の拡張子から MIME を引く。許可外は `undefined`。 */
 export function fundImageMime(file: string): string | undefined {
   const dot = file.lastIndexOf('.');
@@ -27,18 +54,69 @@ export function fundImageMime(file: string): string | undefined {
 }
 
 /**
- * 文書中の参照値(`<img src>` / CSS の `url()`)が images 直下の 1 ファイルを指すなら、その
- * ファイル名を返す。判定は配信ルートの正規化(`resolveServedAssetPath`)を通した形で行う。
+ * 論理パス(`resolveDocAssetPath` の結果)が配信する画像なら ref を返す。深さ 2 以上・
+ * 空のセグメント・許可外の拡張子は `undefined`。
  */
-export function fundImageFileOf(ref: string): string | undefined {
-  const rel = resolveServedAssetPath(ref);
-  if (rel === undefined) return undefined;
+export function fundImageRefOf(rel: string): FundImageRef | undefined {
   const segments = rel.split('/');
-  if (segments.length !== 2 || segments[0] !== FUND_IMAGES_DIR) return undefined;
-  return fundImageMime(segments[1]) === undefined ? undefined : segments[1];
+  if (segments[0] !== FUND_IMAGES_DIR) return undefined;
+  if (segments.length !== 2 && segments.length !== 3) return undefined;
+  if (segments.some((s) => s === '')) return undefined;
+  const file = segments[segments.length - 1];
+  if (fundImageMime(file) === undefined) return undefined;
+  return { dir: segments.length === 3 ? segments[1] : null, file };
 }
 
-/** ファイル名 → 単体配信ルートの URL(同一オリジン。cookie が付く)。 */
-export function fundImageUrl(file: string): string {
-  return `/api${buildPath(apiPaths.fundAssetImage, { file })}`;
+/** ref → 単体配信ルートの URL(同一オリジン。cookie が付く)。 */
+export function fundImageUrl(ref: FundImageRef): string {
+  if (ref.dir === null) return `/api${buildPath(apiPaths.fundAssetImage, { file: ref.file })}`;
+  return `/api${buildPath(apiPaths.fundAssetImageInDir, { dir: ref.dir, file: ref.file })}`;
+}
+
+/**
+ * 会社フォルダ名がテンプレの会社コードと大文字小文字の違いだけで一致するか。直下の画像は
+ * 常に true。会社コードが分からないときに会社フォルダの画像は出さない(照合できないため)。
+ */
+export function companyFolderMatches(ref: FundImageRef, companyCode: string | null): boolean {
+  if (ref.dir === null) return true;
+  return companyCode !== null && ref.dir.toLowerCase() === companyCode.toLowerCase();
+}
+
+/** テンプレ ID(4 つ区切り・3 つ区切り)から会社コードを取り出す。規約外は null。 */
+export function companyCodeOfTemplateId(templateId: string): string | null {
+  return parseAnyTemplateFileName(`${templateId}.html`)?.companyCode ?? null;
+}
+
+/**
+ * 参照値(`<img src>`・CSS の `url()`)が、表示してよいファンド別画像なら ref を返す。
+ * `from` は文書なら `'doc'`、テンプレの CSS なら `TEMPLATE_CSS_FROM`。
+ */
+export function servedFundImageOf(
+  url: string,
+  from: string,
+  companyCode: string | null,
+): FundImageRef | undefined {
+  const rel = resolveDocAssetPath(url, from);
+  const ref = rel === undefined ? undefined : fundImageRefOf(rel);
+  return ref !== undefined && companyFolderMatches(ref, companyCode) ? ref : undefined;
+}
+
+/**
+ * CSS の中の、会社フォルダが合わない画像の `url()` を `none` にする(PDF に配置させないため)。
+ * 走査は検査・付け替えと同じ `collectCssUrlSpans` で行い、別の正規表現で拾い直さない。
+ */
+export function dropUnmatchedCompanyImageUrls(
+  css: string,
+  from: string,
+  companyCode: string | null,
+): string {
+  let out = css;
+  // 後ろから置換して、先行する範囲のオフセットを保つ。
+  for (const span of [...collectCssUrlSpans(css)].reverse()) {
+    const rel = resolveDocAssetPath(span.value, from);
+    const ref = rel === undefined ? undefined : fundImageRefOf(rel);
+    if (ref === undefined || companyFolderMatches(ref, companyCode)) continue;
+    out = `${out.slice(0, span.start)}none${out.slice(span.end)}`;
+  }
+  return out;
 }

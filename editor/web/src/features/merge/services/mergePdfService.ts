@@ -105,6 +105,7 @@ async function renderOne(
       {
         cropMarks: false,
         skipJinja: true,
+        companyCode: tpl.meta.attributes.companyCode,
       },
     );
     if (isErr(filledDoc)) return fail(filledDoc.error);
@@ -119,7 +120,10 @@ async function renderOne(
   // (`loadForPreview` と同じ被せ方)。
   const sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
 
-  const doc = await renderPdfDocument(tpl.html, formatCss(tpl.css), sample, { cropMarks: false });
+  const doc = await renderPdfDocument(tpl.html, formatCss(tpl.css), sample, {
+    cropMarks: false,
+    companyCode: tpl.meta.attributes.companyCode,
+  });
   if (isErr(doc)) return fail(doc.error);
   return doc;
 }

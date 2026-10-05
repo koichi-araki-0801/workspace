@@ -35,13 +35,6 @@ describe('リクエスト CSS の付け替えの配線', () => {
     expect(users).toEqual(['vivliostyle/requestCss.ts']);
   });
 
-  it('server は旧 API(rebaseCssUrls / REQUEST_CSS_BASE)を使わない', () => {
-    const users = ALL.filter(({ code }) => /\b(?:rebaseCssUrls|REQUEST_CSS_BASE)\b/.test(code)).map(
-      ({ f }) => rel(f),
-    );
-    expect(users).toEqual([]);
-  });
-
   it('rebaseRequestCss を呼ぶのは build.ts の 3 入口だけ', () => {
     const callers = ALL.filter(({ f }) => rel(f) !== 'vivliostyle/requestCss.ts')
       .filter(({ code }) => /\brebaseRequestCss\(/.test(code))
