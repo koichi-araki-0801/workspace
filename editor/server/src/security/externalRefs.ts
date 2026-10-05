@@ -82,9 +82,10 @@ export function findDocumentExternalRefs(html: string, css: string): string[] {
 }
 
 /**
- * `srcdoc` の中の HTML を走査し直す深さの上限。1 段で足りる(`srcdoc` の中の `srcdoc` も
- * 同じ経路でもう 1 段拾えるが、無限に降りる意味は無い)。上限を置くのは自己参照する
- * 入力で走査が止まらなくなるのを防ぐため。
+ * 入れ子の HTML(`srcdoc` の値・raw text 要素の中身)を走査し直す深さの上限。1 段で足りる
+ * (`srcdoc` の中の `srcdoc` も同じ経路でもう 1 段拾えるが、無限に降りる意味は無い)。
+ * 上限を置くのは自己参照する入力で走査が止まらなくなるのを防ぐため。上限の先は読み飛ばさず
+ * `NESTED_UNPARSABLE_REF` として数える — 黙って飛ばすと、重ねるだけで内側が検査から消える。
  */
 const MAX_NESTED_HTML_DEPTH = 2;
 
@@ -121,18 +122,16 @@ function collectFromTags(
   for (const tag of tags) {
     if (tag.name === 'style' && tag.rawText !== undefined) {
       out.push(...findExternalRefsInCss(tag.rawText));
-    } else if (
-      tag.rawText !== undefined &&
-      tag.name !== 'script' &&
-      depth < MAX_NESTED_HTML_DEPTH
-    ) {
+    } else if (tag.rawText !== undefined && tag.name !== 'script') {
       // `title` / `textarea` / `noscript` の中身。走査器はこれらを常に raw text として
       // 読み飛ばすが、**HTML 名前空間の外ではそうではない** — `<svg><title>` は foreign
       // content で普通の外来要素になり、内側の `<img src=https://…>` は実要素として
       // 取得しにいく。読み飛ばした範囲を検査しないと、そこが外部参照ゲートの死角になる。
       // `script` を除くのは、中身が JS であってマークアップではないため(字面の一致を
       // 参照として数えると誤検知が出る。実行面の固定は `templateScripts` の担当)。
-      collectHtmlRefs(tag.rawText, out, depth + 1);
+      // 上限に達したら中身にタグの字面があるときだけ fail closed にする(散文は参照を持てない)。
+      if (depth < MAX_NESTED_HTML_DEPTH) collectHtmlRefs(tag.rawText, out, depth + 1);
+      else if (tag.rawText.includes('<')) out.push(NESTED_UNPARSABLE_REF);
     }
     // 属性値は走査器が切り出したものを使う。原文への正規表現で拾うと
     // `data-style="…"` や他属性の値の中の字面まで拾って誤検知になる。
@@ -151,11 +150,15 @@ function collectFromTags(
     out.push(...findExternalRefsInTag(tag.name, tag.attrs));
     // `srcdoc` は URL ではなく HTML 文書。URL として検査すると必ず「相対参照」と判定され、
     // 中に書いた絶対参照が丸ごと検査から消える(`htmlExternalRefs.ts` の注記)。
-    if (depth >= MAX_NESTED_HTML_DEPTH) continue;
     const nested = nestedHtmlAttrsFor(tag.name);
     if (nested.length === 0) continue;
     for (const a of tag.attrs) {
-      if (nested.includes(a.name)) collectHtmlRefs(decodeHtmlEntities(a.value), out, depth + 1);
+      if (!nested.includes(a.name)) continue;
+      if (depth < MAX_NESTED_HTML_DEPTH) {
+        collectHtmlRefs(decodeHtmlEntities(a.value), out, depth + 1);
+      } else if (a.value.trim() !== '') {
+        out.push(NESTED_UNPARSABLE_REF);
+      }
     }
   }
 }

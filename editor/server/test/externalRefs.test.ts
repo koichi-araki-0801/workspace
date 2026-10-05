@@ -562,3 +562,39 @@ describe('assertProjectDirHasNoExternalRefs — 分類は小文字 basename の�
     await assertProjectDirHasNoExternalRefs(dir);
   });
 });
+
+// ── 再走査の深さ上限に達した入れ子は fail closed ──
+// 上限の先を黙って読み飛ばすと、raw text 要素や `srcdoc` を重ねるだけで内側が検査から
+// 消える。上限に達したら「解析不能な入れ子」1 件として数え、400 へ倒す。
+describe('入れ子の深さ上限', () => {
+  const MARKER = '<img src="https://example.invalid/x.png">';
+  const RAW = ['title', 'textarea', 'noscript', 'noembed', 'noframes', 'xmp'];
+  const nestRaw = (inner: string, levels: number) => {
+    let html = inner;
+    for (let i = 0; i < levels; i++) {
+      const name = RAW[i % RAW.length] as string;
+      html = `<${name}>${html}</${name}>`;
+    }
+    return html;
+  };
+  const escAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const nestSrcdoc = (inner: string, levels: number) => {
+    let html = inner;
+    for (let i = 0; i < levels; i++) html = `<iframe srcdoc="${escAttr(html)}"></iframe>`;
+    return html;
+  };
+
+  it('上限を超えて重ねた raw text 要素の内側を、参照ゼロとして通さない', () => {
+    expect(findDocumentExternalRefs(nestRaw(MARKER, 5), '')).not.toEqual([]);
+  });
+
+  it('上限を超えて重ねた srcdoc の内側を、参照ゼロとして通さない', () => {
+    expect(findDocumentExternalRefs(nestSrcdoc(MARKER, 5), '')).not.toEqual([]);
+  });
+
+  it('上限内の入れ子や中身にタグを持たない raw text は誤検知しない', () => {
+    expect(findDocumentExternalRefs(nestRaw('<b>x</b>', 2), '')).toEqual([]);
+    expect(findDocumentExternalRefs(nestRaw('plain', 3), '')).toEqual([]);
+    expect(findDocumentExternalRefs(nestSrcdoc('<b>x</b>', 2), '')).toEqual([]);
+  });
+});

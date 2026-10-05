@@ -505,3 +505,44 @@ describe('走査の端(壊れた入力で単位列が欠落・混入しない)',
     ).toBe(true);
   });
 });
+
+describe('走査の上限に達した入力は拒否側へ倒れる(fail closed)', () => {
+  // 上限(チップ復号・<style> 再走査の深さ / 作業量予算)の先は走査されない。上限の先に
+  // 何かを足しても単位列が変わらない形だと、基準と一致したまま照合を通ってしまう。
+  // 印は許可リスト外の要素 1 つ(`<iframe>`)で足りる — 走査されれば必ず単位になる。
+  const MARKER = '<iframe>';
+  const chip = (inner: string) =>
+    `<span data-opaque="${Buffer.from(inner).toString('base64')}">x</span>`;
+  const nestChips = (inner: string, levels: number) => {
+    let html = inner;
+    for (let i = 0; i < levels; i++) html = chip(html);
+    return html;
+  };
+
+  it('上限を超えて入れ子にしたチップの中身は、基準が空でも一致扱いにならない', () => {
+    const nested = nestChips(MARKER, 8);
+    expect(() => assertTemplateScriptsUnchanged('', nested, CTX)).toThrow();
+  });
+
+  it('上限を超えて入れ子にした閉じない <style> の中身も同様に拒否する', () => {
+    const nested = `${'<style>'.repeat(8)}${MARKER}`;
+    expect(() => assertTemplateScriptsUnchanged('', nested, CTX)).toThrow();
+  });
+
+  it('基準側も同じ上限に達していれば、上限の先の差分は照合できないので拒否する', () => {
+    const base = nestChips('<b>x</b>', 8);
+    const submitted = nestChips(`<b>x</b>${MARKER}`, 8);
+    expect(() => assertTemplateScriptsUnchanged(base, submitted, CTX)).toThrow();
+  });
+
+  it('作業量予算が尽きた先に足した要素も、照合を素通りしない', () => {
+    const prefix = `<div ${'{{ '.repeat(200_000)}>`;
+    expect(() => assertTemplateScriptsUnchanged(prefix, `${prefix}${MARKER}`, CTX)).toThrow();
+  });
+
+  it('上限内の入れ子チップは従来どおり展開して照合する(誤検知しない)', () => {
+    const nested = nestChips(MARKER, 3);
+    expect(collectExecutableUnits(nested)).toEqual(['el:iframe||']);
+    expect(() => assertTemplateScriptsUnchanged(nested, nested, CTX)).not.toThrow();
+  });
+});

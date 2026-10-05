@@ -65,22 +65,34 @@ const ENCODED_ATTR_RE = new RegExp(
 );
 
 // チップの中に更にチップが入る形(復号結果がまた base64 属性を含む)を想定して繰り返す。
-// 上限を置くのは、自己参照する入力で無限ループさせないため(超えた分は展開せず、
-// 展開しきれなかった入力は基準側と一致しないので拒否側に倒れる)。
+// 上限を置くのは、自己参照する入力で無限ループさせないため。超えた分は展開しない代わりに
+// 単位列の末尾へ `SCAN_INCOMPLETE_UNIT` を積み、照合は拒否側へ倒す。上限の先を黙って
+// 捨てると、そこへ何を足しても単位列が変わらず、基準と一致したまま照合を通ってしまう。
 const MAX_DECODE_DEPTH = 4;
 
 /**
  * 走査に費やしてよい総バイト数の予算。入力サイズ上限(申請本文の契約上限 4 MiB)だけでは、
  * 閉じない `{{` や `<style>` の反復が開始位置ごとに末尾まで舐め直す二次爆発を止められない
  * (4 MiB 未満の入力で数百 GB 規模の走査になりうる)。走査系はこの予算を減算し、尽きたら
- * 走査を打ち切る。打ち切られた入力は単位列が基準と一致しないので申請は拒否側へ倒れる
- * (fail closed)。正当なテンプレの走査コスト(入力長の数倍)を十分上回る値にしてある。
+ * 走査を打ち切る。打ち切った入力は `SCAN_INCOMPLETE_UNIT` を積んで照合を拒否側へ倒す
+ * (fail closed)。打ち切りの先は基準側でも走査されないので、単位列の一致だけでは差分を
+ * 検出できない。正当なテンプレの走査コスト(入力長の数倍)を十分上回る値にしてある。
  */
 const MAX_SCAN_BYTES = 64 * 1024 * 1024;
+
+/**
+ * 走査を上限(深さ・作業量予算)で打ち切ったことを表す単位。入力の一部が単位抽出から
+ * 外れたことを示し、`assertTemplateScriptsUnchanged` は提出側にこれがあれば基準との
+ * 一致に関わらず拒否する。基準側も同じ上限に達する形では、上限の先の差分が両側から
+ * 等しく消えて単位列が一致してしまうため、一致比較だけには任せない。
+ */
+const SCAN_INCOMPLETE_UNIT = 'scan-incomplete';
 
 /** 走査中に共有する可変の作業量予算。`collectExecutableUnits` が 1 回作って配る。 */
 interface ScanBudget {
   remaining: number;
+  /** 深さの上限で展開・再走査を打ち切ったか。予算切れは `remaining` で判る。 */
+  truncated: boolean;
 }
 
 function decodeBase64(value: string): string | null {
@@ -722,7 +734,11 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
   // depth は「チップ復号の入れ子」と「<style> 本文の再走査」の両方を数える。閉じない
   // `<style>` の反復は残り全体を本文として同じ深さで再走査させるため、深さでも止める
   // (byte 予算と二段で、総走査バイト数・スタック深さの双方を入力長に対して線形に保つ)。
-  if (depth > MAX_DECODE_DEPTH || budget.remaining <= 0) return;
+  if (html === '') return;
+  if (depth > MAX_DECODE_DEPTH || budget.remaining <= 0) {
+    budget.truncated = true;
+    return;
+  }
   const { text, payloads } = splitEncodedChips(html);
   // 小文字化コピーは走査 1 回につき 1 つ(`rawTextEnd` の注意書きを見よ)。予算からも引く。
   const lower = text.toLowerCase();
@@ -800,7 +816,10 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
       out.push({ at: tag.at, seq: out.length, unit: `jinja-attr:${tag.name}|${collapse(j)}` });
     }
   }
-  if (depth >= MAX_DECODE_DEPTH) return;
+  if (depth >= MAX_DECODE_DEPTH) {
+    if (payloads.length > 0) budget.truncated = true;
+    return;
+  }
   for (const p of payloads) {
     if (budget.remaining <= 0) return;
     const nested: PositionedUnit[] = [];
@@ -815,8 +834,12 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
  */
 export function collectExecutableUnits(html: string): string[] {
   const out: PositionedUnit[] = [];
-  collectInto(html, out, 0, { remaining: MAX_SCAN_BYTES });
-  return out.sort((a, b) => a.at - b.at || a.seq - b.seq).map((u) => u.unit);
+  const budget: ScanBudget = { remaining: MAX_SCAN_BYTES, truncated: false };
+  collectInto(html, out, 0, budget);
+  const units = out.sort((a, b) => a.at - b.at || a.seq - b.seq).map((u) => u.unit);
+  // 予算切れは `scanOpenTags` の途中打ち切りも含むので、残量で判定する。
+  if (budget.truncated || budget.remaining <= 0) units.push(SCAN_INCOMPLETE_UNIT);
+  return units;
 }
 
 // ── 6. 照合 ──
@@ -847,7 +870,7 @@ export function assertTemplateScriptsUnchanged(
 ): void {
   const before = collectExecutableUnits(baselineHtml);
   const after = collectExecutableUnits(submittedHtml);
-  if (unitsEqual(before, after)) return;
+  if (unitsEqual(before, after) && !after.includes(SCAN_INCOMPLETE_UNIT)) return;
   throw forbidden(
     `${SCRIPT_IMMUTABLE_MESSAGE} (テンプレート=${context.templateId})`,
     // 差分の中身はユーザーへ出さない(攻撃者への手掛かりになる)。ログにだけ残す。
