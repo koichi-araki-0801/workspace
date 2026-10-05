@@ -298,7 +298,7 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     expect(isOk(byAbbr) && byAbbr.value).toEqual([]);
     const info = await localTemplateRepo.getCreatableInfo({
       companyCode: 'AM01',
-      rep1CompanyCode: 'AM01',
+      rep1CompanyCode: '0001',
       fundCode: '510037',
       editionType: '交付版',
     });
@@ -309,7 +309,7 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     expect(id).toBe('AM01_510037_交付版');
     const after = await localTemplateRepo.getCreatableInfo({
       companyCode: 'am01',
-      rep1CompanyCode: 'AM01',
+      rep1CompanyCode: '0001',
       fundCode: '510037',
       editionType: '交付版',
     });
@@ -333,7 +333,7 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
   it('getCreatableInfo はシリーズに属さないファンドではコピー元の候補を返さない', async () => {
     const info = await localTemplateRepo.getCreatableInfo({
       companyCode: 'AM01',
-      rep1CompanyCode: 'AM01',
+      rep1CompanyCode: '0001',
       fundCode: '999999',
       editionType: '交付版',
     });
@@ -542,7 +542,7 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     const id = first.value.template.meta.id;
     const info = await localTemplateRepo.getCreatableInfo({
       companyCode: 'AM01',
-      rep1CompanyCode: 'AM01',
+      rep1CompanyCode: '0001',
       fundCode: '510155',
       editionType: '交付版',
     });

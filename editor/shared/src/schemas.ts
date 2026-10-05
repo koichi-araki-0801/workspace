@@ -77,7 +77,9 @@ export const TemplateId = z
  */
 export const TemplateAttributes = z
   .object({
-    companyCode: z.string().meta({ description: '委託会社コード' }),
+    companyCode: z
+      .string()
+      .meta({ description: '委託会社(ファイル名の会社コード = Rep1 の委託会社略称)' }),
     fundCode: z.string().meta({ description: 'ファンドコード' }),
     baseDate: z.string().optional().meta({
       description:

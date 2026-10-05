@@ -172,15 +172,25 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(got.json().html).toBe('<p>確定版</p>');
   });
 
-  it('生成直後のテンプレは編集タブの一覧に status=draft で出る(id を見失わせない)', async () => {
-    // 一覧から外すと、作成タブの `/edit/:id` 遷移を閉じた時点でその id へ到達する手段が
-    // UI から消える(履歴タブは遷移経路を持たない)。到達不能は復旧手段が無いので退行扱い。
+  it('生成直後のテンプレート(基準日なし)は編集タブの一覧に出ず、作成タブの作業中として開ける', async () => {
+    // 編集タブは値入り HTML(基準日あり)だけを扱う。生成直後の id を見失わないよう、
+    // 作成タブの creatable が作業中(inProgressId)として返す。到達不能は復旧手段が無いので退行扱い。
     await generate(validBody);
     const list = await app.inject({ method: 'GET', url: '/templates?fundCode=510037' });
     expect(list.statusCode).toBe(200);
     const rows = list.json() as { id: string; status: string }[];
-    expect(rows.map((r) => r.id)).toContain(ID);
-    expect(rows.find((r) => r.id === ID)?.status).toBe('draft');
+    expect(rows.map((r) => r.id)).not.toContain(ID);
+    const info = await app.inject({
+      method: 'GET',
+      url: `/templates/creatable?${new URLSearchParams({
+        companyCode: 'AM01',
+        rep1CompanyCode: 'R-AM01',
+        fundCode: '510037',
+        editionType: '交付版',
+      })}`,
+    });
+    expect(info.statusCode).toBe(200);
+    expect(info.json()).toMatchObject({ created: false, inProgressId: ID });
   });
 
   it('値入り HTML と同じ id の pending が残っていても、一覧は published の 1 行だけ', async () => {

@@ -77,7 +77,6 @@ const emit = defineEmits<{
   openReview: [];
 }>();
 
-// テンプレート(基準日を持たない)を開いているときは、基準日のチップごと出さない。
 const { resolveFunds, companyLabel, fundName: rep1FundName } = useRep1Names();
 watch(
   () => props.attributes?.companyCode,
@@ -92,6 +91,7 @@ const title = computed(() => {
   return name && name !== UNREGISTERED ? name : props.fundName;
 });
 
+// テンプレート(基準日を持たない)を開いているときは、基準日のチップごと出さない。
 const attrItems = (a: TemplateAttributes) =>
   templateAttributeItems(a).map((i) => ({
     k: i.label,

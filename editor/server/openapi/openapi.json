@@ -3315,7 +3315,7 @@
         "properties": {
           "companyCode": {
             "type": "string",
-            "description": "委託会社コード"
+            "description": "委託会社(ファイル名の会社コード = Rep1 の委託会社略称)"
           },
           "fundCode": {
             "type": "string",

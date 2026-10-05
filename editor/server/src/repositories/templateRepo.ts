@@ -98,7 +98,11 @@ async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[
   // 照合は大文字小文字を区別しない。NTFS では承認が既存の綴りのファイルへ上書きするので、
   // 綴り違いの pending が消し残ると完全一致では同じテンプレが二重に出る。
   const confirmedIds = new Set(confirmed.map((m) => m.id.toLowerCase()));
-  const pendingIds = (await listPendingIds()).filter((id) => !confirmedIds.has(id.toLowerCase()));
+  // 作成タブの生成物(基準日なし)は作成タブの「作成中のテンプレートを開く」から開くので、
+  // id の形(基準日を持つ 4 つ区切り)で先に絞り、読まずに捨てる。
+  const pendingIds = (await listPendingIds()).filter(
+    (id) => !confirmedIds.has(id.toLowerCase()) && parseTemplateFileName(`${id}.html`) !== null,
+  );
   const pending = (
     await Promise.all(
       pendingIds.map(async (id): Promise<TemplateMeta | null> => {
@@ -106,10 +110,7 @@ async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[
         return meta && { ...meta, status: 'draft', updatedAt: await pendingMtime(id) };
       }),
     )
-  )
-    .filter(isMeta)
-    // 作成タブの生成物(基準日なし)は作成タブの「作成中のテンプレートを開く」から開く。
-    .filter((m) => m.attributes.baseDate !== undefined);
+  ).filter(isMeta);
   return [...confirmed, ...pending];
 }
 
