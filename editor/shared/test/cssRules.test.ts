@@ -628,7 +628,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
     });
   });
 
-  it('baseline と出現数が違っても、next とペア側の出現数が合えば出現ごとに置き換える', () => {
+  it('baseline と出現数が違っても出現ごとに当て、本文が next と同じ出現には触らない', () => {
     const raw = '.a{color:red}\n.b{x:1}\n.a{margin:0}\n';
     const r = mergeCssRuleChangesFromBaseline(
       raw,
@@ -636,8 +636,51 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       '.a{color:red;}.b{x:1;}.a{margin:5px;}',
       raw,
     );
-    expect(r.css).toBe('.a{color:red;}\n.b{x:1}\n.a{margin:5px;}\n');
+    expect(r.css).toBe('.a{color:red}\n.b{x:1}\n.a{margin:5px;}\n');
     expect(r.applied).toEqual([k('.a')]);
+  });
+
+  it('最後の重複の宣言を全部消した編集は、ペア側の最後の出現を消し、前の出現は残す', () => {
+    const target = '.a{color:red}\n.b{color:green}\n.a{margin:0}';
+    const r = mergeCssRuleChangesFromBaseline(
+      target,
+      '.a{color:red;}.b{color:green;}.a{margin:0;}',
+      '.a{color:red;}.b{color:green;}',
+      target,
+    );
+    expect(r).toEqual({
+      css: '.a{color:red}\n.b{color:green}\n',
+      applied: [k('.a')],
+      conflicts: [],
+    });
+  });
+
+  it('宣言が空や無効の重複は対応づけから外し、前からそろえて当てる', () => {
+    for (const empty of ['.a{}', '.a{garbage}', '.a{ ; }']) {
+      const raw = `${empty}\n.b{color:green}\n.a{color:red}\n`;
+      const r = mergeCssRuleChangesFromBaseline(
+        raw,
+        '.b{color:green;}.a{color:red;}',
+        '.b{color:green;}.a{color:blue;}',
+        raw,
+      );
+      expect(r).toEqual({
+        css: `${empty}\n.b{color:green}\n.a{color:blue;}\n`,
+        applied: [k('.a')],
+        conflicts: [],
+      });
+    }
+  });
+
+  it('空の重複が前にあっても、最後の出現の宣言を消した編集は最後の出現だけを消す', () => {
+    const raw = '.a{}\n.a{color:red}\n.b{color:green}\n.a{margin:0}\n';
+    const r = mergeCssRuleChangesFromBaseline(
+      raw,
+      '.a{color:red;}.b{color:green;}.a{margin:0;}',
+      '.a{color:red;}.b{color:green;}',
+      raw,
+    );
+    expect(r.css).toBe('.a{}\n.a{color:red}\n.b{color:green}\n');
   });
 
   it('ペア側の重複を畳んだ形が原文と違えば競合にし、ペア側は変えない', () => {

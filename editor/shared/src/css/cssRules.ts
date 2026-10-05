@@ -20,8 +20,9 @@
 // 足す。`mergeCssRuleChangesFromBaseline` は重複を 1 本に畳んでから比べる。GrapesJS は重複を
 // 別々の規則のまま持つが、宣言が空になった規則は `getCss` に出ない(そのため出現番号が原文と
 // ずれる)。スタイルの編集は同じセレクタの最後の規則に入る。畳めば、出現番号がずれても実際の
-// カスケードと同じ値で比べられる。当てるときは、next とペア側で出現数が合えば出現ごとに当てる
-// (1 本にまとめると、間にある別の規則とのカスケードがどこに置いても崩れる)。
+// カスケードと同じ値で比べられる。当てるときは、ペア側の空の出現を外して前から出現ごとに対応
+// させて当てる(1 本にまとめると、間にある別の規則とのカスケードがどこに置いても崩れる。
+// `replacementOf`)。
 // 規則の間のコメントはどの規則にも属さず、同期の対象にならない。
 
 import { collectCssStructure } from '../security/cssExternalRefs.js';
@@ -403,24 +404,48 @@ function removalOf(src: string, rule: ScannedRule): Edit {
   return { start, end, text: '' };
 }
 
+/** 宣言として効く形(`名前:値`)か。 */
+function isValidDecl(decl: string): boolean {
+  return /^[^:]*[^:\s][^:]*:\s*\S/.test(decl);
+}
+
 /**
- * target の規則 `tr` を next の `nr` にする書き換え。GrapesJS は重複を別々の規則のまま持つので、
- * 出現数が同じなら i 番目どうしが対応する。そのときは出現ごとに置き換え、`from` の同じ出現と
- * 変わっていない出現には触らない(間にある別の規則とのカスケードを保つ)。出現数が違う(空の規則が
- * `getCss` に出ず対応が取れない)ときは、最後の出現の位置に畳んだ 1 本を置き、ほかの出現を消す。
+ * 効く宣言を 1 つも持たない出現(`.a{}` や宣言が無効なもの)か。GrapesJS はこの形の規則を
+ * `getCss` に出さないので、next の出現と対応づけるときに外す。入れ子のブロックを持つ規則と
+ * ブロックを持たない文は空とみなさない。
+ */
+function isEmptyOccurrence(rule: ScannedRule): boolean {
+  return rule.decls !== undefined && !rule.decls.some(isValidDecl);
+}
+
+/**
+ * target の規則 `tr` を next の `nr` にする書き換え。GrapesJS は重複を別々の規則のまま持ち、
+ * 宣言が空になった規則だけを `getCss` から落とす。スタイルの編集は最後の規則に入るので、消えるのも
+ * 最後の規則になる。そこで target の出現から空の出現を外し、前から i 番目どうしを対応させる。
+ *
+ * - 出現数が next と同じなら出現ごとに置き換える。
+ * - target(と `from`)より next が少なければ、前からそろえ、next に無い末尾の出現を消す。
+ * - 本文が next と同じ出現と、`from` の同じ出現から変わっていない出現には触らない(間にある別の
+ *   規則とのカスケードと、ペア側の書き方を保つ)。空の出現にも触らない。
+ * - それでも対応が取れない形のときだけ、最後の出現の位置に畳んだ 1 本を置き、ほかの出現を消す。
  */
 function replacementOf(target: string, fr: MergeRule, nr: MergeRule, tr: MergeRule): Edit[] {
-  if (nr.parts.length === tr.parts.length) {
-    const sameShape = fr.parts.length === nr.parts.length;
-    return tr.parts.flatMap((p, i) =>
-      sameShape && sameCssRule(fr.parts[i].text, nr.parts[i].text)
-        ? []
-        : [{ start: p.start, end: p.end, text: nr.parts[i].text }],
+  const live = tr.parts.filter((p) => !isEmptyOccurrence(p));
+  const n = nr.parts.length;
+  const aligned = live.length === n || (n < live.length && live.length === fr.parts.length);
+  if (!aligned) {
+    return tr.parts.map((p) =>
+      p === tr.parts.at(-1) ? { start: p.start, end: p.end, text: nr.text } : removalOf(target, p),
     );
   }
-  return tr.parts.map((p) =>
-    p === tr.parts.at(-1) ? { start: p.start, end: p.end, text: nr.text } : removalOf(target, p),
-  );
+  const fromAligned = fr.parts.length >= n;
+  return live.flatMap((p, i): Edit[] => {
+    if (i >= n) return [removalOf(target, p)];
+    const next = nr.parts[i].text;
+    if (sameCssRule(p.text, next)) return [];
+    if (fromAligned && sameCssRule(fr.parts[i].text, next)) return [];
+    return [{ start: p.start, end: p.end, text: next }];
+  });
 }
 
 /** `at` の行頭からの空白(行頭から空白だけが続くときのみ)。 */
@@ -572,7 +597,7 @@ function foldedText(parts: ScannedRule[]): string {
   if (parts.some((p) => p.decls === undefined)) return parts[parts.length - 1].text;
   const winners = new Map<string, { decl: string; important: boolean }>();
   for (const p of parts) {
-    for (const decl of p.decls ?? []) {
+    for (const decl of (p.decls ?? []).filter(isValidDecl)) {
       const colon = decl.indexOf(':');
       const prop = colon === -1 ? decl : decl.slice(0, colon).trim().toLowerCase();
       const important = /!\s*important$/i.test(decl);
@@ -602,8 +627,8 @@ export function mergeCssRuleChanges(base: string, next: string, target: string):
 
 /**
  * 変更の検出と、ペア側(target)の照合を別の形で行う版。4 つの CSS とも重複した規則を畳んで
- * 比べ(`folded`)、当てるときは出現ごとに当てる(出現数が合わなければ最後の出現へ 1 本に
- * まとめる。`replacementOf`)。承認の CSS は GrapesJS が書き直した形
+ * 比べ(`folded`)、当てるときは前から出現ごとに当てる(対応が取れないときだけ最後の出現へ
+ * 1 本にまとめる。`replacementOf`)。承認の CSS は GrapesJS が書き直した形
  * (一括指定の展開・色の正規化・url の引用符)で届くので、外部ツールが書いた原文と直に比べると
  * 編集していない規則まで「変わった」に見える。
  *
