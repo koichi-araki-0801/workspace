@@ -703,6 +703,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
     for (const [raw, target] of [
       ['.b{y:1}', '.a{}\n.b{y:1}'],
       ['.a{}\n.b{y:1}', '.a{}\n.a{}\n.b{y:1}'],
+      ['.a{}\n.a{}\n.b{y:1}', '.a{}\n.a{}\n.a{}\n.b{y:1}'],
     ]) {
       const r = mergeCssRuleChangesFromBaseline(raw, '.b{y:1;}', '.b{y:1;}.a{color:red;}', target);
       expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });

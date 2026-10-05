@@ -549,8 +549,12 @@ function mergeRuleChanges(
     if (tr !== undefined) {
       if (sameOccurrences(occurrencesOf(tr), occurrencesOf(nr))) continue;
       // 原文の空の規則(`getCss` に出ないので baseline に無い)に宣言を足した編集。ペア側も原文と
-      // 同じ空の形なら、最後の空の出現を next の出現で置き換える(前の空の出現は残す)。
-      if (untouched(nr.key, tr) && tr.parts.every(isEmptyOccurrence)) {
+      // 同じ空の形(空の規則の数も同じ)なら、最後の空の出現を next の出現で置き換える(前の空の出現は残す)。
+      if (
+        untouched(nr.key, tr) &&
+        tr.parts.every(isEmptyOccurrence) &&
+        tr.parts.length === ref.get(nr.key)?.parts.length
+      ) {
         const last = tr.parts[tr.parts.length - 1];
         const text = occurrencesOf(nr)
           .map((p) => p.text)
