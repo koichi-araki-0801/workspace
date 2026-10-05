@@ -86,7 +86,7 @@ export async function addNote(
   return withNotesLock(templateId, async () => {
     const map = await readNotesStrict(templateId);
     if (notesAtCapacity(map, pathKey)) notesCapacityError();
-    const entries = map[pathKey] ?? [];
+    const entries = Object.hasOwn(map, pathKey) ? map[pathKey] : [];
     if (entriesAtCapacity(entries)) entriesCapacityError();
     const parent = opts.replyTo === null ? null : requireParent(entries, opts.replyTo);
     const stored: StoredNoteEntry = {

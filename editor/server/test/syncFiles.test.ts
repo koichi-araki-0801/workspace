@@ -66,4 +66,12 @@ describe('readSyncState', () => {
     fs.writeFileSync(path.join(root, 'sync', 'AM01_510037_20240711.json'), '{"pairKey":1}', 'utf8');
     await expect(readSyncState('AM01_510037_20240711')).rejects.toThrow();
   });
+
+  it('未作成以外の読み取り失敗は例外(空状態にして承認が記録を上書きしない)', async () => {
+    const { readSyncState } = await import('../src/files/syncFiles.js');
+    // 同名のディレクトリを置くと readFile は EISDIR で落ちる。空状態へ倒すと、承認が
+    // lastSynced と競合の記録を失った状態で書き戻す。
+    fs.mkdirSync(path.join(root, 'sync', 'AM01_510037_20240714.json'), { recursive: true });
+    await expect(readSyncState('AM01_510037_20240714')).rejects.toThrow();
+  });
 });

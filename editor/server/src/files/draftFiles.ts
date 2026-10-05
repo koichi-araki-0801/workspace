@@ -49,13 +49,21 @@ export async function writeDraft(
   return { htmlFile, cssFile };
 }
 
+/**
+ * 下書きの HTML/CSS を読む。規約外の名前と ENOENT だけを空文字へ倒し、それ以外の読み取り失敗は
+ * 例外にする — 一過性の失敗を `''` へ倒すと、空で復元された下書きが次の自動保存で上書きされる。
+ */
 export async function readDraft(
   htmlFile: string | null,
   cssFile: string | null,
 ): Promise<{ html: string; css: string }> {
-  const read = (f: string | null) => {
+  const read = (f: string | null): Promise<string> => {
     const p = f ? draftFilePath(f) : null;
-    return p ? fs.readFile(p, 'utf8').catch(() => '') : Promise.resolve('');
+    if (!p) return Promise.resolve('');
+    return fs.readFile(p, 'utf8').catch((e: NodeJS.ErrnoException) => {
+      if (e?.code === 'ENOENT') return '';
+      throw e;
+    });
   };
   return { html: await read(htmlFile), css: await read(cssFile) };
 }

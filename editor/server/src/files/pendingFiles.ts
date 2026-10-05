@@ -37,15 +37,28 @@ export async function writePending(templateId: string, html: string, css: string
   await atomicWrite(path.join(config.pendingDir, cssFile), css);
 }
 
+/** ENOENT だけを `missing` へ倒し、それ以外の読み取り失敗は例外にする。 */
+function readOr<T>(p: string, missing: T): Promise<string | T> {
+  return fs.readFile(p, 'utf8').catch((e: NodeJS.ErrnoException) => {
+    if (e?.code === 'ENOENT') return missing;
+    throw e;
+  });
+}
+
+/**
+ * pending 実体を読む。HTML が無ければ null、CSS が無ければ空文字(どちらも ENOENT のときだけ)。
+ * それ以外の読み取り失敗は例外にする — null へ倒すと「pending が無い」と読まれて実行コード
+ * 不変性の基準が空になり、CSS を `''` へ倒すと空の CSS で開いた編集がそのまま申請・承認される。
+ */
 export async function readPending(
   templateId: string,
 ): Promise<{ html: string; css: string } | null> {
   const htmlPath = pendingPathOrNull(templateId, 'html');
   if (!htmlPath) return null;
-  const html = await fs.readFile(htmlPath, 'utf8').catch(() => null);
+  const html = await readOr(htmlPath, null);
   if (html === null) return null;
   const cssPath = pendingPathOrNull(templateId, 'css');
-  const css = cssPath ? await fs.readFile(cssPath, 'utf8').catch(() => '') : '';
+  const css = cssPath ? await readOr(cssPath, '') : '';
   return { html, css };
 }
 

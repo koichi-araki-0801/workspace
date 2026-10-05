@@ -150,11 +150,13 @@ export const generateRoutes: FastifyPluginAsync<{
           // 覆う。コメント(notes/)とパーツ変更履歴は同じテンプレートの記録なので残す。確定側
           // (templates/)は ① が守る。
           if (config.requireAuth) {
-            await writePending(id, html, css);
             // 綴り違いの古い下書き・pending も同じテンプレートの作業なので捨てる(生成物は id の綴りで置く)。
+            // 古い綴りの pending は書く前に消す。大文字小文字を区別しないファイルシステムでは
+            // 古い綴りと id の綴りが同じファイルなので、書いた後に消すと新しい生成物ごと消える。
+            for (const p of inProgress.pending) if (p !== id) await deletePending(p);
+            await writePending(id, html, css);
             for (const d of inProgress.drafts) await deleteDraft(d);
             await deleteDraft(id);
-            for (const p of inProgress.pending) if (p !== id) await deletePending(p);
             await recordCreate(attributes, sourceFundCode, loginId);
           } else {
             // local モードは pending を持たない。生成器は約束どおり書くので、読み終えたここで消す。

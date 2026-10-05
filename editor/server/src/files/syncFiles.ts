@@ -37,9 +37,16 @@ const PairSyncStateSchema = z.object({
   updatedAt: z.string(),
 });
 
-/** 状態ファイルを読む。未作成なら空状態(全パーツ「一致履歴なし」)から始める。 */
+/**
+ * 状態ファイルを読む。未作成(ENOENT)なら空状態(全パーツ「一致履歴なし」)から始める。
+ * それ以外の読み取り失敗は例外にする — 空状態へ倒すと、承認がその空状態を基に書き戻して
+ * lastSynced と競合の記録を消す。呼び出し側の扱いは壊れたファイルと同じ(同期スキップ + 警告)。
+ */
 export async function readSyncState(pairKey: string): Promise<PairSyncState> {
-  const raw = await fs.readFile(syncPath(pairKey), 'utf8').catch(() => null);
+  const raw = await fs.readFile(syncPath(pairKey), 'utf8').catch((e: NodeJS.ErrnoException) => {
+    if (e?.code === 'ENOENT') return null;
+    throw e;
+  });
   if (raw === null) return emptySyncState(pairKey);
   return PairSyncStateSchema.parse(JSON.parse(raw));
 }

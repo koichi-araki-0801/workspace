@@ -387,6 +387,21 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(await history.listPartHistory(ID)).toHaveLength(1);
   });
 
+  it('綴り違い(会社コードの大文字小文字)の pending を作り直しても、新しい生成物は残り編集で開ける', async () => {
+    // 大文字小文字を区別しないファイルシステムでは、古い綴りの pending と新しい生成物は同じ
+    // ファイルになる。書いた後で古い綴りを消すと、新しい生成物ごと消えて成功応答のまま 404 になる。
+    const OLD = 'am01_510037_交付版';
+    fs.writeFileSync(path.join(pendingDir, `${OLD}.html`), '<p>古い綴りの生成物</p>', 'utf8');
+    const res = await generate({ ...validBody, replaceExisting: true });
+    expect(res.statusCode).toBe(200);
+    const got = await app.inject({ method: 'GET', url: `/templates/${encodeURIComponent(ID)}` });
+    expect(got.statusCode).toBe(200);
+    expect(got.json().html).toContain('生成物');
+    expect(got.json().html).not.toContain('古い綴り');
+    const left = fs.readdirSync(pendingDir).filter((f) => f.endsWith('.html'));
+    expect(left).toEqual([`${ID}.html`]);
+  });
+
   it('生成器が失敗したら、同意していても下書きも pending も消さない', async () => {
     fs.writeFileSync(path.join(draftsDir, `${ID}.html`), '<p>守る下書き</p>', 'utf8');
     fs.writeFileSync(path.join(pendingDir, `${ID}.html`), '<p>守る生成物</p>', 'utf8');
