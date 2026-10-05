@@ -44,7 +44,8 @@ export interface PairSyncService {
     sourceTemplateId: string,
     actor: string,
     target: ConfirmedTarget,
-    opts: { cssBefore: string },
+    /** 承認の直前の source の CSS。読めなかったときは null(CSS の転写だけを飛ばす)。 */
+    opts: { cssBefore: string | null },
   ): Promise<PairSyncSummary | null>;
 }
 
@@ -96,21 +97,38 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
       const pairFile = `${pairId}.html`;
       if (!(await exists(pairFile))) return null;
 
+      // CSS の入力。読めなければ(権限・共有違反など)CSS の転写だけを飛ばし、本文の同期は続ける。
+      // 読めない CSS を '' と見なすと、全規則が追加・削除扱いになってペアへ誤って写る。
+      const readCssInputs = async (bodyKey: string, state: PairSyncState) => {
+        if (opts.cssBefore === null) return null;
+        const cssKey = cssSyncPairKey(sourceTemplateId);
+        if (cssKey === null) return null;
+        try {
+          const [next, target] = await Promise.all([
+            readTemplateCss(sourceTemplateId),
+            readTemplateCss(pairId),
+          ]);
+          // テンプレのペアの承認では同じファイル。値入り HTML のペアの承認では別のファイルを読む。
+          const cssState = cssKey === bodyKey ? state : await readSyncState(cssKey);
+          return { base: opts.cssBefore, cssKey, next, target, cssState };
+        } catch (e) {
+          logger.warn(
+            { err: e },
+            'ペアの CSS を読めないため CSS の転写を飛ばします(本文の同期は続行)',
+          );
+          return null;
+        }
+      };
+
       try {
-        const [sourceHtml, targetHtml, catalog, cssNext, cssTarget] = await Promise.all([
+        const [sourceHtml, targetHtml, catalog] = await Promise.all([
           readHtml(`${sourceTemplateId}.html`),
           readHtml(pairFile),
           parts.listParts({}),
-          readTemplateCss(sourceTemplateId),
-          readTemplateCss(pairId),
         ]);
         const bodyKey = templatePairKey(attrs);
-        // attrs が取れているので非 null。
-        const cssKey = cssSyncPairKey(sourceTemplateId) as string;
-        const sameFile = cssKey === bodyKey;
         const state = await readSyncState(bodyKey);
-        // テンプレのペアの承認では同じファイル。値入り HTML のペアの承認では別のファイルを読む。
-        const cssState = sameFile ? state : await readSyncState(cssKey);
+        const cssIn = await readCssInputs(bodyKey, state);
         const now = new Date().toISOString();
         const result = computePairSync({
           sourceHtml,
@@ -121,34 +139,49 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
           state,
           now,
         });
-        const cssSync = computeCssSync({
-          base: opts.cssBefore,
-          next: cssNext,
-          target: cssTarget,
-          prev: cssState.css?.conflicts ?? [],
-          now,
-        });
-        // `computePairSync` の返す状態は本文のパーツだけを持つ。CSS の競合はテンプレのペアキーの
-        // 状態にだけ載せる(テンプレのペアの承認なら同じファイルを 1 回、値入り HTML なら 2 ファイル)。
-        const cssStateNext: PairSyncState = {
-          ...(sameFile ? result.state : cssState),
-          css: { conflicts: cssSync.conflicts },
-          updatedAt: now,
+        const cssSync =
+          cssIn === null
+            ? null
+            : computeCssSync({
+                base: cssIn.base,
+                next: cssIn.next,
+                target: cssIn.target,
+                prev: cssIn.cssState.css?.conflicts ?? [],
+                now,
+              });
+        // `computePairSync` の返す状態は本文のパーツだけを持つ。同じファイルに CSS の競合が
+        // あれば(テンプレのペア)持ち越す — CSS を飛ばした承認で記録を消さないため。
+        const bodyStateNext: PairSyncState = {
+          ...result.state,
+          ...(state.css !== undefined ? { css: state.css } : {}),
         };
-        const statesChanged = result.stateChanged || cssSync.conflictsChanged;
+        // CSS の競合はテンプレのペアキーの状態にだけ載せる(テンプレのペアの承認なら同じファイルを
+        // 1 回、値入り HTML なら 2 ファイル)。
+        const sameFile = cssIn !== null && cssIn.cssKey === bodyKey;
+        const cssStateNext: PairSyncState | null =
+          cssIn !== null && cssSync !== null
+            ? {
+                ...(sameFile ? bodyStateNext : cssIn.cssState),
+                css: { conflicts: cssSync.conflicts },
+                updatedAt: now,
+              }
+            : null;
+        const cssConflictsChanged = cssSync?.conflictsChanged ?? false;
+        const statesChanged = result.stateChanged || cssConflictsChanged;
         const writeStates = async (): Promise<void> => {
           // CSS 側を先に書く。後の本文側が失敗して本体と CSS が元へ戻っても、残る CSS の競合は
           // 「写さなかった規則」だけで、次の承認で両版の一致を見て持ち越すか消すかが決まる
           // (写したことにする記録は残らない)。
-          if (sameFile) {
+          if (sameFile && cssStateNext !== null) {
             if (statesChanged) await writeSyncState(cssStateNext);
             return;
           }
-          if (cssSync.conflictsChanged) await writeSyncState(cssStateNext);
-          if (result.stateChanged) await writeSyncState(result.state);
+          if (cssConflictsChanged && cssStateNext !== null) await writeSyncState(cssStateNext);
+          if (result.stateChanged) await writeSyncState(bodyStateNext);
         };
+        const cssToWrite = cssSync?.css ?? null;
 
-        if (result.changed || cssSync.css !== null) {
+        if (result.changed || cssToWrite !== null) {
           // 確定ディレクトリへの書込はチョークポイント経由に限る(承認ゲート・帰属検査・
           // 実行コード不変性・snapshot/restore・監査を素通りさせない)。転写先は
           // チョークポイント側が source から再計算して照合するため、ここの `pairId` を
@@ -162,10 +195,10 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
             targetTemplateId: pairId,
             sourceTemplateId,
             html: result.targetHtml,
-            ...(cssSync.css !== null ? { css: cssSync.css } : {}),
+            ...(cssToWrite !== null ? { css: cssToWrite } : {}),
             actor,
             appliedParts: result.applied,
-            appliedCssRules: cssSync.applied,
+            appliedCssRules: cssSync?.applied ?? [],
             afterWrite: writeStates,
           });
         } else if (statesChanged) {
@@ -186,7 +219,7 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
           pairTemplateId: pairId,
           applied: result.applied,
           skipped: result.skipped,
-          css: cssSync.ran ? { applied: cssSync.applied, conflicts: cssSync.skipped } : null,
+          css: cssSync?.ran ? { applied: cssSync.applied, conflicts: cssSync.skipped } : null,
           error: null,
         };
       } catch (e) {

@@ -8,7 +8,22 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+/** `readTemplateCss` を権限エラー(EACCES)で失敗させる文書 ID。CSS だけを飛ばすことを確かめる。 */
+const failCssReadOf = new Set<string>();
+vi.mock('../src/files/templateFiles.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../src/files/templateFiles.js')>();
+  return {
+    ...mod,
+    readTemplateCss: async (templateId: string) => {
+      if (failCssReadOf.has(templateId)) {
+        throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+      }
+      return mod.readTemplateCss(templateId);
+    },
+  };
+});
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-pair-sync-'));
 process.env.DATA_ROOT = tmp;
@@ -323,5 +338,61 @@ d('pairSyncService', () => {
     expect(readCss('AM01_581000_全体版.css')).toBe(pairCss);
     const state = JSON.parse(fs.readFileSync(syncFile('AM01_581000'), 'utf8'));
     expect(state.css.conflicts).toHaveLength(1);
+  });
+
+  it('ペアの CSS を読めなければ CSS の転写だけを飛ばし、本文の同期は続ける', {
+    timeout: 60_000,
+  }, async () => {
+    put('templates', 'AM01_590000_交付版', doc(part('a', '旧')));
+    put('templates', 'AM01_590000_全体版', doc(part('a', '旧')));
+    await svc.syncPairAfterConfirm('AM01_590000_交付版', 'approver1', 'template', {
+      cssBefore: '',
+    });
+    put('templates', 'AM01_590000_交付版', doc(part('a', '新')));
+    putCss('AM01_590000_交付版.css', '.a{color:green}');
+    putCss('AM01_590000_全体版.css', '.a{color:red}');
+    failCssReadOf.add('AM01_590000_全体版');
+    try {
+      const r = await svc.syncPairAfterConfirm('AM01_590000_交付版', 'approver1', 'template', {
+        cssBefore: '.a{color:red}',
+      });
+      expect(r?.error).toBeNull();
+      expect(r?.applied).toHaveLength(1);
+      expect(r?.css).toBeNull();
+    } finally {
+      failCssReadOf.clear();
+    }
+    expect(read('templates', 'AM01_590000_全体版')).toContain('新');
+    expect(readCss('AM01_590000_全体版.css')).toBe('.a{color:red}');
+  });
+
+  it('承認の直前の CSS が無い(cssBefore=null)なら CSS を写さず、記録済みの CSS の競合も消さない', {
+    timeout: 60_000,
+  }, async () => {
+    put('templates', 'AM01_591000_交付版', doc(part('a', '旧')));
+    put('templates', 'AM01_591000_全体版', doc(part('a', '旧')));
+    putCss('AM01_591000_交付版.css', '.a{color:green}');
+    putCss('AM01_591000_全体版.css', '.a{color:black}');
+    // 競合を 1 件記録する(同じ状態ファイルに本文のパーツの状態も載る)。
+    await svc.syncPairAfterConfirm('AM01_591000_交付版', 'approver1', 'template', {
+      cssBefore: '.a{color:red}',
+    });
+    expect(JSON.parse(fs.readFileSync(syncFile('AM01_591000'), 'utf8')).css.conflicts).toHaveLength(
+      1,
+    );
+    put('templates', 'AM01_591000_交付版', doc(part('a', '新')));
+    putCss('AM01_591000_交付版.css', '.a{color:green}\n.b{x:1}');
+    const r = await svc.syncPairAfterConfirm('AM01_591000_交付版', 'approver1', 'template', {
+      cssBefore: null,
+    });
+    expect(r?.error).toBeNull();
+    expect(r?.applied).toHaveLength(1);
+    expect(r?.css).toBeNull();
+    expect(read('templates', 'AM01_591000_全体版')).toContain('新');
+    expect(readCss('AM01_591000_全体版.css')).toBe('.a{color:black}');
+    // 本文の状態を書いても、同じファイルの CSS の競合は残る。
+    const state = JSON.parse(fs.readFileSync(syncFile('AM01_591000'), 'utf8'));
+    expect(state.css.conflicts).toHaveLength(1);
+    expect(Object.keys(state.parts)).not.toHaveLength(0);
   });
 });

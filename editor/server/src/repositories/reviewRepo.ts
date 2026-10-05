@@ -39,6 +39,7 @@ import {
   readTemplateCss,
   readTemplateHtml,
 } from '../files/templateFiles.js';
+import { logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import type { NoteMasterService } from '../sync/noteMasterService.js';
 import type { PairSyncService } from '../sync/pairSyncService.js';
@@ -269,7 +270,17 @@ export function createReviewRepo({
           `確定保存(承認): ${review.templateId} 申請=${review.submittedBy} 承認=${actor.username}\n\n` +
           `Co-Authored-By: ${review.submittedBy} <${review.submittedBy}@editor.local>`;
         // ペア同期の CSS 転写の base は承認の直前の CSS。反映の後では next と同じになって取れない。
-        const cssBefore = await readTemplateCss(review.templateId);
+        // 読めなくても承認は止めない(CSS の転写だけを飛ばす)。'' と見なすと全規則がペアへ誤って写る。
+        let cssBefore: string | null;
+        try {
+          cssBefore = await readTemplateCss(review.templateId);
+        } catch (e) {
+          logger.warn(
+            { err: e, templateId: review.templateId },
+            '承認前の CSS を読めないため、ペアへの CSS の転写を飛ばします',
+          );
+          cssBefore = null;
+        }
         const meta = await applyConfirmedSave({
           templateId: review.templateId,
           target,
