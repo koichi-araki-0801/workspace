@@ -54,8 +54,8 @@ function previewPurifyConfig(): PurifyConfig {
 }
 
 /**
- * PDF 経路専用のサニタイズ設定。**プレビュー用との差は 2 つだけ**で、それ以外の
- * DOMPurify の防御(`on*` 属性・`javascript:` URL・`<object>`/`<embed>` 等の危険要素・
+ * PDF 経路専用のサニタイズ設定。残すものは次の 1・2 と、`<meta charset>`・`<script>` の
+ * `defer` / `async`(下に書く)だけで、それ以外の DOMPurify の防御(`on*` 属性・`javascript:` URL・`<object>`/`<embed>` 等の危険要素・
  * mXSS 対策)はそのまま効かせる。
  *
  *   1. `<script>` を残す — テンプレの JS は開発者が生成時に埋め込む**正当なコンテンツ**で
@@ -74,21 +74,23 @@ function previewPurifyConfig(): PurifyConfig {
  *      殺さないためで、「ディスクの CSS も当てる」ためではない。両方当てると、
  *      下書きで削除した規則がディスク側の旧 CSS から復活し、プレビューと PDF が食い違う。
  *
- * `<base>` と `<meta>` は落としたままにする。`<base>` は相対 URL の解決先を丸ごと別
- * オリジンへ向け替えられ(= 1 と 2 の前提そのものを壊す)、`<meta http-equiv>` は
- * 宣言的リフレッシュで遷移を起こす。
+ * `<base>` は落としたままにする。相対 URL の解決先を丸ごと別オリジンへ向け替えられる
+ * (= 1 と 2 の前提そのものを壊す)。`<meta>` は `charset` 属性だけを持つものに限って残し
+ * (文字コードの宣言。`sanitizePdfRoot` の hook)、ほかは落とす — `<meta http-equiv>` は宣言的
+ * リフレッシュで遷移を起こす。`<script>` の `defer` / `async` は実行の順序を決める属性で、
+ * 落とすとテンプレ JS の動きが変わるので残す。
  *
- * プレビュー経路(`assemblePreviewDocument` → `previewPurifyConfig`)との差は `<link>` の
- * 扱いだけ。プレビューも隔離 iframe(`PreviewPanel.vue`)の中で動かすため script を残す。
+ * プレビュー経路(`assemblePreviewDocument` → `previewPurifyConfig`)との差は `<link>`・
+ * `<meta charset>`・`defer` / `async` の扱いだけ。プレビューも隔離 iframe(`PreviewPanel.vue`)の中で動かすため script を残す。
  */
 function pdfPurifyConfig(): PurifyConfig {
   return {
     WHOLE_DOCUMENT: true,
-    ADD_TAGS: ['style', 'script', 'link'],
-    // `link` の `rel`/`href`/`type` と `script` の `src`/`type` を通す。URL 値は DOMPurify の
-    // `ALLOWED_URI_REGEXP` が引き続き検査し、`javascript:` 等は落ちる。
-    ADD_ATTR: ['style', 'rel', 'href', 'src', 'type', 'as', 'media'],
-    FORBID_TAGS: ['base', 'meta'],
+    ADD_TAGS: ['style', 'script', 'link', 'meta'],
+    // `link` の `rel`/`href`/`type`、`script` の `src`/`type`/`defer`/`async`、`meta` の `charset` を
+    // 通す。URL 値は DOMPurify の `ALLOWED_URI_REGEXP` が引き続き検査し、`javascript:` 等は落ちる。
+    ADD_ATTR: ['style', 'rel', 'href', 'src', 'type', 'as', 'media', 'defer', 'async', 'charset'],
+    FORBID_TAGS: ['base'],
   };
 }
 
@@ -184,10 +186,36 @@ export function sanitizePreviewHtml(html: string): string {
  * script と link を残すのがプレビュー用との差で、他の防御は同じだけ効いている。
  */
 export function sanitizePdfRoot(html: string): Element {
-  return DOMPurify.sanitize(html, {
+  return pdfPurifier().sanitize(html, {
     ...pdfPurifyConfig(),
     RETURN_DOM: true,
   }) as unknown as Element;
+}
+
+/**
+ * `charset` 属性だけを持つ `<meta>` か。`http-equiv` や `content` を併せ持つものは(属性を
+ * 削って残すのではなく)要素ごと落とす。
+ */
+function isCharsetOnlyMeta(el: Element): boolean {
+  return el.attributes.length === 1 && el.hasAttribute('charset');
+}
+
+let pdfPurifierInstance: ReturnType<typeof DOMPurify> | undefined;
+
+/**
+ * PDF 経路専用の DOMPurify インスタンス。`<meta>` を `charset` だけのものに絞る hook を持つ。
+ * hook はインスタンスに載るので、プレビュー用などほかの `DOMPurify.sanitize` には効かない。
+ */
+function pdfPurifier(): ReturnType<typeof DOMPurify> {
+  if (pdfPurifierInstance === undefined) {
+    const purifier = DOMPurify(window);
+    purifier.addHook('uponSanitizeElement', (node, data) => {
+      if (data.tagName === 'meta' && !isCharsetOnlyMeta(node as Element))
+        node.parentNode?.removeChild(node);
+    });
+    pdfPurifierInstance = purifier;
+  }
+  return pdfPurifierInstance;
 }
 
 // ── 2. 編集 canvas(GrapesJS パーサ)経路 ──

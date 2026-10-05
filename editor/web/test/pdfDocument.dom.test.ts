@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { PDF_CSS_EXTERNAL_REF_MSG, PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
+import { sanitizePdfRoot, sanitizePreviewRoot, serializePreviewRoot } from '@/lib/sanitizeHtml';
 
 // 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では起動しない。
 // ここで固定したいのは PDF 入力文書の組み立て(サニタイズ・外部参照の拒否)なので、隔離の
@@ -185,5 +186,40 @@ describe('renderPdfDocument', () => {
     expect(res.value.html).toContain('src="../images/smtam/p.svg"');
     expect(res.value.html).toContain('poster="../images/SMTAM/ok.svg"');
     expect(res.value.html).toContain('srcset="../images/smtam/k.svg 1x"');
+  });
+});
+
+describe('sanitizePdfRoot — script の defer/async と meta charset', () => {
+  const pdf = (html: string): string => serializePreviewRoot(sanitizePdfRoot(html));
+
+  it('script の defer と async を残す', () => {
+    const out = pdf(
+      '<html><head><script defer src="../js/a.js"></script></head>' +
+        '<body><script async>var x = 1;</script></body></html>',
+    );
+    expect(out).toMatch(
+      /<script[^>]*\bdefer\b[^>]*src="..\/js\/a.js"|<script[^>]*src="..\/js\/a.js"[^>]*\bdefer\b/,
+    );
+    expect(out).toMatch(/<script[^>]*\basync\b[^>]*>var x = 1;/);
+  });
+
+  it('charset だけを持つ meta は残し、ほかの meta は落とす', () => {
+    const out = pdf(
+      '<html><head><meta charset="utf-8">' +
+        '<meta http-equiv="refresh" content="0;url=https://evil/">' +
+        '<meta name="viewport" content="width=device-width">' +
+        '<meta charset="utf-8" http-equiv="refresh" content="0;url=https://evil/">' +
+        '</head><body>x</body></html>',
+    );
+    expect(out.match(/<meta\b[^>]*>/g)).toEqual(['<meta charset="utf-8">']);
+    expect(out).not.toContain('evil');
+    expect(out).not.toContain('viewport');
+  });
+
+  it('プレビュー用のサニタイズは meta を従来どおりすべて落とす', () => {
+    const out = serializePreviewRoot(
+      sanitizePreviewRoot('<html><head><meta charset="utf-8"></head><body>x</body></html>'),
+    );
+    expect(out).not.toContain('<meta');
   });
 });
