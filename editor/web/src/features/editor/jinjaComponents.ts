@@ -48,7 +48,7 @@ const JINJA_TYPE_DEFAULTS: Record<
 };
 
 /**
- * locked な Jinja chip の `Component` type 群を登録する。chip は `toEditable` が
+ * locked な Jinja chip の `Component` type 群を登録する。chip は `toFilled`(`fillJinja.ts`)が
  * `<span data-gjs-type="jinja-var|stmt|comment" data-jinja="…">` として生成する。
  * GrapesJS は `data-gjs-type` から type を自動割当する。ここでは非編集にし、
  * `data-jinja` source 属性を保持させ、ラベルを付ける。

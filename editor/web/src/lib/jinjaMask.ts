@@ -6,17 +6,6 @@
 //   タグを verbatim に保持しつつ相互変換する。
 //
 // 戦略:
-// `toEditable(raw)`:
-//   1. nested statement を持たず単一要素を包む単純なブロック文
-//      (`{% for %}<tr>…</tr>{% endfor %}`)を, その要素へ `data-jinja-open` /
-//      `data-jinja-close` (base64)として "absorb" する。これにより HTML パーサが
-//      ループマーカを `<table>`/`<tbody>` の外へ foster-parent するのを防ぐ。
-//   2. 残りの, *テキスト中*(タグ内ではない)の Jinja を locked chip 要素として包む:
-//      `<span data-gjs-type="jinja-…" data-jinja="b64">…</span>`。可視ラベルは
-//      HTML エスケープし, 厳密なソースは `data-jinja` に入れる。
-//   要素の属性内の Jinja(例 href="{{ url }}")は触らない — 属性値は GrapesJS を
-//   verbatim に round-trip するため。
-//
 // `toTemplate(editable)`: パース済み DOM 上での厳密な逆変換。復元した Jinja はまず
 //   serialization-safe な placeholder として出力し, 最後の文字列パスで decode する。
 //   これにより式中の `<`, `>`, `&` 等が serializer に HTML エスケープされない。
@@ -66,46 +55,7 @@ export function tokenKind(token: string): 'var' | 'stmt' | 'comment' {
   return 'stmt';
 }
 
-// ── 1. toEditable — 生 Jinja2 → GrapesJS-safe ──
-
-/**
- * `{% open … %}<el …>…</el>{% close … %}` を包まれた要素へ absorb する。
- * body は `{% … %}` 文を含んではならず, これにより `if/else` chain や nested loop を
- * 除外し(chip へフォールバックさせる), マッチが `{% else %}` をまたぐのを防ぐ。
- */
-function absorbBlocks(html: string, open: string, close: string): string {
-  const re = new RegExp(
-    `(\\{%\\s*${open}\\b[^%]*%\\})\\s*(<([a-zA-Z][\\w-]*)\\b)((?:[^>]*>)(?:(?!\\{%)[\\s\\S])*?<\\/\\3>)\\s*(\\{%\\s*${close}\\s*%\\})`,
-    'g',
-  );
-  return html.replace(re, (_m, openStmt, tagStart, _tagName, rest, closeStmt) => {
-    return `${tagStart} ${DATA_JINJA_OPEN}="${b64encode(openStmt)}" ${DATA_JINJA_CLOSE}="${b64encode(closeStmt)}"${rest}`;
-  });
-}
-
-function wrapInlineTokens(html: string): string {
-  // タグ(<...>)とテキストの segment へ分割し, テキスト中の token だけを包む。
-  const parts = html.split(/(<[^>]*>)/);
-  return parts
-    .map((part) => {
-      if (part.startsWith('<')) return part; // タグ — 属性はそのままにする
-      return part.replace(TOKEN_RE, (token) => {
-        const kind = tokenKind(token);
-        return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_JINJA}="${b64encode(token)}">${htmlEscape(token)}</span>`;
-      });
-    })
-    .join('');
-}
-
-export function toEditable(raw: string): string {
-  let s = raw;
-  s = absorbBlocks(s, 'for', 'endfor');
-  s = absorbBlocks(s, 'if', 'endif');
-  s = wrapInlineTokens(s);
-  return s;
-}
-
-// ── 2. toTemplate — GrapesJS-safe → 生 Jinja2 ──
+// ── 1. toTemplate — GrapesJS-safe → 生 Jinja2 ──
 
 export interface ToTemplateOptions {
   /** true なら `<body>` の inner HTML だけを返す(GrapesJS の body 編集用)。 */
@@ -184,7 +134,7 @@ export function toTemplate(
   });
 
   // 1. chip span -> placeholder テキストへ復元する。復号値は単一 Jinja トークンに限る
-  //    (`wrapInlineTokens`/`fillInline` の生成形)。
+  //    (`fillInline` の生成形)。
   doc.querySelectorAll(`[${DATA_JINJA}]`).forEach((el) => {
     const enc = el.getAttribute(DATA_JINJA);
     if (enc === null) return;
@@ -228,7 +178,7 @@ export function toTemplate(
   });
 
   // 2. absorb したブロック文を, その要素の前後へ復元する。open/close は単一 stmt トークンに限る
-  //    (`absorbBlocks`/`expandLoops` の生成形。HTML は含められない)。
+  //    (`expandLoops` の生成形。HTML は含められない)。
   doc.querySelectorAll(`[${DATA_JINJA_OPEN}]`).forEach((el) => {
     const open = el.getAttribute(DATA_JINJA_OPEN);
     const close = el.getAttribute(DATA_JINJA_CLOSE);

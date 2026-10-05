@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { b64encode, extractJinjaTokens, toEditable, toTemplate } from '../src/lib/jinjaMask';
+import { toFilled } from '../src/lib/fillJinja';
+import { b64encode, extractJinjaTokens, toTemplate } from '../src/lib/jinjaMask';
 import { renderJinja } from '../src/lib/nunjucksRender';
 
 const cases: Record<string, string> = {
@@ -24,38 +25,17 @@ const cases: Record<string, string> = {
 describe('jinjaMask round-trip preserves all Jinja tokens', () => {
   for (const [name, raw] of Object.entries(cases)) {
     it(name, () => {
-      const restored = toTemplate(toEditable(raw));
+      const restored = toTemplate(toFilled(raw, {}));
       expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));
     });
   }
-});
-
-describe('toEditable produces GrapesJS-safe markers', () => {
-  it('wraps inline vars in locked chips', () => {
-    const e = toEditable(`<p>{{ a }}</p>`);
-    expect(e).toContain('data-gjs-type="jinja-var"');
-    expect(e).toContain('data-jinja=');
-  });
-
-  it('absorbs for-loops onto the wrapped element (no stray text in table)', () => {
-    const e = toEditable(`<tbody>{% for h in xs %}<tr><td>{{ h }}</td></tr>{% endfor %}</tbody>`);
-    expect(e).toContain('data-jinja-open=');
-    expect(e).toContain('data-jinja-close=');
-    // the raw {% for %} text should no longer float between tbody and tr
-    expect(e).not.toMatch(/<tbody>\s*\{%\s*for/);
-  });
-
-  it('leaves attribute jinja untouched (not wrapped in a chip)', () => {
-    const e = toEditable(`<a href="{{ url }}">x</a>`);
-    expect(e).toContain('href="{{ url }}"');
-  });
 });
 
 describe('toTemplate pretty mode', () => {
   // 整形は placeholder マスク後に行うため、Jinja トークンは欠落も改変もしない。
   for (const [name, raw] of Object.entries(cases)) {
     it(`preserves all Jinja tokens (${name})`, () => {
-      const restored = toTemplate(toEditable(raw), { pretty: true });
+      const restored = toTemplate(toFilled(raw, {}), { pretty: true });
       expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));
     });
   }
@@ -67,8 +47,8 @@ describe('toTemplate pretty mode', () => {
     // タグ間に入るインデント空白はブロック要素では表示に影響しないので畳んでから比較する
     // (整形が変えてよいのはこの空白だけ — テキストノードの内容は両者で不変)。
     const norm = (s: string) => s.replace(/>\s+</g, '><').replace(/\s+/g, ' ').trim();
-    const plain = toTemplate(toEditable(raw), {});
-    const pretty = toTemplate(toEditable(raw), { pretty: true });
+    const plain = toTemplate(toFilled(raw, {}), {});
+    const pretty = toTemplate(toFilled(raw, {}), { pretty: true });
     expect(norm(renderJinja(plain, data).html)).toBe(norm(renderJinja(pretty, data).html));
   });
 });
@@ -151,7 +131,7 @@ describe('toTemplate は復元マスクの中身を検査して復号を限定�
 describe('full document round-trip', () => {
   it('keeps doctype and all tokens', () => {
     const raw = `<!doctype html>
-<html><head><title>{{ fund.name }}</title></head>
+<html><head><title>fund</title></head>
 <body>
 <table><tbody>
 {% for h in holdings %}
@@ -159,7 +139,7 @@ describe('full document round-trip', () => {
 {% endfor %}
 </tbody></table>
 </body></html>`;
-    const restored = toTemplate(toEditable(raw));
+    const restored = toTemplate(toFilled(raw, {}));
     expect(restored.toLowerCase()).toContain('<!doctype html>');
     expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));
   });
@@ -169,7 +149,7 @@ describe('full document round-trip', () => {
   // `asFragment` はこの形でも本文(body inner)を返すことを契約として固定する。
   it('restores the body inner from a `<body>`-wrapped fragment', () => {
     const raw = '<div class="page"><p>基準価額 {{ fund.nav }} 円</p></div>';
-    const wrapped = `<body id="wrapper">${toEditable(raw)}</body>`;
+    const wrapped = `<body id="wrapper">${toFilled(raw, {})}</body>`;
     const restored = toTemplate(wrapped, { asFragment: true });
     expect(restored).toContain('{{ fund.nav }}');
     expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));

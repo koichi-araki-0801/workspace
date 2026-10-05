@@ -7,8 +7,8 @@
 //   読める)一方で, 元の `{{ }}` / `{% %}` ソースを verbatim に保持するため,
 //   保存時に `jinjaMask.ts` の `toTemplate` が厳密な Jinja テンプレートを復元できる。
 //
-//   `jinjaMask.ts` の `toEditable` の「値を持つ」兄弟であり, どちらも GrapesJS へ
-//   渡され, どちらも `toTemplate` で無損失に round-trip する。差異:
+//   `jinjaMask.ts` の `toTemplate` の逆変換であり, GrapesJS へ渡された出力は
+//   `toTemplate` で無損失に round-trip する。特徴:
 //     - inline `{{ expr }}` chip は *評価値* を表示する(token テキストではない)。
 //     - `{% for %}` ループは sample 要素ごとに 1 行の filled 行へ展開する。先頭行は
 //       `{% for %}`/`{% endfor %}` マーカ(data-jinja-open/close)を保持し, 残りは
@@ -105,8 +105,7 @@ function insertAttrs(element: string, attrs: string): string {
 
 /**
  * *テキスト中*(タグ内ではない)の各 Jinja token を locked chip として包む。
- * `jinjaMask.ts` の `wrapInlineTokens` を写したもの。`{{ var }}` chip の可視ラベル
- * だけが `ctx` に対して評価した値で, `{% %}` / `{# #}` token はリテラルソースを
+ * `{{ var }}` chip の可視ラベルだけが `ctx` に対して評価した値で, `{% %}` / `{# #}` token はリテラルソースを
  * ラベルとして保持する。厳密なソース token は常に data-jinja に入るため, ラベルに
  * 関わらず `toTemplate` が復元する。
  */
@@ -158,7 +157,7 @@ function maskOpaque(html: string): string {
 }
 
 // `{% for v in iter %}<el>…</el>{% endfor %}` — body は nested statement を持たない
-// 単一要素(`jinjaMask.ts` の `absorbBlocks` が受理するのと同じ形)。
+// 単一要素(`expandLoops` が受理する形)。
 const FOR_RE = new RegExp(
   '(\\{%\\s*for\\s+(\\w+)\\s+in\\s+([\\s\\S]*?)%\\})' + // 1 open, 2 var, 3 iterable
     '\\s*(<([a-zA-Z][\\w-]*)\\b(?:[^>]*>)(?:(?!\\{%)[\\s\\S])*?<\\/\\5>)\\s*' + // 4 element, 5 tag

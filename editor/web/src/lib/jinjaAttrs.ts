@@ -10,11 +10,11 @@
 //   互換を壊す。fixture 側リテラルは意図的に定数化しておらず、値を誤変更すると
 //   `htmlWorkerImpl.test.ts` の round-trip が落ちて検知される。
 
-/** inline chip の厳密ソース(base64)。書: `wrapInlineTokens`/`fillInline` → 復: `toTemplate` step1 */
+/** inline chip の厳密ソース(base64)。書: `fillInline` → 復: `toTemplate` step1 */
 export const DATA_JINJA = 'data-jinja';
-/** absorb/展開したブロック開始文(base64)。書: `absorbBlocks`/`expandLoops` → 復: `toTemplate` step2 */
+/** absorb/展開したブロック開始文(base64)。書: `expandLoops` → 復: `toTemplate` step2 */
 export const DATA_JINJA_OPEN = 'data-jinja-open';
-/** absorb/展開したブロック終了文(base64)。書: `absorbBlocks`/`expandLoops` → 復: `toTemplate` step2 */
+/** absorb/展開したブロック終了文(base64)。書: `expandLoops` → 復: `toTemplate` step2 */
 export const DATA_JINJA_CLOSE = 'data-jinja-close';
 /** collapse した if ブロック全体(base64)。書: `collapseIfs` → 復: `toTemplate` step1c */
 export const DATA_JINJA_BLOCK = 'data-jinja-block';
