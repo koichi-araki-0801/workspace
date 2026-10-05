@@ -115,3 +115,32 @@ describe('useRep1Names', () => {
     expect(api.fundName('AM01', '510037')).toBe('');
   });
 });
+
+describe('useRep1Names の取得失敗からの回復', () => {
+  it('会社一覧の失敗で待っていたファンドは、後の別要求で会社一覧が取れたときに引かれる', async () => {
+    const listCompanies = vi
+      .fn()
+      .mockResolvedValueOnce(err(unexpected('down')))
+      .mockResolvedValueOnce(ok(COMPANIES));
+    const listFunds = vi.fn(async () => ok(FUNDS));
+    const api = setup({ listCompanies, listFunds });
+    api.resolveFunds('AM01'); // 表の行(マウント時に 1 回だけ要求する)
+    await flushPromises();
+    api.resolveCompanies(); // 別の部品からの要求
+    await flushPromises();
+    expect(api.fundName('AM01', '510037')).toBe('切替型');
+  });
+
+  it('ファンド一覧の失敗は、後の別要求のついでに取り直される', async () => {
+    const listFunds = vi
+      .fn()
+      .mockResolvedValueOnce(err(unexpected('down')))
+      .mockResolvedValueOnce(ok(FUNDS));
+    const api = setup({ listCompanies: vi.fn(async () => ok(COMPANIES)), listFunds });
+    api.resolveFunds('AM01');
+    await flushPromises();
+    api.resolveCompanies();
+    await flushPromises();
+    expect(api.fundName('AM01', '510037')).toBe('切替型');
+  });
+});

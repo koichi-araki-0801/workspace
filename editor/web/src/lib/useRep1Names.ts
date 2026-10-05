@@ -25,14 +25,18 @@ const state = reactive({
   funds: new Map<string, Load<Map<string, string>>>(),
 });
 
-/** 会社一覧の取得を待っている間にファンド名を求められた略称(取得後にファンドを引く)。 */
-const fundsAwaitingCompanies = new Set<string>();
+/**
+ * ファンド名を求められた略称。取得が終わっても消さない — 一時的な失敗の後でも、別の部品から
+ * 次の解決要求が来たときに、まだ引けていない会社をまとめて取り直す(表の行は watch が
+ * 再び動かないので、自分では取り直せない)。
+ */
+const wantedFunds = new Set<string>();
 
 /** テスト用: 保持している取得結果を捨てる。 */
 export function resetRep1NamesForTest(): void {
   state.companies = undefined;
   state.funds.clear();
-  fundsAwaitingCompanies.clear();
+  wantedFunds.clear();
 }
 
 export function useRep1Names() {
@@ -44,8 +48,20 @@ export function useRep1Names() {
     return state.companies.value.get(companyCode.toLowerCase()) ?? null;
   }
 
-  function resolveCompanies(): void {
-    if (state.companies) return;
+  /** 会社一覧が取れていれば、求められた会社のうちまだ引けていないファンド一覧を引く。 */
+  function flush(): void {
+    if (!state.companies) {
+      loadCompanies();
+      return;
+    }
+    if (state.companies.state !== 'ok') return;
+    for (const code of wantedFunds) {
+      const c = companyOf(code);
+      if (c && !state.funds.has(c.rep1CompanyCode)) loadFunds(c.rep1CompanyCode);
+    }
+  }
+
+  function loadCompanies(): void {
     state.companies = { state: 'loading' };
     repo
       .listCompanies()
@@ -57,25 +73,14 @@ export function useRep1Names() {
           if (!byAbbr.has(key)) byAbbr.set(key, c);
         }
         state.companies = { state: 'ok', value: byAbbr };
-        const waiting = [...fundsAwaitingCompanies];
-        fundsAwaitingCompanies.clear();
-        for (const code of waiting) resolveFunds(code);
+        flush();
       })
       .catch(() => {
         state.companies = undefined;
-        fundsAwaitingCompanies.clear();
       });
   }
 
-  function resolveFunds(companyCode: string): void {
-    const c = companyOf(companyCode);
-    if (c === undefined) {
-      fundsAwaitingCompanies.add(companyCode);
-      resolveCompanies();
-      return;
-    }
-    if (c === null || state.funds.has(c.rep1CompanyCode)) return;
-    const rep1 = c.rep1CompanyCode;
+  function loadFunds(rep1: string): void {
     state.funds.set(rep1, { state: 'loading' });
     repo
       .listFunds(rep1)
@@ -87,6 +92,17 @@ export function useRep1Names() {
         });
       })
       .catch(() => state.funds.delete(rep1));
+  }
+
+  /** 委託会社一覧を引く(取得済み・取得中なら何もしない)。失敗していたファンドもついでに取り直す。 */
+  function resolveCompanies(): void {
+    flush();
+  }
+
+  /** その会社のファンド一覧を引く(会社一覧が未取得なら先に引く)。 */
+  function resolveFunds(companyCode: string): void {
+    wantedFunds.add(companyCode);
+    flush();
   }
 
   /** `AM01（0001）`。Rep1 に無ければ `AM01（未登録）`、まだ分からなければ略称だけ。 */
