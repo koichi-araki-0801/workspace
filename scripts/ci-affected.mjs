@@ -18,6 +18,7 @@
 //     `.husky/` は段を持たない領域 `ci-machinery` として出力に名前を出す。
 
 import { execFileSync, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -130,6 +131,9 @@ export function classifyChanges(paths) {
 // だけが差分になり最速。upstream 未設定(初回 push 等)は `origin/main` へフォールバック。
 // `--base <ref>` / 環境変数 `CI_AFFECTED_BASE` で上書き、`--all` でフル `ci` を強制。
 // `--dry-run` は実行計画(検出領域と走らせる script)だけ出力して何も実行しない。
+// `--pre-push` は `.husky/pre-push` 用で、git が stdin に渡す push 対象の ref を検査する
+// (下の `pushRanges`)。現ブランチの upstream...HEAD だけを見ると、`git push origin other` で
+// 送る別ブランチの変更が 1 段も検査されずに出ていく。
 const argv = process.argv.slice(2);
 const DRY = argv.includes('--dry-run');
 
@@ -142,10 +146,15 @@ function git(args, { allowFail = false } = {}) {
   }
 }
 
-function resolveBase() {
+function explicitBase() {
   const flagIdx = argv.indexOf('--base');
   if (flagIdx !== -1 && argv[flagIdx + 1]) return argv[flagIdx + 1];
-  if (process.env.CI_AFFECTED_BASE) return process.env.CI_AFFECTED_BASE;
+  return process.env.CI_AFFECTED_BASE || null;
+}
+
+function resolveBase() {
+  const explicit = explicitBase();
+  if (explicit) return explicit;
   // upstream の short ref(例: `origin/chore/...`)。未設定なら git が失敗するので null。
   const upstream = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], {
     allowFail: true,
@@ -156,6 +165,45 @@ function resolveBase() {
     return 'origin/main';
   }
   return git(['rev-parse', '--verify', '--quiet', 'main'], { allowFail: true });
+}
+
+const ZERO_SHA_RE = /^0+$/;
+
+/**
+ * pre-push の stdin(1 行 = `<local ref> <local sha> <remote ref> <remote sha>`)から、検査する
+ * diff 範囲の配列を返す。stdin が空なら null(呼び出し側は従来のベース ref...HEAD へ倒す)。
+ *   - local sha が全 0 は ref の削除で、送る中身が無いので範囲を作らない。
+ *   - remote sha が手元にある commit なら `remote...local`(この push で増える分だけ)。
+ *   - remote sha が全 0(新規 ref)か手元に無い(他所で更新された ref への force push)なら
+ *     比較相手が無いので、従来のベース ref(`resolveBase`)からの差分にする。ベースも
+ *     解決できなければ undefined を返し、呼び出し側がフル CI に倒す。
+ * 端点は `^{commit}` で剥がす(注釈付きタグの sha はタグオブジェクトを指すため)。
+ */
+function pushRanges() {
+  let input = '';
+  try {
+    input = readFileSync(0, 'utf8');
+  } catch {
+    return null;
+  }
+  const lines = input
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return null;
+  const ranges = [];
+  for (const line of lines) {
+    const [, localSha, , remoteSha] = line.split(/\s+/);
+    if (!localSha || ZERO_SHA_RE.test(localSha)) continue;
+    const remoteKnown =
+      Boolean(remoteSha) &&
+      !ZERO_SHA_RE.test(remoteSha) &&
+      git(['cat-file', '-e', `${remoteSha}^{commit}`], { allowFail: true }) !== null;
+    const from = remoteKnown ? `${remoteSha}^{commit}` : resolveBase();
+    if (!from) return undefined;
+    ranges.push(`${from}...${localSha}^{commit}`);
+  }
+  return ranges;
 }
 
 // ── 3. サブコマンド実行ヘルパ ──
@@ -195,18 +243,34 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 function main() {
   if (argv.includes('--all')) runFullCi('--all 指定');
 
-  const base = resolveBase();
-  if (!base) runFullCi('ベース ref を解決できませんでした');
+  // 明示のベース指定(`--base` / `CI_AFFECTED_BASE`)は pre-push の stdin より優先する。
+  const pushed = argv.includes('--pre-push') && !explicitBase() ? pushRanges() : null;
+  if (pushed === undefined) runFullCi('ベース ref を解決できませんでした');
+  if (pushed && pushed.length === 0) {
+    console.log('[ci:affected] push 対象は ref の削除だけです。検査をスキップします。');
+    process.exit(0);
+  }
+  let diffRanges = pushed;
+  if (!diffRanges) {
+    const base = resolveBase();
+    if (!base) runFullCi('ベース ref を解決できませんでした');
+    diffRanges = [`${base}...HEAD`];
+  }
 
-  const diffRange = `${base}...HEAD`;
-  // `-c core.quotePath=false`: 非 ASCII パスの八進エスケープ＋引用符付き出力(`"docs/…\346…"`)を
-  // 無効化し、UTF-8 リテラルで受け取る。これが無いと `p.startsWith('docs/')` 等の BENIGN 判定が
-  // 外れ、docs だけの変更でも不要にフル `ci` へフォールバックしてしまう。
-  const out = git(['-c', 'core.quotePath=false', 'diff', '--name-only', diffRange], { allowFail: true });
-  if (out === null) runFullCi(`git diff ${diffRange} に失敗しました`);
-
-  const changed = out.split('\n').filter(Boolean);
-  console.log(`[ci:affected] ベース: ${base}  (${diffRange})`);
+  const changed = [];
+  for (const diffRange of diffRanges) {
+    // `-c core.quotePath=false`: 非 ASCII パスの八進エスケープ＋引用符付き出力(`"docs/…\346…"`)を
+    // 無効化し、UTF-8 リテラルで受け取る。これが無いと `p.startsWith('docs/')` 等の BENIGN 判定が
+    // 外れ、docs だけの変更でも不要にフル `ci` へフォールバックしてしまう。
+    // `--no-renames`: rename 検出が効くと移動先のパスしか出ず、`pie-chart/` から `docs/` への
+    // 移動が docs だけの変更に見えて移動元の領域が 1 段も走らない。削除 + 追加として両方を出す。
+    const out = git(['-c', 'core.quotePath=false', 'diff', '--name-only', '--no-renames', diffRange], {
+      allowFail: true,
+    });
+    if (out === null) runFullCi(`git diff ${diffRange} に失敗しました`);
+    for (const p of out.split('\n').filter(Boolean)) if (!changed.includes(p)) changed.push(p);
+    console.log(`[ci:affected] 差分範囲: ${diffRange}`);
+  }
   console.log(`[ci:affected] 変更ファイル数: ${changed.length}`);
   console.log('[ci:affected] 注: coverage 85% ゲートはフル `pnpm run ci` でのみ検査します (affected/領域別は速度優先で対象外)');
 

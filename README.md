@@ -97,7 +97,8 @@ CI は領域（`editor` = shared+server+web / `pie-chart`）単位で分割で�
 `pnpm run ci:<領域>` で手動部分実行、`pnpm run ci:affected` は `git diff`（既定で現ブランチ upstream 基準。
 `--base <ref>` / `--all` / `--dry-run`(計画のみ表示) / 環境変数 `CI_AFFECTED_BASE` で上書き可）から
 変更領域を判定して該当領域だけ走らせる。
-`.husky/pre-push` はこの affected 方式で push を高速化する（`scripts/ci-affected.mjs` を直接呼ぶ）。領域に
+`.husky/pre-push` はこの affected 方式で push を高速化する（`scripts/ci-affected.mjs --pre-push` を直接呼び、
+stdin で渡される push 対象の ref ごとに差分を取る。新規 ref は上記の既定ベースから、削除だけの push は検査しない）。領域に
 紐付かない共有変更（`package.json` / lockfile / 各種 config）を検出した場合はフル `ci` にフォールバックする。
 
 > **注意:** 領域別 / affected run は速度優先で **coverage 85% 閾値ゲートを通さない**

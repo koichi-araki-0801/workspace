@@ -237,6 +237,132 @@ test('editor/README.md だけの変更は共有ゲートのみ', () => {
   assert.deepEqual(planForChanges(['editor/README.md']), SHARED_GATES);
 });
 
+const PIE_CHART_PLAN = [
+  ...SHARED_GATES,
+  'typecheck:pie-chart',
+  'test:pie-chart',
+  'pie-chart:batch',
+  'pie-chart:batch:diff',
+];
+const ZERO_SHA = '0'.repeat(40);
+
+// 疑似リポジトリへ 1 コミット足す。`files` は作成するパス、`moves` は `git mv` する [from, to]。
+function commitIn(root, { files = [], moves = [] }) {
+  for (const rel of files) {
+    const abs = join(root, ...rel.split('/'));
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, `${rel}\n`, 'utf8');
+  }
+  for (const [from, to] of moves) {
+    mkdirSync(dirname(join(root, ...to.split('/'))), { recursive: true });
+    git(root, ['mv', from, to]);
+  }
+  git(root, [...GIT_IDENTITY, 'add', '-A']);
+  git(root, [...GIT_IDENTITY, 'commit', '--quiet', '-m', 'step']);
+  return git(root, ['rev-parse', 'HEAD']);
+}
+
+// pre-push の stdin(`<local ref> <local sha> <remote ref> <remote sha>` の行)を渡して dry-run する。
+function planForPush(root, stdin, extraArgs = []) {
+  const res = spawnSync(
+    process.execPath,
+    [join(root, 'scripts', 'ci-affected.mjs'), '--dry-run', '--pre-push', ...extraArgs],
+    { cwd: root, encoding: 'utf8', input: stdin },
+  );
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  return res.stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('(dry-run) pnpm run '))
+    .map((l) => l.slice('(dry-run) pnpm run '.length));
+}
+
+test('領域外への rename は移動元の領域も起動する', () => {
+  // rename 検出が効いた `diff --name-only` は移動先のパスしか出さないので、pie-chart から
+  // docs への移動が docs 原稿だけの変更に見え、pie-chart の段が 1 つも走らない。
+  const { root } = buildFixtureRepo(['pie-chart/src/moved.ts']);
+  try {
+    const base = git(root, ['rev-parse', 'HEAD']);
+    commitIn(root, { moves: [['pie-chart/src/moved.ts', 'docs/moved.ts']] });
+    assert.deepEqual(planFor(root, ['--dry-run', '--base', base]), PIE_CHART_PLAN);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('pre-push: 現ブランチではなく stdin で渡された push 対象の ref を検査する', () => {
+  const { root, base } = buildFixtureRepo(['docs/a.md']);
+  try {
+    const start = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['checkout', '--quiet', '-b', 'other']);
+    const other = commitIn(root, { files: ['pie-chart/src/x.ts'] });
+    git(root, ['checkout', '--quiet', '-b', 'current', start]);
+    commitIn(root, { files: ['docs/b.md'] });
+    const stdin = `refs/heads/other ${other} refs/heads/other ${base}\n`;
+    assert.deepEqual(planForPush(root, stdin), PIE_CHART_PLAN);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('pre-push: 新規ブランチ (remote sha が全 0) は従来のベース ref からの差分で検査する', () => {
+  const { root, base } = buildFixtureRepo(['docs/a.md']);
+  try {
+    git(root, ['update-ref', 'refs/remotes/origin/main', base]);
+    const start = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['checkout', '--quiet', '-b', 'feat']);
+    const feat = commitIn(root, { files: ['pie-chart/src/x.ts'] });
+    git(root, ['checkout', '--quiet', '-b', 'current', start]);
+    const stdin = `refs/heads/feat ${feat} refs/heads/feat ${ZERO_SHA}\n`;
+    assert.deepEqual(planForPush(root, stdin), PIE_CHART_PLAN);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('pre-push: ref の削除だけの push は何も走らせない', () => {
+  const { root, base } = buildFixtureRepo(['pie-chart/src/x.ts']);
+  try {
+    const stdin = `(delete) ${ZERO_SHA} refs/heads/gone ${base}\n`;
+    assert.deepEqual(planForPush(root, stdin), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('pre-push: 複数 ref の push は各 ref の差分の和で領域を決める', () => {
+  const { root } = buildFixtureRepo(['docs/a.md']);
+  try {
+    const start = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['checkout', '--quiet', '-b', 'one']);
+    const one = commitIn(root, { files: ['docs/_build/x.py'] });
+    git(root, ['checkout', '--quiet', '-b', 'two', start]);
+    const two = commitIn(root, { files: ['pie-chart/src/x.ts'] });
+    const stdin =
+      `refs/heads/one ${one} refs/heads/one ${start}\n` +
+      `refs/heads/two ${two} refs/heads/two ${start}\n`;
+    assert.deepEqual(planForPush(root, stdin), [
+      ...SHARED_GATES,
+      'typecheck:pie-chart',
+      'test:pie-chart',
+      'pie-chart:batch',
+      'pie-chart:batch:diff',
+      'test:docs',
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('pre-push: stdin が空なら従来どおりベース ref...HEAD を検査する', () => {
+  const { root, base } = buildFixtureRepo(['pie-chart/src/x.ts']);
+  try {
+    assert.deepEqual(planForPush(root, '', ['--base', base]), PIE_CHART_PLAN);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // ── GitHub Actions の段と `ci` の同期 ──
 // `.github/workflows/ci.yml` は `pnpm run ci` と同じ段を並べる決まりだが、手で同期している限り
 // 片方だけに足した段は静かに抜ける(実例: `test:scripts` が yml に無かった)。yml を行ベースで

@@ -285,8 +285,32 @@ def _callout_html(tokens, start, end, env) -> str:
                 break
             if c.type != "softbreak":
                 break
-    bodies = [_render_inline(t.children, env).strip() for t in inlines]
-    body = " ".join(b for b in bodies if b)
+    # 直下の段落は従来どおり <p> で包まず空白で連結し、それ以外のブロック（リスト・コード
+    # フェンス・表など）は本文と同じ walker で描画する。段落の中身だけを拾うと、リストは
+    # 1 段落に潰れ、フェンスは丸ごと消える。
+    pieces = []  # (段落か, html)
+    i = start
+    while i < end:
+        tok = tokens[i]
+        if tok.type == "paragraph_open" and not tok.hidden:
+            text = _render_inline(tokens[i + 1].children, env).strip()
+            if text:
+                pieces.append((True, text))
+            i += 3  # paragraph_open, inline, paragraph_close
+            continue
+        j, depth = i, 0
+        while True:  # 開いたブロックの対応する閉じトークンまでを 1 塊として渡す
+            depth += tokens[j].nesting
+            j += 1
+            if depth <= 0 or j >= end:
+                break
+        pieces.append((False, _render_blocks(tokens, i, j, env)))
+        i = j
+    body = ""
+    for k, (is_para, piece) in enumerate(pieces):
+        if k and is_para and pieces[k - 1][0]:
+            body += " "
+        body += piece
     tagkey = tag if tag in CALLOUT_STYLE else CALLOUT_DEFAULT
     badge = f'<span class="callout-tag">{esc(tagkey)}</span>' if tag else ""
     return f'<div class="callout callout-{tagkey}">{badge}{body}</div>'
@@ -313,16 +337,21 @@ def render_markdown(body: str, doc_idx: int, img_dir: pathlib.Path, warnings, sr
     env = {"doc_idx": doc_idx, "shift": shift, "img_dir": img_dir,
            "warnings": warnings, "src_name": src_name, "hseq": 0, "toc": []}
     tokens = _MD.parse(_strip_comments(body))  # HTML コメントは出力しない（フェンス内は保持）
+    return _render_blocks(tokens, 0, len(tokens), env), env["toc"]
+
+
+def _render_blocks(tokens, start: int, n: int, env) -> str:
+    """ブロックトークン列 `tokens[start:n]` → HTML 断片。callout の中身もこれで描画する。"""
     parts = []
-    i, n = 0, len(tokens)
+    i = start
     while i < n:
         tok = tokens[i]
         tt = tok.type
         if tt == "heading_open":
             level = min(int(tok.tag[1:]), 3)
-            tag = min(level + shift, 4)
+            tag = min(level + env["shift"], 4)
             env["hseq"] += 1
-            hid = f'd{doc_idx}-h{env["hseq"]}'
+            hid = f'd{env["doc_idx"]}-h{env["hseq"]}'
             inline = tokens[i + 1]
             parts.append(f'<h{tag} id="{hid}">{_render_inline(inline.children, env)}</h{tag}>')
             env["toc"].append((min(tag - 1, 3), hid, _inline_text(inline)))
@@ -384,7 +413,7 @@ def render_markdown(body: str, doc_idx: int, img_dir: pathlib.Path, warnings, sr
         else:
             i += 1  # 未対応トークンは無視（html:False では html_block 等は現れない）
 
-    return "".join(parts), env["toc"]
+    return "".join(parts)
 
 
 def _css() -> str:
