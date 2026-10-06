@@ -248,12 +248,15 @@ describe('canvas・承認タブ・比較が同じパーツを同じキーと番�
   it('<style>・地の文・赤入れ・区切りを含む文書で、3 者のキーとラベルが一致する', () => {
     // 保存される文書(承認・比較が読む)。本文の `<style>` と、根の直下の地の文を含む。
     const html =
-      '<style>.a{color:red}</style>地の文<p class="a">A</p><p class="a">A2</p>' +
+      '<style>.a{color:red}</style>地の文<style class="a" id="y">.c{}</style>' +
+      '<style class="a">.d{}</style><p class="a">A</p>' +
+      '<p class="a">A2</p>' +
       '<div class="pagebreak"></div>前置き<section class="s">S</section>' +
       '<div class="pagebreak"></div><style>.b{}</style><p class="a">A3</p>';
     // canvas の生 DOM。`<style>` は置き場の要素、赤入れ表示の削除要素が兄弟に挟まる。
     const canvas = root(
-      '<span data-body-style=""></span>地の文<p class="a">A</p>' +
+      '<span data-body-style=""></span>地の文<span data-body-style=""></span>' +
+        '<span data-body-style=""></span><p class="a">A</p>' +
         '<del data-redline="" class="redline-block"><p class="a">gone</p></del><p class="a">A2</p>' +
         '<div class="pagebreak"></div>前置き<section class="s">S</section>' +
         '<div class="pagebreak"></div><span data-body-style=""></span><p class="a">A3</p>',
@@ -273,6 +276,10 @@ describe('canvas・承認タブ・比較が同じパーツを同じキーと番�
       ['.a#3', 'ページ3・パーツ1'],
     ];
     expect([...canvasLabels]).toEqual(want);
+    // パーツと同じクラスを持つ `<style>` も、比較側でパーツの番号を進めない。
+    const h = '<style class="a"></style><p class="a">A</p>';
+    const block = buildHtmlDiff(h, h).pages[0].blocks.find((b) => b.afterHtml.startsWith('<p'));
+    expect(block?.partKey).toBe('.a#1');
     expect([...reviewLabels]).toEqual(want);
     expect([...diffLabels]).toEqual(want);
   });

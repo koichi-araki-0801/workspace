@@ -842,8 +842,9 @@ function newPartIndex(): PartIndex {
  * HTML を改ページで top-level page 群へ分割し、各 block の文書全体のキーと、パーツに数えない
  * block を `parts` へ書く。キーは `@/lib/blockKey` の `occurrenceKey(part, 全パーツ)` と同じ値
  * だが、パーツごとに全パーツを走査すると直下要素数の二乗になるので、出現順の数え上げを 1 回で
- * 済ませる。番号はアンカーごとに数えるので、`style#n` や地の文の `#text#n` はパーツの番号を
- * ずらさない。
+ * 済ませる。付き従う block(`pageItems` に入らない要素と地の文)は、パーツのアンカーと重ならない
+ * 別の名前(`#attached` / `#text`)で数える。`rawKey` で数えると、パーツと同じクラスを持つ
+ * `<style class="a">` が `.a` の番号を進め、canvas と承認タブ(`partKey.ts`)とキーが食い違う。
  */
 function paginateDoc(
   html: string,
@@ -857,7 +858,7 @@ function paginateDoc(
   const seen = new Map<string, number>();
   for (const el of pages.flat()) {
     if (attached.has(el)) parts.attached.add(el);
-    const base = top.texts.has(el) ? '#text' : rawKey(el);
+    const base = top.texts.has(el) ? '#text' : attached.has(el) ? '#attached' : rawKey(el);
     const n = (seen.get(base) ?? 0) + 1;
     seen.set(base, n);
     parts.keys.set(el, `${base}#${n}`);
