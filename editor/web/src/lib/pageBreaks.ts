@@ -84,6 +84,18 @@ export function inlineBreak(el: Element, edge: 'before' | 'after'): boolean {
   return on;
 }
 
+/**
+ * 根の直下の要素のうち、ページ分けとパーツの番号に数えるもの(パーツと区切り)。`<style>` は
+ * 見えない要素で、数えると後ろのパーツの番号がずれ、`<style>` だけのページもできる。赤入れの
+ * 削除要素(`[data-redline]`)は生 DOM だけの表示物で文書に無い。canvas・承認タブ・比較が
+ * 同じ集合を `splitPages` へ渡すよう、除く規則はここ 1 か所に置く。
+ */
+export function pageItems<T extends Element>(children: Iterable<T>): T[] {
+  return Array.from(children).filter(
+    (el) => el.tagName.toLowerCase() !== 'style' && !el.hasAttribute(REDLINE_ATTR),
+  );
+}
+
 export interface PageSplit<T extends Element> {
   /** ページごとのパーツ(区切りの要素は含まない)。必ず 1 ページ以上(パーツが 0 個なら [[]])。 */
   pages: T[][];

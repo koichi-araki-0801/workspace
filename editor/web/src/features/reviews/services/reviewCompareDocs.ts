@@ -6,17 +6,18 @@
 // 完全文書へ包み、変更ページへマーカーとアンカーを付ける。
 //
 // - マーカーは変更のあったページの各パーツ(body 直下の要素)に付ける。ページを包む要素は
-//   作らず、区切り(`div.pagebreak`)には付けない。ページの分け方は `splitPages` が決める。
+//   作らず、区切り(`div.pagebreak`)と `<style>` には付けない。ページの分け方は `pageItems` +
+//   `splitPages` が決める。
 // - マーカーは既存の差分装飾と同じ「CSPRNG レイヤ名のカスケードレイヤ + !important」で
 //   守る(申請者 CSS は同レイヤ名を当てられない限り上書きできない)。`display` は
 //   上書きしない(表セルのレイアウトを壊す)。
 // - ここで作る文書は**表示専用**で、申請へ保存されるバイト列(html/css/filledHtml)には
 //   一切触れない。DOM 経由の再直列化はこの表示境界だけで行う。
 // - 変更ページの粒度は `buildHtmlDiff` の `diff.pages` の index（0 始まり）。diff 側も同じ
-//   `splitPages` で数えるため、index と本文のページ順は対応する。
+//   `pageItems` + `splitPages` で数えるため、index と本文のページ順は対応する。
 
 import { rebaseCssForDoc } from '@editor/shared';
-import { splitPages } from '@/lib/pageBreaks';
+import { pageItems, splitPages } from '@/lib/pageBreaks';
 
 export interface CompareDocsInput {
   beforeHtml: string;
@@ -62,7 +63,7 @@ function annotatePages(
   const anchorByIndex = new Map<number, string>();
   if (!html.trim()) return { html, anchorByIndex, pageIds: [] };
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const { pages } = splitPages(Array.from(doc.body.children));
+  const { pages } = splitPages(pageItems(doc.body.children));
   // diff 側が数えたページ数(`beforePageCount`/`afterPageCount`)と、この文書から数えたページ数が
   // 食い違う場合(CSS の page-break 欠落等)、index の対応が崩れ「無関係なページ」を変更ページ
   // として誤ってマークしてしまう。この面のマーク・アンカーは安全側(空)へ倒す。

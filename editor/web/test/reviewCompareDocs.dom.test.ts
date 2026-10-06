@@ -2,6 +2,7 @@
 // reviewCompareDocs.test.ts — 精査画面の左右組版比較に渡す完全文書の組み立て
 // =============================================================================
 import { describe, expect, it } from 'vitest';
+import { buildHtmlDiff, MAX_TOP_LEVEL_BLOCKS } from '@/features/compare/htmlBlockDiff';
 import { buildCompareDocs } from '@/features/reviews/services/reviewCompareDocs';
 
 describe('buildCompareDocs', () => {
@@ -329,5 +330,46 @@ describe('buildCompareDocs', () => {
     expect(beforeDoc).toContain('../css/fonts/a.woff2');
     expect(afterDoc).toContain('../images/x.svg');
     expect(afterDoc).not.toContain('"images/x.svg"');
+  });
+
+  it('本文の <style> はパーツに数えず、印も付けない(ページの先頭は <style> の次のパーツ)', () => {
+    const html =
+      '<style>.a{}</style><p class="a">1</p><div class="pagebreak"></div>' +
+      '<style>.b{}</style><p class="b">2</p>';
+    const { afterDoc, pageAnchors } = buildCompareDocs({
+      beforeHtml: html,
+      afterHtml: html,
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([1]),
+      marker: true,
+      afterExpectedPageCount: 2,
+    });
+    expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2']);
+    expect(afterDoc).toContain('<p class="b" id="review-anchor-2" data-review-marker="">2</p>');
+    expect(afterDoc).not.toMatch(/<style[^>]*data-review-marker/);
+  });
+
+  // 直下要素の打ち切り(`truncated`)で diff 側のページ数が減った面は、数えたページ数と
+  // 食い違うので無印(安全側)になる。
+  it('打ち切りでページ数が食い違った面は無印', { timeout: 60_000 }, () => {
+    const many = Array.from({ length: MAX_TOP_LEVEL_BLOCKS }, () => '<p>x</p>').join('');
+    const html = `<!doctype html><html><body>${many}<div class="pagebreak"></div><p>tail</p></body></html>`;
+    const diff = buildHtmlDiff(html, html);
+    expect(diff.truncated).toBe(true);
+    expect(diff.afterPageCount).toBe(1);
+    const { afterDoc, anchors, pageAnchors } = buildCompareDocs({
+      beforeHtml: html,
+      afterHtml: html,
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([0]),
+      marker: true,
+      beforeExpectedPageCount: diff.beforePageCount,
+      afterExpectedPageCount: diff.afterPageCount,
+    });
+    expect(afterDoc).not.toContain('data-review-marker=');
+    expect(anchors).toEqual([]);
+    expect(pageAnchors).toEqual([]);
   });
 });

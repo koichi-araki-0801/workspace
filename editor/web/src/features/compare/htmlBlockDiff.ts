@@ -21,7 +21,7 @@
 
 import { rawKey } from '@/lib/blockKey';
 import { defaultHtmlParser, type HtmlParser } from '@/lib/htmlParser';
-import { inlineBreak, splitPages } from '@/lib/pageBreaks';
+import { inlineBreak, pageItems, splitPages } from '@/lib/pageBreaks';
 import { styleTag } from '@/lib/sanitizeCss';
 
 export type BlockStatus = 'same' | 'changed' | 'added' | 'removed';
@@ -682,19 +682,21 @@ function fastSamePage(
   index: number,
   beforePage: HTMLElement[],
   afterPage: HTMLElement[],
-  partKeys: PartKeys,
+  parts: PartIndex,
 ): DiffPage | null {
   const beforeHtml = joinOuter(beforePage);
   const afterHtml = joinOuter(afterPage);
   if (beforeHtml.length !== afterHtml.length || beforeHtml !== afterHtml) return null;
   // 無変更ページなので各パーツの before/after は同一 outerHTML。承認画面の「変更なしも表示」用。
-  const blocks: DiffBlock[] = keyedBlocks(afterPage).map((b, qi) => ({
+  const keyed = keyedBlocks(afterPage);
+  const labelOf = partLabels(index, keyed, [], parts);
+  const blocks: DiffBlock[] = keyed.map((b) => ({
     key: b.key,
-    partKey: partKeys.get(b.el) ?? b.key,
+    partKey: parts.keys.get(b.el) ?? b.key,
     status: 'same',
     beforeHtml: b.el.outerHTML,
     afterHtml: b.el.outerHTML,
-    label: `ページ${index + 1}・パーツ${qi + 1}`,
+    label: labelOf.get(b.key) ?? `ページ${index + 1}`,
     coarse: false,
   }));
   return {
@@ -708,12 +710,40 @@ function fastSamePage(
   };
 }
 
+/**
+ * 「ページN・パーツM」の採番(`partLabelMap` と同じ数え方): after(現行)側の DOM 順を 1..N で
+ * 優先し、after に無い removed パーツは N+1 以降を before 側の DOM 順で振る。removed に before
+ * 側の index をそのまま使うと after 側の別パーツと同名になり、承認画面で削除対象を取り違える。
+ * パーツに数えない block(`<style>`・地の文)には番号を振らない(呼び出し側は `ページN` を出す)。
+ */
+function partLabels(
+  index: number,
+  after: { key: string; el: HTMLElement }[],
+  before: { key: string; el: HTMLElement }[],
+  parts: PartIndex,
+): Map<string, string> {
+  const labelOf = new Map<string, string>();
+  const afterKeys = new Set(after.map((b) => b.key));
+  let seq = 0;
+  for (const b of after) {
+    if (parts.attached.has(b.el)) continue;
+    seq++;
+    labelOf.set(b.key, `ページ${index + 1}・パーツ${seq}`);
+  }
+  for (const b of before) {
+    if (afterKeys.has(b.key) || parts.attached.has(b.el)) continue;
+    seq++;
+    labelOf.set(b.key, `ページ${index + 1}・パーツ${seq}`);
+  }
+  return labelOf;
+}
+
 function diffPage(
   index: number,
   beforePage: HTMLElement[],
   afterPage: HTMLElement[],
   budget: LcsBudget,
-  partKeys: PartKeys,
+  parts: PartIndex,
 ): DiffPage {
   const before = keyedBlocks(beforePage);
   const after = keyedBlocks(afterPage);
@@ -727,19 +757,7 @@ function diffPage(
     ...after.map((b) => b.key),
     ...before.filter((b) => !afterMap.has(b.key)).map((b) => b.key),
   ];
-  // 「ページN・パーツM」採番(`partLabelMap` と同思想): after(現行)側 DOM 順を 1..N で優先し、
-  // after に無い removed パーツは N+1 以降を before 側 DOM 順で振る。removed に before 側
-  // index をそのまま使うと after 側の別パーツと同名になり、承認画面で削除対象を取り違える。
-  const labelOf = new Map<string, string>();
-  after.forEach((b, qi) => {
-    labelOf.set(b.key, `ページ${index + 1}・パーツ${qi + 1}`);
-  });
-  let removedSeq = after.length;
-  for (const b of before) {
-    if (labelOf.has(b.key)) continue;
-    removedSeq++;
-    labelOf.set(b.key, `ページ${index + 1}・パーツ${removedSeq}`);
-  }
+  const labelOf = partLabels(index, after, before, parts);
   for (const key of keys) {
     const bEl = beforeMap.get(key);
     const aEl = afterMap.get(key);
@@ -748,7 +766,7 @@ function diffPage(
     const el = aEl ?? bEl;
     blocks.push({
       key,
-      partKey: (el && partKeys.get(el)) ?? key,
+      partKey: (el && parts.keys.get(el)) ?? key,
       status: r.status,
       beforeHtml: r.beforeHtml,
       afterHtml: r.afterHtml,
@@ -771,28 +789,28 @@ function diffPage(
 }
 
 /**
- * 直下の要素だけ(地の文の合成 `span` を除く)を `splitPages` で分け、地の文をそのページへ
- * 戻す。承認タブ(`reviews/services/reviewCompareDocs.ts`)は `body.children` を `splitPages`
- * に渡してページを数え、その番号をここの `diff.pages` の番号と突き合わせるので、地の文が
- * ページを作ったりずらしたりしてはいけない。地の文は、直前のパーツとの間に区切り(または
- * inline の `after`)があれば次のパーツのページへ、無ければ直前のパーツのページへ入れる。
- * 前後にパーツが無ければ最寄りのページへ入れる。
+ * ページ分けとパーツの番号に数える要素(`pageItems`。`<style>` と地の文の合成 `span` を除く)
+ * だけを `splitPages` で分け、残り(付き従う block)をそのページへ戻す。承認タブ
+ * (`reviews/services/reviewCompareDocs.ts`)は同じ `pageItems` でページを数え、その番号を
+ * ここの `diff.pages` の番号と突き合わせるので、付き従う block がページを作ったりずらしたり
+ * してはいけない。付き従う block は差分には出す(保存される内容で、承認者が見る必要がある)。
+ * 直前のパーツとの間に区切り(または inline の `after`)があれば次のパーツのページへ、無ければ
+ * 直前のパーツのページへ入れる。前後にパーツが無ければ最寄りのページへ入れる。
  */
-function splitTopLevel(top: TopLevel): HTMLElement[][] {
-  const elements = top.blocks.filter((el) => !top.texts.has(el));
-  const { pages } = splitPages(elements);
+function splitTopLevel(blocks: HTMLElement[], attached: Set<HTMLElement>): HTMLElement[][] {
+  const { pages } = splitPages(blocks.filter((el) => !attached.has(el)));
+  if (attached.size === 0) return pages;
   const pageOf = new Map<HTMLElement, number>();
   pages.forEach((page, i) => {
     for (const el of page) pageOf.set(el, i);
   });
-  if (top.texts.size === 0) return pages;
   const out: HTMLElement[][] = pages.map(() => []);
   let cur = 0;
   let broken = false;
   let held: HTMLElement[] = [];
-  for (const el of top.blocks) {
+  for (const el of blocks) {
     const page = pageOf.get(el);
-    if (top.texts.has(el)) {
+    if (attached.has(el)) {
       if (broken) held.push(el);
       else out[cur].push(el);
     } else if (page === undefined) {
@@ -808,28 +826,41 @@ function splitTopLevel(top: TopLevel): HTMLElement[][] {
   return out;
 }
 
-/** 文書ごとに数えた、パーツの要素から文書全体のキーへの対応(before/after の両文書ぶん)。 */
-type PartKeys = Map<HTMLElement, string>;
+/** before/after の両文書ぶんの、block の要素ごとの情報。 */
+interface PartIndex {
+  /** 文書全体のキー(`DiffBlock.partKey`)。 */
+  keys: Map<HTMLElement, string>;
+  /** パーツに数えない付き従う block(`<style>`・地の文の合成 `span`)。 */
+  attached: Set<HTMLElement>;
+}
+
+function newPartIndex(): PartIndex {
+  return { keys: new Map(), attached: new Set() };
+}
 
 /**
- * HTML を改ページで top-level page 群へ分割し、各パーツの文書全体のキーを `partKeys` へ書く。
- * キーは `@/lib/blockKey` の `occurrenceKey(part, 全パーツ)` と同じ値だが、パーツごとに
- * 全パーツを走査すると直下要素数の二乗になるので、出現順の数え上げを 1 回で済ませる。
- * 地の文の合成 `span` は canvas のパーツに無いので、要素の番号へ混ぜず `#text#<n>` で数える。
+ * HTML を改ページで top-level page 群へ分割し、各 block の文書全体のキーと、パーツに数えない
+ * block を `parts` へ書く。キーは `@/lib/blockKey` の `occurrenceKey(part, 全パーツ)` と同じ値
+ * だが、パーツごとに全パーツを走査すると直下要素数の二乗になるので、出現順の数え上げを 1 回で
+ * 済ませる。番号はアンカーごとに数えるので、`style#n` や地の文の `#text#n` はパーツの番号を
+ * ずらさない。
  */
 function paginateDoc(
   html: string,
   parse: HtmlParser,
-  partKeys: PartKeys,
+  parts: PartIndex,
 ): { pages: HTMLElement[][]; truncated: boolean } {
   const top = topLevelBlocks(parseBody(html, parse));
-  const pages = splitTopLevel(top);
+  const counted = new Set(pageItems(top.blocks.filter((el) => !top.texts.has(el))));
+  const attached = new Set(top.blocks.filter((el) => !counted.has(el)));
+  const pages = splitTopLevel(top.blocks, attached);
   const seen = new Map<string, number>();
   for (const el of pages.flat()) {
+    if (attached.has(el)) parts.attached.add(el);
     const base = top.texts.has(el) ? '#text' : rawKey(el);
     const n = (seen.get(base) ?? 0) + 1;
     seen.set(base, n);
-    partKeys.set(el, `${base}#${n}`);
+    parts.keys.set(el, `${base}#${n}`);
   }
   return { pages, truncated: top.truncated };
 }
@@ -840,7 +871,7 @@ function diffPairs(
   afterPages: HTMLElement[][],
   pairs: PagePair[],
   truncated: boolean,
-  partKeys: PartKeys,
+  parts: PartIndex,
 ): HtmlDiff {
   const pages: DiffPage[] = [];
   // DP セル予算は文書ペア単位。ページごとに作り直すと「上限直下のページを並べる」形で
@@ -851,7 +882,7 @@ function diffPairs(
     const bp = before == null ? [] : (beforePages[before] ?? []);
     const ap = after == null ? [] : (afterPages[after] ?? []);
     // 無変更ページは高速パスでスキップ、変わったページのみ精密 diff に回す。
-    pages.push(fastSamePage(i, bp, ap, partKeys) ?? diffPage(i, bp, ap, budget, partKeys));
+    pages.push(fastSamePage(i, bp, ap, parts) ?? diffPage(i, bp, ap, budget, parts));
   }
   return {
     pages,
@@ -876,16 +907,16 @@ export function buildHtmlDiff(
   _cssAfter?: string,
   parse: HtmlParser = defaultHtmlParser,
 ): HtmlDiff {
-  const partKeys: PartKeys = new Map();
-  const before = paginateDoc(beforeHtml, parse, partKeys);
-  const after = paginateDoc(afterHtml, parse, partKeys);
+  const parts = newPartIndex();
+  const before = paginateDoc(beforeHtml, parse, parts);
+  const after = paginateDoc(afterHtml, parse, parts);
   // 恒等 pairs(i↔i、範囲外側は null)で合流。出力は従来と不変。
   const pageCount = Math.max(before.pages.length, after.pages.length);
   const pairs: PagePair[] = Array.from({ length: pageCount }, (_, i) => ({
     before: i < before.pages.length ? i : null,
     after: i < after.pages.length ? i : null,
   }));
-  return diffPairs(before.pages, after.pages, pairs, before.truncated || after.truncated, partKeys);
+  return diffPairs(before.pages, after.pages, pairs, before.truncated || after.truncated, parts);
 }
 
 /**
@@ -902,8 +933,8 @@ export function buildHtmlDiffAligned(
   pairs: PagePair[],
   parse: HtmlParser = defaultHtmlParser,
 ): HtmlDiff {
-  const partKeys: PartKeys = new Map();
-  const before = paginateDoc(beforeHtml, parse, partKeys);
-  const after = paginateDoc(afterHtml, parse, partKeys);
-  return diffPairs(before.pages, after.pages, pairs, before.truncated || after.truncated, partKeys);
+  const parts = newPartIndex();
+  const before = paginateDoc(beforeHtml, parse, parts);
+  const after = paginateDoc(afterHtml, parse, parts);
+  return diffPairs(before.pages, after.pages, pairs, before.truncated || after.truncated, parts);
 }

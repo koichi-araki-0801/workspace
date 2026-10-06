@@ -5,6 +5,7 @@ import {
   isBreakValue,
   isPagebreakEl,
   pagebreakCssDefined,
+  pageItems,
   splitPages,
 } from '@/lib/pageBreaks';
 
@@ -201,4 +202,26 @@ describe('pagebreakCssDefined', () => {
     ['@font-face{font-family:a}', false],
     ['', false],
   ])('%s → %s', (css, want) => expect(pagebreakCssDefined(css)).toBe(want));
+});
+
+describe('pageItems', () => {
+  const items = (html: string) => pageItems(Array.from(bodyOf(html).children)).map((e) => e.id);
+
+  it('<style> と赤入れの削除要素を外し、区切りとパーツは残す', () => {
+    expect(
+      items(
+        '<style id=s0>.a{}</style><p id=a></p><div id=b1 class=pagebreak></div>' +
+          '<style id=s1>.b{}</style><del id=r data-redline="del"></del><p id=b></p>',
+      ),
+    ).toEqual(['a', 'b1', 'b']);
+  });
+
+  it('<style> だけのページは作らない', () => {
+    const body = bodyOf(
+      '<p id=a></p><div class=pagebreak></div><style>.x{}</style>' +
+        '<div class=pagebreak></div><p id=b></p>',
+    );
+    const pages = splitPages(pageItems(Array.from(body.children))).pages;
+    expect(pages.map((p) => p.map((e) => e.id))).toEqual([['a'], ['b']]);
+  });
 });

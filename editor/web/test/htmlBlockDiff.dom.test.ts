@@ -11,6 +11,7 @@ import {
   HL_REMOVED,
   type PagePair,
 } from '@/features/compare/htmlBlockDiff';
+import { buildCompareDocs } from '@/features/reviews/services/reviewCompareDocs';
 import { splitPages } from '@/lib/pageBreaks';
 
 /** Wrap body fragments in a minimal HTML document (what renderJinja produces). */
@@ -212,6 +213,60 @@ describe('buildHtmlDiff', () => {
     expect(texts[2]).not.toContain('after inline break');
     expect(texts[3]).toContain('after inline break');
     expect(texts[3]).toContain('trailing text only');
+  });
+
+  // 本文の `<style>` はパーツに数えない(canvas の `partLabelMap`・承認タブと同じ数え方)。
+  // 差分には出す(保存される内容で、承認者が見る必要がある)が、ページを作らず、ラベルの
+  // 番号も partKey の番号もずらさない。
+  it('treats body-level <style> as attached: no page of its own, no label/partKey shift', () => {
+    const html = (x: string) =>
+      doc(
+        '<style>.a{color:red}</style>',
+        '<p class="a">a1</p>',
+        '<style>.b{}</style>',
+        '<p class="b">b1</p>',
+        PB,
+        `<style>.c{color:${x}}</style>`,
+        PB,
+        '<p class="a">a2</p>',
+        '<style>.d{}</style>',
+      );
+    const diff = buildHtmlDiff(html('red'), html('blue'));
+    expect(diff.pages).toHaveLength(2);
+    expect(diff.beforePageCount).toBe(2);
+    expect(diff.afterPageCount).toBe(2);
+    const parts = (i: number) => diff.pages[i].blocks.filter((b) => !b.key.startsWith('style'));
+    expect(parts(0).map((b) => [b.partKey, b.label])).toEqual([
+      ['.a#1', 'ページ1・パーツ1'],
+      ['.b#1', 'ページ1・パーツ2'],
+    ]);
+    expect(parts(1).map((b) => [b.partKey, b.label])).toEqual([['.a#2', 'ページ2・パーツ1']]);
+    // 区切りの間の `<style>` は次のパーツのページへ付き、変更は差分に出る。
+    const changedStyle = diff.pages[1].blocks.find((b) => b.key.startsWith('style'));
+    expect(changedStyle?.status).toBe('changed');
+    expect(diff.pages[1].afterHtml).toContain('blue');
+    expect(diff.pages[0].afterHtml).toContain('.a{color:red}');
+    // ページ数は承認タブの数え方(`buildCompareDocs`)と同じ。
+    const docs = buildCompareDocs({
+      beforeHtml: html('red'),
+      afterHtml: html('blue'),
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([1]),
+      marker: true,
+      beforeExpectedPageCount: diff.beforePageCount,
+      afterExpectedPageCount: diff.afterPageCount,
+    });
+    expect(docs.pageAnchors).toHaveLength(2);
+    expect(docs.anchors).toHaveLength(1);
+  });
+
+  it('removed block labels skip <style> too', () => {
+    const before = doc('<style>.x{}</style>', '<p id="a">a</p>', '<p id="b">b</p>');
+    const after = doc('<p id="a">a</p>');
+    const page = buildHtmlDiff(before, after).pages[0];
+    const removedP = page.blocks.find((b) => b.key === 'b#1');
+    expect(removedP?.label).toBe('ページ1・パーツ2');
   });
 
   it('keys blocks by data-part-id over id/class/tag', () => {

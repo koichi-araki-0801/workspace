@@ -2,7 +2,7 @@
 // node 環境(web-node)で回す。
 import { parseHTML } from 'linkedom';
 import { describe, expect, it } from 'vitest';
-import { findUncountedBreaks, splitPages } from '@/lib/pageBreaks';
+import { findUncountedBreaks, pageItems, splitPages } from '@/lib/pageBreaks';
 
 const split = (html: string) => {
   const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
@@ -41,5 +41,16 @@ describe('splitPages(linkedom)', () => {
         '</body></html>',
     );
     expect(findUncountedBreaks(document.body).map((e) => e.id)).toEqual(['n1', 'n2']);
+  });
+});
+
+describe('pageItems(linkedom)', () => {
+  it('<style> を外して数える', () => {
+    const { document } = parseHTML(
+      '<!doctype html><html><body><style>.a{}</style><p id=a></p>' +
+        '<div class=pagebreak></div><style>.b{}</style><p id=b></p></body></html>',
+    );
+    const pages = splitPages(pageItems(Array.from(document.body.children))).pages;
+    expect(pages.map((p) => p.map((e) => e.id))).toEqual([['a'], ['b']]);
   });
 });
