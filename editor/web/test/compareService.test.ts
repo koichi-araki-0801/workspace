@@ -220,18 +220,36 @@ describe('CompareService.listCandidates', () => {
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       // 確定版数 + 現行版 1。確定版ゼロの c も 1 版になり比較対象に出る。
-      expect(res.value.map((c) => [c.meta.id, c.versionCount])).toEqual([
+      expect(res.value.map((c) => [c.meta.id, c.selectableVersionCount])).toEqual([
         ['a', 3],
         ['b', 2],
         ['c', 1],
       ]);
-      // 各候補は版リスト(現行版込み)を持ち、先頭が現行版 baseline、長さは versionCount に一致。
+      // 各候補は版リスト(現行版込み)を持ち、先頭が現行版 baseline、長さは selectableVersionCount に一致。
       for (const c of res.value) {
-        expect(c.versions).toHaveLength(c.versionCount);
+        expect(c.versions).toHaveLength(c.selectableVersionCount);
         expect(c.versions[0].historyId).toBe(`baseline:${c.meta.id}`);
       }
       // a は現行版(最新)の後に確定版(新しい順) a2,a1 が続く。
       expect(res.value[0].versions.map((v) => v.historyId)).toEqual(['baseline:a', 'a2', 'a1']);
+    }
+  });
+
+  it('selectableVersionCount は確定保存の回数 + 現行版 1(確定版 0 件なら 1、2 件なら 3)', async () => {
+    const templates = {
+      listTemplates: vi.fn(async () => ok([meta('x'), meta('y')])),
+    } as unknown as TemplateRepository;
+    const history = {
+      listVersions: vi.fn(async (id: string) =>
+        ok(id === 'y' ? [version('y2', 'y'), version('y1', 'y')] : []),
+      ),
+    } as unknown as HistoryRepository;
+
+    const res = await createCompareService(templates, history).listCandidates({});
+
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.map((c) => c.selectableVersionCount)).toEqual([1, 3]);
     }
   });
 
@@ -251,7 +269,7 @@ describe('CompareService.listCandidates', () => {
     if (isOk(res)) {
       expect(res.value).toHaveLength(1);
       expect(res.value[0].meta.id).toBe('d');
-      expect(res.value[0].versionCount).toBe(1);
+      expect(res.value[0].selectableVersionCount).toBe(1);
     }
   });
 

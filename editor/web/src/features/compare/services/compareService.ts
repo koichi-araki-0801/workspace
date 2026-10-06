@@ -44,8 +44,8 @@ export interface CompareCandidate {
   /** 選択可能な版 = 先頭に現行版(最新のライブ本文) 1 + 確定版(snapshot, 新しい順)。現行版が
    *  常に 1 つあるため、何も編集していないテンプレートでも 1 版以上になり比較対象に選べる。 */
   versions: TemplateVersionMeta[];
-  /** `versions.length`。版数列の表示と既存利用の互換のために保持する。 */
-  versionCount: number;
+  /** 選べる版の数(現行版 1 件 + 確定版。= 確定保存の回数 + 1)。`versions.length` と等しい。 */
+  selectableVersionCount: number;
 }
 
 /** テーブルを「版ごとの行」に平坦化したときの 1 行(テンプレート × 版)。 */
@@ -65,7 +65,7 @@ export interface RenderedVersion {
 export interface CompareService {
   /** cascading-dropdown クエリにヒットするテンプレート一覧(比較対象の選択用)。 */
   listTemplates(query: DropdownQuery): Promise<Result<TemplateMeta[]>>;
-  /** ヒットしたテンプレートに確定版数を付与した候補一覧。 */
+  /** ヒットしたテンプレートに選べる版(現行版込み)を付与した候補一覧。 */
   listCandidates(query: DropdownQuery): Promise<Result<CompareCandidate[]>>;
   /** テンプレートの確定版(snapshot 付き)を新しい順で返す。 */
   listVersions(templateId: string): Promise<Result<TemplateVersionMeta[]>>;
@@ -119,7 +119,11 @@ export function createCompareService(
         // (例: 高金利ソブリン)も比較対象に出せる(版リスト側は status で絞らない)。
         const versRes = await versionsWithBaseline(meta.id);
         if (isErr(versRes)) return versRes;
-        candidates.push({ meta, versions: versRes.value, versionCount: versRes.value.length });
+        candidates.push({
+          meta,
+          versions: versRes.value,
+          selectableVersionCount: versRes.value.length,
+        });
       }
       return ok(candidates);
     },
