@@ -227,17 +227,18 @@ const attrItems = (a: TemplateAttributes) =>
           variant="ghost"
           :current-page="currentPage"
           :page-count="pageCount"
+          count-hint="ページ数は区切り単位です。紙のページ数はプレビューで確かめてください"
           @go="emit('go', $event)"
         />
         <div class="mx-0.5 h-5 w-px bg-border/70" />
       </template>
 
       <!-- 1 ページ表示 / 全ページ連続表示の切替 -->
-      <Tooltip :text="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'">
+      <Tooltip :text="singlePageMode ? '全ページを連続表示' : '1 ページ（区切り単位）だけ表示'">
         <Button
           variant="ghost"
           size="icon"
-          :aria-label="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
+          :aria-label="singlePageMode ? '全ページを連続表示' : '1 ページ（区切り単位）だけ表示'"
           :class="singlePageMode ? 'text-primary' : ''"
           @click="emit('toggleSinglePage')"
         >

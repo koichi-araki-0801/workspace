@@ -13,11 +13,11 @@ import grapesjs, {
   type Editor,
   type ParsedNode,
 } from 'grapesjs';
-import { ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
 import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
-import { pageItems, splitPages } from '@/lib/pageBreaks';
+import { findUncountedBreaks, pageItems, splitPages } from '@/lib/pageBreaks';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
 import {
@@ -41,6 +41,7 @@ import {
 } from './jinjaComponents';
 import { PAGEBREAK_TYPE, pagebreakCanvasCss, registerPagebreakComponent } from './pagebreakCanvas';
 import { clampPageIndex, markPages, PV_ATTR, pageViewCss } from './pageView';
+import { type PageWarningFacts, pagebreakCssDefinedIn } from './pageWarnings';
 import {
   type BreakEdge,
   PAGEBREAK_HTML,
@@ -175,6 +176,19 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   const pageBlocks = shallowRef<HTMLElement[][]>([]);
   /** 数えた区切りの要素(`splitPages` の `breakEls`)。ページ線を帯の上端に引くために使う。 */
   const pageBreakEls = shallowRef<HTMLElement[]>([]);
+  /** 数えていない改ページ指定の数(`findUncountedBreaks`。ページ数がプレビューとずれうる警告用)。 */
+  const uncountedBreakCount = ref(0);
+  /**
+   * テンプレの CSS か本文の `<style>` に `.pagebreak` の改ページ指定があるか。CSS の解析は重いので、
+   * ページを数えるたびではなく CSS の複製を作り直すとき(読み込み・`<style>` の増減)に判定する。
+   */
+  const pagebreakCssOk = ref(false);
+  /** 改ページの警告の材料。旧形式のキーの件数はメモと修正履歴を読む呼び出し側が足す。 */
+  const pageBreakFacts = computed<Omit<PageWarningFacts, 'legacyKeys'>>(() => ({
+    uncounted: uncountedBreakCount.value,
+    counted: pageBreakEls.value.length,
+    cssDefined: pagebreakCssOk.value,
+  }));
   /** ページ総数(= `pageBlocks.length`)。 */
   const pageCount = ref(0);
   /** 表示中ページの 0 起点 index。 */
@@ -312,6 +326,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     if (!root) {
       pageBlocks.value = [];
       pageBreakEls.value = [];
+      uncountedBreakCount.value = 0;
       pageCount.value = 0;
       return;
     }
@@ -321,6 +336,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     // を見ている側(パーツのラベル・選択の復元)が空振りで再評価される。
     if (!samePages(pageBlocks.value, split.pages)) pageBlocks.value = split.pages;
     pageBreakEls.value = split.breakEls;
+    uncountedBreakCount.value = findUncountedBreaks(root).length;
     pageCount.value = split.pages.length;
     currentPageIndex.value = clampPageIndex(currentPageIndex.value, pageCount.value);
     applyPageVisibility();
@@ -880,6 +896,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    */
   function syncCanvasCssCopy(): void {
     const texts = bodyStyleCssTexts(editor.value?.getWrapper(), styleSample);
+    pagebreakCssOk.value = pagebreakCssDefinedIn(templateCss, texts);
     fundImages?.setCss([
       ...texts.map((text) => ({ css: text, from: DOC_DIR, whole: true })),
       { css: templateCss, from: TEMPLATE_CSS_FROM },
@@ -1086,6 +1103,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     setFundImageContext,
     setStyleSample,
     imageWarnings,
+    pageBreakFacts,
     parseHtmlQuiet,
     insertPart,
     partBreakOf,

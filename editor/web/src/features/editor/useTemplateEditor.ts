@@ -31,8 +31,15 @@ import { fundCodeOfTemplateId } from './fundImages';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { leaveAfterSave } from './leaveGuard';
 import { openCanvas } from './openCanvas';
+import { pageWarnings } from './pageWarnings';
 import { type BreakEdge, partBreakLabel } from './partBreak';
-import { canvasRawKey, partEntries, partLabelMap, partPathKeyFor } from './partKey';
+import {
+  canvasRawKey,
+  legacyPartKeyCount,
+  partEntries,
+  partLabelMap,
+  partPathKeyFor,
+} from './partKey';
 import { useRedline } from './redline/useRedline';
 import { LEGACY_DRAFT_MESSAGE } from './services/legacyDraft';
 import { useTemplateEditorService } from './services/templateEditorService';
@@ -700,9 +707,18 @@ export function useTemplateEditor(
     template,
     fundName,
     syncStatus,
-    assetWarnings: computed(() =>
-      editorAssetWarnings(id, template.value?.cssMissing === true, g.imageWarnings.value),
-    ),
+    // 資産(CSS・画像・SVG)の警告の後ろに改ページの警告を並べる。旧形式のキーは読み込んだメモと
+    // 永続の修正履歴の両方から数える(どちらも同じキーでパーツに当てるので、どちらも表示から漏れる)。
+    assetWarnings: computed(() => [
+      ...editorAssetWarnings(id, template.value?.cssMissing === true, g.imageWarnings.value),
+      ...pageWarnings({
+        ...g.pageBreakFacts.value,
+        legacyKeys: legacyPartKeyCount([
+          ...note.all.value.map((e) => e.pathKey),
+          ...allPartHistory.value.map((e) => e.partKey),
+        ]),
+      }),
+    ]),
     partHistory,
     displayHistory,
     partLabels,

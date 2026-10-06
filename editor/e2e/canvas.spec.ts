@@ -218,7 +218,7 @@ test('プレビュー往復で編集許可・赤入れ表示・右ペインの�
   ).toBeVisible();
   await expect(page.getByRole('button', { name: '変更箇所の赤入れを隠す' })).toBeVisible();
   await expect(page.locator('[data-pane-tab="comments"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('button', { name: '1 ページだけ表示' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '1 ページ（区切り単位）だけ表示' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'ページ境界を表示' })).toBeVisible();
   await expect(back.locator('.gjs-selected')).toHaveCount(1, { timeout: 15_000 });
 

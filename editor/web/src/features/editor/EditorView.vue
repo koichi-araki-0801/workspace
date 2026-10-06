@@ -421,7 +421,8 @@ const statusText = computed(() => {
         <!-- 選択ブロック上の幅/余白ドラッグハンドル(layout 編集は右ペインの
              `Inspector.vue` にもある。ここに浮動ツールバーは置かない) -->
         <div class="pointer-events-none absolute inset-0 z-20 overflow-hidden">
-          <!-- ページ境界 guide: 実際の page break(`.page` / `page-break-*`)の位置のみ。
+          <!-- ページ境界 guide: 区切り(根の直下の `div.pagebreak` と inline の改ページ)で分けた
+               ページの境目に 1 本ずつ(`usePageGuides.ts`)。番号は区切り単位で、紙のページではない。
                1 ページ表示中は現在ページの末尾しか視野に無く、ページ番号は上部バーの
                ページャに集約されるため guide 線は出さない(全ページ表示時のみ)。 -->
           <template v-if="showPageGuides && !g.singlePageMode.value">
@@ -431,7 +432,7 @@ const statusText = computed(() => {
               class="pg-line"
               :style="{ left: `${gd.left}px`, top: `${gd.top}px`, width: `${gd.width}px` }"
             >
-              <span class="pg-label">ここまで {{ gd.page }}ページ目</span>
+              <span class="pg-label">ここまで {{ gd.page }}ページ目（区切り単位）</span>
             </div>
           </template>
 
@@ -606,7 +607,7 @@ const statusText = computed(() => {
 }
 
 /* page-boundary guides drawn over the A4 sheet (sit below the selection frame).
-   real page break (from .page / break-* / page-break-*): confident solid line */
+   one line per boundary between the pages split by the breaks (`usePageGuides.ts`) */
 .pg-line {
   position: absolute;
   height: 0;

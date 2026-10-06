@@ -109,6 +109,26 @@ describe('ページ数', () => {
   });
 });
 
+describe('改ページの警告の材料(pageBreakFacts)', () => {
+  const NESTED = `<div class="x">${BR}<p style="break-before: page">n</p></div>`;
+
+  it('数えた区切りと数えていない指定を数え、CSS が無ければ cssDefined は false', () => {
+    load(`${DOC}${NESTED}`);
+    expect(g.pageBreakFacts.value).toEqual({ uncounted: 2, counted: 2, cssDefined: false });
+  });
+
+  it('テンプレの CSS にあれば cssDefined は true', () => {
+    g.load(DOC, '.pagebreak{page-break-after:always}');
+    render();
+    expect(g.pageBreakFacts.value.cssDefined).toBe(true);
+  });
+
+  it('本文の <style> にあれば cssDefined は true', () => {
+    load(`<style>div.pagebreak{break-after:page}</style>${DOC}`);
+    expect(g.pageBreakFacts.value.cssDefined).toBe(true);
+  });
+});
+
 describe('本文全体を固めた文書', () => {
   // 作成タブで本文全体を固めると、本文が `div.jinja-frozen-body`(`display: contents`)に包まれ、
   // 根の直下に `{% set %}` のチップが並ぶ。包みの中の区切りもページを分ける。
