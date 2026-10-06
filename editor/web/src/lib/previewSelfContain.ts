@@ -57,9 +57,19 @@ export interface SelfContainOptions {
   companyCode?: string | null;
 }
 
-/** 論理ルート相対パス → 親が取りに行く URL(プレビューホストは論理ルートの `css/` `js/` を配る)。 */
-function assetUrl(rel: string): string {
-  return `/api${PREVIEW_HOST_BASE}/${rel}`;
+/** 親が取りに行く配信 URL の接頭辞。 */
+const ASSET_URL_PREFIX = `/api${PREVIEW_HOST_BASE}/`;
+
+/**
+ * 論理ルート相対パス → 親が取りに行く URL(プレビューホストは論理ルートの `css/` `js/` を配る)。
+ * `rel` は 1 回復号済みなので、部分ごとに符号化し直す。そのまま繋ぐと `#` `?` で URL が切れ、
+ * `%2e%2e` はブラウザの URL 解析で `..` と扱われて、cookie 付きの親が別の API を取りに行く。
+ * 符号化後もブラウザが解いたパスが接頭辞の下に収まらなければ取りに行かない(undefined)。
+ */
+function assetUrl(rel: string): string | undefined {
+  const url = `${ASSET_URL_PREFIX}${rel.split('/').map(encodeURIComponent).join('/')}`;
+  const resolved = new URL(url, 'http://preview.invalid').pathname;
+  return resolved === url ? url : undefined;
 }
 
 /**
@@ -107,8 +117,10 @@ async function fetchScriptBody(rel: string, fetcher: AssetFetcher): Promise<stri
   const cached = scriptCache.get(rel);
   if (cached !== undefined) return cached;
   const p = (async () => {
+    const url = assetUrl(rel);
+    if (url === undefined) return undefined;
     try {
-      const res = await fetcher(assetUrl(rel));
+      const res = await fetcher(url);
       if (!res.ok) return undefined;
       const body = await res.text();
       if (body.length > MAX_INLINE_SCRIPT_BYTES) return undefined;
@@ -142,8 +154,10 @@ async function fetchFontDataUri(rel: string, fetcher: AssetFetcher): Promise<str
     const ext = rel.slice(rel.lastIndexOf('.')).toLowerCase();
     const mime = FONT_MIME[ext];
     if (mime === undefined) return undefined;
+    const url = assetUrl(rel);
+    if (url === undefined) return undefined;
     try {
-      const res = await fetcher(assetUrl(rel));
+      const res = await fetcher(url);
       if (!res.ok) return undefined;
       const buf = await res.arrayBuffer();
       if (buf.byteLength > MAX_INLINE_FONT_BYTES) return undefined;

@@ -332,3 +332,41 @@ describe('ファンド別画像の data: URI 化', () => {
     expect(out).not.toContain('src="../images/');
   });
 });
+
+describe('配信 URL の符号化', () => {
+  /** 呼ばれた URL をそのまま記録し、常に 200 を返す fetcher。 */
+  function recordingFetcher() {
+    return vi.fn(async (_url: string): Promise<Response> => new Response('ok()', { status: 200 }));
+  }
+
+  it('復号後に %2e%2e となる部分は符号化して送り、別の API を指す URL にしない', async () => {
+    const fetcher = recordingFetcher();
+    await selfContainPreviewDoc(
+      DOC('<script src="../js/%252e%252e/%252e%252e/auth/me"></script>'),
+      fetcher,
+    );
+    expect(fetcher).toHaveBeenCalledWith('/api/preview-host/js/%252e%252e/%252e%252e/auth/me');
+    for (const [url] of fetcher.mock.calls) {
+      expect(new URL(url, 'http://h').pathname.startsWith('/api/preview-host/js/')).toBe(true);
+    }
+  });
+
+  it('名前の # ? % は符号化して送る(script と font)', async () => {
+    const fetcher = recordingFetcher();
+    await selfContainPreviewDoc(
+      DOC(
+        '<script src="../js/a%23b%3Fc%25d.js"></script>',
+        '<style>@font-face{src:url(../css/fonts/f%23%3F%25.woff2)}</style>',
+      ),
+      fetcher,
+    );
+    expect(fetcher).toHaveBeenCalledWith('/api/preview-host/js/a%23b%3Fc%25d.js');
+    expect(fetcher).toHaveBeenCalledWith('/api/preview-host/css/fonts/f%23%3F%25.woff2');
+  });
+
+  it('普通の名前は今までどおりの URL で取る', async () => {
+    const fetcher = recordingFetcher();
+    await selfContainPreviewDoc(DOC('<script src="../js/app.js"></script>'), fetcher);
+    expect(fetcher).toHaveBeenCalledWith('/api/preview-host/js/app.js');
+  });
+});
