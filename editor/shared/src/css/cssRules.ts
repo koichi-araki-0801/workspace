@@ -15,8 +15,21 @@
 // `@page` は前置き(`@page` / `@page :first` / `@page cover`)で、`@font-face` は `font-family` +
 // `font-weight` + `font-style` の値で見分ける(中身をキーにすると、版種固有に直した規則への変更が
 // 「削除 + 追加」になり、競合にならず後ろへ追記されて勝ってしまうため)。それ以外のセレクタを
-// 持たない規則は中身全体で見分ける。セレクタの属性値は `[src="x"]` の形にそろえる(GrapesJS は
-// ブラウザが書き出したセレクタを使うため)。同じキーが複数あれば `splitCssRules` は出現順の番号を
+// 持たない規則は中身全体で見分ける。
+//
+// GrapesJS はセレクタと media の文字列をブラウザの CSSOM(`selectorText` / `mediaText`)から取る。
+// ブラウザは `.a>.b` を `.a > .b`、`:before` を `::before` のように書き直すので、原文と書き出しで
+// キーが割れないよう、意味の変わらない書き方の違いだけをそろえる。セレクタでは、コメントを消し
+// (`.a/**/.b` は `.a.b` と同じ)、結合子 `>` `+` `~` と `(` `)` の内側の空白を消し、旧式の擬似要素
+// 4 つを `::` にし、型セレクタ・擬似クラスと擬似要素の名前・属性名を小文字にし、属性値を
+// `[src="x"]` の形にする。at-rule の前置きでは、コメントを空白にし、名前を小文字にし、`@media` は
+// 文字列の外を小文字にし、`@media` `@supports` `@container` は `:` の後ろと括弧の内側の空白を消す。
+// `@page` は `@page` + 空白 1 つ + ページセレクタの形にする。クラス名・id・属性値・文字列・
+// エスケープした文字・`@container` や `@layer` の名前は大文字小文字を区別するので変えない(別の
+// 規則を同じキーに畳むと、無関係な規則へ変更が当たる)。入れ子の前置き(`atRules`)も同じ形に
+// そろえ、追加の規則を包むときはその形のまま書き出す(どれも有効な CSS の形)。
+//
+// 同じキーが複数あれば `splitCssRules` は出現順の番号を
 // 足す。`mergeCssRuleChangesFromBaseline` は同じキーの重複を 1 つの規則として識別し(出現番号を
 // 付けない)、その中の出現を前から対応づける。GrapesJS は重複を別々の規則のまま持ち、宣言が空に
 // なった規則だけを `getCss` に出さない(スタイルの編集は同じセレクタの最後の規則に入るので、
@@ -184,6 +197,202 @@ function readAttrValue(
   return { value, next: k };
 }
 
+/** 識別子を作る文字(エスケープを除く)。非 ASCII も識別子の一部。 */
+const IDENT_CHAR_RE = /[-\w\u0080-￿]/;
+
+/** 単一の `:` でも書ける旧式の擬似要素。ブラウザは `::` で書き出す。 */
+const LEGACY_PSEUDO_ELEMENTS = new Set(['before', 'after', 'first-line', 'first-letter']);
+
+/** `s[k]` の `\` から始まるエスケープの長さ(16 進の後ろの空白 1 つはエスケープに含む)。 */
+function escapeLength(s: string, k: number): number {
+  const hex = /^[0-9a-f]{1,6}/i.exec(s.slice(k + 1, k + 7))?.[0];
+  if (hex === undefined) return Math.min(2, s.length - k);
+  return 1 + hex.length + (s[k + 1 + hex.length] === ' ' ? 1 : 0);
+}
+
+/** `s[k]` の引用符から始まる文字列の終わり(閉じ引用符の次。閉じていなければ末尾)。 */
+function stringEnd(s: string, k: number): number {
+  const quote = s[k];
+  let j = k + 1;
+  while (j < s.length && s[j] !== quote) j += s[j] === '\\' ? escapeLength(s, j) : 1;
+  return Math.min(j + 1, s.length);
+}
+
+/**
+ * `s` の `k` から識別子を読む。`lower` ならエスケープの外を小文字にする(エスケープした文字は
+ * 書いた字のまま意味を持つので触らない)。
+ */
+function readIdent(s: string, k: number, lower: boolean): { ident: string; next: number } {
+  let ident = '';
+  let j = k;
+  while (j < s.length) {
+    if (s[j] === '\\') {
+      const n = escapeLength(s, j);
+      ident += s.slice(j, j + n);
+      j += n;
+      continue;
+    }
+    if (!IDENT_CHAR_RE.test(s[j])) break;
+    ident += lower ? s[j].toLowerCase() : s[j];
+    j++;
+  }
+  return { ident, next: j };
+}
+
+/** `[…]` の属性名を小文字にする(HTML の属性名は大文字小文字を区別しない)。値はそのまま。 */
+function lowerAttrName(attr: string): string {
+  let out = '[';
+  let j = 1;
+  while (j < attr.length) {
+    const c = attr[j];
+    if (c === '\\') {
+      const n = escapeLength(attr, j);
+      out += attr.slice(j, j + n);
+      j += n;
+      continue;
+    }
+    if ('=~^$*]'.includes(c) || (c === '|' && attr[j + 1] === '=')) break;
+    out += c.toLowerCase();
+    j++;
+  }
+  return out + attr.slice(j);
+}
+
+/**
+ * セレクタ(空白を畳み、コメントを消したもの)を、ブラウザの書き出しと同じキーになる形にする。
+ * 文字列・`[…]` の中身・エスケープは結合子や小文字化の対象から外す。
+ */
+function canonicalSelector(sel: string): string {
+  let out = '';
+  let i = 0;
+  // 複合セレクタの先頭か(文頭・結合子・`,`・`(` の直後)。ここで始まる識別子は型セレクタ。
+  let boundary = true;
+  // 読み飛ばした空白。次の字が結合子・`)`・`,` なら捨て、それ以外なら子孫結合子として出す。
+  let pendingSpace = false;
+  const emit = (text: string, nextBoundary: boolean): void => {
+    if (pendingSpace) out += ' ';
+    pendingSpace = false;
+    out += text;
+    boundary = nextBoundary;
+  };
+  while (i < sel.length) {
+    const c = sel[i];
+    if (c === ' ') {
+      if (!boundary) pendingSpace = true;
+      i++;
+      continue;
+    }
+    if ('>+~,)'.includes(c)) {
+      pendingSpace = false;
+      out += c;
+      boundary = c !== ')';
+      i++;
+      continue;
+    }
+    if (c === '(') {
+      emit(c, true);
+      i++;
+      continue;
+    }
+    if (c === '\\') {
+      const n = escapeLength(sel, i);
+      emit(sel.slice(i, i + n), false);
+      i += n;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      const end = stringEnd(sel, i);
+      emit(sel.slice(i, end), false);
+      i = end;
+      continue;
+    }
+    if (c === '[') {
+      let j = i + 1;
+      while (j < sel.length && sel[j] !== ']') {
+        if (sel[j] === '"' || sel[j] === "'") j = stringEnd(sel, j);
+        else j += sel[j] === '\\' ? escapeLength(sel, j) : 1;
+      }
+      const end = Math.min(j + 1, sel.length);
+      emit(lowerAttrName(sel.slice(i, end)), false);
+      i = end;
+      continue;
+    }
+    if (c === ':') {
+      const double = sel[i + 1] === ':';
+      const { ident, next } = readIdent(sel, i + (double ? 2 : 1), true);
+      emit(`${double || LEGACY_PSEUDO_ELEMENTS.has(ident) ? '::' : ':'}${ident}`, false);
+      i = next;
+      continue;
+    }
+    if (c === '.' || c === '#') {
+      const { ident, next } = readIdent(sel, i + 1, false);
+      emit(c + ident, false);
+      i = next;
+      continue;
+    }
+    if (boundary && IDENT_CHAR_RE.test(c)) {
+      const { ident, next } = readIdent(sel, i, true);
+      emit(ident, false);
+      i = next;
+      continue;
+    }
+    emit(c, false);
+    i++;
+  }
+  return canonicalAttrQuotes(out);
+}
+
+/** at-rule の名前(`@media` など。エスケープを含む)を前置きの先頭から取る。 */
+const AT_KEYWORD_RE = /^@(?:[-\w\u0080-￿]|\\[\s\S])+/;
+
+/** `@media` `@supports` `@container` は条件の書き方(空白)をブラウザが詰めて書き出す。 */
+const CONDITION_AT_RULES = new Set(['media', 'supports', 'container']);
+
+/**
+ * at-rule の前置き(空白を畳み、コメントを空白にしたもの)をキーの形にする。名前は小文字にし、
+ * 条件を持つ at-rule は `:` の後ろと括弧の内側の空白を消す。`@media` だけは文字列の外を全部
+ * 小文字にする(メディアクエリは大文字小文字を区別しない。`@container` の名前などは区別する)。
+ */
+function canonicalAtPrelude(prelude: string, name: string): string {
+  const keyword = AT_KEYWORD_RE.exec(prelude)?.[0] ?? '';
+  const rest = prelude.slice(keyword.length).trim();
+  const head = keyword.toLowerCase();
+  if (!CONDITION_AT_RULES.has(name)) return rest === '' ? head : `${head} ${rest}`;
+  let out = '';
+  let i = 0;
+  // 直前に出したのが `:` か `(`(エスケープの一部でない)か。後ろの空白を捨てる。
+  let dropSpace = false;
+  while (i < rest.length) {
+    const c = rest[i];
+    if (c === '"' || c === "'" || c === '\\') {
+      const end = c === '\\' ? i + escapeLength(rest, i) : stringEnd(rest, i);
+      out += rest.slice(i, end);
+      i = end;
+      dropSpace = false;
+      continue;
+    }
+    if (c === ' ' && (dropSpace || rest[i + 1] === ')')) {
+      i++;
+      continue;
+    }
+    out += name === 'media' ? c.toLowerCase() : c;
+    dropSpace = c === ':' || c === '(';
+    i++;
+  }
+  return out === '' ? head : `${head} ${out}`;
+}
+
+/** `@page` の前置きを `@page` か `@page <ページセレクタ>` にする(ページ名は大文字小文字を残す)。 */
+function canonicalPagePrelude(prelude: string): string {
+  const keyword = AT_KEYWORD_RE.exec(prelude)?.[0] ?? '';
+  const sel = prelude
+    .slice(keyword.length)
+    .trim()
+    .replace(/\s+(?=:)/g, '')
+    .replace(/(?<!\\):([-\w]+)/g, (_m, pseudo: string) => `:${pseudo.toLowerCase()}`);
+  return sel === '' ? '@page' : `@page ${sel}`;
+}
+
 /** 原文を規則へ分ける(キーと入れ子の情報つき)。 */
 function scanCssRules(css: string): ScannedRule[] {
   const { punct, comments, atRules } = collectCssStructure(css);
@@ -204,14 +413,19 @@ function scanCssRules(css: string): ScannedRule[] {
     return undefined;
   };
 
-  /** `[from, to)` からコメントを除き、空白を畳み、`,` の前後の空白を消す(キー用)。 */
-  const normalize = (from: number, to: number): string => {
+  /**
+   * `[from, to)` のコメントを `commentAs` に置き換え、空白を畳み、`,` の前後の空白を消す(キー用)。
+   * セレクタではコメントは区切りにならない(`.a` と `.b` の間のコメントは子孫結合子でなく、
+   * `.a.b` と同じ)ので空文字、at-rule の前置きや
+   * 宣言では区切りとして働くので空白にする。
+   */
+  const normalize = (from: number, to: number, commentAs: ' ' | '' = ' '): string => {
     let out = '';
     let k = from;
     while (k < to) {
       const skip = commentEnd.get(k);
       if (skip !== undefined) {
-        out += ' ';
+        out += commentAs;
         k = skip;
         continue;
       }
@@ -244,7 +458,12 @@ function scanCssRules(css: string): ScannedRule[] {
     if (ch === '{') {
       const start = firstSignificant(segStart, at) ?? at;
       const name = atRules.get(start)?.toLowerCase();
-      const prelude = normalize(start, at);
+      const prelude =
+        name === undefined
+          ? canonicalSelector(normalize(start, at, ''))
+          : name === 'page'
+            ? canonicalPagePrelude(normalize(start, at))
+            : canonicalAtPrelude(normalize(start, at), name);
       if (name !== undefined && GROUPING_AT_RULES.has(name)) {
         chain.push(prelude);
         segStart = at + 1;
@@ -275,7 +494,7 @@ function scanCssRules(css: string): ScannedRule[] {
           from = to + 1;
         }
       }
-      let identity = name === undefined ? canonicalAttrQuotes(prelude) : prelude;
+      let identity = prelude;
       if (name !== undefined && name !== 'page' && BARE_AT_KEYWORD_RE.test(prelude)) {
         const body = normalize(at + 1, closeAt);
         const family = name === 'font-face' ? descriptor(body, 'font-family') : '';

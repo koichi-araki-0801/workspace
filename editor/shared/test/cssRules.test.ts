@@ -28,7 +28,7 @@ describe('splitCssRules', () => {
   });
 
   it('セレクタの空白を正規化する', () => {
-    expect(splitCssRules('.a   >  .b ,\n .c {x:1}').map((r) => r.key)).toEqual([k('.a > .b,.c')]);
+    expect(splitCssRules('.a   >  .b ,\n .c {x:1}').map((r) => r.key)).toEqual([k('.a>.b,.c')]);
   });
 
   it('@media と @supports の入れ子は外側の前置きをキーに含める', () => {
@@ -800,5 +800,77 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       applied: [],
       conflicts: [],
     });
+  });
+});
+
+describe('規則のキーの正規化', () => {
+  const keyOf = (css: string): string => splitCssRules(css)[0].key;
+  const sameKey = (a: string, b: string): void => expect(keyOf(a)).toBe(keyOf(b));
+  const diffKey = (a: string, b: string): void => expect(keyOf(a)).not.toBe(keyOf(b));
+
+  it.each([
+    ['.a/**/.b{x:1}', '.a.b{x:1}'],
+    ['.a > .b{x:1}', '.a>.b{x:1}'],
+    ['.a  +  .b{x:1}', '.a+.b{x:1}'],
+    ['.a ~ .b{x:1}', '.a~.b{x:1}'],
+    [':not( .a ){x:1}', ':not(.a){x:1}'],
+    ['li:nth-child( 2n + 1 ){x:1}', 'li:nth-child(2n+1){x:1}'],
+    ['p:before{x:1}', 'p::before{x:1}'],
+    ['p:AFTER{x:1}', 'p::after{x:1}'],
+    ['p:first-line{x:1}', 'p::first-line{x:1}'],
+    ['p:first-letter{x:1}', 'p::first-letter{x:1}'],
+    ['DIV.note{x:1}', 'div.note{x:1}'],
+    [':not(SPAN){x:1}', ':not(span){x:1}'],
+    ['a:HOVER{x:1}', 'a:hover{x:1}'],
+    ['[DATA-X=A]{x:1}', '[data-x="A"]{x:1}'],
+    ['@MEDIA print{.a{x:1}}', '@media print{.a{x:1}}'],
+    ['@media/**/print{.a{x:1}}', '@media print{.a{x:1}}'],
+    ['@media PRINT AND (MIN-WIDTH: 10PX){.a{x:1}}', '@media print and (min-width:10px){.a{x:1}}'],
+    ['@supports ( display: grid ){.a{x:1}}', '@supports (display:grid){.a{x:1}}'],
+    ['@page:first{x:1}', '@page :first{x:1}'],
+    ['@page  cover :FIRST{x:1}', '@page cover:first{x:1}'],
+  ])('%s と %s は同じキー', (a, b) => sameKey(a, b));
+
+  it.each([
+    ['.Note{x:1}', '.note{x:1}'],
+    ['#Top{x:1}', '#top{x:1}'],
+    ['[data-x="A"]{x:1}', '[data-x="a"]{x:1}'],
+    ['.a .b{x:1}', '.a.b{x:1}'],
+    ['.a>.b{x:1}', '.a .b{x:1}'],
+    ['.a+.b{x:1}', '.a~.b{x:1}'],
+    ['[title="a > b"]{x:1}', '[title="a>b"]{x:1}'],
+    ['.a\\:hover{x:1}', '.a:hover{x:1}'],
+    ['@container Card (min-width:1px){.a{x:1}}', '@container card (min-width:1px){.a{x:1}}'],
+    ['@supports (content:"A"){.a{x:1}}', '@supports (content:"a"){.a{x:1}}'],
+    ['.a,.b{x:1}', '.b,.a{x:1}'],
+    ['.\\31 A{x:1}', '.\\31 a{x:1}'],
+    ['\\44 IV{x:1}', '\\44 iv{x:1}'],
+    ['@page Cover{x:1}', '@page cover{x:1}'],
+    ['@layer Base{.a{x:1}}', '@layer base{.a{x:1}}'],
+  ])('%s と %s は別のキー', (a, b) => diffKey(a, b));
+
+  it.each([
+    ['@Font-Face{font-family:A}', '@font-face{font-family:A}'],
+    ['@media(min-width:1px){.a{x:1}}', '@media (min-width: 1px){.a{x:1}}'],
+    ['.a /*x*/ .b{x:1}', '.a .b{x:1}'],
+    [':IS( .a , .b ) > P{x:1}', ':is(.a,.b)>p{x:1}'],
+    ['[ DATA-X ]{x:1}', '[data-x]{x:1}'],
+    ["[TITLE='a > b']{x:1}", '[title="a > b"]{x:1}'],
+  ])('%s と %s も同じキー', (a, b) => sameKey(a, b));
+
+  it('入れ子の前置き(atRules)も正規化した形で返し、包んだ規則が有効な CSS になる', () => {
+    expect(splitCssRules('@MEDIA PRINT AND (MIN-WIDTH: 10PX){.a{x:1}}')[0].atRules).toEqual([
+      '@media print and (min-width:10px)',
+    ]);
+  });
+
+  it('Chromium の書き出し形と原文が同じキーになる(ブラウザ側の固定)', () => {
+    // getCss が返す形(Chromium の selectorText / mediaText)を期待値に書く
+    sameKey('.a > .b::before{x:1}', '.a>.b:before{x:1}');
+    sameKey(
+      '@media print and (min-width: 10px){.a{x:1}}',
+      '@media print and (min-width:10px){.a{x:1}}',
+    );
+    sameKey('[src="x"]{x:1}', "[src='x']{x:1}");
   });
 });
