@@ -78,6 +78,49 @@ describe('layoutRows', () => {
     expect(r.missing.after).toEqual([2]);
   });
 
+  it('足した行をずらすと、その offset が保たれ二重のページを報告する', () => {
+    const grown = layoutRows([0, 0, 0, 0, 0], [0, 0, -1, -1, -1], 5, 5);
+    const after = [...grown.afterOff];
+    after[5] -= 1;
+    const r = layoutRows(grown.beforeOff, after, 5, 5);
+    expect(r.afterOff[5]).toBe(grown.afterOff[5] - 1);
+    expect(r.duplicated.after).toContain(3);
+  });
+
+  it('足した行を両側とも対応なしにすると、末尾なら削る', () => {
+    const r = layoutRows(
+      [0, 0, 0, 0, 0, directOffset(null, 5)],
+      [0, 0, 0, 0, 0, directOffset(null, 5)],
+      5,
+      5,
+    );
+    expect(r.rowCount).toBe(5);
+  });
+
+  it('操作を重ねても組み直しは冪等で、行数は基準 + 両側のページ数を超えない', () => {
+    let seed = 12345;
+    const rnd = (n: number) => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed % n;
+    };
+    for (let t = 0; t < 40; t++) {
+      const bc = rnd(6);
+      const ac = rnd(6);
+      let cur = layoutRows([], [], bc, ac);
+      for (let step = 0; step < 40; step++) {
+        const bOff = [...cur.beforeOff];
+        const aOff = [...cur.afterOff];
+        const row = rnd(cur.rowCount);
+        const target = rnd(2) === 0 ? bOff : aOff;
+        target[row] = rnd(4) === 0 ? directOffset(null, row) : target[row] + rnd(3) - 1;
+        cur = layoutRows(bOff, aOff, bc, ac);
+        expect(cur.rowCount).toBeLessThanOrEqual(Math.max(bc, ac, 1) + bc + ac);
+        expect(cur.beforeOff).toHaveLength(cur.rowCount);
+        expect(layoutRows(cur.beforeOff, cur.afterOff, bc, ac)).toEqual(cur);
+      }
+    }
+  });
+
   it('ずらしを戻して再計算すると、足した行は基準の行数へ戻る', () => {
     const grown = layoutRows([0, 0, 0, 0, 0], [0, 0, -1, -1, -1], 5, 5);
     expect(grown.rowCount).toBe(6);
@@ -106,7 +149,7 @@ describe('layoutRows', () => {
     expect(r.missing).toEqual({ before: [], after: [] });
   });
 
-  it('報告の再現: 比較元を行 1 から 1 つ前へずらし、行 1 の比較先を対応なしにしても P2 が出る', () => {
+  it('報告の再現: 比較元を行 1 から 1 つ前へずらし、行 1 の比較先を対応なしにしても比較元の 3 ページ目が出る', () => {
     const r = layoutRows([0, -1, -1], [0, directOffset(null, 1), 0], 3, 3);
     const shown = r.beforeOff.map((o, row) => row + o);
     expect(shown).toContain(2);

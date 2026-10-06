@@ -109,7 +109,7 @@ const beforeCount = computed(() => props.diff.beforePageCount);
 const afterCount = computed(() => props.diff.afterPageCount);
 // 行数はどちらか多い方が基準(恒等時に全ページが 1 行ずつ並ぶ)。ずらして末尾があふれたら
 // `layoutRows` が行を足すので、行数と警告はその結果で持つ。
-const baseRows = Math.max(beforeCount.value, afterCount.value, 1);
+const baseRows = computed(() => Math.max(beforeCount.value, afterCount.value, 1));
 const initialLayout = layoutRows([], [], beforeCount.value, afterCount.value);
 const rowCount = ref(initialLayout.rowCount);
 const layout = ref(initialLayout);
@@ -198,8 +198,8 @@ function setDirect(side: Side, value: number | null) {
 }
 
 function resetAlign() {
-  beforeOff.value = Array(baseRows).fill(0);
-  afterOff.value = Array(baseRows).fill(0);
+  beforeOff.value = Array(baseRows.value).fill(0);
+  afterOff.value = Array(baseRows.value).fill(0);
   applyLayout();
 }
 
