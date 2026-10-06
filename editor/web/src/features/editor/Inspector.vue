@@ -173,7 +173,9 @@ function togglePB(key: 'pageBreakBefore' | 'pageBreakAfter' | 'keepTogether') {
 
 function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) {
   if (!props.geom) return;
-  let n = Math.round(Number(raw));
+  // `Number('')` は 0 になり下限へ丸められてしまうため、空 / 空白は非数値として扱う。
+  const t = raw.trim();
+  let n = t === '' ? Number.NaN : Math.round(Number(t));
   if (Number.isNaN(n)) n = props.geom[key];
   n = key === 'widthPct' ? clampWidthPct(n) : clampMarginMm(n);
   num[key] = String(n);

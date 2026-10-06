@@ -37,7 +37,8 @@ function mountInspector(geom: LayoutGeom) {
   const wrapper = mount(Host);
   // 幅の数値入力欄(最初の numeric 入力)。
   const width = wrapper.findAll('input[inputmode="numeric"]')[0];
-  return { wrapper, width, applies };
+  const inputs = wrapper.findAll('input[inputmode="numeric"]');
+  return { wrapper, width, marginTop: inputs[1], applies };
 }
 
 describe('Inspector の数値確定', () => {
@@ -60,6 +61,30 @@ describe('Inspector の数値確定', () => {
     await width.trigger('blur');
     expect(applies).toEqual([]);
     expect((width.element as HTMLInputElement).value).toBe('60');
+  });
+
+  it('空で blur すると元値へ戻し、apply を emit しない(0 を当てない)', async () => {
+    const { width, applies } = mountInspector({ ...DEFAULT_GEOM, widthPct: 60, align: 'left' });
+    await width.setValue('');
+    await width.trigger('blur');
+    expect(applies).toEqual([]);
+    expect((width.element as HTMLInputElement).value).toBe('60');
+  });
+
+  it('空白だけでも元値へ戻す', async () => {
+    const { width, applies } = mountInspector({ ...DEFAULT_GEOM, widthPct: 60, align: 'left' });
+    await width.setValue('  ');
+    await width.trigger('blur');
+    expect(applies).toEqual([]);
+    expect((width.element as HTMLInputElement).value).toBe('60');
+  });
+
+  it('余白の欄も空なら元値へ戻す', async () => {
+    const { marginTop, applies } = mountInspector({ ...DEFAULT_GEOM, marginTop: 7 });
+    await marginTop.setValue('');
+    await marginTop.trigger('blur');
+    expect(applies).toEqual([]);
+    expect((marginTop.element as HTMLInputElement).value).toBe('7');
   });
 });
 
