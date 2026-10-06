@@ -66,7 +66,7 @@ export const pagebreakCanvasCss = `
   left: 0;
   right: 0;
   top: 6px;
-  border-top: 2px dotted #94a3b8;
+  border-top: 2px dashed #94a3b8;
 }
 [data-gjs-type=wrapper] > div.pagebreak::after {
   content: '改ページ';
