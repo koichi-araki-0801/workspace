@@ -87,6 +87,23 @@ function lockDescendants(c: Component): void {
   });
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * 固めた SVG の中の要素か。GrapesJS の parser は親の型がちょうど `svg` のときだけ子を `svg-in`
+ * (SVG の名前空間で描く型)にするので、`data-gjs-type` で型を指定した固めた SVG の子は既定の型に
+ * なり、XHTML の要素として作られて図が描かれない。既定の型はタグ名も小文字へ落とす
+ * (`linearGradient` が `lineargradient` になる)ので、後から型を直すのでは足りず、parse の時点で
+ * 判定する。
+ */
+function isInFrozenSvg(el: unknown): boolean {
+  const e = el as Partial<Element> | null;
+  if (!e || e.namespaceURI !== SVG_NS || typeof e.parentElement?.closest !== 'function') {
+    return false;
+  }
+  return e.parentElement.closest('[data-gjs-type="jinja-frozen-svg"]') !== null;
+}
+
 const FROZEN_TYPES: ReadonlySet<JinjaComponentType> = new Set(['jinja-frozen', 'jinja-frozen-svg']);
 
 /**
@@ -112,23 +129,40 @@ export function registerJinjaComponents(editor: Editor): void {
     dc.addType(type, { model: { defaults: { ...common, ...JINJA_TYPE_DEFAULTS[type] } } });
   }
 
-  const frozenModel = (type: JinjaComponentType) => ({
-    defaults: { ...common, ...JINJA_TYPE_DEFAULTS[type], stylable: false },
-    init(this: Component) {
-      lockDescendants(this);
+  const frozenDefaults = (type: JinjaComponentType) => ({
+    ...common,
+    ...JINJA_TYPE_DEFAULTS[type],
+    stylable: false,
+  });
+  dc.addType('jinja-frozen', {
+    model: {
+      defaults: frozenDefaults('jinja-frozen'),
+      init(this: Component) {
+        lockDescendants(this);
+      },
     },
   });
-  dc.addType('jinja-frozen', { model: frozenModel('jinja-frozen') });
-  // `svg` 型を継がないと子孫が SVG の名前空間で描かれない。`svg` 型の `getName` はタグ名を返して
-  // `name` を見ないので、レイヤー名を他の固めた要素と揃えるために戻す。
+  // `svg` 型を継ぐのは部品自身を SVG の名前空間で描くため。子孫は下の `jinja-frozen-svg-in`。
   dc.addType('jinja-frozen-svg', {
     extend: 'svg',
     model: {
-      ...frozenModel('jinja-frozen-svg'),
+      // 継いだリサイズは inline style を書き、保存で原文へ戻るときに黙って捨てられるので止める。
+      defaults: { ...frozenDefaults('jinja-frozen-svg'), resizable: false },
+      init(this: Component) {
+        lockDescendants(this);
+      },
+      // `svg` 型の `getName` はタグ名を返して `name` を見ないので、レイヤー名を他の固めた要素と
+      // 揃えるために戻す。
       getName(this: Component): string {
         return this.get('custom-name') || this.get('name');
       },
     },
+  });
+  // 固めた SVG の子孫の型。`svg-in` と同じく SVG の名前空間で描き、レイヤーに出さない。型は
+  // parse の判定だけで決まり、`data-gjs-type` には現れないので刈り取りの許可には足さない。
+  dc.addType('jinja-frozen-svg-in', {
+    extend: 'svg-in',
+    isComponent: (el: unknown) => isInFrozenSvg(el),
   });
 }
 

@@ -77,7 +77,7 @@ describe('固めた部品の型', () => {
 
   it('子孫は 8 つの操作可否がすべて止まる(テキストノードを含む)', () => {
     g.load(
-      `<div data-gjs-type="jinja-frozen" class="jinja-frozen-body" data-opaque="${b64encode('<table><tr><td><b>x</b></td></tr></table>')}" data-opaque-kind="frozen"><table><tbody><tr><td><b>x</b> y</td></tr></tbody></table></div>`,
+      `<div data-gjs-type="jinja-frozen" class="jinja-frozen-body" data-opaque="${b64encode('<table><tr><td><b>x</b></td></tr></table>')}" data-opaque-kind="body"><table><tbody><tr><td><b>x</b> y</td></tr></tbody></table></div>`,
       '',
     );
     const frozen = opaqueComponents()[0];
@@ -89,20 +89,58 @@ describe('固めた部品の型', () => {
     }
   });
 
-  it('固めた SVG は svg 型を継ぎ、子孫は選べない', () => {
-    const raw = '<svg viewBox="0 0 10 10"><rect width="{{ w }}" height="1"></rect></svg>';
+  it('固めた SVG の子孫は SVG の部品(svg-in)で描かれ、選べず、原文へ戻る', () => {
+    const raw =
+      '<svg viewBox="0 0 10 10"><g><rect width="{{ w }}" height="1"></rect><text x="1">{{ v }}</text></g></svg>';
+    const display =
+      '<g class="bar"><rect width="3" height="1"></rect><text x="1">3</text>' +
+      '<linearGradient id="lg" gradientUnits="userSpaceOnUse"><stop offset="0"></stop></linearGradient></g>';
     g.load(
-      `<svg data-gjs-type="jinja-frozen-svg" data-opaque="${b64encode(raw)}" data-opaque-kind="frozen" viewBox="0 0 10 10"><rect width="3" height="1"></rect></svg>`,
+      `<svg data-gjs-type="jinja-frozen-svg" data-opaque="${b64encode(raw)}" data-opaque-kind="frozen" viewBox="0 0 10 10">${display}</svg>`,
       '',
     );
-    const frozen = opaqueComponents()[0];
-    expect(frozen?.get('type')).toBe('jinja-frozen-svg');
-    expect(frozen?.getName()).toBe('編集不可（Jinja）');
-    expect(frozen?.get('stylable')).toBe(false);
-    const rect = frozen?.components().at(0);
-    expect(rect?.get('selectable')).toBe(false);
-    expect(rect?.get('stylable')).toBe(false);
+    const frozen = opaqueComponents()[0] as Component;
+    expect(frozen.get('type')).toBe('jinja-frozen-svg');
+    expect(frozen.getName()).toBe('編集不可（Jinja）');
+    expect(frozen.get('stylable')).toBe(false);
+    // 継いだ `svg` 型のリサイズは inline style を書き、保存で黙って捨てられるので止める。
+    expect(frozen.get('resizable')).toBe(false);
+    const elements = descendants(frozen).filter((c) => c.get('type') !== 'textnode');
+    expect(elements.map((c) => c.get('tagName'))).toEqual([
+      'g',
+      'rect',
+      'text',
+      'linearGradient',
+      'stop',
+    ]);
+    // `svg-in` 系の型でないと子孫が XHTML の名前空間で作られ、canvas に図が描かれない。
+    // jsdom では canvas の iframe が描かれないので、型の view で要素を作って名前空間を確かめる。
+    type ViewCtor = new (o: { model: Component; config: object }) => { el: Element };
+    const dc = g.editor.value?.DomComponents;
+    const View = dc?.getType('jinja-frozen-svg-in')?.view as unknown as ViewCtor;
+    const em = g.editor.value?.getModel();
+    for (const c of elements) {
+      expect(c.get('type'), c.get('tagName')).toBe('jinja-frozen-svg-in');
+      expect(c.get('layerable'), c.get('tagName')).toBe(false);
+      const v = new View({ model: c, config: { em } });
+      expect(v.el.namespaceURI, c.get('tagName')).toBe('http://www.w3.org/2000/svg');
+      expect(v.el.tagName).toBe(c.get('tagName'));
+    }
+    for (const d of descendants(frozen)) {
+      for (const p of LOCKED_PROPS) expect(d.get(p), `${d.get('tagName')}.${p}`).toBe(false);
+    }
+    expect(g.getBodyHtml()).toContain(
+      `<g class="bar"><rect width="3" height="1"></rect><text x="1">3</text>`,
+    );
+    expect(g.getBodyHtml()).toContain('<linearGradient id="lg" gradientUnits="userSpaceOnUse">');
     expect(toTemplate(g.getBodyHtml(), { asFragment: true })).toBe(raw);
+  });
+
+  it('固めていない SVG の子孫は GrapesJS 既定の svg-in のまま', () => {
+    g.load('<svg viewBox="0 0 1 1"><g><rect width="1" height="1"></rect></g></svg>', '');
+    const svg = g.editor.value?.getWrapper()?.components().at(0) as Component;
+    expect(svg.get('type')).toBe('svg');
+    for (const c of descendants(svg)) expect(c.get('type')).toBe('svg-in');
   });
 
   it('埋め込みチップ(style など)は jinja-rawtext 型で、原文へ戻る', () => {
