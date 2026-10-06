@@ -889,3 +889,129 @@ describe('規則のキーの正規化', () => {
     sameKey('[src="x"]{x:1}', "[src='x']{x:1}");
   });
 });
+
+describe('照合の経路でのセレクタの並びの展開', () => {
+  const keys = (css: string): string[] => [...foldedCssRuleTexts(css).keys()];
+
+  it('.a, .b{…} は .a と .b の 2 つのキーになり、本文は原文のセレクタ + 原文の本文', () => {
+    const m = foldedCssRuleTexts('.a , .b{color:red}');
+    expect([...m.keys()]).toEqual([k('.a'), k('.b')]);
+    expect(m.get(k('.a'))).toBe('.a{color:red}');
+    expect(m.get(k('.b'))).toBe('.b{color:red}');
+  });
+
+  it('セレクタは正規化してキーにし、本文には原文の書き方(コメント込み)を残す', () => {
+    const m = foldedCssRuleTexts('TD > .x ,\n  .b/*c*/.c { x : 1 }');
+    expect([...m.keys()]).toEqual([k('td>.x'), k('.b.c')]);
+    expect(m.get(k('td>.x'))).toBe('TD > .x{ x : 1 }');
+    expect(m.get(k('.b.c'))).toBe('.b/*c*/.c{ x : 1 }');
+  });
+
+  it('@media の中でも展開し、前置きの並びを引き継ぐ', () => {
+    expect(keys('@media print{.a, .b{x:1}}')).toEqual([
+      k('@media print', '.a'),
+      k('@media print', '.b'),
+    ]);
+  });
+
+  it('括弧の中・属性値・文字列・コメント・エスケープの中の , では分けない', () => {
+    expect(keys(':is(.a, .b){x:1}')).toEqual([k(':is(.a,.b)')]);
+    expect(keys('[title="a,b"]{x:1}')).toEqual([k('[title="a,b"]')]);
+    expect(keys('[title=a\\,b]{x:1}')).toEqual([k('[title="a,b"]')]);
+    expect(keys('.a/*,*/.b{x:1}')).toEqual([k('.a.b')]);
+    expect(keys('.a\\,b{x:1}')).toEqual([k('.a\\,b')]);
+    expect(keys('.a:not([x="]"], .c), .b{x:1}')).toEqual([k('.a:not([x="]"],.c)'), k('.b')]);
+  });
+
+  it('at-rule と入れ子のブロックを持つ規則は展開しない', () => {
+    expect(keys('@page :left, :right{margin:1mm}')).toEqual([k('@page :left,:right')]);
+    expect(keys('.a, .b{ .c{x:1} }')).toEqual([k('.a,.b')]);
+    expect(keys('@keyframes k{from, to{x:1}}')).toHaveLength(1);
+  });
+
+  it('並びの中に同じキーが 2 つある規則・空のセレクタを含む規則は展開しない', () => {
+    expect(keys('.a, .a{x:1}')).toEqual([k('.a,.a')]);
+    expect(keys('.a , .a\n{x:1}')).toEqual([k('.a,.a')]);
+    expect(keys('.a, .A{x:1}')).toEqual([k('.a'), k('.A')]);
+    expect(keys('.a, , .b{x:1}')).toHaveLength(1);
+  });
+
+  it('公開の splitCssRules は展開しない(canvasCssAssets 用)', () => {
+    expect(splitCssRules('.a, .b{x:1}').map((r) => r.key)).toEqual([k('.a,.b')]);
+  });
+
+  it('同じ並びの見かけの規則は、並びの順に並ぶ', () => {
+    expect(keys('.a{x:1}\n.c, .a{y:2}')).toEqual([k('.c'), k('.a')]);
+  });
+
+  it('3 者の mergeCssRuleChanges でも展開して照合する(出現番号は見かけの規則も数える)', () => {
+    const base = '.a{x:1}\n.a, .b{y:2}\n';
+    const r = mergeCssRuleChanges(base, '.a{x:9}\n.a{y:2}\n.b{y:2}\n', base);
+    expect(r).toEqual({ css: '.a{x:9}\n.a, .b{y:2}\n', applied: [k('.a')], conflicts: [] });
+  });
+
+  it.each([
+    // 出現の数え方(設計 3.3a 節の表): 物理の規則と見かけの規則を区別せず位置の順で数える
+    ['.a{x:1}\n.a, .b{y:2}\n', '.a{x:1}\n.a{y:2}\n.b{y:2}\n'],
+    ['.a, .b{y:2}\n.a{x:1}\n', '.a{y:2}\n.b{y:2}\n.a{x:1}\n'],
+  ])('原文 %j と GrapesJS 形 %j が同じキー・同じ出現の並びになる', (raw, grapes) => {
+    expect(foldedCssRuleTexts(raw)).toEqual(foldedCssRuleTexts(grapes));
+    expect(mergeCssRuleChangesFromBaseline(raw, grapes, grapes, raw)).toEqual({
+      css: raw,
+      applied: [],
+      conflicts: [],
+    });
+    // 物理の規則 `.a{x:1}` の出現だけが変わったら、その物理の規則だけに当たる
+    const next = grapes.replace('.a{x:1}', '.a{x:9}');
+    expect(mergeCssRuleChangesFromBaseline(raw, grapes, next, raw)).toEqual({
+      css: raw.replace('.a{x:1}', '.a{x:9}'),
+      applied: [k('.a')],
+      conflicts: [],
+    });
+  });
+
+  it('.a, .b{} は空の出現として扱う(GrapesJS は出さない)', () => {
+    const raw = '.a{x:1}\n.a, .b{}\n';
+    const grapes = '.a{x:1}\n';
+    expect(mergeCssRuleChangesFromBaseline(raw, grapes, grapes, raw)).toEqual({
+      css: raw,
+      applied: [],
+      conflicts: [],
+    });
+    expect(mergeCssRuleChangesFromBaseline(raw, grapes, '.a{x:2}\n', raw)).toEqual({
+      css: '.a{x:2}\n.a, .b{}\n',
+      applied: [k('.a')],
+      conflicts: [],
+    });
+  });
+
+  it('見かけの規則を書き換える変更は、物理の規則を壊さないよう競合にする', () => {
+    const raw = '.a, .b{color:red}\n';
+    const baseline = '.a{color:red}\n.b{color:red}\n';
+    const merge = (next: string) => mergeCssRuleChangesFromBaseline(raw, baseline, next, raw);
+    expect(merge('.a{color:blue}\n.b{color:blue}\n')).toEqual({
+      css: raw,
+      applied: [],
+      conflicts: [k('.a'), k('.b')],
+    });
+    expect(merge('.b{color:red}\n')).toEqual({ css: raw, applied: [], conflicts: [k('.a')] });
+    // 空の並びへ宣言を足す編集も同じ
+    const empty = '.a, .b{}\n';
+    expect(mergeCssRuleChangesFromBaseline(empty, '', '.a{x:1}\n', empty)).toEqual({
+      css: empty,
+      applied: [],
+      conflicts: [k('.a')],
+    });
+  });
+
+  it('追加の錨が見かけの規則に当たったら、物理の規則の後ろへ入れる', () => {
+    const raw = '.a, .b{color:red}\n';
+    const baseline = '.a{color:red}\n.b{color:red}\n';
+    const next = '.a{color:red}\n.n{x:1}\n.b{color:red}\n';
+    expect(mergeCssRuleChangesFromBaseline(raw, baseline, next, raw)).toEqual({
+      css: '.a, .b{color:red}\n.n{x:1}\n',
+      applied: [k('.n')],
+      conflicts: [],
+    });
+  });
+});
