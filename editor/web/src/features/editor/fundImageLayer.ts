@@ -19,10 +19,18 @@
 // 後ろに要素が足されていたら末尾へ戻す。本文の `<style>` も同じ `<style>` に複製する(参照元は
 // 文書の位置)。本文の `<style>` は GrapesJS が canvas に置かない(`bodyStyle.ts`)ので、`url()` の
 // 規則だけでなく全規則を複製する。並びは「本文の `<style>` → テンプレの CSS」。
+//
+// GrapesJS が canvas に描く元の `@font-face` は、描く直前(`css:mount:before`)に取得先を無効にする
+// (`canvasFontFaceSrcDisabled`)。複製を後ろに置くだけでは、複製の読み込みに失敗したときなどに
+// Chromium が元の規則へ取りに行く。
 
 import type { Editor } from 'grapesjs';
 import { cssImageIssues, type ImageRefIssue } from '@/lib/assetWarnings';
-import { canvasCssAssetCopy, canvasCssFullCopy } from './canvasCssAssets';
+import {
+  canvasCssAssetCopy,
+  canvasCssFullCopy,
+  canvasFontFaceSrcDisabled,
+} from './canvasCssAssets';
 import { type FundImageContext, fundImageCss, fundImageWarnings } from './fundImages';
 
 /** canvas の head に置く差し替え用 `<style>` の目印。 */
@@ -201,9 +209,8 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     rebuildCssCopy(companyCode);
   };
 
-  const refresh = (): void => {
+  const refreshIn = (doc: Document | null | undefined): void => {
     if (destroyed) return;
-    const doc = host.Canvas.getDocument();
     if (!doc?.head) return;
     const srcs = Array.from(doc.querySelectorAll('img'), (img) => img.getAttribute('src') ?? '');
     const ctx = opts.getContext();
@@ -230,6 +237,10 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     }
   };
 
+  const refresh = (): void => {
+    if (!destroyed) refreshIn(host.Canvas.getDocument());
+  };
+
   const scheduleRefresh = (): void => {
     if (pending || destroyed) return;
     pending = true;
@@ -241,6 +252,15 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
 
   host.on('load', refresh);
   host.on('canvas:frame:load', refresh);
+  // body が描かれた直後(GrapesJS が CSS 規則の入れ物を置いたのと同じタスクの中)に複製を置き、
+  // 描画とフォントの読み込みが始まる前に入れておく。document は `Canvas.getDocument()` に頼らず
+  // イベントの window から取る(canvas の view が揃う前でも取れる)。
+  host.on('canvas:frame:load:body', (ev?: { window?: Window }) => refreshIn(ev?.window?.document));
+  // GrapesJS が規則を canvas の `<style>` に書く直前に、元の `@font-face` の取得先を無効にする
+  // (描き直しのたびに通る。モデルは変えないので保存内容には影響しない)。
+  host.on('css:mount:before', (props: { css: string }) => {
+    props.css = canvasFontFaceSrcDisabled(props.css);
+  });
   host.on('component:add', scheduleRefresh);
   host.on('component:remove', scheduleRefresh);
   host.on('component:update', scheduleRefresh);

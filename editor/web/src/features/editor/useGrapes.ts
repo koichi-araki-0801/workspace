@@ -831,9 +831,11 @@ export function useGrapes() {
       quietParse = false;
       replacing = false;
     }
-    ed.setStyle(css);
+    // 複製を `setStyle` より先に作り直す。canvas が描かれていれば、元の規則が canvas に入るより
+    // 前に複製が置かれている(`fundImageLayer.ts`)。
     templateCss = css;
     syncCanvasCssCopy();
+    ed.setStyle(css);
     // setComponents/setStyle 直後は iframe DOM が未描画で、`component:add` の `fireChange`
     // から走る `recomputePages` が `.page` を拾えず `[body]` フォールバック(`pageCount=1`)に
     // 落ちる。その結果ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に

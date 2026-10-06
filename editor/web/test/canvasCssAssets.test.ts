@@ -7,6 +7,7 @@ import {
   canvasAssetUrl,
   canvasCssAssetCopy,
   canvasCssFullCopy,
+  canvasFontFaceSrcDisabled,
 } from '@/features/editor/canvasCssAssets';
 
 describe('canvasAssetUrl', () => {
@@ -249,5 +250,30 @@ describe('canvasCssFullCopy(本文の <style> の全規則)', () => {
     expect(canvasCssFullCopy('.p{background:url(https://e.example/x.png);color:red}', null)).toBe(
       '.p{color:red}',
     );
+  });
+});
+
+describe('canvasFontFaceSrcDisabled(canvas に描かれる元の @font-face)', () => {
+  it('css/fonts/ に解ける src の url() を取得を起こさない値へ置き換え、他は残す', () => {
+    expect(
+      canvasFontFaceSrcDisabled(
+        '@font-face{font-family:a;src:url("fonts/a.woff2") format("woff2"),local(A)}',
+      ),
+    ).toBe('@font-face{font-family:a;src:local("") format("woff2"),local(A)}');
+  });
+
+  it('@font-face の src 以外の url() と、css/fonts/ の外の参照は書き換えない', () => {
+    const css =
+      '.p{background:url(fonts/a.woff2)}' +
+      '@font-face{font-family:b;src:url(../images/b.woff2)}' +
+      '@font-face{font-family:c;src:url(data:font/woff2;base64,AA==)}';
+    expect(canvasFontFaceSrcDisabled(css)).toBe(css);
+  });
+
+  it('参照は渡した基準の論理パスで解く', () => {
+    // 文書の位置から `fonts/` は `css/fonts/` ではなく、CSS の位置からなら `css/fonts/`。
+    const css = '@font-face{font-family:d;src:url(fonts/d.woff2)}';
+    expect(canvasFontFaceSrcDisabled(css, DOC_DIR)).toBe(css);
+    expect(canvasFontFaceSrcDisabled(css)).toBe('@font-face{font-family:d;src:local("")}');
   });
 });

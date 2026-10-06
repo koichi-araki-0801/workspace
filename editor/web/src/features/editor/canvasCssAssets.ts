@@ -33,6 +33,7 @@
 import {
   type CssUrlSpan,
   collectCssUrlSpans,
+  collectCssUrlSpansInContext,
   DOC_DIR,
   findExternalRefsInCss,
   isAllowedDataUrl,
@@ -270,4 +271,29 @@ export function canvasCssFullCopy(
     out.push(wrapped);
   }
   return out.join('\n');
+}
+
+// ── canvas に描かれる元の `@font-face` ──
+
+/** 元の `@font-face` の `src` の `url()` を置き換える値。取得を起こさない。 */
+const DISABLED_FONT_SRC = 'local("")';
+
+/**
+ * GrapesJS が canvas に描く規則の文字列から、`@font-face` の `src` のうち `css/fonts/` に解ける
+ * `url()` を、取得を起こさない値へ置き換える。canvas はアプリの URL 基準で解くので、元の規則が
+ * 取りに行くと SPA の fallback(`index.html`)を受け取り、フォントの解読エラーがコンソールに出る。
+ * 後ろに置いた複製だけで足りそうに見えるが、Chromium は記述子の同じ `@font-face` を 1 つの書体に
+ * まとめ、複製の読み込みに失敗したときや複製に無い字形があるときに、元の規則へ取りに行く。
+ * 書体は複製が配信 URL で担う。GrapesJS のモデル(`getCss` の出どころ)には触れない。
+ * `from` は参照を解く基準の論理パス(既定はテンプレの CSS の位置)。
+ */
+export function canvasFontFaceSrcDisabled(css: string, from: string = TEMPLATE_CSS_FROM): string {
+  let out = css;
+  // 後ろから置換して、先行する範囲のオフセットを保つ。
+  for (const span of collectCssUrlSpansInContext(css).reverse()) {
+    if (!span.inFontFaceSrc) continue;
+    if (!resolveDocAssetPath(span.value, from)?.startsWith(FONTS_PREFIX)) continue;
+    out = `${out.slice(0, span.start)}${DISABLED_FONT_SRC}${out.slice(span.end)}`;
+  }
+  return out;
 }

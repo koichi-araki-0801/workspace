@@ -104,6 +104,16 @@ describe('保存形式', () => {
     expect(g.getCss()).toContain('@media print{.unused-print{color:blue;}}');
   });
 
+  it('canvas に書く規則の文字列で元の @font-face を無効にしても、getCss は原文のまま', () => {
+    // jsdom の CSSOM は `@font-face` の記述子を落とすので、モデルの規則は通常の規則で代える。
+    // canvas の描画(`css:mount:before`)は jsdom では起きないので、同じイベントを直に出す。
+    g.load(DOC, '.body{background:url("fonts/x.woff2")}');
+    const props = { css: '@font-face{font-family:a;src:url("fonts/x.woff2");}' };
+    g.editor.value?.trigger('css:mount:before', props);
+    expect(props.css).not.toContain('fonts/x.woff2');
+    expect(g.getCss()).toContain('url("fonts/x.woff2")');
+  });
+
   it('quiet の読み込みは外部参照の CSS を拒んでも通知を出さない(通常の読み込みは出す)', () => {
     vi.mocked(toast).mockClear();
     const external = '@import "http://evil.example/x";';

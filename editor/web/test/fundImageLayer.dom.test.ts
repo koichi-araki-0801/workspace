@@ -262,6 +262,52 @@ describe('CSS の url() 規則の複製層', () => {
     expect(assetStyle()?.textContent).toContain('510037_bg.svg');
   });
 
+  it('canvas の文書ができる前に setCss しても、body が描かれた時点で複製を置く', () => {
+    const handlers = new Map<string, (ev?: unknown) => void>();
+    const frameDoc = document.implementation.createHTMLDocument('');
+    let ready = false;
+    const host = {
+      on: (event: string, cb: (ev?: unknown) => void) => handlers.set(event, cb),
+      // GrapesJS は body の描画直後もまだ document を返さない(イベントの window から取る)。
+      Canvas: { getDocument: () => (ready ? frameDoc : undefined) },
+    } as unknown as FundImageHost;
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningsChange: vi.fn(),
+      preload: async () => {},
+      schedule: (cb) => cb(),
+    });
+    layer.setCss(tpl('@font-face{font-family:a;src:url(fonts/biz.woff2)}'));
+    expect(frameDoc.querySelector(`style[${CANVAS_CSS_ASSET_ATTR}]`)).toBeNull();
+    frameDoc.body.innerHTML = '<div id="wrapper"></div><div id="css-rules"></div>';
+    handlers.get('canvas:frame:load:body')?.({ window: { document: frameDoc } });
+    const placed = frameDoc.querySelector(`style[${CANVAS_CSS_ASSET_ATTR}]`);
+    expect(placed?.textContent).toContain('/api/preview-host/css/fonts/biz.woff2');
+    expect(frameDoc.body.lastElementChild).toBe(placed);
+    ready = true;
+    layer.refresh();
+    expect(frameDoc.querySelectorAll(`style[${CANVAS_CSS_ASSET_ATTR}]`)).toHaveLength(1);
+  });
+
+  it('GrapesJS が canvas に書く規則の文字列では、元の @font-face の取得先を無効にする', () => {
+    const handlers = new Map<string, (ev?: unknown) => void>();
+    const host = {
+      on: (event: string, cb: (ev?: unknown) => void) => handlers.set(event, cb),
+      Canvas: { getDocument: () => document },
+    } as unknown as FundImageHost;
+    attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningsChange: vi.fn(),
+      preload: async () => {},
+      schedule: (cb) => cb(),
+    });
+    const props = { css: '@font-face{font-family:a;src:url("fonts/biz.woff2");}' };
+    handlers.get('css:mount:before')?.(props);
+    expect(props.css).toBe('@font-face{font-family:a;src:local("");}');
+  });
+
   it('会社コードが変わったら、走査のときに会社フォルダの照合をやり直す', () => {
     const { host } = fakeHost(document);
     let ctx: FundImageContext = FILLED;
