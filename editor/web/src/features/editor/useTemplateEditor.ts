@@ -476,6 +476,9 @@ export function useTemplateEditor(
     g.setInitialZoom(sess.ui.zoom ?? 1);
     g.setSinglePageMode(sess.ui.singlePageMode);
     const isCreateRoute = route.query.created === '1';
+    // Jinja を含む本文の `<style>` は、作成経路だけ `toFilled` と同じサンプルで描画して canvas で
+    // 効かせる。編集経路の本文は値入りで、`<style>` は描画済みの素の要素なので渡さない。
+    g.setStyleSample(isCreateRoute ? res.value.sample : null);
     const tplUpdatedAt = res.value.template.meta.updatedAt;
     // 本文の読み込みと、確定版の正規形・CSS の baseline の測定(下書きから開くときは確定版を
     // 先に quiet load する)。順序と測る時点の理由は `openCanvas.ts` を見よ。

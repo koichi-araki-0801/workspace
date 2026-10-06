@@ -6,7 +6,7 @@
 // `wireGrapesEvents` へ、zoom/フィットは `useZoomFit.ts` へ、ページ境界 guide は
 // `usePageGuides.ts` へ、選択枠 rect / メモ目印は `useCanvasMarkers.ts` へ委譲する。
 
-import { DOC_DIR } from '@editor/shared';
+import { DOC_DIR, type SampleData } from '@editor/shared';
 import grapesjs, {
   type Component,
   type ComponentDefinition,
@@ -139,6 +139,8 @@ export function useGrapes() {
   let templateCss = '';
   /** `load` の入れ替え中(部品の追加・削除のたびに複製を作り直さない)。 */
   let replacing = false;
+  /** Jinja を含む `<style>` を canvas 用に描画するサンプル。作成タブだけが渡す(`setStyleSample`)。 */
+  let styleSample: SampleData | null = null;
   /** canvas の画像参照の警告(`{{` の残る参照・配信されない参照・会社フォルダ不一致)。 */
   const imageWarnings = ref<string[]>([]);
 
@@ -770,14 +772,25 @@ export function useGrapes() {
    * 背景画像)は canvas では解けないので配信 URL へ直した複製を置き、本文の `<style>` は canvas に
    * 元の規則が無いので全規則を複製する(参照は文書の位置を基準に解く)。どちらも canvas 専用の
    * `<style>` に置くので保存内容(getHtml / getCss)には載らない。中に Jinja を含む `<style>` は
-   * 原文を運ぶチップで、描画しないと規則にならないので複製しない(表示に効かないのは従来どおり)。
+   * 原文を運ぶチップ(レイヤーには見え、消せる)で、作成タブでは `toFilled` と同じサンプルで描画
+   * した規則を同じく複製する。描画できないものは複製せず、チップはそのまま残す。
    */
   function syncCanvasCssCopy(): void {
-    const texts = bodyStyleCssTexts(editor.value?.getWrapper());
+    const texts = bodyStyleCssTexts(editor.value?.getWrapper(), styleSample);
     fundImages?.setCss([
       ...texts.map((text) => ({ css: text, from: DOC_DIR, whole: true })),
       { css: templateCss, from: TEMPLATE_CSS_FROM },
     ]);
+  }
+
+  /**
+   * Jinja を含む本文の `<style>` を canvas で効かせるためのサンプルを設定する。作成タブだけが
+   * `toFilled` と同じサンプルを渡し、編集タブ(値入りの本文で、チップを持たない)は null。
+   * `load` より前に呼ぶ(呼んだ時点の canvas の複製も作り直す)。
+   */
+  function setStyleSample(sample: SampleData | null): void {
+    styleSample = sample;
+    syncCanvasCssCopy();
   }
 
   /**
@@ -966,6 +979,7 @@ export function useGrapes() {
     load,
     setVarsHighlight,
     setFundImageContext,
+    setStyleSample,
     imageWarnings,
     parseHtmlQuiet,
     insertPart,

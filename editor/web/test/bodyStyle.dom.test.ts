@@ -17,6 +17,7 @@ import {
   BODY_STYLE_VIEW_ATTR,
   bodyStyleCssTexts,
   bodyStyleParserHtml,
+  renderJinjaStyleCss,
 } from '@/features/editor/bodyStyle';
 import { CANVAS_CSS_ASSET_ATTR } from '@/features/editor/fundImageLayer';
 import { strayDirectChildren } from '@/features/editor/pageView';
@@ -116,10 +117,34 @@ describe('本文の <style>', () => {
     expect(doc.querySelectorAll(`style[${CANVAS_CSS_ASSET_ATTR}]`)).toHaveLength(1);
   });
 
-  it('Jinja を含む <style> は canvas の複製を作らない(描画しないと規則にならない)', () => {
+  it('描画用のサンプルが無い(編集タブ)ときは Jinja を含む <style> を複製しない', () => {
     const doc = canvasDoc(g);
     g.load(toFilled('<p>x</p><style>.j{color:{{ fund.code }}}</style>', sample), '');
     expect(copyIn(doc)).not.toContain('.j');
+  });
+
+  it('作成タブ: Jinja を含む <style> はサンプルで描画した規則を複製し、保存は原文のまま', () => {
+    const doc = canvasDoc(g);
+    const data = { ...sample, x: { color: 'red', bg: 'url(https://e.example/x.png)' } };
+    g.setStyleSample(data);
+    const raw =
+      '<p>{{ fund.name }}</p><style>.j{color:{{ x.color }}}</style>' +
+      '<style>.k{background:{{ x.bg }}}</style>' +
+      STYLE;
+    g.load(toFilled(raw, data), '');
+    g.setVarsHighlight(true);
+    // 文書の順に並び、外部参照になった規則は落ちる。ハイライトの印は CSS に混ざらない。
+    expect(copyIn(doc)).toBe('.j{color:red}\n.a{color:red}');
+    const html = g.getBodyHtml();
+    expect(html).not.toContain('.j{color:red}');
+    expect(g.getCss()).not.toContain('.j');
+    const saved = toTemplate(html, { asFragment: true });
+    expect(saved).toContain('<style>.j{color:{{ x.color }}}</style>');
+    expect(saved).toContain('<style>.k{background:{{ x.bg }}}</style>');
+    // サンプルを外すと(編集タブへ切り替えた後の読み込み)複製しない。
+    g.setStyleSample(null);
+    g.load(html, '');
+    expect(copyIn(doc)).toBe('.a{color:red}');
   });
 
   it('本文の <style> を消すと canvas の複製からも消え、保存出力にも残らない', () => {
@@ -186,6 +211,22 @@ describe('canvas の置き場の要素', () => {
     const body = document.createElement('body');
     body.innerHTML = `<span ${BODY_STYLE_VIEW_ATTR}></span><div class="page"></div><p>y</p>`;
     expect(strayDirectChildren(body).map((el) => el.tagName)).toEqual(['P']);
+  });
+});
+
+describe('renderJinjaStyleCss', () => {
+  it('<style> 1 つの原文をサンプルで描画して中身を返す', () => {
+    expect(renderJinjaStyleCss('<style>.a{color:{{ c }}}</style>', { c: 'red' })).toBe(
+      '.a{color:red}',
+    );
+  });
+
+  it.each([
+    ['字句・構造の誤り', '<style>{% if %}.a{}</style>'],
+    ['<style> 以外が混ざる', '<style>.a{}</style><p>x</p>'],
+    ['<style> ではない', '{% raw %}x{% endraw %}'],
+  ])('%s は null(複製しない)', (_, source) => {
+    expect(renderJinjaStyleCss(source, {})).toBeNull();
   });
 });
 

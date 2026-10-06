@@ -15,9 +15,14 @@
 //
 // 置き場は canvas では常に隠す。規則は canvas 専用の複製(`fundImageLayer.ts` の
 // `data-canvas-css-assets`)で効かせ、保存内容には何も足さない。中に Jinja を含む `<style>` は
-// `fillJinja` が原文を運ぶチップ(`jinja-rawtext`)にしているので、ここには来ない。
+// `fillJinja` が原文を運ぶチップ(`jinja-rawtext`)にしているので、置き場にはならない。作成タブでは
+// そのチップの原文を `toFilled` と同じサンプルで描画し、同じ複製に入れて canvas で効かせる
+// (`renderJinjaStyleCss`)。保存はチップの原文のままで、描画した規則はどこにも保存されない。
 
+import type { SampleData } from '@editor/shared';
 import type { Component, CustomParserHtml, Editor } from 'grapesjs';
+import { renderPlainFilled } from '@/lib/fillRender';
+import { b64decodeUtf8, DATA_OPAQUE } from '@/lib/jinjaAttrs';
 
 /** 本文の `<style>` の部品の型。 */
 export const BODY_STYLE_TYPE = 'body-style';
@@ -119,16 +124,65 @@ export function registerBodyStyleComponent(editor: Editor): void {
   });
 }
 
-/** 部品の木の中の、本文の `<style>` の中身(文書の順)。空白だけのものは除く。 */
-export function bodyStyleCssTexts(root: Component | undefined): string[] {
-  if (!root) return [];
-  return root
-    .findType(BODY_STYLE_TYPE)
-    .map((c) => c.get('styleCss') as string)
-    .filter((css) => css.trim() !== '');
+/** 中に Jinja を含む `<style>` などを運ぶチップの型(`jinjaComponents.ts`)。 */
+const RAWTEXT_CHIP_TYPE = 'jinja-rawtext';
+
+/**
+ * `<style>` 1 つの原文(Jinja を含む)をサンプルで描画し、中身の CSS を返す。描画できない・
+ * 描画結果が `<style>` 1 つにならない(`{% raw %}` のチップ、`<textarea>` など)ときは null。
+ * 値は HTML の描画と同じくエスケープされるので、値から `</style>` や要素は作れない。
+ */
+export function renderJinjaStyleCss(source: string, sample: SampleData): string | null {
+  try {
+    const { html } = renderPlainFilled(source, sample);
+    const body = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html').body;
+    const style = body.firstElementChild;
+    if (body.childNodes.length !== 1 || style?.localName !== 'style') return null;
+    return style.textContent;
+  } catch {
+    return null;
+  }
 }
 
-/** 部品(子孫を含む)に本文の `<style>` があるか。 */
+/**
+ * 部品の木の中の、canvas に複製する本文の `<style>` の中身(文書の順)。置き場は原文の中身を、
+ * Jinja を含む `<style>` のチップは `sample` があれば描画した中身を返す。`sample` が null
+ * (編集タブ。本文は値入りでチップを持たない)なら、チップは描画しない。空白だけのものは除く。
+ */
+export function bodyStyleCssTexts(
+  root: Component | undefined,
+  sample: SampleData | null = null,
+): string[] {
+  const out: string[] = [];
+  const visit = (c: Component): void => {
+    const type = c.get('type');
+    if (type === BODY_STYLE_TYPE) out.push(c.get('styleCss') as string);
+    else if (type === RAWTEXT_CHIP_TYPE && sample) {
+      const encoded = c.getAttributes()[DATA_OPAQUE];
+      const css =
+        typeof encoded === 'string' ? renderJinjaStyleCss(b64decodeSafe(encoded), sample) : null;
+      if (css !== null) out.push(css);
+    }
+    c.components().forEach(visit);
+  };
+  if (root) visit(root);
+  return out.filter((css) => css.trim() !== '');
+}
+
+/** 壊れた base64 は描画できない原文(空)として扱う。 */
+function b64decodeSafe(encoded: string): string {
+  try {
+    return b64decodeUtf8(encoded);
+  } catch {
+    return '';
+  }
+}
+
+/** 部品(子孫を含む)に、canvas に複製する `<style>`(置き場か Jinja を含むチップ)があるか。 */
 export function containsBodyStyle(c: Component): boolean {
-  return c.get('type') === BODY_STYLE_TYPE || c.findType(BODY_STYLE_TYPE).length > 0;
+  const copied = (x: Component) => {
+    const type = x.get('type');
+    return type === BODY_STYLE_TYPE || type === RAWTEXT_CHIP_TYPE;
+  };
+  return copied(c) || c.findType(BODY_STYLE_TYPE).length + c.findType(RAWTEXT_CHIP_TYPE).length > 0;
 }

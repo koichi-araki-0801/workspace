@@ -69,6 +69,16 @@ describe('TemplateEditorService.loadForEdit', () => {
     }
   });
 
+  it('値の差込に使ったサンプルを返す(作成タブの canvas で Jinja を含む <style> を描画する)', async () => {
+    const { templates, parts } = repos({ draft: null });
+    (templates as unknown as { getSampleData: unknown }).getSampleData = vi.fn(async () =>
+      ok({ x: 'v' }),
+    );
+    const svc = createTemplateEditorService(templates, parts);
+    const res = await svc.loadForEdit('t1');
+    expect(isOk(res) && res.value.sample.x).toBe('v');
+  });
+
   it('prefers the autosaved draft over the file', async () => {
     const draft: TemplateDraft = {
       templateId: 't1',

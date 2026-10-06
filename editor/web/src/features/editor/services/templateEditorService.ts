@@ -32,6 +32,11 @@ interface EditorLoad {
   /** 確定版の値埋め込み本文。赤入れの基準。draft 有無に関わらず解決する。 */
   confirmedBody: string;
   css: string;
+  /**
+   * 値の差込(`toFilled`)に使ったサンプル。作成タブの canvas が、Jinja を含む本文の `<style>` を
+   * 同じ値で描画して効かせるのに使う(`useGrapes` の `setStyleSample`)。
+   */
+  sample: SampleData;
   /** canvas 選択を docs へ解決するための catalog parts。 */
   parts: PartCatalogItem[];
   /** editor タイトルの既定(ファイル名。ファンド名は上部バーが Rep1 から引いて差し替える)。 */
@@ -145,6 +150,7 @@ export function createTemplateEditorService(
         editableBody,
         confirmedBody,
         css,
+        sample,
         parts: partsRes.value,
         fundName,
         hasDraft: !!draft,
