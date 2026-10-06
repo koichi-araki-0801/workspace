@@ -6,6 +6,7 @@
 //   2. 文字編集の取り込み直し・ペーストを経ても、保存出力(getBodyHtml → toTemplate)は原文の
 //      `src` のままで、配信 URL が混ざらない。
 //   3. GrapesJS の代替画像処理(onError で src を差し替える)が対象の `src` で止まる。
+import { DOC_DIR } from '@editor/shared';
 import type { Component } from 'grapesjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -17,6 +18,7 @@ import {
 import { cssString, type FundImageContext } from '@/features/editor/fundImages';
 import { useGrapes } from '@/features/editor/useGrapes';
 import { FUND_IMAGE_WARNING_MESSAGE } from '@/lib/assetWarnings';
+import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
 import { toTemplate } from '@/lib/jinjaMask';
 
 const JINJA: FundImageContext = { mode: 'jinja', fundCode: '510037', companyCode: 'AM01' };
@@ -202,6 +204,9 @@ class FakeResizeObserver {
   }
 }
 
+/** テンプレの CSS だけを渡す `setCss` の入力。 */
+const tpl = (css: string) => [{ css, from: TEMPLATE_CSS_FROM }];
+
 describe('CSS の url() 規則の複製層', () => {
   const assetStyle = (): Element | null =>
     document.body.querySelector(`style[${CANVAS_CSS_ASSET_ATTR}]`);
@@ -216,7 +221,7 @@ describe('CSS の url() 規則の複製層', () => {
       preload: async () => {},
       schedule: (cb) => cb(),
     });
-    layer.setCss('@font-face{font-family:a;src:url(fonts/biz.woff2)}.p{color:red}');
+    layer.setCss(tpl('@font-face{font-family:a;src:url(fonts/biz.woff2)}.p{color:red}'));
     expect(assetStyle()?.textContent).toContain('/api/preview-host/css/fonts/biz.woff2');
     expect(assetStyle()?.textContent).not.toContain('color:red');
     expect(document.body.lastElementChild).toBe(assetStyle());
@@ -234,11 +239,11 @@ describe('CSS の url() 規則の複製層', () => {
       preload: async () => {},
       schedule: (cb) => cb(),
     });
-    layer.setCss('.p{color:red}');
+    layer.setCss(tpl('.p{color:red}'));
     expect(assetStyle()).toBeNull();
-    layer.setCss('.p{background:url(../images/510037_bg.svg)}');
+    layer.setCss(tpl('.p{background:url(../images/510037_bg.svg)}'));
     expect(assetStyle()?.textContent).toContain('/api/fund-assets/images/510037_bg.svg');
-    layer.setCss('.p{color:red}');
+    layer.setCss(tpl('.p{color:red}'));
     expect(assetStyle()?.textContent).toBe('');
   });
 
@@ -251,7 +256,7 @@ describe('CSS の url() 規則の複製層', () => {
       preload: async () => {},
       schedule: (cb) => cb(),
     });
-    layer.setCss('.p{background:url(../images/510037_bg.svg)}');
+    layer.setCss(tpl('.p{background:url(../images/510037_bg.svg)}'));
     document.body.innerHTML = '';
     layer.refresh();
     expect(assetStyle()?.textContent).toContain('510037_bg.svg');
@@ -267,7 +272,7 @@ describe('CSS の url() 規則の複製層', () => {
       preload: async () => {},
       schedule: (cb) => cb(),
     });
-    layer.setCss('.p{background:url(../images/am01/qr.svg)}');
+    layer.setCss(tpl('.p{background:url(../images/am01/qr.svg)}'));
     expect(assetStyle()?.textContent).toContain('/api/fund-assets/images/am01/qr.svg');
     ctx = { ...FILLED, companyCode: 'SMTAM' };
     layer.refresh();
@@ -284,10 +289,59 @@ describe('CSS の url() 規則の複製層', () => {
       preload: async () => {},
       schedule: (cb) => cb(),
     });
-    layer.setCss('.p{background:url(../images/other/q.svg)}');
+    layer.setCss(tpl('.p{background:url(../images/other/q.svg)}'));
     expect(onWarningsChange).toHaveBeenLastCalledWith([
       '会社フォルダ名がテンプレの会社コード（AM01）と違うため表示しません（../images/other/q.svg）',
     ]);
+  });
+
+  it('本文の <style> は文書の位置で解き、テンプレの CSS より前に並べる', () => {
+    const { host } = fakeHost(document);
+    const onWarningsChange = vi.fn();
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningsChange,
+      preload: async () => {},
+      schedule: (cb) => cb(),
+    });
+    layer.setCss([
+      {
+        css:
+          '@font-face{font-family:F;src:url(../css/fonts/f.woff2)}' +
+          '.q{background:url(../images/other/b.svg)}',
+        from: DOC_DIR,
+      },
+      { css: '.p{background:url(../images/510037_bg.svg)}', from: TEMPLATE_CSS_FROM },
+    ]);
+    expect(assetStyle()?.textContent).toBe(
+      '@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}\n' +
+        '.p{background:url("/api/fund-assets/images/510037_bg.svg")}',
+    );
+    expect(onWarningsChange).toHaveBeenLastCalledWith([
+      '会社フォルダ名がテンプレの会社コード（AM01）と違うため表示しません（../images/other/b.svg）',
+    ]);
+  });
+
+  it('会社コードが変わったら、本文の <style> の複製も照合をやり直す', () => {
+    const { host } = fakeHost(document);
+    let ctx: FundImageContext = FILLED;
+    const layer = attachFundImages(host, {
+      getContext: () => ctx,
+      onImagesReady: vi.fn(),
+      onWarningsChange: vi.fn(),
+      preload: async () => {},
+      schedule: (cb) => cb(),
+    });
+    layer.setCss([
+      { css: '.q{background:url(../images/am01/q.svg)}', from: DOC_DIR },
+      { css: '.p{background:url(../images/am01/p.svg)}', from: TEMPLATE_CSS_FROM },
+    ]);
+    expect(assetStyle()?.textContent).toContain('am01/q.svg');
+    expect(assetStyle()?.textContent).toContain('am01/p.svg');
+    ctx = { ...FILLED, companyCode: 'SMTAM' };
+    layer.refresh();
+    expect(assetStyle()?.textContent).toBe('');
   });
 });
 
@@ -426,6 +480,25 @@ describe('useGrapes との結合', () => {
     // jsdom の CSSOM は `@font-face` の記述子を落とすので、原文の参照は背景画像の側で確かめる。
     expect(g.getCss()).toContain('url("../images/510037_bg.svg")');
     expect(g.getBodyHtml()).not.toContain(CANVAS_CSS_ASSET_ATTR);
+    expect(g.getBodyHtml()).not.toContain('/api/');
+  });
+
+  it('本文の <style> の url() も複製し、保存出力は原文のまま', () => {
+    const body =
+      '<style>@font-face{font-family:F;src:url(../css/fonts/f.woff2)}</style>' +
+      '<div class="page"><p>{{ fund.name }}</p></div>';
+    // jsdom では canvas の iframe に document が無いので、複製の置き場を別の document で代える。
+    const doc = document.implementation.createHTMLDocument('');
+    const canvas = g.editor.value?.Canvas;
+    if (!canvas) throw new Error('editor が無い');
+    vi.spyOn(canvas, 'getDocument').mockReturnValue(doc);
+    expect(g.load(body, '.page{background:url(../images/510037_bg.svg)}')).toBe(true);
+    const copy = doc.body.querySelector(`style[${CANVAS_CSS_ASSET_ATTR}]`)?.textContent;
+    expect(copy).toBe(
+      '@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}\n' +
+        '.page{background:url("/api/fund-assets/images/510037_bg.svg")}',
+    );
+    expect(g.getCss()).not.toContain('/api/');
     expect(g.getBodyHtml()).not.toContain('/api/');
   });
 

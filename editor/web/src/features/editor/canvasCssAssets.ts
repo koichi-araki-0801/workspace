@@ -22,6 +22,8 @@
 // 配信 URL は、フォントがプレビューホスト(`/api/preview-host/css/fonts/…`。同一オリジンで
 // cookie が付く)、画像が単体配信ルート(`/api/fund-assets/images/…`)。画像の判定と会社フォルダの
 // 照合は `lib/fundImages.ts` と共有する。参照の解決は CSS 自身の位置(`css/`)を基準にする。
+// 本文の `<style>` も同じ理由で canvas では解けないので複製するが、こちらは文書の位置(`doc/`)を
+// 参照元として解く(書き手は文書からの相対で `url(../css/fonts/…)` と書く)。
 
 import {
   type CssUrlSpan,
@@ -117,13 +119,14 @@ function rewriteUrls(
   range: Range,
   spans: readonly CssUrlSpan[],
   companyCode: string | null,
+  from: string,
 ): string | undefined {
   let out = text.slice(range.start, range.end);
   let changed = false;
   // 後ろから置換して、先行する範囲のオフセットを保つ。
   for (const span of [...spans].reverse()) {
     if (span.start < range.start || span.end > range.end) continue;
-    const rel = resolveDocAssetPath(span.value, TEMPLATE_CSS_FROM);
+    const rel = resolveDocAssetPath(span.value, from);
     const url = rel === undefined ? undefined : canvasAssetUrl(rel, companyCode);
     if (url === undefined) continue;
     const s = span.start - range.start;
@@ -139,11 +142,11 @@ function rewriteUrls(
  * 同じ系統の個別指定だけを残す。
  * 残すものが無ければ undefined。
  */
-function rewriteRule(text: string, companyCode: string | null): string | undefined {
+function rewriteRule(text: string, companyCode: string | null, from: string): string | undefined {
   const spans = collectCssUrlSpans(text);
   if (spans.length === 0) return undefined;
   if (FONT_FACE_RE.test(text)) {
-    return rewriteUrls(text, { start: 0, end: text.length }, spans, companyCode);
+    return rewriteUrls(text, { start: 0, end: text.length }, spans, companyCode, from);
   }
   const ranges = declarationRanges(text);
   if (ranges.length === 0) return undefined;
@@ -153,7 +156,7 @@ function rewriteRule(text: string, companyCode: string | null): string | undefin
   for (const range of ranges) {
     const raw = text.slice(range.start, range.end).replace(LEADING_TRIVIA_RE, '');
     const prop = propertyName(raw);
-    const decl = rewriteUrls(text, range, spans, companyCode);
+    const decl = rewriteUrls(text, range, spans, companyCode, from);
     if (decl !== undefined) {
       kept.push(decl.replace(LEADING_TRIVIA_RE, '').trim());
       if (prop !== '') families.push(prop);
@@ -166,13 +169,19 @@ function rewriteRule(text: string, companyCode: string | null): string | undefin
 }
 
 /**
- * テンプレの CSS から、`url()` を配信 URL へ直せた規則だけを、囲む at-rule ごと複製して返す
+ * CSS から、`url()` を配信 URL へ直せた規則だけを、囲む at-rule ごと複製して返す
  * (1 規則 1 行。`@font-face` 以外は `url()` の宣言だけ)。直せる参照が無ければ空文字。
+ * `from` は参照を解く基準の論理パス。テンプレの CSS は既定の `TEMPLATE_CSS_FROM`、本文の
+ * `<style>` は `DOC_DIR`。
  */
-export function canvasCssAssetCopy(css: string, companyCode: string | null): string {
+export function canvasCssAssetCopy(
+  css: string,
+  companyCode: string | null,
+  from: string = TEMPLATE_CSS_FROM,
+): string {
   const out: string[] = [];
   for (const rule of splitCssRules(css)) {
-    const rewritten = rewriteRule(rule.text, companyCode);
+    const rewritten = rewriteRule(rule.text, companyCode, from);
     if (rewritten === undefined) continue;
     out.push(rule.atRules.reduceRight((inner, prelude) => `${prelude}{${inner}}`, rewritten));
   }

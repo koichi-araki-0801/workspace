@@ -6,6 +6,7 @@
 // `wireGrapesEvents` へ、zoom/フィットは `useZoomFit.ts` へ、ページ境界 guide は
 // `usePageGuides.ts` へ、選択枠 rect / メモ目印は `useCanvasMarkers.ts` へ委譲する。
 
+import { DOC_DIR } from '@editor/shared';
 import grapesjs, {
   type Component,
   type ComponentDefinition,
@@ -15,6 +16,7 @@ import grapesjs, {
 import { ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
+import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
 import { attachFundImages, type FundImageLayer, registerFundImageView } from './fundImageLayer';
@@ -54,6 +56,19 @@ let quietParse = false;
  */
 function wrapFragmentInBody(html: string): string {
   return /^\s*<(?:!doctype|html|head|body)[\s>]/i.test(html) ? html : `<body>${html}</body>`;
+}
+
+/**
+ * 読み込む本文の `<style>` の中身を、文書の順に取り出す。`<style>` の中は HTML として解かれない
+ * ので、本文の Jinja の文やチップがあっても中身はそのまま取れる。中に Jinja を含む `<style>` は
+ * `fillJinja` が原文を運ぶチップ(`<style>` 要素ではない)にしているので、ここには現れない。
+ */
+function bodyStyleTexts(html: string): string[] {
+  if (!/<style[\s>]/i.test(html)) return [];
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return Array.from(doc.querySelectorAll('style'), (el) => el.textContent ?? '').filter(
+    (text) => text.trim() !== '',
+  );
 }
 
 /** `useGrapes` の推論戻り値型が参照するため export が必要(TS4058 回避)。 @public */
@@ -782,9 +797,13 @@ export function useGrapes() {
       quietParse = false;
     }
     ed.setStyle(css);
-    // テンプレの CSS の url()(フォント・背景画像)は canvas では解けないので、配信 URL へ直した
-    // 複製を canvas 専用の `<style>` に置く(`canvasCssAssets.ts`)。保存内容(getCss)には載らない。
-    fundImages?.setCss(css);
+    // 本文の `<style>` とテンプレの CSS の url()(フォント・背景画像)は canvas では解けないので、
+    // 配信 URL へ直した複製を canvas 専用の `<style>` に置く(`canvasCssAssets.ts`)。保存内容
+    // (getCss)には載らない。本文の `<style>` は文書の位置を基準に解く。
+    fundImages?.setCss([
+      ...bodyStyleTexts(bodyEditableHtml).map((text) => ({ css: text, from: DOC_DIR })),
+      { css, from: TEMPLATE_CSS_FROM },
+    ]);
     // setComponents/setStyle 直後は iframe DOM が未描画で、`component:add` の `fireChange`
     // から走る `recomputePages` が `.page` を拾えず `[body]` フォールバック(`pageCount=1`)に
     // 落ちる。その結果ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に

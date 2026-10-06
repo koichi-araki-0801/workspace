@@ -1,6 +1,7 @@
 // =============================================================================
 // canvasCssAssets.test.ts — 編集画面の canvas 専用に、url() を含む規則を配信 URL へ直した複製
 // =============================================================================
+import { DOC_DIR } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import { canvasAssetUrl, canvasCssAssetCopy } from '@/features/editor/canvasCssAssets';
 
@@ -166,5 +167,29 @@ describe('canvasCssAssetCopy', () => {
     expect(out).not.toContain('color: red');
     expect(out.startsWith('@font-face')).toBe(true);
     expect(out.match(/url\(/g)).toHaveLength(2);
+  });
+
+  it('参照元に文書の位置を渡すと、本文の <style> の url() を文書基準で解く', () => {
+    const css = '@font-face{font-family:F;src:url(../css/fonts/f.woff2)}';
+    expect(canvasCssAssetCopy(css, 'AM01', DOC_DIR)).toBe(
+      '@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}',
+    );
+    // 参照元を省くと今どおり CSS の位置(`css/`)で解く。
+    expect(canvasCssAssetCopy('@font-face{font-family:F;src:url(fonts/f.woff2)}', 'AM01')).toBe(
+      '@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}',
+    );
+    // 同じ `url(fonts/…)` でも、文書の位置からは `doc/fonts/…` を指すので配らない。
+    expect(
+      canvasCssAssetCopy('@font-face{font-family:F;src:url(fonts/f.woff2)}', 'AM01', DOC_DIR),
+    ).toBe('');
+  });
+
+  it('文書基準の画像も会社フォルダの照合を通る', () => {
+    expect(canvasCssAssetCopy('.a{background:url(../images/AM01/x.svg)}', 'AM01', DOC_DIR)).toBe(
+      '.a{background:url("/api/fund-assets/images/AM01/x.svg")}',
+    );
+    expect(canvasCssAssetCopy('.a{background:url(../images/SMTAM/x.svg)}', 'AM01', DOC_DIR)).toBe(
+      '',
+    );
   });
 });
