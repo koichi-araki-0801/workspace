@@ -2,7 +2,7 @@
 // node 環境(web-node)で回す。
 import { parseHTML } from 'linkedom';
 import { describe, expect, it } from 'vitest';
-import { splitPages } from '@/lib/pageBreaks';
+import { findUncountedBreaks, splitPages } from '@/lib/pageBreaks';
 
 const split = (html: string) => {
   const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
@@ -30,5 +30,16 @@ describe('splitPages(linkedom)', () => {
       ['a'],
       ['b'],
     ]);
+  });
+
+  it('findUncountedBreaks は入れ子の区切りと inline を返し、赤入れの配下は見ない', () => {
+    const { document } = parseHTML(
+      '<!doctype html><html><body>' +
+        '<div class=pagebreak></div>' +
+        '<section><div id=n1 class=pagebreak></div><p id=n2 style="break-after:page"></p>' +
+        '<div data-redline=""><div class=pagebreak></div></div></section>' +
+        '</body></html>',
+    );
+    expect(findUncountedBreaks(document.body).map((e) => e.id)).toEqual(['n1', 'n2']);
   });
 });

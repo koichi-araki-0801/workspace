@@ -76,6 +76,29 @@ describe('splitPages', () => {
     ).toEqual([['a'], ['b']]);
   });
 
+  it('inline の宣言のコメントは空白として読む', () => {
+    expect(split('<p id=a></p><p id=b style="/* c */ break-before:page"></p>')).toEqual([
+      ['a'],
+      ['b'],
+    ]);
+    expect(split('<p id=a></p><p id=b style="break-before: page /* x */"></p>')).toEqual([
+      ['a'],
+      ['b'],
+    ]);
+    // 値の途中のコメントは区切りになるので `pa ge` は無効な値
+    expect(split('<p id=a></p><p id=b style="break-before: pa/**/ge"></p>')).toEqual([['a', 'b']]);
+    // コメントの中の `;` で宣言を割らない
+    expect(
+      split('<p id=a></p><p id=b style="break-before:page /* ; break-before:auto */"></p>'),
+    ).toEqual([['a'], ['b']]);
+  });
+
+  it('プロパティ名として読めない宣言は後勝ちの対象にしない', () => {
+    expect(
+      split('<p id=a></p><p id=b style="break-before:page; /* c */ : auto; x y:auto"></p>'),
+    ).toEqual([['a'], ['b']]);
+  });
+
   it('class="x pagebreak" も区切り、span.pagebreak や div.PageBreak は区切りでない', () => {
     expect(split('<p id=a></p><div class="x pagebreak"></div><p id=b></p>')).toEqual([
       ['a'],
@@ -166,6 +189,9 @@ describe('pagebreakCssDefined', () => {
     ['.a, .pagebreak{break-after:page}', true],
     ['.pagebreak { color: red; page-break-after: always !important; }', true],
     ['/* c */ .pagebreak{break-after:page}', true],
+    ['.pagebreak{/* c */ break-after:page}', true],
+    ['.pagebreak{break-after:/* c */page}', true],
+    ['.pagebreak{color:red /* ; break-after:page */}', false],
     ['.pagebreak{display:none}', false],
     ['.pagebreak{break-after:avoid}', false],
     ['.page{page-break-after:always}', false],

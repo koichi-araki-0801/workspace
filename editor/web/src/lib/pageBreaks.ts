@@ -17,7 +17,7 @@
 // (`features/compare/htmlBlockDiff.ts` の `isElement` と同じ作法)。
 
 import { splitCssRules } from '@editor/shared';
-import { REDLINE_ATTR } from '@/features/editor/redline/redlineApply';
+import { REDLINE_ATTR } from './redlineAttr';
 
 /** 改ページの区切りを表すクラス。 */
 export const PAGEBREAK_CLASS = 'pagebreak';
@@ -43,12 +43,30 @@ export function isPagebreakEl(el: Element): boolean {
   return el.tagName.toLowerCase() === 'div' && el.classList.contains(PAGEBREAK_CLASS);
 }
 
-/** 宣言の値から `!important` を外し、比較用に小文字へそろえる。 */
-function declValue(raw: string): string {
-  return raw
-    .replace(/!\s*important\s*$/i, '')
-    .trim()
-    .toLowerCase();
+/** プロパティ名として読める形(カスタムプロパティとベンダ接頭辞を含む)。 */
+const PROP_NAME_RE = /^-{0,2}[a-z][-a-z0-9]*$/;
+
+/**
+ * 宣言の並び(inline `style` か規則の本文)を `[プロパティ名, 値]` の列にする。コメントは CSS の
+ * 字句と同じく空白として読む(中の `;` で宣言を割らず、値の途中なら値を 2 語に分ける)。
+ * プロパティ名として読めない宣言は捨てる(ブラウザも無視するので、後勝ちの対象にしない)。値は
+ * `!important` を外し、比較用に小文字へそろえる。
+ */
+function parseDecls(text: string): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  for (const decl of text.replace(/\/\*[\s\S]*?(?:\*\/|$)/g, ' ').split(';')) {
+    const colon = decl.indexOf(':');
+    if (colon < 0) continue;
+    const prop = decl.slice(0, colon).trim().toLowerCase();
+    if (!PROP_NAME_RE.test(prop)) continue;
+    const value = decl
+      .slice(colon + 1)
+      .replace(/!\s*important\s*$/i, '')
+      .trim()
+      .toLowerCase();
+    out.push([prop, value]);
+  }
+  return out;
 }
 
 /**
@@ -60,11 +78,8 @@ export function inlineBreak(el: Element, edge: 'before' | 'after'): boolean {
   if (!style) return false;
   const props = new Set([`page-break-${edge}`, `break-${edge}`]);
   let on = false;
-  for (const decl of style.split(';')) {
-    const colon = decl.indexOf(':');
-    if (colon < 0) continue;
-    if (!props.has(decl.slice(0, colon).trim().toLowerCase())) continue;
-    on = isBreakValue(declValue(decl.slice(colon + 1)));
+  for (const [prop, value] of parseDecls(style)) {
+    if (props.has(prop)) on = isBreakValue(value);
   }
   return on;
 }
@@ -125,8 +140,10 @@ export function findUncountedBreaks(root: Element): Element[] {
   return out;
 }
 
-/** 区切りを指すセレクタ。子孫・結合子つきのもの(`.x .pagebreak`)は根の直下と限らないので数えない。 */
-// 型セレクタは大文字小文字を区別しないが、クラス名は区別する。
+/**
+ * 区切りを指すセレクタ。子孫・結合子つきのもの(`.x .pagebreak`)は根の直下と限らないので数えない。
+ * 型セレクタは大文字小文字を区別しないが、クラス名は区別する。
+ */
 const PAGEBREAK_SELECTOR_RE = new RegExp(`^(?:[Dd][Ii][Vv])?\\.${PAGEBREAK_CLASS}$`);
 const BREAK_PROP_RE = /^(?:page-)?break-(?:before|after)$/;
 
@@ -145,11 +162,8 @@ export function pagebreakCssDefined(css: string): boolean {
       .map((s) => s.trim());
     if (!selectors.some((s) => PAGEBREAK_SELECTOR_RE.test(s))) continue;
     const body = rule.text.slice(open + 1, rule.text.lastIndexOf('}'));
-    for (const decl of body.split(';')) {
-      const colon = decl.indexOf(':');
-      if (colon < 0) continue;
-      const prop = decl.slice(0, colon).trim().toLowerCase();
-      if (BREAK_PROP_RE.test(prop) && isBreakValue(declValue(decl.slice(colon + 1)))) return true;
+    if (parseDecls(body).some(([prop, value]) => BREAK_PROP_RE.test(prop) && isBreakValue(value))) {
+      return true;
     }
   }
   return false;
