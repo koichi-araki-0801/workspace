@@ -24,6 +24,7 @@
 //   CSP を継承する)。解釈できない式は**握り潰さず数え**、`toFilledWithDiagnostics`
 //   が呼び出し側へ返す — 「例外を catch して黙って空文字」の形を残さない。
 import type { SampleData } from '@editor/shared';
+import { MATH_TEX_RE } from './fillAnalysis';
 import {
   DATA_JINJA,
   DATA_JINJA_BLOCK,
@@ -137,9 +138,8 @@ function opaqueChip(source: string, kind: 'script' | 'math', label: string): str
 // 別々の正規表現に分かれると、片側だけ緩めても round-trip テストが気付けないため。
 export const OPAQUE_SCRIPT_RE = /<script\b[\s\S]*?<\/script>/gi;
 export const OPAQUE_MATH_RE = /<math\b[\s\S]*?<\/math>/gi;
-// MathJax が受理する TeX 区切り: $$…$$ / \(…\) / \[…\]。(単独の `$` はマッチさせ
-// ない — レポート本文の通貨表記と衝突するため。)
-export const MATH_TEX_RE = /\$\$[\s\S]*?\$\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g;
+// TeX 区切りの定義は `fillAnalysis.ts` に置く。`jinjaMask.ts` がここから読むので出し直す。
+export { MATH_TEX_RE };
 
 /**
  * 構造パスの前に, GrapesJS と相性の悪い / math コンテンツを opaque chip へ mask
