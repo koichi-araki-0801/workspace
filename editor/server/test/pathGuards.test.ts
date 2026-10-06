@@ -180,7 +180,11 @@ describe('files/*.ts のパス封じ込め', () => {
   it('pending・下書きはテンプレート(3 つ区切り)の id も受け、置き場の中に書く', async () => {
     const id = 'AM01_510037_交付版';
     await pendingFiles.writePending(id, '<p>骨組み</p>', '');
-    expect(await pendingFiles.readPending(id)).toEqual({ html: '<p>骨組み</p>', css: '' });
+    expect(await pendingFiles.readPending(id)).toEqual({
+      html: '<p>骨組み</p>',
+      css: '',
+      cssFound: true,
+    });
     expect(await pendingFiles.listPendingIds()).toContain(id);
     await draftFiles.writeDraft(id, '<p>下書き</p>', '');
     expect(await draftFiles.draftExists(id)).toBe(true);

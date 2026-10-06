@@ -119,7 +119,18 @@ describe('pendingFiles.readPending', () => {
   it('HTML だけ在って CSS が無ければ CSS は空文字(正常な「無い」)', async () => {
     const id = 'AM01_666666_交付版';
     fs.writeFileSync(path.join(pendingDir, `${id}.html`), '<p>P</p>', 'utf8');
-    expect(await pending.readPending(id)).toEqual({ html: '<p>P</p>', css: '' });
+    expect(await pending.readPending(id)).toEqual({
+      html: '<p>P</p>',
+      css: '',
+      cssFound: false,
+    });
+  });
+
+  it('CSS が空のファイルとして在れば cssFound は true', async () => {
+    const id = 'AM01_666667_交付版';
+    fs.writeFileSync(path.join(pendingDir, `${id}.html`), '<p>P</p>', 'utf8');
+    fs.writeFileSync(path.join(pendingDir, `${id}.css`), '', 'utf8');
+    expect(await pending.readPending(id)).toEqual({ html: '<p>P</p>', css: '', cssFound: true });
   });
 
   it('CSS の読み取り失敗は例外にする', async () => {

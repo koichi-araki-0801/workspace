@@ -3578,7 +3578,7 @@
             "description": "エディタキャンバス用に事前描画した filled HTML(Jinja 値を差し込みつつ元ソースを保持)。静的な fill が無ければ空で、エディタは都度描画にフォールバックする"
           },
           "cssMissing": {
-            "description": "確定版の CSS ファイル(css/<会社>_<ファンド>_<版種>.css)が見つからないとき true。あれば付けない。生成直後(pending)は対象外",
+            "description": "確定版の CSS ファイル(css/<会社>_<ファンド>_<版種>.css)が見つからないとき true。あれば付けない。生成直後(pending)は pending の CSS ファイルが無いとき true",
             "type": "boolean"
           }
         },

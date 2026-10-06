@@ -280,6 +280,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         html: pending.html,
         css: pending.css,
         filled: '',
+        ...(pending.cssFound ? {} : { cssMissing: true }),
       };
     },
 

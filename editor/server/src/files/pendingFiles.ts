@@ -49,17 +49,18 @@ function readOr<T>(p: string, missing: T): Promise<string | T> {
  * pending 実体を読む。HTML が無ければ null、CSS が無ければ空文字(どちらも ENOENT のときだけ)。
  * それ以外の読み取り失敗は例外にする — null へ倒すと「pending が無い」と読まれて実行コード
  * 不変性の基準が空になり、CSS を `''` へ倒すと空の CSS で開いた編集がそのまま申請・承認される。
+ * `cssFound` は CSS のファイルがあったか(無いときは `css` が空文字で、呼び出し側が警告へ使う)。
  */
 export async function readPending(
   templateId: string,
-): Promise<{ html: string; css: string } | null> {
+): Promise<{ html: string; css: string; cssFound: boolean } | null> {
   const htmlPath = pendingPathOrNull(templateId, 'html');
   if (!htmlPath) return null;
   const html = await readOr(htmlPath, null);
   if (html === null) return null;
   const cssPath = pendingPathOrNull(templateId, 'css');
-  const css = cssPath ? await readOr(cssPath, '') : '';
-  return { html, css };
+  const css = cssPath ? await readOr(cssPath, null) : null;
+  return { html, css: css ?? '', cssFound: css !== null };
 }
 
 /**

@@ -119,7 +119,7 @@ export const Template = z
       .meta({
         description:
           '確定版の CSS ファイル(css/<会社>_<ファンド>_<版種>.css)が見つからないとき true。' +
-          'あれば付けない。生成直後(pending)は対象外',
+          'あれば付けない。生成直後(pending)は pending の CSS ファイルが無いとき true',
       }),
   })
   .meta({ id: 'Template' });

@@ -148,8 +148,19 @@ describe('templateRepo と filled/', () => {
     }
   });
 
-  it('pending(生成直後)は cssMissing の対象外で付けない', async () => {
+  it('pending の CSS が空のファイルとしてあれば cssMissing を付けない', async () => {
     expect((await repo.getTemplate(SKELETON_PENDING_ID)).cssMissing).toBeUndefined();
+  });
+
+  it('pending の CSS ファイルが無ければ cssMissing=true で css は空', async () => {
+    fs.rmSync(path.join(tmp, 'pending', `${SKELETON_PENDING_ID}.css`));
+    try {
+      const t = await repo.getTemplate(SKELETON_PENDING_ID);
+      expect(t.cssMissing).toBe(true);
+      expect(t.css).toBe('');
+    } finally {
+      fs.writeFileSync(path.join(tmp, 'pending', `${SKELETON_PENDING_ID}.css`), '', 'utf8');
+    }
   });
 
   it('filled/ と templates/ の両方にあれば filled/ が勝つ', async () => {
