@@ -80,6 +80,25 @@ describe('findEditingMarkers', () => {
     ]);
   });
 
+  it('Jinja の中の `<` や引用符に、後ろの本物のタグを呑み込ませない', () => {
+    expect(kinds('{# <!-- #}{# <a title=" #}<span data-jinja>1</span>{# " #}')).toEqual([
+      'attr:data-jinja',
+    ]);
+    expect(kinds(`{{ '<a title="' }}<span data-jinja>1</span>{{ '"' }}`)).toEqual([
+      'attr:data-jinja',
+    ]);
+    expect(kinds('{# <script> #}<span data-jinja>1</span>{# </script> #}')).toEqual([
+      'attr:data-jinja',
+    ]);
+  });
+
+  it('伏せは位置を保つ(改行を含む Jinja の後でも index が原文と一致する)', () => {
+    const html = '{% if a\n %}x{# \n #}<span data-jinja>1</span>';
+    expect(findEditingMarkers(html)).toEqual([
+      { marker: 'attr:data-jinja', index: html.indexOf('span') },
+    ]);
+  });
+
   it('コメント・<!…>・終了タグの中の引用符に、後ろの本物のタグを呑み込ませない', () => {
     expect(kinds('<!-- <a title=" --><span data-jinja="x">1</span>')).toEqual(['attr:data-jinja']);
     expect(kinds('<!x <a title="> <span data-jinja> ">')).toEqual(['attr:data-jinja']);
@@ -103,6 +122,11 @@ describe('findEditingMarkers', () => {
     expect(findEditingMarkers('<!--'.repeat(200_000))).toEqual([]);
     expect(findEditingMarkers('<!--x-->'.repeat(200_000))).toEqual([]);
     expect(findEditingMarkers('</a "'.repeat(200_000))).toEqual([]);
+    expect(findEditingMarkers('{{'.repeat(200_000))).toEqual([]);
+    expect(findEditingMarkers('{%'.repeat(200_000))).toEqual([]);
+    expect(findEditingMarkers('{#'.repeat(200_000))).toEqual([]);
+    expect(findEditingMarkers('{{ x }}<a '.repeat(200_000))).toEqual([]);
+    expect(findEditingMarkers('{%}'.repeat(200_000))).toEqual([]);
     expect(kinds(`${'<a x '.repeat(200_000)}data-jinja>`)).toEqual(['attr:data-jinja']);
   });
 });

@@ -170,16 +170,58 @@ function findRawTextEnd(lower: string, tagName: string, from: number): number {
   return -1;
 }
 
+const JINJA_CLOSERS: Readonly<Record<string, string>> = { '{': '}}', '%': '%}', '#': '#}' };
+
+/**
+ * Jinja のトークン(`{{…}}` `{%…%}` `{#…#}`)を同じ長さの空白に置き換えた写し。改行は残すので、
+ * 位置は原文と一致する。区切り方は `web/src/lib/jinjaMask.ts` の `TOKEN_RE` と同じ(最短一致)だが、
+ * 閉じない `{{` の反復で後戻りが入力長の 2 乗になるのを避けるため、閉じ記号の位置を種類ごとに
+ * 覚えて線形に読む(-1 は「以後に無い」)。
+ */
+function maskJinjaTokens(html: string): string {
+  const seen: Record<string, number> = { '}}': -2, '%}': -2, '#}': -2 };
+  const parts: string[] = [];
+  let last = 0;
+  let i = html.indexOf('{');
+  while (i !== -1) {
+    const closer = JINJA_CLOSERS[html[i + 1] ?? ''];
+    if (closer === undefined) {
+      i = html.indexOf('{', i + 1);
+      continue;
+    }
+    let close = seen[closer] ?? -2;
+    if (close !== -1 && close < i + 2) {
+      close = html.indexOf(closer, i + 2);
+      seen[closer] = close;
+    }
+    if (close === -1) {
+      i = html.indexOf('{', i + 1);
+      continue;
+    }
+    const end = close + 2;
+    const token = html.slice(i, end);
+    const blank = /[\r\n]/.test(token) ? token.replace(/[^\r\n]/g, ' ') : ' '.repeat(token.length);
+    parts.push(html.slice(last, i), blank);
+    last = end;
+    i = html.indexOf('{', end);
+  }
+  if (last === 0) return html;
+  parts.push(html.slice(last));
+  return parts.join('');
+}
+
 export function findEditingMarkers(html: string): EditingMarkerHit[] {
   const hits: EditingMarkerHit[] = [];
   for (const m of html.matchAll(COMMENT_RE))
     hits.push({ marker: 'comment:jinja-rt', index: m.index });
   for (const m of html.matchAll(PLACEHOLDER_RE))
     hits.push({ marker: 'placeholder', index: m.index });
-  // 走査は 2 回。コメントを読み飛ばす走査はブラウザどおりだが、作成経路の本文は Jinja の原文で、
-  // `{# <!-- #}` や `{{ "<!--" }}`、偽の枝の中の `<!--` が見かけのコメントを作る。エディタは
-  // Jinja を伏せてから読むので、その内側のタグは生きた要素になる。コメントの中も読む走査を足し、
-  // どちらかで見つかれば印とする(同じ位置の同じ印は 1 件にまとめる)。
+  // 走査は 3 回。1 回目は原文をブラウザどおりに読む。作成経路の本文は Jinja の原文で、エディタは
+  // Jinja を伏せてから読むので、`{# <!-- #}` や `{{ '<a title="' }}` のように Jinja の中の `<` や
+  // 引用符が見かけのコメント・タグを作ると、その後ろの本物のタグを原文の走査では見落とす。
+  // そこで Jinja を伏せた写しも読む(2 回目)。偽の枝の中の `<!--`(`{% if false %}<!--{% endif %}`)は
+  // 伏せても残るので、伏せた写しをコメントの中まで読む走査も足す(3 回目)。どれかで見つかれば
+  // 印とし、同じ位置の同じ印は 1 件にまとめる。
   const seen = new Set<string>();
   const onAttr: AttrSink = (name, value, at) => {
     const push = (marker: string) => {
@@ -196,7 +238,9 @@ export function findEditingMarkers(html: string): EditingMarkerHit[] {
         if (value.split(HTML_SPACE_RUN).includes(c)) push(`class:${c}`);
   };
   scanStartTags(html, onAttr, true);
-  scanStartTags(html, onAttr, false);
+  const masked = maskJinjaTokens(html);
+  if (masked !== html) scanStartTags(masked, onAttr, true);
+  scanStartTags(masked, onAttr, false);
   return hits.sort((x, y) => x.index - y.index);
 }
 
