@@ -156,25 +156,26 @@ function metaRefreshUrl(attrs: ReadonlyArray<{ name: string; value: string }>): 
  * どちらもブラウザより多くの値を URL として拾う側(誤検知側)へ倒すためである。
  */
 function refreshUrlPart(s: string): string {
-  let i = 0;
-  const skipSpaces = (): void => {
-    while (i < s.length && /\s/.test(s[i])) i++;
+  const skipSpaces = (from: number): number => {
+    let j = from;
+    while (j < s.length && /\s/.test(s[j])) j++;
+    return j;
   };
-  skipSpaces();
-  while (i < s.length && /[0-9.]/.test(s[i])) i++;
-  skipSpaces();
-  if (s[i] === ';' || s[i] === ',') i++;
-  skipSpaces();
-  keyword: {
+  // `url` → 空白 → `=` → 空白。途中で合わなければ、その位置から引用符の手順へ進む。
+  const afterKeyword = (from: number): number => {
+    let j = from;
     for (const c of 'url') {
-      if (s[i]?.toLowerCase() !== c) break keyword;
-      i++;
+      if (s[j]?.toLowerCase() !== c) return j;
+      j++;
     }
-    skipSpaces();
-    if (s[i] !== '=') break keyword;
-    i++;
-    skipSpaces();
-  }
+    j = skipSpaces(j);
+    return s[j] === '=' ? skipSpaces(j + 1) : j;
+  };
+  let i = skipSpaces(0);
+  while (i < s.length && /[0-9.]/.test(s[i])) i++;
+  i = skipSpaces(i);
+  if (s[i] === ';' || s[i] === ',') i++;
+  i = afterKeyword(skipSpaces(i));
   const quote = s[i];
   if (quote !== '"' && quote !== "'") return s.slice(i);
   const rest = s.slice(i + 1);
