@@ -183,6 +183,7 @@ export {
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTE_PATH_KEY_CHARS,
   MAX_NOTES_PER_TEMPLATE,
+  PAIR_PART_CONFLICT_KINDS,
 } from './schemas.js';
 
 /** カスケード問い合わせ: 既知の分類を入力、残りの候補を出力。 */

@@ -2944,6 +2944,12 @@
           },
           "change": {
             "type": "string"
+          },
+          "id": {
+            "description": "履歴 1 件の id(web が採番。重複表示の除去に使う)",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
         "required": [
@@ -3615,10 +3621,16 @@
                   "enum": [
                     "初期差分",
                     "両側変更",
-                    "ペア側先行"
+                    "ペア側先行",
+                    "ペア側削除",
+                    "ペア側削除・ソース変更"
                   ]
                 },
                 "detectedAt": {
+                  "type": "string"
+                },
+                "deletedIn": {
+                  "description": "ペア側削除系の競合で、パーツを消した側の版種(交付版 / 全体版)",
                   "type": "string"
                 }
               },
@@ -3641,6 +3653,17 @@
                 },
                 "detectedAt": {
                   "type": "string"
+                },
+                "kind": {
+                  "description": "規則を相手側の規則と照合できず転写を止めたときの種類",
+                  "type": "string",
+                  "enum": [
+                    "照合不可"
+                  ]
+                },
+                "sourceEdition": {
+                  "description": "変更を持っていた側(転写元)の版種",
+                  "type": "string"
                 }
               },
               "required": [
@@ -3649,7 +3672,7 @@
               ],
               "additionalProperties": false
             },
-            "description": "未解決の CSS 規則の競合(ペア側が版種固有に直してあり転写を止めた規則)"
+            "description": "未解決の CSS 規則の競合(ペア側が版種固有に直してある、または照合できず転写を止めた規則)"
           }
         },
         "required": [

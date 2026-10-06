@@ -18,7 +18,7 @@
 //   理由を返し、人間の判断に委ねる。
 
 import { createHash } from 'node:crypto';
-import type { PartSyncDefault } from '@editor/shared';
+import type { PAIR_PART_CONFLICT_KINDS, PartSyncDefault } from '@editor/shared';
 import type { CssRuleConflict } from './cssSync.js';
 
 // ── 1. パーツ抽出(生テキストスキャン) ──
@@ -282,7 +282,12 @@ export function extractSyncParts(html: string): SyncPart[] {
  */
 export interface PairPartState {
   lastSynced?: string;
-  conflict?: { kind: '初期差分' | '両側変更' | 'ペア側先行'; detectedAt: string };
+  conflict?: {
+    kind: (typeof PAIR_PART_CONFLICT_KINDS)[number];
+    detectedAt: string;
+    /** ペア側削除系の競合で、パーツを消した側の版種。 */
+    deletedIn?: string;
+  };
 }
 
 /** ペア 1 組の同期状態(`sync/<pairKey>.json` の中身。I/O は `syncFiles.ts`)。 */

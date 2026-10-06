@@ -8,7 +8,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { assertPairKey } from '@editor/shared';
+import { assertPairKey, PAIR_PART_CONFLICT_KINDS } from '@editor/shared';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { emptySyncState, type PairSyncState } from '../sync/partSync.js';
@@ -25,14 +25,27 @@ const syncPath = (pairKey: string): string =>
 const PairPartStateSchema = z.object({
   lastSynced: z.string().optional(),
   conflict: z
-    .object({ kind: z.enum(['初期差分', '両側変更', 'ペア側先行']), detectedAt: z.string() })
+    .object({
+      kind: z.enum(PAIR_PART_CONFLICT_KINDS),
+      detectedAt: z.string(),
+      deletedIn: z.string().optional(),
+    })
     .optional(),
 });
 const PairSyncStateSchema = z.object({
   pairKey: z.string(),
   parts: z.record(z.string(), PairPartStateSchema),
   css: z
-    .object({ conflicts: z.array(z.object({ ruleKey: z.string(), detectedAt: z.string() })) })
+    .object({
+      conflicts: z.array(
+        z.object({
+          ruleKey: z.string(),
+          detectedAt: z.string(),
+          kind: z.enum(['照合不可']).optional(),
+          sourceEdition: z.string().optional(),
+        }),
+      ),
+    })
     .optional(),
   updatedAt: z.string(),
 });

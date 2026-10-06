@@ -34,6 +34,10 @@ export function cssSyncPairKey(templateId: string): string | null {
 export interface CssRuleConflict {
   ruleKey: string;
   detectedAt: string;
+  /** 規則を相手側の規則と照合できず転写を止めたとき `照合不可`。 */
+  kind?: '照合不可';
+  /** 変更を持っていた側(転写元)の版種。 */
+  sourceEdition?: string;
 }
 
 export interface CssSyncInput {

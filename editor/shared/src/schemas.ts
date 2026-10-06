@@ -326,6 +326,10 @@ export const RecordPartChangeRequest = z
   .object({
     partKey: z.string().min(1).meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
     change: z.string(),
+    id: z
+      .uuid()
+      .optional()
+      .meta({ description: '履歴 1 件の id(web が採番。重複表示の除去に使う)' }),
   })
   .meta({ id: 'RecordPartChangeRequest' });
 
@@ -490,6 +494,15 @@ export const NoteMasterReflectSummary = z
  * 「先行変更した側を承認して逆方向の転写を走らせる」ことで次回承認時に自動で消える
  * (専用の解消 API は持たない)。
  */
+/** ペア同期でパーツ 1 件に記録する競合の種類。状態ファイルの検査と API 応答で共有する。 */
+export const PAIR_PART_CONFLICT_KINDS = [
+  '初期差分',
+  '両側変更',
+  'ペア側先行',
+  'ペア側削除',
+  'ペア側削除・ソース変更',
+] as const;
+
 export const PairSyncStatus = z
   .object({
     pairTemplateId: z
@@ -501,14 +514,34 @@ export const PairSyncStatus = z
       .array(
         z.object({
           partKey: z.string(),
-          kind: z.enum(['初期差分', '両側変更', 'ペア側先行']),
+          kind: z.enum(PAIR_PART_CONFLICT_KINDS),
           detectedAt: z.string(),
+          deletedIn: z
+            .string()
+            .optional()
+            .meta({ description: 'ペア側削除系の競合で、パーツを消した側の版種(交付版 / 全体版)' }),
         }),
       )
       .meta({ description: '未解決競合(自動同期停止中)のパーツ一覧' }),
-    cssConflicts: z.array(z.object({ ruleKey: z.string(), detectedAt: z.string() })).meta({
-      description: '未解決の CSS 規則の競合(ペア側が版種固有に直してあり転写を止めた規則)',
-    }),
+    cssConflicts: z
+      .array(
+        z.object({
+          ruleKey: z.string(),
+          detectedAt: z.string(),
+          kind: z
+            .enum(['照合不可'])
+            .optional()
+            .meta({ description: '規則を相手側の規則と照合できず転写を止めたときの種類' }),
+          sourceEdition: z
+            .string()
+            .optional()
+            .meta({ description: '変更を持っていた側(転写元)の版種' }),
+        }),
+      )
+      .meta({
+        description:
+          '未解決の CSS 規則の競合(ペア側が版種固有に直してある、または照合できず転写を止めた規則)',
+      }),
   })
   .meta({ id: 'PairSyncStatus' });
 
