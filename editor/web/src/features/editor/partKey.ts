@@ -82,21 +82,38 @@ export function partPathKeyFor(
   return i < 0 ? null : partKeys(parts, keyOf)[i];
 }
 
+/** パーツ 1 つの、キー・ページ番号(0 始まり)・ページの中の番号(0 始まり)。 */
+export interface PartEntry {
+  part: HTMLElement;
+  key: string;
+  page: number;
+  index: number;
+}
+
+/**
+ * 全パーツ(ページ順)とそのキー・ページ番号。キーは `partPathKeyFor` と同じ値で、全パーツを
+ * 1 回だけ数えて作る。全パーツを回す側(canvas の目印・キーからの選択)は、パーツごとに
+ * `partPathKeyFor` を呼ぶと二乗になるので、これを使う。
+ */
+export function partEntries(root: HTMLElement, keyOf: RawKeyOf = rawKey): PartEntry[] {
+  const pages = pagesOf(root);
+  const keys = partKeys(pages.flat(), keyOf);
+  const out: PartEntry[] = [];
+  pages.forEach((page, pi) => {
+    page.forEach((part, qi) => {
+      out.push({ part, key: keys[out.length], page: pi, index: qi });
+    });
+  });
+  return out;
+}
+
 /** 各パーツについて、キー・ページ番号(0 始まり)・ページの中の番号(0 始まり)を順に呼ぶ。 */
 function eachPart(
   root: HTMLElement,
   keyOf: RawKeyOf,
   fn: (key: string, page: number, index: number) => void,
 ): void {
-  const pages = pagesOf(root);
-  const keys = partKeys(pages.flat(), keyOf);
-  let i = 0;
-  pages.forEach((page, pi) => {
-    page.forEach((_part, qi) => {
-      fn(keys[i], pi, qi);
-      i += 1;
-    });
-  });
+  for (const e of partEntries(root, keyOf)) fn(e.key, e.page, e.index);
 }
 
 /**

@@ -17,6 +17,7 @@ import { ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
 import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
+import { pageItems, splitPages } from '@/lib/pageBreaks';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
 import {
@@ -38,13 +39,7 @@ import {
   jinjaChipCanvasCss,
   registerJinjaComponents,
 } from './jinjaComponents';
-import {
-  clampPageIndex,
-  enumeratePageEls,
-  PV_ATTR,
-  pageViewCss,
-  strayDirectChildren,
-} from './pageView';
+import { clampPageIndex, markPages, PV_ATTR, pageViewCss } from './pageView';
 import { redlineCanvasCss } from './redline/redlineCss';
 import { useCanvasMarkers } from './useCanvasMarkers';
 import { usePageGuides } from './usePageGuides';
@@ -67,6 +62,14 @@ let quietParse = false;
  */
 function wrapFragmentInBody(html: string): string {
   return /^\s*<(?:!doctype|html|head|body)[\s>]/i.test(html) ? html : `<body>${html}</body>`;
+}
+
+/** ページの分け方が同じ要素の並びか(ページごとに要素の同一性で比べる)。 */
+function samePages(a: readonly HTMLElement[][], b: readonly HTMLElement[][]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((page, i) => page.length === b[i].length && page.every((el, j) => el === b[i][j]))
+  );
 }
 
 /** `useGrapes` の推論戻り値型が参照するため export が必要(TS4058 回避)。 @public */
@@ -155,9 +158,12 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   const imageWarnings = ref<string[]>([]);
 
   // ── ページ送り(1 ページだけ表示)の状態。判定は `pageView.ts` の純粋関数に委譲する ──
-  /** 現在 canvas に在るページ要素(`body > .page`、無ければ `[body]`)の cache。 */
-  const pageEls = shallowRef<HTMLElement[]>([]);
-  /** ページ総数(= `pageEls.length`)。 */
+  /**
+   * ページごとのパーツ(根の直下の要素を `@/lib/pageBreaks` の `splitPages` で分けたもの。区切りの
+   * 要素は含まない)の cache。canvas が未描画の間は空配列。
+   */
+  const pageBlocks = shallowRef<HTMLElement[][]>([]);
+  /** ページ総数(= `pageBlocks.length`)。 */
   const pageCount = ref(0);
   /** 表示中ページの 0 起点 index。 */
   const currentPageIndex = ref(0);
@@ -192,7 +198,6 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   //    同名で分配し、既存の呼び出し側(grapesEvents 配線・ページ送り・return)を無改修に保つ ──
   const markers = useCanvasMarkers({
     editor,
-    pageEls,
     currentPageIndex,
     singlePageMode,
     getContainer: () => containerEl,
@@ -266,44 +271,39 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     );
   }
 
+  /** 根の直下の要素をページに分ける(パーツの数え方は `partKey.ts` の `pagesOf` と同じ)。 */
+  function splitRoot(root: HTMLElement) {
+    const children = Array.from(root.children).filter(
+      (el): el is HTMLElement => el instanceof HTMLElement,
+    );
+    return splitPages(pageItems(children));
+  }
+
   /**
-   * canvas のページ要素を列挙し直し、`PV_ATTR` マーカーを生 DOM へ付け直す。content 変更で
-   * `.page` が増減しても追従できるよう、`recomputeBreakEls` と同じく content/load/変更時に呼ぶ。
+   * canvas のページを数え直し、`PV_ATTR` マーカーを生 DOM へ付け直す。区切りの増減に追従できる
+   * よう、`recomputeBreakEls` と同じく content/load/変更時に呼ぶ。赤入れの装飾を置き直した後も
+   * 呼ぶ(`refreshPageMarks`) — 根の直下に置かれた削除要素に印が無いと、全ページに出続ける。
    * マーカーは `el.setAttribute`(生 DOM 直書き)で付け、Component モデルには載せない —
    * `editor.getHtml()` はモデルから再生成するため保存内容(getHtml/getCss)を汚さない。
    *
-   * 列挙の起点は `Canvas.getBody()`(= iframe `<body>`)ではなく GrapesJS の wrapper 要素。
-   * GrapesJS は body 直下に `[data-gjs-type=wrapper]` を 1 段挟み、ページ要素(`.page`)は
-   * その配下に来る。body.children では wrapper しか拾えず `enumeratePageEls` が `.page` を
-   * 0 件と判定してしまうため、content root を wrapper にする(未描画の早期タイミングだけ
-   * body へフォールバック。`load` の `requestAnimationFrame` / `load` イベントで確定する)。
+   * 根は `Canvas.getBody()`(= iframe `<body>`)ではなく GrapesJS の wrapper 要素。GrapesJS は
+   * body 直下に `[data-gjs-type=wrapper]` を 1 段挟み、本文の要素はその配下に来る。wrapper が
+   * まだ描かれていなければ数えない(`load` の `requestAnimationFrame` / `load` イベントで確定する)。
    */
   function recomputePages(): void {
-    const root = editor.value?.getWrapper()?.getEl() ?? editor.value?.Canvas.getBody();
+    const root = editor.value?.getWrapper()?.getEl();
     if (!root) {
-      pageEls.value = [];
+      pageBlocks.value = [];
       pageCount.value = 0;
       return;
     }
-    // 旧マーカーを一掃してから、新しい列挙結果へ index を振り直す。
-    for (const el of Array.from(root.querySelectorAll<HTMLElement>(`[${PV_ATTR}]`))) {
-      el.removeAttribute(PV_ATTR);
-    }
-    const els = enumeratePageEls(root);
-    els.forEach((el, i) => {
-      el.setAttribute(PV_ATTR, String(i));
-    });
-    pageEls.value = els;
-    pageCount.value = els.length;
+    const split = splitRoot(root);
+    markPages(root, split);
+    // 中身が同じなら差し替えない。赤入れの再計算のたびに呼ぶので、参照だけ変えると `pageBlocks`
+    // を見ている側(パーツのラベル・選択の復元)が空振りで再評価される。
+    if (!samePages(pageBlocks.value, split.pages)) pageBlocks.value = split.pages;
+    pageCount.value = split.pages.length;
     currentPageIndex.value = clampPageIndex(currentPageIndex.value, pageCount.value);
-    // 防御的措置: wrapper 直下に `.page` でない孤立要素が生じても全ページ重複しないよう、
-    // 現在ページと同じ `PV_ATTR` を付けて「現在ページの一部」として扱う(`strayDirectChildren`)。
-    // root が body フォールバック(`.page` 0 件 / `els===[root]`)のときは付けない(全体が 1 ページ)。
-    if (pageCount.value > 0 && els[0] !== root) {
-      for (const el of strayDirectChildren(root)) {
-        el.setAttribute(PV_ATTR, String(currentPageIndex.value));
-      }
-    }
     applyPageVisibility();
   }
 
@@ -361,7 +361,8 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   function scrollToPage(i: number): void {
     const idx = clampPageIndex(i, pageCount.value);
     currentPageIndex.value = idx;
-    const el = pageEls.value[idx];
+    // ページの先頭のパーツへ送る(区切りの帯は前のページの末尾に属する)。
+    const el = pageBlocks.value[idx]?.[0];
     if (!cvScrollEl || !el) return;
     const delta = el.getBoundingClientRect().top - cvScrollEl.getBoundingClientRect().top;
     cvScrollEl.scrollTop += delta;
@@ -573,7 +574,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * content/構成が変わった後の「全部測り直す」正典。  /**
    * content/構成が変わった後の「全部測り直す」正典。順序厳守:
    * `recomputeBreakEls`(break 集合更新) → `refreshPageGuides`(その集合を読む) →
-   * `recomputePages`(.page 列挙) → `updateScrollMode`(body 高さ変化で縦配置を出し分け)。
+   * `recomputePages`(ページの数え直し) → `updateScrollMode`(body 高さ変化で縦配置を出し分け)。
    * body 高さ/ページ構成を変える全経路(GrapesJS イベント・`load`・`patchSelectedStyle`)が
    * これを呼ぶことで、`ret-canvas-fits` や guide が旧レイアウトの値に取り残されるのを防ぐ。
    */
@@ -718,49 +719,54 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   }
 
   /**
-   * 現在表示中ページ(`.page`)の Component を返す(`.page` が 1 件も無ければ undefined)。
-   * `wrapper.components()` から `.page` Component を毎回ライブに filter し、
-   * `currentPageIndex` 番目(範囲外は末尾フォールバック、`clampPageIndex` と整合)を返す。
+   * 新しいパーツの挿入先(wrapper の `components()` の中の index)。現在ページの範囲の末尾に
+   * 入れる: 現在ページのパーツを選んでいればそのパーツ(根の直下)の直後、そうでなければ次の
+   * 区切りの直前(最後のページなら wrapper の末尾)。
    *
-   * `pageEls`(生 DOM キャッシュ)との `getEl() === pageEl` 同一性照合にはしない。
-   * GrapesJS の `getEl()` は描画済みでないと有効でなく、`load`/再レイアウト/`fireChange` の
-   * 再描画で `pageEls` が detach すると照合が外れて undefined を返し、`insertPart` が
-   * wrapper 直下 append にフォールバック → 孤立要素が全ページ重複する。
-   * Component を class で直接引くことで stale な生 DOM 参照に依存しない。
-   * (`components()` のイテレーション順は DOM 子順と一致するため index 参照してよい。)
+   * 「現在ページの最後のパーツの直後」にはしない。作成タブの本文は `{% if %}` などの範囲を
+   * 根の直下の HTML コメント(範囲の印)で表し、最後のパーツの直後は閉じの印の手前、つまり
+   * 枝の中になる。区切りの直前なら印の後ろに入る。
+   *
+   * 位置は呼んだ時点の DOM を数え直して決め、要素 → component は同じ時点の `getEl()` で
+   * 照合する。キャッシュ(`pageBlocks`)の要素は再描画で入れ替わっていることがあり、照合が
+   * 外れると別のページへ落ちる。
    */
-  function currentPageComponent(): Component | undefined {
-    const wrapper = editor.value?.getWrapper();
-    if (!wrapper) return undefined;
-    const pages = wrapper
-      .components()
-      .filter((c: Component) => c.getEl?.()?.classList?.contains('page'));
-    if (pages.length === 0) return undefined;
-    return pages[currentPageIndex.value] ?? pages[pages.length - 1];
+  function insertIndex(wrapper: Component, sel: Component | undefined): number {
+    const comps = wrapper.components();
+    const root = wrapper.getEl();
+    if (!root) return comps.length;
+    const split = splitRoot(root);
+    const page = split.pages[currentPageIndex.value] ?? [];
+    const indexOfEl = (el: Element) => comps.findIndex((c: Component) => c.getEl() === el);
+    let top = sel;
+    while (top?.parent() && top.parent() !== wrapper) top = top.parent();
+    const topEl = top?.parent() === wrapper ? top.getEl() : undefined;
+    if (topEl && page.includes(topEl)) {
+      const i = indexOfEl(topEl);
+      if (i >= 0) return i + 1;
+    }
+    const last = page[page.length - 1];
+    if (!last) return comps.length;
+    // 最後のパーツの後ろで最初に来る区切りか次のページのパーツ(inline の改ページで分かれたとき)。
+    const next = split.pages[currentPageIndex.value + 1]?.[0];
+    let el = last.nextElementSibling;
+    while (el && el !== next && !split.breakEls.includes(el as HTMLElement)) {
+      el = el.nextElementSibling;
+    }
+    if (!el) return comps.length;
+    const i = indexOfEl(el);
+    return i >= 0 ? i : comps.length;
   }
 
   /**
-   * catalog part の HTML を挿入する。挿入先は「現在ページの `.page` 配下」に限定する:
-   * ページ内の要素を選択中ならその直後へ、そうでなければ(選択なし / `.page` 自身を選択)
-   * 現在ページの末尾へ append する。wrapper 直下へ落とすと `.page` の兄弟=どのページにも
-   * 属さない孤立要素になり、ページ可視制御(`data-pv-idx`)の対象外として全ページに
-   * 出続けるため、それを避ける。`.page` を持たない fallback 時のみ wrapper へ。
+   * catalog part の HTML を、現在ページの範囲の末尾(`insertIndex`)へ根の直下のパーツとして
+   * 挿入し、選択する。
    */
   function insertPart(content: string, partId: string): void {
     const ed = editor.value;
-    if (!ed) return;
-    const wrapper = ed.getWrapper();
-    const sel = ed.getSelected();
-    const parent = sel?.parent();
-    // 選択要素が「現在ページの `.page` 子孫」のときだけ、その直後へ挿入する。選択が現在ページ外
-    // (再描画で選択が別ページ要素へずれた等)を指す場合は別ページ/孤立要素直下へ落ちうるため、
-    // 現在ページ判定(`deselectIfHidden` と同型)で弾き、`currentPageComponent` 経由へ回す。
-    const owner = sel?.getEl?.()?.closest?.(`[${PV_ATTR}]`) as HTMLElement | null;
-    const selInCurrentPage = owner?.getAttribute(PV_ATTR) === String(currentPageIndex.value);
-    const added =
-      sel && parent && parent !== wrapper && selInCurrentPage
-        ? parent.append(content, { at: sel.index() + 1 })
-        : (currentPageComponent() ?? wrapper)?.append(content);
+    const wrapper = ed?.getWrapper();
+    if (!ed || !wrapper) return;
+    const added = wrapper.append(content, { at: insertIndex(wrapper, ed.getSelected()) });
     const root = Array.isArray(added) ? added[0] : added;
     // catalog id を付与し、後の canvas 選択から docs を引けるようにする
     root?.addAttributes?.({ 'data-part-id': partId });
@@ -848,8 +854,8 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     syncCanvasCssCopy();
     ed.setStyle(css);
     // setComponents/setStyle 直後は iframe DOM が未描画で、`component:add` の `fireChange`
-    // から走る `recomputePages` が `.page` を拾えず `[body]` フォールバック(`pageCount=1`)に
-    // 落ちる。その結果ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に
+    // から走る `recomputePages` が wrapper の要素を引けず、ページを数えられない。その結果
+    // ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に
     // 測り直してページ数 / 境界 guide を確定させる(`goToPage` と同じ `requestAnimationFrame`)。
     requestAnimationFrame(() => {
       recomputeLayout();
@@ -981,7 +987,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     bubbleAnchor,
     setNoteKeys,
     refreshBubbleAnchor,
-    pageEls,
+    pageBlocks,
     pageCount,
     currentPageIndex,
     singlePageMode,
@@ -1015,6 +1021,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     setSinglePageMode,
     refreshRect,
     refreshPageGuides,
+    refreshPageMarks: recomputePages,
     updateScrollMode,
     startMove,
     moveSelected,

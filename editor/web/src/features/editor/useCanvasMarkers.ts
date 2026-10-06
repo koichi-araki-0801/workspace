@@ -3,7 +3,8 @@
 // =============================================================================
 // 役割: 選択要素の画面 rect(浮動ツールバー / ハンドル用)と、メモを持つパーツの目印位置を、
 // canvas 相対 / zoom 考慮(`noScroll:true` の viewport 相対)で測る。
-// ページ表示状態(pageEls / currentPageIndex / singlePageMode)は `ctx` の ref を読む。
+// ページ表示状態(currentPageIndex / singlePageMode)は `ctx` の ref を読む。ページの分け方は
+// `partKey.ts` の `partEntries`(`useGrapes.ts` の `pageBlocks` と同じ `splitPages`)で読む。
 
 import { toAppError } from '@editor/shared';
 import type { Editor } from 'grapesjs';
@@ -11,7 +12,7 @@ import { type Ref, ref, type ShallowRef } from 'vue';
 import { logError } from '@/lib/appError';
 import type { SelectedRect } from './grapesEvents';
 import { type BubbleAnchor, computeBubbleAnchor, sameBubbleAnchor } from './noteBubbleLayout';
-import { canvasRawKey, partPathKeyFor, partsOf } from './partKey';
+import { canvasRawKey, partEntries } from './partKey';
 
 /**
  * メモを持つパーツの目印(canvas 相対 / zoom 考慮の座標、`SelectedRect` と同様)。
@@ -29,7 +30,6 @@ export interface NoteMarker {
 
 interface CanvasMarkersContext {
   editor: ShallowRef<Editor | undefined>;
-  pageEls: ShallowRef<HTMLElement[]>;
   currentPageIndex: Ref<number>;
   singlePageMode: Ref<boolean>;
   /** 吹き出し配置の基準になる canvas コンテナ(`useZoomFit` と同じ getter を渡す)。 */
@@ -80,21 +80,14 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
       noteMarkers.value = [];
       return;
     }
-    const pages = ctx.singlePageMode.value
-      ? [ctx.pageEls.value[ctx.currentPageIndex.value]]
-      : ctx.pageEls.value;
     try {
       const out: NoteMarker[] = [];
-      const keyOf = canvasRawKey(ed);
-      for (const page of pages) {
-        if (!page) continue;
-        // ページの要素が根の直下の要素なら、それ自体が 1 つのパーツ(キーは文書全体で数える)。
-        for (const part of page === root ? partsOf(root) : [page]) {
-          const key = partPathKeyFor(part, root, keyOf);
-          if (!key || !noteKeys.value.has(key)) continue;
-          const p = ed.Canvas.getElementPos(part, { noScroll: true });
-          out.push({ key, top: p.top, left: p.left + p.width });
-        }
+      const single = ctx.singlePageMode.value;
+      for (const { part, key, page } of partEntries(root, canvasRawKey(ed))) {
+        if (single && page !== ctx.currentPageIndex.value) continue;
+        if (!noteKeys.value.has(key)) continue;
+        const p = ed.Canvas.getElementPos(part, { noScroll: true });
+        out.push({ key, top: p.top, left: p.left + p.width });
       }
       noteMarkers.value = out;
     } catch (e) {

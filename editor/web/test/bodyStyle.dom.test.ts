@@ -20,11 +20,12 @@ import {
   renderJinjaStyleCss,
 } from '@/features/editor/bodyStyle';
 import { CANVAS_CSS_ASSET_ATTR } from '@/features/editor/fundImageLayer';
-import { strayDirectChildren } from '@/features/editor/pageView';
+import { markPages, PV_ATTR } from '@/features/editor/pageView';
 import { partsOf } from '@/features/editor/partKey';
 import { useGrapes } from '@/features/editor/useGrapes';
 import { toFilled } from '@/lib/fillJinja';
 import { toTemplate } from '@/lib/jinjaMask';
+import { pageItems, splitPages } from '@/lib/pageBreaks';
 import fundMaster from '../src/api/fixtures/funds.json';
 
 vi.mock('@/components/ui/toast', () => ({ toast: vi.fn(), toastError: vi.fn() }));
@@ -205,10 +206,18 @@ describe('canvas の置き場の要素', () => {
     expect(partsOf(root).map((el) => el.tagName)).toEqual(['P']);
   });
 
-  it('ページ表示の制御(孤立要素)も置き場を数えない', () => {
-    const body = document.createElement('body');
-    body.innerHTML = `<span ${BODY_STYLE_VIEW_ATTR}></span><div class="page"></div><p>y</p>`;
-    expect(strayDirectChildren(body).map((el) => el.tagName)).toEqual(['P']);
+  it('ページ表示の印は、置き場を数えずに次のパーツのページで付ける', () => {
+    const root = document.createElement('div');
+    root.innerHTML = `<p>x</p><div class="pagebreak"></div><span ${BODY_STYLE_VIEW_ATTR}></span><p>y</p>`;
+    const split = splitPages(pageItems(Array.from(root.children) as HTMLElement[]));
+    expect(split.pages.map((page) => page.map((el) => el.tagName))).toEqual([['P'], ['P']]);
+    markPages(root, split);
+    expect(Array.from(root.children, (el) => el.getAttribute(PV_ATTR))).toEqual([
+      '0',
+      '0',
+      '1',
+      '1',
+    ]);
   });
 });
 

@@ -2,77 +2,78 @@
 // pageView.ts — 編集 canvas の「1 ページだけ表示」純粋ロジック
 // =============================================================================
 // 役割: `useGrapes.ts` のページ送り(1 ページ表示)から DOM/GrapesJS 非依存の判定だけを
-// 切り出したもの。ページ要素の列挙・可視制御 CSS の生成・index クランプを純粋関数にして
-// vitest で全分岐を直接検証できるようにする(実レイアウトに依存しない)。
+// 切り出したもの。ページの印付け・可視制御 CSS の生成・index クランプを純粋関数にして
+// vitest で全分岐を直接検証できるようにする(実レイアウトに依存しない)。どこでページが
+// 切れるかは `@/lib/pageBreaks` の `splitPages` が決め、ここはその結果を画面へ写すだけ。
 
-import { BODY_STYLE_VIEW_ATTR } from './bodyStyle';
-import { REDLINE_ATTR } from './redline/redlineApply';
-
-// 判定の置き場は `@/lib/pageBreaks`。呼び出し側の付け替えが済むまで、ここからも読めるようにする。
-export { isBreakValue } from '@/lib/pageBreaks';
+import type { PageSplit } from '@/lib/pageBreaks';
 
 /** 生 DOM へ付ける現在ページ判定用のマーカー属性。Component モデルには載せない。 */
 export const PV_ATTR = 'data-pv-idx';
 
 /**
- * canvas body から「1 ページ = 1 要素」のページ要素を列挙する。テンプレは
- * `body > div.page` が 1 ページ単位(`.page { page-break-after: always }`)なので body 直下の
- * `.page` を拾う。1 件も無ければ body 全体を 1 ページ扱いの fallback とし `[body]` を返す
- * (ページ送り UI は出さず常時表示になる、`pageViewCss` の `count <= 1` 分岐を見よ)。
+ * 根の直下の要素へ、属するページの番号を `PV_ATTR` として付ける(古い印は先に消す)。
+ *
+ * - パーツ: `split.pages` のページ番号。
+ * - 区切り(`div.pagebreak`): 直前のページの番号。1 ページ表示で、そのページの末尾に帯が
+ *   見えるようにするため。先頭の区切りは 0。
+ * - 数えない要素(`<style>`・本文の `<style>` の置き場・赤入れの削除要素): 隣のパーツのページ。
+ *   印の無い要素は可視制御の対象から外れて全ページに出続けるので、すべての要素に付ける。
+ *   区切りの後ろ(または先頭)にあれば次のパーツのページ、そうでなければ直前のパーツのページ。
+ *   赤入れで消えたパーツは元の位置に置かれるので、元のページで見える。
  */
-export function enumeratePageEls(body: HTMLElement): HTMLElement[] {
-  const pages = Array.from(body.children).filter(
-    (el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('page'),
-  );
-  return pages.length > 0 ? pages : [body];
+export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): void {
+  for (const el of Array.from(root.querySelectorAll(`[${PV_ATTR}]`))) {
+    el.removeAttribute(PV_ATTR);
+  }
+  const pageOf = new Map<Element, number>();
+  split.pages.forEach((page, i) => {
+    for (const part of page) pageOf.set(part, i);
+  });
+  const breaks = new Set<Element>(split.breakEls);
+  let last = 0;
+  // 直前に数えたものがパーツか(false なら、まだパーツが無いか区切りの後ろ)。
+  let afterPart = false;
+  let pending: Element[] = [];
+  const mark = (el: Element, i: number) => el.setAttribute(PV_ATTR, String(i));
+  for (const el of Array.from(root.children)) {
+    const page = pageOf.get(el);
+    if (page !== undefined) {
+      for (const p of pending) mark(p, page);
+      pending = [];
+      mark(el, page);
+      last = page;
+      afterPart = true;
+    } else if (breaks.has(el)) {
+      mark(el, last);
+      afterPart = false;
+    } else if (afterPart) {
+      mark(el, last);
+    } else {
+      pending.push(el);
+    }
+  }
+  for (const p of pending) mark(p, last);
 }
 
 /**
  * 他ページを隠す page-view `<style>` の textContent を作る。`canvas` head に注入する 2 枚目の
  * style(load 時の A4/jinja スタイルとは別)へ流し込み、ページ送りのたびに書き換える。
  *
- * - 1 ページ表示でページが 2 枚以上のときだけ、現在 index 以外を `display:none` にする。
+ * - 1 ページ表示でページが 2 枚以上のときだけ、現在 index 以外の印の要素を `display:none` にする。
+ *   現在ページの要素には何も当てない(パーツが `flex` などの `display` を持つため上書きしない)。
  * - 全ページ表示(`!singleMode`)または 1 ページ以下のときは空文字 = 従来の連続スクロール。
  *
- * `:nth-child` ではなく `enumeratePageEls` が実ページ要素にだけ付けた `PV_ATTR` を使う。
- * マーカーは `recomputePages` が毎回全クリアしてから実ページ要素にだけ付け直すため、
- * 属性セレクタ単体で一意に当たる。`body > ...` の子結合子は使わない: GrapesJS は body 直下に
- * wrapper(`[data-gjs-type=wrapper]`)を 1 段挟み、ページ要素は `body > wrapper > .page` の
- * 位置に来るため、`body >` ではマッチしない(`useGrapes.ts` の `recomputePages` を見よ)。
+ * セレクタを wrapper(`[data-gjs-type=wrapper]`)の子に絞るのは詳細度のため。区切りの帯の規則
+ * (`[data-gjs-type=wrapper] > div.pagebreak` の `!important`)より詳細度を高くしないと、隠した
+ * ページの帯が見えてしまう。印は `markPages` が根(= wrapper)の直下にだけ付ける。
  */
 export function pageViewCss(index: number, count: number, singleMode: boolean): string {
   if (!singleMode || count <= 1) return '';
-  return (
-    `[${PV_ATTR}] { display: none !important; }\n` +
-    `[${PV_ATTR}="${index}"] { display: block !important; }`
-  );
+  return `[data-gjs-type=wrapper] > [${PV_ATTR}]:not([${PV_ATTR}="${index}"]) { display: none !important; }`;
 }
 
 /** ページ index を `[0, count-1]` に収める(count=0 / 負数 / 超過を 0 起点で安全化)。 */
 export function clampPageIndex(index: number, count: number): number {
   return Math.min(Math.max(index, 0), Math.max(count - 1, 0));
-}
-
-/**
- * `root`(= wrapper)直下の「`.page` でない素の要素」を列挙する(防御的措置の対象)。
- * 正常時はテンプレの wrapper 直下が `.page` のみで戻り値は空。だが万一どの `.page` にも
- * 属さない孤立要素(挿入経路の取りこぼし等)が wrapper 直下に出来ると、`PV_ATTR` が付かず
- * `pageViewCss` の hide 対象から外れて全ページに出続ける。`recomputePages` はここで拾った
- * 孤立要素へ現在ページと同じ `PV_ATTR` を付け、現在ページ表示時のみ見えるようにする。
- *
- * NOTE: 正常時 wrapper 直下は `.page` のみ。将来 `.page` 外の意図的なグローバル要素
- * (全ページ共通ヘッダ等)を置く設計にした場合、それらも「現在ページのみ表示」になるため
- * 本措置の再検討が必要。
- */
-export function strayDirectChildren(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.children).filter(
-    (el): el is HTMLElement =>
-      el instanceof HTMLElement &&
-      !el.classList.contains('page') &&
-      // 赤入れの削除要素は生 DOM だけの表示物で、モデルにも保存出力にも無い。孤立要素として
-      // `PV_ATTR` を付けると、装飾の有無でページ表示の制御対象が揺れる。
-      !el.hasAttribute(REDLINE_ATTR) &&
-      // 本文の `<style>` の置き場(`bodyStyle.ts`)も常に隠れた要素で、ページの一部ではない。
-      !el.hasAttribute(BODY_STYLE_VIEW_ATTR),
-  );
 }

@@ -1,54 +1,120 @@
 import { describe, expect, it } from 'vitest';
-import {
-  clampPageIndex,
-  enumeratePageEls,
-  isBreakValue,
-  PV_ATTR,
-  pageViewCss,
-  strayDirectChildren,
-} from '@/features/editor/pageView';
-import { REDLINE_ATTR } from '@/features/editor/redline/redlineApply';
+import { clampPageIndex, markPages, PV_ATTR, pageViewCss } from '@/features/editor/pageView';
+import { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
+import { pageItems, splitPages } from '@/lib/pageBreaks';
+import { REDLINE_ATTR } from '@/lib/redlineAttr';
 
-// pageView の純粋関数(ページ列挙 / 可視制御 CSS / index クランプ)を DOM 構築のみで検証する。
+// pageView の純粋関数(ページの印付け / 可視制御 CSS / index クランプ)を DOM 構築のみで検証する。
 // 実レイアウト(getComputedStyle/getBoundingClientRect)に依存しないため jsdom で全分岐を直接叩ける。
 
-/** body 直下に与えた tag/class の子要素を順に並べた body を作る。 */
-function makeBody(children: { tag?: string; cls?: string }[]): HTMLElement {
-  const body = document.createElement('body');
-  for (const c of children) {
-    const el = document.createElement(c.tag ?? 'div');
-    if (c.cls) el.className = c.cls;
-    body.appendChild(el);
-  }
-  return body;
+/** HTML から根を作り、`useGrapes.ts` の `recomputePages` と同じ並びでページに分けて印を付ける。 */
+function marked(html: string): HTMLElement {
+  const root = document.createElement('div');
+  root.innerHTML = html;
+  const children = Array.from(root.children) as HTMLElement[];
+  markPages(root, splitPages(pageItems(children)));
+  return root;
 }
 
-describe('enumeratePageEls', () => {
-  it('body 直下の .page を順に列挙する', () => {
-    const body = makeBody([{ cls: 'page' }, { cls: 'page' }, { cls: 'page' }]);
-    const pages = enumeratePageEls(body);
-    expect(pages).toHaveLength(3);
-    expect(pages.every((el) => el.classList.contains('page'))).toBe(true);
+/** 根の直下の要素ごとの `PV_ATTR`(`id` → 値)。 */
+function marks(root: HTMLElement): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const el of Array.from(root.children)) out[el.id] = el.getAttribute(PV_ATTR);
+  return out;
+}
+
+const BR = (id: string) => `<div class="pagebreak" id="${id}"></div>`;
+
+describe('markPages', () => {
+  it('区切りで分けた 3 ページの各パーツにページ番号、区切りに直前のページ番号を付ける', () => {
+    const root = marked(
+      `<p id="a"></p><p id="b"></p>${BR('k1')}<p id="c"></p>${BR('k2')}<p id="d"></p>`,
+    );
+    expect(marks(root)).toEqual({ a: '0', b: '0', k1: '0', c: '1', k2: '1', d: '2' });
   });
 
-  it('.page 以外の直接子(div / 別 class)は除外する', () => {
-    const body = makeBody([{ cls: 'page' }, { cls: 'note' }, {}, { cls: 'page' }]);
-    const pages = enumeratePageEls(body);
-    expect(pages).toHaveLength(2);
+  it('先頭の区切りは 0、末尾の区切りは最後のページ、連続した区切りはどれも直前のページ', () => {
+    const root = marked(`${BR('k0')}<p id="a"></p>${BR('k1')}${BR('k2')}<p id="b"></p>${BR('k3')}`);
+    expect(marks(root)).toEqual({ k0: '0', a: '0', k1: '0', k2: '0', b: '1', k3: '1' });
   });
 
-  it('.page が 0 件なら body 全体を 1 ページ扱いの fallback にする', () => {
-    const body = makeBody([{ cls: 'note' }, {}]);
-    const pages = enumeratePageEls(body);
-    expect(pages).toEqual([body]);
+  it('inline の改ページで分けたページも番号を振る', () => {
+    const root = marked('<p id="a"></p><p id="b" style="page-break-before: always"></p>');
+    expect(marks(root)).toEqual({ a: '0', b: '1' });
+  });
+
+  it('数えない要素は、パーツの後ろなら直前のパーツ、区切りの後ろなら次のパーツのページになる', () => {
+    const root = marked(
+      `<del id="d0" ${REDLINE_ATTR}></del><p id="a"></p><del id="d1" ${REDLINE_ATTR}></del>` +
+        `${BR('k1')}<span id="s" ${BODY_STYLE_VIEW_ATTR}></span><del id="d2" ${REDLINE_ATTR}></del>` +
+        `<p id="b"></p><style id="st"></style>`,
+    );
+    expect(marks(root)).toEqual({
+      d0: '0',
+      a: '0',
+      d1: '0',
+      k1: '0',
+      s: '1',
+      d2: '1',
+      b: '1',
+      st: '1',
+    });
+  });
+
+  it('末尾の区切りの後ろの数えない要素は最後のページ', () => {
+    const root = marked(
+      `<p id="a"></p>${BR('k1')}<p id="b"></p>${BR('k2')}<del id="d" ${REDLINE_ATTR}></del>`,
+    );
+    expect(marks(root).d).toBe('1');
+  });
+
+  it('付け直す前に古い印を消す(根の直下でない要素の印も残さない)', () => {
+    const root = document.createElement('div');
+    root.innerHTML = `<p id="a"><span id="in" ${PV_ATTR}="3"></span></p>${BR('k1')}<p id="b"></p>`;
+    const [a, k1, b] = Array.from(root.children) as HTMLElement[];
+    markPages(root, splitPages([a, k1, b]));
+    // 区切りを消したので、2 ページから 1 ページに変わる。
+    k1.remove();
+    markPages(root, splitPages([a, b]));
+    expect(marks(root)).toEqual({ a: '0', b: '0' });
+    expect(root.querySelector('#in')?.hasAttribute(PV_ATTR)).toBe(false);
+  });
+
+  it('パーツが無ければ数えない要素はすべて 0', () => {
+    const root = marked(`<del id="d" ${REDLINE_ATTR}></del>`);
+    expect(marks(root)).toEqual({ d: '0' });
   });
 });
 
 describe('pageViewCss', () => {
-  it('1 ページ表示・複数ページなら現在 index 以外を hide する CSS を返す', () => {
-    const css = pageViewCss(1, 5, true);
-    expect(css).toContain(`[${PV_ATTR}] { display: none !important; }`);
-    expect(css).toContain(`[${PV_ATTR}="1"] { display: block !important; }`);
+  it('1 ページ表示・複数ページなら、現在 index 以外の印の要素だけを隠す', () => {
+    const css = pageViewCss(1, 3, true);
+    expect(css).toContain(`[${PV_ATTR}]:not([${PV_ATTR}="1"])`);
+    expect(css).toContain('display: none !important');
+    // ページ内のパーツの `display`(flex など)を上書きしない。
+    expect(css).not.toContain('display: block');
+  });
+
+  it('隠す規則は区切りの帯の規則(wrapper > div.pagebreak の !important)より詳細度が高い', () => {
+    // 帯(`[data-gjs-type=wrapper] > div.pagebreak`)は (0,2,1)。隠す規則は (0,3,0) 以上が要る。
+    const wrapper = document.createElement('div');
+    wrapper.setAttribute('data-gjs-type', 'wrapper');
+    wrapper.innerHTML = `<p ${PV_ATTR}="0"></p><div class="pagebreak" ${PV_ATTR}="0"></div><p ${PV_ATTR}="1"></p>`;
+    document.body.appendChild(wrapper);
+    const style = document.createElement('style');
+    style.textContent =
+      '[data-gjs-type=wrapper] > div.pagebreak { display: block !important; }\n' +
+      pageViewCss(1, 2, true);
+    document.head.appendChild(style);
+    try {
+      const [p0, band, p1] = Array.from(wrapper.children);
+      expect(getComputedStyle(band).display).toBe('none');
+      expect(getComputedStyle(p0).display).toBe('none');
+      expect(getComputedStyle(p1).display).not.toBe('none');
+    } finally {
+      style.remove();
+      wrapper.remove();
+    }
   });
 
   it('1 ページ表示でもページが 1 枚以下なら空文字(常時表示)', () => {
@@ -58,35 +124,6 @@ describe('pageViewCss', () => {
 
   it('全ページ表示(singleMode=false)は枚数に関わらず空文字', () => {
     expect(pageViewCss(2, 5, false)).toBe('');
-  });
-});
-
-describe('strayDirectChildren', () => {
-  it('root 直下の .page 以外の素要素だけを返す(.page は除外)', () => {
-    const root = makeBody([{ cls: 'page' }, { cls: 'note' }, {}, { cls: 'page' }]);
-    const strays = strayDirectChildren(root);
-    expect(strays).toHaveLength(2);
-    expect(strays.every((el) => !el.classList.contains('page'))).toBe(true);
-  });
-
-  it('wrapper 直下が .page のみ(正常時)なら空配列', () => {
-    const root = makeBody([{ cls: 'page' }, { cls: 'page' }]);
-    expect(strayDirectChildren(root)).toEqual([]);
-  });
-
-  it('赤入れの削除要素(data-redline)は孤立要素として返さない', () => {
-    // 装飾は生 DOM だけの表示物で、`recomputePages` の防御的措置(`PV_ATTR` 付与)の対象外。
-    const root = makeBody([{ cls: 'page' }, { tag: 'del' }, { cls: 'page' }]);
-    const del = root.children[1] as HTMLElement;
-    del.setAttribute(REDLINE_ATTR, '');
-    expect(strayDirectChildren(root)).toEqual([]);
-  });
-
-  it('孤立要素はページ総数(enumeratePageEls)に影響しない', () => {
-    const root = makeBody([{ cls: 'page' }, {}, { cls: 'page' }]);
-    // 孤立要素 1 件があっても `.page` は 2 件のまま(ページャ総数は `.page` 数を維持)。
-    expect(enumeratePageEls(root)).toHaveLength(2);
-    expect(strayDirectChildren(root)).toHaveLength(1);
   });
 });
 
@@ -105,20 +142,5 @@ describe('clampPageIndex', () => {
 
   it('count=0 は 0 を返す', () => {
     expect(clampPageIndex(3, 0)).toBe(0);
-  });
-});
-
-describe('isBreakValue', () => {
-  it('page-break キーワード(always/page/left/right/recto/verso)を受理する', () => {
-    for (const v of ['always', 'page', 'left', 'right', 'recto', 'verso']) {
-      expect(isBreakValue(v)).toBe(true);
-    }
-  });
-
-  it('auto / avoid / 空 / undefined は非該当', () => {
-    expect(isBreakValue('auto')).toBe(false);
-    expect(isBreakValue('avoid')).toBe(false);
-    expect(isBreakValue('')).toBe(false);
-    expect(isBreakValue(undefined)).toBe(false);
   });
 });

@@ -3,13 +3,13 @@
 // =============================================================================
 // 役割: canvas document から page break 要素を拾って cache し(`recomputeBreakEls`)、
 // scroll/zoom 時はその cache を再測位して guide 線の座標列を出す(`refreshPageGuides`)。
-// break キーワード判定は `pageView.ts` の `isBreakValue`(純粋関数・単体テスト済み)。
+// break キーワード判定は `@/lib/pageBreaks` の `isBreakValue`(純粋関数・単体テスト済み)。
 
 import { toAppError } from '@editor/shared';
 import type { Editor } from 'grapesjs';
 import { ref, type ShallowRef } from 'vue';
 import { logError } from '@/lib/appError';
-import { isBreakValue } from './pageView';
+import { isBreakValue } from '@/lib/pageBreaks';
 import { REDLINE_ATTR } from './redline/redlineApply';
 
 /** 赤入れの削除要素(生 DOM だけの表示物)とその配下を走査から外すためのセレクタ。 */

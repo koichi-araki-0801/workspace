@@ -31,7 +31,7 @@ import { fundCodeOfTemplateId } from './fundImages';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { leaveAfterSave } from './leaveGuard';
 import { openCanvas } from './openCanvas';
-import { canvasRawKey, pagesOf, partLabelMap, partPathKeyFor } from './partKey';
+import { canvasRawKey, partEntries, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
 import { LEGACY_DRAFT_MESSAGE } from './services/legacyDraft';
 import { useTemplateEditorService } from './services/templateEditorService';
@@ -140,6 +140,7 @@ export function useTemplateEditor(
     editing: g.editing,
     dirty,
     parseHtml: g.parseHtmlQuiet,
+    onDecorated: g.refreshPageMarks,
   });
   // ON/OFF はセッションの ui 状態を継ぐ(プレビュー往復で保持、永続ミラー経由でリロードでも復元)。
   redline.enabled.value = sess.ui.redlineEnabled;
@@ -236,8 +237,8 @@ export function useTemplateEditor(
   const partLabels = computed<Map<string, string>>(() => {
     void g.revision.value;
     // load 直後は wrapper 要素がまだ無く、`root` を引けてもパーツの列挙が空 Map になる。
-    // `pageEls`(ページ列挙 cache)も依存に含め、ページ確定後の再評価を取りこぼさない。
-    void g.pageEls.value;
+    // `pageBlocks`(ページの数え直しの結果)も依存に含め、ページ確定後の再評価を取りこぼさない。
+    void g.pageBlocks.value;
     const ed = g.editor.value;
     const root = canvasRoot();
     return ed && root ? partLabelMap(root, canvasRawKey(ed)) : new Map();
@@ -272,18 +273,14 @@ export function useTemplateEditor(
     const ed = g.editor.value;
     const root = canvasRoot();
     if (!ed || !root) return;
-    const pages = pagesOf(root);
-    const keyOf = canvasRawKey(ed);
-    for (let pi = 0; pi < pages.length; pi += 1) {
-      for (const part of pages[pi]) {
-        if (partPathKeyFor(part, root, keyOf) !== key) continue;
-        if (g.singlePageMode.value) g.goToPage(pi);
-        const comp = part.id ? ed.Components.getById(part.id) : undefined;
-        if (comp) ed.select(comp);
-        part.scrollIntoView({ block: 'center' });
-        return;
-      }
-    }
+    // ページ番号は `useGrapes.ts` の `pageBlocks` と同じ `splitPages` の番号なので、`goToPage` へ
+    // そのまま渡せる。
+    const hit = partEntries(root, canvasRawKey(ed)).find((e) => e.key === key);
+    if (!hit) return;
+    if (g.singlePageMode.value) g.goToPage(hit.page);
+    const comp = hit.part.id ? ed.Components.getById(hit.part.id) : undefined;
+    if (comp) ed.select(comp);
+    hit.part.scrollIntoView({ block: 'center' });
   }
 
   // メモを持つパーツ集合が変わるたび、canvas のセル風マーカーを更新する。
@@ -416,9 +413,9 @@ export function useTemplateEditor(
   // まだ要素が無く `selectPartByKey` が何も見つけられずに終わる。
   let restoredSelection = false;
   watch(
-    () => g.pageEls.value,
-    (els) => {
-      if (restoredSelection || els.length === 0) return;
+    () => g.pageBlocks.value,
+    (pages) => {
+      if (restoredSelection || pages.every((page) => page.length === 0)) return;
       restoredSelection = true;
       if (sess.ui.selectedKey) selectPartByKey(sess.ui.selectedKey);
     },
@@ -505,7 +502,7 @@ export function useTemplateEditor(
     sessionStore.setCssBaseline(id, opened.cssBaseline);
     // 確定版の quiet load 失敗時は、確定版との同一判定(`scheduleCleanCheck`)を起動しない。
     const confirmedLoadFailed = opened.loadFailed;
-    // ページ送りの復元は `load` の再レイアウト後(rAF)に行う — 直後は `.page` 列挙がまだ
+    // ページ送りの復元は `load` の再レイアウト後(rAF)に行う — 直後はページの数え直しがまだ
     // 確定しておらず `goToPage` の clamp がページ総数 1 として効いてしまう。
     requestAnimationFrame(() => {
       if (g.singlePageMode.value && sess.ui.currentPage > 0) g.goToPage(sess.ui.currentPage);
