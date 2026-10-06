@@ -316,6 +316,18 @@ describe('localPartRepo', () => {
     const other = await localPartRepo.listPartHistory('T2');
     if (isOk(other)) expect(other.value).toEqual([]);
   });
+
+  it('recordPartChange stores the given id, and falls back to a ph- id without one', async () => {
+    await localPartRepo.recordPartChange('T1', 'A', '指定あり', 'entry-1');
+    await localPartRepo.recordPartChange('T1', 'A', '指定なし');
+    const r = await localPartRepo.listPartHistory('T1');
+    expect(isOk(r)).toBe(true);
+    if (isOk(r)) {
+      const byChange = Object.fromEntries(r.value.map((e) => [e.change, e.id]));
+      expect(byChange['指定あり']).toBe('entry-1');
+      expect(byChange['指定なし']).toMatch(/^ph-/);
+    }
+  });
 });
 
 describe('allMetas の localStorage 読み取り回数', () => {

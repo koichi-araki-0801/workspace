@@ -50,7 +50,12 @@ interface TemplateEditorService {
   /** 未確定 draft を破棄する(所属の記録も消す)。 */
   discardDraft(id: string): Promise<Result<void>>;
   listPartHistory(templateId: string): Promise<Result<PartHistoryEntry[]>>;
-  recordPartChange(templateId: string, partKey: string, change: string): Promise<Result<void>>;
+  recordPartChange(
+    templateId: string,
+    partKey: string,
+    change: string,
+    id?: string,
+  ): Promise<Result<void>>;
   /** 交付版⇄全体版 ペア同期の現況(未解決競合)。編集画面を開いた時のバナー表示用。 */
   getSyncStatus(templateId: string): Promise<Result<PairSyncStatus>>;
 }
@@ -162,8 +167,8 @@ export function createTemplateEditorService(
 
     listPartHistory: (templateId) => parts.listPartHistory(templateId),
 
-    recordPartChange: (templateId, partKey, change) =>
-      parts.recordPartChange(templateId, partKey, change),
+    recordPartChange: (templateId, partKey, change, id) =>
+      parts.recordPartChange(templateId, partKey, change, id),
 
     getSyncStatus: (templateId) => templates.getSyncStatus(templateId),
   };

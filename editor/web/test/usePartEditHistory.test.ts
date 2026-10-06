@@ -14,6 +14,8 @@ function persistedEntry(id: string): PartHistoryEntry {
   };
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 describe('usePartEditHistory', () => {
   it('records an entry against the current selection', () => {
     const cid = ref<string | undefined>('p1');
@@ -119,7 +121,7 @@ describe('usePartEditHistory', () => {
       // 未選択(key 未指定)なら全件、選択中はそのパーツのみ。
       (key) => (key ? persisted.filter((e) => e.partKey === key) : persisted),
       undefined,
-      { history, nextSeq: () => 1 },
+      { history },
     );
     // 未選択: 全 4 件(セッション 2 + 永続 2)が timestamp 降順で interleave。
     expect(displayHistory.value.map((e) => e.change)).toEqual([
@@ -133,20 +135,25 @@ describe('usePartEditHistory', () => {
     expect(displayHistory.value.map((e) => e.change)).toEqual(['p1 セッション', 'p1 永続']);
   });
 
-  it('forwards recorded edits to the persist sink (partKey + change)', () => {
+  it('forwards recorded edits to the persist sink (partKey + change + id)', () => {
     const cid = ref<string | undefined>('p1');
-    const calls: Array<[string, string]> = [];
-    const { record } = usePartEditHistory(
+    const calls: Array<[string, string, string]> = [];
+    const { record, displayHistory } = usePartEditHistory(
       't1',
       () => cid.value,
       () => '編集者',
       () => [],
-      (partKey, change) => calls.push([partKey, change]),
+      (partKey, change, id) => calls.push([partKey, change, id]),
     );
     record('幅を変更');
     cid.value = undefined;
     record('無視される'); // no selection → no persist
-    expect(calls).toEqual([['p1', '幅を変更']]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].slice(0, 2)).toEqual(['p1', '幅を変更']);
+    // セッション内の 1 件と server へ送る id は同じ UUID。
+    cid.value = 'p1';
+    expect(calls[0][2]).toMatch(UUID);
+    expect(displayHistory.value[0].id).toBe(calls[0][2]);
   });
 
   // 外部 state(editorSession ストア由来)を渡すと、履歴と採番をその store に委ねる。
@@ -156,8 +163,7 @@ describe('usePartEditHistory', () => {
     // 本番では editorSession ストアの reactive state を渡す。computed の依存追跡が
     // 効くよう、テストでも reactive で包む。
     const history = reactive<Record<string, PartHistoryEntry[]>>({});
-    let seq = 0;
-    const init = { history, nextSeq: () => ++seq };
+    const init = { history };
     const first = usePartEditHistory(
       't1',
       () => cid.value,
@@ -168,7 +174,7 @@ describe('usePartEditHistory', () => {
     );
     first.record('一回目');
     expect(history.p1).toHaveLength(1);
-    expect(history.p1[0].id).toBe('s1');
+    expect(history.p1[0].id).toMatch(UUID);
 
     // 再マウントを模して別インスタンスに同じ store を渡す → 既存履歴が見える。
     const second = usePartEditHistory(
@@ -182,6 +188,50 @@ describe('usePartEditHistory', () => {
     expect(second.displayHistory.value.map((e) => e.change)).toEqual(['一回目']);
     second.record('二回目');
     expect(second.displayHistory.value.map((e) => e.change)).toEqual(['二回目', '一回目']);
-    expect(history.p1[0].id).toBe('s2'); // 採番は store の seq を継続
+    expect(history.p1[0].id).toMatch(UUID);
+    expect(history.p1[0].id).not.toBe(history.p1[1].id);
+  });
+
+  // 編集⇄プレビュー往復で開き直すと、セッション内の 1 件と、同じ id で永続化され読み直した
+  // 1 件が両方に載る。表示では同じ id の 2 件目以降を落とす。
+  describe('dedupe by id', () => {
+    function setup(selected: string | undefined) {
+      const cid = ref<string | undefined>(selected);
+      const history = reactive<Record<string, PartHistoryEntry[]>>({});
+      const persisted = ref<PartHistoryEntry[]>([]);
+      const h = usePartEditHistory(
+        't1',
+        () => cid.value,
+        () => '編集者',
+        (key) => (key ? persisted.value.filter((e) => e.partKey === key) : persisted.value),
+        undefined,
+        { history },
+      );
+      return { cid, history, persisted, ...h };
+    }
+
+    it('shows a session entry once when the persisted history has the same id (selected)', () => {
+      const { history, persisted, record, displayHistory } = setup('p1');
+      record('幅を変更');
+      persisted.value = [{ ...history.p1[0], user: '読み直し' }, persistedEntry('h1')];
+      expect(displayHistory.value.map((e) => [e.change, e.user])).toEqual([
+        ['幅を変更', '編集者'],
+        ['persisted', '過去'],
+      ]);
+    });
+
+    it('shows a session entry once when the persisted history has the same id (overview)', () => {
+      const { cid, history, persisted, record, displayHistory } = setup('p1');
+      record('幅を変更');
+      cid.value = undefined;
+      persisted.value = [{ ...history.p1[0] }, persistedEntry('h1')];
+      expect(displayHistory.value.map((e) => e.change)).toEqual(['幅を変更', 'persisted']);
+    });
+
+    it('keeps entries whose id is empty', () => {
+      const { persisted, displayHistory } = setup('p1');
+      persisted.value = [persistedEntry(''), persistedEntry('')];
+      expect(displayHistory.value).toHaveLength(2);
+    });
   });
 });

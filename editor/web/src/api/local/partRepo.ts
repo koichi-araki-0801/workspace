@@ -49,11 +49,11 @@ export const localPartRepo: PartRepository = {
       return delay(all.filter((e) => e.templateId === templateId));
     }),
 
-  recordPartChange: (templateId: string, partKey: string, change: string) =>
+  recordPartChange: (templateId: string, partKey: string, change: string, id?: string) =>
     attempt(() => {
       const all = read<PartHistoryEntry[]>(K.partHist, []);
       all.unshift({
-        id: uid('ph'),
+        id: id ?? uid('ph'),
         templateId,
         partKey,
         user: currentUser()?.displayName ?? '不明',

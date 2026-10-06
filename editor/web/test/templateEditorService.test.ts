@@ -482,7 +482,7 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
     const recordPartChange = vi.fn(async () => ok(undefined));
     const parts = { recordPartChange } as unknown as PartRepository;
     const templates = {} as unknown as TemplateRepository;
-    await createTemplateEditorService(templates, parts).recordPartChange('t1', 'k#1', 'c');
-    expect(recordPartChange).toHaveBeenCalledWith('t1', 'k#1', 'c');
+    await createTemplateEditorService(templates, parts).recordPartChange('t1', 'k#1', 'c', 'e1');
+    expect(recordPartChange).toHaveBeenCalledWith('t1', 'k#1', 'c', 'e1');
   });
 });

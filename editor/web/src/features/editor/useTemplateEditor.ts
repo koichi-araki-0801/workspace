@@ -199,13 +199,13 @@ export function useTemplateEditor(
     (key) => (key ? allPartHistory.value.filter((e) => e.partKey === key) : allPartHistory.value),
     // 各編集を永続化する(fire-and-forget)。失敗は log するが表に出さない。
     // セッション内エントリは既に表示済みで、autosave 済み draft が内容を保持するため。
-    (partKey, change) => {
-      service.recordPartChange(id, partKey, change).then((res) => {
+    (partKey, change, entryId) => {
+      service.recordPartChange(id, partKey, change, entryId).then((res) => {
         if (isErr(res)) logError(res.error);
       });
     },
     // セッション内修正履歴もストア管理にし、プレビュー往復で右下の履歴を維持する。
-    { history: sess.partHistory, nextSeq: () => ++sess.seq },
+    { history: sess.partHistory },
   );
 
   // ── パーツ単位コメント(1 段の入れ子スレッド) ──

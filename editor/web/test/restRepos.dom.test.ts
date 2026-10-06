@@ -190,14 +190,14 @@ describe('restPartRepo / restHistoryRepo / restNoteRepo / restReviewRepo / restU
     await restPartRepo.getPartClassificationOptions({ category: '表紙' });
     await restPartRepo.listParts({});
     await restPartRepo.listPartHistory('t1');
-    await restPartRepo.recordPartChange('t1', 'note-a#1', '文言修正');
+    await restPartRepo.recordPartChange('t1', 'note-a#1', '文言修正', 'e-1');
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       `GET /api/parts/classification-options?category=${encodeURIComponent('表紙')}`,
       'GET /api/parts',
       'GET /api/templates/t1/part-history',
       'POST /api/templates/t1/part-history',
     ]);
-    expect(calls[3].body).toEqual({ partKey: 'note-a#1', change: '文言修正' });
+    expect(calls[3].body).toEqual({ partKey: 'note-a#1', change: '文言修正', id: 'e-1' });
   });
   it('history: 3 フィード GET、PDF 記録 POST、版一覧、スナップショット(templateId は省略可)', async () => {
     const calls = stubFetch(() => json([]));
