@@ -28,3 +28,95 @@ export function parsePageIndex(text: string, pageCount: number): number | null {
   if (!Number.isFinite(n)) return null;
   return clampPage(n, pageCount) - 1;
 }
+
+/** `layoutRows` の結果。offset 配列は `rowCount` 個にそろえてある。 */
+export interface RowLayout {
+  beforeOff: number[];
+  afterOff: number[];
+  rowCount: number;
+  /** どの行にも出ないページ(0 起点)。 */
+  missing: { before: number[]; after: number[] };
+  /** 2 つ以上の行に出るページ(0 起点)。 */
+  duplicated: { before: number[]; after: number[] };
+}
+
+// 配列の外の行は最後の offset を引き継ぐ。「以降も連動」のずらしが、足した行へも及ぶようにする。
+function offsetAt(off: readonly number[], row: number): number {
+  if (off.length === 0) return 0;
+  return off[Math.min(row, off.length - 1)];
+}
+
+function shownPage(off: readonly number[], row: number, count: number): number | null {
+  const p = row + offsetAt(off, row);
+  return p >= 0 && p < count ? p : null;
+}
+
+/**
+ * 行ごとの offset から、全ページを載せる行数と offset を組み立てる。
+ *
+ * ずらすと末尾のページが行の外へ押し出されて見えなくなるため、あふれたページの行を足す。
+ * 途中で飛ばされたページは行を足しても出せない(利用者のずらし方の結果)ので、行は足さず
+ * `missing` で知らせる。両側とも対応なしの末尾行は削るが、`max(ページ数, 1)` 行は残す。
+ */
+export function layoutRows(
+  beforeOff: readonly number[],
+  afterOff: readonly number[],
+  beforeCount: number,
+  afterCount: number,
+): RowLayout {
+  const baseRows = Math.max(beforeCount, afterCount, 1);
+  const bOff = Array.from({ length: baseRows }, (_, r) => offsetAt(beforeOff, r));
+  const aOff = Array.from({ length: baseRows }, (_, r) => offsetAt(afterOff, r));
+
+  // ── 1. あふれたページの行を足す ──
+  const overflow = (off: number[], count: number): number[] => {
+    let max = -1;
+    for (let r = 0; r < baseRows; r++) max = Math.max(max, shownPage(off, r, count) ?? -1);
+    return Array.from({ length: Math.max(0, count - (max + 1)) }, (_, k) => max + 1 + k);
+  };
+  const bOver = overflow(bOff, beforeCount);
+  const aOver = overflow(aOff, afterCount);
+  const extra = Math.max(bOver.length, aOver.length);
+  for (let k = 0; k < extra; k++) {
+    const row = baseRows + k;
+    bOff.push(k < bOver.length ? bOver[k] - row : directOffset(null, row));
+    aOff.push(k < aOver.length ? aOver[k] - row : directOffset(null, row));
+  }
+
+  // ── 2. 両側とも対応なしの末尾行を削る ──
+  let rowCount = bOff.length;
+  while (
+    rowCount > baseRows &&
+    shownPage(bOff, rowCount - 1, beforeCount) == null &&
+    shownPage(aOff, rowCount - 1, afterCount) == null
+  ) {
+    rowCount--;
+  }
+  bOff.length = rowCount;
+  aOff.length = rowCount;
+
+  // ── 3. 出ないページと二重のページを数える ──
+  const tally = (off: number[], count: number) => {
+    const seen = new Array<number>(count).fill(0);
+    for (let r = 0; r < rowCount; r++) {
+      const p = shownPage(off, r, count);
+      if (p != null) seen[p]++;
+    }
+    const missing: number[] = [];
+    const duplicated: number[] = [];
+    seen.forEach((n, p) => {
+      if (n === 0) missing.push(p);
+      else if (n > 1) duplicated.push(p);
+    });
+    return { missing, duplicated };
+  };
+  const b = tally(bOff, beforeCount);
+  const a = tally(aOff, afterCount);
+  return {
+    beforeOff: bOff,
+    afterOff: aOff,
+    rowCount,
+    missing: { before: b.missing, after: a.missing },
+    duplicated: { before: b.duplicated, after: a.duplicated },
+  };
+}
