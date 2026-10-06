@@ -65,9 +65,16 @@ const ASSET_URL_PREFIX = `/api${PREVIEW_HOST_BASE}/`;
  * `rel` は 1 回復号済みなので、部分ごとに符号化し直す。そのまま繋ぐと `#` `?` で URL が切れ、
  * `%2e%2e` はブラウザの URL 解析で `..` と扱われて、cookie 付きの親が別の API を取りに行く。
  * 符号化後もブラウザが解いたパスが接頭辞の下に収まらなければ取りに行かない(undefined)。
+ * 対の無いサロゲートは `encodeURIComponent` が投げるので、その参照だけ諦めて undefined にする
+ * (文書全体の自己完結化を止めない)。export はテスト用。
  */
-function assetUrl(rel: string): string | undefined {
-  const url = `${ASSET_URL_PREFIX}${rel.split('/').map(encodeURIComponent).join('/')}`;
+export function assetUrl(rel: string): string | undefined {
+  let url: string;
+  try {
+    url = `${ASSET_URL_PREFIX}${rel.split('/').map(encodeURIComponent).join('/')}`;
+  } catch {
+    return undefined;
+  }
   const resolved = new URL(url, 'http://preview.invalid').pathname;
   return resolved === url ? url : undefined;
 }

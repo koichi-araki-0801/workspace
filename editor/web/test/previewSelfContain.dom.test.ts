@@ -8,7 +8,11 @@
 //   3. 取得はキャッシュされる — 再描画のたびに同じ資産を fetch しない
 import { isSelfContainedUrl } from '@editor/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetSelfContainCache, selfContainPreviewDoc } from '../src/lib/previewSelfContain';
+import {
+  assetUrl,
+  resetSelfContainCache,
+  selfContainPreviewDoc,
+} from '../src/lib/previewSelfContain';
 
 /** 応答を rel パス単位で組み立てる簡易 fetcher(呼び出し回数の検査に使う)。 */
 function fetcherFor(routes: Record<string, string | Uint8Array>) {
@@ -368,5 +372,30 @@ describe('配信 URL の符号化', () => {
     const fetcher = recordingFetcher();
     await selfContainPreviewDoc(DOC('<script src="../js/app.js"></script>'), fetcher);
     expect(fetcher).toHaveBeenCalledWith('/api/preview-host/js/app.js');
+  });
+
+  it('符号化できない名前(対の無いサロゲート)はその参照だけ原文のまま、他の参照は埋める', async () => {
+    const fetcher = fetcherFor({
+      'js/ok.js': 'ok()',
+      'css/fonts/ok.woff2': new Uint8Array([1]),
+    });
+    const out = await selfContainPreviewDoc(
+      DOC(
+        '<script src="../js/a\uD800.js"></script><script src="../js/ok.js"></script>',
+        '<style>@font-face{src:url(../css/fonts/b\uD800.woff2)}' +
+          '@font-face{src:url(../css/fonts/ok.woff2)}</style>',
+      ),
+      fetcher,
+    );
+    expect(out).toContain('ok()');
+    expect(out).toContain('url(data:font/woff2;base64,AQ==)');
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('解いたパスが接頭辞の下から動く URL は作らない', () => {
+    expect(assetUrl('js/../../auth/me')).toBeUndefined();
+    expect(assetUrl('js/./x.js')).toBeUndefined();
+    expect(assetUrl('js/a\uD800.js')).toBeUndefined();
+    expect(assetUrl('js/x.js')).toBe('/api/preview-host/js/x.js');
   });
 });
