@@ -138,18 +138,48 @@ function metaRefreshUrl(attrs: ReadonlyArray<{ name: string; value: string }>): 
   }
   if (httpEquiv === undefined || content === undefined) return undefined;
   if (decodeHtmlEntities(httpEquiv).trim().toLowerCase() !== 'refresh') return undefined;
-  const m = /^\s*[0-9.]*\s*[;,]?\s*(?:url\s*=\s*)?([\s\S]*)$/i.exec(decodeHtmlEntities(content));
-  const raw = (m?.[1] ?? '').trim();
-  // 仕様の「引用符を飛ばす」手順: 先頭が引用符なら 1 文字飛ばし、同じ引用符が後にあればそこで切る
-  // (無ければ末尾まで)。閉じ引用符の後ろの余りや閉じ忘れでも、ブラウザは URL として辿る。
-  let unquoted = raw;
-  const quote = raw[0];
-  if (quote === '"' || quote === "'") {
-    const rest = raw.slice(1);
-    const close = rest.indexOf(quote);
-    unquoted = close === -1 ? rest : rest.slice(0, close);
+  const url = refreshUrlPart(decodeHtmlEntities(content)).trim();
+  return url === '' ? undefined : url;
+}
+
+/**
+ * refresh の値から URL 部分を、HTML 仕様の refresh の手順どおりに切り出す。
+ *
+ * `url` の字は 1 つずつ照合し、合わない字が来たら**戻らずに**引用符の手順へ進む。照合済みの字は
+ * 捨てるので、`0;url https://evil/` や `0;ur'https://evil/'` もブラウザは `https://evil/` へ
+ * 遷移する。「`url=` があれば除く」という正規表現では、`=` の無い形を相対参照と見誤る。
+ *
+ * 引用符の手順: 先頭が引用符なら 1 文字飛ばし、同じ引用符が後にあればそこで切る(無ければ末尾
+ * まで)。閉じ引用符の後ろの余りや閉じ忘れでも、ブラウザは URL として辿る。
+ *
+ * 空白には仕様の ASCII 空白より広い `\s` を使い、時間の欠落や区切りの不正でも打ち切らない。
+ * どちらもブラウザより多くの値を URL として拾う側(誤検知側)へ倒すためである。
+ */
+function refreshUrlPart(s: string): string {
+  let i = 0;
+  const skipSpaces = (): void => {
+    while (i < s.length && /\s/.test(s[i])) i++;
+  };
+  skipSpaces();
+  while (i < s.length && /[0-9.]/.test(s[i])) i++;
+  skipSpaces();
+  if (s[i] === ';' || s[i] === ',') i++;
+  skipSpaces();
+  keyword: {
+    for (const c of 'url') {
+      if (s[i]?.toLowerCase() !== c) break keyword;
+      i++;
+    }
+    skipSpaces();
+    if (s[i] !== '=') break keyword;
+    i++;
+    skipSpaces();
   }
-  return unquoted === '' ? undefined : unquoted;
+  const quote = s[i];
+  if (quote !== '"' && quote !== "'") return s.slice(i);
+  const rest = s.slice(i + 1);
+  const close = rest.indexOf(quote);
+  return close === -1 ? rest : rest.slice(0, close);
 }
 
 function splitCandidateUrls(attrName: string, value: string): string[] {

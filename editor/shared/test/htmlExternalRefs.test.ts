@@ -305,6 +305,36 @@ describe('meta http-equiv=refresh の content', () => {
     expect(findExternalRefsInTag('meta', attrs)).not.toEqual([]);
   });
 
+  // 仕様の refresh の手順は `url` の字を 1 つずつ照合し、合わなければ戻らずに引用符の手順へ進む。
+  // 照合済みの字は捨て、残りを URL とする(`0;url https://evil/` は `https://evil/` へ遷移する)。
+  it.each([
+    ['url の後に = が無い', '0;url https://evil/'],
+    ['url の後に = が無く引用符つき', "0;url 'https://evil/'"],
+    ['url の途中で引用符', "0;ur'https://evil/'"],
+    ['u だけ照合して残り', '0;uhttps://evil/'],
+    ['大文字の URL の後に = が無い', '0; URL "https://evil/"'],
+  ])('url= の形にならない書き方でも外部への refresh を拾う: %s', (_label, content) => {
+    expect(
+      findExternalRefsInTag('meta', [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: content },
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it.each([
+    ['url の後に = が無い同一文書内', '0;url #top'],
+    ['url だけ', '0;url'],
+    ['url= の後が空', '0;url='],
+  ])('同一文書内・空の refresh は通す: %s', (_label, content) => {
+    expect(
+      findExternalRefsInTag('meta', [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: content },
+      ]),
+    ).toEqual([]);
+  });
+
   it('2 つ目の http-equiv は見ない(ブラウザは最初の属性を採る)', () => {
     expect(
       findExternalRefsInTag('meta', [
