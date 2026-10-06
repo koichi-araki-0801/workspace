@@ -5,17 +5,28 @@
 // 自体は止めない(外部ツールの出力を直すまで作業を止めないため)。代わりに理由を警告欄に出す。
 // 判定は表示の判定(`fundImages.ts` の `fundImageRefOf` / `companyFolderMatches`)と同じ材料で
 // 行い、「警告は出ないのに表示されない」ずれを作らない。
+// SVG の検査で配信しない画像だけは web で判定できない(検査はサーバにある)ので、サーバの画像の
+// 確認(`FundAssetRepository.inspect`)の結果を警告にする。違反の文言はサーバのものをそのまま出す。
 //
-// 警告文はテンプレート構文の字面(`{{ fund.code }}`)を含みうるので、Vue のテンプレートへ直書き
-// せず、補間(`{{ m }}`)で出す。補間はテキストとして挿すだけで、式として評価しない。
+// 警告文はテンプレート構文の字面(`{{ fund.code }}`)や SVG の違反の文言を含みうるので、Vue の
+// テンプレートへ直書きせず、補間(`{{ m }}`)で出す。補間はテキストとして挿すだけで、式として
+// 評価しない(HTML としても解釈しない)。
 
-import { collectCssUrlSpans, cssFileNameOf, DOC_DIR, resolveDocAssetPath } from '@editor/shared';
+import {
+  collectCssUrlSpans,
+  cssFileNameOf,
+  DOC_DIR,
+  type FundAssetInspectResult,
+  resolveDocAssetPath,
+} from '@editor/shared';
 import {
   attrUrlCandidates,
   companyCodeOfTemplateId,
   companyFolderMatches,
   FUND_IMAGES_DIR,
+  type FundImageRef,
   fundImageRefOf,
+  servedFundImageOf,
 } from './fundImages';
 
 /**
@@ -147,6 +158,65 @@ export function imageIssueMessages(
   return out;
 }
 
+/** SVG の検査で配信しない画像 1 件と、その違反の文言(サーバの `inspectSvg` の文言そのまま)。 */
+export interface SvgRejectedImage {
+  ref: FundImageRef;
+  violations: readonly string[];
+}
+
+/** 画像の確認の結果から、SVG の検査で配信しないものだけを取り出す。 */
+export function svgRejectedImages(results: readonly FundAssetInspectResult[]): SvgRejectedImage[] {
+  return results
+    .filter((r) => r.status === 'svg_rejected')
+    .map(({ dir, file, violations }) => ({ ref: { dir, file }, violations: violations ?? [] }));
+}
+
+/**
+ * SVG の検査で配信しない画像の警告(無ければ null)。参照は名前と理由で並べ、理由は 1 画像に
+ * つき最初の 1 つだけ出す(違反は 1 枚で数十件になりうり、1 つ直せば次が分かる)。
+ */
+export function svgRejectedMessage(images: readonly SvgRejectedImage[]): string | null {
+  if (images.length === 0) return null;
+  const refs = images.map(({ ref, violations }) =>
+    violations.length > 0 ? `${ref.file}: ${violations[0]}` : ref.file,
+  );
+  return (
+    `SVG の検査で配信しない画像があります（${listRefs(refs)}）。` +
+    '外部ツールの出力を直してください'
+  );
+}
+
+/**
+ * 組み立て済みの文書(プレビュー用)から、配信対象の画像の ref を重複なく並べる(画像の確認に
+ * 渡すため)。拾う範囲は `docImageIssues` と同じで、表示しない参照(会社フォルダ違いなど)は
+ * 取りに行かないので除く。
+ */
+export function docFundImageRefs(html: string, companyCode: string | null): FundImageRef[] {
+  if (html === '') return [];
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const out = new Map<string, FundImageRef>();
+  const add = (url: string): void => {
+    if (JINJA_RE.test(url)) return;
+    const ref = servedFundImageOf(url.trim(), DOC_DIR, companyCode);
+    if (ref !== undefined) out.set(JSON.stringify([ref.dir, ref.file]), ref);
+  };
+  const addCss = (css: string): void => {
+    for (const span of collectCssUrlSpans(css)) add(span.value);
+  };
+  for (const img of Array.from(doc.querySelectorAll('img[src]')))
+    add(img.getAttribute('src') ?? '');
+  for (const style of Array.from(doc.querySelectorAll('style'))) addCss(style.textContent ?? '');
+  for (const el of Array.from(doc.querySelectorAll('*'))) {
+    const isImg = el.tagName.toLowerCase() === 'img';
+    for (const { name, value } of Array.from(el.attributes)) {
+      if (name === 'style') addCss(value);
+      else if (!(isImg && name === 'src'))
+        for (const url of attrUrlCandidates(name, value)) add(url);
+    }
+  }
+  return [...out.values()];
+}
+
 /** テンプレの CSS ファイルが無いときの警告。名前は文書 ID から導く(サーバが探した名前と同じ)。 */
 export function cssMissingMessage(templateId: string): string {
   const name = cssFileNameOf(templateId) ?? `${templateId}.css`;
@@ -162,15 +232,21 @@ export function editorAssetWarnings(
   return [...(cssMissing ? [cssMissingMessage(templateId)] : []), ...imageWarnings];
 }
 
-/** プレビュー画面の警告欄の中身。画像は組み立て済み文書の参照から判定する。 */
+/**
+ * プレビュー画面の警告欄の中身。画像は組み立て済み文書の参照から判定する。SVG の検査の警告は
+ * 画像の確認の結果が届いてから足すので、画像の警告の後ろに置く。
+ */
 export function previewAssetWarnings(
   templateId: string,
   cssMissing: boolean,
   previewDoc: string,
+  svgRejected: readonly SvgRejectedImage[] = [],
 ): string[] {
   const companyCode = companyCodeOfTemplateId(templateId);
+  const svg = svgRejectedMessage(svgRejected);
   return [
     ...(cssMissing ? [cssMissingMessage(templateId)] : []),
     ...imageIssueMessages(docImageIssues(previewDoc, companyCode), companyCode),
+    ...(svg === null ? [] : [svg]),
   ];
 }

@@ -15,7 +15,7 @@ import {
 } from '@editor/shared';
 import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
-import { useNoteRepo } from '@/api/repositories';
+import { useFundAssetRepo, useNoteRepo } from '@/api/repositories';
 import { toast, toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
 import { editorAssetWarnings } from '@/lib/assetWarnings';
@@ -60,7 +60,8 @@ export function useTemplateEditor(
   const route = useRoute();
   const auth = useAuthStore();
   const sessionStore = useEditorSessionStore();
-  const g = useGrapes();
+  const fundAssets = useFundAssetRepo();
+  const g = useGrapes({ inspectFundImages: (refs) => fundAssets.inspect(refs) });
 
   // 編集セッション(履歴 + Undo/Redo)。プレビュー往復で EditorView が再マウントされても
   // ストア側に生存し、ここで `ensure` すると同一セッションが返って履歴が継続する。

@@ -25,7 +25,12 @@ import {
   containsBodyStyle,
   registerBodyStyleComponent,
 } from './bodyStyle';
-import { attachFundImages, type FundImageLayer, registerFundImageView } from './fundImageLayer';
+import {
+  attachFundImages,
+  type FundImageLayer,
+  type FundImageLayerOptions,
+  registerFundImageView,
+} from './fundImageLayer';
 import { type FundImageContext, resolveFundImageSrc } from './fundImages';
 import { type GrapesCallbacks, wireGrapesEvents } from './grapesEvents';
 import {
@@ -108,7 +113,12 @@ export interface SelectedInfo {
   partId?: string;
 }
 
-export function useGrapes() {
+export interface UseGrapesOptions {
+  /** ファンド別画像が配信されるかの確認(`fundImageLayer.ts` の `inspect`)。省略時は問い合わせない。 */
+  inspectFundImages?: FundImageLayerOptions['inspect'];
+}
+
+export function useGrapes(options: UseGrapesOptions = {}) {
   const editor = shallowRef<Editor>();
   const selected = ref<SelectedInfo | null>(null);
   // canvas で inline text 編集(RTE)中か。GrapesJS は iframe のキー入力を親 document へ
@@ -496,6 +506,7 @@ export function useGrapes() {
       onWarningsChange: (messages) => {
         imageWarnings.value = messages;
       },
+      inspect: options.inspectFundImages,
     });
 
     // GrapesJS 既定の keymap(`core:undo`=⌘z / `core:redo` / `core:component-delete`=

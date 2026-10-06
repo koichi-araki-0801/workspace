@@ -9,7 +9,7 @@ import { isErr, isOk, type SampleData, type Template } from '@editor/shared';
 import { AlertCircle, Crop, FileDown, Loader2, Minus, Plus, Send, TriangleAlert } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import { useReviewRepo } from '@/api/repositories';
+import { useFundAssetRepo, useReviewRepo } from '@/api/repositories';
 import AttributeBar from '@/components/AttributeBar.vue';
 import PageNav from '@/components/PageNav.vue';
 import PageRail from '@/components/PageRail.vue';
@@ -21,8 +21,14 @@ import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
 import { useChangedSummaryService } from '@/features/reviews/services/changedSummary';
 import { editorRoute } from '@/features/templates/editorRoute';
-import { previewAssetWarnings } from '@/lib/assetWarnings';
+import {
+  docFundImageRefs,
+  previewAssetWarnings,
+  type SvgRejectedImage,
+  svgRejectedImages,
+} from '@/lib/assetWarnings';
 import { withCropMarks } from '@/lib/cropMarks';
+import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
 import { useEditorSessionStore } from '@/stores/editorSession';
@@ -33,6 +39,7 @@ const props = defineProps<{ id: string }>();
 
 const preview = useTemplatePreviewService();
 const reviews = useReviewRepo();
+const fundAssets = useFundAssetRepo();
 const changedSummaryService = useChangedSummaryService();
 const route = useRoute();
 const sessionStore = useEditorSessionStore();
@@ -90,11 +97,33 @@ const fundCode = computed(() => template.value?.meta.attributes.fundCode ?? '');
 // 下書きがあるのに CSS の baseline が無い(別タブ・ブックマークから開いた等)ときの知らせ。
 // 申請は止めない — 本文の確定は通り、承認がペアへの CSS の転写だけを飛ばす。
 const baselineNotice = computed(() => cssBaselineNotice(hasDraft.value, cssBaseline.value));
+// SVG の検査で配信しない画像。画像の確認の結果が届いてから入る(それまでは空)。
+const svgRejected = ref<SvgRejectedImage[]>([]);
 const assetWarnings = computed(() =>
   template.value
-    ? previewAssetWarnings(props.id, template.value.cssMissing === true, previewDoc.value)
+    ? previewAssetWarnings(
+        props.id,
+        template.value.cssMissing === true,
+        previewDoc.value,
+        svgRejected.value,
+      )
     : [],
 );
+
+/**
+ * 組み立て済み文書の配信対象の画像を確かめ、SVG の検査で配信しないものを警告欄に足す。配信
+ * ルートは理由を出さずに 404 にするので、理由はここで聞く。失敗しても画面は止めず、警告も足さない。
+ */
+async function inspectServedImages(doc: string): Promise<void> {
+  const refs = docFundImageRefs(doc, companyCodeOfTemplateId(props.id));
+  if (refs.length === 0) return;
+  try {
+    const res = await fundAssets.inspect(refs);
+    if (isOk(res)) svgRejected.value = svgRejectedImages(res.value);
+  } catch {
+    // 理由が分からないだけで、プレビューと申請は続けられる。
+  }
+}
 
 onMounted(async () => {
   const res = await runLoad(() =>
@@ -117,6 +146,7 @@ onMounted(async () => {
   renderError.value = v.renderError;
   hasDraft.value = v.hasDraft;
   isFilled.value = v.isFilled;
+  void inspectServedImages(v.previewDoc);
 });
 
 // 編集タブ(query なし) / 作成タブ(`?created=1`)の区別。申請に保持し 2 系統を保つ。

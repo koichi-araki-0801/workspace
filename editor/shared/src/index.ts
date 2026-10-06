@@ -277,6 +277,7 @@ export * from './preview/hostProtocol.js';
 export * from './render/hostProtocol.js';
 // 集約別のリポジトリ契約 (web local と REST が実装)。
 export * from './repositories/AuthRepository.js';
+export * from './repositories/FundAssetRepository.js';
 export * from './repositories/HistoryRepository.js';
 export * from './repositories/NoteRepository.js';
 export * from './repositories/PartRepository.js';

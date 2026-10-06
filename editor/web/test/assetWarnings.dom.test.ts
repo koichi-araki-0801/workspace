@@ -5,12 +5,15 @@ import { describe, expect, it } from 'vitest';
 import {
   cssImageIssues,
   cssMissingMessage,
+  docFundImageRefs,
   docImageIssues,
   editorAssetWarnings,
   FUND_IMAGE_WARNING_MESSAGE,
   imageIssueMessages,
   imageRefIssue,
   previewAssetWarnings,
+  svgRejectedImages,
+  svgRejectedMessage,
 } from '@/lib/assetWarnings';
 
 describe('imageRefIssue', () => {
@@ -135,5 +138,74 @@ describe('cssMissingMessage / editorAssetWarnings / previewAssetWarnings', () =>
       expect(out[0]).toContain(r);
     }
     expect(out[1]).toContain('../images/am01/qr.svg');
+  });
+});
+
+describe('SVG の検査で配信しない画像の警告', () => {
+  const ID = 'SMTAM_110024_2024-05-17_交付版';
+  const rejected = (file: string, violations: string[], dir: string | null = 'smtam') => ({
+    ref: { dir, file },
+    violations,
+  });
+
+  it('設計どおりの文で、理由は 1 画像につき最初の 1 つだけ出す', () => {
+    expect(
+      svgRejectedMessage([
+        rejected('qr_code.svg', ['許可されていない属性 name', '許可されていない要素 script']),
+      ]),
+    ).toBe(
+      'SVG の検査で配信しない画像があります（qr_code.svg: 許可されていない属性 name）。' +
+        '外部ツールの出力を直してください',
+    );
+    expect(svgRejectedMessage([])).toBeNull();
+  });
+
+  it('4 件以上は 3 件まで並べて残りは件数で出す', () => {
+    const msg = svgRejectedMessage([
+      rejected('a.svg', ['x']),
+      rejected('b.svg', ['y']),
+      rejected('c.svg', ['z']),
+      rejected('d.svg', ['w'], null),
+    ]);
+    expect(msg).toBe(
+      'SVG の検査で配信しない画像があります（a.svg: x、b.svg: y、c.svg: z ほか1件）。' +
+        '外部ツールの出力を直してください',
+    );
+  });
+
+  it('確認の結果から svg_rejected だけを取り出す', () => {
+    expect(
+      svgRejectedImages([
+        { dir: null, file: 'a.svg', status: 'ok' },
+        { dir: 'smtam', file: 'b.svg', status: 'missing' },
+        { dir: 'smtam', file: 'c.svg', status: 'svg_rejected', violations: ['v'] },
+      ]),
+    ).toEqual([rejected('c.svg', ['v'])]);
+  });
+
+  it('組み立て済み文書から、配信対象の画像の ref を重複なく並べる', () => {
+    const doc =
+      '<style>.a{background:url(../images/bg.png)}</style>' +
+      '<img src="../images/smtam/qr.svg"><img src="../images/smtam/qr.svg">' +
+      '<img src="../images/am01/x.svg"><img src="../../images/out.svg">' +
+      '<img src="https://example.com/a.svg"><div style="background:url(../images/st.jpg)"></div>' +
+      '<picture><source srcset="../images/s1.png 1x, ../images/s2.png 2x"></picture>';
+    expect(docFundImageRefs(doc, 'SMTAM')).toEqual([
+      { dir: 'smtam', file: 'qr.svg' },
+      { dir: null, file: 'bg.png' },
+      { dir: null, file: 'st.jpg' },
+      { dir: null, file: 's1.png' },
+      { dir: null, file: 's2.png' },
+    ]);
+    expect(docFundImageRefs('', 'SMTAM')).toEqual([]);
+  });
+
+  it('プレビュー: SVG の検査の警告は画像の警告の後ろに足す', () => {
+    const doc = '<img src="../images/am01/qr.svg">';
+    const out = previewAssetWarnings(ID, true, doc, [rejected('qr_code.svg', ['v'])]);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toBe(cssMissingMessage(ID));
+    expect(out[1]).toContain('会社フォルダ名');
+    expect(out[2]).toContain('SVG の検査で配信しない画像があります（qr_code.svg: v）');
   });
 });

@@ -23,15 +23,33 @@
 // GrapesJS が canvas に描く元の `@font-face` は、描く直前(`css:mount:before`)に取得先を無効にする
 // (`canvasFontFaceSrcDisabled`)。複製を後ろに置くだけでは、複製の読み込みに失敗したときなどに
 // Chromium が元の規則へ取りに行く。
+//
+// 配信ルートは SVG の検査で弾いた画像を理由なしの 404 にするので、先読みに失敗した画像だけを
+// 画像の確認(`inspect`)へ 1 回にまとめて問い合わせ、`svg_rejected` を理由付きで警告欄に足す。
+// 成功した画像は問い合わせず、同じ参照は 2 度問い合わせない(結果は document をまたいで使う)。
 
+import type { FundAssetInspectResult, FundAssetRef, Result } from '@editor/shared';
+import { isOk } from '@editor/shared';
 import type { Editor } from 'grapesjs';
-import { cssImageIssues, type ImageRefIssue } from '@/lib/assetWarnings';
+import {
+  cssImageIssues,
+  type ImageRefIssue,
+  type SvgRejectedImage,
+  svgRejectedImages,
+  svgRejectedMessage,
+} from '@/lib/assetWarnings';
+import { type FundImageRef, fundImageUrl } from '@/lib/fundImages';
 import {
   canvasCssAssetCopy,
   canvasCssFullCopy,
   canvasFontFaceSrcDisabled,
 } from './canvasCssAssets';
-import { type FundImageContext, fundImageCss, fundImageWarnings } from './fundImages';
+import {
+  type FundImageContext,
+  fundImageCss,
+  fundImageWarnings,
+  resolveFundImageSrc,
+} from './fundImages';
 
 /** canvas の head に置く差し替え用 `<style>` の目印。 */
 export const FUND_IMAGE_STYLE_ATTR = 'data-fund-images';
@@ -49,6 +67,11 @@ export interface FundImageLayerOptions {
   onImagesReady: () => void;
   /** 警告欄の文(`{{` の残る参照・配信されない参照・会社フォルダ不一致)が変わった。 */
   onWarningsChange: (messages: string[]) => void;
+  /**
+   * 画像が配信されるかの確認(`FundAssetRepository.inspect`)。先読みに失敗した画像の理由を
+   * 知るために使う。省略時は問い合わせない。
+   */
+  inspect?: (refs: readonly FundAssetRef[]) => Promise<Result<FundAssetInspectResult[]>>;
   /** 画像の先読み(テストで差し替える)。既定は `Image` + `decode()`。 */
   preload?: (url: string) => Promise<void>;
   /** 走査の間引き(テストで同期にする)。既定は rAF で 1 フレーム 1 回。 */
@@ -123,6 +146,13 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   let cssIssues: Array<[string, ImageRefIssue]> = [];
   let assetEl: HTMLStyleElement | null = null;
   let lastAssetCss: string | null = null;
+  /** 確認を問い合わせた参照(結果の成否を問わず 2 度は問い合わせない)。 */
+  const inspected = new Set<string>();
+  /** SVG の検査で配信しないと分かった参照。警告に出すのは canvas に今ある参照の分だけ。 */
+  const rejected = new Map<string, SvgRejectedImage>();
+  /** 直近の走査の、確認とは別の警告と、canvas にある差し替え対象の参照。 */
+  let baseWarnings: string[] = [];
+  let currentRefs = new Set<string>();
 
   const disconnect = (): void => {
     observer?.disconnect();
@@ -209,6 +239,37 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     rebuildCssCopy(companyCode);
   };
 
+  const emitWarnings = (): void => {
+    const svg = svgRejectedMessage(
+      [...rejected].filter(([key]) => currentRefs.has(key)).map(([, img]) => img),
+    );
+    const warnings = svg === null ? baseWarnings : [...baseWarnings, svg];
+    const key = warnings.join('\n');
+    if (key !== lastWarnings) {
+      lastWarnings = key;
+      opts.onWarningsChange(warnings);
+    }
+  };
+
+  /** 先読みに失敗した参照のうち、まだ問い合わせていないものを 1 回で問い合わせる。 */
+  const inspectFailed = async (refs: readonly FundImageRef[]): Promise<void> => {
+    const fresh = refs.filter((ref) => !inspected.has(refKey(ref)));
+    if (opts.inspect === undefined || fresh.length === 0) return;
+    for (const ref of fresh) inspected.add(refKey(ref));
+    let res: Result<FundAssetInspectResult[]>;
+    try {
+      res = await opts.inspect(fresh);
+    } catch {
+      return;
+    }
+    // 問い合わせの失敗は警告にしない(理由が分からないだけで、編集は続けられる)。
+    if (destroyed || !isOk(res)) return;
+    const found = svgRejectedImages(res.value);
+    if (found.length === 0) return;
+    for (const img of found) rejected.set(refKey(img.ref), img);
+    emitWarnings();
+  };
+
   const refreshIn = (doc: Document | null | undefined): void => {
     if (destroyed) return;
     if (!doc?.head) return;
@@ -224,17 +285,26 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
       el.textContent = css;
       lastCss = css;
     }
+    const refOfUrl = new Map<string, FundImageRef>();
+    for (const src of srcs) {
+      const ref = resolveFundImageSrc(src, ctx);
+      if (ref !== null) refOfUrl.set(fundImageUrl(ref), ref);
+    }
+    currentRefs = new Set([...refOfUrl.values()].map(refKey));
     const fresh = urls.filter((u) => !preloaded.has(u));
     for (const u of fresh) preloaded.add(u);
     if (fresh.length > 0) {
-      void Promise.allSettled(fresh.map((u) => preload(u))).then(() => opts.onImagesReady());
+      void Promise.allSettled(fresh.map((u) => preload(u))).then((settled) => {
+        opts.onImagesReady();
+        const failed = fresh.flatMap((u, i) => {
+          const ref = settled[i]?.status === 'rejected' ? refOfUrl.get(u) : undefined;
+          return ref === undefined ? [] : [ref];
+        });
+        void inspectFailed(failed);
+      });
     }
-    const warnings = fundImageWarnings(srcs, ctx, cssIssues);
-    const key = warnings.join('\n');
-    if (key !== lastWarnings) {
-      lastWarnings = key;
-      opts.onWarningsChange(warnings);
-    }
+    baseWarnings = fundImageWarnings(srcs, ctx, cssIssues);
+    emitWarnings();
   };
 
   const refresh = (): void => {
@@ -276,6 +346,11 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   };
 
   return { refresh, setCss, destroy };
+}
+
+/** 参照の同一性の鍵(`dir` の null と空文字を区別する)。 */
+function refKey(ref: FundImageRef): string {
+  return JSON.stringify([ref.dir, ref.file]);
 }
 
 /** GrapesJS の image view の、ここで使う面だけ。 */

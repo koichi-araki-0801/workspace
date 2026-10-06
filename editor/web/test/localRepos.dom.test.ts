@@ -1,6 +1,7 @@
 import { isErr, isOk, type PartHistoryEntry } from '@editor/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
+import { localFundAssetRepo } from '@/api/local/fundAssetRepo';
 import { localHistoryRepo } from '@/api/local/historyRepo';
 import { localPartRepo } from '@/api/local/partRepo';
 import { fixtureCss, K, partCatalog } from '@/api/local/store';
@@ -339,5 +340,18 @@ describe('allMetas の localStorage 読み取り回数', () => {
     expect(keys.filter((k) => k === K.filledOverride)).toHaveLength(1); // 'editor:filled'
     expect(keys.filter((k) => k === K.htmlOverride)).toHaveLength(1); // 'editor:html'
     spy.mockRestore();
+  });
+});
+
+describe('localFundAssetRepo.inspect', () => {
+  it('サーバが無いので、どの ref も ok を返す', async () => {
+    const r = await localFundAssetRepo.inspect([
+      { dir: 'smtam', file: 'qr.svg' },
+      { dir: null, file: 'a.png' },
+    ]);
+    expect(isOk(r) && r.value).toEqual([
+      { dir: 'smtam', file: 'qr.svg', status: 'ok' },
+      { dir: null, file: 'a.png', status: 'ok' },
+    ]);
   });
 });

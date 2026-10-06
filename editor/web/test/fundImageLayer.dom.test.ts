@@ -6,7 +6,14 @@
 //   2. 文字編集の取り込み直し・ペーストを経ても、保存出力(getBodyHtml → toTemplate)は原文の
 //      `src` のままで、配信 URL が混ざらない。
 //   3. GrapesJS の代替画像処理(onError で src を差し替える)が対象の `src` で止まる。
-import { DOC_DIR } from '@editor/shared';
+import {
+  appError,
+  DOC_DIR,
+  err,
+  type FundAssetInspectResult,
+  ok,
+  type Result,
+} from '@editor/shared';
 import type { Component } from 'grapesjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -18,7 +25,7 @@ import {
 import { cssString, type FundImageContext } from '@/features/editor/fundImages';
 import { useGrapes } from '@/features/editor/useGrapes';
 import { FUND_IMAGE_WARNING_MESSAGE } from '@/lib/assetWarnings';
-import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
+import { type FundImageRef, TEMPLATE_CSS_FROM } from '@/lib/fundImages';
 import { toTemplate } from '@/lib/jinjaMask';
 
 const JINJA: FundImageContext = { mode: 'jinja', fundCode: '510037', companyCode: 'AM01' };
@@ -177,6 +184,161 @@ describe('attachFundImages', () => {
       onWarningsChange: vi.fn(),
     });
     expect(() => emit('load')).not.toThrow();
+  });
+});
+
+describe('先読みに失敗した画像の確認(SVG の検査の警告)', () => {
+  const QR = '/api/fund-assets/images/AM01/qr.svg';
+  const SEAL = '/api/fund-assets/images/510037_seal.png';
+  const SVG_MSG =
+    'SVG の検査で配信しない画像があります（qr.svg: 許可されていない属性 name）。' +
+    '外部ツールの出力を直してください';
+
+  /** `failing` の URL だけ先読みが失敗する。 */
+  const preloadFailing =
+    (failing: readonly string[]) =>
+    async (url: string): Promise<void> => {
+      if (failing.includes(url)) throw new Error('404');
+    };
+
+  const inspectRejecting = (rejectFile: string) =>
+    vi.fn(async (refs: FundImageRef[]) =>
+      ok(
+        refs.map((ref) =>
+          ref.file === rejectFile
+            ? { ...ref, status: 'svg_rejected' as const, violations: ['許可されていない属性 name'] }
+            : { ...ref, status: 'missing' as const },
+        ),
+      ),
+    );
+
+  it('失敗した URL の ref だけを 1 回にまとめて問い合わせ、svg_rejected を警告の後ろに足す', async () => {
+    document.body.innerHTML =
+      '<img src="../images/AM01/qr.svg"><img src="../images/510037_seal.png">' +
+      '<img src="../images/510037_logo.svg"><img src="../images/other/x.svg">';
+    const { host, emit } = fakeHost(document);
+    const inspect = inspectRejecting('qr.svg');
+    const onWarningsChange = vi.fn();
+    attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningsChange,
+      preload: preloadFailing([QR, SEAL]),
+      inspect,
+      schedule: (cb) => cb(),
+    });
+    emit('load');
+    await vi.waitFor(() =>
+      expect(onWarningsChange.mock.lastCall?.[0]).toEqual([
+        expect.stringContaining('会社フォルダ名'),
+        SVG_MSG,
+      ]),
+    );
+    expect(inspect).toHaveBeenCalledTimes(1);
+    expect(inspect).toHaveBeenCalledWith([
+      { dir: 'AM01', file: 'qr.svg' },
+      { dir: null, file: '510037_seal.png' },
+    ]);
+  });
+
+  it('同じ ref は 2 度問い合わせず、画像が消えたら SVG の警告も下ろす', async () => {
+    document.body.innerHTML = '<img id="qr" src="../images/AM01/qr.svg">';
+    const { host, emit } = fakeHost(document);
+    const inspect = inspectRejecting('qr.svg');
+    const onWarningsChange = vi.fn();
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningsChange,
+      preload: preloadFailing([QR, SEAL]),
+      inspect,
+      schedule: (cb) => cb(),
+    });
+    emit('load');
+    await vi.waitFor(() => expect(onWarningsChange).toHaveBeenLastCalledWith([SVG_MSG]));
+    // document が作り直されて先読みをやり直しても、確認済みの ref は問い合わせない。
+    document.head.innerHTML = '';
+    document.body.insertAdjacentHTML('beforeend', '<img src="../images/510037_seal.png">');
+    layer.refresh();
+    await vi.waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
+    expect(inspect.mock.calls[1]?.[0]).toEqual([{ dir: null, file: '510037_seal.png' }]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(inspect).toHaveBeenCalledTimes(2);
+    document.getElementById('qr')?.remove();
+    emit('component:remove');
+    expect(onWarningsChange).toHaveBeenLastCalledWith([]);
+  });
+
+  it('先読みが成功した画像は問い合わせない', async () => {
+    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
+    const { host, emit } = fakeHost(document);
+    const inspect = vi.fn(async (refs: FundImageRef[]) =>
+      ok(refs.map((r) => ({ ...r, status: 'ok' as const }))),
+    );
+    const onImagesReady = vi.fn();
+    attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady,
+      onWarningsChange: vi.fn(),
+      preload: async () => {},
+      inspect,
+      schedule: (cb) => cb(),
+    });
+    emit('load');
+    await vi.waitFor(() => expect(onImagesReady).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(inspect).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['err を返す', async () => err(appError('network', 'x'))],
+    [
+      '例外を投げる',
+      async () => {
+        throw new Error('boom');
+      },
+    ],
+  ])('問い合わせが%sときは警告を足さない', async (_label, impl) => {
+    document.body.innerHTML = '<img src="../images/AM01/qr.svg">';
+    const { host, emit } = fakeHost(document);
+    const inspect = vi.fn(impl);
+    const onWarningsChange = vi.fn();
+    attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningsChange,
+      preload: preloadFailing([QR]),
+      inspect,
+      schedule: (cb) => cb(),
+    });
+    emit('load');
+    await vi.waitFor(() => expect(inspect).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onWarningsChange.mock.calls.every(([m]) => m.length === 0)).toBe(true);
+  });
+
+  it('破棄の後に返ってきた結果は警告にしない', async () => {
+    document.body.innerHTML = '<img src="../images/AM01/qr.svg">';
+    const { host, emit } = fakeHost(document);
+    let resolve: (v: Result<FundAssetInspectResult[]>) => void = () => {};
+    const inspect = vi.fn(
+      () => new Promise<Result<FundAssetInspectResult[]>>((r) => (resolve = r)),
+    );
+    const onWarningsChange = vi.fn();
+    const layer = attachFundImages(host, {
+      getContext: () => FILLED,
+      onImagesReady: vi.fn(),
+      onWarningsChange,
+      preload: preloadFailing([QR]),
+      inspect,
+      schedule: (cb) => cb(),
+    });
+    emit('load');
+    await vi.waitFor(() => expect(inspect).toHaveBeenCalledTimes(1));
+    layer.destroy();
+    resolve(ok([{ dir: 'AM01', file: 'qr.svg', status: 'svg_rejected', violations: ['v'] }]));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onWarningsChange.mock.calls.every(([m]) => m.length === 0)).toBe(true);
   });
 });
 
