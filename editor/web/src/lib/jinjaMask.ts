@@ -13,6 +13,7 @@
 import { IF_RE, MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE } from './fillJinja';
 import { formatHtml } from './formatOutput';
 import { defaultHtmlParser, type HtmlParser } from './htmlParser';
+import { maskJinja, scanHtml } from './htmlScan';
 import {
   b64decodeUtf8,
   b64encodeUtf8,
@@ -23,6 +24,7 @@ import {
   DATA_JINJA_OPEN,
   DATA_OPAQUE,
 } from './jinjaAttrs';
+import { lexJinja } from './jinjaLex';
 
 export const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
 // Private-use 区切り文字: HTML serialization をエスケープされずに通過する。
@@ -216,48 +218,58 @@ export function toTemplate(
   return out;
 }
 
-// ── 往復の比較用の正規形 ──
+// ── 2. 往復の比較用の正規形 ──
 
-const BLANK_RE = /^\s*$/;
+const RAW_WS_TAGS = new Set(['PRE', 'TEXTAREA', 'SCRIPT', 'STYLE']);
 
 /**
- * 往復の比較用の正規形。`<body>` の中身として解析し、Jinja の記号と節点の端に接する、改行を
- * 含む空白を除いて直列化する。GrapesJS は改行を含む空白だけのテキストノードを読み込みで捨てる
- * ので、それを差分に数えない。改行の無い空白や、Jinja でない inline 同士の間の空白は描画に
- * 効くので残す。元と戻した結果を同じパーサへ通すため、パーサの並べ替え(表の追い出し)は
+ * テキスト位置の Jinja 記号を、コメントの印へ置き換える。コメントは DOM パーサの表の
+ * 追い出し(foster parenting)を受けないので、行がループの外へ出た差が両側で見分けられる。
+ * タグや属性値の中の記号は文字のまま残す。
+ */
+function tokensToComments(src: string): string {
+  const lexed = lexJinja(src);
+  if (!lexed.ok) return src;
+  const scan = scanHtml(maskJinja(src, lexed.tokens));
+  let out = '';
+  let at = 0;
+  for (const t of lexed.tokens) {
+    if (scan.contextAt(t.start).kind !== 'text') continue;
+    out += `${src.slice(at, t.start)}<!--tok:${b64encodeUtf8(t.source)}-->`;
+    at = t.end;
+  }
+  return out + src.slice(at);
+}
+
+/**
+ * 往復の比較用の正規形。`<body>` の中身として解析し、GrapesJS が読み込みで捨てるテキスト
+ * ノードだけを除いて直列化する。捨てる条件は GrapesJS と同じで、全体が空白であり、丁度
+ * 1 個の空白ではなく、親の先頭か末尾にあるか改行を含むもの。Jinja の記号はノードの境で区切る
+ * (編集用の HTML では記号が別の節点になる)。`pre` / `textarea` / `script` / `style` の中は
+ * 空白が意味を持つので触らない。元と戻した結果を同じパーサへ通すため、パーサの並べ替えは
  * 両側に同じく効く。
  */
 export function normalizeForRoundTrip(bodyHtml: string, parse: HtmlParser): string {
-  const doc = parse(`<!doctype html><html><head></head><body>${bodyHtml}</body></html>`);
+  const doc = parse(
+    `<!doctype html><html><head></head><body>${tokensToComments(bodyHtml)}</body></html>`,
+  );
   doc.body.normalize();
-  trimBlankText(doc.body);
+  dropBlankText(doc.body);
   return doc.body.innerHTML;
 }
 
-function trimBlankText(el: Node): void {
+function dropBlankText(el: Node): void {
+  if (el.nodeType === 1 && RAW_WS_TAGS.has((el as Element).tagName.toUpperCase())) return;
   const kids = Array.from(el.childNodes);
   const last = kids.length - 1;
   kids.forEach((n, i) => {
     if (n.nodeType === 1) {
-      trimBlankText(n);
+      dropBlankText(n);
       return;
     }
     if (n.nodeType !== 3) return;
-    const src = n.nodeValue ?? '';
-    // 記号の前後にある、改行を含む空白だけを落とす。
-    const re = new RegExp(TOKEN_RE.source, 'g');
-    let v = '';
-    let pos = 0;
-    for (let m = re.exec(src); m; m = re.exec(src)) {
-      v += src.slice(pos, m.index).replace(/\s*\n\s*$/, '') + m[0];
-      pos = m.index + m[0].length;
-      const lead = /^\s*\n\s*/.exec(src.slice(pos));
-      if (lead) pos += lead[0].length;
-    }
-    v += src.slice(pos);
-    // 全体が空白で改行を含み、親の先頭か末尾にあるものは節点の端の空白。
-    const edge = i === 0 || i === last;
-    if (v === '' || (edge && BLANK_RE.test(v) && v.includes('\n'))) n.parentNode?.removeChild(n);
-    else n.nodeValue = v;
+    const v = n.nodeValue ?? '';
+    if (v !== ' ' && !v.trim() && (i === 0 || i === last || v.includes('\n')))
+      n.parentNode?.removeChild(n);
   });
 }

@@ -178,10 +178,27 @@ describe('normalizeForRoundTrip', () => {
   it('中身の違いは残す', () => {
     expect(n('<p>a</p>')).not.toBe(n('<p>b</p>'));
   });
-  it('改行の無い空白と、非 Jinja の inline 同士の間の空白は残す', () => {
+  it('GrapesJS が捨てない空白の差は残す', () => {
+    expect(n('<p>{{ a }}\nb</p>')).not.toBe(n('<p>{{ a }}b</p>'));
+    expect(n('<p>a\n{{ b }}</p>')).not.toBe(n('<p>a{{ b }}</p>'));
+    expect(n('<pre>a\nb</pre>')).not.toBe(n('<pre>ab</pre>'));
+    expect(n('<pre>\n\n</pre>')).not.toBe(n('<pre></pre>'));
+    expect(n('<textarea>a\nb</textarea>')).not.toBe(n('<textarea>ab</textarea>'));
+    expect(n('<script>a\nb</script>')).not.toBe(n('<script>ab</script>'));
+  });
+  it('GrapesJS が捨てる空白は無視する', () => {
+    expect(n('<p><b>a</b>\n<i>b</i></p>')).toBe(n('<p><b>a</b><i>b</i></p>'));
+    expect(n('<p>  <b>a</b></p>')).toBe(n('<p><b>a</b></p>'));
+    expect(n('<p>{{ a }}\n{{ b }}</p>')).toBe(n('<p>{{ a }}{{ b }}</p>'));
+  });
+  it('ループの外へ出た行を jsdom でも見分ける', () => {
+    const a = '<table><tbody>{% for r in rows %}<tr><td>1</td></tr>{% endfor %}</tbody></table>';
+    const b = '<table><tbody>{% for r in rows %}{% endfor %}<tr><td>1</td></tr></tbody></table>';
+    expect(n(a)).not.toBe(n(b));
+  });
+  it('丁度 1 個の空白と、非 Jinja の inline 同士の間の空白は残す', () => {
     expect(n('<p><b>a</b> <i>b</i></p>')).not.toBe(n('<p><b>a</b><i>b</i></p>'));
     expect(n('<p>{{ a }} {{ b }}</p>')).not.toBe(n('<p>{{ a }}{{ b }}</p>'));
-    expect(n('<p><b>a</b>\n<i>b</i></p>')).not.toBe(n('<p><b>a</b><i>b</i></p>'));
   });
   it('linkedom のパーサでも同じ結果になる', () => {
     const parse: HtmlParser = (h) => parseHTML(h).document as unknown as Document;
