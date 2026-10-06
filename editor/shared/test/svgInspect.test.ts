@@ -283,6 +283,17 @@ describe('inspectSvg — CSS の関数の中の引用符の文字列', () => {
     '<style>.a{\\2d-u:"x.png"}</style>',
     '<style>@property --u{syntax:"*";inherits:false;initial-value:"x.png"}</style>',
     '<style>.a{background:image-set("data:image/png;base64,AAAA" 1x)}</style>',
+    '<style>.a{fill:url("\u00a0#g")}</style>',
+    '<style>.a{fill:url("\u3000#g")}</style>',
+    '<style>.a{fill:url(\u00a0#g)}</style>',
+    '<rect fill="url(#g\u3000)"/>',
+    '<style>.a{fill:url("\ufeff#g")}</style>',
+    '<style>.a{background:image-set("\u00a0#g" 1x)}</style>',
+    '<style>.a{background:image-set("#g\u3000x.png" 1x)}</style>',
+    '<style>.a{--u:{} "x.png"}</style>',
+    '<style>.a{--u:{"x.png"}}</style>',
+    `<rect style='--u:{} "x.png"'/>`,
+    '<style>.a{background:image-set(attr(data-x, "x.png") 1x)}</style>',
   ])('関数の中の引用符の文字列が #id 以外を指せば違反 %s', (inner) => {
     expect(inspectSvg(`<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`)).not.toEqual([]);
   });
@@ -304,6 +315,7 @@ describe('inspectSvg — CSS の関数の中の引用符の文字列', () => {
     '<style>.a::before{content:counters(n, ".")}</style>',
     '<style>@font-face{font-family:"F";src:local("Noto Sans")}</style>',
     '<style>.a{fill:url("#g")}.b{fill:URL(#g)}</style>',
+    '<style>.a{fill:url(" #g ")}.b{background:image-set(" #g " 1x)}</style>',
     '<style>.a{font-family:"x(";fill:url(#g)}.b::before{content:")"}</style>',
     '<style>/* image-set("x.png") */.a{fill:url(#g)}</style>',
     '<style>.a:not([class="x"]){fill:red}.b:is([id="y"]){fill:red}</style>',

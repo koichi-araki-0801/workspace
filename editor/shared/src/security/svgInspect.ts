@@ -632,6 +632,7 @@ function isEmbeddedFontData(v: string): boolean {
  * 関数があるので、関数の中の文字列は既定で URL 候補として扱い、ここに載る関数だけを外す
  * (知らない関数は違反の側へ倒れる)。前半は `@font-face` の `src` と `content` の関数、後半は
  * セレクタの関数で、値の関数としては存在しない名前(`:not([class="x"])` を落とさないため)。
+ * `attr()` は代替値の文字列が型の指定次第で URL として使われうるので載せない。
  */
 const STRING_ARG_SAFE_FUNCTIONS = new Set([
   'format',
@@ -639,13 +640,26 @@ const STRING_ARG_SAFE_FUNCTIONS = new Set([
   'tech',
   'counter',
   'counters',
-  'attr',
   'not',
   'is',
   'where',
   'has',
   'lang',
 ]);
+
+/**
+ * CSS の URL 値が文書内の `#id` だけを指すか。前後から外すのは WHATWG URL パーサが外すもの
+ * (C0 制御文字と空白)だけ。JS の `trim` は NBSP や U+3000・BOM も外すので、ブラウザが相対 URL
+ * として解く `"\u00a0#g"` を `#g` と見誤る。中に空白類を含む値も通さない(fail closed)。
+ */
+function isFragmentOnly(value: string): boolean {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value.charCodeAt(start) <= 0x20) start++;
+  while (end > start && value.charCodeAt(end - 1) <= 0x20) end--;
+  const v = value.slice(start, end);
+  return v.startsWith('#') && !/[\s\p{Cc}]/u.test(v);
+}
 
 /**
  * CSS(`<style>` の中身・`style` 属性・プレゼンテーション属性)の `url()` は `#id` だけ。例外は
@@ -662,12 +676,12 @@ function checkCss(css: string, where: string, add: Report): void {
   if (findExternalRefsInCss(css).length > 0) add(`外部参照を含む CSS(${where})`);
   const allowFont = where === 'style 要素';
   const bad = collectCssUrlSpansInContext(css).some((span) => {
-    if (span.value.trim().startsWith('#')) return false;
+    if (isFragmentOnly(span.value)) return false;
     return !(allowFont && span.inFontFaceSrc && isEmbeddedFontData(span.value));
   });
   if (bad) add(`url() が #id 以外を指す(${where})`);
   const badString = collectCssStringsInFunctions(css).some(
-    (s) => !STRING_ARG_SAFE_FUNCTIONS.has(s.fn) && !s.value.trim().startsWith('#'),
+    (s) => !STRING_ARG_SAFE_FUNCTIONS.has(s.fn) && !isFragmentOnly(s.value),
   );
   if (badString) add(`引用符の文字列が #id 以外を指す(${where})`);
 }

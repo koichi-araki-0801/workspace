@@ -93,7 +93,11 @@ export function isAllowedDataUrl(url: string): boolean {
 }
 
 const HEX = /[0-9a-fA-F]/;
-const WS = /\s/;
+/**
+ * CSS の空白(CSS Syntax の whitespace)。NBSP や U+3000 は含まない — 含めると NBSP で始まる
+ * `url()` の値を `#g` と読み、ブラウザが相対 URL として解く値を見誤る。
+ */
+const WS = /[ \t\n\r\f]/;
 /** ident を構成する ASCII 文字。非 ASCII(U+0080 以降)は CSS 仕様どおり無条件で ident 文字。 */
 const IDENT_ASCII = /[a-zA-Z0-9_-]/;
 
@@ -173,6 +177,15 @@ function readString(css: string, at: number): { value: string; next: number; bad
   return { value, next: i, bad: false };
 }
 
+/** 前後の CSS の空白だけを外す(`trim` は NBSP なども外すので使わない)。 */
+function trimCssWhitespace(s: string): string {
+  let start = 0;
+  let end = s.length;
+  while (start < end && WS.test(s[start])) start++;
+  while (end > start && WS.test(s[end - 1])) end--;
+  return s.slice(start, end);
+}
+
 /** `url(` の直後から `)` までを読み、エスケープ解決後の URL と次位置を返す。 */
 function readUrlToken(css: string, at: number): { value: string; next: number } {
   let i = at;
@@ -197,7 +210,7 @@ function readUrlToken(css: string, at: number): { value: string; next: number } 
     value += css[i];
     i++;
   }
-  return { value: value.trim(), next: Math.min(i + 1, css.length) };
+  return { value: trimCssWhitespace(value), next: Math.min(i + 1, css.length) };
 }
 
 /**
@@ -388,8 +401,7 @@ export function collectCssStringsInFunctions(css: string): CssFunctionString[] {
         found.push({ value, fn: ctx.fn });
         return;
       }
-      const decl = ctx.decl;
-      if (decl !== undefined && (decl.startsWith('--') || asciiLower(decl) === 'initial-value')) {
+      if (ctx.decl !== undefined && isSubstitutableDecl(ctx.decl)) {
         found.push({ value, fn: '' });
       }
     },
@@ -398,9 +410,17 @@ export function collectCssStringsInFunctions(css: string): CssFunctionString[] {
 }
 
 /**
+ * 値を `var()` で別の宣言へ差し込める宣言(カスタムプロパティと `@property` の
+ * `initial-value`)か。値に `{}` のブロックも持てる。
+ */
+function isSubstitutableDecl(decl: string): boolean {
+  return decl.startsWith('--') || asciiLower(decl) === 'initial-value';
+}
+
+/**
  * ASCII の英大文字だけを小文字にする。CSS の関数名・プロパティ名の比較は ASCII の範囲でだけ
- * 大文字小文字を区別しないので、`toLowerCase` で非 ASCII まで畳むと(`a` の K が `k` になる等)
- * ブラウザと違う名前で判定する。
+ * 大文字小文字を区別しないので、`toLowerCase` で非 ASCII まで畳むと(U+212A のケルビン記号が
+ * `k` になる等)ブラウザと違う名前で判定する。
  */
 function asciiLower(s: string): string {
   return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
@@ -472,7 +492,10 @@ function walkCss(
    * 開いている括弧の閉じ文字と、関数の括弧(名前の直後の `(`)か。CSS Syntax の「単純ブロック」と
    * 同じく、閉じ文字が最も内側の括弧と合わないものは無視する — `f({)} "x")` の `)` で `f` を
    * 閉じると、ブラウザが `f` の中と見る文字列を外と見誤る。最上位の `{` `}` は規則のブロックで、
-   * ここには積まない(`punct` で扱う)。
+   * ここには積まない(`punct` で扱う)。ただし差し込める宣言の値の中の `{` は値のブロックとして積む
+   * (`--u:{} "x"` の `{` で宣言を区切ると、後ろの文字列を値の外と見誤る)。
+   * 関数とみなすのは名前の直後の `(` で、`#name(` も関数として読む(ブラウザより広いが、
+   * 関数の中の文字列を検査する側へ倒れるだけなので害は無い)。
    */
   const blocks: Array<{ close: ')' | ']' | '}'; fn: boolean }> = [];
   /** 開いている関数の名前(内側が末尾)。`blocks` の `fn: true` の数と一致する。 */
@@ -480,6 +503,10 @@ function walkCss(
   let decl: string | undefined;
   /** 括弧の外で `{` `}` `;` の直後(宣言の先頭の ident を待っている)か。 */
   let atDeclStart = true;
+  /** 宣言の先頭の ident を読んだ直後で、`:` を待っているか。 */
+  let afterDeclName = false;
+  /** 差し込める宣言(`isSubstitutableDecl`)の `:` の後ろ(値の中)か。 */
+  let inSubstValue = false;
   while (i < css.length) {
     const c = css[i];
     if (c === '/' && css[i + 1] === '*') {
@@ -493,6 +520,7 @@ function walkCss(
       const s = readString(css, i);
       visit.value(s.value, 'string', undefined, { fn: fns[fns.length - 1], decl });
       atDeclStart = false;
+      afterDeclName = false;
       i = s.next;
       continue;
     }
@@ -500,6 +528,7 @@ function walkCss(
       const id = readIdent(css, i + 1);
       if (id.next > i + 1) visit.atRule(id.value, i);
       atDeclStart = false;
+      afterDeclName = false;
       i = id.next > i + 1 ? id.next : i + 1;
       continue;
     }
@@ -515,10 +544,12 @@ function walkCss(
         // span は `url(` の先頭から閉じ括弧の直後まで = `url(…)` 式全体を置換できる範囲。
         visit.value(u.value, 'url', { start: i, end: u.next });
         atDeclStart = false;
+        afterDeclName = false;
         i = u.next;
         continue;
       }
-      if (atDeclStart && blocks.length === 0) decl = id.value;
+      afterDeclName = atDeclStart && blocks.length === 0;
+      if (afterDeclName) decl = id.value;
       atDeclStart = false;
       if (css[id.next] === '(') {
         blocks.push({ close: ')', fn: true });
@@ -530,16 +561,23 @@ function walkCss(
       continue;
     }
     if (c === '{' || c === '}' || c === ';') visit.punct?.(c, i);
-    if (blocks.length === 0 && (c === '{' || c === '}' || c === ';')) {
+    const valueBlock = c === '{' && inSubstValue;
+    if (blocks.length === 0 && !valueBlock && (c === '{' || c === '}' || c === ';')) {
       decl = undefined;
       atDeclStart = true;
+      afterDeclName = false;
+      inSubstValue = false;
     } else if (c === '(' || c === '[' || c === '{') {
       blocks.push({ close: c === '(' ? ')' : c === '[' ? ']' : '}', fn: false });
       atDeclStart = false;
+      afterDeclName = false;
     } else if (c === ')' || c === ']' || c === '}') {
       if (blocks[blocks.length - 1]?.close === c && blocks.pop()?.fn === true) fns.pop();
     } else if (!WS.test(c)) {
+      if (c === ':' && afterDeclName && decl !== undefined)
+        inSubstValue = isSubstitutableDecl(decl);
       atDeclStart = false;
+      afterDeclName = false;
     }
     i++;
   }

@@ -209,6 +209,17 @@ describe('collectCssStringsInFunctions — 関数の引数にある引用符の�
     expect(collectCssStringsInFunctions('.a{b:f(;}.c{d:"x"')).toEqual([{ value: 'x', fn: 'f' }]);
   });
 
+  it('カスタムプロパティの値の {} は値のブロックで、規則のブロックとして宣言を区切らない', () => {
+    expect(collectCssStringsInFunctions('.a{--u:{} "x"}.b{--v:{"y"}}')).toEqual([
+      { value: 'x', fn: '' },
+      { value: 'y', fn: '' },
+    ]);
+    // 普通のプロパティ名の後の `{` は入れ子の規則(`a:hover{…}`)なので、中の宣言を読む。
+    expect(collectCssStringsInFunctions('.p{a:hover{--u:"z";color:"w"}}')).toEqual([
+      { value: 'z', fn: '' },
+    ]);
+  });
+
   it('[] や {} の中の ) では関数を閉じない(閉じ文字は最も内側の括弧と合うものだけ)', () => {
     expect(collectCssStringsInFunctions('.a{b:f({)} "x") "y";c:g([)] "z")}')).toEqual([
       { value: 'x', fn: 'f' },
