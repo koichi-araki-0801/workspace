@@ -5,7 +5,12 @@
 // 逆算して置く。数百ページ規模では番号を手入力するため、入力文字列の解釈(空・非数値・
 // 範囲外)も同じ関数群で安全化する。ここは DOM 非依存の分岐だけを直接叩く。
 import { describe, expect, it } from 'vitest';
-import { directOffset, layoutRows, parsePageIndex } from '@/features/compare/pageMatch';
+import {
+  alignWarningText,
+  directOffset,
+  layoutRows,
+  parsePageIndex,
+} from '@/features/compare/pageMatch';
 
 describe('directOffset', () => {
   it('指定ページ index になる offset を返す(行 index との差)', () => {
@@ -73,8 +78,9 @@ describe('layoutRows', () => {
     expect(r.missing.after).toEqual([2]);
   });
 
-  it('戻したら足した行を削る(ただし max(ページ数) 未満にしない)', () => {
+  it('ずらしを戻して再計算すると、足した行は基準の行数へ戻る', () => {
     const grown = layoutRows([0, 0, 0, 0, 0], [0, 0, -1, -1, -1], 5, 5);
+    expect(grown.rowCount).toBe(6);
     const back = layoutRows(grown.beforeOff, [0, 0, 0, 0, 0, 0], 5, 5);
     expect(back.rowCount).toBe(5);
     expect(back.beforeOff).toHaveLength(5);
@@ -111,5 +117,50 @@ describe('layoutRows', () => {
     const r = layoutRows([], [], 0, 0);
     expect(r.rowCount).toBe(1);
     expect(r.missing).toEqual({ before: [], after: [] });
+  });
+});
+
+describe('alignWarningText', () => {
+  const layout = (missing: [number[], number[]], duplicated: [number[], number[]]) => ({
+    beforeOff: [],
+    afterOff: [],
+    rowCount: 0,
+    missing: { before: missing[0], after: missing[1] },
+    duplicated: { before: duplicated[0], after: duplicated[1] },
+  });
+
+  it('問題が無ければ null', () => {
+    expect(alignWarningText(layout([[], []], [[], []]))).toBeNull();
+  });
+
+  it('出ないページは 1 起点で、側を「、」ページを「・」でつなぐ', () => {
+    expect(alignWarningText(layout([[2], [6, 7]], [[], []]))).toBe(
+      'どの行にも表示されていないページがあります: 比較元 3、比較先 7・8',
+    );
+  });
+
+  it('該当の無い側は書かない', () => {
+    expect(alignWarningText(layout([[], [6, 7]], [[], []]))).toBe(
+      'どの行にも表示されていないページがあります: 比較先 7・8',
+    );
+  });
+
+  it('二重のページの文言', () => {
+    expect(alignWarningText(layout([[], []], [[], [1]]))).toBe(
+      '2 つ以上の行に表示されているページがあります: 比較先 2',
+    );
+  });
+
+  it('両方あるときは " / " で 1 行につなぐ', () => {
+    expect(alignWarningText(layout([[2], []], [[], [1]]))).toBe(
+      'どの行にも表示されていないページがあります: 比較元 3 / 2 つ以上の行に表示されているページがあります: 比較先 2',
+    );
+  });
+
+  it('1 側 10 件を超えたら「ほか N ページ」に縮める', () => {
+    const pages = Array.from({ length: 13 }, (_, i) => i);
+    expect(alignWarningText(layout([pages, []], [[], []]))).toBe(
+      'どの行にも表示されていないページがあります: 比較元 1・2・3・4・5・6・7・8・9・10 ほか 3 ページ',
+    );
   });
 });

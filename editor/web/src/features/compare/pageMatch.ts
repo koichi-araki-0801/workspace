@@ -56,7 +56,7 @@ function shownPage(off: readonly number[], row: number, count: number): number |
  *
  * ずらすと末尾のページが行の外へ押し出されて見えなくなるため、あふれたページの行を足す。
  * 途中で飛ばされたページは行を足しても出せない(利用者のずらし方の結果)ので、行は足さず
- * `missing` で知らせる。両側とも対応なしの末尾行は削るが、`max(ページ数, 1)` 行は残す。
+ * `missing` で知らせる。
  */
 export function layoutRows(
   beforeOff: readonly number[],
@@ -83,19 +83,11 @@ export function layoutRows(
     aOff.push(k < aOver.length ? aOver[k] - row : directOffset(null, row));
   }
 
-  // ── 2. 両側とも対応なしの末尾行を削る ──
-  let rowCount = bOff.length;
-  while (
-    rowCount > baseRows &&
-    shownPage(bOff, rowCount - 1, beforeCount) == null &&
-    shownPage(aOff, rowCount - 1, afterCount) == null
-  ) {
-    rowCount--;
-  }
-  bOff.length = rowCount;
-  aOff.length = rowCount;
+  // 足した行は基準の行数から毎回組み直すので、ずらしを戻せば次の呼び出しで自然に無くなる。
+  // 渡された offset の長さが基準を超えていても、超えた分は読まない。
+  const rowCount = bOff.length;
 
-  // ── 3. 出ないページと二重のページを数える ──
+  // ── 2. 出ないページと二重のページを数える ──
   const tally = (off: number[], count: number) => {
     const seen = new Array<number>(count).fill(0);
     for (let r = 0; r < rowCount; r++) {
@@ -119,4 +111,32 @@ export function layoutRows(
     missing: { before: b.missing, after: a.missing },
     duplicated: { before: b.duplicated, after: a.duplicated },
   };
+}
+
+const WARN_LIMIT = 10;
+
+function pagesText(label: string, pages: readonly number[]): string | null {
+  if (pages.length === 0) return null;
+  const shown = pages
+    .slice(0, WARN_LIMIT)
+    .map((p) => p + 1)
+    .join('・');
+  const rest = pages.length - WARN_LIMIT;
+  return `${label} ${shown}${rest > 0 ? ` ほか ${rest} ページ` : ''}`;
+}
+
+function sidesText(head: string, v: { before: readonly number[]; after: readonly number[] }) {
+  const parts = [pagesText('比較元', v.before), pagesText('比較先', v.after)].filter(
+    (x): x is string => x != null,
+  );
+  return parts.length === 0 ? null : `${head}: ${parts.join('、')}`;
+}
+
+/** 比較画面の警告 1 行。出ないページも二重のページも無ければ `null`。 */
+export function alignWarningText(layout: RowLayout): string | null {
+  const parts = [
+    sidesText('どの行にも表示されていないページがあります', layout.missing),
+    sidesText('2 つ以上の行に表示されているページがあります', layout.duplicated),
+  ].filter((x): x is string => x != null);
+  return parts.length === 0 ? null : parts.join(' / ');
 }
