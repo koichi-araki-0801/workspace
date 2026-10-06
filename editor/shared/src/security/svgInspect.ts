@@ -195,8 +195,10 @@ const PRESENTATION_ATTRIBUTES: ReadonlySet<string> = new Set([
 ]);
 
 /** 値の形を問わない SVG 1.1 の属性(幾何・単位・フィルタの係数・条件処理など)。 */
+// `name` は SVG 1.1 の属性ではないが、外部ツールの出力に現れ、スクリプトも URL も持たない。
 const PLAIN_ATTRIBUTES: ReadonlySet<string> = new Set([
   'id',
+  'name',
   'class',
   'lang',
   'version',

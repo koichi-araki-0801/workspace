@@ -51,6 +51,7 @@ describe('inspectSvg — 通すもの', () => {
       wrap('<filter id="f"><feGaussianBlur stdDeviation="1"/><feOffset dx="1"/></filter>'),
     ],
     ['data-* 属性', wrap('<g data-part="logo"/>')],
+    ['name 属性', wrap('<g name="qr"><rect width="1" height="1"/></g>')],
   ])('%s', (_label, svg) => {
     expect(inspectSvg(svg)).toEqual([]);
   });
@@ -301,6 +302,10 @@ describe('inspectSvg — 入力サイズに対して線形', () => {
     const svg = wrap(`<style>${css}</style>`);
     expect(timed(svg)).toBeLessThan(LIMIT_MS);
     expect(inspectSvg(svg)).toEqual([]);
+  });
+
+  it('知らない属性は違反のまま', () => {
+    expect(inspectSvg(wrap('<rect foo="1"/>'))).toContain('許可されていない属性 foo');
   });
 
   it('重複属性は違反のまま', () => {
