@@ -42,8 +42,11 @@ export const sampleCommon: SampleData = {
     investmentLimit: '投資信託証券への投資割合に制限を設けません。株式への直接投資は行いません。',
   },
   // 帳票期。editionType は buildSampleData がファイル名の版種で上書きする(placeholder)。
+  // baseDate は基準日の無いテンプレートでだけ使う(値入り HTML は `applyTemplateAttributes` が
+  // ファイル名の基準日で上書きする)。
   report: {
     editionType: '交付版',
+    baseDate: '2025年12月31日',
     term: '第1期',
     settlementDate: '2025年12月31日',
     period: '2025年1月1日～2025年12月31日',
