@@ -1,7 +1,7 @@
 // =============================================================================
 // docAssetRefs.guard.test.ts — 文書側の資産参照は resolveDocAssetPath だけを通す
 // =============================================================================
-// `resolveServedAssetPath` は配信ルート直下を基準にする。文書の参照(`../css/x.css`)をこれで解くと
+// 文書の参照(`../css/x.css`)は文書の位置を基準に解く。配信ルート直下基準で解くと
 // ルートの外として落ち、`<link>`/`<script src>` が黙って消える。ルート引数は復号済みなので
 // `resolveServedRoutePath` で検め、それを使う場所はこの台帳に理由つきで足す。
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -42,13 +42,6 @@ describe('文書側の資産参照の解決', () => {
       (a) => a.rel,
     );
     expect(users.sort()).toEqual(ROUTE_PARAM_USERS);
-  });
-
-  it('resolveServedAssetPath は server で使わない(復号済みのルート引数をもう一度解く)', () => {
-    const users = ALL.filter(({ code }) => /\bresolveServedAssetPath\b/.test(code)).map(
-      (a) => a.rel,
-    );
-    expect(users).toEqual([]);
   });
 
   it.each([

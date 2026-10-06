@@ -279,22 +279,6 @@ function resolveSegments(base: readonly string[], decoded: string): string[] | u
 }
 
 /**
- * 相対 URL を「配信ルート相対のパス」へ正規化する。配信ルート配下へ解決できない形
- * (絶対 URL・scheme 相対・ルート絶対 `/…`・`..` でルート外へ出る形)は `undefined`。
- *
- * 呼び出し側はこの戻り値を「実際に配置した資産の集合」と突き合わせる。つまり
- * `<link href>` / `<script src>` を残してよいかは **配信ルート配下に実体があるか**で
- * 決まり、要素名では決まらない(本ファイル冒頭の方針)。
- */
-export function resolveServedAssetPath(url: string): string | undefined {
-  // 判定も解決も**ブラウザが実際に取りに行く形**で行う(`htmlEntities.ts`)。生値のままだと
-  // `&#104;ttps://evil/x` が「相対参照」として配信ルート配下へ解決されうる。
-  const decoded = decodedPathOf(normalizeHtmlUrlValue(url), false);
-  const segments = decoded === undefined ? undefined : resolveSegments([], decoded);
-  return segments === undefined || segments.length === 0 ? undefined : segments.join('/');
-}
-
-/**
  * **復号済みのルート引数**(Fastify が 1 回百分率復号して渡す値)を配信ルート相対のパスとして
  * 検める。文書の URL 値ではないので、文字参照の復号・`?` `#` での切断・百分率復号はしない
  * (`a#b.svg` は字面の名前で、`%41` も `A` ではなく字面の名前)。もう一度解くと `#` で切れて

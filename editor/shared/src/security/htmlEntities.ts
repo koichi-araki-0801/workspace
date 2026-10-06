@@ -20,7 +20,7 @@
 // (`server/src/security/templateScripts.ts`)が**同じ復号器**を使うため。別実装を持つと
 // 「片方だけ解かない」形の穴が必ず生まれる(このファイルが生まれた原因がそれである)。
 
-import { stripUrlIgnoredChars } from './cssExternalRefs.js';
+import { stripUrlIgnoredChars } from './urlNormalize.js';
 
 const CHAR_TAB = String.fromCharCode(0x09);
 const CHAR_LF = String.fromCharCode(0x0a);
@@ -80,7 +80,7 @@ export function decodeHtmlEntities(value: string): string {
  * HTML 属性から取り出した URL 値を、ブラウザが実際に取りに行く形へ寄せる。
  * 順序が重要で、**復号が先**でなければならない — `&Tab;` を先に解かないと除去できない。
  *
- * 戻り値をそのまま `isSelfContainedUrl` / `resolveServedAssetPath` へ渡すこと。
+ * 戻り値をそのまま `isSelfContainedUrl` / `resolveDocAssetPath` へ渡すこと。
  * URL パーサが外す文字の除去(`stripUrlIgnoredChars`)は `isSelfContainedUrl` も自分で行う
  * (CSS の値はエスケープを解いた後に同じ文字が残りうる)。ここで先に外すのは、判定だけでなく
  * 資産のパス解決にも外した後の値を使うため。

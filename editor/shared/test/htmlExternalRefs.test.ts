@@ -13,7 +13,6 @@ import {
   isFetchUrlAttr,
   nestedHtmlAttrsFor,
   resolveDocAssetPath,
-  resolveServedAssetPath,
   resolveServedRoutePath,
 } from '../src/security/htmlExternalRefs.js';
 
@@ -96,34 +95,6 @@ describe('取得を起こさない属性は検査しない', () => {
   });
 });
 
-describe('resolveServedAssetPath — 配信ルート相対へ正規化できるか', () => {
-  it.each([
-    ['css/510037.css', 'css/510037.css'],
-    ['./css/510037.css', 'css/510037.css'],
-    ['css/./510037.css', 'css/510037.css'],
-    ['fonts/sub/../x.woff2', 'fonts/x.woff2'],
-    ['css/510037.css?v=1', 'css/510037.css'],
-    ['css/510037.css#a', 'css/510037.css'],
-    ['js/%E6%97%A5.js', 'js/日.js'],
-  ])('%s → %s', (input, expected) => {
-    expect(resolveServedAssetPath(input)).toBe(expected);
-  });
-
-  it.each([
-    ['https://evil.example/x.css', '絶対 URL'],
-    ['//evil.example/x.css', 'scheme 相対'],
-    ['/css/x.css', 'ルート絶対(配信ルート配下ではない)'],
-    ['../secret.css', 'ルート外へ出る'],
-    ['css/../../secret.css', '途中でルート外へ出る'],
-    ['', '空'],
-    ['#frag', '断片のみ'],
-    ['css\\510037.css', 'バックスラッシュ区切り'],
-    ['%E0%A4%A', '復号不能'],
-  ])('%s(%s)は解決しない', (input) => {
-    expect(resolveServedAssetPath(input)).toBeUndefined();
-  });
-});
-
 // ── 迂回入力 ── ブラウザは属性値の文字参照を解き、URL から TAB/LF/CR を落とす。
 // 検査器は「引用符を外しただけの原文」を見るので、正規化しないと**この差が全部穴になる**。
 // 実測でここに並ぶ入力はいずれも「外部参照 0 件」で 400 ゲートを通り抜けていた。
@@ -146,11 +117,6 @@ describe('findExternalRefsInTag — 実体参照・制御文字での迂回は�
     expect(
       findExternalRefsInTag('link', [{ name: 'href', value: ` css/510&#48;37.css${LF}` }]),
     ).toEqual([]);
-  });
-
-  it('resolveServedAssetPath も同じ正規化を通す(実体の無い外部参照を解決しない)', () => {
-    expect(resolveServedAssetPath('&#104;ttps://evil.example/x.css')).toBeUndefined();
-    expect(resolveServedAssetPath(`css/510037.css${LF}`)).toBe('css/510037.css');
   });
 
   it('normalizeHtmlUrlValue は復号 → 除去 → trim の順で効く', () => {
@@ -374,11 +340,6 @@ describe('バックスラッシュで書いた scheme 相対', () => {
   ])('<img src="%s"> は外部参照として報告される', (value) => {
     expect(findExternalRefsInTag('img', [{ name: 'src', value }])).toHaveLength(1);
   });
-
-  it('resolveServedAssetPath も同じ形を配信ルート配下へ解決しない', () => {
-    expect(resolveServedAssetPath('\\\\evil.example/x.png')).toBeUndefined();
-    expect(resolveServedAssetPath('/\\evil.example/x.png')).toBeUndefined();
-  });
 });
 
 describe('resolveDocAssetPath — 文書(doc/)や CSS の位置を基準に論理ルート相対へ解く', () => {
@@ -443,11 +404,6 @@ describe('resolveDocAssetPath — 文書(doc/)や CSS の位置を基準に論�
     expect(resolveDocAssetPath(url, from)).toBeUndefined();
   });
 
-  it('resolveServedAssetPath の振る舞いは変えない(配信ルート直下基準のまま)', () => {
-    expect(resolveServedAssetPath('css/x.css')).toBe('css/x.css');
-    expect(resolveServedAssetPath('../css/x.css')).toBeUndefined();
-  });
-
   // ── 日本語ファイル名と百分率符号化 ──
   it('HTML に百分率符号化で書かれた日本語名は、生の綴りと同じ論理パスへ解ける', () => {
     expect(resolveDocAssetPath('../images/110024_%E5%9F%BA%E6%BA%96.svg', 'doc')).toBe(
@@ -477,21 +433,13 @@ describe('resolveDocAssetPath — 文書(doc/)や CSS の位置を基準に論�
   it.each([
     ['先頭の ./ は無視して解く', './../images/x.svg', 'images/x.svg'],
     [
-      'バックスラッシュ区切りは fail closed(resolveServedAssetPath と同じ規則)',
+      'バックスラッシュ区切りは fail closed(配信ルート相対と同じ規則)',
       '..\\images\\x.svg',
       undefined,
     ],
     ['大文字小文字は変えずに返す(実体との照合は呼び出し側)', '../IMAGES/x.svg', 'IMAGES/x.svg'],
-    [
-      'クエリは落として解く(resolveServedAssetPath と同じ規則)',
-      '../images/x.svg?v=1',
-      'images/x.svg',
-    ],
-    [
-      '断片は落として解く(resolveServedAssetPath と同じ規則)',
-      '../images/x.svg#frag',
-      'images/x.svg',
-    ],
+    ['クエリは落として解く(配信ルート相対と同じ規則)', '../images/x.svg?v=1', 'images/x.svg'],
+    ['断片は落として解く(配信ルート相対と同じ規則)', '../images/x.svg#frag', 'images/x.svg'],
     ['DOC の大文字違いも doc 配下として拒否', '../DOC/x.html', undefined],
     ['重複スラッシュは畳む', '..//images///x.svg', 'images/x.svg'],
   ])('%s: %s', (_label, url, expected) => {
@@ -499,7 +447,7 @@ describe('resolveDocAssetPath — 文書(doc/)や CSS の位置を基準に論�
   });
 });
 
-// ルートの引数はフレームワークが 1 回復号して渡す。文書の URL 値を解く `resolveServedAssetPath` を
+// ルートの引数はフレームワークが 1 回復号して渡す。文書の URL 値を解く処理を
 // 掛けると `#` `?` で切られ、`%` がもう一度解かれる。字面のファイル名として扱えることと、
 // それでも置き場の外へ出る形は拒むことの両方を主張する。
 describe('resolveServedRoutePath — 復号済みのルート引数', () => {

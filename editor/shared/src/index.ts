@@ -296,3 +296,4 @@ export * from './security/htmlEntities.js';
 export * from './security/htmlExternalRefs.js';
 // 配信する SVG の許可リスト検査。関所はサーバ(配置時と単体配信時)の 2 か所。
 export * from './security/svgInspect.js';
+export * from './security/urlNormalize.js';

@@ -16,6 +16,7 @@ import {
   isAllowedDataUrl,
   isSelfContainedUrl,
 } from '../src/security/cssExternalRefs.js';
+import { stripUrlIgnoredChars } from '../src/security/urlNormalize.js';
 
 const LF = String.fromCharCode(0x0a);
 const CR = String.fromCharCode(0x0d);
@@ -103,6 +104,17 @@ describe('URL パーサが外す文字を挟んだ外部 URL', () => {
     ['未引用 url() の前に U+001F', String.raw`.a{background:url(\1f http://evil.example/x)}`],
   ])('%s も報告する', (_label, css) => {
     expect(findExternalRefsInCss(css)).not.toEqual([]);
+  });
+
+  it('引用符文字列の中の「バックスラッシュ + CRLF」(行継続)を挟んだ scheme も報告する', () => {
+    const css = `.a{background:url("ht\\${CR}${LF}tps://evil.example/x")}`;
+    expect(findExternalRefsInCss(css)).not.toEqual([]);
+  });
+
+  it('stripUrlIgnoredChars は前後の U+0020 以下と途中の TAB/LF/CR だけを外す', () => {
+    const c = String.fromCharCode;
+    expect(stripUrlIgnoredChars(`${c(1)} ht${c(9)}t${CR}${LF}ps://x/y ${LF}`)).toBe('https://x/y');
+    expect(stripUrlIgnoredChars(`${c(0xa0)}a${c(0xa0)}`)).toBe(`${c(0xa0)}a${c(0xa0)}`);
   });
 
   it.each([
