@@ -104,6 +104,17 @@ describe('findEditingMarkers', () => {
     ).toEqual(['attr:data-opaque']);
   });
 
+  // エディタは Jinja を空白でなく文字(`J`)で伏せて読む。空白で伏せると、Jinja だけの引用符なしの
+  // 値が消えて後ろの属性が値に化ける。`<` + Jinja はエディタではテキストだが、描画すると要素に
+  // なる(x = span など)ので印として扱う。
+  it.each([
+    [`{{ '<b title="' }}<a title={{x}} data-jinja>1</a>{{ '"' }}`, 'attr:data-jinja'],
+    [`{{ '<b title="' }}<a title= {{x}} class=jinja-chip>1</a>{{ '"' }}`, 'class:jinja-chip'],
+    ['<{{x}} data-jinja>1', 'attr:data-jinja'],
+  ])('Jinja を文字で伏せた写しも読む: %s', (html, marker) => {
+    expect(kinds(html)).toEqual([marker]);
+  });
+
   it('伏せは位置を保つ(改行を含む Jinja の後でも index が原文と一致する)', () => {
     const html = '{% if a\n %}x{# \n #}<span data-jinja>1</span>';
     expect(findEditingMarkers(html)).toEqual([

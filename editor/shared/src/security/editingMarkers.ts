@@ -174,16 +174,19 @@ function findRawTextEnd(lower: string, tagName: string, from: number): number {
 
 const JINJA_CLOSERS: Readonly<Record<string, string>> = { '{': '}}', '%': '%}', '#': '#}' };
 
+interface Range {
+  start: number;
+  end: number;
+}
+
 /**
- * Jinja のトークン(`{{…}}` `{%…%}` `{#…#}`)を同じ長さの空白に置き換えた写し。改行は残すので、
- * 位置は原文と一致する。区切り方は `web/src/lib/jinjaMask.ts` の `TOKEN_RE` と同じ(最短一致)だが、
- * 閉じない `{{` の反復で後戻りが入力長の 2 乗になるのを避けるため、閉じ記号の位置を種類ごとに
- * 覚えて線形に読む(-1 は「以後に無い」)。
+ * Jinja のトークン(`{{…}}` `{%…%}` `{#…#}`)の範囲。区切り方は `web/src/lib/jinjaMask.ts` の
+ * `TOKEN_RE` と同じ(最短一致)だが、閉じない `{{` の反復で後戻りが入力長の 2 乗になるのを
+ * 避けるため、閉じ記号の位置を種類ごとに覚えて線形に読む(-1 は「以後に無い」)。
  */
-function maskJinjaShortest(html: string): string {
+function jinjaRangesShortest(html: string): Range[] {
   const seen: Record<string, number> = { '}}': -2, '%}': -2, '#}': -2 };
-  const parts: string[] = [];
-  let last = 0;
+  const ranges: Range[] = [];
   let i = html.indexOf('{');
   while (i !== -1) {
     const closer = JINJA_CLOSERS[html[i + 1] ?? ''];
@@ -200,34 +203,27 @@ function maskJinjaShortest(html: string): string {
       i = html.indexOf('{', i + 1);
       continue;
     }
-    const end = close + 2;
-    parts.push(html.slice(last, i), blankToken(html.slice(i, end)));
-    last = end;
-    i = html.indexOf('{', end);
+    ranges.push({ start: i, end: close + 2 });
+    i = html.indexOf('{', close + 2);
   }
-  if (last === 0) return html;
-  parts.push(html.slice(last));
-  return parts.join('');
-}
-
-/** Jinja のトークン 1 個を同じ長さの空白にする。改行は残す(位置と行を原文に揃える)。 */
-function blankToken(token: string): string {
-  return /[\r\n]/.test(token) ? token.replace(/[^\r\n]/g, ' ') : ' '.repeat(token.length);
+  return ranges;
 }
 
 /**
- * エディタと同じ字句解析(`lexJinja`)の区切りで Jinja を伏せた写し。引用符の中の閉じ記号や
- * `{% raw %}` の中身を正しく扱う。字句解析が失敗する入力(閉じない `{{` など)は null。
+ * 範囲ごとに、改行以外を `fill` 1 文字ずつへ置き換えた写し。改行は残すので、位置と行は原文と
+ * 一致する。範囲が無ければ原文をそのまま返す。
  */
-function maskJinjaLexed(html: string): string | null {
-  const lexed = lexJinja(html);
-  if (!lexed.ok) return null;
-  if (lexed.tokens.length === 0) return html;
+function maskRanges(html: string, ranges: readonly Range[], fill: string): string {
+  if (ranges.length === 0) return html;
   const parts: string[] = [];
   let last = 0;
-  for (const t of lexed.tokens) {
-    parts.push(html.slice(last, t.start), blankToken(t.source));
-    last = t.end;
+  for (const r of ranges) {
+    const token = html.slice(r.start, r.end);
+    const masked = /[\r\n]/.test(token)
+      ? token.replace(/[^\r\n]/g, fill)
+      : fill.repeat(token.length);
+    parts.push(html.slice(last, r.start), masked);
+    last = r.end;
   }
   parts.push(html.slice(last));
   return parts.join('');
@@ -242,7 +238,7 @@ export function findEditingMarkers(html: string): EditingMarkerHit[] {
   // 作成経路の本文は Jinja の原文で、エディタは Jinja を伏せてから読む。`{# <!-- #}` や
   // `{{ '<a title="' }}` のように Jinja の中の `<` や引用符が見かけのコメント・タグを作ると、原文を
   // ブラウザどおりに読むだけではその後ろの本物のタグを見落とす。そこで Jinja を伏せた写しも読む。
-  // 伏せ方は 2 通り: エディタと同じ字句解析(`lexJinja`)の区切りと、字句解析が失敗する入力でも
+  // 区切りは 2 通り: エディタと同じ字句解析(`lexJinja`)の区切りと、字句解析が失敗する入力でも
   // 働く最短一致の区切り。偽の枝の中の `<!--`(`{% if false %}<!--{% endif %}`)は伏せても残るので、
   // 伏せた写しはコメントの中まで読む走査も掛ける。どれかで見つかれば印とし、同じ位置の同じ印は
   // 1 件にまとめる。
@@ -262,8 +258,18 @@ export function findEditingMarkers(html: string): EditingMarkerHit[] {
         if (value.split(HTML_SPACE_RUN).includes(c)) push(`class:${c}`);
   };
   scanStartTags(html, onAttr, true);
-  const shortest = maskJinjaShortest(html);
-  for (const masked of new Set([maskJinjaLexed(html) ?? shortest, shortest])) {
+  // 区切り 2 通り × 伏せ字 2 通り。エディタ(`web/src/lib/htmlScan.ts` の `maskJinja`)は `J` で
+  // 伏せて読むので、Jinja だけの引用符なしの値(`title={{x}} data-jinja`)は値として残る。空白で
+  // 伏せると値が消えて後ろの属性が値に化けるため、`J` の写しが要る。一方 `<a{{x}}data-jinja>` は
+  // `J` だとタグ名・属性名に溶けるので、空白の写しも残す。`J` の写しでは `<` + Jinja もタグの始まりに
+  // なる。エディタはそこをテキストとして読むが、描画すると要素になる(x = span など)ので拾ってよい。
+  const lexed = lexJinja(html);
+  const shortest = jinjaRangesShortest(html);
+  const rangeSets = lexed.ok ? [lexed.tokens, shortest] : [shortest];
+  const copies = new Set<string>();
+  for (const ranges of rangeSets)
+    for (const fill of [' ', 'J']) copies.add(maskRanges(html, ranges, fill));
+  for (const masked of copies) {
     if (masked !== html) scanStartTags(masked, onAttr, true);
     scanStartTags(masked, onAttr, false);
   }
