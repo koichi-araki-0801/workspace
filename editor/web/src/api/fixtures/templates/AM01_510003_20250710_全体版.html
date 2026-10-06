@@ -7,13 +7,18 @@
   </head>
   <body>
     <!-- ===== Page 1: 表紙 ===== -->
-    <div class="page">
+    <section class="cover_header">
       <p class="cover-category">{{ fund.category }}</p>
       <h1 class="cover-title">{{ fund.name }}</h1>
       <p class="cover-alias">（愛称：{{ fund.nickname }}）</p>
+    </section>
+
+    <section class="cover_report">
       <div class="cover-report-band">運用報告書（全体版）</div>
       <p class="cover-report-sub">{{ report.term }}（決算日　{{ report.settlementDate }}）／作成対象期間　{{ report.period }}</p>
+    </section>
 
+    <section class="cover_body">
       <div class="cover-cols">
         <div class="left">
           <table class="summary-table">
@@ -33,10 +38,11 @@
           <p>〒105-0011　東京都港区芝公園一丁目1番1号　ホームページ　https://www.smtam.jp/</p>
         </div>
       </div>
-    </div>
+    </section>
+    <div class="pagebreak"></div>
 
     <!-- ===== Page 2: ファンドの仕組み ===== -->
-    <div class="page">
+    <section class="report_item_1">
       <h2 class="band">ファンドの仕組み</h2>
       <div class="sub"><span class="no">1</span><h3>商品概要</h3></div>
       <table class="product-table">
@@ -48,14 +54,17 @@
           <tr><th>組入制限</th><td>{{ product.investmentLimit }}</td></tr>
         </tbody>
       </table>
+    </section>
 
+    <section class="report_item_2">
       <div class="sub"><span class="no">2</span><h3>主要運用対象</h3></div>
       <ul class="main-assets">{% for m in mainAssets %}<li>{{ m.name }}</li>{% endfor %}</ul>
       <p class="notes">（注）当ファンドは、上記の投資対象ファンド等への投資を通じて、実質的に国内外の株式・債券、リート、コモディティ、ヘッジファンド等へ分散投資します。</p>
-    </div>
+    </section>
+    <div class="pagebreak"></div>
 
     <!-- ===== Page 3: 運用経過の説明 ===== -->
-    <div class="page">
+    <section class="report_item_3">
       <h2 class="band">運用経過の説明</h2>
       <div class="sub"><span class="no">3</span><h3>基準価額等の推移</h3></div>
 
@@ -92,7 +101,9 @@
       <p class="chart-note">― 基準価額（左軸）　- - 分配金再投資基準価額（左軸）　▨ 純資産総額（右軸）</p>
       <p class="chart-annot">{{ report.term }}首：{{ report.termStartNav }} 円　／　{{ report.term }}末：{{ report.termEndNav }} 円（既払分配金 {{ fund.distribution }} 円）　／　騰落率：{{ fund.returnRate }} ％</p>
       <p class="notes">（注1）分配金再投資基準価額は、分配金（税引前）を分配時に再投資したものとみなして計算したもので、ファンド運用の実質的なパフォーマンスを示すものです。（注2）分配金再投資基準価額は、期首の値を基準価額に合わせて指数化しています。</p>
+    </section>
 
+    <section class="report_item_4">
       <div class="sub"><span class="no">4</span><h3>基準価額の月次推移</h3></div>
       <table class="data">
         <thead>
@@ -102,10 +113,11 @@
           <tr>{% for h in navHistory %}<td class="num">{{ h.nav }}</td>{% endfor %}</tr>
         </tbody>
       </table>
-    </div>
+    </section>
+    <div class="pagebreak"></div>
 
     <!-- ===== Page 4: 投資対象ファンドの状況 ===== -->
-    <div class="page">
+    <section class="report_item_5">
       <h2 class="band">投資対象ファンドの状況</h2>
       <div class="sub"><span class="no">5</span><h3>組入上位ファンドと騰落率</h3></div>
       <table class="data">
@@ -124,7 +136,9 @@
           {% endfor %}
         </tbody>
       </table>
+    </section>
 
+    <section class="report_item_6">
       <div class="sub"><span class="no">6</span><h3>資産配分</h3></div>
       <table class="data alloc-table">
         <thead>
@@ -136,10 +150,11 @@
           {% endfor %}
         </tbody>
       </table>
-    </div>
+    </section>
+    <div class="pagebreak"></div>
 
     <!-- ===== Page 5: 費用・コメント ===== -->
-    <div class="page">
+    <section class="report_item_7">
       <h2 class="band">費用および運用コメント</h2>
       <div class="sub"><span class="no">7</span><h3>1万口当たりの費用明細</h3></div>
       <table class="data">
@@ -153,13 +168,15 @@
           <tr class="total"><td>合計</td><td class="num">{{ costTotal.amount }}</td><td class="num">{{ costTotal.rate }}</td></tr>
         </tbody>
       </table>
+    </section>
 
+    <section class="report_item_8">
       <div class="sub"><span class="no">8</span><h3>運用コメント</h3></div>
       <div class="commentary"><p>{{ commentary }}</p></div>
+    </section>
 
-      <footer class="report-footer">
-        <p>委託会社: {{ company.name }}（{{ company.code }}）　〈{{ fund.code }}〉</p>
-      </footer>
-    </div>
+    <footer class="report-footer">
+      <p>委託会社: {{ company.name }}（{{ company.code }}）　〈{{ fund.code }}〉</p>
+    </footer>
   </body>
 </html>

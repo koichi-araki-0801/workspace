@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
 import { expect, test } from './fixtures';
-import { login, openEditor, waitForLoaded } from './helpers';
+import { login, openEditor, partLocator, waitForLoaded } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 const EDIT_MARK = 'restE2E追記';
@@ -69,8 +69,7 @@ test('editor がログインして一覧・編集画面を確認し、確定保�
     el.append(mark);
     el.dispatchEvent(new InputEvent('input', { bubbles: true }));
   }, EDIT_MARK);
-  await frame
-    .locator('.page')
+  await partLocator(frame)
     .first()
     .click({ position: { x: 5, y: 5 } });
   await expect(frame.getByText(EDIT_MARK).first()).toBeVisible({ timeout: 10_000 });

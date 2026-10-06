@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
 import { expect, test } from './fixtures';
-import { login, openEditor, waitForLoaded, waitForStableBox } from './helpers';
+import { login, openEditor, partLocator, waitForLoaded, waitForStableBox } from './helpers';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const IMG = (name: string) => resolve(here, '../../docs/editor/images', name);
@@ -152,7 +152,7 @@ test('capture editor screens', async ({ page }) => {
   await page.getByText('編集を許可', { exact: true }).click();
   await expect(page.getByText('編集中', { exact: true })).toBeVisible({ timeout: 10_000 });
   const frame = editorFrame;
-  const block = frame.locator('.page > *').nth(2);
+  const block = partLocator(frame).nth(2);
   // キャンバスの描画が終わる前に掴むと、ブロックが最終寸法になっておらず clip が
   // 小さく切れる(内容の欠けた画像がそのまま手引きへ載る)。可視化と寸法の確定を待つ。
   await block.waitFor({ state: 'visible', timeout: 30_000 });

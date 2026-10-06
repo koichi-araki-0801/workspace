@@ -7,7 +7,7 @@
 
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { login, openEditor as openEditorAt, readDraft, selectPart } from './helpers';
+import { login, openEditor as openEditorAt, partLocator, readDraft, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -94,8 +94,7 @@ async function appendToParagraph(
     el.append(t);
     el.dispatchEvent(new InputEvent('input', { bubbles: true }));
   }, text);
-  await frame
-    .locator('.page')
+  await partLocator(frame)
     .first()
     .click({ position: { x: 5, y: 5 } });
 }
@@ -137,8 +136,7 @@ test('赤入れ: 文言を編集すると旧文言が取り消し線で出て、
     }
     el.dispatchEvent(new InputEvent('input', { bubbles: true }));
   });
-  await frame
-    .locator('.page')
+  await partLocator(frame)
     .first()
     .click({ position: { x: 5, y: 5 } });
 
@@ -203,14 +201,14 @@ test('プレビュー往復で編集許可・赤入れ表示・右ペインの�
   await page.locator('[data-pane-tab="comments"]').click();
   await page.getByRole('button', { name: '全ページを連続表示' }).click();
   await page.getByRole('button', { name: 'ページ境界を隠す' }).click();
-  await selectPart(frame, frame.locator('.page > *').nth(3));
+  await selectPart(frame, partLocator(frame).nth(1));
 
   await page.getByRole('button', { name: 'プレビュー' }).click();
   await page.waitForURL(/\/preview\//);
   await page.getByRole('button', { name: 'エディターに戻る' }).click();
   await page.waitForURL(/\/edit\//);
   const back = page.frameLocator('iframe.gjs-frame');
-  await back.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
+  await partLocator(back).first().waitFor({ state: 'visible', timeout: 30_000 });
 
   await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 * 1.2 - 2);
   await expect(
@@ -225,7 +223,7 @@ test('プレビュー往復で編集許可・赤入れ表示・右ペインの�
   // リロードでは倍率・表示系は残り、編集許可と選択は既定へ戻る
   await page.reload({ waitUntil: 'commit' });
   const re = page.frameLocator('iframe.gjs-frame');
-  await re.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
+  await partLocator(re).first().waitFor({ state: 'visible', timeout: 30_000 });
   await expect.poll(widthOf, { timeout: 15_000 }).toBeGreaterThan(794 * 1.2 - 2);
   await expect(page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' })).toBeVisible();
   await expect(re.locator('.gjs-selected')).toHaveCount(0);
@@ -241,14 +239,14 @@ test('往復統合: 選択のみ非 dirty / 往復後の赤入れとコメント
   const frame = await openEditor(page);
 
   // 選択しただけでは未確定にならず draft も作られない
-  await selectPart(frame, frame.locator('.page > *').nth(4));
-  await selectPart(frame, frame.locator('.page > *').nth(2));
+  await selectPart(frame, partLocator(frame).nth(1));
+  await selectPart(frame, partLocator(frame).nth(0));
   await page.waitForTimeout(2_000);
   await expect(page.getByText('変更なし', { exact: true })).toBeVisible();
   expect(await readDraft(page, SEED_ID)).toBeNull();
 
   // コメントを付け(選択が要る)、別パーツを 1 語置換
-  await selectPart(frame, frame.locator('.page > *').nth(4));
+  await selectPart(frame, partLocator(frame).nth(1));
   await page.locator('[data-pane-tab="comments"]').click();
   await page.getByPlaceholder('このパーツへのコメントを書く').fill('往復テスト');
   await page.locator('button[data-add-submit]').click();
@@ -270,7 +268,7 @@ test('往復統合: 選択のみ非 dirty / 往復後の赤入れとコメント
   await page.getByRole('button', { name: 'エディターに戻る' }).click();
   await page.waitForURL(/\/edit\//);
   const back = page.frameLocator('iframe.gjs-frame');
-  await back.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
+  await partLocator(back).first().waitFor({ state: 'visible', timeout: 30_000 });
   // 赤入れ ON・編集許可は編集セッションの UI 状態としてプレビュー往復を跨いで保持される。
   await expect(page.getByRole('button', { name: '変更箇所の赤入れを隠す' })).toBeVisible();
   await expect(back.locator('del[data-redline]', { hasText: 'みなさま' })).toHaveCount(1, {
@@ -320,8 +318,7 @@ async function replaceWord(
     },
     [from, to],
   );
-  await frame
-    .locator('.page')
+  await partLocator(frame)
     .first()
     .click({ position: { x: 5, y: 5 } });
 }

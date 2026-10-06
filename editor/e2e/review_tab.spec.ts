@@ -5,7 +5,7 @@
 // 決着後に同じ画面へ留まることを実機で固定する。
 import type { FrameLocator, Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { login, openEditor, selectPart, submitOnce } from './helpers';
+import { login, openEditor, pagePartLocator, selectPart, submitOnce } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -98,12 +98,7 @@ test('承認タブの行クリックで見た目比較が該当ページ(2 ペ�
   // 連続表示へ切り替えてから対象パーツを選ぶ。
   await page.getByRole('button', { name: '全ページを連続表示' }).click();
   await page.locator('[data-pane-tab="comments"]').click();
-  const secondPagePart = page
-    .frameLocator('iframe.gjs-frame')
-    .locator('.page')
-    .nth(1)
-    .locator('> *')
-    .first();
+  const secondPagePart = pagePartLocator(page.frameLocator('iframe.gjs-frame'), 1).first();
   await addCanvasComment(page, secondPagePart, COMMENT_TEXT);
   await submitOnce(page, SEED_ID);
 

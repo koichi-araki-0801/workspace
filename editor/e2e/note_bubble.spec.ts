@@ -10,7 +10,7 @@
 // 併せて、右ペインの下書きが別パーツへ持ち越されないこと(別パーツにメモが付く事故)と、
 // 閉じた吹き出しが投稿の追加で開き直すこと(件数だけ増えて何も見えない事故)も固定する。
 import { expect, test } from './fixtures';
-import { expectSelectedPart, login, openEditor, selectPart } from './helpers';
+import { expectSelectedPart, login, openEditor, partLocator, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -27,7 +27,7 @@ test('メモ吹き出しは閉じる・編集・削除を実際に受け付け�
   const bubble = page.locator('.note-bubble');
 
   // パーツ A へ 2 件書く。吹き出しはこの時点で開く。
-  const partA = frame.locator('.page > *').nth(4);
+  const partA = partLocator(frame).nth(1);
   await partA.waitFor({ state: 'visible', timeout: 30_000 });
   await selectPart(frame, partA);
   await page.locator('[data-pane-tab="comments"]').click();
@@ -40,7 +40,7 @@ test('メモ吹き出しは閉じる・編集・削除を実際に受け付け�
 
   // 書きかけの下書きは、別パーツを選んだ時点で捨てる(次のパーツへ付けない)。
   await draft.fill('書きかけの下書き');
-  await frame.locator('.page > *').nth(2).click();
+  await partLocator(frame).nth(0).click();
   await expect(draft).toHaveValue('');
 
   // メモのあるパーツを選び直しても吹き出しは開かない(選択だけでは開かない不変則)。
@@ -72,7 +72,7 @@ test('メモ吹き出しは閉じる・編集・削除を実際に受け付け�
 test('吹き出しから返信と解決ができ、マーカーが灰色になる', async ({ page }) => {
   await login(page);
   const frame = await openEditor(page, SEED_ID);
-  const part = frame.locator('.page > *').nth(4);
+  const part = partLocator(frame).nth(1);
   await part.waitFor({ state: 'visible', timeout: 30_000 });
   await selectPart(frame, part);
   await page.locator('[data-pane-tab="comments"]').click();
@@ -103,14 +103,14 @@ test('吹き出しは選択だけでは開かず、マーカーのクリック�
   await login(page);
   const frame = await openEditor(page, SEED_ID);
   const bubble = page.locator('.note-bubble');
-  const partA = frame.locator('.page > *').nth(4);
+  const partA = partLocator(frame).nth(1);
   await selectPart(frame, partA);
   await page.locator('[data-pane-tab="comments"]').click();
   await page.getByPlaceholder('このパーツへのコメントを書く').fill('マーカーで開く');
   await page.locator('button[data-add-submit]').click();
   await expect(bubble).toHaveCount(1); // 投稿の追加では開く
 
-  await frame.locator('.page > *').nth(2).click(); // 別パーツの選択で閉じる
+  await partLocator(frame).nth(0).click(); // 別パーツの選択で閉じる
   await expect(bubble).toHaveCount(0);
   await selectPart(frame, partA); // コメントのあるパーツを選んでも開かない
   await expect(bubble).toHaveCount(0);

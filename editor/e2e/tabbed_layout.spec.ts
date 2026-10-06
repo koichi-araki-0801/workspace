@@ -5,7 +5,7 @@
 // 残りの高さを全部使う(`h-full`)。タブを押すと、そのタブで直前に見ていた画面へ戻る。
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { login, openEditor as openEditorAt, readDraft } from './helpers';
+import { login, openEditor as openEditorAt, partLocator, readDraft } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -78,7 +78,7 @@ test('他タブへ行って「編集」タブを押すと、編集中のテン�
   await expect(page).toHaveURL(/\/compare$/);
   await page.getByRole('link', { name: '編集' }).click();
   await expect(page).toHaveURL(new RegExp(`/edit/${encodeURIComponent(SEED_ID)}$`));
-  await page.frameLocator('iframe.gjs-frame').locator('.page').first().waitFor({ timeout: 30_000 });
+  await partLocator(page.frameLocator('iframe.gjs-frame')).first().waitFor({ timeout: 30_000 });
 });
 
 test('一覧を見ていた状態から他タブへ行って「編集」タブを押すと、一覧へ戻る', async ({ page }) => {
@@ -113,8 +113,7 @@ async function appendAndAutosave(page: Page, text: string) {
     el.append(t);
     el.dispatchEvent(new InputEvent('input', { bubbles: true }));
   }, text);
-  await frame
-    .locator('.page')
+  await partLocator(frame)
     .first()
     .click({ position: { x: 5, y: 5 } });
   await expect(frame.getByText(text).first()).toBeVisible({ timeout: 10_000 });
@@ -171,7 +170,7 @@ test('タブを閉じた後(セッショントークンが消えた後)に開き
   const reopened = await context.newPage();
   await reopened.goto(url, { waitUntil: 'commit' });
   const frame = reopened.frameLocator('iframe.gjs-frame');
-  await frame.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
+  await partLocator(frame).first().waitFor({ state: 'visible', timeout: 30_000 });
   await expect(frame.getByText('E2E破棄')).toHaveCount(0);
   await expect(reopened.getByText('変更なし', { exact: true })).toBeVisible();
   // 下書きの実体(サーバの `drafts/`)も消えている

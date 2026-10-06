@@ -54,6 +54,25 @@ export async function waitForLoaded(page: Page): Promise<void> {
 }
 
 /**
+ * canvas の根の直下のパーツ(改ページの区切り `div.pagebreak` を除く)。テンプレは `.page` で
+ * 包まず、パーツを根の直下に並べて区切りでページを分ける(`web/src/lib/pageBreaks.ts`)。
+ * 1 ページ表示では他ページのパーツも DOM に残り `display:none` になるので、`nth` で選ぶときは
+ * 現在ページ(既定は 1 ページ目)のパーツを指す index にする。
+ */
+export function partLocator(frame: FrameLocator): Locator {
+  return frame.locator('[data-gjs-type=wrapper] > :not(.pagebreak)');
+}
+
+/**
+ * canvas の `pageIndex` ページ目(0 起点)のパーツ。ページの番号は canvas が生 DOM へ付ける
+ * `data-pv-idx`(`web/src/features/editor/pageView.ts` の `PV_ATTR`)で読む。区切りにも直前の
+ * ページの番号が付くので除く。
+ */
+export function pagePartLocator(frame: FrameLocator, pageIndex: number): Locator {
+  return frame.locator(`[data-gjs-type=wrapper] > [data-pv-idx="${pageIndex}"]:not(.pagebreak)`);
+}
+
+/**
  * 編集画面を開き、GrapesJS canvas のページ描画まで待つ。`goto` の完了条件は `'commit'` にする。
  * 既定の `'load'` は全サブリソースの読み込み完了まで待つため、SPA が起動時に出す認証確認や
  * router のリダイレクトが割り込むと `net::ERR_ABORTED` で goto 自体が失敗する(負荷の高い CI で
@@ -63,7 +82,7 @@ export async function waitForLoaded(page: Page): Promise<void> {
 export async function openEditor(page: Page, id: string, query = ''): Promise<FrameLocator> {
   await page.goto(`/edit/${encodeURIComponent(id)}${query}`, { waitUntil: 'commit' });
   const frame = page.frameLocator('iframe.gjs-frame');
-  await frame.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
+  await partLocator(frame).first().waitFor({ state: 'visible', timeout: 30_000 });
   return frame;
 }
 
@@ -107,7 +126,7 @@ export async function expectSelectedPart(frame: FrameLocator): Promise<void> {
 }
 
 /**
- * canvas でパーツをクリックし、選択状態になるまで再試行する。`.page` の可視化(スタイル注入)と
+ * canvas でパーツをクリックし、選択状態になるまで再試行する。1 ページ表示の可視化(スタイル注入)と
  * GrapesJS の選択配線が非同期のため、canvas を開いた直後の最初のクリックは選択されずに
  * 終わることがある(`.gjs-selected` が付かない)。`expectSelectedPart` の単純な待ちでは
  * クリック自体をやり直せないため、選択が付くまでクリックごと再試行する。

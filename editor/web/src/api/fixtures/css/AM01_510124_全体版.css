@@ -15,13 +15,9 @@ body {
   margin: 0;
 }
 
-/* ページ（複数ページ構成・比較画面のページ分割マーカー） */
-.page {
-  page-break-after: always;
-  padding-bottom: 6px;
-}
-.page:last-child {
-  page-break-after: auto;
+/* 改ページ（section の間に置く空の div.pagebreak） */
+.pagebreak {
+  break-after: page;
 }
 
 /* 見出し */
