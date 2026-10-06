@@ -985,25 +985,6 @@ describe('照合の経路でのセレクタの並びの展開', () => {
     });
   });
 
-  it('見かけの規則を書き換える変更は、物理の規則を壊さないよう競合にする', () => {
-    const raw = '.a, .b{color:red}\n';
-    const baseline = '.a{color:red}\n.b{color:red}\n';
-    const merge = (next: string) => mergeCssRuleChangesFromBaseline(raw, baseline, next, raw);
-    expect(merge('.a{color:blue}\n.b{color:blue}\n')).toEqual({
-      css: raw,
-      applied: [],
-      conflicts: [k('.a'), k('.b')],
-    });
-    expect(merge('.b{color:red}\n')).toEqual({ css: raw, applied: [], conflicts: [k('.a')] });
-    // 空の並びへ宣言を足す編集も同じ
-    const empty = '.a, .b{}\n';
-    expect(mergeCssRuleChangesFromBaseline(empty, '', '.a{x:1}\n', empty)).toEqual({
-      css: empty,
-      applied: [],
-      conflicts: [k('.a')],
-    });
-  });
-
   it('追加の錨が見かけの規則に当たったら、物理の規則の後ろへ入れる', () => {
     const raw = '.a, .b{color:red}\n';
     const baseline = '.a{color:red}\n.b{color:red}\n';
@@ -1013,5 +994,191 @@ describe('照合の経路でのセレクタの並びの展開', () => {
       applied: [k('.n')],
       conflicts: [],
     });
+  });
+});
+
+describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き戻し', () => {
+  const raw = '.x{color:gray}\n.a, .b{color:red}\n.y{color:gray}\n';
+  const baseline = '.x{color:gray}\n.a{color:red}\n.b{color:red}\n.y{color:gray}\n';
+  const merge = (next: string, target = raw) =>
+    mergeCssRuleChangesFromBaseline(raw, baseline, next, target);
+
+  it('片方だけ変わったら元の位置で分割し、残りは元の宣言のまま', () => {
+    expect(merge('.x{color:gray}\n.a{color:blue}\n.b{color:red}\n.y{color:gray}\n')).toEqual({
+      css: '.x{color:gray}\n.a{color:blue}\n.b{color:red}\n.y{color:gray}\n',
+      applied: [k('.a')],
+      conflicts: [],
+    });
+  });
+
+  it('片方だけ消えたら残りのセレクタだけを元の位置に残す', () => {
+    expect(merge('.x{color:gray}\n.b{color:red}\n.y{color:gray}\n')).toEqual({
+      css: '.x{color:gray}\n.b{color:red}\n.y{color:gray}\n',
+      applied: [k('.a')],
+      conflicts: [],
+    });
+  });
+
+  it('全部同じ変更なら並びのまま本文だけ置き換える(原文のセレクタの書き方を残す)', () => {
+    expect(merge('.x{color:gray}\n.a{color:blue}\n.b{color:blue}\n.y{color:gray}\n')).toEqual({
+      css: '.x{color:gray}\n.a, .b{color:blue}\n.y{color:gray}\n',
+      applied: [k('.a'), k('.b')],
+      conflicts: [],
+    });
+    // 前置きの空白・改行も原文のまま残す(書式の違いだけの本文は同じ変更とみなす)
+    const spaced = '.a ,\n.b {color:red}\n';
+    expect(
+      mergeCssRuleChangesFromBaseline(
+        spaced,
+        '.a{color:red}\n.b{color:red}\n',
+        '.a{color:blue}\n.b{ color: blue; }\n',
+        spaced,
+      ).css,
+    ).toBe('.a ,\n.b {color:blue}\n');
+  });
+
+  it('全部消えたら規則ごと消す', () => {
+    expect(merge('.x{color:gray}\n.y{color:gray}\n')).toEqual({
+      css: '.x{color:gray}\n.y{color:gray}\n',
+      applied: [k('.a'), k('.b')],
+      conflicts: [],
+    });
+  });
+
+  it('違う本文に変わったら分割して両方当てる', () => {
+    expect(merge('.x{color:gray}\n.a{color:blue}\n.b{color:green}\n.y{color:gray}\n')).toEqual({
+      css: '.x{color:gray}\n.a{color:blue}\n.b{color:green}\n.y{color:gray}\n',
+      applied: [k('.a'), k('.b')],
+      conflicts: [],
+    });
+    // 片方を変え、もう片方を消す
+    expect(merge('.x{color:gray}\n.a{color:blue}\n.y{color:gray}\n').css).toBe(
+      '.x{color:gray}\n.a{color:blue}\n.y{color:gray}\n',
+    );
+  });
+
+  it('ペア側の並びを版種固有に直してあれば、変えたセレクタは競合になり書き換えない', () => {
+    const target = '.x{color:gray}\n.a, .b{color:green}\n.y{color:gray}\n';
+    expect(
+      merge('.x{color:gray}\n.a{color:blue}\n.b{color:red}\n.y{color:gray}\n', target),
+    ).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+  });
+
+  it('競合のセレクタと当てるセレクタが混ざると、競合の側は元の宣言のまま分割する', () => {
+    // ペア側は 1 つ目の .a(物理の規則)だけを直してある。.a は出現の形が違うので競合、.b は当てる
+    const rawBase = '.a{x:1}\n.a, .b{y:2}\n';
+    const target = '.a{x:5}\n.a, .b{y:2}\n';
+    expect(
+      mergeCssRuleChangesFromBaseline(
+        rawBase,
+        '.a{x:1}\n.a{y:2}\n.b{y:2}\n',
+        '.a{x:1}\n.a{y:3}\n.b{y:3}\n',
+        target,
+      ),
+    ).toEqual({ css: '.a{x:5}\n.a{y:2}\n.b{y:3}\n', applied: [k('.b')], conflicts: [k('.a')] });
+  });
+
+  it('@media の中の並びも入れ子の中で分割する', () => {
+    const media = '@media print{\n  .a, .b{color:red}\n}\n';
+    expect(
+      mergeCssRuleChangesFromBaseline(
+        media,
+        '@media print{.a{color:red}.b{color:red}}',
+        '@media print{.a{color:blue}.b{color:red}}',
+        media,
+      ),
+    ).toEqual({
+      css: '@media print{\n  .a{color:blue}\n  .b{color:red}\n}\n',
+      applied: [k('@media print', '.a')],
+      conflicts: [],
+    });
+  });
+
+  it('字下げのある並びは、分割した各規則に同じ字下げを付ける', () => {
+    const indented = '.x{}\n\t.a,\n\t.b {color:red}\n';
+    expect(
+      mergeCssRuleChangesFromBaseline(
+        indented,
+        '.a{color:red}\n.b{color:red}\n',
+        '.a{color:red}\n.b{color:blue}\n',
+        indented,
+      ).css,
+    ).toBe('.x{}\n\t.a{color:red}\n\t.b{color:blue}\n');
+  });
+
+  it('エスケープした末尾の空白はセレクタの一部として残す', () => {
+    const escaped = '.a\\ , .b{color:red}\n';
+    expect(
+      mergeCssRuleChangesFromBaseline(
+        escaped,
+        '.a\\ {color:red}\n.b{color:red}\n',
+        '.a\\ {color:red}\n.b{color:blue}\n',
+        escaped,
+      ).css,
+    ).toBe('.a\\ {color:red}\n.b{color:blue}\n');
+    expect(foldedCssRuleTexts('.q\\ , .b{x:1}\n.q\\ {y:2}').get(k('.q\\'))).toBe('.q\\ {x:1;y:2}');
+  });
+
+  it('重複との組み合わせ: .a{x:1} と .a, .b{y:2} で 2 つ目の出現だけ変わると、並びの規則だけを分割する', () => {
+    const dup = '.a{x:1}\n.a, .b{y:2}\n';
+    expect(
+      mergeCssRuleChangesFromBaseline(
+        dup,
+        '.a{x:1}\n.a{y:2}\n.b{y:2}\n',
+        '.a{x:1}\n.a{y:9}\n.b{y:2}\n',
+        dup,
+      ),
+    ).toEqual({ css: '.a{x:1}\n.a{y:9}\n.b{y:2}\n', applied: [k('.a')], conflicts: [] });
+  });
+
+  it('空の並び .a, .b{} の .a に宣言を足すと .a{…} と .b{} に分かれる', () => {
+    const empty = '.a, .b{}\n';
+    expect(mergeCssRuleChangesFromBaseline(empty, '', '.a{x:1}\n', empty)).toEqual({
+      css: '.a{x:1}\n.b{}\n',
+      applied: [k('.a')],
+      conflicts: [],
+    });
+    // 両方に同じ宣言を足したら並びのまま
+    expect(mergeCssRuleChangesFromBaseline(empty, '', '.a{x:1}\n.b{x:1}\n', empty).css).toBe(
+      '.a, .b{x:1}\n',
+    );
+    // next に同じセレクタの規則が 2 つあれば、その位置に 2 つとも書く
+    expect(mergeCssRuleChangesFromBaseline(empty, '', '.a{x:1}\n.a{y:1}\n', empty).css).toBe(
+      '.a{x:1}\n.a{y:1}\n.b{}\n',
+    );
+  });
+
+  it('追加の錨が並びの規則に当たったら、その規則の後ろへ入れる(分割と重ならない)', () => {
+    expect(
+      merge('.x{color:gray}\n.a{color:blue}\n.b{color:red}\n.n{x:1}\n.y{color:gray}\n'),
+    ).toEqual({
+      css: '.x{color:gray}\n.a{color:blue}\n.b{color:red}\n.n{x:1}\n.y{color:gray}\n',
+      applied: [k('.a'), k('.n')],
+      conflicts: [],
+    });
+  });
+
+  it('3 者の mergeCssRuleChanges でも同じ書き戻しになる', () => {
+    expect(
+      mergeCssRuleChanges(
+        raw,
+        '.x{color:gray}\n.a{color:blue}\n.b{color:red}\n.y{color:gray}\n',
+        raw,
+      ),
+    ).toEqual({
+      css: '.x{color:gray}\n.a{color:blue}\n.b{color:red}\n.y{color:gray}\n',
+      applied: [k('.a')],
+      conflicts: [],
+    });
+    expect(
+      mergeCssRuleChanges(
+        raw,
+        '.x{color:gray}\n.a{color:blue}\n.b{color:blue}\n.y{color:gray}\n',
+        raw,
+      ).css,
+    ).toBe('.x{color:gray}\n.a, .b{color:blue}\n.y{color:gray}\n');
+    expect(mergeCssRuleChanges(raw, '.x{color:gray}\n.y{color:gray}\n', raw).css).toBe(
+      '.x{color:gray}\n.y{color:gray}\n',
+    );
   });
 });

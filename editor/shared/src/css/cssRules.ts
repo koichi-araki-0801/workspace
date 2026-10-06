@@ -45,6 +45,12 @@
 // 共有し、並びの順に並ぶので、同じキーの出現は物理と見かけを区別せずに位置の順で数えられる
 // (GrapesJS の書き出しの順と同じ)。公開の `splitCssRules` は展開しない(canvas へ流す CSS は
 // 原文の規則のまま扱う)。
+//
+// ペア側への書き戻しは物理の規則ごとに 1 回にまとめる。並びのセレクタが全部同じ変更なら並びの
+// まま本文だけを置き換え(原文のセレクタの書き方を残す)、全部消えたら規則ごと消す。片方だけが
+// 変わった・消えたときは、元の規則の位置で 1 セレクタ 1 規則に分け、変わらないセレクタには原文の
+// 宣言を残す。並びのまま新しい本文を当てると変えていないセレクタまで変わり、末尾へ書き足すと
+// ほかの規則とのカスケードの順が変わるため。
 
 import { collectCssStructure } from '../security/cssExternalRefs.js';
 
@@ -99,8 +105,13 @@ interface ScannedRule extends CssRule {
   chainKey: string;
   /** 出現番号を付けないキー(同じ規則の重複で共通)。 */
   group: string;
-  /** ブロックの前置きの原文(`.a ` の末尾空白を除いたもの)。ブロックを持たない文は空。 */
+  /**
+   * ブロックの前置きの原文(`.a ` の末尾空白を除いたもの。エスケープした空白 `.a\ ` は残す)。
+   * ブロックを持たない文は空。
+   */
   head: string;
+  /** ブロックの原文(`{` から `}` まで)。ブロックを持たない文は空。 */
+  body: string;
   /** 宣言の並び(正規化済み)。ブロックを持たない文と、中に入れ子のブロックを持つ規則は undefined。 */
   decls: string[] | undefined;
   /**
@@ -545,6 +556,29 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
   };
 
   /**
+   * `[from, to)` の末尾の空白を除いた終わりの位置。エスケープ(`\ ` と 16 進の後ろの空白)・
+   * 文字列・コメントの中の空白は前置きの一部なので除かない(除くと `.a\ ` が `.a\` になり、
+   * 後ろに `{` を書いたとき `\{` と読まれる)。
+   */
+  const trimmedEnd = (from: number, to: number): number => {
+    let last = from;
+    let k = from;
+    while (k < to) {
+      const skip = commentEnd.get(k);
+      const c = css[k];
+      if (skip !== undefined) k = skip;
+      else if (c === '"' || c === "'") k = stringEnd(css, k);
+      else if (c === '\\') k += escapeLength(css, k);
+      else if (/\s/.test(c)) {
+        k++;
+        continue;
+      } else k++;
+      last = Math.min(k, to);
+    }
+    return last;
+  };
+
+  /**
    * `[from, to)` を括弧・`[…]`・文字列・コメント・エスケープの外の `,` で分けた範囲の列。
    * `:is(.a, .b)` や `[title="a,b"]` の `,` はセレクタの一部なので分けない。
    */
@@ -595,7 +629,7 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
       const from = firstSignificant(a, b) ?? b;
       return {
         identity: canonicalSelector(normalize(from, b, '')),
-        head: css.slice(from, b).trimEnd(),
+        head: css.slice(from, trimmedEnd(from, b)),
       };
     });
     const identities = new Set(items.map((x) => x.identity));
@@ -609,6 +643,7 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
     start: number;
     end: number;
     head: string;
+    body: string;
     decls: string[] | undefined;
     /** 見かけの規則の本文(物理の規則は `css.slice(start, end)`)。 */
     text?: string;
@@ -671,6 +706,7 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
             start,
             end,
             head,
+            body,
             decls,
             text: head + body,
             listIndex,
@@ -694,7 +730,8 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
         identity,
         start,
         end,
-        head: css.slice(start, at).trimEnd(),
+        head: css.slice(start, trimmedEnd(start, at)),
+        body: css.slice(at, end),
         decls,
       });
       segStart = end;
@@ -713,6 +750,7 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
         start,
         end,
         head: '',
+        body: '',
         decls: undefined,
       });
     }
@@ -738,6 +776,7 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
       chainKey: JSON.stringify(r.chain),
       group: first,
       head: r.head,
+      body: r.body,
       decls: r.decls,
     };
     if (r.listIndex !== undefined) {
@@ -845,21 +884,47 @@ function sameOccurrences(a: readonly ScannedRule[], b: readonly ScannedRule[]): 
   return a.length === b.length && a.every((x, i) => sameCssRule(x.text, b[i].text));
 }
 
-/**
- * 見かけの規則(セレクタの並びの一部)か。見かけの規則は物理の規則を並びの仲間と共有するので、
- * 出現ごとの書き換え(規則全体の置き換え・削除)を当てると仲間のセレクタまで消え、仲間にも
- * 書き換えがあると範囲が重なって壊れる。並びを分けて当てる手段が無いので、書き換えが見かけの
- * 規則に当たる変更は競合にする。追加の錨としては物理の規則の終わりを指すのでそのまま使える。
- */
-function isListed(rule: ScannedRule): boolean {
-  return rule.listOf !== undefined;
-}
-
 /** `at` の行頭からの空白(行頭から空白だけが続くときのみ)。 */
 function indentBefore(src: string, at: number): string {
   let s = at;
   while (s > 0 && (src[s - 1] === ' ' || src[s - 1] === '\t')) s--;
   return s === 0 || src[s - 1] === '\n' ? src.slice(s, at) : '';
+}
+
+/**
+ * 並びの中の 1 セレクタの書き戻し。`bodies` はそのセレクタに書く本文(`{` から `}` まで。next に
+ * 同じセレクタの出現が複数あれば複数)、`'remove'` は消す。結果の無いセレクタは「そのまま」。
+ */
+type ListOutcome = { bodies: string[] } | 'remove';
+
+/**
+ * 物理の規則(セレクタの並び)へのセレクタごとの結果を、その規則の位置での 1 つの書き換えにする。
+ * `items` は並びの見かけの規則(並びの順)。全部消すなら規則ごと消し、全部が同じ 1 つの本文なら
+ * 並びの前置きを原文のまま残して本文だけを置き換える。それ以外は残るセレクタを並びの順に 1 規則ずつ
+ * 書く(元の規則と同じ位置なので、ほかの規則とのカスケードの順は変わらない)。
+ */
+function listRewrite(
+  src: string,
+  items: readonly ScannedRule[],
+  outcomes: ReadonlyMap<number, ListOutcome>,
+): Edit {
+  const physical = items[0];
+  const results = items.map((p) => outcomes.get(p.listIndex ?? 0));
+  if (results.every((r) => r === 'remove')) return removalOf(src, physical);
+  const { start, end } = physical;
+  const single = results.map((r) =>
+    typeof r === 'object' && r.bodies.length === 1 ? r.bodies[0] : undefined,
+  );
+  const first = single[0];
+  if (first !== undefined && single.every((b) => b !== undefined && sameCssRule(b, first))) {
+    return { start, end, text: src.slice(start, end - physical.body.length) + first };
+  }
+  const texts = items.flatMap((p, i) => {
+    const r = results[i];
+    if (r === undefined) return [p.text];
+    return r === 'remove' ? [] : r.bodies.map((b) => p.head + b);
+  });
+  return { start, end, text: texts.join(`\n${indentBefore(src, start)}`) };
 }
 
 /** next で同じ入れ子の中にあり、target に元からある直前の規則(target 側の位置で返す)。 */
@@ -894,6 +959,11 @@ function anchorFor(
  * - 追加(target に無い規則を当てる)は、next で同じ入れ子の中にある直前の規則の後ろへ入れる。
  *   その規則が target に無ければ、外側の入れ子 at-rule で包んで末尾へ入れる。target に原文と同じ
  *   空の規則だけがあるときは、最後の空の出現を置き換える。
+ * - 並びの書き戻し: target の出現が見かけの規則(セレクタの並びの一部)なら、置き換え・削除を
+ *   書き換えの列へ直接積まず、物理の規則ごとにセレクタの結果として集め(`listOutcomes`)、最後に
+ *   `listRewrite` で 1 つの書き換えにする。同じ物理の規則へ書き換えを別々に積むと範囲が重なって
+ *   壊れるため。競合になったセレクタは結果を積まないので「そのまま」(原文の宣言)で残る。
+ *   追加の錨としては物理の規則の終わりを指すので、分割の書き換えと範囲は重ならない。
  */
 function mergeRuleChanges(
   from: MergeRule[],
@@ -916,6 +986,18 @@ function mergeRuleChanges(
   };
   /** 変わったが target に無いので、追加と同じ位置へ入れる規則。 */
   const inserts = new Set<string>();
+  /** 物理の規則(`listOf`)→ 並びの番号 → そのセレクタの結果。 */
+  const listOutcomes = new Map<number, Map<number, ListOutcome>>();
+  /** target の出現 `p` を `text`(置き換え)か消す(undefined)ように書き換える。 */
+  const rewrite = (p: ScannedRule, text: string | undefined, bodies: () => string[]): void => {
+    if (p.listOf === undefined) {
+      edits.push(text === undefined ? removalOf(target, p) : { start: p.start, end: p.end, text });
+      return;
+    }
+    const outcomes = listOutcomes.get(p.listOf) ?? new Map<number, ListOutcome>();
+    outcomes.set(p.listIndex ?? 0, text === undefined ? 'remove' : { bodies: bodies() });
+    listOutcomes.set(p.listOf, outcomes);
+  };
 
   // ── 1. 変更と削除(from の順)──
   for (const fr of from) {
@@ -933,11 +1015,7 @@ function mergeRuleChanges(
       continue;
     }
     if (N === undefined) {
-      if (tr?.parts.some(isListed)) {
-        conflicts.push(fr.key);
-        continue;
-      }
-      for (const p of tr?.parts ?? []) edits.push(removalOf(target, p));
+      for (const p of tr?.parts ?? []) rewrite(p, undefined, () => []);
       applied.push(fr.key);
       continue;
     }
@@ -954,16 +1032,10 @@ function mergeRuleChanges(
       conflicts.push(fr.key);
       continue;
     }
-    const touched = L.flatMap((p, i): Array<{ part: ScannedRule; edit: Edit }> => {
-      if (i >= N.length) return [{ part: p, edit: removalOf(target, p) }];
-      if (sameCssRule(F[i].text, N[i].text)) return [];
-      return [{ part: p, edit: { start: p.start, end: p.end, text: N[i].text } }];
-    });
-    if (touched.some(({ part }) => isListed(part))) {
-      conflicts.push(fr.key);
-      continue;
+    for (const [i, p] of L.entries()) {
+      if (i >= N.length) rewrite(p, undefined, () => []);
+      else if (!sameCssRule(F[i].text, N[i].text)) rewrite(p, N[i].text, () => [N[i].body]);
     }
-    for (const { edit } of touched) edits.push(edit);
     applied.push(fr.key);
   }
 
@@ -983,13 +1055,12 @@ function mergeRuleChanges(
       if (
         untouched(nr.key, tr) &&
         tr.parts.every(isEmptyOccurrence) &&
-        tr.parts.length === ref.get(nr.key)?.parts.length &&
-        !isListed(last)
+        tr.parts.length === ref.get(nr.key)?.parts.length
       ) {
-        const text = occurrencesOf(nr)
-          .map((p) => p.text)
-          .join('\n');
-        edits.push({ start: last.start, end: last.end, text });
+        const occurrences = occurrencesOf(nr);
+        rewrite(last, occurrences.map((p) => p.text).join('\n'), () =>
+          occurrences.map((p) => p.body),
+        );
         applied.push(nr.key);
       } else conflicts.push(nr.key);
       continue;
@@ -1019,6 +1090,20 @@ function mergeRuleChanges(
     );
     edits.push({ start: target.length, end: target.length, text: `${appendLead}${wrapped}\n` });
     appendLead = '';
+  }
+
+  // ── 3. 並びの書き戻し(物理の規則ごとに 1 つの書き換え)──
+  if (listOutcomes.size > 0) {
+    const items = new Map<number, ScannedRule[]>();
+    for (const p of t.flatMap((r) => r.parts)) {
+      if (p.listOf !== undefined) items.set(p.listOf, [...(items.get(p.listOf) ?? []), p]);
+    }
+    for (const [listOf, outcomes] of listOutcomes) {
+      const list = (items.get(listOf) ?? []).sort(
+        (a, b) => (a.listIndex ?? 0) - (b.listIndex ?? 0),
+      );
+      edits.push(listRewrite(target, list, outcomes));
+    }
   }
 
   return { css: edits.length === 0 ? target : applyEdits(target, edits), applied, conflicts };
