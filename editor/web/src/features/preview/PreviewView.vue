@@ -166,6 +166,11 @@ async function submitForReview() {
     sessionStore.clear(props.id);
     toastSuccess('確定保存を申請しました（精査者の承認待ちです）');
   }
+  // 同じ内容が既に承認待ちに載っているので、編集セッションを持ち越す理由が無い。
+  // エラーの toast は `useAsyncResult` が出す。
+  else if (isErr(submitted) && submitted.error.code === 'REVIEW_DUPLICATE') {
+    sessionStore.clear(props.id);
+  }
 }
 
 async function exportPdf() {
