@@ -311,7 +311,8 @@ describe('POST /api/fund-assets/inspect', () => {
   it.each<[string, Ref]>([
     ['..', { dir: null, file: '..' }],
     ['/ で区切ったサブフォルダ', { dir: null, file: 'sub/510037_deep.svg' }],
-    [' で区切ったサブフォルダ', { dir: null, file: 'sub\u2901f_deep.svg' }],
+    [String.raw`\ で区切ったサブフォルダ`, { dir: null, file: String.raw`sub\510037_deep.svg` }],
+    [String.raw`\ でフォルダを偽装`, { dir: String.raw`SMTAM\deep`, file: 'x.svg' }],
     ['.. で css へ遡る', { dir: null, file: '../css/510037.css' }],
     ['フォルダが ..', { dir: '..', file: '510037_logo.svg' }],
     ['/ で 2 段を 1 段に偽装', { dir: 'SMTAM', file: 'deep/x.svg' }],
@@ -328,6 +329,22 @@ describe('POST /api/fund-assets/inspect', () => {
     expect(res.json().results).toEqual([{ ...ref, status: 'missing' }]);
     expect(res.body).not.toContain('SECRET_CSS');
     expect(res.body).not.toContain('<svg');
+  });
+
+  it('違反の文言は 1 件 200 字までに切り詰める(長い属性名で応答を膨らませない)', async () => {
+    const longName = `x${'a'.repeat(1000)}`;
+    fs.writeFileSync(
+      path.join(imagesDir, 'long_attr.svg'),
+      `<svg xmlns="${NS}" ${longName}="1"><rect width="1" height="1"/></svg>`,
+    );
+    const res = await inspect([{ dir: null, file: 'long_attr.svg' }]);
+    expect(res.statusCode).toBe(200);
+    const [result] = res.json().results;
+    expect(result.status).toBe('svg_rejected');
+    expect(result.violations.length).toBeGreaterThan(0);
+    for (const v of result.violations as string[]) expect(v.length).toBeLessThanOrEqual(200);
+    expect(result.violations.some((v: string) => v.endsWith('…'))).toBe(true);
+    expect(res.body).not.toContain(longName);
   });
 
   it('50 件までは受け付け、51 件は 400', async () => {

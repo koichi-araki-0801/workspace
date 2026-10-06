@@ -125,6 +125,17 @@ async function sendFundImage(
   return reply.type(inspected.type).send(inspected.body);
 }
 
+/** 確認 API が返す違反の文言 1 件の最大長(UTF-16 単位。超えた分は `…` で切る)。 */
+const MAX_VIOLATION_CHARS = 200;
+
+/**
+ * 違反の文言は要素名・属性名をそのまま含むので、長い名前を書いた SVG で応答が膨らまないよう
+ * 切り詰める。ログ(`asset.svg_rejected`)は全文のまま残す。
+ */
+function capViolation(text: string): string {
+  return text.length <= MAX_VIOLATION_CHARS ? text : `${text.slice(0, MAX_VIOLATION_CHARS - 1)}…`;
+}
+
 /**
  * 画像ごとの判定を返す(中身は返さない)。理由を出すのはログインした利用者に限るこの経路だけで、
  * 直接開かれうる配信ルートの 404 には理由を載せない。読み込みは 1 件ずつ順に行う — 上限 50 件の
@@ -136,7 +147,12 @@ async function inspectFundImages(refs: readonly FundAssetRef[]): Promise<FundAss
     const inspected = await inspectFundImage(dir, file);
     results.push(
       inspected.status === 'svg_rejected'
-        ? { dir, file, status: inspected.status, violations: inspected.violations }
+        ? {
+            dir,
+            file,
+            status: inspected.status,
+            violations: inspected.violations.map(capViolation),
+          }
         : { dir, file, status: inspected.status },
     );
   }
