@@ -29,6 +29,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { fundCodeOfTemplateId } from './fundImages';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
+import { leaveAfterSave } from './leaveGuard';
 import { openCanvas } from './openCanvas';
 import { canvasRawKey, pageEls, partEls, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
@@ -651,13 +652,12 @@ export function useTemplateEditor(
 
   // アプリ内 navigation guard。編集セッションはブラウザタブの寿命なので、タブ遷移・
   // プレビュー往復・精査画面往復のどれでも破棄しない(draft は autosave 済み、履歴と
-  // Undo/Redo は `editorSession` ストアが templateId 単位で保持する)。進行中の保存だけは
-  // 待ってから離れる — 離脱直後に着地した保存が、次の画面で読んだ内容より古い draft を
-  // 書き戻さないため。閉じたタブが残した draft の破棄は `loadForEdit` が次回オープン時に行う。
-  onBeforeRouteLeave(async () => {
-    await autosave.settled();
-    return true;
-  });
+  // Undo/Redo は `editorSession` ストアが templateId 単位で保持する)。ただし離れる前に、
+  // debounce 待ちを含む未保存の変更を保存し終える — 待たないと最後の編集が draft に残らず、
+  // 離脱直後に着地した保存が次の画面で読んだ内容より古い draft を書き戻すこともある。
+  // 保存できなければ離れるかを確かめる(`leaveGuard.ts`)。閉じたタブが残した draft の破棄は
+  // `loadForEdit` が次回オープン時に行う。
+  onBeforeRouteLeave(() => leaveAfterSave(autosave.flush));
 
   return {
     g,

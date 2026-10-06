@@ -207,6 +207,7 @@ export default defineConfig({
         'editor/web/src/features/editor/noteBubbleLayout.ts',
         'editor/web/src/features/editor/partPreviewDoc.ts',
         'editor/web/src/features/editor/useAutosave.ts',
+        'editor/web/src/features/editor/leaveGuard.ts',
         'editor/web/src/stores/editorSession.ts',
         'editor/web/src/stores/pendingReviews.ts',
         // 認証セッション。退行は「前の利用者の痕跡が次の利用者へ残る / 再起動の切断理由が
