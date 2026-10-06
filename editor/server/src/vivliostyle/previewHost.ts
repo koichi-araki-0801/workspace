@@ -40,7 +40,7 @@ import {
   PREVIEW_MSG_ERROR,
   PREVIEW_MSG_READY,
   PREVIEW_MSG_STATE,
-  resolveServedAssetPath,
+  resolveServedRoutePath,
 } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
@@ -407,8 +407,9 @@ export async function previewHostRoutes(app: FastifyInstance): Promise<void> {
   // ビューアバンドルと同梱資産(`css/`(配下に `css/fonts/`)と `js/`。`images/` は配らない)。
   // 受けるのは**論理ルート相対のパス**で、文書の参照そのものではない — web の
   // `previewSelfContain` が文書基準の参照を `resolveDocAssetPath` で解いてから取りに来る。
-  // パスの解決は `resolveServedAssetPath`(ルート引数の正規化)+ `resolveServedAssetSource`
-  // (許可リスト・深さ・シンボリックリンク)の 2 段で、PDF 経路と同じ物差しを使う。
+  // パスの解決は `resolveServedRoutePath`(復号済みのルート引数の検査)+
+  // `resolveServedAssetSource`(許可リスト・深さ・シンボリックリンク)の 2 段で、PDF 経路と
+  // 同じ物差しを使う。
   app.get<{ Params: { '*': string } }>(
     `${PREVIEW_HOST_BASE}/*`,
     { preHandler: requireAuth },
@@ -420,7 +421,7 @@ export async function previewHostRoutes(app: FastifyInstance): Promise<void> {
           .type('text/javascript; charset=utf-8')
           .send(await viewerBundle());
       }
-      const rel = resolveServedAssetPath(raw);
+      const rel = resolveServedRoutePath(raw);
       // 存在しない/許可外は 404 本文なしで返す(組版側は 404 を静かに無視する)。
       if (rel === undefined) return reply.code(404).send();
       // 画像の配信経路は `/api/fund-assets/images/` の 1 本に集める。ここで配ると SVG 検査を

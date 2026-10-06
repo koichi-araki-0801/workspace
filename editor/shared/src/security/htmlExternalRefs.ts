@@ -263,6 +263,24 @@ export function resolveServedAssetPath(url: string): string | undefined {
   return segments === undefined || segments.length === 0 ? undefined : segments.join('/');
 }
 
+/**
+ * **復号済みのルート引数**(Fastify が 1 回百分率復号して渡す値)を配信ルート相対のパスとして
+ * 検める。文書の URL 値ではないので、文字参照の復号・`?` `#` での切断・百分率復号はしない
+ * (`a#b.svg` は字面の名前で、`%41` も `A` ではなく字面の名前)。もう一度解くと `#` で切れて
+ * 別のファイルを探し、`100%.png` は復号不能で落ち、二重符号化が区切りや `..` へ化ける。
+ *
+ * 拒む形は `resolveSegments` と同じ NUL・`\`・空に加え、空・`.`・`..` のセグメント、ルート絶対、
+ * scheme やドライブ指定(`C:`)で始まる形。ルートの引数は正規化済みの名前で来るので、正規化で
+ * 形が変わる入力はどこを指すかを推測せずに拒む。戻り値は入力と同じ文字列。
+ */
+export function resolveServedRoutePath(decoded: string): string | undefined {
+  if (decoded === '' || SCHEME_PREFIX_RE.test(decoded)) return undefined;
+  if (decoded.includes('\0') || decoded.includes('\\')) return undefined;
+  const segments = decoded.split('/');
+  if (segments.some((s) => s === '' || s === '.' || s === '..')) return undefined;
+  return segments.join('/');
+}
+
 /** 参照元ファイルの論理パスから、相対参照の基準になるディレクトリのセグメント列を作る。 */
 function baseSegmentsOf(from: string): string[] | undefined {
   if (from === DOC_DIR) return [DOC_DIR];

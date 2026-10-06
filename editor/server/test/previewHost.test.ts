@@ -42,6 +42,9 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(tmp, 'js', 'secret.env'), 'TOKEN=zz', 'utf8');
   fs.writeFileSync(path.join(tmp, 'css', '510037.css'), 'body{}', 'utf8');
   fs.writeFileSync(path.join(tmp, 'css', 'A_1_交付版.css'), 'body{}', 'utf8');
+  // URL で意味を持つ字を含むフォント名(ルートの引数は復号済みなので、字面のまま実体を引く)。
+  fs.writeFileSync(path.join(tmp, 'css', 'fonts', 'a#b.woff2'), 'FONT_HASH', 'utf8');
+  fs.writeFileSync(path.join(tmp, 'css', 'fonts', '100%.woff2'), 'FONT_PCT', 'utf8');
   // 配信面の外(dataRoot 直下)。`..` で辿れないことの標的。
   fs.writeFileSync(path.join(tmp, 'outside.js'), 'LEAK', 'utf8');
 
@@ -148,12 +151,36 @@ describe('GET /api/preview-host/* — 同梱資産の配信', () => {
       // ルート絶対・絶対 URL(解決器が undefined を返す形)
       '/api/preview-host//etc/passwd',
       '/api/preview-host/https://evil.example/x.js',
+      // 復号済みの引数に残る危険な字(NUL・`\`・ドライブ指定・UNC)
+      '/api/preview-host/js/app.js%00',
+      '/api/preview-host/js%5C..%5C..%5Coutside.js',
+      '/api/preview-host/C%3A/outside.js',
+      '/api/preview-host/%5C%5Chost%5Cshare/outside.js',
+      // 末尾の `.`・空白(Windows で別の名前へ読み替わる)
+      '/api/preview-host/js/app.js.',
+      '/api/preview-host/js/app.js%20',
+      // 二重符号化の `..` は字面の名前として探して無い
+      '/api/preview-host/js/%252e%252e/%252e%252e/outside.js',
     ];
     for (const url of cases) {
       const res = await app.inject({ method: 'GET', url });
       expect([404, 400], `${url} → ${res.statusCode}`).toContain(res.statusCode);
       expect(res.body, `${url} が本文を返した`).not.toContain('LEAK');
       expect(res.body, `${url} が本文を返した`).not.toContain('TOKEN=');
+    }
+  });
+
+  it('# や % を含むフォント名を返す(引数を切らず、もう一度は復号しない)', async () => {
+    for (const [name, body] of [
+      ['a#b.woff2', 'FONT_HASH'],
+      ['100%.woff2', 'FONT_PCT'],
+    ]) {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/preview-host/css/fonts/${encodeURIComponent(name)}`,
+      });
+      expect(res.statusCode, name).toBe(200);
+      expect(res.body).toBe(body);
     }
   });
 

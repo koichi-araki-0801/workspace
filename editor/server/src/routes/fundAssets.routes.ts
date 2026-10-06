@@ -10,7 +10,7 @@
 // 偽装させない。会社コードとの照合はしない — テンプレ ID を持たないこの経路では決められないため、
 // 照合は ID を知る web 側(`companyFolderMatches`)が行う。
 //
-// 経路の検査は 2 段: `resolveServedAssetPath`(`..`・絶対参照の拒否。プレビューホストと
+// 経路の検査は 2 段: `resolveServedRoutePath`(`..`・絶対参照の拒否。プレビューホストと
 // 同じ前段)→ `resolveServedAssetSource`(許可リスト・深さ・会社フォルダ名の大小文字無視・
 // Windows で別の実体へ読み替わる名前の拒否・symlink 拒否を PDF の配置と共有する)。別の解決器は
 // 作らない。Windows の予約名は lstat が装置として成功しうるので、実体に触れる前に名前で落とす。
@@ -20,7 +20,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { apiPaths, inspectSvg, resolveServedAssetPath } from '@editor/shared';
+import { apiPaths, inspectSvg, resolveServedRoutePath } from '@editor/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { logger } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -45,7 +45,8 @@ const SVG_CSP = 'sandbox';
 
 /**
  * ルートのパラメータから実体の絶対パスを引く。`dir` は会社フォルダ(直下なら null)。
- * 正規化で形が変わる入力(`..`・`%xx` の二重符号化・前後の空白)は、どこを指すかを推測せずに拒む。
+ * 引数は 1 回だけ復号されたものとして扱い、もう一度は解かない(`%41` はその字面の名前)。
+ * 正規化で形が変わる入力(`..`・区切り・前後の空白)は、どこを指すかを推測せずに拒む。
  */
 export async function resolveFundImageSource(
   dir: string | null,
@@ -56,7 +57,7 @@ export async function resolveFundImageSource(
     return undefined;
   }
   const wanted = [FUND_IMAGES_MOUNT, ...segments].join('/');
-  if (resolveServedAssetPath(wanted) !== wanted) return undefined;
+  if (resolveServedRoutePath(wanted) !== wanted) return undefined;
   return resolveServedAssetSource(wanted);
 }
 

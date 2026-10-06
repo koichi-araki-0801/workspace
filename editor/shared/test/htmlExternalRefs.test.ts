@@ -14,6 +14,7 @@ import {
   nestedHtmlAttrsFor,
   resolveDocAssetPath,
   resolveServedAssetPath,
+  resolveServedRoutePath,
 } from '../src/security/htmlExternalRefs.js';
 
 const TAB = String.fromCharCode(0x09);
@@ -465,5 +466,41 @@ describe('resolveDocAssetPath — 文書(doc/)や CSS の位置を基準に論�
     ['重複スラッシュは畳む', '..//images///x.svg', 'images/x.svg'],
   ])('%s: %s', (_label, url, expected) => {
     expect(resolveDocAssetPath(url, 'doc')).toBe(expected);
+  });
+});
+
+// ルートの引数はフレームワークが 1 回復号して渡す。文書の URL 値を解く `resolveServedAssetPath` を
+// 掛けると `#` `?` で切られ、`%` がもう一度解かれる。字面のファイル名として扱えることと、
+// それでも置き場の外へ出る形は拒むことの両方を主張する。
+describe('resolveServedRoutePath — 復号済みのルート引数', () => {
+  it.each([
+    ['images/a#b.svg', '# は断片の区切りではない'],
+    ['images/a?b.png', '? はクエリの区切りではない'],
+    ['images/100%25.png', '% はもう一度は解かない'],
+    ['images/%2e%2e/x.svg', '%2e%2e は字面の名前(.. として働かない)'],
+    ['images/..%2fx.svg', '..%2f は字面の名前(区切りとして働かない)'],
+    ['images/a%5cb.svg', '%5c は字面の名前'],
+    ['css/fonts/日本.woff2', '日本語名'],
+    ['images/&#104;.svg', '文字参照は解かない'],
+  ])('%s はそのまま返す(%s)', (input) => {
+    expect(resolveServedRoutePath(input)).toBe(input);
+  });
+
+  it.each([
+    ['images/../x', '途中の ..'],
+    ['../x', '先頭の ..'],
+    ['images/./x', '.'],
+    ['images//x', '空のセグメント'],
+    ['/images/x', 'ルート絶対'],
+    ['//host/share/x', 'UNC・scheme 相対'],
+    ['a\\b', 'バックスラッシュ'],
+    ['\\\\host\\share\\x', 'UNC(バックスラッシュ)'],
+    ['images/a\0.svg', 'NUL'],
+    ['C:/Windows/x', 'ドライブ指定'],
+    ['C:x', 'ドライブ相対'],
+    ['https://evil.example/x', '絶対 URL'],
+    ['', '空'],
+  ])('%j は undefined(%s)', (input) => {
+    expect(resolveServedRoutePath(input)).toBeUndefined();
   });
 });

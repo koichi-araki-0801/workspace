@@ -2,8 +2,8 @@
 // docAssetRefs.guard.test.ts — 文書側の資産参照は resolveDocAssetPath だけを通す
 // =============================================================================
 // `resolveServedAssetPath` は配信ルート直下を基準にする。文書の参照(`../css/x.css`)をこれで解くと
-// ルートの外として落ち、`<link>`/`<script src>` が黙って消える。ルート引数を正規化する場所だけが
-// 使ってよく、増やすときはこの台帳に理由つきで足す。
+// ルートの外として落ち、`<link>`/`<script src>` が黙って消える。ルート引数は復号済みなので
+// `resolveServedRoutePath` で検め、それを使う場所はこの台帳に理由つきで足す。
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,11 +37,18 @@ const ROUTE_PARAM_USERS = [
 ];
 
 describe('文書側の資産参照の解決', () => {
-  it('resolveServedAssetPath を使ってよいのはルート引数の正規化だけ', () => {
-    const users = ALL.filter(({ code }) => /\bresolveServedAssetPath\b/.test(code)).map(
+  it('resolveServedRoutePath を使うのはルート引数の正規化だけ', () => {
+    const users = ALL.filter(({ code }) => /\bresolveServedRoutePath\b/.test(code)).map(
       (a) => a.rel,
     );
     expect(users.sort()).toEqual(ROUTE_PARAM_USERS);
+  });
+
+  it('resolveServedAssetPath は server で使わない(復号済みのルート引数をもう一度解く)', () => {
+    const users = ALL.filter(({ code }) => /\bresolveServedAssetPath\b/.test(code)).map(
+      (a) => a.rel,
+    );
+    expect(users).toEqual([]);
   });
 
   it.each([

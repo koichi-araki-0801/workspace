@@ -29,6 +29,8 @@ process.env.LOG_DIR = path.join(root, 'logs');
 const NS = 'http://www.w3.org/2000/svg';
 const GOOD_SVG = `<svg xmlns="${NS}" width="10" height="10"><rect width="10" height="10"/></svg>`;
 const BAD_SVG = `<svg xmlns="${NS}" onload="alert(1)"><rect width="10" height="10"/></svg>`;
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+const IS_WINDOWS = process.platform === 'win32';
 const as = (sid: string) => ({ cookie: sid });
 const URL_BASE = '/api/fund-assets/images';
 
@@ -46,6 +48,13 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(imagesDir, 'SMTAM', 'qr.svg'), GOOD_SVG);
   fs.writeFileSync(path.join(imagesDir, 'SMTAM', 'bad.svg'), BAD_SVG);
   fs.writeFileSync(path.join(imagesDir, 'SMTAM', 'deep', 'x.svg'), GOOD_SVG);
+  // URL で意味を持つ字を含む名前(ルートの引数は復号済みなので、字面のまま実体を引く)。
+  fs.writeFileSync(path.join(imagesDir, 'a#b.svg'), GOOD_SVG);
+  fs.writeFileSync(path.join(imagesDir, '100%.png'), PNG);
+  fs.writeFileSync(path.join(imagesDir, '%41.png'), PNG);
+  fs.writeFileSync(path.join(imagesDir, 'SMTAM', 'q#r.svg'), GOOD_SVG);
+  // Windows は `?` をファイル名に使えない(純粋関数のテストで担保する)。
+  if (!IS_WINDOWS) fs.writeFileSync(path.join(imagesDir, 'a?b.png'), PNG);
   // NTFS の代替データストリーム(作れない環境では存在しないファイルとして 404 になるだけ)。
   try {
     fs.writeFileSync(path.join(imagesDir, '510037_logo.svg:s.svg'), GOOD_SVG);
@@ -166,11 +175,49 @@ describe('GET /api/fund-assets/images/:file', () => {
     ['予約名(小文字・拡張子付き)', `${URL_BASE}/com1.png`],
     ['許可外の拡張子', `${URL_BASE}/510037_anim.gif`],
     ['存在しない', `${URL_BASE}/510037_none.svg`],
+    ['%00(NUL)', `${URL_BASE}/510037_logo.svg%00`],
+    ['%5C%5C で UNC を偽装', `${URL_BASE}/%5C%5Chost%5Cshare%5Cx.svg`],
+    ['ドライブ指定', `${URL_BASE}/C%3A%5Cx.svg`],
+    ['末尾が空白のファイル名', `${URL_BASE}/510037_logo.svg%20`],
+    ['末尾が . のファイル名(直下)', `${URL_BASE}/510037_logo.svg.`],
+    ['%252e%252e のフォルダ(字面の名前として探して無い)', `${URL_BASE}/%252e%252e/510037_logo.svg`],
   ])('%s は 404 で、本文を出さない', async (_label, url) => {
     const res = await app.inject({ method: 'GET', url, headers: as('viewer') });
     expect(res.statusCode, `${url} → ${res.statusCode}`).toBe(404);
     expect(res.body).not.toContain('SECRET_CSS');
     expect(res.body).not.toContain('<svg');
+  });
+});
+
+describe('URL で意味を持つ字を含むファイル名', () => {
+  const get = (url: string) => app.inject({ method: 'GET', url, headers: as('viewer') });
+
+  it('# を含む名前を返す(引数を # で切らない)', async () => {
+    const res = await get(`${URL_BASE}/${encodeURIComponent('a#b.svg')}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe(GOOD_SVG);
+  });
+
+  it.skipIf(IS_WINDOWS)('? を含む名前を返す(引数を ? で切らない)', async () => {
+    const res = await get(`${URL_BASE}/${encodeURIComponent('a?b.png')}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload).toEqual(PNG);
+  });
+
+  it('% を含む名前を返す(引数をもう一度は復号しない)', async () => {
+    for (const name of ['100%.png', '%41.png']) {
+      const res = await get(`${URL_BASE}/${encodeURIComponent(name)}`);
+      expect(res.statusCode, name).toBe(200);
+      expect(res.rawPayload).toEqual(PNG);
+    }
+    // `%41` を `A` と読み替えない。
+    expect((await get(`${URL_BASE}/A.png`)).statusCode).toBe(404);
+  });
+
+  it('会社フォルダの中の # を含む名前を返す', async () => {
+    const res = await get(`${URL_BASE}/smtam/${encodeURIComponent('q#r.svg')}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe(GOOD_SVG);
   });
 });
 
