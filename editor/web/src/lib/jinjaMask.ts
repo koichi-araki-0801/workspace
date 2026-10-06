@@ -277,13 +277,27 @@ function removeSiblings(from: Node, until: Node): void {
   }
 }
 
+/**
+ * 本文の断片(`<html>` も `<body>` も持たない)を文書で包む。断片のまま読ませると、先頭の
+ * コメント(範囲の開きの印や原文のコメント)はパーサが `<body>` の外(文書の直下)へ置き、本文から
+ * 落ちる。文書や `<body>` で包んだ下書きはそのまま渡す(二重に包むと `<body>` が入れ子になる)。
+ * 判定はタグの走査で行い、コメントや属性値の中の字面には反応しない。
+ */
+function asDocument(editable: string): string {
+  const lexed = lexJinja(editable);
+  const masked = lexed.ok ? maskJinja(editable, lexed.tokens) : editable;
+  const hasShell = scanHtml(masked).elements.some((e) => e.tag === 'html' || e.tag === 'body');
+  if (hasShell || /^\s*<!doctype/i.test(editable)) return editable;
+  return `<!doctype html><html><head></head><body>${editable}</body></html>`;
+}
+
 export function toTemplate(
   editable: string,
   opts: ToTemplateOptions = {},
   parse: HtmlParser = defaultHtmlParser,
 ): string {
   const hadDoctype = /^\s*<!doctype/i.test(editable);
-  const doc = parse(editable);
+  const doc = parse(asDocument(editable));
   // 発行集合: この呼び出しが実際に生成した placeholder の enc だけを最終段で復号する。
   // canvas 入口を素通りした偽 placeholder(editable テキストへ U+E000/U+E001 直書き)を
   // 復号しないための鍵。`ph` の生成と復号の許可を 1 箇所に束ねる。

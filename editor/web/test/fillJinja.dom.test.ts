@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 import fundMaster from '../src/api/fixtures/funds.json';
 import { defaultSkeleton } from '../src/api/local/store';
 import { toFilled, toFilledWithDiagnostics } from '../src/lib/fillJinja';
-import { extractJinjaTokens, toTemplate } from '../src/lib/jinjaMask';
+import { defaultHtmlParser } from '../src/lib/htmlParser';
+import { extractJinjaTokens, normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
 import { getBodyInner } from '../src/lib/templateDoc';
 
 const sample = {
@@ -109,6 +110,10 @@ describe('real report templates round-trip token-for-token', () => {
       const filledBody = getBodyInner(toFilled(raw, data));
       const restoredBody = toTemplate(filledBody, { asFragment: true });
       expect(extractJinjaTokens(restoredBody)).toEqual(extractJinjaTokens(getBodyInner(raw)));
+      // 記号の並びだけでなく、本文の木(本物のコメントを含む)も原文と同じに戻る。
+      expect(normalizeForRoundTrip(restoredBody, defaultHtmlParser)).toBe(
+        normalizeForRoundTrip(getBodyInner(raw), defaultHtmlParser),
+      );
     });
   }
 
@@ -290,17 +295,15 @@ describe('toFilled の端', () => {
     );
     const cases: Array<[string, Record<string, unknown>]> = [
       // else 無しで非採用: 印の間は空になり、ブロック全体が開きの印に入る。
-      ['<div>{% if ok %}<p>A</p>{% endif %}</div>', { ok: false }],
+      ['{% if ok %}<p>A</p>{% endif %}', { ok: false }],
       // 採用した枝が複数要素。
-      ['<div>{% if ok %}<p>A</p><div>A2</div>{% endif %}</div>', { ok: true }],
+      ['{% if ok %}<p>A</p><div>A2</div>{% endif %}', { ok: true }],
     ];
     for (const [raw, data] of cases) {
       const back = toTemplate(toFilled(raw, data), { asFragment: true });
       expect(back).toBe(raw);
     }
-    expect(toFilled('<div>{% if ok %}<p>A</p>{% endif %}</div>', { ok: false })).not.toContain(
-      '<p>A</p>',
-    );
+    expect(toFilled('{% if ok %}<p>A</p>{% endif %}', { ok: false })).not.toContain('<p>A</p>');
   });
 });
 

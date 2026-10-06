@@ -1,9 +1,11 @@
 import { parseHTML } from 'linkedom';
 import { describe, expect, it } from 'vitest';
+import { toFilled } from '../src/lib/fillJinja';
 import type { HtmlParser } from '../src/lib/htmlParser';
 import { defaultHtmlParser } from '../src/lib/htmlParser';
 import { rtComment } from '../src/lib/jinjaAttrs';
 import { b64encode, normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
+import { htmlWorkerImpl } from '../src/workers/htmlWorkerImpl';
 
 const o = (id: number, payload: string) => rtComment({ kind: 'o', id, payload });
 const c = (id: number, payload: string) => rtComment({ kind: 'c', id, payload });
@@ -101,6 +103,34 @@ describe('toTemplate — 範囲の印', () => {
       parse,
     );
     expect(normalizeForRoundTrip(out, parse)).toBe(normalizeForRoundTrip(src, parse));
+  });
+});
+
+describe('toTemplate — 本文の先頭のコメント', () => {
+  // 断片の先頭のコメントは、`<body>` で包まずに読むと文書の直下へ置かれ、本文から落ちる。
+  const parsers: Array<[string, (html: string) => string]> = [
+    ['jsdom', (h) => toTemplate(h, { asFragment: true })],
+    ['linkedom(素)', (h) => toTemplate(h, { asFragment: true }, linkedomParser)],
+    ['linkedom(Worker)', (h) => htmlWorkerImpl.toTemplate(h, { asFragment: true })],
+  ];
+  const raws: Array<[string, string, Record<string, unknown>]> = [
+    ['先頭が if', '{% if a %}<p>A</p>{% endif %}', { a: true }],
+    ['先頭が採用枝の無い if', '{% if a %}<p>A</p>{% endif %}<p>z</p>', { a: false }],
+    ['先頭が for', '{% for i in xs %}<p>{{ i }}</p>{% endfor %}<p>z</p>', { xs: [1, 2] }],
+    ['空白の後の block', '\n  {% if a %}<p>A</p>{% endif %}', { a: true }],
+    ['先頭が本物のコメント', '<!-- ===== Page 1 ===== --><div>x</div>', {}],
+  ];
+  for (const [pn, run] of parsers) {
+    it.each(raws)(`${pn}: %s`, (_n, raw, sample) => {
+      const out = run(toFilled(raw, sample));
+      expect(normalizeForRoundTrip(out, defaultHtmlParser)).toBe(
+        normalizeForRoundTrip(raw, defaultHtmlParser),
+      );
+    });
+  }
+
+  it('本物のコメントは文字どおり残る', () => {
+    expect(back('<!-- a --><div>x</div>')).toBe('<!-- a --><div>x</div>');
   });
 });
 
