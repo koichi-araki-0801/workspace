@@ -10,6 +10,7 @@ import {
   collectCssStringsInFunctions,
   collectCssStructure,
   collectCssUrlCandidates,
+  collectCssUrlSpans,
   collectCssUrlSpansInContext,
   findExternalRefsInCss,
   isAllowedDataUrl,
@@ -84,6 +85,69 @@ describe('バックスラッシュで書いた scheme 相対 URL', () => {
     expect(isSelfContainedUrl('fonts/BIZUDPGothic.woff2')).toBe(true);
     expect(isSelfContainedUrl('./css/510037.css')).toBe(true);
     expect(isSelfContainedUrl('#clip1')).toBe(true);
+  });
+});
+
+// ── URL パーサが外す文字(前後の C0 制御文字と空白、途中の TAB/LF/CR)──
+// ブラウザは CSS のエスケープを解いた値を URL パーサへ渡し、URL パーサは前後の U+0020 以下を
+// 捨て、TAB/LF/CR を位置を問わず消す。エスケープで書いた `\1 ` や `\9 ` が残ったまま scheme の
+// 形を見ると「相対参照」と読み、ブラウザが取りに行く `http://…` を素通しする。
+describe('URL パーサが外す文字を挟んだ外部 URL', () => {
+  it.each([
+    ['前に U+0001', String.raw`.a{background:url("\1 http://evil.example/x")}`],
+    ['scheme の途中に TAB', String.raw`.a{background:url("ht\9 tp://evil.example/x")}`],
+    [
+      '引用符文字列の scheme の途中に LF',
+      String.raw`.a{background:image-set("ht\a tp://evil.example/x" 1x)}`,
+    ],
+    ['未引用 url() の前に U+001F', String.raw`.a{background:url(\1f http://evil.example/x)}`],
+  ])('%s も報告する', (_label, css) => {
+    expect(findExternalRefsInCss(css)).not.toEqual([]);
+  });
+
+  it.each([
+    `${String.fromCharCode(1)}http://evil.example/x`,
+    `ht${String.fromCharCode(9)}tp://evil.example/x`,
+    `https:${LF}//evil.example/x`,
+    `/${CR}/evil.example/x`,
+    `d${LF}ata:text/html,x`,
+  ])('%j は外部参照(自己完結ではない)', (url) => {
+    expect(isSelfContainedUrl(url)).toBe(false);
+  });
+
+  it('外す文字を挟んでも同梱資産・#id・許可した data: は通す(遮断しすぎない)', () => {
+    expect(isSelfContainedUrl(`${String.fromCharCode(1)}#g`)).toBe(true);
+    expect(isSelfContainedUrl(`fonts/a${String.fromCharCode(9)}b.woff2`)).toBe(true);
+    expect(isSelfContainedUrl(`data:image/p${LF}ng;base64,A`)).toBe(true);
+    expect(isAllowedDataUrl(`${String.fromCharCode(1)}data:image/png;base64,A`)).toBe(true);
+  });
+});
+
+// ── CSS の入力前処理(CRLF・CR・FF は LF へ畳まれる)──
+// 16 進エスケープの後ろの空白は 1 個だけ食われる。ブラウザは前処理で CRLF を LF 1 個にしてから
+// 字句を読むので、`\75` + CRLF + `rl(` は `url(` になる。原文のまま読むと CR だけが食われ、LF が
+// ident を切って `url(` を見落とす。
+describe('CRLF をまたぐエスケープ', () => {
+  it.each([
+    ['CRLF', `${CR}${LF}`],
+    ['CR', CR],
+    ['FF', FF],
+  ])('エスケープ `75` + %s + `rl(` を url() として読む', (_label, nl) => {
+    const css = `${String.raw`.a{background:\75`}${nl}rl(http://evil.example/x)}`;
+    expect(findExternalRefsInCss(css)).toEqual(['url(http://evil.example/x)']);
+  });
+
+  it('CRLF の後ろの位置は原文のオフセットで返す(置換・規則分割がずれない)', () => {
+    const css = `.a{}${CR}${LF}${CR}${LF}.b{background:url(x.png)}${CR}${LF}.c{}`;
+    const [span] = collectCssUrlSpans(css);
+    expect(span).toEqual({
+      value: 'x.png',
+      start: css.indexOf('url('),
+      end: css.indexOf(')') + 1,
+    });
+    const punct = collectCssStructure(css).punct.map((p) => p.at);
+    const expected = [...css].flatMap((ch, at) => ('{};'.includes(ch) ? [at] : []));
+    expect(punct).toEqual(expected);
   });
 });
 

@@ -88,8 +88,33 @@ const ALLOWED_DATA_PREFIXES = [
  * 「テンプレの著者が未検査の SVG を data URI で直接書ける」経路が開く。
  */
 export function isAllowedDataUrl(url: string): boolean {
-  const lower = url.trim().toLowerCase();
+  const lower = stripUrlIgnoredChars(url).toLowerCase();
   return lower.startsWith('data:') && ALLOWED_DATA_PREFIXES.some((p) => lower.startsWith(p));
+}
+
+/** URL パーサが前後で捨てる符号位置の上限(C0 制御文字と空白)。 */
+const URL_EDGE_MAX_CODE = 0x20;
+/** URL パーサが位置を問わず消す符号位置(TAB / LF / CR)。 */
+const URL_STRIPPED_CODES = new Set([0x09, 0x0a, 0x0d]);
+
+/**
+ * WHATWG URL パーサが解析の前に外す文字を外す。前後の U+0020 以下(C0 制御文字と空白)を捨て、
+ * TAB / LF / CR を位置を問わず消す。判定はこの後の値でしないとブラウザと読みが割れる —
+ * CSS のエスケープで書いた `url("\1 http://…")` や `"ht\9 tp://…"` は、外す前だと scheme の形を
+ * しないので相対参照に見えるが、ブラウザは `http://…` を取りに行く。
+ * JS の `trim` は使わない。C0 制御文字を外さず、逆に URL パーサが外さない NBSP などを外す。
+ * 制御文字を正規表現のソースに直に書かないよう、符号位置で走査する。
+ */
+export function stripUrlIgnoredChars(url: string): string {
+  let start = 0;
+  let end = url.length;
+  while (start < end && url.charCodeAt(start) <= URL_EDGE_MAX_CODE) start++;
+  while (end > start && url.charCodeAt(end - 1) <= URL_EDGE_MAX_CODE) end--;
+  let out = '';
+  for (let i = start; i < end; i++) {
+    if (!URL_STRIPPED_CODES.has(url.charCodeAt(i))) out += url[i];
+  }
+  return out;
 }
 
 const HEX = /[0-9a-fA-F]/;
@@ -136,9 +161,41 @@ function readIdent(css: string, at: number): { value: string; next: number } {
   return { value, next: i };
 }
 
-/** CSS Syntax の改行(入力前処理で CR / CRLF / FF は LF へ畳まれるが、原文のまま走査する)。 */
+/** CSS Syntax の改行。CR / CRLF / FF は `preprocessCss` が LF へ畳んだ後なので LF だけを見る。 */
 function isCssNewline(c: string): boolean {
-  return c === '\n' || c === '\r' || c === '\f';
+  return c === '\n';
+}
+
+/** `preprocessCss` の結果。`toSource` は前処理後の位置を原文の位置へ戻す。 */
+interface PreprocessedCss {
+  css: string;
+  toSource: (at: number) => number;
+}
+
+/**
+ * CSS Syntax の入力前処理(CRLF・CR・FF を LF へ、U+0000 を U+FFFD へ)。ブラウザは字句を読む前に
+ * これを行うので、走査も前処理後の文字列で行う。原文のまま読むと、16 進エスケープの後ろの空白
+ * 1 個として CRLF の CR だけが食われ、残った LF が ident を切る — `\75` + CRLF + `rl(` を
+ * ブラウザは `url(` と読むのに、走査器は見落とす。
+ * 呼び出し側へ返す位置(置換範囲・規則分割)は原文に対するものなので、位置の対応表を持つ。
+ */
+function preprocessCss(source: string): PreprocessedCss {
+  if (!/[\r\f\0]/.test(source)) return { css: source, toSource: (at) => at };
+  let css = '';
+  /** 前処理後の位置 → 原文の位置。末尾の 1 つ先も引けるよう `source.length` を足す。 */
+  const map: number[] = [];
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i];
+    map.push(i);
+    if (c === '\r') {
+      css += '\n';
+      if (source[i + 1] === '\n') i++;
+    } else if (c === '\f') css += '\n';
+    else if (c === '\0') css += '�';
+    else css += c;
+  }
+  map.push(source.length);
+  return { css, toSource: (at) => map[at] ?? source.length };
 }
 
 /**
@@ -163,7 +220,7 @@ function readString(css: string, at: number): { value: string; next: number; bad
     if (c === '\\') {
       // `\` + 改行は行継続で、文字を 1 つも生まない(仕様どおり)。
       if (isCssNewline(css[i + 1] ?? '')) {
-        i += css.startsWith('\r\n', i + 1) ? 3 : 2;
+        i += 2;
         continue;
       }
       const esc = readEscape(css, i);
@@ -216,13 +273,14 @@ function readUrlToken(css: string, at: number): { value: string; next: number } 
 /**
  * URL 値が「文書外へ取りに行かない」と言えるか。判定はエスケープ解決後の値に対して行う。
  *
- * 判定前に `\` を `/` へ畳む。WHATWG URL パーサは**特殊スキーム**(http/https/file 等)の
+ * 判定前に URL パーサが外す文字を外し(`stripUrlIgnoredChars`)、`\` を `/` へ畳む。
+ * WHATWG URL パーサは**特殊スキーム**(http/https/file 等)の
  * base に対して `\` を `/` と同一視するため、`\\host/x` `/\host/x` `\/host/x` はいずれも
  * `http://host/x` へ解決される。畳まずに `startsWith('//')` だけを見ると、この 3 形と
  * CSS エスケープ表記(`\5c\5c host/x`)を「相対参照」として通してしまう。
  */
 export function isSelfContainedUrl(url: string): boolean {
-  const v = url.trim().replace(/\\/g, '/');
+  const v = stripUrlIgnoredChars(url).replace(/\\/g, '/');
   if (v === '' || v.startsWith('#')) return true;
   // `//host/x` は scheme 相対 = 外部。`:` より先に現れる `/` は path 区切りなので相対。
   if (v.startsWith('//')) return false;
@@ -469,9 +527,10 @@ interface CssStringContext {
 /**
  * `findExternalRefsInCss` / `collectCssUrlCandidates` / `collectCssUrlSpans` /
  * `collectCssStructure` / `collectCssStringsInFunctions` が共有する 1 パス走査。
+ * 走査は前処理後の文字列(`preprocessCss`)で行い、`visit` へ渡す位置は原文の位置へ戻す。
  */
 function walkCss(
-  css: string,
+  source: string,
   visit: {
     /** `at` は `@` の位置。 */
     atRule: (name: string, at: number) => void;
@@ -487,6 +546,7 @@ function walkCss(
     comment?: (start: number, end: number) => void;
   },
 ): void {
+  const { css, toSource } = preprocessCss(source);
   let i = 0;
   /**
    * 開いている括弧の閉じ文字と、関数の括弧(名前の直後の `(`)か。CSS Syntax の「単純ブロック」と
@@ -512,7 +572,7 @@ function walkCss(
     if (c === '/' && css[i + 1] === '*') {
       const end = css.indexOf('*/', i + 2);
       const next = end === -1 ? css.length : end + 2;
-      visit.comment?.(i, next);
+      visit.comment?.(toSource(i), toSource(next));
       i = next;
       continue;
     }
@@ -526,7 +586,7 @@ function walkCss(
     }
     if (c === '@') {
       const id = readIdent(css, i + 1);
-      if (id.next > i + 1) visit.atRule(id.value, i);
+      if (id.next > i + 1) visit.atRule(id.value, toSource(i));
       atDeclStart = false;
       afterDeclName = false;
       i = id.next > i + 1 ? id.next : i + 1;
@@ -542,7 +602,7 @@ function walkCss(
       if (id.value.toLowerCase() === 'url' && css[id.next] === '(') {
         const u = readUrlToken(css, id.next + 1);
         // span は `url(` の先頭から閉じ括弧の直後まで = `url(…)` 式全体を置換できる範囲。
-        visit.value(u.value, 'url', { start: i, end: u.next });
+        visit.value(u.value, 'url', { start: toSource(i), end: toSource(u.next) });
         atDeclStart = false;
         afterDeclName = false;
         i = u.next;
@@ -560,7 +620,7 @@ function walkCss(
       i = id.next;
       continue;
     }
-    if (c === '{' || c === '}' || c === ';') visit.punct?.(c, i);
+    if (c === '{' || c === '}' || c === ';') visit.punct?.(c, toSource(i));
     const valueBlock = c === '{' && inSubstValue;
     if (blocks.length === 0 && !valueBlock && (c === '{' || c === '}' || c === ';')) {
       decl = undefined;

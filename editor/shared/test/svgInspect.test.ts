@@ -325,6 +325,20 @@ describe('inspectSvg — CSS の関数の中の引用符の文字列', () => {
   });
 });
 
+// CSS の前処理で CRLF は LF 1 個になるので、16 進エスケープの後ろの CRLF は 1 個の空白として
+// 食われ、`\75` + CRLF + `rl(` は `url(` になる。style 属性では文字参照の CR LF が同じ形を作る。
+describe('inspectSvg — CRLF をまたぐエスケープ', () => {
+  it('style 要素の CRLF', () => {
+    const css = `${String.raw`.a{fill:\75`}\r\nrl(http://evil.example/x)}`;
+    expect(inspectSvg(wrap(`<style>${css}</style>`))).toContain('外部参照を含む CSS(style 要素)');
+  });
+
+  it('style 属性の文字参照 &#13;&#10;', () => {
+    const attr = `${String.raw`fill:\75`}&#13;&#10;rl(http://evil.example/x)`;
+    expect(inspectSvg(wrap(`<rect style="${attr}"/>`))).toContain('外部参照を含む CSS(style 属性)');
+  });
+});
+
 // 悪意ある入力で同期処理を止めさせない(単体配信ルートはリクエスト毎に検査する)。実時間の上限は
 // CI のランナーが遅い前提で緩く取る。二乗時間の経路が残ると桁違いに超える。
 describe('inspectSvg — 入力サイズに対して線形', () => {
