@@ -17,6 +17,7 @@
 // (`features/compare/htmlBlockDiff.ts` の `isElement` と同じ作法)。
 
 import { splitCssRules } from '@editor/shared';
+import { BODY_STYLE_VIEW_ATTR } from './bodyStyleAttr';
 import { REDLINE_ATTR } from './redlineAttr';
 
 /** 改ページの区切りを表すクラス。 */
@@ -86,13 +87,17 @@ export function inlineBreak(el: Element, edge: 'before' | 'after'): boolean {
 
 /**
  * 根の直下の要素のうち、ページ分けとパーツの番号に数えるもの(パーツと区切り)。`<style>` は
- * 見えない要素で、数えると後ろのパーツの番号がずれ、`<style>` だけのページもできる。赤入れの
+ * 見えない要素で、数えると後ろのパーツの番号がずれ、`<style>` だけのページもできる。canvas では
+ * 本文の `<style>` が置き場の要素(`[data-body-style]`)に差し替わっているので、それも除く。赤入れの
  * 削除要素(`[data-redline]`)は生 DOM だけの表示物で文書に無い。canvas・承認タブ・比較が
  * 同じ集合を `splitPages` へ渡すよう、除く規則はここ 1 か所に置く。
  */
 export function pageItems<T extends Element>(children: Iterable<T>): T[] {
   return Array.from(children).filter(
-    (el) => el.tagName.toLowerCase() !== 'style' && !el.hasAttribute(REDLINE_ATTR),
+    (el) =>
+      el.tagName.toLowerCase() !== 'style' &&
+      !el.hasAttribute(REDLINE_ATTR) &&
+      !el.hasAttribute(BODY_STYLE_VIEW_ATTR),
   );
 }
 

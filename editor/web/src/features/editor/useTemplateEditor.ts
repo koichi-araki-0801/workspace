@@ -31,7 +31,7 @@ import { fundCodeOfTemplateId } from './fundImages';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { leaveAfterSave } from './leaveGuard';
 import { openCanvas } from './openCanvas';
-import { canvasRawKey, pageEls, partEls, partLabelMap, partPathKeyFor } from './partKey';
+import { canvasRawKey, pagesOf, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
 import { LEGACY_DRAFT_MESSAGE } from './services/legacyDraft';
 import { useTemplateEditorService } from './services/templateEditorService';
@@ -234,7 +234,7 @@ export function useTemplateEditor(
    */
   const partLabels = computed<Map<string, string>>(() => {
     void g.revision.value;
-    // load 直後は wrapper 要素がまだ無く、`root` を引けても子孫の `.page` 走査が空 Map になる。
+    // load 直後は wrapper 要素がまだ無く、`root` を引けてもパーツの列挙が空 Map になる。
     // `pageEls`(ページ列挙 cache)も依存に含め、ページ確定後の再評価を取りこぼさない。
     void g.pageEls.value;
     const ed = g.editor.value;
@@ -271,10 +271,10 @@ export function useTemplateEditor(
     const ed = g.editor.value;
     const root = canvasRoot();
     if (!ed || !root) return;
-    const pages = pageEls(root);
+    const pages = pagesOf(root);
     const keyOf = canvasRawKey(ed);
     for (let pi = 0; pi < pages.length; pi += 1) {
-      for (const part of partEls(pages[pi])) {
+      for (const part of pages[pi]) {
         if (partPathKeyFor(part, root, keyOf) !== key) continue;
         if (g.singlePageMode.value) g.goToPage(pi);
         const comp = part.id ? ed.Components.getById(part.id) : undefined;

@@ -300,7 +300,7 @@ export const PartHistoryEntry = z
     templateId: z.string(),
     partKey: z.string().meta({
       description:
-        '版を跨いで安定なパーツ構造パスキー(pageAnchor/partAnchor)。GrapesJS のコンポーネント' +
+        '版を跨いで安定なパーツ構造キー(文書全体でのアンカー#通し番号)。GrapesJS のコンポーネント' +
         'id は再採番され不安定なため構造キーで紐づける',
     }),
     user: z.string(),
@@ -324,7 +324,10 @@ export const RecordPdfExportRequest = z
 /** (server 専用) パーツ変更の記録ボディ。`templateId` はパスから取る。 */
 export const RecordPartChangeRequest = z
   .object({
-    partKey: z.string().min(1).meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+    partKey: z
+      .string()
+      .min(1)
+      .meta({ description: 'パーツ構造キー(文書全体でのアンカー#通し番号)' }),
     change: z.string(),
     id: z
       .uuid()
@@ -675,7 +678,7 @@ export const PartNoteEntry = z
   .object({
     id: z.string().meta({ description: '投稿 ID(UUID)' }),
     templateId: z.string().meta({ description: '投稿が属する版インスタンス ID' }),
-    pathKey: z.string().meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+    pathKey: z.string().meta({ description: 'パーツ構造キー(文書全体でのアンカー#通し番号)' }),
     content: z.string().meta({ description: '投稿本文' }),
     createdAt: z.string(),
     createdBy: z.string(),
@@ -699,7 +702,7 @@ export const AddNoteRequest = z
       .string()
       .min(1)
       .max(MAX_NOTE_PATH_KEY_CHARS)
-      .meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+      .meta({ description: 'パーツ構造キー(文書全体でのアンカー#通し番号)' }),
     content: z.string().min(1).max(MAX_NOTE_CONTENT_CHARS).meta({ description: '投稿本文' }),
     replyTo: z
       .string()

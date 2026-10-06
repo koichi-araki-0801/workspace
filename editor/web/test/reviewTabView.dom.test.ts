@@ -18,7 +18,7 @@ import { defineComponent, h, reactive } from 'vue';
 import ReviewTabView from '@/features/reviews/ReviewTabView.vue';
 
 const TPL = 'AM01_510037_20240710_交付版';
-const COVER = '.page#1/h1#1';
+const COVER = 'h1#1';
 
 /** `PartNoteEntry` の全項目を埋める fixture(`as` は使わない)。 */
 function noteEntry(patch: Partial<PartNoteEntry> = {}): PartNoteEntry {
@@ -108,7 +108,7 @@ function template(patch: Partial<Template> = {}): Template {
       updatedAt: '2026-09-03T00:00:00.000Z',
       updatedBy: 'editor1',
     },
-    html: '<div class="page"><h1></h1><p></p></div>',
+    html: '<h1></h1><p></p>',
     css: '',
     filled: '',
     ...patch,
@@ -337,8 +337,8 @@ describe('コメントの宛先', () => {
     getTemplateFn.mockResolvedValue(
       ok(
         template({
-          html: '<div class="page"><h1></h1></div>',
-          filled: '<div class="page"><h1></h1><p></p><table></table></div>',
+          html: '<h1></h1>',
+          filled: '<h1></h1><p></p><table></table>',
         }),
       ),
     );

@@ -1,131 +1,135 @@
 // =============================================================================
 // partKey.ts — 版を跨いで安定な「パーツ単位」構造キーの算出(メモ機能の紐付けキー)
 // =============================================================================
-// 役割: 編集 canvas のライブ DOM 上で、選択要素が属する「パーツ」(= `.page` 直下の
-// top-level block)を版を跨いで一意に指す構造パスキーを作る。キーは `pageAnchor/partAnchor`
-// で、各アンカーは `@/lib/blockKey` の `rawKey`(data-part-id→id→class→tag)+ 兄弟内の
-// 出現順。HTML 構造のみに依存するため、版種/基準日が変わっても同じ構造のパーツなら一致する
-// (版比較 `htmlBlockDiff.ts` のブロック整列と同思想)。コメントはこのキーでパーツを指す
-// (スレッドは版インスタンス単位で、ペアや他版とは共有しない)。`id` は既定で DOM の `id` を
+// 役割: 内容の根(canvas では GrapesJS の wrapper、静的な文書では body)の直下の要素から、
+// 区切り(`div.pagebreak`)と数えない要素(`@/lib/pageBreaks` の `pageItems`)を除いたもの
+// を「パーツ」とし、選択要素が属するパーツを版を跨いで一意に指すキーを作る。キーは文書全体での
+// `<アンカー>#<通し番号>`(`@/lib/blockKey` の `rawKey`(data-part-id→id→class→tag)+ 全パーツ
+// の中での同アンカーの出現順)で、ページを含まない。ページの追加・削除でキーがずれないように
+// するため。HTML 構造のみに依存するため、版種/基準日が変わっても同じ構造のパーツなら一致する
+// (版比較 `htmlBlockDiff.ts` の `DiffBlock.partKey` と同じキー)。コメントはこのキーでパーツを
+// 指す(スレッドは版インスタンス単位で、ペアや他版とは共有しない)。`id` は既定で DOM の `id` を
 // 読むが、canvas のライブ要素は GrapesJS が自動 `id` を付けて回るため、canvas 側の呼び出しは
 // `canvasRawKey` をアンカー関数として渡し、モデルの明示属性から `id` を読み替える。
 //
-// 限界: ページの追加/削除でページの並びがずれた場合や、catalog 由来でないパーツ(安定な
-// `data-part-id` を持たない)では best-effort になる(compare の位置整列と同程度)。基準日
-// 更新のように構造が同一な版替えでは確実に一致する。
+// 限界: 同じアンカーのパーツを前に足す・消すと、後ろの同じアンカーのパーツの番号がずれる。
+// catalog 由来でないパーツ(安定な `data-part-id` を持たない)では best-effort になる(compare の
+// 位置整列と同程度)。基準日更新のように構造が同一な版替えでは確実に一致する。
 
 import type { Editor } from 'grapesjs';
-import { occurrenceKey, type RawKeyOf, rawKey, rawKeyFromParts } from '@/lib/blockKey';
-import { BODY_STYLE_VIEW_ATTR } from './bodyStyle';
-import { REDLINE_ATTR } from './redline/redlineApply';
+import { type RawKeyOf, rawKey, rawKeyFromParts } from '@/lib/blockKey';
+import { pageItems, splitPages } from '@/lib/pageBreaks';
 
 /**
- * canvas root(GrapesJS wrapper か body)直下の `.page` 要素列。1 件も無ければ root 自身を
- * 1 ページ扱いにする(`pageView.ts` の `enumeratePageEls` と同方針の純粋 DOM 版)。
- * `useTemplateEditor.ts` の `selectPartByKey`(選択側の列挙)もこの関数を使う — キー計算
- * (`partPathKeyFor`)と選択側で列挙ロジックが分岐すると、両者が違うページを指してキーの
- * 対応がずれる。
+ * 根の直下のパーツをページごとに分けたもの(`splitPages` の結果。区切りの要素は含まない)。
+ * 必ず 1 ページ以上。キーの計算(`partPathKeyFor`)と選択側(`useTemplateEditor.ts` の
+ * `selectPartByKey`)が同じ列挙を使う — 分岐すると両者が違うパーツを指してキーの対応がずれる。
  */
-export function pageEls(root: HTMLElement): HTMLElement[] {
-  const pages = Array.from(root.children).filter(
-    (el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('page'),
+export function pagesOf(root: HTMLElement): HTMLElement[][] {
+  const children = Array.from(root.children).filter(
+    (el): el is HTMLElement => el instanceof HTMLElement,
   );
-  return pages.length > 0 ? pages : [root];
+  return splitPages(pageItems(children)).pages;
+}
+
+/** 文書全体のパーツ(ページ順)。 */
+export function partsOf(root: HTMLElement): HTMLElement[] {
+  return pagesOf(root).flat();
 }
 
 /**
- * page 直下の top-level block(= パーツ)列。要素ノードのみ。赤入れ表示が挿す削除要素
- * （`[data-redline]`。生 DOM だけに在りモデルには無い）は除く — 数えるとメモの構造キーと
- * 「ページN・パーツM」の採番が表示の ON/OFF で変わってしまう。本文の `<style>` の置き場
- * (`bodyStyle.ts`)と、保存済みの HTML(承認・比較の側)の `<style>` 要素も除く — 見えない要素で、
- * 数えると `<style>` より後ろのパーツの採番がずれ、canvas と承認・比較とで番号が食い違う。
+ * `el` を含む根の直下のパーツ。区切り自身、数えない要素(`<style>`・赤入れの削除要素など)と
+ * その中、根そのもの、根の外は null。
  */
-export function partEls(pageEl: HTMLElement): HTMLElement[] {
-  return Array.from(pageEl.children).filter(
-    (el): el is HTMLElement =>
-      el instanceof HTMLElement &&
-      !el.hasAttribute(REDLINE_ATTR) &&
-      !el.hasAttribute(BODY_STYLE_VIEW_ATTR) &&
-      el.tagName !== 'STYLE',
-  );
+export function partOf(el: HTMLElement, root: HTMLElement): HTMLElement | null {
+  const parts = partsOf(root);
+  const i = partIndex(el, root, parts);
+  return i < 0 ? null : parts[i];
 }
 
-/** 選択要素から、属する page とその直下のパーツ要素を解決する。 */
-function resolvePart(
-  el: HTMLElement,
-  root: HTMLElement,
-): { page: HTMLElement; part: HTMLElement } | null {
-  const pages = pageEls(root);
-  // `.page` 内の要素なら最も近い `.page` を、`.page` を持たない構成では root をページ扱い。
-  const page = (el.closest('.page') as HTMLElement | null) ?? (pages[0] === root ? root : null);
-  if (!page) return null;
-  // page の直接の子(= パーツ)まで遡る。el が page 自身/外なら part = page。
-  let part = el;
-  while (part.parentElement && part.parentElement !== page) part = part.parentElement;
-  if (part.parentElement !== page) part = page;
-  return { page, part };
+/** `el` を含むパーツの `parts` の中の位置。パーツでなければ -1。 */
+function partIndex(el: HTMLElement, root: HTMLElement, parts: readonly HTMLElement[]): number {
+  let top = el;
+  while (top.parentElement && top.parentElement !== root) top = top.parentElement;
+  return top.parentElement === root ? parts.indexOf(top) : -1;
 }
 
 /**
- * page/part 要素から安定キー `pageAnchor/partAnchor` を組み立てる。`partPathKeyFor`(選択解決)と
- * `partLabelMap`(全列挙)でキー生成を共有し、両者のキーが必ず一致するようにする内部ヘルパ。
+ * 全パーツのキー(`parts` と同じ並び)。`occurrenceKey(part, 全パーツ, keyOf)` と同じ値を、出現順の
+ * 数え上げ 1 回で作る(パーツごとに全パーツを走査すると二乗になる)。
  */
-function partKeyOf(
-  page: HTMLElement,
-  part: HTMLElement,
-  pages: readonly HTMLElement[],
-  root: HTMLElement,
-  keyOf: RawKeyOf,
-): string {
-  const pageKey = pages[0] === root ? 'body#1' : occurrenceKey(page, pages, keyOf);
-  const partKey = occurrenceKey(part, partEls(page), keyOf);
-  return `${pageKey}/${partKey}`;
+function partKeys(parts: readonly HTMLElement[], keyOf: RawKeyOf): string[] {
+  const seen = new Map<string, number>();
+  return parts.map((part) => {
+    const base = keyOf(part);
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return `${base}#${n}`;
+  });
 }
 
 /**
- * 選択要素の版を跨いで安定なパーツキー `pageAnchor/partAnchor` を返す。解決できなければ null。
- * 同一パーツ内のどの子要素を選んでも、囲う top-level block の同一キーに解決される
- * (= 紐付け単位は「パーツ」)。
+ * 選択要素の版を跨いで安定なパーツキー `<アンカー>#<通し番号>` を返す。解決できなければ null。
+ * 同一パーツ内のどの子要素を選んでも、囲うパーツの同一キーに解決される(= 紐付け単位は「パーツ」)。
  */
 export function partPathKeyFor(
   el: HTMLElement,
   root: HTMLElement,
   keyOf: RawKeyOf = rawKey,
 ): string | null {
-  const r = resolvePart(el, root);
-  if (!r) return null;
-  return partKeyOf(r.page, r.part, pageEls(root), root, keyOf);
+  const parts = partsOf(root);
+  const i = partIndex(el, root, parts);
+  return i < 0 ? null : partKeys(parts, keyOf)[i];
+}
+
+/** 各パーツについて、キー・ページ番号(0 始まり)・ページの中の番号(0 始まり)を順に呼ぶ。 */
+function eachPart(
+  root: HTMLElement,
+  keyOf: RawKeyOf,
+  fn: (key: string, page: number, index: number) => void,
+): void {
+  const pages = pagesOf(root);
+  const keys = partKeys(pages.flat(), keyOf);
+  let i = 0;
+  pages.forEach((page, pi) => {
+    page.forEach((_part, qi) => {
+      fn(keys[i], pi, qi);
+      i += 1;
+    });
+  });
 }
 
 /**
- * canvas 全パーツの安定キー → 人間向けラベル `ページ{p}・パーツ{q}` のマップ。修正履歴を全パーツ
- * 横断で表示する際の行ラベルに使う(`Inspector.vue`)。`partKey` の `#n` は同種兄弟内の出現順で
- * 子の通し番号ではないため、ここで現 DOM を順に列挙して通し番号 `p`/`q` を採番する。キーは
- * `partPathKeyFor` と同じ `partKeyOf` で作るので、選択時に解決されるキーと必ず一致する。
+ * 全パーツの安定キー → 人間向けラベル `ページ{p}・パーツ{q}` のマップ。修正履歴を全パーツ
+ * 横断で表示する際の行ラベルに使う(`Inspector.vue`)。キーの `#n` は同じアンカーの出現順で
+ * パーツの通し番号ではないため、ページは `splitPages` の番号、パーツはそのページの中の番号を
+ * ここで振る。キーは `partPathKeyFor` と同じ規則で作るので、選択時に解決されるキーと必ず一致する。
  */
 export function partLabelMap(root: HTMLElement, keyOf: RawKeyOf = rawKey): Map<string, string> {
   const map = new Map<string, string>();
-  const pages = pageEls(root);
-  pages.forEach((page, pi) => {
-    partEls(page).forEach((part, qi) => {
-      map.set(partKeyOf(page, part, pages, root, keyOf), `ページ${pi + 1}・パーツ${qi + 1}`);
-    });
-  });
+  eachPart(root, keyOf, (key, pi, qi) => map.set(key, `ページ${pi + 1}・パーツ${qi + 1}`));
   return map;
 }
 
 /**
- * canvas 全パーツの安定キー → そのパーツが属するページの index(0 始まり)。承認画面の
- * コメント一覧が「行クリックで見た目比較の該当ページへ送る」ために使う。キーの作り方は
- * `partLabelMap` と同じ(`partKeyOf`)なので、両者のキー集合は必ず一致する。
+ * 全パーツの安定キー → そのパーツが属するページの index(0 始まり)。承認画面のコメント一覧が
+ * 「行クリックで見た目比較の該当ページへ送る」ために使う。キーの作り方は `partLabelMap` と同じ
+ * なので、両者のキー集合は必ず一致する。
  */
 export function partPageIndexMap(root: HTMLElement, keyOf: RawKeyOf = rawKey): Map<string, number> {
   const map = new Map<string, number>();
-  const pages = pageEls(root);
-  pages.forEach((page, pi) => {
-    for (const part of partEls(page)) map.set(partKeyOf(page, part, pages, root, keyOf), pi);
-  });
+  eachPart(root, keyOf, (key, pi) => map.set(key, pi));
   return map;
+}
+
+/**
+ * 旧形式(`ページ/パーツ`。ページを含んだキー)のキーの数。旧形式のメモ・修正履歴はどのパーツにも
+ * 当たらないので、移行はせずに件数を編集画面の警告に出す。今のキーは `/` を含まない。
+ */
+export function legacyPartKeyCount(keys: Iterable<string>): number {
+  let n = 0;
+  for (const key of keys) if (key.includes('/')) n += 1;
+  return n;
 }
 
 /**

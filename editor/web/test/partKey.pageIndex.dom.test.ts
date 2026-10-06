@@ -8,13 +8,19 @@ function root(html: string): HTMLElement {
 }
 
 describe('partPageIndexMap', () => {
-  it('partLabelMap と同じキーで 0 始まりのページ index を返す', () => {
+  it('partLabelMap と同じキーで、区切りで分けた 0 始まりのページ index を返す', () => {
     const r = root(
-      '<div class="page"><h1 id="cover"></h1><p></p></div><div class="page"><table></table></div>',
+      '<h1 id="cover"></h1><p></p><div class="pagebreak"></div><table></table>' +
+        '<p style="page-break-before:always"></p>',
     );
     const labels = partLabelMap(r);
     const pages = partPageIndexMap(r);
     expect([...pages.keys()]).toEqual([...labels.keys()]);
-    expect([...pages.values()]).toEqual([0, 0, 1]);
+    expect([...pages]).toEqual([
+      ['cover#1', 0],
+      ['p#1', 0],
+      ['table#1', 1],
+      ['p#2', 2],
+    ]);
   });
 });

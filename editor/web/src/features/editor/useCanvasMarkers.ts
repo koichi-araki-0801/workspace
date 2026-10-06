@@ -11,7 +11,7 @@ import { type Ref, ref, type ShallowRef } from 'vue';
 import { logError } from '@/lib/appError';
 import type { SelectedRect } from './grapesEvents';
 import { type BubbleAnchor, computeBubbleAnchor, sameBubbleAnchor } from './noteBubbleLayout';
-import { canvasRawKey, partEls, partPathKeyFor } from './partKey';
+import { canvasRawKey, partPathKeyFor, partsOf } from './partKey';
 
 /**
  * メモを持つパーツの目印(canvas 相対 / zoom 考慮の座標、`SelectedRect` と同様)。
@@ -88,7 +88,8 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
       const keyOf = canvasRawKey(ed);
       for (const page of pages) {
         if (!page) continue;
-        for (const part of partEls(page)) {
+        // ページの要素が根の直下の要素なら、それ自体が 1 つのパーツ(キーは文書全体で数える)。
+        for (const part of page === root ? partsOf(root) : [page]) {
           const key = partPathKeyFor(part, root, keyOf);
           if (!key || !noteKeys.value.has(key)) continue;
           const p = ed.Canvas.getElementPos(part, { noScroll: true });

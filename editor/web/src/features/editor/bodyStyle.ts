@@ -21,17 +21,15 @@
 
 import type { SampleData } from '@editor/shared';
 import type { Component, CustomParserHtml, Editor } from 'grapesjs';
+import { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
 import { renderPlainFilled } from '@/lib/fillRender';
 import { b64decodeUtf8, DATA_OPAQUE } from '@/lib/jinjaAttrs';
 
 /** 本文の `<style>` の部品の型。 */
 export const BODY_STYLE_TYPE = 'body-style';
 
-/**
- * canvas の置き場の要素に付ける目印(view だけに付け、モデルにも保存出力にも無い)。
- * パーツの数え方(`partKey.ts`)が置き場を数えないために見る。
- */
-export const BODY_STYLE_VIEW_ATTR = 'data-body-style';
+// 置き場の要素の目印。パーツとページの数え方(`@/lib/pageBreaks` の `pageItems`)も読むので lib に置く。
+export { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
 
 /** 置き場の要素 → 差し替えた `<style>` の原文と中身。パーサの 1 回の呼び出しの中で引く。 */
 const placeholders = new WeakMap<Element, { source: string; css: string }>();

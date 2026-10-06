@@ -21,7 +21,7 @@ import {
 } from '@/features/editor/bodyStyle';
 import { CANVAS_CSS_ASSET_ATTR } from '@/features/editor/fundImageLayer';
 import { strayDirectChildren } from '@/features/editor/pageView';
-import { partEls } from '@/features/editor/partKey';
+import { partsOf } from '@/features/editor/partKey';
 import { useGrapes } from '@/features/editor/useGrapes';
 import { toFilled } from '@/lib/fillJinja';
 import { toTemplate } from '@/lib/jinjaMask';
@@ -194,17 +194,15 @@ describe('本文の <style>', () => {
 
 describe('canvas の置き場の要素', () => {
   it('パーツの数え方は置き場を数えない', () => {
-    const page = document.createElement('div');
-    page.className = 'page';
-    page.innerHTML = `<span ${BODY_STYLE_VIEW_ATTR}></span><p>x</p>`;
-    expect(partEls(page).map((el) => el.tagName)).toEqual(['P']);
+    const root = document.createElement('div');
+    root.innerHTML = `<span ${BODY_STYLE_VIEW_ATTR}></span><p>x</p>`;
+    expect(partsOf(root).map((el) => el.tagName)).toEqual(['P']);
   });
 
   it('保存済みの HTML(承認・比較)の <style> もパーツに数えない', () => {
-    const page = document.createElement('div');
-    page.className = 'page';
-    page.innerHTML = '<style>.a{}</style><p>x</p>';
-    expect(partEls(page).map((el) => el.tagName)).toEqual(['P']);
+    const root = document.createElement('div');
+    root.innerHTML = '<style>.a{}</style><p>x</p>';
+    expect(partsOf(root).map((el) => el.tagName)).toEqual(['P']);
   });
 
   it('ページ表示の制御(孤立要素)も置き場を数えない', () => {

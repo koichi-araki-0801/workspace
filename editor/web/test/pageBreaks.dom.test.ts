@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
 import {
   findUncountedBreaks,
   inlineBreak,
@@ -214,6 +215,10 @@ describe('pageItems', () => {
           '<style id=s1>.b{}</style><del id=r data-redline="del"></del><p id=b></p>',
       ),
     ).toEqual(['a', 'b1', 'b']);
+  });
+
+  it('canvas の本文の <style> の置き場(data-body-style)も外す', () => {
+    expect(items(`<span id=s ${BODY_STYLE_VIEW_ATTR}></span><p id=a></p>`)).toEqual(['a']);
   });
 
   it('<style> だけのページは作らない', () => {

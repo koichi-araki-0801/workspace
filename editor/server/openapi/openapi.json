@@ -2991,7 +2991,7 @@
           "partKey": {
             "type": "string",
             "minLength": 1,
-            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+            "description": "パーツ構造キー(文書全体でのアンカー#通し番号)"
           },
           "change": {
             "type": "string"
@@ -3015,7 +3015,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 512,
-            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+            "description": "パーツ構造キー(文書全体でのアンカー#通し番号)"
           },
           "content": {
             "type": "string",
@@ -3995,7 +3995,7 @@
           },
           "partKey": {
             "type": "string",
-            "description": "版を跨いで安定なパーツ構造パスキー(pageAnchor/partAnchor)。GrapesJS のコンポーネントid は再採番され不安定なため構造キーで紐づける"
+            "description": "版を跨いで安定なパーツ構造キー(文書全体でのアンカー#通し番号)。GrapesJS のコンポーネントid は再採番され不安定なため構造キーで紐づける"
           },
           "user": {
             "type": "string"
@@ -4030,7 +4030,7 @@
           },
           "pathKey": {
             "type": "string",
-            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+            "description": "パーツ構造キー(文書全体でのアンカー#通し番号)"
           },
           "content": {
             "type": "string",
