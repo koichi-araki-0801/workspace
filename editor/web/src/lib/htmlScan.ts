@@ -24,6 +24,7 @@ export type PositionContext =
   | { kind: 'attrValue'; element: ScannedElement }
   | { kind: 'tagOther'; element: ScannedElement }
   | { kind: 'rawText'; element: ScannedElement }
+  // コメント、宣言、`</` + 伏せ字(ブラウザが > まで偽コメントとして読み捨てる)
   | { kind: 'htmlComment' };
 
 export interface HtmlScan {
@@ -48,6 +49,8 @@ export function maskJinja(src: string, tokens: readonly { start: number; end: nu
 
 // ── 3. 規則表 ──
 
+const MASK_CHAR = 'J';
+
 const VOID = new Set('area base br col embed hr img input link meta source track wbr'.split(' '));
 const RAW_TEXT = new Set(['script', 'style', 'textarea', 'title']);
 const P_CLOSERS = new Set(
@@ -57,6 +60,18 @@ const P_CLOSERS = new Set(
   ).split(' '),
 );
 const TABLE_SECTIONS = ['thead', 'tbody', 'tfoot'];
+/** HTML の「スコープ」の境界。この内側の開始タグは外側の要素を暗黙に閉じない。 */
+const SCOPE_BOUNDARY = new Set([
+  'html',
+  'template',
+  'object',
+  'marquee',
+  'applet',
+  'caption',
+  'td',
+  'th',
+  'foreignobject',
+]);
 const P_STOPS = ['td', 'th', 'table', 'caption', 'button'];
 
 /**
@@ -120,12 +135,13 @@ export function scanHtml(masked: string): HtmlScan {
   /** スタックを上から見て、closes の要素があればそこまで閉じる。stops に当たったら諦める。 */
   const closeNearest = (closes: readonly string[], stops: readonly string[], at: number) => {
     for (let i = stack.length - 1; i >= 0; i--) {
-      const t = stack[i]?.tag ?? '';
+      const el = stack[i];
+      const t = el?.tag ?? '';
       if (closes.includes(t)) {
         closeFrom(i, at);
         return;
       }
-      if (stops.includes(t)) return;
+      if (stops.includes(t) || SCOPE_BOUNDARY.has(t) || el?.foreign != null) return;
     }
   };
 
@@ -141,6 +157,15 @@ export function scanHtml(masked: string): HtmlScan {
       const isComment = masked.startsWith('<!--', i);
       const close = isComment ? masked.indexOf('-->', i + 4) : masked.indexOf('>', i + 2);
       const to = close < 0 ? len : close + (isComment ? 3 : 1);
+      push(i, { kind: 'htmlComment' });
+      i = textFrom = to;
+      continue;
+    }
+    // `</` の直後が伏せ字(`J`)なら、ブラウザは偽コメントとして `>` まで読み捨てる。
+    if (masked[i + 1] === '/' && masked[i + 2] === MASK_CHAR) {
+      flushText(i);
+      const close = masked.indexOf('>', i + 3);
+      const to = close < 0 ? len : close + 1;
       push(i, { kind: 'htmlComment' });
       i = textFrom = to;
       continue;
@@ -174,7 +199,8 @@ export function scanHtml(masked: string): HtmlScan {
       continue;
     }
     // 開始タグ
-    if (isAlpha(masked[i + 1])) {
+    // `<` + 伏せ字は開始タグでなくテキスト(伏せ字は英字だが、実際の Jinja は名前でない)。
+    if (isAlpha(masked[i + 1]) && masked[i + 1] !== MASK_CHAR) {
       flushText(i);
       let j = i + 1;
       while (j < len && !isSpace(masked[j]) && masked[j] !== '>' && masked[j] !== '/') j++;

@@ -101,3 +101,30 @@ describe('maskJinja', () => {
     expect(maskJinja('a{#\n#}b', [{ start: 1, end: 6 }])).toBe('aJJ\nJJb');
   });
 });
+
+describe('scanHtml 伏せ字と境界', () => {
+  it('`<` 直後の伏せ字は開始タグにしない', () => {
+    const h = '<p>price <JJJJJJJ yen</p><b>N</b>';
+    const s = scanHtml(h);
+    expect(s.elements.map((e) => e.tag)).toEqual(['p', 'b']);
+    expect(ctx(h, ' yen')).toBe('text:p');
+  });
+
+  it('`</` 直後の伏せ字は偽コメント(> まで)として読む', () => {
+    const h = '<p>a</JJJJJ>b</p>';
+    expect(ctx(h, 'JJJJJ')).toBe('comment');
+    expect(ctx(h, '>b')).toBe('comment');
+    expect(ctx(h, 'b<')).toBe('text:p');
+    expect(scanHtml(h).elements[0]?.end).toBe(h.length);
+  });
+
+  it('foreignObject と template の内側の開始タグは外側の p を閉じない', () => {
+    const a = '<p>x<svg><foreignObject><div>D</div></foreignObject></svg>y</p>';
+    const sa = scanHtml(a);
+    expect(sa.elements.find((e) => e.tag === 'svg')?.implicitlyClosed).toBe(false);
+    expect(ctx(a, 'y<')).toBe('text:p');
+    const b = '<p>q<template><div>T</div></template>R</p>';
+    expect(scanHtml(b).elements.find((e) => e.tag === 'template')?.implicitlyClosed).toBe(false);
+    expect(ctx(b, 'R<')).toBe('text:p');
+  });
+});
