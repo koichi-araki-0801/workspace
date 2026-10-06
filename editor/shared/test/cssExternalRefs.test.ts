@@ -7,6 +7,7 @@
 // **報告されること**の主張に置き、正常系は誤検知しないことの回帰に絞る。
 import { describe, expect, it } from 'vitest';
 import {
+  collectCssStringsInFunctions,
   collectCssStructure,
   collectCssUrlCandidates,
   collectCssUrlSpansInContext,
@@ -158,5 +159,60 @@ describe('collectCssStructure — 規則分割のための構造(検査と同じ
 
   it('エスケープした at-rule 名は解決して返す', () => {
     expect([...collectCssStructure('@\\6d edia x{}').atRules]).toEqual([[0, 'media']]);
+  });
+});
+
+describe('collectCssStringsInFunctions — 関数の引数にある引用符の文字列', () => {
+  it('関数名(小文字・エスケープ解決後)と値の組を、いちばん内側の関数で返す', () => {
+    expect(
+      collectCssStringsInFunctions(
+        String.raw`.a{background:IMAGE-SET("a.png" 1x, \69mage-set('b\'c'));x:f(g("d"), "e")}`,
+      ),
+    ).toEqual([
+      { value: 'a.png', fn: 'image-set' },
+      { value: "b'c", fn: 'image-set' },
+      { value: 'd', fn: 'g' },
+      { value: 'e', fn: 'f' },
+    ]);
+  });
+
+  it('関数の外の文字列・コメント・url() の中は数えない', () => {
+    expect(
+      collectCssStringsInFunctions(
+        '/* f("x") */.a{font-family:"F";fill:url("y.png");content:"z"} f() "w" @namespace "n";',
+      ),
+    ).toEqual([]);
+  });
+
+  it('関数名の後に空白やコメントを挟んだ括弧は関数ではなく、外側の関数を引き継ぐ', () => {
+    expect(collectCssStringsInFunctions('.a{b:f/**/("x")}')).toEqual([]);
+    expect(collectCssStringsInFunctions('.a{b:f(("x"))}')).toEqual([{ value: 'x', fn: 'f' }]);
+  });
+
+  it('閉じた関数の後ろの文字列は関数の外', () => {
+    expect(collectCssStringsInFunctions('.a{b:f("x") "y"}')).toEqual([{ value: 'x', fn: 'f' }]);
+  });
+
+  it('カスタムプロパティと initial-value の最上位の文字列は関数名を空で返す', () => {
+    expect(
+      collectCssStringsInFunctions(
+        String.raw`.a{--u:"x";\2d-v:"y";color:"z"}@property --w{syntax:"*";INITIAL-VALUE:"q"}`,
+      ),
+    ).toEqual([
+      { value: 'x', fn: '' },
+      { value: 'y', fn: '' },
+      { value: 'q', fn: '' },
+    ]);
+  });
+
+  it('関数の中の ; や } では関数を抜けない(ブラウザも関数を ) まで読む)', () => {
+    expect(collectCssStringsInFunctions('.a{b:f(;}.c{d:"x"')).toEqual([{ value: 'x', fn: 'f' }]);
+  });
+
+  it('[] や {} の中の ) では関数を閉じない(閉じ文字は最も内側の括弧と合うものだけ)', () => {
+    expect(collectCssStringsInFunctions('.a{b:f({)} "x") "y";c:g([)] "z")}')).toEqual([
+      { value: 'x', fn: 'f' },
+      { value: 'z', fn: 'g' },
+    ]);
   });
 });

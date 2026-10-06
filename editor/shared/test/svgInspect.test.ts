@@ -263,6 +263,56 @@ describe('inspectSvg — 落とすもの', () => {
   });
 });
 
+// `image-set("x.png" 1x)` のように引用符の文字列で URL を取る関数がある。関数名を数え上げずに
+// 「URL にならない関数」の許可リストで判定するので、知らない関数は違反の側へ倒れる。
+describe('inspectSvg — CSS の関数の中の引用符の文字列', () => {
+  it.each([
+    '<style>.a{background:image-set("x.png" 1x)}</style>',
+    '<style>.a{background:-webkit-image-set("x.png" 1x)}</style>',
+    '<rect style=\'fill:image-set("x.png" 1x)\'/>',
+    '<style>.a{background:somefn("x.png")}</style>',
+    '<style>.a{background:IMAGE-SET("x.png" 1x)}</style>',
+    '<style>.a{background:\\69mage-set("x.png" 1x)}</style>',
+    "<style>.a{background:image-set('x\\'.png' 1x)}</style>",
+    '<style>.a{background:cross-fade("a.png" 50%, "b.png")}</style>',
+    '<style>.a{background:image-set(var(--u, "x.png") 1x)}</style>',
+    '<style>.a{background:image-set(env(u, "x.png") 1x)}</style>',
+    '<style>.a{background:image-set(("x.png") 1x)}</style>',
+    '<style>.a{src:src("x.png")}</style>',
+    '<style>.a{--u:"x.png"}.b{background:image-set(var(--u) 1x)}</style>',
+    '<style>.a{\\2d-u:"x.png"}</style>',
+    '<style>@property --u{syntax:"*";inherits:false;initial-value:"x.png"}</style>',
+    '<style>.a{background:image-set("data:image/png;base64,AAAA" 1x)}</style>',
+  ])('関数の中の引用符の文字列が #id 以外を指せば違反 %s', (inner) => {
+    expect(inspectSvg(`<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`)).not.toEqual([]);
+  });
+
+  it('違反の文言は場所を添える', () => {
+    expect(inspectSvg(wrap('<style>.a{background:image-set("x.png" 1x)}</style>'))).toContain(
+      '引用符の文字列が #id 以外を指す(style 要素)',
+    );
+    expect(inspectSvg(wrap('<rect style=\'fill:image-set("x.png" 1x)\'/>'))).toContain(
+      '引用符の文字列が #id 以外を指す(style 属性)',
+    );
+  });
+
+  it.each([
+    '<style>.a{background:image-set("#g" 1x)}</style>',
+    '<style>@font-face{font-family:"F";src:url(data:font/woff2;base64,AAAA) format("woff2")}</style>',
+    '<style>.a{font-family:"Noto Sans"}</style>',
+    '<style>.a::before{content:"注"}</style>',
+    '<style>.a::before{content:counters(n, ".")}</style>',
+    '<style>@font-face{font-family:"F";src:local("Noto Sans")}</style>',
+    '<style>.a{fill:url("#g")}.b{fill:URL(#g)}</style>',
+    '<style>.a{font-family:"x(";fill:url(#g)}.b::before{content:")"}</style>',
+    '<style>/* image-set("x.png") */.a{fill:url(#g)}</style>',
+    '<style>.a:not([class="x"]){fill:red}.b:is([id="y"]){fill:red}</style>',
+    '<style>.a{background:image-set/**/("x.png" 1x)}</style>',
+  ])('URL にならない文字列は違反にしない %s', (inner) => {
+    expect(inspectSvg(`<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`)).toEqual([]);
+  });
+});
+
 // 悪意ある入力で同期処理を止めさせない(単体配信ルートはリクエスト毎に検査する)。実時間の上限は
 // CI のランナーが遅い前提で緩く取る。二乗時間の経路が残ると桁違いに超える。
 describe('inspectSvg — 入力サイズに対して線形', () => {

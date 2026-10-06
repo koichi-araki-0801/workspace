@@ -19,6 +19,9 @@
 // 全部拾う**」で書く。関数名を数え上げる形は `image-set("http://evil/x.png" 1x)` のように
 // 引用符文字列で URL を取る CSS 関数で破れる(実測)。どの構文が URL を取りうるかの列挙は
 // 必ず漏れるので、値の形だけを見る。
+// 文書内の `#id` しか許さない SVG の検査(`svgInspect.ts`)が使う
+// `collectCssStringsInFunctions` はこの方針の裏返しで、関数名を見るのは「URL にならない
+// 安全な関数」の許可リストを当てるためだけ。知らない関数の中の文字列は URL 候補の側へ倒れる。
 
 /**
  * 取得を伴わない at-rule の許可リスト。ここに無い at-rule 名は「未知」として報告する。
@@ -353,6 +356,56 @@ export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] 
   return found;
 }
 
+/** `collectCssStringsInFunctions` が返す 1 件。 */
+export interface CssFunctionString {
+  /** エスケープ解決後の文字列の値。 */
+  value: string;
+  /**
+   * 文字列を囲むいちばん内側の関数の名前(エスケープ解決後、ASCII の範囲だけ小文字化)。
+   * カスタムプロパティ・`initial-value` の値の最上位にある文字列は空文字。
+   */
+  fn: string;
+}
+
+/**
+ * 関数の引数にある引用符の文字列を、囲む関数の名前と組で返す(用途は `svgInspect.ts` の
+ * 「`#id` 以外を指す文字列」の検査)。`image-set("x.png" 1x)` のように引用符の文字列で URL を
+ * 取る関数があるため。関数の外の文字列(`font-family:"F"` `content:"注"`)は URL にならないので
+ * 返さないが、カスタムプロパティ(`--u:"x.png"`)と `@property` の `initial-value` の値は
+ * `var()` で関数の中へ差し込めるので、関数名を空にして返す。
+ *
+ * 関数の範囲は走査器が数える括弧で決める。名前と `(` の間に空白やコメントを挟んだ括弧は関数では
+ * なく(CSS Syntax の function-token にならない)、外側の関数を引き継ぐ。関数の中の `;` `}` では
+ * 抜けない — ブラウザも関数を対応する `)` まで読むので、ここで抜けると見え方が割れる。
+ */
+export function collectCssStringsInFunctions(css: string): CssFunctionString[] {
+  const found: CssFunctionString[] = [];
+  walkCss(css, {
+    atRule: () => undefined,
+    value: (value, kind, _span, ctx) => {
+      if (kind !== 'string' || ctx === undefined) return;
+      if (ctx.fn !== undefined) {
+        found.push({ value, fn: ctx.fn });
+        return;
+      }
+      const decl = ctx.decl;
+      if (decl !== undefined && (decl.startsWith('--') || asciiLower(decl) === 'initial-value')) {
+        found.push({ value, fn: '' });
+      }
+    },
+  });
+  return found;
+}
+
+/**
+ * ASCII の英大文字だけを小文字にする。CSS の関数名・プロパティ名の比較は ASCII の範囲でだけ
+ * 大文字小文字を区別しないので、`toLowerCase` で非 ASCII まで畳むと(`a` の K が `k` になる等)
+ * ブラウザと違う名前で判定する。
+ */
+function asciiLower(s: string): string {
+  return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+}
+
 /** `collectCssStructure` の結果。位置はすべて原文のオフセット。 */
 export interface CssStructure {
   /** コメント・文字列・`url()` の外にある `{` `}` `;`(出現順)。 */
@@ -385,16 +438,29 @@ export function collectCssStructure(css: string): CssStructure {
   return out;
 }
 
+/** 引用符の文字列が置かれた文脈(`walkCss` が文字列に添えて渡す)。 */
+interface CssStringContext {
+  /** いちばん内側の関数の名前(`asciiLower` 済み)。関数の外なら undefined。 */
+  fn: string | undefined;
+  /** 括弧の外で、宣言の先頭に読んだ ident(エスケープ解決後)。無ければ undefined。 */
+  decl: string | undefined;
+}
+
 /**
  * `findExternalRefsInCss` / `collectCssUrlCandidates` / `collectCssUrlSpans` /
- * `collectCssStructure` が共有する 1 パス走査。
+ * `collectCssStructure` / `collectCssStringsInFunctions` が共有する 1 パス走査。
  */
 function walkCss(
   css: string,
   visit: {
     /** `at` は `@` の位置。 */
     atRule: (name: string, at: number) => void;
-    value: (value: string, kind: 'url' | 'string', span?: { start: number; end: number }) => void;
+    value: (
+      value: string,
+      kind: 'url' | 'string',
+      span?: { start: number; end: number },
+      ctx?: CssStringContext,
+    ) => void;
     /** コメント・文字列・`url()` の外にある `{` `}` `;` の位置。ブロックの範囲を取るために使う。 */
     punct?: (ch: '{' | '}' | ';', at: number) => void;
     /** コメントの範囲 `[start, end)`。閉じていないコメントは末尾まで。 */
@@ -402,6 +468,18 @@ function walkCss(
   },
 ): void {
   let i = 0;
+  /**
+   * 開いている括弧の閉じ文字と、関数の括弧(名前の直後の `(`)か。CSS Syntax の「単純ブロック」と
+   * 同じく、閉じ文字が最も内側の括弧と合わないものは無視する — `f({)} "x")` の `)` で `f` を
+   * 閉じると、ブラウザが `f` の中と見る文字列を外と見誤る。最上位の `{` `}` は規則のブロックで、
+   * ここには積まない(`punct` で扱う)。
+   */
+  const blocks: Array<{ close: ')' | ']' | '}'; fn: boolean }> = [];
+  /** 開いている関数の名前(内側が末尾)。`blocks` の `fn: true` の数と一致する。 */
+  const fns: string[] = [];
+  let decl: string | undefined;
+  /** 括弧の外で `{` `}` `;` の直後(宣言の先頭の ident を待っている)か。 */
+  let atDeclStart = true;
   while (i < css.length) {
     const c = css[i];
     if (c === '/' && css[i + 1] === '*') {
@@ -413,13 +491,15 @@ function walkCss(
     }
     if (c === '"' || c === "'") {
       const s = readString(css, i);
-      visit.value(s.value, 'string');
+      visit.value(s.value, 'string', undefined, { fn: fns[fns.length - 1], decl });
+      atDeclStart = false;
       i = s.next;
       continue;
     }
     if (c === '@') {
       const id = readIdent(css, i + 1);
       if (id.next > i + 1) visit.atRule(id.value, i);
+      atDeclStart = false;
       i = id.next > i + 1 ? id.next : i + 1;
       continue;
     }
@@ -434,13 +514,33 @@ function walkCss(
         const u = readUrlToken(css, id.next + 1);
         // span は `url(` の先頭から閉じ括弧の直後まで = `url(…)` 式全体を置換できる範囲。
         visit.value(u.value, 'url', { start: i, end: u.next });
+        atDeclStart = false;
         i = u.next;
+        continue;
+      }
+      if (atDeclStart && blocks.length === 0) decl = id.value;
+      atDeclStart = false;
+      if (css[id.next] === '(') {
+        blocks.push({ close: ')', fn: true });
+        fns.push(asciiLower(id.value));
+        i = id.next + 1;
         continue;
       }
       i = id.next;
       continue;
     }
     if (c === '{' || c === '}' || c === ';') visit.punct?.(c, i);
+    if (blocks.length === 0 && (c === '{' || c === '}' || c === ';')) {
+      decl = undefined;
+      atDeclStart = true;
+    } else if (c === '(' || c === '[' || c === '{') {
+      blocks.push({ close: c === '(' ? ')' : c === '[' ? ']' : '}', fn: false });
+      atDeclStart = false;
+    } else if (c === ')' || c === ']' || c === '}') {
+      if (blocks[blocks.length - 1]?.close === c && blocks.pop()?.fn === true) fns.pop();
+    } else if (!WS.test(c)) {
+      atDeclStart = false;
+    }
     i++;
   }
 }

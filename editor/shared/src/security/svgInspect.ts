@@ -18,6 +18,7 @@
 // `server/src/routes/fundAssets.routes.ts`)。画面内プレビューは後者から取得するので同じ関所を通る。
 
 import {
+  collectCssStringsInFunctions,
   collectCssUrlSpansInContext,
   findExternalRefsInCss,
   isAllowedDataUrl,
@@ -627,11 +628,35 @@ function isEmbeddedFontData(v: string): boolean {
 }
 
 /**
+ * 引数の引用符の文字列が URL にならない関数。`image-set("x.png" 1x)` のように文字列で URL を取る
+ * 関数があるので、関数の中の文字列は既定で URL 候補として扱い、ここに載る関数だけを外す
+ * (知らない関数は違反の側へ倒れる)。前半は `@font-face` の `src` と `content` の関数、後半は
+ * セレクタの関数で、値の関数としては存在しない名前(`:not([class="x"])` を落とさないため)。
+ */
+const STRING_ARG_SAFE_FUNCTIONS = new Set([
+  'format',
+  'local',
+  'tech',
+  'counter',
+  'counters',
+  'attr',
+  'not',
+  'is',
+  'where',
+  'has',
+  'lang',
+]);
+
+/**
  * CSS(`<style>` の中身・`style` 属性・プレゼンテーション属性)の `url()` は `#id` だけ。例外は
  * `<style>` 要素の最上位 `@font-face` の `src` 記述子に置いた `data:font/…`(pdf-to-svg・pie-chart
  * が埋め込む)だけで、それ以外の文脈の data URI は通さない。外部参照の判定は検査・配置と同じ
  * トークナイザ(`findExternalRefsInCss`)に任せ、エスケープで隠した `url(\68ttp://…)` もそこで
  * 捕まえる。
+ *
+ * 関数の引数の引用符の文字列も同じく `#id` だけ(data URI の例外も無い)。URL にならない関数の
+ * 許可リストは `STRING_ARG_SAFE_FUNCTIONS`。`var()` で関数の中へ差し込めるカスタムプロパティと
+ * `initial-value` の値の文字列も対象にする(`collectCssStringsInFunctions`)。
  */
 function checkCss(css: string, where: string, add: Report): void {
   if (findExternalRefsInCss(css).length > 0) add(`外部参照を含む CSS(${where})`);
@@ -641,4 +666,8 @@ function checkCss(css: string, where: string, add: Report): void {
     return !(allowFont && span.inFontFaceSrc && isEmbeddedFontData(span.value));
   });
   if (bad) add(`url() が #id 以外を指す(${where})`);
+  const badString = collectCssStringsInFunctions(css).some(
+    (s) => !STRING_ARG_SAFE_FUNCTIONS.has(s.fn) && !s.value.trim().startsWith('#'),
+  );
+  if (badString) add(`引用符の文字列が #id 以外を指す(${where})`);
 }
