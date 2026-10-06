@@ -39,6 +39,7 @@ import {
   jinjaChipCanvasCss,
   registerJinjaComponents,
 } from './jinjaComponents';
+import { pagebreakCanvasCss, registerPagebreakComponent } from './pagebreakCanvas';
 import { clampPageIndex, markPages, PV_ATTR, pageViewCss } from './pageView';
 import { redlineCanvasCss } from './redline/redlineCss';
 import { useCanvasMarkers } from './useCanvasMarkers';
@@ -500,6 +501,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
 
     registerJinjaComponents(ed);
     registerBodyStyleComponent(ed);
+    registerPagebreakComponent(ed);
     // 本文の `<style>` を足した・消したら canvas の複製を作り直す(`load` は自分で作り直す)。
     ed.on('component:add component:remove', (comp: Component) => {
       if (!replacing && containsBodyStyle(comp)) syncCanvasCssCopy();
@@ -540,7 +542,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       toInfo,
       isLocked: () => locked,
       isApplyingLockState: () => applyingLockState,
-      canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}\n${redlineCanvasCss}`,
+      canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}\n${redlineCanvasCss}\n${pagebreakCanvasCss}`,
       callbacks,
     });
 

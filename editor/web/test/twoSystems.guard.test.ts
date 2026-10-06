@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import sample110024 from '@/api/fixtures/sample/110024.json';
 import sample510037 from '@/api/fixtures/sample/510037.json';
 import { jinjaChipCanvasCss } from '@/features/editor/jinjaComponents';
+import { pagebreakCanvasCss } from '@/features/editor/pagebreakCanvas';
 import { tabOf } from '@/features/layout/tabOf';
 
 /** CSS を `セレクタ → 宣言ブロック本文` の素朴な対に分解する(コメント除去・ネスト無し前提)。 */
@@ -62,6 +63,19 @@ describe('editor 2系統の原則: 差し込み値ハイライトのスコープ
         !r.selector.split(',').every((s) => s.trim().startsWith('.jinja-vars-highlight ')),
     );
     for (const r of bare) expect(r.body, r.selector).not.toMatch(/background|outline|border/);
+  });
+});
+
+describe('editor 2系統の原則: 改ページの帯', () => {
+  // 区切りは 2 系統で意味が変わらないので、帯は作成タブ・編集タブで同じに出す。ハイライトの
+  // スコープ(`.jinja-vars-highlight`)に入れると編集タブで帯が消え、区切りを選べなくなる。
+  it('帯は両系統で同じ(ハイライトのスコープに入れず、canvas の CSS に常に載せる)', () => {
+    expect(pagebreakCanvasCss).not.toContain('jinja-vars-highlight');
+    const src = fs.readFileSync(
+      path.resolve(__dirname, '../src/features/editor/useGrapes.ts'),
+      'utf8',
+    );
+    expect(src).toMatch(/canvasCss: `[^`]*\$\{pagebreakCanvasCss\}[^`]*`/);
   });
 });
 
