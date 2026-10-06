@@ -203,11 +203,13 @@ const IDENT_CHAR_RE = /[-\w\u0080-￿]/;
 /** 単一の `:` でも書ける旧式の擬似要素。ブラウザは `::` で書き出す。 */
 const LEGACY_PSEUDO_ELEMENTS = new Set(['before', 'after', 'first-line', 'first-letter']);
 
-/** `s[k]` の `\` から始まるエスケープの長さ(16 進の後ろの空白 1 つはエスケープに含む)。 */
+/** `s[k]` の `\` から始まるエスケープの長さ。16 進の後ろの空白 1 つ(CRLF も 1 つ)を含む。 */
 function escapeLength(s: string, k: number): number {
   const hex = /^[0-9a-f]{1,6}/i.exec(s.slice(k + 1, k + 7))?.[0];
   if (hex === undefined) return Math.min(2, s.length - k);
-  return 1 + hex.length + (s[k + 1 + hex.length] === ' ' ? 1 : 0);
+  const after = k + 1 + hex.length;
+  if (s.startsWith('\r\n', after)) return 1 + hex.length + 2;
+  return 1 + hex.length + (/\s/.test(s[after] ?? '') ? 1 : 0);
 }
 
 /** `s[k]` の引用符から始まる文字列の終わり(閉じ引用符の次。閉じていなければ末尾)。 */
@@ -259,6 +261,49 @@ function lowerAttrName(attr: string): string {
 }
 
 /**
+ * 引数を大文字小文字を区別しない形で読む関数型の擬似クラス・擬似要素(引数がセレクタか
+ * `an+b`・言語・方向)。ここに無い関数の引数は名前などで、大文字小文字を区別する。
+ */
+const CASELESS_ARG_PSEUDOS = new Set([
+  'is',
+  'not',
+  'has',
+  'where',
+  'matches',
+  '-webkit-any',
+  'nth-child',
+  'nth-last-child',
+  'nth-of-type',
+  'nth-last-of-type',
+  'slotted',
+  'host',
+  'host-context',
+  'lang',
+  'dir',
+]);
+
+/** `s[k]` の `(` に対応する `)` の次の位置(文字列・エスケープ・入れ子を考慮。無ければ末尾)。 */
+function parenEnd(s: string, k: number): number {
+  let depth = 0;
+  let j = k;
+  while (j < s.length) {
+    const c = s[j];
+    if (c === '"' || c === "'") {
+      j = stringEnd(s, j);
+      continue;
+    }
+    if (c === '\\') {
+      j += escapeLength(s, j);
+      continue;
+    }
+    if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) return j + 1;
+    j++;
+  }
+  return s.length;
+}
+
+/**
  * セレクタ(空白を畳み、コメントを消したもの)を、ブラウザの書き出しと同じキーになる形にする。
  * 文字列・`[…]` の中身・エスケープは結合子や小文字化の対象から外す。
  */
@@ -278,7 +323,10 @@ function canonicalSelector(sel: string): string {
   while (i < sel.length) {
     const c = sel[i];
     if (c === ' ') {
+      // 空白(子孫結合子)の後ろも複合セレクタの先頭。16 進エスケープの後ろの空白は
+      // `escapeLength` が食うのでここへは来ない。
       if (!boundary) pendingSpace = true;
+      boundary = true;
       i++;
       continue;
     }
@@ -322,6 +370,14 @@ function canonicalSelector(sel: string): string {
       const { ident, next } = readIdent(sel, i + (double ? 2 : 1), true);
       emit(`${double || LEGACY_PSEUDO_ELEMENTS.has(ident) ? '::' : ':'}${ident}`, false);
       i = next;
+      if (sel[i] === '(' && !CASELESS_ARG_PSEUDOS.has(ident)) {
+        // 引数がセレクタでない関数(`::part()` `:state()` など)の名前は大文字小文字を区別するので、
+        // 括弧の内側の空白を詰めるだけで中身はそのまま出す。
+        const end = parenEnd(sel, i);
+        const inner = sel.slice(i + 1, sel[end - 1] === ')' ? end - 1 : end).trim();
+        emit(`(${inner}${sel[end - 1] === ')' ? ')' : ''}`, false);
+        i = end;
+      }
       continue;
     }
     if (c === '.' || c === '#') {
@@ -393,6 +449,39 @@ function canonicalPagePrelude(prelude: string): string {
   return sel === '' ? '@page' : `@page ${sel}`;
 }
 
+/**
+ * 文字列の外だけ、空白の連続を 1 つにし、`,` の前後の空白を消し、前後を詰める。文字列の中の
+ * 空白や `,` は値の一部(`[title="a , b"]` と `[title="a,b"]` は別のセレクタ)。属性値に空白を
+ * 含めるには引用符が要るので、`[…]` の中も文字列だけ守れば足りる。
+ */
+function collapseOutsideStrings(s: string): string {
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '"' || c === "'" || c === '\\') {
+      const end = c === '\\' ? i + escapeLength(s, i) : stringEnd(s, i);
+      out += s.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (/\s/.test(c) || c === ',') {
+      let j = i;
+      let comma = false;
+      while (j < s.length && (/\s/.test(s[j]) || (s[j] === ',' && !comma))) {
+        if (s[j] === ',') comma = true;
+        j++;
+      }
+      out += comma ? ',' : ' ';
+      i = j;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out.trim();
+}
+
 /** 原文を規則へ分ける(キーと入れ子の情報つき)。 */
 function scanCssRules(css: string): ScannedRule[] {
   const { punct, comments, atRules } = collectCssStructure(css);
@@ -432,13 +521,9 @@ function scanCssRules(css: string): ScannedRule[] {
       out += css[k];
       k++;
     }
-    return (
-      out
-        // `\` + 改行は文字列の行の継続で、文字ごと消える。空白へ畳む前に消す(`\\` は残す)。
-        .replace(/\\(\r\n|[\n\r\f]|[\s\S])/g, (m, c: string) => (/^[\r\n\f]/.test(c) ? '' : m))
-        .replace(/\s+/g, ' ')
-        .replace(/\s*,\s*/g, ',')
-        .trim()
+    // `\` + 改行は文字列の行の継続で、文字ごと消える。空白へ畳む前に消す(`\\` は残す)。
+    return collapseOutsideStrings(
+      out.replace(/\\(\r\n|[\n\r\f]|[\s\S])/g, (m, c: string) => (/^[\r\n\f]/.test(c) ? '' : m)),
     );
   };
 

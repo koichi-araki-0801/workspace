@@ -847,6 +847,13 @@ describe('規則のキーの正規化', () => {
     ['\\44 IV{x:1}', '\\44 iv{x:1}'],
     ['@page Cover{x:1}', '@page cover{x:1}'],
     ['@layer Base{.a{x:1}}', '@layer base{.a{x:1}}'],
+    ['.x .\\31 A{x:1}', '.x .\\31 a{x:1}'],
+    ['::part(Foo){x:1}', '::part(foo){x:1}'],
+    [':state(Open){x:1}', ':state(open){x:1}'],
+    ['::highlight(Mark){x:1}', '::highlight(mark){x:1}'],
+    ['[title="a , b"]{x:1}', '[title="a,b"]{x:1}'],
+    ['[title="a  b"]{x:1}', '[title="a b"]{x:1}'],
+    ['@supports (content:"a  b"){.a{x:1}}', '@supports (content:"a b"){.a{x:1}}'],
   ])('%s と %s は別のキー', (a, b) => diffKey(a, b));
 
   it.each([
@@ -856,6 +863,14 @@ describe('規則のキーの正規化', () => {
     [':IS( .a , .b ) > P{x:1}', ':is(.a,.b)>p{x:1}'],
     ['[ DATA-X ]{x:1}', '[data-x]{x:1}'],
     ["[TITLE='a > b']{x:1}", '[title="a > b"]{x:1}'],
+    ['.a DIV{x:1}', '.a div{x:1}'],
+    ['TABLE TD{x:1}', 'table td{x:1}'],
+    [':is(.a) DIV{x:1}', ':is(.a) div{x:1}'],
+    ['DIV P, SPAN{x:1}', 'div p,span{x:1}'],
+    ['.a P::BEFORE{x:1}', '.a p::before{x:1}'],
+    [':HAS( > IMG ){x:1}', ':has(>img){x:1}'],
+    ['::part( Foo ){x:1}', '::part(Foo){x:1}'],
+    ['[ DATA-X  ]{x:1}', '[data-x]{x:1}'],
   ])('%s と %s も同じキー', (a, b) => sameKey(a, b));
 
   it('入れ子の前置き(atRules)も正規化した形で返し、包んだ規則が有効な CSS になる', () => {
