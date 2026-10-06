@@ -937,6 +937,8 @@ describe('規則のキーの正規化', () => {
     [':HAS( > IMG ){x:1}', ':has(>img){x:1}'],
     ['::part( Foo ){x:1}', '::part(Foo){x:1}'],
     ['[ DATA-X  ]{x:1}', '[data-x]{x:1}'],
+    ['tr:nth-child(even){x:1}', 'tr:nth-child(2n){x:1}'],
+    ['tr:NTH-CHILD( ODD ){x:1}', 'tr:nth-child(2n+1){x:1}'],
   ])('%s と %s も同じキー', (a, b) => sameKey(a, b));
 
   it('入れ子の前置き(atRules)も正規化した形で返し、包んだ規則が有効な CSS になる', () => {

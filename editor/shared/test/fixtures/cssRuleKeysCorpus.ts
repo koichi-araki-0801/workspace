@@ -25,6 +25,9 @@ export const SYNTHETIC: Record<string, string> = {
   isList: ':is(.a, .b){color:red}\n',
   // 並びの中に同じセレクタが 2 つある規則は展開しない(KNOWN_UNMATCHED を見よ)。
   listSame: '.a, .a{color:red}\n',
+  nth: 'tr:nth-child(even){color:red}\ntr:nth-child(odd){color:blue}\n',
+  dup: '.a{color:red}\n.a{color:blue}\n',
+  important: '.a{color:red !important}\n',
 };
 
 /**

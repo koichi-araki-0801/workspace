@@ -290,6 +290,9 @@ function lowerAttrName(attr: string): string {
   return out + attr.slice(j);
 }
 
+const NTH_PSEUDOS = new Set(['nth-child', 'nth-last-child', 'nth-of-type', 'nth-last-of-type']);
+const NTH_KEYWORDS: Record<string, string> = { even: '2n', odd: '2n+1' };
+
 /**
  * 引数を大文字小文字を区別しない形で読む関数型の擬似クラス・擬似要素(引数がセレクタか
  * `an+b`・言語・方向)。ここに無い関数の引数は名前などで、大文字小文字を区別する。
@@ -400,6 +403,21 @@ function canonicalSelector(sel: string): string {
       const { ident, next } = readIdent(sel, i + (double ? 2 : 1), true);
       emit(`${double || LEGACY_PSEUDO_ELEMENTS.has(ident) ? '::' : ':'}${ident}`, false);
       i = next;
+      if (sel[i] === '(' && NTH_PSEUDOS.has(ident)) {
+        // ブラウザは `even` を `2n`、`odd` を `2n+1` へ書き直す。同じ並びなので原文側も寄せる。
+        const end = parenEnd(sel, i);
+        const arg = sel
+          .slice(i + 1, sel[end - 1] === ')' ? end - 1 : end)
+          .trim()
+          .toLowerCase();
+        const alias = NTH_KEYWORDS[arg];
+        if (alias !== undefined && sel[end - 1] === ')') {
+          out += `(${alias})`;
+          i = end;
+          boundary = false;
+          continue;
+        }
+      }
       if (sel[i] === '(' && !CASELESS_ARG_PSEUDOS.has(ident)) {
         // 引数がセレクタでない関数(`::part()` `:state()` など)の名前は大文字小文字を区別するので、
         // 括弧の内側の空白を詰めるだけで中身はそのまま出す。
