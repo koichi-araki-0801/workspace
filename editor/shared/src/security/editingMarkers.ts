@@ -37,6 +37,8 @@ const GT = 62;
 const EQ = 61;
 const BANG = 33;
 const QUESTION = 63;
+// class の区切り。HTML は ASCII 空白だけで区切る(`\s` だと NBSP などでも切れてしまう)。
+const HTML_SPACE_RUN = /[\t\n\f\r ]+/;
 const isTagNameEnd = (c: number): boolean => isHtmlSpace(c) || c === SLASH || c === GT;
 
 type AttrSink = (name: string, value: string, at: number) => void;
@@ -111,8 +113,9 @@ function commentEnd(html: string, from: number, seen: { dash: number; bang: numb
  * 区切りはブラウザの字句解析に合わせ、コメント・`<!…>` `<?…>`・終了タグも同じ範囲で読み飛ばす。
  * それらの中にタグ風の文字列があると、そこの引用符が後ろの本物のタグを呑み込み、ブラウザが
  * 要素として読む印を見落とすため。
+ * `skipComments` が false のときは `<!--` の中も読む(`findEditingMarkers` の 2 回目の走査)。
  */
-function scanStartTags(html: string, onAttr: AttrSink): void {
+function scanStartTags(html: string, onAttr: AttrSink, skipComments: boolean): void {
   // 大小文字を無視した閉じタグ探しに使う。走査 1 回につき 1 コピーに留める。ASCII だけを
   // 小文字にするのは、`toLowerCase` が長さを変える文字(`İ` など)で位置がずれるため。
   const lower = html.replace(/[A-Z]+/g, (m) => m.toLowerCase());
@@ -142,7 +145,7 @@ function scanStartTags(html: string, onAttr: AttrSink): void {
       while (j < html.length && !isTagNameEnd(html.charCodeAt(j))) j++;
       next = readAttrs(html, j, i + 2, null);
     } else if (html.startsWith('!--', i + 1)) {
-      next = commentEnd(html, i + 4, commentSeen);
+      next = skipComments ? commentEnd(html, i + 4, commentSeen) : i + 4;
     } else if (c1 === BANG || c1 === QUESTION || c1 === SLASH) {
       // `<!DOCTYPE>` などと、ブラウザが最初の `>` までを捨てる形(`</>` を含む)。
       const gt = html.indexOf('>', i + 2);
@@ -173,15 +176,27 @@ export function findEditingMarkers(html: string): EditingMarkerHit[] {
     hits.push({ marker: 'comment:jinja-rt', index: m.index });
   for (const m of html.matchAll(PLACEHOLDER_RE))
     hits.push({ marker: 'placeholder', index: m.index });
-  scanStartTags(html, (name, value, at) => {
-    if ((EDITING_MARKER_ATTRS as readonly string[]).includes(name))
-      hits.push({ marker: `attr:${name}`, index: at });
+  // 走査は 2 回。コメントを読み飛ばす走査はブラウザどおりだが、作成経路の本文は Jinja の原文で、
+  // `{# <!-- #}` や `{{ "<!--" }}`、偽の枝の中の `<!--` が見かけのコメントを作る。エディタは
+  // Jinja を伏せてから読むので、その内側のタグは生きた要素になる。コメントの中も読む走査を足し、
+  // どちらかで見つかれば印とする(同じ位置の同じ印は 1 件にまとめる)。
+  const seen = new Set<string>();
+  const onAttr: AttrSink = (name, value, at) => {
+    const push = (marker: string) => {
+      const key = `${marker}@${at}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      hits.push({ marker, index: at });
+    };
+    if ((EDITING_MARKER_ATTRS as readonly string[]).includes(name)) push(`attr:${name}`);
     if (name === 'data-gjs-type' && value.toLowerCase().startsWith('jinja-'))
-      hits.push({ marker: 'gjs-type:jinja', index: at });
+      push('gjs-type:jinja');
     if (name === 'class')
       for (const c of MARKER_CLASSES)
-        if (value.split(/\s+/).includes(c)) hits.push({ marker: `class:${c}`, index: at });
-  });
+        if (value.split(HTML_SPACE_RUN).includes(c)) push(`class:${c}`);
+  };
+  scanStartTags(html, onAttr, true);
+  scanStartTags(html, onAttr, false);
   return hits.sort((x, y) => x.index - y.index);
 }
 

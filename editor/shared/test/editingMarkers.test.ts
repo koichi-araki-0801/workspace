@@ -36,6 +36,18 @@ describe('findEditingMarkers', () => {
     expect(kinds('<div class="jinja-frozen-body"></div>')).toEqual(['class:jinja-frozen-body']);
   });
 
+  it('class はブラウザと同じく ASCII 空白だけで区切る', () => {
+    expect(kinds('<span class="jinja-chip">1</span>')).toEqual(['class:jinja-chip']);
+    expect(kinds('<span class="jinja-chip foo">1</span>')).toEqual(['class:jinja-chip']);
+    expect(kinds('<span class="foo jinja-chip">1</span>')).toEqual(['class:jinja-chip']);
+    expect(kinds('<span class="s\tjinja-chip\nss\f\rx">1</span>')).toEqual(['class:jinja-chip']);
+    // 語の一部や、`s` を含む別の class には当たらない。
+    expect(kinds('<span class="sjinja-chips">1</span>')).toEqual([]);
+    expect(kinds('<span class="s jinja-chips sjinja-chip">1</span>')).toEqual([]);
+    // NBSP は HTML の区切りではない(1 個の class `jinja-chip foo` になる)。
+    expect(kinds('<span class="jinja-chip foo">1</span>')).toEqual([]);
+  });
+
   it('復元の placeholder 文字', () => {
     expect(kinds('<p>\u{e000}YQ==\u{e001}</p>')).toEqual(['placeholder', 'placeholder']);
   });
@@ -57,6 +69,15 @@ describe('findEditingMarkers', () => {
     ]);
     expect(kinds('<script>"</scriptx><b data-jinja>"</script>')).toEqual([]);
     expect(kinds('<script>x<span data-jinja></span>')).toEqual(['attr:data-jinja']);
+  });
+
+  it('Jinja が作る・隠す `<!--` の内側のタグも見落とさない(作成経路の本文は Jinja 原文)', () => {
+    // エディタは Jinja を伏せてから読むので、これらの span は生きた要素として扱われる。
+    expect(kinds('{# <!-- #}<span data-jinja="X">1</span>{# --> #}')).toEqual(['attr:data-jinja']);
+    expect(kinds('{{ "<!--" }}<span data-jinja="X">1</span><!-- -->')).toEqual(['attr:data-jinja']);
+    expect(kinds('{% if false %}<!--{% endif %}<span data-opaque="X"></span><!-- -->')).toEqual([
+      'attr:data-opaque',
+    ]);
   });
 
   it('コメント・<!…>・終了タグの中の引用符に、後ろの本物のタグを呑み込ませない', () => {
