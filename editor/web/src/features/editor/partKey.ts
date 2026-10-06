@@ -37,14 +37,16 @@ export function pageEls(root: HTMLElement): HTMLElement[] {
  * page 直下の top-level block(= パーツ)列。要素ノードのみ。赤入れ表示が挿す削除要素
  * （`[data-redline]`。生 DOM だけに在りモデルには無い）は除く — 数えるとメモの構造キーと
  * 「ページN・パーツM」の採番が表示の ON/OFF で変わってしまう。本文の `<style>` の置き場
- * (`bodyStyle.ts`)も除く — 見えない要素で、数えると `<style>` より後ろのパーツの採番がずれる。
+ * (`bodyStyle.ts`)と、保存済みの HTML(承認・比較の側)の `<style>` 要素も除く — 見えない要素で、
+ * 数えると `<style>` より後ろのパーツの採番がずれ、canvas と承認・比較とで番号が食い違う。
  */
 export function partEls(pageEl: HTMLElement): HTMLElement[] {
   return Array.from(pageEl.children).filter(
     (el): el is HTMLElement =>
       el instanceof HTMLElement &&
       !el.hasAttribute(REDLINE_ATTR) &&
-      !el.hasAttribute(BODY_STYLE_VIEW_ATTR),
+      !el.hasAttribute(BODY_STYLE_VIEW_ATTR) &&
+      el.tagName !== 'STYLE',
   );
 }
 

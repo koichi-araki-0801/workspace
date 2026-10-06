@@ -224,6 +224,11 @@ describe('canvasCssFullCopy(本文の <style> の全規則)', () => {
     );
   });
 
+  it('宣言を落として空になった規則は出さない', () => {
+    expect(canvasCssFullCopy('.p{background:url(x.png)}.a{color:red}', null)).toBe('.a{color:red}');
+    expect(canvasCssFullCopy('@media print{.p{background:url(x.png);}}', null)).toBe('');
+  });
+
   it('文書の中の参照(許可した data: URI・断片)はそのまま残す', () => {
     const css = '.p{background:url(data:image/png;base64,AAAA)}.q{filter:url(#f)}';
     expect(canvasCssFullCopy(css, null)).toBe(

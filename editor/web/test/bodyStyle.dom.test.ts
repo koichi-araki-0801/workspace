@@ -10,7 +10,7 @@
 //      (getBodyHtml / getCss)に載らない。
 //   3. Jinja を含む `<style>` は従来どおり原文を運ぶチップで、canvas の複製は作らない。
 import { buildSampleData, type FundMaster } from '@editor/shared';
-import type { Component } from 'grapesjs';
+import grapesjs, { type Component } from 'grapesjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BODY_STYLE_TYPE,
@@ -19,6 +19,7 @@ import {
   bodyStyleParserHtml,
 } from '@/features/editor/bodyStyle';
 import { CANVAS_CSS_ASSET_ATTR } from '@/features/editor/fundImageLayer';
+import { strayDirectChildren } from '@/features/editor/pageView';
 import { partEls } from '@/features/editor/partKey';
 import { useGrapes } from '@/features/editor/useGrapes';
 import { toFilled } from '@/lib/fillJinja';
@@ -150,10 +151,14 @@ describe('本文の <style>', () => {
     expect(html).toContain('>y</span>');
   });
 
-  it('SVG の中の <style> も保存で残る', () => {
-    const svg = '<svg viewBox="0 0 1 1"><style>.s{fill:red}</style><rect class="s"></rect></svg>';
+  it('SVG の中の <style> は差し替えない(子要素の属性が刈り取りを素通りしない)', () => {
+    const svg =
+      '<svg viewBox="0 0 1 1"><style>.s{fill:red}<a onclick="alert(1)">t</a></style>' +
+      '<rect class="s"></rect></svg>';
     g.load(`<div class="page">${svg}</div>`, '');
-    expect(g.getBodyHtml()).toContain('<style>.s{fill:red}</style>');
+    const html = g.getBodyHtml();
+    expect(html).not.toContain('onclick');
+    expect(html).not.toContain('alert');
   });
 
   it('赤入れの基準(parseHtmlQuiet)でも <style> は部品として残る', () => {
@@ -168,6 +173,19 @@ describe('canvas の置き場の要素', () => {
     page.className = 'page';
     page.innerHTML = `<span ${BODY_STYLE_VIEW_ATTR}></span><p>x</p>`;
     expect(partEls(page).map((el) => el.tagName)).toEqual(['P']);
+  });
+
+  it('保存済みの HTML(承認・比較)の <style> もパーツに数えない', () => {
+    const page = document.createElement('div');
+    page.className = 'page';
+    page.innerHTML = '<style>.a{}</style><p>x</p>';
+    expect(partEls(page).map((el) => el.tagName)).toEqual(['P']);
+  });
+
+  it('ページ表示の制御(孤立要素)も置き場を数えない', () => {
+    const body = document.createElement('body');
+    body.innerHTML = `<span ${BODY_STYLE_VIEW_ATTR}></span><div class="page"></div><p>y</p>`;
+    expect(strayDirectChildren(body).map((el) => el.tagName)).toEqual(['P']);
   });
 });
 
@@ -189,9 +207,13 @@ describe('bodyStyleParserHtml(既定のパーサと同じ手順)', () => {
   });
 
   it('text/html 以外は div で包んで解く', () => {
-    const root = bodyStyleParserHtml('<style>.a{}</style><p/>', { htmlType: 'application/xml' });
+    const xhtml = '<style xmlns="http://www.w3.org/1999/xhtml">.a{}</style>';
+    const root = bodyStyleParserHtml(`${xhtml}<style>.b{}</style><p/>`, {
+      htmlType: 'application/xml',
+    });
     expect(root.tagName).toBe('div');
-    expect(root.querySelector('style')).toBeNull();
+    // HTML の名前空間の <style> だけを差し替え、名前空間の無い要素は既定の扱いに任せる。
+    expect(Array.from(root.children, (el) => el.localName)).toEqual(['span', 'style', 'p']);
   });
 
   it('canvas の置き場は inline の important で隠し、目印を付ける', () => {
@@ -205,5 +227,27 @@ describe('bodyStyleParserHtml(既定のパーサと同じ手順)', () => {
     expect(el.style.getPropertyValue('display')).toBe('none');
     expect(el.style.getPropertyPriority('display')).toBe('important');
     expect(el.hasAttribute(BODY_STYLE_VIEW_ATTR)).toBe(true);
+  });
+});
+
+describe('<style> の無い入力は既定のパーサと同じ結果になる', () => {
+  function parserOf(parser?: { parserHtml: typeof bodyStyleParserHtml }) {
+    const ed = grapesjs.init({
+      container: document.createElement('div'),
+      storageManager: false,
+      ...(parser ? { parser } : {}),
+    });
+    return (html: string) => JSON.stringify(ed.Parser.parseHtml(html));
+  }
+
+  it.each([
+    '<p class="a">x<b>y</b></p>',
+    '<!-- c --><div><span data-x="1">z</span></div>',
+    '<table><tr><td>1</td></tr></table><p>t</p>',
+    '<title>t</title><script>s</script><meta name="a"><p>a</p>',
+    '<body><p>b</p></body>',
+    '<svg viewBox="0 0 1 1"><rect width="1"></rect></svg>',
+  ])('%s', (html) => {
+    expect(parserOf({ parserHtml: bodyStyleParserHtml })(html)).toBe(parserOf()(html));
   });
 });

@@ -5,6 +5,7 @@
 // 切り出したもの。ページ要素の列挙・可視制御 CSS の生成・index クランプを純粋関数にして
 // vitest で全分岐を直接検証できるようにする(実レイアウトに依存しない)。
 
+import { BODY_STYLE_VIEW_ATTR } from './bodyStyle';
 import { REDLINE_ATTR } from './redline/redlineApply';
 
 // 判定の置き場は `@/lib/pageBreaks`。呼び出し側の付け替えが済むまで、ここからも読めるようにする。
@@ -70,6 +71,8 @@ export function strayDirectChildren(root: HTMLElement): HTMLElement[] {
       !el.classList.contains('page') &&
       // 赤入れの削除要素は生 DOM だけの表示物で、モデルにも保存出力にも無い。孤立要素として
       // `PV_ATTR` を付けると、装飾の有無でページ表示の制御対象が揺れる。
-      !el.hasAttribute(REDLINE_ATTR),
+      !el.hasAttribute(REDLINE_ATTR) &&
+      // 本文の `<style>` の置き場(`bodyStyle.ts`)も常に隠れた要素で、ページの一部ではない。
+      !el.hasAttribute(BODY_STYLE_VIEW_ATTR),
   );
 }

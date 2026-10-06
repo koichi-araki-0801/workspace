@@ -31,9 +31,26 @@ export const BODY_STYLE_VIEW_ATTR = 'data-body-style';
 /** 置き場の要素 → 差し替えた `<style>` の原文と中身。パーサの 1 回の呼び出しの中で引く。 */
 const placeholders = new WeakMap<Element, { source: string; css: string }>();
 
-/** 文書の中の `<style>` をすべて置き場へ差し替える(SVG の中の `<style>` も同じく消されるので含める)。 */
+const XHTML_NS = 'http://www.w3.org/1999/xhtml';
+
+/**
+ * 原文を運んでよい `<style>` か。HTML の `<style>` は中身が文字だけ(raw text)だが、SVG・MathML の
+ * 中の `<style>` は子要素を持てる。その原文を運ぶと子要素の属性(`onclick` など)が canvas 入口の
+ * 刈り取り(`pruneCanvasActiveContent`)を素通りして保存へ出るので、HTML の名前空間で子要素の無い
+ * `<style>` だけを差し替え、それ以外は GrapesJS の既定の扱い(取り除く)に任せる。
+ */
+function isCarriableStyle(style: Element): boolean {
+  return (
+    style.namespaceURI === XHTML_NS &&
+    style.childElementCount === 0 &&
+    !style.parentElement?.closest('svg, math')
+  );
+}
+
+/** 文書の中の運んでよい `<style>` を置き場へ差し替える。 */
 function swapStyles(doc: Document): void {
   for (const style of Array.from(doc.querySelectorAll('style'))) {
+    if (!isCarriableStyle(style)) continue;
     const holder = doc.createElement('span');
     placeholders.set(holder, { source: style.outerHTML, css: style.textContent ?? '' });
     style.replaceWith(holder);

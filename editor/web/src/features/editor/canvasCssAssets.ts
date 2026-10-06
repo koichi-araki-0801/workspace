@@ -246,6 +246,8 @@ function copyWholeRule(text: string, companyCode: string | null, from: string): 
     const decl = rewriteEveryUrl(text, range, spans, companyCode, from);
     return decl === undefined ? [] : [decl];
   });
+  // 宣言を落として空になった規則は出さない(セレクタだけの規則は何も効かない)。
+  if (kept.every((decl) => decl.trim() === '')) return undefined;
   return `${text.slice(0, ranges[0].start)}${kept.join(';')}}`;
 }
 
