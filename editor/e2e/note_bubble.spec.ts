@@ -9,6 +9,7 @@
 //
 // 併せて、右ペインの下書きが別パーツへ持ち越されないこと(別パーツにメモが付く事故)と、
 // 閉じた吹き出しが投稿の追加で開き直すこと(件数だけ増えて何も見えない事故)も固定する。
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { expectSelectedPart, login, openEditor, partLocator, selectPart } from './helpers';
 
@@ -117,4 +118,65 @@ test('吹き出しは選択だけでは開かず、マーカーのクリック�
   await page.locator('[data-note-marker]').first().click();
   await expect(bubble).toHaveCount(1);
   await expect(bubble.getByText('マーカーで開く')).toBeVisible();
+});
+
+/**
+ * テンプレの取得の応答の値入り HTML(`filled`)の本文を `body` に差し替える。fixture は増やさない。
+ */
+async function serveFilledBody(page: Page, body: string): Promise<void> {
+  const templatePath = `/api/templates/${encodeURIComponent(SEED_ID)}`;
+  await page.route(
+    (url) => url.pathname === templatePath,
+    async (route) => {
+      const res = await route.fetch();
+      const tpl = (await res.json()) as { filled?: string };
+      if (tpl.filled) {
+        tpl.filled = tpl.filled.replace(
+          /(<body[^>]*>)[\s\S]*(<\/body>)/,
+          (_m, open, close) => `${open}${body}${close}`,
+        );
+      }
+      await route.fulfill({ response: res, json: tpl });
+    },
+  );
+}
+
+// 自前のクラスを持たないパーツは、GrapesJS が選択中・ホバー中に DOM へ足す `gjs-selected` /
+// `gjs-hovered` を自分のクラスと読まれると、選択の有無でキーが変わる。メモを書いたパーツの
+// 選択を外すと、目印と一覧の行が別のパーツ(その時に選ばれているパーツ)を指してしまう。
+test('クラスの無いパーツのメモは、選択を外しても目印と一覧の行からそのパーツで開く', async ({
+  page,
+}) => {
+  await serveFilledBody(
+    page,
+    '<section><p>甲のパーツ</p></section><section><p>乙のパーツ</p></section>',
+  );
+  await login(page);
+  const frame = await openEditor(page, SEED_ID);
+  const bubble = page.locator('.note-bubble');
+  const selected = frame.locator('.gjs-selected');
+  const partA = partLocator(frame).filter({ hasText: '甲のパーツ' });
+  const partB = partLocator(frame).filter({ hasText: '乙のパーツ' });
+
+  await selectPart(frame, partB);
+  await page.locator('[data-pane-tab="comments"]').click();
+  await page.getByPlaceholder('このパーツへのコメントを書く').fill('乙へのメモ');
+  await page.locator('button[data-add-submit]').click();
+  await expect(bubble).toContainText('乙へのメモ');
+
+  // 別パーツを選ぶと吹き出しは閉じ、目印はメモを書いたパーツ(乙)から開く。
+  await partA.click();
+  await expect(selected).toContainText('甲のパーツ');
+  await expect(bubble).toHaveCount(0);
+  await page.locator('[data-note-marker]').click();
+  await expect(bubble).toContainText('乙へのメモ');
+  await expect(selected).toContainText('乙のパーツ');
+
+  // 一覧の行からも、メモを書いたパーツを選んで開く。
+  await partA.click();
+  await expect(selected).toContainText('甲のパーツ');
+  await expect(bubble).toHaveCount(0);
+  await page.locator('[data-comment-row]', { hasText: '乙へのメモ' }).click();
+  await expect(bubble).toContainText('乙へのメモ');
+  await expect(selected).toContainText('乙のパーツ');
 });

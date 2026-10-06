@@ -155,22 +155,32 @@ export function legacyPartKeyCount(keys: Iterable<string>): number {
   return n;
 }
 
+/** GrapesJS が canvas の DOM へ付ける状態クラスの接頭辞(既定の `stylePrefix`)。 */
+const GJS_CLASS_PREFIX = 'gjs-';
+
 /**
  * 編集 canvas 用のアンカー関数。GrapesJS はライブ要素すべてに自動 `id`(ccid)を付けるが、
  * それは `getHtml()` に残らず、確定版 HTML を静的に読む側(承認タブ・compare)のキーには
  * 現れない。canvas 側だけ DOM の `id` を信じるとテンプレートに `data-part-id` も明示 `id` も
  * 無いパーツ宛のコメントが他所で一つも引けなくなるため、`id` はモデルの明示属性から取る
  * (モデルの `attributes` には明示属性しか無い。`redline/redlineTree.ts` と同じ前提)。
+ * クラスもモデルから取る(保存 HTML に出るのはモデルのクラス)。GrapesJS は選択中・ホバー中の
+ * 要素の DOM へだけ `gjs-selected` / `gjs-hovered` などの状態クラスを足すため、DOM の先頭クラスを読むと、自前の
+ * クラスを持たないパーツは選択・ホバーの間だけ別のキーになり、メモの目印や一覧の行から
+ * 引けなくなる。component を引けない要素は、状態クラスの接頭辞 `gjs-` を DOM から除いて読む。
  * 要素 → component は `Components.getById`(`selectPartByKey` と同じ経路)で解決する。
  */
 export function canvasRawKey(ed: Editor): RawKeyOf {
   return (el) => {
     const comp = el.id ? ed.Components.getById(el.id) : undefined;
     const attrs = comp?.get('attributes') as Record<string, unknown> | undefined;
+    const firstClass = comp
+      ? comp.getClasses()[0]
+      : Array.from(el.classList).find((c) => !c.startsWith(GJS_CLASS_PREFIX));
     return rawKeyFromParts({
       partId: el.getAttribute('data-part-id'),
       id: typeof attrs?.id === 'string' ? attrs.id : null,
-      firstClass: el.classList[0] ?? null,
+      firstClass: firstClass ?? null,
       tag: el.tagName,
     });
   };

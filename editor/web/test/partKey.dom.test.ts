@@ -199,17 +199,28 @@ describe('partLabelMap — 全パーツの人間向けラベル', () => {
 });
 
 describe('canvasRawKey — canvas 側は id をモデルの明示属性から読む', () => {
-  /** `Components.getById` だけを持つ最小の `Editor` 相当。 */
+  /**
+   * `Components.getById` だけを持つ最小の `Editor` 相当。クラスは GrapesJS の `getClasses` と
+   * 同じく、モデルの `class` 属性から読む。
+   */
   function fakeEditor(attrsById: Record<string, Record<string, unknown>>): Editor {
     return {
-      Components: { getById: (id: string) => ({ get: () => attrsById[id] }) },
+      Components: {
+        getById: (id: string) => ({
+          get: () => attrsById[id],
+          getClasses: () =>
+            String(attrsById[id]?.class ?? '')
+              .split(' ')
+              .filter(Boolean),
+        }),
+      },
     } as unknown as Editor;
   }
 
   it('モデル属性に id が無ければ GrapesJS の自動 id を無視し、class/tag へ落ちる', () => {
     const r = root('<p class="lead" id="i1">A</p><p class="lead" id="i2">B</p>');
     const els = Array.from(r.children) as HTMLElement[];
-    const keyOf = canvasRawKey(fakeEditor({ i1: {}, i2: {} }));
+    const keyOf = canvasRawKey(fakeEditor({ i1: { class: 'lead' }, i2: { class: 'lead' } }));
     expect(occurrenceKey(els[0], els, keyOf)).toBe('.lead#1');
     expect(occurrenceKey(els[1], els, keyOf)).toBe('.lead#2');
   });
@@ -217,7 +228,7 @@ describe('canvasRawKey — canvas 側は id をモデルの明示属性から読
   it('モデル属性に明示 id があれば、その id をキーへ残す', () => {
     const r = root('<p class="lead" id="i1">A</p>');
     const el = q(r, 'p');
-    const keyOf = canvasRawKey(fakeEditor({ i1: { id: 'summary' } }));
+    const keyOf = canvasRawKey(fakeEditor({ i1: { id: 'summary', class: 'lead' } }));
     expect(occurrenceKey(el, [el], keyOf)).toBe('summary#1');
   });
 
@@ -226,6 +237,35 @@ describe('canvasRawKey — canvas 側は id をモデルの明示属性から読
     const el = q(r, 'p');
     const keyOf = canvasRawKey(fakeEditor({ i1: { id: 'summary' } }));
     expect(keyOf(el)).toBe('cover');
+  });
+
+  it('選択中・ホバー中に GrapesJS が付けるクラスはキーに使わない(モデルのクラスを読む)', () => {
+    const r = root(
+      '<section id="i1" class="gjs-selected">x</section>' +
+        '<section id="i2" class="gjs-hovered">y</section>' +
+        '<p id="i3" class="lead gjs-selected">z</p>',
+    );
+    const ed = {
+      Components: {
+        getById: (id: string) => ({
+          get: () => ({}),
+          getClasses: () => (id === 'i3' ? ['lead'] : []),
+        }),
+      },
+    } as unknown as Editor;
+    const keyOf = canvasRawKey(ed);
+    expect(keyOf(q(r, '#i1'))).toBe('section');
+    expect(keyOf(q(r, '#i2'))).toBe('section');
+    expect(keyOf(q(r, '#i3'))).toBe('.lead');
+  });
+
+  it('component を引けない要素でも、GrapesJS の gjs- クラスは読み飛ばす', () => {
+    const ed = { Components: { getById: () => undefined } } as unknown as Editor;
+    const r = root(
+      '<section class="gjs-selected gjs-pointer-init">x</section><p class="gjs-hovered a">y</p>',
+    );
+    expect(canvasRawKey(ed)(q(r, 'section'))).toBe('section');
+    expect(canvasRawKey(ed)(q(r, 'p'))).toBe('.a');
   });
 
   it('id もクラスも無い要素はタグ名で表し、GrapesJS の自動 id を引かない', () => {
@@ -249,7 +289,17 @@ describe('canvasRawKey — 承認タブ(静的パース)とのキー集合一致
       (_m, tag, cls) => `<${tag}${cls ?? ''} id="i${tag}">`,
     );
     const canvasRoot = root(canvasHtml);
-    const ed = { Components: { getById: () => ({ get: () => undefined }) } } as unknown as Editor;
+    const classesById: Record<string, string[]> = {
+      idiv: ['pagebreak'],
+      itable: ['summary'],
+      ih1: ['t'],
+      ip: ['lead'],
+    };
+    const ed = {
+      Components: {
+        getById: (id: string) => ({ get: () => undefined, getClasses: () => classesById[id] }),
+      },
+    } as unknown as Editor;
     const canvasKeys = [...partLabelMap(canvasRoot, canvasRawKey(ed)).keys()].sort();
     const staticKeys = [...partMapsFromHtml(html).labels.keys()].sort();
     expect(canvasKeys).toEqual(staticKeys);
@@ -294,6 +344,43 @@ describe('canvas・承認タブ・比較が同じパーツを同じキーと番�
     expect(block?.partKey).toBe('.a#1');
     expect([...reviewLabels]).toEqual(want);
     expect([...diffLabels]).toEqual(want);
+  });
+});
+
+describe('クラスの無いパーツを選択・ホバーしていても、3 者のキーとラベルが一致する', () => {
+  it('canvas 側の gjs-selected / gjs-hovered はパーツのクラスとして数えない', () => {
+    // 保存される文書。パーツは自前のクラスを持たない `section`。
+    const html =
+      '<section><p>A</p></section><section><p>B</p></section>' +
+      '<div class="pagebreak"></div><section><p>C</p></section>';
+    // canvas の生 DOM。GrapesJS は全要素へ自動 id を付け、選択中・ホバー中の要素へだけ
+    // 状態のクラスを足す(モデルのクラスには無く、保存 HTML にも出ない)。
+    const canvas = root(
+      '<section id="c1" class="gjs-selected"><p>A</p></section>' +
+        '<section id="c2" class="gjs-hovered"><p>B</p></section>' +
+        '<div id="c3" class="pagebreak"></div><section id="c4"><p>C</p></section>',
+    );
+    const modelClasses: Record<string, string[]> = { c3: ['pagebreak'] };
+    const ed = {
+      Components: {
+        getById: (id: string) => ({ get: () => ({}), getClasses: () => modelClasses[id] ?? [] }),
+      },
+    } as unknown as Editor;
+    const want = [
+      ['section#1', 'ページ1・パーツ1'],
+      ['section#2', 'ページ1・パーツ2'],
+      ['section#3', 'ページ2・パーツ1'],
+    ];
+    const diffLabels = new Map(
+      buildHtmlDiff(html, html)
+        .pages.flatMap((p) => p.blocks)
+        .filter((b) => b.label.includes('・'))
+        .map((b) => [b.partKey, b.label]),
+    );
+    expect([...partLabelMap(canvas, canvasRawKey(ed))]).toEqual(want);
+    expect([...partMapsFromHtml(html).labels]).toEqual(want);
+    expect([...diffLabels]).toEqual(want);
+    expect(partPathKeyFor(q(canvas, '#c1 p'), canvas, canvasRawKey(ed))).toBe('section#1');
   });
 });
 
