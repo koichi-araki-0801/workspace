@@ -703,18 +703,19 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   /**
    * 選択へ inline-style パッチを適用する(`''` 値は該当プロパティを除去)。結果が現在の
    * style と同一なら何もしない — `callbacks.change` は autosave の起点なので、値の動かない
-   * 適用まで通すと編集していないのに draft が生成される。
+   * 適用まで通すと編集していないのに draft が生成される。変えたら true を返す(呼び出し側が
+   * 無変更の操作で Undo と修正履歴を積まないため)。
    */
-  function patchSelectedStyle(patch: Record<string, string>): void {
+  function patchSelectedStyle(patch: Record<string, string>): boolean {
     const comp = editor.value?.getSelected();
-    if (!comp) return;
+    if (!comp) return false;
     const cur = comp.getStyle() as Record<string, string>;
     const next: Record<string, string> = { ...cur };
     for (const [k, v] of Object.entries(patch)) {
       if (v === '') delete next[k];
       else next[k] = v;
     }
-    if (sameStyleMap(cur, next)) return;
+    if (sameStyleMap(cur, next)) return false;
     comp.setStyle(next);
     // プログラム経由の setStyle は StyleManager の 'style:update' を emit しないため、
     // listener(autosave)への通知と派生 state の更新を自前で行う。`refreshRect` は即時
@@ -724,6 +725,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     refreshRect();
     scheduleLayoutRecompute();
     callbacks.change?.();
+    return true;
   }
 
   function toInfo(comp: Component): SelectedInfo {

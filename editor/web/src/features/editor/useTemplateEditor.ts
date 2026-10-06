@@ -314,14 +314,16 @@ export function useTemplateEditor(
 
   /**
    * 選んだ要素が属するパーツの前(後ろ)の改ページを ON / OFF する。区切りの挿入・削除と inline の
-   * 宣言の削除を 1 つの変更として、操作の前に 1 回だけ Undo を積む。状態が変わらない操作・区切りを
-   * 置けない選択は手前で捨てる — `pushUndo` は future を消すため、無変更でも積むと Redo が失われる。
+   * 宣言の削除を 1 つの変更として、操作の前の snapshot 1 つで戻す。状態が変わらない操作・区切りを
+   * 置けない選択では保留を捨てる — 無変更でも積むと Redo が失われる。
    */
   function setPartBreak(edge: BreakEdge, on: boolean) {
-    const cur = selectedPartBreak.value;
-    if (!cur || cur[edge] === on) return;
-    pushUndo();
-    if (!g.setPartBreak(g.editor.value?.getSelected(), edge, on)) return;
+    beginUndo();
+    if (!g.setPartBreak(g.editor.value?.getSelected(), edge, on)) {
+      cancelUndo();
+      return;
+    }
+    commitUndo();
     // 挿入した区切りも現在の lock state に従わせる(`onPartInsert` と同じ)。
     g.setEditable(allowEdit.value);
     recordChange(partBreakLabel(edge, on));
@@ -368,8 +370,14 @@ export function useTemplateEditor(
   /** 選択の layout style を全消去する(既定配置へ戻す)。 */
   function resetGeom() {
     if (!g.selected.value) return;
-    pushUndo();
-    g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM));
+    // 既定の配置のパーツや区切りの帯(style を持たない)では何も変わらない。無変更でも積むと Redo が
+    // 消え、修正履歴に実際には無い変更が残るので、変わったときだけ確定する。
+    beginUndo();
+    if (!g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM))) {
+      cancelUndo();
+      return;
+    }
+    commitUndo();
     recordChange('配置を初期化');
     toastUndoable('配置を初期化しました');
   }

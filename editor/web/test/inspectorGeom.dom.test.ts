@@ -206,14 +206,14 @@ describe('useGrapes.patchSelectedStyle', () => {
   it('結果が現在の style と同一なら setStyle も change 通知も走らせない', () => {
     // `''` は「該当プロパティを除去」の意味なので、元から無い property は差分にならない。
     const { g, calls, changed } = setup({ width: '50%' });
-    g.patchSelectedStyle({ width: '50%', 'margin-top': '' });
+    expect(g.patchSelectedStyle({ width: '50%', 'margin-top': '' })).toBe(false);
     expect(calls).toEqual([]);
     expect(changed()).toBe(0);
   });
 
   it('差分があれば従来どおり setStyle と change 通知を行う', () => {
     const { g, calls, changed } = setup({ width: '50%' });
-    g.patchSelectedStyle({ width: '70%' });
+    expect(g.patchSelectedStyle({ width: '70%' })).toBe(true);
     expect(calls).toEqual([{ width: '70%' }]);
     expect(changed()).toBe(1);
   });

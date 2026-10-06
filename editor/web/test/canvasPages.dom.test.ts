@@ -1,5 +1,6 @@
 import type { Component, Editor } from 'grapesjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_GEOM, geomToStyle } from '@/features/editor/geom';
 import { PV_ATTR } from '@/features/editor/pageView';
 import { useGrapes } from '@/features/editor/useGrapes';
 import { useSnapshotHistory } from '@/features/editor/useSnapshotHistory';
@@ -287,6 +288,26 @@ describe('setPartBreak', () => {
     load(FROZEN);
     expect(g.partBreakOf(byClass('jinja-frozen-body'))).toBeNull();
     expect(g.setPartBreak(byClass('jinja-frozen-body'), 'after', true)).toBe(false);
+  });
+
+  it('区切りの帯・既定の配置のパーツへの配置の初期化は変更にならず、Undo を積まず Redo を残す', () => {
+    // `useTemplateEditor.ts` の `resetGeom` と同じ手順(begin → 変わらなければ cancel)。
+    load(DOC);
+    const h = history();
+    h.pushUndo();
+    expect(g.setPartBreak(byClass('a'), 'before', true)).toBe(true);
+    h.undo();
+    expect(h.canRedo.value).toBe(true);
+    const html = g.getBodyHtml();
+    for (const cls of ['pagebreak', 'a']) {
+      g.editor.value?.select(byClass(cls));
+      h.beginUndo();
+      if (g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM))) h.commitUndo();
+      else h.cancelUndo();
+    }
+    expect(g.getBodyHtml()).toBe(html);
+    expect(h.canUndo.value).toBe(false);
+    expect(h.canRedo.value).toBe(true);
   });
 
   it('partBreakOf は選んだ要素が属するパーツの前後の状態を返す', () => {
