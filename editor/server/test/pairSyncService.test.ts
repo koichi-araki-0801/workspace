@@ -5,6 +5,7 @@
 // 4 つ区切り)は `会社_ファンド_基準日` で、状態ファイル `sync/<pairKey>.json` は自然に別になる。
 // 1 つにまとめると、基準日の違う値入り HTML の同期状態とテンプレートの同期状態が混ざる。
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -184,6 +185,42 @@ d('pairSyncService', () => {
     expect(read('filled', 'AM01_530000_20240710_全体版')).toBe(deleted);
     const status = await svc.getPairSyncStatus('AM01_530000_20240710_交付版');
     expect(status.conflicts).toEqual([
+      { partKey: 'a#1', kind: 'ペア側削除', detectedAt: expect.any(String), deletedIn: '全体版' },
+    ]);
+  });
+
+  it('削除した版種を持たない古い状態ファイルも読め、次の承認で版種を付けて記録し直す', {
+    timeout: 60_000,
+  }, async () => {
+    const kept = part('a', 'x');
+    put('filled', 'AM01_531000_20240710_交付版', doc(kept));
+    put('filled', 'AM01_531000_20240710_全体版', doc());
+    fs.mkdirSync(path.join(tmp, 'sync'), { recursive: true });
+    fs.writeFileSync(
+      syncFile('AM01_531000_20240710'),
+      JSON.stringify({
+        pairKey: 'AM01_531000_20240710',
+        parts: {
+          'a#1': {
+            lastSynced: createHash('sha1').update(kept).digest('hex'),
+            conflict: { kind: 'ペア側削除', detectedAt: '2026-01-01T00:00:00.000Z' },
+          },
+        },
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+      'utf8',
+    );
+    const before = await svc.getPairSyncStatus('AM01_531000_20240710_交付版');
+    expect(before.conflicts).toEqual([
+      { partKey: 'a#1', kind: 'ペア側削除', detectedAt: '2026-01-01T00:00:00.000Z' },
+    ]);
+    const r = await svc.syncPairAfterConfirm('AM01_531000_20240710_交付版', 'approver1', 'filled', {
+      css: null,
+    });
+    expect(r?.error).toBeNull();
+    expect(r?.applied).toEqual([]);
+    const after = await svc.getPairSyncStatus('AM01_531000_20240710_交付版');
+    expect(after.conflicts).toEqual([
       { partKey: 'a#1', kind: 'ペア側削除', detectedAt: expect.any(String), deletedIn: '全体版' },
     ]);
   });

@@ -442,6 +442,51 @@ describe('computePairSync — ペア側で削除したパーツ', () => {
     expect(r.state.parts['b#1'].conflict).toEqual({ kind: 'ペア側先行', detectedAt: later });
   });
 
+  it('削除した側が入れ替われば、同じ種類でも削除した版種と検出時刻を取り直す', () => {
+    // 全体版で消した記録が残ったまま、全体版が戻して交付版が消し、全体版が承認された。
+    const first = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
+    const later = '2026-09-09T00:00:00.000Z';
+    const r = run(
+      {
+        sourceEdition: '全体版',
+        targetEdition: '交付版',
+        sourceHtml: both,
+        targetHtml: pairDeleted,
+        state: first.state,
+        now: later,
+      },
+      defs,
+    );
+    expect(r.changed).toBe(false);
+    expect(r.state.parts['b#1'].conflict).toEqual({
+      kind: 'ペア側削除',
+      detectedAt: later,
+      deletedIn: '交付版',
+    });
+    expect(r.stateChanged).toBe(true);
+  });
+
+  it('削除した版種を持たない古い記録は、版種を付けて記録し直す', () => {
+    const base = state();
+    const old: PairSyncState = {
+      ...base,
+      parts: {
+        ...base.parts,
+        'b#1': {
+          lastSynced: base.parts['b#1'].lastSynced,
+          conflict: { kind: 'ペア側削除', detectedAt: '2026-01-01T00:00:00.000Z' },
+        },
+      },
+    };
+    const r = run({ sourceHtml: both, targetHtml: pairDeleted, state: old }, defs);
+    expect(r.changed).toBe(false);
+    expect(r.state.parts['b#1']).toEqual({
+      lastSynced: base.parts['b#1'].lastSynced,
+      conflict: { kind: 'ペア側削除', detectedAt: '2026-08-02T00:00:00.000Z', deletedIn: '全体版' },
+    });
+    expect(r.stateChanged).toBe(true);
+  });
+
   it('逆方向の承認(ペア側が source)では記録を持ち越す', () => {
     const first = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
     const reverse = run(

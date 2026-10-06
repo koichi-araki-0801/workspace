@@ -536,9 +536,10 @@ export function computePairSync(input: PairSyncComputeInput): PairSyncComputeRes
           ? 'ペア側で削除済み(自動では戻さない)'
           : 'ペア側で削除済み・ソース側は変更あり(要判断)',
       });
-      // 種類が同じなら検出時刻を保つ。変わったら(source の変化の有無が変わった)取り直す。
+      // 種類と削除した版種が同じなら検出時刻を保つ。source の変化の有無が変わったときや、
+      // 削除した側が入れ替わったとき(版種を持たない古い記録も)は取り直す。
       const conflict: PairPartConflict =
-        prev.conflict?.kind === kind
+        prev.conflict?.kind === kind && prev.conflict.deletedIn === input.targetEdition
           ? prev.conflict
           : { kind, detectedAt: input.now, deletedIn: input.targetEdition };
       newParts[key] = { lastSynced: prev.lastSynced, conflict };
