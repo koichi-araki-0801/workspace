@@ -14,6 +14,8 @@ import { IF_RE, MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE } from './fillJinj
 import { formatHtml } from './formatOutput';
 import { defaultHtmlParser, type HtmlParser } from './htmlParser';
 import {
+  b64decodeUtf8,
+  b64encodeUtf8,
   DATA_JINJA,
   DATA_JINJA_BLOCK,
   DATA_JINJA_CLOSE,
@@ -32,17 +34,10 @@ export function extractJinjaTokens(s: string): string[] {
   return s.match(TOKEN_RE) ?? [];
 }
 
-export function b64encode(s: string): string {
-  const bytes = new TextEncoder().encode(s);
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin);
-}
+export { b64encodeUtf8 as b64encode };
 
 function b64decode(b: string): string {
-  const bin = atob(b);
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
+  return b64decodeUtf8(b);
 }
 
 export function htmlEscape(s: string): string {
@@ -219,4 +214,50 @@ export function toTemplate(
   }
   if (!opts.asFragment && hadDoctype) out = `<!doctype html>\n${out}`;
   return out;
+}
+
+// ── 往復の比較用の正規形 ──
+
+const BLANK_RE = /^\s*$/;
+
+/**
+ * 往復の比較用の正規形。`<body>` の中身として解析し、Jinja の記号と節点の端に接する、改行を
+ * 含む空白を除いて直列化する。GrapesJS は改行を含む空白だけのテキストノードを読み込みで捨てる
+ * ので、それを差分に数えない。改行の無い空白や、Jinja でない inline 同士の間の空白は描画に
+ * 効くので残す。元と戻した結果を同じパーサへ通すため、パーサの並べ替え(表の追い出し)は
+ * 両側に同じく効く。
+ */
+export function normalizeForRoundTrip(bodyHtml: string, parse: HtmlParser): string {
+  const doc = parse(`<!doctype html><html><head></head><body>${bodyHtml}</body></html>`);
+  doc.body.normalize();
+  trimBlankText(doc.body);
+  return doc.body.innerHTML;
+}
+
+function trimBlankText(el: Node): void {
+  const kids = Array.from(el.childNodes);
+  const last = kids.length - 1;
+  kids.forEach((n, i) => {
+    if (n.nodeType === 1) {
+      trimBlankText(n);
+      return;
+    }
+    if (n.nodeType !== 3) return;
+    const src = n.nodeValue ?? '';
+    // 記号の前後にある、改行を含む空白だけを落とす。
+    const re = new RegExp(TOKEN_RE.source, 'g');
+    let v = '';
+    let pos = 0;
+    for (let m = re.exec(src); m; m = re.exec(src)) {
+      v += src.slice(pos, m.index).replace(/\s*\n\s*$/, '') + m[0];
+      pos = m.index + m[0].length;
+      const lead = /^\s*\n\s*/.exec(src.slice(pos));
+      if (lead) pos += lead[0].length;
+    }
+    v += src.slice(pos);
+    // 全体が空白で改行を含み、親の先頭か末尾にあるものは節点の端の空白。
+    const edge = i === 0 || i === last;
+    if (v === '' || (edge && BLANK_RE.test(v) && v.includes('\n'))) n.parentNode?.removeChild(n);
+    else n.nodeValue = v;
+  });
 }

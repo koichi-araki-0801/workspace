@@ -1,6 +1,14 @@
+import { parseHTML } from 'linkedom';
 import { describe, expect, it } from 'vitest';
 import { toFilled } from '../src/lib/fillJinja';
-import { b64encode, extractJinjaTokens, toTemplate } from '../src/lib/jinjaMask';
+import type { HtmlParser } from '../src/lib/htmlParser';
+import { defaultHtmlParser } from '../src/lib/htmlParser';
+import {
+  b64encode,
+  extractJinjaTokens,
+  normalizeForRoundTrip,
+  toTemplate,
+} from '../src/lib/jinjaMask';
 import { renderJinja } from '../src/lib/nunjucksRender';
 
 const cases: Record<string, string> = {
@@ -153,5 +161,32 @@ describe('full document round-trip', () => {
     const restored = toTemplate(wrapped, { asFragment: true });
     expect(restored).toContain('{{ fund.nav }}');
     expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));
+  });
+});
+
+describe('normalizeForRoundTrip', () => {
+  const n = (s: string) => normalizeForRoundTrip(s, defaultHtmlParser);
+  it('Jinja と節点の端に接する改行入りの空白を無視し、パーサの並べ替えは両側に同じく効く', () => {
+    const a =
+      '<table><tbody>\n{% for r in rows %}\n<tr><td>1</td></tr>\n{% endfor %}\n</tbody></table>';
+    const b = '<table><tbody>{% for r in rows %}<tr><td>1</td></tr>{% endfor %}</tbody></table>';
+    expect(n(a)).toBe(n(b));
+  });
+  it('端の空白だけのテキストも無視する', () => {
+    expect(n('<div>\n  <p>a</p>\n</div>')).toBe(n('<div><p>a</p></div>'));
+  });
+  it('中身の違いは残す', () => {
+    expect(n('<p>a</p>')).not.toBe(n('<p>b</p>'));
+  });
+  it('改行の無い空白と、非 Jinja の inline 同士の間の空白は残す', () => {
+    expect(n('<p><b>a</b> <i>b</i></p>')).not.toBe(n('<p><b>a</b><i>b</i></p>'));
+    expect(n('<p>{{ a }} {{ b }}</p>')).not.toBe(n('<p>{{ a }}{{ b }}</p>'));
+    expect(n('<p><b>a</b>\n<i>b</i></p>')).not.toBe(n('<p><b>a</b><i>b</i></p>'));
+  });
+  it('linkedom のパーサでも同じ結果になる', () => {
+    const parse: HtmlParser = (h) => parseHTML(h).document as unknown as Document;
+    const a = '<ul>\n{% for p in xs %}\n<li>{{ p }}</li>\n{% endfor %}\n</ul>';
+    const b = '<ul>{% for p in xs %}<li>{{ p }}</li>{% endfor %}</ul>';
+    expect(normalizeForRoundTrip(a, parse)).toBe(normalizeForRoundTrip(b, parse));
   });
 });
