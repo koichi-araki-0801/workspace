@@ -155,21 +155,28 @@ describe('cssString / fundImageCss', () => {
       ],
       JINJA,
     );
+    // 1 つの src につき、差し替えと `:where(...)`(詳細度 0 の display)の 2 行。重複 src は 1 組のまま。
     expect(css).toBe(
-      'img[src="../images/{{ fund.code }}_logo.svg"]{content:url("/api/fund-assets/images/510037_logo.svg")}\n' +
-        'img[src="../images/510037_logo.svg"]{content:url("/api/fund-assets/images/510037_logo.svg")}\n' +
+      [
+        'img[src="../images/{{ fund.code }}_logo.svg"]{content:url("/api/fund-assets/images/510037_logo.svg")}',
+        ':where(img[src="../images/{{ fund.code }}_logo.svg"]){display:inline-block}',
+        'img[src="../images/510037_logo.svg"]{content:url("/api/fund-assets/images/510037_logo.svg")}',
+        ':where(img[src="../images/510037_logo.svg"]){display:inline-block}',
         'img[src="../images/AM01/qr.svg"]{content:url("/api/fund-assets/images/AM01/qr.svg")}',
+        ':where(img[src="../images/AM01/qr.svg"]){display:inline-block}',
+      ].join('\n'),
     );
+    expect(css).not.toContain('photos');
     expect(urls).toEqual([
       '/api/fund-assets/images/510037_logo.svg',
       '/api/fund-assets/images/AM01/qr.svg',
     ]);
   });
 
-  it('src に引用符・括弧・山括弧・改行が入っても 1 規則のまま閉じない', () => {
+  it('src に引用符・括弧・山括弧・改行が入っても 2 規則(各 1 行)のまま閉じない', () => {
     const src = '../images/510037_a"b]<c>\nd.svg';
     const { css } = fundImageCss([src], JINJA);
-    expect(css.split('\n')).toHaveLength(1);
+    expect(css.split('\n')).toHaveLength(2);
     expect(
       css.startsWith('img[src="../images/510037_a\\"b]\\3c c\\3e \\a d.svg"]{content:url("/api/'),
     ).toBe(true);

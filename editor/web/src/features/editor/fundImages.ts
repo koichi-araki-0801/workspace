@@ -14,6 +14,8 @@
 //    ので、同じ値(テンプレ ID のファンドコード = `buildSampleData` が `fund.code` に入れる値)で解く。
 //  - 値入り本文(編集タブ)は描画を通らないので、確定したパスだけを差す。`{{` が残る参照は
 //    PDF にも出ないため解かず、警告で外部ツール側の修正を促す。
+// Chromium は読み込みに失敗した img を代替表示のインライン要素として扱い、幅と高さの指定が効か
+// ないので、`display:inline-block` を詳細度 0(`:where`)で足す(テンプレの `display` が勝つ)。
 // GrapesJS への配線は `fundImageLayer.ts`。
 
 import { DOC_DIR, parseAnyTemplateFileName, resolveDocAssetPath } from '@editor/shared';
@@ -120,6 +122,7 @@ export function fundImageCss(
     if (ref === null) continue;
     const url = fundImageUrl(ref);
     rules.push(`img[src=${cssString(src)}]{content:url(${cssString(url)})}`);
+    rules.push(`:where(img[src=${cssString(src)}]){display:inline-block}`);
     if (!urls.includes(url)) urls.push(url);
   }
   return { css: rules.join('\n'), urls };
