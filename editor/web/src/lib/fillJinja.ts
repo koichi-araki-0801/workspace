@@ -1,22 +1,20 @@
 // =============================================================================
-// fillJinja.ts — 生 Jinja2 テンプレートを編集キャンバス用の "filled" HTML へ変換
+// fillJinja.ts — 生 Jinja2 テンプレートを作成タブのキャンバス用の値入り HTML へ変換
 // =============================================================================
 // 役割:
-//   生 Jinja2 テンプレートを, エディタキャンバスが表示する "filled"(値入り)編集
-//   形態へレンダリングする。Jinja の値を差し込む(編集画面が値の入った文書として
-//   読める)一方で, 元の `{{ }}` / `{% %}` ソースを verbatim に保持するため,
-//   保存時に `jinjaMask.ts` の `toTemplate` が厳密な Jinja テンプレートを復元できる。
+//   生 Jinja2 テンプレートを、作成タブのキャンバスが表示する値入りの編集形態へ描く。値を差し込んで
+//   文書として読める見た目にしつつ、原文を印・チップ・固めた要素の中へ残し、保存時に
+//   `jinjaMask.ts` の `toTemplate` が原文どおりのテンプレートへ戻せるようにする。
 //
-//   `jinjaMask.ts` の `toTemplate` の逆変換であり, GrapesJS へ渡された出力は
-//   `toTemplate` で無損失に round-trip する。特徴:
-//     - inline `{{ expr }}` chip は *評価値* を表示する(token テキストではない)。
-//     - `{% for %}` ループは sample 要素ごとに 1 行の filled 行へ展開する。先頭行は
-//       `{% for %}`/`{% endfor %}` マーカ(data-jinja-open/close)を保持し, 残りは
-//       data-jinja-loop-clone を付けて復元時に破棄する。
-//     - 単一要素の `{% if %}…{% endif %}` は表示用に taken branch のみを残し,
-//       ブロック全体を data-jinja-block に保持する。
-//     - `<script>` ブロックは inert なマーカへ mask し(GrapesJS は読み込み時に実
-//       script を除去する), 保存時に verbatim 復元する。
+//   描画は原文のブロック木(`jinjaLex.ts` の `parseJinja`)を辿って行う。正規表現の最短一致で
+//   ブロックを拾うと、入れ子・elif・複数要素の枝・表の中の位置を取り違え、戻した結果が原文と
+//   食い違うため。印を置けない位置は `fillAnalysis.ts` の `analyzeFill` が原文の上で先に決め、
+//   ここはその結果に従って描くだけにする。
+//     - if / for の範囲は、採用した枝の本文の前後に置く HTML コメントの印(`o` / `c`)で囲む。
+//       印は採用しなかった枝の原文を持つので、採用した枝への編集だけがその枝へ書き戻る。
+//     - for の 2 回目以降の繰り返しは `x` の印の後ろに並べる表示専用の行で、保存時に捨てる。
+//     - テキストの位置の単独のトークンはチップ、表の中の文・Jinja コメントは `t` の印にする。
+//     - script / 数式は要素ごと伏せたチップ、印を置けない要素は値入りの見た目のまま固める。
 //
 //   値の評価は `jinjaExpr.ts` の許可リスト評価器で行う(`nunjucks.compile` =
 //   `new Function` を使わない)。アプリオリジンの CSP から `'unsafe-eval'` を落とせる
@@ -24,21 +22,32 @@
 //   CSP を継承する)。解釈できない式は**握り潰さず数え**、`toFilledWithDiagnostics`
 //   が呼び出し側へ返す — 「例外を catch して黙って空文字」の形を残さない。
 import type { SampleData } from '@editor/shared';
-import { MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE } from './fillAnalysis';
-import { Filler } from './fillRender';
+import {
+  analyzeFill,
+  type FillAnalysis,
+  type FreezeReason,
+  type FrozenRegion,
+  MATH_TEX_RE,
+  OPAQUE_MATH_RE,
+  OPAQUE_SCRIPT_RE,
+  type OpaqueRegion,
+} from './fillAnalysis';
+import { Filler, loopCtx, parseForHeader, renderDisplay, takenBranchIndex } from './fillRender';
+import { defaultHtmlParser, type HtmlParser } from './htmlParser';
 import {
   DATA_JINJA,
-  DATA_JINJA_BLOCK,
-  DATA_JINJA_CLOSE,
-  DATA_JINJA_LOOP_CLONE,
-  DATA_JINJA_OPEN,
+  DATA_JINJA_LOOP_ROW,
   DATA_OPAQUE,
   DATA_OPAQUE_KIND,
+  rtComment,
 } from './jinjaAttrs';
 import type { JinjaCtx } from './jinjaExpr';
-import { b64encode, htmlEscape, TOKEN_RE, tokenKind } from './jinjaMask';
+import { type JinjaNode, type JinjaToken, parseJinja } from './jinjaLex';
+import { b64encode, htmlEscape } from './jinjaMask';
 
-type Ctx = JinjaCtx;
+// 生成正規表現の定義は `fillAnalysis.ts` に置く。`jinjaMask.ts` の検査と同じ定数を使い、生成と
+// 検査が別々の正規表現に分かれないようにする。
+export { MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE };
 
 /** `toFilled` 1 回ぶんの診断。問題の式を出現順・重複排除で持つ。 */
 export interface FillDiagnostics {
@@ -51,136 +60,289 @@ export interface FillDiagnostics {
    * undefined が正当な値なので対象外(可視テキストの穴だけを数える)。
    */
   readonly missing: readonly string[];
+  /** 固めた要素(タグ名と理由)。本文全体を固めたときは tag='body'。 */
+  readonly frozen: readonly { tag: string; reason: FreezeReason }[];
+  /** 字句解析・ブロックの対応のエラー。無ければ null。 */
+  readonly structureError: string | null;
 }
 
-/** 要素の開始 `<tag` 直後に追加属性を挿入する。 */
-function insertAttrs(element: string, attrs: string): string {
-  return element.replace(/^(<[a-zA-Z][\w-]*)/, `$1 ${attrs}`);
-}
+// ── 1. 出力の部品 ──
 
-/**
- * *テキスト中*(タグ内ではない)の各 Jinja token を locked chip として包む。
- * `{{ var }}` chip の可視ラベルだけが `ctx` に対して評価した値で, `{% %}` / `{# #}` token はリテラルソースを
- * ラベルとして保持する。厳密なソース token は常に data-jinja に入るため, ラベルに
- * 関わらず `toTemplate` が復元する。
- */
-function fillInline(html: string, ctx: Ctx, f: Filler): string {
-  return html
-    .split(/(<[^>]*>)/)
-    .map((part) => {
-      if (part.startsWith('<')) return part; // タグ — 属性内 Jinja は verbatim に round-trip
-      return part.replace(TOKEN_RE, (token) => {
-        const kind = tokenKind(token);
-        const visible = kind === 'var' ? f.expr(token.slice(2, -2).trim(), ctx) : token;
-        return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_JINJA}="${b64encode(token)}">${htmlEscape(visible)}</span>`;
-      });
-    })
-    .join('');
+const RAWTEXT_LABEL: Record<string, string> = { style: 'CSS', textarea: '入力欄', title: '題名' };
+const RAW_LABEL_CHARS = 20;
+
+/** 単独のトークンのチップ。出力は評価した値を、文・Jinja コメントは原文を見せる。 */
+function tokenChip(tok: JinjaToken, ctx: JinjaCtx, f: Filler): string {
+  const kind = tok.kind === 'output' ? 'var' : tok.kind;
+  const visible = tok.kind === 'output' ? f.expr(tok.body, ctx) : tok.source;
+  return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_JINJA}="${b64encode(tok.source)}">${htmlEscape(visible)}</span>`;
 }
 
 /**
- * verbatim ソース(base64)を運ぶ locked かつ opaque な chip。`kind` は component の
- * 種別/スタイルを選び, キャンバスの live-render 層が dispatch できるようにする:
- * `script` → 実行, `math` → MathJax (TeX)で組版 または MathML を描画。
+ * 原文(base64)を運ぶ、中身を見せないチップ。`kind` は部品の種類と見た目を選び、キャンバスの
+ * 描画層が振り分けに使う(`script` → 実行、`math` → MathJax / MathML、`rawtext` → ラベルだけ)。
  */
-function opaqueChip(source: string, kind: 'script' | 'math', label: string): string {
+function opaqueChip(source: string, kind: 'script' | 'math' | 'rawtext', label: string): string {
   return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_OPAQUE}="${b64encode(source)}" ${DATA_OPAQUE_KIND}="${kind}">${label}</span>`;
 }
 
-// 生成正規表現の定義は `fillAnalysis.ts` に置く。`jinjaMask.ts` の検査と同じ定数を使い、生成と
-// 検査が別々の正規表現に分かれないようにする。
-export { MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE };
+/** 表示 HTML の先頭の開始タグ `<tag` の直後へ属性を差し込む。`tagLen` は原文のタグ名の長さ。 */
+function withAttrs(html: string, tagLen: number, attrs: string): string {
+  const at = 1 + tagLen;
+  return `${html.slice(0, at)} ${attrs}${html.slice(at)}`;
+}
+
+const LOOP_ROW_ATTR = `${DATA_JINJA_LOOP_ROW}=""`;
+
+// ── 2. 編集用の描画 ──
+
+interface EmitCtx {
+  src: string;
+  a: FillAnalysis;
+  f: Filler;
+  nextId: () => number;
+  frozen: readonly FrozenRegion[];
+  opaque: readonly OpaqueRegion[];
+}
+
+/** for のテンプレートの行で印を付ける要素。開始位置 → タグ名の長さ。 */
+type Rows = ReadonlyMap<number, number>;
+const NO_ROWS: Rows = new Map();
+
+function mismatch(): never {
+  throw new Error('fillJinja: 解析と描画の不整合');
+}
+
+/** 範囲の最上位の要素(親が範囲の外)。for のテンプレートの行として印を付ける。 */
+function topLevelRows(e: EmitCtx, from: number, to: number, inherited: Rows): Rows {
+  const rows = new Map(inherited);
+  for (const el of e.a.scan.elements) {
+    if (el.start < from || el.start >= to) continue;
+    if (el.parent === null || el.parent.start < from) rows.set(el.start, el.tag.length);
+  }
+  return rows;
+}
+
+/** 固めた要素の表示。値入りの見た目のまま、原文を `data-opaque` に運ぶ。 */
+function emitFrozen(e: EmitCtx, r: FrozenRegion, ctx: JinjaCtx, rows: Rows): string {
+  const source = e.src.slice(r.start, r.end);
+  if (r.form === 'chip') return opaqueChip(source, 'rawtext', RAWTEXT_LABEL[r.tag] ?? r.tag);
+  if (r.form === 'body') return mismatch();
+  const parsed = parseJinja(source);
+  if (!parsed.ok) return mismatch();
+  let display = renderDisplay(source, parsed.nodes, ctx, e.f);
+  const opaque = `${DATA_OPAQUE}="${b64encode(source)}" ${DATA_OPAQUE_KIND}="frozen"`;
+  if (r.tag === 'table') {
+    // 表の行の間の値は HTML パーサが表の手前へ追い出す。表そのものに印を付けると追い出された
+    // 値が印の外に残って保存へ混ざるので、レイアウトを変えない div で包み、追い出し先ごと運ぶ。
+    if (rows.has(r.start)) display = withAttrs(display, r.tag.length, LOOP_ROW_ATTR);
+    return `<div data-gjs-type="jinja-frozen" class="jinja-frozen-body" ${opaque}>${display}</div>`;
+  }
+  const type = r.form === 'element-svg' ? 'jinja-frozen-svg' : 'jinja-frozen';
+  const attrs = [
+    `data-gjs-type="${type}"`,
+    opaque,
+    ...(rows.has(r.start) ? [LOOP_ROW_ATTR] : []),
+  ].join(' ');
+  return withAttrs(display, r.tag.length, attrs);
+}
+
+function emitOpaque(e: EmitCtx, r: OpaqueRegion): string {
+  return opaqueChip(e.src.slice(r.start, r.end), r.kind, r.kind === 'script' ? 'JS' : '∑');
+}
+
+/** 原文のまま残すブロック・トークン(属性値の中、または本物の HTML コメントの中)。 */
+function isVerbatim(e: EmitCtx, start: number): boolean {
+  return e.a.attrTokens.has(start) || e.a.scan.contextAt(start).kind === 'htmlComment';
+}
 
 /**
- * 構造パスの前に, GrapesJS と相性の悪い / math コンテンツを opaque chip へ mask
- * する。GrapesJS が `<script>` を除去したり MathML を再構成したりできず, テキスト
- * 編集が数式を分断できないようにするため。MathJax (TeX)も MathML も mask する。
- * 順序が重要: 要素(script, 次に `<math>`)を TeX より先に処理し, script/MathML の
- * body が TeX として再走査されないようにする。
+ * [from, to) の原文を、ノード列に沿って編集用に描く。固めた領域・伏せる領域はテキストの途中から
+ * 始まり、後ろのノードを丸ごと飲み込むことがあるので、ノード単位ではなく位置のカーソルで進める。
  */
-function maskOpaque(html: string): string {
-  let s = html;
-  s = s.replace(OPAQUE_SCRIPT_RE, (m) => opaqueChip(m, 'script', 'JS'));
-  s = s.replace(OPAQUE_MATH_RE, (m) => opaqueChip(m, 'math', '∑'));
-  s = s.replace(MATH_TEX_RE, (m) => opaqueChip(m, 'math', '∑'));
-  return s;
+function emitRange(
+  e: EmitCtx,
+  nodes: readonly JinjaNode[],
+  from: number,
+  to: number,
+  ctx: JinjaCtx,
+  rows: Rows,
+): string {
+  let out = '';
+  let pos = from;
+
+  /** pos から end までのテキスト。途中で始まる領域と、行の印を付ける開始タグを差し替える。 */
+  const emitText = (end: number) => {
+    while (pos < end) {
+      const fr = e.frozen.find((r) => r.start >= pos && r.start < end);
+      const op = e.opaque.find((r) => r.start >= pos && r.start < end);
+      let row = -1;
+      for (const s of rows.keys()) if (s >= pos && s < end && (row < 0 || s < row)) row = s;
+      const next = Math.min(fr?.start ?? end, op?.start ?? end, row < 0 ? end : row);
+      out += e.src.slice(pos, next);
+      pos = next;
+      if (pos >= end) break;
+      if (fr && fr.start === pos) {
+        out += emitFrozen(e, fr, ctx, rows);
+        pos = fr.end;
+      } else if (op && op.start === pos) {
+        out += emitOpaque(e, op);
+        pos = op.end;
+      } else {
+        const at = pos + 1 + (rows.get(pos) ?? 0);
+        out += `${e.src.slice(pos, at)} ${LOOP_ROW_ATTR}`;
+        pos = at;
+      }
+    }
+  };
+
+  for (const n of nodes) {
+    if (n.type === 'text') {
+      if (n.end <= pos) continue;
+      if (n.start > pos) mismatch();
+      emitText(n.end);
+      continue;
+    }
+    const start = n.type === 'token' ? n.token.start : n.start;
+    const end = n.type === 'token' ? n.token.end : n.end;
+    if (end <= pos) continue;
+    if (start !== pos) mismatch();
+    out += emitNode(e, n, ctx, rows);
+    pos = end;
+  }
+  if (pos < to) emitText(to);
+  if (pos !== to) mismatch();
+  return out;
 }
 
-// `{% for v in iter %}<el>…</el>{% endfor %}` — body は nested statement を持たない
-// 単一要素(`expandLoops` が受理する形)。
-const FOR_RE = new RegExp(
-  '(\\{%\\s*for\\s+(\\w+)\\s+in\\s+([\\s\\S]*?)%\\})' + // 1 open, 2 var, 3 iterable
-    '\\s*(<([a-zA-Z][\\w-]*)\\b(?:[^>]*>)(?:(?!\\{%)[\\s\\S])*?<\\/\\5>)\\s*' + // 4 element, 5 tag
-    '(\\{%\\s*endfor\\s*%\\})', // 6 close
-  'g',
-);
-
-function expandLoops(html: string, ctx: Ctx, f: Filler): string {
-  return html.replace(
-    FOR_RE,
-    (_m, open: string, varName: string, iter: string, element: string, _tag, close: string) => {
-      const items = f.array(iter.trim(), ctx);
-      const tplRow = insertAttrs(
-        element,
-        `${DATA_JINJA_OPEN}="${b64encode(open)}" ${DATA_JINJA_CLOSE}="${b64encode(close)}"`,
+function emitNode(e: EmitCtx, n: Exclude<JinjaNode, { type: 'text' }>, ctx: JinjaCtx, rows: Rows) {
+  const { src, f } = e;
+  if (n.type === 'token') {
+    const tok = n.token;
+    if (isVerbatim(e, tok.start)) return tok.source;
+    if (e.a.commentOnlyTokens.has(tok.start)) return rtComment({ kind: 't', payload: tok.source });
+    return tokenChip(tok, ctx, f);
+  }
+  if (isVerbatim(e, n.start)) return src.slice(n.start, n.end);
+  switch (n.type) {
+    case 'raw': {
+      const label = htmlEscape(src.slice(n.open.end, n.close.start).slice(0, RAW_LABEL_CHARS));
+      return opaqueChip(src.slice(n.start, n.end), 'rawtext', label);
+    }
+    case 'opaqueBlock':
+      return mismatch();
+    case 'if': {
+      const id = e.nextId();
+      const i = takenBranchIndex(n, ctx, f);
+      if (i < 0) {
+        const open = rtComment({ kind: 'o', id, payload: src.slice(n.start, n.end) });
+        return open + rtComment({ kind: 'c', id, payload: '' });
+      }
+      const br = n.branches[i];
+      return (
+        rtComment({ kind: 'o', id, payload: src.slice(n.start, br.bodyStart) }) +
+        emitRange(e, br.children, br.bodyStart, br.bodyEnd, ctx, rows) +
+        rtComment({ kind: 'c', id, payload: src.slice(br.bodyEnd, n.end) })
       );
-      // iterable が空: ループが生き残るよう(未 fill の)テンプレート行を残す。
-      if (items.length === 0) return fillInline(tplRow, ctx, f);
-      return items
-        .map((item, i) => {
-          const loopCtx: Ctx = {
-            ...ctx,
-            [varName]: item,
-            loop: {
-              index: i + 1,
-              index0: i,
-              first: i === 0,
-              last: i === items.length - 1,
-              length: items.length,
-            },
-          };
-          // 先頭行が for/endfor マーカを運ぶ。clone は表示専用。
-          const row = i === 0 ? tplRow : insertAttrs(element, DATA_JINJA_LOOP_CLONE);
-          return fillInline(row, loopCtx, f);
-        })
-        .join('\n');
-    },
-  );
-}
-
-// `{% if c %}A{% else %}B{% endif %}` (else は任意)。Non-greedy: nesting なしを
-// 前提とし, レポートテンプレートの単一要素 branch に合致する。`jinjaMask.ts` の
-// `toTemplate` が data-jinja-block 復元段の形状検査でも同じ定数を使う(生成と検査の共有)。
-export const IF_RE =
-  /\{%\s*if\s+([\s\S]*?)%\}([\s\S]*?)(?:\{%\s*else\s*%\}([\s\S]*?))?\{%\s*endif\s*%\}/g;
-
-function collapseIfs(html: string, ctx: Ctx, f: Filler): string {
-  return html.replace(IF_RE, (whole, cond: string, trueB: string, elseB: string | undefined) => {
-    const taken = (f.cond(cond.trim(), ctx) ? trueB : (elseB ?? '')).trim();
-    const el = taken.match(/^<([a-zA-Z][\w-]*)\b[^>]*>[\s\S]*<\/\1>$/);
-    // marker を運べるのは単一要素 branch のみ。それ以外は生ブロックを残し,
-    // `jinjaMask.ts` の inline chip に処理させる(なお round-trip する)。
-    if (!el) return whole;
-    return fillInline(insertAttrs(taken, `${DATA_JINJA_BLOCK}="${b64encode(whole)}"`), ctx, f);
-  });
+    }
+    case 'for': {
+      const id = e.nextId();
+      const { body, elseBranch } = n;
+      const h = parseForHeader(n.open.body);
+      if (!h) f.unsupported.add(n.open.body);
+      const items = h ? f.array(h.iter, ctx) : [];
+      if (items.length === 0 && elseBranch) {
+        return (
+          rtComment({ kind: 'o', id, payload: src.slice(n.start, elseBranch.bodyStart) }) +
+          emitRange(
+            e,
+            elseBranch.children,
+            elseBranch.bodyStart,
+            elseBranch.bodyEnd,
+            ctx,
+            NO_ROWS,
+          ) +
+          rtComment({ kind: 'c', id, payload: src.slice(elseBranch.bodyEnd, n.end) })
+        );
+      }
+      const row = topLevelRows(e, body.bodyStart, body.bodyEnd, rows);
+      const draw = (c: JinjaCtx, r: Rows) =>
+        emitRange(e, body.children, body.bodyStart, body.bodyEnd, c, r);
+      let out = rtComment({ kind: 'o', id, payload: src.slice(n.start, body.bodyStart) });
+      if (items.length === 0 || !h) {
+        // 反復対象が空: 本文を 1 回(ループ変数なし)描き、テンプレートの行として残す。
+        out += draw(ctx, row);
+      } else {
+        out += draw(loopCtx(ctx, h.vars, items, 0), row);
+        out += rtComment({ kind: 'x', id });
+        for (let i = 1; i < items.length; i++) out += draw(loopCtx(ctx, h.vars, items, i), NO_ROWS);
+      }
+      return out + rtComment({ kind: 'c', id, payload: src.slice(body.bodyEnd, n.end) });
+    }
+  }
 }
 
 /**
- * 生 Jinja2(全文または fragment) -> filled で GrapesJS-safe かつ round-trip 可能な HTML。
- * 併せて、許可リストの外で解釈できなかった式を返す(0 件であることをテストが主張する)。
+ * 本文全体を固める。文書全体なら `<body>` の中身だけを包み、`<head>` 側は原文のまま残す
+ * (編集画面は本文の中身しか使わない)。ブロック木が無いときは Jinja を評価せず原文を見せる。
+ */
+function emitWholeBody(raw: string, a: FillAnalysis, ctx: JinjaCtx, f: Filler): string {
+  const body = a.scan.elements.find((el) => el.tag === 'body');
+  let from = 0;
+  let to = raw.length;
+  if (body) {
+    from = body.startTagEnd;
+    to = body.end;
+    // 終了タグ `</body…>` があれば、その手前まで。
+    if (!body.implicitlyClosed) while (to > from && raw[to - 1] !== '<') to--;
+    if (!body.implicitlyClosed && to > from) to--;
+  }
+  const inner = raw.slice(from, to);
+  const parsed = a.parse.ok ? parseJinja(inner) : null;
+  const display = parsed?.ok ? renderDisplay(inner, parsed.nodes, ctx, f) : inner;
+  const wrapped = `<div data-gjs-type="jinja-frozen" class="jinja-frozen-body" ${DATA_OPAQUE}="${b64encode(inner)}" ${DATA_OPAQUE_KIND}="body">${display}</div>`;
+  return raw.slice(0, from) + wrapped + raw.slice(to);
+}
+
+// ── 3. 公開関数 ──
+
+/**
+ * 生 Jinja2(全文または fragment) -> 作成タブのキャンバス用の、`toTemplate` で原文へ戻る HTML。
+ * 併せて、許可リストの外で解釈できなかった式と固めた要素を返す。`_parse` は自己検査で使う予定の
+ * DOM パーサで、Worker と Node からは linkedom のものが渡される。
  */
 export function toFilledWithDiagnostics(
   raw: string,
   sample: SampleData,
+  _parse: HtmlParser = defaultHtmlParser,
 ): { html: string; diagnostics: FillDiagnostics } {
   const f = new Filler();
-  const ctx = sample as Ctx;
-  let s = raw;
-  s = maskOpaque(s);
-  s = expandLoops(s, ctx, f);
-  s = collapseIfs(s, ctx, f);
-  s = fillInline(s, ctx, f);
-  return { html: s, diagnostics: { unsupported: [...f.unsupported], missing: [...f.missing] } };
+  const a = analyzeFill(raw);
+  const ctx = sample as JinjaCtx;
+  let html: string;
+  if (!a.parse.ok || a.frozen.some((r) => r.form === 'body')) {
+    html = emitWholeBody(raw, a, ctx, f);
+  } else {
+    let id = 0;
+    const e: EmitCtx = {
+      src: raw,
+      a,
+      f,
+      nextId: () => ++id,
+      frozen: a.frozen,
+      opaque: a.opaque,
+    };
+    html = emitRange(e, a.parse.nodes, 0, raw.length, ctx, NO_ROWS);
+  }
+  return {
+    html,
+    diagnostics: {
+      unsupported: [...f.unsupported],
+      missing: [...f.missing],
+      frozen: a.frozen.map((r) => ({ tag: r.tag, reason: r.reason })),
+      structureError: a.parse.ok ? null : a.parse.error.message,
+    },
+  };
 }
 
 /** 既に警告した式(同じ式をループ展開や再読込のたびに何度も出さないため)。 */
@@ -192,8 +354,12 @@ const warned = new Set<string>();
  * `catch` で全部を空文字へ落とすと例外もコンソール出力も残らず、CSP で
  * コンパイルが落ちても「値が消えた」以外の手掛かりが無くなる。
  */
-export function toFilled(raw: string, sample: SampleData): string {
-  const { html, diagnostics } = toFilledWithDiagnostics(raw, sample);
+export function toFilled(
+  raw: string,
+  sample: SampleData,
+  parse: HtmlParser = defaultHtmlParser,
+): string {
+  const { html, diagnostics } = toFilledWithDiagnostics(raw, sample, parse);
   const fresh = diagnostics.unsupported.filter((e) => !warned.has(e));
   if (fresh.length > 0) {
     for (const e of fresh) warned.add(e);

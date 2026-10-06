@@ -135,6 +135,8 @@ function isOpaqueShape(dec: string, kind: string | null): boolean {
   }
   if (kind === 'body') return parseJinja(dec).ok;
   if (kind !== 'frozen' && kind !== 'rawtext') return false;
+  // `{% raw %}` ブロックも中身を見せないチップにする(中身が文字どおり出るので要素と同じ扱い)。
+  if (kind === 'rawtext' && soleBlock(dec)?.type === 'raw') return true;
   // 固めた要素は原文の 1 要素そのもの。外側へ HTML を足した形を弾く。
   const lexed = lexJinja(dec);
   if (!lexed.ok) return false;

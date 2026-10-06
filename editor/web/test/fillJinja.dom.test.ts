@@ -59,9 +59,11 @@ describe('toFilled substitutes values for display', () => {
     expect(filled).toContain('トヨタ自動車');
     expect(filled).toContain('ソニーグループ');
     expect(filled).toContain('三菱UFJ');
-    // first row keeps the for/endfor markers; the other two are clones
-    expect((filled.match(/data-jinja-loop-clone/g) ?? []).length).toBe(2);
-    expect(filled).toContain('data-jinja-open=');
+    // 2 行目以降は x の印の後ろの表示専用の行。テンプレートの行(1 行目)にだけ行の印が付く。
+    expect((filled.match(/<!--jinja-rt:x:/g) ?? []).length).toBe(1);
+    expect((filled.match(/data-jinja-loop-row/g) ?? []).length).toBe(1);
+    expect(filled.indexOf('data-jinja-loop-row')).toBeLessThan(filled.indexOf('トヨタ自動車'));
+    expect(filled.indexOf('<!--jinja-rt:x:')).toBeLessThan(filled.indexOf('ソニーグループ'));
   });
 
   it('keeps only the taken branch of an if/else', () => {
@@ -71,7 +73,7 @@ describe('toFilled substitutes values for display', () => {
     );
     expect(filled).toContain('class="up"');
     expect(filled).not.toContain('class="down"');
-    expect(filled).toContain('data-jinja-block=');
+    expect(filled).toContain('<!--jinja-rt:o:');
   });
 });
 
@@ -241,8 +243,8 @@ describe('toFilled は解釈できない式を黙って捨てない', () => {
       sample,
     );
     expect(diagnostics.unsupported).toContain('holdings | reverse');
-    expect(html).not.toContain('data-jinja-loop-clone');
-    expect(html).toContain('data-jinja-open=');
+    expect(html).not.toContain('<!--jinja-rt:x:');
+    expect(html).toContain('data-jinja-loop-row');
   });
 
   it('`toFilled` は解釈できない式をコンソールへ 1 度だけ知らせる', () => {
@@ -268,12 +270,12 @@ describe('toFilled の端', () => {
       holdings: 7,
     });
     const doc = new DOMParser().parseFromString(out, 'text/html');
-    // 残る 1 つは round-trip 用の雛形行(`data-jinja-open`/`close` を運ぶ未 fill の
-    // テンプレート行)で、値入りの行は 1 つも増えない。`not.toContain('<li>')` だと
+    // 残る 1 つは round-trip 用のテンプレートの行(ループ変数なしで描いた行)で、値入りの行は
+    // 1 つも増えない。`not.toContain('<li>')` だと
     // 属性付きの `<li ...>` に素通りされるので、要素数で数える。
     const lis = doc.querySelectorAll('li');
     expect(lis.length).toBe(1);
-    expect(lis[0].hasAttribute('data-jinja-open')).toBe(true);
+    expect(lis[0].hasAttribute('data-jinja-loop-row')).toBe(true);
     expect(out).not.toContain('h.name');
     expect(doc.body.textContent?.trim()).toBe('');
   });
@@ -282,18 +284,23 @@ describe('toFilled の端', () => {
     expect(toFilled('<p>{% set a = 1 %}x</p>', {})).toContain('{% set a = 1 %}');
   });
 
-  it('if は else の有無どちらでも採用枝を展開し、枝が単一要素でなければ生ブロックを残す', () => {
+  it('if は else の有無・枝の形によらず採用枝を見せ、往復で戻る', () => {
     expect(toFilled('{% if ok %}<p>A</p>{% else %}<p>B</p>{% endif %}', { ok: false })).toContain(
       'B',
     );
-    // else 無しで非採用: taken(空文字)は単一要素と判定できないため marker を運べず、
-    // ブロック全体が生のまま残って inline token 化される({% if %}/{% endif %} だけが
-    // チップになり、中の "A" はそのままテキストとして残る)。
-    const noElse = toFilled('{% if ok %}<p>A</p>{% endif %}', { ok: false });
-    expect(noElse).toContain('{% if ok %}');
-    // taken 側(2 要素、開始・終了タグが揃わない)も単一要素ではないので同じ扱い。
-    const raw = '{% if ok %}<p>A</p><div>A2</div>{% endif %}';
-    expect(toFilled(raw, { ok: true })).toContain('{% if ok %}');
+    const cases: Array<[string, Record<string, unknown>]> = [
+      // else 無しで非採用: 印の間は空になり、ブロック全体が開きの印に入る。
+      ['<div>{% if ok %}<p>A</p>{% endif %}</div>', { ok: false }],
+      // 採用した枝が複数要素。
+      ['<div>{% if ok %}<p>A</p><div>A2</div>{% endif %}</div>', { ok: true }],
+    ];
+    for (const [raw, data] of cases) {
+      const back = toTemplate(toFilled(raw, data), { asFragment: true });
+      expect(back).toBe(raw);
+    }
+    expect(toFilled('<div>{% if ok %}<p>A</p>{% endif %}</div>', { ok: false })).not.toContain(
+      '<p>A</p>',
+    );
   });
 });
 
