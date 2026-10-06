@@ -24,7 +24,7 @@
 //   CSP を継承する)。解釈できない式は**握り潰さず数え**、`toFilledWithDiagnostics`
 //   が呼び出し側へ返す — 「例外を catch して黙って空文字」の形を残さない。
 import type { SampleData } from '@editor/shared';
-import { MATH_TEX_RE } from './fillAnalysis';
+import { MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE } from './fillAnalysis';
 import {
   DATA_JINJA,
   DATA_JINJA_BLOCK,
@@ -133,13 +133,9 @@ function opaqueChip(source: string, kind: 'script' | 'math', label: string): str
   return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_OPAQUE}="${b64encode(source)}" ${DATA_OPAQUE_KIND}="${kind}">${label}</span>`;
 }
 
-// opaque mask の生成正規表現。`jinjaMask.ts` の `toTemplate` が data-opaque 復元段で
-// 「復号値が生成 1 単位と完全一致するか」を検査する際にも同じ定数を使う — 生成と検査が
-// 別々の正規表現に分かれると、片側だけ緩めても round-trip テストが気付けないため。
-export const OPAQUE_SCRIPT_RE = /<script\b[\s\S]*?<\/script>/gi;
-export const OPAQUE_MATH_RE = /<math\b[\s\S]*?<\/math>/gi;
-// TeX 区切りの定義は `fillAnalysis.ts` に置く。`jinjaMask.ts` がここから読むので出し直す。
-export { MATH_TEX_RE };
+// 生成正規表現の定義は `fillAnalysis.ts` に置く。`jinjaMask.ts` の検査と同じ定数を使い、生成と
+// 検査が別々の正規表現に分かれないようにする。
+export { MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE };
 
 /**
  * 構造パスの前に, GrapesJS と相性の悪い / math コンテンツを opaque chip へ mask

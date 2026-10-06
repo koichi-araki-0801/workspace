@@ -63,6 +63,11 @@ export interface FillAnalysis {
 // ない — レポート本文の通貨表記と衝突するため。)
 export const MATH_TEX_RE = /\$\$[\s\S]*?\$\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g;
 
+// script / MathML の 1 要素。`jinjaMask.ts` の `toTemplate` は、伏せた内容の復号値がこの 1 要素と
+// 完全に一致するかを検査する(窓へ要素の外の HTML を足す形を弾く)。
+export const OPAQUE_SCRIPT_RE = /<script\b[\s\S]*?<\/script>/gi;
+export const OPAQUE_MATH_RE = /<math\b[\s\S]*?<\/math>/gi;
+
 // ── 3. 規則表 ──
 
 /** HTML パーサがテキストや要素を表の外へ追い出す(foster parenting)親。 */

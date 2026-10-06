@@ -10,7 +10,8 @@
 //   serialization-safe な placeholder として出力し, 最後の文字列パスで decode する。
 //   これにより式中の `<`, `>`, `&` 等が serializer に HTML エスケープされない。
 
-import { IF_RE, MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE } from './fillJinja';
+import { findEditingMarkers } from '@editor/shared';
+import { MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE } from './fillAnalysis';
 import { formatHtml } from './formatOutput';
 import { defaultHtmlParser, type HtmlParser } from './htmlParser';
 import { maskJinja, scanHtml } from './htmlScan';
@@ -21,10 +22,21 @@ import {
   DATA_JINJA_BLOCK,
   DATA_JINJA_CLOSE,
   DATA_JINJA_LOOP_CLONE,
+  DATA_JINJA_LOOP_ROW,
   DATA_JINJA_OPEN,
   DATA_OPAQUE,
+  DATA_OPAQUE_KIND,
+  parseRtCommentData,
+  type RtMarker,
 } from './jinjaAttrs';
-import { lexJinja } from './jinjaLex';
+import {
+  isBlockTagKeyword,
+  type JinjaBranch,
+  type JinjaNode,
+  type JinjaToken,
+  lexJinja,
+  parseJinja,
+} from './jinjaLex';
 
 export const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
 // Private-use 区切り文字: HTML serialization をエスケープされずに通過する。
@@ -60,7 +72,7 @@ export interface ToTemplateOptions {
   /**
    * true なら復元前の(= Jinja を placeholder に退避済みの)HTML を整形する。確定版テンプレを
    * git に読める形で残すための pretty-print。整形は placeholder マスク後・decode 前に行うので
-   * Jinja 構文は壊れない(下記 step 2.5 参照)。
+   * Jinja 構文は壊れない(下記 step 7 参照)。
    */
   pretty?: boolean;
 }
@@ -74,21 +86,35 @@ function tryB64decode(b: string): string | null {
   }
 }
 
-/**
- * 復号値が「ちょうど 1 つの Jinja トークンそのもの」か。生成側と同じ `TOKEN_RE` で抽出し、
- * 全体を 1 トークンが過不足なく覆うことを要求する(chip/open/close の生成は 1 トークンしか
- * 作らない)。`}}` の後ろへ HTML を継ぎ足す形は 2 トークン以上に割れて弾かれる。
- */
-function isSingleJinjaToken(dec: string, kind?: 'stmt'): boolean {
-  const toks = extractJinjaTokens(dec);
-  if (toks.length !== 1 || toks[0] !== dec) return false;
-  return kind === undefined || tokenKind(dec) === kind;
+/** `src` 全体をちょうど 1 個の Jinja トークンが覆うなら、そのトークン。 */
+function soleToken(src: string): JinjaToken | null {
+  const lexed = lexJinja(src);
+  if (!lexed.ok || lexed.tokens.length !== 1) return null;
+  const tok = lexed.tokens[0];
+  return tok.start === 0 && tok.end === src.length ? tok : null;
 }
 
 /**
- * 復号値が `re`(生成側の抽出正規表現)の 1 マッチだけで全体を覆うか。opaque/if ブロックの
- * ように内部に HTML を含む形でも、生成 1 単位を超える連結や、タグの外への HTML 混入
- * (`</script>` の後ろへ `<img onerror>` 等)を弾く。
+ * 復号値が「ちょうど 1 つの Jinja トークンそのもの」か(chip/open/close の生成は 1 トークンしか
+ * 作らない)。`}}` の後ろへ HTML を継ぎ足す形は 2 トークン以上に割れて弾かれる。
+ */
+function isSingleJinjaToken(dec: string, kind?: 'stmt'): boolean {
+  const tok = soleToken(dec);
+  return tok !== null && (kind === undefined || tok.kind === kind);
+}
+
+/** `src` 全体を覆う、最上位でただ 1 個のブロック。 */
+function soleBlock(src: string): JinjaNode | null {
+  const r = parseJinja(src);
+  if (!r.ok || r.nodes.length !== 1) return null;
+  const n = r.nodes[0];
+  if (n.type === 'text' || n.type === 'token') return null;
+  return n.start === 0 && n.end === src.length ? n : null;
+}
+
+/**
+ * 復号値が `re`(生成側の抽出正規表現)の 1 マッチだけで全体を覆うか。生成 1 単位を超える連結や、
+ * タグの外への HTML 混入(`</script>` の後ろへ `<img onerror>` 等)を弾く。
  */
 function isSoleFullMatch(dec: string, re: RegExp): boolean {
   const g = re.global ? re : new RegExp(re.source, `${re.flags}g`);
@@ -96,13 +122,157 @@ function isSoleFullMatch(dec: string, re: RegExp): boolean {
   return m !== null && m.length === 1 && m[0] === dec;
 }
 
-/** 復号値が opaque mask の生成 3 形(単一の script / math / TeX)のいずれかに完全一致するか。 */
-function isOpaqueShape(dec: string): boolean {
-  return (
-    isSoleFullMatch(dec, OPAQUE_SCRIPT_RE) ||
-    isSoleFullMatch(dec, OPAQUE_MATH_RE) ||
-    isSoleFullMatch(dec, MATH_TEX_RE)
-  );
+const RAWTEXT_CHIP_TAGS = new Set(['style', 'textarea', 'title']);
+
+/** 復号値が、伏せた内容の種類ごとに生成側が作りうる形か。種類の無いものは旧形式の script / math。 */
+function isOpaqueShape(dec: string, kind: string | null): boolean {
+  if (kind === null || kind === 'script' || kind === 'math') {
+    return (
+      isSoleFullMatch(dec, OPAQUE_SCRIPT_RE) ||
+      isSoleFullMatch(dec, OPAQUE_MATH_RE) ||
+      isSoleFullMatch(dec, MATH_TEX_RE)
+    );
+  }
+  if (kind === 'body') return parseJinja(dec).ok;
+  if (kind !== 'frozen' && kind !== 'rawtext') return false;
+  // 固めた要素は原文の 1 要素そのもの。外側へ HTML を足した形を弾く。
+  const lexed = lexJinja(dec);
+  if (!lexed.ok) return false;
+  const tops = scanHtml(maskJinja(dec, lexed.tokens)).elements.filter((e) => e.parent === null);
+  if (tops.length !== 1 || tops[0].start !== 0 || tops[0].end !== dec.length) return false;
+  return kind === 'frozen' || RAWTEXT_CHIP_TAGS.has(tops[0].tag);
+}
+
+// ── 1a. 範囲の印 ──
+// 印は兄弟の並びの中で開き・閉じが入れ子になる(`fillJinja.ts` の `toFilled` が本文の前後に置く)。
+// 親の違う開き・閉じは、それぞれの親で相手が見つからずに違反になる。
+
+interface RtNode {
+  node: Comment;
+  marker: RtMarker;
+}
+interface RtPair {
+  open: Comment;
+  close: Comment;
+  /** 2 回目以降の繰り返しの始まり。 */
+  repeat: Comment | null;
+  head: string;
+  tail: string;
+}
+interface RtSingle {
+  node: Comment;
+  payload: string;
+}
+
+function collectRtComments(doc: Document, violations: string[]): RtNode[] {
+  const out: RtNode[] = [];
+  const walk = (n: Node) => {
+    for (const ch of Array.from(n.childNodes)) {
+      if (ch.nodeType === 8) {
+        const m = parseRtCommentData((ch as Comment).data);
+        if (m === 'invalid') violations.push('rt-comment');
+        else if (m !== null) out.push({ node: ch as Comment, marker: m });
+      } else walk(ch);
+    }
+  };
+  walk(doc);
+  return out;
+}
+
+/** 開き・閉じを親ごとに対応づけ、前半 + 後半の形を検査する。`t` は 1 個のトークンに限る。 */
+function pairRtComments(
+  nodes: RtNode[],
+  violations: string[],
+): { pairs: RtPair[]; singles: RtSingle[] } {
+  const pairs: RtPair[] = [];
+  const singles: RtSingle[] = [];
+  const byParent = new Map<Node, RtNode[]>();
+  for (const n of nodes) {
+    const p = n.node.parentNode;
+    // 文書の直下にはテキストを置けないので、印をそこへ戻せない。
+    if (p === null || p.nodeType === 9) {
+      violations.push('rt-pair');
+      continue;
+    }
+    byParent.set(p, [...(byParent.get(p) ?? []), n]);
+  }
+  for (const group of byParent.values()) {
+    const stack: { id: number; node: Comment; head: string; repeat: Comment | null }[] = [];
+    for (const { node, marker } of group) {
+      if (marker.kind === 't') {
+        const tok = soleToken(marker.payload);
+        if (tok === null || isBlockTagKeyword(tok.keyword)) violations.push('rt-shape');
+        else singles.push({ node, payload: marker.payload });
+        continue;
+      }
+      if (marker.kind === 'o') {
+        stack.push({ id: marker.id, node, head: marker.payload, repeat: null });
+        continue;
+      }
+      const top = stack[stack.length - 1];
+      if (top === undefined || top.id !== marker.id) {
+        violations.push('rt-pair');
+        continue;
+      }
+      if (marker.kind === 'x') {
+        if (top.repeat !== null) violations.push('rt-pair');
+        top.repeat = node;
+        continue;
+      }
+      stack.pop();
+      pairs.push({
+        open: top.node,
+        close: node,
+        repeat: top.repeat,
+        head: top.head,
+        tail: marker.payload,
+      });
+    }
+    if (stack.length > 0) violations.push('rt-pair');
+  }
+  for (const p of pairs) checkPairShape(p, violations);
+  return { pairs, singles };
+}
+
+/**
+ * 前半 + 後半がちょうど 1 個の if / for で、合わせ目が枝の本文の位置(本文が空になった位置)に
+ * あるか。後半が空なのは採用した枝が無い if で、前半だけでブロックが閉じ、間は空でなければならない。
+ */
+function checkPairShape(p: RtPair, violations: string[]): void {
+  if (p.tail === '') {
+    const blk = soleBlock(p.head);
+    if (blk?.type !== 'if' && blk?.type !== 'for') violations.push('rt-shape');
+    if (p.repeat !== null) violations.push('rt-pair');
+    for (let n = p.open.nextSibling; n !== null && n !== p.close; n = n.nextSibling) {
+      if (n.nodeType !== 3 || (n.nodeValue ?? '').trim() !== '') {
+        violations.push('rt-body');
+        break;
+      }
+    }
+    return;
+  }
+  const blk = soleBlock(p.head + p.tail);
+  const at = p.head.length;
+  const seam = (b: JinjaBranch | null) => b !== null && b.bodyStart === at && b.bodyEnd === at;
+  if (blk?.type === 'if') {
+    if (!blk.branches.some(seam)) violations.push('rt-shape');
+    // 繰り返しを持つのは for だけ。if の組の x は採用した枝の後ろを黙って捨てることになる。
+    if (p.repeat !== null) violations.push('rt-pair');
+  } else if (blk?.type === 'for') {
+    if (!seam(blk.body) && !seam(blk.elseBranch)) violations.push('rt-shape');
+  } else {
+    violations.push('rt-shape');
+  }
+}
+
+/** `from` から `until` の手前までの兄弟を取り除く(`from` を含む)。 */
+function removeSiblings(from: Node, until: Node): void {
+  let n: Node | null = from;
+  while (n !== null && n !== until) {
+    const next: Node | null = n.nextSibling;
+    n.parentNode?.removeChild(n);
+    n = next;
+  }
 }
 
 export function toTemplate(
@@ -123,15 +293,19 @@ export function toTemplate(
   // チャネル別形状検査の違反。1 件でもあれば復元せず throw する(黙って残す/削るをしない)。
   const violations: string[] = [];
 
-  // 0. `fillJinja.ts` の `toFilled` が生成した loop clone を破棄する: 展開した
-  //    `{% for %}` の先頭(テンプレート)行だけが data-jinja-open/close を運ぶ。
-  //    filled clone は表示専用であり, 復元後のテンプレートに残してはならない。
+  // 1. 範囲の印を集めて対応づけ、中身の形を検査する。
+  const { pairs, singles } = pairRtComments(collectRtComments(doc, violations), violations);
+
+  // 2. for の 2 回目以降の繰り返し(x の印から閉じの手前まで)は表示専用なので捨てる。
+  for (const p of pairs) if (p.repeat !== null) removeSiblings(p.repeat, p.close);
+
+  // 3. 旧形式の表示専用 clone 行を捨てる(旧形式の下書きを読むため。`toFilled` が新形式を
+  //    出すようになったら外す)。
   doc.querySelectorAll(`[${DATA_JINJA_LOOP_CLONE}]`).forEach((el) => {
     el.remove();
   });
 
-  // 1. chip span -> placeholder テキストへ復元する。復号値は単一 Jinja トークンに限る
-  //    (`fillInline` の生成形)。
+  // 4a. chip span -> placeholder テキストへ復元する。復号値は単一 Jinja トークンに限る。
   doc.querySelectorAll(`[${DATA_JINJA}]`).forEach((el) => {
     const enc = el.getAttribute(DATA_JINJA);
     if (enc === null) return;
@@ -143,39 +317,47 @@ export function toTemplate(
     el.replaceWith(ph(enc));
   });
 
-  // 1b. opaque mask されたコンテンツを復元する — `<script>`, MathML `<math>`, TeX
-  //     数式(`fillJinja.ts` の `toFilled` がこれらを inert chip として GrapesJS から
-  //     隠す。verbatim ソースは data-opaque に入る)。復号値は `maskOpaque` の生成 3 形に限る。
+  // 4b. 伏せた内容(script / math / 固めた要素 / 生テキスト要素 / 本文全体)を原文へ戻す。
   //     ⚠ script の *中身* はここでは検査しない — テンプレ JS は正当なコンテンツで、改変検出は
-  //     確定保存側 server `templateScripts` の不変性ゲートが担う。ここが担うのは「script 以外の
-  //     HTML を opaque チャネルへ混ぜない」ことだけ。
+  //     確定保存側 server `templateScripts` の不変性ゲートが担う。ここが担うのは「種類ごとの
+  //     生成形の外の HTML を opaque チャネルへ混ぜない」ことだけ。
   doc.querySelectorAll(`[${DATA_OPAQUE}]`).forEach((el) => {
     const enc = el.getAttribute(DATA_OPAQUE);
     if (enc === null) return;
     const dec = tryB64decode(enc);
-    if (dec === null || !isOpaqueShape(dec)) {
+    if (dec === null || !isOpaqueShape(dec, el.getAttribute(DATA_OPAQUE_KIND))) {
       violations.push(DATA_OPAQUE);
       return;
     }
     el.replaceWith(ph(enc));
   });
 
-  // 1c. collapse 済みの `{% if %}…{% endif %}` を復元する(`fillJinja.ts` の
-  //     `toFilled` は表示用に taken branch のみを残し, ブロック全体を
-  //     data-jinja-block に保持する)。復号値は `collapseIfs` の生成形(単一 if ブロック)に限る。
+  // 4c. 旧形式の collapse 済み if ブロック。単一の if が全体を覆い、編集用の印を含まないものに
+  //     限る(旧形式は伏せた後の文字列を退避しており、チップが焼き付いていることがある)。
   doc.querySelectorAll(`[${DATA_JINJA_BLOCK}]`).forEach((el) => {
     const enc = el.getAttribute(DATA_JINJA_BLOCK);
     if (enc === null) return;
     const dec = tryB64decode(enc);
-    if (dec === null || !isSoleFullMatch(dec, IF_RE)) {
+    if (dec === null || soleBlock(dec)?.type !== 'if' || findEditingMarkers(dec).length > 0) {
       violations.push(DATA_JINJA_BLOCK);
       return;
     }
     el.replaceWith(ph(enc));
   });
 
-  // 2. absorb したブロック文を, その要素の前後へ復元する。open/close は単一 stmt トークンに限る
-  //    (`expandLoops` の生成形。HTML は含められない)。
+  // 5. 範囲の印と t の印を placeholder へ置き換える。空の後半は印を外すだけ。
+  for (const p of pairs) {
+    p.open.replaceWith(ph(b64encodeUtf8(p.head)));
+    if (p.tail === '') p.close.remove();
+    else p.close.replaceWith(ph(b64encodeUtf8(p.tail)));
+  }
+  for (const s of singles) s.node.replaceWith(ph(b64encodeUtf8(s.payload)));
+
+  // 6. 表示専用のテンプレート行の属性を外し、旧形式の absorb した文を要素の前後へ戻す。
+  //    open/close は単一 stmt トークンに限る(HTML は含められない)。
+  doc.querySelectorAll(`[${DATA_JINJA_LOOP_ROW}]`).forEach((el) => {
+    el.removeAttribute(DATA_JINJA_LOOP_ROW);
+  });
   doc.querySelectorAll(`[${DATA_JINJA_OPEN}]`).forEach((el) => {
     const open = el.getAttribute(DATA_JINJA_OPEN);
     const close = el.getAttribute(DATA_JINJA_CLOSE);
@@ -193,13 +375,13 @@ export function toTemplate(
     if (close !== null) el.parentNode?.insertBefore(ph(close), el.nextSibling);
   });
 
-  // 2.5 (任意)整形する。この時点で Jinja は全て placeholder(private-use 文字のテキスト
-  //     ノード/属性)に退避済みで `serialized` は valid HTML。フォーマッタは Jinja を見ない
-  //     ため `{% for %}` 等の構文を壊さず、placeholder の前後にインデントが入るだけ。
+  // 7. (任意)整形する。この時点で Jinja は全て placeholder(private-use 文字のテキスト
+  //    ノード/属性)に退避済みで `serialized` は valid HTML。フォーマッタは Jinja を見ない
+  //    ため `{% for %}` 等の構文を壊さず、placeholder の前後にインデントが入るだけ。
   const serializedRaw = opts.asFragment ? doc.body.innerHTML : doc.documentElement.outerHTML;
   const serialized = opts.pretty ? formatHtml(serializedRaw) : serializedRaw;
 
-  // 3. placeholder を生文字列置換で decode する(HTML エスケープなし)。復号は `ph` が発行した
+  // 8. placeholder を生文字列置換で decode する(HTML エスケープなし)。復号は `ph` が発行した
   //    enc に限り、未知 placeholder(偽装)は復号せず違反にする。
   let out = serialized.replace(PH_RE, (_m, enc: string) => {
     if (!issued.has(enc)) {
@@ -208,6 +390,13 @@ export function toTemplate(
     }
     return b64decode(enc);
   });
+
+  // 9. 事後検査。窓ごとの形が正しくても、組み合わせた結果のブロックが閉じない形や、外しきれ
+  //    ない印が残る形は、そのまま申請へ進めると確定テンプレートを壊す。
+  if (violations.length === 0) {
+    if (!parseJinja(out).ok) violations.push('structure');
+    if (findEditingMarkers(out).length > 0) violations.push('leftover-marker');
+  }
 
   if (violations.length > 0) {
     throw new Error(
