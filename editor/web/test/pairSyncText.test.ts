@@ -56,6 +56,45 @@ describe('pairSyncConflictText', () => {
       'ペア（AM01_510037_20240710_全体版）と 書式の規則 1 件が競合しています（自動同期停止中）: 書式 .a',
     );
   });
+
+  it('削除の競合は削除した版種で書く', () => {
+    const text = pairSyncConflictText(
+      status({
+        conflicts: [
+          { partKey: 'p#1', kind: 'ペア側削除', detectedAt: 't', deletedIn: '全体版' },
+          { partKey: 'q#1', kind: 'ペア側削除・ソース変更', detectedAt: 't', deletedIn: '全体版' },
+          { partKey: 'r#1', kind: 'ペア側削除・ソース変更', detectedAt: 't', deletedIn: '交付版' },
+        ],
+      }),
+    );
+    expect(text).toContain('p#1〔全体版で削除〕');
+    expect(text).toContain('q#1〔全体版で削除・交付版で変更〕');
+    expect(text).toContain('r#1〔交付版で削除・全体版で変更〕');
+  });
+
+  it('deletedIn の無い削除の記録は種類名で出す', () => {
+    const text = pairSyncConflictText(
+      status({ conflicts: [{ partKey: 'p#1', kind: 'ペア側削除', detectedAt: 't' }] }),
+    );
+    expect(text).toContain('p#1〔ペア側削除〕');
+  });
+
+  it('照合不可の書式は印を付け、1 件でもあれば説明の 1 文を末尾に足す', () => {
+    const text = pairSyncConflictText(
+      status({
+        cssConflicts: [
+          { ruleKey: k('.a'), detectedAt: 't', kind: '照合不可' },
+          { ruleKey: k('.b'), detectedAt: 't' },
+        ],
+      }),
+    );
+    expect(text).toContain('書式 .a〔照合不可〕');
+    expect(text).toContain('書式 .b');
+    expect(text?.endsWith('次から照合できます。')).toBe(true);
+    expect(
+      pairSyncConflictText(status({ cssConflicts: [{ ruleKey: k('.b'), detectedAt: 't' }] })),
+    ).not.toContain('照合不可');
+  });
 });
 
 describe('cssRuleLabel', () => {

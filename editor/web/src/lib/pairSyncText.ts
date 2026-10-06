@@ -3,9 +3,29 @@
 // =============================================================================
 // 本文(パーツ)と書式(CSS 規則)の競合は同じ同期状態ファイルに記録され、同じ画面に出す。
 // 文言の組み立てを画面から切り出し、パーツだけのときの文言を変えないことをテストで固定する。
-import type { PairSyncStatus, PairSyncSummary } from '@editor/shared';
+import { EDITION_SYNC_PAIRS, type PairSyncStatus, type PairSyncSummary } from '@editor/shared';
 
 const MAX_LABEL = 40;
+
+const UNMATCHABLE_NOTE =
+  '照合不可の書式は、ペアの CSS が編集画面を通っていない書き方のため写せませんでした。' +
+  'ペアも編集画面で開いて申請・承認すると、次から照合できます。';
+
+type PartConflict = PairSyncStatus['conflicts'][number];
+
+/** パーツの競合 1 件の項目。削除系は、消した側の版種で書く(相手の版種は版種の入れ替え)。 */
+function partConflictLabel(c: PartConflict): string {
+  const { deletedIn } = c;
+  if (!deletedIn) return `${c.partKey}〔${c.kind}〕`;
+  if (c.kind === 'ペア側削除') return `${c.partKey}〔${deletedIn}で削除〕`;
+  if (c.kind === 'ペア側削除・ソース変更') {
+    const other = EDITION_SYNC_PAIRS[deletedIn];
+    return other
+      ? `${c.partKey}〔${deletedIn}で削除・${other}で変更〕`
+      : `${c.partKey}〔${c.kind}〕`;
+  }
+  return `${c.partKey}〔${c.kind}〕`;
+}
 
 /**
  * CSS 規則のキー(`splitCssRules` の JSON 配列: 入れ子の前置き・識別子・2 番目以降の出現番号)を
@@ -42,10 +62,13 @@ export function pairSyncConflictText(s: PairSyncStatus | null): string | null {
         ? `書式の規則 ${m} 件`
         : `${n} 件のパーツと書式の規則 ${m} 件`;
   const items = [
-    ...s.conflicts.map((c) => `${c.partKey}〔${c.kind}〕`),
-    ...s.cssConflicts.map((c) => `書式 ${cssRuleLabel(c.ruleKey)}`),
+    ...s.conflicts.map(partConflictLabel),
+    ...s.cssConflicts.map(
+      (c) => `書式 ${cssRuleLabel(c.ruleKey)}${c.kind === '照合不可' ? '〔照合不可〕' : ''}`,
+    ),
   ];
-  return `ペア（${s.pairTemplateId}）と ${what}が競合しています（自動同期停止中）: ${items.join('、')}`;
+  const note = s.cssConflicts.some((c) => c.kind === '照合不可') ? UNMATCHABLE_NOTE : '';
+  return `ペア（${s.pairTemplateId}）と ${what}が競合しています（自動同期停止中）: ${items.join('、')}${note ? `。${note}` : ''}`;
 }
 
 /** 承認直後の通知。何も起きなければ null。 */
