@@ -17,6 +17,15 @@ describe('isLegacyDraft', () => {
     ).toBe(false);
   });
 
+  it('作成経路: 旧形式の属性と新形式の印が混ざる下書きは旧形式', () => {
+    expect(
+      isLegacyDraft(
+        '<p data-jinja-open="eyU=">a</p><p>b<!--jinja-rt:o:1:eyU=-->x<!--jinja-rt:c:1:eyU=--></p>',
+        'template',
+      ),
+    ).toBe(true);
+  });
+
   it('編集経路: 編集用の印が 1 個でもあれば旧形式(旧 fixture から作った下書き)', () => {
     expect(isLegacyDraft('<p><span data-jinja="e3t9fQ==">1</span></p>', 'filled')).toBe(true);
     expect(isLegacyDraft('<p>値</p>', 'filled')).toBe(false);

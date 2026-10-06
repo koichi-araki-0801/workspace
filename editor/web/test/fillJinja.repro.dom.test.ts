@@ -68,6 +68,26 @@ describe('採用した枝の編集は原文のその枝へ書き戻す', () => {
   });
 });
 
+describe('for の表示専用の行', () => {
+  const raw = '<ul>{% for i in xs %}<li>行 {{ i }}</li>{% endfor %}</ul>';
+  const filled = viaParser(toFilled(raw, { xs: [1, 2] }));
+
+  it('x の印より後ろの行を編集しても原文は変わらない', () => {
+    const at = filled.indexOf('<!--jinja-rt:x:');
+    expect(at).toBeGreaterThan(0);
+    const edited = filled.slice(0, at) + filled.slice(at).replace('行 ', '列 ');
+    expect(edited).not.toBe(filled);
+    expect(toTemplate(edited, { asFragment: true })).toBe(raw);
+  });
+
+  it('最初の行(テンプレートの行)を編集すると原文が変わる', () => {
+    const edited = filled.replace('行 ', '列 ');
+    expect(toTemplate(edited, { asFragment: true })).toBe(
+      '<ul>{% for i in xs %}<li>列 {{ i }}</li>{% endfor %}</ul>',
+    );
+  });
+});
+
 describe('固めた表は追い出された値ごと包む', () => {
   it('表の行の間の値はパーサが表の手前へ出すが、包みの div の中に残る', () => {
     const raw = '<table><tbody>{% for r in rows %}{{ r }}{% endfor %}</tbody></table>';
