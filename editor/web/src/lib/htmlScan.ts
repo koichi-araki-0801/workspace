@@ -67,9 +67,6 @@ const SCOPE_BOUNDARY = new Set([
   'object',
   'marquee',
   'applet',
-  'caption',
-  'td',
-  'th',
   'foreignobject',
 ]);
 const P_STOPS = ['td', 'th', 'table', 'caption', 'button'];

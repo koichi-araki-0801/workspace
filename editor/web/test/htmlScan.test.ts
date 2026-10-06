@@ -128,3 +128,18 @@ describe('scanHtml 伏せ字と境界', () => {
     expect(ctx(b, 'R<')).toBe('text:p');
   });
 });
+
+describe('scanHtml 省略された終了タグの表', () => {
+  const parentOf = (h: string, tag: string, nth: number) =>
+    scanHtml(h).elements.filter((e) => e.tag === tag)[nth]?.parent?.tag;
+
+  it('tr は閉じ忘れた td ごと前の行を閉じる', () => {
+    const h = '<table><tr><td>a<tr><td>b</table>';
+    expect(parentOf(h, 'tr', 1)).toBe('table');
+  });
+
+  it('tbody は閉じ忘れた td・tr ごと前の節を閉じる', () => {
+    const h = '<table><tbody><tr><td>a<tbody><tr><td>b</table>';
+    expect(parentOf(h, 'tbody', 1)).toBe('table');
+  });
+});
