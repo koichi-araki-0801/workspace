@@ -10,9 +10,11 @@ import { rtComment } from '@/lib/jinjaAttrs';
 import { toTemplate } from '@/lib/jinjaMask';
 import { htmlWorkerImpl } from '@/workers/htmlWorkerImpl';
 
-const css = '.page { page-break-after: always; }';
-const page = (n: number, body: string) => `<section class="page" id="p${n}">${body}</section>`;
-const build = (pages: string[]) => `<!doctype html><html><body>${pages.join('')}</body></html>`;
+// 改ページは根の直下の `div.pagebreak` で表す。CSS は判定に使わないが、Worker の契約どおり渡す。
+const css = '.pagebreak { break-after: page; }';
+const page = (n: number, body: string) => `<section id="p${n}">${body}</section>`;
+const build = (pages: string[]) =>
+  `<!doctype html><html><body>${pages.join('<div class="pagebreak"></div>')}</body></html>`;
 
 // linkedom は table の暗黙 `<tbody>` を補わない(browser/jsdom は補う)。この差は比較画面の
 // 表示専用 HTML にのみ現れ、保存/PDF には出ず描画も同一なので、パリティ比較では `tbody`
@@ -49,6 +51,14 @@ describe('htmlWorkerImpl linkedom parity', () => {
     ]);
     const viaJsdom = buildHtmlDiff(before, after, css, css);
     const viaLinkedom = htmlWorkerImpl.buildHtmlDiff(before, after, css, css);
+    // linkedom(`Node` グローバルが無い)でも区切りで 3 ページに分かれ、区切りはパーツに
+    // 数えない。パーツの文書全体のキーも持つ。
+    expect(viaLinkedom.pages).toHaveLength(3);
+    expect(viaLinkedom.pages.map((p) => p.blocks.map((b) => b.partKey))).toEqual([
+      ['p0#1'],
+      ['p1#1'],
+      ['p2#1'],
+    ]);
     // changedPageCount や status 分類は完全一致、表示 HTML は tbody 正規化後に一致。
     expect(viaLinkedom.changedPageCount).toBe(viaJsdom.changedPageCount);
     expect(stripTbody(viaLinkedom)).toEqual(stripTbody(viaJsdom));

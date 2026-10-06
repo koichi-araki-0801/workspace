@@ -11,11 +11,15 @@ import {
   HL_REMOVED,
   type PagePair,
 } from '@/features/compare/htmlBlockDiff';
+import { splitPages } from '@/lib/pageBreaks';
 
 /** Wrap body fragments in a minimal HTML document (what renderJinja produces). */
 function doc(...body: string[]): string {
   return `<!doctype html><html><body>${body.join('')}</body></html>`;
 }
+
+/** 根の直下に置く改ページの区切り。 */
+const PB = '<div class="pagebreak"></div>';
 
 describe('buildHtmlDiff', () => {
   it('reports no changes for identical documents', () => {
@@ -129,32 +133,85 @@ describe('buildHtmlDiff', () => {
     expect(diff.pages).toHaveLength(2);
   });
 
-  // 実テンプレは改ページを `.page { page-break-after: always }` という CSS クラスで
-  // 表す。CSS を渡せば各 `.page` が 1 ページに分割されること。
-  it('splits on class-based page breaks when CSS is supplied', () => {
+  // 改ページは根(body)の直下の `div.pagebreak` で表す。区切りの要素自身はパーツに数えない
+  // (canvas・承認タブ・メモのキーと同じ数え方。`lib/pageBreaks.ts`)。
+  it('splits at body-level div.pagebreak and keeps the break out of every page', () => {
     const html = doc(
-      '<div class="page">p1</div>',
-      '<div class="page">p2</div>',
-      '<div class="page">p3</div>',
+      '<section id="s1">p1</section>',
+      PB,
+      '<section id="s2">p2</section>',
+      PB,
+      '<section id="s3">p3</section>',
     );
-    const css = '.page { page-break-after: always; }';
-    const diff = buildHtmlDiff(html, html, css, css);
+    const diff = buildHtmlDiff(html, html);
+    // ページ数 = 区切りの数 + 1。
     expect(diff.pages).toHaveLength(3);
+    for (const page of diff.pages) {
+      expect(page.blocks).toHaveLength(1);
+      expect(page.blocks.some((b) => b.key.startsWith('.pagebreak'))).toBe(false);
+      expect(page.afterHtml).not.toContain('pagebreak');
+    }
   });
 
-  // CSS を渡さなければクラス由来の改ページは見えず、従来どおり 1 ページに潰れる(回帰防止)。
-  it('does not split on class-based breaks without CSS (legacy behavior)', () => {
-    const html = doc('<div class="page">p1</div>', '<div class="page">p2</div>');
-    expect(buildHtmlDiff(html, html).pages).toHaveLength(1);
+  it('splits on div.pagebreak even when no CSS is supplied', () => {
+    const html = doc('<p>p1</p>', PB, '<p>p2</p>');
+    expect(buildHtmlDiff(html, html, undefined, undefined).pages).toHaveLength(2);
   });
 
-  // `.page:last-child { page-break-after: auto }` の override で末尾に余分な空ページが
-  // 出ないこと(最後の break-after はトレーリング空グループとして pop される)。
-  it('does not emit a trailing empty page for a last-child auto override', () => {
-    const html = doc('<div class="page">p1</div>', '<div class="page">p2</div>');
-    const css = '.page { page-break-after: always; } .page:last-child { page-break-after: auto; }';
-    const diff = buildHtmlDiff(html, html, css, css);
+  // CSS は判定に使わない。クラスに改ページを当てた CSS だけでは分けない。
+  it('does not split on CSS class breaks (CSS is not used for page detection)', () => {
+    const html = doc('<div class="x">p1</div>', '<div class="x">p2</div>');
+    const css = '.x{page-break-after:always}';
+    expect(buildHtmlDiff(html, html, css, css).pages).toHaveLength(1);
+  });
+
+  it('ignores leading, trailing and consecutive breaks (no empty pages)', () => {
+    const html = doc(PB, '<p>p1</p>', PB, PB, '<p>p2</p>', PB);
+    const diff = buildHtmlDiff(html, html);
     expect(diff.pages).toHaveLength(2);
+    expect(diff.pages.every((p) => p.blocks.length === 1)).toBe(true);
+  });
+
+  // 承認タブは `splitPages(body.children)` でページを数え、その番号を `diff.pages` と突き合わせる。
+  // 直下の地の文(合成 span で包んでパーツにする)とコメントが、ページを作ったりずらしたり
+  // してはいけない。
+  it('agrees with splitPages(body.children) when text and comments sit between elements', () => {
+    const html = doc(
+      'lead text',
+      '<p id="a">a</p>',
+      '<!-- c1 -->',
+      'tail of page 1',
+      PB,
+      'head of page 2',
+      '<p id="b">b</p>',
+      PB,
+      '<!-- c2 -->',
+      PB,
+      '<p id="c" style="page-break-after: always">c</p>',
+      'after inline break',
+      '<p id="d">d</p>',
+      PB,
+      'trailing text only',
+    );
+    const body = new DOMParser().parseFromString(html, 'text/html').body;
+    const expected = splitPages(Array.from(body.children)).pages;
+    const diff = buildHtmlDiff(html, html);
+    expect(diff.pages).toHaveLength(expected.length);
+    expect(diff.beforePageCount).toBe(expected.length);
+    expect(diff.afterPageCount).toBe(expected.length);
+    // 各ページの要素のパーツは splitPages と同じ並び。地の文は隣のパーツのページへ入る。
+    expect(
+      diff.pages.map((p) =>
+        p.blocks.filter((b) => !b.partKey.startsWith('#text')).map((b) => b.key),
+      ),
+    ).toEqual(expected.map((page) => page.map((el) => `${el.id}#1`)));
+    const texts = diff.pages.map((p) => p.afterHtml);
+    expect(texts[0]).toContain('lead text');
+    expect(texts[0]).toContain('tail of page 1');
+    expect(texts[1]).toContain('head of page 2');
+    expect(texts[2]).not.toContain('after inline break');
+    expect(texts[3]).toContain('after inline break');
+    expect(texts[3]).toContain('trailing text only');
   });
 
   it('keys blocks by data-part-id over id/class/tag', () => {
@@ -276,27 +333,17 @@ describe('buildHtmlDiffAligned', () => {
   });
 
   it('比較先を +1 ずらすと、本来ずれていた同一ページ対が same になる', () => {
-    // after に 1 ページ(X)が先頭挿入され、以降が 1 つ後ろへずれたケース。CSS クラス由来の
-    // ページなら、各ページ要素の markup は位置に依らず同一になり、ずらしの効果を純粋に見られる。
-    const css = '.page { page-break-after: always; }';
-    const before = doc(
-      '<div class="page">a</div>',
-      '<div class="page">b</div>',
-      '<div class="page">c</div>',
-    );
-    const after = doc(
-      '<div class="page">X</div>',
-      '<div class="page">a</div>',
-      '<div class="page">b</div>',
-      '<div class="page">c</div>',
-    );
+    // after に 1 ページ(X)が先頭挿入され、以降が 1 つ後ろへずれたケース。区切りで分けたページ
+    // なら、各ページの markup は位置に依らず同一になり、ずらしの効果を純粋に見られる。
+    const before = doc('<p>a</p>', PB, '<p>b</p>', PB, '<p>c</p>');
+    const after = doc('<p>X</p>', PB, '<p>a</p>', PB, '<p>b</p>', PB, '<p>c</p>');
     // 比較元 i ↔ 比較先 i+1 に揃える。
     const pairs: PagePair[] = [
       { before: 0, after: 1 },
       { before: 1, after: 2 },
       { before: 2, after: 3 },
     ];
-    const diff = buildHtmlDiffAligned(before, after, css, css, pairs);
+    const diff = buildHtmlDiffAligned(before, after, undefined, undefined, pairs);
     expect(diff.changedPageCount).toBe(0);
     expect(diff.pages.every((p) => !p.changed)).toBe(true);
   });
@@ -332,15 +379,41 @@ describe('DiffBlock part-level before/after + labels', () => {
   });
 
   it('numbers parts per page across page breaks', () => {
-    const css = '.page{page-break-after:always}';
-    const sec = (id: string, body: string) => `<section class="page" id="${id}">${body}</section>`;
-    const before = doc(sec('p0', '<p>a</p>'), sec('p1', '<p>b</p>'));
-    const after = doc(sec('p0', '<p>a</p>'), sec('p1', '<p>B</p>'));
-    const diff = buildHtmlDiff(before, after, css, css);
+    const sec = (id: string, body: string) => `<section id="${id}">${body}</section>`;
+    const before = doc(sec('p0', '<p>a</p>'), PB, sec('p1', '<p>b</p>'));
+    const after = doc(sec('p0', '<p>a</p>'), PB, sec('p1', '<p>B</p>'));
+    const diff = buildHtmlDiff(before, after);
 
-    // 2 ページ目の唯一のパーツ。ページ採番は 1 起点。
+    // 2 ページ目の唯一のパーツ。ページ採番は 1 起点で、区切りはパーツに数えない。
+    expect(diff.pages[1].blocks).toHaveLength(1);
     expect(diff.pages[1].blocks[0].label).toBe('ページ2・パーツ1');
     expect(diff.pages[1].blocks[0].status).toBe('changed');
+  });
+
+  // メモ・修正履歴のキーと同じ、文書全体での `<アンカー>#<通し番号>`。ページ内の整列キー
+  // `key` はページごとの番号のまま。
+  it('gives each block a document-wide partKey (anchor#n across pages)', () => {
+    const before = doc('<p class="s">a</p>', PB, '<p class="s">b</p>');
+    const after = doc('<p class="s">a</p>', PB, '<p class="s">B</p>');
+    const diff = buildHtmlDiff(before, after);
+    expect(diff.pages[0].blocks[0].partKey).toBe('.s#1');
+    const second = diff.pages[1].blocks[0];
+    expect(second.key).toBe('.s#1');
+    expect(second.partKey).toBe('.s#2');
+    expect(second.label).toBe('ページ2・パーツ1');
+  });
+
+  it('partKey of a removed block comes from the before document', () => {
+    const before = doc('<p class="s">a</p>', PB, '<p class="s">b</p>', '<p class="s">c</p>');
+    const after = doc('<p class="s">a</p>', PB, '<p class="s">b</p>');
+    const page = buildHtmlDiff(before, after).pages[1];
+    const removed = page.blocks.find((b) => b.status === 'removed');
+    expect(removed?.partKey).toBe('.s#3');
+    // 無変更ページ(高速パス)でも partKey を持つ。
+    expect(buildHtmlDiff(before, before).pages[1].blocks.map((b) => b.partKey)).toEqual([
+      '.s#2',
+      '.s#3',
+    ]);
   });
 
   it('leaves the before pane empty for added parts and after pane empty for removed', () => {
