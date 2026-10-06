@@ -11,6 +11,7 @@
 //     「編集」タブに点灯する退行。→ 写像は query のみで決まる、を検証。
 import fs from 'node:fs';
 import path from 'node:path';
+import { findEditingMarkers } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import sample110024 from '@/api/fixtures/sample/110024.json';
 import sample510037 from '@/api/fixtures/sample/510037.json';
@@ -92,5 +93,16 @@ describe('editor 2系統の原則: rest 経路の値入り HTML', () => {
   it('fixtures の templates と filled はファイル名集合が一致する', () => {
     const names = (rel: string) => fs.readdirSync(path.resolve(__dirname, '../src', rel)).sort();
     expect(names('api/fixtures/filled')).toEqual(names('api/fixtures/templates'));
+  });
+
+  // 編集タブの値入り HTML は本番では値埋め込み済みのファイルで、往復用の印を持たない。local の fixture も
+  // 同じ前提に揃える。印が残ると、編集経路の申請が関所(編集用の印の 400)で止まる。
+  it('fixtures の値入り HTML は編集用の印も Jinja も含まない', () => {
+    const dir = path.resolve(__dirname, '../src/api/fixtures/filled');
+    for (const name of fs.readdirSync(dir)) {
+      const html = fs.readFileSync(path.join(dir, name), 'utf8');
+      expect(findEditingMarkers(html), name).toEqual([]);
+      expect(html, name).not.toMatch(/\{\{|\{%|\{#/);
+    }
   });
 });

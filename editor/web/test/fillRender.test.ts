@@ -1,3 +1,4 @@
+import { findEditingMarkers } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import {
   escapeHtmlFull,
@@ -5,6 +6,7 @@ import {
   loopCtx,
   parseForHeader,
   renderDisplay,
+  renderPlainFilled,
   takenBranchIndex,
 } from '../src/lib/fillRender';
 import { parseJinja } from '../src/lib/jinjaLex';
@@ -114,5 +116,28 @@ describe('部品', () => {
   });
   it('escapeHtmlFull', () => {
     expect(escapeHtmlFull(`&<>"'`)).toBe('&amp;&lt;&gt;&quot;&#39;');
+  });
+});
+
+describe('renderPlainFilled', () => {
+  it('文書全体を値にし、印も Jinja も残さない(属性・head を含む)', () => {
+    const raw =
+      '<!doctype html><html><head><title>{{ fund.name }}</title></head><body>' +
+      '<table><tbody>{% for h in hs %}<tr data-rank="{{ loop.index }}"><td>{{ h }}</td></tr>{% endfor %}</tbody></table>' +
+      '{% if a %}<p>A</p>{% elif b %}<p>B</p>{% endif %}</body></html>';
+    const { html } = renderPlainFilled(raw, {
+      fund: { name: '日本株' },
+      hs: ['甲', '乙'],
+      a: false,
+      b: true,
+    });
+    expect(html).toContain('<title>日本株</title>');
+    expect(html).toContain('<tr data-rank="1"><td>甲</td></tr><tr data-rank="2"><td>乙</td></tr>');
+    expect(html).toContain('<p>B</p>');
+    expect(html).not.toMatch(/\{\{|\{%|\{#/);
+    expect(findEditingMarkers(html)).toEqual([]);
+  });
+  it('字句エラーは投げる', () => {
+    expect(() => renderPlainFilled('<p>{{ a </p>', {})).toThrow();
   });
 });

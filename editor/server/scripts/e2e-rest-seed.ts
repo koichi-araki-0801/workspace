@@ -33,8 +33,8 @@ export async function seedDataRoot(repoRoot: string): Promise<void> {
   await fs.mkdir(filledDir, { recursive: true });
 
   const fixturesCssDir = path.join(repoRoot, 'editor/web/src/api/fixtures/css');
-  // 編集タブの一覧は filled/ が源。値入り HTML の seed は web 同梱の round-trip 形式 fixture
-  // (`{%` を含まない)をそのまま使う。
+  // 編集タブの一覧は filled/ が源。値入り HTML の seed は web 同梱の fixture(往復用の印も
+  // Jinja も含まない値入り HTML)をそのまま使う。
   const fixturesFilledDir = path.join(repoRoot, 'editor/web/src/api/fixtures/filled');
   for (const name of await fs.readdir(fixturesCssDir)) {
     await fs.copyFile(path.join(fixturesCssDir, name), path.join(cssDir, name));

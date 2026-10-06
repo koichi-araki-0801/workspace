@@ -8,10 +8,6 @@
 //
 // shared の `EDITING_MARKER_ATTRS`(`editingMarkers.ts`)は、ここで書く属性名を検出する側の
 // 一覧で、本ファイルの属性名と対になる。属性を足したら両方へ足す(テストが突き合わせる)。
-//
-// ⚠ 値の変更は既存 fixture(`api/fixtures/filled/*.html`)・保存済みテンプレートとの
-//   互換を壊す。fixture 側リテラルは意図的に定数化しておらず、値を誤変更すると
-//   `htmlWorkerImpl.test.ts` の round-trip が落ちて検知される。
 
 /** inline chip の厳密ソース(base64)。書: `fillInline` → 復: `toTemplate` step1 */
 export const DATA_JINJA = 'data-jinja';

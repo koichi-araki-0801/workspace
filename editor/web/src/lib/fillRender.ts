@@ -1,13 +1,15 @@
 // =============================================================================
 // fillRender.ts — ブロック木をサンプルデータで評価し、印もチップも無い値入り HTML を描く
 // =============================================================================
-// 作成タブで固めた要素(往復の印を置けない範囲)と、本文全体を固めたときの表示に使う。nunjucks の
+// 作成タブで固めた要素(往復の印を置けない範囲)と、本文全体を固めたときの表示、編集タブ用の local の
+// fixture(`renderPlainFilled`)に使う。nunjucks の
 // 結果に近い素の HTML を出す。式の評価は `fillJinja.ts` の往復用の描画と同じ `Filler` を通し、
 // 解釈できない式・値の無い式を両方の描画で同じように数える。ファイルを分けるのは、`fillJinja.ts` が
 // 往復用の描画と公開関数を抱えて大きくなりすぎないため。
 
+import type { SampleData } from '@editor/shared';
 import { evaluateJinjaExpr, type JinjaCtx, stringifyJinjaValue } from './jinjaExpr';
-import type { JinjaNode } from './jinjaLex';
+import { type JinjaNode, parseJinja } from './jinjaLex';
 
 // ── 1. 式の評価 ──
 
@@ -165,4 +167,20 @@ export function renderDisplay(
     }
   }
   return out;
+}
+
+/**
+ * 編集タブ用の値入り HTML(local の fixture)を作る。本番の `filled/` は別ツールが置く値埋め込み済みの
+ * ファイルで往復用の印を持たないので、fixture も印を出さない描画器だけで作る(`toFilled` は作成タブ用)。
+ * 生成は開発者の操作なので、壊れたテンプレートは黙って通さず例外で止める。
+ */
+export function renderPlainFilled(
+  raw: string,
+  sample: SampleData,
+): { html: string; diagnostics: { unsupported: readonly string[]; missing: readonly string[] } } {
+  const r = parseJinja(raw);
+  if (!r.ok) throw new Error(`renderPlainFilled: ${r.error.message} (位置 ${r.error.at})`);
+  const f = new Filler();
+  const html = renderDisplay(raw, r.nodes, sample as JinjaCtx, f);
+  return { html, diagnostics: { unsupported: [...f.unsupported], missing: [...f.missing] } };
 }
