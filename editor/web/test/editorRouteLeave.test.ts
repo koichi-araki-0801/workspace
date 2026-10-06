@@ -11,7 +11,7 @@ describe('leaveAfterSave', () => {
     autosave.trigger();
     const ask = vi.fn(async () => true);
 
-    expect(await leaveAfterSave(autosave.flush, ask)).toBe(true);
+    expect(await leaveAfterSave(autosave.flush, {}, ask)).toBe(true);
     expect(save).toHaveBeenCalledTimes(1);
     expect(ask).not.toHaveBeenCalled();
   });
@@ -21,7 +21,7 @@ describe('leaveAfterSave', () => {
     const autosave = useAutosave(save, 60_000);
     const ask = vi.fn(async () => true);
 
-    expect(await leaveAfterSave(autosave.flush, ask)).toBe(true);
+    expect(await leaveAfterSave(autosave.flush, {}, ask)).toBe(true);
     expect(save).not.toHaveBeenCalled();
     expect(ask).not.toHaveBeenCalled();
   });
@@ -29,7 +29,7 @@ describe('leaveAfterSave', () => {
   it('保存に失敗したら「離れる / 留まる」を確かめ、留まるなら離れない', async () => {
     const ask = vi.fn(async () => false);
 
-    expect(await leaveAfterSave(async () => false, ask)).toBe(false);
+    expect(await leaveAfterSave(async () => false, {}, ask)).toBe(false);
     expect(ask).toHaveBeenCalledTimes(1);
     expect(ask).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -44,7 +44,7 @@ describe('leaveAfterSave', () => {
   it('保存に失敗しても「離れる」を選べば離れる', async () => {
     const ask = vi.fn(async () => true);
 
-    expect(await leaveAfterSave(async () => false, ask)).toBe(true);
+    expect(await leaveAfterSave(async () => false, {}, ask)).toBe(true);
     expect(ask).toHaveBeenCalledTimes(1);
   });
 
@@ -54,5 +54,14 @@ describe('leaveAfterSave', () => {
     expect(confirmState.value.confirmLabel).toBe('離れる');
     resolveConfirm(false);
     expect(await leaving).toBe(false);
+  });
+
+  it('ログイン画面へ移されるときは、保存を試みたうえで結果によらず確認せずに離れる', async () => {
+    const flush = vi.fn(async () => false);
+    const ask = vi.fn(async () => false);
+
+    expect(await leaveAfterSave(flush, { toLogin: true }, ask)).toBe(true);
+    expect(flush).toHaveBeenCalledTimes(1);
+    expect(ask).not.toHaveBeenCalled();
   });
 });

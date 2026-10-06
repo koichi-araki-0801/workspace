@@ -9,12 +9,17 @@ import { confirm } from '@/components/ui/confirm';
  * 未保存の変更(debounce 待ちを含む)を保存してから離れてよいかを返す。保存できなければ
  * 「離れる / 留まる」を確かめる。`flush` は canvas を読むので、GrapesJS の破棄より前に呼ぶこと
  * (route の離脱ガードはアンマウントより先に走るので、そこから呼べば満たされる)。
+ *
+ * `toLogin` はログイン画面へ移されるとき(セッション切れの転送やログアウト)。保存は試みるが、
+ * 結果によらず確認せずに離れる — ログインし直すまで保存はできないので、留まらせても
+ * 未認証の編集画面に閉じ込めるだけになる。
  */
 export async function leaveAfterSave(
   flush: () => Promise<boolean>,
+  { toLogin = false }: { toLogin?: boolean } = {},
   ask: typeof confirm = confirm,
 ): Promise<boolean> {
-  if (await flush()) return true;
+  if ((await flush()) || toLogin) return true;
   return ask({
     title: '変更を保存できませんでした',
     description:

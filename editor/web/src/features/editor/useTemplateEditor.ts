@@ -657,7 +657,7 @@ export function useTemplateEditor(
   // 離脱直後に着地した保存が次の画面で読んだ内容より古い draft を書き戻すこともある。
   // 保存できなければ離れるかを確かめる(`leaveGuard.ts`)。閉じたタブが残した draft の破棄は
   // `loadForEdit` が次回オープン時に行う。
-  onBeforeRouteLeave(() => leaveAfterSave(autosave.flush));
+  onBeforeRouteLeave((to) => leaveAfterSave(autosave.flush, { toLogin: to.name === 'login' }));
 
   return {
     g,
