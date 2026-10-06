@@ -44,10 +44,12 @@ async function templates(n: number) {
   return list.value.slice(0, n);
 }
 
+/** 同じテンプレへ重ねて出せるよう、本文は呼ぶたびに変える(同じ内容は重複として止まる)。 */
+let seq = 0;
 async function submit(templateId: string): Promise<void> {
   const r = await localReviewRepo.submitReview({
     templateId,
-    html: '<p>申請本文</p>',
+    html: `<p>申請本文 ${++seq}</p>`,
     css: '.a{}',
     origin: 'edit',
   });

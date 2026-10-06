@@ -26,6 +26,7 @@ import {
   toReviewResponse,
   validation,
 } from '@editor/shared';
+import { formatDateTimeShort } from '@/lib/format';
 import { attempt } from './attempt';
 import { currentUser, delay, K, now, read, resolveFilled, uid, write } from './store';
 import { confirmSaveLocal, localTemplateRepo } from './templateRepo';
@@ -87,6 +88,29 @@ function assertNoEditingMarkers(html: string, templateId: string): void {
   if (msg !== null) throw validation(msg);
 }
 
+/**
+ * 同じ人・同じテンプレ・同じ経路で、本文(HTML と CSS)も同じ承認待ちの申請を探す
+ * (server の `findDuplicatePendingReview` と同じ規則。local は本文を持っているので文字列で比べる)。
+ * templateId の照合は大文字小文字を区別しない。
+ */
+function findDuplicatePending(
+  reviews: Record<string, StoredReviewRequest>,
+  want: { templateId: string; origin: ReviewRequest['origin']; submittedBy: string },
+  html: string,
+  css: string,
+): StoredReviewRequest | undefined {
+  const id = want.templateId.toLowerCase();
+  return Object.values(reviews).find(
+    (r) =>
+      r.status === 'pending' &&
+      r.origin === want.origin &&
+      r.submittedBy === want.submittedBy &&
+      r.templateId.toLowerCase() === id &&
+      r.html === html &&
+      r.css === css,
+  );
+}
+
 export const localReviewRepo: ReviewRepository = {
   submitReview: (req: SubmitReviewRequest) =>
     attempt(async () => {
@@ -101,6 +125,20 @@ export const localReviewRepo: ReviewRepository = {
       const cur = await localTemplateRepo.getTemplate(req.templateId);
       const baseHash = isErr(cur) ? null : contentKey(cur.value.html, cur.value.css);
       const who = currentUser()?.displayName ?? '不明';
+      // 同じ内容の承認待ちが既にあれば作らない(二重クリック・再送。server と同じ code・文言)。
+      const reviews = readReviews();
+      const duplicate = findDuplicatePending(
+        reviews,
+        { templateId: req.templateId, origin: req.origin, submittedBy: who },
+        req.html,
+        req.css,
+      );
+      if (duplicate)
+        throw conflict(
+          `同じ内容の確定保存申請が既に承認待ちです（${formatDateTimeShort(duplicate.submittedAt)}に申請）。` +
+            '新しい申請は作りませんでした。',
+          { code: 'REVIEW_DUPLICATE' },
+        );
       const review: StoredReviewRequest = {
         id: uid('rv'),
         templateId: req.templateId,
@@ -119,7 +157,6 @@ export const localReviewRepo: ReviewRepository = {
         ...(req.cssBaseline !== undefined ? { cssBaseline: req.cssBaseline } : {}),
         ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
       };
-      const reviews = readReviews();
       reviews[review.id] = review;
       write(K.reviews, reviews);
       return delay(toReviewMeta(review));

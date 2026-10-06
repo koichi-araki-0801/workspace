@@ -3,7 +3,7 @@
 // =============================================================================
 // submit は実反映せず pending を作り、approve で既存 confirmSaveLocal 経路を通して本文へ反映、
 // reject は反映しない、を localStorage 上で検証する。承認者(admin)でログインしてから操作する。
-import { isOk } from '@editor/shared';
+import { isErr, isOk } from '@editor/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
 import { localReviewRepo } from '@/api/local/reviewRepo';
@@ -141,5 +141,96 @@ describe('localReviewRepo round-trip', () => {
     if (isOk(before) && isOk(after)) expect(after.value.html).toBe(before.value.html);
     const pending = await localReviewRepo.listReviews({ status: 'pending' });
     if (isOk(pending)) expect(pending.value.map((r) => r.id)).toEqual([submitted.value.id]);
+  });
+});
+
+describe('localReviewRepo の重複申請', () => {
+  const TPL = 'AM01_610001_20250101_交付版';
+  const login = async (username: string) => {
+    expect(isOk(await localAuthRepo.login({ username, password: username }))).toBe(true);
+  };
+  const submit = (html: string, css = '.x{}', templateId = TPL) =>
+    localReviewRepo.submitReview({ templateId, html, css, origin: 'create' });
+  const pendingCount = async () => {
+    const r = await localReviewRepo.listReviews({ status: 'pending' });
+    return isOk(r) ? r.value.length : -1;
+  };
+
+  it('同じ人の同じ内容の 2 回目は conflict REVIEW_DUPLICATE で、申請は 1 件のまま', async () => {
+    await login('editor');
+    expect(isOk(await submit('<p>重複</p>'))).toBe(true);
+    const second = await submit('<p>重複</p>');
+    expect(isErr(second) && second.error).toMatchObject({
+      kind: 'conflict',
+      code: 'REVIEW_DUPLICATE',
+      message: expect.stringContaining('同じ内容の確定保存申請が既に承認待ちです'),
+    });
+    expect(await pendingCount()).toBe(1);
+  });
+
+  it('HTML か CSS が 1 文字でも違えば受け付ける', async () => {
+    await login('editor');
+    await submit('<p>a</p>', '.x{}');
+    await submit('<p>b</p>', '.x{}');
+    await submit('<p>a</p>', '.y{}');
+    expect(await pendingCount()).toBe(3);
+  });
+
+  it('HTML と CSS の境界がずれた別の組は重複とみなさない', async () => {
+    await login('editor');
+    await submit('ab', 'c');
+    expect(isOk(await submit('a', 'bc'))).toBe(true);
+  });
+
+  it('別の人の同じ内容は受け付ける', async () => {
+    await login('editor');
+    await submit('<p>同じ</p>');
+    await login('admin');
+    expect(isOk(await submit('<p>同じ</p>'))).toBe(true);
+    expect(await pendingCount()).toBe(2);
+  });
+
+  it('別のテンプレの同じ内容は受け付ける', async () => {
+    await login('editor');
+    await submit('<p>同じ</p>');
+    expect(isOk(await submit('<p>同じ</p>', '.x{}', 'AM01_610002_20250101_交付版'))).toBe(true);
+  });
+
+  it('別の経路の同じ内容は重複とみなさない', async () => {
+    await login('editor');
+    await submit('<p>同じ</p>');
+    const viaEdit = await localReviewRepo.submitReview({
+      templateId: TPL,
+      html: '<p>同じ</p>',
+      css: '.x{}',
+      origin: 'edit',
+    });
+    // 編集経路は値入り HTML が前提なので別の検査で落ちてよい。重複でなければよい。
+    expect(isErr(viaEdit) && viaEdit.error.code).not.toBe('REVIEW_DUPLICATE');
+  });
+
+  it('1 件目が却下済みなら同じ内容でも受け付ける', async () => {
+    await login('admin');
+    const first = await submit('<p>再申請</p>');
+    if (!isOk(first)) throw new Error('submit failed');
+    const rejected = await localReviewRepo.rejectReview(first.value.id, { comment: '理由' });
+    expect(isOk(rejected)).toBe(true);
+    expect(isOk(await submit('<p>再申請</p>'))).toBe(true);
+  });
+
+  it('templateId の大文字小文字だけが違うものは重複とみなす', async () => {
+    await login('editor');
+    await submit('<p>大小</p>', '.x{}', 'am01_610001_20250101_交付版');
+    const second = await submit('<p>大小</p>', '.x{}', 'AM01_610001_20250101_交付版');
+    expect(isErr(second) && second.error.code).toBe('REVIEW_DUPLICATE');
+  });
+
+  it('文言の日時は YYYY/MM/DD HH:mm の全角括弧書きで終わる', async () => {
+    await login('editor');
+    await submit('<p>日時</p>');
+    const second = await submit('<p>日時</p>');
+    expect(isErr(second) && second.error.message).toMatch(
+      /（\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}に申請）。新しい申請は作りませんでした。$/,
+    );
   });
 });
