@@ -285,6 +285,49 @@ describe('canvas・承認タブ・比較が同じパーツを同じキーと番�
   });
 });
 
+describe('本文全体を固めた canvas も、保存した文書と同じパーツを同じキーと番号で数える', () => {
+  // 保存・描画した文書(承認・比較が読む)には包みもチップも無い。`{% set %}` と Jinja コメントは
+  // 描画で消える。
+  const html =
+    '<p class="a">A</p><div class="pagebreak"></div><section class="s">S</section>' +
+    '<p class="a">A2</p><div class="pagebreak"></div><p class="a">A3</p>';
+  // 作成タブの canvas。本文全体が `div.jinja-frozen-body` に包まれ、根の直下にチップが並ぶ。
+  const canvasHtml =
+    '<span class="jinja-chip jinja-stmt" data-jinja="eA==">{% set x = 1 %}</span>' +
+    '<div class="jinja-frozen-body" data-opaque="eA==" data-opaque-kind="body">' +
+    '<span class="jinja-chip jinja-comment" data-jinja="eA==">{# c #}</span>' +
+    `${html}</div>`;
+  const want = [
+    ['.a#1', 'ページ1・パーツ1'],
+    ['.s#1', 'ページ2・パーツ1'],
+    ['.a#2', 'ページ2・パーツ2'],
+    ['.a#3', 'ページ3・パーツ1'],
+  ];
+
+  it('canvas・承認タブ・比較の 3 者のキーとラベルが一致する', () => {
+    const canvas = root(canvasHtml);
+    const diffLabels = new Map(
+      buildHtmlDiff(html, html)
+        .pages.flatMap((p) => p.blocks)
+        .filter((b) => b.label.includes('・'))
+        .map((b) => [b.partKey, b.label]),
+    );
+    expect([...partLabelMap(canvas)]).toEqual(want);
+    expect([...partMapsFromHtml(html).labels]).toEqual(want);
+    expect([...diffLabels]).toEqual(want);
+    expect(buildHtmlDiff(html, html).afterPageCount).toBe(3);
+  });
+
+  it('包みの中の要素から、そのパーツとキーを引ける。包み・チップはパーツではない', () => {
+    const canvas = root(canvasHtml);
+    expect(partOf(q(canvas, '.s'), canvas)).toBe(q(canvas, '.s'));
+    expect(partPathKeyFor(q(canvas, '.s'), canvas)).toBe('.s#1');
+    expect(partOf(q(canvas, '.jinja-frozen-body'), canvas)).toBeNull();
+    expect(partOf(q(canvas, '.jinja-stmt'), canvas)).toBeNull();
+    expect(partOf(q(root(html), '.s'), canvas)).toBeNull();
+  });
+});
+
 describe('赤入れ装飾はパーツとして数えない', () => {
   it('[data-redline] の兄弟が挿入されてもパーツ採番とキーが変わらない', () => {
     const plain = root('<p class="a">A</p><p class="b">B</p>');

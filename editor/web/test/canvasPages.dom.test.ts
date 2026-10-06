@@ -107,6 +107,32 @@ describe('ページ数', () => {
   });
 });
 
+describe('本文全体を固めた文書', () => {
+  // 作成タブで本文全体を固めると、本文が `div.jinja-frozen-body`(`display: contents`)に包まれ、
+  // 根の直下に `{% set %}` のチップが並ぶ。包みの中の区切りもページを分ける。
+  const FROZEN =
+    '<span data-gjs-type="jinja-stmt" class="jinja-chip jinja-stmt" data-jinja="eyUgc2V0IHggPSAxICV9">{% set x = 1 %}</span>' +
+    `<div data-gjs-type="jinja-frozen" class="jinja-frozen-body" data-opaque="eA==" data-opaque-kind="body">${DOC}</div>`;
+
+  it('包みの中の区切りの数 + 1 ページになり、チップはパーツに数えない', () => {
+    load(FROZEN);
+    expect(g.pageCount.value).toBe(3);
+    expect(g.pageBlocks.value.map((p) => p.map((el) => el.className))).toEqual([
+      ['a'],
+      ['b', 'b2'],
+      ['c'],
+    ]);
+  });
+
+  it('1 ページ表示で、包みの中の他のページのパーツが隠れる', () => {
+    const root = load(FROZEN);
+    g.goToPage(1);
+    const shown = (cls: string) =>
+      getComputedStyle(root.querySelector(`.${cls}`) as Element).display !== 'none';
+    expect(['a', 'b', 'b2', 'c'].map(shown)).toEqual([false, true, true, false]);
+  });
+});
+
 describe('1 ページ表示', () => {
   it('2 ページ目へ送ると 1・3 ページ目のパーツが隠れ、2 ページ目は見える', () => {
     const root = load(DOC);
@@ -175,6 +201,18 @@ describe('insertPart', () => {
     load(`<p class="a">1</p>${open}<p class="b">2</p>${close}${BR}<p class="c">3</p>`);
     g.insertPart('<section>new</section>', 'NEW');
     expect(order()).toEqual(['a', '<!--o-->', 'b', '<!--c-->', 'NEW', 'BR', 'c']);
+  });
+
+  it('最後のパーツが inline の改ページ(after)を持てば、改ページ指定は動かさず次のページの先頭に入る', () => {
+    load('<p class="a" style="page-break-after: always">1</p><p class="b">2</p>');
+    g.goToPage(0);
+    g.insertPart('<section>new</section>', 'NEW');
+    expect(order()).toEqual(['a', 'NEW', 'b']);
+    expect(g.getBodyHtml()).toMatch(/class="a" style="page-break-after: ?always;?"/);
+    g.refreshPageMarks();
+    expect(
+      g.pageBlocks.value.map((p) => p.map((el) => el.getAttribute('data-part-id') ?? el.className)),
+    ).toEqual([['a'], ['NEW', 'b']]);
   });
 
   it('挿入したパーツを選び、data-part-id を付ける', () => {

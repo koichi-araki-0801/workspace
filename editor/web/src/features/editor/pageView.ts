@@ -6,13 +6,15 @@
 // vitest で全分岐を直接検証できるようにする(実レイアウトに依存しない)。どこでページが
 // 切れるかは `@/lib/pageBreaks` の `splitPages` が決め、ここはその結果を画面へ写すだけ。
 
-import type { PageSplit } from '@/lib/pageBreaks';
+import { type PageSplit, rootBlocks } from '@/lib/pageBreaks';
 
 /** 生 DOM へ付ける現在ページ判定用のマーカー属性。Component モデルには載せない。 */
 export const PV_ATTR = 'data-pv-idx';
 
 /**
- * 根の直下の要素へ、属するページの番号を `PV_ATTR` として付ける(古い印は先に消す)。
+ * 根の直下の要素へ、属するページの番号を `PV_ATTR` として付ける(古い印は先に消す)。固めた範囲の
+ * 包み(`display: contents`)には付けず、中身へ付ける(`rootBlocks`)。包みは箱を作らないので、
+ * 中身を隠せばページごとに隠れる。
  *
  * - パーツ: `split.pages` のページ番号。
  * - 区切り(`div.pagebreak`): 直前のページの番号。1 ページ表示で、そのページの末尾に帯が
@@ -36,7 +38,7 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
   let afterPart = false;
   let pending: Element[] = [];
   const mark = (el: Element, i: number) => el.setAttribute(PV_ATTR, String(i));
-  for (const el of Array.from(root.children)) {
+  for (const el of rootBlocks(Array.from(root.children))) {
     const page = pageOf.get(el);
     if (page !== undefined) {
       for (const p of pending) mark(p, page);
@@ -64,13 +66,14 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
  *   現在ページの要素には何も当てない(パーツが `flex` などの `display` を持つため上書きしない)。
  * - 全ページ表示(`!singleMode`)または 1 ページ以下のときは空文字 = 従来の連続スクロール。
  *
- * セレクタを wrapper(`[data-gjs-type=wrapper]`)の子に絞るのは詳細度のため。区切りの帯の規則
+ * セレクタを wrapper(`[data-gjs-type=wrapper]`)の中に絞るのは詳細度のため。区切りの帯の規則
  * (`[data-gjs-type=wrapper] > div.pagebreak` の `!important`)より詳細度を高くしないと、隠した
- * ページの帯が見えてしまう。印は `markPages` が根(= wrapper)の直下にだけ付ける。
+ * ページの帯が見えてしまう。子結合子にしないのは、固めた範囲の包みの中身にも印が付くため。印は
+ * `markPages` がページの単位の要素にだけ付けるので、子孫結合子でも他の要素には当たらない。
  */
 export function pageViewCss(index: number, count: number, singleMode: boolean): string {
   if (!singleMode || count <= 1) return '';
-  return `[data-gjs-type=wrapper] > [${PV_ATTR}]:not([${PV_ATTR}="${index}"]) { display: none !important; }`;
+  return `[data-gjs-type=wrapper] [${PV_ATTR}]:not([${PV_ATTR}="${index}"]) { display: none !important; }`;
 }
 
 /** ページ index を `[0, count-1]` に収める(count=0 / 負数 / 超過を 0 起点で安全化)。 */

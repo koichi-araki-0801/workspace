@@ -174,6 +174,14 @@ describe('findUncountedBreaks', () => {
     expect(findUncountedBreaks(body)).toEqual([]);
   });
 
+  it('固めた範囲の包みの直下の区切りは根の直下と同じに扱い、さらに入れ子なら返す', () => {
+    const body = bodyOf(
+      '<div class=jinja-frozen-body><div class=pagebreak></div><p style="break-after:page"></p>' +
+        '<section><div id=n1 class=pagebreak></div></section></div>',
+    );
+    expect(findUncountedBreaks(body).map((e) => e.id)).toEqual(['n1']);
+  });
+
   it('赤入れの削除要素([data-redline])の配下は見ない', () => {
     const body = bodyOf(
       '<div data-redline="del"><div class=pagebreak></div></div>' +
@@ -219,6 +227,28 @@ describe('pageItems', () => {
 
   it('canvas の本文の <style> の置き場(data-body-style)も外す', () => {
     expect(items(`<span id=s ${BODY_STYLE_VIEW_ATTR}></span><p id=a></p>`)).toEqual(['a']);
+  });
+
+  it('固めた範囲の包み(div.jinja-frozen-body)は中身へ展開し、入れ子の包みも展開する', () => {
+    expect(
+      items(
+        '<p id=a></p><div id=f class=jinja-frozen-body><p id=b></p><div id=k class=pagebreak></div>' +
+          '<div id=g class=jinja-frozen-body><p id=c></p></div></div>',
+      ),
+    ).toEqual(['a', 'b', 'k', 'c']);
+  });
+
+  it('根の直下の文・Jinja コメント・出力のチップと rawtext のチップは数えず、script / math のチップは数える', () => {
+    expect(
+      items(
+        '<span id=set class="jinja-chip jinja-stmt" data-jinja="eA=="></span>' +
+          '<span id=cm class="jinja-chip jinja-comment" data-jinja="eA=="></span>' +
+          '<span id=v class="jinja-chip jinja-var" data-jinja="eA=="></span>' +
+          '<span id=raw class="jinja-chip jinja-rawtext" data-opaque="eA==" data-opaque-kind="rawtext"></span>' +
+          '<span id=sc class="jinja-chip jinja-script" data-opaque="eA==" data-opaque-kind="script"></span>' +
+          '<p id=a></p>',
+      ),
+    ).toEqual(['sc', 'a']);
   });
 
   it('<style> だけのページは作らない', () => {

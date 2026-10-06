@@ -18,6 +18,7 @@
 
 import { splitCssRules } from '@editor/shared';
 import { BODY_STYLE_VIEW_ATTR } from './bodyStyleAttr';
+import { DATA_JINJA, DATA_OPAQUE_KIND, FROZEN_BODY_CLASS, JINJA_CHIP_CLASS } from './jinjaAttrs';
 import { REDLINE_ATTR } from './redlineAttr';
 
 /** 改ページの区切りを表すクラス。 */
@@ -85,19 +86,57 @@ export function inlineBreak(el: Element, edge: 'before' | 'after'): boolean {
   return on;
 }
 
+/** 固めた範囲の包み(`div.jinja-frozen-body`)か。 */
+function isFrozenBody(el: Element): boolean {
+  return el.tagName.toLowerCase() === 'div' && el.classList.contains(FROZEN_BODY_CLASS);
+}
+
 /**
- * 根の直下の要素のうち、ページ分けとパーツの番号に数えるもの(パーツと区切り)。`<style>` は
- * 見えない要素で、数えると後ろのパーツの番号がずれ、`<style>` だけのページもできる。canvas では
- * 本文の `<style>` が置き場の要素(`[data-body-style]`)に差し替わっているので、それも除く。赤入れの
- * 削除要素(`[data-redline]`)は生 DOM だけの表示物で文書に無い。canvas・承認タブ・比較が
+ * 根の直下の要素の並び。固めた範囲の包み(`div.jinja-frozen-body`)は、その中身で置き換える
+ * (入れ子の包みも同じ)。包みは canvas で `display: contents` の表示用の要素で、保存・描画した
+ * 文書(承認タブ・比較が読む)には無く、中身が根の直下に並ぶ。包みのまま数えると、本文全体を
+ * 固めた文書が 1 ページ・1 パーツになり、中の区切りはどれも数えない区切りになる。
+ */
+export function rootBlocks<T extends Element>(children: Iterable<T>): T[] {
+  const out: T[] = [];
+  for (const el of children) {
+    if (isFrozenBody(el)) {
+      out.push(...rootBlocks(Array.from(el.children) as T[]));
+    } else {
+      out.push(el);
+    }
+  }
+  return out;
+}
+
+/**
+ * 保存・描画した文書で要素として残らないチップか。`{% set %}` などの文と Jinja コメントは描画で
+ * 消え、出力(`{{ }}`)は地の文になる(どれも `data-jinja` を持つ)。原文を運ぶ `rawtext` の
+ * チップは `<style>` などで、数えない要素に戻る。`script` / `math` のチップは描画後も要素なので
+ * パーツに数える。
+ */
+function isVanishingChip(el: Element): boolean {
+  return (
+    el.classList.contains(JINJA_CHIP_CLASS) &&
+    (el.hasAttribute(DATA_JINJA) || el.getAttribute(DATA_OPAQUE_KIND) === 'rawtext')
+  );
+}
+
+/**
+ * 根の直下の要素のうち、ページ分けとパーツの番号に数えるもの(パーツと区切り)。固めた範囲の包みは
+ * 中身へ展開する(`rootBlocks`)。`<style>` は見えない要素で、数えると後ろのパーツの番号がずれ、
+ * `<style>` だけのページもできる。canvas では本文の `<style>` が置き場の要素(`[data-body-style]`)に
+ * 差し替わっているので、それも除く。赤入れの削除要素(`[data-redline]`)は生 DOM だけの表示物で
+ * 文書に無い。描画で要素として残らないチップ(`isVanishingChip`)も除く。canvas・承認タブ・比較が
  * 同じ集合を `splitPages` へ渡すよう、除く規則はここ 1 か所に置く。
  */
 export function pageItems<T extends Element>(children: Iterable<T>): T[] {
-  return Array.from(children).filter(
+  return rootBlocks(children).filter(
     (el) =>
       el.tagName.toLowerCase() !== 'style' &&
       !el.hasAttribute(REDLINE_ATTR) &&
-      !el.hasAttribute(BODY_STYLE_VIEW_ATTR),
+      !el.hasAttribute(BODY_STYLE_VIEW_ATTR) &&
+      !isVanishingChip(el),
   );
 }
 
@@ -150,7 +189,8 @@ export function findUncountedBreaks(root: Element): Element[] {
       if (nested && (isPagebreakEl(el) || inlineBreak(el, 'before') || inlineBreak(el, 'after'))) {
         out.push(el);
       }
-      walk(el, true);
+      // 固めた範囲の包みの中身は、包みと同じ深さとして見る(`rootBlocks` と同じ)。
+      walk(el, isFrozenBody(el) ? nested : true);
     }
   };
   walk(root, false);

@@ -39,6 +39,8 @@ import {
   DATA_JINJA_LOOP_ROW,
   DATA_OPAQUE,
   DATA_OPAQUE_KIND,
+  FROZEN_BODY_CLASS,
+  JINJA_CHIP_CLASS,
   rtComment,
 } from './jinjaAttrs';
 import type { JinjaCtx } from './jinjaExpr';
@@ -76,7 +78,7 @@ const RAW_LABEL_CHARS = 20;
 function tokenChip(tok: JinjaToken, ctx: JinjaCtx, f: Filler): string {
   const kind = tok.kind === 'output' ? 'var' : tok.kind;
   const visible = tok.kind === 'output' ? f.expr(tok.body, ctx) : tok.source;
-  return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_JINJA}="${b64encode(tok.source)}">${htmlEscape(visible)}</span>`;
+  return `<span data-gjs-type="jinja-${kind}" class="${JINJA_CHIP_CLASS} jinja-${kind}" ${DATA_JINJA}="${b64encode(tok.source)}">${htmlEscape(visible)}</span>`;
 }
 
 /**
@@ -84,7 +86,7 @@ function tokenChip(tok: JinjaToken, ctx: JinjaCtx, f: Filler): string {
  * 描画層が振り分けに使う(`script` → 実行、`math` → MathJax / MathML、`rawtext` → ラベルだけ)。
  */
 function opaqueChip(source: string, kind: 'script' | 'math' | 'rawtext', label: string): string {
-  return `<span data-gjs-type="jinja-${kind}" class="jinja-chip jinja-${kind}" ${DATA_OPAQUE}="${b64encode(source)}" ${DATA_OPAQUE_KIND}="${kind}">${label}</span>`;
+  return `<span data-gjs-type="jinja-${kind}" class="${JINJA_CHIP_CLASS} jinja-${kind}" ${DATA_OPAQUE}="${b64encode(source)}" ${DATA_OPAQUE_KIND}="${kind}">${label}</span>`;
 }
 
 /** 表示 HTML の先頭の開始タグ `<tag` の直後へ属性を差し込む。`tagLen` は原文のタグ名の長さ。 */
@@ -137,7 +139,7 @@ function emitFrozen(e: EmitCtx, r: FrozenRegion, ctx: JinjaCtx, rows: Rows): str
     // 表の行の間の値は HTML パーサが表の手前へ追い出す。表そのものに印を付けると追い出された
     // 値が印の外に残って保存へ混ざるので、レイアウトを変えない div で包み、追い出し先ごと運ぶ。
     if (rows.has(r.start)) display = withAttrs(display, r.tag.length, LOOP_ROW_ATTR);
-    return `<div data-gjs-type="jinja-frozen" class="jinja-frozen-body" ${opaque}>${display}</div>`;
+    return `<div data-gjs-type="jinja-frozen" class="${FROZEN_BODY_CLASS}" ${opaque}>${display}</div>`;
   }
   const type = r.form === 'element-svg' ? 'jinja-frozen-svg' : 'jinja-frozen';
   const attrs = [
@@ -301,7 +303,7 @@ function emitWholeBody(raw: string, a: FillAnalysis, ctx: JinjaCtx, f: Filler): 
   const inner = raw.slice(from, to);
   const parsed = a.parse.ok ? parseJinja(inner) : null;
   const display = parsed?.ok ? renderDisplay(inner, parsed.nodes, ctx, f) : inner;
-  const wrapped = `<div data-gjs-type="jinja-frozen" class="jinja-frozen-body" ${DATA_OPAQUE}="${b64encode(inner)}" ${DATA_OPAQUE_KIND}="body">${display}</div>`;
+  const wrapped = `<div data-gjs-type="jinja-frozen" class="${FROZEN_BODY_CLASS}" ${DATA_OPAQUE}="${b64encode(inner)}" ${DATA_OPAQUE_KIND}="body">${display}</div>`;
   return raw.slice(0, from) + wrapped + raw.slice(to);
 }
 

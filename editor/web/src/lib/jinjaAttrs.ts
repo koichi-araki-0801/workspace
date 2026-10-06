@@ -17,6 +17,13 @@ export const DATA_OPAQUE = 'data-opaque';
 export const DATA_OPAQUE_KIND = 'data-opaque-kind';
 /** for のテンプレートの行(1 回目の繰り返し)の最上位要素。表示専用で、`toTemplate` が外す。 */
 export const DATA_JINJA_LOOP_ROW = 'data-jinja-loop-row';
+/** チップ(`fillJinja` が Jinja のトークンや原文を表す `span`)のクラス。 */
+export const JINJA_CHIP_CLASS = 'jinja-chip';
+/**
+ * 固めた範囲を包む `div`(本文全体・表)のクラス。canvas では `display: contents` で、レイアウト上は
+ * 中身が包みの親の直下に並ぶ。書: `fillJinja` の `emitFrozen` / `emitWholeBody`。
+ */
+export const FROZEN_BODY_CLASS = 'jinja-frozen-body';
 /** 範囲の印(HTML コメント)の接頭辞。原文のコメントと区別するための名前空間。 */
 export const RT_COMMENT_PREFIX = 'jinja-rt:';
 

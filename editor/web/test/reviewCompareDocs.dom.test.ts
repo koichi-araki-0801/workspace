@@ -372,4 +372,22 @@ describe('buildCompareDocs', () => {
     expect(anchors).toEqual([]);
     expect(pageAnchors).toEqual([]);
   });
+
+  it('本文全体を固めた canvas と同じページ数で、保存した文書のページにアンカーを付ける', () => {
+    // 承認は保存・描画した文書(包み・チップ無し)を読む。canvas の 3 ページ(`partKey.dom.test.ts`)と
+    // 同じ数になる。
+    const html =
+      '<p class="a">A</p><div class="pagebreak"></div><section class="s">S</section>' +
+      '<div class="pagebreak"></div><p class="a">A3</p>';
+    const { pageAnchors } = buildCompareDocs({
+      beforeHtml: html,
+      afterHtml: html,
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set(),
+      marker: true,
+      afterExpectedPageCount: 3,
+    });
+    expect(pageAnchors).toHaveLength(3);
+  });
 });

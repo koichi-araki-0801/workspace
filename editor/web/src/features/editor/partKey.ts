@@ -1,11 +1,11 @@
 // =============================================================================
 // partKey.ts — 版を跨いで安定な「パーツ単位」構造キーの算出(メモ機能の紐付けキー)
 // =============================================================================
-// 役割: 内容の根(canvas では GrapesJS の wrapper、静的な文書では body)の直下の要素から、
-// 区切り(`div.pagebreak`)と数えない要素(`@/lib/pageBreaks` の `pageItems`)を除いたもの
-// を「パーツ」とし、選択要素が属するパーツを版を跨いで一意に指すキーを作る。キーは文書全体での
-// `<アンカー>#<通し番号>`(`@/lib/blockKey` の `rawKey`(data-part-id→id→class→tag)+ 全パーツ
-// の中での同アンカーの出現順)で、ページを含まない。ページの追加・削除でキーがずれないように
+// 役割: 内容の根(canvas では GrapesJS の wrapper、静的な文書では body)の直下の要素(固めた範囲の
+// 包みは中身へ展開する)から、区切り(`div.pagebreak`)と数えない要素(`@/lib/pageBreaks` の
+// `pageItems`)を除いたものを「パーツ」とし、選択要素が属するパーツを版を跨いで一意に指すキーを
+// 作る。キーは文書全体での `<アンカー>#<通し番号>`(`@/lib/blockKey` の `rawKey`(data-part-id→id
+// →class→tag)+ 全パーツの中での同アンカーの出現順)で、ページを含まない。ページの追加・削除でキーがずれないように
 // するため。HTML 構造のみに依存するため、版種/基準日が変わっても同じ構造のパーツなら一致する
 // (版比較 `htmlBlockDiff.ts` の `DiffBlock.partKey` と同じキー)。コメントはこのキーでパーツを
 // 指す(スレッドは版インスタンス単位で、ペアや他版とは共有しない)。`id` は既定で DOM の `id` を
@@ -47,11 +47,17 @@ export function partOf(el: HTMLElement, root: HTMLElement): HTMLElement | null {
   return i < 0 ? null : parts[i];
 }
 
-/** `el` を含むパーツの `parts` の中の位置。パーツでなければ -1。 */
+/**
+ * `el` を含むパーツの `parts` の中の位置。パーツでなければ -1。パーツは根の直下か、固めた範囲の
+ * 包みの直下(`@/lib/pageBreaks` の `rootBlocks`)にあるので、根へ向かって最初に当たるパーツを採る。
+ */
 function partIndex(el: HTMLElement, root: HTMLElement, parts: readonly HTMLElement[]): number {
-  let top = el;
-  while (top.parentElement && top.parentElement !== root) top = top.parentElement;
-  return top.parentElement === root ? parts.indexOf(top) : -1;
+  if (!root.contains(el)) return -1;
+  for (let cur: HTMLElement | null = el; cur && cur !== root; cur = cur.parentElement) {
+    const i = parts.indexOf(cur);
+    if (i >= 0) return i;
+  }
+  return -1;
 }
 
 /**
