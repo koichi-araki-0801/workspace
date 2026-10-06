@@ -3,6 +3,7 @@
 // =============================================================================
 import { describe, expect, it } from 'vitest';
 import {
+  canonicalCssRuleKeys,
   foldedCssRuleTexts,
   mergeCssRuleChanges,
   mergeCssRuleChangesFromBaseline,
@@ -1333,5 +1334,53 @@ describe('mergeCssRuleChangesFromBaseline — 原文と照合できないキー'
     expect(changed.applied).toEqual([k('.a')]);
     const removed = mergeCssRuleChanges('.a{color:red}\n.b{x:1}\n', '.b{x:1}\n', '.b{x:1}\n');
     expect(removed.unmatched).toEqual([]);
+  });
+});
+
+describe('canonicalCssRuleKeys — 同期状態に残った古いキーの読み替え', () => {
+  it.each([
+    ['[".a > .b"]', '[".a>.b"]'],
+    ['["@media PRINT",".A DIV"]', '["@media print",".A div"]'],
+    ['["@page:first"]', '["@page :first"]'],
+    ['[".a",2]', '[".a",2]'],
+    [
+      '["@font-face{font-family:x;font-weight:;font-style:}"]',
+      '["@font-face{font-family:x;font-weight:;font-style:}"]',
+    ],
+    ['not json', 'not json'],
+    ['{"a":1}', '{"a":1}'],
+    ['["@MEDIA ( min-width: 1px )","p:BEFORE"]', '["@media (min-width:1px)","p::before"]'],
+  ])('%s → %s', (a, b) => expect(canonicalCssRuleKeys(a)).toEqual([b]));
+
+  it('並びのキーはセレクタごとに分ける(出現番号は外す)', () => {
+    expect(canonicalCssRuleKeys('["@media print",".a, .b"]')).toEqual([
+      '["@media print",".a"]',
+      '["@media print",".b"]',
+    ]);
+    expect(canonicalCssRuleKeys('[".a,.b",2]')).toEqual(['[".a"]', '[".b"]']);
+  });
+
+  it('括弧・属性値・文字列・エスケープの中の , では分けない', () => {
+    for (const key of [k(':is(.a,.b)'), k('[title="a,b"]'), k('.a\\,b')]) {
+      expect(canonicalCssRuleKeys(key)).toEqual([key]);
+    }
+    expect(canonicalCssRuleKeys(k("[x='a,b']"))).toEqual([k('[x="a,b"]')]);
+  });
+
+  it('同じセレクタが 2 つある並び・空のセレクタがある並びは分けない(照合の経路でも展開されない)', () => {
+    expect(canonicalCssRuleKeys(k('.a , .a'))).toEqual([k('.a,.a')]);
+    expect(canonicalCssRuleKeys(k('.a,', 2))).toEqual([k('.a,', 2)]);
+  });
+
+  it('at-rule の要素は並びとして分けない', () => {
+    expect(canonicalCssRuleKeys(k('@layer a, b'))).toEqual([k('@layer a,b')]);
+  });
+
+  it('新しいキーに掛けても変わらない(冪等)', () => {
+    const css =
+      '.a > .b{x:1}@media PRINT{p:before{x:1}}@page:first{margin:0}' +
+      '@font-face{font-family:F;src:url(x)}.a > .b{x:2}' +
+      '@supports ( display : grid ){:is(.e, .f) [title="a , b"]{z:3}}';
+    for (const r of splitCssRules(css)) expect(canonicalCssRuleKeys(r.key)).toEqual([r.key]);
   });
 });

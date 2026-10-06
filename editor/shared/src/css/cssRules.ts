@@ -806,6 +806,79 @@ export function splitCssRules(css: string): CssRule[] {
   }));
 }
 
+/** キーの 1 要素(セレクタか at-rule の前置き)を今の正規化の形にする。 */
+function canonicalKeyPart(part: string): string {
+  // `@font-face` などセレクタを持たない at-rule の識別子(`{` を含む)は中身から作った値なので
+  // 書き方の正規化の対象外。
+  if (part.startsWith('@') && part.includes('{')) return part;
+  const text = collapseOutsideStrings(part);
+  if (!text.startsWith('@')) return canonicalSelector(text);
+  const name = (AT_KEYWORD_RE.exec(text)?.[0] ?? '@').slice(1).toLowerCase();
+  return name === 'page' ? canonicalPagePrelude(text) : canonicalAtPrelude(text, name);
+}
+
+/**
+ * 正規化したセレクタを括弧・`[…]`・文字列・エスケープの外の `,` で分ける。分けられない(並びで
+ * ない・空のセレクタがある・同じセレクタが 2 つある)なら undefined。照合の経路の展開
+ * (`scanCssRules` の `expandList`)と同じ条件にし、展開されないキーは並びのまま残す。
+ */
+function splitSelectorList(sel: string): string[] | undefined {
+  const items: string[] = [];
+  let from = 0;
+  let depth = 0;
+  let k = 0;
+  while (k < sel.length) {
+    const c = sel[k];
+    if (c === '"' || c === "'") {
+      k = stringEnd(sel, k);
+      continue;
+    }
+    if (c === '\\') {
+      k += escapeLength(sel, k);
+      continue;
+    }
+    if (c === '(' || c === '[') depth++;
+    else if ((c === ')' || c === ']') && depth > 0) depth--;
+    else if (c === ',' && depth === 0) {
+      items.push(sel.slice(from, k).trim());
+      from = k + 1;
+    }
+    k++;
+  }
+  items.push(sel.slice(from).trim());
+  if (items.length < 2 || items.includes('') || new Set(items).size !== items.length) {
+    return undefined;
+  }
+  return items;
+}
+
+/**
+ * 同期状態ファイルに残った規則のキー(以前の正規化で作ったもの)を今のキーへ読み替える。
+ * 要素ごとに今の正規化を当て直し、出現番号はそのまま残す。セレクタが並び(`.a,.b`)なら、照合の
+ * 経路が 1 セレクタずつに展開するのに合わせてセレクタごとのキーに分ける。出現番号付きの並びは、
+ * 並びの中の同じセレクタが何番目の出現かを古いキーからは決められないので、番号を外して各
+ * セレクタの規則全体のキーにする。JSON 配列として読めないキーはそのまま返す。
+ * 古いキーはセレクタの中のコメントを空白に置き換えてあるので、`.a` と `.b` の間にコメントを
+ * 書いた規則の古いキー(`.a .b`)は今のキー(`.a.b`)へ戻せない。
+ */
+export function canonicalCssRuleKeys(key: string): string[] {
+  let parts: unknown;
+  try {
+    parts = JSON.parse(key);
+  } catch {
+    return [key];
+  }
+  if (!Array.isArray(parts)) return [key];
+  const next = parts.map((p) => (typeof p === 'string' ? canonicalKeyPart(p) : p));
+  let last = next.length - 1;
+  while (last >= 0 && typeof next[last] !== 'string') last--;
+  const sel = last >= 0 ? (next[last] as string) : '';
+  const list = sel.startsWith('@') ? undefined : splitSelectorList(sel);
+  if (list === undefined) return [JSON.stringify(next)];
+  const chain = next.slice(0, last);
+  return list.map((s) => JSON.stringify([...chain, s]));
+}
+
 /** 比較用に書式の違い(空白・改行・ブロック最後の `;`)を消す(整形の差で競合にしない)。 */
 function squash(text: string): string {
   return text
