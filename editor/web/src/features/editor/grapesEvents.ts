@@ -102,9 +102,10 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     toInfo,
     callbacks,
   } = deps;
-  // listener 内ローカル: RTE 開始時の snapshot と、drag 開始時の兄弟 index。
+  // listener 内ローカル: RTE 開始時の snapshot と、drag 開始時の親と兄弟 index。
   let rteStartHtml = '';
   let dragStartIndex = -1;
+  let dragStartParent: unknown = null;
 
   ed.on('load', () => {
     const docu = ed.Canvas.getDocument();
@@ -231,14 +232,19 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   ed.on('component:styleUpdate', () => fireChange());
 
   // native な drag-to-reorder: 開始時に undo 用 snapshot、終了時に history を記録する
-  // (`Component` の兄弟内位置が実際に変わったときだけ)。version 依存の payload を
+  // (`Component` の親か兄弟内の位置が変わったとき。別ページへ同じ番目で移した場合も移動)。
+  // version 依存の payload を
   // 信用せず、selection を直接読む。
   ed.on('component:drag:start', () => {
-    dragStartIndex = ed.getSelected()?.index?.() ?? -1;
+    const sel = ed.getSelected();
+    dragStartIndex = sel?.index?.() ?? -1;
+    dragStartParent = sel?.parent?.() ?? null;
     callbacks.reorderStart?.();
   });
   ed.on('component:drag:end', () => {
-    const moved = (ed.getSelected()?.index?.() ?? -1) !== dragStartIndex;
+    const sel = ed.getSelected();
+    const moved =
+      (sel?.index?.() ?? -1) !== dragStartIndex || (sel?.parent?.() ?? null) !== dragStartParent;
     callbacks.reorderEnd?.(moved);
   });
 }

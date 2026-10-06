@@ -199,3 +199,47 @@ describe('wireGrapesEvents — 保存内容に現れない prop だけの compon
     expect(spies.change).toHaveBeenCalledTimes(2);
   });
 });
+
+// ドラッグの移動判定は「親か兄弟内の位置のどちらか」が変わったときだけ true。別ページ(親)へ
+// 同じ番目で移した場合も記録しないと cancelUndo が Undo の 1 手を落とす。
+describe('wireGrapesEvents — ドラッグ移動の判定', () => {
+  function drag(start: { p: object; i: number }, end: { p: object; i: number }) {
+    const ed = makeFakeEditor();
+    let cur = start;
+    ed.getSelected = (() => ({ index: () => cur.i, parent: () => cur.p })) as never;
+    const reorderEnd = vi.fn();
+    const deps = {
+      selected: ref(null),
+      selectedRect: ref(null),
+      revision: ref(0),
+      zoom: ref(1),
+      refreshRect: vi.fn(),
+      refreshMove: vi.fn(),
+      refreshPageGuides: vi.fn(),
+      recomputeLayout: vi.fn(),
+      applyInitialZoom: vi.fn(),
+      onCanvasLoad: vi.fn(),
+      toInfo: vi.fn(),
+      isLocked: () => false,
+      canvasCss: '',
+      callbacks: { change: vi.fn(), reorderStart: vi.fn(), reorderEnd },
+    } as unknown as GrapesEventDeps;
+    wireGrapesEvents(ed, deps);
+    ed.emit('component:drag:start');
+    cur = end;
+    ed.emit('component:drag:end');
+    return reorderEnd;
+  }
+  const pageA = {};
+  const pageB = {};
+
+  it('別の親の同じ番目へ移したら移動', () => {
+    expect(drag({ p: pageA, i: 2 }, { p: pageB, i: 2 })).toHaveBeenCalledWith(true);
+  });
+  it('同じ親の別の番目なら移動', () => {
+    expect(drag({ p: pageA, i: 2 }, { p: pageA, i: 3 })).toHaveBeenCalledWith(true);
+  });
+  it('同じ親の同じ番目なら移動していない', () => {
+    expect(drag({ p: pageA, i: 2 }, { p: pageA, i: 2 })).toHaveBeenCalledWith(false);
+  });
+});
