@@ -181,7 +181,13 @@ export async function findDuplicatePendingReview(p: {
     const body = await Promise.all([
       fs.readFile(bodyHtmlPath(m.id), 'utf8'),
       fs.readFile(bodyCssPath(m.id), 'utf8'),
-    ]).catch(() => null);
+    ]).catch((err: unknown) => {
+      const code = (err as NodeJS.ErrnoException | undefined)?.code;
+      if (code !== 'ENOENT') {
+        logger.warn({ reqId: m.id, code }, '重複判定のため申請の本文を読めず、読み飛ばしました');
+      }
+      return null;
+    });
     if (body && reviewContentHash(body[0], body[1]) === p.contentHash) return m;
   }
   return null;

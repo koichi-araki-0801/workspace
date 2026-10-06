@@ -196,6 +196,7 @@ describe('mergeCssRuleChanges', () => {
     const r = mergeCssRuleChanges(base, next, base);
     expect(r.css).toBe(next);
     expect(r.applied).toEqual([k('@media print', '.a')]);
+    expect(r.conflicts).toEqual([]);
   });
 
   it('削除で、ペア側が base と違えば競合', () => {
@@ -1319,6 +1320,19 @@ describe('mergeCssRuleChangesFromBaseline — 原文と照合できないキー'
     expect(r.applied).toEqual([]);
     expect(r.conflicts).toEqual([]);
     expect(r.css).toBe(raw);
+  });
+
+  it('変更の照合不可と、本当に新しい規則の追加が同時でも、前者だけ unmatched に残り後者は写る', () => {
+    const r = mergeCssRuleChangesFromBaseline(
+      raw,
+      baseline,
+      '.a{color:red}\n.a{color:blue}\n.c{color:red}\n.n{color:green}\n',
+      raw,
+    );
+    expect(r.unmatched).toEqual([k('.a')]);
+    expect(r.applied).toEqual([k('.n')]);
+    expect(r.conflicts).toEqual([]);
+    expect(r.css).toContain('.n{color:green}');
   });
 
   it('削除: 何もしなかったことにせず unmatched に出す', () => {

@@ -257,6 +257,15 @@ d('review workflow (HTTP routes)', () => {
     expect(got.json().css).toBe('.x{}');
   });
 
+  it('POST: 同じ人の同じ内容の 2 回目は 409 で、body.code は REVIEW_DUPLICATE', async () => {
+    const tplId = 'AM01_633333_20250101_交付版';
+    const first = await submit(asUser('editor1', 'editor'), tplId, '<p>重複 HTTP</p>');
+    expect(first.statusCode).toBe(200);
+    const second = await submit(asUser('editor1', 'editor'), tplId, '<p>重複 HTTP</p>');
+    expect(second.statusCode).toBe(409);
+    expect(second.json().code).toBe('REVIEW_DUPLICATE');
+  });
+
   it('POST approve: 決定済みの申請は 409', async () => {
     const sub = await submit(
       asUser('editor1', 'editor'),

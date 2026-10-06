@@ -48,6 +48,7 @@ const d = gitAvailable ? describe : describe.skip;
 
 d('承認とペアの CSS 転写', () => {
   let reviews: import('../src/repositories/reviewRepo.js').ReviewRepo;
+  let pairSync: import('../src/sync/pairSyncService.js').PairSyncService;
   const put = (dir: string, name: string, text: string) => {
     fs.mkdirSync(path.join(tmp, dir), { recursive: true });
     fs.writeFileSync(path.join(tmp, dir, name), text, 'utf8');
@@ -57,8 +58,9 @@ d('承認とペアの CSS 転写', () => {
     const { createReviewRepo } = await import('../src/repositories/reviewRepo.js');
     const { createPairSyncService } = await import('../src/sync/pairSyncService.js');
     const parts = { listParts: async () => [], getPartClassificationOptions: async () => ({}) };
+    pairSync = createPairSyncService(parts as never);
     reviews = createReviewRepo({
-      pairSync: createPairSyncService(parts as never),
+      pairSync,
       noteMaster: { reflectNoteMasterAfterConfirm: async () => null } as never,
     });
   });
@@ -211,5 +213,8 @@ d('承認とペアの CSS 転写', () => {
     expect(state.css.conflicts).toEqual([
       expect.objectContaining({ ruleKey: '[".a"]', kind: '照合不可', sourceEdition: '交付版' }),
     ]);
+    // 状態 API(バナーの元)も同じ記録を、照合不可の種別つきで返す。
+    const status = await pairSync.getPairSyncStatus('AM01_584000_20240710_全体版');
+    expect(status.cssConflicts[0]?.kind).toBe('照合不可');
   });
 });

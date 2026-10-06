@@ -175,6 +175,32 @@ describe('parts.routes', () => {
     expect((await read())[0].id).toBe(first[0].id);
   });
 
+  it('part-history: id が空文字の行にも legacy- の id を付け、他テンプレの行は混ぜない', async () => {
+    const tid = 'AM01_510037_20240714_交付版';
+    const other = 'AM01_510037_20240715_交付版';
+    const dir = path.join(root, 'logs', 'history');
+    fs.mkdirSync(dir, { recursive: true });
+    const base = { partKey: 'k', user: 'u', timestamp: '2026-01-02T00:00:00Z' };
+    const rows = [
+      { ...base, templateId: tid, change: 'empty-id', id: '' },
+      { ...base, templateId: other, change: 'other-tpl', id: 'pt-other' },
+      { ...base, templateId: tid, change: 'with-id', id: 'pt-own' },
+    ];
+    fs.appendFileSync(
+      path.join(dir, 'part.jsonl'),
+      `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`,
+      'utf8',
+    );
+    const url = `/templates/${encodeURIComponent(tid)}/part-history`;
+    const got = (await app.inject({ method: 'GET', url, headers: as('editor') })).json() as Array<{
+      id: string;
+      change: string;
+    }>;
+    expect(got.map((e) => e.change).sort()).toEqual(['empty-id', 'with-id']);
+    expect(got.find((e) => e.change === 'empty-id')?.id).toMatch(/^legacy-[0-9a-f]{40}$/);
+    expect(got.find((e) => e.change === 'with-id')?.id).toBe('pt-own');
+  });
+
   it('part-history: legacy id はフィールド境界をまたいだ同じ連結でも別の id になる', async () => {
     const tid = 'AM01_510037_20240713_交付版';
     const dir = path.join(root, 'logs', 'history');

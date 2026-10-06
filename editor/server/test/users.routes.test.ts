@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { Deps } from '../src/deps.js';
 import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 vi.mock('../src/auth/session.js', async (importOriginal) => ({
@@ -40,9 +41,7 @@ const TEMP_PASSWORD_RE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$/;
 
 const as = (username: string) => ({ cookie: username });
 
-async function buildApp(
-  tweakDeps?: (deps: { users: { listUsers: () => Promise<unknown> } }) => void,
-): Promise<FastifyInstance> {
+async function buildApp(tweakDeps?: (deps: Deps) => void): Promise<FastifyInstance> {
   const Fastify = (await import('fastify')).default;
   const { errorHandler } = await import('../src/middleware/errorHandler.js');
   const { createDeps } = await import('../src/deps.js');
