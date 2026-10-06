@@ -259,6 +259,8 @@ export * from './domain/sampleData.js';
 export * from './domain/template.js';
 export * from './domain/user.js';
 export * from './errors.js';
+// Jinja の字句解析。web の往復と関所の印の検出が同じ区切りで読む。
+export * from './jinja/jinjaLex.js';
 // プレビュー iframe(隔離されたビューアホストページ)と親の postMessage 契約。
 export * from './preview/hostProtocol.js';
 // Jinja 描画 iframe(隔離されたレンダーホストページ)と親の postMessage 契約。

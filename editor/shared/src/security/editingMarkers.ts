@@ -6,6 +6,8 @@
 // チップや clone が焼き付く。サーバの関所・検出スクリプト・`toTemplate` の事後検査が同じ
 // 定義を使うよう、ここに 1 つだけ置く(定義が分かれると、片側だけ印を足し忘れる)。
 
+import { lexJinja } from '../jinja/jinjaLex.js';
+
 export interface EditingMarkerHit {
   marker: string;
   index: number;
@@ -113,7 +115,7 @@ function commentEnd(html: string, from: number, seen: { dash: number; bang: numb
  * 区切りはブラウザの字句解析に合わせ、コメント・`<!…>` `<?…>`・終了タグも同じ範囲で読み飛ばす。
  * それらの中にタグ風の文字列があると、そこの引用符が後ろの本物のタグを呑み込み、ブラウザが
  * 要素として読む印を見落とすため。
- * `skipComments` が false のときは `<!--` の中も読む(`findEditingMarkers` の 2 回目の走査)。
+ * `skipComments` が false のときは `<!--` の中も読む(`findEditingMarkers` の伏せた写しの走査)。
  */
 function scanStartTags(html: string, onAttr: AttrSink, skipComments: boolean): void {
   // 大小文字を無視した閉じタグ探しに使う。走査 1 回につき 1 コピーに留める。ASCII だけを
@@ -178,7 +180,7 @@ const JINJA_CLOSERS: Readonly<Record<string, string>> = { '{': '}}', '%': '%}', 
  * 閉じない `{{` の反復で後戻りが入力長の 2 乗になるのを避けるため、閉じ記号の位置を種類ごとに
  * 覚えて線形に読む(-1 は「以後に無い」)。
  */
-function maskJinjaTokens(html: string): string {
+function maskJinjaShortest(html: string): string {
   const seen: Record<string, number> = { '}}': -2, '%}': -2, '#}': -2 };
   const parts: string[] = [];
   let last = 0;
@@ -199,13 +201,34 @@ function maskJinjaTokens(html: string): string {
       continue;
     }
     const end = close + 2;
-    const token = html.slice(i, end);
-    const blank = /[\r\n]/.test(token) ? token.replace(/[^\r\n]/g, ' ') : ' '.repeat(token.length);
-    parts.push(html.slice(last, i), blank);
+    parts.push(html.slice(last, i), blankToken(html.slice(i, end)));
     last = end;
     i = html.indexOf('{', end);
   }
   if (last === 0) return html;
+  parts.push(html.slice(last));
+  return parts.join('');
+}
+
+/** Jinja のトークン 1 個を同じ長さの空白にする。改行は残す(位置と行を原文に揃える)。 */
+function blankToken(token: string): string {
+  return /[\r\n]/.test(token) ? token.replace(/[^\r\n]/g, ' ') : ' '.repeat(token.length);
+}
+
+/**
+ * エディタと同じ字句解析(`lexJinja`)の区切りで Jinja を伏せた写し。引用符の中の閉じ記号や
+ * `{% raw %}` の中身を正しく扱う。字句解析が失敗する入力(閉じない `{{` など)は null。
+ */
+function maskJinjaLexed(html: string): string | null {
+  const lexed = lexJinja(html);
+  if (!lexed.ok) return null;
+  if (lexed.tokens.length === 0) return html;
+  const parts: string[] = [];
+  let last = 0;
+  for (const t of lexed.tokens) {
+    parts.push(html.slice(last, t.start), blankToken(t.source));
+    last = t.end;
+  }
   parts.push(html.slice(last));
   return parts.join('');
 }
@@ -216,12 +239,13 @@ export function findEditingMarkers(html: string): EditingMarkerHit[] {
     hits.push({ marker: 'comment:jinja-rt', index: m.index });
   for (const m of html.matchAll(PLACEHOLDER_RE))
     hits.push({ marker: 'placeholder', index: m.index });
-  // 走査は 3 回。1 回目は原文をブラウザどおりに読む。作成経路の本文は Jinja の原文で、エディタは
-  // Jinja を伏せてから読むので、`{# <!-- #}` や `{{ '<a title="' }}` のように Jinja の中の `<` や
-  // 引用符が見かけのコメント・タグを作ると、その後ろの本物のタグを原文の走査では見落とす。
-  // そこで Jinja を伏せた写しも読む(2 回目)。偽の枝の中の `<!--`(`{% if false %}<!--{% endif %}`)は
-  // 伏せても残るので、伏せた写しをコメントの中まで読む走査も足す(3 回目)。どれかで見つかれば
-  // 印とし、同じ位置の同じ印は 1 件にまとめる。
+  // 作成経路の本文は Jinja の原文で、エディタは Jinja を伏せてから読む。`{# <!-- #}` や
+  // `{{ '<a title="' }}` のように Jinja の中の `<` や引用符が見かけのコメント・タグを作ると、原文を
+  // ブラウザどおりに読むだけではその後ろの本物のタグを見落とす。そこで Jinja を伏せた写しも読む。
+  // 伏せ方は 2 通り: エディタと同じ字句解析(`lexJinja`)の区切りと、字句解析が失敗する入力でも
+  // 働く最短一致の区切り。偽の枝の中の `<!--`(`{% if false %}<!--{% endif %}`)は伏せても残るので、
+  // 伏せた写しはコメントの中まで読む走査も掛ける。どれかで見つかれば印とし、同じ位置の同じ印は
+  // 1 件にまとめる。
   const seen = new Set<string>();
   const onAttr: AttrSink = (name, value, at) => {
     const push = (marker: string) => {
@@ -238,9 +262,11 @@ export function findEditingMarkers(html: string): EditingMarkerHit[] {
         if (value.split(HTML_SPACE_RUN).includes(c)) push(`class:${c}`);
   };
   scanStartTags(html, onAttr, true);
-  const masked = maskJinjaTokens(html);
-  if (masked !== html) scanStartTags(masked, onAttr, true);
-  scanStartTags(masked, onAttr, false);
+  const shortest = maskJinjaShortest(html);
+  for (const masked of new Set([maskJinjaLexed(html) ?? shortest, shortest])) {
+    if (masked !== html) scanStartTags(masked, onAttr, true);
+    scanStartTags(masked, onAttr, false);
+  }
   return hits.sort((x, y) => x.index - y.index);
 }
 

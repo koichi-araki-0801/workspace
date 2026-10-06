@@ -92,6 +92,18 @@ describe('findEditingMarkers', () => {
     ]);
   });
 
+  it('Jinja の区切りはエディタと同じ字句解析で取る(引用符の中の閉じ記号で切らない)', () => {
+    expect(kinds(`{{ '}}<a title="' }}<span data-jinja>1</span>{{ '"' }}`)).toEqual([
+      'attr:data-jinja',
+    ]);
+    expect(kinds(`{{ "}}<a title='" }}<span data-jinja>1</span>{{ "'" }}`)).toEqual([
+      'attr:data-jinja',
+    ]);
+    expect(
+      kinds(`{% set a = '%}<a title="' %}<span data-opaque>1</span>{% set b = '"' %}`),
+    ).toEqual(['attr:data-opaque']);
+  });
+
   it('伏せは位置を保つ(改行を含む Jinja の後でも index が原文と一致する)', () => {
     const html = '{% if a\n %}x{# \n #}<span data-jinja>1</span>';
     expect(findEditingMarkers(html)).toEqual([

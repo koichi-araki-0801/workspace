@@ -8,90 +8,11 @@
 // アプリオリジンでのコンパイル経路を増やしたくない)。
 
 // ── 1. 字句解析 ──
+// 字句解析は申請の関所(印の検出)と共有するため shared に置く。ここでは再輸出だけする。
 
-export type JinjaTokenKind = 'output' | 'stmt' | 'comment';
-export interface JinjaToken {
-  kind: JinjaTokenKind;
-  start: number;
-  end: number;
-  source: string;
-  trimLeft: boolean;
-  trimRight: boolean;
-  keyword: string | null;
-  body: string;
-}
-export type LexResult =
-  | { ok: true; tokens: JinjaToken[] }
-  | { ok: false; error: { message: string; at: number } };
+import { type JinjaToken, lexJinja } from '@editor/shared';
 
-const OPEN: Record<string, { kind: JinjaTokenKind; close: string }> = {
-  '{{': { kind: 'output', close: '}}' },
-  '{%': { kind: 'stmt', close: '%}' },
-  '{#': { kind: 'comment', close: '#}' },
-};
-const RAW_END: Record<string, RegExp> = {
-  raw: /\{%[-+]?\s*endraw\s*[-+]?%\}/g,
-  verbatim: /\{%[-+]?\s*endverbatim\s*[-+]?%\}/g,
-};
-
-/** 閉じ記号の位置(閉じ記号の先頭)。`quoted` なら引用符の中を読み飛ばす。 */
-function findClose(src: string, from: number, close: string, quoted: boolean): number {
-  let i = from;
-  while (i < src.length) {
-    const c = src[i];
-    if (quoted && (c === '"' || c === "'")) {
-      i++;
-      while (i < src.length && src[i] !== c) i += src[i] === '\\' ? 2 : 1;
-      i++;
-      continue;
-    }
-    if (src.startsWith(close, i)) return i;
-    i++;
-  }
-  return -1;
-}
-
-function makeToken(src: string, start: number, end: number, kind: JinjaTokenKind): JinjaToken {
-  const source = src.slice(start, end);
-  let inner = source.slice(2, -2);
-  const trimLeft = inner.startsWith('-');
-  const trimRight = inner.endsWith('-');
-  if (inner.startsWith('-') || inner.startsWith('+')) inner = inner.slice(1);
-  if (inner.endsWith('-') || inner.endsWith('+')) inner = inner.slice(0, -1);
-  const body = inner.trim();
-  const keyword = kind === 'stmt' ? (/^[A-Za-z_]\w*/.exec(body)?.[0] ?? null) : null;
-  return { kind, start, end, source, trimLeft, trimRight, keyword, body };
-}
-
-export function lexJinja(src: string): LexResult {
-  const tokens: JinjaToken[] = [];
-  let i = 0;
-  while (i < src.length) {
-    const j = src.indexOf('{', i);
-    if (j < 0) break;
-    const spec = OPEN[src.slice(j, j + 2)];
-    if (!spec) {
-      i = j + 1;
-      continue;
-    }
-    const c = findClose(src, j + 2, spec.close, spec.kind !== 'comment');
-    if (c < 0)
-      return { ok: false, error: { message: `閉じていない ${src.slice(j, j + 2)}`, at: j } };
-    const tok = makeToken(src, j, c + 2, spec.kind);
-    tokens.push(tok);
-    i = tok.end;
-    const rawEnd = tok.keyword ? RAW_END[tok.keyword] : undefined;
-    if (rawEnd) {
-      rawEnd.lastIndex = i;
-      const m = rawEnd.exec(src);
-      if (!m)
-        return { ok: false, error: { message: `閉じていない ${tok.keyword}`, at: tok.start } };
-      tokens.push(makeToken(src, m.index, m.index + m[0].length, 'stmt'));
-      i = m.index + m[0].length;
-    }
-  }
-  return { ok: true, tokens };
-}
+export { type JinjaToken, type JinjaTokenKind, type LexResult, lexJinja } from '@editor/shared';
 
 // ── 2. ブロック木 ──
 // 開閉の対応はスタックで取る。対応が取れない入力は推測で補わずエラーにする(往復の可否は
