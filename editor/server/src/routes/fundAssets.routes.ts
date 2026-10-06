@@ -1,5 +1,5 @@
 // =============================================================================
-// fundAssets.routes.ts — 画像(imagesDir 直下と会社フォルダ 1 段)を 1 つ返す読み取り専用ルート
+// fundAssets.routes.ts — 画像(imagesDir 直下と会社フォルダ 1 段)の読み取り専用ルート
 // =============================================================================
 // 画面内プレビュー(親が取得して data URI に埋める)と編集画面(canvas の CSS が
 // `content:url()` で引く)の唯一の取得先。プレビューホストの資産ルートは `images/` を配らない
@@ -17,13 +17,25 @@
 //
 // 閲覧権限は CSS と同じ(ログインしていれば全テンプレの画像を見られる)。応答は `no-store` —
 // 画像は外部ツールが差し替えるため、古い版をブラウザに残さない。
+//
+// 確認 API(`POST /fund-assets/inspect`)は配信ルートと同じ `inspectFundImage` を通し、画像ごとに
+// ok / missing / svg_rejected(違反の文言付き)を返す。編集画面とプレビューが「SVG の検査で
+// 配信しない」理由を警告に出すための経路で、ファイルの中身は返さない。
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type {
+  FundAssetInspectRequest,
+  FundAssetInspectResponse,
+  FundAssetInspectResult,
+  FundAssetRef,
+} from '@editor/shared';
 import { apiPaths, inspectSvg, resolveServedRoutePath } from '@editor/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { logger } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
+import { validate } from '../middleware/validate.js';
+import { FundAssetInspectRequest as FundAssetInspectRequestSchema } from '../openapi/schemas.js';
 import { FUND_IMAGES_MOUNT, resolveServedAssetSource } from '../vivliostyle/docAssets.js';
 
 /** 拡張子 → Content-Type。許可リスト外の拡張子は解決器が先に弾く。 */
@@ -61,37 +73,74 @@ export async function resolveFundImageSource(
   return resolveServedAssetSource(wanted);
 }
 
+/**
+ * 1 枚の判定。配信ルートと確認 API が同じ関数を通るので、「確認では ok なのに配信は 404」の
+ * ずれが起きない。`missing` は存在しない・経路が不正・許可外の拡張子をまとめたもので、
+ * どれに当たったかは区別しない(置き場の外の名前の有無を確かめる手段にしない)。
+ */
+export type FundImageInspection =
+  | { status: 'ok'; body: Buffer; type: string }
+  | { status: 'missing' }
+  | { status: 'svg_rejected'; violations: string[] };
+
+export async function inspectFundImage(
+  dir: string | null,
+  file: string,
+): Promise<FundImageInspection> {
+  const source = await resolveFundImageSource(dir, file);
+  const type =
+    source === undefined ? undefined : IMAGE_CONTENT_TYPES.get(path.extname(source).toLowerCase());
+  if (source === undefined || type === undefined) return { status: 'missing' };
+  let body: Buffer;
+  try {
+    body = await fs.readFile(source);
+  } catch {
+    return { status: 'missing' };
+  }
+  if (type === 'image/svg+xml') {
+    const violations = inspectSvg(body.toString('utf8'));
+    if (violations.length > 0) return { status: 'svg_rejected', violations };
+  }
+  return { status: 'ok', body, type };
+}
+
 /** 1 枚を返す(存在しない / 配信対象外 / 違反は区別せず 404 本文なし。理由を外へ漏らさない)。 */
 async function sendFundImage(
   reply: FastifyReply,
   dir: string | null,
   file: string,
 ): Promise<FastifyReply> {
-  const source = await resolveFundImageSource(dir, file);
-  const type =
-    source === undefined ? undefined : IMAGE_CONTENT_TYPES.get(path.extname(source).toLowerCase());
-  if (source === undefined || type === undefined) return reply.code(404).send();
-  let body: Buffer;
-  try {
-    body = await fs.readFile(source);
-  } catch {
-    return reply.code(404).send();
+  const inspected = await inspectFundImage(dir, file);
+  if (inspected.status === 'svg_rejected') {
+    logger.warn(
+      {
+        type: 'asset.svg_rejected',
+        file: [FUND_IMAGES_MOUNT, ...(dir === null ? [] : [dir]), file].join('/'),
+        violations: inspected.violations,
+      },
+      'SVG の検査に違反したため配信しません',
+    );
   }
-  if (type === 'image/svg+xml') {
-    const violations = inspectSvg(body.toString('utf8'));
-    if (violations.length > 0) {
-      logger.warn(
-        {
-          type: 'asset.svg_rejected',
-          file: [FUND_IMAGES_MOUNT, ...(dir === null ? [] : [dir]), file].join('/'),
-          violations,
-        },
-        'SVG の検査に違反したため配信しません',
-      );
-      return reply.code(404).send();
-    }
+  if (inspected.status !== 'ok') return reply.code(404).send();
+  return reply.type(inspected.type).send(inspected.body);
+}
+
+/**
+ * 画像ごとの判定を返す(中身は返さない)。理由を出すのはログインした利用者に限るこの経路だけで、
+ * 直接開かれうる配信ルートの 404 には理由を載せない。読み込みは 1 件ずつ順に行う — 上限 50 件の
+ * 同時読み込みで共有ドライブを叩かないため。
+ */
+async function inspectFundImages(refs: readonly FundAssetRef[]): Promise<FundAssetInspectResponse> {
+  const results: FundAssetInspectResult[] = [];
+  for (const { dir, file } of refs) {
+    const inspected = await inspectFundImage(dir, file);
+    results.push(
+      inspected.status === 'svg_rejected'
+        ? { dir, file, status: inspected.status, violations: inspected.violations }
+        : { dir, file, status: inspected.status },
+    );
   }
-  return reply.type(type).send(body);
+  return { results };
 }
 
 /**
@@ -119,5 +168,11 @@ export async function fundAssetsRoutes(app: FastifyInstance): Promise<void> {
     apiPaths.fundAssetImageInDir,
     { preHandler: requireAuth },
     async (request, reply) => sendFundImage(reply, request.params.dir, request.params.file),
+  );
+
+  app.post<{ Body: FundAssetInspectRequest }>(
+    apiPaths.fundAssetInspect,
+    { preHandler: [requireAuth, validate(FundAssetInspectRequestSchema)] },
+    async (request) => inspectFundImages(request.body.refs),
   );
 }

@@ -2084,6 +2084,57 @@
         }
       }
     },
+    "/fund-assets/inspect": {
+      "post": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "画像が配信されるかを確かめる(中身は返さない)",
+        "operationId": "inspectFundAssets",
+        "description": "参照ごとに、`/fund-assets/images/...` の配信ルートと同じ判定(経路の検査 → 実体 → 読み込み → SVG の検査)を行い、`ok` / `missing` / `svg_rejected` を返す。`svg_rejected` には SVG の検査の違反の文言を `violations` に載せる。`missing` は存在しない・経路が不正(`..`・区切り・予約名など)・許可外の拡張子を区別しない。1 回 50 件まで(超えると 400)。ファイルの中身は返さない。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FundAssetInspectRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "参照ごとの判定(要求と同じ順)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundAssetInspectResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/build": {
       "post": {
         "tags": [
@@ -3121,6 +3172,47 @@
         },
         "required": [
           "templateId"
+        ]
+      },
+      "FundAssetInspectRequest": {
+        "type": "object",
+        "properties": {
+          "refs": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FundAssetRef"
+            }
+          }
+        },
+        "required": [
+          "refs"
+        ]
+      },
+      "FundAssetRef": {
+        "type": "object",
+        "properties": {
+          "dir": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "会社フォルダ(直下なら null)"
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "ファイル名"
+          }
+        },
+        "required": [
+          "dir",
+          "file"
         ]
       },
       "BuildInlineRequest": {
@@ -4507,6 +4599,64 @@
           "css",
           "fundCode",
           "timestamp"
+        ],
+        "additionalProperties": false
+      },
+      "FundAssetInspectResponse": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FundAssetInspectResult"
+            }
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "additionalProperties": false
+      },
+      "FundAssetInspectResult": {
+        "type": "object",
+        "properties": {
+          "dir": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "会社フォルダ(直下なら null)"
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "ファイル名"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "missing",
+              "svg_rejected"
+            ]
+          },
+          "violations": {
+            "description": "`svg_rejected` のときだけ。SVG の検査の違反の文言",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "dir",
+          "file",
+          "status"
         ],
         "additionalProperties": false
       },

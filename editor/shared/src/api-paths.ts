@@ -59,6 +59,7 @@ export const apiPaths = {
   // fund assets (別ツールが置く画像。imagesDir 直下と、会社フォルダ 1 段の 1 ファイル)
   fundAssetImage: '/fund-assets/images/:file',
   fundAssetImageInDir: '/fund-assets/images/:dir/:file',
+  fundAssetInspect: '/fund-assets/inspect',
   // reviews (確定保存の精査者承認ワークフロー)
   reviewRequests: '/review-requests',
   reviewRequestById: '/review-requests/:reqId',

@@ -107,6 +107,7 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   // 画像(imagesDir 直下と会社フォルダ 1 段)。閲覧そのものなので viewer にも開く(CSS と同じ権限)。
   [`GET ${api(apiPaths.fundAssetImage)}`]: 'auth',
   [`GET ${api(apiPaths.fundAssetImageInDir)}`]: 'auth',
+  [`POST ${api(apiPaths.fundAssetInspect)}`]: 'auth',
 
   // reviews
   [`POST ${api(apiPaths.reviewRequests)}`]: 'editor',
@@ -136,6 +137,8 @@ export const VIEWER_ALLOWED_MUTATIONS: Readonly<Record<string, string>> = {
   [`POST ${api(apiPaths.historyPdf)}`]: 'PDF 出力を viewer に許す以上、その記録も許す',
   [`POST ${api(apiPaths.build)}`]: '閲覧業務としての PDF 出力(サーバ状態を残さない)',
   [`POST ${api(apiPaths.buildMerge)}`]: '同上(複数文書の通しページ番号付き PDF)',
+  [`POST ${api(apiPaths.fundAssetInspect)}`]:
+    '画像が配信されるかの確認(読むだけでサーバ状態を変えない。画像の閲覧と同じ権限)',
 };
 
 /** 各レベルで preHandler 配列に**参照一致**で含まれていなければならないガード。 */

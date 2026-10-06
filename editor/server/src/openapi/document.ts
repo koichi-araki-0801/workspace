@@ -697,6 +697,28 @@ export function buildOpenApiDocument() {
           },
         },
       },
+      [toOpenApiPath(apiPaths.fundAssetInspect)]: {
+        post: {
+          tags: ['vivliostyle'],
+          summary: '画像が配信されるかを確かめる(中身は返さない)',
+          operationId: 'inspectFundAssets',
+          description: [
+            '参照ごとに、`/fund-assets/images/...` の配信ルートと同じ判定(経路の検査 → 実体 → ',
+            '読み込み → SVG の検査)を行い、`ok` / `missing` / `svg_rejected` を返す。',
+            '`svg_rejected` には SVG の検査の違反の文言を `violations` に載せる。',
+            '`missing` は存在しない・経路が不正(`..`・区切り・予約名など)・許可外の拡張子を区別しない。',
+            '1 回 50 件まで(超えると 400)。ファイルの中身は返さない。',
+          ].join(''),
+          requestBody: {
+            content: { 'application/json': { schema: s.FundAssetInspectRequest } },
+          },
+          responses: {
+            '200': json('参照ごとの判定(要求と同じ順)', s.FundAssetInspectResponse),
+            ...ERR_400,
+            ...ERR_401,
+          },
+        },
+      },
       '/build': {
         post: {
           tags: ['vivliostyle'],

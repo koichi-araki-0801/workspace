@@ -251,3 +251,113 @@ describe('GET /api/fund-assets/images/:dir/:file', () => {
     expect(res.statusCode).toBe(200);
   });
 });
+
+describe('POST /api/fund-assets/inspect', () => {
+  const INSPECT_URL = '/api/fund-assets/inspect';
+  type Ref = { dir: string | null; file: string };
+  const inspect = (refs: Ref[], headers: Record<string, string> = as('viewer')) =>
+    app.inject({ method: 'POST', url: INSPECT_URL, headers, payload: { refs } });
+
+  it('認証なしは 401', async () => {
+    const res = await inspect([{ dir: null, file: '510037_logo.svg' }], {});
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('直下の画像を ok / svg_rejected(検査の文言付き)/ missing で返し、中身を含めない', async () => {
+    const { inspectSvg } = await import('@editor/shared');
+    const res = await inspect([
+      { dir: null, file: '510037_logo.svg' },
+      { dir: null, file: '510037_bad.svg' },
+      { dir: null, file: '510037_none.svg' },
+      { dir: null, file: '510037_photo.png' },
+    ]);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      results: [
+        { dir: null, file: '510037_logo.svg', status: 'ok' },
+        {
+          dir: null,
+          file: '510037_bad.svg',
+          status: 'svg_rejected',
+          violations: inspectSvg(BAD_SVG),
+        },
+        { dir: null, file: '510037_none.svg', status: 'missing' },
+        { dir: null, file: '510037_photo.png', status: 'ok' },
+      ],
+    });
+    expect(inspectSvg(BAD_SVG).length).toBeGreaterThan(0);
+    expect(res.body).not.toContain('<svg');
+    expect(res.body).not.toContain('<rect');
+  });
+
+  it('会社フォルダの画像も同じ判定(フォルダ名は大小文字を区別しない)', async () => {
+    const { inspectSvg } = await import('@editor/shared');
+    const res = await inspect([
+      { dir: 'smtam', file: 'qr.svg' },
+      { dir: 'SMTAM', file: 'bad.svg' },
+      { dir: 'smtam', file: 'none.svg' },
+      { dir: 'nope', file: 'qr.svg' },
+    ]);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().results).toEqual([
+      { dir: 'smtam', file: 'qr.svg', status: 'ok' },
+      { dir: 'SMTAM', file: 'bad.svg', status: 'svg_rejected', violations: inspectSvg(BAD_SVG) },
+      { dir: 'smtam', file: 'none.svg', status: 'missing' },
+      { dir: 'nope', file: 'qr.svg', status: 'missing' },
+    ]);
+    expect(res.body).not.toContain('<svg');
+  });
+
+  it.each<[string, Ref]>([
+    ['..', { dir: null, file: '..' }],
+    ['/ で区切ったサブフォルダ', { dir: null, file: 'sub/510037_deep.svg' }],
+    [' で区切ったサブフォルダ', { dir: null, file: 'sub\u2901f_deep.svg' }],
+    ['.. で css へ遡る', { dir: null, file: '../css/510037.css' }],
+    ['フォルダが ..', { dir: '..', file: '510037_logo.svg' }],
+    ['/ で 2 段を 1 段に偽装', { dir: 'SMTAM', file: 'deep/x.svg' }],
+    ['/ でフォルダを偽装', { dir: 'SMTAM/deep', file: 'x.svg' }],
+    ['.. でフォルダの外へ', { dir: 'smtam', file: '../510037_logo.svg' }],
+    ['リンクの会社フォルダ', { dir: 'linked', file: 'x.svg' }],
+    ['予約名', { dir: null, file: 'CON.svg' }],
+    ['許可外の拡張子', { dir: null, file: '510037_anim.gif' }],
+    ['末尾が . のファイル名', { dir: null, file: '510037_logo.svg.' }],
+    ['空の名前', { dir: null, file: '' }],
+  ])('%s は missing(配信ルートと同じ判定)', async (_label, ref) => {
+    const res = await inspect([ref]);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().results).toEqual([{ ...ref, status: 'missing' }]);
+    expect(res.body).not.toContain('SECRET_CSS');
+    expect(res.body).not.toContain('<svg');
+  });
+
+  it('50 件までは受け付け、51 件は 400', async () => {
+    const refs = (n: number) =>
+      Array.from({ length: n }, () => ({ dir: null, file: '510037_logo.svg' }));
+    const ok = await inspect(refs(50));
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().results).toHaveLength(50);
+    expect((await inspect(refs(51))).statusCode).toBe(400);
+  });
+
+  it('形の違う本文は 400', async () => {
+    for (const payload of [{}, { refs: 'x' }, { refs: [{ file: 1 }] }, { refs: [{ dir: null }] }]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: INSPECT_URL,
+        headers: as('viewer'),
+        payload,
+      });
+      expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+    }
+  });
+
+  it('単体配信ルートの 404 は今のまま理由を出さない', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `${URL_BASE}/510037_bad.svg`,
+      headers: as('viewer'),
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toBe('');
+  });
+});

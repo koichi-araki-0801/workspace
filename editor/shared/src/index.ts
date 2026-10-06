@@ -179,6 +179,7 @@ export type UpdateNoteRequest = z.infer<typeof sch.UpdateNoteRequest>;
 
 export {
   DROPDOWN_SCOPES,
+  MAX_FUND_ASSET_INSPECT_REFS,
   MAX_NOTE_CONTENT_CHARS,
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTE_PATH_KEY_CHARS,
@@ -239,6 +240,14 @@ export type BuildMergeDocument = z.infer<typeof sch.BuildMergeDocument>;
 
 /** 複数文書 → 1 PDF の結合 build リクエスト(配列順 = ページ順)。 */
 export type BuildMergeRequest = z.infer<typeof sch.BuildMergeRequest>;
+
+/** 画像の参照 1 件(`dir` は会社フォルダ。直下なら null)。 */
+export type FundAssetRef = z.infer<typeof sch.FundAssetRef>;
+
+/** 画像が配信されるかの確認の要求と応答(配信ルートと同じ判定。中身は返さない)。 */
+export type FundAssetInspectRequest = z.infer<typeof sch.FundAssetInspectRequest>;
+export type FundAssetInspectResult = z.infer<typeof sch.FundAssetInspectResult>;
+export type FundAssetInspectResponse = z.infer<typeof sch.FundAssetInspectResponse>;
 
 // ── 8. Data-access contracts ──
 // 集約別・Result を返す契約は `./repositories/*` を参照。web の `local` 層と `rest`

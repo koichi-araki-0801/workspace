@@ -863,6 +863,38 @@ export const BuildMergeRequest = z
   })
   .meta({ id: 'BuildMergeRequest' });
 
+/** 画像の確認 API が 1 回に受け付ける参照の上限(1 文書の画像は実物で数枚〜十数枚)。 */
+export const MAX_FUND_ASSET_INSPECT_REFS = 50;
+
+/** 画像の参照 1 件。`dir` は会社フォルダ(`images/` 直下なら null)。 */
+export const FundAssetRef = z
+  .object({
+    dir: z.string().max(255).nullable().meta({ description: '会社フォルダ(直下なら null)' }),
+    file: z.string().max(255).meta({ description: 'ファイル名' }),
+  })
+  .meta({ id: 'FundAssetRef' });
+
+/** 画像が配信されるかの確認(配信ルートと同じ判定。ファイルの中身は返さない)。 */
+export const FundAssetInspectRequest = z
+  .object({ refs: z.array(FundAssetRef).max(MAX_FUND_ASSET_INSPECT_REFS) })
+  .meta({ id: 'FundAssetInspectRequest' });
+
+/**
+ * 1 件の判定。`missing` は配信対象外(存在しない・経路が不正・許可外の拡張子)をまとめたもので、
+ * どれに当たったかは返さない — 画像の置き場の外にある名前の有無を確かめる手段にしない。
+ */
+export const FundAssetInspectResult = FundAssetRef.extend({
+  status: z.enum(['ok', 'missing', 'svg_rejected']),
+  violations: z
+    .array(z.string())
+    .optional()
+    .meta({ description: '`svg_rejected` のときだけ。SVG の検査の違反の文言' }),
+}).meta({ id: 'FundAssetInspectResult' });
+
+export const FundAssetInspectResponse = z
+  .object({ results: z.array(FundAssetInspectResult) })
+  .meta({ id: 'FundAssetInspectResponse' });
+
 /** (server 専用) ライブプレビューセッションの公開メタデータ(サーバ内部情報は露出しない)。 */
 export const PreviewSession = z
   .object({
