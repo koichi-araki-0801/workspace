@@ -43,7 +43,8 @@ import {
 } from './jinjaAttrs';
 import type { JinjaCtx } from './jinjaExpr';
 import { type JinjaNode, type JinjaToken, parseJinja } from './jinjaLex';
-import { b64encode, htmlEscape } from './jinjaMask';
+import { b64encode, htmlEscape, normalizeForRoundTrip, toTemplate } from './jinjaMask';
+import { getBodyInner } from './templateDoc';
 
 // 生成正規表現の定義は `fillAnalysis.ts` に置く。`jinjaMask.ts` の検査と同じ定数を使い、生成と
 // 検査が別々の正規表現に分かれないようにする。
@@ -304,22 +305,47 @@ function emitWholeBody(raw: string, a: FillAnalysis, ctx: JinjaCtx, f: Filler): 
   return raw.slice(0, from) + wrapped + raw.slice(to);
 }
 
-// ── 3. 公開関数 ──
+// ── 3. 自己検査 ──
+
+let emitHook: ((html: string) => string) | null = null;
+
+/** テスト専用。出力をわざと壊し、自己検査の落ち方を確かめる。 */
+export const __forTest = {
+  setEmitHook(fn: ((html: string) => string) | null): void {
+    emitHook = fn;
+  },
+};
+
+/** 出力を `toTemplate` で戻した本文が、原文の本文と往復の正規形で一致するか。 */
+function roundTripsToOriginal(raw: string, html: string, parse: HtmlParser): boolean {
+  try {
+    const back = toTemplate(getBodyInner(html), { asFragment: true }, parse);
+    return normalizeForRoundTrip(back, parse) === normalizeForRoundTrip(getBodyInner(raw), parse);
+  } catch {
+    return false;
+  }
+}
+
+// ── 4. 公開関数 ──
 
 /**
  * 生 Jinja2(全文または fragment) -> 作成タブのキャンバス用の、`toTemplate` で原文へ戻る HTML。
- * 併せて、許可リストの外で解釈できなかった式と固めた要素を返す。`_parse` は自己検査で使う予定の
- * DOM パーサで、Worker と Node からは linkedom のものが渡される。
+ * 併せて、許可リストの外で解釈できなかった式と固めた要素を返す。
+ *
+ * 最後に自分の出力を `toTemplate` で戻して原文と比べ(自己検査)、例外か食い違いがあれば本文全体を
+ * 固めた出力へ差し替える。保存時に原文が壊れるより、編集できない領域が増えるほうが安全なため。
+ * `parse` は検査用の DOM パーサで、Worker と Node からは linkedom のものが渡される。
  */
 export function toFilledWithDiagnostics(
   raw: string,
   sample: SampleData,
-  _parse: HtmlParser = defaultHtmlParser,
+  parse: HtmlParser = defaultHtmlParser,
 ): { html: string; diagnostics: FillDiagnostics } {
   const f = new Filler();
   const a = analyzeFill(raw);
   const ctx = sample as JinjaCtx;
   let html: string;
+  let selfCheckFailed = false;
   if (!a.parse.ok || a.frozen.some((r) => r.form === 'body')) {
     html = emitWholeBody(raw, a, ctx, f);
   } else {
@@ -333,13 +359,19 @@ export function toFilledWithDiagnostics(
       opaque: a.opaque,
     };
     html = emitRange(e, a.parse.nodes, 0, raw.length, ctx, NO_ROWS);
+    if (!roundTripsToOriginal(raw, emitHook ? emitHook(html) : html, parse)) {
+      html = emitWholeBody(raw, a, ctx, f);
+      selfCheckFailed = true;
+    }
   }
+  const frozen = a.frozen.map((r) => ({ tag: r.tag, reason: r.reason }));
+  if (selfCheckFailed) frozen.push({ tag: 'body', reason: 'self-check' });
   return {
     html,
     diagnostics: {
       unsupported: [...f.unsupported],
       missing: [...f.missing],
-      frozen: a.frozen.map((r) => ({ tag: r.tag, reason: r.reason })),
+      frozen,
       structureError: a.parse.ok ? null : a.parse.error.message,
     },
   };

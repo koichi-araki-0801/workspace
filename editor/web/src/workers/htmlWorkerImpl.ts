@@ -33,7 +33,7 @@ import { type ToTemplateOptions, toTemplate as toTemplateCore } from '@/lib/jinj
 //   ブラウザと同じ「入力の `<body>` が文書の body になる」木を与える。
 // - それ以外の断片(body inner)は `<body>` ごと包む(browser の DOMParser は断片を body へ
 //   入れるのでこの差を吸収する)。
-const linkedomParse: HtmlParser = (html) => {
+export const linkedomParser: HtmlParser = (html) => {
   const full = /<html[\s>]|^\s*<!doctype/i.test(html)
     ? html
     : /<body[\s>]/i.test(html)
@@ -50,7 +50,7 @@ export const htmlWorkerImpl = {
     cssBefore?: string,
     cssAfter?: string,
   ): HtmlDiff {
-    return buildHtmlDiffCore(beforeHtml, afterHtml, cssBefore, cssAfter, linkedomParse);
+    return buildHtmlDiffCore(beforeHtml, afterHtml, cssBefore, cssAfter, linkedomParser);
   },
   buildHtmlDiffAligned(
     beforeHtml: string,
@@ -65,14 +65,14 @@ export const htmlWorkerImpl = {
       cssBefore,
       cssAfter,
       pairs,
-      linkedomParse,
+      linkedomParser,
     );
   },
   toTemplate(editable: string, opts?: ToTemplateOptions): string {
-    return toTemplateCore(editable, opts, linkedomParse);
+    return toTemplateCore(editable, opts, linkedomParser);
   },
   toFilled(raw: string, sample: SampleData): string {
-    return toFilledCore(raw, sample);
+    return toFilledCore(raw, sample, linkedomParser);
   },
 };
 
