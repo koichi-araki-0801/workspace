@@ -113,3 +113,19 @@ describe('保存形式', () => {
     expect(toast).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('本文の先頭のコメント', () => {
+  // 値入り HTML の往復の印はコメントで、本文の先頭に来ることがある(先頭がブロックの本文)。
+  it('読み込みで消えず、保存内容の先頭に残る', () => {
+    const g = useGrapes();
+    g.init({ canvas: document.createElement('div'), layers: document.createElement('div') });
+    g.load('<!-- a --><!--b--> <p>x</p>', '');
+    expect(g.getBodyHtml()).toMatch(/^<body><!-- a --><!--b--> <p>x<\/p><\/body>$/);
+  });
+  it('赤入れの基準(parseHtmlQuiet)でも消えない', () => {
+    const g = useGrapes();
+    g.init({ canvas: document.createElement('div'), layers: document.createElement('div') });
+    const defs = g.parseHtmlQuiet('<!--a--><p>x</p>');
+    expect(defs[0]).toMatchObject({ type: 'comment', content: 'a' });
+  });
+});

@@ -121,11 +121,9 @@ describe('乱数生成ケース', () => {
   }
 });
 
-// GrapesJS は本文を `DOMParser` へ素のまま渡すため、本文の先頭(空白を除く)にあるコメントは
-// HTML の構文規則で body の外(文書の直下)へ置かれ、読み込みで消える。値入り HTML の往復の印は
-// コメントなので、先頭がブロックの本文は保存で戻せない。また GrapesJS は `class` 属性を末尾へ
-// 並べ替えて直列化する。どちらも直すまでこの経路は止めておく。
-describe.skip('キャンバス経由', () => {
+// 本文の先頭のコメント(往復の印や fixture の見出しコメント)が読み込みで消えないことも、
+// ここで fixture・再現・乱数の全件に対して確かめる。
+describe('キャンバス経由', () => {
   for (const file of fixtureFiles)
     it(file, () => {
       const { raw, sample } = fixtureCase(file);

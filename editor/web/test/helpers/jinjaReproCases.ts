@@ -74,4 +74,9 @@ export const REPRO_CASES: [string, string, Record<string, unknown>][] = [
   ],
   ['表の中の set', '<table><tbody>{% set n = 1 %}<tr><td>{{ n }}</td></tr></tbody></table>', {}],
   ['本文の先頭のブロック', '{% if a %}<p>x</p>{% endif %}<p>y</p>', { a: true }],
+  [
+    '本文の先頭の偽の if(印が開きと閉じだけ)',
+    '{% if c -%}<p>{{ v }} 円</p>{%- endif %} <p>地の文</p>',
+    { c: false, v: 7 },
+  ],
 ];

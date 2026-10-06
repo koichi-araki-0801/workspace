@@ -431,7 +431,31 @@ export function normalizeForRoundTrip(bodyHtml: string, parse: HtmlParser): stri
   );
   doc.body.normalize();
   dropBlankText(doc.body);
+  sortAttributes(doc.body);
   return doc.body.innerHTML;
+}
+
+/**
+ * 各要素の属性を名前順に並べ直す。GrapesJS は直列化で `class` を属性の末尾へ移すので、
+ * キャンバスを通した本文は属性の順序だけが原文と変わる。属性の順序は描画に効かないため、
+ * 比較では揃える(順序だけの並べ替えは差として検出しない)。
+ */
+function sortAttributes(root: Element): void {
+  for (const el of Array.from(root.querySelectorAll('*'))) {
+    if (el.attributes.length < 2) continue;
+    // 属性の節点ごと付け替える。名前で付け直すと、タグの中の Jinja が作る `{%` のような
+    // 名前を DOM の API が拒む(パーサは受け入れる)。
+    const attrs = Array.from(el.attributes).sort((x, y) =>
+      x.name < y.name ? -1 : x.name > y.name ? 1 : 0,
+    );
+    const put = (list: Attr[]) => {
+      for (const a of list) el.removeAttributeNode(a);
+      for (const a of list) el.setAttributeNode(a);
+    };
+    put(attrs);
+    // linkedom は足した属性を先頭へ積むので、足した順と逆に並ぶ。そのときは逆順で足し直す。
+    if (el.attributes[0]?.name !== attrs[0]?.name) put(attrs.reverse());
+  }
 }
 
 function dropBlankText(el: Node): void {

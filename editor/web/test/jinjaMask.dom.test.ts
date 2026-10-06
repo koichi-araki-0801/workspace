@@ -187,10 +187,20 @@ describe('normalizeForRoundTrip', () => {
     expect(n('<p><b>a</b> <i>b</i></p>')).not.toBe(n('<p><b>a</b><i>b</i></p>'));
     expect(n('<p>{{ a }} {{ b }}</p>')).not.toBe(n('<p>{{ a }}{{ b }}</p>'));
   });
+  it('属性の順序の差は無視し、値の差は残す', () => {
+    expect(n('<svg class="a" viewBox="0 0 1 1"></svg>')).toBe(
+      n('<svg viewBox="0 0 1 1" class="a"></svg>'),
+    );
+    expect(n('<p class="a" title="t">x</p>')).toBe(n('<p title="t" class="a">x</p>'));
+    expect(n('<p class="a" title="t">x</p>')).not.toBe(n('<p class="b" title="t">x</p>'));
+  });
   it('linkedom のパーサでも同じ結果になる', () => {
     const parse: HtmlParser = (h) => parseHTML(h).document as unknown as Document;
     const a = '<ul>\n{% for p in xs %}\n<li>{{ p }}</li>\n{% endfor %}\n</ul>';
     const b = '<ul>{% for p in xs %}<li>{{ p }}</li>{% endfor %}</ul>';
     expect(normalizeForRoundTrip(a, parse)).toBe(normalizeForRoundTrip(b, parse));
+    const c = '<svg class="a" viewBox="0 0 1 1"><use xlink:href="#x" x="1"></use></svg>';
+    const d = '<svg viewBox="0 0 1 1" class="a"><use x="1" xlink:href="#x"></use></svg>';
+    expect(normalizeForRoundTrip(c, parse)).toBe(normalizeForRoundTrip(d, parse));
   });
 });

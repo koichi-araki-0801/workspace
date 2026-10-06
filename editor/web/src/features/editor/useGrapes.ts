@@ -48,6 +48,14 @@ export { ZOOM_STEP } from './useZoomFit';
  */
 let quietParse = false;
 
+/**
+ * 本文の断片を明示の `<body>` で包む。文書の枠(doctype / html / head / body)で始まる入力は
+ * GrapesJS が文書として扱うので触らない。
+ */
+function wrapFragmentInBody(html: string): string {
+  return /^\s*<(?:!doctype|html|head|body)[\s>]/i.test(html) ? html : `<body>${html}</body>`;
+}
+
 /** `useGrapes` の推論戻り値型が参照するため export が必要(TS4058 回避)。 @public */
 export interface GrapesContainers {
   canvas: HTMLElement;
@@ -436,6 +444,13 @@ export function useGrapes() {
     // 刈り取りは**許可リスト**で、通す `data-gjs-type` の値は `jinjaComponents` が
     // `addType` する型と同一の配列由来にする(片方だけ更新される事故を構造的に消す)。
     // 落とした件数は利用者へ出す — 黙って消すと「保存したら中身が減っていた」事故になる。
+    // GrapesJS は本文の断片を `DOMParser` へ素のまま渡して `body` を取る。HTML の構文規則では、
+    // 最初の要素・文字より前のコメントは body ではなく文書の直下へ置かれるため、本文の先頭の
+    // コメントが読み込みで消える。値入り HTML の往復の印はコメントなので、先頭がブロックの本文は
+    // 保存で原文へ戻せなくなる。明示の `<body>` の中で解析させ、先頭のコメントを body に留める。
+    ed.on('parse:html:before', (opts: { input: string }) => {
+      opts.input = wrapFragmentInBody(opts.input);
+    });
     ed.on('parse:html:root', ({ root }: { root: ParsedNode }) => {
       const report = pruneCanvasActiveContent(root, { allowedGjsTypes: JINJA_COMPONENT_TYPE_SET });
       if (quietParse || report.droppedCount === 0) return;
