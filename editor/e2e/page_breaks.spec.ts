@@ -4,8 +4,9 @@
 // 編集画面のページは `web/src/lib/pageBreaks.ts` の `splitPages` が DOM だけで決める(根の直下の
 // `div.pagebreak` と inline の改ページ)。紙のページはプレビュー(Vivliostyle)が決めるので、
 // 中身が 1 ページに収まる文書なら両者のページ数と各ページの先頭が一致するはずで、ここで
-// 突き合わせる。先頭・末尾・連続の区切りを無視する規則(空のページを作らない)も Vivliostyle の
-// 実際の組版と比べる。
+// 突き合わせる。白紙のページの数え方(先頭・連続・inline の after の直後の区切り、左右の指定)と、
+// 効かない inline の `page-break-*` も、形ごとに編集画面とプレビューの両方の期待値を固定する。
+// どちらかの側の振る舞いが変わると、その形のテストが落ちて知らせる。
 //
 // 後半は、単体テスト(jsdom)では確かめられない canvas の実表示を押さえる: 1 ページ表示で見える
 // パーツと区切りの帯、帯とページ線の位置、詳細度で帯が隠れること、パーツの挿入先、赤入れの
@@ -55,11 +56,14 @@ async function serveDoc(page: Page, body: string, templateBody?: string): Promis
   );
 }
 
-/** ページ送り(`PageNav`)の総ページ数。1 ページ以下では出ないので、出るまで待つ。 */
+/**
+ * ページ送り(`PageNav`)の総ページ数。表示の文字(`/ N`)ではなく `data-page-count` を読む。
+ * 1 ページ以下では出ないので、出るまで待つ。
+ */
 async function navTotal(page: Page): Promise<number> {
-  const total = page.getByText(/^\/ \d+$/).first();
-  await expect(total).toBeVisible({ timeout: 60_000 });
-  return Number(((await total.textContent()) ?? '').replace(/\D/g, ''));
+  const nav = page.locator('[data-page-count]').first();
+  await expect(nav).toBeVisible({ timeout: 60_000 });
+  return Number(await nav.getAttribute('data-page-count'));
 }
 
 /** canvas で今見えている(`display:none` でない)パーツの、ページ番号と先頭の文言。 */
@@ -85,8 +89,8 @@ async function visibleParts(frame: FrameLocator): Promise<Array<{ idx: string; t
 }
 
 /**
- * 編集画面の 1 ページ表示を先頭から送り、各ページの先頭の文言を集める。各ページで、見えている
- * パーツがすべてそのページのものであることも確かめる。
+ * 編集画面の 1 ページ表示を先頭から送り、各ページの先頭の文言を集める(白紙のページは '')。
+ * 各ページで、見えているパーツがすべてそのページのものであることも確かめる。
  */
 async function editorPages(page: Page, frame: FrameLocator): Promise<string[]> {
   const total = await navTotal(page);
@@ -98,10 +102,10 @@ async function editorPages(page: Page, frame: FrameLocator): Promise<string[]> {
     await expect
       .poll(async () => {
         parts = await visibleParts(frame);
-        return parts.length > 0 && parts.every((p) => p.idx === String(i));
+        return parts.every((p) => p.idx === String(i));
       })
       .toBe(true);
-    firsts.push(parts[0].text);
+    firsts.push(parts[0]?.text ?? '');
   }
   return firsts;
 }
@@ -157,28 +161,46 @@ test.describe('編集画面のページと Vivliostyle のページが一致す�
     await expectSamePages(page, ['P1-A', 'P2-A']);
   });
 
-  // 以下の 2 件は今は一致しない形で、`test.fail` で差を固定する。一致するようになると失敗として
-  // 知らせるので、そのときは `test.fail` を外す。
-  //
-  // Vivliostyle は、強制改ページの間に中身が無いと白紙のページを作る(先頭の区切り、連続した
-  // 区切り、inline の break-after の直後の区切り)。編集画面は空のページを作らない規則なので
-  // 区切りを 1 つにまとめる。
-  test.fail(
-    '先頭・連続・inline と重なる区切りでは、Vivliostyle だけが白紙のページを作る',
-    async ({ page }) => {
-      await serveDoc(
-        page,
-        PB + sec('P1-A') + PB + PB + sec('P2-A', 'break-after:page') + PB + sec('P3-A'),
-      );
-      await expectSamePages(page, ['P1-A', 'P2-A', 'P3-A']);
-    },
-  );
+  // 強制改ページの間に中身が無ければ、Vivliostyle は白紙のページを作る。編集画面も同じく数え、
+  // 白紙のページの先頭の文言は ''。
+  test('先頭の区切りは白紙の 1 ページ目を作る', async ({ page }) => {
+    await serveDoc(page, PB + sec('P2-A') + PB + sec('P3-A'));
+    await expectSamePages(page, ['', 'P2-A', 'P3-A']);
+  });
 
-  // inline の `page-break-before:always`(旧来の別名)を Vivliostyle は style 属性では効かせない
-  // (同じ値の `break-before:page` は効く)。編集画面は両方を改ページとして数える。
-  test.fail('根の直下の要素の inline の page-break-before:always', async ({ page }) => {
-    await serveDoc(page, sec('P1-A') + sec('P2-A', 'page-break-before:always') + sec('P2-B'));
-    await expectSamePages(page, ['P1-A', 'P2-A']);
+  test('連続した区切りは間に白紙のページを作る', async ({ page }) => {
+    await serveDoc(page, sec('P1-A') + PB + PB + sec('P3-A'));
+    await expectSamePages(page, ['P1-A', '', 'P3-A']);
+  });
+
+  test('inline の break-after:page の直後の区切りは白紙のページを作る', async ({ page }) => {
+    await serveDoc(page, sec('P1-A', 'break-after:page') + PB + sec('P3-A'));
+    await expectSamePages(page, ['P1-A', '', 'P3-A']);
+  });
+
+  test('inline の break-before:right は左のページを白紙にして右のページから始める', async ({
+    page,
+  }) => {
+    await serveDoc(page, sec('P1-A') + sec('P3-A', 'break-before:right'));
+    await expectSamePages(page, ['P1-A', '', 'P3-A']);
+  });
+
+  // style 属性の `page-break-before/after:always`(旧来の別名)を Vivliostyle は効かせない(同じ
+  // 意味の `break-before:page` は効く)。編集画面も数えず、警告欄で区切りへの置き換えを促す。
+  test('inline の page-break-before/after:always は改ページしない', async ({ page }) => {
+    await serveDoc(
+      page,
+      sec('P1-A', 'page-break-after:always') +
+        sec('P1-B', 'page-break-before:always') +
+        PB +
+        sec('P2-A'),
+    );
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    await expect(page.getByText('印刷では改ページされない指定が 2 か所あります')).toBeVisible();
+    const edit = await editorPages(page, frame);
+    const preview = await previewPages(page);
+    expect({ edit, preview }).toEqual({ edit: ['P1-A', 'P2-A'], preview: ['P1-A', 'P2-A'] });
   });
 });
 
@@ -233,6 +255,17 @@ test.describe('canvas の区切りとページ', () => {
         expect(band && last && band.y >= last.y + last.height - 1).toBe(true);
       }
     }
+  });
+
+  test('白紙のページ(連続した区切りの間)では、そのページの帯だけが見える', async ({ page }) => {
+    await serveDoc(page, P('P1-A') + PB + PB + P('P3-A'));
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    expect(await navTotal(page)).toBe(3);
+    await page.getByRole('button', { name: '次のページ' }).click();
+    await expect(page.getByLabel('ページ番号(Enter でジャンプ)')).toHaveValue('2');
+    await expect.poll(async () => visibleBands(frame)).toEqual(['1']);
+    expect(await visibleParts(frame)).toEqual([]);
   });
 
   test('全ページ連続表示では、ページ線が帯の上端に 1 本ずつ引かれる', async ({ page }) => {

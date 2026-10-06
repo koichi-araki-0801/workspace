@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  IGNORED_INLINE_BREAK_WARNING,
   LEGACY_KEY_WARNING,
   PAGEBREAK_CSS_WARNING,
   pagebreakCssDefinedIn,
@@ -16,52 +17,103 @@ const UNCOUNTED_2 =
 const CSS_MISSING =
   'テンプレの CSS に .pagebreak の改ページ指定がありません。PDF は編集画面の区切りどおりに' +
   '改ページされません';
+const IGNORED_3 =
+  '印刷では改ページされない指定が 3 か所あります（要素に直接書いた page-break-before/after や ' +
+  'break-before/after: always）。区切り（<div class="pagebreak">）を使ってください';
 const LEGACY_1 = '古い形式のキーのメモ・修正履歴が 1 件あり、どのパーツにも表示していません';
 
 describe('pageWarnings', () => {
   it('3 つの条件がそろえば設計どおりの 3 文をこの順で返す', () => {
-    const out = pageWarnings({ uncounted: 2, counted: 3, cssDefined: false, legacyKeys: 1 });
+    const out = pageWarnings({
+      uncounted: 2,
+      ignoredInline: 0,
+      counted: 3,
+      cssDefined: false,
+      legacyKeys: 1,
+    });
     expect(out).toEqual([UNCOUNTED_2, CSS_MISSING, LEGACY_1]);
+  });
+
+  it('印刷で効かない inline の改ページ指定があれば、数えていない指定の次に出す', () => {
+    expect(
+      pageWarnings({
+        uncounted: 2,
+        ignoredInline: 3,
+        counted: 3,
+        cssDefined: false,
+        legacyKeys: 1,
+      }),
+    ).toEqual([UNCOUNTED_2, IGNORED_3, CSS_MISSING, LEGACY_1]);
+    expect(
+      pageWarnings({
+        uncounted: 0,
+        ignoredInline: 3,
+        counted: 0,
+        cssDefined: false,
+        legacyKeys: 0,
+      }),
+    ).toEqual([IGNORED_3]);
   });
 
   it('文言の定数は件数を差し込む前の形を持つ', () => {
     expect(UNCOUNTED_BREAK_WARNING(5)).toContain('5 か所');
     expect(PAGEBREAK_CSS_WARNING).toBe(CSS_MISSING);
     expect(LEGACY_KEY_WARNING(4)).toContain('4 件');
+    expect(IGNORED_INLINE_BREAK_WARNING(6)).toContain('6 か所');
   });
 
   it('数えていない指定が 0 なら 1 文目を出さない', () => {
-    expect(pageWarnings({ uncounted: 0, counted: 3, cssDefined: false, legacyKeys: 1 })).toEqual([
-      CSS_MISSING,
-      LEGACY_1,
-    ]);
+    expect(
+      pageWarnings({
+        uncounted: 0,
+        ignoredInline: 0,
+        counted: 3,
+        cssDefined: false,
+        legacyKeys: 1,
+      }),
+    ).toEqual([CSS_MISSING, LEGACY_1]);
   });
 
   it('数えた区切りが 0 なら CSS の警告を出さない(区切りの無いテンプレ)', () => {
-    expect(pageWarnings({ uncounted: 2, counted: 0, cssDefined: false, legacyKeys: 1 })).toEqual([
-      UNCOUNTED_2,
-      LEGACY_1,
-    ]);
+    expect(
+      pageWarnings({
+        uncounted: 2,
+        ignoredInline: 0,
+        counted: 0,
+        cssDefined: false,
+        legacyKeys: 1,
+      }),
+    ).toEqual([UNCOUNTED_2, LEGACY_1]);
   });
 
   it('CSS に指定があれば 2 文目を出さない', () => {
-    expect(pageWarnings({ uncounted: 2, counted: 3, cssDefined: true, legacyKeys: 1 })).toEqual([
-      UNCOUNTED_2,
-      LEGACY_1,
-    ]);
+    expect(
+      pageWarnings({ uncounted: 2, ignoredInline: 0, counted: 3, cssDefined: true, legacyKeys: 1 }),
+    ).toEqual([UNCOUNTED_2, LEGACY_1]);
   });
 
   it('古い形式のキーが 0 なら 3 文目を出さない', () => {
-    expect(pageWarnings({ uncounted: 2, counted: 3, cssDefined: false, legacyKeys: 0 })).toEqual([
-      UNCOUNTED_2,
-      CSS_MISSING,
-    ]);
+    expect(
+      pageWarnings({
+        uncounted: 2,
+        ignoredInline: 0,
+        counted: 3,
+        cssDefined: false,
+        legacyKeys: 0,
+      }),
+    ).toEqual([UNCOUNTED_2, CSS_MISSING]);
   });
 
   it('何も無ければ空', () => {
-    expect(pageWarnings({ uncounted: 0, counted: 0, cssDefined: false, legacyKeys: 0 })).toEqual(
-      [],
-    );
+    expect(
+      pageWarnings({
+        uncounted: 0,
+        ignoredInline: 0,
+        counted: 0,
+        cssDefined: false,
+        legacyKeys: 0,
+      }),
+    ).toEqual([]);
   });
 });
 

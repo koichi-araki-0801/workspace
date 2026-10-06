@@ -27,11 +27,18 @@ describe('partBreakState', () => {
     expect(partBreakState(q(r, '.b'), r)).toEqual({ before: 'div', after: 'div' });
   });
 
-  it('inline の page-break-before / break-after なら inline', () => {
+  it('inline の break-before / break-after なら inline', () => {
     const r = root(
-      '<p class="a"></p><p class="b" style="page-break-before: always; break-after: page"></p>',
+      '<p class="a"></p><p class="b" style="break-before: left; break-after: page"></p>',
     );
     expect(partBreakState(q(r, '.b'), r)).toEqual({ before: 'inline', after: 'inline' });
+  });
+
+  it('inline の page-break-* と break-*: always は改ページにならないので OFF(印刷でも効かない)', () => {
+    const r = root(
+      '<p class="a"></p><p class="b" style="page-break-before: always; break-after: always"></p>',
+    );
+    expect(partBreakState(q(r, '.b'), r)).toEqual({ before: null, after: null });
   });
 
   it('どちらも無ければ null', () => {
@@ -86,13 +93,14 @@ describe('planBreakToggle', () => {
   });
 
   it('OFF は直前の区切りを消し、inline の該当の宣言も消す', () => {
-    const r = root(`<p class="a"></p>${BR}<p class="b" style="page-break-before: always"></p>`);
+    const r = root(`<p class="a"></p>${BR}<p class="b" style="break-before: page"></p>`);
     const plan = planBreakToggle(q(r, '.b'), r, 'before', false);
     expect(plan?.insert).toBeNull();
     expect(plan?.remove).toEqual([q(r, '.pagebreak')]);
     expect(plan?.stripProps).toEqual(['page-break-before', 'break-before']);
   });
 
+  // 連続した区切りは間に白紙のページを作る。OFF はその白紙のページごと消す(1 つ残すと ON のまま)。
   it('OFF は連続した区切りをまとめて消す(1 つ残すと ON のまま)', () => {
     const r = root(`<p class="a"></p><p class="b"></p>${BR}${BR}<p class="c"></p>`);
     const plan = planBreakToggle(q(r, '.b'), r, 'after', false);

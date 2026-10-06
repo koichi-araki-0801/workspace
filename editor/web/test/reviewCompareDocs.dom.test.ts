@@ -212,6 +212,22 @@ describe('buildCompareDocs', () => {
       expect(bodyOf(afterDoc).querySelector('#review-anchor-2')?.textContent).toBe('b1');
     });
 
+    it('白紙のページ(連続した区切り)はページに数え、アンカーはそのページの区切りに付けて印は付けない', () => {
+      const html = `<section>a1</section>${pb}<div class="pagebreak" id="k2"></div><section>c1</section>`;
+      const { pageAnchors, anchors, afterDoc } = buildCompareDocs({
+        ...opts,
+        beforeHtml: html,
+        afterHtml: html,
+        changedPageIndexes: new Set([1]),
+        beforeExpectedPageCount: 3,
+        afterExpectedPageCount: 3,
+      });
+      // 2 ページ目は 2 つ目の区切り(既存 id を上書きしない)だけの白紙のページ。
+      expect(pageAnchors).toEqual(['review-anchor-1', 'k2', 'review-anchor-3']);
+      expect(anchors).toEqual(['k2']);
+      expect(bodyOf(afterDoc).querySelector('[data-review-marker]')).toBeNull();
+    });
+
     it('期待ページ数と数えた数が違えば無印', () => {
       const { afterDoc, anchors, pageAnchors } = buildCompareDocs({
         ...opts,

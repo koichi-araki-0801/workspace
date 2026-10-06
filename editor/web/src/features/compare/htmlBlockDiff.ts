@@ -794,15 +794,22 @@ function diffPage(
  * (`reviews/services/reviewCompareDocs.ts`)は同じ `pageItems` でページを数え、その番号を
  * ここの `diff.pages` の番号と突き合わせるので、付き従う block がページを作ったりずらしたり
  * してはいけない。付き従う block は差分には出す(保存される内容で、承認者が見る必要がある)。
- * 直前のパーツとの間に区切り(または inline の `after`)があれば次のパーツのページへ、無ければ
- * 直前のパーツのページへ入れる。前後にパーツが無ければ最寄りのページへ入れる。
+ * 直前の要素が区切り(または inline の `after` を持つパーツ)なら次の要素(パーツか区切り)の
+ * ページへ、そうでなければ直前のパーツのページへ入れる(canvas の `markPages` と同じ)。区切りは
+ * 置かれたページ(`breakPages`)で数えるので、区切りの間の付き従う block は白紙のページに入る。
+ * 前後に要素が無ければ最寄りのページへ入れる。
  */
 function splitTopLevel(blocks: HTMLElement[], attached: Set<HTMLElement>): HTMLElement[][] {
-  const { pages } = splitPages(blocks.filter((el) => !attached.has(el)));
+  const split = splitPages(blocks.filter((el) => !attached.has(el)));
+  const { pages } = split;
   if (attached.size === 0) return pages;
   const pageOf = new Map<HTMLElement, number>();
   pages.forEach((page, i) => {
     for (const el of page) pageOf.set(el, i);
+  });
+  const breaks = new Set(split.breakEls);
+  split.breakEls.forEach((el, i) => {
+    pageOf.set(el, split.breakPages[i]);
   });
   const out: HTMLElement[][] = pages.map(() => []);
   let cur = 0;
@@ -813,13 +820,17 @@ function splitTopLevel(blocks: HTMLElement[], attached: Set<HTMLElement>): HTMLE
     if (attached.has(el)) {
       if (broken) held.push(el);
       else out[cur].push(el);
-    } else if (page === undefined) {
-      broken = true; // 区切りの要素(パーツに数えない)
-    } else {
+    } else if (page !== undefined) {
       cur = page;
-      out[cur].push(...held, el);
+      out[cur].push(...held);
       held = [];
-      broken = inlineBreak(el, 'after');
+      // 区切りの要素はパーツに数えない(差分の block にしない)。
+      if (breaks.has(el)) {
+        broken = true;
+      } else {
+        out[cur].push(el);
+        broken = inlineBreak(el, 'after');
+      }
     }
   }
   out[cur].push(...held);

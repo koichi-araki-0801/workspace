@@ -16,19 +16,19 @@ describe('splitPages(linkedom)', () => {
     ).toEqual([['a'], ['b']]);
   });
 
-  it('連続した区切りは 1 つ、先頭と末尾の区切りは無視する', () => {
+  it('先頭と連続の区切りは白紙のページを作り、末尾の区切りはページを作らない', () => {
     expect(
       split(
         '<div class=pagebreak></div><section id=a></section><div class=pagebreak></div>' +
           '<div class=pagebreak></div><section id=b></section><div class=pagebreak></div>',
       ),
-    ).toEqual([['a'], ['b']]);
+    ).toEqual([[], ['a'], [], ['b']]);
   });
 
-  it('根の直下の inline の改ページで前に改ページ', () => {
+  it('根の直下の inline の break-before で前に改ページし、page-break-before は数えない', () => {
+    expect(split('<p id=a></p><p id=b style="break-before:page"></p>')).toEqual([['a'], ['b']]);
     expect(split('<p id=a></p><p id=b style="page-break-before:always"></p>')).toEqual([
-      ['a'],
-      ['b'],
+      ['a', 'b'],
     ]);
   });
 

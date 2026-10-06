@@ -77,12 +77,16 @@ export function pagePartLocator(frame: FrameLocator, pageIndex: number): Locator
  * 既定の `'load'` は全サブリソースの読み込み完了まで待つため、SPA が起動時に出す認証確認や
  * router のリダイレクトが割り込むと `net::ERR_ABORTED` で goto 自体が失敗する(負荷の高い CI で
  * 実際に踏んだ)。本当に待ちたいのは「canvas にページが描かれたか」で、それは下の `waitFor` が
- * 直接見ている。
+ * 直接見ている。待つのは根の直下で見えている最初の要素(パーツか区切りの帯)。1 ページ目が
+ * 白紙のページ(先頭の区切り)なら、見えるのは帯だけになる。
  */
 export async function openEditor(page: Page, id: string, query = ''): Promise<FrameLocator> {
   await page.goto(`/edit/${encodeURIComponent(id)}${query}`, { waitUntil: 'commit' });
   const frame = page.frameLocator('iframe.gjs-frame');
-  await partLocator(frame).first().waitFor({ state: 'visible', timeout: 30_000 });
+  await frame
+    .locator('[data-gjs-type=wrapper] > :visible')
+    .first()
+    .waitFor({ state: 'visible', timeout: 30_000 });
   return frame;
 }
 

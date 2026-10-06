@@ -118,18 +118,20 @@ describe('buildHtmlDiff', () => {
     expect(page.afterHtml).not.toContain(HL_REMOVED);
   });
 
-  it('splits into pages at page-break markers (legacy and modern spellings)', () => {
+  // style 属性の `page-break-*` は Vivliostyle が効かせないので、ページを分けない。
+  it('splits at inline break-before:page but not at style-attribute page-break-before', () => {
     const html = doc(
       '<p>p1</p>',
-      '<p style="page-break-before: always">p2</p>',
-      '<p style="break-before: page">p3</p>',
+      '<p style="page-break-before: always">p1b</p>',
+      '<p style="break-before: page">p2</p>',
     );
     const diff = buildHtmlDiff(html, html);
-    expect(diff.pages).toHaveLength(3);
+    expect(diff.pages).toHaveLength(2);
+    expect(diff.pages[0].blocks).toHaveLength(2);
   });
 
-  it('honors a page-break-after marker', () => {
-    const html = doc('<p style="page-break-after: always">p1</p>', '<p>p2</p>');
+  it('honors a break-after marker', () => {
+    const html = doc('<p style="break-after: page">p1</p>', '<p>p2</p>');
     const diff = buildHtmlDiff(html, html);
     expect(diff.pages).toHaveLength(2);
   });
@@ -166,11 +168,22 @@ describe('buildHtmlDiff', () => {
     expect(buildHtmlDiff(html, html, css, css).pages).toHaveLength(1);
   });
 
-  it('ignores leading, trailing and consecutive breaks (no empty pages)', () => {
+  // Vivliostyle と同じく、先頭・連続の区切りは白紙のページになり、末尾の区切りはページを作らない。
+  it('counts blank pages for leading and consecutive breaks, none for a trailing break', () => {
     const html = doc(PB, '<p>p1</p>', PB, PB, '<p>p2</p>', PB);
     const diff = buildHtmlDiff(html, html);
-    expect(diff.pages).toHaveLength(2);
-    expect(diff.pages.every((p) => p.blocks.length === 1)).toBe(true);
+    expect(diff.pages).toHaveLength(4);
+    expect(diff.pages.map((p) => p.blocks.length)).toEqual([0, 1, 0, 1]);
+    expect(diff.pages[0]).toMatchObject({ changed: false, beforeHtml: '', afterHtml: '' });
+    expect(diff.changedPageCount).toBe(0);
+  });
+
+  it('a blank page added on one side shifts the page count', () => {
+    const before = doc('<p>p1</p>', PB, '<p>p2</p>');
+    const after = doc('<p>p1</p>', PB, PB, '<p>p2</p>');
+    const diff = buildHtmlDiff(before, after);
+    expect(diff.beforePageCount).toBe(2);
+    expect(diff.afterPageCount).toBe(3);
   });
 
   // 承認タブは `splitPages(body.children)` でページを数え、その番号を `diff.pages` と突き合わせる。
@@ -188,7 +201,7 @@ describe('buildHtmlDiff', () => {
       PB,
       '<!-- c2 -->',
       PB,
-      '<p id="c" style="page-break-after: always">c</p>',
+      '<p id="c" style="break-after: page">c</p>',
       'after inline break',
       '<p id="d">d</p>',
       PB,
@@ -210,9 +223,11 @@ describe('buildHtmlDiff', () => {
     expect(texts[0]).toContain('lead text');
     expect(texts[0]).toContain('tail of page 1');
     expect(texts[1]).toContain('head of page 2');
-    expect(texts[2]).not.toContain('after inline break');
-    expect(texts[3]).toContain('after inline break');
-    expect(texts[3]).toContain('trailing text only');
+    // 3 ページ目は 2 つ目と 3 つ目の区切りの間の白紙のページ。
+    expect(texts[2]).toBe('');
+    expect(texts[3]).not.toContain('after inline break');
+    expect(texts[4]).toContain('after inline break');
+    expect(texts[4]).toContain('trailing text only');
   });
 
   // 本文の `<style>` はパーツに数えない(canvas の `partLabelMap`・承認タブと同じ数え方)。
@@ -232,16 +247,19 @@ describe('buildHtmlDiff', () => {
         '<style>.d{}</style>',
       );
     const diff = buildHtmlDiff(html('red'), html('blue'));
-    expect(diff.pages).toHaveLength(2);
-    expect(diff.beforePageCount).toBe(2);
-    expect(diff.afterPageCount).toBe(2);
+    // 区切りが 2 つ続くので、間は白紙のページ(`<style>` はページの中身にならない)。
+    expect(diff.pages).toHaveLength(3);
+    expect(diff.beforePageCount).toBe(3);
+    expect(diff.afterPageCount).toBe(3);
     const parts = (i: number) => diff.pages[i].blocks.filter((b) => !b.key.startsWith('style'));
     expect(parts(0).map((b) => [b.partKey, b.label])).toEqual([
       ['.a#1', 'ページ1・パーツ1'],
       ['.b#1', 'ページ1・パーツ2'],
     ]);
-    expect(parts(1).map((b) => [b.partKey, b.label])).toEqual([['.a#2', 'ページ2・パーツ1']]);
-    // 区切りの間の `<style>` は次のパーツのページへ付き、変更は差分に出る。
+    expect(parts(1)).toEqual([]);
+    expect(parts(2).map((b) => [b.partKey, b.label])).toEqual([['.a#2', 'ページ3・パーツ1']]);
+    // 区切りの間の `<style>` は、canvas の印(`markPages`)と同じく次の区切りの白紙のページへ付き、
+    // 変更は差分に出る。
     const changedStyle = diff.pages[1].blocks.find((b) => b.key.startsWith('style'));
     expect(changedStyle?.status).toBe('changed');
     expect(diff.pages[1].afterHtml).toContain('blue');
@@ -257,7 +275,8 @@ describe('buildHtmlDiff', () => {
       beforeExpectedPageCount: diff.beforePageCount,
       afterExpectedPageCount: diff.afterPageCount,
     });
-    expect(docs.pageAnchors).toHaveLength(2);
+    // 白紙のページのアンカーは、そのページの区切りに付く。
+    expect(docs.pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2', 'review-anchor-3']);
     expect(docs.anchors).toHaveLength(1);
   });
 
@@ -345,7 +364,7 @@ describe('buildHtmlDiff', () => {
   });
 
   it('handles a page-count mismatch (extra before page → all removed)', () => {
-    const before = doc('<p>p1</p>', '<p style="page-break-before: always">p2</p>');
+    const before = doc('<p>p1</p>', '<p style="break-before: page">p2</p>');
     const after = doc('<p>p1</p>');
     const diff = buildHtmlDiff(before, after);
     expect(diff.pages).toHaveLength(2);
@@ -355,11 +374,11 @@ describe('buildHtmlDiff', () => {
 
   // 比較画面のページずらしで使う、ユーザー指定の対応付けで diff する版。
   it('reports before/after page counts', () => {
-    const before = doc('<p>p1</p>', '<p style="page-break-before: always">p2</p>');
+    const before = doc('<p>p1</p>', '<p style="break-before: page">p2</p>');
     const after = doc(
       '<p>p1</p>',
-      '<p style="page-break-before: always">p2</p>',
-      '<p style="page-break-before: always">p3</p>',
+      '<p style="break-before: page">p2</p>',
+      '<p style="break-before: page">p3</p>',
     );
     const diff = buildHtmlDiff(before, after);
     expect(diff.beforePageCount).toBe(2);
@@ -369,7 +388,7 @@ describe('buildHtmlDiff', () => {
 
 describe('buildHtmlDiffAligned', () => {
   // ページ A4 区切りつきの 3 ページ文書を作る(各 p が 1 ページ)。
-  const br = 'style="page-break-before: always"';
+  const br = 'style="break-before: page"';
   function pages3(p1: string, p2: string, p3: string): string {
     return doc(`<p>${p1}</p>`, `<p ${br}>${p2}</p>`, `<p ${br}>${p3}</p>`);
   }

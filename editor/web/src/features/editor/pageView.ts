@@ -17,12 +17,12 @@ export const PV_ATTR = 'data-pv-idx';
  * 中身を隠せばページごとに隠れる。
  *
  * - パーツ: `split.pages` のページ番号。
- * - 区切り(`div.pagebreak`): 直前のページの番号。1 ページ表示で、そのページの末尾に帯が
- *   見えるようにするため。先頭の区切りは 0。
- * - 数えない要素(`<style>`・本文の `<style>` の置き場・赤入れの削除要素): 隣のパーツのページ。
+ * - 区切り(`div.pagebreak`): 置かれたページの番号(`split.breakPages`)。区切りはそのページの
+ *   末尾にあるので、1 ページ表示ではページの末尾に帯が見える。白紙のページは帯だけが見える。
+ * - 数えない要素(`<style>`・本文の `<style>` の置き場・赤入れの削除要素): 隣の要素のページ。
  *   印の無い要素は可視制御の対象から外れて全ページに出続けるので、すべての要素に付ける。
- *   区切りの後ろ(または先頭)にあれば次のパーツのページ、そうでなければ直前のパーツのページ。
- *   赤入れで消えたパーツは元の位置に置かれるので、元のページで見える。
+ *   区切りの後ろ(または先頭)にあれば次のパーツか区切りのページ、そうでなければ直前のパーツの
+ *   ページ。赤入れで消えたパーツは元の位置に置かれるので、元のページで見える。
  */
 export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): void {
   for (const el of Array.from(root.querySelectorAll(`[${PV_ATTR}]`))) {
@@ -32,9 +32,12 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
   split.pages.forEach((page, i) => {
     for (const part of page) pageOf.set(part, i);
   });
+  split.breakEls.forEach((el, i) => {
+    pageOf.set(el, split.breakPages[i]);
+  });
   const breaks = new Set<Element>(split.breakEls);
   let last = 0;
-  // 直前に数えたものがパーツか(false なら、まだパーツが無いか区切りの後ろ)。
+  // 直前に数えたものがパーツか(false なら、まだ何も無いか区切りの後ろ)。
   let afterPart = false;
   let pending: Element[] = [];
   const mark = (el: Element, i: number) => el.setAttribute(PV_ATTR, String(i));
@@ -45,10 +48,7 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
       pending = [];
       mark(el, page);
       last = page;
-      afterPart = true;
-    } else if (breaks.has(el)) {
-      mark(el, last);
-      afterPart = false;
+      afterPart = !breaks.has(el);
     } else if (afterPart) {
       mark(el, last);
     } else {

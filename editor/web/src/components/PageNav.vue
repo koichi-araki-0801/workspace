@@ -85,7 +85,8 @@ function onInputKeydown(e: KeyboardEvent): void {
 </script>
 
 <template>
-  <div class="flex shrink-0 items-center gap-1.5">
+  <!-- 総ページ数を属性にも持つ。e2e が `/ N` の表示の文字に頼らずに読むため。 -->
+  <div class="flex shrink-0 items-center gap-1.5" :data-page-count="pageCount">
     <Tooltip text="前のページ">
       <Button
         :variant="variant"

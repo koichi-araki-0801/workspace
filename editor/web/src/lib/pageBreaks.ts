@@ -7,6 +7,15 @@
 // 呼び出し側ごとに数え方が違うと、ページ数・パーツの番号・メモのキーが画面ごとに食い違うため、
 // 判定はここに集める。
 //
+// ページの切れ方はプレビュー・PDF の組版エンジン(Vivliostyle)に合わせる。e2e
+// (`editor/e2e/page_breaks.spec.ts`)で同じ形を実際に組ませて突き合わせている。要点は次のとおり。
+// - 区切りは中身の無い要素として 1 ページを占める。先頭の区切り・連続した区切り・inline の
+//   `break-after` の直後の区切りは白紙のページを作る。最後の要素の後ろの改ページは消える。
+// - style 属性の `page-break-*` を Vivliostyle は効かせない(CSS の規則に書けば効く)。`break-*` の
+//   `always` も効かない。どちらも警告で知らせる(`findIgnoredInlineBreaks`)。
+// - `left` / `right` は、横書きで 1 ページ目を右とし、左右が交互に来る前提で白紙を挟む。あふれた
+//   ページは数えないので、あふれのある文書では左右がずれうる(紙のページはプレビューが正)。
+//
 // CSS の解析と computed style は判定に使わず、DOM だけで決める。computed style は canvas でしか
 // 取れず(静的な文書・Worker には無い)、全要素を読むので重い。テンプレの CSS が区切りをどう
 // 描くか(`display:none` など)にも判定を左右させない。`pagebreakCssDefined` は印刷で区切りが
@@ -24,16 +33,39 @@ import { REDLINE_ATTR } from './redlineAttr';
 /** 改ページの区切りを表すクラス。 */
 export const PAGEBREAK_CLASS = 'pagebreak';
 
-/** `break-*` / `page-break-*` の値のうち改ページを意味するもの。 */
+/** 改ページの種類。`left` / `right` は次のページを左(右)のページにする。 */
+type BreakKind = 'page' | 'left' | 'right';
+
+/**
+ * `break-before` / `break-after` の値を改ページの種類にする(改ページしない値は null)。
+ * `column` / `region` は段組み・領域の無い本文の直下では改ページになる。`always` は
+ * Vivliostyle が受け付けない。`recto` / `verso` は横書きでは右 / 左。
+ */
+function breakKind(v: string | undefined): BreakKind | null {
+  switch (v) {
+    case 'page':
+    case 'column':
+    case 'region':
+      return 'page';
+    case 'left':
+    case 'verso':
+      return 'left';
+    case 'right':
+    case 'recto':
+      return 'right';
+    default:
+      return null;
+  }
+}
+
+/** `break-before` / `break-after` の値のうち改ページを意味するもの。 */
 export function isBreakValue(v: string | undefined): boolean {
-  return (
-    v === 'always' ||
-    v === 'page' ||
-    v === 'left' ||
-    v === 'right' ||
-    v === 'recto' ||
-    v === 'verso'
-  );
+  return breakKind(v) !== null;
+}
+
+/** 旧来の別名 `page-break-before` / `page-break-after` の値のうち改ページを意味するもの。 */
+function isLegacyBreakValue(v: string | undefined): boolean {
+  return v === 'always' || v === 'left' || v === 'right';
 }
 
 /**
@@ -72,18 +104,42 @@ function parseDecls(text: string): Array<[string, string]> {
 }
 
 /**
- * 要素の inline `style` が、その端で改ページを指定しているか。`page-break-*` は `break-*` の
- * 別名なので、同じ端の宣言はどちらで書いても最後のものを採る(ブラウザのカスケードと同じ)。
+ * 要素の inline `style` の、その端の改ページの種類(無ければ null)。同じ端の宣言が複数あれば
+ * 最後のものを採る。`page-break-*` は読まない: Vivliostyle は style 属性の `page-break-*` を
+ * 改ページにも、`break-*` の打ち消しにも使わない。
  */
+function inlineBreakKind(el: Element, edge: 'before' | 'after'): BreakKind | null {
+  const style = el.getAttribute('style');
+  if (!style) return null;
+  let kind: BreakKind | null = null;
+  for (const [prop, value] of parseDecls(style)) {
+    if (prop === `break-${edge}`) kind = breakKind(value);
+  }
+  return kind;
+}
+
+/** 要素の inline `style` が、その端で改ページを指定しているか(`break-before` / `break-after`)。 */
 export function inlineBreak(el: Element, edge: 'before' | 'after'): boolean {
+  return inlineBreakKind(el, edge) !== null;
+}
+
+/**
+ * 要素の inline `style` に、印刷では効かない改ページ指定(`page-break-*` の改ページの値と
+ * `break-*: always`)があり、同じ端が `break-*` で改ページしていないか。
+ */
+function hasIgnoredInlineBreak(el: Element): boolean {
   const style = el.getAttribute('style');
   if (!style) return false;
-  const props = new Set([`page-break-${edge}`, `break-${edge}`]);
-  let on = false;
-  for (const [prop, value] of parseDecls(style)) {
-    if (props.has(prop)) on = isBreakValue(value);
-  }
-  return on;
+  const decls = parseDecls(style);
+  return (['before', 'after'] as const).some(
+    (edge) =>
+      !inlineBreak(el, edge) &&
+      decls.some(
+        ([prop, value]) =>
+          (prop === `page-break-${edge}` && isLegacyBreakValue(value)) ||
+          (prop === `break-${edge}` && value === 'always'),
+      ),
+  );
 }
 
 /** 固めた範囲の包み(`div.jinja-frozen-body`)か。 */
@@ -124,8 +180,8 @@ function isVanishingChip(el: Element): boolean {
 
 /**
  * 根の直下の要素のうち、ページ分けとパーツの番号に数えるもの(パーツと区切り)。固めた範囲の包みは
- * 中身へ展開する(`rootBlocks`)。`<style>` は見えない要素で、数えると後ろのパーツの番号がずれ、
- * `<style>` だけのページもできる。canvas では本文の `<style>` が置き場の要素(`[data-body-style]`)に
+ * 中身へ展開する(`rootBlocks`)。`<style>` は見えない要素で、数えると後ろのパーツの番号がずれる。
+ * canvas では本文の `<style>` が置き場の要素(`[data-body-style]`)に
  * 差し替わっているので、それも除く。赤入れの削除要素(`[data-redline]`)は生 DOM だけの表示物で
  * 文書に無い。描画で要素として残らないチップ(`isVanishingChip`)も除く。canvas・承認タブ・比較が
  * 同じ集合を `splitPages` へ渡すよう、除く規則はここ 1 か所に置く。
@@ -141,39 +197,79 @@ export function pageItems<T extends Element>(children: Iterable<T>): T[] {
 }
 
 export interface PageSplit<T extends Element> {
-  /** ページごとのパーツ(区切りの要素は含まない)。必ず 1 ページ以上(パーツが 0 個なら [[]])。 */
+  /**
+   * ページごとのパーツ(区切りの要素は含まない)。必ず 1 ページ以上(要素が 0 個なら [[]])。
+   * 白紙のページ(区切りだけのページ、左右合わせで挟んだページ)は空の配列。
+   */
   pages: T[][];
   /** 数えた区切りの要素(根の直下の `div.pagebreak`)。先頭・末尾・連続のものも含む(帯を出すため)。 */
   breakEls: T[];
+  /**
+   * `breakEls` の各区切りが置かれるページの番号(同じ順)。区切りは置かれたページの末尾にあり、
+   * その後ろで改ページする。白紙のページの区切りは、その白紙のページに置かれる。
+   */
+  breakPages: number[];
 }
 
 /**
- * 根の直下の要素の並び(呼び出し側が赤入れの要素などを除いたもの)をページに分ける。改ページの
- * 要求(区切り・inline の `before` / `after`)は、次のパーツの手前で、今のページにパーツが
- * あるときだけ新しいページにする。連続した要求は 1 回にまとまり、先頭と末尾の要求は空の
- * ページを作らずに消える。
+ * 根の直下の要素の並び(呼び出し側が赤入れの要素などを除いたもの)をページに分ける。
+ *
+ * 要素(パーツと区切り)を順に今のページへ置き、隣り合う 2 つの要素の境目に改ページの要求
+ * (前の要素の `after`、後ろの要素の `before`)があれば新しいページを始める。区切りは `after` に
+ * 改ページを持つ中身の無い要素として置く(テンプレの CSS の `.pagebreak{break-after:page}` と同じ)。
+ * 同じ境目の要求は 1 回で、要求の間に要素が区切りしか無ければ白紙のページになる。最初の要素の
+ * `before` と最後の要素の `after` は改ページしない。
+ *
+ * 左右の指定は、後ろの要素の `before` を前の要素の `after` より優先し、`page` より左右の指定を
+ * 優先する。新しいページが指定と逆の側なら、白紙のページを 1 枚挟む。最初の要素の左右の指定は
+ * 1 ページ目の側を決める(白紙を挟まない)。
  */
 export function splitPages<T extends Element>(blocks: readonly T[]): PageSplit<T> {
-  const pages: T[][] = [];
+  const pages: T[][] = [[]];
   const breakEls: T[] = [];
-  let cur: T[] = [];
-  let pending = false;
-  for (const el of blocks) {
-    if (isPagebreakEl(el)) {
+  const breakPages: number[] = [];
+  let firstSide: 'left' | 'right' = 'right';
+  const sideOf = (i: number) => (i % 2 === 0 ? firstSide : firstSide === 'left' ? 'right' : 'left');
+  let after: BreakKind | null = null;
+  blocks.forEach((el, n) => {
+    const sep = isPagebreakEl(el);
+    const before = inlineBreakKind(el, 'before');
+    if (n === 0) {
+      if (before === 'left' || before === 'right') firstSide = before;
+    } else {
+      const sided = [before, after].find((k) => k === 'left' || k === 'right');
+      const kind = sided ?? before ?? after;
+      if (kind) {
+        pages.push([]);
+        if (kind !== 'page' && sideOf(pages.length - 1) !== kind) pages.push([]);
+      }
+    }
+    const cur = pages.length - 1;
+    if (sep) {
       breakEls.push(el);
-      pending = true;
-      continue;
+      breakPages.push(cur);
+    } else {
+      pages[cur].push(el);
     }
-    if (inlineBreak(el, 'before')) pending = true;
-    if (pending && cur.length > 0) {
-      pages.push(cur);
-      cur = [];
-    }
-    pending = inlineBreak(el, 'after');
-    cur.push(el);
+    after = inlineBreakKind(el, 'after') ?? (sep ? 'page' : null);
+  });
+  return { pages, breakEls, breakPages };
+}
+
+/**
+ * ページ `i` の先頭の要素。パーツがあれば最初のパーツ、白紙のページならそのページの区切り、
+ * 要素の無い白紙のページ(左右合わせで挟んだもの)なら次のページの先頭。区切りは置かれたページの
+ * 末尾にあるので、パーツのあるページでは先頭にならない。ページへ送る・ページの境目に線を引く・
+ * ページの末尾へ挿入する、の基準に使う。
+ */
+export function pageHead<T extends Element>(split: PageSplit<T>, i: number): T | undefined {
+  for (let p = Math.max(i, 0); p < split.pages.length; p++) {
+    const part = split.pages[p][0];
+    if (part) return part;
+    const k = split.breakPages.indexOf(p);
+    if (k >= 0) return split.breakEls[k];
   }
-  pages.push(cur);
-  return { pages, breakEls };
+  return undefined;
 }
 
 /**
@@ -198,15 +294,36 @@ export function findUncountedBreaks(root: Element): Element[] {
 }
 
 /**
+ * 印刷では効かない inline の改ページ指定(`page-break-*` の改ページの値と `break-*: always`)を
+ * 持つ要素。深さは問わない(根の直下でも入れ子でも、印刷で改ページしないのは同じ)。区切りの
+ * 代わりに書かれていることが多いので、警告で区切りへの置き換えを促す。赤入れの削除要素の配下は
+ * 見ない。
+ */
+export function findIgnoredInlineBreaks(root: Element): Element[] {
+  const out: Element[] = [];
+  const walk = (parent: Element): void => {
+    for (const el of Array.from(parent.children)) {
+      if (el.hasAttribute(REDLINE_ATTR)) continue;
+      if (hasIgnoredInlineBreak(el)) out.push(el);
+      walk(el);
+    }
+  };
+  walk(root);
+  return out;
+}
+
+/**
  * 区切りを指すセレクタ。子孫・結合子つきのもの(`.x .pagebreak`)は根の直下と限らないので数えない。
  * 型セレクタは大文字小文字を区別しないが、クラス名は区別する。
  */
 const PAGEBREAK_SELECTOR_RE = new RegExp(`^(?:[Dd][Ii][Vv])?\\.${PAGEBREAK_CLASS}$`);
-const BREAK_PROP_RE = /^(?:page-)?break-(?:before|after)$/;
+const BREAK_PROP_RE = /^break-(?:before|after)$/;
+const LEGACY_BREAK_PROP_RE = /^page-break-(?:before|after)$/;
 
 /**
  * CSS に `.pagebreak` の改ページ指定があるか(区切りが印刷で効くかの警告用。判定には使わない)。
- * `@media print` などの入れ子の中も見る(`splitCssRules` が降りる)。
+ * `@media print` などの入れ子の中も見る(`splitCssRules` が降りる)。CSS の規則では、style 属性と
+ * 違って `page-break-*` も効く(値は `always` / `left` / `right`)。`break-*` は `always` が効かない。
  */
 export function pagebreakCssDefined(css: string): boolean {
   for (const rule of splitCssRules(css)) {
@@ -219,9 +336,12 @@ export function pagebreakCssDefined(css: string): boolean {
       .map((s) => s.trim());
     if (!selectors.some((s) => PAGEBREAK_SELECTOR_RE.test(s))) continue;
     const body = rule.text.slice(open + 1, rule.text.lastIndexOf('}'));
-    if (parseDecls(body).some(([prop, value]) => BREAK_PROP_RE.test(prop) && isBreakValue(value))) {
-      return true;
-    }
+    const breaks = parseDecls(body).some(
+      ([prop, value]) =>
+        (BREAK_PROP_RE.test(prop) && isBreakValue(value)) ||
+        (LEGACY_BREAK_PROP_RE.test(prop) && isLegacyBreakValue(value)),
+    );
+    if (breaks) return true;
   }
   return false;
 }

@@ -184,6 +184,18 @@ describe('partLabelMap — 全パーツの人間向けラベル', () => {
     expect(partLabelMap(r).get('.s#2')).toBe('ページ2・パーツ1');
     expect(partPageIndexMap(r).get('.s#2')).toBe(1);
   });
+
+  it('白紙のページはページ番号に数え、パーツの番号はページごとに 1 から', () => {
+    const r = root(
+      '<div class=pagebreak></div><section class=s></section><section class=s></section>' +
+        '<div class=pagebreak></div><div class=pagebreak></div><section class=s></section>',
+    );
+    expect([...partLabelMap(r)]).toEqual([
+      ['.s#1', 'ページ2・パーツ1'],
+      ['.s#2', 'ページ2・パーツ2'],
+      ['.s#3', 'ページ4・パーツ1'],
+    ]);
+  });
 });
 
 describe('canvasRawKey — canvas 側は id をモデルの明示属性から読む', () => {

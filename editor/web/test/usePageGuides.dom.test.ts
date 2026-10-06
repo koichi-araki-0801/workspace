@@ -45,6 +45,7 @@ function setup(html: string, heights: Record<string, number> = {}) {
     editor,
     pageBlocks: shallowRef(split.pages),
     breakEls: shallowRef(split.breakEls),
+    breakPages: shallowRef(split.breakPages),
   });
   return {
     g,
@@ -67,7 +68,7 @@ describe('usePageGuides', () => {
   it('3 ページなら線は 2 本で、2・3 ページ目の先頭のパーツの上端に引く(inline の改ページ)', () => {
     const { g, getElementPos, top } = setup(
       '<p id="a">1</p><p id="b" style="break-before: page">2</p><p id="b2">2b</p>' +
-        '<p id="c" style="page-break-before: always">3</p>',
+        '<p id="c" style="break-before: page">3</p>',
     );
     g.refreshPageGuides();
     expect(g.pageGuides.value).toEqual([
@@ -91,17 +92,40 @@ describe('usePageGuides', () => {
     ]);
   });
 
-  it('連続した区切りでは最初の帯の上端に 1 本だけ引く。先頭・末尾の区切りは線を作らない', () => {
+  it('白紙のページ(先頭・連続の区切り)は、帯の下に次のページの線を引く。末尾の区切りは線を作らない', () => {
     const { g, split, top } = setup(
       `${BR('k0')}<p id="a">1</p>${BR('k1')}${BR('k2')}<p id="b">2</p>${BR('k3')}` +
         `<p id="c">3</p>${BR('k4')}`,
       { k0: 30, k1: 30, k2: 30, k3: 30, k4: 30 },
     );
     g.refreshPageGuides();
+    // ページは [k0] [a k1] [k2] [b k3] [c k4] の 5 枚。白紙のページの帯は、前の線と後ろの線の間に来る。
     expect(g.pageGuides.value).toHaveLength(split.pages.length - 1);
     expect(g.pageGuides.value.map((x) => [x.top, x.page])).toEqual([
+      [top('a'), 1],
+      [top('k1'), 2],
+      [top('b'), 3],
+      [top('k3'), 4],
+    ]);
+  });
+
+  it('inline の break-after の直後の区切りは白紙のページで、線は帯の上端と下(次のパーツ)に引く', () => {
+    const { g, top } = setup(`<p id="a" style="break-after:page">1</p>${BR('k1')}<p id="b">2</p>`, {
+      k1: 30,
+    });
+    g.refreshPageGuides();
+    expect(g.pageGuides.value.map((x) => [x.top, x.page])).toEqual([
       [top('k1'), 1],
-      [top('k3'), 2],
+      [top('b'), 2],
+    ]);
+  });
+
+  it('左右合わせで挟んだ要素の無い白紙のページは、次のパーツの上端に線を重ねる', () => {
+    const { g, top } = setup('<p id="a">1</p><p id="b" style="break-before:right">2</p>');
+    g.refreshPageGuides();
+    expect(g.pageGuides.value.map((x) => [x.top, x.page])).toEqual([
+      [top('b'), 1],
+      [top('b'), 2],
     ]);
   });
 

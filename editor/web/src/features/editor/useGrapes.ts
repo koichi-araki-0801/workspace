@@ -17,7 +17,13 @@ import { computed, ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
 import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
-import { findUncountedBreaks, pageItems, splitPages } from '@/lib/pageBreaks';
+import {
+  findIgnoredInlineBreaks,
+  findUncountedBreaks,
+  pageHead,
+  pageItems,
+  splitPages,
+} from '@/lib/pageBreaks';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
 import {
@@ -176,8 +182,12 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   const pageBlocks = shallowRef<HTMLElement[][]>([]);
   /** 数えた区切りの要素(`splitPages` の `breakEls`)。ページ線を帯の上端に引くために使う。 */
   const pageBreakEls = shallowRef<HTMLElement[]>([]);
+  /** 各区切りが置かれるページ(`splitPages` の `breakPages`)。白紙のページの線と挿入先に使う。 */
+  const pageBreakPages = shallowRef<number[]>([]);
   /** 数えていない改ページ指定の数(`findUncountedBreaks`。ページ数がプレビューとずれうる警告用)。 */
   const uncountedBreakCount = ref(0);
+  /** 印刷では効かない inline の改ページ指定の数(`findIgnoredInlineBreaks`。区切りへの置き換えを促す)。 */
+  const ignoredInlineBreakCount = ref(0);
   /**
    * テンプレの CSS か本文の `<style>` に `.pagebreak` の改ページ指定があるか。CSS の解析は重いので、
    * ページを数えるたびではなく CSS の複製を作り直すとき(読み込み・`<style>` の増減)に判定する。
@@ -186,6 +196,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   /** 改ページの警告の材料。旧形式のキーの件数はメモと修正履歴を読む呼び出し側が足す。 */
   const pageBreakFacts = computed<Omit<PageWarningFacts, 'legacyKeys'>>(() => ({
     uncounted: uncountedBreakCount.value,
+    ignoredInline: ignoredInlineBreakCount.value,
     counted: pageBreakEls.value.length,
     cssDefined: pagebreakCssOk.value,
   }));
@@ -257,6 +268,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     editor,
     pageBlocks,
     breakEls: pageBreakEls,
+    breakPages: pageBreakPages,
     afterGuides: refreshOverlayMarkers,
   });
   const { pageGuides, refreshPageGuides } = guides;
@@ -326,7 +338,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     if (!root) {
       pageBlocks.value = [];
       pageBreakEls.value = [];
+      pageBreakPages.value = [];
       uncountedBreakCount.value = 0;
+      ignoredInlineBreakCount.value = 0;
       pageCount.value = 0;
       return;
     }
@@ -336,7 +350,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     // を見ている側(パーツのラベル・選択の復元)が空振りで再評価される。
     if (!samePages(pageBlocks.value, split.pages)) pageBlocks.value = split.pages;
     pageBreakEls.value = split.breakEls;
+    pageBreakPages.value = split.breakPages;
     uncountedBreakCount.value = findUncountedBreaks(root).length;
+    ignoredInlineBreakCount.value = findIgnoredInlineBreaks(root).length;
     pageCount.value = split.pages.length;
     currentPageIndex.value = clampPageIndex(currentPageIndex.value, pageCount.value);
     applyPageVisibility();
@@ -396,8 +412,11 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   function scrollToPage(i: number): void {
     const idx = clampPageIndex(i, pageCount.value);
     currentPageIndex.value = idx;
-    // ページの先頭のパーツへ送る(区切りの帯は前のページの末尾に属する)。
-    const el = pageBlocks.value[idx]?.[0];
+    // ページの先頭の要素へ送る(区切りの帯は前のページの末尾に属する)。白紙のページは帯へ送る。
+    const el = pageHead(
+      { pages: pageBlocks.value, breakEls: pageBreakEls.value, breakPages: pageBreakPages.value },
+      idx,
+    );
     if (!cvScrollEl || !el) return;
     const delta = el.getBoundingClientRect().top - cvScrollEl.getBoundingClientRect().top;
     cvScrollEl.scrollTop += delta;
@@ -822,9 +841,12 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * 根の直下の HTML コメント(範囲の印)で表し、最後のパーツの直後は閉じの印の手前、つまり
    * 枝の中になる。区切りの直前なら印の後ろに入る。
    *
-   * 最後のパーツが inline の `page-break-after`(`break-after`)を持ち、区切りの要素が無いときは、
-   * 次のページの先頭のパーツの直前に入る。新しいパーツは改ページの後ろなので次のページの先頭に
-   * なるが、利用者の書いた改ページ指定は動かさない(挿入のために `style` を書き換えない)。
+   * 最後のパーツが inline の `break-after` を持つときは、次のページの先頭(区切りか次のパーツ)の
+   * 直前に入る。新しいパーツは改ページの後ろなので次のページへ入るが、利用者の書いた改ページ
+   * 指定は動かさない(挿入のために `style` を書き換えない)。
+   *
+   * 白紙のページ(パーツの無いページ)では、そのページの区切りの直前に入り、そのページのパーツに
+   * なる。要素の無い白紙のページ(左右合わせで挟んだもの)では次のページの先頭の直前に入る。
    *
    * 固めた範囲の包み(`div.jinja-frozen-body`)の中には入れない(中身は原文から作り直すので、
    * 入れても保存で消える)。次の区切りが包みの中にあるときは wrapper の末尾に入る。
@@ -848,9 +870,14 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       if (i >= 0) return i + 1;
     }
     const last = page[page.length - 1];
-    if (!last) return comps.length;
-    // 最後のパーツの後ろで最初に来る区切りか次のページのパーツ(inline の改ページで分かれたとき)。
-    const next = split.pages[currentPageIndex.value + 1]?.[0];
+    if (!last) {
+      // 白紙のページ: そのページの区切りの直前(要素の無い白紙のページなら次のページの先頭の直前)。
+      const head = pageHead(split, currentPageIndex.value);
+      const i = head ? indexOfEl(head) : -1;
+      return i >= 0 ? i : comps.length;
+    }
+    // 最後のパーツの後ろで最初に来る区切りか次のページの先頭(inline の改ページで分かれたとき)。
+    const next = pageHead(split, currentPageIndex.value + 1);
     let el = last.nextElementSibling;
     while (el && el !== next && !split.breakEls.includes(el as HTMLElement)) {
       el = el.nextElementSibling;

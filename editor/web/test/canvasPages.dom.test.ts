@@ -107,6 +107,17 @@ describe('ページ数', () => {
     load('<p class="a">1</p><p class="b">2</p>');
     expect(g.pageCount.value).toBe(1);
   });
+
+  it('先頭・連続の区切りは白紙のページを数え、白紙のページはパーツを持たない', () => {
+    load(`${BR}<p class="a">1</p>${BR}${BR}<p class="b">2</p>${BR}`);
+    expect(g.pageCount.value).toBe(4);
+    expect(g.pageBlocks.value.map((p) => p.map((el) => el.className))).toEqual([
+      [],
+      ['a'],
+      [],
+      ['b'],
+    ]);
+  });
 });
 
 describe('改ページの警告の材料(pageBreakFacts)', () => {
@@ -114,7 +125,21 @@ describe('改ページの警告の材料(pageBreakFacts)', () => {
 
   it('数えた区切りと数えていない指定を数え、CSS が無ければ cssDefined は false', () => {
     load(`${DOC}${NESTED}`);
-    expect(g.pageBreakFacts.value).toEqual({ uncounted: 2, counted: 2, cssDefined: false });
+    expect(g.pageBreakFacts.value).toEqual({
+      uncounted: 2,
+      counted: 2,
+      cssDefined: false,
+      ignoredInline: 0,
+    });
+  });
+
+  it('印刷で効かない inline の改ページ指定(page-break-*)を数える', () => {
+    load(
+      '<p class="a">1</p><p class="b" style="page-break-before: always">2</p>' +
+        '<div class="x"><p style="page-break-after: always">n</p></div>',
+    );
+    expect(g.pageBreakFacts.value.ignoredInline).toBe(2);
+    expect(g.pageCount.value).toBe(1);
   });
 
   it('テンプレの CSS にあれば cssDefined は true', () => {
@@ -162,6 +187,18 @@ describe('1 ページ表示', () => {
     const shown = (cls: string) =>
       getComputedStyle(root.querySelector(`.${cls}`) as Element).display !== 'none';
     expect(['a', 'b', 'b2', 'c'].map(shown)).toEqual([false, true, true, false]);
+  });
+
+  it('白紙のページへ送ると、そのページの区切りの帯だけが見える', () => {
+    const root = load(`<p class="a">1</p>${BR}${BR}<p class="b">2</p>`);
+    g.goToPage(1);
+    const [k1, k2] = Array.from(root.querySelectorAll('.pagebreak'));
+    const shown = (el: Element) => getComputedStyle(el).display !== 'none';
+    expect(
+      [root.querySelector('.a'), k1, k2, root.querySelector('.b')].map((el) =>
+        shown(el as Element),
+      ),
+    ).toEqual([false, false, true, false]);
   });
 
   it('赤入れの削除要素は、印を付け直すと元のページでだけ見える', () => {
@@ -226,15 +263,37 @@ describe('insertPart', () => {
   });
 
   it('最後のパーツが inline の改ページ(after)を持てば、改ページ指定は動かさず次のページの先頭に入る', () => {
-    load('<p class="a" style="page-break-after: always">1</p><p class="b">2</p>');
+    load('<p class="a" style="break-after: page">1</p><p class="b">2</p>');
     g.goToPage(0);
     g.insertPart('<section>new</section>', 'NEW');
     expect(order()).toEqual(['a', 'NEW', 'b']);
-    expect(g.getBodyHtml()).toMatch(/class="a" style="page-break-after: ?always;?"/);
+    expect(g.getBodyHtml()).toMatch(/class="a" style="break-after: ?page;?"/);
     g.refreshPageMarks();
     expect(
       g.pageBlocks.value.map((p) => p.map((el) => el.getAttribute('data-part-id') ?? el.className)),
     ).toEqual([['a'], ['NEW', 'b']]);
+  });
+
+  it('白紙のページでは、そのページの区切りの直前へ入り、白紙のページのパーツになる', () => {
+    load(`${BR}<p class="a">1</p>${BR}${BR}<p class="b">2</p>`);
+    g.goToPage(2);
+    g.insertPart('<section>new</section>', 'NEW');
+    expect(order()).toEqual(['BR', 'a', 'BR', 'NEW', 'BR', 'b']);
+    g.goToPage(0);
+    g.insertPart('<section>top</section>', 'TOP');
+    expect(order()).toEqual(['TOP', 'BR', 'a', 'BR', 'NEW', 'BR', 'b']);
+    g.refreshPageMarks();
+    expect(
+      g.pageBlocks.value.map((p) => p.map((el) => el.getAttribute('data-part-id') ?? el.className)),
+    ).toEqual([['TOP'], ['a'], ['NEW'], ['b']]);
+  });
+
+  it('要素の無い白紙のページ(左右合わせ)では、次のページの先頭の直前へ入る', () => {
+    load('<p class="a">1</p><p class="b" style="break-before: right">2</p>');
+    expect(g.pageCount.value).toBe(3);
+    g.goToPage(1);
+    g.insertPart('<section>new</section>', 'NEW');
+    expect(order()).toEqual(['a', 'NEW', 'b']);
   });
 
   it('挿入したパーツを選び、data-part-id を付ける', () => {
@@ -280,10 +339,10 @@ describe('setPartBreak', () => {
     expect(order()).toEqual(['a', 'BR', 'b']);
   });
 
-  it('OFF にすると隣の区切りと inline の page-break-after を消し、Undo 1 回で両方戻る', () => {
-    load(
-      `<p class="a">1</p><p class="b" style="page-break-after: always">2</p>${BR}<p class="c">3</p>`,
-    );
+  it('OFF にすると隣の区切りと inline の break-after を消し、Undo 1 回で両方戻る', () => {
+    load(`<p class="a">1</p><p class="b" style="break-after: page">2</p>${BR}<p class="c">3</p>`);
+    // inline の after の直後の区切りは白紙のページを作る。
+    expect(g.pageCount.value).toBe(3);
     const h = history();
     const before = g.getBodyHtml();
     h.pushUndo();
@@ -291,7 +350,7 @@ describe('setPartBreak', () => {
     // テストの view は GrapesJS の frame に登録されず、モデルの削除で要素が外れないので描き直す。
     render();
     expect(order()).toEqual(['a', 'b', 'c']);
-    expect(g.getBodyHtml()).not.toContain('page-break-after');
+    expect(g.getBodyHtml()).not.toContain('break-after');
     expect(g.pageCount.value).toBe(1);
     h.undo();
     expect(g.getBodyHtml()).toBe(before);

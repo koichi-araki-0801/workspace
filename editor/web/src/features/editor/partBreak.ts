@@ -2,9 +2,11 @@
 // partBreak.ts — Inspector の「前で改ページ / 後で改ページ」の状態と、何を足す・消すかの決定
 // =============================================================================
 // 改ページはパーツ(内容の根の直下の要素)の前後に置く区切り(`<div class="pagebreak">`)で表す。
-// inline の `page-break-*` を書くと、canvas の帯・承認・比較が見る区切りと、利用者が Inspector で
+// inline の改ページ指定を書くと、canvas の帯・承認・比較が見る区切りと、利用者が Inspector で
 // 見る状態が別の仕組みになるため、Inspector の操作も区切りの挿入・削除にそろえる。ただし既存の
-// テンプレには inline で改ページしたパーツもあるので、状態は両方を見て、OFF は両方を消す。
+// テンプレには inline の `break-*` で改ページしたパーツもあるので、状態は両方を見て、OFF は両方を
+// 消す。inline の `page-break-*` と `break-*: always` は印刷で改ページしない(`@/lib/pageBreaks`)
+// ので、状態は OFF と読む(警告欄で区切りへの置き換えを促す)。
 //
 // ここは DOM を読むだけの純粋関数で、GrapesJS の component への反映は `useGrapes.ts` の
 // `setPartBreak` が受け持つ。数え方(どの要素を飛ばすか)は `@/lib/pageBreaks` の `pageItems` と
@@ -81,7 +83,9 @@ export function partBreakState(part: Element, root: Element): PartBreakState | n
  * 切り替えで行う変更を決める。状態が変わらない操作・対象外のパーツは null。
  *
  * ON はその端に区切りを 1 つ置く。OFF は隣の区切りを連続分すべて消し(1 つでも残ると ON のまま)、
- * inline の該当の宣言(`page-break-*` と `break-*`)も消す。どちらで改ページしていても OFF が効く。
+ * inline の該当の宣言(`break-*` と、一緒に書かれがちな効かない `page-break-*`)も消す。どちらで
+ * 改ページしていても OFF が効く。連続した区切りは間に白紙のページを作るので、OFF でその白紙の
+ * ページも消える。
  */
 export function planBreakToggle(
   part: Element,

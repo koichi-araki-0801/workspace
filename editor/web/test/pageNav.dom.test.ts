@@ -71,3 +71,10 @@ describe('PageNav の countHint', () => {
     expect(withHint).toContain('width: 4.5ch');
   });
 });
+
+describe('総ページ数の属性', () => {
+  it('根の要素に data-page-count を持つ(e2e が表示の文字に頼らず読むため)', async () => {
+    wrapper = await mountNav({});
+    expect(wrapper.find('[data-page-count]').attributes('data-page-count')).toBe('120');
+  });
+});

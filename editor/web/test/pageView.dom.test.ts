@@ -33,14 +33,22 @@ describe('markPages', () => {
     expect(marks(root)).toEqual({ a: '0', b: '0', k1: '0', c: '1', k2: '1', d: '2' });
   });
 
-  it('先頭の区切りは 0、末尾の区切りは最後のページ、連続した区切りはどれも直前のページ', () => {
+  it('区切りには置かれたページの番号を付ける(先頭・連続の区切りは白紙のページ、末尾は最後のページ)', () => {
     const root = marked(`${BR('k0')}<p id="a"></p>${BR('k1')}${BR('k2')}<p id="b"></p>${BR('k3')}`);
-    expect(marks(root)).toEqual({ k0: '0', a: '0', k1: '0', k2: '0', b: '1', k3: '1' });
+    // 1 ページ目は k0 だけの白紙、3 ページ目は k2 だけの白紙。1 ページ表示では帯だけが見える。
+    expect(marks(root)).toEqual({ k0: '0', a: '1', k1: '1', k2: '2', b: '3', k3: '3' });
   });
 
   it('inline の改ページで分けたページも番号を振る', () => {
-    const root = marked('<p id="a"></p><p id="b" style="page-break-before: always"></p>');
+    const root = marked('<p id="a"></p><p id="b" style="break-before: page"></p>');
     expect(marks(root)).toEqual({ a: '0', b: '1' });
+  });
+
+  it('白紙のページの区切りの前の数えない要素は、その白紙のページで見える', () => {
+    const root = marked(
+      `<p id="a"></p>${BR('k1')}<del id="d" ${REDLINE_ATTR}></del>${BR('k2')}<p id="b"></p>`,
+    );
+    expect(marks(root)).toEqual({ a: '0', k1: '0', d: '1', k2: '1', b: '2' });
   });
 
   it('数えない要素は、パーツの後ろなら直前のパーツ、区切りの後ろなら次のパーツのページになる', () => {

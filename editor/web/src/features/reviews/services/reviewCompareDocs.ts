@@ -17,7 +17,7 @@
 //   `pageItems` + `splitPages` で数えるため、index と本文のページ順は対応する。
 
 import { rebaseCssForDoc } from '@editor/shared';
-import { pageItems, splitPages } from '@/lib/pageBreaks';
+import { pageHead, pageItems, splitPages } from '@/lib/pageBreaks';
 
 export interface CompareDocsInput {
   beforeHtml: string;
@@ -53,7 +53,9 @@ export interface CompareDocs {
 
 /**
  * body 直下を `splitPages` でページに分け、変更ページの各パーツへ印を、全ページの先頭の
- * パーツへアンカー id を付ける。
+ * 要素(`pageHead`)へアンカー id を付ける。白紙のページ(区切りだけのページ)は先頭の要素が
+ * そのページの区切りなので、ジャンプはその区切りの位置へ飛ぶ。印はパーツにだけ付ける(区切りは
+ * 中身が無く、印を付けても見えない)。
  */
 function annotatePages(
   html: string,
@@ -63,7 +65,8 @@ function annotatePages(
   const anchorByIndex = new Map<number, string>();
   if (!html.trim()) return { html, anchorByIndex, pageIds: [] };
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const { pages } = splitPages(pageItems(doc.body.children));
+  const split = splitPages(pageItems(doc.body.children));
+  const { pages } = split;
   // diff 側が数えたページ数(`beforePageCount`/`afterPageCount`)と、この文書から数えたページ数が
   // 食い違う場合(CSS の page-break 欠落等)、index の対応が崩れ「無関係なページ」を変更ページ
   // として誤ってマークしてしまう。この面のマーク・アンカーは安全側(空)へ倒す。
@@ -71,7 +74,7 @@ function annotatePages(
     return { html, anchorByIndex, pageIds: [] };
   }
   const pageIds = pages.map((parts, i) => {
-    const head = parts[0];
+    const head = pageHead(split, i);
     if (!head) return '';
     // 既存 id は差分キーの一部でありうるため上書きしない(未設定のときだけ振る)。全ページに
     // 付ける(コメント一覧のページジャンプは変更の有無を問わない)。

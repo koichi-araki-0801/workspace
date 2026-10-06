@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
 import {
+  findIgnoredInlineBreaks,
   findUncountedBreaks,
   inlineBreak,
   isBreakValue,
   isPagebreakEl,
   pagebreakCssDefined,
+  pageHead,
   pageItems,
   splitPages,
 } from '@/lib/pageBreaks';
@@ -23,25 +25,56 @@ describe('splitPages', () => {
     ).toEqual([['a'], ['b']]);
   });
 
-  it('連続した区切りは 1 つ、先頭と末尾の区切りは無視する', () => {
+  // 期待値は Vivliostyle の実際の組版(e2e `page_breaks.spec.ts` と同じ形を実ブラウザで確かめたもの)。
+  // 強制改ページの間に中身が無ければ白紙のページになる。末尾の要素の後ろの改ページは消える。
+  it('先頭の区切りは白紙の 1 ページ目を作り、末尾の区切りはページを作らない', () => {
     expect(
       split(
         '<div class=pagebreak></div><section id=a></section><div class=pagebreak></div>' +
-          '<div class=pagebreak></div><section id=b></section><div class=pagebreak></div>',
+          '<section id=b></section><div class=pagebreak></div>',
       ),
-    ).toEqual([['a'], ['b']]);
+    ).toEqual([[], ['a'], ['b']]);
+  });
+
+  it('連続した区切りは間に白紙のページを作る(区切りの数だけ)', () => {
+    expect(
+      split('<p id=a></p><div class=pagebreak></div><div class=pagebreak></div><p id=b></p>'),
+    ).toEqual([['a'], [], ['b']]);
+    expect(
+      split(
+        '<p id=a></p><div class=pagebreak></div><div class=pagebreak></div>' +
+          '<div class=pagebreak></div><p id=b></p>',
+      ),
+    ).toEqual([['a'], [], [], ['b']]);
+  });
+
+  it('末尾に連続した区切りは、最後の 1 つを除いて白紙のページを作る', () => {
+    expect(split('<p id=a></p><div class=pagebreak></div><div class=pagebreak></div>')).toEqual([
+      ['a'],
+      [],
+    ]);
+  });
+
+  it.each([
+    ['break-before:page'],
+    ['BREAK-BEFORE: Page !important'],
+    ['break-before:left'],
+    ['break-before:verso'],
+    ['break-before:column'],
+    ['break-before:region'],
+  ])('根の直下の inline %s で前に改ページ', (style) => {
+    expect(split(`<p id=a></p><p id=b style="${style}"></p>`)).toEqual([['a'], ['b']]);
   });
 
   it.each([
     ['page-break-before:always'],
-    ['break-before:page'],
-    ['PAGE-BREAK-BEFORE: Always !important'],
-    ['break-before:left'],
-    ['break-before:right'],
-    ['break-before:recto'],
-    ['break-before:verso'],
-  ])('根の直下の inline %s で前に改ページ', (style) => {
-    expect(split(`<p id=a></p><p id=b style="${style}"></p>`)).toEqual([['a'], ['b']]);
+    ['page-break-before:left'],
+    ['page-break-before:right'],
+    ['break-before:always'],
+    ['break-before:avoid-page'],
+    ['break-before:auto'],
+  ])('inline の %s は改ページしない(Vivliostyle は style 属性の page-break-* と always を効かせない)', (style) => {
+    expect(split(`<p id=a></p><p id=b style="${style}"></p>`)).toEqual([['a', 'b']]);
   });
 
   it('inline の after で後ろに改ページ', () => {
@@ -51,15 +84,21 @@ describe('splitPages', () => {
     ]);
   });
 
-  it('inline の after と区切りが重なっても 1 回', () => {
+  it('inline の after の直後の区切りは白紙のページを作る', () => {
     expect(
-      split('<p id=a style="page-break-after:always"></p><div class=pagebreak></div><p id=b></p>'),
+      split('<p id=a style="break-after:page"></p><div class=pagebreak></div><p id=b></p>'),
+    ).toEqual([['a'], [], ['b']]);
+  });
+
+  it('区切りと次のパーツの inline の before は同じ境目なので 1 回', () => {
+    expect(
+      split('<p id=a></p><div class=pagebreak></div><p id=b style="break-before:page"></p>'),
     ).toEqual([['a'], ['b']]);
   });
 
-  it('区切りと inline の before が重なっても 1 回', () => {
+  it('パーツの inline の after と次のパーツの before は同じ境目なので 1 回', () => {
     expect(
-      split('<p id=a></p><div class=pagebreak></div><p id=b style="break-before:page"></p>'),
+      split('<p id=a style="break-after:page"></p><p id=b style="break-before:page"></p>'),
     ).toEqual([['a'], ['b']]);
   });
 
@@ -69,13 +108,62 @@ describe('splitPages', () => {
     ).toEqual([['a', 'b']]);
   });
 
-  it('同じ端の宣言は後ろが勝つ(page-break-before:always; break-before:auto は改ページしない)', () => {
+  // 左右の指定は、1 ページ目を右(recto)として左右が交互に来る前提で、合わないときに白紙を挟む。
+  it('right / recto は次が左のページなら白紙を挟み、left / verso は挟まない', () => {
+    expect(split('<p id=a></p><p id=b style="break-before:right"></p>')).toEqual([
+      ['a'],
+      [],
+      ['b'],
+    ]);
+    expect(split('<p id=a></p><p id=b style="break-before:recto"></p>')).toEqual([
+      ['a'],
+      [],
+      ['b'],
+    ]);
+    expect(split('<p id=a style="break-after:right"></p><p id=b></p>')).toEqual([['a'], [], ['b']]);
+    expect(split('<p id=a></p><p id=b style="break-before:left"></p>')).toEqual([['a'], ['b']]);
     expect(
-      split('<p id=a></p><p id=b style="page-break-before:always; break-before:auto"></p>'),
-    ).toEqual([['a', 'b']]);
+      split(
+        '<p id=a></p><p id=b style="break-before:right"></p><p id=c style="break-before:right"></p>',
+      ),
+    ).toEqual([['a'], [], ['b'], [], ['c']]);
+  });
+
+  it('同じ境目の左右の指定は、後ろのパーツの before が勝ち、page は左右の指定に負ける', () => {
     expect(
-      split('<p id=a></p><p id=b style="break-before:auto; page-break-before:always"></p>'),
+      split('<p id=a style="break-after:right"></p><p id=b style="break-before:left"></p>'),
     ).toEqual([['a'], ['b']]);
+    expect(
+      split('<p id=a style="break-after:left"></p><p id=b style="break-before:right"></p>'),
+    ).toEqual([['a'], [], ['b']]);
+    expect(
+      split('<p id=a style="break-after:right"></p><p id=b style="break-before:page"></p>'),
+    ).toEqual([['a'], [], ['b']]);
+    expect(
+      split('<p id=a></p><div class=pagebreak></div><p id=b style="break-before:right"></p>'),
+    ).toEqual([['a'], [], ['b']]);
+  });
+
+  it('先頭のパーツの left は 1 ページ目を左にする(白紙を作らない)', () => {
+    expect(
+      split('<p id=a style="break-before:left"></p><p id=b style="break-before:left"></p>'),
+    ).toEqual([['a'], [], ['b']]);
+    expect(split('<div class=pagebreak></div><p id=a style="break-before:left"></p>')).toEqual([
+      [],
+      ['a'],
+    ]);
+  });
+
+  it('page-break-* は break-* の後勝ちに加わらない(style 属性では無視される)', () => {
+    expect(
+      split('<p id=a></p><p id=b style="break-before:page; page-break-before:auto"></p>'),
+    ).toEqual([['a'], ['b']]);
+    expect(
+      split('<p id=a></p><p id=b style="page-break-before:auto; break-before:page"></p>'),
+    ).toEqual([['a'], ['b']]);
+    expect(split('<p id=a></p><p id=b style="break-before:page; break-before:auto"></p>')).toEqual([
+      ['a', 'b'],
+    ]);
   });
 
   it('inline の宣言のコメントは空白として読む', () => {
@@ -114,9 +202,10 @@ describe('splitPages', () => {
     ]);
   });
 
-  it('パーツが無ければ [[]] を返す(ページ数 1)', () => {
+  it('要素が無ければ [[]] を返す(ページ数 1)。区切りだけの文書は区切りの数だけ白紙が続く', () => {
     expect(split('')).toEqual([[]]);
-    expect(split('<div class=pagebreak></div><div class=pagebreak></div>')).toEqual([[]]);
+    expect(split('<div class=pagebreak></div>')).toEqual([[]]);
+    expect(split('<div class=pagebreak></div><div class=pagebreak></div>')).toEqual([[], []]);
   });
 
   it('breakEls は先頭・末尾・連続の区切りも全部返す(帯を出すため)', () => {
@@ -124,8 +213,27 @@ describe('splitPages', () => {
       '<div id=k1 class=pagebreak></div><p id=a></p><div id=k2 class=pagebreak></div>' +
         '<div id=k3 class=pagebreak></div><p id=b></p><div id=k4 class=pagebreak></div>',
     );
-    const { breakEls } = splitPages(Array.from(body.children));
+    const { breakEls, breakPages } = splitPages(Array.from(body.children));
     expect(breakEls.map((e) => e.id)).toEqual(['k1', 'k2', 'k3', 'k4']);
+    // 区切りが置かれるページ(区切りはそのページの末尾にある)。k1 は白紙の 1 ページ目、k3 は白紙の 3 ページ目。
+    expect(breakPages).toEqual([0, 1, 2, 3]);
+  });
+});
+
+describe('pageHead', () => {
+  const head = (html: string, i: number) =>
+    pageHead(splitPages(Array.from(bodyOf(html).children)), i)?.id;
+
+  it('パーツのあるページは最初のパーツ、白紙のページはその区切り', () => {
+    const html =
+      '<div id=k0 class=pagebreak></div><p id=a></p><div id=k1 class=pagebreak></div>' +
+      '<div id=k2 class=pagebreak></div><p id=b></p>';
+    expect([0, 1, 2, 3].map((i) => head(html, i))).toEqual(['k0', 'a', 'k2', 'b']);
+  });
+
+  it('要素の無い白紙のページ(左右合わせ)は次のページの先頭、範囲外は undefined', () => {
+    const html = '<p id=a></p><p id=b style="break-before:right"></p>';
+    expect([0, 1, 2, 3].map((i) => head(html, i))).toEqual(['a', 'b', 'b', undefined]);
   });
 });
 
@@ -138,21 +246,24 @@ describe('isPagebreakEl / inlineBreak / isBreakValue', () => {
   it('inlineBreak は style が無い・値が無効・別の端なら false', () => {
     const body = bodyOf(
       '<p></p><p style="break-before:avoid"></p><p style="break-after:page"></p>' +
-        '<p style="color:red;;break-before"></p>',
+        '<p style="color:red;;break-before"></p><p style="page-break-before:always"></p>',
     );
-    const [plain, avoid, after, broken] = Array.from(body.children);
+    const [plain, avoid, after, broken, legacy] = Array.from(body.children);
     expect(inlineBreak(plain, 'before')).toBe(false);
     expect(inlineBreak(avoid, 'before')).toBe(false);
     expect(inlineBreak(after, 'before')).toBe(false);
     expect(inlineBreak(after, 'after')).toBe(true);
     expect(inlineBreak(broken, 'before')).toBe(false);
+    expect(inlineBreak(legacy, 'before')).toBe(false);
   });
 
   it('isBreakValue は改ページの値だけを受ける', () => {
-    for (const v of ['always', 'page', 'left', 'right', 'recto', 'verso']) {
+    for (const v of ['page', 'left', 'right', 'recto', 'verso', 'column', 'region']) {
       expect(isBreakValue(v)).toBe(true);
     }
-    for (const v of ['auto', 'avoid', '', undefined]) expect(isBreakValue(v)).toBe(false);
+    for (const v of ['always', 'auto', 'avoid', 'avoid-page', '', undefined]) {
+      expect(isBreakValue(v)).toBe(false);
+    }
   });
 });
 
@@ -160,8 +271,8 @@ describe('findUncountedBreaks', () => {
   it('根の直下でない div.pagebreak と、入れ子の要素の inline 改ページを返す', () => {
     const body = bodyOf(
       '<section><div id=n1 class=pagebreak></div>' +
-        '<div><p id=n2 style="page-break-after:always"></p></div>' +
-        '<p id=n3 style="break-before:page"></p></section>',
+        '<div><p id=n2 style="break-after:page"></p></div>' +
+        '<p id=n3 style="break-before:page"></p><p style="page-break-before:always"></p></section>',
     );
     expect(findUncountedBreaks(body).map((e) => e.id)).toEqual(['n1', 'n2', 'n3']);
   });
@@ -191,10 +302,35 @@ describe('findUncountedBreaks', () => {
   });
 });
 
+describe('findIgnoredInlineBreaks', () => {
+  it('印刷で効かない inline の改ページ指定(page-break-* と break-*:always)を持つ要素を返す', () => {
+    const body = bodyOf(
+      '<p id=a style="page-break-before:always"></p><p id=b style="page-break-after: Left"></p>' +
+        '<p id=c style="break-after:always"></p><p style="page-break-before:auto"></p>' +
+        '<section><p id=n style="page-break-after:always"></p></section>' +
+        '<div data-redline="del"><p style="page-break-after:always"></p></div>',
+    );
+    expect(findIgnoredInlineBreaks(body).map((e) => e.id)).toEqual(['a', 'b', 'c', 'n']);
+  });
+
+  it('同じ端が break-* で改ページしていれば返さない', () => {
+    const body = bodyOf(
+      '<p style="page-break-before:always; break-before:page"></p>' +
+        '<p style="break-after:page; page-break-after:always"></p><p style="break-before:page"></p>',
+    );
+    expect(findIgnoredInlineBreaks(body)).toEqual([]);
+  });
+});
+
 describe('pagebreakCssDefined', () => {
   it.each([
     ['.pagebreak{break-after:page}', true],
     ['div.pagebreak{page-break-after:always}', true],
+    ['.pagebreak{page-break-after:left}', true],
+    ['.pagebreak{break-after:column}', true],
+    ['.pagebreak{break-before:page}', true],
+    ['.pagebreak{break-after:always}', false],
+    ['.pagebreak{page-break-after:page}', false],
     ['@media print{.pagebreak{page-break-before:always}}', true],
     ['.a, .pagebreak{break-after:page}', true],
     ['.pagebreak { color: red; page-break-after: always !important; }', true],
@@ -251,12 +387,12 @@ describe('pageItems', () => {
     ).toEqual(['sc', 'a']);
   });
 
-  it('<style> だけのページは作らない', () => {
+  it('<style> はパーツにならない(区切りの間にあっても、そのページは白紙のまま)', () => {
     const body = bodyOf(
       '<p id=a></p><div class=pagebreak></div><style>.x{}</style>' +
         '<div class=pagebreak></div><p id=b></p>',
     );
     const pages = splitPages(pageItems(Array.from(body.children))).pages;
-    expect(pages.map((p) => p.map((e) => e.id))).toEqual([['a'], ['b']]);
+    expect(pages.map((p) => p.map((e) => e.id))).toEqual([['a'], [], ['b']]);
   });
 });

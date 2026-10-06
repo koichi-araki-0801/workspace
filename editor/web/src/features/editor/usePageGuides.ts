@@ -10,6 +10,7 @@ import { toAppError } from '@editor/shared';
 import type { Editor } from 'grapesjs';
 import { ref, type ShallowRef } from 'vue';
 import { logError } from '@/lib/appError';
+import { pageHead } from '@/lib/pageBreaks';
 
 /**
  * A4 sheet 上に描く 1 本のページ境界 guide(canvas 相対 / zoom 考慮の座標、
@@ -31,6 +32,8 @@ interface PageGuidesContext {
   pageBlocks: ShallowRef<HTMLElement[][]>;
   /** 数えた区切りの要素(`splitPages` の `breakEls`。先頭・末尾・連続のものも含む)。 */
   breakEls: ShallowRef<HTMLElement[]>;
+  /** 各区切りが置かれるページ(`splitPages` の `breakPages`。`breakEls` と同じ順)。 */
+  breakPages: ShallowRef<number[]>;
   /** guide と同じ scroll/zoom/content の契機で連動再計測するフック(メモ目印)。 */
   afterGuides?: () => void;
 }
@@ -46,11 +49,13 @@ export function usePageGuides(ctx: PageGuidesContext) {
 
   /**
    * 連続スクロールの canvas(`page-break-*` は画面レイアウトに効かない)の上に、ページ境界
-   * guide 線を再計算する。ページ `i`(1 以上)の先頭のパーツの上端に 1 本ずつ引き、番号は `i`
-   * (「ここまで i ページ目」)。前のページの末尾のパーツとの間に区切りの帯が描かれていれば、
-   * 最初の帯の上端に引く(帯の下に線が来ると、帯と線が離れて見えるため)。高さ 0 の帯(テンプレの
-   * CSS で消えているなど)は描かれていないとみなす。位置は scroll/zoom のたびに測り直すが、
-   * ページの集合は content 変更時に `useGrapes.ts` が数え直したものを使う。
+   * guide 線を再計算する。ページ `i`(1 以上)の先頭の要素(パーツか区切り)の上端に 1 本ずつ
+   * 引き、番号は `i`(「ここまで i ページ目」)。前のページにパーツがあり、その末尾のパーツの後ろに
+   * 区切りの帯が描かれていれば、最初の帯の上端に引く(帯の下に線が来ると、帯と線が離れて見える
+   * ため)。白紙のページ(区切りだけのページ)では帯を前後の線で挟む。要素の無い白紙のページ
+   * (左右合わせで挟んだもの)は、次の要素の上端に線を重ねる。高さ 0 の帯(テンプレの CSS で
+   * 消えているなど)は描かれていないとみなす。位置は scroll/zoom のたびに測り直すが、ページの
+   * 集合は content 変更時に `useGrapes.ts` が数え直したものを使う。
    */
   function refreshPageGuides(): void {
     const ed = ctx.editor.value;
@@ -69,17 +74,21 @@ export function usePageGuides(ctx: PageGuidesContext) {
       const bodyPos = pos(body);
       const pages = ctx.pageBlocks.value;
       const breaks = ctx.breakEls.value;
+      const breakPages = ctx.breakPages.value;
+      const split = { pages, breakEls: breaks, breakPages };
       const out: PageGuide[] = [];
       for (let i = 1; i < pages.length; i++) {
-        const first = pages[i][0];
         const prevLast = pages[i - 1].at(-1);
-        if (!first) continue;
-        const band = breaks
-          .filter((b) => (!prevLast || precedes(prevLast, b)) && precedes(b, first))
-          .map(pos)
-          .find((p) => p.height > 0);
+        const band = prevLast
+          ? breaks
+              .filter((b, j) => breakPages[j] === i - 1 && precedes(prevLast, b))
+              .map(pos)
+              .find((p) => p.height > 0)
+          : undefined;
+        // 末尾の改ページは消えるので、ページ i 以降には必ず要素がある。
+        const head = pageHead(split, i) as HTMLElement;
         out.push({
-          top: band ? band.top : pos(first).top,
+          top: band ? band.top : pos(head).top,
           left: bodyPos.left,
           width: bodyPos.width,
           page: i,
