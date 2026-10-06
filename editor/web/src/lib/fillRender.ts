@@ -109,13 +109,16 @@ export function takenBranchIndex(
 }
 
 /** 出力の値のエスケープ。nunjucks の autoescape と同じ 5 文字を置き換える(属性値の中でも安全)。 */
+const ESC_MAP: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
 export function escapeHtmlFull(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  return s.replace(/[&<>"']/g, (c) => ESC_MAP[c]);
 }
 
 // ── 3. 表示用の描画 ──
