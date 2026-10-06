@@ -1,8 +1,8 @@
 // =============================================================================
 // reviewDiffService.ts — 承認画面のパーツ単位 前後プレビュー(diff)の組み立て
 // =============================================================================
-// 申請(`ReviewRequest`)を、現行版(baseline)と同一描画経路で diff し、パーツ(= `.page`
-// 直下 top-level block)ごとの着色済み前後 HTML を「行」として返す。diff 計算は版比較
+// 申請(`ReviewRequest`)を、現行版(baseline)と同一描画経路で diff し、パーツ(= 本文直下の
+// top-level block。改ページの区切りは除く)ごとの着色済み前後 HTML を「行」として返す。diff 計算は版比較
 // (`CompareView`)と完全共有(`htmlWorker.buildHtmlDiff` + `htmlBlockDiff` の `DiffBlock`)。
 // 現行版・申請版とも `compareService` の素の sample 描画に揃え、見せかけ差分を避ける。
 import {
@@ -81,7 +81,7 @@ interface ReviewDiffData {
   /**
    * diff 計算(`buildHtmlDiff`)が数えた before/after 各面の期待ページ数
    * (`HtmlDiff.beforePageCount`/`afterPageCount`)。見た目比較(`buildCompareDocs`)が
-   * 文書内の実際の `.page` 数と突き合わせ、不一致(CSS の page-break 欠落等でページ分割が
+   * 文書から数えたページ数と突き合わせ、不一致(CSS の page-break 欠落等でページ分割が
    * 潰れた場合)なら誤ったページへのマーカー誘導を避けるため無印へ degrade する。
    */
   beforePageCount: number;

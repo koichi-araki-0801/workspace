@@ -22,7 +22,7 @@ const props = defineProps<{
   changedPageIndexes: number[];
   /**
    * diff が数えた before/after 各面の期待ページ数(`HtmlDiff.beforePageCount`/`afterPageCount`)。
-   * `buildCompareDocs` が文書内の実際の `.page` 数と突き合わせ、不一致なら誤マーク防止のため
+   * `buildCompareDocs` が文書から数えたページ数と突き合わせ、不一致なら誤マーク防止のため
    * その面を無印へ degrade する(未取得時は undefined = 検査しない)。
    */
   beforePageCount?: number;
@@ -105,7 +105,7 @@ const pendingPageIndex = ref<number | null>(null);
 
 /**
  * 指定ページ(0 始まり)へ両面を送る。承認タブのコメント一覧が「行クリックで該当ページへ」
- * に使う。アンカーはページ単位(`buildCompareDocs` が `.page` に付ける)なので、パーツ単位の
+ * に使う。アンカーはページ単位(`buildCompareDocs` がページの先頭のパーツに付ける)なので、パーツ単位の
  * 精度は持たない — ページが見えれば承認者はパーツを目で追える。コメントは変更の有無に
  * 関わらず全パーツへ付けられるため、変更ページのみの `anchors`(「次の変更箇所へ」用、
  * `anchorIndex` はその巡回カーソル)ではなく全ページの `pageAnchors` を引く。ここでの移動は

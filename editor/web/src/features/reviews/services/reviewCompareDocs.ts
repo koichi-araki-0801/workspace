@@ -5,17 +5,18 @@
 // 本モジュールは compare サービスが返す本文 HTML + CSS を PreviewPanel が受け取れる
 // 完全文書へ包み、変更ページへマーカーとアンカーを付ける。
 //
-// - マーカーはページ単位。変更のあったページ全体（`.page` 要素）を囲む。複数ページの
-//   テンプレでは複数の `.page` が変更ページ分だけマーク対象になる。
+// - マーカーは変更のあったページの各パーツ(body 直下の要素)に付ける。ページを包む要素は
+//   作らず、区切り(`div.pagebreak`)には付けない。ページの分け方は `splitPages` が決める。
 // - マーカーは既存の差分装飾と同じ「CSPRNG レイヤ名のカスケードレイヤ + !important」で
 //   守る(申請者 CSS は同レイヤ名を当てられない限り上書きできない)。`display` は
 //   上書きしない(表セルのレイアウトを壊す)。
 // - ここで作る文書は**表示専用**で、申請へ保存されるバイト列(html/css/filledHtml)には
 //   一切触れない。DOM 経由の再直列化はこの表示境界だけで行う。
-// - 変更ページの粒度は `buildHtmlDiff` の `diff.pages` の index（0 始まり）。実テンプレは
-//   `.page` 1 個 = 1 ページの構成のため、index と `.page` 出現順は直接対応する。
+// - 変更ページの粒度は `buildHtmlDiff` の `diff.pages` の index（0 始まり）。diff 側も同じ
+//   `splitPages` で数えるため、index と本文のページ順は対応する。
 
 import { rebaseCssForDoc } from '@editor/shared';
+import { splitPages } from '@/lib/pageBreaks';
 
 export interface CompareDocsInput {
   beforeHtml: string;
@@ -49,7 +50,10 @@ export interface CompareDocs {
   pageAnchors: string[];
 }
 
-/** 文書内の `.page` 要素を出現順に数え、変更ページへ印を、全ページへアンカー id を付ける。 */
+/**
+ * body 直下を `splitPages` でページに分け、変更ページの各パーツへ印を、全ページの先頭の
+ * パーツへアンカー id を付ける。
+ */
 function annotatePages(
   html: string,
   changedPageIndexes: ReadonlySet<number>,
@@ -58,24 +62,24 @@ function annotatePages(
   const anchorByIndex = new Map<number, string>();
   if (!html.trim()) return { html, anchorByIndex, pageIds: [] };
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const pages = Array.from(doc.querySelectorAll('.page'));
-  // diff 側が数えたページ数(`beforePageCount`/`afterPageCount`)と、この文書が実際に持つ
-  // `.page` 要素数が食い違う場合(CSS の page-break 欠落等でページ分割が潰れた場合)、
-  // index の対応が崩れ「無関係なページ」を変更ページとして誤ってマークしてしまう。
-  // 既存の「.page が 1 つも無い→無印」degrade と同じ考えで、この面のマーク・アンカーを
-  // 安全側(空)へ倒す。
+  const { pages } = splitPages(Array.from(doc.body.children));
+  // diff 側が数えたページ数(`beforePageCount`/`afterPageCount`)と、この文書から数えたページ数が
+  // 食い違う場合(CSS の page-break 欠落等)、index の対応が崩れ「無関係なページ」を変更ページ
+  // として誤ってマークしてしまう。この面のマーク・アンカーは安全側(空)へ倒す。
   if (expectedPageCount !== undefined && pages.length !== expectedPageCount) {
     return { html, anchorByIndex, pageIds: [] };
   }
-  const pageIds = pages.map((el, i) => {
+  const pageIds = pages.map((parts, i) => {
+    const head = parts[0];
+    if (!head) return '';
     // 既存 id は差分キーの一部でありうるため上書きしない(未設定のときだけ振る)。全ページに
     // 付ける(コメント一覧のページジャンプは変更の有無を問わない)。
-    if (!el.id) el.id = `review-anchor-${i + 1}`;
+    if (!head.id) head.id = `review-anchor-${i + 1}`;
     if (changedPageIndexes.has(i)) {
-      el.setAttribute('data-review-marker', '');
-      anchorByIndex.set(i, el.id);
+      for (const el of parts) el.setAttribute('data-review-marker', '');
+      anchorByIndex.set(i, head.id);
     }
-    return el.id;
+    return head.id;
   });
   return { html: doc.body.innerHTML, anchorByIndex, pageIds };
 }
@@ -124,7 +128,7 @@ export function buildCompareDocs(input: CompareDocsInput): CompareDocs {
   const anchors = indexes.map(
     (i) => after.anchorByIndex.get(i) ?? (before.anchorByIndex.get(i) as string),
   );
-  // .page が 1 つも無い文書はマーカー無しへ degrade（マークもジャンプも出ない）。
+  // 変更ページが 1 つも解決できない文書はマーカー無しへ degrade（マークもジャンプも出ない）。
   const hasPages = after.anchorByIndex.size > 0 || before.anchorByIndex.size > 0;
   const markerEnabled = input.marker && hasPages;
   // 全ページのジャンプ先は各 index で after 優先、無ければ before から拾う。
