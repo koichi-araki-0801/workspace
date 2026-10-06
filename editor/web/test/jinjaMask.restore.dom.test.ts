@@ -182,19 +182,21 @@ describe('toTemplate — 崩れた印は例外', () => {
   });
 });
 
-describe('toTemplate — 旧形式の下書き', () => {
-  it('data-jinja-open / close / loop-clone は従来どおり戻す', () => {
-    const html = `<table><tbody><tr data-jinja-open="${b64encode('{% for r in rows %}')}" data-jinja-close="${b64encode('{% endfor %}')}"><td>${chip('{{ r }}', '1')}</td></tr><tr data-jinja-loop-clone=""><td>2</td></tr></tbody></table>`;
-    expect(back(html)).toBe(
-      '<table><tbody>{% for r in rows %}<tr><td>{{ r }}</td></tr>{% endfor %}</tbody></table>',
-    );
-  });
-  it('印を含まない data-jinja-block は戻す', () => {
-    const blk = '{% if a %}<p>A</p>{% else %}<p>B</p>{% endif %}';
-    expect(back(`<p data-jinja-block="${b64encode(blk)}">A</p>`)).toBe(blk);
-  });
-  it('印が焼き付いた data-jinja-block は例外', () => {
-    const blk = `{% if a %}<span data-opaque="${b64encode('<script>f()</script>')}">JS</span>{% endif %}`;
-    expect(() => back(`<p data-jinja-block="${b64encode(blk)}">x</p>`)).toThrow(/toTemplate/);
+describe('toTemplate — 旧形式は読まない', () => {
+  it.each([
+    [
+      'data-jinja-open',
+      `<table><tbody><tr data-jinja-open="${b64encode('{% for r in rows %}')}" data-jinja-close="${b64encode('{% endfor %}')}"><td>1</td></tr></tbody></table>`,
+    ],
+    [
+      'data-jinja-loop-clone',
+      '<table><tbody><tr data-jinja-loop-clone=""><td>2</td></tr></tbody></table>',
+    ],
+    [
+      'data-jinja-block',
+      `<p data-jinja-block="${b64encode('{% if a %}<p>A</p>{% endif %}')}">A</p>`,
+    ],
+  ])('%s は legacy-draft で例外', (_n, html) => {
+    expect(() => back(html)).toThrow(/legacy-draft/);
   });
 });

@@ -19,11 +19,7 @@ import {
   b64decodeUtf8,
   b64encodeUtf8,
   DATA_JINJA,
-  DATA_JINJA_BLOCK,
-  DATA_JINJA_CLOSE,
-  DATA_JINJA_LOOP_CLONE,
   DATA_JINJA_LOOP_ROW,
-  DATA_JINJA_OPEN,
   DATA_OPAQUE,
   DATA_OPAQUE_KIND,
   parseRtCommentData,
@@ -43,6 +39,14 @@ export const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
 const PH_START = String.fromCharCode(0xe000);
 const PH_END = String.fromCharCode(0xe001);
 const PH_RE = new RegExp(`${PH_START}([A-Za-z0-9+/=]*)${PH_END}`, 'g');
+
+/**
+ * 要素の属性で往復の印を持つ旧形式。読み手は持たず、見つけたら `legacy-draft` の違反にする。
+ * lib は features を import しないので属性名はここに書き、`legacyDraft.ts` の
+ * `LEGACY_DRAFT_ATTRS` との一致はテストが突き合わせる。
+ */
+export const LEGACY_ATTR_SELECTOR =
+  '[data-jinja-open],[data-jinja-close],[data-jinja-block],[data-jinja-loop-clone]';
 
 export function extractJinjaTokens(s: string): string[] {
   return s.match(TOKEN_RE) ?? [];
@@ -72,7 +76,7 @@ export interface ToTemplateOptions {
   /**
    * true なら復元前の(= Jinja を placeholder に退避済みの)HTML を整形する。確定版テンプレを
    * git に読める形で残すための pretty-print。整形は placeholder マスク後・decode 前に行うので
-   * Jinja 構文は壊れない(下記 step 7 参照)。
+   * Jinja 構文は壊れない(下記 step 6 参照)。
    */
   pretty?: boolean;
 }
@@ -309,19 +313,16 @@ export function toTemplate(
   // チャネル別形状検査の違反。1 件でもあれば復元せず throw する(黙って残す/削るをしない)。
   const violations: string[] = [];
 
+  // 0. 旧形式の印は読まない。採用した枝しか持たない形から元のブロックは戻せない。
+  if (doc.querySelector(LEGACY_ATTR_SELECTOR) !== null) violations.push('legacy-draft');
+
   // 1. 範囲の印を集めて対応づけ、中身の形を検査する。
   const { pairs, singles } = pairRtComments(collectRtComments(doc, violations), violations);
 
   // 2. for の 2 回目以降の繰り返し(x の印から閉じの手前まで)は表示専用なので捨てる。
   for (const p of pairs) if (p.repeat !== null) removeSiblings(p.repeat, p.close);
 
-  // 3. 旧形式の表示専用 clone 行を捨てる(旧形式の下書きを読むため。`toFilled` が新形式を
-  //    出すようになったら外す)。
-  doc.querySelectorAll(`[${DATA_JINJA_LOOP_CLONE}]`).forEach((el) => {
-    el.remove();
-  });
-
-  // 4a. chip span -> placeholder テキストへ復元する。復号値は単一 Jinja トークンに限る。
+  // 3a. chip span -> placeholder テキストへ復元する。復号値は単一 Jinja トークンに限る。
   doc.querySelectorAll(`[${DATA_JINJA}]`).forEach((el) => {
     const enc = el.getAttribute(DATA_JINJA);
     if (enc === null) return;
@@ -333,7 +334,7 @@ export function toTemplate(
     el.replaceWith(ph(enc));
   });
 
-  // 4b. 伏せた内容(script / math / 固めた要素 / 生テキスト要素 / 本文全体)を原文へ戻す。
+  // 3b. 伏せた内容(script / math / 固めた要素 / 生テキスト要素 / 本文全体)を原文へ戻す。
   //     ⚠ script の *中身* はここでは検査しない — テンプレ JS は正当なコンテンツで、改変検出は
   //     確定保存側 server `templateScripts` の不変性ゲートが担う。ここが担うのは「種類ごとの
   //     生成形の外の HTML を opaque チャネルへ混ぜない」ことだけ。
@@ -348,20 +349,7 @@ export function toTemplate(
     el.replaceWith(ph(enc));
   });
 
-  // 4c. 旧形式の collapse 済み if ブロック。単一の if が全体を覆い、編集用の印を含まないものに
-  //     限る(旧形式は伏せた後の文字列を退避しており、チップが焼き付いていることがある)。
-  doc.querySelectorAll(`[${DATA_JINJA_BLOCK}]`).forEach((el) => {
-    const enc = el.getAttribute(DATA_JINJA_BLOCK);
-    if (enc === null) return;
-    const dec = tryB64decode(enc);
-    if (dec === null || soleBlock(dec)?.type !== 'if' || findEditingMarkers(dec).length > 0) {
-      violations.push(DATA_JINJA_BLOCK);
-      return;
-    }
-    el.replaceWith(ph(enc));
-  });
-
-  // 5. 範囲の印と t の印を placeholder へ置き換える。空の後半は印を外すだけ。
+  // 4. 範囲の印と t の印を placeholder へ置き換える。空の後半は印を外すだけ。
   for (const p of pairs) {
     p.open.replaceWith(ph(b64encodeUtf8(p.head)));
     if (p.tail === '') p.close.remove();
@@ -369,35 +357,18 @@ export function toTemplate(
   }
   for (const s of singles) s.node.replaceWith(ph(b64encodeUtf8(s.payload)));
 
-  // 6. 表示専用のテンプレート行の属性を外し、旧形式の absorb した文を要素の前後へ戻す。
-  //    open/close は単一 stmt トークンに限る(HTML は含められない)。
+  // 5. 表示専用のテンプレート行の属性を外す。
   doc.querySelectorAll(`[${DATA_JINJA_LOOP_ROW}]`).forEach((el) => {
     el.removeAttribute(DATA_JINJA_LOOP_ROW);
   });
-  doc.querySelectorAll(`[${DATA_JINJA_OPEN}]`).forEach((el) => {
-    const open = el.getAttribute(DATA_JINJA_OPEN);
-    const close = el.getAttribute(DATA_JINJA_CLOSE);
-    el.removeAttribute(DATA_JINJA_OPEN);
-    el.removeAttribute(DATA_JINJA_CLOSE);
-    const openDec = open === null ? null : tryB64decode(open);
-    const closeDec = close === null ? null : tryB64decode(close);
-    const openOk = open === null || (openDec !== null && isSingleJinjaToken(openDec, 'stmt'));
-    const closeOk = close === null || (closeDec !== null && isSingleJinjaToken(closeDec, 'stmt'));
-    if (!openOk || !closeOk) {
-      violations.push(DATA_JINJA_OPEN);
-      return;
-    }
-    if (open !== null) el.parentNode?.insertBefore(ph(open), el);
-    if (close !== null) el.parentNode?.insertBefore(ph(close), el.nextSibling);
-  });
 
-  // 7. (任意)整形する。この時点で Jinja は全て placeholder(private-use 文字のテキスト
+  // 6. (任意)整形する。この時点で Jinja は全て placeholder(private-use 文字のテキスト
   //    ノード/属性)に退避済みで `serialized` は valid HTML。フォーマッタは Jinja を見ない
   //    ため `{% for %}` 等の構文を壊さず、placeholder の前後にインデントが入るだけ。
   const serializedRaw = opts.asFragment ? doc.body.innerHTML : doc.documentElement.outerHTML;
   const serialized = opts.pretty ? formatHtml(serializedRaw) : serializedRaw;
 
-  // 8. placeholder を生文字列置換で decode する(HTML エスケープなし)。復号は `ph` が発行した
+  // 7. placeholder を生文字列置換で decode する(HTML エスケープなし)。復号は `ph` が発行した
   //    enc に限り、未知 placeholder(偽装)は復号せず違反にする。
   let out = serialized.replace(PH_RE, (_m, enc: string) => {
     if (!issued.has(enc)) {
@@ -407,7 +378,7 @@ export function toTemplate(
     return b64decode(enc);
   });
 
-  // 9. 事後検査。窓ごとの形が正しくても、組み合わせた結果のブロックが閉じない形や、外しきれ
+  // 8. 事後検査。窓ごとの形が正しくても、組み合わせた結果のブロックが閉じない形や、外しきれ
   //    ない印が残る形は、そのまま申請へ進めると確定テンプレートを壊す。
   if (violations.length === 0) {
     if (!parseJinja(out).ok) violations.push('structure');

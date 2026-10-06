@@ -6,6 +6,7 @@
 // jsdom 既定経路と linkedom 経路の出力一致で担保する。
 import { describe, expect, it } from 'vitest';
 import { buildHtmlDiff, type HtmlDiff } from '@/features/compare/htmlBlockDiff';
+import { rtComment } from '@/lib/jinjaAttrs';
 import { toTemplate } from '@/lib/jinjaMask';
 import { htmlWorkerImpl } from '@/workers/htmlWorkerImpl';
 
@@ -54,22 +55,22 @@ describe('htmlWorkerImpl linkedom parity', () => {
   });
 
   it('toTemplate: jsdom と linkedom で復元結果が一致', () => {
-    // chip span(data-jinja)・loop clone・opaque を含む編集用 HTML。
+    // 範囲の印(o / x / c)・テンプレートの行・2 回目以降の繰り返し・チップを含む編集用 HTML。
+    const chip = (src: string, label: string) =>
+      `<span data-gjs-type="jinja-var" data-jinja="${btoa(src)}">${label}</span>`;
     const editable =
       '<table><tbody>' +
-      '<tr data-jinja-open="' +
-      btoa('{% for r in rows %}') +
-      '" data-jinja-close="' +
-      btoa('{% endfor %}') +
-      '"><td><span data-gjs-type="jinja-var" data-jinja="' +
-      btoa('{{ r.name }}') +
-      '">名前</span></td></tr>' +
-      '<tr data-jinja-loop-clone><td><span data-gjs-type="jinja-var" data-jinja="' +
-      btoa('{{ r.name }}') +
-      '">名前2</span></td></tr>' +
+      rtComment({ kind: 'o', id: 1, payload: '{% for r in rows %}' }) +
+      `<tr data-jinja-loop-row=""><td>${chip('{{ r.name }}', '名前')}</td></tr>` +
+      rtComment({ kind: 'x', id: 1 }) +
+      `<tr><td>${chip('{{ r.name }}', '名前2')}</td></tr>` +
+      rtComment({ kind: 'c', id: 1, payload: '{% endfor %}' }) +
       '</tbody></table>';
     const viaJsdom = toTemplate(editable, { asFragment: true });
     const viaLinkedom = htmlWorkerImpl.toTemplate(editable, { asFragment: true });
+    expect(viaJsdom).toBe(
+      '<table><tbody>{% for r in rows %}<tr><td>{{ r.name }}</td></tr>{% endfor %}</tbody></table>',
+    );
     expect(viaLinkedom).toEqual(viaJsdom);
   });
 

@@ -9,17 +9,9 @@
 // shared の `EDITING_MARKER_ATTRS`(`editingMarkers.ts`)は、ここで書く属性名を検出する側の
 // 一覧で、本ファイルの属性名と対になる。属性を足したら両方へ足す(テストが突き合わせる)。
 
-/** inline chip の厳密ソース(base64)。書: `fillInline` → 復: `toTemplate` step1 */
+/** inline chip の厳密ソース(base64)。書: `tokenChip` → 復: `toTemplate` step 3a */
 export const DATA_JINJA = 'data-jinja';
-/** absorb/展開したブロック開始文(base64)。書: `expandLoops` → 復: `toTemplate` step2 */
-export const DATA_JINJA_OPEN = 'data-jinja-open';
-/** absorb/展開したブロック終了文(base64)。書: `expandLoops` → 復: `toTemplate` step2 */
-export const DATA_JINJA_CLOSE = 'data-jinja-close';
-/** collapse した if ブロック全体(base64)。書: `collapseIfs` → 復: `toTemplate` step1c */
-export const DATA_JINJA_BLOCK = 'data-jinja-block';
-/** ループ展開の表示専用 clone 行。書: `expandLoops` → 破棄: `toTemplate` step0 */
-export const DATA_JINJA_LOOP_CLONE = 'data-jinja-loop-clone';
-/** opaque mask した verbatim ソース(base64)。書: `opaqueChip` → 復: `toTemplate` step1b */
+/** opaque mask した verbatim ソース(base64)。書: `opaqueChip` 等 → 復: `toTemplate` step 3b */
 export const DATA_OPAQUE = 'data-opaque';
 /** opaque chip の種別(script/math)。書: `opaqueChip`。復元には使わず live-render 層の dispatch 用 */
 export const DATA_OPAQUE_KIND = 'data-opaque-kind';

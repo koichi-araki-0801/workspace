@@ -61,15 +61,6 @@ describe('toTemplate pretty mode', () => {
   });
 });
 
-describe('jinja data attribute names stay stable', () => {
-  // 属性名リテラルは意図的に定数(jinjaAttrs.ts)を import せず固定する: 定数の値を
-  // 誤変更したとき、このテストと fixture round-trip が「破壊」として検知するため。
-  it('canvas CSS still targets [data-jinja-open]', async () => {
-    const { jinjaChipCanvasCss } = await import('../src/features/editor/jinjaComponents');
-    expect(jinjaChipCanvasCss).toContain('[data-jinja-open]');
-  });
-});
-
 describe('toTemplate は復元マスクの中身を検査して復号を限定する', () => {
   // toTemplate の最終段は placeholder を base64 復号して HTML へ生文字列で差し込む
   // (「サニタイズが最後に喋る」唯一の例外)。canvas 入口は data-* 属性値を無検査で通すため、
@@ -102,17 +93,13 @@ describe('toTemplate は復元マスクの中身を検査して復号を限定�
     expect(() => toTemplate(editable)).toThrow();
   });
 
-  it('data-jinja-block に if ブロックでない base64 を仕込むと throw する', () => {
-    const enc = b64encode('<div onclick=alert(1)>x</div>');
-    const editable = `<div data-jinja-block="${enc}">x</div>`;
-    expect(() => toTemplate(editable)).toThrow();
-  });
-
-  it('data-jinja-open に stmt トークンでない base64 を仕込むと throw する', () => {
-    const openEnc = b64encode('<img src=x onerror=alert(1)>');
+  it('旧形式の属性(data-jinja-block / data-jinja-open)は中身を復号せず legacy-draft で throw する', () => {
+    const attack = b64encode('<img src=x onerror=alert(1)>');
     const closeEnc = b64encode('{% endfor %}');
-    const editable = `<ul><li data-jinja-open="${openEnc}" data-jinja-close="${closeEnc}">x</li></ul>`;
-    expect(() => toTemplate(editable)).toThrow();
+    expect(() => toTemplate(`<div data-jinja-block="${attack}">x</div>`)).toThrow(/legacy-draft/);
+    expect(() =>
+      toTemplate(`<ul><li data-jinja-open="${attack}" data-jinja-close="${closeEnc}">x</li></ul>`),
+    ).toThrow(/legacy-draft/);
   });
 
   it('テキストへ私用領域文字で偽 placeholder を直書きすると復号されず throw する', () => {

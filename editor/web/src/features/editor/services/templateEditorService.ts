@@ -22,6 +22,7 @@ import { type DraftOwner, draftOwner } from '@/lib/draftOwner';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { getBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
+import { isLegacyDraft } from './legacyDraft';
 
 /** editor が template を編集用に開くために必要な一式。 */
 interface EditorLoad {
@@ -39,6 +40,8 @@ interface EditorLoad {
   hasDraft: boolean;
   /** 別セッションの下書きを破棄して確定版から開いたか。Undo スタックの後始末に使う。 */
   discardedStaleDraft: boolean;
+  /** 読み込めない旧形式の下書きを破棄して確定版から開いたか。Undo の後始末と利用者への通知に使う。 */
+  discardedLegacyDraft: boolean;
 }
 
 interface TemplateEditorService {
@@ -79,6 +82,15 @@ export function createTemplateEditorService(
         if (isOk(dropped)) owner.release(id);
         draft = null;
         discardedStaleDraft = true;
+      }
+      // 旧形式の下書きは読み手が無く、そのまま開くと申請時に復元できない。別セッションの下書きと
+      // 同じく破棄して確定版から開く(破棄の失敗も同じく下書きを採用しない形で吸収する)。
+      let discardedLegacyDraft = false;
+      if (draft && isLegacyDraft(draft.html, tpl.filled ? 'filled' : 'template')) {
+        const dropped = await templates.discardDraft(id);
+        if (isOk(dropped)) owner.release(id);
+        draft = null;
+        discardedLegacyDraft = true;
       }
 
       // sample data は値の差込を駆動する。ここでの失敗が load をブロックしてはならない
@@ -132,6 +144,7 @@ export function createTemplateEditorService(
         fundName,
         hasDraft: !!draft,
         discardedStaleDraft,
+        discardedLegacyDraft,
       });
     },
 

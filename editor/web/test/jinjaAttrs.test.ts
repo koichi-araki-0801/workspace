@@ -31,16 +31,7 @@ describe('範囲の印の書式', () => {
   });
 
   it('web の属性名はすべて shared の検出対象に入っている', () => {
-    for (const name of [
-      A.DATA_JINJA,
-      A.DATA_JINJA_OPEN,
-      A.DATA_JINJA_CLOSE,
-      A.DATA_JINJA_BLOCK,
-      A.DATA_JINJA_LOOP_CLONE,
-      A.DATA_JINJA_LOOP_ROW,
-      A.DATA_OPAQUE,
-      A.DATA_OPAQUE_KIND,
-    ])
+    for (const name of [A.DATA_JINJA, A.DATA_JINJA_LOOP_ROW, A.DATA_OPAQUE, A.DATA_OPAQUE_KIND])
       expect(EDITING_MARKER_ATTRS).toContain(name);
   });
 });

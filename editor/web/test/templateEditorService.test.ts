@@ -193,6 +193,90 @@ describe('TemplateEditorService.loadForEdit — 下書きの所属セッショ�
   });
 });
 
+describe('TemplateEditorService.loadForEdit — 旧形式の下書き', () => {
+  const draftOf = (html: string): TemplateDraft => ({
+    templateId: 't1',
+    html,
+    css: '.from-draft{}',
+    savedAt: '',
+    savedBy: '',
+  });
+  const filledTpl = (filled: string, draft: TemplateDraft) => {
+    const templates = {
+      getTemplate: vi.fn(async () => ok({ ...tpl, filled })),
+      getDraft: vi.fn(async () => ok(draft)),
+      discardDraft: vi.fn(async () => ok(undefined)),
+    } as unknown as TemplateRepository & { discardDraft: ReturnType<typeof vi.fn> };
+    const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
+    return { templates, parts };
+  };
+
+  it('作成経路: 旧形式の属性を持つ下書きは破棄して確定版から開く', async () => {
+    const draft = draftOf('<p data-jinja-block="eyUgaWYgYSAlfXslIGVuZGlmICV9">x</p>');
+    const { templates, parts } = repos({ draft });
+    const owner = ownerOf(true);
+    const res = await createTemplateEditorService(templates, parts, owner).loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.editableBody).toBe(getBodyInner(toFilled(tpl.html, {})));
+      expect(res.value.css).toBe('.from-file{}');
+      expect(res.value.hasDraft).toBe(false);
+      expect(res.value.discardedLegacyDraft).toBe(true);
+      expect(res.value.discardedStaleDraft).toBe(false);
+    }
+    expect(templates.discardDraft).toHaveBeenCalledTimes(1);
+    expect(owner.release).toHaveBeenCalledWith('t1');
+  });
+
+  it('編集経路: チップを持つ下書きは破棄して確定版から開く', async () => {
+    const filled = '<html><body><p>確定版の本文</p></body></html>';
+    const { templates, parts } = filledTpl(
+      filled,
+      draftOf('<p><span data-jinja="e3sgeCB9fQ==">1</span></p>'),
+    );
+    const res = await createTemplateEditorService(templates, parts, ownerOf(true)).loadForEdit(
+      't1',
+    );
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.editableBody).toBe(res.value.confirmedBody);
+      expect(res.value.editableBody).toBe('<p>確定版の本文</p>');
+      expect(res.value.hasDraft).toBe(false);
+      expect(res.value.discardedLegacyDraft).toBe(true);
+    }
+    expect(templates.discardDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('破棄に失敗しても下書きを採用せず確定版から開く', async () => {
+    const { templates, parts } = repos({ draft: draftOf('<tr data-jinja-loop-clone=""></tr>') });
+    templates.discardDraft.mockResolvedValueOnce(err(network('down')));
+    const owner = ownerOf(true);
+    const res = await createTemplateEditorService(templates, parts, owner).loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.editableBody).not.toContain('data-jinja-loop-clone');
+      expect(res.value.hasDraft).toBe(false);
+      expect(res.value.discardedLegacyDraft).toBe(true);
+    }
+    expect(owner.release).not.toHaveBeenCalled();
+  });
+
+  it('作成経路: 新形式の印だけの下書きは破棄しない', async () => {
+    const html = '<p><!--jinja-rt:t:eyMgbSAjfQ==-->x<span data-jinja="e3sgeCB9fQ==">1</span></p>';
+    const { templates, parts } = repos({ draft: draftOf(html) });
+    const res = await createTemplateEditorService(templates, parts, ownerOf(true)).loadForEdit(
+      't1',
+    );
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.editableBody).toBe(html);
+      expect(res.value.hasDraft).toBe(true);
+      expect(res.value.discardedLegacyDraft).toBe(false);
+    }
+    expect(templates.discardDraft).not.toHaveBeenCalled();
+  });
+});
+
 describe('TemplateEditorService.loadForEdit — 赤入れの基準となる確定版本文', () => {
   // `confirmedBody` は編集キャンバスの赤入れ表示の基準。REST の `getTemplate` は `filled` を
   // 常に空で返すため、静的 filled の有無・draft の有無に関わらず解決できることを固定する。

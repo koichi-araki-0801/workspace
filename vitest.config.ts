@@ -137,6 +137,7 @@ export default defineConfig({
         'editor/web/src/features/templates/components/searchGuard.ts',
         'editor/web/src/features/templates/services/templateCreationService.ts',
         'editor/web/src/features/editor/services/templateEditorService.ts',
+        'editor/web/src/features/editor/services/legacyDraft.ts',
         'editor/web/src/features/preview/services/templatePreviewService.ts',
         'editor/web/src/lib/pdfDocument.ts',
         'editor/web/src/features/merge/services/mergePdfService.ts',

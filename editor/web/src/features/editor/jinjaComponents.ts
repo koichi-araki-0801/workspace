@@ -6,8 +6,6 @@
 
 import type { Editor } from 'grapesjs';
 
-import { DATA_JINJA_OPEN } from '@/lib/jinjaAttrs';
-
 /**
  * canvas で通用する `data-gjs-type` の全集合。**`addType` する型と、canvas 入口の
  * 刈り取り(`pruneCanvasActiveContent`)が通す型を同一の配列由来にする**ための正典で、
@@ -39,7 +37,7 @@ const JINJA_TYPE_DEFAULTS: Record<
   'jinja-var': { name: '差し込み（値）', draggable: true, removable: true },
   'jinja-stmt': { name: '条件・繰り返し', draggable: false, removable: false, copyable: false },
   'jinja-comment': { name: 'メモ', draggable: true, removable: true },
-  // mask した opaque content(`fillJinja` の `maskOpaque` が生成)。他の jinja chip と
+  // mask した opaque content(`fillJinja` の `opaqueChip` が生成)。他の jinja chip と
   // 同様 locked にして GrapesJS に逐語保存させる。source は data-opaque にあり、保存時に
   // `jinjaMask` の `toTemplate` が復元する。
   // jinja-script: <script>。jinja-math: MathJax(TeX)と MathML の <math>。
@@ -112,5 +110,4 @@ export const jinjaChipCanvasCss = `
 .jinja-chip.jinja-comment { background: #e5e7eb; color: #6b7280; border: 1px dashed #9ca3af; }
 .jinja-chip.jinja-script { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
 .jinja-chip.jinja-math { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
-[${DATA_JINJA_OPEN}] { outline: 1px dashed #f59e0b; outline-offset: 2px; }
 `;

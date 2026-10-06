@@ -32,6 +32,7 @@ import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutG
 import { openCanvas } from './openCanvas';
 import { canvasRawKey, pageEls, partEls, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
+import { LEGACY_DRAFT_MESSAGE } from './services/legacyDraft';
 import { useTemplateEditorService } from './services/templateEditorService';
 import { useAutosave } from './useAutosave';
 import { useComments } from './useComments';
@@ -446,12 +447,14 @@ export function useTemplateEditor(
     // 前回セッションの未確定 draft が残っていれば、最初から dirty 扱いにする。
     dirty.value = res.value.hasDraft;
     draftMayExist = res.value.hasDraft;
-    // 別タブの下書きを破棄して確定版から開いたときは、ミラーから復元した Undo も捨てる。
-    // 残すと Undo 1 回で破棄したはずの本文が戻り、autosave で下書きとして書き戻る。
-    if (res.value.discardedStaleDraft) {
+    // 別タブの下書きや旧形式の下書きを破棄して確定版から開いたときは、ミラーから復元した
+    // Undo も捨てる。残すと Undo 1 回で破棄したはずの本文が戻り、autosave で下書きとして書き戻る。
+    if (res.value.discardedStaleDraft || res.value.discardedLegacyDraft) {
       sessionStore.reset(id);
       syncUndoFlags(); // 空にした配列へボタンの活性を追随させる
     }
+    // 旧形式の下書きの破棄は利用者の編集を捨てるので、黙らずに知らせる。
+    if (res.value.discardedLegacyDraft) toast(LEGACY_DRAFT_MESSAGE);
     for (const p of res.value.parts) partsById.set(p.id, p);
 
     const canvas = canvasEl.value;
