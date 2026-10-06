@@ -140,11 +140,15 @@ function metaRefreshUrl(attrs: ReadonlyArray<{ name: string; value: string }>): 
   if (decodeHtmlEntities(httpEquiv).trim().toLowerCase() !== 'refresh') return undefined;
   const m = /^\s*[0-9.]*\s*[;,]?\s*(?:url\s*=\s*)?([\s\S]*)$/i.exec(decodeHtmlEntities(content));
   const raw = (m?.[1] ?? '').trim();
-  // 値は引用符で囲まれることがある(`content="0;url='https://evil/'"`)。
-  const unquoted =
-    (raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))
-      ? raw.slice(1, -1)
-      : raw;
+  // 仕様の「引用符を飛ばす」手順: 先頭が引用符なら 1 文字飛ばし、同じ引用符が後にあればそこで切る
+  // (無ければ末尾まで)。閉じ引用符の後ろの余りや閉じ忘れでも、ブラウザは URL として辿る。
+  let unquoted = raw;
+  const quote = raw[0];
+  if (quote === '"' || quote === "'") {
+    const rest = raw.slice(1);
+    const close = rest.indexOf(quote);
+    unquoted = close === -1 ? rest : rest.slice(0, close);
+  }
   return unquoted === '' ? undefined : unquoted;
 }
 
@@ -173,11 +177,10 @@ export function findExternalRefsInTag(
   if (tagName.toLowerCase() === 'meta') {
     const refresh = metaRefreshUrl(attrs);
     // `refresh` は復号済みなので、`&` を `&amp;` へ戻してから正規化し、復号を二重にしない。
-    if (
-      refresh !== undefined &&
-      !isSelfContainedUrl(normalizeHtmlUrlValue(refresh.replaceAll('&', '&amp;')))
-    ) {
-      found.push(`<meta http-equiv="refresh" content="…${refresh}">`);
+    const refreshUrl =
+      refresh === undefined ? undefined : normalizeHtmlUrlValue(refresh.replaceAll('&', '&amp;'));
+    if (refreshUrl !== undefined && !isSelfContainedUrl(refreshUrl)) {
+      found.push(`<meta http-equiv="refresh" content="…${refreshUrl}">`);
     }
   }
   const watched = fetchUrlAttrsFor(tagName);

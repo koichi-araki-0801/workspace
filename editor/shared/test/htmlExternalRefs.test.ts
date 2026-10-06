@@ -282,6 +282,24 @@ describe('meta http-equiv=refresh の content', () => {
         { name: 'content', value: '0;url=#x' },
       ],
     ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: "0;url='https://evil/' x" },
+      ],
+    ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: "0;url='https://evil/" },
+      ],
+    ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0;url=&quot;https://evil/&quot;junk' },
+      ],
+    ],
   ])('文字参照や重複属性で隠しても外部への refresh を拾う %#', (attrs) => {
     expect(findExternalRefsInTag('meta', attrs)).not.toEqual([]);
   });
@@ -296,7 +314,7 @@ describe('meta http-equiv=refresh の content', () => {
     ).toEqual([]);
   });
 
-  it('URL の文字参照は 1 回だけ復号する(&amp;#104;ttps は https にならない)', () => {
+  it('回帰ガード: URL の文字参照は 1 回だけ復号する(&amp;#104;ttps は https にならない)', () => {
     expect(
       findExternalRefsInTag('meta', [
         { name: 'http-equiv', value: 'refresh' },
