@@ -571,7 +571,7 @@ export function useGrapes() {
   /**
    * canvas の編集可否を切り替える。`on` が false のとき canvas は read-only:
    * `Component` は選択可のまま(inspector が機能する)だが text 編集や drag は不可。
-   * jinja の `Component` は各自の既定値を保つ。
+   * jinja の `Component` は自身も子孫も各自の既定値を保つ。
    */
   function setEditable(on: boolean): void {
     locked = !on;
@@ -583,13 +583,18 @@ export function useGrapes() {
     // draft 経路に入る)。適用中フラグで `fireChange` に濾させる(同期ループなので確実)。
     applyingLockState = true;
     try {
-      ed.getWrapper()?.onAll((c) => {
-        const type = String(c.get('type') ?? '');
-        if (type.startsWith('jinja-')) return; // jinja の locked 挙動は保つ
+      // jinja の部品は自身も子孫も触らない。固めた要素の子孫は `init` で選択・編集・移動を
+      // 止めてあり(`jinjaComponents.ts` の `lockDescendants`)、ここで切り替えると読み込み直後や
+      // Undo / Redo のたびに固定が外れる。
+      const visit = (c: Component): void => {
+        if (String(c.get('type') ?? '').startsWith('jinja-')) return;
         c.set('editable', on);
         c.set('draggable', on);
         c.set('selectable', true);
-      });
+        c.components().forEach(visit);
+      };
+      const wrapper = ed.getWrapper();
+      if (wrapper) visit(wrapper);
     } finally {
       applyingLockState = false;
     }

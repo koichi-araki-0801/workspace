@@ -5,6 +5,7 @@
 // `Component` type を GrapesJS に登録し、chip 表示用の canvas CSS も提供する。
 
 import type { Component, Editor } from 'grapesjs';
+import { DATA_JINJA, DATA_OPAQUE, DATA_OPAQUE_KIND } from '@/lib/jinjaAttrs';
 
 /**
  * canvas で通用する `data-gjs-type` の全集合。**`addType` する型と、canvas 入口の
@@ -101,7 +102,63 @@ function isInFrozenSvg(el: unknown): boolean {
   if (!e || e.namespaceURI !== SVG_NS || typeof e.parentElement?.closest !== 'function') {
     return false;
   }
-  return e.parentElement.closest('[data-gjs-type="jinja-frozen-svg"]') !== null;
+  return e.parentElement.closest(`svg[${DATA_OPAQUE}]`) !== null;
+}
+
+// ── 型の判定 ──
+//
+// GrapesJS は `data-gjs-type` を書き出さないので、`load(getBodyHtml())`(Undo の snapshot・下書きの
+// 再読込・プレビューからの戻り)では型の指定が消えた HTML から部品を作り直す。そこで各型を、
+// `toTemplate` が原文へ戻すときに頼るのと同じ属性(`data-jinja` / `data-opaque` と種別)から
+// 判定する。保存側で `data-gjs-type` を書き戻す方法もあるが、それでは書き戻す前に保存された
+// 下書き・snapshot が直らず、型が「原文へ戻る HTML かどうか」と別の印に依ることになる。
+// 属性で判定すれば、`toTemplate` が戻す要素はどこから読み込んでも必ずロックされた型になる。
+// 編集タブの値入り HTML はこれらの属性を持たない(shared の `findEditingMarkers` が関所で拒む)。
+
+/** 要素の属性値。テキストノードなど属性を持たない節では null。 */
+function attrOf(el: unknown, name: string): string | null {
+  const e = el as Partial<Element> | null;
+  return typeof e?.getAttribute === 'function' ? e.getAttribute(name) : null;
+}
+
+function hasClasses(el: unknown, ...names: string[]): boolean {
+  const list = (el as Partial<Element> | null)?.classList;
+  return !!list && names.every((n) => list.contains(n));
+}
+
+const isSvgRoot = (el: unknown): boolean => {
+  const e = el as Partial<Element> | null;
+  return e?.namespaceURI === SVG_NS && e.localName === 'svg';
+};
+
+/** 型ごとの判定。値の差し込みチップは `data-jinja`、原文を運ぶ部品は `data-opaque` と種別で見る。 */
+const IS_COMPONENT: Record<JinjaComponentType, (el: unknown) => boolean> = {
+  'jinja-var': (el) => hasClasses(el, 'jinja-chip', 'jinja-var') && attrOf(el, DATA_JINJA) !== null,
+  'jinja-stmt': (el) =>
+    hasClasses(el, 'jinja-chip', 'jinja-stmt') && attrOf(el, DATA_JINJA) !== null,
+  'jinja-comment': (el) =>
+    hasClasses(el, 'jinja-chip', 'jinja-comment') && attrOf(el, DATA_JINJA) !== null,
+  'jinja-script': (el) => isOpaqueChip(el, 'script'),
+  'jinja-math': (el) => isOpaqueChip(el, 'math'),
+  'jinja-rawtext': (el) => isOpaqueChip(el, 'rawtext'),
+  'jinja-frozen': (el) => {
+    const kind = attrOf(el, DATA_OPAQUE_KIND);
+    return (
+      (kind === 'frozen' || kind === 'body') &&
+      attrOf(el, DATA_OPAQUE) !== null &&
+      (el as Partial<Element>).namespaceURI !== SVG_NS
+    );
+  },
+  'jinja-frozen-svg': (el) =>
+    isSvgRoot(el) && attrOf(el, DATA_OPAQUE_KIND) === 'frozen' && attrOf(el, DATA_OPAQUE) !== null,
+};
+
+function isOpaqueChip(el: unknown, kind: string): boolean {
+  return (
+    hasClasses(el, 'jinja-chip', `jinja-${kind}`) &&
+    attrOf(el, DATA_OPAQUE_KIND) === kind &&
+    attrOf(el, DATA_OPAQUE) !== null
+  );
 }
 
 const FROZEN_TYPES: ReadonlySet<JinjaComponentType> = new Set(['jinja-frozen', 'jinja-frozen-svg']);
@@ -126,7 +183,10 @@ export function registerJinjaComponents(editor: Editor): void {
 
   for (const type of JINJA_COMPONENT_TYPES) {
     if (FROZEN_TYPES.has(type)) continue;
-    dc.addType(type, { model: { defaults: { ...common, ...JINJA_TYPE_DEFAULTS[type] } } });
+    dc.addType(type, {
+      isComponent: IS_COMPONENT[type],
+      model: { defaults: { ...common, ...JINJA_TYPE_DEFAULTS[type] } },
+    });
   }
 
   const frozenDefaults = (type: JinjaComponentType) => ({
@@ -135,6 +195,7 @@ export function registerJinjaComponents(editor: Editor): void {
     stylable: false,
   });
   dc.addType('jinja-frozen', {
+    isComponent: IS_COMPONENT['jinja-frozen'],
     model: {
       defaults: frozenDefaults('jinja-frozen'),
       init(this: Component) {
@@ -145,6 +206,7 @@ export function registerJinjaComponents(editor: Editor): void {
   // `svg` 型を継ぐのは部品自身を SVG の名前空間で描くため。子孫は下の `jinja-frozen-svg-in`。
   dc.addType('jinja-frozen-svg', {
     extend: 'svg',
+    isComponent: IS_COMPONENT['jinja-frozen-svg'],
     model: {
       // 継いだリサイズは inline style を書き、保存で原文へ戻るときに黙って捨てられるので止める。
       defaults: { ...frozenDefaults('jinja-frozen-svg'), resizable: false },
@@ -160,6 +222,8 @@ export function registerJinjaComponents(editor: Editor): void {
   });
   // 固めた SVG の子孫の型。`svg-in` と同じく SVG の名前空間で描き、レイヤーに出さない。型は
   // parse の判定だけで決まり、`data-gjs-type` には現れないので刈り取りの許可には足さない。
+  // 最後に登録するのは、GrapesJS が後から登録した型の判定を先に見るため(固めた SVG の中の
+  // 入れ子の `svg` を部品自身と取り違えない)。
   dc.addType('jinja-frozen-svg-in', {
     extend: 'svg-in',
     isComponent: (el: unknown) => isInFrozenSvg(el),
