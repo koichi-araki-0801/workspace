@@ -205,6 +205,56 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     expect(read(PAIR)).toBe('<html><p>ペア側</p></html>');
   });
 
+  it('テンプレートへの確定でも、往復用の印が残った本文は書かない', async () => {
+    seed(SOURCE, '<p>{{ fund.name }}</p>');
+    await expect(
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'review-approve',
+        target: 'template',
+        templateId: SOURCE,
+        html: '<p><!--jinja-rt:t:e3sgc2V0IGEgPSAxICV9-->{{ fund.name }}</p>',
+        css: '',
+        author: 'approver1',
+        commitMessage: 'm',
+      }),
+    ).rejects.toMatchObject({ kind: 'validation' });
+    expect(read(SOURCE)).toBe('<p>{{ fund.name }}</p>');
+    expect(fs.existsSync(path.join(cssDir, `${SOURCE}.css`))).toBe(false);
+  });
+
+  it('値入り HTML への確定でも、往復用の印が残った本文は書かない', async () => {
+    const id = 'AM01_510037_20250101_交付版';
+    await expect(
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'review-approve',
+        target: 'filled',
+        templateId: id,
+        html: '<table><tbody><tr data-jinja-loop-clone=""><td>1</td></tr></tbody></table>',
+        css: '',
+        author: 'approver1',
+        commitMessage: 'm',
+      }),
+    ).rejects.toMatchObject({ kind: 'validation' });
+    expect(fs.existsSync(path.join(filledDir, `${id}.html`))).toBe(false);
+    expect(fs.existsSync(path.join(cssDir, 'AM01_510037_交付版.css'))).toBe(false);
+  });
+
+  it('ペア転写でも、往復用の印が残った本文は書かない', async () => {
+    seed(PAIR, '<p>ペア側</p>');
+    await expect(
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'pair-sync',
+        target: 'template',
+        targetTemplateId: PAIR,
+        sourceTemplateId: SOURCE,
+        html: '<p><span data-jinja="e3sgYSB9fQ==">1</span></p>',
+        actor: 'approver1',
+        appliedParts: ['p1'],
+      }),
+    ).rejects.toMatchObject({ kind: 'validation' });
+    expect(read(PAIR)).toBe('<p>ペア側</p>');
+  });
+
   it('afterWrite が失敗したら本体を元のバイト列へ戻す', async () => {
     // 「転写済みなのに lastSynced が古い」状態は次回同期で偽競合を生む。片方だけ進めない。
     seed(PAIR, '<p>元の内容</p>');

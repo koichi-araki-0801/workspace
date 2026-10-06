@@ -46,6 +46,7 @@ import {
 import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
 import { audit, logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
+import { assertNoEditingMarkers } from './editingMarkerGate.js';
 import { fileToMeta } from './templateMeta.js';
 
 // ── 1. module-private な物理書込プリミティブ ──
@@ -233,6 +234,11 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
     stylePath = await resolveTemplateCssPath(templateId);
     if (stylePath === null) throw validation(`CSS の名前を id から決められません: ${templateId}`);
   }
+
+  // ── 往復用の印 ──
+  // 書き先(テンプレート / 値入り HTML)も経路(承認 / ペア転写)も問わない。申請の入口を
+  // すり抜けた本文(関所の導入前に積まれた申請を含む)を確定ファイルへ焼き付けない最後の関所。
+  assertNoEditingMarkers(op.html, templateId);
 
   // ── 実行コード不変性 ──
   // 承認者は実行結果しか見ない運用なので、JS が変わっていないことはシステムが保証する。

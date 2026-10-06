@@ -9,6 +9,8 @@ import {
   type ApproveReviewResult,
   anyTemplateFileName,
   conflict,
+  editingMarkerMessage,
+  findEditingMarkers,
   isApprover,
   isErr,
   notFound,
@@ -80,12 +82,21 @@ function assertEditSubmissionAllowed(
     throw validation(`編集タブの申請には値入り HTML(filled)が必要です: ${templateId}`);
 }
 
+function assertNoEditingMarkers(html: string, templateId: string): void {
+  const msg = editingMarkerMessage(findEditingMarkers(html), templateId);
+  if (msg !== null) throw validation(msg);
+}
+
 export const localReviewRepo: ReviewRepository = {
   submitReview: (req: SubmitReviewRequest) =>
     attempt(async () => {
       const attrs = parseAnyTemplateFileName(`${req.templateId}.html`);
       if (!attrs) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
       assertEditSubmissionAllowed(req.origin, req.templateId, attrs, req.html);
+      // 往復用の印が残った本文は両経路とも受けない(server の `assertNoEditingMarkers` と同じ文言)。
+      // 承認側は `putContentOverrides` が止めるが、入口で弾かないと承認できない申請が積まれる。
+      assertNoEditingMarkers(req.html, req.templateId);
+      if (req.filledHtml !== undefined) assertNoEditingMarkers(req.filledHtml, req.templateId);
       // 現行版を読み、baseHash(並行性警告の素)を取る。失敗しても申請自体は妨げない。
       const cur = await localTemplateRepo.getTemplate(req.templateId);
       const baseHash = isErr(cur) ? null : contentKey(cur.value.html, cur.value.css);

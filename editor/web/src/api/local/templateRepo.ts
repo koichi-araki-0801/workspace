@@ -11,6 +11,8 @@ import {
   type DropdownScope,
   type EditHistoryEntry,
   editHistoryRowId,
+  editingMarkerMessage,
+  findEditingMarkers,
   type GenerateRequest,
   isErr,
   notFound,
@@ -69,6 +71,10 @@ function localCssOf(templateId: string): string | undefined {
 
 /** 編集後の本文 + テンプレ単位の CSS override を公開する。 */
 function putContentOverrides(req: ConfirmSaveRequest): void {
+  // local の承認の唯一の書き込み点(server の `applyConfirmedWrite` の関所に当たる)。申請の
+  // 入口より前に積まれた申請もここで止まり、`tx` の中で投げるのでストアは巻き戻る。
+  const marked = editingMarkerMessage(findEditingMarkers(req.html), req.templateId);
+  if (marked !== null) throw validation(marked);
   // 編集タブの承認は値入り HTML を上書きする(server の filled/ と同じ契約)。Jinja は据え置く。
   // 作成タブの承認は Jinja テンプレそのものを上書きする。書き先が違うだけで手順は同じ。
   const key = req.origin === 'edit' ? K.filledOverride : K.htmlOverride;

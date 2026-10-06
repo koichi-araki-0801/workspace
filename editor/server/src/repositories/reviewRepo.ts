@@ -46,6 +46,7 @@ import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import type { NoteMasterService } from '../sync/noteMasterService.js';
 import type { PairCssSource, PairSyncService } from '../sync/pairSyncService.js';
 import { baselineTemplateHtml, type ConfirmedTarget } from './confirmedWrite.js';
+import { assertNoEditingMarkers } from './editingMarkerGate.js';
 import { applyConfirmedSave } from './templateRepo.js';
 
 /** 操作主体(認証済みユーザ)。ロールは自己承認/閲覧範囲の判定に使う。 */
@@ -211,6 +212,10 @@ export function createReviewRepo({
         );
       }
       await assertFilledPresentForEdit(req.origin, req.templateId);
+      // 承認側(`applyConfirmedWrite`)でも止まるが、入口で弾かないと精査者のキューに
+      // 「承認できない申請」が積まれる。プレビュー文書(`filledHtml`)も同じ本文から作るので見る。
+      assertNoEditingMarkers(req.html, req.templateId);
+      if (req.filledHtml !== undefined) assertNoEditingMarkers(req.filledHtml, req.templateId);
       // 実行コード面は生成時に確定し、以後どの経路でも変えられない。最後の関所は承認側の
       // `applyConfirmedWrite` だが、申請の入口でも同じ照合を掛ける — 通してしまうと精査者の
       // キューに「承認できない申請」が積まれ、承認者は実行結果しか見ないため差分にも気付けない。
