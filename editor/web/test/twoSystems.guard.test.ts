@@ -44,6 +44,25 @@ describe('editor 2系統の原則: 差し込み値ハイライトのスコープ
     expect(scoped, 'スコープ付きハイライトルールが存在すること').toBeTruthy();
     expect(scoped?.body).toMatch(/background\s*:/);
   });
+
+  it('ループの行と固めた要素の枠は `.jinja-vars-highlight` 配下でだけ定義する(作成タブ専用)', () => {
+    const outlined = rules.filter((r) =>
+      /data-jinja-loop-row|data-opaque-kind="frozen"|jinja-frozen-body\s*>/.test(r.selector),
+    );
+    expect(outlined.length).toBeGreaterThan(0);
+    for (const r of outlined)
+      for (const sel of r.selector.split(','))
+        expect(sel.trim().startsWith('.jinja-vars-highlight '), sel).toBe(true);
+  });
+
+  it('スコープの無い固めた要素の規則は見た目を持たない(レイアウトの規則だけ)', () => {
+    const bare = rules.filter(
+      (r) =>
+        /jinja-frozen|data-opaque|data-jinja-loop-row/.test(r.selector) &&
+        !r.selector.split(',').every((s) => s.trim().startsWith('.jinja-vars-highlight ')),
+    );
+    for (const r of bare) expect(r.body, r.selector).not.toMatch(/background|outline|border/);
+  });
 });
 
 describe('editor 2系統の原則: 編集タブの値はファンド別実値(共通ダミー化しない)', () => {

@@ -4,7 +4,7 @@
 // 役割: Jinja 構文を canvas 上でロックされた chip として扱うため、専用の
 // `Component` type を GrapesJS に登録し、chip 表示用の canvas CSS も提供する。
 
-import type { Editor } from 'grapesjs';
+import type { Component, Editor } from 'grapesjs';
 
 /**
  * canvas で通用する `data-gjs-type` の全集合。**`addType` する型と、canvas 入口の
@@ -22,6 +22,9 @@ export const JINJA_COMPONENT_TYPES = [
   'jinja-comment',
   'jinja-script',
   'jinja-math',
+  'jinja-rawtext',
+  'jinja-frozen',
+  'jinja-frozen-svg',
 ] as const;
 
 export type JinjaComponentType = (typeof JINJA_COMPONENT_TYPES)[number];
@@ -37,13 +40,54 @@ const JINJA_TYPE_DEFAULTS: Record<
   'jinja-var': { name: '差し込み（値）', draggable: true, removable: true },
   'jinja-stmt': { name: '条件・繰り返し', draggable: false, removable: false, copyable: false },
   'jinja-comment': { name: 'メモ', draggable: true, removable: true },
-  // mask した opaque content(`fillJinja` の `opaqueChip` が生成)。他の jinja chip と
-  // 同様 locked にして GrapesJS に逐語保存させる。source は data-opaque にあり、保存時に
-  // `jinjaMask` の `toTemplate` が復元する。
+  // 原文を `data-opaque` に運ぶ部品(`fillJinja` が生成)。他の jinja chip と同様 locked にして
+  // GrapesJS に逐語保存させ、保存時に `jinjaMask` の `toTemplate` が原文へ戻す。
   // jinja-script: <script>。jinja-math: MathJax(TeX)と MathML の <math>。
+  // jinja-rawtext: 中に Jinja を含む <style> / <textarea> / <title> のラベル表示。
   'jinja-script': { name: 'スクリプト', draggable: true, removable: true, copyable: false },
   'jinja-math': { name: '数式', draggable: true, removable: true, copyable: false },
+  'jinja-rawtext': {
+    name: '埋め込み（CSS 等）',
+    draggable: true,
+    removable: true,
+    copyable: false,
+  },
+  // 値入りの見た目のまま固めた要素(表・SVG・本文全体)。部品ごと動かす・消すことだけ許す。
+  'jinja-frozen': { name: '編集不可（Jinja）', draggable: true, removable: true, copyable: false },
+  'jinja-frozen-svg': {
+    name: '編集不可（Jinja）',
+    draggable: true,
+    removable: true,
+    copyable: false,
+  },
 };
+
+/** 固めた要素の子孫へ配る操作可否。部品自身ではなく子孫だけを止める。 */
+const LOCKED_DESCENDANT = {
+  selectable: false,
+  hoverable: false,
+  editable: false,
+  droppable: false,
+  draggable: false,
+  removable: false,
+  copyable: false,
+  stylable: false,
+} as const;
+
+/**
+ * 固めた要素の子孫をすべて選べず編集もできないようにする。子孫にスタイルを当てられると
+ * GrapesJS が自動 id と `#id` 規則を作り、保存で要素が原文へ戻ったあと規則だけが CSS に残る。
+ * GrapesJS の `propagate` は部品自身の値を子孫へ写す仕組みで、部品自身を選べるまま子孫だけを
+ * 止められないので、`init` で子孫へ直接設定する。
+ */
+function lockDescendants(c: Component): void {
+  c.components().forEach((ch: Component) => {
+    ch.set(LOCKED_DESCENDANT);
+    lockDescendants(ch);
+  });
+}
+
+const FROZEN_TYPES: ReadonlySet<JinjaComponentType> = new Set(['jinja-frozen', 'jinja-frozen-svg']);
 
 /**
  * locked な Jinja chip の `Component` type 群を登録する。chip は `toFilled`(`fillJinja.ts`)が
@@ -64,8 +108,28 @@ export function registerJinjaComponents(editor: Editor): void {
   };
 
   for (const type of JINJA_COMPONENT_TYPES) {
+    if (FROZEN_TYPES.has(type)) continue;
     dc.addType(type, { model: { defaults: { ...common, ...JINJA_TYPE_DEFAULTS[type] } } });
   }
+
+  const frozenModel = (type: JinjaComponentType) => ({
+    defaults: { ...common, ...JINJA_TYPE_DEFAULTS[type], stylable: false },
+    init(this: Component) {
+      lockDescendants(this);
+    },
+  });
+  dc.addType('jinja-frozen', { model: frozenModel('jinja-frozen') });
+  // `svg` 型を継がないと子孫が SVG の名前空間で描かれない。`svg` 型の `getName` はタグ名を返して
+  // `name` を見ないので、レイヤー名を他の固めた要素と揃えるために戻す。
+  dc.addType('jinja-frozen-svg', {
+    extend: 'svg',
+    model: {
+      ...frozenModel('jinja-frozen-svg'),
+      getName(this: Component): string {
+        return this.get('custom-name') || this.get('name');
+      },
+    },
+  });
 }
 
 /** locked な Jinja chip を可視化するため GrapesJS canvas へ注入する CSS。 */
@@ -110,4 +174,12 @@ export const jinjaChipCanvasCss = `
 .jinja-chip.jinja-comment { background: #e5e7eb; color: #6b7280; border: 1px dashed #9ca3af; }
 .jinja-chip.jinja-script { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
 .jinja-chip.jinja-math { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+.jinja-chip.jinja-rawtext { background: #e0f2fe; color: #075985; border: 1px solid #7dd3fc; }
+/* ループの行と固めた要素の枠は作成タブ(canvas body に jinja-vars-highlight)だけに出す。素の
+   .jinja-chip.jinja-var に背景を書かないのと同じ原則で、編集タブへ漏らさない。 */
+.jinja-vars-highlight [data-jinja-loop-row] { outline: 1px dashed #f59e0b; outline-offset: 2px; }
+.jinja-vars-highlight [data-opaque-kind="frozen"],
+.jinja-vars-highlight .jinja-frozen-body > * { outline: 1px dashed #9ca3af; outline-offset: 2px; }
+/* 見た目ではなく、本文全体を包んだ div でレイアウトを変えないための規則なのでスコープを付けない。 */
+.jinja-frozen-body { display: contents; }
 `;
