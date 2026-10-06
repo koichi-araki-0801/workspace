@@ -165,6 +165,29 @@ d('pairSyncService', () => {
     });
   });
 
+  it('ペア側で消したパーツは戻さず、現況に削除した版種つきの競合として出す', {
+    timeout: 60_000,
+  }, async () => {
+    put('filled', 'AM01_530000_20240710_交付版', doc(part('a', 'x')));
+    put('filled', 'AM01_530000_20240710_全体版', doc(part('a', 'x')));
+    // 1 回目: 両版一致で前回同期の基準を作る。
+    await svc.syncPairAfterConfirm('AM01_530000_20240710_交付版', 'approver1', 'filled', {
+      css: null,
+    });
+    // 全体版でパーツを消したあと、交付版が承認される。
+    const deleted = doc();
+    put('filled', 'AM01_530000_20240710_全体版', deleted);
+    const r = await svc.syncPairAfterConfirm('AM01_530000_20240710_交付版', 'approver1', 'filled', {
+      css: null,
+    });
+    expect(r?.applied).toEqual([]);
+    expect(read('filled', 'AM01_530000_20240710_全体版')).toBe(deleted);
+    const status = await svc.getPairSyncStatus('AM01_530000_20240710_交付版');
+    expect(status.conflicts).toEqual([
+      { partKey: 'a#1', kind: 'ペア側削除', detectedAt: expect.any(String), deletedIn: '全体版' },
+    ]);
+  });
+
   it('テンプレのペア: 承認で変わった CSS 規則をペアの CSS へ写す(本文と同じ 1 コミット)', {
     timeout: 60_000,
   }, async () => {

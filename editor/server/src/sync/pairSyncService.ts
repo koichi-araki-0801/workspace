@@ -81,7 +81,15 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
       const conflicts = state
         ? Object.entries(state.parts).flatMap(([partKey, p]) =>
             p.conflict
-              ? [{ partKey, kind: p.conflict.kind, detectedAt: p.conflict.detectedAt }]
+              ? [
+                  {
+                    partKey,
+                    kind: p.conflict.kind,
+                    detectedAt: p.conflict.detectedAt,
+                    // バナーは削除した側を版種で書くので、記録の版種も渡す。
+                    ...(p.conflict.deletedIn ? { deletedIn: p.conflict.deletedIn } : {}),
+                  },
+                ]
               : [],
           )
         : [];

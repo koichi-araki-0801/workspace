@@ -370,9 +370,25 @@ function canonicalParts(parts: Record<string, PairPartState>): string {
         parts[k].lastSynced ?? null,
         parts[k].conflict?.kind ?? null,
         parts[k].conflict?.detectedAt ?? null,
+        parts[k].conflict?.deletedIn ?? null,
       ]),
   );
 }
+
+type PairPartConflict = NonNullable<PairPartState['conflict']>;
+
+/** ペア側削除系の競合の種類。状況(source の変化の有無)が変われば意味が変わる。 */
+const DELETION_KINDS: ReadonlySet<PairPartConflict['kind']> = new Set([
+  'ペア側削除',
+  'ペア側削除・ソース変更',
+]);
+
+/**
+ * 既存の枝(初期差分・両側変更・ペア側先行)が持ち越す競合。削除の種類は、ペア側にパーツが
+ * 戻った時点で意味を失うので持ち越さず、呼び出し側に新しい種類を作らせる。
+ */
+const carried = (prev: PairPartState | undefined): PairPartConflict | undefined =>
+  prev?.conflict && !DELETION_KINDS.has(prev.conflict.kind) ? prev.conflict : undefined;
 
 /** 重複 id をスキップした理由(呼び出し側の報告文とテストが参照する)。 */
 const DUPLICATE_ID_REASON = '重複 id(同一 partId が複数出現・位置対応が不確実)';
@@ -408,7 +424,8 @@ function duplicatedPartIds(...groups: readonly (readonly SyncPart[])[]): Set<str
  * | target のみ変更(lastSynced = source)   | スキップ(逆方向の承認時に同期される)   |
  * | 一致履歴なしで差分                     | 競合「初期差分」を記録してスキップ     |
  * | 両側変更                               | 競合「両側変更」を記録してスキップ     |
- * | source にのみ存在(追加)                | 直前パーツを錨に挿入。錨なしはスキップ |
+ * | source にのみ存在(同期履歴なし)        | 直前パーツを錨に挿入。錨なしはスキップ |
+ * | target にだけ無い(同期履歴あり)        | 挿入しない。ペア側削除を記録           |
  * | target にのみ存在(削除 or 版固有)      | 削除は自動同期しない(同期履歴あれば報告)|
  */
 export function computePairSync(input: PairSyncComputeInput): PairSyncComputeResult {
@@ -494,19 +511,38 @@ export function computePairSync(input: PairSyncComputeInput): PairSyncComputeRes
         skipped.push({ partKey: key, reason: 'ペア側が先行変更(逆方向の承認時に同期)' });
         newParts[key] = {
           lastSynced: prev.lastSynced,
-          conflict: prev.conflict ?? { kind: 'ペア側先行', detectedAt: input.now },
+          conflict: carried(prev) ?? { kind: 'ペア側先行', detectedAt: input.now },
         };
       } else if (!prev?.lastSynced) {
         skipped.push({ partKey: key, reason: '初期差分(一致履歴なし・要判断)' });
-        newParts[key] = { conflict: prev?.conflict ?? { kind: '初期差分', detectedAt: input.now } };
+        newParts[key] = { conflict: carried(prev) ?? { kind: '初期差分', detectedAt: input.now } };
       } else {
         skipped.push({ partKey: key, reason: '競合(前回同期以降に両側で変更)' });
         newParts[key] = {
           lastSynced: prev.lastSynced,
-          conflict: prev.conflict ?? { kind: '両側変更', detectedAt: input.now },
+          conflict: carried(prev) ?? { kind: '両側変更', detectedAt: input.now },
         };
       }
       insertAnchor = tgt.end;
+    } else if (prev?.lastSynced) {
+      // 同期したことのあるパーツが target に無い = ペア側で意図して消した。挿入し直すと、
+      // 消した編集が相手側の承認のたびに黙って戻る。挿入せず競合として人間へ返す。
+      // `lastSynced` は据え置く(進めると、後でペア側へ戻したときの判定を誤る)。
+      const sourceUnchanged = contentHash(src.html) === prev.lastSynced;
+      const kind = sourceUnchanged ? 'ペア側削除' : 'ペア側削除・ソース変更';
+      skipped.push({
+        partKey: key,
+        reason: sourceUnchanged
+          ? 'ペア側で削除済み(自動では戻さない)'
+          : 'ペア側で削除済み・ソース側は変更あり(要判断)',
+      });
+      // 種類が同じなら検出時刻を保つ。変わったら(source の変化の有無が変わった)取り直す。
+      const conflict: PairPartConflict =
+        prev.conflict?.kind === kind
+          ? prev.conflict
+          : { kind, detectedAt: input.now, deletedIn: input.targetEdition };
+      newParts[key] = { lastSynced: prev.lastSynced, conflict };
+      // insertAnchor は動かさない(target に無いので終端が無い)。
     } else {
       // source にのみ存在(追加)。直前パーツの target 終端を錨に挿入する。文頭錨(target の
       // 先頭パーツより前)は構成差の誤挿入リスクが高いので採らず、錨なしはスキップに倒す。
