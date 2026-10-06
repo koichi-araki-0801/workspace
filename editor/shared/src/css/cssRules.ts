@@ -74,6 +74,11 @@ export interface CssMergeResult {
   css: string;
   applied: string[];
   conflicts: string[];
+  /**
+   * baseline にあるのに原文(rawBase)と突き合わせられず、当てなかった変更・削除のキー。`conflicts`
+   * (ペア側が版種固有に直してある)とは扱いが違うので分ける。`mergeCssRuleChanges` では常に空。
+   */
+  unmatched: string[];
 }
 
 /** 子の規則を持つ(中へ降りる)at-rule。ここに無い at-rule のブロックは中身ごと 1 規則にする。 */
@@ -949,8 +954,8 @@ function anchorFor(
  * 同じなら同じ規則とみなす。
  *
  * - 変わった規則は、target の同じ規則が `ref`(target が今も持っているはずの形)と出現ごとに
- *   同じなら当てる。違えば(版種固有に直してある・出現の形が違う)競合として飛ばす。削除も同じ。
- *   `ref` に無い規則は target にも無いことを求める。
+ *   同じなら当てる。違えば(版種固有に直してある・出現の形が違う・target に無い)競合として
+ *   飛ばす。削除も同じ。`from` に無い規則の追加は、`ref` にも target にも無いことを求める。
  * - 当てるときは `from` と next の出現を前から対応させ、変わった出現だけを target の同じ番目の
  *   出現へ書き、next に無い末尾の出現を消す。`ref` と `from` の出現数が違う・next の出現が
  *   `from` より多いときは対応が取れないので競合にする。空の出現は原文のまま残す(規則ごと削除する
@@ -964,6 +969,9 @@ function anchorFor(
  *   `listRewrite` で 1 つの書き換えにする。同じ物理の規則へ書き換えを別々に積むと範囲が重なって
  *   壊れるため。競合になったセレクタは結果を積まないので「そのまま」(原文の宣言)で残る。
  *   追加の錨としては物理の規則の終わりを指すので、分割の書き換えと範囲は重ならない。
+ * - `ref` に無いキーの変更・削除(正規化と並びの展開で吸収できない食い違い)は当てずに `unmatched`
+ *   へ出す。ペア側の原文はそのキーで引けないので、変更を追加として末尾へ入れると同じ規則が二重に
+ *   なり、削除は黙って飛ばすと消したはずの規則が残る。target が既に next と同じ形なら何もしない。
  */
 function mergeRuleChanges(
   from: MergeRule[],
@@ -978,14 +986,13 @@ function mergeRuleChanges(
   const edits: Edit[] = [];
   const applied: string[] = [];
   const conflicts: string[] = [];
+  const unmatched: string[] = [];
   /** target が `ref` の形のままか。出現ごとに比べる(両方に無い場合も含む)。 */
   const untouched = (key: string, tr: MergeRule | undefined): boolean => {
     const r = ref.get(key);
     if (r === undefined || tr === undefined) return r === tr;
     return sameOccurrences(occurrencesOf(tr), occurrencesOf(r));
   };
-  /** 変わったが target に無いので、追加と同じ位置へ入れる規則。 */
-  const inserts = new Set<string>();
   /** 物理の規則(`listOf`)→ 並びの番号 → そのセレクタの結果。 */
   const listOutcomes = new Map<number, Map<number, ListOutcome>>();
   /** target の出現 `p` を `text`(置き換え)か消す(undefined)ように書き換える。 */
@@ -1006,21 +1013,24 @@ function mergeRuleChanges(
     const N = nr === undefined ? undefined : occurrencesOf(nr);
     if (N !== undefined && sameOccurrences(F, N)) continue;
     const tr = tMap.get(fr.key);
+    if (!ref.has(fr.key)) {
+      // 削除は target に無いことしか分からないので、既に当たっているとは判定できない。
+      if (N !== undefined && tr !== undefined && sameOccurrences(occurrencesOf(tr), N)) continue;
+      unmatched.push(fr.key);
+      continue;
+    }
     if (
       N === undefined ? tr === undefined : tr !== undefined && sameOccurrences(occurrencesOf(tr), N)
     )
       continue;
-    if (!untouched(fr.key, tr)) {
+    // `ref` にあるキーなので、target に無ければ(ペア側が消してある)それも競合。
+    if (tr === undefined || !untouched(fr.key, tr)) {
       conflicts.push(fr.key);
       continue;
     }
     if (N === undefined) {
-      for (const p of tr?.parts ?? []) rewrite(p, undefined, () => []);
+      for (const p of tr.parts) rewrite(p, undefined, () => []);
       applied.push(fr.key);
-      continue;
-    }
-    if (tr === undefined) {
-      inserts.add(fr.key);
       continue;
     }
     // 出現ごとに当てる。GrapesJS は重複を別々の規則のまま持ち、宣言が空になった最後の規則だけを
@@ -1045,7 +1055,7 @@ function mergeRuleChanges(
     { anchor: MergeRule | undefined; atRules: string[]; texts: string[] }
   >();
   for (const [index, nr] of n.entries()) {
-    if (fromKeys.has(nr.key) && !inserts.has(nr.key)) continue;
+    if (fromKeys.has(nr.key)) continue;
     const tr = tMap.get(nr.key);
     if (tr !== undefined) {
       if (sameOccurrences(occurrencesOf(tr), occurrencesOf(nr))) continue;
@@ -1065,7 +1075,7 @@ function mergeRuleChanges(
       } else conflicts.push(nr.key);
       continue;
     }
-    if (!inserts.has(nr.key) && !untouched(nr.key, tr)) {
+    if (!untouched(nr.key, tr)) {
       conflicts.push(nr.key);
       continue;
     }
@@ -1106,7 +1116,12 @@ function mergeRuleChanges(
     }
   }
 
-  return { css: edits.length === 0 ? target : applyEdits(target, edits), applied, conflicts };
+  return {
+    css: edits.length === 0 ? target : applyEdits(target, edits),
+    applied,
+    conflicts,
+    unmatched,
+  };
 }
 
 /** 規則のキー → 規則。 */

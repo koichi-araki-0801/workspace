@@ -150,38 +150,43 @@ describe('mergeCssRuleChanges', () => {
       '.a{x:2}\n.b{y:1}\n',
       '.a{x:1}\n.b{y:1}\n.t{z:1}\n',
     );
-    expect(r).toEqual({ css: '.a{x:2}\n.b{y:1}\n.t{z:1}\n', applied: [k('.a')], conflicts: [] });
+    expect(r).toEqual({
+      css: '.a{x:2}\n.b{y:1}\n.t{z:1}\n',
+      applied: [k('.a')],
+      conflicts: [],
+      unmatched: [],
+    });
   });
 
   it('ペア側が base と違えば競合として飛ばす', () => {
     const target = '.a{x:9}\n.b{y:1}\n';
     const r = mergeCssRuleChanges('.a{x:1}\n.b{y:1}\n', '.a{x:2}\n.b{y:1}\n', target);
-    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')], unmatched: [] });
   });
 
   it('ペア側に無い規則の変更は競合', () => {
     const r = mergeCssRuleChanges('.a{x:1}\n', '.a{x:2}\n', '.t{z:1}\n');
-    expect(r).toEqual({ css: '.t{z:1}\n', applied: [], conflicts: [k('.a')] });
+    expect(r).toEqual({ css: '.t{z:1}\n', applied: [], conflicts: [k('.a')], unmatched: [] });
   });
 
   it('ペア側が既に next と同じなら何もしない', () => {
     const r = mergeCssRuleChanges('.a{x:1}\n', '.a{x:2}\n', '.a{x:2}\n');
-    expect(r).toEqual({ css: '.a{x:2}\n', applied: [], conflicts: [] });
+    expect(r).toEqual({ css: '.a{x:2}\n', applied: [], conflicts: [], unmatched: [] });
   });
 
   it('変わっていない規則には、ペア側が違っていても触らない', () => {
     const r = mergeCssRuleChanges('.b{y:1}\n', '.b{y:1}\n', '.b{y:7}\n');
-    expect(r).toEqual({ css: '.b{y:7}\n', applied: [], conflicts: [] });
+    expect(r).toEqual({ css: '.b{y:7}\n', applied: [], conflicts: [], unmatched: [] });
   });
 
   it('空白だけの違いは同じ規則とみなす', () => {
     const r = mergeCssRuleChanges('.a{x:1}', '.a{x:2}', '.a { x: 1 }\n');
-    expect(r).toEqual({ css: '.a{x:2}\n', applied: [k('.a')], conflicts: [] });
+    expect(r).toEqual({ css: '.a{x:2}\n', applied: [k('.a')], conflicts: [], unmatched: [] });
   });
 
   it('削除は、ペア側が base と同じなら行ごと消す', () => {
     const r = mergeCssRuleChanges('.a{x:1}\n.b{y:1}\n', '.b{y:1}\n', '.a{x:1}\n.b{y:1}\n');
-    expect(r).toEqual({ css: '.b{y:1}\n', applied: [k('.a')], conflicts: [] });
+    expect(r).toEqual({ css: '.b{y:1}\n', applied: [k('.a')], conflicts: [], unmatched: [] });
   });
 
   it('入れ子の中の削除は行頭のインデントと CRLF の改行も消す', () => {
@@ -195,12 +200,12 @@ describe('mergeCssRuleChanges', () => {
   it('削除で、ペア側が base と違えば競合', () => {
     const target = '.a{x:5}\n.b{y:1}\n';
     const r = mergeCssRuleChanges('.a{x:1}\n.b{y:1}\n', '.b{y:1}\n', target);
-    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')], unmatched: [] });
   });
 
   it('削除で、ペア側に既に無ければ何もしない', () => {
     const r = mergeCssRuleChanges('.a{x:1}\n.b{y:1}\n', '.b{y:1}\n', '.b{y:1}\n');
-    expect(r).toEqual({ css: '.b{y:1}\n', applied: [], conflicts: [] });
+    expect(r).toEqual({ css: '.b{y:1}\n', applied: [], conflicts: [], unmatched: [] });
   });
 
   it('追加は next で直前にある規則の後ろへ入れる', () => {
@@ -213,24 +218,40 @@ describe('mergeCssRuleChanges', () => {
       css: '.a{x:1}\n.b{y:1}\n.t{w:1}\n.c{z:1}\n',
       applied: [k('.b')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
   it('連続する追加は next の順でまとめて入れる', () => {
     const r = mergeCssRuleChanges('.a{}', '.a{}\n.b{}\n.c{}', '.a{}');
-    expect(r).toEqual({ css: '.a{}\n.b{}\n.c{}', applied: [k('.b'), k('.c')], conflicts: [] });
+    expect(r).toEqual({
+      css: '.a{}\n.b{}\n.c{}',
+      applied: [k('.b'), k('.c')],
+      conflicts: [],
+      unmatched: [],
+    });
   });
 
   it('直前の規則がペア側に無ければ末尾へ入れる', () => {
     const r = mergeCssRuleChanges('.a{x:1}\n', '.n{q:1}\n.a{x:1}\n', '.a{x:1}\n.t{w:1}');
-    expect(r).toEqual({ css: '.a{x:1}\n.t{w:1}\n.n{q:1}\n', applied: [k('.n')], conflicts: [] });
+    expect(r).toEqual({
+      css: '.a{x:1}\n.t{w:1}\n.n{q:1}\n',
+      applied: [k('.n')],
+      conflicts: [],
+      unmatched: [],
+    });
   });
 
   it('@media の中の追加は、同じ @media の直前の規則の後ろへインデントを合わせて入れる', () => {
     const base = '@media print {\n  .a{x:1}\n}\n';
     const next = '@media print {\n  .a{x:1}\n  .b{y:1}\n}\n';
     const r = mergeCssRuleChanges(base, next, base);
-    expect(r).toEqual({ css: next, applied: [k('@media print', '.b')], conflicts: [] });
+    expect(r).toEqual({
+      css: next,
+      applied: [k('@media print', '.b')],
+      conflicts: [],
+      unmatched: [],
+    });
   });
 
   it('同じ入れ子の直前の規則が無ければ、外側の at-rule で包んで末尾へ入れる', () => {
@@ -243,6 +264,7 @@ describe('mergeCssRuleChanges', () => {
       css: '.a{x:1}\n@media print {\n.p{y:1}\n}\n',
       applied: [k('@media print', '.p')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -251,43 +273,57 @@ describe('mergeCssRuleChanges', () => {
       css: '.a{x:1}',
       applied: [],
       conflicts: [],
+      unmatched: [],
     });
     expect(mergeCssRuleChanges('', '.a{x:1}', '.a{x:2}')).toEqual({
       css: '.a{x:2}',
       applied: [],
       conflicts: [k('.a')],
+      unmatched: [],
     });
   });
 
   it('重複セレクタは出現順の番号で対応づけて当てる', () => {
     const r = mergeCssRuleChanges('.a{x:1}\n.a{x:2}\n', '.a{x:1}\n.a{x:3}\n', '.a{x:1}\n.a{x:2}\n');
-    expect(r).toEqual({ css: '.a{x:1}\n.a{x:3}\n', applied: [k('.a', 2)], conflicts: [] });
+    expect(r).toEqual({
+      css: '.a{x:1}\n.a{x:3}\n',
+      applied: [k('.a', 2)],
+      conflicts: [],
+      unmatched: [],
+    });
   });
 
   it('文字列やコメントに括弧を含む規則も壊さずに当てる', () => {
     const base = '/* } */\n.q::before{content:"{"}\n.r{x:1}\n';
     const next = '/* } */\n.q::before{content:"}"}\n.r{x:1}\n';
     const r = mergeCssRuleChanges(base, next, base);
-    expect(r).toEqual({ css: next, applied: [k('.q::before')], conflicts: [] });
+    expect(r).toEqual({ css: next, applied: [k('.q::before')], conflicts: [], unmatched: [] });
   });
 
   it('規則の間のコメントだけの違いは同期しない', () => {
     const target = '/* t */\n.a{x:1}\n';
     const r = mergeCssRuleChanges('/* c1 */\n.a{x:1}\n', '/* c2 */\n.a{x:1}\n', target);
-    expect(r).toEqual({ css: target, applied: [], conflicts: [] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [], unmatched: [] });
   });
 
   it('空の CSS どうし・空のペア側への追加', () => {
-    expect(mergeCssRuleChanges('', '', '')).toEqual({ css: '', applied: [], conflicts: [] });
+    expect(mergeCssRuleChanges('', '', '')).toEqual({
+      css: '',
+      applied: [],
+      conflicts: [],
+      unmatched: [],
+    });
     expect(mergeCssRuleChanges('', '', '.t{}')).toEqual({
       css: '.t{}',
       applied: [],
       conflicts: [],
+      unmatched: [],
     });
     expect(mergeCssRuleChanges('', '.a{x:1}', '')).toEqual({
       css: '.a{x:1}\n',
       applied: [k('.a')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -296,6 +332,7 @@ describe('mergeCssRuleChanges', () => {
       css: '.a{x:1}\n',
       applied: [k('.a')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -303,7 +340,12 @@ describe('mergeCssRuleChanges', () => {
     const base = '@media print {\n  .a{x:1}\n  .b{y:1}\n}\n';
     const next = '@media print {\n  .a{x:2}\n  .b{y:1}\n}\n';
     const r = mergeCssRuleChanges(base, next, base);
-    expect(r).toEqual({ css: next, applied: [k('@media print', '.a')], conflicts: [] });
+    expect(r).toEqual({
+      css: next,
+      applied: [k('@media print', '.a')],
+      conflicts: [],
+      unmatched: [],
+    });
   });
 
   it('入れ子の追加で包み直すとき、複数の規則を 1 つの at-rule にまとめる', () => {
@@ -318,7 +360,12 @@ describe('mergeCssRuleChanges', () => {
 
   it('変更と、その規則の直後への追加を同時に当てる', () => {
     const r = mergeCssRuleChanges('.a{x:1}\n', '.a{x:2}\n.b{y:1}\n', '.a{x:1}\n');
-    expect(r).toEqual({ css: '.a{x:2}\n.b{y:1}\n', applied: [k('.a'), k('.b')], conflicts: [] });
+    expect(r).toEqual({
+      css: '.a{x:2}\n.b{y:1}\n',
+      applied: [k('.a'), k('.b')],
+      conflicts: [],
+      unmatched: [],
+    });
   });
 
   describe('先頭の BOM と CRLF', () => {
@@ -397,7 +444,7 @@ describe('名前のない at-rule(@page / @font-face)の識別', () => {
       '@page{margin:12mm}\n.a{}\n',
       target,
     );
-    expect(r).toEqual({ css: target, applied: [], conflicts: [k('@page')] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('@page')], unmatched: [] });
   });
 
   it('@page の変更をペア側が base のままならその場で置き換える', () => {
@@ -406,7 +453,12 @@ describe('名前のない at-rule(@page / @font-face)の識別', () => {
       '@page{margin:12mm}\n.a{}\n',
       '@page{margin:10mm}\n.a{}\n',
     );
-    expect(r).toEqual({ css: '@page{margin:12mm}\n.a{}\n', applied: [k('@page')], conflicts: [] });
+    expect(r).toEqual({
+      css: '@page{margin:12mm}\n.a{}\n',
+      applied: [k('@page')],
+      conflicts: [],
+      unmatched: [],
+    });
   });
 
   it('@font-face の src 変更は同じ family/weight/style の変更として扱う', () => {
@@ -417,12 +469,14 @@ describe('名前のない at-rule(@page / @font-face)の識別', () => {
       css: next,
       applied: [key],
       conflicts: [],
+      unmatched: [],
     });
     const edited = '@font-face{font-family:A;font-weight:400;src:url(mine.woff2)}\n';
     expect(mergeCssRuleChanges(base, next, edited)).toEqual({
       css: edited,
       applied: [],
       conflicts: [key],
+      unmatched: [],
     });
   });
 });
@@ -450,13 +504,13 @@ describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側
 
   it('無編集(next = baseline)なら何も当てず、競合も出さない', () => {
     const r = mergeCssRuleChangesFromBaseline(rawBase, baseline, baseline, rawBase);
-    expect(r).toEqual({ css: rawBase, applied: [], conflicts: [] });
+    expect(r).toEqual({ css: rawBase, applied: [], conflicts: [], unmatched: [] });
   });
 
   it('無編集なら、ペア側で版種固有に直した規則があっても偽の競合を出さない', () => {
     const target = rawBase.replace('#003366', '#990000');
     const r = mergeCssRuleChangesFromBaseline(rawBase, baseline, baseline, target);
-    expect(r).toEqual({ css: target, applied: [], conflicts: [] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [], unmatched: [] });
   });
 
   it('編集した規則だけを当て、GrapesJS が書き換えただけの規則には触らない', () => {
@@ -473,7 +527,7 @@ describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側
     const next = gjs('color:rgb(0, 0, 0);');
     const target = rawBase.replace('#003366', '#990000');
     const r = mergeCssRuleChangesFromBaseline(rawBase, baseline, next, target);
-    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.cover-title')] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.cover-title')], unmatched: [] });
   });
 
   it('追加はペア側に無ければ next の直前の規則の後ろへ入れ、削除はペア側が原文のままなら消す', () => {
@@ -484,12 +538,11 @@ describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側
     expect(r.css).toBe('.a{x:1}\n.n{z:1;}\n');
   });
 
-  it('原文に無い規則の変更は、ペア側にも無ければ追加として当て、ペア側にあれば競合にする', () => {
+  it('原文に無い規則の変更は、ペア側の有無によらず当てずに照合不可にする', () => {
     const r1 = mergeCssRuleChangesFromBaseline('.a{x:1}\n', '.c{z:1;}', '.c{z:2;}', '.a{x:1}\n');
-    expect(r1.applied).toEqual([k('.c')]);
-    expect(r1.css).toBe('.a{x:1}\n.c{z:2;}\n');
+    expect(r1).toEqual({ css: '.a{x:1}\n', applied: [], conflicts: [], unmatched: [k('.c')] });
     const r2 = mergeCssRuleChangesFromBaseline('.a{x:1}\n', '.c{z:1;}', '.c{z:2;}', '.c{z:9}\n');
-    expect(r2).toMatchObject({ applied: [], conflicts: [k('.c')] });
+    expect(r2).toEqual({ css: '.c{z:9}\n', applied: [], conflicts: [], unmatched: [k('.c')] });
   });
 
   it('baseline に無く next で現れた規則は、原文にあってペア側が消していれば競合にする', () => {
@@ -499,7 +552,7 @@ describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側
       '.a{x:1;}.c{z:1;}',
       '.a{x:1}\n',
     );
-    expect(r).toEqual({ css: '.a{x:1}\n', applied: [], conflicts: [k('.c')] });
+    expect(r).toEqual({ css: '.a{x:1}\n', applied: [], conflicts: [k('.c')], unmatched: [] });
   });
 
   // 編集画面の getCss は文書で使っていない規則も書き出す(`useGrapes` の `keepUnusedStyles`)。
@@ -508,7 +561,7 @@ describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側
     const raw = '.a{x:1}\n.gone{color:#003366}\n';
     const both = '.a{x:1;}.gone{color:rgb(0, 51, 102);}';
     const r = mergeCssRuleChangesFromBaseline(raw, both, both, raw);
-    expect(r).toEqual({ css: raw, applied: [], conflicts: [] });
+    expect(r).toEqual({ css: raw, applied: [], conflicts: [], unmatched: [] });
   });
 
   it('baseline で未使用だった規則を使い始めても、本文が同じなら変更にも競合にもならない', () => {
@@ -517,12 +570,12 @@ describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側
     const gjs =
       '.a{x:1;}.later{padding-top:1mm;padding-right:1mm;padding-bottom:1mm;padding-left:1mm;}';
     const r = mergeCssRuleChangesFromBaseline(raw, gjs, gjs, target);
-    expect(r).toEqual({ css: target, applied: [], conflicts: [] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [], unmatched: [] });
   });
 
   it('ペア側が既に next と同じなら当てず、競合にもしない', () => {
     const r = mergeCssRuleChangesFromBaseline('.a{x:1}', '.a{x:1;}', '.a{x:2;}', '.a{x:2;}');
-    expect(r).toEqual({ css: '.a{x:2;}', applied: [], conflicts: [] });
+    expect(r).toEqual({ css: '.a{x:2;}', applied: [], conflicts: [], unmatched: [] });
   });
 });
 
@@ -590,6 +643,7 @@ describe('属性セレクタの値の引用符', () => {
       css: 'img[src="x"]{color:blue;}\nimg[src=\'y\']{color:red}\n',
       applied: [k('img[src="x"]')],
       conflicts: [],
+      unmatched: [],
     });
   });
 });
@@ -603,7 +657,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       '.a{color:blue;margin:0;}',
       raw,
     );
-    expect(r).toEqual({ css: raw, applied: [], conflicts: [k('.a')] });
+    expect(r).toEqual({ css: raw, applied: [], conflicts: [k('.a')], unmatched: [] });
   });
 
   it('出現数が合えば出現ごとに当て、間にある別の規則とのカスケードを保つ', () => {
@@ -615,6 +669,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       css: '.a{color:red}\n.b{color:green}\n.a{margin:5px;}\n',
       applied: [k('.a')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -626,6 +681,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       css: '.a{color:red}\n.b{x:1}\n.a{color:blue;margin:0;}\n',
       applied: [k('.a')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -637,7 +693,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       '.a{color:red;}.b{x:1;}.a{margin:5px;}',
       raw,
     );
-    expect(r).toEqual({ css: raw, applied: [], conflicts: [k('.a')] });
+    expect(r).toEqual({ css: raw, applied: [], conflicts: [k('.a')], unmatched: [] });
   });
 
   it('最後の重複の宣言を全部消した編集は、ペア側の最後の出現を消し、前の出現は残す', () => {
@@ -652,6 +708,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       css: '.a{color:red}\n.b{color:green}\n',
       applied: [k('.a')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -663,7 +720,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       '.a{color:red;}.b{}',
       target,
     );
-    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')], unmatched: [] });
   });
 
   it('ペア側が宣言の配り方を変えていれば、畳めば同じでも競合にする', () => {
@@ -674,7 +731,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       '.a{x:1;}',
       target,
     );
-    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')], unmatched: [] });
   });
 
   it('ペア側が後ろの重複を 1 本にまとめていれば、出現の編集も競合にする(順序を変えない)', () => {
@@ -686,13 +743,18 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       gjs('5'),
       target,
     );
-    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')], unmatched: [] });
   });
 
   it('原文の空の規則に宣言を足した編集は、ペア側の最後の空の出現を置き換える', () => {
     const raw = '.a{}\n.b{y:1}';
     const r = mergeCssRuleChangesFromBaseline(raw, '.b{y:1;}', '.b{y:1;}.a{color:red;}', raw);
-    expect(r).toEqual({ css: '.a{color:red;}\n.b{y:1}', applied: [k('.a')], conflicts: [] });
+    expect(r).toEqual({
+      css: '.a{color:red;}\n.b{y:1}',
+      applied: [k('.a')],
+      conflicts: [],
+      unmatched: [],
+    });
     const dup = '.a{}\n.a{ }\n.b{y:1}';
     expect(
       mergeCssRuleChangesFromBaseline(dup, '.b{y:1;}', '.b{y:1;}.a{color:red;}', dup).css,
@@ -706,7 +768,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       ['.a{}\n.a{}\n.b{y:1}', '.a{}\n.a{}\n.a{}\n.b{y:1}'],
     ]) {
       const r = mergeCssRuleChangesFromBaseline(raw, '.b{y:1;}', '.b{y:1;}.a{color:red;}', target);
-      expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+      expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')], unmatched: [] });
     }
   });
 
@@ -723,6 +785,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
         css: `${empty}\n.b{color:green}\n.a{color:blue;}\n`,
         applied: [k('.a')],
         conflicts: [],
+        unmatched: [],
       });
     }
   });
@@ -746,7 +809,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       '.a{color:blue;margin:0;}',
       target,
     );
-    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')], unmatched: [] });
   });
 
   it('ペア側が 1 本で、畳んだ原文と同じ宣言でも、出現の形が違うので競合にする', () => {
@@ -757,7 +820,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       '.a{color:blue;}.a{margin:0;}',
       target,
     );
-    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+    expect(r).toEqual({ css: target, applied: [], conflicts: [k('.a')], unmatched: [] });
   });
 
   it('削除は重複をすべて消す', () => {
@@ -768,7 +831,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       '.b{x:1;}',
       raw,
     );
-    expect(r).toEqual({ css: '.b{x:1}\n', applied: [k('.a')], conflicts: [] });
+    expect(r).toEqual({ css: '.b{x:1}\n', applied: [k('.a')], conflicts: [], unmatched: [] });
   });
 
   it('畳んだ本文(foldedCssRuleTexts)では、!important の宣言は後ろの通常の宣言に負けない', () => {
@@ -789,6 +852,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       css: '.a{x:1}\n.b{y:1}\n.a{z:1}\n.c{w:1;}\n',
       applied: [k('.c')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -799,6 +863,7 @@ describe('mergeCssRuleChangesFromBaseline — 重複した規則は 1 本に畳�
       css: raw,
       applied: [],
       conflicts: [],
+      unmatched: [],
     });
   });
 });
@@ -947,7 +1012,12 @@ describe('照合の経路でのセレクタの並びの展開', () => {
   it('3 者の mergeCssRuleChanges でも展開して照合する(出現番号は見かけの規則も数える)', () => {
     const base = '.a{x:1}\n.a, .b{y:2}\n';
     const r = mergeCssRuleChanges(base, '.a{x:9}\n.a{y:2}\n.b{y:2}\n', base);
-    expect(r).toEqual({ css: '.a{x:9}\n.a, .b{y:2}\n', applied: [k('.a')], conflicts: [] });
+    expect(r).toEqual({
+      css: '.a{x:9}\n.a, .b{y:2}\n',
+      applied: [k('.a')],
+      conflicts: [],
+      unmatched: [],
+    });
   });
 
   it.each([
@@ -960,6 +1030,7 @@ describe('照合の経路でのセレクタの並びの展開', () => {
       css: raw,
       applied: [],
       conflicts: [],
+      unmatched: [],
     });
     // 物理の規則 `.a{x:1}` の出現だけが変わったら、その物理の規則だけに当たる
     const next = grapes.replace('.a{x:1}', '.a{x:9}');
@@ -967,6 +1038,7 @@ describe('照合の経路でのセレクタの並びの展開', () => {
       css: raw.replace('.a{x:1}', '.a{x:9}'),
       applied: [k('.a')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -977,11 +1049,13 @@ describe('照合の経路でのセレクタの並びの展開', () => {
       css: raw,
       applied: [],
       conflicts: [],
+      unmatched: [],
     });
     expect(mergeCssRuleChangesFromBaseline(raw, grapes, '.a{x:2}\n', raw)).toEqual({
       css: '.a{x:2}\n.a, .b{}\n',
       applied: [k('.a')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -993,6 +1067,7 @@ describe('照合の経路でのセレクタの並びの展開', () => {
       css: '.a, .b{color:red}\n.n{x:1}\n',
       applied: [k('.n')],
       conflicts: [],
+      unmatched: [],
     });
   });
 });
@@ -1008,6 +1083,7 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
       css: '.x{color:gray}\n.a{color:blue}\n.b{color:red}\n.y{color:gray}\n',
       applied: [k('.a')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -1016,6 +1092,7 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
       css: '.x{color:gray}\n.b{color:red}\n.y{color:gray}\n',
       applied: [k('.a')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -1024,6 +1101,7 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
       css: '.x{color:gray}\n.a, .b{color:blue}\n.y{color:gray}\n',
       applied: [k('.a'), k('.b')],
       conflicts: [],
+      unmatched: [],
     });
     // 前置きの空白・改行も原文のまま残す(書式の違いだけの本文は同じ変更とみなす)
     const spaced = '.a ,\n.b {color:red}\n';
@@ -1042,6 +1120,7 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
       css: '.x{color:gray}\n.y{color:gray}\n',
       applied: [k('.a'), k('.b')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -1050,6 +1129,7 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
       css: '.x{color:gray}\n.a{color:blue}\n.b{color:green}\n.y{color:gray}\n',
       applied: [k('.a'), k('.b')],
       conflicts: [],
+      unmatched: [],
     });
     // 片方を変え、もう片方を消す
     expect(merge('.x{color:gray}\n.a{color:blue}\n.y{color:gray}\n').css).toBe(
@@ -1061,7 +1141,7 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
     const target = '.x{color:gray}\n.a, .b{color:green}\n.y{color:gray}\n';
     expect(
       merge('.x{color:gray}\n.a{color:blue}\n.b{color:red}\n.y{color:gray}\n', target),
-    ).toEqual({ css: target, applied: [], conflicts: [k('.a')] });
+    ).toEqual({ css: target, applied: [], conflicts: [k('.a')], unmatched: [] });
   });
 
   it('競合のセレクタと当てるセレクタが混ざると、競合の側は元の宣言のまま分割する', () => {
@@ -1075,7 +1155,12 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
         '.a{x:1}\n.a{y:3}\n.b{y:3}\n',
         target,
       ),
-    ).toEqual({ css: '.a{x:5}\n.a{y:2}\n.b{y:3}\n', applied: [k('.b')], conflicts: [k('.a')] });
+    ).toEqual({
+      css: '.a{x:5}\n.a{y:2}\n.b{y:3}\n',
+      applied: [k('.b')],
+      conflicts: [k('.a')],
+      unmatched: [],
+    });
   });
 
   it('@media の中の並びも入れ子の中で分割する', () => {
@@ -1091,6 +1176,7 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
       css: '@media print{\n  .a{color:blue}\n  .b{color:red}\n}\n',
       applied: [k('@media print', '.a')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -1128,7 +1214,12 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
         '.a{x:1}\n.a{y:9}\n.b{y:2}\n',
         dup,
       ),
-    ).toEqual({ css: '.a{x:1}\n.a{y:9}\n.b{y:2}\n', applied: [k('.a')], conflicts: [] });
+    ).toEqual({
+      css: '.a{x:1}\n.a{y:9}\n.b{y:2}\n',
+      applied: [k('.a')],
+      conflicts: [],
+      unmatched: [],
+    });
   });
 
   it('空の並び .a, .b{} の .a に宣言を足すと .a{…} と .b{} に分かれる', () => {
@@ -1137,6 +1228,7 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
       css: '.a{x:1}\n.b{}\n',
       applied: [k('.a')],
       conflicts: [],
+      unmatched: [],
     });
     // 両方に同じ宣言を足したら並びのまま
     expect(mergeCssRuleChangesFromBaseline(empty, '', '.a{x:1}\n.b{x:1}\n', empty).css).toBe(
@@ -1155,6 +1247,7 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
       css: '.x{color:gray}\n.a{color:blue}\n.b{color:red}\n.n{x:1}\n.y{color:gray}\n',
       applied: [k('.a'), k('.n')],
       conflicts: [],
+      unmatched: [],
     });
   });
 
@@ -1169,6 +1262,7 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
       css: '.x{color:gray}\n.a{color:blue}\n.b{color:red}\n.y{color:gray}\n',
       applied: [k('.a')],
       conflicts: [],
+      unmatched: [],
     });
     expect(
       mergeCssRuleChanges(
@@ -1180,5 +1274,64 @@ describe('mergeCssRuleChangesFromBaseline — セレクタの並びへの書き�
     expect(mergeCssRuleChanges(raw, '.x{color:gray}\n.y{color:gray}\n', raw).css).toBe(
       '.x{color:gray}\n.y{color:gray}\n',
     );
+  });
+});
+
+describe('mergeCssRuleChangesFromBaseline — 原文と照合できないキー', () => {
+  // 正規化と展開で吸収できない食い違いを模す(並びの中の重複は展開しないので、GrapesJS の .a と合わない)
+  const raw = '.a, .a{color:red}\n.c{color:red}\n';
+  const baseline = '.a{color:red}\n.a{color:red}\n.c{color:red}\n';
+
+  it('変更: 黙って追記せず unmatched に出す', () => {
+    const r = mergeCssRuleChangesFromBaseline(
+      raw,
+      baseline,
+      '.a{color:red}\n.a{color:blue}\n.c{color:red}\n',
+      raw,
+    );
+    expect(r.unmatched).toEqual([k('.a')]);
+    expect(r.applied).toEqual([]);
+    expect(r.conflicts).toEqual([]);
+    expect(r.css).toBe(raw);
+  });
+
+  it('削除: 何もしなかったことにせず unmatched に出す', () => {
+    const r = mergeCssRuleChangesFromBaseline(raw, baseline, '.c{color:red}\n', raw);
+    expect(r.unmatched).toEqual([k('.a')]);
+    expect(r.applied).toEqual([]);
+    expect(r.css).toBe(raw);
+  });
+
+  it('ペア側が既に next と同じ形なら unmatched にしない', () => {
+    const target = `${raw}.a{color:red}\n.a{color:blue}\n`;
+    const r = mergeCssRuleChangesFromBaseline(
+      raw,
+      baseline,
+      '.a{color:red}\n.a{color:blue}\n.c{color:red}\n',
+      target,
+    );
+    expect(r.unmatched).toEqual([]);
+    expect(r.conflicts).toEqual([]);
+    expect(r.css).toBe(target);
+  });
+
+  it('照合できるキーの変更は今までどおり当てる(unmatched は空)', () => {
+    const r = mergeCssRuleChangesFromBaseline(
+      raw,
+      baseline,
+      '.a{color:red}\n.a{color:red}\n.c{color:blue}\n',
+      raw,
+    );
+    expect(r.unmatched).toEqual([]);
+    expect(r.applied).toEqual([k('.c')]);
+    expect(r.css).toBe('.a, .a{color:red}\n.c{color:blue}\n');
+  });
+
+  it('3 者が同じ物差しの mergeCssRuleChanges では unmatched は常に空', () => {
+    const changed = mergeCssRuleChanges('.a{color:red}\n', '.a{color:blue}\n', '.a{color:red}\n');
+    expect(changed.unmatched).toEqual([]);
+    expect(changed.applied).toEqual([k('.a')]);
+    const removed = mergeCssRuleChanges('.a{color:red}\n.b{x:1}\n', '.b{x:1}\n', '.b{x:1}\n');
+    expect(removed.unmatched).toEqual([]);
   });
 });
