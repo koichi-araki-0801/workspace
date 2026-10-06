@@ -256,6 +256,55 @@ describe('meta http-equiv=refresh の content', () => {
     ).toEqual([]);
   });
 
+  it.each([
+    [
+      [
+        { name: 'http-equiv', value: '&#114;efresh' },
+        { name: 'content', value: '0;url=https://evil/' },
+      ],
+    ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0&#59;url=https://evil/' },
+      ],
+    ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0;url&#61;https://evil/' },
+      ],
+    ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0;url=https://evil/' },
+        { name: 'content', value: '0;url=#x' },
+      ],
+    ],
+  ])('文字参照や重複属性で隠しても外部への refresh を拾う %#', (attrs) => {
+    expect(findExternalRefsInTag('meta', attrs)).not.toEqual([]);
+  });
+
+  it('2 つ目の http-equiv は見ない(ブラウザは最初の属性を採る)', () => {
+    expect(
+      findExternalRefsInTag('meta', [
+        { name: 'http-equiv', value: 'x' },
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0;url=https://evil/' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('URL の文字参照は 1 回だけ復号する(&amp;#104;ttps は https にならない)', () => {
+    expect(
+      findExternalRefsInTag('meta', [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0;url=&amp;#104;ttps://evil/x' },
+      ]),
+    ).toEqual([]);
+  });
+
   it('refresh 以外の meta の content は URL 判定へ掛けない', () => {
     expect(
       findExternalRefsInTag('meta', [

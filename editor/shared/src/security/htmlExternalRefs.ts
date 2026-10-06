@@ -16,7 +16,7 @@
 // 出す**ため(`cssExternalRefs.ts` 冒頭の解説と同じ理由)。web の検査は唯一の関門ではない。
 
 import { isSelfContainedUrl } from './cssExternalRefs.js';
-import { normalizeHtmlUrlValue } from './htmlEntities.js';
+import { decodeHtmlEntities, normalizeHtmlUrlValue } from './htmlEntities.js';
 
 /**
  * 要素ごとの「取得(fetch)を起こす URL 属性」。ここに載る属性だけを外部参照検査に掛ける。
@@ -119,17 +119,26 @@ const MULTI_URL_ATTRS = new Set(['srcset', 'imagesrcset', 'archive']);
  * 掛かる)。`http-equiv` が `refresh` のときだけ、HTML 仕様の refresh 値の構文
  * (時間 → 区切り → 任意の `url=` → URL)で切り出す。`url=` を省いた
  * `content="0;https://evil/"` も仕様上ナビゲートするので同じ経路で拾う。
+ *
+ * `http-equiv` の比較も `content` の切り出しも、ブラウザが見る**文字参照を解いた値**で行う
+ * (`&#114;efresh` や `0&#59;url=` で隠せないように)。属性は**最初の 1 つだけ**を採る
+ * (HTML の字句解析は 2 つ目以降の同名属性を捨てる)。
+ *
+ * 戻り値は**復号済み**の URL(呼び出し側で再度 `decodeHtmlEntities` を通さないこと)。
+ * 再度復号すると `&amp;#104;ttps://…` のように 1 段だけ隠した文字参照が余計に解けて、
+ * ブラウザが解く形と食い違う。TAB/LF/CR の除去と前後の trim だけは呼び出し側で行う。
  */
 function metaRefreshUrl(attrs: ReadonlyArray<{ name: string; value: string }>): string | undefined {
-  let isRefresh = false;
+  let httpEquiv: string | undefined;
   let content: string | undefined;
   for (const a of attrs) {
     const name = a.name.toLowerCase();
-    if (name === 'http-equiv' && a.value.trim().toLowerCase() === 'refresh') isRefresh = true;
-    if (name === 'content') content = a.value;
+    if (name === 'http-equiv' && httpEquiv === undefined) httpEquiv = a.value;
+    if (name === 'content' && content === undefined) content = a.value;
   }
-  if (!isRefresh || content === undefined) return undefined;
-  const m = /^\s*[0-9.]*\s*[;,]?\s*(?:url\s*=\s*)?([\s\S]*)$/i.exec(content);
+  if (httpEquiv === undefined || content === undefined) return undefined;
+  if (decodeHtmlEntities(httpEquiv).trim().toLowerCase() !== 'refresh') return undefined;
+  const m = /^\s*[0-9.]*\s*[;,]?\s*(?:url\s*=\s*)?([\s\S]*)$/i.exec(decodeHtmlEntities(content));
   const raw = (m?.[1] ?? '').trim();
   // 値は引用符で囲まれることがある(`content="0;url='https://evil/'"`)。
   const unquoted =
@@ -163,7 +172,11 @@ export function findExternalRefsInTag(
   const found: string[] = [];
   if (tagName.toLowerCase() === 'meta') {
     const refresh = metaRefreshUrl(attrs);
-    if (refresh !== undefined && !isSelfContainedUrl(normalizeHtmlUrlValue(refresh))) {
+    // `refresh` は復号済みなので、`&` を `&amp;` へ戻してから正規化し、復号を二重にしない。
+    if (
+      refresh !== undefined &&
+      !isSelfContainedUrl(normalizeHtmlUrlValue(refresh.replaceAll('&', '&amp;')))
+    ) {
       found.push(`<meta http-equiv="refresh" content="…${refresh}">`);
     }
   }
