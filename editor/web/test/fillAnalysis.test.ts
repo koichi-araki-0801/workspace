@@ -106,6 +106,19 @@ describe('analyzeFill — 固める形', () => {
     expect(frozen(raw)).toEqual([`element:div:unbalanced-branch:${raw}`]);
   });
 
+  it.each([
+    ['div', '<div><p>a{% if x %}<div>b</div>{% endif %}</p></div>'],
+    ['ul', '<ul><li>a{% if x %}<li>b</li>{% endif %}</ul>'],
+    ['div', '<div><p>a{% for x in xs %}<div>b</div>{% endfor %}</p></div>'],
+  ])('枝の先頭のタグが枝の外の要素を暗黙に閉じる (%s)', (tag, raw) => {
+    expect(frozen(raw)).toEqual([`element:${tag}:unbalanced-branch:${raw}`]);
+  });
+
+  it('対応しない終了タグの中の Jinja は親の要素', () => {
+    const raw = '<div></span {{ x }}></div>';
+    expect(frozen(raw)).toEqual([`element:div:tag-position:${raw}`]);
+  });
+
   it('opaqueBlock はそれを含む要素', () => {
     expect(frozen('<div>{% macro m() %}<p>x</p>{% endmacro %}</div>')[0]).toMatch(
       /^element:div:opaque-block:/,

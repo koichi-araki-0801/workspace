@@ -60,6 +60,13 @@ describe('scanHtml', () => {
     expect(ctx(h, 'M')).toBe('text:b');
   });
 
+  it('対応しない終了タグの中は、ブラウザが読み捨てる位置としてコメント扱いにする', () => {
+    const h = '<div>T</span JJJJJ>U</div>';
+    expect(ctx(h, 'JJJJJ')).toBe('comment');
+    expect(ctx(h, 'span')).toBe('comment');
+    expect(ctx(h, 'U')).toBe('text:div');
+  });
+
   it('暗黙に閉じた要素と末尾で開いたままの要素に印が付く', () => {
     const h = '<ul><li>A<li>B</ul><div>open';
     const s = scanHtml(h);

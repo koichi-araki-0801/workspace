@@ -24,7 +24,8 @@ export type PositionContext =
   | { kind: 'attrValue'; element: ScannedElement }
   | { kind: 'tagOther'; element: ScannedElement }
   | { kind: 'rawText'; element: ScannedElement }
-  // コメント、宣言、`</` + 伏せ字(ブラウザが > まで偽コメントとして読み捨てる)
+  // コメント、宣言、`</` + 伏せ字(ブラウザが > まで偽コメントとして読み捨てる)、
+  // 対応しない終了タグ(同じく > まで読み捨てる)
   | { kind: 'htmlComment' };
 
 export interface HtmlScan {
@@ -190,7 +191,8 @@ export function scanHtml(masked: string): HtmlScan {
         matched.implicitlyClosed = false;
         stack.length = found;
       } else {
-        push(i, { kind: 'text', parent: top() });
+        // ブラウザは対応しない終了タグを `>` まで読み捨てるので、ここに置いたものは残らない。
+        push(i, { kind: 'htmlComment' });
       }
       i = textFrom = to;
       continue;

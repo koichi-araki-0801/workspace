@@ -269,7 +269,10 @@ export function analyzeFill(raw: string): FillAnalysis {
       scan.elements.some(
         (e) =>
           (e.start >= start && e.start < end && e.end > end) ||
-          (e.start < start && e.end > start && e.end <= end),
+          // 枝の先頭のタグが暗黙に閉じた要素は end が枝の始まりちょうどになる。
+          (e.start < start &&
+            (e.implicitlyClosed ? e.end >= start : e.end > start) &&
+            e.end <= end),
       ),
     );
     if (broken) add(scan.innermostContaining(b.start, b.end), 'unbalanced-branch');
