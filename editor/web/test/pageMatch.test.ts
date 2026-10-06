@@ -97,26 +97,79 @@ describe('layoutRows', () => {
     expect(r.rowCount).toBe(5);
   });
 
-  it('操作を重ねても組み直しは冪等で、行数は基準 + 両側のページ数を超えない', () => {
-    let seed = 12345;
-    const rnd = (n: number) => {
-      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-      return seed % n;
-    };
-    for (let t = 0; t < 40; t++) {
-      const bc = rnd(6);
-      const ac = rnd(6);
-      let cur = layoutRows([], [], bc, ac);
-      for (let step = 0; step < 40; step++) {
-        const bOff = [...cur.beforeOff];
-        const aOff = [...cur.afterOff];
-        const row = rnd(cur.rowCount);
-        const target = rnd(2) === 0 ? bOff : aOff;
-        target[row] = rnd(4) === 0 ? directOffset(null, row) : target[row] + rnd(3) - 1;
-        cur = layoutRows(bOff, aOff, bc, ac);
-        expect(cur.rowCount).toBeLessThanOrEqual(Math.max(bc, ac, 1) + bc + ac);
-        expect(cur.beforeOff).toHaveLength(cur.rowCount);
-        expect(layoutRows(cur.beforeOff, cur.afterOff, bc, ac)).toEqual(cur);
+  it('途中の対応なしの行は使い回さず、あふれたページを行の順序どおり末尾へ足す', () => {
+    const n = (r: number) => directOffset(null, r);
+    const r = layoutRows([0, 0, n(2), n(3), n(4), directOffset(2, 5)], [], 4, 4);
+    const shown = r.beforeOff.map((o, row) => row + o);
+    expect(shown.slice(2, 5)).toEqual([2 + n(2), 3 + n(3), 4 + n(4)]);
+    expect(shown[5]).toBe(2);
+    expect(shown[6]).toBe(3);
+    expect(r.missing.before).toEqual([]);
+  });
+
+  it('操作を重ねても、全ページが表示か報告のどちらかに載り、組み直しは冪等', () => {
+    for (const seed0 of [1, 12345, 777, 4242, 99991]) {
+      let seed = seed0;
+      const rnd = (n: number) => {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        return (seed >>> 8) % n;
+      };
+      for (let t = 0; t < 20; t++) {
+        const counts = [rnd(6), rnd(6)];
+        const base = Math.max(counts[0], counts[1], 1);
+        let cur = layoutRows([], [], counts[0], counts[1]);
+        for (let step = 0; step < 40; step++) {
+          const prevRows = cur.rowCount;
+          const offs = [[...cur.beforeOff], [...cur.afterOff]];
+          const row = rnd(prevRows);
+          const side = rnd(2);
+          offs[side][row] =
+            rnd(4) === 0
+              ? rnd(2) === 0
+                ? directOffset(null, row)
+                : directOffset(rnd(Math.max(counts[side], 1)), row)
+              : offs[side][row] + rnd(3) - 1;
+          cur = layoutRows(offs[0], offs[1], counts[0], counts[1]);
+
+          expect(cur.rowCount).toBeGreaterThanOrEqual(base);
+          expect(cur.beforeOff).toHaveLength(cur.rowCount);
+          expect(cur.afterOff).toHaveLength(cur.rowCount);
+          const sides = [
+            {
+              off: cur.beforeOff,
+              count: counts[0],
+              miss: cur.missing.before,
+              dup: cur.duplicated.before,
+            },
+            {
+              off: cur.afterOff,
+              count: counts[1],
+              miss: cur.missing.after,
+              dup: cur.duplicated.after,
+            },
+          ];
+          for (const sd of sides) {
+            const seen = new Array<number>(sd.count).fill(0);
+            const shownRows: (number | null)[] = sd.off.map((o, rr) => {
+              const p = rr + o;
+              return p >= 0 && p < sd.count ? p : null;
+            });
+            for (const p of shownRows) if (p != null) seen[p]++;
+            expect(sd.miss).toEqual(seen.flatMap((c, p) => (c === 0 ? [p] : [])));
+            expect(sd.dup).toEqual(seen.flatMap((c, p) => (c > 1 ? [p] : [])));
+            const appended = shownRows.slice(prevRows).filter((p): p is number => p != null);
+            expect([...appended].sort((x, y) => x - y)).toEqual(appended);
+          }
+          if (cur.rowCount > base) {
+            const last = cur.rowCount - 1;
+            const lastShown = [cur.beforeOff, cur.afterOff].some((o, i) => {
+              const p = last + o[last];
+              return p >= 0 && p < counts[i];
+            });
+            expect(lastShown).toBe(true);
+          }
+          expect(layoutRows(cur.beforeOff, cur.afterOff, counts[0], counts[1])).toEqual(cur);
+        }
       }
     }
   });

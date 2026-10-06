@@ -79,13 +79,12 @@ export function layoutRows(
   const bOver = overflow(bOff, beforeCount);
   const aOver = overflow(aOff, afterCount);
   const extra = Math.max(bOver.length, aOver.length);
-  // 足した行のうち両側とも対応なしの行は、新しい行を増やす前に使い回す。対応なしにした行の
-  // 後ろへ行を足し続けると、操作のたびに行数が増えるため。
+  // 末尾に連なる両側対応なしの行(どのページも後ろに無い)だけは使い回す。途中の対応なしの行は
+  // 利用者が空けた隙間なので、そこへ入れるとページの並びが入れ替わり、指定も上書きされる。
   const free: number[] = [];
-  for (let r = baseRows; r < readRows; r++) {
-    if (shownPage(bOff, r, beforeCount) == null && shownPage(aOff, r, afterCount) == null) {
-      free.push(r);
-    }
+  for (let r = readRows - 1; r >= baseRows; r--) {
+    if (shownPage(bOff, r, beforeCount) != null || shownPage(aOff, r, afterCount) != null) break;
+    free.unshift(r);
   }
   for (let k = 0; k < extra; k++) {
     const row = k < free.length ? free[k] : bOff.length;
