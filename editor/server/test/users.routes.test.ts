@@ -40,7 +40,9 @@ const TEMP_PASSWORD_RE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$/;
 
 const as = (username: string) => ({ cookie: username });
 
-async function buildApp(): Promise<FastifyInstance> {
+async function buildApp(
+  tweakDeps?: (deps: { users: { listUsers: () => Promise<unknown> } }) => void,
+): Promise<FastifyInstance> {
   const Fastify = (await import('fastify')).default;
   const { errorHandler } = await import('../src/middleware/errorHandler.js');
   const { createDeps } = await import('../src/deps.js');
@@ -78,6 +80,7 @@ async function buildApp(): Promise<FastifyInstance> {
 
   const store = createSessionStub({ getSessionUser: (sid) => userOf(sid) });
   const deps = createDeps(await createFakeSproc(), store);
+  tweakDeps?.(deps);
   const app = Fastify();
   decorateSessionStore(app, store);
   app.setErrorHandler(errorHandler);
@@ -277,5 +280,50 @@ describe('users.routes', () => {
         })
       ).statusCode,
     ).toBe(403);
+  });
+});
+
+describe('users.routes: 管理者の席の検査と更新の直列化', () => {
+  it('2 人の admin が同時に互いを無効化しても、有効な admin が 1 人残る', async () => {
+    // 台帳の読み取りを遅らせ、検査 → 更新の間に他方の検査が割り込める状況を作る。
+    const app = await buildApp((deps) => {
+      const original = deps.users.listUsers.bind(deps.users);
+      vi.spyOn(deps.users, 'listUsers').mockImplementation(async () => {
+        const snapshot = await original();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return snapshot;
+      });
+    });
+    try {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: as('admin'),
+        payload: {
+          username: 'admin2',
+          displayName: '管理 三郎',
+          role: 'admin',
+          disabled: false,
+          mustChangePassword: true,
+        },
+      });
+      const admin2 = created.json().user.id as string;
+      const disable = (id: string) =>
+        app.inject({
+          method: 'PATCH',
+          url: `/users/${id}`,
+          headers: as('ghost-admin'),
+          payload: { disabled: true },
+        });
+      const results = await Promise.all([disable('u-admin'), disable(admin2)]);
+      expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409]);
+      expect(results.find((r) => r.statusCode === 409)?.json().code).toBe('LAST_ADMIN');
+      const list = (
+        await app.inject({ method: 'GET', url: '/users', headers: as('admin') })
+      ).json() as Array<{ role: string; disabled: boolean }>;
+      expect(list.filter((u) => u.role === 'admin' && !u.disabled)).toHaveLength(1);
+    } finally {
+      await app.close();
+    }
   });
 });

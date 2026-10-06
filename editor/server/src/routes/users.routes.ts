@@ -20,6 +20,20 @@ function isActiveAdmin(user: Pick<User, 'role' | 'disabled'>): boolean {
   return user.role === 'admin' && !user.disabled;
 }
 
+// 管理者の席の検査と更新の直列化(`reviewRepo.ts` の `withReviewLock` と同型)。ロックがモジュール
+// 直下に在るのは、`usersRoutes` を複数回登録しても触る台帳はプロセスに 1 つだから。台帳が
+// 1 サーバにしか無い前提で、複数台構成ではプロセス間の排他にならない。作成とパスワードのリセットは
+// 管理者の席を減らさないので鎖に入れない。
+let userLedgerLock: Promise<unknown> = Promise.resolve();
+function withUserLedgerLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = userLedgerLock.then(fn, fn);
+  userLedgerLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 /**
  * ロール・無効フラグの変更が管理者の席を失わせないことを確かめる。web の
  * `canDisableUser`(`@editor/shared`)と同じ規則をサーバでも強制する — 画面側の検査だけでは
@@ -29,8 +43,10 @@ function isActiveAdmin(user: Pick<User, 'role' | 'disabled'>): boolean {
  * - 変更後に有効な admin が 1 人も残らない変更は 409。数えるのは台帳の現況で、操作者の
  *   セッションではない(台帳側で既に無効化・降格された操作者を「残る admin」に数えない)。
  *
- * 台帳の読み取りと更新は別の sproc 呼び出しなので、2 人の admin が同時に互いを無効化する
- * 競合までは閉じない。それを閉じるには sproc 側で同一トランザクション内の検査が要る。
+ * 台帳の読み取りと更新は別の sproc 呼び出しなので、検査から更新までの間に他方の更新が割り込むと
+ * 2 人の admin が同時に互いを無効化できてしまう。呼び出し側が `withUserLedgerLock` で
+ * 「検査 → 更新」を 1 組にして直列化するため、プロセス内では閉じる。サーバ 1 台が前提で、
+ * 複数台にするなら sproc 側の同一トランザクション内の検査が要る。
  */
 async function assertKeepsAdminSeat(
   users: UserRepo,
@@ -92,8 +108,10 @@ export const usersRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'users'> }> = as
     async (request) => {
       // `requireIdentifiedUser` を通った後なので `request.user` は必ずある。
       const actor = request.user as NonNullable<typeof request.user>;
-      await assertKeepsAdminSeat(users, actor.id, request.params.id, request.body);
-      return users.updateUser(request.params.id, request.body);
+      return withUserLedgerLock(async () => {
+        await assertKeepsAdminSeat(users, actor.id, request.params.id, request.body);
+        return users.updateUser(request.params.id, request.body);
+      });
     },
   );
 
