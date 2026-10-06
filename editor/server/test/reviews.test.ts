@@ -451,4 +451,112 @@ d('review workflow (reviewRepo)', () => {
       '.from-a{}',
     );
   });
+
+  // ── 同じ内容の重ね申請 ──
+  // 二重クリック・再送で同じ申請が精査者のキューに並ぶと、承認者は同じ差分を 2 回見ることになる。
+  // 同じ人・同じテンプレ・同じ経路・同じ HTML と CSS の承認待ちがあれば、新しい申請は作らない。
+  describe('同じ内容の重ね申請', () => {
+    const other = { username: 'editor2', role: 'editor' };
+    const submitAs = (
+      actor: { username: string; role: string },
+      templateId: string,
+      html: string,
+      css = '.x{}',
+    ) => {
+      if (!fs.existsSync(filledFile(templateId))) seedFilled(templateId);
+      return reviews.submitReview({ templateId, html, css, origin: 'edit' }, actor);
+    };
+    const pendingOf = async (templateId: string) =>
+      (await reviews.listReviews({ status: 'pending' }, approver)).filter(
+        (m) => m.templateId.toLowerCase() === templateId.toLowerCase(),
+      );
+
+    it('同じ人の同じ内容の 2 回目は 409 REVIEW_DUPLICATE で、申請は 1 件のまま', async () => {
+      const tplId = 'AM01_610001_20250101_交付版';
+      const first = await submitAs(submitter, tplId, '<p>重複</p>');
+      await expect(submitAs(submitter, tplId, '<p>重複</p>')).rejects.toMatchObject({
+        kind: 'conflict',
+        code: 'REVIEW_DUPLICATE',
+        message: expect.stringContaining('同じ内容の確定保存申請が既に承認待ちです'),
+      });
+      const pending = await pendingOf(tplId);
+      expect(pending.map((m) => m.id)).toEqual([first.id]);
+    });
+
+    it('HTML か CSS が 1 文字でも違えば受け付ける', async () => {
+      const tplId = 'AM01_610002_20250101_交付版';
+      await submitAs(submitter, tplId, '<p>a</p>', '.x{}');
+      await submitAs(submitter, tplId, '<p>b</p>', '.x{}');
+      await submitAs(submitter, tplId, '<p>a</p>', '.y{}');
+      expect(await pendingOf(tplId)).toHaveLength(3);
+    });
+
+    it('別の人の同じ内容は受け付ける', async () => {
+      const tplId = 'AM01_610003_20250101_交付版';
+      await submitAs(submitter, tplId, '<p>同じ</p>');
+      await submitAs(other, tplId, '<p>同じ</p>');
+      expect(await pendingOf(tplId)).toHaveLength(2);
+    });
+
+    it('1 件目が却下済みなら同じ内容でも受け付ける', async () => {
+      const tplId = 'AM01_610004_20250101_交付版';
+      const first = await submitAs(submitter, tplId, '<p>再申請</p>');
+      await reviews.rejectReview(first.id, { comment: '理由' }, approver);
+      const again = await submitAs(submitter, tplId, '<p>再申請</p>');
+      expect(again.status).toBe('pending');
+    });
+
+    it('1 件目が承認済みなら同じ内容でも受け付ける', { timeout: 60_000 }, async () => {
+      const tplId = 'AM01_610005_20250101_交付版';
+      const first = await submitAs(submitter, tplId, '<p>承認後</p>');
+      await reviews.approveReview(first.id, {}, approver);
+      const again = await submitAs(submitter, tplId, '<p>承認後</p>');
+      expect(again.status).toBe('pending');
+    });
+
+    it('同じ内容を同時に 2 回出すと 1 件だけ作られ、もう一方は 409', async () => {
+      const tplId = 'AM01_610006_20250101_交付版';
+      seedFilled(tplId);
+      const results = await Promise.allSettled([
+        submitAs(submitter, tplId, '<p>同時</p>'),
+        submitAs(submitter, tplId, '<p>同時</p>'),
+      ]);
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.filter((r) => r.status === 'rejected');
+      expect(rejected).toHaveLength(1);
+      expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+        kind: 'conflict',
+        code: 'REVIEW_DUPLICATE',
+      });
+      expect(await pendingOf(tplId)).toHaveLength(1);
+    });
+
+    it('409 の文言に先の申請の日時(YYYY/MM/DD HH:mm)を載せる', async () => {
+      const tplId = 'AM01_610008_20250101_交付版';
+      await submitAs(submitter, tplId, '<p>日時</p>');
+      await expect(submitAs(submitter, tplId, '<p>日時</p>')).rejects.toMatchObject({
+        message: expect.stringMatching(
+          /（\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}に申請）。新しい申請は作りませんでした。$/,
+        ),
+      });
+    });
+
+    it('本文の読めない承認待ちは重複の判定から外す(壊れた 1 件で申請を止めない)', async () => {
+      const tplId = 'AM01_610009_20250101_交付版';
+      const first = await submitAs(submitter, tplId, '<p>壊れ</p>');
+      fs.rmSync(path.join(tmp, 'reviews', first.id, 'body.css'));
+      const again = await submitAs(submitter, tplId, '<p>壊れ</p>');
+      expect(again.status).toBe('pending');
+    });
+
+    it('templateId の大文字小文字だけが違うものは重複とみなす', async () => {
+      const tplId = 'AM01_610007_20250101_交付版';
+      await submitAs(submitter, tplId, '<p>大小</p>');
+      await expect(submitAs(submitter, tplId.toLowerCase(), '<p>大小</p>')).rejects.toMatchObject({
+        kind: 'conflict',
+        code: 'REVIEW_DUPLICATE',
+      });
+      expect(await pendingOf(tplId)).toHaveLength(1);
+    });
+  });
 });

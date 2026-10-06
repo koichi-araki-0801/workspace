@@ -85,4 +85,30 @@ d('申請本文の編集用の印(両経路)', () => {
     );
     expect(edited.status).toBe('pending');
   });
+
+  it('印の残った申請は、同じ内容の承認待ちがあっても重複(409)より先に 400 で止まる', async () => {
+    // 入口の検査を抜けた申請しか保存されないので、印入りの承認待ちはディスクへ直に置いて作る。
+    const { writeReview } = await import('../src/files/reviewFiles.js');
+    const { parseAnyTemplateFileName } = await import('@editor/shared');
+    const attrs = parseAnyTemplateFileName(`${EDIT_ID}.html`);
+    if (!attrs) throw new Error('attrs');
+    await writeReview({
+      id: 'marker-dup-seed',
+      templateId: EDIT_ID,
+      attributes: attrs,
+      origin: 'edit',
+      status: 'pending',
+      submittedBy: submitter.username,
+      submittedAt: new Date().toISOString(),
+      reviewedBy: null,
+      reviewedAt: null,
+      comment: null,
+      baseHash: null,
+      html: CHIP,
+      css: '',
+    });
+    await expect(
+      reviews.submitReview({ templateId: EDIT_ID, html: CHIP, css: '', origin: 'edit' }, submitter),
+    ).rejects.toMatchObject({ kind: 'validation' });
+  });
 });

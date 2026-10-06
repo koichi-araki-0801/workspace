@@ -6,6 +6,7 @@
 // (`body.html` / `body.css` / 任意 `filled.html` / 任意 `baseline.css`)を分けて持つ。
 // 一覧は readdir、状態更新は `meta.json` の書き換え。`templateFiles.ts`/`draftFiles.ts` と同じく本体はファイル、索引は
 // メタに寄せる方針(`atomicWrite` で半端読みを防ぐ)。
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -145,6 +146,45 @@ export async function hasPendingCreateReview(templateId: string): Promise<boolea
   return (await listReviewMetas()).some(
     (m) => m.status === 'pending' && m.origin === 'create' && m.templateId.toLowerCase() === want,
   );
+}
+
+/** 申請本文(HTML と CSS)の照合用の hash。区切りを挟むので、境界のずれた別の組と一致しない。 */
+export function reviewContentHash(html: string, css: string): string {
+  return createHash('sha1').update(html).update('\x00').update(css).digest('hex');
+}
+
+/**
+ * 同じ人・同じテンプレ・同じ経路で、本文(HTML と CSS)も同じ承認待ちの申請を探す。あれば
+ * その申請を、無ければ null を返す。二重クリックや再送で同じ申請がキューに並ぶのを止めるのに使う。
+ *
+ * 本文を読むのはメタの 3 項目が一致した申請だけ(同じ人・同じテンプレの承認待ちは普通 0〜2 件)。
+ * hash をメタに持たせないのは、メタが API 応答の型でもあり、足すと openapi と web の型が動くため。
+ * templateId の照合は `hasPendingCreateReview` と同じく大文字小文字を区別しない。
+ */
+export async function findDuplicatePendingReview(p: {
+  templateId: string;
+  origin: ReviewRequestMeta['origin'];
+  submittedBy: string;
+  contentHash: string;
+}): Promise<ReviewRequestMeta | null> {
+  const want = p.templateId.toLowerCase();
+  const candidates = (await listReviewMetas()).filter(
+    (m) =>
+      m.status === 'pending' &&
+      m.origin === p.origin &&
+      m.submittedBy === p.submittedBy &&
+      m.templateId.toLowerCase() === want,
+  );
+  for (const m of candidates) {
+    // 本文の読めない申請は重複の判定から外す。ここで失敗にすると、壊れた 1 件のせいで同じ人が
+    // そのテンプレへ申請できなくなる(その申請自体は承認時に `readReview` が止める)。
+    const body = await Promise.all([
+      fs.readFile(bodyHtmlPath(m.id), 'utf8'),
+      fs.readFile(bodyCssPath(m.id), 'utf8'),
+    ]).catch(() => null);
+    if (body && reviewContentHash(body[0], body[1]) === p.contentHash) return m;
+  }
+  return null;
 }
 
 /** 同時に開くメタファイル数。`Promise.all` の全件同時 open は fd を枯渇させる。 */

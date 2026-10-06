@@ -29,9 +29,11 @@ import {
 } from '@editor/shared';
 import {
   countPendingReviews,
+  findDuplicatePendingReview,
   listReviewMetas,
   MAX_PENDING_REVIEWS,
   readReview,
+  reviewContentHash,
   updateReviewMeta,
   writeReview,
 } from '../files/reviewFiles.js';
@@ -70,6 +72,27 @@ function withReviewLock<T>(fn: () => Promise<T>): Promise<T> {
     () => undefined,
   );
   return run;
+}
+
+// ── 申請の直列化 ──
+// 重複の検査と書き込みの間に同じ内容の申請が割り込むと、二重クリック・再送が両方とも通る。
+// 件数上限の検査から `writeReview` までをこの鎖で直列化する。承認の鎖(`withReviewLock`)と
+// 分けるのは、承認が git コミットを含んで遅く、申請をその後ろで待たせないため。
+let submitLock: Promise<unknown> = Promise.resolve();
+function withSubmitLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = submitLock.then(fn, fn);
+  submitLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/** 申請日時の表示(web の `formatDateTimeShort` と同じ `YYYY/MM/DD HH:mm`、サーバの現地時刻)。 */
+function formatSubmittedAt(iso: string): string {
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 /**
@@ -226,34 +249,50 @@ export function createReviewRepo({
         templateId: req.templateId,
         where: 'review-submit',
       });
-      // 未処理申請の件数上限。作成は editor 1 ロールで撃て、1 件ごとに dataRoot へ書くので、
-      // 上限が無いと 1 人で領域を埋めて承認フローごと止められる(`reviewsDir` は templates /
-      // `.git` と同じボリューム)。判定は書き込みの前に置く — 通してから消すのでは遅い。
-      if ((await countPendingReviews()) >= MAX_PENDING_REVIEWS)
-        throw validation(
-          `未処理の確定保存申請が上限(${MAX_PENDING_REVIEWS} 件)に達しています。` +
-            '精査者が既存の申請を処理してから、あらためて申請してください。',
-        );
-      const review: StoredReviewRequest = {
-        id: randomUUID(),
-        templateId: req.templateId,
-        attributes: attrs,
-        origin: req.origin,
-        status: 'pending',
-        submittedBy: actor.username,
-        submittedAt: new Date().toISOString(),
-        reviewedBy: null,
-        reviewedAt: null,
-        comment: null,
-        baseHash: await currentBaseHash(req.templateId, target),
-        ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
-        html: req.html,
-        css: req.css,
-        ...(req.filledHtml !== undefined ? { filledHtml: req.filledHtml } : {}),
-        ...(req.cssBaseline !== undefined ? { cssBaseline: req.cssBaseline } : {}),
-      };
-      await writeReview(review);
-      return toReviewMeta(review);
+      return withSubmitLock(async () => {
+        // 未処理申請の件数上限。作成は editor 1 ロールで撃て、1 件ごとに dataRoot へ書くので、
+        // 上限が無いと 1 人で領域を埋めて承認フローごと止められる(`reviewsDir` は templates /
+        // `.git` と同じボリューム)。判定は書き込みの前に置く — 通してから消すのでは遅い。
+        if ((await countPendingReviews()) >= MAX_PENDING_REVIEWS)
+          throw validation(
+            `未処理の確定保存申請が上限(${MAX_PENDING_REVIEWS} 件)に達しています。` +
+              '精査者が既存の申請を処理してから、あらためて申請してください。',
+          );
+        // 同じ内容の承認待ちが既にあれば作らない(二重クリック・再送)。印の検査などの後ろに置くので、
+        // 入口で拒まれる申請は重複かどうかを見る前に止まる。
+        const duplicate = await findDuplicatePendingReview({
+          templateId: req.templateId,
+          origin: req.origin,
+          submittedBy: actor.username,
+          contentHash: reviewContentHash(req.html, req.css),
+        });
+        if (duplicate)
+          throw conflict(
+            `同じ内容の確定保存申請が既に承認待ちです（${formatSubmittedAt(duplicate.submittedAt)}に申請）。` +
+              '新しい申請は作りませんでした。',
+            { code: 'REVIEW_DUPLICATE' },
+          );
+        const review: StoredReviewRequest = {
+          id: randomUUID(),
+          templateId: req.templateId,
+          attributes: attrs,
+          origin: req.origin,
+          status: 'pending',
+          submittedBy: actor.username,
+          submittedAt: new Date().toISOString(),
+          reviewedBy: null,
+          reviewedAt: null,
+          comment: null,
+          baseHash: await currentBaseHash(req.templateId, target),
+          ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
+          html: req.html,
+          css: req.css,
+          ...(req.filledHtml !== undefined ? { filledHtml: req.filledHtml } : {}),
+          ...(req.cssBaseline !== undefined ? { cssBaseline: req.cssBaseline } : {}),
+        };
+        await writeReview(review);
+        return toReviewMeta(review);
+      });
     },
 
     /** 申請一覧。状態で絞り込み、ロールで可視範囲を絞る。新しい順。 */
