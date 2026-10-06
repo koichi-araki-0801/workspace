@@ -54,6 +54,7 @@ export const partsRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'parts'> }> = as
         body.partKey,
         body.change,
         actor(request),
+        body.id,
       );
       return reply.code(204).send();
     },

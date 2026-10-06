@@ -134,6 +134,47 @@ describe('parts.routes', () => {
     ]);
   });
 
+  it('part-history: POST の id を保存して GET が返す(UUID でなければ 400、省略は pt- 始まり)', async () => {
+    const tid = 'AM01_510037_20240711_交付版';
+    const url = `/templates/${encodeURIComponent(tid)}/part-history`;
+    const post = (payload: object) =>
+      app.inject({ method: 'POST', url, headers: as('editor'), payload });
+    const id = '3f2b8c1e-9a4d-4c6e-8b7a-1d2e3f4a5b6c';
+    expect((await post({ partKey: 'k', change: 'a', id })).statusCode).toBe(204);
+    expect((await post({ partKey: 'k', change: 'b', id: 'not-a-uuid' })).statusCode).toBe(400);
+    expect((await post({ partKey: 'k', change: 'c' })).statusCode).toBe(204);
+    const got = (await app.inject({ method: 'GET', url, headers: as('editor') })).json() as Array<{
+      id: string;
+      change: string;
+    }>;
+    expect(got.find((e) => e.change === 'a')?.id).toBe(id);
+    expect(got.find((e) => e.change === 'c')?.id).toMatch(/^pt-/);
+    expect(got.some((e) => e.change === 'b')).toBe(false);
+  });
+
+  it('part-history: id の無い古い行には legacy- の決まった id を付け、再読込でも変わらない', async () => {
+    const tid = 'AM01_510037_20240712_交付版';
+    const dir = path.join(root, 'logs', 'history');
+    fs.mkdirSync(dir, { recursive: true });
+    const row = {
+      templateId: tid,
+      partKey: 'k',
+      user: 'u',
+      timestamp: '2026-01-01T00:00:00Z',
+      change: 'old',
+    };
+    fs.appendFileSync(path.join(dir, 'part.jsonl'), `${JSON.stringify(row)}\n`, 'utf8');
+    const url = `/templates/${encodeURIComponent(tid)}/part-history`;
+    const read = async () =>
+      (await app.inject({ method: 'GET', url, headers: as('editor') })).json() as Array<{
+        id: string;
+      }>;
+    const first = await read();
+    expect(first).toHaveLength(1);
+    expect(first[0].id).toMatch(/^legacy-[0-9a-f]{40}$/);
+    expect((await read())[0].id).toBe(first[0].id);
+  });
+
   it('POST /templates/:templateId/part-history: viewer は 403、未ログインは 401', async () => {
     const url = `/templates/${encodeURIComponent(ID)}/part-history`;
     const payload = { partKey: 'note-a#1', change: '再修正' };

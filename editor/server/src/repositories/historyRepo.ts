@@ -4,7 +4,7 @@
 // 版一覧/スナップ/編集履歴は git(コミット履歴)が正典で、git log/show から導く。
 // PDF出力/作成/パーツ変更は DB には置かず、ファイル監査ログ
 // (`logs/history/*.jsonl`)へ記録/参照する。
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   assertTemplateId,
   type CreateHistoryEntry,
@@ -190,9 +190,11 @@ export async function recordPartChange(
   partKey: string,
   change: string,
   loginId: string,
+  id?: string,
 ): Promise<void> {
   const entry: PartHistoryEntry = {
-    id: `pt-${randomUUID()}`,
+    // web が採番した id があればそれを残す(再読込した永続履歴とセッション内履歴を突き合わせるため)。
+    id: id ?? `pt-${randomUUID()}`,
     templateId,
     partKey,
     user: loginId,
@@ -210,5 +212,21 @@ export async function recordPartChange(
  * テンプレの履歴が 0 件になり「履歴が消えた」ように見える。
  */
 export async function listPartHistory(templateId: string): Promise<PartHistoryEntry[]> {
-  return readHistory<PartHistoryEntry>('part', { where: (e) => e.templateId === templateId });
+  const rows = await readHistory<Omit<PartHistoryEntry, 'id'> & { id?: string }>('part', {
+    where: (e) => e.templateId === templateId,
+  });
+  // id の無い行(手で直した行など)には、内容から決まる id を付ける。ファイルは書き換えず、
+  // 同じ行は読むたびに同じ id になるので、表示側の重複除去がぶれない。
+  return rows.map((e) =>
+    typeof e.id === 'string' && e.id.length > 0
+      ? (e as PartHistoryEntry)
+      : { ...e, id: legacyPartId(e) },
+  );
+}
+
+function legacyPartId(e: Omit<PartHistoryEntry, 'id'>): string {
+  const digest = createHash('sha1')
+    .update([e.templateId, e.partKey, e.timestamp, e.change].join(' '))
+    .digest('hex');
+  return `legacy-${digest}`;
 }
