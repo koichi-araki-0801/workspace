@@ -226,7 +226,7 @@ export async function listPartHistory(templateId: string): Promise<PartHistoryEn
 
 function legacyPartId(e: Omit<PartHistoryEntry, 'id'>): string {
   const digest = createHash('sha1')
-    .update([e.templateId, e.partKey, e.timestamp, e.change].join(' '))
+    .update(JSON.stringify([e.templateId, e.partKey, e.timestamp, e.change]))
     .digest('hex');
   return `legacy-${digest}`;
 }

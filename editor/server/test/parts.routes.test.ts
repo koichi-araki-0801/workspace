@@ -175,6 +175,30 @@ describe('parts.routes', () => {
     expect((await read())[0].id).toBe(first[0].id);
   });
 
+  it('part-history: legacy id はフィールド境界をまたいだ同じ連結でも別の id になる', async () => {
+    const tid = 'AM01_510037_20240713_交付版';
+    const dir = path.join(root, 'logs', 'history');
+    fs.mkdirSync(dir, { recursive: true });
+    const base = { templateId: tid, user: 'u', timestamp: '2026-01-01T00:00:00Z' };
+    const rows = [
+      { ...base, partKey: 'a b', change: 'c' },
+      { ...base, partKey: 'a', change: 'b c' },
+    ];
+    const lines = rows
+      .map(
+        (r) => `${JSON.stringify(r)}
+`,
+      )
+      .join('');
+    fs.appendFileSync(path.join(dir, 'part.jsonl'), lines, 'utf8');
+    const url = `/templates/${encodeURIComponent(tid)}/part-history`;
+    const got = (await app.inject({ method: 'GET', url, headers: as('editor') })).json() as Array<{
+      id: string;
+    }>;
+    expect(got).toHaveLength(2);
+    expect(got[0].id).not.toBe(got[1].id);
+  });
+
   it('POST /templates/:templateId/part-history: viewer は 403、未ログインは 401', async () => {
     const url = `/templates/${encodeURIComponent(ID)}/part-history`;
     const payload = { partKey: 'note-a#1', change: '再修正' };
