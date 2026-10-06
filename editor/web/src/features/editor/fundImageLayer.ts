@@ -16,12 +16,13 @@
 // `canvasCssAssets.ts` が作る複製を、もう 1 枚の canvas 専用 `<style>` に置く。こちらは head では
 // なく body の末尾に置く: GrapesJS は CSS 規則の入れ物を body の中(本文の後ろ)に置くので、
 // head に置くと同じ `@font-face`・同じセレクタの規則に負ける。走査のたびに末尾にあるかを確かめ、
-// 後ろに要素が足されていたら末尾へ戻す。本文の `<style>` の `url()` も同じ `<style>` に複製する
-// (参照元は文書の位置)。並びは「本文の `<style>` → テンプレの CSS」。
+// 後ろに要素が足されていたら末尾へ戻す。本文の `<style>` も同じ `<style>` に複製する(参照元は
+// 文書の位置)。本文の `<style>` は GrapesJS が canvas に置かない(`bodyStyle.ts`)ので、`url()` の
+// 規則だけでなく全規則を複製する。並びは「本文の `<style>` → テンプレの CSS」。
 
 import type { Editor } from 'grapesjs';
 import { cssImageIssues, type ImageRefIssue } from '@/lib/assetWarnings';
-import { canvasCssAssetCopy } from './canvasCssAssets';
+import { canvasCssAssetCopy, canvasCssFullCopy } from './canvasCssAssets';
 import { type FundImageContext, fundImageCss, fundImageWarnings } from './fundImages';
 
 /** canvas の head に置く差し替え用 `<style>` の目印。 */
@@ -53,19 +54,24 @@ export interface FundImageLayerOptions {
   ResizeObserver?: typeof ResizeObserver;
 }
 
-/** `url()` を複製する CSS 1 本と、その参照を解く基準の論理パス。 */
+/** 複製する CSS 1 本と、その参照を解く基準の論理パス。 */
 export interface CssAssetSource {
   css: string;
   /** テンプレの CSS は `TEMPLATE_CSS_FROM`、本文の `<style>` は `DOC_DIR`。 */
   from: string;
+  /**
+   * 全規則を複製する(`canvasCssFullCopy`)。canvas に元の規則が無い本文の `<style>` で立てる。
+   * 省略時は `url()` の規則だけ(`canvasCssAssetCopy`)。
+   */
+  whole?: boolean;
 }
 
 export interface FundImageLayer {
   /** canvas を走査して規則と警告を作り直す。 */
   refresh(): void;
   /**
-   * 本文の `<style>` とテンプレの CSS を受け取り、url() 規則の複製を作り直す(canvas の CSS を
-   * 入れ替えるたびに呼ぶ)。複製は渡した順に並ぶ。
+   * 本文の `<style>` とテンプレの CSS を受け取り、複製を作り直す(canvas の CSS を入れ替える
+   * たび・本文の `<style>` が増減するたびに呼ぶ)。複製は渡した順に並ぶ。
    */
   setCss(sources: readonly CssAssetSource[]): void;
   /** body の監視を外し、以後の走査を止める(editor の破棄時。破棄より前に呼ぶ)。 */
@@ -179,7 +185,11 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   const rebuildCssCopy = (companyCode: string | null): void => {
     cssCompany = companyCode;
     cssCopy = cssInput
-      .map(({ css, from }) => canvasCssAssetCopy(css, companyCode, from))
+      .map(({ css, from, whole }) =>
+        whole
+          ? canvasCssFullCopy(css, companyCode, from)
+          : canvasCssAssetCopy(css, companyCode, from),
+      )
       .filter((copy) => copy !== '')
       .join('\n');
     cssIssues = cssInput.flatMap(({ css, from }) => cssImageIssues(css, from, companyCode));

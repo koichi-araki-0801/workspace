@@ -19,6 +19,12 @@ import { toast } from '@/components/ui/toast';
 import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
+import {
+  bodyStyleCssTexts,
+  bodyStyleParserHtml,
+  containsBodyStyle,
+  registerBodyStyleComponent,
+} from './bodyStyle';
 import { attachFundImages, type FundImageLayer, registerFundImageView } from './fundImageLayer';
 import { type FundImageContext, resolveFundImageSrc } from './fundImages';
 import { type GrapesCallbacks, wireGrapesEvents } from './grapesEvents';
@@ -56,19 +62,6 @@ let quietParse = false;
  */
 function wrapFragmentInBody(html: string): string {
   return /^\s*<(?:!doctype|html|head|body)[\s>]/i.test(html) ? html : `<body>${html}</body>`;
-}
-
-/**
- * 読み込む本文の `<style>` の中身を、文書の順に取り出す。`<style>` の中は HTML として解かれない
- * ので、本文の Jinja の文やチップがあっても中身はそのまま取れる。中に Jinja を含む `<style>` は
- * `fillJinja` が原文を運ぶチップ(`<style>` 要素ではない)にしているので、ここには現れない。
- */
-function bodyStyleTexts(html: string): string[] {
-  if (!/<style[\s>]/i.test(html)) return [];
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  return Array.from(doc.querySelectorAll('style'), (el) => el.textContent ?? '').filter(
-    (text) => text.trim() !== '',
-  );
 }
 
 /** `useGrapes` の推論戻り値型が参照するため export が必要(TS4058 回避)。 @public */
@@ -142,6 +135,10 @@ export function useGrapes() {
   // `setFundImageContext` が差し替え、差し替え層(`fundImageLayer.ts`)と image view の拡張が読む。
   let fundImageContext: FundImageContext = { mode: 'filled', fundCode: null, companyCode: null };
   let fundImages: FundImageLayer | null = null;
+  /** 最後に読み込んだテンプレの CSS(本文の `<style>` が増減したときの複製の作り直しに使う)。 */
+  let templateCss = '';
+  /** `load` の入れ替え中(部品の追加・削除のたびに複製を作り直さない)。 */
+  let replacing = false;
   /** canvas の画像参照の警告(`{{` の残る参照・配信されない参照・会社フォルダ不一致)。 */
   const imageWarnings = ref<string[]>([]);
 
@@ -423,6 +420,9 @@ export function useGrapes() {
       selectorManager: { componentFirst: true },
       layerManager: { appendTo: c.layers },
       assetManager: { custom: true },
+      // 本文の `<style>` は既定のパーサが取り除くので、その前に原文を運ぶ部品の置き場へ
+      // 差し替える(`bodyStyle.ts`)。
+      parser: { parserHtml: bodyStyleParserHtml },
       // GrapesJS 既定の cssIcons(cdnjs Font Awesome の <link>)を空にし、CDN から
       // 何も取得させない。layer/toolbar icon が使う FA glyph は main.ts の
       // `import 'font-awesome/...'` で代わりにローカル同梱している。
@@ -477,6 +477,11 @@ export function useGrapes() {
     });
 
     registerJinjaComponents(ed);
+    registerBodyStyleComponent(ed);
+    // 本文の `<style>` を足した・消したら canvas の複製を作り直す(`load` は自分で作り直す)。
+    ed.on('component:add component:remove', (comp: Component) => {
+      if (!replacing && containsBodyStyle(comp)) syncCanvasCssCopy();
+    });
 
     // ファンド別画像は属性を書き換えず、canvas 専用の `<style>` で差す(`fundImageLayer.ts`)。
     // 対象の `<img>` で GrapesJS の代替画像処理が `src` を差し替えるとセレクタが外れるので、
@@ -761,6 +766,21 @@ export function useGrapes() {
   }
 
   /**
+   * canvas 専用の CSS の複製を作り直す(`canvasCssAssets.ts`)。テンプレの CSS の url()(フォント・
+   * 背景画像)は canvas では解けないので配信 URL へ直した複製を置き、本文の `<style>` は canvas に
+   * 元の規則が無いので全規則を複製する(参照は文書の位置を基準に解く)。どちらも canvas 専用の
+   * `<style>` に置くので保存内容(getHtml / getCss)には載らない。中に Jinja を含む `<style>` は
+   * 原文を運ぶチップで、描画しないと規則にならないので複製しない(表示に効かないのは従来どおり)。
+   */
+  function syncCanvasCssCopy(): void {
+    const texts = bodyStyleCssTexts(editor.value?.getWrapper());
+    fundImages?.setCss([
+      ...texts.map((text) => ({ css: text, from: DOC_DIR, whole: true })),
+      { css: templateCss, from: TEMPLATE_CSS_FROM },
+    ]);
+  }
+
+  /**
    * 編集画面のファンド別画像の文脈を設定する。`load` より前に呼ぶ(呼んだ時点の canvas も
    * 作り直す)。Jinja 本文は `{{ fund.code }}` を解き、値入り本文は確定パスだけを差す。
    */
@@ -791,19 +811,16 @@ export function useGrapes() {
     // `quiet` は通知だけを抑止する(拒否・刈り取り自体は通常どおり)。確定版の正規形を
     // 取るための読み込みで使う — 本文の読み込みで同じ通知が出るため、二重に出すと誤解を招く。
     quietParse = !!opts.quiet;
+    replacing = true;
     try {
       ed.setComponents(bodyEditableHtml);
     } finally {
       quietParse = false;
+      replacing = false;
     }
     ed.setStyle(css);
-    // 本文の `<style>` とテンプレの CSS の url()(フォント・背景画像)は canvas では解けないので、
-    // 配信 URL へ直した複製を canvas 専用の `<style>` に置く(`canvasCssAssets.ts`)。保存内容
-    // (getCss)には載らない。本文の `<style>` は文書の位置を基準に解く。
-    fundImages?.setCss([
-      ...bodyStyleTexts(bodyEditableHtml).map((text) => ({ css: text, from: DOC_DIR })),
-      { css, from: TEMPLATE_CSS_FROM },
-    ]);
+    templateCss = css;
+    syncCanvasCssCopy();
     // setComponents/setStyle 直後は iframe DOM が未描画で、`component:add` の `fireChange`
     // から走る `recomputePages` が `.page` を拾えず `[body]` フォールバック(`pageCount=1`)に
     // 落ちる。その結果ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に

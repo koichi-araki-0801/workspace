@@ -192,6 +192,7 @@ export default defineConfig({
         'editor/web/src/features/editor/fundImages.ts',
         'editor/web/src/features/editor/fundImageLayer.ts',
         'editor/web/src/features/editor/canvasCssAssets.ts',
+        'editor/web/src/features/editor/bodyStyle.ts',
         'editor/web/src/features/editor/useSnapshotHistory.ts',
         'editor/web/src/features/editor/usePartEditHistory.ts',
         'editor/web/src/features/editor/useComments.ts',

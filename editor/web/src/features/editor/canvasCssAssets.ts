@@ -24,10 +24,18 @@
 // 照合は `lib/fundImages.ts` と共有する。参照の解決は CSS 自身の位置(`css/`)を基準にする。
 // 本文の `<style>` も同じ理由で canvas では解けないので複製するが、こちらは文書の位置(`doc/`)を
 // 参照元として解く(書き手は文書からの相対で `url(../css/fonts/…)` と書く)。
+//
+// 本文の `<style>` は GrapesJS が canvas に置かない(`bodyStyle.ts`)ので、`url()` の宣言だけでなく
+// 全規則を複製する(`canvasCssFullCopy`)。直せない `url()` を持つ宣言と、文書の外を取りに行く
+// 参照が残る規則は落とす。canvas はアプリの URL 基準で解くので、残しても 404 か文書外への取得に
+// しかならない。
 
 import {
   type CssUrlSpan,
   collectCssUrlSpans,
+  DOC_DIR,
+  findExternalRefsInCss,
+  isAllowedDataUrl,
   PREVIEW_HOST_BASE,
   resolveDocAssetPath,
   splitCssRules,
@@ -184,6 +192,80 @@ export function canvasCssAssetCopy(
     const rewritten = rewriteRule(rule.text, companyCode, from);
     if (rewritten === undefined) continue;
     out.push(rule.atRules.reduceRight((inner, prelude) => `${prelude}{${inner}}`, rewritten));
+  }
+  return out.join('\n');
+}
+
+// ── 本文の `<style>` の全規則の複製 ──
+
+/** 直さずに残してよい参照(文書の中の断片と、許可した `data:` URI)。canvas は取りに行かない。 */
+function staysInDocument(value: string): boolean {
+  return value.trim().startsWith('#') || isAllowedDataUrl(value);
+}
+
+/**
+ * `text` の `range` の `url()` を、直せるものは配信 URL へ直して返す。直せず文書の中でもない
+ * 参照が 1 つでもあれば undefined。
+ */
+function rewriteEveryUrl(
+  text: string,
+  range: Range,
+  spans: readonly CssUrlSpan[],
+  companyCode: string | null,
+  from: string,
+): string | undefined {
+  let out = text.slice(range.start, range.end);
+  for (const span of [...spans].reverse()) {
+    if (span.start < range.start || span.end > range.end) continue;
+    const rel = resolveDocAssetPath(span.value, from);
+    const url = rel === undefined ? undefined : canvasAssetUrl(rel, companyCode);
+    if (url === undefined) {
+      if (staysInDocument(span.value)) continue;
+      return undefined;
+    }
+    const s = span.start - range.start;
+    const e = span.end - range.start;
+    out = `${out.slice(0, s)}url(${cssString(url)})${out.slice(e)}`;
+  }
+  return out;
+}
+
+/**
+ * 1 規則を丸ごと複製する。通常の規則は直せない参照を持つ宣言だけを落とす。`@font-face` などの
+ * at-rule のブロックは記述子・内側の規則が揃って意味を持つので、直せない参照があれば規則ごと落とす。
+ */
+function copyWholeRule(text: string, companyCode: string | null, from: string): string | undefined {
+  const spans = collectCssUrlSpans(text);
+  if (spans.length === 0) return text;
+  if (text.trimStart().startsWith('@')) {
+    return rewriteEveryUrl(text, { start: 0, end: text.length }, spans, companyCode, from);
+  }
+  const ranges = declarationRanges(text);
+  if (ranges.length === 0) return undefined;
+  const kept = ranges.flatMap((range) => {
+    const decl = rewriteEveryUrl(text, range, spans, companyCode, from);
+    return decl === undefined ? [] : [decl];
+  });
+  return `${text.slice(0, ranges[0].start)}${kept.join(';')}}`;
+}
+
+/**
+ * 本文の `<style>` の全規則を、`url()` を配信 URL へ直して複製する(1 規則 1 行。囲む at-rule
+ * ごと)。直せない `url()` の宣言は落とし、文書の外を取りに行く参照(`@import`・許可外の
+ * スキームなど)が残る規則は複製しない。`from` は参照を解く基準の論理パス(既定は `DOC_DIR`)。
+ */
+export function canvasCssFullCopy(
+  css: string,
+  companyCode: string | null,
+  from: string = DOC_DIR,
+): string {
+  const out: string[] = [];
+  for (const rule of splitCssRules(css)) {
+    const copied = copyWholeRule(rule.text, companyCode, from);
+    if (copied === undefined) continue;
+    const wrapped = rule.atRules.reduceRight((inner, prelude) => `${prelude}{${inner}}`, copied);
+    if (findExternalRefsInCss(wrapped).length > 0) continue;
+    out.push(wrapped);
   }
   return out.join('\n');
 }
