@@ -31,6 +31,7 @@ import { fundCodeOfTemplateId } from './fundImages';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { leaveAfterSave } from './leaveGuard';
 import { openCanvas } from './openCanvas';
+import { type BreakEdge, partBreakLabel } from './partBreak';
 import { canvasRawKey, partEntries, partLabelMap, partPathKeyFor } from './partKey';
 import { useRedline } from './redline/useRedline';
 import { LEGACY_DRAFT_MESSAGE } from './services/legacyDraft';
@@ -126,6 +127,16 @@ export function useTemplateEditor(
   const selectedGeom = computed(() => {
     void g.revision.value;
     return g.selected.value ? geomFromStyle(g.selectedStyle()) : null;
+  });
+
+  // 選んだ要素が属するパーツの前後に改ページがあるか(Inspector の「前で改ページ / 後で改ページ」)。
+  // 区切りの増減はページの数え直し(`pageBlocks`)にも出るので、それも依存に含める。
+  const selectedPartBreak = computed<{ before: boolean; after: boolean } | null>(() => {
+    void g.revision.value;
+    void g.pageBlocks.value;
+    if (!g.selected.value) return null;
+    const st = g.partBreakOf(g.editor.value?.getSelected());
+    return st ? { before: st.before !== null, after: st.after !== null } : null;
   });
 
   const autosave = useAutosave(async () => {
@@ -299,6 +310,21 @@ export function useTemplateEditor(
     if (record) pushUndo();
     g.patchSelectedStyle(geomToStyle(after));
     if (record) recordChange(label);
+  }
+
+  /**
+   * 選んだ要素が属するパーツの前(後ろ)の改ページを ON / OFF する。区切りの挿入・削除と inline の
+   * 宣言の削除を 1 つの変更として、操作の前に 1 回だけ Undo を積む。状態が変わらない操作・区切りを
+   * 置けない選択は手前で捨てる — `pushUndo` は future を消すため、無変更でも積むと Redo が失われる。
+   */
+  function setPartBreak(edge: BreakEdge, on: boolean) {
+    const cur = selectedPartBreak.value;
+    if (!cur || cur[edge] === on) return;
+    pushUndo();
+    if (!g.setPartBreak(g.editor.value?.getSelected(), edge, on)) return;
+    // 挿入した区切りも現在の lock state に従わせる(`onPartInsert` と同じ)。
+    g.setEditable(allowEdit.value);
+    recordChange(partBreakLabel(edge, on));
   }
 
   /**
@@ -674,6 +700,7 @@ export function useTemplateEditor(
     partLabels,
     selectedPart,
     selectedGeom,
+    selectedPartBreak,
     noteEntries: note.entries,
     canNote: note.canNote,
     addNote: note.add,
@@ -696,6 +723,7 @@ export function useTemplateEditor(
     redo,
     beginUndo,
     applyGeom,
+    setPartBreak,
     recordGeomDiff,
     resetGeom,
     moveSelected,

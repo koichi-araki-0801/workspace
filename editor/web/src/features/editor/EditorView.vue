@@ -44,6 +44,7 @@ const {
   partLabels,
   selectedPart,
   selectedGeom,
+  selectedPartBreak,
   noteEntries,
   canNote,
   addNote,
@@ -69,6 +70,7 @@ const {
   redo,
   beginUndo,
   applyGeom,
+  setPartBreak,
   recordGeomDiff,
   resetGeom,
   moveSelected,
@@ -551,6 +553,7 @@ const statusText = computed(() => {
         :selected="g.selected.value"
         :part="selectedPart"
         :geom="selectedGeom"
+        :part-break="selectedPartBreak"
         :history="displayHistory"
         :part-labels="partLabels"
         :pane-tab="paneTab"
@@ -559,6 +562,7 @@ const statusText = computed(() => {
         :can-up="g.canMoveUp.value"
         :can-down="g.canMoveDown.value"
         @apply="applyGeom"
+        @pagebreak="setPartBreak($event.edge, $event.on)"
         @move="moveSelected($event)"
         @reset="resetGeom"
         @del="deletePart"

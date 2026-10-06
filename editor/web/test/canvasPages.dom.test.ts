@@ -2,6 +2,7 @@ import type { Component, Editor } from 'grapesjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PV_ATTR } from '@/features/editor/pageView';
 import { useGrapes } from '@/features/editor/useGrapes';
+import { useSnapshotHistory } from '@/features/editor/useSnapshotHistory';
 import { rtComment } from '@/lib/jinjaAttrs';
 import { REDLINE_ATTR } from '@/lib/redlineAttr';
 
@@ -219,6 +220,82 @@ describe('insertPart', () => {
     load(DOC);
     g.insertPart('<section>new</section>', 'NEW');
     expect(g.editor.value?.getSelected()?.getAttributes()['data-part-id']).toBe('NEW');
+  });
+});
+
+describe('setPartBreak', () => {
+  /** `useTemplateEditor.ts` と同じく、操作の前に 1 回だけ snapshot を積む Undo。 */
+  function history() {
+    return useSnapshotHistory(
+      () => ({ html: g.getBodyHtml(), css: g.getCss() }),
+      (snap) => {
+        g.load(snap.html, snap.css);
+        render();
+      },
+    );
+  }
+
+  it('after を ON にすると直後に区切りが 1 つ増え、ページが 1 つ増え、Undo 1 回で戻る', () => {
+    load(DOC);
+    const h = history();
+    const before = g.getBodyHtml();
+    h.pushUndo();
+    expect(g.setPartBreak(byClass('b'), 'after', true)).toBe(true);
+    render();
+    expect(order()).toEqual(['a', 'BR', 'b', 'BR', 'b2', 'BR', 'c']);
+    expect(g.pageCount.value).toBe(4);
+    // 区切りは属性を持たない素の div(自動 id を保存内容に載せない)。
+    expect(g.getBodyHtml()).toContain(
+      '<p class="b">2</p><div class="pagebreak"></div><p class="b2">',
+    );
+    h.undo();
+    expect(g.getBodyHtml()).toBe(before);
+    expect(g.pageCount.value).toBe(3);
+  });
+
+  it('before を ON にすると、選んだ要素が属するパーツの直前に入る', () => {
+    load(`<p class="a">1</p><div class="b"><span class="in">x</span></div>`);
+    expect(g.setPartBreak(byClass('in'), 'before', true)).toBe(true);
+    expect(order()).toEqual(['a', 'BR', 'b']);
+  });
+
+  it('OFF にすると隣の区切りと inline の page-break-after を消し、Undo 1 回で両方戻る', () => {
+    load(
+      `<p class="a">1</p><p class="b" style="page-break-after: always">2</p>${BR}<p class="c">3</p>`,
+    );
+    const h = history();
+    const before = g.getBodyHtml();
+    h.pushUndo();
+    expect(g.setPartBreak(byClass('b'), 'after', false)).toBe(true);
+    // テストの view は GrapesJS の frame に登録されず、モデルの削除で要素が外れないので描き直す。
+    render();
+    expect(order()).toEqual(['a', 'b', 'c']);
+    expect(g.getBodyHtml()).not.toContain('page-break-after');
+    expect(g.pageCount.value).toBe(1);
+    h.undo();
+    expect(g.getBodyHtml()).toBe(before);
+  });
+
+  it('状態が変わらない操作・区切り自身・固めた範囲の包みは何もしない(false)', () => {
+    const FROZEN = `<div data-gjs-type="jinja-frozen" class="jinja-frozen-body" data-opaque="eA==" data-opaque-kind="body">${DOC}</div>`;
+    load(DOC);
+    const html = g.getBodyHtml();
+    expect(g.setPartBreak(byClass('a'), 'after', true)).toBe(false);
+    expect(g.setPartBreak(byClass('a'), 'before', false)).toBe(false);
+    expect(g.setPartBreak(byClass('pagebreak'), 'after', true)).toBe(false);
+    expect(g.getBodyHtml()).toBe(html);
+    load(FROZEN);
+    expect(g.partBreakOf(byClass('jinja-frozen-body'))).toBeNull();
+    expect(g.setPartBreak(byClass('jinja-frozen-body'), 'after', true)).toBe(false);
+  });
+
+  it('partBreakOf は選んだ要素が属するパーツの前後の状態を返す', () => {
+    load(
+      `<p class="a" style="break-after: page">1</p>${BR}<div class="b"><span class="in">x</span></div>`,
+    );
+    expect(g.partBreakOf(byClass('a'))).toEqual({ before: null, after: 'div' });
+    expect(g.partBreakOf(byClass('in'))).toEqual({ before: 'div', after: null });
+    expect(g.partBreakOf(undefined)).toBeNull();
   });
 });
 

@@ -39,8 +39,15 @@ import {
   jinjaChipCanvasCss,
   registerJinjaComponents,
 } from './jinjaComponents';
-import { pagebreakCanvasCss, registerPagebreakComponent } from './pagebreakCanvas';
+import { PAGEBREAK_TYPE, pagebreakCanvasCss, registerPagebreakComponent } from './pagebreakCanvas';
 import { clampPageIndex, markPages, PV_ATTR, pageViewCss } from './pageView';
+import {
+  type BreakEdge,
+  PAGEBREAK_HTML,
+  type PartBreakState,
+  partBreakState,
+  planBreakToggle,
+} from './partBreak';
 import { redlineCanvasCss } from './redline/redlineCss';
 import { useCanvasMarkers } from './useCanvasMarkers';
 import { usePageGuides } from './usePageGuides';
@@ -113,6 +120,8 @@ export interface SelectedInfo {
   id: string;
   name: string;
   isJinja: boolean;
+  /** 改ページの区切り(`div.pagebreak`)の部品か。Inspector は幾何と改ページの段を出さない。 */
+  isPagebreak?: boolean;
   /** parts catalog から挿入された `Component` の場合の catalog part id。 */
   partId?: string;
 }
@@ -724,8 +733,66 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       id: comp.getId(),
       name: (comp.get('name') as string) || comp.get('tagName') || 'element',
       isJinja: typeof type === 'string' && type.startsWith('jinja-'),
+      isPagebreak: type === PAGEBREAK_TYPE,
       partId: typeof partId === 'string' ? partId : undefined,
     };
+  }
+
+  /** `comp` を含む根の直下の component(wrapper 自身・wrapper の外なら undefined)。 */
+  function topLevelOf(wrapper: Component, comp: Component | undefined): Component | undefined {
+    let top = comp;
+    while (top?.parent() && top.parent() !== wrapper) top = top.parent();
+    return top?.parent() === wrapper ? top : undefined;
+  }
+
+  /**
+   * `comp` が属するパーツ(根の直下)の前後の改ページの状態(`partBreak.ts` の `partBreakState`)。
+   * 区切りを置けないもの(区切り自身・固めた範囲の包み・未描画)は null。
+   */
+  function partBreakOf(comp: Component | undefined): PartBreakState | null {
+    const wrapper = editor.value?.getWrapper();
+    const root = wrapper?.getEl();
+    const el = wrapper ? topLevelOf(wrapper, comp)?.getEl() : undefined;
+    return root && el ? partBreakState(el, root) : null;
+  }
+
+  /**
+   * `comp` が属するパーツの前(後ろ)の改ページを ON / OFF する。ON は区切りを 1 つ置き、OFF は
+   * 隣の区切りと inline の該当の宣言を消す(何をするかは `partBreak.ts` の `planBreakToggle`)。
+   * 変えたら true。状態が変わらない・区切りを置けないときは何もせず false(呼び出し側が Undo を
+   * 積まないため)。
+   *
+   * 区切りの削除・inline の宣言の削除・挿入をこの 1 回の呼び出しで行い、変更の通知も 1 回にする。
+   * Undo は呼び出し側が操作の前に積む 1 つの snapshot で、ここでの変更をまとめて戻す。区切りの
+   * 要素 → component の照合は `insertIndex` と同じく、呼んだ時点の `getEl()` で行う。
+   */
+  function setPartBreak(comp: Component | undefined, edge: BreakEdge, on: boolean): boolean {
+    const wrapper = editor.value?.getWrapper();
+    const root = wrapper?.getEl();
+    const top = wrapper ? topLevelOf(wrapper, comp) : undefined;
+    const el = top?.getEl();
+    if (!wrapper || !root || !top || !el) return false;
+    const plan = planBreakToggle(el, root, edge, on);
+    if (!plan) return false;
+    for (const br of plan.remove) {
+      wrapper
+        .components()
+        .find((c: Component) => c.getEl() === br)
+        ?.remove();
+    }
+    if (plan.stripProps.length > 0) {
+      const next = { ...(top.getStyle() as Record<string, string>) };
+      for (const k of plan.stripProps) delete next[k];
+      top.setStyle(next);
+    }
+    if (plan.insert) {
+      const i = top.index();
+      wrapper.append(PAGEBREAK_HTML, { at: plan.insert === 'before' ? i : i + 1 });
+    }
+    revision.value++;
+    scheduleLayoutRecompute();
+    callbacks.change?.();
+    return true;
   }
 
   /**
@@ -1019,6 +1086,8 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     imageWarnings,
     parseHtmlQuiet,
     insertPart,
+    partBreakOf,
+    setPartBreak,
     getBodyHtml,
     getCss,
     onChange,

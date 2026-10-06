@@ -2,8 +2,9 @@
 // geom.ts — 選択ブロックのレイアウト幾何(GrapesJS inline style との相互変換)
 // =============================================================================
 // 役割: canvas で選択した `Component` の inline style から幾何(サイズ / 配置 /
-// 余白 / page-break)を読み取り、3-pane editor の part property として提示・書き戻す。
-// 余白は印刷で安定するよう mm 単位、幅は % で保持する。
+// 余白 / ページ内で分割しない)を読み取り、3-pane editor の part property として提示・書き戻す。
+// 余白は印刷で安定するよう mm 単位、幅は % で保持する。前後の改ページはパーツの前後に置く
+// 区切り(`div.pagebreak`)で表すので、ここでは読み書きしない(`partBreak.ts`)。
 
 export type Align = 'left' | 'center' | 'right' | 'stretch';
 
@@ -13,8 +14,6 @@ export interface LayoutGeom {
   indent: number; // mm
   marginTop: number; // mm
   marginBottom: number; // mm
-  pageBreakBefore: boolean;
-  pageBreakAfter: boolean;
   keepTogether: boolean;
 }
 
@@ -63,8 +62,6 @@ export const DEFAULT_GEOM: LayoutGeom = {
   indent: 0,
   marginTop: 0,
   marginBottom: 0,
-  pageBreakBefore: false,
-  pageBreakAfter: false,
   keepTogether: false,
 };
 
@@ -78,8 +75,6 @@ export function geomFromStyle(style: StyleMap): LayoutGeom {
   else if (mlAuto) align = 'right';
   else align = 'left';
   const indent = align === 'left' && !mlAuto ? lenToMm(style['margin-left']) : 0;
-  const pbBefore = style['page-break-before'] ?? style['break-before'];
-  const pbAfter = style['page-break-after'] ?? style['break-after'];
   const breakInside = style['break-inside'] ?? style['page-break-inside'];
   return {
     widthPct,
@@ -87,8 +82,6 @@ export function geomFromStyle(style: StyleMap): LayoutGeom {
     indent,
     marginTop: lenToMm(style['margin-top']),
     marginBottom: lenToMm(style['margin-bottom']),
-    pageBreakBefore: pbBefore === 'always' || pbBefore === 'page',
-    pageBreakAfter: pbAfter === 'always' || pbAfter === 'page',
     keepTogether: breakInside === 'avoid',
   };
 }
@@ -114,8 +107,6 @@ export function geomToStyle(g: LayoutGeom): Record<string, string> {
           ? `${g.indent}mm`
           : '',
     'margin-right': stretch ? '' : g.align === 'center' || g.align === 'left' ? 'auto' : '',
-    'page-break-before': g.pageBreakBefore ? 'always' : '',
-    'page-break-after': g.pageBreakAfter ? 'always' : '',
     'break-inside': g.keepTogether ? 'avoid' : '',
     'page-break-inside': g.keepTogether ? 'avoid' : '',
   };
@@ -140,10 +131,6 @@ export function geomChangeLabel(before: LayoutGeom, after: LayoutGeom): string |
     return `上の余白を ${before.marginTop}mm → ${after.marginTop}mm に変更`;
   if (before.marginBottom !== after.marginBottom)
     return `下の余白を ${before.marginBottom}mm → ${after.marginBottom}mm に変更`;
-  if (before.pageBreakBefore !== after.pageBreakBefore)
-    return `「前で改ページ」を${after.pageBreakBefore ? '有効化' : '解除'}`;
-  if (before.pageBreakAfter !== after.pageBreakAfter)
-    return `「後で改ページ」を${after.pageBreakAfter ? '有効化' : '解除'}`;
   if (before.keepTogether !== after.keepTogether)
     return `「ページ内で分割しない」を${after.keepTogether ? '有効化' : '解除'}`;
   return null;

@@ -88,6 +88,88 @@ describe('Inspector の数値確定', () => {
   });
 });
 
+describe('Inspector の改ページ', () => {
+  function mountPB(opts: {
+    partBreak: { before: boolean; after: boolean } | null;
+    isPagebreak?: boolean;
+  }) {
+    const applies: Partial<LayoutGeom>[] = [];
+    const breaks: { edge: 'before' | 'after'; on: boolean }[] = [];
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(TooltipProvider, null, () =>
+            h(Inspector, {
+              selected: {
+                id: 'c1',
+                name: opts.isPagebreak ? '改ページ' : 'div',
+                isJinja: false,
+                isPagebreak: opts.isPagebreak,
+              },
+              part: null,
+              geom: DEFAULT_GEOM,
+              partBreak: opts.partBreak,
+              history: [],
+              paneTab: 'props',
+              commentCount: 0,
+              editMode: true,
+              canUp: false,
+              canDown: false,
+              onApply: (p: Partial<LayoutGeom>) => applies.push(p),
+              onPagebreak: (e: { edge: 'before' | 'after'; on: boolean }) => breaks.push(e),
+            }),
+          );
+      },
+    });
+    return { wrapper: mount(Host), applies, breaks };
+  }
+  const button = (w: ReturnType<typeof mount>, text: string) => {
+    const b = w.findAll('button').find((x) => x.text().includes(text));
+    if (!b) throw new Error(`no button ${text}`);
+    return b;
+  };
+
+  it('「前で改ページ」を押すと apply ではなく pagebreak を { edge: before, on: true } で emit する', async () => {
+    const { wrapper, applies, breaks } = mountPB({ partBreak: { before: false, after: false } });
+    await button(wrapper, '前で改ページ').trigger('click');
+    expect(applies).toEqual([]);
+    expect(breaks).toEqual([{ edge: 'before', on: true }]);
+  });
+
+  it('ON の「後で改ページ」を押すと { edge: after, on: false } で emit し、状態を ON と出す', async () => {
+    const { wrapper, breaks } = mountPB({ partBreak: { before: false, after: true } });
+    const b = button(wrapper, '後で改ページ');
+    expect(b.text()).toContain('ON');
+    await b.trigger('click');
+    expect(breaks).toEqual([{ edge: 'after', on: false }]);
+  });
+
+  it('「ページ内で分割しない」は今どおり apply で keepTogether を emit する', async () => {
+    const { wrapper, applies, breaks } = mountPB({ partBreak: { before: false, after: false } });
+    await button(wrapper, 'ページ内で分割しない').trigger('click');
+    expect(applies).toEqual([{ keepTogether: true }]);
+    expect(breaks).toEqual([]);
+  });
+
+  it('区切りを置けないパーツ(partBreak が null)では前後の改ページを押せない', async () => {
+    const { wrapper, breaks } = mountPB({ partBreak: null });
+    const b = button(wrapper, '前で改ページ');
+    expect(b.attributes('disabled')).toBeDefined();
+    await b.trigger('click');
+    expect(breaks).toEqual([]);
+  });
+
+  it('区切りの帯を選んでいるときは、改ページ・サイズ・余白の段を出さない', () => {
+    const { wrapper } = mountPB({ partBreak: null, isPagebreak: true });
+    const text = wrapper.text();
+    expect(text).not.toContain('前で改ページ');
+    expect(text).not.toContain('ページ内で分割しない');
+    expect(text).not.toContain('サイズ・配置');
+    expect(text).not.toContain('余白');
+    expect(text).toContain('修正履歴');
+  });
+});
+
 describe('useGrapes.patchSelectedStyle', () => {
   /** GrapesJS の Editor/Component を、style パッチの経路に必要な範囲だけ模す。 */
   function fakeEditor(style: Record<string, string>) {
