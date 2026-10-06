@@ -1377,10 +1377,14 @@ describe('canonicalCssRuleKeys — 同期状態に残った古いキーの読み
   });
 
   it('新しいキーに掛けても変わらない(冪等)', () => {
+    // 照合の経路と同じ形(重複を畳み、並びを展開した `foldedCssRuleTexts` のキー)で確かめる。
     const css =
       '.a > .b{x:1}@media PRINT{p:before{x:1}}@page:first{margin:0}' +
       '@font-face{font-family:F;src:url(x)}.a > .b{x:2}' +
-      '@supports ( display : grid ){:is(.e, .f) [title="a , b"]{z:3}}';
-    for (const r of splitCssRules(css)) expect(canonicalCssRuleKeys(r.key)).toEqual([r.key]);
+      '@supports ( display : grid ){:is(.e, .f) [title="a , b"]{z:3}}' +
+      '.c, .d{x:1}.e , .e{}';
+    const keys = [...foldedCssRuleTexts(css).keys()];
+    expect(keys).toEqual(expect.arrayContaining([k('.c'), k('.d'), k('.e,.e')]));
+    for (const key of keys) expect(canonicalCssRuleKeys(key)).toEqual([key]);
   });
 });

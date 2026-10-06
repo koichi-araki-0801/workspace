@@ -169,6 +169,7 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
                 target: cssIn.target,
                 prev: cssIn.cssState.css?.conflicts ?? [],
                 now,
+                sourceEdition: attrs.editionType,
               });
         // `computePairSync` の返す状態は本文のパーツだけを持つ。同じファイルに CSS の競合が
         // あれば(テンプレのペア)持ち越す — CSS を飛ばした承認で記録を消さないため。

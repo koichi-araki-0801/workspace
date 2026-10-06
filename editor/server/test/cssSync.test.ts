@@ -18,6 +18,7 @@ describe('computeCssSync', () => {
       target: '.a{color:red}\n.b{color:navy}',
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r.ran).toBe(true);
     expect(r.css).toContain('.a{color:green}');
@@ -35,6 +36,7 @@ describe('computeCssSync', () => {
       target: '.a{color:black}',
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r.css).toBeNull();
     expect(r.skipped).toEqual([k('.a')]);
@@ -50,6 +52,7 @@ describe('computeCssSync', () => {
       target: '.a{x:1}',
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r).toMatchObject({ ran: false, css: null, applied: [], skipped: [], conflicts: [] });
     expect(r.conflictsChanged).toBe(false);
@@ -64,6 +67,7 @@ describe('computeCssSync', () => {
       target: '.a{color:black}\n.b{x:1}',
       prev,
       now: LATER,
+      sourceEdition: '交付版',
     });
     expect(r.conflicts).toEqual(prev);
     expect(r.conflictsChanged).toBe(false);
@@ -77,6 +81,7 @@ describe('computeCssSync', () => {
       target: '.a{color:green}',
       prev: [{ ruleKey: k('.a'), detectedAt: NOW }],
       now: LATER,
+      sourceEdition: '交付版',
     });
     expect(r.conflicts).toEqual([]);
     expect(r.conflictsChanged).toBe(true);
@@ -90,6 +95,7 @@ describe('computeCssSync', () => {
       target: '.a { x:1 }',
       prev: [{ ruleKey: k('.a'), detectedAt: NOW }],
       now: LATER,
+      sourceEdition: '交付版',
     });
     expect(r.conflicts).toEqual([]);
   });
@@ -102,6 +108,7 @@ describe('computeCssSync', () => {
       target: '.t{z:1}',
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r.css).toBeNull();
     expect(r.conflicts).toEqual([{ ruleKey: k('.a'), detectedAt: NOW }]);
@@ -115,6 +122,7 @@ describe('computeCssSync', () => {
       target: '.a{color:blue}\n.a{margin:0}\n',
       prev: [{ ruleKey: k('.a'), detectedAt: NOW }],
       now: LATER,
+      sourceEdition: '交付版',
     });
     expect(r.conflicts).toEqual([]);
     expect(r.conflictsChanged).toBe(true);
@@ -128,6 +136,7 @@ describe('computeCssSync', () => {
       target: '',
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r.css).toBe('.a{x:1}\n');
     expect(r.applied).toEqual([k('.a')]);
@@ -146,6 +155,7 @@ describe('computeCssSync', () => {
       target: '.a {\n  color: navy;\n}\n\n.b {\n  color: blue;\n}\n',
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     // 文字列は違う(ran)が、規則は 1 つも変わっていない。ペアの CSS は書かず、競合も作らない。
     expect(r.ran).toBe(true);
@@ -163,6 +173,7 @@ describe('computeCssSync', () => {
       target: '.a {\n  color: navy;\n}\n\n.b {\n  color: blue;\n}\n',
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r.applied).toEqual([k('.b')]);
     expect(r.skipped).toEqual([]);
@@ -179,6 +190,7 @@ describe('computeCssSync', () => {
       target: '.a {\n  x: 1;\n}\n',
       prev: [{ ruleKey: k('.a'), detectedAt: NOW }],
       now: LATER,
+      sourceEdition: '交付版',
     });
     expect(r.conflicts).toEqual([]);
     expect(r.conflictsChanged).toBe(true);
@@ -198,6 +210,7 @@ describe('computeCssSync', () => {
       target,
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r.applied).toEqual([k('.a')]);
     expect(r.skipped).toEqual([]);
@@ -213,6 +226,7 @@ describe('computeCssSync', () => {
       target: `${BOM}.a {\r\n  color: black;\r\n}\r\n`,
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r.css).toBeNull();
     expect(r.skipped).toEqual([k('.a')]);
@@ -228,6 +242,7 @@ describe('computeCssSync', () => {
       target: `${BOM}.a {\r\n  color: red;\r\n}\r\n`,
       prev: [{ ruleKey: k('.a'), detectedAt: NOW }],
       now: LATER,
+      sourceEdition: '交付版',
     });
     expect(r.ran).toBe(true);
     expect(r.css).toBeNull();
@@ -244,6 +259,7 @@ describe('computeCssSync', () => {
       target,
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r.applied).toEqual([k('.z')]);
     // 差し込んだ文字列(`\n.z{x:1}`)の外は元のまま。
@@ -267,6 +283,7 @@ describe('computeCssSync — 変わった規則は baseline(GrapesJS 形)→ nex
       target,
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r).toMatchObject({ ran: false, css: null, applied: [], skipped: [], conflicts: [] });
   });
@@ -279,6 +296,7 @@ describe('computeCssSync — 変わった規則は baseline(GrapesJS 形)→ nex
       target: RAW,
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r.applied).toEqual([k('.cover-title')]);
     expect(r.css).toBe('.cover-title{color:rgb(0, 0, 0);}\n.page{padding:10mm}\n');
@@ -292,6 +310,7 @@ describe('computeCssSync — 変わった規則は baseline(GrapesJS 形)→ nex
       target: RAW.replace('#003366', '#990000'),
       prev: [],
       now: NOW,
+      sourceEdition: '交付版',
     });
     expect(r.css).toBeNull();
     expect(r.skipped).toEqual([k('.cover-title')]);
@@ -307,6 +326,7 @@ describe('computeCssSync — 変わった規則は baseline(GrapesJS 形)→ nex
       target: RAW.replace('#003366', '#990000'),
       prev,
       now: LATER,
+      sourceEdition: '交付版',
     });
     expect(kept).toMatchObject({ ran: false, css: null, conflicts: prev, conflictsChanged: false });
     // ペア側が同じ書き出し(GrapesJS 形)になれば一致する。ペア側にだけある別の規則(.unused)は
@@ -318,9 +338,161 @@ describe('computeCssSync — 変わった規則は baseline(GrapesJS 形)→ nex
       target: `${gjs('rgb(0, 0, 0)')}\n.unused{color:red;}`,
       prev,
       now: LATER,
+      sourceEdition: '交付版',
     });
     expect(cleared.conflicts).toEqual([]);
     expect(cleared.conflictsChanged).toBe(true);
+  });
+});
+
+describe('computeCssSync — 照合不可', () => {
+  // 展開しても合わない形(並びの中の重複は展開しない)で照合不可を作る。
+  const raw = '.a, .a{color:red}\n.c{color:red}\n';
+  const baseline = '.a{color:red}\n.a{color:red}\n.c{color:red}\n';
+  const base = { base: raw, baseline, target: raw, now: LATER, sourceEdition: '交付版' };
+  const unmatchedA = {
+    ruleKey: k('.a'),
+    detectedAt: NOW,
+    kind: '照合不可' as const,
+    sourceEdition: '交付版',
+  };
+
+  it('変更の照合不可を kind と sourceEdition つきで記録する', () => {
+    const r = computeCssSync({
+      ...base,
+      prev: [],
+      next: '.a{color:red}\n.a{color:blue}\n.c{color:red}\n',
+    });
+    expect(r.css).toBeNull();
+    expect(r.conflicts).toEqual([
+      { ruleKey: k('.a'), detectedAt: LATER, kind: '照合不可', sourceEdition: '交付版' },
+    ]);
+    expect(r.skipped).toEqual([k('.a')]);
+    expect(r.conflictsChanged).toBe(true);
+  });
+
+  it('削除の照合不可も記録する(両版に無いから解消、としない)', () => {
+    const r = computeCssSync({ ...base, prev: [], next: '.c{color:red}\n' });
+    expect(r.conflicts.map((c) => [c.ruleKey, c.kind])).toEqual([[k('.a'), '照合不可']]);
+    expect(r.skipped).toEqual([k('.a')]);
+  });
+
+  it('記録済みの照合不可は、同じキーを検出時刻ごと持ち越し二重に足さない', () => {
+    const r = computeCssSync({ ...base, prev: [unmatchedA], next: '.c{color:red}\n' });
+    expect(r.conflicts).toEqual([unmatchedA]);
+    expect(r.conflictsChanged).toBe(false);
+  });
+
+  it('同じ向きの次の承認で、ペア側がまだそのキーを持たなければ残す', () => {
+    // source から規則を消した後の無編集の承認。両版ともキー .a を持たないので、普通の判定なら
+    // 「両版に無い = 解消」になるが、ペア側は原文の形(.a, .a)のままで突き合わせられていない。
+    const deleted = '.c{color:red}\n';
+    const input = { base: deleted, baseline: deleted, next: deleted, target: raw, now: LATER };
+    const same = computeCssSync({ ...input, prev: [unmatchedA], sourceEdition: '交付版' });
+    expect(same.conflicts).toEqual([unmatchedA]);
+    // 逆向きの承認では普通の判定に戻る(両版に無いので消える)。
+    const reverse = computeCssSync({ ...input, prev: [unmatchedA], sourceEdition: '全体版' });
+    expect(reverse.conflicts).toEqual([]);
+    expect(reverse.conflictsChanged).toBe(true);
+  });
+
+  it('同じ向きでも、ペア側がそのキーを持つようになれば普通の判定で消す', () => {
+    const css = '.a{color:blue}\n.c{color:red}\n';
+    const r = computeCssSync({
+      base: css,
+      baseline: css,
+      next: css,
+      target: css,
+      prev: [unmatchedA],
+      now: LATER,
+      sourceEdition: '交付版',
+    });
+    expect(r.conflicts).toEqual([]);
+  });
+
+  it('逆向きの承認で、両版の規則が一致すれば消え、違えば残す', () => {
+    // 元のペア側(全体版)を編集画面で承認した: next はその書き出し形、target は元の source
+    // (前回の承認で書き出し形になった交付版)。
+    const pair = '.a{color:blue}\n.c{color:red}\n';
+    const input = { base: pair, baseline: pair, next: pair, prev: [unmatchedA], now: LATER };
+    const same = computeCssSync({ ...input, target: pair, sourceEdition: '全体版' });
+    expect(same.conflicts).toEqual([]);
+    const differ = computeCssSync({
+      ...input,
+      target: '.a{color:green}\n.c{color:red}\n',
+      sourceEdition: '全体版',
+    });
+    expect(differ.conflicts).toEqual([unmatchedA]);
+  });
+
+  it('古いキー(旧正規化)の競合を読み替えて持ち越す', () => {
+    const prev = [{ ruleKey: '[".x > .y"]', detectedAt: NOW }];
+    const r = computeCssSync({
+      base: '.x>.y{a:1}',
+      baseline: '.x>.y{a:1}',
+      next: '.x>.y{a:1}',
+      target: '.x>.y{a:2}',
+      prev,
+      now: LATER,
+      sourceEdition: '交付版',
+    });
+    expect(r.conflicts).toEqual([{ ruleKey: k('.x>.y'), detectedAt: NOW }]);
+    expect(r.conflictsChanged).toBe(true);
+  });
+
+  it('古い並びのキーの競合はセレクタごとの 2 件になり、それぞれ元の検出時刻を引き継ぐ', () => {
+    const css = '.a{x:1}\n.b{y:1}';
+    const r = computeCssSync({
+      base: css,
+      baseline: css,
+      next: css,
+      target: '.a{x:2}\n.b{y:2}',
+      prev: [{ ruleKey: '[".a,.b"]', detectedAt: NOW }],
+      now: LATER,
+      sourceEdition: '交付版',
+    });
+    expect(r.conflicts).toEqual([
+      { ruleKey: k('.a'), detectedAt: NOW },
+      { ruleKey: k('.b'), detectedAt: NOW },
+    ]);
+  });
+
+  it('読み替えで同じキーが 2 件になれば検出時刻の早い方を残す', () => {
+    const EARLIER = '2026-10-04T00:00:00.000Z';
+    const css = '.a{x:1}\n.b{y:1}';
+    const r = computeCssSync({
+      base: css,
+      baseline: css,
+      next: css,
+      target: '.a{x:2}\n.b{y:2}',
+      prev: [
+        { ruleKey: '[".a,.b"]', detectedAt: NOW },
+        { ruleKey: '[".b"]', detectedAt: EARLIER },
+      ],
+      now: LATER,
+      sourceEdition: '交付版',
+    });
+    expect(r.conflicts).toEqual([
+      { ruleKey: k('.a'), detectedAt: NOW },
+      { ruleKey: k('.b'), detectedAt: EARLIER },
+    ]);
+  });
+
+  it('今のキーとして両版のどちらかにあるキーは読み替えずに使う(大文字の at-keyword の文)', () => {
+    // 文の at-rule はキーが原文の綴りのまま。読み替えると小文字になり、どちらの版にも無いキーに
+    // なって「両版に無い = 解消」で黙って消える。
+    const imp = '@IMPORT url("x.css");\n';
+    const key = k('@IMPORT url("x.css")');
+    const r = computeCssSync({
+      base: imp,
+      baseline: imp,
+      next: imp,
+      target: '',
+      prev: [{ ruleKey: key, detectedAt: NOW }],
+      now: LATER,
+      sourceEdition: '交付版',
+    });
+    expect(r.conflicts).toEqual([{ ruleKey: key, detectedAt: NOW }]);
   });
 });
 

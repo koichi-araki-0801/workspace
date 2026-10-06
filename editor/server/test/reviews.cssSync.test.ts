@@ -185,4 +185,31 @@ d('承認とペアの CSS 転写', () => {
       '.a{color:red}',
     );
   });
+  it('照合できない規則は写さず、照合不可の競合として承認した側の版種つきで状態に残す', {
+    timeout: 60_000,
+  }, async () => {
+    // 並びの中の重複(.a, .a)は展開しないので、編集画面の書き出し(.a が 2 つ)のキーと合わない。
+    const raw = '.a, .a{color:red}\n.c{color:red}\n';
+    put('filled', 'AM01_584000_20240710_交付版.html', '<p>交付</p>');
+    put('filled', 'AM01_584000_20240710_全体版.html', '<p>全体</p>');
+    put('css', 'AM01_584000_交付版.css', raw);
+    put('css', 'AM01_584000_全体版.css', raw);
+    const meta = await reviews.submitReview(
+      {
+        templateId: 'AM01_584000_20240710_交付版',
+        html: '<p>交付</p>',
+        css: '.a{color:red}\n.a{color:blue}\n.c{color:red}\n',
+        cssBaseline: '.a{color:red}\n.a{color:red}\n.c{color:red}\n',
+        origin: 'edit',
+      },
+      { username: 'editor1', role: 'editor' },
+    );
+    const r = await reviews.approveReview(meta.id, {}, { username: 'approver1', role: 'approver' });
+    expect(r.sync?.css?.conflicts).toEqual(['[".a"]']);
+    expect(fs.readFileSync(path.join(tmp, 'css', 'AM01_584000_全体版.css'), 'utf8')).toBe(raw);
+    const state = JSON.parse(fs.readFileSync(path.join(tmp, 'sync', 'AM01_584000.json'), 'utf8'));
+    expect(state.css.conflicts).toEqual([
+      expect.objectContaining({ ruleKey: '[".a"]', kind: '照合不可', sourceEdition: '交付版' }),
+    ]);
+  });
 });

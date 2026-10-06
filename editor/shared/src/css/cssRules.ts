@@ -860,6 +860,8 @@ function splitSelectorList(sel: string): string[] | undefined {
  * セレクタの規則全体のキーにする。JSON 配列として読めないキーはそのまま返す。
  * 古いキーはセレクタの中のコメントを空白に置き換えてあるので、`.a` と `.b` の間にコメントを
  * 書いた規則の古いキー(`.a .b`)は今のキー(`.a.b`)へ戻せない。
+ * 大文字の at-keyword の文(`@IMPORT …;`)は戻せない — 文のキーは原文の綴りのままなので、今の
+ * キーに掛けても小文字に変わる。呼び出し側は、今のキーとして見つかるキーには掛けないこと。
  */
 export function canonicalCssRuleKeys(key: string): string[] {
   let parts: unknown;

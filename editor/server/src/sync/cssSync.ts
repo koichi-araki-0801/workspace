@@ -6,6 +6,7 @@
 // I/O は `pairSyncService.ts`。
 
 import {
+  canonicalCssRuleKeys,
   foldedCssRuleTexts,
   isValidAnyTemplateId,
   mergeCssRuleChangesFromBaseline,
@@ -56,6 +57,8 @@ export interface CssSyncInput {
   /** 状態ファイルに残っていた未解決の競合。 */
   prev: readonly CssRuleConflict[];
   now: string;
+  /** 承認した側(転写元)の版種。照合不可の競合に記録し、次の承認の向きを見分けるのに使う。 */
+  sourceEdition: string;
 }
 
 export interface CssSyncResult {
@@ -70,6 +73,28 @@ export interface CssSyncResult {
   /** 状態ファイルへ残す未解決の競合(過去分の持ち越し込み)。 */
   conflicts: CssRuleConflict[];
   conflictsChanged: boolean;
+}
+
+/**
+ * 状態ファイルの競合のキーを今の正規化へ読み替える。今のキーとして両版のどちらかにあるキーは
+ * そのまま使う — 読み替えは冪等でない形(大文字の at-keyword の文など)を変えてしまい、どちらの
+ * 版にも無いキーになって「両版に無い = 解消」で黙って消えるため。1 件が並びの分割で複数になれば
+ * 各件が元の `detectedAt` を引き継ぎ、同じキーが重なれば検出の早い方を残す。
+ */
+function canonicalConflicts(
+  prev: readonly CssRuleConflict[],
+  current: (key: string) => boolean,
+): CssRuleConflict[] {
+  const byKey = new Map<string, CssRuleConflict>();
+  for (const c of prev) {
+    const keys = current(c.ruleKey) ? [c.ruleKey] : canonicalCssRuleKeys(c.ruleKey);
+    for (const ruleKey of keys) {
+      const seen = byKey.get(ruleKey);
+      if (seen === undefined || c.detectedAt < seen.detectedAt)
+        byKey.set(ruleKey, { ...c, ruleKey });
+    }
+  }
+  return [...byKey.values()];
 }
 
 /** 書式の違い(`sameCssRule` の正規化)を除いて同じ規則か。両方に無ければ同じ、片方だけに無ければ違う。 */
@@ -94,17 +119,35 @@ export function computeCssSync(input: CssSyncInput): CssSyncResult {
   const after = foldedCssRuleTexts(css ?? input.target);
   const unresolved = (key: string): boolean => !sameRuleAt(source.get(key), after.get(key));
 
-  const kept = input.prev.filter((c) => unresolved(c.ruleKey));
-  const fresh = (merge?.conflicts ?? [])
-    .filter((key) => unresolved(key) && !kept.some((c) => c.ruleKey === key))
+  const prev = canonicalConflicts(input.prev, (key) => source.has(key) || after.has(key));
+
+  // 照合不可(ペア側の原文をそのキーで引けない)は、同じ向きの承認ではペア側が原文の形のまま
+  // なので、ペア側にキーが無い間は一致を判定できず残す。ペア側がキーを持つようになった(編集画面を
+  // 通って書き出し形になった)か、逆向きの承認(両版とも書き出し形)なら、普通の判定で決める。
+  const pending = (c: CssRuleConflict): boolean =>
+    c.kind === '照合不可' && c.sourceEdition === input.sourceEdition && !after.has(c.ruleKey);
+  const kept = prev.filter((c) => pending(c) || unresolved(c.ruleKey));
+  const keptKeys = new Set(kept.map((c) => c.ruleKey));
+  const fresh: CssRuleConflict[] = (merge?.conflicts ?? [])
+    .filter((key) => unresolved(key) && !keptKeys.has(key))
     .map((ruleKey) => ({ ruleKey, detectedAt: input.now }));
-  const conflicts = [...kept, ...fresh];
+  // 照合不可は転写しなかった事実そのものが競合なので、`unresolved` を通さずに記録する
+  // (削除の照合不可は両版に無いので、通すと記録されないまま消えたはずの規則がペア側に残る)。
+  const unmatched: CssRuleConflict[] = (merge?.unmatched ?? [])
+    .filter((key) => !keptKeys.has(key) && !fresh.some((c) => c.ruleKey === key))
+    .map((ruleKey) => ({
+      ruleKey,
+      detectedAt: input.now,
+      kind: '照合不可',
+      sourceEdition: input.sourceEdition,
+    }));
+  const conflicts = [...kept, ...fresh, ...unmatched];
 
   return {
     ran,
     css,
     applied: merge?.applied ?? [],
-    skipped: merge?.conflicts ?? [],
+    skipped: [...(merge?.conflicts ?? []), ...(merge?.unmatched ?? [])],
     conflicts,
     conflictsChanged: JSON.stringify(conflicts) !== JSON.stringify(input.prev),
   };
