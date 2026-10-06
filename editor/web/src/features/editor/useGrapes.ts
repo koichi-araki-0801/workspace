@@ -163,6 +163,8 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * 要素は含まない)の cache。canvas が未描画の間は空配列。
    */
   const pageBlocks = shallowRef<HTMLElement[][]>([]);
+  /** 数えた区切りの要素(`splitPages` の `breakEls`)。ページ線を帯の上端に引くために使う。 */
+  const pageBreakEls = shallowRef<HTMLElement[]>([]);
   /** ページ総数(= `pageBlocks.length`)。 */
   const pageCount = ref(0);
   /** 表示中ページの 0 起点 index。 */
@@ -227,8 +229,13 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     markers.refreshNoteMarkers();
     refreshBubbleAnchorNow();
   }
-  const guides = usePageGuides({ editor, afterGuides: refreshOverlayMarkers });
-  const { pageGuides, recomputeBreakEls, refreshPageGuides } = guides;
+  const guides = usePageGuides({
+    editor,
+    pageBlocks,
+    breakEls: pageBreakEls,
+    afterGuides: refreshOverlayMarkers,
+  });
+  const { pageGuides, refreshPageGuides } = guides;
   const zoomFit = useZoomFit({
     editor,
     getContainer: () => containerEl,
@@ -259,7 +266,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     canMoveDown.value = i < parent.components().length - 1;
   }
 
-  // break 収集 / guide 算出は usePageGuides.ts、メモ目印は useCanvasMarkers.ts が担う。
+  // guide 算出は usePageGuides.ts、メモ目印は useCanvasMarkers.ts が担う。
 
   /** page-view style に現在の可視制御 CSS を流し込む(他ページを `display:none` に)。 */
   function applyPageVisibility(): void {
@@ -281,7 +288,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
 
   /**
    * canvas のページを数え直し、`PV_ATTR` マーカーを生 DOM へ付け直す。区切りの増減に追従できる
-   * よう、`recomputeBreakEls` と同じく content/load/変更時に呼ぶ。赤入れの装飾を置き直した後も
+   * よう、content/load/変更時に呼ぶ。赤入れの装飾を置き直した後も
    * 呼ぶ(`refreshPageMarks`) — 根の直下に置かれた削除要素に印が無いと、全ページに出続ける。
    * マーカーは `el.setAttribute`(生 DOM 直書き)で付け、Component モデルには載せない —
    * `editor.getHtml()` はモデルから再生成するため保存内容(getHtml/getCss)を汚さない。
@@ -294,6 +301,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     const root = editor.value?.getWrapper()?.getEl();
     if (!root) {
       pageBlocks.value = [];
+      pageBreakEls.value = [];
       pageCount.value = 0;
       return;
     }
@@ -302,6 +310,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     // 中身が同じなら差し替えない。赤入れの再計算のたびに呼ぶので、参照だけ変えると `pageBlocks`
     // を見ている側(パーツのラベル・選択の復元)が空振りで再評価される。
     if (!samePages(pageBlocks.value, split.pages)) pageBlocks.value = split.pages;
+    pageBreakEls.value = split.breakEls;
     pageCount.value = split.pages.length;
     currentPageIndex.value = clampPageIndex(currentPageIndex.value, pageCount.value);
     applyPageVisibility();
@@ -573,22 +582,21 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   /**
    * content/構成が変わった後の「全部測り直す」正典。  /**
    * content/構成が変わった後の「全部測り直す」正典。順序厳守:
-   * `recomputeBreakEls`(break 集合更新) → `refreshPageGuides`(その集合を読む) →
-   * `recomputePages`(ページの数え直し) → `updateScrollMode`(body 高さ変化で縦配置を出し分け)。
+   * `recomputePages`(ページの数え直し) → `refreshPageGuides`(そのページの境目を読む) →
+   * `updateScrollMode`(body 高さ変化で縦配置を出し分け)。
    * body 高さ/ページ構成を変える全経路(GrapesJS イベント・`load`・`patchSelectedStyle`)が
    * これを呼ぶことで、`ret-canvas-fits` や guide が旧レイアウトの値に取り残されるのを防ぐ。
    */
   function recomputeLayout(): void {
-    recomputeBreakEls();
-    refreshPageGuides();
     recomputePages();
+    refreshPageGuides();
     updateScrollMode();
   }
 
   /**
    * `recomputeLayout` を rAF で 1 フレーム 1 回へ集約する薄ラッパ。`patchSelectedStyle` の
-   * geom ハンドルは mousemove ごとにライブ適用されるため、毎回 `recomputeBreakEls`(全要素
-   * `getComputedStyle` = O(n))を同期実行すると drag がジャンクする。`grapesEvents.ts` の
+   * geom ハンドルは mousemove ごとにライブ適用されるため、毎回 `recomputeLayout`(ページの
+   * 数え直しと全 guide の測位)を同期実行すると drag がジャンクする。`grapesEvents.ts` の
    * `scheduleHeavyRecompute` と同型(あちらは GrapesJS イベント駆動、こちらは setStyle が
    * イベントを出さない programmatic 経路用)。editor 破棄後の保留フレームは各関数の null ガードで no-op。
    */
