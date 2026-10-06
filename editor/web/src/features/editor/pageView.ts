@@ -7,6 +7,9 @@
 
 import { REDLINE_ATTR } from './redline/redlineApply';
 
+// 判定の置き場は `@/lib/pageBreaks`。呼び出し側の付け替えが済むまで、ここからも読めるようにする。
+export { isBreakValue } from '@/lib/pageBreaks';
+
 /** 生 DOM へ付ける現在ページ判定用のマーカー属性。Component モデルには載せない。 */
 export const PV_ATTR = 'data-pv-idx';
 
@@ -47,21 +50,6 @@ export function pageViewCss(index: number, count: number, singleMode: boolean): 
 /** ページ index を `[0, count-1]` に収める(count=0 / 負数 / 超過を 0 起点で安全化)。 */
 export function clampPageIndex(index: number, count: number): number {
   return Math.min(Math.max(index, 0), Math.max(count - 1, 0));
-}
-
-/**
- * `break-*` / `page-break-*` で使う page-break キーワードに該当すれば true。
- * `usePageGuides.ts` の break 要素収集(computed style 判定)が使う。
- */
-export function isBreakValue(v: string | undefined): boolean {
-  return (
-    v === 'always' ||
-    v === 'page' ||
-    v === 'left' ||
-    v === 'right' ||
-    v === 'recto' ||
-    v === 'verso'
-  );
 }
 
 /**
