@@ -291,7 +291,32 @@ function lowerAttrName(attr: string): string {
 }
 
 const NTH_PSEUDOS = new Set(['nth-child', 'nth-last-child', 'nth-of-type', 'nth-last-of-type']);
-const NTH_KEYWORDS: Record<string, string> = { even: '2n', odd: '2n+1' };
+const AN_PLUS_B_RE = /^([+-]?\d*)n\s*(?:([+-])\s*(\d+))?$/;
+
+/** `An+B` を CSSOM の書き方へ直す(`a` が 0 なら `b` だけ、`a` が ±1 なら係数を省く)。 */
+function canonicalAnPlusB(arg: string): string | undefined {
+  if (arg === 'even') return '2n';
+  if (arg === 'odd') return '2n+1';
+  if (/^[+-]?\d+$/.test(arg)) return String(Number(arg));
+  const m = AN_PLUS_B_RE.exec(arg);
+  if (m === null) return undefined;
+  const a = m[1] === '' || m[1] === '+' ? 1 : m[1] === '-' ? -1 : Number(m[1]);
+  const b = m[3] === undefined ? 0 : Number(m[3]) * (m[2] === '-' ? -1 : 1);
+  if (a === 0) return String(b);
+  const coef = a === 1 ? '' : a === -1 ? '-' : String(a);
+  return `${coef}n${b === 0 ? '' : b > 0 ? `+${b}` : String(b)}`;
+}
+
+/** `:nth-*()` の括弧の中身。`An+B` に、`nth-child` 系は ` of <セレクタ>` が続きうる。 */
+function canonicalNthArg(raw: string): string | undefined {
+  const text = raw.trim().toLowerCase();
+  const of = /\s+of\s+/.exec(text);
+  if (of === null) return canonicalAnPlusB(text);
+  const nth = canonicalAnPlusB(text.slice(0, of.index));
+  if (nth === undefined) return undefined;
+  const rest = raw.trim().slice(of.index + of[0].length);
+  return `${nth} of ${canonicalSelector(rest.trim())}`;
+}
 
 /**
  * 引数を大文字小文字を区別しない形で読む関数型の擬似クラス・擬似要素(引数がセレクタか
@@ -404,18 +429,17 @@ function canonicalSelector(sel: string): string {
       emit(`${double || LEGACY_PSEUDO_ELEMENTS.has(ident) ? '::' : ':'}${ident}`, false);
       i = next;
       if (sel[i] === '(' && NTH_PSEUDOS.has(ident)) {
-        // ブラウザは `even` を `2n`、`odd` を `2n+1` へ書き直す。同じ並びなので原文側も寄せる。
+        // ブラウザは `even` `odd` や `+n` `2n+0` などの書き方を CSSOM の形へ書き直す。同じ並びなので
+        // 原文側も寄せる。An+B として読めない引数は触らない。
         const end = parenEnd(sel, i);
-        const arg = sel
-          .slice(i + 1, sel[end - 1] === ')' ? end - 1 : end)
-          .trim()
-          .toLowerCase();
-        const alias = NTH_KEYWORDS[arg];
-        if (alias !== undefined && sel[end - 1] === ')') {
-          out += `(${alias})`;
-          i = end;
-          boundary = false;
-          continue;
+        if (sel[end - 1] === ')') {
+          const folded = canonicalNthArg(sel.slice(i + 1, end - 1));
+          if (folded !== undefined) {
+            out += `(${folded})`;
+            i = end;
+            boundary = false;
+            continue;
+          }
         }
       }
       if (sel[i] === '(' && !CASELESS_ARG_PSEUDOS.has(ident)) {

@@ -13,7 +13,10 @@ import { expect, test } from './fixtures';
 // 通す。ブラウザはセレクタ・値を書き直す(引用符・空白・大文字小文字など)ので、jsdom では
 // 見えない食い違いがここで出うる。アプリの画面は使わず、同梱の grapes.min.js を空ページへ
 // 載せる。shared は `src` を直に import するため、ビルド済みの dist には依存しない。
-// 編集画面と同じ書き出しになるよう、CSS に効く設定(`useGrapes.ts` の init と `getCss`)を写す。
+// 編集画面と同じ書き出しになるよう、`useGrapes.ts` の init のうち CSS に効く `avoidInlineStyle`
+// `forceClass` `protectedCss` `jsInHtml` と、`getCss` の `keepUnusedStyles` と呼び出し中だけ立てる
+// `avoidInlineStyle` を写す。`selectorManager.componentFirst` は component を選んだときの
+// セレクタの作り方だけを決め、`setStyle` で読んだ規則の `getCss` の書き出しには効かないので写さない。
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const req = createRequire(path.resolve(here, '../web/package.json'));

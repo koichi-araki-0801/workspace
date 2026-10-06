@@ -25,7 +25,8 @@ export const SYNTHETIC: Record<string, string> = {
   isList: ':is(.a, .b){color:red}\n',
   // 並びの中に同じセレクタが 2 つある規則は展開しない(KNOWN_UNMATCHED を見よ)。
   listSame: '.a, .a{color:red}\n',
-  nth: 'tr:nth-child(even){color:red}\ntr:nth-child(odd){color:blue}\n',
+  // `An+B` の書き方の揺れ(ブラウザは CSSOM の形へ書き直す)と ` of <セレクタ>`。
+  nth: 'li:nth-child(even){color:red}\nli:nth-child(ODD){color:red}\nli:nth-child(+5){color:red}\nli:nth-child(0n+1){color:red}\nli:nth-child(-0n+3){color:red}\nli:nth-child(1n){color:red}\nli:nth-child(+n){color:red}\nli:nth-child(+2n){color:red}\nli:nth-child(2n+0){color:red}\nli:nth-child(4n - 2){color:red}\nli:nth-child(-n+3){color:red}\nli:nth-child(2N+1){color:red}\nli:nth-child(n){color:red}\nli:nth-child(-n){color:red}\nli:nth-child(3n-1){color:red}\nli:nth-last-child(2n + 1){color:red}\np:nth-of-type( +n ){color:red}\np:NTH-LAST-OF-TYPE(odd){color:red}\nli:nth-child(2n+1 of .a){color:red}\nli:nth-child(EVEN of .a > .b){color:red}\n',
   dup: '.a{color:red}\n.a{color:blue}\n',
   important: '.a{color:red !important}\n',
 };

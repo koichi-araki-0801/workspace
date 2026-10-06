@@ -939,7 +939,30 @@ describe('規則のキーの正規化', () => {
     ['[ DATA-X  ]{x:1}', '[data-x]{x:1}'],
     ['tr:nth-child(even){x:1}', 'tr:nth-child(2n){x:1}'],
     ['tr:NTH-CHILD( ODD ){x:1}', 'tr:nth-child(2n+1){x:1}'],
+    ['tr:nth-child(+5){x:1}', 'tr:nth-child(5){x:1}'],
+    ['tr:nth-child(0n+1){x:1}', 'tr:nth-child(1){x:1}'],
+    ['tr:nth-child(-0n+3){x:1}', 'tr:nth-child(3){x:1}'],
+    ['tr:nth-child(1n){x:1}', 'tr:nth-child(n){x:1}'],
+    ['tr:nth-child(+n){x:1}', 'tr:nth-child(n){x:1}'],
+    ['tr:nth-child(+2n){x:1}', 'tr:nth-child(2n){x:1}'],
+    ['tr:nth-child(2n+0){x:1}', 'tr:nth-child(2n){x:1}'],
+    ['tr:nth-child(4n - 2){x:1}', 'tr:nth-child(4n-2){x:1}'],
+    ['tr:nth-child(-n+3){x:1}', 'tr:nth-child(-n+3){x:1}'],
+    ['tr:nth-child(2N+1){x:1}', 'tr:nth-child(2n+1){x:1}'],
+    ['tr:nth-child(-n){x:1}', 'tr:nth-child(-n){x:1}'],
+    ['tr:nth-child(n+0){x:1}', 'tr:nth-child(n){x:1}'],
+    ['tr:nth-child(-1n+3){x:1}', 'tr:nth-child(-n+3){x:1}'],
+    ['li:nth-child(EVEN of .a > .b){x:1}', 'li:nth-child(2n of .a>.b){x:1}'],
+    ['li:nth-last-child( 2n + 1 ){x:1}', 'li:nth-last-child(2n+1){x:1}'],
+    ['p:NTH-LAST-OF-TYPE( odd ){x:1}', 'p:nth-last-of-type(2n+1){x:1}'],
   ])('%s と %s も同じキー', (a, b) => sameKey(a, b));
+
+  it('even / odd という名前のクラス・属性値・擬似クラスの引数は 2n へ寄せない', () => {
+    for (const sel of ['.even', '[data-x="even"]', '[data-x=odd]', ':not(.odd)']) {
+      expect(keyOf(`${sel}{x:1}`)).not.toContain('2n');
+    }
+    expect(keyOf('[data-x=odd]{x:1}')).toBe(keyOf('[data-x="odd"]{x:1}'));
+  });
 
   it('入れ子の前置き(atRules)も正規化した形で返し、包んだ規則が有効な CSS になる', () => {
     expect(splitCssRules('@MEDIA PRINT AND (MIN-WIDTH: 10PX){.a{x:1}}')[0].atRules).toEqual([
@@ -1352,7 +1375,13 @@ describe('canonicalCssRuleKeys — 同期状態に残った古いキーの読み
     ['not json', 'not json'],
     ['{"a":1}', '{"a":1}'],
     ['["@MEDIA ( min-width: 1px )","p:BEFORE"]', '["@media (min-width:1px)","p::before"]'],
+    ['["li:NTH-CHILD(EVEN)"]', '["li:nth-child(2n)"]'],
   ])('%s → %s', (a, b) => expect(canonicalCssRuleKeys(a)).toEqual([b]));
+
+  it('nth の新しいキーに掛けても変わらない(冪等)', () => {
+    const key = '["li:nth-child(2n+1 of .a>.b)"]';
+    expect(canonicalCssRuleKeys(key)).toEqual([key]);
+  });
 
   it('並びのキーはセレクタごとに分ける(出現番号は外す)', () => {
     expect(canonicalCssRuleKeys('["@media print",".a, .b"]')).toEqual([
