@@ -79,6 +79,22 @@ describe('pairSyncConflictText', () => {
     expect(text).toContain('p#1〔ペア側削除〕');
   });
 
+  it('知らない版種の deletedIn は種類名で出す', () => {
+    const text = pairSyncConflictText(
+      status({
+        conflicts: [
+          {
+            partKey: 'p#1',
+            kind: 'ペア側削除・ソース変更',
+            detectedAt: 't',
+            deletedIn: '謎' as never,
+          },
+        ],
+      }),
+    );
+    expect(text).toContain('p#1〔ペア側削除・ソース変更〕');
+  });
+
   it('照合不可の書式は印を付け、1 件でもあれば説明の 1 文を末尾に足す', () => {
     const text = pairSyncConflictText(
       status({

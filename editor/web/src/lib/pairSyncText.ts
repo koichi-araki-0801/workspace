@@ -67,8 +67,9 @@ export function pairSyncConflictText(s: PairSyncStatus | null): string | null {
       (c) => `書式 ${cssRuleLabel(c.ruleKey)}${c.kind === '照合不可' ? '〔照合不可〕' : ''}`,
     ),
   ];
-  const note = s.cssConflicts.some((c) => c.kind === '照合不可') ? UNMATCHABLE_NOTE : '';
-  return `ペア（${s.pairTemplateId}）と ${what}が競合しています（自動同期停止中）: ${items.join('、')}${note ? `。${note}` : ''}`;
+  const hasUnmatchable = s.cssConflicts.some((c) => c.kind === '照合不可');
+  const tail = hasUnmatchable ? `。${UNMATCHABLE_NOTE}` : '';
+  return `ペア（${s.pairTemplateId}）と ${what}が競合しています（自動同期停止中）: ${items.join('、')}${tail}`;
 }
 
 /** 承認直後の通知。何も起きなければ null。 */
