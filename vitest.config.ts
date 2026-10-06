@@ -48,6 +48,10 @@ export default defineConfig({
         'editor/shared/src/security/htmlEntities.ts',
         'editor/shared/src/security/cssRebase.ts',
         'editor/shared/src/security/svgInspect.ts',
+        // 往復用の印の定義と、その検出が使う字句解析。関所・検出スクリプト・`toTemplate` の
+        // 事後検査が共用するので、見落としは確定テンプレートへの印の焼き付きとして無言で出る。
+        'editor/shared/src/security/editingMarkers.ts',
+        'editor/shared/src/jinja/jinjaLex.ts',
         'editor/shared/src/css/cssRules.ts',
         // editor/server (vivliostyle は pure layer のみ。build.ts 等は browser+socket 依存で対象外)
         'editor/server/src/auth/password.ts',
@@ -57,6 +61,7 @@ export default defineConfig({
         // 迂回されると他の防御が全部無意味になるため、閾値の対象へ入れる。
         'editor/server/src/security/templateScripts.ts',
         'editor/server/src/repositories/confirmedWrite.ts',
+        'editor/server/src/repositories/editingMarkerGate.ts',
         'editor/server/src/repositories/templateMeta.ts',
         // テンプレート集約の中心。一覧/取得の探索順(filled→templates→pending)と
         // 下書き入出力が承認・編集画面の到達可能性を左右するため、被覆を切らさない。
@@ -124,6 +129,12 @@ export default defineConfig({
         // なるだけ」という無言の形で出るため、被覆を切らさない。
         'editor/web/src/lib/jinjaExpr.ts',
         'editor/web/src/lib/fillJinja.ts',
+        // 作成タブの往復の判断の土台(字句解析のブロック木・HTML 構造の走査・固める要素の決定・
+        // 表示用の描画)。
+        'editor/web/src/lib/jinjaLex.ts',
+        'editor/web/src/lib/htmlScan.ts',
+        'editor/web/src/lib/fillAnalysis.ts',
+        'editor/web/src/lib/fillRender.ts',
         'editor/web/src/lib/blockKey.ts',
         'editor/web/src/lib/appError.ts',
         'editor/web/src/lib/globalErrors.ts',
