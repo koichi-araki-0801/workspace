@@ -25,6 +25,7 @@
 //   が呼び出し側へ返す — 「例外を catch して黙って空文字」の形を残さない。
 import type { SampleData } from '@editor/shared';
 import { MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE } from './fillAnalysis';
+import { Filler } from './fillRender';
 import {
   DATA_JINJA,
   DATA_JINJA_BLOCK,
@@ -34,7 +35,7 @@ import {
   DATA_OPAQUE,
   DATA_OPAQUE_KIND,
 } from './jinjaAttrs';
-import { evaluateJinjaExpr, type JinjaCtx, stringifyJinjaValue } from './jinjaExpr';
+import type { JinjaCtx } from './jinjaExpr';
 import { b64encode, htmlEscape, TOKEN_RE, tokenKind } from './jinjaMask';
 
 type Ctx = JinjaCtx;
@@ -50,53 +51,6 @@ export interface FillDiagnostics {
    * undefined が正当な値なので対象外(可視テキストの穴だけを数える)。
    */
   readonly missing: readonly string[];
-}
-
-/**
- * 1 回の `toFilled` に紐づく評価器。解釈できない式を空値へ落とすのは従来どおり
- * (画面を落とさない)だが、落としたことを必ず記録する。
- */
-class Filler {
-  /** Set を使うのは同じ式がループ展開で何度も現れるため(件数でなく種類を数える)。 */
-  readonly unsupported = new Set<string>();
-  readonly missing = new Set<string>();
-
-  private fail(expr: string): void {
-    this.unsupported.add(expr);
-  }
-
-  /** `{{ expr }}` の可視テキスト。 */
-  expr(expr: string, ctx: Ctx): string {
-    try {
-      const v = evaluateJinjaExpr(expr, ctx);
-      if (v === undefined || v === null) this.missing.add(expr);
-      return stringifyJinjaValue(v);
-    } catch {
-      this.fail(expr);
-      return '';
-    }
-  }
-
-  /** `{% if cond %}` の分岐判定。nunjucks も JS の真偽値化をそのまま使う。 */
-  cond(cond: string, ctx: Ctx): boolean {
-    try {
-      return Boolean(evaluateJinjaExpr(cond, ctx));
-    } catch {
-      this.fail(cond);
-      return false;
-    }
-  }
-
-  /** `{% for v in iter %}` の反復対象。配列でなければ空(ループは展開しない)。 */
-  array(expr: string, ctx: Ctx): unknown[] {
-    try {
-      const v = evaluateJinjaExpr(expr, ctx);
-      return Array.isArray(v) ? v : [];
-    } catch {
-      this.fail(expr);
-      return [];
-    }
-  }
 }
 
 /** 要素の開始 `<tag` 直後に追加属性を挿入する。 */
