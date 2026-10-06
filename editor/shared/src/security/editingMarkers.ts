@@ -27,7 +27,9 @@ export const EDITING_MARKER_ATTRS = [
 
 const MARKER_CLASSES = ['jinja-chip', 'jinja-frozen-body'] as const;
 const COMMENT_RE = /<!--\s*jinja-rt:/g;
-const PLACEHOLDER_RE = /[\u{e000}\u{e001}]/gu;
+// `toTemplate` の placeholder(`web/src/lib/jinjaMask.ts` の `PH_RE` と同じ形)。私用領域の文字
+// 単独では印としない。CP932 の外字は U+E000〜 へ写るので、編集タブの実値の本文に正当に現れる。
+const PLACEHOLDER_RE = /\u{e000}[A-Za-z0-9+/=]*\u{e001}/gu;
 // 中身が文字データの要素。タグに見える文字列があっても要素ではないので、閉じタグまで読み飛ばす。
 const RAW_TEXT_TAGS: ReadonlySet<string> = new Set(['script', 'style', 'textarea', 'title']);
 

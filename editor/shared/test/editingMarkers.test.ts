@@ -48,8 +48,19 @@ describe('findEditingMarkers', () => {
     expect(kinds('<span class="jinja-chip foo">1</span>')).toEqual([]);
   });
 
-  it('復元の placeholder 文字', () => {
-    expect(kinds('<p>\u{e000}YQ==\u{e001}</p>')).toEqual(['placeholder', 'placeholder']);
+  it('復元の placeholder(U+E000 + base64 + U+E001)', () => {
+    expect(kinds('<p>\u{e000}YQ==\u{e001}</p>')).toEqual(['placeholder']);
+    expect(findEditingMarkers('<p>ab\u{e000}e3sgYSB9fQ==\u{e001}</p>')).toEqual([
+      { marker: 'placeholder', index: 5 },
+    ]);
+  });
+
+  // CP932 の外字(ユーザー定義文字)は Unicode の私用領域 U+E000〜 へ写る。編集タブの実値の本文に
+  // 外字が 1 文字あるだけで申請が 400 にならないよう、placeholder の形だけを印とする。
+  it('外字(私用領域の単独の文字)は印ではない', () => {
+    expect(kinds('<p>山\u{e000}太郎</p>')).toEqual([]);
+    expect(kinds('<p>\u{e001}\u{e000}\u{e002}</p>')).toEqual([]);
+    expect(kinds('<p>\u{e000}YQ== 外字\u{e001}</p>')).toEqual([]);
   });
 
   it('属性値の中の Jinja や地の文の語には当たらない', () => {
