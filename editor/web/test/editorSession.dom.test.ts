@@ -29,7 +29,6 @@ describe('useEditorSessionStore', () => {
     const a = store.ensure('t1');
     expect(a).toEqual({
       partHistory: {},
-      seq: 0,
       undoPast: [],
       undoFuture: [],
       ui: defaultEditorUiState(),
@@ -37,32 +36,28 @@ describe('useEditorSessionStore', () => {
 
     // 同一 templateId を再度 ensure すると、同じセッション(参照)が返る
     // (= 編集⇄プレビュー往復で履歴が維持される)。
-    a.seq = 3;
     a.undoPast.push({ html: '<p>x</p>', css: '.c{}' });
     const again = store.ensure('t1');
     expect(again).toBe(a);
-    expect(again.seq).toBe(3);
     expect(again.undoPast).toHaveLength(1);
   });
 
   it('keeps sessions isolated per templateId', () => {
     const store = useEditorSessionStore();
-    store.ensure('t1').seq = 1;
+    store.ensure('t1').partHistory.k = [];
     const t2 = store.ensure('t2');
-    expect(t2.seq).toBe(0);
+    expect(t2.partHistory).toEqual({});
   });
 
   it('clear() drops the session so the next ensure() starts fresh', () => {
     const store = useEditorSessionStore();
     const s = store.ensure('t1');
-    s.seq = 5;
     s.undoPast.push({ html: 'h', css: 'c' });
     store.clear('t1');
     const fresh = store.ensure('t1');
     expect(fresh).not.toBe(s);
     expect(fresh).toEqual({
       partHistory: {},
-      seq: 0,
       undoPast: [],
       undoFuture: [],
       ui: defaultEditorUiState(),
@@ -193,7 +188,6 @@ describe('useEditorSessionStore', () => {
     past.push({ html: '<p>stale</p>', css: '.a{}' });
     future.push({ html: '<p>redo</p>', css: '.b{}' });
     s.partHistory = { k1: [] };
-    s.seq = 7;
     store.persist('t1');
     expect(readUndoMap().t1.past).toHaveLength(1);
 
@@ -202,9 +196,8 @@ describe('useEditorSessionStore', () => {
     expect(past).toEqual([]);
     expect(future).toEqual([]);
     expect(store.ensure('t1').undoPast).toBe(past);
-    // 修正履歴と採番は残す(Undo だけを捨てる)。
+    // 修正履歴は残す(Undo だけを捨てる)。
     expect(s.partHistory).toEqual({ k1: [] });
-    expect(s.seq).toBe(7);
     // ミラーも空になっている(リロードで再び hydrate されない)。
     expect(readUndoMap().t1).toEqual({ past: [], future: [] });
   });

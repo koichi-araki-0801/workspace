@@ -102,8 +102,6 @@ function writeUiMap(map: UiMap): void {
 interface EditSession {
   /** パーツ構造キー(`partKey`)ごとのセッション内修正履歴(新しい順)。 */
   partHistory: Record<string, PartHistoryEntry[]>;
-  /** セッション内履歴エントリ id の採番カウンタ。 */
-  seq: number;
   /** Undo スタック(過去スナップショット)。 */
   undoPast: EditorSnapshot[];
   /** Redo スタック(未来スナップショット)。 */
@@ -197,7 +195,6 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
       const e = readUndoMap()[templateId];
       sessions[templateId] = {
         partHistory: {},
-        seq: 0,
         undoPast: e?.past ?? [],
         undoFuture: e?.future ?? [],
         // `allowEdit`/`selectedKey` は永続ミラーに含まれない(常に既定のまま)。

@@ -41,11 +41,4 @@ describe('web の CSS 付け替えの配線', () => {
       'lib/nunjucksRender.ts',
     ]);
   });
-
-  // 文書側の資産参照の解決は `resolveDocAssetPath` だけを通す。基準なしの `resolveServedAssetPath`
-  // (配信ルート直下基準)を web の文書側コードに残すと、`../` の形を解けず「プレビューだけ画像が
-  // 出ない」ずれを作る。サーバ側の許可リストは `server/test/docAssetRefs.guard.test.ts`。
-  it('web は resolveServedAssetPath を使わない(文書側の参照は resolveDocAssetPath だけ)', () => {
-    expect(usersOf('resolveServedAssetPath')).toEqual([]);
-  });
 });

@@ -1,11 +1,3 @@
-import fs from 'node:fs';
-import { createRequire } from 'node:module';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { foldedCssRuleTexts } from '../shared/src/index';
-import { KNOWN_UNMATCHED, SYNTHETIC } from '../shared/test/fixtures/cssRuleKeysCorpus';
-import { expect, test } from './fixtures';
-
 // =============================================================================
 // css_rule_keys.spec.ts — Chromium の GrapesJS の書き出しと原文で CSS 規則のキーがそろうか
 // =============================================================================
@@ -17,6 +9,13 @@ import { expect, test } from './fixtures';
 // `forceClass` `protectedCss` `jsInHtml` と、`getCss` の `keepUnusedStyles` と呼び出し中だけ立てる
 // `avoidInlineStyle` を写す。`selectorManager.componentFirst` は component を選んだときの
 // セレクタの作り方だけを決め、`setStyle` で読んだ規則の `getCss` の書き出しには効かないので写さない。
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { foldedCssRuleTexts } from '../shared/src/index';
+import { KNOWN_UNMATCHED, SYNTHETIC } from '../shared/test/fixtures/cssRuleKeysCorpus';
+import { expect, test } from './fixtures';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const req = createRequire(path.resolve(here, '../web/package.json'));

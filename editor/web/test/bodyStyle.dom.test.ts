@@ -8,7 +8,8 @@
 //      原文の `<style>` がそのまま残る。Undo の snapshot・下書きの再読込(`load(getBodyHtml())`)も同じ。
 //   2. canvas では canvas 専用の複製(`data-canvas-css-assets`)で規則が効き、複製は保存出力
 //      (getBodyHtml / getCss)に載らない。
-//   3. Jinja を含む `<style>` は従来どおり原文を運ぶチップで、canvas の複製は作らない。
+//   3. Jinja を含む `<style>` は従来どおり原文を運ぶチップで、保存は原文のまま。canvas の複製は
+//      作成タブだけがサンプルで描画して作り、編集タブ(描画用のサンプルが無い)では作らない。
 import { buildSampleData, type FundMaster } from '@editor/shared';
 import grapesjs, { type Component } from 'grapesjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
