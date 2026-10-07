@@ -132,6 +132,8 @@ describe('改ページの警告の材料(pageBreakFacts)', () => {
       counted: 2,
       cssDefined: false,
       ignoredInline: 0,
+      cssRuleBreak: null,
+      elementizingChips: 0,
     });
   });
 
