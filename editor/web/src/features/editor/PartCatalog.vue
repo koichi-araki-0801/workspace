@@ -11,12 +11,17 @@ import { computed, ref, watch } from 'vue';
 import { usePartRepo } from '@/api/repositories';
 import Button from '@/components/ui/Button.vue';
 import Label from '@/components/ui/Label.vue';
+import { Tooltip } from '@/components/ui/overlays';
 import Select from '@/components/ui/Select.vue';
 import { useCascadingSelect } from '@/lib/useCascadingSelect';
 import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
 import { cn } from '@/lib/utils';
 import PartPreview from './PartPreview.vue';
 
+const props = defineProps<{
+  /** 今のページに挿入できないときの理由。null なら挿入できる。 */
+  insertBlockedReason?: string | null;
+}>();
 const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] }>();
 
 const repo = usePartRepo();
@@ -149,11 +154,22 @@ function onInsert() {
 
     <!-- 追加ボタン(下部固定): 選択確定時のみ有効。
          `aria-label` で左ペインの「パーツを追加」トグルとアクセシブル名を区別する
-         (どちらも文言に「追加」を含み、支援技術/自動化での取り違えを避ける)。 -->
+         (どちらも文言に「追加」を含み、支援技術/自動化での取り違えを避ける)。
+         挿入できないページでは押せず、理由をツールチップで出す(押せないボタンはポインタのイベントを
+         受けないので、包みの `span` で受ける)。 -->
     <div class="border-t px-3 py-2.5">
-      <Button class="w-full" :disabled="!selectedPart" aria-label="選択したパーツを挿入" @click="onInsert">
-        <Plus class="h-4 w-4" /> 追加
-      </Button>
+      <Tooltip :text="insertBlockedReason ?? ''" :disabled="!insertBlockedReason">
+        <span class="block" :tabindex="insertBlockedReason ? 0 : undefined">
+          <Button
+            class="w-full"
+            :disabled="!selectedPart || !!insertBlockedReason"
+            aria-label="選択したパーツを挿入"
+            @click="onInsert"
+          >
+            <Plus class="h-4 w-4" /> 追加
+          </Button>
+        </span>
+      </Tooltip>
     </div>
   </div>
 </template>

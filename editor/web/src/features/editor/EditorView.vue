@@ -19,6 +19,7 @@ import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import CommentPanel from './comments/CommentPanel.vue';
 import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
+import { INSERT_BLOCKED_MESSAGE } from './insertTarget';
 import NoteBubble from './NoteBubble.vue';
 import PartTree from './PartTree.vue';
 import ShortcutHelpDialog from './ShortcutHelpDialog.vue';
@@ -404,6 +405,7 @@ const statusText = computed(() => {
         v-if="!leftCollapsed"
         v-model:allow-add="allowAdd"
         v-model:allow-edit="allowEdit"
+        :insert-blocked-reason="g.canInsertPart.value ? null : INSERT_BLOCKED_MESSAGE"
         @select="onPartSelect"
         @insert="onPartInsert"
         @collapse="leftCollapsed = true"

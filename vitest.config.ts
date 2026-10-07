@@ -202,6 +202,8 @@ export default defineConfig({
         // 区切りの帯・Inspector の改ページの操作・ページの警告・ページ線。
         'editor/web/src/features/editor/pagebreakCanvas.ts',
         'editor/web/src/features/editor/partBreak.ts',
+        // パーツの挿入先と、固めた範囲の包みの中の区切りでの挿入不可の判定。
+        'editor/web/src/features/editor/insertTarget.ts',
         'editor/web/src/features/editor/pageWarnings.ts',
         'editor/web/src/features/editor/usePageGuides.ts',
         'editor/web/src/features/editor/bodyStyle.ts',

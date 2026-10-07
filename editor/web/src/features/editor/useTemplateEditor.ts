@@ -410,6 +410,8 @@ export function useTemplateEditor(
   }
 
   function onPartInsert(p: PartCatalogItem) {
+    // 挿入できないページでは何もしない(ボタンも押せないが、Undo と修正履歴を空で積まないため)。
+    if (!g.canInsertPart.value) return;
     pushUndo();
     g.insertPart(p.content, p.id);
     // 挿入直後の part も現在の lock state に従わせる。

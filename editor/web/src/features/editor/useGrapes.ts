@@ -43,6 +43,7 @@ import {
 } from './fundImageLayer';
 import { type FundImageContext, resolveFundImageSrc } from './fundImages';
 import { type GrapesCallbacks, wireGrapesEvents } from './grapesEvents';
+import { insertTarget } from './insertTarget';
 import {
   JINJA_COMPONENT_TYPE_SET,
   jinjaChipCanvasCss,
@@ -221,6 +222,21 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     cssRuleBreak: cssRuleBreak.value,
     elementizingChips: elementizingChipCount.value,
   }));
+  /**
+   * 今のページ(と選択)で新しいパーツを挿入できるか(`insertTarget.ts`)。次の区切りが固めた範囲の
+   * 包みの中にあるときだけ false。canvas が未描画の間は true(挿入自体が何もしない)。
+   */
+  const canInsertPart = computed(() => {
+    void revision.value;
+    void pageBlocks.value;
+    void pageBreakEls.value;
+    void selected.value;
+    const wrapper = editor.value?.getWrapper();
+    const root = wrapper?.getEl();
+    if (!wrapper || !root) return true;
+    const topEl = topLevelOf(wrapper, editor.value?.getSelected())?.getEl();
+    return insertTarget(root, currentPageIndex.value, topEl).kind !== 'blocked';
+  });
   /** ページ総数(= `pageBlocks.length`)。 */
   const pageCount = ref(0);
   /** 表示中ページの 0 起点 index。 */
@@ -859,58 +875,21 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   }
 
   /**
-   * 新しいパーツの挿入先(wrapper の `components()` の中の index)。現在ページの範囲の末尾に
-   * 入れる: 現在ページのパーツを選んでいればそのパーツ(根の直下)の直後、そうでなければ次の
-   * 区切りの直前(最後のページなら wrapper の末尾)。
-   *
-   * 「現在ページの最後のパーツの直後」にはしない。作成タブの本文は `{% if %}` などの範囲を
-   * 根の直下の HTML コメント(範囲の印)で表し、最後のパーツの直後は閉じの印の手前、つまり
-   * 枝の中になる。区切りの直前なら印の後ろに入る。
-   *
-   * 最後のパーツが inline の `break-after` を持つときは、次のページの先頭(区切りか次のパーツ)の
-   * 直前に入る。新しいパーツは改ページの後ろなので次のページへ入るが、利用者の書いた改ページ
-   * 指定は動かさない(挿入のために `style` を書き換えない)。
-   *
-   * 白紙のページ(パーツの無いページ)では、そのページの区切りの直前に入り、そのページのパーツに
-   * なる。要素の無い白紙のページ(左右合わせで挟んだもの)では次のページの先頭の直前に入る。
-   *
-   * 固めた範囲の包み(`div.jinja-frozen-body`)の中には入れない(中身は原文から作り直すので、
-   * 入れても保存で消える)。次の区切りが包みの中にあるときは wrapper の末尾に入る。
-   *
-   * 位置は呼んだ時点の DOM を数え直して決め、要素 → component は同じ時点の `getEl()` で
-   * 照合する。キャッシュ(`pageBlocks`)の要素は再描画で入れ替わっていることがあり、照合が
-   * 外れると別のページへ落ちる。
+   * 新しいパーツの挿入先(wrapper の `components()` の中の index)。挿入できなければ null。位置の決め方は
+   * `insertTarget.ts` の `insertTarget`。位置は呼んだ時点の DOM を数え直して決め、要素 → component は
+   * 同じ時点の `getEl()` で照合する。キャッシュ(`pageBlocks`)の要素は再描画で入れ替わっていることがあり、
+   * 照合が外れると別のページへ落ちる。照合できなければ末尾に入れる。
    */
-  function insertIndex(wrapper: Component, sel: Component | undefined): number {
+  function insertIndex(wrapper: Component, sel: Component | undefined): number | null {
     const comps = wrapper.components();
     const root = wrapper.getEl();
     if (!root) return comps.length;
-    const split = splitRootPages(root);
-    const page = split.pages[currentPageIndex.value] ?? [];
-    const indexOfEl = (el: Element) => comps.findIndex((c: Component) => c.getEl() === el);
-    let top = sel;
-    while (top?.parent() && top.parent() !== wrapper) top = top.parent();
-    const topEl = top?.parent() === wrapper ? top.getEl() : undefined;
-    if (topEl && page.includes(topEl)) {
-      const i = indexOfEl(topEl);
-      if (i >= 0) return i + 1;
-    }
-    const last = page[page.length - 1];
-    if (!last) {
-      // 白紙のページ: そのページの区切りの直前(要素の無い白紙のページなら次のページの先頭の直前)。
-      const head = pageHead(split, currentPageIndex.value);
-      const i = head ? indexOfEl(head) : -1;
-      return i >= 0 ? i : comps.length;
-    }
-    // 最後のパーツの後ろで最初に来る区切りか次のページの先頭(inline の改ページで分かれたとき)。
-    const next = pageHead(split, currentPageIndex.value + 1);
-    let el = last.nextElementSibling;
-    while (el && el !== next && !split.breakEls.includes(el as HTMLElement)) {
-      el = el.nextElementSibling;
-    }
-    if (!el) return comps.length;
-    const i = indexOfEl(el);
-    return i >= 0 ? i : comps.length;
+    const target = insertTarget(root, currentPageIndex.value, topLevelOf(wrapper, sel)?.getEl());
+    if (target.kind === 'blocked') return null;
+    if (target.kind === 'end') return comps.length;
+    const i = comps.findIndex((c: Component) => c.getEl() === target.el);
+    if (i < 0) return comps.length;
+    return target.kind === 'after' ? i + 1 : i;
   }
 
   /**
@@ -918,12 +897,15 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * 挿入し、選択する。挿入したパーツが今のページに入らないことがある(inline の `break-after` の
    * 後ろは次のページ、要素の無い白紙のページでは次のページの先頭の直前 = 前のページの末尾)。
    * 1 ページ表示では隠れたパーツを選んだままにしないよう、数え直してそのページへ送る。
+   * 挿入できないページ(`canInsertPart` が false)では何もしない。
    */
   function insertPart(content: string, partId: string): void {
     const ed = editor.value;
     const wrapper = ed?.getWrapper();
     if (!ed || !wrapper) return;
-    const added = wrapper.append(content, { at: insertIndex(wrapper, ed.getSelected()) });
+    const at = insertIndex(wrapper, ed.getSelected());
+    if (at === null) return;
+    const added = wrapper.append(content, { at });
     const root = Array.isArray(added) ? added[0] : added;
     // catalog id を付与し、後の canvas 選択から docs を引けるようにする
     root?.addAttributes?.({ 'data-part-id': partId });
@@ -1179,6 +1161,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     setStyleSample,
     imageWarnings,
     pageBreakFacts,
+    canInsertPart,
     parseHtmlQuiet,
     insertPart,
     partBreakOf,

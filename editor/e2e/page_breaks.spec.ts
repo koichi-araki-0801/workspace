@@ -469,6 +469,26 @@ test.describe('canvas の区切りとページ', () => {
       })
       .toBe(true);
   });
+
+  test('次の区切りが固めた範囲の包みの中にあるページでは、パーツの追加ボタンを押せない', async ({
+    page,
+  }) => {
+    const broken = `${P('P1-A')}${PB}${P('P2-A')}${PB}<p class="part-p3-a">P3-A {% if fund.name %}</p>`;
+    await serveDoc(page, THREE_PAGES, broken);
+    await login(page);
+    await page.goto(`/edit/${encodeURIComponent(SEED_ID)}?created=1`, { waitUntil: 'commit' });
+    const frame = page.frameLocator('iframe.gjs-frame');
+    await expect(frame.locator('.jinja-frozen-body')).toHaveCount(1, { timeout: 30_000 });
+    await page.getByText('パーツを追加', { exact: true }).click();
+    await page.getByRole('combobox').filter({ hasText: 'カテゴリを選択' }).click();
+    await page.getByRole('option', { name: '注記', exact: true }).click();
+    const insert = page.getByRole('button', { name: '選択したパーツを挿入' });
+    await expect(insert).toBeDisabled();
+    // 最後のページは境目が無いので末尾に入れられる。
+    await page.getByLabel('ページ番号(Enter でジャンプ)').fill('3');
+    await page.getByLabel('ページ番号(Enter でジャンプ)').press('Enter');
+    await expect(insert).toBeEnabled();
+  });
 });
 
 // 警告欄に出す改ページ・パーツの警告。判定(ページ数)は変えない。
