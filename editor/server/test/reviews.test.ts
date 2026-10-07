@@ -217,6 +217,20 @@ d('review workflow (reviewRepo)', () => {
     }
   });
 
+  it('上限ちょうどで同じ内容を再送したら、上限ではなく REVIEW_DUPLICATE を返す', async () => {
+    const files = await import('../src/files/reviewFiles.js');
+    await submit('AM01_141414_20250101_交付版', '<p>上限で二重</p>');
+    const pending = await files.countPendingReviews();
+    const spy = vi.spyOn(files, 'MAX_PENDING_REVIEWS', 'get').mockReturnValue(pending);
+    try {
+      await expect(
+        submit('AM01_141414_20250101_交付版', '<p>上限で二重</p>'),
+      ).rejects.toMatchObject({ kind: 'conflict', code: 'REVIEW_DUPLICATE' });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('決着済みの申請は未処理件数に数えない(承認が進めばまた申請できる)', async () => {
     const files = await import('../src/files/reviewFiles.js');
     const before = await files.countPendingReviews();

@@ -250,16 +250,10 @@ export function createReviewRepo({
         where: 'review-submit',
       });
       return withSubmitLock(async () => {
-        // 未処理申請の件数上限。作成は editor 1 ロールで撃て、1 件ごとに dataRoot へ書くので、
-        // 上限が無いと 1 人で領域を埋めて承認フローごと止められる(`reviewsDir` は templates /
-        // `.git` と同じボリューム)。判定は書き込みの前に置く — 通してから消すのでは遅い。
-        if ((await countPendingReviews()) >= MAX_PENDING_REVIEWS)
-          throw validation(
-            `未処理の確定保存申請が上限(${MAX_PENDING_REVIEWS} 件)に達しています。` +
-              '精査者が既存の申請を処理してから、あらためて申請してください。',
-          );
         // 同じ内容の承認待ちが既にあれば作らない(二重クリック・再送)。印の検査などの後ろに置くので、
-        // 入口で拒まれる申請は重複かどうかを見る前に止まる。
+        // 入口で拒まれる申請は重複かどうかを見る前に止まる。件数上限より前に置くのは、上限ちょうどで
+        // 二重クリックしたとき 2 回目を「上限」ではなく「重複」として返すため — 1 回目は通っており、
+        // 利用者が取るべき行動は「待つ」ではなく「何もしない」である。
         const duplicate = await findDuplicatePendingReview({
           templateId: req.templateId,
           origin: req.origin,
@@ -271,6 +265,14 @@ export function createReviewRepo({
             `同じ内容の確定保存申請が既に承認待ちです（${formatSubmittedAt(duplicate.submittedAt)}に申請）。` +
               '新しい申請は作りませんでした。',
             { code: 'REVIEW_DUPLICATE' },
+          );
+        // 未処理申請の件数上限。作成は editor 1 ロールで撃て、1 件ごとに dataRoot へ書くので、
+        // 上限が無いと 1 人で領域を埋めて承認フローごと止められる(`reviewsDir` は templates /
+        // `.git` と同じボリューム)。判定は書き込みの前に置く — 通してから消すのでは遅い。
+        if ((await countPendingReviews()) >= MAX_PENDING_REVIEWS)
+          throw validation(
+            `未処理の確定保存申請が上限(${MAX_PENDING_REVIEWS} 件)に達しています。` +
+              '精査者が既存の申請を処理してから、あらためて申請してください。',
           );
         const review: StoredReviewRequest = {
           id: randomUUID(),

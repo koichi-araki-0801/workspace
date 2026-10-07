@@ -16,8 +16,11 @@ test('対象が無ければ誘導し、編集タブで開いたテンプレー�
 }) => {
   // 組版を 2 面走らせる重いテストで、並列負荷下では既定 30s を超えるため他の重い spec と同じ 120s にする。
   test.setTimeout(120_000);
+  // 同じ人が同じ本文を 2 回申請すると、2 回目は重複(409 `REVIEW_DUPLICATE`)として断られる。
+  // 承認待ちを 2 件作るために申請者を分ける — 重複の判定は申請者ごとなので、本文は同じでよい。
   await login(page, 'admin');
   await submitOnce(page, SEED_ID);
+  await login(page, 'editor');
   await submitOnce(page, SEED_ID);
 
   await login(page, 'approver');
