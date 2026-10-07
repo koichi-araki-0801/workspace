@@ -125,8 +125,12 @@ interface ScanResult {
 const isAsciiAlpha = (c: string | undefined): boolean =>
   c !== undefined && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'));
 
+/** HTML の空白(TAB / LF / FF / CR / SP)。`\s` は NBSP などまで含み、ブラウザと読みがずれる。 */
+const HTML_SPACE = '\t\n\f\r ';
+const isHtmlSpace = (c: string): boolean => HTML_SPACE.includes(c);
+
 /** タグ名を構成しうる文字(空白・`/`・`>` でタグ名は終わる)。 */
-const isTagNameChar = (c: string): boolean => !/[\s/>]/.test(c);
+const isTagNameChar = (c: string): boolean => !(isHtmlSpace(c) || c === '/' || c === '>');
 
 /**
  * raw text 要素 `name` の終了タグ位置(`<` の index)を返す。見つからなければ -1。
@@ -146,7 +150,7 @@ function findRawTextEnd(html: string, lower: string, from: number, name: string)
     const at = lower.indexOf(needle, i);
     if (at === -1) return -1;
     const after = html[at + needle.length];
-    if (after === undefined || /[\s/>]/.test(after)) return at;
+    if (after === undefined || isHtmlSpace(after) || after === '/' || after === '>') return at;
     i = at + needle.length;
   }
   return -1;
@@ -162,13 +166,17 @@ function findRawTextEnd(html: string, lower: string, from: number, name: string)
 function readAttr(html: string, i: number): { name: string; value: string; next: number } {
   const start = i;
   i++;
-  while (i < html.length && !/[\s/=>]/.test(html[i])) i++;
+  while (
+    i < html.length &&
+    !(isHtmlSpace(html[i]) || html[i] === '/' || html[i] === '=' || html[i] === '>')
+  )
+    i++;
   const name = html.slice(start, i).toLowerCase();
-  while (i < html.length && /\s/.test(html[i])) i++;
+  while (i < html.length && isHtmlSpace(html[i])) i++;
   let value = '';
   if (html[i] === '=') {
     i++;
-    while (i < html.length && /\s/.test(html[i])) i++;
+    while (i < html.length && isHtmlSpace(html[i])) i++;
     const quote = html[i];
     if (quote === '"' || quote === "'") {
       const e = html.indexOf(quote, i + 1);
@@ -176,7 +184,7 @@ function readAttr(html: string, i: number): { name: string; value: string; next:
       i = e === -1 ? html.length : e + 1;
     } else {
       const vs = i;
-      while (i < html.length && !/[\s>]/.test(html[i])) i++;
+      while (i < html.length && !(isHtmlSpace(html[i]) || html[i] === '>')) i++;
       value = html.slice(vs, i);
     }
   }
@@ -261,7 +269,7 @@ export function scanTags(html: string): ScanResult {
     let k = j;
     const attrs: ParsedAttr[] = [];
     while (k < html.length && html[k] !== '>') {
-      if (/[\s/]/.test(html[k])) {
+      if (isHtmlSpace(html[k]) || html[k] === '/') {
         k++;
         continue;
       }
@@ -305,7 +313,10 @@ function isStylesheetLink(tag: TagSpan): boolean {
   if (tag.name !== 'link') return false;
   const rel = tag.attrs.find((a) => a.name === 'rel');
   if (rel === undefined) return false;
-  return rel.value.toLowerCase().split(/\s+/).includes('stylesheet');
+  return rel.value
+    .toLowerCase()
+    .split(/[\t\n\f\r ]+/)
+    .includes('stylesheet');
 }
 
 /**

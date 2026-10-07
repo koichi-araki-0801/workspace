@@ -339,11 +339,18 @@ describe('scanTags の引用符とコメント', () => {
     const t = Date.now();
     const r = scanTags('<a "b>">');
     expect(Date.now() - t).toBeLessThan(1000);
-    expect(r).toBeDefined();
+    // ブラウザは `"b` を属性名として読み、最初の `>` でタグを閉じる(残りの `">` はテキスト)。
+    expect(r.ok).toBe(true);
+    expect(r.tags).toHaveLength(1);
+    expect(r.tags[0].end).toBe(6);
+    expect(r.tags[0].attrs).toEqual([{ name: '"b', value: '' }]);
   });
   it('値の途中の引用符で止まらずに返る', () => {
     const t = Date.now();
-    scanTags('<img alt=a"b>…"');
+    const r = scanTags('<img alt=a"b>…"');
     expect(Date.now() - t).toBeLessThan(1000);
+    // 裸の値の途中の引用符は値の一部で、`>` がタグを閉じる。
+    expect(r.ok).toBe(true);
+    expect(r.tags[0].attrs).toEqual([{ name: 'alt', value: 'a"b' }]);
   });
 });
