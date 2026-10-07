@@ -878,7 +878,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * 新しいパーツの挿入先(wrapper の `components()` の中の index)。挿入できなければ null。位置の決め方は
    * `insertTarget.ts` の `insertTarget`。位置は呼んだ時点の DOM を数え直して決め、要素 → component は
    * 同じ時点の `getEl()` で照合する。キャッシュ(`pageBlocks`)の要素は再描画で入れ替わっていることがあり、
-   * 照合が外れると別のページへ落ちる。照合できなければ末尾に入れる。
+   * 照合が外れると別のページへ落ちる。照合できなければ挿入しない(null)。照合が外れうるのは DOM から
+   * 読んだ境目の要素(`before`)だけで、選び直しても同じ境目に行き着くので、求め直さない。本文の
+   * 末尾へ入れると、別のページへ黙って落ちる。
    */
   function insertIndex(wrapper: Component, sel: Component | undefined): number | null {
     const comps = wrapper.components();
@@ -888,7 +890,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     if (target.kind === 'blocked') return null;
     if (target.kind === 'end') return comps.length;
     const i = comps.findIndex((c: Component) => c.getEl() === target.el);
-    if (i < 0) return comps.length;
+    if (i < 0) return null;
     return target.kind === 'after' ? i + 1 : i;
   }
 
@@ -897,7 +899,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * 挿入し、選択する。挿入したパーツが今のページに入らないことがある(inline の `break-after` の
    * 後ろは次のページ、要素の無い白紙のページでは次のページの先頭の直前 = 前のページの末尾)。
    * 1 ページ表示では隠れたパーツを選んだままにしないよう、数え直してそのページへ送る。
-   * 挿入できないページ(`canInsertPart` が false)では何もしない。
+   * 挿入できないページ(`canInsertPart` が false)と、挿入先を照合できないとき(`insertIndex`)は何もしない。
    */
   function insertPart(content: string, partId: string): void {
     const ed = editor.value;

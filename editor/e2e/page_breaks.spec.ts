@@ -416,6 +416,22 @@ test.describe('canvas の区切りとページ', () => {
     }));
     expect(look.label).toContain('白紙のページ');
     expect(look.height).toBeGreaterThanOrEqual(36);
+    // 帯は区切りだけのページにだけ出る。前後のページの区切りは、ふつうの区切りのまま見える。
+    const breaks = frame.locator('[data-gjs-type=wrapper] > div.pagebreak');
+    const visibleBreakLabels = () =>
+      breaks.evaluateAll((els) =>
+        els
+          .filter((el) => el.getBoundingClientRect().height > 0)
+          .map((el) => getComputedStyle(el, '::after').content),
+      );
+    for (const n of ['1', '3']) {
+      await page.getByLabel('ページ番号(Enter でジャンプ)').fill(n);
+      await page.getByLabel('ページ番号(Enter でジャンプ)').press('Enter');
+      await expect(page.getByLabel('ページ番号(Enter でジャンプ)')).toHaveValue(n);
+      await expect(frame.getByText(`P${n}-A`, { exact: true })).toBeVisible();
+      await expect(blank).toBeHidden();
+      for (const label of await visibleBreakLabels()) expect(label).not.toContain('白紙');
+    }
   });
 
   test('要素の無い白紙のページ(左右合わせ)は、1 ページ表示でそのページにだけ帯が出る', async ({

@@ -355,6 +355,9 @@ describe('@namespace の名前空間 URI', () => {
       '.a{--x:@namespace "http://evil/x";}',
       ['"http://evil/x"'],
     ],
+    // style 属性(宣言の並び)は `{` が無く規則のブロックの深さが 0 のままなので、深さだけでは
+    // 値の中と見分けられない。
+    ['宣言の並びの値の @namespace', '--x:@namespace "http://evil/x";', ['"http://evil/x"']],
     // HTML 全体を CSS として舐める経路(`server/src/security/externalRefs.ts` の解析を諦めた入力)。
     ['HTML の属性の並び', '<img alt=@namespace src="https://evil/x">', ['"https://evil/x"']],
   ])('形から外れたら外部参照のまま: %s', (_name, css, want) => {

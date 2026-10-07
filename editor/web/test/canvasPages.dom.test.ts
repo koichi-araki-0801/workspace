@@ -319,6 +319,16 @@ describe('insertPart', () => {
     expect(g.currentPageIndex.value).toBe(0);
   });
 
+  it('境目の要素を component と照合できなければ、本文の末尾へ入れず何もしない', () => {
+    const root = load(DOC);
+    g.goToPage(0);
+    // 再描画で区切りの要素だけが入れ替わり、component の `getEl()` が古い要素を指したままの状態。
+    const br = root.querySelector(':scope > div.pagebreak') as HTMLElement;
+    br.replaceWith(br.cloneNode(true));
+    g.insertPart('<section>new</section>', 'NEW');
+    expect(order()).toEqual(['a', 'BR', 'b', 'b2', 'BR', 'c']);
+  });
+
   it('挿入したパーツを選び、data-part-id を付ける', () => {
     load(DOC);
     g.insertPart('<section>new</section>', 'NEW');

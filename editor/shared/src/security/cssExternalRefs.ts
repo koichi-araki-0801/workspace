@@ -561,7 +561,10 @@ function walkCss(
   let afterDeclName = false;
   /** 差し込める宣言(`isSubstitutableDecl`)の `:` の後ろ(値の中)か。 */
   let inSubstValue = false;
-  /** 開いている規則のブロック(`{`)の深さ。値の括弧の中の `{` は数えない。`@namespace` は 0 でだけ効く。 */
+  /**
+   * 開いている規則のブロック(`{`)の深さ。値の括弧の中の `{` は数えない。`@namespace` は 0 で、
+   * 宣言の値の外でだけ効く。
+   */
   let ruleDepth = 0;
   /**
    * `@namespace` の前置きを読んでいる段階。`prefix` は接頭辞か URI を待つ、`uri` は接頭辞の後で
@@ -624,7 +627,14 @@ function walkCss(
       const id = readIdent(css, i + 1);
       if (id.next > i + 1) {
         visit.atRule(id.value, toSource(i));
-        if (asciiLower(id.value) === 'namespace' && ruleDepth === 0 && blocks.length === 0) {
+        // 宣言の値の中(`decl` がある)は、深さが 0 でも最上位の規則ではない。style 属性の宣言の並び
+        // には `{` が無く、深さだけでは `--x:@namespace "…"` を見分けられない。
+        if (
+          asciiLower(id.value) === 'namespace' &&
+          ruleDepth === 0 &&
+          blocks.length === 0 &&
+          decl === undefined
+        ) {
           ns = 'prefix';
         }
       }
