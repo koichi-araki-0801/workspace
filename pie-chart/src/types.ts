@@ -256,8 +256,6 @@ export interface Placement {
   minTextY?: number;
   origTextX: number;
   origTextY: number;
-  upperLeftHairpinCheck: boolean;
-  skipLeader: boolean;
   insideSlice: boolean;
   /** 円外 (rim / leader) 配置由来。emit 段で「遠ければ leader 復活」判定の対象。 */
   dominantOutsideEdge?: boolean;

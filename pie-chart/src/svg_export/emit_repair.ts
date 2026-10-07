@@ -109,7 +109,7 @@ export interface DefectCounts {
 
 /**
  * verify と同基準 (ALWAYS_DRAW: leader を抑制せず実描画) で最終不具合数を数える。chartConflicts は
- * 交差 leader を skipLeader 抑制して数えないため、ALWAYS_DRAW 描画で実際に出る交差を取りこぼす
+ * 交差 leader を抑制して数えないため、ALWAYS_DRAW 描画で実際に出る交差を取りこぼす
  * (= spread が直す交差を off 側で 0 と誤評価する)。spread 採否は実描画基準で比較する必要があるので
  * 専用に数える。コピーを実 render と同じ後段 (nudge/condense/relax/交差引き離し/9時逃がし) で
  * 最終化してから、交差・円内貫通・viewBox 見切れ・box 重なりを数える。off/on を同関数で比較する。
@@ -504,7 +504,6 @@ function untangleAngularOrderBySwap(
         x: p.x,
         y: p.y,
         baseline: p.baseline,
-        skipLeader: p.skipLeader,
       }));
       // 候補1: footprint 保存スワップ (x/y/baseline を丸ごと交換)。rehug は新 Y の rim X を
       // 再計算するため、円頂上より上のスロット (rimX=0) では幅広ラベルが viewBox を割り、
@@ -551,7 +550,6 @@ function untangleAngularOrderBySwap(
           s.p.x = s.x;
           s.p.y = s.y;
           s.p.baseline = s.baseline;
-          s.p.skipLeader = s.skipLeader;
         }
       };
       let adopted = false;
@@ -666,7 +664,7 @@ function relieveColumnOverlap(
   const snapshot = stack.map((p) => ({ p, x: p.x, y: p.y }));
 
   // 縦のみ移動 (X は保持)。これらのラベルは declip 配置で rim ハグ位置に居ないため、X を rim へ
-  // 再ハグすると横位置が乱れて新規重なりを生む (applyLeftStackGapClose は skipLeader=true で rim
+  // 再ハグすると横位置が乱れて新規重なりを生む (applyLeftStackGapClose は rim
   // ハグするが、本パスは leader を残すので X を動かさない)。leader は p.y 変更に追従して再描画される。
   for (let i = 0; i < stack.length; i += 1) {
     if (Math.abs(shift[i]) <= tol) continue;
@@ -1087,7 +1085,7 @@ function unsqueezeCondensedByShiftTowardPie(
  *
  * 手順: 対象群を sin(midAngle) 降順 (上スライス=上ラベル) に並べ、現在の縦中心の少し上を基準に
  * box+minGap 間隔で上→下スロットへ割当 (角度順=縦順に矯正) し、各ラベルを左 rim から dxLeft だけ
- * 左へ寄せる。これで rim から斜めに出る分離した leader になる。skipLeader は立てない (斜め leader を描く)。
+ * 左へ寄せる。これで rim から斜めに出る分離した leader になる。
  * do-no-harm: 重なり/pie 侵入/viewBox/leader 交差が悪化したら群を丸ごと revert (退行0)。判定は
  * computeDrawnLeader / countLeaderCrossings (emit と同一) なので verify と一致する。
  */
@@ -1098,8 +1096,7 @@ function escapeUpperLeftTinyLeaders(
 ): void {
   const nearVerticalDx = radialFraction(cfg, 0.02, 0.18);
   const group = placements.filter((p) => {
-    // ALWAYS_DRAW 方針下では rim ラベルの placement.skipLeader=true でも Pass 1 で leader は
-    // 描かれる (skipLeader は insideSlice に上書き)。よって「描かれる」判定は !insideSlice。
+    // rim ラベルも Pass 1 で leader が描かれる。よって「描かれる」判定は !insideSlice。
     if (p.insideSlice) return false;
     const it = p.item;
     if (it.side !== 'left') return false;
@@ -1448,7 +1445,6 @@ export const PLACEMENT_SEAM_POLICY: Record<keyof Placement, 'snapshot' | 'static
   leaderBendFollowsEndpointX: 'snapshot',
   forceTopRight: 'snapshot',
   dominantOutsideEdge: 'snapshot',
-  skipLeader: 'snapshot',
   origTextX: 'snapshot',
   origTextY: 'snapshot',
   maxTextX: 'snapshot',
@@ -1460,7 +1456,6 @@ export const PLACEMENT_SEAM_POLICY: Record<keyof Placement, 'snapshot' | 'static
   item: 'static', // 入力スライスへの参照。seam 系パスは item を書き換えない
   measured: 'static', // 実測キャッシュ。`placementExtent` はこのフィールドを読まない (extent は lines / nameScaleX / nameSplit / item と cfg だけで決まる)
   leaderAnchor: 'static', // スライス rim 上のアンカー。seam 系パスは読み取りのみ
-  upperLeftHairpinCheck: 'static', // cascade 確定時に決まり、以後不変
   insideSlice: 'static', // 内側/外側の別は seam 系パスで変わらない (候補フィルタで除外済み)
   nameSplit: 'static', // 語割れ廃止で常に未設定。2 行化は専用 revert (`restoreTwoLineNamePlacement`) 持ち
   pieClearance: 'static', // draft 由来の動的クランプ印。seam 系パスは変更しない
@@ -1484,7 +1479,6 @@ export function seamSnapshot(placements: Placement[]): SeamSnap[] {
       leaderBendFollowsEndpointX: p.leaderBendFollowsEndpointX,
       forceTopRight: p.forceTopRight,
       dominantOutsideEdge: p.dominantOutsideEdge,
-      skipLeader: p.skipLeader,
       origTextX: p.origTextX,
       origTextY: p.origTextY,
       maxTextX: p.maxTextX,

@@ -62,9 +62,7 @@ interface PlacementDraft {
   lineEnd: Point;
   allowSegmentNudge: boolean;
   pieClearance?: boolean;
-  skipLeader?: boolean;
   insideSlice?: boolean;
-  upperLeftHairpinCheck?: boolean;
   triadBottomCapY?: number;
   pieClearanceStrictViewBox?: boolean;
   dominantOutsideEdge?: boolean;
@@ -333,7 +331,6 @@ export function buildInsideDraft(form: LabelForm, fit: InsideFit): PlacementDraf
     lineStart: { x: cx, y: cy },
     lineEnd: { x: cx, y: cy },
     allowSegmentNudge: false,
-    skipLeader: true,
     insideSlice: true,
     nameScaleX: form.nameScaleX,
     condenseNamePortionOnly: form.condenseNamePortionOnly,
@@ -360,7 +357,7 @@ function topBandSonohokaRight(
   item: LayoutItemReady,
   cfg: PieLayoutConfig,
   form: LabelForm,
-  opts: { skipLeader: boolean; allowSegmentNudge: boolean },
+  opts: { allowSegmentNudge: boolean },
 ): PlacementDraft | null {
   const zone = topBandSonohokaZone(item);
   if (!zone) return null;
@@ -380,7 +377,6 @@ function topBandSonohokaRight(
       lineStart: { x: anchorX, y: anchorY },
       lineEnd: { x: anchorX, y: labelY },
       allowSegmentNudge: opts.allowSegmentNudge,
-      skipLeader: opts.skipLeader,
       pieClearance: true,
       dominantOutsideEdge: true,
       nameScaleX: form.nameScaleX,
@@ -408,7 +404,7 @@ function topRightLiftedRimDraft(
   item: LayoutItemReady,
   cfg: PieLayoutConfig,
   form: LabelForm,
-  opts: { skipLeader: boolean; allowSegmentNudge: boolean },
+  opts: { allowSegmentNudge: boolean },
 ): PlacementDraft {
   const anchorX = item.anchorX;
   const labelX = Math.abs(anchorX) + radialFraction(cfg, 0.12, 1.5);
@@ -430,7 +426,6 @@ function topRightLiftedRimDraft(
     lineStart: { x: anchorX, y: labelY },
     lineEnd: { x: labelX, y: labelY },
     allowSegmentNudge: opts.allowSegmentNudge,
-    skipLeader: opts.skipLeader,
     pieClearance: true,
     dominantOutsideEdge: true,
     forceTopRight: true,
@@ -452,7 +447,7 @@ function topBandSmallRight(
   item: LayoutItemReady,
   cfg: PieLayoutConfig,
   form: LabelForm,
-  opts: { skipLeader: boolean; allowSegmentNudge: boolean },
+  opts: { allowSegmentNudge: boolean },
 ): PlacementDraft | null {
   if (!item.topBandSmallRight) return null;
   // 12時直右に短い leader で据える。箱を pie キャップより上へ持ち上げ pie 横押し出しを無効化する
@@ -473,7 +468,7 @@ function clusterTopBandBottomRight(
   item: LayoutItemReady,
   cfg: PieLayoutConfig,
   form: LabelForm,
-  opts: { skipLeader: boolean; allowSegmentNudge: boolean },
+  opts: { allowSegmentNudge: boolean },
 ): PlacementDraft | null {
   if (!item.clusterTopBandBottom) return null;
   // 12時直右へ逃がす。箱を pie キャップより上へ持ち上げ短い leader にする (topRightLiftedRimDraft 共通)。
@@ -490,7 +485,7 @@ function bottomCenterBelow(
   item: LayoutItemReady,
   cfg: PieLayoutConfig,
   form: LabelForm,
-  opts: { skipLeader: boolean; allowSegmentNudge: boolean },
+  opts: { allowSegmentNudge: boolean },
 ): PlacementDraft | null {
   if (!item.bottomCenterBelow) return null;
   const clearance = radialFraction(cfg, 0.012, 0.12);
@@ -514,7 +509,6 @@ function bottomCenterBelow(
     lineStart: { x: textX, y: textY },
     lineEnd: { x: textX, y: textY },
     allowSegmentNudge: opts.allowSegmentNudge,
-    skipLeader: opts.skipLeader,
     nameScaleX: form.nameScaleX,
     condenseNamePortionOnly: form.condenseNamePortionOnly,
   };
@@ -546,22 +540,18 @@ export function buildOutsideRimDraft(
   form: LabelForm,
 ): PlacementDraft {
   const bottomCenter = bottomCenterBelow(item, cfg, form, {
-    skipLeader: true,
     allowSegmentNudge: false,
   });
   if (bottomCenter) return bottomCenter;
   const right = topBandSonohokaRight(item, cfg, form, {
-    skipLeader: true,
     allowSegmentNudge: false,
   });
   if (right) return right;
   const clusterRight = clusterTopBandBottomRight(item, cfg, form, {
-    skipLeader: true,
     allowSegmentNudge: false,
   });
   if (clusterRight) return clusterRight;
   const smallRight = topBandSmallRight(item, cfg, form, {
-    skipLeader: true,
     allowSegmentNudge: false,
   });
   if (smallRight) return smallRight;
@@ -589,7 +579,6 @@ export function buildOutsideRimDraft(
     lineStart: { x: textX, y: textY },
     lineEnd: { x: textX, y: textY },
     allowSegmentNudge: false,
-    skipLeader: true,
     pieClearance: true,
     dominantOutsideEdge: true,
     nameScaleX: form.nameScaleX,
@@ -607,12 +596,10 @@ export function buildOutsideLeaderDraft(
   form: LabelForm,
 ): PlacementDraft {
   const right = topBandSonohokaRight(item, cfg, form, {
-    skipLeader: false,
     allowSegmentNudge: true,
   });
   if (right) return right;
   const smallRight = topBandSmallRight(item, cfg, form, {
-    skipLeader: false,
     allowSegmentNudge: true,
   });
   if (smallRight) return smallRight;
@@ -646,7 +633,6 @@ export function buildOutsideLeaderDraft(
     lineStart: { x: labelX, y: labelY },
     lineEnd: { x: labelX, y: labelY },
     allowSegmentNudge: true,
-    skipLeader: false,
     pieClearance: true,
     dominantOutsideEdge: true,
     nameScaleX: form.nameScaleX,
@@ -687,7 +673,6 @@ function topLiftedRimLeft(
     lineStart: { x: anchorX, y: labelY },
     lineEnd: { x: labelX, y: labelY },
     allowSegmentNudge: true,
-    skipLeader: false,
     pieClearance: true,
     dominantOutsideEdge: true,
     nameScaleX: form.nameScaleX,
@@ -727,7 +712,6 @@ export function buildLowerLeftDropLeaderDraft(
     lineStart: { x: textX, y: textY },
     lineEnd: { x: textX, y: textY },
     allowSegmentNudge: true,
-    skipLeader: false,
     pieClearance: true,
     dominantOutsideEdge: true,
     nameScaleX: form.nameScaleX,
@@ -931,8 +915,6 @@ function clampAndBuildPlacement(input: {
     minTextY,
     origTextX: textX,
     origTextY: textY,
-    upperLeftHairpinCheck: Boolean(draft.upperLeftHairpinCheck),
-    skipLeader: Boolean(draft.skipLeader),
     insideSlice: Boolean(draft.insideSlice),
     dominantOutsideEdge: Boolean(draft.dominantOutsideEdge),
     pieClearance: Boolean(draft.pieClearance),

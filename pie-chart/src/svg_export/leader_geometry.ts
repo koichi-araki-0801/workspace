@@ -604,7 +604,7 @@ export function isRedundantUpperLeftSmallLeader(
 
 /**
  * 1 強 (≥`REDUNDANT_RIM_LEADER_DOMINANT_MIN_PCT`%) スライスの `dominantOutsideEdge` rim ラベル
- * (`buildOutsideRimDraft` 由来、draft では `skipLeader=true` を意図) が引く「冗長な短い」leader か。
+ * (`buildOutsideRimDraft` 由来) が引く「冗長な短い」leader か。
  * 短い = ラベルが自スライス外縁に隣接し線が無くても接続が自明 (例: アメリカ・ドル58%)。
  * `ALWAYS_DRAW_OUTSIDE_LEADERS` 下では `computeDrawnLeader` が rim ラベルにも一律 leader を描くため、
  * emit 最終段でこの述語により線のみ削る。閾値は `radialFraction(cfg, 0.3, 2.8)`。これより遠くへ逃げた

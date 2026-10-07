@@ -463,8 +463,6 @@ describe('placementExtent / placementBox', () => {
       leaderBendFollowsEndpointX: false,
       origTextX: 0,
       origTextY: 0,
-      upperLeftHairpinCheck: false,
-      skipLeader: false,
       insideSlice: false,
       ...over,
     };

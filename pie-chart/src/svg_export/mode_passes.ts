@@ -565,7 +565,7 @@ const LEFT_STACK_ALIGN_MIN_GAP_FRACTION = 0.25;
  * 自スライス rim 高さから始め、隣接ペアの必要間隔 (箱高 + floor) と上下端を反復投影で満たす。
  * 目標列が角度順に単調なので投影後も角度順 (=値順) は保たれる。y は箱中心オフセット保存で移動し
  * baseline 向き差を吸収。円キャップより完全に上/下のラベルは X 現状維持 (rim が無い)。
- * 移動ラベルは skipLeader を解除し、leader は emit の描画段が最終 box から再計算して追従する。
+ * leader は emit の描画段が最終 box から再計算して追従する。
  * do-no-harm: `emitDefectsWorsened` (一級 + through/cross 新規対 + inv) 悪化で全 revert。
  */
 export function alignLeftStackToAnchors(
@@ -612,7 +612,6 @@ export function alignLeftStackToAnchors(
   const intrusionBefore = boxPieIntrusionMax(placements, cfg);
   const origX = stack.map((p) => p.x);
   const origY = stack.map((p) => p.y);
-  const origSkip = stack.map((p) => Boolean(p.skipLeader));
 
   // 目標中心 = 自スライスの rim 高さ。隣接ペアの必要間隔 (箱高の半分ずつ + floor) と per-label の
   // 上下境界を反復投影で満たす (押し合いは対称に半分ずつ)。目標列が角度順に単調なので順序は保たれる。
@@ -675,8 +674,6 @@ export function alignLeftStackToAnchors(
     // 極寄りの新 y でも旧位置相当まで x を左へ引き戻し、箱左端が viewBox を割る clips を新規に作る
     // (`tidyTopRightEscapeeStack` の stale minTextX と同型)。pie クリアランスは上の
     // `nudgeTextAwayFromPie` が現在 y で保証し、その他の悪化は下の do-no-harm ゲートが拾う。
-    // 前段 gap-close が rim ハグ前提で立てた leader 抑制を解除 (縮退判定は leader 再計算が行う)。
-    p.skipLeader = false;
   }
 
   // 二級の box 円侵入 (`countDefects` は数えない) も安全網として非増加を要求する。
@@ -687,7 +684,6 @@ export function alignLeftStackToAnchors(
     stack.forEach((p, i) => {
       p.x = origX[i];
       p.y = origY[i];
-      p.skipLeader = origSkip[i];
     });
   }
 }
@@ -1150,7 +1146,6 @@ export function reorderLeftStackWithCondense(
     x: p.x,
     y: p.y,
     baseline: p.baseline,
-    skipLeader: p.skipLeader,
     nameScaleX: p.nameScaleX,
   }));
 
@@ -1210,7 +1205,6 @@ export function reorderLeftStackWithCondense(
       s.p.x = s.x;
       s.p.y = s.y;
       s.p.baseline = s.baseline;
-      s.p.skipLeader = s.skipLeader;
       s.p.nameScaleX = s.nameScaleX;
     }
   }
@@ -1287,7 +1281,6 @@ export function separateLeftColumnByHeight(
     p,
     x: p.x,
     y: p.y,
-    skipLeader: p.skipLeader,
     nameScaleX: p.nameScaleX,
   }));
 
@@ -1335,7 +1328,6 @@ export function separateLeftColumnByHeight(
     for (const s of snapshot) {
       s.p.x = s.x;
       s.p.y = s.y;
-      s.p.skipLeader = s.skipLeader;
       s.p.nameScaleX = s.nameScaleX;
     }
   }
@@ -1402,7 +1394,6 @@ export function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutCo
   const before = maxOverlap();
   const origY = stack.map((p) => p.y);
   const origX = stack.map((p) => p.x);
-  const origSkip = stack.map((p) => Boolean(p.skipLeader));
 
   const pieR = cfg.pieRadius;
   for (let i = 0; i < stack.length; i += 1) {
@@ -1416,14 +1407,12 @@ export function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutCo
     p.x = nudged.x;
     p.y = nudged.y;
     clampPlacement(p);
-    p.skipLeader = true; // rim ハグ位置に詰めたので leader は不要 (はみ出し防止)
   }
 
   if (maxOverlap() > before + tol) {
     stack.forEach((p, i) => {
       p.y = origY[i];
       p.x = origX[i];
-      p.skipLeader = origSkip[i];
     });
   }
 }
@@ -1556,7 +1545,6 @@ export function reshapeToLeftRimHug(p: Placement, cfg: PieLayoutConfig, y: numbe
   p.baseline = 'bottom';
   p.forceTopRight = false;
   p.dominantOutsideEdge = true;
-  p.skipLeader = false;
   p.maxTextX = undefined;
   p.minTextX = undefined;
   p.maxTextY = undefined;
@@ -1722,7 +1710,6 @@ function reshapeToTopRightEscape(p: Placement, cfg: PieLayoutConfig, yOffset = 0
   p.leaderBendFollowsEndpointX = false;
   p.forceTopRight = true;
   p.dominantOutsideEdge = true;
-  p.skipLeader = false;
   // 左配置由来のクランプ境界は右逃がし/縦積みを引き戻すため解除する。真のはみ出しは
   // 呼び出し側の do-no-harm (maxViewOverflow) ゲートが弾く。
   p.maxTextX = undefined;

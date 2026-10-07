@@ -1274,7 +1274,7 @@ const BOTTOM_CENTER_HALF_DEG = 8;
 /**
  * 6時直下 (mid 270°±BOTTOM_CENTER_HALF_DEG, |cos|<cosTol) の非 dominant スライスを、左右の列に
  * 折らず pie 真下中央へ leaderless で据える印 bottomCenterBelow を立てる。
- * 背景: 当該スライスの rim draft は既に anchor=middle/x≈0/skipLeader=true だが、箱上端が円内へ
+ * 背景: 当該スライスの rim draft は既に anchor=middle/x≈0 だが、箱上端が円内へ
  * 食い込むと cascade の pie 侵入判定で leader rank まで降格し、overlap nudge で横へ流れて
  * L 字 leader が付いてしまう。本印付きは buildOutsideRimDraft で「pie 直下へ押し下げた中央配置」を
  * 返し、cascade で pie 侵入降格を免除する。
