@@ -34,11 +34,12 @@ export function useSnapshotHistory<T>(
   capture: () => T,
   apply: (snap: T) => void,
   max = 100,
-  init?: { past: T[]; future: T[]; onChange?: () => void },
+  init?: { past: T[]; future: T[]; onChange?: () => void; equals?: (a: T, b: T) => boolean },
 ) {
   const past: T[] = init?.past ?? [];
   const future: T[] = init?.future ?? [];
   const onChange = init?.onChange;
+  const equals = init?.equals ?? Object.is;
   const canUndo = ref(false);
   const canRedo = ref(false);
   let applying = false;
@@ -54,14 +55,6 @@ export function useSnapshotHistory<T>(
     canUndo.value = past.length > 0;
     canRedo.value = future.length > 0;
     if (started) onChange?.();
-  }
-
-  /**
-   * 2 つの snapshot が同じ内容か。`T` は不透明だが、`editorSession` が localStorage へ JSON で
-   * 永続ミラーする前提なので、JSON 文字列の一致で比べる。
-   */
-  function sameSnapshot(a: T, b: T): boolean {
-    return a === b || JSON.stringify(a) === JSON.stringify(b);
   }
 
   /** snapshot を past へ積み、redo 分岐(`future`)を捨てる。 */
@@ -82,15 +75,17 @@ export function useSnapshotHistory<T>(
    * ジェスチャ開始時の state を保留 capture する。past / future はまだ動かさないので、
    * 無変更で終わっても Redo は残る。`commitUndo` / `cancelUndo` と対で使う。
    *
-   * 保留中に呼ばれたら(ジェスチャの途中で改ページ・配置の初期化・パーツの追加が走ったとき)、
-   * 先に保留を片付けてから新しい保留を始める。上書きすると保留していた開始時点が消え、
-   * そのジェスチャを単独の 1 手として戻せなくなる。保留が現在の `capture` と同じなら変更が
-   * 無いので捨てる。片付けた保留は消えるので、ジェスチャの終わりの `commitUndo` は何も積まない。
+   * 保留中に呼ばれたら、先に保留を片付けてから新しい保留を始める。上書きすると保留していた
+   * 開始時点が消え、そのジェスチャを単独の 1 手として戻せなくなる。保留が現在の `capture` と
+   * 同じ(`init.equals`。既定は `Object.is`)なら変更が無いので捨てる。片付けた保留は消えるので、
+   * ジェスチャの終わりの `commitUndo` は何も積まない。`useTemplateEditor.ts` の操作はテキスト
+   * 編集を先に閉じてから(`finishTextEdit`)呼ぶのでこの形には通常ならない。閉じ損ねた経路が
+   * 残っていても開始時点を失わないための多重防御。
    */
   function beginUndo(): void {
     if (applying) return;
     const now = capture();
-    if (pending && !sameSnapshot(pending.snap, now)) pushSnapshot(pending.snap);
+    if (pending && !equals(pending.snap, now)) pushSnapshot(pending.snap);
     pending = { snap: now };
   }
 

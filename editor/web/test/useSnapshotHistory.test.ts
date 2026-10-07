@@ -191,13 +191,15 @@ describe('useSnapshotHistory', () => {
       expect(box.state).toBe('a');
     });
 
-    it('構造が同じ object の snapshot は同じとみなす', () => {
+    it('同じかどうかは init.equals で判定する', () => {
       const box = { state: { html: 'a', css: '' } };
       const h = useSnapshotHistory(
         () => ({ ...box.state }),
         (s) => {
           box.state = s;
         },
+        100,
+        { past: [], future: [], equals: (a, b) => a.html === b.html && a.css === b.css },
       );
       h.beginUndo();
       h.beginUndo();

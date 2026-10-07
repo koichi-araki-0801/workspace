@@ -72,6 +72,7 @@ const {
   redo,
   beginUndo,
   applyGeom,
+  applyGeomEdit,
   setPartBreak,
   recordGeomDiff,
   resetGeom,
@@ -574,7 +575,7 @@ const statusText = computed(() => {
         :edit-mode="allowEdit"
         :can-up="g.canMoveUp.value"
         :can-down="g.canMoveDown.value"
-        @apply="applyGeom"
+        @apply="applyGeomEdit"
         @pagebreak="setPartBreak($event.edge, $event.on)"
         @move="moveSelected($event)"
         @reset="resetGeom"

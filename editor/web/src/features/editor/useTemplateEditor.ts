@@ -45,6 +45,7 @@ import {
 import { useRedline } from './redline/useRedline';
 import { LEGACY_DRAFT_MESSAGE } from './services/legacyDraft';
 import { useTemplateEditorService } from './services/templateEditorService';
+import { afterTextEdit } from './textEditFinish';
 import { useAutosave } from './useAutosave';
 import { useComments } from './useComments';
 import { useGrapes } from './useGrapes';
@@ -203,7 +204,12 @@ export function useTemplateEditor(
       autosave.trigger();
     },
     100,
-    { past: sess.undoPast, future: sess.undoFuture, onChange: debouncedPersistUndo },
+    {
+      past: sess.undoPast,
+      future: sess.undoFuture,
+      onChange: debouncedPersistUndo,
+      equals: (a, b) => a.html === b.html && a.css === b.css,
+    },
   );
 
   const { record: recordChange, displayHistory } = usePartEditHistory(
@@ -339,11 +345,9 @@ export function useTemplateEditor(
   /**
    * 選んだ要素が属するパーツの前(後ろ)の改ページを ON / OFF する。区切りの挿入・削除と inline の
    * 宣言の削除を 1 つの変更として、操作の前の snapshot 1 つで戻す。状態が変わらない操作・区切りを
-   * 置けない選択では保留を捨てる — 無変更でも積むと Redo が失われる。テキスト編集中なら先に閉じ、
-   * 追記を別の 1 手として確定させる(`finishTextEdit`)。
+   * 置けない選択では保留を捨てる — 無変更でも積むと Redo が失われる。
    */
-  async function setPartBreak(edge: BreakEdge, on: boolean) {
-    await g.finishTextEdit();
+  function setPartBreak(edge: BreakEdge, on: boolean) {
     beginUndo();
     if (!g.setPartBreak(g.editor.value?.getSelected(), edge, on)) {
       cancelUndo();
@@ -382,7 +386,9 @@ export function useTemplateEditor(
       durationMs: 6000,
       action: {
         label: '元に戻す',
-        onClick: () => {
+        onClick: async () => {
+          // 深さを比べる前に閉じる。閉じたテキスト編集が 1 手積まれれば「その後の編集」になる。
+          await g.finishTextEdit();
           if (undoDepth() !== depthAtOp) {
             toast('その後の編集があるため、Ctrl+Z で順に戻してください');
             return;
@@ -394,8 +400,7 @@ export function useTemplateEditor(
   }
 
   /** 選択の layout style を全消去する(既定配置へ戻す)。 */
-  async function resetGeom() {
-    await g.finishTextEdit();
+  function resetGeom() {
     if (!g.selected.value) return;
     // 既定の配置のパーツや区切りの帯(style を持たない)では何も変わらない。無変更でも積むと Redo が
     // 消え、修正履歴に実際には無い変更が残るので、変わったときだけ確定する。
@@ -413,12 +418,8 @@ export function useTemplateEditor(
     previewPart.value = p;
   }
 
-  /**
-   * 挿入したときだけ Undo・修正履歴・プレビュー選択を積む(`partInsert.ts`)。テキスト編集中なら
-   * 先に閉じる(`finishTextEdit`) — 改ページ・配置の初期化も同じ。
-   */
-  async function onPartInsert(p: PartCatalogItem) {
-    await g.finishTextEdit();
+  /** 挿入したときだけ Undo・修正履歴・プレビュー選択を積む(`partInsert.ts`)。 */
+  function onPartInsert(p: PartCatalogItem) {
     insertPartUndoable(
       {
         canInsert: () => g.canInsertPart.value,
@@ -780,17 +781,22 @@ export function useTemplateEditor(
     autosave,
     canUndo,
     canRedo,
-    undo,
-    redo,
+    // 画面から呼ぶ Undo 可能な操作(と Undo/Redo)は、テキスト編集を先に閉じて追記を別の 1 手に
+    // 確定させてから走らせる(`afterTextEdit`)。ハンドルの drag は `useGeomHandles.ts` が閉じる。
+    undo: afterTextEdit(g.finishTextEdit, undo),
+    redo: afterTextEdit(g.finishTextEdit, redo),
     beginUndo,
     applyGeom,
-    setPartBreak,
+    applyGeomEdit: afterTextEdit(g.finishTextEdit, (patch: Partial<LayoutGeom>) =>
+      applyGeom(patch),
+    ),
+    setPartBreak: afterTextEdit(g.finishTextEdit, setPartBreak),
     recordGeomDiff,
-    resetGeom,
-    moveSelected,
-    deletePart,
+    resetGeom: afterTextEdit(g.finishTextEdit, resetGeom),
+    moveSelected: afterTextEdit(g.finishTextEdit, moveSelected),
+    deletePart: afterTextEdit(g.finishTextEdit, deletePart),
     onPartSelect,
-    onPartInsert,
+    onPartInsert: afterTextEdit(g.finishTextEdit, onPartInsert),
     redlineEnabled: redline.enabled,
     redlineAvailable: redline.available,
     toggleRedline: redline.toggle,

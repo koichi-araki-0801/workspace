@@ -12,6 +12,9 @@
 // パーツと区切りの帯、帯とページ線の位置、詳細度で帯が隠れること、パーツの挿入先、赤入れの
 // 削除要素のページ、本文全体を固めた作成タブのページ送り、閲覧のみでの帯の削除の禁止。
 //
+// 末尾は、テキスト編集中に Undo 可能な操作をしたとき、追記と操作が別々の 1 手に分かれること。
+// 改ページの操作を含み、小さな文書を差し替えて渡す仕組み(`serveDoc`)を共有するためここに置く。
+//
 // 文書は `page.route` でテンプレの取得の応答を差し替えて渡す(fixture は増やさない)。
 import type { FrameLocator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
@@ -375,48 +378,6 @@ test.describe('canvas の区切りとページ', () => {
     expect(await editorPages(page, frame)).toEqual(['P1-A', 'P2-A', 'P3-A {% if fund.name %}']);
   });
 
-  // キーボードで押すと `mousedown` が出ず、マウスのときのように先にテキスト編集が閉じない。
-  // 改ページの前に編集を確定させないと、追記が改ページの 1 手に混ざって単独で戻せなくなる。
-  test('テキスト編集中にキーボードで「後で改ページ」を押しても、Undo は改ページ → 追記の順に 1 手ずつ戻す', async ({
-    page,
-  }) => {
-    await serveDoc(page, P('P1-A') + P('P2-A'));
-    await login(page);
-    const frame = await openEditor(page, SEED_ID);
-    await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
-    await selectPart(frame, frame.getByText('P1-A', { exact: true }));
-    // Playwright の合成ダブルクリックは選択のオーバーレイに 2 打目を吸われるので直接配送する。
-    await page.evaluate(() => {
-      const doc = document.querySelector<HTMLIFrameElement>('iframe.gjs-frame')?.contentDocument;
-      doc
-        ?.querySelector('p.part-p1-a')
-        ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-    });
-    const editing = frame.locator('[contenteditable="true"]');
-    await expect(editing).toHaveCount(1, { timeout: 10_000 });
-    await editing.evaluate((el) => {
-      el.append('追記');
-      el.dispatchEvent(new InputEvent('input', { bubbles: true }));
-    });
-
-    const after = page.getByRole('button', { name: /後で改ページ/ });
-    await after.focus();
-    await page.keyboard.press('Enter');
-    const bands = frame.locator('[data-gjs-type=wrapper] > div.pagebreak');
-    await expect(bands).toHaveCount(1);
-    await expect(editing).toHaveCount(0);
-    const appended = frame.getByText('P1-A追記', { exact: true });
-    await expect(appended).toHaveCount(1);
-
-    const undo = page.getByRole('button', { name: '元に戻す' }).first();
-    await undo.click();
-    await expect(bands).toHaveCount(0);
-    await expect(appended).toHaveCount(1);
-    await undo.click();
-    await expect(appended).toHaveCount(0);
-    await expect(frame.getByText('P1-A', { exact: true })).toHaveCount(1);
-  });
-
   test('Inspector の「後で改ページ」OFF は区切りを 1 つだけ消し、白紙のページを残す', async ({
     page,
   }) => {
@@ -590,5 +551,147 @@ h2.title { break-before: page; }`,
     ).toBeVisible();
     // 知らせるだけで、ページの数え方は変えない(チップはパーツに数えず、区切り 1 つで 2 ページ)。
     expect(await navTotal(page)).toBe(2);
+  });
+});
+
+// キーボードでボタンを押すと `mousedown` が出ず、マウスのときのように先にテキスト編集が閉じない。
+// ハンドルは `mousedown` の伝播を止めるので、マウスでも閉じない。操作の前に編集を確定させないと、
+// 追記がその操作の 1 手に混ざって単独で戻せなくなる。どの操作も、Undo 1 回目で操作が、2 回目で
+// 追記が戻ることを確かめる。
+test.describe('テキスト編集中の Undo 可能な操作', () => {
+  /** 編集を許可し、`cls` のパーツを選んでテキスト編集を開き、末尾へ「追記」を足す。 */
+  async function appendWhileEditing(page: Page, frame: FrameLocator, cls: string): Promise<void> {
+    await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+    await selectPart(frame, frame.locator(`p.${cls}`));
+    // Playwright の合成ダブルクリックは選択のオーバーレイに 2 打目を吸われるので直接配送する。
+    await page.evaluate((c) => {
+      const doc = document.querySelector<HTMLIFrameElement>('iframe.gjs-frame')?.contentDocument;
+      doc
+        ?.querySelector(`p.${c}`)
+        ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    }, cls);
+    const editing = frame.locator('[contenteditable="true"]');
+    await expect(editing).toHaveCount(1, { timeout: 10_000 });
+    await editing.evaluate((el) => {
+      el.append('追記');
+      el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    });
+  }
+
+  /** マウスを使わず、フォーカスして Enter で押す。 */
+  async function pressByKeyboard(page: Page, name: string | RegExp): Promise<void> {
+    await page.getByRole('button', { name }).focus();
+    await page.keyboard.press('Enter');
+  }
+
+  /** Undo を 1 回押す(押す前に編集は閉じている)。 */
+  async function undoOnce(page: Page): Promise<void> {
+    await page.getByRole('button', { name: '元に戻す' }).first().click();
+  }
+
+  test('キーボードで「後で改ページ」を押す', async ({ page }) => {
+    await serveDoc(page, P('P1-A') + P('P2-A'));
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    await appendWhileEditing(page, frame, 'part-p1-a');
+    await pressByKeyboard(page, /後で改ページ/);
+    const bands = frame.locator('[data-gjs-type=wrapper] > div.pagebreak');
+    await expect(bands).toHaveCount(1);
+    await expect(frame.locator('[contenteditable="true"]')).toHaveCount(0);
+    const appended = frame.getByText('P1-A追記', { exact: true });
+    await expect(appended).toHaveCount(1);
+
+    await undoOnce(page);
+    await expect(bands).toHaveCount(0);
+    await expect(appended).toHaveCount(1);
+    await undoOnce(page);
+    await expect(appended).toHaveCount(0);
+    await expect(frame.getByText('P1-A', { exact: true })).toHaveCount(1);
+  });
+
+  test('キーボードで「配置を初期化」を押す', async ({ page }) => {
+    await serveDoc(page, `<p class="part-p1-a" style="margin-top: 10mm">P1-A</p>${P('P2-A')}`);
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    await appendWhileEditing(page, frame, 'part-p1-a');
+    await pressByKeyboard(page, '配置を初期化');
+    const part = frame.locator('p.part-p1-a');
+    await expect(part).not.toHaveAttribute('style', /margin-top/);
+    await expect(part).toHaveText('P1-A追記');
+
+    await undoOnce(page);
+    await expect(part).toHaveAttribute('style', /margin-top/);
+    await expect(part).toHaveText('P1-A追記');
+    await undoOnce(page);
+    await expect(part).toHaveText('P1-A');
+  });
+
+  test('キーボードで「選択したパーツを挿入」を押す', async ({ page }) => {
+    await serveDoc(page, P('P1-A') + P('P2-A'));
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    // カタログの選択はマウスで先に済ませる(押下で編集が閉じるため、編集を始める前に行う)。
+    await page.getByText('パーツを追加', { exact: true }).click();
+    await page.getByRole('combobox').filter({ hasText: 'カテゴリを選択' }).click();
+    await page.getByRole('option', { name: '注記', exact: true }).click();
+    await appendWhileEditing(page, frame, 'part-p1-a');
+    await pressByKeyboard(page, '選択したパーツを挿入');
+    const inserted = frame.locator('[data-gjs-type=wrapper] > p', {
+      hasText: '税制は変更される場合があります。',
+    });
+    await expect(inserted).toHaveCount(1, { timeout: 15_000 });
+    const appended = frame.getByText('P1-A追記', { exact: true });
+    await expect(appended).toHaveCount(1);
+
+    await undoOnce(page);
+    await expect(inserted).toHaveCount(0);
+    await expect(appended).toHaveCount(1);
+    await undoOnce(page);
+    await expect(appended).toHaveCount(0);
+  });
+
+  test('キーボードで「下へ移動」を押す', async ({ page }) => {
+    await serveDoc(page, P('P1-A') + P('P2-A'));
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    await appendWhileEditing(page, frame, 'part-p1-a');
+    await pressByKeyboard(page, '下へ移動');
+    const order = () =>
+      frame
+        .locator('[data-gjs-type=wrapper] > p')
+        .evaluateAll((ps) => ps.map((p) => p.textContent ?? ''));
+    await expect.poll(order).toEqual(['P2-A', 'P1-A追記']);
+
+    await undoOnce(page);
+    await expect.poll(order).toEqual(['P1-A追記', 'P2-A']);
+    await undoOnce(page);
+    await expect.poll(order).toEqual(['P1-A', 'P2-A']);
+  });
+
+  test('ハンドルで下の余白をドラッグする', async ({ page }) => {
+    await serveDoc(page, P('P1-A') + P('P2-A'));
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    await appendWhileEditing(page, frame, 'part-p1-a');
+    const handle = page.getByTitle('下の余白をドラッグ');
+    const box = await handle.boundingBox();
+    if (!box) throw new Error('下の余白のハンドルが見えない');
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    // ハンドルの外へ出ると mousemove が canvas の iframe へ流れるので、ハンドルの中で動かす。
+    await page.mouse.move(x, y + 12, { steps: 3 });
+    await page.mouse.up();
+    const part = frame.locator('p.part-p1-a');
+    await expect(part).toHaveAttribute('style', /margin-bottom/);
+    await expect(part).toHaveText('P1-A追記');
+    await expect(frame.locator('[contenteditable="true"]')).toHaveCount(0);
+
+    await undoOnce(page);
+    await expect(part).not.toHaveAttribute('style', /margin-bottom/);
+    await expect(part).toHaveText('P1-A追記');
+    await undoOnce(page);
+    await expect(part).toHaveText('P1-A');
   });
 });

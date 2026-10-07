@@ -57,25 +57,40 @@ export function useGeomHandles(deps: GeomHandleDeps) {
     null;
 
   function startHandle(kind: HandleKind, e: MouseEvent) {
+    if (!selectedGeom.value || !selectedRect.value) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const { clientX: x, clientY: y } = e;
+    if (!isTextEditing()) {
+      beginDrag(kind, x, y);
+      return;
+    }
+    // 伝播を止めるので、GrapesJS が document の mousedown で閉じるテキスト編集はここでは閉じない。
+    // 閉じる前に drag を始めると、モデルへ未反映の追記が幾何の 1 手に混ざる。閉じ終えてから、
+    // 押した位置を起点に同じ押下で drag を始める(閉じる処理は microtask で終わる)。閉じ終わる前に
+    // 離されていたら始めない — 離した後に始めると、来ない mouseup を待ち続ける。
+    let released = false;
+    const onEarlyUp = () => {
+      released = true;
+    };
+    window.addEventListener('mouseup', onEarlyUp, { once: true });
+    void finishTextEdit().then(() => {
+      window.removeEventListener('mouseup', onEarlyUp);
+      if (!released) beginDrag(kind, x, y);
+    });
+  }
+
+  function beginDrag(kind: HandleKind, x: number, y: number) {
     const g0 = selectedGeom.value;
     const r = selectedRect.value;
     if (!g0 || !r) return;
-    e.preventDefault();
-    e.stopPropagation();
-    // 伝播を止めるので、GrapesJS が document の mousedown で閉じるテキスト編集はここでは閉じない。
-    // 編集中に drag を始めると、モデルへ未反映の追記が幾何の 1 手に混ざる。canvas の外を押したとき
-    // と同じく、最初の押下は編集を閉じるだけにする。
-    if (isTextEditing()) {
-      void finishTextEdit();
-      return;
-    }
     // drag 1 回につき undo 1 ステップ。幾何が動かなければ `recordGeomDiff` が保留を捨てる。
     beginUndo();
     activeHandle.value = kind;
     drag = {
       kind,
-      x: e.clientX,
-      y: e.clientY,
+      x,
+      y,
       geom: { ...g0 },
       fullW: r.width / (Math.max(g0.widthPct, 1) / 100),
     };

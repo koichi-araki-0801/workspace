@@ -33,19 +33,45 @@ const mouse = (type: string, x: number, y: number) =>
 
 describe('useGeomHandles', () => {
   // ハンドルの mousedown は伝播を止めるので、GrapesJS がほかのクリックで閉じるテキスト編集が
-  // 閉じない。編集中に drag を始めると追記が幾何の 1 手に混ざるため、最初の押下は編集を閉じる
-  // だけにする(canvas の外のクリックと同じ)。
-  it('テキスト編集中の押下は編集を閉じるだけで、drag も Undo の保留も始めない', () => {
+  // 閉じない。閉じる前に drag を始めると追記が幾何の 1 手に混ざるため、閉じ終えてから同じ押下の
+  // 位置を起点に drag を始める。
+  it('テキスト編集中の押下は編集を閉じ終えてから、押した位置を起点に drag を始める', async () => {
     const { api, beginUndo, applyGeom, recordGeomDiff, finishTextEdit } = setup(undefined, true);
-    const down = mouse('mousedown', 300, 90);
-    api.startHandle('width', down);
-    expect(finishTextEdit).toHaveBeenCalledTimes(1);
+    const order: string[] = [];
+    finishTextEdit.mockImplementation(async () => {
+      order.push('closed');
+    });
+    beginUndo.mockImplementation(() => order.push('beginUndo'));
+    api.startHandle('width', mouse('mousedown', 300, 90));
+    expect(beginUndo).not.toHaveBeenCalled();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).toEqual(['closed', 'beginUndo']);
+    expect(api.activeHandle.value).toBe('width');
+    window.dispatchEvent(mouse('mousemove', 500, 90)); // 押した位置から +200px → 100%
+    expect(applyGeom).toHaveBeenLastCalledWith(expect.objectContaining({ widthPct: 100 }), false);
+    window.dispatchEvent(mouse('mouseup', 500, 90));
+    expect(recordGeomDiff).toHaveBeenCalledTimes(1);
+  });
+
+  it('編集を閉じ終わる前に離されたら drag を始めない', async () => {
+    const { api, beginUndo, applyGeom, finishTextEdit } = setup(undefined, true);
+    let close: () => void = () => {};
+    finishTextEdit.mockImplementation(
+      () =>
+        new Promise<void>((r) => {
+          close = r;
+        }),
+    );
+    api.startHandle('mb', mouse('mousedown', 200, 130));
+    window.dispatchEvent(mouse('mouseup', 200, 130));
+    close();
+    await Promise.resolve();
+    await Promise.resolve();
     expect(beginUndo).not.toHaveBeenCalled();
     expect(api.activeHandle.value).toBeNull();
-    window.dispatchEvent(mouse('mousemove', 500, 90));
-    window.dispatchEvent(mouse('mouseup', 500, 90));
+    window.dispatchEvent(mouse('mousemove', 200, 200));
     expect(applyGeom).not.toHaveBeenCalled();
-    expect(recordGeomDiff).not.toHaveBeenCalled();
   });
 
   it('テキスト編集中でなければ編集を閉じる処理を呼ばない', () => {

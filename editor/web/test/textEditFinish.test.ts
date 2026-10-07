@@ -1,6 +1,10 @@
 import type { Editor } from 'grapesjs';
 import { describe, expect, it, vi } from 'vitest';
-import { createFinishTextEdit } from '@/features/editor/textEditFinish';
+import {
+  afterTextEdit,
+  createFinishTextEdit,
+  FINISH_TEXT_EDIT_TIMEOUT_MS,
+} from '@/features/editor/textEditFinish';
 
 // =============================================================================
 // textEditFinish.test.ts — Undo 可能な操作の前にテキスト編集(RTE)を閉じる関数
@@ -86,5 +90,59 @@ describe('createFinishTextEdit', () => {
     await expect(finishTextEdit()).resolves.toBeUndefined();
     await finishTextEdit();
     expect(disableEditing).toHaveBeenCalledTimes(2);
+  });
+
+  // 閉じる処理が解決しないまま `inFlight` が残ると、以後の操作がすべて黙って止まる。
+  it('disableEditing が解決しなくても上限時間で諦めて解決し、次の呼び出しで閉じ直す', async () => {
+    vi.useFakeTimers();
+    try {
+      const disableEditing = vi.fn(() => new Promise<void>(() => {}));
+      const ed = {
+        getEditing: () => ({ getView: () => ({ disableEditing }) }),
+      } as unknown as Editor;
+      const finishTextEdit = createFinishTextEdit(() => ed);
+      let done = false;
+      const p = finishTextEdit().then(() => {
+        done = true;
+      });
+      await vi.advanceTimersByTimeAsync(FINISH_TEXT_EDIT_TIMEOUT_MS - 1);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await p;
+      expect(done).toBe(true);
+      void finishTextEdit();
+      expect(disableEditing).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('上限時間はイベント待ちとして十分に長い(1 秒以上)', () => {
+    expect(FINISH_TEXT_EDIT_TIMEOUT_MS).toBeGreaterThanOrEqual(1000);
+  });
+});
+
+describe('afterTextEdit', () => {
+  it('テキスト編集を閉じ終えてから操作を走らせ、引数を渡す', async () => {
+    const order: string[] = [];
+    let close: () => void = () => {};
+    const finish = vi.fn(
+      () =>
+        new Promise<void>((r) => {
+          close = () => {
+            order.push('closed');
+            r();
+          };
+        }),
+    );
+    const op = vi.fn((n: number) => {
+      order.push(`op ${n}`);
+    });
+    const p = afterTextEdit(finish, op)(3);
+    await Promise.resolve();
+    expect(op).not.toHaveBeenCalled();
+    close();
+    await p;
+    expect(order).toEqual(['closed', 'op 3']);
   });
 });
