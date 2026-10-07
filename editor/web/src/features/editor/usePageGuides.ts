@@ -59,9 +59,11 @@ export function usePageGuides(ctx: PageGuidesContext) {
    * 引き、番号は `i`(「ここまで i ページ目」)。前のページにパーツがあり、その末尾のパーツの後ろに
    * 区切りの帯が描かれていれば、最初の帯の上端に引く(帯の下に線が来ると、帯と線が離れて見える
    * ため)。白紙のページ(区切りだけのページ)では帯を前後の線で挟む。要素の無い白紙のページ
-   * (左右合わせで挟んだもの)の前後の線は、どちらも次の要素の上端に来るので 1 本にまとめ、
-   * `blank` を付ける。高さ 0 の帯(テンプレの CSS で消えているなど)は描かれていないとみなす。位置は scroll/zoom のたびに測り直すが、ページの
-   * 集合は content 変更時に `useGrapes.ts` が数え直したものを使う。
+   * (左右合わせで挟んだもの)の前後の線は同じ位置に来るので 1 本にまとめ、`blank` を付ける。
+   * まとめた線は前の線の位置(前のページの末尾に帯があれば帯の上端、無ければ次の要素の上端)に
+   * 引く。高さ 0 の帯(テンプレの CSS で消えているなど)は描かれていないとみなす。位置は
+   * scroll/zoom のたびに測り直すが、ページの集合は content 変更時に `useGrapes.ts` が数え直した
+   * ものを使う。
    */
   function refreshPageGuides(): void {
     const ed = ctx.editor.value;
@@ -95,17 +97,22 @@ export function usePageGuides(ctx: PageGuidesContext) {
       for (let i = 1; i < pages.length; i++) {
         // 要素の無い白紙のページ i の先頭の線は、次のページの線と同じ位置に来る。次の線へまとめる。
         if (isElementlessPage(split, i)) continue;
-        const prevLast = pages[i - 1].at(-1);
-        const band = prevLast ? bandAfter(prevLast, i - 1) : undefined;
-        // 末尾の改ページは消えるので、ページ i 以降には必ず要素がある。
-        const head = pageHead(split, i) as HTMLElement;
+        const blank = isElementlessPage(split, i - 1);
+        // まとめた線は飛ばした線(白紙のページ i-1 の先頭)の位置を受け継ぐ。白紙のページの前の
+        // ページの末尾に帯があれば、次の要素の上端ではなく帯の上端に引くため。
+        const from = blank && i >= 2 ? i - 1 : i;
+        const prevLast = pages[from - 1].at(-1);
+        const band = prevLast ? bandAfter(prevLast, from - 1) : undefined;
+        // 末尾の改ページは消えるので、ページ i 以降には必ず要素がある。白紙のページ i-1 の
+        // `pageHead` は要素の無いページを読み飛ばすので、ページ i の先頭と同じ要素になる。
+        const head = pageHead(split, from) as HTMLElement;
         const guide: PageGuide = {
           top: band ? band.top : pos(head).top,
           left: bodyPos.left,
           width: bodyPos.width,
           page: i,
         };
-        if (isElementlessPage(split, i - 1)) guide.blank = true;
+        if (blank) guide.blank = true;
         out.push(guide);
       }
       pageGuides.value = out;

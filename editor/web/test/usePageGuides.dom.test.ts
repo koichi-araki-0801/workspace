@@ -129,6 +129,18 @@ describe('usePageGuides', () => {
     ]);
   });
 
+  it('帯の直後に要素の無い白紙のページが来ても、まとめた線は帯の上端に引く', () => {
+    const { g, top } = setup(
+      `<p id="a">1</p>${BR('k1')}<p id="c" style="break-before:right">2</p>`,
+      { k1: 30 },
+    );
+    g.refreshPageGuides();
+    // ページは [a k1] [] [c]。飛ばした 1 本目の位置(帯 k1 の上端)を、まとめた線が受け継ぐ。
+    expect(g.pageGuides.value).toEqual([
+      { top: top('k1'), left: 10, width: 500, page: 2, blank: true },
+    ]);
+  });
+
   it('白紙のページが無い線には blank を付けない', () => {
     const { g } = setup('<p id="a">1</p><p id="b" style="break-before:page">2</p>');
     g.refreshPageGuides();
