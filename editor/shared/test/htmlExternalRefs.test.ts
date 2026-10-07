@@ -5,7 +5,7 @@
 // 遮断が効くことと同じだけ重要な要件である。片側だけ書くと、次に触る人が
 // 「全部落とせば安全」へ倒して業務を止める。
 import { describe, expect, it } from 'vitest';
-import { normalizeHtmlUrlValue } from '../src/security/htmlEntities.js';
+import { decodeHtmlEntities, normalizeHtmlUrlValue } from '../src/security/htmlEntities.js';
 import {
   DOC_DIR,
   fetchUrlAttrsFor,
@@ -121,6 +121,14 @@ describe('findExternalRefsInTag — 実体参照・制御文字での迂回は�
 
   it('normalizeHtmlUrlValue は復号 → 除去 → trim の順で効く', () => {
     expect(normalizeHtmlUrlValue('&Tab;htt&#x70;s://x/y')).toBe('https://x/y');
+  });
+
+  // 解けない参照を空文字や置換文字へ倒すと、原文に無い形を判定へ渡してしまう。
+  it.each([
+    ['符号位置の上限を超える数値参照', '&#x110000;'],
+    ['最小表に無い名前つき参照', '&unknownname;'],
+  ])('decodeHtmlEntities は %s を原文のまま残す', (_label, value) => {
+    expect(decodeHtmlEntities(value)).toBe(value);
   });
 });
 

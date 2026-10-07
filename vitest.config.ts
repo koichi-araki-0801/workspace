@@ -46,6 +46,7 @@ export default defineConfig({
         'editor/shared/src/security/cssExternalRefs.ts',
         'editor/shared/src/security/htmlExternalRefs.ts',
         'editor/shared/src/security/htmlEntities.ts',
+        'editor/shared/src/security/urlNormalize.ts',
         'editor/shared/src/security/cssRebase.ts',
         'editor/shared/src/security/svgInspect.ts',
         // 往復用の印の定義と、その検出が使う字句解析。関所・検出スクリプト・`toTemplate` の
