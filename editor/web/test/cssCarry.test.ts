@@ -77,4 +77,52 @@ describe('splitNestedFontFaces', () => {
     const css = '@media print{.a{b:c}x @font-face{font-family:F}}';
     expect(splitNestedFontFaces(css)).toEqual({ rest: css, carried: [] });
   });
+
+  it('空白・改行・コメントをはさんでも取り出し、残りの空白は原文のまま保つ', () => {
+    expect(
+      splitNestedFontFaces('@media print {\n  /* a */ \n\t@font-face{font-family:F}\n  .p{x:1}\n}'),
+    ).toEqual({
+      rest: '@media print {\n  /* a */ \n\t\n  .p{x:1}\n}',
+      carried: ['@media print {@font-face{font-family:F}}'],
+    });
+  });
+
+  it('同じ @media の中の @font-face 2 つは、出現順に個別に包み直す', () => {
+    expect(
+      splitNestedFontFaces(
+        '@media print{@font-face{font-family:A}.m{x:1}@font-face{font-family:B}}.z{}',
+      ),
+    ).toEqual({
+      rest: '@media print{.m{x:1}}.z{}',
+      carried: [
+        '@media print{@font-face{font-family:A}}',
+        '@media print{@font-face{font-family:B}}',
+      ],
+    });
+  });
+
+  it('@MEDIA / @SUPPORTS / @FONT-FACE は大文字でも取り出す', () => {
+    expect(splitNestedFontFaces('@MEDIA print{@FONT-FACE{font-family:F}}')).toEqual({
+      rest: '@MEDIA print{}',
+      carried: ['@MEDIA print{@FONT-FACE{font-family:F}}'],
+    });
+  });
+});
+
+// 文頭の判定のたびにコメントの添字を頭から数え直すと、コメントと at-rule が多い入力で二乗になる。
+// 制限時間は shared の検査器の線形テストと同じ流儀で、負荷の高い CI でも誤って落ちない広さにする。
+describe('splitNestedFontFaces は入力サイズに対して線形', () => {
+  const build = (n: number): string => '@media print{/* c */@font-face{font-family:F}}'.repeat(n);
+  const timed = (n: number): number => {
+    const css = build(n);
+    const t0 = performance.now();
+    const r = splitNestedFontFaces(css);
+    const ms = performance.now() - t0;
+    expect(r.carried).toHaveLength(n);
+    return ms;
+  };
+
+  it('コメント付きの入れ子の @font-face を大量に並べても終わる(約 3MB)', () => {
+    expect(timed(60_000)).toBeLessThan(2000);
+  });
 });

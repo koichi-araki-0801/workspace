@@ -43,26 +43,29 @@ function asciiLower(s: string): string {
   return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
 }
 
-/** `css` の `[from, to)` が空白とコメントだけか。`comments` は位置順。 */
-function onlyTrivia(
+/**
+ * `css` の `[from, to)` が空白とコメントだけかを返す判定器。`comments` は位置順で、呼び出しは `from` が
+ * 単調に増える順に限る。コメントの添字を呼び出しをまたいで進めるので、全体で入力長に線形になる。
+ */
+function triviaChecker(
   css: string,
-  from: number,
-  to: number,
   comments: ReadonlyArray<{ start: number; end: number }>,
-): boolean {
+): (from: number, to: number) => boolean {
   let k = 0;
-  let i = from;
-  while (i < to) {
-    while (k < comments.length && comments[k].end <= i) k++;
-    const c = comments[k];
-    if (c !== undefined && c.start <= i) {
-      i = c.end;
-      continue;
+  return (from, to) => {
+    let i = from;
+    while (i < to) {
+      while (k < comments.length && comments[k].end <= i) k++;
+      const c = comments[k];
+      if (c !== undefined && c.start <= i) {
+        i = c.end;
+        continue;
+      }
+      if (!/\s/.test(css[i] ?? '')) return false;
+      i++;
     }
-    if (!/\s/.test(css[i] ?? '')) return false;
-    i++;
-  }
-  return true;
+    return true;
+  };
 }
 
 /**
@@ -72,6 +75,7 @@ function onlyTrivia(
 export function splitNestedFontFaces(css: string): CarriedCss {
   const { punct, comments, atRules } = collectCssStructure(css);
   const ats = [...atRules.entries()].sort((a, b) => a[0] - b[0]);
+  const onlyTrivia = triviaChecker(css, comments);
   const stack: OpenBlock[] = [];
   const found: Array<{ start: number; end: number; text: string }> = [];
   /** 今の文の頭(直前の `{` `}` `;` の直後)。 */
@@ -82,9 +86,7 @@ export function splitNestedFontFaces(css: string): CarriedCss {
       while (ai < ats.length && ats[ai][0] < stmtStart) ai++;
       const cand = ats[ai];
       const head =
-        cand !== undefined && cand[0] < p.at && onlyTrivia(css, stmtStart, cand[0], comments)
-          ? cand
-          : undefined;
+        cand !== undefined && cand[0] < p.at && onlyTrivia(stmtStart, cand[0]) ? cand : undefined;
       const name = head ? asciiLower(head[1]) : '';
       const nested = stack.length > 0 && stack.every((o) => o.group);
       stack.push({

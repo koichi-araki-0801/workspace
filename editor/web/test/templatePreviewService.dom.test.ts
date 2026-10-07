@@ -14,6 +14,8 @@ import {
   CSS_BASELINE_MISSING_MSG,
   createTemplatePreviewService,
   cssBaselineNotice,
+  JINJA_BLOCK_LOSS_MSG,
+  jinjaBlockLossNotice,
   PDF_ERROR_MSG,
 } from '@/features/preview/services/templatePreviewService';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
@@ -383,5 +385,29 @@ describe('cssBaselineNotice', () => {
     expect(cssBaselineNotice(true, '.a{}')).toBeNull();
     expect(cssBaselineNotice(false, null)).toBeNull();
     expect(cssBaselineNotice(false, '.a{}')).toBeNull();
+  });
+});
+
+describe('jinjaBlockLossNotice', () => {
+  const two = '{% if a %}x{% endif %}{% for i in l %}y{% endfor %}';
+
+  it('ブロックの開きが 1 つ減ったときだけ、減った数の一文を返す', () => {
+    expect(jinjaBlockLossNotice(two, '{% if a %}x{% endif %}yy')).toBe(JINJA_BLOCK_LOSS_MSG(1));
+    expect(JINJA_BLOCK_LOSS_MSG(1)).toContain('1 個少なくなっています');
+    expect(jinjaBlockLossNotice(two, 'xy')).toBe(JINJA_BLOCK_LOSS_MSG(2));
+  });
+
+  it('同数でも増えていても足さない', () => {
+    expect(jinjaBlockLossNotice(two, two)).toBeNull();
+    expect(jinjaBlockLossNotice('{% if a %}x{% endif %}', two)).toBeNull();
+  });
+
+  it('申請本文(restored)が字句として読めないときは足さない', () => {
+    expect(jinjaBlockLossNotice(two, '{% if a')).toBeNull();
+    expect(jinjaBlockLossNotice(two, '{{ x')).toBeNull();
+  });
+
+  it('元のテンプレートが字句として読めないときも足さない', () => {
+    expect(jinjaBlockLossNotice('{% if a', 'x')).toBeNull();
   });
 });

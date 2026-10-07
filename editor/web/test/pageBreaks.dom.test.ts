@@ -448,12 +448,16 @@ describe('cssRuleBreakSelector', () => {
     [['.pagebreak{page-break-after:right}'], '.pagebreak'],
     [['.pagebreak{break-after:recto}'], '.pagebreak'],
     [['.pagebreak{break-after:page}', 'h2{break-after:verso}'], 'h2'],
+    [['h2{break-before:column}'], 'h2'],
+    [['H2{BREAK-BEFORE:PAGE}'], 'H2'],
+    [['.pagebreak{page-break-before:always}'], '.pagebreak'],
   ])('%j → %s', (css, want) => expect(cssRuleBreakSelector(css)).toBe(want));
 
   it.each([
     [['.pagebreak{break-after:page}']],
     [['.pagebreak{page-break-after:always}']],
     [['DIV.pagebreak{break-after:column}']],
+    [['h2{page-break-before:column}']],
     [['h2{break-before:auto;page-break-after:avoid}']],
     [['@page{margin:10mm}@font-face{font-family:F}']],
     [['/* h2{break-before:page} */.a{content:"h2{break-before:page}"}']],
@@ -484,6 +488,15 @@ describe('isElementizingChip / findElementizingChips', () => {
       b64encodeUtf8('{{- z | safe -}}'),
       b64encodeUtf8('{% raw %}<b>x</b>{% endraw %}'),
     ]);
+  });
+
+  it('{% raw %} の原文から <style> と <script> を除いた残りに < があるときだけ数える', () => {
+    const counted = (src: string) => findElementizingChips(bodyOf(rawChip(src))).length;
+    expect(counted('{% raw %}<style>.a{}</style>{% endraw %}')).toBe(0);
+    expect(counted('{% raw %}<STYLE>.a{}</STYLE ><script>f()</script>{% endraw %}')).toBe(0);
+    expect(counted('{% raw %}<style>.a{}{% endraw %}')).toBe(0);
+    expect(counted('{% raw %}<style></style><p>x</p>{% endraw %}')).toBe(1);
+    expect(counted('{% raw %}<stylex>y</stylex>{% endraw %}')).toBe(1);
   });
 
   it('入れ子のチップは数えず、固めた範囲の包みの中身は根の直下として数える', () => {

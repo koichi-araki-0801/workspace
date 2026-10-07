@@ -541,6 +541,16 @@ describe('jinjaAnchoredParts', () => {
     expect(ids(r)).toEqual(['K']);
   });
 
+  it('包みの子が複数のときは包みの原文を読まず、各パーツの表示用のアンカーで判定する', () => {
+    const src =
+      '<table class="{{ c }}"><tr><td>M</td></tr></table><table class="y"><tr><td>N</td></tr></table>';
+    const r = root(
+      `<div class="jinja-frozen-body" data-opaque="${b64encodeUtf8(src)}" data-opaque-kind="frozen">` +
+        '<table class="x"><tr><td>M</td></tr></table><table class="y"><tr><td>N</td></tr></table></div>',
+    );
+    expect(ids(r)).toEqual([]);
+  });
+
   it('アンカー関数(canvas では canvasRawKey)の結果で判定する', () => {
     const r = root('<p class="a">A</p><p class="b">B</p>');
     expect(ids(r, (el) => (el.textContent === 'B' ? '.{{' : '.a'))).toEqual(['B']);

@@ -212,8 +212,9 @@ const SAFE_FILTER_RE = /\|\s*safe\b/;
 
 /**
  * 描画すると要素になりうるチップか。値の出力(`{{ }}`)で `|safe` を通すものは値が HTML のまま
- * 出て、`{% raw %}` のチップで中身に `<` を含むものは中身が文字どおり出る。どちらも canvas では
- * 数えないチップ(`isVanishingChip`)なので、根の直下にあると承認・比較とパーツの番号がずれうる。
+ * 出て、`{% raw %}` のチップで中身に `<style>` `<script>` 以外の `<` を含むものは中身が文字どおり
+ * 出る。どちらも canvas では数えないチップ(`isVanishingChip`)なので、根の直下にあると承認・比較と
+ * パーツの番号がずれうる。
  */
 export function isElementizingChip(el: Element): boolean {
   if (!el.classList.contains(JINJA_CHIP_CLASS)) return false;
@@ -223,8 +224,37 @@ export function isElementizingChip(el: Element): boolean {
   }
   if (el.getAttribute(DATA_OPAQUE_KIND) !== 'rawtext') return false;
   const src = chipSource(el, DATA_OPAQUE);
-  return src.startsWith('{%') && src.includes('<');
+  return src.startsWith('{%') && hasVisibleElementMarkup(src);
 }
+
+/**
+ * 原文から `<style>…</style>` と `<script>…</script>` を除いた残りに `<` があるか。この 2 つだけの原文は
+ * 描画で見えない要素にしかならない(`isVanishingChip` が `<style>` だけの原文を数えないのと同じ)。
+ * 閉じの無い開きは残り全部を飲む。
+ */
+function hasVisibleElementMarkup(src: string): boolean {
+  const lower = src.toLowerCase();
+  let from = 0;
+  for (;;) {
+    ANY_LT_RE.lastIndex = from;
+    const lt = ANY_LT_RE.exec(lower);
+    if (!lt) return false;
+    RAWTEXT_OPEN_RE.lastIndex = lt.index;
+    const open = RAWTEXT_OPEN_RE.exec(lower);
+    if (!open) return true;
+    const close = open[1] === 'style' ? STYLE_CLOSE_RE : SCRIPT_CLOSE_RE;
+    close.lastIndex = lt.index;
+    const end = close.exec(lower);
+    if (!end) return false;
+    from = end.index + end[0].length;
+  }
+}
+
+/** `hasVisibleElementMarkup` の走査用(`lastIndex` を設定してから使う)。 */
+const ANY_LT_RE = /</g;
+const RAWTEXT_OPEN_RE = /<(style|script)(?=[\s>/])/y;
+const STYLE_CLOSE_RE = /<\/style[^>]*>/g;
+const SCRIPT_CLOSE_RE = /<\/script[^>]*>/g;
 
 /** 根の直下(固めた範囲の包みは中身へ展開する)の、描画で要素になりうるチップ。警告用。 */
 export function findElementizingChips(root: Element): Element[] {
@@ -409,6 +439,14 @@ export function pagebreakCssDefined(css: string): boolean {
   return false;
 }
 
+/**
+ * 改ページの宣言の値が効くか。`break-*` は `break-*` の値と旧来の値(`always` など)、旧来の別名
+ * `page-break-*` は旧来の値だけ(`page-break-before:column` は無効な値)。
+ */
+function breakDeclAccepts(prop: string, value: string): boolean {
+  return isLegacyBreakValue(value) || (!prop.startsWith('page-') && isBreakValue(value));
+}
+
 /** 左右の改ページの値(`break-*`)。区切りの `break-after` にあると、区切りの数え方とずれる。 */
 const SIDED_BREAK_VALUES = new Set(['left', 'right', 'recto', 'verso']);
 
@@ -435,14 +473,15 @@ export function cssRuleBreakSelector(sources: readonly string[]): string | null 
         .trim();
       if (head.startsWith('@')) continue;
       const decls = parseDecls(rule.text.slice(open + 1, rule.text.lastIndexOf('}')));
-      const breaks = (edge: 'before' | 'after', values: (v: string) => boolean) =>
+      const breaks = (edge: 'before' | 'after', accepts: (v: string) => boolean) =>
         decls.some(
           ([prop, value]) =>
-            (prop === `break-${edge}` && values(value)) ||
-            (prop === `page-break-${edge}` && isLegacyBreakValue(value) && values(value)),
+            (prop === `break-${edge}` || prop === `page-break-${edge}`) &&
+            breakDeclAccepts(prop, value) &&
+            accepts(value),
         );
-      const before = breaks('before', (v) => isBreakValue(v) || isLegacyBreakValue(v));
-      const after = breaks('after', (v) => isBreakValue(v) || isLegacyBreakValue(v));
+      const before = breaks('before', () => true);
+      const after = breaks('after', () => true);
       if (!before && !after) continue;
       const sidedAfter = breaks('after', (v) => SIDED_BREAK_VALUES.has(v));
       for (const sel of head.split(',').map((s) => s.trim())) {

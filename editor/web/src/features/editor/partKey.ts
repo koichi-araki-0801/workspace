@@ -272,6 +272,9 @@ const JINJA_OPEN_RE = /\{[{%#]/;
 export function jinjaAnchoredParts(root: HTMLElement, keyOf: RawKeyOf = rawKey): HTMLElement[] {
   return partsOf(root).filter((part) => {
     const source = frozenSourceElement(part);
+    // 固めた要素は、canvas の自動 `id` と無関係な原文の明示属性を読むので、`keyOf` ではなく
+    // `rawKey` を使う。`rawKey` が読むのは属性・クラス・タグ名だけなので、原文が `<math>` などで
+    // `HTMLElement` でなくても読める。
     return JINJA_OPEN_RE.test(source ? rawKey(source as HTMLElement) : keyOf(part));
   });
 }
