@@ -1875,7 +1875,7 @@ interface ResidualRepairCtx {
 function tryBendGridOn(ctx: ResidualRepairCtx, p: Placement): boolean {
   const { placements, cfg, coord, pxUnit, vecOf, better } = ctx;
   if (cfg.perfCounters) cfg.perfCounters.tryBendGridOn += 1;
-  const drawn2 = computeDrawnLeader(p, cfg, false);
+  const drawn2 = computeDrawnLeader(p, cfg);
   if (drawn2.skipLeader || drawn2.pathPoints.length < 2) return false;
   const a2 = drawn2.pathPoints[0];
   const e2 = drawn2.detectPathPoints[drawn2.detectPathPoints.length - 1];
@@ -1924,7 +1924,7 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
     const p = placements[i];
     if (p.insideSlice || p.forceTopRight) continue;
     let adopted = false;
-    const drawn = computeDrawnLeader(p, cfg, false);
+    const drawn = computeDrawnLeader(p, cfg);
     const a = drawn.pathPoints[0];
     const e = drawn.detectPathPoints[drawn.detectPathPoints.length - 1];
     const thA = Math.atan2(a.y, a.x);

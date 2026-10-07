@@ -1629,7 +1629,7 @@ export function reorderTopBandLeftClusterByAngle(
   const maxLeaderPie = (): number => {
     let m = 0;
     for (const p of placements) {
-      const r = computeDrawnLeader(p, cfg, false);
+      const r = computeDrawnLeader(p, cfg);
       if (r.skipLeader) continue;
       for (let k = 0; k + 1 < r.pathPoints.length; k += 1) {
         const d = distPointToSegment(

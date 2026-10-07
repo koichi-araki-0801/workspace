@@ -1350,7 +1350,7 @@ export async function renderPdfStylePieToSvg(
     for (const entry of prepared) {
       if (entry.skipLeader) continue;
       if (!qualifiesTopCenterAttach(entry.placement, cfg)) continue;
-      const tc = computeDrawnLeader(entry.placement, cfg, false, true);
+      const tc = computeDrawnLeader(entry.placement, cfg, true);
       if (tc.skipLeader) continue;
       const tcPix = toPixPts(tc.pathPoints);
       const sidePix = toPixPts(entry.pathPoints);
@@ -1382,7 +1382,7 @@ export async function renderPdfStylePieToSvg(
     // セグメントが rim をなぞり得る (例 イギリスポンド) ため topCenterApplied も対象に含める。
     for (const entry of prepared) {
       if (entry.skipLeader) continue;
-      const gl = computeDrawnLeader(entry.placement, cfg, false, entry.topCenterApplied, true);
+      const gl = computeDrawnLeader(entry.placement, cfg, entry.topCenterApplied, true);
       if (gl.skipLeader) continue;
       const before = toPixPts(entry.pathPoints);
       const after = toPixPts(gl.pathPoints);
@@ -1424,7 +1424,7 @@ export async function renderPdfStylePieToSvg(
       const diagonalTarget = p.leaderBendFollowsEndpointX || p.declipBottomLeader === true;
       if (!diagonalTarget || p.forceTopRight || p.insideSlice) continue;
       if (entry.pathPoints.length !== 3) continue; // 既に 2 点 (縮退直線) やテント再構成は対象外
-      const dg = computeDrawnLeader(p, cfg, false, entry.topCenterApplied, false, true);
+      const dg = computeDrawnLeader(p, cfg, entry.topCenterApplied, false, true);
       if (dg.skipLeader || dg.pathPoints.length !== 2) continue;
       const before = toPixPts(entry.pathPoints);
       const after = toPixPts(dg.pathPoints);
@@ -1460,7 +1460,7 @@ export async function renderPdfStylePieToSvg(
       const p = entry.placement;
       if (!qualifiesSideEdgeCenterAttach(p, cfg)) continue;
       const before = toPixPts(entry.pathPoints);
-      const se = computeDrawnLeader(p, cfg, false, entry.topCenterApplied, false, false, true);
+      const se = computeDrawnLeader(p, cfg, entry.topCenterApplied, false, false, true);
       if (se.skipLeader) continue;
       const after = toPixPts(se.pathPoints);
       if (leaderCrossesBox(after, entry.pixelBox)) continue; // 付け替えで自 box を貫く形は維持
