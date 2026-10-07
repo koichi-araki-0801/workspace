@@ -51,25 +51,16 @@ import type { Point, InsideFit, Extent } from './geometry.js';
  * Placement とは別形状 (引出線端点・bend を保持する) であることに注意。
  */
 interface PlacementDraft {
-  fragments: string[];
   textX: number;
   textY: number;
   anchor: 'start' | 'middle' | 'end';
   baseline: 'top' | 'bottom' | 'middle';
-  lineEndX: number;
-  lineEndY: number;
   lineStart: Point;
   lineEnd: Point;
   allowSegmentNudge: boolean;
   pieClearance?: boolean;
   insideSlice?: boolean;
-  triadBottomCapY?: number;
-  pieClearanceStrictViewBox?: boolean;
   dominantOutsideEdge?: boolean;
-  /** 名前(2行=上行/1行=名前部分)への横圧縮率 (長体)。未指定/1 は原寸。 */
-  nameScaleX?: number;
-  /** 1 行レイアウトで名前部分のみ圧縮するか。 */
-  condenseNamePortionOnly?: boolean;
   /** 上部「その他」を右上へ置いた draft。clampToAnchorSide 免除フラグへ伝播する。 */
   forceTopRight?: boolean;
 }
@@ -321,19 +312,14 @@ export function buildInsideDraft(form: LabelForm, fit: InsideFit): PlacementDraf
   const cx = fit.centerX!;
   const cy = fit.centerY!;
   return {
-    fragments: [],
     textX: cx,
     textY: cy,
     anchor: 'middle',
     baseline: 'middle',
-    lineEndX: cx,
-    lineEndY: cy,
     lineStart: { x: cx, y: cy },
     lineEnd: { x: cx, y: cy },
     allowSegmentNudge: false,
     insideSlice: true,
-    nameScaleX: form.nameScaleX,
-    condenseNamePortionOnly: form.condenseNamePortionOnly,
   };
 }
 
@@ -367,20 +353,15 @@ function topBandSonohokaRight(
     // 左 fallback: 真上垂直 leader + viewBox 上端寄り center 配置
     const labelY = cfg.scaledYTop - radialFraction(cfg, 0.02, 0.2);
     return {
-      fragments: [],
       textX: anchorX,
       textY: labelY,
       anchor: 'middle',
       baseline: 'top',
-      lineEndX: anchorX,
-      lineEndY: labelY,
       lineStart: { x: anchorX, y: anchorY },
       lineEnd: { x: anchorX, y: labelY },
       allowSegmentNudge: opts.allowSegmentNudge,
       pieClearance: true,
       dominantOutsideEdge: true,
-      nameScaleX: form.nameScaleX,
-      condenseNamePortionOnly: form.condenseNamePortionOnly,
     };
   }
   return topRightLiftedRimDraft(item, cfg, form, opts);
@@ -416,21 +397,16 @@ function topRightLiftedRimDraft(
     cfg.scaledYTop - cfg.canvasSafetyMargin,
   );
   return {
-    fragments: [],
     textX: labelX,
     textY: labelY,
     anchor: 'start',
     baseline: 'bottom',
-    lineEndX: labelX,
-    lineEndY: labelY,
     lineStart: { x: anchorX, y: labelY },
     lineEnd: { x: labelX, y: labelY },
     allowSegmentNudge: opts.allowSegmentNudge,
     pieClearance: true,
     dominantOutsideEdge: true,
     forceTopRight: true,
-    nameScaleX: form.nameScaleX,
-    condenseNamePortionOnly: form.condenseNamePortionOnly,
   };
 }
 
@@ -499,18 +475,13 @@ function bottomCenterBelow(
   // 叩き出す)。dominantOutsideEdge を立てると computeDrawnLeader がドリフト時に leader を復活
   // させてしまう。円との距離は runCascadeOnce の nudgeTextAwayFromPie (真下へ押下げ) が担保する。
   return {
-    fragments: [],
     textX,
     textY,
     anchor: 'middle',
     baseline: 'top',
-    lineEndX: textX,
-    lineEndY: textY,
     lineStart: { x: textX, y: textY },
     lineEnd: { x: textX, y: textY },
     allowSegmentNudge: opts.allowSegmentNudge,
-    nameScaleX: form.nameScaleX,
-    condenseNamePortionOnly: form.condenseNamePortionOnly,
   };
 }
 
@@ -569,20 +540,15 @@ export function buildOutsideRimDraft(
       : Math.sin(rad) * r;
   const { anchor, baseline } = radialAnchorBaseline(Math.cos(rad), Math.sin(rad));
   return {
-    fragments: [],
     textX,
     textY,
     anchor,
     baseline,
-    lineEndX: textX,
-    lineEndY: textY,
     lineStart: { x: textX, y: textY },
     lineEnd: { x: textX, y: textY },
     allowSegmentNudge: false,
     pieClearance: true,
     dominantOutsideEdge: true,
-    nameScaleX: form.nameScaleX,
-    condenseNamePortionOnly: form.condenseNamePortionOnly,
   };
 }
 
@@ -623,20 +589,15 @@ export function buildOutsideLeaderDraft(
   const anchor =
     item.forceOutsideLeader && cosA < 0 && sinA > 0 && rawAnchor === 'middle' ? 'end' : rawAnchor;
   return {
-    fragments: [],
     textX: labelX,
     textY: labelY,
     anchor,
     baseline,
-    lineEndX: labelX,
-    lineEndY: labelY,
     lineStart: { x: labelX, y: labelY },
     lineEnd: { x: labelX, y: labelY },
     allowSegmentNudge: true,
     pieClearance: true,
     dominantOutsideEdge: true,
-    nameScaleX: form.nameScaleX,
-    condenseNamePortionOnly: form.condenseNamePortionOnly,
   };
 }
 
@@ -663,20 +624,15 @@ function topLiftedRimLeft(
     cfg.scaledYTop - cfg.canvasSafetyMargin,
   );
   return {
-    fragments: [],
     textX: labelX,
     textY: labelY,
     anchor: 'end',
     baseline: 'bottom',
-    lineEndX: labelX,
-    lineEndY: labelY,
     lineStart: { x: anchorX, y: labelY },
     lineEnd: { x: labelX, y: labelY },
     allowSegmentNudge: true,
     pieClearance: true,
     dominantOutsideEdge: true,
-    nameScaleX: form.nameScaleX,
-    condenseNamePortionOnly: form.condenseNamePortionOnly,
   };
 }
 
@@ -702,51 +658,37 @@ export function buildLowerLeftDropLeaderDraft(
   const textY = -cfg.pieRadius * LOWER_LEFT_DROP_Y_FACTOR;
   const textX = -cfg.pieRadius; // pieClearance が現在 y の円左縁へクランプする初期値
   return {
-    fragments: [],
     textX,
     textY,
     anchor: 'end',
     baseline: 'top',
-    lineEndX: textX,
-    lineEndY: textY,
     lineStart: { x: textX, y: textY },
     lineEnd: { x: textX, y: textY },
     allowSegmentNudge: true,
     pieClearance: true,
     dominantOutsideEdge: true,
-    nameScaleX: form.nameScaleX,
-    condenseNamePortionOnly: form.condenseNamePortionOnly,
   };
 }
 
 /**
- * draft + 補足情報 (lines / measured / bbox 算定幅) から最終 Placement を組み立てる
- * **共通ヘルパ**。nudge 適用・bbox 上下限・pie クリアランス・viewBox 境界クランプを
- * 一手に引き受ける。現状 `finalizePlacement` から呼び出される。
- *
- * - `measuredForPlacement` は nudge と Placement.measured に使う実描画 measured。
- * - `bboxMeasured` は maxTextX/Y などの bbox 境界判定に使う幅・高さ。通常は
- *   measuredForPlacement と一致するが、独立に渡せるようにしてある。
- * - `formExtras` を渡した場合のみ Placement に長体率 (`nameScaleX` 等) と
- *   `forceTopRight` を載せる (cascade 経路のみ)。
+ * draft + form から最終 Placement を組み立てる cascade 用の共通ヘルパ。nudge 適用・bbox 上下限・
+ * pie クリアランス・viewBox 境界クランプを一手に引き受ける。form の `width/height` を nudge にも
+ * bbox にも使い、長体率 (`nameScaleX` 等) と `forceTopRight` を Placement へ載せる。
  */
-function clampAndBuildPlacement(input: {
-  item: LayoutItemReady;
-  cfg: PieLayoutConfig;
-  draft: PlacementDraft;
-  textX: number;
-  textY: number;
-  measuredForPlacement: Extent;
-  bboxMeasured: Extent;
-  lines: string[];
-  formExtras?: { nameScaleX: number; condenseNamePortionOnly: boolean };
-}): { textPlacement: Placement } {
-  const { item, cfg, draft, measuredForPlacement, bboxMeasured, lines, formExtras } = input;
+export function finalizePlacement(
+  item: LayoutItemReady,
+  cfg: PieLayoutConfig,
+  draft: PlacementDraft,
+  form: LabelForm,
+): { textPlacement: Placement } {
+  const measuredForPlacement: Extent = { width: form.width, height: form.height };
+  const bboxMeasured = measuredForPlacement;
+  const lines = form.lines;
   const anchorX = item.anchorX;
   const anchorY = item.anchorY;
   const cornerGap = cfg.cornerGap;
-  const { anchor, baseline, lineEndX, lineEndY, lineStart, lineEnd, allowSegmentNudge } = draft;
-  let { textX, textY } = input;
+  const { anchor, baseline, lineStart, lineEnd, allowSegmentNudge } = draft;
+  let { textX, textY } = draft;
 
   const skipNudgeForInside = Boolean(draft.insideSlice);
   if (!skipNudgeForInside) {
@@ -755,8 +697,8 @@ function clampAndBuildPlacement(input: {
       textY,
       anchor,
       baseline,
-      lineEndX,
-      lineEndY,
+      textX,
+      textY,
       measuredForPlacement,
       cfg,
     );
@@ -800,9 +742,6 @@ function clampAndBuildPlacement(input: {
   } else {
     maxTextY = cfg.canvasYlim[1] - heightVerify / 2 - safety;
     minTextY = cfg.canvasYlim[0] + heightVerify / 2 + safety;
-  }
-  if (typeof draft.triadBottomCapY === 'number') {
-    maxTextY = Math.min(maxTextY, draft.triadBottomCapY);
   }
   let viewBoxMaxTextX: number;
   let viewBoxMinTextX: number;
@@ -873,14 +812,13 @@ function clampAndBuildPlacement(input: {
   // 上の早期スキップ (円と X 干渉なし) では `pieMin/MaxTextX` が未定義のまま = 制約なしなので、
   // 合成もまるごと飛ばす。`!` 前提のコードなので、型ガードで未定義の流入を止める。
   if (draft.pieClearance && typeof pieMinTextX === 'number' && typeof pieMaxTextX === 'number') {
-    const strictViewBox = Boolean(draft.pieClearanceStrictViewBox);
     if (textX >= 0) {
-      if (pieMinTextX! > effectiveMaxTextX! && !strictViewBox) {
+      if (pieMinTextX! > effectiveMaxTextX!) {
         effectiveMaxTextX = undefined;
       }
       effectiveMinTextX = Math.max(effectiveMinTextX!, pieMinTextX!);
     } else {
-      if (pieMaxTextX! < effectiveMinTextX! && !strictViewBox) {
+      if (pieMaxTextX! < effectiveMinTextX!) {
         effectiveMinTextX = undefined;
       }
       effectiveMaxTextX =
@@ -920,37 +858,8 @@ function clampAndBuildPlacement(input: {
     pieClearance: Boolean(draft.pieClearance),
     bisectedSecondSliceNoLeader: Boolean(item.bisectedSecondSliceNoLeader),
   };
-  if (formExtras) {
-    placement.nameScaleX = formExtras.nameScaleX;
-    placement.condenseNamePortionOnly = formExtras.condenseNamePortionOnly;
-    placement.forceTopRight = Boolean(draft.forceTopRight);
-  }
+  placement.nameScaleX = form.nameScaleX;
+  placement.condenseNamePortionOnly = form.condenseNamePortionOnly;
+  placement.forceTopRight = Boolean(draft.forceTopRight);
   return { textPlacement: placement };
-}
-
-/**
- * draft + form から最終 Placement を組み立てる cascade 用の薄いラッパ。実体は
- * `clampAndBuildPlacement` に集約。form の `width/height` を nudge にも bbox にも使う。
- */
-export function finalizePlacement(
-  item: LayoutItemReady,
-  cfg: PieLayoutConfig,
-  draft: PlacementDraft,
-  form: LabelForm,
-): { textPlacement: Placement } {
-  const measured: Extent = { width: form.width, height: form.height };
-  return clampAndBuildPlacement({
-    item,
-    cfg,
-    draft,
-    textX: draft.textX,
-    textY: draft.textY,
-    measuredForPlacement: measured,
-    bboxMeasured: measured,
-    lines: form.lines,
-    formExtras: {
-      nameScaleX: form.nameScaleX,
-      condenseNamePortionOnly: form.condenseNamePortionOnly,
-    },
-  });
 }

@@ -84,7 +84,7 @@ export interface LayoutItem {
   topRightRejected?: boolean;
 
   // pie キャップ外の箱に対する静的 pie クランプの「名残制約」除去 (`layout/placement.ts` の
-  // `clampAndBuildPlacement`) を、このチャートでは行わない印。名残制約は本来不要だが偶発的に
+  // `finalizePlacement`) を、このチャートでは行わない印。名残制約は本来不要だが偶発的に
   // 隣接ラベルの重なり回避として働いているチャートがあり、除去すると重なり/leader 貫通が増える。
   // `svg_export/pipeline.ts` の `pickCapClearanceParity` が不具合増を検知した時だけ立てて旧挙動へ戻す。
   capParityRejected?: boolean;
@@ -281,7 +281,7 @@ export interface Placement {
    * 円外 rim/leader 配置で pie クリアランスを保証すべきラベル (`draft.pieClearance` 由来)。
    * `clampPlacement` が **現在の y** から pie クリアランス X 上下限を動的に再計算し、
    * viewBox 端制約より優先させる (ラベルが draft より大きい |y| へ動いて円が太くなった位置でも
-   * 円内へ食い込まないようにする)。`clampAndBuildPlacement` の静的計算は draft 時点の y で固定
+   * 円内へ食い込まないようにする)。`finalizePlacement` の静的計算は draft 時点の y で固定
    * されるため、後段で y が動いた時の保証はこのフラグ経由の動的クランプが担う。
    */
   pieClearance?: boolean;
@@ -302,7 +302,7 @@ export interface Placement {
   /**
    * 「二分割」型の第2スライス (左) ラベル印 (`item.bisectedSecondSliceNoLeader` 由来)。
    * `computeDrawnLeader` が leader を確定スキップする
-   * (スライス直近で線が冗長なため。テキスト位置は不変)。`clampAndBuildPlacement` が item から複写。
+   * (スライス直近で線が冗長なため。テキスト位置は不変)。`finalizePlacement` が item から複写。
    */
   bisectedSecondSliceNoLeader?: boolean;
   /**

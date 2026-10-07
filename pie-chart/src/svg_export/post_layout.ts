@@ -61,11 +61,11 @@ export const POST_LAYOUT_PASS_COUNT = 4;
  * placement.x/y を min/maxTextX/min/maxTextY 上下限にクランプする (undefined はスルー)。
  *
  * cfg を渡し placement.pieClearance が立つ円外ラベルでは、**現在の y** から pie クリアランス
- * X 限界を動的に再計算し、保存済みの静的 min/maxTextX より優先して適用する。clampAndBuildPlacement
+ * X 限界を動的に再計算し、保存済みの静的 min/maxTextX より優先して適用する。finalizePlacement
  * の静的計算は draft 時点の y に固定されるため、後段 (overlap 解消・spread・re-stack 等) で
  * ラベルが大きい |y| へ動くと円が太くなり、静的限界では円内へ食い込む。動的再計算では、その
  * 食い込みを防ぐ向きに pie 限界を効かせ、衝突する viewBox 端制約 (floor/ceiling) は外して円外へ
- * 逃がす (pieClearanceStrictViewBox は未使用 = viewBox は常に pie に譲る、という静的計算と同方針)。
+ * 逃がす (viewBox は常に pie に譲る、という静的計算と同方針)。
  * 円外へ逃がした結果の viewBox はみ出しは後段 condense / cascade 降格 / 採点が扱う。
  *
  * cfg を省略した呼び出しは従来通り静的 min/max のみ適用する (動的 pie クランプはスキップ)。

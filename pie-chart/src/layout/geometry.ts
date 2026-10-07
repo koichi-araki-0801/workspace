@@ -1003,7 +1003,7 @@ export function pieClearanceWithinViewBox(
  * 上下限 (pieMinTextX = 右側ラベルの下限 / pieMaxTextX = 左側ラベルの上限) を計算する。
  *
  * post_layout の clampPlacement が後段で y が動いた後に円クリアランス X 限界を動的再計算するための
- * ヘルパ。label_placement の clampAndBuildPlacement にある draft 構築時の静的計算 (同式をインライン
+ * ヘルパ。label_placement の finalizePlacement にある draft 構築時の静的計算 (同式をインライン
  * 展開) と対になる。静的計算は draft 時点の y で固定されるため、ラベルが大きい |y| へ動くと円が太く
  * なり静的限界では円内へ食い込む。それを本関数の動的再計算が補正する。
  * 箱の最近接 Y 縁が円の完全に外 (|closestY| >= pieRadius) のときは円との X 干渉が無いので null を

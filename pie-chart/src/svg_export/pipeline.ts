@@ -670,7 +670,7 @@ export function applyLowerLeftDropFallback(
     if (p.insideSlice || !p.item.lowerLeftDropLeader || !clipsViewBox(p)) continue;
     const item = p.item as LayoutItemReady;
     // 下left ドロップ placement を構築。forceHorizontalLowerLeftDrop を一時的に立てて
-    // clampAndBuildPlacement の内側 (canvasXlim) X クランプを解放し、viewBox 端まで伸ばせるようにする。
+    // finalizePlacement の内側 (canvasXlim) X クランプを解放し、viewBox 端まで伸ばせるようにする。
     const prevDrop = item.forceHorizontalLowerLeftDrop;
     item.forceHorizontalLowerLeftDrop = true;
     const form = outsideFormForRank(item, cfg, 2); // 2 行原寸起点
@@ -762,7 +762,7 @@ function capParityScore(
 
 /**
  * pie キャップ外の箱に対する静的 pie クランプの「名残制約」除去 (`layout/placement.ts` の
- * `clampAndBuildPlacement`) を、チャート単位で採否する do-no-harm。
+ * `finalizePlacement`) を、チャート単位で採否する do-no-harm。
  *
  * 名残制約は動的側 `pieClampXLimits` (`layout/geometry.ts`) が持たない静的側だけの非対称で、円と X 方向で
  * 干渉しない箱まで横へ押し出す (例 `currency_low_diff_10` の「その他」が 66px 左寄せされ、真上垂直の
