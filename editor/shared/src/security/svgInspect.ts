@@ -631,7 +631,8 @@ function isEmbeddedFontData(v: string): boolean {
  * 引数の引用符の文字列が URL にならない関数。`image-set("x.png" 1x)` のように文字列で URL を取る
  * 関数があるので、関数の中の文字列は既定で URL 候補として扱い、ここに載る関数だけを外す
  * (知らない関数は違反の側へ倒れる)。前半は `@font-face` の `src` と `content` の関数、後半は
- * セレクタの関数で、値の関数としては存在しない名前(`:not([class="x"])` を落とさないため)。
+ * セレクタの関数(`:not([class="x"])`・`:nth-child(2 of [x="y"])`・`:host([x="y"])` の属性値)で、
+ * 値の関数としては存在しない名前。セレクタの文字列はブラウザが取得しない。
  * `attr()` は代替値の文字列が型の指定次第で URL として使われうるので載せない。
  */
 const STRING_ARG_SAFE_FUNCTIONS = new Set([
@@ -645,6 +646,10 @@ const STRING_ARG_SAFE_FUNCTIONS = new Set([
   'where',
   'has',
   'lang',
+  'nth-child',
+  'nth-last-child',
+  'host',
+  'host-context',
 ]);
 
 /**

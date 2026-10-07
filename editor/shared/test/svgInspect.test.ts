@@ -294,6 +294,9 @@ describe('inspectSvg — CSS の関数の中の引用符の文字列', () => {
     '<style>.a{--u:{"x.png"}}</style>',
     `<rect style='--u:{} "x.png"'/>`,
     '<style>.a{background:image-set(attr(data-x, "x.png") 1x)}</style>',
+    '<style>.a:nth-child(2 of [x="y"]){background:image-set("x.png" 1x)}</style>',
+    '<style>:host([x="y"]){background:image-set("x.png" 1x)}</style>',
+    '<style>.a{--label:"注"}</style>',
   ])('関数の中の引用符の文字列が #id 以外を指せば違反 %s', (inner) => {
     expect(inspectSvg(`<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`)).not.toEqual([]);
   });
@@ -320,6 +323,10 @@ describe('inspectSvg — CSS の関数の中の引用符の文字列', () => {
     '<style>/* image-set("x.png") */.a{fill:url(#g)}</style>',
     '<style>.a:not([class="x"]){fill:red}.b:is([id="y"]){fill:red}</style>',
     '<style>.a{background:image-set/**/("x.png" 1x)}</style>',
+    '<style>.a:nth-child(2 of [data-x="y"]){fill:red}</style>',
+    '<style>.a:nth-last-child(1 of [data-x="y"]){fill:red}</style>',
+    '<style>:host([data-x="y"]){fill:red}</style>',
+    '<style>:host-context([data-x="y"]){fill:red}</style>',
   ])('URL にならない文字列は違反にしない %s', (inner) => {
     expect(inspectSvg(`<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`)).toEqual([]);
   });
