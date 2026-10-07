@@ -56,6 +56,14 @@ export function useSnapshotHistory<T>(
     if (started) onChange?.();
   }
 
+  /**
+   * 2 つの snapshot が同じ内容か。`T` は不透明だが、`editorSession` が localStorage へ JSON で
+   * 永続ミラーする前提なので、JSON 文字列の一致で比べる。
+   */
+  function sameSnapshot(a: T, b: T): boolean {
+    return a === b || JSON.stringify(a) === JSON.stringify(b);
+  }
+
   /** snapshot を past へ積み、redo 分岐(`future`)を捨てる。 */
   function pushSnapshot(snap: T): void {
     past.push(snap);
@@ -73,10 +81,17 @@ export function useSnapshotHistory<T>(
   /**
    * ジェスチャ開始時の state を保留 capture する。past / future はまだ動かさないので、
    * 無変更で終わっても Redo は残る。`commitUndo` / `cancelUndo` と対で使う。
+   *
+   * 保留中に呼ばれたら(ジェスチャの途中で改ページ・配置の初期化・パーツの追加が走ったとき)、
+   * 先に保留を片付けてから新しい保留を始める。上書きすると保留していた開始時点が消え、
+   * そのジェスチャを単独の 1 手として戻せなくなる。保留が現在の `capture` と同じなら変更が
+   * 無いので捨てる。片付けた保留は消えるので、ジェスチャの終わりの `commitUndo` は何も積まない。
    */
   function beginUndo(): void {
     if (applying) return;
-    pending = { snap: capture() };
+    const now = capture();
+    if (pending && !sameSnapshot(pending.snap, now)) pushSnapshot(pending.snap);
+    pending = { snap: now };
   }
 
   /** 保留中の開始時 snapshot を past へ積む(変更が実際に起きたときだけ呼ぶ)。 */
