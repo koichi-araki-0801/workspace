@@ -41,9 +41,7 @@ import {
   blockedInY,
 } from './post_layout.js';
 import {
-  ALWAYS_DRAW_OUTSIDE_LEADERS,
   computeDrawnLeader,
-  resolveLeaderCrossings,
   distPointToSegment,
   pathsCross,
   realLeaderPaths,
@@ -108,8 +106,8 @@ export interface DefectCounts {
 }
 
 /**
- * verify と同基準 (ALWAYS_DRAW: leader を抑制せず実描画) で最終不具合数を数える。chartConflicts は
- * 交差 leader を抑制して数えないため、ALWAYS_DRAW 描画で実際に出る交差を取りこぼす
+ * verify と同基準 (leader を抑制せず実描画) で最終不具合数を数える。chartConflicts は
+ * 交差 leader を抑制して数えないため、実描画で実際に出る交差を取りこぼす
  * (= spread が直す交差を off 側で 0 と誤評価する)。spread 採否は実描画基準で比較する必要があるので
  * 専用に数える。コピーを実 render と同じ後段 (nudge/condense/relax/交差引き離し/9時逃がし) で
  * 最終化してから、交差・円内貫通・viewBox 見切れ・box 重なりを数える。off/on を同関数で比較する。
@@ -153,7 +151,7 @@ export function finalizeForScoring(
 
 /**
  * **最終化済み** placements の不具合を数える (パスは再適用しない)。verify と同基準
- * (ALWAYS_DRAW: leader を抑制せず実描画)。clips=viewBox 見切れ、crossings=leader 交差数、
+ * (leader を抑制せず実描画)。clips=viewBox 見切れ、crossings=leader 交差数、
  * pie=leader 円内貫通数、total=総不具合数。emit 実配置 (diagnostics.finalScore) と採点の双方が
  * これを共有し、scorer ↔ emit SVG の一致 (verify_consistency) を担保する。
  */

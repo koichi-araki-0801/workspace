@@ -78,13 +78,10 @@ import {
 } from './post_layout.js';
 import { buildFontFaceDefs } from './font.js';
 import {
-  ALWAYS_DRAW_OUTSIDE_LEADERS,
   computeDrawnLeader,
   qualifiesTopCenterAttach,
   qualifiesSideEdgeCenterAttach,
-  isRedundantUpperLeftSmallLeader,
   isRedundantDominantRimLeader,
-  resolveLeaderCrossings,
   distPointToSegment,
   pathsCross,
   realLeaderPaths,
@@ -731,7 +728,7 @@ function cascadeWithSonohokaPick(
   // 抑制され、せっかくの leader が消える。本印は同マーカーの厳ゲートでこの 1 構成のみに立つ。
   if (labels.some((it) => it.loneTopSliverLeader)) return right;
   // 右上(第一優先)は hard 不具合 (交差 / 円内貫通) を左上より悪化させないことが前提で採用する。判定は
-  // 実描画 (ALWAYS_DRAW) + 全後段で数える countVerifyIssuesDetailed を使い、後段 (角度順引き離し/9時
+  // 実描画 + 全後段で数える countVerifyIssuesDetailed を使い、後段 (角度順引き離し/9時
   // 逃がし) が解消する見かけ上の交差で右上を誤却下しない。右逃がしが本当に悪い構成
   // (例 currency_many_small_10: 極小その他が隣接 leader と交差) は crossings/pie で弾ける。
   //
@@ -1479,9 +1476,8 @@ export async function renderPdfStylePieToSvg(
       }
     }
 
-    // ── Pass 1.5: 1 強スライスの冗長な rim leader を省く (ALWAYS_DRAW でも常時実行) ──
-    // `buildOutsideRimDraft` 由来の rim ラベルにも、
-    // `ALWAYS_DRAW_OUTSIDE_LEADERS` 下では `computeDrawnLeader` が一律 leader を描く。そのうち 1 強
+    // ── Pass 1.5: 1 強スライスの冗長な rim leader を省く ──
+    // `computeDrawnLeader` は円外ラベルへ一律 leader を描く。そのうち 1 強
     // (≥50%) スライスの自スライス外縁に隣接する冗長な短い leader (例 アメリカ・ドル58%) は線のみ削る。
     // 採点より後段なのでレイアウト選択にも他 leader の交差解決にも影響しない (ラベル位置は不変)。
     // ラベルを貫く leader は削除せず `computeDrawnLeader` の declip 分岐が近端 (pie 側縦縁) へ接続して回避する。
@@ -1489,60 +1485,6 @@ export async function renderPdfStylePieToSvg(
       if (entry.skipLeader) continue;
       if (isRedundantDominantRimLeader(entry.placement, entry.pathPoints, cfg)) {
         entry.skipLeader = true;
-      }
-    }
-
-    // 常時描画方針 (ALWAYS_DRAW_OUTSIDE_LEADERS) のとき、以下の leader 省略 (Pass 2/2.5/2.6) は
-    // 全てバイパスする。inside のみ leaderless、円外は描いた leader をそのまま残す。
-    if (!ALWAYS_DRAW_OUTSIDE_LEADERS) {
-      // ── Pass 2: leader が他ラベルの text bbox を貫く場合はその leader を省略 ──
-      // 判定は detectPathPoints (端点を bbox 縁へ寄せる前の到達域) で行う。これにより
-      // 「描画される leader の集合」が短縮前と一致し、隠れていた leader が現れて新たな
-      // 交差を生むことを防ぐ。
-      for (let i = 0; i < prepared.length; i += 1) {
-        const entry = prepared[i];
-        if (entry.skipLeader) continue;
-        const pixelPts = entry.detectPathPoints.map((p: { x: number; y: number }) => ({
-          x: xScale(p.x),
-          y: yScale(p.y),
-        }));
-        for (let j = 0; j < prepared.length; j += 1) {
-          if (j === i) continue;
-          if (leaderCrossesBox(pixelPts, prepared[j].pixelBox)) {
-            entry.skipLeader = true;
-            break;
-          }
-        }
-      }
-
-      // ── Pass 2.5: leader 同士が交差する場合は長い方を省略 (verify の "leader crossing" と同条件) ──
-      // 描画される pathPoints を pixel 空間へ変換して判定。chartConflicts と同ロジック (採点と一致)。
-      {
-        const lskip = prepared.map((e) => e.skipLeader);
-        const pixPaths = prepared.map((e, idx) =>
-          lskip[idx]
-            ? null
-            : e.pathPoints.map((p: { x: number; y: number }) => ({
-                x: xScale(p.x),
-                y: yScale(p.y),
-              })),
-        );
-        resolveLeaderCrossings(
-          pixPaths,
-          prepared.map((e) => e.placement.item.name),
-          lskip,
-        );
-        for (let i = 0; i < prepared.length; i += 1) prepared[i].skipLeader = lskip[i];
-      }
-
-      // ── Pass 2.6: 上左・小スライスの短い leader を省く (線のみ削除) ──
-      // 採点 (computeDrawnLeader/chartConflicts) より後段なのでレイアウト選択にも他 leader の
-      // 交差解決にも影響しない = ラベル位置は不変、対象の leader 線だけが消える。
-      for (const entry of prepared) {
-        if (entry.skipLeader) continue;
-        if (isRedundantUpperLeftSmallLeader(entry.placement, entry.pathPoints, cfg)) {
-          entry.skipLeader = true;
-        }
       }
     }
 

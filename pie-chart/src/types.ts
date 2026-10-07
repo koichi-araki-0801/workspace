@@ -144,8 +144,7 @@ export interface LayoutItem {
   singleDominantInside?: boolean;
 
   // 同「二分割」型の左半分を占める第2スライス (2番目・≥35%・左) の印。外側 rim 配置のまま
-  // (テキスト位置不変)、`leader_geometry.ts` の `computeDrawnLeader` が `ALWAYS_DRAW_OUTSIDE_LEADERS`
-  // を上書きして leader を消す (スライス直近で冗長なため)。`layout/diagnostics.ts` の `markBisectedPie` が立てる。
+  // (テキスト位置不変)、`leader_geometry.ts` の `computeDrawnLeader` が leader を消す (スライス直近で冗長なため)。`layout/diagnostics.ts` の `markBisectedPie` が立てる。
   bisectedSecondSliceNoLeader?: boolean;
 }
 
@@ -296,13 +295,13 @@ export interface Placement {
   /**
    * `applyVerticalDeclipFallback` が縦 spread で上/下へ動かして採用したラベル。リーダーを箱の縦中央
    * (`leaderAttachTargetY`) ではなく **アンカー側の縁の水平中央** (上へ動かした=アンカーが下なら下縁中央)
-   * へ接続し、長い斜めリーダーを見やすくする。`computeDrawnLeader` の `alwaysDraw` 経路でのみ効く
+   * へ接続し、長い斜めリーダーを見やすくする。`computeDrawnLeader` で効く
    * (描画パス限定・scorer 不変)。フラグを立てるラベルは見切れチャートの移動採用分のみ = 他チャート byte 不変。
    */
   declipBottomLeader?: boolean;
   /**
    * 「二分割」型の第2スライス (左) ラベル印 (`item.bisectedSecondSliceNoLeader` 由来)。
-   * `computeDrawnLeader` が `ALWAYS_DRAW_OUTSIDE_LEADERS` を上書きして leader を確定スキップする
+   * `computeDrawnLeader` が leader を確定スキップする
    * (スライス直近で線が冗長なため。テキスト位置は不変)。`clampAndBuildPlacement` が item から複写。
    */
   bisectedSecondSliceNoLeader?: boolean;
@@ -310,7 +309,7 @@ export interface Placement {
    * leader を**書き出し側の縦縁・縦中央** (end=右縁の 3 時、cornerGap だけ縁の外) へ
    * アンカーからの 2 点直線で接続する明示オプトイン。`applyLeftStackClusterEvenSpread` が移動した
    * ラベルに立てる (既定の行中央シードだと長い斜め leader が truncate で上縁の角に刺さって見える)。
-   * `computeDrawnLeader` の `alwaysDraw` 経路でのみ効く (描画パス限定・scorer 不変)。
+   * `computeDrawnLeader` で効く (描画パス限定・scorer 不変)。
    */
   sideCenterLeader?: boolean;
 }

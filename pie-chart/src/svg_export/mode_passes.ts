@@ -74,8 +74,7 @@ const TOP_SEAM_ESCAPE_HALF_WIDTH_DEG = 32;
 // 最大の降下量」を採る。冠直下は円の幅が急に広がるため、刻みを細かくしても得られる余地は僅か。
 const RESTACK_DROP_STEPS = 8;
 
-// leader 折れ線の幾何プリミティブ (`computeDrawnLeader` / `isRedundantUpperLeftSmallLeader` /
-// `resolveLeaderCrossings` / `distPointToSegment`) と型 `Pt` / `Coord` は `leader_geometry.ts` 側。
+// leader 折れ線の幾何プリミティブ (`computeDrawnLeader` / `distPointToSegment`) と型 `Pt` / `Coord` は `leader_geometry.ts` 側。
 /** `leftStackMode` の左列とみなす placement (side=left・baseline=bottom・非 inside・x<0)。 */
 export function isLeftStackMember(p: Placement): boolean {
   return p.item.side === 'left' && p.baseline === 'bottom' && !p.insideSlice && p.x < 0;

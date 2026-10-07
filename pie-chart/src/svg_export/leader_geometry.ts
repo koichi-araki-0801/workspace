@@ -15,24 +15,12 @@ import {
   radialFraction,
   segmentsIntersect,
   leaderCrossesBox,
-  angleInBand,
-  normalizeAngle,
   isOtherCategory,
-  pxToLogical,
 } from '../layout/geometry.js';
 import { topBandSonohokaZone } from '../layout/placement.js';
 import type { BBox } from '../layout/geometry.js';
 import type { Placement, PieLayoutConfig } from '../types.js';
 
-// 円外ラベルには常時 leader を描く方針フラグ (ユーザー要望: なるべく leader を使う)。
-// ON のとき: inside(スライス内)ラベルのみ leaderless、円外ラベルは rim 配置でも leader を描き、
-// 円貫通 / hairpin / 冗長な短 leader / leader 同士の交差 による省略を全てバイパスする。
-// false に戻すと従来の「leader=最終手段 + 各種省略」挙動。
-export const ALWAYS_DRAW_OUTSIDE_LEADERS = true;
-
-// 上左の小スライスが引く短い leader を省く角度範囲の半幅 (90°中心)。midAngle>90 と併用し
-// 12時〜10時半 ([90°,135°]) の小スライスを対象にする (シンガポール 3.5% ≈121.9° を含む)。
-const UPPER_LEFT_SMALL_LEADER_HALF_WIDTH_DEG = 45;
 // 「冗長な短い leader」を省く対象を 1 強スライスに限る下限 (%)。`layout/placement.ts` の
 // `DOMINANT_OUTSIDE_EDGE_MIN_PCT` (rim 外縁配置の dominant 判定) と同値。バランス型チャートの中サイズ
 // スライス (>smallSliceThreshold だが非 dominant) の rim leader は「なるべく leader を使う」方針どおり残す。
@@ -574,43 +562,13 @@ export function computeDrawnLeader(
 }
 
 /**
- * 上左 ([90°,135°]) の小スライスが引く「短い」leader か。短い = ラベルが自スライスのすぐ外側に
- * あり、線が無くても接続が自明 (例: REIT 国別の シンガポール 3.5%)。本判定は emit 最終段
- * (Pass 2.6) だけで使い、`computeDrawnLeader` / 採点には載せない。これにより leader 線を消すだけで
- * レイアウト選択や他 leader の交差解決には一切影響しない (ラベル位置は不変)。閾値 (≈0.5·R) で
- * 「その他」級の右逃がし leader (≈1.2·R) や遠方へ逃がした leader は残す。述語 (`isSmall` / `midAngle`>90 /
- * 帯内 / 非「その他」) は `layout/diagnostics.ts` の `markTopBandSmallRight` の候補条件と同系。
- */
-export function isRedundantUpperLeftSmallLeader(
-  placement: Placement,
-  pathPoints: Pt[],
-  cfg: PieLayoutConfig,
-): boolean {
-  const it = placement.item;
-  const mid = it.midAngle ?? 0;
-  // 意図的に rank 9 へ強制した leader (forceOutsideLeader) は「冗長な短 leader」ではないので
-  // 対象外。これを消すと強制した目的 (極小スライスへの leader 付与) が無に帰す。
-  if (it.forceOutsideLeader === true) return false;
-  if (it.isSmall !== true) return false;
-  if (mid <= 90) return false;
-  if (!angleInBand(normalizeAngle(mid), 90, UPPER_LEFT_SMALL_LEADER_HALF_WIDTH_DEG)) return false;
-  if (isOtherCategory(it.name)) return false;
-  let len = 0;
-  for (let k = 0; k + 1 < pathPoints.length; k += 1) {
-    len += Math.hypot(pathPoints[k + 1].x - pathPoints[k].x, pathPoints[k + 1].y - pathPoints[k].y);
-  }
-  return len < radialFraction(cfg, 0.5, 4.8);
-}
-
-/**
  * 1 強 (≥`REDUNDANT_RIM_LEADER_DOMINANT_MIN_PCT`%) スライスの `dominantOutsideEdge` rim ラベル
  * (`buildOutsideRimDraft` 由来) が引く「冗長な短い」leader か。
  * 短い = ラベルが自スライス外縁に隣接し線が無くても接続が自明 (例: アメリカ・ドル58%)。
- * `ALWAYS_DRAW_OUTSIDE_LEADERS` 下では `computeDrawnLeader` が rim ラベルにも一律 leader を描くため、
- * emit 最終段でこの述語により線のみ削る。閾値は `radialFraction(cfg, 0.3, 2.8)`。これより遠くへ逃げた
- * rim ラベルは leader を
+ * `computeDrawnLeader` は rim ラベルにも一律 leader を描くため、emit 最終段でこの述語により
+ * 線のみ削る。閾値は `radialFraction(cfg, 0.3, 2.8)`。これより遠くへ逃げた rim ラベルは leader を
  * 残す (接続が自明でない)。**対象を 1 強スライスに限る**のが要点: バランス型チャートの中サイズ各スライス
- * (>`smallSliceThreshold` だが非 dominant) の短い rim leader は「なるべく leader を使う」(`ALWAYS_DRAW`) 方針
+ * (>`smallSliceThreshold` だが非 dominant) の短い rim leader は「なるべく leader を使う」方針
  * どおり残し、唯一無二で識別が自明な 1 強スライス (例 58%) の冗長スタブだけを省く。`forceOutsideLeader`
  * (far-sliver の意図的 leader) と `forceTopRight` (その他の右上逃がし、専用キャップ回避経路) も除外。
  * 本判定は emit (Pass 1.5) だけで使い、`computeDrawnLeader` / 採点には載せない (ラベル位置不変)。
@@ -628,51 +586,6 @@ export function isRedundantDominantRimLeader(
   const a = pathPoints[0];
   const e = pathPoints[pathPoints.length - 1];
   return Math.hypot(e.x - a.x, e.y - a.y) <= radialFraction(cfg, 0.3, 2.8);
-}
-
-/**
- * 描画される leader 同士が交差する場合、長い方を省略する (skip[i]=true)。leader を消すだけ
- * なので新たな重なり/はみ出し/交差は生じない (Pass 2 の leader×box 省略と同性質, 退行0)。
- * emit (Pass 2 直後) と `chartConflicts` の両方から呼び、採点と描画の leader 集合を一致させる。
- * 短い leader を残す = ラベルが自スライス近傍にあり接続が自明。同長は name で決定的に。
- * entries は pixel 座標の折れ線 (pixPaths) と name を持ち、skip[] を破壊的に更新する。
- */
-export function resolveLeaderCrossings(
-  pixPaths: (Pt[] | null)[],
-  names: string[],
-  skip: boolean[],
-): void {
-  const n = pixPaths.length;
-  const lenOf = (pts: Pt[]): number => {
-    let s = 0;
-    for (let k = 0; k + 1 < pts.length; k += 1) {
-      s += Math.hypot(pts[k + 1].x - pts[k].x, pts[k + 1].y - pts[k].y);
-    }
-    return s;
-  };
-  for (let i = 0; i < n; i += 1) {
-    const pa = pixPaths[i];
-    if (!pa || skip[i]) continue;
-    for (let j = i + 1; j < n; j += 1) {
-      const pb = pixPaths[j];
-      if (!pb || skip[j]) continue;
-      let cross = false;
-      for (let k = 0; k + 1 < pa.length && !cross; k += 1) {
-        for (let m = 0; m + 1 < pb.length && !cross; m += 1) {
-          if (segmentsIntersect(pa[k], pa[k + 1], pb[m], pb[m + 1])) cross = true;
-        }
-      }
-      if (!cross) continue;
-      const la = lenOf(pa);
-      const lb = lenOf(pb);
-      const dropI = la > lb || (la === lb && names[i] > names[j]);
-      if (dropI) {
-        skip[i] = true;
-        break; // i は消えたので次の i へ
-      }
-      skip[j] = true;
-    }
-  }
 }
 
 /** 点 (px,py) と線分 (ax,ay)-(bx,by) の最短距離。 */
