@@ -141,6 +141,8 @@ export default defineConfig({
         // 改ページの位置の判定。canvas・承認・比較・ページ線・警告が共有し、ずれるとページ数と
         // パーツのキーが画面ごとに食い違う。
         'editor/web/src/lib/pageBreaks.ts',
+        // 入れ子の @font-face を GrapesJS に通さず運ぶ取り出し。崩れると確定 CSS に壊れた形が書かれる。
+        'editor/web/src/lib/cssCarry.ts',
         'editor/web/src/lib/appError.ts',
         'editor/web/src/lib/globalErrors.ts',
         'editor/web/src/lib/useAsyncResult.ts',
