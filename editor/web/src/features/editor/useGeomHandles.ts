@@ -87,9 +87,12 @@ export function useGeomHandles(deps: GeomHandleDeps) {
     };
     window.addEventListener('pointerup', onEarlyUp, { once: true });
     window.addEventListener('pointercancel', onEarlyUp, { once: true });
+    // 待つ間にハンドルが外れて捕まえが外れても、pointerup は来ない。離されたのと同じく扱う。
+    window.addEventListener('lostpointercapture', onEarlyUp, { once: true });
     void finishTextEdit().then((closed) => {
       window.removeEventListener('pointerup', onEarlyUp);
       window.removeEventListener('pointercancel', onEarlyUp);
+      window.removeEventListener('lostpointercapture', onEarlyUp);
       if (closed && !released) beginDrag(kind, x, y);
     });
   }

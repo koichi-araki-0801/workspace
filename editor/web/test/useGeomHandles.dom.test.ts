@@ -81,6 +81,24 @@ describe('useGeomHandles', () => {
     expect(applyGeom).not.toHaveBeenCalled();
   });
 
+  it('編集を閉じ終わる前に捕まえが外れたら drag を始めない', async () => {
+    const { api, beginUndo, finishTextEdit } = setup(undefined, true);
+    let close: () => void = () => {};
+    finishTextEdit.mockImplementation(
+      () =>
+        new Promise<boolean>((r) => {
+          close = () => r(true);
+        }),
+    );
+    api.startHandle('mb', ptr('pointerdown', 200, 130));
+    window.dispatchEvent(ptr('lostpointercapture', 200, 130));
+    close();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(beginUndo).not.toHaveBeenCalled();
+    expect(api.activeHandle.value).toBeNull();
+  });
+
   it('テキスト編集を閉じられなかったら drag を始めない', async () => {
     const { api, beginUndo, applyGeom, finishTextEdit } = setup(undefined, true);
     finishTextEdit.mockResolvedValue(false);
