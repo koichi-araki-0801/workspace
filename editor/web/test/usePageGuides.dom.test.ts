@@ -120,13 +120,19 @@ describe('usePageGuides', () => {
     ]);
   });
 
-  it('左右合わせで挟んだ要素の無い白紙のページは、次のパーツの上端に線を重ねる', () => {
+  it('左右合わせで挟んだ要素の無い白紙のページは、重なる 2 本を 1 本にまとめて白紙と印を付ける', () => {
     const { g, top } = setup('<p id="a">1</p><p id="b" style="break-before:right">2</p>');
     g.refreshPageGuides();
-    expect(g.pageGuides.value.map((x) => [x.top, x.page])).toEqual([
-      [top('b'), 1],
-      [top('b'), 2],
+    // ページは [a] [] [b]。白紙の 2 ページ目の前後の線は同じ位置(b の上端)に来る。
+    expect(g.pageGuides.value).toEqual([
+      { top: top('b'), left: 10, width: 500, page: 2, blank: true },
     ]);
+  });
+
+  it('白紙のページが無い線には blank を付けない', () => {
+    const { g } = setup('<p id="a">1</p><p id="b" style="break-before:page">2</p>');
+    g.refreshPageGuides();
+    expect(g.pageGuides.value[0]).not.toHaveProperty('blank');
   });
 
   it('帯が描かれていない(高さ 0)ときは次のページの先頭のパーツの上端に引く', () => {

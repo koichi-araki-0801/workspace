@@ -9,7 +9,12 @@
 //   3. 帯の CSS は根の直下の区切りだけを対象にし、`!important` でテンプレの CSS に負けない。
 import type { Component } from 'grapesjs';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { PAGEBREAK_TYPE, pagebreakCanvasCss } from '@/features/editor/pagebreakCanvas';
+import {
+  BLANK_PAGE_LABEL,
+  PAGEBREAK_TYPE,
+  PV_BLANK_ATTR,
+  pagebreakCanvasCss,
+} from '@/features/editor/pagebreakCanvas';
 import { markPages, PV_ATTR, pageViewCss } from '@/features/editor/pageView';
 import { useGrapes } from '@/features/editor/useGrapes';
 import { pageItems, splitPages } from '@/lib/pageBreaks';
@@ -83,6 +88,13 @@ describe('帯の CSS', () => {
     expect(pagebreakCanvasCss).toMatch(/font-size:\s*11px/);
     expect(pagebreakCanvasCss).toMatch(/color:\s*#64748b/);
     expect(pagebreakCanvasCss).toMatch(/background:\s*#fff/);
+  });
+
+  it('白紙のページの先頭の区切りは高さのある帯にし、白紙のページの文言を出す', () => {
+    expect(pagebreakCanvasCss).toContain(`div.pagebreak[${PV_BLANK_ATTR}]`);
+    expect(pagebreakCanvasCss).toMatch(/height:\s*40px\s*!important/);
+    expect(pagebreakCanvasCss).toContain(`content: '${BLANK_PAGE_LABEL}'`);
+    expect(BLANK_PAGE_LABEL).toBe('白紙のページ（区切りが続いているか、左右合わせで入るページ）');
   });
 });
 

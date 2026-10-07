@@ -326,6 +326,16 @@ export function pageHead<T extends Element>(split: PageSplit<T>, i: number): T |
 }
 
 /**
+ * ページ `i` が要素の無い白紙のページ(左右合わせで挟んだもの。パーツも区切りも置かれない)か。
+ * canvas に描く要素が無いので、1 ページ表示の帯(`pageView.ts` の `pageViewCss`)とページ線
+ * (`usePageGuides.ts`)が別に扱う。
+ */
+export function isElementlessPage<T extends Element>(split: PageSplit<T>, i: number): boolean {
+  const page = split.pages[i];
+  return page !== undefined && page.length === 0 && !split.breakPages.includes(i);
+}
+
+/**
  * 数えていない区切り(根の直下でない `div.pagebreak`、根の直下でない要素の inline 改ページ)。
  * 印刷では効くのに画面のページには出ないので、警告で知らせるために集める。赤入れの削除要素
  * (`[data-redline]`)は生 DOM だけの表示物で文書に無いので、その配下は見ない。

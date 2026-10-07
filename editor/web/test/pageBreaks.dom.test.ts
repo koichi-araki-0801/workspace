@@ -10,6 +10,7 @@ import {
   inlineBreak,
   isBreakValue,
   isElementizingChip,
+  isElementlessPage,
   isPagebreakEl,
   pagebreakCssDefined,
   pageHead,
@@ -499,5 +500,28 @@ describe('isElementizingChip / findElementizingChips', () => {
         '<span class="jinja-chip jinja-var" data-jinja="%%%">v</span>',
     );
     expect(Array.from(doc.children).map((el) => isElementizingChip(el))).toEqual([false, false]);
+  });
+});
+
+describe('isElementlessPage', () => {
+  it('左右合わせで挟んだ、パーツも区切りも無いページだけ true', () => {
+    const s = splitPages(
+      Array.from(
+        bodyOf(
+          '<div class=pagebreak></div><p id=a></p><div class=pagebreak></div><div class=pagebreak></div>' +
+            '<p id=b></p><p id=c style="break-before:left"></p>',
+        ).children,
+      ),
+    );
+    // [k0] [a k1] [k2] [b] [] [c]
+    expect(s.pages.map((_, i) => isElementlessPage(s, i))).toEqual([
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+    ]);
+    expect(isElementlessPage(s, 99)).toBe(false);
   });
 });

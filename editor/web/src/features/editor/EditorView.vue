@@ -431,7 +431,8 @@ const statusText = computed(() => {
           <!-- ページ境界 guide: 区切り(根の直下の `div.pagebreak` と inline の改ページ)で分けた
                ページの境目に 1 本ずつ(`usePageGuides.ts`)。番号は区切り単位で、紙のページではない。
                1 ページ表示中は現在ページの末尾しか視野に無く、ページ番号は上部バーの
-               ページャに集約されるため guide 線は出さない(全ページ表示時のみ)。 -->
+               ページャに集約されるため guide 線は出さない(全ページ表示時のみ)。要素の無い白紙の
+               ページの前後の線は 1 本にまとめ、ラベルで白紙と知らせる。 -->
           <template v-if="showPageGuides && !g.singlePageMode.value">
             <div
               v-for="gd in g.pageGuides.value"
@@ -439,7 +440,7 @@ const statusText = computed(() => {
               class="pg-line"
               :style="{ left: `${gd.left}px`, top: `${gd.top}px`, width: `${gd.width}px` }"
             >
-              <span class="pg-label">ここまで {{ gd.page }}ページ目（区切り単位）</span>
+              <span class="pg-label">ここまで {{ gd.page }}ページ目（区切り単位{{ gd.blank ? `。${gd.page}ページ目は白紙` : '' }}）</span>
             </div>
           </template>
 

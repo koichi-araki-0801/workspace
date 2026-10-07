@@ -23,6 +23,7 @@ import {
   findElementizingChips,
   findIgnoredInlineBreaks,
   findUncountedBreaks,
+  isElementlessPage,
   pageHead,
 } from '@/lib/pageBreaks';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
@@ -324,13 +325,22 @@ export function useGrapes(options: UseGrapesOptions = {}) {
 
   // guide 算出は usePageGuides.ts、メモ目印は useCanvasMarkers.ts が担う。
 
-  /** page-view style に現在の可視制御 CSS を流し込む(他ページを `display:none` に)。 */
+  /**
+   * page-view style に現在の可視制御 CSS を流し込む(他ページを `display:none` に)。要素の無い
+   * 白紙のページを表示しているときは白紙のページの帯も出す。
+   */
   function applyPageVisibility(): void {
     if (!pageViewStyleEl) return;
+    const split = {
+      pages: pageBlocks.value,
+      breakEls: pageBreakEls.value,
+      breakPages: pageBreakPages.value,
+    };
     pageViewStyleEl.textContent = pageViewCss(
       currentPageIndex.value,
       pageCount.value,
       singlePageMode.value,
+      isElementlessPage(split, currentPageIndex.value),
     );
   }
 

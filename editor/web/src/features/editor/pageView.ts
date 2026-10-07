@@ -7,6 +7,7 @@
 // 切れるかは `@/lib/pageBreaks` の `splitPages` が決め、ここはその結果を画面へ写すだけ。
 
 import { inlineBreak, type PageSplit, rootBlocks } from '@/lib/pageBreaks';
+import { BLANK_PAGE_LABEL, PV_BLANK_ATTR } from './pagebreakCanvas';
 
 /** 生 DOM へ付ける現在ページ判定用のマーカー属性。Component モデルには載せない。 */
 export const PV_ATTR = 'data-pv-idx';
@@ -19,6 +20,7 @@ export const PV_ATTR = 'data-pv-idx';
  * - パーツ: `split.pages` のページ番号。
  * - 区切り(`div.pagebreak`): 置かれたページの番号(`split.breakPages`)。区切りはそのページの
  *   末尾にあるので、1 ページ表示ではページの末尾に帯が見える。白紙のページは帯だけが見える。
+ *   区切りだけの白紙のページの先頭の区切りには、白紙の印(`PV_BLANK_ATTR`)も付ける。
  * - 数えない要素(`<style>`・本文の `<style>` の置き場・赤入れの削除要素): 隣の要素のページ。
  *   印の無い要素は可視制御の対象から外れて全ページに出続けるので、すべての要素に付ける。
  *   区切りか inline の `break-after` を持つパーツの後ろ(または先頭)にあれば次のパーツか区切りの
@@ -29,6 +31,15 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
   for (const el of Array.from(root.querySelectorAll(`[${PV_ATTR}]`))) {
     el.removeAttribute(PV_ATTR);
   }
+  for (const el of Array.from(root.querySelectorAll(`[${PV_BLANK_ATTR}]`))) {
+    el.removeAttribute(PV_BLANK_ATTR);
+  }
+  // 区切りだけの白紙のページは、その先頭の区切りを白紙のページの帯として描く(`pagebreakCanvas.ts`)。
+  split.pages.forEach((page, p) => {
+    if (page.length > 0) return;
+    const k = split.breakPages.indexOf(p);
+    if (k >= 0) split.breakEls[k].setAttribute(PV_BLANK_ATTR, '');
+  });
   const pageOf = new Map<Element, number>();
   split.pages.forEach((page, i) => {
     for (const part of page) pageOf.set(part, i);
@@ -59,12 +70,20 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
   for (const p of pending) mark(p, last);
 }
 
+/** 要素の無い白紙のページを表示しているときに wrapper の先頭に出す帯(`pagebreakCanvas.ts` の帯と同じ色)。 */
+const ELEMENTLESS_PAGE_CSS =
+  `[data-gjs-type=wrapper]::before { content: '${BLANK_PAGE_LABEL}'; display: block; ` +
+  'height: 40px; line-height: 40px; text-align: center; color: #64748b; font-size: 11px; ' +
+  'border-top: 2px dashed #94a3b8; border-bottom: 2px dashed #94a3b8; }';
+
 /**
  * 他ページを隠す page-view `<style>` の textContent を作る。`canvas` head に注入する 2 枚目の
  * style(load 時の A4/jinja スタイルとは別)へ流し込み、ページ送りのたびに書き換える。
  *
  * - 1 ページ表示でページが 2 枚以上のときだけ、現在 index 以外の印の要素を `display:none` にする。
  *   現在ページの要素には何も当てない(パーツが `flex` などの `display` を持つため上書きしない)。
+ *   要素の無い白紙のページ(`elementless`)を表示しているときは、描く要素が無いので wrapper の
+ *   `::before` に白紙のページの帯を出す。
  * - 全ページ表示(`!singleMode`)または 1 ページ以下のときは空文字 = 従来の連続スクロール。
  *
  * セレクタを wrapper(`[data-gjs-type=wrapper]`)の中に絞るのは詳細度のため。区切りの帯の規則
@@ -72,9 +91,15 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
  * ページの帯が見えてしまう。子結合子にしないのは、固めた範囲の包みの中身にも印が付くため。印は
  * `markPages` がページの単位の要素にだけ付けるので、子孫結合子でも他の要素には当たらない。
  */
-export function pageViewCss(index: number, count: number, singleMode: boolean): string {
+export function pageViewCss(
+  index: number,
+  count: number,
+  singleMode: boolean,
+  elementless = false,
+): string {
   if (!singleMode || count <= 1) return '';
-  return `[data-gjs-type=wrapper] [${PV_ATTR}]:not([${PV_ATTR}="${index}"]) { display: none !important; }`;
+  const hide = `[data-gjs-type=wrapper] [${PV_ATTR}]:not([${PV_ATTR}="${index}"]) { display: none !important; }`;
+  return elementless ? `${hide}\n${ELEMENTLESS_PAGE_CSS}` : hide;
 }
 
 /** ページ index を `[0, count-1]` に収める(count=0 / 負数 / 超過を 0 起点で安全化)。 */

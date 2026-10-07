@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { BLANK_PAGE_LABEL, PV_BLANK_ATTR } from '@/features/editor/pagebreakCanvas';
 import { clampPageIndex, markPages, PV_ATTR, pageViewCss } from '@/features/editor/pageView';
 import { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
 import { pageItems, splitPages } from '@/lib/pageBreaks';
@@ -99,6 +100,16 @@ describe('markPages', () => {
     const root = marked(`<del id="d" ${REDLINE_ATTR}></del>`);
     expect(marks(root)).toEqual({ d: '0' });
   });
+
+  it('区切りだけの白紙のページは、そのページの先頭の区切りに白紙の印を付け、付け直すと古い印を消す', () => {
+    const root = marked(`${BR('k0')}<p id="a"></p>${BR('k1')}${BR('k2')}${BR('k3')}<p id="b"></p>`);
+    const blanks = () => Array.from(root.querySelectorAll(`[${PV_BLANK_ATTR}]`)).map((el) => el.id);
+    // [k0] [a k1] [k2] [k3] [b]
+    expect(blanks()).toEqual(['k0', 'k2', 'k3']);
+    root.querySelector('#k0')?.remove();
+    markPages(root, splitPages(pageItems(Array.from(root.children) as HTMLElement[])));
+    expect(blanks()).toEqual(['k2', 'k3']);
+  });
 });
 
 describe('pageViewCss', () => {
@@ -139,6 +150,15 @@ describe('pageViewCss', () => {
 
   it('全ページ表示(singleMode=false)は枚数に関わらず空文字', () => {
     expect(pageViewCss(2, 5, false)).toBe('');
+  });
+
+  it('要素の無い白紙のページを表示しているときだけ、wrapper の ::before に白紙のページの帯を出す', () => {
+    const css = pageViewCss(1, 3, true, true);
+    expect(css).toContain('[data-gjs-type=wrapper]::before');
+    expect(css).toContain(BLANK_PAGE_LABEL);
+    expect(pageViewCss(1, 3, true)).not.toContain('::before');
+    expect(pageViewCss(1, 3, false, true)).toBe('');
+    expect(pageViewCss(0, 1, true, true)).toBe('');
   });
 });
 

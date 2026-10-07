@@ -4,13 +4,14 @@
 // 役割: `useGrapes.ts` が `splitPages` で分けたページ(`pageBlocks`)と数えた区切り(`breakEls`)
 // から、ページの境目ごとに guide 線の座標を出す(`refreshPageGuides`)。ページの分け方はここで
 // 判定し直さない — canvas のページ数・1 ページ表示・承認タブと同じ `splitPages` の結果だけを使う
-// ので、線の本数は必ず `pageCount - 1` になる。
+// ので、線の本数は `pageCount - 1` から要素の無い白紙のページの数を引いたものになる(白紙の
+// ページの前後の線は同じ位置に来るので 1 本にまとめる)。
 
 import { toAppError } from '@editor/shared';
 import type { Editor } from 'grapesjs';
 import { ref, type ShallowRef } from 'vue';
 import { logError } from '@/lib/appError';
-import { pageHead } from '@/lib/pageBreaks';
+import { isElementlessPage, pageHead } from '@/lib/pageBreaks';
 
 /**
  * A4 sheet 上に描く 1 本のページ境界 guide(canvas 相対 / zoom 考慮の座標、
@@ -24,6 +25,11 @@ export interface PageGuide {
   width: number;
   /** この境界で*終わる*累積ページ番号(「ここまで N ページ目」)。 */
   page: number;
+  /**
+   * この線で終わるページ(`page` ページ目)が要素の無い白紙のページか。その前の線と同じ位置に
+   * 来るので 1 本にまとめてあり、ラベルで白紙のページを知らせる。白紙でなければ持たない。
+   */
+  blank?: boolean;
 }
 
 interface PageGuidesContext {
@@ -53,8 +59,8 @@ export function usePageGuides(ctx: PageGuidesContext) {
    * 引き、番号は `i`(「ここまで i ページ目」)。前のページにパーツがあり、その末尾のパーツの後ろに
    * 区切りの帯が描かれていれば、最初の帯の上端に引く(帯の下に線が来ると、帯と線が離れて見える
    * ため)。白紙のページ(区切りだけのページ)では帯を前後の線で挟む。要素の無い白紙のページ
-   * (左右合わせで挟んだもの)は、次の要素の上端に線を重ねる。高さ 0 の帯(テンプレの CSS で
-   * 消えているなど)は描かれていないとみなす。位置は scroll/zoom のたびに測り直すが、ページの
+   * (左右合わせで挟んだもの)の前後の線は、どちらも次の要素の上端に来るので 1 本にまとめ、
+   * `blank` を付ける。高さ 0 の帯(テンプレの CSS で消えているなど)は描かれていないとみなす。位置は scroll/zoom のたびに測り直すが、ページの
    * 集合は content 変更時に `useGrapes.ts` が数え直したものを使う。
    */
   function refreshPageGuides(): void {
@@ -87,16 +93,20 @@ export function usePageGuides(ctx: PageGuidesContext) {
         return undefined;
       };
       for (let i = 1; i < pages.length; i++) {
+        // 要素の無い白紙のページ i の先頭の線は、次のページの線と同じ位置に来る。次の線へまとめる。
+        if (isElementlessPage(split, i)) continue;
         const prevLast = pages[i - 1].at(-1);
         const band = prevLast ? bandAfter(prevLast, i - 1) : undefined;
         // 末尾の改ページは消えるので、ページ i 以降には必ず要素がある。
         const head = pageHead(split, i) as HTMLElement;
-        out.push({
+        const guide: PageGuide = {
           top: band ? band.top : pos(head).top,
           left: bodyPos.left,
           width: bodyPos.width,
           page: i,
-        });
+        };
+        if (isElementlessPage(split, i - 1)) guide.blank = true;
+        out.push(guide);
       }
       pageGuides.value = out;
     } catch (e) {

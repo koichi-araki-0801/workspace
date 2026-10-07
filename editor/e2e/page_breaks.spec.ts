@@ -398,6 +398,77 @@ test.describe('canvas の区切りとページ', () => {
     const draft = await readDraft(page, SEED_ID);
     expect(draft?.html).not.toContain('data-pv-');
   });
+
+  test('1 ページ表示の区切りだけの白紙のページには、高さのある「白紙のページ」の帯が出る', async ({
+    page,
+  }) => {
+    await serveDoc(page, P('P1-A') + PB + PB + P('P3-A'));
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    expect(await navTotal(page)).toBe(3);
+    await page.getByRole('button', { name: '次のページ' }).click();
+    await expect(page.getByLabel('ページ番号(Enter でジャンプ)')).toHaveValue('2');
+    const blank = frame.locator('[data-gjs-type=wrapper] > div.pagebreak[data-pv-blank]');
+    await expect(blank).toBeVisible();
+    const look = await blank.evaluate((el) => ({
+      label: getComputedStyle(el, '::after').content,
+      height: el.getBoundingClientRect().height,
+    }));
+    expect(look.label).toContain('白紙のページ');
+    expect(look.height).toBeGreaterThanOrEqual(36);
+  });
+
+  test('要素の無い白紙のページ(左右合わせ)は、1 ページ表示でそのページにだけ帯が出る', async ({
+    page,
+  }) => {
+    await serveDoc(page, `${P('P1-A')}<p class="part-p3-a" style="break-before:right">P3-A</p>`);
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    expect(await navTotal(page)).toBe(3);
+    const wrapperLabel = () =>
+      frame
+        .locator('[data-gjs-type=wrapper]')
+        .evaluate((el) => getComputedStyle(el, '::before').content);
+    expect(await wrapperLabel()).not.toContain('白紙');
+    await page.getByRole('button', { name: '次のページ' }).click();
+    await expect(page.getByLabel('ページ番号(Enter でジャンプ)')).toHaveValue('2');
+    await expect.poll(wrapperLabel).toContain('白紙のページ');
+    expect(await visibleParts(frame)).toEqual([]);
+    await page.getByRole('button', { name: '次のページ' }).click();
+    await expect(page.getByLabel('ページ番号(Enter でジャンプ)')).toHaveValue('3');
+    await expect.poll(wrapperLabel).not.toContain('白紙');
+  });
+
+  test('全ページ連続表示で、白紙のページの前後のページ線のラベルが重ならない', async ({ page }) => {
+    await serveDoc(
+      page,
+      `${P('P1-A')}${PB}${PB}${P('P3-A')}<p class="part-p5-a" style="break-before:right">P5-A</p>`,
+    );
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    expect(await navTotal(page)).toBe(5);
+    await page.getByRole('button', { name: '全ページを連続表示' }).click();
+    // ページは「パーツと区切り」「区切りだけ」「パーツ」「要素の無い白紙」「パーツ」の 5 枚。
+    // 要素の無い 4 ページ目の前後の線は 1 本にまとまる。
+    const lines = page.locator('.pg-line');
+    await expect(lines).toHaveCount(3, { timeout: 15_000 });
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await expect(frame.getByText('P5-A', { exact: true })).toBeVisible();
+    await expect(
+      page.getByText('ここまで 4ページ目（区切り単位。4ページ目は白紙）'),
+    ).toBeAttached();
+    await expect
+      .poll(async () => {
+        const boxes = await page.locator('.pg-label').evaluateAll((els) =>
+          els
+            .map((e) => e.getBoundingClientRect())
+            .map((r) => ({ top: r.top, bottom: r.bottom }))
+            .sort((a, b) => a.top - b.top),
+        );
+        return boxes.every((b, i) => i === 0 || b.top >= boxes[i - 1].bottom - 0.5);
+      })
+      .toBe(true);
+  });
 });
 
 // 警告欄に出す改ページ・パーツの警告。判定(ページ数)は変えない。

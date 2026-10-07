@@ -42,9 +42,21 @@ export function registerPagebreakComponent(editor: Editor): void {
 }
 
 /**
+ * 区切りだけの白紙のページの先頭の区切りに付ける canvas 専用の印(`pageView.ts` の `markPages` が
+ * 生 DOM へ付ける。モデルに載らないので保存されない)。
+ */
+export const PV_BLANK_ATTR = 'data-pv-blank';
+
+/** 白紙のページの帯の文言(区切りの帯と、要素の無い白紙のページの帯で共通)。 */
+export const BLANK_PAGE_LABEL = '白紙のページ（区切りが続いているか、左右合わせで入るページ）';
+
+/**
  * canvas で根の直下の区切りを帯として見せる CSS。テンプレの CSS(`display:none` や高さ 0 など)に
  * 負けないよう、帯の箱を決める宣言は `!important` にする。根の直下でない区切りはページとして
  * 数えないので帯を付けない(警告で知らせる)。
+ *
+ * 区切りだけの白紙のページの先頭の区切り(`PV_BLANK_ATTR`)は高さのある帯にして白紙のページと書く。
+ * 帯に高さがあるので、前後のページ線のラベルが重ならない。
  *
  * 1 ページ表示で他ページの帯を隠す `pageView.ts` の `pageViewCss` は、この規則より詳細度が高い
  * ことに頼る。セレクタを変えるときはそちらの詳細度も見直す。
@@ -80,5 +92,15 @@ export const pagebreakCanvasCss = `
   font-size: 11px;
   line-height: 14px;
   white-space: nowrap;
+}
+[data-gjs-type=wrapper] > div.pagebreak[${PV_BLANK_ATTR}] {
+  height: 40px !important;
+}
+[data-gjs-type=wrapper] > div.pagebreak[${PV_BLANK_ATTR}]::before {
+  top: 19px;
+}
+[data-gjs-type=wrapper] > div.pagebreak[${PV_BLANK_ATTR}]::after {
+  content: '${BLANK_PAGE_LABEL}';
+  top: 13px;
 }
 `;
