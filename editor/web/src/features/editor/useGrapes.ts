@@ -1118,7 +1118,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
 
   /**
    * テキスト編集中なら閉じて、入力がモデルへ反映されるまで待つ(`textEditFinish.ts`)。Undo 可能な
-   * 操作は `beginUndo` の前にこれを待ち、追記を自分の 1 手へ混ぜない。
+   * 操作は `beginUndo` の前にこれを待ち、追記を自分の 1 手へ混ぜない。閉じたかどうかを返す。
    */
   const finishTextEdit = createFinishTextEdit(() => editor.value);
 

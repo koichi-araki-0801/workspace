@@ -555,7 +555,7 @@ h2.title { break-before: page; }`,
 });
 
 // キーボードでボタンを押すと `mousedown` が出ず、マウスのときのように先にテキスト編集が閉じない。
-// ハンドルは `mousedown` の伝播を止めるので、マウスでも閉じない。操作の前に編集を確定させないと、
+// ハンドルは押下の伝播を止めるので、マウスでも閉じない。操作の前に編集を確定させないと、
 // 追記がその操作の 1 手に混ざって単独で戻せなくなる。どの操作も、Undo 1 回目で操作が、2 回目で
 // 追記が戻ることを確かめる。
 test.describe('テキスト編集中の Undo 可能な操作', () => {
@@ -680,8 +680,7 @@ test.describe('テキスト編集中の Undo 可能な操作', () => {
     const y = box.y + box.height / 2;
     await page.mouse.move(x, y);
     await page.mouse.down();
-    // ハンドルの外へ出ると mousemove が canvas の iframe へ流れるので、ハンドルの中で動かす。
-    await page.mouse.move(x, y + 12, { steps: 3 });
+    await page.mouse.move(x, y + 40, { steps: 5 });
     await page.mouse.up();
     const part = frame.locator('p.part-p1-a');
     await expect(part).toHaveAttribute('style', /margin-bottom/);

@@ -322,3 +322,30 @@ async function replaceWord(
     .first()
     .click({ position: { x: 5, y: 5 } });
 }
+
+// ハンドルは canvas(iframe)の上にある。ハンドルの外へ出ると、捕まえていない限り移動と離す操作は
+// iframe の文書へ届き、drag が追随しないまま、離しても終わらない。
+test('余白のハンドルは canvas の上まで動かしても追随し、canvas の上で離すと止まる', async ({
+  page,
+}) => {
+  await login(page);
+  const frame = await openEditor(page);
+  await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+  const part = partLocator(frame).first();
+  await selectPart(frame, part);
+  const box = await page.getByTitle('下の余白をドラッグ').boundingBox();
+  if (!box) throw new Error('下の余白のハンドルが見えない');
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + 100, { steps: 10 });
+  const label = page.locator('.ret-drag-label');
+  const mm = Number((await label.textContent())?.match(/(\d+)mm/)?.[1] ?? 0);
+  expect(mm).toBeGreaterThanOrEqual(15);
+  await page.mouse.up();
+  await expect(label).toHaveCount(0);
+  const marginAfterUp = await part.evaluate((e) => getComputedStyle(e).marginBottom);
+  await page.mouse.move(x, y + 200, { steps: 5 });
+  expect(await part.evaluate((e) => getComputedStyle(e).marginBottom)).toBe(marginAfterUp);
+});

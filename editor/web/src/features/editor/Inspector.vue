@@ -70,7 +70,7 @@ const props = defineProps<{
   canDown: boolean;
 }>();
 
-// 編集操作は `useTemplateEditor.ts` のハンドラ(`applyGeom` / `setPartBreak` / `moveSelected` /
+// 編集操作は `useTemplateEditor.ts` のハンドラ(`applyGeomEdit` / `setPartBreak` / `moveSelected` /
 // `resetGeom` / `deletePart`)へそのまま委譲する。
 const emit = defineEmits<{
   apply: [Partial<LayoutGeom>];

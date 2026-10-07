@@ -15,8 +15,8 @@ import type { Editor } from 'grapesjs';
 export const FINISH_TEXT_EDIT_TIMEOUT_MS = 5000;
 
 /**
- * テキスト編集中なら編集を閉じ、入力がモデルへ反映されるまで待つ関数を作る。編集中でなければ
- * すぐ解決する。
+ * テキスト編集中なら編集を閉じ、入力がモデルへ反映されるまで待つ関数を作る。解決値は、待ち終えた
+ * 時点で編集が閉じているか(編集中でなければすぐ true)。
  *
  * GrapesJS は編集中の入力を DOM にだけ持ち、モデルへは編集を閉じるとき(`disableEditing` の
  * `syncContent`)に反映する。snapshot はモデルから取るので、閉じる前に操作の `beginUndo` を
@@ -29,56 +29,78 @@ export const FINISH_TEXT_EDIT_TIMEOUT_MS = 5000;
  * 反映)の後で解決するという順序に依存している(0.23.6 の `grapes.mjs` で確認)。どちらかが
  * 変わると、操作の snapshot が追記を含まなくなる。
  *
- * 閉じている途中の呼び出しには同じ Promise を返す。2 回閉じると `rte:disable` が 2 回出て、
- * 修正履歴にテキストの編集が 2 件残る。閉じる処理が失敗しても、`timeoutMs` を過ぎても解決しなくても、
- * 操作は続けたいので解決する。
+ * `disableEditing` は 1 回の編集につき 1 回だけ呼び、その Promise が決着するまで持ち続ける。
+ * 閉じている途中や、上限時間で打ち切った後に呼ばれても同じ Promise を待ち直す。呼び直すと
+ * `rte:disable` が 2 回出て、修正履歴にテキストの編集が 2 件残る。閉じる処理の失敗は握りつぶし、
+ * 結果は編集が閉じたかどうかだけで返す。false なら呼び出し側は操作を取りやめる(`afterTextEdit`)。
  */
 export function createFinishTextEdit(
   getEditor: () => Editor | null | undefined,
   timeoutMs = FINISH_TEXT_EDIT_TIMEOUT_MS,
-): () => Promise<void> {
-  let inFlight: Promise<void> | null = null;
-  return () => {
-    if (inFlight) return inFlight;
-    const view = getEditor()?.getEditing()?.getView() as
-      | { disableEditing?: () => Promise<void> | void }
-      | undefined;
-    if (!view?.disableEditing) return Promise.resolve();
-    let closing: Promise<void> | void;
-    try {
-      closing = view.disableEditing();
-    } catch {
-      closing = undefined;
+): () => Promise<boolean> {
+  let closing: Promise<void> | null = null;
+  const editingNow = () => !!getEditor()?.getEditing();
+  return async () => {
+    if (!closing) {
+      const view = getEditor()?.getEditing()?.getView() as
+        | { disableEditing?: () => Promise<void> | void }
+        | undefined;
+      if (!view?.disableEditing) return !editingNow();
+      let res: Promise<void> | void;
+      try {
+        res = view.disableEditing();
+      } catch {
+        res = undefined;
+      }
+      const settled = Promise.resolve(res).then(
+        () => undefined,
+        () => undefined,
+      );
+      closing = settled;
+      void settled.then(() => {
+        if (closing === settled) closing = null;
+      });
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const giveUp = new Promise<void>((resolve) => {
       timer = setTimeout(resolve, timeoutMs);
     });
-    const done = Promise.race([
-      Promise.resolve(closing).then(
-        () => undefined,
-        () => undefined,
-      ),
-      giveUp,
-    ]).finally(() => {
-      clearTimeout(timer);
-      inFlight = null;
-    });
-    inFlight = done;
-    return done;
+    await Promise.race([closing, giveUp]);
+    clearTimeout(timer);
+    return !editingNow();
+  };
+}
+
+/** テキスト編集を閉じられず操作を取りやめたときに利用者へ出す文言。 */
+export const TEXT_EDIT_STUCK_MESSAGE = 'テキストの編集を閉じられなかったため、操作を取りやめました';
+
+/**
+ * `finishTextEdit` が閉じられなかったとき `notify` で知らせる版にする。取りやめた操作は画面に
+ * 何も起きないので、知らせないと押しても効かないように見える。
+ */
+export function notifyWhenStuck(
+  finishTextEdit: () => Promise<boolean>,
+  notify: (message: string) => void,
+): () => Promise<boolean> {
+  return async () => {
+    if (await finishTextEdit()) return true;
+    notify(TEXT_EDIT_STUCK_MESSAGE);
+    return false;
   };
 }
 
 /**
  * `op` を、テキスト編集を閉じ終えてから走らせる関数にする。Undo 可能な操作の入口に被せ、
- * 追記をその操作の 1 手に混ぜない(`createFinishTextEdit`)。
+ * 追記をその操作の 1 手に混ぜない(`createFinishTextEdit`)。閉じられなかったら `op` は走らせない。
+ * 編集が開いたまま走らせると、`beginUndo` の操作では追記が独立した 1 手にならず、`pushUndo` の
+ * 操作では後から閉じたテキスト編集の 1 手が操作より後ろに積まれて Undo の順序が逆になる。
+ * 利用者へ知らせるのは `finishTextEdit` 側(`notifyWhenStuck`)。
  */
 export function afterTextEdit<A extends unknown[]>(
-  finishTextEdit: () => Promise<void>,
+  finishTextEdit: () => Promise<boolean>,
   op: (...args: A) => void,
 ): (...args: A) => Promise<void> {
   return async (...args: A) => {
-    await finishTextEdit();
-    op(...args);
+    if (await finishTextEdit()) op(...args);
   };
 }

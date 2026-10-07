@@ -27,8 +27,11 @@ interface GeomHandleDeps {
   recordGeomDiff: (before: LayoutGeom) => void;
   /** canvas の inline text 編集(RTE)中か。 */
   isTextEditing: () => boolean;
-  /** テキスト編集を閉じ、入力をモデルへ反映する(`textEditFinish.ts`)。 */
-  finishTextEdit: () => Promise<void>;
+  /**
+   * テキスト編集を閉じ、入力をモデルへ反映する。閉じられなかったら false(呼び出し側が利用者へ
+   * 知らせる)で、そのときは drag を始めない(`useTemplateEditor.ts` の `closeTextEdit`)。
+   */
+  finishTextEdit: () => Promise<boolean>;
 }
 
 /**
@@ -38,7 +41,13 @@ interface GeomHandleDeps {
  * カーソルに追従するようにする)。'mt'/'mb' は上/下の余白を調整する。drag は
  * ライブに(記録なしで)適用し、幾何が動いた場合だけ 1 ジェスチャにつき undo 1 件 +
  * history 1 件を記録する。
- * window listener は drag 中だけ attach する。
+ *
+ * ハンドルは canvas の iframe の上に重なる。ハンドルの外へ出ると、移動と離す操作が iframe の
+ * 文書へ届いて親の window に来ず、drag が追随しないまま離しても終わらない。押下で pointer を
+ * ハンドルへ捕まえ(`setPointerCapture`)、以後の pointer イベントをすべてハンドル経由で受ける。
+ * iframe の `pointer-events` を drag の間だけ切る方法は、iframe の状態を書き換えて戻し忘れの経路を
+ * 増やすので採らない。捕まえたイベントは window まで bubble するので、listener は window に
+ * drag 中だけ attach する。
  */
 export function useGeomHandles(deps: GeomHandleDeps) {
   const {
@@ -56,27 +65,32 @@ export function useGeomHandles(deps: GeomHandleDeps) {
   let drag: { kind: HandleKind; x: number; y: number; geom: LayoutGeom; fullW: number } | null =
     null;
 
-  function startHandle(kind: HandleKind, e: MouseEvent) {
+  function startHandle(kind: HandleKind, e: PointerEvent) {
     if (!selectedGeom.value || !selectedRect.value) return;
     e.preventDefault();
     e.stopPropagation();
+    const target = e.currentTarget as Element | null;
+    target?.setPointerCapture?.(e.pointerId);
     const { clientX: x, clientY: y } = e;
     if (!isTextEditing()) {
       beginDrag(kind, x, y);
       return;
     }
-    // 伝播を止めるので、GrapesJS が document の mousedown で閉じるテキスト編集はここでは閉じない。
+    // 伝播と既定動作を止める(互換の mousedown も出ない)ので、GrapesJS が document の mousedown で
+    // 閉じるテキスト編集はここでは閉じない。
     // 閉じる前に drag を始めると、モデルへ未反映の追記が幾何の 1 手に混ざる。閉じ終えてから、
     // 押した位置を起点に同じ押下で drag を始める(閉じる処理は microtask で終わる)。閉じ終わる前に
-    // 離されていたら始めない — 離した後に始めると、来ない mouseup を待ち続ける。
+    // 離されていたら始めない — 離した後に始めると、来ない pointerup を待ち続ける。
     let released = false;
     const onEarlyUp = () => {
       released = true;
     };
-    window.addEventListener('mouseup', onEarlyUp, { once: true });
-    void finishTextEdit().then(() => {
-      window.removeEventListener('mouseup', onEarlyUp);
-      if (!released) beginDrag(kind, x, y);
+    window.addEventListener('pointerup', onEarlyUp, { once: true });
+    window.addEventListener('pointercancel', onEarlyUp, { once: true });
+    void finishTextEdit().then((closed) => {
+      window.removeEventListener('pointerup', onEarlyUp);
+      window.removeEventListener('pointercancel', onEarlyUp);
+      if (closed && !released) beginDrag(kind, x, y);
     });
   }
 
@@ -94,18 +108,19 @@ export function useGeomHandles(deps: GeomHandleDeps) {
       geom: { ...g0 },
       fullW: r.width / (Math.max(g0.widthPct, 1) / 100),
     };
-    window.addEventListener('mousemove', onHandleMove);
-    window.addEventListener('mouseup', onHandleUp);
+    window.addEventListener('pointermove', onHandleMove);
+    window.addEventListener('pointerup', onHandleUp);
+    window.addEventListener('pointercancel', onHandleUp);
   }
 
-  function onHandleMove(e: MouseEvent) {
+  function onHandleMove(e: PointerEvent) {
     if (!drag) return;
     const z = zoom.value;
     if (drag.kind === 'width' || drag.kind === 'width-left') {
       const sign = drag.kind === 'width-left' ? -1 : 1;
       const dPct = ((e.clientX - drag.x) / drag.fullW) * 100 * sign;
       const w = Math.round(clampWidthPct(drag.geom.widthPct + dPct));
-      // 記録なしでライブ適用(history は mouseup で 1 度だけ記録する)
+      // 記録なしでライブ適用(history は pointerup で 1 度だけ記録する)
       applyGeom(
         {
           widthPct: w,
@@ -129,8 +144,9 @@ export function useGeomHandles(deps: GeomHandleDeps) {
     if (drag) recordGeomDiff(drag.geom);
     drag = null;
     activeHandle.value = null;
-    window.removeEventListener('mousemove', onHandleMove);
-    window.removeEventListener('mouseup', onHandleUp);
+    window.removeEventListener('pointermove', onHandleMove);
+    window.removeEventListener('pointerup', onHandleUp);
+    window.removeEventListener('pointercancel', onHandleUp);
   }
 
   /** ドラッグ中のハンドル横に表示するライブ値の bubble。 */

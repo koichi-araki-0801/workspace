@@ -71,6 +71,7 @@ const {
   undo,
   redo,
   beginUndo,
+  closeTextEdit,
   applyGeom,
   applyGeomEdit,
   setPartBreak,
@@ -91,7 +92,7 @@ const { startHandle, dragLabel } = useGeomHandles({
   applyGeom,
   recordGeomDiff,
   isTextEditing: () => g.editing.value,
-  finishTextEdit: g.finishTextEdit,
+  finishTextEdit: closeTextEdit,
 });
 
 const rect = computed(() => g.selectedRect.value);
@@ -506,25 +507,25 @@ const statusText = computed(() => {
               class="ret-handle ret-handle-x pointer-events-auto"
               title="幅をドラッグ"
               :style="{ left: `${rect.left + rect.width}px`, top: `${rect.top + rect.height / 2}px`, cursor: 'ew-resize' }"
-              @mousedown="startHandle('width', $event)"
+              @pointerdown="startHandle('width', $event)"
             />
             <div
               class="ret-handle ret-handle-x pointer-events-auto"
               title="幅をドラッグ"
               :style="{ left: `${rect.left}px`, top: `${rect.top + rect.height / 2}px`, cursor: 'ew-resize' }"
-              @mousedown="startHandle('width-left', $event)"
+              @pointerdown="startHandle('width-left', $event)"
             />
             <div
               class="ret-handle ret-handle-y pointer-events-auto"
               title="上の余白をドラッグ"
               :style="{ left: `${rect.left + rect.width / 2}px`, top: `${rect.top}px`, cursor: 'ns-resize' }"
-              @mousedown="startHandle('mt', $event)"
+              @pointerdown="startHandle('mt', $event)"
             />
             <div
               class="ret-handle ret-handle-y pointer-events-auto"
               title="下の余白をドラッグ"
               :style="{ left: `${rect.left + rect.width / 2}px`, top: `${rect.top + rect.height}px`, cursor: 'ns-resize' }"
-              @mousedown="startHandle('mb', $event)"
+              @pointerdown="startHandle('mb', $event)"
             />
 
             <!-- ハンドルのドラッグ中に出すライブ値の bubble -->
