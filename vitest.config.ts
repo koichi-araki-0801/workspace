@@ -136,6 +136,10 @@ export default defineConfig({
         'editor/web/src/lib/fillAnalysis.ts',
         'editor/web/src/lib/fillRender.ts',
         'editor/web/src/lib/blockKey.ts',
+        'editor/web/src/lib/newId.ts',
+        // 改ページの位置の判定。canvas・承認・比較・ページ線・警告が共有し、ずれるとページ数と
+        // パーツのキーが画面ごとに食い違う。
+        'editor/web/src/lib/pageBreaks.ts',
         'editor/web/src/lib/appError.ts',
         'editor/web/src/lib/globalErrors.ts',
         'editor/web/src/lib/useAsyncResult.ts',
@@ -192,6 +196,11 @@ export default defineConfig({
         'editor/web/src/features/editor/fundImages.ts',
         'editor/web/src/features/editor/fundImageLayer.ts',
         'editor/web/src/features/editor/canvasCssAssets.ts',
+        // 区切りの帯・Inspector の改ページの操作・ページの警告・ページ線。
+        'editor/web/src/features/editor/pagebreakCanvas.ts',
+        'editor/web/src/features/editor/partBreak.ts',
+        'editor/web/src/features/editor/pageWarnings.ts',
+        'editor/web/src/features/editor/usePageGuides.ts',
         'editor/web/src/features/editor/bodyStyle.ts',
         'editor/web/src/features/editor/useSnapshotHistory.ts',
         'editor/web/src/features/editor/usePartEditHistory.ts',
@@ -245,6 +254,7 @@ export default defineConfig({
         'editor/web/src/api/local/partRepo.ts',
         'editor/web/src/api/local/noteRepo.ts',
         'editor/web/src/api/local/reviewRepo.ts',
+        'editor/web/src/api/local/fundAssetRepo.ts',
         // rest トランスポートと 7 リポジトリ、DI 合成ルート。local と同じ契約で差し替わることを
         // 直接テストで固定する(rest e2e は挙動の一部しか通らない)。
         'editor/web/src/api/rest/*.ts',
