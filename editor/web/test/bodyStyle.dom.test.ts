@@ -69,6 +69,22 @@ describe('本文の <style>', () => {
     expect(g.getCss()).not.toContain('.a');
   });
 
+  // 置き場は原文を運ぶだけの印で、動かすと `<style>` の位置(= 効く順序)が変わる。編集可否の
+  // 一括切替は読み込み直後と Undo / Redo のたびに走るので、ここで固定が戻ってはいけない。
+  it('編集可否の一括切替(setEditable)の後も置き場は動かせず編集できない', () => {
+    g.load(BODY, '');
+    for (const on of [true, false]) {
+      g.setEditable(on);
+      const holder = g.editor.value
+        ?.getWrapper()
+        ?.components()
+        .find((c: Component) => c.get('type') === BODY_STYLE_TYPE);
+      expect(holder).toBeDefined();
+      expect(holder?.get('draggable')).toBe(false);
+      expect(holder?.get('editable')).toBe(false);
+    }
+  });
+
   it('編集タブ: 原文の書き方(属性・子結合子・コメント)をそのまま保つ', () => {
     const style = '<style media="print">/* c */ .a > .b{color:red}\n.c{margin:0}</style>';
     g.load(`<div class="page">${style}<p class="b">y</p></div>`, '');

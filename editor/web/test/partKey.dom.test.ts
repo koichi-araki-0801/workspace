@@ -13,6 +13,7 @@ import {
 } from '@/features/editor/partKey';
 import { partMapsFromHtml } from '@/features/reviews/reviewPartMaps';
 import { occurrenceKey, rawKey, rawKeyFromParts } from '@/lib/blockKey';
+import { b64encodeUtf8 } from '@/lib/jinjaAttrs';
 
 /** innerHTML から canvas wrapper 相当の root 要素を作る(jsdom)。 */
 function root(html: string): HTMLElement {
@@ -154,9 +155,17 @@ describe('partsOf / partOf / pagesOf', () => {
 
 describe('legacyPartKeyCount — 旧形式(ページ/パーツ)のキーを数える', () => {
   it('/ を含むキーだけを数える', () => {
-    expect(legacyPartKeyCount(['.s#1', 'body#1/.s#1', '.page#2/.x#1'])).toBe(2);
-    expect(legacyPartKeyCount([])).toBe(0);
-    expect(legacyPartKeyCount(new Set(['cover#1']))).toBe(0);
+    const none = new Set<string>();
+    expect(legacyPartKeyCount(['.s#1', 'body#1/.s#1', '.page#2/.x#1'], none)).toBe(2);
+    expect(legacyPartKeyCount([], none)).toBe(0);
+    expect(legacyPartKeyCount(new Set(['cover#1']), none)).toBe(0);
+  });
+
+  it('クラス名に / を含む今のパーツのキーは旧形式に数えない', () => {
+    const r = root('<div class="w-1/2">A</div><p class="b">B</p>');
+    const current = partLabelMap(r);
+    expect(current.has('.w-1/2#1')).toBe(true);
+    expect(legacyPartKeyCount(['.w-1/2#1', '.page#1/.b#1'], current)).toBe(1);
   });
 });
 
@@ -223,6 +232,26 @@ describe('canvasRawKey — canvas 側は id をモデルの明示属性から読
     const keyOf = canvasRawKey(fakeEditor({ i1: { class: 'lead' }, i2: { class: 'lead' } }));
     expect(occurrenceKey(els[0], els, keyOf)).toBe('.lead#1');
     expect(occurrenceKey(els[1], els, keyOf)).toBe('.lead#2');
+  });
+
+  it('根の直下の原文チップは、承認・比較が読む描画後の要素と同じアンカーになる', () => {
+    const chip = (src: string, kind: string, id: string) =>
+      `<span class="jinja-chip jinja-${kind}" id="${id}" data-opaque="${b64encodeUtf8(src)}" data-opaque-kind="${kind}">x</span>`;
+    const r = root(
+      chip('<textarea class="memo">{{ v }}</textarea>', 'rawtext', 'c1') +
+        chip('<script>var a;</script>', 'script', 'c2') +
+        chip('<math><mi>x</mi></math>', 'math', 'c3') +
+        chip('{% raw %}{{ x }}{% endraw %}', 'rawtext', 'c4'),
+    );
+    const els = Array.from(r.children) as HTMLElement[];
+    const cls = { class: 'jinja-chip' };
+    const keyOf = canvasRawKey(fakeEditor({ c1: cls, c2: cls, c3: cls, c4: cls }));
+    expect(els.map((el) => occurrenceKey(el, els, keyOf))).toEqual([
+      '.memo#1',
+      'script#1',
+      'math#1',
+      '.jinja-chip#1',
+    ]);
   });
 
   it('モデル属性に明示 id があれば、その id をキーへ残す', () => {

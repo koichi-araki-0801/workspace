@@ -21,6 +21,7 @@ import { findIgnoredInlineBreaks, findUncountedBreaks, pageHead } from '@/lib/pa
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
 import {
+  BODY_STYLE_TYPE,
   bodyStyleCssTexts,
   bodyStyleParserHtml,
   containsBodyStyle,
@@ -660,9 +661,11 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     try {
       // jinja の部品は自身も子孫も触らない。固めた要素の子孫は `init` で選択・編集・移動を
       // 止めてあり(`jinjaComponents.ts` の `lockDescendants`)、ここで切り替えると読み込み直後や
-      // Undo / Redo のたびに固定が外れる。
+      // Undo / Redo のたびに固定が外れる。本文の `<style>` の置き場も同じで、動かすと
+      // `<style>` の位置(= 規則の効く順序)が変わるため、定義どおり移動・編集させない。
       const visit = (c: Component): void => {
-        if (String(c.get('type') ?? '').startsWith('jinja-')) return;
+        const type = String(c.get('type') ?? '');
+        if (type.startsWith('jinja-') || type === BODY_STYLE_TYPE) return;
         c.set('editable', on);
         c.set('draggable', on);
         c.set('selectable', true);

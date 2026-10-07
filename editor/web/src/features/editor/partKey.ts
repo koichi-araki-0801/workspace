@@ -18,6 +18,7 @@
 
 import type { Editor } from 'grapesjs';
 import { type RawKeyOf, rawKey, rawKeyFromParts } from '@/lib/blockKey';
+import { b64decodeUtf8, DATA_OPAQUE, JINJA_CHIP_CLASS } from '@/lib/jinjaAttrs';
 import { type PageSplit, pageItems, splitPages } from '@/lib/pageBreaks';
 
 /**
@@ -153,12 +154,42 @@ export function partPageIndexMap(root: HTMLElement, keyOf: RawKeyOf = rawKey): M
 
 /**
  * 旧形式(`ページ/パーツ`。ページを含んだキー)のキーの数。旧形式のメモ・修正履歴はどのパーツにも
- * 当たらないので、移行はせずに件数を編集画面の警告に出す。今のキーは `/` を含まない。
+ * 当たらないので、移行はせずに件数を編集画面の警告に出す。今のキーのアンカーもクラス名
+ * (`.w-1/2` など)や `id` から `/` を含みうるので、`/` を含むだけでなく今のパーツのキー
+ * (`current`)に無いものだけを数える。
  */
-export function legacyPartKeyCount(keys: Iterable<string>): number {
+export function legacyPartKeyCount(
+  keys: Iterable<string>,
+  current: { has(key: string): boolean },
+): number {
   let n = 0;
-  for (const key of keys) if (key.includes('/')) n += 1;
+  for (const key of keys) if (key.includes('/') && !current.has(key)) n += 1;
   return n;
+}
+
+/**
+ * 原文を運ぶチップ(`<script>`・`<math>`・`<textarea>` など)が運ぶ要素。canvas ではチップの `span` に
+ * 化けているが、承認タブ・比較が読む描画後の文書では原文の要素そのものなので、アンカーは原文の要素から
+ * 取る(チップの `.jinja-chip` で取ると、根の直下のチップのパーツだけ画面ごとにキーが割れる)。
+ * 原文が要素で始まらない(`{% raw %}`・TeX)・読めないときは null で、通常の読み方へ落ちる。
+ * 限界: 原文のアンカーの属性値(`class="{{ c }}"` など)に Jinja があると、描画後の値と一致しない。
+ */
+function chipSourceElement(el: HTMLElement): Element | null {
+  if (!el.classList.contains(JINJA_CHIP_CLASS)) return null;
+  const encoded = el.getAttribute(DATA_OPAQUE);
+  if (!encoded) return null;
+  let source: string;
+  try {
+    source = b64decodeUtf8(encoded);
+  } catch {
+    return null;
+  }
+  if (!/^<[a-z]/i.test(source)) return null;
+  // `template` の中身は文書に属さないので、`<script>` は実行されず資源も取りに行かない。
+  const t = el.ownerDocument.createElement('template');
+  t.innerHTML = source;
+  // `<math>` は HTMLElement でないが、`rawKey` が読むのは属性・クラス・タグ名だけ。
+  return t.content.firstElementChild;
 }
 
 /** GrapesJS が canvas の DOM へ付ける状態クラスの接頭辞(既定の `stylePrefix`)。 */
@@ -178,6 +209,8 @@ const GJS_CLASS_PREFIX = 'gjs-';
  */
 export function canvasRawKey(ed: Editor): RawKeyOf {
   return (el) => {
+    const carried = chipSourceElement(el);
+    if (carried) return rawKey(carried as HTMLElement);
     const comp = el.id ? ed.Components.getById(el.id) : undefined;
     const attrs = comp?.get('attributes') as Record<string, unknown> | undefined;
     const firstClass = comp

@@ -233,10 +233,13 @@ export function useTemplateEditor(
   // 繰り越しもしない)。パーツの同定は版内で安定な構造キー(`partKey.ts`)で行う。
   const noteRepo = useNoteRepo();
 
-  /** canvas のルート要素(GrapesJS wrapper、無ければ body)。パーツ列挙/キー解決の基準。 */
+  /**
+   * canvas のルート要素(GrapesJS の wrapper)。パーツ列挙/キー解決の基準。まだ描かれていなければ
+   * 無しとする — canvas の body の直下は wrapper 1 つでパーツの並びではないので、body へ代えると
+   * 全体が 1 パーツに数えられ、キーもラベルも静的な文書側と食い違う(`useCanvasMarkers.ts` と同じ)。
+   */
   function canvasRoot(): HTMLElement | undefined {
-    const ed = g.editor.value;
-    return (ed?.getWrapper()?.getEl?.() ?? ed?.Canvas?.getBody?.()) as HTMLElement | undefined;
+    return g.editor.value?.getWrapper()?.getEl?.() as HTMLElement | undefined;
   }
 
   /** 現在の canvas 選択を、版を跨いで安定なパーツ構造キーへ解決する(無ければ null)。 */
@@ -713,10 +716,10 @@ export function useTemplateEditor(
       ...editorAssetWarnings(id, template.value?.cssMissing === true, g.imageWarnings.value),
       ...pageWarnings({
         ...g.pageBreakFacts.value,
-        legacyKeys: legacyPartKeyCount([
-          ...note.all.value.map((e) => e.pathKey),
-          ...allPartHistory.value.map((e) => e.partKey),
-        ]),
+        legacyKeys: legacyPartKeyCount(
+          [...note.all.value.map((e) => e.pathKey), ...allPartHistory.value.map((e) => e.partKey)],
+          partLabels.value,
+        ),
       }),
     ]),
     partHistory,

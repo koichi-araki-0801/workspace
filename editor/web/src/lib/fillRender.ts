@@ -173,9 +173,13 @@ export function renderDisplay(
 }
 
 /**
- * 編集タブ用の値入り HTML(local の fixture)を作る。本番の `filled/` は別ツールが置く値埋め込み済みの
- * ファイルで往復用の印を持たないので、fixture も印を出さない描画器だけで作る(`toFilled` は作成タブ用)。
- * 生成は開発者の操作なので、壊れたテンプレートは黙って通さず例外で止める。
+ * 往復用の印を出さずに Jinja を値入りの HTML へ描く。用途は 2 つ。
+ *   1. 編集タブ用の値入り HTML(local の fixture)の生成。本番の `filled/` は別ツールが置く値埋め込み
+ *      済みのファイルで往復用の印を持たないので、fixture も印を出さない描画器だけで作る(`toFilled` は
+ *      作成タブ用)。
+ *   2. 作成タブの canvas(本番の経路でも)で、Jinja を含む本文の `<style>` をサンプルで描いて canvas
+ *      専用の複製に入れる(`bodyStyle.ts` の `renderJinjaStyleCss`)。複製は保存内容に載らない。
+ * 壊れたテンプレートは黙って通さず例外で止める。2 の呼び出し側はそれを受けて複製を作らない。
  */
 export function renderPlainFilled(
   raw: string,
