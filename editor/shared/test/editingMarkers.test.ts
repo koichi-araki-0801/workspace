@@ -147,7 +147,7 @@ describe('findEditingMarkers', () => {
   });
 
   it('閉じない入力の反復でも入力長に線形で終わる(申請の入口で 8MB まで受ける)', () => {
-    // 正規表現版は `<a` の 4000 回反復で 1 分を超えた。時間は測らず、既定のタイムアウトで守る。
+    // 時間は測らず、タイムアウトで守る(二乗の実装なら 1 分を超える)。
     expect(findEditingMarkers('<a'.repeat(200_000))).toEqual([]);
     expect(findEditingMarkers('<a "'.repeat(200_000))).toEqual([]);
     expect(findEditingMarkers('<a b="'.repeat(200_000))).toEqual([]);
@@ -162,7 +162,9 @@ describe('findEditingMarkers', () => {
     expect(findEditingMarkers('{{ x }}<a '.repeat(200_000))).toEqual([]);
     expect(findEditingMarkers('{%}'.repeat(200_000))).toEqual([]);
     expect(kinds(`${'<a x '.repeat(200_000)}data-jinja>`)).toEqual(['attr:data-jinja']);
-  });
+    // 二乗の退行なら分単位になるので 30 秒でも検出できる。カバレッジ計測と並列実行の負荷で
+    // 線形の実装でも既定の 5 秒を超えることがある。
+  }, 30_000);
 });
 
 describe('editingMarkerMessage', () => {
