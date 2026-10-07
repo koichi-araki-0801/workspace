@@ -320,6 +320,14 @@ describe('@namespace の名前空間 URI', () => {
     expect(findExternalRefsInCss(`${ns}.a{color:red}`)).toEqual([]);
   });
 
+  // 規則を閉じたあと(深さが 0 へ戻ったあと)の `@namespace` も最上位として読む。
+  it.each([
+    ['規則の後ろ', '.a{color:red}@namespace "http://www.w3.org/2000/svg";'],
+    ['空の @media{} の後ろ', '@media print{}@namespace "http://www.w3.org/2000/svg";'],
+  ])('最上位へ戻った後ろの @namespace は外部参照にしない: %s', (_name, css) => {
+    expect(findExternalRefsInCss(css)).toEqual([]);
+  });
+
   it.each([
     ['2 つ目の値', '@namespace "http://a/" "http://evil/x";', ['"http://a/"', '"http://evil/x"']],
     ['関数で包む', '@namespace image-set("http://evil/x" 1x);', ['"http://evil/x"']],

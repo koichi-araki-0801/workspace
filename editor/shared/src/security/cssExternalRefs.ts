@@ -503,7 +503,7 @@ export function collectCssStructure(css: string): CssStructure {
   return out;
 }
 
-/** 引用符の文字列が置かれた文脈(`walkCss` が文字列に添えて渡す)。 */
+/** 引用符の文字列・`url()` が置かれた文脈(`walkCss` が値に添えて渡す)。 */
 interface CssStringContext {
   /** いちばん内側の関数の名前(`asciiLower` 済み)。関数の外なら undefined。 */
   fn: string | undefined;

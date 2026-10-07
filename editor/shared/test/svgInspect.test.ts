@@ -330,6 +330,16 @@ describe('inspectSvg — CSS の関数の中の引用符の文字列', () => {
   ])('URL にならない文字列は違反にしない %s', (inner) => {
     expect(inspectSvg(`<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`)).toEqual([]);
   });
+
+  it('許可リストは関数の名前だけで効く(値の位置の nth-child でも違反にしない)', () => {
+    // `nth-child` は値の関数ではなく、ブラウザは無効な値として捨てるので取得は起きない。
+    // 判定が文脈ではなく名前だけであることを固定する。値の関数になる名前が増えたら見直す。
+    expect(inspectSvg(wrap('<style>.a::before{content:nth-child("x.png")}</style>'))).toEqual([]);
+    // 絶対 URL は別の検査(外部参照)が捕まえるので、文字列の検査は報告しないことだけを見る。
+    expect(
+      inspectSvg(wrap('<style>.a::before{content:nth-child("http://x")}</style>')),
+    ).not.toContain('引用符の文字列が #id 以外を指す(style 要素)');
+  });
 });
 
 // CSS の前処理で CRLF は LF 1 個になるので、16 進エスケープの後ろの CRLF は 1 個の空白として
