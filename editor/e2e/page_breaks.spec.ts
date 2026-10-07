@@ -36,9 +36,14 @@ function sec(text: string, style?: string): string {
 /**
  * テンプレの取得の応答の本文と CSS を差し替える。編集画面は値入り HTML(`filled`)があればそれを
  * 描く。`templateBody` を渡すと `filled` を外し、Jinja の本文(`html`)をサンプルで描かせる
- * (作成タブと同じ経路)。
+ * (作成タブと同じ経路)。`css` を渡すとテンプレの CSS をそれに替える。
  */
-async function serveDoc(page: Page, body: string, templateBody?: string): Promise<void> {
+async function serveDoc(
+  page: Page,
+  body: string,
+  templateBody?: string,
+  css: string = CSS,
+): Promise<void> {
   const templatePath = `/api/templates/${encodeURIComponent(SEED_ID)}`;
   const swap = (doc: string, inner: string) =>
     doc.replace(/(<body[^>]*>)[\s\S]*(<\/body>)/, (_m, open, close) => `${open}${inner}${close}`);
@@ -47,7 +52,7 @@ async function serveDoc(page: Page, body: string, templateBody?: string): Promis
     async (route) => {
       const res = await route.fetch();
       const tpl = (await res.json()) as { html: string; css: string; filled?: string };
-      tpl.css = CSS;
+      tpl.css = css;
       tpl.html = swap(tpl.html, templateBody ?? body);
       if (templateBody !== undefined) delete tpl.filled;
       else if (tpl.filled) tpl.filled = swap(tpl.filled, body);
@@ -368,5 +373,47 @@ test.describe('canvas の区切りとページ', () => {
     await expect(frame.locator('.jinja-frozen-body')).toHaveCount(1, { timeout: 30_000 });
     await expect(frame.getByText('P1-A', { exact: true })).toBeVisible({ timeout: 30_000 });
     expect(await editorPages(page, frame)).toEqual(['P1-A', 'P2-A', 'P3-A {% if fund.name %}']);
+  });
+});
+
+// 警告欄に出す改ページ・パーツの警告。判定(ページ数)は変えない。
+test.describe('警告欄の改ページ・パーツの警告', () => {
+  test.setTimeout(120_000);
+
+  test('CSS の規則に書いた区切り以外の改ページ指定を、例のセレクタつきで知らせる', async ({
+    page,
+  }) => {
+    await serveDoc(
+      page,
+      THREE_PAGES,
+      undefined,
+      `${CSS}
+h2.title { break-before: page; }`,
+    );
+    await login(page);
+    await openEditor(page, SEED_ID);
+    await expect(
+      page.getByText(
+        '書式に、区切り（.pagebreak）以外の改ページの指定があります（例: h2.title）。',
+      ),
+    ).toBeVisible({ timeout: 30_000 });
+    expect(await navTotal(page)).toBe(3);
+  });
+
+  test('作成タブで、本文の直下の |safe とアンカーの属性の差し込みを知らせる', async ({ page }) => {
+    const body = `${P('P1-A')}{{ fund.name | safe }}<p class="{{ fund.code }}">X</p>${PB}${P('P2-A')}`;
+    await serveDoc(page, THREE_PAGES, body);
+    await login(page);
+    await page.goto(`/edit/${encodeURIComponent(SEED_ID)}?created=1`, { waitUntil: 'commit' });
+    await expect(
+      page.getByText('本文の直下に、描画すると要素になる差し込み（|safe など）があります。', {
+        exact: false,
+      }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(
+      page.getByText('パーツの名前（data-part-id・id・class）に差し込みがあります。', {
+        exact: false,
+      }),
+    ).toBeVisible();
   });
 });

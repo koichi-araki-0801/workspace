@@ -17,7 +17,13 @@ import { computed, ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
 import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
-import { findIgnoredInlineBreaks, findUncountedBreaks, pageHead } from '@/lib/pageBreaks';
+import {
+  cssRuleBreakSelector,
+  findElementizingChips,
+  findIgnoredInlineBreaks,
+  findUncountedBreaks,
+  pageHead,
+} from '@/lib/pageBreaks';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
 import {
@@ -189,12 +195,21 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * ページを数えるたびではなく CSS の複製を作り直すとき(読み込み・`<style>` の増減)に判定する。
    */
   const pagebreakCssOk = ref(false);
-  /** 改ページの警告の材料。旧形式のキーの件数はメモと修正履歴を読む呼び出し側が足す。 */
-  const pageBreakFacts = computed<Omit<PageWarningFacts, 'legacyKeys'>>(() => ({
+  /**
+   * 数えない CSS の規則の改ページ指定の例のセレクタ(`cssRuleBreakSelector`)。`pagebreakCssOk` と
+   * 同じく、CSS の複製を作り直すときに判定する。
+   */
+  const cssRuleBreak = ref<string | null>(null);
+  /** 根の直下の、描画で要素になりうるチップの数(`findElementizingChips`)。 */
+  const elementizingChipCount = ref(0);
+  /** 改ページの警告の材料。旧形式のキーとアンカーの差し込みは、キーを数える呼び出し側が足す。 */
+  const pageBreakFacts = computed<Omit<PageWarningFacts, 'legacyKeys' | 'jinjaAnchors'>>(() => ({
     uncounted: uncountedBreakCount.value,
     ignoredInline: ignoredInlineBreakCount.value,
     counted: pageBreakEls.value.length,
     cssDefined: pagebreakCssOk.value,
+    cssRuleBreak: cssRuleBreak.value,
+    elementizingChips: elementizingChipCount.value,
   }));
   /** ページ総数(= `pageBlocks.length`)。 */
   const pageCount = ref(0);
@@ -329,6 +344,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       pageBreakPages.value = [];
       uncountedBreakCount.value = 0;
       ignoredInlineBreakCount.value = 0;
+      elementizingChipCount.value = 0;
       pageCount.value = 0;
       return;
     }
@@ -341,6 +357,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     pageBreakPages.value = split.breakPages;
     uncountedBreakCount.value = findUncountedBreaks(root).length;
     ignoredInlineBreakCount.value = findIgnoredInlineBreaks(root).length;
+    elementizingChipCount.value = findElementizingChips(root).length;
     pageCount.value = split.pages.length;
     currentPageIndex.value = clampPageIndex(currentPageIndex.value, pageCount.value);
     applyPageVisibility();
@@ -917,11 +934,13 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * 元の規則が無いので全規則を複製する(参照は文書の位置を基準に解く)。どちらも canvas 専用の
    * `<style>` に置くので保存内容(getHtml / getCss)には載らない。中に Jinja を含む `<style>` は
    * 原文を運ぶチップ(レイヤーには見え、消せる)で、作成タブでは `toFilled` と同じサンプルで描画
-   * した規則を同じく複製する。描画できないものは複製せず、チップはそのまま残す。
+   * した規則を同じく複製する。描画できないものは複製せず、チップはそのまま残す。改ページの警告の CSS
+   * 由来の事実(`.pagebreak` の指定の有無・数えない規則)もここで判定する。
    */
   function syncCanvasCssCopy(): void {
     const texts = bodyStyleCssTexts(editor.value?.getWrapper(), styleSample);
     pagebreakCssOk.value = pagebreakCssDefinedIn(templateCss, texts);
+    cssRuleBreak.value = cssRuleBreakSelector([templateCss, ...texts]);
     fundImages?.setCss([
       ...texts.map((text) => ({ css: text, from: DOC_DIR, whole: true })),
       { css: templateCss, from: TEMPLATE_CSS_FROM },

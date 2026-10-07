@@ -35,6 +35,7 @@ import { pageWarnings } from './pageWarnings';
 import { type BreakEdge, partBreakLabel } from './partBreak';
 import {
   canvasRawKey,
+  jinjaAnchoredParts,
   legacyPartKeyCount,
   partEntries,
   partLabelMap,
@@ -263,6 +264,18 @@ export function useTemplateEditor(
     const ed = g.editor.value;
     const root = canvasRoot();
     return ed && root ? partLabelMap(root, canvasRawKey(ed)) : new Map();
+  });
+
+  /**
+   * 根の直下のパーツのうち、アンカーの属性の原文に Jinja を持つものの数(警告用。`partLabels` と
+   * 同じ契機で数え直す)。
+   */
+  const jinjaAnchorCount = computed(() => {
+    void g.revision.value;
+    void g.pageBlocks.value;
+    const ed = g.editor.value;
+    const root = canvasRoot();
+    return ed && root ? jinjaAnchoredParts(root, canvasRawKey(ed)).length : 0;
   });
 
   const note = useComments(
@@ -710,12 +723,13 @@ export function useTemplateEditor(
     template,
     fundName,
     syncStatus,
-    // 資産(CSS・画像・SVG)の警告の後ろに改ページの警告を並べる。旧形式のキーは読み込んだメモと
+    // 資産(CSS・画像・SVG)の警告の後ろに改ページ・パーツの警告を並べる。旧形式のキーは読み込んだメモと
     // 永続の修正履歴の両方から数える(どちらも同じキーでパーツに当てるので、どちらも表示から漏れる)。
     assetWarnings: computed(() => [
       ...editorAssetWarnings(id, template.value?.cssMissing === true, g.imageWarnings.value),
       ...pageWarnings({
         ...g.pageBreakFacts.value,
+        jinjaAnchors: jinjaAnchorCount.value,
         legacyKeys: legacyPartKeyCount(
           [...note.all.value.map((e) => e.pathKey), ...allPartHistory.value.map((e) => e.partKey)],
           partLabels.value,
