@@ -2,7 +2,7 @@ import type { Editor } from 'grapesjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { shallowRef } from 'vue';
 import { usePageGuides } from '@/features/editor/usePageGuides';
-import { pageItems, splitPages } from '@/lib/pageBreaks';
+import { type PageSplit, pageItems, splitPages } from '@/lib/pageBreaks';
 
 // =============================================================================
 // usePageGuides.dom.test.ts — ページ線を区切りで分けたページの境目に 1 本ずつ引く
@@ -19,8 +19,15 @@ interface Pos {
 
 const BODY: Pos = { top: 0, left: 10, width: 500, height: 1000 };
 
-/** 根の直下に `html` を置き、各要素を上から積んだ位置(既定の高さ 100)を返す偽の editor を作る。 */
-function setup(html: string, heights: Record<string, number> = {}) {
+/**
+ * 根の直下に `html` を置き、各要素を上から積んだ位置(既定の高さ 100)を返す偽の editor を作る。
+ * `split` を渡すと、`splitPages` では作れないページの分け方をそのまま与える。
+ */
+function setup(
+  html: string,
+  heights: Record<string, number> = {},
+  split?: (els: HTMLElement[]) => PageSplit<HTMLElement>,
+) {
   const body = document.createElement('body');
   const root = document.createElement('div');
   root.innerHTML = html;
@@ -40,17 +47,18 @@ function setup(html: string, heights: Record<string, number> = {}) {
   const editor = shallowRef({
     Canvas: { getBody: () => body, getElementPos },
   } as unknown as Editor);
-  const split = splitPages(pageItems(Array.from(root.children) as HTMLElement[]));
+  const els = Array.from(root.children) as HTMLElement[];
+  const pages = split ? split(els) : splitPages(pageItems(els));
   const g = usePageGuides({
     editor,
-    pageBlocks: shallowRef(split.pages),
-    breakEls: shallowRef(split.breakEls),
-    breakPages: shallowRef(split.breakPages),
+    pageBlocks: shallowRef(pages.pages),
+    breakEls: shallowRef(pages.breakEls),
+    breakPages: shallowRef(pages.breakPages),
   });
   return {
     g,
     getElementPos,
-    split,
+    split: pages,
     top: (id: string) => {
       const el = root.querySelector(`#${id}`);
       const p = el && pos.get(el);
@@ -138,6 +146,24 @@ describe('usePageGuides', () => {
     // ページは [a k1] [] [c]。飛ばした 1 本目の位置(帯 k1 の上端)を、まとめた線が受け継ぐ。
     expect(g.pageGuides.value).toEqual([
       { top: top('k1'), left: 10, width: 500, page: 2, blank: true },
+    ]);
+  });
+
+  it('要素の無い白紙のページが 2 枚続いても、まとめた線は直前の要素のあるページの帯の上端に引く', () => {
+    // `splitPages` は 1 つの境目で白紙のページを 1 枚までしか作らないので、分け方を直接与える。
+    const { g, top } = setup(
+      `<p id="a">1</p>${BR('k1')}<p id="c">2</p>`,
+      { k1: 30 },
+      ([a, k1, c]) => ({
+        pages: [[a], [], [], [c]],
+        breakEls: [k1],
+        breakPages: [0],
+      }),
+    );
+    g.refreshPageGuides();
+    // ページは [a k1] [] [] [c]。3 本の線は同じ位置に来るので 1 本にまとめ、帯 k1 の上端に引く。
+    expect(g.pageGuides.value).toEqual([
+      { top: top('k1'), left: 10, width: 500, page: 3, blank: true },
     ]);
   });
 

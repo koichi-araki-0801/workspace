@@ -546,5 +546,7 @@ h2.title { break-before: page; }`,
         exact: false,
       }),
     ).toBeVisible();
+    // 知らせるだけで、ページの数え方は変えない(チップはパーツに数えず、区切り 1 つで 2 ページ)。
+    expect(await navTotal(page)).toBe(2);
   });
 });

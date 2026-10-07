@@ -677,8 +677,8 @@ function walkCss(
       i = id.next;
       continue;
     }
-    // 前置きの読みは空白とコメントだけを読み飛ばす。`;` で閉じたときだけ URI を名前空間 URI として渡す。
-    // `punct` より先に渡す(`collectCssUrlSpansInContext` は `;` で宣言の頭を進める)。
+    // 前置きの読みは空白とコメントだけを読み飛ばす。`;` で閉じたときだけ URI を名前空間 URI として
+    // 渡す。`punct` より先に渡す(`collectCssUrlSpansInContext` は `;` で宣言の頭を進める)。
     if (ns !== undefined && !WS.test(c)) endNamespace(c === ';' && ns === 'end');
     if (c === '{' || c === '}' || c === ';') visit.punct?.(c, toSource(i));
     const valueBlock = c === '{' && inSubstValue;

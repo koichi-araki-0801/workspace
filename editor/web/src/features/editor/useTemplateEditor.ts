@@ -410,10 +410,14 @@ export function useTemplateEditor(
   }
 
   function onPartInsert(p: PartCatalogItem) {
-    // 挿入できないページでは何もしない(ボタンも押せないが、Undo と修正履歴を空で積まないため)。
-    if (!g.canInsertPart.value) return;
-    pushUndo();
-    g.insertPart(p.content, p.id);
+    // 挿入できないページ・挿入先を照合できないときは何もしない。無変更で積むと Redo が消え、修正
+    // 履歴に実際には無い変更が残るので、挿入したときだけ確定する(`resetGeom` と同じ手順)。
+    beginUndo();
+    if (!g.insertPart(p.content, p.id)) {
+      cancelUndo();
+      return;
+    }
+    commitUndo();
     // 挿入直後の part も現在の lock state に従わせる。
     g.setEditable(allowEdit.value);
     previewPart.value = p;
@@ -725,8 +729,9 @@ export function useTemplateEditor(
     template,
     fundName,
     syncStatus,
-    // 資産(CSS・画像・SVG)の警告の後ろに改ページ・パーツの警告を並べる。旧形式のキーは読み込んだメモと
-    // 永続の修正履歴の両方から数える(どちらも同じキーでパーツに当てるので、どちらも表示から漏れる)。
+    // 資産(CSS・画像・SVG)の警告の後ろに改ページ・パーツの警告を並べる。旧形式のキーは読み込んだ
+    // メモと永続の修正履歴の両方から数える(どちらも同じキーでパーツに当てるので、どちらも表示から
+    // 漏れる)。
     assetWarnings: computed(() => [
       ...editorAssetWarnings(id, template.value?.cssMissing === true, g.imageWarnings.value),
       ...pageWarnings({

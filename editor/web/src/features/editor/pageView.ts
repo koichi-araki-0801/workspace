@@ -7,7 +7,14 @@
 // 切れるかは `@/lib/pageBreaks` の `splitPages` が決め、ここはその結果を画面へ写すだけ。
 
 import { inlineBreak, type PageSplit, rootBlocks } from '@/lib/pageBreaks';
-import { BLANK_PAGE_LABEL, PV_BLANK_ATTR } from './pagebreakCanvas';
+import {
+  BAND_DASH,
+  BAND_FONT_SIZE,
+  BAND_TEXT_COLOR,
+  BLANK_BAND_HEIGHT,
+  BLANK_PAGE_LABEL,
+  PV_BLANK_ATTR,
+} from './pagebreakCanvas';
 
 /** 生 DOM へ付ける現在ページ判定用のマーカー属性。Component モデルには載せない。 */
 export const PV_ATTR = 'data-pv-idx';
@@ -34,7 +41,8 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
   for (const el of Array.from(root.querySelectorAll(`[${PV_BLANK_ATTR}]`))) {
     el.removeAttribute(PV_BLANK_ATTR);
   }
-  // 区切りだけの白紙のページは、その先頭の区切りを白紙のページの帯として描く(`pagebreakCanvas.ts`)。
+  // 区切りだけの白紙のページは、その先頭の区切りを白紙のページの帯として描く
+  // (`pagebreakCanvas.ts`)。
   split.pages.forEach((page, p) => {
     if (page.length > 0) return;
     const k = split.breakPages.indexOf(p);
@@ -70,11 +78,15 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
   for (const p of pending) mark(p, last);
 }
 
-/** 要素の無い白紙のページを表示しているときに wrapper の先頭に出す帯(`pagebreakCanvas.ts` の帯と同じ色)。 */
+/**
+ * 要素の無い白紙のページを表示しているときに wrapper の先頭に出す帯。見た目の値は
+ * `pagebreakCanvas.ts` の区切りの帯と共有する。
+ */
 const ELEMENTLESS_PAGE_CSS =
   `[data-gjs-type=wrapper]::before { content: '${BLANK_PAGE_LABEL}'; display: block; ` +
-  'height: 40px; line-height: 40px; text-align: center; color: #64748b; font-size: 11px; ' +
-  'border-top: 2px dashed #94a3b8; border-bottom: 2px dashed #94a3b8; }';
+  `height: ${BLANK_BAND_HEIGHT}; line-height: ${BLANK_BAND_HEIGHT}; text-align: center; ` +
+  `color: ${BAND_TEXT_COLOR}; font-size: ${BAND_FONT_SIZE}; ` +
+  `border-top: ${BAND_DASH}; border-bottom: ${BAND_DASH}; }`;
 
 /**
  * 他ページを隠す page-view `<style>` の textContent を作る。`canvas` head に注入する 2 枚目の

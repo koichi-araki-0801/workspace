@@ -50,6 +50,17 @@ export const PV_BLANK_ATTR = 'data-pv-blank';
 /** 白紙のページの帯の文言(区切りの帯と、要素の無い白紙のページの帯で共通)。 */
 export const BLANK_PAGE_LABEL = '白紙のページ（区切りが続いているか、左右合わせで入るページ）';
 
+// 区切りの帯と、要素の無い白紙のページの帯(`pageView.ts` の `pageViewCss`)は同じものに見せる。
+// 見た目の値はここだけに置き、両方の CSS が使う。
+/** 帯の文言の色。 */
+export const BAND_TEXT_COLOR = '#64748b';
+/** 帯の文言の字の大きさ。 */
+export const BAND_FONT_SIZE = '11px';
+/** 帯の破線。 */
+export const BAND_DASH = '2px dashed #94a3b8';
+/** 白紙のページの帯の高さ(前後のページ線のラベルが重ならない高さ)。 */
+export const BLANK_BAND_HEIGHT = '40px';
+
 /**
  * canvas で根の直下の区切りを帯として見せる CSS。テンプレの CSS(`display:none` や高さ 0 など)に
  * 負けないよう、帯の箱を決める宣言は `!important` にする。根の直下でない区切りはページとして
@@ -78,7 +89,7 @@ export const pagebreakCanvasCss = `
   left: 0;
   right: 0;
   top: 6px;
-  border-top: 2px dashed #94a3b8;
+  border-top: ${BAND_DASH};
 }
 [data-gjs-type=wrapper] > div.pagebreak::after {
   content: '改ページ';
@@ -88,13 +99,13 @@ export const pagebreakCanvasCss = `
   transform: translateX(-50%);
   padding: 0 6px;
   background: #fff;
-  color: #64748b;
-  font-size: 11px;
+  color: ${BAND_TEXT_COLOR};
+  font-size: ${BAND_FONT_SIZE};
   line-height: 14px;
   white-space: nowrap;
 }
 [data-gjs-type=wrapper] > div.pagebreak[${PV_BLANK_ATTR}] {
-  height: 40px !important;
+  height: ${BLANK_BAND_HEIGHT} !important;
 }
 [data-gjs-type=wrapper] > div.pagebreak[${PV_BLANK_ATTR}]::before {
   top: 19px;

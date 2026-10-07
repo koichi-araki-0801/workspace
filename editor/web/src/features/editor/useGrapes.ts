@@ -173,9 +173,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   /** 最後に読み込んだテンプレの CSS(本文の `<style>` が増減したときの複製の作り直しに使う)。 */
   let templateCss = '';
   /**
-   * 最後に読み込んだ CSS から取り出した入れ子の `@font-face`(`@/lib/cssCarry`)。GrapesJS には渡さず、
-   * canvas の複製と `getCss` の末尾へ原文のまま運ぶ。読み込みのたびに入れ替わり、開いている間は
-   * 変わらない(編集の対象にならない)。
+   * 最後に読み込んだ CSS から取り出した入れ子の `@font-face`(`@/lib/cssCarry`)。GrapesJS には
+   * 渡さず、canvas の複製と `getCss` の末尾へ原文のまま運ぶ。読み込みのたびに入れ替わり、開いて
+   * いる間は変わらない(編集の対象にならない)。
    */
   let carriedCss: string[] = [];
   /** 最後に読み込んだ CSS から `carriedCss` を除いたもの(GrapesJS へ渡した CSS)。 */
@@ -875,12 +875,12 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   }
 
   /**
-   * 新しいパーツの挿入先(wrapper の `components()` の中の index)。挿入できなければ null。位置の決め方は
-   * `insertTarget.ts` の `insertTarget`。位置は呼んだ時点の DOM を数え直して決め、要素 → component は
-   * 同じ時点の `getEl()` で照合する。キャッシュ(`pageBlocks`)の要素は再描画で入れ替わっていることがあり、
-   * 照合が外れると別のページへ落ちる。照合できなければ挿入しない(null)。照合が外れうるのは DOM から
-   * 読んだ境目の要素(`before`)だけで、選び直しても同じ境目に行き着くので、求め直さない。本文の
-   * 末尾へ入れると、別のページへ黙って落ちる。
+   * 新しいパーツの挿入先(wrapper の `components()` の中の index)。挿入できなければ null。位置の
+   * 決め方は `insertTarget.ts` の `insertTarget`。位置は呼んだ時点の DOM を数え直して決め、要素 →
+   * component は同じ時点の `getEl()` で照合する。キャッシュ(`pageBlocks`)の要素は再描画で入れ
+   * 替わっていることがあり、照合が外れると別のページへ落ちる。照合できなければ挿入しない(null)。
+   * 照合が外れうるのは DOM から読んだ境目の要素(`before`)だけで、選び直しても同じ境目に行き着く
+   * ので、求め直さない。本文の末尾へ入れると、別のページへ黙って落ちる。
    */
   function insertIndex(wrapper: Component, sel: Component | undefined): number | null {
     const comps = wrapper.components();
@@ -899,25 +899,28 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * 挿入し、選択する。挿入したパーツが今のページに入らないことがある(inline の `break-after` の
    * 後ろは次のページ、要素の無い白紙のページでは次のページの先頭の直前 = 前のページの末尾)。
    * 1 ページ表示では隠れたパーツを選んだままにしないよう、数え直してそのページへ送る。
-   * 挿入できないページ(`canInsertPart` が false)と、挿入先を照合できないとき(`insertIndex`)は何もしない。
+   * 挿入できないページ(`canInsertPart` が false)と、挿入先を照合できないとき(`insertIndex`)は
+   * 何もしない。挿入したかを返す(呼び出し側が、挿入しなかったときに Undo と修正履歴を積まない
+   * ため)。
    */
-  function insertPart(content: string, partId: string): void {
+  function insertPart(content: string, partId: string): boolean {
     const ed = editor.value;
     const wrapper = ed?.getWrapper();
-    if (!ed || !wrapper) return;
+    if (!ed || !wrapper) return false;
     const at = insertIndex(wrapper, ed.getSelected());
-    if (at === null) return;
+    if (at === null) return false;
     const added = wrapper.append(content, { at });
     const root = Array.isArray(added) ? added[0] : added;
     // catalog id を付与し、後の canvas 選択から docs を引けるようにする
     root?.addAttributes?.({ 'data-part-id': partId });
-    if (!root) return;
+    if (!root) return false;
     recomputePages();
     const page = root.getEl()?.getAttribute(PV_ATTR);
     if (singlePageMode.value && page != null && Number(page) !== currentPageIndex.value) {
       goToPage(Number(page));
     }
     ed.select(root); // prototype 同様、挿入した part を選択する
+    return true;
   }
 
   /**
@@ -937,8 +940,8 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * 元の規則が無いので全規則を複製する(参照は文書の位置を基準に解く)。どちらも canvas 専用の
    * `<style>` に置くので保存内容(getHtml / getCss)には載らない。中に Jinja を含む `<style>` は
    * 原文を運ぶチップ(レイヤーには見え、消せる)で、作成タブでは `toFilled` と同じサンプルで描画
-   * した規則を同じく複製する。描画できないものは複製せず、チップはそのまま残す。改ページの警告の CSS
-   * 由来の事実(`.pagebreak` の指定の有無・数えない規則)もここで判定する。
+   * した規則を同じく複製する。描画できないものは複製せず、チップはそのまま残す。改ページの警告の
+   * CSS 由来の事実(`.pagebreak` の指定の有無・数えない規則)もここで判定する。
    */
   function syncCanvasCssCopy(): void {
     const texts = bodyStyleCssTexts(editor.value?.getWrapper(), styleSample);
@@ -946,7 +949,8 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     cssRuleBreak.value = cssRuleBreakSelector([templateCss, ...texts]);
     fundImages?.setCss([
       ...texts.map((text) => ({ css: text, from: DOC_DIR, whole: true })),
-      // 運んだ `@font-face` は GrapesJS が canvas に描かないので、本文の `<style>` と同じく丸ごと複製する。
+      // 運んだ `@font-face` は GrapesJS が canvas に描かないので、本文の `<style>` と同じく丸ごと
+      // 複製する。
       ...carriedCss.map((text) => ({ css: text, from: TEMPLATE_CSS_FROM, whole: true })),
       { css: templateRestCss, from: TEMPLATE_CSS_FROM },
     ]);

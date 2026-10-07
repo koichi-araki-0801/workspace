@@ -10,6 +10,10 @@
 import type { Component } from 'grapesjs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  BAND_DASH,
+  BAND_FONT_SIZE,
+  BAND_TEXT_COLOR,
+  BLANK_BAND_HEIGHT,
   BLANK_PAGE_LABEL,
   PAGEBREAK_TYPE,
   PV_BLANK_ATTR,
@@ -120,6 +124,17 @@ const beats = (a: number[], b: number[]): boolean => {
 };
 
 describe('帯と 1 ページ表示', () => {
+  it('区切りの帯と要素の無い白紙のページの帯は、色・字の大きさ・破線・高さを共有の定数で揃える', () => {
+    const elementless = pageViewCss(1, 3, true, true);
+    for (const css of [pagebreakCanvasCss, elementless]) {
+      expect(css).toContain(`color: ${BAND_TEXT_COLOR}`);
+      expect(css).toContain(`font-size: ${BAND_FONT_SIZE}`);
+      expect(css).toContain(`border-top: ${BAND_DASH}`);
+      expect(css).toContain(`height: ${BLANK_BAND_HEIGHT}`);
+    }
+    expect(elementless).toContain(`border-bottom: ${BAND_DASH}`);
+  });
+
   it('1 ページ表示の隠す規則は、帯の規則より詳細度が高い', () => {
     const band = [...pagebreakCanvasCss.matchAll(/([^{}]+)\{[^}]*display:/g)].map((m) =>
       m[1].trim(),

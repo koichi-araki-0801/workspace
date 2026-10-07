@@ -334,6 +334,60 @@ describe('insertPart', () => {
     g.insertPart('<section>new</section>', 'NEW');
     expect(g.editor.value?.getSelected()?.getAttributes()['data-part-id']).toBe('NEW');
   });
+
+  it('挿入したかを返す(挿入したら true、挿入できないページ・照合が外れたときは false)', () => {
+    load(DOC);
+    expect(g.insertPart('<section>new</section>', 'NEW')).toBe(true);
+    const root = load(DOC);
+    g.goToPage(0);
+    const br = root.querySelector(':scope > div.pagebreak') as HTMLElement;
+    br.replaceWith(br.cloneNode(true));
+    expect(g.insertPart('<section>new</section>', 'NEW')).toBe(false);
+    // 次の区切りが固めた範囲の包みの中にあるページ(`canInsertPart` が false)。
+    load(
+      `<p class="a">1</p><div data-gjs-type="jinja-frozen" class="jinja-frozen-body" ` +
+        `data-opaque="eA==" data-opaque-kind="body"><p class="b">2</p>${BR}</div><p class="c">3</p>`,
+    );
+    g.goToPage(0);
+    expect(g.canInsertPart.value).toBe(false);
+    expect(g.insertPart('<section>new</section>', 'NEW')).toBe(false);
+  });
+
+  it('挿入しなかったときは Undo を積まず Redo を残す(`useTemplateEditor.ts` の `onPartInsert`)', () => {
+    load(DOC);
+    const h = useSnapshotHistory(
+      () => ({ html: g.getBodyHtml(), css: g.getCss() }),
+      (snap) => {
+        g.load(snap.html, snap.css);
+        render();
+      },
+    );
+    h.pushUndo();
+    expect(g.setPartBreak(byClass('a'), 'before', true)).toBe(true);
+    h.undo();
+    expect(h.canRedo.value).toBe(true);
+    const root = render();
+    g.goToPage(0);
+    const br = root.querySelector(':scope > div.pagebreak') as HTMLElement;
+    br.replaceWith(br.cloneNode(true));
+    // `onPartInsert` と同じ手順(begin → 挿入しなければ cancel)。
+    const insert = () => {
+      h.beginUndo();
+      if (g.insertPart('<section>new</section>', 'NEW')) h.commitUndo();
+      else h.cancelUndo();
+    };
+    insert();
+    expect(h.canUndo.value).toBe(false);
+    expect(h.canRedo.value).toBe(true);
+    // 挿入できれば積む(Undo 1 回で戻る)。
+    const before = g.getBodyHtml();
+    render();
+    insert();
+    expect(order()).toContain('NEW');
+    expect(h.canUndo.value).toBe(true);
+    h.undo();
+    expect(g.getBodyHtml()).toBe(before);
+  });
 });
 
 describe('setPartBreak', () => {

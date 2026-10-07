@@ -335,10 +335,10 @@ describe('inspectSvg — CSS の関数の中の引用符の文字列', () => {
     // `nth-child` は値の関数ではなく、ブラウザは無効な値として捨てるので取得は起きない。
     // 判定が文脈ではなく名前だけであることを固定する。値の関数になる名前が増えたら見直す。
     expect(inspectSvg(wrap('<style>.a::before{content:nth-child("x.png")}</style>'))).toEqual([]);
-    // 絶対 URL は別の検査(外部参照)が捕まえるので、文字列の検査は報告しないことだけを見る。
-    expect(
-      inspectSvg(wrap('<style>.a::before{content:nth-child("http://x")}</style>')),
-    ).not.toContain('引用符の文字列が #id 以外を指す(style 要素)');
+    // 絶対 URL は別の検査(外部参照)が捕まえ、文字列の検査は報告しない。報告全体で両方を固定する。
+    expect(inspectSvg(wrap('<style>.a::before{content:nth-child("http://x")}</style>'))).toEqual([
+      '外部参照を含む CSS(style 要素)',
+    ]);
   });
 });
 

@@ -174,6 +174,21 @@ describe('入れ子の @font-face を原文のまま運ぶ', () => {
     expect(g.getCss()).not.toContain('@font-face');
   });
 
+  it('違う書体名の入れ子の @font-face を続けて読み込むと、前の書体名は getCss に残らない', () => {
+    const other = '@font-face{font-family:"M";src:url(fonts/m.woff2) format("woff2")}';
+    g.load('<p class="a">x</p>', CSS);
+    g.load('<p class="a">x</p>', `@media print{${other}.a{color:red}}`);
+    const css = g.getCss();
+    expect(css.endsWith(`\n@media print{${other}}`)).toBe(true);
+    expect(css).not.toContain('"N"');
+  });
+
+  it('最上位の @font-face は GrapesJS 自身が末尾へ動かす(運んだものだけが動くのではない)', () => {
+    // jsdom の CSSOM は `@font-face` の `src` を落とすので、書体名と位置だけを見る。
+    g.load('<p class="a">x</p>', '@font-face{font-family:"T"}.a{color:red}.b{color:blue}');
+    expect(g.getCss()).toMatch(/\.b\{color:blue;\}@font-face\{font-family:"T";\}$/);
+  });
+
   it('外部参照で読み込みを拒んだときは、運んでいるものを変えない', () => {
     g.load('<p class="a">x</p>', CSS);
     expect(g.load('<p>y</p>', '@import url(http://evil/x.css);')).toBe(false);

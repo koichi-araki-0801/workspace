@@ -65,7 +65,9 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem];
     <div v-else class="flex-1 overflow-hidden">
       <PartCatalog
         :insert-blocked-reason="insertBlockedReason ?? null"
-        @select="emit('select', $event)" @insert="emit('insert', $event)" />
+        @select="emit('select', $event)"
+        @insert="emit('insert', $event)"
+      />
     </div>
   </nav>
 </template>
