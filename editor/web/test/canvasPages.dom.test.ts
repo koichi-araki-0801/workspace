@@ -353,40 +353,11 @@ describe('insertPart', () => {
     expect(g.insertPart('<section>new</section>', 'NEW')).toBe(false);
   });
 
-  it('挿入しなかったときは Undo を積まず Redo を残す(`useTemplateEditor.ts` の `onPartInsert`)', () => {
+  it('挿入する HTML から部品ができなければ(append が root を返さない)false で、本文を変えない', () => {
     load(DOC);
-    const h = useSnapshotHistory(
-      () => ({ html: g.getBodyHtml(), css: g.getCss() }),
-      (snap) => {
-        g.load(snap.html, snap.css);
-        render();
-      },
-    );
-    h.pushUndo();
-    expect(g.setPartBreak(byClass('a'), 'before', true)).toBe(true);
-    h.undo();
-    expect(h.canRedo.value).toBe(true);
-    const root = render();
-    g.goToPage(0);
-    const br = root.querySelector(':scope > div.pagebreak') as HTMLElement;
-    br.replaceWith(br.cloneNode(true));
-    // `onPartInsert` と同じ手順(begin → 挿入しなければ cancel)。
-    const insert = () => {
-      h.beginUndo();
-      if (g.insertPart('<section>new</section>', 'NEW')) h.commitUndo();
-      else h.cancelUndo();
-    };
-    insert();
-    expect(h.canUndo.value).toBe(false);
-    expect(h.canRedo.value).toBe(true);
-    // 挿入できれば積む(Undo 1 回で戻る)。
-    const before = g.getBodyHtml();
-    render();
-    insert();
-    expect(order()).toContain('NEW');
-    expect(h.canUndo.value).toBe(true);
-    h.undo();
-    expect(g.getBodyHtml()).toBe(before);
+    const html = g.getBodyHtml();
+    expect(g.insertPart('', 'NEW')).toBe(false);
+    expect(g.getBodyHtml()).toBe(html);
   });
 });
 

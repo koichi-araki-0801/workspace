@@ -33,6 +33,7 @@ import { leaveAfterSave } from './leaveGuard';
 import { openCanvas } from './openCanvas';
 import { pageWarnings } from './pageWarnings';
 import { type BreakEdge, partBreakLabel } from './partBreak';
+import { insertPartUndoable } from './partInsert';
 import {
   canvasRawKey,
   jinjaAnchoredParts,
@@ -409,19 +410,24 @@ export function useTemplateEditor(
     previewPart.value = p;
   }
 
+  /** 挿入したときだけ Undo・修正履歴・プレビュー選択を積む(`partInsert.ts`)。 */
   function onPartInsert(p: PartCatalogItem) {
-    // 挿入できないページ・挿入先を照合できないときは何もしない。無変更で積むと Redo が消え、修正
-    // 履歴に実際には無い変更が残るので、挿入したときだけ確定する(`resetGeom` と同じ手順)。
-    beginUndo();
-    if (!g.insertPart(p.content, p.id)) {
-      cancelUndo();
-      return;
-    }
-    commitUndo();
-    // 挿入直後の part も現在の lock state に従わせる。
-    g.setEditable(allowEdit.value);
-    previewPart.value = p;
-    recordChange(`パーツ「${p.name}」を追加`);
+    insertPartUndoable(
+      {
+        canInsert: () => g.canInsertPart.value,
+        beginUndo,
+        commitUndo,
+        cancelUndo,
+        insertPart: (content, partId) => g.insertPart(content, partId),
+        // 挿入直後の part も現在の lock state に従わせる。
+        setEditable: () => g.setEditable(allowEdit.value),
+        setPreview: (part) => {
+          previewPart.value = part;
+        },
+        recordChange,
+      },
+      p,
+    );
   }
 
   function moveSelected(dir: -1 | 1) {

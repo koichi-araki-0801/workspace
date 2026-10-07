@@ -204,6 +204,8 @@ export default defineConfig({
         'editor/web/src/features/editor/partBreak.ts',
         // パーツの挿入先と、固めた範囲の包みの中の区切りでの挿入不可の判定。
         'editor/web/src/features/editor/insertTarget.ts',
+        // パーツの追加で Undo・修正履歴・プレビュー選択を積むかの分岐。
+        'editor/web/src/features/editor/partInsert.ts',
         'editor/web/src/features/editor/pageWarnings.ts',
         'editor/web/src/features/editor/usePageGuides.ts',
         'editor/web/src/features/editor/bodyStyle.ts',
