@@ -666,7 +666,7 @@ function isFragmentOnly(value: string): boolean {
  * `<style>` 要素の最上位 `@font-face` の `src` 記述子に置いた `data:font/…`(pdf-to-svg・pie-chart
  * が埋め込む)だけで、それ以外の文脈の data URI は通さない。外部参照の判定は検査・配置と同じ
  * トークナイザ(`findExternalRefsInCss`)に任せ、エスケープで隠した `url(\68ttp://…)` もそこで
- * 捕まえる。
+ * 捕まえる。`@namespace` の名前空間 URI は取得されないので見ない。
  *
  * 関数の引数の引用符の文字列も同じく `#id` だけ(data URI の例外も無い)。URL にならない関数の
  * 許可リストは `STRING_ARG_SAFE_FUNCTIONS`。`var()` で関数の中へ差し込めるカスタムプロパティと
@@ -676,7 +676,7 @@ function checkCss(css: string, where: string, add: Report): void {
   if (findExternalRefsInCss(css).length > 0) add(`外部参照を含む CSS(${where})`);
   const allowFont = where === 'style 要素';
   const bad = collectCssUrlSpansInContext(css).some((span) => {
-    if (isFragmentOnly(span.value)) return false;
+    if (span.inNamespacePrelude || isFragmentOnly(span.value)) return false;
     return !(allowFont && span.inFontFaceSrc && isEmbeddedFontData(span.value));
   });
   if (bad) add(`url() が #id 以外を指す(${where})`);

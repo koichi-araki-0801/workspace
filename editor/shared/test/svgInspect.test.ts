@@ -388,3 +388,25 @@ describe('inspectSvg — 入力サイズに対して線形', () => {
     expect(inspectSvg(wrap('<rect width="1" width="2"/>'))).toContain('重複した属性 width');
   });
 });
+
+// `@namespace` の URI は取得されないので `#id` の検査から外す。形から外れたもの・ほかの文脈の
+// URL は今までどおり違反。
+describe('inspectSvg — @namespace', () => {
+  it.each([
+    '<style>@namespace svg url(http://www.w3.org/2000/svg);svg|rect{fill:red}</style>',
+    '<style>@namespace "http://www.w3.org/2000/svg";.a{fill:url(#g)}</style>',
+  ])('名前空間 URI は違反にしない %s', (inner) => {
+    expect(inspectSvg(wrap(inner))).toEqual([]);
+  });
+
+  it.each([
+    '<style>@namespace svg url(http://evil/x) .a{fill:red}</style>',
+    '<style>@namespace "x" "http://evil/x";</style>',
+    '<style>@media url(x.png){.a{fill:red}}</style>',
+    '<style>@charset "http://evil/x";</style>',
+    '<style>.a{@namespace url(http://evil/x);}</style>',
+    '<style>@media print{@namespace url(http://evil/x);}</style>',
+  ])('形から外れた・ほかの at-rule の URL は違反 %s', (inner) => {
+    expect(inspectSvg(wrap(inner))).not.toEqual([]);
+  });
+});

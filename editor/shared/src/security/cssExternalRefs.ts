@@ -284,6 +284,8 @@ export function isSelfContainedUrl(url: string): boolean {
  * `data:` の形をしたもの。(c) を入れているのは `image-set("http://…")` のように引用符
  * 文字列で URL を取る関数を関数名の列挙で追えないため。`content:"注: 説明"` のような
  * 通常の文字列は `注` が scheme の形をしないので報告されない。
+ * `@namespace` の名前空間 URI(`@namespace [接頭辞] <文字列 | url()>;` の形に最上位で収まるもの)は
+ * ブラウザが取得しないので報告しない。
  */
 export function findExternalRefsInCss(css: string): string[] {
   const found: string[] = [];
@@ -291,7 +293,8 @@ export function findExternalRefsInCss(css: string): string[] {
     atRule: (name) => {
       if (!ALLOWED_AT_RULES.has(name.toLowerCase())) found.push(`@${name}`);
     },
-    value: (value, kind) => {
+    value: (value, kind, _span, ctx) => {
+      if (ctx?.namespace) return;
       if (isSelfContainedUrl(value)) return;
       found.push(kind === 'url' ? `url(${value})` : `"${value}"`);
     },
@@ -348,6 +351,8 @@ export interface CssUrlSpanInContext extends CssUrlSpan {
    * いる。範囲が特定できない(閉じていない・入れ子・`src` 以外の宣言)ときは false(fail closed)。
    */
   inFontFaceSrc: boolean;
+  /** `@namespace` の名前空間 URI か(`walkCss` の `CssStringContext.namespace`)。取得されない。 */
+  inNamespacePrelude: boolean;
 }
 
 /**
@@ -385,7 +390,7 @@ export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] 
       declStart = at + 1;
       declIsSrc = undefined;
     },
-    value: (value, kind, span) => {
+    value: (value, kind, span, ctx) => {
       if (kind !== 'url' || span === undefined) return;
       const inFace = stack.length === 1 && stack[0] === true;
       // url() ごとに `slice` + 正規表現を掛け直すと、長い空白の後に `x:url()` を並べた入力で
@@ -394,7 +399,12 @@ export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] 
         declIsSrc = /^\s*src\s*:/i.test(css.slice(declStart, span.start));
       }
       const isSrc = inFace && declIsSrc === true;
-      const item = { value, ...span, inFontFaceSrc: isSrc };
+      const item = {
+        value,
+        ...span,
+        inFontFaceSrc: isSrc,
+        inNamespacePrelude: ctx?.namespace === true,
+      };
       if (inFace) faceItems.push(item);
       else found.push(item);
     },
@@ -499,6 +509,13 @@ interface CssStringContext {
   fn: string | undefined;
   /** 括弧の外で、宣言の先頭に読んだ ident(エスケープ解決後)。無ければ undefined。 */
   decl: string | undefined;
+  /**
+   * `@namespace [接頭辞] <文字列 | url()>;` の形に最上位で収まった名前空間 URI か。名前空間 URI は
+   * ブラウザが取得しないので外部参照として数えない。形から外れたもの(2 つ目の値・関数で包む・
+   * `;` で閉じない・規則のブロックの中)は false(崩れた `@namespace` はブラウザが捨てるが、
+   * 検査は安全側へ倒す)。
+   */
+  namespace: boolean;
 }
 
 /**
@@ -544,6 +561,43 @@ function walkCss(
   let afterDeclName = false;
   /** 差し込める宣言(`isSubstitutableDecl`)の `:` の後ろ(値の中)か。 */
   let inSubstValue = false;
+  /** 開いている規則のブロック(`{`)の深さ。値の括弧の中の `{` は数えない。`@namespace` は 0 でだけ効く。 */
+  let ruleDepth = 0;
+  /**
+   * `@namespace` の前置きを読んでいる段階。`prefix` は接頭辞か URI を待つ、`uri` は接頭辞の後で
+   * URI を待つ、`end` は URI の後で `;` を待つ。形から外れたら undefined に戻す。
+   */
+  let ns: 'prefix' | 'uri' | 'end' | undefined;
+  /** `ns` が `end` の間、`;` まで渡すのを保留している URI。 */
+  let nsHeld:
+    | {
+        value: string;
+        kind: 'url' | 'string';
+        span: { start: number; end: number } | undefined;
+        ctx: CssStringContext;
+      }
+    | undefined;
+  /** 保留した URI を渡して、`@namespace` の前置きの読みを終える。 */
+  const endNamespace = (asNamespace: boolean): void => {
+    const held = nsHeld;
+    nsHeld = undefined;
+    ns = undefined;
+    if (held !== undefined) {
+      visit.value(held.value, held.kind, held.span, { ...held.ctx, namespace: asNamespace });
+    }
+  };
+  /** URI を待っている段階なら値を保留して true を返す(呼び出し側はその場で渡さない)。 */
+  const holdNamespaceUri = (
+    value: string,
+    kind: 'url' | 'string',
+    span: { start: number; end: number } | undefined,
+    ctx: CssStringContext,
+  ): boolean => {
+    if (ns !== 'prefix' && ns !== 'uri') return false;
+    nsHeld = { value, kind, span, ctx };
+    ns = 'end';
+    return true;
+  };
   while (i < css.length) {
     const c = css[i];
     if (c === '/' && css[i + 1] === '*') {
@@ -555,15 +609,25 @@ function walkCss(
     }
     if (c === '"' || c === "'") {
       const s = readString(css, i);
-      visit.value(s.value, 'string', undefined, { fn: fns[fns.length - 1], decl });
+      const ctx: CssStringContext = { fn: fns[fns.length - 1], decl, namespace: false };
+      if (ns === 'end') endNamespace(false);
+      if (!holdNamespaceUri(s.value, 'string', undefined, ctx)) {
+        visit.value(s.value, 'string', undefined, ctx);
+      }
       atDeclStart = false;
       afterDeclName = false;
       i = s.next;
       continue;
     }
     if (c === '@') {
+      if (ns !== undefined) endNamespace(false);
       const id = readIdent(css, i + 1);
-      if (id.next > i + 1) visit.atRule(id.value, toSource(i));
+      if (id.next > i + 1) {
+        visit.atRule(id.value, toSource(i));
+        if (asciiLower(id.value) === 'namespace' && ruleDepth === 0 && blocks.length === 0) {
+          ns = 'prefix';
+        }
+      }
       atDeclStart = false;
       afterDeclName = false;
       i = id.next > i + 1 ? id.next : i + 1;
@@ -579,12 +643,18 @@ function walkCss(
       if (id.value.toLowerCase() === 'url' && css[id.next] === '(') {
         const u = readUrlToken(css, id.next + 1);
         // span は `url(` の先頭から閉じ括弧の直後まで = `url(…)` 式全体を置換できる範囲。
-        visit.value(u.value, 'url', { start: toSource(i), end: toSource(u.next) });
+        const span = { start: toSource(i), end: toSource(u.next) };
+        const ctx: CssStringContext = { fn: fns[fns.length - 1], decl, namespace: false };
+        if (ns === 'end') endNamespace(false);
+        if (!holdNamespaceUri(u.value, 'url', span, ctx)) visit.value(u.value, 'url', span, ctx);
         atDeclStart = false;
         afterDeclName = false;
         i = u.next;
         continue;
       }
+      // `@namespace` の接頭辞は関数でない ident 1 つだけ。2 つ目の語や関数は形から外れる。
+      if (ns === 'prefix' && css[id.next] !== '(') ns = 'uri';
+      else if (ns !== undefined) endNamespace(false);
       afterDeclName = atDeclStart && blocks.length === 0;
       if (afterDeclName) decl = id.value;
       atDeclStart = false;
@@ -597,8 +667,15 @@ function walkCss(
       i = id.next;
       continue;
     }
+    // 前置きの読みは空白とコメントだけを読み飛ばす。`;` で閉じたときだけ URI を名前空間 URI として渡す。
+    // `punct` より先に渡す(`collectCssUrlSpansInContext` は `;` で宣言の頭を進める)。
+    if (ns !== undefined && !WS.test(c)) endNamespace(c === ';' && ns === 'end');
     if (c === '{' || c === '}' || c === ';') visit.punct?.(c, toSource(i));
     const valueBlock = c === '{' && inSubstValue;
+    if (blocks.length === 0 && !valueBlock) {
+      if (c === '{') ruleDepth++;
+      else if (c === '}' && ruleDepth > 0) ruleDepth--;
+    }
     if (blocks.length === 0 && !valueBlock && (c === '{' || c === '}' || c === ';')) {
       decl = undefined;
       atDeclStart = true;
@@ -618,4 +695,5 @@ function walkCss(
     }
     i++;
   }
+  if (ns !== undefined) endNamespace(false);
 }

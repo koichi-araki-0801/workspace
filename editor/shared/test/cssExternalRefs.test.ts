@@ -303,3 +303,81 @@ describe('collectCssStringsInFunctions — 関数の引数にある引用符の�
     ]);
   });
 });
+
+// 名前空間 URI はブラウザが取得しない。`@namespace [接頭辞] <文字列 | url()>;` の形に最上位で収まる値
+// だけを外し、形から外れたら(2 つ目の値・関数で包む・`;` で閉じない・規則のブロックの中)今までどおり
+// 外部参照として拒む。
+describe('@namespace の名前空間 URI', () => {
+  it.each([
+    '@namespace "http://www.w3.org/2000/svg";',
+    '@namespace svg url(http://www.w3.org/2000/svg);',
+    "@namespace svg url('http://www.w3.org/2000/svg');",
+    '@namespace url("http://www.w3.org/1999/xhtml") ;',
+    '@NAMESPACE svg "http://www.w3.org/2000/svg";',
+    '@\\6e amespace "http://www.w3.org/2000/svg";',
+    '@namespace /* c */ svg /* d */ "http://www.w3.org/2000/svg" /* e */;',
+  ])('前置きの URI は外部参照にしない %s', (ns) => {
+    expect(findExternalRefsInCss(`${ns}.a{color:red}`)).toEqual([]);
+  });
+
+  it.each([
+    ['2 つ目の値', '@namespace "http://a/" "http://evil/x";', ['"http://a/"', '"http://evil/x"']],
+    ['関数で包む', '@namespace image-set("http://evil/x" 1x);', ['"http://evil/x"']],
+    [
+      '; で閉じずにブロックが続く',
+      '@namespace url(http://evil/a) .a{background:url(http://evil/b)}',
+      ['url(http://evil/a)', 'url(http://evil/b)'],
+    ],
+    ['閉じずに終わる', '@namespace "http://evil/x"', ['"http://evil/x"']],
+    ['前置きが 2 語', '@namespace a b "http://evil/x";', ['"http://evil/x"']],
+    [
+      'URI の後ろにエスケープした URL',
+      '@namespace svg url(x) url(\\68ttp://evil/x);',
+      ['url(http://evil/x)'],
+    ],
+    [
+      '@namespace の後ろの規則',
+      '@namespace "http://www.w3.org/2000/svg";.a{background:url(http://evil/x)}',
+      ['url(http://evil/x)'],
+    ],
+    ['@namespace 以外の at-rule の前置き', '@charset "http://evil/x";', ['"http://evil/x"']],
+    ['@import の文字列', '@import "http://evil/x";', ['@import', '"http://evil/x"']],
+    ['@import の url()', '@import url(http://evil/x);', ['@import', 'url(http://evil/x)']],
+    ['@media の前置きの url()', '@media url(http://evil/x){.a{color:red}}', ['url(http://evil/x)']],
+    ['宣言の url()', '.a{background:url(http://evil/x)}', ['url(http://evil/x)']],
+    ['カスタムプロパティの文字列', '.a{--x:"http://evil/x"}', ['"http://evil/x"']],
+    ['image-set の文字列', '.a{background:image-set("http://evil/x" 1x)}', ['"http://evil/x"']],
+    // 規則のブロックの中の `@namespace` は最上位ではないので、名前空間として読まない。
+    ['規則の中の @namespace', '.a{@namespace url(http://evil/x);}', ['url(http://evil/x)']],
+    ['@media の中の @namespace', '@media print{@namespace "http://evil/x";}', ['"http://evil/x"']],
+    [
+      'カスタムプロパティの値の @namespace',
+      '.a{--x:@namespace "http://evil/x";}',
+      ['"http://evil/x"'],
+    ],
+    // HTML 全体を CSS として舐める経路(`server/src/security/externalRefs.ts` の解析を諦めた入力)。
+    ['HTML の属性の並び', '<img alt=@namespace src="https://evil/x">', ['"https://evil/x"']],
+  ])('形から外れたら外部参照のまま: %s', (_name, css, want) => {
+    expect(findExternalRefsInCss(css)).toEqual(want);
+  });
+
+  it('collectCssUrlSpansInContext は名前空間 URI の url() に印を付け、ほかには付けない', () => {
+    const spans = collectCssUrlSpansInContext(
+      '@namespace svg url(http://www.w3.org/2000/svg);.a{fill:url(#g)}',
+    );
+    expect(spans.map((s) => [s.value, s.inNamespacePrelude])).toEqual([
+      ['http://www.w3.org/2000/svg', true],
+      ['#g', false],
+    ]);
+  });
+
+  it('collectCssUrlCandidates は名前空間 URI も候補として拾う(取得しない資産の配置判断なので)', () => {
+    expect(collectCssUrlCandidates('@namespace url(x.svg);')).toEqual(['x.svg']);
+  });
+
+  it('collectCssStringsInFunctions は前置きの文字列を数えない', () => {
+    expect(collectCssStringsInFunctions('@namespace svg "http://www.w3.org/2000/svg";')).toEqual(
+      [],
+    );
+  });
+});
