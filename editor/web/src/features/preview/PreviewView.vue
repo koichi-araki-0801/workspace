@@ -33,7 +33,11 @@ import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import PreviewPanel from './PreviewPanel.vue';
-import { cssBaselineNotice, useTemplatePreviewService } from './services/templatePreviewService';
+import {
+  cssBaselineNotice,
+  jinjaBlockLossNotice,
+  useTemplatePreviewService,
+} from './services/templatePreviewService';
 
 const props = defineProps<{ id: string }>();
 
@@ -157,11 +161,15 @@ const origin = computed<'edit' | 'create'>(() =>
 // 実ファイルへは即時反映せず、精査者(承認者)の承認を経て反映する申請を出す。
 async function submitForReview() {
   if (!template.value || submitting.value) return;
+  // 作成経路だけ、範囲の印の両消しで黙って消えた Jinja のブロックを確認の説明で知らせる。
+  const loss =
+    origin.value === 'create' ? jinjaBlockLossNotice(template.value.html, restoredHtml.value) : null;
   const proceed = await confirm({
     title: '確定保存を申請しますか？',
     description:
       '編集内容を精査者(承認者)へ申請します。承認後に本番テンプレートへ反映されます。' +
-      'この時点では実ファイルは変更されません。',
+      'この時点では実ファイルは変更されません。' +
+      (loss ?? ''),
     confirmLabel: '申請する',
   });
   if (!proceed || submitting.value) return;

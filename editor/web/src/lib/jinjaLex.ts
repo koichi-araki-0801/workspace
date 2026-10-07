@@ -82,6 +82,23 @@ function opensOpaque(tok: JinjaToken): boolean {
   return tok.keyword === 'set' && !tok.body.includes('=');
 }
 
+/** 閉じを持ち、中身を木にするかそのまま運ぶブロックの開き。 */
+const OPEN_BLOCK_KEYWORDS = new Set(['if', 'for', 'raw', 'verbatim']);
+
+/**
+ * 閉じを持つブロックの開き(`if` `for` `raw` `verbatim` と、中身を木にしないブロックの開き)の数。
+ * 字句として読めなければ null。作成経路の申請の確認で、元のテンプレートより減っていないかを見る
+ * (範囲の印の開きと閉じを両方消すと、例外にならずにブロックが地の本文として保存されるため)。
+ * `raw` の中身は字句解析が読み飛ばすので数えない。
+ */
+export function countJinjaBlockOpens(src: string): number | null {
+  const lexed = lexJinja(src);
+  if (!lexed.ok) return null;
+  return lexed.tokens.filter(
+    (t) => t.kind === 'stmt' && (OPEN_BLOCK_KEYWORDS.has(t.keyword ?? '') || opensOpaque(t)),
+  ).length;
+}
+
 interface Frame {
   kind: 'root' | 'if' | 'for' | 'opaque';
   open: JinjaToken | null;

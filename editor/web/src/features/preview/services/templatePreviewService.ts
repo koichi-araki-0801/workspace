@@ -21,6 +21,7 @@ import { apiUrl } from '@/api/rest/http';
 import { logError } from '@/lib/appError';
 import { type DraftOwner, draftOwner } from '@/lib/draftOwner';
 import { formatCss } from '@/lib/formatOutput';
+import { countJinjaBlockOpens } from '@/lib/jinjaLex';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
 import { renderJinjaIsolated } from '@/lib/renderHostClient';
@@ -71,6 +72,23 @@ export const CSS_BASELINE_MISSING_MSG =
  */
 export function cssBaselineNotice(hasDraft: boolean, cssBaseline: string | null): string | null {
   return hasDraft && cssBaseline === null ? CSS_BASELINE_MISSING_MSG : null;
+}
+
+/** 申請する本文で Jinja のブロックが減っているときに、申請の確認の説明へ足す一文。 */
+export const JINJA_BLOCK_LOSS_MSG = (n: number): string =>
+  `元のテンプレートより Jinja のブロック（{% if %} など）が ${n} 個少なくなっています。` +
+  '意図した削除でなければ、申請せずに編集画面で確かめてください。';
+
+/**
+ * 元のテンプレートと申請する本文の、閉じを持つ Jinja のブロックの開きの数を比べ、減っていれば
+ * 確認の説明に足す一文を返す(減っていない・どちらかが字句として読めないときは null)。作成経路
+ * だけが使う(編集経路の本文は値入りで Jinja を持たない)。
+ */
+export function jinjaBlockLossNotice(original: string, restored: string): string | null {
+  const before = countJinjaBlockOpens(original);
+  const after = countJinjaBlockOpens(restored);
+  if (before === null || after === null || after >= before) return null;
+  return JINJA_BLOCK_LOSS_MSG(before - after);
 }
 
 interface TemplatePreviewService {

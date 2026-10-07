@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type JinjaNode, parseJinja } from '../src/lib/jinjaLex';
+import { countJinjaBlockOpens, type JinjaNode, parseJinja } from '../src/lib/jinjaLex';
 
 /** 木を短い文字列にして比べる。 */
 function shape(src: string, nodes: JinjaNode[]): string {
@@ -77,5 +77,35 @@ describe('parseJinja', () => {
     ['{{ a', '字句エラー'],
   ])('%s はエラー(%s)', (s) => {
     expect(parseJinja(s).ok).toBe(false);
+  });
+});
+
+// 申請の確認で元のテンプレートと比べる、閉じを持つ Jinja のブロックの開きの数。
+describe('countJinjaBlockOpens', () => {
+  it('if / for / raw / verbatim と、中身を木にしないブロックの開きを数える', () => {
+    expect(
+      countJinjaBlockOpens(
+        '{% if a %}x{% elif b %}y{% else %}z{% endif %}{% for i in l %}{% else %}{% endfor %}',
+      ),
+    ).toBe(2);
+    expect(
+      countJinjaBlockOpens('{% raw %}{% if a %}{% endraw %}{% verbatim %}{% endverbatim %}'),
+    ).toBe(2);
+    expect(
+      countJinjaBlockOpens(
+        '{% macro m() %}{% endmacro %}{% call m() %}{% endcall %}{% filter upper %}{% endfilter %}' +
+          '{% block b %}{% endblock %}{% with %}{% endwith %}{% autoescape true %}{% endautoescape %}',
+      ),
+    ).toBe(6);
+    expect(countJinjaBlockOpens('{% set x %}a{% endset %}{% set y = 1 %}')).toBe(1);
+  });
+
+  it('出力・コメント・閉じを持たない文は数えない', () => {
+    expect(countJinjaBlockOpens('{{ a }}{# {% if x %} #}{% include "x" %}<p>本文</p>')).toBe(0);
+  });
+
+  it('字句として読めなければ null', () => {
+    expect(countJinjaBlockOpens('{% if a ')).toBeNull();
+    expect(countJinjaBlockOpens('{% raw %}x')).toBeNull();
   });
 });
