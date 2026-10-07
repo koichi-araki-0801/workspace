@@ -259,7 +259,16 @@ describe('canvasFontFaceSrcDisabled(canvas に描かれる元の @font-face)', (
       canvasFontFaceSrcDisabled(
         '@font-face{font-family:a;src:url("fonts/a.woff2") format("woff2"),local(A)}',
       ),
-    ).toBe('@font-face{font-family:a;src:local("") format("woff2"),local(A)}');
+    ).toBe('@font-face{font-family:a;src:local(""),local(A)}');
+  });
+
+  it('url() に続く format() / tech() も一緒に除き、local() に付かない書き方を残さない', () => {
+    expect(
+      canvasFontFaceSrcDisabled(
+        '@font-face{font-family:a;src:url(fonts/a.woff2) format(woff2) tech(variations),' +
+          'url(fonts/b.woff) FORMAT("woff");font-display:swap}',
+      ),
+    ).toBe('@font-face{font-family:a;src:local(""),local("");font-display:swap}');
   });
 
   it('@font-face の src 以外の url() と、css/fonts/ の外の参照は書き換えない', () => {

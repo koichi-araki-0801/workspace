@@ -92,31 +92,45 @@ export function docImageIssues(
   companyCode: string | null,
 ): Array<[string, ImageRefIssue]> {
   if (html === '') return [];
-  const doc = new DOMParser().parseFromString(html, 'text/html');
   const out: Array<[string, ImageRefIssue]> = [];
+  const push = (url: string, kind: ImageRefIssue | null): void => {
+    if (kind !== null) out.push([url, kind]);
+  };
+  visitDocImageRefs(html, {
+    imgSrc: (src) => push(src, imageRefIssue(src, DOC_DIR, companyCode)),
+    css: (css) => out.push(...cssImageIssues(css, DOC_DIR, companyCode)),
+    attrUrl: (url) => push(url, imagesAttrIssue(url, companyCode)),
+  });
+  return out;
+}
+
+/** 文書の画像参照を拾う先。`docImageIssues` と `docFundImageRefs` が拾う範囲を揃えるために共有する。 */
+interface DocImageRefVisitor {
+  /** `<img src>` の値。 */
+  imgSrc(src: string): void;
+  /** `<style>` の中身と `style` 属性の値。 */
+  css(css: string): void;
+  /** ほかの属性(`srcset`・`poster` など)の値に含まれる URL の候補。 */
+  attrUrl(url: string): void;
+}
+
+/** 文書を解いて、画像参照になりうる値を種類ごとに `visitor` へ渡す(`<img src>` → `<style>` → 属性の順)。 */
+function visitDocImageRefs(html: string, visitor: DocImageRefVisitor): void {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
   for (const img of Array.from(doc.querySelectorAll('img[src]'))) {
-    const src = img.getAttribute('src') ?? '';
-    const kind = imageRefIssue(src, DOC_DIR, companyCode);
-    if (kind !== null) out.push([src, kind]);
+    visitor.imgSrc(img.getAttribute('src') ?? '');
   }
-  for (const style of Array.from(doc.querySelectorAll('style'))) {
-    out.push(...cssImageIssues(style.textContent ?? '', DOC_DIR, companyCode));
-  }
+  for (const style of Array.from(doc.querySelectorAll('style')))
+    visitor.css(style.textContent ?? '');
   for (const el of Array.from(doc.querySelectorAll('*'))) {
     const isImg = el.tagName.toLowerCase() === 'img';
     for (const { name, value } of Array.from(el.attributes)) {
-      if (name === 'style') {
-        out.push(...cssImageIssues(value, DOC_DIR, companyCode));
-        continue;
-      }
-      if (isImg && name === 'src') continue;
-      for (const url of attrUrlCandidates(name, value)) {
-        const kind = imagesAttrIssue(url, companyCode);
-        if (kind !== null) out.push([url, kind]);
+      if (name === 'style') visitor.css(value);
+      else if (!(isImg && name === 'src')) {
+        for (const url of attrUrlCandidates(name, value)) visitor.attrUrl(url);
       }
     }
   }
-  return out;
 }
 
 /** `images/` を指す属性値の問題(`images/` 以外を指す値は見ない)。 */
@@ -193,27 +207,19 @@ export function svgRejectedMessage(images: readonly SvgRejectedImage[]): string 
  */
 export function docFundImageRefs(html: string, companyCode: string | null): FundImageRef[] {
   if (html === '') return [];
-  const doc = new DOMParser().parseFromString(html, 'text/html');
   const out = new Map<string, FundImageRef>();
   const add = (url: string): void => {
     if (JINJA_RE.test(url)) return;
     const ref = servedFundImageOf(url.trim(), DOC_DIR, companyCode);
     if (ref !== undefined) out.set(JSON.stringify([ref.dir, ref.file]), ref);
   };
-  const addCss = (css: string): void => {
-    for (const span of collectCssUrlSpans(css)) add(span.value);
-  };
-  for (const img of Array.from(doc.querySelectorAll('img[src]')))
-    add(img.getAttribute('src') ?? '');
-  for (const style of Array.from(doc.querySelectorAll('style'))) addCss(style.textContent ?? '');
-  for (const el of Array.from(doc.querySelectorAll('*'))) {
-    const isImg = el.tagName.toLowerCase() === 'img';
-    for (const { name, value } of Array.from(el.attributes)) {
-      if (name === 'style') addCss(value);
-      else if (!(isImg && name === 'src'))
-        for (const url of attrUrlCandidates(name, value)) add(url);
-    }
-  }
+  visitDocImageRefs(html, {
+    imgSrc: add,
+    css: (css) => {
+      for (const span of collectCssUrlSpans(css)) add(span.value);
+    },
+    attrUrl: add,
+  });
   return [...out.values()];
 }
 

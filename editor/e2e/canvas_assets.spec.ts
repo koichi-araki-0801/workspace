@@ -116,5 +116,22 @@ test.describe('編集画面のフォント', () => {
     expect(fontPaths.filter((p) => !p.startsWith('/api/'))).toEqual([]);
     expect(fontPaths).toContain('/api/preview-host/css/fonts/e2e.woff2');
     expect(fontPaths).toContain('/api/preview-host/css/fonts/e2e-body.woff2');
+
+    // 書き換えるのは canvas に描く文字列だけで、モデル(`getCss` = 保存の出どころ)は元の `url()` の
+    // まま。開いたときに `getCss` から測って localStorage に置く確定版の正規形で確かめる。
+    const modelCss = await page.evaluate((id) => {
+      for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith('editor:confirmed:v1')) continue;
+        const map = JSON.parse(localStorage.getItem(key) ?? '{}') as Record<
+          string,
+          { css: string }
+        >;
+        if (map[id]) return map[id].css;
+      }
+      return null;
+    }, SEED_ID);
+    // Chromium は書き出しで url() の中身に引用符を付ける。
+    expect(modelCss).toMatch(/src:url\("?fonts\/e2e\.woff2"?\)/);
+    expect(modelCss).not.toContain('local(');
   });
 });

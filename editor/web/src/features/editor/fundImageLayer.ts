@@ -262,7 +262,9 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     } catch {
       return;
     }
-    // 問い合わせの失敗は警告にしない(理由が分からないだけで、編集は続けられる)。
+    // 問い合わせの失敗は警告にしない(理由が分からないだけで、編集は続けられる)。一時的な失敗でも
+    // 同じ画面では問い合わせ直さない(先読みの失敗のたびに問い合わせが重なるのを避ける)。開き直せば
+    // もう一度問い合わせる。
     if (destroyed || !isOk(res)) return;
     const found = svgRejectedImages(res.value);
     if (found.length === 0) return;

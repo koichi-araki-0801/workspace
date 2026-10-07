@@ -278,6 +278,9 @@ export function canvasCssFullCopy(
 /** 元の `@font-face` の `src` の `url()` を置き換える値。取得を起こさない。 */
 const DISABLED_FONT_SRC = 'local("")';
 
+// `url()` に続く `format()` / `tech()`。`local()` には付けられない書き方なので、置き換えと一緒に除く。
+const TRAILING_FONT_HINTS = /^(?:\s*(?:format|tech)\([^()]*\))*/i;
+
 /**
  * GrapesJS が canvas に描く規則の文字列から、`@font-face` の `src` のうち `css/fonts/` に解ける
  * `url()` を、取得を起こさない値へ置き換える。canvas はアプリの URL 基準で解くので、元の規則が
@@ -293,7 +296,8 @@ export function canvasFontFaceSrcDisabled(css: string, from: string = TEMPLATE_C
   for (const span of collectCssUrlSpansInContext(css).reverse()) {
     if (!span.inFontFaceSrc) continue;
     if (!resolveDocAssetPath(span.value, from)?.startsWith(FONTS_PREFIX)) continue;
-    out = `${out.slice(0, span.start)}${DISABLED_FONT_SRC}${out.slice(span.end)}`;
+    const hints = TRAILING_FONT_HINTS.exec(out.slice(span.end))?.[0] ?? '';
+    out = `${out.slice(0, span.start)}${DISABLED_FONT_SRC}${out.slice(span.end + hints.length)}`;
   }
   return out;
 }
