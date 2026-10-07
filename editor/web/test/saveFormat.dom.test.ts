@@ -139,3 +139,44 @@ describe('本文の先頭のコメント', () => {
     expect(defs[0]).toMatchObject({ type: 'comment', content: 'a' });
   });
 });
+
+// GrapesJS は `@media` / `@supports` の中の `@font-face` を崩すので、その規則は `setStyle` に渡さず
+// 原文のまま運び、`getCss` の末尾へ戻す。崩れはブラウザの CSS 解析で起きる(Chromium は e2e の
+// `nested_font_face.spec.ts`)。ここでは運ぶ経路(読み込み → 書き出し → 読み直し)を固定する。
+describe('入れ子の @font-face を原文のまま運ぶ', () => {
+  const FACE = '@font-face{font-family:"N";src:url(fonts/n.woff2) format("woff2")}';
+  const CARRIED = `@media print{${FACE}}`;
+  const CSS = `@media print{${FACE}.a{color:red}}.b{color:blue}`;
+  let g: ReturnType<typeof useGrapes>;
+  beforeEach(() => {
+    g = useGrapes();
+    g.init({ canvas: document.createElement('div'), layers: document.createElement('div') });
+  });
+
+  it('getCss の末尾に包み直した原文が戻り、崩れた形は出ない', () => {
+    g.load('<p class="a">x</p>', CSS);
+    const css = g.getCss();
+    expect(css.endsWith(`\n${CARRIED}`)).toBe(true);
+    expect(css).not.toMatch(/@media print\s*\{\s*font-family/);
+    expect(css).toMatch(/\.b\s*\{/);
+  });
+
+  it('書き出しを読み直しても同じ形(下書き・Undo の往復で増えも崩れもしない)', () => {
+    g.load('<p class="a">x</p>', CSS);
+    const css = g.getCss();
+    g.load(g.getBodyHtml(), css);
+    expect(g.getCss()).toBe(css);
+  });
+
+  it('読み込むたびに運ぶものを入れ替える(前の文書の @font-face を残さない)', () => {
+    g.load('<p class="a">x</p>', CSS);
+    g.load('<p class="a">x</p>', '.a{color:red}');
+    expect(g.getCss()).not.toContain('@font-face');
+  });
+
+  it('外部参照で読み込みを拒んだときは、運んでいるものを変えない', () => {
+    g.load('<p class="a">x</p>', CSS);
+    expect(g.load('<p>y</p>', '@import url(http://evil/x.css);')).toBe(false);
+    expect(g.getCss().endsWith(`\n${CARRIED}`)).toBe(true);
+  });
+});

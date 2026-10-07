@@ -1433,3 +1433,33 @@ describe('canonicalCssRuleKeys — 同期状態に残った古いキーの読み
     for (const key of keys) expect(canonicalCssRuleKeys(key)).toEqual([key]);
   });
 });
+
+// 編集画面は入れ子の `@font-face` を GrapesJS に通さず `getCss` の末尾へ戻すので、baseline と next
+// ではその規則の位置が原文と違う。規則はキー(前置き + 記述子)で突き合わせるので、位置の違いは
+// 変更にも競合にもならない。
+describe('mergeCssRuleChangesFromBaseline — 末尾へ運んだ入れ子の @font-face', () => {
+  const rawBase =
+    '@media print{@font-face{font-family:F;src:url(fonts/f.woff2)}.p{color:red}}\n.a{x:1}\n';
+  const carried = '@media print{@font-face{font-family:F;src:url(fonts/f.woff2)}}';
+  const gjs = (a: string) => `@media print{.p{color:red;}}.a{${a}}\n${carried}`;
+
+  it('無編集なら何も当てず、競合も出さない', () => {
+    const r = mergeCssRuleChangesFromBaseline(rawBase, gjs('x:1;'), gjs('x:1;'), rawBase);
+    expect(r).toEqual({ css: rawBase, applied: [], conflicts: [], unmatched: [] });
+  });
+
+  it('ほかの規則を編集しても、運んだ @font-face には触らずその規則だけを当てる', () => {
+    const r = mergeCssRuleChangesFromBaseline(rawBase, gjs('x:1;'), gjs('x:2;'), rawBase);
+    expect(r.applied).toEqual([k('.a')]);
+    expect(r.conflicts).toEqual([]);
+    expect(r.unmatched).toEqual([]);
+    expect(r.css).toBe(rawBase.replace('.a{x:1}', '.a{x:2;}'));
+  });
+
+  it('同じ書体名の @font-face が最上位にもあっても別の規則として扱い、無編集なら何も当てない', () => {
+    const base = `${rawBase}@font-face{font-family:F;src:url(fonts/g.woff2)}\n`;
+    const baseline = `${gjs('x:1;')}@font-face{font-family:F;src:url("fonts/g.woff2");}`;
+    const r = mergeCssRuleChangesFromBaseline(base, baseline, baseline, base);
+    expect(r).toEqual({ css: base, applied: [], conflicts: [], unmatched: [] });
+  });
+});

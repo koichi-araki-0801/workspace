@@ -16,6 +16,7 @@ import grapesjs, {
 import { computed, ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
+import { splitNestedFontFaces } from '@/lib/cssCarry';
 import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
 import {
   cssRuleBreakSelector,
@@ -169,6 +170,14 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   let fundImages: FundImageLayer | null = null;
   /** 最後に読み込んだテンプレの CSS(本文の `<style>` が増減したときの複製の作り直しに使う)。 */
   let templateCss = '';
+  /**
+   * 最後に読み込んだ CSS から取り出した入れ子の `@font-face`(`@/lib/cssCarry`)。GrapesJS には渡さず、
+   * canvas の複製と `getCss` の末尾へ原文のまま運ぶ。読み込みのたびに入れ替わり、開いている間は
+   * 変わらない(編集の対象にならない)。
+   */
+  let carriedCss: string[] = [];
+  /** 最後に読み込んだ CSS から `carriedCss` を除いたもの(GrapesJS へ渡した CSS)。 */
+  let templateRestCss = '';
   /** `load` の入れ替え中(部品の追加・削除のたびに複製を作り直さない)。 */
   let replacing = false;
   /** Jinja を含む `<style>` を canvas 用に描画するサンプル。作成タブだけが渡す(`setStyleSample`)。 */
@@ -943,7 +952,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     cssRuleBreak.value = cssRuleBreakSelector([templateCss, ...texts]);
     fundImages?.setCss([
       ...texts.map((text) => ({ css: text, from: DOC_DIR, whole: true })),
-      { css: templateCss, from: TEMPLATE_CSS_FROM },
+      // 運んだ `@font-face` は GrapesJS が canvas に描かないので、本文の `<style>` と同じく丸ごと複製する。
+      ...carriedCss.map((text) => ({ css: text, from: TEMPLATE_CSS_FROM, whole: true })),
+      { css: templateRestCss, from: TEMPLATE_CSS_FROM },
     ]);
   }
 
@@ -998,8 +1009,11 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     // 複製を `setStyle` より先に作り直す。canvas が描かれていれば、元の規則が canvas に入るより
     // 前に複製が置かれている(`fundImageLayer.ts`)。
     templateCss = css;
+    const split = splitNestedFontFaces(css);
+    carriedCss = split.carried;
+    templateRestCss = split.rest;
     syncCanvasCssCopy();
-    ed.setStyle(css);
+    ed.setStyle(split.rest);
     // setComponents/setStyle 直後は iframe DOM が未描画で、`component:add` の `fireChange`
     // から走る `recomputePages` が wrapper の要素を引けず、ページを数えられない。その結果
     // ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に
@@ -1069,6 +1083,10 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * この文書で使っていない規則(別の基準日の文書が使う規則、最後の要素を消したクラスの規則)を
    * 落とすと、承認でファイルからもペアの CSS からも消える。下書き・申請・CSS の baseline は
    * すべてここを通すので、どれも同じ「全規則」の形になる。
+   *
+   * 読み込んだ CSS の入れ子の `@font-face` は GrapesJS に通していないので、包み直した原文を末尾へ
+   * 足す(`@/lib/cssCarry`)。下書き・申請・CSS の baseline・確定版の正規形はすべてここを通るので、
+   * 足す場所はここ 1 か所。
    */
   function getCss(): string {
     const ed = editor.value;
@@ -1077,7 +1095,10 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     const prev = cfg.avoidInlineStyle;
     cfg.avoidInlineStyle = true;
     try {
-      return ed.getCss({ keepUnusedStyles: true }) ?? '';
+      const out = ed.getCss({ keepUnusedStyles: true }) ?? '';
+      return carriedCss.length === 0
+        ? out
+        : [out, ...carriedCss].filter((s) => s !== '').join('\n');
     } finally {
       cfg.avoidInlineStyle = prev;
     }
