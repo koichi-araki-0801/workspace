@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
 import { b64encodeUtf8 } from '@/lib/jinjaAttrs';
 import {
+  cssRuleBreakSelector,
+  findElementizingChips,
   findIgnoredInlineBreaks,
   findUncountedBreaks,
   ignoredInlineBreakProps,
   inlineBreak,
   isBreakValue,
+  isElementizingChip,
   isPagebreakEl,
   pagebreakCssDefined,
   pageHead,
@@ -426,5 +429,75 @@ describe('pageItems', () => {
     );
     const pages = splitPages(pageItems(Array.from(body.children))).pages;
     expect(pages.map((p) => p.map((e) => e.id))).toEqual([['a'], [], ['b']]);
+  });
+});
+
+// 区切り以外の改ページの指定は編集画面のページに数えないので、警告に例のセレクタを出す。
+// `.pagebreak` も、前で改ページする指定と左右の指定は区切りの数え方(後ろで改ページする要素)とずれる。
+describe('cssRuleBreakSelector', () => {
+  it.each([
+    [['h2{break-before:page}'], 'h2'],
+    [['.a{color:red}\nh2.title , h3{page-break-before:always}'], 'h2.title'],
+    [['@media print{section.x{break-after:right}}'], 'section.x'],
+    [['@media screen{h2{break-before:page}}'], 'h2'],
+    [['.pagebreak, h2{break-after:page}'], 'h2'],
+    [['.x .pagebreak{break-after:page}'], '.x .pagebreak'],
+    [['.pagebreak{break-before:page}'], '.pagebreak'],
+    [['div.pagebreak{break-after:left}'], 'div.pagebreak'],
+    [['.pagebreak{page-break-after:right}'], '.pagebreak'],
+    [['.pagebreak{break-after:recto}'], '.pagebreak'],
+    [['.pagebreak{break-after:page}', 'h2{break-after:verso}'], 'h2'],
+  ])('%j → %s', (css, want) => expect(cssRuleBreakSelector(css)).toBe(want));
+
+  it.each([
+    [['.pagebreak{break-after:page}']],
+    [['.pagebreak{page-break-after:always}']],
+    [['DIV.pagebreak{break-after:column}']],
+    [['h2{break-before:auto;page-break-after:avoid}']],
+    [['@page{margin:10mm}@font-face{font-family:F}']],
+    [['/* h2{break-before:page} */.a{content:"h2{break-before:page}"}']],
+    [[]],
+  ])('数えない改ページ指定が無ければ null %j', (css) => {
+    expect(cssRuleBreakSelector(css)).toBeNull();
+  });
+});
+
+const varChip = (src: string) =>
+  `<span class="jinja-chip jinja-var" data-jinja="${b64encodeUtf8(src)}">v</span>`;
+const rawChip = (src: string) =>
+  `<span class="jinja-chip jinja-rawtext" data-opaque="${b64encodeUtf8(src)}" data-opaque-kind="rawtext">r</span>`;
+
+describe('isElementizingChip / findElementizingChips', () => {
+  it('根の直下の |safe の出力と、< を含む {% raw %} だけを拾う', () => {
+    const root = bodyOf(
+      `<p>a</p>${varChip('{{ x|safe }}')}${varChip('{{ y }}')}${varChip('{{- z | safe -}}')}` +
+        `${varChip('{{ w|safestring }}')}${varChip('{% set v = y|safe %}')}` +
+        `${rawChip('{% raw %}<b>x</b>{% endraw %}')}${rawChip('{% raw %}x{% endraw %}')}` +
+        `${rawChip('<style>p{}</style>')}${rawChip('<textarea>x</textarea>')}`,
+    );
+    const found = findElementizingChips(root).map(
+      (el) => el.getAttribute('data-jinja') ?? el.getAttribute('data-opaque'),
+    );
+    expect(found).toEqual([
+      b64encodeUtf8('{{ x|safe }}'),
+      b64encodeUtf8('{{- z | safe -}}'),
+      b64encodeUtf8('{% raw %}<b>x</b>{% endraw %}'),
+    ]);
+  });
+
+  it('入れ子のチップは数えず、固めた範囲の包みの中身は根の直下として数える', () => {
+    const root = bodyOf(
+      `<p>${varChip('{{ x|safe }}')}</p>` +
+        `<div class="jinja-frozen-body">${varChip('{{ y|safe }}')}</div>`,
+    );
+    expect(findElementizingChips(root)).toHaveLength(1);
+  });
+
+  it('チップでない要素・読めない base64 は false', () => {
+    const doc = bodyOf(
+      '<p data-jinja="e3sgeHxzYWZlIH19">x</p>' +
+        '<span class="jinja-chip jinja-var" data-jinja="%%%">v</span>',
+    );
+    expect(Array.from(doc.children).map((el) => isElementizingChip(el))).toEqual([false, false]);
   });
 });

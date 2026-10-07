@@ -18,8 +18,8 @@
 //
 // CSS の解析と computed style は判定に使わず、DOM だけで決める。computed style は canvas でしか
 // 取れず(静的な文書・Worker には無い)、全要素を読むので重い。テンプレの CSS が区切りをどう
-// 描くか(`display:none` など)にも判定を左右させない。`pagebreakCssDefined` は印刷で区切りが
-// 効くかの警告用で、判定には使わない。
+// 描くか(`display:none` など)にも判定を左右させない。`pagebreakCssDefined` と `cssRuleBreakSelector` は
+// 警告用で、判定には使わない。
 //
 // Worker(linkedom)には `Node` グローバルが無いので、`instanceof` や `Node.ELEMENT_NODE` は
 // 使わず、`tagName` / `getAttribute` / `classList` / `children` だけを読む
@@ -185,26 +185,50 @@ export function rootBlocks<T extends Element>(children: Iterable<T>): T[] {
  * `<textarea>` などほかの要素ならパーツに数える。`script` / `math` のチップは描画後も要素なので
  * パーツに数える。
  *
- * 限界: 出力(`|safe` など)や `{% raw %}` の中身が描画で要素になるときは、承認・比較(描画した
- * 文書を数える)だけがその要素をパーツに数え、canvas とパーツの番号がずれる。
+ * 出力(`|safe` など)や `{% raw %}` の中身は描画で要素になりうるが、canvas では数えない(承認・比較は
+ * 描画した文書を数えるので番号がずれうる)。そうなりうるチップは `isElementizingChip` で拾って警告する。
  */
 function isVanishingChip(el: Element): boolean {
   if (!el.classList.contains(JINJA_CHIP_CLASS)) return false;
   if (el.hasAttribute(DATA_JINJA)) return true;
   if (el.getAttribute(DATA_OPAQUE_KIND) !== 'rawtext') return false;
-  return !RAWTEXT_PART_SOURCE_RE.test(opaqueSource(el));
+  return !RAWTEXT_PART_SOURCE_RE.test(chipSource(el, DATA_OPAQUE));
 }
 
 /** 描画後も要素として残る `rawtext` のチップの原文(`<style>` 以外の要素)。 */
 const RAWTEXT_PART_SOURCE_RE = /^<(?!style[\s>/])[a-z]/i;
 
-/** チップが運ぶ原文。読めない base64 は空(要素でない原文)として扱う。 */
-function opaqueSource(el: Element): string {
+/** チップの属性(`data-jinja` / `data-opaque`)が運ぶ原文。読めない base64 は空として扱う。 */
+function chipSource(el: Element, attr: string): string {
   try {
-    return b64decodeUtf8(el.getAttribute(DATA_OPAQUE) ?? '');
+    return b64decodeUtf8(el.getAttribute(attr) ?? '');
   } catch {
     return '';
   }
+}
+
+/** 出力のチップが `|safe` を通すか(値が HTML のまま出る)。 */
+const SAFE_FILTER_RE = /\|\s*safe\b/;
+
+/**
+ * 描画すると要素になりうるチップか。値の出力(`{{ }}`)で `|safe` を通すものは値が HTML のまま
+ * 出て、`{% raw %}` のチップで中身に `<` を含むものは中身が文字どおり出る。どちらも canvas では
+ * 数えないチップ(`isVanishingChip`)なので、根の直下にあると承認・比較とパーツの番号がずれうる。
+ */
+export function isElementizingChip(el: Element): boolean {
+  if (!el.classList.contains(JINJA_CHIP_CLASS)) return false;
+  if (el.hasAttribute(DATA_JINJA)) {
+    const src = chipSource(el, DATA_JINJA);
+    return src.startsWith('{{') && SAFE_FILTER_RE.test(src);
+  }
+  if (el.getAttribute(DATA_OPAQUE_KIND) !== 'rawtext') return false;
+  const src = chipSource(el, DATA_OPAQUE);
+  return src.startsWith('{%') && src.includes('<');
+}
+
+/** 根の直下(固めた範囲の包みは中身へ展開する)の、描画で要素になりうるチップ。警告用。 */
+export function findElementizingChips(root: Element): Element[] {
+  return rootBlocks(Array.from(root.children)).filter(isElementizingChip);
 }
 
 /**
@@ -373,4 +397,48 @@ export function pagebreakCssDefined(css: string): boolean {
     if (breaks) return true;
   }
   return false;
+}
+
+/** 左右の改ページの値(`break-*`)。区切りの `break-after` にあると、区切りの数え方とずれる。 */
+const SIDED_BREAK_VALUES = new Set(['left', 'right', 'recto', 'verso']);
+
+/**
+ * CSS の規則に書いた改ページ指定のうち、編集画面のページに数えないものの最初のセレクタ(警告に
+ * 例として出す。無ければ null)。判定には使わない(ページ数・区切りの扱いは変えない)。
+ *
+ * - `.pagebreak` 以外のセレクタの改ページ指定(`h2{break-before:page}` など)。Vivliostyle は効かせる
+ *   ので、その分だけ編集画面のページ数がプレビューより少なくなる。
+ * - `.pagebreak` の前で改ページする指定と、後ろの左右の指定。区切りは常に「後ろで改ページする要素」
+ *   として数えるので、切れ方がずれる。`.pagebreak{break-after:page}` は正規の指定で対象外。
+ *
+ * `@media screen` の中など印刷に効かない規則も対象にする(媒体の判定はせず、警告は安全側へ倒す)。
+ * セレクタの並びは `,` で分ける(`:is(a, b)` の中の `,` でも分かれるが、例の表示にしか使わない)。
+ */
+export function cssRuleBreakSelector(sources: readonly string[]): string | null {
+  for (const css of sources) {
+    for (const rule of splitCssRules(css)) {
+      const open = rule.text.indexOf('{');
+      if (open < 0) continue;
+      const head = rule.text
+        .slice(0, open)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .trim();
+      if (head.startsWith('@')) continue;
+      const decls = parseDecls(rule.text.slice(open + 1, rule.text.lastIndexOf('}')));
+      const breaks = (edge: 'before' | 'after', values: (v: string) => boolean) =>
+        decls.some(
+          ([prop, value]) =>
+            (prop === `break-${edge}` && values(value)) ||
+            (prop === `page-break-${edge}` && isLegacyBreakValue(value) && values(value)),
+        );
+      const before = breaks('before', (v) => isBreakValue(v) || isLegacyBreakValue(v));
+      const after = breaks('after', (v) => isBreakValue(v) || isLegacyBreakValue(v));
+      if (!before && !after) continue;
+      const sidedAfter = breaks('after', (v) => SIDED_BREAK_VALUES.has(v));
+      for (const sel of head.split(',').map((s) => s.trim())) {
+        if (!PAGEBREAK_SELECTOR_RE.test(sel) || before || sidedAfter) return sel;
+      }
+    }
+  }
+  return null;
 }
