@@ -5,6 +5,7 @@
 import type { ReviewRequestMeta, TemplateAttributes } from '@editor/shared';
 import {
   AlertCircle,
+  ArrowLeft,
   CheckCircle2,
   CircleHelp,
   Eye,
@@ -23,7 +24,6 @@ import {
 } from '@lucide/vue';
 import { computed, watch } from 'vue';
 import PageNav from '@/components/PageNav.vue';
-import BackButton from '@/components/ui/BackButton.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
@@ -73,6 +73,11 @@ const emit = defineEmits<{
   help: [];
   save: [];
   preview: [];
+  /**
+   * 「一覧へ戻る」。ブラウザ履歴は辿らない(他タブやプレビューを経由すると直前は一覧でなく、
+   * 「編集」タブは編集中の画面へ戻すので一覧へ行けなくなる)。行き先は `EditorView` が経路から決める。
+   */
+  back: [];
   /** 承認待ちバッジのクリック(`EditorView` が精査画面へ遷移する)。 */
   openReview: [];
 }>();
@@ -104,7 +109,9 @@ const attrItems = (a: TemplateAttributes) =>
     class="z-30 flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b bg-card px-4 py-1.5 shadow-sm print:hidden"
   >
     <!-- ── 左ゾーン: 一覧へ戻る + 文書情報(タイトル / 属性チップ) ── -->
-    <BackButton :fallback="{ name: 'edit' }" aria-label="一覧へ戻る" />
+    <Button variant="ghost" size="icon" aria-label="一覧へ戻る" @click="emit('back')">
+      <ArrowLeft class="h-4 w-4" />
+    </Button>
     <div class="h-[26px] w-px shrink-0 bg-border" />
 
     <!-- 幅の上限を持たせるのは折り返しの抑止。`flex-wrap` の行送りは shrink より先に効くため、

@@ -12,6 +12,7 @@ import { fractionToPage } from '@/components/pageNav';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
+import { tabOf } from '@/features/layout/tabOf';
 import { pairSyncConflictText } from '@/lib/pairSyncText';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
@@ -228,6 +229,11 @@ async function goPreview() {
   router.push({ name: 'preview', params: { id: props.id }, query: created });
 }
 
+/** 上部バーの「一覧へ戻る」。経路(編集 / 作成)のタブの一覧へ送る(履歴は辿らない)。 */
+function goList() {
+  router.push({ name: tabOf(route) ?? 'edit' });
+}
+
 // ── 承認待ちバッジ(上部バー) ──
 // このテンプレの承認待ち申請。複数ある場合は最新(取得順の先頭)へ飛ばす。
 const pendingReviews = usePendingReviewsStore();
@@ -358,6 +364,7 @@ const statusText = computed(() => {
       @help="helpOpen = true"
       @save="manualSave"
       @preview="goPreview"
+      @back="goList"
       @open-review="goReview"
     />
 

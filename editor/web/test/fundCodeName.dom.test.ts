@@ -88,7 +88,7 @@ describe('EditorTopBar のタイトルと委託会社', () => {
     singlePageMode: false,
     allowEdit: false,
   };
-  const stubs = { BackButton: true, PageNav: true, Tooltip: { template: '<span><slot /></span>' } };
+  const stubs = { PageNav: true, Tooltip: { template: '<span><slot /></span>' } };
 
   async function mountBar(fundCode: string) {
     const w = mount(EditorTopBar, {

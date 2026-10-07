@@ -69,3 +69,29 @@ describe('MainLayout の承認タブ', () => {
     expect(reviewsTabHref(w)).toBe('/reviews');
   });
 });
+
+const tabHref = (w: Awaited<ReturnType<typeof mountAt>>['w'], label: string) =>
+  w
+    .findAll('nav a')
+    .find((a) => a.text().trim() === label)
+    ?.attributes('href');
+
+describe('MainLayout の一覧への導線', () => {
+  it('他タブから押す「編集」タブは、編集中のテンプレートへ戻す', async () => {
+    const { w, router } = await mountAt('/edit/B');
+    await router.push('/compare');
+    await flushPromises();
+    expect(tabHref(w, '編集')).toBe('/edit/B');
+  });
+
+  it('点灯している「編集」タブは一覧を指す', async () => {
+    const { w } = await mountAt('/edit/B');
+    expect(tabHref(w, '編集')).toBe('/edit');
+  });
+
+  it('左上のツール名は編集の一覧を指す', async () => {
+    const { w } = await mountAt('/edit/B?created=1');
+    const logo = w.findAll('header a').find((a) => a.text().includes('Report Edit Tool'));
+    expect(logo?.attributes('href')).toBe('/edit');
+  });
+});

@@ -90,6 +90,40 @@ test('一覧を見ていた状態から他タブへ行って「編集」タブ�
   await expect(page).toHaveURL(/\/edit$/);
 });
 
+// 他タブを経由すると、ブラウザ履歴の直前は一覧でなくなる。「編集」タブは編集中の画面へ戻すので、
+// 上部バーの戻るが履歴を辿ると一覧へ行く道が無くなる。
+test('他タブを経由した後でも、上部バーの「一覧へ戻る」は一覧へ行く', async ({ page }) => {
+  await login(page);
+  await openEditor(page);
+  await page.getByRole('link', { name: '比較' }).click();
+  await expect(page).toHaveURL(/\/compare$/);
+  await page.getByRole('link', { name: '編集' }).click();
+  await expect(page).toHaveURL(new RegExp(`/edit/${encodeURIComponent(SEED_ID)}$`));
+  await page.getByLabel('一覧へ戻る').click();
+  await expect(page).toHaveURL(/\/edit$/);
+});
+
+test('作成経路の「一覧へ戻る」はテンプレート作成の一覧へ行く', async ({ page }) => {
+  await login(page);
+  await openEditor(page, '?created=1');
+  await page.getByLabel('一覧へ戻る').click();
+  await expect(page).toHaveURL(/\/create$/);
+});
+
+test('点灯している「編集」タブをもう一度押すと一覧へ行く', async ({ page }) => {
+  await login(page);
+  await openEditor(page);
+  await page.getByRole('link', { name: '編集' }).click();
+  await expect(page).toHaveURL(/\/edit$/);
+});
+
+test('左上のツール名を押すと編集の一覧へ行く', async ({ page }) => {
+  await login(page);
+  await openEditor(page, '?created=1');
+  await page.getByRole('link', { name: /Report Edit Tool/ }).click();
+  await expect(page).toHaveURL(/\/edit$/);
+});
+
 /**
  * 編集を許可して地の段落へ 1 語追記し、autosave の完了を待つ。RTE の活性化は dblclick だが、
  * Playwright の合成ダブルクリックは選択後に出る GrapesJS のオーバーレイに 2 打目を吸われて
