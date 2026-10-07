@@ -71,7 +71,6 @@ const {
   undo,
   redo,
   beginUndo,
-  closeTextEdit,
   applyGeom,
   applyGeomEdit,
   setPartBreak,
@@ -92,7 +91,7 @@ const { startHandle, dragLabel } = useGeomHandles({
   applyGeom,
   recordGeomDiff,
   isTextEditing: () => g.editing.value,
-  finishTextEdit: closeTextEdit,
+  finishTextEdit: g.finishTextEdit,
 });
 
 const rect = computed(() => g.selectedRect.value);
@@ -716,6 +715,8 @@ const statusText = computed(() => {
   transform: translate(-50%, -50%);
   z-index: 25;
   user-select: none;
+  /* タッチ・ペンで押したまま動かすと、ブラウザがパンを始めて pointercancel で drag を切る。 */
+  touch-action: none;
 }
 .ret-handle::before {
   content: '';

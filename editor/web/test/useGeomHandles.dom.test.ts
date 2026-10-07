@@ -105,6 +105,18 @@ describe('useGeomHandles', () => {
     window.dispatchEvent(ptr('pointerup', 200, 130));
   });
 
+  // drag 中にハンドルが外れると pointerup が来ない。捕まえが外れたら片付けないと、drag と
+  // Undo の保留が残り続ける。
+  it('drag 中に捕まえが外れたら、離したのと同じく片付ける', () => {
+    const { api, applyGeom, recordGeomDiff } = setup();
+    api.startHandle('mb', ptr('pointerdown', 200, 130));
+    window.dispatchEvent(ptr('lostpointercapture', 200, 130));
+    expect(recordGeomDiff).toHaveBeenCalledTimes(1);
+    expect(api.activeHandle.value).toBeNull();
+    window.dispatchEvent(ptr('pointermove', 200, 200));
+    expect(applyGeom).not.toHaveBeenCalled();
+  });
+
   it('テキスト編集中でなければ編集を閉じる処理を呼ばない', () => {
     const { api, finishTextEdit } = setup();
     api.startHandle('mb', ptr('pointerdown', 200, 130));

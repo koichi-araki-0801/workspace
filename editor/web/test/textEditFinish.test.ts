@@ -4,7 +4,6 @@ import {
   afterTextEdit,
   createFinishTextEdit,
   FINISH_TEXT_EDIT_TIMEOUT_MS,
-  notifyWhenStuck,
   TEXT_EDIT_STUCK_MESSAGE,
 } from '@/features/editor/textEditFinish';
 
@@ -157,32 +156,59 @@ describe('afterTextEdit', () => {
   });
 });
 
-describe('notifyWhenStuck', () => {
-  it('閉じられなかったら知らせて false、閉じたら知らせずに true', async () => {
-    const notify = vi.fn();
-    expect(await notifyWhenStuck(() => Promise.resolve(false), notify)()).toBe(false);
-    expect(notify).toHaveBeenCalledWith(TEXT_EDIT_STUCK_MESSAGE);
-    notify.mockClear();
-    expect(await notifyWhenStuck(() => Promise.resolve(true), notify)()).toBe(true);
-    expect(notify).not.toHaveBeenCalled();
+describe('取りやめの知らせ(onStuck)', () => {
+  it('閉じたら知らせない', async () => {
+    const f = fakeEditor();
+    const onStuck = vi.fn();
+    const p = createFinishTextEdit(() => f.ed, { onStuck })();
+    f.close();
+    expect(await p).toBe(true);
+    expect(onStuck).not.toHaveBeenCalled();
   });
 
   // 上限で打ち切って開いたままなら、操作は Undo も変更も積まずに取りやめ、利用者へ知らせる。
   it('上限時間で打ち切って編集が開いたままなら、操作を走らせず知らせる', async () => {
     vi.useFakeTimers();
     const f = fakeEditor();
-    const notify = vi.fn();
+    const onStuck = vi.fn();
     const op = vi.fn();
     const p = afterTextEdit(
-      notifyWhenStuck(
-        createFinishTextEdit(() => f.ed),
-        notify,
-      ),
+      createFinishTextEdit(() => f.ed, { onStuck }),
       op,
     )();
     await vi.advanceTimersByTimeAsync(FINISH_TEXT_EDIT_TIMEOUT_MS);
     await p;
     expect(op).not.toHaveBeenCalled();
-    expect(notify).toHaveBeenCalledWith(TEXT_EDIT_STUCK_MESSAGE);
+    expect(onStuck).toHaveBeenCalledExactlyOnceWith(TEXT_EDIT_STUCK_MESSAGE);
+  });
+
+  // 押すたびに出すとトーストが積み重なる。
+  it('同じ閉じる処理を待っている間に何度押されても、知らせは 1 回', async () => {
+    vi.useFakeTimers();
+    const f = fakeEditor();
+    const onStuck = vi.fn();
+    const finishTextEdit = createFinishTextEdit(() => f.ed, { onStuck });
+    const first = finishTextEdit();
+    await vi.advanceTimersByTimeAsync(FINISH_TEXT_EDIT_TIMEOUT_MS);
+    expect(await first).toBe(false);
+    const second = finishTextEdit();
+    const third = finishTextEdit();
+    await vi.advanceTimersByTimeAsync(FINISH_TEXT_EDIT_TIMEOUT_MS);
+    expect(await Promise.all([second, third])).toEqual([false, false]);
+    expect(onStuck).toHaveBeenCalledTimes(1);
+  });
+
+  it('閉じる処理が決着して新しく閉じ直しても開いたままなら、もう一度知らせる', async () => {
+    const f = fakeEditor();
+    const onStuck = vi.fn();
+    const finishTextEdit = createFinishTextEdit(() => f.ed, { onStuck });
+    const first = finishTextEdit();
+    f.fail();
+    expect(await first).toBe(false);
+    const second = finishTextEdit();
+    f.fail();
+    expect(await second).toBe(false);
+    expect(f.disableEditing).toHaveBeenCalledTimes(2);
+    expect(onStuck).toHaveBeenCalledTimes(2);
   });
 });

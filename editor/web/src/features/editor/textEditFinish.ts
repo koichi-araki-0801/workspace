@@ -33,19 +33,31 @@ export const FINISH_TEXT_EDIT_TIMEOUT_MS = 5000;
  * 閉じている途中や、上限時間で打ち切った後に呼ばれても同じ Promise を待ち直す。呼び直すと
  * `rte:disable` が 2 回出て、修正履歴にテキストの編集が 2 件残る。閉じる処理の失敗は握りつぶし、
  * 結果は編集が閉じたかどうかだけで返す。false なら呼び出し側は操作を取りやめる(`afterTextEdit`)。
+ *
+ * 取りやめた操作は画面に何も起きず、押しても効かないように見えるので、`onStuck` で知らせる。
+ * 同じ閉じる処理を待っている間に何度押されても、知らせは 1 回にまとめる(押すたびに出すと
+ * トーストが積み重なる)。
  */
 export function createFinishTextEdit(
   getEditor: () => Editor | null | undefined,
-  timeoutMs = FINISH_TEXT_EDIT_TIMEOUT_MS,
+  opts: { timeoutMs?: number; onStuck?: (message: string) => void } = {},
 ): () => Promise<boolean> {
+  const { timeoutMs = FINISH_TEXT_EDIT_TIMEOUT_MS, onStuck } = opts;
   let closing: Promise<void> | null = null;
+  // 知らせ済みの閉じる処理。同じ処理で打ち切られた 2 回目以降は知らせない。
+  let notifiedFor: Promise<void> | null = null;
   const editingNow = () => !!getEditor()?.getEditing();
+  const stuck = (attempt: Promise<void> | null): false => {
+    if (attempt === null || attempt !== notifiedFor) onStuck?.(TEXT_EDIT_STUCK_MESSAGE);
+    notifiedFor = attempt;
+    return false;
+  };
   return async () => {
     if (!closing) {
       const view = getEditor()?.getEditing()?.getView() as
         | { disableEditing?: () => Promise<void> | void }
         | undefined;
-      if (!view?.disableEditing) return !editingNow();
+      if (!view?.disableEditing) return editingNow() ? stuck(null) : true;
       let res: Promise<void> | void;
       try {
         res = view.disableEditing();
@@ -61,40 +73,27 @@ export function createFinishTextEdit(
         if (closing === settled) closing = null;
       });
     }
+    const attempt = closing;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const giveUp = new Promise<void>((resolve) => {
       timer = setTimeout(resolve, timeoutMs);
     });
-    await Promise.race([closing, giveUp]);
+    await Promise.race([attempt, giveUp]);
     clearTimeout(timer);
-    return !editingNow();
+    return editingNow() ? stuck(attempt) : true;
   };
 }
 
 /** テキスト編集を閉じられず操作を取りやめたときに利用者へ出す文言。 */
-export const TEXT_EDIT_STUCK_MESSAGE = 'テキストの編集を閉じられなかったため、操作を取りやめました';
-
-/**
- * `finishTextEdit` が閉じられなかったとき `notify` で知らせる版にする。取りやめた操作は画面に
- * 何も起きないので、知らせないと押しても効かないように見える。
- */
-export function notifyWhenStuck(
-  finishTextEdit: () => Promise<boolean>,
-  notify: (message: string) => void,
-): () => Promise<boolean> {
-  return async () => {
-    if (await finishTextEdit()) return true;
-    notify(TEXT_EDIT_STUCK_MESSAGE);
-    return false;
-  };
-}
+export const TEXT_EDIT_STUCK_MESSAGE =
+  'テキストの編集を閉じられなかったため、操作を取りやめました。紙面の文字の外をクリックしてから、もう一度操作してください';
 
 /**
  * `op` を、テキスト編集を閉じ終えてから走らせる関数にする。Undo 可能な操作の入口に被せ、
  * 追記をその操作の 1 手に混ぜない(`createFinishTextEdit`)。閉じられなかったら `op` は走らせない。
  * 編集が開いたまま走らせると、`beginUndo` の操作では追記が独立した 1 手にならず、`pushUndo` の
  * 操作では後から閉じたテキスト編集の 1 手が操作より後ろに積まれて Undo の順序が逆になる。
- * 利用者へ知らせるのは `finishTextEdit` 側(`notifyWhenStuck`)。
+ * 利用者へ知らせるのは `finishTextEdit` 側(`createFinishTextEdit` の `onStuck`)。
  */
 export function afterTextEdit<A extends unknown[]>(
   finishTextEdit: () => Promise<boolean>,

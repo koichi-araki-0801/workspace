@@ -1118,9 +1118,12 @@ export function useGrapes(options: UseGrapesOptions = {}) {
 
   /**
    * テキスト編集中なら閉じて、入力がモデルへ反映されるまで待つ(`textEditFinish.ts`)。Undo 可能な
-   * 操作は `beginUndo` の前にこれを待ち、追記を自分の 1 手へ混ぜない。閉じたかどうかを返す。
+   * 操作は `beginUndo` の前にこれを待ち、追記を自分の 1 手へ混ぜない。閉じたかどうかを返し、
+   * 閉じられなかったら操作を取りやめたことを知らせる。
    */
-  const finishTextEdit = createFinishTextEdit(() => editor.value);
+  const finishTextEdit = createFinishTextEdit(() => editor.value, {
+    onStuck: (message) => toast(message, 'error'),
+  });
 
   /** canvas の drag-reorder が開始 — undo 用 snapshot を取る好機。 */
   function onReorderStart(cb: () => void): void {

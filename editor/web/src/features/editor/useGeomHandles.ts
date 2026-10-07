@@ -28,8 +28,8 @@ interface GeomHandleDeps {
   /** canvas の inline text 編集(RTE)中か。 */
   isTextEditing: () => boolean;
   /**
-   * テキスト編集を閉じ、入力をモデルへ反映する。閉じられなかったら false(呼び出し側が利用者へ
-   * 知らせる)で、そのときは drag を始めない(`useTemplateEditor.ts` の `closeTextEdit`)。
+   * テキスト編集を閉じ、入力をモデルへ反映する。閉じられなかったら false で、そのときは drag を
+   * 始めない(利用者へは `useGrapes.ts` の `finishTextEdit` が知らせる)。
    */
   finishTextEdit: () => Promise<boolean>;
 }
@@ -111,6 +111,9 @@ export function useGeomHandles(deps: GeomHandleDeps) {
     window.addEventListener('pointermove', onHandleMove);
     window.addEventListener('pointerup', onHandleUp);
     window.addEventListener('pointercancel', onHandleUp);
+    // drag 中にハンドルが `v-if` で外れると捕まえも外れ、pointerup が来ないまま drag と Undo の
+    // 保留が残る。捕まえが外れたら離したのと同じく片付ける(document へ出て window まで bubble する)。
+    window.addEventListener('lostpointercapture', onHandleUp);
   }
 
   function onHandleMove(e: PointerEvent) {
@@ -147,6 +150,7 @@ export function useGeomHandles(deps: GeomHandleDeps) {
     window.removeEventListener('pointermove', onHandleMove);
     window.removeEventListener('pointerup', onHandleUp);
     window.removeEventListener('pointercancel', onHandleUp);
+    window.removeEventListener('lostpointercapture', onHandleUp);
   }
 
   /** ドラッグ中のハンドル横に表示するライブ値の bubble。 */

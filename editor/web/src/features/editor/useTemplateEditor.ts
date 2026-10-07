@@ -45,7 +45,7 @@ import {
 import { useRedline } from './redline/useRedline';
 import { LEGACY_DRAFT_MESSAGE } from './services/legacyDraft';
 import { useTemplateEditorService } from './services/templateEditorService';
-import { afterTextEdit, notifyWhenStuck } from './textEditFinish';
+import { afterTextEdit } from './textEditFinish';
 import { useAutosave } from './useAutosave';
 import { useComments } from './useComments';
 import { useGrapes } from './useGrapes';
@@ -388,7 +388,7 @@ export function useTemplateEditor(
         label: '元に戻す',
         onClick: async () => {
           // 深さを比べる前に閉じる。閉じたテキスト編集が 1 手積まれれば「その後の編集」になる。
-          if (!(await closeTextEdit())) return;
+          if (!(await g.finishTextEdit())) return;
           if (undoDepth() !== depthAtOp) {
             toast('その後の編集があるため、Ctrl+Z で順に戻してください');
             return;
@@ -443,10 +443,6 @@ export function useTemplateEditor(
     g.moveSelected(dir);
     recordChange(dir < 0 ? '順序を前へ移動' : '順序を後ろへ移動');
   }
-
-  // テキスト編集を閉じ、入力をモデルへ反映する(`textEditFinish.ts`)。閉じられなかったら知らせて
-  // false を返し、呼び出し側は操作を取りやめる — 開いたまま操作すると Undo の単位がずれる。
-  const closeTextEdit = notifyWhenStuck(g.finishTextEdit, toastError);
 
   /** 現在の選択を削除する(history を考慮)。 */
   function deletePart() {
@@ -787,19 +783,20 @@ export function useTemplateEditor(
     canRedo,
     // 画面から呼ぶ Undo 可能な操作(と Undo/Redo)は、テキスト編集を先に閉じて追記を別の 1 手に
     // 確定させてから走らせる(`afterTextEdit`)。ハンドルの drag は `useGeomHandles.ts` が閉じる。
-    undo: afterTextEdit(closeTextEdit, undo),
-    redo: afterTextEdit(closeTextEdit, redo),
+    undo: afterTextEdit(g.finishTextEdit, undo),
+    redo: afterTextEdit(g.finishTextEdit, redo),
     beginUndo,
-    closeTextEdit,
     applyGeom,
-    applyGeomEdit: afterTextEdit(closeTextEdit, (patch: Partial<LayoutGeom>) => applyGeom(patch)),
-    setPartBreak: afterTextEdit(closeTextEdit, setPartBreak),
+    applyGeomEdit: afterTextEdit(g.finishTextEdit, (patch: Partial<LayoutGeom>) =>
+      applyGeom(patch),
+    ),
+    setPartBreak: afterTextEdit(g.finishTextEdit, setPartBreak),
     recordGeomDiff,
-    resetGeom: afterTextEdit(closeTextEdit, resetGeom),
-    moveSelected: afterTextEdit(closeTextEdit, moveSelected),
-    deletePart: afterTextEdit(closeTextEdit, deletePart),
+    resetGeom: afterTextEdit(g.finishTextEdit, resetGeom),
+    moveSelected: afterTextEdit(g.finishTextEdit, moveSelected),
+    deletePart: afterTextEdit(g.finishTextEdit, deletePart),
     onPartSelect,
-    onPartInsert: afterTextEdit(closeTextEdit, onPartInsert),
+    onPartInsert: afterTextEdit(g.finishTextEdit, onPartInsert),
     redlineEnabled: redline.enabled,
     redlineAvailable: redline.available,
     toggleRedline: redline.toggle,
