@@ -15,10 +15,17 @@
 // 限界: 同じアンカーのパーツを前に足す・消すと、後ろの同じアンカーのパーツの番号がずれる。
 // catalog 由来でないパーツ(安定な `data-part-id` を持たない)では best-effort になる(compare の
 // 位置整列と同程度)。基準日更新のように構造が同一な版替えでは確実に一致する。
+// アンカーの属性の原文に Jinja があると、承認タブとキーが一致しない(`jinjaAnchoredParts` で警告する)。
 
 import type { Editor } from 'grapesjs';
 import { type RawKeyOf, rawKey, rawKeyFromParts } from '@/lib/blockKey';
-import { b64decodeUtf8, DATA_OPAQUE, JINJA_CHIP_CLASS } from '@/lib/jinjaAttrs';
+import {
+  b64decodeUtf8,
+  DATA_OPAQUE,
+  DATA_OPAQUE_KIND,
+  FROZEN_BODY_CLASS,
+  JINJA_CHIP_CLASS,
+} from '@/lib/jinjaAttrs';
 import { type PageSplit, pageItems, splitPages } from '@/lib/pageBreaks';
 
 /**
@@ -168,15 +175,10 @@ export function legacyPartKeyCount(
 }
 
 /**
- * 原文を運ぶチップ(`<script>`・`<math>`・`<textarea>` など)が運ぶ要素。canvas ではチップの `span` に
- * 化けているが、承認タブ・比較が読む描画後の文書では原文の要素そのものなので、アンカーは原文の要素から
- * 取る(チップの `.jinja-chip` で取ると、根の直下のチップのパーツだけ画面ごとにキーが割れる)。
- * 原文が要素で始まらない(`{% raw %}`・TeX)・読めないときは null で、通常の読み方へ落ちる。
- * 限界: 原文のアンカーの属性値(`class="{{ c }}"` など)に Jinja があると、描画後の値と一致しない。
+ * base64 の原文を読み、最初の要素を返す。原文が要素で始まらない(`{% raw %}`・TeX)・読めないときは
+ * null。`template` の中身は文書に属さないので、`<script>` は実行されず資源も取りに行かない。
  */
-function chipSourceElement(el: HTMLElement): Element | null {
-  if (!el.classList.contains(JINJA_CHIP_CLASS)) return null;
-  const encoded = el.getAttribute(DATA_OPAQUE);
+function parseSourceElement(el: HTMLElement, encoded: string | null): Element | null {
   if (!encoded) return null;
   let source: string;
   try {
@@ -185,11 +187,44 @@ function chipSourceElement(el: HTMLElement): Element | null {
     return null;
   }
   if (!/^<[a-z]/i.test(source)) return null;
-  // `template` の中身は文書に属さないので、`<script>` は実行されず資源も取りに行かない。
   const t = el.ownerDocument.createElement('template');
   t.innerHTML = source;
   // `<math>` は HTMLElement でないが、`rawKey` が読むのは属性・クラス・タグ名だけ。
   return t.content.firstElementChild;
+}
+
+/**
+ * 原文を運ぶチップ(`<script>`・`<math>`・`<textarea>` など)が運ぶ要素。canvas ではチップの `span` に
+ * 化けているが、承認タブ・比較が読む描画後の文書では原文の要素そのものなので、アンカーは原文の要素から
+ * 取る(チップの `.jinja-chip` で取ると、根の直下のチップのパーツだけ画面ごとにキーが割れる)。
+ */
+function chipSourceElement(el: HTMLElement): Element | null {
+  if (!el.classList.contains(JINJA_CHIP_CLASS)) return null;
+  return parseSourceElement(el, el.getAttribute(DATA_OPAQUE));
+}
+
+/**
+ * 固めた要素(`data-opaque-kind="frozen"`)が運ぶ原文の要素。canvas は属性値まで値を入れて描くので、
+ * アンカーの原文は運んでいる原文から読む(警告用。キーの計算は変えない)。固めた表は
+ * `div.jinja-frozen-body` の包みが原文を運び、表自身は運ばない。包みの子がそのパーツ 1 つだけのときは
+ * 包みの原文がそのパーツの原文なので、包みから読む。
+ */
+function frozenSourceElement(el: HTMLElement): Element | null {
+  const carrier = frozenCarrier(el);
+  return carrier ? parseSourceElement(carrier, carrier.getAttribute(DATA_OPAQUE)) : null;
+}
+
+function frozenCarrier(el: HTMLElement): HTMLElement | null {
+  if (el.getAttribute(DATA_OPAQUE_KIND) === 'frozen') return el;
+  const parent = el.parentElement;
+  if (
+    parent?.classList.contains(FROZEN_BODY_CLASS) &&
+    parent.getAttribute(DATA_OPAQUE_KIND) === 'frozen' &&
+    parent.childElementCount === 1
+  ) {
+    return parent;
+  }
+  return null;
 }
 
 /** GrapesJS が canvas の DOM へ付ける状態クラスの接頭辞(既定の `stylePrefix`)。 */
@@ -223,4 +258,20 @@ export function canvasRawKey(ed: Editor): RawKeyOf {
       tag: el.tagName,
     });
   };
+}
+
+/** Jinja の区切りの開き(`{{` `{%` `{#`)。 */
+const JINJA_OPEN_RE = /\{[{%#]/;
+
+/**
+ * 根の直下のパーツのうち、キーに採用されるアンカーの属性(`data-part-id` → `id` → class)の原文に
+ * Jinja を含むもの。canvas は原文で、承認タブ・比較はファンドの値で描いた後の文書でアンカーを読むので、
+ * キーが原理的に一致しない(そのパーツのメモが承認タブで別のパーツ扱いになる)。警告用。採用の順は
+ * `keyOf`(canvas では `canvasRawKey`)と同じ。固めた要素は表示用の値で描かれているので原文で見る。
+ */
+export function jinjaAnchoredParts(root: HTMLElement, keyOf: RawKeyOf = rawKey): HTMLElement[] {
+  return partsOf(root).filter((part) => {
+    const source = frozenSourceElement(part);
+    return JINJA_OPEN_RE.test(source ? rawKey(source as HTMLElement) : keyOf(part));
+  });
 }

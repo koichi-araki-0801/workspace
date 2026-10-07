@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildHtmlDiff } from '@/features/compare/htmlBlockDiff';
 import {
   canvasRawKey,
+  jinjaAnchoredParts,
   legacyPartKeyCount,
   pagesOf,
   partLabelMap,
@@ -491,5 +492,57 @@ describe('赤入れ装飾はパーツとして数えない', () => {
     );
     expect(partPathKeyFor(q(withDel, '.b'), withDel)).toBe(partPathKeyFor(q(plain, '.b'), plain));
     expect([...partLabelMap(withDel)]).toEqual([...partLabelMap(plain)]);
+  });
+});
+
+// アンカーの属性(data-part-id → id → class の採用順)の原文に Jinja があると、canvas(原文)と
+// 承認タブ(ファンドの値で描いた後)でキーが一致しない。警告用に、採用される属性で判定する。
+describe('jinjaAnchoredParts', () => {
+  const ids = (r: HTMLElement, keyOf?: (el: HTMLElement) => string) =>
+    jinjaAnchoredParts(r, keyOf).map((el) => el.textContent);
+
+  it('採用されるアンカーの属性の原文に {{ / {% / {# があるパーツだけを返す', () => {
+    const r = root(
+      '<p class="{{ c }}">A</p>' +
+        '<p data-part-id="{{ pid }}" class="x">B</p>' +
+        '<p data-part-id="fixed" class="{{ c }}">C</p>' +
+        '<p id="{% if a %}x{% endif %}">D</p>' +
+        '<p class="ok {{ c }}">E</p>' +
+        '<p class="{# note #}">F</p>' +
+        '<div class="pagebreak"></div>' +
+        '<div class="a"><p class="{{ c }}">G</p></div>',
+    );
+    expect(ids(r)).toEqual(['A', 'B', 'D', 'F']);
+  });
+
+  it('固めた要素は表示用の値ではなく、運んでいる原文の属性で判定する', () => {
+    const src = '<p class="{% if a %}x{% endif %}">H</p>';
+    const r = root(
+      `<p class="x" data-opaque="${b64encodeUtf8(src)}" data-opaque-kind="frozen">H</p>` +
+        `<p class="y" data-opaque="${b64encodeUtf8('<p class="y">I</p>')}" data-opaque-kind="frozen">I</p>` +
+        '<p class="z" data-opaque="%%%" data-opaque-kind="frozen">J</p>',
+    );
+    expect(ids(r)).toEqual(['H']);
+  });
+
+  it('固めた表(包みの子がそのパーツ 1 つだけ)は、包みが運ぶ原文の属性で判定する', () => {
+    const wrap = (src: string, display: string) =>
+      `<div class="jinja-frozen-body" data-opaque="${b64encodeUtf8(src)}" data-opaque-kind="frozen">${display}</div>`;
+    const r = root(
+      wrap(
+        '<table class="{{ c }}"><tr><td>K</td></tr></table>',
+        '<table class="x"><tr><td>K</td></tr></table>',
+      ) +
+        wrap(
+          '<table class="y"><tr><td>L</td></tr></table>',
+          '<table class="y"><tr><td>L</td></tr></table>',
+        ),
+    );
+    expect(ids(r)).toEqual(['K']);
+  });
+
+  it('アンカー関数(canvas では canvasRawKey)の結果で判定する', () => {
+    const r = root('<p class="a">A</p><p class="b">B</p>');
+    expect(ids(r, (el) => (el.textContent === 'B' ? '.{{' : '.a'))).toEqual(['B']);
   });
 });
