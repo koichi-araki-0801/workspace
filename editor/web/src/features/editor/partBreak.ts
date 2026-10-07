@@ -46,7 +46,7 @@ export interface BreakPlan {
 export const PAGEBREAK_HTML = `<div class="${PAGEBREAK_CLASS}"></div>`;
 
 /**
- * パーツの隣に続く区切り(連続していれば全部)。赤入れの削除要素・`<style>`・描画で消えるチップは
+ * パーツの隣に続く区切り(連続していれば全部。パーツに近い順)。赤入れの削除要素・`<style>`・描画で消えるチップは
  * `pageItems` が除くので飛ばして見る。固めた範囲の包みの中の区切りは、包みが保存で原文へ戻り
  * 消せないので数えない(そこで止める)。
  */
@@ -90,10 +90,10 @@ export function partBreakState(part: Element, root: Element): PartBreakState | n
  *
  * ON はその端に区切りを 1 つ置き、その端の印刷では効かない inline の指定(`page-break-*` の
  * 改ページの値と `break-*: always`)を消す(区切りへの置き換えなので、警告の元を残さない)。
- * OFF は隣の区切りを連続分すべて消し(1 つでも残ると ON のまま)、
- * inline の該当の宣言(`break-*` と、一緒に書かれがちな効かない `page-break-*`)も消す。どちらで
- * 改ページしていても OFF が効く。連続した区切りは間に白紙のページを作るので、OFF でその白紙の
- * ページも消える。
+ * OFF は隣の区切りのうちパーツにいちばん近い 1 つを消し、inline の該当の宣言(`break-*` と、一緒に
+ * 書かれがちな効かない `page-break-*`)も消す。どちらで改ページしていても OFF が効く。連続した区切りは
+ * 間に白紙のページを作るので、まとめて消すと意図して入れた白紙のページも消える。1 つずつ消し、
+ * 区切りが残る間は ON のままにする。
  */
 export function planBreakToggle(
   part: Element,
@@ -107,7 +107,8 @@ export function planBreakToggle(
   const at = locate(part, root) as { items: Element[]; i: number };
   return {
     insert: null,
-    remove: adjacentBreaks(at.items, at.i, root, edge),
+    // パーツにいちばん近い 1 つだけ(`adjacentBreaks` は近い順)。
+    remove: adjacentBreaks(at.items, at.i, root, edge).slice(0, 1),
     stripProps: inlineBreak(part, edge) ? [`page-break-${edge}`, `break-${edge}`] : [],
   };
 }

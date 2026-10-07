@@ -5,7 +5,7 @@ import { partBreakLabel, partBreakState, planBreakToggle } from '@/features/edit
 // partBreak.dom.test.ts — Inspector の「前で改ページ / 後で改ページ」の状態と操作の決め方
 // =============================================================================
 // 状態はパーツ(根の直下)の前後の区切り(`div.pagebreak`)か inline の改ページで決まり、
-// ON は区切りを 1 つ置く、OFF は隣の区切りと inline の該当の宣言を消す。
+// ON は区切りを 1 つ置く、OFF は隣の区切りを 1 つと inline の該当の宣言を消す。
 
 const BR = '<div class="pagebreak"></div>';
 
@@ -113,12 +113,34 @@ describe('planBreakToggle', () => {
     expect(plan?.stripProps).toEqual(['page-break-before', 'break-before']);
   });
 
-  // 連続した区切りは間に白紙のページを作る。OFF はその白紙のページごと消す(1 つ残すと ON のまま)。
-  it('OFF は連続した区切りをまとめて消す(1 つ残すと ON のまま)', () => {
-    const r = root(`<p class="a"></p><p class="b"></p>${BR}${BR}<p class="c"></p>`);
+  // 連続した区切りは間に白紙のページを作る。OFF は隣の区切りを 1 つだけ消し、意図して入れた白紙の
+  // ページを残す。区切りが残る間はトグルは ON のまま(もう一度 OFF で次の 1 つを消す)。
+  it('OFF は連続した区切りのうち、パーツにいちばん近い 1 つだけを消す(1・2・3 個)', () => {
+    for (const n of [1, 2, 3]) {
+      const after = root(`<p class="a"></p><p class="b"></p>${BR.repeat(n)}<p class="c"></p>`);
+      const brs = Array.from(after.querySelectorAll('.pagebreak'));
+      expect(planBreakToggle(q(after, '.b'), after, 'after', false)?.remove).toEqual([brs[0]]);
+
+      const before = root(`<p class="a"></p>${BR.repeat(n)}<p class="b"></p>`);
+      const bbs = Array.from(before.querySelectorAll('.pagebreak'));
+      expect(planBreakToggle(q(before, '.b'), before, 'before', false)?.remove).toEqual([
+        bbs[n - 1],
+      ]);
+    }
+  });
+
+  it('区切りを 1 つ消した後も残っていれば ON のまま', () => {
+    const r = root(`<p class="b"></p>${BR}${BR}<p class="c"></p>`);
     const plan = planBreakToggle(q(r, '.b'), r, 'after', false);
-    expect(plan?.remove).toEqual(Array.from(r.querySelectorAll('.pagebreak')));
-    expect(plan?.stripProps).toEqual([]);
+    for (const el of plan?.remove ?? []) el.remove();
+    expect(partBreakState(q(r, '.b'), r)?.after).toBe('div');
+  });
+
+  it('区切りと inline の両方なら、区切りを 1 つ消して inline の宣言も消す', () => {
+    const r = root(`<p class="a"></p>${BR}${BR}<p class="b" style="break-before: page"></p>`);
+    const plan = planBreakToggle(q(r, '.b'), r, 'before', false);
+    expect(plan?.remove).toEqual([r.querySelectorAll('.pagebreak')[1]]);
+    expect(plan?.stripProps).toEqual(['page-break-before', 'break-before']);
   });
 
   it('OFF で inline だけなら区切りは消さず宣言だけを消す', () => {

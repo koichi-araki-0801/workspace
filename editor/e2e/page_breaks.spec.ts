@@ -15,7 +15,7 @@
 // 文書は `page.route` でテンプレの取得の応答を差し替えて渡す(fixture は増やさない)。
 import type { FrameLocator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { login, openEditor, pagePartLocator, selectPart } from './helpers';
+import { login, openEditor, pagePartLocator, readDraft, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -373,6 +373,30 @@ test.describe('canvas の区切りとページ', () => {
     await expect(frame.locator('.jinja-frozen-body')).toHaveCount(1, { timeout: 30_000 });
     await expect(frame.getByText('P1-A', { exact: true })).toBeVisible({ timeout: 30_000 });
     expect(await editorPages(page, frame)).toEqual(['P1-A', 'P2-A', 'P3-A {% if fund.name %}']);
+  });
+
+  test('Inspector の「後で改ページ」OFF は区切りを 1 つだけ消し、白紙のページを残す', async ({
+    page,
+  }) => {
+    await serveDoc(page, P('P1-A') + PB + PB + PB + P('P4-A'));
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    expect(await navTotal(page)).toBe(4);
+    await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+    await selectPart(frame, frame.getByText('P1-A', { exact: true }));
+    const after = page.getByRole('button', { name: /後で改ページ/ });
+    await expect(after).toContainText('ON');
+    await after.click();
+    const bands = frame.locator('[data-gjs-type=wrapper] > div.pagebreak');
+    await expect(bands).toHaveCount(2);
+    expect(await navTotal(page)).toBe(3);
+    await expect(after).toContainText('ON');
+    // 白紙のページの帯の印(canvas 専用)は保存内容に出ない。
+    await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
+      timeout: 15_000,
+    });
+    const draft = await readDraft(page, SEED_ID);
+    expect(draft?.html).not.toContain('data-pv-');
   });
 });
 
