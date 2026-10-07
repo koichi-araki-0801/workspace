@@ -339,9 +339,11 @@ export function useTemplateEditor(
   /**
    * 選んだ要素が属するパーツの前(後ろ)の改ページを ON / OFF する。区切りの挿入・削除と inline の
    * 宣言の削除を 1 つの変更として、操作の前の snapshot 1 つで戻す。状態が変わらない操作・区切りを
-   * 置けない選択では保留を捨てる — 無変更でも積むと Redo が失われる。
+   * 置けない選択では保留を捨てる — 無変更でも積むと Redo が失われる。テキスト編集中なら先に閉じ、
+   * 追記を別の 1 手として確定させる(`finishTextEdit`)。
    */
-  function setPartBreak(edge: BreakEdge, on: boolean) {
+  async function setPartBreak(edge: BreakEdge, on: boolean) {
+    await g.finishTextEdit();
     beginUndo();
     if (!g.setPartBreak(g.editor.value?.getSelected(), edge, on)) {
       cancelUndo();
@@ -392,7 +394,8 @@ export function useTemplateEditor(
   }
 
   /** 選択の layout style を全消去する(既定配置へ戻す)。 */
-  function resetGeom() {
+  async function resetGeom() {
+    await g.finishTextEdit();
     if (!g.selected.value) return;
     // 既定の配置のパーツや区切りの帯(style を持たない)では何も変わらない。無変更でも積むと Redo が
     // 消え、修正履歴に実際には無い変更が残るので、変わったときだけ確定する。
@@ -410,8 +413,12 @@ export function useTemplateEditor(
     previewPart.value = p;
   }
 
-  /** 挿入したときだけ Undo・修正履歴・プレビュー選択を積む(`partInsert.ts`)。 */
-  function onPartInsert(p: PartCatalogItem) {
+  /**
+   * 挿入したときだけ Undo・修正履歴・プレビュー選択を積む(`partInsert.ts`)。テキスト編集中なら
+   * 先に閉じる(`finishTextEdit`) — 改ページ・配置の初期化も同じ。
+   */
+  async function onPartInsert(p: PartCatalogItem) {
+    await g.finishTextEdit();
     insertPartUndoable(
       {
         canInsert: () => g.canInsertPart.value,

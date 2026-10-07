@@ -25,6 +25,10 @@ interface GeomHandleDeps {
   applyGeom: (patch: Partial<LayoutGeom>, record?: boolean) => void;
   /** drag 後の幾何 diff を history へ 1 件記録する。 */
   recordGeomDiff: (before: LayoutGeom) => void;
+  /** canvas の inline text 編集(RTE)中か。 */
+  isTextEditing: () => boolean;
+  /** テキスト編集を閉じ、入力をモデルへ反映する(`textEditFinish.ts`)。 */
+  finishTextEdit: () => Promise<void>;
 }
 
 /**
@@ -37,7 +41,16 @@ interface GeomHandleDeps {
  * window listener は drag 中だけ attach する。
  */
 export function useGeomHandles(deps: GeomHandleDeps) {
-  const { selectedGeom, selectedRect, zoom, beginUndo, applyGeom, recordGeomDiff } = deps;
+  const {
+    selectedGeom,
+    selectedRect,
+    zoom,
+    beginUndo,
+    applyGeom,
+    recordGeomDiff,
+    isTextEditing,
+    finishTextEdit,
+  } = deps;
 
   const activeHandle = ref<HandleKind | null>(null);
   let drag: { kind: HandleKind; x: number; y: number; geom: LayoutGeom; fullW: number } | null =
@@ -49,6 +62,13 @@ export function useGeomHandles(deps: GeomHandleDeps) {
     if (!g0 || !r) return;
     e.preventDefault();
     e.stopPropagation();
+    // 伝播を止めるので、GrapesJS が document の mousedown で閉じるテキスト編集はここでは閉じない。
+    // 編集中に drag を始めると、モデルへ未反映の追記が幾何の 1 手に混ざる。canvas の外を押したとき
+    // と同じく、最初の押下は編集を閉じるだけにする。
+    if (isTextEditing()) {
+      void finishTextEdit();
+      return;
+    }
     // drag 1 回につき undo 1 ステップ。幾何が動かなければ `recordGeomDiff` が保留を捨てる。
     beginUndo();
     activeHandle.value = kind;

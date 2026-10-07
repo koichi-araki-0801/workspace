@@ -89,6 +89,8 @@ const { startHandle, dragLabel } = useGeomHandles({
   beginUndo,
   applyGeom,
   recordGeomDiff,
+  isTextEditing: () => g.editing.value,
+  finishTextEdit: g.finishTextEdit,
 });
 
 const rect = computed(() => g.selectedRect.value);

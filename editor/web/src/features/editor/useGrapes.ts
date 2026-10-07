@@ -61,6 +61,7 @@ import {
 } from './partBreak';
 import { splitRootPages } from './partKey';
 import { redlineCanvasCss } from './redline/redlineCss';
+import { createFinishTextEdit } from './textEditFinish';
 import { useCanvasMarkers } from './useCanvasMarkers';
 import { usePageGuides } from './usePageGuides';
 import { useZoomFit } from './useZoomFit';
@@ -1115,6 +1116,12 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     callbacks.textEnd = cb;
   }
 
+  /**
+   * テキスト編集中なら閉じて、入力がモデルへ反映されるまで待つ(`textEditFinish.ts`)。Undo 可能な
+   * 操作は `beginUndo` の前にこれを待ち、追記を自分の 1 手へ混ぜない。
+   */
+  const finishTextEdit = createFinishTextEdit(() => editor.value);
+
   /** canvas の drag-reorder が開始 — undo 用 snapshot を取る好機。 */
   function onReorderStart(cb: () => void): void {
     callbacks.reorderStart = cb;
@@ -1177,6 +1184,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     onChange,
     onTextEditStart,
     onTextEditEnd,
+    finishTextEdit,
     onReorderStart,
     onReorderEnd,
     onCanvasDblClick,

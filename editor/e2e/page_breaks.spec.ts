@@ -375,6 +375,48 @@ test.describe('canvas の区切りとページ', () => {
     expect(await editorPages(page, frame)).toEqual(['P1-A', 'P2-A', 'P3-A {% if fund.name %}']);
   });
 
+  // キーボードで押すと `mousedown` が出ず、マウスのときのように先にテキスト編集が閉じない。
+  // 改ページの前に編集を確定させないと、追記が改ページの 1 手に混ざって単独で戻せなくなる。
+  test('テキスト編集中にキーボードで「後で改ページ」を押しても、Undo は改ページ → 追記の順に 1 手ずつ戻す', async ({
+    page,
+  }) => {
+    await serveDoc(page, P('P1-A') + P('P2-A'));
+    await login(page);
+    const frame = await openEditor(page, SEED_ID);
+    await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+    await selectPart(frame, frame.getByText('P1-A', { exact: true }));
+    // Playwright の合成ダブルクリックは選択のオーバーレイに 2 打目を吸われるので直接配送する。
+    await page.evaluate(() => {
+      const doc = document.querySelector<HTMLIFrameElement>('iframe.gjs-frame')?.contentDocument;
+      doc
+        ?.querySelector('p.part-p1-a')
+        ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    });
+    const editing = frame.locator('[contenteditable="true"]');
+    await expect(editing).toHaveCount(1, { timeout: 10_000 });
+    await editing.evaluate((el) => {
+      el.append('追記');
+      el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    });
+
+    const after = page.getByRole('button', { name: /後で改ページ/ });
+    await after.focus();
+    await page.keyboard.press('Enter');
+    const bands = frame.locator('[data-gjs-type=wrapper] > div.pagebreak');
+    await expect(bands).toHaveCount(1);
+    await expect(editing).toHaveCount(0);
+    const appended = frame.getByText('P1-A追記', { exact: true });
+    await expect(appended).toHaveCount(1);
+
+    const undo = page.getByRole('button', { name: '元に戻す' }).first();
+    await undo.click();
+    await expect(bands).toHaveCount(0);
+    await expect(appended).toHaveCount(1);
+    await undo.click();
+    await expect(appended).toHaveCount(0);
+    await expect(frame.getByText('P1-A', { exact: true })).toHaveCount(1);
+  });
+
   test('Inspector の「後で改ページ」OFF は区切りを 1 つだけ消し、白紙のページを残す', async ({
     page,
   }) => {

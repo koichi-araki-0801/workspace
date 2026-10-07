@@ -4,13 +4,17 @@ import { DEFAULT_GEOM, type LayoutGeom } from '@/features/editor/geom';
 import type { SelectedRect } from '@/features/editor/grapesEvents';
 import { useGeomHandles } from '@/features/editor/useGeomHandles';
 
-function setup(geom: LayoutGeom = { ...DEFAULT_GEOM, widthPct: 50, align: 'left' }) {
+function setup(
+  geom: LayoutGeom = { ...DEFAULT_GEOM, widthPct: 50, align: 'left' },
+  textEditing = false,
+) {
   const selectedGeom = computed(() => geom);
   const selectedRect = ref<SelectedRect | null>({ left: 100, top: 50, width: 200, height: 80 });
   const zoom = ref(1);
   const beginUndo = vi.fn();
   const applyGeom = vi.fn();
   const recordGeomDiff = vi.fn();
+  const finishTextEdit = vi.fn(() => Promise.resolve());
   const api = useGeomHandles({
     selectedGeom,
     selectedRect,
@@ -18,14 +22,39 @@ function setup(geom: LayoutGeom = { ...DEFAULT_GEOM, widthPct: 50, align: 'left'
     beginUndo,
     applyGeom,
     recordGeomDiff,
+    isTextEditing: () => textEditing,
+    finishTextEdit,
   });
-  return { api, beginUndo, applyGeom, recordGeomDiff };
+  return { api, beginUndo, applyGeom, recordGeomDiff, finishTextEdit };
 }
 
 const mouse = (type: string, x: number, y: number) =>
   new MouseEvent(type, { clientX: x, clientY: y, bubbles: true });
 
 describe('useGeomHandles', () => {
+  // ハンドルの mousedown は伝播を止めるので、GrapesJS がほかのクリックで閉じるテキスト編集が
+  // 閉じない。編集中に drag を始めると追記が幾何の 1 手に混ざるため、最初の押下は編集を閉じる
+  // だけにする(canvas の外のクリックと同じ)。
+  it('テキスト編集中の押下は編集を閉じるだけで、drag も Undo の保留も始めない', () => {
+    const { api, beginUndo, applyGeom, recordGeomDiff, finishTextEdit } = setup(undefined, true);
+    const down = mouse('mousedown', 300, 90);
+    api.startHandle('width', down);
+    expect(finishTextEdit).toHaveBeenCalledTimes(1);
+    expect(beginUndo).not.toHaveBeenCalled();
+    expect(api.activeHandle.value).toBeNull();
+    window.dispatchEvent(mouse('mousemove', 500, 90));
+    window.dispatchEvent(mouse('mouseup', 500, 90));
+    expect(applyGeom).not.toHaveBeenCalled();
+    expect(recordGeomDiff).not.toHaveBeenCalled();
+  });
+
+  it('テキスト編集中でなければ編集を閉じる処理を呼ばない', () => {
+    const { api, finishTextEdit } = setup();
+    api.startHandle('mb', mouse('mousedown', 200, 130));
+    expect(finishTextEdit).not.toHaveBeenCalled();
+    window.dispatchEvent(mouse('mouseup', 200, 130));
+  });
+
   it('width drag: begins one undo, live-applies width without recording, logs diff on mouseup', () => {
     const { api, beginUndo, applyGeom, recordGeomDiff } = setup();
     // fullW = width / (widthPct/100) = 200 / 0.5 = 400px for 100%.
