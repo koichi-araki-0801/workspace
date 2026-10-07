@@ -48,7 +48,7 @@ describe('小文字化コピーは走査ごとに 1 回だけ', () => {
     // 終端探索の関数自身はコピーを作らない。
     const findBody = src.slice(
       src.indexOf('function findRawTextEnd'),
-      src.indexOf('function parseAttrs'),
+      src.indexOf('function readAttr'),
     );
     expect(findBody).not.toContain('toLowerCase()');
   });

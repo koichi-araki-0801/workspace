@@ -333,3 +333,17 @@ describe('inlineCss', () => {
     expect(out).toBe(`<!doctype html>\n<style>\np{}\n</style>\n${html}`);
   });
 });
+
+describe('scanTags の引用符とコメント', () => {
+  it('属性名の途中の引用符で止まらずに返る', () => {
+    const t = Date.now();
+    const r = scanTags('<a "b>">');
+    expect(Date.now() - t).toBeLessThan(1000);
+    expect(r).toBeDefined();
+  });
+  it('値の途中の引用符で止まらずに返る', () => {
+    const t = Date.now();
+    scanTags('<img alt=a"b>…"');
+    expect(Date.now() - t).toBeLessThan(1000);
+  });
+});

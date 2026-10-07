@@ -598,3 +598,13 @@ describe('入れ子の深さ上限', () => {
     expect(findDocumentExternalRefs(nestSrcdoc('<b>x</b>', 2), '')).toEqual([]);
   });
 });
+
+describe('コメントの閉じ方がブラウザと一致する', () => {
+  const IMG = '<img src="https://evil.example/x.png">';
+  it('--!> で閉じたコメントの後ろの外部参照を検出する', () => {
+    expect(findDocumentExternalRefs(`<!-- a --!>${IMG}-->`, '')).toEqual([IMG]);
+  });
+  it.each(['<!-->', '<!--->'])('%s で閉じた空コメントの後ろの外部参照を検出する', (open) => {
+    expect(findDocumentExternalRefs(`${open}${IMG}-->`, '')).toEqual([IMG]);
+  });
+});

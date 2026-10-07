@@ -153,40 +153,51 @@ function findRawTextEnd(html: string, lower: string, from: number, name: string)
 }
 
 /**
- * 開始タグの属性領域(タグ名の直後 〜 閉じ `>` の手前)から属性名を切り出す。
- * HTML の before-attribute-name / attribute-name / before-attribute-value の 3 状態だけを
- * 素直に写したもので、`/` と空白はどちらも属性名の区切りとして読み飛ばす。
+ * 開始タグの属性を `html[i]` から 1 つ読む。`i` は空白・`/`・`>` のいずれでもない位置。
+ * HTML の attribute-name / after-attribute-name / before-attribute-value 以降の状態を写し、
+ * 引用符を開くのは `=` の直後だけにする(名前や裸の値の途中の `"` `'` は普通の文字)。
+ * 先頭の 1 文字は必ず名前に含めるので、`next` は必ず `i` より先へ進む。
+ * 裸の値は空白か `>` で終わる。閉じない引用符は `html.length` まで読む。
  */
-function parseAttrs(inner: string): ParsedAttr[] {
-  const attrs: ParsedAttr[] = [];
-  let i = 0;
-  while (i < inner.length) {
-    if (/[\s/]/.test(inner[i])) {
-      i++;
-      continue;
+function readAttr(html: string, i: number): { name: string; value: string; next: number } {
+  const start = i;
+  i++;
+  while (i < html.length && !/[\s/=>]/.test(html[i])) i++;
+  const name = html.slice(start, i).toLowerCase();
+  while (i < html.length && /\s/.test(html[i])) i++;
+  let value = '';
+  if (html[i] === '=') {
+    i++;
+    while (i < html.length && /\s/.test(html[i])) i++;
+    const quote = html[i];
+    if (quote === '"' || quote === "'") {
+      const e = html.indexOf(quote, i + 1);
+      value = html.slice(i + 1, e === -1 ? html.length : e);
+      i = e === -1 ? html.length : e + 1;
+    } else {
+      const vs = i;
+      while (i < html.length && !/[\s>]/.test(html[i])) i++;
+      value = html.slice(vs, i);
     }
-    const start = i;
-    while (i < inner.length && !/[\s/=>]/.test(inner[i])) i++;
-    const name = inner.slice(start, i).toLowerCase();
-    while (i < inner.length && /\s/.test(inner[i])) i++;
-    let value = '';
-    if (inner[i] === '=') {
-      i++;
-      while (i < inner.length && /\s/.test(inner[i])) i++;
-      const quote = inner[i];
-      if (quote === '"' || quote === "'") {
-        const e = inner.indexOf(quote, i + 1);
-        value = inner.slice(i + 1, e === -1 ? inner.length : e);
-        i = e === -1 ? inner.length : e + 1;
-      } else {
-        const vs = i;
-        while (i < inner.length && !/\s/.test(inner[i])) i++;
-        value = inner.slice(vs, i);
-      }
-    }
-    if (name !== '') attrs.push({ name, value });
   }
-  return attrs;
+  return { name, value, next: i };
+}
+
+/**
+ * `<!--` の後(`from`)から、コメントを閉じる位置の次を返す。閉じなければ -1。
+ * 閉じ方は `-->` / `--!>` / `<!-->` / `<!--->` で、ブラウザと同じ。
+ * `shared/src/security/editingMarkers.ts` の `commentEnd` と同じ規則で、`seen` は閉じ方ごとの
+ * 直近の検索結果(後ろのコメントで同じ範囲を読み直さない。-1 は以後も -1、-2 は未検索)。
+ */
+function commentEnd(html: string, from: number, seen: { dash: number; bang: number }): number {
+  if (html.startsWith('>', from)) return from + 1;
+  if (html.startsWith('->', from)) return from + 2;
+  if (seen.dash !== -1 && seen.dash < from) seen.dash = html.indexOf('-->', from);
+  if (seen.bang !== -1 && seen.bang < from) seen.bang = html.indexOf('--!>', from);
+  const { dash, bang } = seen;
+  if (dash === -1 && bang === -1) return -1;
+  if (bang === -1 || (dash !== -1 && dash < bang)) return dash + 3;
+  return bang + 4;
 }
 
 /**
@@ -201,6 +212,7 @@ export function scanTags(html: string): ScanResult {
   const tags: TagSpan[] = [];
   // 小文字化コピーは走査ごとに 1 つだけ(`findRawTextEnd` の注意書きを見よ)。
   const lower = html.toLowerCase();
+  const commentSeen = { dash: -2, bang: -2 };
   let i = 0;
   while (i < html.length) {
     if (html[i] !== '<') {
@@ -209,12 +221,12 @@ export function scanTags(html: string): ScanResult {
     }
     const next = html[i + 1];
     if (next === '!') {
-      // コメントは `-->` まで。それ以外の markup declaration(doctype 等)は bogus comment
-      // として最初の `>` まで。どちらも中身にタグは無い。
+      // コメントの閉じ方は `commentEnd` を見よ。それ以外の markup declaration(doctype 等)は
+      // bogus comment として最初の `>` まで。どちらも中身にタグは無い。
       if (html.startsWith('<!--', i)) {
-        const end = html.indexOf('-->', i + 4);
+        const end = commentEnd(html, i + 4, commentSeen);
         if (end === -1) return { tags, ok: false };
-        i = end + 3;
+        i = end;
       } else {
         const end = html.indexOf('>', i + 2);
         if (end === -1) return { tags, ok: false };
@@ -244,18 +256,18 @@ export function scanTags(html: string): ScanResult {
     let j = nameStart;
     while (j < html.length && isTagNameChar(html[j])) j++;
     const name = html.slice(nameStart, j).toLowerCase();
-    // 属性領域を引用符状態つきで走査する。引用符の外に現れた `>` だけがタグを閉じる
-    // (未引用の属性値中の `>` もタグを閉じる — これは仕様どおりの挙動)。
+    // 属性を 1 つずつ読んで閉じ `>` を探す。引用符が属性の値として開くのは `=` の直後だけで、
+    // 引用符の外に現れた `>` だけがタグを閉じる(未引用の属性値中の `>` もタグを閉じる)。
     let k = j;
-    let quote = '';
-    while (k < html.length) {
-      const ch = html[k];
-      if (quote !== '') {
-        if (ch === quote) quote = '';
-      } else if (ch === '"' || ch === "'") {
-        quote = ch;
-      } else if (ch === '>') break;
-      k++;
+    const attrs: ParsedAttr[] = [];
+    while (k < html.length && html[k] !== '>') {
+      if (/[\s/]/.test(html[k])) {
+        k++;
+        continue;
+      }
+      const attr = readAttr(html, k);
+      if (!isEnd) attrs.push({ name: attr.name, value: attr.value });
+      k = attr.next;
     }
     if (k >= html.length) return { tags, ok: false };
     const end = k + 1;
@@ -265,7 +277,7 @@ export function scanTags(html: string): ScanResult {
       name,
       isEnd,
       raw: html.slice(i, end),
-      attrs: isEnd ? [] : parseAttrs(html.slice(j, k)),
+      attrs,
       attrNames: [],
     };
     span.attrNames = span.attrs.map((a) => a.name);
