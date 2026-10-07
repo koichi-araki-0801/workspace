@@ -3,7 +3,7 @@
 Jinja2 で作成された HTML/CSS テンプレート（ファンド報告書系）を、非エンジニアが GUI で
 安全に編集し、サンプルデータ差込でプレビュー＆PDF 出力できる社内 Web アプリ。
 
-- **編集**: GrapesJS（レイアウト/CSS 中心）。`{{ }}` / `{% %}` / `{# #}` は壊さず温存（mask/restore）。ページ境界（`.page`）をオーバーレイ表示。
+- **編集**: GrapesJS（レイアウト/CSS 中心）。`{{ }}` / `{% %}` / `{# #}` は壊さず温存（mask/restore）。本文の直下の要素（ブロック）をパーツとして扱い、改ページの区切り（`div.pagebreak`）でページへ分けて表示。
 - **プレビュー**: ブラウザ内 Nunjucks で生 Jinja2 + サンプルデータを描画 → vivliostyle でページ組み表示。
 - **PDF**: サーバ側 `@vivliostyle/cli` で生成。
 - **作成**: 既存 Python 生成器を Fastify から child_process で呼び出し。
