@@ -434,7 +434,8 @@ describe('pageItems', () => {
 });
 
 // 区切り以外の改ページの指定は編集画面のページに数えないので、警告に例のセレクタを出す。
-// `.pagebreak` も、前で改ページする指定と左右の指定は区切りの数え方(後ろで改ページする要素)とずれる。
+// `.pagebreak` も、前で改ページする指定と左右の指定は区切りの数え方(後ろで改ページする要素)と
+// ずれる。
 describe('cssRuleBreakSelector', () => {
   it.each([
     [['h2{break-before:page}'], 'h2'],
@@ -495,6 +496,7 @@ describe('isElementizingChip / findElementizingChips', () => {
     expect(counted('{% raw %}<style>.a{}</style>{% endraw %}')).toBe(0);
     expect(counted('{% raw %}<STYLE>.a{}</STYLE ><script>f()</script>{% endraw %}')).toBe(0);
     expect(counted('{% raw %}<style>.a{}{% endraw %}')).toBe(0);
+    expect(counted('{% raw %}<script>f(){% endraw %}')).toBe(0);
     expect(counted('{% raw %}<style></style><p>x</p>{% endraw %}')).toBe(1);
     expect(counted('{% raw %}<stylex>y</stylex>{% endraw %}')).toBe(1);
   });

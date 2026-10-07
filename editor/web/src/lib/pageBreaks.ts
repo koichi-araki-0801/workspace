@@ -18,8 +18,8 @@
 //
 // CSS の解析と computed style は判定に使わず、DOM だけで決める。computed style は canvas でしか
 // 取れず(静的な文書・Worker には無い)、全要素を読むので重い。テンプレの CSS が区切りをどう
-// 描くか(`display:none` など)にも判定を左右させない。`pagebreakCssDefined` と `cssRuleBreakSelector` は
-// 警告用で、判定には使わない。
+// 描くか(`display:none` など)にも判定を左右させない。`pagebreakCssDefined` と
+// `cssRuleBreakSelector` は警告用で、判定には使わない。
 //
 // Worker(linkedom)には `Node` グローバルが無いので、`instanceof` や `Node.ELEMENT_NODE` は
 // 使わず、`tagName` / `getAttribute` / `classList` / `children` だけを読む
@@ -178,6 +178,18 @@ export function rootBlocks<T extends Element>(children: Iterable<T>): T[] {
   return out;
 }
 
+/** 描画後も要素として残る `rawtext` のチップの原文(`<style>` 以外の要素)。 */
+const RAWTEXT_PART_SOURCE_RE = /^<(?!style[\s>/])[a-z]/i;
+
+/** 出力のチップが `|safe` を通すか(値が HTML のまま出る)。 */
+const SAFE_FILTER_RE = /\|\s*safe\b/;
+
+/** `hasVisibleElementMarkup` の走査用(`lastIndex` を設定してから使う)。 */
+const ANY_LT_RE = /</g;
+const RAWTEXT_OPEN_RE = /<(style|script)(?=[\s>/])/y;
+const STYLE_CLOSE_RE = /<\/style[^>]*>/g;
+const SCRIPT_CLOSE_RE = /<\/script[^>]*>/g;
+
 /**
  * 保存・描画した文書で要素として残らないチップか。`{% set %}` などの文と Jinja コメントは描画で
  * 消え、出力(`{{ }}`)は地の文になる(どれも `data-jinja` を持つ)。原文を運ぶ `rawtext` の
@@ -186,7 +198,8 @@ export function rootBlocks<T extends Element>(children: Iterable<T>): T[] {
  * パーツに数える。
  *
  * 出力(`|safe` など)や `{% raw %}` の中身は描画で要素になりうるが、canvas では数えない(承認・比較は
- * 描画した文書を数えるので番号がずれうる)。そうなりうるチップは `isElementizingChip` で拾って警告する。
+ * 描画した文書を数えるので番号がずれうる)。そうなりうるチップは `isElementizingChip` で拾って
+ * 警告する。
  */
 function isVanishingChip(el: Element): boolean {
   if (!el.classList.contains(JINJA_CHIP_CLASS)) return false;
@@ -194,9 +207,6 @@ function isVanishingChip(el: Element): boolean {
   if (el.getAttribute(DATA_OPAQUE_KIND) !== 'rawtext') return false;
   return !RAWTEXT_PART_SOURCE_RE.test(chipSource(el, DATA_OPAQUE));
 }
-
-/** 描画後も要素として残る `rawtext` のチップの原文(`<style>` 以外の要素)。 */
-const RAWTEXT_PART_SOURCE_RE = /^<(?!style[\s>/])[a-z]/i;
 
 /** チップの属性(`data-jinja` / `data-opaque`)が運ぶ原文。読めない base64 は空として扱う。 */
 function chipSource(el: Element, attr: string): string {
@@ -206,9 +216,6 @@ function chipSource(el: Element, attr: string): string {
     return '';
   }
 }
-
-/** 出力のチップが `|safe` を通すか(値が HTML のまま出る)。 */
-const SAFE_FILTER_RE = /\|\s*safe\b/;
 
 /**
  * 描画すると要素になりうるチップか。値の出力(`{{ }}`)で `|safe` を通すものは値が HTML のまま
@@ -228,9 +235,9 @@ export function isElementizingChip(el: Element): boolean {
 }
 
 /**
- * 原文から `<style>…</style>` と `<script>…</script>` を除いた残りに `<` があるか。この 2 つだけの原文は
- * 描画で見えない要素にしかならない(`isVanishingChip` が `<style>` だけの原文を数えないのと同じ)。
- * 閉じの無い開きは残り全部を飲む。
+ * 原文から `<style>…</style>` と `<script>…</script>` を除いた残りに `<` があるか。この 2 つだけの
+ * 原文は描画で見えない要素にしかならない(`isVanishingChip` が `<style>` だけの原文を数えないのと
+ * 同じ)。閉じの無い開きは残り全部を飲む。
  */
 function hasVisibleElementMarkup(src: string): boolean {
   const lower = src.toLowerCase();
@@ -249,12 +256,6 @@ function hasVisibleElementMarkup(src: string): boolean {
     from = end.index + end[0].length;
   }
 }
-
-/** `hasVisibleElementMarkup` の走査用(`lastIndex` を設定してから使う)。 */
-const ANY_LT_RE = /</g;
-const RAWTEXT_OPEN_RE = /<(style|script)(?=[\s>/])/y;
-const STYLE_CLOSE_RE = /<\/style[^>]*>/g;
-const SCRIPT_CLOSE_RE = /<\/script[^>]*>/g;
 
 /** 根の直下(固めた範囲の包みは中身へ展開する)の、描画で要素になりうるチップ。警告用。 */
 export function findElementizingChips(root: Element): Element[] {

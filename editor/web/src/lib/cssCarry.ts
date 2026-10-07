@@ -7,8 +7,8 @@
 // まま持ち、保存の `getCss` の末尾へ戻す(`useGrapes.ts`)。本文の `<style>` を原文のまま運ぶ置き場
 // (`bodyStyle.ts`)と同じ考え方。
 //
-// 取り出すのは `@font-face` の規則だけで、外側のブロックの普通の規則は GrapesJS に残す。ブロックごと
-// 末尾へ動かすと、中の普通の規則のカスケード上の位置が変わり、後ろの同じ詳細度の規則に勝つように
+// 取り出すのは `@font-face` の規則だけで、外側のブロックの普通の規則は GrapesJS に残す。
+// ブロックごと末尾へ動かすと、中の普通の規則のカスケード上の位置が変わり、後ろの同じ詳細度の規則に勝つように
 // なって PDF の見た目が変わるため。`@font-face` の位置は書体の宣言の順にしか効かず、GrapesJS も
 // 最上位の `@font-face` を末尾へ動かす。
 //
@@ -38,14 +38,15 @@ interface OpenBlock {
   fontFaceAt: number | null;
 }
 
-/** ASCII の英大文字だけを小文字にする(CSS の at-rule 名は ASCII の範囲でだけ大文字小文字を区別しない)。 */
+/** ASCII の英大文字だけを小文字にする(CSS の at-rule 名は ASCII の範囲だけ大文字小文字を区別しない)。 */
 function asciiLower(s: string): string {
   return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
 }
 
 /**
- * `css` の `[from, to)` が空白とコメントだけかを返す判定器。`comments` は位置順で、呼び出しは `from` が
- * 単調に増える順に限る。コメントの添字を呼び出しをまたいで進めるので、全体で入力長に線形になる。
+ * `css` の `[from, to)` が空白とコメントだけかを返す判定器。`comments` は位置順で、呼び出しは
+ * `from` が単調に増える順に限る。コメントの添字を呼び出しをまたいで進めるので、全体で入力長に
+ * 線形になる。
  */
 function triviaChecker(
   css: string,
@@ -69,7 +70,8 @@ function triviaChecker(
 }
 
 /**
- * `@media` / `@supports` の中(何段の入れ子でも、外側がすべてこの 2 つ)にある `@font-face` を取り出す。
+ * `@media` / `@supports` の中(何段の入れ子でも、外側がすべてこの 2 つ)にある `@font-face` を
+ * 取り出す。
  * 最上位の `@font-face` は GrapesJS が崩さないので取り出さない。
  */
 export function splitNestedFontFaces(css: string): CarriedCss {

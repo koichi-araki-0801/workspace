@@ -15,7 +15,8 @@
 // 限界: 同じアンカーのパーツを前に足す・消すと、後ろの同じアンカーのパーツの番号がずれる。
 // catalog 由来でないパーツ(安定な `data-part-id` を持たない)では best-effort になる(compare の
 // 位置整列と同程度)。基準日更新のように構造が同一な版替えでは確実に一致する。
-// アンカーの属性の原文に Jinja があると、承認タブとキーが一致しない(`jinjaAnchoredParts` で警告する)。
+// アンカーの属性の原文に Jinja があると、承認タブとキーが一致しない(`jinjaAnchoredParts` で
+// 警告する)。
 
 import type { Editor } from 'grapesjs';
 import { type RawKeyOf, rawKey, rawKeyFromParts } from '@/lib/blockKey';
@@ -194,9 +195,10 @@ function parseSourceElement(el: HTMLElement, encoded: string | null): Element | 
 }
 
 /**
- * 原文を運ぶチップ(`<script>`・`<math>`・`<textarea>` など)が運ぶ要素。canvas ではチップの `span` に
- * 化けているが、承認タブ・比較が読む描画後の文書では原文の要素そのものなので、アンカーは原文の要素から
- * 取る(チップの `.jinja-chip` で取ると、根の直下のチップのパーツだけ画面ごとにキーが割れる)。
+ * 原文を運ぶチップ(`<script>`・`<math>`・`<textarea>` など)が運ぶ要素。canvas ではチップの
+ * `span` に化けているが、承認タブ・比較が読む描画後の文書では原文の要素そのものなので、アンカーは
+ * 原文の要素から取る(チップの `.jinja-chip` で取ると、根の直下のチップのパーツだけ画面ごとに
+ * キーが割れる)。
  */
 function chipSourceElement(el: HTMLElement): Element | null {
   if (!el.classList.contains(JINJA_CHIP_CLASS)) return null;
@@ -206,8 +208,8 @@ function chipSourceElement(el: HTMLElement): Element | null {
 /**
  * 固めた要素(`data-opaque-kind="frozen"`)が運ぶ原文の要素。canvas は属性値まで値を入れて描くので、
  * アンカーの原文は運んでいる原文から読む(警告用。キーの計算は変えない)。固めた表は
- * `div.jinja-frozen-body` の包みが原文を運び、表自身は運ばない。包みの子がそのパーツ 1 つだけのときは
- * 包みの原文がそのパーツの原文なので、包みから読む。
+ * `div.jinja-frozen-body` の包みが原文を運び、表自身は運ばない。包みの子がそのパーツ 1 つだけの
+ * ときは包みの原文がそのパーツの原文なので、包みから読む。
  */
 function frozenSourceElement(el: HTMLElement): Element | null {
   const carrier = frozenCarrier(el);
@@ -265,9 +267,10 @@ const JINJA_OPEN_RE = /\{[{%#]/;
 
 /**
  * 根の直下のパーツのうち、キーに採用されるアンカーの属性(`data-part-id` → `id` → class)の原文に
- * Jinja を含むもの。canvas は原文で、承認タブ・比較はファンドの値で描いた後の文書でアンカーを読むので、
- * キーが原理的に一致しない(そのパーツのメモが承認タブで別のパーツ扱いになる)。警告用。採用の順は
- * `keyOf`(canvas では `canvasRawKey`)と同じ。固めた要素は表示用の値で描かれているので原文で見る。
+ * Jinja を含むもの。canvas は原文で、承認タブ・比較はファンドの値で描いた後の文書でアンカーを
+ * 読むので、キーが原理的に一致しない(そのパーツのメモが承認タブで別のパーツ扱いになる)。警告用。
+ * 採用の順は `keyOf`(canvas では `canvasRawKey`)と同じ。固めた要素は表示用の値で描かれているので
+ * 原文で見る。
  */
 export function jinjaAnchoredParts(root: HTMLElement, keyOf: RawKeyOf = rawKey): HTMLElement[] {
   return partsOf(root).filter((part) => {

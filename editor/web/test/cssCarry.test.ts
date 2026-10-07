@@ -110,19 +110,33 @@ describe('splitNestedFontFaces', () => {
 });
 
 // 文頭の判定のたびにコメントの添字を頭から数え直すと、コメントと at-rule が多い入力で二乗になる。
-// 制限時間は shared の検査器の線形テストと同じ流儀で、負荷の高い CI でも誤って落ちない広さにする。
+// 絶対時間の上限は負荷の高い CI で誤って落ちるので、入力 n と 4n の所要時間の比で主張する。線形なら
+// 比は約 4(通常時の実測は 3.4〜4.1)、二乗なら理論上 16 で、旧実装の実測は約 38 だった。閾値 10 は、
+// 線形の測定に負荷の揺れが 2.5 倍まで乗っても超えず、二乗は 16 を下回る揺れが乗らない限り超える。
+// 測定は 3 回の最小値を採り、挙動の確認(expect)は測定と分けて先に行う。
 describe('splitNestedFontFaces は入力サイズに対して線形', () => {
   const build = (n: number): string => '@media print{/* c */@font-face{font-family:F}}'.repeat(n);
-  const timed = (n: number): number => {
-    const css = build(n);
-    const t0 = performance.now();
-    const r = splitNestedFontFaces(css);
-    const ms = performance.now() - t0;
-    expect(r.carried).toHaveLength(n);
-    return ms;
-  };
 
-  it('コメント付きの入れ子の @font-face を大量に並べても終わる(約 3MB)', () => {
-    expect(timed(60_000)).toBeLessThan(2000);
+  it('コメント付きの入れ子の @font-face を大量に並べても、すべて取り出す', () => {
+    const r = splitNestedFontFaces(build(5000));
+    expect(r.carried).toHaveLength(5000);
+    expect(r.rest).toBe('@media print{/* c */}'.repeat(5000));
+  });
+
+  it('入力が 4 倍になっても所要時間は 10 倍を超えない', () => {
+    const best = (n: number): number => {
+      const css = build(n);
+      let min = Number.POSITIVE_INFINITY;
+      for (let k = 0; k < 3; k++) {
+        const t0 = performance.now();
+        splitNestedFontFaces(css);
+        min = Math.min(min, performance.now() - t0);
+      }
+      return min;
+    };
+    best(2000);
+    const small = best(10_000);
+    const large = best(40_000);
+    expect(large / Math.max(small, 1)).toBeLessThan(10);
   });
 });
