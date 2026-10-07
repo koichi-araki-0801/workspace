@@ -18,18 +18,24 @@
 
 import type { Editor } from 'grapesjs';
 import { type RawKeyOf, rawKey, rawKeyFromParts } from '@/lib/blockKey';
-import { pageItems, splitPages } from '@/lib/pageBreaks';
+import { type PageSplit, pageItems, splitPages } from '@/lib/pageBreaks';
 
 /**
- * 根の直下のパーツをページごとに分けたもの(`splitPages` の結果。区切りの要素は含まない)。
- * 必ず 1 ページ以上。キーの計算(`partPathKeyFor`)と選択側(`useTemplateEditor.ts` の
- * `selectPartByKey`)が同じ列挙を使う — 分岐すると両者が違うパーツを指してキーの対応がずれる。
+ * 根の直下の要素をページに分ける。canvas のページ(`useGrapes.ts`)・パーツのキー・キーからの
+ * 選択が同じ分け方を使う — 分岐するとページとパーツの番号・キーの対応がずれる。根の直下の SVG・
+ * MathML の要素も、静的な文書(承認タブ・比較は `body.children` を数える)と同じくパーツに数える。
+ * 読むのは `Element` の API だけなので、型は `HTMLElement` にそろえる。
+ */
+export function splitRootPages(root: HTMLElement): PageSplit<HTMLElement> {
+  return splitPages(pageItems(Array.from(root.children) as HTMLElement[]));
+}
+
+/**
+ * 根の直下のパーツをページごとに分けたもの(`splitRootPages` の `pages`。区切りの要素は含まない)。
+ * 必ず 1 ページ以上。
  */
 export function pagesOf(root: HTMLElement): HTMLElement[][] {
-  const children = Array.from(root.children).filter(
-    (el): el is HTMLElement => el instanceof HTMLElement,
-  );
-  return splitPages(pageItems(children)).pages;
+  return splitRootPages(root).pages;
 }
 
 /** 文書全体のパーツ(ページ順)。 */

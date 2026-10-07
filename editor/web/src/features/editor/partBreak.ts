@@ -12,7 +12,13 @@
 // `setPartBreak` が受け持つ。数え方(どの要素を飛ばすか)は `@/lib/pageBreaks` の `pageItems` と
 // 同じにし、canvas のページと Inspector の状態が食い違わないようにする。
 
-import { inlineBreak, isPagebreakEl, PAGEBREAK_CLASS, pageItems } from '@/lib/pageBreaks';
+import {
+  ignoredInlineBreakProps,
+  inlineBreak,
+  isPagebreakEl,
+  PAGEBREAK_CLASS,
+  pageItems,
+} from '@/lib/pageBreaks';
 
 /** パーツの前か後ろか。 */
 export type BreakEdge = 'before' | 'after';
@@ -82,7 +88,9 @@ export function partBreakState(part: Element, root: Element): PartBreakState | n
 /**
  * 切り替えで行う変更を決める。状態が変わらない操作・対象外のパーツは null。
  *
- * ON はその端に区切りを 1 つ置く。OFF は隣の区切りを連続分すべて消し(1 つでも残ると ON のまま)、
+ * ON はその端に区切りを 1 つ置き、その端の印刷では効かない inline の指定(`page-break-*` の
+ * 改ページの値と `break-*: always`)を消す(区切りへの置き換えなので、警告の元を残さない)。
+ * OFF は隣の区切りを連続分すべて消し(1 つでも残ると ON のまま)、
  * inline の該当の宣言(`break-*` と、一緒に書かれがちな効かない `page-break-*`)も消す。どちらで
  * 改ページしていても OFF が効く。連続した区切りは間に白紙のページを作るので、OFF でその白紙の
  * ページも消える。
@@ -95,7 +103,7 @@ export function planBreakToggle(
 ): BreakPlan | null {
   const state = partBreakState(part, root);
   if (!state || (state[edge] !== null) === on) return null;
-  if (on) return { insert: edge, remove: [], stripProps: [] };
+  if (on) return { insert: edge, remove: [], stripProps: ignoredInlineBreakProps(part, edge) };
   const at = locate(part, root) as { items: Element[]; i: number };
   return {
     insert: null,

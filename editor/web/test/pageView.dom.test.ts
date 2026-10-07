@@ -69,6 +69,13 @@ describe('markPages', () => {
     });
   });
 
+  it('inline の break-after を持つパーツの後ろの数えない要素は、次のページ(比較の振り分けと同じ)', () => {
+    const root = marked(
+      `<p id="a" style="break-after: page"></p><del id="d" ${REDLINE_ATTR}></del><p id="b"></p>`,
+    );
+    expect(marks(root)).toEqual({ a: '0', d: '1', b: '1' });
+  });
+
   it('末尾の区切りの後ろの数えない要素は最後のページ', () => {
     const root = marked(
       `<p id="a"></p>${BR('k1')}<p id="b"></p>${BR('k2')}<del id="d" ${REDLINE_ATTR}></del>`,

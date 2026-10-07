@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
+import { b64encodeUtf8 } from '@/lib/jinjaAttrs';
 import {
   findIgnoredInlineBreaks,
   findUncountedBreaks,
+  ignoredInlineBreakProps,
   inlineBreak,
   isBreakValue,
   isPagebreakEl,
@@ -322,6 +324,20 @@ describe('findIgnoredInlineBreaks', () => {
   });
 });
 
+describe('ignoredInlineBreakProps', () => {
+  it('その端の効かない指定のプロパティ名を、同じプロパティは最後の値で判じて返す', () => {
+    const el = bodyOf(
+      '<p style="page-break-before:always; break-before:always; page-break-after:auto; ' +
+        'break-after:always; break-after:page"></p>',
+    ).firstElementChild as Element;
+    expect(ignoredInlineBreakProps(el, 'before')).toEqual(['page-break-before', 'break-before']);
+    expect(ignoredInlineBreakProps(el, 'after')).toEqual([]);
+    expect(
+      ignoredInlineBreakProps(bodyOf('<p></p>').firstElementChild as Element, 'after'),
+    ).toEqual([]);
+  });
+});
+
 describe('pagebreakCssDefined', () => {
   it.each([
     ['.pagebreak{break-after:page}', true],
@@ -385,6 +401,22 @@ describe('pageItems', () => {
           '<p id=a></p>',
       ),
     ).toEqual(['sc', 'a']);
+  });
+
+  it('rawtext のチップは原文が <style> 以外の要素のときだけパーツに数える', () => {
+    const chip = (id: string, source: string) =>
+      `<span id=${id} class="jinja-chip jinja-rawtext" data-opaque="${b64encodeUtf8(source)}" ` +
+      'data-opaque-kind="rawtext"></span>';
+    expect(
+      items(
+        chip('st', '<style>.a{color:{{ c }}}</style>') +
+          chip('ST', '<STYLE media=print>.a{}</STYLE>') +
+          chip('raw', '{% raw %}{{ x }}{% endraw %}') +
+          chip('ta', '<textarea>{{ a }}</textarea>') +
+          chip('styles', '<styles>{{ a }}</styles>') +
+          '<span id=bad class="jinja-chip jinja-rawtext" data-opaque="%%" data-opaque-kind="rawtext"></span>',
+      ),
+    ).toEqual(['ta', 'styles']);
   });
 
   it('<style> はパーツにならない(区切りの間にあっても、そのページは白紙のまま)', () => {

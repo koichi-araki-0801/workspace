@@ -27,7 +27,14 @@
 
 import { splitCssRules } from '@editor/shared';
 import { BODY_STYLE_VIEW_ATTR } from './bodyStyleAttr';
-import { DATA_JINJA, DATA_OPAQUE_KIND, FROZEN_BODY_CLASS, JINJA_CHIP_CLASS } from './jinjaAttrs';
+import {
+  b64decodeUtf8,
+  DATA_JINJA,
+  DATA_OPAQUE,
+  DATA_OPAQUE_KIND,
+  FROZEN_BODY_CLASS,
+  JINJA_CHIP_CLASS,
+} from './jinjaAttrs';
 import { REDLINE_ATTR } from './redlineAttr';
 
 /** 改ページの区切りを表すクラス。 */
@@ -124,21 +131,27 @@ export function inlineBreak(el: Element, edge: 'before' | 'after'): boolean {
 }
 
 /**
- * 要素の inline `style` に、印刷では効かない改ページ指定(`page-break-*` の改ページの値と
- * `break-*: always`)があり、同じ端が `break-*` で改ページしていないか。
+ * 要素の inline `style` の、その端の印刷では効かない改ページ指定のプロパティ名
+ * (`page-break-*` の改ページの値と `break-*: always`)。同じプロパティが複数あれば最後の値で
+ * 判じる(style 属性と同じく後勝ち)。同じ端が `break-*` で改ページしているかは見ない。
+ */
+export function ignoredInlineBreakProps(el: Element, edge: 'before' | 'after'): string[] {
+  const style = el.getAttribute('style');
+  if (!style) return [];
+  const last = new Map(parseDecls(style));
+  const out: string[] = [];
+  if (isLegacyBreakValue(last.get(`page-break-${edge}`))) out.push(`page-break-${edge}`);
+  if (last.get(`break-${edge}`) === 'always') out.push(`break-${edge}`);
+  return out;
+}
+
+/**
+ * 要素の inline `style` に、印刷では効かない改ページ指定があり、同じ端が `break-*` で改ページして
+ * いないか。
  */
 function hasIgnoredInlineBreak(el: Element): boolean {
-  const style = el.getAttribute('style');
-  if (!style) return false;
-  const decls = parseDecls(style);
   return (['before', 'after'] as const).some(
-    (edge) =>
-      !inlineBreak(el, edge) &&
-      decls.some(
-        ([prop, value]) =>
-          (prop === `page-break-${edge}` && isLegacyBreakValue(value)) ||
-          (prop === `break-${edge}` && value === 'always'),
-      ),
+    (edge) => !inlineBreak(el, edge) && ignoredInlineBreakProps(el, edge).length > 0,
   );
 }
 
@@ -168,14 +181,30 @@ export function rootBlocks<T extends Element>(children: Iterable<T>): T[] {
 /**
  * 保存・描画した文書で要素として残らないチップか。`{% set %}` などの文と Jinja コメントは描画で
  * 消え、出力(`{{ }}`)は地の文になる(どれも `data-jinja` を持つ)。原文を運ぶ `rawtext` の
- * チップは `<style>` などで、数えない要素に戻る。`script` / `math` のチップは描画後も要素なので
+ * チップは、原文が `<style>` なら数えない要素に、`{% raw %}` なら地の文に戻るので数えず、
+ * `<textarea>` などほかの要素ならパーツに数える。`script` / `math` のチップは描画後も要素なので
  * パーツに数える。
+ *
+ * 限界: 出力(`|safe` など)や `{% raw %}` の中身が描画で要素になるときは、承認・比較(描画した
+ * 文書を数える)だけがその要素をパーツに数え、canvas とパーツの番号がずれる。
  */
 function isVanishingChip(el: Element): boolean {
-  return (
-    el.classList.contains(JINJA_CHIP_CLASS) &&
-    (el.hasAttribute(DATA_JINJA) || el.getAttribute(DATA_OPAQUE_KIND) === 'rawtext')
-  );
+  if (!el.classList.contains(JINJA_CHIP_CLASS)) return false;
+  if (el.hasAttribute(DATA_JINJA)) return true;
+  if (el.getAttribute(DATA_OPAQUE_KIND) !== 'rawtext') return false;
+  return !RAWTEXT_PART_SOURCE_RE.test(opaqueSource(el));
+}
+
+/** 描画後も要素として残る `rawtext` のチップの原文(`<style>` 以外の要素)。 */
+const RAWTEXT_PART_SOURCE_RE = /^<(?!style[\s>/])[a-z]/i;
+
+/** チップが運ぶ原文。読めない base64 は空(要素でない原文)として扱う。 */
+function opaqueSource(el: Element): string {
+  try {
+    return b64decodeUtf8(el.getAttribute(DATA_OPAQUE) ?? '');
+  } catch {
+    return '';
+  }
 }
 
 /**

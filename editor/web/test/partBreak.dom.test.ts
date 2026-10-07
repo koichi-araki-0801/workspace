@@ -86,6 +86,19 @@ describe('planBreakToggle', () => {
     expect(planBreakToggle(q(r, '.b'), r, 'after', true)?.insert).toBe('after');
   });
 
+  it('ON はその端の印刷で効かない inline の指定(page-break-*・break-*: always)も消す', () => {
+    const r = root(
+      '<p class="a"></p><p class="b" style="page-break-before: always; ' +
+        'break-before: always; page-break-after: always"></p>',
+    );
+    expect(planBreakToggle(q(r, '.b'), r, 'before', true)).toEqual({
+      insert: 'before',
+      remove: [],
+      stripProps: ['page-break-before', 'break-before'],
+    });
+    expect(planBreakToggle(q(r, '.b'), r, 'after', true)?.stripProps).toEqual(['page-break-after']);
+  });
+
   it('既に ON なら何もしない(null)', () => {
     const r = root(`<p class="a"></p>${BR}<p class="b" style="break-after: page"></p>`);
     expect(planBreakToggle(q(r, '.b'), r, 'before', true)).toBeNull();

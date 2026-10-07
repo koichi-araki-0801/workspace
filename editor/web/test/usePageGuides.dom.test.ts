@@ -135,6 +135,51 @@ describe('usePageGuides', () => {
     expect(g.pageGuides.value.map((x) => [x.top, x.page])).toEqual([[top('b'), 1]]);
   });
 
+  it('区切りの帯と次のパーツの inline の break-before が同じ境目なら、線は帯の上端に 1 本', () => {
+    const { g, top } = setup(
+      `<p id="a">1</p>${BR('k1')}<p id="b" style="break-before: page">2</p>`,
+      { k1: 30 },
+    );
+    g.refreshPageGuides();
+    expect(g.pageGuides.value.map((x) => [x.top, x.page])).toEqual([[top('k1'), 1]]);
+  });
+
+  it('canvas の body が無ければ線を消す', () => {
+    const g = usePageGuides({
+      editor: shallowRef({ Canvas: { getBody: () => undefined } } as unknown as Editor),
+      pageBlocks: shallowRef([[], []]),
+      breakEls: shallowRef([]),
+      breakPages: shallowRef([]),
+    });
+    g.pageGuides.value = [{ top: 1, left: 0, width: 1, page: 1 }];
+    g.refreshPageGuides();
+    expect(g.pageGuides.value).toEqual([]);
+  });
+
+  it('位置を測れない(canvas の一時的な状態)ときは線を消し、メモの目印は測り直す', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const afterGuides = vi.fn();
+    const body = document.createElement('body');
+    const g = usePageGuides({
+      editor: shallowRef({
+        Canvas: {
+          getBody: () => body,
+          getElementPos: () => {
+            throw new Error('no frame');
+          },
+        },
+      } as unknown as Editor),
+      pageBlocks: shallowRef([[document.createElement('p')], [document.createElement('p')]]),
+      breakEls: shallowRef([]),
+      breakPages: shallowRef([]),
+      afterGuides,
+    });
+    g.pageGuides.value = [{ top: 1, left: 0, width: 1, page: 1 }];
+    g.refreshPageGuides();
+    expect(g.pageGuides.value).toEqual([]);
+    expect(afterGuides).toHaveBeenCalledOnce();
+  });
+
   it('1 ページなら線は引かない', () => {
     const { g } = setup('<p id="a">1</p><p id="b">2</p>');
     g.refreshPageGuides();

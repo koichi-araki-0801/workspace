@@ -75,7 +75,9 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
    */
   function refreshNoteMarkers(): void {
     const ed = ctx.editor.value;
-    const root = ed?.getWrapper()?.getEl?.() ?? ed?.Canvas.getBody();
+    // 根は GrapesJS の wrapper(`useGrapes.ts` の `recomputePages` と同じ)。まだ描かれていなければ
+    // 数えない。canvas の body の直下は wrapper 1 つで、パーツの並びではない。
+    const root = ed?.getWrapper()?.getEl?.();
     if (!ed || !root || noteKeys.value.size === 0) {
       noteMarkers.value = [];
       return;

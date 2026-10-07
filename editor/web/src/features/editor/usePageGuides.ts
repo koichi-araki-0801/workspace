@@ -77,14 +77,18 @@ export function usePageGuides(ctx: PageGuidesContext) {
       const breakPages = ctx.breakPages.value;
       const split = { pages, breakEls: breaks, breakPages };
       const out: PageGuide[] = [];
+      /** ページ `page` の末尾のパーツ `last` の後ろにある、描かれた(高さのある)最初の帯の位置。 */
+      const bandAfter = (last: HTMLElement, page: number) => {
+        for (let j = 0; j < breaks.length; j++) {
+          if (breakPages[j] !== page || !precedes(last, breaks[j])) continue;
+          const p = pos(breaks[j]);
+          if (p.height > 0) return p;
+        }
+        return undefined;
+      };
       for (let i = 1; i < pages.length; i++) {
         const prevLast = pages[i - 1].at(-1);
-        const band = prevLast
-          ? breaks
-              .filter((b, j) => breakPages[j] === i - 1 && precedes(prevLast, b))
-              .map(pos)
-              .find((p) => p.height > 0)
-          : undefined;
+        const band = prevLast ? bandAfter(prevLast, i - 1) : undefined;
         // 末尾の改ページは消えるので、ページ i 以降には必ず要素がある。
         const head = pageHead(split, i) as HTMLElement;
         out.push({

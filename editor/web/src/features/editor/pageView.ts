@@ -6,7 +6,7 @@
 // vitest で全分岐を直接検証できるようにする(実レイアウトに依存しない)。どこでページが
 // 切れるかは `@/lib/pageBreaks` の `splitPages` が決め、ここはその結果を画面へ写すだけ。
 
-import { type PageSplit, rootBlocks } from '@/lib/pageBreaks';
+import { inlineBreak, type PageSplit, rootBlocks } from '@/lib/pageBreaks';
 
 /** 生 DOM へ付ける現在ページ判定用のマーカー属性。Component モデルには載せない。 */
 export const PV_ATTR = 'data-pv-idx';
@@ -21,8 +21,9 @@ export const PV_ATTR = 'data-pv-idx';
  *   末尾にあるので、1 ページ表示ではページの末尾に帯が見える。白紙のページは帯だけが見える。
  * - 数えない要素(`<style>`・本文の `<style>` の置き場・赤入れの削除要素): 隣の要素のページ。
  *   印の無い要素は可視制御の対象から外れて全ページに出続けるので、すべての要素に付ける。
- *   区切りの後ろ(または先頭)にあれば次のパーツか区切りのページ、そうでなければ直前のパーツの
- *   ページ。赤入れで消えたパーツは元の位置に置かれるので、元のページで見える。
+ *   区切りか inline の `break-after` を持つパーツの後ろ(または先頭)にあれば次のパーツか区切りの
+ *   ページ、そうでなければ直前のパーツのページ(比較の `htmlBlockDiff.ts` の `splitTopLevel` と
+ *   同じ)。赤入れで消えたパーツは元の位置に置かれるので、元のページで見える。
  */
 export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): void {
   for (const el of Array.from(root.querySelectorAll(`[${PV_ATTR}]`))) {
@@ -37,7 +38,7 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
   });
   const breaks = new Set<Element>(split.breakEls);
   let last = 0;
-  // 直前に数えたものがパーツか(false なら、まだ何も無いか区切りの後ろ)。
+  // 直前に数えたものが改ページの後ろを持たないパーツか(false なら、まだ何も無いか改ページの後ろ)。
   let afterPart = false;
   let pending: Element[] = [];
   const mark = (el: Element, i: number) => el.setAttribute(PV_ATTR, String(i));
@@ -48,7 +49,7 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
       pending = [];
       mark(el, page);
       last = page;
-      afterPart = !breaks.has(el);
+      afterPart = !breaks.has(el) && !inlineBreak(el, 'after');
     } else if (afterPart) {
       mark(el, last);
     } else {

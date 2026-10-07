@@ -64,9 +64,11 @@ export function partLocator(frame: FrameLocator): Locator {
 }
 
 /**
- * canvas の `pageIndex` ページ目(0 起点)のパーツ。ページの番号は canvas が生 DOM へ付ける
- * `data-pv-idx`(`web/src/features/editor/pageView.ts` の `PV_ATTR`)で読む。区切りにも直前の
- * ページの番号が付くので除く。
+ * canvas の `pageIndex` ページ目(0 起点)の根の直下の要素のうち、区切りを除いたもの。ページの番号は
+ * canvas が生 DOM へ付ける `data-pv-idx`(`web/src/features/editor/pageView.ts` の `PV_ATTR`)で
+ * 読む。区切りにも置かれたページ(区切りはそのページの末尾にある)の番号が付くので除く。パーツに
+ * 数えない要素(本文の `<style>` の置き場・赤入れの削除要素)にも隣のページの番号が付き、ここに
+ * 含まれる。固めた範囲の包みの中身は根の直下ではないので含まない。
  */
 export function pagePartLocator(frame: FrameLocator, pageIndex: number): Locator {
   return frame.locator(`[data-gjs-type=wrapper] > [data-pv-idx="${pageIndex}"]:not(.pagebreak)`);

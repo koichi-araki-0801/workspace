@@ -17,13 +17,7 @@ import { computed, ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
 import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
-import {
-  findIgnoredInlineBreaks,
-  findUncountedBreaks,
-  pageHead,
-  pageItems,
-  splitPages,
-} from '@/lib/pageBreaks';
+import { findIgnoredInlineBreaks, findUncountedBreaks, pageHead } from '@/lib/pageBreaks';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
 import {
@@ -55,6 +49,7 @@ import {
   partBreakState,
   planBreakToggle,
 } from './partBreak';
+import { splitRootPages } from './partKey';
 import { redlineCanvasCss } from './redline/redlineCss';
 import { useCanvasMarkers } from './useCanvasMarkers';
 import { usePageGuides } from './usePageGuides';
@@ -314,14 +309,6 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     );
   }
 
-  /** 根の直下の要素をページに分ける(パーツの数え方は `partKey.ts` の `pagesOf` と同じ)。 */
-  function splitRoot(root: HTMLElement) {
-    const children = Array.from(root.children).filter(
-      (el): el is HTMLElement => el instanceof HTMLElement,
-    );
-    return splitPages(pageItems(children));
-  }
-
   /**
    * canvas のページを数え直し、`PV_ATTR` マーカーを生 DOM へ付け直す。区切りの増減に追従できる
    * よう、content/load/変更時に呼ぶ。赤入れの装飾を置き直した後も
@@ -344,7 +331,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       pageCount.value = 0;
       return;
     }
-    const split = splitRoot(root);
+    const split = splitRootPages(root);
     markPages(root, split);
     // 中身が同じなら差し替えない。赤入れの再計算のたびに呼ぶので、参照だけ変えると `pageBlocks`
     // を見ている側(パーツのラベル・選択の復元)が空振りで再評価される。
@@ -859,7 +846,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     const comps = wrapper.components();
     const root = wrapper.getEl();
     if (!root) return comps.length;
-    const split = splitRoot(root);
+    const split = splitRootPages(root);
     const page = split.pages[currentPageIndex.value] ?? [];
     const indexOfEl = (el: Element) => comps.findIndex((c: Component) => c.getEl() === el);
     let top = sel;
@@ -889,7 +876,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
 
   /**
    * catalog part の HTML を、現在ページの範囲の末尾(`insertIndex`)へ根の直下のパーツとして
-   * 挿入し、選択する。
+   * 挿入し、選択する。挿入したパーツが今のページに入らないことがある(inline の `break-after` の
+   * 後ろは次のページ、要素の無い白紙のページでは次のページの先頭の直前 = 前のページの末尾)。
+   * 1 ページ表示では隠れたパーツを選んだままにしないよう、数え直してそのページへ送る。
    */
   function insertPart(content: string, partId: string): void {
     const ed = editor.value;
@@ -899,7 +888,13 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     const root = Array.isArray(added) ? added[0] : added;
     // catalog id を付与し、後の canvas 選択から docs を引けるようにする
     root?.addAttributes?.({ 'data-part-id': partId });
-    if (root) ed.select(root); // prototype 同様、挿入した part を選択する
+    if (!root) return;
+    recomputePages();
+    const page = root.getEl()?.getAttribute(PV_ATTR);
+    if (singlePageMode.value && page != null && Number(page) !== currentPageIndex.value) {
+      goToPage(Number(page));
+    }
+    ed.select(root); // prototype 同様、挿入した part を選択する
   }
 
   /**

@@ -347,6 +347,30 @@ describe('canvas・承認タブ・比較が同じパーツを同じキーと番�
   });
 });
 
+describe('根の直下の SVG も 3 者がパーツに数える', () => {
+  it('canvas・承認タブ・比較のキーとラベルが一致する', () => {
+    const html =
+      '<p class="a">A</p><svg class="g" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>' +
+      '<div class="pagebreak"></div><p class="a">A2</p>';
+    const canvasLabels = partLabelMap(root(html));
+    const reviewLabels = partMapsFromHtml(html).labels;
+    const diffLabels = new Map(
+      buildHtmlDiff(html, html)
+        .pages.flatMap((p) => p.blocks)
+        .filter((b) => b.label.includes('・'))
+        .map((b) => [b.partKey, b.label]),
+    );
+    const want = [
+      ['.a#1', 'ページ1・パーツ1'],
+      ['.g#1', 'ページ1・パーツ2'],
+      ['.a#2', 'ページ2・パーツ1'],
+    ];
+    expect([...canvasLabels]).toEqual(want);
+    expect([...reviewLabels]).toEqual(want);
+    expect([...diffLabels]).toEqual(want);
+  });
+});
+
 describe('クラスの無いパーツを選択・ホバーしていても、3 者のキーとラベルが一致する', () => {
   it('canvas 側の gjs-selected / gjs-hovered はパーツのクラスとして数えない', () => {
     // 保存される文書。パーツは自前のクラスを持たない `section`。

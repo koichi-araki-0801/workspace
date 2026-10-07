@@ -77,6 +77,8 @@ function order(): string[] {
 beforeEach(() => {
   // 選択で GrapesJS が呼ぶ(jsdom には無い)。
   Element.prototype.scrollIntoView = vi.fn();
+  // ページ送りで canvas の window を先頭へ戻す(jsdom には無い)。
+  window.scrollTo = vi.fn();
   g = useGrapes();
   g.init({ canvas: document.createElement('div'), layers: document.createElement('div') });
   const ed = g.editor.value as Editor;
@@ -294,6 +296,25 @@ describe('insertPart', () => {
     g.goToPage(1);
     g.insertPart('<section>new</section>', 'NEW');
     expect(order()).toEqual(['a', 'NEW', 'b']);
+    // 入ったのは 1 ページ目の末尾なので、1 ページ表示はそのページへ送り、選んだパーツを見せる。
+    expect(g.currentPageIndex.value).toBe(0);
+    expect(g.editor.value?.getSelected()?.getAttributes()['data-part-id']).toBe('NEW');
+  });
+
+  it('inline の改ページ(after)の後ろに入ったパーツは、次のページへ送って選ぶ', () => {
+    load('<p class="a" style="break-after: page">1</p><p class="b">2</p>');
+    g.goToPage(0);
+    g.insertPart('<section>new</section>', 'NEW');
+    expect(g.currentPageIndex.value).toBe(1);
+    expect(g.editor.value?.getSelected()?.getAttributes()['data-part-id']).toBe('NEW');
+  });
+
+  it('全ページ表示では、挿入してもページの位置を動かさない', () => {
+    load('<p class="a" style="break-after: page">1</p><p class="b">2</p>');
+    g.setSinglePageMode(false);
+    g.goToPage(0);
+    g.insertPart('<section>new</section>', 'NEW');
+    expect(g.currentPageIndex.value).toBe(0);
   });
 
   it('挿入したパーツを選び、data-part-id を付ける', () => {
@@ -337,6 +358,17 @@ describe('setPartBreak', () => {
     load(`<p class="a">1</p><div class="b"><span class="in">x</span></div>`);
     expect(g.setPartBreak(byClass('in'), 'before', true)).toBe(true);
     expect(order()).toEqual(['a', 'BR', 'b']);
+  });
+
+  it('ON にすると、その端の印刷で効かない inline の page-break-* を区切りに置き換える', () => {
+    load('<p class="a" style="page-break-after: always; color: red">1</p><p class="b">2</p>');
+    expect(g.pageBreakFacts.value.ignoredInline).toBe(1);
+    expect(g.setPartBreak(byClass('a'), 'after', true)).toBe(true);
+    render();
+    expect(order()).toEqual(['a', 'BR', 'b']);
+    expect(g.getBodyHtml()).not.toContain('page-break-after');
+    expect(g.getBodyHtml()).toMatch(/class="a" style="color: ?red;?"/);
+    expect(g.pageBreakFacts.value.ignoredInline).toBe(0);
   });
 
   it('OFF にすると隣の区切りと inline の break-after を消し、Undo 1 回で両方戻る', () => {

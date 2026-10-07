@@ -75,6 +75,8 @@ function annotatePages(
   }
   const pageIds = pages.map((parts, i) => {
     const head = pageHead(split, i);
+    // 要素の無い本文(文字だけ)は先頭の要素が無い。添字をページに揃えたまま空文字を置き、
+    // ジャンプ先にしない(`ReviewVisualCompare.vue` は空文字を送らない)。
     if (!head) return '';
     // 既存 id は差分キーの一部でありうるため上書きしない(未設定のときだけ振る)。全ページに
     // 付ける(コメント一覧のページジャンプは変更の有無を問わない)。
