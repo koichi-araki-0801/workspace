@@ -5,6 +5,8 @@
   pie-chart ルートで依存を lockfile どおりに再現インストール(npm ci)してから、同フォルダの
   build-exe.mjs を呼び出して esbuild バンドル → SEA blob 生成 → postject 注入で
   dist-exe/pie-chart.exe を生成する。引数はそのまま node スクリプトへ転送する。
+  この経路(Node20 の単独環境)は DB 機能を外してビルドする(`--no-db`)。Node20 用の DB ドライバは
+  ネット接続が無いと取れないため。
 .NOTES
   本ファイルは pie-chart/scripts/ に置く。作業ディレクトリは `$PSScriptRoot` の 1 つ上
   (= pie-chart ルート)に固定し、build-exe.mjs の `dist-exe/` 等の相対パス前提を保つ。
@@ -29,5 +31,5 @@ Set-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
 npm ci --ignore-scripts
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-node scripts/build-exe.mjs @args
+node scripts/build-exe.mjs --no-db @args
 exit $LASTEXITCODE

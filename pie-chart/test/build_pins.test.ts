@@ -37,6 +37,14 @@ describe('exe 同梱物の固定値', () => {
     const sha = createHash('sha256').update(readFileSync(hbWasmPath)).digest('hex');
     expect(sha).toBe(pins.hbSubsetWasmSha256);
   });
+
+  it('msnodesqlv8 の版とネイティブドライバの SHA256 が pin と一致する', () => {
+    const pkgDir = dirname(require.resolve('msnodesqlv8/package.json'));
+    expect(require('msnodesqlv8/package.json').version).toBe(pins.msnodesqlv8);
+    const driver = join(pkgDir, 'build', 'Release', 'sqlserverv8.node');
+    const sha = createHash('sha256').update(readFileSync(driver)).digest('hex');
+    expect(sha).toBe(pins.sqlserverv8NodeSha256);
+  });
 });
 
 describe('subset-font の外部参照が shim の前提どおりであること', () => {
@@ -58,14 +66,36 @@ describe('subset-font の外部参照が shim の前提どおりであること'
   });
 });
 
+describe('msnodesqlv8 のドライバ読み込みが shim の前提どおりであること', () => {
+  const pkgDir = dirname(require.resolve('msnodesqlv8/package.json'));
+  const libDir = join(pkgDir, 'lib');
+
+  it('ネイティブドライバの require は lib/util.js の 1 箇所だけ', () => {
+    // 0 箇所なら読み方が変わって plugin が空振りし、2 箇所以上なら差し替え漏れが出る。
+    const hits = readdirSync(libDir)
+      .filter((f) => f.endsWith('.js'))
+      .flatMap((f) =>
+        (
+          readFileSync(join(libDir, f), 'utf8').match(
+            /require\(\s*['"][^'"]*sqlserverv8\.node['"]\s*\)/g,
+          ) ?? []
+        ).map(() => f),
+      );
+    expect(hits).toEqual(['util.js']);
+  });
+});
+
 describe('SEA アセットのキー一覧', () => {
   it('seaRuntime の許可リストと build-exe.mjs の assets が一致する', () => {
-    // 片方だけ増やすと実行時に許可リストで弾かれる(= 配布してから気づく)。
+    // 片方だけ増やすと実行時に許可リストで弾かれる(= 配布してから気づく)。DB ドライバは
+    // --no-db でなければ seaAssets へ後から足すので、そのキーも拾う。
     const buildSrc = readFileSync(join(root, 'scripts', 'build-exe.mjs'), 'utf8');
     const block = buildSrc.match(/const seaAssets = \{([\s\S]*?)\n\};/);
     expect(block).not.toBeNull();
     const keys = [...(block?.[1] ?? '').matchAll(/^\s*'([^']+)':/gm)].map((m) => m[1]);
-    expect(new Set(keys)).toEqual(new Set(SEA_ASSET_KEYS));
+    const dbKey = buildSrc.match(/const DB_DRIVER_ASSET = '([^']+)';/)?.[1];
+    expect(dbKey).toBe('sqlserverv8.node');
+    expect(new Set([...keys, dbKey])).toEqual(new Set(SEA_ASSET_KEYS));
   });
 
   it('埋め込む実ファイルが揃っている', () => {
@@ -97,7 +127,8 @@ describe('sidecar を復活させないこと', () => {
   });
 
   it('subset-font を external にしない(= バンドルへ取り込む)', () => {
-    const external = buildCode.match(/external:\s*\[([^\]]*)\]/);
+    // `external: noDb ? [...] : []` のように条件式になっているので、その行全体を見る。
+    const external = buildCode.match(/external:([^\n]*)/);
     expect(external).not.toBeNull();
     expect(external?.[1]).not.toContain('subset-font');
   });
