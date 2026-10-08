@@ -8,6 +8,7 @@
 // =============================================================================
 
 import { execFileSync, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -18,11 +19,24 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 const require = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const exe = join(root, 'dist-exe', 'pie-chart.exe');
-const hasLocalDb = spawnSync('sqllocaldb', ['info'], { stdio: 'ignore' }).status === 0;
-const enabled = process.env.PIECHART_SEA_TEST === '1' && existsSync(exe) && hasLocalDb;
+// 無効のときは何も起動しない(短絡評価)。
+const enabled =
+  process.env.PIECHART_SEA_TEST === '1' &&
+  existsSync(exe) &&
+  spawnSync('sqllocaldb', ['info'], { stdio: 'ignore' }).status === 0;
 
 const SERVER = '(localdb)\\MSSQLLocalDB';
-const DB = `piechart_sproc_test_${process.pid}`;
+const DB = `piechart_sproc_test_${process.pid}_${randomBytes(3).toString('hex')}`;
+
+// 開発者が自分の環境に設定している接続用の変数(`DB_ODBC_DRIVER` など)が exe へ漏れて、
+// テストの結果を変えないよう、`DB_` / `PIE_` で始まる変数を除いてから必要な値だけ足す。
+function exeEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (!/^(DB_|PIE_)/i.test(k)) env[k] = v;
+  }
+  return { ...env, ...extra };
+}
 const conn = (db: string) =>
   `Driver={ODBC Driver 17 for SQL Server};Server=${SERVER};Database=${db};Trusted_Connection=yes;`;
 
@@ -69,10 +83,18 @@ describe.skipIf(!enabled)('配布 exe でストアドを呼ぶ(LocalDB)', () => 
   afterAll(async () => {
     if (work) rmSync(work, { recursive: true, force: true });
     if (sql) {
-      await sql.promises.query(
-        conn('master'),
-        `ALTER DATABASE [${DB}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [${DB}];`,
-      );
+      // beforeAll が DB を作る前に失敗していても、その失敗を隠さない。
+      try {
+        await sql.promises.query(
+          conn('master'),
+          `IF DB_ID(N'${DB}') IS NOT NULL BEGIN
+             ALTER DATABASE [${DB}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+             DROP DATABASE [${DB}];
+           END`,
+        );
+      } catch (err) {
+        console.error(`テスト用 DB ${DB} を削除できませんでした:`, err);
+      }
     }
   }, 120_000);
 
@@ -92,7 +114,8 @@ describe.skipIf(!enabled)('配布 exe でストアドを呼ぶ(LocalDB)', () => 
       ],
       {
         encoding: 'utf8',
-        env: { ...process.env, DB_SERVER: SERVER, DB_NAME: DB, PIE_DB_PROC: proc },
+        env: exeEnv({ DB_SERVER: SERVER, DB_NAME: DB, PIE_DB_PROC: proc }),
+        timeout: 60_000,
       },
     );
   }
@@ -115,7 +138,10 @@ describe.skipIf(!enabled)('配布 exe でストアドを呼ぶ(LocalDB)', () => 
       proc: 'dbo.pie_chart_items',
     });
     const svg2 = join(work, 'ok2.svg');
-    execFileSync(exe, ['one', '--data-file', join(work, 'ok.json'), '--output-file', svg2]);
+    execFileSync(exe, ['one', '--data-file', join(work, 'ok.json'), '--output-file', svg2], {
+      env: exeEnv({}),
+      timeout: 60_000,
+    });
     expect(readFileSync(svg2, 'utf8')).toBe(readFileSync(svg, 'utf8'));
     expect(listRunDirs()).toEqual(before);
   });
@@ -156,12 +182,12 @@ describe.skipIf(!enabled)('配布 exe でストアドを呼ぶ(LocalDB)', () => 
       ],
       {
         encoding: 'utf8',
-        env: {
-          ...process.env,
+        env: exeEnv({
           DB_SERVER: 'no-such-host-piechart',
           DB_NAME: DB,
           DB_CONN_EXTRA: 'Login Timeout=3;',
-        },
+        }),
+        timeout: 45_000,
       },
     );
     expect(r.status).toBe(1);

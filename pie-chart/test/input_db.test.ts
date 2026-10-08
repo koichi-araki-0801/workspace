@@ -257,6 +257,14 @@ describe('classifySqlError', () => {
     expect(e.stage).toBe('query');
     expect(e.message).toBe('a (SQLSTATE 42000)');
   });
+  it('undefined / null の要素や空配列でも "undefined" をメッセージに出さず query', () => {
+    for (const input of [[undefined], undefined, [], [null]]) {
+      const e = classifySqlError(input);
+      expect(e.stage).toBe('query');
+      expect(e.message.length).toBeGreaterThan(0);
+      expect(e.message).not.toContain('undefined');
+    }
+  });
   it('message の無い要素だけの配列でも、空や undefined のメッセージにならない', () => {
     const e = classifySqlError([{ sqlstate: '08001' }, { sqlstate: 'HYT00' }]);
     expect(e.stage).toBe('connect');

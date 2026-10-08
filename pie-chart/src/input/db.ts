@@ -262,6 +262,7 @@ export function classifySqlError(err: unknown): DbStageError {
   const sqlstates: string[] = [];
   const messages: string[] = [];
   for (const el of elements) {
+    if (el == null) continue;
     const raw = (el as { sqlstate?: unknown } | null)?.sqlstate;
     if (typeof raw === 'string' && raw) sqlstates.push(raw);
     const msg = (el as { message?: unknown } | null)?.message;
