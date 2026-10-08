@@ -25,6 +25,7 @@ import {
   isOtherCategory,
   pxToLogical,
   boxDistToOrigin,
+  sortByAngleDesc,
 } from '../layout/geometry.js';
 import { topBandSonohokaZone } from '../layout/placement.js';
 import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from '../types.js';
@@ -109,9 +110,7 @@ export function applyTwoLineLeftColumn(placements: Placement[], cfg: PieLayoutCo
   const members = twoLineLeftColumnMembers(placements);
   if (members.length < 6) return;
   // 角度順 (上→下 = sin 降順)。
-  members.sort(
-    (a, b) => Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
-  );
+  sortByAngleDesc(members);
   // X: mid-angle 放射方向に rim から TWO_LINE_LEFT_OUT_FACTOR 倍だけ外へ離す。参考 PDF のように
   // ラベルと円の間に隙間を空け、rim→box の斜めリーダーを見えるようにする。anchor=end のまま。
   // 円から離す方向なので円侵入は起きない (clampPlacement の左端クランプは長名でのみ効く)。
@@ -240,10 +239,8 @@ export function applyLeftStackClusterEvenSpread(
   const below = left.slice(run.length);
   // 積み順は**角度順 (上→下 = sin 降順)**。box 中心順は baseline で箱が重なっていると角度順と
   // 食い違い、そのまま積むと縦並び=角度順の逆転 (inv) を作る (実測: pdf07 の韓国・ウォン重なり)。
-  const bySin = (a: Placement, b: Placement): number =>
-    Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0));
-  run.sort(bySin);
-  below.sort(bySin);
+  sortByAngleDesc(run);
+  sortByAngleDesc(below);
   const all = [...run, ...below];
 
   // do-no-harm 用に対象メンバの現状を退避 + 採点 before。本パスは emit 最終段なので、採点用
@@ -489,6 +486,35 @@ export function applyLeftStackClusterEvenSpread(
 }
 
 /**
+ * 角度順 (上→下) に並んだ列の隣接ペアを、上箱高 + `scaledMinGap` まで上下均等に広げる (最大 8 巡)。
+ * 角度順は崩さない。`clamp` が true なら動かしたラベルを都度 `clampPlacement` で範囲内に収める。
+ */
+function spreadByAngleOrder(byAngle: Placement[], cfg: PieLayoutConfig, clamp: boolean): void {
+  const eps = 1e-6;
+  for (let iter = 0; iter < 8; iter += 1) {
+    let moved = false;
+    for (let i = 0; i + 1 < byAngle.length; i += 1) {
+      const u = byAngle[i]; // 上 (高 sin)
+      const l = byAngle[i + 1]; // 下 (低 sin)
+      const bu = placementBox(u, cfg);
+      const need = bu.top - bu.bottom + cfg.scaledMinGap; // 上箱高 + gap = 必要な中心 (top) 間隔
+      const cur = u.y - l.y;
+      if (cur < need - eps) {
+        const d = need - cur;
+        u.y += d / 2;
+        l.y -= d / 2;
+        if (clamp) {
+          clampPlacement(u);
+          clampPlacement(l);
+        }
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+}
+
+/**
  * leftStackMode 専用の順序保存 de-collision。汎用 resolveLabelOverlaps は箱中心ベクトル押しで
  * 密な左列の角度順を反転させる (例: 細い "カナダドル" が上へ catapult) ため、その左列だけを
  * 自然 rim Y (= 角度順に単調・最小変位) に再アンカーし、角度順 (上→下 = sin 降順) を保ったまま
@@ -508,30 +534,8 @@ export function spreadLeftStackByAngle(
     if (typeof ny === 'number') p.y = ny;
   }
   // 角度順 (上→下 = sin 降順)。
-  const byAngle = [...stack].sort(
-    (a, b) => Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
-  );
-  const eps = 1e-6;
-  for (let iter = 0; iter < 8; iter += 1) {
-    let moved = false;
-    for (let i = 0; i + 1 < byAngle.length; i += 1) {
-      const u = byAngle[i]; // 上 (高 sin)
-      const l = byAngle[i + 1]; // 下 (低 sin)
-      const bu = placementBox(u, cfg);
-      const need = bu.top - bu.bottom + cfg.scaledMinGap; // 上箱高 + gap = 必要な中心 (top) 間隔
-      const cur = u.y - l.y; // baseline=bottom なので box.top=y。u.y>l.y を維持したい
-      if (cur < need - eps) {
-        const d = need - cur;
-        // 上を上へ・下を下へ均等に分離 (角度順を保ったまま広げる)。clamp は clampPlacement が吸収。
-        u.y += d / 2;
-        l.y -= d / 2;
-        clampPlacement(u);
-        clampPlacement(l);
-        moved = true;
-      }
-    }
-    if (!moved) break;
-  }
+  const byAngle = sortByAngleDesc([...stack]);
+  spreadByAngleOrder(byAngle, cfg, true);
 }
 
 /**
@@ -1144,28 +1148,10 @@ export function reorderLeftStackWithCondense(
 
   // 各ラベルを自然 rim Y (sin*r = 角度順に単調・スライス直近) へ再アンカー。spanTop から詰めると低角度
   // ラベルがスライスから離れ leader が円を貫く (pie 侵入) ため、必ず自然 rim 高さに戻す。
-  const byAngle = [...stack].sort(
-    (a, b) => Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
-  );
+  const byAngle = sortByAngleDesc([...stack]);
   for (const p of byAngle) p.y = Math.sin(degToRad(p.item.midAngle ?? 0)) * pieR;
   // 角度順を保ったまま隣接を box 高+minGap に広げる (spreadLeftStackByAngle と同手・上下均等割り)。
-  for (let iter = 0; iter < 8; iter += 1) {
-    let moved = false;
-    for (let i = 0; i + 1 < byAngle.length; i += 1) {
-      const u = byAngle[i];
-      const l = byAngle[i + 1];
-      const bu = placementBox(u, cfg);
-      const need = bu.top - bu.bottom + cfg.scaledMinGap;
-      const cur = u.y - l.y;
-      if (cur < need - 1e-6) {
-        const d = need - cur;
-        u.y += d / 2;
-        l.y -= d / 2;
-        moved = true;
-      }
-    }
-    if (!moved) break;
-  }
+  spreadByAngleOrder(byAngle, cfg, false);
   // 各ラベルを新 Y で左 rim にハグ (X=-sqrt(r²-y²) 起点に pie nudge) → leader を短く保つ。
   for (const p of byAngle) {
     const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - p.y * p.y));
@@ -1642,10 +1628,7 @@ export function reorderTopBandLeftClusterByAngle(
       // 中央寄せだと下段に大きな空きが残るため、上端基準でタイトに積む。間隔は上ラベルの実 box 高 +
       // クラスタ専用の小ギャップ (scaledMinGap より狭く詰める)。
       // ラベルを上げると box 下端が上がり rim ハグがパイへ近づく → リーダーが短く接続が締まる。
-      const byAngle = [...cluster].sort(
-        (a, b) =>
-          Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
-      );
+      const byAngle = sortByAngleDesc([...cluster]);
       const scaleY = Math.abs(coord.yScale(0) - coord.yScale(1));
       // 天井 (box 上端=textY が viewBox 上端 +1px に来る logical Y)。baseline=bottom なので box 上端=textY。
       const ceilTopY = scaleY > 1e-9 ? (coord.yScale(0) - 1) / scaleY : pieR;

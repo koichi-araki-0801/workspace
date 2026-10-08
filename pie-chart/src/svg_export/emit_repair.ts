@@ -27,6 +27,7 @@ import {
   pxToLogical,
   wrapPi,
   boxDistToOrigin,
+  sortByAngleDesc,
 } from '../layout/geometry.js';
 import type { BBox } from '../layout/geometry.js';
 import type { PieLayoutConfig, Diagnostics, Placement } from '../types.js';
@@ -1127,9 +1128,7 @@ function escapeUpperLeftTinyLeaders(
   // 同幅 (4 文字名) の box 同士の交換なので union フットプリントは不変 = verify が既に許容済みの配置と
   // 同一 (新たな重なり/見切れを生まない)。さらに左へ少し寄せて左上の空きへ逃がす。離散スロットや
   // baseline 正規化 (middle 化) は verify の実グリフ高と box モデルがずれて誤判定を招くため採らない。
-  const sorted = [...group].sort(
-    (a, b) => Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
-  );
+  const sorted = sortByAngleDesc([...group]);
   const hi = sorted[0]; // 上に置きたい (高 sin = 上スライス)
   const lo = sorted[1];
   // 「2型」back-to-back の不変条件: 両者がほぼ同一 anchor Y かつほぼ同幅。これが成り立つ時だけ
@@ -2133,9 +2132,7 @@ function tryRestackLeftColumn(
   );
   const anyInvolved = stack.some((p) => [...involved].some((i) => placements[i] === p));
   if (stack.length < 2 || !anyInvolved) return false;
-  const byAngle = [...stack].sort(
-    (m, n) => Math.sin(degToRad(n.item.midAngle ?? 0)) - Math.sin(degToRad(m.item.midAngle ?? 0)),
-  );
+  const byAngle = sortByAngleDesc([...stack]);
   const curTop = Math.max(...stack.map((p) => placementBox(p, cfg).top));
   // 円より上のスロットは rim ハグ X が 0 (中央) になり、右上エスケープの riser/斜線の
   // 直下まで箱が広がって貫通する。エスケープ riser (anchor x) の左へ右端をキャップする。
