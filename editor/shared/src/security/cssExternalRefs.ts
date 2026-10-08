@@ -293,8 +293,8 @@ export function findExternalRefsInCss(css: string): string[] {
     atRule: (name) => {
       if (!ALLOWED_AT_RULES.has(name.toLowerCase())) found.push(`@${name}`);
     },
-    value: (value, kind, _span, ctx) => {
-      if (ctx?.namespace) return;
+    value: ({ kind, value, ctx }) => {
+      if (ctx.namespace) return;
       if (isSelfContainedUrl(value)) return;
       found.push(kind === 'url' ? `url(${value})` : `"${value}"`);
     },
@@ -311,7 +311,7 @@ export function findExternalRefsInCss(css: string): string[] {
  */
 export function collectCssUrlCandidates(css: string): string[] {
   const found: string[] = [];
-  walkCss(css, { atRule: () => undefined, value: (value) => found.push(value) });
+  walkCss(css, { atRule: () => undefined, value: ({ value }) => found.push(value) });
   return found;
 }
 
@@ -337,15 +337,15 @@ export function collectCssUrlSpans(css: string): CssUrlSpan[] {
   const found: CssUrlSpan[] = [];
   walkCss(css, {
     atRule: () => undefined,
-    value: (value, kind, span) => {
-      if (kind === 'url' && span !== undefined) found.push({ value, ...span });
+    value: (v) => {
+      if (v.kind === 'url') found.push({ value: v.value, ...v.span });
     },
   });
   return found;
 }
 
 /** `collectCssUrlSpansInContext` が返す 1 件。 */
-export interface CssUrlSpanInContext extends CssUrlSpan {
+interface CssUrlSpanInContext extends CssUrlSpan {
   /**
    * 最上位の `@font-face { … }` ブロック直下の `src` 宣言の中にあり、かつそのブロックが閉じて
    * いる。範囲が特定できない(閉じていない・入れ子・`src` 以外の宣言)ときは false(fail closed)。
@@ -390,8 +390,9 @@ export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] 
       declStart = at + 1;
       declIsSrc = undefined;
     },
-    value: (value, kind, span, ctx) => {
-      if (kind !== 'url' || span === undefined) return;
+    value: (v) => {
+      if (v.kind !== 'url') return;
+      const { value, span, ctx } = v;
       const inFace = stack.length === 1 && stack[0] === true;
       // url() ごとに `slice` + 正規表現を掛け直すと、長い空白の後に `x:url()` を並べた入力で
       // 二乗時間になる。宣言の頭は同じなので最初の 1 回だけ見る。
@@ -403,7 +404,7 @@ export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] 
         value,
         ...span,
         inFontFaceSrc: isSrc,
-        inNamespacePrelude: ctx?.namespace === true,
+        inNamespacePrelude: ctx.namespace,
       };
       if (inFace) faceItems.push(item);
       else found.push(item);
@@ -415,7 +416,7 @@ export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] 
 }
 
 /** `collectCssStringsInFunctions` が返す 1 件。 */
-export interface CssFunctionString {
+interface CssFunctionString {
   /** エスケープ解決後の文字列の値。 */
   value: string;
   /**
@@ -440,8 +441,8 @@ export function collectCssStringsInFunctions(css: string): CssFunctionString[] {
   const found: CssFunctionString[] = [];
   walkCss(css, {
     atRule: () => undefined,
-    value: (value, kind, _span, ctx) => {
-      if (kind !== 'string' || ctx === undefined) return;
+    value: ({ kind, value, ctx }) => {
+      if (kind !== 'string') return;
       if (ctx.fn !== undefined) {
         found.push({ value, fn: ctx.fn });
         return;
@@ -472,7 +473,7 @@ function asciiLower(s: string): string {
 }
 
 /** `collectCssStructure` の結果。位置はすべて原文のオフセット。 */
-export interface CssStructure {
+interface CssStructure {
   /** コメント・文字列・`url()` の外にある `{` `}` `;`(出現順)。 */
   punct: Array<{ ch: '{' | '}' | ';'; at: number }>;
   /** コメントの範囲 `[start, end)`(出現順)。 */
@@ -503,6 +504,11 @@ export function collectCssStructure(css: string): CssStructure {
   return out;
 }
 
+/** `walkCss` が `visit.value` へ渡す値。`url()` だけが原文の範囲を持つ。 */
+type CssValue =
+  | { kind: 'string'; value: string; ctx: CssStringContext }
+  | { kind: 'url'; value: string; ctx: CssStringContext; span: { start: number; end: number } };
+
 /** 引用符の文字列・`url()` が置かれた文脈(`walkCss` が値に添えて渡す)。 */
 interface CssStringContext {
   /** いちばん内側の関数の名前(`asciiLower` 済み)。関数の外なら undefined。 */
@@ -528,12 +534,7 @@ function walkCss(
   visit: {
     /** `at` は `@` の位置。 */
     atRule: (name: string, at: number) => void;
-    value: (
-      value: string,
-      kind: 'url' | 'string',
-      span?: { start: number; end: number },
-      ctx?: CssStringContext,
-    ) => void;
+    value: (v: CssValue) => void;
     /** コメント・文字列・`url()` の外にある `{` `}` `;` の位置。ブロックの範囲を取るために使う。 */
     punct?: (ch: '{' | '}' | ';', at: number) => void;
     /** コメントの範囲 `[start, end)`。閉じていないコメントは末尾まで。 */
@@ -572,32 +573,20 @@ function walkCss(
    */
   let ns: 'prefix' | 'uri' | 'end' | undefined;
   /** `ns` が `end` の間、`;` まで渡すのを保留している URI。 */
-  let nsHeld:
-    | {
-        value: string;
-        kind: 'url' | 'string';
-        span: { start: number; end: number } | undefined;
-        ctx: CssStringContext;
-      }
-    | undefined;
+  let nsHeld: CssValue | undefined;
   /** 保留した URI を渡して、`@namespace` の前置きの読みを終える。 */
   const endNamespace = (asNamespace: boolean): void => {
     const held = nsHeld;
     nsHeld = undefined;
     ns = undefined;
     if (held !== undefined) {
-      visit.value(held.value, held.kind, held.span, { ...held.ctx, namespace: asNamespace });
+      visit.value({ ...held, ctx: { ...held.ctx, namespace: asNamespace } });
     }
   };
   /** URI を待っている段階なら値を保留して true を返す(呼び出し側はその場で渡さない)。 */
-  const holdNamespaceUri = (
-    value: string,
-    kind: 'url' | 'string',
-    span: { start: number; end: number } | undefined,
-    ctx: CssStringContext,
-  ): boolean => {
+  const holdNamespaceUri = (v: CssValue): boolean => {
     if (ns !== 'prefix' && ns !== 'uri') return false;
-    nsHeld = { value, kind, span, ctx };
+    nsHeld = v;
     ns = 'end';
     return true;
   };
@@ -614,9 +603,8 @@ function walkCss(
       const s = readString(css, i);
       const ctx: CssStringContext = { fn: fns[fns.length - 1], decl, namespace: false };
       if (ns === 'end') endNamespace(false);
-      if (!holdNamespaceUri(s.value, 'string', undefined, ctx)) {
-        visit.value(s.value, 'string', undefined, ctx);
-      }
+      const v: CssValue = { kind: 'string', value: s.value, ctx };
+      if (!holdNamespaceUri(v)) visit.value(v);
       atDeclStart = false;
       afterDeclName = false;
       i = s.next;
@@ -656,7 +644,8 @@ function walkCss(
         const span = { start: toSource(i), end: toSource(u.next) };
         const ctx: CssStringContext = { fn: fns[fns.length - 1], decl, namespace: false };
         if (ns === 'end') endNamespace(false);
-        if (!holdNamespaceUri(u.value, 'url', span, ctx)) visit.value(u.value, 'url', span, ctx);
+        const v: CssValue = { kind: 'url', value: u.value, ctx, span };
+        if (!holdNamespaceUri(v)) visit.value(v);
         atDeclStart = false;
         afterDeclName = false;
         i = u.next;

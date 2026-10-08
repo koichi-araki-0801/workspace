@@ -5,7 +5,6 @@ import {
   assertTemplateFileName,
   cssFileNameOf,
   type FilledTemplateAttributes,
-  isValidFundCode,
   isValidTemplateId,
   isValidTemplateToken,
   parseAnyTemplateFileName,
@@ -118,14 +117,11 @@ describe('トークン単位のパス安全性ゲート', () => {
       'AM01_510037_20240710_交付版.html',
     );
     expect(isValidTemplateId('AM01_510037_20240710_交付版')).toBe(true);
-    expect(isValidFundCode('510037')).toBe(true);
+    expect(isValidTemplateToken('510037')).toBe(true);
   });
 
-  it('fundCode の判定はトークン判定と同一(片方だけ緩まない)', () => {
-    for (const token of EVIL_TOKENS) {
-      expect(isValidFundCode(token), token).toBe(isValidTemplateToken(token));
-    }
-    expect(isValidFundCode('510_037')).toBe(false);
+  it('トークンの区切りの `_` は不正と判定する', () => {
+    expect(isValidTemplateToken('510_037')).toBe(false);
   });
 });
 

@@ -1302,6 +1302,7 @@ export function foldedCssRuleTexts(css: string): Map<string, string> {
 /**
  * base → next で変わった規則(追加・変更・削除)だけを、target へ 3 者比較で当てる。
  * target の同じ規則が base と同じなら当て、違えば競合にする(`mergeRuleChanges` を見よ)。
+ * テストから直接検証するために公開する。
  */
 export function mergeCssRuleChanges(base: string, next: string, target: string): CssMergeResult {
   const b = asIs(base);

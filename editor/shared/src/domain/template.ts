@@ -201,14 +201,6 @@ export function isValidAnyTemplateId(templateId: string): boolean {
 }
 
 /**
- * ファンドコードが単一セグメントとして安全か。要求はファイル名規約の 1 トークンと同一なので
- * `isValidTemplateToken` へ委譲する(判定を 2 本持つと片方だけが緩む)。
- */
-export function isValidFundCode(fundCode: string): boolean {
-  return isValidTemplateToken(fundCode);
-}
-
-/**
  * ペアキー(`templatePairKey` の形。テンプレートは `companyCode_fundCode`、値入り HTML は
  * `companyCode_fundCode_baseDate`)が全体・トークン単位ともに安全か。`syncFiles.ts` が
  * `sync/<pairKey>.json` へ連結する前の検査に使う。
@@ -240,14 +232,6 @@ export function assertAnyTemplateId(templateId: string): string {
     throw validation(`不正なテンプレート id です: ${templateId}`);
   }
   return templateId;
-}
-
-/** `isValidFundCode` に通らなければ `validation` を投げ、通れば入力をそのまま返す。 */
-export function assertFundCode(fundCode: string): string {
-  if (!isValidFundCode(fundCode)) {
-    throw validation(`不正なファンドコードです: ${fundCode}`);
-  }
-  return fundCode;
 }
 
 /**

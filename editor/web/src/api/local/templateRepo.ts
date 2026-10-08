@@ -207,7 +207,7 @@ function hasPendingCreateReview(templateId: string): boolean {
 /**
  * 確定内容の実反映(local 版)。承認ワークフローの `approveReview`(`reviewRepo.ts`)だけが
  * 呼ぶ内部経路で、Repository 契約には公開しない(確定保存は申請 → 承認の 2 段階ゲートに
- * 一本化。REST 側の対応物は server の `applyConfirmedSave`)。
+ * 一本化。REST 側の対応物は server の `applyConfirmedWrite`)。
  */
 export const confirmSaveLocal = (req: ConfirmSaveRequest, extra?: ConfirmSaveExtra) =>
   attempt(() =>

@@ -8,7 +8,7 @@
 
 import { lexJinja } from '../jinja/jinjaLex.js';
 
-export interface EditingMarkerHit {
+interface EditingMarkerHit {
   marker: string;
   index: number;
 }

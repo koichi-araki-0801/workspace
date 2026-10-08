@@ -236,16 +236,15 @@ const SCHEME_PREFIX_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
  * 正規化済みの URL 値からパス部分を取り出して百分率復号する。配信ルート配下のパスに
  * なりえない形(外部参照・ルート絶対・空・復号不能)は `undefined`。
  *
- * `strict` では区切りと相対指定を**復号前の字面**で確定する。`%2F` `%5C` `%2e%2e` は
- * 区切りや `..` として働かせず(ブラウザも同じ扱い)、そうなる形は `undefined` にする。
+ * 区切りと相対指定は**復号前の字面**で確定する。`%2F` `%5C` `%2e%2e` は区切りや `..` として
+ * 働かせず(ブラウザも同じ扱い)、そうなる形は `undefined` にする。
  */
-function decodedPathOf(value: string, strict: boolean): string | undefined {
+function decodedPathOf(value: string): string | undefined {
   if (value === '' || !isSelfContainedUrl(value)) return undefined;
   // 断片・クエリは配信対象の識別に関与しない。
   const pathOnly = value.split(/[?#]/, 1)[0];
   if (pathOnly === '' || pathOnly.startsWith('/')) return undefined;
   try {
-    if (!strict) return decodeURIComponent(pathOnly);
     const parts: string[] = [];
     for (const raw of pathOnly.split('/')) {
       const seg = decodeURIComponent(raw);
@@ -317,7 +316,7 @@ function baseSegmentsOf(from: string): string[] | undefined {
 export function resolveDocAssetPath(url: string, from: string): string | undefined {
   const base = baseSegmentsOf(from);
   if (base === undefined) return undefined;
-  const decoded = decodedPathOf(normalizeHtmlUrlValue(url), true);
+  const decoded = decodedPathOf(normalizeHtmlUrlValue(url));
   if (decoded === undefined || SCHEME_PREFIX_RE.test(decoded)) return undefined;
   const segments = resolveSegments(base, decoded);
   if (segments === undefined || segments.length === 0) return undefined;
