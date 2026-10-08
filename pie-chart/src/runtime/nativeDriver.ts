@@ -32,6 +32,17 @@ const DRIVER_PATH_KEY = Symbol.for('pie-chart.sqlserverv8.path');
 /** `mkdtemp` が付ける 6 文字と、先頭の PID。 */
 const RUN_DIR_RE = /^(\d+)-[A-Za-z0-9]{6}$/;
 
+/**
+ * フォルダを消すときの指定。書き出した直後の DLL はウイルス対策ソフトや EDR が検査のために
+ * 短い間つかんでいることがあり、1 回で諦めると消し残すので、間を置いて数回やり直す。
+ */
+const RM_OPTIONS: fs.RmOptions = { recursive: true, force: true, maxRetries: 5, retryDelay: 100 };
+
+/** 実行ごとのフォルダの名前の形(`<pid>-<6 文字>`)か。 */
+export function isRunDirName(name: string): boolean {
+  return RUN_DIR_RE.test(name);
+}
+
 /** esbuild の `define` がビルド時に SHA256 の文字列リテラルへ置き換える。 */
 declare const __PIE_SQLSERVERV8_SHA256__: string | undefined;
 
@@ -84,7 +95,7 @@ export function sweepStaleRunDirs(
     if (pid === process.pid || isAlive(pid)) continue;
     const dir = path.join(parent, name);
     try {
-      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(dir, RM_OPTIONS);
       removed.push(dir);
     } catch {
       // 使用中などで消せない。次の起動に回す。
@@ -130,7 +141,7 @@ export function writeVerifiedDriver(dir: string, bytes: Buffer, expectedSha256: 
 /** フォルダを消す。消せなければメッセージを返す(呼び出し側が警告として出す)。 */
 export function removeRunDir(dir: string): string | null {
   try {
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, RM_OPTIONS);
     return null;
   } catch (err) {
     return errorMessage(err);

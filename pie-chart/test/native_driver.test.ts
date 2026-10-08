@@ -3,12 +3,14 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DRIVER_FILE_NAME,
   createRunDir,
   embeddedDriverSha256,
   isPidAlive,
+  isRunDirName,
   registerDriverPath,
   removeRunDir,
   runDirParent,
@@ -54,6 +56,25 @@ describe('実行ごとのフォルダ', () => {
     expect(removeRunDir(dir)).toBeNull();
     expect(existsSync(dir)).toBe(false);
     expect(removeRunDir(dir)).toBeNull();
+  });
+  it('removeRunDir と起動時の掃除は、ロックが外れるのを待って数回やり直す', () => {
+    const spy = vi.spyOn(fs, 'rmSync');
+    try {
+      removeRunDir(createRunDir(parent));
+      mkdirSync(join(parent, '111-aaaaaa'));
+      sweepStaleRunDirs(parent, () => false);
+      expect(spy).toHaveBeenCalledTimes(2);
+      for (const call of spy.mock.calls) {
+        expect(call[1]).toMatchObject({ recursive: true, force: true, maxRetries: 5 });
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+  it('isRunDirName は <pid>-<6 文字> だけを認める', () => {
+    expect(isRunDirName('1234-abcDE9')).toBe(true);
+    expect(isRunDirName('run')).toBe(false);
+    expect(isRunDirName('1234-abc')).toBe(false);
   });
 });
 

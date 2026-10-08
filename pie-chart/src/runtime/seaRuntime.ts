@@ -16,8 +16,9 @@
 // 拡張子判定のような述語へ緩めると、`basename` 経由の間接指定や末尾空白で許可リストが
 // 素通しになる(`test/sea_runtime.test.ts` が迂回入力で固定している)。
 //
-// 呼び出し側: `cli.ts`(`installSeaGuards`)/ `svg_export/font.ts`(`readSeaAsset`)/
-// `runtime/subsetFontFs.ts`(sentinel 経由の wasm 読み出し)/ `input/db.ts`(`isSea`)。
+// 呼び出し側: `cli.ts`(`installSeaGuards` / `isSea` / `readSeaAsset`)/ `svg_export/font.ts`
+// (`isSea` / `readSeaAsset`)/ `runtime/subsetFontFs.ts`(sentinel 経由の wasm 読み出し)/
+// `input/sproc.ts`(`isSea`)/ `runtime/dbChild.ts`(`readSeaAsset` でドライバを取り出す)。
 // アセットキーの一覧は `scripts/build-exe.mjs` の sea-config `assets` と一致させること
 // (ビルド側のアサートが不一致を検出する)。
 // =============================================================================

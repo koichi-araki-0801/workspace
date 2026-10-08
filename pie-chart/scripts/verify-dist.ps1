@@ -39,6 +39,8 @@ param(
   [switch]$SkipRender
 )
 $ErrorActionPreference = 'Stop'
+# exe は UTF-8 で書く。既定の cp932 で読むと db-check の「—」などが化け、出力の照合が外れる。
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $DistDir) { $DistDir = Join-Path $root 'dist-exe' }
@@ -136,9 +138,18 @@ if (-not $SkipRender -and (Test-Path -LiteralPath $exePath)) {
 
 # ── 4. DB ドライバを読み込めること(DB 機能を外した exe を配らない) ──
 if (Test-Path -LiteralPath $exePath) {
-  $out = & $exePath db-check 2>&1 | Out-String
-  if ($LASTEXITCODE -ne 0) {
-    Fail "db-check が失敗しました (exit $LASTEXITCODE)`n$out"
+  # 'Stop' のままだと、PowerShell 5.1 は native exe の stderr の行(警告など)を 2>&1 で
+  # 受けた時点で終了エラーにする。ここだけ 'Continue' にして終了コードで判定する。
+  $prevPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $out = & $exePath db-check 2>&1 | Out-String
+    $dbCheckExit = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $prevPreference
+  }
+  if ($dbCheckExit -ne 0) {
+    Fail "db-check が失敗しました (exit $dbCheckExit)`n$out"
   } else {
     $m = [regex]::Match($out, '\[db-check\] extract: OK — (.+)')
     if (-not $m.Success) {
